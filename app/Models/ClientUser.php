@@ -2,48 +2,52 @@
 
 namespace App\Models;
 
-use App\Enums\UserPosition;
-use Database\Factories\UserFactory;
+use Database\Factories\ClientUserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-class User extends Authenticatable
+class ClientUser extends Authenticatable
 {
-    /** @use HasFactory<UserFactory> */
+    /** @use HasFactory<ClientUserFactory> */
     use HasFactory;
 
     use Notifiable;
     use SoftDeletes;
 
     protected $fillable = [
+        'client_id',
         'name',
         'email',
-        'password',
         'phone',
-        'position',
-        'bar_number',
+        'password',
         'is_active',
+        'must_change_password',
+        'activated_at',
         'last_login_at',
+        'last_login_ip',
     ];
 
     protected $hidden = [
         'password',
         'remember_token',
-        'two_factor_secret',
-        'two_factor_recovery_codes',
     ];
 
     protected function casts(): array
     {
         return [
-            'email_verified_at' => 'datetime',
             'password' => 'hashed',
-            'position' => UserPosition::class,
             'is_active' => 'boolean',
+            'must_change_password' => 'boolean',
+            'activated_at' => 'datetime',
             'last_login_at' => 'datetime',
-            'two_factor_confirmed_at' => 'datetime',
         ];
+    }
+
+    public function client(): BelongsTo
+    {
+        return $this->belongsTo(Client::class);
     }
 }
