@@ -1,0 +1,56 @@
+# Môi trường phát triển local (Docker). Không dùng cho production.
+# Runtime PHP 8.3 lấy từ image dựng sẵn webdevops/php:8.3-alpine (đủ pdo_mysql, gd, intl,
+# bcmath, zip, mbstring, xml) nên không phải build image; app chạy bằng `php artisan serve`.
+services:
+    app:
+        image: 'webdevops/php:8.3-alpine'
+        working_dir: /var/www/html
+        command: ['php', 'artisan', 'serve', '--host=0.0.0.0', '--port=80']
+        ports:
+            - '${APP_PORT:-80}:80'
+        environment:
+            PHP_CLI_SERVER_WORKERS: '${PHP_CLI_SERVER_WORKERS:-4}'
+            PHP_MEMORY_LIMIT: '512M'
+            PHP_POST_MAX_SIZE: '64M'
+            PHP_UPLOAD_MAX_FILESIZE: '25M'
+            COMPOSER_ALLOW_SUPERUSER: '1'
+        volumes:
+            - '.:/var/www/html'
+        networks:
+            - vkcrm
+        depends_on:
+            mariadb:
+                condition: service_healthy
+            mailpit:
+                condition: service_started
+    mariadb:
+        image: 'mariadb:11'
+        ports:
+            - '${FORWARD_DB_PORT:-3306}:3306'
+        environment:
+            MARIADB_ROOT_PASSWORD: '${DB_PASSWORD}'
+            MARIADB_DATABASE: '${DB_DATABASE}'
+            MARIADB_USER: '${DB_USERNAME}'
+            MARIADB_PASSWORD: '${DB_PASSWORD}'
+        volumes:
+            - 'vkcrm-mariadb:/var/lib/mysql'
+        networks:
+            - vkcrm
+        healthcheck:
+            test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']
+            interval: 5s
+            retries: 10
+            timeout: 5s
+    mailpit:
+        image: 'axllent/mailpit:latest'
+        ports:
+            - '${FORWARD_MAILPIT_PORT:-1025}:1025'
+            - '${FORWARD_MAILPIT_DASHBOARD_PORT:-8025}:8025'
+        networks:
+            - vkcrm
+networks:
+    vkcrm:
+        driver: bridge
+volumes:
+    vkcrm-mariadb:
+        driver: local

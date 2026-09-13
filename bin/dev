@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Trình bao docker compose cho môi trường dev (chạy được từ Git Bash trên Windows, macOS, Linux).
+# Usage:
+#   bin/dev up|down|build|ps|logs [...]     -> docker compose <args>
+#   bin/dev artisan <args>                  -> php artisan inside app container
+#   bin/dev composer <args>                 -> composer inside app container
+#   bin/dev test [<args>]                   -> php artisan test <args>
+#   bin/dev pint [<args>]                   -> vendor/bin/pint <args>
+#   bin/dev php <args>                      -> php inside app container
+#   bin/dev shell                           -> interactive shell inside app container
+#   bin/dev mariadb                         -> mariadb CLI on the dev database
+set -euo pipefail
+
+export MSYS_NO_PATHCONV=1
+
+SERVICE="app"
+TTY_FLAG="-T"
+if [ -t 0 ] && [ -t 1 ]; then TTY_FLAG=""; fi
+
+cmd="${1:-help}"
+shift || true
+
+exec_in() {
+  # shellcheck disable=SC2086
+  docker compose exec $TTY_FLAG "$SERVICE" "$@"
+}
+
+case "$cmd" in
+  up|down|build|ps|logs|restart|stop|start|pull)
+    docker compose "$cmd" "$@" ;;
+  artisan)  exec_in php artisan "$@" ;;
+  composer) exec_in composer "$@" ;;
+  test)     exec_in php artisan test "$@" ;;
+  pint)     exec_in vendor/bin/pint "$@" ;;
+  pest)     exec_in vendor/bin/pest "$@" ;;
+  php)      exec_in php "$@" ;;
+  shell|sh) docker compose exec "$SERVICE" sh ;;
+  mariadb)
+    docker compose exec mariadb mariadb -u"${DB_USERNAME:-sail}" -p"${DB_PASSWORD:-password}" "${DB_DATABASE:-vk_crm}" ;;
+  help|*)
+    sed -n '2,12p' "$0" ;;
+esac
