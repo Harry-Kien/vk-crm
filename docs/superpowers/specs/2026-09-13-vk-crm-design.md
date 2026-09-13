@@ -91,3 +91,38 @@ dùng Sail; hướng dẫn triển khai production viết riêng trong README.
 Hợp đồng, đợt thanh toán, công nợ, VietQR, Zalo ZNS, API lead từ website, ký số,
 dashboard nguồn khách. Chỉ để chỗ trong model theo SPEC §15 (`timeEntries()`
 relation trên `Matter`, enum channel `zns`/`sms` trong `outbound_messages`).
+
+## 8. Rà soát mã nguồn mở lần hai (13/09/2026, tối)
+
+Rà thêm theo từ khoá tiếng Việt, ứng dụng Laravel có portal (Invoice Ninja, Crater,
+Akaunting, FreeScout), ứng dụng Filament hoàn chỉnh (Aureus ERP, Relaticle,
+helpdeskkitv4), và công cụ pháp lý ngoài Laravel. Kết luận **không đổi**: không fork.
+
+- Invoice Ninja (Elastic License), Akaunting (BUSL), Crater (AAL, ngừng), FreeScout
+  (AGPL, portal trả phí), Relaticle (AGPL, Postgres, Node): loại vì giấy phép hoặc hạ tầng.
+- trungtm78/PC02 (NestJS, private): mô hình dữ liệu vụ án Việt Nam sát nhất, chỉ tham khảo.
+- **Aureus ERP** (MIT, Laravel 13 + Filament 5, PHP 8.3): tham khảo cách tổ chức module,
+  resource và Chatter (activity feed). Không fork vì là ERP.
+- **helpdeskkitv4** (MIT, Filament 4): tham khảo cách nối 3 guard / 4 panel.
+
+Gói Filament/Laravel sẽ cân nhắc dùng ở các milestone sau thay vì tự viết:
+
+| Nhu cầu | Gói | Quyết định |
+|---|---|---|
+| 2FA nội bộ | **Filament 5 MFA tích hợp sẵn** (TOTP + mã email) | Dùng thay cho Fortify ở M8; SPEC §3 ghi Fortify, đổi vì Filament đã có sẵn và tích hợp thẳng vào panel |
+| OTP portal | afsakar/filament-otp-login | Cân nhắc ở M5; nếu không khớp luồng "email + mật khẩu rồi OTP" thì tự viết trang login OTP |
+| Máy trạng thái giai đoạn | spatie/laravel-model-states + A909M/Filament-StateFusion | Cân nhắc ở M3. Lưu ý giai đoạn là dữ liệu cấu hình (`matter_type_stages`), không phải class cố định, nên có thể chỉ dùng phần UI |
+| Activity log viewer | AlizHarb/filament-activity-log hoặc rmsramos/activitylog | M3/M8, phải tương thích activitylog 4.x (PHP 8.3) |
+| Lịch mốc thời hạn | saade/filament-fullcalendar | M3, chỉ nếu có bản Filament 5 |
+| Backup UI | shuvroroy/filament-spatie-laravel-backup | M8 |
+| Quyền | bezhansalleh/filament-shield + spatie/laravel-permission | M2 |
+
+Không có gói nào cho kiểm tra xung đột lợi ích; tự viết theo SPEC §6.10.
+
+## 9. Điều chỉnh môi trường local (thực tế khi dựng M0)
+
+`vendor/bin/sail` từ chối chạy trên Git Bash Windows, và build image Sail (apt trong
+Docker) quá chậm trên mạng hiện tại. Thay bằng `compose.yaml` tự viết: service `app` dùng
+image dựng sẵn `webdevops/php:8.3-alpine` (đủ pdo_mysql, gd, intl, bcmath, zip, imagick)
+chạy `php artisan serve`, cùng `mariadb:11` và `mailpit`. Mọi lệnh đi qua `bin/dev`
+(`bin/dev artisan ...`, `bin/dev test`, `bin/dev pint`). Gói `laravel/sail` đã gỡ.
