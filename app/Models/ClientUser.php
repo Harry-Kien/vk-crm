@@ -3,13 +3,15 @@
 namespace App\Models;
 
 use Database\Factories\ClientUserFactory;
+use Filament\Models\Contracts\FilamentUser;
+use Filament\Panel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-class ClientUser extends Authenticatable
+class ClientUser extends Authenticatable implements FilamentUser
 {
     /** @use HasFactory<ClientUserFactory> */
     use HasFactory;
@@ -49,5 +51,13 @@ class ClientUser extends Authenticatable
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);
+    }
+
+    /**
+     * Khách hàng chỉ vào được portal, và chỉ khi tài khoản còn hoạt động.
+     */
+    public function canAccessPanel(Panel $panel): bool
+    {
+        return $panel->getId() === 'portal' && $this->is_active;
     }
 }
