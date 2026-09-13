@@ -64,12 +64,12 @@
 **Interfaces:**
 - Produces: a bootable app; `sail` script at `vendor/bin/sail`; DB service host `mariadb`, database `vk_crm`.
 
-- [ ] **Step 1: Confirm Docker daemon is up**
+- [x] **Step 1: Confirm Docker daemon is up**
 
 Run: `docker info --format '{{.ServerVersion}}'`
 Expected: a version string (e.g. `29.x`). If it errors, start Docker Desktop and retry until it answers.
 
-- [ ] **Step 2: Create the project into a temp subfolder using the Sail composer image**
+- [x] **Step 2: Create the project into a temp subfolder using the Sail composer image**
 
 The repo root is not empty (docs, `.git`), so create into `_app` then move up.
 
@@ -84,7 +84,7 @@ Expected: `_app/` exists with `artisan`, `composer.json` showing `"laravel/frame
 
 If the `php83-composer` tag is unavailable, use `laravelsail/php84-composer:latest` for this one-off step only; runtime PHP is fixed to 8.3 in Step 4.
 
-- [ ] **Step 3: Move the skeleton to the repo root**
+- [x] **Step 3: Move the skeleton to the repo root**
 
 Run:
 ```bash
@@ -95,7 +95,7 @@ cd /d/crmkhachhang && shopt -s dotglob && \
 ```
 Expected: `artisan` at repo root; `diff` shows no meaningful differences (ours already matches the Laravel 12/13 template). If Laravel's has extra lines, append them to `.gitignore`.
 
-- [ ] **Step 4: Install Sail with MariaDB + Mailpit, PHP 8.3 runtime**
+- [x] **Step 4: Install Sail with MariaDB + Mailpit, PHP 8.3 runtime**
 
 Run:
 ```bash
@@ -107,7 +107,7 @@ Then open `compose.yaml` and confirm the `laravel.test` service uses `context: .
 
 Expected: `compose.yaml` has services `laravel.test`, `mariadb`, `mailpit`.
 
-- [ ] **Step 5: Configure `.env` for Sail and Vietnamese defaults**
+- [x] **Step 5: Configure `.env` for Sail and Vietnamese defaults**
 
 Edit `.env` (created by create-project) so these keys read:
 ```dotenv
@@ -138,7 +138,7 @@ MAIL_FROM_NAME="${APP_NAME}"
 ```
 Note: `APP_TIMEZONE` is not read by default config; Task 3 wires it in `config/app.php`.
 
-- [ ] **Step 6: Build and start the containers, run migrations**
+- [x] **Step 6: Build and start the containers, run migrations**
 
 Run:
 ```bash
@@ -147,12 +147,12 @@ bash vendor/bin/sail build --no-cache && bash vendor/bin/sail up -d && \
 ```
 Expected: three containers running (`sail ps`); migrate output lists `users`, `cache`, `jobs` tables. Sail's `mariadb` service creates database `vk_crm` from `DB_DATABASE` on first boot.
 
-- [ ] **Step 7: Verify PHP version and the welcome page**
+- [x] **Step 7: Verify PHP version and the welcome page**
 
 Run: `bash vendor/bin/sail php -v && curl -s -o /dev/null -w "%{http_code}\n" http://localhost`
 Expected: `PHP 8.3.x` and `200`.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add -A
@@ -173,7 +173,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Produces: `sail artisan test` runs Pest; `sail bin pint --test` lints; `tests/Pest.php` binds `Tests\TestCase` + `RefreshDatabase` to `tests/Feature`.
 
-- [ ] **Step 1: Remove PHPUnit example tests and install Pest**
+- [x] **Step 1: Remove PHPUnit example tests and install Pest**
 
 Run:
 ```bash
@@ -184,7 +184,7 @@ bash vendor/bin/sail bin pest --init
 ```
 Expected: `tests/Pest.php` created.
 
-- [ ] **Step 2: Write `tests/Pest.php`**
+- [x] **Step 2: Write `tests/Pest.php`**
 
 Replace the generated file with:
 ```php
@@ -200,7 +200,7 @@ pest()->extend(TestCase::class)
 pest()->extend(TestCase::class)->in('Unit');
 ```
 
-- [ ] **Step 3: Confirm `phpunit.xml` uses SQLite in memory and Vietnamese locale**
+- [x] **Step 3: Confirm `phpunit.xml` uses SQLite in memory and Vietnamese locale**
 
 `phpunit.xml` `<php>` block must contain (add any missing line):
 ```xml
@@ -218,7 +218,7 @@ pest()->extend(TestCase::class)->in('Unit');
 <env name="PORTAL_DOMAIN" value=""/>
 ```
 
-- [ ] **Step 4: Write a smoke test**
+- [x] **Step 4: Write a smoke test**
 
 Create `tests/Feature/SmokeTest.php`:
 ```php
@@ -229,12 +229,12 @@ it('boots the application', function () {
 });
 ```
 
-- [ ] **Step 5: Run the suite**
+- [x] **Step 5: Run the suite**
 
 Run: `bash vendor/bin/sail artisan test`
 Expected: `Tests: 1 passed`.
 
-- [ ] **Step 6: Install Pint config and run it**
+- [x] **Step 6: Install Pint config and run it**
 
 Create `pint.json`:
 ```json
@@ -249,7 +249,7 @@ Create `pint.json`:
 Run: `bash vendor/bin/sail bin pint`
 Expected: `PASS` or files fixed with no errors.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add -A
@@ -270,7 +270,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Produces: `config('vkcrm.admin_domain')`, `config('vkcrm.portal_domain')` (string|null), `config('vkcrm.matter_code_prefix')` (string, default `VK`), `config('vkcrm.upload_max_mb')` (int, default 20), `config('vkcrm.retention_years')` (int, default 10), `config('vkcrm.client_access_days')` (int, default 90), `config('vkcrm.heartbeat_url')` (string|null), `config('vkcrm.clamav.enabled')` (bool), `config('vkcrm.clamav.socket')` (string), `config('vkcrm.brand_color')` (hex string).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/Unit/VkcrmConfigTest.php`:
 ```php
@@ -296,12 +296,12 @@ it('treats blank domain env as null', function () {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `bash vendor/bin/sail artisan test --filter=VkcrmConfigTest`
 Expected: FAIL (`config('vkcrm.matter_code_prefix')` is null).
 
-- [ ] **Step 3: Create `config/vkcrm.php`**
+- [x] **Step 3: Create `config/vkcrm.php`**
 
 ```php
 <?php
@@ -336,11 +336,11 @@ return [
 ];
 ```
 
-- [ ] **Step 4: Wire timezone in `config/app.php`**
+- [x] **Step 4: Wire timezone in `config/app.php`**
 
 Change `'timezone' => 'UTC',` to `'timezone' => env('APP_TIMEZONE', 'Asia/Ho_Chi_Minh'),`.
 
-- [ ] **Step 5: Write the full `.env.example`**
+- [x] **Step 5: Write the full `.env.example`**
 
 Replace `.env.example` with:
 ```dotenv
@@ -428,12 +428,12 @@ VITE_APP_NAME="${APP_NAME}"
 ```
 Then copy the new `VK-CRM` and `Sao lưu` blocks into `.env` as well.
 
-- [ ] **Step 6: Run tests and Pint**
+- [x] **Step 6: Run tests and Pint**
 
 Run: `bash vendor/bin/sail artisan config:clear && bash vendor/bin/sail artisan test && bash vendor/bin/sail bin pint --test`
 Expected: all pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add -A
@@ -463,7 +463,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
   - `App\Models\ClientUser extends Authenticatable` (`SoftDeletes`; `belongsTo(Client::class) client()`; casts `is_active`, `must_change_password` → bool)
   - Factories: `User::factory()`, `Client::factory()`, `ClientUser::factory()` (auto-creates a `Client`)
 
-- [ ] **Step 1: Write the failing model tests**
+- [x] **Step 1: Write the failing model tests**
 
 Create `tests/Feature/Models/UserModelTest.php`:
 ```php
@@ -526,12 +526,12 @@ it('generates a unique client code per client', function () {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `bash vendor/bin/sail artisan test --filter=ModelTest`
 Expected: FAIL (`Class "App\Enums\UserPosition" not found`).
 
-- [ ] **Step 3: Create enums**
+- [x] **Step 3: Create enums**
 
 `app/Enums/UserPosition.php`:
 ```php
@@ -599,7 +599,7 @@ return [
 ];
 ```
 
-- [ ] **Step 4: Rewrite the users migration**
+- [x] **Step 4: Rewrite the users migration**
 
 Replace the `users` table block in `database/migrations/0001_01_01_000000_create_users_table.php` (keep the `password_reset_tokens` and `sessions` blocks as generated):
 ```php
@@ -624,7 +624,7 @@ Schema::create('users', function (Blueprint $table) {
 ```
 (`position` is a string column, not a DB enum, so adding roles later needs no migration; the PHP enum is the source of truth.)
 
-- [ ] **Step 5: Create clients and client_users migrations**
+- [x] **Step 5: Create clients and client_users migrations**
 
 `database/migrations/2026_09_13_000001_create_clients_table.php`:
 ```php
@@ -700,7 +700,7 @@ return new class extends Migration
 };
 ```
 
-- [ ] **Step 6: Write the models**
+- [x] **Step 6: Write the models**
 
 `app/Models/User.php`:
 ```php
@@ -850,7 +850,7 @@ class ClientUser extends Authenticatable
 }
 ```
 
-- [ ] **Step 7: Write factories**
+- [x] **Step 7: Write factories**
 
 `database/factories/UserFactory.php` (replace `definition()`):
 ```php
@@ -958,12 +958,12 @@ class ClientUserFactory extends Factory
 }
 ```
 
-- [ ] **Step 8: Run tests**
+- [x] **Step 8: Run tests**
 
 Run: `bash vendor/bin/sail artisan migrate:fresh && bash vendor/bin/sail artisan test`
 Expected: all pass, including the 5 model tests.
 
-- [ ] **Step 9: Pint and commit**
+- [x] **Step 9: Pint and commit**
 
 ```bash
 bash vendor/bin/sail bin pint
@@ -985,7 +985,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Produces: guard `client` (session driver, provider `client_users` → `App\Models\ClientUser`); `auth('client')` usable everywhere. `AdminPanelProvider` registered with id `admin`, path `admin`.
 
-- [ ] **Step 1: Write the failing guard test**
+- [x] **Step 1: Write the failing guard test**
 
 Create `tests/Feature/AuthGuardTest.php`:
 ```php
@@ -1014,12 +1014,12 @@ it('authenticates clients on the client guard only', function () {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `bash vendor/bin/sail artisan test --filter=AuthGuardTest`
 Expected: FAIL with `Auth guard [client] is not defined`.
 
-- [ ] **Step 3: Add the guard and provider to `config/auth.php`**
+- [x] **Step 3: Add the guard and provider to `config/auth.php`**
 
 In `guards` add:
 ```php
@@ -1045,12 +1045,12 @@ In `passwords` add:
 ],
 ```
 
-- [ ] **Step 4: Run the guard test**
+- [x] **Step 4: Run the guard test**
 
 Run: `bash vendor/bin/sail artisan test --filter=AuthGuardTest`
 Expected: PASS.
 
-- [ ] **Step 5: Install Filament 5 with the admin panel**
+- [x] **Step 5: Install Filament 5 with the admin panel**
 
 Run:
 ```bash
@@ -1059,7 +1059,7 @@ bash vendor/bin/sail artisan filament:install --panels --no-interaction
 ```
 Expected: `app/Providers/Filament/AdminPanelProvider.php` created with `->id('admin')->path('admin')`; `bootstrap/providers.php` lists it. Confirm `composer show livewire/livewire` reports `4.x`.
 
-- [ ] **Step 6: Add Filament label contract to enums**
+- [x] **Step 6: Add Filament label contract to enums**
 
 Change `app/Enums/UserPosition.php` header to `enum UserPosition: string implements \Filament\Support\Contracts\HasLabel` and add:
 ```php
@@ -1070,12 +1070,12 @@ public function getLabel(): string
 ```
 Do the same for `ClientType`.
 
-- [ ] **Step 7: Verify the admin panel boots**
+- [x] **Step 7: Verify the admin panel boots**
 
 Run: `bash vendor/bin/sail artisan route:list --path=admin | head -20 && curl -s -o /dev/null -w "%{http_code}\n" -L http://localhost/admin`
 Expected: routes `admin/login`, `admin` listed; final HTTP 200 (login page).
 
-- [ ] **Step 8: Run full suite, Pint, commit**
+- [x] **Step 8: Run full suite, Pint, commit**
 
 ```bash
 bash vendor/bin/sail artisan test && bash vendor/bin/sail bin pint
@@ -1098,7 +1098,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Consumes: `User::factory()`, guard `web`.
 - Produces: `User implements Filament\Models\Contracts\FilamentUser`; `canAccessPanel(Panel $panel): bool` = `$panel->getId() === 'admin' && $this->is_active`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/Feature/Panels/AdminPanelTest.php`:
 ```php
@@ -1130,12 +1130,12 @@ it('does not accept a client session on the admin panel', function () {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `bash vendor/bin/sail artisan test --filter=AdminPanelTest`
 Expected: at least "lets an active staff user" FAILS (Filament returns 403 because `User` does not implement `FilamentUser` in non-local env).
 
-- [ ] **Step 3: Implement `FilamentUser` on `User`**
+- [x] **Step 3: Implement `FilamentUser` on `User`**
 
 In `app/Models/User.php` add imports and contract:
 ```php
@@ -1153,7 +1153,7 @@ class User extends Authenticatable implements FilamentUser
 }
 ```
 
-- [ ] **Step 4: Configure the admin panel provider**
+- [x] **Step 4: Configure the admin panel provider**
 
 Replace `panel()` in `app/Providers/Filament/AdminPanelProvider.php`:
 ```php
@@ -1198,7 +1198,7 @@ public function panel(Panel $panel): Panel
 ```
 Keep the generated `use` statements; the installer already imports `Color`, `Dashboard`, `AccountWidget`, and the middleware classes. Create the directories `app/Filament/Admin/{Resources,Pages,Widgets}` with a `.gitkeep` each.
 
-- [ ] **Step 5: Vietnamese panel strings**
+- [x] **Step 5: Vietnamese panel strings**
 
 Create `lang/vi/panels.php`:
 ```php
@@ -1214,12 +1214,12 @@ return [
 ];
 ```
 
-- [ ] **Step 6: Run the tests**
+- [x] **Step 6: Run the tests**
 
 Run: `bash vendor/bin/sail artisan test --filter=AdminPanelTest`
 Expected: 4 passed.
 
-- [ ] **Step 7: Pint and commit**
+- [x] **Step 7: Pint and commit**
 
 ```bash
 bash vendor/bin/sail bin pint
@@ -1242,7 +1242,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Consumes: guard `client`, `ClientUser::factory()`, `config('vkcrm.portal_domain')`, `config('vkcrm.brand_color')`.
 - Produces: panel id `portal`, path `portal`; `ClientUser implements FilamentUser` with `canAccessPanel` = `$panel->getId() === 'portal' && $this->is_active`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/Feature/Panels/PortalPanelTest.php`:
 ```php
@@ -1283,12 +1283,12 @@ it('sends the root url to the portal', function () {
 });
 ```
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `bash vendor/bin/sail artisan test --filter="PortalPanelTest|RootRedirectTest"`
 Expected: FAIL (404 on `/portal`; `/` returns 200 welcome page).
 
-- [ ] **Step 3: Generate and configure the portal panel**
+- [x] **Step 3: Generate and configure the portal panel**
 
 Run: `bash vendor/bin/sail artisan make:filament-panel portal --no-interaction`
 
@@ -1332,7 +1332,7 @@ public function panel(Panel $panel): Panel
 ```
 Ensure `bootstrap/providers.php` contains `App\Providers\Filament\PortalPanelProvider::class` (the `make:filament-panel` command adds it; verify). Create `app/Filament/Portal/{Resources,Pages,Widgets}/.gitkeep`.
 
-- [ ] **Step 4: Implement `FilamentUser` on `ClientUser`**
+- [x] **Step 4: Implement `FilamentUser` on `ClientUser`**
 
 In `app/Models/ClientUser.php`:
 ```php
@@ -1350,7 +1350,7 @@ class ClientUser extends Authenticatable implements FilamentUser
 }
 ```
 
-- [ ] **Step 5: Root redirect**
+- [x] **Step 5: Root redirect**
 
 Replace `routes/web.php` with:
 ```php
@@ -1362,17 +1362,17 @@ Route::redirect('/', '/portal');
 ```
 Delete `resources/views/welcome.blade.php`.
 
-- [ ] **Step 6: Run the tests**
+- [x] **Step 6: Run the tests**
 
 Run: `bash vendor/bin/sail artisan test`
 Expected: all green (config, models, guards, admin 4, portal 4, redirect 1, smoke 1).
 
-- [ ] **Step 7: Manual check in browser**
+- [x] **Step 7: Manual check in browser**
 
 Run: `curl -s -o /dev/null -w "%{http_code} %{redirect_url}\n" http://localhost/ && curl -s -o /dev/null -w "%{http_code}\n" http://localhost/portal/login`
 Expected: `302 http://localhost/portal` then `200`.
 
-- [ ] **Step 8: Pint and commit**
+- [x] **Step 8: Pint and commit**
 
 ```bash
 bash vendor/bin/sail bin pint
@@ -1392,7 +1392,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: `AdminPanelProvider::panel(Panel)`, `PortalPanelProvider::panel(Panel)` (public, from Filament's `PanelProvider`), `config('vkcrm.*_domain')`.
 
-- [ ] **Step 1: Write the test**
+- [x] **Step 1: Write the test**
 
 Create `tests/Feature/Panels/PanelDomainTest.php`:
 ```php
@@ -1428,12 +1428,12 @@ it('binds each panel to its own domain when env is set', function () {
 });
 ```
 
-- [ ] **Step 2: Run it**
+- [x] **Step 2: Run it**
 
 Run: `bash vendor/bin/sail artisan test --filter=PanelDomainTest`
 Expected: PASS. If `getDomains()` returns `[null]` in path mode, change both providers to `->domain(config('vkcrm.admin_domain') ?: null)` is not enough; instead wrap: `->domains(array_filter([config('vkcrm.admin_domain')]))` and re-run.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add -A
@@ -1458,7 +1458,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
   - client user `khach1@example.com` / `password` (client `KH-{year}-0001`, `must_change_password = false`)
   - M1 will replace this seeder with the full §12 dataset but must keep these two logins.
 
-- [ ] **Step 1: Write the failing seeder test**
+- [x] **Step 1: Write the failing seeder test**
 
 Create `tests/Feature/Seeders/DemoAccountsSeederTest.php`:
 ```php
@@ -1490,12 +1490,12 @@ it('is idempotent', function () {
 ```
 Add `use Illuminate\Support\Facades\Hash;` at the top.
 
-- [ ] **Step 2: Run to verify failure**
+- [x] **Step 2: Run to verify failure**
 
 Run: `bash vendor/bin/sail artisan test --filter=DemoAccountsSeederTest`
 Expected: FAIL (`Class "Database\Seeders\DemoAccountsSeeder" not found`).
 
-- [ ] **Step 3: Write the seeder**
+- [x] **Step 3: Write the seeder**
 
 `database/seeders/DemoAccountsSeeder.php`:
 ```php
@@ -1569,12 +1569,12 @@ class DatabaseSeeder extends Seeder
 }
 ```
 
-- [ ] **Step 4: Run the seeder test and full suite**
+- [x] **Step 4: Run the seeder test and full suite**
 
 Run: `bash vendor/bin/sail artisan test`
 Expected: all green.
 
-- [ ] **Step 5: Seed the dev database and log in through the browser**
+- [x] **Step 5: Seed the dev database and log in through the browser**
 
 Run: `bash vendor/bin/sail artisan migrate:fresh --seed`
 Then, using the Browser pane:
@@ -1582,7 +1582,7 @@ Then, using the Browser pane:
 2. Open `http://localhost/portal/login`, sign in with `khach1@example.com` / `password`. Expect the portal dashboard with brand "Luật Vũ Khang · Tra cứu hồ sơ".
 3. While signed in to the portal, open `http://localhost/admin`. Expect redirect to `/admin/login`.
 
-- [ ] **Step 6: Write `README.md`**
+- [x] **Step 6: Write `README.md`**
 
 Replace the Laravel README with:
 ````markdown
@@ -1626,7 +1626,7 @@ Mặc định cả hai panel chạy chung một tên miền theo đường dẫn
 Điền `ADMIN_DOMAIN` và `PORTAL_DOMAIN` trong `.env` để tách subdomain.
 ````
 
-- [ ] **Step 7: Write `docs/PROGRESS.md`**
+- [x] **Step 7: Write `docs/PROGRESS.md`**
 
 ```markdown
 # Tiến độ VK-CRM
@@ -1644,7 +1644,7 @@ Mặc định cả hai panel chạy chung một tên miền theo đường dẫn
 | M8 Bảo mật + hoàn thiện | ⬜ | | |
 ```
 
-- [ ] **Step 8: Final acceptance run and commit**
+- [x] **Step 8: Final acceptance run and commit**
 
 Run: `bash vendor/bin/sail artisan test && bash vendor/bin/sail bin pint --test`
 Expected: all tests pass, Pint clean.
@@ -1665,3 +1665,14 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Placeholder scan:** none.
 
 **Type consistency:** `canAccessPanel(Panel $panel): bool` identical on both models; config keys used in Tasks 6–8 all defined in Task 3; seeder emails in Task 9 match README; `ClientUser::factory()` auto-creates `Client` (Task 4) and is used that way in Tasks 5–7.
+
+---
+
+## Ghi chú thực thi (2026-09-13)
+
+- Task 1 đổi cách dựng môi trường: Sail không chạy trên Git Bash Windows và build image
+  quá chậm, thay bằng `compose.yaml` tự viết với `webdevops/php:8.3-alpine` và `bin/dev`.
+  Gói `laravel/sail` đã gỡ ở Task 2.
+- `BRAND_COLOR` phải đặt trong dấu ngoặc kép trong `.env` vì `#` bị coi là comment.
+- Laravel 13 dùng middleware `PreventRequestForgery` thay cho `VerifyCsrfToken`.
+- Panel dùng `->domains(array_filter([...]))` để chế độ không tách domain trả về `[]`.
