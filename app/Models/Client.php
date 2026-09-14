@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\ClientType;
 use App\Models\Concerns\HasBlameable;
+use App\Models\Concerns\HidesInternalAttributesFromPortal;
 use App\Models\Concerns\RestrictedToClientPortal;
 use App\Support\CodeSequence;
 use Database\Factories\ClientFactory;
@@ -20,6 +21,7 @@ class Client extends Model
     /** @use HasFactory<ClientFactory> */
     use HasFactory;
 
+    use HidesInternalAttributesFromPortal;
     use RestrictedToClientPortal;
     use SoftDeletes;
 
@@ -72,5 +74,11 @@ class Client extends Model
         $year = now()->format('Y');
 
         return CodeSequence::format("KH-{$year}-", CodeSequence::next("client:{$year}"));
+    }
+
+    /** SPEC §4.2: note là ghi chú nội bộ, không bao giờ ra portal. */
+    protected function internalAttributes(): array
+    {
+        return ['note'];
     }
 }

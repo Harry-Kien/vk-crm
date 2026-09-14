@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Exceptions\StageLogImmutable;
 use App\Models\Concerns\HasBlameable;
+use App\Models\Concerns\HidesInternalAttributesFromPortal;
 use App\Models\Concerns\RestrictedToClientPortal;
 use Database\Factories\StageLogFactory;
 use Illuminate\Database\Eloquent\Builder;
@@ -19,6 +20,7 @@ class StageLog extends Model
     /** @use HasFactory<StageLogFactory> */
     use HasFactory;
 
+    use HidesInternalAttributesFromPortal;
     use RestrictedToClientPortal;
 
     /** Các cột được phép đổi sau khi ghi: chỉ trạng thái công bố và thông báo. */
@@ -77,5 +79,11 @@ class StageLog extends Model
     public function views(): HasMany
     {
         return $this->hasMany(StageLogView::class);
+    }
+
+    /** SPEC §4.8: internal_note chỉ dành cho nội bộ. */
+    protected function internalAttributes(): array
+    {
+        return ['internal_note'];
     }
 }

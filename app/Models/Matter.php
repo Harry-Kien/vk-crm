@@ -6,6 +6,7 @@ use App\Enums\Confidentiality;
 use App\Enums\MatterRole;
 use App\Exceptions\MatterNotDestroyable;
 use App\Models\Concerns\HasBlameable;
+use App\Models\Concerns\HidesInternalAttributesFromPortal;
 use App\Models\Concerns\RestrictedToClientPortal;
 use App\Support\CodeSequence;
 use Database\Factories\MatterFactory;
@@ -25,6 +26,7 @@ class Matter extends Model
     /** @use HasFactory<MatterFactory> */
     use HasFactory;
 
+    use HidesInternalAttributesFromPortal;
     use RestrictedToClientPortal;
     use SoftDeletes;
 
@@ -163,5 +165,11 @@ class Matter extends Model
     public function archive(): HasOne
     {
         return $this->hasOne(MatterArchive::class);
+    }
+
+    /** SPEC §4.6: description_internal không bao giờ ra portal. */
+    protected function internalAttributes(): array
+    {
+        return ['description_internal'];
     }
 }
