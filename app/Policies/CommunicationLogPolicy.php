@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Enums\Permission;
 use App\Models\ClientUser;
 use App\Models\CommunicationLog;
 use App\Models\User;
@@ -25,9 +26,9 @@ class CommunicationLogPolicy
             : $this->canSeeMatter($user, $communicationLog->matter);
     }
 
-    public function create(User|ClientUser $user, CommunicationLog $communicationLog): bool
+    public function create(User|ClientUser $user): bool
     {
-        return $user instanceof User && $this->canSeeMatter($user, $communicationLog->matter);
+        return $user instanceof User && $user->can(Permission::MatterUpdate->value);
     }
 
     public function update(User|ClientUser $user, CommunicationLog $communicationLog): bool

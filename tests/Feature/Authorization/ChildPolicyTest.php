@@ -6,6 +6,7 @@ use App\Enums\Role;
 use App\Models\Client;
 use App\Models\ClientRequest;
 use App\Models\ClientUser;
+use App\Models\CommunicationLog;
 use App\Models\Deadline;
 use App\Models\Document;
 use App\Models\Matter;
@@ -66,6 +67,13 @@ it('never lets a client user see a group D document or download what is not down
     expect($this->clientUser->fresh()->can('download', $this->clientDoc->fresh()))->toBeTrue();
 });
 
+it('denies a group D document to a client even when both client flags are on', function () {
+    $this->internalDoc->update(['client_can_view' => true, 'client_can_download' => true]);
+
+    expect($this->clientUser->can('view', $this->internalDoc->fresh()))->toBeFalse()
+        ->and($this->clientUser->can('download', $this->internalDoc->fresh()))->toBeFalse();
+});
+
 it('never lets a client user see data of another client', function () {
     $otherMatter = Matter::factory()->create();
     $otherLog = StageLog::factory()->for($otherMatter)->published()->create();
@@ -94,4 +102,12 @@ it('gates client and settings management by permission', function () {
         ->and($this->lead->can('create', ClientUser::class))->toBeTrue()
         ->and($this->admin->can('create', MatterType::class))->toBeTrue()
         ->and($this->lead->can('create', MatterType::class))->toBeFalse();
+});
+
+it('answers the create ability the way Laravel actually calls it', function () {
+    expect($this->lead->can('create', Deadline::class))->toBeTrue()
+        ->and($this->lead->can('create', CommunicationLog::class))->toBeTrue()
+        ->and($this->accountant->can('create', Deadline::class))->toBeFalse()
+        ->and($this->clientUser->can('create', Deadline::class))->toBeFalse()
+        ->and($this->clientUser->can('create', CommunicationLog::class))->toBeFalse();
 });
