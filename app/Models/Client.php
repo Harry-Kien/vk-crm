@@ -52,6 +52,11 @@ class Client extends Model
         return $this->hasMany(ClientUser::class);
     }
 
+    public function matters(): HasMany
+    {
+        return $this->hasMany(Matter::class);
+    }
+
     /**
      * KH-{YYYY}-{0001}; số thứ tự chạy lại từ đầu mỗi năm.
      */
