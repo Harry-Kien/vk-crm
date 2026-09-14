@@ -9,7 +9,12 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call([
-            DemoAccountsSeeder::class,
+            DemoAccountsSeeder::class,   // giữ hai tài khoản đăng nhập M0
+            StaffSeeder::class,
+            MatterTypeSeeder::class,
+            ChecklistTemplateSeeder::class,
+            ClientSeeder::class,
+            MatterSeeder::class,
         ]);
     }
 }

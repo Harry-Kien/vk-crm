@@ -7,6 +7,8 @@ use Database\Factories\UserFactory;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -47,6 +49,19 @@ class User extends Authenticatable implements FilamentUser
             'last_login_at' => 'datetime',
             'two_factor_confirmed_at' => 'datetime',
         ];
+    }
+
+    public function leadMatters(): HasMany
+    {
+        return $this->hasMany(Matter::class, 'lead_lawyer_id');
+    }
+
+    public function teamMatters(): BelongsToMany
+    {
+        return $this->belongsToMany(Matter::class, 'matter_user')
+            ->using(MatterUser::class)
+            ->withPivot('role_in_matter')
+            ->withTimestamps();
     }
 
     /**

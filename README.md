@@ -28,11 +28,18 @@ bin/dev artisan migrate:fresh --seed
 
 Trên Windows dùng Git Bash (lệnh `bin/dev` là script bash).
 
-| Panel | URL | Tài khoản demo |
-|---|---|---|
-| Nội bộ | http://localhost/admin | `admin@luatvukhang.com` / `password` |
-| Khách hàng | http://localhost/portal | `khach1@example.com` / `password` |
-| Mailpit (xem email test) | http://localhost:8025 | — |
+| Panel | URL | Tài khoản demo | Mật khẩu |
+|---|---|---|---|
+| Nội bộ, quản trị | http://localhost/admin | `admin@luatvukhang.com` | `password` |
+| Nội bộ, trưởng phòng | http://localhost/admin | `quanly@luatvukhang.com` | `password` |
+| Nội bộ, luật sư | http://localhost/admin | `luatsu1@luatvukhang.com`, `luatsu2@…`, `luatsu3@…` | `password` |
+| Nội bộ, trợ lý | http://localhost/admin | `troly1@luatvukhang.com`, `troly2@…` | `password` |
+| Nội bộ, kế toán | http://localhost/admin | `ketoan@luatvukhang.com` | `password` |
+| Khách hàng | http://localhost/portal | `khach1@example.com` … `khach12@example.com` (thêm `khach2b@`, `khach5b@`, `khach8b@`, `khach11b@`) | `password` |
+| Mailpit | http://localhost:8025 | — | — |
+
+Dữ liệu mẫu có 20 vụ việc với các tình huống cố ý: vụ 1–3 quá hạn cập nhật, vụ 4–5 có hạn trong 3 ngày,
+vụ 6–9 thiếu giấy tờ, vụ 10–14 có tài liệu chờ duyệt, vụ 20 xung đột lợi ích với khách hàng số 2.
 
 ## Kiểm thử và định dạng mã
 
@@ -55,7 +62,7 @@ Mặc định cả hai panel chạy chung một tên miền theo đường dẫn
 app/
 ├── Enums/                  Enum backed string cho mọi cột trạng thái
 ├── Models/                 User (nhân sự), Client, ClientUser (tài khoản portal), ...
-├── Actions/                Toàn bộ logic nghiệp vụ (từ M3)
+├── Actions/                Toàn bộ logic nghiệp vụ (ApplyChecklistTemplate từ M1)
 ├── Filament/Admin/         Panel nội bộ
 ├── Filament/Portal/        Panel khách hàng
 ├── Providers/Filament/     AdminPanelProvider, PortalPanelProvider
