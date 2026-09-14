@@ -4,12 +4,12 @@ namespace App\Models;
 
 use App\Enums\ClientType;
 use App\Models\Concerns\HasBlameable;
+use App\Support\CodeSequence;
 use Database\Factories\ClientFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Support\Facades\DB;
 
 class Client extends Model
 {
@@ -17,6 +17,7 @@ class Client extends Model
 
     /** @use HasFactory<ClientFactory> */
     use HasFactory;
+
     use SoftDeletes;
 
     protected $fillable = [
@@ -52,22 +53,12 @@ class Client extends Model
     }
 
     /**
-     * KH-{YYYY}-{0001}; số thứ tự chạy lại từ đầu mỗi năm. Khoá dòng mới nhất của năm để tránh trùng.
+     * KH-{YYYY}-{0001}; số thứ tự chạy lại từ đầu mỗi năm.
      */
     public static function nextCode(): string
     {
-        $prefix = 'KH-'.now()->format('Y').'-';
+        $year = now()->format('Y');
 
-        return DB::transaction(function () use ($prefix): string {
-            $last = static::withTrashed()
-                ->where('code', 'like', $prefix.'%')
-                ->lockForUpdate()
-                ->orderByDesc('code')
-                ->value('code');
-
-            $next = $last ? ((int) substr($last, -4)) + 1 : 1;
-
-            return $prefix.str_pad((string) $next, 4, '0', STR_PAD_LEFT);
-        });
+        return CodeSequence::format("KH-{$year}-", CodeSequence::next("client:{$year}"));
     }
 }
