@@ -30,6 +30,11 @@ final class Normalizer
         }
 
         if (str_starts_with($digits, '84')) {
+            // If digits are '84' followed by '0', strip the leading '0' after 84
+            if (strlen($digits) > 2 && $digits[2] === '0') {
+                return '84'.substr($digits, 3);
+            }
+
             return $digits;
         }
 

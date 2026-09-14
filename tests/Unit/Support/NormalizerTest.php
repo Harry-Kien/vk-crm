@@ -14,7 +14,9 @@ it('normalizes phones to 84 prefix digits only', function () {
         ->and(Normalizer::phone('+84 901-234-567'))->toBe('84901234567')
         ->and(Normalizer::phone('84901234567'))->toBe('84901234567')
         ->and(Normalizer::phone('abc'))->toBeNull()
-        ->and(Normalizer::phone(null))->toBeNull();
+        ->and(Normalizer::phone(null))->toBeNull()
+        ->and(Normalizer::phone('+84 0901234567'))->toBe('84901234567')
+        ->and(Normalizer::phone('+84 (0) 901 234 567'))->toBe('84901234567');
 });
 
 it('hashes id numbers after stripping non digits', function () {
