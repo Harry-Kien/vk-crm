@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\Role;
 use App\Enums\UserPosition;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -49,11 +50,16 @@ class UserFactory extends Factory
 
     public function admin(): static
     {
-        return $this->position(UserPosition::Admin);
+        return $this->position(UserPosition::Admin)->withRole(Role::Admin);
     }
 
     public function position(UserPosition $position): static
     {
         return $this->state(fn () => ['position' => $position]);
+    }
+
+    public function withRole(Role $role): static
+    {
+        return $this->afterCreating(fn (User $user) => $user->syncRoles([$role->value]));
     }
 }

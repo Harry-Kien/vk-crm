@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\Role;
 use App\Enums\UserPosition;
 use Database\Factories\UserFactory;
 use Filament\Models\Contracts\FilamentUser;
@@ -12,12 +13,14 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable implements FilamentUser
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory;
 
+    use HasRoles;
     use Notifiable;
     use SoftDeletes;
 
@@ -70,5 +73,14 @@ class User extends Authenticatable implements FilamentUser
     public function canAccessPanel(Panel $panel): bool
     {
         return $panel->getId() === 'admin' && $this->is_active;
+    }
+
+    /**
+     * Gán vai trò khớp chức danh. Vai trò và chức danh là hai khái niệm khác nhau nhưng
+     * ở bản 1.0 luôn trùng giá trị; Action sửa nhân sự (M3) phải gọi lại hàm này.
+     */
+    public function assignRoleFromPosition(): void
+    {
+        $this->syncRoles([Role::fromPosition($this->position)->value]);
     }
 }

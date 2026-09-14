@@ -4,7 +4,12 @@ use App\Enums\UserPosition;
 use App\Models\ClientUser;
 use App\Models\User;
 use Database\Seeders\DemoAccountsSeeder;
+use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Support\Facades\Hash;
+
+beforeEach(function () {
+    $this->seed(RolesAndPermissionsSeeder::class);
+});
 
 it('seeds one admin and one activated client login', function () {
     $this->seed(DemoAccountsSeeder::class);
