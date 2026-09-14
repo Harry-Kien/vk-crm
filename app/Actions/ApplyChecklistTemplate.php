@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\DB;
 /**
  * Sao chép danh mục hồ sơ chuẩn vào vụ việc (SPEC §4.10). Sao chép, không tham chiếu.
  * Gọi lại với cùng template không tạo trùng: item đã có (theo tên) được giữ nguyên.
+ * Không thiết kế cho hai lời gọi đồng thời trên cùng một vụ việc; gọi trong Action tạo vụ việc.
  */
 class ApplyChecklistTemplate
 {
@@ -19,7 +20,7 @@ class ApplyChecklistTemplate
     public function handle(Matter $matter, ChecklistTemplate $template): Collection
     {
         return DB::transaction(function () use ($matter, $template): Collection {
-            $existing = $matter->checklistItems()->pluck('name')->all();
+            $existing = $matter->checklistItems()->withTrashed()->pluck('name')->all();
 
             return $template->items
                 ->reject(fn ($item) => in_array($item->name, $existing, true))

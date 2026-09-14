@@ -37,3 +37,15 @@ it('does not duplicate items when applied twice', function () {
 
     expect($matter->checklistItems()->count())->toBe(3);
 });
+
+it('does not resurrect an item that was deliberately removed from the matter', function () {
+    $template = ChecklistTemplate::factory()->withItems(3)->create();
+    $matter = Matter::factory()->for($template->matterType, 'matterType')->create();
+    app(ApplyChecklistTemplate::class)->handle($matter, $template);
+
+    $matter->checklistItems()->first()->delete();
+    app(ApplyChecklistTemplate::class)->handle($matter, $template);
+
+    expect($matter->checklistItems()->count())->toBe(2)
+        ->and($matter->checklistItems()->withTrashed()->count())->toBe(3);
+});
