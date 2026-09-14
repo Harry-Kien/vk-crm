@@ -101,7 +101,7 @@ it('shows only the own client record', function () {
     expect(Client::pluck('id')->all())->toBe([$this->clientA->id]);
 });
 
-it('shows only the own stage log view receipts', function () {
+it('shows stage log view receipts of the own client', function () {
     $mine = StageLogView::factory()->create([
         'stage_log_id' => $this->publishedLog->id, 'client_user_id' => $this->userA->id,
     ]);
@@ -137,12 +137,18 @@ it('leaves stage configuration readable because the portal renders it', function
 });
 
 it('restricts nothing for staff', function () {
+    MatterParty::factory()->for($this->matterA)->create();
+    ChecklistTemplate::factory()->withItems(2)->create();
+    OutboundMessage::factory()->create();
+
     $this->actingAs(User::factory()->create(), 'web');
 
     expect(StageLog::count())->toBe(3)
         ->and(Document::count())->toBe(4)
         ->and(Client::count())->toBe(2)
-        ->and(MatterParty::count())->toBe(0);
+        ->and(MatterParty::count())->toBe(1)
+        ->and(ChecklistTemplate::count())->toBe(1)
+        ->and(OutboundMessage::count())->toBe(1);
 });
 
 it('cannot be escaped by an orWhere at the top level of the caller query', function () {
@@ -151,5 +157,6 @@ it('cannot be escaped by an orWhere at the top level of the caller query', funct
     expect(Matter::where('id', $this->matterB->id)->orWhere('id', $this->matterA->id)->pluck('id')->all())
         ->toBe([$this->matterA->id])
         ->and(StageLog::where('id', $this->foreignLog->id)->orWhere('id', $this->internalLog->id)->count())
-        ->toBe(0);
+        ->toBe(0)
+        ->and(MatterParty::where('id', 1)->orWhere('id', 2)->count())->toBe(0);
 });

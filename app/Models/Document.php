@@ -41,14 +41,6 @@ class Document extends Model
         ];
     }
 
-    /** Điều kiện khách được thấy (SPEC §5 portal). Global scope ở M2 sẽ dùng lại. */
-    public function scopeClientVisible(Builder $query): Builder
-    {
-        return $query
-            ->where('group', '!=', DocumentGroup::Internal->value)
-            ->where('client_can_view', true);
-    }
-
     public function isInternal(): bool
     {
         return $this->group->isInternal();
