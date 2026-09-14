@@ -241,4 +241,4 @@ mở nào đủ giấy phép, đủ mới và có portal để fork.
 
 | Ngày | Gói | Kết quả | Ghi chú |
 |---|---|---|---|
-| | | | |
+| 2026-09-14 | (không cài gói mới ở M1) | — | Đúng kế hoạch |
