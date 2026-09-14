@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\RestrictedToClientPortal;
 use Database\Factories\MatterArchiveFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -13,6 +15,7 @@ class MatterArchive extends Model
     /** @use HasFactory<MatterArchiveFactory> */
     use HasFactory;
 
+    use RestrictedToClientPortal;
     use SoftDeletes;
 
     protected $fillable = [
@@ -29,6 +32,15 @@ class MatterArchive extends Model
             'retention_until' => 'date',
             'destroyed_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Hồ sơ lưu trữ và đường dẫn gói bàn giao là dữ liệu nội bộ (SPEC §4.19). Chặn sạch ở tầng
+     * truy vấn thay vì trông vào việc không ai viết resource cho nó.
+     */
+    public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
+    {
+        $query->whereRaw('1 = 0');
     }
 
     public function matter(): BelongsTo

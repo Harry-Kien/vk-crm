@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\PartyRole;
 use App\Models\Concerns\HasBlameable;
+use App\Models\Concerns\RestrictedToClientPortal;
 use App\Support\Normalizer;
 use Database\Factories\MatterPartyFactory;
 use Illuminate\Database\Eloquent\Builder;
@@ -19,6 +20,7 @@ class MatterParty extends Model
     /** @use HasFactory<MatterPartyFactory> */
     use HasFactory;
 
+    use RestrictedToClientPortal;
     use SoftDeletes;
 
     protected $fillable = [
@@ -76,6 +78,16 @@ class MatterParty extends Model
                 $q->orWhere('phone_normalized', $phoneNormalized);
             }
         });
+    }
+
+    /**
+     * Portal không bao giờ đọc bảng này (các bên trong vụ việc chỉ phục vụ kiểm tra xung đột
+     * lợi ích ở SPEC §4.16). Chặn sạch ở tầng truy vấn thay vì trông vào việc không ai viết
+     * resource cho nó.
+     */
+    public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
+    {
+        $query->whereRaw('1 = 0');
     }
 
     public function matter(): BelongsTo

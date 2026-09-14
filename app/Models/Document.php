@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
+use App\Models\Concerns\RestrictedToClientPortal;
 use Database\Factories\DocumentFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -18,6 +19,7 @@ class Document extends Model
     /** @use HasFactory<DocumentFactory> */
     use HasFactory;
 
+    use RestrictedToClientPortal;
     use SoftDeletes;
 
     protected $fillable = [
@@ -50,6 +52,16 @@ class Document extends Model
     public function isInternal(): bool
     {
         return $this->group->isInternal();
+    }
+
+    /**
+     * Khách chỉ thấy tài liệu được bật cho xem và không bao giờ thấy nhóm D (SPEC §4.11, §5).
+     */
+    public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
+    {
+        $query->where($this->qualifyColumn('client_can_view'), true)
+            ->where($this->qualifyColumn('group'), '!=', DocumentGroup::Internal->value)
+            ->whereHas('matter');
     }
 
     public function matter(): BelongsTo

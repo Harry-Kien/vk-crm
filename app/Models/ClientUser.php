@@ -11,6 +11,10 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
+/**
+ * Cố ý KHÔNG dùng RestrictedToClientPortal: gọi auth() trong global scope của chính model xác
+ * thực sẽ đệ quy vô hạn khi guard nạp người dùng từ session.
+ */
 class ClientUser extends Authenticatable implements FilamentUser
 {
     /** @use HasFactory<ClientUserFactory> */

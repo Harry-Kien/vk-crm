@@ -3,7 +3,9 @@
 namespace App\Models;
 
 use App\Models\Concerns\HasBlameable;
+use App\Models\Concerns\RestrictedToClientPortal;
 use Database\Factories\ChecklistTemplateFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -16,6 +18,8 @@ class ChecklistTemplate extends Model
 
     /** @use HasFactory<ChecklistTemplateFactory> */
     use HasFactory;
+
+    use RestrictedToClientPortal;
     use SoftDeletes;
 
     protected $fillable = ['matter_type_id', 'name', 'is_active'];
@@ -33,5 +37,14 @@ class ChecklistTemplate extends Model
     public function items(): HasMany
     {
         return $this->hasMany(ChecklistTemplateItem::class, 'template_id')->orderBy('sort_order');
+    }
+
+    /**
+     * Khách chỉ thấy bản sao trong matter_checklist_items, không thấy danh mục mẫu (SPEC §4.10).
+     * Chặn sạch ở tầng truy vấn thay vì trông vào việc không ai viết resource cho nó.
+     */
+    public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
+    {
+        $query->whereRaw('1 = 0');
     }
 }

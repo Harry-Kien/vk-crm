@@ -16,6 +16,10 @@ use Illuminate\Notifications\Notifiable;
 use Spatie\Permission\Models\Role as SpatieRole;
 use Spatie\Permission\Traits\HasRoles;
 
+/**
+ * Cố ý KHÔNG dùng RestrictedToClientPortal: gọi auth() trong global scope của chính model xác
+ * thực sẽ đệ quy vô hạn khi guard nạp người dùng từ session.
+ */
 class User extends Authenticatable implements FilamentUser
 {
     /** @use HasFactory<UserFactory> */

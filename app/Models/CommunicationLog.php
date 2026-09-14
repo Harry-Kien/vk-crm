@@ -4,7 +4,9 @@ namespace App\Models;
 
 use App\Enums\CommunicationType;
 use App\Models\Concerns\HasBlameable;
+use App\Models\Concerns\RestrictedToClientPortal;
 use Database\Factories\CommunicationLogFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -16,6 +18,8 @@ class CommunicationLog extends Model
 
     /** @use HasFactory<CommunicationLogFactory> */
     use HasFactory;
+
+    use RestrictedToClientPortal;
     use SoftDeletes;
 
     protected $fillable = [
@@ -30,6 +34,12 @@ class CommunicationLog extends Model
             'duration_minutes' => 'integer',
             'is_visible_to_client' => 'boolean',
         ];
+    }
+
+    /** Nhật ký liên lạc mặc định là nội bộ; chỉ dòng được đánh dấu mới ra portal (SPEC §4.17). */
+    public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
+    {
+        $query->where($this->qualifyColumn('is_visible_to_client'), true)->whereHas('matter');
     }
 
     public function matter(): BelongsTo

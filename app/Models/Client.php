@@ -4,8 +4,10 @@ namespace App\Models;
 
 use App\Enums\ClientType;
 use App\Models\Concerns\HasBlameable;
+use App\Models\Concerns\RestrictedToClientPortal;
 use App\Support\CodeSequence;
 use Database\Factories\ClientFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -18,6 +20,7 @@ class Client extends Model
     /** @use HasFactory<ClientFactory> */
     use HasFactory;
 
+    use RestrictedToClientPortal;
     use SoftDeletes;
 
     protected $fillable = [
@@ -44,6 +47,11 @@ class Client extends Model
         static::creating(function (Client $client): void {
             $client->code ??= static::nextCode();
         });
+    }
+
+    public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
+    {
+        $query->whereKey($clientUser->client_id);
     }
 
     public function clientUsers(): HasMany

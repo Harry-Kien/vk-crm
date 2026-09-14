@@ -103,6 +103,8 @@ class Matter extends Model
     {
         $query->where($this->qualifyColumn('client_id'), $clientUser->client_id)
             ->where($this->qualifyColumn('is_published_to_portal'), true);
+
+        // M7 bổ sung điều kiện client_access_until ở đây (SPEC §11 "Bàn giao và lưu trữ").
     }
 
     public function matterType(): BelongsTo
