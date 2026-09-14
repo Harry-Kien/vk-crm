@@ -28,18 +28,22 @@ bin/dev artisan migrate:fresh --seed
 
 Trên Windows dùng Git Bash (lệnh `bin/dev` là script bash).
 
-| Panel | URL | Tài khoản demo | Mật khẩu |
-|---|---|---|---|
-| Nội bộ, quản trị | http://localhost/admin | `admin@luatvukhang.com` | `password` |
-| Nội bộ, trưởng phòng | http://localhost/admin | `quanly@luatvukhang.com` | `password` |
-| Nội bộ, luật sư | http://localhost/admin | `luatsu1@luatvukhang.com`, `luatsu2@…`, `luatsu3@…` | `password` |
-| Nội bộ, trợ lý | http://localhost/admin | `troly1@luatvukhang.com`, `troly2@…` | `password` |
-| Nội bộ, kế toán | http://localhost/admin | `ketoan@luatvukhang.com` | `password` |
-| Khách hàng | http://localhost/portal | `khach1@example.com` … `khach12@example.com` (thêm `khach2b@`, `khach5b@`, `khach8b@`, `khach11b@`) | `password` |
-| Mailpit | http://localhost:8025 | — | — |
+| Panel | URL | Tài khoản demo | Vai trò | Mật khẩu |
+|---|---|---|---|---|
+| Nội bộ, quản trị | http://localhost/admin | `admin@luatvukhang.com` | admin | `password` |
+| Nội bộ, trưởng phòng | http://localhost/admin | `quanly@luatvukhang.com` | manager | `password` |
+| Nội bộ, luật sư | http://localhost/admin | `luatsu1@luatvukhang.com`, `luatsu2@…`, `luatsu3@…` | lawyer | `password` |
+| Nội bộ, trợ lý | http://localhost/admin | `troly1@luatvukhang.com`, `troly2@…` | assistant | `password` |
+| Nội bộ, kế toán | http://localhost/admin | `ketoan@luatvukhang.com` | accountant | `password` |
+| Khách hàng | http://localhost/portal | `khach1@example.com` … `khach12@example.com` (thêm `khach2b@`, `khach5b@`, `khach8b@`, `khach11b@`) | — | `password` |
+| Mailpit | http://localhost:8025 | — | — | — |
 
 Dữ liệu mẫu có 20 vụ việc với các tình huống cố ý: vụ 1–3 quá hạn cập nhật, vụ 4–5 có hạn trong 3 ngày,
 vụ 6–9 thiếu giấy tờ, vụ 10–14 có tài liệu chờ duyệt, vụ 20 xung đột lợi ích với khách hàng số 2.
+
+Phân quyền theo SPEC §5: kế toán chỉ thấy danh sách vụ việc rút gọn và không mở được nội dung;
+luật sư chỉ thấy vụ việc có tên mình trong đội ngũ; vụ việc đánh dấu hạn chế chỉ luật sư phụ trách
+và quản trị thấy. Khách hàng chỉ thấy hồ sơ của chính mình, chỉ những gì đã được công bố.
 
 ## Kiểm thử và định dạng mã
 
