@@ -19,14 +19,26 @@ it('gives each role the reach the spec describes on the seeded office', function
     $all = Matter::count();
     $lawyerMatters = Matter::query()->listableBy($lawyer)->count();
 
+    /**
+     * MatterSeeder::run() xoay vòng 3 luật sư theo thứ tự email (luatsu1 ở chỉ số 0):
+     * lead_lawyer_id dùng $lawyers[($i - 1) % 3], nên luatsu1 làm chủ trì ở vụ i mà
+     * ($i - 1) % 3 === 0, tức i thuộc {1,4,7,10,13,16,19} — 7 vụ trên 20 vụ.
+     * Ngoài ra addTeamMember() thêm luật sư $lawyers[$i % 3] làm Associate khi $i % 4 === 0;
+     * $i % 3 === 0 cùng lúc $i % 4 === 0 chỉ xảy ra ở i = 12 trong khoảng 1..20, và 12 không
+     * nằm trong tập chủ trì ở trên. Vậy luatsu1 có mặt trong đội ngũ đúng 7 + 1 = 8 vụ.
+     */
     expect($all)->toBe(20)
         ->and(Matter::query()->listableBy($admin)->count())->toBe($all)
         ->and(Matter::query()->listableBy($accountant)->count())->toBe($all)
-        ->and($lawyerMatters)->toBeGreaterThan(0)->toBeLessThan($all)
+        ->and($lawyerMatters)->toBe(8)
         ->and($accountant->can('view', Matter::first()))->toBeFalse();
 
     Matter::query()->listableBy($lawyer)->get()
         ->each(fn (Matter $matter) => expect($lawyer->can('view', $matter))->toBeTrue());
+
+    $onTeam = Matter::whereHas('team', fn ($q) => $q->whereKey($lawyer->id))->orderBy('id')->pluck('id')->all();
+
+    expect(Matter::query()->listableBy($lawyer)->orderBy('id')->pluck('id')->all())->toBe($onTeam);
 });
 
 it('shows a seeded client only their own matters and nothing internal', function () {
