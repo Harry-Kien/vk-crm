@@ -15,6 +15,7 @@ class MatterType extends Model
 
     /** @use HasFactory<MatterTypeFactory> */
     use HasFactory;
+
     use SoftDeletes;
 
     protected $fillable = ['code', 'name', 'description', 'is_active', 'sort_order'];
@@ -39,11 +40,19 @@ class MatterType extends Model
         return $this->hasMany(ChecklistTemplate::class);
     }
 
+    /**
+     * Giai đoạn đầu tiên theo sort_order. Đọc từ quan hệ `stages` đã nạp (xem stage()).
+     */
     public function firstStage(): ?MatterTypeStage
     {
-        return $this->stages()->first();
+        return $this->stages->first();
     }
 
+    /**
+     * Tra giai đoạn theo key từ quan hệ `stages` đã nạp, để Matter::currentStage() không
+     * sinh thêm truy vấn khi liệt kê. Sau khi thêm/sửa giai đoạn trên cùng một instance,
+     * gọi `$type->unsetRelation('stages')` (hoặc `load('stages')`) trước khi tra lại.
+     */
     public function stage(string $key): ?MatterTypeStage
     {
         return $this->stages->firstWhere('key', $key);
