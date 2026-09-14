@@ -3,7 +3,7 @@
 | Milestone | Trạng thái | Ngày | Ghi chú |
 |---|---|---|---|
 | M0 Khởi tạo | ✅ Xong | 2026-09-13 | Laravel 13.17, Filament 5, hai panel, hai guard, Pest 4, Pint, `.env.example`, seed demo. 23 test xanh. Đăng nhập thật cả hai panel đã kiểm tra trên trình duyệt |
-| M1 Migration / model / enum / factory / seeder | ✅ Xong | 2026-09-14 | 19 bảng SPEC §4 + `code_sequences` + `client_password_reset_tokens`; 13 enum; seeder đủ SPEC §12; 74 test xanh |
+| M1 Migration / model / enum / factory / seeder | ✅ Xong | 2026-09-14 | 19 bảng SPEC §4 + `code_sequences` + `client_password_reset_tokens`; 13 enum; seeder đủ SPEC §12; 77 test xanh |
 | M2 Phân quyền (spatie, Policy, global scope client) | ⬜ | | |
 | M3 Panel admin + `TransitionMatterStage` + `RunConflictCheck` | ⬜ | | |
 | M4 Danh mục hồ sơ + tài liệu + `PublishDocument` | ⬜ | | |
