@@ -18,7 +18,7 @@ final class Normalizer
 
         $ascii = Str::ascii(mb_strtolower(trim($value), 'UTF-8'));
 
-        return preg_replace('/\s+/', ' ', $ascii) ?: null;
+        return trim(preg_replace('/\s+/u', ' ', $ascii)) ?: null;
     }
 
     public static function phone(?string $value): ?string
@@ -27,6 +27,10 @@ final class Normalizer
 
         if ($digits === null) {
             return null;
+        }
+
+        if (str_starts_with($digits, '00')) {
+            $digits = substr($digits, 2);
         }
 
         if (str_starts_with($digits, '84')) {

@@ -25,7 +25,6 @@ use App\Models\OutboundMessage;
 use App\Models\StageLog;
 use App\Models\StageLogView;
 use App\Models\User;
-use App\Support\Normalizer;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Collection;
@@ -123,6 +122,8 @@ class MatterSeeder extends Seeder
         }
 
         $this->views();
+
+        auth('web')->forgetUser();
     }
 
     private function parties(Matter $matter, Client $client, string $opponent, int $i, Collection $clients): void
@@ -131,11 +132,11 @@ class MatterSeeder extends Seeder
 
         // Vụ 20: bị đơn chính là khách hàng số 2 của văn phòng => xung đột lợi ích đỏ.
         $conflictClient = $i === 20 ? $clients[1] : null;
+        $rawIdNumber = $conflictClient?->id_number ?? sprintf('0%011d', 900000000000 + $i);
+        $rawPhone = $conflictClient?->phone ?? sprintf('093%07d', $i);
 
-        MatterParty::factory()->for($matter)->defendant()->create([
+        MatterParty::factory()->for($matter)->defendant()->identify($rawIdNumber, $rawPhone)->create([
             'name' => $conflictClient?->name ?? $opponent,
-            'id_number_hash' => Normalizer::idNumberHash($conflictClient?->id_number ?? sprintf('0%011d', 900000000000 + $i)),
-            'phone_normalized' => Normalizer::phone($conflictClient?->phone ?? sprintf('093%07d', $i)),
             'address' => 'TP. Hồ Chí Minh',
         ]);
 
@@ -290,6 +291,7 @@ class MatterSeeder extends Seeder
                     'stage_log_id' => $log->id,
                     'client_user_id' => $viewer->id,
                     'viewed_at' => $log->published_at->copy()->addHours(3),
+                    'ip' => '127.0.0.1',
                 ]));
             });
     }

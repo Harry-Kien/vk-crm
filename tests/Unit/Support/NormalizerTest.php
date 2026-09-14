@@ -6,7 +6,8 @@ it('normalizes vietnamese names to lowercase ascii with single spaces', function
     expect(Normalizer::name('  Nguyễn   Văn  An '))->toBe('nguyen van an')
         ->and(Normalizer::name('Trần Thị Bích Đào'))->toBe('tran thi bich dao')
         ->and(Normalizer::name(''))->toBeNull()
-        ->and(Normalizer::name(null))->toBeNull();
+        ->and(Normalizer::name(null))->toBeNull()
+        ->and(Normalizer::name("\u{00A0}Lê Văn Cường\u{00A0}"))->toBe('le van cuong');
 });
 
 it('normalizes phones to 84 prefix digits only', function () {
@@ -16,7 +17,8 @@ it('normalizes phones to 84 prefix digits only', function () {
         ->and(Normalizer::phone('abc'))->toBeNull()
         ->and(Normalizer::phone(null))->toBeNull()
         ->and(Normalizer::phone('+84 0901234567'))->toBe('84901234567')
-        ->and(Normalizer::phone('+84 (0) 901 234 567'))->toBe('84901234567');
+        ->and(Normalizer::phone('+84 (0) 901 234 567'))->toBe('84901234567')
+        ->and(Normalizer::phone('0084 901 234 567'))->toBe('84901234567');
 });
 
 it('hashes id numbers after stripping non digits', function () {

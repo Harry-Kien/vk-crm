@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\Confidentiality;
 use App\Enums\MatterRole;
+use App\Exceptions\MatterNotDestroyable;
 use App\Models\Concerns\HasBlameable;
 use App\Support\CodeSequence;
 use Database\Factories\MatterFactory;
@@ -21,6 +22,7 @@ class Matter extends Model
 
     /** @use HasFactory<MatterFactory> */
     use HasFactory;
+
     use SoftDeletes;
 
     protected $fillable = [
@@ -58,6 +60,10 @@ class Matter extends Model
             $matter->team()->syncWithoutDetaching([
                 $matter->lead_lawyer_id => ['role_in_matter' => MatterRole::Lead->value],
             ]);
+        });
+
+        static::forceDeleting(function (): void {
+            throw MatterNotDestroyable::make();
         });
     }
 

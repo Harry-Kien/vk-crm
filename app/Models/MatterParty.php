@@ -18,11 +18,12 @@ class MatterParty extends Model
 
     /** @use HasFactory<MatterPartyFactory> */
     use HasFactory;
+
     use SoftDeletes;
 
     protected $fillable = [
         'matter_id', 'role', 'is_our_client', 'client_id', 'name',
-        'id_number_hash', 'phone_normalized', 'address', 'note',
+        'address', 'note',
     ];
 
     protected function casts(): array
@@ -38,6 +39,17 @@ class MatterParty extends Model
         static::saving(function (MatterParty $party): void {
             $party->name_normalized = Normalizer::name($party->name);
         });
+    }
+
+    /**
+     * identify() là đường ghi duy nhất cho id_number_hash và phone_normalized:
+     * chặn cả khi factory gọi qua Model::unguarded() (vd. ->make(['id_number_hash' => ...])).
+     */
+    public function fill(array $attributes): static
+    {
+        unset($attributes['id_number_hash'], $attributes['phone_normalized']);
+
+        return parent::fill($attributes);
     }
 
     /** Điền định danh đã chuẩn hoá từ dữ liệu gốc; dữ liệu gốc không được lưu. */

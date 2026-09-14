@@ -21,7 +21,6 @@ class Client extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'code',
         'type',
         'name',
         'id_number',

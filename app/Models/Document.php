@@ -47,6 +47,11 @@ class Document extends Model
             ->where('client_can_view', true);
     }
 
+    public function isInternal(): bool
+    {
+        return $this->group->isInternal();
+    }
+
     public function matter(): BelongsTo
     {
         return $this->belongsTo(Matter::class);

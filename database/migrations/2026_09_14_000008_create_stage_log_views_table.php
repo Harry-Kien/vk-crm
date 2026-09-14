@@ -14,7 +14,7 @@ return new class extends Migration
             $table->foreignId('stage_log_id')->constrained()->cascadeOnDelete();
             $table->foreignId('client_user_id')->constrained()->cascadeOnDelete();
             $table->dateTime('viewed_at');
-            $table->string('ip', 45)->nullable();
+            $table->string('ip', 45);
             $table->timestamps();
 
             $table->unique(['stage_log_id', 'client_user_id']);

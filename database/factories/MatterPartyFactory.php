@@ -6,7 +6,6 @@ use App\Enums\PartyRole;
 use App\Models\Client;
 use App\Models\Matter;
 use App\Models\MatterParty;
-use App\Support\Normalizer;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -35,10 +34,7 @@ class MatterPartyFactory extends Factory
 
     public function identify(?string $idNumber, ?string $phone): static
     {
-        return $this->state(fn () => [
-            'id_number_hash' => Normalizer::idNumberHash($idNumber),
-            'phone_normalized' => Normalizer::phone($phone),
-        ]);
+        return $this->afterMaking(fn (MatterParty $party) => $party->identify($idNumber, $phone));
     }
 
     /** Khách hàng của văn phòng đứng vai nguyên đơn, định danh lấy từ hồ sơ khách. */
@@ -50,8 +46,6 @@ class MatterPartyFactory extends Factory
             'client_id' => $client->id,
             'name' => $client->name,
             'address' => $client->address,
-            'id_number_hash' => Normalizer::idNumberHash($client->id_number),
-            'phone_normalized' => Normalizer::phone($client->phone),
-        ]);
+        ])->afterMaking(fn (MatterParty $party) => $party->identify($client->id_number, $client->phone));
     }
 }

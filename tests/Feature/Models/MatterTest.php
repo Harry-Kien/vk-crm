@@ -2,8 +2,10 @@
 
 use App\Enums\Confidentiality;
 use App\Enums\MatterRole;
+use App\Exceptions\MatterNotDestroyable;
 use App\Models\Matter;
 use App\Models\MatterType;
+use App\Models\StageLog;
 use App\Models\User;
 use Illuminate\Database\QueryException;
 
@@ -61,4 +63,15 @@ it('belongs to a client and a type', function () {
 
     expect($matter->client->matters->first()->is($matter))->toBeTrue()
         ->and($matter->matterType->matters->first()->is($matter))->toBeTrue();
+});
+
+it('can be soft deleted but never force deleted', function () {
+    $matter = Matter::factory()->create();
+    StageLog::factory()->for($matter)->create();
+
+    $matter->delete();
+    expect(Matter::withTrashed()->find($matter->id)->trashed())->toBeTrue();
+
+    expect(fn () => $matter->forceDelete())->toThrow(MatterNotDestroyable::class)
+        ->and(StageLog::count())->toBe(1);
 });

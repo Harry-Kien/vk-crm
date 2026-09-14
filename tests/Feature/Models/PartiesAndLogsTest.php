@@ -41,6 +41,18 @@ it('links our client as a party with client_id', function () {
         ->and($matter->parties)->toHaveCount(1);
 });
 
+it('cannot receive a raw identity through mass assignment and identify() is the only write path', function () {
+    $party = MatterParty::factory()->for(Matter::factory()->create())->make(['id_number_hash' => '079090001234', 'phone_normalized' => '0901234567']);
+
+    expect($party->id_number_hash)->toBeNull()
+        ->and($party->phone_normalized)->toBeNull();
+
+    $party->identify('079 090 001 234', '0901234567')->save();
+
+    expect($party->fresh()->id_number_hash)->toBe(hash('sha256', '079090001234'))
+        ->and($party->fresh()->phone_normalized)->toBe('84901234567');
+});
+
 it('finds parties matching an identity across matters', function () {
     $a = MatterParty::factory()->identify('111', '0900000001')->create();
     MatterParty::factory()->identify('222', '0900000002')->create();

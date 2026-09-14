@@ -35,7 +35,14 @@ it('never exposes group D through the client visible scope', function () {
     Document::factory()->for($matter)->group(DocumentGroup::Issued)->create(['client_can_view' => false]);
     $visible = Document::factory()->for($matter)->group(DocumentGroup::ClientProvided)->create(['client_can_view' => true]);
 
-    expect(Document::query()->clientVisible()->pluck('id')->all())->toBe([$visible->id]);
+    expect(Document::query()->clientVisible()->pluck('id')->all())->toBe([$visible->id])
+        ->and(Document::where('group', 'D')->first()->isInternal())->toBeTrue();
+});
+
+it('stores morph aliases instead of class names', function () {
+    $doc = Document::factory()->uploadedBy(User::factory()->create())->create();
+
+    expect($doc->getRawOriginal('uploader_type'))->toBe('user');
 });
 
 it('casts group and status to enums', function () {
