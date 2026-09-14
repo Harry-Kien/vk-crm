@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Spatie\Permission\Models\Role as SpatieRole;
 use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable implements FilamentUser
@@ -78,9 +79,17 @@ class User extends Authenticatable implements FilamentUser
     /**
      * Gán vai trò khớp chức danh. Vai trò và chức danh là hai khái niệm khác nhau nhưng
      * ở bản 1.0 luôn trùng giá trị; Action sửa nhân sự (M3) phải gọi lại hàm này.
+     *
+     * Tự tạo dòng vai trò nếu chưa có, để seeder hoặc lệnh chạy lẻ không ném RoleDoesNotExist.
+     * Vai trò rỗng quyền là trạng thái an toàn (không cho gì), và sẽ được
+     * RolesAndPermissionsSeeder điền quyền đúng khi chạy.
      */
     public function assignRoleFromPosition(): void
     {
-        $this->syncRoles([Role::fromPosition($this->position)->value]);
+        $role = Role::fromPosition($this->position);
+
+        SpatieRole::findOrCreate($role->value, 'web');
+
+        $this->syncRoles([$role->value]);
     }
 }

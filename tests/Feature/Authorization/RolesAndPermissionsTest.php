@@ -75,3 +75,12 @@ it('is idempotent', function () {
 
     expect(Spatie\Permission\Models\Permission::count())->toBe(count(Permission::cases()));
 });
+
+it('creates a missing role row rather than throwing', function () {
+    Spatie\Permission\Models\Role::query()->delete();
+
+    $user = User::factory()->create(['position' => UserPosition::Lawyer]);
+
+    expect(fn () => $user->assignRoleFromPosition())->not->toThrow(Throwable::class)
+        ->and($user->fresh()->hasRole(Role::Lawyer->value))->toBeTrue();
+});
