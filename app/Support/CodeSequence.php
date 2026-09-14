@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\DB;
 /**
  * Sinh số thứ tự tuần tự theo khoá. Hai request cùng lúc luôn nhận hai số khác nhau
  * vì dòng đếm bị khoá trong transaction; nếu có transaction bao ngoài thì tham gia
- * transaction đó và cùng rollback.
+ * transaction đó và cùng rollback. Deadlocks on the first insert of a key are retried up to 3 times.
  */
 final class CodeSequence
 {
@@ -33,7 +33,7 @@ final class CodeSequence
                 ->update(['last_number' => $next, 'updated_at' => now()]);
 
             return $next;
-        });
+        }, 3);
     }
 
     public static function format(string $prefix, int $number): string
