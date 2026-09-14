@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\ClientType;
+use App\Models\Concerns\HasBlameable;
 use Database\Factories\ClientFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -12,9 +13,10 @@ use Illuminate\Support\Facades\DB;
 
 class Client extends Model
 {
+    use HasBlameable;
+
     /** @use HasFactory<ClientFactory> */
     use HasFactory;
-
     use SoftDeletes;
 
     protected $fillable = [
