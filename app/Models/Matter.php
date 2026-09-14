@@ -4,6 +4,8 @@ namespace App\Models;
 
 use App\Enums\Confidentiality;
 use App\Enums\MatterRole;
+use App\Enums\Permission;
+use App\Enums\Role as StaffRole;
 use App\Exceptions\MatterNotDestroyable;
 use App\Models\Concerns\HasBlameable;
 use App\Models\Concerns\HidesInternalAttributesFromPortal;
@@ -86,6 +88,37 @@ class Matter extends Model
     public function addTeamMember(User $user, MatterRole $role): void
     {
         $this->team()->attach($user->id, ['role_in_matter' => $role->value]);
+    }
+
+    /**
+     * Định nghĩa duy nhất của "nhân sự này được thấy vụ việc nào" (SPEC §5).
+     * Dùng cho danh sách ở panel admin và cho MatterPolicy::view, để hai nơi không lệch nhau.
+     *
+     * - Vụ thường: ai có matter.viewAny thấy tất cả; còn lại phải có tên trong matter_user.
+     * - Vụ `restricted`: chỉ luật sư phụ trách và vai trò admin, kể cả trưởng phòng cũng không.
+     * - Ai không có cả matter.viewAny lẫn matter.view (kế toán chỉ có viewAny) xử lý ở nhánh tương ứng.
+     */
+    public function scopeListableBy(Builder $query, User $user): Builder
+    {
+        return $query->where(function (Builder $outer) use ($user): void {
+            $outer->where(function (Builder $normal) use ($user): void {
+                $normal->where($this->qualifyColumn('confidentiality'), '!=', Confidentiality::Restricted->value);
+
+                if ($user->can(Permission::MatterViewAny->value)) {
+                    return;
+                }
+
+                $user->can(Permission::MatterView->value)
+                    ? $normal->whereHas('team', fn (Builder $team) => $team->whereKey($user->getKey()))
+                    : $normal->whereRaw('1 = 0');
+            })->orWhere(function (Builder $restricted) use ($user): void {
+                $restricted->where($this->qualifyColumn('confidentiality'), Confidentiality::Restricted->value);
+
+                if (! $user->hasRole(StaffRole::Admin->value)) {
+                    $restricted->where($this->qualifyColumn('lead_lawyer_id'), $user->getKey());
+                }
+            });
+        });
     }
 
     public function currentStage(): ?MatterTypeStage
