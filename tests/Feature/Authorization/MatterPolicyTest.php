@@ -2,6 +2,8 @@
 
 use App\Enums\MatterRole;
 use App\Enums\Role;
+use App\Models\Client;
+use App\Models\ClientUser;
 use App\Models\Matter;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -71,4 +73,55 @@ it('restricts creation and deletion to the roles the spec names', function () {
         ->and($this->admin->can('delete', $this->matter))->toBeTrue()
         ->and($this->manager->can('delete', $this->matter))->toBeFalse()
         ->and($this->admin->can('forceDelete', $this->matter))->toBeFalse();
+});
+
+it('answers for a portal user from the portal rules, not from spatie', function () {
+    $client = Client::factory()->create();
+    $clientUser = ClientUser::factory()->create(['client_id' => $client->id]);
+
+    $own = Matter::factory()->for($client)->create();
+    $ownHidden = Matter::factory()->for($client)->unpublished()->create();
+    $foreign = Matter::factory()->create();
+
+    expect($clientUser->can('viewAny', Matter::class))->toBeTrue()
+        ->and($clientUser->can('view', $own))->toBeTrue()
+        ->and($clientUser->can('view', $ownHidden))->toBeFalse()
+        ->and($clientUser->can('view', $foreign))->toBeFalse()
+        ->and($clientUser->can('create', Matter::class))->toBeFalse()
+        ->and($clientUser->can('update', $own))->toBeFalse()
+        ->and($clientUser->can('transitionStage', $own))->toBeFalse()
+        ->and($clientUser->can('delete', $own))->toBeFalse()
+        ->and($clientUser->can('forceDelete', $own))->toBeFalse();
+});
+
+it('answers the same for a portal user whether or not the client guard is open', function () {
+    // ChecksPortalVisibility must not depend on ambient auth state.
+    $client = Client::factory()->create();
+    $clientUser = ClientUser::factory()->create(['client_id' => $client->id]);
+    $own = Matter::factory()->for($client)->create();
+    $foreign = Matter::factory()->create();
+
+    expect($clientUser->can('view', $own))->toBeTrue()
+        ->and($clientUser->can('view', $foreign))->toBeFalse();
+
+    $this->actingAs($clientUser, 'client');
+
+    expect($clientUser->can('view', $own))->toBeTrue()
+        ->and($clientUser->can('view', $foreign))->toBeFalse();
+});
+
+it('still lets an admin act on a soft deleted matter', function () {
+    $this->matter->delete();
+
+    expect($this->admin->can('view', $this->matter))->toBeTrue()
+        ->and($this->admin->can('restore', $this->matter))->toBeTrue()
+        ->and($this->admin->can('forceDelete', $this->matter))->toBeFalse();
+});
+
+it('keeps a restricted matter out of the list of a lead lawyer who lost the view permission', function () {
+    $demoted = User::factory()->withRole(Role::Accountant)->create();
+    $theirs = Matter::factory()->restricted()->create(['lead_lawyer_id' => $demoted->id]);
+
+    expect(Matter::query()->listableBy($demoted)->pluck('id')->all())->not->toContain($theirs->id)
+        ->and($demoted->can('view', $theirs))->toBeFalse();
 });

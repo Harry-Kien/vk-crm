@@ -114,9 +114,15 @@ class Matter extends Model
             })->orWhere(function (Builder $restricted) use ($user): void {
                 $restricted->where($this->qualifyColumn('confidentiality'), Confidentiality::Restricted->value);
 
-                if (! $user->hasRole(StaffRole::Admin->value)) {
-                    $restricted->where($this->qualifyColumn('lead_lawyer_id'), $user->getKey());
+                if ($user->hasRole(StaffRole::Admin->value)) {
+                    return;
                 }
+
+                // Luật sư phụ trách vẫn phải có quyền matter.view: một người bị đổi chức danh
+                // sang kế toán vẫn còn lead_lawyer_id trên các vụ cũ.
+                $user->can(Permission::MatterView->value)
+                    ? $restricted->where($this->qualifyColumn('lead_lawyer_id'), $user->getKey())
+                    : $restricted->whereRaw('1 = 0');
             });
         });
     }

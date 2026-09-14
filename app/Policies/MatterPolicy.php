@@ -29,7 +29,7 @@ class MatterPolicy
         }
 
         return $user->can(Permission::MatterView->value)
-            && Matter::query()->listableBy($user)->whereKey($matter->getKey())->exists();
+            && Matter::query()->withTrashed()->listableBy($user)->whereKey($matter->getKey())->exists();
     }
 
     public function create(User|ClientUser $user): bool
