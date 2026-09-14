@@ -12,10 +12,11 @@ use App\Models\User;
 it('finds upcoming deadlines and tracks reminders sent', function () {
     $matter = Matter::factory()->create();
     $soon = Deadline::factory()->for($matter)->dueIn(2)->critical()->create();
+    $overdue = Deadline::factory()->for($matter)->dueIn(-1)->create();
     Deadline::factory()->for($matter)->dueIn(20)->create();
     Deadline::factory()->for($matter)->dueIn(1)->create(['is_completed' => true]);
 
-    expect(Deadline::query()->upcoming(3)->pluck('id')->all())->toBe([$soon->id])
+    expect(Deadline::query()->upcoming(3)->orderBy('id')->pluck('id')->all())->toBe([$soon->id, $overdue->id])
         ->and($soon->severity)->toBe(DeadlineSeverity::Critical)
         ->and($soon->reminders_sent)->toBe([]);
 
@@ -24,7 +25,7 @@ it('finds upcoming deadlines and tracks reminders sent', function () {
 
     expect($soon->fresh()->reminders_sent)->toBe(['d3'])
         ->and($soon->responsible)->toBeInstanceOf(User::class)
-        ->and($matter->deadlines)->toHaveCount(3);
+        ->and($matter->deadlines)->toHaveCount(4);
 });
 
 it('threads client requests with polymorphic replies', function () {

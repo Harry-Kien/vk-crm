@@ -17,6 +17,7 @@ class Deadline extends Model
 
     /** @use HasFactory<DeadlineFactory> */
     use HasFactory;
+
     use SoftDeletes;
 
     protected $fillable = [
@@ -43,10 +44,10 @@ class Deadline extends Model
     {
         return $query
             ->where('is_completed', false)
-            ->whereDate('due_date', '<=', today()->addDays($days));
+            ->where('due_date', '<=', today()->addDays($days)->toDateString());
     }
 
-    /** Ghi mốc nhắc đã gửi (d7, d3, d1, overdue), không ghi trùng. */
+    /** Ghi mốc nhắc đã gửi (d7, d3, d1, overdue), không ghi trùng. Không tự khoá dòng; job gọi phương thức này phải nạp Deadline bằng lockForUpdate() trong transaction. */
     public function markReminderSent(string $key): void
     {
         $sent = $this->reminders_sent ?? [];
