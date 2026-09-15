@@ -4,8 +4,11 @@ namespace App\Models;
 
 use App\Enums\ClientType;
 use App\Models\Concerns\HasBlameable;
+use App\Models\Concerns\HidesInternalAttributesFromPortal;
+use App\Models\Concerns\RestrictedToClientPortal;
 use App\Support\CodeSequence;
 use Database\Factories\ClientFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -18,6 +21,8 @@ class Client extends Model
     /** @use HasFactory<ClientFactory> */
     use HasFactory;
 
+    use HidesInternalAttributesFromPortal;
+    use RestrictedToClientPortal;
     use SoftDeletes;
 
     protected $fillable = [
@@ -46,6 +51,11 @@ class Client extends Model
         });
     }
 
+    public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
+    {
+        $query->whereKey($clientUser->client_id);
+    }
+
     public function clientUsers(): HasMany
     {
         return $this->hasMany(ClientUser::class);
@@ -64,5 +74,11 @@ class Client extends Model
         $year = now()->format('Y');
 
         return CodeSequence::format("KH-{$year}-", CodeSequence::next("client:{$year}"));
+    }
+
+    /** SPEC §4.2: note là ghi chú nội bộ, không bao giờ ra portal. */
+    protected function internalAttributes(): array
+    {
+        return ['note'];
     }
 }

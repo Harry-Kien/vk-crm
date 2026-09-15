@@ -8,6 +8,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+/**
+ * Cố ý KHÔNG dùng RestrictedToClientPortal: đây là dữ liệu cấu hình, không chứa dữ liệu khách
+ * hàng, và portal cần đọc client_label / client_description để hiển thị giai đoạn (SPEC §8.3).
+ */
 class MatterTypeStage extends Model
 {
     /** @use HasFactory<MatterTypeStageFactory> */

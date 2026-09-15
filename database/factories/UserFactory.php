@@ -2,11 +2,13 @@
 
 namespace Database\Factories;
 
+use App\Enums\Role;
 use App\Enums\UserPosition;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Spatie\Permission\Models\Role as SpatieRole;
 
 /**
  * @extends Factory<User>
@@ -49,11 +51,19 @@ class UserFactory extends Factory
 
     public function admin(): static
     {
-        return $this->position(UserPosition::Admin);
+        return $this->position(UserPosition::Admin)->withRole(Role::Admin);
     }
 
     public function position(UserPosition $position): static
     {
         return $this->state(fn () => ['position' => $position]);
+    }
+
+    public function withRole(Role $role): static
+    {
+        return $this->afterCreating(function (User $user) use ($role): void {
+            SpatieRole::findOrCreate($role->value, 'web');
+            $user->syncRoles([$role->value]);
+        });
     }
 }

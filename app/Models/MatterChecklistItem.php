@@ -3,7 +3,9 @@
 namespace App\Models;
 
 use App\Enums\ChecklistItemStatus;
+use App\Models\Concerns\RestrictedToClientPortal;
 use Database\Factories\MatterChecklistItemFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -15,6 +17,7 @@ class MatterChecklistItem extends Model
     /** @use HasFactory<MatterChecklistItemFactory> */
     use HasFactory;
 
+    use RestrictedToClientPortal;
     use SoftDeletes;
 
     protected $fillable = [
@@ -32,6 +35,12 @@ class MatterChecklistItem extends Model
             'status' => ChecklistItemStatus::class,
             'reviewed_at' => 'datetime',
         ];
+    }
+
+    /** Khách thấy toàn bộ danh mục hồ sơ của vụ việc mình, kèm trạng thái và lý do từ chối (SPEC §8.3). */
+    public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
+    {
+        $query->whereHas('matter');
     }
 
     public function matter(): BelongsTo

@@ -4,10 +4,15 @@ namespace App\Models;
 
 use App\Enums\Confidentiality;
 use App\Enums\MatterRole;
+use App\Enums\Permission;
+use App\Enums\Role as StaffRole;
 use App\Exceptions\MatterNotDestroyable;
 use App\Models\Concerns\HasBlameable;
+use App\Models\Concerns\HidesInternalAttributesFromPortal;
+use App\Models\Concerns\RestrictedToClientPortal;
 use App\Support\CodeSequence;
 use Database\Factories\MatterFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -23,6 +28,8 @@ class Matter extends Model
     /** @use HasFactory<MatterFactory> */
     use HasFactory;
 
+    use HidesInternalAttributesFromPortal;
+    use RestrictedToClientPortal;
     use SoftDeletes;
 
     protected $fillable = [
@@ -83,6 +90,43 @@ class Matter extends Model
         $this->team()->attach($user->id, ['role_in_matter' => $role->value]);
     }
 
+    /**
+     * Định nghĩa duy nhất của "nhân sự này được thấy vụ việc nào" (SPEC §5).
+     * Dùng cho danh sách ở panel admin và cho MatterPolicy::view, để hai nơi không lệch nhau.
+     *
+     * - Vụ thường: ai có matter.viewAny thấy tất cả; còn lại phải có tên trong matter_user.
+     * - Vụ `restricted`: chỉ luật sư phụ trách và vai trò admin, kể cả trưởng phòng cũng không.
+     * - Ai không có cả matter.viewAny lẫn matter.view (kế toán chỉ có viewAny) xử lý ở nhánh tương ứng.
+     */
+    public function scopeListableBy(Builder $query, User $user): Builder
+    {
+        return $query->where(function (Builder $outer) use ($user): void {
+            $outer->where(function (Builder $normal) use ($user): void {
+                $normal->where($this->qualifyColumn('confidentiality'), '!=', Confidentiality::Restricted->value);
+
+                if ($user->can(Permission::MatterViewAny->value)) {
+                    return;
+                }
+
+                $user->can(Permission::MatterView->value)
+                    ? $normal->whereHas('team', fn (Builder $team) => $team->whereKey($user->getKey()))
+                    : $normal->whereRaw('1 = 0');
+            })->orWhere(function (Builder $restricted) use ($user): void {
+                $restricted->where($this->qualifyColumn('confidentiality'), Confidentiality::Restricted->value);
+
+                if ($user->hasRole(StaffRole::Admin->value)) {
+                    return;
+                }
+
+                // Luật sư phụ trách vẫn phải có quyền matter.view: một người bị đổi chức danh
+                // sang kế toán vẫn còn lead_lawyer_id trên các vụ cũ.
+                $user->can(Permission::MatterView->value)
+                    ? $restricted->where($this->qualifyColumn('lead_lawyer_id'), $user->getKey())
+                    : $restricted->whereRaw('1 = 0');
+            });
+        });
+    }
+
     public function currentStage(): ?MatterTypeStage
     {
         return $this->matterType->stage($this->stage);
@@ -91,6 +135,17 @@ class Matter extends Model
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);
+    }
+
+    /**
+     * Khách chỉ thấy vụ việc của chính mình và chỉ khi đã bật công tắc công bố (SPEC §5).
+     */
+    public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
+    {
+        $query->where($this->qualifyColumn('client_id'), $clientUser->client_id)
+            ->where($this->qualifyColumn('is_published_to_portal'), true);
+
+        // M7 bổ sung điều kiện client_access_until ở đây (SPEC §11 "Bàn giao và lưu trữ").
     }
 
     public function matterType(): BelongsTo
@@ -149,5 +204,11 @@ class Matter extends Model
     public function archive(): HasOne
     {
         return $this->hasOne(MatterArchive::class);
+    }
+
+    /** SPEC §4.6: description_internal không bao giờ ra portal. */
+    protected function internalAttributes(): array
+    {
+        return ['description_internal'];
     }
 }

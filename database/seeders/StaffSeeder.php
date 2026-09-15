@@ -25,7 +25,7 @@ class StaffSeeder extends Seeder
     public function run(): void
     {
         foreach (self::roster() as $index => $person) {
-            User::query()->updateOrCreate(
+            $user = User::query()->updateOrCreate(
                 ['email' => $person['email']],
                 [
                     'name' => $person['name'],
@@ -36,6 +36,8 @@ class StaffSeeder extends Seeder
                     'is_active' => true,
                 ],
             );
+
+            $user->assignRoleFromPosition();
         }
     }
 }

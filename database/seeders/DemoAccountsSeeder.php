@@ -17,7 +17,7 @@ class DemoAccountsSeeder extends Seeder
 {
     public function run(): void
     {
-        User::query()->updateOrCreate(
+        $admin = User::query()->updateOrCreate(
             ['email' => 'admin@luatvukhang.com'],
             [
                 'name' => 'Quản trị hệ thống',
@@ -26,6 +26,8 @@ class DemoAccountsSeeder extends Seeder
                 'is_active' => true,
             ],
         );
+
+        $admin->assignRoleFromPosition();
 
         $client = Client::query()->firstOrCreate(
             ['email' => 'khach1@example.com'],

@@ -9,6 +9,7 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call([
+            RolesAndPermissionsSeeder::class,
             DemoAccountsSeeder::class,   // giữ hai tài khoản đăng nhập M0
             StaffSeeder::class,
             MatterTypeSeeder::class,

@@ -3,7 +3,9 @@
 namespace App\Models;
 
 use App\Enums\ClientRequestStatus;
+use App\Models\Concerns\RestrictedToClientPortal;
 use Database\Factories\ClientRequestFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -15,6 +17,7 @@ class ClientRequest extends Model
     /** @use HasFactory<ClientRequestFactory> */
     use HasFactory;
 
+    use RestrictedToClientPortal;
     use SoftDeletes;
 
     protected $fillable = ['matter_id', 'client_user_id', 'subject', 'content', 'status', 'assigned_to', 'answered_at'];
@@ -27,6 +30,15 @@ class ClientRequest extends Model
             'status' => ClientRequestStatus::class,
             'answered_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Giới hạn theo vụ việc, tức theo client_id, không theo client_user_id: SPEC §4.3 nói rõ
+     * mọi truy vấn portal giới hạn theo khách hàng, để hai tài khoản cùng một khách đọc chung.
+     */
+    public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
+    {
+        $query->whereHas('matter');
     }
 
     public function matter(): BelongsTo

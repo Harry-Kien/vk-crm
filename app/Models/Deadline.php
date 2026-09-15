@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\DeadlineSeverity;
 use App\Models\Concerns\HasBlameable;
+use App\Models\Concerns\RestrictedToClientPortal;
 use Database\Factories\DeadlineFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -18,6 +19,7 @@ class Deadline extends Model
     /** @use HasFactory<DeadlineFactory> */
     use HasFactory;
 
+    use RestrictedToClientPortal;
     use SoftDeletes;
 
     protected $fillable = [
@@ -56,6 +58,11 @@ class Deadline extends Model
             $sent[] = $key;
             $this->update(['reminders_sent' => $sent]);
         }
+    }
+
+    public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
+    {
+        $query->where($this->qualifyColumn('is_published'), true)->whereHas('matter');
     }
 
     public function matter(): BelongsTo

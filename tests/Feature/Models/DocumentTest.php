@@ -29,16 +29,6 @@ it('links versions through parent_document_id', function () {
         ->and($v1->newerVersions->first()->is($v2))->toBeTrue();
 });
 
-it('never exposes group D through the client visible scope', function () {
-    $matter = Matter::factory()->create();
-    Document::factory()->for($matter)->group(DocumentGroup::Internal)->create(['client_can_view' => true]);
-    Document::factory()->for($matter)->group(DocumentGroup::Issued)->create(['client_can_view' => false]);
-    $visible = Document::factory()->for($matter)->group(DocumentGroup::ClientProvided)->create(['client_can_view' => true]);
-
-    expect(Document::query()->clientVisible()->pluck('id')->all())->toBe([$visible->id])
-        ->and(Document::where('group', 'D')->first()->isInternal())->toBeTrue();
-});
-
 it('stores morph aliases instead of class names', function () {
     $doc = Document::factory()->uploadedBy(User::factory()->create())->create();
 

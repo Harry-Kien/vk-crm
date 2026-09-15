@@ -242,3 +242,5 @@ mở nào đủ giấy phép, đủ mới và có portal để fork.
 | Ngày | Gói | Kết quả | Ghi chú |
 |---|---|---|---|
 | 2026-09-14 | (không cài gói mới ở M1) | — | Đúng kế hoạch |
+| 2026-09-14 | spatie/laravel-permission ^8 | Cài (8.3.0) | Tương thích PHP 8.3 + Laravel 13 |
+| 2026-09-14 | bezhansalleh/filament-shield | Hoãn sang M3 | M2 chưa có resource để Shield sinh quyền; tên quyền theo SPEC §5 là nguồn sự thật |

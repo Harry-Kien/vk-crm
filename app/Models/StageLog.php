@@ -4,7 +4,10 @@ namespace App\Models;
 
 use App\Exceptions\StageLogImmutable;
 use App\Models\Concerns\HasBlameable;
+use App\Models\Concerns\HidesInternalAttributesFromPortal;
+use App\Models\Concerns\RestrictedToClientPortal;
 use Database\Factories\StageLogFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -16,6 +19,9 @@ class StageLog extends Model
 
     /** @use HasFactory<StageLogFactory> */
     use HasFactory;
+
+    use HidesInternalAttributesFromPortal;
+    use RestrictedToClientPortal;
 
     /** Các cột được phép đổi sau khi ghi: chỉ trạng thái công bố và thông báo. */
     public const MUTABLE = ['is_published', 'published_at', 'notified_at', 'updated_by', 'updated_at'];
@@ -51,6 +57,15 @@ class StageLog extends Model
         });
     }
 
+    /**
+     * Khách chỉ đọc dòng đã công bố, thuộc vụ việc mà Matter cho phép (SPEC §5).
+     * `whereHas('matter')` kế thừa điều kiện của Matter nên không lặp lại client_id ở đây.
+     */
+    public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
+    {
+        $query->where($this->qualifyColumn('is_published'), true)->whereHas('matter');
+    }
+
     public function matter(): BelongsTo
     {
         return $this->belongsTo(Matter::class);
@@ -64,5 +79,11 @@ class StageLog extends Model
     public function views(): HasMany
     {
         return $this->hasMany(StageLogView::class);
+    }
+
+    /** SPEC §4.8: internal_note chỉ dành cho nội bộ. */
+    protected function internalAttributes(): array
+    {
+        return ['internal_note'];
     }
 }
