@@ -7,6 +7,7 @@ use App\Enums\MatterRole;
 use App\Enums\Permission;
 use App\Enums\Role as StaffRole;
 use App\Exceptions\MatterNotDestroyable;
+use App\Exceptions\StageNotConfigured;
 use App\Models\Concerns\HasBlameable;
 use App\Models\Concerns\HidesInternalAttributesFromPortal;
 use App\Models\Concerns\RestrictedToClientPortal;
@@ -59,7 +60,7 @@ class Matter extends Model
             $type = $matter->matterType ?? MatterType::query()->findOrFail($matter->matter_type_id);
 
             $matter->code ??= static::nextCode($type);
-            $matter->stage ??= $type->firstStage()?->key;
+            $matter->stage ??= $type->firstStage()?->key ?? throw StageNotConfigured::make($type);
             $matter->stage_entered_at ??= now();
             $matter->opened_at ??= today();
             $matter->confidentiality ??= Confidentiality::Normal;

@@ -3,6 +3,7 @@
 use App\Enums\Confidentiality;
 use App\Enums\MatterRole;
 use App\Exceptions\MatterNotDestroyable;
+use App\Exceptions\StageNotConfigured;
 use App\Models\Matter;
 use App\Models\MatterType;
 use App\Models\StageLog;
@@ -27,6 +28,18 @@ it('generates a code per year and type and starts at the first stage', function 
         ->and($a->opened_at->isToday())->toBeTrue()
         ->and($a->confidentiality)->toBe(Confidentiality::Normal)
         ->and(Matter::factory()->unpublished()->create()->is_published_to_portal)->toBeFalse();
+});
+
+/**
+ * M1 mang sang: khi loại vụ việc chưa cấu hình giai đoạn nào, `firstStage()` trả về null và
+ * `matters.stage` (NOT NULL) sẽ bị vi phạm với lỗi DB thô. Giờ `Matter::creating` ném
+ * `StageNotConfigured` có thông điệp tiếng Việt nêu rõ tên loại vụ việc.
+ */
+it('refuses to open a matter whose type has no stages configured', function () {
+    $type = MatterType::factory()->create(['name' => 'Thử nghiệm không giai đoạn']);
+
+    expect(fn () => Matter::factory()->for($type, 'matterType')->create())
+        ->toThrow(StageNotConfigured::class, 'Thử nghiệm không giai đoạn');
 });
 
 it('uses the configured matter code prefix', function () {
