@@ -8,6 +8,7 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Spatie\Permission\Models\Role as SpatieRole;
 
 /**
  * @extends Factory<User>
@@ -60,6 +61,9 @@ class UserFactory extends Factory
 
     public function withRole(Role $role): static
     {
-        return $this->afterCreating(fn (User $user) => $user->syncRoles([$role->value]));
+        return $this->afterCreating(function (User $user) use ($role): void {
+            SpatieRole::findOrCreate($role->value, 'web');
+            $user->syncRoles([$role->value]);
+        });
     }
 }

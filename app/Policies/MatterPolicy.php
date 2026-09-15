@@ -40,6 +40,7 @@ class MatterPolicy
     public function update(User|ClientUser $user, Matter $matter): bool
     {
         return $user instanceof User
+            && ! $matter->trashed()
             && $user->can(Permission::MatterUpdate->value)
             && $this->view($user, $matter);
     }
@@ -47,6 +48,7 @@ class MatterPolicy
     public function transitionStage(User|ClientUser $user, Matter $matter): bool
     {
         return $user instanceof User
+            && ! $matter->trashed()
             && $user->can(Permission::MatterTransitionStage->value)
             && $this->view($user, $matter);
     }

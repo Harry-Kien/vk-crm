@@ -118,6 +118,16 @@ it('still lets an admin act on a soft deleted matter', function () {
         ->and($this->admin->can('forceDelete', $this->matter))->toBeFalse();
 });
 
+it('makes a soft deleted matter read only until it is restored', function () {
+    $this->matter->delete();
+
+    expect($this->admin->can('view', $this->matter))->toBeTrue()
+        ->and($this->admin->can('restore', $this->matter))->toBeTrue()
+        ->and($this->admin->can('update', $this->matter))->toBeFalse()
+        ->and($this->admin->can('transitionStage', $this->matter))->toBeFalse()
+        ->and($this->manager->can('update', $this->matter))->toBeFalse();
+});
+
 it('keeps a restricted matter out of the list of a lead lawyer who lost the view permission', function () {
     $demoted = User::factory()->withRole(Role::Accountant)->create();
     $theirs = Matter::factory()->restricted()->create(['lead_lawyer_id' => $demoted->id]);

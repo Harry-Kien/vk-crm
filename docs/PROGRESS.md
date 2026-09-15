@@ -56,7 +56,7 @@
   `ChecksPortalVisibility::visibleToPortal()`, nên hai tầng không thể lệch nhau.
 - `Matter::scopeListableBy()` là định nghĩa duy nhất của "nhân sự thấy vụ việc nào". Mọi resource
   ở M3 trở đi **phải** dùng nó trong `getEloquentQuery()`, nếu không danh sách sẽ rò rỉ vụ việc
-  ngoài đội ngũ (SPEC §11 "kể cả trong kết quả tìm kiếm").
+  ngoài đội ngũ (SPEC §4.7 "kể cả trong kết quả tìm kiếm").
 - Tách `listableBy` (dòng thấy trong danh sách) khỏi `view` (mở được hồ sơ) vì SPEC §5 cho kế toán
   danh sách rút gọn nhưng không cho xem nội dung.
 - **Không cài `filament-shield` ở M2.** Shield sinh quyền từ Filament Resource mà M2 chưa có

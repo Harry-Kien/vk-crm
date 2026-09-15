@@ -15,6 +15,7 @@ use App\Models\MatterParty;
 use App\Models\MatterType;
 use App\Models\StageLog;
 use App\Models\User;
+use App\Support\Scopes\ClientPortalScope;
 use Database\Seeders\RolesAndPermissionsSeeder;
 
 beforeEach(function () {
@@ -110,4 +111,13 @@ it('answers the create ability the way Laravel actually calls it', function () {
         ->and($this->accountant->can('create', Deadline::class))->toBeFalse()
         ->and($this->clientUser->can('create', Deadline::class))->toBeFalse()
         ->and($this->clientUser->can('create', CommunicationLog::class))->toBeFalse();
+});
+
+it('answers portal visibility for a child model even when no guard is open', function () {
+    $foreignLog = StageLog::factory()->published()->create();
+    $ownLog = StageLog::factory()->for($this->matter)->published()->create();
+
+    expect(ClientPortalScope::isActive())->toBeFalse()
+        ->and($this->clientUser->can('view', $foreignLog))->toBeFalse()
+        ->and($this->clientUser->can('view', $ownLog))->toBeTrue();
 });
