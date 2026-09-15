@@ -20,6 +20,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class Matter extends Model
 {
@@ -29,6 +31,7 @@ class Matter extends Model
     use HasFactory;
 
     use HidesInternalAttributesFromPortal;
+    use LogsActivity;
     use RestrictedToClientPortal;
     use SoftDeletes;
 
@@ -210,5 +213,18 @@ class Matter extends Model
     protected function internalAttributes(): array
     {
         return ['description_internal'];
+    }
+
+    /** SPEC §10.6: ghi nhật ký nghiệp vụ, trừ nội dung nội bộ dài (description_internal). */
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logOnly([
+                'client_id', 'matter_type_id', 'title', 'summary_for_client', 'stage',
+                'lead_lawyer_id', 'opened_at', 'closed_at', 'is_published_to_portal',
+                'court_name', 'case_number', 'confidentiality',
+            ])
+            ->logOnlyDirty()
+            ->dontSubmitEmptyLogs();
     }
 }

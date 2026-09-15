@@ -13,6 +13,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 use Spatie\Permission\Models\Role as SpatieRole;
 use Spatie\Permission\Traits\HasRoles;
 
@@ -26,6 +28,7 @@ class User extends Authenticatable implements FilamentUser
     use HasFactory;
 
     use HasRoles;
+    use LogsActivity;
     use Notifiable;
     use SoftDeletes;
 
@@ -95,5 +98,19 @@ class User extends Authenticatable implements FilamentUser
         SpatieRole::findOrCreate($role->value, 'web');
 
         $this->syncRoles([$role->value]);
+    }
+
+    /**
+     * SPEC §10.6: đổi phân quyền phải có dấu vết (roles ghi qua spatie/laravel-permission
+     * riêng, đây là các cột thuộc chính bản ghi User). Không log mật khẩu; last_login_at là
+     * dữ liệu hệ thống ghi ở mỗi lần đăng nhập, sự kiện đăng nhập tự nó được ghi qua
+     * Audit::record().
+     */
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logOnly(['name', 'email', 'phone', 'position', 'bar_number', 'is_active'])
+            ->logOnlyDirty()
+            ->dontSubmitEmptyLogs();
     }
 }

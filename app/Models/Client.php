@@ -13,6 +13,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class Client extends Model
 {
@@ -22,6 +24,7 @@ class Client extends Model
     use HasFactory;
 
     use HidesInternalAttributesFromPortal;
+    use LogsActivity;
     use RestrictedToClientPortal;
     use SoftDeletes;
 
@@ -80,5 +83,14 @@ class Client extends Model
     protected function internalAttributes(): array
     {
         return ['note'];
+    }
+
+    /** SPEC §10.5: không bao giờ log id_number. note (ghi chú nội bộ) cũng loại khỏi nhật ký. */
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logOnly(['type', 'name', 'phone', 'email', 'address', 'representative_name'])
+            ->logOnlyDirty()
+            ->dontSubmitEmptyLogs();
     }
 }

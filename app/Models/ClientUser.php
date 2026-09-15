@@ -10,6 +10,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 /**
  * Cố ý KHÔNG dùng RestrictedToClientPortal: gọi auth() trong global scope của chính model xác
@@ -20,6 +22,7 @@ class ClientUser extends Authenticatable implements FilamentUser
     /** @use HasFactory<ClientUserFactory> */
     use HasFactory;
 
+    use LogsActivity;
     use Notifiable;
     use SoftDeletes;
 
@@ -63,5 +66,18 @@ class ClientUser extends Authenticatable implements FilamentUser
     public function canAccessPanel(Panel $panel): bool
     {
         return $panel->getId() === 'portal' && $this->is_active;
+    }
+
+    /**
+     * SPEC §10.6: tạo và vô hiệu hoá tài khoản portal phải có dấu vết. Không log mật khẩu;
+     * last_login_at/last_login_ip là dữ liệu hệ thống ghi ở mỗi lần đăng nhập, không phải
+     * thay đổi nghiệp vụ, và sự kiện đăng nhập tự nó đã được ghi qua Audit::record().
+     */
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logOnly(['client_id', 'name', 'email', 'phone', 'is_active', 'must_change_password', 'activated_at'])
+            ->logOnlyDirty()
+            ->dontSubmitEmptyLogs();
     }
 }

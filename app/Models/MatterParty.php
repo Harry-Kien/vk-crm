@@ -12,6 +12,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 class MatterParty extends Model
 {
@@ -20,6 +22,7 @@ class MatterParty extends Model
     /** @use HasFactory<MatterPartyFactory> */
     use HasFactory;
 
+    use LogsActivity;
     use RestrictedToClientPortal;
     use SoftDeletes;
 
@@ -98,5 +101,17 @@ class MatterParty extends Model
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);
+    }
+
+    /**
+     * Không log id_number_hash/phone_normalized (không fillable, chỉ ghi qua identify()) và
+     * không log note (ghi chú nội bộ dài, cùng nguyên tắc với Matter::description_internal).
+     */
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logOnly(['matter_id', 'role', 'is_our_client', 'client_id', 'name', 'address'])
+            ->logOnlyDirty()
+            ->dontSubmitEmptyLogs();
     }
 }
