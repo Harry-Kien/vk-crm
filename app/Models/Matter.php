@@ -51,6 +51,11 @@ class Matter extends Model
             'is_published_to_portal' => 'boolean',
             'last_client_update_at' => 'datetime',
             'confidentiality' => Confidentiality::class,
+            // isListableBy() so sánh chặt (===) lead_lawyer_id với $user->getKey(); không ép
+            // kiểu ở đây thì một model bẩn giữ giá trị string từ request (chưa qua DB) sẽ lệch
+            // với so sánh lỏng của scopeListableBy — đúng cái bất đối xứng mà isListableBy()
+            // sinh ra để triệt tiêu.
+            'lead_lawyer_id' => 'integer',
         ];
     }
 
@@ -137,6 +142,13 @@ class Matter extends Model
     /**
      * Bản kiểm tra trong bộ nhớ của scopeListableBy(), dùng quan hệ `team` đã nạp thay vì chạy
      * EXISTS. Cùng ba điều kiện, để MatterPolicy::view và danh sách Filament không lệch nhau.
+     *
+     * Chỉ tin quan hệ `team` khi nó được nạp KHÔNG ràng buộc (`with('team')`,
+     * `load('team')`, `$matter->team`) — hàm này coi "đã nạp" nghĩa là "đủ mặt". Một nơi nạp có
+     * điều kiện sau này, ví dụ `load(['team' => fn ($q) => $q->where('role_in_matter', 'lead')])`,
+     * sẽ khiến `relationLoaded('team')` vẫn trả true nhưng tập hợp thiếu người — im lặng đổi kết
+     * quả `MatterPolicy::view` sang từ chối, không có test nào bắt được. Nạp `team` có điều kiện
+     * ở bất cứ đâu thì phải `unsetRelation('team')` trước khi gọi hàm này.
      */
     public function isListableBy(User $user): bool
     {

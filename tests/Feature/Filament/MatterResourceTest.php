@@ -1,8 +1,10 @@
 <?php
 
+use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Filament\Admin\Resources\Matters\Pages\ListMatters;
+use App\Filament\Admin\Resources\Matters\Tables\MattersTable;
 use App\Models\Matter;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -84,24 +86,51 @@ it('returns 404 when opening the view page of a matter outside the users scope',
  * Matter::isListableBy() là bản kiểm tra trong bộ nhớ của scopeListableBy(): hai đường phải
  * luôn ra cùng kết quả, cho mọi vai trò và mọi tổ hợp đội ngũ/độ mật, không chỉ những trường hợp
  * đã thử ở các test bên trên.
+ *
+ * Quan trọng: $normalWhereUserIsOnTeam phải thật sự có $user trong team (qua addTeamMember),
+ * không chỉ đứng tên lead_lawyer_id của MỘT NGƯỜI KHÁC — nếu không, nhánh
+ * `$this->team->contains('id', $user->getKey())` không bao giờ được khẳng định đúng ở chiều
+ * "true": mọi so sánh chỉ có thể ra false==false, và một isListableBy() luôn trả false ở nhánh
+ * này vẫn khiến test xanh trong khi trên thực tế nó ẩn ViewAction của chính vụ luật sư đó.
  */
 it('agrees with scopeListableBy for every role, whether the matter is normal or restricted, team member or not', function () {
     $roles = Role::cases();
 
     foreach ($roles as $role) {
         $user = User::factory()->withRole($role)->create();
-        $onTeamUser = User::factory()->withRole(Role::Lawyer)->create();
 
-        $normalOwnedByUser = Matter::factory()->create(['lead_lawyer_id' => $onTeamUser->id]);
-        $normalNotOwnedByUser = Matter::factory()->create();
+        // Vụ thường, lead lawyer là người khác, nhưng $user được thêm vào team (không phải lead)
+        // — chiều "true" của nhánh team-contains.
+        $normalWhereUserIsOnTeam = Matter::factory()->create();
+        $normalWhereUserIsOnTeam->addTeamMember($user, MatterRole::Associate);
+
+        // Vụ thường, $user không có mặt ở đâu cả — chiều "false".
+        $normalWhereUserIsNotOnTeam = Matter::factory()->create();
+
         $restrictedOwnedByUser = Matter::factory()->restricted()->create(['lead_lawyer_id' => $user->id]);
         $restrictedNotOwnedByUser = Matter::factory()->restricted()->create();
 
-        foreach ([$normalOwnedByUser, $normalNotOwnedByUser, $restrictedOwnedByUser, $restrictedNotOwnedByUser] as $matter) {
+        foreach ([$normalWhereUserIsOnTeam, $normalWhereUserIsNotOnTeam, $restrictedOwnedByUser, $restrictedNotOwnedByUser] as $matter) {
             $viaQuery = Matter::query()->whereKey($matter->getKey())->listableBy($user)->exists();
             $viaMemory = $matter->load('team')->isListableBy($user);
 
             expect($viaMemory)->toBe($viaQuery, "role={$role->value} matter={$matter->getKey()} confidentiality={$matter->confidentiality->value}");
         }
     }
+});
+
+/**
+ * SPEC §7.2: "cập nhật gần nhất cho khách" tô vàng khi > 10 ngày, đỏ khi > 14 ngày. Không có màu
+ * ở ngưỡng còn lại. Không có bản ghi nào (last_client_update_at null) thì không tô màu.
+ */
+it('colors the last-client-update column at the SPEC-defined day thresholds', function () {
+    $recent = Matter::factory()->create(['last_client_update_at' => now()->subDays(5)]);
+    $warning = Matter::factory()->create(['last_client_update_at' => now()->subDays(12)]);
+    $danger = Matter::factory()->create(['last_client_update_at' => now()->subDays(20)]);
+    $never = Matter::factory()->create(['last_client_update_at' => null]);
+
+    expect(MattersTable::lastClientUpdateColor($recent))->toBeNull()
+        ->and(MattersTable::lastClientUpdateColor($warning))->toBe('warning')
+        ->and(MattersTable::lastClientUpdateColor($danger))->toBe('danger')
+        ->and(MattersTable::lastClientUpdateColor($never))->toBeNull();
 });
