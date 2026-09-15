@@ -38,6 +38,25 @@ it('forbids a lawyer from writing a matter type but still allows reading the lis
 });
 
 /**
+ * Không có policy riêng cho MatterTypeStage thì Filament (không bật chế độ nghiêm ngặt) mặc
+ * định CHO PHÉP hành động trên model không có policy — nghĩa là chỉ trang EditMatterType chặn
+ * được luật sư, còn bản thân hành động "tạo giai đoạn" thì không. MatterTypeStagePolicy (mirror
+ * MatterTypePolicy) đóng lỗ hổng này ở đúng tầng của nó, độc lập với việc trang có mở hay không.
+ */
+it('hides the create stage action from a lawyer even when addressing the relation manager directly', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $type = MatterType::factory()->withStages()->create();
+
+    $this->actingAs($lawyer, 'web');
+    Filament::setCurrentPanel('admin');
+
+    $this->livewire(StagesRelationManager::class, [
+        'ownerRecord' => $type,
+        'pageClass' => EditMatterType::class,
+    ])->assertTableActionHidden('create');
+});
+
+/**
  * M1 mang sang, khoản 1: `unique(matter_type_id, key)` ở DB tính cả dòng đã xoá mềm nên không
  * thể tạo lại `key` sau khi xoá một giai đoạn. Ràng buộc DB đã bỏ (migration
  * 2026_09_15_000001); tính duy nhất giờ được StagesRelationManager kiểm tra qua `scopedUnique`
