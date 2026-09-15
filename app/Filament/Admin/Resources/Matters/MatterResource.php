@@ -4,6 +4,8 @@ namespace App\Filament\Admin\Resources\Matters;
 
 use App\Filament\Admin\Resources\Matters\Pages\ListMatters;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
+use App\Filament\Admin\Resources\Matters\RelationManagers\PartiesRelationManager;
+use App\Filament\Admin\Resources\Matters\RelationManagers\StageLogsRelationManager;
 use App\Filament\Admin\Resources\Matters\Schemas\MatterInfolist;
 use App\Filament\Admin\Resources\Matters\Tables\MattersTable;
 use App\Models\Matter;
@@ -21,9 +23,9 @@ use Illuminate\Support\Facades\Auth;
  * getRecordRouteBindingEloquentQuery() (mở thẳng URL) đều phải áp `listableBy`, nếu không một
  * luật sư ngoài đội ngũ gõ đúng URL vẫn mở được vụ việc dù không thấy nó trong danh sách.
  *
- * Không có trang create/edit ở task này: mở vụ việc đi qua Action `OpenMatter` (Task 5), nội
- * dung trang chi tiết (tabs) làm ở Task 6 — trang `view` ở đây chỉ tồn tại để route-binding có
- * chỗ mà kiểm tra.
+ * Không có trang create/edit: mở vụ việc đi qua Action `OpenMatter` (Task 5). Trang chi tiết
+ * (`ViewMatter`) có ba tab của M3 — Tổng quan (infolist dưới đây), Tiến độ và Các bên
+ * (`getRelations()`); các tab M4/M6/M7 chưa xây.
  */
 class MatterResource extends Resource
 {
@@ -58,6 +60,15 @@ class MatterResource extends Resource
         return [
             'index' => ListMatters::route('/'),
             'view' => ViewMatter::route('/{record}'),
+        ];
+    }
+
+    /** Thứ tự tab sau "Tổng quan" (SPEC §7.2, chỉ ba tab thuộc M3 — xem ViewMatter). */
+    public static function getRelations(): array
+    {
+        return [
+            StageLogsRelationManager::class,
+            PartiesRelationManager::class,
         ];
     }
 
