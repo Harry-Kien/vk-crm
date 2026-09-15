@@ -1,18 +1,22 @@
 <?php
 
 use App\Actions\TransitionMatterStage;
+use App\Enums\Permission;
 use App\Enums\Role;
 use App\Events\StageLogPublished;
 use App\Exceptions\InvalidStageTransition;
+use App\Exceptions\MatterNotPublishedToPortal;
 use App\Models\Matter;
 use App\Models\MatterType;
 use App\Models\StageLog;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Validation\ValidationException;
 use Spatie\Activitylog\Models\Activity;
+use Spatie\Permission\Models\Role as SpatieRole;
 
 beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);
@@ -273,16 +277,14 @@ it('dispatches StageLogPublished and updates last_client_update_at only when pub
     expect($matter->fresh()->last_client_update_at)->not->toEqual($before);
 });
 
-it('does not dispatch StageLogPublished when publish is true but is_published_to_portal is false', function () {
-    Event::fake([StageLogPublished::class]);
-
+it('refuses to publish when the matter is not published to portal (Important finding 4)', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = matterWithLawyer($lawyer, ['is_published_to_portal' => false]);
     $this->actingAs($lawyer, 'web');
 
     $before = $matter->last_client_update_at;
 
-    app(TransitionMatterStage::class)->handle(
+    expect(fn () => app(TransitionMatterStage::class)->handle(
         matter: $matter,
         actor: $lawyer,
         toStage: 'collecting',
@@ -293,10 +295,11 @@ it('does not dispatch StageLogPublished when publish is true but is_published_to
         clientAction: null,
         expectedNextUpdateAt: null,
         publish: true,
-    );
+    ))->toThrow(MatterNotPublishedToPortal::class);
 
-    Event::assertNotDispatched(StageLogPublished::class);
-    expect($matter->fresh()->last_client_update_at)->toEqual($before);
+    expect(StageLog::query()->count())->toBe(0)
+        ->and($matter->fresh()->stage)->toBe('intake')
+        ->and($matter->fresh()->last_client_update_at)->toEqual($before);
 });
 
 it('does not dispatch StageLogPublished when is_published_to_portal is true but publish is false', function () {
@@ -409,4 +412,177 @@ it('never leaks internal_note to the stage log public payload and keeps it as a 
     );
 
     expect($stageLog->internal_note)->toBe('Bí mật nội bộ, không cho khách xem');
+});
+
+// --- Fix round 1 (code review) -------------------------------------------------------------
+
+it('leaves stage_entered_at untouched on a same-stage update, even when occurred_at is backdated (Critical finding 1)', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = matterWithLawyer($lawyer);
+    $this->actingAs($lawyer, 'web');
+
+    $originalEnteredAt = $matter->stage_entered_at;
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter,
+        actor: $lawyer,
+        toStage: 'intake',
+        // Backdated on purpose: a buggy implementation that writes stage_entered_at
+        // unconditionally would move the clock BACKWARDS here, not just reset it to "now".
+        occurredAt: now()->subMonths(4),
+        internalNote: 'Chưa có văn bản mới từ toà, đây là điều bình thường ở giai đoạn này',
+        publicContent: null,
+        nextStep: null,
+        clientAction: null,
+        expectedNextUpdateAt: null,
+        publish: false,
+    );
+
+    expect($matter->fresh()->stage_entered_at->format('Y-m-d H:i:s'))
+        ->toBe($originalEnteredAt->format('Y-m-d H:i:s'));
+});
+
+it('does not persist the StageLog or let the deferred event fire when a failure happens in an outer transaction after the Action returns (Critical finding 2)', function () {
+    Event::fake([StageLogPublished::class]);
+
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = matterWithLawyer($lawyer, ['is_published_to_portal' => true]);
+    $this->actingAs($lawyer, 'web');
+
+    // Simulates a future caller (e.g. a Filament page) that wraps the Action in its own
+    // transaction and fails AFTER the Action has already returned successfully.
+    try {
+        DB::transaction(function () use ($matter, $lawyer) {
+            app(TransitionMatterStage::class)->handle(
+                matter: $matter,
+                actor: $lawyer,
+                toStage: 'collecting',
+                occurredAt: now(),
+                internalNote: null,
+                publicContent: validPublicContent(),
+                nextStep: null,
+                clientAction: null,
+                expectedNextUpdateAt: null,
+                publish: true,
+            );
+
+            throw new RuntimeException('forced failure after the Action committed its own inner transaction');
+        });
+    } catch (RuntimeException) {
+        // expected — the assertions below are the actual test.
+    }
+
+    expect(StageLog::query()->count())->toBe(0)
+        ->and($matter->fresh()->stage)->toBe('intake')
+        ->and($matter->fresh()->last_client_update_at)->toBeNull();
+
+    // StageLogPublished implements ShouldDispatchAfterCommit: because the outer transaction
+    // rolled back, the deferred dispatch callback is discarded and never runs.
+    Event::assertNotDispatched(StageLogPublished::class);
+});
+
+it('records the real actor as created_by and activity causer even with no authenticated session (Critical finding 3)', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = matterWithLawyer($lawyer);
+    // Deliberately no actingAs(): the Action must not rely on ambient auth() to know who acted.
+
+    $stageLog = app(TransitionMatterStage::class)->handle(
+        matter: $matter,
+        actor: $lawyer,
+        toStage: 'collecting',
+        occurredAt: now(),
+        internalNote: null,
+        publicContent: null,
+        nextStep: null,
+        clientAction: null,
+        expectedNextUpdateAt: null,
+        publish: false,
+    );
+
+    expect($stageLog->created_by)->toBe($lawyer->id);
+
+    $activity = Activity::query()->latest('id')->first();
+    expect($activity)->not->toBeNull()
+        ->and($activity->causer?->is($lawyer))->toBeTrue();
+});
+
+it('refuses to publish when the actor has matter.transitionStage but not stageLog.publish (Important finding 5)', function () {
+    $user = User::factory()->create();
+    $limitedRole = SpatieRole::findOrCreate('transition_only_test_role', 'web');
+    $limitedRole->syncPermissions([Permission::MatterView->value, Permission::MatterTransitionStage->value]);
+    $user->syncRoles([$limitedRole->name]);
+
+    $matter = matterWithLawyer($user);
+    $this->actingAs($user, 'web');
+
+    expect(fn () => app(TransitionMatterStage::class)->handle(
+        matter: $matter,
+        actor: $user,
+        toStage: 'collecting',
+        occurredAt: now(),
+        internalNote: null,
+        publicContent: validPublicContent(),
+        nextStep: null,
+        clientAction: null,
+        expectedNextUpdateAt: null,
+        publish: true,
+    ))->toThrow(AuthorizationException::class);
+
+    expect(StageLog::query()->count())->toBe(0);
+});
+
+it('rejects a 29-character Vietnamese string even though it is more than 30 bytes long (Important finding 6)', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = matterWithLawyer($lawyer);
+    $this->actingAs($lawyer, 'web');
+
+    // 'ệ' (U+1EC7) is 3 bytes in UTF-8: 29 of them is 87 bytes, well over 30, but still only
+    // 29 real characters. A strlen()-based check would wrongly accept this.
+    $vietnamese29Chars = str_repeat('ệ', 29);
+    expect(mb_strlen($vietnamese29Chars))->toBe(29)
+        ->and(strlen($vietnamese29Chars))->toBeGreaterThan(30);
+
+    expect(fn () => app(TransitionMatterStage::class)->handle(
+        matter: $matter,
+        actor: $lawyer,
+        toStage: 'collecting',
+        occurredAt: now(),
+        internalNote: null,
+        publicContent: $vietnamese29Chars,
+        nextStep: null,
+        clientAction: null,
+        expectedNextUpdateAt: null,
+        publish: true,
+    ))->toThrow(ValidationException::class);
+});
+
+it('issues exactly one UPDATE statement against matters per transition, not one per condition (Minor finding 8)', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = matterWithLawyer($lawyer, ['is_published_to_portal' => true]);
+    $this->actingAs($lawyer, 'web');
+
+    $matterUpdateCount = 0;
+    DB::listen(function ($query) use (&$matterUpdateCount) {
+        if (str_starts_with(strtolower(trim($query->sql)), 'update') && str_contains($query->sql, 'matters')) {
+            $matterUpdateCount++;
+        }
+    });
+
+    // Touches both stage (real transition) AND last_client_update_at (publish to portal) in the
+    // same call, so a pre-fix implementation that used two separate $matter->update() calls
+    // would issue two UPDATE statements here instead of one.
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter,
+        actor: $lawyer,
+        toStage: 'collecting',
+        occurredAt: now(),
+        internalNote: null,
+        publicContent: validPublicContent(),
+        nextStep: null,
+        clientAction: null,
+        expectedNextUpdateAt: null,
+        publish: true,
+    );
+
+    expect($matterUpdateCount)->toBe(1);
 });
