@@ -2,9 +2,11 @@
 
 use App\Actions\RunConflictCheck;
 use App\Enums\ConflictLevel;
+use App\Enums\ConflictMatchTier;
 use App\Enums\PartyRole;
 use App\Enums\Role;
 use App\Models\Client;
+use App\Models\ClientUser;
 use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Models\User;
@@ -50,7 +52,8 @@ it('blocks at red level when a party shares an id number with an existing client
         ->and($match->matterTypeName)->toBe($otherMatter->matterType->name)
         ->and($match->partyRole)->toBe(PartyRole::Plaintiff)
         ->and($match->partyName)->toBe('Nguyễn Văn Hùng')
-        ->and($match->level)->toBe(ConflictLevel::Red);
+        ->and($match->level)->toBe(ConflictLevel::Red)
+        ->and($match->tier)->toBe(ConflictMatchTier::Hash);
 });
 
 it('logs the check to the activity log even when the result is green', function () {
@@ -91,7 +94,8 @@ it('warns at yellow level for a normalized-name match even when id number and ph
         ->and($result->isBlocking())->toBeFalse()
         ->and($result->requiresAcknowledgement())->toBeTrue()
         ->and($result->matches)->toHaveCount(1)
-        ->and($result->matches->first()->level)->toBe(ConflictLevel::Yellow);
+        ->and($result->matches->first()->level)->toBe(ConflictLevel::Yellow)
+        ->and($result->matches->first()->tier)->toBe(ConflictMatchTier::Name);
 });
 
 it('treats related, third-party and opposing-counsel roles as never opposing, so a matching client only warns yellow', function () {
@@ -192,7 +196,7 @@ it('excludes the matter’s own existing parties from matching themselves when c
         ->and($result->matches)->toBeEmpty();
 });
 
-it('ignores a matching party whose matter has been soft-deleted instead of crashing', function () {
+it('still reports a match whose matter has been soft-deleted, with its code, instead of dropping it silently', function () {
     $existingClient = Client::factory()->create(['id_number' => '044455566677']);
     $deletedMatter = Matter::factory()->create();
     MatterParty::factory()->for($deletedMatter)->ourClient($existingClient)->create();
@@ -203,8 +207,102 @@ it('ignores a matching party whose matter has been soft-deleted instead of crash
 
     $result = app(RunConflictCheck::class)->handle(collect([$ourNewClient, $opposingParty]));
 
+    // Matter::forceDeleting bị chặn — vụ việc không bao giờ thật sự biến mất, chỉ ẩn đi. Đây là
+    // kiểm tra lịch sử: một dòng "xanh giả" vì matter đã xoá mềm là chính xác điều Task 7 review
+    // gọi là vi phạm đạo đức nghề nghiệp (SPEC §6.10 là chức năng duy nhất nơi bỏ sót là lỗi
+    // nghiêm trọng hơn báo động giả).
+    expect($result->level)->toBe(ConflictLevel::Red)
+        ->and($result->matches->pluck('matterCode')->all())->toContain($deletedMatter->code);
+});
+
+it('still counts a matching party row that has itself been soft-deleted', function () {
+    $existingClient = Client::factory()->create(['id_number' => '033322211100']);
+    $otherMatter = Matter::factory()->create();
+    $historicalParty = MatterParty::factory()->for($otherMatter)->ourClient($existingClient)->create();
+    $historicalParty->delete();
+
+    $ourNewClient = proposedParty(PartyRole::Plaintiff, 'Khách hàng khác', isOurClient: true);
+    $opposingParty = proposedParty(PartyRole::Defendant, 'Bên trùng', idNumber: '033322211100');
+
+    $result = app(RunConflictCheck::class)->handle(collect([$ourNewClient, $opposingParty]));
+
+    expect($result->level)->toBe(ConflictLevel::Red)
+        ->and($result->matches->pluck('matterCode')->all())->toContain($otherMatter->code);
+});
+
+it('bypasses the client portal scope so a red conflict still surfaces while a client is authenticated on the portal guard', function () {
+    $existingClient = Client::factory()->create(['id_number' => '087766554433']);
+    $otherMatter = Matter::factory()->create();
+    MatterParty::factory()->for($otherMatter)->ourClient($existingClient)->create();
+
+    $clientUser = ClientUser::factory()->create();
+    $this->actingAs($clientUser, 'client');
+
+    $ourNewClient = proposedParty(PartyRole::Plaintiff, 'Khách hàng khác', isOurClient: true);
+    $opposingParty = proposedParty(PartyRole::Defendant, 'Bên trùng', idNumber: '087766554433');
+
+    $result = app(RunConflictCheck::class)->handle(collect([$ourNewClient, $opposingParty]));
+
+    expect($result->level)->toBe(ConflictLevel::Red)
+        ->and($result->matches->pluck('matterCode')->all())->toContain($otherMatter->code);
+});
+
+it('detects a red conflict for a new party added to an existing matter even when only that new party is passed in', function () {
+    $existingClient = Client::factory()->create(['id_number' => '076655443322']);
+    $conflictMatter = Matter::factory()->create();
+    MatterParty::factory()->for($conflictMatter)->ourClient($existingClient)->create();
+
+    $matter = Matter::factory()->create();
+    MatterParty::factory()->for($matter)->create(['role' => PartyRole::Plaintiff, 'is_our_client' => true]);
+
+    // Caller chỉ truyền đúng bên MỚI thêm, không kèm bên khách hàng đã có sẵn của vụ — Action
+    // phải tự nạp $matter->parties để biết ai là khách hàng mới, không được phép trả về vàng vì
+    // caller quên truyền đủ.
+    $newOpposingParty = proposedParty(PartyRole::Defendant, 'Bên mới trùng', idNumber: '076655443322');
+
+    $result = app(RunConflictCheck::class)->handle(collect([$newOpposingParty]), $matter);
+
+    expect($result->level)->toBe(ConflictLevel::Red)
+        ->and($result->isBlocking())->toBeTrue();
+});
+
+it('flags a party with neither id number nor phone as incomplete even when the result is green', function () {
+    // Không gọi identify() với dữ liệu thật: id_number_hash và phone_normalized đều null, nên
+    // Action chỉ so khớp được theo tên — mức tin cậy thấp nhất, không đủ để tin tưởng kết quả xanh.
+    $party = proposedParty(PartyRole::Plaintiff, 'Người Chỉ Có Tên', isOurClient: true);
+
+    $result = app(RunConflictCheck::class)->handle(collect([$party]));
+
     expect($result->level)->toBe(ConflictLevel::Green)
-        ->and($result->matches)->toBeEmpty();
+        ->and($result->hasIncompleteParties())->toBeTrue()
+        ->and($result->incompleteParties())->toBe(['Người Chỉ Có Tên']);
+
+    $activity = Activity::query()->latest('id')->first();
+    expect($activity->properties->get('incomplete_parties'))->toBe(['Người Chỉ Có Tên']);
+});
+
+it('does not flag a party that has both a phone and an id number as incomplete', function () {
+    $party = proposedParty(PartyRole::Plaintiff, 'Người Đầy Đủ', idNumber: '001122334455', phone: '0911222333', isOurClient: true);
+
+    $result = app(RunConflictCheck::class)->handle(collect([$party]));
+
+    expect($result->hasIncompleteParties())->toBeFalse()
+        ->and($result->incompleteParties())->toBe([]);
+});
+
+it('deduplicates identical matches when two proposed parties match the same historical row', function () {
+    $existingClient = Client::factory()->create(['id_number' => '065544332211']);
+    $otherMatter = Matter::factory()->create();
+    MatterParty::factory()->for($otherMatter)->ourClient($existingClient)->create();
+
+    $ourNewClient = proposedParty(PartyRole::Plaintiff, 'Khách hàng khác', isOurClient: true);
+    // Hai dòng khác nhau trên form vô tình cùng khớp một bản ghi lịch sử duy nhất.
+    $duplicateA = proposedParty(PartyRole::Defendant, 'Bên trùng A', idNumber: '065544332211');
+    $duplicateB = proposedParty(PartyRole::Defendant, 'Bên trùng B', idNumber: '065544332211');
+
+    $result = app(RunConflictCheck::class)->handle(collect([$ourNewClient, $duplicateA, $duplicateB]));
+
+    expect($result->matches)->toHaveCount(1);
 });
 
 it('aggregates to the highest level found across all checked parties', function () {

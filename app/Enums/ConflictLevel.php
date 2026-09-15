@@ -17,14 +17,4 @@ enum ConflictLevel: string
     {
         return __('conflicts.level.'.$this->value);
     }
-
-    /** Thứ tự nghiêm trọng tăng dần, dùng để gộp nhiều bản ghi trùng thành một mức tổng hợp. */
-    public function rank(): int
-    {
-        return match ($this) {
-            self::Green => 0,
-            self::Yellow => 1,
-            self::Red => 2,
-        };
-    }
 }
