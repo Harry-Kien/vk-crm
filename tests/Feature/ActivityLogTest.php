@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Client;
+use App\Models\ClientUser;
 use App\Models\Matter;
 use App\Models\User;
 use App\Support\Audit;
@@ -46,6 +47,29 @@ it('logs through Audit::record even when nobody is logged in, with a null causer
     expect($activity)->not->toBeNull()
         ->and($activity->causer)->toBeNull()
         ->and($activity->event)->toBe('login_failed');
+});
+
+it('records the acting portal user as the causer', function () {
+    $clientUser = ClientUser::factory()->create();
+
+    $this->actingAs($clientUser, 'client');
+    Audit::record('document_downloaded', null, ['document_id' => 7]);
+
+    $activity = Activity::query()->latest('id')->firstOrFail();
+
+    expect($activity->causer)->not->toBeNull()
+        ->and($activity->causer->is($clientUser))->toBeTrue();
+});
+
+it('prefers the staff user when both guards are authenticated', function () {
+    $staff = User::factory()->create();
+    $clientUser = ClientUser::factory()->create();
+
+    $this->actingAs($staff, 'web');
+    $this->actingAs($clientUser, 'client');
+    Audit::record('exported');
+
+    expect(Activity::query()->latest('id')->firstOrFail()->causer->is($staff))->toBeTrue();
 });
 
 it('never logs the client id number', function () {

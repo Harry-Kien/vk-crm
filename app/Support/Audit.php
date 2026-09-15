@@ -9,6 +9,11 @@ use Illuminate\Database\Eloquent\Model;
  * (đăng nhập, tải tài liệu, công bố, đổi phân quyền, ...) — xem SPEC §10.6.
  * Việc ghi nhật ký khi model bị sửa (created/updated/deleted) do trait LogsActivity của
  * spatie/laravel-activitylog tự lo, không đi qua đây.
+ *
+ * Ghi nhận người thực hiện ở bất kỳ guard nào đang đăng nhập — nhân sự nội bộ (guard `web`)
+ * hoặc khách hàng ở portal (guard `client`), ưu tiên nhân sự nếu cả hai cùng có phiên (cùng thứ
+ * tự ưu tiên với ClientPortalScope). SPEC §10.6 bắt buộc ghi cả đăng nhập và tải tài liệu ở
+ * guard `client`, nên không được hardcode một guard duy nhất.
  */
 final class Audit
 {
@@ -20,8 +25,10 @@ final class Audit
             $log->performedOn($subject);
         }
 
-        if (($user = auth('web')->user()) !== null) {
-            $log->causedBy($user);
+        $causer = auth('web')->user() ?? auth('client')->user();
+
+        if ($causer !== null) {
+            $log->causedBy($causer);
         }
 
         $log->log($event);
