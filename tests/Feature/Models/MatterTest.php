@@ -42,6 +42,30 @@ it('refuses to open a matter whose type has no stages configured', function () {
         ->toThrow(StageNotConfigured::class, 'Thử nghiệm không giai đoạn');
 });
 
+/**
+ * Fix round 1 (việc D): `CodeSequence::next()` commit số thứ tự trong transaction riêng của
+ * nó, chạy trước khi StageNotConfigured được ném. Nếu giữ nguyên thứ tự cũ (sinh mã trước,
+ * kiểm tra giai đoạn sau), mỗi lần một loại vụ việc chưa có giai đoạn bị chọn sẽ tiêu mất một
+ * số thứ tự dù không vụ việc nào được tạo. `Matter::creating` giờ kiểm tra giai đoạn (và ném
+ * lỗi nếu cần) trước khi gọi nextCode().
+ */
+it('does not burn a code sequence number when a create fails with StageNotConfigured', function () {
+    $type = MatterType::factory()->create(['code' => 'ZZ']);
+
+    expect(fn () => Matter::factory()->for($type, 'matterType')->create())
+        ->toThrow(StageNotConfigured::class);
+
+    $type->stages()->create([
+        'key' => 'intake', 'label' => 'Tiếp nhận', 'client_label' => 'Tiếp nhận',
+        'sort_order' => 1, 'allowed_next' => [],
+    ]);
+    $type->unsetRelation('stages');
+
+    $matter = Matter::factory()->for($type, 'matterType')->create();
+
+    expect($matter->code)->toEndWith('-0001');
+});
+
 it('uses the configured matter code prefix', function () {
     config(['vkcrm.matter_code_prefix' => 'LVK']);
     $matter = Matter::factory()->create();

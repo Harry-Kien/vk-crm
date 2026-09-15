@@ -59,8 +59,11 @@ class Matter extends Model
         static::creating(function (Matter $matter): void {
             $type = $matter->matterType ?? MatterType::query()->findOrFail($matter->matter_type_id);
 
-            $matter->code ??= static::nextCode($type);
+            // Kiểm tra giai đoạn trước khi sinh mã: nextCode() commit số thứ tự ngay trong
+            // transaction riêng của nó (CodeSequence::next), nên nếu để sau, StageNotConfigured
+            // vẫn ném ra nhưng số thứ tự đã bị tiêu mất dù vụ việc không được tạo.
             $matter->stage ??= $type->firstStage()?->key ?? throw StageNotConfigured::make($type);
+            $matter->code ??= static::nextCode($type);
             $matter->stage_entered_at ??= now();
             $matter->opened_at ??= today();
             $matter->confidentiality ??= Confidentiality::Normal;
