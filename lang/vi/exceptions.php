@@ -6,4 +6,5 @@ return [
     'stage_not_configured' => 'Loại vụ việc ":name" chưa có giai đoạn nào. Vào Loại vụ việc để thêm giai đoạn trước khi mở vụ việc mới.',
     'duplicate_stage_key' => 'Loại vụ việc ":name" đã có một giai đoạn còn dùng với định danh ":key". Xoá hoặc đổi định danh giai đoạn cũ trước khi tạo lại.',
     'invalid_stage_transition' => 'Vụ việc :code không thể chuyển sang giai đoạn ":to": giai đoạn này không nằm trong danh sách giai đoạn kế tiếp được phép của ":from", hoặc không tồn tại trong cấu hình loại vụ việc.',
+    'conflict_blocked' => 'Không thể lưu vụ việc: phát hiện xung đột lợi ích mức đỏ với hồ sơ :codes. Chỉ trưởng phòng hoặc quản trị mới được ghi đè, và phải nhập lý do.',
 ];
