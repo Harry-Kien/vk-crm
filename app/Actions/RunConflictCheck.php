@@ -38,20 +38,36 @@ use Illuminate\Support\Collection;
  *
  * **Ngoại lệ có chủ đích của phân quyền** (SPEC §6.10 đoạn cuối): truy vấn toàn bộ
  * `matter_parties`, KHÔNG qua `Matter::listableBy`. Cùng lý do đó, Action cũng bỏ qua
- * `ClientPortalScope` một cách tường minh trên cả `MatterParty` lẫn `Matter` lồng trong kết quả:
- * nếu Action này lỡ chạy trong lúc guard `client` đang đăng nhập (job, lệnh nền, hay đơn giản là
- * cả hai guard cùng có phiên), scope đó thu hẹp `Matter`/`MatterParty` về đúng một khách hàng và
- * vụ đã công bố — im lặng biến MỌI xung đột thành xanh. Bù lại, `ConflictMatch` chỉ mang đúng
- * những trường không nhạy cảm (xem docblock của lớp đó); không bao giờ nạp `title`,
- * `summary_for_client`, `description_internal` hay id tài liệu.
+ * `ClientPortalScope` một cách tường minh trên cả `MatterParty` lẫn `Matter` lồng trong kết quả.
+ * **Cả HAI truy vấn trong lớp này đều phải bỏ scope này** — truy vấn tìm bản ghi trùng
+ * (`matchesFor()`) VÀ truy vấn nạp các bên đã có của vụ để xác định "khách hàng mới"
+ * (`existingParties()` bên dưới). Bỏ sót truy vấn thứ hai từng là một lỗi thật (fix round 2): nếu
+ * Action lỡ chạy trong lúc guard `client` đang đăng nhập (job, lệnh nền, hay đơn giản là chỉ có
+ * guard đó có phiên), `$matter->parties()` không bỏ scope sẽ trả về rỗng, "khách hàng mới" biến
+ * mất, và mức đỏ không bao giờ kích hoạt được — dù truy vấn tìm bản ghi trùng đã đúng. Người sửa
+ * sau này: nếu thêm một truy vấn `MatterParty`/`Matter` thứ ba vào lớp này, nó CŨNG phải bỏ scope
+ * này, cùng lý do. Bù lại, `ConflictMatch` chỉ mang đúng những trường không nhạy cảm (xem docblock
+ * của lớp đó); không bao giờ nạp `title`, `summary_for_client`, `description_internal` hay id tài
+ * liệu.
  *
  * **Không được để lộ mức đỏ qua cách gọi:** vai của "khách hàng mới" (dùng để xác định "đối lập")
- * được tính từ CẢ `$parties` truyền vào LẪN `$matter->parties` khi `$matter` khác null. Nếu chỉ
- * dựa vào `$parties`, một lời gọi chỉ truyền đúng bên mới thêm (không kèm khách hàng đã có của vụ)
- * sẽ luôn thấy "không có khách hàng nào trong tập đang xét", `isOpposing()` luôn false, và mức đỏ
- * không bao giờ kích hoạt được — dù bên mới thêm thực sự đối lập với khách hàng đã có. Vì luật
- * nghiệp vụ (đỏ hay không) không được phép phụ thuộc vào việc caller có nhớ truyền đủ dữ liệu hay
- * không, Action tự nạp `$matter->parties` thay vì tin caller.
+ * được tính từ CẢ `$parties` truyền vào LẪN các bên đã có của `$matter` khi `$matter` khác null.
+ * Nếu chỉ dựa vào `$parties`, một lời gọi chỉ truyền đúng bên mới thêm (không kèm khách hàng đã có
+ * của vụ) sẽ luôn thấy "không có khách hàng nào trong tập đang xét", `isOpposing()` luôn false, và
+ * mức đỏ không bao giờ kích hoạt được — dù bên mới thêm thực sự đối lập với khách hàng đã có. Vì
+ * luật nghiệp vụ (đỏ hay không) không được phép phụ thuộc vào việc caller có nhớ truyền đủ dữ liệu
+ * hay không, Action tự nạp các bên đã có của `$matter` thay vì tin caller.
+ *
+ * **Gộp không được dùng `Illuminate\Database\Eloquent\Collection::merge()`.** Fix round 2: khi
+ * `$parties` là một Eloquent Collection (đúng hình dạng được khuyến nghị ở docblock trên —
+ * `$matter->parties()->get()->push($newParty)`) và chứa một `MatterParty` CHƯA LƯU
+ * (`getKey() === null`), `Collection::getDictionary()` của Eloquent BỎ QUA hẳn các phần tử có khoá
+ * null khi dựng dictionary — bên chưa lưu biến mất khỏi kết quả gộp một cách im lặng, kể cả khi
+ * chính bên đó mang vai "khách hàng mới". `Illuminate\Support\Collection::merge()` (khi `$parties`
+ * là `collect([...])` thường) không có vấn đề này vì nó không dùng ngữ nghĩa dictionary theo khoá
+ * chính. Vì kiểu thực tế của `$parties` tại lời gọi có thể là một trong hai, Action gộp bằng mảng
+ * PHP thuần (`[...$parties->all(), ...$existingParties]`) để không bao giờ đi qua đường
+ * dictionary-theo-khoá của Eloquent.
  *
  * **Đọc "đối lập" (SPEC §6.10 bảng mức Đỏ) theo đúng nghĩa đen:** một bên `plaintiff`, bên kia
  * `defendant`, không hơn không kém. `related`, `third_party`, `opposing_counsel` KHÔNG bao giờ
@@ -88,7 +104,9 @@ class RunConflictCheck
      */
     public function handle(Collection $parties, ?Matter $matter = null): ConflictCheckResult
     {
-        $rolesSource = $matter !== null ? $parties->merge($matter->parties) : $parties;
+        // Mảng thuần, không phải Collection::merge() — xem docblock lớp "Gộp không được dùng
+        // Eloquent Collection::merge()".
+        $rolesSource = collect([...$parties->all(), ...$this->existingParties($matter)]);
 
         $ourClientRoles = $rolesSource
             ->filter(fn (MatterParty $party) => $party->is_our_client)
@@ -115,6 +133,27 @@ class RunConflictCheck
         Audit::record('conflict_check_run', $matter, $result->toArray());
 
         return $result;
+    }
+
+    /**
+     * Các bên đã có của $matter, dùng để bổ sung vào việc xác định "khách hàng mới" (xem docblock
+     * lớp). Bỏ CẢ `ClientPortalScope` (cùng lý do với `matchesFor()`) LẪN `SoftDeletingScope`
+     * (một bên khách hàng đã xoá mềm trong chính vụ đang xét vẫn từng đại diện cho khách hàng đó —
+     * nhất quán với cách `matchesFor()` đọc lịch sử).
+     *
+     * @return array<int, MatterParty>
+     */
+    private function existingParties(?Matter $matter): array
+    {
+        if ($matter === null) {
+            return [];
+        }
+
+        return $matter->parties()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->withTrashed()
+            ->get()
+            ->all();
     }
 
     /**

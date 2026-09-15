@@ -35,10 +35,16 @@ final readonly class ConflictCheckResult implements Arrayable
         return $this->level === ConflictLevel::Red;
     }
 
-    /** Vàng hoặc đỏ — người tạo phải tích xác nhận đã xem xét trước khi lưu. */
+    /**
+     * Vàng, đỏ, hoặc có bên thiếu định danh (`hasIncompleteParties()`) — người tạo phải tích xác
+     * nhận đã xem xét trước khi lưu. Một kết quả xanh với bên thiếu định danh KHÔNG đáng tin cậy
+     * bằng xanh thật (xem docblock `RunConflictCheck` và `incompleteParties`): nếu chỉ nhìn
+     * `requiresAcknowledgement()`/`isBlocking()`, caller không được phép hiện một form xanh trơn
+     * mà giấu đi cảnh báo thiếu định danh — fix round 2.
+     */
     public function requiresAcknowledgement(): bool
     {
-        return $this->level !== ConflictLevel::Green;
+        return $this->level !== ConflictLevel::Green || $this->hasIncompleteParties();
     }
 
     /** @return array<int, string> */

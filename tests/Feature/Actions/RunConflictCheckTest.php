@@ -11,6 +11,7 @@ use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Database\Eloquent\Collection;
 use Spatie\Activitylog\Models\Activity;
 
 /**
@@ -194,6 +195,80 @@ it('excludes the matter’s own existing parties from matching themselves when c
 
     expect($result->level)->toBe(ConflictLevel::Green)
         ->and($result->matches)->toBeEmpty();
+});
+
+it('keeps red when the our-client role exists only on an unsaved party inside an Eloquent collection', function () {
+    $existingClient = Client::factory()->create(['id_number' => '098877665544']);
+    $conflictMatter = Matter::factory()->create();
+    MatterParty::factory()->for($conflictMatter)->ourClient($existingClient)->create();
+
+    // Vụ đang mở KHÔNG có bên khách hàng nào đã lưu sẵn — cả khách hàng mới lẫn bên đối lập đều
+    // là các bên chưa lưu, thêm cùng lúc, đúng hình dạng OpenMatter sẽ dùng trước khi lưu lần đầu.
+    $matter = Matter::factory()->create();
+
+    $ourNewClient = proposedParty(PartyRole::Plaintiff, 'Khách hàng mới', isOurClient: true);
+    $opposingParty = proposedParty(PartyRole::Defendant, 'Bên trùng', idNumber: '098877665544');
+
+    // Cố ý dùng hình dạng Eloquent Collection ($matter->parties()->get() rồi push thêm bên chưa
+    // lưu) — đúng hình dạng khuyến nghị ở docblock lớp và đúng hình dạng đã lộ ra lỗi
+    // Collection::merge() ở fix round 2: Eloquent Collection::getDictionary() bỏ qua hẳn phần tử
+    // có getKey() === null khi dựng dictionary, nên vai "khách hàng mới" (chỉ có trên bên chưa
+    // lưu) từng biến mất khỏi $ourClientRoles một cách im lặng.
+    $parties = $matter->parties()->get()->push($ourNewClient)->push($opposingParty);
+    expect($parties)->toBeInstanceOf(Collection::class);
+
+    $result = app(RunConflictCheck::class)->handle($parties, $matter);
+
+    expect($result->level)->toBe(ConflictLevel::Red)
+        ->and($result->isBlocking())->toBeTrue();
+});
+
+it('bypasses the client portal scope on the existing-matter role lookup too, not just on the match search', function () {
+    $existingClient = Client::factory()->create(['id_number' => '076544332211']);
+    $conflictMatter = Matter::factory()->create();
+    MatterParty::factory()->for($conflictMatter)->ourClient($existingClient)->create();
+
+    $matter = Matter::factory()->create();
+    // Bên khách hàng của vụ đang xét ĐÃ LƯU — vai "khách hàng mới" chỉ có thể lấy được bằng cách
+    // Action tự truy vấn $matter->parties(). Nếu truy vấn đó không bỏ ClientPortalScope, nó trả
+    // về rỗng trong khi guard client đang đăng nhập, y hệt lỗi ở finding 2 fix round 1 — chỉ khác
+    // là lần này ở truy vấn nạp vai, không phải truy vấn tìm bản ghi trùng.
+    MatterParty::factory()->for($matter)->create(['role' => PartyRole::Plaintiff, 'is_our_client' => true]);
+
+    $clientUser = ClientUser::factory()->create();
+    $this->actingAs($clientUser, 'client');
+
+    // Chỉ truyền đúng bên mới thêm — buộc Action phải tự nạp $matter->parties() để biết ai là
+    // khách hàng mới, đúng đường đi bị lỗi ở round 2.
+    $newOpposingParty = proposedParty(PartyRole::Defendant, 'Bên mới trùng', idNumber: '076544332211');
+
+    $result = app(RunConflictCheck::class)->handle(collect([$newOpposingParty]), $matter);
+
+    expect($result->level)->toBe(ConflictLevel::Red)
+        ->and($result->isBlocking())->toBeTrue();
+});
+
+it('requires acknowledgement for a green result that still has an incomplete party, instead of rendering a plain green form', function () {
+    // Không gọi identify() với dữ liệu thật => chỉ so khớp được theo tên, không tìm thấy gì
+    // (level xanh) — nhưng caller không được phép coi đây là "xanh thật" nếu chỉ đọc
+    // requiresAcknowledgement()/isBlocking().
+    $party = proposedParty(PartyRole::Plaintiff, 'Người Chỉ Có Tên Nữa', isOurClient: true);
+
+    $result = app(RunConflictCheck::class)->handle(collect([$party]));
+
+    expect($result->level)->toBe(ConflictLevel::Green)
+        ->and($result->isBlocking())->toBeFalse()
+        ->and($result->hasIncompleteParties())->toBeTrue()
+        ->and($result->requiresAcknowledgement())->toBeTrue();
+});
+
+it('does not require acknowledgement for a genuinely green result with no incomplete parties', function () {
+    $party = proposedParty(PartyRole::Plaintiff, 'Người Đầy Đủ Và Xanh', idNumber: '009988776655', phone: '0900112233', isOurClient: true);
+
+    $result = app(RunConflictCheck::class)->handle(collect([$party]));
+
+    expect($result->level)->toBe(ConflictLevel::Green)
+        ->and($result->requiresAcknowledgement())->toBeFalse();
 });
 
 it('still reports a match whose matter has been soft-deleted, with its code, instead of dropping it silently', function () {
