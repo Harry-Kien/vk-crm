@@ -134,6 +134,27 @@ class Matter extends Model
         });
     }
 
+    /**
+     * Bản kiểm tra trong bộ nhớ của scopeListableBy(), dùng quan hệ `team` đã nạp thay vì chạy
+     * EXISTS. Cùng ba điều kiện, để MatterPolicy::view và danh sách Filament không lệch nhau.
+     */
+    public function isListableBy(User $user): bool
+    {
+        if ($this->confidentiality === Confidentiality::Restricted) {
+            return $user->hasRole(StaffRole::Admin->value)
+                || ($user->can(Permission::MatterView->value) && $this->lead_lawyer_id === $user->getKey());
+        }
+
+        if ($user->can(Permission::MatterViewAny->value)) {
+            return true;
+        }
+
+        return $user->can(Permission::MatterView->value)
+            && ($this->relationLoaded('team')
+                ? $this->team->contains('id', $user->getKey())
+                : $this->team()->whereKey($user->getKey())->exists());
+    }
+
     public function currentStage(): ?MatterTypeStage
     {
         return $this->matterType->stage($this->stage);

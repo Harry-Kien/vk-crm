@@ -28,8 +28,16 @@ class MatterPolicy
             return $this->visibleToPortal($user, $matter);
         }
 
-        return $user->can(Permission::MatterView->value)
-            && Matter::query()->withTrashed()->listableBy($user)->whereKey($matter->getKey())->exists();
+        if (! $user->can(Permission::MatterView->value)) {
+            return false;
+        }
+
+        // Đường trong bộ nhớ khi `team` đã nạp (ví dụ danh sách Filament eager-load nó): tránh
+        // chạy một EXISTS cho mỗi dòng. Ngược lại giữ nguyên truy vấn cũ (cũng cho phép vụ đã
+        // xoá mềm, để admin còn thao tác được).
+        return $matter->relationLoaded('team')
+            ? $matter->isListableBy($user)
+            : Matter::query()->withTrashed()->listableBy($user)->whereKey($matter->getKey())->exists();
     }
 
     public function create(User|ClientUser $user): bool
