@@ -22,11 +22,15 @@ use Illuminate\Support\Collection;
  * **Hai thời điểm bắt buộc chạy (SPEC §6.10 đầu bài):**
  *  - Vụ việc CHƯA tồn tại (trước khi `OpenMatter` lưu): truyền `$parties` là các `MatterParty`
  *    chưa lưu (`exists === false`, dựng từ dữ liệu form qua `identify()`), `$matter = null`.
- *  - Vụ việc ĐÃ tồn tại, thêm một bên mới: truyền `$parties` là bên mới (chưa lưu) — có thể kèm
- *    hoặc không kèm các bên đã có của vụ việc, KHÔNG quan trọng, vì Action tự nạp
- *    `$matter->parties` để xác định ai là khách hàng mới và vai của họ (xem "Không được để lộ
- *    mức đỏ qua cách gọi" bên dưới) — và `$matter` = vụ việc đó, để loại các bên của chính vụ này
- *    ra khỏi kết quả tìm kiếm (không tự xung đột với chính mình).
+ *  - Vụ việc ĐÃ tồn tại, thêm một bên mới: truyền `$parties` là bên mới (chưa lưu) — có kèm hay
+ *    không kèm các bên đã có của vụ việc THẬT SỰ không quan trọng, vì Action tự nạp các bên đã có
+ *    của `$matter` (qua `existingParties()` bên dưới) và dùng CHUNG một tập hợp — `$parties` gộp
+ *    với các bên đã có — cho CẢ HAI việc: xác định ai là "khách hàng mới" (xem "Không được để lộ
+ *    mức đỏ qua cách gọi") VÀ tìm bản ghi trùng cho TỪNG bên trong tập hợp đó, kể cả các bên đã có
+ *    sẵn của vụ (xem "Tìm kiếm phải chạy trên cùng tập hợp với việc xác định vai" bên dưới) — chứ
+ *    không chỉ một trong hai như các bản sửa trước. `$matter` = vụ việc đó, dùng để loại các bên
+ *    của chính vụ này ra khỏi kết quả tìm kiếm (không tự xung đột với chính mình — xem
+ *    `matchesFor()`, `where('matter_id', '!=', ...)`).
  *
  * **Đây là kiểm tra LỊCH SỬ, không phải kiểm tra sự tồn tại hiện thời.** Một hồ sơ đã xoá mềm
  * (`Matter::forceDeleting` bị chặn — vụ việc không bao giờ thật sự biến mất) hoặc một bên đã xoá
@@ -57,6 +61,18 @@ use Illuminate\Support\Collection;
  * mức đỏ không bao giờ kích hoạt được — dù bên mới thêm thực sự đối lập với khách hàng đã có. Vì
  * luật nghiệp vụ (đỏ hay không) không được phép phụ thuộc vào việc caller có nhớ truyền đủ dữ liệu
  * hay không, Action tự nạp các bên đã có của `$matter` thay vì tin caller.
+ *
+ * **Tìm kiếm phải chạy trên CÙNG tập hợp với việc xác định vai (fix round 3).** Round 2 chỉ gộp
+ * các bên đã có của `$matter` vào việc xác định `$ourClientRoles`, nhưng KHÔNG gộp vào vòng lặp
+ * tìm bản ghi trùng (`flatMap` gọi `matchesFor()`) — vòng đó vẫn chỉ chạy trên `$parties`. Hệ quả:
+ * một vụ đã có sẵn bị đơn Y (thêm vào lúc vụ chưa có bên khách hàng nào, nên khi đó không thể lên
+ * đỏ), sau đó thêm khách hàng mới X (nguyên đơn) bằng lời gọi CHỈ truyền đúng X — đúng như câu
+ * "không quan trọng" ở trên cho phép — sẽ chỉ tìm bản ghi trùng cho X, không bao giờ xét lại Y, dù
+ * bây giờ vụ việc đã đủ điều kiện đỏ (Y đối lập X VÀ Y là khách hàng của văn phòng ở vụ khác). Vì
+ * vậy `handle()` gọi `matchesFor()` cho TỪNG bên trong tập hợp gộp (`$allParties`), không chỉ
+ * `$parties` — các bên đã có của vụ được xét lại mỗi lần chạy cũng như bên mới. Khớp thêm ở một
+ * lần chạy lại không phải là nhiễu: đó là xung đột thật mà lần chạy trước không thể phát hiện, và
+ * `unique()` ở cuối `handle()` đã gộp các bản ghi trùng lặp nếu có.
  *
  * **Gộp không được dùng `Illuminate\Database\Eloquent\Collection::merge()`.** Fix round 2: khi
  * `$parties` là một Eloquent Collection (đúng hình dạng được khuyến nghị ở docblock trên —
@@ -99,20 +115,23 @@ class RunConflictCheck
      * @param  Collection<int, MatterParty>  $parties  Các bên đang được xem xét cho vụ việc đang
      *                                                 kiểm tra (xem hai thời điểm chạy ở docblock lớp).
      * @param  Matter|null  $matter  Vụ việc đang chạy kiểm tra, nếu đã tồn tại. Dùng để loại các
-     *                               bên của chính vụ này khỏi kết quả tìm kiếm, để nạp thêm các bên đã có của vụ vào việc xác
-     *                               định "khách hàng mới" (xem docblock lớp), và làm chủ thể (`subject`) của activity log.
+     *                               bên của chính vụ này khỏi kết quả tìm kiếm, để nạp thêm các bên đã có của vụ vào CẢ việc xác
+     *                               định "khách hàng mới" LẪN việc tìm bản ghi trùng (xem docblock lớp), và làm chủ thể
+     *                               (`subject`) của activity log.
      */
     public function handle(Collection $parties, ?Matter $matter = null): ConflictCheckResult
     {
         // Mảng thuần, không phải Collection::merge() — xem docblock lớp "Gộp không được dùng
-        // Eloquent Collection::merge()".
-        $rolesSource = collect([...$parties->all(), ...$this->existingParties($matter)]);
+        // Eloquent Collection::merge()". Tập hợp CHUNG này nuôi CẢ việc xác định vai LẪN việc tìm
+        // bản ghi trùng bên dưới — xem docblock lớp "Tìm kiếm phải chạy trên CÙNG tập hợp với
+        // việc xác định vai (fix round 3)".
+        $allParties = collect([...$parties->all(), ...$this->existingParties($matter)]);
 
-        $ourClientRoles = $rolesSource
+        $ourClientRoles = $allParties
             ->filter(fn (MatterParty $party) => $party->is_our_client)
             ->pluck('role');
 
-        $matches = $parties
+        $matches = $allParties
             ->flatMap(fn (MatterParty $party) => $this->matchesFor($party, $ourClientRoles, $matter))
             ->unique(fn (ConflictMatch $match) => implode('|', [
                 $match->matterCode, $match->partyRole->value, $match->partyName, $match->level->value, $match->tier->value,
@@ -136,10 +155,11 @@ class RunConflictCheck
     }
 
     /**
-     * Các bên đã có của $matter, dùng để bổ sung vào việc xác định "khách hàng mới" (xem docblock
-     * lớp). Bỏ CẢ `ClientPortalScope` (cùng lý do với `matchesFor()`) LẪN `SoftDeletingScope`
-     * (một bên khách hàng đã xoá mềm trong chính vụ đang xét vẫn từng đại diện cho khách hàng đó —
-     * nhất quán với cách `matchesFor()` đọc lịch sử).
+     * Các bên đã có của $matter, dùng để bổ sung vào CẢ việc xác định "khách hàng mới" LẪN việc
+     * tìm bản ghi trùng (xem docblock lớp — cả hai đều chạy trên cùng tập hợp kể từ fix round 3).
+     * Bỏ CẢ `ClientPortalScope` (cùng lý do với `matchesFor()`) LẪN `SoftDeletingScope` (một bên
+     * khách hàng đã xoá mềm trong chính vụ đang xét vẫn từng đại diện cho khách hàng đó — nhất
+     * quán với cách `matchesFor()` đọc lịch sử).
      *
      * @return array<int, MatterParty>
      */

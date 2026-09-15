@@ -341,6 +341,33 @@ it('detects a red conflict for a new party added to an existing matter even when
         ->and($result->isBlocking())->toBeTrue();
 });
 
+it('re-checks the matter’s already-existing parties too, not just the newly passed one, so a conflict that only becomes red later is still caught', function () {
+    // Vụ B: Y là khách hàng của văn phòng (is_our_client), vai mặc định nguyên đơn.
+    $yClient = Client::factory()->create(['id_number' => '087654321098', 'name' => 'Y bên kia']);
+    $matterB = Matter::factory()->create();
+    MatterParty::factory()->for($matterB)->ourClient($yClient)->create();
+
+    // Vụ A: bị đơn Y được thêm TRƯỚC, vào lúc vụ A CHƯA có bên khách hàng nào — nên lần kiểm tra
+    // lúc đó (nếu có chạy) không thể lên đỏ, vì chưa có ai để "đối lập". Y trùng số căn cước với
+    // chính khách hàng Y ở vụ B.
+    $matterA = Matter::factory()->create();
+    MatterParty::factory()->for($matterA)->create(['role' => PartyRole::Defendant, 'name' => 'Y bên kia (bị đơn)'])
+        ->identify('087654321098', null)
+        ->save();
+
+    // Sau đó khách hàng mới X (nguyên đơn) được thêm vào vụ A. Caller chỉ truyền đúng bên MỚI —
+    // đúng như docblock lớp cho phép — không kèm bị đơn Y đã có sẵn.
+    $newOurClient = proposedParty(PartyRole::Plaintiff, 'X khách hàng mới', isOurClient: true);
+
+    $result = app(RunConflictCheck::class)->handle(collect([$newOurClient]), $matterA);
+
+    // Vụ A giờ đã đủ điều kiện đỏ: Y đối lập X (defendant/plaintiff) VÀ Y là khách hàng của văn
+    // phòng ở vụ B — nhưng chỉ phát hiện được nếu Y (đã có sẵn trong vụ A) cũng được xét lại, chứ
+    // không chỉ X (bên vừa truyền vào).
+    expect($result->level)->toBe(ConflictLevel::Red)
+        ->and($result->matches->pluck('matterCode')->all())->toContain($matterB->code);
+});
+
 it('flags a party with neither id number nor phone as incomplete even when the result is green', function () {
     // Không gọi identify() với dữ liệu thật: id_number_hash và phone_normalized đều null, nên
     // Action chỉ so khớp được theo tên — mức tin cậy thấp nhất, không đủ để tin tưởng kết quả xanh.
