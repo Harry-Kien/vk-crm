@@ -6,6 +6,7 @@ use App\Enums\Permission;
 use App\Enums\Role;
 use App\Models\Client;
 use App\Models\ClientUser;
+use App\Models\Matter;
 use App\Models\User;
 use App\Policies\Concerns\ChecksPortalVisibility;
 
@@ -21,9 +22,14 @@ class ClientPolicy
     public function view(User|ClientUser $user, Client $client): bool
     {
         // Khách xem được hồ sơ của chính mình; scope đã giới hạn, policy xác nhận lại.
-        return $user instanceof ClientUser
-            ? $this->visibleToPortal($user, $client)
-            : $user->can(Permission::ClientManage->value);
+        if ($user instanceof ClientUser) {
+            return $this->visibleToPortal($user, $client);
+        }
+
+        // Không có quyền client.manage riêng vẫn đọc được hồ sơ khách của một vụ việc mà
+        // họ xem được (M3 review): tách quyền xem khỏi quyền quản lý, không thêm quyền mới.
+        return $user->can(Permission::ClientManage->value)
+            || Matter::query()->listableBy($user)->where('client_id', $client->getKey())->exists();
     }
 
     public function create(User|ClientUser $user): bool

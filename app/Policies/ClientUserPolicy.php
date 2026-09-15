@@ -5,6 +5,7 @@ namespace App\Policies;
 use App\Enums\Permission;
 use App\Enums\Role;
 use App\Models\ClientUser;
+use App\Models\Matter;
 use App\Models\User;
 
 /** Quản lý tài khoản khách chỉ dành cho nhân sự — khách không bao giờ chạm tới. */
@@ -17,7 +18,14 @@ class ClientUserPolicy
 
     public function view(User|ClientUser $user, ClientUser $clientUser): bool
     {
-        return $user instanceof User && $user->can(Permission::ClientUserManage->value);
+        if (! $user instanceof User) {
+            return false;
+        }
+
+        // Cùng luật với ClientPolicy::view: đọc được tài khoản khách của một vụ việc mà
+        // họ xem được, dù không có quyền quản lý.
+        return $user->can(Permission::ClientUserManage->value)
+            || Matter::query()->listableBy($user)->where('client_id', $clientUser->client_id)->exists();
     }
 
     public function create(User|ClientUser $user): bool
