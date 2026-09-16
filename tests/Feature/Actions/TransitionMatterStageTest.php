@@ -586,3 +586,52 @@ it('issues exactly one UPDATE statement against matters per transition, not one 
 
     expect($matterUpdateCount)->toBe(1);
 });
+
+// --- Fix round 2 (review, task 1: occurred_at accepts a future date) -----------------------
+
+it('refuses a future occurred_at, leaving the append-only stage log untouched', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = matterWithLawyer($lawyer);
+    $this->actingAs($lawyer, 'web');
+
+    expect(fn () => app(TransitionMatterStage::class)->handle(
+        matter: $matter,
+        actor: $lawyer,
+        toStage: 'collecting',
+        occurredAt: now()->addDay()->toDateString(),
+        internalNote: null,
+        publicContent: null,
+        nextStep: null,
+        clientAction: null,
+        expectedNextUpdateAt: null,
+        publish: false,
+    ))->toThrow(ValidationException::class);
+
+    expect(StageLog::query()->count())->toBe(0)
+        ->and($matter->fresh()->stage)->toBe('intake');
+});
+
+it('accepts occurred_at equal to today sent as a bare date string with no time component', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = matterWithLawyer($lawyer);
+    $this->actingAs($lawyer, 'web');
+
+    // Đúng dạng DatePicker gửi lên: chỉ có ngày, không giờ. Carbon::parse() mặc định 00:00:00,
+    // phải khớp today()->startOfDay() — không được lệch bị coi là "tương lai" vì giờ hệ thống
+    // hay múi giờ UTC/host, do PHP default timezone đã được LoadConfiguration đặt theo
+    // config('app.timezone') (Asia/Ho_Chi_Minh).
+    $stageLog = app(TransitionMatterStage::class)->handle(
+        matter: $matter,
+        actor: $lawyer,
+        toStage: 'collecting',
+        occurredAt: today()->toDateString(),
+        internalNote: null,
+        publicContent: null,
+        nextStep: null,
+        clientAction: null,
+        expectedNextUpdateAt: null,
+        publish: false,
+    );
+
+    expect($stageLog->occurred_at->toDateString())->toBe(today()->toDateString());
+});

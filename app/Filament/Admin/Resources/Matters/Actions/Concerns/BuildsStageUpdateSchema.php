@@ -79,11 +79,18 @@ trait BuildsStageUpdateSchema
     /** Toàn bộ schema của modal — khác nhau giữa hai lớp con (có/không có Select to_stage). */
     abstract protected function buildSchema(Matter $matter): array;
 
+    /**
+     * `maxDate(today())` chỉ là lớp tiện lợi cho người dùng (thông điệp ngay tại ô, không cần
+     * submit mới biết sai) — cổng thật chặn ngày tương lai nằm ở
+     * `TransitionMatterStage::handle()`, vì Action là API công khai và là nơi duy nhất không thể
+     * bị vòng qua (fix round 2 review, important finding).
+     */
     protected function occurredAtField(): DatePicker
     {
         return DatePicker::make('occurred_at')
             ->label(__('matters.transition_form.occurred_at'))
             ->default(today())
+            ->maxDate(today())
             ->native(false)
             ->required();
     }
