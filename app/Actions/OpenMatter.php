@@ -2,6 +2,7 @@
 
 namespace App\Actions;
 
+use App\Actions\Concerns\BuildsMatterParties;
 use App\Enums\ConflictLevel;
 use App\Enums\PartyRole;
 use App\Enums\Role;
@@ -14,6 +15,7 @@ use App\Models\MatterParty;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\ConflictCheckResult;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -36,11 +38,13 @@ use Illuminate\Validation\ValidationException;
  *     chính thật ra là bị đơn bị tính sai vai, hạ mức đỏ xuống vàng một cách im lặng — đúng lỗ
  *     hổng người xem xét tìm thấy. Thiếu khoá này ném `ValidationException` ngay, không suy đoán.
  *  3. **Giai đoạn kiểm tra, trong transaction RIÊNG (luôn commit, không bao giờ bị rollback bởi
- *     nhánh chặn):** khoá dòng `clients` của `$attributes['client_id']` trong lúc kiểm tra chạy
- *     (brief yêu cầu — xem "Về hai khoá dòng" bên dưới), dựng "bên là khách hàng của chính vụ
- *     việc" (own-client party) từ hồ sơ `Client` đã khoá — dùng
- *     `identify($client->id_number, $client->phone)`, CHÍNH XÁC như
- *     `MatterPartyFactory::ourClient()` — rồi dựng các bên còn lại từ `$parties` (form), và chạy
+ *     nhánh chặn):** khoá MỌI dòng `clients` mà lần mở vụ việc này sẽ đọc — khách hàng chính
+ *     (`$attributes['client_id']`) VÀ mọi bên trong `$parties` được đánh dấu `is_our_client` kèm
+ *     `client_id` — trong lúc kiểm tra chạy (brief yêu cầu — xem "Về các khoá dòng" bên dưới),
+ *     dựng "bên là khách hàng của chính vụ việc" (own-client party) từ hồ sơ `Client` đã khoá —
+ *     dùng `identify($client->id_number, $client->phone)`, CHÍNH XÁC như
+ *     `MatterPartyFactory::ourClient()` — rồi dựng các bên còn lại từ `$parties` (form) qua CÙNG
+ *     một đường dựng (`BuildsMatterParties`, dùng chung với `AddMatterParty`), và chạy
  *     `RunConflictCheck` trên toàn bộ tập hợp (`$matter = null` vì vụ việc CHƯA lưu).
  *
  *     Đây là nghĩa vụ của Action, không phải của caller: một khách hàng không có dòng
@@ -96,12 +100,25 @@ use Illuminate\Validation\ValidationException;
  *     không, lý do ghi đè nếu có, danh sách bên thiếu định danh (`incompleteParties()`) — không
  *     thay thế, không trùng lặp dòng `conflict_check_run` đã ghi ở bước 3.
  *
- * **Về hai khoá dòng (fix round 1, finding 6/9 — ghi nhận trung thực, không phóng đại):**
+ * **Về các khoá dòng (fix round 1, finding 6/9 — ghi nhận trung thực, không phóng đại):**
  * `lockForUpdate()` trên `clients` ở bước 3 chỉ có tác dụng trong đúng thời gian giai đoạn kiểm
  * tra chạy — khoá được GIẢI PHÓNG khi transaction đó commit, TRƯỚC KHI bất kỳ ghi nào phái sinh từ
- * dữ liệu khách hàng (own-client party) được lưu ở bước 5. Nó ngăn một sửa đổi `id_number`/`phone`
- * xen ngang đúng lúc kiểm tra đọc, nhưng KHÔNG khoá khách hàng xuyên suốt toàn bộ lần mở vụ việc —
- * đúng nghĩa đen "khoá dòng khách hàng trong lúc kiểm tra chạy" của brief, không hơn.
+ * dữ liệu khách hàng (own-client party) được lưu ở bước 5. Nó ngăn một sửa đổi
+ * `name`/`id_number`/`phone` xen ngang đúng lúc kiểm tra đọc, nhưng KHÔNG khoá khách hàng xuyên
+ * suốt toàn bộ lần mở vụ việc — đúng nghĩa đen "khoá dòng khách hàng trong lúc kiểm tra chạy" của
+ * brief, không hơn.
+ *
+ * **Vì sao khoá NHIỀU dòng khách hàng trong MỘT câu lệnh, sắp theo khoá chính (fix round 3).** Từ
+ * khi bên trong `$parties` cũng được dựng lại từ hồ sơ `Client` thật (finding I-6), một lần mở vụ
+ * việc có thể phải khoá nhiều hơn một dòng `clients`. Khoá lần lượt theo thứ tự form gửi lên là
+ * công thức kinh điển của DEADLOCK: hai request đồng thời, request A khoá khách hàng 5 rồi xin 3,
+ * request B khoá 3 rồi xin 5 — InnoDB phát hiện vòng chờ và huỷ một trong hai (errno 1213), người
+ * dùng nhận một lỗi 500 không giải thích được. `lockClients()` gom mọi id cần khoá, sắp TĂNG DẦN
+ * theo khoá chính và lấy trong một câu lệnh `whereIn(...)->orderBy('id')->lockForUpdate()`, nên
+ * mọi lời gọi `OpenMatter` đồng thời đều xin khoá theo cùng một thứ tự toàn cục và không tồn tại
+ * vòng chờ nào để mà deadlock. `AddMatterParty` chỉ khoá đúng MỘT dòng `clients` mỗi lần chạy nên
+ * nó không bao giờ vừa giữ một khoá vừa xin khoá thứ hai, tức không tham gia được vào một vòng chờ
+ * với `OpenMatter`; thứ tự toàn cục vì vậy vẫn nguyên vẹn khi có cả hai Action chạy cùng lúc.
  * `lockForUpdate()` trên `matters` trước khi sao chép danh mục hồ sơ (carry-forward M1) khoá một
  * dòng vừa được chính `Matter::create()` chèn vài dòng lệnh trước đó, TRONG CÙNG transaction —
  * dòng này vô hình với mọi transaction khác cho tới khi commit, nên không có transaction đồng
@@ -112,6 +129,8 @@ use Illuminate\Validation\ValidationException;
  */
 class OpenMatter
 {
+    use BuildsMatterParties;
+
     /**
      * @param  User  $actor  Người thực hiện thao tác này. Bắt buộc và tường minh — cùng quy ước
      *                       với `TransitionMatterStage::handle()` và `AddMatterParty::handle()`,
@@ -175,11 +194,15 @@ class OpenMatter
         // Bước 3.
         /** @var array{0: ConflictCheckResult, 1: Collection<int, MatterParty>} $checked */
         $checked = DB::transaction(function () use ($attributes, $parties, $clientRole, $actor): array {
-            $client = Client::query()->whereKey($attributes['client_id'])->lockForUpdate()->firstOrFail();
+            $clients = $this->lockClients($attributes['client_id'], $parties);
+            $client = $clients->get((int) $attributes['client_id']);
 
             $proposedParties = collect([
                 $this->buildOwnClientParty($client, $clientRole),
-                ...collect($parties)->map(fn (array $party) => $this->buildParty($party)),
+                ...collect($parties)->map(fn (array $party) => $this->buildMatterParty(
+                    $party,
+                    lockedClient: $clients->get((int) ($party['client_id'] ?? 0)),
+                )),
             ]);
 
             // Actor truyền xuống để dòng `conflict_check_run` và dòng `matter_opened` — hai bằng
@@ -255,33 +278,60 @@ class OpenMatter
     }
 
     /**
-     * Bên "khách hàng của chính vụ việc" — luôn dựng từ hồ sơ `Client` thật (đã khoá ở bước 3),
-     * không bao giờ tin số căn cước/điện thoại do form gửi lên cho bên này, vì đó là dữ liệu duy
-     * nhất đáng tin để bắc cầu qua `clients.id_number` (mã hoá, không có cột hash).
+     * Khoá MỌI dòng `clients` mà lần mở vụ việc này sẽ đọc, trong MỘT câu lệnh và theo thứ tự khoá
+     * chính tăng dần — xem "Về các khoá dòng" ở docblock lớp cho lý do thứ tự là bắt buộc chứ
+     * không phải gọn gàng.
+     *
+     * `firstOrFail()` cũ trở thành một phép đối chiếu tập hợp: một `client_id` do form gửi lên mà
+     * không có dòng tương ứng phải nổ thành `ModelNotFoundException` y như trước, không được im
+     * lặng bỏ qua rồi dựng một bên "là khách hàng của văn phòng" mà không có hồ sơ nào phía sau.
+     *
+     * @param  array<int, array<string, mixed>>  $parties
+     * @return Collection<int, Client> Hồ sơ đã khoá, khoá mảng theo id.
+     */
+    private function lockClients(int|string $primaryClientId, array $parties): Collection
+    {
+        $ids = collect([$primaryClientId])
+            ->merge(collect($parties)
+                ->filter(fn (array $party): bool => (bool) ($party['is_our_client'] ?? false))
+                ->map(fn (array $party) => $party['client_id'] ?? null))
+            ->filter(fn ($id): bool => $id !== null && $id !== '')
+            ->map(fn ($id): int => (int) $id)
+            ->unique()
+            ->sort()
+            ->values();
+
+        /** @var Collection<int, Client> $clients */
+        $clients = Client::query()
+            ->whereIn('id', $ids->all())
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('id');
+
+        $missing = $ids->reject(fn (int $id): bool => $clients->has($id));
+
+        if ($missing->isNotEmpty()) {
+            throw (new ModelNotFoundException)->setModel(Client::class, $missing->all());
+        }
+
+        return $clients;
+    }
+
+    /**
+     * Bên "khách hàng của chính vụ việc" — không có dòng nào trong `$parties` của form, nên Action
+     * tự dựng từ hồ sơ `Client` đã khoá ở bước 3. Đi qua CÙNG một đường dựng như mọi bên khác
+     * (`BuildsMatterParties`, dùng chung với `AddMatterParty`): chính trait đó ép tên và định danh
+     * lấy từ hồ sơ thật, nên không còn một quy tắc "chỉ áp cho own-client party" nào để quên nữa.
      */
     private function buildOwnClientParty(Client $client, PartyRole $role): MatterParty
     {
-        return (new MatterParty([
+        return $this->buildMatterParty([
             'role' => $role,
             'is_our_client' => true,
-            'client_id' => $client->id,
+            'client_id' => $client->getKey(),
             'name' => $client->name,
             'address' => $client->address,
-        ]))->identify($client->id_number, $client->phone);
-    }
-
-    /** @param  array<string, mixed>  $data */
-    private function buildParty(array $data): MatterParty
-    {
-        $role = $data['role'] instanceof PartyRole ? $data['role'] : PartyRole::from($data['role']);
-
-        return (new MatterParty([
-            'role' => $role,
-            'is_our_client' => $data['is_our_client'] ?? false,
-            'client_id' => $data['client_id'] ?? null,
-            'name' => $data['name'],
-            'address' => $data['address'] ?? null,
-            'note' => $data['note'] ?? null,
-        ]))->identify($data['id_number'] ?? null, $data['phone'] ?? null);
+        ], lockedClient: $client);
     }
 }

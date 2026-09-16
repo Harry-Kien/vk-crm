@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Support\Normalizer;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Spatie\Activitylog\Models\Activity;
@@ -452,6 +453,80 @@ it('creates an own-client matter_party for the matter client, bridging the encry
             'id_number' => '011122233344',
         ]],
     ))->toThrow(ConflictBlocked::class);
+});
+
+/**
+ * Fix round 3, finding I-6: một bên TRONG DANH SÁCH bên (repeater của form tạo vụ việc) được
+ * đánh dấu "là khách hàng của văn phòng" kèm `client_id` phải được dựng y hệt own-client party —
+ * tên và định danh lấy từ hồ sơ `Client` thật, KHÔNG lấy từ form. `AddMatterParty` đã làm đúng
+ * từ fix round 2 (finding C) và commit 3859c7a; `OpenMatter` chỉ áp quy tắc đó cho khách hàng
+ * CHÍNH của vụ việc, còn bên trong repeater vẫn giữ nguyên tên/số căn cước/điện thoại form gửi
+ * lên — và màn hình tạo vụ việc mới mở ra đúng đường đó.
+ *
+ * Hậu quả không phải chuyện thẩm mỹ: `id_number_hash` là cây cầu DUY NHẤT qua `clients.id_number`
+ * (mã hoá, không có cột hash), nên một hash dựng từ số gõ sai là chính xác cách một lần kiểm tra
+ * xung đột sau này bỏ sót bên này — im lặng, vĩnh viễn.
+ */
+it('rebuilds a repeater party flagged as our client from the Client record, ignoring mismatched form values', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $this->actingAs($lawyer, 'web');
+
+    $newClient = Client::factory()->create();
+    $otherOwnClient = Client::factory()->create([
+        'name' => 'Công ty TNHH Hoàng Long',
+        'id_number' => '055566677788',
+        'phone' => '028 3822 1234',
+    ]);
+    $type = matterTypeWithTemplate();
+
+    $opening = app(OpenMatter::class)->handle(
+        $lawyer,
+        baseAttributes($newClient, $lawyer, $type),
+        [[
+            'role' => PartyRole::Plaintiff,
+            'name' => 'Gõ sai tên hoàn toàn',
+            'is_our_client' => true,
+            'client_id' => $otherOwnClient->id,
+            // Dữ liệu form khác hẳn hồ sơ Client thật — phải bị Action bỏ qua hoàn toàn.
+            'id_number' => '000000000000',
+            'phone' => '0999999999',
+        ]],
+    );
+
+    $party = $opening->parties()->where('client_id', $otherOwnClient->id)->first();
+
+    expect($party)->not->toBeNull()
+        ->and($party->name)->toBe('Công ty TNHH Hoàng Long')
+        ->and($party->id_number_hash)->toBe(Normalizer::idNumberHash('055566677788'))
+        ->and($party->phone_normalized)->toBe(Normalizer::phone('028 3822 1234'))
+        ->and($party->id_number_hash)->not->toBe(Normalizer::idNumberHash('000000000000'));
+});
+
+/**
+ * Hệ quả của việc bên trong repeater cũng được dựng lại từ hồ sơ `Client`: một `client_id` không
+ * có hồ sơ tương ứng phải NỔ, đúng như khách hàng chính vẫn nổ từ trước (`firstOrFail`). Im lặng
+ * bỏ qua rồi quay về tin form sẽ dựng ra một bên "là khách hàng của văn phòng" không có hồ sơ nào
+ * phía sau — đúng thứ mà quy tắc này sinh ra để chặn.
+ */
+it('refuses an our-client repeater party whose client_id has no Client row', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $this->actingAs($lawyer, 'web');
+
+    $newClient = Client::factory()->create();
+    $type = matterTypeWithTemplate();
+
+    expect(fn () => app(OpenMatter::class)->handle(
+        $lawyer,
+        baseAttributes($newClient, $lawyer, $type),
+        [[
+            'role' => PartyRole::Plaintiff,
+            'name' => 'Bên không có hồ sơ',
+            'is_our_client' => true,
+            'client_id' => 999999,
+        ]],
+    ))->toThrow(ModelNotFoundException::class);
+
+    expect(Matter::query()->where('client_id', $newClient->id)->exists())->toBeFalse();
 });
 
 /**

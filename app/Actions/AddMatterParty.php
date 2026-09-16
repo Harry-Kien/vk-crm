@@ -2,12 +2,11 @@
 
 namespace App\Actions;
 
+use App\Actions\Concerns\BuildsMatterParties;
 use App\Enums\ConflictLevel;
-use App\Enums\PartyRole;
 use App\Enums\Role;
 use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
-use App\Models\Client;
 use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Models\User;
@@ -62,6 +61,8 @@ use Illuminate\Support\Facades\Gate;
  */
 class AddMatterParty
 {
+    use BuildsMatterParties;
+
     /**
      * @param  array<string, mixed>  $partyData  `role` (`PartyRole|string`), `name`, và tuỳ chọn
      *                                           `id_number`, `phone`, `address`, `note`,
@@ -141,44 +142,15 @@ class AddMatterParty
     }
 
     /**
-     * `is_our_client = true` VỚI `client_id`: tên và định danh KHÔNG được lấy từ `$data['name']`/
-     * `$data['id_number']`/`$data['phone']` do form gửi lên — luôn dựng lại từ hồ sơ `Client` thật đã khoá, giống hệt
-     * `OpenMatter::buildOwnClientParty()` (fix round 2, finding C). Đây là chiếc cầu ĐÁNG TIN CẬY
-     * DUY NHẤT qua `clients.id_number` (mã hoá, không có cột hash): một bên "là khách hàng của
-     * văn phòng" mà định danh lấy từ form (có thể gõ sai, gõ khác hồ sơ gốc) sẽ tạo ra
-     * `id_number_hash` KHÔNG khớp hồ sơ `Client` thật — và một hash sai là chính xác cách một lần
-     * kiểm tra xung đột trong tương lai BỎ SÓT bên này, im lặng, không ai biết.
+     * Dựng bên mới. Toàn bộ quy tắc — kể cả "bên là khách hàng của văn phòng thì tên và định danh
+     * lấy từ hồ sơ `Client` thật, không lấy từ form" — nằm trong `BuildsMatterParties`, dùng chung
+     * với `OpenMatter`; đọc docblock trait đó cho lý do. Ở đây chỉ còn đúng phần riêng của Action
+     * này: vụ việc ĐÃ tồn tại nên bên mới mang sẵn `matter_id`.
      *
      * @param  array<string, mixed>  $data
      */
     private function buildParty(Matter $matter, array $data): MatterParty
     {
-        $role = $data['role'] instanceof PartyRole ? $data['role'] : PartyRole::from($data['role']);
-        $isOurClient = (bool) ($data['is_our_client'] ?? false);
-        $clientId = $isOurClient ? ($data['client_id'] ?? null) : null;
-
-        $party = new MatterParty([
-            'matter_id' => $matter->id,
-            'role' => $role,
-            'is_our_client' => $isOurClient,
-            'client_id' => $clientId,
-            'name' => $data['name'],
-            'address' => $data['address'] ?? null,
-            'note' => $data['note'] ?? null,
-        ]);
-
-        if ($clientId !== null) {
-            $client = Client::query()->whereKey($clientId)->lockForUpdate()->firstOrFail();
-
-            // Tên cũng lấy từ hồ sơ thật, cùng một lập luận và cùng cách `OpenMatter` đã làm:
-            // tên là tầng so khớp thứ ba của SPEC §6.10, nên một cái tên gõ khác hồ sơ gốc làm
-            // lệch đúng cột mà lần kiểm tra sau sẽ tra. Đây cũng là chỗ `AddMatterParty` từng
-            // lệch khỏi `OpenMatter::buildOwnClientParty()`, nay hết lệch.
-            $party->name = $client->name;
-
-            return $party->identify($client->id_number, $client->phone);
-        }
-
-        return $party->identify($data['id_number'] ?? null, $data['phone'] ?? null);
+        return $this->buildMatterParty($data, $matter->id);
     }
 }
