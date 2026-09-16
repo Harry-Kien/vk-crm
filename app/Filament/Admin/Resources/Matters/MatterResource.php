@@ -2,10 +2,12 @@
 
 namespace App\Filament\Admin\Resources\Matters;
 
+use App\Filament\Admin\Resources\Matters\Pages\CreateMatter;
 use App\Filament\Admin\Resources\Matters\Pages\ListMatters;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\PartiesRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\StageLogsRelationManager;
+use App\Filament\Admin\Resources\Matters\Schemas\MatterForm;
 use App\Filament\Admin\Resources\Matters\Schemas\MatterInfolist;
 use App\Filament\Admin\Resources\Matters\Tables\MattersTable;
 use App\Models\Matter;
@@ -23,9 +25,12 @@ use Illuminate\Support\Facades\Auth;
  * getRecordRouteBindingEloquentQuery() (mở thẳng URL) đều phải áp `listableBy`, nếu không một
  * luật sư ngoài đội ngũ gõ đúng URL vẫn mở được vụ việc dù không thấy nó trong danh sách.
  *
- * Không có trang create/edit: mở vụ việc đi qua Action `OpenMatter` (Task 5). Trang chi tiết
- * (`ViewMatter`) có ba tab của M3 — Tổng quan (infolist dưới đây), Tiến độ và Các bên
- * (`getRelations()`); các tab M4/M6/M7 chưa xây.
+ * Không có trang edit: sửa vụ việc chưa thuộc phạm vi M3. Trang create (`CreateMatter`) KHÔNG
+ * dùng luồng `Model::create()` mặc định của Filament — nó gọi Action `OpenMatter`, vì mở một vụ
+ * việc là bảy bước nghiệp vụ (kiểm tra xung đột lợi ích, sinh mã, dựng bên khách hàng, sao chép
+ * danh mục hồ sơ, nhật ký) chứ không phải một lần ghi bảng. Trang chi tiết (`ViewMatter`) có ba
+ * tab của M3 — Tổng quan (infolist dưới đây), Tiến độ và Các bên (`getRelations()`); các tab
+ * M4/M6/M7 chưa xây.
  */
 class MatterResource extends Resource
 {
@@ -45,6 +50,11 @@ class MatterResource extends Resource
         return __('matters.plural_label');
     }
 
+    public static function form(Schema $schema): Schema
+    {
+        return MatterForm::configure($schema);
+    }
+
     public static function infolist(Schema $schema): Schema
     {
         return MatterInfolist::configure($schema);
@@ -59,6 +69,7 @@ class MatterResource extends Resource
     {
         return [
             'index' => ListMatters::route('/'),
+            'create' => CreateMatter::route('/create'),
             'view' => ViewMatter::route('/{record}'),
         ];
     }
