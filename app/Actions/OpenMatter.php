@@ -15,6 +15,7 @@ use App\Models\MatterParty;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\ConflictCheckResult;
+use App\Support\OpenMatterResult;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -100,6 +101,16 @@ use Illuminate\Validation\ValidationException;
  *     không, lý do ghi đè nếu có, danh sách bên thiếu định danh (`incompleteParties()`) — không
  *     thay thế, không trùng lặp dòng `conflict_check_run` đã ghi ở bước 3.
  *
+ * **Trả về `OpenMatterResult` (vụ việc + `ConflictCheckResult` + có ghi đè hay không + lý do),
+ * không chỉ `Matter` (fix round 3, Critical).** `handle()` trả về BÌNH THƯỜNG ở hai đường rất
+ * khác nhau: mức xanh sạch, và mức ĐỎ đã được manager ghi đè ở bước 4. Một caller chỉ cầm
+ * `Matter` không phân biệt được hai đường đó, nên màn hình tạo vụ việc suy ra "Action không ném
+ * gì ⟹ xanh, không có bản ghi trùng" và báo MÀU XANH cho chính người vừa ghi đè một xung đột mức
+ * đỏ — về một xung đột chưa từng được hiện ra cho họ xem. `$result->level` một mình cũng không đủ
+ * để phân biệt: nó là ĐỎ ở cả trường hợp bị chặn (ném ngoại lệ) lẫn trường hợp được ghi đè, nên
+ * cờ `overridden` và `overrideReason` phải đi kèm. Cùng khuôn `AddMatterPartyResult` của
+ * `AddMatterParty`, vì hai Action là hai nhánh của cùng một quy tắc SPEC §6.10.
+ *
  * **Về các khoá dòng (fix round 1, finding 6/9 — ghi nhận trung thực, không phóng đại):**
  * `lockForUpdate()` trên `clients` ở bước 3 chỉ có tác dụng trong đúng thời gian giai đoạn kiểm
  * tra chạy — khoá được GIẢI PHÓNG khi transaction đó commit, TRƯỚC KHI bất kỳ ghi nào phái sinh từ
@@ -176,7 +187,7 @@ class OpenMatter
         array $parties,
         ?string $overrideReason = null,
         ?ConflictLevel $acknowledged = null,
-    ): Matter {
+    ): OpenMatterResult {
         // Bước 1.
         Gate::forUser($actor)->authorize('create', Matter::class);
 
@@ -232,7 +243,7 @@ class OpenMatter
         // Bước 5.
         return DB::transaction(function () use (
             $attributes, $proposedParties, $result, $isOverridden, $overrideReason, $actor,
-        ): Matter {
+        ): OpenMatterResult {
             // Gán tường minh TRƯỚC khi save(), cùng lý do như `TransitionMatterStage` bước 5:
             // Action đã nhận actor rõ ràng để kiểm tra quyền, nên hai cột "ai tạo" phải ghi đúng
             // actor đó chứ không suy luận từ `auth('web')` ambient mà `HasBlameable` mặc định
@@ -273,7 +284,7 @@ class OpenMatter
                 'incomplete_conflict_parties' => $result->incompleteParties(),
             ], $actor);
 
-            return $matter;
+            return new OpenMatterResult($matter, $result, $isOverridden, $isOverridden ? $overrideReason : null);
         });
     }
 

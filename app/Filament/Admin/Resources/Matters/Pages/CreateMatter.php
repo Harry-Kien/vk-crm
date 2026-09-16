@@ -178,13 +178,17 @@ class CreateMatter extends CreateRecord
             : null;
 
         try {
+            // `handle()` trả `OpenMatterResult` (vụ việc + kết quả kiểm tra + có ghi đè hay không
+            // + lý do). Ở đây mới chỉ lấy ra vụ việc để trang chạy như cũ; phần dùng `result`/
+            // `overridden` để `notifySaved()` nói đúng nhánh thành công nào là việc của bản sửa
+            // giao diện tiếp theo — xem docblock `App\Support\OpenMatterResult`.
             $matter = app(OpenMatter::class)->handle(
                 actor: $actor,
                 attributes: static::matterAttributes($data),
                 parties: static::partiesPayload($data),
                 overrideReason: $data['override_reason'] ?? null,
                 acknowledged: $acknowledged,
-            );
+            )->matter;
         } catch (ConflictBlocked $exception) {
             // Mức đỏ không phải thứ "thử lại là qua": xoá mức đang chờ để một ô xác nhận còn tích
             // sót từ lượt trước không mang nghĩa gì ở lượt sau.

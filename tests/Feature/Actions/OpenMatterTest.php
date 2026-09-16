@@ -14,6 +14,7 @@ use App\Models\MatterParty;
 use App\Models\MatterType;
 use App\Models\User;
 use App\Support\Normalizer;
+use App\Support\OpenMatterResult;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -111,7 +112,7 @@ it('lets a manager override the red block with a reason, saves the matter, and r
             'id_number' => '079012345678',
         ]],
         'Đã trao đổi với khách hàng, xác nhận đây không phải cùng một người, đồng ý mở vụ việc.',
-    );
+    )->matter;
 
     expect($matter->exists)->toBeTrue()
         ->and($matter->client_id)->toBe($newClient->id)
@@ -237,7 +238,7 @@ it('saves a yellow result once the caller acknowledges it', function () {
             'phone' => '0977888999',
         ]],
         acknowledged: ConflictLevel::Yellow,
-    );
+    )->matter;
 
     expect($matter->exists)->toBeTrue();
 
@@ -252,7 +253,7 @@ it('needs no acknowledgement for a green result', function () {
     $newClient = Client::factory()->create();
     $type = matterTypeWithTemplate();
 
-    $matter = app(OpenMatter::class)->handle($lawyer, baseAttributes($newClient, $lawyer, $type), []);
+    $matter = app(OpenMatter::class)->handle($lawyer, baseAttributes($newClient, $lawyer, $type), [])->matter;
 
     expect($matter->exists)->toBeTrue();
 });
@@ -303,7 +304,7 @@ it('saves a green result with an incomplete party once the caller acknowledges i
             'name' => 'Người Chỉ Có Tên Không Định Danh',
         ]],
         acknowledged: ConflictLevel::Green,
-    );
+    )->matter;
 
     expect($matter->exists)->toBeTrue();
 
@@ -320,7 +321,7 @@ it('flags the repeat-client case as yellow (same client opening a second matter 
     $type = matterTypeWithTemplate();
 
     // Vụ việc đầu tiên của khách hàng: hoàn toàn xanh, không có bên nào trùng ở đâu cả.
-    $firstMatter = app(OpenMatter::class)->handle($lawyer, baseAttributes($client, $lawyer, $type), []);
+    $firstMatter = app(OpenMatter::class)->handle($lawyer, baseAttributes($client, $lawyer, $type), [])->matter;
     expect($firstMatter->exists)->toBeTrue();
 
     // Vụ việc thứ hai của CHÍNH khách hàng đó: own-client party mới trùng id_number_hash với
@@ -337,7 +338,7 @@ it('flags the repeat-client case as yellow (same client opening a second matter 
         baseAttributes($client, $lawyer, $type),
         [],
         acknowledged: ConflictLevel::Yellow,
-    );
+    )->matter;
 
     expect($secondMatter->exists)->toBeTrue()
         ->and(Matter::query()->where('client_id', $client->id)->count())->toBe(2);
@@ -402,7 +403,7 @@ it('applies the active checklist template of the matter type when opening the ma
     $newClient = Client::factory()->create();
     $type = matterTypeWithTemplate(3);
 
-    $matter = app(OpenMatter::class)->handle($lawyer, baseAttributes($newClient, $lawyer, $type), []);
+    $matter = app(OpenMatter::class)->handle($lawyer, baseAttributes($newClient, $lawyer, $type), [])->matter;
 
     expect($matter->checklistItems()->count())->toBe(3);
 });
@@ -431,7 +432,7 @@ it('creates an own-client matter_party for the matter client, bridging the encry
     $clientA = Client::factory()->create(['id_number' => '011122233344', 'name' => 'Phạm Văn A']);
     $type = matterTypeWithTemplate();
 
-    $matterA = app(OpenMatter::class)->handle($lawyer, baseAttributes($clientA, $lawyer, $type), []);
+    $matterA = app(OpenMatter::class)->handle($lawyer, baseAttributes($clientA, $lawyer, $type), [])->matter;
 
     $ownParty = $matterA->parties()->where('client_id', $clientA->id)->first();
     expect($ownParty)->not->toBeNull()
@@ -453,6 +454,64 @@ it('creates an own-client matter_party for the matter client, bridging the encry
             'id_number' => '011122233344',
         ]],
     ))->toThrow(ConflictBlocked::class);
+});
+
+/**
+ * Fix round 3, Critical: `handle()` trả về BÌNH THƯỜNG ở hai đường rất khác nhau — mức xanh sạch,
+ * và mức ĐỎ đã được manager ghi đè. Khi nó chỉ trả một `Matter`, caller không phân biệt được hai
+ * đường đó và `CreateMatter` suy ra "không ném gì ⟹ xanh sạch", rồi hiện "không tìm thấy bản ghi
+ * trùng nào" MÀU XANH cho chính người vừa ghi đè một xung đột mức đỏ họ chưa từng được xem.
+ *
+ * Nên `handle()` trả `OpenMatterResult` (cùng khuôn `AddMatterPartyResult`), mang theo kết quả
+ * kiểm tra, có ghi đè hay không, và lý do ghi đè. Test này so cả hai đường trong một chỗ: nếu
+ * thiếu bất kỳ mảnh nào, màn hình lại phải đoán.
+ */
+it('returns the conflict-check result, the override flag and the reason alongside the matter', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $this->actingAs($manager, 'web');
+
+    $type = matterTypeWithTemplate();
+
+    // Đường xanh sạch.
+    $clean = app(OpenMatter::class)->handle(
+        $manager,
+        baseAttributes(Client::factory()->create(), $manager, $type),
+        [[
+            'role' => PartyRole::Defendant,
+            'name' => 'Bị đơn không trùng ai',
+            'id_number' => '012345678901',
+        ]],
+    );
+
+    expect($clean)->toBeInstanceOf(OpenMatterResult::class)
+        ->and($clean->matter->exists)->toBeTrue()
+        ->and($clean->result->level)->toBe(ConflictLevel::Green)
+        ->and($clean->result->matches)->toBeEmpty()
+        ->and($clean->overridden)->toBeFalse()
+        ->and($clean->overrideReason)->toBeNull();
+
+    // Đường đỏ đã ghi đè: Action cũng trả về bình thường, nhưng kết quả KHÔNG hề giống đường trên.
+    $existingClient = Client::factory()->create(['id_number' => '079012345678', 'name' => 'Nguyễn Văn Hùng']);
+    MatterParty::factory()->for(Matter::factory()->create())->ourClient($existingClient)->create();
+
+    $overridden = app(OpenMatter::class)->handle(
+        $manager,
+        baseAttributes(Client::factory()->create(), $manager, $type),
+        [[
+            'role' => PartyRole::Defendant,
+            'name' => 'Nguyễn Văn Hùng (bị đơn)',
+            'id_number' => '079012345678',
+        ]],
+        '  Đã trao đổi với khách hàng, xác nhận không phải cùng một người.  ',
+    );
+
+    expect($overridden->matter->exists)->toBeTrue()
+        ->and($overridden->result->level)->toBe(ConflictLevel::Red)
+        ->and($overridden->result->matches)->not->toBeEmpty()
+        ->and($overridden->overridden)->toBeTrue()
+        // Lý do đã được trim, đúng giá trị Action ghi vào activity log — màn hình hiện lại được
+        // chính xác cái đã lưu, không phải cái người dùng gõ kèm khoảng trắng thừa.
+        ->and($overridden->overrideReason)->toBe('Đã trao đổi với khách hàng, xác nhận không phải cùng một người.');
 });
 
 /**
@@ -491,7 +550,7 @@ it('rebuilds a repeater party flagged as our client from the Client record, igno
             'id_number' => '000000000000',
             'phone' => '0999999999',
         ]],
-    );
+    )->matter;
 
     $party = $opening->parties()->where('client_id', $otherOwnClient->id)->first();
 
@@ -547,7 +606,7 @@ it('authorizes the create gate against the actor parameter, not the user in the 
     $newClient = Client::factory()->create();
     $type = matterTypeWithTemplate();
 
-    $matter = app(OpenMatter::class)->handle($lawyer, baseAttributes($newClient, $lawyer, $type), []);
+    $matter = app(OpenMatter::class)->handle($lawyer, baseAttributes($newClient, $lawyer, $type), [])->matter;
 
     expect($matter->exists)->toBeTrue();
 
@@ -615,7 +674,7 @@ it('reads the red-override role from the actor, not from the session', function 
         baseAttributes($clientForManager, $manager, $type),
         $defendant,
         $reason,
-    );
+    )->matter;
 
     expect($matter->exists)->toBeTrue();
 
@@ -641,7 +700,7 @@ it('stamps created_by on the matter and its parties from the actor, not from the
             'id_number' => '099988877766',
             'phone' => '0900000111',
         ],
-    ]);
+    ])->matter;
 
     expect($matter->created_by)->toBe($lawyer->id)
         ->and($matter->updated_by)->toBe($lawyer->id)
