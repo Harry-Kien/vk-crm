@@ -159,6 +159,15 @@ class RunConflictCheck
             ]))
             ->values();
 
+        // CỐ Ý tính trên `$parties` chứ không phải `$allParties` — đây là chỗ DUY NHẤT hai tập
+        // hợp tách nhau, nên nói rõ vì sao. Danh sách này chỉ phục vụ việc bắt người dùng tích
+        // xác nhận (`requiresAcknowledgement()`), và lời xác nhận đó có nghĩa là "tôi biết những
+        // bên TÔI đang nhập vào lúc này thiếu định danh nên kết quả xanh không đáng tin". Một bên
+        // đã có sẵn của vụ việc mà thiếu định danh thì đã được xác nhận đúng như vậy ở lần nó
+        // được thêm vào; kéo nó vào đây sẽ bắt xác nhận lại ở mọi lần thêm bên về sau, biến lời
+        // xác nhận thành một cái nút bấm cho qua — đúng thứ làm hỏng giá trị của nó. Việc TÌM
+        // KIẾM thì ngược lại, vẫn chạy trên `$allParties`: bỏ sót một bản ghi trùng là hậu quả
+        // hoàn toàn khác hạng với việc hỏi thừa một câu.
         $incompleteParties = $parties
             ->filter(fn (MatterParty $party) => $party->id_number_hash === null && $party->phone_normalized === null)
             ->pluck('name')
