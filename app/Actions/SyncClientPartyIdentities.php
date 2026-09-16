@@ -9,8 +9,9 @@ use App\Support\Scopes\ClientPortalScope;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Đồng bộ lại ảnh chụp định danh (`id_number_hash`, `phone_normalized`) của MỌI bên trỏ về một
- * khách hàng, sau khi hồ sơ khách hàng đó đổi số căn cước hoặc số điện thoại.
+ * Đồng bộ lại ảnh chụp định danh (`name`/`name_normalized`, `id_number_hash`, `phone_normalized`)
+ * của MỌI bên trỏ về một khách hàng, sau khi hồ sơ khách hàng đó đổi tên, số căn cước hoặc số
+ * điện thoại.
  *
  * **Vì sao việc này bắt buộc phải tồn tại.** `clients.id_number` dùng cast `encrypted`
  * (SPEC §10.5), nên `RunConflictCheck` KHÔNG thể truy vấn nó — `matter_parties.id_number_hash`
@@ -56,9 +57,17 @@ class SyncClientPartyIdentities
                 return 0;
             }
 
-            $parties->each(
-                fn (MatterParty $party) => $party->identify($client->id_number, $client->phone)->save()
-            );
+            $parties->each(function (MatterParty $party) use ($client): void {
+                // Tên cũng là một ảnh chụp, và cũng là tầng so khớp thứ ba của SPEC §6.10 bước 2.
+                // Nó chỉ bao giờ cho ra mức vàng nên hậu quả nhẹ hơn hai tầng kia, nhưng lệch vẫn
+                // là lệch: một khách hàng đổi tên (doanh nghiệp đổi tên, sửa tên sai chính tả lúc
+                // tiếp nhận) sẽ để lại các dòng bên mang tên cũ — vừa không khớp khi kiểm tra
+                // xung đột, vừa hiển thị sai ngay trên tab "Các bên". `name_normalized` được
+                // MatterParty tính lại ở sự kiện `saving`, không gán tay ở đây.
+                $party->name = $client->name;
+
+                $party->identify($client->id_number, $client->phone)->save();
+            });
 
             Audit::record('client_identity_resynced', $client, [
                 'parties_resynced' => $parties->count(),

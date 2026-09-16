@@ -69,7 +69,7 @@ class Client extends Model
             // (cast `encrypted` nằm trong danh sách primitive của `originalIsEquivalent`), nên
             // `wasChanged()` ở đây so theo giá trị THẬT, không so ciphertext; ghi lại đúng số cũ
             // không kích hoạt đồng bộ. Hành vi này được ghim bằng test, không phải phỏng đoán.
-            if ($client->wasChanged('id_number') || $client->wasChanged('phone')) {
+            if ($client->wasChanged(['name', 'id_number', 'phone'])) {
                 app(SyncClientPartyIdentities::class)->handle($client);
             }
         });

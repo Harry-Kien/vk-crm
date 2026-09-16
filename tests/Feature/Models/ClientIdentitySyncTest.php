@@ -133,13 +133,14 @@ it('does not re-sync or log when the client is saved without changing its identi
     // `id_number` dùng cast `encrypted`, mã hoá không tất định: cùng một giá trị cho ra hai chuỗi
     // ciphertext khác nhau. Test này ghim hành vi thật của isDirty/wasChanged trên cột như vậy —
     // Laravel giải mã hai phía trước khi so sánh, nên ghi lại đúng số cũ KHÔNG được coi là đổi.
-    $client = Client::factory()->create(['id_number' => '077000111222']);
+    $client = Client::factory()->create(['id_number' => '077000111222', 'name' => 'Tên không đổi']);
     MatterParty::factory()->ourClient($client)->create();
 
-    $client->update(['id_number' => '077000111222', 'name' => 'Tên mới, số cũ']);
+    // Ghi lại đúng số cũ, và đổi một cột KHÔNG nằm trong ảnh chụp định danh.
+    $client->update(['id_number' => '077000111222', 'note' => 'Ghi chú nội bộ mới']);
 
     expect($client->wasChanged('id_number'))->toBeFalse()
-        ->and($client->wasChanged('name'))->toBeTrue()
+        ->and($client->wasChanged('note'))->toBeTrue()
         ->and(Activity::query()->where('event', 'client_identity_resynced')->exists())->toBeFalse();
 });
 
@@ -149,4 +150,41 @@ it('does not log a re-sync for a client that has no party rows at all', function
     $client->update(['id_number' => '088000999888']);
 
     expect(Activity::query()->where('event', 'client_identity_resynced')->exists())->toBeFalse();
+});
+
+it('re-syncs the party name when the client is renamed, so the name tier still matches', function () {
+    // Tầng tên chỉ cho ra mức vàng, nhưng lệch vẫn là bỏ sót: một khách hàng đổi tên để lại các
+    // dòng bên mang tên cũ, và lần kiểm tra sau tra theo tên MỚI sẽ không thấy gì.
+    $client = Client::factory()->create(['name' => 'Công ty TNHH Tên Cũ', 'id_number' => null, 'phone' => null]);
+    $matter = Matter::factory()->create(['client_id' => $client->id]);
+
+    $party = MatterParty::factory()->create([
+        'matter_id' => $matter->id,
+        'client_id' => $client->id,
+        'is_our_client' => true,
+        'role' => PartyRole::Plaintiff,
+        'name' => $client->name,
+        'id_number_hash' => null,
+        'phone_normalized' => null,
+    ]);
+
+    $client->update(['name' => 'Công ty TNHH Tên Mới']);
+
+    expect($party->fresh()->name)->toBe('Công ty TNHH Tên Mới')
+        ->and($party->fresh()->name_normalized)->toBe(Normalizer::name('Công ty TNHH Tên Mới'));
+
+    // Và phép kiểm tra thật sự nhìn thấy tên mới ở vai đối lập.
+    $result = app(RunConflictCheck::class)->handle(collect([
+        ourNewClientParty(),
+        (new MatterParty([
+            'role' => PartyRole::Defendant,
+            'name' => 'Công ty TNHH Tên Mới',
+            'is_our_client' => false,
+        ])),
+    ]));
+
+    // Tầng tên trần luôn dừng ở mức vàng, kể cả khi vai đối lập (SPEC §11): một cái tên trùng
+    // chưa đủ để khẳng định cùng một người, nên nó gọi người xem xét chứ không chặn.
+    expect($result->level)->toBe(ConflictLevel::Yellow)
+        ->and($result->matches[0]->tier)->toBe(ConflictMatchTier::Name);
 });

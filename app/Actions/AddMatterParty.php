@@ -132,8 +132,8 @@ class AddMatterParty
     }
 
     /**
-     * `is_our_client = true` VỚI `client_id`: định danh KHÔNG được lấy từ `$data['id_number']`/
-     * `$data['phone']` do form gửi lên — luôn dựng lại từ hồ sơ `Client` thật đã khoá, giống hệt
+     * `is_our_client = true` VỚI `client_id`: tên và định danh KHÔNG được lấy từ `$data['name']`/
+     * `$data['id_number']`/`$data['phone']` do form gửi lên — luôn dựng lại từ hồ sơ `Client` thật đã khoá, giống hệt
      * `OpenMatter::buildOwnClientParty()` (fix round 2, finding C). Đây là chiếc cầu ĐÁNG TIN CẬY
      * DUY NHẤT qua `clients.id_number` (mã hoá, không có cột hash): một bên "là khách hàng của
      * văn phòng" mà định danh lấy từ form (có thể gõ sai, gõ khác hồ sơ gốc) sẽ tạo ra
@@ -160,6 +160,12 @@ class AddMatterParty
 
         if ($clientId !== null) {
             $client = Client::query()->whereKey($clientId)->lockForUpdate()->firstOrFail();
+
+            // Tên cũng lấy từ hồ sơ thật, cùng một lập luận và cùng cách `OpenMatter` đã làm:
+            // tên là tầng so khớp thứ ba của SPEC §6.10, nên một cái tên gõ khác hồ sơ gốc làm
+            // lệch đúng cột mà lần kiểm tra sau sẽ tra. Đây cũng là chỗ `AddMatterParty` từng
+            // lệch khỏi `OpenMatter::buildOwnClientParty()`, nay hết lệch.
+            $party->name = $client->name;
 
             return $party->identify($client->id_number, $client->phone);
         }
