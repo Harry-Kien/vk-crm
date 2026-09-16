@@ -177,6 +177,10 @@ class TransitionMatterStage
                 $matterUpdates['last_client_update_at'] = now();
             }
 
+            // Cùng lý do như `$stageLog->created_by` ở trên, cho dòng `matters`:
+            // `HasBlameable::updating` lấy `updated_by` từ `auth('web')` ambient, nên phải gán
+            // tường minh actor thì cột mới chỉ đúng người vừa chuyển giai đoạn.
+            $matter->updated_by = $actor->id;
             $matter->update($matterUpdates);
 
             if ($publishedToPortal) {

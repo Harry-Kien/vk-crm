@@ -506,6 +506,35 @@ it('records the real actor as created_by and activity causer even with no authen
         ->and($activity->causer?->is($lawyer))->toBeTrue();
 });
 
+/**
+ * Cùng lỗi, ở dòng `matters` chứ không ở dòng `stage_logs`: `$matter->update()` đi qua
+ * `HasBlameable::updating`, vốn ghi `updated_by` từ `auth('web')` ambient. Action đã biết actor
+ * là ai, nên cột đó phải là actor. Phiên và actor cố ý là hai người khác nhau để một cài đặt đọc
+ * phiên và một cài đặt đọc tham số không thể cho cùng đáp án.
+ */
+it('writes matters.updated_by from the actor passed in, not from the user in the session', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $someoneElse = User::factory()->withRole(Role::Admin)->create();
+    $this->actingAs($someoneElse, 'web');
+
+    $matter = matterWithLawyer($lawyer);
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter,
+        actor: $lawyer,
+        toStage: 'collecting',
+        occurredAt: now(),
+        internalNote: null,
+        publicContent: null,
+        nextStep: null,
+        clientAction: null,
+        expectedNextUpdateAt: null,
+        publish: false,
+    );
+
+    expect($matter->fresh()->updated_by)->toBe($lawyer->id);
+});
+
 it('refuses to publish when the actor has matter.transitionStage but not stageLog.publish (Important finding 5)', function () {
     $user = User::factory()->create();
     $limitedRole = SpatieRole::findOrCreate('transition_only_test_role', 'web');

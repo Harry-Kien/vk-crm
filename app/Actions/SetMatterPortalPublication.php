@@ -33,6 +33,10 @@ class SetMatterPortalPublication
         return DB::transaction(function () use ($matter, $publish, $actor): Matter {
             $publishedStageLogCount = $matter->stageLogs()->where('is_published', true)->count();
 
+            // `updated_by` gán tường minh trước `update()`: `HasBlameable::updating` ghi cột này
+            // từ `auth('web')` ambient, và Action đã biết actor là ai (chính actor vừa qua Gate ở
+            // trên). Trait nhường cho giá trị đã gán tường minh, xem docblock của nó.
+            $matter->updated_by = $actor->id;
             $matter->update(['is_published_to_portal' => $publish]);
 
             Audit::record('matter_portal_publication_set', $matter, [

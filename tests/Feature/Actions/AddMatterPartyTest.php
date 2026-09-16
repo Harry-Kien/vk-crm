@@ -337,7 +337,7 @@ it('attributes the conflict-check row to the actor passed in, not to the user in
 
     $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
 
-    app(AddMatterParty::class)->handle(
+    $addition = app(AddMatterParty::class)->handle(
         $matter,
         $lawyer,
         [
@@ -353,5 +353,11 @@ it('attributes the conflict-check row to the actor passed in, not to the user in
 
     expect($checked->causer?->is($lawyer))->toBeTrue()
         ->and($added->causer?->is($lawyer))->toBeTrue()
-        ->and($checked->properties->get('actor_explicit'))->toBeTrue();
+        ->and($checked->properties->get('actor_explicit'))->toBeTrue()
+        // Cùng một lập luận, áp cho CỘT chứ không chỉ cho nhật ký: `MatterParty` dùng
+        // `HasBlameable`, nên nếu Action không gán tường minh thì `created_by` được điền từ
+        // `auth('web')` ambient — ở đây là $someoneElse, một người không hề thêm bên nào. Dòng
+        // `matter_parties` là một phần hồ sơ pháp lý, không phải nhật ký phụ trợ.
+        ->and($addition->party->fresh()->created_by)->toBe($lawyer->id)
+        ->and($addition->party->fresh()->updated_by)->toBe($lawyer->id);
 });

@@ -34,6 +34,25 @@ it('turns portal publication on and records who did it', function () {
         ->and($activity->properties->get('publish'))->toBeTrue();
 });
 
+/**
+ * `Matter` dùng `HasBlameable`, và `HasBlameable::updating` ghi `updated_by` từ `auth('web')`
+ * ambient. Action này đã nhận `$actor` tường minh để kiểm tra quyền, nên cột "ai sửa lần cuối"
+ * phải là chính người đó — cùng lỗi mà bản xem xét trước xếp hạng Critical cho
+ * `stage_logs.created_by`. Phiên và actor CỐ Ý là hai người khác nhau, nếu không thì một cài đặt
+ * đọc phiên và một cài đặt đọc tham số cho ra cùng đáp án và test không phân biệt được gì.
+ */
+it('writes updated_by from the actor passed in, not from the user in the session', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $someoneElse = User::factory()->withRole(Role::Admin)->create();
+    $this->actingAs($someoneElse, 'web');
+
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'is_published_to_portal' => false]);
+
+    app(SetMatterPortalPublication::class)->handle(matter: $matter, publish: true, actor: $lawyer);
+
+    expect($matter->fresh()->updated_by)->toBe($lawyer->id);
+});
+
 it('turns portal publication off', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'is_published_to_portal' => true]);
