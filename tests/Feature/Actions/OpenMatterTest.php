@@ -249,6 +249,59 @@ it('needs no acknowledgement for a green result', function () {
     expect($matter->exists)->toBeTrue();
 });
 
+it('throws ConflictAcknowledgementRequired for a green result with an incomplete party, and saves nothing', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $this->actingAs($lawyer, 'web');
+
+    $newClient = Client::factory()->create();
+    $type = matterTypeWithTemplate();
+    $matterCountBefore = Matter::count();
+
+    // Bên này chỉ có tên, không id_number lẫn phone — RunConflictCheck chỉ so khớp được theo
+    // tên cho bên này (SPEC §6.10 bước 2 "cần người xem xét"). Tên không trùng ai nên kết quả
+    // tổng thể vẫn XANH (matches rỗng), nhưng ConflictCheckResult::hasIncompleteParties() là
+    // true, nên requiresAcknowledgement() cũng true dù level là Green.
+    $args = [
+        baseAttributes($newClient, $lawyer, $type),
+        [[
+            'role' => PartyRole::Defendant,
+            'name' => 'Người Chỉ Có Tên Không Định Danh',
+        ]],
+    ];
+
+    expect(fn () => app(OpenMatter::class)->handle(...$args))->toThrow(ConflictAcknowledgementRequired::class);
+
+    expect(Matter::count())->toBe($matterCountBefore);
+
+    $activity = Activity::query()->where('event', 'conflict_check_run')->latest('id')->first();
+    expect($activity->properties->get('level'))->toBe('green')
+        ->and($activity->properties->get('incomplete_parties'))->toBe(['Người Chỉ Có Tên Không Định Danh']);
+    expect(Activity::query()->where('event', 'matter_opened')->exists())->toBeFalse();
+});
+
+it('saves a green result with an incomplete party once the caller acknowledges it', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $this->actingAs($lawyer, 'web');
+
+    $newClient = Client::factory()->create();
+    $type = matterTypeWithTemplate();
+
+    $matter = app(OpenMatter::class)->handle(
+        baseAttributes($newClient, $lawyer, $type),
+        [[
+            'role' => PartyRole::Defendant,
+            'name' => 'Người Chỉ Có Tên Không Định Danh',
+        ]],
+        acknowledged: ConflictLevel::Green,
+    );
+
+    expect($matter->exists)->toBeTrue();
+
+    $matterOpened = Activity::query()->where('event', 'matter_opened')->latest('id')->first();
+    expect($matterOpened->properties->get('conflict_level'))->toBe('green')
+        ->and($matterOpened->properties->get('incomplete_conflict_parties'))->toBe(['Người Chỉ Có Tên Không Định Danh']);
+});
+
 it('flags the repeat-client case as yellow (same client opening a second matter matches their own first matter), requiring acknowledgement', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $this->actingAs($lawyer, 'web');

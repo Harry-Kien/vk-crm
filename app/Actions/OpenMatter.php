@@ -64,13 +64,25 @@ use Illuminate\Validation\ValidationException;
  *     không rỗng (sau `trim`). Ném `ConflictBlocked` (mang theo `ConflictCheckResult` để caller
  *     hiển thị lại danh sách bản ghi trùng) — giai đoạn kiểm tra ở bước 3 đã commit, giai đoạn lưu
  *     ở bước 5 chưa hề bắt đầu, nên không có gì bị tạo ra ngoài dòng activity log của chính lần
- *     kiểm tra. Mức vàng (fix round 1, finding 1): không chặn vĩnh viễn, nhưng caller PHẢI xác
- *     nhận đã xem xét bằng cách truyền `acknowledged: ConflictLevel::Yellow` — thiếu xác nhận ném
- *     `ConflictAcknowledgementRequired` (cùng khuôn với `ConflictBlocked`), và vì lỗi này được ném
- *     TRƯỚC giai đoạn lưu, vụ việc CHƯA tồn tại khi caller mới biết mức — không có chuyện "lưu rồi
- *     mới hỏi". Mức xanh không cần xác nhận gì.
- *  5. **Giai đoạn lưu, trong transaction riêng, chỉ chạy nếu không bị chặn VÀ (xanh HOẶC vàng đã
- *     được xác nhận):** tạo `Matter` (sinh mã qua `CodeSequence::next()` ở `Matter::creating()`),
+ *     kiểm tra. Bất kỳ kết quả nào khác mà `ConflictCheckResult::requiresAcknowledgement()` trả về
+ *     `true` (fix round 1 finding 1, mở rộng ở fix round 2): không chặn vĩnh viễn, nhưng caller
+ *     PHẢI xác nhận đã xem xét bằng cách truyền `acknowledged` ĐÚNG BẰNG `$result->level` — thiếu
+ *     xác nhận ném `ConflictAcknowledgementRequired` (cùng khuôn với `ConflictBlocked`), và vì lỗi
+ *     này được ném TRƯỚC giai đoạn lưu, vụ việc CHƯA tồn tại khi caller mới biết mức — không có
+ *     chuyện "lưu rồi mới hỏi". `requiresAcknowledgement()` không chỉ đúng cho mức vàng: nó CŨNG
+ *     đúng cho mức XANH khi `hasIncompleteParties()` — một bên chỉ có tên, không có số căn cước
+ *     lẫn điện thoại, chỉ so khớp được theo tên ("cần người xem xét" — SPEC §6.10 bước 2), nên một
+ *     kết quả xanh ở đó nghĩa là "không tìm thấy gì, nhưng gần như không nhìn được" chứ không phải
+ *     "chắc chắn sạch". Fix round 1 gate lúc đầu chỉ so `$result->level === Yellow`, bỏ sót đúng
+ *     trường hợp này — SPEC không nói rõ nhưng `ConflictCheckResult::requiresAcknowledgement()`
+ *     (Task 7, fix round 2) được thiết kế CHÍNH XÁC để một caller chỉ nhìn `isBlocking()` /
+ *     `requiresAcknowledgement()` không thể render một form xanh trơn mà giấu đi cảnh báo thiếu
+ *     định danh; gate ở đây phải gọi đúng phương thức đó, không tự suy luận lại theo `level`. Chỉ
+ *     mức đỏ không cần khớp `requiresAcknowledgement()` vì nó có luồng riêng
+ *     (`$overrideReason`/`isBlocking()`) đứng trước trong `if/elseif`.
+ *  5. **Giai đoạn lưu, trong transaction riêng, chỉ chạy nếu không bị chặn VÀ (không cần xác nhận
+ *     HOẶC đã được xác nhận đúng mức):** tạo `Matter` (sinh mã qua `CodeSequence::next()` ở
+ *     `Matter::creating()`),
  *     ghi các `MatterParty` đã dựng ở bước 3, sao chép danh mục hồ sơ từ template đang hoạt động
  *     mới nhất của loại vụ việc (nếu có), và ghi activity log `matter_opened` — causer truyền
  *     tường minh là `$actor` (không suy luận lại từ `auth()` ambient trong `Audit::record`, cùng
@@ -110,16 +122,20 @@ class OpenMatter
      *                                                     `is_our_client`, `client_id`.
      * @param  ConflictLevel|null  $acknowledged  Mức mà caller đã hiển thị cho người dùng và được
      *                                            tích xác nhận đã xem xét TRƯỚC lời gọi này (SPEC
-     *                                            §11 bullet 3). Chỉ có ý nghĩa khi bằng
-     *                                            `ConflictLevel::Yellow` — mức đỏ có luồng riêng
-     *                                            (`$overrideReason`), mức xanh không cần xác
-     *                                            nhận gì. Dùng enum thay vì `bool $acknowledged`
-     *                                            đơn thuần để caller không thể "xác nhận trước"
-     *                                            một mức chưa biết: giá trị phải khớp CHÍNH XÁC
-     *                                            mức mà lần kiểm tra NÀY trả về, nên một xác nhận
-     *                                            lưu từ một request kiểm tra trước đó (mức có thể
-     *                                            đã đổi vì dữ liệu đổi) không tự động hợp lệ nếu
-     *                                            mức mới không phải vàng.
+     *                                            §11 bullet 3). Có ý nghĩa bất cứ khi nào
+     *                                            `$result->requiresAcknowledgement()` là true —
+     *                                            KHÔNG chỉ mức vàng (fix round 2): mức XANH có bên
+     *                                            thiếu định danh (`hasIncompleteParties()`) cũng
+     *                                            đòi xác nhận, vì "không tìm thấy gì" ở đó không
+     *                                            đáng tin bằng một mức xanh thật. Mức đỏ có luồng
+     *                                            riêng (`$overrideReason`), không dùng tham số
+     *                                            này. Dùng enum thay vì `bool $acknowledged` đơn
+     *                                            thuần để caller không thể "xác nhận trước" một
+     *                                            mức chưa biết: giá trị phải khớp CHÍNH XÁC
+     *                                            `$result->level` mà lần kiểm tra NÀY trả về, nên
+     *                                            một xác nhận lưu từ một request kiểm tra trước đó
+     *                                            (mức có thể đã đổi vì dữ liệu đổi) không tự động
+     *                                            hợp lệ nếu mức mới khác.
      */
     public function handle(
         array $attributes,
@@ -172,7 +188,7 @@ class OpenMatter
             }
 
             $isOverridden = true;
-        } elseif ($result->level === ConflictLevel::Yellow && $acknowledged !== ConflictLevel::Yellow) {
+        } elseif ($result->requiresAcknowledgement() && $acknowledged !== $result->level) {
             throw ConflictAcknowledgementRequired::make($result);
         }
 
