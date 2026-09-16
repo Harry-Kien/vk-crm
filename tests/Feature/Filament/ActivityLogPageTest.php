@@ -3,7 +3,9 @@
 use App\Enums\Role;
 use App\Filament\Admin\Pages\ActivityLogPage;
 use App\Models\Client;
+use App\Models\Matter;
 use App\Models\User;
+use App\Support\Audit;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Spatie\Activitylog\Models\Activity;
@@ -36,4 +38,24 @@ it('lets a manager open the activity log page', function () {
     $manager = User::factory()->withRole(Role::Manager)->create();
 
     $this->actingAs($manager, 'web')->get(ActivityLogPage::getUrl(panel: 'admin'))->assertOk();
+});
+
+/**
+ * Review fix round 1, Important #1: bốn sự kiện M3 thực sự ghi qua Audit::record()
+ * (matter_opened, matter_stage_transitioned, matter_party_added, conflict_check_run) thiếu
+ * trong lang/vi/activity.php, nên cột "Sự kiện" hiện nguyên khoá dịch thay vì nhãn tiếng Việt.
+ * Test này ghi thẳng một dòng activity qua Audit::record() (không cần chạy trọn Action) và xác
+ * nhận trang render đúng nhãn, không phải khoá trần.
+ */
+it('renders a translated label for the M3 audit events, not the raw translation key', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = Matter::factory()->create();
+
+    Audit::record('matter_opened', $matter, [], $admin);
+
+    $response = $this->actingAs($admin, 'web')->get(ActivityLogPage::getUrl(panel: 'admin'));
+
+    $response->assertOk();
+    $response->assertSee(__('activity.events.matter_opened'));
+    $response->assertDontSee('activity.events.matter_opened');
 });

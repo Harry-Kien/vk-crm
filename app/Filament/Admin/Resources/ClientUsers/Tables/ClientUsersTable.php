@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Resources\ClientUsers\Tables;
 
+use App\Filament\Admin\Support\VisibleClientOptions;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -44,9 +45,13 @@ class ClientUsersTable
             ])
             ->defaultSort('id', 'desc')
             ->filters([
-                SelectFilter::make('client')
+                // Review fix round 1, Important #2: relationship('client', 'name') liệt kê toàn
+                // bộ khách hàng văn phòng trong dropdown lọc, kể cả khách của những vụ việc actor
+                // không xem được. Đổi sang options() dùng chung luật với ô "Khách hàng" của form
+                // (VisibleClientOptions) — lọc theo cột client_id trực tiếp, không qua relationship.
+                SelectFilter::make('client_id')
                     ->label(__('client_users.fields.client'))
-                    ->relationship('client', 'name'),
+                    ->options(fn (): array => VisibleClientOptions::forCurrentUser()),
                 TernaryFilter::make('is_active')
                     ->label(__('client_users.fields.is_active')),
                 TrashedFilter::make(),

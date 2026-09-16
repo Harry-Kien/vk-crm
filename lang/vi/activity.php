@@ -21,6 +21,12 @@ return [
         'portal_account_created' => 'Tạo tài khoản portal',
         'portal_account_deactivated' => 'Vô hiệu hoá tài khoản portal',
         'data_exported' => 'Xuất dữ liệu',
+        // Bốn sự kiện M3 thực sự ghi qua Audit::record() (review fix round 1, Important #1):
+        // app/Actions/{OpenMatter,TransitionMatterStage,AddMatterParty,RunConflictCheck}.php.
+        'matter_opened' => 'Mở vụ việc',
+        'matter_stage_transitioned' => 'Chuyển giai đoạn vụ việc',
+        'matter_party_added' => 'Thêm bên trong vụ việc',
+        'conflict_check_run' => 'Kiểm tra xung đột lợi ích',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

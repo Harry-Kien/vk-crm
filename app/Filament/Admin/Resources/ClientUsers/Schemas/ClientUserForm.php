@@ -2,7 +2,7 @@
 
 namespace App\Filament\Admin\Resources\ClientUsers\Schemas;
 
-use App\Models\Client;
+use App\Filament\Admin\Support\VisibleClientOptions;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -15,9 +15,14 @@ class ClientUserForm
     {
         return $schema
             ->components([
+                // Review fix round 1, Important #2: KHÔNG liệt kê toàn bộ khách hàng văn phòng —
+                // một lawyer có clientUser.manage nhưng không có client.manage chỉ được thấy
+                // khách hàng của những vụ việc họ liệt kê được, cùng ranh giới
+                // ClientPolicy::view (và PartiesRelationManager::visibleClientOptions() ở nơi
+                // khác đã áp dụng luật này trước).
                 Select::make('client_id')
                     ->label(__('client_users.fields.client'))
-                    ->options(fn () => Client::query()->orderBy('name')->pluck('name', 'id'))
+                    ->options(fn (): array => VisibleClientOptions::forCurrentUser())
                     ->searchable()
                     ->required(),
                 TextInput::make('name')

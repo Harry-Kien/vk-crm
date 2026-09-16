@@ -54,14 +54,17 @@ class ClientResource extends Resource
         return __('clients.plural_label');
     }
 
+    // SPEC §5: kế toán chỉ có matter.viewAny (danh sách vụ việc rút gọn), không có client.manage
+    // lẫn matter.view — bảng quyền cho họ "—" ở cả hai cột liên quan đến khách hàng. Vì
+    // matter.viewAny bỏ qua điều kiện team trong scopeListableBy (thấy MỌI vụ việc thường),
+    // từng cho phép ở đây thì getEloquentQuery() trả về gần như toàn bộ khách hàng — số điện
+    // thoại, email — cho một vai trò SPEC không cấp quyền đó (review fix round 1, Important #3).
     public static function canAccess(): bool
     {
         $user = Auth::user();
 
         return $user instanceof User
-            && ($user->can(Permission::ClientManage->value)
-                || $user->can(Permission::MatterView->value)
-                || $user->can(Permission::MatterViewAny->value));
+            && ($user->can(Permission::ClientManage->value) || $user->can(Permission::MatterView->value));
     }
 
     public static function getEloquentQuery(): Builder

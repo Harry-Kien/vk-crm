@@ -67,9 +67,18 @@ class MatterSeeder extends Seeder
         'Tô Văn Chiến', 'La Thị Diệu', 'Ông Văn Đông', 'Từ Thị Giang', 'Trần Thị Bình',
     ];
 
+    /**
+     * Idempotency của MỖI phần dưới đây tự đứng riêng, không dựa vào một mốc tổng
+     * (`Matter::count()`) so với một con số cố định — một cơ sở dữ liệu đã seed ở bản TRƯỚC khi
+     * có vụ `restricted` (20 vụ, không có vụ mật) và chạy lại seeder ở bản này phải chỉ thêm đúng
+     * vụ mật còn thiếu, không được lặp lại 20 vụ đánh số (review fix round 1, minor D).
+     */
     public function run(): void
     {
-        if (Matter::count() >= 21) {
+        $numberedMattersSeeded = Matter::where('confidentiality', '!=', Confidentiality::Restricted->value)->count() >= 20;
+        $restrictedMatterSeeded = Matter::where('confidentiality', Confidentiality::Restricted->value)->exists();
+
+        if ($numberedMattersSeeded && $restrictedMatterSeeded) {
             return;
         }
 
@@ -83,47 +92,52 @@ class MatterSeeder extends Seeder
         $clients = Client::query()->orderBy('id')->get()->values();
         $types = MatterType::query()->with(['stages', 'checklistTemplates.items'])->get()->keyBy('code');
 
-        for ($i = 1; $i <= 20; $i++) {
-            $client = $clients[($i - 1) % $clients->count()];
-            $type = $types[self::TYPE_SEQUENCE[$i - 1]];
-            $lead = $lawyers[($i - 1) % $lawyers->count()];
-            $opponent = self::OPPONENTS[$i - 1];
+        if (! $numberedMattersSeeded) {
+            for ($i = 1; $i <= 20; $i++) {
+                $client = $clients[($i - 1) % $clients->count()];
+                $type = $types[self::TYPE_SEQUENCE[$i - 1]];
+                $lead = $lawyers[($i - 1) % $lawyers->count()];
+                $opponent = self::OPPONENTS[$i - 1];
 
-            $workingStages = $type->stages->reject(fn ($s) => $s->is_terminal || $s->key === 'on_hold')->values();
-            $stage = $workingStages[$i % $workingStages->count()];
-            $openedAt = now()->subDays(30 + $i * 7);
+                $workingStages = $type->stages->reject(fn ($s) => $s->is_terminal || $s->key === 'on_hold')->values();
+                $stage = $workingStages[$i % $workingStages->count()];
+                $openedAt = now()->subDays(30 + $i * 7);
 
-            $matter = Matter::query()->create([
-                'client_id' => $client->id,
-                'matter_type_id' => $type->id,
-                'title' => sprintf(self::TITLES[$type->code], $opponent),
-                'description_internal' => 'Ghi chú nội bộ vụ '.$i.': đánh giá sơ bộ khả năng thắng kiện trung bình.',
-                'summary_for_client' => 'Văn phòng đang đại diện anh/chị trong vụ việc này và sẽ cập nhật từng bước.',
-                'stage' => $stage->key,
-                'stage_entered_at' => now()->subDays($i % 10 + 1),
-                'lead_lawyer_id' => $lead->id,
-                'opened_at' => $openedAt->toDateString(),
-                'is_published_to_portal' => true,
-                'court_name' => in_array($type->code, ['DN'], true) ? null : 'Toà án nhân dân Quận '.($i % 12 + 1).', TP. Hồ Chí Minh',
-                'case_number' => $i % 2 === 0 ? sprintf('%02d/2026/TLST-DS', $i) : null,
-                'last_client_update_at' => $i <= 3 ? now()->subDays(20) : now()->subDays($i % 10),
-            ]);
+                $matter = Matter::query()->create([
+                    'client_id' => $client->id,
+                    'matter_type_id' => $type->id,
+                    'title' => sprintf(self::TITLES[$type->code], $opponent),
+                    'description_internal' => 'Ghi chú nội bộ vụ '.$i.': đánh giá sơ bộ khả năng thắng kiện trung bình.',
+                    'summary_for_client' => 'Văn phòng đang đại diện anh/chị trong vụ việc này và sẽ cập nhật từng bước.',
+                    'stage' => $stage->key,
+                    'stage_entered_at' => now()->subDays($i % 10 + 1),
+                    'lead_lawyer_id' => $lead->id,
+                    'opened_at' => $openedAt->toDateString(),
+                    'is_published_to_portal' => true,
+                    'court_name' => in_array($type->code, ['DN'], true) ? null : 'Toà án nhân dân Quận '.($i % 12 + 1).', TP. Hồ Chí Minh',
+                    'case_number' => $i % 2 === 0 ? sprintf('%02d/2026/TLST-DS', $i) : null,
+                    'last_client_update_at' => $i <= 3 ? now()->subDays(20) : now()->subDays($i % 10),
+                ]);
 
-            $matter->addTeamMember($assistants[$i % $assistants->count()], MatterRole::Assistant);
-            if ($i % 4 === 0) {
-                $matter->addTeamMember($lawyers[$i % $lawyers->count()], MatterRole::Associate);
+                $matter->addTeamMember($assistants[$i % $assistants->count()], MatterRole::Assistant);
+                if ($i % 4 === 0) {
+                    $matter->addTeamMember($lawyers[$i % $lawyers->count()], MatterRole::Associate);
+                }
+
+                $this->parties($matter, $client, $opponent, $i, $clients);
+                $this->stageLogs($matter, $stage->key, $i, $openedAt);
+                $this->checklist($matter, $type, $i, $client);
+                $this->deadlines($matter, $lead, $i);
+                $this->communications($matter, $client, $i);
+                $this->requests($matter, $client, $lead, $i);
             }
 
-            $this->parties($matter, $client, $opponent, $i, $clients);
-            $this->stageLogs($matter, $stage->key, $i, $openedAt);
-            $this->checklist($matter, $type, $i, $client);
-            $this->deadlines($matter, $lead, $i);
-            $this->communications($matter, $client, $i);
-            $this->requests($matter, $client, $lead, $i);
+            $this->views();
         }
 
-        $this->restrictedMatter($lawyers, $clients, $types);
-        $this->views();
+        if (! $restrictedMatterSeeded) {
+            $this->restrictedMatter($lawyers, $clients, $types);
+        }
 
         auth('web')->forgetUser();
     }

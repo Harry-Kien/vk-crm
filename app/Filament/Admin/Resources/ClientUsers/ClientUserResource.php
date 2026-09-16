@@ -48,14 +48,16 @@ class ClientUserResource extends Resource
         return __('client_users.plural_label');
     }
 
+    // SPEC §5: kế toán chỉ có matter.viewAny, không có clientUser.manage lẫn matter.view — cùng
+    // lý do ClientResource::canAccess() (review fix round 1, Important #3): matter.viewAny bỏ
+    // qua điều kiện team, từng cho lọt gần như toàn bộ tài khoản portal cho một vai trò không
+    // được cấp quyền đó.
     public static function canAccess(): bool
     {
         $user = Auth::user();
 
         return $user instanceof User
-            && ($user->can(Permission::ClientUserManage->value)
-                || $user->can(Permission::MatterView->value)
-                || $user->can(Permission::MatterViewAny->value));
+            && ($user->can(Permission::ClientUserManage->value) || $user->can(Permission::MatterView->value));
     }
 
     public static function getEloquentQuery(): Builder

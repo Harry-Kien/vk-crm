@@ -20,7 +20,10 @@ use Illuminate\Support\Facades\Auth;
  */
 class StaleMattersWidget extends TableWidget
 {
-    protected static ?int $sort = -2;
+    // SPEC §7.1: "widget quan trọng nhất, đặt trên cùng". Filament\Widgets\AccountWidget (đăng
+    // ký sẵn trong AdminPanelProvider) có $sort = -3, nên phải thấp hơn -3 mới thực sự đứng trên
+    // cùng (review fix round 1, minor D).
+    protected static ?int $sort = -4;
 
     /** Số ngày quá hạn theo SPEC §6.4 / §7.1. */
     private const STALE_AFTER_DAYS = 14;
