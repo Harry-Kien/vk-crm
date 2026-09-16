@@ -20,6 +20,10 @@ return [
         'lead_lawyer' => 'Luật sư phụ trách',
         'is_published_to_portal' => 'Đã công bố portal',
     ],
+    // Nhãn của MỘT dòng `matter_parties`, dùng cho nút "Tạo mới…" và tiêu đề modal của tab "Các
+    // bên". Bỏ trống thì Filament tự sinh từ tên lớp: "Tạo mới matter party", "Tạo Matter Party".
+    'party_label' => 'bên trong vụ việc',
+    'party_plural_label' => 'các bên trong vụ việc',
     'tabs' => [
         'overview' => 'Tổng quan',
         'progress' => 'Tiến độ',
@@ -47,6 +51,8 @@ return [
         'publish_to_portal' => 'Bật công bố portal',
         'unpublish_from_portal' => 'Tắt công bố portal',
         'portal_publication_toggled' => 'Đã cập nhật trạng thái công bố portal.',
+        'add_party' => 'Thêm một bên',
+        'add_party_heading' => 'Thêm một bên vào vụ việc',
         'transition_stage' => 'Chuyển giai đoạn',
         'add_update' => 'Thêm cập nhật',
     ],

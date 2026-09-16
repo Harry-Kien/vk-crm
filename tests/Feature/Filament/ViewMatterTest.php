@@ -728,3 +728,29 @@ it('clears a written override reason on the parties tab when the result it was w
 
     expect(data_get($instance, "{$statePath}.override_reason"))->toBeNull();
 });
+
+/**
+ * Nút "Tạo mới…" và tiêu đề modal của tab "Các bên" là hai chỗ đập vào mắt nhất của màn hình này.
+ * Không đặt nhãn model thì Filament tự sinh từ tên lớp và cả hai đọc bằng tiếng Anh ("Tạo mới
+ * matter party", "Tạo Matter Party") — đúng thứ CLAUDE.md cấm. Quan sát trực tiếp trên trình duyệt
+ * trong lần kiểm tra tay của vòng này.
+ */
+it('names a party row in Vietnamese on the create button and the modal heading', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ]);
+
+    $action = $component->instance()->getTable()->getAction('create');
+
+    expect($action->getLabel())->toBe(__('matters.actions.add_party'))
+        ->and($action->getModalHeading())->toBe(__('matters.actions.add_party_heading'))
+        // Và nhãn model tiếng Việt vẫn phải có, cho những câu còn lại mà Filament tự dựng (trạng
+        // thái bảng rỗng, thông báo…) — nếu không chúng quay về tên lớp.
+        ->and(__('matters.party_label'))->not->toBe('matters.party_label');
+});

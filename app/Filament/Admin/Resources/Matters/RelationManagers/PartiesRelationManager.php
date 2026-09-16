@@ -135,6 +135,21 @@ class PartiesRelationManager extends RelationManager
     }
 
     /**
+     * Nhãn của MỘT dòng, dùng cho nút "Tạo mới…" và tiêu đề modal. Không đặt thì Filament tự sinh
+     * từ tên lớp và màn hình đọc "Tạo mới matter party" / "Tạo Matter Party" — tiếng Anh, ngay
+     * trên hai chỗ đập vào mắt nhất của tab này (CLAUDE.md: chuỗi giao diện qua `__()`/`lang/vi`).
+     */
+    protected static function getModelLabel(): ?string
+    {
+        return __('matters.party_label');
+    }
+
+    protected static function getPluralModelLabel(): ?string
+    {
+        return __('matters.party_plural_label');
+    }
+
+    /**
      * Filament 5 mặc định coi relation manager trên trang ViewRecord là chỉ đọc
      * (`Panel::hasReadOnlyRelationManagersOnResourceViewPagesByDefault()` = true), nên CreateAction
      * bị `Response::deny()` bất kể policy nói gì — phải tắt ở đây để authorization thật sự (xem
@@ -288,6 +303,13 @@ class PartiesRelationManager extends RelationManager
             ->headerActions([
                 CreateAction::make()
                     ->icon(Heroicon::OutlinedUserPlus)
+                    // Nhãn nút và tiêu đề modal viết thẳng, không mượn nhãn model: câu mặc định
+                    // của Filament dựng từ tên lớp ("Tạo mới matter party", "Tạo Matter Party"),
+                    // và ngay cả khi đặt `getModelLabel()` tiếng Việt thì tiêu đề vẫn bị
+                    // `Str::ucwords()` biến thành "Tạo Bên Trong Vụ Việc" — tiếng Việt không viết
+                    // hoa từng chữ như vậy.
+                    ->label(__('matters.actions.add_party'))
+                    ->modalHeading(__('matters.actions.add_party_heading'))
                     // Fix round 1 finding 4: MatterPartyPolicy::create() không nhận Matter (áp
                     // dụng chung theo matter.update, không theo từng vụ việc — hạn chế đã biết,
                     // xem báo cáo). Filament không tự truyền $matter vào policy này
