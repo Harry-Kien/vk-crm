@@ -459,3 +459,29 @@ it('renders the team section of the matter page entirely in Vietnamese', functio
         ->assertSee(__('matters.team_fields.role_in_matter'))
         ->assertDontSee('Role in matter');
 });
+
+/**
+ * I-2 (Important, fix round 4), nửa MÀN HÌNH. Luật thật sự nằm ở `BuildsMatterParties` (nó đúng cả
+ * với seeder/job/console — xem docblock trait đó); test này chỉ khoá chuyện người dùng được NGHE
+ * luật đó bằng một lỗi gắn đúng ô, chứ không phải bằng một ngoại lệ nghiệp vụ dội lên giữa màn
+ * hình — và khoá luôn rằng không có bên nào lọt vào bảng.
+ */
+it('will not add a party marked as our client without a client record', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('create', data: [
+        'role' => PartyRole::Related->value,
+        'is_our_client' => true,
+        'client_id' => null,
+        'name' => 'Tên gõ tay',
+        'id_number' => '079012345678',
+    ])->assertHasTableActionErrors(['client_id']);
+
+    expect($matter->parties()->count())->toBe(0);
+});

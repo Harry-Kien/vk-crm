@@ -3,6 +3,7 @@
 namespace App\Actions\Concerns;
 
 use App\Enums\PartyRole;
+use App\Exceptions\OurClientPartyNeedsClient;
 use App\Models\Client;
 use App\Models\MatterParty;
 
@@ -36,6 +37,21 @@ use App\Models\MatterParty;
  * null: một bên đối lập không phải khách hàng của văn phòng thì không được mang liên kết tới hồ sơ
  * khách hàng nào — nếu không, `SyncClientPartyIdentities` sẽ ghi tên và định danh của khách hàng đó
  * đè lên dòng của bên đối lập ở lần khách hàng kia sửa hồ sơ.
+ *
+ * **Và chiều ngược lại bị TỪ CHỐI, không im lặng cho qua (review fix round 4, Important I-2).**
+ * `is_our_client = true` mà KHÔNG có `client_id` từng trả sớm xuống `identify()` với dữ liệu gõ
+ * tay — tức đúng sự mù im lặng mà cả trait này tồn tại để ngăn, chỉ khác đường vào: định danh gõ
+ * tay băm ra một hash mà hồ sơ `Client` thật không bao giờ băm ra, nên lần kiểm tra xung đột SAU
+ * không nhìn thấy bên này; và vì `SyncClientPartyIdentities` lọc theo `client_id`, dòng đó nằm
+ * ngoài vòng đồng bộ vĩnh viễn. Giờ ném `OurClientPartyNeedsClient`.
+ *
+ * **Vì sao luật ở ĐÂY chứ không chỉ ở hai form.** Đây không phải một ranh giới hiển thị của panel
+ * (so với `client_id` giả mạo, vốn thuộc về màn hình — xem docblock `CreateMatter`), mà là một câu
+ * hỏi về Ý NGHĨA của chính dòng dữ liệu: "bên này là khách hàng của văn phòng" là một tuyên bố mà
+ * `RunConflictCheck` dựa vào để xếp vai đối lập, và nó chỉ có nghĩa khi chỉ ra được hồ sơ nào. Câu
+ * đó đúng y như vậy khi lời gọi đến từ một seeder, một job hay một lệnh console, nơi không có form
+ * nào để `required()`. Hai form vẫn thêm `required()` — nhưng để GIẢI THÍCH luật tại chỗ bằng một
+ * lỗi gắn đúng ô, không phải để thi hành nó.
  */
 trait BuildsMatterParties
 {
@@ -56,6 +72,12 @@ trait BuildsMatterParties
         $role = $data['role'] instanceof PartyRole ? $data['role'] : PartyRole::from($data['role']);
         $isOurClient = (bool) ($data['is_our_client'] ?? false);
         $clientId = $isOurClient ? ($data['client_id'] ?? null) : null;
+
+        // Trước khi dựng bất cứ thứ gì: một bên tự nhận là khách hàng của văn phòng mà không chỉ
+        // ra hồ sơ nào thì không có dòng hợp lệ nào để dựng cả (I-2, xem docblock trait).
+        if ($isOurClient && $clientId === null) {
+            throw OurClientPartyNeedsClient::make($data['name'] ?? null);
+        }
 
         $party = new MatterParty([
             'matter_id' => $matterId,

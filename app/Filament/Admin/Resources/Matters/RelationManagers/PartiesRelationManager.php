@@ -112,6 +112,10 @@ class PartiesRelationManager extends RelationManager
                     // hàng. Chỉ ai có client.manage mới thấy toàn bộ.
                     ->options(fn (): array => VisibleClientOptions::forCurrentUser())
                     ->searchable()
+                    // I-2: bắt buộc khi công tắc bật — `BuildsMatterParties` từ chối một bên tự
+                    // nhận là khách hàng của văn phòng mà không có hồ sơ nào. Luật ở trait (đúng
+                    // cả với seeder/job/console); ô này chỉ nói ra luật đó bằng lỗi gắn đúng ô.
+                    ->required(fn (Get $get): bool => (bool) $get('is_our_client'))
                     ->visible(fn (Get $get): bool => (bool) $get('is_our_client')),
                 TextInput::make('name')
                     ->label(__('matters.party_fields.name'))

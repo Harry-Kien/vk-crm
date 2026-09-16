@@ -197,11 +197,16 @@ class MatterForm
                     ->label(__('matters.party_fields.is_our_client'))
                     ->live()
                     ->default(false),
+                // `required()` khi công tắc bật (I-2): `BuildsMatterParties` TỪ CHỐI một bên tự
+                // nhận là khách hàng của văn phòng mà không chỉ ra hồ sơ nào — luật nằm ở đó vì
+                // nó đúng cả với seeder/job/console. Ô này chỉ giải thích luật tại chỗ, bằng một
+                // lỗi gắn đúng ô thay vì một ngoại lệ nghiệp vụ dội lên giữa màn hình.
                 Select::make('client_id')
                     ->label(__('matters.party_fields.client'))
                     ->options(fn (): array => VisibleClientOptions::forCurrentUser())
                     ->searchable()
                     ->live()
+                    ->required(fn (Get $get): bool => (bool) $get('is_our_client'))
                     ->visible(fn (Get $get): bool => (bool) $get('is_our_client')),
                 // `address`/`note` không phải tầng đối chiếu nào cả, nhưng vẫn `live()`: chúng nằm
                 // trong cùng một dòng bên, và một quy tắc "ô nào trong danh sách bên cũng làm mất

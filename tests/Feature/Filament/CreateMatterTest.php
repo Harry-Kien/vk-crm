@@ -720,3 +720,32 @@ it('records no portal publication audit row when the matter is created unpublish
 
     expect(Activity::query()->where('event', 'matter_portal_publication_set')->exists())->toBeFalse();
 });
+
+/**
+ * I-2 (Important, fix round 4), nửa MÀN HÌNH cho form mở vụ việc — bản sinh đôi của test ở
+ * `ViewMatterTest`. Luật nằm ở `BuildsMatterParties`; ô này chỉ nói ra luật đó bằng một lỗi gắn
+ * đúng dòng bên trong repeater, để người dùng sửa được thay vì gặp một ngoại lệ nghiệp vụ.
+ */
+it('will not open a matter with an other-party marked as our client but no client record', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $client = clientVisibleTo($lawyer);
+    $type = createFormMatterType();
+    $matterCountBefore = Matter::count();
+
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(CreateMatter::class)
+        ->fillForm(createMatterFormData($client, $lawyer, $type, [
+            'other_parties' => [[
+                'role' => PartyRole::Related->value,
+                'name' => 'Tên gõ tay',
+                'is_our_client' => true,
+                'client_id' => null,
+                'id_number' => '079012345678',
+            ]],
+        ]))
+        ->call('create')
+        ->assertHasFormErrors(['other_parties.0.client_id']);
+
+    expect(Matter::count())->toBe($matterCountBefore);
+});

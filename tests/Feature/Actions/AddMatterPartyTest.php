@@ -6,6 +6,7 @@ use App\Enums\PartyRole;
 use App\Enums\Role;
 use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
+use App\Exceptions\OurClientPartyNeedsClient;
 use App\Models\Client;
 use App\Models\Matter;
 use App\Models\MatterParty;
@@ -360,4 +361,35 @@ it('attributes the conflict-check row to the actor passed in, not to the user in
         // `matter_parties` là một phần hồ sơ pháp lý, không phải nhật ký phụ trợ.
         ->and($addition->party->fresh()->created_by)->toBe($lawyer->id)
         ->and($addition->party->fresh()->updated_by)->toBe($lawyer->id);
+});
+
+/**
+ * I-2 (Important, fix round 4). `is_our_client = true` KHÔNG kèm `client_id` lọt qua nhánh trả sớm
+ * của `BuildsMatterParties` và rơi về định danh gõ tay — đúng sự mù im lặng mà cả trait tồn tại để
+ * ngăn: số căn cước gõ tay băm ra một hash mà hồ sơ `Client` thật không bao giờ băm ra, nên lần
+ * kiểm tra xung đột SAU sẽ không nhìn thấy bên này. Tệ hơn, `SyncClientPartyIdentities` lọc theo
+ * `client_id`, nên dòng này nằm ngoài vòng đồng bộ vĩnh viễn: nó không bao giờ tự sửa lại.
+ *
+ * Luật thuộc về trait chứ không chỉ về form: một seeder, một job hay một lệnh console cũng không
+ * được phép ghi ra một dòng tuyên bố "đây là khách hàng của văn phòng" mà không chỉ ra được hồ sơ
+ * nào. Xem docblock `BuildsMatterParties`.
+ */
+it('refuses a party that claims to be our client without naming a client record', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+
+    expect(fn () => app(AddMatterParty::class)->handle(
+        $matter,
+        $lawyer,
+        [
+            'role' => PartyRole::Related->value,
+            'is_our_client' => true,
+            'client_id' => null,
+            'name' => 'Tên gõ tay',
+            'id_number' => '079012345678',
+        ],
+    ))->toThrow(OurClientPartyNeedsClient::class);
+
+    expect($matter->parties()->count())->toBe(0)
+        ->and(Activity::query()->where('event', 'matter_party_added')->exists())->toBeFalse();
 });

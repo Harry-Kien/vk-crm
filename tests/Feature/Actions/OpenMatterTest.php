@@ -6,6 +6,7 @@ use App\Enums\PartyRole;
 use App\Enums\Role;
 use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
+use App\Exceptions\OurClientPartyNeedsClient;
 use App\Models\ChecklistTemplate;
 use App\Models\Client;
 use App\Models\Matter;
@@ -705,4 +706,33 @@ it('stamps created_by on the matter and its parties from the actor, not from the
     expect($matter->created_by)->toBe($lawyer->id)
         ->and($matter->updated_by)->toBe($lawyer->id)
         ->and($matter->parties()->pluck('created_by')->unique()->all())->toBe([$lawyer->id]);
+});
+
+/**
+ * I-2 (Important, fix round 4), nhánh "mở vụ việc" của cùng lỗ hổng — xem docblock bản sinh đôi ở
+ * `AddMatterPartyTest`. Một bên trong danh sách bên tuyên bố "là khách hàng của văn phòng" mà không
+ * chỉ ra hồ sơ nào thì định danh rơi về dữ liệu gõ tay, và `SyncClientPartyIdentities` (lọc theo
+ * `client_id`) không bao giờ sửa lại được dòng đó.
+ */
+it('refuses to open a matter when an other-party claims to be our client without a client record', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $this->actingAs($lawyer, 'web');
+
+    $client = Client::factory()->create();
+    $type = matterTypeWithTemplate();
+    $matterCountBefore = Matter::count();
+
+    expect(fn () => app(OpenMatter::class)->handle(
+        actor: $lawyer,
+        attributes: baseAttributes($client, $lawyer, $type),
+        parties: [[
+            'role' => PartyRole::Related->value,
+            'is_our_client' => true,
+            'client_id' => null,
+            'name' => 'Tên gõ tay',
+            'id_number' => '079012345678',
+        ]],
+    ))->toThrow(OurClientPartyNeedsClient::class);
+
+    expect(Matter::count())->toBe($matterCountBefore);
 });
