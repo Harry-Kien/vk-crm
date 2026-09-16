@@ -169,7 +169,11 @@ final class FileGuard
     public static function safeName(string $name): string
     {
         $name = basename(str_replace('\\', '/', $name));
-        $name = (string) preg_replace('/[\x00-\x1F\x7F";]+/u', '', $name);
+        // Cố ý KHÔNG có cờ `/u`: với một tên không phải UTF-8 hợp lệ (điện thoại/máy quét cũ vẫn
+        // sinh ra), `preg_replace` ở chế độ Unicode trả `null` và cả cái tên biến mất thành tên
+        // dự phòng. Lọc theo BYTE an toàn ở đây vì các byte 0x00-0x1F và 0x7F không bao giờ xuất
+        // hiện bên trong một chuỗi UTF-8 nhiều byte, nên chữ có dấu không bị chạm tới.
+        $name = (string) preg_replace('/[\x00-\x1F\x7F";]+/', '', $name);
         $name = trim($name, " \t.");
 
         if ($name === '') {

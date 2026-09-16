@@ -366,3 +366,13 @@ it('safeName cắt tên dài mà không làm hỏng ký tự tiếng Việt có 
         ->and($safe)->not->toContain('?')
         ->and($safe)->toEndWith('.pdf');
 });
+
+it('safeName không nuốt mất một tên tệp không phải UTF-8 hợp lệ', function () {
+    // Điện thoại và máy quét cũ vẫn sinh ra tên mã Latin-1. Với cờ `/u`, `preg_replace` trả
+    // `null` trên chuỗi như vậy và cả cái tên biến thành tên dự phòng — mất thông tin mà không
+    // ai báo gì.
+    $latin1 = "h\xF3-s\xF1.pdf";
+
+    expect(FileGuard::safeName($latin1))->not->toBe(__('documents.fallback_file_name'))
+        ->and(FileGuard::safeName($latin1))->toEndWith('.pdf');
+});
