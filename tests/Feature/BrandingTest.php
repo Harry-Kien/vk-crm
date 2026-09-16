@@ -77,3 +77,20 @@ it('loads the brand webfont stylesheet on both panels', function () {
         ->assertOk()
         ->assertSee('fonts.bunny.net/css?family='.$family, escape: false);
 });
+
+/**
+ * Lớp nhận diện phủ lên giao diện dựng sẵn của Filament được tiêm qua render hook, nên nó là thứ
+ * rất dễ mất im lặng: một lần nâng cấp Filament đổi tên token, hay ai đó dọn bớt render hook, là
+ * hệ thống lặng lẽ quay về bo tròn mặc định — trông như một phần mềm SaaS bất kỳ dán tên văn
+ * phòng. Ghim cả hai nửa: token bán kính vuông (chữ ký thị giác lấy từ CSS của luatvukhang.com,
+ * nơi chỉ dùng 0 và 3px) và bộ chữ có chân cho tiêu đề.
+ */
+it('overrides the framework radius tokens and loads the serif on both panels', function () {
+    foreach (['/admin/login', '/portal/login'] as $url) {
+        $this->get($url)
+            ->assertOk()
+            ->assertSee('--radius-lg: 3px', escape: false)
+            ->assertSee('fonts.bunny.net/css?family=noto-serif', escape: false)
+            ->assertSee('.fi-badge { border-radius: 999px; }', escape: false);
+    }
+});
