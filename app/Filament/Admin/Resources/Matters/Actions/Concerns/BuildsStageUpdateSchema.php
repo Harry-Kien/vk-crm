@@ -3,12 +3,15 @@
 namespace App\Filament\Admin\Resources\Matters\Actions\Concerns;
 
 use App\Actions\TransitionMatterStage;
+use App\Exceptions\MatterNotPublishedToPortal;
 use App\Models\Matter;
 use Closure;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
+use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\View;
 use Filament\Support\Enums\Size;
 use Filament\Support\Enums\Width;
@@ -38,21 +41,35 @@ trait BuildsStageUpdateSchema
                 /** @var Matter $matter */
                 $matter = $livewire->getOwnerRecord();
 
-                app(TransitionMatterStage::class)->handle(
-                    matter: $matter,
-                    actor: Auth::user(),
-                    toStage: $this->resolveToStage($matter, $data),
-                    occurredAt: $data['occurred_at'],
-                    internalNote: $data['internal_note'] ?? null,
-                    publicContent: $data['public_content'] ?? null,
-                    nextStep: $data['next_step'] ?? null,
-                    clientAction: $data['client_action'] ?? null,
-                    // ?: chứ không phải ??: DatePicker rỗng gửi lên chuỗi rỗng, không phải null — để
-                    // lọt qua '' thì StageLog (cast 'date') sẽ ném lỗi phân tích ngày tháng, thay vì
-                    // để TransitionMatterStage tự tính lại theo default_next_update_days như thiết kế.
-                    expectedNextUpdateAt: $data['expected_next_update_at'] ?: null,
-                    publish: (bool) ($data['publish'] ?? false),
-                );
+                try {
+                    app(TransitionMatterStage::class)->handle(
+                        matter: $matter,
+                        actor: Auth::user(),
+                        toStage: $this->resolveToStage($matter, $data),
+                        occurredAt: $data['occurred_at'],
+                        internalNote: $data['internal_note'] ?? null,
+                        publicContent: $data['public_content'] ?? null,
+                        nextStep: $data['next_step'] ?? null,
+                        clientAction: $data['client_action'] ?? null,
+                        // ?: chứ không phải ??: DatePicker rỗng gửi lên chuỗi rỗng, không phải null —
+                        // để lọt qua '' thì StageLog (cast 'date') sẽ ném lỗi phân tích ngày tháng,
+                        // thay vì để TransitionMatterStage tự tính lại theo default_next_update_days
+                        // như thiết kế.
+                        expectedNextUpdateAt: $data['expected_next_update_at'] ?: null,
+                        publish: (bool) ($data['publish'] ?? false),
+                    );
+                } catch (MatterNotPublishedToPortal $exception) {
+                    // Lớp phòng thủ thứ hai (fix round 1, finding 2): tắt/disable công tắc "publish"
+                    // khi vụ chưa bật portal (publishToggleField()) đã chặn đường chính, nên đây là
+                    // lưới an toàn cho một đường vào tương lai nào đó chưa lường trước — không để một
+                    // DomainException thoát ra khỏi modal thành lỗi 500 không thân thiện.
+                    Notification::make()
+                        ->title($exception->getMessage())
+                        ->danger()
+                        ->send();
+
+                    $this->halt();
+                }
             });
     }
 
@@ -80,22 +97,38 @@ trait BuildsStageUpdateSchema
             ->columnSpanFull();
     }
 
-    /** `$default` là gợi ý mẫu lấy từ `matter_type_stages.client_description` (SPEC §7.3). */
+    /**
+     * `$default` là gợi ý mẫu lấy từ `matter_type_stages.client_description` (SPEC §7.3).
+     *
+     * Fix round 1, finding 1: `TransitionMatterStage::handle()` tự ném `ValidationException` với
+     * khoá THÔ (`'public_content'`) khi `publish = true` và nội dung dưới 30 ký tự — nhưng khoá đó
+     * không khớp state path đầy đủ của một trường trong action đang mount
+     * (`mountedActions.{index}.data.public_content`), nên lỗi không bao giờ hiện lên đúng ô: modal
+     * chỉ lặng lẽ rollback, không có gì báo cho luật sư. `required()`/`minLength()` ở đây là validate
+     * THẬT của chính schema (không phải exception thủ công), nên Filament tự gắn đúng vào trường —
+     * đây là nửa "cho người dùng thấy" của luật; nửa "gác cổng thật" vẫn ở TransitionMatterStage,
+     * không đổi.
+     */
     protected function publicContentField(?string $default): Textarea
     {
         return Textarea::make('public_content')
             ->label(__('matters.transition_form.public_content'))
-            ->live(onBlur: true)
+            ->live()
             ->default($default)
             ->rows(4)
-            ->columnSpanFull();
+            ->columnSpanFull()
+            ->required(fn (Get $get): bool => (bool) $get('publish'))
+            ->minLength(fn (Get $get): ?int => $get('publish') ? 30 : null)
+            ->helperText(fn (Get $get): ?string => $get('publish')
+                ? __('matters.transition_form.public_content_publish_hint')
+                : null);
     }
 
     protected function nextStepField(): Textarea
     {
         return Textarea::make('next_step')
             ->label(__('matters.transition_form.next_step'))
-            ->live(onBlur: true)
+            ->live()
             ->rows(2)
             ->columnSpanFull();
     }
@@ -105,7 +138,7 @@ trait BuildsStageUpdateSchema
         return Textarea::make('client_action')
             ->label(__('matters.transition_form.client_action'))
             ->helperText(__('matters.transition_form.client_action_hint'))
-            ->live(onBlur: true)
+            ->live()
             ->rows(2)
             ->columnSpanFull();
     }
@@ -119,13 +152,24 @@ trait BuildsStageUpdateSchema
             ->native(false);
     }
 
-    /** Mặc định BẬT khi vụ việc đã bật portal, tắt khi chưa (SPEC §7.3, test bắt buộc). */
+    /**
+     * Mặc định BẬT khi vụ việc đã bật portal, tắt khi chưa (SPEC §7.3, test bắt buộc). Fix round 1,
+     * finding 2: khi vụ CHƯA bật portal, `disabled()` khoá hẳn công tắc thay vì chỉ để mặc định tắt
+     * — nếu không luật sư vẫn tự bật được rồi gặp `MatterNotPublishedToPortal` không ai báo trước.
+     * Trường bị `disabled()` vẫn dehydrate giá trị mặc định (false) bình thường trong Filament 5
+     * (`disabled()` ở tầng schema không tự kéo theo `dehydrated(false)`), nên submit vẫn gửi đúng
+     * `publish = false`, không cần xử lý gì thêm ở phía Action.
+     */
     protected function publishToggleField(Matter $matter): Toggle
     {
         return Toggle::make('publish')
             ->label(__('matters.transition_form.publish'))
             ->live()
-            ->default($matter->is_published_to_portal);
+            ->default($matter->is_published_to_portal)
+            ->disabled(! $matter->is_published_to_portal)
+            ->helperText($matter->is_published_to_portal
+                ? null
+                : __('matters.transition_form.publish_disabled_hint'));
     }
 
     /**
@@ -162,6 +206,15 @@ trait BuildsStageUpdateSchema
         return $matter->matterType->stage($stageKey)?->client_label;
     }
 
+    /**
+     * Fix round 1, finding E (minor): công thức `now()->addDays($stage->default_next_update_days)`
+     * CỐ Ý trùng với bước 4 của `TransitionMatterStage::handle()` (xem docblock lớp đó) — hàm này
+     * chỉ tính để GỢI Ý/prefill trên form, không phải luật; `TransitionMatterStage` mới là nơi tính
+     * lại thật sự khi `expected_next_update_at` gửi lên rỗng. Hai bên có thể trôi lệch nếu chỉ một
+     * bên đổi công thức — không rút thành helper dùng chung vì `TransitionMatterStage` không nên
+     * phụ thuộc ngược vào tầng Filament chỉ vì một phép tính ngày, nhưng nếu công thức đổi thì phải
+     * sửa CẢ HAI nơi.
+     */
     protected function stageDefaultNextUpdateAt(Matter $matter, ?string $stageKey): ?string
     {
         $stage = $stageKey === null ? null : $matter->matterType->stage($stageKey);

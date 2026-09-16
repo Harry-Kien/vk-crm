@@ -54,6 +54,8 @@ return [
         'client_action_hint' => 'Để trống nghĩa là không cần làm gì',
         'expected_next_update_at' => 'Dự kiến có tin tiếp theo trước ngày',
         'publish' => 'Công bố cho khách ngay',
+        'public_content_publish_hint' => 'Công bố cho khách yêu cầu tối thiểu 30 ký tự.',
+        'publish_disabled_hint' => 'Vụ việc chưa bật công bố portal nên chưa công bố được ngay — vào tab Tổng quan để bật trước.',
         'transition_heading' => 'Chuyển giai đoạn vụ việc',
         'add_update_heading' => 'Thêm cập nhật (không đổi giai đoạn)',
         'transition_success' => 'Đã chuyển giai đoạn.',

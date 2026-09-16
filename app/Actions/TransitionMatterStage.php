@@ -115,7 +115,10 @@ class TransitionMatterStage
                 }
             }
 
-            // Bước 4.
+            // Bước 4. Công thức này CỐ Ý trùng với
+            // App\Filament\Admin\Resources\Matters\Actions\Concerns\BuildsStageUpdateSchema::stageDefaultNextUpdateAt()
+            // (fix round 1, task 9, finding E) — bên đó chỉ tính để prefill/gợi ý trên form, đây mới
+            // là nơi tính lại thật sự khi form gửi lên rỗng. Đổi công thức thì phải sửa cả hai nơi.
             $expectedNextUpdateAt ??= now()->addDays($targetStageConfig->default_next_update_days);
 
             $stageLog = new StageLog([
