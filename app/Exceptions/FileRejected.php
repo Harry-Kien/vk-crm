@@ -19,23 +19,63 @@ use DomainException;
  */
 class FileRejected extends DomainException
 {
+    /**
+     * Độ dài tối đa của phần đuôi tệp được chèn lại vào thông điệp. Đuôi là chuỗi do client đặt
+     * tên tệp nên nó dài bao nhiêu cũng được: một đuôi 3000 ký tự từng sinh ra một thông điệp
+     * 3191 ký tự đi thẳng ra màn hình khách và vào log.
+     */
+    private const EXTENSION_ECHO_LIMIT = 20;
+
     public static function extensionNotAllowed(string $extension): self
     {
         return $extension === ''
             ? new self(__('documents.file_guard.extension_missing'))
-            : new self(__('documents.file_guard.extension_not_allowed', ['extension' => $extension]));
+            : new self(__('documents.file_guard.extension_not_allowed', ['extension' => self::echoable($extension)]));
     }
 
     /**
      * MIME thật đọc bằng `finfo` không khớp với đuôi tệp đã khai báo — đây là nhánh bắt được tệp
      * thực thi giả dạng tài liệu (SPEC §11 "Tải tệp": `.pdf` nhưng `application/x-dosexec`).
+     *
+     * Cố ý KHÔNG nhận MIME thật làm tham số: thông điệp không được nói ra thứ hệ thống đọc được
+     * (xem docblock `lang/vi/documents.php`). `FileGuard` ghi MIME đó vào log trước khi ném.
      */
-    public static function contentMismatch(string $extension, ?string $realMimeType): self
+    public static function contentMismatch(string $extension): self
     {
         return new self(__('documents.file_guard.content_mismatch', [
-            'extension' => $extension,
-            'mime' => $realMimeType ?? __('documents.file_guard.mime_unknown'),
+            'extension' => self::echoable($extension),
         ]));
+    }
+
+    /**
+     * Đuôi là `docx`/`xlsx` và byte đầu tệp đúng là một gói ZIP, nhưng bên trong không có cấu
+     * trúc bắt buộc của Office Open XML — tức đây là một ZIP tuỳ ý được đặt tên `.docx`, không
+     * phải một tài liệu Word/Excel. Xem docblock `FileGuard::verifyOfficePackage()`.
+     */
+    public static function notAnOfficePackage(string $extension): self
+    {
+        return new self(__('documents.file_guard.not_office_package', [
+            'extension' => self::echoable($extension),
+        ]));
+    }
+
+    /**
+     * Gói Office Open XML có mang một dự án VBA (`vbaProject.bin`) — tức một tệp `.docm`/`.xlsm`
+     * đội tên `.docx`/`.xlsx`. Danh sách trắng SPEC §6.6 không có đuôi macro nào.
+     */
+    public static function macroContent(): self
+    {
+        return new self(__('documents.file_guard.macro_content'));
+    }
+
+    /**
+     * Không mở được gói để kiểm tra bên trong: gói hỏng, hoặc `ext-zip` không có trên máy chủ.
+     * Từ chối thay vì cho qua — một gói không kiểm tra được không phải một gói đã kiểm tra xong,
+     * cùng một lý lẽ với `scannerUnavailable()`.
+     */
+    public static function packageUnreadable(): self
+    {
+        return new self(__('documents.file_guard.package_unreadable'));
     }
 
     public static function tooLarge(int $maxMegabytes): self
@@ -94,5 +134,15 @@ class FileRejected extends DomainException
     public static function scannerUnavailable(): self
     {
         return new self(__('documents.file_guard.scanner_unavailable'));
+    }
+
+    /**
+     * Cắt một chuỗi do client kiểm soát xuống độ dài chèn được vào câu thông điệp. Không thay
+     * ký tự nào: `FileGuard::check()` đã chặn ký tự điều khiển trước khi tới được đây, nên phần
+     * còn lại chỉ là chữ thường và việc duy nhất cần làm là giới hạn độ dài.
+     */
+    private static function echoable(string $value): string
+    {
+        return mb_strimwidth($value, 0, self::EXTENSION_ECHO_LIMIT, '…');
     }
 }

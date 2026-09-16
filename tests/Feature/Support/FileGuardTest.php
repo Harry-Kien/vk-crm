@@ -30,20 +30,6 @@ function validOleBytes(): string
     return "\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1".str_repeat("\x00", 504);
 }
 
-/** Office Open XML (.docx/.xlsx) thực chất là một gói ZIP. */
-function validOoxmlBytes(): string
-{
-    $path = tempnam(sys_get_temp_dir(), 'ooxml');
-    $zip = new ZipArchive;
-    $zip->open($path, ZipArchive::OVERWRITE);
-    $zip->addFromString('[Content_Types].xml', '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"></Types>');
-    $zip->close();
-    $bytes = file_get_contents($path);
-    unlink($path);
-
-    return $bytes;
-}
-
 /**
  * MZ + PE tối thiểu — đủ để `finfo` nhận ra `application/x-dosexec`, không cần là một executable
  * chạy được thật. Một `"MZ"` trần không đủ: libmagic đòi con trỏ hợp lệ ở offset 0x3C trỏ tới một
@@ -132,8 +118,10 @@ it('accepts mọi đuôi trong danh sách trắng khi byte thật khớp đuôi 
         UploadedFile::fake()->createWithContent('a.jpeg', validJpegBytes()),
         UploadedFile::fake()->createWithContent('a.doc', validOleBytes()),
         UploadedFile::fake()->createWithContent('a.xls', validOleBytes()),
-        UploadedFile::fake()->createWithContent('a.docx', validOoxmlBytes()),
-        UploadedFile::fake()->createWithContent('a.xlsx', validOoxmlBytes()),
+        // Gói OOXML THẬT, không phải một ZIP chỉ có `[Content_Types].xml`: bản đầu của fixture
+        // này thiếu `word/document.xml`, tức nó cũng chính là một ZIP tuỳ ý đội tên .docx.
+        UploadedFile::fake()->createWithContent('a.docx', docxPackageBytes()),
+        UploadedFile::fake()->createWithContent('a.xlsx', xlsxPackageBytes()),
     ];
 
     foreach ($files as $file) {
@@ -160,10 +148,33 @@ it('rejects tên tệp không có phần mở rộng', function () {
     expect(fn () => FileGuard::check($noExtension))->toThrow(FileRejected::class);
 });
 
-it('rejects tên tệp chứa byte rỗng mà không rò rỉ lỗi hệ thống (TypeError/ValueError)', function () {
-    $path = sys_get_temp_dir().'/'."evil.pdf\0.php";
+it('rejects một ĐƯỜNG DẪN chứa byte rỗng mà không rò rỉ lỗi hệ thống (TypeError/ValueError)', function () {
+    // Đuôi SAU byte rỗng phải là một đuôi HỢP LỆ. Bản đầu của test này dùng "evil.pdf\0.php":
+    // `pathinfo()` trả đuôi `php`, nên nhánh whitelist đuôi đã ném rồi và xoá sạch mọi guard về
+    // tên thì test vẫn xanh.
+    //
+    // Đo lại sau khi đổi: với thứ tự này nhánh THẬT SỰ bắt được nó là `guardReadablePath()`
+    // (đường dẫn chứa byte rỗng), không phải `guardName()` — nên đừng đọc test này như một cái
+    // pin cho `guardName()`. Hai test ngay dưới mới là pin của `guardName()`.
+    $path = sys_get_temp_dir().'/'."evil.php\0.pdf";
 
     expect(fn () => FileGuard::check($path))->toThrow(FileRejected::class);
+});
+
+it('rejects một tệp tải lên có byte rỗng trong TÊN dù đường dẫn tạm sạch', function () {
+    // Trường hợp mà CHỈ `guardName()` bắt được: byte rỗng nằm trong tên do client khai, còn
+    // đường dẫn tệp tạm do PHP sinh ra thì sạch. Không dùng `UploadedFile::fake()` được vì nó
+    // tạo một tệp thật mang đúng cái tên đó; dựng thẳng một `UploadedFile` ở chế độ test.
+    $path = tempnam(sys_get_temp_dir(), 'fg');
+    file_put_contents($path, validPdfBytes());
+
+    $file = new UploadedFile($path, "evil.php\0.pdf", null, null, true);
+
+    try {
+        expect(fn () => FileGuard::check($file))->toThrow(FileRejected::class);
+    } finally {
+        unlink($path);
+    }
 });
 
 it('rejects một đường dẫn (string) không tồn tại trên đĩa', function () {
@@ -180,6 +191,162 @@ it('accepts một đường dẫn string thật trỏ tới một PDF hợp lệ
     FileGuard::check($path);
 
     unlink($path);
+
+    expect(true)->toBeTrue();
+});
+
+/**
+ * Một gói ZIP tuỳ ý: dùng để dựng các tệp "đội lốt" `.docx`/`.xlsx` trong các test dưới đây.
+ * `finfo` đọc một gói như thế này ra `application/zip` — đúng MIME mà bản đầu của `FileGuard`
+ * chấp nhận cho hai đuôi Office, nên bất kỳ ZIP nào cũng lọt qua.
+ *
+ * @param  array<string, string>  $entries  tên mục trong gói => nội dung
+ */
+function zipBytes(array $entries): string
+{
+    $path = tempnam(sys_get_temp_dir(), 'zip');
+    $zip = new ZipArchive;
+    $zip->open($path, ZipArchive::OVERWRITE);
+
+    foreach ($entries as $name => $content) {
+        $zip->addFromString($name, $content);
+    }
+
+    $zip->close();
+    $bytes = (string) file_get_contents($path);
+    unlink($path);
+
+    return $bytes;
+}
+
+/** Gói Office Open XML tối thiểu nhưng THẬT của Word: có cả mục bắt buộc `word/document.xml`. */
+function docxPackageBytes(array $extra = []): string
+{
+    return zipBytes(array_merge([
+        '[Content_Types].xml' => '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"></Types>',
+        '_rels/.rels' => '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>',
+        'word/document.xml' => '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body/></w:document>',
+    ], $extra));
+}
+
+/** Gói Office Open XML tối thiểu nhưng THẬT của Excel: có cả mục bắt buộc `xl/workbook.xml`. */
+function xlsxPackageBytes(array $extra = []): string
+{
+    return zipBytes(array_merge([
+        '[Content_Types].xml' => '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"></Types>',
+        '_rels/.rels' => '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>',
+        'xl/workbook.xml' => '<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheets/></workbook>',
+    ], $extra));
+}
+
+it('rejects một ZIP bất kỳ chỉ vì nó được đặt tên .docx', function () {
+    // Lỗ hổng Critical của vòng rà soát Task 1: `application/zip` nằm trong danh sách MIME được
+    // chấp nhận cho `docx`, nên gói này — chứa một .exe — qua được cổng, và scanner mặc định là
+    // `NullScanner` nên không còn lớp nào phía sau bắt nó.
+    $zip = UploadedFile::fake()->createWithContent('bang-ke.docx', zipBytes([
+        'payload.exe' => fakeDosExecutableBytes(),
+    ]));
+
+    expect(fn () => FileGuard::check($zip))->toThrow(FileRejected::class);
+});
+
+it('rejects một ZIP chứa trang HTML có script dù được đặt tên .xlsx', function () {
+    $zip = UploadedFile::fake()->createWithContent('danh-sach.xlsx', zipBytes([
+        'index.html' => '<html><script>alert(document.cookie)</script></html>',
+    ]));
+
+    expect(fn () => FileGuard::check($zip))->toThrow(FileRejected::class);
+});
+
+it('accepts một gói OOXML thật của Word dưới tên .docx và của Excel dưới tên .xlsx', function () {
+    // Gọi trực tiếp, không qua `not->toThrow()` — xem ghi chú ở test "accepts mọi đuôi...".
+    FileGuard::check(UploadedFile::fake()->createWithContent('don-khoi-kien.docx', docxPackageBytes()));
+    FileGuard::check(UploadedFile::fake()->createWithContent('bang-ke.xlsx', xlsxPackageBytes()));
+
+    expect(true)->toBeTrue();
+});
+
+it('rejects một gói Word đặt tên .xlsx và một gói Excel đặt tên .docx', function () {
+    // Chiều ngược lại của quyết định về ZIP: gói OOXML hợp lệ vẫn phải ĐÚNG loại mà đuôi khai báo.
+    $wordUnderXlsx = UploadedFile::fake()->createWithContent('bang-ke.xlsx', docxPackageBytes());
+    $excelUnderDocx = UploadedFile::fake()->createWithContent('don.docx', xlsxPackageBytes());
+
+    expect(fn () => FileGuard::check($wordUnderXlsx))->toThrow(FileRejected::class)
+        ->and(fn () => FileGuard::check($excelUnderDocx))->toThrow(FileRejected::class);
+});
+
+it('rejects một gói Word mang macro VBA dù được đặt tên .docx', function () {
+    // `.docm` đổi tên thành `.docx`: đuôi macro không có trong danh sách trắng SPEC §6.6, và một
+    // gói `wordprocessingml.document` thật theo chuẩn OOXML không được phép chứa dự án VBA.
+    $macro = UploadedFile::fake()->createWithContent('hop-dong.docx', docxPackageBytes([
+        'word/vbaProject.bin' => "\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1".str_repeat("\x00", 128),
+    ]));
+
+    expect(fn () => FileGuard::check($macro))->toThrow(FileRejected::class);
+});
+
+it('rejects một thân OLE2 (.doc) được đặt tên .jpg — cặp đuôi↔MIME, không phải hai danh sách rời', function () {
+    $ole = UploadedFile::fake()->createWithContent('anh-cccd.jpg', validOleBytes());
+
+    expect(fn () => FileGuard::check($ole))->toThrow(FileRejected::class);
+});
+
+it('accepts đuôi viết hoa vì Windows và điện thoại thường sinh ra .PDF, .DOCX', function () {
+    FileGuard::check(UploadedFile::fake()->createWithContent('BIEN-LAI.PDF', validPdfBytes()));
+    FileGuard::check(UploadedFile::fake()->createWithContent('DON.DocX', docxPackageBytes()));
+
+    expect(true)->toBeTrue();
+});
+
+it('rejects tên tệp chứa ký tự xuống dòng (mưu đồ chèn header)', function () {
+    $injected = UploadedFile::fake()->createWithContent("a\"\r\nX-Injected: 1.pdf", validPdfBytes());
+
+    expect(fn () => FileGuard::check($injected))->toThrow(FileRejected::class);
+});
+
+it('safeName cắt đường dẫn, ký tự điều khiển và độ dài trước khi tên chạm tới media.file_name', function () {
+    expect(FileGuard::safeName('../../etc/cron.d/x.pdf'))->toBe('x.pdf')
+        ->and(FileGuard::safeName('/etc/passwd.pdf'))->toBe('passwd.pdf')
+        ->and(FileGuard::safeName('..'))->toBe('tep-tai-len')
+        ->and(FileGuard::safeName(''))->toBe('tep-tai-len');
+
+    $long = FileGuard::safeName(str_repeat('a', 600).'.pdf');
+
+    expect(strlen($long))->toBeLessThanOrEqual(255)
+        ->and($long)->toEndWith('.pdf');
+});
+
+it('thông điệp lỗi không tiết lộ MIME thật cho người tải lên', function () {
+    // Với khách đang dùng điện thoại đó là chữ vô nghĩa; với người đang dò danh sách trắng đó là
+    // một cái máy trả lời miễn phí. MIME thật đi vào log, không đi vào màn hình.
+    $fakePdf = UploadedFile::fake()->createWithContent('ho-so.pdf', fakeDosExecutableBytes());
+
+    try {
+        FileGuard::check($fakePdf);
+        test()->fail('Lẽ ra phải ném FileRejected.');
+    } catch (FileRejected $e) {
+        expect($e->getMessage())->not->toContain('application/x-dosexec');
+    }
+});
+
+it('thông điệp lỗi không dài ra theo một cái đuôi 3000 ký tự do client bịa', function () {
+    $absurd = UploadedFile::fake()->createWithContent('x.'.str_repeat('a', 3000), validPdfBytes());
+
+    try {
+        FileGuard::check($absurd);
+        test()->fail('Lẽ ra phải ném FileRejected.');
+    } catch (FileRejected $e) {
+        expect(mb_strlen($e->getMessage()))->toBeLessThan(400);
+    }
+});
+
+it('không bao giờ nói "vượt quá 0 MB" khi cấu hình giới hạn bị thiếu', function () {
+    config(['vkcrm.upload_max_mb' => null]);
+
+    $file = UploadedFile::fake()->createWithContent('ho-so.pdf', validPdfBytes());
+
+    // Giới hạn thiếu phải rơi về mặc định hợp lý, không biến thành "mọi tệp đều quá lớn".
+    FileGuard::check($file);
 
     expect(true)->toBeTrue();
 });
