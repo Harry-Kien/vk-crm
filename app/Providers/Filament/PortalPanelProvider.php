@@ -10,6 +10,7 @@ use Filament\Pages\Dashboard;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
+use Filament\View\PanelsRenderHook;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
@@ -19,6 +20,11 @@ use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 /**
  * Portal khách hàng (/portal), guard `client`, màu thương hiệu theo SPEC §3.
+ *
+ * Đây là màn hình khách hàng của văn phòng nhìn thấy, nên nó phải trông liền một mạch với
+ * luatvukhang.com: cùng màu xanh navy `--navy`, cùng bộ chữ Be Vietnam Pro, cùng logo, cùng câu
+ * định vị. Một khách hàng đang lo vụ việc của mình mà mở ra thấy một phần mềm lạ dán tên văn
+ * phòng sẽ ngần ngại đăng nhập — sự liền mạch ở đây là một phần của việc họ tin tưởng mà dùng.
  */
 class PortalPanelProvider extends PanelProvider
 {
@@ -32,8 +38,14 @@ class PortalPanelProvider extends PanelProvider
             ->authPasswordBroker('client_users')
             ->login()
             ->brandName(__('panels.portal.brand'))
+            ->brandLogo(fn () => view('brand.logo'))
+            ->brandLogoHeight('2.3rem')
+            ->favicon(asset('brand/favicon.svg'))
+            ->font(config('vkcrm.brand.font'))
             ->colors([
-                'primary' => Color::hex(config('vkcrm.brand_color')),
+                // Dải viết sẵn, không phải Color::hex() — xem lý do ở config/vkcrm.php.
+                'primary' => config('vkcrm.brand.primary_ramp'),
+                'danger' => Color::hex(config('vkcrm.brand.colors.red')),
             ])
             ->discoverResources(in: app_path('Filament/Portal/Resources'), for: 'App\Filament\Portal\Resources')
             ->discoverPages(in: app_path('Filament/Portal/Pages'), for: 'App\Filament\Portal\Pages')
@@ -55,6 +67,8 @@ class PortalPanelProvider extends PanelProvider
             ])
             ->authMiddleware([
                 Authenticate::class,
-            ]);
+            ])
+            ->renderHook(PanelsRenderHook::AUTH_LOGIN_FORM_BEFORE, fn () => view('brand.login-tagline'))
+            ->renderHook(PanelsRenderHook::AUTH_LOGIN_FORM_AFTER, fn () => view('brand.login-footer'));
     }
 }

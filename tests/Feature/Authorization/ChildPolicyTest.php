@@ -113,6 +113,28 @@ it('answers the create ability the way Laravel actually calls it', function () {
         ->and($this->clientUser->can('create', CommunicationLog::class))->toBeFalse();
 });
 
+it('lets staff read the client of a matter they can see, but not manage it', function () {
+    expect($this->lead->can('view', $this->client))->toBeTrue()
+        ->and($this->outsider->can('view', $this->client))->toBeFalse()
+        ->and($this->assistant->can('view', Client::factory()->create()))->toBeTrue()
+        ->and($this->lead->can('update', $this->client))->toBeFalse()
+        ->and($this->lead->can('create', Client::class))->toBeFalse()
+        ->and($this->lead->can('delete', $this->client))->toBeFalse();
+});
+
+it('lets staff read the client user of a matter they can see, but not manage it', function () {
+    // Kế toán không có clientUser.manage; matter.viewAny cho họ thấy mọi vụ việc thường
+    // (SPEC §5), nên họ đọc được client user của $this->matter nhưng không quản lý được nó,
+    // và không thấy client user không gắn với vụ việc nào cả.
+    $unrelatedClientUser = ClientUser::factory()->create();
+
+    expect($this->accountant->can('view', $this->clientUser))->toBeTrue()
+        ->and($this->accountant->can('view', $unrelatedClientUser))->toBeFalse()
+        ->and($this->accountant->can('update', $this->clientUser))->toBeFalse()
+        ->and($this->accountant->can('create', ClientUser::class))->toBeFalse()
+        ->and($this->accountant->can('delete', $this->clientUser))->toBeFalse();
+});
+
 it('answers portal visibility for a child model even when no guard is open', function () {
     $foreignLog = StageLog::factory()->published()->create();
     $ownLog = StageLog::factory()->for($this->matter)->published()->create();

@@ -1,0 +1,110 @@
+# Kiểm thử tự động cho VK-CRM.
+#
+# Hai job có chủ đích tách rời:
+#
+#   - `tests` chạy bộ Pest trên SQLite in-memory, đúng như `phpunit.xml` cấu hình. Nhanh,
+#     là vòng phản hồi chính.
+#   - `schema` chạy migration trên MariaDB 11 THẬT. Đây không phải sự dư thừa: SQLite dựng
+#     lại cả bảng mỗi khi một chỉ mục thay đổi, nên nó KHÔNG BAO GIỜ phát hiện được các
+#     tương tác chỉ mục/khoá ngoại mà InnoDB bắt buộc. M3 đã có một migration xanh trọn bộ
+#     test nhưng làm `migrate:fresh` chết trên MariaDB với lỗi 1553. Job này tồn tại để
+#     lỗi đó không bao giờ lọt vào `main` lần nữa.
+#
+# Sàn PHP là 8.3 (xem CLAUDE.md) — không nâng ở đây nếu chưa nâng ở compose.yaml.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Pest + Pint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cài PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_mysql, mbstring, intl, bcmath, zip, gd, sqlite3, pdo_sqlite
+          coverage: none
+
+      - name: Cài phụ thuộc
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Chuẩn bị môi trường
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Pint (chỉ kiểm tra, không sửa)
+        run: vendor/bin/pint --test
+
+      - name: Pest
+        run: php artisan test
+
+  schema:
+    name: Migration trên MariaDB thật
+    runs-on: ubuntu-latest
+
+    services:
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: password
+          MARIADB_DATABASE: vk_crm
+          MARIADB_USER: sail
+          MARIADB_PASSWORD: password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cài PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_mysql, mbstring, intl, bcmath, zip, gd
+          coverage: none
+
+      - name: Cài phụ thuộc
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Chuẩn bị môi trường
+        env:
+          DB_HOST: 127.0.0.1
+        run: |
+          cp .env.example .env
+          sed -i 's/^DB_HOST=.*/DB_HOST=127.0.0.1/' .env
+          php artisan key:generate
+
+      - name: migrate:fresh --seed
+        run: php artisan migrate:fresh --seed --force
+
+      # Vòng quay ngược: một migration chỉ đúng khi `down()` cũng chạy được. Lỗi 1553 của M3
+      # nằm đúng ở chỗ này — chỉ mục bị xoá khi khoá ngoại vẫn đang dựa vào nó.
+      - name: Quay ngược toàn bộ rồi chạy lại
+        run: |
+          php artisan migrate:reset --force
+          php artisan migrate --force
+
+      - name: Seed lại để chắc chắn dữ liệu demo còn dựng được
+        run: php artisan db:seed --force

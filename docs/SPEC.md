@@ -122,6 +122,29 @@ Cấu hình tên miền qua `.env` (`ADMIN_DOMAIN`, `PORTAL_DOMAIN`). Nếu đ�
 thì cả hai panel chạy chung một tên miền theo đường dẫn — phải hoạt động được
 cả hai cách.
 
+### Bộ chữ web — quyết định ghi ngày 2026-09-16 (M3)
+
+Cả hai panel gọi `->font(config('vkcrm.brand.font'))` (Be Vietnam Pro) mà không
+chỉ định provider, nên Filament dùng mặc định `BunnyFontProvider`. **Hệ quả: mỗi
+lượt tải trang của cả hai panel — KỂ CẢ trang đăng nhập cổng khách hàng, tức
+trước khi ai đăng nhập — phát một request tới `fonts.bunny.net`, một bên thứ ba.**
+
+Quyết định: **giữ Bunny ở giai đoạn này.** Bunny Fonts không đặt cookie, không
+ghi log địa chỉ IP và tự tuyên bố tuân thủ GDPR — khác hẳn Google Fonts, vốn là
+lý do quy tắc này đáng được ghi lại thay vì mặc nhiên. Cái giá vẫn có thật và
+phải nói rõ: (a) địa chỉ IP của khách hàng chạm tới một hạ tầng ngoài tầm kiểm
+soát của văn phòng, ngay ở trang đăng nhập; (b) CDN chết hoặc bị chặn thì cả hai
+panel âm thầm rơi về phông hệ thống.
+
+Phương án thay thế khi cần: **tự host** — tải các tệp `woff2` vào `public/fonts`
+và dùng `FontProviders::local()`. Nếu quan điểm bảo vệ dữ liệu của văn phòng đòi
+"không có request ra ngoài nào từ cổng khách hàng", đây là cách đóng lại, và nó
+đồng thời xoá luôn rủi ro (b).
+
+`tests/Feature/BrandingTest.php` khẳng định thẻ `<link>` tới stylesheet phông có
+mặt ở cả hai panel, để một lần gỡ hay một CDN bị chặn làm ĐỎ một test thay vì âm
+thầm hạ cấp chữ nghĩa của cả sản phẩm.
+
 ---
 
 ## 4. Mô hình dữ liệu
@@ -665,6 +688,24 @@ liên quan kèm mã hồ sơ và vai của bên đó. Người dùng bấm đư�
 chỉ xem được mã hồ sơ, loại vụ việc và vai**, không xem được nội dung, kể cả khi
 họ không có quyền trên vụ đó. Đây là ngoại lệ có chủ đích của quy tắc phân
 quyền: đủ thông tin để nhận ra xung đột, không đủ để lộ bí mật hồ sơ khác.
+
+**Đính chính 2026-09-16 (sau review M3).** Bảng kết quả trên thực tế hiện **năm**
+cột chứ không phải ba: mã hồ sơ, loại vụ việc, vai của bên, **tên của bên trùng**,
+và **tầng khớp + mức độ**. Hai cột thêm là cố ý và giới hạn này vẫn đóng:
+
+- **Tên của bên trùng** là thứ không thể bỏ mà vẫn nhận ra được xung đột. Khi
+  khớp ở tầng tên thì chính người dùng vừa gõ tên đó; khi khớp ở tầng số căn cước
+  hoặc số điện thoại thì đây đúng là thông tin người dùng cần — "người anh vừa
+  nhập, văn phòng đang biết dưới một cái tên khác" — và không có nó thì người
+  dùng không có cách nào kiểm chứng hay phản bác kết quả.
+- **Tầng khớp và mức độ** nói cho người dùng biết kết quả này đáng tin đến đâu.
+  Một dòng vàng vì trùng tên và một dòng đỏ vì trùng số căn cước đòi hai phản ứng
+  khác hẳn nhau; gộp lại thành một bảng không nhãn là mời người dùng bấm cho qua.
+
+Vẫn tuyệt đối không hiện: tiêu đề vụ việc, tóm tắt, nội dung, khách hàng của vụ
+đó, người phụ trách, giai đoạn, tài liệu — nghĩa là mọi thứ thuộc về **nội dung**
+hồ sơ. Ranh giới này được cài bằng DTO `ConflictMatch` (readonly, đúng sáu trường)
+chứ không bằng quy ước, và có test khẳng định tiêu đề không lọt ra.
 
 ### 6.11 Bàn giao vụ việc — `ReassignMatter`
 

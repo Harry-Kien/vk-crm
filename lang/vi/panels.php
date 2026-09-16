@@ -2,9 +2,9 @@
 
 return [
     'admin' => [
-        'brand' => 'VK-CRM · Nội bộ',
+        'brand' => 'Vũ Khang · Hệ thống nội bộ',
     ],
     'portal' => [
-        'brand' => 'Luật Vũ Khang · Tra cứu hồ sơ',
+        'brand' => 'Vũ Khang · Hồ sơ của tôi',
     ],
 ];

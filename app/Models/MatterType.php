@@ -29,9 +29,10 @@ class MatterType extends Model
         return ['is_active' => 'boolean'];
     }
 
+    /** `sort_order` không đảm bảo duy nhất; `id` là tiêu chí phụ để thứ tự luôn xác định. */
     public function stages(): HasMany
     {
-        return $this->hasMany(MatterTypeStage::class)->orderBy('sort_order');
+        return $this->hasMany(MatterTypeStage::class)->orderBy('sort_order')->orderBy('id');
     }
 
     public function matters(): HasMany
