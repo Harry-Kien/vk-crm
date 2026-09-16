@@ -212,6 +212,18 @@ class PartiesRelationManager extends RelationManager
         $actor = Auth::user();
         $isOurClient = (bool) ($data['is_our_client'] ?? false);
 
+        // Review fix round 3, finding I-5 — cùng bản sửa, cùng một hàm với
+        // `CreateMatter::mutateFormDataBeforeCreate()`: `VisibleClientOptions` chỉ giới hạn ô chọn
+        // HIỂN THỊ gì, còn payload thì phía client gửi gì cũng được. Từ khi `BuildsMatterParties`
+        // lấy TÊN và định danh của một bên `is_our_client` thẳng từ hồ sơ `Client` đã khoá, một
+        // `client_id` giả mạo sẽ ghi TÊN THẬT của một khách hàng ngoài tầm nhìn lên dòng bên này.
+        // `AddMatterParty` cố ý KHÔNG tự kiểm tra (xem docblock `CreateMatter` cho lý do: đây là
+        // ranh giới tầm nhìn của panel, không phải ranh giới nghiệp vụ của Action), nên hai màn
+        // hình phải gọi chung đúng hàm này để không lệch nhau.
+        if ($isOurClient && filled($data['client_id'] ?? null)) {
+            VisibleClientOptions::assertVisibleToCurrentUser($data['client_id']);
+        }
+
         // tryFrom(), không from() (fix round 2, finding B): $pendingConflictLevel là một property
         // Livewire công khai (dù đã #[Locked] chặn ghi từ client) — vẫn phòng thủ ở điểm dùng,
         // không tin giá trị lưu trữ là một ConflictLevel hợp lệ. Giá trị không hợp lệ (hoặc null)

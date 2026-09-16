@@ -62,12 +62,22 @@ class MatterInfolist
                     ]),
                 Section::make(__('matters.overview_sections.team'))
                     ->schema([
+                        // `hiddenLabel()` chỉ GIẤU nhãn khỏi mắt, không xoá nó: Filament 5 vẫn in
+                        // nhãn ra DOM với lớp `fi-sr-only` cho trình đọc màn hình. Không đặt
+                        // `label()` thì nhãn đó là tên thuộc tính tự suy ra — "Team", "Name",
+                        // "Role in matter" — tức trang này ĐANG đọc tiếng Anh cho người khiếm thị
+                        // giữa một phần mềm tiếng Việt, ngay màn hình hiện ra sau mỗi lần mở vụ
+                        // việc. Vẫn giữ `hiddenLabel()` vì bố cục hai cột tự nói lên nội dung.
                         RepeatableEntry::make('team')
+                            ->label(__('matters.team_fields.members'))
                             ->hiddenLabel()
                             ->columns(2)
                             ->schema([
-                                TextEntry::make('name')->hiddenLabel(),
+                                TextEntry::make('name')
+                                    ->label(__('matters.team_fields.name'))
+                                    ->hiddenLabel(),
                                 TextEntry::make('pivot.role_in_matter')
+                                    ->label(__('matters.team_fields.role_in_matter'))
                                     ->hiddenLabel()
                                     ->badge()
                                     ->formatStateUsing(fn (MatterRole $state): string => $state->label()),

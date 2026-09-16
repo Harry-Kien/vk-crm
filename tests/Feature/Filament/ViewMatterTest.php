@@ -10,6 +10,7 @@ use App\Filament\Admin\Resources\Matters\RelationManagers\StageLogsRelationManag
 use App\Filament\Admin\Support\VisibleClientOptions;
 use App\Models\Client;
 use App\Models\Matter;
+use App\Models\MatterParty;
 use App\Models\StageLog;
 use App\Models\StageLogView;
 use App\Models\User;
@@ -17,6 +18,7 @@ use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Filament\Notifications\Livewire\Notifications;
 use Filament\Notifications\Notification;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);
@@ -391,4 +393,69 @@ it('hides the create-party action from an admin when the matter itself is soft-d
         'ownerRecord' => $matter,
         'pageClass' => ViewMatter::class,
     ])->assertTableActionHidden('create');
+});
+
+/**
+ * I-5 (Important), nửa của tab "Các bên" — cùng bản sửa, cùng một hàm với `CreateMatter`.
+ * `client_id` của bên mới được `VisibleClientOptions` giới hạn khi HIỂN THỊ nhưng chưa từng được
+ * kiểm tra lại phía máy chủ, trong khi `BuildsMatterParties` lấy TÊN và định danh của một bên
+ * `is_our_client` thẳng từ hồ sơ `Client` thật — nên một id giả mạo ghi TÊN THẬT của một khách
+ * hàng ngoài tầm nhìn lên dòng bên này.
+ *
+ * Gọi thẳng `createParty()` có chủ đích: `Select::options()` của Filament tự cài một luật `in:`
+ * dựng từ danh sách tuỳ chọn, nên qua đường form thì id giả mạo bị chặn ở bước xác thực và không
+ * bao giờ tới được cổng dưới đây — một test đi qua modal sẽ xanh kể cả khi cổng bị xoá sạch. Đây
+ * là lớp phòng thủ thứ hai, và nó chỉ có giá trị nếu có test đỏ được khi nó biến mất.
+ */
+it('refuses a forged client id on the add-party form, in the layer below Filaments own option rule', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $stranger = Client::factory()->create(['name' => 'KHACHHANGNGOAITAMNHIN']);
+
+    $this->actingAs($lawyer, 'web');
+
+    expect(VisibleClientOptions::forCurrentUser())->not->toHaveKey($stranger->id);
+
+    $manager = $this->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->instance();
+
+    $createParty = Closure::bind(
+        fn (array $data) => $this->createParty($data),
+        $manager,
+        PartiesRelationManager::class,
+    );
+
+    expect(fn () => $createParty([
+        'role' => PartyRole::Related->value,
+        'is_our_client' => true,
+        'client_id' => $stranger->id,
+        'name' => 'Tên do người gửi tự đặt',
+    ]))->toThrow(NotFoundHttpException::class);
+
+    expect($matter->parties()->count())->toBe(0)
+        ->and(MatterParty::query()->where('name', 'KHACHHANGNGOAITAMNHIN')->exists())->toBeFalse();
+});
+
+/**
+ * Toàn bộ giao diện là tiếng Việt qua `__()`/`lang/vi` (CLAUDE.md). Mục "Đội ngũ" của tab Tổng
+ * quan là màn hình người dùng nhìn thấy NGAY SAU mỗi lần mở vụ việc, nên một nhãn tiếng Anh lọt
+ * vào đây là thứ đập vào mắt đầu tiên.
+ */
+it('renders the team section of the matter page entirely in Vietnamese', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $this->actingAs($lawyer, 'web')
+        ->get(MatterResource::getUrl('view', ['record' => $matter], panel: 'admin'))
+        ->assertOk()
+        ->assertSee(__('matters.overview_sections.team'))
+        // Ba nhãn `hiddenLabel()` vẫn nằm trong DOM với lớp `fi-sr-only` — giấu khỏi mắt, KHÔNG
+        // giấu khỏi trình đọc màn hình. Không có `label()` thì Filament tự suy ra từ tên thuộc
+        // tính: "Team", "Name", "Role in matter".
+        ->assertSee(__('matters.team_fields.members'))
+        ->assertSee(__('matters.team_fields.name'))
+        ->assertSee(__('matters.team_fields.role_in_matter'))
+        ->assertDontSee('Role in matter');
 });

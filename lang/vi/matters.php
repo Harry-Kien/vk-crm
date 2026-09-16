@@ -29,6 +29,13 @@ return [
         'details' => 'Thông tin vụ việc',
         'team' => 'Đội ngũ',
     ],
+    // Ba nhãn của mục "Đội ngũ" ở tab Tổng quan. Chúng bị `hiddenLabel()` giấu khỏi mắt nhưng
+    // Filament vẫn in ra DOM cho trình đọc màn hình — bỏ trống thì chỗ đó đọc tiếng Anh.
+    'team_fields' => [
+        'members' => 'Thành viên đội ngũ',
+        'name' => 'Họ và tên nhân sự',
+        'role_in_matter' => 'Vai trò trong vụ việc',
+    ],
     'overview_fields' => [
         'confidentiality' => 'Độ mật',
         'opened_at' => 'Ngày mở',
