@@ -111,6 +111,26 @@ use Illuminate\Validation\ValidationException;
  * cờ `overridden` và `overrideReason` phải đi kèm. Cùng khuôn `AddMatterPartyResult` của
  * `AddMatterParty`, vì hai Action là hai nhánh của cùng một quy tắc SPEC §6.10.
  *
+ * **Về công bố portal ngay lúc mở vụ việc (review fix round 3, Minor 7).** Form tạo vụ việc có
+ * công tắc "công bố cho khách", nên `$attributes['is_published_to_portal']` có thể là `true` ngay
+ * ở câu `INSERT` đầu tiên. Trước bản sửa này, một vụ việc sinh ra đã công bố KHÔNG để lại dòng
+ * `matter_portal_publication_set` nào — lịch sử công bố của nó bắt đầu bằng một khoảng trắng, và
+ * M6 (thứ sẽ đọc chính chuỗi sự kiện đó để cảnh báo tái phơi bày backlog) không có gì để đối chiếu
+ * ở đúng điểm khởi đầu. Bước 5 vì vậy ghi dòng đó ngay tại đây.
+ *
+ * **Vì sao ghi dòng nhật ký tại chỗ chứ không gọi `SetMatterPortalPublication` sau khi tạo.** Hai
+ * lý do, cả hai đều là chặn đường chứ không phải sở thích. (1) Action kia gác bằng
+ * `MatterPolicy::update`, mà `update` đòi `view`, mà `view` đòi người đó LIỆT KÊ được vụ việc:
+ * một luật sư mở vụ việc và giao cho đồng nghiệp khác làm lead, hay mở một vụ `restricted`, thì
+ * KHÔNG qua được cổng đó — vụ việc đã tạo xong rồi mới ăn 403, để lại một vụ việc có thật cùng
+ * một màn hình báo lỗi. Cổng đúng cho thao tác này là `MatterPolicy::create`, đã kiểm tra ở bước
+ * 1. (2) Rủi ro mà `SetMatterPortalPublication` sinh ra để canh — bật lại công tắc làm lộ nguyên
+ * một backlog `stage_logs.is_published = true` tích luỹ trong lúc tắt — KHÔNG tồn tại ở lúc tạo:
+ * vụ việc chưa có dòng tiến độ nào, nên `published_stage_log_count` chắc chắn bằng 0. Ghi thẳng
+ * còn giữ được tính nguyên tử: không có khoảnh khắc nào vụ việc tồn tại với trạng thái công bố
+ * khác với điều người dùng đã chọn. Cờ `at_creation` để người đọc nhật ký sau này phân biệt được
+ * dòng này với một lần bật công tắc thật sự trên trang hồ sơ.
+ *
  * **Về các khoá dòng (fix round 1, finding 6/9 — ghi nhận trung thực, không phóng đại):**
  * `lockForUpdate()` trên `clients` ở bước 3 chỉ có tác dụng trong đúng thời gian giai đoạn kiểm
  * tra chạy — khoá được GIẢI PHÓNG khi transaction đó commit, TRƯỚC KHI bất kỳ ghi nào phái sinh từ
@@ -283,6 +303,15 @@ class OpenMatter
                 'override_reason' => $isOverridden ? $overrideReason : null,
                 'incomplete_conflict_parties' => $result->incompleteParties(),
             ], $actor);
+
+            // Xem "Về công bố portal ngay lúc mở vụ việc" ở docblock lớp.
+            if ($matter->is_published_to_portal) {
+                Audit::record('matter_portal_publication_set', $matter, [
+                    'publish' => true,
+                    'published_stage_log_count' => 0,
+                    'at_creation' => true,
+                ], $actor);
+            }
 
             return new OpenMatterResult($matter, $result, $isOverridden, $isOverridden ? $overrideReason : null);
         });

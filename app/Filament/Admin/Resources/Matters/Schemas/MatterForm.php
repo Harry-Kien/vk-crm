@@ -7,6 +7,7 @@ use App\Enums\PartyRole;
 use App\Filament\Admin\Resources\Matters\Pages\CreateMatter;
 use App\Filament\Admin\Support\VisibleClientOptions;
 use App\Models\MatterType;
+use Closure;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
@@ -75,6 +76,10 @@ class MatterForm
                 ->label(__('matters.fields.client'))
                 ->options(fn (): array => VisibleClientOptions::forCurrentUser())
                 ->searchable()
+                // Đổi khách hàng là đổi chính bên mà OpenMatter tự dựng từ hồ sơ Client, nên kết
+                // quả kiểm tra đang hiện không còn nói về vụ việc này nữa.
+                ->live()
+                ->afterStateUpdated(static::forgetConflictResult())
                 ->required(),
             // KHÔNG có ->default(): SPEC §6.10 và OpenMatter bước 2 đều đòi vai này được chọn có ý
             // thức. Một mặc định ngầm (từng là `plaintiff`) làm mọi vụ mà khách hàng là bị đơn bị
@@ -90,6 +95,10 @@ class MatterForm
                 ->helperText(__('matters.create_form.client_role_help'))
                 ->options(static::partyRoleOptions())
                 ->native(false)
+                // Vai của khách hàng quyết định bên nào là bên ĐỐI LẬP, tức quyết định mức đỏ có
+                // nổ hay không: đổi nó có thể lật thẳng vàng thành đỏ.
+                ->live()
+                ->afterStateUpdated(static::forgetConflictResult())
                 ->required(),
             Select::make('matter_type_id')
                 ->label(__('matters.fields.matter_type'))
@@ -154,14 +163,20 @@ class MatterForm
             ->defaultItems(0)
             ->itemLabel(fn (array $state): string => $state['name'] ?? __('matters.create_form.unnamed_party'))
             ->columns(2)
+            // MỘT hook duy nhất cho cả danh sách bên: mọi ô con bên dưới đều `live()`, và Filament
+            // bong `afterStateUpdated` từ con lên component cha — nên thêm bên, xoá bên, đổi thứ
+            // tự hay sửa bất kỳ ô nào của bất kỳ bên nào đều rơi vào đây.
+            ->afterStateUpdated(static::forgetConflictResult())
             ->schema([
                 Select::make('role')
                     ->label(__('matters.party_fields.role'))
                     ->options(static::partyRoleOptions())
                     ->native(false)
+                    ->live()
                     ->required(),
                 TextInput::make('name')
                     ->label(__('matters.party_fields.name'))
+                    ->live(onBlur: true)
                     ->required()
                     ->maxLength(200),
                 // live(onBlur:) để cảnh báo thiếu định danh bên dưới xuất hiện/biến mất ngay khi
@@ -186,12 +201,18 @@ class MatterForm
                     ->label(__('matters.party_fields.client'))
                     ->options(fn (): array => VisibleClientOptions::forCurrentUser())
                     ->searchable()
+                    ->live()
                     ->visible(fn (Get $get): bool => (bool) $get('is_our_client')),
+                // `address`/`note` không phải tầng đối chiếu nào cả, nhưng vẫn `live()`: chúng nằm
+                // trong cùng một dòng bên, và một quy tắc "ô nào trong danh sách bên cũng làm mất
+                // hiệu lực bảng kết quả" thì không ai phải nhớ ô nào mới đúng là ô quan trọng.
                 TextInput::make('address')
                     ->label(__('matters.party_fields.address'))
+                    ->live(onBlur: true)
                     ->maxLength(300),
                 Textarea::make('note')
                     ->label(__('matters.party_fields.note'))
+                    ->live(onBlur: true)
                     ->columnSpanFull(),
             ]);
     }
@@ -221,25 +242,56 @@ class MatterForm
                 ->viewData(fn (CreateMatter $livewire): array => $livewire->conflictResultViewData())
                 ->visible(fn (CreateMatter $livewire): bool => $livewire->conflictResult !== null)
                 ->columnSpanFull(),
+            // Cả hai ô quyết định chỉ TỒN TẠI sau khi đã có một kết quả kiểm tra thật hiện ra —
+            // xem docblock lớp `CreateMatter` (Critical C-1). Một trường ẩn không được dehydrate,
+            // nên đây là cổng phía máy chủ chứ không phải trang trí.
             Toggle::make('acknowledge_conflict')
                 ->label(__('matters.conflict.acknowledge'))
                 ->helperText(__('matters.conflict.acknowledge_help'))
+                ->visible(fn (CreateMatter $livewire): bool => $livewire->conflictResult !== null)
                 ->default(false),
             // Hiện cho MỌI vai trò nhưng khoá với ai không được ghi đè: người dùng cần đọc được
             // luật ("chỉ trưởng phòng/quản trị") ngay tại chỗ, và lỗi mức đỏ cần một ô để bám vào.
-            // Một trường disabled() KHÔNG dehydrate (xem docblock publishToggleField ở
-            // BuildsStageUpdateSchema), nên khoá `override_reason` biến mất khỏi $data — không có
-            // cách nào một luật sư gửi lên được lý do ghi đè qua form này, và kể cả gửi được thì
-            // `OpenMatter` vẫn tự kiểm tra lại vai trò của actor.
+            // Một trường disabled() KHÔNG dehydrate (`disabled()` gọi `saved(false)`, và
+            // `isDehydrated()` rơi về `isSaved()` — đã đối chiếu vendor), nên khoá
+            // `override_reason` biến mất khỏi $data: không có cách nào một luật sư gửi lên được lý
+            // do ghi đè qua form này, và kể cả gửi được thì `OpenMatter` vẫn tự kiểm tra lại vai
+            // trò của actor. `visible()` và `disabled()` chồng lên nhau chứ không triệt tiêu nhau:
+            // ẩn thì không dehydrate, khoá thì cũng không dehydrate — luật sư ở lượt 2 vẫn ĐỌC
+            // được ô và câu giải thích ai mới ghi đè được, nhưng không gửi được gì qua nó.
             Textarea::make('override_reason')
                 ->label(__('matters.conflict.override_reason'))
                 ->helperText(fn (CreateMatter $livewire): string => $livewire->canOverrideRedConflict()
                     ? __('matters.conflict.override_reason_help_allowed')
                     : __('matters.conflict.override_reason_help_denied'))
+                ->visible(fn (CreateMatter $livewire): bool => $livewire->conflictResult !== null)
                 ->disabled(fn (CreateMatter $livewire): bool => ! $livewire->canOverrideRedConflict())
                 ->rows(2)
                 ->columnSpanFull(),
         ];
+    }
+
+    /**
+     * Hook gắn vào mọi trường có thể làm đổi kết quả kiểm tra xung đột: đổi trường đó thì bảng kết
+     * quả đang hiện không còn mô tả đúng form nữa, nên phải quên nó đi (Minor 3/4 của bản xem xét
+     * — xem `CreateMatter::forgetConflictResult()` cho lý do đầy đủ, gồm cả vì sao dấu tích "đã
+     * xem xét" phải rơi theo).
+     *
+     * `live()` đi kèm là bắt buộc chứ không phải tuỳ chọn: một trường không `live()` hoàn toàn
+     * không gửi gì về máy chủ cho tới lúc bấm lưu, nên `afterStateUpdated` của nó không bao giờ
+     * chạy. Với các ô TRONG repeater thì chỉ cần con `live()` — Filament tự BONG lên cha
+     * (`Component::callAfterStateUpdated()` gọi tiếp lên component cha), nên một hook duy nhất đặt
+     * trên chính repeater bắt được mọi thay đổi bên trong, kể cả thêm/xoá/nhân bản/đổi thứ tự
+     * dòng (`Repeater` gọi thẳng `callAfterStateUpdated()` ở cả bốn action đó).
+     *
+     * `onBlur: true` cho các ô gõ tay: gửi từng ký tự về máy chủ chỉ để xoá một mảng thường đã
+     * null là lãng phí, còn rời ô đã đủ sớm — bảng chỉ hiện lại ở lượt bấm lưu kế tiếp.
+     */
+    private static function forgetConflictResult(): Closure
+    {
+        return function (CreateMatter $livewire): void {
+            $livewire->forgetConflictResult();
+        };
     }
 
     /** @return array<string, string> */

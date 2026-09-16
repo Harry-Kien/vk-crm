@@ -134,6 +134,8 @@ return [
         'ack_retry' => 'Đọc kỹ bảng kết quả kiểm tra xung đột lợi ích ở trên, sau đó tích "Tôi đã xem xét…" rồi bấm lưu lại.',
         'saved_clear' => 'Đã kiểm tra xung đột lợi ích trước khi lưu: không tìm thấy bản ghi trùng nào.',
         'saved_after_review' => 'Đã mở vụ việc sau khi xem xét kết quả kiểm tra xung đột lợi ích.',
+        'saved_overridden' => 'ĐÃ GHI ĐÈ XUNG ĐỘT MỨC ĐỎ — vụ việc vẫn được mở theo quyết định của anh/chị.',
+        'saved_overridden_reason' => 'Lý do ghi đè đã ghi vĩnh viễn vào nhật ký: :reason',
     ],
     'parties' => [
         'conflict_check_title_attention' => 'Cần xem xét trước khi lưu',

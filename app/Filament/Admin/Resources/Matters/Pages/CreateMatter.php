@@ -13,6 +13,9 @@ use App\Exceptions\ConflictBlocked;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Filament\Admin\Support\VisibleClientOptions;
 use App\Models\User;
+use App\Support\ConflictCheckResult;
+use App\Support\ConflictMatch;
+use App\Support\OpenMatterResult;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Database\Eloquent\Model;
@@ -39,6 +42,16 @@ use Livewire\Attributes\Locked;
  *     xem xét" hoặc điền lý do ghi đè và bấm lưu lại. `$pendingConflictLevel` nhớ mức của lượt 1 để
  *     `acknowledged` khớp CHÍNH XÁC mức mà lần kiểm tra trả về — hợp đồng của `OpenMatter`.
  *
+ * **Hai ô quyết định chỉ TỒN TẠI ở lượt 2 (review fix round 3, Critical C-1).** Cả "đã xem xét"
+ * lẫn "lý do ghi đè" đều `visible()` theo `$conflictResult !== null`, tức chỉ hiện sau khi một kết
+ * quả kiểm tra thật đã được dựng ra trước mắt người dùng. Trước bản sửa này ô lý do hiện vô điều
+ * kiện, nên một manager điền nó TRƯỚC lượt gửi đầu tiên đi thẳng vào nhánh ghi đè của `OpenMatter`
+ * — ghi đè một mức đỏ chưa ai từng thấy. Một lý do viết cho một xung đột chưa hiện ra không phải
+ * một quyết định, nó chỉ là một ô trống đã được điền sẵn. Một trường `hidden` KHÔNG được Filament
+ * dehydrate (`isHiddenAndNotDehydratedWhenHidden()`), nên đây là một cổng phía MÁY CHỦ, không phải
+ * trang trí — và `handleRecordCreation()` vẫn kiểm tra lại `$conflictResult !== null` một lần nữa
+ * để cổng không phụ thuộc vào một chi tiết nội bộ của framework.
+ *
  * **Khác `PartiesRelationManager` ở ba điểm, đều có lý do:**
  *  - Kết quả hiện bằng một BẢNG trong chính form (`filament.conflict-check-result`), không phải một
  *    Notification: SPEC §6.10 nói rõ "hiện ngay trong form tạo vụ việc, dạng bảng liệt kê vụ việc
@@ -46,8 +59,9 @@ use Livewire\Attributes\Locked;
  *    Notification là chỗ duy nhất còn lại; ở đây form vẫn mở nên bảng ở đúng chỗ SPEC yêu cầu.
  *  - Ô "Lý do ghi đè" bị `disabled()` với ai không phải `manager`/`admin`, thay vì hiện ra cho mọi
  *    người như ở tab "Các bên". Một ô mở cho luật sư gõ vào rồi vẫn bị từ chối là một lời hứa sai.
- *  - Trang không hiện gì thêm ở nhánh thành công XANH SẠCH ngoài một Notification tóm tắt (xem
- *    `notifySaved()`), vì sau khi lưu trang chuyển sang hồ sơ vừa mở, form không còn tồn tại.
+ *  - Nhánh thành công vẫn hiện một Notification tóm tắt kết quả kiểm tra (xem `notifySaved()`), vì
+ *    sau khi lưu trang chuyển sang hồ sơ vừa mở và form — cùng bảng kết quả trong nó — không còn
+ *    tồn tại. Thông báo mặc định "Đã tạo" của Filament bị tắt để không chồng lên nó (Minor 6).
  *
  * **Không bọc lời gọi trong `DB::transaction()`** — `OpenMatter` cấm điều đó (xem cảnh báo cho
  * caller ở docblock của Action: một transaction ngoài biến giai đoạn kiểm tra thành savepoint và
@@ -155,13 +169,47 @@ class CreateMatter extends CreateRecord
 
     /**
      * `VisibleClientOptions`/`leadLawyerOptions()` chỉ hạn chế những gì ô chọn HIỂN THỊ — một
-     * request bị chỉnh sửa vẫn gửi thẳng được một id ngoài tầm nhìn. Chặn thật ở đây, đúng lúc hai
+     * request bị chỉnh sửa vẫn gửi thẳng được một id ngoài tầm nhìn. Chặn thật ở đây, đúng lúc mọi
      * id đã biết, giống hệt `CreateClientUser::mutateFormDataBeforeCreate()`.
+     *
+     * **Cả `client_id` của TỪNG BÊN trong repeater, không chỉ của vụ việc (review fix round 3,
+     * finding I-5).** Bên nào bật "là khách hàng của văn phòng" cũng mang một `client_id` xuống
+     * `OpenMatter`, và `BuildsMatterParties` lấy TÊN + định danh của bên đó thẳng từ hồ sơ `Client`
+     * đã khoá — nên một id giả mạo ghi TÊN THẬT của một khách hàng ngoài tầm nhìn lên một dòng bên
+     * mà người gửi đọc lại được ngay sau khi lưu.
+     *
+     * **Vì sao kiểm tra ở MÀN HÌNH chứ không trong Action.** Luật đang áp là "panel user này được
+     * tham chiếu tới những hồ sơ khách hàng nào", tức `VisibleClientOptions` — một ranh giới HIỂN
+     * THỊ của panel, suy ra từ `Matter::scopeListableBy`. Hai id còn lại mà form gửi lên
+     * (`client_id` của vụ việc, `lead_lawyer_id`) đã được chặn ở đúng tầng này; đẩy riêng một
+     * trong ba xuống Action sẽ xé một luật ra làm hai tầng. Ranh giới của Action là một luật khác
+     * và hẹp hơn — "actor này có được mở vụ việc / thêm bên hay không" (`MatterPolicy::create` /
+     * `update`) — và cả hai Action phải gọi được từ console, job, import hay seeder, nơi không tồn
+     * tại "tầm nhìn panel" nào để đối chiếu. Đổi lại, cả hai màn hình gọi CÙNG một hàm
+     * (`VisibleClientOptions::assertVisibleToCurrentUser()`), nên chúng không thể lệch nhau theo
+     * cách hai Action đã từng lệch ba lần.
+     *
+     * Ghi nhận trung thực: `Select::options()` của Filament đã tự cài sẵn một luật `in:` phía máy
+     * chủ dựng từ chính danh sách đó, nên một id giả mạo thực tế bị chặn ngay ở bước xác thực —
+     * kiểm tra dưới đây là lớp thứ hai, cố ý. Lớp thứ hai cần thiết vì lớp thứ nhất là một hành vi
+     * NGẦM: nó biến mất lặng lẽ nếu ô chọn sau này đổi sang `getSearchResultsUsing()` hay bất kỳ
+     * nguồn tuỳ chọn động nào, và không ai đọc diff đó sẽ nhận ra mình vừa gỡ một hàng rào.
      */
     protected function mutateFormDataBeforeCreate(array $data): array
     {
-        abort_unless(array_key_exists((int) ($data['client_id'] ?? 0), VisibleClientOptions::forCurrentUser()), 403);
-        abort_unless(array_key_exists((int) ($data['lead_lawyer_id'] ?? 0), static::leadLawyerOptions()), 403);
+        VisibleClientOptions::assertVisibleToCurrentUser($data['client_id'] ?? null);
+
+        foreach ($data['other_parties'] ?? [] as $party) {
+            // Cùng điều kiện với partiesPayload(): một client_id mồ côi (công tắc đã tắt lại) bị
+            // bỏ trước khi xuống Action, nên không có gì để cho phép hay từ chối.
+            if ((bool) ($party['is_our_client'] ?? false) && filled($party['client_id'] ?? null)) {
+                VisibleClientOptions::assertVisibleToCurrentUser($party['client_id']);
+            }
+        }
+
+        // SPEC §10.10: 404 cho cả "không có quyền" lẫn "không tồn tại" — 403 ở đây tự nó xác nhận
+        // rằng nhân sự mang id vừa gửi là có thật.
+        abort_unless(array_key_exists((int) ($data['lead_lawyer_id'] ?? 0), static::leadLawyerOptions()), 404);
 
         return $data;
     }
@@ -177,18 +225,20 @@ class CreateMatter extends CreateRecord
             ? ConflictLevel::tryFrom($this->pendingConflictLevel)
             : null;
 
+        // Lý do ghi đè chỉ có nghĩa khi đã có một kết quả kiểm tra HIỆN RA cho người dùng đọc —
+        // cùng cổng với `acknowledged` ngay trên. Ô này đã `visible()` theo `$conflictResult` nên
+        // ở lượt đầu Filament còn không dehydrate nó; kiểm tra lại ở đây để cổng không phụ thuộc
+        // vào một chi tiết dehydrate của framework (xem docblock `notifySaved()` cho lý do đầy đủ).
+        $overrideReason = $this->conflictResult !== null ? ($data['override_reason'] ?? null) : null;
+
         try {
-            // `handle()` trả `OpenMatterResult` (vụ việc + kết quả kiểm tra + có ghi đè hay không
-            // + lý do). Ở đây mới chỉ lấy ra vụ việc để trang chạy như cũ; phần dùng `result`/
-            // `overridden` để `notifySaved()` nói đúng nhánh thành công nào là việc của bản sửa
-            // giao diện tiếp theo — xem docblock `App\Support\OpenMatterResult`.
-            $matter = app(OpenMatter::class)->handle(
+            $opening = app(OpenMatter::class)->handle(
                 actor: $actor,
                 attributes: static::matterAttributes($data),
                 parties: static::partiesPayload($data),
-                overrideReason: $data['override_reason'] ?? null,
+                overrideReason: $overrideReason,
                 acknowledged: $acknowledged,
-            )->matter;
+            );
         } catch (ConflictBlocked $exception) {
             // Mức đỏ không phải thứ "thử lại là qua": xoá mức đang chờ để một ô xác nhận còn tích
             // sót từ lượt trước không mang nghĩa gì ở lượt sau.
@@ -209,44 +259,132 @@ class CreateMatter extends CreateRecord
             ]);
         }
 
-        $this->notifySaved();
+        $this->notifySaved($opening);
 
         // Dọn sạch trạng thái của lần mở vụ việc vừa xong. Bắt buộc, không chỉ gọn gàng: nút
         // "Tạo & tạo thêm" giữ nguyên component và dựng lại form trống — nếu `conflictResult` còn
         // lại, form MỚI sẽ mở ra với bảng kết quả của vụ việc TRƯỚC, nói về những bên chưa ai nhập.
-        // Đọc theo thứ tự: notifySaved() ở trên còn cần `conflictResult` để chọn đúng câu.
-        $this->pendingConflictLevel = null;
-        $this->conflictResult = null;
+        $this->forgetConflictResult();
 
-        return $matter;
+        return $opening->matter;
+    }
+
+    /**
+     * Quên kết quả kiểm tra đang hiển thị và mức đang chờ xác nhận.
+     *
+     * **Minor 3/4 của bản xem xét:** bảng kết quả là một ẢNH CHỤP của những bên đã có lúc bấm lưu,
+     * nhưng nó nằm im trong khi người dùng sửa tiếp form — nên nó có thể đang mô tả những bên
+     * không còn ở đó nữa. Tệ hơn, `$pendingConflictLevel` chỉ nhớ MỨC: đổi một bên giữa hai lượt
+     * gửi mà mức vẫn vàng thì dấu tích "đã xem xét" của bảng CŨ được nhận cho bảng MỚI. Vì vậy mọi
+     * thay đổi có thể làm đổi kết quả kiểm tra (khách hàng, vai của khách hàng, bất cứ thứ gì
+     * trong danh sách bên) đều gọi hàm này — xem `MatterForm::forgetConflictResultOnChange()`.
+     *
+     * Dấu tích cũng bị gỡ, không chỉ mức: để nguyên một ô đã tích trong khi lời từ chối bảo người
+     * dùng "hãy tích ô này" là một màn hình tự mâu thuẫn.
+     *
+     * Hàm này KHÔNG được gọi ở lượt render đang hiện bảng ra: `afterStateUpdated` chỉ chạy khi có
+     * một thay đổi state thật từ người dùng, không chạy khi Livewire dựng lại giao diện sau khi
+     * `handleRecordCreation()` ném `ValidationException` — nên bảng vừa đặt vào vẫn còn nguyên khi
+     * người dùng nhìn thấy nó.
+     */
+    public function forgetConflictResult(): void
+    {
+        $this->conflictResult = null;
+        $this->pendingConflictLevel = null;
+        $this->data['acknowledge_conflict'] = false;
     }
 
     /**
      * SPEC §6.10 bước 4 ("phải chứng minh được là đã kiểm tra") áp cả cho đường thành công: người
-     * vừa mở vụ việc phải thấy là đã có một lần kiểm tra chạy, kể cả khi kết quả xanh.
+     * vừa mở vụ việc phải thấy là đã có một lần kiểm tra chạy, và thấy nó nói GÌ — kể cả khi kết
+     * quả xanh, và nhất là khi không xanh. Sau khi lưu, trang chuyển sang hồ sơ vừa mở nên bảng
+     * trong form không còn tồn tại: thông báo này là thứ duy nhất còn lại.
      *
-     * `OpenMatter::handle()` trả về `Matter`, không trả `ConflictCheckResult`, nên ở nhánh thành
-     * công trang không cầm kết quả trên tay. KHÔNG chạy `RunConflictCheck` thêm một lượt chỉ để
-     * lấy kết quả hiển thị: mỗi lần chạy là một dòng activity log thật (SPEC §6.10 bước 4), và hai
-     * dòng cho một lần mở vụ việc là nhật ký sai sự thật. Thay vào đó suy ra từ hợp đồng của
-     * Action, không đoán:
-     *  - `$conflictResult !== null` ⟹ đã có một lượt bị chặn/đòi xác nhận trước đó, bảng kết quả
-     *    thật đã hiển thị cho người dùng đọc → nói đúng như vậy.
-     *  - `$conflictResult === null` ⟹ `handle()` không ném gì ở lượt đầu ⟹ theo bước 4 của Action,
-     *    `! isBlocking()` VÀ `! requiresAcknowledgement()` ⟹ mức XANH, không có bản ghi trùng
-     *    (`ConflictLevel::Green` không bao giờ gắn vào một `ConflictMatch`) và không có bên thiếu
-     *    định danh. Đây là suy luận từ mã nguồn của `OpenMatter`, không phải phỏng đoán — nếu bước
-     *    4 của Action đổi, câu thông báo này phải đổi theo.
+     * **Nói theo KẾT QUẢ THẬT, không suy luận (review fix round 3, Critical C-1).** Bản trước đọc
+     * `$conflictResult === null` rồi suy ra "Action không ném gì ⟹ xanh sạch". Chuỗi suy luận đó
+     * BỎ SÓT nhánh ghi đè: `OpenMatter` bước 4 cũng trả về BÌNH THƯỜNG khi một manager ghi đè mức
+     * ĐỎ, nên một manager ghi đè ngay lượt gửi đầu tiên được báo "không tìm thấy bản ghi trùng
+     * nào" MÀU XANH — về một xung đột chưa từng hiện ra cho họ xem. Nhật ký thì đúng, chỉ có màn
+     * hình nói ngược lại, và đó là thứ người dùng thật sự đọc.
+     *
+     * `OpenMatterResult` mang đủ ba thứ cần để nói thật, nên ở đây không còn suy luận nào:
+     *  - `$opening->overridden` — lần lưu này có đi qua cổng ghi đè mức đỏ hay không. KHÔNG suy ra
+     *    được từ `level`: đỏ xuất hiện ở CẢ nhánh bị chặn (ném ngoại lệ) lẫn nhánh được ghi đè.
+     *  - `$opening->result` — mức và danh sách bản ghi trùng, để câu thông báo kể ra ĐÃ ghi đè
+     *    xung đột với hồ sơ nào, không chỉ rằng có ghi đè.
+     *  - `$opening->overrideReason` — lý do đã ghi vĩnh viễn vào nhật ký, hiện lại nguyên văn để
+     *    người vừa gõ nó nhìn thấy mình vừa ký vào cái gì.
+     *
+     * Ba mức hiển thị, không hai: ĐỎ ĐÃ GHI ĐÈ (`danger`), CẦN XEM XÉT (`warning`, gồm cả mức xanh
+     * có bên thiếu định danh — cùng luật `requiresAcknowledgement()` mà `PartiesRelationManager`
+     * dùng), và XANH SẠCH (`success`).
      */
-    private function notifySaved(): void
+    private function notifySaved(OpenMatterResult $opening): void
     {
+        $result = $opening->result;
+        $needsAttention = $result->requiresAcknowledgement();
+
+        [$title, $color] = match (true) {
+            $opening->overridden => [__('matters.conflict.saved_overridden'), 'danger'],
+            $needsAttention => [__('matters.conflict.saved_after_review'), 'warning'],
+            default => [__('matters.conflict.saved_clear'), 'success'],
+        };
+
         Notification::make()
-            ->title($this->conflictResult === null
-                ? __('matters.conflict.saved_clear')
-                : __('matters.conflict.saved_after_review'))
-            ->color($this->conflictResult === null ? 'success' : 'warning')
+            ->title($title)
+            ->body(static::conflictSummary($result, $opening->overrideReason))
+            ->color($color)
             ->persistent()
             ->send();
+    }
+
+    /**
+     * Phần thân thông báo: danh sách hồ sơ trùng, cảnh báo bên thiếu định danh, và lý do ghi đè
+     * nếu có. Cùng ranh giới lộ thông tin với bảng trong form (`conflictResultViewData()`) và với
+     * `PartiesRelationManager::notifyConflictCheckResult()` — CHỈ mã hồ sơ, loại vụ việc, vai và
+     * tên bên trùng; không tiêu đề, không tóm tắt, không id.
+     *
+     * Không dùng chung hàm với `PartiesRelationManager` dù hình dạng giống nhau: hai màn hình nói
+     * về hai thao tác khác nhau ("mở vụ việc" và "thêm bên") nên bộ chuỗi tiếng Việt khác nhau, và
+     * gộp lại sẽ đẻ ra một hàm nhận tiền tố khoá dịch làm tham số — khó đọc hơn chính đoạn nó thay
+     * thế. Ghi ra đây để lần sau ai đó thấy hai đoạn giống nhau thì biết là có chủ đích.
+     */
+    private static function conflictSummary(ConflictCheckResult $result, ?string $overrideReason): string
+    {
+        $lines = [$result->matches->isEmpty()
+            ? __('matters.conflict.no_matches')
+            : $result->matches
+                ->map(fn (ConflictMatch $match): string => sprintf(
+                    '%s (%s) — %s, %s: %s',
+                    $match->matterCode,
+                    $match->matterTypeName,
+                    $match->partyRole->label(),
+                    $match->tier->label(),
+                    $match->level->label(),
+                ))
+                ->implode("\n")];
+
+        if ($result->hasIncompleteParties()) {
+            $lines[] = __('matters.conflict.incomplete', ['names' => implode(', ', $result->incompleteParties())]);
+        }
+
+        if (filled($overrideReason)) {
+            $lines[] = __('matters.conflict.saved_overridden_reason', ['reason' => $overrideReason]);
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Minor 6: `CreateRecord::create()` tự gửi thông báo "Đã tạo" của Filament NGAY SAU
+     * `handleRecordCreation()`, nên một lần lưu sạch hiện HAI thông báo chồng nhau — cái thứ hai
+     * không nói gì mà cái của trang chưa nói, và nó đẩy câu về kết quả kiểm tra xung đột (thứ SPEC
+     * §6.10 bắt buộc người dùng đọc) xuống dưới. Tắt hẳn: `notifySaved()` đã là thông báo thành
+     * công của màn hình này.
+     */
+    protected function getCreatedNotification(): ?Notification
+    {
+        return null;
     }
 
     /**

@@ -24,6 +24,29 @@ use Illuminate\Support\Facades\Auth;
  */
 final class VisibleClientOptions
 {
+    /**
+     * Chặn THẬT một id khách hàng do form gửi lên (review fix round 3, finding I-5).
+     * `forCurrentUser()` chỉ quyết định ô chọn HIỂN THỊ gì; payload thì phía client gửi gì cũng
+     * được. Từ khi `App\Actions\Concerns\BuildsMatterParties` lấy TÊN và định danh của một bên
+     * `is_our_client` thẳng từ hồ sơ `Client` đã khoá, một `client_id` giả mạo sẽ ghi TÊN THẬT của
+     * một khách hàng ngoài tầm nhìn lên một dòng `matter_parties` mà chính người gửi đọc lại được.
+     *
+     * Đặt ở đây, cạnh chính danh sách mà nó đối chiếu, để hai màn hình dùng CHUNG một luật: ba id
+     * khách hàng mà form gửi lên (khách hàng của vụ việc, khách hàng của từng bên ở trang tạo, và
+     * khách hàng của bên mới ở tab "Các bên") đều đi qua đúng hàm này. Trước đó chỉ id thứ nhất
+     * được kiểm tra, ở một dòng `abort_unless` viết tay trong `CreateMatter`.
+     *
+     * **404, không 403 (SPEC §10.10).** "Không có quyền" và "không tồn tại" phải trả về cùng một
+     * mã: 403 ở đây tự nó tiết lộ rằng khách hàng mang id vừa gửi là có thật, đúng thứ §10.10 cấm.
+     *
+     * @param  mixed  $clientId  Giá trị thô từ form; `null`/rỗng cũng bị từ chối — một id bắt buộc
+     *                           mà không gửi lên thì không có gì để cho phép.
+     */
+    public static function assertVisibleToCurrentUser(mixed $clientId): void
+    {
+        abort_unless(array_key_exists((int) $clientId, self::forCurrentUser()), 404);
+    }
+
     /** @return array<int, string> */
     public static function forCurrentUser(): array
     {
