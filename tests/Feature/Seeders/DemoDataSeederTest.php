@@ -53,8 +53,13 @@ it('seeds twelve clients each with one or two portal accounts', function () {
         ->and(ClientUser::where('email', 'khach1@example.com')->exists())->toBeTrue();
 });
 
-it('seeds twenty matters with the deliberate situations from the spec', function () {
-    expect(Matter::count())->toBe(20)
+/**
+ * 21 = 20 vụ theo kịch bản SPEC §12 + 1 vụ `restricted` (mang sang từ rà soát M2, task 10):
+ * MatterSeeder::restrictedMatter() thêm đúng một vụ mật ngoài 20 vụ đánh số, để nhánh
+ * `restricted` của Matter::scopeListableBy() có dữ liệu thật thay vì chỉ có trong test.
+ */
+it('seeds twenty matters with the deliberate situations from the spec, plus one restricted matter', function () {
+    expect(Matter::count())->toBe(21)
         ->and(Matter::where('last_client_update_at', '<', now()->subDays(14))->count())->toBeGreaterThanOrEqual(3)
         ->and(Deadline::query()->upcoming(3)->distinct('matter_id')->count('matter_id'))->toBeGreaterThanOrEqual(2)
         ->and(MatterChecklistItem::where('status', ChecklistItemStatus::Missing)->distinct('matter_id')->count('matter_id'))->toBeGreaterThanOrEqual(4)

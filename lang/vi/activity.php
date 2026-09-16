@@ -22,4 +22,19 @@ return [
         'portal_account_deactivated' => 'Vô hiệu hoá tài khoản portal',
         'data_exported' => 'Xuất dữ liệu',
     ],
+
+    /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */
+    'page' => [
+        'title' => 'Nhật ký hệ thống',
+        'navigation_label' => 'Nhật ký hệ thống',
+        'columns' => [
+            'created_at' => 'Thời gian',
+            'log_name' => 'Nhóm',
+            'event' => 'Sự kiện',
+            'causer' => 'Người thực hiện',
+            'subject' => 'Đối tượng',
+            'description' => 'Diễn giải',
+        ],
+        'system_causer' => 'Hệ thống',
+    ],
 ];

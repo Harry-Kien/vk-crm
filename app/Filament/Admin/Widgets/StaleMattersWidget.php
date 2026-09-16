@@ -1,0 +1,86 @@
+<?php
+
+namespace App\Filament\Admin\Widgets;
+
+use App\Enums\Permission;
+use App\Filament\Admin\Resources\Matters\MatterResource;
+use App\Models\Matter;
+use App\Models\User;
+use Filament\Actions\Action;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Table;
+use Filament\Widgets\TableWidget;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Auth;
+
+/**
+ * SPEC §7.1 mục 1: "Hồ sơ quá hạn cập nhật" — widget quan trọng nhất, đặt trên cùng (getSort()).
+ * Scoping dùng đúng Matter::scopeListableBy() như MatterResource, nên một luật sư chỉ thấy hồ sơ
+ * quá hạn của các vụ việc họ được xem, không phải toàn bộ văn phòng.
+ */
+class StaleMattersWidget extends TableWidget
+{
+    protected static ?int $sort = -2;
+
+    /** Số ngày quá hạn theo SPEC §6.4 / §7.1. */
+    private const STALE_AFTER_DAYS = 14;
+
+    public static function canView(): bool
+    {
+        return (bool) Auth::user()?->can(Permission::MatterView->value);
+    }
+
+    public function table(Table $table): Table
+    {
+        return $table
+            ->heading(__('widgets.stale_matters.heading'))
+            ->description(__('widgets.stale_matters.description'))
+            ->query(fn (): Builder => Matter::query()
+                ->listableBy(static::currentUser())
+                ->whereNull('closed_at')
+                ->whereNotNull('last_client_update_at')
+                ->where('last_client_update_at', '<', now()->subDays(self::STALE_AFTER_DAYS))
+                ->with(['client', 'matterType.stages', 'leadLawyer']))
+            ->columns([
+                TextColumn::make('code')
+                    ->label(__('widgets.stale_matters.columns.code')),
+                TextColumn::make('client.name')
+                    ->label(__('widgets.stale_matters.columns.client')),
+                TextColumn::make('title')
+                    ->label(__('widgets.stale_matters.columns.title'))
+                    ->limit(60),
+                TextColumn::make('stage')
+                    ->label(__('widgets.stale_matters.columns.stage'))
+                    ->badge()
+                    ->formatStateUsing(fn (Matter $record): string => $record->currentStage()?->label ?? $record->stage),
+                TextColumn::make('leadLawyer.name')
+                    ->label(__('widgets.stale_matters.columns.lead_lawyer')),
+                TextColumn::make('last_client_update_at')
+                    ->label(__('widgets.stale_matters.columns.last_client_update_at'))
+                    ->since()
+                    ->color('danger')
+                    ->sortable(),
+            ])
+            ->defaultSort('last_client_update_at')
+            ->recordActions([
+                Action::make('view')
+                    ->label(__('matters.label'))
+                    ->url(fn (Matter $record): string => MatterResource::getUrl('view', ['record' => $record], panel: 'admin')),
+            ])
+            ->paginated([5, 10, 25]);
+    }
+
+    /**
+     * canView() đã chặn trước khi widget này render cho ai không có matter.view, nhưng
+     * listableBy() đòi một User tường minh — phòng thủ một lần nữa ở đây thay vì tin ambient
+     * Auth::user() chắc chắn đúng kiểu.
+     */
+    private static function currentUser(): User
+    {
+        $user = Auth::user();
+
+        abort_unless($user instanceof User, 403);
+
+        return $user;
+    }
+}

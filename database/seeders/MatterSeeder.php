@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Actions\ApplyChecklistTemplate;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\CommunicationType;
+use App\Enums\Confidentiality;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Enums\MatterRole;
@@ -68,7 +69,7 @@ class MatterSeeder extends Seeder
 
     public function run(): void
     {
-        if (Matter::count() >= 20) {
+        if (Matter::count() >= 21) {
             return;
         }
 
@@ -121,9 +122,48 @@ class MatterSeeder extends Seeder
             $this->requests($matter, $client, $lead, $i);
         }
 
+        $this->restrictedMatter($lawyers, $clients, $types);
         $this->views();
 
         auth('web')->forgetUser();
+    }
+
+    /**
+     * Vụ việc mật (SPEC §5, §12 — mang sang từ rà soát M2: nhánh `restricted` của
+     * Matter::scopeListableBy chưa có bằng chứng trên dữ liệu mẫu thật). lead_lawyer_id cố định
+     * là luật sư đầu tiên theo thứ tự email (luatsu1@luatvukhang.com) để tài khoản demo đó luôn
+     * xem được đúng một vụ mật, còn quản lý (quanly@luatvukhang.com) — có matter.view nhưng
+     * không phải admin và không đứng tên vụ này — bị loại ở nhánh restricted của scopeListableBy.
+     */
+    private function restrictedMatter(Collection $lawyers, Collection $clients, Collection $types): void
+    {
+        // Không phải 1..20 nên không đụng TYPE_SEQUENCE/OPPONENTS (chỉ mảng 20 phần tử); chỉ số
+        // này chỉ nạp cho parties()/stageLogs() dùng biến thiên số lượng (họ không đọc hai mảng
+        // đó), để vụ mật vẫn khớp bất biến "3–8 dòng stage_logs, 2–4 bên" của toàn bộ seeder.
+        $i = 21;
+        $client = $clients->first();
+        $type = $types['DD'];
+        $lead = $lawyers->first();
+        $stage = $type->stages->reject(fn ($s) => $s->is_terminal)->first();
+        $openedAt = now()->subDays(10);
+
+        $matter = Matter::query()->create([
+            'client_id' => $client->id,
+            'matter_type_id' => $type->id,
+            'title' => 'Tranh chấp đất đai — hồ sơ hạn chế truy cập',
+            'description_internal' => 'Ghi chú nội bộ: vụ việc nhạy cảm, chỉ luật sư phụ trách và quản trị viên được xem (SPEC §5).',
+            'summary_for_client' => 'Văn phòng đang xử lý vụ việc này và sẽ liên hệ trực tiếp khi cần.',
+            'stage' => $stage->key,
+            'stage_entered_at' => now()->subDays(5),
+            'lead_lawyer_id' => $lead->id,
+            'opened_at' => $openedAt->toDateString(),
+            'is_published_to_portal' => false,
+            'confidentiality' => Confidentiality::Restricted,
+            'last_client_update_at' => now()->subDays(5),
+        ]);
+
+        $this->parties($matter, $client, 'Bên bị đơn của hồ sơ hạn chế', $i, $clients);
+        $this->stageLogs($matter, $stage->key, $i, $openedAt);
     }
 
     private function parties(Matter $matter, Client $client, string $opponent, int $i, Collection $clients): void
