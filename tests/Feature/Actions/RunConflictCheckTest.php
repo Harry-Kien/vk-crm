@@ -425,3 +425,75 @@ it('aggregates to the highest level found across all checked parties', function 
         ->and($result->matches)->toHaveCount(2)
         ->and($result->matches->pluck('level')->map(fn ($l) => $l->value)->sort()->values()->all())->toBe(['red', 'yellow']);
 });
+
+it('assigns the phone tier to a match found only by phone number', function () {
+    // Tầng điện thoại (SPEC §6.10 bước 2, "rất khả nghi") trước đây không có test nào chạm tới,
+    // dù nó là tầng MẠNH DUY NHẤT khi một bên không có số căn cước — tình trạng bình thường của
+    // bên đối lập.
+    $existingClient = Client::factory()->create([
+        'id_number' => '012345678901',
+        'phone' => '0912345678',
+        'name' => 'Đặng Thị Mai',
+    ]);
+    $otherMatter = Matter::factory()->create();
+    MatterParty::factory()->for($otherMatter)->ourClient($existingClient)->create();
+
+    // Không có số căn cước, tên khác hẳn: chỉ còn số điện thoại để khớp.
+    $party = proposedParty(PartyRole::Related, 'Người liên quan không rõ nhân thân', phone: '0912345678');
+
+    $result = app(RunConflictCheck::class)->handle(collect([$party]));
+
+    expect($result->level)->toBe(ConflictLevel::Yellow)
+        ->and($result->matches)->toHaveCount(1);
+
+    $match = $result->matches->first();
+    expect($match->tier)->toBe(ConflictMatchTier::Phone)
+        ->and($match->matterCode)->toBe($otherMatter->code)
+        ->and($match->partyName)->toBe('Đặng Thị Mai');
+});
+
+it('blocks at red level when a phone-only match is our client in another matter and the roles oppose', function () {
+    $existingClient = Client::factory()->create([
+        'id_number' => '023456789012',
+        'phone' => '0987654321',
+        'name' => 'Hoàng Văn Bình',
+    ]);
+    $otherMatter = Matter::factory()->create();
+    MatterParty::factory()->for($otherMatter)->ourClient($existingClient)->create();
+
+    $ourNewClient = proposedParty(PartyRole::Plaintiff, 'Khách hàng mới hoàn toàn', isOurClient: true);
+    // Bên đối lập không có số căn cước — đúng tình trạng thường gặp — nên chỉ tầng điện thoại
+    // có thể phát hiện rằng đây chính là khách hàng của văn phòng ở vụ khác.
+    $opposingParty = proposedParty(PartyRole::Defendant, 'Bị đơn chưa rõ giấy tờ', phone: '0987654321');
+
+    $result = app(RunConflictCheck::class)->handle(collect([$ourNewClient, $opposingParty]));
+
+    expect($result->level)->toBe(ConflictLevel::Red)
+        ->and($result->isBlocking())->toBeTrue()
+        ->and($result->matches)->toHaveCount(1)
+        ->and($result->matches->first()->tier)->toBe(ConflictMatchTier::Phone)
+        ->and($result->matches->first()->level)->toBe(ConflictLevel::Red);
+});
+
+it('still reaches red on the phone tier when the opposing party’s number was typed without its leading zero', function () {
+    // Bản xuất Excel ăn mất số 0 đứng đầu: '0909111222' về thành '909111222'. Trước khi
+    // Normalizer::phone() biết dạng này, hai cách viết cho ra hai giá trị khác nhau và tầng
+    // điện thoại — tầng mạnh duy nhất khi không có số căn cước — trả về XANH.
+    $existingClient = Client::factory()->create([
+        'id_number' => '034567890123',
+        'phone' => '0909111222',
+        'name' => 'Vũ Thị Hạnh',
+    ]);
+    $otherMatter = Matter::factory()->create();
+    MatterParty::factory()->for($otherMatter)->ourClient($existingClient)->create();
+
+    $ourNewClient = proposedParty(PartyRole::Plaintiff, 'Khách hàng mới hoàn toàn', isOurClient: true);
+    $opposingParty = proposedParty(PartyRole::Defendant, 'Bị đơn nhập từ bảng tính', phone: '909111222');
+
+    $result = app(RunConflictCheck::class)->handle(collect([$ourNewClient, $opposingParty]));
+
+    expect($result->level)->toBe(ConflictLevel::Red)
+        ->and($result->isBlocking())->toBeTrue()
+        ->and($result->matches->first()->tier)->toBe(ConflictMatchTier::Phone)
+        ->and($result->matches->pluck('matterCode')->all())->toContain($otherMatter->code);
+});
