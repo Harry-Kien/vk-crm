@@ -15,6 +15,12 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('matter_type_stages', function (Blueprint $table) {
+            // Ràng buộc composite unique đang bị xoá bên dưới là chỉ mục DUY NHẤT có cột
+            // matter_type_id ở vị trí đầu, nên InnoDB đang dựa vào nó cho khoá ngoại
+            // matter_type_id. Thêm chỉ mục thường trước để khoá ngoại còn chỗ dựa, nếu không
+            // MariaDB từ chối xoá với lỗi 1553 "Cannot drop index ... needed in a foreign key
+            // constraint".
+            $table->index('matter_type_id', 'matter_type_stages_matter_type_id_index');
             $table->dropUnique(['matter_type_id', 'key']);
         });
     }
@@ -23,6 +29,7 @@ return new class extends Migration
     {
         Schema::table('matter_type_stages', function (Blueprint $table) {
             $table->unique(['matter_type_id', 'key']);
+            $table->dropIndex('matter_type_stages_matter_type_id_index');
         });
     }
 };
