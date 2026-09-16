@@ -350,3 +350,19 @@ it('không bao giờ nói "vượt quá 0 MB" khi cấu hình giới hạn bị 
 
     expect(true)->toBeTrue();
 });
+
+it('safeName cắt tên dài mà không làm hỏng ký tự tiếng Việt có dấu', function () {
+    // Tên tệp có dấu là 2 byte mỗi ký tự, nên một lần cắt theo byte rất dễ rơi vào giữa một ký
+    // tự. `mb_convert_encoding($x, 'UTF-8', 'UTF-8')` KHÔNG cứu được: nó THAY byte thừa bằng `?`
+    // chứ không bỏ đi — đo trực tiếp trong container, độ dài giữ nguyên 195 byte và byte cuối là
+    // 0x3F. Phát hiện khi đọc lại từng câu docblock đối chiếu với mã.
+    //
+    // Chữ 'a' ở đầu KHÔNG thừa: nó đẩy điểm cắt sang một vị trí byte LẺ. Không có nó, 200 - 4
+    // (`.pdf`) = 196 rơi đúng vào ranh giới một ký tự 2 byte và test xanh cả với bản sai.
+    $safe = FileGuard::safeName('a'.str_repeat('ă', 300).'.pdf');
+
+    expect(strlen($safe))->toBeLessThanOrEqual(255)
+        ->and(mb_check_encoding($safe, 'UTF-8'))->toBeTrue()
+        ->and($safe)->not->toContain('?')
+        ->and($safe)->toEndWith('.pdf');
+});

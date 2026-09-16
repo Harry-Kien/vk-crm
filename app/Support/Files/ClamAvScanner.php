@@ -17,7 +17,11 @@ use Throwable;
  * `INSTREAM` (4 byte độ dài big-endian trước mỗi khối, khối độ dài 0 kết thúc), đếm số byte nhận
  * được và trả về đúng câu trả lời mà từng test muốn — kể cả câu trả lời im lặng. Nhờ vậy ba điều
  * quan trọng nhất đã được kiểm bằng hành vi chứ không bằng lời hứa: tệp tới nơi TRỌN VẸN, câu trả
- * lời được hiểu ĐÚNG, và một daemon im lặng KHÔNG treo worker. Cái còn lại vẫn nên làm một lần
+ * lời được hiểu ĐÚNG, và một daemon im lặng KHÔNG treo worker.
+ *
+ * Một giới hạn phải nói thẳng: test đếm byte chỉ chứng minh luồng trọn vẹn ở ĐƯỜNG THUẬN. Không
+ * có cách nào ép một socket Unix cục bộ ghi thiếu byte theo ý muốn, nên `writeAll()` có test
+ * chống thoái lui chứ không có test tái hiện được lỗi cũ. Cái còn lại vẫn nên làm một lần
  * bằng tay khi bật `CLAMAV_ENABLED=true` trên máy chủ thật: đối chiếu câu chữ mà đúng bản `clamd`
  * ở đó trả về (một tệp EICAR là đủ).
  *
@@ -146,9 +150,10 @@ final class ClamAvScanner implements VirusScanner
      * So câu trả lời với đúng khuôn của giao thức thay vì tìm chuỗi con.
      *
      * clamd trả về một dòng `<tên luồng>: <kết luận>` — `stream: OK`,
-     * `stream: Eicar-Test-Signature FOUND`, hoặc `... ERROR`. Chỉ đúng dạng kết thúc bằng `: OK`
-     * mới là một kết luận sạch; `FOUND` là nhiễm; mọi thứ khác — kể cả rỗng, kể cả một câu có
-     * chữ `OK` nằm giữa — là "không xác nhận được", tức từ chối.
+     * `stream: Eicar-Test-Signature FOUND`, hoặc `... ERROR`. Chỉ một câu KẾT THÚC bằng `OK`
+     * đứng riêng sau dấu hai chấm (`stream: OK`), hoặc một câu `OK` trần, mới là kết luận sạch;
+     * câu kết thúc bằng `FOUND` là nhiễm; mọi thứ khác — rỗng, `ERROR`, hay một câu chỉ có chữ
+     * `OK` nằm lọt giữa như `Heuristics.OK.Broken ERROR` — là "không xác nhận được", tức từ chối.
      *
      * @throws FileRejected
      */

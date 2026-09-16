@@ -11,7 +11,8 @@ use ZipArchive;
  * Cổng an ninh duy nhất cho mọi tệp đi vào hệ thống qua `UploadStaffDocument` và
  * `SubmitClientDocument` (SPEC §6.6 bước 2-4). Kiểm bốn thứ, đúng thứ tự — tên tệp, đuôi tệp,
  * kích thước, rồi NỘI DUNG (MIME thật bằng `finfo`, và với `docx`/`xlsx` là cả cấu trúc bên trong
- * gói) — và không kiểm gì khác (quét virus là một collaborator riêng, `VirusScanner`, do Action
+ * gói), cộng một điều kiện tiên quyết là đường dẫn phải đọc được (`guardReadablePath()`, chạy
+ * trước khi đo kích thước vì mọi bước sau đều phải mở tệp ra) — và không kiểm gì khác (quét virus là một collaborator riêng, `VirusScanner`, do Action
  * gọi sau khi `FileGuard::check()` đã qua; xem docblock interface đó).
  *
  * **Danh sách trắng là ranh giới an ninh, không phải một gợi ý.** SPEC §6.6 bước 2 liệt kê đúng
@@ -55,6 +56,11 @@ use ZipArchive;
  * còn lại (bỏ đường dẫn, cắt độ dài cho vừa `media.file_name` varchar(255)) là việc của
  * `safeName()`, và **mọi nơi ghi tên tệp do client gửi xuống cơ sở dữ liệu hay vào một header
  * `Content-Disposition` phải đi qua `safeName()` trước** — xem docblock của nó.
+ *
+ * Nói rõ để không ai đọc nhầm: tới lúc này `safeName()` CHƯA có nơi gọi nào trong mã sản phẩm, vì
+ * `UploadStaffDocument`/`SubmitClientDocument` (Task 3/4) và `DocumentDownloadController`
+ * (Task 5) chưa tồn tại. Nó là cái móc dựng sẵn cho ba chỗ đó, không phải một ràng buộc đang được
+ * thi hành; thứ duy nhất đang thi hành điều gì là `guardName()`, và nó chỉ biết TỪ CHỐI.
  */
 final class FileGuard
 {
@@ -176,10 +182,12 @@ final class FileGuard
 
         $extension = pathinfo($name, PATHINFO_EXTENSION);
         $suffix = $extension === '' ? '' : '.'.substr($extension, 0, 20);
-        $stem = substr($name, 0, self::MAX_NAME_LENGTH - strlen($suffix));
 
-        // `substr` cắt theo byte nên có thể cắt giữa một ký tự nhiều byte; bỏ phần thừa đó đi.
-        $stem = (string) mb_convert_encoding($stem, 'UTF-8', 'UTF-8');
+        // `mb_strcut()` chứ không phải `substr()`: cắt theo BYTE (đúng thứ `varchar(255)` đếm)
+        // nhưng lùi lại để không cắt vào giữa một ký tự nhiều byte — tên tệp tiếng Việt có dấu
+        // là 2 byte mỗi ký tự. `mb_convert_encoding($x, 'UTF-8', 'UTF-8')` KHÔNG làm được việc
+        // này: nó thay byte thừa bằng `?` chứ không bỏ đi, nên độ dài không đổi và tên vẫn lệch.
+        $stem = mb_strcut($name, 0, self::MAX_NAME_LENGTH - strlen($suffix), 'UTF-8');
 
         return rtrim($stem, " \t.").$suffix;
     }
@@ -336,6 +344,16 @@ final class FileGuard
     private static function realMimeType(string $path): ?string
     {
         $finfo = finfo_open(FILEINFO_MIME_TYPE);
+
+        // `finfo_open()` trả `false` khi cơ sở dữ liệu magic hỏng hoặc thiếu. Không bắt nhánh này
+        // thì `finfo_file(false, ...)` ném `TypeError` — một exception KHÔNG phải `FileRejected`
+        // lọt ra khỏi `check()`, tức đúng điều docblock lớp này khẳng định là không xảy ra. Gần
+        // như không bao giờ xảy ra, nhưng "gần như không bao giờ" không phải "không".
+        if ($finfo === false) {
+            Log::error('file_guard.finfo_unavailable');
+
+            throw FileRejected::unreadable();
+        }
 
         try {
             $mime = finfo_file($finfo, $path);
