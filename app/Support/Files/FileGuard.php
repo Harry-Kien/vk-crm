@@ -158,7 +158,8 @@ final class FileGuard
      * 2. Bỏ ký tự điều khiển, `"` và `;` — đây là phần chống chèn header: tên tệp cuối cùng đi
      *    vào `Content-Disposition` ở Task 5, và một tên chứa `\r\n` hay dấu nháy kép tách được
      *    header đó ra. `check()` đã TỪ CHỐI tên có ký tự điều khiển, nhưng `safeName()` phải tự
-     *    đứng vững: nó còn được gọi trên các tên đã nằm sẵn trong cơ sở dữ liệu.
+     *    đứng vững: Task 5 sẽ gọi nó trên các tên đã nằm sẵn trong cơ sở dữ liệu, tức những tên
+     *    chưa chắc đã đi qua `check()` của bản mã hôm nay.
      * 3. Cắt còn {@see self::MAX_NAME_LENGTH} byte, GIỮ LẠI phần đuôi: `media.file_name` là
      *    `varchar(255)` nên một cái tên 600 ký tự hoặc bị cắt cụt mất đuôi, hoặc (trên MariaDB ở
      *    chế độ strict) làm cả lần lưu thất bại.
