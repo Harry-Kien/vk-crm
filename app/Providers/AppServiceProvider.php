@@ -53,10 +53,18 @@ class AppServiceProvider extends ServiceProvider
         // Câu trả lời cho "virus scanning có thật sự bật không" phải lấy được từ chính hệ thống,
         // không phải từ việc đọc `.env` hay mã nguồn — `php artisan about` là chỗ một người vận
         // hành đã quen tra cứu tình trạng cấu hình của ứng dụng.
+        //
+        // Ba trạng thái, không phải hai: `isActive()` của `ClamAvScanner` nay hỏi thật daemon
+        // (PING/PONG), nên nó phân biệt được "đã bật và daemon đang trả lời" với "đã bật nhưng
+        // daemon câm". Gộp trạng thái thứ ba vào ô "TẮT" sẽ đọc thành "không cấu hình quét virus"
+        // trong khi sự thật là quét virus ĐANG BẬT và mọi tệp sắp bị từ chối — hai việc phải xử
+        // lý hoàn toàn khác nhau.
         AboutCommand::add('VK-CRM', fn () => [
-            'Quét virus khi nộp tệp (VirusScanner)' => $this->app->make(VirusScanner::class)->isActive()
-                ? 'BẬT — ClamAvScanner'
-                : 'TẮT — NullScanner (không quét gì cả)',
+            'Quét virus khi nộp tệp (VirusScanner)' => match (true) {
+                ! (bool) config('vkcrm.clamav.enabled') => 'TẮT — NullScanner (không quét gì cả)',
+                $this->app->make(VirusScanner::class)->isActive() => 'BẬT — ClamAvScanner, daemon trả lời PING',
+                default => 'BẬT nhưng daemon KHÔNG trả lời — mọi tệp tải lên sẽ bị từ chối',
+            },
         ]);
     }
 }

@@ -23,6 +23,14 @@ return [
     'clamav' => [
         'enabled' => (bool) env('CLAMAV_ENABLED', false),
         'socket' => env('CLAMAV_SOCKET', '/var/run/clamav/clamd.ctl'),
+
+        /*
+         * Hạn cho MỖI lần đọc/ghi trên socket sau khi đã kết nối (giây). Khác hẳn timeout kết
+         * nối: một daemon quá tải vẫn nhận kết nối ngay rồi im lặng, và không có hạn này thì
+         * lần chờ câu trả lời rơi về `default_socket_timeout` của PHP — 60 giây khoá worker cho
+         * mỗi tệp. 30 giây đủ để một tệp 20 MB đi qua trên máy chủ bận.
+         */
+        'timeout' => (int) env('CLAMAV_TIMEOUT', 30),
     ],
 
     /*
