@@ -81,6 +81,11 @@ it('creates a missing role row rather than throwing', function () {
 
     $user = User::factory()->create(['position' => UserPosition::Lawyer]);
 
-    expect(fn () => $user->assignRoleFromPosition())->not->toThrow(Throwable::class)
-        ->and($user->fresh()->hasRole(Role::Lawyer->value))->toBeTrue();
+    // Gọi THẲNG: `expect(fn () => ...)->not->toThrow(Throwable::class)` không thể đỏ được
+    // (`Throwable` là interface, `class_exists` trả `false`, nhánh `not` của Pest nuốt cả hai
+    // kiểu thất bại) — xem ghi chú dài hơn ở `tests/Feature/ActivityLogTest.php`. Một hàng rào
+    // không thể đổ thì không phải hàng rào.
+    $user->assignRoleFromPosition();
+
+    expect($user->fresh()->hasRole(Role::Lawyer->value))->toBeTrue();
 });
