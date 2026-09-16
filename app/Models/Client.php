@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Actions\SyncClientPartyIdentities;
 use App\Enums\ClientType;
 use App\Models\Concerns\HasBlameable;
 use App\Models\Concerns\HidesInternalAttributesFromPortal;
@@ -51,6 +52,26 @@ class Client extends Model
     {
         static::creating(function (Client $client): void {
             $client->code ??= static::nextCode();
+        });
+
+        // Sự kiện model, không phải một lời gọi trong Filament EditClient: bất biến ở đây là
+        // "ảnh chụp định danh trong matter_parties luôn khớp hồ sơ khách hàng", và nó phải đúng
+        // với MỌI người ghi vào cột — form quản trị, seeder, lệnh console, job nhập liệu, một
+        // resource Filament viết sau này, hay `Client::query()->update()` gọi từ đâu đó. Gắn vào
+        // một đường ghi duy nhất là để lại đúng cái lỗ hổng đang phải vá: `RunConflictCheck` chỉ
+        // đọc được định danh qua ảnh chụp đó (clients.id_number đã mã hoá), nên một đường ghi bị
+        // bỏ quên = tầng "chắc chắn" của SPEC §6.10 mù với khách hàng đó, im lặng và vĩnh viễn.
+        // Nghiệp vụ vẫn nằm trong app/Actions/ đúng quy ước: hook này không làm gì ngoài việc gọi
+        // Action. Dùng `updated` (không phải `saving`) để chỉ đồng bộ sau khi dòng đã ghi thật.
+        static::updated(function (Client $client): void {
+            // `id_number` là cột `encrypted` — mã hoá không tất định, hai lần mã hoá cùng một giá
+            // trị cho ra hai ciphertext khác nhau. Laravel giải mã cả hai phía trước khi so sánh
+            // (cast `encrypted` nằm trong danh sách primitive của `originalIsEquivalent`), nên
+            // `wasChanged()` ở đây so theo giá trị THẬT, không so ciphertext; ghi lại đúng số cũ
+            // không kích hoạt đồng bộ. Hành vi này được ghim bằng test, không phải phỏng đoán.
+            if ($client->wasChanged('id_number') || $client->wasChanged('phone')) {
+                app(SyncClientPartyIdentities::class)->handle($client);
+            }
         });
     }
 

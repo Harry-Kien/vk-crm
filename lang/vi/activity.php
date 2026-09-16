@@ -27,6 +27,9 @@ return [
         'matter_stage_transitioned' => 'Chuyển giai đoạn vụ việc',
         'matter_party_added' => 'Thêm bên trong vụ việc',
         'conflict_check_run' => 'Kiểm tra xung đột lợi ích',
+        // Ghi qua Audit::record() ở app/Actions/SyncClientPartyIdentities.php khi hồ sơ khách
+        // hàng đổi số căn cước/điện thoại và ảnh chụp định danh của các bên được đồng bộ lại.
+        'client_identity_resynced' => 'Đồng bộ lại định danh các bên',
         // App\Actions\SetMatterPortalPublication (fix round 2 review, task 2).
         'matter_portal_publication_set' => 'Đổi trạng thái công bố portal',
     ],
