@@ -75,6 +75,10 @@ it('is idempotent: normalizing an already normalized phone changes nothing', fun
         '028 3822 1234', '2838221234', '+65 9123 4567',
         // Những đầu vào quá ngắn để là số thuê bao Việt Nam — nơi tính chất này từng sai.
         '01234567', '0123456', '0', '00 00',
+        // Hai hình dạng mà docblock CŨ khẳng định là không tồn tại (sửa round 4): `84` + 11 chữ
+        // số từ một nhánh có tiền tố (không có trần), và một dãy chỉ tình cờ bắt đầu bằng `84`
+        // nhưng quá ngắn cho nhánh mã quốc gia nên được trả về nguyên văn.
+        '079012345678', '8412345',
     ];
 
     foreach ($fixtures as $raw) {
@@ -110,4 +114,24 @@ it('hashes id numbers after stripping non digits', function () {
         ->and(strlen((string) Normalizer::idNumberHash('1')))->toBe(64)
         ->and(Normalizer::idNumberHash('---'))->toBeNull()
         ->and(Normalizer::idNumberHash(null))->toBeNull();
+});
+
+/**
+ * Câu bất biến ghi trong docblock `phone()` phải là câu đã ĐO, không phải câu nghe hợp lý — đây là
+ * lần thứ ba một bất biến sai được phát hiện trên nhánh này. Test này ghim đúng hai hình dạng mà
+ * câu cũ ("mọi giá trị có tiền tố `84` đều là `84` + 8…10 chữ số") loại trừ nhưng hàm vẫn sinh ra.
+ *
+ * Không phải một test đỏ-trước: hành vi của hàm ĐÚNG và không đổi ở vòng này, chỉ docblock sai. Nó
+ * tồn tại để lần sau ai đó tin vào câu chữ mà siết độ dài lại thì phải làm đỏ một test, thay vì
+ * lặng lẽ làm hai cách viết của cùng một số thôi khớp nhau.
+ */
+it('has no upper bound on the two prefixed branches, and leaves a short 84-run alone', function () {
+    // Nhánh "cách viết trong nước" và nhánh mã quốc gia chỉ có sàn: 11 chữ số sau `84` là hợp lệ.
+    expect(Normalizer::phone('079012345678'))->toBe('8479012345678')
+        ->and(Normalizer::phone('+84 79012345678'))->toBe('8479012345678')
+        ->and(Normalizer::phone('07901234567890'))->toBe('847901234567890')
+        // Quá ngắn cho nhánh mã quốc gia, không bắt đầu bằng `0`, ngoài khoảng của nhánh trần:
+        // trả về nguyên văn — một giá trị mang tiền tố `84` mà không nhánh nào gắn vào cả.
+        ->and(Normalizer::phone('8412345'))->toBe('8412345')
+        ->and(Normalizer::phone('841234'))->toBe('841234');
 });

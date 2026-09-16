@@ -264,19 +264,15 @@ class OpenMatter
         return DB::transaction(function () use (
             $attributes, $proposedParties, $result, $isOverridden, $overrideReason, $actor,
         ): OpenMatterResult {
-            // Gán tường minh TRƯỚC khi save(), cùng lý do như `TransitionMatterStage` bước 5:
+            // `blameOn()` TRƯỚC khi save(), cùng lý do như `TransitionMatterStage` bước 5:
             // Action đã nhận actor rõ ràng để kiểm tra quyền, nên hai cột "ai tạo" phải ghi đúng
             // actor đó chứ không suy luận từ `auth('web')` ambient mà `HasBlameable` mặc định
             // dùng — phiên đang mở có thể là người khác, hoặc không có phiên nào (job, console).
-            // `HasBlameable::creating` chỉ điền khi còn trống (`??=`) nên giá trị ở đây luôn thắng.
             $matter = new Matter($attributes);
-            $matter->created_by = $actor->id;
-            $matter->updated_by = $actor->id;
-            $matter->save();
+            $matter->blameOn($actor)->save();
 
             $proposedParties->each(function (MatterParty $party) use ($matter, $actor): void {
-                $party->created_by = $actor->id;
-                $party->updated_by = $actor->id;
+                $party->blameOn($actor);
                 $matter->parties()->save($party);
             });
 

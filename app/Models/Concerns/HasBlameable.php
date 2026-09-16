@@ -13,18 +13,42 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * **Phiên đăng nhập chỉ là PHƯƠNG ÁN CUỐI.** Mọi Action trong `app/Actions/` đều nhận `$actor`
  * tường minh (vì chính actor đó được đem đi kiểm tra quyền), và một Action biết actor là ai thì
  * phải được quyền ghi đúng người đó vào hai cột này — kể cả khi phiên `web` đang thuộc về người
- * khác, hoặc không có phiên nào (job, lệnh console, import). Vì vậy cả hai hook đều NHƯỜNG cho
- * giá trị đã gán tường minh: `creating` dùng `??=`, còn `updating` chỉ ghi khi `updated_by` chưa
- * bị gán trong chính lần lưu này (`isDirty`). Không có nhánh nhường đó thì một dòng
- * `$model->updated_by = $actor->id` ngay trước `update()` bị hook ghi đè lại bằng phiên — im
- * lặng, và không cách nào sửa từ phía Action.
+ * khác, hoặc không có phiên nào (job, lệnh console, import).
+ *
+ * **Đường nhường là `blameOn()`, KHÔNG phải `isDirty()` (review fix round 4, Important I-1).**
+ * Bản trước cho `updating` nhường khi `isDirty('updated_by')`. `isDirty` so với giá trị GỐC của
+ * dòng, nên phép gán `$model->updated_by = $actor->id` KHÔNG "bẩn" khi cột đã sẵn mang đúng id
+ * đó — và cửa nhường đóng lại đúng lúc nó trông như đang mở:
+ *
+ *     $m->updated_by = 7;          // giá trị gốc đã là 7
+ *     $m->isDirty('updated_by');   // false → hook ghi đè bằng phiên ambient
+ *
+ * Với actor A, phiên B và `updated_by` đã là A, hai Action ghi ra B. Khiếm khuyết này vô hình với
+ * mọi fixture đặt giá trị lưu sẵn là một người KHÁC actor — tức toàn bộ fixture của vòng trước.
+ *
+ * Nên ý định giờ được phát biểu TƯỜNG MINH thay vì suy ra từ một hiệu ứng phụ của Eloquent:
+ * `$model->blameOn($actor)` đặt một thuộc tính tạm (không phải cột, không vào `$attributes`, không
+ * ra `toArray()`), và cả hai hook đều đọc nó TRƯỚC khi nhìn tới phiên. "Cột đã mang sẵn giá trị
+ * đúng" không còn là một trạng thái đặc biệt vì không có phép so sánh nào nữa.
+ *
+ * **Ý định DÍNH với instance, có chủ đích.** `blameOn()` không tự xoá sau lần lưu đầu: câu nó phát
+ * biểu là "bản ghi đang nằm trong tay tôi đây được ghi nhân danh người này", đúng cho cả một Action
+ * lưu hai lần (dựng rồi `save()`, sau đó `update()` thêm một cột). Một cờ tự xoá sẽ biến thứ tự các
+ * lệnh lưu thành một chi tiết phải nhớ — đúng loại luật ngầm mà I-1 sinh ra từ đó.
  */
 trait HasBlameable
 {
+    /**
+     * Actor tường minh của mọi lần lưu trên CHÍNH instance này, `null` khi chưa ai tuyên bố. Thuộc
+     * tính PHP thật (đã khai báo), không phải attribute Eloquent — nên nó không bị hiểu là một cột,
+     * không lọt vào `save()`, `getDirty()` hay `toArray()`.
+     */
+    protected ?int $blameableActorId = null;
+
     public static function bootHasBlameable(): void
     {
         static::creating(function (Model $model): void {
-            $id = auth('web')->id();
+            $id = $model->blameableActorId ?? auth('web')->id();
 
             if ($id === null) {
                 return;
@@ -35,18 +59,25 @@ trait HasBlameable
         });
 
         static::updating(function (Model $model): void {
-            // Đã có người gán tường minh trong lần lưu này (một Action biết actor của nó) —
-            // không đè lên bằng phiên đăng nhập ambient. Xem docblock trait.
-            if ($model->isDirty('updated_by')) {
-                return;
-            }
-
-            $id = auth('web')->id();
+            // Ý định tường minh thắng phiên ambient, không điều kiện — kể cả khi cột đã mang sẵn
+            // đúng giá trị đó. Xem docblock trait.
+            $id = $model->blameableActorId ?? auth('web')->id();
 
             if ($id !== null) {
                 $model->updated_by = $id;
             }
         });
+    }
+
+    /**
+     * Tuyên bố ai là người chịu trách nhiệm cho mọi lần lưu bản ghi này — dùng ở `app/Actions/`,
+     * nơi actor đã được biết (và đã qua Gate) trước khi có lần lưu nào.
+     */
+    public function blameOn(User|int $actor): static
+    {
+        $this->blameableActorId = $actor instanceof User ? $actor->id : $actor;
+
+        return $this;
     }
 
     public function creator(): BelongsTo

@@ -118,14 +118,13 @@ class AddMatterParty
 
         // Bước 4.
         return DB::transaction(function () use ($matter, $party, $result, $isOverridden, $overrideReason, $actor): AddMatterPartyResult {
-            // Gán tường minh TRƯỚC khi save(), cùng lý do và cùng hình dạng như `OpenMatter` bước
+            // `blameOn()` TRƯỚC khi save(), cùng lý do và cùng hình dạng như `OpenMatter` bước
             // 5 và `TransitionMatterStage`: `MatterParty` dùng `HasBlameable`, vốn điền
             // `created_by`/`updated_by` từ `auth('web')` ambient. Action này đã nhận `$actor`
             // tường minh và đem chính actor đó đi kiểm tra quyền ở bước 1, nên hai cột "ai tạo"
             // phải chỉ về người đó — phiên đang mở có thể là người khác, hoặc không tồn tại (job,
             // lệnh console). Dòng `matter_parties` là hồ sơ pháp lý, không phải nhật ký phụ trợ.
-            $party->created_by = $actor->id;
-            $party->updated_by = $actor->id;
+            $party->blameOn($actor);
 
             $matter->parties()->save($party);
 

@@ -82,13 +82,29 @@ final class Normalizer
      *
      * **Luỹ đẳng — và vì sao tính chất này từng SAI dù được khẳng định ở đây.** Nhánh "cách viết
      * trong nước" trước đây không có sàn độ dài, nên `01234567` cho ra `841234567`: `84` + 7 chữ
-     * số, một giá trị KHÔNG phải dạng đã chuẩn hoá của bất kỳ số nào (dạng đã chuẩn hoá luôn là
-     * `84` + 8…10 chữ số). Lần chuẩn hoá thứ hai đọc `841234567` như một dãy trần 9 chữ số và
-     * thêm `84` lần nữa: `84841234567`. Nguyên nhân nằm ở nhánh trong nước, không ở nhánh trần,
-     * nên sàn được đặt ở đó (và ở nhánh mã quốc gia, sau khi bỏ số 0 thừa). Nhờ vậy MỌI giá trị
-     * hàm này trả về có tiền tố `84` đều là `84` + 8…10 chữ số không bắt đầu bằng 0 — đúng thứ mà
-     * nhánh mã quốc gia trả lại nguyên vẹn ở lần chạy sau; mọi giá trị còn lại được trả về nguyên
-     * văn dãy chữ số, và một dãy chữ số không đổi thì lần sau vẫn đi đúng nhánh cũ.
+     * số, ngắn hơn mọi thứ mà nhánh mã quốc gia chịu nhận lại. Lần chuẩn hoá thứ hai vì vậy đọc
+     * `841234567` như một dãy trần 9 chữ số và thêm `84` lần nữa: `84841234567`. Nguyên nhân nằm ở
+     * nhánh trong nước, không ở nhánh trần, nên sàn được đặt ở đó (và ở nhánh mã quốc gia, sau khi
+     * bỏ số 0 thừa).
+     *
+     * **Điều thật sự được bảo đảm là ĐIỂM BẤT ĐỘNG, không phải một khoảng độ dài (sửa round 4).**
+     * Một bản trước ghi ở đây rằng "MỌI giá trị trả về có tiền tố `84` đều là `84` + 8…10 chữ số".
+     * Câu đó SAI ở hai phía, và đã đo lại từng phía:
+     *  - TRÊN trần: chỉ nhánh TRẦN mới có trần 10 — hai nhánh có tiền tố cố ý chỉ có sàn (xem đoạn
+     *    ngay trên), nên `phone('079012345678')` trả `84` + 11 chữ số và `phone('07901234567890')`
+     *    trả `84` + 13. Hành vi này đúng như thiết kế: người nhập đã tự khẳng định đây là số Việt
+     *    Nam, hàm không có quyền bác bỏ chỉ vì họ gõ thừa.
+     *  - DƯỚI sàn: một dãy chỉ TÌNH CỜ bắt đầu bằng `84` mà quá ngắn cho nhánh mã quốc gia rơi
+     *    xuống lệnh trả cuối cùng NGUYÊN VĂN, nên `phone('8412345')` trả `8412345` — một giá trị
+     *    mang tiền tố `84` với 5 chữ số theo sau, chưa từng đi qua nhánh gắn tiền tố nào.
+     *
+     * Tính chất đúng, và là tính chất duy nhất `RunConflictCheck` cần, là: `phone(phone($x))` luôn
+     * bằng `phone($x)`. Nó đứng vững vì hai lẽ — (1) mọi giá trị do một nhánh gắn tiền tố sinh ra
+     * đều là `84` + ít nhất 8 chữ số không bắt đầu bằng 0, đúng hình dạng mà nhánh mã quốc gia trả
+     * lại nguyên vẹn ở lần chạy sau (nhánh đó không có trần nên `84` + 11 cũng được trả lại y
+     * nguyên); (2) mọi giá trị còn lại là chính dãy chữ số đã nhận, và một dãy chữ số không đổi thì
+     * lần sau vẫn rơi vào đúng nhánh cũ. Cả hai vế được `NormalizerTest` chạy hai lượt trên từng
+     * fixture, gồm cả `84` + 11 và `8412345`.
      */
     public static function phone(?string $value): ?string
     {

@@ -101,3 +101,28 @@ it('refuses someone without matter.update, regardless of caller-side checks', fu
 
     expect($matter->fresh()->is_published_to_portal)->toBeFalse();
 });
+
+/**
+ * I-1 (fix round 4). Bản sửa trước nhường cho giá trị gán tường minh bằng `isDirty('updated_by')`,
+ * mà `isDirty` so với giá trị GỐC — nên khi cột đã sẵn mang đúng id của actor, phép gán không
+ * "bẩn", cửa nhường không mở, và hook ghi đè lại bằng phiên ambient. Ba fixture của vòng trước đều
+ * đặt giá trị lưu sẵn là MỘT NGƯỜI KHÁC actor, nên đúng trường hợp này nằm ngoài chúng — chính lời
+ * phê bình mà bản xem xét trước đã dành cho fixture của vòng trước đó.
+ *
+ * Kịch bản tối thiểu để phân biệt: actor A, phiên B, và `matters.updated_by` ĐÃ là A.
+ */
+it('keeps updated_by on the actor even when the column already holds the actor id', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $someoneElse = User::factory()->withRole(Role::Admin)->create();
+
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'is_published_to_portal' => false]);
+
+    // Query builder, không `update()` của model: đặt giá trị GỐC mà không chạy qua HasBlameable.
+    Matter::query()->whereKey($matter->id)->update(['updated_by' => $lawyer->id]);
+
+    $this->actingAs($someoneElse, 'web');
+
+    app(SetMatterPortalPublication::class)->handle(matter: $matter->fresh(), publish: true, actor: $lawyer);
+
+    expect($matter->fresh()->updated_by)->toBe($lawyer->id);
+});

@@ -157,12 +157,10 @@ class TransitionMatterStage
                 'is_published' => $publish,
                 'published_at' => $publish ? now() : null,
             ]);
-            // Gán tường minh TRƯỚC khi save(): HasBlameable chỉ điền created_by/updated_by khi
-            // còn trống (??=), nên giá trị đặt ở đây luôn thắng, bất kể auth('web') ambient có
-            // khớp $actor hay không — kể cả khi không có phiên đăng nhập nào (lệnh console, job).
-            $stageLog->created_by = $actor->id;
-            $stageLog->updated_by = $actor->id;
-            $stageLog->save();
+            // `blameOn()` TRƯỚC khi save(): HasBlameable đọc actor tường minh trước phiên
+            // `auth('web')` ambient, nên giá trị đặt ở đây luôn thắng, bất kể phiên đang mở là ai
+            // — kể cả khi không có phiên đăng nhập nào (lệnh console, job).
+            $stageLog->blameOn($actor)->save();
 
             // Bước 6 + 7, gộp một lệnh update() (xem docblock lớp).
             $publishedToPortal = $publish && $matter->is_published_to_portal;
@@ -177,11 +175,10 @@ class TransitionMatterStage
                 $matterUpdates['last_client_update_at'] = now();
             }
 
-            // Cùng lý do như `$stageLog->created_by` ở trên, cho dòng `matters`:
-            // `HasBlameable::updating` lấy `updated_by` từ `auth('web')` ambient, nên phải gán
-            // tường minh actor thì cột mới chỉ đúng người vừa chuyển giai đoạn.
-            $matter->updated_by = $actor->id;
-            $matter->update($matterUpdates);
+            // Cùng lý do như `$stageLog` ở trên, cho dòng `matters`: `HasBlameable::updating`
+            // rơi về `auth('web')` ambient nếu không ai tuyên bố actor, nên phải `blameOn()` thì
+            // cột mới chỉ đúng người vừa chuyển giai đoạn.
+            $matter->blameOn($actor)->update($matterUpdates);
 
             if ($publishedToPortal) {
                 event(new StageLogPublished($stageLog));

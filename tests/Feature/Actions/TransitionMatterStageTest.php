@@ -664,3 +664,33 @@ it('accepts occurred_at equal to today sent as a bare date string with no time c
 
     expect($stageLog->occurred_at->toDateString())->toBe(today()->toDateString());
 });
+
+/**
+ * I-1 (fix round 4), dòng `matters` của cùng khiếm khuyết — xem docblock bản sinh đôi ở
+ * `SetMatterPortalPublicationTest`. `isDirty('updated_by')` so với giá trị GỐC, nên khi cột đã
+ * mang sẵn id của actor thì phép gán không "bẩn" và hook ambient thắng.
+ */
+it('keeps matters.updated_by on the actor even when the column already holds the actor id', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $someoneElse = User::factory()->withRole(Role::Admin)->create();
+
+    $matter = matterWithLawyer($lawyer);
+    Matter::query()->whereKey($matter->id)->update(['updated_by' => $lawyer->id]);
+
+    $this->actingAs($someoneElse, 'web');
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter->fresh(),
+        actor: $lawyer,
+        toStage: 'collecting',
+        occurredAt: now(),
+        internalNote: null,
+        publicContent: null,
+        nextStep: null,
+        clientAction: null,
+        expectedNextUpdateAt: null,
+        publish: false,
+    );
+
+    expect($matter->fresh()->updated_by)->toBe($lawyer->id);
+});
