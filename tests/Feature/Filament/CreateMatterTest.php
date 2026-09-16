@@ -749,3 +749,34 @@ it('will not open a matter with an other-party marked as our client but no clien
 
     expect(Matter::count())->toBe($matterCountBefore);
 });
+
+/**
+ * Minor (fix round 4): `forgetConflictResult()` xoá mức đang chờ và dấu tích, nhưng KHÔNG xoá
+ * `data['override_reason']` — nên một lý do viết cho một bảng đỏ này còn nguyên khi bảng đỏ KẾ
+ * TIẾP hiện ra, và lượt gửi sau đó ghi đè bằng một câu chưa ai viết cho xung đột đó. Cùng hạng lỗi
+ * với C-1, chỉ nhỏ hơn: quyết định vẫn là quyết định cho một xung đột khác.
+ */
+it('clears a written override reason when the conflict result it was written for is forgotten', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $client = Client::factory()->create();
+    $type = createFormMatterType();
+    existingFirmClientParty('079012345678', 'Nguyễn Văn Hùng');
+
+    $this->actingAs($manager, 'web');
+
+    $component = $this->livewire(CreateMatter::class)
+        ->fillForm(createMatterFormData($client, $manager, $type, [
+            'other_parties' => [[
+                'role' => PartyRole::Defendant->value,
+                'name' => 'Nguyễn Văn Hùng (bị đơn)',
+                'id_number' => '079012345678',
+            ]],
+        ]));
+
+    $component->call('create')->assertHasFormErrors(['override_reason']);
+
+    $component->fillForm(['override_reason' => 'Lý do viết cho BẢNG ĐỎ THỨ NHẤT.']);
+    $component->instance()->forgetConflictResult();
+
+    expect($component->instance()->data['override_reason'])->toBeNull();
+});

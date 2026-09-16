@@ -58,6 +58,13 @@ use Illuminate\Support\Facades\Gate;
  * CÔNG — kể cả sau khi một manager ghi đè mức đỏ, party vẫn lưu được nhưng không ai thấy đã ghi
  * đè xung đột với hồ sơ nào. `PartiesRelationManager` giờ đọc `$addition->result` để gọi
  * `notifyConflictCheckResult()` trên MỌI nhánh (thành công lẫn hai catch), không chỉ hai catch.
+ *
+ * **Và object đó mang thêm `overridden` + `overrideReason` (fix round 4, Critical C-1).** Bước 4
+ * trả về BÌNH THƯỜNG ở hai đường khác hẳn nhau — xanh sạch, và ĐỎ đã được ghi đè — nên một caller
+ * chỉ cầm `$result` buộc phải đoán, và `$result->level` không phân biệt được "đỏ bị chặn" với "đỏ
+ * đã ghi đè". Hai trường này là chính xác những gì màn hình cần để không phải đoán; giá trị lấy
+ * đúng từ những gì vừa ghi vào dòng `matter_party_added`, xem bước 4. Cùng hình dạng
+ * `OpenMatterResult`, vì hai màn hình phải nói được cùng một sự thật.
  */
 class AddMatterParty
 {
@@ -136,7 +143,9 @@ class AddMatterParty
                 'incomplete_conflict_parties' => $result->incompleteParties(),
             ], $actor);
 
-            return new AddMatterPartyResult($party, $result);
+            // Cùng giá trị đã ghi vào dòng nhật ký ngay trên — không tính lại, để màn hình không
+            // thể hiện ra một lý do khác với lý do đã lưu vĩnh viễn (fix round 4, C-1).
+            return new AddMatterPartyResult($party, $result, $isOverridden, $isOverridden ? $overrideReason : null);
         });
     }
 

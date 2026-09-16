@@ -8,11 +8,14 @@ use App\Enums\PartyRole;
 use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
 use App\Filament\Admin\Concerns\ScopesToVisibleMatters;
+use App\Filament\Admin\Support\ConflictOverride;
 use App\Filament\Admin\Support\VisibleClientOptions;
 use App\Models\Matter;
 use App\Models\MatterParty;
+use App\Support\AddMatterPartyResult;
 use App\Support\ConflictCheckResult;
 use App\Support\ConflictMatch;
+use Closure;
 use Filament\Actions\CreateAction;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -45,12 +48,55 @@ use Livewire\Attributes\Locked;
  * còn hai việc: thu thập dữ liệu form và hiển thị kết quả — nghiệp vụ nằm ở `app/Actions/` đúng
  * CLAUDE.md.
  *
- * **Fix round 2 (review, cùng bản sửa round 1):** `createParty()` round 1 chỉ gọi
- * `notifyConflictCheckResult()` ở hai nhánh `catch` — nhánh THÀNH CÔNG (kể cả sau khi một manager
- * ghi đè mức đỏ) không hiện kết quả gì cả, đúng ngược lại với những gì docblock round 1 tuyên bố.
- * Sửa: `AddMatterParty::handle()` giờ trả `App\Support\AddMatterPartyResult` (bên + kết quả), nên
- * `createParty()` gọi `notifyConflictCheckResult($addition->result)` ở CẢ ba nhánh — xem docblock
- * `createParty()`.
+ * **Fix round 2:** `createParty()` round 1 chỉ gọi thông báo kết quả ở hai nhánh `catch` — nhánh
+ * THÀNH CÔNG (kể cả sau khi một manager ghi đè mức đỏ) không hiện kết quả gì cả. `AddMatterParty::
+ * handle()` từ đó trả `App\Support\AddMatterPartyResult` (bên + kết quả) để cả ba nhánh nói được.
+ *
+ * ---
+ *
+ * **Fix round 4, Critical C-1 — cùng khiếm khuyết đã sửa ở `CreateMatter`, còn nguyên ở đây.**
+ * Hai nửa, và nửa thứ hai mới là nửa nguy hiểm:
+ *
+ *  1. *Hai ô quyết định hiện vô điều kiện.* `override_reason` không có `visible()` cũng không có
+ *     `disabled()`, và `createParty()` đẩy thẳng nó xuống `AddMatterParty`. Một manager gõ lý do
+ *     ngay LƯỢT GỬI ĐẦU vì vậy đi thẳng vào nhánh ghi đè: bên được lưu đè lên một mức đỏ chưa ai
+ *     từng nhìn thấy, `conflict_overridden: true` và lý do vào nhật ký VĨNH VIỄN — một bản ghi
+ *     append-only về một quyết định mà người đó chưa bao giờ thật sự được đưa ra. Một lý do viết
+ *     cho một xung đột chưa hiện ra không phải một quyết định; nó chỉ là một ô trống đã điền sẵn.
+ *
+ *     Giờ cả `override_reason` LẪN `acknowledge_conflict` đều `visible()` theo `$conflictResult`,
+ *     tức chỉ tồn tại sau khi một kết quả kiểm tra THẬT đã được hiện ra. Một trường `hidden`
+ *     KHÔNG được Filament dehydrate — đã đối chiếu vendor: `HasState::isDehydrated()` trả
+ *     `! isHiddenAndNotDehydratedWhenHidden()`, và `$isDehydratedWhenHidden` mặc định `false` —
+ *     nên đây là một cổng phía MÁY CHỦ, không phải trang trí. `createParty()` vẫn kiểm tra lại
+ *     `$conflictResult !== null` một lần nữa để cổng không đặt hết trọng lượng lên một chi tiết
+ *     nội bộ của framework, đúng như `CreateMatter::handleRecordCreation()`.
+ *
+ *     `visible()` và `disabled()` CHỒNG lên nhau chứ không triệt tiêu nhau: `disabled()` gọi
+ *     `saved(false)` và `isDehydrated()` rơi về `isSaved()`, nên một luật sư ở lượt hai vẫn ĐỌC
+ *     được ô lý do và câu giải thích ai mới ghi đè được, mà không gửi được gì qua nó. Trước bản
+ *     sửa này ô đó mở cho luật sư gõ vào rồi vẫn bị Action từ chối — một lời hứa sai.
+ *
+ *  2. *Và màn hình nói sai về những gì vừa xảy ra.* Nhánh thành công cũ gọi cùng một hàm thông báo
+ *     với hai nhánh bị chặn, nên một dòng ĐÃ LƯU XONG được gắn tiêu đề "Cần xem xét TRƯỚC KHI
+ *     LƯU", không bao giờ nói rằng vừa có một lần ghi đè, và không bao giờ hiện lại lý do.
+ *     `AddMatterPartyResult` lúc đó chỉ mang `party` + `result`, nên màn hình này về mặt CẤU TRÚC
+ *     không thể nói thật kể cả khi câu chữ được viết lại: `handle()` trả về bình thường ở cả
+ *     "xanh sạch" lẫn "đỏ đã ghi đè", và `$result->level` không phân biệt được "đỏ bị chặn" với
+ *     "đỏ đã ghi đè".
+ *
+ *     Giờ có BA hàm thông báo riêng — `notifyConflictBlocked()`, `notifyAcknowledgementRequired()`
+ *     và `notifySaved()` — thay vì một hàm kèm cờ. Đây là điểm mấu chốt: mỗi hàm chỉ biết một
+ *     giai đoạn, nên không hàm nào CÓ THỂ mô tả một dòng đã lưu bằng câu "trước khi lưu".
+ *     `notifySaved()` đọc `$addition->overridden` / `->overrideReason` / `->result` và chia ba mức
+ *     hiển thị: ĐỎ ĐÃ GHI ĐÈ (`danger`, kèm mã hồ sơ xung đột và lý do nguyên văn), ĐÃ XEM XÉT
+ *     (`warning`, gồm cả mức xanh có bên thiếu định danh — cùng luật `requiresAcknowledgement()`),
+ *     và XANH SẠCH (`success`).
+ *
+ * **Vẫn là Notification chứ không phải một BẢNG trong modal, khác `CreateMatter` có chủ đích.**
+ * SPEC §6.10 đòi dạng bảng cho *form tạo vụ việc*; ở đây modal đóng lại sau khi lưu nên một bảng
+ * trong modal sẽ biến mất đúng lúc cần đọc nhất, còn Notification `persistent()` thì ở lại. Ghi ra
+ * đây để lần sau ai đó thấy hai màn hình khác nhau thì biết là quyết định, không phải bỏ sót.
  */
 class PartiesRelationManager extends RelationManager
 {
@@ -59,17 +105,26 @@ class PartiesRelationManager extends RelationManager
     protected static string $relationship = 'parties';
 
     /**
-     * Mức của lần kiểm tra xung đột TRƯỚC trong modal "thêm bên" đang mở, chờ người dùng tích
-     * "đã xem xét" ở lần gửi kế tiếp — xem docblock `createParty()`. `null` khi chưa có lần kiểm
-     * tra nào bị chặn bởi yêu cầu xác nhận, hoặc sau khi bên đã lưu thành công.
+     * Kết quả lần kiểm tra xung đột GẦN NHẤT của modal "thêm bên" đang mở, dạng
+     * `ConflictCheckResult::toArray()` — mảng thuần để Livewire tuần tự hoá được. `null` khi chưa
+     * có lần kiểm tra nào trong modal này, sau khi bên đã lưu, hoặc sau khi người dùng sửa một ô
+     * làm kết quả cũ hết hiệu lực.
+     *
+     * Đây là thứ DUY NHẤT gác hai ô quyết định, nên `#[Locked]`: nếu client đặt được nó, một
+     * payload dàn dựng lại mở được hai ô đó ngay lượt gửi đầu và C-1 quay lại nguyên vẹn qua cửa
+     * sau. `Locked` chặn mọi cập nhật property từ phía client; chỉ code PHP dưới đây đổi được.
+     */
+    #[Locked]
+    public ?array $conflictResult = null;
+
+    /**
+     * Mức của lần kiểm tra TRƯỚC trong modal "thêm bên" đang mở, chờ người dùng tích "đã xem xét"
+     * ở lần gửi kế tiếp — xem docblock `createParty()`. `null` khi chưa có lần kiểm tra nào bị
+     * chặn bởi yêu cầu xác nhận, hoặc sau khi bên đã lưu thành công.
      *
      * `#[Locked]` (fix round 2, finding B): không có nó, đây là một property Livewire công khai
      * bình thường — một payload bị sửa tay có thể tự đặt sẵn giá trị này rồi tích luôn ô "đã xem
-     * xét" ở LẦN GỬI ĐẦU, thoả điều kiện xác nhận mà không ai từng thấy kết quả kiểm tra thật (vô
-     * hiệu hoá mục đích của bước xác nhận, dù không vượt qua được chặn đỏ — chặn đỏ còn đòi vai
-     * trò và lý do, cả hai đều được server kiểm tra lại trong `AddMatterParty`). `Locked` chặn mọi
-     * `wire:model`/cập nhật property từ phía client, chỉ code PHP phía server (đúng những dòng
-     * dưới đây) được đổi giá trị này.
+     * xét" ở LẦN GỬI ĐẦU, thoả điều kiện xác nhận mà không ai từng thấy kết quả kiểm tra thật.
      */
     #[Locked]
     public ?string $pendingConflictLevel = null;
@@ -98,10 +153,13 @@ class PartiesRelationManager extends RelationManager
                 Select::make('role')
                     ->label(__('matters.party_fields.role'))
                     ->options(collect(PartyRole::cases())->mapWithKeys(fn (PartyRole $role) => [$role->value => $role->label()]))
+                    ->live()
+                    ->afterStateUpdated($this->forgetConflictResultOnChange())
                     ->required(),
                 Toggle::make('is_our_client')
                     ->label(__('matters.party_fields.is_our_client'))
                     ->live()
+                    ->afterStateUpdated($this->forgetConflictResultOnChange())
                     ->default(false),
                 Select::make('client_id')
                     ->label(__('matters.party_fields.client'))
@@ -116,17 +174,25 @@ class PartiesRelationManager extends RelationManager
                     // nhận là khách hàng của văn phòng mà không có hồ sơ nào. Luật ở trait (đúng
                     // cả với seeder/job/console); ô này chỉ nói ra luật đó bằng lỗi gắn đúng ô.
                     ->required(fn (Get $get): bool => (bool) $get('is_our_client'))
-                    ->visible(fn (Get $get): bool => (bool) $get('is_our_client')),
+                    ->visible(fn (Get $get): bool => (bool) $get('is_our_client'))
+                    ->live()
+                    ->afterStateUpdated($this->forgetConflictResultOnChange()),
                 TextInput::make('name')
                     ->label(__('matters.party_fields.name'))
+                    ->live(onBlur: true)
+                    ->afterStateUpdated($this->forgetConflictResultOnChange())
                     ->required()
                     ->maxLength(200),
                 TextInput::make('id_number')
                     ->label(__('matters.party_fields.id_number'))
+                    ->live(onBlur: true)
+                    ->afterStateUpdated($this->forgetConflictResultOnChange())
                     ->maxLength(20),
                 TextInput::make('phone')
                     ->label(__('matters.party_fields.phone'))
                     ->tel()
+                    ->live(onBlur: true)
+                    ->afterStateUpdated($this->forgetConflictResultOnChange())
                     ->maxLength(20),
                 TextInput::make('address')
                     ->label(__('matters.party_fields.address'))
@@ -134,15 +200,66 @@ class PartiesRelationManager extends RelationManager
                 Textarea::make('note')
                     ->label(__('matters.party_fields.note'))
                     ->columnSpanFull(),
+                // Hai ô QUYẾT ĐỊNH (C-1, xem docblock lớp): chỉ TỒN TẠI sau khi một kết quả kiểm
+                // tra thật đã hiện ra cho người dùng đọc.
                 Toggle::make('acknowledge_conflict')
                     ->label(__('matters.party_fields.acknowledge_conflict'))
                     ->helperText(__('matters.party_fields.acknowledge_conflict_help'))
+                    ->visible(fn (): bool => $this->conflictResult !== null)
                     ->default(false),
                 Textarea::make('override_reason')
                     ->label(__('matters.party_fields.override_reason'))
-                    ->helperText(__('matters.party_fields.override_reason_help'))
+                    // Hiện cho MỌI vai trò nhưng KHOÁ với ai không ghi đè được, đúng như
+                    // `MatterForm`: người dùng cần đọc được luật ngay tại chỗ, và lỗi mức đỏ cần
+                    // một ô để bám vào.
+                    ->helperText(fn (): string => $this->canOverrideRedConflict()
+                        ? __('matters.party_fields.override_reason_help_allowed')
+                        : __('matters.party_fields.override_reason_help_denied'))
+                    ->visible(fn (): bool => $this->conflictResult !== null)
+                    ->disabled(fn (): bool => ! $this->canOverrideRedConflict())
+                    ->rows(2)
                     ->columnSpanFull(),
             ]);
+    }
+
+    /** SPEC §6.10 bước 3: chỉ `manager`/`admin` ghi đè được mức đỏ. Chỉ để HIỂN THỊ — cổng thật ở `AddMatterParty`. */
+    public function canOverrideRedConflict(): bool
+    {
+        return ConflictOverride::allowedForCurrentUser();
+    }
+
+    /**
+     * Quên kết quả kiểm tra đang giữ, mức đang chờ xác nhận, VÀ dấu tích "đã xem xét".
+     *
+     * Kết quả kiểm tra là một ẢNH CHỤP của dữ liệu tại lúc bấm lưu, nhưng nó nằm im trong khi
+     * người dùng sửa tiếp form — nên nó có thể đang mô tả một bên không còn tồn tại như thế nữa.
+     * Tệ hơn, `$pendingConflictLevel` chỉ nhớ MỨC: sửa một ô giữa hai lượt gửi mà mức vẫn vàng thì
+     * dấu tích của lần kiểm tra CŨ được nhận cho lần kiểm tra MỚI. Cùng Minor 3/4 đã sửa ở
+     * `CreateMatter`; hai màn hình sinh đôi phải cho ra cùng một kết quả, nếu không chúng lại lệch
+     * nhau lần thứ tư.
+     *
+     * Dấu tích VÀ lý do ghi đè đều bị gỡ, không chỉ mức: để nguyên một ô đã tích trong khi lời từ
+     * chối bảo người dùng "hãy tích ô này" là một màn hình tự mâu thuẫn, và một lý do viết cho kết
+     * quả kiểm tra NÀY mà sống sót sang kết quả KẾ TIẾP là chính C-1 ở quy mô nhỏ hơn. Ghi qua `data_set` lên chính component
+     * Livewire — đúng cách Filament tự ghi state (`HasState::rawState()` cũng làm y vậy), vì state
+     * của một action đang mounted nằm ở `mountedActions.N.data`, không ở `$this->data` như một
+     * trang CreateRecord.
+     */
+    public function forgetConflictResult(): void
+    {
+        $this->conflictResult = null;
+        $this->pendingConflictLevel = null;
+
+        $acknowledgeKey = $this->errorKey('acknowledge_conflict');
+
+        // Khác khoá trần nghĩa là có một action đang mounted và tính được state path của nó.
+        if ($acknowledgeKey !== 'acknowledge_conflict') {
+            data_set($this, $acknowledgeKey, false);
+            // Lý do ghi đè rơi theo (Minor, fix round 4 — cùng bản sửa ở `CreateMatter`): một lý
+            // do viết cho kết quả kiểm tra NÀY mà sống sót sang kết quả KẾ TIẾP sẽ ghi đè một
+            // xung đột khác bằng một câu chưa ai viết cho nó.
+            data_set($this, $this->errorKey('override_reason'), null);
+        }
     }
 
     public function table(Table $table): Table
@@ -177,7 +294,23 @@ class PartiesRelationManager extends RelationManager
                     // (getCreateAuthorizationResponse() gọi authorize('create') không kèm record),
                     // nên an toàn thật sự cho ĐÚNG vụ việc này phải tự kiểm tra ở đây.
                     ->authorize(fn (): bool => Gate::allows('update', $this->getOwnerRecord()))
-                    ->using(fn (array $data): MatterParty => $this->createParty($data)),
+                    // Mỗi lần MỞ modal bắt đầu từ con số không (C-1, cửa sau): không có bước này,
+                    // một modal bỏ dở rồi mở lại cho một bên HOÀN TOÀN KHÁC sẽ hiện sẵn hai ô
+                    // quyết định, nói về kết quả kiểm tra của bên trước. Giữ nguyên hành vi mặc
+                    // định `$schema->fill()` của `CanBeMounted::getMountUsing()`, chỉ thêm việc
+                    // dọn trạng thái của lớp này.
+                    ->mountUsing(function (?Schema $schema): void {
+                        $this->forgetConflictResult();
+                        $schema?->fill();
+                    })
+                    ->using(fn (array $data): MatterParty => $this->createParty($data))
+                    // Tắt thông báo "Đã tạo" mặc định của Filament — cùng Minor 6 đã sửa ở
+                    // `CreateMatter::getCreatedNotification()`. `CreateAction` gửi nó NGAY SAU
+                    // `using()`, nên một lần thêm bên hiện HAI thông báo chồng nhau: cái thứ hai
+                    // không nói gì mà `notifySaved()` chưa nói, và nó đẩy câu về kết quả kiểm tra
+                    // xung đột (thứ SPEC §6.10 bắt buộc người dùng đọc) xuống dưới — đúng lúc câu
+                    // đó là "ĐÃ GHI ĐÈ XUNG ĐỘT MỨC ĐỎ".
+                    ->successNotification(null),
             ])
             ->modifyQueryUsing(fn (Builder $query): Builder => static::scopeToVisibleMatters($query));
     }
@@ -195,19 +328,14 @@ class PartiesRelationManager extends RelationManager
      * `AddMatterParty`/`OpenMatter`: `$acknowledged` phải khớp CHÍNH XÁC mức của lần kiểm tra hiện
      * tại — không có sẵn trước khi biết mức, nên không thể truyền ngay từ lần gửi đầu).
      *
+     * `$conflictResult` được đặt TRƯỚC khi ném `ValidationException` ở cả hai nhánh `catch`: đó là
+     * thứ làm hai ô quyết định hiện ra ở lượt render ngay sau lời từ chối, nên lỗi gắn vào chúng
+     * mới có một ô để bám. Đặt sau sẽ là một lỗi trỏ vào một trường không tồn tại.
+     *
      * Lỗi ném ra dùng `errorKey()` để tính đúng tiền tố state-path của form đang mở
      * (`mountedActionSchema0.override_reason`) — Filament chỉ hiển thị lỗi ở đúng ô khi khoá lỗi
      * khớp CHÍNH XÁC state path đó; một `ValidationException` với khoá trần (`'override_reason'`)
-     * bị Filament coi là không thuộc form nào và không hiện lỗi ở đúng ô (đã tự xác nhận: dùng
-     * khoá trần khiến `TypeError`/lỗi không gắn đúng ô trong lần chạy thử đầu tiên).
-     *
-     * **Fix round 2, finding "kết quả kiểm tra không còn hiện trên đường thành công":**
-     * `notifyConflictCheckResult()` giờ được gọi ở CẢ BA nhánh — hai `catch` (như trước) VÀ nhánh
-     * thành công bên dưới `try`. Bỏ sót nhánh thành công là lỗi thật của fix round 1: một mức đỏ
-     * được manager ghi đè vẫn LƯU ĐƯỢC (đúng thiết kế), nhưng trước bản sửa này không ai còn thấy
-     * đã ghi đè xung đột với hồ sơ nào — đúng lúc "hiện kết quả tại chỗ" (SPEC §7.2) quan trọng
-     * nhất. `AddMatterParty::handle()` giờ trả `AddMatterPartyResult` (bên + kết quả kiểm tra)
-     * thay vì trần `MatterParty`, để nhánh thành công có `$addition->result` mà gọi.
+     * bị Filament coi là không thuộc form nào và không hiện lỗi ở đúng ô.
      */
     private function createParty(array $data): MatterParty
     {
@@ -238,6 +366,12 @@ class PartiesRelationManager extends RelationManager
             ? ConflictLevel::tryFrom($this->pendingConflictLevel)
             : null;
 
+        // C-1: lý do ghi đè chỉ có nghĩa khi đã có một kết quả kiểm tra HIỆN RA cho người dùng
+        // đọc. Ô này đã `visible()` theo `$conflictResult` nên ở lượt đầu Filament còn không
+        // dehydrate nó; kiểm tra lại ở đây để cổng không đặt hết trọng lượng lên một chi tiết
+        // dehydrate của framework — cùng lập luận với `CreateMatter::handleRecordCreation()`.
+        $overrideReason = $this->conflictResult !== null ? ($data['override_reason'] ?? null) : null;
+
         try {
             $addition = app(AddMatterParty::class)->handle(
                 matter: $matter,
@@ -252,27 +386,37 @@ class PartiesRelationManager extends RelationManager
                     'id_number' => $data['id_number'] ?? null,
                     'phone' => $data['phone'] ?? null,
                 ],
-                overrideReason: $data['override_reason'] ?? null,
+                overrideReason: $overrideReason,
                 acknowledged: $acknowledged,
             );
         } catch (ConflictBlocked $exception) {
+            // Mức đỏ không phải thứ "thử lại là qua": xoá mức đang chờ để một ô xác nhận còn tích
+            // sót từ lượt trước không mang nghĩa gì ở lượt sau.
             $this->pendingConflictLevel = null;
-            static::notifyConflictCheckResult($exception->result);
+            $this->conflictResult = $exception->result->toArray();
+            static::notifyConflictBlocked($exception->result);
 
             throw ValidationException::withMessages([
-                $this->errorKey('override_reason') => [__('matters.parties.conflict_blocked_retry')],
+                $this->errorKey('override_reason') => [$this->canOverrideRedConflict()
+                    ? __('matters.parties.conflict_blocked_retry')
+                    : __('matters.parties.conflict_blocked_retry_denied')],
             ]);
         } catch (ConflictAcknowledgementRequired $exception) {
             $this->pendingConflictLevel = $exception->result->level->value;
-            static::notifyConflictCheckResult($exception->result);
+            $this->conflictResult = $exception->result->toArray();
+            static::notifyAcknowledgementRequired($exception->result);
 
             throw ValidationException::withMessages([
                 $this->errorKey('acknowledge_conflict') => [__('matters.parties.conflict_ack_retry')],
             ]);
         }
 
-        $this->pendingConflictLevel = null;
-        static::notifyConflictCheckResult($addition->result);
+        static::notifySaved($addition);
+
+        // Bên đã lưu xong: lần mở modal sau phải bắt đầu từ con số không — nếu không, hai ô quyết
+        // định hiện sẵn cho một bên hoàn toàn khác. `mountUsing` cũng dọn; đây là lớp thứ hai, cho
+        // cả đường "Tạo & tạo thêm" vốn không mount lại action.
+        $this->forgetConflictResult();
 
         return $addition->party;
     }
@@ -291,26 +435,106 @@ class PartiesRelationManager extends RelationManager
     }
 
     /**
-     * Fix round 1 finding 2: màu và tiêu đề lấy từ `requiresAcknowledgement()`, KHÔNG chỉ từ
-     * `level` — một mức xanh có bên thiếu định danh (`hasIncompleteParties()`) vẫn đòi xem xét
-     * (`requiresAcknowledgement()` true dù `level === Green`, xem docblock `ConflictCheckResult`),
-     * nên KHÔNG được mang màu/tiêu đề "sạch" như một mức xanh thật.
+     * Hook gắn vào mọi ô có thể làm đổi kết quả kiểm tra — xem `forgetConflictResult()`.
+     *
+     * `live()` đi kèm là BẮT BUỘC chứ không phải tuỳ chọn: một trường không `live()` không gửi gì
+     * về máy chủ cho tới lúc bấm lưu, nên `afterStateUpdated` của nó không bao giờ chạy.
+     * `onBlur: true` cho các ô gõ tay — gửi từng ký tự về chỉ để xoá một mảng thường đã null là
+     * lãng phí, còn rời ô đã đủ sớm (kết quả chỉ hiện lại ở lượt bấm lưu kế tiếp).
+     *
+     * `address`/`note` cố ý KHÔNG có hook: `RunConflictCheck` không đọc hai cột đó, và form này
+     * chỉ có MỘT bên nên danh sách ô liên quan đủ ngắn để đọc hết trong một màn hình — khác
+     * `MatterForm`, nơi mọi ô trong repeater đều `live()` để không ai phải nhớ ô nào quan trọng
+     * giữa một danh sách bên dài tuỳ ý.
+     *
+     * So `$state` với `$old` chứ không quên vô điều kiện: gõ lại ĐÚNG giá trị cũ không làm ảnh
+     * chụp kết quả kiểm tra sai đi, nên không có lý do gì bắt người dùng chạy lại kiểm tra. (Trong
+     * trình duyệt Livewire vốn không gửi gì khi giá trị không đổi, nên phép so này chủ yếu giữ cho
+     * hành vi phía máy chủ khớp với những gì người dùng thật sự thấy — và giữ cho một lời gọi
+     * `fillForm()` trong test không vô tình mang nghĩa "người dùng vừa sửa cả form".)
      */
-    private static function notifyConflictCheckResult(ConflictCheckResult $result): void
+    private function forgetConflictResultOnChange(): Closure
     {
-        $needsAttention = $result->requiresAcknowledgement();
+        return function (mixed $state, mixed $old): void {
+            if ($state === $old) {
+                return;
+            }
 
-        $color = match (true) {
-            $result->level === ConflictLevel::Red => 'danger',
-            $needsAttention => 'warning',
-            default => 'success',
+            $this->forgetConflictResult();
+        };
+    }
+
+    /**
+     * Mức đỏ, KHÔNG có ghi đè hợp lệ: chưa lưu gì cả. Tiêu đề nói đúng điều đó thay vì mượn câu
+     * "cần xem xét" của nhánh vàng — một mức đỏ không phải một lời nhắc, nó là một lời từ chối.
+     */
+    private static function notifyConflictBlocked(ConflictCheckResult $result): void
+    {
+        Notification::make()
+            ->title(__('matters.parties.conflict_blocked_title'))
+            ->body(static::conflictSummary($result, null))
+            ->color('danger')
+            ->persistent()
+            ->send();
+    }
+
+    /**
+     * Cần xác nhận (vàng, hoặc xanh có bên thiếu định danh — `requiresAcknowledgement()`, KHÔNG
+     * chỉ `level === Yellow`, xem docblock `ConflictCheckResult`): cũng chưa lưu gì, nên "trước
+     * khi lưu" ở đây là câu ĐÚNG.
+     */
+    private static function notifyAcknowledgementRequired(ConflictCheckResult $result): void
+    {
+        Notification::make()
+            ->title(__('matters.parties.conflict_check_title_attention'))
+            ->body(static::conflictSummary($result, null))
+            ->color('warning')
+            ->persistent()
+            ->send();
+    }
+
+    /**
+     * Bên ĐÃ LƯU. Ba mức hiển thị, không hai — và không mức nào được mô tả bằng câu "trước khi
+     * lưu", vì việc lưu đã xong (C-1, xem docblock lớp).
+     *
+     *  - `$addition->overridden`: lần lưu này có đi qua cổng ghi đè mức đỏ hay không. KHÔNG suy ra
+     *    được từ `level` — đỏ xuất hiện ở CẢ nhánh bị chặn lẫn nhánh được ghi đè.
+     *  - `$addition->result`: mức và danh sách bản ghi trùng, để câu thông báo kể ra ĐÃ ghi đè
+     *    xung đột với hồ sơ nào, không chỉ rằng có ghi đè.
+     *  - `$addition->overrideReason`: lý do đã ghi vĩnh viễn vào nhật ký, hiện lại nguyên văn để
+     *    người vừa gõ nó nhìn thấy mình vừa ký vào cái gì.
+     */
+    private static function notifySaved(AddMatterPartyResult $addition): void
+    {
+        $result = $addition->result;
+
+        [$title, $color] = match (true) {
+            $addition->overridden => [__('matters.parties.saved_overridden'), 'danger'],
+            $result->requiresAcknowledgement() => [__('matters.parties.saved_after_review'), 'warning'],
+            default => [__('matters.parties.conflict_check_title_clear'), 'success'],
         };
 
-        $title = $needsAttention
-            ? __('matters.parties.conflict_check_title_attention')
-            : __('matters.parties.conflict_check_title_clear');
+        Notification::make()
+            ->title($title)
+            ->body(static::conflictSummary($result, $addition->overrideReason))
+            ->color($color)
+            ->persistent()
+            ->send();
+    }
 
-        $body = $result->matches->isEmpty()
+    /**
+     * Phần thân chung của cả ba thông báo: danh sách hồ sơ trùng, cảnh báo bên thiếu định danh, và
+     * lý do ghi đè nếu có. Cùng ranh giới lộ thông tin với bảng trong form tạo vụ việc — CHỈ mã hồ
+     * sơ, loại vụ việc, vai và tên bên trùng; không tiêu đề, không tóm tắt, không id.
+     *
+     * Dòng lý do dùng CHUNG khoá dịch với `CreateMatter`
+     * (`matters.conflict.saved_overridden_reason`): câu đó nói về chính cái nhật ký, không về thao
+     * tác, nên nó giống hệt nhau ở hai màn hình. Những câu KHÁC nhau (thao tác là "mở vụ việc" hay
+     * "thêm bên") thì mỗi màn hình giữ khoá riêng.
+     */
+    private static function conflictSummary(ConflictCheckResult $result, ?string $overrideReason): string
+    {
+        $lines = [$result->matches->isEmpty()
             ? __('matters.parties.conflict_check_clear')
             : $result->matches
                 ->map(fn (ConflictMatch $match): string => sprintf(
@@ -321,17 +545,16 @@ class PartiesRelationManager extends RelationManager
                     $match->tier->label(),
                     $match->level->label(),
                 ))
-                ->implode("\n");
+                ->implode("\n")];
 
         if ($result->hasIncompleteParties()) {
-            $body .= "\n".__('matters.parties.conflict_check_incomplete', ['names' => implode(', ', $result->incompleteParties())]);
+            $lines[] = __('matters.parties.conflict_check_incomplete', ['names' => implode(', ', $result->incompleteParties())]);
         }
 
-        Notification::make()
-            ->title($title)
-            ->body($body)
-            ->color($color)
-            ->persistent()
-            ->send();
+        if (filled($overrideReason)) {
+            $lines[] = __('matters.conflict.saved_overridden_reason', ['reason' => $overrideReason]);
+        }
+
+        return implode("\n", $lines);
     }
 }

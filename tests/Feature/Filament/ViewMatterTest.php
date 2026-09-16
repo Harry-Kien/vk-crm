@@ -16,8 +16,12 @@ use App\Models\StageLogView;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
+use Filament\Forms\Components\Field;
 use Filament\Notifications\Livewire\Notifications;
 use Filament\Notifications\Notification;
+use Illuminate\Support\Collection;
+use Livewire\Features\SupportTesting\Testable;
+use Spatie\Activitylog\Models\Activity;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 beforeEach(function () {
@@ -197,42 +201,11 @@ it('blocks a red conflict from saving a new party through the Các bên tab, and
         'id_number' => '001099001234',
     ])->assertHasTableActionErrors(['override_reason']);
 
-    Notification::assertNotified(__('matters.parties.conflict_check_title_attention'));
+    // C-1: một mức đỏ bị chặn có tiêu đề RIÊNG. Nó không phải một lời nhắc "cần xem xét", nó là
+    // một lời từ chối — và không có gì được lưu.
+    Notification::assertNotified(__('matters.parties.conflict_blocked_title'));
 
     expect($matter->parties()->where('name', 'Bị đơn mới')->exists())->toBeFalse();
-});
-
-/** Cùng kịch bản đỏ ở trên, nhưng manager điền lý do ghi đè: bên phải được lưu (SPEC §6.10 bước 3). */
-it('lets a manager override a red conflict with a reason and save the party', function () {
-    $manager = User::factory()->withRole(Role::Manager)->create();
-    $matter = Matter::factory()->create(['lead_lawyer_id' => $manager->id]);
-    $matter->parties()->create([
-        'role' => PartyRole::Plaintiff,
-        'is_our_client' => true,
-        'name' => 'Khách hàng hiện hữu',
-    ]);
-
-    $otherMatter = Matter::factory()->create();
-    $otherMatter->parties()->create([
-        'role' => PartyRole::Plaintiff,
-        'is_our_client' => true,
-        'name' => 'Người trùng căn cước',
-    ])->identify('001099001234', null)->save();
-
-    $this->actingAs($manager, 'web');
-
-    $this->livewire(PartiesRelationManager::class, [
-        'ownerRecord' => $matter,
-        'pageClass' => ViewMatter::class,
-    ])->callTableAction('create', data: [
-        'role' => PartyRole::Defendant->value,
-        'is_our_client' => false,
-        'name' => 'Bị đơn mới',
-        'id_number' => '001099001234',
-        'override_reason' => 'Đã xác minh đây không phải cùng một người.',
-    ])->assertHasNoTableActionErrors();
-
-    expect($matter->parties()->where('name', 'Bị đơn mới')->exists())->toBeTrue();
 });
 
 /**
@@ -335,45 +308,6 @@ it('shows a clear success notification when a party is added with no conflict', 
     expect($notification)->not->toBeNull()
         ->and($notification->getColor())->toBe('success')
         ->and($matter->parties()->where('name', 'Bên hoàn toàn mới, không trùng ai')->exists())->toBeTrue();
-});
-
-/**
- * Fix round 2 finding A, kịch bản chính review nêu: một manager ghi đè mức đỏ vẫn phải THẤY được
- * mình vừa ghi đè xung đột với hồ sơ nào — không chỉ lưu âm thầm.
- */
-it('shows the conflicting matter code in the notification when a manager overrides a red conflict', function () {
-    $manager = User::factory()->withRole(Role::Manager)->create();
-    $matter = Matter::factory()->create(['lead_lawyer_id' => $manager->id]);
-    $matter->parties()->create([
-        'role' => PartyRole::Plaintiff,
-        'is_our_client' => true,
-        'name' => 'Khách hàng hiện hữu',
-    ]);
-
-    $otherMatter = Matter::factory()->create();
-    $otherMatter->parties()->create([
-        'role' => PartyRole::Plaintiff,
-        'is_our_client' => true,
-        'name' => 'Người trùng căn cước',
-    ])->identify('001099001234', null)->save();
-
-    $this->actingAs($manager, 'web');
-
-    $this->livewire(PartiesRelationManager::class, [
-        'ownerRecord' => $matter,
-        'pageClass' => ViewMatter::class,
-    ])->callTableAction('create', data: [
-        'role' => PartyRole::Defendant->value,
-        'is_our_client' => false,
-        'name' => 'Bị đơn mới',
-        'id_number' => '001099001234',
-        'override_reason' => 'Đã xác minh đây không phải cùng một người.',
-    ])->assertHasNoTableActionErrors();
-
-    $notification = sentNotification(__('matters.parties.conflict_check_title_attention'));
-    expect($notification)->not->toBeNull()
-        ->and($notification->getColor())->toBe('danger')
-        ->and($notification->getBody())->toContain($otherMatter->code);
 });
 
 /**
@@ -484,4 +418,313 @@ it('will not add a party marked as our client without a client record', function
     ])->assertHasTableActionErrors(['client_id']);
 
     expect($matter->parties()->count())->toBe(0);
+});
+
+/**
+ * Mọi Notification mà request vừa rồi đã gửi — cần CẢ màu, CẢ nội dung, CẢ SỐ LƯỢNG, thứ
+ * `Notification::assertNotified()` không đọc được. Session này bị `pull()` (đọc một lần là mất),
+ * nên mỗi test chỉ được gọi hàm này ĐÚNG MỘT LẦN, và không gọi kèm `assertNotified()`.
+ *
+ * @return Collection<int, Notification>
+ */
+function partyNotifications(): Collection
+{
+    $component = new Notifications;
+    $component->mount();
+
+    return $component->notifications;
+}
+
+/**
+ * Cặp vụ việc dựng sẵn một xung đột mức ĐỎ cho một bị đơn mang số căn cước 001099001234.
+ *
+ * @return array{0: Matter, 1: Matter}
+ */
+function matterWithRedConflictPair(User $actor): array
+{
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $actor->id]);
+    $matter->parties()->create([
+        'role' => PartyRole::Plaintiff,
+        'is_our_client' => true,
+        'name' => 'Khách hàng hiện hữu',
+    ]);
+
+    $otherMatter = Matter::factory()->create();
+    $otherMatter->parties()->create([
+        'role' => PartyRole::Plaintiff,
+        'is_our_client' => true,
+        'name' => 'Người trùng căn cước',
+    ])->identify('001099001234', null)->save();
+
+    return [$matter, $otherMatter];
+}
+
+/**
+ * Câu giải thích hiện NGAY DƯỚI một ô của form "thêm bên" đang mounted. `helperText()` của
+ * Filament 5 không phải một thuộc tính đọc lại được: nó dựng một schema con `BELOW_CONTENT` chứa
+ * một `Text` (xem `Forms\Components\Concerns\HasHelperText`), nên đọc đúng thứ người dùng thấy
+ * có nghĩa là render schema con đó. `assertSee` không dùng được — thân modal của Filament 5 không
+ * nằm trong HTML của lượt render này.
+ */
+function mountedPartyFieldHelperText(Testable $component, string $name): string
+{
+    /** @var PartiesRelationManager $instance */
+    $instance = $component->instance();
+    $schema = $instance->getSchema($instance->getMountedActionSchemaName());
+
+    /** @var Field $field */
+    $field = $schema->getFlatFields(withHidden: true)[$name];
+
+    return (string) $field->getChildSchema(Field::BELOW_CONTENT_SCHEMA_KEY)?->toHtmlString();
+}
+
+/**
+ * @param  array<string, mixed>  $overrides
+ * @return array<string, mixed>
+ */
+function redConflictPartyData(array $overrides = []): array
+{
+    return [...[
+        'role' => PartyRole::Defendant->value,
+        'is_our_client' => false,
+        'name' => 'Bị đơn mới',
+        'id_number' => '001099001234',
+    ], ...$overrides];
+}
+
+/**
+ * C-1 (CRITICAL, review vòng 3 → sửa vòng 4). Cùng khiếm khuyết đã sửa ở `CreateMatter`, còn
+ * nguyên trên màn hình sinh đôi: `override_reason` ở tab "Các bên" hiện VÔ ĐIỀU KIỆN, nên một
+ * manager điền lý do ngay LƯỢT GỬI ĐẦU đi thẳng vào nhánh ghi đè của `AddMatterParty` — bên được
+ * lưu, `conflict_overridden: true` và lý do vào nhật ký vĩnh viễn, về một mức đỏ chưa ai từng thấy.
+ *
+ * Một lý do viết cho một xung đột chưa hiện ra không phải một quyết định.
+ */
+it('will not let a manager override a red conflict on the parties tab before it has been shown', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    [$matter] = matterWithRedConflictPair($manager);
+
+    $this->actingAs($manager, 'web');
+
+    $this->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('create', data: redConflictPartyData([
+        'override_reason' => 'Đã xác minh đây không phải cùng một người.',
+    ]))->assertHasTableActionErrors(['override_reason']);
+
+    expect($matter->parties()->where('name', 'Bị đơn mới')->exists())->toBeFalse()
+        ->and(Activity::query()->where('event', 'matter_party_added')->exists())->toBeFalse();
+});
+
+/**
+ * Nửa còn lại của C-1: hai ô quyết định chỉ TỒN TẠI sau khi một kết quả kiểm tra thật đã hiện ra.
+ * Một trường `hidden` không được Filament dehydrate (`isDehydrated()` gọi
+ * `isHiddenAndNotDehydratedWhenHidden()`, và `isDehydratedWhenHidden` mặc định `false`), nên đây
+ * là cổng phía MÁY CHỦ chứ không phải trang trí. Với luật sư thì ô lý do hiện ra nhưng `disabled`
+ * — `disabled()` gọi `saved(false)` nên nó cũng không dehydrate, đúng như ở `CreateMatter`.
+ */
+it('hides both decision fields on the parties tab until a conflict result exists, then disables the reason for a lawyer', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    [$matter] = matterWithRedConflictPair($lawyer);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->mountTableAction('create');
+
+    $component->assertFormFieldHidden('override_reason')
+        ->assertFormFieldHidden('acknowledge_conflict');
+
+    $component->setTableActionData(redConflictPartyData())
+        ->callMountedTableAction()
+        ->assertHasTableActionErrors(['override_reason']);
+
+    $component->assertFormFieldVisible('override_reason')
+        ->assertFormFieldDisabled('override_reason')
+        ->assertFormFieldVisible('acknowledge_conflict');
+
+    // Và câu giải thích đúng vai trò: đọc thẳng trên component thay vì `assertSee` trên HTML —
+    // nội dung modal của Filament 5 không nằm trong phần thân đã render của lượt này.
+    expect(mountedPartyFieldHelperText($component, 'override_reason'))
+        ->toContain(__('matters.party_fields.override_reason_help_denied'));
+});
+
+/**
+ * C-1, phần "màn hình phải nói thật". Sau khi một manager ghi đè ở lượt hai, thông báo phải: mang
+ * màu `danger`, mang TIÊU ĐỀ RIÊNG của việc ghi đè (không phải "Cần xem xét trước khi lưu" — bên đã
+ * lưu xong rồi, câu đó nói về một tương lai đã qua), liệt kê mã hồ sơ xung đột, và hiện lại nguyên
+ * văn lý do vừa ghi vĩnh viễn vào nhật ký.
+ */
+it('tells the truth after a red conflict is overridden on the parties tab', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    [$matter, $otherMatter] = matterWithRedConflictPair($manager);
+    $reason = 'Đã trao đổi với khách hàng, xác nhận đây không phải cùng một người.';
+
+    $this->actingAs($manager, 'web');
+
+    $component = $this->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('create', data: redConflictPartyData())
+        ->assertHasTableActionErrors(['override_reason']);
+
+    // Với manager thì ô lý do mở, và câu giải thích là câu của người ĐƯỢC ghi đè — nửa còn lại
+    // của cặp helper text mà test luật sư ở trên ghim.
+    $component->assertFormFieldEnabled('override_reason');
+    expect(mountedPartyFieldHelperText($component, 'override_reason'))
+        ->toContain(__('matters.party_fields.override_reason_help_allowed'));
+
+    // Chỉ ô lý do, đúng như trong trình duyệt: mọi ô định danh khác đều `live()` và một thay đổi
+    // thật ở đó sẽ (đúng thiết kế) làm quên kết quả kiểm tra đang hiện.
+    $component->setTableActionData(['override_reason' => $reason])
+        ->callMountedTableAction()
+        ->assertHasNoTableActionErrors();
+
+    expect($matter->parties()->where('name', 'Bị đơn mới')->exists())->toBeTrue();
+
+    $notifications = partyNotifications();
+
+    // ĐÚNG MỘT thông báo: thông báo "Đã tạo" mặc định của Filament bị tắt, nếu không nó chồng lên
+    // đúng câu mà SPEC §6.10 bắt người dùng phải đọc (Minor 6, cùng bản sửa của `CreateMatter`).
+    expect($notifications)->toHaveCount(1);
+
+    $saved = $notifications->first();
+
+    expect($saved)->not->toBeNull()
+        ->and($saved->getTitle())->toBe(__('matters.parties.saved_overridden'))
+        ->and($saved->getColor())->toBe('danger')
+        ->and($saved->getBody())->toContain($otherMatter->code)
+        ->and($saved->getBody())->toContain($reason)
+        // Một dòng đã lưu xong không bao giờ được mô tả bằng câu "trước khi lưu".
+        ->and($saved->getTitle())->not->toBe(__('matters.parties.conflict_check_title_attention'));
+});
+
+/**
+ * Đường xác nhận (vàng): lưu được ở lượt hai, và thông báo sau khi lưu mang màu `warning` cùng một
+ * tiêu đề nói rằng bên ĐÃ được thêm sau khi xem xét — không phải "cần xem xét trước khi lưu".
+ */
+it('says the party was added after review when a yellow conflict is acknowledged', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $otherMatter = Matter::factory()->create();
+    $otherMatter->parties()->create([
+        'role' => PartyRole::Plaintiff,
+        'is_our_client' => true,
+        'name' => 'Lê Thị Hoa',
+    ]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('create', data: [
+        'role' => PartyRole::Defendant->value,
+        'is_our_client' => false,
+        'name' => 'Lê   THỊ hoa',
+    ])->assertHasTableActionErrors(['acknowledge_conflict']);
+
+    $component->setTableActionData(['acknowledge_conflict' => true])
+        ->callMountedTableAction()
+        ->assertHasNoTableActionErrors();
+
+    $saved = partyNotifications()->last();
+
+    expect($saved->getTitle())->toBe(__('matters.parties.saved_after_review'))
+        ->and($saved->getColor())->toBe('warning')
+        ->and($saved->getBody())->toContain($otherMatter->code);
+});
+
+/**
+ * Kết quả kiểm tra là một ẢNH CHỤP của dữ liệu lúc bấm lưu. Sửa một ô giữa hai lượt gửi thì nó
+ * không còn mô tả đúng bên đang nhập nữa — và `$pendingConflictLevel` chỉ nhớ MỨC, nên một dấu
+ * tích "đã xem xét" của lần kiểm tra CŨ sẽ được nhận cho một lần kiểm tra MỚI cùng mức. Cùng Minor
+ * 3/4 đã sửa ở `CreateMatter`; ở đây phải cho ra cùng một kết quả, nếu không hai màn hình sinh đôi
+ * lại lệch nhau lần thứ tư.
+ */
+it('forgets the stored conflict result when a party field is edited between two submits', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    [$matter] = matterWithRedConflictPair($lawyer);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('create', data: redConflictPartyData())
+        ->assertHasTableActionErrors(['override_reason']);
+
+    $component->assertFormFieldVisible('override_reason');
+
+    // Sửa đúng ô sinh ra mức đỏ: kết quả đang giữ nói về một bên không còn tồn tại như thế nữa.
+    $component->fillForm(
+        redConflictPartyData(['id_number' => '000000000009']),
+        $component->instance()->getMountedActionSchemaName(),
+    );
+
+    expect($component->instance()->conflictResult)->toBeNull();
+
+    $component->assertFormFieldHidden('override_reason')
+        ->assertFormFieldHidden('acknowledge_conflict');
+});
+
+/**
+ * Modal bị bỏ dở rồi mở lại: lần mở mới phải bắt đầu từ con số không. Nếu không, hai ô quyết định
+ * hiện sẵn ngay lượt gửi ĐẦU của một bên HOÀN TOÀN KHÁC, nói về kết quả kiểm tra của bên trước —
+ * đúng lỗ hổng mà C-1 vừa đóng, chỉ đi vòng qua cửa sau.
+ */
+it('starts a freshly reopened add-party modal with no stored conflict result', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    [$matter] = matterWithRedConflictPair($manager);
+
+    $this->actingAs($manager, 'web');
+
+    $component = $this->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('create', data: redConflictPartyData())
+        ->assertHasTableActionErrors(['override_reason']);
+
+    expect($component->instance()->conflictResult)->not->toBeNull();
+
+    $component->unmountTableAction()->mountTableAction('create');
+
+    expect($component->instance()->conflictResult)->toBeNull();
+
+    $component->assertFormFieldHidden('override_reason')
+        ->assertFormFieldHidden('acknowledge_conflict');
+});
+
+/**
+ * Bản sinh đôi của test cùng tên ở `CreateMatterTest` (Minor, fix round 4): một lý do ghi đè viết
+ * cho kết quả kiểm tra NÀY không được sống sót sang kết quả kiểm tra KẾ TIẾP.
+ */
+it('clears a written override reason on the parties tab when the result it was written for is forgotten', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    [$matter] = matterWithRedConflictPair($manager);
+
+    $this->actingAs($manager, 'web');
+
+    $component = $this->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('create', data: redConflictPartyData())
+        ->assertHasTableActionErrors(['override_reason']);
+
+    $component->setTableActionData(['override_reason' => 'Lý do viết cho BẢNG ĐỎ THỨ NHẤT.']);
+
+    $instance = $component->instance();
+    // State path THẬT của form đang mở (`mountedActions.0.data`), không phải tên schema — đọc sai
+    // chỗ thì `data_get` trả null và test xanh kể cả khi ô còn nguyên nội dung.
+    $statePath = $instance->getSchema($instance->getMountedActionSchemaName())->getStatePath();
+
+    expect(data_get($instance, "{$statePath}.override_reason"))->toBe('Lý do viết cho BẢNG ĐỎ THỨ NHẤT.');
+
+    $instance->forgetConflictResult();
+
+    expect(data_get($instance, "{$statePath}.override_reason"))->toBeNull();
 });

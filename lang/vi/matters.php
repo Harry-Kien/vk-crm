@@ -96,8 +96,9 @@ return [
         'note' => 'Ghi chú',
         'acknowledge_conflict' => 'Tôi đã xem xét kết quả kiểm tra xung đột lợi ích và xác nhận vẫn muốn thêm bên này',
         'acknowledge_conflict_help' => 'Chỉ cần tích khi thông báo kết quả kiểm tra yêu cầu xem xét trước khi lưu.',
-        'override_reason' => 'Lý do ghi đè',
-        'override_reason_help' => 'Chỉ trưởng phòng/quản trị mới ghi đè được mức đỏ, và bắt buộc phải điền lý do ở đây.',
+        'override_reason' => 'Lý do ghi đè mức đỏ',
+        'override_reason_help_allowed' => 'Chỉ điền khi kết quả ở mức đỏ và anh/chị quyết định vẫn thêm bên này. Lý do được ghi vào nhật ký và không xoá được.',
+        'override_reason_help_denied' => 'Chỉ trưởng phòng hoặc quản trị mới ghi đè được mức đỏ, nên ô này bị khoá với vai trò hiện tại.',
     ],
     'create_form' => [
         'sections' => [
@@ -145,11 +146,18 @@ return [
         'saved_overridden_reason' => 'Lý do ghi đè đã ghi vĩnh viễn vào nhật ký: :reason',
     ],
     'parties' => [
+        // Ba tiêu đề của giai đoạn CHƯA LƯU. Chỉ dùng cho hai nhánh bị chặn — một dòng đã lưu
+        // xong không bao giờ được mô tả bằng câu "trước khi lưu" (C-1).
+        'conflict_blocked_title' => 'Mức đỏ — chưa thêm bên này vào vụ việc',
         'conflict_check_title_attention' => 'Cần xem xét trước khi lưu',
+        // Ba tiêu đề của giai đoạn ĐÃ LƯU.
+        'saved_overridden' => 'ĐÃ GHI ĐÈ XUNG ĐỘT MỨC ĐỎ — bên này vẫn được thêm theo quyết định của anh/chị.',
+        'saved_after_review' => 'Đã thêm bên sau khi xem xét kết quả kiểm tra xung đột lợi ích.',
         'conflict_check_title_clear' => 'Không tìm thấy xung đột lợi ích',
         'conflict_check_clear' => 'Không tìm thấy bản ghi trùng.',
         'conflict_check_incomplete' => 'Các bên sau chưa có số căn cước/điện thoại để đối chiếu: :names',
-        'conflict_blocked_retry' => 'Mức đỏ: không thể lưu. Chỉ trưởng phòng/quản trị được ghi đè, kèm lý do ở trường "Lý do ghi đè".',
+        'conflict_blocked_retry' => 'Mức đỏ: chưa thêm bên này. Chỉ trưởng phòng hoặc quản trị mới ghi đè được, và bắt buộc nhập lý do vào ô này.',
+        'conflict_blocked_retry_denied' => 'Mức đỏ: chưa thêm bên này. Vai trò hiện tại không ghi đè được — hãy đề nghị trưởng phòng thêm bên này, hoặc sửa lại thông tin bên vừa nhập.',
         'conflict_ack_retry' => 'Đọc kỹ thông báo kết quả kiểm tra xung đột lợi ích ở trên, sau đó tích "Tôi đã xem xét…" rồi gửi lại.',
     ],
 ];

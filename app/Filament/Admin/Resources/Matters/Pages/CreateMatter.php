@@ -7,10 +7,10 @@ use App\Enums\ConflictLevel;
 use App\Enums\ConflictMatchTier;
 use App\Enums\PartyRole;
 use App\Enums\Permission;
-use App\Enums\Role;
 use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
 use App\Filament\Admin\Resources\Matters\MatterResource;
+use App\Filament\Admin\Support\ConflictOverride;
 use App\Filament\Admin\Support\VisibleClientOptions;
 use App\Models\User;
 use App\Support\ConflictCheckResult;
@@ -126,13 +126,14 @@ class CreateMatter extends CreateRecord
             ->all();
     }
 
-    /** SPEC §6.10 bước 3: chỉ `manager`/`admin` ghi đè được mức đỏ. Chỉ để HIỂN THỊ — cổng thật ở `OpenMatter`. */
+    /**
+     * SPEC §6.10 bước 3: chỉ `manager`/`admin` ghi đè được mức đỏ. Chỉ để HIỂN THỊ — cổng thật ở
+     * `OpenMatter`. Luật ở `ConflictOverride` để tab "Các bên" hỏi CÙNG một câu và nhận CÙNG một
+     * câu trả lời; xem docblock lớp đó cho lý do đầy đủ.
+     */
     public function canOverrideRedConflict(): bool
     {
-        $actor = Auth::user();
-
-        return $actor instanceof User
-            && ($actor->hasRole(Role::Manager->value) || $actor->hasRole(Role::Admin->value));
+        return ConflictOverride::allowedForCurrentUser();
     }
 
     /**
@@ -280,7 +281,10 @@ class CreateMatter extends CreateRecord
      * trong danh sách bên) đều gọi hàm này — xem `MatterForm::forgetConflictResultOnChange()`.
      *
      * Dấu tích cũng bị gỡ, không chỉ mức: để nguyên một ô đã tích trong khi lời từ chối bảo người
-     * dùng "hãy tích ô này" là một màn hình tự mâu thuẫn.
+     * dùng "hãy tích ô này" là một màn hình tự mâu thuẫn. Và LÝ DO GHI ĐÈ cũng vậy (Minor, fix
+     * round 4): bản trước để nguyên `data['override_reason']`, nên một lý do viết cho bảng đỏ NÀY
+     * sống sót sang bảng đỏ KẾ TIẾP và lượt gửi sau đó ghi đè bằng một câu chưa ai viết cho xung
+     * đột đó — cùng hạng lỗi với C-1, chỉ nhỏ hơn.
      *
      * Hàm này KHÔNG được gọi ở lượt render đang hiện bảng ra: `afterStateUpdated` chỉ chạy khi có
      * một thay đổi state thật từ người dùng, không chạy khi Livewire dựng lại giao diện sau khi
@@ -292,6 +296,7 @@ class CreateMatter extends CreateRecord
         $this->conflictResult = null;
         $this->pendingConflictLevel = null;
         $this->data['acknowledge_conflict'] = false;
+        $this->data['override_reason'] = null;
     }
 
     /**
