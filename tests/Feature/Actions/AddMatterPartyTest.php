@@ -10,6 +10,7 @@ use App\Models\Client;
 use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Models\User;
+use App\Support\Normalizer;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Spatie\Activitylog\Models\Activity;
@@ -58,7 +59,13 @@ it('blocks a red conflict from saving a new party, and saves nothing', function 
     expect(Activity::query()->where('event', 'matter_party_added')->exists())->toBeFalse();
 });
 
-it('lets a manager override the red block with a reason, saves the party, and records the reason in the activity log', function () {
+/**
+ * Fix round 2 finding A: AddMatterParty::handle() phải trả lại KẾT QUẢ kiểm tra cùng với bên đã
+ * lưu, không chỉ MatterParty trần — nếu không, đường THÀNH CÔNG (kể cả sau khi ghi đè mức đỏ) mất
+ * hẳn cách hiển thị bên nào đã gây xung đột. Assert trực tiếp trên $addition->result ở đây, thay
+ * vì chỉ suy luận qua activity log, để thay đổi kiểu trả về được test bắt được nếu ai đó gỡ lại.
+ */
+it('lets a manager override the red block with a reason, saves the party, and returns the conflicting matter in the result', function () {
     $manager = User::factory()->withRole(Role::Manager)->create();
     $matter = Matter::factory()->create(['lead_lawyer_id' => $manager->id]);
     $matter->parties()->create([
@@ -71,7 +78,7 @@ it('lets a manager override the red block with a reason, saves the party, and re
     $otherMatter = Matter::factory()->create();
     MatterParty::factory()->for($otherMatter)->ourClient($existingClient)->create();
 
-    $party = app(AddMatterParty::class)->handle(
+    $addition = app(AddMatterParty::class)->handle(
         $matter,
         $manager,
         [
@@ -82,8 +89,10 @@ it('lets a manager override the red block with a reason, saves the party, and re
         'Đã trao đổi với khách hàng, xác nhận đây không phải cùng một người, đồng ý thêm bên này.',
     );
 
-    expect($party->exists)->toBeTrue()
-        ->and($matter->parties()->where('name', 'Nguyễn Văn Hùng (bị đơn)')->exists())->toBeTrue();
+    expect($addition->party->exists)->toBeTrue()
+        ->and($matter->parties()->where('name', 'Nguyễn Văn Hùng (bị đơn)')->exists())->toBeTrue()
+        ->and($addition->result->level)->toBe(ConflictLevel::Red)
+        ->and($addition->result->matches->first()->matterCode)->toBe($otherMatter->code);
 
     $activity = Activity::query()->where('event', 'matter_party_added')->latest('id')->first();
     expect($activity)->not->toBeNull()
@@ -178,7 +187,7 @@ it('saves a yellow result once the caller acknowledges it', function () {
         'name' => 'Lê Thị Hoa',
     ]);
 
-    $party = app(AddMatterParty::class)->handle(
+    $addition = app(AddMatterParty::class)->handle(
         $matter,
         $lawyer,
         [
@@ -190,7 +199,8 @@ it('saves a yellow result once the caller acknowledges it', function () {
         acknowledged: ConflictLevel::Yellow,
     );
 
-    expect($party->exists)->toBeTrue();
+    expect($addition->party->exists)->toBeTrue()
+        ->and($addition->result->level)->toBe(ConflictLevel::Yellow);
 
     $activity = Activity::query()->where('event', 'matter_party_added')->latest('id')->first();
     expect($activity->properties->get('conflict_level'))->toBe('yellow');
@@ -204,13 +214,15 @@ it('needs no acknowledgement for a green result', function () {
     // từ Client như OpenMatter, nên một bên KHÔNG có id_number/phone luôn là "thiếu định danh"
     // (hasIncompleteParties()), đòi xác nhận dù không trùng ai — đúng thiết kế RunConflictCheck,
     // không phải điều muốn kiểm tra ở đây).
-    $party = app(AddMatterParty::class)->handle(
+    $addition = app(AddMatterParty::class)->handle(
         $matter,
         $lawyer,
         ['role' => PartyRole::Defendant, 'name' => 'Bên hoàn toàn mới', 'id_number' => '000000000001'],
     );
 
-    expect($party->exists)->toBeTrue();
+    expect($addition->party->exists)->toBeTrue()
+        ->and($addition->result->level)->toBe(ConflictLevel::Green)
+        ->and($addition->result->requiresAcknowledgement())->toBeFalse();
 });
 
 it('throws ConflictAcknowledgementRequired for a green result with an incomplete party, and saves nothing', function () {
@@ -236,14 +248,15 @@ it('saves a green result with an incomplete party once the caller acknowledges i
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
 
-    $party = app(AddMatterParty::class)->handle(
+    $addition = app(AddMatterParty::class)->handle(
         $matter,
         $lawyer,
         ['role' => PartyRole::Defendant, 'name' => 'Người Chỉ Có Tên Không Định Danh'],
         acknowledged: ConflictLevel::Green,
     );
 
-    expect($party->exists)->toBeTrue();
+    expect($addition->party->exists)->toBeTrue()
+        ->and($addition->result->hasIncompleteParties())->toBeTrue();
 
     $activity = Activity::query()->where('event', 'matter_party_added')->latest('id')->first();
     expect($activity->properties->get('conflict_level'))->toBe('green')
@@ -277,4 +290,35 @@ it('leaves nothing saved when the check phase fails unexpectedly', function () {
         ->toThrow(ValueError::class);
 
     expect(MatterParty::count())->toBe($partyCountBefore);
+});
+
+/**
+ * Fix round 2 finding C: is_our_client=true VỚI client_id phải lấy định danh từ hồ sơ Client thật
+ * (giống OpenMatter::buildOwnClientParty()), KHÔNG tin id_number/phone do form gửi lên cho bên
+ * này — nếu không, một bên "là khách hàng của văn phòng" có thể mang id_number_hash SAI hồ sơ gốc
+ * (gõ nhầm, hoặc cố tình), và một hash sai là chính xác cách một lần kiểm tra xung đột trong tương
+ * lai bỏ sót bên này.
+ */
+it('trusts the Client record for identity when is_our_client is true, ignoring mismatched form values', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $client = Client::factory()->create(['id_number' => '055566677788', 'phone' => '0911222333']);
+
+    $addition = app(AddMatterParty::class)->handle(
+        $matter,
+        $lawyer,
+        [
+            'role' => PartyRole::Plaintiff,
+            'is_our_client' => true,
+            'client_id' => $client->id,
+            'name' => $client->name,
+            // Dữ liệu form khác hẳn hồ sơ Client thật — phải bị Action bỏ qua hoàn toàn.
+            'id_number' => '000000000000',
+            'phone' => '0999999999',
+        ],
+    );
+
+    expect($addition->party->id_number_hash)->toBe(Normalizer::idNumberHash('055566677788'))
+        ->and($addition->party->phone_normalized)->toBe(Normalizer::phone('0911222333'))
+        ->and($addition->party->id_number_hash)->not->toBe(Normalizer::idNumberHash('000000000000'));
 });

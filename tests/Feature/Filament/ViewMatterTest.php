@@ -14,12 +14,26 @@ use App\Models\StageLogView;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
+use Filament\Notifications\Livewire\Notifications;
 use Filament\Notifications\Notification;
 
 beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);
     Filament::setCurrentPanel('admin');
 });
+
+/**
+ * Notification::assertNotified() chỉ so được tiêu đề (hoặc toàn bộ object), không đọc được nội
+ * dung (body) — cần đọc trực tiếp collection Notification đã gửi để kiểm tra body có nhắc đúng mã
+ * hồ sơ gây xung đột hay không (fix round 2 finding A).
+ */
+function sentNotification(string $title): ?Notification
+{
+    $component = new Notifications;
+    $component->mount();
+
+    return $component->notifications->first(fn (Notification $notification): bool => $notification->getTitle() === $title);
+}
 
 /**
  * Task 6 brief: "trang trả 404 với vụ ngoài quyền". Đã có một bản ở MatterResourceTest, lặp lại
@@ -287,4 +301,93 @@ it('scopes the party form client picker to clients of matters the actor can alre
 
     // client.manage (Manager) thấy toàn bộ, kể cả khách hàng "lạ" ở trên.
     expect(PartiesRelationManager::visibleClientOptions())->toHaveKey($strangerClient->id);
+});
+
+/**
+ * Fix round 2 finding A: đường THÀNH CÔNG (không có gì trùng) cũng phải hiện kết quả kiểm tra —
+ * round 1 chỉ gọi notifyConflictCheckResult() ở hai catch, nên một lần thêm bên sạch không hiện
+ * gì cả, khác hẳn brief gốc "chạy lại RunConflictCheck và hiện kết quả tại chỗ".
+ */
+it('shows a clear success notification when a party is added with no conflict', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('create', data: [
+        'role' => PartyRole::Defendant->value,
+        'is_our_client' => false,
+        'name' => 'Bên hoàn toàn mới, không trùng ai',
+        'id_number' => '000000000002',
+    ])->assertHasNoTableActionErrors();
+
+    // sentNotification() dùng session()->pull() bên trong (Filament\Notifications\Livewire\
+    // Notifications::pullNotificationsFromSession()), tức là ĐỌC MỘT LẦN LÀ MẤT — gọi
+    // Notification::assertNotified() trước đó cũng tiêu thụ session này, nên chỉ đọc đúng một
+    // lần duy nhất ở đây, không gọi assertNotified() song song với nó trong cùng một test.
+    $notification = sentNotification(__('matters.parties.conflict_check_title_clear'));
+    expect($notification)->not->toBeNull()
+        ->and($notification->getColor())->toBe('success')
+        ->and($matter->parties()->where('name', 'Bên hoàn toàn mới, không trùng ai')->exists())->toBeTrue();
+});
+
+/**
+ * Fix round 2 finding A, kịch bản chính review nêu: một manager ghi đè mức đỏ vẫn phải THẤY được
+ * mình vừa ghi đè xung đột với hồ sơ nào — không chỉ lưu âm thầm.
+ */
+it('shows the conflicting matter code in the notification when a manager overrides a red conflict', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $manager->id]);
+    $matter->parties()->create([
+        'role' => PartyRole::Plaintiff,
+        'is_our_client' => true,
+        'name' => 'Khách hàng hiện hữu',
+    ]);
+
+    $otherMatter = Matter::factory()->create();
+    $otherMatter->parties()->create([
+        'role' => PartyRole::Plaintiff,
+        'is_our_client' => true,
+        'name' => 'Người trùng căn cước',
+    ])->identify('001099001234', null)->save();
+
+    $this->actingAs($manager, 'web');
+
+    $this->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('create', data: [
+        'role' => PartyRole::Defendant->value,
+        'is_our_client' => false,
+        'name' => 'Bị đơn mới',
+        'id_number' => '001099001234',
+        'override_reason' => 'Đã xác minh đây không phải cùng một người.',
+    ])->assertHasNoTableActionErrors();
+
+    $notification = sentNotification(__('matters.parties.conflict_check_title_attention'));
+    expect($notification)->not->toBeNull()
+        ->and($notification->getColor())->toBe('danger')
+        ->and($notification->getBody())->toContain($otherMatter->code);
+});
+
+/**
+ * Fix round 2 finding D: MatterPolicy::update() từ chối một vụ việc đã xoá mềm cho MỌI vai trò,
+ * kể cả admin (khác view(), vốn cố ý cho admin xem vụ đã xoá mềm) — nên nút thêm bên phải ẩn với
+ * admin trên một vụ việc đã xoá mềm, ba dòng đủ để chứng minh CreateAction->authorize() ở
+ * PartiesRelationManager thật sự đọc đúng $matter->trashed(), không chỉ vai trò.
+ */
+it('hides the create-party action from an admin when the matter itself is soft-deleted', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = Matter::factory()->create();
+    $matter->delete();
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->assertTableActionHidden('create');
 });

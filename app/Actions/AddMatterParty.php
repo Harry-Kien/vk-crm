@@ -7,9 +7,11 @@ use App\Enums\PartyRole;
 use App\Enums\Role;
 use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
+use App\Models\Client;
 use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Models\User;
+use App\Support\AddMatterPartyResult;
 use App\Support\Audit;
 use App\Support\ConflictCheckResult;
 use Illuminate\Support\Facades\DB;
@@ -50,6 +52,13 @@ use Illuminate\Support\Facades\Gate;
  *     mới qua `$matter->parties()->save($party)`, ghi activity log `matter_party_added` (mức
  *     xung đột, có ghi đè hay không, lý do ghi đè nếu có, danh sách bên thiếu định danh) — không
  *     thay thế, không trùng lặp dòng `conflict_check_run` đã ghi ở bước 2.
+ *
+ * **Trả về `AddMatterPartyResult` (bên + `ConflictCheckResult`), không chỉ `MatterParty` (fix
+ * round 2, finding "kết quả kiểm tra không còn hiện trên đường thành công").** Trả trần
+ * `MatterParty` từng khiến caller không còn cách nào hiển thị lại kết quả kiểm tra ở NHÁNH THÀNH
+ * CÔNG — kể cả sau khi một manager ghi đè mức đỏ, party vẫn lưu được nhưng không ai thấy đã ghi
+ * đè xung đột với hồ sơ nào. `PartiesRelationManager` giờ đọc `$addition->result` để gọi
+ * `notifyConflictCheckResult()` trên MỌI nhánh (thành công lẫn hai catch), không chỉ hai catch.
  */
 class AddMatterParty
 {
@@ -69,7 +78,7 @@ class AddMatterParty
         array $partyData,
         ?string $overrideReason = null,
         ?ConflictLevel $acknowledged = null,
-    ): MatterParty {
+    ): AddMatterPartyResult {
         // Bước 1.
         Gate::forUser($actor)->authorize('create', MatterParty::class);
 
@@ -101,7 +110,7 @@ class AddMatterParty
         }
 
         // Bước 4.
-        return DB::transaction(function () use ($matter, $party, $result, $isOverridden, $overrideReason, $actor): MatterParty {
+        return DB::transaction(function () use ($matter, $party, $result, $isOverridden, $overrideReason, $actor): AddMatterPartyResult {
             $matter->parties()->save($party);
 
             Audit::record('matter_party_added', $matter, [
@@ -112,24 +121,43 @@ class AddMatterParty
                 'incomplete_conflict_parties' => $result->incompleteParties(),
             ], $actor);
 
-            return $party;
+            return new AddMatterPartyResult($party, $result);
         });
     }
 
-    /** @param  array<string, mixed>  $data */
+    /**
+     * `is_our_client = true` VỚI `client_id`: định danh KHÔNG được lấy từ `$data['id_number']`/
+     * `$data['phone']` do form gửi lên — luôn dựng lại từ hồ sơ `Client` thật đã khoá, giống hệt
+     * `OpenMatter::buildOwnClientParty()` (fix round 2, finding C). Đây là chiếc cầu ĐÁNG TIN CẬY
+     * DUY NHẤT qua `clients.id_number` (mã hoá, không có cột hash): một bên "là khách hàng của
+     * văn phòng" mà định danh lấy từ form (có thể gõ sai, gõ khác hồ sơ gốc) sẽ tạo ra
+     * `id_number_hash` KHÔNG khớp hồ sơ `Client` thật — và một hash sai là chính xác cách một lần
+     * kiểm tra xung đột trong tương lai BỎ SÓT bên này, im lặng, không ai biết.
+     *
+     * @param  array<string, mixed>  $data
+     */
     private function buildParty(Matter $matter, array $data): MatterParty
     {
         $role = $data['role'] instanceof PartyRole ? $data['role'] : PartyRole::from($data['role']);
         $isOurClient = (bool) ($data['is_our_client'] ?? false);
+        $clientId = $isOurClient ? ($data['client_id'] ?? null) : null;
 
-        return (new MatterParty([
+        $party = new MatterParty([
             'matter_id' => $matter->id,
             'role' => $role,
             'is_our_client' => $isOurClient,
-            'client_id' => $isOurClient ? ($data['client_id'] ?? null) : null,
+            'client_id' => $clientId,
             'name' => $data['name'],
             'address' => $data['address'] ?? null,
             'note' => $data['note'] ?? null,
-        ]))->identify($data['id_number'] ?? null, $data['phone'] ?? null);
+        ]);
+
+        if ($clientId !== null) {
+            $client = Client::query()->whereKey($clientId)->lockForUpdate()->firstOrFail();
+
+            return $party->identify($client->id_number, $client->phone);
+        }
+
+        return $party->identify($data['id_number'] ?? null, $data['phone'] ?? null);
     }
 }

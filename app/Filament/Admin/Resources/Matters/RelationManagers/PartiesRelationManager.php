@@ -32,6 +32,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\Locked;
 
 /**
  * Tab "Các bên" (SPEC §7.2, §4.16): bảng matter_parties. Thêm một bên thì chạy lại
@@ -44,6 +45,13 @@ use Illuminate\Validation\ValidationException;
  * ghi đè, không xác nhận, đúng lúc SPEC §6.10 bắt buộc kiểm tra này chặn được). Lớp này giờ chỉ
  * còn hai việc: thu thập dữ liệu form và hiển thị kết quả — nghiệp vụ nằm ở `app/Actions/` đúng
  * CLAUDE.md.
+ *
+ * **Fix round 2 (review, cùng bản sửa round 1):** `createParty()` round 1 chỉ gọi
+ * `notifyConflictCheckResult()` ở hai nhánh `catch` — nhánh THÀNH CÔNG (kể cả sau khi một manager
+ * ghi đè mức đỏ) không hiện kết quả gì cả, đúng ngược lại với những gì docblock round 1 tuyên bố.
+ * Sửa: `AddMatterParty::handle()` giờ trả `App\Support\AddMatterPartyResult` (bên + kết quả), nên
+ * `createParty()` gọi `notifyConflictCheckResult($addition->result)` ở CẢ ba nhánh — xem docblock
+ * `createParty()`.
  */
 class PartiesRelationManager extends RelationManager
 {
@@ -55,7 +63,16 @@ class PartiesRelationManager extends RelationManager
      * Mức của lần kiểm tra xung đột TRƯỚC trong modal "thêm bên" đang mở, chờ người dùng tích
      * "đã xem xét" ở lần gửi kế tiếp — xem docblock `createParty()`. `null` khi chưa có lần kiểm
      * tra nào bị chặn bởi yêu cầu xác nhận, hoặc sau khi bên đã lưu thành công.
+     *
+     * `#[Locked]` (fix round 2, finding B): không có nó, đây là một property Livewire công khai
+     * bình thường — một payload bị sửa tay có thể tự đặt sẵn giá trị này rồi tích luôn ô "đã xem
+     * xét" ở LẦN GỬI ĐẦU, thoả điều kiện xác nhận mà không ai từng thấy kết quả kiểm tra thật (vô
+     * hiệu hoá mục đích của bước xác nhận, dù không vượt qua được chặn đỏ — chặn đỏ còn đòi vai
+     * trò và lý do, cả hai đều được server kiểm tra lại trong `AddMatterParty`). `Locked` chặn mọi
+     * `wire:model`/cập nhật property từ phía client, chỉ code PHP phía server (đúng những dòng
+     * dưới đây) được đổi giá trị này.
      */
+    #[Locked]
     public ?string $pendingConflictLevel = null;
 
     public static function getTitle(Model $ownerRecord, string $pageClass): string
@@ -180,6 +197,14 @@ class PartiesRelationManager extends RelationManager
      * khớp CHÍNH XÁC state path đó; một `ValidationException` với khoá trần (`'override_reason'`)
      * bị Filament coi là không thuộc form nào và không hiện lỗi ở đúng ô (đã tự xác nhận: dùng
      * khoá trần khiến `TypeError`/lỗi không gắn đúng ô trong lần chạy thử đầu tiên).
+     *
+     * **Fix round 2, finding "kết quả kiểm tra không còn hiện trên đường thành công":**
+     * `notifyConflictCheckResult()` giờ được gọi ở CẢ BA nhánh — hai `catch` (như trước) VÀ nhánh
+     * thành công bên dưới `try`. Bỏ sót nhánh thành công là lỗi thật của fix round 1: một mức đỏ
+     * được manager ghi đè vẫn LƯU ĐƯỢC (đúng thiết kế), nhưng trước bản sửa này không ai còn thấy
+     * đã ghi đè xung đột với hồ sơ nào — đúng lúc "hiện kết quả tại chỗ" (SPEC §7.2) quan trọng
+     * nhất. `AddMatterParty::handle()` giờ trả `AddMatterPartyResult` (bên + kết quả kiểm tra)
+     * thay vì trần `MatterParty`, để nhánh thành công có `$addition->result` mà gọi.
      */
     private function createParty(array $data): MatterParty
     {
@@ -188,13 +213,18 @@ class PartiesRelationManager extends RelationManager
         $actor = Auth::user();
         $isOurClient = (bool) ($data['is_our_client'] ?? false);
 
+        // tryFrom(), không from() (fix round 2, finding B): $pendingConflictLevel là một property
+        // Livewire công khai (dù đã #[Locked] chặn ghi từ client) — vẫn phòng thủ ở điểm dùng,
+        // không tin giá trị lưu trữ là một ConflictLevel hợp lệ. Giá trị không hợp lệ (hoặc null)
+        // chỉ đơn giản không khớp mức thật của lần kiểm tra NÀY, nên AddMatterParty vẫn từ chối
+        // đúng cách (ConflictAcknowledgementRequired) thay vì 500.
         $acknowledgeTicked = (bool) ($data['acknowledge_conflict'] ?? false);
         $acknowledged = ($acknowledgeTicked && $this->pendingConflictLevel !== null)
-            ? ConflictLevel::from($this->pendingConflictLevel)
+            ? ConflictLevel::tryFrom($this->pendingConflictLevel)
             : null;
 
         try {
-            $party = app(AddMatterParty::class)->handle(
+            $addition = app(AddMatterParty::class)->handle(
                 matter: $matter,
                 actor: $actor,
                 partyData: [
@@ -227,8 +257,9 @@ class PartiesRelationManager extends RelationManager
         }
 
         $this->pendingConflictLevel = null;
+        static::notifyConflictCheckResult($addition->result);
 
-        return $party;
+        return $addition->party;
     }
 
     /**
