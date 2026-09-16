@@ -75,7 +75,16 @@ trait BuildsMatterParties
 
         // Trước khi dựng bất cứ thứ gì: một bên tự nhận là khách hàng của văn phòng mà không chỉ
         // ra hồ sơ nào thì không có dòng hợp lệ nào để dựng cả (I-2, xem docblock trait).
-        if ($isOurClient && $clientId === null) {
+        //
+        // `blank()`, không `=== null` (Minor, review gộp nhánh M3): một `client_id` là chuỗi rỗng
+        // hay chuỗi toàn khoảng trắng — đúng thứ một mảng dựng tay trong seeder, job hay lệnh
+        // console dễ mang theo nhất — từng lọt qua cổng này rồi chết ở `lockClient('')` bằng
+        // `ModelNotFoundException`, một câu không nói gì về luật vừa bị vi phạm. Trait này TỰ NHẬN
+        // là nơi thi hành luật cho những đường không có form (xem docblock), nên nó phải từ chối
+        // bằng chính câu của luật đó. Ghi nhận trung thực: `blank(0)` là `false`, nên một id bằng
+        // 0 vẫn đi tiếp tới `firstOrFail()` — ở đó "không có khách hàng nào mang id này" là câu
+        // trả lời ĐÚNG, khác hẳn với "bên này chưa chỉ ra hồ sơ nào".
+        if ($isOurClient && blank($clientId)) {
             throw OurClientPartyNeedsClient::make($data['name'] ?? null);
         }
 

@@ -31,6 +31,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * ra `toArray()`), và cả hai hook đều đọc nó TRƯỚC khi nhìn tới phiên. "Cột đã mang sẵn giá trị
  * đúng" không còn là một trạng thái đặc biệt vì không có phép so sánh nào nữa.
  *
+ * **Gán thẳng `$model->updated_by = $id` KHÔNG còn tác dụng — dùng `blameOn()`.** Đây là hệ quả
+ * trực tiếp của việc bỏ `isDirty`: hook `updating` giờ ghi đè `updated_by` VÔ ĐIỀU KIỆN mỗi khi
+ * biết một actor (tường minh qua `blameOn()`, hoặc phiên `web` ambient), nên một phép gán thẳng
+ * trước `save()` bị đè lặng lẽ — không lỗi, không cảnh báo, chỉ một cột ghi sai người trong một hồ
+ * sơ pháp lý. Cửa duy nhất để tuyên bố actor là `blameOn()`; nó cũng lo luôn `created_by` ở lần
+ * tạo. (Trước bản sửa I-1, phép gán thẳng "hầu như" chạy được — chạy khi giá trị gốc khác giá trị
+ * gán, im lặng không chạy khi trùng. Một cửa mở một nửa như vậy tệ hơn một cửa đóng hẳn, nên nó
+ * đóng hẳn.)
+ *
  * **Ý định DÍNH với instance, có chủ đích.** `blameOn()` không tự xoá sau lần lưu đầu: câu nó phát
  * biểu là "bản ghi đang nằm trong tay tôi đây được ghi nhân danh người này", đúng cho cả một Action
  * lưu hai lần (dựng rồi `save()`, sau đó `update()` thêm một cột). Một cờ tự xoá sẽ biến thứ tự các
