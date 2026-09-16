@@ -548,3 +548,27 @@ it('reads the red-override role from the actor, not from the session', function 
     expect($opened->properties->get('conflict_overridden'))->toBeTrue()
         ->and($opened->causer?->is($manager))->toBeTrue();
 });
+
+it('stamps created_by on the matter and its parties from the actor, not from the session', function () {
+    // Cùng lý do như stage_logs.created_by: Action đã biết actor, nên hai cột "ai tạo" không được
+    // suy luận từ phiên đang mở — phiên có thể là người khác (admin thao tác hộ) hoặc không có.
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $this->actingAs($admin, 'web');
+
+    $newClient = Client::factory()->create();
+    $type = matterTypeWithTemplate();
+
+    $matter = app(OpenMatter::class)->handle($lawyer, baseAttributes($newClient, $lawyer, $type), [
+        [
+            'role' => PartyRole::Defendant,
+            'name' => 'Bên bị đơn không trùng ai',
+            'id_number' => '099988877766',
+            'phone' => '0900000111',
+        ],
+    ]);
+
+    expect($matter->created_by)->toBe($lawyer->id)
+        ->and($matter->updated_by)->toBe($lawyer->id)
+        ->and($matter->parties()->pluck('created_by')->unique()->all())->toBe([$lawyer->id]);
+});
