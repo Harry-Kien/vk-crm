@@ -244,3 +244,8 @@ mở nào đủ giấy phép, đủ mới và có portal để fork.
 | 2026-09-14 | (không cài gói mới ở M1) | — | Đúng kế hoạch |
 | 2026-09-14 | spatie/laravel-permission ^8 | Cài (8.3.0) | Tương thích PHP 8.3 + Laravel 13 |
 | 2026-09-14 | bezhansalleh/filament-shield | Hoãn sang M3 | M2 chưa có resource để Shield sinh quyền; tên quyền theo SPEC §5 là nguồn sự thật |
+| 2026-09-15 | spatie/laravel-activitylog | Cài (^4.0) | Đúng kế hoạch; morph map bổ sung `client`, `matter_party` khi hai model này bắt đầu ghi log |
+| 2026-09-15 | pestphp/pest-plugin-livewire | Cài (^4.1) | Cần để test hành động/form Filament (mounted action, form fill) trong panel admin |
+| 2026-09-16 | bezhansalleh/filament-shield | Không cài | Xét lại như kế hoạch: 13 quyền SPEC §5 không theo quy ước `<resource>.<action>` của Shield (vd. `matter.transitionStage`, `stageLog.publish`); vai trò/quyền tiếp tục gán qua `RolesAndPermissionsSeeder` + `User::assignRoleFromPosition()` |
+| 2026-09-16 | saade/filament-fullcalendar | Không cần | Không có yêu cầu lịch trong phạm vi M3 (hạn tố tụng thuộc M4/M6); bảng `deadlines` đã đủ cho widget "Hồ sơ quá hạn cập nhật" |
+| 2026-09-16 | awcodes/filament-table-repeater | Không cần | `MatterParty` dùng RelationManager (`AddMatterParty` Action + form Filament chuẩn) thay vì repeater; đơn giản hơn vì mỗi bên cần chạy `RunConflictCheck` riêng lẻ |
