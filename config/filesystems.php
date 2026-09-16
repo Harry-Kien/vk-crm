@@ -47,6 +47,24 @@ return [
             'report' => false,
         ],
 
+        /*
+         * Disk cho tệp hồ sơ/tài liệu (SPEC §10.4). Cùng thư mục vật lý với disk 'local' mặc
+         * định của Laravel (storage/app/private), nhưng KHÔNG đặt 'serve' => true như disk
+         * 'local': bật cờ đó tự đăng ký một route GET/PUT /storage/{path} phục vụ MỌI tệp trên
+         * disk qua chữ ký URL riêng của framework (`storage.<disk>`), không đi qua
+         * `DocumentDownloadController` và không kiểm tra policy — đúng thứ SPEC §10.4 cấm ("chữ
+         * ký URL không thay thế kiểm tra quyền"). Việc dùng một disk riêng, tách khỏi 'local',
+         * đảm bảo tài liệu KHÔNG BAO GIỜ vô tình đi qua route tự động đó dù ai đó sau này bật
+         * 'serve' cho disk 'local' vì một lý do khác. Tệp chỉ tải được qua route ký riêng ở
+         * Task 5, route đó tự kiểm tra policy sau khi xác minh chữ ký.
+         */
+        'private' => [
+            'driver' => 'local',
+            'root' => storage_path('app/private'),
+            'throw' => false,
+            'report' => false,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),

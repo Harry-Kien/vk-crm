@@ -13,12 +13,24 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Spatie\MediaLibrary\HasMedia;
+use Spatie\MediaLibrary\InteractsWithMedia;
 
-class Document extends Model
+/**
+ * Tệp vật lý (đúng một tệp mỗi bản ghi `Document` — mỗi lần nộp lại tạo một `Document` MỚI với
+ * `version + 1`, SPEC §6.6 bước 7, chứ không phải nhiều tệp trên cùng một `Document`) do
+ * `spatie/laravel-medialibrary` quản lý trên disk `private` (`storage/app/private`, SPEC §10.4).
+ * Đây là toàn bộ trách nhiệm của model đối với medialibrary — việc SINH TÊN TỆP NGẪU NHIÊN khi
+ * lưu, không dùng tên gốc do người nộp đặt, là việc của `UploadStaffDocument`/
+ * `SubmitClientDocument` (Task 3/4) lúc gọi `addMedia(...)->usingFileName(...)`, không phải của
+ * khai báo collection ở đây.
+ */
+class Document extends Model implements HasMedia
 {
     /** @use HasFactory<DocumentFactory> */
     use HasFactory;
 
+    use InteractsWithMedia;
     use RestrictedToClientPortal;
     use SoftDeletes;
 
@@ -44,6 +56,19 @@ class Document extends Model
     public function isInternal(): bool
     {
         return $this->group->isInternal();
+    }
+
+    /**
+     * Đúng một tệp cho mỗi `Document` (SPEC §6.6 bước 6: "một tệp mỗi document"). `singleFile()`
+     * tự xoá tệp cũ khi có tệp mới gán vào collection này — không phải vấn đề ở đây vì một
+     * `Document` không bao giờ bị gán tệp lần hai (nộp lại tạo bản ghi `Document` mới với
+     * `parent_document_id`, không ghi đè tệp của bản ghi cũ — xem docblock lớp).
+     */
+    public function registerMediaCollections(): void
+    {
+        $this->addMediaCollection('file')
+            ->useDisk('private')
+            ->singleFile();
     }
 
     /**
