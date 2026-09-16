@@ -84,10 +84,16 @@ class AddMatterParty
 
         // Bước 2.
         /** @var array{0: ConflictCheckResult, 1: MatterParty} $checked */
-        $checked = DB::transaction(function () use ($matter, $partyData): array {
+        $checked = DB::transaction(function () use ($matter, $partyData, $actor): array {
             $party = $this->buildParty($matter, $partyData);
 
-            return [app(RunConflictCheck::class)->handle(collect([$party]), $matter), $party];
+            // Actor truyền xuống `RunConflictCheck` (fix M3, review toàn nhánh, finding 2): dòng
+            // `conflict_check_run` ở đây và dòng `matter_party_added` ở bước 4 là hai bằng chứng
+            // của CÙNG một thao tác, nên phải ghi CÙNG một người. Trước bản sửa này chỉ dòng thứ
+            // hai nhận actor tường minh, dòng thứ nhất rơi về `auth()` ambient — trên mọi đường
+            // không có phiên `web` (job, lệnh console, test) hai dòng đó bất đồng về người thực
+            // hiện, đúng chỗ chúng tồn tại để chứng minh ai đã kiểm tra.
+            return [app(RunConflictCheck::class)->handle(collect([$party]), $matter, $actor), $party];
         });
 
         [$result, $party] = $checked;

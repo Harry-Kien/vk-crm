@@ -11,10 +11,10 @@ use App\Models\ChecklistTemplate;
 use App\Models\Client;
 use App\Models\Matter;
 use App\Models\MatterParty;
+use App\Models\User;
 use App\Support\Audit;
 use App\Support\ConflictCheckResult;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -22,8 +22,14 @@ use Illuminate\Validation\ValidationException;
 /**
  * Mở vụ việc mới (SPEC §6.10 đầu bài "trước khi lưu vụ việc mới"; §11 "Xung đột lợi ích").
  *
- *  1. Kiểm tra quyền qua `MatterPolicy::create` — Action tự kiểm tra, không tin caller (cùng quy
- *     ước với `TransitionMatterStage`).
+ *  1. Kiểm tra quyền qua `MatterPolicy::create` trên `$actor` — Action tự kiểm tra, không tin
+ *     caller (cùng quy ước với `TransitionMatterStage`/`AddMatterParty`). Actor là THAM SỐ bắt
+ *     buộc, không bao giờ suy ra từ `Auth::` ambient (fix M3, review toàn nhánh, finding 1):
+ *     chính actor đó vừa mở cổng `create`, vừa quyết định ai được ghi đè mức đỏ ở bước 4, vừa là
+ *     causer của MỌI dòng nhật ký Action này ghi. Một phiên đăng nhập là thứ chỉ tồn tại ở đường
+ *     HTTP; khi Action được gọi từ một lệnh console, một job chạy lại, hay một import, phiên đó
+ *     hoặc rỗng hoặc thuộc về người khác — và cổng ghi đè mức đỏ là chỗ cuối cùng trong hệ thống
+ *     được phép đọc một danh tính đoán mò. Không có dòng `Auth::` nào trong lớp này, có chủ đích.
  *  2. `$attributes['client_role']` BẮT BUỘC (fix round 1, finding 2) — KHÔNG có mặc định. Vai của
  *     khách hàng chính quyết định `$ourClientRoles` mà `RunConflictCheck::isOpposing()` dùng để
  *     tính mức đỏ; một mặc định âm thầm (từng là `plaintiff`) khiến MỌI vụ việc mà khách hàng
@@ -107,6 +113,14 @@ use Illuminate\Validation\ValidationException;
 class OpenMatter
 {
     /**
+     * @param  User  $actor  Người thực hiện thao tác này. Bắt buộc và tường minh — cùng quy ước
+     *                       với `TransitionMatterStage::handle()` và `AddMatterParty::handle()`,
+     *                       nơi actor đứng ngay sau chủ thể; `OpenMatter` chưa có chủ thể (vụ
+     *                       việc chỉ ra đời ở bước 5) nên actor đứng đầu. Dùng cho CẢ BA việc:
+     *                       cổng `MatterPolicy::create`, kiểm tra vai `manager`/`admin` ở cổng
+     *                       ghi đè mức đỏ, và causer của mọi dòng nhật ký (`conflict_check_run`
+     *                       lẫn `matter_opened`). Caller ở Filament truyền `Auth::user()` của
+     *                       chính request đó; caller ở console/job truyền actor mà họ biết.
      * @param  array<string, mixed>  $attributes  Thuộc tính `Matter` (SPEC §4.5 `matters`), bắt
      *                                            buộc có `client_id` và `client_role`
      *                                            (`PartyRole|string` — vai của khách hàng chính
@@ -138,13 +152,12 @@ class OpenMatter
      *                                            hợp lệ nếu mức mới khác.
      */
     public function handle(
+        User $actor,
         array $attributes,
         array $parties,
         ?string $overrideReason = null,
         ?ConflictLevel $acknowledged = null,
     ): Matter {
-        $actor = Auth::guard('web')->user();
-
         // Bước 1.
         Gate::forUser($actor)->authorize('create', Matter::class);
 
@@ -161,7 +174,7 @@ class OpenMatter
 
         // Bước 3.
         /** @var array{0: ConflictCheckResult, 1: Collection<int, MatterParty>} $checked */
-        $checked = DB::transaction(function () use ($attributes, $parties, $clientRole): array {
+        $checked = DB::transaction(function () use ($attributes, $parties, $clientRole, $actor): array {
             $client = Client::query()->whereKey($attributes['client_id'])->lockForUpdate()->firstOrFail();
 
             $proposedParties = collect([
@@ -169,7 +182,9 @@ class OpenMatter
                 ...collect($parties)->map(fn (array $party) => $this->buildParty($party)),
             ]);
 
-            return [app(RunConflictCheck::class)->handle($proposedParties), $proposedParties];
+            // Actor truyền xuống để dòng `conflict_check_run` và dòng `matter_opened` — hai bằng
+            // chứng của CÙNG một thao tác — không bao giờ ghi hai người khác nhau.
+            return [app(RunConflictCheck::class)->handle($proposedParties, null, $actor), $proposedParties];
         });
 
         [$result, $proposedParties] = $checked;
@@ -179,8 +194,7 @@ class OpenMatter
 
         // Bước 4.
         if ($result->isBlocking()) {
-            $canOverride = $actor !== null
-                && ($actor->hasRole(Role::Manager->value) || $actor->hasRole(Role::Admin->value))
+            $canOverride = ($actor->hasRole(Role::Manager->value) || $actor->hasRole(Role::Admin->value))
                 && $overrideReason !== null && $overrideReason !== '';
 
             if (! $canOverride) {

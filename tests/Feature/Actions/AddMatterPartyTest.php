@@ -322,3 +322,36 @@ it('trusts the Client record for identity when is_our_client is true, ignoring m
         ->and($addition->party->phone_normalized)->toBe(Normalizer::phone('0911222333'))
         ->and($addition->party->id_number_hash)->not->toBe(Normalizer::idNumberHash('000000000000'));
 });
+
+/**
+ * Fix M3 (review toàn nhánh, finding 2): dòng `conflict_check_run` và dòng `matter_party_added`
+ * mô tả CÙNG một thao tác, nên phải chỉ về CÙNG một người. Trước bản sửa này chỉ dòng thứ hai
+ * nhận `$actor` tường minh, dòng thứ nhất rơi về `auth()` ambient — hai dòng bằng chứng của cùng
+ * một lần thêm bên có thể ghi hai người khác nhau (job, lệnh console, hoặc đơn giản là một phiên
+ * không thuộc về actor). Test cho phiên và actor là hai người KHÁC NHAU để phân biệt được.
+ */
+it('attributes the conflict-check row to the actor passed in, not to the user in the session', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $someoneElse = User::factory()->withRole(Role::Manager)->create();
+    $this->actingAs($someoneElse, 'web');
+
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+
+    app(AddMatterParty::class)->handle(
+        $matter,
+        $lawyer,
+        [
+            'role' => PartyRole::Defendant,
+            'name' => 'Bị đơn không trùng ai',
+            'id_number' => '012345678901',
+            'phone' => '0912345678',
+        ],
+    );
+
+    $checked = Activity::query()->where('event', 'conflict_check_run')->latest('id')->first();
+    $added = Activity::query()->where('event', 'matter_party_added')->latest('id')->first();
+
+    expect($checked->causer?->is($lawyer))->toBeTrue()
+        ->and($added->causer?->is($lawyer))->toBeTrue()
+        ->and($checked->properties->get('actor_explicit'))->toBeTrue();
+});

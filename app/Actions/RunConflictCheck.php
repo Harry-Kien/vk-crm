@@ -7,6 +7,7 @@ use App\Enums\ConflictMatchTier;
 use App\Enums\PartyRole;
 use App\Models\Matter;
 use App\Models\MatterParty;
+use App\Models\User;
 use App\Support\Audit;
 use App\Support\ConflictCheckResult;
 use App\Support\ConflictMatch;
@@ -108,6 +109,20 @@ use Illuminate\Support\Collection;
  * liệt kê ở `ConflictCheckResult::incompleteParties()`, và kèm vào activity log, để người xem xét
  * biết kết quả xanh của riêng bên này KHÔNG đáng tin cậy bằng bên đã có đủ định danh. Caller LUÔN
  * PHẢI gọi `identify()` với số căn cước/điện thoại thật khi có; đây chỉ là lưới an toàn khi họ quên.
+ *
+ * **Ai đã chạy lần kiểm tra này (fix M3, review toàn nhánh, finding 2).** Dòng `conflict_check_run`
+ * không chỉ chứng minh ĐÃ kiểm tra mà còn chứng minh AI kiểm tra, nên `$actor` là tham số — caller
+ * nào biết người thực hiện thì phải nói ra, thay vì để Action đoán từ phiên đăng nhập. `OpenMatter`
+ * và `AddMatterParty` LUÔN truyền actor tường minh của chúng, để dòng này và dòng nghiệp vụ đi kèm
+ * (`matter_opened` / `matter_party_added`) không bao giờ ghi hai người khác nhau cho cùng một thao
+ * tác. Tham số để CUỐI và TUỲ CHỌN một cách có chủ đích: lớp này còn là một chẩn đoán thuần đọc mà
+ * một màn hình có thể chạy thăm dò (SPEC §7.2 "chạy lại và hiện kết quả tại chỗ"), và một lệnh
+ * console/job chẩn đoán thật sự KHÔNG có actor nào để nói — bắt buộc actor sẽ buộc những chỗ đó bịa
+ * ra một người. Đổi lại, dòng nhật ký phải trung thực về chỗ danh tính đến từ đâu: thuộc tính
+ * `actor_explicit` là `true` khi caller KHẲNG ĐỊNH actor, `false` khi không — ở trường hợp `false`,
+ * causer (nếu có) chỉ là suy luận từ phiên đang mở của `Audit::record`, và người đọc kiểm toán sau
+ * này phải đọc được đúng như vậy chứ không phải như một lời khẳng định. Người sửa sau này: đừng
+ * thêm `Auth::` vào lớp này để "điền cho đủ" — chỗ trống đó chính là thông tin.
  */
 class RunConflictCheck
 {
@@ -118,8 +133,14 @@ class RunConflictCheck
      *                               bên của chính vụ này khỏi kết quả tìm kiếm, để nạp thêm các bên đã có của vụ vào CẢ việc xác
      *                               định "khách hàng mới" LẪN việc tìm bản ghi trùng (xem docblock lớp), và làm chủ thể
      *                               (`subject`) của activity log.
+     * @param  User|null  $actor  Người thực hiện lần kiểm tra này, nếu caller biết. Bắt buộc trên
+     *                            mọi đường nghiệp vụ (`OpenMatter`, `AddMatterParty` đều truyền);
+     *                            `null` CHỈ dành cho một lần chạy chẩn đoán thật sự không có người
+     *                            thực hiện xác định — khi đó dòng nhật ký tự đánh dấu
+     *                            `actor_explicit = false` thay vì im lặng nhận causer của phiên
+     *                            đang mở như một khẳng định. Xem docblock lớp.
      */
-    public function handle(Collection $parties, ?Matter $matter = null): ConflictCheckResult
+    public function handle(Collection $parties, ?Matter $matter = null, ?User $actor = null): ConflictCheckResult
     {
         // Mảng thuần, không phải Collection::merge() — xem docblock lớp "Gộp không được dùng
         // Eloquent Collection::merge()". Tập hợp CHUNG này nuôi CẢ việc xác định vai LẪN việc tìm
@@ -149,7 +170,12 @@ class RunConflictCheck
 
         $result = new ConflictCheckResult($level, $matches, $incompleteParties);
 
-        Audit::record('conflict_check_run', $matter, $result->toArray());
+        // `actor_explicit` đi cùng kết quả chứ không thay thế nó: nó nói dòng này được gán cho ai
+        // theo KHẲNG ĐỊNH của caller (true) hay chỉ theo phiên đăng nhập tình cờ đang mở (false).
+        Audit::record('conflict_check_run', $matter, [
+            ...$result->toArray(),
+            'actor_explicit' => $actor !== null,
+        ], $actor);
 
         return $result;
     }
