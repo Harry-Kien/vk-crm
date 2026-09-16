@@ -41,6 +41,7 @@ Bốn Action mới trong `app/Actions/Document/`: `SubmitClientDocument` (§6.6)
 | Luật sư gán luật sư chính là người khác thì bị đẩy về danh sách, không xem được vụ vừa mở; và vì `OpenMatter` tự ghi dòng nhật ký công bố portal thay vì đi qua `SetMatterPortalPublication`, họ có thể bật công bố lúc tạo rồi không tắt lại được (403). Liên quan tới câu hỏi tiếp nhận khách mới đang chờ chủ văn phòng quyết | 6 |
 | `SyncClientPartyIdentities` có thể **tạo ra** một xung đột mức đỏ khi nó ghi lại `id_number_hash` của các bên, mà không có lần kiểm tra nào chạy sau đó. SPEC §6.10 chỉ bắt buộc hai thời điểm nên đây không phải vi phạm, nhưng nó là thời điểm thứ ba và cần một quyết định — chạy lại kiểm tra theo lô, hay chỉ cảnh báo | 7 |
 | `OurClientPartyNeedsClient` / `ClientRoleRequired` chưa được bắt ở màn hình nào; nếu một `required()` trên form bị gỡ thì chúng thành lỗi 500. Mọi màn hình M4 gọi Action phải bắt `DomainException` và đổi thành lỗi trên form | 3, 4, 6 |
+| **Cần quyết định, không phải sửa lỗi:** `RunConflictCheck` đối chiếu lại MỌI bên đã có ở mỗi lần chạy (cố ý, từ rà soát vòng 3). Hệ quả: một khi mức đỏ đã bị ghi đè, mọi lần thêm bên sau đó trên cùng vụ việc lại trả về đỏ — chính bên vừa ghi đè giờ là một bên đã có. Mỗi lần thêm sau thành một lần ghi đè nữa, và một cái cổng phải bấm qua mỗi lần là cái cổng người ta học cách bấm cho xong. Hai hướng: ghi lại cặp đã được phân xử để một cặp đã ghi đè hạ xuống mức thông báo, hoặc thu hẹp phạm vi đối chiếu lại. Chạm mô hình dữ liệu nên phải chốt trước khi viết task | 2 |
 
 ---
 
