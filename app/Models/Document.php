@@ -73,12 +73,32 @@ class Document extends Model implements HasMedia
 
     /**
      * Khách chỉ thấy tài liệu được bật cho xem và không bao giờ thấy nhóm D (SPEC §4.11, §5).
+     *
+     * Điều kiện `status = published` là điều kiện thứ ba, và nó KHÔNG thừa so với
+     * `client_can_view`: hai cột trả lời hai câu khác nhau. `client_can_view` nói "khi tài liệu
+     * này ra tới khách thì khách được xem", còn `status` nói "nó đã ra tới khách chưa". Vòng đời
+     * nhóm B ở SPEC §4.11 (`internal_draft → pending_approval → signed_filed → published`) tồn
+     * tại chính là để "ngăn khách nhìn thấy một bản đơn mà toà chưa hề nhận được", nên một bản
+     * nháp có ai đó bật sẵn `client_can_view` vẫn phải nằm ngoài mọi truy vấn portal.
      */
     public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
     {
         $query->where($this->qualifyColumn('client_can_view'), true)
+            ->where($this->qualifyColumn('status'), DocumentStatus::Published->value)
             ->where($this->qualifyColumn('group'), '!=', DocumentGroup::Internal->value)
             ->whereHas('matter');
+    }
+
+    /**
+     * Ba điều kiện của SPEC §5 phần Portal, đọc thẳng trên thuộc tính của bản ghi thay vì qua
+     * một truy vấn. `DocumentPolicy::view()` gọi hàm này BÊN CẠNH `visibleToPortal()`, để tầng
+     * policy còn nói được điều gì đó khi tầng truy vấn bị vô hiệu (xem docblock DocumentPolicy).
+     */
+    public function isReleasedToPortal(): bool
+    {
+        return $this->client_can_view
+            && $this->status === DocumentStatus::Published
+            && ! $this->group->isInternal();
     }
 
     public function matter(): BelongsTo

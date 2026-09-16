@@ -2,8 +2,10 @@
 
 namespace App\Policies;
 
+use App\Enums\Permission;
 use App\Models\ClientRequest;
 use App\Models\ClientUser;
+use App\Models\Matter;
 use App\Models\User;
 use App\Policies\Concerns\ChecksMatterAccess;
 use App\Policies\Concerns\ChecksPortalVisibility;
@@ -25,10 +27,25 @@ class ClientRequestPolicy
             : $this->canSeeMatter($user, $request->matter);
     }
 
-    /** Khách gửi yêu cầu; nhân sự trả lời (SPEC §5 portal). */
-    public function create(User|ClientUser $user): bool
+    /**
+     * Khách gửi yêu cầu; nhân sự trả lời (SPEC §5 portal: "Tạo và xem `ClientRequest` của chính
+     * mình"). $matter là ngữ cảnh tuỳ chọn theo quy ước Laravel — giao diện hỏi ability này
+     * không kèm vụ việc khi mới chỉ quyết định có hiện nút "Gửi yêu cầu" hay không, còn chặn
+     * thật nằm ở nhánh đã biết vụ việc.
+     *
+     * Hai guard, hai luật: khách chỉ cần vụ việc nằm trong tầm nhìn portal của mình; nhân sự
+     * phải ghi được vào vụ việc đó (`MatterPolicy::update`), nên kế toán — không có
+     * `matter.update` — không mở được yêu cầu thay khách.
+     */
+    public function create(User|ClientUser $user, ?Matter $matter = null): bool
     {
-        return true;
+        if ($matter === null) {
+            return $user instanceof ClientUser || $user->can(Permission::MatterUpdate->value);
+        }
+
+        return $user instanceof ClientUser
+            ? $this->canSeeMatter($user, $matter)
+            : $this->canUpdateMatter($user, $matter);
     }
 
     public function update(User|ClientUser $user, ClientRequest $request): bool

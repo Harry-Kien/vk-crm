@@ -25,16 +25,18 @@ it('lets an admin open every matter type page', function () {
 /**
  * MatterTypePolicy để viewAny/view mở cho mọi vai trò (portal cần đọc nhãn giai đoạn), nhưng
  * create/update/delete chỉ dành cho settings.manage (admin). Filament áp policy tự động cho
- * từng trang resource; test này xác nhận luật sư — không có settings.manage — bị 403 trên các
+ * từng trang resource; test này xác nhận luật sư — không có settings.manage — không mở được các
  * trang ghi trong khi trang danh sách (đọc) vẫn mở.
  */
-it('forbids a lawyer from writing a matter type but still allows reading the list', function () {
+it('hides the matter type write pages from a lawyer but still allows reading the list', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $type = MatterType::factory()->create();
 
     $this->actingAs($lawyer, 'web')->get(MatterTypeResource::getUrl('index', panel: 'admin'))->assertOk();
-    $this->actingAs($lawyer, 'web')->get(MatterTypeResource::getUrl('create', panel: 'admin'))->assertForbidden();
-    $this->actingAs($lawyer, 'web')->get(MatterTypeResource::getUrl('edit', ['record' => $type], panel: 'admin'))->assertForbidden();
+    // Panel từ chối bằng 404 (SPEC §10.10, xem DenialCodeTest và
+    // AnswerDeniedPanelRequestsWithNotFound).
+    $this->actingAs($lawyer, 'web')->get(MatterTypeResource::getUrl('create', panel: 'admin'))->assertNotFound();
+    $this->actingAs($lawyer, 'web')->get(MatterTypeResource::getUrl('edit', ['record' => $type], panel: 'admin'))->assertNotFound();
 });
 
 /**

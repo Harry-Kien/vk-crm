@@ -2,6 +2,7 @@
 
 namespace App\Providers\Filament;
 
+use App\Http\Middleware\AnswerDeniedPanelRequestsWithNotFound;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -60,6 +61,10 @@ class AdminPanelProvider extends PanelProvider
             ->widgets([
                 AccountWidget::class,
             ])
+            // Ngoài cùng, và `isPersistent: true` để nó theo cả sang request cập nhật
+            // Livewire — panel từ chối kiểu gì cũng ra 404 (SPEC §10.10). Xem docblock
+            // của middleware.
+            ->middleware([AnswerDeniedPanelRequestsWithNotFound::class], isPersistent: true)
             ->middleware([
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,

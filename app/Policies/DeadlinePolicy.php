@@ -31,13 +31,21 @@ class DeadlinePolicy
         return $user instanceof User && $user->can(Permission::MatterUpdate->value);
     }
 
+    /**
+     * Cùng điều kiện với `create()` ở trên, chỉ khác là đã biết vụ việc nên hỏi thẳng
+     * `MatterPolicy::update`. Trên bảng quyền SPEC §5 hôm nay điều này chưa loại thêm vai trò
+     * nào — bốn vai trò có `matter.view` đều có `matter.update` — nhưng nó gỡ luật ra khỏi bảng
+     * quyền hiện hành: hôm nào văn phòng cấp một vai trò chỉ-đọc (`matter.view` mà không
+     * `matter.update`, đúng chữ "hạn chế" ở ô trợ lý trong SPEC §5) thì hàng mốc thời hạn khoá
+     * lại mà không phải sửa policy. Nó cũng chặn sửa mốc trên một vụ việc đã xoá mềm.
+     */
     public function update(User|ClientUser $user, Deadline $deadline): bool
     {
-        return $user instanceof User && $this->canSeeMatter($user, $deadline->matter);
+        return $user instanceof User && $this->canUpdateMatter($user, $deadline->matter);
     }
 
     public function delete(User|ClientUser $user, Deadline $deadline): bool
     {
-        return $user instanceof User && $this->canSeeMatter($user, $deadline->matter);
+        return $this->update($user, $deadline);
     }
 }

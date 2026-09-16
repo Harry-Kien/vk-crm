@@ -27,17 +27,17 @@ Bốn Action mới trong `app/Actions/Document/`: `SubmitClientDocument` (§6.6)
 
 | Việc | Task |
 |---|---|
-| `Document::applyClientPortalConstraints` chưa xét `status`, nên một tài liệu nhóm B còn `internal_draft` mà bật `client_can_view` vẫn hiện cho khách | 2 |
-| `DocumentPolicy::create()` và `ClientRequestPolicy::create()` trả `true` vô điều kiện | 2 |
-| `DocumentPolicy::update`/`delete` và `DeadlinePolicy::update`/`delete` chỉ xét khả năng thấy vụ việc, không xét quyền nào | 2 |
-| Chưa có quyền nào diễn tả "khách nộp tệp vào một đầu mục danh mục" | 2, 4 |
+| ~~`Document::applyClientPortalConstraints` chưa xét `status`~~ — **đã sửa ở Task 2**: điều kiện `status = published` đặt ở CẢ global scope lẫn `DocumentPolicy::view` (qua `Document::isReleasedToPortal()`), có test gây lỗi chủ ý ở tầng truy vấn để chứng minh tầng policy tự đứng được | 2 |
+| ~~`DocumentPolicy::create()` và `ClientRequestPolicy::create()` trả `true` vô điều kiện~~ — **đã sửa ở Task 2** theo quy ước tham số ngữ cảnh tuỳ chọn của `ClientUserPolicy::create` | 2 |
+| ~~`DocumentPolicy::update`/`delete` và `DeadlinePolicy::update`/`delete` chỉ xét khả năng thấy vụ việc~~ — **đã sửa ở Task 2, có đi chệch kế hoạch**: `matter.update` một mình KHÔNG loại được trợ lý (bảng SPEC §5 cho cả bốn vai có `matter.view` luôn có `matter.update`), nên `DocumentPolicy::delete` đòi thêm `document.publish`; `update`/`delete` giờ cũng đi qua `view()` nên không ai xoá được tài liệu nhóm D mình không đọc được | 2 |
+| Chưa có quyền nào diễn tả "khách nộp tệp vào một đầu mục danh mục" — **nửa policy xong ở Task 2**: `DocumentPolicy::create($clientUser, $checklistItem)`, không thêm tên quyền vào SPEC §5. Task 4 phải gọi ability này KÈM đầu mục, vì nhánh không có ngữ cảnh cố ý chỉ trả lời câu hỏi giao diện | 2, 4 |
 | `ForceDeleteAction`/`RestoreAction` thừa trên các resource M3 (không policy nào định nghĩa hai quyền đó) | 7 |
 | `MatterType.code` có cùng lỗ hổng xoá-mềm-rồi-tạo-lại như `matter_type_stages.key` từng có trước khi M3 thêm guard ở model — task nào đụng `MatterTypeForm` nên vá luôn | 7 |
 | `MattersByStageWidget` gộp theo nhãn giai đoạn (`label`), nên hai loại vụ việc có giai đoạn trùng nhãn sẽ bị cộng chung một cột — số liệu sai | 7 |
 | `PartiesRelationManager::visibleClientOptions()` là bản sao trùng logic của `App\Filament\Admin\Support\VisibleClientOptions::forCurrentUser()` — **đã sửa ở M3 round 2 review** (cả hai nơi giờ dùng chung một lớp), chỉ còn ghi lại ở đây để tránh ai đó vô tình chép lại lần nữa | — |
 | 19 khoá Filament vẫn hiện tiếng Anh trong các tệp chưa ai publish, `LocalizationTest` **không nhìn thấy** vì nó chỉ duyệt tệp đã có dưới `lang/vendor/`. Đáng kể nhất: các câu giới hạn tần suất của `filament/auth/multi-factor/**` (liên quan trực tiếp 2FA bắt buộc ở SPEC §10.7) và `support/components/input/one-time-code.php` `aria_label` — **chính là ô nhập OTP của cổng khách hàng ở M5** | 7 |
 | `lang/en/` hiện **che** bản `en` của framework: một lần nâng Laravel thêm thông báo xác thực mới sẽ thiếu luôn ở bản `en` của ứng dụng, nên `LocalizationTest` vẫn xanh trong khi giao diện hiện ra khoá thô. Phải đối chiếu với `vendor/laravel/framework/.../lang/en/validation.php` thay vì với `lang/en/` | 7 |
-| Trang panel trả **403** (tiếng Anh, của Filament) cho kế toán trong khi mọi chỗ khác trong mã đã chuyển sang **404** theo SPEC §10.10 — hai kiểu từ chối cho cùng một tình huống "không có quyền". Phải chốt một kiểu trước khi M4 thêm màn hình | 2 |
+| ~~Trang panel trả **403** trong khi mọi chỗ khác đã là **404**~~ — **đã chốt ở Task 2: 404, một kiểu duy nhất trong cả hai panel** (`AnswerDeniedPanelRequestsWithNotFound`). Lý do quyết định: Filament GIẢI BẢN GHI TRƯỚC rồi mới hỏi `canAccess()`, nên cặp (403, 404) là một máy dò sự tồn tại của bản ghi cho đúng người không được biết — kế toán phân biệt được một `client_id` có thật với một id bịa. Cái giá đã nhận: một tài khoản bị vô hiệu cũng nhận 404 thay vì 403 | 2 |
 | Luật sư gán luật sư chính là người khác thì bị đẩy về danh sách, không xem được vụ vừa mở; và vì `OpenMatter` tự ghi dòng nhật ký công bố portal thay vì đi qua `SetMatterPortalPublication`, họ có thể bật công bố lúc tạo rồi không tắt lại được (403). Liên quan tới câu hỏi tiếp nhận khách mới đang chờ chủ văn phòng quyết | 6 |
 | `SyncClientPartyIdentities` có thể **tạo ra** một xung đột mức đỏ khi nó ghi lại `id_number_hash` của các bên, mà không có lần kiểm tra nào chạy sau đó. SPEC §6.10 chỉ bắt buộc hai thời điểm nên đây không phải vi phạm, nhưng nó là thời điểm thứ ba và cần một quyết định — chạy lại kiểm tra theo lô, hay chỉ cảnh báo | 7 |
 | `OurClientPartyNeedsClient` / `ClientRoleRequired` chưa được bắt ở màn hình nào; nếu một `required()` trên form bị gỡ thì chúng thành lỗi 500. Mọi màn hình M4 gọi Action phải bắt `DomainException` và đổi thành lỗi trên form | 3, 4, 6 |
@@ -87,7 +87,7 @@ Bốn việc mang sang, tất cả là lỗ hổng thật đã được ghi nh�
 3. `ClientRequestPolicy::create()` tương tự: khách chỉ tạo được yêu cầu trên vụ việc của mình.
 4. `DocumentPolicy::update`/`delete` và `DeadlinePolicy::update`/`delete` thêm điều kiện quyền (`matter.update`), không chỉ khả năng thấy vụ việc — hiện tại một trợ lý trong đội ngũ xoá được tài liệu.
 
-- [ ] Test đỏ cho từng mục, cài đặt, test xanh, pint, commit `fix: documents and requests are gated by permission, not only by visibility`.
+- [x] Test đỏ cho từng mục, cài đặt, test xanh, pint, commit `fix: documents and requests are gated by permission, not only by visibility`.
 
 ---
 

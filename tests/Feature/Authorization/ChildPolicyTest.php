@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\DocumentGroup;
+use App\Enums\DocumentStatus;
 use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Models\Client;
@@ -35,7 +36,11 @@ beforeEach(function () {
     $this->log = StageLog::factory()->for($this->matter)->published()->create();
     $this->internalDoc = Document::factory()->for($this->matter)->group(DocumentGroup::Internal)->create();
     $this->clientDoc = Document::factory()->for($this->matter)->group(DocumentGroup::Issued)
-        ->create(['client_can_view' => true, 'client_can_download' => false]);
+        ->create([
+            'status' => DocumentStatus::Published,
+            'client_can_view' => true,
+            'client_can_download' => false,
+        ]);
 });
 
 it('ties every child record to the visibility of its matter', function () {

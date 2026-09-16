@@ -26,10 +26,12 @@ beforeEach(function () {
  * vai trò SPEC không cấp quyền đó. canAccess() giờ không còn xét matter.viewAny, nên kế toán bị
  * chặn ngay ở trang danh sách, không phải chỉ lọc dòng.
  */
-it('forbids the accountant from opening the client user list at all', function () {
+it('hides the client user list from the accountant entirely', function () {
     $accountant = User::factory()->withRole(Role::Accountant)->create();
 
-    $this->actingAs($accountant, 'web')->get(ClientUserResource::getUrl('index', panel: 'admin'))->assertForbidden();
+    // Panel từ chối bằng 404 (SPEC §10.10, xem DenialCodeTest và
+    // AnswerDeniedPanelRequestsWithNotFound).
+    $this->actingAs($accountant, 'web')->get(ClientUserResource::getUrl('index', panel: 'admin'))->assertNotFound();
 });
 
 /**
@@ -68,10 +70,12 @@ it('lets a lawyer with clientUser.manage see every client user regardless of mat
         ->assertCanSeeTableRecords([$clientUser]);
 });
 
-it('forbids the accountant from writing a client user', function () {
+it('hides the client user create page from the accountant', function () {
     $accountant = User::factory()->withRole(Role::Accountant)->create();
 
-    $this->actingAs($accountant, 'web')->get(ClientUserResource::getUrl('create', panel: 'admin'))->assertForbidden();
+    // Panel từ chối bằng 404 (SPEC §10.10, xem DenialCodeTest và
+    // AnswerDeniedPanelRequestsWithNotFound).
+    $this->actingAs($accountant, 'web')->get(ClientUserResource::getUrl('create', panel: 'admin'))->assertNotFound();
 });
 
 /**

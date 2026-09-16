@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\DocumentGroup;
+use App\Enums\DocumentStatus;
 use App\Models\ChecklistTemplate;
 use App\Models\Client;
 use App\Models\ClientRequest;
@@ -32,13 +33,17 @@ beforeEach(function () {
     $this->foreignLog = StageLog::factory()->for($this->matterB)->published()->create();
 
     $this->visibleDoc = Document::factory()->for($this->matterA)->group(DocumentGroup::Issued)
-        ->create(['client_can_view' => true]);
+        ->create(['status' => DocumentStatus::Published, 'client_can_view' => true]);
     $this->hiddenDoc = Document::factory()->for($this->matterA)->group(DocumentGroup::Issued)
-        ->create(['client_can_view' => false]);
+        ->create(['status' => DocumentStatus::Published, 'client_can_view' => false]);
+    // Đã ký và nộp toà nhưng CHƯA công bố: SPEC §4.11 nói đúng bước cuối mới ra tới khách,
+    // nên `client_can_view` bật sẵn ở đây không được đủ.
+    $this->unpublishedDoc = Document::factory()->for($this->matterA)->group(DocumentGroup::Issued)
+        ->create(['status' => DocumentStatus::SignedFiled, 'client_can_view' => true]);
     $this->internalDoc = Document::factory()->for($this->matterA)->group(DocumentGroup::Internal)
-        ->create(['client_can_view' => true]);
+        ->create(['status' => DocumentStatus::Published, 'client_can_view' => true]);
     $this->foreignDoc = Document::factory()->for($this->matterB)->group(DocumentGroup::Issued)
-        ->create(['client_can_view' => true]);
+        ->create(['status' => DocumentStatus::Published, 'client_can_view' => true]);
 });
 
 it('shows only published stage logs of the own client', function () {
@@ -47,10 +52,12 @@ it('shows only published stage logs of the own client', function () {
     expect(StageLog::pluck('id')->all())->toBe([$this->publishedLog->id]);
 });
 
-it('shows only viewable non internal documents of the own client', function () {
+it('shows only published viewable non internal documents of the own client', function () {
     $this->actingAs($this->userA, 'client');
 
     expect(Document::pluck('id')->all())->toBe([$this->visibleDoc->id])
+        ->and(Document::find($this->hiddenDoc->id))->toBeNull()
+        ->and(Document::find($this->unpublishedDoc->id))->toBeNull()
         ->and(Document::find($this->internalDoc->id))->toBeNull()
         ->and(Document::find($this->foreignDoc->id))->toBeNull();
 });
@@ -144,7 +151,7 @@ it('restricts nothing for staff', function () {
     $this->actingAs(User::factory()->create(), 'web');
 
     expect(StageLog::count())->toBe(3)
-        ->and(Document::count())->toBe(4)
+        ->and(Document::count())->toBe(5)
         ->and(Client::count())->toBe(2)
         ->and(MatterParty::count())->toBe(1)
         ->and(ChecklistTemplate::count())->toBe(1)
