@@ -780,3 +780,91 @@ it('clears a written override reason when the conflict result it was written for
 
     expect($component->instance()->data['override_reason'])->toBeNull();
 });
+
+/**
+ * I-A (Important, review gộp nhánh M3) — bản sinh đôi của test cùng tên ở `ViewMatterTest`. Cổng
+ * của `override_reason` hỏi "đã có kết quả kiểm tra nào chưa?" chứ không hỏi "đã có kết quả ĐỎ nào
+ * chưa?", mà ô này `visible()` trên MỌI kết quả đã lưu, VÀNG kể cả. Một lý do viết trong vòng vàng
+ * vì thế sống sót sang một lần kiểm tra ĐỎ (một lần thêm bên song song, hay một lần sửa hồ sơ
+ * `Client` kích hoạt `SyncClientPartyIdentities` ghi lại `id_number_hash`) và được nhận là một
+ * quyết định ghi đè có chủ ý — vào nhật ký append-only vĩnh viễn, về một bảng đỏ chưa ai từng thấy.
+ *
+ * Leo mức dựng THẬT: khớp theo tên trần là vàng (§11), rồi bên kia được bổ sung đúng số căn cước
+ * giữa hai lượt gửi.
+ */
+it('will not honour an override reason written during a yellow round when the conflict escalates to red', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $client = Client::factory()->create();
+    $type = createFormMatterType();
+
+    // Khách hàng của văn phòng ở vụ khác, TRÙNG TÊN bên sắp nhập nhưng chưa có định danh nào.
+    $otherMatter = Matter::factory()->create();
+    $twin = MatterParty::factory()->for($otherMatter)->create([
+        'role' => PartyRole::Plaintiff,
+        'is_our_client' => true,
+        'name' => 'Nguyễn Văn Hùng',
+    ]);
+
+    $this->actingAs($manager, 'web');
+    $matterCountBefore = Matter::count();
+
+    $component = $this->livewire(CreateMatter::class)
+        ->fillForm(createMatterFormData($client, $manager, $type, [
+            'other_parties' => [[
+                'role' => PartyRole::Defendant->value,
+                'name' => 'Nguyễn Văn Hùng',
+                'id_number' => '079012345678',
+            ]],
+        ]));
+
+    $component->call('create')->assertHasFormErrors(['acknowledge_conflict']);
+
+    expect($component->instance()->conflictResult['level'])->toBe('yellow');
+
+    // Giữa hai lượt gửi: hồ sơ bên kia được bổ sung đúng số căn cước đang nhập.
+    $twin->identify('079012345678', null)->save();
+
+    $component->fillForm(['override_reason' => 'Lý do viết cho một vòng VÀNG.'])
+        ->call('create')
+        ->assertHasFormErrors(['override_reason']);
+
+    expect(Matter::count())->toBe($matterCountBefore)
+        ->and(Activity::query()->where('event', 'matter_opened')->exists())->toBeFalse();
+});
+
+/**
+ * I-B, nửa của màn hình này: bảng trong form đã hiện tên bên trùng (`conflictResultViewData()`),
+ * nhưng THÔNG BÁO sau khi lưu — thứ duy nhất còn lại khi form biến mất — thì không, dù docblock
+ * `conflictSummary()` tự nhận là có. SPEC §6.10 "Đính chính 2026-09-16": không có tên thì người
+ * dùng không kiểm chứng hay phản bác được kết quả.
+ */
+it('names the matched party in the notification after a red conflict is overridden', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $client = Client::factory()->create();
+    $type = createFormMatterType();
+    existingFirmClientParty('079012345678', 'Nguyễn Văn Hùng');
+
+    $this->actingAs($manager, 'web');
+
+    $component = $this->livewire(CreateMatter::class)
+        ->fillForm(createMatterFormData($client, $manager, $type, [
+            'other_parties' => [[
+                'role' => PartyRole::Defendant->value,
+                'name' => 'Bị đơn trùng căn cước',
+                'id_number' => '079012345678',
+            ]],
+        ]));
+
+    $component->call('create')->assertHasFormErrors(['override_reason']);
+
+    $component->fillForm(['override_reason' => 'Đã xác minh, không phải cùng một người.'])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $overridden = createFormNotifications()
+        ->first(fn (Notification $notification): bool => $notification->getTitle() === __('matters.conflict.saved_overridden'));
+
+    expect($overridden)->not->toBeNull()
+        // Tên của bên trùng ở hồ sơ kia, không phải tên bên vừa nhập.
+        ->and($overridden->getBody())->toContain('Nguyễn Văn Hùng');
+});

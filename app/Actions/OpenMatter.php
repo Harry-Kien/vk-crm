@@ -5,7 +5,6 @@ namespace App\Actions;
 use App\Actions\Concerns\BuildsMatterParties;
 use App\Enums\ConflictLevel;
 use App\Enums\PartyRole;
-use App\Enums\Role;
 use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
 use App\Models\ChecklistTemplate;
@@ -15,6 +14,7 @@ use App\Models\MatterParty;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\ConflictCheckResult;
+use App\Support\ConflictOverride;
 use App\Support\OpenMatterResult;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Collection;
@@ -248,7 +248,10 @@ class OpenMatter
 
         // Bước 4.
         if ($result->isBlocking()) {
-            $canOverride = ($actor->hasRole(Role::Manager->value) || $actor->hasRole(Role::Admin->value))
+            // Xem `AddMatterParty` bước 3: quy tắc "ai ghi đè được" chỉ có một nơi ở, kể cả ở tầng
+            // cổng thật — hai bản viết tay giống hệt nhau là đúng hình dạng đã lệch nhau bốn lần
+            // trên nhánh này.
+            $canOverride = ConflictOverride::allowedFor($actor)
                 && $overrideReason !== null && $overrideReason !== '';
 
             if (! $canOverride) {

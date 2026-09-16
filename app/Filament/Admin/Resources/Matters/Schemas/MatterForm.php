@@ -264,12 +264,18 @@ class MatterForm
             // trò của actor. `visible()` và `disabled()` chồng lên nhau chứ không triệt tiêu nhau:
             // ẩn thì không dehydrate, khoá thì cũng không dehydrate — luật sư ở lượt 2 vẫn ĐỌC
             // được ô và câu giải thích ai mới ghi đè được, nhưng không gửi được gì qua nó.
+            //
+            // `visible()` hỏi `redResultShown()`, KHÔNG `conflictResult !== null` (I-A): ghi đè chỉ
+            // tồn tại cho mức đỏ, và một ô mở trong một vòng VÀNG là đúng thứ cho phép một câu viết
+            // cho vòng vàng sống sót sang một lần kiểm tra ĐỎ kế tiếp — xem docblock
+            // `CreateMatter::redResultShown()`. Ô "đã xem xét" ngay trên thì giữ nguyên điều kiện
+            // cũ: một vòng vàng cần đúng dấu tích đó để đi tiếp.
             Textarea::make('override_reason')
                 ->label(__('matters.conflict.override_reason'))
                 ->helperText(fn (CreateMatter $livewire): string => $livewire->canOverrideRedConflict()
                     ? __('matters.conflict.override_reason_help_allowed')
                     : __('matters.conflict.override_reason_help_denied'))
-                ->visible(fn (CreateMatter $livewire): bool => $livewire->conflictResult !== null)
+                ->visible(fn (CreateMatter $livewire): bool => $livewire->redResultShown())
                 ->disabled(fn (CreateMatter $livewire): bool => ! $livewire->canOverrideRedConflict())
                 ->rows(2)
                 ->columnSpanFull(),

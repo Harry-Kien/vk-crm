@@ -4,7 +4,6 @@ namespace App\Actions;
 
 use App\Actions\Concerns\BuildsMatterParties;
 use App\Enums\ConflictLevel;
-use App\Enums\Role;
 use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
 use App\Models\Matter;
@@ -13,6 +12,7 @@ use App\Models\User;
 use App\Support\AddMatterPartyResult;
 use App\Support\Audit;
 use App\Support\ConflictCheckResult;
+use App\Support\ConflictOverride;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
@@ -111,7 +111,11 @@ class AddMatterParty
 
         // Bước 3.
         if ($result->isBlocking()) {
-            $canOverride = ($actor->hasRole(Role::Manager->value) || $actor->hasRole(Role::Admin->value))
+            // Vai nào ghi đè được thì hỏi `ConflictOverride`, không viết lại tại chỗ (Minor, review
+            // gộp nhánh M3): vòng 4 đã gom nửa HIỂN THỊ của quy tắc này về một lớp nhưng để nguyên
+            // hai bản viết tay ở đây và ở `OpenMatter` — mà đây mới là tầng mà một lần lệch nhau
+            // cho phép SAI NGƯỜI ghi đè một xung đột mức đỏ, chứ không chỉ làm màn hình nói sai.
+            $canOverride = ConflictOverride::allowedFor($actor)
                 && $overrideReason !== null && $overrideReason !== '';
 
             if (! $canOverride) {

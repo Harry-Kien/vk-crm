@@ -8,14 +8,15 @@ use App\Enums\PartyRole;
 use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
 use App\Filament\Admin\Concerns\ScopesToVisibleMatters;
-use App\Filament\Admin\Support\ConflictOverride;
 use App\Filament\Admin\Support\VisibleClientOptions;
 use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Support\AddMatterPartyResult;
 use App\Support\ConflictCheckResult;
 use App\Support\ConflictMatch;
+use App\Support\ConflictOverride;
 use Closure;
+use DomainException;
 use Filament\Actions\CreateAction;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -230,7 +231,7 @@ class PartiesRelationManager extends RelationManager
                     ->helperText(fn (): string => $this->canOverrideRedConflict()
                         ? __('matters.party_fields.override_reason_help_allowed')
                         : __('matters.party_fields.override_reason_help_denied'))
-                    ->visible(fn (): bool => $this->conflictResult !== null)
+                    ->visible(fn (): bool => $this->redResultShown())
                     ->disabled(fn (): bool => ! $this->canOverrideRedConflict())
                     ->rows(2)
                     ->columnSpanFull(),
@@ -241,6 +242,32 @@ class PartiesRelationManager extends RelationManager
     public function canOverrideRedConflict(): bool
     {
         return ConflictOverride::allowedForCurrentUser();
+    }
+
+    /**
+     * Một kết quả kiểm tra mức ĐỎ đã thật sự được hiện ra cho người dùng đọc — điều kiện DUY NHẤT
+     * làm một lý do ghi đè có nghĩa (I-A, review gộp nhánh M3).
+     *
+     * **Vì sao không phải `conflictResult !== null`.** Ghi đè chỉ tồn tại cho mức đỏ (SPEC §6.10
+     * bảng mức), nhưng ô lý do từng `visible()` trên MỌI kết quả đã lưu — vàng, và cả xanh có bên
+     * thiếu định danh. Nên một manager viết lý do trong một vòng VÀNG (nơi ô đó không có việc gì để
+     * làm), rồi mức leo lên ĐỎ trước lượt gửi kế tiếp — một lần thêm bên song song trên cùng vụ
+     * việc, hay một lần sửa hồ sơ `Client` kích hoạt `SyncClientPartyIdentities` ghi lại
+     * `id_number_hash` — thì câu viết cho vòng vàng đó được `AddMatterParty` đọc như một quyết định
+     * ghi đè: `isBlocking()` + manager + lý do khác rỗng ⟹ LƯU. `conflict_overridden: true` và câu
+     * đó vào dòng nhật ký append-only VĨNH VIỄN, trong khi không một bảng ĐỎ nào từng được hiện ra.
+     * Thông báo sau đó nói thật, nhưng bản ghi thì đọc như một quyết định của cấp trên về một xung
+     * đột không ai được xem — trên đúng chức năng SPEC gọi là nghĩa vụ đạo đức nghề nghiệp.
+     *
+     * Một hàm, HAI tầng dùng: `visible()` của ô (nên Filament không dehydrate nó ngoài vòng đỏ) và
+     * lời kiểm tra lại trong `createParty()` (nên cổng không đặt trọng lượng lên một chi tiết
+     * dehydrate của framework). Hai tầng không thể lệch nhau vì chúng hỏi cùng một câu.
+     *
+     * Ô "đã xem xét" thì KHÔNG hẹp lại theo mức: một vòng vàng cần đúng dấu tích đó để đi tiếp.
+     */
+    public function redResultShown(): bool
+    {
+        return ($this->conflictResult['level'] ?? null) === ConflictLevel::Red->value;
     }
 
     /**
@@ -388,11 +415,12 @@ class PartiesRelationManager extends RelationManager
             ? ConflictLevel::tryFrom($this->pendingConflictLevel)
             : null;
 
-        // C-1: lý do ghi đè chỉ có nghĩa khi đã có một kết quả kiểm tra HIỆN RA cho người dùng
-        // đọc. Ô này đã `visible()` theo `$conflictResult` nên ở lượt đầu Filament còn không
-        // dehydrate nó; kiểm tra lại ở đây để cổng không đặt hết trọng lượng lên một chi tiết
+        // C-1 + I-A: lý do ghi đè chỉ có nghĩa khi một kết quả mức ĐỎ đã hiện ra cho người dùng
+        // đọc — không phải "một kết quả bất kỳ". Xem `redResultShown()` cho đường leo mức mà điều
+        // kiện cũ để lọt. Ô này đã `visible()` theo cùng hàm đó nên ngoài vòng đỏ Filament còn
+        // không dehydrate nó; kiểm tra lại ở đây để cổng không đặt hết trọng lượng lên một chi tiết
         // dehydrate của framework — cùng lập luận với `CreateMatter::handleRecordCreation()`.
-        $overrideReason = $this->conflictResult !== null ? ($data['override_reason'] ?? null) : null;
+        $overrideReason = $this->redResultShown() ? ($data['override_reason'] ?? null) : null;
 
         try {
             $addition = app(AddMatterParty::class)->handle(
@@ -430,6 +458,22 @@ class PartiesRelationManager extends RelationManager
 
             throw ValidationException::withMessages([
                 $this->errorKey('acknowledge_conflict') => [__('matters.parties.conflict_ack_retry')],
+            ]);
+        } catch (DomainException $exception) {
+            // Lưới an toàn cho MỌI luật nghiệp vụ còn lại của tầng Action (hôm nay chỉ có
+            // `OurClientPartyNeedsClient`; `ConflictBlocked`/`ConflictAcknowledgementRequired` đã
+            // được bắt ở trên và cũng là `DomainException`, nên thứ tự `catch` ở đây là bắt buộc).
+            // `bootstrap/app.php` không đăng ký bất kỳ `render()` nào cho `DomainException`, nên
+            // không có lưới này thì một luật như vậy thoát ra khỏi modal thành trang lỗi 500 —
+            // cùng lập luận và cùng hình dạng với `BuildsStageUpdateSchema`. Đường chính đã bị
+            // `required()` chặn từ trước; đây là cho những đường vào chưa lường trước.
+            //
+            // Lỗi gắn vào `client_id`: luật duy nhất đi qua đây hôm nay nói về đúng ô đó, và ô đó
+            // chỉ hiện khi công tắc "là khách hàng của văn phòng" bật — tức đúng lúc luật có thể
+            // vi phạm. Thông điệp lấy nguyên từ exception, vốn đã là một câu tiếng Việt qua
+            // `lang/vi/exceptions.php`.
+            throw ValidationException::withMessages([
+                $this->errorKey('client_id') => [$exception->getMessage()],
             ]);
         }
 
@@ -546,8 +590,18 @@ class PartiesRelationManager extends RelationManager
 
     /**
      * Phần thân chung của cả ba thông báo: danh sách hồ sơ trùng, cảnh báo bên thiếu định danh, và
-     * lý do ghi đè nếu có. Cùng ranh giới lộ thông tin với bảng trong form tạo vụ việc — CHỈ mã hồ
-     * sơ, loại vụ việc, vai và tên bên trùng; không tiêu đề, không tóm tắt, không id.
+     * lý do ghi đè nếu có.
+     *
+     * **Mỗi dòng mang ĐÚNG sáu trường của `ConflictMatch`, theo đúng thứ tự các cột của bảng trên
+     * màn hình sinh đôi:** mã hồ sơ, loại vụ việc, vai của bên trùng, TÊN của bên trùng, tầng khớp,
+     * mức. Không tiêu đề, không tóm tắt, không id — ranh giới lộ thông tin của SPEC §6.10 đoạn cuối.
+     *
+     * **`partyName` từng thiếu, trong khi docblock này tự nhận là có (I-B, review gộp nhánh M3).**
+     * Đính chính SPEC 2026-09-16 nói thẳng vì sao cột đó không bỏ được: "không có nó thì người dùng
+     * không có cách nào kiểm chứng hay phản bác kết quả". Đây là màn hình nơi một manager ký một lý
+     * do ghi đè vĩnh viễn — họ phải đọc được mình đang ghi đè lên AI, không chỉ lên hồ sơ nào. Việc
+     * thêm KHÔNG nới ranh giới: `partyName` vốn đã là một trong sáu trường của `ConflictMatch` và
+     * đã hiện trên bảng của `CreateMatter` từ đầu.
      *
      * Dòng lý do dùng CHUNG khoá dịch với `CreateMatter`
      * (`matters.conflict.saved_overridden_reason`): câu đó nói về chính cái nhật ký, không về thao
@@ -560,10 +614,11 @@ class PartiesRelationManager extends RelationManager
             ? __('matters.parties.conflict_check_clear')
             : $result->matches
                 ->map(fn (ConflictMatch $match): string => sprintf(
-                    '%s (%s) — %s, %s: %s',
+                    '%s (%s) — %s, %s, %s: %s',
                     $match->matterCode,
                     $match->matterTypeName,
                     $match->partyRole->label(),
+                    $match->partyName,
                     $match->tier->label(),
                     $match->level->label(),
                 ))

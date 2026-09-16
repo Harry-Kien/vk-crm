@@ -10,12 +10,13 @@ use App\Enums\Permission;
 use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
 use App\Filament\Admin\Resources\Matters\MatterResource;
-use App\Filament\Admin\Support\ConflictOverride;
 use App\Filament\Admin\Support\VisibleClientOptions;
 use App\Models\User;
 use App\Support\ConflictCheckResult;
 use App\Support\ConflictMatch;
+use App\Support\ConflictOverride;
 use App\Support\OpenMatterResult;
+use DomainException;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Database\Eloquent\Model;
@@ -137,6 +138,18 @@ class CreateMatter extends CreateRecord
     }
 
     /**
+     * Một kết quả kiểm tra mức ĐỎ đã thật sự được dựng ra trước mắt người dùng — điều kiện DUY
+     * NHẤT làm một lý do ghi đè có nghĩa (I-A, review gộp nhánh M3). Cùng hàm, cùng lý do, cùng
+     * tên với `PartiesRelationManager::redResultShown()`; đọc docblock ở đó cho đường leo mức mà
+     * điều kiện cũ (`conflictResult !== null`) để lọt, và vì sao ô "đã xem xét" KHÔNG hẹp lại theo
+     * mức.
+     */
+    public function redResultShown(): bool
+    {
+        return ($this->conflictResult['level'] ?? null) === ConflictLevel::Red->value;
+    }
+
+    /**
      * Dữ liệu cho `resources/views/filament/conflict-check-result.blade.php`. Nhãn tiếng Việt được
      * dịch ở đây (không phải trong blade) để view không phải biết tới enum nào — và để ranh giới
      * lộ thông tin nằm gọn trong một hàm đọc được: mảng trả về chỉ có đúng sáu khoá của
@@ -226,11 +239,11 @@ class CreateMatter extends CreateRecord
             ? ConflictLevel::tryFrom($this->pendingConflictLevel)
             : null;
 
-        // Lý do ghi đè chỉ có nghĩa khi đã có một kết quả kiểm tra HIỆN RA cho người dùng đọc —
-        // cùng cổng với `acknowledged` ngay trên. Ô này đã `visible()` theo `$conflictResult` nên
-        // ở lượt đầu Filament còn không dehydrate nó; kiểm tra lại ở đây để cổng không phụ thuộc
-        // vào một chi tiết dehydrate của framework (xem docblock `notifySaved()` cho lý do đầy đủ).
-        $overrideReason = $this->conflictResult !== null ? ($data['override_reason'] ?? null) : null;
+        // Lý do ghi đè chỉ có nghĩa khi một bảng kết quả mức ĐỎ đã hiện ra cho người dùng đọc —
+        // không phải "một bảng bất kỳ" (I-A, xem `redResultShown()`). Ô này đã `visible()` theo
+        // cùng hàm đó nên ngoài vòng đỏ Filament còn không dehydrate nó; kiểm tra lại ở đây để cổng
+        // không phụ thuộc vào một chi tiết dehydrate của framework.
+        $overrideReason = $this->redResultShown() ? ($data['override_reason'] ?? null) : null;
 
         try {
             $opening = app(OpenMatter::class)->handle(
@@ -257,6 +270,23 @@ class CreateMatter extends CreateRecord
 
             throw ValidationException::withMessages([
                 $this->errorKey('acknowledge_conflict') => [__('matters.conflict.ack_retry')],
+            ]);
+        } catch (DomainException $exception) {
+            // Lưới an toàn cho mọi luật nghiệp vụ còn lại của tầng Action — hôm nay chỉ có
+            // `OurClientPartyNeedsClient`. (`client_role` thiếu thì `OpenMatter` ném
+            // `ValidationException`, vốn đã là lỗi form; `ConflictBlocked`/
+            // `ConflictAcknowledgementRequired` cũng là `DomainException` nên hai `catch` riêng
+            // của chúng phải đứng TRƯỚC `catch` này.) `bootstrap/app.php` không đăng ký `render()`
+            // nào cho `DomainException`, nên không có lưới này thì một luật như vậy thành trang
+            // lỗi 500 — cùng hình dạng với `BuildsStageUpdateSchema`. Đường chính đã bị
+            // `required()` chặn; đây là cho những đường vào chưa lường trước.
+            //
+            // Lỗi gắn vào chính repeater `other_parties` (là một `Field`, nên Filament hiện được
+            // lỗi ở đó) chứ không vào một dòng cụ thể: chỉ số dòng gây lỗi không đi cùng exception,
+            // và đoán sai chỉ số thì lỗi rơi vào một ô không liên quan. Thông điệp lấy nguyên từ
+            // exception — nó đã gọi tên bên vi phạm, qua `lang/vi/exceptions.php`.
+            throw ValidationException::withMessages([
+                $this->errorKey('other_parties') => [$exception->getMessage()],
             ]);
         }
 
@@ -345,9 +375,17 @@ class CreateMatter extends CreateRecord
 
     /**
      * Phần thân thông báo: danh sách hồ sơ trùng, cảnh báo bên thiếu định danh, và lý do ghi đè
-     * nếu có. Cùng ranh giới lộ thông tin với bảng trong form (`conflictResultViewData()`) và với
-     * `PartiesRelationManager::notifyConflictCheckResult()` — CHỈ mã hồ sơ, loại vụ việc, vai và
-     * tên bên trùng; không tiêu đề, không tóm tắt, không id.
+     * nếu có.
+     *
+     * **Mỗi dòng mang ĐÚNG sáu trường của `ConflictMatch`, theo đúng thứ tự các cột của bảng trong
+     * form** (`conflictResultViewData()` và `filament.conflict-check-result`): mã hồ sơ, loại vụ
+     * việc, vai của bên trùng, TÊN của bên trùng, tầng khớp, mức. Không tiêu đề, không tóm tắt,
+     * không id — ranh giới lộ thông tin của SPEC §6.10 đoạn cuối.
+     *
+     * **`partyName` từng thiếu ở ĐÂY dù đã có trên bảng ngay trên nó (I-B, review gộp nhánh M3).**
+     * Sau khi lưu, trang chuyển sang hồ sơ vừa mở và bảng biến mất: thông báo này là bản ghi cuối
+     * cùng người dùng còn đọc được, nên nó không được nghèo hơn bảng. Đính chính SPEC 2026-09-16:
+     * "không có nó thì người dùng không có cách nào kiểm chứng hay phản bác kết quả."
      *
      * Không dùng chung hàm với `PartiesRelationManager` dù hình dạng giống nhau: hai màn hình nói
      * về hai thao tác khác nhau ("mở vụ việc" và "thêm bên") nên bộ chuỗi tiếng Việt khác nhau, và
@@ -360,10 +398,11 @@ class CreateMatter extends CreateRecord
             ? __('matters.conflict.no_matches')
             : $result->matches
                 ->map(fn (ConflictMatch $match): string => sprintf(
-                    '%s (%s) — %s, %s: %s',
+                    '%s (%s) — %s, %s, %s: %s',
                     $match->matterCode,
                     $match->matterTypeName,
                     $match->partyRole->label(),
+                    $match->partyName,
                     $match->tier->label(),
                     $match->level->label(),
                 ))

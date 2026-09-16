@@ -754,3 +754,83 @@ it('names a party row in Vietnamese on the create button and the modal heading',
         // thái bảng rỗng, thông báo…) — nếu không chúng quay về tên lớp.
         ->and(__('matters.party_label'))->not->toBe('matters.party_label');
 });
+
+/**
+ * I-A (Important, review gộp nhánh M3). Cổng của `override_reason` hỏi "đã có kết quả kiểm tra
+ * nào chưa?", không hỏi "đã có kết quả ĐỎ nào chưa?" — mà ô này `visible()` trên MỌI kết quả đã
+ * lưu, kể cả VÀNG. Nên một manager viết lý do trong một vòng VÀNG, rồi mức leo lên ĐỎ trước lượt
+ * gửi thứ hai (một lần thêm bên song song, hoặc một lần sửa hồ sơ `Client` kích hoạt
+ * `SyncClientPartyIdentities` ghi lại `id_number_hash`): câu viết cho vòng vàng đó được mang
+ * nguyên vào nhánh ghi đè của `AddMatterParty` — `isBlocking()` + manager + lý do khác rỗng ⟹ LƯU.
+ * `conflict_overridden: true` và câu đó vào dòng nhật ký append-only vĩnh viễn, trong khi KHÔNG
+ * một bảng ĐỎ nào từng được hiện ra.
+ *
+ * Kịch bản dựng thật, không khẳng định trên trạng thái nội bộ: khớp theo TÊN trần là vàng (§11),
+ * rồi bên kia được bổ sung đúng số căn cước giữa hai lượt gửi nên lần kiểm tra kế tiếp trả về đỏ.
+ */
+it('will not honour an override reason written during a yellow round when the conflict escalates to red', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $manager->id]);
+    $matter->parties()->create([
+        'role' => PartyRole::Plaintiff,
+        'is_our_client' => true,
+        'name' => 'Khách hàng hiện hữu',
+    ]);
+
+    // Vụ việc khác mang một bên LÀ khách hàng của văn phòng, TRÙNG TÊN với bên sắp thêm nhưng
+    // CHƯA có số căn cước — khớp tầng tên nên trần của lượt một là VÀNG.
+    $otherMatter = Matter::factory()->create();
+    $twin = $otherMatter->parties()->create([
+        'role' => PartyRole::Plaintiff,
+        'is_our_client' => true,
+        'name' => 'Bị đơn mới',
+    ]);
+
+    $this->actingAs($manager, 'web');
+
+    $component = $this->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('create', data: redConflictPartyData())
+        ->assertHasTableActionErrors(['acknowledge_conflict']);
+
+    expect($component->instance()->conflictResult['level'])->toBe('yellow');
+
+    // Giữa hai lượt gửi: hồ sơ bên kia được bổ sung đúng số căn cước của bên đang nhập, nên lần
+    // kiểm tra KẾ TIẾP không còn là vàng nữa.
+    $twin->identify('001099001234', null)->save();
+
+    $component->setTableActionData(['override_reason' => 'Lý do viết cho một vòng VÀNG.'])
+        ->callMountedTableAction()
+        ->assertHasTableActionErrors(['override_reason']);
+
+    expect($matter->parties()->where('name', 'Bị đơn mới')->exists())->toBeFalse()
+        ->and(Activity::query()->where('event', 'matter_party_added')->exists())->toBeFalse();
+});
+
+/**
+ * I-B (Important, review gộp nhánh M3). Thân thông báo của tab "Các bên" liệt kê mã hồ sơ, loại vụ
+ * việc, vai, tầng khớp và mức — nhưng KHÔNG tên của bên trùng, dù docblock của chính hàm đó tự
+ * nhận là có. SPEC §6.10 "Đính chính 2026-09-16" nói thẳng vì sao cột đó không bỏ được: "không có
+ * nó thì người dùng không có cách nào kiểm chứng hay phản bác kết quả." Đây là màn hình nơi một
+ * manager ký một lý do ghi đè vĩnh viễn, nên họ phải thấy được mình đang ghi đè lên AI.
+ */
+it('names the matched party in the parties-tab conflict notification', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    [$matter, $otherMatter] = matterWithRedConflictPair($manager);
+
+    $this->actingAs($manager, 'web');
+
+    $this->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('create', data: redConflictPartyData())
+        ->assertHasTableActionErrors(['override_reason']);
+
+    $blocked = sentNotification(__('matters.parties.conflict_blocked_title'));
+
+    expect($blocked)->not->toBeNull()
+        ->and($blocked->getBody())->toContain($otherMatter->code)
+        // Tên của bên trùng ở hồ sơ kia — thứ duy nhất cho người đọc biết họ đang bị chặn vì AI.
+        ->and($blocked->getBody())->toContain('Người trùng căn cước');
+});
