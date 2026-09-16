@@ -3,31 +3,27 @@
 namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 
 use App\Filament\Admin\Concerns\ScopesToVisibleMatters;
+use App\Filament\Admin\Resources\Matters\Actions\AddUpdateAction;
+use App\Filament\Admin\Resources\Matters\Actions\TransitionStageAction;
 use App\Models\StageLog;
-use Filament\Actions\Action;
-use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
-use Filament\Support\Enums\Size;
-use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\HtmlString;
 
 /**
  * Tab "Tiến độ" (SPEC §7.2): dòng thời gian stage_logs, mới nhất trên cùng (Matter::stageLogs()
  * đã orderByDesc('occurred_at'), ->defaultSort() dưới đây chỉ để tường minh, không đổi hành vi).
  *
- * Hai nút *Chuyển giai đoạn* / *Thêm cập nhật* là CÙNG một Action (TransitionMatterStage, xem
- * docblock của nó — "Thêm cập nhật" chỉ là gọi Action đó với to_stage = giai đoạn hiện tại), nên
- * cùng gate theo matter.transitionStage. Task 9 mới xây form thật đằng sau hai nút này; ở đây mỗi
- * nút chỉ mở một Notification giữ chỗ — đây là "seam" bàn giao cho Task 9: thay thân ->action()
- * bằng ->schema(TransitionStageForm)->action(fn (array $data) => app(TransitionMatterStage::class)
- * ->handle(...)), giữ nguyên tên action ('transitionStage' / 'addUpdate') và điều kiện ->visible()
- * để hai test đã có (assistant không thấy nút) không cần sửa.
+ * Hai nút *Chuyển giai đoạn* / *Thêm cập nhật* (SPEC §7.3) là CÙNG một Action nghiệp vụ
+ * (TransitionMatterStage, xem docblock của nó — "Thêm cập nhật" chỉ là gọi Action đó với
+ * to_stage = giai đoạn hiện tại): `TransitionStageAction` và `AddUpdateAction`
+ * (`App\Filament\Admin\Resources\Matters\Actions\`) tự gate theo matter.transitionStage và tự
+ * đóng gói schema/submit của chính mình — xem docblock của chúng và
+ * `Concerns\BuildsStageUpdateSchema`.
  */
 class StageLogsRelationManager extends RelationManager
 {
@@ -69,28 +65,8 @@ class StageLogsRelationManager extends RelationManager
             ])
             ->defaultSort('occurred_at', 'desc')
             ->headerActions([
-                Action::make('transitionStage')
-                    ->label(__('matters.actions.transition_stage'))
-                    ->icon(Heroicon::OutlinedArrowRight)
-                    ->color('primary')
-                    ->size(Size::Large)
-                    ->visible(fn (): bool => Gate::allows('transitionStage', $this->getOwnerRecord()))
-                    // Seam Task 9 — xem docblock lớp.
-                    ->action(fn () => Notification::make()
-                        ->title(__('matters.actions.transition_stage_placeholder'))
-                        ->info()
-                        ->send()),
-                Action::make('addUpdate')
-                    ->label(__('matters.actions.add_update'))
-                    ->icon(Heroicon::OutlinedPlusCircle)
-                    ->color('gray')
-                    ->size(Size::Large)
-                    ->visible(fn (): bool => Gate::allows('transitionStage', $this->getOwnerRecord()))
-                    // Seam Task 9 — xem docblock lớp.
-                    ->action(fn () => Notification::make()
-                        ->title(__('matters.actions.add_update_placeholder'))
-                        ->info()
-                        ->send()),
+                TransitionStageAction::make(),
+                AddUpdateAction::make(),
             ])
             ->modifyQueryUsing(fn (Builder $query): Builder => static::scopeToVisibleMatters($query)
                 ->with(['views' => fn (HasMany $views): HasMany => $views->orderBy('viewed_at')]));
