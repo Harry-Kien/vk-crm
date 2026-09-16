@@ -163,9 +163,25 @@ trait BuildsStageUpdateSchema
      * Mặc định BẬT khi vụ việc đã bật portal, tắt khi chưa (SPEC §7.3, test bắt buộc). Fix round 1,
      * finding 2: khi vụ CHƯA bật portal, `disabled()` khoá hẳn công tắc thay vì chỉ để mặc định tắt
      * — nếu không luật sư vẫn tự bật được rồi gặp `MatterNotPublishedToPortal` không ai báo trước.
-     * Trường bị `disabled()` vẫn dehydrate giá trị mặc định (false) bình thường trong Filament 5
-     * (`disabled()` ở tầng schema không tự kéo theo `dehydrated(false)`), nên submit vẫn gửi đúng
-     * `publish = false`, không cần xử lý gì thêm ở phía Action.
+     *
+     * Fix round 2 review, task 5 (docblock cũ nói sai hành vi thật): `disabled()` KHÔNG "vẫn
+     * dehydrate giá trị mặc định bình thường". Đọc thẳng
+     * `vendor/filament/schemas/src/Components/Concerns/CanBeDisabled.php::disabled()`: nó tự gọi
+     * `$this->saved(fn ($component) => ! $component->evaluate($condition))`, tức GẮN LUÔN một
+     * điều kiện "saved" phủ định điều kiện disabled. Rồi
+     * `vendor/.../Concerns/HasState.php::isDehydrated()` tính
+     * `evaluate($this->isDehydrated) ?? $this->isSaved()` — vì trường này chưa từng gọi
+     * `dehydrated()` tường minh, `$this->isDehydrated` vẫn `null`, nên `??` rơi về `isSaved()`.
+     * Kết quả: khi công tắc bị khoá (`! $matter->is_published_to_portal` đúng), trường này KHÔNG
+     * được dehydrate — khoá `publish` biến mất KHỎI `$data` gửi lên, không phải "có mặt với giá
+     * trị false". Đây chính là điều `dehydrateState()` làm: khi `isDehydrated()` sai, nó XOÁ hẳn
+     * state path đó khỏi mảng, kể cả khi client cố tình sửa giá trị Livewire ngầm để né UI khoá —
+     * máy chủ tự tính lại `isDehydrated()` từ `$matter` (không tin giá trị client gửi), nên việc
+     * xoá diễn ra vô điều kiện phía server. Vì vậy `(bool) ($data['publish'] ?? false)` ở
+     * `setUpStageUpdateAction()` mới là chỗ thật sự biến "khoá không có mặt" thành `false` — không
+     * phải Filament tự gửi `false`. Kết luận an toàn: một công tắc bị khoá KHÔNG THỂ dehydrate một
+     * `true` mà người dùng chưa từng chọn — hành vi thật còn chặt hơn cả mô tả sai trong docblock
+     * cũ, không phải lỗ hổng.
      */
     protected function publishToggleField(Matter $matter): Toggle
     {

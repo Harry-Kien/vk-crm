@@ -7,6 +7,7 @@ use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\PartiesRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\StageLogsRelationManager;
+use App\Filament\Admin\Support\VisibleClientOptions;
 use App\Models\Client;
 use App\Models\Matter;
 use App\Models\StageLog;
@@ -291,7 +292,7 @@ it('scopes the party form client picker to clients of matters the actor can alre
 
     $this->actingAs($lawyer, 'web');
 
-    $options = PartiesRelationManager::visibleClientOptions();
+    $options = VisibleClientOptions::forCurrentUser();
 
     expect($options)->toHaveKey($visibleClient->id)
         ->and($options)->not->toHaveKey($strangerClient->id);
@@ -300,7 +301,7 @@ it('scopes the party form client picker to clients of matters the actor can alre
     $this->actingAs($manager, 'web');
 
     // client.manage (Manager) thấy toàn bộ, kể cả khách hàng "lạ" ở trên.
-    expect(PartiesRelationManager::visibleClientOptions())->toHaveKey($strangerClient->id);
+    expect(VisibleClientOptions::forCurrentUser())->toHaveKey($strangerClient->id);
 });
 
 /**

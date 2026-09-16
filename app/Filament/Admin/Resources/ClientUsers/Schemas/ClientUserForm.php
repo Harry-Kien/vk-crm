@@ -18,8 +18,8 @@ class ClientUserForm
                 // Review fix round 1, Important #2: KHÔNG liệt kê toàn bộ khách hàng văn phòng —
                 // một lawyer có clientUser.manage nhưng không có client.manage chỉ được thấy
                 // khách hàng của những vụ việc họ liệt kê được, cùng ranh giới
-                // ClientPolicy::view (và PartiesRelationManager::visibleClientOptions() ở nơi
-                // khác đã áp dụng luật này trước).
+                // ClientPolicy::view (và PartiesRelationManager ở nơi khác dùng chung đúng một
+                // App\Filament\Admin\Support\VisibleClientOptions này, không tự lặp lại luật).
                 Select::make('client_id')
                     ->label(__('client_users.fields.client'))
                     ->options(fn (): array => VisibleClientOptions::forCurrentUser())

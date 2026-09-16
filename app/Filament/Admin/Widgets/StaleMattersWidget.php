@@ -38,11 +38,26 @@ class StaleMattersWidget extends TableWidget
         return $table
             ->heading(__('widgets.stale_matters.heading'))
             ->description(__('widgets.stale_matters.description'))
+            /**
+             * SPEC §6.4: vụ việc chưa đóng, ĐÃ công bố portal (`is_published_to_portal = true`),
+             * và mốc cập nhật cuối cũ hơn 14 ngày. Fix round 2 review, minor finding: bản trước
+             * dùng `whereNotNull('last_client_update_at')`, nên một vụ CHƯA TỪNG cập nhật cho
+             * khách — đúng trường hợp xấu nhất mà widget này tồn tại để phát hiện — không bao giờ
+             * lọt vào được, và thiếu hẳn điều kiện `is_published_to_portal`.
+             *
+             * §6.4 không nói rõ đồng hồ tính từ đâu khi CHƯA từng có `last_client_update_at`.
+             * Chọn `stage_entered_at` (vào giai đoạn hiện tại từ lúc nào) làm mốc thay thế: đây là
+             * thời điểm SPEC §6.4/§7.1 đã dùng cho khái niệm "kẹt ở một chỗ bao lâu" (xem docblock
+             * `TransitionMatterStage`), và với một vụ vừa mở, `stage_entered_at` khớp `opened_at`
+             * (Matter::booted() gán cả hai cùng lúc) — tức "đã mở bao lâu mà chưa hề báo cho
+             * khách" cũng là dữ liệu SLA cần thấy. `COALESCE` viết bằng whereRaw vì Eloquent không
+             * có helper so sánh hai cột theo kiểu "cột nào có giá trị thì dùng cột đó".
+             */
             ->query(fn (): Builder => Matter::query()
                 ->listableBy(static::currentUser())
                 ->whereNull('closed_at')
-                ->whereNotNull('last_client_update_at')
-                ->where('last_client_update_at', '<', now()->subDays(self::STALE_AFTER_DAYS))
+                ->where('is_published_to_portal', true)
+                ->whereRaw('COALESCE(last_client_update_at, stage_entered_at) < ?', [now()->subDays(self::STALE_AFTER_DAYS)])
                 ->with(['client', 'matterType.stages', 'leadLawyer']))
             ->columns([
                 TextColumn::make('code')

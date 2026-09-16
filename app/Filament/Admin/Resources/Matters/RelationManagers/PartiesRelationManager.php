@@ -5,11 +5,10 @@ namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 use App\Actions\AddMatterParty;
 use App\Enums\ConflictLevel;
 use App\Enums\PartyRole;
-use App\Enums\Permission;
 use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
 use App\Filament\Admin\Concerns\ScopesToVisibleMatters;
-use App\Models\Client;
+use App\Filament\Admin\Support\VisibleClientOptions;
 use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Support\ConflictCheckResult;
@@ -111,7 +110,7 @@ class PartiesRelationManager extends RelationManager
                     // hàng của những vụ việc họ đã liệt kê được (Matter::listableBy), đúng ranh
                     // giới ClientPolicy::view đã định nghĩa cho MỌI nơi khác đọc danh sách khách
                     // hàng. Chỉ ai có client.manage mới thấy toàn bộ.
-                    ->options(fn (): array => static::visibleClientOptions())
+                    ->options(fn (): array => VisibleClientOptions::forCurrentUser())
                     ->searchable()
                     ->visible(fn (Get $get): bool => (bool) $get('is_our_client')),
                 TextInput::make('name')
@@ -273,31 +272,6 @@ class PartiesRelationManager extends RelationManager
         $statePath = $schemaName !== null ? $this->getSchema($schemaName)?->getStatePath() : null;
 
         return filled($statePath) ? "{$statePath}.{$field}" : $field;
-    }
-
-    /**
-     * Fix round 1 finding 3: danh sách khách hàng cho ô "Khách hàng" của form — chỉ khách hàng
-     * của những vụ việc actor đã liệt kê được (`Matter::listableBy`, đúng luật hiển thị vụ việc
-     * duy nhất của toàn hệ thống), trừ khi actor có `client.manage` (được thấy toàn bộ, giống
-     * `ClientPolicy::view`).
-     *
-     * @return array<int, string>
-     */
-    public static function visibleClientOptions(): array
-    {
-        $user = Auth::user();
-
-        if ($user?->can(Permission::ClientManage->value)) {
-            return Client::query()->orderBy('name')->pluck('name', 'id')->all();
-        }
-
-        $visibleClientIds = Matter::query()->listableBy($user)->pluck('client_id')->unique();
-
-        return Client::query()
-            ->whereIn('id', $visibleClientIds)
-            ->orderBy('name')
-            ->pluck('name', 'id')
-            ->all();
     }
 
     /**

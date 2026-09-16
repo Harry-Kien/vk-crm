@@ -14,10 +14,13 @@ use Illuminate\Support\Facades\Auth;
  * bộ, còn lại chỉ thấy khách hàng của những vụ việc họ liệt kê được (Matter::scopeListableBy),
  * đúng ranh giới ClientPolicy::view định nghĩa ở mọi nơi khác đọc danh sách khách hàng.
  *
- * Nguồn gốc: sao lại nguyên văn logic của
+ * Nguồn gốc: ban đầu sao lại nguyên văn logic của
  * App\Filament\Admin\Resources\Matters\RelationManagers\PartiesRelationManager::visibleClientOptions()
- * (không sửa file đó — ngoài phạm vi task 10, một implementer khác đang làm việc trên thư mục
- * Matters) vào một nơi cả hai phía có thể dùng chung về sau.
+ * (không sửa file đó lúc mới tạo lớp này — ngoài phạm vi task 10, một implementer khác đang làm
+ * việc trên thư mục Matters). Fix round 2 review (task 4): bản sao riêng đó đã bị xoá, cả
+ * `PartiesRelationManager` lẫn `ClientUserForm` giờ gọi thẳng lớp này — không còn hai nơi có thể
+ * lệch luật nhau, và cũng không còn thiếu guard `instanceof User` như bản sao cũ (Matter::
+ * scopeListableBy() đòi một `User`, gọi với `null` sẽ là TypeError).
  */
 final class VisibleClientOptions
 {
