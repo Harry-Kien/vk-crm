@@ -8,7 +8,12 @@ it('exposes project settings with safe defaults', function () {
         ->and(config('vkcrm.retention_years'))->toBe(10)
         ->and(config('vkcrm.client_access_days'))->toBe(90)
         ->and(config('vkcrm.clamav.enabled'))->toBeFalse()
-        ->and(config('vkcrm.brand_color'))->toMatch('/^#[0-9a-fA-F]{6}$/');
+        // `brand_color`/`BRAND_COLOR` đã bị gỡ (Minor, fix round 4): nó không còn nơi tiêu thụ
+        // nào kể từ khi `brand.primary_ramp` và `brand.colors` nắm toàn bộ màu của hai panel, mà
+        // `.env.example` vẫn quảng cáo nó — một nút bấm không nối vào đâu cả là lời hứa sai với
+        // người vận hành. Màu thương hiệu thật giờ nằm ở một chỗ duy nhất.
+        ->and(config('vkcrm'))->not->toHaveKey('brand_color')
+        ->and(config('vkcrm.brand.colors.navy'))->toMatch('/^#[0-9a-fA-F]{6}$/');
 });
 
 it('treats blank domain env as null', function () {

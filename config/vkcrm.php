@@ -25,9 +25,6 @@ return [
         'socket' => env('CLAMAV_SOCKET', '/var/run/clamav/clamd.ctl'),
     ],
 
-    // Màu thương hiệu dùng cho panel portal
-    'brand_color' => env('BRAND_COLOR') ?: '#101d35',
-
     /*
      * Nhận diện thương hiệu của chính văn phòng, lấy từ luatvukhang.com để hệ thống nội bộ và
      * cổng khách hàng trông liền một mạch với website — khách đăng nhập vào đây phải thấy ngay

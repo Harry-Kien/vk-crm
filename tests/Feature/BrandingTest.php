@@ -2,6 +2,7 @@
 
 use App\Enums\Role;
 use App\Models\User;
+use Illuminate\Support\Str;
 
 /**
  * Nhận diện thương hiệu của văn phòng phải có mặt ở CẢ hai panel, không chỉ ở trang đăng nhập
@@ -48,4 +49,31 @@ it('keeps the portal primary colour at the firm navy rather than a generated ram
 
     [$lightness] = sscanf($ramp[600], 'oklch(%f');
     expect($lightness)->toBeLessThan(0.5);
+});
+
+/**
+ * I-4 (fix round 4). `->font(config('vkcrm.brand.font'))` không chỉ định provider nên Filament rơi
+ * về `BunnyFontProvider`: mỗi lượt tải trang của CẢ HAI panel — kể cả trang đăng nhập cổng khách
+ * hàng, tức trước khi ai đăng nhập — phát một request tới một bên thứ ba. Quyết định giữ Bunny đã
+ * được ghi vào `docs/SPEC.md` §3 kèm cái giá của nó và phương án tự host.
+ *
+ * Test này khoá mặt còn lại của quyết định: nếu ai đó gỡ `->font()`, đổi provider, hay CDN bị chặn
+ * bởi cấu hình CSP sau này, thì phải ĐỎ MỘT TEST — chứ không phải âm thầm hạ cấp chữ nghĩa của cả
+ * sản phẩm xuống phông hệ thống mà không ai nhận ra trong nhiều tháng.
+ */
+it('loads the brand webfont stylesheet on both panels', function () {
+    $family = Str::slug(config('vkcrm.brand.font'));
+
+    $admin = User::factory()->withRole(Role::Admin)->create();
+
+    $this->actingAs($admin, 'web')
+        ->get('/admin')
+        ->assertOk()
+        ->assertSee('fonts.bunny.net/css?family='.$family, escape: false);
+
+    // Trang đăng nhập cổng khách hàng: KHÔNG đăng nhập, vì đây chính là lượt tải mà quyết định ở
+    // SPEC §3 nói tới — request ra bên thứ ba xảy ra trước khi khách hàng là ai đó xác định.
+    $this->get('/portal/login')
+        ->assertOk()
+        ->assertSee('fonts.bunny.net/css?family='.$family, escape: false);
 });

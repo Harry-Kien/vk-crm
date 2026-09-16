@@ -122,6 +122,29 @@ Cấu hình tên miền qua `.env` (`ADMIN_DOMAIN`, `PORTAL_DOMAIN`). Nếu đ�
 thì cả hai panel chạy chung một tên miền theo đường dẫn — phải hoạt động được
 cả hai cách.
 
+### Bộ chữ web — quyết định ghi ngày 2026-09-16 (M3)
+
+Cả hai panel gọi `->font(config('vkcrm.brand.font'))` (Be Vietnam Pro) mà không
+chỉ định provider, nên Filament dùng mặc định `BunnyFontProvider`. **Hệ quả: mỗi
+lượt tải trang của cả hai panel — KỂ CẢ trang đăng nhập cổng khách hàng, tức
+trước khi ai đăng nhập — phát một request tới `fonts.bunny.net`, một bên thứ ba.**
+
+Quyết định: **giữ Bunny ở giai đoạn này.** Bunny Fonts không đặt cookie, không
+ghi log địa chỉ IP và tự tuyên bố tuân thủ GDPR — khác hẳn Google Fonts, vốn là
+lý do quy tắc này đáng được ghi lại thay vì mặc nhiên. Cái giá vẫn có thật và
+phải nói rõ: (a) địa chỉ IP của khách hàng chạm tới một hạ tầng ngoài tầm kiểm
+soát của văn phòng, ngay ở trang đăng nhập; (b) CDN chết hoặc bị chặn thì cả hai
+panel âm thầm rơi về phông hệ thống.
+
+Phương án thay thế khi cần: **tự host** — tải các tệp `woff2` vào `public/fonts`
+và dùng `FontProviders::local()`. Nếu quan điểm bảo vệ dữ liệu của văn phòng đòi
+"không có request ra ngoài nào từ cổng khách hàng", đây là cách đóng lại, và nó
+đồng thời xoá luôn rủi ro (b).
+
+`tests/Feature/BrandingTest.php` khẳng định thẻ `<link>` tới stylesheet phông có
+mặt ở cả hai panel, để một lần gỡ hay một CDN bị chặn làm ĐỎ một test thay vì âm
+thầm hạ cấp chữ nghĩa của cả sản phẩm.
+
 ---
 
 ## 4. Mô hình dữ liệu
