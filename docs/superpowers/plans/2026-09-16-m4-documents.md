@@ -31,8 +31,10 @@ Bốn Action mới trong `app/Actions/Document/`: `SubmitClientDocument` (§6.6)
 | `DocumentPolicy::create()` và `ClientRequestPolicy::create()` trả `true` vô điều kiện | 2 |
 | `DocumentPolicy::update`/`delete` và `DeadlinePolicy::update`/`delete` chỉ xét khả năng thấy vụ việc, không xét quyền nào | 2 |
 | Chưa có quyền nào diễn tả "khách nộp tệp vào một đầu mục danh mục" | 2, 4 |
-| `OpenMatter` lấy template danh mục bằng `first()` không sắp thứ tự khi một loại vụ việc có nhiều template đang hoạt động | 3 |
 | `ForceDeleteAction`/`RestoreAction` thừa trên các resource M3 (không policy nào định nghĩa hai quyền đó) | 7 |
+| `MatterType.code` có cùng lỗ hổng xoá-mềm-rồi-tạo-lại như `matter_type_stages.key` từng có trước khi M3 thêm guard ở model — task nào đụng `MatterTypeForm` nên vá luôn | 7 |
+| `MattersByStageWidget` gộp theo nhãn giai đoạn (`label`), nên hai loại vụ việc có giai đoạn trùng nhãn sẽ bị cộng chung một cột — số liệu sai | 7 |
+| `PartiesRelationManager::visibleClientOptions()` là bản sao trùng logic của `App\Filament\Admin\Support\VisibleClientOptions::forCurrentUser()` — **đã sửa ở M3 round 2 review** (cả hai nơi giờ dùng chung một lớp), chỉ còn ghi lại ở đây để tránh ai đó vô tình chép lại lần nữa | — |
 
 ---
 
@@ -84,7 +86,7 @@ Bốn việc mang sang, tất cả là lỗ hổng thật đã được ghi nh�
 
 ### Task 3: `UploadStaffDocument` và `PublishDocument`
 
-**Files:** `app/Actions/Document/{UploadStaffDocument,PublishDocument}.php`, `app/Exceptions/DocumentNotPublishable.php`, `app/Actions/OpenMatter.php` (sửa `first()` thành truy vấn có thứ tự), tests
+**Files:** `app/Actions/Document/{UploadStaffDocument,PublishDocument}.php`, `app/Exceptions/DocumentNotPublishable.php`, tests
 
 `UploadStaffDocument`: qua `FileGuard` và `VirusScanner`, đặt mặc định theo bảng SPEC §4.11 (nhóm A của nhân viên nộp thay → `published`, khách xem và tải được; nhóm B và C → `internal_draft`, khách không thấy; nhóm D → `internal_draft`, `client_can_download` **vĩnh viễn false**).
 
@@ -94,8 +96,6 @@ Bốn việc mang sang, tất cả là lỗ hổng thật đã được ghi nh�
 3. `client_can_view` và `client_can_download` là hai cờ độc lập — cho khách biết đã có tài liệu mà chưa cho tải là trường hợp hợp lệ.
 4. Đặt `status = published`, `published_at`, `published_by`.
 5. Ghi activity log; dispatch thông báo cho khách nếu nhóm B hoặc C (chỉ dispatch event, listener là M6).
-
-Kèm việc mang sang: `OpenMatter` chọn template danh mục bằng `first()` không thứ tự; đổi thành truy vấn có `orderBy` tường minh và ghi chú vì sao.
 
 - [ ] Test đỏ (gồm cả ba test SPEC §11 "Tài liệu nội bộ"), cài đặt, test xanh, pint, commit `feat: staff uploads and controlled publication of documents`.
 
@@ -154,6 +154,8 @@ Cả hai relation manager phải lọc qua `ScopesToVisibleMatters` như các ta
 
 - Widget SPEC §7.1 mục 3 ("Tài liệu chờ duyệt") và mục 4 ("Hồ sơ thiếu giấy tờ quá 14 ngày") — giờ đã có dữ liệu. Cả hai giới hạn theo `listableBy`.
 - Dọn việc mang sang: gỡ `ForceDeleteAction`/`RestoreAction` thừa trên các resource M3 (không policy nào định nghĩa hai quyền đó nên chúng luôn bị từ chối), và cho mỗi resource một icon riêng.
+- Dọn việc mang sang (review M3 round 2): `MatterType.code` có cùng lỗ hổng xoá-mềm-rồi-tạo-lại mà `matter_type_stages.key` từng có trước khi M3 thêm guard ở model — vá cùng lúc với task nào đụng `MatterTypeForm`.
+- Dọn việc mang sang (review M3 round 2): `MattersByStageWidget` gộp cột theo nhãn giai đoạn (`label`), nên hai loại vụ việc có giai đoạn trùng nhãn bị cộng chung một cột — số liệu sai. Sửa để gộp theo `(matter_type_id, stage)` hoặc hiển thị riêng từng loại.
 - Kiểm tra tay trên trình duyệt: nộp tệp thay khách, duyệt, từ chối kèm lý do, công bố tài liệu, tải về bằng đường dẫn ký. Chạy `migrate:fresh --seed` trước.
 - Cập nhật `docs/PROGRESS.md` dòng M4 và mục "Ghi chú M4" (mọi phán quyết và việc hoãn), `README.md` nếu đổi, mục 9 tài liệu bộ công cụ.
 
