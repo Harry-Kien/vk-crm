@@ -35,6 +35,12 @@ Bốn Action mới trong `app/Actions/Document/`: `SubmitClientDocument` (§6.6)
 | `MatterType.code` có cùng lỗ hổng xoá-mềm-rồi-tạo-lại như `matter_type_stages.key` từng có trước khi M3 thêm guard ở model — task nào đụng `MatterTypeForm` nên vá luôn | 7 |
 | `MattersByStageWidget` gộp theo nhãn giai đoạn (`label`), nên hai loại vụ việc có giai đoạn trùng nhãn sẽ bị cộng chung một cột — số liệu sai | 7 |
 | `PartiesRelationManager::visibleClientOptions()` là bản sao trùng logic của `App\Filament\Admin\Support\VisibleClientOptions::forCurrentUser()` — **đã sửa ở M3 round 2 review** (cả hai nơi giờ dùng chung một lớp), chỉ còn ghi lại ở đây để tránh ai đó vô tình chép lại lần nữa | — |
+| 19 khoá Filament vẫn hiện tiếng Anh trong các tệp chưa ai publish, `LocalizationTest` **không nhìn thấy** vì nó chỉ duyệt tệp đã có dưới `lang/vendor/`. Đáng kể nhất: các câu giới hạn tần suất của `filament/auth/multi-factor/**` (liên quan trực tiếp 2FA bắt buộc ở SPEC §10.7) và `support/components/input/one-time-code.php` `aria_label` — **chính là ô nhập OTP của cổng khách hàng ở M5** | 7 |
+| `lang/en/` hiện **che** bản `en` của framework: một lần nâng Laravel thêm thông báo xác thực mới sẽ thiếu luôn ở bản `en` của ứng dụng, nên `LocalizationTest` vẫn xanh trong khi giao diện hiện ra khoá thô. Phải đối chiếu với `vendor/laravel/framework/.../lang/en/validation.php` thay vì với `lang/en/` | 7 |
+| Trang panel trả **403** (tiếng Anh, của Filament) cho kế toán trong khi mọi chỗ khác trong mã đã chuyển sang **404** theo SPEC §10.10 — hai kiểu từ chối cho cùng một tình huống "không có quyền". Phải chốt một kiểu trước khi M4 thêm màn hình | 2 |
+| Luật sư gán luật sư chính là người khác thì bị đẩy về danh sách, không xem được vụ vừa mở; và vì `OpenMatter` tự ghi dòng nhật ký công bố portal thay vì đi qua `SetMatterPortalPublication`, họ có thể bật công bố lúc tạo rồi không tắt lại được (403). Liên quan tới câu hỏi tiếp nhận khách mới đang chờ chủ văn phòng quyết | 6 |
+| `SyncClientPartyIdentities` có thể **tạo ra** một xung đột mức đỏ khi nó ghi lại `id_number_hash` của các bên, mà không có lần kiểm tra nào chạy sau đó. SPEC §6.10 chỉ bắt buộc hai thời điểm nên đây không phải vi phạm, nhưng nó là thời điểm thứ ba và cần một quyết định — chạy lại kiểm tra theo lô, hay chỉ cảnh báo | 7 |
+| `OurClientPartyNeedsClient` / `ClientRoleRequired` chưa được bắt ở màn hình nào; nếu một `required()` trên form bị gỡ thì chúng thành lỗi 500. Mọi màn hình M4 gọi Action phải bắt `DomainException` và đổi thành lỗi trên form | 3, 4, 6 |
 
 ---
 
