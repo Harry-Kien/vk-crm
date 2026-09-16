@@ -1,8 +1,10 @@
 <?php
 
 use App\Actions\OpenMatter;
+use App\Enums\ConflictLevel;
 use App\Enums\PartyRole;
 use App\Enums\Role;
+use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
 use App\Models\ChecklistTemplate;
 use App\Models\Client;
@@ -14,6 +16,7 @@ use App\Models\User;
 use App\Support\Normalizer;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Spatie\Activitylog\Models\Activity;
 
 beforeEach(function () {
@@ -32,10 +35,12 @@ function matterTypeWithTemplate(int $itemCount = 2): MatterType
     return $type;
 }
 
+/** `client_role` mặc định plaintiff (kịch bản phổ biến nhất) — bắt buộc phải có, không có mặc định trong Action (fix round 1). */
 function baseAttributes(Client $client, User $leadLawyer, MatterType $type, array $overrides = []): array
 {
     return [...[
         'client_id' => $client->id,
+        'client_role' => PartyRole::Plaintiff,
         'matter_type_id' => $type->id,
         'title' => 'Tranh chấp hợp đồng thuê nhà',
         'description_internal' => 'Ghi chú nội bộ',
@@ -112,7 +117,8 @@ it('lets a manager override the red block with a reason, saves the matter, and r
     expect($activity)->not->toBeNull()
         ->and($activity->properties->get('conflict_level'))->toBe('red')
         ->and($activity->properties->get('conflict_overridden'))->toBeTrue()
-        ->and($activity->properties->get('override_reason'))->toBe('Đã trao đổi với khách hàng, xác nhận đây không phải cùng một người, đồng ý mở vụ việc.');
+        ->and($activity->properties->get('override_reason'))->toBe('Đã trao đổi với khách hàng, xác nhận đây không phải cùng một người, đồng ý mở vụ việc.')
+        ->and($activity->causer?->is($manager))->toBeTrue();
 });
 
 it('still blocks a lawyer who supplies an override reason: only manager/admin may override', function () {
@@ -141,7 +147,66 @@ it('still blocks a lawyer who supplies an override reason: only manager/admin ma
     expect(Matter::count())->toBe($matterCountBefore);
 });
 
-it('warns at yellow for a normalized-name-only match and still saves after the caller acknowledges', function () {
+it('requires a non-empty override reason: a manager with a blank reason is still blocked', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $this->actingAs($manager, 'web');
+
+    $existingClient = Client::factory()->create(['id_number' => '079012345678']);
+    $otherMatter = Matter::factory()->create();
+    MatterParty::factory()->for($otherMatter)->ourClient($existingClient)->create();
+
+    $newClient = Client::factory()->create();
+    $type = matterTypeWithTemplate();
+
+    expect(fn () => app(OpenMatter::class)->handle(
+        baseAttributes($newClient, $manager, $type),
+        [[
+            'role' => PartyRole::Defendant,
+            'name' => 'Bị đơn trùng',
+            'id_number' => '079012345678',
+        ]],
+        '   ',
+    ))->toThrow(ConflictBlocked::class);
+
+    expect(Matter::count())->toBe(1); // chỉ $otherMatter, không có vụ nào mới được tạo.
+});
+
+it('throws ConflictAcknowledgementRequired for a yellow result without acknowledgement, and saves nothing', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $this->actingAs($lawyer, 'web');
+
+    $otherMatter = Matter::factory()->create();
+    MatterParty::factory()->for($otherMatter)->create([
+        'role' => PartyRole::Plaintiff,
+        'is_our_client' => true,
+        'name' => 'Lê Thị Hoa',
+    ]);
+
+    $newClient = Client::factory()->create();
+    $type = matterTypeWithTemplate();
+    $matterCountBefore = Matter::count();
+
+    $args = [
+        baseAttributes($newClient, $lawyer, $type),
+        [[
+            // Tên trùng sau chuẩn hoá nhưng số căn cước/điện thoại khác hẳn — chỉ lên vàng.
+            'role' => PartyRole::Defendant,
+            'name' => '  Lê   THỊ hoa ',
+            'id_number' => '033344455566',
+            'phone' => '0977888999',
+        ]],
+    ];
+
+    expect(fn () => app(OpenMatter::class)->handle(...$args))->toThrow(ConflictAcknowledgementRequired::class);
+
+    expect(Matter::count())->toBe($matterCountBefore);
+
+    $activity = Activity::query()->where('event', 'conflict_check_run')->latest('id')->first();
+    expect($activity->properties->get('level'))->toBe('yellow');
+    expect(Activity::query()->where('event', 'matter_opened')->exists())->toBeFalse();
+});
+
+it('saves a yellow result once the caller acknowledges it', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $this->actingAs($lawyer, 'web');
 
@@ -158,18 +223,111 @@ it('warns at yellow for a normalized-name-only match and still saves after the c
     $matter = app(OpenMatter::class)->handle(
         baseAttributes($newClient, $lawyer, $type),
         [[
-            // Tên trùng sau chuẩn hoá nhưng số căn cước/điện thoại khác hẳn — chỉ lên vàng.
             'role' => PartyRole::Defendant,
             'name' => '  Lê   THỊ hoa ',
             'id_number' => '033344455566',
             'phone' => '0977888999',
         ]],
+        acknowledged: ConflictLevel::Yellow,
     );
 
     expect($matter->exists)->toBeTrue();
 
-    $activity = Activity::query()->where('event', 'conflict_check_run')->latest('id')->first();
-    expect($activity->properties->get('level'))->toBe('yellow');
+    $matterOpened = Activity::query()->where('event', 'matter_opened')->latest('id')->first();
+    expect($matterOpened->properties->get('conflict_level'))->toBe('yellow');
+});
+
+it('needs no acknowledgement for a green result', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $this->actingAs($lawyer, 'web');
+
+    $newClient = Client::factory()->create();
+    $type = matterTypeWithTemplate();
+
+    $matter = app(OpenMatter::class)->handle(baseAttributes($newClient, $lawyer, $type), []);
+
+    expect($matter->exists)->toBeTrue();
+});
+
+it('flags the repeat-client case as yellow (same client opening a second matter matches their own first matter), requiring acknowledgement', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $this->actingAs($lawyer, 'web');
+
+    $client = Client::factory()->create(['id_number' => '099988877766']);
+    $type = matterTypeWithTemplate();
+
+    // Vụ việc đầu tiên của khách hàng: hoàn toàn xanh, không có bên nào trùng ở đâu cả.
+    $firstMatter = app(OpenMatter::class)->handle(baseAttributes($client, $lawyer, $type), []);
+    expect($firstMatter->exists)->toBeTrue();
+
+    // Vụ việc thứ hai của CHÍNH khách hàng đó: own-client party mới trùng id_number_hash với
+    // own-client party của vụ thứ nhất (chính khách hàng này), cùng vai plaintiff cả hai bên nên
+    // không đối lập — mức vàng (tình huống reviewer mô tả), không phải đỏ, nhưng KHÔNG được lưu
+    // im lặng: phải qua cổng xác nhận như mọi mức vàng khác.
+    expect(fn () => app(OpenMatter::class)->handle(baseAttributes($client, $lawyer, $type), []))
+        ->toThrow(ConflictAcknowledgementRequired::class);
+
+    expect(Matter::query()->where('client_id', $client->id)->count())->toBe(1);
+
+    $secondMatter = app(OpenMatter::class)->handle(
+        baseAttributes($client, $lawyer, $type),
+        [],
+        acknowledged: ConflictLevel::Yellow,
+    );
+
+    expect($secondMatter->exists)->toBeTrue()
+        ->and(Matter::query()->where('client_id', $client->id)->count())->toBe(2);
+});
+
+it('requires client_role: a missing key throws a validation error and saves nothing', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $this->actingAs($lawyer, 'web');
+
+    $newClient = Client::factory()->create();
+    $type = matterTypeWithTemplate();
+
+    $attributes = baseAttributes($newClient, $lawyer, $type);
+    unset($attributes['client_role']);
+
+    expect(fn () => app(OpenMatter::class)->handle($attributes, []))->toThrow(ValidationException::class);
+    expect(Matter::count())->toBe(0);
+});
+
+it('detects red when the firm client is the defendant and an opposing plaintiff is an existing client', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $this->actingAs($manager, 'web');
+
+    // existingClient đã là khách hàng của văn phòng ở một vụ khác, vai plaintiff ở đó.
+    $existingClient = Client::factory()->create(['id_number' => '088877766655', 'name' => 'Đỗ Thị Mai']);
+    $otherMatter = Matter::factory()->create();
+    MatterParty::factory()->for($otherMatter)->ourClient($existingClient, PartyRole::Plaintiff)->create();
+
+    // Vụ việc mới: khách hàng của văn phòng lần này là BỊ ĐƠN, và bên nguyên đơn phía đối
+    // phương chính là existingClient — nếu client_role bị mặc định sai thành plaintiff (lỗi cũ),
+    // đây sẽ chỉ lên vàng thay vì đỏ.
+    $newClient = Client::factory()->create();
+    $type = matterTypeWithTemplate();
+
+    $caught = null;
+
+    try {
+        app(OpenMatter::class)->handle(
+            baseAttributes($newClient, $manager, $type, ['client_role' => PartyRole::Defendant]),
+            [[
+                'role' => PartyRole::Plaintiff,
+                'name' => 'Đỗ Thị Mai (nguyên đơn)',
+                'id_number' => '088877766655',
+            ]],
+        );
+    } catch (ConflictBlocked $exception) {
+        $caught = $exception;
+    }
+
+    expect($caught)->not->toBeNull()
+        ->and($caught->result->level)->toBe(ConflictLevel::Red)
+        ->and($caught->result->matches->first()->level)->toBe(ConflictLevel::Red);
+
+    expect(Matter::query()->where('client_id', $newClient->id)->exists())->toBeFalse();
 });
 
 it('applies the active checklist template of the matter type when opening the matter', function () {
@@ -229,28 +387,4 @@ it('creates an own-client matter_party for the matter client, bridging the encry
             'id_number' => '011122233344',
         ]],
     ))->toThrow(ConflictBlocked::class);
-});
-
-it('requires a non-empty override reason: a manager with a blank reason is still blocked', function () {
-    $manager = User::factory()->withRole(Role::Manager)->create();
-    $this->actingAs($manager, 'web');
-
-    $existingClient = Client::factory()->create(['id_number' => '079012345678']);
-    $otherMatter = Matter::factory()->create();
-    MatterParty::factory()->for($otherMatter)->ourClient($existingClient)->create();
-
-    $newClient = Client::factory()->create();
-    $type = matterTypeWithTemplate();
-
-    expect(fn () => app(OpenMatter::class)->handle(
-        baseAttributes($newClient, $manager, $type),
-        [[
-            'role' => PartyRole::Defendant,
-            'name' => 'Bị đơn trùng',
-            'id_number' => '079012345678',
-        ]],
-        '   ',
-    ))->toThrow(ConflictBlocked::class);
-
-    expect(Matter::count())->toBe(1); // chỉ $otherMatter, không có vụ nào mới được tạo.
 });
