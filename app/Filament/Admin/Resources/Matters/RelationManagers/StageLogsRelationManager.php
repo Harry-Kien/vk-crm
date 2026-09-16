@@ -48,9 +48,15 @@ class StageLogsRelationManager extends RelationManager
                 TextColumn::make('to_stage')
                     ->label(__('matters.stage_log_fields.to_stage'))
                     ->badge()
-                    // $this->getOwnerRecord() (đã nạp sẵn matterType.stages ở MatterResource::getEloquentQuery())
-                    // thay vì $record->matter->matterType: mọi dòng của bảng này cùng một Matter, nên đọc lại
-                    // qua $record tự tải lại quan hệ N lần (mỗi dòng một truy vấn) một cách vô ích.
+                    // $this->getOwnerRecord() thay vì $record->matter->matterType: mọi dòng của bảng này
+                    // cùng một Matter (chủ sở hữu của trang ViewRecord, tới từ
+                    // MatterResource::getRecordRouteBindingEloquentQuery() — KHÔNG eager-load
+                    // matterType.stages, khác getEloquentQuery() dùng cho danh sách). Đọc lại qua
+                    // $record->matter thay vì $this->getOwnerRecord() vẫn đúng nhưng lazy-load lại
+                    // Matter/MatterType MỘT LẦN CHO MỖI DÒNG (mỗi StageLog::matter() là một model rời,
+                    // không dùng chung cache); $this->getOwnerRecord() chỉ chạm quan hệ matterType một
+                    // lần cho CẢ bảng vì mọi dòng gọi trên cùng một instance Matter, quan hệ đã nạp
+                    // được Eloquent cache lại từ lần truy cập đầu tiên.
                     ->formatStateUsing(fn (StageLog $record): string => $this->getOwnerRecord()->matterType->stage($record->to_stage)?->label ?? $record->to_stage),
                 TextColumn::make('internal_note')
                     ->label(__('matters.stage_log_fields.internal_note'))
@@ -121,8 +127,12 @@ class StageLogsRelationManager extends RelationManager
 
         if ($firstView !== null) {
             return [
+                // Chuỗi tiếng Việt (kể cả chữ "ngày" nối giữa hai mốc) nằm trong lang/vi/matters.php,
+                // không nối chuỗi tiếng Việt trong class PHP (quy ước CLAUDE.md) — PHP chỉ truyền định
+                // dạng giờ/ngày qua hai placeholder :time và :date.
                 'text' => __('matters.stage_log_fields.viewed_at', [
-                    'when' => $firstView->viewed_at->format('H:i').' ngày '.$firstView->viewed_at->format('d/m'),
+                    'time' => $firstView->viewed_at->format('H:i'),
+                    'date' => $firstView->viewed_at->format('d/m'),
                 ]),
                 'highlighted' => false,
             ];

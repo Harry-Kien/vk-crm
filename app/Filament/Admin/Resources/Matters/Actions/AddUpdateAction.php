@@ -28,9 +28,12 @@ class AddUpdateAction extends Action
     {
         parent::setUp();
 
+        // Cùng màu 'primary' như TransitionStageAction: SPEC §6.3 muốn hai nút prominent ngang
+        // nhau, và trong Filament màu sắc là tín hiệu nổi bật chính — 'gray' trước đây khiến nút
+        // này trông như tuỳ chọn phụ (fix round 1, minor E).
         $this->label(__('matters.actions.add_update'))
             ->icon(Heroicon::OutlinedPlusCircle)
-            ->color('gray')
+            ->color('primary')
             ->modalHeading(__('matters.transition_form.add_update_heading'))
             ->setUpStageUpdateAction('matters.transition_form.add_update_success');
     }

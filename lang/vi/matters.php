@@ -73,7 +73,7 @@ return [
         'internal_note' => 'Ghi chú nội bộ',
         'internal_marker' => 'Nội bộ',
         'public_content' => 'Nội dung đã công bố',
-        'viewed_at' => 'Khách đã xem lúc :when',
+        'viewed_at' => 'Khách đã xem lúc :time ngày :date',
         'not_viewed' => 'Khách chưa xem',
     ],
     'party_fields' => [
@@ -85,10 +85,17 @@ return [
         'phone' => 'Số điện thoại',
         'address' => 'Địa chỉ',
         'note' => 'Ghi chú',
+        'acknowledge_conflict' => 'Tôi đã xem xét kết quả kiểm tra xung đột lợi ích và xác nhận vẫn muốn thêm bên này',
+        'acknowledge_conflict_help' => 'Chỉ cần tích khi thông báo kết quả kiểm tra yêu cầu xem xét trước khi lưu.',
+        'override_reason' => 'Lý do ghi đè',
+        'override_reason_help' => 'Chỉ trưởng phòng/quản trị mới ghi đè được mức đỏ, và bắt buộc phải điền lý do ở đây.',
     ],
     'parties' => [
-        'conflict_check_title' => 'Kết quả kiểm tra xung đột lợi ích',
+        'conflict_check_title_attention' => 'Cần xem xét trước khi lưu',
+        'conflict_check_title_clear' => 'Không tìm thấy xung đột lợi ích',
         'conflict_check_clear' => 'Không tìm thấy bản ghi trùng.',
         'conflict_check_incomplete' => 'Các bên sau chưa có số căn cước/điện thoại để đối chiếu: :names',
+        'conflict_blocked_retry' => 'Mức đỏ: không thể lưu. Chỉ trưởng phòng/quản trị được ghi đè, kèm lý do ở trường "Lý do ghi đè".',
+        'conflict_ack_retry' => 'Đọc kỹ thông báo kết quả kiểm tra xung đột lợi ích ở trên, sau đó tích "Tôi đã xem xét…" rồi gửi lại.',
     ],
 ];

@@ -2,9 +2,12 @@
 
 namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 
-use App\Actions\RunConflictCheck;
+use App\Actions\AddMatterParty;
 use App\Enums\ConflictLevel;
 use App\Enums\PartyRole;
+use App\Enums\Permission;
+use App\Exceptions\ConflictAcknowledgementRequired;
+use App\Exceptions\ConflictBlocked;
 use App\Filament\Admin\Concerns\ScopesToVisibleMatters;
 use App\Models\Client;
 use App\Models\Matter;
@@ -26,24 +29,34 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Tab "Các bên" (SPEC §7.2, §4.16): bảng matter_parties. Thêm một bên thì chạy lại
- * RunConflictCheck NGAY (trên chính bên vừa thêm — Action tự nạp các bên đã có của vụ để xét lại
- * cùng lúc, xem docblock RunConflictCheck) và hiện kết quả TẠI CHỖ bằng một Notification — người
- * dùng không phải rời trang hay tải lại gì để thấy kết quả, đúng tinh thần "tại chỗ" của SPEC dù
- * không phải một banner tĩnh trong bảng.
+ * RunConflictCheck NGAY và hiện kết quả TẠI CHỖ bằng một Notification (persistent, không cần tải
+ * lại trang) — người dùng không phải rời trang để thấy kết quả.
  *
- * Không dùng CreateAction mặc định (```$relationship->create($data)```): MatterParty::fill() cố ý
- * loại id_number_hash/phone_normalized khỏi mass-assignment (chỉ ghi qua identify()), và các
- * trường thô id_number/phone trên form này không phải cột thật — ->using() tự dựng bản ghi qua
- * identify(), giống hệt OpenMatter::buildParty().
+ * **Fix round 1 (review Important #1, #5):** việc lưu bên mới và chạy kiểm tra xung đột giờ đi
+ * qua Action `App\Actions\AddMatterParty` — thuần nghiệp vụ, không biết gì về Filament — thay vì
+ * lưu trước rồi mới kiểm tra sau (lỗ hổng cũ: một bên gây mức đỏ vẫn được lưu, không chặn, không
+ * ghi đè, không xác nhận, đúng lúc SPEC §6.10 bắt buộc kiểm tra này chặn được). Lớp này giờ chỉ
+ * còn hai việc: thu thập dữ liệu form và hiển thị kết quả — nghiệp vụ nằm ở `app/Actions/` đúng
+ * CLAUDE.md.
  */
 class PartiesRelationManager extends RelationManager
 {
     use ScopesToVisibleMatters;
 
     protected static string $relationship = 'parties';
+
+    /**
+     * Mức của lần kiểm tra xung đột TRƯỚC trong modal "thêm bên" đang mở, chờ người dùng tích
+     * "đã xem xét" ở lần gửi kế tiếp — xem docblock `createParty()`. `null` khi chưa có lần kiểm
+     * tra nào bị chặn bởi yêu cầu xác nhận, hoặc sau khi bên đã lưu thành công.
+     */
+    public ?string $pendingConflictLevel = null;
 
     public static function getTitle(Model $ownerRecord, string $pageClass): string
     {
@@ -53,8 +66,9 @@ class PartiesRelationManager extends RelationManager
     /**
      * Filament 5 mặc định coi relation manager trên trang ViewRecord là chỉ đọc
      * (`Panel::hasReadOnlyRelationManagersOnResourceViewPagesByDefault()` = true), nên CreateAction
-     * bị `Response::deny()` bất kể policy nói gì — phải tắt ở đây để MatterPartyPolicy::create
-     * (matter.update) là nơi quyết định duy nhất, đúng yêu cầu "thêm một bên" của SPEC §7.2.
+     * bị `Response::deny()` bất kể policy nói gì — phải tắt ở đây để authorization thật sự (xem
+     * `->authorize()` trên CreateAction bên dưới, fix round 1 finding 4) là nơi quyết định duy
+     * nhất, đúng yêu cầu "thêm một bên" của SPEC §7.2.
      */
     public function isReadOnly(): bool
     {
@@ -75,7 +89,12 @@ class PartiesRelationManager extends RelationManager
                     ->default(false),
                 Select::make('client_id')
                     ->label(__('matters.party_fields.client'))
-                    ->options(fn (): array => Client::query()->orderBy('name')->pluck('name', 'id')->all())
+                    // Fix round 1 finding 3: KHÔNG liệt kê toàn bộ khách hàng văn phòng — một
+                    // lawyer có matter.update nhưng không có client.manage chỉ được thấy khách
+                    // hàng của những vụ việc họ đã liệt kê được (Matter::listableBy), đúng ranh
+                    // giới ClientPolicy::view đã định nghĩa cho MỌI nơi khác đọc danh sách khách
+                    // hàng. Chỉ ai có client.manage mới thấy toàn bộ.
+                    ->options(fn (): array => static::visibleClientOptions())
                     ->searchable()
                     ->visible(fn (Get $get): bool => (bool) $get('is_our_client')),
                 TextInput::make('name')
@@ -94,6 +113,14 @@ class PartiesRelationManager extends RelationManager
                     ->maxLength(300),
                 Textarea::make('note')
                     ->label(__('matters.party_fields.note'))
+                    ->columnSpanFull(),
+                Toggle::make('acknowledge_conflict')
+                    ->label(__('matters.party_fields.acknowledge_conflict'))
+                    ->helperText(__('matters.party_fields.acknowledge_conflict_help'))
+                    ->default(false),
+                Textarea::make('override_reason')
+                    ->label(__('matters.party_fields.override_reason'))
+                    ->helperText(__('matters.party_fields.override_reason_help'))
                     ->columnSpanFull(),
             ]);
     }
@@ -124,40 +151,143 @@ class PartiesRelationManager extends RelationManager
             ->headerActions([
                 CreateAction::make()
                     ->icon(Heroicon::OutlinedUserPlus)
-                    ->using(function (array $data, RelationManager $livewire): MatterParty {
-                        /** @var Matter $matter */
-                        $matter = $livewire->getOwnerRecord();
-                        $isOurClient = (bool) ($data['is_our_client'] ?? false);
-
-                        $party = new MatterParty([
-                            'matter_id' => $matter->id,
-                            'role' => $data['role'],
-                            'is_our_client' => $isOurClient,
-                            'client_id' => $isOurClient ? ($data['client_id'] ?? null) : null,
-                            'name' => $data['name'],
-                            'address' => $data['address'] ?? null,
-                            'note' => $data['note'] ?? null,
-                        ]);
-                        $party->identify($data['id_number'] ?? null, $data['phone'] ?? null);
-                        $party->save();
-
-                        $result = app(RunConflictCheck::class)->handle(collect([$party]), $matter);
-
-                        static::notifyConflictCheckResult($result);
-
-                        return $party;
-                    }),
+                    // Fix round 1 finding 4: MatterPartyPolicy::create() không nhận Matter (áp
+                    // dụng chung theo matter.update, không theo từng vụ việc — hạn chế đã biết,
+                    // xem báo cáo). Filament không tự truyền $matter vào policy này
+                    // (getCreateAuthorizationResponse() gọi authorize('create') không kèm record),
+                    // nên an toàn thật sự cho ĐÚNG vụ việc này phải tự kiểm tra ở đây.
+                    ->authorize(fn (): bool => Gate::allows('update', $this->getOwnerRecord()))
+                    ->using(fn (array $data): MatterParty => $this->createParty($data)),
             ])
             ->modifyQueryUsing(fn (Builder $query): Builder => static::scopeToVisibleMatters($query));
     }
 
+    /**
+     * Thu dữ liệu form → gọi `AddMatterParty` → dịch hai exception nghiệp vụ
+     * (`ConflictBlocked`/`ConflictAcknowledgementRequired`) thành lỗi form giữ modal mở, để
+     * người dùng đọc Notification kết quả rồi tích "đã xem xét" hoặc điền lý do ghi đè và gửi lại
+     * — Livewire giữ nguyên dữ liệu đã nhập khi một action ném ValidationException, nên đây là một
+     * vòng lặp thật, không phải màn hình chết.
+     *
+     * `$pendingConflictLevel` (public property của chính relation manager — một Livewire
+     * component) nhớ mức của lần kiểm tra TRƯỚC trong modal đang mở, để khi người dùng tích "đã
+     * xem xét" ở lần gửi THỨ HAI, Action nhận đúng `ConflictLevel` cần khớp (hợp đồng
+     * `AddMatterParty`/`OpenMatter`: `$acknowledged` phải khớp CHÍNH XÁC mức của lần kiểm tra hiện
+     * tại — không có sẵn trước khi biết mức, nên không thể truyền ngay từ lần gửi đầu).
+     *
+     * Lỗi ném ra dùng `errorKey()` để tính đúng tiền tố state-path của form đang mở
+     * (`mountedActionSchema0.override_reason`) — Filament chỉ hiển thị lỗi ở đúng ô khi khoá lỗi
+     * khớp CHÍNH XÁC state path đó; một `ValidationException` với khoá trần (`'override_reason'`)
+     * bị Filament coi là không thuộc form nào và không hiện lỗi ở đúng ô (đã tự xác nhận: dùng
+     * khoá trần khiến `TypeError`/lỗi không gắn đúng ô trong lần chạy thử đầu tiên).
+     */
+    private function createParty(array $data): MatterParty
+    {
+        /** @var Matter $matter */
+        $matter = $this->getOwnerRecord();
+        $actor = Auth::user();
+        $isOurClient = (bool) ($data['is_our_client'] ?? false);
+
+        $acknowledgeTicked = (bool) ($data['acknowledge_conflict'] ?? false);
+        $acknowledged = ($acknowledgeTicked && $this->pendingConflictLevel !== null)
+            ? ConflictLevel::from($this->pendingConflictLevel)
+            : null;
+
+        try {
+            $party = app(AddMatterParty::class)->handle(
+                matter: $matter,
+                actor: $actor,
+                partyData: [
+                    'role' => $data['role'],
+                    'is_our_client' => $isOurClient,
+                    'client_id' => $isOurClient ? ($data['client_id'] ?? null) : null,
+                    'name' => $data['name'],
+                    'address' => $data['address'] ?? null,
+                    'note' => $data['note'] ?? null,
+                    'id_number' => $data['id_number'] ?? null,
+                    'phone' => $data['phone'] ?? null,
+                ],
+                overrideReason: $data['override_reason'] ?? null,
+                acknowledged: $acknowledged,
+            );
+        } catch (ConflictBlocked $exception) {
+            $this->pendingConflictLevel = null;
+            static::notifyConflictCheckResult($exception->result);
+
+            throw ValidationException::withMessages([
+                $this->errorKey('override_reason') => [__('matters.parties.conflict_blocked_retry')],
+            ]);
+        } catch (ConflictAcknowledgementRequired $exception) {
+            $this->pendingConflictLevel = $exception->result->level->value;
+            static::notifyConflictCheckResult($exception->result);
+
+            throw ValidationException::withMessages([
+                $this->errorKey('acknowledge_conflict') => [__('matters.parties.conflict_ack_retry')],
+            ]);
+        }
+
+        $this->pendingConflictLevel = null;
+
+        return $party;
+    }
+
+    /**
+     * `{mountedActionSchemaN}.{field}` — cùng công thức `Filament\Forms\Testing\TestsForms::
+     * assertHasFormErrors()` dùng để định vị lỗi trường của action đang mở (mượn tên schema từ
+     * chính action đang mounted thay vì tự đoán chỉ số, vì action có thể lồng nhau).
+     */
+    private function errorKey(string $field): string
+    {
+        $schemaName = $this->getMountedActionSchemaName();
+        $statePath = $schemaName !== null ? $this->getSchema($schemaName)?->getStatePath() : null;
+
+        return filled($statePath) ? "{$statePath}.{$field}" : $field;
+    }
+
+    /**
+     * Fix round 1 finding 3: danh sách khách hàng cho ô "Khách hàng" của form — chỉ khách hàng
+     * của những vụ việc actor đã liệt kê được (`Matter::listableBy`, đúng luật hiển thị vụ việc
+     * duy nhất của toàn hệ thống), trừ khi actor có `client.manage` (được thấy toàn bộ, giống
+     * `ClientPolicy::view`).
+     *
+     * @return array<int, string>
+     */
+    public static function visibleClientOptions(): array
+    {
+        $user = Auth::user();
+
+        if ($user?->can(Permission::ClientManage->value)) {
+            return Client::query()->orderBy('name')->pluck('name', 'id')->all();
+        }
+
+        $visibleClientIds = Matter::query()->listableBy($user)->pluck('client_id')->unique();
+
+        return Client::query()
+            ->whereIn('id', $visibleClientIds)
+            ->orderBy('name')
+            ->pluck('name', 'id')
+            ->all();
+    }
+
+    /**
+     * Fix round 1 finding 2: màu và tiêu đề lấy từ `requiresAcknowledgement()`, KHÔNG chỉ từ
+     * `level` — một mức xanh có bên thiếu định danh (`hasIncompleteParties()`) vẫn đòi xem xét
+     * (`requiresAcknowledgement()` true dù `level === Green`, xem docblock `ConflictCheckResult`),
+     * nên KHÔNG được mang màu/tiêu đề "sạch" như một mức xanh thật.
+     */
     private static function notifyConflictCheckResult(ConflictCheckResult $result): void
     {
-        $color = match ($result->level) {
-            ConflictLevel::Red => 'danger',
-            ConflictLevel::Yellow => 'warning',
-            ConflictLevel::Green => 'success',
+        $needsAttention = $result->requiresAcknowledgement();
+
+        $color = match (true) {
+            $result->level === ConflictLevel::Red => 'danger',
+            $needsAttention => 'warning',
+            default => 'success',
         };
+
+        $title = $needsAttention
+            ? __('matters.parties.conflict_check_title_attention')
+            : __('matters.parties.conflict_check_title_clear');
 
         $body = $result->matches->isEmpty()
             ? __('matters.parties.conflict_check_clear')
@@ -177,7 +307,7 @@ class PartiesRelationManager extends RelationManager
         }
 
         Notification::make()
-            ->title(__('matters.parties.conflict_check_title'))
+            ->title($title)
             ->body($body)
             ->color($color)
             ->persistent()

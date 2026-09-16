@@ -7,6 +7,7 @@ use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\PartiesRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\StageLogsRelationManager;
+use App\Models\Client;
 use App\Models\Matter;
 use App\Models\StageLog;
 use App\Models\StageLogView;
@@ -146,11 +147,12 @@ it('toggles portal publication only for someone with matter.update, and the swit
 });
 
 /**
- * SPEC §7.2 "Các bên": thêm một bên thì chạy lại RunConflictCheck ngay, hiện kết quả tại chỗ
- * (ở đây bằng một Notification, xem báo cáo task). Bên mới trùng số căn cước với khách hàng đối
- * lập trong một vụ khác phải lên mức đỏ.
+ * SPEC §6.10: "mỗi lần thêm một bên mới vào vụ việc đang chạy" phải chạy kiểm tra xung đột lợi
+ * ích NGAY và mức đỏ phải chặn lưu (fix round 1, finding 1 — trước đó bên vẫn được lưu bất kể
+ * mức, đúng lỗ hổng review chỉ ra). Kịch bản: một bị đơn mới trùng số căn cước với khách hàng
+ * hiện hữu của vụ việc, đối lập vai (nguyên đơn/bị đơn) → mức đỏ.
  */
-it('reruns the conflict check in place when a lawyer adds a party through the Các bên tab', function () {
+it('blocks a red conflict from saving a new party through the Các bên tab, and shows the result in place', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
     $matter->parties()->create([
@@ -176,9 +178,113 @@ it('reruns the conflict check in place when a lawyer adds a party through the C�
         'is_our_client' => false,
         'name' => 'Bị đơn mới',
         'id_number' => '001099001234',
+    ])->assertHasTableActionErrors(['override_reason']);
+
+    Notification::assertNotified(__('matters.parties.conflict_check_title_attention'));
+
+    expect($matter->parties()->where('name', 'Bị đơn mới')->exists())->toBeFalse();
+});
+
+/** Cùng kịch bản đỏ ở trên, nhưng manager điền lý do ghi đè: bên phải được lưu (SPEC §6.10 bước 3). */
+it('lets a manager override a red conflict with a reason and save the party', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $manager->id]);
+    $matter->parties()->create([
+        'role' => PartyRole::Plaintiff,
+        'is_our_client' => true,
+        'name' => 'Khách hàng hiện hữu',
     ]);
 
-    Notification::assertNotified(__('matters.parties.conflict_check_title'));
+    $otherMatter = Matter::factory()->create();
+    $otherMatter->parties()->create([
+        'role' => PartyRole::Plaintiff,
+        'is_our_client' => true,
+        'name' => 'Người trùng căn cước',
+    ])->identify('001099001234', null)->save();
+
+    $this->actingAs($manager, 'web');
+
+    $this->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('create', data: [
+        'role' => PartyRole::Defendant->value,
+        'is_our_client' => false,
+        'name' => 'Bị đơn mới',
+        'id_number' => '001099001234',
+        'override_reason' => 'Đã xác minh đây không phải cùng một người.',
+    ])->assertHasNoTableActionErrors();
 
     expect($matter->parties()->where('name', 'Bị đơn mới')->exists())->toBeTrue();
+});
+
+/**
+ * Mức vàng (SPEC §11 bullet 3) không chặn vĩnh viễn nhưng đòi xác nhận: lần gửi đầu bị từ chối vì
+ * chưa tích "đã xem xét", lần gửi thứ hai (cùng modal, cùng phiên Livewire) tích vào thì lưu được.
+ */
+it('requires acknowledgement for a yellow conflict, then saves the party once acknowledged', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $otherMatter = Matter::factory()->create();
+    $otherMatter->parties()->create([
+        'role' => PartyRole::Plaintiff,
+        'is_our_client' => true,
+        'name' => 'Lê Thị Hoa',
+    ]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $livewire = $this->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ]);
+
+    // Tên trùng sau chuẩn hoá nhưng không có số căn cước/điện thoại nào để so khớp chắc chắn hơn
+    // — chỉ lên vàng ("cần người xem xét", SPEC §6.10 bước 2).
+    $livewire->callTableAction('create', data: [
+        'role' => PartyRole::Defendant->value,
+        'is_our_client' => false,
+        'name' => '  Lê   THỊ hoa ',
+    ])->assertHasTableActionErrors(['acknowledge_conflict']);
+
+    expect($matter->parties()->where('name', '  Lê   THỊ hoa ')->exists())->toBeFalse();
+
+    // Cùng modal còn đang mở (Filament giữ modal mở khi action ném lỗi form): sửa dữ liệu và gửi
+    // lại action ĐANG MOUNTED, không mở một action 'create' mới — đúng luồng thật của người dùng.
+    $livewire->setTableActionData([
+        'role' => PartyRole::Defendant->value,
+        'is_our_client' => false,
+        'name' => '  Lê   THỊ hoa ',
+        'acknowledge_conflict' => true,
+    ])->callMountedTableAction()->assertHasNoTableActionErrors();
+
+    expect($matter->parties()->where('name', '  Lê   THỊ hoa ')->exists())->toBeTrue();
+});
+
+/**
+ * Fix round 1 finding 3: ô "Khách hàng" của form thêm bên không được liệt kê TOÀN BỘ khách hàng
+ * văn phòng cho một lawyer chỉ có matter.update — chỉ khách hàng của những vụ việc họ đã liệt kê
+ * được (Matter::listableBy), đúng ranh giới ClientPolicy::view. client.manage mới thấy toàn bộ.
+ */
+it('scopes the party form client picker to clients of matters the actor can already list', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $visibleClient = $matter->client;
+
+    $strangerClient = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $strangerClient->id]); // vụ việc của một lawyer khác hẳn.
+
+    $this->actingAs($lawyer, 'web');
+
+    $options = PartiesRelationManager::visibleClientOptions();
+
+    expect($options)->toHaveKey($visibleClient->id)
+        ->and($options)->not->toHaveKey($strangerClient->id);
+
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $this->actingAs($manager, 'web');
+
+    // client.manage (Manager) thấy toàn bộ, kể cả khách hàng "lạ" ở trên.
+    expect(PartiesRelationManager::visibleClientOptions())->toHaveKey($strangerClient->id);
 });
