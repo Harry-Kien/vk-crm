@@ -27,6 +27,8 @@ return [
         'matter_stage_transitioned' => 'Chuyển giai đoạn vụ việc',
         'matter_party_added' => 'Thêm bên trong vụ việc',
         'conflict_check_run' => 'Kiểm tra xung đột lợi ích',
+        // App\Actions\SetMatterPortalPublication (fix round 2 review, task 2).
+        'matter_portal_publication_set' => 'Đổi trạng thái công bố portal',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

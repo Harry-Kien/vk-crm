@@ -2,11 +2,13 @@
 
 namespace App\Filament\Admin\Resources\Matters\Pages;
 
+use App\Actions\SetMatterPortalPublication;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
 use Filament\Support\Icons\Heroicon;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 
 /**
@@ -37,6 +39,12 @@ class ViewMatter extends ViewRecord
      * thi nhưng phức tạp hơn để kiểm thử mà không có lợi ích rõ ràng so với một header action tiêu
      * chuẩn của Filament, vốn đã có sẵn ở EditMatterType cho DeleteAction/RestoreAction. Chỉ ai có
      * matter.update mới thao tác được (SPEC §7.2, MatterPolicy::update).
+     *
+     * Việc lưu thật đi qua `App\Actions\SetMatterPortalPublication` (fix round 2 review, important
+     * finding: trang này từng gọi thẳng `$record->update()`, vi phạm CLAUDE.md "Filament resource/
+     * controller/job chỉ gọi Action") — xem docblock của Action đó cho lý do (audit có cấu trúc,
+     * seam cho M6). `->visible()` ở đây chỉ là ẩn nút trên giao diện; Action vẫn tự kiểm tra lại
+     * qua Gate, không tin trang đã lọc đúng.
      */
     protected function getHeaderActions(): array
     {
@@ -53,7 +61,12 @@ class ViewMatter extends ViewRecord
                 ->visible(fn (): bool => Gate::allows('update', $this->getRecord()))
                 ->action(function (): void {
                     $record = $this->getRecord();
-                    $record->update(['is_published_to_portal' => ! $record->is_published_to_portal]);
+
+                    app(SetMatterPortalPublication::class)->handle(
+                        matter: $record,
+                        publish: ! $record->is_published_to_portal,
+                        actor: Auth::user(),
+                    );
 
                     Notification::make()
                         ->title(__('matters.actions.portal_publication_toggled'))
