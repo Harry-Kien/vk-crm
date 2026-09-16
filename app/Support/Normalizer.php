@@ -10,6 +10,12 @@ use Illuminate\Support\Str;
  */
 final class Normalizer
 {
+    /** Số thuê bao Việt Nam ngắn nhất còn gặp trong dữ liệu tiếp nhận: 8 chữ số (cố định kế hoạch cũ). */
+    private const SUBSCRIBER_MIN_DIGITS = 8;
+
+    /** Dài nhất: 10 chữ số — cố định hiện hành, và di động 11 số của kế hoạch trước 2018. */
+    private const SUBSCRIBER_MAX_DIGITS = 10;
+
     public static function name(?string $value): ?string
     {
         if ($value === null || trim($value) === '') {
@@ -33,11 +39,31 @@ final class Normalizer
      * viết. Trước đây `912345678` rơi hết mọi nhánh và giữ nguyên, không bao giờ khớp với
      * `84912345678`.
      *
-     * **Quy tắc độ dài, và vì sao chọn 8–9.** Phần thuê bao (sau số 0 đứng đầu) trong kế hoạch
-     * đánh số hiện hành là 9 chữ số cho cả di động lẫn cố định có mã vùng; một số số cố định
-     * cũ/ngắn còn 8 chữ số. Nên: một dãy TRẦN (không `0`, không mã quốc gia) dài đúng 8 hoặc 9
-     * chữ số được coi là số thuê bao bị mất số 0 và được thêm `84`. Dãy dài khác (số nước ngoài,
-     * số rác, số nội bộ) giữ nguyên.
+     * **Quy tắc độ dài: 8–10 chữ số.** Phần thuê bao (sau số 0 gọi nội hạt) KHÔNG cùng độ dài cho
+     * mọi loại số trong kế hoạch đánh số hiện hành:
+     *  - di động: 9 chữ số (`09x xxx xxxx` — 10 chữ số kể cả số 0);
+     *  - CỐ ĐỊNH: 10 chữ số — 2 chữ số mã vùng + 8 chữ số thuê bao ở Hà Nội (`024`) và TP.HCM
+     *    (`028`), 3 + 7 ở các tỉnh còn lại (`0292` Cần Thơ) — tức 11 chữ số kể cả số 0;
+     *  - di động 11 chữ số của kế hoạch TRƯỚC 2018 (`0166 123 4567`), vẫn còn rải rác trong dữ
+     *    liệu tiếp nhận cũ: cũng 10 chữ số sau số 0;
+     *  - một số cố định cũ/ngắn: 8 chữ số.
+     *
+     * Bản sửa trước đặt trần ở 9 trên tiền đề "phần thuê bao là 9 chữ số cho cả di động lẫn cố
+     * định có mã vùng". Tiền đề đó SAI, và sai đúng ở loại số mà một bên đối lập là DOANH NGHIỆP
+     * nhiều khả năng có nhất: `028 3822 1234` bị Excel ăn mất số 0 thành `2838221234` và không
+     * bao giờ khớp lại với chính nó viết theo cách khác — đúng lỗi mà quy tắc này sinh ra để vá.
+     *
+     * **Một dãy TRẦN dài đúng 10 chữ số còn có thể là gì nữa?** Đã cân nhắc trước khi nới trần:
+     *  - một số di động CÒN số 0 (`0912345678`): không bao giờ tới được nhánh này, nhánh "cách
+     *    viết trong nước" bắt trước;
+     *  - mã số thuế doanh nghiệp (10 chữ số) gõ nhầm vào ô điện thoại: phần lớn bắt đầu bằng `0`
+     *    nên đã rơi vào nhánh trong nước từ trước bản sửa này — nới trần không tạo hạng lỗi mới;
+     *  - số căn cước 12 chữ số nằm ngoài trần; CMND cũ 9 chữ số thì đã nằm trong quy tắc từ trước;
+     *  - một số NƯỚC NGOÀI viết không có dấu `+` (`6591234567`): nay bị thêm `84`. Đây là cái giá
+     *    thật của việc nới, và nó KHÔNG phải một khớp nhầm: hai giá trị chỉ gặp nhau khi dãy chữ
+     *    số giống hệt nhau, mà để một số Việt Nam ra cùng giá trị thì phải tồn tại cách viết
+     *    trong nước `0` + đúng 10 chữ số đó — một số 11 chữ số không có trong kế hoạch đánh số.
+     *    Cái mất là một giá trị lưu trông "sai quốc tịch", không phải một cảnh báo sai.
      *
      * **Cố ý chọn phía "chuẩn hoá thừa".** Nếu đoán sai, hậu quả xấu nhất là một cảnh báo
      * vàng/đỏ thừa mà luật sư bấm bỏ qua; nếu đoán thiếu, hậu quả là văn phòng nhận việc chống
@@ -47,8 +73,22 @@ final class Normalizer
      * đầu số VinaPhone có thật: `0843123456` mất số 0 thành `843123456`. Đọc `84` ở đây như mã
      * quốc gia sẽ để lại phần thuê bao 7 chữ số — độ dài không tồn tại trong kế hoạch đánh số —
      * và `843123456` sẽ không bao giờ khớp `0843123456`. Vì vậy nhánh mã quốc gia chỉ nhận khi
-     * phần còn lại đủ dài để là một số thuê bao thật (từ 10 chữ số trở lên, tức `84` + ít nhất 8).
-     * Nhờ đó phép chuẩn hoá cũng luỹ đẳng: chuẩn hoá lại một giá trị đã chuẩn hoá không đổi.
+     * phần còn lại (sau khi bỏ số 0 gọi nội hạt thừa) đủ dài để là một số thuê bao thật.
+     *
+     * **Vì sao hai nhánh có tiền tố chỉ có SÀN, còn nhánh trần có cả trần.** Một số 0 gọi nội hạt
+     * hay một `+84` do người nhập viết ra là một KHẲNG ĐỊNH "đây là số Việt Nam"; ở đó chỉ cần từ
+     * chối những gì ngắn tới mức không thể là số thuê bao. Nhánh trần thì ngược lại: không ai
+     * khẳng định gì cả, nó là một PHÉP ĐOÁN, nên phải đoán trong đúng khoảng độ dài của kế hoạch.
+     *
+     * **Luỹ đẳng — và vì sao tính chất này từng SAI dù được khẳng định ở đây.** Nhánh "cách viết
+     * trong nước" trước đây không có sàn độ dài, nên `01234567` cho ra `841234567`: `84` + 7 chữ
+     * số, một giá trị KHÔNG phải dạng đã chuẩn hoá của bất kỳ số nào (dạng đã chuẩn hoá luôn là
+     * `84` + 8…10 chữ số). Lần chuẩn hoá thứ hai đọc `841234567` như một dãy trần 9 chữ số và
+     * thêm `84` lần nữa: `84841234567`. Nguyên nhân nằm ở nhánh trong nước, không ở nhánh trần,
+     * nên sàn được đặt ở đó (và ở nhánh mã quốc gia, sau khi bỏ số 0 thừa). Nhờ vậy MỌI giá trị
+     * hàm này trả về có tiền tố `84` đều là `84` + 8…10 chữ số không bắt đầu bằng 0 — đúng thứ mà
+     * nhánh mã quốc gia trả lại nguyên vẹn ở lần chạy sau; mọi giá trị còn lại được trả về nguyên
+     * văn dãy chữ số, và một dãy chữ số không đổi thì lần sau vẫn đi đúng nhánh cũ.
      */
     public static function phone(?string $value): ?string
     {
@@ -63,18 +103,34 @@ final class Normalizer
             $digits = substr($digits, 2);
         }
 
-        // Mã quốc gia — chỉ khi phần sau `84` còn đủ dài để là một số thuê bao (xem docblock).
-        if (str_starts_with($digits, '84') && strlen($digits) >= 10) {
-            return '84'.self::withoutTrunkPrefix(substr($digits, 2));
+        if (self::withoutTrunkPrefix($digits) === '') {
+            // Chỉ toàn số 0 (`0`, `00`, `0000`, hoặc `00` sau khi đã bỏ tiền tố gọi quốc tế):
+            // không còn chữ số nào mang thông tin. Trả null, không trả chuỗi rỗng và cũng không
+            // trả lại dãy số 0 — `RunConflictCheck` bỏ qua chuỗi rỗng khi TÌM (`when('')` là
+            // falsy) nhưng vẫn đếm nó là "bên đã có định danh", tức một bên vô hình mà không ai
+            // được cảnh báo là thiếu định danh; null thì đi đúng nhánh "thiếu định danh".
+            return null;
         }
 
-        // Cách viết trong nước: 0912345678 -> 84912345678.
+        // Mã quốc gia — chỉ khi phần sau `84` còn đủ dài để là một số thuê bao (xem docblock).
+        if (str_starts_with($digits, '84')) {
+            $national = self::withoutTrunkPrefix(substr($digits, 2));
+
+            if (strlen($national) >= self::SUBSCRIBER_MIN_DIGITS) {
+                return '84'.$national;
+            }
+        }
+
+        // Cách viết trong nước: 0912345678 -> 84912345678. Ngắn hơn một số thuê bao thì giữ
+        // nguyên: thêm `84` vào đó chỉ sinh ra một giá trị giả dạng đã chuẩn hoá (xem docblock).
         if (str_starts_with($digits, '0')) {
-            return '84'.substr($digits, 1);
+            $national = self::withoutTrunkPrefix($digits);
+
+            return strlen($national) >= self::SUBSCRIBER_MIN_DIGITS ? '84'.$national : $digits;
         }
 
         // Số thuê bao trần đã mất số 0 đứng đầu (xem quy tắc độ dài ở docblock).
-        if (in_array(strlen($digits), [8, 9], true)) {
+        if (strlen($digits) >= self::SUBSCRIBER_MIN_DIGITS && strlen($digits) <= self::SUBSCRIBER_MAX_DIGITS) {
             return '84'.$digits;
         }
 
@@ -89,12 +145,16 @@ final class Normalizer
     }
 
     /**
-     * Bỏ số 0 gọi nội hạt còn sót sau mã quốc gia (`+84 (0)912...`). Số thuê bao Việt Nam không
-     * bao giờ bắt đầu bằng 0, nên `84` + `0` luôn là cách viết thừa, không phải dữ liệu thật.
+     * Bỏ số 0 gọi nội hạt ở đầu phần thuê bao — cả sau mã quốc gia (`+84 (0)912...`) lẫn ở cách
+     * viết trong nước (`0912...`). Số thuê bao Việt Nam không bao giờ bắt đầu bằng 0, nên mọi số
+     * 0 đứng đầu đều là cách viết thừa, không phải dữ liệu thật. Dùng `ltrim` chứ không bỏ đúng
+     * một chữ số: một chuỗi còn sót `00...` sau khi đã bỏ tiền tố gọi quốc tế mà chỉ bỏ một số 0
+     * sẽ đẩy ra một giá trị còn số 0 kẹp giữa `84` và phần thuê bao — đúng thứ phá vỡ tính luỹ
+     * đẳng nói ở docblock `phone()`.
      */
     private static function withoutTrunkPrefix(string $national): string
     {
-        return str_starts_with($national, '0') ? substr($national, 1) : $national;
+        return ltrim($national, '0');
     }
 
     private static function digits(?string $value): ?string
