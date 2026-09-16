@@ -1,0 +1,7 @@
+<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+  <rect width="48" height="48" rx="10" fill="#101d35"/>
+  <text x="24" y="31" text-anchor="middle" fill="#ffffff"
+        font-family="'Be Vietnam Pro',system-ui,Segoe UI,Arial,sans-serif"
+        font-size="20" font-weight="700" letter-spacing="0.5">VK</text>
+  <rect x="11" y="37" width="26" height="3" rx="1.5" fill="#c6283d"/>
+</svg>
