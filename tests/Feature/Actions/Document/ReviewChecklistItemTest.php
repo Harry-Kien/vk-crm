@@ -13,7 +13,6 @@ use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
-use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Validation\ValidationException;
 use Spatie\Activitylog\Models\Activity;
@@ -48,6 +47,19 @@ function reviewChecklistItem(
         decision: $decision,
         rejectionReason: $rejectionReason,
     );
+}
+
+/**
+ * Một lần duyệt bị từ chối vì "không mở được mục này" — SPEC §10.10.
+ *
+ * Ba tình huống (không tồn tại, đã xoá khỏi danh mục, của hồ sơ người khác) phải ra đúng MỘT lớp
+ * và đúng MỘT câu. Khẳng định câu chữ chứ không chỉ lớp: hai câu khác nhau trên cùng một lớp vẫn
+ * là một cái máy dò, và người dò đọc câu chứ không đọc tên lớp.
+ */
+function expectReviewRefusal(Closure $call): void
+{
+    expect($call)->toThrow(fn (ChecklistItemNotReviewable $exception) => expect($exception->getMessage())
+        ->toBe(__('checklist.review.item_unavailable')));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -217,8 +229,7 @@ it('người thấy và sửa được hồ sơ nhưng không có checklist.revi
     expect($reviewer->can('view', $this->matter))->toBeTrue()
         ->and($reviewer->can('update', $this->matter))->toBeTrue();
 
-    expect(fn () => reviewChecklistItem($this->item, $reviewer, ChecklistItemStatus::Accepted))
-        ->toThrow(AuthorizationException::class);
+    expectReviewRefusal(fn () => reviewChecklistItem($this->item, $reviewer, ChecklistItemStatus::Accepted));
 
     expect($this->item->fresh()->status)->toBe(ChecklistItemStatus::PendingReview);
 });
@@ -239,23 +250,20 @@ it('cùng người đó có thêm checklist.review thì duyệt được — c�
 it('luật sư ngoài đội ngũ không duyệt được', function () {
     $outsider = User::factory()->withRole(Role::Lawyer)->create();
 
-    expect(fn () => reviewChecklistItem($this->item, $outsider, ChecklistItemStatus::Accepted))
-        ->toThrow(AuthorizationException::class);
+    expectReviewRefusal(fn () => reviewChecklistItem($this->item, $outsider, ChecklistItemStatus::Accepted));
 });
 
 it('kế toán không duyệt được', function () {
     $accountant = User::factory()->withRole(Role::Accountant)->create();
 
-    expect(fn () => reviewChecklistItem($this->item, $accountant, ChecklistItemStatus::Accepted))
-        ->toThrow(AuthorizationException::class);
+    expectReviewRefusal(fn () => reviewChecklistItem($this->item, $accountant, ChecklistItemStatus::Accepted));
 });
 
 it('không dùng phiên đăng nhập làm nguồn quyền', function () {
     $outsider = User::factory()->withRole(Role::Lawyer)->create();
     $this->actingAs($this->lawyer, 'web');
 
-    expect(fn () => reviewChecklistItem($this->item, $outsider, ChecklistItemStatus::Accepted))
-        ->toThrow(AuthorizationException::class);
+    expectReviewRefusal(fn () => reviewChecklistItem($this->item, $outsider, ChecklistItemStatus::Accepted));
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -267,8 +275,11 @@ it('không duyệt được đầu mục của một hồ sơ đã xoá mềm', 
     $admin = User::factory()->withRole(Role::Admin)->create();
     $this->matter->delete();
 
+    // Người này ĐÃ qua cổng quyền (quản trị viên thấy cả hồ sơ đã xoá mềm, cố ý, để còn khôi
+    // phục được), nên câu trả lời của họ được phép nói ra chuyện gì đã xảy ra và cách sửa.
     expect(fn () => reviewChecklistItem($this->item->fresh(), $admin, ChecklistItemStatus::Accepted))
-        ->toThrow(ChecklistItemNotReviewable::class);
+        ->toThrow(fn (ChecklistItemNotReviewable $exception) => expect($exception->getMessage())
+            ->toBe(__('checklist.review.matter_unavailable')));
 });
 
 it('quản trị viên duyệt được đầu mục của một hồ sơ còn sống — cặp dương', function () {
@@ -278,19 +289,39 @@ it('quản trị viên duyệt được đầu mục của một hồ sơ còn s
         ->toBe(ChecklistItemStatus::Accepted);
 });
 
-it('không duyệt được một đầu mục đã bị xoá khỏi danh mục', function () {
-    $this->item->delete();
+it('ba tình huống "không mở được mục này" trả lời giống hệt nhau — SPEC §10.10', function (string $situation) {
+    // Đã xoá khỏi danh mục / không còn tồn tại / thuộc hồ sơ người khác. Nếu ba tình huống này
+    // trả lời khác nhau thì chính bộ ba câu trả lời đó là một cái máy dò: gửi một id bất kỳ, đọc
+    // câu trả lời, biết bản ghi có thật hay không — cho một người SPEC §5 không cấp quyền nào
+    // trên hồ sơ ấy. Cùng luật mà `AnswerDeniedPanelRequestsWithNotFound` đã áp cho cả panel.
+    //
+    // Khẳng định ĐÚNG CÂU, không chỉ đúng lớp: lớp là thứ mã nguồn thấy, câu chữ (và kèm theo
+    // nó là kết cục HTTP) mới là thứ người dò thấy.
+    $actor = $this->lawyer;
 
-    expect(fn () => reviewChecklistItem($this->item, $this->lawyer, ChecklistItemStatus::Accepted))
-        ->toThrow(ChecklistItemNotReviewable::class);
-});
+    match ($situation) {
+        'đã xoá khỏi danh mục' => $this->item->delete(),
+        'không còn tồn tại' => $this->item->forceDelete(),
+        'của hồ sơ người khác' => $actor = User::factory()->withRole(Role::Lawyer)->create(),
+        // Tình huống thứ tư, và là cái đắt nhất: đầu mục CÓ THẬT, hồ sơ của nó vừa bị xoá mềm,
+        // người hỏi không có quyền gì trên hồ sơ đó. Câu "hồ sơ đã bị xoá nên không duyệt được"
+        // chỉ với tới được khi đầu mục có thật, nên trả nó cho người ngoài là xác nhận cái id họ
+        // vừa gõ là một id thật.
+        'của hồ sơ người khác, đã bị xoá mềm' => (function () use (&$actor) {
+            $actor = User::factory()->withRole(Role::Lawyer)->create();
+            $this->matter->delete();
+        })(),
+    };
 
-it('không duyệt được một đầu mục không còn tồn tại', function () {
-    $this->item->forceDelete();
-
-    expect(fn () => reviewChecklistItem($this->item, $this->lawyer, ChecklistItemStatus::Accepted))
-        ->toThrow(ChecklistItemNotReviewable::class);
-});
+    expect(fn () => reviewChecklistItem($this->item, $actor, ChecklistItemStatus::Accepted))
+        ->toThrow(fn (ChecklistItemNotReviewable $exception) => expect($exception->getMessage())
+            ->toBe(__('checklist.review.item_unavailable')));
+})->with([
+    'đã xoá khỏi danh mục',
+    'không còn tồn tại',
+    'của hồ sơ người khác',
+    'của hồ sơ người khác, đã bị xoá mềm',
+]);
 
 it('tin dòng dữ liệu thật chứ không tin đối tượng caller cầm trong tay', function () {
     // Đầu mục THẬT thuộc hồ sơ của $this->lawyer; đối tượng trong bộ nhớ khai rằng nó thuộc hồ sơ
@@ -303,8 +334,7 @@ it('tin dòng dữ liệu thật chứ không tin đối tượng caller cầm t
     $tampered->exists = true;
     $tampered->matter_id = $otherMatter->id;
 
-    expect(fn () => reviewChecklistItem($tampered, $outsider, ChecklistItemStatus::Accepted))
-        ->toThrow(AuthorizationException::class);
+    expectReviewRefusal(fn () => reviewChecklistItem($tampered, $outsider, ChecklistItemStatus::Accepted));
 
     expect($this->item->fresh()->status)->toBe(ChecklistItemStatus::PendingReview);
 });
@@ -365,4 +395,80 @@ it('không dispatch sự kiện nào khi duyệt đạt', function () {
     // SPEC §9 chỉ có mẫu email `client.document_rejected`; không có mẫu nào cho một lần duyệt
     // đạt, và một email "giấy tờ của anh/chị đã đạt" cho mỗi đầu mục là thứ khách học cách bỏ qua.
     Event::assertNotDispatched(ChecklistItemRejected::class);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Cổng trạng thái, bất đối xứng: NHẬN được từ mọi trạng thái, TỪ CHỐI thì phải có cái để từ chối.
+// ---------------------------------------------------------------------------------------------
+
+it('không từ chối được một đầu mục khách chưa nộp gì', function (ChecklistItemStatus $status) {
+    // `rejection_reason` hiện NGUYÊN VĂN cho khách (SPEC §6.7, §8.3 mục 4) và một lần từ chối
+    // còn bắn sự kiện dẫn tới email `client.document_rejected` của SPEC §9. Từ chối một đầu mục
+    // `missing` là gửi cho khách câu "ảnh anh/chị gửi bị mờ" về một tấm ảnh họ chưa từng gửi.
+    $this->item->update(['status' => $status]);
+
+    expect(fn () => reviewChecklistItem($this->item, $this->lawyer, ChecklistItemStatus::Rejected, reviewReason()))
+        ->toThrow(fn (ChecklistItemNotReviewable $exception) => expect($exception->getMessage())
+            ->toBe(__('checklist.review.nothing_to_reject', ['status' => $status->label()])));
+
+    expect($this->item->fresh()->status)->toBe($status)
+        ->and($this->item->fresh()->rejection_reason)->toBeNull();
+})->with([
+    'missing' => [ChecklistItemStatus::Missing],
+    'not_applicable' => [ChecklistItemStatus::NotApplicable],
+]);
+
+it('không dispatch sự kiện báo khách khi lần từ chối đó bị chặn ở cổng trạng thái', function () {
+    Event::fake([ChecklistItemRejected::class]);
+
+    $this->item->update(['status' => ChecklistItemStatus::Missing]);
+
+    expect(fn () => reviewChecklistItem($this->item, $this->lawyer, ChecklistItemStatus::Rejected, reviewReason()))
+        ->toThrow(ChecklistItemNotReviewable::class);
+
+    Event::assertNotDispatched(ChecklistItemRejected::class);
+});
+
+it('từ chối được từ những trạng thái ĐÃ có tệp trên bàn — cặp dương', function (ChecklistItemStatus $status) {
+    // `pending_review` là đường thường. `rejected` là lần sửa lại một câu lý do viết chưa rõ —
+    // câu đó hiện thẳng cho khách nên phải sửa được. `accepted` là lần văn phòng nhận ra mình
+    // duyệt nhầm, và đây là đường DUY NHẤT quay lại: SPEC không có thao tác "bỏ duyệt".
+    $this->item->update(['status' => $status]);
+
+    expect(reviewChecklistItem($this->item, $this->lawyer, ChecklistItemStatus::Rejected, reviewReason())->status)
+        ->toBe(ChecklistItemStatus::Rejected);
+})->with([
+    'pending_review' => [ChecklistItemStatus::PendingReview],
+    'rejected' => [ChecklistItemStatus::Rejected],
+    'accepted' => [ChecklistItemStatus::Accepted],
+]);
+
+it('duyệt ĐẠT được từ mọi trạng thái, kể cả missing', function (ChecklistItemStatus $status) {
+    // Bất đối xứng có chủ đích: khách mang giấy tờ ra tận văn phòng đưa tay là chuyện xảy ra
+    // hằng ngày, và lúc đó đầu mục vẫn đang `missing`. Chặn nhánh này sẽ buộc trợ lý phải bịa ra
+    // một lần nộp trên portal để rồi tự duyệt nó.
+    $this->item->update(['status' => $status]);
+
+    expect(reviewChecklistItem($this->item, $this->lawyer, ChecklistItemStatus::Accepted)->status)
+        ->toBe(ChecklistItemStatus::Accepted);
+})->with([
+    'missing' => [ChecklistItemStatus::Missing],
+    'pending_review' => [ChecklistItemStatus::PendingReview],
+    'rejected' => [ChecklistItemStatus::Rejected],
+    'not_applicable' => [ChecklistItemStatus::NotApplicable],
+]);
+
+// ---------------------------------------------------------------------------------------------
+// SPEC §10.9 ở phía nhân sự: xem `ChecksAccountActive`.
+// ---------------------------------------------------------------------------------------------
+
+it('tài khoản nhân sự đã bị vô hiệu hoá thì không duyệt được', function () {
+    // `canAccessPanel()` là chỗ DUY NHẤT đọc `is_active` cho tới hôm nay, nên nó chỉ chặn được
+    // những lời gọi đi qua panel. Action này được viết để không đọc `auth()`, tức để gọi được
+    // từ một job hay một lệnh console — và ở đó không có panel nào cả.
+    $this->lawyer->update(['is_active' => false]);
+
+    expectReviewRefusal(fn () => reviewChecklistItem($this->item, $this->lawyer->fresh(), ChecklistItemStatus::Accepted));
+
+    expect($this->item->fresh()->status)->toBe(ChecklistItemStatus::PendingReview);
 });

@@ -43,8 +43,26 @@ return [
         'decision_not_allowed' => 'Kết quả duyệt chỉ có thể là ":accepted" hoặc ":rejected". Anh/chị chọn lại một trong hai rồi lưu.',
         'reason_required' => 'Từ chối một giấy tờ thì phải nói cho khách biết vì sao và phải làm gì tiếp theo — câu này hiện thẳng trên màn hình của khách. Anh/chị nhập lý do (ít nhất :min ký tự), hoặc bấm một trong các mẫu có sẵn rồi sửa lại cho đúng trường hợp.',
         'reason_too_short' => 'Lý do từ chối mới có :length ký tự, chưa đủ :min. Khách đọc câu này để biết phải làm gì, nên một câu cụt như "không hợp lệ" sẽ khiến anh/chị nhận lại đúng cái giấy tờ đó lần nữa. Anh/chị viết rõ chỗ nào chưa đạt và cần nộp lại thế nào, hoặc bấm một trong các mẫu có sẵn.',
-        'item_missing' => 'Không tìm thấy mục giấy tờ này nữa — có thể ai đó vừa xoá nó trong lúc anh/chị đang mở trang. Anh/chị tải lại trang để xem danh mục hồ sơ hiện tại.',
+        // BA tình huống, MỘT câu: mục không còn tồn tại, mục đã bị xoá khỏi danh mục, và mục
+        // thuộc một hồ sơ người đang hỏi không được thấy. SPEC §10.10 không chừa ngoại lệ cho
+        // người trong văn phòng — kế toán không được cấp quyền nào về hồ sơ, và một cặp câu trả
+        // lời khác nhau là cách họ dò xem một id có thật hay không. Cùng luật mà
+        // `AnswerDeniedPanelRequestsWithNotFound` đã áp cho cả panel ở M3.
+        //
+        // Câu này nêu CẢ HAI khả năng mà không nói là khả năng nào: nói ra danh sách không tiết
+        // lộ gì, nói ra kết luận thì có.
+        'item_unavailable' => 'Không mở được mục giấy tờ này để duyệt: có thể ai đó vừa xoá nó khỏi danh mục, hoặc nó thuộc một hồ sơ anh/chị không phụ trách. Anh/chị tải lại trang để xem danh mục hiện tại; nếu vẫn cần duyệt mục này thì nhờ người phụ trách hồ sơ hoặc quản trị viên.',
+        // Từ chối là một câu nói với khách về thứ họ đã gửi lên. Không có gì trên bàn thì không
+        // có gì để nói — xem `ReviewChecklistItem::guardDecisionAgainstState()`.
+        'nothing_to_reject' => 'Mục này đang ở trạng thái ":status", tức chưa có tệp nào của khách đang chờ xem. Từ chối lúc này sẽ gửi cho khách một lời chê về thứ họ chưa gửi. Anh/chị chờ khách nộp rồi duyệt, hoặc gọi nhắc khách nộp bổ sung.',
         'matter_unavailable' => 'Hồ sơ chứa mục giấy tờ này đã bị xoá nên không duyệt được. Anh/chị khôi phục hồ sơ trước, rồi duyệt lại.',
+    ],
+
+    /*
+     * `MarkChecklistItemNotApplicable` (SPEC §4.10). Trợ lý hoặc luật sư đọc.
+     */
+    'not_applicable' => [
+        'awaiting_review' => 'Mục này đang có một tệp khách vừa gửi lên và chưa ai xem. Đánh dấu "không cần nộp" lúc này là bỏ qua tệp đó mà không nói gì với khách. Anh/chị duyệt hoặc từ chối tệp đang chờ trước, rồi quay lại đánh dấu nếu vẫn thấy mục này không cần.',
     ],
 
     /*
