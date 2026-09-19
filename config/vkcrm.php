@@ -48,6 +48,22 @@ return [
         'tagline' => env('BRAND_TAGLINE', 'Thấu hiểu vấn đề. Vững vàng quyết định.'),
         'website' => env('BRAND_WEBSITE', 'https://luatvukhang.com'),
         'hotline' => env('BRAND_HOTLINE', '0832270898'),
+        'zalo' => env('BRAND_ZALO', 'https://zalo.me/0832270898'),
+
+        /*
+         * Bốn thông tin dưới đây PHẢI có trước khi hệ thống gửi email cho khách hoặc xuất PDF:
+         * luật và thông lệ đều đòi chân thư của một tổ chức hành nghề luật nêu đủ tên pháp lý, mã
+         * số thuế, Đoàn Luật sư và số Giấy đăng ký hoạt động.
+         *
+         * Đã tra luatvukhang.com (trang chủ, /vi/about, /vi/contact) ngày 19/09/2026: website
+         * KHÔNG đăng bốn thông tin này, nên không có cách nào lấy tự động cho chính xác. Để trống
+         * có chủ đích thay vì điền phỏng đoán — một mã số thuế sai trên văn bản gửi khách còn tệ
+         * hơn một chỗ trống. Chủ văn phòng điền vào .env là xong, không phải sửa mã.
+         */
+        'tax_code' => env('BRAND_TAX_CODE'),
+        'bar_association' => env('BRAND_BAR_ASSOCIATION'),
+        'licence_number' => env('BRAND_LICENCE_NUMBER'),
+        'office_address' => env('BRAND_OFFICE_ADDRESS'),
 
         'colors' => [
             'navy' => '#101d35',
