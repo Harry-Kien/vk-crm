@@ -37,10 +37,21 @@ class DocumentNotPublishable extends DomainException
         return new self(__('documents.publish.internal_group'), $document);
     }
 
+    /** Bản ghi chưa có tệp nào trong collection `file`: không có gì để đưa ra cho khách. */
+    public static function withoutFile(Document $document): self
+    {
+        return new self(__('documents.publish.without_file'), $document);
+    }
+
     /**
      * Nhóm B chưa đi hết vòng đời `internal_draft → pending_approval → signed_filed` (SPEC §4.11).
      * Thông điệp phải nói ra trạng thái hiện tại, vì việc cần làm tiếp theo khác nhau tuỳ chỗ
      * đang đứng — còn là bản nháp thì trình duyệt, đã trình duyệt thì chờ nộp và đánh dấu đã nộp.
+     *
+     * Nhánh này chỉ với tới một tài liệu CHƯA ra tới khách: một tài liệu nhóm B đã công bố thì
+     * đã ký và đã nộp theo đúng định nghĩa, nên câu này nói về nó sẽ là một câu sai sự thật, và
+     * việc nó bảo người dùng làm — đưa tài liệu về lại trạng thái "Đã ký và nộp" — không có
+     * thao tác nào trong hệ thống làm được.
      */
     public static function notSignedAndFiled(Document $document): self
     {

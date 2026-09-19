@@ -53,6 +53,10 @@ use Illuminate\Support\Facades\Gate;
  * đó trả lời "tài liệu này tới tay khách lúc nào, do ai đưa ra" — một sự kiện đã xảy ra. Một lần
  * gọi lại để đổi cờ tải mà ghi đè chúng sẽ xoá mất thời điểm duy nhất có thể đối chiếu với
  * `document_downloads` (SPEC §4.12) và với hộp thư của khách.
+ *
+ * **Cổng vòng đời nhóm B chặn cú NHẢY VÀO `published`, không chặn một lần đổi cờ trên tài liệu
+ * đã ở đó.** Đây là phân biệt mà bản đầu của Action không có, và nó biến "rút quyền tải, giữ
+ * quyền xem" (SPEC §6.5 bước 3) thành một việc không làm nổi với nhóm B — xem bình luận tại chỗ.
  */
 class PublishDocument
 {
@@ -94,6 +98,17 @@ class PublishDocument
                 throw DocumentNotPublishable::matterUnavailable($fresh);
             }
 
+            // Cổng trạng thái thứ tư, cùng hạng với ba cổng trên và cùng lý do đứng trước
+            // `Gate`: câu trả lời không phụ thuộc vào người hỏi. Công bố một bản ghi chưa có
+            // tệp đẩy sang khách một dòng trong danh sách mà bấm vào không tải được gì — một
+            // lời hứa rỗng, và với một văn bản toà thì là một lời hứa rỗng đúng lúc khách cần
+            // nó nhất. Nó xảy ra thật: `UploadStaffDocument` tạo bản ghi rồi mới gắn tệp, nên
+            // giữa hai bước đó (hoặc sau một lần rollback nửa vời) tồn tại một `Document`
+            // không tệp.
+            if ($fresh->getMedia('file')->isEmpty()) {
+                throw DocumentNotPublishable::withoutFile($fresh);
+            }
+
             // Action tự kiểm tra quyền, không tin caller đã kiểm tra. Hỏi trên `$fresh` chứ không
             // trên `$document`: policy đọc `group` và `matter` của đối tượng được đưa vào, nên một
             // đối tượng bị sửa thuộc tính trong bộ nhớ sẽ trả lời thay cho dòng dữ liệu thật.
@@ -104,27 +119,45 @@ class PublishDocument
                 throw DocumentNotPublishable::withoutClientView($fresh);
             }
 
+            // "Tài liệu này ĐÃ tới tay khách chưa" — đọc trước cổng vòng đời, vì chính cổng đó
+            // cần câu trả lời. Không dùng riêng `status = published`: một lệnh ghi thẳng vào cột
+            // `status` (sửa tay, một màn hình quên đi qua Action) không phải một lần tài liệu ra
+            // tới khách, và nhận nó là "đã công bố" sẽ biến nó thành lối tắt qua vòng đời nhóm B.
+            // Hai điều kiện này là `isReleasedToPortal()` trừ điều kiện nhóm D — đã bị cổng đầu
+            // tiên loại từ trước, nên gọi thẳng phương thức đó ở đây cũng cho cùng kết quả; viết
+            // rời ra để cổng ghi không đổi hành vi theo một phương thức của đường ĐỌC.
+            $wasAlreadyReleased = $fresh->status === DocumentStatus::Published && $fresh->client_can_view;
+
             // Bước 2: vòng đời nhóm B (SPEC §4.11). Chỉ nhóm B — nhóm C là văn bản do cơ quan nhà
             // nước ban hành, văn phòng không soạn và không ký nên không có gì để trình duyệt.
-            if ($fresh->group === DocumentGroup::Issued && $fresh->status !== DocumentStatus::SignedFiled) {
+            //
+            // Cổng này chặn CÚ NHẢY VÀO `published`, không chặn một lần đổi cờ trên tài liệu đã
+            // ở đó. Thiếu `! $wasAlreadyReleased`, một tài liệu nhóm B vừa công bố xong không
+            // bao giờ công bố lại được: lần gọi thứ hai đọc ra `status = published`, thấy nó
+            // khác `signed_filed` và từ chối — bằng một câu nói rằng văn bản chưa được ký và
+            // nộp, trong khi nó đã ký, đã nộp và đang nằm trong cổng của khách. Hậu quả là SPEC
+            // §6.5 bước 3 ("cho xem mà chưa cho tải") không với tới được nhóm B, đúng nhóm mà
+            // SPEC dựng cả một vòng đời để canh.
+            if (! $wasAlreadyReleased
+                && $fresh->group === DocumentGroup::Issued
+                && $fresh->status !== DocumentStatus::SignedFiled
+            ) {
                 throw DocumentNotPublishable::notSignedAndFiled($fresh);
             }
-
-            $wasAlreadyPublished = $fresh->status === DocumentStatus::Published;
 
             // Bước 3 và 4.
             $fresh->update([
                 'status' => DocumentStatus::Published,
                 'client_can_view' => true,
                 'client_can_download' => $clientCanDownload,
-                'published_at' => $wasAlreadyPublished ? $fresh->published_at : now(),
-                'published_by' => $wasAlreadyPublished ? $fresh->published_by : $actor->getKey(),
+                'published_at' => $wasAlreadyReleased ? $fresh->published_at : now(),
+                'published_by' => $wasAlreadyReleased ? $fresh->published_by : $actor->getKey(),
             ]);
 
             // Bước 5, nửa sau: thông báo cho khách với tài liệu quan trọng (nhóm B hoặc C), và chỉ
             // ở lần công bố đầu — xem docblock `DocumentPublished`. Dispatch bên trong transaction
             // là an toàn vì sự kiện là `ShouldDispatchAfterCommit`.
-            if (! $wasAlreadyPublished && in_array($fresh->group, [DocumentGroup::Issued, DocumentGroup::Authority], true)) {
+            if (! $wasAlreadyReleased && in_array($fresh->group, [DocumentGroup::Issued, DocumentGroup::Authority], true)) {
                 event(new DocumentPublished($fresh));
             }
 
@@ -135,12 +168,20 @@ class PublishDocument
             // ai. Causer truyền tường minh là `$actor`: Action đã kiểm tra quyền trên đúng người
             // này, nên dòng nhật ký phải mang đúng tên người này, không suy ra từ phiên `auth()`
             // đang mở (có thể là người khác, hoặc không có ai).
+            // `client_id` và `version` được chép vào dòng nhật ký chứ không để người đọc tự suy
+            // ra: "tài liệu này đã ra tới AI" hôm nay suy được qua `matter`, nhưng
+            // `matters.client_id` là một cột sửa được, nên phép suy đó không ổn định qua thời
+            // gian — một hồ sơ chuyển sang khách hàng khác sẽ viết lại lịch sử của mọi lần công
+            // bố đã xảy ra. `version` trả lời "BẢN NÀO đã ra", câu mà một danh mục hồ sơ có
+            // nhiều lần nộp lại (SPEC §6.6 bước 7) không trả lời được nếu chỉ có `document_id`.
             Audit::record('document_published', $fresh, [
                 'matter_id' => $fresh->matter_id,
+                'client_id' => $matter->client_id,
                 'group' => $fresh->group->value,
+                'version' => $fresh->version,
                 'client_can_view' => true,
                 'client_can_download' => $clientCanDownload,
-                'republished' => $wasAlreadyPublished,
+                'republished' => $wasAlreadyReleased,
             ], $actor);
 
             return $fresh;

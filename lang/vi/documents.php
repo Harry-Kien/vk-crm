@@ -53,6 +53,7 @@ return [
         'internal_group' => 'Tài liệu thuộc nhóm D (hồ sơ công việc nội bộ) nên không bao giờ công bố cho khách được, kể cả chỉ cho xem. Nếu đây thật sự là văn bản cần gửi khách, anh/chị sửa nhóm tài liệu sang đúng nhóm của nó (A, B hoặc C) rồi công bố lại.',
         'not_signed_and_filed' => 'Văn bản do văn phòng phát hành phải ở trạng thái "Đã ký và nộp" thì mới công bố cho khách được; tài liệu này đang ở trạng thái ":status". Anh/chị hoàn tất việc trình duyệt và nộp, cập nhật trạng thái tài liệu, rồi công bố lại.',
         'without_client_view' => 'Công bố mà không cho khách xem thì không có tác dụng gì: nếu chưa muốn khách thấy tài liệu này, anh/chị cứ để nguyên, đừng công bố. Nếu chỉ muốn khách biết là đã có mà chưa cho tải về, hãy bật "Cho khách xem" và tắt "Cho khách tải về".',
+        'without_file' => 'Tài liệu này chưa có tệp đính kèm nên chưa công bố được: khách sẽ thấy một dòng trong danh sách mà bấm vào không mở được gì. Anh/chị tải tệp lên cho tài liệu này trước, rồi công bố.',
         'matter_unavailable' => 'Hồ sơ chứa tài liệu này đã bị xoá nên không công bố được. Anh/chị khôi phục hồ sơ trước, rồi công bố lại tài liệu.',
         'trashed' => 'Tài liệu này đã bị xoá nên không công bố được. Anh/chị khôi phục tài liệu trước, hoặc tải lên lại bản mới rồi công bố.',
         'missing' => 'Không tìm thấy tài liệu này nữa — có thể ai đó vừa xoá nó trong lúc anh/chị đang mở trang. Anh/chị tải lại trang để xem danh sách tài liệu hiện tại.',

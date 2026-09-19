@@ -12,12 +12,18 @@ use App\Models\Matter;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Storage;
 use Spatie\Activitylog\Models\Activity;
 
 beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);
+
+    // Tệp của test không được rơi vào `storage/app/private` thật của máy dev: mỗi lần chạy bộ
+    // test sẽ để lại một đống thư mục không ai dọn.
+    Storage::fake('private');
 });
 
 function publishableMatter(User $owner): Matter
@@ -25,7 +31,22 @@ function publishableMatter(User $owner): Matter
     return Matter::factory()->create(['lead_lawyer_id' => $owner->id]);
 }
 
+/**
+ * Tài liệu dùng cho test công bố LUÔN có tệp đính kèm, vì một tài liệu không tệp không công bố
+ * được (xem `DocumentNotPublishable::withoutFile()`). Hai test cố ý không gọi hàm này là hai
+ * test về chính luật đó.
+ */
 function documentOn(Matter $matter, DocumentGroup $group, DocumentStatus $status): Document
+{
+    $document = documentWithoutFileOn($matter, $group, $status);
+
+    $document->addMedia(UploadedFile::fake()->createWithContent('van-ban.pdf', '%PDF-1.4 test'))
+        ->toMediaCollection('file');
+
+    return $document->refresh();
+}
+
+function documentWithoutFileOn(Matter $matter, DocumentGroup $group, DocumentStatus $status): Document
 {
     return Document::factory()->create([
         'matter_id' => $matter->id,
@@ -35,6 +56,18 @@ function documentOn(Matter $matter, DocumentGroup $group, DocumentStatus $status
         'client_can_download' => false,
     ]);
 }
+
+/**
+ * Hai nhóm ra được tới khách và có vòng đời KHÁC nhau: nhóm B phải đi hết
+ * `internal_draft → pending_approval → signed_filed`, nhóm C công bố thẳng từ bản nháp.
+ * Mọi test về hai cờ khách hàng và về công bố lại chạy trên CẢ HAI — bản đầu của Action chỉ
+ * được test trên nhóm C, và đó là lý do một tài liệu nhóm B đã công bố không bao giờ công bố
+ * lại được mà bộ test vẫn xanh.
+ */
+dataset('nhóm ra được tới khách', [
+    'nhóm B đã ký và nộp' => [DocumentGroup::Issued, DocumentStatus::SignedFiled],
+    'nhóm C bản nháp nội bộ' => [DocumentGroup::Authority, DocumentStatus::InternalDraft],
+]);
 
 function publishDocumentAs(Document $document, User $actor, bool $view = true, bool $download = true): Document
 {
@@ -170,33 +203,33 @@ it('nhóm D đã bị ghi thẳng status=published vẫn không đi qua được
 // Hai cờ độc lập, và giới hạn của chúng.
 // ---------------------------------------------------------------------------------------------
 
-it('cho khách biết đã có tài liệu mà chưa cho tải là một lựa chọn hợp lệ', function () {
+it('cho khách biết đã có tài liệu mà chưa cho tải là một lựa chọn hợp lệ', function (DocumentGroup $group, DocumentStatus $status) {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = publishableMatter($lawyer);
-    $document = documentOn($matter, DocumentGroup::Authority, DocumentStatus::InternalDraft);
+    $document = documentOn($matter, $group, $status);
 
     $published = publishDocumentAs($document, $lawyer, view: true, download: false);
 
     expect($published->status)->toBe(DocumentStatus::Published)
         ->and($published->client_can_view)->toBeTrue()
         ->and($published->client_can_download)->toBeFalse();
-});
+})->with('nhóm ra được tới khách');
 
-it('công bố mà không cho khách xem thì bị từ chối — không có đường thu hồi trá hình', function () {
+it('công bố mà không cho khách xem thì bị từ chối — không có đường thu hồi trá hình', function (DocumentGroup $group, DocumentStatus $status) {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = publishableMatter($lawyer);
-    $document = documentOn($matter, DocumentGroup::Authority, DocumentStatus::InternalDraft);
+    $document = documentOn($matter, $group, $status);
 
     expect(fn () => publishDocumentAs($document, $lawyer, view: false, download: false))
         ->toThrow(DocumentNotPublishable::class);
 
-    expect($document->fresh()->status)->toBe(DocumentStatus::InternalDraft);
-});
+    expect($document->fresh()->status)->toBe($status);
+})->with('nhóm ra được tới khách');
 
-it('không thu hồi được một tài liệu đã công bố bằng cách gọi lại Action với client_can_view false', function () {
+it('không thu hồi được một tài liệu đã công bố bằng cách gọi lại Action với client_can_view false', function (DocumentGroup $group, DocumentStatus $status) {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = publishableMatter($lawyer);
-    $document = documentOn($matter, DocumentGroup::Authority, DocumentStatus::InternalDraft);
+    $document = documentOn($matter, $group, $status);
 
     publishDocumentAs($document, $lawyer);
 
@@ -207,24 +240,24 @@ it('không thu hồi được một tài liệu đã công bố bằng cách g�
 
     expect($fresh->status)->toBe(DocumentStatus::Published)
         ->and($fresh->client_can_view)->toBeTrue();
-});
+})->with('nhóm ra được tới khách');
 
-it('gọi lại Action rút được quyền tải mà vẫn giữ quyền xem', function () {
+it('gọi lại Action rút được quyền tải mà vẫn giữ quyền xem', function (DocumentGroup $group, DocumentStatus $status) {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = publishableMatter($lawyer);
-    $document = documentOn($matter, DocumentGroup::Authority, DocumentStatus::InternalDraft);
+    $document = documentOn($matter, $group, $status);
 
     publishDocumentAs($document, $lawyer, view: true, download: true);
     $again = publishDocumentAs($document->fresh(), $lawyer, view: true, download: false);
 
     expect($again->client_can_view)->toBeTrue()
         ->and($again->client_can_download)->toBeFalse();
-});
+})->with('nhóm ra được tới khách');
 
-it('công bố lại không tua lại thời điểm tài liệu lần đầu tới tay khách', function () {
+it('công bố lại không tua lại thời điểm tài liệu lần đầu tới tay khách', function (DocumentGroup $group, DocumentStatus $status) {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = publishableMatter($lawyer);
-    $document = documentOn($matter, DocumentGroup::Authority, DocumentStatus::InternalDraft);
+    $document = documentOn($matter, $group, $status);
 
     $this->travelTo(now()->subDays(3));
     $first = publishDocumentAs($document, $lawyer);
@@ -234,7 +267,56 @@ it('công bố lại không tua lại thời điểm tài liệu lần đầu t�
     $again = publishDocumentAs($document->fresh(), $lawyer, view: true, download: false);
 
     expect($again->published_at->equalTo($firstPublishedAt))->toBeTrue();
+})->with('nhóm ra được tới khách');
+
+/*
+ * C1: cổng vòng đời nhóm B so `status !== signed_filed`, mà một lần công bố THÀNH CÔNG đặt
+ * `status = published` — nên lần gọi thứ hai luôn bị từ chối, bằng một câu nói rằng tài liệu
+ * chưa được ký và nộp trong khi chính nó đã tới tay khách. SPEC §6.5 bước 3 (rút quyền tải, giữ
+ * quyền xem) vì thế không với tới được nhóm B, đúng nhóm SPEC coi là nhạy cảm nhất.
+ */
+it('tài liệu nhóm B đã công bố vẫn rút được quyền tải — cổng vòng đời không quay lại cắn chính nó', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = publishableMatter($lawyer);
+    $document = documentOn($matter, DocumentGroup::Issued, DocumentStatus::SignedFiled);
+
+    publishDocumentAs($document, $lawyer, view: true, download: true);
+    $again = publishDocumentAs($document->fresh(), $lawyer, view: true, download: false);
+
+    expect($again->status)->toBe(DocumentStatus::Published)
+        ->and($again->client_can_view)->toBeTrue()
+        ->and($again->client_can_download)->toBeFalse();
 });
+
+it('nhóm B bị ghi thẳng status=published mà khách chưa hề thấy vẫn phải đi hết vòng đời', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = publishableMatter($lawyer);
+    $document = documentOn($matter, DocumentGroup::Issued, DocumentStatus::InternalDraft);
+
+    // Một lần sửa tay hoặc một màn hình quên đi qua Action: cột `status` nhảy thẳng sang
+    // `published` mà `client_can_view` vẫn false, tức tài liệu CHƯA ra tới khách. Nới cổng vòng
+    // đời theo mỗi `status = published` sẽ biến lần ghi này thành một lối tắt hợp lệ.
+    DB::table('documents')->where('id', $document->id)->update(['status' => DocumentStatus::Published->value]);
+
+    expect(fn () => publishDocumentAs($document->fresh(), $lawyer))->toThrow(DocumentNotPublishable::class);
+
+    expect((bool) DB::table('documents')->where('id', $document->id)->value('client_can_view'))->toBeFalse();
+});
+
+// ---------------------------------------------------------------------------------------------
+// Tệp: một tài liệu không có tệp thì không có gì để công bố.
+// ---------------------------------------------------------------------------------------------
+
+it('không công bố được một tài liệu chưa có tệp nào', function (DocumentGroup $group, DocumentStatus $status) {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = publishableMatter($lawyer);
+    $document = documentWithoutFileOn($matter, $group, $status);
+
+    expect(fn () => publishDocumentAs($document, $lawyer))->toThrow(DocumentNotPublishable::class);
+
+    expect($document->fresh()->status)->toBe($status)
+        ->and($document->fresh()->client_can_view)->toBeFalse();
+})->with('nhóm ra được tới khách');
 
 // ---------------------------------------------------------------------------------------------
 // Quyền, vụ việc và bản ghi phải còn sống.
@@ -327,10 +409,7 @@ it('nhóm B và C dispatch thông báo cho khách', function (DocumentGroup $gro
     publishDocumentAs($document, $lawyer);
 
     Event::assertDispatched(DocumentPublished::class);
-})->with([
-    'nhóm B' => [DocumentGroup::Issued, DocumentStatus::SignedFiled],
-    'nhóm C' => [DocumentGroup::Authority, DocumentStatus::InternalDraft],
-]);
+})->with('nhóm ra được tới khách');
 
 it('nhóm A không dispatch thông báo — không phải tài liệu quan trọng theo SPEC §6.5', function () {
     Event::fake([DocumentPublished::class]);
@@ -386,10 +465,10 @@ it('transaction ngoài commit thì thông báo vẫn tới', function () {
         ->and($document->fresh()->status)->toBe(DocumentStatus::Published);
 });
 
-it('công bố lại không gửi thông báo lần hai cho khách', function () {
+it('công bố lại không gửi thông báo lần hai cho khách', function (DocumentGroup $group, DocumentStatus $status) {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = publishableMatter($lawyer);
-    $document = documentOn($matter, DocumentGroup::Authority, DocumentStatus::InternalDraft);
+    $document = documentOn($matter, $group, $status);
 
     $heard = 0;
     Event::listen(DocumentPublished::class, function () use (&$heard): void {
@@ -402,4 +481,33 @@ it('công bố lại không gửi thông báo lần hai cho khách', function ()
     publishDocumentAs($document->fresh(), $lawyer, view: true, download: false);
 
     expect($heard)->toBe(1);
+})->with('nhóm ra được tới khách');
+
+it('công bố lại ghi một dòng nhật ký nữa, đánh dấu là lần công bố lại', function (DocumentGroup $group, DocumentStatus $status) {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = publishableMatter($lawyer);
+    $document = documentOn($matter, $group, $status);
+
+    publishDocumentAs($document, $lawyer, view: true, download: true);
+    publishDocumentAs($document->fresh(), $lawyer, view: true, download: false);
+
+    $rows = Activity::query()->where('event', 'document_published')->orderBy('id')->get();
+
+    expect($rows)->toHaveCount(2)
+        ->and($rows[0]->properties->get('republished'))->toBeFalse()
+        ->and($rows[1]->properties->get('republished'))->toBeTrue()
+        ->and($rows[1]->properties->get('client_id'))->toBe($matter->client_id)
+        ->and($rows[1]->properties->get('version'))->toBe($document->version);
+})->with('nhóm ra được tới khách');
+
+it('bản ghi bị xoá cứng giữa chừng thì nhận một lời từ chối, không phải một lỗi 500', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = publishableMatter($lawyer);
+    $document = documentOn($matter, DocumentGroup::Authority, DocumentStatus::InternalDraft);
+
+    // Xoá CỨNG bằng một câu lệnh thẳng: model có SoftDeletes nên `delete()` chỉ đánh dấu, mà
+    // nhánh `missing()` nói về một dòng không còn tồn tại thật.
+    DB::table('documents')->where('id', $document->id)->delete();
+
+    expect(fn () => publishDocumentAs($document, $lawyer))->toThrow(DocumentNotPublishable::class);
 });
