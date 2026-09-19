@@ -43,6 +43,9 @@ Bốn Action mới trong `app/Actions/Document/`: `SubmitClientDocument` (§6.6)
 | Luật sư gán luật sư chính là người khác thì bị đẩy về danh sách, không xem được vụ vừa mở; và vì `OpenMatter` tự ghi dòng nhật ký công bố portal thay vì đi qua `SetMatterPortalPublication`, họ có thể bật công bố lúc tạo rồi không tắt lại được (403). Liên quan tới câu hỏi tiếp nhận khách mới đang chờ chủ văn phòng quyết | 6 |
 | `SyncClientPartyIdentities` có thể **tạo ra** một xung đột mức đỏ khi nó ghi lại `id_number_hash` của các bên, mà không có lần kiểm tra nào chạy sau đó. SPEC §6.10 chỉ bắt buộc hai thời điểm nên đây không phải vi phạm, nhưng nó là thời điểm thứ ba và cần một quyết định — chạy lại kiểm tra theo lô, hay chỉ cảnh báo | 7 |
 | `OurClientPartyNeedsClient` / `ClientRoleRequired` chưa được bắt ở màn hình nào; nếu một `required()` trên form bị gỡ thì chúng thành lỗi 500. Mọi màn hình M4 gọi Action phải bắt `DomainException` và đổi thành lỗi trên form | 3, 4, 6 |
+| ~~`UploadStaffDocument` không đụng tới `matter_checklist_items.status`, nên một lần nộp thay khách để đầu mục ở `missing` và thanh `X/Y` đếm thiếu~~ — **đã chốt ở vòng sửa rà soát Task 3**: nhóm A gắn vào đầu mục thì đặt `accepted` + `reviewed_by` + `reviewed_at` và xoá lý do từ chối cũ; nhóm B, C, D không đụng tới. Lập luận (SPEC không nói) nằm trong docblock `settleChecklistItem()`. Task 6 xem thêm mục `X` đếm thế nào | 6 |
+| ~~Xoá tài liệu không có dấu vết~~ — **đã đóng ở vòng sửa rà soát Task 3**: `Document` dùng `LogsActivity`. Với model có `SoftDeletes`, spatie ghi giá trị cũ dưới khoá `old` chứ không `attributes` — Task 7 đọc nhật ký phải biết điều đó (có test ghim ở `RegroupDocumentTest`) | 7 |
+| **Thu hồi tài liệu chưa có thao tác riêng**: đường thu hồi trên thực tế là `$document->delete()`, và nó ẩn tài liệu khỏi khách mà không nói cho khách biết. Đặc tả `RetractDocument` đã viết ở cuối Task 5; **cài đặt ở M6**, nơi có tầng thông báo cho khách | M6 |
 | **Cần quyết định, không phải sửa lỗi:** `RunConflictCheck` đối chiếu lại MỌI bên đã có ở mỗi lần chạy (cố ý, từ rà soát vòng 3). Hệ quả: một khi mức đỏ đã bị ghi đè, mọi lần thêm bên sau đó trên cùng vụ việc lại trả về đỏ — chính bên vừa ghi đè giờ là một bên đã có. Mỗi lần thêm sau thành một lần ghi đè nữa, và một cái cổng phải bấm qua mỗi lần là cái cổng người ta học cách bấm cho xong. Hai hướng: ghi lại cặp đã được phân xử để một cặp đã ghi đè hạ xuống mức thông báo, hoặc thu hẹp phạm vi đối chiếu lại. Chạm mô hình dữ liệu nên phải chốt trước khi viết task | 2 |
 
 ---
@@ -53,8 +56,8 @@ Bốn Action mới trong `app/Actions/Document/`: `SubmitClientDocument` (§6.6)
 |---|---|
 | `app/Support/Files/FileGuard.php` | Đuôi tệp, MIME thật, kích thước — một chỗ duy nhất |
 | `app/Support/Files/{VirusScanner,NullScanner,ClamAvScanner}.php` | SPEC §6.6 bước 5 |
-| `app/Actions/Document/{UploadStaffDocument,SubmitClientDocument,ReviewChecklistItem,PublishDocument}.php` | |
-| `app/Exceptions/{DocumentNotPublishable,FileRejected}.php` | |
+| `app/Actions/Document/{UploadStaffDocument,SubmitClientDocument,ReviewChecklistItem,PublishDocument,RegroupDocument}.php` | `RegroupDocument` sinh ra ở vòng sửa rà soát Task 3 |
+| `app/Exceptions/{DocumentNotPublishable,DocumentGroupNotChangeable,FileRejected}.php` | |
 | `app/Http/Controllers/DocumentDownloadController.php` | Chữ ký + policy + stream + ghi nhật ký |
 | `app/Filament/Admin/Resources/Matters/RelationManagers/{ChecklistRelationManager,DocumentsRelationManager}.php` | Hai tab mới ở SPEC §7.2 |
 | `lang/vi/documents.php`, `lang/vi/checklist.php` | Gồm ba mẫu lý do từ chối ở SPEC §6.7 |
@@ -97,7 +100,11 @@ Bốn việc mang sang, tất cả là lỗ hổng thật đã được ghi nh�
 
 **Files:** `app/Actions/Document/{UploadStaffDocument,PublishDocument}.php`, `app/Exceptions/DocumentNotPublishable.php`, tests
 
-`UploadStaffDocument`: qua `FileGuard` và `VirusScanner`, đặt mặc định theo bảng SPEC §4.11 (nhóm A của nhân viên nộp thay → `published`, khách xem và tải được; nhóm B và C → `internal_draft`, khách không thấy; nhóm D → `internal_draft`, `client_can_download` **vĩnh viễn false**).
+`UploadStaffDocument`: qua `FileGuard` và `VirusScanner`, đặt mặc định theo bảng SPEC §4.11 (nhóm A của nhân viên nộp thay → `published`, khách xem và tải được; nhóm B và C → `internal_draft`, khách không thấy; nhóm D → `internal_draft`, `client_can_download` **vĩnh viễn false**). Nhóm A cũng phải đặt `published_at`/`published_by` — bản kế hoạch đầu quên hai cột này, và để trống chúng tạo ra một tài liệu khách đang đọc mà không dòng nào nói ai đưa nó ra.
+
+**Phán quyết vòng sửa rà soát:** nộp vào một nhóm **ra tới khách ngay lúc tạo** đòi thêm `document.publish` — đó là một lần công bố, và Task 2 đã đặt `document.publish` làm ranh giới giữa "làm hồ sơ" và "quyết định số phận một tài liệu". Ba nhóm còn lại không đổi, nên "nhân viên nộp thay" ở SPEC §4.11 vẫn là việc một trợ lý làm được. Điều kiện "ra tới khách ngay lúc tạo" đọc ra từ chính bảng mặc định, không viết lại một chữ cái nhóm ở chỗ thứ hai.
+
+`RegroupDocument` (Action thứ năm, sinh ra ở vòng sửa rà soát): cửa duy nhất để một tài liệu rời nhóm D, đòi `document.publish`, ghi `document_regrouped` kèm nhóm cũ. Hàng rào tương ứng là hook `saving` của `Document`, thứ làm cho nó thành đường *duy nhất* — xem docblock `Document::duringAuditedRegroup()`.
 
 Cổng quyền đã sẵn: `Gate::authorize('publish', $document)` — `DocumentPolicy::publish` đòi `document.publish`, đọc được chính tài liệu đó, và vụ việc chưa xoá mềm. Action KHÔNG lặp lại mấy điều kiện đó; điều kiện theo TRẠNG THÁI là việc của Action.
 
@@ -133,6 +140,10 @@ Cổng quyền đã sẵn: `Gate::authorize('publish', $document)` — `Document
 
 SPEC §10.4: URL ký hết hạn sau 5 phút, **và controller vẫn kiểm tra policy** — chữ ký không thay thế quyền. Ghi `document_downloads` cho **mọi** lượt tải, cả nội bộ lẫn khách (SPEC §4.12), kèm IP và user agent, và ghi activity log (SPEC §10.6).
 
+**`Content-Disposition` phải do Laravel dựng, không bao giờ nối chuỗi bằng tay.** Task 3 để lại `media.name` là một tên hiển thị đã chuẩn hoá qua `FileGuard::safeName()`, và báo cáo của nó viết rằng tên đó "sẵn sàng cho `Content-Disposition`". Đọc như vậy dễ hiểu thành "thả thẳng vào một chuỗi header được" — và điều đó **sai**: rà soát Task 3 đã chạy thử và `Symfony\Component\HttpFoundation\HeaderUtils::makeDisposition()` **ném exception với MỌI tên tệp tiếng Việt có dấu, và với bất kỳ ký tự `%` nào**. Nó đòi một tên chỉ gồm ký tự ASCII in được và không có `%`. Chỉ `response()->download($path, $name)` và `response()->streamDownload($callback, $name)` của Laravel mới tự tính đúng cả hai phần mà RFC 6266 đòi: `filename=` bản ASCII dự phòng, và `filename*=UTF-8''…` bản mã hoá theo RFC 5987. Task 5 dùng hai helper đó và truyền `media.name` nguyên văn; `safeName()` lo phần an ninh (bỏ `"`, `;`, ký tự điều khiển), helper của Laravel lo phần mã hoá.
+
+`safeName()` cũng bảo đảm tên hiển thị luôn còn phần đuôi (kể cả với những tên như `....pdf` — xem `FileGuardTest`), nên không cần dựng lại đuôi từ `media.file_name` ở tầng controller.
+
 Test bắt buộc:
 - khách A tải trực tiếp URL tài liệu của khách B → 404 (SPEC §11 "Cách ly dữ liệu");
 - URL hết hạn → 403;
@@ -145,12 +156,34 @@ Test bắt buộc:
 
 ---
 
+### `RetractDocument` — đặc tả, **không cài đặt ở M4**
+
+Đây là đặc tả cho M6, viết ra ở đây để không mất. **Không task nào của M4 được cài đặt nó.**
+
+**Vấn đề.** `PublishDocument` cố ý từ chối "công bố với `client_can_view = false`", với lập luận rằng một cái nút làm tài liệu biến mất khỏi danh sách của khách không lấy lại được gì (khách có thể đã mở, đã tải, đã in) nhưng lại làm văn phòng tin là đã lấy lại được. Lập luận đó đúng — nhưng nó chỉ từ chối MỘT đường. Đường thu hồi trên thực tế hôm nay là `$document->delete()`, và nó tệ hơn hẳn thứ bị từ chối: một trợ lý không làm được nó (`DocumentPolicy::delete` đòi `document.publish`), nó **ẩn tài liệu khỏi khách mà không để lại dòng nào nói rằng khách đã từng thấy tài liệu đó**, và cho tới vòng sửa rà soát Task 3 thì nó còn không sinh một dòng nhật ký nào. Một thao tác không ai đặc tả mà lại là thao tác người ta sẽ dùng là thứ nguy hiểm hơn một thao tác chưa tồn tại.
+
+**Hình dạng đã chốt:**
+
+1. **Trạng thái thứ ba, không phải một cờ bị lật.** Thêm `DocumentStatus::Retracted` (`retracted`). Lý do: `status = published` cộng `client_can_view = false` là hai nguồn sự thật nói ngược nhau — đúng loại trạng thái mà vòng đời nhóm B ở SPEC §4.11 sinh ra để ngăn, và cũng là lý do `PublishDocument` từ chối nó. Một trạng thái riêng nói thẳng "tài liệu này ĐÃ ra tới khách rồi bị rút lại", câu mà không cặp cờ nào nói được.
+2. **Lý do bắt buộc**, đếm bằng `mb_strlen` (bài học M3), tối thiểu 20 ký tự — cùng ngưỡng với lý do từ chối đầu mục danh mục ở SPEC §6.7.
+3. **Gác bằng `document.publish`**, cùng cổng với công bố: rút lại là một quyết định về số phận tài liệu y như đưa nó ra.
+4. **Khách phải NHÌN THẤY việc rút lại**, không phải tài liệu lặng lẽ biến mất. Họ có thể đang cầm tệp trong tay; một dòng "văn phòng đã rút lại tài liệu này, lý do: …" là thứ duy nhất ngăn họ tiếp tục dùng một bản sai. Đây chính là chỗ M4 không làm được, vì tầng thông báo cho khách là M6.
+5. **Một dòng `document_retracted`** với `document_id`, `matter_id`, `client_id`, `version`, lý do và actor tường minh — nối được với `document_downloads` (SPEC §4.12) để văn phòng trả lời được câu "khách đã mở bản đó trước khi mình rút chưa".
+
+**Việc cần làm trước đó, ở M4:** Task 7 phải kiểm rằng việc xoá tài liệu đã sinh dòng nhật ký (`Document` dùng `LogsActivity` từ vòng sửa rà soát Task 3) và ghi lại trong `docs/PROGRESS.md` rằng xoá mềm là đường thu hồi tạm thời cho tới M6.
+
+---
+
 ### Task 6: Hai tab mới trên trang chi tiết vụ việc
 
 **Files:** `app/Filament/Admin/Resources/Matters/RelationManagers/{ChecklistRelationManager,DocumentsRelationManager}.php`, lang, tests
 
 SPEC §7.2:
 - **Danh mục hồ sơ** — bảng checklist với thanh tiến độ `X/Y` (Y = số item bắt buộc cộng số item không bắt buộc đã có tài liệu, SPEC §4.10), thao tác duyệt hoặc từ chối ngay trên dòng, ba mẫu lý do bấm một cái là điền.
+
+  **`X` đếm theo TRẠNG THÁI đầu mục, không theo "có tài liệu nào gắn vào".** Một tài liệu **nhóm D gắn được vào một đầu mục danh mục** — không có gì cấm, và đó là việc hợp lệ (một ghi chú nội bộ về đúng giấy tờ đó). Nếu `X` đếm những đầu mục có ít nhất một `Document`, thì một ghi chú công việc nội bộ sẽ làm thanh tiến độ báo rằng khách đã nộp xong một giấy tờ họ chưa hề nộp — và cái thanh đó là thứ trợ lý nhìn để biết còn phải giục khách gì. Vì lý do đối xứng, `Y` (số đầu mục không bắt buộc "đã có tài liệu", SPEC §4.10) cũng phải loại nhóm D ra khỏi phép đếm "đã có tài liệu".
+
+  Vòng sửa rà soát Task 3 đã đóng một nửa vấn đề ở tầng dữ liệu: một lần nộp thay khách ở **nhóm A** gắn vào một đầu mục nay đặt đầu mục đó sang `accepted` kèm `reviewed_by`/`reviewed_at` (lập luận nằm trong docblock `UploadStaffDocument::settleChecklistItem()`), còn nhóm B, C và D không đụng tới trạng thái đầu mục. Nên `X` = số đầu mục có `status` ∈ {`accepted`, `not_applicable`} là cách đếm đúng và không cần nhìn tới bảng `documents` chút nào.
 - **Tài liệu** — nhóm theo A/B/C/D. **Nhóm D hiển thị trên nền khác màu rõ rệt và có nhãn "Chỉ nội bộ — không bao giờ hiện cho khách".** Nút công bố gọi `PublishDocument`.
 
 Cả hai relation manager phải lọc qua `ScopesToVisibleMatters` như các tab M3. Nhớ bẫy `isReadOnly()` mặc định `true` trên trang `ViewRecord`.
