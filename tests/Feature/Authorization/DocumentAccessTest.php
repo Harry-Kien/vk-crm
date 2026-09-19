@@ -108,12 +108,32 @@ it('still shows an unpublished document to the staff working on it', function ()
  * rỗng, đúng hình dạng "ai đó quên một câu where" — rồi hỏi lại policy. Thiết kế ba tầng của M2
  * nói một chỗ quên không được thành một vụ rò rỉ; đây là chỗ khẳng định điều đó thay vì tin nó.
  *
- * Bỏ `isReleasedToPortal()` khỏi policy là test này đỏ.
+ * Bỏ BẤT KỲ điều kiện nào trong ba điều kiện của `isReleasedToPortal()` là test này đỏ. Mỗi
+ * điều kiện có một bản ghi riêng mà HAI điều kiện kia đều cho qua — nếu không thì `&&` ngắn
+ * mạch ở điều kiện đầu và những điều kiện sau không bao giờ được hỏi tới, tức là chúng có thể
+ * bị xoá mà bộ test vẫn xanh (đúng lỗi rà soát M4 tìm ra ở chính test này).
  */
 it('still refuses on the policy layer when the query layer forgets the rule', function () {
+    // Chưa `published`, nhưng đã bật cho khách xem và không phải nhóm D.
     $draft = Document::factory()->for($this->matter)->group(DocumentGroup::Issued)->create([
         'status' => DocumentStatus::SignedFiled,
         'client_can_view' => true,
+        'client_can_download' => true,
+    ]);
+
+    // Nhóm D, nhưng đã `published` và bật sẵn cả hai cờ cho khách: chỉ còn điều kiện nhóm chặn.
+    $internalPublished = Document::factory()->for($this->matter)->group(DocumentGroup::Internal)->create([
+        'status' => DocumentStatus::Published,
+        'client_can_view' => true,
+        'client_can_download' => true,
+    ]);
+
+    // Đã `published` và không phải nhóm D, nhưng chưa bật cho khách xem: chỉ còn điều kiện
+    // `client_can_view` chặn. `client_can_download` bật lên cố ý, để `download` không xanh nhờ
+    // cờ tải mà phải đi qua `view()`.
+    $notSharedWithClient = Document::factory()->for($this->matter)->group(DocumentGroup::Issued)->create([
+        'status' => DocumentStatus::Published,
+        'client_can_view' => false,
         'client_can_download' => true,
     ]);
 
@@ -123,12 +143,18 @@ it('still refuses on the policy layer when the query layer forgets the rule', fu
         // Tầng truy vấn đã thủng: cả bản nháp lẫn nhóm D đều trả về dưới guard khách.
         $this->actingAs($this->clientUser, 'client');
         expect(Document::find($draft->id))->not->toBeNull()
-            ->and(Document::find($this->internalDoc->id))->not->toBeNull();
+            ->and(Document::find($this->internalDoc->id))->not->toBeNull()
+            ->and(Document::find($internalPublished->id))->not->toBeNull()
+            ->and(Document::find($notSharedWithClient->id))->not->toBeNull();
 
-        // Tầng policy thì không.
+        // Tầng policy thì không — mỗi dòng dưới đây do một điều kiện khác nhau giữ lại.
         expect($this->clientUser->can('view', $draft))->toBeFalse()
             ->and($this->clientUser->can('download', $draft))->toBeFalse()
             ->and($this->clientUser->can('view', $this->internalDoc))->toBeFalse()
+            ->and($this->clientUser->can('view', $internalPublished))->toBeFalse()
+            ->and($this->clientUser->can('download', $internalPublished))->toBeFalse()
+            ->and($this->clientUser->can('view', $notSharedWithClient))->toBeFalse()
+            ->and($this->clientUser->can('download', $notSharedWithClient))->toBeFalse()
             ->and($this->clientUser->can('view', $this->publishedDoc))->toBeTrue();
     } finally {
         Document::addGlobalScope(new ClientPortalScope);
@@ -227,6 +253,43 @@ it('gates client requests by the matter they are raised on', function () {
 });
 
 /**
+ * Ngữ cảnh sai loại phải là một lần TỪ CHỐI, không phải lỗi 500. Kiểu tham số hẹp
+ * (`Matter|MatterChecklistItem|null`) biến một lần gọi sai ở màn hình nào đó thành `TypeError`,
+ * mà `TypeError` không đi qua `AnswerDeniedPanelRequestsWithNotFound` và rơi ra ngoài thành
+ * trang lỗi — chỗ duy nhất trong hệ phân quyền mà câu trả lời không phải "có" hoặc "không".
+ */
+it('refuses a create check carrying the wrong kind of context instead of erroring', function () {
+    expect($this->clientUser->can('create', [Document::class, $this->client]))->toBeFalse()
+        ->and($this->lead->can('create', [Document::class, $this->client]))->toBeFalse()
+        ->and($this->admin->can('create', [Document::class, $this->clientUser]))->toBeFalse()
+        ->and($this->clientUser->can('create', [ClientRequest::class, $this->client]))->toBeFalse()
+        ->and($this->lead->can('create', [ClientRequest::class, $this->client]))->toBeFalse()
+        ->and($this->admin->can('create', [ClientRequest::class, $this->clientUser]))->toBeFalse();
+});
+
+/**
+ * Nhân sự trả lời một yêu cầu của khách là GHI vào vụ việc, nên `update` phải đòi đúng cái
+ * `create` đã đòi — `MatterPolicy::update`, không chỉ `canSeeMatter`. Dòng đỏ khi hoàn nguyên
+ * là vụ việc đã xoá mềm: với bảng SPEC §5 hôm nay `matter.update` không loại thêm ai (kế toán
+ * đã trượt `canSeeMatter`), nhưng "trả lời một yêu cầu trên hồ sơ đã đóng" thì loại được.
+ */
+it('gates answering a client request by writing to the matter, not just seeing it', function () {
+    $request = ClientRequest::factory()->for($this->matter)->create(['client_user_id' => $this->clientUser->id]);
+
+    expect($this->lead->can('update', $request))->toBeTrue()
+        ->and($this->assistant->can('update', $request))->toBeTrue()
+        ->and($this->outsider->can('update', $request))->toBeFalse()
+        ->and($this->accountant->can('update', $request))->toBeFalse()
+        ->and($this->clientUser->can('update', $request))->toBeFalse();
+
+    $this->matter->delete();
+    $request->setRelation('matter', $this->matter->fresh());
+
+    expect($this->lead->can('update', $request))->toBeFalse()
+        ->and($this->admin->can('update', $request))->toBeFalse();
+});
+
+/**
  * Việc mang sang: `update`/`delete` chỉ xét khả năng THẤY vụ việc. Trợ lý có `matter.view` nên
  * cũng có `matter.update` (bảng SPEC §5), vì vậy thêm `matter.update` một mình KHÔNG đổi gì —
  * trợ lý vẫn xoá được. Cái phân biệt được vòng đời tài liệu với công việc hồ sơ thường ngày là
@@ -244,6 +307,33 @@ it('lets the team edit a document but limits deleting it to the roles that publi
         ->and($this->accountant->can('delete', $this->publishedDoc))->toBeFalse()
         ->and($this->clientUser->can('update', $this->publishedDoc))->toBeFalse()
         ->and($this->clientUser->can('delete', $this->publishedDoc))->toBeFalse();
+});
+
+/**
+ * `publish` quyết định số phận một tài liệu y như `delete`, nên nó đi qua đúng một cổng:
+ * `document.publish` CỘNG điều kiện ghi được vào vụ việc (`update()` → `canUpdateMatter()`).
+ *
+ * Chỉ khối sau `$this->matter->delete()` là đỏ khi hoàn nguyên `publish()` về bản cũ. Phần
+ * trên là lưới hồi quy chứ không phải bằng chứng: với bảng SPEC §5 hôm nay, mọi vai có
+ * `document.publish` cũng có `matter.update` lẫn `document.viewInternal`, nên hai điều kiện
+ * mới kia chưa loại được ai mà `canSeeMatter` chưa loại. Giữ lại cho ngày bảng quyền đổi.
+ */
+it('gates publishing exactly like deleting, and stops once the matter is soft deleted', function () {
+    expect($this->lead->can('publish', $this->publishedDoc))->toBeTrue()
+        ->and($this->admin->can('publish', $this->publishedDoc))->toBeTrue()
+        ->and($this->assistant->can('publish', $this->publishedDoc))->toBeFalse()
+        ->and($this->accountant->can('publish', $this->publishedDoc))->toBeFalse()
+        ->and($this->outsider->can('publish', $this->publishedDoc))->toBeFalse()
+        ->and($this->clientUser->can('publish', $this->publishedDoc))->toBeFalse()
+        ->and($this->assistant->can('publish', $this->internalDoc))->toBeFalse();
+
+    $this->matter->delete();
+
+    $doc = $this->publishedDoc->fresh();
+    $doc->setRelation('matter', $this->matter->fresh());
+
+    expect($this->lead->can('publish', $doc))->toBeFalse()
+        ->and($this->admin->can('publish', $doc))->toBeFalse();
 });
 
 /** Không ai được xoá một bản ghi mình không có quyền đọc: trợ lý không thấy nhóm D. */

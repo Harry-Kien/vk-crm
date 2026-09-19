@@ -23,9 +23,14 @@ use App\Policies\Concerns\ChecksPortalVisibility;
  *   truy vấn — đây là thiết bị chống lệch có từ M2 và phải giữ.
  * - `isReleasedToPortal()` đọc thẳng ba cột trên bản ghi. Nó tồn tại vì một nhánh policy chỉ
  *   gồm "chạy lại tầng truy vấn" thì không phải một tầng riêng: nó sụp xuống thành chính tầng
- *   kia. Với hai luật SPEC gọi là tuyệt đối — nhóm D không bao giờ, chưa `published` thì chưa —
- *   muốn mở lỗ hổng phải sửa hai tệp bằng hai thứ ngôn ngữ khác nhau (một câu `where`, một câu
- *   so sánh thuộc tính) chứ không phải quên một `where`.
+ *   kia. Hai luật SPEC gọi là tuyệt đối — nhóm D không bao giờ, chưa `published` thì chưa — nhờ
+ *   vậy được phát biểu HAI LẦN bằng hai dạng câu khác nhau: một chuỗi `where` trong
+ *   `Document::applyClientPortalConstraints()`, một chuỗi so sánh thuộc tính trong
+ *   `Document::isReleasedToPortal()`. Hai hàm nằm cùng một tệp, cách nhau mươi dòng — sự gần
+ *   nhau đó là lời nhắc, không phải hàng rào. Hàng rào là chúng không chung một câu lệnh nào:
+ *   quên một `where` không gỡ được điều kiện tương ứng ở đây, và mỗi điều kiện của mỗi hàm đều
+ *   có một bản ghi riêng ghim nó trong `tests/Feature/Authorization/DocumentAccessTest.php`
+ *   (xoá một điều kiện bất kỳ là một dòng đỏ, đã dựng lại bằng mutation).
  */
 class DocumentPolicy
 {
@@ -76,10 +81,22 @@ class DocumentPolicy
      *
      * Nhân sự: uỷ cho `MatterPolicy::update` khi đã biết vụ việc, để điều kiện "chưa xoá mềm,
      * có matter.update, thấy được vụ việc" chỉ tồn tại một chỗ.
+     *
+     * Kiểu `mixed` là cố ý, không phải lười: khai báo hẹp biến một lần gọi sai ngữ cảnh thành
+     * `TypeError` — tức lỗi 500 — mà một hệ phân quyền chỉ được phép trả lời "có" hoặc "không".
+     * Thứ gì không phải `Matter` cũng không phải `MatterChecklistItem` đều rơi xuống `$matter =
+     * null` và bị từ chối ở cả hai nhánh, KHÔNG rơi xuống nhánh "không có ngữ cảnh": một câu
+     * hỏi có ngữ cảnh mà ngữ cảnh sai vẫn là một câu hỏi có ngữ cảnh.
+     *
+     * @param  Matter|MatterChecklistItem|null  $context
      */
-    public function create(User|ClientUser $user, Matter|MatterChecklistItem|null $context = null): bool
+    public function create(User|ClientUser $user, mixed $context = null): bool
     {
-        $matter = $context instanceof MatterChecklistItem ? $context->matter : $context;
+        $matter = match (true) {
+            $context instanceof MatterChecklistItem => $context->matter,
+            $context instanceof Matter => $context,
+            default => null,
+        };
 
         if ($user instanceof ClientUser) {
             if ($context === null) {
@@ -96,11 +113,22 @@ class DocumentPolicy
             : $this->canUpdateMatter($user, $matter);
     }
 
+    /**
+     * Công bố là quyết định về số phận một tài liệu, nên nó đứng cùng cổng với `delete`:
+     * `document.publish` CỘNG điều kiện ghi được vào vụ việc. Đi qua `update()` để thừa hưởng
+     * nguyên ba thứ ở đó — vụ việc chưa xoá mềm, có `matter.update`, và ĐỌC ĐƯỢC chính tài liệu
+     * này (`view()`), nên không ai công bố được một tài liệu nhóm D mà họ không có quyền nhìn.
+     *
+     * Thân hàm trùng `delete()` là cố ý và được viết rời ra chứ không gọi lẫn nhau: hai quyền
+     * hôm nay có cùng một điều kiện, nhưng chúng là hai câu hỏi khác nhau và một ngày siết
+     * `publish` (ví dụ thêm "chưa published thì mới publish được") không được âm thầm siết luôn
+     * quyền xoá. Mọi điều kiện "trạng thái nào thì công bố được" thuộc về `PublishDocument`
+     * (SPEC §6.5), không thuộc policy.
+     */
     public function publish(User|ClientUser $user, Document $document): bool
     {
-        return $user instanceof User
-            && $user->can(Permission::DocumentPublish->value)
-            && $this->canSeeMatter($user, $document->matter);
+        return $this->update($user, $document)
+            && $user->can(Permission::DocumentPublish->value);
     }
 
     /** Sửa tài liệu là công việc hồ sơ thường ngày: cả trợ lý trong đội ngũ cũng làm. */

@@ -90,9 +90,22 @@ class Document extends Model implements HasMedia
     }
 
     /**
-     * Ba điều kiện của SPEC §5 phần Portal, đọc thẳng trên thuộc tính của bản ghi thay vì qua
-     * một truy vấn. `DocumentPolicy::view()` gọi hàm này BÊN CẠNH `visibleToPortal()`, để tầng
-     * policy còn nói được điều gì đó khi tầng truy vấn bị vô hiệu (xem docblock DocumentPolicy).
+     * KHÔNG phải một lần kiểm tra quyền đầy đủ — đừng gọi hàm này một mình. Nó chỉ trả lời
+     * câu hỏi về BẢN THÂN tài liệu ("bản này đã ra tới cổng khách chưa"), bằng ba điều kiện đọc
+     * thẳng trên thuộc tính thay vì qua một truy vấn:
+     *
+     * - `client_can_view` và `group != D` là hai trong ba điều kiện SPEC §5 đặt cho `Document`;
+     * - `status = published` KHÔNG có ở §5, nó đến từ vòng đời nhóm B ở §4.11 ("không được nhảy
+     *   thẳng sang `published`"), và Task 2 đặt nó cạnh hai điều kiện kia vì cả ba cùng trả lời
+     *   một câu hỏi.
+     *
+     * Điều kiện thứ ba của §5 — tài liệu thuộc một vụ việc khách được thấy — CỐ Ý không nằm ở
+     * đây: nó là chuyện của `Matter`, và `DocumentPolicy::view()` lo bằng `canSeeMatter()` cộng
+     * `visibleToPortal()`. Vì vậy mọi câu hỏi "khách này có được xem bản này không" phải đi qua
+     * `Gate::allows('view', $document)`, không bao giờ qua riêng hàm này.
+     *
+     * Lý do hàm tồn tại cạnh `visibleToPortal()` — nói lại cùng một luật bằng một thứ ngôn ngữ
+     * khác — nằm ở docblock `DocumentPolicy`.
      */
     public function isReleasedToPortal(): bool
     {
