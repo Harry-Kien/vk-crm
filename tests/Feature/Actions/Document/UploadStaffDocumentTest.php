@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Document\SubmitClientDocument;
 use App\Actions\Document\UploadStaffDocument;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
@@ -7,6 +8,7 @@ use App\Enums\DocumentStatus;
 use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Exceptions\FileRejected;
+use App\Models\ClientUser;
 use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
@@ -562,4 +564,115 @@ it('ghi uploader là actor tường minh, không phải phiên đăng nhập', f
 
     expect($document->uploader_id)->toBe($lawyer->id)
         ->and($document->uploader_type)->toBe($lawyer->getMorphClass());
+});
+
+// ---------------------------------------------------------------------------------------------
+// SPEC §6.6 bước 7: chuỗi version của một đầu mục danh mục. Nhóm A nghĩa là "khách cung cấp" bất
+// kể ai bấm nút tải lên (SPEC §4.11), nên một lần nhân viên nộp thay nằm TRONG chuỗi đó — phía
+// GHI phải đồng ý với phía ĐỌC (`StoresDocumentFile::nextInSubmissionChain()`).
+// ---------------------------------------------------------------------------------------------
+
+/** Một vụ việc thuộc đúng khách hàng có tài khoản portal, để khách nộp được vào danh mục của nó. */
+function staffUploadClientMatter(User $owner, ClientUser $clientUser): Matter
+{
+    return Matter::factory()->create([
+        'client_id' => $clientUser->client_id,
+        'lead_lawyer_id' => $owner->id,
+    ]);
+}
+
+function staffUploadClientSubmission(MatterChecklistItem $item, ClientUser $clientUser, string $name): Document
+{
+    return app(SubmitClientDocument::class)->handle(
+        checklistItem: $item,
+        actor: $clientUser,
+        file: staffUploadPdf($name),
+    );
+}
+
+it('nhân viên nộp thay ở nhóm A nối tiếp chuỗi version của khách chứ không cấp lại số 1', function () {
+    // Hại cụ thể nếu phía ghi hardcode `version = 1`: trên MỘT đầu mục có hai dòng nhóm A cùng
+    // mang số 1, và kể từ giây đó `document_submitted{version:1}` với `document_published
+    // {version:1}` chỉ vào hai tài liệu khác nhau. Không nhật ký nào đọc lại được nữa.
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $clientUser = ClientUser::factory()->create();
+    $matter = staffUploadClientMatter($lawyer, $clientUser);
+    $item = MatterChecklistItem::factory()->create(['matter_id' => $matter->id]);
+
+    staffUploadClientSubmission($item, $clientUser, 'lan-1.pdf');
+    $second = staffUploadClientSubmission($item->fresh(), $clientUser, 'lan-2.pdf');
+
+    // Văn phòng nhận bản sao có chứng thực tận tay và nộp thay vào đúng đầu mục đó.
+    $byStaff = uploadStaffDocument(
+        $matter,
+        $lawyer,
+        DocumentGroup::ClientProvided,
+        staffUploadPdf('ban-chung-thuc.pdf'),
+        $item->fresh(),
+    );
+
+    expect($byStaff->version)->toBe(3)
+        ->and($byStaff->parent_document_id)->toBe($second->id)
+        ->and(Document::query()->where('matter_checklist_item_id', $item->id)->pluck('version')->all())
+        ->toBe([1, 2, 3]);
+});
+
+it('nhân viên nộp thay ở nhóm A vào một đầu mục chưa có gì là version 1 không bản cha', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = staffUploadMatter($lawyer);
+    $item = MatterChecklistItem::factory()->create(['matter_id' => $matter->id]);
+
+    $document = uploadStaffDocument($matter, $lawyer, DocumentGroup::ClientProvided, null, $item);
+
+    expect($document->version)->toBe(1)
+        ->and($document->parent_document_id)->toBeNull();
+});
+
+it('nhóm B, C và D gắn vào một đầu mục đã có chuỗi nhóm A vẫn là version 1 không bản cha', function (DocumentGroup $group) {
+    // Cặp âm: chuỗi ở bước 7 là chuỗi các lần nộp CÙNG MỘT TỜ GIẤY. Một bản đơn văn phòng soạn
+    // hay một ghi chú nội bộ gắn vào cùng đầu mục không phải lần nộp tiếp theo của tờ giấy đó.
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $clientUser = ClientUser::factory()->create();
+    $matter = staffUploadClientMatter($lawyer, $clientUser);
+    $item = MatterChecklistItem::factory()->create(['matter_id' => $matter->id]);
+
+    staffUploadClientSubmission($item, $clientUser, 'lan-1.pdf');
+
+    $document = uploadStaffDocument($matter, $lawyer, $group, null, $item->fresh());
+
+    expect($document->version)->toBe(1)
+        ->and($document->parent_document_id)->toBeNull();
+})->with([
+    'nhóm B' => [DocumentGroup::Issued],
+    'nhóm C' => [DocumentGroup::Authority],
+    'nhóm D' => [DocumentGroup::Internal],
+]);
+
+it('tài liệu nhóm A không gắn vào đầu mục nào luôn là version 1: không có chuỗi để nối', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = staffUploadMatter($lawyer);
+
+    $first = uploadStaffDocument($matter, $lawyer, DocumentGroup::ClientProvided);
+    $second = uploadStaffDocument($matter, $lawyer, DocumentGroup::ClientProvided);
+
+    expect([$first->version, $second->version])->toBe([1, 1])
+        ->and($second->parent_document_id)->toBeNull();
+});
+
+it('chuỗi version chỉ đọc trong cùng một hồ sơ', function () {
+    // `documents.matter_id` không bị ràng buộc phải khớp `matter_checklist_items.matter_id`
+    // (chính bước 2 của Action tồn tại vì khoảng trống đó), nên một dòng đã hỏng theo cách ấy
+    // không được phép kéo theo số version của một hồ sơ khác.
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = staffUploadMatter($lawyer);
+    $other = staffUploadMatter($lawyer);
+    $item = MatterChecklistItem::factory()->create(['matter_id' => $matter->id]);
+
+    Document::factory()->for($other)->group(DocumentGroup::ClientProvided)->create([
+        'matter_checklist_item_id' => $item->id,
+        'version' => 9,
+    ]);
+
+    expect(uploadStaffDocument($matter, $lawyer, DocumentGroup::ClientProvided, null, $item)->version)
+        ->toBe(1);
 });

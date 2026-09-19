@@ -143,13 +143,27 @@ class UploadStaffDocument
         return DB::transaction(function () use (
             $matter, $actor, $file, $group, $title, $checklistItem, $issuedAtDate, $defaults, $releasedAtCreation,
         ): Document {
+            // SPEC §6.6 bước 7, phía GHI. Nhóm A nghĩa là "khách cung cấp" BẤT KỂ ai bấm nút tải
+            // lên (SPEC §4.11), nên một lần nộp thay là một mắt xích của cùng cái chuỗi mà
+            // `SubmitClientDocument` dựng — cùng tờ giấy, chỉ khác người cầm nó lúc bấm nút. Hai
+            // Action hỏi CÙNG một hàm ở `StoresDocumentFile::nextInSubmissionChain()`, nơi cái
+            // bất biến "mỗi số version của nhóm A trên một đầu mục chỉ thuộc về một tài liệu"
+            // được phát biểu ra — không chỉ mục cơ sở dữ liệu nào diễn đạt nổi nó.
+            //
+            // Trước đây chỗ này ghi thẳng `'version' => 1` và không đặt `parent_document_id`,
+            // nên một lần nộp thay sau hai lần khách nộp sinh ra dòng nhóm A THỨ HAI mang số 1
+            // trên cùng đầu mục — và `document_submitted{version:1}` với `document_published
+            // {version:1}` từ đó chỉ vào hai tài liệu khác nhau.
+            $chain = $this->nextInSubmissionChain($checklistItem, $group);
+
             $document = Document::query()->create([
                 'matter_id' => $matter->getKey(),
                 'matter_checklist_item_id' => $checklistItem?->getKey(),
                 'group' => $group,
                 'title' => $title,
                 'status' => $defaults['status'],
-                'version' => 1,
+                'version' => $chain['version'],
+                'parent_document_id' => $chain['parent_document_id'],
                 'uploader_type' => $actor->getMorphClass(),
                 'uploader_id' => $actor->getKey(),
                 'client_can_view' => $defaults['client_can_view'],
@@ -186,11 +200,19 @@ class UploadStaffDocument
 
             // Và một dòng `document_published` NỮA khi bộ mặc định đã đưa tài liệu ra tới khách.
             // Hai dòng cho một thao tác là cố ý: `document_uploaded` trả lời "tệp vào hệ thống
-            // lúc nào", `document_published` trả lời "tệp ra tới khách lúc nào" (SPEC §10.6 bắt
-            // ghi lại MỌI lần công bố tài liệu). Gộp chúng lại sẽ khiến một truy vấn dựng lại
-            // các lần công bố — lọc theo tên sự kiện, cách duy nhất có — im lặng bỏ sót đúng
-            // nhóm không ai bấm nút công bố. Hình dạng thuộc tính chép theo `PublishDocument`
-            // để hai nguồn của cùng một câu hỏi đọc được bằng cùng một truy vấn.
+            // lúc nào", `document_published` trả lời "VĂN PHÒNG đã quyết định đưa tài liệu nào
+            // ra trước mặt khách" (SPEC §10.6 bắt ghi lại mọi lần công bố tài liệu). Gộp chúng
+            // lại sẽ khiến một truy vấn dựng lại các lần công bố — lọc theo tên sự kiện, cách
+            // duy nhất có — im lặng bỏ sót đúng nhóm không ai bấm nút công bố.
+            //
+            // Nói cho đúng, vì bản đầu của câu này viết "tệp ra tới khách lúc nào" và câu đó
+            // KHÔNG còn đúng kể từ khi `SubmitClientDocument` tồn tại: một tệp khách tự gửi lên
+            // cũng ở trong tầm tay khách ngay lúc tạo, nhưng nó để lại `document_submitted` chứ
+            // không `document_published`. Từ vựng đầy đủ — và cái HỢP của hai tên sự kiện —
+            // được phát biểu ở một chỗ duy nhất, trong docblock của `App\Support\Audit`.
+            //
+            // Hình dạng thuộc tính chép theo `PublishDocument` để hai nguồn của cùng một câu hỏi
+            // đọc được bằng cùng một truy vấn.
             if ($releasedAtCreation) {
                 Audit::record('document_published', $document, [
                     'matter_id' => $matter->getKey(),
