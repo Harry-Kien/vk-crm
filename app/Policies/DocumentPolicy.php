@@ -26,8 +26,8 @@ use App\Policies\Concerns\ChecksPortalVisibility;
  *   kia. Hai luật SPEC gọi là tuyệt đối — nhóm D không bao giờ, chưa `published` thì chưa — nhờ
  *   vậy được phát biểu HAI LẦN bằng hai dạng câu khác nhau: một chuỗi `where` trong
  *   `Document::applyClientPortalConstraints()`, một chuỗi so sánh thuộc tính trong
- *   `Document::isReleasedToPortal()`. Hai hàm nằm cùng một tệp, cách nhau mươi dòng — sự gần
- *   nhau đó là lời nhắc, không phải hàng rào. Hàng rào là chúng không chung một câu lệnh nào:
+ *   `Document::isReleasedToPortal()`. Hai hàm nằm cùng một tệp và ngay cạnh nhau — sự gần nhau
+ *   đó là lời nhắc, không phải hàng rào. Hàng rào là chúng không chung một câu lệnh nào:
  *   quên một `where` không gỡ được điều kiện tương ứng ở đây, và mỗi điều kiện của mỗi hàm đều
  *   có một bản ghi riêng ghim nó trong `tests/Feature/Authorization/DocumentAccessTest.php`
  *   (xoá một điều kiện bất kỳ là một dòng đỏ, đã dựng lại bằng mutation).
