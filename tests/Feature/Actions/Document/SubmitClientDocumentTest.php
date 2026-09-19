@@ -1,6 +1,8 @@
 <?php
 
+use App\Actions\Document\ReviewChecklistItem;
 use App\Actions\Document\SubmitClientDocument;
+use App\Actions\Document\UploadStaffDocument;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
@@ -61,6 +63,28 @@ function submitClientDocument(
         actor: $actor,
         file: $file ?? clientSubmitPdf(),
     );
+}
+
+/**
+ * Một lần nộp bị từ chối vì đầu mục "không dùng được" — SPEC §10.10.
+ *
+ * Khẳng định ĐÚNG CÂU chứ không chỉ đúng LỚP exception. Lớp là thứ mã nguồn nhìn thấy; câu chữ
+ * mới là thứ người đứng trước màn hình nhìn thấy, và ba tình huống mà §10.10 đòi phải không phân
+ * biệt được (không tồn tại, đã xoá khỏi danh mục, của người khác) đi ra từ HAI chỗ ném khác nhau
+ * trong Action. Một test chỉ kiểm lớp vẫn xanh khi hai chỗ đó nói hai câu khác nhau — đúng chuyện
+ * đã xảy ra: chỗ thứ hai trả về "This action is unauthorized." của Laravel, tiếng Anh, cho một
+ * khách hàng đang đứng ở sân uỷ ban phường.
+ */
+/** Duyệt đạt một đầu mục, qua đúng Action của SPEC §6.7 chứ không bằng một lệnh `update()`. */
+function reviewChecklistItemForSubmitTest(MatterChecklistItem $item, User $actor): void
+{
+    app(ReviewChecklistItem::class)->handle($item, $actor, ChecklistItemStatus::Accepted);
+}
+
+function expectSubmitRefusal(Closure $call): void
+{
+    expect($call)->toThrow(fn (AuthorizationException $exception) => expect($exception->getMessage())
+        ->toBe(__('checklist.submit.item_unavailable')));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -171,6 +195,25 @@ it('nộp lại tạo bản version 2 trỏ về bản cũ, và bản cũ còn n
         ->and(Document::query()->count())->toBe(2);
 });
 
+it('nộp lại được trên một đầu mục ĐÃ ĐƯỢC DUYỆT ĐẠT — quyết định, không phải sơ suất', function () {
+    // SPEC §8.3 chỉ vẽ nút nộp ở hai trạng thái `missing` và `rejected`, nhưng đó là một chuyện
+    // của MÀN HÌNH, không phải một điều kiện phân quyền — xem docblock `SubmitClientDocument`,
+    // mục "Trạng thái đầu mục không phải một cái cổng". Ghim bằng test để một lần siết vô tình
+    // về sau không âm thầm cắt mất đường sửa sai duy nhất của khách.
+    $first = submitClientDocument($this->item, $this->clientUser);
+    reviewChecklistItemForSubmitTest($this->item->fresh(), $this->lawyer);
+
+    $second = submitClientDocument($this->item->fresh(), $this->clientUser);
+    $this->item->refresh();
+
+    expect($second->version)->toBe(2)
+        ->and($second->parent_document_id)->toBe($first->id)
+        // Và đầu mục quay lại hàng chờ: bản vừa nộp chưa ai xem, nên dòng dữ liệu không được
+        // tiếp tục khai tên người đã duyệt bản CŨ.
+        ->and($this->item->status)->toBe(ChecklistItemStatus::PendingReview)
+        ->and($this->item->reviewed_by)->toBeNull();
+});
+
 it('nộp lần thứ ba nối tiếp chuỗi version chứ không quay lại 2', function () {
     $first = submitClientDocument($this->item, $this->clientUser);
     $second = submitClientDocument($this->item, $this->clientUser);
@@ -215,14 +258,24 @@ it('một tài liệu nội bộ gắn cùng đầu mục KHÔNG trở thành b�
 it('một bản nhóm A nhân viên nộp thay VẪN là bản cha của lần khách nộp tiếp theo', function () {
     // Cặp dương của test trên. Nhóm A là "khách cung cấp" bất kể ai bấm nút tải lên (SPEC §4.11),
     // nên một lần nộp thay khách và một lần khách tự nộp là hai bản của cùng một giấy tờ.
-    $byStaff = Document::factory()->for($this->matter)->group(DocumentGroup::ClientProvided)->create([
-        'matter_checklist_item_id' => $this->item->id,
-        'version' => 1,
-    ]);
+    //
+    // Bản cha được dựng bằng CHÍNH `UploadStaffDocument`, không bằng một hàng factory đặt tay:
+    // câu đang được kiểm là "hai Action đồng ý với nhau về chuỗi version", và một fixture dựng
+    // tay trả lời thay cho phía ghi — nó vẫn xanh kể cả khi phía ghi không bao giờ sinh ra được
+    // cái hàng đó. Đúng chuyện đã xảy ra: phía ghi từng hardcode `version = 1`.
+    $byStaff = app(UploadStaffDocument::class)->handle(
+        matter: $this->matter,
+        actor: $this->lawyer,
+        file: clientSubmitPdf('ban-chung-thuc.pdf'),
+        group: DocumentGroup::ClientProvided,
+        title: $this->item->name,
+        checklistItem: $this->item,
+    );
 
-    $document = submitClientDocument($this->item, $this->clientUser);
+    $document = submitClientDocument($this->item->fresh(), $this->clientUser);
 
-    expect($document->version)->toBe(2)
+    expect($byStaff->version)->toBe(1)
+        ->and($document->version)->toBe(2)
         ->and($document->parent_document_id)->toBe($byStaff->id);
 });
 
@@ -247,8 +300,8 @@ it('không nộp được vào đầu mục của một khách hàng khác', fun
     $otherMatter = Matter::factory()->create();
     $otherItem = MatterChecklistItem::factory()->for($otherMatter)->create();
 
-    expect(fn () => submitClientDocument($otherItem, $this->clientUser))
-        ->toThrow(AuthorizationException::class);
+    // Khẳng định ĐÚNG CÂU, không chỉ đúng lớp exception — xem `expectSubmitRefusal()`.
+    expectSubmitRefusal(fn () => submitClientDocument($otherItem, $this->clientUser));
 
     expect(Document::query()->count())->toBe(0)
         ->and(Media::query()->count())->toBe(0)
@@ -261,8 +314,7 @@ it('không nộp được vào đầu mục của khách hàng khác kể cả k
 
     $this->actingAs($this->clientUser, 'client');
 
-    expect(fn () => submitClientDocument($otherItem, $this->clientUser))
-        ->toThrow(AuthorizationException::class);
+    expectSubmitRefusal(fn () => submitClientDocument($otherItem, $this->clientUser));
 
     expect(Document::query()->withoutGlobalScopes()->count())->toBe(0);
 });
@@ -270,8 +322,7 @@ it('không nộp được vào đầu mục của khách hàng khác kể cả k
 it('không nộp được vào một hồ sơ chưa công bố lên portal', function () {
     $this->matter->update(['is_published_to_portal' => false]);
 
-    expect(fn () => submitClientDocument($this->item, $this->clientUser))
-        ->toThrow(AuthorizationException::class);
+    expectSubmitRefusal(fn () => submitClientDocument($this->item, $this->clientUser));
 
     expect(Document::query()->count())->toBe(0);
 });
@@ -279,8 +330,7 @@ it('không nộp được vào một hồ sơ chưa công bố lên portal', fun
 it('không nộp được vào một hồ sơ đã xoá mềm', function () {
     $this->matter->delete();
 
-    expect(fn () => submitClientDocument($this->item->fresh(), $this->clientUser))
-        ->toThrow(AuthorizationException::class);
+    expectSubmitRefusal(fn () => submitClientDocument($this->item->fresh(), $this->clientUser));
 
     expect(Document::query()->count())->toBe(0);
 });
@@ -288,8 +338,7 @@ it('không nộp được vào một hồ sơ đã xoá mềm', function () {
 it('không nộp được vào một đầu mục đã bị xoá khỏi danh mục', function () {
     $this->item->delete();
 
-    expect(fn () => submitClientDocument($this->item, $this->clientUser))
-        ->toThrow(AuthorizationException::class);
+    expectSubmitRefusal(fn () => submitClientDocument($this->item, $this->clientUser));
 
     expect(Document::query()->count())->toBe(0);
 });
@@ -300,8 +349,7 @@ it('một đầu mục không còn tồn tại bị từ chối y như một đ�
     // không — cho đúng người không được biết.
     $this->item->forceDelete();
 
-    expect(fn () => submitClientDocument($this->item, $this->clientUser))
-        ->toThrow(AuthorizationException::class);
+    expectSubmitRefusal(fn () => submitClientDocument($this->item, $this->clientUser));
 
     expect(Document::query()->count())->toBe(0);
 });
@@ -329,12 +377,46 @@ it('đầu mục bị xoá trong lúc quét virus thì lần nộp đó dừng l
         }
     });
 
-    expect(fn () => submitClientDocument($item, $this->clientUser))
-        ->toThrow(AuthorizationException::class);
+    expectSubmitRefusal(fn () => submitClientDocument($item, $this->clientUser));
 
     expect(Document::query()->count())->toBe(0)
         ->and(Media::query()->count())->toBe(0);
 });
+
+it('hồ sơ bị gỡ khỏi portal trong lúc quét virus thì lần nộp đó dừng lại', function (string $sabotage) {
+    // Cùng cửa sổ 30 giây với test trên, nhưng ở phía HỒ SƠ chứ phía đầu mục. Gỡ một hồ sơ khỏi
+    // portal là một cái nút có người cố ý bấm vì một lý do nào đó; xoá mềm một hồ sơ cũng vậy.
+    // Nếu quyết định phân quyền chỉ được lấy MỘT LẦN, trước lúc quét, thì lần nộp vẫn hạ cánh:
+    // một tài liệu nhóm A `published`, `client_can_view = true`, nằm trên một hồ sơ khách không
+    // còn được thấy — cộng một đầu mục `pending_review` và một thông báo gọi đội ngũ vào xem.
+    $matter = $this->matter;
+
+    app()->instance(VirusScanner::class, new class($matter, $sabotage) implements VirusScanner
+    {
+        public function __construct(private Matter $matter, private string $sabotage) {}
+
+        public function scan(string $path): void
+        {
+            $this->sabotage === 'unpublish'
+                ? $this->matter->update(['is_published_to_portal' => false])
+                : $this->matter->delete();
+        }
+
+        public function isActive(): bool
+        {
+            return true;
+        }
+    });
+
+    expectSubmitRefusal(fn () => submitClientDocument($this->item, $this->clientUser));
+
+    expect(Document::query()->withoutGlobalScopes()->count())->toBe(0)
+        ->and(Media::query()->count())->toBe(0)
+        ->and($this->item->refresh()->status)->toBe(ChecklistItemStatus::Missing);
+})->with([
+    'hồ sơ bị gỡ khỏi portal' => ['unpublish'],
+    'hồ sơ bị xoá mềm' => ['soft-delete'],
+]);
 
 it('tin dòng dữ liệu thật chứ không tin đối tượng caller cầm trong tay', function () {
     // Đối tượng Eloquent là thứ ai cũng gán thuộc tính được, và ở đây caller là một màn hình
@@ -356,8 +438,7 @@ it('không dùng phiên đăng nhập làm nguồn danh tính người nộp', f
     $intruder = ClientUser::factory()->create();
     $this->actingAs($intruder, 'client');
 
-    expect(fn () => submitClientDocument($this->item, $intruder))
-        ->toThrow(AuthorizationException::class);
+    expectSubmitRefusal(fn () => submitClientDocument($this->item, $intruder));
 
     expect(Document::query()->withoutGlobalScopes()->count())->toBe(0);
 });
@@ -371,6 +452,29 @@ it('nộp được khi actor là chủ hồ sơ dù phiên đăng nhập là ng�
 
 it('nộp được khi không có phiên đăng nhập nào — cặp dương của actor tường minh', function () {
     expect(submitClientDocument($this->item, $this->clientUser)->version)->toBe(1);
+});
+
+it('tài khoản portal đã bị vô hiệu hoá thì không nộp được', function () {
+    // SPEC §10.9: `client_users.is_active = false` phải chặn ngay ở request kế tiếp. Hôm qua điều
+    // đó chỉ được thi hành bởi `canAccessPanel()`, tức chỉ đúng khi lời gọi đi qua panel Filament
+    // — và chính Action này khai trong docblock rằng nó không được phép đúng theo kiểu đó. Một
+    // job chạy lại hay một lệnh console truyền thẳng `$actor` vào đây không qua panel nào cả.
+    $this->clientUser->update(['is_active' => false]);
+
+    expectSubmitRefusal(fn () => submitClientDocument($this->item, $this->clientUser->fresh()));
+
+    expect(Document::query()->withoutGlobalScopes()->count())->toBe(0)
+        ->and($this->item->refresh()->status)->toBe(ChecklistItemStatus::Missing);
+});
+
+it('một tài khoản portal THỨ HAI của cùng khách hàng vẫn nộp được', function () {
+    // Cặp dương của test trên, và câu trả lời cho một câu hỏi chưa ai hỏi thành lời: phạm vi đọc
+    // của portal là theo KHÁCH HÀNG (`clients.id`), không theo tài khoản đăng nhập. Một doanh
+    // nghiệp có kế toán và giám đốc cùng đăng nhập là chuyện bình thường, và người thứ hai phải
+    // nộp được vào đúng danh mục đó.
+    $sibling = ClientUser::factory()->create(['client_id' => $this->client->id]);
+
+    expect(submitClientDocument($this->item, $sibling)->uploader_id)->toBe($sibling->id);
 });
 
 // ---------------------------------------------------------------------------------------------

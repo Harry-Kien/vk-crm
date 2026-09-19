@@ -2,6 +2,7 @@
 
 namespace App\Actions\Document;
 
+use App\Actions\Concerns\ChecksAccountActive;
 use App\Actions\Document\Concerns\StoresDocumentFile;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
@@ -11,9 +12,7 @@ use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Support\Audit;
-use App\Support\Scopes\ClientPortalScope;
 use Illuminate\Auth\Access\AuthorizationException;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -35,9 +34,12 @@ use Illuminate\Support\Facades\Gate;
  *     `StoresDocumentFile::defaultsFor()`. Khách không đặt được tiêu đề, không đặt được ngày ban
  *     hành, không bật được cờ nào.
  *  3. **Không đọc `auth()`.** Danh tính người nộp là `$actor`, và mọi truy vấn của Action bỏ
- *     `ClientPortalScope` ra một cách tường minh — xem {@see self::scopelessly()}. Một Action mà
- *     tính đúng đắn phụ thuộc vào việc guard nào đang mở là một Action đúng cho tới lần đầu ai đó
- *     gọi nó từ một job hoặc một lệnh console.
+ *     `ClientPortalScope` ra một cách tường minh — xem `StoresDocumentFile::scopelessly()`. Một
+ *     Action mà tính đúng đắn phụ thuộc vào guard nào đang mở là một Action đúng cho tới lần đầu
+ *     ai đó gọi nó từ một job hoặc một lệnh console. Hệ quả mà chính câu đó kéo theo và bản đầu
+ *     bỏ sót: `is_active` cũng phải được hỏi ở đây, vì `ClientUser::canAccessPanel()` — chỗ duy
+ *     nhất đọc cột đó cho tới hôm nay — chỉ canh cửa panel. Xem `ChecksAccountActive` và SPEC
+ *     §10.9.
  *
  * **Cổng quyền đi KÈM ngữ cảnh, và đó là điều kiện để nó có nghĩa.** `DocumentPolicy::create()`
  * có hai nhánh cho khách: nhánh KHÔNG có ngữ cảnh trả `true` vô điều kiện (nó chỉ trả lời câu hỏi
@@ -52,14 +54,42 @@ use Illuminate\Support\Facades\Gate;
  * theo chiều ngược lại: nó xuất phát từ khách, và thứ "ra tới khách" là chính cái họ vừa gửi lên.
  * SPEC §5 phần Portal cho khách đúng việc này mà không kèm điều kiện nào khác.
  *
+ * **Quyền được hỏi HAI LẦN, và lần thứ hai mới là lần có hiệu lực.** Giữa hai lần có
+ * `guardFile()`, nơi một lần quét virus được phép chạy tới 30 giây. Ba mươi giây là thừa để ai
+ * đó bấm nút gỡ hồ sơ khỏi portal hoặc xoá mềm nó — hai việc người ta làm CÓ CHỦ ĐÍCH. Lần hỏi
+ * đầu tồn tại để một id bịa dừng lại ở câu truy vấn rẻ nhất; lần hỏi trong transaction mới là
+ * câu trả lời được dùng.
+ *
+ * **Một câu từ chối duy nhất cho ba tình huống** — SPEC §10.10, xem {@see self::refuse()}. Không
+ * tồn tại, đã bị xoá khỏi danh mục, và không phải của người đang hỏi phải không phân biệt được ở
+ * cả LỚP lẫn CÂU CHỮ; bản đầu chỉ làm được vế thứ nhất, và vế thứ hai mới là thứ người ngoài
+ * quan sát được.
+ *
+ * **Trạng thái của đầu mục KHÔNG phải một cái cổng, và đó là một quyết định.** Khách nộp được
+ * vào một đầu mục đang `accepted`, `pending_review` hay `not_applicable`, không chỉ `missing` và
+ * `rejected`. SPEC §8.3 chỉ vẽ nút nộp ở hai trạng thái sau, nhưng đó là một chuyện của MÀN
+ * HÌNH: Action này phải đúng cho một caller không phải cái màn hình đó (cùng lý lẽ với việc
+ * không đọc `auth()`). Ba lý do cụ thể:
+ *
+ *  - Chặn lại sẽ cắt mất đường sửa sai DUY NHẤT của khách. SPEC không có thao tác "bỏ duyệt",
+ *    nên một khách nhận ra mình gửi nhầm trang sau khi văn phòng đã duyệt sẽ phải gọi điện.
+ *  - Bản nộp mới KHÔNG ghi đè bản cũ: nó là một `Document` mới trong chuỗi version (bước 7), và
+ *    đầu mục quay về `pending_review` với `reviewed_by`/`reviewed_at` bị xoá, nên dòng dữ liệu
+ *    không khai một lần duyệt chưa xảy ra.
+ *  - Cái hại thật của việc nộp lại không giới hạn là TẦN SUẤT (thông báo dồn dập, đĩa, thời gian
+ *    của clamd), và SPEC §10.3 đã giao đúng việc đó cho một giới hạn 20 tệp/giờ/tài khoản. Một
+ *    cổng trạng thái không phải một giới hạn tần suất; nó chỉ cấm thêm một việc hợp lệ.
+ *
  * **Không ghi dòng nhật ký `document_published`.** `UploadStaffDocument` ghi thêm dòng đó cho
  * nhóm A vì một lần nộp thay khách LÀ một lần văn phòng đưa tài liệu ra. Ở đây không ai trong văn
  * phòng đưa ra thứ gì, nên một dòng `document_published` sẽ làm mọi lần rà soát "văn phòng đã
  * công bố những gì" đếm thêm những tài liệu không ai trong văn phòng quyết định. Dấu vết của lần
- * nộp này là `document_submitted`.
+ * nộp này là `document_submitted`. Hệ quả cho người đi tìm — "khách đọc được những gì" là HỢP
+ * của hai tên sự kiện — được phát biểu ở docblock của {@see Audit}.
  */
 class SubmitClientDocument
 {
+    use ChecksAccountActive;
     use StoresDocumentFile;
 
     public function handle(
@@ -82,20 +112,24 @@ class SubmitClientDocument
         // là sửa một chỗ TỪ CHỐI SAI, không phải nới một cái cổng.
         //
         // `Matter::query()` loại hồ sơ đã xoá mềm, nên một hồ sơ đã xoá cho `null` ở đây — và
-        // `canSeeMatter(null)` cho `false`, tức `Gate` ngay dưới sẽ từ chối. Vì vậy `$matter`
-        // chắc chắn khác `null` KỂ TỪ SAU lời gọi `Gate::authorize`, không phải kể từ dòng này.
+        // `canSeeMatter(null)` cho `false`, tức cổng quyền ngay dưới sẽ từ chối.
+        //
+        // Kết quả của lần hỏi này KHÔNG được mang xuống dưới transaction: nó trả lời cho thời
+        // điểm HÔM NAY, trước một cửa sổ quét dài tới 30 giây. Nó tồn tại để một id bịa hay một
+        // đầu mục của người khác dừng lại ở câu truy vấn rẻ nhất, trước khi hệ thống bỏ công
+        // đọc, quét và ghi một tệp 20 MB xuống đĩa — không phải để tiết kiệm lần hỏi thứ hai.
         $matter = $this->scopelessly(Matter::query())->find($item->matter_id);
         $item->setRelation('matter', $matter);
 
         // Bước 1, phần quyết định. KÈM đầu mục — xem docblock lớp.
-        Gate::forUser($actor)->authorize('create', [Document::class, $item]);
+        $this->authorize($actor, $item);
 
         // Bước 2-5: đuôi tệp, MIME thật, kích thước, quét virus. Cùng một cổng với nhân sự,
         // không có bản nới lỏng cho khách — nếu có thì cổng đã mở đúng ở phía người ngoài.
         // NGOÀI transaction, xem docblock `StoresDocumentFile`.
         $this->guardFile($file);
 
-        return DB::transaction(function () use ($item, $matter, $actor, $file): Document {
+        return DB::transaction(function () use ($item, $actor, $file): Document {
             // Đọc lại LẦN NỮA, dưới khoá, và mọi giá trị ghi xuống dưới đây đều lấy từ bản đọc
             // lại này chứ không từ `$item`.
             //
@@ -110,7 +144,33 @@ class SubmitClientDocument
             // test nào trong dự án chứng minh được phần khoá của câu này.
             $locked = $this->findChecklistItem($item->getKey(), lock: true);
 
-            $previous = $this->latestClientSubmission($locked);
+            // Và HỎI LẠI QUYỀN, trên bản đọc lại. Lần hỏi trước cửa sổ quét không còn trả lời
+            // được cho thời điểm này: giữa hai lần có tới 30 giây, và trong 30 giây đó một nhân
+            // sự có thể bấm nút gỡ hồ sơ khỏi portal, hoặc xoá mềm nó — hai việc người ta làm
+            // CÓ CHỦ ĐÍCH, vì một lý do. Không hỏi lại thì lần nộp vẫn hạ cánh và để lại đúng
+            // thứ cái nút kia vừa được bấm để ngăn: một tài liệu nhóm A đã công bố, khách xem
+            // được, nằm trên một hồ sơ không còn ở trên portal — cộng một đầu mục
+            // `pending_review` và một thông báo gọi đội ngũ vào xem một hồ sơ đã đóng.
+            //
+            // `setRelation()` chứ không để `Gate` tự nạp quan hệ, cùng lý do với lần hỏi ở trên:
+            // một quan hệ lười nạp dưới guard NÀO ĐANG MỞ sẽ trả `null` khi phiên portal thuộc
+            // về khách hàng khác, và một lần nộp hợp lệ bị từ chối oan. Đã đo: bỏ dòng
+            // `setRelation` làm đỏ đúng test "nộp được khi actor là chủ hồ sơ dù phiên đăng nhập
+            // là người khác".
+            //
+            // Nói thẳng phần KHÔNG có test đứng sau: `Matter::query()` loại hồ sơ đã xoá mềm,
+            // nhưng đổi nó thành `withTrashed()` KHÔNG làm đỏ test nào — `Gate` từ chối cả hai
+            // đường, vì `visibleToPortal()` hỏi lại đầu mục bằng `whereHas('matter')` và câu đó
+            // cũng loại hồ sơ đã xoá. Điều kiện có test đứng sau ở đây là chính lần hỏi `Gate`.
+            $matter = $this->scopelessly(Matter::query())->find($locked->matter_id);
+            $locked->setRelation('matter', $matter);
+            $this->authorize($actor, $locked);
+
+            // Bước 7, phần đánh số. ĐỊNH NGHĨA DUY NHẤT nằm ở `StoresDocumentFile
+            // ::nextInSubmissionChain()`, nơi phát biểu luôn cái bất biến mà không chỉ mục cơ sở dữ
+            // liệu nào diễn đạt nổi — và nơi `UploadStaffDocument` hỏi đúng cùng câu hỏi đó, vì một
+            // lần nhân viên nộp thay ở nhóm A cũng là một mắt xích của cùng chuỗi.
+            $chain = $this->nextInSubmissionChain($locked, DocumentGroup::ClientProvided);
 
             $defaults = $this->defaultsFor(DocumentGroup::ClientProvided);
             $releasedAtCreation = $this->releasesToClientAtCreation($defaults);
@@ -124,8 +184,8 @@ class SubmitClientDocument
                 'group' => DocumentGroup::ClientProvided,
                 'title' => $locked->name,
                 'status' => $defaults['status'],
-                'version' => $previous === null ? 1 : $previous->version + 1,
-                'parent_document_id' => $previous?->getKey(),
+                'version' => $chain['version'],
+                'parent_document_id' => $chain['parent_document_id'],
                 'uploader_type' => $actor->getMorphClass(),
                 'uploader_id' => $actor->getKey(),
                 'client_can_view' => $defaults['client_can_view'],
@@ -204,50 +264,10 @@ class SubmitClientDocument
     }
 
     /**
-     * Bản gần nhất của CHUỖI NỘP LẠI trên đầu mục này (SPEC §6.6 bước 7), hoặc `null` nếu đây là
-     * lần đầu.
+     * Đọc lại đầu mục danh mục từ cơ sở dữ liệu, hoặc từ chối bằng {@see self::refuse()}.
      *
-     * **Chỉ nhóm A.** Một tài liệu nhóm B, C hay D gắn được vào một đầu mục danh mục và đó là
-     * việc hợp lệ — một ghi chú công việc nội bộ về đúng giấy tờ đó, một văn bản toà liên quan;
-     * kế hoạch Task 6 nói thẳng điều đó khi bàn cách đếm thanh tiến độ `X/Y`. Nhưng chuỗi version
-     * ở bước 7 là chuỗi các LẦN NỘP cùng một giấy tờ, nên nối bản nộp của khách vào một tài liệu
-     * của văn phòng sẽ đánh số nó là "bản thứ hai của tài liệu đó"; với nhóm D thì
-     * `parent_document_id` còn trỏ vào một dòng khách không bao giờ được thấy. Nhóm A là "khách
-     * cung cấp" bất kể ai bấm nút tải lên (SPEC §4.11), nên một lần nhân viên nộp thay VẪN nằm
-     * trong chuỗi: đó là cùng một tờ giấy.
-     *
-     * **`withTrashed()`.** Một bản đã xoá mềm vẫn chiếm số version của nó. Cấp lại số 1 cho một
-     * tệp khác biến mọi dòng nhật ký cũ mang `version` (ở đây, ở `UploadStaffDocument` và ở
-     * `PublishDocument`) thành câu không còn chỉ đúng bản nào — và một bản xoá mềm thì khôi phục
-     * lại được, nên hai dòng cùng số có thể cùng sống lại trên một đầu mục.
-     *
-     * Sắp xếp theo `version` rồi tới khoá chính: hai bản cùng số version xuất hiện được khi có ai
-     * ghi thẳng vào cột, hoặc khi hai lần nộp chạy song song trên một cơ sở dữ liệu mà
-     * `lockForUpdate()` không có tác dụng. Trong cả hai trường hợp thứ tự phải vẫn xác định.
-     */
-    private function latestClientSubmission(MatterChecklistItem $checklistItem): ?Document
-    {
-        return $this->scopelessly(Document::query())
-            ->withTrashed()
-            ->where('matter_checklist_item_id', $checklistItem->getKey())
-            ->where('group', DocumentGroup::ClientProvided->value)
-            ->orderByDesc('version')
-            ->orderByDesc('id')
-            ->lockForUpdate()
-            ->first();
-    }
-
-    /**
-     * Đọc lại đầu mục danh mục từ cơ sở dữ liệu, hoặc từ chối.
-     *
-     * **Ba tình huống, một câu trả lời.** Không tồn tại, đã bị xoá mềm khỏi danh mục, và không
-     * phải của người đang hỏi — cả ba đều ra một `AuthorizationException` giống hệt nhau. Đó là
-     * SPEC §10.10 ("không có quyền và không tồn tại đều trả 404") áp ở tầng Action chứ không chỉ
-     * ở tầng HTTP: nếu một id không tồn tại trả về một lỗi KHÁC với một id của người khác, thì
-     * chính cặp thông điệp đó là một cái máy dò — gửi id bất kỳ, đọc loại lỗi, biết bản ghi có
-     * thật hay không. Hai trong ba tình huống dừng ở đây; tình huống thứ ba (của người khác) dừng
-     * ở `Gate` ngay sau, và vì cả hai chỗ ném cùng một lớp exception nên người ngoài không phân
-     * biệt được.
+     * Hai trong ba tình huống của SPEC §10.10 dừng ở đây (không tồn tại, đã bị xoá mềm khỏi danh
+     * mục); tình huống thứ ba — đầu mục của người khác — dừng ở {@see self::authorize()}.
      *
      * Nói thẳng phần không chứng minh được: `DocumentPolicy::create()` cũng từ chối cả ba tình
      * huống (`visibleToPortal()` hỏi lại theo KHOÁ nên một dòng đã xoá hay không tồn tại đều trả
@@ -255,10 +275,6 @@ class SubmitClientDocument
      * vì nó chạy trước khi hệ thống đọc và quét tệp, và vì một Action không nên uỷ thác câu "bản
      * ghi này có tồn tại không" cho tầng phân quyền; nhưng đó là phòng thủ nhiều lớp, không phải
      * một điều kiện có test đứng sau.
-     *
-     * Vì vậy đây KHÔNG phải một `ValidationException` kèm câu chữ thân thiện, dù `lang/vi
-     * /checklist.php` có sẵn một câu như thế: câu đó dành cho màn hình M5 hiển thị SAU khi đã
-     * quyết định từ chối, không phải để phân biệt ba tình huống trên.
      */
     private function findChecklistItem(mixed $key, bool $lock = false): MatterChecklistItem
     {
@@ -268,35 +284,51 @@ class SubmitClientDocument
             $query->lockForUpdate();
         }
 
-        return $query->find($key) ?? throw new AuthorizationException(__('checklist.submit.item_unavailable'));
+        return $query->find($key) ?? $this->refuse();
     }
 
     /**
-     * Bỏ `ClientPortalScope` ra khỏi một truy vấn, tường minh.
+     * Cổng quyền của bước 1, hỏi KÈM đầu mục — xem docblock lớp.
      *
-     * Action này chạy với guard `client` đang mở trong đời thật, nên mọi truy vấn của nó sẽ tự
-     * động bị cắt theo khách đang đăng nhập nếu không gỡ scope ra. Nghe thì có vẻ an toàn hơn,
-     * nhưng nó sai ở hai đầu:
+     * `inspect()` chứ không `authorize()`, và đây là toàn bộ lý do hàm này tồn tại:
+     * `Gate::authorize()` tự ném một `AuthorizationException` mang thông điệp mặc định của
+     * Laravel — **"This action is unauthorized."**, tiếng Anh, viết cho một lập trình viên. Người
+     * đọc câu đó ở đây là khách hàng đang đứng trước màn hình portal (SPEC §8 cấm thuật ngữ kỹ
+     * thuật, §8.4 đòi mỗi câu lỗi phải nói ra việc cần làm tiếp theo), nên nó không dùng được ở
+     * hai nghĩa cùng lúc.
      *
-     * - **Sai về tính đúng đắn.** Scope trên `Document` đòi `client_can_view = true` và
-     *   `status = published`, nên một bản nhóm A cũ đã bị tắt cờ hiển thị sẽ vô hình với phép
-     *   tính version — và lần nộp mới lại mang số 1 lần nữa, ghi đè ý nghĩa của bản cũ. Chuỗi
-     *   version phải đọc từ dữ liệu thật.
-     * - **Sai về chỗ đặt quyết định.** Một Action để phạm vi dữ liệu phụ thuộc vào guard nào
-     *   đang mở là một Action đúng cho tới lần đầu ai đó gọi nó từ một job, một lệnh console,
-     *   hay một phiên thuộc về người khác. Ở đây quyền đã được hỏi một lần, tường minh, trên
-     *   `$actor` — và câu trả lời đó phải là câu duy nhất quyết định.
-     *
-     * `ChecksPortalVisibility` bên trong policy vẫn chạy scope thật qua
-     * `ClientPortalScope::actingAs($actor)`, nên tầng phân quyền không bị nới ra chút nào.
-     *
-     * @template TModel of \Illuminate\Database\Eloquent\Model
-     *
-     * @param  Builder<TModel>  $query
-     * @return Builder<TModel>
+     * Và nó hỏng đúng chỗ quan trọng hơn: hai chỗ từ chối của Action ném **cùng một lớp** nhưng
+     * **hai câu khác nhau**, mà thứ người ngoài quan sát được là CÂU CHỮ, không phải tên lớp. Một
+     * cặp thông điệp khác nhau chính là cái máy dò mà SPEC §10.10 dựng lên để chặn: gửi một id
+     * bất kỳ, đọc câu trả lời, biết bản ghi có thật hay không.
      */
-    private function scopelessly(Builder $query): Builder
+    private function authorize(ClientUser $actor, MatterChecklistItem $item): void
     {
-        return $query->withoutGlobalScope(ClientPortalScope::class);
+        // SPEC §10.9, và nó đứng ở ĐÂY chứ không ở policy: xem `ChecksAccountActive`. Một tài
+        // khoản portal vừa bị vô hiệu hoá đi ra bằng đúng câu từ chối của ba tình huống kia —
+        // không phải vì §10.10 đòi (việc một tài khoản bị khoá hay không thì chính chủ tài khoản
+        // biết rõ hơn ai hết), mà vì màn hình M5 chỉ có một chỗ để hiện câu trả lời và câu đó
+        // vẫn đúng việc cần làm tiếp theo: gọi cho văn phòng.
+        if (! $this->accountIsActive($actor)) {
+            $this->refuse();
+        }
+
+        if (Gate::forUser($actor)->inspect('create', [Document::class, $item])->denied()) {
+            $this->refuse();
+        }
+    }
+
+    /**
+     * **Ba tình huống, MỘT câu.** Không tồn tại, đã bị xoá mềm khỏi danh mục, và không phải của
+     * người đang hỏi — cả ba đi ra từ đúng dòng `throw` này, nên chúng không phân biệt được ở
+     * tên lớp lẫn ở câu chữ. SPEC §10.10 áp ở tầng Action chứ không chỉ ở tầng HTTP.
+     *
+     * Đây KHÔNG phải một `ValidationException`: `AuthorizationException` là thứ tầng HTTP của
+     * Laravel đổi thành 403/404, và M5 cần đúng hành vi đó. Câu chữ thì lấy từ `lang/vi
+     * /checklist.php` vì màn hình M5 hiển thị chính nó cho khách.
+     */
+    private function refuse(): never
+    {
+        throw new AuthorizationException(__('checklist.submit.item_unavailable'));
     }
 }
