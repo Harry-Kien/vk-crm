@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Document\UploadStaffDocument;
+use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Enums\MatterRole;
@@ -54,6 +55,7 @@ function uploadStaffDocument(
     DocumentGroup $group,
     ?UploadedFile $file = null,
     ?MatterChecklistItem $checklistItem = null,
+    DateTimeInterface|string|null $issuedAt = null,
 ): Document {
     return app(UploadStaffDocument::class)->handle(
         matter: $matter,
@@ -62,7 +64,7 @@ function uploadStaffDocument(
         group: $group,
         title: 'Tài liệu thử nghiệm',
         checklistItem: $checklistItem,
-        issuedAt: null,
+        issuedAt: $issuedAt,
     );
 }
 
@@ -380,6 +382,136 @@ it('ghi nhật ký kiểm toán đúng người nộp, kể cả khi phiên đă
         ->and($activity->subject?->is($document))->toBeTrue()
         ->and($activity->properties->get('group'))->toBe(DocumentGroup::Authority->value);
 });
+
+it('nộp tệp vào nhóm ra thẳng tới khách ghi CẢ dòng nhật ký công bố', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = staffUploadMatter($lawyer);
+
+    $document = uploadStaffDocument($matter, $lawyer, DocumentGroup::ClientProvided);
+
+    // Ai dựng lại danh sách "những gì đã ra tới khách" đều lọc theo tên sự kiện. Một lần nộp
+    // nhóm A LÀ một lần công bố, nên nếu nó chỉ để lại `document_uploaded` thì truy vấn đó im
+    // lặng bỏ sót — và bỏ sót đúng nhóm tài liệu ra tới khách mà không ai bấm nút công bố.
+    $published = Activity::query()->where('event', 'document_published')->latest('id')->first();
+
+    expect($published)->not->toBeNull()
+        ->and($published->subject?->is($document))->toBeTrue()
+        ->and($published->causer?->is($lawyer))->toBeTrue()
+        ->and($published->properties->get('group'))->toBe(DocumentGroup::ClientProvided->value)
+        ->and($published->properties->get('client_id'))->toBe($matter->client_id)
+        ->and($published->properties->get('republished'))->toBeFalse()
+        ->and(Activity::query()->where('event', 'document_uploaded')->count())->toBe(1);
+});
+
+it('nộp tệp vào nhóm chưa ra tới khách KHÔNG ghi dòng nhật ký công bố nào', function (DocumentGroup $group) {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = staffUploadMatter($lawyer);
+
+    uploadStaffDocument($matter, $lawyer, $group);
+
+    expect(Activity::query()->where('event', 'document_published')->count())->toBe(0);
+})->with([
+    'nhóm B' => [DocumentGroup::Issued],
+    'nhóm C' => [DocumentGroup::Authority],
+    'nhóm D' => [DocumentGroup::Internal],
+]);
+
+// ---------------------------------------------------------------------------------------------
+// Ngày ban hành: một chuỗi người dùng gõ vào không được biến thành lỗi 500.
+// ---------------------------------------------------------------------------------------------
+
+it('ngày ban hành không đọc được là lỗi xác thực, không phải lỗi 500', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = staffUploadMatter($lawyer);
+
+    // `Carbon::parse()` ném `InvalidFormatException` — một `InvalidArgumentException`, nằm
+    // NGOÀI hợp đồng `DomainException`/`ValidationException` mà mọi màn hình M4 được dặn bắt.
+    expect(fn () => uploadStaffDocument($matter, $lawyer, DocumentGroup::Authority, null, null, 'hôm kia'))
+        ->toThrow(ValidationException::class);
+
+    expect(Document::query()->count())->toBe(0);
+});
+
+it('ngày ban hành nhận cả chuỗi hợp lệ lẫn đối tượng ngày', function (DateTimeInterface|string $issuedAt) {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = staffUploadMatter($lawyer);
+
+    $document = uploadStaffDocument($matter, $lawyer, DocumentGroup::Authority, null, null, $issuedAt);
+
+    expect($document->issued_at->toDateString())->toBe('2026-03-01');
+})->with([
+    'chuỗi ISO' => ['2026-03-01'],
+    'đối tượng DateTimeImmutable' => [new DateTimeImmutable('2026-03-01')],
+]);
+
+it('ngày ban hành rỗng được hiểu là không có ngày', function (?string $issuedAt) {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = staffUploadMatter($lawyer);
+
+    expect(uploadStaffDocument($matter, $lawyer, DocumentGroup::Authority, null, null, $issuedAt)->issued_at)
+        ->toBeNull();
+})->with(['null' => [null], 'chuỗi rỗng' => [''], 'chuỗi toàn khoảng trắng' => ['   ']]);
+
+// ---------------------------------------------------------------------------------------------
+// Danh mục hồ sơ: một đầu mục đã xoá mềm không nhận tài liệu, và một lần nộp thay khách ở nhóm A
+// đóng luôn đầu mục đó.
+// ---------------------------------------------------------------------------------------------
+
+it('không gắn được tài liệu vào một đầu mục danh mục đã xoá mềm', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = staffUploadMatter($lawyer);
+    $item = MatterChecklistItem::factory()->create(['matter_id' => $matter->id]);
+    $item->delete();
+
+    expect(fn () => uploadStaffDocument($matter, $lawyer, DocumentGroup::ClientProvided, null, $item))
+        ->toThrow(ValidationException::class);
+
+    expect(Document::query()->count())->toBe(0);
+});
+
+it('nộp thay khách ở nhóm A thì đầu mục danh mục chuyển sang accepted kèm người duyệt', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = staffUploadMatter($lawyer);
+    $item = MatterChecklistItem::factory()->create(['matter_id' => $matter->id]);
+
+    uploadStaffDocument($matter, $lawyer, DocumentGroup::ClientProvided, null, $item);
+
+    $item->refresh();
+
+    expect($item->status)->toBe(ChecklistItemStatus::Accepted)
+        ->and($item->reviewed_by)->toBe($lawyer->id)
+        ->and($item->reviewed_at)->not->toBeNull();
+});
+
+it('nộp thay khách ở nhóm A xoá luôn lý do từ chối cũ của đầu mục', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = staffUploadMatter($lawyer);
+    $item = MatterChecklistItem::factory()->create([
+        'matter_id' => $matter->id,
+        'status' => ChecklistItemStatus::Rejected,
+        'rejection_reason' => 'Ảnh bị mờ ở góc trên nên không đọc được số thửa.',
+    ]);
+
+    uploadStaffDocument($matter, $lawyer, DocumentGroup::ClientProvided, null, $item);
+
+    expect($item->refresh()->status)->toBe(ChecklistItemStatus::Accepted)
+        ->and($item->rejection_reason)->toBeNull();
+});
+
+it('nộp tệp nhóm B, C hoặc D vào một đầu mục KHÔNG đụng tới trạng thái đầu mục', function (DocumentGroup $group) {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = staffUploadMatter($lawyer);
+    $item = MatterChecklistItem::factory()->create(['matter_id' => $matter->id]);
+
+    uploadStaffDocument($matter, $lawyer, $group, null, $item);
+
+    expect($item->refresh()->status)->toBe(ChecklistItemStatus::Missing)
+        ->and($item->reviewed_by)->toBeNull();
+})->with([
+    'nhóm B' => [DocumentGroup::Issued],
+    'nhóm C' => [DocumentGroup::Authority],
+    'nhóm D' => [DocumentGroup::Internal],
+]);
 
 it('ghi uploader là actor tường minh, không phải phiên đăng nhập', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();

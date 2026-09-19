@@ -3,6 +3,7 @@
 namespace App\Actions\Document;
 
 use App\Actions\Document\Concerns\StoresDocumentFile;
+use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Models\Document;
@@ -10,8 +11,11 @@ use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Models\User;
 use App\Support\Audit;
+use Carbon\CarbonInterface;
+use Carbon\Exceptions\InvalidFormatException;
 use DateTimeInterface;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -61,8 +65,8 @@ class UploadStaffDocument
         UploadedFile $file,
         DocumentGroup $group,
         string $title,
-        ?MatterChecklistItem $checklistItem,
-        DateTimeInterface|string|null $issuedAt,
+        ?MatterChecklistItem $checklistItem = null,
+        DateTimeInterface|string|null $issuedAt = null,
     ): Document {
         // Bước 1.
         Gate::forUser($actor)->authorize('create', [Document::class, $matter]);
@@ -73,6 +77,19 @@ class UploadStaffDocument
                 'matter_checklist_item_id' => [__('documents.upload.checklist_item_other_matter')],
             ]);
         }
+
+        // Một đầu mục đã xoá mềm không còn nằm trong danh mục hồ sơ mà ai cũng nhìn thấy, nhưng
+        // `documents.matter_checklist_item_id` vẫn nhận id của nó: hệ quả là một tài liệu treo
+        // vào một dòng không hiện ra ở đâu, và thanh tiến độ X/Y ở Task 6 đếm thiếu nó mãi mãi.
+        // Xảy ra thật khi một màn hình giữ đối tượng đã nạp từ trước, hoặc khi caller dùng
+        // `withTrashed()`.
+        if ($checklistItem !== null && $checklistItem->trashed()) {
+            throw ValidationException::withMessages([
+                'matter_checklist_item_id' => [__('documents.upload.checklist_item_deleted')],
+            ]);
+        }
+
+        $issuedAtDate = $this->parseIssuedAt($issuedAt);
 
         $defaults = $this->defaultsFor($group);
 
@@ -89,7 +106,9 @@ class UploadStaffDocument
         // Điều kiện "ra tới khách ngay lúc tạo" đọc ra TỪ CHÍNH bộ mặc định, không từ một chữ
         // cái nhóm viết lần thứ hai: {@see self::defaultsFor()} là nơi duy nhất biết nhóm nào ra
         // tới khách, nên một lần đổi bảng SPEC §4.11 ở đó kéo theo cả cái cổng này.
-        if ($defaults['status'] === DocumentStatus::Published && $defaults['client_can_view']) {
+        $releasedAtCreation = $this->releasesToClientAtCreation($defaults);
+
+        if ($releasedAtCreation) {
             $transientDocument = (new Document)
                 ->forceFill(['group' => $group])
                 ->setRelation('matter', $matter);
@@ -101,8 +120,8 @@ class UploadStaffDocument
         $this->guardFile($file);
 
         // Bước 5.
-        $document = DB::transaction(function () use (
-            $matter, $actor, $file, $group, $title, $checklistItem, $issuedAt, $defaults,
+        return DB::transaction(function () use (
+            $matter, $actor, $file, $group, $title, $checklistItem, $issuedAtDate, $defaults, $releasedAtCreation,
         ): Document {
             $document = Document::query()->create([
                 'matter_id' => $matter->getKey(),
@@ -119,27 +138,129 @@ class UploadStaffDocument
                 // bố và một người chịu trách nhiệm về việc đó. Để trống hai cột này sẽ tạo ra một
                 // tài liệu khách đang đọc mà không dòng nào nói ai đã đưa nó ra và từ lúc nào —
                 // đúng thứ SPEC §10.6 bắt ghi lại cho mọi lần công bố tài liệu.
-                'published_at' => $defaults['status'] === DocumentStatus::Published ? now() : null,
-                'published_by' => $defaults['status'] === DocumentStatus::Published ? $actor->getKey() : null,
-                'issued_at' => $issuedAt,
+                'published_at' => $releasedAtCreation ? now() : null,
+                'published_by' => $releasedAtCreation ? $actor->getKey() : null,
+                'issued_at' => $issuedAtDate,
             ]);
 
             $this->storeFile($document, $file);
 
+            if ($checklistItem !== null && $releasedAtCreation) {
+                $this->settleChecklistItem($checklistItem, $actor);
+            }
+
+            // Nhật ký kiểm toán nằm BÊN TRONG transaction, cùng lý do với `PublishDocument` và
+            // `TransitionMatterStage`: ngoài transaction thì có một khoảng — ngắn, nhưng có —
+            // mà bản ghi đã commit còn dòng nhật ký thì chưa ghi. Ở đây khoảng đó nặng hơn hẳn,
+            // vì một lần nộp nhóm A commit ở trạng thái khách đọc được ngay: một tiến trình
+            // chết đúng lúc để lại một tài liệu khách đang xem mà SPEC §10.6 không có dòng nào
+            // nói ai đưa nó ra.
+            Audit::record('document_uploaded', $document, [
+                'matter_id' => $matter->getKey(),
+                'matter_checklist_item_id' => $checklistItem?->getKey(),
+                'group' => $group->value,
+                'status' => $defaults['status']->value,
+                'client_can_view' => $defaults['client_can_view'],
+                'client_can_download' => $defaults['client_can_download'],
+            ], $actor);
+
+            // Và một dòng `document_published` NỮA khi bộ mặc định đã đưa tài liệu ra tới khách.
+            // Hai dòng cho một thao tác là cố ý: `document_uploaded` trả lời "tệp vào hệ thống
+            // lúc nào", `document_published` trả lời "tệp ra tới khách lúc nào" (SPEC §10.6 bắt
+            // ghi lại MỌI lần công bố tài liệu). Gộp chúng lại sẽ khiến một truy vấn dựng lại
+            // các lần công bố — lọc theo tên sự kiện, cách duy nhất có — im lặng bỏ sót đúng
+            // nhóm không ai bấm nút công bố. Hình dạng thuộc tính chép theo `PublishDocument`
+            // để hai nguồn của cùng một câu hỏi đọc được bằng cùng một truy vấn.
+            if ($releasedAtCreation) {
+                Audit::record('document_published', $document, [
+                    'matter_id' => $matter->getKey(),
+                    'client_id' => $matter->client_id,
+                    'group' => $group->value,
+                    'version' => $document->version,
+                    'client_can_view' => $defaults['client_can_view'],
+                    'client_can_download' => $defaults['client_can_download'],
+                    'republished' => false,
+                ], $actor);
+            }
+
             return $document;
         });
+    }
 
-        // Bước 6.
-        Audit::record('document_uploaded', $document, [
-            'matter_id' => $matter->getKey(),
-            'matter_checklist_item_id' => $checklistItem?->getKey(),
-            'group' => $group->value,
-            'status' => $defaults['status']->value,
-            'client_can_view' => $defaults['client_can_view'],
-            'client_can_download' => $defaults['client_can_download'],
-        ], $actor);
+    /**
+     * Ngày ban hành đi vào đây từ một ô nhập, nên nó có thể là bất cứ chuỗi nào người dùng gõ.
+     * `Carbon::parse()` ném `InvalidFormatException` — một `InvalidArgumentException`, tức nằm
+     * ngoài hợp đồng `DomainException`/`ValidationException` mà mọi màn hình M4 được dặn bắt, và
+     * vì vậy nó đi thẳng lên thành lỗi 500 cho một lỗi gõ phím. Đổi thành lỗi xác thực gắn đúng
+     * tên cột, cùng cách bước 2 xử lý một đầu mục danh mục sai.
+     *
+     * Chuỗi rỗng hoặc toàn khoảng trắng được hiểu là "không có ngày" chứ không phải "hôm nay":
+     * `Carbon::parse('')` trả về thời điểm hiện tại, và một ô để trống biến thành ngày ban hành
+     * hôm nay là một giá trị bịa ra, không phải một giá trị thiếu.
+     */
+    private function parseIssuedAt(DateTimeInterface|string|null $issuedAt): ?CarbonInterface
+    {
+        if ($issuedAt instanceof DateTimeInterface) {
+            return Carbon::instance($issuedAt);
+        }
 
-        return $document;
+        if ($issuedAt === null || trim($issuedAt) === '') {
+            return null;
+        }
+
+        try {
+            return Carbon::parse($issuedAt);
+        } catch (InvalidFormatException) {
+            throw ValidationException::withMessages([
+                'issued_at' => [__('documents.upload.issued_at_invalid')],
+            ]);
+        }
+    }
+
+    /**
+     * Một lần nộp thay khách ở nhóm A đóng luôn đầu mục danh mục nó được gắn vào.
+     *
+     * SPEC không nói câu này: §6.6 bước 8 (`pending_review`) mô tả luồng KHÁCH nộp qua portal,
+     * nơi chưa ai trong văn phòng nhìn thấy tệp. Ở đây thì ngược lại — nhóm A nghĩa là "khách
+     * cung cấp, nhân viên nộp thay", tức người nộp đã cầm tệp trên tay, đã đọc nó đủ để biết nó
+     * thuộc nhóm A và khớp với đầu mục nào. Đặt `pending_review` sẽ là xếp hàng công việc của
+     * chính mình để chính mình duyệt, và một cái cổng không ai thật sự duyệt là cái cổng người
+     * ta học cách bấm cho xong — đúng lập luận kế hoạch M4 đã dùng cho lần ghi đè kiểm tra xung
+     * đột. Nên trạng thái là `accepted`, và `reviewed_by`/`reviewed_at` ghi lại AI đã chấp nhận
+     * nó, chứ không để trống như một dòng tự nhiên đúng.
+     *
+     * Ba nhóm còn lại không đụng tới: một văn bản toà (C), một bản đơn văn phòng soạn (B) hay
+     * một ghi chú nội bộ (D) gắn vào đầu mục để tiện tra cứu KHÔNG phải giấy tờ khách phải nộp,
+     * nên chúng không được tự đóng một dòng trong danh mục của khách.
+     *
+     * `rejection_reason` bị xoá cùng lúc: lý do từ chối hiện thẳng cho khách (SPEC §6.7), nên
+     * một đầu mục đã `accepted` mà còn treo câu "ảnh bị mờ" là một dòng nói dối.
+     */
+    private function settleChecklistItem(MatterChecklistItem $checklistItem, User $actor): void
+    {
+        $checklistItem->update([
+            'status' => ChecklistItemStatus::Accepted,
+            'rejection_reason' => null,
+            'reviewed_by' => $actor->getKey(),
+            'reviewed_at' => now(),
+        ]);
+    }
+
+    /**
+     * "Bộ mặc định này đã đưa tài liệu ra tới khách chưa" — ĐỊNH NGHĨA DUY NHẤT, đọc ra từ bảng
+     * SPEC §4.11 chứ không từ một chữ cái nhóm. Bốn chỗ cần câu trả lời (cổng `document.publish`,
+     * đóng đầu mục danh mục, dòng nhật ký công bố, và chính cặp `published_at`/`published_by`)
+     * đều hỏi ở đây, nên thêm hay sửa một nhóm trong {@see self::defaultsFor()} là đủ.
+     *
+     * Hai điều kiện chứ không một: `status = published` một mình nói "đã qua vòng đời", còn
+     * `client_can_view` mới nói "khách đọc được". Cùng cặp điều kiện mà `PublishDocument` dùng
+     * để biết một tài liệu đã tới tay khách hay chưa.
+     *
+     * @param  array{status: DocumentStatus, client_can_view: bool, client_can_download: bool}  $defaults
+     */
+    private function releasesToClientAtCreation(array $defaults): bool
+    {
+        return $defaults['status'] === DocumentStatus::Published && $defaults['client_can_view'];
     }
 
     /**

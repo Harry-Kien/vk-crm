@@ -38,6 +38,8 @@ return [
      */
     'upload' => [
         'checklist_item_other_matter' => 'Đầu mục danh mục này thuộc một hồ sơ khác nên không gắn tài liệu vào đó được. Anh/chị chọn lại một đầu mục trong danh mục của chính hồ sơ đang mở, hoặc để trống ô này nếu tài liệu không thuộc đầu mục nào.',
+        'checklist_item_deleted' => 'Đầu mục danh mục này đã bị xoá khỏi hồ sơ nên không gắn tài liệu vào đó được. Anh/chị tải lại trang rồi chọn một đầu mục còn trong danh mục, hoặc để trống ô này.',
+        'issued_at_invalid' => 'Ngày ban hành chưa đúng định dạng nên hệ thống không đọc được. Anh/chị nhập theo dạng ngày/tháng/năm (ví dụ 01/03/2026) hoặc chọn từ lịch, hoặc để trống nếu tài liệu không có ngày ban hành.',
     ],
 
     /*
