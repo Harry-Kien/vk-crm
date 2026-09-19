@@ -40,8 +40,8 @@ class PortalPanelProvider extends PanelProvider
             ->login()
             ->brandName(__('panels.portal.brand'))
             ->brandLogo(fn () => view('brand.logo'))
-            ->brandLogoHeight('2.3rem')
-            ->favicon(asset('brand/favicon.svg'))
+            ->brandLogoHeight('2.6rem')
+            ->favicon(asset('brand/vk-mark-64.png'))
             ->font(config('vkcrm.brand.font'))
             ->colors([
                 // Dải viết sẵn, không phải Color::hex() — xem lý do ở config/vkcrm.php.

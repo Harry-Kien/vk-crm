@@ -18,7 +18,7 @@ it('shows the firm identity on the internal login screen', function () {
         ->assertSee(config('vkcrm.brand.tagline'), escape: false)
         ->assertSee(config('vkcrm.brand.legal_name'))
         ->assertSee(config('vkcrm.brand.hotline'))
-        ->assertSee('brand/favicon.svg', escape: false);
+        ->assertSee('brand/vk-mark-64.png', escape: false);
 });
 
 it('shows the firm identity on the client portal login screen', function () {

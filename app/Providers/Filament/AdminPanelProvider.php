@@ -27,7 +27,7 @@ use Illuminate\View\Middleware\ShareErrorsFromSession;
  * dùng màu xám trung tính, và điều đó vẫn đúng: đây là màn hình nhân sự nhìn tám tiếng mỗi ngày,
  * dày đặc bảng và số, nên màu chủ đạo phải lùi lại để trạng thái hồ sơ (vàng/đỏ quá hạn, mức xung
  * đột) là thứ duy nhất bật lên. Thương hiệu được mang vào bằng những thứ KHÔNG tranh chỗ với dữ
- * liệu: logo, bộ chữ Be Vietnam Pro và favicon lấy đúng từ luatvukhang.com, tên pháp lý đầy đủ
+ * liệu: logo thật của văn phòng, bộ chữ Be Vietnam Pro lấy đúng từ luatvukhang.com, tên pháp lý
  * của văn phòng ở trang đăng nhập. Màu đỏ thương hiệu chỉ dùng cho `danger` — nơi nó vốn đã phải
  * là màu cảnh báo.
  */
@@ -44,8 +44,8 @@ class AdminPanelProvider extends PanelProvider
             ->login()
             ->brandName(__('panels.admin.brand'))
             ->brandLogo(fn () => view('brand.logo'))
-            ->brandLogoHeight('2.1rem')
-            ->favicon(asset('brand/favicon.svg'))
+            ->brandLogoHeight('2.6rem')
+            ->favicon(asset('brand/vk-mark-64.png'))
             ->font(config('vkcrm.brand.font'))
             ->colors([
                 'primary' => Color::Slate,
