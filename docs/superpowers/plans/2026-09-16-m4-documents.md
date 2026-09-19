@@ -56,7 +56,9 @@ Bốn Action mới trong `app/Actions/Document/`: `SubmitClientDocument` (§6.6)
 |---|---|
 | `app/Support/Files/FileGuard.php` | Đuôi tệp, MIME thật, kích thước — một chỗ duy nhất |
 | `app/Support/Files/{VirusScanner,NullScanner,ClamAvScanner}.php` | SPEC §6.6 bước 5 |
-| `app/Actions/Document/{UploadStaffDocument,SubmitClientDocument,ReviewChecklistItem,PublishDocument,RegroupDocument}.php` | `RegroupDocument` sinh ra ở vòng sửa rà soát Task 3 |
+| `app/Actions/Document/{UploadStaffDocument,SubmitClientDocument,ReviewChecklistItem,MarkChecklistItemNotApplicable,PublishDocument,RegroupDocument}.php` | `RegroupDocument` sinh ra ở vòng sửa rà soát Task 3; `MarkChecklistItemNotApplicable` ở vòng sửa rà soát Task 4 |
+| `app/Actions/Concerns/ChecksAccountActive.php` | SPEC §10.9 ở tầng Action: `canAccessPanel()` chỉ canh cửa panel |
+| `app/Actions/Document/Concerns/{StoresDocumentFile,OpensChecklistItem}.php` | Bất biến chuỗi `version` của nhóm A; SPEC §10.10 cho danh mục hồ sơ |
 | `app/Exceptions/{DocumentNotPublishable,DocumentGroupNotChangeable,FileRejected}.php` | |
 | `app/Http/Controllers/DocumentDownloadController.php` | Chữ ký + policy + stream + ghi nhật ký |
 | `app/Filament/Admin/Resources/Matters/RelationManagers/{ChecklistRelationManager,DocumentsRelationManager}.php` | Hai tab mới ở SPEC §7.2 |
@@ -183,7 +185,18 @@ SPEC §7.2:
 
   **`X` đếm theo TRẠNG THÁI đầu mục, không theo "có tài liệu nào gắn vào".** Một tài liệu **nhóm D gắn được vào một đầu mục danh mục** — không có gì cấm, và đó là việc hợp lệ (một ghi chú nội bộ về đúng giấy tờ đó). Nếu `X` đếm những đầu mục có ít nhất một `Document`, thì một ghi chú công việc nội bộ sẽ làm thanh tiến độ báo rằng khách đã nộp xong một giấy tờ họ chưa hề nộp — và cái thanh đó là thứ trợ lý nhìn để biết còn phải giục khách gì. Vì lý do đối xứng, `Y` (số đầu mục không bắt buộc "đã có tài liệu", SPEC §4.10) cũng phải loại nhóm D ra khỏi phép đếm "đã có tài liệu".
 
-  Vòng sửa rà soát Task 3 đã đóng một nửa vấn đề ở tầng dữ liệu: một lần nộp thay khách ở **nhóm A** gắn vào một đầu mục nay đặt đầu mục đó sang `accepted` kèm `reviewed_by`/`reviewed_at` (lập luận nằm trong docblock `UploadStaffDocument::settleChecklistItem()`), còn nhóm B, C và D không đụng tới trạng thái đầu mục. Nên `X` = số đầu mục có `status` ∈ {`accepted`, `not_applicable`} là cách đếm đúng và không cần nhìn tới bảng `documents` chút nào.
+  Vòng sửa rà soát Task 3 đã đóng một nửa vấn đề ở tầng dữ liệu: một lần nộp thay khách ở **nhóm A** gắn vào một đầu mục nay đặt đầu mục đó sang `accepted` kèm `reviewed_by`/`reviewed_at` (lập luận nằm trong docblock `UploadStaffDocument::settleChecklistItem()`), còn nhóm B, C và D không đụng tới trạng thái đầu mục.
+
+  **Luật đếm, chốt ở vòng sửa rà soát Task 4 — `X` phải nằm TRONG `Y`.** Bản trước của mục này viết "`X` = số đầu mục có `status` ∈ {`accepted`, `not_applicable`}, không cần nhìn tới bảng `documents` chút nào", và câu đó cho ra một thanh tiến độ **lớn hơn mẫu số**. Đường đi cụ thể, đo được trên chính dữ liệu mẫu: `MatterSeeder` đánh dấu mọi đầu mục KHÔNG bắt buộc là `not_applicable` và không gắn tài liệu nào — đúng nghĩa của trạng thái đó, "giấy tờ này không cần nộp". Theo SPEC §4.10 thì `Y` = số đầu mục bắt buộc **cộng** số đầu mục không bắt buộc **đã có tài liệu**, nên những dòng `not_applicable` không tài liệu ấy KHÔNG nằm trong `Y`. Một vụ `DS` có 3 mục bắt buộc và 2 mục không bắt buộc sẽ hiện **"Đã nộp 5/3"** trên thẻ hồ sơ của chính khách.
+
+  Vậy `Y` là tập, không phải một con số rời:
+
+  - `Y` = { đầu mục `is_required = true` } ∪ { đầu mục không bắt buộc **đã có tài liệu** (loại nhóm D, xem đoạn trên) }
+  - `X` = số đầu mục **trong `Y`** có `status` ∈ {`accepted`, `not_applicable`}
+
+  Cách đọc này giữ nguyên ý của cả hai vế SPEC §4.10 và cho `X ≤ Y` ở mọi trạng thái dữ liệu. Seeder KHÔNG sai và không phải sửa: một đầu mục không bắt buộc, không tài liệu, được đánh dấu "không cần nộp" thì đơn giản là không xuất hiện trên thanh tiến độ của khách — đúng thứ khách cần thấy. Phép đếm vẫn không cần nhìn bảng `documents` cho `X`; `Y` thì có, và luôn phải có, vì chính SPEC §4.10 định nghĩa `Y` bằng "đã có tài liệu".
+
+  **Người GHI `not_applicable`**: `app/Actions/Document/MarkChecklistItemNotApplicable.php`, sinh ra ở vòng sửa rà soát Task 4 (trước đó trạng thái này chỉ có người đọc, không có người ghi — chỉ seeder dựng ra được). Cùng cổng quyền `checklist.review`, từ chối khi đầu mục đang `pending_review`. Task 6 gắn nó thành một thao tác trên dòng, cạnh hai nút duyệt/từ chối.
 - **Tài liệu** — nhóm theo A/B/C/D. **Nhóm D hiển thị trên nền khác màu rõ rệt và có nhãn "Chỉ nội bộ — không bao giờ hiện cho khách".** Nút công bố gọi `PublishDocument`.
 
 Cả hai relation manager phải lọc qua `ScopesToVisibleMatters` như các tab M3. Nhớ bẫy `isReadOnly()` mặc định `true` trên trang `ViewRecord`.
