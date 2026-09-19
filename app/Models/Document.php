@@ -6,6 +6,7 @@ use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Exceptions\DocumentGroupNotChangeable;
 use App\Models\Concerns\RestrictedToClientPortal;
+use App\Support\Audit;
 use Database\Factories\DocumentFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -268,8 +269,15 @@ class Document extends Model implements HasMedia
      * chứ không phải một văn bản của khách.
      *
      * `published_at`/`published_by` KHÔNG nằm ở đây: mọi lần chúng được ghi đều đi kèm một dòng
-     * `document_published` của `Audit` với actor tường minh, và dòng đó nói được nhiều hơn (causer
-     * của trait suy ra từ phiên đăng nhập, có thể trống với một lệnh console).
+     * nhật ký của `Audit` với actor tường minh, và dòng đó nói được nhiều hơn (causer của trait
+     * suy ra từ phiên đăng nhập, có thể trống với một lệnh console).
+     *
+     * Bản đầu của câu trên viết "một dòng `document_published`", và nó đúng cho tới đúng ngày
+     * `SubmitClientDocument` ra đời: một tệp khách tự gửi lên cũng được ghi `published_at` —
+     * tệp đó ở trong tầm tay khách ngay lúc tạo — nhưng dấu vết của nó là `document_submitted`,
+     * vì không ai trong văn phòng quyết định đưa thứ gì ra. Tên sự kiện nào trả lời câu nào, và
+     * vì sao "khách đọc được những gì" là HỢP của hai tên chứ không phải một, được phát biểu ở
+     * một chỗ duy nhất: docblock của {@see Audit}.
      */
     public function getActivitylogOptions(): LogOptions
     {
