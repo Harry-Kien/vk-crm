@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\URL;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
 use Spatie\MediaLibrary\HasMedia;
@@ -55,6 +56,51 @@ class Document extends Model implements HasMedia
             'published_at' => 'datetime',
             'issued_at' => 'date',
         ];
+    }
+
+    /**
+     * SPEC §10.4: "route có `signed` URL hết hạn sau 5 phút". Con số nằm ở đây chứ không ở
+     * `config/`: nó là một điều khoản của đặc tả bảo mật, không phải một nút vặn cho người vận
+     * hành, và một biến môi trường đặt nó thành 30 ngày sẽ không để lại dấu vết nào.
+     */
+    public const DOWNLOAD_LINK_MINUTES = 5;
+
+    /** Tên tham số mang mã người nhận trong URL đã ký — xem {@see self::downloadUrlFor()}. */
+    public const DOWNLOAD_RECIPIENT_PARAMETER = 'recipient';
+
+    /**
+     * Đường dẫn tải tệp, ký cho ĐÚNG MỘT người và sống 5 phút (SPEC §10.4).
+     *
+     * Người nhận được ký KÈM chứ không chỉ được ngụ ý, và `DocumentDownloadController` đòi mã đó
+     * khớp người đang đăng nhập. Lý do đầy đủ nằm ở docblock controller; nói ngắn ở đây: một URL
+     * đã ký mà không nêu người nhận là một tấm vé vô danh dùng được trong 5 phút, và
+     * `document_downloads` (SPEC §4.12) sẽ ghi tên người bấm chứ không phải tên người được trao.
+     *
+     * Hàm này KHÔNG kiểm tra quyền, và không được phép kiểm: nơi quyết định là policy trong
+     * controller, ở thời điểm tải, chứ không phải ở thời điểm dựng đường dẫn — giữa hai thời
+     * điểm đó có 5 phút để một tài khoản bị vô hiệu hoặc một tài liệu đổi nhóm.
+     */
+    public function downloadUrlFor(User|ClientUser $recipient): string
+    {
+        return URL::temporarySignedRoute(
+            'documents.download',
+            now()->addMinutes(self::DOWNLOAD_LINK_MINUTES),
+            [
+                'document' => $this->getKey(),
+                self::DOWNLOAD_RECIPIENT_PARAMETER => self::recipientToken($recipient),
+            ],
+        );
+    }
+
+    /**
+     * Mã người nhận dùng trong URL đã ký. Dùng `getMorphClass()` (morph map NGHIÊM NGẶT, xem
+     * `AppServiceProvider`) nên chuỗi là `user:12` / `client_user:7`: ngắn, ổn định, và không
+     * bao giờ trùng nhau giữa hai guard — hai tài khoản khác guard cùng mang id 12 vẫn là hai mã
+     * khác nhau.
+     */
+    public static function recipientToken(User|ClientUser $recipient): string
+    {
+        return $recipient->getMorphClass().':'.$recipient->getKey();
     }
 
     /**
