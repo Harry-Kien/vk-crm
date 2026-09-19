@@ -34,17 +34,22 @@ use Illuminate\Validation\ValidationException;
  *     chứ không `DomainException`: đây đúng là một ô nhập sai, và khoá `matter_checklist_item_id`
  *     được chọn để Filament gắn được câu lỗi vào đúng ô cùng tên nếu màn hình ở Task 6 đặt tên ô
  *     như vậy (không có gì ở đây bắt buộc nó phải thế).
- *  3. Cổng tệp và quét virus (`guardFile()`), NGOÀI transaction — xem docblock `StoresDocumentFile`.
- *  4. Trong transaction: tạo `Document` với bộ mặc định theo nhóm, rồi gắn tệp.
- *  5. Ghi nhật ký kiểm toán với actor tường minh.
+ *  3. Nếu bộ mặc định của nhóm ĐÃ ra tới khách ngay lúc tạo thì đòi thêm cổng công bố.
+ *  4. Cổng tệp và quét virus (`guardFile()`), NGOÀI transaction — xem docblock `StoresDocumentFile`.
+ *  5. Trong transaction: tạo `Document` với bộ mặc định theo nhóm, gắn tệp, rồi ghi nhật ký kiểm
+ *     toán với actor tường minh.
  *
  * **Caller không chọn được ba cờ khách hàng.** `client_can_view`, `client_can_download` và
  * `status` được suy ra từ `$group` ở {@see self::defaultsFor()} và không có tham số nào ghi đè
  * được. Đây là cách "nhóm D: client_can_download vĩnh viễn false" (SPEC §4.11) trở thành một điều
  * không diễn đạt nổi ở tầng gọi, thay vì một điều mà mọi màn hình phải nhớ tự tay đặt đúng.
  *
- * **Action này không công bố gì cả** — trừ nhóm A, nơi chính SPEC §4.11 nói trạng thái mặc định
- * đã là `published`. Mọi đường khác ra tới khách đi qua `PublishDocument`.
+ * **Nhóm A của nhân viên nộp thay LÀ một lần công bố.** SPEC §4.11 cho nó `status = published`,
+ * `client_can_view = true` ngay lúc tạo, nên sau lời gọi này có một người ngoài văn phòng đọc
+ * được một tệp mà người nộp chọn nội dung. Vì vậy nó đi qua đúng cổng của `PublishDocument`
+ * (`document.publish`) và ghi đúng loại dòng nhật ký của một lần công bố. Ba nhóm còn lại không
+ * đổi: "nhân viên nộp thay" ở SPEC §4.11 vẫn là việc một trợ lý làm được, chỉ không còn làm được
+ * ở nhóm ra thẳng tới khách.
  */
 class UploadStaffDocument
 {
@@ -69,12 +74,33 @@ class UploadStaffDocument
             ]);
         }
 
-        // Bước 3.
-        $this->guardFile($file);
-
         $defaults = $this->defaultsFor($group);
 
+        // Bước 3: nộp vào một nhóm RA TỚI KHÁCH NGAY LÚC TẠO là một lần công bố, nên nó đi qua
+        // đúng cái cổng của việc công bố. Task 2 đặt `document.publish` làm ranh giới giữa "làm
+        // hồ sơ" và "quyết định số phận một tài liệu" (nó gác `DocumentPolicy::delete` và
+        // `::publish`); đưa một tệp ra cổng khách hàng là quyết định số phận một tài liệu, và
+        // nhóm là một THAM SỐ của caller nên nội dung tệp là bất cứ thứ gì người nộp tải lên.
+        //
+        // Hỏi qua `Gate` trên một `Document` CHƯA LƯU, gắn sẵn nhóm và quan hệ `matter` — cùng
+        // thành ngữ với `TransitionMatterStage` khi nó hỏi `StageLogPolicy::publish`. Không chép
+        // điều kiện của policy ra đây: một ngày `publish` siết thêm thì chỗ này siết theo.
+        //
+        // Điều kiện "ra tới khách ngay lúc tạo" đọc ra TỪ CHÍNH bộ mặc định, không từ một chữ
+        // cái nhóm viết lần thứ hai: {@see self::defaultsFor()} là nơi duy nhất biết nhóm nào ra
+        // tới khách, nên một lần đổi bảng SPEC §4.11 ở đó kéo theo cả cái cổng này.
+        if ($defaults['status'] === DocumentStatus::Published && $defaults['client_can_view']) {
+            $transientDocument = (new Document)
+                ->forceFill(['group' => $group])
+                ->setRelation('matter', $matter);
+
+            Gate::forUser($actor)->authorize('publish', $transientDocument);
+        }
+
         // Bước 4.
+        $this->guardFile($file);
+
+        // Bước 5.
         $document = DB::transaction(function () use (
             $matter, $actor, $file, $group, $title, $checklistItem, $issuedAt, $defaults,
         ): Document {
@@ -103,7 +129,7 @@ class UploadStaffDocument
             return $document;
         });
 
-        // Bước 5.
+        // Bước 6.
         Audit::record('document_uploaded', $document, [
             'matter_id' => $matter->getKey(),
             'matter_checklist_item_id' => $checklistItem?->getKey(),

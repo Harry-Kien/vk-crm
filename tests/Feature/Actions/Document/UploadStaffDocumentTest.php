@@ -3,6 +3,7 @@
 use App\Actions\Document\UploadStaffDocument;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
+use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Exceptions\FileRejected;
 use App\Models\Document;
@@ -13,12 +14,16 @@ use App\Support\Files\VirusScanner;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Spatie\Activitylog\Models\Activity;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);
+
+    // Tệp của test không được rơi vào `storage/app/private` thật của máy dev.
+    Storage::fake('private');
 });
 
 /**
@@ -112,6 +117,50 @@ it('nhóm D: internal_draft và client_can_download vĩnh viễn false', functio
     expect($document->status)->toBe(DocumentStatus::InternalDraft)
         ->and($document->client_can_view)->toBeFalse()
         ->and($document->client_can_download)->toBeFalse();
+});
+
+// ---------------------------------------------------------------------------------------------
+// Nhóm nào ra tới khách NGAY LÚC TẠO thì nộp nó là một lần công bố, nên nó đòi `document.publish`
+// — cùng cái cổng phân biệt "làm hồ sơ" với "quyết định số phận một tài liệu" mà Task 2 đặt cho
+// `DocumentPolicy::delete` và `::publish`. Nhóm không tự ra tới khách thì không đổi: SPEC §4.11
+// nói rõ nhân viên nộp thay là một luồng có thật, và trợ lý phải làm được nó.
+// ---------------------------------------------------------------------------------------------
+
+it('trợ lý không có document.publish thì không nộp được tài liệu nhóm A', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $matter = staffUploadMatter($lawyer);
+    $matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    expect(fn () => uploadStaffDocument($matter, $assistant, DocumentGroup::ClientProvided))
+        ->toThrow(AuthorizationException::class);
+
+    expect(Document::query()->count())->toBe(0)
+        ->and(Media::query()->count())->toBe(0);
+});
+
+it('trợ lý vẫn nộp được tài liệu vào những nhóm không tự ra tới khách', function (DocumentGroup $group) {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $matter = staffUploadMatter($lawyer);
+    $matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    $document = uploadStaffDocument($matter, $assistant, $group);
+
+    expect($document->status)->toBe(DocumentStatus::InternalDraft)
+        ->and($document->client_can_view)->toBeFalse();
+})->with([
+    'nhóm B' => [DocumentGroup::Issued],
+    'nhóm C' => [DocumentGroup::Authority],
+    'nhóm D' => [DocumentGroup::Internal],
+]);
+
+it('luật sư có document.publish thì nộp được tài liệu nhóm A — cặp dương', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = staffUploadMatter($lawyer);
+
+    expect(uploadStaffDocument($matter, $lawyer, DocumentGroup::ClientProvided)->client_can_view)
+        ->toBeTrue();
 });
 
 // ---------------------------------------------------------------------------------------------
