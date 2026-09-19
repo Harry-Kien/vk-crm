@@ -316,6 +316,21 @@ it('safeName cắt đường dẫn, ký tự điều khiển và độ dài trư
         ->and($long)->toEndWith('.pdf');
 });
 
+it('safeName không bao giờ hi sinh phần đuôi để gọt mấy dấu chấm đầu tên', function () {
+    // `....pdf` từng ra thành `pdf`: một cái tên KHÔNG còn đuôi, đúng hậu quả mà quyết định
+    // "tên hiển thị giữ nguyên đuôi" sinh ra để tránh. Tệp tải về không có đuôi thì Windows
+    // không biết mở bằng gì, và `check()` thì vẫn nhận nó như một `.pdf` hợp lệ — hai chỗ đọc
+    // cùng một cái tên ra hai kết quả khác nhau.
+    // So bằng `toBe` chứ không `toEndWith`: một bản trả về `.pdf` (đuôi còn, tên không còn) vẫn
+    // "kết thúc bằng .pdf" nhưng lại là một tệp ẩn không tên — đã kiểm bằng mutation.
+    $fallback = __('documents.fallback_file_name');
+
+    expect(FileGuard::safeName('....pdf'))->toBe($fallback.'.pdf')
+        ->and(FileGuard::safeName('.pdf'))->toBe($fallback.'.pdf')
+        ->and(FileGuard::safeName('. . .hop-dong.pdf'))->toBe('hop-dong.pdf')
+        ->and(FileGuard::safeName('bang-ke.xlsx   '))->toBe('bang-ke.xlsx');
+});
+
 it('thông điệp lỗi không tiết lộ MIME thật cho người tải lên', function () {
     // Với khách đang dùng điện thoại đó là chữ vô nghĩa; với người đang dò danh sách trắng đó là
     // một cái máy trả lời miễn phí. MIME thật đi vào log, không đi vào màn hình.

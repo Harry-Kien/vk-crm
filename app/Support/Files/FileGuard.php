@@ -164,6 +164,9 @@ final class FileGuard
      *    `varchar(255)` nên một cái tên 600 ký tự hoặc bị cắt cụt mất đuôi, hoặc (trên MariaDB ở
      *    chế độ strict) làm cả lần lưu thất bại.
      *
+     * Phần đuôi được tách RA TRƯỚC mọi thao tác gọt, bằng chính `pathinfo()` mà `check()` dùng —
+     * xem bình luận trong thân hàm. Giữ đuôi là mục đích, không phải hệ quả phụ.
+     *
      * Không thay dấu tiếng Việt: tên tệp là thứ khách nhìn lại để nhận ra hồ sơ của mình, và
      * `media.file_name` là cột `utf8mb4`.
      */
@@ -175,24 +178,39 @@ final class FileGuard
         // dự phòng. Lọc theo BYTE an toàn ở đây vì các byte 0x00-0x1F và 0x7F không bao giờ xuất
         // hiện bên trong một chuỗi UTF-8 nhiều byte, nên chữ có dấu không bị chạm tới.
         $name = (string) preg_replace('/[\x00-\x1F\x7F";]+/', '', $name);
-        $name = trim($name, " \t.");
 
-        if ($name === '') {
+        // Tách phần đuôi RA TRƯỚC rồi mới gọt phần tên, bằng chính `pathinfo()` mà `check()` dùng
+        // để đọc đuôi — nếu hai chỗ tách tên theo hai luật khác nhau thì cái tệp đi qua cổng với
+        // tư cách một `.pdf` có thể được lưu dưới một cái tên không còn chữ `pdf` nào.
+        //
+        // Gọt cả tên rồi mới tách (bản đầu) làm mất đuôi ở những cái tên bắt đầu bằng dấu chấm:
+        // `....pdf` có `trim($name, ' \t.')` biến thành `pdf` — một tên KHÔNG có đuôi, tức đúng
+        // hậu quả mà quyết định "tên hiển thị giữ nguyên đuôi" sinh ra để tránh (tệp tải về
+        // không có đuôi thì Windows không biết mở bằng gì). `.pdf` cũng vậy.
+        $stem = trim(pathinfo($name, PATHINFO_FILENAME), " \t.");
+        $extension = trim(pathinfo($name, PATHINFO_EXTENSION), " \t.");
+
+        if ($stem === '' && $extension === '') {
             return __('documents.fallback_file_name');
         }
 
-        if (strlen($name) <= self::MAX_NAME_LENGTH) {
-            return $name;
+        // Còn đuôi mà không còn tên thì giữ đuôi và mượn tên dự phòng, chứ không vứt cả hai:
+        // một tệp tên `tep-tai-len.pdf` vẫn mở được, một tệp tên `tep-tai-len` thì không.
+        if ($stem === '') {
+            $stem = __('documents.fallback_file_name');
         }
 
-        $extension = pathinfo($name, PATHINFO_EXTENSION);
         $suffix = $extension === '' ? '' : '.'.substr($extension, 0, 20);
+
+        if (strlen($stem) + strlen($suffix) <= self::MAX_NAME_LENGTH) {
+            return $stem.$suffix;
+        }
 
         // `mb_strcut()` chứ không phải `substr()`: cắt theo BYTE (đúng thứ `varchar(255)` đếm)
         // nhưng lùi lại để không cắt vào giữa một ký tự nhiều byte — tên tệp tiếng Việt có dấu
         // là 2 byte mỗi ký tự. `mb_convert_encoding($x, 'UTF-8', 'UTF-8')` KHÔNG làm được việc
         // này: nó thay byte thừa bằng `?` chứ không bỏ đi, nên độ dài không đổi và tên vẫn lệch.
-        $stem = mb_strcut($name, 0, self::MAX_NAME_LENGTH - strlen($suffix), 'UTF-8');
+        $stem = mb_strcut($stem, 0, self::MAX_NAME_LENGTH - strlen($suffix), 'UTF-8');
 
         return rtrim($stem, " \t.").$suffix;
     }

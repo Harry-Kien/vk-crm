@@ -56,13 +56,14 @@ function uploadStaffDocument(
     ?UploadedFile $file = null,
     ?MatterChecklistItem $checklistItem = null,
     DateTimeInterface|string|null $issuedAt = null,
+    string $title = 'Tài liệu thử nghiệm',
 ): Document {
     return app(UploadStaffDocument::class)->handle(
         matter: $matter,
         actor: $actor,
         file: $file ?? staffUploadPdf(),
         group: $group,
-        title: 'Tài liệu thử nghiệm',
+        title: $title,
         checklistItem: $checklistItem,
         issuedAt: $issuedAt,
     );
@@ -451,6 +452,40 @@ it('ngày ban hành rỗng được hiểu là không có ngày', function (?str
     expect(uploadStaffDocument($matter, $lawyer, DocumentGroup::Authority, null, null, $issuedAt)->issued_at)
         ->toBeNull();
 })->with(['null' => [null], 'chuỗi rỗng' => [''], 'chuỗi toàn khoảng trắng' => ['   ']]);
+
+// ---------------------------------------------------------------------------------------------
+// Tên tài liệu phải vừa cột `varchar(250)`. SQLite không bao giờ phàn nàn, MariaDB ở chế độ
+// strict thì trả lỗi 500.
+// ---------------------------------------------------------------------------------------------
+
+it('tên tài liệu dài quá 250 ký tự là lỗi xác thực, không phải lỗi cơ sở dữ liệu', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = staffUploadMatter($lawyer);
+
+    // 251 ký tự tiếng Việt có dấu: vừa vượt cột, vừa chứng minh phép đếm là mb_strlen —
+    // strlen() sẽ báo chuỗi này dài 502 byte và một ngưỡng đếm byte sẽ chặn oan từ 126 ký tự.
+    expect(fn () => uploadStaffDocument($matter, $lawyer, DocumentGroup::Authority, null, null, null, str_repeat('đ', 251)))
+        ->toThrow(ValidationException::class);
+
+    expect(Document::query()->count())->toBe(0);
+});
+
+it('tên tài liệu đúng 250 ký tự tiếng Việt thì lưu được — cặp dương của phép đếm', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = staffUploadMatter($lawyer);
+    $title = str_repeat('đ', 250);
+
+    expect(uploadStaffDocument($matter, $lawyer, DocumentGroup::Authority, null, null, null, $title)->title)
+        ->toBe($title);
+});
+
+it('tên tài liệu rỗng bị từ chối', function (string $title) {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = staffUploadMatter($lawyer);
+
+    expect(fn () => uploadStaffDocument($matter, $lawyer, DocumentGroup::Authority, null, null, null, $title))
+        ->toThrow(ValidationException::class);
+})->with(['chuỗi rỗng' => [''], 'toàn khoảng trắng' => ['   ']]);
 
 // ---------------------------------------------------------------------------------------------
 // Danh mục hồ sơ: một đầu mục đã xoá mềm không nhận tài liệu, và một lần nộp thay khách ở nhóm A

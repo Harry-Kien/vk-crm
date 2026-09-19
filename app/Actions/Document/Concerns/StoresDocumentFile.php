@@ -49,9 +49,17 @@ trait StoresDocumentFile
 
         $path = $file->getRealPath();
 
-        if ($path !== false) {
-            app(VirusScanner::class)->scan($path);
+        // Không đọc được đường dẫn thì TỪ CHỐI, không lặng lẽ bỏ qua lần quét. Bản đầu viết
+        // `if ($path !== false)` và vì thế bỏ qua bước 5 của SPEC §6.6 trong đúng trường hợp
+        // không ai nhìn thấy. Hôm nay nhánh này không với tới được — `FileGuard::check()` đã
+        // ném `unreadable()` cho cùng điều kiện vài dòng trước — nhưng một cái cổng hỏng theo
+        // hướng CHO QUA là thứ docblock của `FileGuard` nói thẳng là không được có, và "hôm nay
+        // không với tới được" là một tính chất của mã xung quanh, không phải của hàm này.
+        if ($path === false) {
+            throw FileRejected::unreadable();
         }
+
+        app(VirusScanner::class)->scan($path);
     }
 
     /**
@@ -60,10 +68,15 @@ trait StoresDocumentFile
      * Hai cái tên, hai công việc khác nhau, và đây là chỗ duy nhất quyết định quan hệ giữa chúng:
      *
      * - `media.file_name` — cái tên NẰM TRÊN ĐĨA, và cũng là cái tên medialibrary dùng khi dựng
-     *   đường dẫn. Sinh ngẫu nhiên hoàn toàn ({@see self::storedFileName()}), nên không byte nào
-     *   của nó do người nộp chọn. Đây là điều SPEC §6.6 bước 6 đòi, và lý do là: người nộp tệp có
-     *   thể là khách hàng, tức một người ngoài hệ thống, và một cái tên do người ngoài đặt mà đi
-     *   thẳng vào đường dẫn hệ thống tệp là một lớp tấn công không cần tồn tại.
+     *   đường dẫn. Phần THÂN sinh ngẫu nhiên hoàn toàn ({@see self::storedFileName()}); phần
+     *   ĐUÔI thì lấy từ tên người nộp đặt, đã chuẩn hoá bằng một lớp ký tự và cắt còn 8 — nói
+     *   cho đúng, vì bản đầu của đoạn này viết "không byte nào do người nộp chọn" trong khi
+     *   docblock của chính `storedFileName()` 37 dòng bên dưới nói ngược lại. Cái SPEC §6.6 bước
+     *   6 đòi và cái thật sự quan trọng là phần THÂN: người nộp có thể là khách hàng, tức một
+     *   người ngoài hệ thống, và một cái tên do người ngoài đặt mà đi thẳng vào đường dẫn hệ
+     *   thống tệp là một lớp tấn công không cần tồn tại. Phần đuôi đi qua `[^a-z0-9]` nên nó
+     *   không mang được dấu chấm, gạch chéo, byte rỗng hay khoảng trắng — nó chọn được tám ký tự
+     *   chữ-số, và không hơn.
      * - `media.name` — cái tên HIỂN THỊ, đi qua `FileGuard::safeName()`. Khách phải nhận ra được
      *   hồ sơ của chính mình: một danh sách toàn `01k5g…3m.pdf` thì vô dụng với người đã gửi lên
      *   "CCCD mặt trước.jpg". `safeName()` bỏ đường dẫn, ký tự điều khiển, `"` và `;` (những thứ

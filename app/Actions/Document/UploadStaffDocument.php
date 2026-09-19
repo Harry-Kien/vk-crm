@@ -59,6 +59,9 @@ class UploadStaffDocument
 {
     use StoresDocumentFile;
 
+    /** Đúng độ rộng cột `documents.title` ở SPEC §4.11 và ở migration. */
+    private const MAX_TITLE_LENGTH = 250;
+
     public function handle(
         Matter $matter,
         User $actor,
@@ -86,6 +89,25 @@ class UploadStaffDocument
         if ($checklistItem !== null && $checklistItem->trashed()) {
             throw ValidationException::withMessages([
                 'matter_checklist_item_id' => [__('documents.upload.checklist_item_deleted')],
+            ]);
+        }
+
+        // `documents.title` là `varchar(250)`. SQLite không bao giờ phàn nàn, nên một tiêu đề dài
+        // hơn đi qua cả bộ test rồi mới thành lỗi 500 trên MariaDB ở chế độ strict — đúng loại
+        // khác biệt mà ràng buộc toàn cục của kế hoạch M4 dặn phải tự canh. Đếm bằng
+        // `mb_strlen` vì `varchar(250)` trên cột utf8mb4 đếm KÝ TỰ, và một tiêu đề tiếng Việt
+        // 250 ký tự dài hơn 250 byte.
+        $title = trim($title);
+
+        if ($title === '') {
+            throw ValidationException::withMessages([
+                'title' => [__('documents.upload.title_required')],
+            ]);
+        }
+
+        if (mb_strlen($title) > self::MAX_TITLE_LENGTH) {
+            throw ValidationException::withMessages([
+                'title' => [__('documents.upload.title_too_long', ['max' => self::MAX_TITLE_LENGTH])],
             ]);
         }
 
