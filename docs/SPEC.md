@@ -507,6 +507,12 @@ Dùng `spatie/laravel-permission`. Quyền đặt tên dạng `<resource>.<actio
 | `settings.manage` | ✓ | — | — | — | — |
 | `auditLog.view` | ✓ | ✓ | — | — | — |
 
+> **`document.publish` cũng là quyền xoá một tài liệu.** Quyết định ở M4 Task 2, ghi lại ở
+> đây vì đọc riêng chữ "đưa tài liệu ra tới khách" thì không đoán ra: bảng trên không có
+> quyền nào khác tách được "quyết định số phận một tài liệu" khỏi "làm hồ sơ thường ngày",
+> vì mọi vai trò có `matter.view` đều có luôn `matter.update`. Cấp `document.publish` cho một
+> vai trò mới là cấp luôn quyền xoá tài liệu của vai trò đó.
+
 Cài bằng Policy cho từng model. `MatterPolicy::view()` kiểm tra: người dùng có
 `matter.viewAny`, **hoặc** có bản ghi trong `matter_user`. Vụ việc
 `confidentiality = restricted` thì chỉ `lead_lawyer_id` và vai trò `admin`.

@@ -206,3 +206,30 @@
   `create`/`update`/`delete` bị khoá theo `settings.manage`, đúng như test hiện có xác nhận. Quyết
   định này là chủ đích, không phải sót, nhưng chưa từng được ghi lại — ghi ở đây để không ai tưởng
   nhầm là lỗi khi đọc lại policy.
+
+## Ghi chú M4
+
+Milestone đang làm trên nhánh `m4-documents`, chưa xong. Ghi trước những quyết định KHÔNG tự
+đọc ra được từ mã hay từ SPEC, để chúng không chỉ nằm trong một thông điệp commit.
+
+- **`document.publish` giờ còn nghĩa là "được xoá tài liệu"** (`DocumentPolicy::delete`, và
+  `DocumentPolicy::publish` đi cùng một cổng). Kế hoạch M4 kê `matter.update`, nhưng thuốc đó
+  không chữa được triệu chứng: theo bảng SPEC §5, cả bốn vai trò có `matter.view` đều có luôn
+  `matter.update`, nên thêm mình `matter.update` không loại được trợ lý — người mà việc mang
+  sang gọi tên. `document.publish` là quyền duy nhất trong bảng tách được "quyết định số phận
+  một tài liệu" khỏi "làm hồ sơ thường ngày". **Hệ quả cần nhớ khi cấp quyền:** cấp
+  `document.publish` cho một vai trò mới là cấp luôn quyền xoá tài liệu. Đã ghi một dòng chú
+  ngay dưới bảng quyền SPEC §5 để người đọc bảng không phải biết chuyện này từ chỗ khác.
+- **Từ chối trong panel trả 404, nhưng chỉ ở tầng route.**
+  `AnswerDeniedPanelRequestsWithNotFound` phủ mọi từ chối do middleware của route panel ném ra,
+  kể cả trên request cập nhật Livewire (nhờ `isPersistent`, nơi nó đứng trước middleware
+  `Authenticate` của Filament). Nó KHÔNG phủ — và không thể phủ — một `abort(403)` phát sinh
+  bên trong vòng đời component (`hydrateCanAuthorizeAccess`), vì Livewire chạy middleware bền
+  với đích đường ống là một response 200 mới tinh, nên khung middleware đã kết thúc trước khi
+  component được hydrate. Không đuổi theo là cố ý: ở đó cặp (403, 404) không còn là máy dò sự
+  tồn tại (`$record` là `#[Locked]`, snapshot niêm bằng HMAC `APP_KEY`), và cách phủ nốt duy
+  nhất sẽ nuốt luôn cổng chặn tải tệp của `SchemasServiceProvider` mà các ô upload M4 sẽ nằm
+  sau. Ranh giới này có test hành vi bằng request `/livewire/update` thật ở `DenialCodeTest`.
+- Cái giá đã nhận của quyết định 404: một tài khoản bị vô hiệu hoá nhận 404 thay vì 403. Phiên
+  của họ vẫn bị chặn ngay ở request kế tiếp (SPEC §10.9) — việc đó do middleware `Authenticate`
+  của Filament giữ, không phải middleware của ứng dụng.
