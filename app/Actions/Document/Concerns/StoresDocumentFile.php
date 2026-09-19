@@ -2,6 +2,8 @@
 
 namespace App\Actions\Document\Concerns;
 
+use App\Enums\DocumentGroup;
+use App\Enums\DocumentStatus;
 use App\Exceptions\FileRejected;
 use App\Models\Document;
 use App\Support\Files\FileGuard;
@@ -10,11 +12,14 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Str;
 
 /**
- * Các bước 2-6 của SPEC §6.6, dùng chung cho `UploadStaffDocument` (Task 3) và
- * `SubmitClientDocument` (Task 4). Hai Action đó khác nhau ở quyền, ở nhóm tài liệu và ở việc
- * đánh version; chúng KHÔNG được phép khác nhau ở cách một tệp đi vào hệ thống.
+ * Các bước 2-6 của SPEC §6.6 cộng bảng "Quy tắc mặc định khi tạo" ở SPEC §4.11, dùng chung cho
+ * `UploadStaffDocument` (Task 3) và `SubmitClientDocument` (Task 4). Hai Action đó khác nhau ở
+ * quyền, ở nhóm tài liệu và ở việc đánh version; chúng KHÔNG được phép khác nhau ở cách một tệp
+ * đi vào hệ thống, cũng KHÔNG được phép khác nhau ở bộ cờ mặc định của cùng một nhóm — nhóm A
+ * là nhóm CẢ HAI Action tạo ra ({@see self::defaultsFor()}), và một bảng SPEC chép ra hai chỗ là
+ * một bảng sẽ lệch.
  *
- * Hai phương thức, tách ra vì chúng chạy ở hai chỗ khác nhau so với transaction:
+ * Hai phương thức lo phần tệp, tách ra vì chúng chạy ở hai chỗ khác nhau so với transaction:
  *
  * - `guardFile()` (bước 2-5) chạy TRƯỚC khi mở transaction. Quét virus có thể nói chuyện với một
  *   daemon qua socket và `config('vkcrm.clamav.timeout')` cho nó tới 30 giây; giữ một transaction
@@ -116,5 +121,67 @@ trait StoresDocumentFile
         $extension = substr((string) preg_replace('/[^a-z0-9]/', '', $extension), 0, 8);
 
         return Str::lower((string) Str::ulid()).($extension === '' ? '' : '.'.$extension);
+    }
+
+    /**
+     * Bảng "Quy tắc mặc định khi tạo" ở SPEC §4.11, chép thẳng thành mã. `match` vét cạn trên
+     * enum nên thêm một nhóm mới vào `DocumentGroup` sẽ là một lỗi `UnhandledMatchError` ngay lần
+     * chạy đầu, không phải một nhóm âm thầm nhận mặc định của nhóm khác.
+     *
+     * Nằm ở trait chứ không ở một Action vì cả hai Action đều tạo tài liệu nhóm A: nhân sự nộp
+     * thay khách (`UploadStaffDocument`) và khách tự nộp qua portal (`SubmitClientDocument`) là
+     * hai DÒNG của cùng một hàng trong bảng SPEC §4.11, và hàng đó phải được đọc ở một chỗ.
+     *
+     * **Caller không chọn được ba cờ khách hàng.** `client_can_view`, `client_can_download` và
+     * `status` được suy ra từ `$group` chứ không có tham số nào ghi đè được. Đây là cách "nhóm D:
+     * client_can_download vĩnh viễn false" (SPEC §4.11) trở thành một điều không diễn đạt nổi ở
+     * tầng gọi, thay vì một điều mà mọi màn hình phải nhớ tự tay đặt đúng.
+     *
+     * @return array{status: DocumentStatus, client_can_view: bool, client_can_download: bool}
+     */
+    protected function defaultsFor(DocumentGroup $group): array
+    {
+        return match ($group) {
+            // A — khách cung cấp (khách tự nộp, hoặc nhân viên nộp thay): khách xem và tải được ngay.
+            DocumentGroup::ClientProvided => [
+                'status' => DocumentStatus::Published,
+                'client_can_view' => true,
+                'client_can_download' => true,
+            ],
+            // B — văn bản văn phòng phát hành: còn phải đi hết vòng đời trước khi khách thấy.
+            // C — văn bản từ cơ quan nhà nước: nhân sự đọc trước, công bố sau (SPEC §6.5).
+            DocumentGroup::Issued, DocumentGroup::Authority => [
+                'status' => DocumentStatus::InternalDraft,
+                'client_can_view' => false,
+                'client_can_download' => false,
+            ],
+            // D — hồ sơ công việc nội bộ. `client_can_download` là **vĩnh viễn** false; ở đây nó
+            // chỉ là giá trị khởi tạo. Hai thứ giữ cho nó false về sau là `PublishDocument` (chặn
+            // tuyệt đối nhóm D) và hook `saving` của `Document`, thứ ép cờ này về false trên mọi
+            // dòng nhóm D kể cả khi lệnh ghi đi vòng qua Action.
+            DocumentGroup::Internal => [
+                'status' => DocumentStatus::InternalDraft,
+                'client_can_view' => false,
+                'client_can_download' => false,
+            ],
+        };
+    }
+
+    /**
+     * "Bộ mặc định này đã đưa tài liệu ra tới khách chưa" — ĐỊNH NGHĨA DUY NHẤT, đọc ra từ bảng
+     * SPEC §4.11 chứ không từ một chữ cái nhóm. Các chỗ cần câu trả lời (cổng `document.publish`
+     * của `UploadStaffDocument`, việc đóng đầu mục danh mục, dòng nhật ký công bố, và cặp
+     * `published_at`/`published_by` ở cả hai Action) đều hỏi ở đây, nên thêm hay sửa một nhóm
+     * trong {@see self::defaultsFor()} là đủ.
+     *
+     * Hai điều kiện chứ không một: `status = published` một mình nói "đã qua vòng đời", còn
+     * `client_can_view` mới nói "khách đọc được". Cùng cặp điều kiện mà `PublishDocument` dùng
+     * để biết một tài liệu đã tới tay khách hay chưa.
+     *
+     * @param  array{status: DocumentStatus, client_can_view: bool, client_can_download: bool}  $defaults
+     */
+    protected function releasesToClientAtCreation(array $defaults): bool
+    {
+        return $defaults['status'] === DocumentStatus::Published && $defaults['client_can_view'];
     }
 }

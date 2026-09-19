@@ -5,7 +5,6 @@ namespace App\Actions\Document;
 use App\Actions\Document\Concerns\StoresDocumentFile;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
-use App\Enums\DocumentStatus;
 use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
@@ -44,9 +43,8 @@ use Illuminate\Validation\ValidationException;
  *     toán với actor tường minh.
  *
  * **Caller không chọn được ba cờ khách hàng.** `client_can_view`, `client_can_download` và
- * `status` được suy ra từ `$group` ở {@see self::defaultsFor()} và không có tham số nào ghi đè
- * được. Đây là cách "nhóm D: client_can_download vĩnh viễn false" (SPEC §4.11) trở thành một điều
- * không diễn đạt nổi ở tầng gọi, thay vì một điều mà mọi màn hình phải nhớ tự tay đặt đúng.
+ * `status` được suy ra từ `$group` ở `StoresDocumentFile::defaultsFor()` và không có tham số nào
+ * ghi đè được — xem docblock phương thức đó, nơi bảng SPEC §4.11 được đọc cho CẢ hai Action.
  *
  * **Nhóm A của nhân viên nộp thay LÀ một lần công bố.** SPEC §4.11 cho nó `status = published`,
  * `client_can_view = true` ngay lúc tạo, nên sau lời gọi này có một người ngoài văn phòng đọc
@@ -126,8 +124,8 @@ class UploadStaffDocument
         // điều kiện của policy ra đây: một ngày `publish` siết thêm thì chỗ này siết theo.
         //
         // Điều kiện "ra tới khách ngay lúc tạo" đọc ra TỪ CHÍNH bộ mặc định, không từ một chữ
-        // cái nhóm viết lần thứ hai: {@see self::defaultsFor()} là nơi duy nhất biết nhóm nào ra
-        // tới khách, nên một lần đổi bảng SPEC §4.11 ở đó kéo theo cả cái cổng này.
+        // cái nhóm viết lần thứ hai: `StoresDocumentFile::defaultsFor()` là nơi duy nhất biết
+        // nhóm nào ra tới khách, nên một lần đổi bảng SPEC §4.11 ở đó kéo theo cả cái cổng này.
         $releasedAtCreation = $this->releasesToClientAtCreation($defaults);
 
         if ($releasedAtCreation) {
@@ -266,62 +264,5 @@ class UploadStaffDocument
             'reviewed_by' => $actor->getKey(),
             'reviewed_at' => now(),
         ]);
-    }
-
-    /**
-     * "Bộ mặc định này đã đưa tài liệu ra tới khách chưa" — ĐỊNH NGHĨA DUY NHẤT, đọc ra từ bảng
-     * SPEC §4.11 chứ không từ một chữ cái nhóm. Bốn chỗ cần câu trả lời (cổng `document.publish`,
-     * đóng đầu mục danh mục, dòng nhật ký công bố, và chính cặp `published_at`/`published_by`)
-     * đều hỏi ở đây, nên thêm hay sửa một nhóm trong {@see self::defaultsFor()} là đủ.
-     *
-     * Hai điều kiện chứ không một: `status = published` một mình nói "đã qua vòng đời", còn
-     * `client_can_view` mới nói "khách đọc được". Cùng cặp điều kiện mà `PublishDocument` dùng
-     * để biết một tài liệu đã tới tay khách hay chưa.
-     *
-     * @param  array{status: DocumentStatus, client_can_view: bool, client_can_download: bool}  $defaults
-     */
-    private function releasesToClientAtCreation(array $defaults): bool
-    {
-        return $defaults['status'] === DocumentStatus::Published && $defaults['client_can_view'];
-    }
-
-    /**
-     * Bảng "Quy tắc mặc định khi tạo" ở SPEC §4.11, chép thẳng thành mã. `match` vét cạn trên
-     * enum nên thêm một nhóm mới vào `DocumentGroup` sẽ là một lỗi `UnhandledMatchError` ngay lần
-     * chạy đầu, không phải một nhóm âm thầm nhận mặc định của nhóm khác.
-     *
-     * @return array{status: DocumentStatus, client_can_view: bool, client_can_download: bool}
-     */
-    private function defaultsFor(DocumentGroup $group): array
-    {
-        return match ($group) {
-            // A — khách cung cấp, nhân viên nộp thay: khách xem và tải được ngay.
-            DocumentGroup::ClientProvided => [
-                'status' => DocumentStatus::Published,
-                'client_can_view' => true,
-                'client_can_download' => true,
-            ],
-            // B — văn bản văn phòng phát hành: còn phải đi hết vòng đời trước khi khách thấy.
-            // C — văn bản từ cơ quan nhà nước: nhân sự đọc trước, công bố sau (SPEC §6.5).
-            DocumentGroup::Issued, DocumentGroup::Authority => [
-                'status' => DocumentStatus::InternalDraft,
-                'client_can_view' => false,
-                'client_can_download' => false,
-            ],
-            // D — hồ sơ công việc nội bộ. `client_can_download` là **vĩnh viễn** false; ở đây nó
-            // chỉ là giá trị khởi tạo, còn cái giữ cho nó false là `PublishDocument` chặn tuyệt
-            // đối nhóm D — nên không Action nào bật được nó lên.
-            // Nói cho đủ: "không Action nào" không phải "không đường nào". Một lệnh `update()`
-            // thẳng trên model (một form Filament ở Task 6, một lệnh console) vẫn ghi được
-            // `client_can_download = true` lên một dòng nhóm D, vì `documents` không có ràng buộc
-            // nào và `Document` không có hook nào chặn. Khách không thấy tài liệu đó (global scope
-            // và `DocumentPolicy` đều loại nhóm D), nên đây là một dòng dữ liệu nói dối chứ chưa
-            // phải một lỗ hổng — xem báo cáo Task 3, đã đề nghị một guard ở tầng model.
-            DocumentGroup::Internal => [
-                'status' => DocumentStatus::InternalDraft,
-                'client_can_view' => false,
-                'client_can_download' => false,
-            ],
-        };
     }
 }

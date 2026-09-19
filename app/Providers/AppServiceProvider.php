@@ -8,6 +8,7 @@ use App\Models\ClientUser;
 use App\Models\Deadline;
 use App\Models\Document;
 use App\Models\Matter;
+use App\Models\MatterChecklistItem;
 use App\Models\MatterParty;
 use App\Models\StageLog;
 use App\Models\User;
@@ -48,6 +49,11 @@ class AppServiceProvider extends ServiceProvider
             'client_request' => ClientRequest::class,
             'client' => Client::class,
             'matter_party' => MatterParty::class,
+            // Chủ thể của dòng nhật ký `checklist_item_reviewed` (SPEC §6.7). `enforceMorphMap()`
+            // là bản NGHIÊM NGẶT: một model không có tên ở đây thì `getMorphClass()` ném
+            // `ClassMorphViolationException` chứ không lặng lẽ lưu tên lớp đầy đủ — nên thiếu
+            // dòng này, `Audit::record()` với chủ thể là một đầu mục danh mục là một lỗi 500.
+            'matter_checklist_item' => MatterChecklistItem::class,
         ]);
 
         // Câu trả lời cho "virus scanning có thật sự bật không" phải lấy được từ chính hệ thống,
