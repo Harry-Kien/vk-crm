@@ -44,7 +44,7 @@ class AdminPanelProvider extends PanelProvider
             ->login()
             ->brandName(__('panels.admin.brand'))
             ->brandLogo(fn () => view('brand.logo'))
-            ->brandLogoHeight('2.6rem')
+            ->brandLogoHeight('3rem')
             ->favicon(asset('brand/vk-mark-64.png'))
             ->font(config('vkcrm.brand.font'))
             ->colors([

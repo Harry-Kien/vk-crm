@@ -14,7 +14,7 @@ it('shows the firm identity on the internal login screen', function () {
     $response = $this->get('/admin/login');
 
     $response->assertOk()
-        ->assertSee('VŨ KHANG', escape: false)
+        ->assertSee(config('vkcrm.brand.lockup.name'))
         ->assertSee(config('vkcrm.brand.tagline'), escape: false)
         ->assertSee(config('vkcrm.brand.legal_name'))
         ->assertSee(config('vkcrm.brand.hotline'))
@@ -25,7 +25,7 @@ it('shows the firm identity on the client portal login screen', function () {
     $response = $this->get('/portal/login');
 
     $response->assertOk()
-        ->assertSee('VŨ KHANG', escape: false)
+        ->assertSee(config('vkcrm.brand.lockup.name'))
         ->assertSee(config('vkcrm.brand.tagline'), escape: false)
         ->assertSee(config('vkcrm.brand.legal_name'));
 });
@@ -36,7 +36,8 @@ it('carries the logo into the internal panel once signed in', function () {
     $this->actingAs($admin, 'web')
         ->get('/admin')
         ->assertOk()
-        ->assertSee('SOLUTIONS &amp; PARTNERS', escape: false);
+        ->assertSee(config('vkcrm.brand.lockup.suffix'))
+        ->assertSee(config('vkcrm.brand.lockup.entity'));
 });
 
 it('keeps the portal primary colour at the firm navy rather than a generated ramp', function () {

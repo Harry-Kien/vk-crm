@@ -45,6 +45,18 @@ return [
     'brand' => [
         'legal_name' => env('BRAND_LEGAL_NAME', 'Công ty Luật TNHH Vũ Khang Solutions & Partners'),
         'short_name' => env('BRAND_SHORT_NAME', 'Luật Vũ Khang'),
+
+        /*
+         * Tên pháp lý đầy đủ tách làm ba dòng cho khối nhận diện cạnh logo. Tách ở đây chứ không
+         * trong Blade để đổi tên là sửa một chỗ, và để loại hình doanh nghiệp ("Công ty Luật
+         * TNHH") không bị bỏ rơi khi ai đó rút gọn phần hiển thị: với một tổ chức hành nghề luật,
+         * loại hình là một phần của danh tính pháp lý, không phải chữ trang trí.
+         */
+        'lockup' => [
+            'entity' => env('BRAND_LOCKUP_ENTITY', 'Công ty Luật TNHH'),
+            'name' => env('BRAND_LOCKUP_NAME', 'Vũ Khang'),
+            'suffix' => env('BRAND_LOCKUP_SUFFIX', 'Solutions & Partners'),
+        ],
         'tagline' => env('BRAND_TAGLINE', 'Thấu hiểu vấn đề. Vững vàng quyết định.'),
         'website' => env('BRAND_WEBSITE', 'https://luatvukhang.com'),
         'hotline' => env('BRAND_HOTLINE', '0832270898'),
