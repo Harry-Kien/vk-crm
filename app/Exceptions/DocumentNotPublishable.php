@@ -29,8 +29,15 @@ class DocumentNotPublishable extends DomainException
     }
 
     /**
-     * Nhóm D — hồ sơ công việc nội bộ. SPEC §4.11 và §6.5 bước 1 gọi đây là chặn TUYỆT ĐỐI: không
-     * trạng thái nào, không quyền nào, không lựa chọn nào của người công bố mở được nó.
+     * Nhóm D — hồ sơ công việc nội bộ. SPEC §4.11 và §6.5 bước 1 gọi đây là chặn TUYỆT ĐỐI, và
+     * trong phạm vi lần công bố này thì đúng là tuyệt đối: không trạng thái nào, không quyền
+     * nào, không lựa chọn nào của người công bố mở được nó.
+     *
+     * Nói cho đủ, vì bản trước của docblock này dừng ở câu trên và vì thế đã sai: cái nhóm D
+     * chặn là việc CÔNG BỐ MỘT TÀI LIỆU NHÓM D, không phải việc đổi nhóm nó đi. Đổi nhóm là một
+     * thao tác riêng (`RegroupDocument`), đòi `document.publish` và để lại một dòng
+     * `document_regrouped` ghi cả nhóm cũ lẫn nhóm mới — nên nó không phải một đường vòng, nó là
+     * một quyết định có tên và có dấu vết.
      */
     public static function internalGroup(Document $document): self
     {

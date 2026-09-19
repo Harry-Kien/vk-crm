@@ -52,12 +52,21 @@ return [
      * có quyền gì.
      */
     'publish' => [
-        'internal_group' => 'Tài liệu thuộc nhóm D (hồ sơ công việc nội bộ) nên không bao giờ công bố cho khách được, kể cả chỉ cho xem. Nếu đây thật sự là văn bản cần gửi khách, anh/chị sửa nhóm tài liệu sang đúng nhóm của nó (A, B hoặc C) rồi công bố lại.',
+        'internal_group' => 'Tài liệu thuộc nhóm D (hồ sơ công việc nội bộ) nên không công bố cho khách được, kể cả chỉ cho xem. Nếu anh/chị cho rằng tài liệu này bị xếp nhầm nhóm, hãy báo luật sư phụ trách: việc chuyển một tài liệu ra khỏi nhóm D là một quyết định riêng, được ghi lại đầy đủ, và chỉ người có quyền công bố tài liệu mới làm được.',
         'not_signed_and_filed' => 'Văn bản do văn phòng phát hành phải ở trạng thái "Đã ký và nộp" thì mới công bố cho khách được; tài liệu này đang ở trạng thái ":status". Anh/chị hoàn tất việc trình duyệt và nộp, cập nhật trạng thái tài liệu, rồi công bố lại.',
         'without_client_view' => 'Công bố mà không cho khách xem thì không có tác dụng gì: nếu chưa muốn khách thấy tài liệu này, anh/chị cứ để nguyên, đừng công bố. Nếu chỉ muốn khách biết là đã có mà chưa cho tải về, hãy bật "Cho khách xem" và tắt "Cho khách tải về".',
         'without_file' => 'Tài liệu này chưa có tệp đính kèm nên chưa công bố được: khách sẽ thấy một dòng trong danh sách mà bấm vào không mở được gì. Anh/chị tải tệp lên cho tài liệu này trước, rồi công bố.',
         'matter_unavailable' => 'Hồ sơ chứa tài liệu này đã bị xoá nên không công bố được. Anh/chị khôi phục hồ sơ trước, rồi công bố lại tài liệu.',
         'trashed' => 'Tài liệu này đã bị xoá nên không công bố được. Anh/chị khôi phục tài liệu trước, hoặc tải lên lại bản mới rồi công bố.',
         'missing' => 'Không tìm thấy tài liệu này nữa — có thể ai đó vừa xoá nó trong lúc anh/chị đang mở trang. Anh/chị tải lại trang để xem danh sách tài liệu hiện tại.',
+    ],
+
+    /*
+     * `RegroupDocument` và hàng rào tương ứng ở `Document::booted()`. Câu dưới đây nói về ĐƯỜNG
+     * ĐI, không nói về quyền: người gặp nó thường là người có đủ quyền nhưng đang thao tác ở một
+     * màn hình đi vòng qua Action, và một câu "anh/chị không có quyền" sẽ vừa sai vừa vô ích.
+     */
+    'regroup' => [
+        'leaving_internal_group' => 'Tài liệu nhóm D (hồ sơ công việc nội bộ) chỉ chuyển sang nhóm khác bằng thao tác "Chuyển nhóm tài liệu" — thao tác đó ghi lại ai chuyển và chuyển từ nhóm nào sang nhóm nào. Anh/chị dùng thao tác đó thay vì sửa nhóm trực tiếp trên biểu mẫu.',
     ],
 ];

@@ -73,10 +73,20 @@ it('never lets a client user see a group D document or download what is not down
     expect($this->clientUser->fresh()->can('download', $this->clientDoc->fresh()))->toBeTrue();
 });
 
-it('denies a group D document to a client even when both client flags are on', function () {
-    $this->internalDoc->update(['client_can_view' => true, 'client_can_download' => true]);
+/*
+ * `client_can_download` KHÔNG được bật lên ở đây, và không phải vì quên: từ vòng sửa rà soát
+ * Task 3, `Document` có hook `saving` hạ cờ đó xuống với mọi dòng nhóm D (SPEC §4.11 "vĩnh viễn
+ * false"), nên một fixture `'client_can_download' => true` sẽ là một dòng không tồn tại nổi — và
+ * một khẳng định `can('download', ...)` dựa trên nó sẽ xanh nhờ cờ tải chứ không nhờ điều kiện
+ * nhóm. Cờ duy nhất một dòng nhóm D còn giữ được là `client_can_view`, và nó được bật lên ở đây
+ * đúng để điều kiện nhóm là thứ duy nhất còn chặn. `download` đi qua `view()` nên nó vẫn bị từ
+ * chối bởi chính điều kiện đó.
+ */
+it('denies a group D document to a client even with the only client flag it can hold', function () {
+    $this->internalDoc->update(['client_can_view' => true, 'status' => DocumentStatus::Published]);
 
-    expect($this->clientUser->can('view', $this->internalDoc->fresh()))->toBeFalse()
+    expect($this->internalDoc->fresh()->client_can_view)->toBeTrue()
+        ->and($this->clientUser->can('view', $this->internalDoc->fresh()))->toBeFalse()
         ->and($this->clientUser->can('download', $this->internalDoc->fresh()))->toBeFalse();
 });
 

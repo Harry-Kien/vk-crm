@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
+use App\Exceptions\DocumentGroupNotChangeable;
 use App\Models\Concerns\RestrictedToClientPortal;
 use Database\Factories\DocumentFactory;
 use Illuminate\Database\Eloquent\Builder;
@@ -13,6 +14,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
 
@@ -31,6 +34,7 @@ class Document extends Model implements HasMedia
     use HasFactory;
 
     use InteractsWithMedia;
+    use LogsActivity;
     use RestrictedToClientPortal;
     use SoftDeletes;
 
@@ -53,9 +57,65 @@ class Document extends Model implements HasMedia
         ];
     }
 
-    public function isInternal(): bool
+    /**
+     * Bật lên trong đúng khoảng thời gian `RegroupDocument` đang ghi, và chỉ ở đó — xem
+     * {@see self::duringAuditedRegroup()} và hook `saving` ở {@see self::booted()}.
+     */
+    private static bool $duringAuditedRegroup = false;
+
+    /**
+     * Cửa duy nhất để một tài liệu rời nhóm D.
+     *
+     * **Vì sao hàng rào nằm ở model mà nghiệp vụ vẫn ở Action.** CLAUDE.md đặt nghiệp vụ trong
+     * `app/Actions/`, và nó vẫn ở đó: AI được phép chuyển nhóm, dòng nhật ký ghi gì, câu từ chối
+     * nói gì — toàn bộ nằm trong `RegroupDocument`. Hook ở đây không hỏi một câu nào về người
+     * đang thao tác và không quyết định gì; nó chỉ làm cho một bất biến DỮ LIỆU không bị phá bởi
+     * một đường đi vòng qua Action. Đó đúng vai trò mà `Matter::forceDeleting` →
+     * `MatterNotDestroyable` đã giữ trong dự án này từ M1.
+     *
+     * Hàng rào phải ở model chứ không thể chỉ ở Action, vì cái nó chặn LÀ đường không đi qua
+     * Action: một form Filament gọi `$record->update()`, một lệnh console, một seeder. Nhóm D là
+     * ranh giới mà SPEC §4.11 gọi là tuyệt đối, và một ranh giới tuyệt đối chỉ do một Action
+     * canh thì tuyệt đối cho tới màn hình đầu tiên quên gọi Action đó.
+     */
+    public static function duringAuditedRegroup(callable $callback): mixed
     {
-        return $this->group->isInternal();
+        static::$duringAuditedRegroup = true;
+
+        try {
+            return $callback();
+        } finally {
+            static::$duringAuditedRegroup = false;
+        }
+    }
+
+    protected static function booted(): void
+    {
+        static::saving(function (Document $document): void {
+            // SPEC §4.11: nhóm D có `client_can_download` **vĩnh viễn false**. Cho tới nay câu
+            // đó chỉ đúng ở giá trị khởi tạo của `UploadStaffDocument`; một lệnh `update()`
+            // thẳng vẫn bật được cờ lên. Khách không thấy tài liệu đó (global scope và policy
+            // đều loại nhóm D) nên chưa phải một lỗ hổng, nhưng nó là một dòng dữ liệu nói dối —
+            // và một dòng nói dối là thứ mà lần đọc sau sẽ tin.
+            if ($document->group === DocumentGroup::Internal) {
+                $document->client_can_download = false;
+            }
+
+            // Rời khỏi nhóm D chỉ có một cửa, và cửa đó ghi nhật ký (`RegroupDocument`). Trước
+            // guard này, `update(['group' => 'C'])` đi lọt mà KHÔNG để lại dòng nhật ký nào, nên
+            // thứ duy nhất còn lại sau đó là một dòng `document_published` về một tài liệu nhóm
+            // C — đúng sự thật ở thời điểm đó, và vô dụng với người đi tìm chuyện gì đã xảy ra.
+            //
+            // So trên `getRawOriginal()` chứ không `getOriginal()`: bản có cast trả về enum, và
+            // một so sánh enum ở đây sẽ đổi nghĩa lặng lẽ nếu cast đổi.
+            if ($document->exists
+                && $document->isDirty('group')
+                && $document->getRawOriginal('group') === DocumentGroup::Internal->value
+                && ! static::$duringAuditedRegroup
+            ) {
+                throw DocumentGroupNotChangeable::leavingInternalGroup();
+            }
+        });
     }
 
     /**
@@ -147,5 +207,32 @@ class Document extends Model implements HasMedia
     public function downloads(): HasMany
     {
         return $this->hasMany(DocumentDownload::class);
+    }
+
+    /**
+     * `Document` là model DUY NHẤT có một nhóm mà SPEC gọi là ranh giới tuyệt đối, nên mọi cột
+     * quyết định "ai đọc được tệp này" phải đọc lại được từ nhật ký: `group`, `status` và hai cờ
+     * khách hàng. Không có chúng thì một lần đổi nhóm D → C chỉ để lại một khoảng trống.
+     *
+     * Sự kiện `deleted` cũng được ghi (mặc định của trait), và nó đóng việc mang sang từ rà soát
+     * Task 2 — "xoá tài liệu không có dấu vết". Với một model có `SoftDeletes`, spatie ghi giá
+     * trị của dòng vừa biến mất dưới khoá `old` (KHÔNG phải `attributes` — đã kiểm bằng cách
+     * chạy thật, và có test ghim), nên dòng nhật ký của một tài liệu nhóm D bị xoá vẫn đọc ra
+     * `group = D` kèm tiêu đề: người rà soát biết thứ vừa biến mất là hồ sơ công việc nội bộ
+     * chứ không phải một văn bản của khách.
+     *
+     * `published_at`/`published_by` KHÔNG nằm ở đây: mọi lần chúng được ghi đều đi kèm một dòng
+     * `document_published` của `Audit` với actor tường minh, và dòng đó nói được nhiều hơn (causer
+     * của trait suy ra từ phiên đăng nhập, có thể trống với một lệnh console).
+     */
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logOnly([
+                'matter_id', 'matter_checklist_item_id', 'group', 'title', 'status', 'version',
+                'parent_document_id', 'client_can_view', 'client_can_download',
+            ])
+            ->logOnlyDirty()
+            ->dontSubmitEmptyLogs();
     }
 }
