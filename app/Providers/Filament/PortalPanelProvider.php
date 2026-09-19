@@ -55,9 +55,12 @@ class PortalPanelProvider extends PanelProvider
             ])
             ->discoverWidgets(in: app_path('Filament/Portal/Widgets'), for: 'App\Filament\Portal\Widgets')
             ->widgets([])
-            // Ngoài cùng, và `isPersistent: true` để nó theo cả sang request cập nhật
-            // Livewire — panel từ chối kiểu gì cũng ra 404 (SPEC §10.10). Xem docblock
-            // của middleware.
+            // Đầu danh sách middleware của panel — tức THỨ HAI trong đường ống, vì
+            // `Panel::getMiddleware()` tự chèn `panel:{id}` lên trước để dựng panel hiện
+            // hành. `isPersistent: true` để nó theo sang cả request cập nhật Livewire, nơi
+            // nó đứng trước `Filament\Http\Middleware\Authenticate`. Phủ đến đâu và cố ý
+            // KHÔNG phủ đến đâu (từ chối bên trong vòng đời component vẫn là 403): xem
+            // docblock của middleware.
             ->middleware([AnswerDeniedPanelRequestsWithNotFound::class], isPersistent: true)
             ->middleware([
                 EncryptCookies::class,
