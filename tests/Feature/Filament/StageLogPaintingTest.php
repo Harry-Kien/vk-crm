@@ -47,11 +47,25 @@ function classExistsInTheme(string $token): bool
 }
 
 /**
- * Cái bẫy đã bắt được bốn test xanh-vì-lý-do-khác ở Task 6: khẳng định một lớp CSS có mặt trong
- * HTML không chứng minh lớp đó tô ra cái gì. Test này hỏi đúng câu phải hỏi — bảng kiểu dáng
- * thực sự được phục vụ có định nghĩa lớp đó không.
+ * **Bản trước của test này đã thành VÔ NGHĨA, và nó vô nghĩa vì chính bản sửa mà nó đi kèm.** Nó
+ * lọc các lớp CSS phát ra rồi khẳng định danh sách "lớp không có trong bảng kiểu dáng" là rỗng —
+ * nhưng khi hai hàm render bỏ hết lớp Tailwind để chuyển sang `style=` viết thẳng, `classTokens()`
+ * trả về `[]`, nên bộ lọc trả về `[]` và khẳng định xanh mà không đọc tới một byte nào của markup.
+ * Một test không thể đỏ thì tệ hơn không có test.
+ *
+ * Nay nó đo hai thứ, và cả hai đều đỏ được:
+ *
+ *  1. **Hai hàm render KHÔNG phát ra một lớp CSS nào.** Đó là quyết định thật của dự án không có
+ *     bước dựng CSS, phát biểu thành một khẳng định thay vì thành một bộ lọc rỗng. Ai thêm lại
+ *     `bg-gray-100` là đỏ ngay ở đây — và nếu một ngày dự án có bước dựng CSS thì lớp đó vẫn phải
+ *     có mặt trong bảng kiểu dáng được phục vụ, nhánh thứ hai của khẳng định canh điều đó.
+ *  2. **Mọi biến màu chúng dùng đều là biến `FilamentColor` THẬT SỰ đăng ký.** Đây mới là chỗ
+ *     hạng lỗi cũ chuyển sang sống: `var(--grey-500)` hay `var(--primary-450)` không tô gì cả,
+ *     đúng như `text-amber-600` đã không tô gì suốt từ M3. Cùng hình dạng phép đo mà
+ *     `DocumentsRelationManagerTest` dùng cho bộ chọn của nền dòng nhóm D: lấy tên ra khỏi markup
+ *     thật, đối chiếu với nguồn thật.
  */
-it('emits no CSS class that the served stylesheet does not define', function () {
+it('paints with registered colour variables only, and emits no CSS class at all', function () {
     $internal = (string) StageLogsRelationManager::renderInternalNote('Ghi chú nội bộ');
 
     $published = StageLog::factory()->make([
@@ -61,18 +75,28 @@ it('emits no CSS class that the served stylesheet does not define', function () 
     ]);
     $public = (string) StageLogsRelationManager::renderPublicContent($published->public_content, $published);
 
-    $unknown = array_values(array_filter(
-        [...classTokens($internal), ...classTokens($public)],
-        fn (string $token): bool => ! classExistsInTheme($token),
-    ));
+    $markup = $internal.$public;
+    $tokens = [...classTokens($internal), ...classTokens($public)];
 
-    expect($unknown)->toBe([]);
+    expect(array_values(array_filter($tokens, fn (string $token): bool => ! classExistsInTheme($token))))
+        ->toBe([])
+        ->and($tokens)->toBe([]);
+
+    // Cặp dương của khẳng định dưới: danh sách biến màu KHÔNG rỗng, nên bộ lọc không xanh rỗng
+    // tuếch như bản trước.
+    expect(colourVariablesIn($markup))->not->toBeEmpty()
+        ->and(unregisteredColourVariables($markup))->toBe([]);
 });
 
 /**
- * Cặp dương của test trên: nếu markup không mang lớp nào thì test kia xanh một cách rỗng tuếch.
- * SPEC §7.2 đòi một cái NỀN, nên ở đây đo đúng cái nền đó — một khai báo `background-color` viết
- * thẳng trong thuộc tính `style`, thứ không phụ thuộc vào bước dựng CSS nào cả.
+ * Test trên nói MÀU được lấy từ đâu; test này nói có một cái NỀN để tô — SPEC §7.2 đòi ghi chú
+ * nội bộ hiện trên nền xám, và một markup đúng biến màu mà không có khai báo `background-color`
+ * nào vẫn là một dòng không có nền.
+ *
+ * Nói thẳng giới hạn: `toContain('background-color:')` là một khẳng định CHUỖI, và PHP không có
+ * bố cục để hỏi xem cái nền ấy có hiện ra hay không. Phép đo thật nằm ở docblock
+ * `StageLogsRelationManager::renderInternalNote()` — bật và tắt lớp `.dark` trên trình duyệt,
+ * đọc giá trị tính được — chứ không giả vờ là một test.
  */
 it('paints the internal note background with an inline declaration', function () {
     $html = (string) StageLogsRelationManager::renderInternalNote('Ghi chú nội bộ');

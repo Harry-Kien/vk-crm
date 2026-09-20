@@ -37,15 +37,17 @@ use Illuminate\Validation\ValidationException;
  *
  * **Lớp này không có một dòng nghiệp vụ nào.** Bốn thao tác gọi `UploadStaffDocument`,
  * `PublishDocument`, `RegroupDocument` và route tải tệp có chữ ký của Task 5. Lời từ chối của các
- * Action đi ra qua `ReportsActionFailures` (xem docblock trait đó cho ba họ exception và vì sao
+ * Action đi ra qua `ReportsActionFailures` (xem docblock trait đó cho bốn họ exception và vì sao
  * không họ nào được ánh xạ sang một mã HTTP riêng).
  *
  * **Nhóm D, ba lớp hiển thị chứ không một.** SPEC §7.2 đòi "nền khác màu rõ rệt" VÀ nhãn "Chỉ nội
  * bộ — không bao giờ hiện cho khách". Ở đây có: (1) một cột luôn hiện, mang nguyên văn cái nhãn
  * đó dưới dạng badge màu `danger` — badge là thành phần của chính Filament nên nó chắc chắn có
- * kiểu dáng, và `danger` ở panel này là màu đỏ thương hiệu; (2) `recordClasses()` tô nền CẢ
- * DÒNG, dùng lớp `vk-internal-document` do chính lớp này định nghĩa; (3) tiêu đề nhóm trong chế
- * độ gộp nhóm. Lớp (1) là lớp không tắt được: người dùng bỏ gộp nhóm hay đổi cột thì nó vẫn ở đó.
+ * kiểu dáng, và `danger` ở panel này là màu đỏ thương hiệu; (2) `recordClasses()` gắn lớp
+ * `vk-internal-document` lên thẻ `<tr>` của dòng, và luật CSS đi kèm tô nền các Ô của dòng đó —
+ * KHÔNG tô chính cái `<tr>`, vì đo được là cái `<tr>` không nhận `background-color` (các `<td>`
+ * phủ kín hàng); xem {@see self::internalRowStyle()} cho phép đo; (3) tiêu đề nhóm trong chế độ
+ * gộp nhóm. Lớp (1) là lớp không tắt được: người dùng bỏ gộp nhóm hay đổi cột thì nó vẫn ở đó.
  *
  * **Vì sao luật CSS của lớp (2) được in ra từ đây chứ không nằm trong một tệp CSS.** Dự án này
  * KHÔNG có bước dựng CSS: máy dev và máy chủ chỉ có PHP trong Docker (CLAUDE.md), panel dùng
@@ -108,9 +110,12 @@ class DocumentsRelationManager extends RelationManager
      * renderInternalNote()`.
      *
      * Trả về chuỗi THUẦN chứ không HTML: nó được đưa vào một `TextColumn` đã `->badge()`, nên
-     * kiểu dáng do chính Filament lo. Đó là điểm khác có chủ đích so với `renderInternalNote()`
-     * ở tab Tiến độ, thứ tự dựng HTML kèm lớp Tailwind — xem docblock lớp cho lý do những lớp
-     * đó không tô được gì trong dự án không có bước dựng CSS này.
+     * kiểu dáng do chính Filament lo — không có gì phải tự tô, và vì thế không có gì để tô sai.
+     * Đó là điểm khác có chủ đích so với `StageLogsRelationManager::renderInternalNote()`, thứ
+     * tự dựng HTML và phải tự mang kiểu dáng theo. Nói cho đúng, vì bản trước của câu này viết
+     * rằng hàm kia "dựng HTML kèm lớp Tailwind": từ `6e5dcf5` nó dùng `style=` viết thẳng với
+     * biến màu của Filament, đúng vì một lớp Tailwind viết tay không tô được gì trong dự án
+     * không có bước dựng CSS này (xem docblock lớp).
      */
     public static function internalMarkerLabel(DocumentGroup $group): ?string
     {
@@ -164,18 +169,19 @@ class DocumentsRelationManager extends RelationManager
      * Những nhóm mà bộ mặc định SPEC §4.11 đưa tài liệu RA TỚI KHÁCH ngay lúc tạo, nên một lần
      * nộp vào đó là một lần công bố và `UploadStaffDocument` bước 3 đòi thêm `document.publish`.
      *
-     * **Đây là bản sao của một sự thật sống ở chỗ khác, và nó được ghim chứ không được tin.**
-     * Nguồn duy nhất là `StoresDocumentFile::defaultsFor()` cộng `releasesToClientAtCreation()`,
-     * cả hai `protected`, nên màn hình không hỏi được. Không có danh sách này thì một trợ lý —
-     * người `DocumentPolicy::create` cho phép tạo tài liệu — chọn nhóm A và nhận về một
-     * `AuthorizationException`: trang 403 tiếng Anh, đúng thứ SPEC §8.4 cấm, và là họ exception
-     * THỨ TƯ mà không màn hình nào bắt. Cái giá của việc chép: nó có thể lệch. Cái chặn việc
-     * lệch: `it('offers exactly the groups an assistant can actually upload into')` chạy THẬT
-     * Action cho cả bốn nhóm với một trợ lý và so kết quả đo được với danh sách này.
+     * **Hỏi Action, không chép lại.** Bản trước giữ một hằng số `[A]` chép tay, vì
+     * `StoresDocumentFile::defaultsFor()` và `releasesToClientAtCreation()` đều `protected`. Hai
+     * bản chép bằng nhau hôm nay; ngày bảng §4.11 đổi, ô chọn mời một nhóm mà Action từ chối —
+     * và lời từ chối đó là một `AuthorizationException`, thứ người dùng đọc thành một câu "màn
+     * hình không còn khớp" chứ không thành một câu giải thích được. Trait nay có
+     * `groupsReleasedToClientAtCreation()` công khai, nên sự thật chỉ còn một bản.
      *
-     * @var list<DocumentGroup>
+     * @return list<DocumentGroup>
      */
-    private const RELEASED_AT_CREATION = [DocumentGroup::ClientProvided];
+    private static function releasedAtCreation(): array
+    {
+        return app(UploadStaffDocument::class)->groupsReleasedToClientAtCreation();
+    }
 
     /**
      * Các nhóm cho ô chọn của lần ĐƯA TÀI LIỆU VÀO hồ sơ. Hai điều kiện loại bớt, cả hai là giới
@@ -186,7 +192,7 @@ class DocumentsRelationManager extends RelationManager
      *    không đọc lại được (`DocumentPolicy::view` loại nhóm D), nên bày nó ra là bày một cái
      *    bẫy — tệp biến mất ngay sau khi lưu.
      *  - **Nhóm ra tới khách ngay lúc tạo, với ai không công bố được:** xem
-     *    {@see self::RELEASED_AT_CREATION}.
+     *    {@see self::releasedAtCreation()}.
      *
      * Câu hỏi thứ hai được hỏi qua `Gate` trên một `Document` CHƯA LƯU mang nhóm và quan hệ
      * `matter` — cùng thành ngữ `UploadStaffDocument` dùng để hỏi đúng câu đó, nên màn hình
@@ -197,8 +203,10 @@ class DocumentsRelationManager extends RelationManager
      */
     public static function groupOptions(Matter $matter): array
     {
+        $releasedAtCreation = static::releasedAtCreation();
+
         return collect(static::visibleGroups())
-            ->reject(fn (DocumentGroup $group): bool => in_array($group, self::RELEASED_AT_CREATION, true)
+            ->reject(fn (DocumentGroup $group): bool => in_array($group, $releasedAtCreation, true)
                 && ! Gate::allows('publish', static::transientDocument($group, $matter)))
             ->mapWithKeys(fn (DocumentGroup $group): array => [$group->value => $group->label()])
             ->all();

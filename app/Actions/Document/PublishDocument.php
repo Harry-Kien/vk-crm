@@ -2,6 +2,7 @@
 
 namespace App\Actions\Document;
 
+use App\Actions\Document\Concerns\ReadsWithoutPortalScope;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Events\DocumentPublished;
@@ -60,6 +61,8 @@ use Illuminate\Support\Facades\Gate;
  */
 class PublishDocument
 {
+    use ReadsWithoutPortalScope;
+
     public function handle(
         Document $document,
         User $actor,
@@ -71,7 +74,13 @@ class PublishDocument
         ): Document {
             // Đọc lại bản ghi thật. `withTrashed()` để một tài liệu đã xoá mềm nhận được câu trả
             // lời riêng của nó thay vì lẫn vào "không tồn tại".
-            $fresh = Document::query()
+            // `scopelessly()`: lần đọc lại này KHÔNG được phụ thuộc vào guard nào đang mở. Dưới
+            // guard `client` — M5 mở portal, và một nhân sự đăng nhập cả hai panel đã có cả hai
+            // guard cùng xác thực — `ClientPortalScope` cắt truy vấn xuống "đã công bố và khách
+            // được xem", nên một tài liệu nhóm C còn nháp sẽ đọc ra `null` và Action trả lời
+            // "không có bản ghi nào như vậy" về một bản ghi đang nằm đó. Xem docblock
+            // `ReadsWithoutPortalScope`.
+            $fresh = $this->scopelessly(Document::query())
                 ->withTrashed()
                 ->lockForUpdate()
                 ->find($document->getKey());
@@ -92,7 +101,7 @@ class PublishDocument
             // `belongsTo` của một model có SoftDeletes trả null khi vụ việc đã bị xoá mềm, nên
             // `withTrashed()` là cách duy nhất phân biệt "vụ việc đã xoá" với "khoá ngoại hỏng".
             // Cả hai đều chặn, nhưng chỉ một trong hai có câu để nói với người dùng.
-            $matter = $fresh->matter()->withTrashed()->first();
+            $matter = $this->scopelessly($fresh->matter()->withTrashed()->getQuery())->first();
 
             if ($matter === null || $matter->trashed()) {
                 throw DocumentNotPublishable::matterUnavailable($fresh);

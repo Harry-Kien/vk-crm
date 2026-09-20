@@ -8,9 +8,12 @@ use App\Enums\MatterRole;
 use App\Enums\Permission;
 use App\Enums\Role;
 use App\Exceptions\DocumentGroupNotChangeable;
+use App\Models\Client;
+use App\Models\ClientUser;
 use App\Models\Document;
 use App\Models\Matter;
 use App\Models\User;
+use App\Support\Scopes\ClientPortalScope;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\UploadedFile;
@@ -370,4 +373,39 @@ it('xoá mềm một tài liệu để lại một dòng nhật ký đọc đư�
     expect($activity)->not->toBeNull()
         ->and($activity->properties->get('old')['group'])->toBe(DocumentGroup::Internal->value)
         ->and($activity->properties->get('old')['title'])->toBe($document->title);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Action không để guard đang mở quyết định nó đọc thấy gì (rà soát cuối M4).
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * `RegroupDocument` đọc lại bản ghi dưới khoá đúng để KHÔNG tin đối tượng caller cầm trong tay.
+ * Trước bản sửa này lần đọc lại đó là `Document::query()` trần, nên dưới guard `client`
+ * `ClientPortalScope` cắt nó xuống "đã công bố VÀ khách được xem" — và một tài liệu nhóm C còn
+ * nháp đọc ra `null`, tức `findOrFail()` ném `ModelNotFoundException` về một bản ghi đang nằm đó.
+ *
+ * Đây không phải chuyện lý thuyết ở M5: portal chạy với guard `client` thường trực, và một nhân
+ * sự đăng nhập cả hai panel đã có CẢ HAI guard cùng xác thực (`ClientPortalScope::isActive()`).
+ * Quyền vẫn hỏi tường minh trên `$actor`, không nhờ scope — nên bỏ scope ra không nới quyền.
+ */
+it('chuyển nhóm được một tài liệu khách không thấy, kể cả khi đang chạy dưới guard khách', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $client = Client::factory()->create();
+    $clientUser = ClientUser::factory()->create(['client_id' => $client->id]);
+    $matter = Matter::factory()->for($client)->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $document = regroupDocument($matter, DocumentGroup::Authority);
+
+    // Tiền đề: dưới guard khách, chính tài liệu này là vô hình.
+    ClientPortalScope::actingAs($clientUser, function () use ($document): void {
+        expect(Document::query()->whereKey($document->getKey())->exists())->toBeFalse();
+    });
+
+    $moved = ClientPortalScope::actingAs(
+        $clientUser,
+        fn (): Document => regroupAs($document, $lawyer, DocumentGroup::Issued),
+    );
+
+    expect($moved->group)->toBe(DocumentGroup::Issued);
 });

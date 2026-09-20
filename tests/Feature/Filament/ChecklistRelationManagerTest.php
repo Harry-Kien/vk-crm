@@ -112,9 +112,17 @@ it('renders the progress bar with the counted numbers, and a separate sentence w
         'status' => ChecklistItemStatus::Missing,
     ]);
 
-    expect((string) ChecklistRelationManager::progressBar($matter))
+    $bar = (string) ChecklistRelationManager::progressBar($matter);
+
+    expect($bar)
         ->toContain(e(__('checklist.tab.progress', ['submitted' => 1, 'total' => 2])))
         ->toContain('width:50%');
+
+    // Cùng phép đo mà `StageLogPaintingTest` dùng: `var(--primary-500)` chỉ tô được gì nếu
+    // `FilamentColor` thật sự đăng ký sắc độ đó. Đây là biến màu duy nhất của nhánh M4 chưa có
+    // phép đo nào đứng sau (vòng rà soát cuối M4).
+    expect(colourVariablesIn($bar))->toContain('primary-500')
+        ->and(unregisteredColourVariables($bar))->toBe([]);
 });
 
 // ---------------------------------------------------------------------------------------------

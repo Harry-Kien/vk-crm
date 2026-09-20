@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Document;
+use Filament\Support\Facades\FilamentColor;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -97,6 +98,44 @@ pest()->extend(TestCase::class)
 | mà ba tầng phòng thủ của SPEC §11 tồn tại để chặn: một dòng đã lọt vào cơ sở dữ liệu bằng một
 | đường không đi qua model (`DB::table()->update()`, một lần sửa tay, một migration cũ).
 */
+/*
+|--------------------------------------------------------------------------
+| Biến màu CSS mà panel THẬT SỰ đăng ký
+|--------------------------------------------------------------------------
+|
+| Dự án không có bước dựng CSS (CLAUDE.md), nên mọi mảng màu viết tay trong mã PHP phải đi qua
+| biến CSS của Filament (`var(--gray-500)`, `var(--primary-500)`, …) chứ không qua lớp tiện ích
+| Tailwind. Hai hàm dưới đây biến câu đó thành một phép ĐO thay vì một khẳng định chuỗi: lấy từng
+| tên biến ra khỏi markup thật, rồi hỏi `FilamentColor` — nguồn duy nhất sinh ra khối `:root` mà
+| panel in ra — xem nó có đăng ký sắc độ đó không.
+|
+| Một biến gõ nhầm (`--grey-500`, `--primary-450`) hay một màu của bảng chưa đăng ký sẽ cho
+| `var()` rỗng, tức không tô gì — đúng hạng lỗi mà `text-amber-600` và `bg-gray-100` đã gây ra ở
+| M3 và không ai nhìn thấy suốt hai milestone.
+*/
+function colourVariablesIn(string $html): array
+{
+    preg_match_all('/var\(--([a-zA-Z0-9-]+)\)/', $html, $matches);
+
+    return array_values(array_unique($matches[1]));
+}
+
+function unregisteredColourVariables(string $html): array
+{
+    $colours = FilamentColor::getColors();
+
+    return array_values(array_filter(
+        colourVariablesIn($html),
+        function (string $variable) use ($colours): bool {
+            if (preg_match('/^([a-z]+)-(\d+)$/', $variable, $parts) !== 1) {
+                return true;
+            }
+
+            return ! isset($colours[$parts[1]][(int) $parts[2]]);
+        },
+    ));
+}
+
 function forceClientFlags(Document $document): Document
 {
     DB::table('documents')

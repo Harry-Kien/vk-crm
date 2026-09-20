@@ -9,8 +9,6 @@ use App\Models\Document;
 use App\Models\MatterChecklistItem;
 use App\Support\Files\FileGuard;
 use App\Support\Files\VirusScanner;
-use App\Support\Scopes\ClientPortalScope;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Str;
 
@@ -41,6 +39,10 @@ use Illuminate\Support\Str;
  */
 trait StoresDocumentFile
 {
+    // `scopelessly()` — xem docblock của trait đó. Nằm riêng vì `PublishDocument` và
+    // `RegroupDocument` cần đúng nó mà không lưu tệp.
+    use ReadsWithoutPortalScope;
+
     /**
      * SPEC §6.6 bước 2-5: đuôi tệp, MIME thật, kích thước, rồi quét virus — đúng thứ tự đó.
      * Quét sau `FileGuard::check()` chứ không trước: không gửi một tệp 20 MB sai định dạng qua
@@ -272,38 +274,26 @@ trait StoresDocumentFile
     }
 
     /**
-     * Bỏ `ClientPortalScope` ra khỏi một truy vấn, tường minh.
+     * Những nhóm mà bộ mặc định SPEC §4.11 đưa tài liệu RA TỚI KHÁCH ngay lúc tạo — câu hỏi này
+     * ở dạng MÀN HÌNH hỏi được.
      *
-     * `SubmitClientDocument` chạy với guard `client` đang mở trong đời thật, nên mọi truy vấn của
-     * nó sẽ tự động bị cắt theo khách đang đăng nhập nếu không gỡ scope ra. Nghe thì có vẻ an
-     * toàn hơn, nhưng nó sai ở hai đầu:
+     * `defaultsFor()` và `releasesToClientAtCreation()` đều `protected`, nên trước bản này
+     * `DocumentsRelationManager` giữ một hằng số `RELEASED_AT_CREATION = [A]` chép tay cùng sự
+     * thật. Hai bản chép hôm nay bằng nhau; ngày bảng §4.11 đổi, ô chọn sẽ mời một nhóm mà Action
+     * từ chối — và lời từ chối đó là một `AuthorizationException` (xem `ReportsActionFailures`).
+     * Nên câu trả lời được SUY RA từ chính bảng, ở một chỗ.
      *
-     * - **Sai về tính đúng đắn.** Scope trên `Document` đòi `client_can_view = true` và
-     *   `status = published`, nên một bản nhóm A cũ đã bị tắt cờ hiển thị sẽ vô hình với phép
-     *   tính version — và lần nộp mới lại mang số 1 lần nữa, ghi đè ý nghĩa của bản cũ. Chuỗi
-     *   version phải đọc từ dữ liệu thật.
-     * - **Sai về chỗ đặt quyết định.** Một Action để phạm vi dữ liệu phụ thuộc vào guard nào
-     *   đang mở là một Action đúng cho tới lần đầu ai đó gọi nó từ một job, một lệnh console,
-     *   hay một phiên thuộc về người khác. Quyền đã được hỏi một lần, tường minh, trên `$actor` —
-     *   và câu trả lời đó phải là câu duy nhất quyết định.
+     * Trả về danh sách nhóm chứ không nhận một nhóm rồi trả `bool`: chỗ gọi cần lọc một danh
+     * sách, và một vòng lặp gọi bốn lần qua container là bốn lần dựng lại cùng một câu trả lời.
      *
-     * Nằm ở trait vì `UploadStaffDocument` đọc CÙNG chuỗi đó: hai Action dựng cùng một chuỗi
-     * version thì không được phép nhìn thấy hai tập dữ liệu khác nhau. Ở phía nhân sự scope
-     * thường không kích hoạt, nên câu này ở đó là phòng thủ nhiều lớp — nhưng nó phòng đúng thứ
-     * đã xảy ra một lần rồi: một nhân sự đăng nhập cả /admin lẫn /portal có cả hai guard cùng
-     * xác thực (xem `ClientPortalScope::isActive()`).
-     *
-     * Tầng phân quyền không bị nới ra chút nào: `ChecksPortalVisibility` bên trong policy vẫn
-     * chạy scope thật qua `ClientPortalScope::actingAs($actor)`.
-     *
-     * @template TModel of \Illuminate\Database\Eloquent\Model
-     *
-     * @param  Builder<TModel>  $query
-     * @return Builder<TModel>
+     * @return list<DocumentGroup>
      */
-    protected function scopelessly(Builder $query): Builder
+    public function groupsReleasedToClientAtCreation(): array
     {
-        return $query->withoutGlobalScope(ClientPortalScope::class);
+        return array_values(array_filter(
+            DocumentGroup::cases(),
+            fn (DocumentGroup $group): bool => $this->releasesToClientAtCreation($this->defaultsFor($group)),
+        ));
     }
 
     /**

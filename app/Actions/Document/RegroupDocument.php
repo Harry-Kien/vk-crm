@@ -2,6 +2,7 @@
 
 namespace App\Actions\Document;
 
+use App\Actions\Document\Concerns\ReadsWithoutPortalScope;
 use App\Enums\DocumentGroup;
 use App\Models\Document;
 use App\Models\User;
@@ -36,12 +37,16 @@ use Illuminate\Support\Facades\Gate;
  */
 class RegroupDocument
 {
+    use ReadsWithoutPortalScope;
+
     public function handle(Document $document, User $actor, DocumentGroup $group): Document
     {
         return DB::transaction(function () use ($document, $actor, $group): Document {
             // Đọc lại dưới khoá, cùng lý do với `PublishDocument`: nhóm hiện tại quyết định cần
-            // quyền gì, nên đọc nó từ đối tượng caller cầm trong tay là để caller tự khai.
-            $fresh = Document::query()->lockForUpdate()->findOrFail($document->getKey());
+            // quyền gì, nên đọc nó từ đối tượng caller cầm trong tay là để caller tự khai. Và vì
+            // lần đọc lại ấy tồn tại để KHÔNG tin caller, nó cũng không được để guard đang mở
+            // quyết định nó thấy gì — `scopelessly()`, xem docblock `ReadsWithoutPortalScope`.
+            $fresh = $this->scopelessly(Document::query())->lockForUpdate()->findOrFail($document->getKey());
 
             $from = $fresh->group;
 

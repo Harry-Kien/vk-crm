@@ -169,7 +169,12 @@ it('ships a CSS rule for the group D row background that can actually win', func
 
     $style = (string) DocumentsRelationManager::internalRowStyle();
 
-    expect($style)->toStartWith('<style>')->toContain('background-color');
+    expect($style)->toStartWith('<style>')->toContain('background-color')
+        // `--danger-500` phải là một sắc độ `FilamentColor` thật sự đăng ký, nếu không
+        // `color-mix()` nhận một `var()` rỗng và cái nền SPEC §7.2 đòi lại không hiện ra — đúng
+        // hạng lỗi mà `bg-gray-100` đã gây ra ở M3.
+        ->and(colourVariablesIn($style))->toContain('danger-500')
+        ->and(unregisteredColourVariables($style))->toBe([]);
 
     $this->actingAs($lawyer, 'web');
 
@@ -380,10 +385,11 @@ it('hides the publish button from an assistant and shows it to a lawyer on the t
 // ---------------------------------------------------------------------------------------------
 
 /**
- * **Ghim cho `DocumentsRelationManager::RELEASED_AT_CREATION`.** Danh sách đó là bản sao của một
- * sự thật sống trong `StoresDocumentFile` (`protected`, màn hình không hỏi được), nên nó được đo
- * chứ không được tin: với một TRỢ LÝ, chạy thật `UploadStaffDocument` cho cả bốn nhóm và khẳng
- * định rằng đúng những nhóm mà ô chọn KHÔNG mời là những nhóm Action từ chối.
+ * **Ghim cho danh sách "nhóm ra tới khách ngay lúc tạo".** Danh sách đó KHÔNG còn là một bản chép
+ * tay trong màn hình: `DocumentsRelationManager::releasedAtCreation()` hỏi thẳng
+ * `StoresDocumentFile::groupsReleasedToClientAtCreation()`, thứ suy ra từ chính bảng SPEC §4.11.
+ * Test này vẫn đo chứ không tin: với một TRỢ LÝ, chạy thật `UploadStaffDocument` cho cả bốn nhóm
+ * và khẳng định rằng đúng những nhóm mà ô chọn KHÔNG mời là những nhóm Action từ chối.
  *
  * Nếu SPEC §4.11 đổi bảng mặc định, test này đỏ ngay — và nó đỏ ở cả hai hướng: một nhóm bị loại
  * thừa cũng làm nó đỏ.

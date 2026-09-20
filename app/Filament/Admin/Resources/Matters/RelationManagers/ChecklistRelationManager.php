@@ -91,8 +91,28 @@ class ChecklistRelationManager extends RelationManager
      * dùng `vendor/filament/filament/dist/theme.css` đã biên dịch sẵn, và bộ đó chỉ chứa những
      * lớp tiện ích Filament tự dùng — `bg-gray-200`, `bg-primary-600`, `text-gray-500` không có
      * trong đó, nên một thanh tiến độ viết bằng chúng hiện ra là một dòng chữ trần không có
-     * thanh nào. Màu lấy từ biến CSS của Filament (`--primary-500`) và từ `currentColor` pha
-     * loãng, nên nó đúng ở cả chế độ sáng lẫn tối mà không cần hai luật.
+     * thanh nào.
+     *
+     * **Màu đã được ĐO trên trình duyệt thật, vì cho tới vòng rà soát cuối M4 đây là biến màu
+     * duy nhất của nhánh này chỉ có một lời khẳng định đứng sau.** Trên `VK-2026-DS-0003` của
+     * dữ liệu mẫu, tab "Danh mục hồ sơ", thanh `Đã nộp 2/3`:
+     *
+     *  - phần đã nộp — `background-color: var(--primary-500)` — tính ra
+     *    `oklch(0.554 0.046 257.417)`, rộng `386.578px` trên nền rãnh `577px` (đúng 67%), cao
+     *    `8px`: nó thật sự hiện ra, không phải một `var()` rỗng;
+     *  - rãnh nền — `color-mix(in srgb, currentColor 15%, transparent)` — tính ra
+     *    `color(srgb 0.0354 0.0354 0.0443 / 0.15)` ở chế độ sáng.
+     *
+     * Bật lớp `.dark` trên `<html>` rồi đo lại: phần đã nộp GIỮ NGUYÊN
+     * `oklch(0.554 0.046 257.417)` (bảng `--primary-*` của Filament không tự đảo chiều, đúng như
+     * bảng `--gray-*` mà `StageLogsRelationManager::renderInternalNote()` đã đo), còn rãnh nền
+     * lật sang `color(srgb 1 1 1 / 0.15)` vì `currentColor` lật theo màu chữ — trên nền trang
+     * `oklch(0.141 0.005 285.823)`. Đó là lý do một luật đủ cho cả hai chế độ: thứ cần đổi thì
+     * `currentColor` tự đổi, thứ không cần đổi là màu thương hiệu.
+     *
+     * `StageLogPaintingTest` và `ChecklistRelationManagerTest` giữ nốt nửa còn lại mà trình duyệt
+     * không giữ được: `--primary-500` phải là một sắc độ `FilamentColor` thật sự đăng ký, nếu
+     * không `var()` rỗng và thanh biến mất.
      */
     public static function progressBar(Matter $matter): Htmlable
     {

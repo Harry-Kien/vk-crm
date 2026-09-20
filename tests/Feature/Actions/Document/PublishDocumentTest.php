@@ -7,9 +7,12 @@ use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Events\DocumentPublished;
 use App\Exceptions\DocumentNotPublishable;
+use App\Models\Client;
+use App\Models\ClientUser;
 use App\Models\Document;
 use App\Models\Matter;
 use App\Models\User;
+use App\Support\Scopes\ClientPortalScope;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\UploadedFile;
@@ -510,4 +513,43 @@ it('bản ghi bị xoá cứng giữa chừng thì nhận một lời từ chố
     DB::table('documents')->where('id', $document->id)->delete();
 
     expect(fn () => publishDocumentAs($document, $lawyer))->toThrow(DocumentNotPublishable::class);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Action không để guard đang mở quyết định nó đọc thấy gì (rà soát cuối M4).
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Cả lần đọc lại tài liệu lẫn lần đọc vụ việc đều phải ĐỘC LẬP với guard đang mở.
+ *
+ * Trước bản sửa này chúng là `Document::query()` và `$fresh->matter()` trần, nên dưới guard
+ * `client` `ClientPortalScope` cắt chúng xuống những gì khách đọc được — và một tài liệu nhóm C
+ * còn `internal_draft`, tức đúng loại tài liệu Action này tồn tại để công bố, đọc ra `null`.
+ * Action khi đó trả lời `DocumentNotPublishable::missing()` về một bản ghi đang nằm đó: một câu
+ * từ chối sai, trên đường đi mà M5 sẽ mở (portal chạy guard `client` thường trực, và một nhân sự
+ * đăng nhập cả hai panel có cả hai guard cùng xác thực).
+ *
+ * Quyền không bị nới ra: `Gate::forUser($actor)` vẫn hỏi trên `$actor`, và policy vẫn tự chạy
+ * scope thật qua `ClientPortalScope::actingAs()`.
+ */
+it('công bố được dưới guard khách, vì Action không đọc dữ liệu bằng con mắt của guard đó', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $client = Client::factory()->create();
+    $clientUser = ClientUser::factory()->create(['client_id' => $client->id]);
+    $matter = Matter::factory()->for($client)->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $document = documentOn($matter, DocumentGroup::Authority, DocumentStatus::InternalDraft);
+
+    // Tiền đề: dưới guard khách, chính tài liệu này là vô hình.
+    ClientPortalScope::actingAs($clientUser, function () use ($document): void {
+        expect(Document::query()->whereKey($document->getKey())->exists())->toBeFalse();
+    });
+
+    $published = ClientPortalScope::actingAs(
+        $clientUser,
+        fn (): Document => publishDocumentAs($document, $lawyer),
+    );
+
+    expect($published->status)->toBe(DocumentStatus::Published)
+        ->and($published->client_can_view)->toBeTrue();
 });
