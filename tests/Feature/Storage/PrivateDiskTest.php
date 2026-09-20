@@ -18,19 +18,49 @@ use Illuminate\Support\Str;
  * Các test dưới đây kiểm chính cái tiền đề, không kiểm câu chữ của bình luận: một bình luận nói
  * "hai disk đã tách" là thứ đọc thấy đúng cả khi nó sai.
  */
+/**
+ * **Test này cố ý đi RA NGOÀI đĩa giả toàn cục của `tests/Pest.php`, và đây là chỗ duy nhất
+ * trong bộ test được phép làm vậy.** Câu hỏi nó hỏi là về CẤU HÌNH thật của hai đĩa; hỏi nó
+ * trên `Storage::disk('private')` sau khi hook toàn cục đã thay đĩa đó bằng một gốc trong
+ * `storage/framework/testing` là hỏi về một đĩa không tồn tại ngoài đời — và câu trả lời "local
+ * không đọc được" sẽ đúng vì một lý do khác hẳn lý do cần đo.
+ *
+ * `Storage::build()` dựng đĩa thẳng từ mảng cấu hình, nên nó không đi qua `FilesystemManager`
+ * và không thấy bản giả. Thư mục thử được xoá trong `finally`, nên test này không để lại tệp
+ * nào trong kho hồ sơ thật.
+ */
 it('ghi qua disk private thì disk local không đọc lại được — hai gốc thư mục thật sự rời nhau', function () {
     $relativePath = 'kiem-tra-tach-disk/'.Str::random(16).'.txt';
 
-    Storage::disk('private')->put($relativePath, 'hồ sơ mật');
+    $private = Storage::build(config('filesystems.disks.private'));
+    $local = Storage::build(config('filesystems.disks.local'));
+
+    $private->put($relativePath, 'hồ sơ mật');
 
     try {
-        expect(Storage::disk('private')->exists($relativePath))->toBeTrue()
-            ->and(Storage::disk('local')->exists($relativePath))->toBeFalse()
+        expect($private->exists($relativePath))->toBeTrue()
+            ->and($local->exists($relativePath))->toBeFalse()
             ->and(config('filesystems.disks.private.root'))
             ->not->toBe(config('filesystems.disks.local.root'));
     } finally {
-        Storage::disk('private')->deleteDirectory('kiem-tra-tach-disk');
+        $private->deleteDirectory('kiem-tra-tach-disk');
     }
+});
+
+/**
+ * Nhân chứng của hook `Storage::fake('private')` trong `tests/Pest.php`.
+ *
+ * Tệp test này KHÔNG tự gọi `Storage::fake()` ở `beforeEach`, nên `Storage::disk('private')`
+ * ở đây là đúng cái mà hook toàn cục đặt ra. Gỡ hook đi thì test này đỏ — đó là toàn bộ việc
+ * của nó. Nó KHÔNG chứng minh được "không test nào ghi vào kho thật" (không test nào chứng
+ * minh nổi câu đó từ bên trong bộ test); thứ chứng minh câu đó là chính cái hook, và đây là
+ * thứ giữ cho cái hook không biến mất trong im lặng.
+ */
+it('đĩa private trong test luôn là đĩa giả, kể cả ở tệp test không tự gọi Storage::fake()', function () {
+    expect(Storage::disk('private')->path('ho-so.pdf'))
+        ->toStartWith(storage_path('framework/testing/disks'))
+        ->and(storage_path('app/private'))
+        ->not->toStartWith(storage_path('framework/testing/disks'));
 });
 
 it('gốc của disk local không nằm trong gốc của disk private và ngược lại', function () {
@@ -53,8 +83,15 @@ it('không disk local nào tự đăng ký route /storage/{path} phục vụ t�
 it('không disk nào phát ra được một URL tạm thời tới tệp hồ sơ', function () {
     // `temporaryUrl()` trên một local disk chỉ hoạt động khi `serve => true`; nếu nó ký được một
     // URL thì nghĩa là route tự động kia đang sống lại.
+    //
+    // Dựng đĩa từ CẤU HÌNH chứ không lấy qua `Storage::disk()`, cùng lý do với test đầu tệp này:
+    // hook toàn cục ở `tests/Pest.php` thay `private` bằng một đĩa giả, và đĩa giả của Laravel
+    // thì CÓ phát ra URL tạm (đo được: `http://localhost/x.pdf?expiration=…`). Hỏi nó là hỏi
+    // nhầm đối tượng — câu hỏi ở đây là về đĩa mà máy chủ thật đang chạy.
     foreach (['local', 'private'] as $disk) {
-        expect(fn () => Storage::disk($disk)->temporaryUrl('bat-ky.pdf', now()->addMinutes(5)))
+        $real = Storage::build(config('filesystems.disks.'.$disk));
+
+        expect(fn () => $real->temporaryUrl('bat-ky.pdf', now()->addMinutes(5)))
             ->toThrow(RuntimeException::class);
     }
 });

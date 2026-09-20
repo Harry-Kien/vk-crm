@@ -2,13 +2,51 @@
 
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
+/*
+|--------------------------------------------------------------------------
+| Đĩa `private` là đĩa GIẢ trong MỌI test, không phải trong những test nhớ gọi
+|--------------------------------------------------------------------------
+|
+| `storage/app/private` là kho hồ sơ thật của máy đang chạy (SPEC §10.4). Một test ghi vào đó
+| để lại tệp vĩnh viễn: không `RefreshDatabase` nào dọn đĩa, nên sau vài trăm lần chạy kho hồ sơ
+| có hàng nghìn tệp rác nằm CÙNG thư mục `{media.id}/` với tệp của dữ liệu mẫu — không phân biệt
+| được bằng mắt, và chỉ phân biệt được bằng cách đối chiếu với bảng `media`.
+|
+| Việc này đã xảy ra HAI lần trên nhánh M4, và cả hai lần đều theo cùng một hình dạng: một test
+| gọi `$this->seed()` (tức `MatterSeeder`, thứ từ `d5a168e` đưa tệp thật vào qua hai Action nộp
+| tệp) mà quên `Storage::fake('private')` ở `beforeEach` của CHÍNH tệp test đó. Lần thứ nhất
+| được vá bằng cách thêm dòng gọi vào tệp test; vá như vậy là giao một bất biến của cả bộ test
+| cho trí nhớ của người viết tệp test tiếp theo, và lần thứ hai chứng minh trí nhớ đó không đủ.
+|
+| Nên đĩa giả được đặt ở ĐÂY, một chỗ, cho mọi test. Hai lý do chọn phòng thay vì dò:
+|
+|  - một test khẳng định "không test nào ghi ra ngoài gốc giả" chỉ đỏ SAU KHI kho hồ sơ thật đã
+|    bị ghi vào — nó báo cái đã xảy ra, không ngăn nó xảy ra;
+|  - và nó không ngăn được lần chạy `--filter` của người đang sửa một tệp test khác.
+|
+| `Storage::fake()` gọi lại lần nữa trong `beforeEach` của một tệp test (nhiều tệp vẫn gọi, và
+| chúng được giữ nguyên) là vô hại: nó chỉ dựng lại cùng cái gốc ấy một lần nữa, trước khi thân
+| test chạy.
+|
+| Nhân chứng để dòng này không bị gỡ đi trong im lặng:
+| `tests/Feature/Storage/PrivateDiskTest.php`, test "đĩa private trong test luôn là đĩa giả" —
+| tệp đó KHÔNG tự gọi `Storage::fake()`, nên nó đọc đúng cái hook này đặt ra.
+|
+| `config('filesystems.disks.private.root')` KHÔNG bị `Storage::fake()` đổi (nó chỉ thay
+| instance đã phân giải trong `FilesystemManager`), nên các test đọc cấu hình đĩa ở
+| `PrivateDiskTest` vẫn nói về đĩa thật.
+*/
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
+    ->beforeEach(fn () => Storage::fake('private'))
     ->in('Feature');
 
-pest()->extend(TestCase::class)->in('Unit');
+pest()->extend(TestCase::class)
+    ->beforeEach(fn () => Storage::fake('private'))
+    ->in('Unit');
 
 /*
 |--------------------------------------------------------------------------
