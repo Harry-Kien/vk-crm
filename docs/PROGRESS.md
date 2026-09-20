@@ -6,7 +6,7 @@
 | M1 Migration / model / enum / factory / seeder | ✅ Xong | 2026-09-14 | 19 bảng SPEC §4 + `code_sequences` + `client_password_reset_tokens`; 13 enum; seeder đủ SPEC §12; 77 test xanh |
 | M2 Phân quyền (spatie, Policy, global scope client) | ✅ Xong | 2026-09-14 | 130 test xanh |
 | M3 Panel admin + `TransitionMatterStage` + `RunConflictCheck` | ✅ Xong | 2026-09-16 | 280 test xanh |
-| M4 Danh mục hồ sơ + tài liệu + `PublishDocument` | ✅ Xong | 2026-09-20 | Checklist, upload có `FileGuard` + seam quét virus, duyệt/từ chối, `PublishDocument`, lưu trữ đĩa `private`, route tải có chữ ký vẫn kiểm policy, hai tab mới ở trang vụ việc, hai widget SPEC §7.1 còn thiếu. 804 test xanh |
+| M4 Danh mục hồ sơ + tài liệu + `PublishDocument` | ✅ Xong | 2026-09-20 | Checklist, upload có `FileGuard` + seam quét virus, duyệt/từ chối, `PublishDocument`, lưu trữ đĩa `private`, route tải có chữ ký vẫn kiểm policy, hai tab mới ở trang vụ việc, hai widget SPEC §7.1 còn thiếu. Đã qua cổng hợp nhất (4 Important + 6 Minor, không Critical). 823 test xanh |
 | M5 Portal khách (OTP, hồ sơ, nộp tài liệu, yêu cầu) | ⬜ | | |
 | M6 Thông báo + tác vụ định kỳ + heartbeat | ⬜ | | |
 | M7 Bàn giao + lưu trữ + liên lạc + tìm kiếm | ⬜ | | |
@@ -471,6 +471,62 @@ mục này là bản một người đọc được.
   số hiện ra không phải con số của giai đoạn nào cả, và không có gì trên màn hình nói rằng nó
   là tổng của hai thứ. Nhãn cột giờ luôn kèm tên loại vụ việc.
 
+### Cổng hợp nhất M4 (2026-09-20)
+
+Vòng rà soát cả nhánh: **không có Critical** — một lượt quét chính sách vét cạn trên dữ liệu mẫu
+thật (16 tài khoản khách × 46 tài liệu × {xem, tải} = 1.472 quyết định `Gate`, không một vi phạm)
+cho thấy hai luật tuyệt đối của SPEC §11 đứng bằng ba lớp độc lập. Bốn việc Important và sáu việc
+Minor đã đóng; mỗi việc có mutation probe đi kèm.
+
+- **Thanh `X/Y` trả hai con số khác nhau cho cùng một hồ sơ.** `withCount` áp global scope của
+  `Document`, nên dưới guard `client` phép đếm thu về "đã công bố VÀ khách được xem", trong khi
+  đính chính SPEC §4.10 định nghĩa `Y` bằng "có tài liệu KHÔNG thuộc nhóm D". Nhân sự đọc `3/4`,
+  khách đọc `2/3` trên `VK-2026-DS-0003`. Năm test phủ luật đếm, không test nào chạy dưới guard
+  khách. Luật nay ở `App\Actions\Document\ChecklistProgress` (nó là **trường hiển thị trên
+  portal** theo đúng chữ của §4.10, nên M5 phải gọi được nó mà không `use` một lớp của panel
+  quản trị), phép đếm bỏ `ClientPortalScope` tường minh, và có cặp test so hai guard.
+- **Mỗi lần chạy `bin/dev test` ghi PDF thật vào kho hồ sơ sản xuất.** `Storage::fake('private')`
+  nay nằm ở `tests/Pest.php` cho MỌI test, không còn là một dòng mà từng tệp test phải nhớ gọi —
+  lỗi này đã quay lại lần thứ hai theo đúng con đường cũ. `PrivateDiskTest` có một test làm nhân
+  chứng cho chính cái hook đó. Đã dọn 4.448 tệp rác, giữ đúng 46 tệp của dữ liệu mẫu (đối chiếu
+  từng đường dẫn với bảng `media`).
+- **`AuthorizationException` thoát khỏi hợp đồng "mọi lời từ chối là một câu tiếng Việt".** Nó
+  kế thừa thẳng `\Exception` nên không thuộc ba họ mà `ReportsActionFailures` bắt, và nó bắn ra
+  từ lần hỏi lại quyền sau cửa sổ quét virus mà chính M4 thêm vào. Nay wrapper bắt nó và trả một
+  câu duy nhất cho mọi nguyên nhân (SPEC §10.10).
+- **Nhóm D giữ được `client_can_view`.** Hook `saving` hạ cột tải nhưng không hạ cột xem, nên
+  vòng `A → D → A` trả tài liệu về tay khách mà nhật ký chỉ có hai dòng `document_regrouped` —
+  một lần ra tới khách vô hình với người lọc theo tên sự kiện (SPEC §10.6). Nay hạ cả hai; helper
+  text của ô chuyển nhóm nói thẳng rằng vào nhóm D là thu hồi và ra khỏi nhóm D không trả lại.
+- Sáu việc nhỏ: hai câu docblock cãi nhau trong `DocumentsRelationManager`; một test vô nghĩa ở
+  `StageLogPaintingTest` (đã thay bằng phép đo biến màu `FilamentColor`);
+  `HeaderActionsAreReachableTest` hứa rộng hơn dataset (đã mở rộng lên chín trang và nói đúng
+  phạm vi); `PublishDocument` và `RegroupDocument` đọc `Document::query()` trần (nay qua
+  `ReadsWithoutPortalScope`); `RELEASED_AT_CREATION` là bản chép thứ hai của bảng §4.11 (nay hỏi
+  Action); và `var(--primary-500)` — biến màu duy nhất chưa có phép đo — đã đo trên trình duyệt
+  thật, con số nằm trong docblock `ChecklistRelationManager::progressBar()`.
+
+### Việc M5 phải làm TRƯỚC — không phải hoãn, là điều kiện vào
+
+M5 chạy MỌI thứ dưới guard `client`, nên ba việc dưới đây không được để lẫn vào danh sách hoãn:
+chúng là bước đầu tiên của milestone đó.
+
+1. **19 khoá dịch của Filament vẫn hiện tiếng Anh**, trong đó có `aria_label` của ô nhập OTP —
+   **chính là ô đăng nhập của cổng khách hàng**. `LocalizationTest` không thấy chúng vì nó chỉ
+   duyệt các tệp đã publish dưới `lang/vendor/`. Đây là việc ĐẦU TIÊN của M5: màn hình đầu tiên
+   một khách hàng nhìn thấy không được có chữ tiếng Anh nào. Liên quan: `lang/en/` đang CHE bản
+   `en` của framework, nên một lần nâng Laravel thêm thông báo xác thực mới sẽ thiếu luôn ở bản
+   `en` của ứng dụng mà `LocalizationTest` vẫn xanh.
+2. **`MatterPolicy::view` chạy `Matter::query()` mà KHÔNG bỏ `ClientPortalScope`.** Phát hiện khi
+   một mutation probe SỐNG SÓT. Dưới guard nhân sự nó vô hại; dưới guard khách — tức toàn bộ M5 —
+   policy trả lời bằng con mắt của guard đang mở thay vì bằng câu hỏi tường minh trên `$actor`.
+   Bốn Action tài liệu đã tự gỡ scope (`ReadsWithoutPortalScope`); policy là lớp còn lại.
+3. **Màn hình portal cần đúng lớp "lời từ chối thành câu tiếng Việt" mà panel admin có.**
+   `ReportsActionFailures` nằm trong `App\Filament\Admin\Concerns`, và bốn họ exception nó bắt
+   (kể cả `AuthorizationException` vừa thêm) đều bắn ra từ `SubmitClientDocument` — Action mà
+   portal gọi. Hoặc chuyển trait lên một namespace dùng chung, hoặc M5 sẽ dựng bản thứ hai và hai
+   bản sẽ lệch.
+
 ### Việc hoãn lại, có chủ đích
 
 - **`RetractDocument` — đặc tả đã viết, cài đặt ở M6.** Đường thu hồi một tài liệu HÔM NAY trên
@@ -492,21 +548,18 @@ mục này là bản một người đọc được.
   để lại dòng nào để dựng lại từ dữ liệu nhật ký.
 - `DocumentPolicy::create` nhánh khách không hỏi `is_active`, nên một màn hình M5 vẫn sẽ vẽ nút
   "Gửi tệp" cho một tài khoản đã bị khoá (Action thì từ chối — `ChecksAccountActive`).
-- `MatterPolicy::view` chạy `Matter::query()` mà KHÔNG bỏ `ClientPortalScope`, nên hai Action
-  danh mục hồ sơ không thể tự mình độc lập với guard đang mở. Phát hiện khi một mutation probe
-  SỐNG SÓT.
 - `MatterChecklistItem` chưa dùng `LogsActivity`: một lần sửa `rejection_reason` về sau ghi đè
   câu đang hiện cho khách mà không để lại dấu vết.
 - `MatterChecklistItemPolicy::review` cho phép một vụ việc đã xoá mềm. Siết bằng `matter.update`
   sẽ là cái bẫy "xanh vì lý do khác" lần nữa (`checklist.review` và `matter.update` phủ đúng
   cùng bốn vai trò), nên số hạng duy nhất không rỗng là `! $matter->trashed()`.
-- `document_downloads.document_id` là `cascadeOnDelete`, nên một lần xoá vĩnh viễn trong tương
-  lai sẽ xoá sạch đúng bằng chứng mà SPEC §4.12 tồn tại để giữ — liên quan trực tiếp tới
-  `RetractDocument` ở M6.
-- SPEC §10.3 không nêu giới hạn tần suất TẢI VỀ, và một URL đã ký dùng lại được trong 5 phút,
-  mỗi lần dùng lại là một dòng nữa trong sổ bằng chứng. Đã đặt `throttle:document-download`
-  đếm theo tài khoản; một nonce dùng một lần là đánh đổi SAI (nó sẽ từ chối đúng cú bấm lại sau
-  một lần tải đứt, tức đúng lúc một sổ bằng chứng không được phép từ chối).
+- **`document_downloads.document_id` phải rời `cascadeOnDelete` TRƯỚC khi M6 viết đường xoá
+  cứng của `RetractDocument`, không phải cùng lúc.** SPEC §4.12 bắt ghi "mọi lượt tải" và bảng đó
+  tồn tại để trả lời "khách đã mở bản này chưa" — nhưng khoá ngoại đang xoá theo tài liệu, nên
+  bằng chứng chết cùng chính cái dòng nó chứng minh. Chừng nào chưa có đường xoá cứng thì chưa ai
+  mất gì; ngày có, mất là mất im lặng và không khôi phục được. Thứ tự đúng: đổi sang
+  `nullOnDelete` (hoặc `restrictOnDelete`) trong một migration RIÊNG, rồi mới viết
+  `RetractDocument`.
 - `TransitionMatterStage` vẫn nhận `DateTimeInterface|string` và đưa thẳng vào `Carbon::parse`,
   tức vẫn mang lỗi đã sửa ở hai Action tài liệu: một chuỗi không parse được thành 500 thay vì
   một lỗi xác thực trên form.
@@ -517,12 +570,13 @@ mục này là bản một người đọc được.
 - `SyncClientPartyIdentities` có thể TẠO RA một xung đột mức đỏ khi nó ghi lại `id_number_hash`
   của các bên, mà không có lần kiểm tra nào chạy sau đó. SPEC §6.10 chỉ bắt buộc hai thời điểm
   nên đây không phải vi phạm, nhưng nó là thời điểm thứ ba và cần một quyết định.
-- 19 khoá dịch của Filament vẫn hiện tiếng Anh trong các tệp chưa ai publish, và
-  `LocalizationTest` không nhìn thấy vì nó chỉ duyệt tệp đã có dưới `lang/vendor/`. Đáng kể
-  nhất: các câu giới hạn tần suất của `filament/auth/multi-factor/**` và `aria_label` của ô
-  nhập OTP — **chính là ô đăng nhập của cổng khách hàng ở M5**. Liên quan: `lang/en/` đang CHE
-  bản `en` của framework, nên một lần nâng Laravel thêm thông báo xác thực mới sẽ thiếu luôn ở
-  bản `en` của ứng dụng mà `LocalizationTest` vẫn xanh.
+- Hai việc từng nằm ở danh sách này — 19 khoá dịch Filament còn tiếng Anh, và
+  `MatterPolicy::view` không bỏ `ClientPortalScope` — đã được ĐẨY LÊN thành điều kiện vào của
+  M5, xem mục ngay trên. Chúng rời khỏi đây vì M5 chạy mọi thứ dưới guard `client` và màn hình
+  đầu tiên khách hàng nhìn thấy là ô nhập OTP.
+- Giới hạn tần suất TẢI VỀ đã rời khỏi danh sách này: `throttle:document-download` đếm theo tài
+  khoản ĐÃ đặt (`DocumentDownloadController::DOWNLOADS_PER_MINUTE`, bộ đếm ở `AppServiceProvider`),
+  nên mục cũ tự mâu thuẫn với chính tiêu đề "hoãn lại" của nó.
 
 ### Kiểm tra tay cuối M4 (sau `migrate:fresh --seed`)
 
