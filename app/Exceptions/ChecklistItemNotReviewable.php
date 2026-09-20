@@ -72,16 +72,11 @@ class ChecklistItemNotReviewable extends DomainException
     }
 
     /**
-     * Hồ sơ chủ quản đã bị xoá mềm. Đứng TRƯỚC `Gate` trong Action, cùng lý do với
-     * `DocumentNotPublishable::matterUnavailable()`: câu trả lời giống hệt nhau cho mọi người hỏi
-     * nên nó không phân biệt được ai với ai, và nó là một bất biến dữ liệu chứ không phải một
-     * quyết định phân quyền — `MatterChecklistItemPolicy::review` hôm nay đi qua `canSeeMatter`,
-     * thứ CỐ Ý cho quản trị viên thấy cả hồ sơ đã xoá mềm.
-     */
-    /**
-     * `MarkChecklistItemNotApplicable` gặp một đầu mục đang `pending_review`: có một tệp khách
-     * vừa gửi lên đang nằm chờ ai đó mở ra xem, và gạt đầu mục sang "không cần nộp" lúc đó là
-     * vứt lần nộp ấy vào im lặng.
+     * Một đầu mục đang `pending_review`: có một tệp khách vừa gửi lên đang nằm chờ ai đó mở ra
+     * xem, và cả hai thao tác đóng đầu mục lại lúc đó đều vứt lần nộp ấy vào im lặng —
+     * `MarkChecklistItemNotApplicable` gạt nó sang "không cần nộp", còn `UploadStaffDocument` ở
+     * nhóm A ghi thẳng `accepted` kèm tên người vừa bấm nút tải lên. Điều kiện chung nằm ở
+     * `App\Actions\Document\Concerns\RefusesWhileAwaitingReview`, nên hai nơi không thể lệch nhau.
      *
      * Đứng SAU `Gate`, cùng hạng với `nothingToReject()`: một câu về trạng thái bản ghi, chỉ
      * người đã có quyền trên hồ sơ mới được nghe.
@@ -91,6 +86,20 @@ class ChecklistItemNotReviewable extends DomainException
         return new self(__('checklist.not_applicable.awaiting_review'), $checklistItem);
     }
 
+    /**
+     * Hồ sơ chủ quản đã bị xoá mềm. Đứng SAU `Gate` trong `OpensChecklistItem`, và đó là một thứ
+     * tự đã được SỬA một lần: bản đầu trả lời câu này TRƯỚC cổng quyền với lập luận rằng nó giống
+     * hệt nhau cho mọi người hỏi nên không rò rỉ gì. Lập luận đó đúng cho câu "không tìm thấy đầu
+     * mục" và SAI cho câu này — tình huống "hồ sơ đã bị xoá" chỉ với tới được khi đầu mục CÓ
+     * THẬT, nên trả lời nó cho một người không có quyền nào là xác nhận rằng cái id họ vừa gõ là
+     * một id thật (SPEC §10.10). Từ chỗ nó đứng bây giờ, người đọc nó chắc chắn đã có quyền trên
+     * hồ sơ, nên câu này được phép nói ra chuyện gì đã xảy ra và cách sửa.
+     *
+     * Nó vẫn là một câu về BẤT BIẾN DỮ LIỆU chứ không phải một quyết định phân quyền, và vì vậy
+     * nó tồn tại riêng thay vì tan vào `unavailable()`: `MatterChecklistItemPolicy::review` đi
+     * qua `canSeeMatter`, thứ CỐ Ý cho quản trị viên thấy cả hồ sơ đã xoá mềm — và chính họ là
+     * người cần đọc câu "khôi phục hồ sơ trước đã".
+     */
     public static function matterUnavailable(MatterChecklistItem $checklistItem): self
     {
         return new self(__('checklist.review.matter_unavailable'), $checklistItem);

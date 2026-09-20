@@ -75,10 +75,12 @@ class ReviewChecklistItem
         ?string $rejectionReason = null,
     ): MatterChecklistItem {
         return DB::transaction(function () use ($checklistItem, $actor, $decision, $rejectionReason): MatterChecklistItem {
-            // Đọc lại bản ghi, giải hồ sơ, hỏi quyền — bốn cổng, một chỗ, dùng chung với
+            // Đọc lại bản ghi, giải hồ sơ, hỏi quyền — bốn bước, một chỗ, dùng chung với
             // `MarkChecklistItemNotApplicable`: xem `OpensChecklistItem`, nơi SPEC §10.10 cho
-            // danh mục hồ sơ được phát biểu. `$checklistItem` mà caller đưa vào chỉ dùng để lấy
-            // khoá chính.
+            // danh mục hồ sơ được phát biểu. (Bốn BƯỚC, năm điều kiện từ chối: bước 3 hỏi cả tài
+            // khoản còn hiệu lực lẫn `Gate`, bước 4 hỏi cả khoá ngoại hỏng lẫn hồ sơ đã xoá mềm.
+            // Bản đầu của câu này viết "bốn cổng" trên một danh sách năm điều kiện.)
+            // `$checklistItem` mà caller đưa vào chỉ dùng để lấy khoá chính.
             [$fresh, $matter] = $this->openChecklistItem($checklistItem, $actor);
 
             $this->guardDecisionAgainstState($fresh, $decision);

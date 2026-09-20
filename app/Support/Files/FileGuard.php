@@ -57,10 +57,12 @@ use ZipArchive;
  * `safeName()`, và **mọi nơi ghi tên tệp do client gửi xuống cơ sở dữ liệu hay vào một header
  * `Content-Disposition` phải đi qua `safeName()` trước** — xem docblock của nó.
  *
- * Nói rõ để không ai đọc nhầm: tới lúc này `safeName()` CHƯA có nơi gọi nào trong mã sản phẩm, vì
- * `UploadStaffDocument`/`SubmitClientDocument` (Task 3/4) và `DocumentDownloadController`
- * (Task 5) chưa tồn tại. Nó là cái móc dựng sẵn cho ba chỗ đó, không phải một ràng buộc đang được
- * thi hành; thứ duy nhất đang thi hành điều gì là `guardName()`, và nó chỉ biết TỪ CHỐI.
+ * Ba nơi gọi đó nay đã tồn tại và đều gọi: `StoresDocumentFile::storeFile()` cho `media.name` (đường
+ * vào của cả `UploadStaffDocument` lẫn `SubmitClientDocument`) và
+ * `DocumentDownloadController::downloadName()` cho tên đi vào `Content-Disposition`. Chỗ thứ ba —
+ * lần gọi trong `check()` khi ghi log `content_mismatch` — ở ngay trong lớp này. Câu in đậm phía
+ * trên vì vậy là một ràng buộc đang được thi hành ở mọi đường đã biết, không còn là một cái móc
+ * dựng sẵn; nhưng nó vẫn là một quy ước do người đọc giữ, không có gì trong mã ép được nó.
  */
 final class FileGuard
 {

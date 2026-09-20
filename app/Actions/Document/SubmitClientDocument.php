@@ -60,6 +60,16 @@ use Illuminate\Support\Facades\Gate;
  * đầu tồn tại để một id bịa dừng lại ở câu truy vấn rẻ nhất; lần hỏi trong transaction mới là
  * câu trả lời được dùng.
  *
+ * Nói cho đúng phạm vi của câu đó, vì bản đầu viết nó rộng hơn sự thật: thứ được hỏi lại trên DỮ
+ * LIỆU MỚI là đầu mục, hồ sơ và `Gate`. `accountIsActive()` thì KHÔNG — cả hai lần nó đọc cùng
+ * một đối tượng `$actor` trong bộ nhớ, thứ caller nạp trước khi gọi, nên một tài khoản bị vô hiệu
+ * hoá ĐÚNG trong 30 giây quét vẫn đi qua được cả hai lần hỏi. Điều đó chấp nhận được ở đây và
+ * không phải một lỗ hổng SPEC §10.9: đối tượng đó đến từ phiên đăng nhập của chính request đang
+ * chạy, và §10.9 đòi hiệu lực "ngay ở request KẾ TIẾP" — request kế tiếp nạp lại `$actor` từ cơ
+ * sở dữ liệu và dừng ở `canAccessPanel()`. Nếu một ngày nào đó cần chặt hơn thì chỗ sửa là đọc
+ * lại `$actor` dưới transaction, không phải gọi `accountIsActive()` thêm một lần nữa trên cùng
+ * đối tượng cũ.
+ *
  * **Một câu từ chối duy nhất cho ba tình huống** — SPEC §10.10, xem {@see self::refuse()}. Không
  * tồn tại, đã bị xoá khỏi danh mục, và không phải của người đang hỏi phải không phân biệt được ở
  * cả LỚP lẫn CÂU CHỮ; bản đầu chỉ làm được vế thứ nhất, và vế thứ hai mới là thứ người ngoài
