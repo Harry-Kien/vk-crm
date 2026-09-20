@@ -2,10 +2,10 @@
 
 namespace App\Filament\Admin\Widgets;
 
+use App\Actions\Document\ChecklistProgress;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\Permission;
 use App\Filament\Admin\Resources\Matters\MatterResource;
-use App\Filament\Admin\Resources\Matters\RelationManagers\ChecklistRelationManager;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Models\User;
@@ -39,9 +39,8 @@ use Illuminate\Support\Facades\DB;
  * của SPEC §4.10 gặp nhau, và chúng phải trả lời giống nhau: câu hỏi "đầu mục này đã xong chưa"
  * ở CẢ HAI nơi chỉ đọc cột `status` và không hỏi bảng `documents` một câu nào. Chỗ duy nhất
  * `documents` tham gia vào phép đếm danh mục là định nghĩa tập `Y` ở §4.10 — nơi chính SPEC
- * dùng chữ "đã có tài liệu", và nơi nhóm D đã bị loại ra
- * ({@see ChecklistRelationManager::progressFor()}).
- * Nên không có đường nào cho một ghi chú nội bộ nhóm D làm một đầu mục trông như đã nộp ở nơi
+ * dùng chữ "đã có tài liệu", và nơi nhóm D đã bị loại ra ({@see ChecklistProgress}). Nên không
+ * có đường nào cho một ghi chú nội bộ nhóm D làm một đầu mục trông như đã nộp ở nơi
  * này mà chưa nộp ở nơi kia. Mọi đầu mục bắt buộc đều nằm trong `Y`, nên mỗi dòng đếm ở đây
  * cũng đúng là một phần tử của `Y` chưa vào `X`.
  *

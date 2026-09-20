@@ -2,10 +2,10 @@
 
 namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 
+use App\Actions\Document\ChecklistProgress;
 use App\Actions\Document\MarkChecklistItemNotApplicable;
 use App\Actions\Document\ReviewChecklistItem;
 use App\Enums\ChecklistItemStatus;
-use App\Enums\DocumentGroup;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Concerns\ScopesToVisibleMatters;
 use App\Models\Matter;
@@ -68,82 +68,18 @@ class ChecklistRelationManager extends RelationManager
 
     protected static string $relationship = 'checklistItems';
 
-    /**
-     * Bí danh của bộ đếm tài liệu gắn vào một đầu mục, KHÔNG kể nhóm D — xem
-     * {@see self::progressFor()} cho lý do nhóm D bị loại khỏi phép đếm "đã có tài liệu".
-     */
-    private const DOCUMENT_COUNT_ALIAS = 'client_facing_documents_count';
-
-    /**
-     * Hai trạng thái được tính là "đã xong" ở tử số `X`. `not_applicable` nằm cùng hạng với
-     * `accepted` vì cả hai đều trả lời "văn phòng không còn chờ gì ở đầu mục này" — thứ duy nhất
-     * thanh tiến độ nói.
-     *
-     * @var list<ChecklistItemStatus>
-     */
-    private const SETTLED_STATUSES = [ChecklistItemStatus::Accepted, ChecklistItemStatus::NotApplicable];
-
     public static function getTitle(Model $ownerRecord, string $pageClass): string
     {
         return __('matters.tabs.checklist');
     }
 
     /**
-     * Thanh tiến độ `X/Y` của SPEC §7.2, tính theo SPEC §4.10 — và cách đọc đó đã phải sửa một
-     * lần, nên nó được viết ra đầy đủ ở đây.
-     *
-     * SPEC §4.10 định nghĩa `Y` là "số item `is_required = true` cộng số item không bắt buộc
-     * nhưng đã có tài liệu". Đó là một TẬP HỢP các dòng cụ thể, không phải một con số rời — và
-     * `X` phải đếm BÊN TRONG tập đó. Bản kế hoạch đầu viết "`X` = số đầu mục có `status` thuộc
-     * {`accepted`, `not_applicable`}, không cần nhìn tới bảng `documents` chút nào", và câu đó
-     * cho ra một thanh tiến độ LỚN HƠN MẪU SỐ trên chính dữ liệu mẫu: `MatterSeeder` đánh dấu
-     * mọi đầu mục KHÔNG bắt buộc là `not_applicable` và không gắn tài liệu nào — đúng nghĩa của
-     * trạng thái đó — nên những dòng ấy nằm trong tử số mà không nằm trong mẫu số. Một vụ `DS`
-     * với 3 mục bắt buộc và 2 mục không bắt buộc hiện ra "Đã nộp 5/3", trên đúng con số mà M5 sẽ
-     * đưa lên thẻ hồ sơ của chính khách hàng.
-     *
-     * Seeder KHÔNG sai và không phải sửa: một đầu mục không bắt buộc, không tài liệu, được đánh
-     * dấu "không cần nộp" thì đơn giản là không xuất hiện trên thanh tiến độ. Đó cũng là thứ
-     * khách cần thấy.
-     *
-     * **Nhóm D bị loại khỏi vế "đã có tài liệu".** Một tài liệu nhóm D (hồ sơ công việc nội bộ)
-     * GẮN ĐƯỢC vào một đầu mục danh mục và đó là việc hợp lệ — một ghi chú nội bộ về đúng giấy tờ
-     * đó. Nếu nó được tính là "đầu mục này đã có tài liệu" thì một ghi chú công việc của văn
-     * phòng tự kéo một đầu mục không bắt buộc vào mẫu số, tức là tự thêm một việc vào danh sách
-     * khách phải làm. Điều kiện của `X` chỉ đọc cột `status` (thứ mà `UploadStaffDocument`,
-     * `ReviewChecklistItem` và `MarkChecklistItemNotApplicable` ghi) và không hỏi bảng
-     * `documents` một câu nào — nhưng `X` VẪN phụ thuộc vào bảng đó, vì nó chỉ chạy trên các dòng
-     * đã nằm trong `Y`. Nói cho đúng như vậy: chỗ duy nhất `documents` được hỏi là định nghĩa của
-     * `Y`, và nó phải được hỏi ở đó, vì chính SPEC §4.10 định nghĩa `Y` bằng chữ "đã có tài liệu".
-     *
-     * `withCount` áp global scope của `Document`, nên một tài liệu đã xoá mềm không còn đếm là
-     * "đã có tài liệu" — đúng: dòng đó không còn trong hồ sơ.
-     *
-     * @return array{submitted: int, total: int}
-     */
-    public static function progressFor(Matter $matter): array
-    {
-        $items = $matter->checklistItems()
-            ->withCount([
-                'documents as '.self::DOCUMENT_COUNT_ALIAS => fn (Builder $query): Builder => $query
-                    ->where('group', '!=', DocumentGroup::Internal->value),
-            ])
-            ->get();
-
-        $counted = $items->filter(fn (MatterChecklistItem $item): bool => $item->is_required
-            || ($item->{self::DOCUMENT_COUNT_ALIAS} ?? 0) > 0);
-
-        return [
-            'submitted' => $counted
-                ->filter(fn (MatterChecklistItem $item): bool => in_array($item->status, self::SETTLED_STATUSES, true))
-                ->count(),
-            'total' => $counted->count(),
-        ];
-    }
-
-    /**
      * Thanh tiến độ như nó hiện ra. Tách static để test được mà không dựng cả bảng, cùng thành
      * ngữ với `StageLogsRelationManager::renderInternalNote()`.
+     *
+     * **Con số thì không tính ở đây.** Luật đếm `X/Y` của SPEC §4.10 (kèm đính chính
+     * 2026-09-16) nằm ở {@see ChecklistProgress}, vì nó là một luật nghiệp vụ và vì M5 hiện đúng
+     * con số này cho chính khách hàng — xem docblock lớp đó. Ở đây chỉ còn việc vẽ.
      *
      * Mẫu số bằng 0 có câu RIÊNG chứ không hiện "0/0" kèm một thanh rỗng: một hồ sơ chưa có gì để
      * theo dõi và một hồ sơ khách chưa nộp gì là hai tình huống khác hẳn nhau, và một thanh 0%
@@ -160,7 +96,7 @@ class ChecklistRelationManager extends RelationManager
      */
     public static function progressBar(Matter $matter): Htmlable
     {
-        ['submitted' => $submitted, 'total' => $total] = static::progressFor($matter);
+        ['submitted' => $submitted, 'total' => $total] = app(ChecklistProgress::class)->handle($matter);
 
         if ($total === 0) {
             return new HtmlString(sprintf(
@@ -224,7 +160,7 @@ class ChecklistRelationManager extends RelationManager
                     ->badge()
                     ->formatStateUsing(fn (ChecklistItemStatus $state): string => $state->label())
                     ->color(fn (ChecklistItemStatus $state): string => static::statusColor($state)),
-                TextColumn::make(self::DOCUMENT_COUNT_ALIAS)
+                TextColumn::make(ChecklistProgress::DOCUMENT_COUNT_ALIAS)
                     ->label(__('checklist.tab.columns.documents_count')),
                 // Câu này khách đang đọc trên portal của họ, nên nó hiện đầy đủ ở đây — người
                 // duyệt phải đọc lại được chính xác thứ văn phòng đã nói, không phải một bản rút
@@ -249,12 +185,13 @@ class ChecklistRelationManager extends RelationManager
                 $this->rejectAction(),
                 $this->markNotApplicableAction(),
             ])
-            ->modifyQueryUsing(fn (Builder $query): Builder => static::scopeToVisibleMatters($query)
-                ->withCount([
-                    'documents as '.self::DOCUMENT_COUNT_ALIAS => fn (Builder $documents): Builder => $documents
-                        ->where('group', '!=', DocumentGroup::Internal->value),
-                ])
-                ->with('reviewer'));
+            // Bộ đếm tài liệu của CỘT là đúng bộ đếm mà mẫu số của thanh tiến độ dùng, lấy từ
+            // `ChecklistProgress` chứ không viết lại: một `withCount` thứ hai ở đây là cách để
+            // cột "Số tài liệu" và con số `X/Y` ngay trên đầu bảng nói hai chuyện khác nhau về
+            // cùng một dòng.
+            ->modifyQueryUsing(fn (Builder $query): Builder => ChecklistProgress::countClientFacingDocuments(
+                static::scopeToVisibleMatters($query)
+            )->with('reviewer'));
     }
 
     private function acceptAction(): Action

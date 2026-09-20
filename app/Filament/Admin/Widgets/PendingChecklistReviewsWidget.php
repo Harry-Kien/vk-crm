@@ -60,7 +60,7 @@ class PendingChecklistReviewsWidget extends TableWidget
      * Mốc "khách nộp lúc" là `MAX(created_at)` của các tài liệu **nhóm A** gắn vào đầu mục. Nhóm
      * A là "khách cung cấp" (SPEC §4.11) bất kể ai bấm nút nộp, nên nó là lần nộp. Các nhóm khác
      * bị loại vì một tài liệu nhóm D — ghi chú công việc nội bộ — GẮN ĐƯỢC vào một đầu mục danh
-     * mục (đó là việc hợp lệ, xem `ChecklistRelationManager::progressFor()`), và nếu nó được
+     * mục (đó là việc hợp lệ, xem `App\Actions\Document\ChecklistProgress`), và nếu nó được
      * tính thì một ghi chú viết hôm nay sẽ làm một lần nộp từ chín ngày trước trông như vừa mới
      * đến — tức là đẩy đúng việc tồn lâu nhất xuống cuối hàng chờ.
      *
