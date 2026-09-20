@@ -71,4 +71,65 @@ return [
     'regroup' => [
         'leaving_internal_group' => 'Tài liệu nhóm D (hồ sơ công việc nội bộ) chỉ chuyển sang nhóm khác bằng thao tác "Chuyển nhóm tài liệu" — thao tác đó ghi lại ai chuyển và chuyển từ nhóm nào sang nhóm nào. Anh/chị dùng thao tác đó thay vì sửa nhóm trực tiếp trên biểu mẫu.',
     ],
+
+    /*
+     * Tab "Tài liệu" trên trang chi tiết vụ việc (SPEC §7.2). Người đọc là nhân sự nội bộ.
+     *
+     * `internal_marker` chép NGUYÊN VĂN câu SPEC §7.2 in đậm ("Chỉ nội bộ — không bao giờ hiện
+     * cho khách"). Nó không phải một lời nhắc chung chung: nhóm D là nơi ghi chú công việc, đánh
+     * giá khả năng thắng kiện và trao đổi nội bộ nằm, và cái giá của một lần nhầm nhóm ở đây
+     * không lấy lại được. Không diễn đạt lại, không rút gọn.
+     */
+    'tab' => [
+        'internal_marker' => 'Chỉ nội bộ — không bao giờ hiện cho khách',
+        'columns' => [
+            'group' => 'Nhóm',
+            'title' => 'Tên tài liệu',
+            'status' => 'Trạng thái',
+            'version' => 'Bản',
+            'checklist_item' => 'Đầu mục danh mục',
+            'client_access' => 'Khách xem/tải',
+            'uploaded_at' => 'Đưa vào hồ sơ',
+            'issued_at' => 'Ngày ban hành',
+        ],
+        'client_access' => [
+            'none' => 'Khách chưa thấy',
+            'view_only' => 'Khách xem được, chưa tải được',
+            'view_and_download' => 'Khách xem và tải được',
+            // Nhóm D không có ô nào để bật: SPEC §4.11 gọi đây là ranh giới tuyệt đối, nên dòng
+            // này nói ra điều đó thay vì hiện "Khách chưa thấy" — một câu đọc như thể chỉ cần
+            // bật lên là xong.
+            'never' => 'Không bao giờ ra tới khách',
+        ],
+        'actions' => [
+            'upload' => 'Đưa tài liệu vào hồ sơ',
+            'upload_heading' => 'Đưa một tài liệu vào hồ sơ',
+            'upload_success' => 'Đã lưu tài liệu vào hồ sơ.',
+            'publish' => 'Công bố cho khách',
+            'publish_heading' => 'Công bố tài liệu này cho khách',
+            'publish_success' => 'Đã công bố tài liệu cho khách.',
+            'regroup' => 'Chuyển nhóm',
+            'regroup_heading' => 'Chuyển tài liệu này sang nhóm khác',
+            'regroup_success' => 'Đã chuyển tài liệu sang nhóm mới và ghi lại thay đổi.',
+            'download' => 'Tải tệp',
+        ],
+        'fields' => [
+            'file' => 'Tệp',
+            'file_help' => 'Nhận PDF, ảnh (JPG, JPEG, PNG) hoặc tệp Word/Excel (DOC, DOCX, XLS, XLSX), tối đa :max MB mỗi tệp.',
+            'title' => 'Tên tài liệu',
+            'title_help' => 'Tên này hiện trong danh sách của văn phòng, và với tài liệu đã công bố thì hiện cả cho khách. Viết đủ để nhận ra tài liệu mà không cần mở tệp.',
+            'group' => 'Nhóm tài liệu',
+            // Bốn nhóm quyết định ai đọc được tệp, nên ô này là ô quan trọng nhất của biểu mẫu.
+            'group_help' => 'Nhóm quyết định khách có thấy tài liệu này hay không. Nhóm A ra tới khách ngay khi lưu; nhóm B và C nằm trong hồ sơ cho tới khi có người bấm công bố; nhóm D không bao giờ ra tới khách.',
+            'checklist_item' => 'Gắn vào đầu mục danh mục',
+            'checklist_item_help' => 'Để trống nếu tài liệu này không thuộc đầu mục nào trong danh mục hồ sơ.',
+            'checklist_item_none' => 'Không gắn vào đầu mục nào',
+            'issued_at' => 'Ngày ban hành hoặc ngày nộp thực tế',
+            'client_can_view' => 'Cho khách xem',
+            'client_can_view_help' => 'Khách thấy tài liệu này trong hồ sơ của họ trên trang khách hàng.',
+            'client_can_download' => 'Cho khách tải về',
+            'client_can_download_help' => 'Tắt ô này nếu muốn khách biết đã có tài liệu nhưng chưa cho giữ bản sao.',
+            'target_group' => 'Chuyển sang nhóm',
+        ],
+    ],
 ];

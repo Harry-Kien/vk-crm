@@ -59,10 +59,69 @@ return [
     ],
 
     /*
-     * `MarkChecklistItemNotApplicable` (SPEC §4.10). Trợ lý hoặc luật sư đọc.
+     * `MarkChecklistItemNotApplicable` (SPEC §4.10) VÀ `UploadStaffDocument` ở nhóm A — hai thao
+     * tác, một câu, vì chúng dùng chung điều kiện ở `App\Actions\Document\Concerns     * RefusesWhileAwaitingReview`. Trợ lý hoặc luật sư đọc.
+     *
+     * Câu này từng chỉ nói về thao tác "không cần nộp"; nó đã được viết lại cho TRUNG TÍNH khi
+     * `UploadStaffDocument` bắt đầu dùng chung điều kiện đó (việc mang sang từ vòng sửa Task 4,
+     * ghi trong docblock của trait ấy). Một câu dùng cho hai thao tác mà chỉ gọi tên một thao tác
+     * là một câu nói sai với một nửa số người đọc nó.
      */
     'not_applicable' => [
-        'awaiting_review' => 'Mục này đang có một tệp khách vừa gửi lên và chưa ai xem. Đánh dấu "không cần nộp" lúc này là bỏ qua tệp đó mà không nói gì với khách. Anh/chị duyệt hoặc từ chối tệp đang chờ trước, rồi quay lại đánh dấu nếu vẫn thấy mục này không cần.',
+        'awaiting_review' => 'Mục này đang có một tệp khách vừa gửi lên và chưa ai xem. Đóng mục lại lúc này — dù bằng cách đánh dấu "không cần nộp", hay bằng cách nộp thay một tệp khác vào đúng mục đó — là bỏ qua tệp của khách mà không nói gì với họ; riêng lần nộp thay còn ghi vào hồ sơ rằng đã có người duyệt. Anh/chị duyệt hoặc từ chối tệp đang chờ trước, rồi quay lại làm tiếp.',
+    ],
+
+    /*
+     * Tab "Danh mục hồ sơ" trên trang chi tiết vụ việc (SPEC §7.2). Người đọc là trợ lý hoặc luật
+     * sư; các câu ở đây nói về thao tác, còn những câu KHÁCH đọc (lý do từ chối) nằm ở
+     * `rejection_templates` bên dưới và ở cột `rejection_reason` của chính bản ghi.
+     */
+    'tab' => [
+        // Thanh tiến độ của SPEC §7.2. `:submitted`/`:total` là X/Y theo SPEC §4.10 — xem
+        // `ChecklistRelationManager::progressFor()` cho định nghĩa của tập Y và vì sao X đếm
+        // bên trong nó.
+        'progress' => 'Đã nộp :submitted/:total giấy tờ cần cho hồ sơ này',
+        // Câu đi kèm khi mẫu số bằng 0: một hồ sơ chưa có đầu mục bắt buộc nào và chưa ai nộp gì
+        // thì "0/0" không nói được điều gì, còn một thanh rỗng 0% thì trông như một hồ sơ đang
+        // tắc. Hai tình huống khác hẳn nhau nên chúng có hai câu khác nhau.
+        'progress_empty' => 'Hồ sơ này chưa có giấy tờ nào cần theo dõi: danh mục chưa có mục bắt buộc, và chưa có tài liệu nào của khách gắn vào mục không bắt buộc.',
+        'columns' => [
+            'name' => 'Đầu mục giấy tờ',
+            'is_required' => 'Bắt buộc',
+            'status' => 'Trạng thái',
+            'rejection_reason' => 'Lý do đã nói với khách',
+            'reviewer' => 'Người duyệt',
+            'reviewed_at' => 'Duyệt lúc',
+            'documents_count' => 'Số tệp đã nộp',
+        ],
+        'actions' => [
+            'accept' => 'Đã nhận',
+            'accept_heading' => 'Xác nhận đã nhận đủ giấy tờ của đầu mục này',
+            'accept_description' => 'Khách sẽ thấy mục này chuyển sang "Đã nhận" và không còn bị nhắc nộp nữa.',
+            'accept_success' => 'Đã ghi nhận đầu mục này là đã nhận đủ.',
+            'reject' => 'Cần nộp lại',
+            'reject_heading' => 'Từ chối giấy tờ và báo cho khách biết phải làm gì',
+            'reject_success' => 'Đã gửi yêu cầu nộp lại kèm lý do cho khách.',
+            'not_applicable' => 'Không cần nộp',
+            'not_applicable_heading' => 'Đánh dấu đầu mục này là không cần nộp',
+            'not_applicable_description' => 'Mục này sẽ không còn nằm trong danh sách giấy tờ khách phải nộp, và thanh tiến độ tính lại theo đó.',
+            'not_applicable_success' => 'Đã đánh dấu đầu mục này là không cần nộp.',
+        ],
+        'fields' => [
+            'rejection_reason' => 'Lý do, viết cho khách đọc',
+            // Nhắc thẳng rằng câu này ra khỏi văn phòng. SPEC §6.7 tồn tại vì trợ lý hay viết
+            // "không hợp lệ", và một dòng nhắc ngay dưới ô nhập rẻ hơn một vòng nộp lại.
+            'rejection_reason_help' => 'Câu này hiện nguyên văn trên màn hình của khách và được gửi kèm email, nên hãy viết như đang nói chuyện với họ: chỗ nào chưa đạt, và cần làm gì để nộp lại cho đúng. Bấm một mẫu bên dưới rồi sửa lại cho đúng trường hợp.',
+            'templates' => 'Mẫu có sẵn — bấm một cái là điền',
+        ],
+        // Nhãn ngắn của ba cái nút điền mẫu. Nội dung ĐẦY ĐỦ của mỗi mẫu nằm ở
+        // `rejection_templates` bên dưới, nguyên văn SPEC §6.7; ba nhãn này chỉ để người duyệt
+        // nhận ra mẫu nào là mẫu nào mà không phải đọc hết cả đoạn.
+        'template_labels' => [
+            'blurred' => 'Ảnh mờ, chụp lại',
+            'uncertified_copy' => 'Bản photo chưa chứng thực',
+            'wrong_document' => 'Nộp nhầm tài liệu',
+        ],
     ],
 
     /*

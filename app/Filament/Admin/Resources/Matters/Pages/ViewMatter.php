@@ -12,11 +12,12 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * Trang chi tiết vụ việc (SPEC §7.2): ba tab của M3 — Tổng quan (nội dung của chính trang này,
- * infolist ở MatterInfolist), Tiến độ và Các bên (StageLogsRelationManager /
+ * Trang chi tiết vụ việc (SPEC §7.2): năm tab — Tổng quan (nội dung của chính trang này,
+ * infolist ở MatterInfolist), Tiến độ, Danh mục hồ sơ, Tài liệu và Các bên
+ * (StageLogsRelationManager / ChecklistRelationManager / DocumentsRelationManager /
  * PartiesRelationManager, đăng ký ở MatterResource::getRelations()) — hiển thị chung một dải tab
- * nhờ hasCombinedRelationManagerTabsWithContent(). Các tab M4/M6/M7 (Danh mục hồ sơ, Tài liệu,
- * Mốc thời hạn, Liên lạc, Yêu cầu từ khách, Nhật ký) không thuộc phạm vi task này.
+ * nhờ hasCombinedRelationManagerTabsWithContent(). Các tab M6/M7 (Mốc thời hạn, Liên lạc, Yêu
+ * cầu từ khách, Nhật ký) chưa xây.
  */
 class ViewMatter extends ViewRecord
 {

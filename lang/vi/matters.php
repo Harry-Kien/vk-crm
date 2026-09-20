@@ -27,6 +27,11 @@ return [
     'tabs' => [
         'overview' => 'Tổng quan',
         'progress' => 'Tiến độ',
+        // Hai tab của M4 (SPEC §7.2). Tên chép nguyên văn SPEC: "Danh mục hồ sơ" là danh sách
+        // giấy tờ CẦN có, "Tài liệu" là những tệp đã thật sự nằm trong hồ sơ — hai thứ khác nhau
+        // và người dùng phân biệt chúng bằng đúng hai cái tên này.
+        'checklist' => 'Danh mục hồ sơ',
+        'documents' => 'Tài liệu',
         'parties' => 'Các bên',
     ],
     'overview_sections' => [
