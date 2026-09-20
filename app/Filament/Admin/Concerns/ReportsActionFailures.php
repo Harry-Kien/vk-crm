@@ -7,6 +7,7 @@ use Closure;
 use DomainException;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -14,7 +15,7 @@ use Illuminate\Validation\ValidationException;
  * mắt người dùng bằng tiếng Việt — không bao giờ thành trang 500, không bao giờ thành một chuỗi
  * tiếng Anh của framework.
  *
- * **Ba họ exception, và chúng đi bằng ba đường khác nhau.** Đây là lý do trait này tồn tại thay
+ * **Bốn họ exception, và chúng đi bằng bốn đường khác nhau.** Đây là lý do trait này tồn tại thay
  * vì một `try/catch` chép đi chép lại ở từng nút:
  *
  *  1. `ValidationException` — Action đang nói về một Ô NHẬP SAI và đã gắn sẵn tên ô
@@ -32,6 +33,10 @@ use Illuminate\Validation\ValidationException;
  *     một ô nào. Không có ô để gắn vào, nên nó ra bằng một `Notification` `persistent()`: những
  *     câu này dài (mỗi câu nói ra việc cần làm tiếp theo, SPEC §8.4) và một thông báo tự tắt sau
  *     vài giây là một câu không ai đọc hết.
+ *  4. `AuthorizationException` — `Gate` bên trong Action từ chối. Nó KHÔNG phải con của
+ *     `DomainException` (nó kế thừa thẳng `\Exception`), nên trước bản sửa này nó thoát khỏi cả
+ *     ba nhánh trên và đi lên thành một trang 403 mang nguyên văn tiếng Anh "This action is
+ *     unauthorized." — xem phần dưới cho lý do nó không phải một khả năng lý thuyết.
  *
  * **Không họ nào được ánh xạ sang một mã HTTP riêng, và đó là một phán quyết chứ không phải một
  * thiếu sót.** Các cổng TRẠNG THÁI của những Action này chạy TRƯỚC `Gate` (xem `PublishDocument`
@@ -39,7 +44,33 @@ use Illuminate\Validation\ValidationException;
  * ghi này tồn tại nhưng đang ở trạng thái khác" với "không có bản ghi nào như vậy" — đúng cái
  * máy dò sự tồn tại mà SPEC §10.10 cấm và M3 đã dẹp bằng `AnswerDeniedPanelRequestsWithNotFound`.
  *
- * Bất cứ thứ gì KHÔNG thuộc ba họ trên vẫn thoát ra thành lỗi 500. Cố ý: một `TypeError` hay một
+ * **Vì sao `AuthorizationException` bắt Ở ĐÂY chứ không đổi thành `DomainException` trong từng
+ * Action.** Nó bắn ra từ những lần HỎI LẠI QUYỀN mà M4 thêm vào sau cửa sổ quét virus
+ * (`UploadStaffDocument` bước 5, tới 30 giây), cộng các `Gate::authorize()` của `PublishDocument`
+ * và `RegroupDocument`. Nó bắn đúng lúc nó tồn tại để bắn: hồ sơ bị xoá mềm, người nộp bị gỡ
+ * khỏi đội ngũ, hoặc quyền công bố bị thu hồi TRONG lúc quét — và người dùng nhận về một chuỗi
+ * tiếng Anh trên một request `update` của Livewire, đúng trường hợp mà
+ * `AnswerDeniedPanelRequestsWithNotFound` tự ghi là nó không phủ được, kèm việc mất luôn một tệp
+ * đã quét xong.
+ *
+ * Ba lý do chọn chỗ này:
+ *
+ *  - Hợp đồng bị vi phạm là hợp đồng CỦA TRAIT NÀY ("mọi lời từ chối đến được mắt người dùng
+ *    bằng tiếng Việt"), không phải của Action. Action từ chối đúng; cách một lời từ chối được
+ *    VẼ RA là việc của màn hình — đó là toàn bộ lý do trait này tồn tại.
+ *  - Đổi trong Action thì mỗi Action phải phân biệt "cổng vào" với "hỏi lại", tức cùng một câu
+ *    hỏi phân quyền ném ra hai lớp exception khác nhau tuỳ chỗ gọi, và phải chép `try/catch`
+ *    quanh từng `Gate::authorize()` ở ba Action. Bắt ở đây phủ cả ba cộng mọi `Gate` thêm vào
+ *    sau này, kể cả `throw new AuthorizationException` trần ở `UploadStaffDocument` bước 5.
+ *  - Thông điệp KHÔNG lấy từ exception mà lấy từ `lang/vi/actions.php`: một câu duy nhất cho mọi
+ *    nguyên nhân, nên nó không phân biệt được "không có quyền" với "không tồn tại" (SPEC §10.10).
+ *
+ * Cái nó KHÔNG làm: nó không thay `->authorize()` của từng nút Filament (cổng hiển thị) và không
+ * thay `AnswerDeniedPanelRequestsWithNotFound` (cổng của cả TRANG, nơi 404 mới là câu trả lời
+ * đúng của SPEC §10.10). Nó chỉ phủ đúng khoảng mà hai thứ kia không với tới: một Action đã chạy
+ * và đổi ý giữa chừng.
+ *
+ * Bất cứ thứ gì KHÔNG thuộc bốn họ trên vẫn thoát ra thành lỗi 500. Cố ý: một `TypeError` hay một
  * lỗi hạ tầng không phải một câu để nói với người dùng, và nuốt nó ở đây sẽ biến một sự cố thật
  * thành một thông báo màu đỏ mà không ai đi điều tra.
  */
@@ -63,6 +94,12 @@ trait ReportsActionFailures
                 : $this->failWithFieldErrors($action, [$fileField => [$exception->getMessage()]]);
         } catch (DomainException $exception) {
             $this->failWithNotification($action, $exception->getMessage());
+        } catch (AuthorizationException) {
+            // Thông điệp KHÔNG lấy từ exception: `Gate::authorize()` ném "This action is
+            // unauthorized." — một chuỗi tiếng Anh của framework, đúng thứ hợp đồng của trait
+            // này tồn tại để chặn. Câu thay thế nằm ở `lang/vi/actions.php`, một câu duy nhất
+            // cho mọi nguyên nhân (SPEC §10.10 — xem bình luận tại khoá đó).
+            $this->failWithNotification($action, __('actions.unauthorized'));
         }
     }
 

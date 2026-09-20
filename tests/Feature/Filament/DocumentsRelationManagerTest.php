@@ -1,5 +1,7 @@
 <?php
 
+use App\Actions\Document\PublishDocument;
+use App\Actions\Document\RegroupDocument;
 use App\Actions\Document\UploadStaffDocument;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
@@ -13,12 +15,14 @@ use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Models\User;
+use App\Support\Files\VirusScanner;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\FileUpload;
 use Filament\Notifications\Livewire\Notifications;
 use Filament\Notifications\Notification;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -63,7 +67,7 @@ function documentWithFile(Matter $matter, DocumentGroup $group, array $attribute
 }
 
 /**
- * Tiêu đề của MỌI thông báo đã gửi, đọc đúng MỘT lần.
+ * Tiêu đề VÀ THÂN của MỌI thông báo đã gửi, đọc đúng MỘT lần.
  *
  * `Notification::assertNotified()` và `::assertNotNotified()` đều `mount()` một component
  * `Notifications` mới, và việc đó kéo thông báo RA KHỎ session — đọc một lần là MẤT. Gọi
@@ -71,16 +75,52 @@ function documentWithFile(Matter $matter, DocumentGroup $group, array $attribute
  * rỗng và xanh mà không kiểm tra gì (bài học đã ghi ở `ViewMatterTest`). Test nào cần khẳng
  * định cả "có câu này" lẫn "KHÔNG có câu kia" phải đọc một lần rồi so trên chính danh sách đó.
  *
- * @return array<int, string|null>
+ * @return array<int, array{title: string|null, body: string}>
  */
-function sentNotificationTitles(): array
+function sentNotifications(): array
 {
     $component = new Notifications;
     $component->mount();
 
     return $component->notifications
-        ->map(fn (Notification $notification): ?string => $notification->getTitle())
+        ->map(fn (Notification $notification): array => [
+            'title' => $notification->getTitle(),
+            'body' => (string) $notification->getBody(),
+        ])
         ->all();
+}
+
+/**
+ * Tiêu đề của mọi thông báo đã gửi. Đi qua {@see sentNotifications()} nên vẫn chỉ MỘT lần rút.
+ *
+ * @return array<int, string|null>
+ */
+function sentNotificationTitles(): array
+{
+    return array_column(sentNotifications(), 'title');
+}
+
+/**
+ * Hai bản thế chỗ của `PublishDocument` và `RegroupDocument` ném đúng họ exception mà `Gate`
+ * ném. Chúng KẾ THỪA Action thật, nên chữ ký `handle()` không trôi đi lặng lẽ khi Action đổi:
+ * một tham số mới ở lớp cha làm hai lớp này thành lỗi PHP ngay lần chạy đầu.
+ *
+ * Vì sao phải tiêm thay vì dựng một người dùng thiếu quyền: xem docblock của test dùng chúng.
+ */
+class RefusingPublishDocument extends PublishDocument
+{
+    public function handle(Document $document, User $actor, bool $clientCanView, bool $clientCanDownload): Document
+    {
+        throw new AuthorizationException;
+    }
+}
+
+class RefusingRegroupDocument extends RegroupDocument
+{
+    public function handle(Document $document, User $actor, DocumentGroup $group): Document
+    {
+        throw new AuthorizationException;
+    }
 }
 
 /** Tệp hợp lệ cho `FileGuard`: PDF thật, đuôi khớp MIME thật. */
@@ -795,3 +835,120 @@ it('does not claim success when a publication is refused', function () {
         ->and($titles)->not->toContain(__('documents.tab.actions.publish_success'))
         ->and($document->refresh()->status)->toBe(DocumentStatus::InternalDraft);
 });
+
+// ---------------------------------------------------------------------------------------------
+// Họ exception thứ tư: `Gate` bên trong Action từ chối (SPEC §8.4, §10.10).
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * **Đường THẬT, không dựng cảnh.** `UploadStaffDocument` hỏi lại quyền SAU cửa sổ quét virus (tới
+ * 30 giây theo `config('vkcrm.clamav.timeout')`), và đây đúng là tình huống lần hỏi lại ấy tồn
+ * tại để bắt: hồ sơ bị xoá mềm trong lúc quét. Cổng `->authorize()` của cái nút đã trả lời
+ * "được" từ trước — lúc đó hồ sơ còn sống — nên không có gì chặn trước Action.
+ *
+ * Trước bản sửa này, `AuthorizationException` (kế thừa `\Exception`, không phải `DomainException`)
+ * thoát khỏi cả ba nhánh `catch` của `ReportsActionFailures` và đi lên thành 403 mang nguyên văn
+ * "This action is unauthorized." trên một request `update` của Livewire — đúng trường hợp mà
+ * `AnswerDeniedPanelRequestsWithNotFound` tự ghi là nó không phủ được. Người dùng mất luôn tệp
+ * vừa quét xong và không đọc được một chữ tiếng Việt nào.
+ *
+ * Khẳng định trên THÂN thông báo chứ không chỉ trên tiêu đề: tiêu đề giống nhau ở mọi lời từ
+ * chối, nên một test chỉ đọc tiêu đề sẽ xanh cả khi thân vẫn là chuỗi tiếng Anh của framework.
+ */
+it('turns a re-gate refusal after the virus scan into a Vietnamese notification, not an English 403', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+
+    app()->instance(VirusScanner::class, new class implements VirusScanner
+    {
+        public function scan(string $path): void
+        {
+            Matter::query()->delete();
+        }
+
+        public function isActive(): bool
+        {
+            return true;
+        }
+    });
+
+    $this->actingAs($lawyer, 'web');
+
+    documentsManager($matter)->callAction(TestAction::make('upload')->table(), data: [
+        'file' => validPdf(),
+        'title' => 'Thông báo thụ lý nộp trong lúc hồ sơ bị xoá',
+        'group' => DocumentGroup::Authority->value,
+    ]);
+
+    $notifications = sentNotifications();
+
+    expect(array_column($notifications, 'title'))->toContain(__('actions.failed_title'))
+        ->and(array_column($notifications, 'body'))->toContain(__('actions.unauthorized'))
+        ->and(array_column($notifications, 'title'))->not->toContain(__('documents.tab.actions.upload_success'))
+        // Câu tiếng Anh của framework không được xuất hiện ở bất cứ thông báo nào.
+        ->and(implode("\n", array_column($notifications, 'body')))->not->toContain('This action is unauthorized')
+        ->and(Document::query()->withTrashed()->count())->toBe(0);
+});
+
+/**
+ * Cặp sinh đôi dương: CÙNG thao tác, cùng người, không có ai phá gì trong lúc quét — nó đi lọt và
+ * không có thông báo lỗi nào. Không có test này, một cài đặt từ chối MỌI lần nộp cũng xanh ở test
+ * trên.
+ */
+it('still lets the same upload through when nothing changes during the scan', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $this->actingAs($lawyer, 'web');
+
+    documentsManager($matter)->callAction(TestAction::make('upload')->table(), data: [
+        'file' => validPdf(),
+        'title' => 'Thông báo thụ lý vụ án số 43/2026',
+        'group' => DocumentGroup::Authority->value,
+    ])->assertHasNoActionErrors();
+
+    expect(array_column(sentNotifications(), 'body'))->not->toContain(__('actions.unauthorized'))
+        ->and($matter->documents()->count())->toBe(1);
+});
+
+/**
+ * Hai thao tác còn lại có `Gate::authorize()` trong Action: `PublishDocument` (`:115`) và
+ * `RegroupDocument` (`:55`/`:58`).
+ *
+ * **Lời từ chối được TIÊM vào, và nói thẳng vì sao.** Đi qua màn hình thì cổng `->authorize()`
+ * của chính cái nút hỏi CÙNG một câu `Gate` với Action, trên cùng bản ghi, trong cùng một
+ * request — nên không dựng được một tình huống thật nào mà cái nút cho qua còn Action từ chối
+ * (khác với lần nộp tệp, nơi cửa sổ quét virus tạo ra đúng khoảng đó). Việc Action THẬT SỰ ném
+ * `AuthorizationException` ở hai chỗ ấy đã được ghim ở `PublishDocumentTest` và
+ * `RegroupDocumentTest` bằng những người dùng thật thiếu quyền thật.
+ *
+ * Thứ test này ghim là nửa còn lại, nửa chưa ai ghim: khi một Action ném họ exception đó, màn
+ * hình phải vẽ ra một câu tiếng Việt chứ không để nó bay lên thành 403.
+ */
+it('turns a Gate refusal from PublishDocument or RegroupDocument into the same Vietnamese sentence', function (string $action, string $class, string $stub) {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $document = documentWithFile($matter, DocumentGroup::Authority);
+
+    app()->instance($class, new $stub);
+
+    $this->actingAs($lawyer, 'web');
+
+    documentsManager($matter)->callAction(
+        TestAction::make($action)->table($document),
+        data: $action === 'publish'
+            ? ['client_can_view' => true, 'client_can_download' => true]
+            : ['group' => DocumentGroup::Issued->value],
+    );
+
+    $notifications = sentNotifications();
+
+    expect(array_column($notifications, 'title'))->toContain(__('actions.failed_title'))
+        ->and(array_column($notifications, 'body'))->toContain(__('actions.unauthorized'))
+        ->and(implode("\n", array_column($notifications, 'body')))->not->toContain('This action is unauthorized')
+        ->and($document->refresh()->group)->toBe(DocumentGroup::Authority)
+        ->and($document->status)->toBe(DocumentStatus::InternalDraft);
+})->with([
+    'publish' => ['publish', PublishDocument::class, RefusingPublishDocument::class],
+    'regroup' => ['regroup', RegroupDocument::class, RefusingRegroupDocument::class],
+]);
