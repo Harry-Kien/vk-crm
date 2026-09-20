@@ -129,11 +129,7 @@ it('ships a CSS rule for the group D row background that can actually win', func
 
     $style = (string) DocumentsRelationManager::internalRowStyle();
 
-    expect($style)->toStartWith('<style>')
-        // Luật nền mặc định của Filament là `.fi-ta-content-ctn .fi-ta-content .fi-ta-record`;
-        // một bộ chọn ngắn hơn thua nó và dòng nhóm D trông y hệt mọi dòng khác.
-        ->toContain('.fi-ta-content-ctn .fi-ta-content .fi-ta-record.vk-internal-document')
-        ->toContain('background-color');
+    expect($style)->toStartWith('<style>')->toContain('background-color');
 
     $this->actingAs($lawyer, 'web');
 
@@ -146,6 +142,36 @@ it('ships a CSS rule for the group D row background that can actually win', func
     preg_match_all('/<tr\b[^>]*\bvk-internal-document\b[^>]*>/', $html, $rows);
 
     expect($rows[0])->toHaveCount(1);
+
+    /*
+     * **Và đây là câu hỏi thật sự: bộ chọn có chạm tới cái nó nhắm vào không.** Bản trước của
+     * test này khẳng định bộ chọn CHỨA chuỗi `.fi-ta-content-ctn .fi-ta-content .fi-ta-record`,
+     * và nó xanh suốt trong khi trên trình duyệt dòng nhóm D không hề đổi màu: bảng thường của
+     * Filament render `<tr class="fi-ta-row">` bên trong `.fi-ta-content-ctn` mà KHÔNG có
+     * `.fi-ta-content` ở giữa, nên bộ chọn ấy không khớp một dòng nào. Một khẳng định về một
+     * chuỗi không phải một phép đo.
+     *
+     * Ở đây lấy TỪNG lớp CSS mà bộ chọn nhắc tới rồi đối chiếu với HTML mà bảng thật sự sinh ra.
+     * Ai đổi tên lớp ở Filament, hay viết lại bộ chọn theo trí nhớ, đều đỏ tại đây.
+     *
+     * **Nói thẳng chỗ test này KHÔNG với tới.** Một mutation probe bỏ `>.fi-ta-cell` đi — tức là
+     * quay về tô nền cho chính `<tr>` — vẫn để test này xanh, vì ba lớp còn lại đều có thật trong
+     * HTML. Sự thật rằng cái `<tr>` của bảng Filament không nhận được `background-color` (đo được:
+     * `red !important` trên nó vẫn cho `oklab(0 0 0 / 0)`, các ô `<td>` phủ kín hàng) chỉ quan sát
+     * được trong một trình duyệt có bố cục thật, và PHP không có bố cục. Phép đo đó nằm ở docblock
+     * `internalRowStyle()` cùng con số đo lại sau khi sửa, chứ không giả vờ là một test.
+     */
+    preg_match('/<style>([^{]+)\{/', $style, $selector);
+    preg_match_all('/\.([a-zA-Z0-9_-]+)/', $selector[1], $classes);
+
+    expect($classes[1])->not->toBeEmpty();
+
+    $missing = array_values(array_filter(
+        array_unique($classes[1]),
+        fn (string $class): bool => ! preg_match('/\bclass="[^"]*\b'.preg_quote($class, '/').'\b/', $html),
+    ));
+
+    expect($missing)->toBe([]);
 });
 
 /**

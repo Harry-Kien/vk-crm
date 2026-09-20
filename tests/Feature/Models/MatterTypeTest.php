@@ -1,5 +1,6 @@
 <?php
 
+use App\Exceptions\DuplicateMatterTypeCode;
 use App\Exceptions\DuplicateStageKey;
 use App\Models\MatterType;
 use App\Support\StagePresets;
@@ -85,4 +86,42 @@ it('lets a stage save again without changing its key without tripping the duplic
     $intake->update(['label' => 'Tiếp nhận (đổi nhãn)']);
 
     expect($intake->fresh()->label)->toBe('Tiếp nhận (đổi nhãn)');
+});
+
+/**
+ * Cùng lỗ hổng như `matter_type_stages.key` từng có trước M3, ghi lại ở rà soát M3 vòng 2 và đóng
+ * ở M4 Task 7: `matter_types.code` mang một `unique` ở DB, mà MariaDB không có unique một phần,
+ * nên ràng buộc đó tính cả các dòng đã xoá mềm. Hệ quả rất cụ thể: xoá một loại vụ việc đặt nhầm
+ * rồi tạo lại đúng loại ấy với cùng mã — việc bình thường nhất sau một lần gõ sai — bị chặn, mà
+ * người dùng không có cách nào nhìn thấy dòng đang chặn mình. Mã hồ sơ (SPEC §6.1) nhúng mã loại
+ * vụ việc, nên "dùng mã khác đi" không phải một lối thoát: nó đổi cách đánh số hồ sơ của văn
+ * phòng vĩnh viễn.
+ */
+it('allows recreating a matter type code after the original row is soft-deleted', function () {
+    $original = MatterType::factory()->create(['code' => 'DS']);
+    $original->delete();
+
+    $recreated = MatterType::factory()->create(['code' => 'DS']);
+
+    expect($recreated->exists)->toBeTrue()
+        ->and(MatterType::withTrashed()->where('code', 'DS')->count())->toBe(2);
+});
+
+/**
+ * Cặp âm: bỏ ràng buộc ở DB không được biến thành "không còn ràng buộc nào". Chốt chặn chuyển
+ * vào model (`saving`) để MỌI đường ghi đi qua — form, seeder, factory, Action, artisan.
+ */
+it('rejects a duplicate live matter type code through bare Eloquent, not just the form', function () {
+    MatterType::factory()->create(['code' => 'DS']);
+
+    expect(fn () => MatterType::factory()->create(['code' => 'DS']))
+        ->toThrow(DuplicateMatterTypeCode::class, 'DS');
+});
+
+it('lets a matter type save again without changing its code without tripping the duplicate guard', function () {
+    $type = MatterType::factory()->create(['code' => 'DS']);
+
+    $type->update(['name' => 'Dân sự (đổi tên)']);
+
+    expect($type->fresh()->name)->toBe('Dân sự (đổi tên)');
 });

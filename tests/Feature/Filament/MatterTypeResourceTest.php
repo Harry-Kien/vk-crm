@@ -2,6 +2,7 @@
 
 use App\Enums\Role;
 use App\Filament\Admin\Resources\MatterTypes\MatterTypeResource;
+use App\Filament\Admin\Resources\MatterTypes\Pages\CreateMatterType;
 use App\Filament\Admin\Resources\MatterTypes\Pages\EditMatterType;
 use App\Filament\Admin\Resources\MatterTypes\RelationManagers\StagesRelationManager;
 use App\Models\MatterType;
@@ -110,4 +111,41 @@ it('lets an admin recreate a stage key after the original row is soft-deleted', 
 
     expect($type->stages()->withTrashed()->where('key', 'intake')->count())->toBe(2)
         ->and($type->stages()->where('key', 'intake')->count())->toBe(1);
+});
+
+/**
+ * Tầng form của cùng lỗ hổng đã vá ở model: `unique()` của Laravel đếm cả dòng đã xoá mềm, nên
+ * trước đây người dùng nhận "đã tồn tại" cho một mã không còn dòng nào đang dùng — và nếu họ
+ * bỏ qua form (seeder, factory) thì nhận thẳng một lỗi ràng buộc DB.
+ */
+it('lets an admin reuse a matter type code whose only holder was soft-deleted', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    MatterType::factory()->create(['code' => 'DS'])->delete();
+
+    $this->actingAs($admin, 'web');
+    Filament::setCurrentPanel('admin');
+
+    $this->livewire(CreateMatterType::class)
+        ->fillForm(['code' => 'DS', 'name' => 'Dân sự', 'sort_order' => 0])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    expect(MatterType::query()->where('code', 'DS')->count())->toBe(1)
+        ->and(MatterType::withTrashed()->where('code', 'DS')->count())->toBe(2);
+});
+
+/** Cặp âm: một mã CÒN DÙNG vẫn bị form từ chối, và từ chối trên đúng ô `code`. */
+it('still refuses a matter type code that a live row is using', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    MatterType::factory()->create(['code' => 'DS']);
+
+    $this->actingAs($admin, 'web');
+    Filament::setCurrentPanel('admin');
+
+    $this->livewire(CreateMatterType::class)
+        ->fillForm(['code' => 'DS', 'name' => 'Dân sự lần hai', 'sort_order' => 0])
+        ->call('create')
+        ->assertHasFormErrors(['code']);
+
+    expect(MatterType::query()->where('code', 'DS')->count())->toBe(1);
 });

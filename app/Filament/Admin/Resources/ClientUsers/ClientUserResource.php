@@ -34,7 +34,9 @@ class ClientUserResource extends Resource
 {
     protected static ?string $model = ClientUser::class;
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
+    // Mỗi resource một hình riêng (tài khoản ĐĂNG NHẬP portal, không phải bản thân khách hàng): năm mục cùng một biểu
+    // tượng thì biểu tượng không còn nói gì — xem NavigationIconsTest.
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedKey;
 
     protected static bool $hasTitleCaseModelLabel = false;
 

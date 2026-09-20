@@ -52,16 +52,16 @@ use Illuminate\Validation\ValidationException;
  * `vendor/filament/filament/dist/theme.css` đã biên dịch sẵn, và bộ CSS đó chỉ chứa những lớp
  * tiện ích mà chính Filament dùng. Kiểm tra được: `bg-gray-100`, `bg-gray-200`, `bg-primary-600`,
  * `text-amber-600` KHÔNG có trong tệp đó, nên một lớp Tailwind viết tay trong mã PHP không tô
- * được gì cả. Thêm vào đó, `.fi-ta-content-ctn .fi-ta-content .fi-ta-record` đã đặt
- * `background-color` với độ ưu tiên (0,3,0), nên kể cả khi lớp tiện ích tồn tại thì một lớp đơn
- * cũng thua. Luật in ra ở {@see self::internalRowStyle()} vì vậy viết đủ dài để thắng, và đi
- * cùng bảng qua `->description()` — chỗ Filament in ra MỘT lần ngay trên bảng. Cách tiêm CSS
- * không cần bước dựng này là cách dự án đã dùng từ M3 cho `resources/views/brand/theme.blade.php`.
+ * được gì cả. Luật thay thế in ra ở {@see self::internalRowStyle()}, đi cùng bảng qua
+ * `->description()` — chỗ Filament in ra MỘT lần ngay trên bảng. Cách tiêm CSS không cần bước
+ * dựng này là cách dự án đã dùng từ M3 cho `resources/views/brand/theme.blade.php`.
+ *
+ * Bộ chọn của luật đó nhắm vào các Ô của dòng chứ không vào cái `<tr>`, và nó đã phải sửa một
+ * lần vì lý do đo được chứ không suy ra được — xem docblock `internalRowStyle()`.
  *
  * Màu là `--danger-500` của Filament pha loãng bằng `color-mix`, nên không có mã màu nào viết
  * cứng: nó tự đổi theo bảng màu của panel (ở đây `danger` là màu đỏ thương hiệu), và vì nó trong
- * suốt một phần nên nó phủ đúng lên nền trắng của chế độ sáng lẫn nền `--gray-900` của chế độ
- * tối mà không cần hai luật khác nhau.
+ * suốt một phần nên nó phủ đúng lên nền sáng lẫn nền tối mà không cần hai luật khác nhau.
  *
  * **Và nút công bố KHÔNG BAO GIỜ hiện trên một dòng nhóm D.** `PublishDocument` chặn tuyệt đối
  * (SPEC §6.5 bước 1) nên một cái nút ở đó chỉ dẫn tới một lời từ chối, nhưng lý do thật sự để ẩn
@@ -96,7 +96,10 @@ class DocumentsRelationManager extends RelationManager
         return __('matters.tabs.documents');
     }
 
-    /** Lớp CSS gắn lên `<tr>` của một dòng nhóm D — xem {@see self::internalRowStyle()}. */
+    /**
+     * Lớp `recordClasses()` gắn lên `<tr>` của một dòng nhóm D. Cái NỀN thì nằm trên các ô con
+     * của dòng đó, không trên chính `<tr>` — xem {@see self::internalRowStyle()}.
+     */
     private const INTERNAL_ROW_CLASS = 'vk-internal-document';
 
     /**
@@ -118,15 +121,25 @@ class DocumentsRelationManager extends RelationManager
      * Luật CSS tô nền dòng nhóm D, in ra một lần ngay trên bảng. Lý do nó nằm ở đây chứ không
      * trong một tệp CSS: xem docblock lớp.
      *
-     * Bộ chọn phải nhắc lại `.fi-ta-content-ctn .fi-ta-content` vì luật nền mặc định của Filament
-     * dùng đúng chuỗi đó; thiếu nó thì luật này thua và dòng nhóm D trông y hệt mọi dòng khác —
-     * tức là SPEC §7.2 không được đáp ứng trong khi mã trông như đã đáp ứng.
+     * **Luật này tô các Ô, không tô cái `<tr>`, và đó là một phép đo chứ không phải một sở
+     * thích.** Bản đầu (Task 6) nhắm vào `.fi-ta-content-ctn .fi-ta-content .fi-ta-record`, bộ
+     * chọn đọc được từ chính `theme.css`. Nó sai hai lần, và Task 7 đo được cả hai trên trình
+     * duyệt thật: khối luật đó thuộc về BỐ CỤC DẠNG LƯỚI/DANH SÁCH của Filament, còn bảng thường
+     * render `<tr class="fi-ta-row">` bên trong `.fi-ta-content-ctn` mà KHÔNG có `.fi-ta-content`
+     * ở giữa — nên bộ chọn không khớp một dòng nào. Và kể cả khi khớp, nó vẫn không tô được gì:
+     * đo trực tiếp, `background-color:red !important` đặt lên chính cái `<tr>` đó vẫn cho
+     * `getComputedStyle().backgroundColor === "oklab(0 0 0 / 0)"`, vì các ô `<td>` phủ kín hàng.
+     * Nền của SPEC §7.2 vì vậy phải nằm trên `.fi-ta-cell`. Đo lại sau khi sửa: các ô nhóm D cho
+     * `color(srgb 0.939489 0.399615 0.423563 / 0.12)`, tức nó thật sự hiện ra.
+     *
+     * Không có bản `:where(.dark,.dark *)` riêng: luật giống hệt nhau ở hai chế độ, vì màu là một
+     * lớp phủ TRONG SUỐT một phần trên nền của ô — sáng hay tối nó đều đúng bằng một luật. Bản
+     * đầu viết hai nhánh giống nhau y hệt.
      */
     public static function internalRowStyle(): HtmlString
     {
         return new HtmlString(sprintf(
-            '<style>.fi-ta-content-ctn .fi-ta-content .fi-ta-record.%1$s,'
-            .'.fi-ta-content-ctn .fi-ta-content .fi-ta-record.%1$s:where(.dark,.dark *)'
+            '<style>.fi-ta-content-ctn .fi-ta-row.%1$s>.fi-ta-cell'
             .'{background-color:color-mix(in srgb, var(--danger-500) 12%%, transparent);}</style>',
             self::INTERNAL_ROW_CLASS,
         ));

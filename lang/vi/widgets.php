@@ -1,8 +1,9 @@
 <?php
 
 /**
- * Nhãn tiếng Việt cho các widget trang chủ panel admin (SPEC §7.1). Chỉ mục 1 và 6 làm ở M3;
- * các mục còn lại cần dữ liệu chưa có (M4/M6).
+ * Nhãn tiếng Việt cho các widget trang chủ panel admin (SPEC §7.1). Mục 1 và 6 làm ở M3, mục 3
+ * và 4 ở M4 (cần bảng `matter_checklist_items` có dữ liệu thật); mục 2, 5 và 7 cần mốc thời hạn,
+ * `stage_log_views` và heartbeat — M6.
  */
 return [
     'stale_matters' => [
@@ -18,8 +19,38 @@ return [
         ],
         'empty_state' => 'Không có hồ sơ nào quá hạn cập nhật.',
     ],
+    'pending_checklist_reviews' => [
+        'heading' => 'Tài liệu chờ duyệt',
+        'description' => 'Khách đã nộp, chưa ai xem.',
+        'columns' => [
+            'code' => 'Mã hồ sơ',
+            'client' => 'Khách hàng',
+            'item' => 'Giấy tờ',
+            'submitted_at' => 'Khách nộp lúc',
+        ],
+        'empty_state' => 'Không có giấy tờ nào đang chờ duyệt.',
+        'never_submitted' => 'Chưa có tệp nào',
+        'open' => 'Mở danh mục hồ sơ',
+    ],
+    'matters_missing_documents' => [
+        'heading' => 'Hồ sơ thiếu giấy tờ quá 14 ngày',
+        'description' => 'Hồ sơ đang tắc vì khách chưa nộp.',
+        'columns' => [
+            'code' => 'Mã hồ sơ',
+            'client' => 'Khách hàng',
+            'title' => 'Tiêu đề',
+            'lead_lawyer' => 'Luật sư phụ trách',
+            'outstanding' => 'Giấy tờ còn thiếu',
+            'missing_since' => 'Thiếu từ',
+        ],
+        'empty_state' => 'Không có hồ sơ nào thiếu giấy tờ quá 14 ngày.',
+        'open' => 'Mở danh mục hồ sơ',
+    ],
     'matters_by_stage' => [
         'heading' => 'Thống kê nhanh',
         'description' => 'Số vụ việc đang mở theo giai đoạn.',
+        // Hai loại vụ việc có thể đặt trùng nhãn giai đoạn ("Chuẩn bị hồ sơ" chẳng hạn); nhãn cột
+        // vì vậy luôn kèm tên loại, nếu không hai cột khác nhau trông y hệt nhau.
+        'stage_label' => ':type — :stage',
     ],
 ];

@@ -4,6 +4,7 @@ return [
     'stage_log_immutable' => 'Nhật ký tiến độ không thể sửa nội dung hoặc xoá sau khi đã ghi.',
     'matter_not_destroyable' => 'Không thể xoá vĩnh viễn vụ việc: nhật ký tiến độ và nhật ký tải về phải được giữ theo chính sách lưu trữ.',
     'stage_not_configured' => 'Loại vụ việc ":name" chưa có giai đoạn nào. Vào Loại vụ việc để thêm giai đoạn trước khi mở vụ việc mới.',
+    'duplicate_matter_type_code' => 'Đã có một loại vụ việc còn dùng mang mã ":code". Mã loại nằm trong mã hồ sơ (SPEC §6.1) nên không được trùng; đổi mã, hoặc mở lại loại vụ việc cũ nếu nó đã bị xoá.',
     'duplicate_stage_key' => 'Loại vụ việc ":name" đã có một giai đoạn còn dùng với định danh ":key". Xoá hoặc đổi định danh giai đoạn cũ trước khi tạo lại.',
     'invalid_stage_transition' => 'Vụ việc :code không thể chuyển sang giai đoạn ":to": giai đoạn này không nằm trong danh sách giai đoạn kế tiếp được phép của ":from", hoặc không tồn tại trong cấu hình loại vụ việc.',
     'conflict_blocked' => 'Không thể lưu vụ việc: phát hiện xung đột lợi ích mức đỏ với hồ sơ :codes. Chỉ trưởng phòng hoặc quản trị mới được ghi đè, và phải nhập lý do.',

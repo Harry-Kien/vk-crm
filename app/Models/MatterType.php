@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Exceptions\DuplicateMatterTypeCode;
 use App\Models\Concerns\HasBlameable;
 use Database\Factories\MatterTypeFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -23,6 +24,29 @@ class MatterType extends Model
     use SoftDeletes;
 
     protected $fillable = ['code', 'name', 'description', 'is_active', 'sort_order'];
+
+    /**
+     * `unique` trên `code` không còn ở DB (MariaDB không có unique một phần, và ràng buộc cũ tính
+     * cả dòng đã xoá mềm — xem migration 2026_09_20_000001, cùng lỗ hổng `matter_type_stages.key`
+     * đã đóng ở M3). Tính duy nhất trong phạm vi các dòng CÒN DÙNG giờ được `MatterTypeForm` kiểm
+     * ở form (thông báo thân thiện) VÀ ở đây — chốt chặn này mới là thứ phủ mọi đường ghi khác:
+     * seeder, factory, Action, artisan command. Bài học nguyên văn từ M3: đặt luật ở mỗi form thì
+     * `MatterTypeSeeder` và `MatterTypeFactory` đi thẳng qua Eloquent, không bị chặn gì cả.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (MatterType $type): void {
+            // static::query() đã tự loại các dòng đã xoá mềm nhờ SoftDeletes (global scope).
+            $duplicateExists = static::query()
+                ->where('code', $type->code)
+                ->when($type->exists, fn ($query) => $query->whereKeyNot($type->getKey()))
+                ->exists();
+
+            if ($duplicateExists) {
+                throw DuplicateMatterTypeCode::make((string) $type->code);
+            }
+        });
+    }
 
     protected function casts(): array
     {

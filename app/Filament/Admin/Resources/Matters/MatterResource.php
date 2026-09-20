@@ -38,7 +38,9 @@ class MatterResource extends Resource
 {
     protected static ?string $model = Matter::class;
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
+    // Mỗi resource một hình riêng (vụ việc — cán cân, mục dùng nhiều nhất của panel): năm mục cùng một biểu
+    // tượng thì biểu tượng không còn nói gì — xem NavigationIconsTest.
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedScale;
 
     protected static bool $hasTitleCaseModelLabel = false;
 

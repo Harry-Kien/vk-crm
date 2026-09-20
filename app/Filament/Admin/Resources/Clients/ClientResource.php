@@ -40,7 +40,9 @@ class ClientResource extends Resource
 {
     protected static ?string $model = Client::class;
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
+    // Mỗi resource một hình riêng (Khách hàng là một hồ sơ tổ chức/cá nhân của văn phòng): năm mục cùng một biểu
+    // tượng thì biểu tượng không còn nói gì — xem NavigationIconsTest.
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBuildingOffice2;
 
     protected static bool $hasTitleCaseModelLabel = false;
 
