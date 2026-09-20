@@ -340,6 +340,24 @@ thiểu 20 ký tự.** Lý do này hiện thẳng cho khách nên phải viết 
 Trường tính toán hiển thị trên portal: `Đã nộp X / Y` trong đó Y là số item
 `is_required = true` cộng số item không bắt buộc nhưng đã có tài liệu.
 
+**Đính chính 2026-09-16 (M4 Task 6).** Câu trên định nghĩa đủ **Y** nhưng không
+định nghĩa **X**, và cách đọc tự nhiên nhất — "X là số item `accepted` hoặc
+`not_applicable`" — cho ra một tử số **lớn hơn mẫu số** trên chính dữ liệu mẫu
+của SPEC §12: thanh tiến độ hiện `Đã nộp 5/3`. Luật đầy đủ:
+
+- **Y là một TẬP HỢP**, không phải một con số đếm riêng: các item
+  `is_required = true`, **hợp** với các item không bắt buộc đang có ít nhất một
+  tài liệu **không thuộc nhóm D** gắn vào (nhóm D là hồ sơ công việc nội bộ —
+  §4.11 — nên nó không bao giờ là bằng chứng rằng khách đã nộp gì).
+- **X đếm BÊN TRONG tập đó**: số phần tử của Y có `status` là `accepted` hoặc
+  `not_applicable`. Ràng buộc `X ⊆ Y` là điều kiện thiếu ở bản đầu.
+
+Hệ quả cần nói thẳng vì nó nhìn như một lỗi: một item **không bắt buộc, không có
+tài liệu nào**, được văn phòng đánh dấu `not_applicable`, **không xuất hiện ở cả
+hai vế**. Nó chưa bao giờ nằm trong danh sách giấy tờ khách phải nộp, nên việc
+tuyên bố nó không cần nộp không làm thanh tiến độ nhúc nhích. Dữ liệu mẫu ở §12
+sinh ra đúng những item như vậy và chúng không phải dữ liệu sai.
+
 ### 4.11 `documents`
 
 | Cột | Kiểu | Ghi chú |
