@@ -1,11 +1,14 @@
 <?php
 
 use App\Enums\ChecklistItemStatus;
+use App\Enums\DocumentGroup;
 use App\Enums\UserPosition;
 use App\Models\ChecklistTemplate;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Deadline;
+use App\Models\Document;
+use App\Models\DocumentDownload;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Models\MatterParty;
@@ -14,8 +17,17 @@ use App\Models\StageLog;
 use App\Models\StageLogView;
 use App\Models\User;
 use Database\Seeders\DatabaseSeeder;
+use Database\Seeders\Support\DemoPdf;
+use Illuminate\Support\Facades\Storage;
+use Spatie\Activitylog\Models\Activity;
+use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 beforeEach(function () {
+    // `MatterSeeder` nay nộp tệp thật qua `UploadStaffDocument`/`SubmitClientDocument`,
+    // nên nó GHI RA ĐĨA. Không có dòng này, mỗi lần chạy bộ test lại bỏ vài chục tệp PDF
+    // vào `storage/app/private` thật của máy dev.
+    Storage::fake('private');
+
     $this->seed(DatabaseSeeder::class);
 });
 
@@ -96,4 +108,100 @@ it('leaves some published logs unread so the dashboard has data', function () {
 
     expect($viewed->count())->toBeGreaterThan(0)
         ->and($published->diff($viewed)->count())->toBeGreaterThan(0);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Tệp thật trên dữ liệu mẫu (SPEC §12 "dùng thật được ngay"). Cho tới vòng rà soát cuối M4,
+// `grep -rn addMedia database/` không ra dòng nào: mọi `Document` của bản demo không có tệp, nên
+// mọi nút tải trả 404 và route `documents.download` chưa từng chạy bằng tay một lần nào.
+// ---------------------------------------------------------------------------------------------
+
+it('gives every seeded document a real file on the private disk', function () {
+    $documents = Document::withoutGlobalScopes()->get();
+
+    expect($documents)->not->toBeEmpty();
+
+    $withoutFile = $documents->filter(fn (Document $d): bool => $d->getFirstMedia('file') === null);
+
+    expect($withoutFile)->toBeEmpty()
+        ->and(Media::query()->pluck('disk')->unique()->all())->toBe(['private']);
+});
+
+it('seeds all four document groups so every rule in the spec table has a row to look at', function () {
+    // Nhóm D phải có mặt: nhãn "Chỉ nội bộ — không bao giờ hiện cho khách" (SPEC §7.2) và cổng
+    // "nhóm D không bao giờ công bố" (SPEC §4.11) chỉ kiểm được bằng mắt khi có dòng thật.
+    $byGroup = Document::withoutGlobalScopes()->get()->groupBy(fn (Document $d): string => $d->group->value);
+
+    expect($byGroup->keys()->sort()->values()->all())->toBe(['A', 'B', 'C', 'D']);
+
+    Document::withoutGlobalScopes()->where('group', DocumentGroup::Internal)->get()
+        ->each(fn (Document $d) => expect($d->client_can_download)->toBeFalse()
+            ->and($d->client_can_view)->toBeFalse());
+});
+
+it('routes every seeded document through the production actions, not through addMedia by hand', function () {
+    // Dấu vết của việc đó, đọc được từ dữ liệu: nhóm A của khách để lại `document_submitted`,
+    // nhóm A của nhân viên nộp thay để lại `document_published`, và mọi tài liệu đều có một dòng
+    // `document_uploaded` hoặc `document_submitted`. Một seeder ghi thẳng `media` không để lại
+    // dòng nào trong số đó.
+    $uploaded = Activity::query()->whereIn('event', ['document_uploaded', 'document_submitted'])->count();
+
+    expect($uploaded)->toBe(Document::withoutGlobalScopes()->count())
+        ->and(Activity::query()->where('event', 'document_submitted')->count())->toBeGreaterThanOrEqual(5)
+        ->and(Activity::query()->where('event', 'document_published')->count())->toBeGreaterThanOrEqual(4);
+
+    // Và hai hệ quả mà chỉ Action mới tạo ra: khách nộp thì đầu mục sang `pending_review`, nhân
+    // viên nộp thay ở nhóm A thì đầu mục sang `accepted` KÈM người duyệt.
+    $submitted = Document::withoutGlobalScopes()
+        ->where('group', DocumentGroup::ClientProvided)
+        ->whereNotNull('matter_checklist_item_id')
+        ->with('checklistItem')
+        ->get();
+
+    expect($submitted)->not->toBeEmpty()
+        ->and($submitted->every(fn (Document $d): bool => in_array(
+            $d->checklistItem?->status,
+            [ChecklistItemStatus::PendingReview, ChecklistItemStatus::Accepted],
+            true,
+        )))->toBeTrue();
+});
+
+it('lets a seeded document actually download through the signed route', function () {
+    // Đây là lần chạy bằng tay mà Task 5 chưa từng có: một dòng của bản demo, một người của bản
+    // demo, đúng route `documents.download`, và nội dung trả về là byte của một PDF thật.
+    $lawyer = User::where('email', 'luatsu1@luatvukhang.com')->firstOrFail();
+    $matter = Matter::query()->listableBy($lawyer)->firstOrFail();
+
+    $document = Document::withoutGlobalScopes()
+        ->where('matter_id', $matter->id)
+        ->where('group', '!=', DocumentGroup::Internal)
+        ->firstOrFail();
+
+    $response = $this->actingAs($lawyer, 'web')
+        ->get($document->downloadUrlFor($lawyer))
+        ->assertOk();
+
+    expect(substr($response->streamedContent(), 0, 5))->toBe('%PDF-')
+        ->and(DocumentDownload::withoutGlobalScopes()->where('document_id', $document->id)->count())->toBe(1);
+});
+
+it('writes PDFs whose xref offsets really point at their objects', function () {
+    // Một PDF có xref sai vẫn mở được ở nhiều trình đọc dễ tính, nên "tệp tải về được" chưa nói
+    // được gì về việc nó MỞ được. Kiểm chính bảng xref: mỗi offset phải trỏ đúng vào token
+    // `N 0 obj`, và `startxref` phải trỏ vào từ `xref`.
+    $pdf = DemoPdf::bytes('Giay chung nhan quyen su dung dat', 'DD-2026-0001');
+
+    preg_match('/startxref\s+(\d+)/', $pdf, $start);
+
+    expect(substr($pdf, 0, 8))->toBe('%PDF-1.4')
+        ->and($start[1] ?? null)->not->toBeNull()
+        ->and(substr($pdf, (int) $start[1], 4))->toBe('xref');
+
+    preg_match_all('/^(\d{10}) 00000 n $/m', $pdf, $entries);
+
+    expect($entries[1])->toHaveCount(5);
+
+    foreach ($entries[1] as $index => $offset) {
+        expect(substr($pdf, (int) $offset, strlen(($index + 1).' 0 obj')))->toBe(($index + 1).' 0 obj');
+    }
 });
