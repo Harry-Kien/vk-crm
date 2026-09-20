@@ -54,9 +54,48 @@ use Symfony\Component\HttpFoundation\Response;
  * đúng tên người đã bấm chứ không phải người được trao tài liệu. Ràng buộc này không NỚI gì:
  * policy vẫn chạy sau nó, và một người khác muốn tải thì tự mở trang của mình mà lấy đường dẫn
  * của chính họ.
+ *
+ * Hệ quả cho người dựng đường dẫn, nói thẳng vì nó im lặng: một đường dẫn ký THIẾU tham số
+ * `recipient` có chữ ký hoàn toàn hợp lệ và trả 404 mãi mãi, không một dòng lỗi nào. `Document
+ * ::downloadUrlFor()` là chỗ duy nhất nên dùng để dựng; `URL::temporarySignedRoute('documents
+ * .download', …)` gọi thẳng thì tự chịu. Có test ghim hành vi 404 đó để nó là một quyết định chứ
+ * không phải một điều ngẫu nhiên.
+ *
+ * **Giới hạn {@see self::DOWNLOADS_PER_MINUTE} lượt/phút/tài khoản** — xem hằng số đó cho con số
+ * và lý do chọn nó.
  */
 final class DocumentDownloadController extends Controller
 {
+    /**
+     * Số lượt tải tối đa mỗi phút cho MỘT tài khoản.
+     *
+     * **Đây là một quyết định của dự án, không phải một điều khoản SPEC.** SPEC §10.3 đặt giới
+     * hạn cho việc NỘP tệp (20 tệp/giờ/tài khoản) và không nói gì về việc tải; con số dưới đây do
+     * vòng rà soát cuối M4 chọn, và nó được ghi ra đây để lần sau không ai đi tìm nó trong SPEC.
+     *
+     * **Vì sao là một giới hạn tần suất chứ không phải một nonce.** Một mã dùng một lần đóng được
+     * đúng chuyện này và mở ra một chuyện tệ hơn: nó TỪ CHỐI lần bấm lại sau một lượt tải đứt
+     * giữa chừng — đúng lúc mà một cuốn sổ chứng cứ không được phép từ chối. `document_downloads`
+     * ghi "hệ thống đã trao tệp", không ghi "người dùng đã nhận đủ" (xem
+     * {@see self::recordDownload()}), nên một kết nối rớt để lại một dòng đã ghi và một người
+     * chưa có tệp. Giới hạn tần suất không đụng tới lần bấm lại đó.
+     *
+     * **Vì sao 60.** Việc thật lớn nhất mà văn phòng làm ở đây là tải cả tập hồ sơ của một vụ
+     * việc về để in — hàng chục tệp, bấm liên tiếp. 60 lượt/phút để việc đó trôi mà không ai
+     * chạm trần, trong khi một vòng lặp quét cả cuốn sổ chứng cứ thì dừng lại ngay. Nếu văn
+     * phòng thật sự cần tải hơn 60 tệp trong một phút thì chỗ sửa là một thao tác "tải cả tập"
+     * (một tệp nén, một lượt), không phải nâng con số này.
+     *
+     * **Đếm theo TÀI KHOẢN, không theo IP.** Cả văn phòng ngồi sau một đường truyền, nên một
+     * giới hạn theo IP là một người làm khoá tất cả. Khoá đếm lấy từ
+     * {@see Document::recipientToken()} nên hai guard không bao giờ đụng nhau.
+     *
+     * Một lần chạm trần trả **429**, không phải 404. Nó không mâu thuẫn với luật 404 của SPEC
+     * §10.10: 429 được trả TRƯỚC khi đọc bất kỳ bản ghi nào và cho mọi id như nhau, nên nó không
+     * phân biệt được "tài liệu này có thật" với "tài liệu này không có".
+     */
+    public const DOWNLOADS_PER_MINUTE = 60;
+
     /**
      * `$document` là một chuỗi id thô, KHÔNG phải một tham số route model binding. Cố ý: binding
      * ngầm giải bản ghi qua `Document::query()`, tức qua global scope của guard đang mở, nên câu
@@ -148,9 +187,39 @@ final class DocumentDownloadController extends Controller
      */
     private function actor(): User|ClientUser|null
     {
-        $actor = auth('web')->user() ?? auth('client')->user();
+        $actor = self::authenticated();
 
         return $actor?->is_active === true ? $actor : null;
+    }
+
+    /**
+     * Ai đang cầm request này, theo đúng thứ tự ưu tiên của {@see self::actor()} — và KHÔNG hỏi
+     * `is_active`. Tách ra vì {@see self::rateLimitKey()} chạy ở middleware, trước controller, và
+     * nó cần danh tính chứ không cần hiệu lực: một tài khoản vừa bị vô hiệu vẫn phải bị đếm theo
+     * tên nó thay vì rơi chung vào rổ theo IP của cả văn phòng.
+     */
+    private static function authenticated(): User|ClientUser|null
+    {
+        return auth('web')->user() ?? auth('client')->user();
+    }
+
+    /**
+     * Khoá đếm của `throttle:document-download` — xem {@see self::DOWNLOADS_PER_MINUTE}.
+     *
+     * `recipientToken()` chứ không phải id trần: hai guard có thể cùng có một tài khoản mang id
+     * 12, và gộp chúng vào một rổ đếm sẽ cho một khách hàng khoá được một luật sư.
+     *
+     * Nhánh chưa đăng nhập đếm theo IP. Nó không có ai để đếm theo, và bỏ hẳn giới hạn ở nhánh đó
+     * sẽ biến chính nó thành đường vòng: không đăng nhập thì controller trả 404, nhưng 404 đó vẫn
+     * tốn một lần đọc cơ sở dữ liệu cho mỗi request.
+     */
+    public static function rateLimitKey(Request $request): string
+    {
+        $actor = self::authenticated();
+
+        return $actor === null
+            ? 'ip:'.$request->ip()
+            : Document::recipientToken($actor);
     }
 
     /**
@@ -317,21 +386,44 @@ final class DocumentDownloadController extends Controller
      * `FileGuard::safeName()` giữ đuôi cho mọi tên đi qua cổng nộp tệp (kể cả `....pdf`, vốn từng
      * bị gọt thành `pdf` — đuôi biến mất — và đã được vá bằng cách tách đuôi ra trước). Nhưng
      * `media.name` KHÔNG phải lúc nào cũng đến từ cổng đó: mặc định của medialibrary khi gọi
-     * `addMedia()` trơn là tên tệp BỎ đuôi, nên mọi dòng tạo bằng đường đó (seeder, factory, một
-     * lần nhập dữ liệu) có một tên hiển thị không đuôi. Ở đây đuôi được lấy lại từ
-     * `media.file_name` — cái tên NẰM TRÊN ĐĨA, do `storedFileName()` sinh ra và đã chuẩn hoá còn
-     * `[a-z0-9]` — nên không có byte nào của người nộp đi vòng trở lại vào header qua đường này.
+     * `addMedia()` trơn là tên tệp BỎ đuôi, nên một dòng tạo bằng đường đó — một lần nhập dữ
+     * liệu, một bản mã cũ, một lần sửa tay — có một tên hiển thị không đuôi. Ở đây đuôi được lấy
+     * lại từ `media.file_name`, cái tên NẰM TRÊN ĐĨA.
+     *
+     * (Bản đầu của đoạn này nêu "seeder, factory" làm ví dụ. Câu đó sai suốt milestone: cho tới
+     * vòng rà soát cuối M4 không seeder hay factory nào gắn tệp cả, nên chúng không tạo ra dòng
+     * `media` nào. Nay `MatterSeeder` có gắn tệp, nhưng nó đi qua chính hai Action sản phẩm, tức
+     * qua `safeName()` — nên nó cũng không phải nguồn của nhánh này.)
+     *
+     * **Đuôi mượn về ĐI LẠI qua `safeName()`.** Bản đầu nối nó vào sau khi `safeName()` đã chạy,
+     * nên một `media.file_name` do một bản mã cũ ghi vào đưa được `"` và `;` — đúng hai ký tự
+     * tách được một header `Content-Disposition` — thẳng ra ngoài. `storedFileName()` hôm nay
+     * chuẩn hoá đuôi còn `[a-z0-9]`, nhưng "hôm nay mọi dòng đều do nó sinh ra" là một tính chất
+     * của dữ liệu, không phải của hàm này.
+     *
+     * **Và tên cuối cùng PHẢI còn một đuôi, nếu không thì lượt tải này là một lỗi 500.**
+     * `FilesystemAdapter::download()` tự tính bản dự phòng ASCII bằng `Str::ascii()` rồi bỏ `%`,
+     * còn `HeaderUtils::makeDisposition()` ném `InvalidArgumentException` khi bản dự phòng đó
+     * RỖNG. Một `media.name` toàn chữ Hán hay emoji cho đúng chuỗi rỗng ấy (`Str::ascii('日本語')`
+     * → `''`), và khi không có đuôi nào để mượn thì không còn byte ASCII nào sống sót. Dấu chấm
+     * của phần đuôi luôn qua được `Str::ascii()`, nên "còn đuôi" ĐỒNG NGHĨA với "bản dự phòng
+     * không rỗng" — vì vậy một câu kiểm đuôi ở cuối đóng được cả lớp lỗi này, chứ không chỉ cái
+     * ví dụ đã dựng lại được. Không còn đuôi thì trả về tên dự phòng, thứ đã là ASCII thuần.
      */
     private function downloadName(Media $media): string
     {
         $name = FileGuard::safeName((string) $media->name);
 
-        if (pathinfo($name, PATHINFO_EXTENSION) !== '') {
-            return $name;
+        if (pathinfo($name, PATHINFO_EXTENSION) === '') {
+            $extension = pathinfo((string) $media->file_name, PATHINFO_EXTENSION);
+
+            if ($extension !== '') {
+                $name = FileGuard::safeName($name.'.'.$extension);
+            }
         }
 
-        $extension = pathinfo((string) $media->file_name, PATHINFO_EXTENSION);
-
-        return $extension === '' ? $name : $name.'.'.$extension;
+        return pathinfo($name, PATHINFO_EXTENSION) === ''
+            ? __('documents.fallback_file_name')
+            : $name;
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Http\Controllers\DocumentDownloadController;
 use App\Models\Client;
 use App\Models\ClientRequest;
 use App\Models\ClientUser;
@@ -15,8 +16,11 @@ use App\Models\User;
 use App\Support\Files\ClamAvScanner;
 use App\Support\Files\NullScanner;
 use App\Support\Files\VirusScanner;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Foundation\Console\AboutCommand;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -55,6 +59,14 @@ class AppServiceProvider extends ServiceProvider
             // dòng này, `Audit::record()` với chủ thể là một đầu mục danh mục là một lỗi 500.
             'matter_checklist_item' => MatterChecklistItem::class,
         ]);
+
+        // Giới hạn lượt tải tệp (route `documents.download`). Con số và toàn bộ lý lẽ — kể cả vì
+        // sao KHÔNG dùng mã dùng một lần — nằm ở `DocumentDownloadController::DOWNLOADS_PER_MINUTE`;
+        // ở đây chỉ có chỗ cắm vào framework. Khoá đếm cũng lấy từ controller để hai nơi không
+        // định nghĩa "ai là người đang tải" theo hai cách khác nhau.
+        RateLimiter::for('document-download', fn (Request $request) => Limit::perMinute(
+            DocumentDownloadController::DOWNLOADS_PER_MINUTE,
+        )->by(DocumentDownloadController::rateLimitKey($request)));
 
         // Câu trả lời cho "virus scanning có thật sự bật không" phải lấy được từ chính hệ thống,
         // không phải từ việc đọc `.env` hay mã nguồn — `php artisan about` là chỗ một người vận

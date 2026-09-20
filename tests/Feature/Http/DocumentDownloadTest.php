@@ -6,6 +6,7 @@ use App\Enums\DocumentStatus;
 use App\Enums\MatterRole;
 use App\Enums\Permission;
 use App\Enums\Role;
+use App\Http\Controllers\DocumentDownloadController;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Document;
@@ -653,4 +654,99 @@ it('nhật ký tải về không bao giờ hiện ra dưới guard khách', func
 
     expect(DocumentDownload::withoutGlobalScopes()->count())->toBe(1)
         ->and(DocumentDownload::count())->toBe(0);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Tên tệp không còn một ký tự ASCII nào. `FilesystemAdapter::download()` tự dựng bản dự phòng
+// bằng `Str::ascii()` rồi bỏ dấu `%`, và `HeaderUtils::makeDisposition()` NÉM
+// `InvalidArgumentException` khi bản dự phòng đó rỗng — tức một cái tên toàn chữ Hán hay emoji,
+// không đuôi, là một lỗi 500 cho một lượt tải hoàn toàn hợp lệ.
+// ---------------------------------------------------------------------------------------------
+
+it('tên hiển thị không còn ký tự ASCII nào và không có đuôi thì tải về bằng tên dự phòng', function (string $displayName) {
+    // `media.name` đọc ra từ cơ sở dữ liệu nên nó có thể do một bản mã cũ, một lần nhập dữ liệu
+    // hay một lần sửa tay ghi vào — `downloadName()` phải tự đứng vững trước mọi giá trị.
+    $document = downloadableDocument($this->matter, displayName: $displayName, storedName: '01k5g7q8wz0000000000000002');
+
+    $disposition = $this->actingAs($this->lawyer, 'web')
+        ->get($document->downloadUrlFor($this->lawyer))
+        ->assertOk()
+        ->headers->get('Content-Disposition');
+
+    expect($disposition)->toBe('attachment; filename='.__('documents.fallback_file_name'));
+})->with([
+    'chữ Hán' => ['日本語'],
+    'emoji' => ['🙂🙂'],
+]);
+
+it('đuôi mượn từ tên trên đĩa cũng đi qua safeName một lần nữa', function () {
+    // Đuôi được nối vào SAU `safeName()`, nên nếu nó không đi lại qua đó thì một `media.file_name`
+    // do một bản mã cũ ghi vào đưa được dấu `"` và `;` thẳng vào `Content-Disposition` — đúng hai
+    // ký tự tách được header mà `safeName()` sinh ra để gỡ.
+    $document = downloadableDocument($this->matter, displayName: 'bang-ke', storedName: 'x.pd"f');
+
+    $disposition = $this->actingAs($this->lawyer, 'web')
+        ->get($document->downloadUrlFor($this->lawyer))
+        ->assertOk()
+        ->headers->get('Content-Disposition');
+
+    expect($disposition)->toBe('attachment; filename=bang-ke.pdf')
+        ->and(substr_count((string) $disposition, ';'))->toBe(1);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Đường dẫn ký THIẾU mã người nhận.
+// ---------------------------------------------------------------------------------------------
+
+it('đường dẫn ký mà thiếu mã người nhận thì không ai dùng được, kể cả chủ nhân tài liệu', function () {
+    // `Document::downloadUrlFor()` luôn ký kèm mã người nhận, nhưng `URL::temporarySignedRoute()`
+    // là một hàm công khai của framework: một chỗ gọi nào đó quên tham số sẽ phát ra một đường
+    // dẫn có chữ ký HỢP LỆ mà không ai mở được, mãi mãi, không một dòng lỗi nào. Test này ghim
+    // hành vi đó để nó là một 404 có chủ đích chứ không phải một điều ngẫu nhiên — và để bất kỳ
+    // ai dựng một chỗ mint thứ hai cũng thấy ngay vì sao `downloadUrlFor()` nên là đường duy nhất.
+    $document = downloadableDocument($this->matter);
+
+    $url = URL::temporarySignedRoute('documents.download', now()->addMinutes(5), [
+        'document' => $document->id,
+    ]);
+
+    $this->actingAs($this->lawyer, 'web')->get($url)->assertNotFound();
+
+    expect(DocumentDownload::withoutGlobalScopes()->count())->toBe(0);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Giới hạn số lượt tải. Xem docblock `DocumentDownloadController` cho con số và lý do.
+// ---------------------------------------------------------------------------------------------
+
+it('vượt quá giới hạn lượt tải mỗi phút thì bị chặn', function () {
+    $document = downloadableDocument($this->matter);
+    $limit = DocumentDownloadController::DOWNLOADS_PER_MINUTE;
+
+    for ($i = 0; $i < $limit; $i++) {
+        $this->actingAs($this->lawyer, 'web')
+            ->get($document->downloadUrlFor($this->lawyer))
+            ->assertOk();
+    }
+
+    $this->actingAs($this->lawyer, 'web')
+        ->get($document->downloadUrlFor($this->lawyer))
+        ->assertStatus(429);
+
+    // Cuốn sổ chứng cứ chỉ ghi những lượt thật sự được trao tệp.
+    expect(DocumentDownload::withoutGlobalScopes()->count())->toBe($limit);
+});
+
+it('giới hạn đếm theo TÀI KHOẢN, nên một người đụng trần không khoá người khác', function () {
+    // Đếm theo IP sẽ khoá cả văn phòng vì một người: mọi nhân sự ngồi sau cùng một đường truyền.
+    $colleague = User::factory()->withRole(Role::Lawyer)->create();
+    $this->matter->addTeamMember($colleague, MatterRole::Associate);
+    $document = downloadableDocument($this->matter);
+
+    for ($i = 0; $i < DocumentDownloadController::DOWNLOADS_PER_MINUTE; $i++) {
+        $this->actingAs($this->lawyer, 'web')->get($document->downloadUrlFor($this->lawyer))->assertOk();
+    }
+
+    $this->actingAs($this->lawyer, 'web')->get($document->downloadUrlFor($this->lawyer))->assertStatus(429);
+    $this->actingAs($colleague, 'web')->get($document->downloadUrlFor($colleague))->assertOk();
 });

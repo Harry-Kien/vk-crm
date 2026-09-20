@@ -15,7 +15,12 @@ Route::redirect('/', '/portal');
  * Nằm ngoài cả hai panel một cách có chủ ý: cùng một tài liệu được cả nhân sự (guard `web`) và
  * khách (guard `client`) tải về, và hai panel dùng chung cookie phiên nên một route trung lập
  * phục vụ được cả hai mà không phải nhân đôi.
+ *
+ * `throttle:document-download` đếm theo TÀI KHOẢN — số lượt và lý do chọn nó nằm ở
+ * `DocumentDownloadController::DOWNLOADS_PER_MINUTE`, bộ đếm đăng ký ở `AppServiceProvider`.
+ * Đứng SAU `signed` là có chủ đích: một đường dẫn không chữ ký phải chết ở cửa rẻ nhất, và một
+ * người bắn id bừa không được phép tiêu hết hạn mức của một tài khoản thật.
  */
 Route::get('documents/{document}/download', DocumentDownloadController::class)
-    ->middleware('signed')
+    ->middleware(['signed', 'throttle:document-download'])
     ->name('documents.download');
