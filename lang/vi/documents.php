@@ -121,6 +121,9 @@ return [
             'group' => 'Nhóm tài liệu',
             // Bốn nhóm quyết định ai đọc được tệp, nên ô này là ô quan trọng nhất của biểu mẫu.
             'group_help' => 'Nhóm quyết định khách có thấy tài liệu này hay không. Nhóm A ra tới khách ngay khi lưu; nhóm B và C nằm trong hồ sơ cho tới khi có người bấm công bố; nhóm D không bao giờ ra tới khách.',
+            // Ô chọn nhóm của thao tác CHUYỂN NHÓM có câu riêng: nó phải nói ra cái giá không
+            // tự phục hồi của việc đi vào nhóm D (xem hook `saving` của `App\Models\Document`).
+            'target_group_help' => 'Nhóm quyết định khách có thấy tài liệu này hay không. Chuyển VÀO nhóm D thu hồi ngay quyền xem và quyền tải của khách; chuyển RA khỏi nhóm D không trả lại hai quyền đó — muốn tài liệu về lại tay khách thì phải bấm "Công bố cho khách" một lần nữa.',
             'checklist_item' => 'Gắn vào đầu mục danh mục',
             'checklist_item_help' => 'Để trống nếu tài liệu này không thuộc đầu mục nào trong danh mục hồ sơ.',
             'checklist_item_none' => 'Không gắn vào đầu mục nào',

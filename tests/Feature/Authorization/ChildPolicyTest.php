@@ -74,20 +74,25 @@ it('never lets a client user see a group D document or download what is not down
 });
 
 /*
- * `client_can_download` KHÔNG được bật lên ở đây, và không phải vì quên: từ vòng sửa rà soát
- * Task 3, `Document` có hook `saving` hạ cờ đó xuống với mọi dòng nhóm D (SPEC §4.11 "vĩnh viễn
- * false"), nên một fixture `'client_can_download' => true` sẽ là một dòng không tồn tại nổi — và
- * một khẳng định `can('download', ...)` dựa trên nó sẽ xanh nhờ cờ tải chứ không nhờ điều kiện
- * nhóm. Cờ duy nhất một dòng nhóm D còn giữ được là `client_can_view`, và nó được bật lên ở đây
- * đúng để điều kiện nhóm là thứ duy nhất còn chặn. `download` đi qua `view()` nên nó vẫn bị từ
- * chối bởi chính điều kiện đó.
+ * **Dòng này KHÔNG dựng được qua model, và đó chính là điều kiện của test.** Hook `saving` của
+ * `Document` hạ CẢ HAI cờ khách về false trên mọi dòng nhóm D (SPEC §4.11 "vĩnh viễn false"),
+ * nên một fixture `update(['client_can_view' => true])` lưu ra `false` — và khẳng định "khách
+ * vẫn không xem được" sau đó xanh nhờ cái cờ, không nhờ điều kiện NHÓM mà test này có mặt để
+ * canh. Bản trước của test này bật `client_can_view` qua model và gọi nó là "cờ duy nhất một
+ * dòng nhóm D còn giữ được"; câu đó đúng cho tới khi hook hạ nốt cột thứ hai.
+ *
+ * `forceClientFlags()` ghi thẳng vào bảng, đi vòng qua model — đúng tình huống ba tầng phòng thủ
+ * của SPEC §11 tồn tại để chặn. `download` đi qua `view()` nên nó bị từ chối bởi chính điều kiện
+ * nhóm, không nhờ cờ tải.
  */
-it('denies a group D document to a client even with the only client flag it can hold', function () {
-    $this->internalDoc->update(['client_can_view' => true, 'status' => DocumentStatus::Published]);
+it('denies a group D document to a client even when the row itself carries both client flags', function () {
+    $this->internalDoc->update(['status' => DocumentStatus::Published]);
+    $lying = forceClientFlags($this->internalDoc);
 
-    expect($this->internalDoc->fresh()->client_can_view)->toBeTrue()
-        ->and($this->clientUser->can('view', $this->internalDoc->fresh()))->toBeFalse()
-        ->and($this->clientUser->can('download', $this->internalDoc->fresh()))->toBeFalse();
+    expect($lying->client_can_view)->toBeTrue()
+        ->and($lying->client_can_download)->toBeTrue()
+        ->and($this->clientUser->can('view', $lying))->toBeFalse()
+        ->and($this->clientUser->can('download', $lying))->toBeFalse();
 });
 
 it('never lets a client user see data of another client', function () {

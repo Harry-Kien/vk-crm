@@ -144,7 +144,38 @@ class Document extends Model implements HasMedia
             // thẳng vẫn bật được cờ lên. Khách không thấy tài liệu đó (global scope và policy
             // đều loại nhóm D) nên chưa phải một lỗ hổng, nhưng nó là một dòng dữ liệu nói dối —
             // và một dòng nói dối là thứ mà lần đọc sau sẽ tin.
+            //
+            // `client_can_view` bị hạ CÙNG LÚC, và nó là phần bản đầu thiếu. SPEC §4.11 chỉ viết
+            // "vĩnh viễn false" cho cột tải, nên bản đầu chỉ hạ cột đó — và để lại đúng cái dòng
+            // nói dối mà hook này tồn tại để ngăn, thiếu một cột: một dòng nhóm D mang
+            // `client_can_view = 1`, tức một dòng dữ liệu khẳng định khách được xem một thứ mà
+            // §4.11 gọi là ranh giới tuyệt đối. Đo được, rồi hoàn lại: `A (published, hai cờ
+            // bật) → D` để lại `client_can_view = 1` trên một dòng nhóm D.
+            //
+            // Hai hệ quả nữa, và chúng mới là lý do quyết định:
+            //
+            //  - **Vòng `A → D → A` TRẢ tài liệu về cho khách mà không có một dòng công bố nào.**
+            //    Cột `status` vẫn là `published`, nên nếu `client_can_view` sống sót chuyến đi
+            //    thì ngay khi tài liệu rời nhóm D nó lại nằm trong tầm mắt khách —
+            //    `isReleasedToPortal()` đúng trở lại — và thứ duy nhất trong nhật ký là hai dòng
+            //    `document_regrouped`. Một người đi dựng lại "văn phòng đã đưa những gì ra trước
+            //    mặt khách" chỉ lọc được theo TÊN sự kiện (SPEC §10.6), nên lần ra đó vô hình.
+            //    Hạ cờ xuống thì đường duy nhất về lại tay khách là `PublishDocument`, và nó ghi
+            //    `document_published`.
+            //  - **Đối xứng với cột tải.** Cột tải đã bị hạ vĩnh viễn từ trước và KHÔNG được
+            //    phục hồi khi rời nhóm D, nên lập luận "giữ cờ lại để chuyến khứ hồi trả về
+            //    nguyên trạng" đã chết sẵn một nửa. Giữ một cột và hạ cột kia cho ra thứ tệ nhất
+            //    trong ba lựa chọn: một tài liệu quay lại trạng thái "khách xem được nhưng không
+            //    tải được" mà không ai quyết định điều đó.
+            //
+            // Cái giá, nói thẳng vì người vận hành phải biết trước khi bấm: chuyển nhầm một tài
+            // liệu vào nhóm D là **thu hồi quyền xem của khách, không tự trả lại**. Câu đó nằm ở
+            // helper text của ô chọn nhóm khi chuyển nhóm (`documents.tab.fields.target_group_help`).
+            // Và sau một vòng khứ hồi, `PublishDocument` ghi `published_at`/`published_by` MỚI
+            // thay vì giữ mốc cũ — đúng: lần ra tới khách trước đó đã chấm dứt, còn mốc cũ vẫn
+            // nằm nguyên trong dòng `document_published` của nó.
             if ($document->group === DocumentGroup::Internal) {
+                $document->client_can_view = false;
                 $document->client_can_download = false;
             }
 

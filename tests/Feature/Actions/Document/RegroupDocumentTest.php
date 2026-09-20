@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Document\PublishDocument;
 use App\Actions\Document\RegroupDocument;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
@@ -12,6 +13,7 @@ use App\Models\Matter;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Spatie\Activitylog\Models\Activity;
 
@@ -38,6 +40,25 @@ function regroupDocument(Matter $matter, DocumentGroup $group): Document
 function regroupAs(Document $document, User $actor, DocumentGroup $group): Document
 {
     return app(RegroupDocument::class)->handle(document: $document, actor: $actor, group: $group);
+}
+
+/** `PublishDocument` từ chối một bản ghi không có tệp, nên cặp sinh đôi dương cần một tệp thật. */
+function documentWithFileForRegroup(Matter $matter, DocumentGroup $group): Document
+{
+    $document = Document::factory()->create([
+        'matter_id' => $matter->id,
+        'group' => $group,
+        'status' => DocumentStatus::Published,
+        'client_can_view' => true,
+        'client_can_download' => true,
+    ]);
+
+    $document->addMedia(UploadedFile::fake()->createWithContent('nguon.pdf', '%PDF-1.4 noi dung that'))
+        ->usingName('Ban an so 12.pdf')
+        ->usingFileName('01k5g7q8wz0000000000000001.pdf')
+        ->toMediaCollection('file');
+
+    return $document->refresh();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -202,35 +223,46 @@ it('một lệnh update thẳng vẫn chuyển được nhóm giữa A, B và C'
 });
 
 // ---------------------------------------------------------------------------------------------
-// Dòng dữ liệu nói dối: nhóm D không giữ nổi `client_can_download = true`.
+// Dòng dữ liệu nói dối: nhóm D không giữ nổi `client_can_download` lẫn `client_can_view`.
 // ---------------------------------------------------------------------------------------------
 
-it('một dòng nhóm D không giữ được client_can_download bật, dù ai ghi', function () {
+/**
+ * **Hai cột, không một.** Bản đầu của test này bật CẢ HAI cờ rồi chỉ khẳng định cột tải, nên nó
+ * tự tay dựng ra đúng cái dòng nói dối mà hook tồn tại để ngăn — một dòng nhóm D mang
+ * `client_can_view = 1` — và không nói gì về nó. Đọc thẳng từ `DB::table()` chứ không qua model:
+ * câu hỏi là dòng NẰM TRONG cơ sở dữ liệu mang gì.
+ */
+it('một dòng nhóm D không giữ được client_can_download hay client_can_view bật, dù ai ghi', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = regroupMatter($lawyer);
     $document = regroupDocument($matter, DocumentGroup::Internal);
 
     $document->update(['client_can_download' => true, 'client_can_view' => true]);
 
-    expect((bool) DB::table('documents')->where('id', $document->id)->value('client_can_download'))
-        ->toBeFalse();
+    $row = DB::table('documents')->where('id', $document->id)->first();
+
+    expect((bool) $row->client_can_download)->toBeFalse()
+        ->and((bool) $row->client_can_view)->toBeFalse();
 });
 
-it('tạo mới một dòng nhóm D với client_can_download bật cũng bị hạ xuống', function () {
+it('tạo mới một dòng nhóm D với hai cờ khách bật cũng bị hạ xuống', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = regroupMatter($lawyer);
 
     $document = Document::factory()->create([
         'matter_id' => $matter->id,
         'group' => DocumentGroup::Internal,
+        'client_can_view' => true,
         'client_can_download' => true,
     ]);
 
-    expect((bool) DB::table('documents')->where('id', $document->id)->value('client_can_download'))
-        ->toBeFalse();
+    $row = DB::table('documents')->where('id', $document->id)->first();
+
+    expect((bool) $row->client_can_download)->toBeFalse()
+        ->and((bool) $row->client_can_view)->toBeFalse();
 });
 
-it('chuyển một tài liệu vào nhóm D hạ luôn quyền tải của khách', function () {
+it('chuyển một tài liệu vào nhóm D hạ luôn quyền xem và quyền tải của khách', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = regroupMatter($lawyer);
     $document = Document::factory()->create([
@@ -243,7 +275,76 @@ it('chuyển một tài liệu vào nhóm D hạ luôn quyền tải của khác
 
     regroupAs($document, $lawyer, DocumentGroup::Internal);
 
-    expect($document->fresh()->client_can_download)->toBeFalse();
+    expect($document->fresh()->client_can_download)->toBeFalse()
+        ->and($document->fresh()->client_can_view)->toBeFalse();
+});
+
+/**
+ * **Vòng khứ hồi `A → D → A` không được trả tài liệu về tay khách trong im lặng.**
+ *
+ * Đây là hệ quả quyết định của việc hạ `client_can_view` cùng với `client_can_download`. Cột
+ * `status` KHÔNG bị chuyến đi đụng tới, nên nếu `client_can_view` sống sót thì ngay lúc tài liệu
+ * rời nhóm D nó lại nằm trong tầm mắt khách — và thứ duy nhất trong nhật ký là hai dòng
+ * `document_regrouped`. SPEC §10.6 bắt ghi lại MỌI lần công bố tài liệu, và cách duy nhất dựng
+ * lại danh sách đó là lọc theo TÊN sự kiện, nên một lần ra tới khách không mang tên ấy là một
+ * lần vô hình.
+ *
+ * Khẳng định cả hai nửa: tài liệu KHÔNG còn ra tới khách sau chuyến đi, và nhật ký không có thêm
+ * một dòng `document_published` nào.
+ */
+it('một vòng A → D → A không trả tài liệu về cho khách, và không tự sinh một lần công bố', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = regroupMatter($lawyer);
+    $document = Document::factory()->create([
+        'matter_id' => $matter->id,
+        'group' => DocumentGroup::ClientProvided,
+        'status' => DocumentStatus::Published,
+        'client_can_view' => true,
+        'client_can_download' => true,
+    ]);
+
+    expect($document->isReleasedToPortal())->toBeTrue();
+
+    $publishedBefore = Activity::query()->where('event', 'document_published')->count();
+
+    regroupAs($document, $lawyer, DocumentGroup::Internal);
+    regroupAs($document->fresh(), $lawyer, DocumentGroup::ClientProvided);
+
+    $after = $document->fresh();
+
+    expect($after->group)->toBe(DocumentGroup::ClientProvided)
+        ->and($after->status)->toBe(DocumentStatus::Published)
+        ->and($after->client_can_view)->toBeFalse()
+        ->and($after->client_can_download)->toBeFalse()
+        ->and($after->isReleasedToPortal())->toBeFalse()
+        ->and(Activity::query()->where('event', 'document_published')->count())->toBe($publishedBefore)
+        ->and(Activity::query()->where('event', 'document_regrouped')->count())->toBe(2);
+});
+
+/**
+ * Cặp sinh đôi dương: đường về tay khách vẫn còn, và nó đi qua `PublishDocument` — thao tác CÓ
+ * ghi `document_published`. Không có test này, một cài đặt khoá cứng tài liệu lại sau một lần đi
+ * vào nhóm D cũng xanh ở test trên.
+ */
+it('sau vòng khứ hồi, đường duy nhất về tay khách là PublishDocument, và nó ghi lại', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = regroupMatter($lawyer);
+    $document = documentWithFileForRegroup($matter, DocumentGroup::Authority);
+
+    regroupAs($document, $lawyer, DocumentGroup::Internal);
+    $back = regroupAs($document->fresh(), $lawyer, DocumentGroup::Authority);
+
+    expect($back->isReleasedToPortal())->toBeFalse();
+
+    app(PublishDocument::class)->handle(
+        document: $back,
+        actor: $lawyer,
+        clientCanView: true,
+        clientCanDownload: true,
+    );
+
+    expect($document->fresh()->isReleasedToPortal())->toBeTrue()
+        ->and(Activity::query()->where('event', 'document_published')->count())->toBe(1);
 });
 
 // ---------------------------------------------------------------------------------------------

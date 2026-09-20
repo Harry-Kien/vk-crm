@@ -121,14 +121,15 @@ it('still refuses on the policy layer when the query layer forgets the rule', fu
         'client_can_download' => true,
     ]);
 
-    // Nhóm D, nhưng đã `published` và bật sẵn cờ cho khách xem: chỉ còn điều kiện nhóm chặn.
-    // `client_can_download` cố ý KHÔNG bật — từ vòng sửa rà soát Task 3, hook `saving` của
-    // `Document` hạ cờ đó xuống với mọi dòng nhóm D (SPEC §4.11 "vĩnh viễn false"), nên viết
-    // `true` ở đây sẽ là một fixture không tồn tại nổi và một khẳng định xanh vì lý do sai.
-    $internalPublished = Document::factory()->for($this->matter)->group(DocumentGroup::Internal)->create([
-        'status' => DocumentStatus::Published,
-        'client_can_view' => true,
-    ]);
+    // Nhóm D, đã `published` và mang SẴN cả hai cờ khách: chỉ còn điều kiện nhóm chặn. Hai cờ
+    // phải ghi thẳng vào bảng (`forceClientFlags()`, xem `tests/Pest.php`) vì hook `saving` của
+    // `Document` hạ chúng về false trên mọi dòng nhóm D — đi qua model thì fixture này không tồn
+    // tại nổi, và khẳng định bên dưới sẽ xanh nhờ hai cái cờ chứ không nhờ điều kiện nhóm.
+    $internalPublished = forceClientFlags(
+        Document::factory()->for($this->matter)->group(DocumentGroup::Internal)->create([
+            'status' => DocumentStatus::Published,
+        ])
+    );
 
     // Đã `published` và không phải nhóm D, nhưng chưa bật cho khách xem: chỉ còn điều kiện
     // `client_can_view` chặn. `client_can_download` bật lên cố ý, để `download` không xanh nhờ
@@ -170,24 +171,24 @@ it('still refuses on the policy layer when the query layer forgets the rule', fu
  * khách ĐƯỢC thấy, và tầng serialize.
  */
 it('never reaches a group D document from the portal by any path', function () {
-    // Mọi bản nhóm D ở đây đều đã `published` và bật cờ cho khách xem: nếu để chúng ở
-    // `internal_draft` thì test vẫn xanh nhờ điều kiện trạng thái, và điều kiện nhóm — thứ test
-    // này có mặt để canh — có thể bị gỡ mà không ai biết. `client_can_download` không có mặt vì
-    // một dòng nhóm D không giữ nổi nó (hook `saving` của `Document`, SPEC §4.11).
+    // Mọi bản nhóm D ở đây đều đã `published` và mang sẵn cả hai cờ khách: nếu để chúng ở
+    // `internal_draft` hoặc để cờ tắt thì test vẫn xanh nhờ điều kiện trạng thái hoặc nhờ cờ, và
+    // điều kiện nhóm — thứ test này có mặt để canh — có thể bị gỡ mà không ai biết. Hai cờ ghi
+    // thẳng vào bảng vì hook `saving` của `Document` hạ chúng trên mọi dòng nhóm D (SPEC §4.11).
     $this->internalDoc->update([
         'status' => DocumentStatus::Published,
-        'client_can_view' => true,
         'matter_checklist_item_id' => $this->item->id,
     ]);
+    $this->internalDoc = forceClientFlags($this->internalDoc);
 
     // Bản nhóm D làm cha của bản khách được thấy, và làm bản kế tiếp của nó.
     $this->publishedDoc->update(['parent_document_id' => $this->internalDoc->id]);
-    $childOfPublished = Document::factory()->for($this->matter)->group(DocumentGroup::Internal)
-        ->create([
+    $childOfPublished = forceClientFlags(
+        Document::factory()->for($this->matter)->group(DocumentGroup::Internal)->create([
             'parent_document_id' => $this->publishedDoc->id,
             'status' => DocumentStatus::Published,
-            'client_can_view' => true,
-        ]);
+        ])
+    );
 
     $request = ClientRequest::factory()->for($this->matter)->create(['client_user_id' => $this->clientUser->id]);
 

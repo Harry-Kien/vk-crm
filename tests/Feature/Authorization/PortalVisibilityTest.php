@@ -40,8 +40,13 @@ beforeEach(function () {
     // nên `client_can_view` bật sẵn ở đây không được đủ.
     $this->unpublishedDoc = Document::factory()->for($this->matterA)->group(DocumentGroup::Issued)
         ->create(['status' => DocumentStatus::SignedFiled, 'client_can_view' => true]);
-    $this->internalDoc = Document::factory()->for($this->matterA)->group(DocumentGroup::Internal)
-        ->create(['status' => DocumentStatus::Published, 'client_can_view' => true]);
+    // Nhóm D với CẢ HAI cờ khách bật sẵn, ghi thẳng vào bảng: hook `saving` của `Document` hạ
+    // chúng trên mọi dòng nhóm D (SPEC §4.11), nên đi qua model thì dòng này ra `false` và mọi
+    // khẳng định "khách không thấy" sau đó xanh nhờ cái cờ chứ không nhờ điều kiện nhóm.
+    $this->internalDoc = forceClientFlags(
+        Document::factory()->for($this->matterA)->group(DocumentGroup::Internal)
+            ->create(['status' => DocumentStatus::Published])
+    );
     $this->foreignDoc = Document::factory()->for($this->matterB)->group(DocumentGroup::Issued)
         ->create(['status' => DocumentStatus::Published, 'client_can_view' => true]);
 });

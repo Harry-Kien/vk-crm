@@ -163,7 +163,8 @@ trait StoresDocumentFile
             // D — hồ sơ công việc nội bộ. `client_can_download` là **vĩnh viễn** false; ở đây nó
             // chỉ là giá trị khởi tạo. Hai thứ giữ cho nó false về sau là `PublishDocument` (chặn
             // tuyệt đối nhóm D) và hook `saving` của `Document`, thứ ép cờ này về false trên mọi
-            // dòng nhóm D kể cả khi lệnh ghi đi vòng qua Action.
+            // dòng nhóm D kể cả khi lệnh ghi đi vòng qua Action — và nó ép CẢ `client_can_view`,
+            // vì một dòng nhóm D khai khách được xem cũng là một dòng nói dối (xem hook đó).
             DocumentGroup::Internal => [
                 'status' => DocumentStatus::InternalDraft,
                 'client_can_view' => false,

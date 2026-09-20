@@ -470,7 +470,11 @@ class DocumentsRelationManager extends RelationManager
             ->schema([
                 Select::make('group')
                     ->label(__('documents.tab.fields.target_group'))
-                    ->helperText(__('documents.tab.fields.group_help'))
+                    // Câu RIÊNG, không dùng lại `group_help` của lần đưa tài liệu vào hồ sơ: ở
+                    // đây có một hậu quả mà lần tạo mới không có — đi vào nhóm D thu hồi quyền
+                    // xem và quyền tải của khách, và đi ra không trả lại. Xem hook `saving` của
+                    // `Document`.
+                    ->helperText(__('documents.tab.fields.target_group_help'))
                     ->options(fn (): array => static::regroupOptions())
                     ->default(fn (Document $record): string => $record->group->value)
                     ->required(),

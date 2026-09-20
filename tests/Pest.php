@@ -1,7 +1,9 @@
 <?php
 
+use App\Models\Document;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -80,6 +82,30 @@ pest()->extend(TestCase::class)
 | Thư mục được dọn khi tiến trình kết thúc để `storage/framework/testing` không phình ra theo số
 | lần chạy.
 */
+/*
+|--------------------------------------------------------------------------
+| Dựng một dòng nhóm D "nói dối", bằng cách đi VÒNG QUA model
+|--------------------------------------------------------------------------
+|
+| Hook `saving` của `App\Models\Document` hạ cả `client_can_view` lẫn `client_can_download` về
+| false trên mọi dòng nhóm D (SPEC §4.11 "vĩnh viễn false"). Hệ quả cho bộ test: một fixture
+| `Document::factory()->group(D)->create(['client_can_view' => true])` KHÔNG dựng ra được dòng nó
+| định dựng — nó lưu ra một dòng `false`, và mọi khẳng định "khách vẫn không thấy" sau đó xanh
+| nhờ cái cờ, không nhờ ĐIỀU KIỆN NHÓM mà test có mặt để canh.
+|
+| Nên những test muốn cô lập điều kiện nhóm phải ghi thẳng vào bảng. Đó cũng đúng là tình huống
+| mà ba tầng phòng thủ của SPEC §11 tồn tại để chặn: một dòng đã lọt vào cơ sở dữ liệu bằng một
+| đường không đi qua model (`DB::table()->update()`, một lần sửa tay, một migration cũ).
+*/
+function forceClientFlags(Document $document): Document
+{
+    DB::table('documents')
+        ->where('id', $document->getKey())
+        ->update(['client_can_view' => true, 'client_can_download' => true]);
+
+    return $document->fresh();
+}
+
 $storageRunToken = $_SERVER['TEST_TOKEN'] ?? ($_SERVER['TEST_TOKEN'] = (string) getmypid());
 
 register_shutdown_function(function () use ($storageRunToken): void {
