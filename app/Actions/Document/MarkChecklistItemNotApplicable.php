@@ -3,8 +3,8 @@
 namespace App\Actions\Document;
 
 use App\Actions\Document\Concerns\OpensChecklistItem;
+use App\Actions\Document\Concerns\RefusesWhileAwaitingReview;
 use App\Enums\ChecklistItemStatus;
-use App\Exceptions\ChecklistItemNotReviewable;
 use App\Models\MatterChecklistItem;
 use App\Models\User;
 use App\Support\Audit;
@@ -34,7 +34,9 @@ use Illuminate\Support\Facades\DB;
  * xem. Gạt đầu mục sang "không cần nộp" lúc đó là vứt lần nộp ấy vào im lặng: khách thấy mục của
  * mình đổi trạng thái mà không ai nói gì về cái họ đã gửi, và dòng `document_submitted` trỏ tới
  * một đầu mục không còn chờ gì. Văn phòng duyệt hoặc từ chối cái đang chờ trước đã — rồi mới
- * quyết định nó có cần nộp hay không.
+ * quyết định nó có cần nộp hay không. Luật đó KHÔNG còn riêng của Action này: một lần
+ * `UploadStaffDocument` nộp thay ở nhóm A cũng đóng đầu mục lại, nên cả hai hỏi chung
+ * {@see RefusesWhileAwaitingReview}.
  *
  * **Dọn `rejection_reason`.** Câu đó hiện nguyên văn cho khách (SPEC §6.7, §8.3 mục 4). Một đầu
  * mục đã "không cần nộp" mà còn treo câu "ảnh bị mờ ở góc trên" là một dòng nói dối — cùng lý lẽ
@@ -46,19 +48,20 @@ use Illuminate\Support\Facades\DB;
 class MarkChecklistItemNotApplicable
 {
     use OpensChecklistItem;
+    use RefusesWhileAwaitingReview;
 
     public function handle(MatterChecklistItem $checklistItem, User $actor): MatterChecklistItem
     {
         return DB::transaction(function () use ($checklistItem, $actor): MatterChecklistItem {
-            // Bốn cổng dùng chung với `ReviewChecklistItem`, kể cả cổng quyền `checklist.review`:
-            // xem `OpensChecklistItem`. Quyền dùng chung là có chủ đích — SPEC §5 không có mục
-            // riêng cho thao tác này, và người được giao quyết định một giấy tờ khách nộp có đạt
-            // hay không cũng chính là người quyết định nó có cần nộp hay không.
+            // Bốn bước (năm điều kiện từ chối) dùng chung với `ReviewChecklistItem`, kể cả cổng
+            // quyền `checklist.review`: xem `OpensChecklistItem`. Quyền dùng chung là có chủ đích
+            // — SPEC §5 không có mục riêng cho thao tác này, và người được giao quyết định một
+            // giấy tờ khách nộp có đạt hay không cũng chính là người quyết định nó có cần nộp hay
+            // không.
             [$fresh, $matter] = $this->openChecklistItem($checklistItem, $actor);
 
-            if ($fresh->status === ChecklistItemStatus::PendingReview) {
-                throw ChecklistItemNotReviewable::awaitingReview($fresh);
-            }
+            // Hỏi trên `$fresh` (bản đọc lại dưới khoá), không trên đối tượng caller đưa vào.
+            $this->refuseWhileAwaitingReview($fresh);
 
             // Giữ lại TRƯỚC khi `update()` ghi đè cột, và lấy từ `$fresh` chứ không từ đối tượng
             // caller đưa vào — đối tượng đó là thứ ai cũng gán thuộc tính được.

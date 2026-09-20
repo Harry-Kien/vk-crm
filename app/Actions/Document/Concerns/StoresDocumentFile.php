@@ -33,11 +33,11 @@ use Illuminate\Support\Str;
  * **Tệp có thể sống sót qua một lần rollback.** `toMediaCollection()` ghi ra disk `private` ngay,
  * còn dòng `media` thì biến mất nếu transaction rollback. Chấp nhận có chủ đích: hậu quả là một
  * tệp rác không có dòng nào trỏ tới. Nó không ai tới được CHỪNG NÀO đường tải duy nhất vẫn là một
- * route giải bản ghi `media` rồi mới đọc đĩa — đó là hình dạng bắt buộc của
- * `DocumentDownloadController` ở Task 5 (controller đó chưa tồn tại lúc viết dòng này), chứ không
- * phải một tính chất đang được thi hành ở đâu đó. Đánh đổi ngược lại
- * (ghi tệp sau khi commit) tạo ra một `Document` đã lưu mà không có tệp, tức một dòng hỏng mà
- * giao diện và khách đều nhìn thấy.
+ * route giải bản ghi `media` rồi mới đọc đĩa — và `DocumentDownloadController` (Task 5) nay tồn
+ * tại và có đúng hình dạng đó: nó đọc `getFirstMedia('file')` rồi mới chạm đĩa, nên một tệp không
+ * có dòng `media` không có đường nào dẫn tới. `PrivateDiskTest` giữ nốt tiền đề còn lại (không
+ * route nào khác phục vụ `storage/app/private`). Đánh đổi ngược lại (ghi tệp sau khi commit) tạo
+ * ra một `Document` đã lưu mà không có tệp, tức một dòng hỏng mà giao diện và khách đều nhìn thấy.
  */
 trait StoresDocumentFile
 {
@@ -92,9 +92,11 @@ trait StoresDocumentFile
      *   tiếng Việt — xem docblock của nó. Đây chính là nơi gọi mà Task 1 ghi lại là còn thiếu.
      *
      * Tên hiển thị giữ cả phần đuôi (`.pdf`), khác thói quen mặc định của medialibrary (tên không
-     * đuôi). Lý do là để Task 5 dùng được nó nguyên vẹn làm tên tệp trong `Content-Disposition`:
-     * một tệp tải về không có đuôi thì Windows không biết mở bằng gì. Task 5 chưa tồn tại, nên đây
-     * là một điều kiện được chuẩn bị sẵn, không phải một điều đang xảy ra.
+     * đuôi). Lý do là để đường tải về dùng được nó nguyên vẹn làm tên tệp trong
+     * `Content-Disposition`: một tệp tải về không có đuôi thì Windows không biết mở bằng gì. Chỗ
+     * tiêu thụ nó là `DocumentDownloadController::downloadName()`, thứ nay tồn tại — và thứ phải
+     * tự lo cho những `media.name` KHÔNG đi qua đây (xem docblock của nó), nên quyết định ở đây
+     * là điều kiện thuận lợi cho nó, không phải điều kiện nó dựa vào.
      */
     protected function storeFile(Document $document, UploadedFile $file): void
     {
@@ -190,6 +192,24 @@ trait StoresDocumentFile
      * đó, nên một lần nhân viên nộp thay sau hai lần khách nộp sinh ra dòng nhóm A THỨ HAI mang
      * số 1 — và kể từ giây đó, `document_submitted{version:1}` với `document_published
      * {version:1}` chỉ vào hai tài liệu khác nhau trên cùng một đầu mục.
+     *
+     * # Cái KHOÁ mà bất biến này đòi, nói thẳng ra vì docblock này là chỗ duy nhất nó tồn tại
+     *
+     * **Mỗi caller phải đang giữ khoá trên HÀNG `matter_checklist_items` của đầu mục** khi nó gọi
+     * hàm này — `->lockForUpdate()->find($id)` trên chính dòng đó, bên trong transaction sẽ ghi.
+     * Cả `SubmitClientDocument` lẫn `UploadStaffDocument` đều làm vậy, và đó là một nghĩa vụ của
+     * caller chứ không phải thứ hàm này tự lo được.
+     *
+     * Vì sao `lockForUpdate()` nằm sẵn trong {@see self::latestInSubmissionChain()} KHÔNG đủ: khi
+     * chuỗi còn RỖNG, câu `SELECT … ORDER BY version DESC LIMIT 1 FOR UPDATE` không khớp hàng nào
+     * nên thứ nó lấy được chỉ là gap lock — và gap lock trên InnoDB TƯƠNG THÍCH với nhau. Hai lần
+     * nộp đầu tiên chạy song song trên cùng một đầu mục vì thế cùng đọc `null` và cùng ghi
+     * `version = 1`, đúng cái bất biến ở trên cấm. Khoá trên hàng đầu mục thì nối tiếp chúng lại,
+     * vì cả hai phải đi qua cùng một hàng trước khi đọc chuỗi.
+     *
+     * **Bộ test KHÔNG kiểm được câu này.** Nó chạy SQLite, nơi `lockForUpdate()` được biên dịch
+     * thành chuỗi rỗng và không sinh ra khoá nào; và bản thân mô hình gap lock là của InnoDB.
+     * Phần có test đứng sau là phần ĐỌC LẠI (một đầu mục bị xoá giữa chừng), không phải phần khoá.
      *
      * # Ai nằm trong chuỗi
      *

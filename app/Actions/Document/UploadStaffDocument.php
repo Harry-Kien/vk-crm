@@ -2,6 +2,7 @@
 
 namespace App\Actions\Document;
 
+use App\Actions\Document\Concerns\RefusesWhileAwaitingReview;
 use App\Actions\Document\Concerns\StoresDocumentFile;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
@@ -13,6 +14,7 @@ use App\Support\Audit;
 use Carbon\CarbonInterface;
 use Carbon\Exceptions\InvalidFormatException;
 use DateTimeInterface;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -39,8 +41,27 @@ use Illuminate\Validation\ValidationException;
  *     như vậy (không có gì ở đây bắt buộc nó phải thế).
  *  3. Nếu bộ mặc định của nhóm ĐÃ ra tới khách ngay lúc tạo thì đòi thêm cổng công bố.
  *  4. Cổng tệp và quét virus (`guardFile()`), NGOÀI transaction — xem docblock `StoresDocumentFile`.
- *  5. Trong transaction: tạo `Document` với bộ mặc định theo nhóm, gắn tệp, rồi ghi nhật ký kiểm
- *     toán với actor tường minh.
+ *  5. Trong transaction: ĐỌC LẠI hồ sơ và đầu mục dưới khoá, HỎI LẠI quyền trên bản đọc lại, rồi
+ *     mới tạo `Document` với bộ mặc định theo nhóm, gắn tệp và ghi nhật ký kiểm toán với actor
+ *     tường minh.
+ *
+ * **Mọi câu trả lời của bước 1-3 đều là câu trả lời cho thời điểm TRƯỚC lần quét, và lần quét
+ * được phép chạy tới 30 giây** (`config('vkcrm.clamav.timeout')`). Ba mươi giây là thừa để một
+ * người khác bấm một cái nút có chủ đích: xoá mềm hồ sơ, xoá một đầu mục khỏi danh mục, gỡ người
+ * nộp khỏi đội ngũ — hoặc để chính khách hàng gửi tệp lên đúng đầu mục ấy. Vì vậy bước 5 đọc lại
+ * cả hai bản ghi dưới khoá và hỏi lại CẢ HAI cổng quyền; bước 1-3 tồn tại để một id bịa hay một
+ * người ngoài dừng lại ở câu truy vấn rẻ nhất, trước khi hệ thống bỏ công đọc, quét và ghi một
+ * tệp 20 MB xuống đĩa — không phải để tiết kiệm lần hỏi thứ hai. Cùng kỷ luật, cùng lý do và
+ * cùng hình dạng với `SubmitClientDocument`; ở đó nó đã có test, ở đây thì trước vòng rà soát
+ * cuối M4 là chưa.
+ *
+ * Nói thẳng MỘT tình huống mà lần hỏi lại KHÔNG từ chối, để không ai đọc nhầm phạm vi của nó:
+ * hồ sơ bị **gỡ khỏi portal** giữa chừng. `is_published_to_portal` không phải cổng của nhân sự ở
+ * bất kỳ đâu trong hệ thống (`MatterPolicy::update` hỏi ba điều: chưa xoá mềm, có `matter.update`,
+ * thấy được hồ sơ), và văn phòng làm hồ sơ chưa lên portal suốt ngày. Thứ giữ cho tệp không ra
+ * tới khách là `ClientPortalScope`, thứ đòi hồ sơ phải ở trên portal — nên một tài liệu nhóm A
+ * nộp vào một hồ sơ đã gỡ là vô hình với khách đúng như mọi tài liệu nộp trước lúc gỡ. Có test
+ * ghim cả hai nửa của câu này.
  *
  * **Caller không chọn được ba cờ khách hàng.** `client_can_view`, `client_can_download` và
  * `status` được suy ra từ `$group` ở `StoresDocumentFile::defaultsFor()` và không có tham số nào
@@ -52,9 +73,15 @@ use Illuminate\Validation\ValidationException;
  * (`document.publish`) và ghi đúng loại dòng nhật ký của một lần công bố. Ba nhóm còn lại không
  * đổi: "nhân viên nộp thay" ở SPEC §4.11 vẫn là việc một trợ lý làm được, chỉ không còn làm được
  * ở nhóm ra thẳng tới khách.
+ *
+ * **Và nhóm A dừng lại khi đầu mục đang `pending_review`** — {@see RefusesWhileAwaitingReview},
+ * dùng chung với `MarkChecklistItemNotApplicable`. Lý do đầy đủ nằm ở docblock trait đó; nói ngắn:
+ * `settleChecklistItem()` ghi `accepted` kèm tên người vừa bấm nút tải lên, nên nếu khách vừa gửi
+ * một tệp thì dòng dữ liệu khai một lần duyệt mà không ai mở tệp của khách ra xem.
  */
 class UploadStaffDocument
 {
+    use RefusesWhileAwaitingReview;
     use StoresDocumentFile;
 
     /** Đúng độ rộng cột `documents.title` ở SPEC §4.11 và ở migration. */
@@ -84,6 +111,11 @@ class UploadStaffDocument
         // vào một dòng không hiện ra ở đâu, và thanh tiến độ X/Y ở Task 6 đếm thiếu nó mãi mãi.
         // Xảy ra thật khi một màn hình giữ đối tượng đã nạp từ trước, hoặc khi caller dùng
         // `withTrashed()`.
+        //
+        // Câu này đọc `deleted_at` TRÊN ĐỐI TƯỢNG caller đưa vào, nên nó chỉ bắt được một lần xoá
+        // đã xảy ra TRƯỚC lời gọi. Một lần xoá xảy ra trong lúc quét virus đi ra bằng cùng thông
+        // điệp này, nhưng từ lần đọc lại dưới khoá ở bước 5 — chỗ đó mới là cái cổng có hiệu lực,
+        // chỗ này chỉ để một tham số đã sai sẵn không phải chờ hết 30 giây mới biết.
         if ($checklistItem !== null && $checklistItem->trashed()) {
             throw ValidationException::withMessages([
                 'matter_checklist_item_id' => [__('documents.upload.checklist_item_deleted')],
@@ -143,6 +175,76 @@ class UploadStaffDocument
         return DB::transaction(function () use (
             $matter, $actor, $file, $group, $title, $checklistItem, $issuedAtDate, $defaults, $releasedAtCreation,
         ): Document {
+            // Đọc lại hồ sơ, và HỎI LẠI cả hai cổng quyền trên bản đọc lại. Xem docblock lớp cho
+            // lý do đầy đủ; nói ngắn: giữa bước 1-3 và dòng này có một lần quét dài tới 30 giây,
+            // và `MatterPolicy::update` hỏi `! $matter->trashed()` — trên ĐỐI TƯỢNG được hỏi.
+            // Đối tượng caller đưa vào đã được nạp trước lần quét, nơi `deleted_at` vẫn là null,
+            // nên nó trả lời cho một hồ sơ có thể không còn tồn tại nữa.
+            //
+            // `withTrashed()` chứ không lọc sẵn hồ sơ đã xoá: điều kiện "chưa xoá mềm" thuộc về
+            // `MatterPolicy::update`, một chỗ duy nhất, và chép nó ra đây là chép một luật ra chỗ
+            // thứ hai.
+            //
+            // **Nhánh `null` không có test đứng sau, và mutation probe đã chứng minh: xoá nó đi
+            // bộ test vẫn xanh.** Hôm nay nó không với tới được — `Matter::forceDeleting` ném
+            // `MatterNotDestroyable`, nên không đường nào xoá cứng một hồ sơ. Nó được giữ vì cái
+            // nó chặn không phải một luật chép lại mà là một đường KHÁC hẳn: `DocumentPolicy
+            // ::create($actor, null)` rơi vào nhánh "không có ngữ cảnh", nhánh chỉ hỏi
+            // `matter.update` chung chung và vì thế mở toang. Một cổng hỏng theo hướng CHO QUA
+            // đắt hơn hẳn một nhánh thừa, và "hôm nay không với tới được" là một tính chất của
+            // mã xung quanh, không phải của hàm này.
+            $freshMatter = $this->scopelessly(Matter::query())->withTrashed()->find($matter->getKey());
+
+            if ($freshMatter === null) {
+                throw new AuthorizationException;
+            }
+
+            Gate::forUser($actor)->authorize('create', [Document::class, $freshMatter]);
+
+            if ($releasedAtCreation) {
+                Gate::forUser($actor)->authorize('publish', (new Document)
+                    ->forceFill(['group' => $group])
+                    ->setRelation('matter', $freshMatter));
+            }
+
+            // Đọc lại đầu mục danh mục DƯỚI KHOÁ, và mọi giá trị ghi xuống dưới đây lấy từ bản
+            // đọc lại này. Hai việc trong một câu:
+            //
+            //  - **đọc lại**: cổng ở bước 2 đọc đối tượng caller cầm trong tay, nên một lần xoá
+            //    xảy ra trong lúc quét không tới được nó. Không có dòng này, tệp treo vào một
+            //    dòng danh mục đã biến mất VÀ `settleChecklistItem()` ghi `accepted` lên chính
+            //    dòng đã xoá đó. `MatterChecklistItem::query()` có `SoftDeletingScope`, nên một
+            //    đầu mục vừa bị xoá cho `null` ở đây và đi ra bằng đúng câu của bước 2.
+            //  - **khoá hàng**: đây là cái khoá mà bất biến chuỗi version ở
+            //    {@see StoresDocumentFile::nextInSubmissionChain()} đòi. `latestInSubmissionChain()`
+            //    tự có `lockForUpdate()`, nhưng trên một chuỗi RỖNG câu `SELECT … LIMIT 1 FOR
+            //    UPDATE` chỉ lấy được gap lock, thứ tương thích lẫn nhau trên InnoDB: hai lần nộp
+            //    đầu tiên chạy song song cùng đọc `null` và cùng ghi `version = 1`. Khoá trên
+            //    HÀNG đầu mục thì nối tiếp chúng lại. Bộ test chạy SQLite nên phần khoá của câu
+            //    này không có test chứng minh; phần đọc lại thì có.
+            $lockedItem = null;
+
+            if ($checklistItem !== null) {
+                $lockedItem = $this->scopelessly(MatterChecklistItem::query())
+                    ->lockForUpdate()
+                    ->find($checklistItem->getKey());
+
+                if ($lockedItem === null || $lockedItem->matter_id !== $freshMatter->getKey()) {
+                    throw ValidationException::withMessages([
+                        'matter_checklist_item_id' => [__('documents.upload.checklist_item_deleted')],
+                    ]);
+                }
+            }
+
+            // Một lần nộp thay ở nhóm A ĐÓNG đầu mục lại (xem `settleChecklistItem()` ngay dưới),
+            // nên nó chịu đúng cái cổng trạng thái mà `MarkChecklistItemNotApplicable` chịu. Điều
+            // kiện viết bằng cùng một biến với lần ghi mà nó bảo vệ, để hai câu không lệch nhau.
+            $settlesChecklistItem = $lockedItem !== null && $releasedAtCreation;
+
+            if ($settlesChecklistItem) {
+                $this->refuseWhileAwaitingReview($lockedItem);
+            }
+
             // SPEC §6.6 bước 7, phía GHI. Nhóm A nghĩa là "khách cung cấp" BẤT KỂ ai bấm nút tải
             // lên (SPEC §4.11), nên một lần nộp thay là một mắt xích của cùng cái chuỗi mà
             // `SubmitClientDocument` dựng — cùng tờ giấy, chỉ khác người cầm nó lúc bấm nút. Hai
@@ -154,11 +256,11 @@ class UploadStaffDocument
             // nên một lần nộp thay sau hai lần khách nộp sinh ra dòng nhóm A THỨ HAI mang số 1
             // trên cùng đầu mục — và `document_submitted{version:1}` với `document_published
             // {version:1}` từ đó chỉ vào hai tài liệu khác nhau.
-            $chain = $this->nextInSubmissionChain($checklistItem, $group);
+            $chain = $this->nextInSubmissionChain($lockedItem, $group);
 
             $document = Document::query()->create([
-                'matter_id' => $matter->getKey(),
-                'matter_checklist_item_id' => $checklistItem?->getKey(),
+                'matter_id' => $freshMatter->getKey(),
+                'matter_checklist_item_id' => $lockedItem?->getKey(),
                 'group' => $group,
                 'title' => $title,
                 'status' => $defaults['status'],
@@ -179,8 +281,8 @@ class UploadStaffDocument
 
             $this->storeFile($document, $file);
 
-            if ($checklistItem !== null && $releasedAtCreation) {
-                $this->settleChecklistItem($checklistItem, $actor);
+            if ($settlesChecklistItem) {
+                $this->settleChecklistItem($lockedItem, $actor);
             }
 
             // Nhật ký kiểm toán nằm BÊN TRONG transaction, cùng lý do với `PublishDocument` và
@@ -190,8 +292,8 @@ class UploadStaffDocument
             // chết đúng lúc để lại một tài liệu khách đang xem mà SPEC §10.6 không có dòng nào
             // nói ai đưa nó ra.
             Audit::record('document_uploaded', $document, [
-                'matter_id' => $matter->getKey(),
-                'matter_checklist_item_id' => $checklistItem?->getKey(),
+                'matter_id' => $freshMatter->getKey(),
+                'matter_checklist_item_id' => $lockedItem?->getKey(),
                 'group' => $group->value,
                 'status' => $defaults['status']->value,
                 'client_can_view' => $defaults['client_can_view'],
@@ -215,8 +317,8 @@ class UploadStaffDocument
             // đọc được bằng cùng một truy vấn.
             if ($releasedAtCreation) {
                 Audit::record('document_published', $document, [
-                    'matter_id' => $matter->getKey(),
-                    'client_id' => $matter->client_id,
+                    'matter_id' => $freshMatter->getKey(),
+                    'client_id' => $freshMatter->client_id,
                     'group' => $group->value,
                     'version' => $document->version,
                     'client_can_view' => $defaults['client_can_view'],
@@ -274,6 +376,13 @@ class UploadStaffDocument
      * Ba nhóm còn lại không đụng tới: một văn bản toà (C), một bản đơn văn phòng soạn (B) hay
      * một ghi chú nội bộ (D) gắn vào đầu mục để tiện tra cứu KHÔNG phải giấy tờ khách phải nộp,
      * nên chúng không được tự đóng một dòng trong danh mục của khách.
+     *
+     * **Và lập luận đó có đúng MỘT chỗ nó gãy: khi đầu mục đang `pending_review`.** Lúc ấy có một
+     * tệp khách vừa gửi lên chưa ai mở, nên câu "người nộp đã cầm tệp trên tay, đã đọc nó" không
+     * nói gì về cái tệp ĐANG CHỜ — và dòng ghi ra sẽ khai một lần duyệt chưa xảy ra, kèm tên một
+     * người chưa hề mở nó. Vì vậy `handle()` từ chối trước khi tới đây, qua
+     * {@see RefusesWhileAwaitingReview}: cùng luật, cùng câu chữ với
+     * `MarkChecklistItemNotApplicable`, phát biểu ở một chỗ.
      *
      * `rejection_reason` bị xoá cùng lúc: lý do từ chối hiện thẳng cho khách (SPEC §6.7), nên
      * một đầu mục đã `accepted` mà còn treo câu "ảnh bị mờ" là một dòng nói dối.
