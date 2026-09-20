@@ -24,12 +24,14 @@ it('lets an admin open every staff administration page', function () {
 });
 
 /** settings.manage chỉ admin có (SPEC §5): quản lý cũng không được ghi hồ sơ nhân sự. */
-it('forbids a manager from writing staff records', function () {
+it('hides the staff write pages from a manager', function () {
     $manager = User::factory()->withRole(Role::Manager)->create();
     $staff = User::factory()->create();
 
-    $this->actingAs($manager, 'web')->get(UserResource::getUrl('create', panel: 'admin'))->assertForbidden();
-    $this->actingAs($manager, 'web')->get(UserResource::getUrl('edit', ['record' => $staff], panel: 'admin'))->assertForbidden();
+    // Panel từ chối bằng 404 (SPEC §10.10, xem DenialCodeTest và
+    // AnswerDeniedPanelRequestsWithNotFound).
+    $this->actingAs($manager, 'web')->get(UserResource::getUrl('create', panel: 'admin'))->assertNotFound();
+    $this->actingAs($manager, 'web')->get(UserResource::getUrl('edit', ['record' => $staff], panel: 'admin'))->assertNotFound();
 });
 
 it('never renders the password hash or two-factor secret in the staff table response', function () {

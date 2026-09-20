@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\DocumentGroup;
+use App\Enums\DocumentStatus;
 use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Models\Client;
@@ -35,7 +36,11 @@ beforeEach(function () {
     $this->log = StageLog::factory()->for($this->matter)->published()->create();
     $this->internalDoc = Document::factory()->for($this->matter)->group(DocumentGroup::Internal)->create();
     $this->clientDoc = Document::factory()->for($this->matter)->group(DocumentGroup::Issued)
-        ->create(['client_can_view' => true, 'client_can_download' => false]);
+        ->create([
+            'status' => DocumentStatus::Published,
+            'client_can_view' => true,
+            'client_can_download' => false,
+        ]);
 });
 
 it('ties every child record to the visibility of its matter', function () {
@@ -68,11 +73,26 @@ it('never lets a client user see a group D document or download what is not down
     expect($this->clientUser->fresh()->can('download', $this->clientDoc->fresh()))->toBeTrue();
 });
 
-it('denies a group D document to a client even when both client flags are on', function () {
-    $this->internalDoc->update(['client_can_view' => true, 'client_can_download' => true]);
+/*
+ * **Dòng này KHÔNG dựng được qua model, và đó chính là điều kiện của test.** Hook `saving` của
+ * `Document` hạ CẢ HAI cờ khách về false trên mọi dòng nhóm D (SPEC §4.11 "vĩnh viễn false"),
+ * nên một fixture `update(['client_can_view' => true])` lưu ra `false` — và khẳng định "khách
+ * vẫn không xem được" sau đó xanh nhờ cái cờ, không nhờ điều kiện NHÓM mà test này có mặt để
+ * canh. Bản trước của test này bật `client_can_view` qua model và gọi nó là "cờ duy nhất một
+ * dòng nhóm D còn giữ được"; câu đó đúng cho tới khi hook hạ nốt cột thứ hai.
+ *
+ * `forceClientFlags()` ghi thẳng vào bảng, đi vòng qua model — đúng tình huống ba tầng phòng thủ
+ * của SPEC §11 tồn tại để chặn. `download` đi qua `view()` nên nó bị từ chối bởi chính điều kiện
+ * nhóm, không nhờ cờ tải.
+ */
+it('denies a group D document to a client even when the row itself carries both client flags', function () {
+    $this->internalDoc->update(['status' => DocumentStatus::Published]);
+    $lying = forceClientFlags($this->internalDoc);
 
-    expect($this->clientUser->can('view', $this->internalDoc->fresh()))->toBeFalse()
-        ->and($this->clientUser->can('download', $this->internalDoc->fresh()))->toBeFalse();
+    expect($lying->client_can_view)->toBeTrue()
+        ->and($lying->client_can_download)->toBeTrue()
+        ->and($this->clientUser->can('view', $lying))->toBeFalse()
+        ->and($this->clientUser->can('download', $lying))->toBeFalse();
 });
 
 it('never lets a client user see data of another client', function () {

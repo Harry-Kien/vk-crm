@@ -125,7 +125,7 @@ it('opens a matter end to end through the create form, with its parties and its 
         ->and(Activity::query()->where('event', 'matter_opened')->count())->toBe(1);
 });
 
-it('offers the create action to a lawyer but not to an accountant, who also cannot reach the create page', function () {
+it('offers the create action to a lawyer but not to an accountant, whose create page is not there', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $accountant = User::factory()->withRole(Role::Accountant)->create();
 
@@ -135,7 +135,9 @@ it('offers the create action to a lawyer but not to an accountant, who also cann
     $this->actingAs($accountant, 'web');
     $this->livewire(ListMatters::class)->assertActionHidden('create');
 
-    $this->get(MatterResource::getUrl('create', panel: 'admin'))->assertForbidden();
+    // Panel từ chối bằng 404 (SPEC §10.10, xem DenialCodeTest và
+    // AnswerDeniedPanelRequestsWithNotFound).
+    $this->get(MatterResource::getUrl('create', panel: 'admin'))->assertNotFound();
 });
 
 /**

@@ -39,8 +39,13 @@ it('records an event through Audit::record without attaching a model', function 
 });
 
 it('logs through Audit::record even when nobody is logged in, with a null causer', function () {
-    expect(fn () => Audit::record('login_failed', null, ['email' => 'someone@example.com']))
-        ->not->toThrow(Throwable::class);
+    // Gọi THẲNG, không qua `expect(fn () => ...)->not->toThrow(Throwable::class)`: dạng đó là
+    // một assertion KHÔNG THỂ ĐỎ. `Throwable` là interface nên `class_exists('Throwable')` trả
+    // `false`, và nhánh "tên lớp không tồn tại" bên trong `toThrow()` của Pest cộng với nhánh
+    // `not` nuốt cả hai kiểu thất bại — đo lại bằng một test rác một lần: nó vẫn xanh khi hàm
+    // bên trong ném thẳng một `RuntimeException`. Câu nói lên ý định của test lại là câu không
+    // khẳng định gì cả.
+    Audit::record('login_failed', null, ['email' => 'someone@example.com']);
 
     $activity = Activity::query()->latest('id')->first();
 

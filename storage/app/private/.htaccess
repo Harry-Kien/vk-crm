@@ -1,0 +1,25 @@
+# SPEC §10.4 — tệp hồ sơ/tài liệu nằm ở đây và KHÔNG được phục vụ trực tiếp bởi máy chủ web.
+#
+# Thư mục này đã nằm ngoài document root (`public/`), và dự án cố ý không chạy `storage:link`
+# (SPEC §2), nên về nguyên tắc không có đường URL nào trỏ tới đây. Tệp này là lớp chặn cuối cùng
+# cho trường hợp cấu hình máy chủ bị đổi, ai đó tạo symlink, hoặc ứng dụng được bung ra dưới một
+# document root rộng hơn — tất cả đều là những cái xảy ra vào lúc không ai đang nhìn.
+#
+# Apache 2.4 trở lên:
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+
+# Apache 2.2 trở về trước:
+<IfModule !mod_authz_core.c>
+    Order deny,allow
+    Deny from all
+</IfModule>
+
+# nginx KHÔNG đọc tệp này. Cấu hình tương ứng trong server block:
+#
+#     location ^~ /storage/ { deny all; return 404; }
+#     location ~ /\.ht      { deny all; }
+#
+# Đường tải tệp hợp lệ duy nhất là route có chữ ký của `DocumentDownloadController`, và route đó
+# vẫn kiểm tra policy sau khi xác minh chữ ký — chữ ký không thay thế quyền (SPEC §10.4).

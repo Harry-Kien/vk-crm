@@ -16,10 +16,12 @@ beforeEach(function () {
 });
 
 /** auditLog.view chỉ admin và manager có (SPEC §5). */
-it('forbids a lawyer without auditLog.view from opening the activity log page', function () {
+it('hides the activity log page from a lawyer without auditLog.view', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
 
-    $this->actingAs($lawyer, 'web')->get(ActivityLogPage::getUrl(panel: 'admin'))->assertForbidden();
+    // Panel từ chối bằng 404 (SPEC §10.10, xem DenialCodeTest và
+    // AnswerDeniedPanelRequestsWithNotFound).
+    $this->actingAs($lawyer, 'web')->get(ActivityLogPage::getUrl(panel: 'admin'))->assertNotFound();
 });
 
 it('lets an admin open the activity log page and see a logged change', function () {

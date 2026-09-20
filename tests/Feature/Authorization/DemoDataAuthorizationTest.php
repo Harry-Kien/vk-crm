@@ -6,8 +6,14 @@ use App\Models\Matter;
 use App\Models\StageLog;
 use App\Models\User;
 use Database\Seeders\DatabaseSeeder;
+use Illuminate\Support\Facades\Storage;
 
 beforeEach(function () {
+    // `MatterSeeder` nay nộp tệp thật qua `UploadStaffDocument`/`SubmitClientDocument`,
+    // nên nó GHI RA ĐĨA. Không có dòng này, mỗi lần chạy bộ test lại bỏ vài chục tệp PDF
+    // vào `storage/app/private` thật của máy dev.
+    Storage::fake('private');
+
     $this->seed(DatabaseSeeder::class);
 });
 

@@ -6,8 +6,6 @@ use App\Filament\Admin\Resources\ClientUsers\ClientUserResource;
 use App\Models\Client;
 use App\Models\ClientUser;
 use Filament\Actions\DeleteAction;
-use Filament\Actions\ForceDeleteAction;
-use Filament\Actions\RestoreAction;
 use Filament\Resources\Pages\EditRecord;
 use Illuminate\Support\Facades\Gate;
 
@@ -15,12 +13,16 @@ class EditClientUser extends EditRecord
 {
     protected static string $resource = ClientUserResource::class;
 
+    /**
+     * Chỉ `DeleteAction`. Khuôn mẫu `make:filament-resource` sinh thêm `ForceDeleteAction` và
+     * `RestoreAction`, nhưng policy của model này không định nghĩa `restore` lẫn `forceDelete`,
+     * và Laravel từ chối một ability không có phương thức tương ứng khi model đã có policy — nên
+     * hai nút đó luôn bị từ chối. `HeaderActionsAreReachableTest` giữ luật này cho mọi trang.
+     */
     protected function getHeaderActions(): array
     {
         return [
             DeleteAction::make(),
-            ForceDeleteAction::make(),
-            RestoreAction::make(),
         ];
     }
 

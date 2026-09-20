@@ -26,7 +26,9 @@ class UserResource extends Resource
 {
     protected static ?string $model = User::class;
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
+    // Mỗi resource một hình riêng (nhân sự nội bộ): năm mục cùng một biểu
+    // tượng thì biểu tượng không còn nói gì — xem NavigationIconsTest.
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedUsers;
 
     protected static bool $hasTitleCaseModelLabel = false;
 

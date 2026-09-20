@@ -23,6 +23,14 @@ return [
     'clamav' => [
         'enabled' => (bool) env('CLAMAV_ENABLED', false),
         'socket' => env('CLAMAV_SOCKET', '/var/run/clamav/clamd.ctl'),
+
+        /*
+         * Hạn cho MỖI lần đọc/ghi trên socket sau khi đã kết nối (giây). Khác hẳn timeout kết
+         * nối: một daemon quá tải vẫn nhận kết nối ngay rồi im lặng, và không có hạn này thì
+         * lần chờ câu trả lời rơi về `default_socket_timeout` của PHP — 60 giây khoá worker cho
+         * mỗi tệp. 30 giây đủ để một tệp 20 MB đi qua trên máy chủ bận.
+         */
+        'timeout' => (int) env('CLAMAV_TIMEOUT', 30),
     ],
 
     /*
@@ -37,9 +45,37 @@ return [
     'brand' => [
         'legal_name' => env('BRAND_LEGAL_NAME', 'Công ty Luật TNHH Vũ Khang Solutions & Partners'),
         'short_name' => env('BRAND_SHORT_NAME', 'Luật Vũ Khang'),
+
+        /*
+         * Tên pháp lý đầy đủ tách làm ba dòng cho khối nhận diện cạnh logo. Tách ở đây chứ không
+         * trong Blade để đổi tên là sửa một chỗ, và để loại hình doanh nghiệp ("Công ty Luật
+         * TNHH") không bị bỏ rơi khi ai đó rút gọn phần hiển thị: với một tổ chức hành nghề luật,
+         * loại hình là một phần của danh tính pháp lý, không phải chữ trang trí.
+         */
+        'lockup' => [
+            'entity' => env('BRAND_LOCKUP_ENTITY', 'Công ty Luật TNHH'),
+            'name' => env('BRAND_LOCKUP_NAME', 'Vũ Khang'),
+            'suffix' => env('BRAND_LOCKUP_SUFFIX', 'Solutions & Partners'),
+        ],
         'tagline' => env('BRAND_TAGLINE', 'Thấu hiểu vấn đề. Vững vàng quyết định.'),
         'website' => env('BRAND_WEBSITE', 'https://luatvukhang.com'),
         'hotline' => env('BRAND_HOTLINE', '0832270898'),
+        'zalo' => env('BRAND_ZALO', 'https://zalo.me/0832270898'),
+
+        /*
+         * Bốn thông tin dưới đây PHẢI có trước khi hệ thống gửi email cho khách hoặc xuất PDF:
+         * luật và thông lệ đều đòi chân thư của một tổ chức hành nghề luật nêu đủ tên pháp lý, mã
+         * số thuế, Đoàn Luật sư và số Giấy đăng ký hoạt động.
+         *
+         * Đã tra luatvukhang.com (trang chủ, /vi/about, /vi/contact) ngày 19/09/2026: website
+         * KHÔNG đăng bốn thông tin này, nên không có cách nào lấy tự động cho chính xác. Để trống
+         * có chủ đích thay vì điền phỏng đoán — một mã số thuế sai trên văn bản gửi khách còn tệ
+         * hơn một chỗ trống. Chủ văn phòng điền vào .env là xong, không phải sửa mã.
+         */
+        'tax_code' => env('BRAND_TAX_CODE'),
+        'bar_association' => env('BRAND_BAR_ASSOCIATION'),
+        'licence_number' => env('BRAND_LICENCE_NUMBER'),
+        'office_address' => env('BRAND_OFFICE_ADDRESS'),
 
         'colors' => [
             'navy' => '#101d35',

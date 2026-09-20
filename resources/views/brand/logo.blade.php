@@ -1,32 +1,42 @@
 {{--
-    Dấu hiệu nhận diện của Công ty Luật TNHH Vũ Khang Solutions & Partners, đặt trong panel qua
-    `brandLogo()` dưới dạng SVG NỘI TUYẾN (không phải <img>) vì hai lý do: chữ trong SVG nội tuyến
-    kế thừa được webfont Be Vietnam Pro mà panel đã nạp, và `currentColor` cho phép cùng một tệp
-    hiển thị đúng ở cả nền sáng lẫn nền tối mà không cần bản logo thứ hai.
+    Logo thật của Công ty Luật TNHH Vũ Khang Solutions & Partners, do văn phòng cung cấp.
 
-    Chữ "VK" là một MẶT NẠ khoét thủng ô vuông chứ không phải chữ trắng đè lên: nếu tô trắng, ở
-    giao diện tối ô vuông cũng sáng và chữ biến mất.
+    **Vì sao là <img> + chữ, không phải một tệp ảnh duy nhất.** Logo gốc là con dấu tròn, vuông
+    khổ. Đặt nguyên nó vào thanh bên cao khoảng 3rem thì chữ "VK" bên trong nhỏ tới mức không đọc
+    được, và tên văn phòng biến mất hoàn toàn. Nên ở đây dựng đúng cách một bộ nhận diện: con dấu
+    giữ nguyên tỉ lệ vuông, tên văn phòng đặt cạnh bằng chữ thật — vừa đọc được ở mọi cỡ, vừa cho
+    phép tên đổi màu theo nền sáng/tối, việc mà một tệp ảnh không làm được.
 
-    Thay bằng logo thật: đặt tệp vào `public/brand/logo.svg` rồi trỏ `brandLogo()` sang đường dẫn
-    đó trong AdminPanelProvider/PortalPanelProvider — không cần sửa tệp này.
+    **Ba dòng, và dòng đầu là loại hình doanh nghiệp.** Với một tổ chức hành nghề luật, "Công ty
+    Luật TNHH" là một phần của danh tính pháp lý chứ không phải chữ trang trí — bỏ nó đi thì khối
+    nhận diện nói tên một thương hiệu, không nói tên một pháp nhân. Dòng giữa mang trọng lượng thị
+    giác, hai dòng ngoài nhỏ và giãn chữ, đúng cách website xếp tên.
+
+    **Nền quanh vành vàng đã được cắt trong suốt** (xem tools/brand/make-logo.php): ảnh gốc nền
+    trắng, để nguyên thì ở giao diện tối nó thành một ô trắng vuông giữa thanh bên. Phần trắng BÊN
+    TRONG vành vàng thì giữ lại, vì đó là một phần của con dấu chứ không phải nền.
+
+    Muốn đổi logo: thay tools/brand/vk-logo-source.jpg rồi chạy
+    `bin/dev php tools/brand/make-logo.php`, không cần sửa tệp này.
 --}}
-<svg viewBox="0 0 296 48" role="img" aria-label="{{ config('vkcrm.brand.legal_name') }}"
-     style="height:100%;width:auto;display:block" xmlns="http://www.w3.org/2000/svg">
-    <mask id="vk-monogram">
-        <rect x="0" y="2" width="44" height="44" rx="9" fill="#fff"/>
-        <text x="22" y="31" text-anchor="middle" fill="#000"
-              font-family="'Be Vietnam Pro',system-ui,sans-serif" font-size="19" font-weight="700"
-              letter-spacing="0.5">VK</text>
-    </mask>
+@php($lockup = config('vkcrm.brand.lockup'))
 
-    <rect x="0" y="2" width="44" height="44" rx="9" fill="currentColor" mask="url(#vk-monogram)"/>
-    {{-- Vạch đỏ thương hiệu, lấy đúng màu --red của luatvukhang.com; đỏ này đọc được trên cả hai nền. --}}
-    <rect x="9" y="39" width="26" height="3" rx="1.5" fill="#c6283d" mask="url(#vk-monogram)"/>
+<div style="display:flex;align-items:center;gap:0.62rem;height:100%;line-height:1">
+    <img
+        src="{{ asset('brand/vk-mark-256.png') }}"
+        alt="{{ config('vkcrm.brand.legal_name') }}"
+        style="height:100%;width:auto;display:block;flex:none"
+    >
 
-    <text x="58" y="25" fill="currentColor"
-          font-family="'Be Vietnam Pro',system-ui,sans-serif" font-size="20" font-weight="700"
-          letter-spacing="1.6">VŨ KHANG</text>
-    <text x="58" y="40" fill="currentColor" opacity="0.6"
-          font-family="'Be Vietnam Pro',system-ui,sans-serif" font-size="9" font-weight="500"
-          letter-spacing="2.6">SOLUTIONS &amp; PARTNERS</text>
-</svg>
+    <span style="display:flex;flex-direction:column;justify-content:center;gap:0.18em;min-width:0;
+                 font-family:'Be Vietnam Pro',system-ui,sans-serif;color:currentColor">
+        <span style="font-size:0.5rem;font-weight:500;letter-spacing:0.15em;text-transform:uppercase;
+                     opacity:0.6;white-space:nowrap">{{ $lockup['entity'] }}</span>
+
+        <span style="font-size:0.93rem;font-weight:700;letter-spacing:0.09em;text-transform:uppercase;
+                     white-space:nowrap">{{ $lockup['name'] }}</span>
+
+        <span style="font-size:0.5rem;font-weight:500;letter-spacing:0.15em;text-transform:uppercase;
+                     opacity:0.6;white-space:nowrap">{{ $lockup['suffix'] }}</span>
+    </span>
+</div>

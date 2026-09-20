@@ -22,7 +22,9 @@ class MatterTypeResource extends Resource
 {
     protected static ?string $model = MatterType::class;
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
+    // Mỗi resource một hình riêng (dữ liệu cấu hình, không phải dữ liệu nghiệp vụ): năm mục cùng một biểu
+    // tượng thì biểu tượng không còn nói gì — xem NavigationIconsTest.
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedSquares2x2;
 
     // Nhãn tiếng Việt không viết hoa từng chữ như mặc định của Filament.
     protected static bool $hasTitleCaseModelLabel = false;

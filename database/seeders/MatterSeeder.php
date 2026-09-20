@@ -3,11 +3,12 @@
 namespace Database\Seeders;
 
 use App\Actions\ApplyChecklistTemplate;
+use App\Actions\Document\SubmitClientDocument;
+use App\Actions\Document\UploadStaffDocument;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\CommunicationType;
 use App\Enums\Confidentiality;
 use App\Enums\DocumentGroup;
-use App\Enums\DocumentStatus;
 use App\Enums\MatterRole;
 use App\Enums\MessageChannel;
 use App\Enums\MessageStatus;
@@ -18,7 +19,6 @@ use App\Models\ClientRequest;
 use App\Models\ClientRequestReply;
 use App\Models\CommunicationLog;
 use App\Models\Deadline;
-use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Models\MatterType;
@@ -27,8 +27,10 @@ use App\Models\StageLog;
 use App\Models\StageLogView;
 use App\Models\User;
 use Carbon\CarbonInterface;
+use Database\Seeders\Support\DemoPdf;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 
 /**
  * 20 vụ việc với các tình huống cố ý theo SPEC §12:
@@ -38,7 +40,22 @@ use Illuminate\Support\Collection;
  *  - vụ 10–14: có tài liệu khách nộp chờ duyệt
  *  - vụ 20: bị đơn trùng căn cước với khách hàng số 2 (đang là khách trong vụ 2) => xung đột đỏ
  *  - vụ 1–10: khách đã xem các dòng công bố; vụ 11–20: chưa xem
- * Chạy lại không tạo thêm nếu đã đủ 20 vụ. Tệp vật lý gắn ở M4.
+ * Chạy lại không tạo thêm nếu đã đủ 20 vụ.
+ *
+ * **Tài liệu có TỆP THẬT, và chúng đi qua đúng hai Action của mã sản phẩm.** Cho tới vòng rà
+ * soát cuối M4, `grep -rn addMedia database/` không ra dòng nào: seeder dựng ra những `Document`
+ * không có tệp, nên sau `migrate:fresh --seed` mọi nút tải trong bản demo trả 404 và route
+ * `documents.download` (SPEC §10.4) chưa từng chạy bằng tay một lần nào. SPEC §12 đòi dữ liệu mẫu
+ * "dùng thật được ngay", và một nút tải hỏng không đạt điều đó.
+ *
+ * Tệp đi vào qua `UploadStaffDocument` và `SubmitClientDocument` chứ KHÔNG qua `addMedia()` viết
+ * tay, và đó là toàn bộ điểm: dòng dữ liệu mẫu vì vậy đi đúng con đường của dòng dữ liệu thật —
+ * cổng tệp `FileGuard`, `VirusScanner`, chuỗi version nhóm A, việc đóng đầu mục danh mục, cặp
+ * `published_at`/`published_by` và các dòng nhật ký kiểm toán. Một seeder ghi thẳng dòng `media`
+ * sẽ tạo ra dữ liệu trông giống thật mà không chứng minh được gì về đường đi.
+ *
+ * Hệ quả cần biết khi chạy: seeder này GHI RA ĐĨA (`storage/app/private`), nên test nào chạy nó
+ * phải `Storage::fake('private')` trước. Xem `DemoPdf` cho tệp PDF được sinh ra.
  */
 class MatterSeeder extends Seeder
 {
@@ -127,6 +144,7 @@ class MatterSeeder extends Seeder
                 $this->parties($matter, $client, $opponent, $i, $clients);
                 $this->stageLogs($matter, $stage->key, $i, $openedAt);
                 $this->checklist($matter, $type, $i, $client);
+                $this->documents($matter, $lead, $i);
                 $this->deadlines($matter, $lead, $i);
                 $this->communications($matter, $client, $i);
                 $this->requests($matter, $client, $lead, $i);
@@ -178,6 +196,17 @@ class MatterSeeder extends Seeder
 
         $this->parties($matter, $client, 'Bên bị đơn của hồ sơ hạn chế', $i, $clients);
         $this->stageLogs($matter, $stage->key, $i, $openedAt);
+
+        // Một ghi chú nhóm D trên đúng vụ nhạy cảm nhất: hai ranh giới của SPEC §5 và §4.11 —
+        // "chỉ luật sư phụ trách và quản trị viên" và "nhóm D không bao giờ ra tới khách" — nằm
+        // chồng lên nhau ở đây, và cả hai đều cần một dòng dữ liệu thật để nhìn thấy được.
+        app(UploadStaffDocument::class)->handle(
+            matter: $matter,
+            actor: $lead,
+            file: DemoPdf::upload('ghi-chu-han-che.pdf', 'Ghi chu ho so han che truy cap', $matter->code),
+            group: DocumentGroup::Internal,
+            title: 'Ghi chú nội bộ hồ sơ hạn chế truy cập',
+        );
     }
 
     private function parties(Matter $matter, Client $client, string $opponent, int $i, Collection $clients): void
@@ -255,32 +284,94 @@ class MatterSeeder extends Seeder
 
         $items = app(ApplyChecklistTemplate::class)->handle($matter, $template);
         $clientUser = $client->clientUsers()->first();
+        $lead = $matter->leadLawyer;
 
         foreach ($items as $index => $item) {
             if ($i >= 6 && $i <= 9) {
-                // Còn thiếu giấy tờ: chỉ mục đầu tiên đã nhận, còn lại chưa nộp.
-                $item->update(['status' => $index === 0 ? ChecklistItemStatus::Accepted : ChecklistItemStatus::Missing]);
+                // Còn thiếu giấy tờ: chỉ mục đầu tiên đã nhận, còn lại chưa nộp. Mục đầu tiên đi
+                // qua `UploadStaffDocument` ở nhóm A — "nhân viên nộp thay" của SPEC §4.11 — nên
+                // chính Action đặt `accepted` kèm người duyệt, thay vì seeder tự ghi trạng thái.
+                $index === 0
+                    ? app(UploadStaffDocument::class)->handle(
+                        matter: $matter,
+                        actor: $lead,
+                        file: DemoPdf::upload(
+                            Str::slug($item->name).'-ban-giay.pdf',
+                            $item->name,
+                            $matter->code.' - ban giay khach mang toi van phong',
+                        ),
+                        group: DocumentGroup::ClientProvided,
+                        title: $item->name,
+                        checklistItem: $item,
+                    )
+                    : $item->update(['status' => ChecklistItemStatus::Missing]);
 
                 continue;
             }
 
             if ($i >= 10 && $i <= 14 && $index === 0) {
-                // Khách vừa nộp, chờ văn phòng kiểm tra.
-                $item->update(['status' => ChecklistItemStatus::PendingReview]);
-                Document::factory()->for($matter)->uploadedBy($clientUser)->create([
-                    'matter_checklist_item_id' => $item->id,
-                    'group' => DocumentGroup::ClientProvided,
-                    'title' => $item->name,
-                    'status' => DocumentStatus::Published,
-                    'client_can_view' => true,
-                    'client_can_download' => true,
-                    'published_at' => now()->subDay(),
-                ]);
+                // Khách vừa nộp, chờ văn phòng kiểm tra — qua đúng Action của portal, nên đầu mục
+                // sang `pending_review`, chuỗi version bắt đầu ở 1 và dòng `document_submitted`
+                // được ghi y như một lần nộp thật.
+                app(SubmitClientDocument::class)->handle(
+                    $item,
+                    $clientUser,
+                    DemoPdf::upload(
+                        Str::slug($item->name).'.pdf',
+                        $item->name,
+                        $matter->code.' - khach gui len qua trang khach hang',
+                    ),
+                );
 
                 continue;
             }
 
             $item->update(['status' => $item->is_required ? ChecklistItemStatus::Accepted : ChecklistItemStatus::NotApplicable]);
+        }
+    }
+
+    /**
+     * Tài liệu của văn phòng: nhóm C trên mọi vụ, nhóm B và nhóm D rải ra.
+     *
+     * Mọi tài liệu ở đây đi qua `UploadStaffDocument`, nên chúng có tệp thật trên disk `private`,
+     * có dòng `media`, có bộ cờ mặc định đúng bảng SPEC §4.11 và có nhật ký kiểm toán — tức tab
+     * "Tài liệu" (SPEC §7.2) và route `documents.download` (SPEC §10.4) chạy được ngay trên dữ
+     * liệu demo, đúng yêu cầu "dùng thật được ngay" của SPEC §12.
+     *
+     * Nhóm D có mặt là có chủ đích: nhãn "Chỉ nội bộ — không bao giờ hiện cho khách" là thứ phải
+     * NHÌN THẤY trên dữ liệu mẫu thì mới kiểm được bằng mắt, và cổng "nhóm D không bao giờ công
+     * bố" cũng vậy.
+     */
+    private function documents(Matter $matter, User $lead, int $i): void
+    {
+        app(UploadStaffDocument::class)->handle(
+            matter: $matter,
+            actor: $lead,
+            file: DemoPdf::upload('thong-bao-thu-ly.pdf', 'Thong bao thu ly vu an', $matter->code),
+            group: DocumentGroup::Authority,
+            title: 'Thông báo thụ lý vụ án',
+            issuedAt: now()->subDays($i % 20 + 5)->toDateString(),
+        );
+
+        if ($i % 2 === 0) {
+            app(UploadStaffDocument::class)->handle(
+                matter: $matter,
+                actor: $lead,
+                file: DemoPdf::upload('don-khoi-kien.pdf', 'Don khoi kien', $matter->code),
+                group: DocumentGroup::Issued,
+                title: 'Đơn khởi kiện do văn phòng soạn',
+                issuedAt: now()->subDays($i % 15 + 3)->toDateString(),
+            );
+        }
+
+        if ($i % 3 === 0) {
+            app(UploadStaffDocument::class)->handle(
+                matter: $matter,
+                actor: $lead,
+                file: DemoPdf::upload('ghi-chu-noi-bo.pdf', 'Ghi chu cong viec noi bo', $matter->code),
+                group: DocumentGroup::Internal,
+                title: 'Ghi chú đánh giá khả năng thắng kiện',
+            );
         }
     }
 

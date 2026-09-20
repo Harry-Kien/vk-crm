@@ -5,6 +5,8 @@ namespace App\Filament\Admin\Resources\Matters;
 use App\Filament\Admin\Resources\Matters\Pages\CreateMatter;
 use App\Filament\Admin\Resources\Matters\Pages\ListMatters;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
+use App\Filament\Admin\Resources\Matters\RelationManagers\ChecklistRelationManager;
+use App\Filament\Admin\Resources\Matters\RelationManagers\DocumentsRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\PartiesRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\StageLogsRelationManager;
 use App\Filament\Admin\Resources\Matters\Schemas\MatterForm;
@@ -28,15 +30,17 @@ use Illuminate\Support\Facades\Auth;
  * Không có trang edit: sửa vụ việc chưa thuộc phạm vi M3. Trang create (`CreateMatter`) KHÔNG
  * dùng luồng `Model::create()` mặc định của Filament — nó gọi Action `OpenMatter`, vì mở một vụ
  * việc là bảy bước nghiệp vụ (kiểm tra xung đột lợi ích, sinh mã, dựng bên khách hàng, sao chép
- * danh mục hồ sơ, nhật ký) chứ không phải một lần ghi bảng. Trang chi tiết (`ViewMatter`) có ba
- * tab của M3 — Tổng quan (infolist dưới đây), Tiến độ và Các bên (`getRelations()`); các tab
- * M4/M6/M7 chưa xây.
+ * danh mục hồ sơ, nhật ký) chứ không phải một lần ghi bảng. Trang chi tiết (`ViewMatter`) có năm
+ * tab — Tổng quan (infolist dưới đây), Tiến độ, Danh mục hồ sơ, Tài liệu và Các bên
+ * (`getRelations()`); các tab M6/M7 chưa xây.
  */
 class MatterResource extends Resource
 {
     protected static ?string $model = Matter::class;
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
+    // Mỗi resource một hình riêng (vụ việc — cán cân, mục dùng nhiều nhất của panel): năm mục cùng một biểu
+    // tượng thì biểu tượng không còn nói gì — xem NavigationIconsTest.
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedScale;
 
     protected static bool $hasTitleCaseModelLabel = false;
 
@@ -74,11 +78,21 @@ class MatterResource extends Resource
         ];
     }
 
-    /** Thứ tự tab sau "Tổng quan" (SPEC §7.2, chỉ ba tab thuộc M3 — xem ViewMatter). */
+    /**
+     * Thứ tự tab sau "Tổng quan", ĐÚNG thứ tự SPEC §7.2 liệt kê chúng: Tiến độ, Danh mục hồ sơ,
+     * Tài liệu, Các bên. Hai tab giữa là của M4; Mốc thời hạn, Liên lạc, Yêu cầu từ khách và
+     * Nhật ký chưa xây.
+     *
+     * Thứ tự không phải chuyện thẩm mỹ: "Danh mục hồ sơ" (còn thiếu gì) đứng trước "Tài liệu"
+     * (đã có gì) vì câu hỏi hằng ngày của trợ lý là câu thứ nhất, và SPEC viết chúng theo đúng
+     * thứ tự đó.
+     */
     public static function getRelations(): array
     {
         return [
             StageLogsRelationManager::class,
+            ChecklistRelationManager::class,
+            DocumentsRelationManager::class,
             PartiesRelationManager::class,
         ];
     }

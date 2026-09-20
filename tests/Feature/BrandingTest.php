@@ -14,18 +14,18 @@ it('shows the firm identity on the internal login screen', function () {
     $response = $this->get('/admin/login');
 
     $response->assertOk()
-        ->assertSee('VŨ KHANG', escape: false)
+        ->assertSee(config('vkcrm.brand.lockup.name'))
         ->assertSee(config('vkcrm.brand.tagline'), escape: false)
         ->assertSee(config('vkcrm.brand.legal_name'))
         ->assertSee(config('vkcrm.brand.hotline'))
-        ->assertSee('brand/favicon.svg', escape: false);
+        ->assertSee('brand/vk-mark-64.png', escape: false);
 });
 
 it('shows the firm identity on the client portal login screen', function () {
     $response = $this->get('/portal/login');
 
     $response->assertOk()
-        ->assertSee('VŨ KHANG', escape: false)
+        ->assertSee(config('vkcrm.brand.lockup.name'))
         ->assertSee(config('vkcrm.brand.tagline'), escape: false)
         ->assertSee(config('vkcrm.brand.legal_name'));
 });
@@ -36,7 +36,8 @@ it('carries the logo into the internal panel once signed in', function () {
     $this->actingAs($admin, 'web')
         ->get('/admin')
         ->assertOk()
-        ->assertSee('SOLUTIONS &amp; PARTNERS', escape: false);
+        ->assertSee(config('vkcrm.brand.lockup.suffix'))
+        ->assertSee(config('vkcrm.brand.lockup.entity'));
 });
 
 it('keeps the portal primary colour at the firm navy rather than a generated ramp', function () {
@@ -76,4 +77,21 @@ it('loads the brand webfont stylesheet on both panels', function () {
     $this->get('/portal/login')
         ->assertOk()
         ->assertSee('fonts.bunny.net/css?family='.$family, escape: false);
+});
+
+/**
+ * Lớp nhận diện phủ lên giao diện dựng sẵn của Filament được tiêm qua render hook, nên nó là thứ
+ * rất dễ mất im lặng: một lần nâng cấp Filament đổi tên token, hay ai đó dọn bớt render hook, là
+ * hệ thống lặng lẽ quay về bo tròn mặc định — trông như một phần mềm SaaS bất kỳ dán tên văn
+ * phòng. Ghim cả hai nửa: token bán kính vuông (chữ ký thị giác lấy từ CSS của luatvukhang.com,
+ * nơi chỉ dùng 0 và 3px) và bộ chữ có chân cho tiêu đề.
+ */
+it('overrides the framework radius tokens and loads the serif on both panels', function () {
+    foreach (['/admin/login', '/portal/login'] as $url) {
+        $this->get($url)
+            ->assertOk()
+            ->assertSee('--radius-lg: 3px', escape: false)
+            ->assertSee('fonts.bunny.net/css?family=noto-serif', escape: false)
+            ->assertSee('.fi-badge { border-radius: 999px; }', escape: false);
+    }
 });

@@ -54,11 +54,13 @@ it('lets an admin open every client page', function () {
     $this->actingAs($admin, 'web')->get(ClientResource::getUrl('edit', ['record' => $client], panel: 'admin'))->assertOk();
 });
 
-it('forbids a lawyer without client.manage from writing a client they can otherwise see', function () {
+it('hides the client write pages from a lawyer without client.manage', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $client = Client::factory()->create();
     Matter::factory()->create(['client_id' => $client->id, 'lead_lawyer_id' => $lawyer->id]);
 
-    $this->actingAs($lawyer, 'web')->get(ClientResource::getUrl('create', panel: 'admin'))->assertForbidden();
-    $this->actingAs($lawyer, 'web')->get(ClientResource::getUrl('edit', ['record' => $client], panel: 'admin'))->assertForbidden();
+    // Panel từ chối bằng 404 (SPEC §10.10, xem DenialCodeTest và
+    // AnswerDeniedPanelRequestsWithNotFound).
+    $this->actingAs($lawyer, 'web')->get(ClientResource::getUrl('create', panel: 'admin'))->assertNotFound();
+    $this->actingAs($lawyer, 'web')->get(ClientResource::getUrl('edit', ['record' => $client], panel: 'admin'))->assertNotFound();
 });

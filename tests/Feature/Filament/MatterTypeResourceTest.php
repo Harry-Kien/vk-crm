@@ -2,6 +2,7 @@
 
 use App\Enums\Role;
 use App\Filament\Admin\Resources\MatterTypes\MatterTypeResource;
+use App\Filament\Admin\Resources\MatterTypes\Pages\CreateMatterType;
 use App\Filament\Admin\Resources\MatterTypes\Pages\EditMatterType;
 use App\Filament\Admin\Resources\MatterTypes\RelationManagers\StagesRelationManager;
 use App\Models\MatterType;
@@ -25,16 +26,18 @@ it('lets an admin open every matter type page', function () {
 /**
  * MatterTypePolicy để viewAny/view mở cho mọi vai trò (portal cần đọc nhãn giai đoạn), nhưng
  * create/update/delete chỉ dành cho settings.manage (admin). Filament áp policy tự động cho
- * từng trang resource; test này xác nhận luật sư — không có settings.manage — bị 403 trên các
+ * từng trang resource; test này xác nhận luật sư — không có settings.manage — không mở được các
  * trang ghi trong khi trang danh sách (đọc) vẫn mở.
  */
-it('forbids a lawyer from writing a matter type but still allows reading the list', function () {
+it('hides the matter type write pages from a lawyer but still allows reading the list', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $type = MatterType::factory()->create();
 
     $this->actingAs($lawyer, 'web')->get(MatterTypeResource::getUrl('index', panel: 'admin'))->assertOk();
-    $this->actingAs($lawyer, 'web')->get(MatterTypeResource::getUrl('create', panel: 'admin'))->assertForbidden();
-    $this->actingAs($lawyer, 'web')->get(MatterTypeResource::getUrl('edit', ['record' => $type], panel: 'admin'))->assertForbidden();
+    // Panel từ chối bằng 404 (SPEC §10.10, xem DenialCodeTest và
+    // AnswerDeniedPanelRequestsWithNotFound).
+    $this->actingAs($lawyer, 'web')->get(MatterTypeResource::getUrl('create', panel: 'admin'))->assertNotFound();
+    $this->actingAs($lawyer, 'web')->get(MatterTypeResource::getUrl('edit', ['record' => $type], panel: 'admin'))->assertNotFound();
 });
 
 /**
@@ -108,4 +111,41 @@ it('lets an admin recreate a stage key after the original row is soft-deleted', 
 
     expect($type->stages()->withTrashed()->where('key', 'intake')->count())->toBe(2)
         ->and($type->stages()->where('key', 'intake')->count())->toBe(1);
+});
+
+/**
+ * Tầng form của cùng lỗ hổng đã vá ở model: `unique()` của Laravel đếm cả dòng đã xoá mềm, nên
+ * trước đây người dùng nhận "đã tồn tại" cho một mã không còn dòng nào đang dùng — và nếu họ
+ * bỏ qua form (seeder, factory) thì nhận thẳng một lỗi ràng buộc DB.
+ */
+it('lets an admin reuse a matter type code whose only holder was soft-deleted', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    MatterType::factory()->create(['code' => 'DS'])->delete();
+
+    $this->actingAs($admin, 'web');
+    Filament::setCurrentPanel('admin');
+
+    $this->livewire(CreateMatterType::class)
+        ->fillForm(['code' => 'DS', 'name' => 'Dân sự', 'sort_order' => 0])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    expect(MatterType::query()->where('code', 'DS')->count())->toBe(1)
+        ->and(MatterType::withTrashed()->where('code', 'DS')->count())->toBe(2);
+});
+
+/** Cặp âm: một mã CÒN DÙNG vẫn bị form từ chối, và từ chối trên đúng ô `code`. */
+it('still refuses a matter type code that a live row is using', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    MatterType::factory()->create(['code' => 'DS']);
+
+    $this->actingAs($admin, 'web');
+    Filament::setCurrentPanel('admin');
+
+    $this->livewire(CreateMatterType::class)
+        ->fillForm(['code' => 'DS', 'name' => 'Dân sự lần hai', 'sort_order' => 0])
+        ->call('create')
+        ->assertHasFormErrors(['code']);
+
+    expect(MatterType::query()->where('code', 'DS')->count())->toBe(1);
 });
