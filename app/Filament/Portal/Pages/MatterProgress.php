@@ -407,14 +407,39 @@ class MatterProgress extends Page
      * `DocumentPolicy::view()` hỏi `Document::isReleasedToPortal()`, thứ đọc `group` trên chính
      * bản ghi. Xoá dòng lọc này thì `MatterProgressTest` đỏ.
      *
+     * **Chỉ bản mới nhất của mỗi chuỗi nộp lại** — xem bình luận trong thân hàm. Điều kiện này
+     * thêm ở Task 5 cùng lúc với màn hình nộp tệp, vì trước đó cổng không có đường nào sinh ra
+     * bản thứ hai; test đứng sau nó ở `SubmitDocumentTest`.
+     *
      * @return Collection<int, Document>
      */
     public function documents(): Collection
     {
+        if ($this->resolvedDocuments !== null) {
+            return $this->resolvedDocuments;
+        }
+
         $viewer = $this->viewer();
 
-        return $this->resolvedDocuments ??= $this->matter()->documents()->get()
-            ->filter(fn (Document $document): bool => Gate::forUser($viewer)->allows('view', $document))
+        $visible = $this->matter()->documents()->get()
+            ->filter(fn (Document $document): bool => Gate::forUser($viewer)->allows('view', $document));
+
+        // Chỉ bản MỚI NHẤT của mỗi chuỗi nộp lại (SPEC §6.6 bước 7) — thêm ở Task 5, vì trước
+        // Task 5 chưa có đường nào trên cổng sinh ra bản thứ hai. Một lần nộp lại tạo một
+        // `Document` MỚI và giữ nguyên bản cũ ("không ghi đè"), nên nếu không lọc thì khối này
+        // vẽ hai dòng cùng tên đầu mục, cùng ngày, và khách không có cách nào biết dòng nào là
+        // bản đang có hiệu lực — cái cũ lại chính là cái vừa bị văn phòng từ chối.
+        //
+        // Nhận biết bản cũ bằng `parent_document_id` của một bản khác ĐANG HIỂN THỊ, không bằng
+        // số `version`: chuỗi có thể đứt (một bản giữa bị xoá mềm, hoặc bản mới nhất là nhóm
+        // khác nên không lên cổng), và khi ấy "số lớn nhất" không còn là câu trả lời đúng cho
+        // "cái nào đang thay thế cái nào". Không truy vấn thêm — cả hai vế đọc từ cùng tập hợp
+        // đã gác quyền ở trên, nên một bản cha mà khách KHÔNG được xem cũng không che được bản
+        // nào.
+        $superseded = $visible->pluck('parent_document_id')->filter()->all();
+
+        return $this->resolvedDocuments = $visible
+            ->reject(fn (Document $document): bool => in_array($document->getKey(), $superseded, true))
             ->sortByDesc(fn (Document $document) => $document->published_at ?? $document->created_at)
             ->values();
     }

@@ -146,6 +146,28 @@
                             <p style="margin-top:0.25rem;white-space:pre-line;">{{ $reason }}</p>
                         </div>
                     @endif
+
+                    {{-- Nút nộp — SPEC §8.3 mục 4, HAI trạng thái và không trạng thái nào khác:
+                         `missing` có nút nộp, `rejected` có nút nộp LẠI (ngay dưới lý do đầy đủ,
+                         vì lý do và việc phải làm là một câu chuyện). Khối này là danh sách "còn
+                         thiếu gì", không phải một bảng thao tác — một cái nút trên một đầu mục
+                         đã nhận đủ chỉ mời khách gửi lại thứ văn phòng đã có.
+
+                         Màn hình nộp thì nhận cả những trạng thái khác (nó là đường sửa sai duy
+                         nhất của khách — xem docblock `App\Filament\Portal\Pages\SubmitDocument`);
+                         lối vào ở đây hẹp hơn một cách có chủ đích.
+
+                         Chuỗi và URL đều thuộc về task 5: `portal_submit.entry.*` và
+                         `SubmitDocument::urlForItem()` — trang kia sở hữu hình dạng URL của chính
+                         nó, nên một ngày nó đổi thì lời gọi này đi theo. --}}
+                    @if (in_array($item->status, [\App\Enums\ChecklistItemStatus::Missing, \App\Enums\ChecklistItemStatus::Rejected], true))
+                        <a href="{{ \App\Filament\Portal\Pages\SubmitDocument::urlForItem($item) }}"
+                           style="{{ $tap }}margin-top:0.5rem;background-color:var(--primary-600);color:var(--primary-50);">
+                            {{ $item->status === \App\Enums\ChecklistItemStatus::Rejected
+                                ? __('portal_submit.entry.resubmit')
+                                : __('portal_submit.entry.submit') }}
+                        </a>
+                    @endif
                 </article>
             @empty
                 <p style="{{ $muted }}">{{ __('portal_progress.blocks.checklist.empty') }}</p>
