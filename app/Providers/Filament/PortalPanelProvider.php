@@ -12,7 +12,6 @@ use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
-use Filament\Pages\Dashboard;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
@@ -115,9 +114,23 @@ class PortalPanelProvider extends PanelProvider
             ])
             ->discoverResources(in: app_path('Filament/Portal/Resources'), for: 'App\Filament\Portal\Resources')
             ->discoverPages(in: app_path('Filament/Portal/Pages'), for: 'App\Filament\Portal\Pages')
-            ->pages([
-                Dashboard::class,
-            ])
+            /*
+             * KHÔNG đăng ký `Filament\Pages\Dashboard`.
+             *
+             * SPEC §8.2 nói màn hình khách gặp sau khi đăng nhập là DANH SÁCH HỒ SƠ, và tài liệu
+             * bộ công cụ §4 cấm thẳng một trạng thái trống không kèm hướng dẫn — một dashboard
+             * không widget nào chính là thứ đó. `App\Filament\Portal\Pages\MyMatters` nhận
+             * đường dẫn gốc của panel (`getRoutePath()` trả `/`), nên nó là `/portal`, tức đúng
+             * nơi `Filament\Auth\Pages\Login` chuyển hướng tới (`Filament::getUrl()`).
+             *
+             * Dòng `Dashboard::class` cũ KHÔNG chỉ thừa: nó đăng ký route SAU các trang tự dò
+             * được — `discoverPages()` nối chúng vào `$panel->pages` trước — nên
+             * `RouteCollection::addToCollections()` ghi đè theo khoá `[method][domain.uri]` và
+             * route của `MyMatters` biến mất khỏi bảng. Hệ quả đo được: mục điều hướng của
+             * `MyMatters` vẫn được dựng, `getNavigationUrl()` gọi `route()` lên một tên route
+             * không tồn tại, và MỌI trang cổng đã xác thực vỡ khi vẽ thanh bên.
+             */
+            ->pages([])
             ->discoverWidgets(in: app_path('Filament/Portal/Widgets'), for: 'App\Filament\Portal\Widgets')
             ->widgets([])
             // Đầu danh sách middleware của panel — tức THỨ HAI trong đường ống, vì

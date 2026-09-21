@@ -998,7 +998,9 @@ it('never paints a hidden row into the rendered matter list', function () {
     Filament::setCurrentPanel('portal');
 
     $html = $this->actingAs($this->userA, 'client')
-        ->livewire(MyMatters::class)
+        // `showAll`: khách A có đúng một hồ sơ nhìn thấy được, nên không có cờ này thì trang
+        // chuyển thẳng sang trang chi tiết và không còn gì để quét.
+        ->livewire(MyMatters::class, ['showAll' => true])
         ->html();
 
     // Vế dương trước: nếu trang không vẽ gì thì khẳng định bên dưới xanh mà không đo gì cả.
