@@ -6,6 +6,7 @@ use App\Filament\Admin\Resources\Matters\Pages\CreateMatter;
 use App\Filament\Admin\Resources\Matters\Pages\ListMatters;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ChecklistRelationManager;
+use App\Filament\Admin\Resources\Matters\RelationManagers\ClientRequestsRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\DocumentsRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\PartiesRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\StageLogsRelationManager;
@@ -30,9 +31,9 @@ use Illuminate\Support\Facades\Auth;
  * Không có trang edit: sửa vụ việc chưa thuộc phạm vi M3. Trang create (`CreateMatter`) KHÔNG
  * dùng luồng `Model::create()` mặc định của Filament — nó gọi Action `OpenMatter`, vì mở một vụ
  * việc là bảy bước nghiệp vụ (kiểm tra xung đột lợi ích, sinh mã, dựng bên khách hàng, sao chép
- * danh mục hồ sơ, nhật ký) chứ không phải một lần ghi bảng. Trang chi tiết (`ViewMatter`) có năm
- * tab — Tổng quan (infolist dưới đây), Tiến độ, Danh mục hồ sơ, Tài liệu và Các bên
- * (`getRelations()`); các tab M6/M7 chưa xây.
+ * danh mục hồ sơ, nhật ký) chứ không phải một lần ghi bảng. Trang chi tiết (`ViewMatter`) có sáu
+ * tab — Tổng quan (infolist dưới đây), Tiến độ, Danh mục hồ sơ, Tài liệu, Các bên và Yêu cầu từ khách
+ * (`getRelations()`); các tab Mốc thời hạn, Liên lạc và Nhật ký (M7) chưa xây.
  */
 class MatterResource extends Resource
 {
@@ -80,8 +81,12 @@ class MatterResource extends Resource
 
     /**
      * Thứ tự tab sau "Tổng quan", ĐÚNG thứ tự SPEC §7.2 liệt kê chúng: Tiến độ, Danh mục hồ sơ,
-     * Tài liệu, Các bên. Hai tab giữa là của M4; Mốc thời hạn, Liên lạc, Yêu cầu từ khách và
-     * Nhật ký chưa xây.
+     * Tài liệu, Các bên, Yêu cầu từ khách. Hai tab giữa là của M4, tab cuối là của M5 Task 6;
+     * Mốc thời hạn, Liên lạc và Nhật ký chưa xây.
+     *
+     * "Yêu cầu từ khách" nhảy qua Mốc thời hạn và Liên lạc — hai tab SPEC đặt trước nó — vì hai
+     * tab kia thuộc M7 và một chỗ trống không giữ được thứ tự. Khi chúng được dựng, chúng chèn
+     * vào TRƯỚC dòng cuối cùng ở đây.
      *
      * Thứ tự không phải chuyện thẩm mỹ: "Danh mục hồ sơ" (còn thiếu gì) đứng trước "Tài liệu"
      * (đã có gì) vì câu hỏi hằng ngày của trợ lý là câu thứ nhất, và SPEC viết chúng theo đúng
@@ -94,6 +99,9 @@ class MatterResource extends Resource
             ChecklistRelationManager::class,
             DocumentsRelationManager::class,
             PartiesRelationManager::class,
+            // Tab "Yêu cầu từ khách" (SPEC §7.2) — hộp thư của vụ việc, M5 Task 6. Đứng sau
+            // "Các bên" vì nó là việc đọc-và-trả-lời hằng ngày, không phải một phần của hồ sơ.
+            ClientRequestsRelationManager::class,
         ];
     }
 

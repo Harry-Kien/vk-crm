@@ -465,21 +465,28 @@ class MatterProgress extends Page
     // -------------------------------------------------------------------------------------
 
     /**
-     * Lối vào màn hình gửi yêu cầu (SPEC §8.3 mục 7) **là của Task 6**, và nó chưa tồn tại.
+     * Lối vào màn hình gửi yêu cầu (SPEC §8.3 mục 7). **Seam của Task 4, được Task 6 lật.**
      *
-     * Trả `null` cho tới khi có, và khi `null` thì khối 7 đưa ra con đường CÓ THẬT hôm nay: số
-     * điện thoại văn phòng. Một cái nút dẫn tới một trang chưa có là thứ tệ hơn không có nút —
-     * nó biến một khách đang cần hỏi thành một khách vừa gặp lỗi.
+     * Task 4 để hàm này trả `null` vì {@see MyRequests} chưa tồn tại, và khi `null` thì khối 7
+     * đưa ra con đường CÓ THẬT lúc đó: số điện thoại văn phòng — một cái nút dẫn tới một trang
+     * chưa có tệ hơn không có nút, vì nó biến một khách đang cần hỏi thành một khách vừa gặp lỗi.
+     * Trang đó đã có, nên hàm trả URL của nó.
      *
-     * **Việc của Task 6, viết ra chính xác để nó không phải đoán:** đổi thân hàm này thành
-     * `MyRequests::getUrl(['record' => $this->matter()->getKey()], panel: 'portal')` (hoặc tham
-     * số tương đương của trang đó), và view sẽ tự chuyển sang vẽ nút. Câu "gọi điện" ở
-     * `portal_progress.blocks.requests.call` không bị xoá — nó vẫn đúng và vẫn nên ở đó cho
-     * người muốn nói chuyện với người.
+     * Gọi bằng LỚP chứ không bằng một đường dẫn viết tay: trang kia sở hữu `$slug` và hình dạng
+     * `{record}` của chính nó, nên một ngày nó đổi thì lời gọi này đi theo.
+     *
+     * **Nói đúng cái giá của lần lật này, vì docblock cũ hứa rộng hơn sự thật.** View vẽ khối 7
+     * bằng `@if ($url = $this->requestEntryPoint()) … @else … @endif`, nên từ lúc hàm này thôi
+     * trả `null`, nhánh `@else` — câu "gọi điện", `portal_progress.blocks.requests.call` — không
+     * còn được vẽ ra nữa. Khoá dịch vẫn còn và nhánh vẫn còn; chúng chỉ thôi chạy tới. Để cả nút
+     * lẫn số điện thoại cùng hiện là một thay đổi trong MARKUP của khối 7, và tệp view đó đang
+     * được ba task dùng chung ở M5 (phán quyết của người điều phối: Task 6 chỉ lật hàm này, Task
+     * 5 chỉ sửa seam nút gửi của khối 4). Nên nó được ghi lại ở đây và giao cho vòng hợp nhất,
+     * chứ không sửa lén vào một tệp người khác đang viết dở.
      */
     public function requestEntryPoint(): ?string
     {
-        return null;
+        return MyRequests::getUrl(['record' => $this->matter()->getKey()]);
     }
 
     // -------------------------------------------------------------------------------------

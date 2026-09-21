@@ -16,10 +16,16 @@ use Illuminate\Support\Facades\Auth;
  */
 class MattersByStageWidget extends ChartWidget
 {
-    // Thứ tự SPEC §7.1: mục 6, tức SAU "Tài liệu chờ duyệt" (mục 3, -2) và "Hồ sơ thiếu giấy
-    // tờ quá 14 ngày" (mục 4, -1). Giá trị này từng là -1 và trùng với widget mục 4, nên hai
-    // widget đứng theo thứ tự Filament tình cờ nạp lớp — xem DashboardWidgetOrderTest.
-    protected static ?int $sort = 0;
+    // Thứ tự SPEC §7.1: mục 6, tức SAU "Tài liệu chờ duyệt" (mục 3, -2), "Hồ sơ thiếu giấy tờ
+    // quá 14 ngày" (mục 4, -1) và "Khách chưa xem cập nhật" (mục 5, 0). Giá trị này từng là -1
+    // và trùng với widget mục 4, nên hai widget đứng theo thứ tự Filament tình cờ nạp lớp — xem
+    // DashboardWidgetOrderTest.
+    //
+    // Dời từ 0 lên 1 ở M5 Task 6: `$sort` của Filament là `?int`, nên khi mục 5 ra đời thì giữa
+    // -1 và 0 không còn số nguyên nào. Đây là một lần ĐÁNH SỐ LẠI, không phải một thay đổi về
+    // thứ tự — vị trí tương đối của mọi widget vẫn đúng SPEC §7.1, và DashboardWidgetOrderTest
+    // so sánh theo thứ tự tương đối nên nó đo được đúng điều đó.
+    protected static ?int $sort = 1;
 
     public function getHeading(): string|Htmlable|null
     {

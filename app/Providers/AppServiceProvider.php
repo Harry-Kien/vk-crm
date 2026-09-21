@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Http\Controllers\DocumentDownloadController;
 use App\Models\Client;
 use App\Models\ClientRequest;
+use App\Models\ClientRequestReply;
 use App\Models\ClientUser;
 use App\Models\Deadline;
 use App\Models\Document;
@@ -51,6 +52,11 @@ class AppServiceProvider extends ServiceProvider
             'matter' => Matter::class,
             'deadline' => Deadline::class,
             'client_request' => ClientRequest::class,
+            // Chủ thể của hai dòng nhật ký M5 Task 6 (`client_request_replied_by_client` và
+            // `client_request_answered_by_staff`, xem `ReplyToClientRequest`). Cùng lý do với
+            // `matter_checklist_item` bên dưới: thiếu tên ở đây thì `Audit::record()` với chủ
+            // thể là một dòng trả lời là một lỗi 500, chứ không phải một cột lưu tên lớp.
+            'client_request_reply' => ClientRequestReply::class,
             'client' => Client::class,
             'matter_party' => MatterParty::class,
             // Chủ thể của dòng nhật ký `checklist_item_reviewed` (SPEC §6.7). `enforceMorphMap()`

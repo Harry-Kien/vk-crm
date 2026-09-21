@@ -149,9 +149,46 @@ class StageLogsRelationManager extends RelationManager
     }
 
     /**
-     * SPEC §4.18: "Khách đã xem lúc HH:mm ngày dd/mm" (lần xem ĐẦU TIÊN, của bất kỳ client_user
-     * nào của vụ việc — bảng stage_log_views ghi bằng chứng đã thông báo, không phải thống kê) hoặc
-     * "Khách chưa xem", tô vàng (highlighted) khi chưa xem quá 5 ngày kể từ lúc công bố.
+     * Nhãn trạng thái đọc của SPEC §7.2 và §4.18: *"Khách đã xem lúc 21:14 ngày 14/09"* hoặc
+     * *"Khách chưa xem"*, tô vàng khi chưa xem quá 5 ngày kể từ lúc công bố.
+     *
+     * # Nhãn này KHẲNG ĐỊNH ĐÚNG NHỮNG GÌ — viết lại ở M5 Task 6, khi bảng có dữ liệu thật
+     *
+     * Cho tới M5 bảng `stage_log_views` chưa có một hàng nào do người thật tạo ra, nên câu chữ ở
+     * đây là một lời hứa chưa ai phải giữ. Task 4 đã chốt cách đọc khi nối `RecordStageLogView`
+     * vào màn hình khách, và nhãn này phải nói đúng cách đọc đó, không hơn một chữ — vì đây là
+     * **bằng chứng văn phòng đã thông báo cho khách hàng**, không phải một con số thống kê, và
+     * nếu có ngày nó phải đứng trước một người phản biện thì chênh lệch giữa lời hứa và sự thật
+     * là chỗ nó bị bẻ đầu tiên.
+     *
+     * "Khách đã xem lúc …" khẳng định: **một tài khoản portal của khách hàng này đã mở trang chi
+     * tiết hồ sơ, và dòng cập nhật này nằm trong trang được gửi tới trình duyệt của họ, vào thời
+     * điểm đó, từ địa chỉ IP đó.**
+     *
+     * Nó **không** khẳng định người đó đã cuộn xuống tới dòng ấy, đã đọc, hay đã hiểu. Cách ghi
+     * theo khung nhìn (dòng thật sự hiện ra trước mắt) đã được cân nhắc và bị loại ở Task 4: nó
+     * đúng nghĩa hơn với chữ "đã xem", nhưng nó phụ thuộc vào JavaScript chạy trên máy khách —
+     * một thứ người phản biện tắt đi được — nên nó là một bằng chứng YẾU hơn, không mạnh hơn.
+     *
+     * Ba hệ quả cụ thể cho người đọc nhãn này để quyết định có gọi điện hay không:
+     *
+     *  - **Nhãn nói về KHÁCH HÀNG, không về một người.** Biên bản ghi theo cặp `(dòng, tài
+     *    khoản)`, nhưng nhãn lấy biên bản SỚM NHẤT của bất kỳ tài khoản nào — một hồ sơ có hai
+     *    tài khoản portal (SPEC §4.3 nêu ví dụ hai vợ chồng) thì chỉ cần một người mở là nhãn
+     *    chuyển sang "đã xem". Đúng với cách đọc theo `Client` đã chốt ngày 19/09/2026 cho cả
+     *    `ClientRequest` lẫn `StageLogView`, nên hai bên bàn nhìn cùng một tập dữ liệu.
+     *  - **Dấu thời gian là của lần mở ĐẦU TIÊN và không bao giờ dời.** Hợp đồng đó thuộc về
+     *    `RecordStageLogView` và được `StageLogViewImmutable` canh ở tầng model.
+     *  - **Cách đọc đổi nghĩa nếu dòng thời gian của cổng khách được phân trang.** Hôm nay trang
+     *    chi tiết vẽ ra toàn bộ các dòng đã công bố, nên "trang đã vẽ ra" bằng đúng "mọi dòng".
+     *    Định nghĩa đầy đủ ở docblock `App\Filament\Portal\Pages\MatterProgress`.
+     *
+     * "Khách chưa xem" tô vàng sau 5 ngày là cùng một ngưỡng và cùng một câu hỏi với widget
+     * `App\Filament\Admin\Widgets\UnseenUpdatesWidget` (SPEC §7.1 mục 5) — nhãn trả lời cho một
+     * dòng, widget gom mọi dòng của mọi hồ sơ người đó thấy được thành một hàng đợi gọi điện.
+     * Một khác biệt được ghi ra để không ai phải tự phát hiện: widget còn đòi hồ sơ đang công bố
+     * lên cổng, nhãn thì không — nhãn nói sự thật về dòng này, kể cả khi khách không có đường nào
+     * mở nó ra.
      *
      * @return array{text: string, highlighted: bool}
      */
