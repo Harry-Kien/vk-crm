@@ -75,11 +75,21 @@ Cảnh báo quản trị khi có hồ sơ quá `retention_until`. Không xoá. M
 
 Món nợ mang từ M4 sang: hôm nay một tài liệu công bố nhầm cho khách **không có đường rút lại đúng nghiệp vụ**. Action đặt trạng thái rút, tắt hai cờ hiển thị, ghi lý do và người rút, giữ nguyên tệp và giữ nguyên `document_downloads` đã có — bằng chứng khách đã tải là thứ không được phép biến mất. **Phải sửa khoá ngoại `document_downloads.document_id` khỏi `cascadeOnDelete` trước**, nếu không việc xoá một tài liệu sẽ xoá luôn bằng chứng tải của nó; đây là một migration nên áp dụng luật MariaDB thật.
 
-### - [ ] Task 8 — Tìm kiếm (SPEC §6.13, R7)
+### - [ ] Task 8 — Nhật ký liên lạc và nhật ký riêng của vụ việc (SPEC §7.2, §13 dòng M7)
+
+**Chỗ trống phát hiện khi rà soát toàn hệ thống ngày 2026-09-22.** SPEC §13 liệt kê "nhật ký liên lạc" ngay trên dòng M7 và §7.2 đặc tả hẳn một tab, nhưng bản kế hoạch đầu của M7 bỏ sót. Bảng `communication_logs` có từ M1, policy có từ M2, và M5 đã phán quyết nó **không bao giờ** lên cổng khách — nhưng **không có màn hình nào để ghi một cuộc gọi**.
+
+Hai tab còn thiếu trên trang chi tiết vụ việc:
+- **Liên lạc.** SPEC đặt một ràng buộc thời gian, không phải một ràng buộc tính năng: *"ghi nhanh một cuộc gọi trong dưới 15 giây, vì nếu mất lâu hơn thì không ai ghi"*. Thiết kế theo câu đó — mặc định sẵn ngày giờ và người ghi, chọn kênh bằng một lần chạm, nội dung là một ô duy nhất. Công tắc `is_visible_to_client` mặc định **tắt**.
+- **Nhật ký.** Activity log của riêng vụ việc này. Trang nhật ký toàn hệ thống đã có từ M3; đây là bản lọc theo một vụ việc, dùng lại đúng màn hình đó chứ không dựng bộ thứ hai.
+
+Cảnh báo mang từ rà soát M5 sang: `CommunicationLogPolicy::view` có một nhánh khách hàng **chỉ lặp lại global scope** và khi scope bị rỗng thì nó trả `true` cho cả dòng `is_visible_to_client = false`. Hôm nay vô hại vì cổng khách không đọc bảng này; task này dựng màn hình đầu tiên chạm vào nó, nên **sửa luôn** bằng một lần đọc thuộc tính trực tiếp, như M5 đã làm cho ba policy khác.
+
+### - [ ] Task 9 — Tìm kiếm (SPEC §6.13, R7)
 
 Một ô tìm kiếm trên admin tìm đồng thời trong mã hồ sơ, tiêu đề vụ việc, tên khách hàng, số thụ lý của toà, tên các bên, tiêu đề tài liệu. `LIKE` với index phù hợp; đo thời gian trên dữ liệu seed và ghi số đo. Sáu nguồn, mười hai test (thấy/không thấy cho từng nguồn), và một test rằng số lượng kết quả cũng không rò rỉ.
 
-### - [ ] Task 9 — Nghiệm thu, tài liệu, cổng merge
+### - [ ] Task 10 — Nghiệm thu, tài liệu, cổng merge
 
 Chạy toàn bộ phần "Bàn giao và lưu trữ" của SPEC §11; giải nén một gói thật sinh từ dữ liệu seed và dán danh sách entry; cập nhật `docs/PROGRESS.md`; rà soát toàn nhánh với brief "giả định có một Critical".
 

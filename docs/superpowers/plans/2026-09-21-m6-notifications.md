@@ -21,7 +21,7 @@
 
 ## Ràng buộc toàn cục
 
-- **Nhánh:** `m6-notifications`, cắt từ `main` **sau khi M5 đã merge**. M6 phụ thuộc cứng vào `stage_log_views` (M5 Task 2) cho Task 8 và vào `client_requests` (M5 Task 6) cho Task 4.
+- **Nhánh:** `m6-notifications`, cắt từ `main` **sau khi M5 đã merge**. M6 phụ thuộc cứng vào `stage_log_views` (M5 Task 2) cho Task 9 và vào `client_requests` (M5 Task 6) cho Task 4.
 - PHP sàn **8.3**, cứng. Không Redis, Horizon, Octane, Reverb, Pulse, Scout, Telescope. Không supervisor, không worker thường trực **bắt buộc** — kiến trúc phải chạy được với đúng một dòng cron (SPEC §2).
 - Nghiệp vụ chỉ ở `app/Actions/`. Command, job, listener, widget **chỉ gọi Action**. Một tác vụ định kỳ là một Action có `__invoke()`, không phải một closure trong `routes/console.php` — test phải gọi được nó mà không đi qua scheduler.
 - Định danh mã tiếng Anh. **Mọi chuỗi hiển thị tiếng Việt qua `__()` và `lang/vi/`**, kể cả **tiêu đề thư**. Một tiêu đề thư tiếng Anh trong hộp thư của khách là thứ đầu tiên họ nhìn thấy.
@@ -76,23 +76,29 @@ Task có migration → bắt buộc vòng MariaDB thật, dán output.
 
 `staff.new_client_document` (khách nộp tài liệu — `SubmitClientDocument`), `staff.new_client_request` (khách gửi yêu cầu — `OpenClientRequest` của M5 Task 6), kèm thông báo trong hệ thống cho lead lawyer và người phụ trách. Người nhận suy từ đội ngũ vụ việc, không hardcode vai trò.
 
-### - [ ] Task 5 — `CheckDeadlines` (SPEC §6.8)
+### - [ ] Task 5 — Màn hình mốc thời hạn (SPEC §7.2 tab "Mốc thời hạn")
+
+**Chỗ trống phát hiện khi rà soát toàn hệ thống ngày 2026-09-22, và nó chặn cả Task 6.** Bảng `deadlines` có từ M1, policy có từ M2, cổng khách đọc được từ M5 — nhưng **không có một màn hình nào để tạo một mốc hạn**. Không có màn hình thì không có dữ liệu, và `CheckDeadlines` sẽ chạy hằng ngày trên một bảng rỗng mà vẫn xanh. Đây là hình dạng lỗi tệ nhất: một tính năng đúng, chạy đều, và vô nghĩa.
+
+Relation manager "Mốc thời hạn" trên trang chi tiết vụ việc: danh sách theo ngày, **thêm nhanh** (SPEC nói "thêm nhanh" — ít trường bắt buộc), đánh dấu hoàn thành, mức độ `severity`, người phụ trách mặc định là luật sư phụ trách vụ việc, và công tắc công bố cho khách. Nghiệp vụ trong Action, màn hình chỉ gọi. Quá hạn tô đỏ, sắp đến hạn tô vàng — bằng inline style, vì không có bước build CSS.
+
+### - [ ] Task 6 — `CheckDeadlines` (SPEC §6.8)
 
 Bậc 7/3/1/quá hạn, thêm bậc 14 khi `severity = critical`; `reminders_sent` chống trùng; quá hạn thì đánh dấu và sinh cảnh báo. Mẫu `staff.deadline_reminder`. Test theo R4 và bằng `travelTo()` qua từng mốc, gồm **mốc bị nhảy qua** (cron chết 3 ngày rồi chạy lại: hệ thống phải nhắc mốc gần nhất còn ý nghĩa, không im lặng bỏ qua). Lịch 07:00 hằng ngày.
 
-### - [ ] Task 6 — `CheckStaleMatters` (SPEC §6.4)
+### - [ ] Task 7 — `CheckStaleMatters` (SPEC §6.4)
 
 14 ngày → thông báo trong hệ thống cho lead lawyer; 21 ngày → email cho lead lawyer, đồng gửi mọi `manager`; theo R5 về tần suất. `StaleMattersWidget` đã có từ M3 — **kiểm chứng nó dùng chung đúng một định nghĩa "quá hạn cập nhật"** với job này, không hai định nghĩa (M4 đã tìm ra đúng hình dạng lỗi đó ở thanh X/Y). Lịch 07:30 hằng ngày.
 
-### - [ ] Task 7 — `RemindMissingDocuments` (SPEC §6.9)
+### - [ ] Task 8 — `RemindMissingDocuments` (SPEC §6.9)
 
 Thứ Hai/Tư/Sáu 08:00. Chỉ matter đang mở, đã công bố portal, còn item **bắt buộc** ở `missing`/`rejected`. Liệt kê đúng những gì thiếu (R7). Không quá một thư mỗi 3 ngày cho cùng một matter (R3). Thiếu kéo dài quá 14 ngày → báo lead lawyer để gọi điện. Dùng đúng một nguồn sự thật về "còn thiếu": `App\Actions\Document\ChecklistProgress`.
 
-### - [ ] Task 8 — Nhắc dòng tiến độ khách chưa xem (SPEC §4.18, §7.1 mục 5)
+### - [ ] Task 9 — Nhắc dòng tiến độ khách chưa xem (SPEC §4.18, §7.1 mục 5)
 
 Dòng đã công bố quá 5 ngày mà `stage_log_views` chưa có dòng nào → nhắc luật sư phụ trách **gọi điện**, không gửi thêm thư cho khách. Lý do đã nằm trong SPEC: khách không xem thường là khách không dùng được portal, và thứ cần là một cuộc gọi. Widget "Khách chưa xem cập nhật" của M5 dùng chung định nghĩa này.
 
-### - [ ] Task 9 — Nghiệm thu, tài liệu, cổng merge
+### - [ ] Task 10 — Nghiệm thu, tài liệu, cổng merge
 
 Chạy `schedule:list` và `schedule:test` cho **từng tác vụ** trên dữ liệu seed thật trong container, dán nguyên văn output và các thư sinh ra trong log. Cập nhật `docs/PROGRESS.md` theo đúng lối M3/M4 (đường đi thật, số đo thật). Rà soát toàn nhánh, brief "giả định có một Critical". Cập nhật `.env.example` với mọi biến mới; điền giá trị thật lúc triển khai là việc của M8.
 
