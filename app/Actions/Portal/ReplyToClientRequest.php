@@ -50,7 +50,7 @@ use Illuminate\Support\Facades\Validator;
  *
  * Bốn trạng thái của SPEC §4.14 chỉ có nghĩa nếu chúng nói đúng chuyện đang xảy ra:
  *
- *  - **Nhân sự trả lời ⇒ `answered`, và `answered_at = now()`.** Văn phòng vừa trả lời thì cuộc
+ *  - **Nhân sự trả lời ⇒ `answered`, và `answered_at` được đóng dấu LẦN ĐẦU.** Văn phòng vừa trả lời thì cuộc
  *    trao đổi ĐÃ được trả lời; bắt người trả lời bấm thêm một nút nữa để nói điều đó là cách chắc
  *    chắn nhất để hộp thư đầy những dòng `in_progress` đã xong từ lâu. Nhân sự vẫn đổi tay được
  *    (về `in_progress`, hoặc sang `closed`) bằng thao tác riêng ở hộp thư.
@@ -62,9 +62,22 @@ use Illuminate\Support\Facades\Validator;
  *    thêm không làm điều đó thành có. `in_progress` thì giữ nguyên `in_progress`: đã có người
  *    nhận, và họ vẫn đang giữ.
  *
- * `answered_at` **không bị xoá** khi khách viết tiếp: nó là dấu thời gian văn phòng đã trả lời
- * lần gần nhất, một sự kiện đã xảy ra. Xoá nó đi là viết lại lịch sử để cho khớp với một cái
- * nhãn.
+ * # `answered_at` là LẦN ĐẦU văn phòng trả lời, và nó không bao giờ dịch đi
+ *
+ * Phán quyết vòng rà soát 21/09/2026, sau khi hai docblock trong cùng một commit nói hai điều
+ * trái nhau — bản đầu của {@see self::advanceStatus()} dập lại mốc ở mỗi câu trả lời và nói cột
+ * đó nghĩa là "lần gần nhất", còn {@see TriageClientRequest::setStatus()} giữ giá trị cũ và nói
+ * nó nghĩa là "lần đầu". Không test nào phân biệt được hai nghĩa, nên đây là một cột có hai định
+ * nghĩa chứ không phải một quyết định.
+ *
+ * Nghĩa đã chọn là **lần đầu**, vì hai lý do: đó là giá trị mà một báo cáo thời hạn phản hồi
+ * dùng được (bao lâu thì khách nhận được câu trả lời ĐẦU TIÊN — câu trả lời thứ ba không nói gì
+ * về việc đó), và vì tên cột là số ít. Hệ quả ở cả ba đường vào: một câu trả lời thứ hai không
+ * chạm vào mốc; khách viết tiếp **không xoá** mốc (lần trả lời kia đã thật sự xảy ra); và
+ * {@see TriageClientRequest::setStatus()} cũng chỉ đóng dấu khi cột còn trống.
+ *
+ * Nếu một ngày văn phòng cần "lần gần nhất văn phòng trả lời", đó là một CỘT MỚI — cột này đã có
+ * một nghĩa và một test ghim nó.
  *
  * # Không đọc `auth()`, không tin tham số
  *
@@ -95,32 +108,48 @@ class ReplyToClientRequest
 
     public function handle(ClientRequest $request, User|ClientUser $actor, string $content): ClientRequestReply
     {
-        $thread = $this->scopelessly(ClientRequest::query())->find($request->getKey()) ?? $this->refuse();
+        // **Cả lần đọc lẫn lần ghi trong MỘT transaction, và hàng được khoá.** Bản đầu đọc cuộc
+        // trao đổi ở ngoài `DB::transaction()`, nên giữa lúc cổng trạng thái nói "đang mở" và
+        // lúc dòng trả lời được ghi, một đồng nghiệp bấm "Đã đóng" ở tab bên cạnh vẫn chen vào
+        // được: `advanceStatus()` sau đó ghi đè `closed` bằng `answered` và mở lại đúng cuộc
+        // trao đổi mà cái nút kia vừa đóng — im lặng, và bằng chính cái exception tồn tại để
+        // chặn việc đó. Cùng thành ngữ `RegroupDocument` và `PublishDocument` dùng: đọc lại kèm
+        // `lockForUpdate()` bên trong transaction sẽ ghi.
+        //
+        // Bộ test chạy SQLite, nơi `lockForUpdate()` được biên dịch thành không gì cả — nên
+        // không test nào ĐỎ được vì thiếu nó, y như `PublishDocument` đã ghi. Thứ test giữ được
+        // là kết quả của một lần chạy tuần tự; phần khoá là một lập luận về MariaDB.
+        return DB::transaction(function () use ($request, $actor, $content): ClientRequestReply {
+            $thread = $this->scopelessly(ClientRequest::query())
+                ->lockForUpdate()
+                ->find($request->getKey()) ?? $this->refuse();
 
-        // Quan hệ `matter` nạp sẵn, không scope, TRƯỚC khi `Gate` chạm vào đối tượng — xem
-        // docblock lớp. `Matter::query()` loại hồ sơ đã xoá mềm, nên một hồ sơ đã xoá cho `null`
-        // ở đây và cổng quyền ngay dưới từ chối.
-        $thread->setRelation('matter', $this->scopelessly(Matter::query())->find($thread->matter_id));
+            // Quan hệ `matter` nạp sẵn, không scope, TRƯỚC khi `Gate` chạm vào đối tượng — xem
+            // docblock lớp. `Matter::query()` loại hồ sơ đã xoá mềm, nên một hồ sơ đã xoá cho
+            // `null` ở đây và cổng quyền ngay dưới từ chối.
+            $thread->setRelation('matter', $this->scopelessly(Matter::query())->find($thread->matter_id));
 
-        // SPEC §10.9 cho khách, và cùng lập luận cho nhân sự: một tài khoản đã bị vô hiệu hoá
-        // hoặc xoá mềm không ghi thêm được gì. Xem {@see ChecksAccountActive}.
-        if (! $this->accountIsActive($actor)) {
-            $this->refuse();
-        }
+            // SPEC §10.9 cho khách, và cùng lập luận cho nhân sự: một tài khoản đã bị vô hiệu
+            // hoá hoặc xoá mềm không ghi thêm được gì. Xem {@see ChecksAccountActive}.
+            if (! $this->accountIsActive($actor)) {
+                $this->refuse();
+            }
 
-        $this->authorize($actor, $thread);
+            $this->authorize($actor, $thread);
 
-        // Cổng TRẠNG THÁI chạy SAU cổng quyền, và thứ tự đó là một luật về rò rỉ thông tin: câu
-        // "cuộc trao đổi này đã kết thúc" nói ra một sự thật về một bản ghi, nên nó chỉ được nói
-        // với người đã được xác nhận là đọc được bản ghi ấy. Đảo thứ tự lại là dựng một máy dò
-        // sự tồn tại cho người ngoài (SPEC §10.10).
-        if (! ClientRequestNotOpen::accepts($thread->status)) {
-            throw ClientRequestNotOpen::closed();
-        }
+            // Cổng TRẠNG THÁI chạy SAU cổng quyền, và thứ tự đó là một luật về rò rỉ thông tin:
+            // câu "cuộc trao đổi này đã kết thúc" nói ra một sự thật về một bản ghi, nên nó chỉ
+            // được nói với người đã được xác nhận là đọc được bản ghi ấy. Đảo thứ tự lại là dựng
+            // một máy dò sự tồn tại cho người ngoài (SPEC §10.10). Hai câu chứ không một, vì hai
+            // người đọc ngồi ở hai màn hình khác nhau — xem {@see ClientRequestNotOpen}.
+            if (! ClientRequestNotOpen::accepts($thread->status)) {
+                throw $actor instanceof ClientUser
+                    ? ClientRequestNotOpen::closed()
+                    : ClientRequestNotOpen::closedForStaff();
+            }
 
-        $content = $this->validated($content);
+            $content = $this->validated($content);
 
-        return DB::transaction(function () use ($thread, $actor, $content): ClientRequestReply {
             $reply = ClientRequestReply::query()->create([
                 'request_id' => $thread->getKey(),
                 'author_type' => $actor->getMorphClass(),
@@ -181,12 +210,13 @@ class ReplyToClientRequest
      */
     private function advanceStatus(ClientRequest $thread, User|ClientUser $actor): void
     {
-        // Văn phòng vừa trả lời. `answered_at` được ghi ở đây và CHỈ ở đây — kể cả khi trạng
-        // thái đã là `answered`, vì cột đó nói "lần gần nhất văn phòng trả lời", và một câu trả
-        // lời thứ hai là một lần gần nhất mới.
+        // Văn phòng vừa trả lời. `??=` chứ không `=`: cột này là LẦN ĐẦU văn phòng trả lời và
+        // nó không bao giờ dịch đi — xem docblock lớp. Câu trả lời thứ hai đặt lại trạng thái
+        // `answered` (khách có thể đã kéo nó về `in_progress` bằng một câu hỏi tiếp) nhưng không
+        // chạm vào mốc.
         if ($actor instanceof User) {
             $thread->status = ClientRequestStatus::Answered;
-            $thread->answered_at = now();
+            $thread->answered_at ??= now();
             $thread->save();
 
             return;

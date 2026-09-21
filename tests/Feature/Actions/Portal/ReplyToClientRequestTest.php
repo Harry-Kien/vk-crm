@@ -125,6 +125,44 @@ it('takes an answered thread back to in progress when the client asks again, wit
         ->and($thread->answered_at->toDateTimeString())->toBe('2026-09-21 10:30:00');
 });
 
+/**
+ * **`answered_at` là LẦN ĐẦU văn phòng trả lời, và nó không bao giờ dịch đi** — phán quyết vòng
+ * rà soát 21/09/2026. Trước đó hai docblock trong cùng một commit nói hai điều trái nhau
+ * (`ReplyToClientRequest` dập lại mốc mỗi lần, `TriageClientRequest` bảo nó là lần đầu) và không
+ * test nào phân biệt được. Cột tên số ít, và một báo cáo thời hạn phản hồi chỉ dùng được mốc
+ * đầu tiên; "lần trả lời gần nhất" nếu cần sẽ là một cột khác, không phải cột này.
+ */
+it('keeps answered_at at the first office answer and never moves it on a second one', function () {
+    $this->travelTo('2026-09-21 10:30:00');
+    $this->action->handle($this->request, $this->lawyer, 'Văn phòng trả lời anh/chị như sau.');
+
+    $this->travelTo('2026-09-23 09:00:00');
+    $this->action->handle(freshRequest($this->request), $this->lawyer, 'Văn phòng nói thêm một ý.');
+
+    $thread = freshRequest($this->request);
+
+    expect($thread->status)->toBe(ClientRequestStatus::Answered)
+        ->and($thread->answered_at->toDateTimeString())->toBe('2026-09-21 10:30:00')
+        ->and(allReplies()->count())->toBe(2);
+});
+
+/**
+ * Và mốc đó cũng không dịch đi khi khách chen vào giữa hai câu trả lời: chuỗi thật là
+ * trả lời → khách hỏi tiếp → trả lời lần hai.
+ */
+it('keeps answered_at at the first office answer even when the client writes in between', function () {
+    $this->travelTo('2026-09-21 10:30:00');
+    $this->action->handle($this->request, $this->lawyer, 'Văn phòng trả lời anh/chị như sau.');
+
+    $this->travelTo('2026-09-22 08:00:00');
+    $this->action->handle(freshRequest($this->request), $this->clientUser, 'Tôi còn một ý chưa rõ.');
+
+    $this->travelTo('2026-09-22 15:00:00');
+    $this->action->handle(freshRequest($this->request), $this->lawyer, 'Văn phòng trả lời tiếp.');
+
+    expect(freshRequest($this->request)->answered_at->toDateTimeString())->toBe('2026-09-21 10:30:00');
+});
+
 it('leaves new and in progress alone when the client writes again', function () {
     foreach ([ClientRequestStatus::New, ClientRequestStatus::InProgress] as $status) {
         $thread = ClientRequest::factory()->for($this->matter)->create([
@@ -143,22 +181,36 @@ it('leaves new and in progress alone when the client writes again', function () 
 // CỔNG TRẠNG THÁI — một cuộc trao đổi đã đóng không nhận thêm chữ nào, từ BẤT KỲ ai
 // =========================================================================================
 
-it('refuses a closed thread on both sides, and says so in plain vietnamese', function () {
+/**
+ * **Cùng một cổng, hai câu — vì hai người đọc ngồi ở hai màn hình khác nhau.** Câu của khách mời
+ * họ "gửi một yêu cầu mới ở ô trên cùng", và cái ô đó chỉ tồn tại trên cổng khách hàng; in nguyên
+ * văn nó vào panel nội bộ (nơi `ReportsActionFailures` vẽ thông báo) là chỉ một luật sư tới một
+ * chỗ không có. Đây cũng là chỗ duy nhất `lang/vi/requests.php` từng vi phạm lời tự giới thiệu
+ * của chính nó ("hai nửa KHÔNG dùng chung một chuỗi nào").
+ */
+it('refuses a closed thread on both sides, and gives each side the sentence written for it', function () {
     $closed = ClientRequest::factory()->for($this->matter)->create([
         'client_user_id' => $this->clientUser->id,
         'status' => ClientRequestStatus::Closed,
     ]);
 
-    foreach ([$this->clientUser, $this->lawyer] as $actor) {
+    foreach ([
+        [$this->clientUser, __('requests.portal.closed_notice')],
+        [$this->lawyer, __('requests.tab.closed_notice')],
+    ] as [$actor, $expected]) {
         try {
             $this->action->handle($closed, $actor, 'Còn một ý nữa.');
             $this->fail('Đáng lẽ phải ném ClientRequestNotOpen');
         } catch (ClientRequestNotOpen $exception) {
-            expect($exception->getMessage())->toBe(__('requests.portal.closed_notice'));
+            expect($exception->getMessage())->toBe($expected);
         }
     }
 
-    expect(allReplies()->count())->toBe(0);
+    // Và hai câu đó KHÁC nhau: nếu một ngày ai đó trỏ cả hai về cùng một khoá thì test này đỏ,
+    // chứ không âm thầm xanh vì hai vế bằng nhau.
+    expect(__('requests.tab.closed_notice'))->not->toBe(__('requests.portal.closed_notice'))
+        ->and(__('requests.tab.closed_notice'))->not->toContain('ô trên cùng')
+        ->and(allReplies()->count())->toBe(0);
 });
 
 /**

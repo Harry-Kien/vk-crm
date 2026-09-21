@@ -1,9 +1,11 @@
 <?php
 
+use App\Actions\Portal\ReplyToClientRequest;
 use App\Enums\ClientRequestStatus;
 use App\Enums\Confidentiality;
 use App\Enums\MatterRole;
 use App\Enums\Role;
+use App\Exceptions\ClientRequestNotOpen;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ClientRequestsRelationManager;
 use App\Models\Client;
@@ -115,6 +117,31 @@ it('hides every action from an accountant and shows all three to a team lawyer',
 });
 
 /**
+ * **Thiết bị chặn thật của tab này là `canViewForRecord()`, không phải `ScopesToVisibleMatters`.**
+ * `Matter::scopeListableBy` trả về không ràng buộc cho bất cứ ai có `matter.viewAny` — và kế toán
+ * CÓ quyền đó (SPEC §5 cho họ danh sách rút gọn) — nên bộ lọc ở trên bảng không lọc gì cho họ:
+ * component vẫn vẽ ra nguyên văn câu hỏi của khách và tên người gửi. Hôm nay không phải một vụ
+ * rò rỉ sống, vì trang cha 404 và Livewire không gắn component con khi trang cha không vẽ; nhưng
+ * "một cổng duy nhất, ở một tầng khác" là đúng hình dạng mà vòng rà soát M4 đã lên án.
+ */
+it('keeps the whole inbox away from an accountant, and opens it for a team lawyer', function () {
+    $accountant = User::factory()->withRole(Role::Accountant)->create();
+
+    $this->actingAs($accountant, 'web');
+
+    expect(ClientRequestsRelationManager::canViewForRecord($this->matter, ViewMatter::class))->toBeFalse();
+
+    // Vế đo: bộ lọc của bảng KHÔNG phải thứ đang chặn — không có `canViewForRecord()` thì kế
+    // toán đọc được cả câu hỏi lẫn tên người gửi.
+    expect($this->matter->newQuery()->listableBy($accountant)->whereKey($this->matter->getKey())->exists())
+        ->toBeTrue();
+
+    $this->actingAs($this->lawyer, 'web');
+
+    expect(ClientRequestsRelationManager::canViewForRecord($this->matter, ViewMatter::class))->toBeTrue();
+});
+
+/**
  * Vụ việc `restricted` (SPEC §4.6): một luật sư ngoài đội ngũ không đọc được hộp thư của nó.
  * Cùng `listableBy()` mà mọi danh sách khác dùng, không một câu `where` nào viết tay.
  */
@@ -175,6 +202,12 @@ it('puts the whole conversation inside the reply modal', function () {
 /**
  * Bài học M3 Task 9: một `DomainException` mà màn hình không bắt riêng là một lỗi 500. Cuộc trao
  * đổi đã đóng thì nút trả lời BIẾN MẤT, và gọi thẳng vẫn không ghi được gì.
+ *
+ * **Vế thứ hai của cái tên trước đây không được đo.** Bản đầu của test này kết thúc bằng
+ * `expect(...replies...)->toBe(0)` mà KHÔNG gọi Action lần nào — một bảng chưa ai ghi vào thì
+ * đếm ra 0 dù cổng trạng thái có tồn tại hay không. Đây là cái fixture rỗng thứ tư của commit
+ * này (ba cái kia đã được tìm ra ở hai vòng trước). Giờ nó gọi thật, và ghim luôn rằng câu vọng
+ * lại là câu viết cho VĂN PHÒNG.
  */
 it('takes the reply button away from a closed thread and writes nothing if called anyway', function () {
     $this->request->update(['status' => ClientRequestStatus::Closed]);
@@ -185,6 +218,13 @@ it('takes the reply button away from a closed thread and writes nothing if calle
         ->assertTableActionHidden('reply', $this->request)
         // Hai nút kia VẪN hiện: "Đổi trạng thái" là đường mở lại một việc đã đóng nhầm.
         ->assertTableActionVisible('changeStatus', $this->request);
+
+    try {
+        app(ReplyToClientRequest::class)->handle(reloadRequest($this->request), $this->lawyer, 'Gọi thẳng.');
+        test()->fail('Đáng lẽ phải ném ClientRequestNotOpen');
+    } catch (ClientRequestNotOpen $exception) {
+        expect($exception->getMessage())->toBe(__('requests.tab.closed_notice'));
+    }
 
     expect(ClientRequestReply::query()->withoutGlobalScope(ClientPortalScope::class)->count())->toBe(0);
 });
@@ -224,6 +264,70 @@ it('refuses to hand the request to someone who cannot open the matter, with the 
     expect(reloadRequest($this->request)->assigned_to)->toBeNull();
 });
 
+/**
+ * Ô chọn là một tiện ích, nhưng một tiện ích bày ra tên một người đã nghỉ việc là một cái bẫy:
+ * người bấm không có cách nào biết, và câu từ chối chỉ đến sau khi họ đã chọn. Danh sách hẹp lại
+ * đúng ở **đội ngũ còn hiệu lực**.
+ */
+it('leaves a deactivated teammate out of the assignee list and keeps an active one in', function () {
+    $departed = User::factory()->withRole(Role::Manager)->create([
+        'name' => 'Luật sư Đã Nghỉ',
+        'is_active' => false,
+    ]);
+    $this->matter->addTeamMember($departed, MatterRole::Assistant);
+
+    $active = User::factory()->withRole(Role::Assistant)->create(['name' => 'Trợ lý Đang Làm']);
+    $this->matter->addTeamMember($active, MatterRole::Assistant);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    // Đọc thẳng danh sách, KHÔNG `assertSee` trên trang: một ô `Select` `native(false)` không in
+    // options vào HTML ban đầu, nên một khẳng định trên HTML ở đây xanh kể cả khi danh sách vẫn
+    // còn nguyên người đã nghỉ. Đo được ở vòng này — bản đầu của test này chính là như vậy.
+    $options = requestsInbox($this->matter)->instance()->assignableUsers();
+
+    expect($options)->toContain('Trợ lý Đang Làm')
+        ->and($options)->not->toContain('Luật sư Đã Nghỉ')
+        // Và luật sư phụ trách — người tạo vụ việc luôn ở trong đội ngũ — vẫn còn đó, nên đây
+        // không phải một danh sách rỗng đang "không chứa" mọi thứ.
+        ->and($options)->toContain('Luật sư Vũ Khang');
+});
+
+/**
+ * **Một người đã xoá mềm biến lệnh "giao cho người này" thành lệnh "gỡ người đang giữ ra".**
+ * `User::query()->find()` trả `null` cho một hàng đã xoá mềm, và `assign()` đọc `null` là "gỡ
+ * ra" rồi báo thành công — cột "Người xử lý" sau đó nói "Chưa ai nhận" trong khi
+ * `assigned_to` vẫn giữ id của họ. Hai nửa của bản sửa, đo trong một test: id được giải bằng
+ * `withTrashed()` nên Action nhìn thấy người thật và TỪ CHỐI, và cột vẫn đọc ra tên họ.
+ */
+it('resolves a soft deleted assignee instead of silently unassigning the thread', function () {
+    $holder = User::factory()->withRole(Role::Manager)->create(['name' => 'Luật sư Đã Nghỉ Việc']);
+    $this->matter->addTeamMember($holder, MatterRole::Assistant);
+    $this->request->update(['assigned_to' => $holder->id, 'status' => ClientRequestStatus::InProgress]);
+    $holder->delete();
+
+    $this->actingAs($this->lawyer, 'web');
+
+    // Cột vẫn nói đúng ai đang giữ luồng, thay vì "Chưa ai nhận" trên một cột còn nguyên id.
+    requestsInbox($this->matter)
+        ->assertSee('Luật sư Đã Nghỉ Việc')
+        ->assertDontSee(__('requests.tab.unassigned'));
+
+    // Nửa thứ hai: id gửi lên được giải thành NGƯỜI THẬT, không thành `null`. Đo thẳng hàm đó,
+    // vì `null` ở tham số kia là một LỆNH khác ("gỡ người đang giữ ra") chứ không phải một lần
+    // từ chối — và vì luật `in:` của Filament chặn id này trước khi nó tới nơi, nên một test đi
+    // qua `callTableAction()` xanh dù hàm giải đúng hay sai.
+    expect(ClientRequestsRelationManager::resolveAssignee($holder->id)?->getKey())->toBe($holder->id)
+        ->and(ClientRequestsRelationManager::resolveAssignee(null))->toBeNull();
+
+    // Và màn hình vẫn không giao được cho họ: ô chọn không bày tên họ ra nữa.
+    requestsInbox($this->matter)
+        ->callTableAction('assign', $this->request, ['assigned_to' => $holder->id])
+        ->assertHasTableActionErrors(['assigned_to']);
+
+    expect(reloadRequest($this->request)->assigned_to)->toBe($holder->id);
+});
+
 it('changes the status through the action and stamps answered_at when it lands on answered', function () {
     $this->actingAs($this->lawyer, 'web');
 
@@ -243,6 +347,42 @@ it('changes the status through the action and stamps answered_at when it lands o
 
     expect(reloadRequest($this->request)->status)->toBe(ClientRequestStatus::Closed)
         ->and(reloadRequest($this->request)->answered_at->toDateTimeString())->toBe($stamped->toDateTimeString());
+});
+
+/**
+ * `new` là một lời khẳng định về thế giới ("chưa ai trong văn phòng nhìn thấy"), không phải một
+ * bước trong quy trình — nên ô chọn không bày nó ra cho một luồng đã có người xem, và Action từ
+ * chối nếu ai đó gửi thẳng giá trị đó lên.
+ */
+it('takes new out of the status dropdown once the thread has been seen, and refuses it if posted anyway', function () {
+    $this->request->update(['status' => ClientRequestStatus::InProgress]);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    // Cùng lý do như danh sách người xử lý: options không đi vào HTML, nên đọc thẳng.
+    expect(ClientRequestsRelationManager::statusOptions(reloadRequest($this->request)))
+        ->not->toHaveKey(ClientRequestStatus::New->value)
+        ->toHaveKey(ClientRequestStatus::InProgress->value);
+
+    $untouched = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'status' => ClientRequestStatus::New,
+    ]);
+
+    // Vế dương: một luồng CÒN `new` vẫn thấy "Mới" trong ô chọn — ô được đổ sẵn giá trị hiện tại
+    // và một danh sách thiếu chính giá trị đó là một ô chọn trống.
+    expect(ClientRequestsRelationManager::statusOptions($untouched))
+        ->toHaveKey(ClientRequestStatus::New->value);
+
+    // Gửi thẳng giá trị đó lên vẫn không đi qua được. Nói đúng phạm vi của khẳng định này: nó
+    // chứng minh MỘT trong hai cổng còn đứng (luật `in:` mà Filament sinh ra từ danh sách trên,
+    // hoặc lời từ chối của Action), không chứng minh cái nào — đo bằng mutation, xoá một trong
+    // hai thì dòng này vẫn xanh. Cổng của Action được ghim riêng ở `TriageClientRequestTest`.
+    requestsInbox($this->matter)
+        ->callTableAction('changeStatus', $this->request, ['status' => ClientRequestStatus::New->value])
+        ->assertHasTableActionErrors(['status']);
+
+    expect(reloadRequest($this->request)->status)->toBe(ClientRequestStatus::InProgress);
 });
 
 // =========================================================================================

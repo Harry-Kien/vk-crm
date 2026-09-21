@@ -27,6 +27,16 @@ use DomainException;
  * hai đều tệ hơn việc nói thẳng với khách rằng việc này đã xong và mời họ gửi một yêu cầu mới —
  * một yêu cầu mới là một dòng mới trong hộp thư, nơi nó được nhìn thấy.
  *
+ * **Hai người đọc, hai câu — và đó KHÔNG phải một ngoại lệ của SPEC §10.10.** §10.10 nói về
+ * những lời từ chối có thể tiết lộ sự tồn tại của một bản ghi, và cổng này chạy SAU cổng quyền
+ * nên nó đã ra khỏi phạm vi đó (xem đoạn cuối). Thứ còn lại là một câu hướng dẫn, và hướng dẫn
+ * thì phải chỉ vào một việc người đọc làm được: {@see self::closed()} mời khách "gửi một yêu cầu
+ * mới ở ô trên cùng" — cái ô đó chỉ có trên cổng khách hàng — còn {@see self::closedForStaff()}
+ * chỉ vào nút "Đổi trạng thái" của hộp thư nội bộ, đường mở lại một việc đã đóng. In câu của
+ * khách ra panel nội bộ (việc bản đầu của `ReplyToClientRequest` làm) là chỉ một luật sư tới một
+ * cái ô không tồn tại, và là lần duy nhất `lang/vi/requests.php` phá lời tự giới thiệu của chính
+ * nó rằng hai nửa của tệp không dùng chung chuỗi nào.
+ *
  * `DomainException`, không phải `AuthorizationException`: câu này KHÔNG phải một lời từ chối vì
  * thiếu quyền, và nó cố ý nói ra sự thật ("cuộc trao đổi đã kết thúc") thay vì trốn sau câu chung
  * của SPEC §10.10. Điều đó an toàn vì người đọc nó đã được xác nhận là người ĐỌC ĐƯỢC yêu cầu
@@ -40,9 +50,20 @@ class ClientRequestNotOpen extends DomainException
         parent::__construct($message);
     }
 
+    /** Câu viết cho KHÁCH, vẽ trên cổng khách hàng. */
     public static function closed(): self
     {
         return new self(__('requests.portal.closed_notice'));
+    }
+
+    /**
+     * Câu viết cho VĂN PHÒNG, vẽ trong panel nội bộ qua `ReportsActionFailures`.
+     *
+     * Cùng một cổng trạng thái, hai câu — xem phần "Hai người đọc" ở docblock lớp.
+     */
+    public static function closedForStaff(): self
+    {
+        return new self(__('requests.tab.closed_notice'));
     }
 
     /** Nhắc lại để nơi gọi không phải nhớ enum nào là cổng. */

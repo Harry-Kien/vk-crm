@@ -47,7 +47,6 @@ return [
         'history' => [
             'heading' => 'Những điều anh/chị đã gửi',
             'empty' => 'Anh/chị chưa gửi yêu cầu nào cho hồ sơ này. Khi nào cần hỏi, anh/chị dùng ô bên trên.',
-            'sent_at' => 'Gửi lúc :time ngày :date',
             'from_office' => 'Văn phòng trả lời',
             'from_client' => 'Anh/chị viết',
             'unknown_author' => 'Văn phòng',
@@ -71,6 +70,11 @@ return [
             'closed' => 'Việc này đã xong. Nếu còn điều cần hỏi, anh/chị gửi một yêu cầu mới.',
         ],
 
+        /*
+         * Câu này nhắc tới "ô trên cùng" — cái ô "Gửi một yêu cầu mới" của CHÍNH trang này. Nó
+         * chỉ tồn tại trên cổng khách, nên nửa `tab.*` có câu riêng của nó
+         * (`tab.closed_notice`), không mượn câu này.
+         */
         'closed_notice' => 'Cuộc trao đổi này đã kết thúc nên không viết thêm được nữa. Nếu còn điều cần hỏi, anh/chị gửi một yêu cầu mới ở ô trên cùng.',
     ],
 
@@ -93,6 +97,15 @@ return [
         ],
 
         'unassigned' => 'Chưa ai nhận',
+
+        /*
+         * Cùng cổng trạng thái với `portal.closed_notice`, hai người đọc khác nhau. Câu của
+         * khách mời họ "gửi một yêu cầu mới ở ô trên cùng"; ở panel nội bộ cái ô đó không tồn
+         * tại, và văn phòng KHÔNG mở yêu cầu thay khách (xem docblock
+         * `ClientRequestsRelationManager`). Việc cần làm ở đầu này là nút "Đổi trạng thái" ngay
+         * cạnh, nên câu này chỉ vào đúng nó.
+         */
+        'closed_notice' => 'Yêu cầu này đã đóng nên không gửi thêm câu trả lời được. Nếu cần trả lời tiếp, hãy dùng nút "Đổi trạng thái" để mở lại yêu cầu.',
 
         'actions' => [
             'reply' => 'Trả lời',
@@ -150,6 +163,13 @@ return [
          * nhỏ, và người đọc đang nhìn thẳng vào ô chọn nên không cần được nhắc.
          */
         'assignee_cannot_open' => 'Người này không mở được vụ việc, nên giao xong thì họ cũng không xử lý được. Hãy thêm họ vào đội ngũ vụ việc trước, hoặc chọn một người khác.',
+
+        /*
+         * Cũng chỉ nhân sự đọc. "Mới" không phải một bước trong quy trình mà là một lời khẳng
+         * định về thế giới — chưa ai trong văn phòng nhìn thấy — nên câu này nói ra đúng điều đó
+         * và chỉ sang lựa chọn đúng, thay vì chỉ báo "không được".
+         */
+        'cannot_return_to_new' => 'Không đặt lại thành "Mới" được: "Mới" nghĩa là chưa ai trong văn phòng nhìn thấy, mà yêu cầu này thì đã có người xem rồi. Nếu chưa xử lý xong, chọn "Đang xử lý".',
     ],
 
     // =====================================================================================
