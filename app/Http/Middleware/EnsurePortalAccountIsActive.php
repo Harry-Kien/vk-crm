@@ -41,6 +41,16 @@ use Illuminate\Support\Facades\Auth;
  * phiên mới, không có nó thì form đăng nhập ngay sau đó nhận 419. Thông báo được đẩy vào phiên
  * **sau** `invalidate()`, vì `invalidate()` xoá sạch những gì đã đẩy trước đó.
  *
+ * # Vì sao KHÔNG có `trashed()` ở đây
+ *
+ * Câu hỏi "tài khoản này đã bị xoá mềm chưa" cố ý không được hỏi, và nó được nói ra vì người đọc
+ * tiếp theo sẽ đi tìm nó: `Auth::guard('client')->user()` tra qua `EloquentUserProvider::newModelQuery()`,
+ * thứ dựng truy vấn từ `$model->newQuery()` và vì vậy MANG THEO `SoftDeletingScope`. Một
+ * `ClientUser` đã xoá mềm không bao giờ được trả về, nên `$user` ở đây đã là `null` và request
+ * đi tiếp tới `Authenticate` như một người chưa đăng nhập. Thêm một `trashed()` ở đây là thêm
+ * một điều kiện không bao giờ đúng — và một điều kiện không bao giờ đúng trông y hệt một lớp
+ * bảo vệ, nên nó tệ hơn là không có.
+ *
  * # Phủ cả request cập nhật Livewire
  *
  * Đăng ký kèm `isPersistent: true` ở `PortalPanelProvider`. Toàn bộ cổng khách hàng là Livewire,

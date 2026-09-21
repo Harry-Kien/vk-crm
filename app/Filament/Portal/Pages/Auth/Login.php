@@ -13,6 +13,7 @@ use Filament\Facades\Filament;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Auth\Guard;
 use Illuminate\Validation\ValidationException;
+use LogicException;
 use SensitiveParameter;
 
 /**
@@ -34,7 +35,8 @@ use SensitiveParameter;
  *
  * **Đếm lần HỎNG, không đếm lần thử.** Lớp cha đập bộ đếm ở mọi lần gọi; ở đây bộ đếm mật khẩu
  * chỉ bị đập trong `throwFailureValidationException()`, tức đúng một lần cho mỗi lần đăng nhập
- * hỏng, và được xoá khi vào được. Một người gõ đúng ngay từ đầu không bao giờ tiến gần tới trần.
+ * hỏng, và **chiều tài khoản** của nó được xoá khi vào được. Một người gõ đúng ngay từ đầu không
+ * bao giờ tiến gần tới trần.
  *
  * `throwFailureValidationException()` là chỗ đập vì nó là NÚT CỔ CHAI duy nhất của mọi nhánh
  * hỏng ở bước mật khẩu: mật khẩu sai, tài khoản không mở được panel, và cả lần kiểm lại
@@ -60,7 +62,8 @@ use SensitiveParameter;
  *    thật và email bịa ra bị khoá theo đúng cùng một nhịp và nhận đúng cùng một câu;
  *  - mọi việc lớp này thêm vào (một lần đập bộ đếm, một dòng nhật ký) nằm TRONG `Timebox` của
  *    lớp cha, thứ đệm mọi nhánh hỏng về cùng một khoảng thời gian, nên không tạo ra chênh lệch
- *    thời gian đo được.
+ *    thời gian đo được. Con số đệm ấy được ghim ở `config/auth.php` (`timebox_duration`) — đọc
+ *    chú thích ở đó, nó là một con số phải lớn hơn chi phí băm mật khẩu thật.
  *
  * Ba câu lỗi phân biệt ở mục 2 chỉ sống ở bước nhập mã, tức sau khi mật khẩu đã đúng.
  *
@@ -74,9 +77,25 @@ use SensitiveParameter;
  * Hệ quả phải nói thẳng: khi email gõ vào không ứng với tài khoản nào, dòng nhật ký thất bại
  * không có người thực hiện — không phải vì thiếu sót, mà vì không có `ClientUser` nào để gán.
  * Dòng vẫn được ghi, kèm email đã gõ và địa chỉ mạng, đủ để văn phòng nhìn ra một đợt dò.
+ *
+ * Có một nhánh hỏng thứ ba mà lớp cha KHÔNG đi qua `fireFailedEvent()`: lần kiểm lại credentials
+ * sau khi mã đã đúng (`attemptWhen()` trả `false` vì mật khẩu bị đổi hoặc tài khoản bị vô hiệu
+ * NGAY TRONG lúc khách đang đọc thư). Lớp cha gọi thẳng `throwFailureValidationException()`.
+ * Không xử riêng thì đó là nhánh §10.6 duy nhất không để lại vết — và nó lại đúng là nhánh mà
+ * văn phòng cần thấy nhất, vì nó thường có nghĩa là ai đó vừa khoá tài khoản giữa chừng. Xem
+ * `$failureAudited` bên dưới.
  */
 class Login extends BaseLogin
 {
+    /**
+     * `fireFailedEvent()` đã ghi dòng nhật ký cho lần hỏng này chưa.
+     *
+     * Không phải một trạng thái sống lâu: mỗi lần gửi form là một request, và
+     * `throwFailureValidationException()` kết thúc bằng `throw`, nên cờ này chỉ tồn tại giữa hai
+     * lời gọi liền nhau trong cùng một lần `authenticate()`.
+     */
+    private bool $failureAudited = false;
+
     /**
      * Ghi đè bộ đếm 60 giây / theo IP của `WithRateLimiting` bằng bộ đếm SPEC §10.3. Cố ý chỉ
      * KIỂM TRA chứ không đập: lần đập nằm ở `throwFailureValidationException()`.
@@ -85,6 +104,18 @@ class Login extends BaseLogin
      * không phải một cách bắt lỗi: lớp cha bắt `TooManyRequestsException` rồi đổi thành một
      * toast, còn ở đây câu trả lời phải nằm ngay dưới ô email.
      *
+     * **Hai tham số của lớp cha cố ý KHÔNG được dùng**: số lần và cửa sổ ở đây là hai con số của
+     * SPEC §10.3 (5 và 900 giây), không phải hai con số nơi gọi truyền vào. Nhưng hai tham số ấy
+     * được đối xử khác nhau, và sự khác nhau đó là có lý do:
+     *
+     *  - `$maxAttempts` **được kiểm**. Im lặng bỏ qua nó thì một bản Filament sau đổi
+     *    `rateLimit(5)` thành `rateLimit(10)` sẽ không làm gì cả ở đây và không ai biết, nên khi
+     *    nơi gọi nói một con số khác SPEC thì lớp này dừng lại ồn ào thay vì giữ 5 trong im lặng.
+     *  - `$decaySeconds` **không được kiểm**, vì mặc định của trait là 60 giây — tức chính cái lỗ
+     *    hổng lớp này lấp. Một phép kiểm ở đây sẽ nổ ở MỌI lần đăng nhập. Nó được bỏ qua có chủ
+     *    ý, và chỗ pin giả định về nơi gọi là test "still finds the SPEC number at the Filament
+     *    call site it overrides".
+     *
      * @param  int  $maxAttempts
      * @param  int|null  $decaySeconds
      * @param  string|null  $method
@@ -92,6 +123,14 @@ class Login extends BaseLogin
      */
     protected function rateLimit($maxAttempts, $decaySeconds = 60, $method = null, $component = null): void
     {
+        if ((int) $maxAttempts !== PortalLoginThrottle::MAX_ATTEMPTS) {
+            throw new LogicException(
+                'Nơi gọi rateLimit() yêu cầu '.$maxAttempts.' lần, nhưng SPEC §10.3 nói '
+                .PortalLoginThrottle::MAX_ATTEMPTS.'. Filament đã đổi nơi gọi: đọc lại '
+                .'App\Support\PortalLoginThrottle trước khi đổi con số ở đây.'
+            );
+        }
+
         $keys = PortalLoginThrottle::passwordKeys($this->submittedEmail());
 
         if (! PortalLoginThrottle::tooManyAttempts($keys)) {
@@ -108,7 +147,7 @@ class Login extends BaseLogin
      * lỗi xác thực gắn thẳng vào ô mã, vì đó là ô khách đang nhìn.
      *
      * Khi chưa chạm trần thì vẫn đập bộ đếm đúng như lớp cha — mỗi lần gửi mã là một lần thử,
-     * kể cả lần đúng; lần đúng được xoá sạch ở `recordSuccessfulLogin()`.
+     * kể cả lần đúng; chiều tài khoản của lần đúng được xoá ở `recordSuccessfulLogin()`.
      */
     protected function isMultiFactorChallengeRateLimited(Authenticatable $user): bool
     {
@@ -150,6 +189,14 @@ class Login extends BaseLogin
     {
         PortalLoginThrottle::hit(PortalLoginThrottle::passwordKeys($this->submittedEmail()));
 
+        if (! $this->failureAudited) {
+            // Nhánh "kiểm lại credentials sau khi mã đã đúng": lớp cha không gọi
+            // `fireFailedEvent()` ở đây, nên dòng nhật ký SPEC §10.6 phải được ghi từ chỗ này.
+            // Tài khoản lấy từ chính phiên thử đa yếu tố đang dở, không tra lại bằng email —
+            // ở nhánh này mật khẩu đã từng đúng nên không còn gì để giấu về sự tồn tại của nó.
+            $this->auditFailedLogin($this->clientUserUndertakingMultiFactorAuthentication());
+        }
+
         parent::throwFailureValidationException();
     }
 
@@ -160,9 +207,14 @@ class Login extends BaseLogin
     {
         parent::fireFailedEvent($guard, $user, $credentials);
 
-        $clientUser = $user instanceof ClientUser ? $user : null;
-
         // `$credentials` mang mật khẩu vừa gõ; cố ý không chạm vào nó, email lấy từ state của form.
+        $this->auditFailedLogin($user instanceof ClientUser ? $user : null);
+    }
+
+    private function auditFailedLogin(?ClientUser $clientUser): void
+    {
+        $this->failureAudited = true;
+
         Audit::record('login_failed', $clientUser, [
             'guard' => 'client',
             'email' => $this->submittedEmail(),
@@ -171,11 +223,29 @@ class Login extends BaseLogin
     }
 
     /**
+     * Tài khoản đang dở dang ở bước nhập mã, nếu có. Lớp cha giữ id của nó (đã mã hoá) trong
+     * `$userUndertakingMultiFactorAuthentication` và tự giải mã trong
+     * `getUserUndertakingMultiFactorAuthentication()`.
+     */
+    private function clientUserUndertakingMultiFactorAuthentication(): ?ClientUser
+    {
+        $user = $this->getUserUndertakingMultiFactorAuthentication();
+
+        return $user instanceof ClientUser ? $user : null;
+    }
+
+    /**
      * SPEC §4.3 (`last_login_at`, `last_login_ip`) và §10.6 (dòng nhật ký đăng nhập thành công).
      *
      * `forceFill()->save()` KHÔNG sinh thêm một dòng activity log thứ hai: `getActivitylogOptions()`
      * của `ClientUser` không liệt kê hai cột này, và `dontSubmitEmptyLogs()` bỏ qua lần lưu không
      * có thuộc tính nào được theo dõi thay đổi.
+     *
+     * Hai lần xoá bộ đếm dưới đây chạm **chiều tài khoản và chỉ chiều tài khoản** của hai bộ
+     * đếm. Chiều địa chỉ mạng không được xoá, kể cả khi nó đang đếm dở: lý do đầy đủ ở docblock
+     * của `PortalLoginThrottle`, rút gọn là một lần đăng nhập thành công không nói được gì về
+     * những lần hỏng của người khác sau cùng một đường truyền, và xoá nó đi thì chiều IP của
+     * SPEC §10.3 không còn tồn tại.
      */
     private function recordSuccessfulLogin(): void
     {
@@ -185,7 +255,7 @@ class Login extends BaseLogin
             return;
         }
 
-        PortalLoginThrottle::clear(PortalLoginThrottle::passwordKeys($this->submittedEmail()));
+        PortalLoginThrottle::clearPasswordAccount($this->submittedEmail());
 
         $challenge = $this->getMultiFactorChallenge();
 

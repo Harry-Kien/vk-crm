@@ -45,10 +45,16 @@ class PortalMultiFactorChallenge extends MultiFactorChallenge
      * Xoá sau một lần đăng nhập thành công. Không có dòng này thì một người gõ nhầm mã bốn lần
      * rồi vào được vẫn để lại 5 lượt trong bộ đếm — cổng đập bộ đếm ở MỌI lần gửi mã, kể cả lần
      * đúng — và lần đăng nhập kế tiếp trong vòng 15 phút bị chặn ngay từ mã đầu tiên.
+     *
+     * **Chỉ chiều TÀI KHOẢN.** Chiều địa chỉ mạng cố ý ở lại: nó không thuộc về người vừa đăng
+     * nhập, mà thuộc về đường truyền — và sau một NAT thì "tôi vào được" không chứng minh gì về
+     * những lần hỏng của người ngồi cạnh. Xoá cả hai thì bất kỳ ai có một tài khoản dùng được
+     * cũng mua được một cửa sổ 5 lần mới cho mọi tài khoản khác sau cùng địa chỉ đó, tức chiều
+     * IP của SPEC §10.3 không còn tồn tại. Lý do đầy đủ ở docblock `PortalLoginThrottle`.
      */
     public function clearRateLimiter(Authenticatable $user): void
     {
-        PortalLoginThrottle::clear(PortalLoginThrottle::codeKeys($user));
+        PortalLoginThrottle::clearCodeAccount($user);
     }
 
     /**
