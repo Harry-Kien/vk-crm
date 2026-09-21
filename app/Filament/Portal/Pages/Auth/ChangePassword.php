@@ -59,10 +59,23 @@ class ChangePassword extends Page
      * tại" (không có ô đó thì một máy bỏ quên đang mở phiên là một tài khoản bị chiếm) và một
      * câu chữ khác hẳn. Ghi ra ở đây để nó là một việc được hoãn có chủ ý, không phải một việc
      * bị quên: khách muốn đổi mật khẩu hôm nay thì gọi văn phòng.
+     *
+     * Hỏi panel thay vì `Filament::auth()`: `FilamentManager::auth()` gọi
+     * `getCurrentOrDefaultPanel()->auth()` trên một giá trị có thể là `null`, nên ngoài ngữ cảnh
+     * panel nó ném `Error` chứ không trả lời. Qua các route của cổng thì panel luôn có mặt, nên
+     * đây không phải một lỗi với tới được — nhưng `canAccess()` là một phương thức TĨNH công
+     * khai, thứ bất kỳ đoạn mã nào (một lệnh artisan dựng thực đơn, một test) cũng gọi được, và
+     * câu trả lời đúng ở ngoài cổng là "không", không phải một ngoại lệ.
      */
     public static function canAccess(): bool
     {
-        $user = Filament::auth()->user();
+        $panel = Filament::getCurrentPanel();
+
+        if ($panel === null) {
+            return false;
+        }
+
+        $user = $panel->auth()->user();
 
         return $user instanceof ClientUser && $user->must_change_password;
     }

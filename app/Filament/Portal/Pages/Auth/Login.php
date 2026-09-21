@@ -58,8 +58,11 @@ use SensitiveParameter;
  *
  *  - câu lỗi vẫn là `filament-panels::auth/pages/login.messages.failed` của Filament, chung
  *    chung, không đổi theo email;
- *  - khoá của bộ đếm dựng từ **email vừa gõ**, không từ một bản ghi tra ra được, nên email có
- *    thật và email bịa ra bị khoá theo đúng cùng một nhịp và nhận đúng cùng một câu;
+ *  - khoá của bộ đếm dựng từ **tài khoản tra ra được** (xem `PortalLoginThrottle::passwordAccountKey()`),
+ *    nên hai chuỗi đi vào hai LOẠI khoá khác nhau — nhưng cả hai vẫn bị khoá sau đúng 5 lần, với
+ *    đúng một câu và đúng một số phút, nên sự khác nhau ấy không ra tới người gõ. Đo bằng cách so
+ *    cả hai phản hồi với nhau: test "locks a real account and an address with no account behind
+ *    exactly the same wall";
  *  - mọi việc lớp này thêm vào (một lần đập bộ đếm, một dòng nhật ký) nằm TRONG `Timebox` của
  *    lớp cha, thứ đệm mọi nhánh hỏng về cùng một khoảng thời gian, nên không tạo ra chênh lệch
  *    thời gian đo được. Con số đệm ấy được ghim ở `config/auth.php` (`timebox_duration`) — đọc
@@ -115,6 +118,17 @@ class Login extends BaseLogin
      *    hổng lớp này lấp. Một phép kiểm ở đây sẽ nổ ở MỌI lần đăng nhập. Nó được bỏ qua có chủ
      *    ý, và chỗ pin giả định về nơi gọi là test "still finds the SPEC number at the Filament
      *    call site it overrides".
+     *
+     * **Rủi ro đã chấp nhận của `LogicException` ấy, nói thẳng thay vì để ngầm:** nếu một bản
+     * Filament sau đổi `rateLimit(5)` thành một con số khác thì mọi khách hàng mở trang đăng nhập
+     * nhận một trang 500. Đó là lựa chọn ĐÓNG-KHI-HỎNG có chủ ý — cách hỏng còn lại là im lặng
+     * giữ 5 trong khi nơi gọi đã nói 10, tức SPEC §10.3 trôi mà không ai biết. Nó được chấp nhận
+     * vì nó không tới được máy khách trước: bản Filament mới chỉ vào được qua một lần sửa
+     * `composer.lock`, và lần sửa ấy đi qua CI (`.github/workflows/ci.yml` chạy `php artisan
+     * test`), nơi hai test pin — "stops loudly if Filament ever asks the login page for a
+     * different number of attempts" và "still finds the SPEC number at the Filament call site it
+     * overrides", thứ đọc thẳng `$this->rateLimit(5)` trong mã nguồn vendor — đỏ trước khi bản ấy
+     * lên máy chủ.
      *
      * @param  int  $maxAttempts
      * @param  int|null  $decaySeconds

@@ -2,9 +2,9 @@
 
 namespace App\Support;
 
+use App\Models\ClientUser;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\RateLimiter;
-use Normalizer;
 
 /**
  * Giới hạn tần suất đăng nhập cổng khách hàng — SPEC §10.3: "đăng nhập 5 lần / 15 phút theo
@@ -43,8 +43,9 @@ use Normalizer;
  *
  * # Hai CHIỀU của mỗi bộ đếm, và chiều nào được xoá khi vào được
  *
- * Mỗi bộ đếm có hai khoá độc lập: một **chiều tài khoản** (email vừa gõ ở bước mật khẩu, id tài
- * khoản ở bước mã) và một **chiều địa chỉ mạng**. Chạm trần ở bất kỳ chiều nào là bị chặn.
+ * Mỗi bộ đếm có hai khoá độc lập: một **chiều tài khoản** (khoá chính của hàng tra được từ email
+ * vừa gõ ở bước mật khẩu, id tài khoản ở bước mã) và một **chiều địa chỉ mạng**. Chạm trần ở bất
+ * kỳ chiều nào là bị chặn.
  *
  * Một lần đăng nhập thành công xoá **duy nhất chiều tài khoản** — xem `clearPasswordAccount()` và
  * `clearCodeAccount()`. Chiều địa chỉ mạng KHÔNG BAO GIỜ được xoá bởi một lần đăng nhập, vì nó
@@ -64,10 +65,19 @@ use Normalizer;
  *
  * # Ranh giới với SPEC §10.10
  *
- * Khoá theo email được tính từ **email vừa gõ vào ô**, không phải từ một tài khoản tra ra được
- * trong cơ sở dữ liệu. Nhờ vậy một email không tồn tại và một email có thật đi qua đúng cùng một
- * đường, cùng một số lần, cùng một câu trả lời — không có gì trong phản hồi nói cho người gõ
- * biết tài khoản có tồn tại hay không.
+ * Chiều tài khoản của bước mật khẩu khoá theo **hàng tra được**, không theo chuỗi vừa gõ (lý do
+ * ở `passwordAccountKey()`), nên một email có thật và một email bịa ra đi vào hai LOẠI khoá khác
+ * nhau. Điều đó không được phép nhìn thấy từ bên ngoài, và không nhìn thấy được: cả hai vẫn bị
+ * khoá sau đúng 5 lần, nhận đúng một câu `portal.login.throttled`, với đúng một số phút — nhân
+ * chứng là test "locks a real account and an address with no account behind exactly the same
+ * wall", thứ so SÁNH CẢ HAI PHẢN HỒI với nhau chứ không chỉ đọc câu chữ.
+ *
+ * Phần dư phải nói thẳng vì nó có thật: lần tra hàng ấy là một truy vấn, và nó chạy TRƯỚC
+ * `Timebox` của lớp cha (`Login::authenticate()` gọi `rateLimit()` ở dòng đầu). Một chỉ mục duy
+ * nhất tìm thấy một hàng và không tìm thấy hàng nào không tốn đúng bằng nhau. Chênh lệch ấy nhỏ
+ * hơn nhiều bậc so với 500 ms mà `auth.timebox_duration` đệm, và nó không đổi thứ gì người gõ
+ * ĐỌC được — nhưng nó là một tín hiệu thời gian, không phải một tín hiệu phản hồi, và nó nằm
+ * ngoài vùng đệm. Ghi ra để lần sau không ai phát hiện lại nó như một điều bất ngờ.
  */
 final class PortalLoginThrottle
 {
@@ -78,81 +88,156 @@ final class PortalLoginThrottle
     public const DECAY_SECONDS = 900;
 
     /**
-     * Gấp chuỗi email theo đúng cách collation của cột gấp nó, TRƯỚC khi băm thành khoá.
+     * Gấp chuỗi email vừa gõ thành một khoá ổn định — CHỈ dùng cho những địa chỉ không ứng với
+     * tài khoản nào.
      *
-     * Lý do phải có hàm này, đo được chứ không phải phòng xa: `client_users.email` là
-     * `utf8mb4_unicode_ci`, và `utf8mb4_unicode_ci` bỏ qua hoa/thường, **bỏ qua dấu**, bỏ qua
-     * khoảng trắng cuối, coi `ｕ` nửa rộng bằng `u`, `ﬁ` bằng `fi`, `ß` bằng `ss`. Đo trên
-     * MariaDB 11.8 đang chạy: `'user@example.test' = 'usér@example.test'` trả về 1, và
-     * `'ｕser@example.test'` cũng vậy. Cả hai đều qua được luật `email` của Laravel, cả hai đều
-     * **đăng nhập vào đúng hàng `user@…`** — nên nếu khoá bộ đếm chỉ `mb_strtolower(trim())` thì
-     * mỗi biến thể có một bộ đếm rỗng riêng. Riêng dấu tiếng Việt đã cho vài chục biến thể cho
-     * một địa chỉ, tức trần 5 lần / 15 phút của SPEC §10.3 gia hạn được vô hạn.
+     * **Đây không phải là collation, và không còn khẳng định là.** Vòng trước khẳng định như vậy
+     * và khẳng định ấy sai: một phép quét khoảng 2.800 điểm mã trên MariaDB 11.8, đối chiếu
+     * `HEX(WEIGHT_STRING(… COLLATE utf8mb4_unicode_ci))` với phép gấp, tìm ra 21 lớp trọng số bất
+     * đồng. Mọi lần cài lại UCA 4.0.0 trong PHP đều là một BẢN SAO THỨ HAI của collation, và bản
+     * sao thứ hai trôi. Vì vậy chiều tài khoản nay hỏi thẳng cơ sở dữ liệu — xem
+     * `passwordAccountKey()` — và phép gấp này chỉ còn đúng một việc.
      *
-     * Cách gấp, bốn bước, mỗi bước trả lời một thứ collation làm:
+     * **Việc ấy là: cho một chuỗi KHÔNG tra ra hàng nào một khoá ổn định.** Ở nhánh đó không có
+     * tài khoản nào để bảo vệ, nên không có trần 5 lần nào để gia hạn; chiều IP vẫn đếm từng lần
+     * thử như thường. Độ đúng của phép gấp vì vậy không còn là thứ giữ SPEC §10.3 đứng vững.
+     *
+     * Bốn bước — và THỨ TỰ của chúng chính là chỗ vòng trước hỏng:
      *
      *  1. NFKC — gộp các dạng tương thích: `ｕ` → `u`, `ﬁ` → `fi`.
-     *  2. `MB_CASE_FOLD` — gấp hoa/thường ĐẦY ĐỦ theo Unicode, nên `ß` → `ss` (thứ
-     *     `mb_strtolower` không làm).
-     *  3. NFD rồi xoá `\p{Mn}` — tách dấu ra khỏi chữ cái rồi bỏ dấu đi: `é` → `e`, `ậ` → `a`.
-     *     `\p{Cf}` cũng bị xoá cùng lúc (ZWJ, ZWNJ, …) vì collation bỏ qua chúng.
+     *  2. NFD rồi xoá `\p{Mn}`, `\p{Me}`, `\p{Cf}` — tách dấu ra khỏi chữ cái rồi bỏ đi: `é` →
+     *     `e`, `ậ` → `a`, kể cả dấu BAO QUANH (`U+0488`, `U+0489` — lớp `\p{Me}`, thứ vòng trước
+     *     bỏ sót) và ký tự định dạng (ZWJ, ZWNJ, …).
+     *  3. `MB_CASE_FOLD` — gấp hoa/thường đầy đủ theo Unicode, nên `ß` → `ss` (thứ `mb_strtolower`
+     *     không làm). **Sau** bước 2, không phải trước: `U+0345` là `\p{Mn}` nhưng gấp hoa/thường
+     *     biến nó thành chữ iota, nên gấp trước thì bước xoá không còn dấu nào để xoá — đó là
+     *     đúng một trong ba nguyên nhân của 21 lớp lệch kia.
      *  4. `trim()`.
      *
-     * **Đây là một phép gấp, không phải một bản cài lại UCA**, và ranh giới của nó được nói ra:
-     * nó KHÔNG khẳng định đúng với mọi chuỗi Unicode, nó khẳng định đúng với mọi chuỗi **qua
-     * được luật `email`** — tức mọi chuỗi có thể chạm tới bộ đếm, vì `throwFailureValidationException()`
-     * chỉ chạy sau khi form đã xác thực. Điều đó được đo chứ không được tin: test "folds the
-     * throttle key exactly the way the shipped column collation folds" hỏi MariaDB thật từng cặp
-     * một và đòi **MariaDB bằng ⇔ khoá bằng**, và nó từ chối bất kỳ biến thể nào không qua được
-     * luật `email` để danh sách không lặng lẽ trôi sang chỗ không còn liên quan. `đ` KHÔNG bằng
-     * `d`, `ø` KHÔNG bằng `o`, `æ` KHÔNG bằng `ae` — đo được, và phép gấp này giữ chúng khác
-     * nhau đúng như vậy.
+     * Chỗ đã đo mà vẫn còn bất đồng (họ `U+0363`–`U+036F`: bị xoá ở đây, được collation cân như
+     * chữ cái NỀN) lệch về một phía duy nhất — phép gấp gộp NHIỀU hơn collation, không bao giờ
+     * ít hơn. Gộp nhiều hơn thì cùng lắm hai địa chỉ vô can chia nhau một bộ đếm; gộp ít hơn mới
+     * là một bộ đếm rỗng mua được. Đó là điều đo được trên các lớp đã biết, không phải một chứng
+     * minh cho toàn bộ Unicode.
      *
-     * Không có migration đổi collation ở đây: quyết định đó thuộc về M8 (và một unique index
-     * dưới `_ci` vốn đã coi các biến thể có dấu là MỘT hàng, nên không có hai tài khoản để tách).
+     * `\Normalizer` viết đủ tên có chủ ý: `App\Support\Normalizer` là một lớp khác hẳn của dự án
+     * và không có `normalize()`, nên một dòng `use Normalizer;` ở đầu tệp trông thừa trong khi gỡ
+     * nó đi làm MỌI lần đăng nhập vỡ. Ext-intl là phụ thuộc cứng của `filament/support` nên nó
+     * không thể vắng mặt.
      *
-     * Nếu chuỗi vào không phải UTF-8 hợp lệ thì `Normalizer::normalize()` trả `false` và
+     * Chuỗi vào không phải UTF-8 hợp lệ thì `Normalizer::normalize()` trả `false` và
      * `preg_replace()` trả `null`; mỗi bước vì thế giữ nguyên kết quả bước trước thay vì biến
-     * chuỗi thành rỗng — một chuỗi rỗng sẽ dồn mọi rác vào chung một bộ đếm.
+     * chuỗi thành rỗng — một chuỗi rỗng sẽ dồn mọi rác vào chung một bộ đếm. Nhân chứng: test
+     * "never turns raw pre-validation livewire state into an error of its own".
      */
     public static function foldEmail(?string $email): string
     {
         $folded = (string) $email;
 
-        $normalized = Normalizer::normalize($folded, Normalizer::FORM_KC);
+        $normalized = \Normalizer::normalize($folded, \Normalizer::FORM_KC);
 
         if (is_string($normalized)) {
             $folded = $normalized;
         }
 
-        $folded = mb_convert_case($folded, MB_CASE_FOLD, 'UTF-8');
-
-        $decomposed = Normalizer::normalize($folded, Normalizer::FORM_D);
+        $decomposed = \Normalizer::normalize($folded, \Normalizer::FORM_D);
 
         if (is_string($decomposed)) {
             $folded = $decomposed;
         }
 
-        $stripped = preg_replace('/[\p{Mn}\p{Cf}]/u', '', $folded);
+        $stripped = preg_replace('/[\p{Mn}\p{Me}\p{Cf}]/u', '', $folded);
 
         if (is_string($stripped)) {
             $folded = $stripped;
         }
 
-        return trim($folded);
+        return trim(mb_convert_case($folded, MB_CASE_FOLD, 'UTF-8'));
     }
 
     /**
-     * Chiều TÀI KHOẢN của bước nhập email + mật khẩu: khoá dựng từ email vừa gõ, đã gấp.
+     * Khoá chính của tài khoản mà chuỗi vừa gõ đăng nhập vào, nếu có.
      *
-     * Email rỗng thì không có chiều này — nếu vẫn băm chuỗi rỗng thì mọi lần gửi form thiếu email
-     * trên khắp hệ thống sẽ dồn vào chung một bộ đếm và khoá lẫn nhau.
+     * Truy vấn ở đây cố ý là ĐÚNG truy vấn `Illuminate\Auth\EloquentUserProvider::retrieveByCredentials()`
+     * sắp chạy vài dòng sau: `newModelQuery()` (tức `ClientUser::query()`, mang theo cả global
+     * scope xoá mềm) cộng một `where` phẳng trên cột `email` với **chuỗi thô vừa gõ**. Nhờ vậy
+     * MariaDB tự gấp chuỗi bằng chính collation của cột, qua chính chỉ mục unique mà lần đăng
+     * nhập sắp dùng — và không có bản sao collation thứ hai nào trong PHP để trôi.
+     *
+     * Mang theo scope xoá mềm là một phần của "đúng truy vấn ấy", không phải một chi tiết: một
+     * hàng đã xoá mềm vẫn giữ chỗ trong chỉ mục unique nhưng KHÔNG đăng nhập được, nên nó cũng
+     * không được có một bộ đếm tài khoản — chuỗi ấy rơi về phép gấp như mọi địa chỉ không có tài
+     * khoản.
+     *
+     * # Giá phải trả, nói ra vì nó có thật
+     *
+     * MỘT lần `SELECT` thêm trên chỉ mục unique cho mỗi lần gọi, và nhiều nhất HAI lần gọi trong
+     * một lần gửi form: một ở phép kiểm (`Login::rateLimit()`), rồi một ở lần đập
+     * (`throwFailureValidationException()`) nếu hỏng, hoặc một ở `clearPasswordAccount()` nếu
+     * vào được. Con số "một lần gọi, một truy vấn" được ghim ở test "spends exactly one extra
+     * query on the account lookup" để nó không lặng lẽ lớn lên.
+     *
+     * # Cơ sở dữ liệu hỏng
+     *
+     * Ngoại lệ truy vấn ở đây cố ý KHÔNG được bắt. Hai lý do:
+     *
+     *  - Nó không thêm một cách hỏng nào. Đây là cùng bảng, cùng chỉ mục, cùng kết nối với lần
+     *    tra mà `retrieveByCredentials()` chạy ngay sau đó, nên một cơ sở dữ liệu không trả lời
+     *    được câu này cũng không trả lời được lần đăng nhập — màn hình đăng nhập rơi về đúng
+     *    trang 500 của ứng dụng, giống hệt mọi truy vấn khác trong dự án.
+     *  - Bắt rồi nuốt thì tệ hơn: khi cơ sở dữ liệu chập chờn, bộ đếm lặng lẽ tụt về khoá gấp
+     *    theo chuỗi, tức đúng lúc một kẻ dò cần một bộ đếm rỗng thì nó có. Một cách hỏng ỒN ÀO
+     *    và giống phần còn lại của ứng dụng là câu trả lời đúng ở đây.
+     *
+     * Chuỗi RỖNG không sinh truy vấn: đó là state thô của một ô email chưa gõ gì, thứ phép kiểm
+     * nhìn thấy ở mọi lần gửi form (xem `passwordAccountKey()`), và không có hàng nào để tìm.
+     * Mọi chuỗi khác — kể cả rác chưa qua luật `email` — vẫn được tra, và việc đó không ném lỗi:
+     * đo trên MariaDB 11.8 với một cột `VARCHAR` `utf8mb4_unicode_ci` có chỉ mục unique, UTF-8
+     * hỏng, surrogate lẻ và một chuỗi dài hơn cả cột đều trả lời "không có hàng nào", còn một byte
+     * NUL nhúng giữa chuỗi thì trả về ĐÚNG hàng ấy (collation bỏ qua nó) — không trường hợp nào
+     * là một ngoại lệ.
+     * Nhân chứng phía PHP: test "never turns raw pre-validation livewire state into an error of
+     * its own".
+     */
+    public static function accountIdFor(?string $email): int|string|null
+    {
+        if ($email === null || $email === '') {
+            return null;
+        }
+
+        /** @var int|string|null $id */
+        $id = ClientUser::query()->where('email', $email)->value('id');
+
+        return $id;
+    }
+
+    /**
+     * Chiều TÀI KHOẢN của bước nhập email + mật khẩu.
+     *
+     * Khoá dựng từ **tài khoản**, không từ chuỗi vừa gõ. Đó là cả bài học của hai vòng trước:
+     * `client_users.email` là `utf8mb4_unicode_ci`, nên `nám@…`, `NAM@…`, `ｎam@…` và
+     * `na`+`U+0345`+`m@…` đều ĐĂNG NHẬP VÀO ĐÚNG MỘT HÀNG. Khoá theo chuỗi thì mỗi cách viết mua
+     * được một bộ đếm rỗng mới, và `U+0345` lặp lại được — trần 5 lần / 15 phút của SPEC §10.3
+     * gia hạn được vô hạn. Nhân chứng: test "gives one account one lock however the email in the
+     * box is spelled", thứ hỏi chính MariaDB rằng từng cách viết có ra đúng hàng ấy không trước
+     * khi đòi chúng dùng chung một bộ đếm.
+     *
+     * Không tra ra hàng nào thì rơi về `foldEmail()`: ở đó không có tài khoản nào để bảo vệ.
+     *
+     * Chuỗi gấp rỗng thì KHÔNG có chiều này — nếu vẫn băm chuỗi rỗng thì mọi lần gửi form thiếu
+     * email trên khắp hệ thống dồn vào chung một bộ đếm và khoá lẫn nhau.
      */
     public static function passwordAccountKey(?string $email): ?string
     {
-        $email = self::foldEmail($email);
+        $id = self::accountIdFor($email);
 
-        return $email === '' ? null : 'portal-login-email:'.sha1($email);
+        if ($id !== null) {
+            return 'portal-login-account:'.sha1(ClientUser::class.'|'.$id);
+        }
+
+        $folded = self::foldEmail($email);
+
+        return $folded === '' ? null : 'portal-login-email:'.sha1($folded);
     }
 
     /** Chiều ĐỊA CHỈ MẠNG của bước nhập email + mật khẩu. */

@@ -11,7 +11,6 @@ use App\Support\PortalLoginThrottle;
 use Filament\Facades\Filament;
 use Illuminate\Auth\Events\Attempting;
 use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Database\ConnectionInterface;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Hash;
@@ -893,167 +892,323 @@ it('sends the one-time code in a Vietnamese email that is not queued', function 
 
 /*
 |--------------------------------------------------------------------------
-| SPEC §10.3 — khoá bộ đếm phải gấp chuỗi email y hệt cách collation của cột gấp nó
+| SPEC §10.3 — chiều tài khoản khoá theo TÀI KHOẢN, không theo chuỗi vừa gõ
 |--------------------------------------------------------------------------
 |
-| `client_users.email` là `utf8mb4_unicode_ci`. Mọi biến thể dưới đây **đăng nhập vào cùng một
-| hàng** nếu MariaDB nói chúng bằng nhau, nên chúng phải chia nhau đúng một bộ đếm. Nếu không,
-| trần 5 lần / 15 phút gia hạn được vô hạn bằng cách bỏ thêm một dấu.
+| `client_users.email` là `utf8mb4_unicode_ci`, nên rất nhiều cách viết khác nhau ĐĂNG NHẬP VÀO
+| CÙNG MỘT HÀNG. Nếu bộ đếm khoá theo chuỗi vừa gõ thì mỗi cách viết mua được một bộ đếm rỗng
+| mới và trần 5 lần / 15 phút gia hạn được vô hạn.
 |
-| SQLite — thứ bộ test chạy trên đó theo mặc định — so sánh chuỗi theo BYTE, nên nó không nhìn
-| thấy lỗ hổng này và cũng không xác nhận được bản vá. Vì vậy phép đối chiếu phải hỏi một
-| MariaDB thật.
+| Vòng trước cố gấp chuỗi trong PHP cho giống collation. Nó hụt: `U+0345` (gấp hoa/thường biến
+| nó thành chữ iota TRƯỚC khi bước xoá dấu nhìn thấy nó), `U+0488`/`U+0489` (lớp `\p{Me}`, không
+| nằm trong bộ bị xoá), và họ `U+0363`–`U+036F` (bị xoá trong PHP nhưng collation cân chúng như
+| chữ cái nền) — tổng cộng 21 lớp trọng số lệch. `U+0345` lặp lại được, nên một mình nó đã đủ để
+| gia hạn trần không giới hạn.
+|
+| Nay khoá dựng từ **khoá chính của hàng** mà chính truy vấn đăng nhập sẽ tra. MariaDB tự gấp,
+| và không có bản sao thứ hai của collation nào trong PHP để trôi.
+|
+| Phép đo ấy chỉ nói được trên MariaDB: SQLite — thứ bộ test chạy trên đó theo mặc định — so
+| chuỗi theo BYTE, nên ở đó `nám@…` không tra ra hàng nào và test không chứng minh được gì. Vì
+| vậy test dưới đây tự bỏ qua KÈM LÝ DO khi không chạy trên MariaDB.
 */
 
 /**
- * Danh sách biến thể dùng cho phép đối chiếu.
+ * Bắt buộc phải là CHÍNH cơ sở dữ liệu của ứng dụng, không phải một kết nối phụ chỉ để hỏi
+ * collation: thứ đang đo là một lần tra hàng thật đi qua `ClientUser`.
+ */
+function requirePortalMariadb(): void
+{
+    $driver = DB::connection()->getDriverName();
+
+    if (in_array($driver, ['mysql', 'mariadb'], true)) {
+        return;
+    }
+
+    test()->markTestSkipped(
+        'Cần chạy trên chính MariaDB. Bộ test mặc định chạy trên SQLite, thứ so chuỗi theo BYTE '
+        .'— ở đó `nám@…` không tra ra hàng nào nên không có gì để chứng minh. Chạy lại với '
+        ."DB_CONNECTION=mariadb trên container dev. Đang chạy trên: [{$driver}]."
+    );
+}
+
+/**
+ * Những cách viết mà `utf8mb4_unicode_ci` coi là CÙNG một hàng với `nam@example.test`.
  *
- * Mỗi phần tử BẮT BUỘC phải qua được luật `email` của Laravel — test bên dưới khẳng định điều đó
- * trước khi so gì cả. Lý do: bộ đếm chỉ bị đập trong `throwFailureValidationException()`, tức
- * sau khi form đã xác thực, nên một chuỗi không qua được luật `email` KHÔNG BAO GIỜ chạm tới bộ
- * đếm và đem nó vào danh sách chỉ làm phép đối chiếu nói về chỗ không ai tới được.
- *
- * Danh sách cố ý mang cả những cặp MariaDB coi là KHÁC nhau (`đ` với `d`, `ø` với `o`, `æ` với
- * `ae`) — một phép gấp đúng phải giữ chúng khác nhau, và một phép gấp "cho chắc" kiểu bỏ hết mọi
- * ký tự ngoài ASCII sẽ đỏ ở đúng những cặp đó.
+ * Bốn dòng đầu là đúng những chỗ phép gấp PHP của vòng trước hụt — đo trên MariaDB 11.8, cả bốn
+ * đều tra ra đúng hàng của nạn nhân. Mỗi phần tử BẮT BUỘC qua được luật `email` của Laravel, vì
+ * bộ đếm chỉ bị ĐẬP sau khi form đã xác thực; test bên dưới khẳng định điều đó trước khi so gì
+ * cả. (`ZWJ` vì vậy KHÔNG có mặt: MariaDB coi nó cùng hàng nhưng luật `email` chặn nó, nên nó
+ * không bao giờ đập được vào bộ đếm nào.)
  *
  * @return array<string, string>
  */
-function portalEmailVariants(): array
+function portalSameRowSpellings(): array
 {
     return [
-        'base' => 'user@example.test',
-        'hoa' => 'USER@example.test',
-        'dau_gan_san' => "us\u{00E9}r@example.test",
-        'dau_roi' => "use\u{0301}r@example.test",
-        'u_nua_rong' => "\u{FF55}ser@example.test",
-        'cgj' => "us\u{034F}er@example.test",
-        'sharp_s' => "u\u{00DF}er@example.test",
-        'ss' => 'usser@example.test',
-        'chu_ghep_fi' => "u\u{FB01}ser@example.test",
-        'fi_roi' => 'ufiser@example.test',
-        'viet_co_dau' => "ng\u{1EAD}n@example.test",
-        'viet_khong_dau' => 'ngan@example.test',
-        'd_gach_ngang' => "\u{0111}user@example.test",
-        'd_tron' => 'duser@example.test',
-        'o_gach_cheo' => "u\u{00F8}er@example.test",
-        'o_tron' => 'uoer@example.test',
-        'ae_ghep' => "u\u{00E6}r@example.test",
-        'ae_roi' => 'uaer@example.test',
-        'khac_han' => 'other@example.test',
+        'iota_ngam' => "na\u{0345}m@example.test",
+        'iota_ngam_lap_tam_lan' => 'na'.str_repeat("\u{0345}", 8).'m@example.test',
+        'dau_bao_quanh_0488' => "na\u{0488}m@example.test",
+        'dau_bao_quanh_0489' => "na\u{0489}m@example.test",
+        'hoa' => 'NAM@Example.Test',
+        'dau_gan_san' => "n\u{00E1}m@example.test",
+        'dau_roi' => "na\u{0301}m@example.test",
+        'n_nua_rong' => "\u{FF4E}am@example.test",
+        'cgj' => "na\u{034F}m@example.test",
     ];
 }
 
 /**
- * Một kết nối MariaDB chỉ để HỎI collation, không phải để chạy bộ test trên đó.
+ * Những cách viết mà MariaDB coi là hàng KHÁC — chúng phải nhận bộ đếm khác.
  *
- * Nó trỏ vào `information_schema` — một CSDL luôn tồn tại trên mọi máy chủ MySQL/MariaDB — vì
- * phép so sánh cần dùng (`SELECT ? = ? COLLATE …`) không cần một bảng nào cả, và vì `DB_DATABASE`
- * trong `phpunit.xml` đã bị đặt thành `:memory:` cho SQLite nên cấu hình `mariadb` sẵn có không
- * kết nối được.
+ * Họ `U+0363`–`U+036F` nằm ở đây chứ không ở danh sách trên, và đó là nửa thứ hai của cái vòng
+ * trước làm sai: phép gấp PHP XOÁ chúng (gộp `na◌ͣm@…` vào `nam@…`), còn collation cân chúng
+ * như chữ cái nền nên `na◌ͣm@…` là `naam@…`, một địa chỉ khác hẳn. Gộp nhầm theo chiều này
+ * không mở ra lỗ hổng nào, nhưng nó khoá oan một địa chỉ vô can — và nó chứng minh phép gấp cũ
+ * không phải là collation.
  *
- * Không có máy chủ nào thì test tự bỏ qua KÈM LÝ DO, chứ không đỏ: một bộ test chạy trên SQLite
- * không có cách nào trả lời câu hỏi này.
+ * @return array<string, string>
  */
-function mariadbCollationProbe(): ConnectionInterface
+function portalOtherRowSpellings(): array
 {
-    config(['database.connections.vk_collation_probe' => array_merge(
-        config('database.connections.mariadb'),
-        ['database' => 'information_schema'],
-    )]);
-
-    try {
-        DB::connection('vk_collation_probe')->getPdo();
-    } catch (Throwable $exception) {
-        test()->markTestSkipped(
-            'Cần một MariaDB thật để hỏi collation của cột. Bộ test mặc định chạy trên SQLite, '
-            .'thứ so sánh chuỗi theo BYTE — nó không nhìn thấy việc `usér@…` và `user@…` là cùng '
-            .'một hàng, nên nó không xác nhận được bản vá này. Chạy bộ test trên container dev '
-            .'(dịch vụ `mariadb` đang lên) để test này thật sự chạy. Lỗi kết nối: '
-            .$exception->getMessage()
-        );
-    }
-
-    return DB::connection('vk_collation_probe');
+    return [
+        'chu_a_ngam_0363' => "na\u{0363}m@example.test",
+        'chu_x_ngam_036F' => "na\u{036F}m@example.test",
+        'khac_han' => 'nem@example.test',
+    ];
 }
 
-it('folds the throttle key exactly the way the shipped column collation folds', function () {
-    $probe = mariadbCollationProbe();
+it('gives one account one lock however the email in the box is spelled', function () {
+    requirePortalMariadb();
 
-    $variants = portalEmailVariants();
+    $user = portalUser(['email' => 'nam@example.test']);
 
-    foreach ($variants as $name => $value) {
+    // 1. Tiền đề của cả test: MariaDB thật sự đưa từng cách viết về đúng hàng ấy (hoặc không),
+    //    và từng cách viết đi qua được luật `email` nên nó thật sự chạm tới được bộ đếm.
+    foreach (portalSameRowSpellings() as $ten => $value) {
         expect(Validator::make(['email' => $value], ['email' => 'email'])->passes())->toBeTrue(
-            "Biến thể [{$name}] không qua được luật `email`, nên nó không bao giờ chạm tới bộ đếm. "
-            .'Bỏ nó ra khỏi danh sách thay vì để phép đối chiếu nói về chỗ không ai tới được.'
+            "Cách viết [{$ten}] không qua được luật `email`, nên nó không bao giờ đập được vào bộ "
+            .'đếm. Bỏ nó ra khỏi danh sách thay vì để test nói về chỗ không ai tới được.'
+        );
+
+        expect(ClientUser::query()->where('email', $value)->value('id'))->toBe(
+            $user->id,
+            "MariaDB không đưa cách viết [{$ten}] về hàng của nạn nhân, nên nó không thuộc danh sách này."
         );
     }
 
-    $names = array_keys($variants);
-    $lech = [];
-
-    foreach ($names as $index => $a) {
-        foreach (array_slice($names, $index + 1) as $b) {
-            $mariadbNoiBang = (bool) $probe->selectOne(
-                'SELECT (CAST(? AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci)'
-                .' = (CAST(? AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci) AS eq',
-                [$variants[$a], $variants[$b]],
-            )->eq;
-
-            $khoaNoiBang = PortalLoginThrottle::passwordAccountKey($variants[$a])
-                === PortalLoginThrottle::passwordAccountKey($variants[$b]);
-
-            if ($khoaNoiBang !== $mariadbNoiBang) {
-                $lech[] = sprintf(
-                    '%s vs %s: MariaDB nói %s, khoá nói %s',
-                    $a,
-                    $b,
-                    $mariadbNoiBang ? 'BẰNG' : 'khác',
-                    $khoaNoiBang ? 'BẰNG' : 'khác',
-                );
-            }
-        }
+    foreach (portalOtherRowSpellings() as $ten => $value) {
+        expect(ClientUser::query()->where('email', $value)->value('id'))->toBeNull(
+            "MariaDB đưa cách viết [{$ten}] về đúng hàng của nạn nhân, nên nó thuộc danh sách kia."
+        );
     }
 
-    expect($lech)->toBe([], "Khoá bộ đếm và collation bất đồng ở:\n  ".implode("\n  ", $lech));
+    // 2. Khoá: một hàng, một khoá — dù gõ kiểu gì.
+    $khoaCuaHang = PortalLoginThrottle::passwordAccountKey($user->email);
 
-    // Và phép đối chiếu trên chỉ có nghĩa nếu cột thật đúng là collation đó. Máy chủ dev có thể
-    // chưa migrate lần nào, nên chỉ khẳng định khi cột đã tồn tại ở đâu đó trên máy chủ này.
-    $collations = collect($probe->select(
-        "SELECT DISTINCT COLLATION_NAME AS c FROM information_schema.COLUMNS
-         WHERE TABLE_NAME = 'client_users' AND COLUMN_NAME = 'email'"
-    ))->pluck('c')->all();
+    foreach (portalSameRowSpellings() as $ten => $value) {
+        expect(PortalLoginThrottle::passwordAccountKey($value))->toBe(
+            $khoaCuaHang,
+            "Cách viết [{$ten}] đăng nhập vào đúng hàng ấy nhưng nhận một bộ đếm khác — tức trần "
+            .'5 lần / 15 phút của SPEC §10.3 gia hạn được bằng cách gõ lại email một kiểu khác.'
+        );
+    }
 
-    foreach ($collations as $collation) {
-        expect($collation)->toBe('utf8mb4_unicode_ci');
+    foreach (portalOtherRowSpellings() as $ten => $value) {
+        expect(PortalLoginThrottle::passwordAccountKey($value))->not->toBe(
+            $khoaCuaHang,
+            "Cách viết [{$ten}] là một địa chỉ KHÁC với MariaDB nhưng dùng chung bộ đếm với nạn "
+            .'nhân — nó khoá oan một người không liên quan.'
+        );
+    }
+
+    // 3. Và điều đó phải đúng ở đường đi thật, không chỉ ở tầng khoá: năm lần hỏng trên cách
+    //    viết gốc, rồi MỖI cách viết khác — từ một địa chỉ mạng chưa thử lần nào, nên thứ duy
+    //    nhất có thể chặn là chiều tài khoản — đều đã bị khoá.
+    $snapshot = portalLoginSnapshot();
+
+    foreach (range(1, 5) as $ignored) {
+        postPortalLogin($snapshot, [
+            'data.email' => $user->email,
+            'data.password' => 'sai-mat-khau',
+        ], '198.51.100.70');
+    }
+
+    $octet = 100;
+
+    foreach (portalSameRowSpellings() as $ten => $value) {
+        expect(portalLoginErrors(postPortalLogin($snapshot, [
+            'data.email' => $value,
+            'data.password' => 'sai-mat-khau',
+        ], '203.0.113.'.$octet++))['data.email'][0] ?? null)->toBe(
+            portalThrottleMessage(15),
+            "Cách viết [{$ten}] mua được một cửa sổ 5 lần mới cho đúng tài khoản vừa bị khoá."
+        );
+    }
+
+    // Twin dương: một địa chỉ MariaDB nói là hàng khác vẫn đi tới được cổng mật khẩu. Không có
+    // vế này thì mọi thứ trên cũng xanh với một phép khoá gộp tất cả vào một bộ đếm duy nhất.
+    foreach (portalOtherRowSpellings() as $ten => $value) {
+        expect(portalLoginErrors(postPortalLogin($snapshot, [
+            'data.email' => $value,
+            'data.password' => 'sai-mat-khau',
+        ], '203.0.113.'.$octet++))['data.email'][0] ?? null)->toBe(
+            __('filament-panels::auth/pages/login.messages.failed'),
+            "Cách viết [{$ten}] bị khoá lây bởi bộ đếm của một tài khoản khác."
+        );
     }
 });
 
-it('spends one lock on an email and on the diacritic spelling that signs in as the same row', function () {
+it('still folds the typed string when it matches no account at all', function () {
+    // Không có tài khoản nào ở đây, nên không có hàng nào để khoá theo — phần dự phòng của
+    // `passwordAccountKey()` là thứ đang chạy, và nó chạy giống nhau trên mọi cơ sở dữ liệu.
+    expect(ClientUser::query()->where('email', 'nan@example.test')->exists())->toBeFalse();
+
+    // NFKC vẫn phải chạy: `ｎ` nửa rộng và `n` là một. Dòng này cũng là chốt giữ lời gọi
+    // `\Normalizer` — gỡ nó đi thì đây là chỗ đỏ, chứ không phải một lần đăng nhập vỡ trên máy
+    // khách. (`App\Support\Normalizer` là một lớp khác hẳn và không có `normalize()`.)
+    expect(PortalLoginThrottle::passwordAccountKey("\u{FF4E}an@example.test"))
+        ->toBe(PortalLoginThrottle::passwordAccountKey('nan@example.test'));
+
+    // Và phép gấp không được thô tới mức bỏ hết ký tự ngoài ASCII: MariaDB nói `đ` KHÁC `d`.
+    expect(PortalLoginThrottle::passwordAccountKey("\u{0111}an@example.test"))
+        ->not->toBe(PortalLoginThrottle::passwordAccountKey('dan@example.test'));
+
+    // Hai dòng này giữ THỨ TỰ của phép gấp (`U+0345` phải bị xoá TRƯỚC khi gấp hoa/thường biến
+    // nó thành chữ iota) và lớp `\p{Me}` (`U+0488`) — hai trong ba nguyên nhân của 21 lớp trọng
+    // số lệch ở vòng trước. Với một tài khoản CÓ THẬT thì MariaDB gấp hộ nên chúng không còn là
+    // chỗ giữ SPEC §10.3; với một địa chỉ không có tài khoản thì đây là tất cả những gì có, và
+    // nó vẫn phải đúng để hai cách viết của cùng một địa chỉ không nằm ở hai bộ đếm — một người
+    // dò đọc ra được sự khác nhau đó như một câu trả lời về việc tài khoản có tồn tại hay không.
+    expect(PortalLoginThrottle::foldEmail("na\u{0345}n@example.test"))
+        ->toBe(PortalLoginThrottle::foldEmail('nan@example.test'))
+        ->and(PortalLoginThrottle::foldEmail("na\u{0488}n@example.test"))
+        ->toBe(PortalLoginThrottle::foldEmail('nan@example.test'));
+
     $snapshot = portalLoginSnapshot();
 
     foreach (range(1, 5) as $ignored) {
         postPortalLogin($snapshot, [
             'data.email' => 'nan@example.test',
             'data.password' => 'sai-mat-khau',
-        ], '198.51.100.60');
+        ], '198.51.100.62');
     }
 
-    // `nân@…` và `nan@…` là CÙNG một hàng dưới `utf8mb4_unicode_ci` (đo ở test trên), và địa chỉ
-    // mạng này chưa thử lần nào — nên nếu có gì chặn thì đó chỉ có thể là chiều email.
     expect(portalLoginErrors(postPortalLogin($snapshot, [
         'data.email' => "n\u{00E2}n@example.test",
         'data.password' => 'sai-mat-khau',
-    ], '203.0.113.60'))['data.email'][0])->toBe(portalThrottleMessage(15));
+    ], '203.0.113.62'))['data.email'][0])->toBe(portalThrottleMessage(15));
 
-    // Twin dương: một email THẬT SỰ khác — MariaDB cũng nói khác — từ chính địa chỉ mạng sạch đó
-    // vẫn đi tới được cổng mật khẩu. Không có vế này thì test trên cũng xanh với một phép gấp
-    // biến mọi chuỗi thành rỗng.
+    // Twin dương, để test trên cũng đỏ với một phép gấp biến mọi chuỗi thành rỗng.
     expect(portalLoginErrors(postPortalLogin($snapshot, [
         'data.email' => 'nun@example.test',
         'data.password' => 'sai-mat-khau',
-    ], '203.0.113.60'))['data.email'][0])
+    ], '203.0.113.62'))['data.email'][0])
         ->toBe(__('filament-panels::auth/pages/login.messages.failed'));
+});
+
+it('spends exactly one extra query on the account lookup', function () {
+    portalUser(['email' => 'dem-truy-van@example.test']);
+
+    $sql = [];
+    DB::listen(function ($query) use (&$sql): void {
+        $sql[] = $query->sql;
+    });
+
+    PortalLoginThrottle::passwordAccountKey('dem-truy-van@example.test');
+
+    // Một lần tra, trên đúng chỉ mục duy nhất của cột — cùng truy vấn mà `EloquentUserProvider`
+    // sắp chạy ngay sau đó. Con số này được ghim để nó không lặng lẽ lớn lên.
+    expect($sql)->toHaveCount(1)
+        ->and($sql[0])->toContain('client_users');
+
+    // Và ô email chưa gõ gì thì KHÔNG tốn truy vấn nào: phép kiểm chạy trên state thô ở mọi lần
+    // gửi form, kể cả lần bấm nhầm vào nút khi form còn trống, và không có hàng nào để tìm.
+    $sql = [];
+
+    PortalLoginThrottle::passwordAccountKey('');
+
+    expect($sql)->toHaveCount(0);
+});
+
+it('gives a soft-deleted account no lock of its own, exactly as the login query gives it no row', function () {
+    $user = portalUser(['email' => 'da-xoa-mem@example.test']);
+
+    $khoaKhiConSong = PortalLoginThrottle::passwordAccountKey($user->email);
+
+    $user->delete();
+
+    // `EloquentUserProvider::retrieveByCredentials()` chạy `newModelQuery()`, tức MANG THEO global
+    // scope xoá mềm, nên hàng này không đăng nhập được nữa. Bộ đếm đi theo đúng truy vấn ấy: nó
+    // rơi về phép gấp như mọi địa chỉ không có tài khoản, thay vì giữ riêng một bộ đếm cho một
+    // hàng mà không ai vào được.
+    expect(PortalLoginThrottle::passwordAccountKey($user->email))
+        ->not->toBe($khoaKhiConSong)
+        ->toStartWith('portal-login-email:')
+        ->and($khoaKhiConSong)->toStartWith('portal-login-account:');
+});
+
+it('never turns raw pre-validation livewire state into an error of its own', function () {
+    // `Filament\Auth\Pages\Login::authenticate()` gọi `rateLimit(5)` TRƯỚC `form->getState()`,
+    // nên phép KIỂM TRA chạy trên state thô của Livewire ở mọi lần gửi form: chuỗi chưa qua luật
+    // `email`, chưa qua `required`, có thể là bất cứ thứ gì. Nó không được phép là một cách làm
+    // sập màn hình đăng nhập.
+    $rac = [
+        'null' => null,
+        'rong' => '',
+        'chi_khoang_trang' => "   \t\n",
+        'khong_phai_email' => 'khong-phai-email',
+        'utf8_hong' => "na\xC3\x28m@example.test",
+        'surrogate_le_loi' => "na\xED\xA0\x80m@example.test",
+        'co_byte_khong' => "na\0m@example.test",
+        'chi_toan_dau' => "\u{0301}\u{0345}\u{0488}",
+        'rat_dai' => str_repeat('a', 400).'@example.test',
+    ];
+
+    foreach ($rac as $ten => $value) {
+        expect(fn () => PortalLoginThrottle::passwordAccountKey($value))
+            ->not->toThrow(Throwable::class, '', "Chuỗi [{$ten}] làm cổng đăng nhập ném ngoại lệ.");
+    }
+});
+
+/*
+|--------------------------------------------------------------------------
+| SPEC §10.10 — một tài khoản có thật bị khoá và một địa chỉ không có tài khoản bị khoá
+| phải KHÔNG phân biệt được
+|--------------------------------------------------------------------------
+|
+| Đây là hoá đơn của cách khoá mới: hai chuỗi đi vào hai loại khoá khác nhau (một theo khoá
+| chính của hàng, một theo chuỗi đã gấp), nên phải đo lại rằng người gõ không nhìn thấy sự khác
+| nhau đó. Cùng số lần, cùng câu, cùng số phút.
+*/
+
+it('locks a real account and an address with no account behind exactly the same wall', function () {
+    $user = portalUser(['email' => 'co-that-4@example.test']);
+    $snapshot = portalLoginSnapshot();
+
+    // Năm lần hỏng từ một địa chỉ mạng, rồi lần thứ sáu từ một địa chỉ CHƯA thử lần nào. Lần thứ
+    // sáu đi từ chỗ khác là cốt lõi của phép đo: nó lấy chiều IP ra khỏi câu trả lời, nên thứ
+    // duy nhất còn có thể khoá là chiều TÀI KHOẢN — đúng cái chiều mà một email có thật và một
+    // email bịa ra nay đi vào hai loại khoá khác nhau.
+    $khoaLai = function (string $email, string $ipDo, string $ipSach) use ($snapshot): array {
+        foreach (range(1, 5) as $ignored) {
+            postPortalLogin($snapshot, ['data.email' => $email, 'data.password' => 'sai'], $ipDo);
+        }
+
+        return portalLoginErrors(postPortalLogin($snapshot, [
+            'data.email' => $email,
+            'data.password' => 'sai',
+        ], $ipSach));
+    };
+
+    $coThat = $khoaLai($user->email, '198.51.100.80', '203.0.113.80');
+    $khongCo = $khoaLai('khong-he-co-4@example.test', '198.51.100.81', '203.0.113.81');
+
+    // So CẢ phản hồi, không chỉ câu chữ: số phút nằm trong câu, nên vế này cũng là vế đo rằng
+    // hai bên đợi đúng cùng một khoảng.
+    expect($khongCo)->toBe($coThat)
+        ->and($coThat['data.email'][0])->toBe(portalThrottleMessage(15))
+        ->and($coThat['data.email'][0])->not->toContain($user->email);
 });
 
 /*
@@ -1221,6 +1376,19 @@ it('opens the change-password screen for a client who still owes the office one'
     $this->get(ChangePassword::getUrl(panel: 'portal'))
         ->assertOk()
         ->assertSee(__('portal.change_password.heading'));
+});
+
+it('answers no, instead of throwing, when the change-password gate is asked outside a panel', function () {
+    $user = ClientUser::factory()->create(['must_change_password' => true]);
+    $this->actingAs($user, 'client');
+
+    // `FilamentManager::auth()` gọi `getCurrentOrDefaultPanel()->auth()`, và ở dự án này KHÔNG
+    // panel nào gọi `->default()`, nên ngoài ngữ cảnh panel thì `getDefaultPanel()` ném
+    // `NoDefaultPanelSetException`. `canAccess()` là một phương thức tĩnh công khai, nên câu trả
+    // lời đúng ở đó là "không", không phải một ngoại lệ.
+    Filament::setCurrentPanel(null);
+
+    expect(ChangePassword::canAccess())->toBeFalse();
 });
 
 /*
