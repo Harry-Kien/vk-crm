@@ -5,6 +5,7 @@ namespace App\Policies;
 use App\Enums\Permission;
 use App\Models\ClientRequest;
 use App\Models\ClientUser;
+use App\Models\Document;
 use App\Models\Matter;
 use App\Models\User;
 use App\Policies\Concerns\ChecksMatterAccess;
@@ -30,13 +31,21 @@ class ClientRequestPolicy
      * chạy từ M2; điều kiện thật nằm ở một chỗ duy nhất —
      * {@see ClientRequest::applyClientPortalConstraints()} — nên đổi cách đọc là đổi
      * đúng một hàm, và test sẽ đỏ để lần đổi đó là một quyết định chứ không phải một lần trượt.
+     *
+     * `! $request->trashed()` được phát biểu bằng THUỘC TÍNH, cùng thiết bị với
+     * {@see MatterPolicy::releasedToPortal()} và {@see Document::isReleasedToPortal()}.
+     * Không có nó, điều kiện "một yêu cầu đã rút thì không quay lại" chỉ còn được giữ bên trong
+     * `visibleToPortal()` — tức bởi `SoftDeletingScope`, một scope KHÁC mà một lần
+     * `withTrashed()` gỡ ra. Đó là đúng hình dạng mà vòng sửa này lên án ở ba model khác.
      */
     public function view(User|ClientUser $user, ClientRequest $request): bool
     {
         $matter = $this->parentWithoutPortalScope($request, 'matter');
 
         return $user instanceof ClientUser
-            ? $this->visibleToPortal($user, $request) && $this->canSeeMatter($user, $matter)
+            ? ! $request->trashed()
+                && $this->visibleToPortal($user, $request)
+                && $this->canSeeMatter($user, $matter)
             : $this->canSeeMatter($user, $matter);
     }
 

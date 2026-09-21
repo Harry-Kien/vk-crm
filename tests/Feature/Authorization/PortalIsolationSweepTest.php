@@ -2,10 +2,13 @@
 
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
+use App\Filament\Portal\Pages\MatterProgress;
+use App\Filament\Portal\Pages\MyMatters;
 use App\Models\Client;
 use App\Models\ClientRequest;
 use App\Models\ClientRequestReply;
 use App\Models\ClientUser;
+use App\Models\CommunicationLog;
 use App\Models\Deadline;
 use App\Models\Document;
 use App\Models\Matter;
@@ -14,8 +17,14 @@ use App\Models\StageLog;
 use App\Models\StageLogView;
 use App\Models\User;
 use App\Support\Scopes\ClientPortalScope;
+use Filament\Facades\Filament;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
+use Spatie\Activitylog\Models\Activity;
+use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 /**
  * **Test quét cách ly của cổng khách hàng.** SPEC §11 ("Cách ly dữ liệu giữa khách hàng", "Tài
@@ -155,9 +164,47 @@ beforeEach(function () {
     $this->foreignItem = MatterChecklistItem::factory()->for($this->matterB)->create(['name' => 'Của khách B '.SWEEP_MARKER]);
     $this->hiddenItem = MatterChecklistItem::factory()->for($this->hiddenA)->create(['name' => 'Hồ sơ chưa mở '.SWEEP_MARKER]);
 
+    // Gắn tài liệu vào mục danh mục. Không có bước này thì `checklistItem()` trả `null` chỉ vì
+    // factory để khoá ngoại rỗng, và `itemA->documents()` trả rỗng chỉ vì chưa ai gắn gì — hai
+    // khẳng định xanh mà không đo một điều kiện nào. Gắn xong thì chúng đo thật: một mục danh
+    // mục khách thấy được vẫn KHÔNG kéo theo tài liệu nhóm D treo dưới nó, và một tài liệu của
+    // khách khác cầm sẵn trong tay vẫn không đi ngược lên mục của nó.
+    $this->visibleDoc->update(['matter_checklist_item_id' => $this->itemA->id]);
+    $this->internalDoc->forceFill(['matter_checklist_item_id' => $this->itemA->id])->saveQuietly();
+    $this->foreignDoc->update(['matter_checklist_item_id' => $this->foreignItem->id]);
+
+    // Đã xoá mềm — văn phòng đã rút mục này khỏi danh mục hồ sơ.
+    $this->retractedItem = MatterChecklistItem::factory()->for($this->matterA)->create(['name' => 'Mục đã rút '.SWEEP_MARKER]);
+    $this->retractedItem->delete();
+
     $this->visibleDeadline = Deadline::factory()->for($this->matterA)->published()->create(['name' => 'Nộp bổ sung']);
     $this->draftDeadline = Deadline::factory()->for($this->matterA)->create(['is_published' => false, 'name' => 'Nội bộ '.SWEEP_MARKER]);
     $this->foreignDeadline = Deadline::factory()->for($this->matterB)->published()->create(['name' => 'Của khách B '.SWEEP_MARKER]);
+    $this->retractedDeadline = Deadline::factory()->for($this->matterA)->published()->create(['name' => 'Hạn đã rút '.SWEEP_MARKER]);
+    $this->retractedDeadline->delete();
+
+    // ---- Nhật ký liên lạc ---------------------------------------------------------------
+    // SPEC §5 KHÔNG liệt kê nhật ký liên lạc trong cổng khách, và phán quyết 3 của M5 giữ nguyên
+    // như vậy: không màn hình nào của M5 đọc bảng này. Nhưng scope và policy của nó vẫn trả lời
+    // câu hỏi, nên chúng vẫn phải trả lời ĐÚNG — một bảng không có màn hình hôm nay là một bảng
+    // có màn hình vào ngày ai đó viết nó.
+    $this->visibleCommLog = CommunicationLog::factory()->for($this->matterA)->create([
+        'is_visible_to_client' => true,
+        'summary' => 'Đã gọi điện báo lịch hẹn.',
+    ]);
+    $this->internalCommLog = CommunicationLog::factory()->for($this->matterA)->create([
+        'is_visible_to_client' => false,
+        'summary' => 'Nội bộ '.SWEEP_MARKER,
+    ]);
+    $this->retractedCommLog = CommunicationLog::factory()->for($this->matterA)->create([
+        'is_visible_to_client' => true,
+        'summary' => 'Đã rút '.SWEEP_MARKER,
+    ]);
+    $this->retractedCommLog->delete();
+    $this->foreignCommLog = CommunicationLog::factory()->for($this->matterB)->create([
+        'is_visible_to_client' => true,
+        'summary' => 'Của khách B '.SWEEP_MARKER,
+    ]);
 
     $this->requestA = ClientRequest::factory()->for($this->matterA)->create([
         'client_user_id' => $this->userA->id,
@@ -236,6 +283,7 @@ it('lists only the rows of the own client, of published matters, and never group
         ->and(ClientRequestReply::pluck('id')->sort()->values()->all())
         ->toBe(collect([$this->replyToA->id, $this->replyToSibling->id])->sort()->values()->all())
         ->and(StageLogView::pluck('id')->all())->toBe([$this->receiptSibling->id])
+        ->and(CommunicationLog::pluck('id')->all())->toBe([$this->visibleCommLog->id])
         ->and(Client::pluck('id')->all())->toBe([$this->clientA->id]);
 });
 
@@ -254,6 +302,7 @@ it('never resolves a row of another client by its id, on either layer', function
         ->and(ClientRequest::find($this->foreignRequest->id))->toBeNull()
         ->and(ClientRequestReply::find($this->foreignReply->id))->toBeNull()
         ->and(StageLogView::find($this->foreignReceipt->id))->toBeNull()
+        ->and(CommunicationLog::find($this->foreignCommLog->id))->toBeNull()
         // Tầng policy hỏi lại một cách độc lập, trên đúng những đối tượng đó.
         ->and($this->userA->can('view', $this->matterB))->toBeFalse()
         ->and($this->userA->can('view', $this->foreignLog))->toBeFalse()
@@ -262,6 +311,7 @@ it('never resolves a row of another client by its id, on either layer', function
         ->and($this->userA->can('view', $this->foreignRequest))->toBeFalse()
         ->and($this->userA->can('view', $this->foreignReply))->toBeFalse()
         ->and($this->userA->can('view', $this->foreignReceipt))->toBeFalse()
+        ->and($this->userA->can('view', $this->foreignCommLog))->toBeFalse()
         ->and($this->userA->can('create', [StageLogView::class, $this->foreignLog]))->toBeFalse();
 });
 
@@ -301,7 +351,7 @@ it('never reaches a hidden row through a relation going down from a matter', fun
         ->and($this->matterA->deadlines()->pluck('id')->all())->toBe([$this->visibleDeadline->id])
         ->and($this->matterA->clientRequests()->pluck('id')->sort()->values()->all())
         ->toBe(collect([$this->requestA->id, $this->requestSibling->id])->sort()->values()->all())
-        ->and($this->itemA->documents()->pluck('id')->all())->toBe([])
+        ->and($this->itemA->documents()->pluck('id')->all())->toBe([$this->visibleDoc->id])
         ->and($this->requestA->replies()->pluck('id')->all())->toBe([$this->replyToA->id])
         ->and($this->visibleLog->views()->pluck('id')->all())->toBe([$this->receiptSibling->id])
         // Cầm sẵn đối tượng vụ việc của khách B trong tay vẫn không đi xuống được.
@@ -321,16 +371,21 @@ it('never reaches a hidden row through a relation going down from a matter', fun
 
 it('never reaches a hidden row through a relation going back up from a child', function () {
     $foreignDoc = sweepAll(Document::class)->findOrFail($this->foreignDoc->id);
+    $foreignDocRow = sweepAll(Document::class)->findOrFail($this->foreignDoc->id);
     $foreignReply = sweepAll(ClientRequestReply::class)->findOrFail($this->foreignReply->id);
-    $internalDoc = sweepAll(Document::class)->findOrFail($this->internalDoc->id);
+    $internalDocRow = sweepAll(Document::class)->findOrFail($this->internalDoc->id);
 
     $this->actingAs($this->userA, 'client');
 
     expect($foreignDoc->matter()->first())->toBeNull()
         ->and($foreignReply->request()->first())->toBeNull()
-        ->and($internalDoc->checklistItem()->first())->toBeNull()
+        ->and($foreignDocRow->checklistItem()->first())->toBeNull()
+        // Tài liệu nhóm D thì đi ngược lên ĐƯỢC — mục danh mục là thứ khách vốn thấy (SPEC §8.3),
+        // và cái bị chặn là tài liệu, không phải mục. Ghim để không ai đọc nhầm chiều của luật.
+        ->and($internalDocRow->checklistItem()->first()?->id)->toBe($this->itemA->id)
         // Vế dương: đi ngược từ một bản ghi khách A thấy được thì tới nơi.
         ->and($this->visibleDoc->matter()->first()?->id)->toBe($this->matterA->id)
+        ->and($this->visibleDoc->checklistItem()->first()?->id)->toBe($this->itemA->id)
         ->and($this->replyToA->request()->first()?->id)->toBe($this->requestA->id)
         ->and($this->receiptSibling->stageLog()->first()?->id)->toBe($this->visibleLog->id);
 });
@@ -375,13 +430,34 @@ it('follows the version chain when both versions are released to the portal', fu
 // 6. TẢI VỀ
 // =========================================================================================
 
+/**
+ * **Bốn fixture này PHẢI có tệp thật.** `DocumentDownloadController` trả 404 cho một `Document`
+ * không có media (`getFirstMedia('file') === null`), và nó trả 404 đó dù `Gate` có nói gì — nên
+ * với những fixture không tệp, bốn dòng dưới đây xanh y hệt khi cổng quyền bị xoá đi. Đo được:
+ * vòng đầu của Task 2 dựng chúng không media, và xoá hẳn `Gate::allows('download', ...)` khỏi
+ * controller vẫn để cả bốn xanh. Vế dương ngay dưới KHÔNG bù được chỗ đó — nó gắn media trước,
+ * tức nó đi một đường khác.
+ *
+ * Gắn tệp vào cả bốn đưa chúng về đúng nhánh mà tệp thật đi qua: chữ ký hợp lệ, tệp có mặt, và
+ * thứ duy nhất còn đứng giữa khách và tệp của khách khác là `DocumentPolicy::download`.
+ */
 it('answers a signed download url of a hidden document with 404 and serves the own one', function () {
+    $hostile = collect([$this->foreignDoc, $this->internalDoc, $this->hiddenDoc, $this->chainInternalV1])
+        ->map(function (Document $document): Document {
+            $document->addMedia(UploadedFile::fake()->create('tep-that.pdf', 10, 'application/pdf'))
+                ->toMediaCollection('file');
+
+            return $document->fresh();
+        });
+
+    // Tiền đề của phép đo, khẳng định chứ không giả định: cả bốn đều có tệp, nên một lần 404
+    // dưới đây đến từ cổng quyền chứ không từ một `Document` rỗng.
+    expect($hostile->every(fn (Document $document): bool => $document->getFirstMedia('file') !== null))
+        ->toBeTrue();
+
     $this->actingAs($this->userA, 'client');
 
-    $this->get($this->foreignDoc->downloadUrlFor($this->userA))->assertNotFound();
-    $this->get($this->internalDoc->downloadUrlFor($this->userA))->assertNotFound();
-    $this->get($this->hiddenDoc->downloadUrlFor($this->userA))->assertNotFound();
-    $this->get($this->chainInternalV1->downloadUrlFor($this->userA))->assertNotFound();
+    $hostile->each(fn (Document $document) => $this->get($document->downloadUrlFor($this->userA))->assertNotFound());
 });
 
 /**
@@ -438,6 +514,7 @@ it('never turns a search box into a way of reading someone elses row', function 
         ->and(MatterChecklistItem::where('name', 'like', $needle)->count())->toBe(0)
         ->and(Deadline::where('name', 'like', $needle)->count())->toBe(0)
         ->and(Client::where('name', 'like', $needle)->count())->toBe(0)
+        ->and(CommunicationLog::where('summary', 'like', $needle)->count())->toBe(0)
         // Vế dương: ô tìm kiếm vẫn tìm được thứ của chính khách.
         ->and(Document::where('title', 'like', '%Quyết định%')->count())->toBe(1);
 });
@@ -510,7 +587,32 @@ it('keeps a soft deleted row out of every portal query, even with withTrashed', 
         ->and(Matter::withTrashed()->find($this->retractedMatter->id))->toBeNull()
         ->and($this->userA->can('view', $this->retractedMatter))->toBeFalse()
         ->and($this->userA->can('view', $this->retractedDoc))->toBeFalse()
-        ->and($this->userA->can('view', $this->retractedRequest))->toBeFalse();
+        ->and($this->userA->can('view', $this->retractedRequest))->toBeFalse()
+        // Ba model soft-delete còn lại của cổng. Vòng đầu của Task 2 chỉ đặt `whereNull` lên
+        // `Matter`, `Document` và `ClientRequest`, nên ba bảng dưới đây trả lại dòng đã rút ngay
+        // khi một màn hình gọi `withTrashed()` — và Task 3, Task 4 render đúng hai trong số đó.
+        ->and(Deadline::withTrashed()->pluck('id')->all())->toBe([$this->visibleDeadline->id])
+        ->and(Deadline::withTrashed()->find($this->retractedDeadline->id))->toBeNull()
+        ->and(MatterChecklistItem::withTrashed()->pluck('id')->all())->toBe([$this->itemA->id])
+        ->and(MatterChecklistItem::withTrashed()->find($this->retractedItem->id))->toBeNull()
+        ->and(CommunicationLog::withTrashed()->pluck('id')->all())->toBe([$this->visibleCommLog->id])
+        ->and(CommunicationLog::withTrashed()->find($this->retractedCommLog->id))->toBeNull()
+        // `onlyTrashed()` là cùng một cái công tắc, nhìn từ phía kia: nó KHÔNG được biến thành
+        // một danh sách "những thứ văn phòng vừa rút đi".
+        ->and(Deadline::onlyTrashed()->count())->toBe(0)
+        ->and(MatterChecklistItem::onlyTrashed()->count())->toBe(0)
+        ->and(CommunicationLog::onlyTrashed()->count())->toBe(0)
+        ->and($this->userA->can('view', $this->retractedDeadline))->toBeFalse();
+
+    // `withCount` mang `withTrashed()` xuống TRUY VẤN CON — cùng một công tắc, ở một chỗ mà một
+    // phép đếm dễ được coi là vô hại. Một phép đếm cũng là một lần đọc.
+    $counted = Matter::withCount([
+        'deadlines' => fn ($q) => $q->withTrashed(),
+        'checklistItems' => fn ($q) => $q->withTrashed(),
+    ])->findOrFail($this->matterA->id);
+
+    expect($counted->deadlines_count)->toBe(1)
+        ->and($counted->checklist_items_count)->toBe(1);
 });
 
 /** Vế dương: xoá mềm một vụ việc thì nó biến mất khỏi portal, chứ không phải mọi thứ đều biến mất. */
@@ -573,7 +675,7 @@ it('shows the same matter the moment it is published to the portal', function ()
  * không phải một tầng riêng — nó sụp xuống thành chính tầng kia, và một lần quên là một vụ rò rỉ.
  */
 it('still refuses on the policy layer when every portal scope forgets its rule', function () {
-    foreach ([Matter::class, StageLog::class, Document::class, Deadline::class, ClientRequest::class, ClientRequestReply::class, StageLogView::class, MatterChecklistItem::class] as $model) {
+    foreach ([Matter::class, StageLog::class, Document::class, Deadline::class, ClientRequest::class, ClientRequestReply::class, StageLogView::class, MatterChecklistItem::class, CommunicationLog::class] as $model) {
         $model::addGlobalScope(ClientPortalScope::class, function (): void {});
     }
 
@@ -598,17 +700,83 @@ it('still refuses on the policy layer when every portal scope forgets its rule',
             ->and($this->userA->can('view', $this->foreignReply))->toBeFalse()
             ->and($this->userA->can('view', $this->foreignReceipt))->toBeFalse()
             ->and($this->userA->can('create', [StageLogView::class, $this->foreignLog]))->toBeFalse()
+            // `is_published` phải được hỏi lại BÊN TRONG policy, không chỉ qua scope. Dòng trên
+            // (`foreignLog`) xanh được nhờ điều kiện KHÁC — vụ việc của khách hàng khác — nên nó
+            // không nhìn thấy được chỗ này; chỉ một dòng nháp thuộc CHÍNH vụ việc của khách A
+            // mới cô lập đúng điều kiện "chưa công bố". Nếu thiếu, `RecordStageLogView` ghi một
+            // biên bản nói rằng khách đã được cho xem một cập nhật văn phòng CHƯA công bố.
+            ->and($this->userA->can('create', [StageLogView::class, $this->draftLog]))->toBeFalse()
             ->and($this->userA->can('create', [Document::class, $this->foreignItem]))->toBeFalse()
+            // Nhật ký liên lạc: KHÔNG có màn hình portal nào đọc bảng này (phán quyết 3 của M5),
+            // nên đây là một phép đo ghi lại, không một cửa đang mở. Trước vòng sửa này nhánh
+            // khách của `CommunicationLogPolicy::view` còn TỆ HƠN một bản sao của scope: scope
+            // rỗng thì nó trả `true` cho một dòng `is_visible_to_client = false`, tức cho đúng
+            // cột mà SPEC §4.17 dựng lên để giữ nhật ký liên lạc ở trong nhà.
+            ->and($this->userA->can('view', $this->internalCommLog))->toBeFalse()
+            ->and($this->userA->can('view', $this->foreignCommLog))->toBeFalse()
+            ->and($this->userA->can('view', $this->retractedCommLog))->toBeFalse()
             // Vế dương trong CÙNG ngữ cảnh thủng: policy không từ chối tất cả.
             ->and($this->userA->can('view', $this->matterA))->toBeTrue()
             ->and($this->userA->can('view', $this->visibleDoc))->toBeTrue()
             ->and($this->userA->can('view', $this->requestA))->toBeTrue()
             ->and($this->userA->can('view', $this->replyToA))->toBeTrue()
             ->and($this->userA->can('view', $this->receiptSibling))->toBeTrue()
-            ->and($this->userA->can('view', $this->visibleDeadline))->toBeTrue();
+            ->and($this->userA->can('view', $this->visibleDeadline))->toBeTrue()
+            ->and($this->userA->can('view', $this->visibleCommLog))->toBeTrue();
     } finally {
-        foreach ([Matter::class, StageLog::class, Document::class, Deadline::class, ClientRequest::class, ClientRequestReply::class, StageLogView::class, MatterChecklistItem::class] as $model) {
+        foreach ([Matter::class, StageLog::class, Document::class, Deadline::class, ClientRequest::class, ClientRequestReply::class, StageLogView::class, MatterChecklistItem::class, CommunicationLog::class] as $model) {
             $model::addGlobalScope(new ClientPortalScope);
+        }
+    }
+});
+
+/**
+ * **Nghi thức ba tầng, vòng hai: gỡ CẢ `SoftDeletingScope`.**
+ *
+ * Nghi thức ngay trên làm rỗng `ClientPortalScope` và hỏi policy. Nhưng điều kiện "đã rút thì
+ * không quay lại" có một chỗ nấp mà nghi thức đó không soi tới: `visibleToPortal()` chạy
+ * `$record->newQuery()`, và truy vấn ấy vẫn còn `SoftDeletingScope` — một scope KHÁC. Nên một
+ * policy KHÔNG nói gì về `deleted_at` vẫn xanh, và cái giữ nó là thứ mà đúng một lần
+ * `withTrashed()` trong một màn hình sẽ gỡ ra. Đó là hình dạng mà vòng sửa này lên án ở ba model
+ * khác; test này là chỗ nó không sống sót được ở tầng policy.
+ *
+ * Gỡ cả hai scope dựng lại đúng cảnh đó: màn hình gọi `withTrashed()`, ai đó quên một câu
+ * `where`, và thứ duy nhất còn lại là policy đọc thuộc tính trên bản ghi trong tay.
+ */
+it('still refuses a retracted row when the soft delete scope is lifted as well, not only the portal one', function () {
+    $models = [Matter::class, Document::class, ClientRequest::class, CommunicationLog::class];
+
+    foreach ($models as $model) {
+        $model::addGlobalScope(ClientPortalScope::class, function (): void {});
+        $model::addGlobalScope(SoftDeletingScope::class, function (): void {});
+    }
+
+    try {
+        $this->actingAs($this->userA, 'client');
+
+        // Cả hai tầng truy vấn đã thủng — nếu không thì khẳng định bên dưới không đo tầng policy.
+        expect(Matter::find($this->retractedMatter->id))->not->toBeNull()
+            ->and(Document::find($this->retractedDoc->id))->not->toBeNull()
+            ->and(ClientRequest::find($this->retractedRequest->id))->not->toBeNull()
+            ->and(CommunicationLog::find($this->retractedCommLog->id))->not->toBeNull();
+
+        expect($this->userA->can('view', $this->retractedMatter))->toBeFalse()
+            ->and($this->userA->can('view', $this->retractedDoc))->toBeFalse()
+            ->and($this->retractedDoc->isReleasedToPortal())->toBeFalse()
+            ->and($this->userA->can('download', $this->retractedDoc))->toBeFalse()
+            ->and($this->userA->can('view', $this->retractedRequest))->toBeFalse()
+            ->and($this->userA->can('view', $this->retractedCommLog))->toBeFalse()
+            // Vế dương trong CÙNG ngữ cảnh thủng: những bản ghi CHƯA rút vẫn đọc được, nên sáu
+            // dòng trên là lời từ chối về `deleted_at` chứ không một lần từ chối tất cả.
+            ->and($this->userA->can('view', $this->matterA))->toBeTrue()
+            ->and($this->userA->can('view', $this->visibleDoc))->toBeTrue()
+            ->and($this->visibleDoc->isReleasedToPortal())->toBeTrue()
+            ->and($this->userA->can('view', $this->requestA))->toBeTrue()
+            ->and($this->userA->can('view', $this->visibleCommLog))->toBeTrue();
+    } finally {
+        foreach ($models as $model) {
+            $model::addGlobalScope(new ClientPortalScope);
+            $model::addGlobalScope(new SoftDeletingScope);
         }
     }
 });
@@ -662,7 +830,107 @@ it('leaves the staff side of every table untouched', function () {
         ->and(ClientRequest::withTrashed()->count())->toBe(5)
         ->and(ClientRequestReply::count())->toBe(3)
         ->and(StageLogView::count())->toBe(2)
+        ->and(CommunicationLog::withTrashed()->count())->toBe(4)
         ->and(Client::count())->toBe(2);
+});
+
+// =========================================================================================
+// RANH GIỚI ĐÃ BIẾT: NHỮNG BỀ MẶT KHÔNG HỀ CÓ `ClientPortalScope`
+// =========================================================================================
+
+/**
+ * **Năm bề mặt dưới đây KHÔNG được cắt theo khách hàng, và sẽ không được cắt ở M5.** Mỗi test
+ * dưới đây ghim HÀNH VI HÔM NAY, để một ngày ai đó đổi nó thì phải đổi cả test — tức phải biết
+ * mình đang đổi một quyết định chứ không sửa một chi tiết. Và quan trọng hơn: **Task 3–6 thừa
+ * hưởng một LUẬT, không một chỗ hở.**
+ *
+ * Luật đó, viết một lần cho cả M5: **không màn hình portal nào được truy vấn trực tiếp các bề
+ * mặt này.** Mọi thứ màn hình portal đọc phải đi qua một model mang `RestrictedToClientPortal`
+ * (`PortalCoverageTest` canh danh sách đó), hoặc qua một `Gate` hỏi đúng policy.
+ *
+ * Vì sao KHÔNG tự cắt chúng ở vòng sửa này — mỗi cái một lý do khác nhau, và không cái nào là
+ * "chưa kịp làm":
+ *
+ *  - `ClientUser` CỐ Ý không mang scope: gọi `auth()` trong global scope của chính model xác
+ *    thực thì guard nạp người dùng từ session sẽ đệ quy vô hạn (docblock `ClientUser`). Một
+ *    quyết định của M2, không một chỗ quên.
+ *  - `Activity` và `Media` là model của spatie, nằm trong `vendor/`. Gắn global scope vào model
+ *    của một gói là một thay đổi có bán kính rộng hơn M5 — nó đổi hành vi của mọi màn hình nội
+ *    bộ, mọi job, và của chính gói đó. `PortalCoverageTest` quét `app/Models`, nên hai model này
+ *    nằm ngoài lưới ấy; đây là chỗ điều đó được nói ra thay vì được ngầm hiểu.
+ *  - `DB::table()` đi thẳng xuống query builder: không có model thì không có global scope nào để
+ *    chạy. Không một thiết kế nào chặn được nó; chỉ có luật "không dùng nó trong portal".
+ *  - Quan hệ tới `User` trả về nhân sự, và nhân sự KHÔNG phải dữ liệu của một khách hàng nào để
+ *    mà cắt theo khách hàng. Thứ cần canh ở đây là CỘT nào được đưa ra màn hình.
+ */
+it('names ClientUser as a surface that is NOT scoped: no portal screen may query it directly', function () {
+    $this->actingAs($this->userA, 'client');
+
+    $foreign = ClientUser::firstWhere('email', $this->userB->email);
+
+    // Tầng truy vấn KHÔNG cắt — ghim lại hành vi, không tán thành nó.
+    expect($foreign)->not->toBeNull()
+        ->and($foreign->id)->toBe($this->userB->id)
+        ->and($foreign->phone)->toBe($this->userB->phone)
+        ->and(ClientUser::count())->toBe(3)
+        // Tầng policy thì cắt, và ở đây nó là tầng DUY NHẤT: `ClientUserPolicy` từ chối sạch mọi
+        // `ClientUser`, kể cả chính mình. Một màn hình hỏi `Gate` thì an toàn; một màn hình viết
+        // `ClientUser::where(...)` thì không.
+        ->and($this->userA->can('view', $this->userB))->toBeFalse()
+        ->and($this->userA->can('view', $this->userA))->toBeFalse()
+        ->and($this->userA->can('viewAny', ClientUser::class))->toBeFalse();
+});
+
+it('names the spatie activity log as a surface that is NOT scoped: no portal screen may query it directly', function () {
+    $this->actingAs($this->userA, 'client');
+
+    $payload = json_encode(Activity::query()->get()->toArray(), JSON_UNESCAPED_UNICODE);
+
+    // Nhật ký hoạt động giữ cả tiêu đề vụ việc của khách hàng khác lẫn tiêu đề tài liệu nhóm D.
+    expect(Activity::query()->count())->toBeGreaterThan(0)
+        ->and($payload)->toContain(SWEEP_MARKER)
+        // Và không có policy nào: một lần `Gate` trả `false` ở đây sẽ chỉ vì không tìm thấy
+        // policy, không vì một lời từ chối có suy nghĩ.
+        ->and(Gate::getPolicyFor(Activity::class))->toBeNull();
+});
+
+it('names the spatie media table as a surface that is NOT scoped: no portal screen may query it directly', function () {
+    $this->internalDoc
+        ->addMedia(UploadedFile::fake()->create('ke-hoach-'.SWEEP_MARKER.'.pdf', 10, 'application/pdf'))
+        ->toMediaCollection('file');
+
+    $this->actingAs($this->userA, 'client');
+
+    expect(Media::query()->pluck('file_name')->implode(' '))->toContain(SWEEP_MARKER)
+        ->and(Gate::getPolicyFor(Media::class))->toBeNull();
+});
+
+it('names the raw query builder as a surface that is NOT scoped: no portal screen may query it directly', function () {
+    $this->actingAs($this->userA, 'client');
+
+    // `DB::table()` không đi qua model, nên không một global scope nào chạy: mọi vụ việc, kể cả
+    // vụ đã xoá mềm và vụ của khách hàng khác.
+    expect(DB::table('matters')->count())->toBe(4)
+        ->and(DB::table('matters')->pluck('title')->implode(' '))->toContain(SWEEP_MARKER)
+        // Vế dương: cùng bảng đó, đọc qua model thì bị cắt đúng như mọi test bên trên.
+        ->and(Matter::count())->toBe(1);
+});
+
+it('names the staff rows behind team and author as a surface that is NOT scoped: no portal screen may print their columns', function () {
+    $this->actingAs($this->userA, 'client');
+
+    $staff = $this->matterA->team()->first();
+    $author = $this->replyToA->author()->first();
+
+    // Quan hệ tới nhân sự mở hoàn toàn, và bản ghi trả về mang đủ cột — email, điện thoại, số
+    // thẻ luật sư. Không cắt được theo khách hàng, vì nhân sự không thuộc về khách hàng nào;
+    // luật nằm ở màn hình: portal chỉ được in TÊN, không cột nào khác.
+    expect($staff)->not->toBeNull()
+        ->and($staff->email)->not->toBeEmpty()
+        ->and($author)->not->toBeNull()
+        ->and($author->getAttributes())->toHaveKeys(['email', 'phone', 'bar_number'])
+        // `UserPolicy` từ chối một `ClientUser`, nên một màn hình hỏi `Gate` vẫn an toàn.
+        ->and($this->userA->can('view', $author))->toBeFalse();
 });
 
 // =========================================================================================
@@ -705,4 +973,88 @@ it('protects internal_note at the serialize layer only, and says so out loud', f
         // Nhưng chỉ trên dòng khách ĐÃ được đọc: cột này không mở thêm một dòng nào.
         ->and(StageLog::where('internal_note', 'like', '%'.SWEEP_MARKER.'%')->pluck('id')->all())
         ->toBe([$this->visibleLog->id]);
+});
+
+// =========================================================================================
+// 14. MỘT MÀN HÌNH THẬT: DANH SÁCH HỒ SƠ (M5 Task 3)
+// =========================================================================================
+
+/**
+ * Mười ba mục trên đo các ĐƯỜNG TRUY VẤN. Mục này đo thứ cuối cùng người ta thật sự nhìn thấy:
+ * **HTML đã kết xuất**, vì SPEC §11 viết lời hứa của mình bằng đúng chữ đó ("Response JSON và
+ * HTML của portal không chứa...").
+ *
+ * Khoảng cách giữa hai thứ không phải lý thuyết. Một truy vấn đúng vẫn ra một màn hình sai nếu
+ * màn hình ấy tự hỏi thêm một câu — `withoutGlobalScope()` cho tiện, một `Matter::find()` theo
+ * tham số của request, một cột nội bộ in ra vì view cầm model trong tay. `SWEEP_MARKER` nằm sẵn
+ * trong tiêu đề của vụ việc khách B, của vụ việc chưa công bố, của vụ việc đã rút, và trong
+ * `internal_note` của cả hai dòng tiến độ — nên MỘT lần `toContain` phủ hết các đường ấy cùng
+ * lúc.
+ *
+ * Mở rộng ở đây, không ở `MyMattersTest`: tệp này là lưới quét của cả cổng, và kế hoạch M5 Task 2
+ * đã giao cho nó việc được chạy lại và nới rộng sau mỗi task có màn hình.
+ */
+it('never paints a hidden row into the rendered matter list', function () {
+    Filament::setCurrentPanel('portal');
+
+    $html = $this->actingAs($this->userA, 'client')
+        ->livewire(MyMatters::class)
+        ->html();
+
+    // Vế dương trước: nếu trang không vẽ gì thì khẳng định bên dưới xanh mà không đo gì cả.
+    expect($html)->toContain($this->matterA->code)
+        ->and($html)->not->toContain(SWEEP_MARKER)
+        ->and($html)->not->toContain($this->matterB->code)
+        ->and($html)->not->toContain($this->hiddenA->code)
+        ->and($html)->not->toContain($this->retractedMatter->code);
+});
+
+// =========================================================================================
+// ĐƯỜNG MÀ M5 TASK 4 VỪA TẠO RA: HTML THẬT CỦA TRANG CHI TIẾT HỒ SƠ
+// =========================================================================================
+
+/**
+ * Mở rộng bắt buộc sau mỗi task có màn hình (kế hoạch M5 Task 2 mục 6): thêm **đúng** đường mà
+ * màn hình mới vừa mở ra. Mọi `it()` phía trên đo các truy vấn và các cổng quyền; đường này đo
+ * thứ khác hẳn — **những byte thật sự được gửi tới trình duyệt của khách**.
+ *
+ * Nó không thừa so với `MatterProgressTest`: tệp kia dựng fixture riêng cho từng điều kiện, còn
+ * ở đây trang chi tiết được vẽ ra giữa **toàn bộ** vườn thú của tệp này (hồ sơ khách B, hồ sơ
+ * chưa mở cho khách, hồ sơ đã rút, chuỗi version nhóm D, mốc hạn chưa công bố, yêu cầu của khách
+ * khác, và một `internal_note` mang chuỗi đánh dấu) — một lần quét bằng `str_contains` trên một
+ * chuỗi duy nhất, đúng cách SPEC §11 mô tả phép thử ghi chú nội bộ.
+ */
+it('never renders a hidden row into the html of the portal matter detail page', function () {
+    // `must_change_password` còn bật thì `RequirePortalPasswordChange` chặn mọi trang cổng
+    // (SPEC §8.1) và test sẽ chết ở một cổng SỚM HƠN điều kiện nó nêu tên.
+    $this->userA->forceFill(['must_change_password' => false])->save();
+
+    $html = $this->actingAs($this->userA, 'client')
+        ->get(MatterProgress::getUrl(['record' => $this->matterA->id], panel: 'portal'))
+        ->assertOk()
+        ->getContent();
+
+    expect($html)->not->toContain(SWEEP_MARKER)
+        // Vế dương: trang KHÔNG trắng — đúng những gì khách A được đọc vẫn ở đó.
+        ->and($html)->toContain('Toà đã nhận hồ sơ.')
+        ->and($html)->toContain('Quyết định của toà')
+        ->and($html)->toContain('Chứng minh nhân dân')
+        ->and($html)->toContain('Nộp bổ sung')
+        // Và bản nhóm D của chuỗi version không lên trang dù bản kề nó thì có.
+        ->and($html)->toContain('Bản chính thức');
+});
+
+it('answers the detail page of every matter the client may not read with 404', function () {
+    $this->userA->forceFill(['must_change_password' => false])->save();
+
+    foreach ([$this->matterB, $this->hiddenA, $this->retractedMatter] as $matter) {
+        $this->actingAs($this->userA, 'client')
+            ->get(MatterProgress::getUrl(['record' => $matter->id], panel: 'portal'))
+            ->assertNotFound();
+    }
+
+    // Vế dương: cùng đường, cùng tài khoản, hồ sơ của chính mình thì mở.
+    $this->actingAs($this->userA, 'client')
+        ->get(MatterProgress::getUrl(['record' => $this->matterA->id], panel: 'portal'))
+        ->assertOk();
 });

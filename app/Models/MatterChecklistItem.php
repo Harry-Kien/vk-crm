@@ -37,10 +37,19 @@ class MatterChecklistItem extends Model
         ];
     }
 
-    /** Khách thấy toàn bộ danh mục hồ sơ của vụ việc mình, kèm trạng thái và lý do từ chối (SPEC §8.3). */
+    /**
+     * Khách thấy toàn bộ danh mục hồ sơ của vụ việc mình, kèm trạng thái và lý do từ chối
+     * (SPEC §8.3).
+     *
+     * `whereNull('deleted_at')`: một mục đã bị gỡ khỏi danh mục không quay lại bằng một lần
+     * `withTrashed()` — thứ chỉ gỡ `SoftDeletingScope` chứ không đụng tới `ClientPortalScope`.
+     * Cùng lý lẽ với {@see Matter::applyClientPortalConstraints()}. Ở đây nó còn có một nghĩa
+     * riêng: một mục đã gỡ vẫn mang trạng thái và lý do từ chối của nó, nên một lần quay lại là
+     * một lần đòi khách nộp lại thứ văn phòng đã thôi không cần.
+     */
     public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
     {
-        $query->whereHas('matter');
+        $query->whereNull($this->qualifyColumn('deleted_at'))->whereHas('matter');
     }
 
     public function matter(): BelongsTo

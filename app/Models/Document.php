@@ -241,6 +241,13 @@ class Document extends Model implements HasMedia
      *   thẳng sang `published`"), và Task 2 đặt nó cạnh hai điều kiện kia vì cả ba cùng trả lời
      *   một câu hỏi.
      *
+     * `! trashed()` là điều kiện thứ tư, và nó đến từ chính `applyClientPortalConstraints()` ngay
+     * trên. Nó KHÔNG thừa: nếu không phát biểu ở đây thì điều kiện "đã rút thì không ra tới
+     * cổng" chỉ còn được giữ bên trong `visibleToPortal()` — tức bởi `SoftDeletingScope`, một
+     * scope KHÁC, thứ mà một lần `withTrashed()` gỡ ra. Đó đúng là hình dạng mà vòng sửa này lên
+     * án ở ba model khác, nên nó không được phép sống sót ở đây. Phát biểu bằng THUỘC TÍNH, như
+     * `MatterPolicy::releasedToPortal()` làm, để hai cách nói không chung một câu lệnh nào.
+     *
      * Điều kiện thứ ba của §5 — tài liệu thuộc một vụ việc khách được thấy — CỐ Ý không nằm ở
      * đây: nó là chuyện của `Matter`, và `DocumentPolicy::view()` lo bằng `canSeeMatter()` cộng
      * `visibleToPortal()`. Vì vậy mọi câu hỏi "khách này có được xem bản này không" phải đi qua
@@ -253,7 +260,8 @@ class Document extends Model implements HasMedia
     {
         return $this->client_can_view
             && $this->status === DocumentStatus::Published
-            && ! $this->group->isInternal();
+            && ! $this->group->isInternal()
+            && ! $this->trashed();
     }
 
     public function matter(): BelongsTo
