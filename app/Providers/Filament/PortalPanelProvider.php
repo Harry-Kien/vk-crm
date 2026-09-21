@@ -2,7 +2,12 @@
 
 namespace App\Providers\Filament;
 
+use App\Filament\Portal\Auth\PortalEmailAuthentication;
+use App\Filament\Portal\Pages\Auth\Login;
 use App\Http\Middleware\AnswerDeniedPanelRequestsWithNotFound;
+use App\Http\Middleware\EnsurePortalAccountIsActive;
+use App\Http\Middleware\RequirePortalPasswordChange;
+use App\Notifications\Client\SendLoginCode;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -12,8 +17,11 @@ use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
 use Filament\View\PanelsRenderHook;
+use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
+use Illuminate\Contracts\Http\Kernel as HttpKernelContract;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
+use Illuminate\Foundation\Http\Kernel as HttpKernel;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
@@ -29,6 +37,45 @@ use Illuminate\View\Middleware\ShareErrorsFromSession;
  */
 class PortalPanelProvider extends PanelProvider
 {
+    /**
+     * SPEC §10.9 đòi tài khoản khách bị vô hiệu thấy MÀN HÌNH ĐĂNG NHẬP, nên
+     * `EnsurePortalAccountIsActive` phải chạy TRƯỚC `Filament\Http\Middleware\Authenticate` —
+     * chạy sau thì `canAccessPanel()` đã kịp `abort(403)` và `AnswerDeniedPanelRequestsWithNotFound`
+     * đổi nó thành 404, đúng món nợ M4 giao lại.
+     *
+     * **Viết nó trước `Authenticate::class` trong mảng `->authMiddleware([...])` KHÔNG đủ**, và
+     * đây là điều đã đo chứ không phải phỏng đoán — lần cài đầu làm đúng như vậy và tài khoản bị
+     * vô hiệu vẫn nhận 404. `Router::gatherRouteMiddleware()` sắp lại danh sách theo bảng ưu
+     * tiên của framework, và `SortedMiddleware::middlewareNames()` xét cả lớp cha lẫn INTERFACE,
+     * nên `Filament\Http\Middleware\Authenticate` khớp mục
+     * `Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests` trong bảng và luôn được nhấc
+     * lên trước mọi middleware không có tên trong bảng — kể cả middleware đứng trước nó trong
+     * mảng.
+     *
+     * Mốc neo vì thế là **interface** chứ không phải lớp `Illuminate\Auth\Middleware\Authenticate`:
+     * bảng mặc định của Laravel 13 chứa đúng cái interface, còn
+     * `Kernel::addToMiddlewarePriorityRelative()` tìm bằng so khớp chuỗi — neo nhầm vào tên lớp
+     * thì nó lặng lẽ nối vào CUỐI bảng, tức không đổi gì cả (đã đo). Kiểm lại bằng
+     * `bin/dev artisan route:list --path=portal -v`, và có test hành vi ở
+     * `tests/Feature/Portal/LoginTest.php`.
+     *
+     * Đặt ở đây chứ không ở `bootstrap/app.php`: bảng ưu tiên này tồn tại chỉ vì một middleware
+     * của panel `portal`, nên nó thuộc về provider của chính panel đó. `RequirePortalPasswordChange`
+     * cố ý KHÔNG có mặt — nó cần đứng SAU `Authenticate` để có người dùng đã xác thực mà hỏi
+     * `must_change_password`, và "không có tên trong bảng" chính là chỗ đúng của nó.
+     */
+    public function boot(): void
+    {
+        $kernel = $this->app->make(HttpKernelContract::class);
+
+        if ($kernel instanceof HttpKernel) {
+            $kernel->addToMiddlewarePriorityBefore(
+                AuthenticatesRequests::class,
+                EnsurePortalAccountIsActive::class,
+            );
+        }
+    }
+
     public function panel(Panel $panel): Panel
     {
         return $panel
@@ -37,7 +84,25 @@ class PortalPanelProvider extends PanelProvider
             ->domains(array_filter([config('vkcrm.portal_domain')]))
             ->authGuard('client')
             ->authPasswordBroker('client_users')
-            ->login()
+            ->login(Login::class)
+            /*
+             * SPEC §8.1: mã 6 số qua email, hiệu lực **5 phút**. Mặc định của Filament là 4 —
+             * `EmailAuthentication::$codeExpiryMinutes` — nên con số phải được nói ra ở đây.
+             *
+             * `setUpRequiredAction: null` là cố ý: trang "bắt buộc cài đặt xác thực hai bước"
+             * chỉ có nghĩa khi người dùng CÓ THỂ chưa bật, mà `ClientUser::hasEmailAuthentication()`
+             * trả `true` cứng. Không đăng ký nó là bớt một route không ai được phép cần tới.
+             *
+             * Panel này cũng KHÔNG đăng ký trang hồ sơ cá nhân (`->profile()`), vì đó là nơi
+             * `DisableEmailAuthenticationAction` sống — tức là nơi duy nhất có một cái nút tắt
+             * mã đăng nhập. SPEC §8.1 không cho khách tắt, nên cái nút ấy không được tồn tại.
+             */
+            ->multiFactorAuthentication(
+                PortalEmailAuthentication::make()
+                    ->codeExpiryMinutes(5)
+                    ->codeNotification(SendLoginCode::class),
+                setUpRequiredAction: null,
+            )
             ->brandName(__('panels.portal.brand'))
             ->brandLogo(fn () => view('brand.logo'))
             ->brandLogoHeight('3rem')
@@ -73,9 +138,28 @@ class PortalPanelProvider extends PanelProvider
                 DisableBladeIconComponents::class,
                 DispatchServingFilamentEvent::class,
             ])
+            /*
+             * THỨ TỰ CHẠY THẬT CỦA BA MIDDLEWARE NÀY **KHÔNG** DO MẢNG NÀY QUYẾT ĐỊNH.
+             *
+             * `Router::gatherRouteMiddleware()` sắp lại theo bảng ưu tiên của framework, nên
+             * `Filament\Http\Middleware\Authenticate` luôn bị nhấc lên trước mọi middleware
+             * không có tên trong bảng đó. SPEC §10.9 đòi `EnsurePortalAccountIsActive` chạy
+             * TRƯỚC nó, và điều đó được cài ở `boot()` phía trên — đọc docblock ở đó trước khi
+             * đổi bất cứ thứ gì ở đây. Kiểm bằng `bin/dev artisan route:list --path=portal -v`.
+             *
+             * `RequirePortalPasswordChange` (SPEC §8.1) thì phải đứng SAU `Authenticate` vì nó
+             * cần một người dùng đã xác thực để hỏi `must_change_password`; không có tên trong
+             * bảng ưu tiên chính là chỗ đúng của nó.
+             *
+             * Cả ba `isPersistent: true` vì toàn bộ cổng khách hàng là Livewire: một người đang
+             * mở sẵn một trang chỉ sinh request cập nhật, nên middleware không bền sẽ không chạy
+             * lần nào nữa và hai điều kiện trên thành lời hứa suông.
+             */
             ->authMiddleware([
+                EnsurePortalAccountIsActive::class,
                 Authenticate::class,
-            ])
+                RequirePortalPasswordChange::class,
+            ], isPersistent: true)
             ->renderHook(PanelsRenderHook::HEAD_END, fn () => view('brand.theme'))
             ->renderHook(PanelsRenderHook::AUTH_LOGIN_FORM_BEFORE, fn () => view('brand.login-tagline'))
             ->renderHook(PanelsRenderHook::AUTH_LOGIN_FORM_AFTER, fn () => view('brand.login-footer'));
