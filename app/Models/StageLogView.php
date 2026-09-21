@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Actions\Portal\RecordStageLogView;
+use App\Exceptions\StageLogViewImmutable;
 use App\Models\Concerns\RestrictedToClientPortal;
 use App\Policies\StageLogViewPolicy;
 use Database\Factories\StageLogViewFactory;
@@ -22,6 +24,38 @@ class StageLogView extends Model
     protected function casts(): array
     {
         return ['viewed_at' => 'datetime'];
+    }
+
+    /**
+     * **Bảng này là bằng chứng, nên model tự canh — không chỉ `Gate`.**
+     *
+     * `StageLogViewPolicy` không có `update` lẫn `delete`, nên hôm nay `Gate` đã từ chối cả hai.
+     * Nhưng `Gate` chỉ canh những đường CÓ HỎI nó: `$view->update([...])` từ một Action, một
+     * lệnh console, một job, hay một lần dọn dữ liệu đi thẳng qua Eloquent thì không ai hỏi. Đo
+     * được trước vòng sửa này: `update(['viewed_at' => now()->addYear(), 'ip' => '8.8.8.8'])`
+     * thành công, `delete()` thành công. Hợp đồng số 2 của
+     * {@see RecordStageLogView} — "`viewed_at` không bao giờ bị ghi đè" —
+     * khi đó chỉ được giữ bởi ĐÚNG MỘT hàm, trên đúng cái bảng được mô tả là thứ đưa ra trước
+     * toà.
+     *
+     * Cùng thiết bị và cùng hình dạng với {@see StageLog::booted()} (nhật ký chỉ thêm, SPEC §4.8)
+     * và với `Matter::forceDeleting` → `MatterNotDestroyable`. Khác một chỗ, và khác có chủ ý:
+     * `StageLog` còn một danh sách cột được sửa (`StageLog::MUTABLE`, vì công bố là một hành
+     * động sau khi ghi), còn ở đây KHÔNG có cột nào sửa được. Bốn cột của bảng — dòng tiến độ,
+     * tài khoản, thời điểm, địa chỉ — đều là lời khai; không cột nào trong đó là một trạng thái
+     * còn đi tiếp.
+     *
+     * Không chặn `creating`: ghi lần đầu chính là việc của bảng.
+     */
+    protected static function booted(): void
+    {
+        static::updating(function (): void {
+            throw StageLogViewImmutable::make();
+        });
+
+        static::deleting(function (): void {
+            throw StageLogViewImmutable::make();
+        });
     }
 
     /**

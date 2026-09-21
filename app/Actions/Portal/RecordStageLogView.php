@@ -38,6 +38,21 @@ use Illuminate\Support\Facades\Gate;
  * `$actor`, truyền vào; `$ip` cũng truyền vào được, để một lần gọi lại từ console không ghi bừa
  * một địa chỉ.
  *
+ * **Cột `ip` là địa chỉ NÀO — nói rõ, vì nó được trình bày như bằng chứng.** Khi người gọi không
+ * đưa `$ip`, Action lấy `request()->ip()`, và hôm nay ứng dụng KHÔNG cấu hình `trustProxies` ở
+ * bất cứ đâu (`bootstrap/app.php`, `config/`, `.env.example`: không có gì). Nên `request()->ip()`
+ * trả `REMOTE_ADDR` — địa chỉ của thứ nối trực tiếp tới PHP. Sau một CDN hay một reverse proxy,
+ * đó là địa chỉ của CDN/proxy, KHÔNG phải của khách; `X-Forwarded-For` bị bỏ qua, và bị bỏ qua
+ * là đúng khi chưa khai proxy nào đáng tin (một header ai cũng đặt được thì không phải bằng
+ * chứng). Vậy cột này chứng minh "một yêu cầu đã tới hệ thống từ điểm nối này vào lúc này" —
+ * KHÔNG chứng minh khách hàng ngồi ở đâu. Giá trị bằng chứng thật của bảng nằm ở `viewed_at` và
+ * ở cặp `(dòng tiến độ, tài khoản)`.
+ *
+ * Quyết định "có khai `trustProxies` khi lên production hay không" thuộc về M8 (vận hành, SPEC
+ * §14): nó đổi Ý NGHĨA của mọi cột `ip` đã ghi, nên nó phải là một quyết định được ghi lại chứ
+ * không một dòng cấu hình lặng lẽ. Đã ghi vào danh sách hoãn của `docs/PROGRESS.md`;
+ * `last_login_ip` đọc cùng một nguồn và mang cùng một hệ quả.
+ *
  * **Không tin tham số.** `$stageLog` đi ra từ một tham số trên URL của portal, nên Action đọc
  * lại dòng thật và mọi quyết định dùng bản đọc lại đó.
  *
@@ -103,8 +118,9 @@ class RecordStageLogView
      * Khối `catch` ở đây là **lưới thứ hai**, và nói cho đúng: lưới thứ nhất nằm trong framework.
      * `Builder::firstOrCreate()` gọi `createOrFirst()`, và hàm đó đã tự bắt
      * `UniqueConstraintViolationException` rồi đọc lại bằng `useWritePdo()`
-     * (`vendor/laravel/framework/src/Illuminate/Database/Eloquent/Builder.php:751`) — đã đọc
-     * trên bản đang cài, không phải nhớ. Nên trên đường đi hôm nay, `catch` dưới đây KHÔNG chạy
+     * (`vendor/laravel/framework/src/Illuminate/Database/Eloquent/Builder.php`: `createOrFirst()`
+     * khai báo ở dòng 751, `catch` ở dòng 755, lần đọc lại ở dòng 756) — đã đọc trên bản đang
+     * cài, không phải nhớ. Nên trên đường đi hôm nay, `catch` dưới đây KHÔNG chạy
      * tới; nó là phòng thủ nhiều lớp, không phải một điều kiện có test đứng sau. **Đo bằng
      * mutation:** đổi thân `catch` thành `throw $exception;` thì bộ test vẫn XANH — đúng như câu
      * trên nói, và câu trên được viết ra để không ai đọc khối này rồi tưởng nó là thứ đang giữ

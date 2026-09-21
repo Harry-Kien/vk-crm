@@ -85,6 +85,19 @@ class StageLogViewPolicy
      * được không"), còn CHẶN THẬT nằm ở nhánh có ngữ cảnh. `RecordStageLogView` luôn gọi kèm
      * dòng tiến độ, và nghĩa vụ đó được ghi ra ở docblock của Action.
      *
+     * **`is_published` được đọc THẲNG trên bản ghi**, cùng thiết bị và cùng lý lẽ với
+     * {@see StageLogPolicy::view()}. Vòng đầu của Task 2 để điều kiện ấy chỉ đi qua
+     * `visibleToPortal()`, tức qua đúng một câu `where` trong
+     * `StageLog::applyClientPortalConstraints()` — và đo được: làm rỗng scope của `StageLog` thì
+     * `view` trên một dòng nháp trả `false` còn `create` trả `true`, nên `RecordStageLogView`
+     * ghi một biên bản khẳng định khách đã được cho xem một cập nhật văn phòng CHƯA công bố.
+     * Đó là đúng thứ bảng này tồn tại để chứng minh, lộn ngược. Ghim ở nghi thức ba tầng của
+     * `PortalIsolationSweepTest` bằng một dòng nháp thuộc CHÍNH vụ việc của khách — một dòng của
+     * khách khác xanh nhờ điều kiện khác nên không nhìn thấy chỗ này.
+     *
+     * Điều kiện vụ việc cha thì không nhắc lại ở đây, cùng lý do với `StageLogPolicy::view()`:
+     * `canSeeMatter()` đưa nó về `MatterPolicy::view`, nơi nó đã được phát biểu hai lần.
+     *
      * Kiểu `mixed` là cố ý, cùng lý lẽ với hai policy kia: khai báo hẹp biến một lần gọi sai ngữ
      * cảnh thành `TypeError` — lỗi 500 — thay vì một lời từ chối. Thứ không phải `StageLog` rơi
      * xuống nhánh từ chối chứ KHÔNG rơi xuống nhánh "không có ngữ cảnh".
@@ -107,6 +120,7 @@ class StageLogViewPolicy
         }
 
         return $context instanceof StageLog
+            && (bool) $context->is_published
             && $this->visibleToPortal($user, $context)
             && $this->canSeeMatter($user, $this->parentWithoutPortalScope($context, 'matter'));
     }

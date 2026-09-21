@@ -145,6 +145,26 @@ it('refuses a deactivated portal account', function () {
         ->and(allReceipts()->count())->toBe(0);
 });
 
+/**
+ * Xoá mềm một tài khoản KHÔNG hạ cờ `is_active` — hai cột nói hai chuyện khác nhau — nên
+ * `accountIsActive()` phải hỏi cả hai. Trước vòng sửa này một `ClientUser` đã xoá mềm vẫn ghi
+ * được biên bản, tức bảng bằng chứng nhận một dòng mang tên một tài khoản không còn tồn tại.
+ *
+ * Đối tượng được đọc lại bằng `withTrashed()`, đúng đường mà một job chạy lại hoặc một Action
+ * gọi từ console sẽ đi: `$actor` đến từ bên ngoài, không từ `auth()`.
+ */
+it('refuses a soft deleted portal account even though is_active is still true', function () {
+    $this->clientUser->delete();
+
+    $trashed = ClientUser::withTrashed()->findOrFail($this->clientUser->id);
+
+    expect($trashed->is_active)->toBeTrue()
+        ->and($trashed->trashed())->toBeTrue()
+        ->and(fn () => $this->action->handle($this->log, $trashed, '203.0.113.5'))
+        ->toThrow(AuthorizationException::class)
+        ->and(allReceipts()->count())->toBe(0);
+});
+
 it('refuses an entry that does not exist', function () {
     $ghost = StageLog::factory()->for($this->matter)->published()->make(['id' => 999999]);
 
@@ -240,4 +260,40 @@ it('never lets a staff account record a view receipt', function () {
     expect($admin->can('create', StageLogView::class))->toBeFalse()
         ->and($admin->can('create', [StageLogView::class, $this->log]))->toBeFalse()
         ->and($this->clientUser->can('create', [StageLogView::class, $this->log]))->toBeTrue();
+});
+
+/**
+ * **Nghi thức ba tầng, đo trên chính Action.** Tầng truy vấn bị làm rỗng — đúng hình dạng "ai đó
+ * quên một câu `where`" — và câu hỏi còn lại là: `StageLogViewPolicy::create()` có phải một tầng
+ * riêng, hay nó chỉ chạy lại tầng truy vấn?
+ *
+ * Vòng đầu của Task 2 thì nó chỉ chạy lại: `create` trả `true` trên một dòng NHÁP và Action ghi
+ * một biên bản khẳng định khách đã được cho xem một cập nhật văn phòng chưa công bố — bằng chứng
+ * lộn ngược. Từ nay `is_published` được đọc thẳng trên bản ghi, nên dòng nháp bị từ chối kể cả
+ * khi scope không còn nói gì.
+ *
+ * Vế dương nằm ngay trong cùng ngữ cảnh thủng: dòng ĐÃ công bố vẫn ghi được, nếu không thì phép
+ * đo trên chỉ nói rằng mọi thứ đều bị từ chối.
+ */
+it('still refuses to record a draft entry when the stage log scope forgets its rule', function () {
+    $draft = StageLog::factory()->for($this->matter)->internalOnly()->create();
+
+    StageLog::addGlobalScope(ClientPortalScope::class, function (): void {});
+
+    try {
+        // Tầng truy vấn đã thủng — nếu không thì khẳng định bên dưới không đo tầng policy.
+        expect(ClientPortalScope::actingAs($this->clientUser, fn () => StageLog::find($draft->id)))
+            ->not->toBeNull();
+
+        expect(fn () => $this->action->handle($draft, $this->clientUser, '203.0.113.5'))
+            ->toThrow(AuthorizationException::class)
+            ->and(allReceipts()->count())->toBe(0);
+
+        // Vế dương trong CÙNG ngữ cảnh thủng.
+        $this->action->handle($this->log, $this->clientUser, '203.0.113.5');
+
+        expect(allReceipts()->count())->toBe(1);
+    } finally {
+        StageLog::addGlobalScope(new ClientPortalScope);
+    }
 });

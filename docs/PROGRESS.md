@@ -529,6 +529,18 @@ chúng là bước đầu tiên của milestone đó.
 
 ### Việc hoãn lại, có chủ đích
 
+- **`trustProxies` là một quyết định của M8, và nó đổi nghĩa của hai cột đã ghi.** Hôm nay
+  ứng dụng không khai `trustProxies` ở bất cứ đâu (`bootstrap/app.php`, `config/`, `.env.example`
+  — đã tìm, không có gì), nên `request()->ip()` trả `REMOTE_ADDR`. Hai cột đọc từ đó và cả hai
+  được trình bày như bằng chứng: `stage_log_views.ip` (SPEC §4.18, "khách đã được cho xem") và
+  `client_users.last_login_ip`. Sau một CDN hoặc một reverse proxy, giá trị ghi được là địa chỉ
+  của CDN/proxy chứ không của khách — `X-Forwarded-For` bị bỏ qua, và bỏ qua là ĐÚNG khi chưa
+  khai proxy nào đáng tin, vì một header ai cũng đặt được thì không phải bằng chứng. Việc của
+  M8: quyết định có khai hay không, khai những dải nào, và ghi lại quyết định đó — vì một dòng
+  cấu hình lặng lẽ sẽ làm những dòng ghi TRƯỚC và SAU nó nói về hai thứ khác nhau mà không ai
+  phân biệt được khi đọc lại. Docblock `RecordStageLogView` đã nói rõ hôm nay cột đó là địa chỉ
+  nào, để không ai đọc nó rộng hơn thực tế.
+
 - **`RetractDocument` — đặc tả đã viết, cài đặt ở M6.** Đường thu hồi một tài liệu HÔM NAY trên
   thực tế là `$document->delete()`: nó ẩn tài liệu khỏi khách mà không nói cho khách biết. Đó
   tệ hơn hẳn thứ mà `PublishDocument` từ chối. Hình dạng đã chốt: một trạng thái thứ ba
