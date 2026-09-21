@@ -224,6 +224,10 @@ class Document extends Model implements HasMedia
         $query->where($this->qualifyColumn('client_can_view'), true)
             ->where($this->qualifyColumn('status'), DocumentStatus::Published->value)
             ->where($this->qualifyColumn('group'), '!=', DocumentGroup::Internal->value)
+            // Một tài liệu đã bị rút khỏi hồ sơ (xoá mềm) không quay lại tay khách bằng một lần
+            // `withTrashed()` — thứ chỉ gỡ `SoftDeletingScope` chứ không đụng tới scope này.
+            // Cùng lý lẽ với `Matter::applyClientPortalConstraints()`.
+            ->whereNull($this->qualifyColumn('deleted_at'))
             ->whereHas('matter');
     }
 

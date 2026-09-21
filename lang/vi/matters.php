@@ -87,6 +87,11 @@ return [
         'preview_no_client_action' => 'Không cần làm gì',
         'preview_expected_next_update' => 'Dự kiến có tin tiếp theo',
     ],
+    // Câu khách hàng đọc khi cổng khách từ chối ghi biên bản "đã xem" (SPEC §4.18). Một câu duy
+    // nhất cho cả bốn tình huống, theo SPEC §10.10 — xem App\Actions\Portal\RecordStageLogView.
+    'stage_log_views' => [
+        'unavailable' => 'Dòng cập nhật này không còn hiển thị trong hồ sơ của anh/chị nên hệ thống chưa ghi nhận được. Anh/chị tải lại trang hồ sơ để xem những cập nhật mới nhất; nếu vẫn không thấy, gọi cho văn phòng để được hướng dẫn.',
+    ],
     'stage_log_fields' => [
         'occurred_at' => 'Ngày xảy ra',
         'to_stage' => 'Giai đoạn',

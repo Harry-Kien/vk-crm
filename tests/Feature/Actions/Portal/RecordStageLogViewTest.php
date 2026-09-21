@@ -1,0 +1,243 @@
+<?php
+
+use App\Actions\Portal\RecordStageLogView;
+use App\Models\Client;
+use App\Models\ClientUser;
+use App\Models\Matter;
+use App\Models\StageLog;
+use App\Models\StageLogView;
+use App\Models\User;
+use App\Support\Scopes\ClientPortalScope;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
+
+beforeEach(function () {
+    $this->action = app(RecordStageLogView::class);
+
+    $this->client = Client::factory()->create();
+    $this->clientUser = ClientUser::factory()->create(['client_id' => $this->client->id]);
+    $this->sibling = ClientUser::factory()->create(['client_id' => $this->client->id]);
+
+    $this->matter = Matter::factory()->for($this->client)->create(['is_published_to_portal' => true]);
+    $this->log = StageLog::factory()->for($this->matter)->published()->create();
+});
+
+/** Mọi biên bản trong bảng, kể cả của khách khác — dùng để đếm thật thay vì đếm qua scope. */
+function allReceipts(): Builder
+{
+    return StageLogView::query()->withoutGlobalScope(ClientPortalScope::class);
+}
+
+it('writes one receipt with the time and the ip of the first view', function () {
+    $receipt = $this->action->handle($this->log, $this->clientUser, '203.0.113.5');
+
+    expect(allReceipts()->count())->toBe(1)
+        ->and($receipt->stage_log_id)->toBe($this->log->id)
+        ->and($receipt->client_user_id)->toBe($this->clientUser->id)
+        ->and($receipt->ip)->toBe('203.0.113.5')
+        ->and($receipt->viewed_at)->not->toBeNull();
+});
+
+/**
+ * Hợp đồng số 2 của Action: `viewed_at` là dấu thời gian của lần đọc ĐẦU và không bao giờ bị ghi
+ * đè. Một `updateOrCreate` ở chỗ đó vẫn cho một dòng duy nhất, nên phép đếm KHÔNG bắt được nó —
+ * chỉ so sánh dấu thời gian mới bắt được.
+ */
+it('never moves viewed_at or ip on a later view', function () {
+    $this->travelTo('2026-09-20 08:00:00');
+    $first = $this->action->handle($this->log, $this->clientUser, '203.0.113.5');
+
+    $this->travelTo('2026-09-27 21:14:00');
+    $second = $this->action->handle($this->log, $this->clientUser, '198.51.100.9');
+
+    expect(allReceipts()->count())->toBe(1)
+        ->and($second->getKey())->toBe($first->getKey())
+        ->and($second->viewed_at->toDateTimeString())->toBe('2026-09-20 08:00:00')
+        ->and($second->ip)->toBe('203.0.113.5');
+});
+
+/**
+ * Hai tab của cùng một khách mở cùng một hồ sơ. Tab kia được chèn vào bảng ngay SAU câu `select`
+ * mở đầu của `firstOrCreate()` và ngay TRƯỚC câu `insert` của nó — tức đúng cái cửa sổ mà một
+ * lần `exists()` trước insert chỉ làm hẹp lại chứ không đóng được. Chỉ số
+ * `unique(stage_log_id, client_user_id)` biến cửa sổ đó thành một lỗi trùng khoá, và kết quả
+ * phải là: MỘT dòng, dòng của người tới trước, với dấu thời gian của người tới trước.
+ *
+ * **Vì sao móc vào `DB::listen` chứ không vào hook `creating` của model.** Đã thử bằng hook
+ * `creating` và nó dựng ra một cảnh KHÁC hẳn: `Builder::createOrFirst()` gọi
+ * `withSavepointIfNeeded()`, và bộ test chạy trong một transaction của `RefreshDatabase`, nên
+ * có một savepoint mở quanh câu insert. Dòng chèn từ trong hook nằm BÊN TRONG savepoint đó và bị
+ * cuốn đi cùng lần rollback — cả hai lần đọc lại đều trả `null` và ngoại lệ thoát ra ngoài. Đó
+ * là một tình huống không tồn tại trong đời thật (ngoài transaction thì không có savepoint nào),
+ * và nếu không nhìn ra thì nó sẽ bị chữa bằng cách sửa mã sản phẩm cho vừa một cái bẫy của bộ
+ * test.
+ */
+it('keeps the first receipt when two tabs record the same entry at the same time', function () {
+    $this->travelTo('2026-09-20 08:00:00');
+
+    $competitorId = null;
+    $logId = $this->log->id;
+    $userId = $this->clientUser->id;
+
+    DB::listen(function ($query) use (&$competitorId, $logId, $userId): void {
+        if ($competitorId !== null || ! str_contains($query->sql, 'from "stage_log_views"')) {
+            return;
+        }
+
+        $competitorId = DB::table('stage_log_views')->insertGetId([
+            'stage_log_id' => $logId,
+            'client_user_id' => $userId,
+            'viewed_at' => '2026-09-20 07:59:58',
+            'ip' => '203.0.113.1',
+            'created_at' => '2026-09-20 07:59:58',
+            'updated_at' => '2026-09-20 07:59:58',
+        ]);
+    });
+
+    $receipt = $this->action->handle($this->log, $this->clientUser, '203.0.113.2');
+
+    expect($competitorId)->not->toBeNull()
+        ->and(allReceipts()->count())->toBe(1)
+        ->and($receipt->getKey())->toBe($competitorId)
+        ->and($receipt->viewed_at->toDateTimeString())->toBe('2026-09-20 07:59:58')
+        ->and($receipt->ip)->toBe('203.0.113.1');
+});
+
+it('writes a separate receipt for each portal account of the same client', function () {
+    $this->action->handle($this->log, $this->clientUser, '203.0.113.5');
+    $this->action->handle($this->log, $this->sibling, '203.0.113.6');
+
+    expect(allReceipts()->count())->toBe(2)
+        ->and(allReceipts()->pluck('client_user_id')->sort()->values()->all())
+        ->toBe(collect([$this->clientUser->id, $this->sibling->id])->sort()->values()->all());
+});
+
+it('refuses an entry that has not been published to the portal', function () {
+    $unpublished = StageLog::factory()->for($this->matter)->internalOnly()->create();
+
+    expect(fn () => $this->action->handle($unpublished, $this->clientUser, '203.0.113.5'))
+        ->toThrow(AuthorizationException::class)
+        ->and(allReceipts()->count())->toBe(0);
+});
+
+it('refuses an entry of another client', function () {
+    $foreign = StageLog::factory()->for(Matter::factory()->create())->published()->create();
+
+    expect(fn () => $this->action->handle($foreign, $this->clientUser, '203.0.113.5'))
+        ->toThrow(AuthorizationException::class)
+        ->and(allReceipts()->count())->toBe(0);
+});
+
+it('refuses an entry of a matter that is no longer published to the portal', function () {
+    $this->matter->update(['is_published_to_portal' => false]);
+
+    expect(fn () => $this->action->handle($this->log, $this->clientUser, '203.0.113.5'))
+        ->toThrow(AuthorizationException::class)
+        ->and(allReceipts()->count())->toBe(0);
+});
+
+it('refuses a deactivated portal account', function () {
+    $this->clientUser->update(['is_active' => false]);
+
+    expect(fn () => $this->action->handle($this->log, $this->clientUser->fresh(), '203.0.113.5'))
+        ->toThrow(AuthorizationException::class)
+        ->and(allReceipts()->count())->toBe(0);
+});
+
+it('refuses an entry that does not exist', function () {
+    $ghost = StageLog::factory()->for($this->matter)->published()->make(['id' => 999999]);
+
+    expect(fn () => $this->action->handle($ghost, $this->clientUser, '203.0.113.5'))
+        ->toThrow(AuthorizationException::class);
+});
+
+/**
+ * SPEC §10.10: bốn tình huống từ chối phải không phân biệt được — ở LỚP lẫn ở CÂU CHỮ. So sánh
+ * lớp thôi là chưa đủ; thứ người ngoài quan sát được là câu chữ (bài học Critical C1 của M4).
+ */
+it('refuses all four situations with one identical vietnamese sentence', function () {
+    $this->matter->update(['is_published_to_portal' => false]);
+    $hiddenMatterLog = $this->log;
+
+    $unpublished = StageLog::factory()
+        ->for(Matter::factory()->for($this->client)->create(['is_published_to_portal' => true]))
+        ->internalOnly()->create();
+    $foreign = StageLog::factory()->for(Matter::factory()->create())->published()->create();
+    $ghost = StageLog::factory()->make(['id' => 999999]);
+
+    $messages = collect([$hiddenMatterLog, $unpublished, $foreign, $ghost])
+        ->map(function (StageLog $log): string {
+            try {
+                $this->action->handle($log, $this->clientUser, '203.0.113.5');
+            } catch (AuthorizationException $exception) {
+                return $exception->getMessage();
+            }
+
+            return 'KHÔNG BỊ TỪ CHỐI';
+        })
+        ->unique()
+        ->values();
+
+    expect($messages)->toHaveCount(1)
+        ->and($messages->first())->toBe(__('matters.stage_log_views.unavailable'))
+        ->and($messages->first())->not->toContain('unauthorized');
+});
+
+/**
+ * Action không được đọc `auth()`. Với phiên portal của một khách hàng KHÁC đang mở, một lần ghi
+ * hợp lệ vẫn phải hạ cánh — đây là chỗ `scopelessly()` và `setRelation('matter', ...)` trả tiền.
+ */
+it('records for the actor it is given even while another client has a portal session open', function () {
+    $stranger = ClientUser::factory()->create();
+    $this->actingAs($stranger, 'client');
+
+    $receipt = $this->action->handle($this->log, $this->clientUser, '203.0.113.5');
+
+    expect(allReceipts()->count())->toBe(1)
+        ->and($receipt->client_user_id)->toBe($this->clientUser->id);
+});
+
+/** Vế dương của câu trên: phiên của người lạ không mở được cửa cho chính người lạ đó. */
+it('still refuses the stranger whose portal session happens to be open', function () {
+    $stranger = ClientUser::factory()->create();
+    $this->actingAs($stranger, 'client');
+
+    expect(fn () => $this->action->handle($this->log, $stranger, '203.0.113.5'))
+        ->toThrow(AuthorizationException::class)
+        ->and(allReceipts()->count())->toBe(0);
+});
+
+it('falls back to the request ip when the caller gives none', function () {
+    $receipt = $this->action->handle($this->log, $this->clientUser);
+
+    expect($receipt->ip)->not->toBeEmpty();
+});
+
+/**
+ * Quy ước tham số ngữ cảnh tuỳ chọn (`DocumentPolicy::create`, `ClientRequestPolicy::create`):
+ * một câu hỏi CÓ ngữ cảnh mà ngữ cảnh sai kiểu vẫn là một câu hỏi có ngữ cảnh, nên nó bị TỪ
+ * CHỐI — không rơi xuống nhánh "không có ngữ cảnh" (thứ trả `true` cho giao diện), và không nổ
+ * thành `TypeError`. Một mutation probe sống sót đã chỉ ra rằng trước test này không có gì ghim
+ * điều đó.
+ */
+it('refuses a create question carrying the wrong kind of context, instead of falling back', function () {
+    expect($this->clientUser->can('create', [StageLogView::class, $this->matter]))->toBeFalse()
+        ->and($this->clientUser->can('create', [StageLogView::class, $this->clientUser]))->toBeFalse()
+        // Vế dương, cùng một lời gọi với ngữ cảnh đúng, và nhánh không ngữ cảnh vẫn mở cho
+        // giao diện.
+        ->and($this->clientUser->can('create', [StageLogView::class, $this->log]))->toBeTrue()
+        ->and($this->clientUser->can('create', StageLogView::class))->toBeTrue();
+});
+
+/**
+ * Nhân sự không ghi được biên bản này, kể cả quản trị: giá trị của bảng là nó chứng minh KHÁCH
+ * đã được cho xem, và một dòng do văn phòng tạo ra không phân biệt được với một dòng thật.
+ */
+it('never lets a staff account record a view receipt', function () {
+    $admin = User::factory()->create();
+
+    expect($admin->can('create', StageLogView::class))->toBeFalse()
+        ->and($admin->can('create', [StageLogView::class, $this->log]))->toBeFalse()
+        ->and($this->clientUser->can('create', [StageLogView::class, $this->log]))->toBeTrue();
+});

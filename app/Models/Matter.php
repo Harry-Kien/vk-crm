@@ -183,7 +183,14 @@ class Matter extends Model
     public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
     {
         $query->where($this->qualifyColumn('client_id'), $clientUser->client_id)
-            ->where($this->qualifyColumn('is_published_to_portal'), true);
+            ->where($this->qualifyColumn('is_published_to_portal'), true)
+            // Đã xoá mềm thì không bao giờ ra tới portal, KỂ CẢ khi ai đó gọi `withTrashed()`.
+            // `SoftDeletingScope` đã loại chúng ở truy vấn thường, nhưng nó là một scope KHÁC và
+            // `withTrashed()` gỡ đúng nó ra mà không đụng gì tới `ClientPortalScope`. Ở phía nội
+            // bộ `withTrashed()` là một công cụ đúng đắn (quản trị viên còn phải khôi phục được
+            // hồ sơ); ở phía khách nó là một cái nút mở lại thứ văn phòng vừa rút đi. Một điều
+            // kiện chỉ do một scope khác giữ là một điều kiện người khác tắt được.
+            ->whereNull($this->qualifyColumn('deleted_at'));
 
         // M7 bổ sung điều kiện client_access_until ở đây (SPEC §11 "Bàn giao và lưu trữ").
     }

@@ -45,12 +45,30 @@ use Throwable;
  *
  * Không đuổi theo phần không phủ được, và đó là một lựa chọn chứ không phải một việc còn dở.
  * Trên đường cập nhật, cặp (403, 404) KHÔNG còn là máy dò sự tồn tại: `$record` là `#[Locked]`
- * và snapshot niêm bằng HMAC `APP_KEY`, nên muốn hỏi về một bản ghi thì phải có snapshot của
- * chính trang bản ghi đó — mà render được trang đó nghĩa là đã qua cổng. Còn cách duy nhất phủ
- * nốt (gắn middleware lên chính route cập nhật của Livewire) sẽ nuốt luôn hai `abort(403)` của
- * `Filament\Schemas\SchemasServiceProvider`, vốn nói về một LỜI GỌI PHƯƠNG THỨC chứ không về
- * sự tồn tại của bản ghi — trong đó có cổng chặn `_startUpload` mà các ô tải tệp của M4 nằm
- * sau, nơi 403 là tín hiệu lạm dụng đáng giữ nguyên.
+ * (`Filament\Resources\Pages\Concerns\InteractsWithRecord`) và snapshot niêm bằng HMAC `APP_KEY`
+ * (`Livewire\Mechanisms\HandleComponents\Checksum::generate`), nên muốn hỏi về một bản ghi thì
+ * phải có snapshot của chính trang bản ghi đó — mà render được trang đó nghĩa là đã qua cổng.
+ * Còn cách duy nhất phủ nốt (gắn middleware lên chính route cập nhật của Livewire) sẽ nuốt luôn
+ * hai lần trả 403 của `Filament\Schemas\SchemasServiceProvider` — `abort(403)` cho `validate`/
+ * `validateOnly`, và `abort_unless(…, 403)` cho `_startUpload`/`_finishUpload`/`_uploadErrored`/
+ * `_removeUpload`. Cả hai nói về một LỜI GỌI PHƯƠNG THỨC chứ không về sự tồn tại của bản ghi, và
+ * cái thứ hai là cổng chặn mà các ô tải tệp của M4 nằm sau, nơi 403 là tín hiệu lạm dụng đáng
+ * giữ nguyên.
+ *
+ * ĐÃ KIỂM LẠI Ở M5 TASK 2, trên chính bản vendor đang cài, vì M5 là milestone mà TOÀN BỘ giao
+ * diện khách hàng là Livewire: `Utils::applyMiddleware()` vẫn kết thúc bằng
+ * `fn () => new \Illuminate\Http\Response()`, và `hydrateCanAuthorizeAccess()` vẫn nằm ở bốn
+ * chỗ (`Pages\Concerns\CanAuthorizeAccess`, `Resources\Pages\Concerns\InteractsWithRecord`,
+ * `Resources\RelationManagers\Concerns\CanAuthorizeAccess`, `Widgets\Concerns\CanAuthorizeAccess`).
+ * Filament 5 không có seam nào để phủ đường đó, nên lời hứa ở trên giữ nguyên phạm vi hẹp của nó
+ * thay vì được nới rộng.
+ *
+ * **Hệ quả cho người dựng trang portal, viết ra ở đây vì đây là chỗ người ta tới đọc:**
+ * `Filament\Pages\Concerns\CanAuthorizeAccess::canAccess()` mặc định trả `true` ("Custom pages
+ * default to allowing access for all authenticated panel users", bình luận nguyên văn trong
+ * vendor). Middleware này KHÔNG cứu được điều đó — nó đổi hình dạng một lời từ chối, nó không
+ * sinh ra lời từ chối nào. Một trang portal mang `{record}` trên URL phải tự hỏi `Gate` về bản
+ * ghi đó; không hỏi thì không có tầng nào phía sau hỏi hộ.
  *
  * Giới hạn trong middleware của panel cũng là cố ý — 403 vẫn còn nghĩa ở ngoài panel, nơi nó
  * nói về ĐƯỜNG DẪN chứ không về bản ghi: route tải tệp có chữ ký (SPEC §10.4, §11 "Tải tệp")

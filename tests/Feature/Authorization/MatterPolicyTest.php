@@ -6,6 +6,7 @@ use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Matter;
 use App\Models\User;
+use App\Support\Scopes\ClientPortalScope;
 use Database\Seeders\RolesAndPermissionsSeeder;
 
 beforeEach(function () {
@@ -134,4 +135,35 @@ it('keeps a restricted matter out of the list of a lead lawyer who lost the view
 
     expect(Matter::query()->listableBy($demoted)->pluck('id')->all())->not->toContain($theirs->id)
         ->and($demoted->can('view', $theirs))->toBeFalse();
+});
+
+/**
+ * Câu trả lời cho nhân sự KHÔNG được đổi theo việc có ai đang mở phiên portal hay không.
+ *
+ * `ClientPortalScope::isActive()` bật khi guard `client` đã xác thực còn guard `web` thì chưa —
+ * tức đúng một lời gọi `Gate::forUser($staff)` từ một job, một lệnh console, hay một Action chạy
+ * bên trong một request portal. Không gỡ scope ra thì `Matter::query()` của `MatterPolicy::view`
+ * bị cắt theo KHÁCH đang đăng nhập và trả `false` về một vụ việc nhân sự đó thấy rõ. Mang sang
+ * từ rà soát M4 Task 4, nơi một mutation probe SỐNG SÓT vì chính chuyện này.
+ *
+ * `relationLoaded('team')` được khẳng định là `false` trước: đường trong bộ nhớ của `view()`
+ * không chạy truy vấn nào, nên một fixture vô tình nạp sẵn `team` sẽ làm test này xanh mà không
+ * hề chạm tới điều kiện nó nêu tên.
+ */
+it('answers the staff view ability the same way while a portal session of another client is open', function () {
+    $matter = Matter::query()->findOrFail($this->matter->getKey());
+    $restricted = Matter::query()->findOrFail($this->restricted->getKey());
+
+    $this->actingAs(ClientUser::factory()->create(['client_id' => Client::factory()->create()->id]), 'client');
+
+    expect(ClientPortalScope::isActive())->toBeTrue()
+        ->and($matter->relationLoaded('team'))->toBeFalse()
+        ->and($restricted->relationLoaded('team'))->toBeFalse()
+        ->and($this->lead->can('view', $matter))->toBeTrue()
+        ->and($this->teammate->can('view', $matter))->toBeTrue()
+        ->and($this->admin->can('view', $restricted))->toBeTrue()
+        // Vế âm, trong cùng ngữ cảnh: gỡ scope KHÔNG mở thêm cửa nào.
+        ->and($this->outsider->can('view', $matter))->toBeFalse()
+        ->and($this->accountant->can('view', $matter))->toBeFalse()
+        ->and($this->teammate->can('view', $restricted))->toBeFalse();
 });

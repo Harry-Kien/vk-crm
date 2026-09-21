@@ -2,7 +2,7 @@
 
 namespace App\Actions\Document;
 
-use App\Actions\Document\Concerns\ReadsWithoutPortalScope;
+use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\DocumentGroup;
 use App\Models\Document;
 use App\Models\User;
