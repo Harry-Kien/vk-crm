@@ -20,6 +20,7 @@ use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Filament\Pages\Dashboard;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Route;
@@ -101,6 +102,31 @@ function renderMyMatters(array $parameters = []): string
         ->html();
 }
 
+/**
+ * Mọi `href` của một mục điều hướng mang đúng nhãn `$label`, đọc từ HTML Filament THẬT SỰ dựng
+ * ra — không phải từ một lời gọi lại `getNavigationUrl()`, thứ chỉ hỏi mã nguồn xem nó nghĩ gì
+ * về chính nó.
+ *
+ * Trả về một mảng chứ không một chuỗi vì Filament vẽ thanh bên hai lần (bản điện thoại và bản
+ * màn hình rộng). Hai bản phải trỏ cùng một chỗ, và test khẳng định điều đó thay vì lặng lẽ lấy
+ * bản đầu.
+ *
+ * @return list<string>
+ */
+function portalNavigationHrefs(string $html, string $label): array
+{
+    preg_match_all(
+        '/<a\b[^>]*\bhref="([^"]*)"[^>]*>(?:(?!<\/a>).)*?'.preg_quote($label, '/').'/su',
+        $html,
+        $matches,
+    );
+
+    return array_map(
+        fn (string $href): string => html_entity_decode($href, ENT_QUOTES | ENT_HTML5),
+        $matches[1],
+    );
+}
+
 // =========================================================================================
 // NGHI THỨC BA TẦNG — tầng 1: truy vấn
 // =========================================================================================
@@ -141,6 +167,40 @@ it('drops a matter from the list the moment the office withdraws it', function (
     expect($html)->toContain($mine->code)
         ->and($html)->not->toContain($withdrawn->code)
         ->and($html)->not->toContain('HO-SO-DA-RUT-7V2K');
+});
+
+/**
+ * Và nó phải biến mất trên request KẾ TIẾP, không đợi khách tải lại trang bằng tay.
+ *
+ * Toàn bộ cổng này là Livewire: sau lần tải đầu, mọi thứ khách làm là một request **cập nhật**
+ * dựng lại component từ một ảnh chụp đã được serialize. Thứ duy nhất giữ cho hồ sơ đã rút không
+ * đi theo ảnh chụp ấy là từ khoá `private` trên {@see MyMatters::$cards} — Livewire chỉ serialize
+ * thuộc tính `public`. Đổi nó thành `public` thì toàn bộ bộ test vẫn xanh (đo được, rà soát Task
+ * 3), và một hồ sơ văn phòng vừa rút vẫn nằm trên màn hình khách, vì vòng `Gate` từng thẻ không
+ * bao giờ chạy lại.
+ *
+ * Nên phép đo phải có đúng ba nhịp: **vẽ, rút, rồi một `$refresh`** — tức đúng hình dạng một
+ * request cập nhật thật. Trang anh em `MatterProgress` ghim cùng bất biến này bằng cùng thiết bị
+ * ("làm `$resolvedMatter` thành `public` sẽ đỏ một test có tên"); khi một trang ghim một bất
+ * biến, trang anh em của nó thừa kế NGHĨA VỤ chứ không thừa kế giả định.
+ */
+it('drops a withdrawn matter on the very next livewire update, not only on a fresh page load', function () {
+    $mine = portalMatter(['title' => 'Hồ sơ còn mở']);
+    $withdrawn = portalMatter(['title' => 'HO-SO-DA-RUT-5Q8W']);
+
+    $component = $this->actingAs($this->clientUser, 'client')
+        ->livewire(MyMatters::class, ['showAll' => true]);
+
+    // Vế dương, trong cùng một lần chạy: thẻ ấy CÓ ở đó trước khi văn phòng rút nó.
+    expect($component->html())->toContain($withdrawn->code);
+
+    $withdrawn->delete();
+
+    $component->call('$refresh');
+
+    expect($component->html())->not->toContain($withdrawn->code)
+        ->and($component->html())->not->toContain('HO-SO-DA-RUT-5Q8W')
+        ->and($component->html())->toContain($mine->code);
 });
 
 // =========================================================================================
@@ -260,6 +320,30 @@ it('shows the client label of the stage and never the internal one', function ()
         ->and($html)->not->toContain('NHAN-NOI-BO-4K2P');
 });
 
+/**
+ * Và cái hố rộng hơn cùng một hình dạng, cho tới vòng sửa này thì **không có gì ghim**: không
+ * phải một giai đoạn bị gỡ, mà cả LOẠI vụ việc bị xoá mềm.
+ *
+ * `MyMatters::toCard()` cố ý đọc nhãn qua `matterType?->stage(...)` chứ không qua
+ * `Matter::currentStage()`, và docblock ở đó nói thẳng lý do: `currentStage()` gọi
+ * `$this->matterType->stage(...)` không có toán tử an toàn null, nên với một loại đã xoá mềm nó
+ * là một lỗi 500 **trên màn hình đầu tiên của khách hàng**. Rà soát Task 3 đo được rằng đổi
+ * sang `currentStage()` để cả bộ test xanh — tức lý lẽ ấy đúng nhưng không ai canh nó. Test này
+ * là chỗ canh: một cú bấm `settings.manage` không được hạ cả cổng khách hàng.
+ */
+it('keeps the first screen standing when the office soft deletes the whole matter type', function () {
+    $matter = portalMatter(['title' => 'Hồ sơ của loại vụ việc đã gỡ']);
+
+    $this->type->delete();
+
+    $html = renderMyMatters();
+
+    expect($html)->toContain($matter->code)
+        ->and($html)->toContain('Hồ sơ của loại vụ việc đã gỡ')
+        ->and($html)->toContain(__('portal_matters.card.stage_unknown'))
+        ->and($html)->not->toContain('NHAN-NOI-BO-4K2P');
+});
+
 it('says so in plain words when the matter sits on a stage the office has not configured', function () {
     portalMatter(['stage' => 'khong-co-trong-cau-hinh']);
 
@@ -371,16 +455,93 @@ it('raises the red badge with a sentence when papers are still wanted from the c
         ->and($html)->toContain('var(--danger-600)');
 });
 
+/**
+ * Huy hiệu và thanh tiến độ là HAI CÂU TRÊN CÙNG MỘT TẤM THẺ, nên chúng phải nói về cùng một tập
+ * đầu mục. Ba test dưới đây đo cái thẻ ĐẦY ĐỦ, không đo một nửa của nó.
+ *
+ * Bản đầu của test này khẳng định đúng một vế — huy hiệu đỏ — trên một fixture mà thanh tiến độ
+ * đồng thời nói "hồ sơ này chưa có giấy tờ nào anh/chị cần nộp". Hai câu ngược hẳn nhau, trên
+ * cùng một thẻ, và test xanh. Rà soát Task 3 gọi tên nó: một khẳng định về nửa màn hình là một
+ * khẳng định không nhìn thấy mâu thuẫn trên nửa kia.
+ *
+ * Fixture ở đây vì thế là trạng thái THẬT của một đầu mục bị từ chối: khách đã nộp một thứ gì
+ * đó, nên có một tài liệu, và chính tài liệu ấy kéo đầu mục không bắt buộc vào mẫu số của SPEC
+ * §4.10.
+ */
 it('counts a rejected optional item as something the client still has to do', function () {
     $matter = portalMatter();
 
-    MatterChecklistItem::factory()->for($matter)->create([
+    $optional = MatterChecklistItem::factory()->for($matter)->create([
         'is_required' => false,
         'status' => ChecklistItemStatus::Rejected,
         'rejection_reason' => 'Bản sao chưa được chứng thực, xin anh/chị nộp lại bản có chứng thực.',
     ]);
 
-    expect(renderMyMatters())->toContain(__('portal_matters.status.outstanding', ['count' => 1]));
+    Document::factory()->for($matter)->group(DocumentGroup::ClientProvided)->create([
+        'matter_checklist_item_id' => $optional->id,
+        'status' => DocumentStatus::Published,
+        'client_can_view' => true,
+    ]);
+
+    $html = ClientPortalScope::actingAs($this->clientUser, fn () => renderMyMatters());
+
+    expect($html)->toContain(__('portal_matters.status.outstanding', ['count' => 1]))
+        // Và cả tấm thẻ: thanh tiến độ nói về CÙNG đầu mục ấy, và câu "chưa có gì để nộp"
+        // không được xuất hiện bên cạnh một huy hiệu đang đòi một tờ giấy.
+        ->and($html)->toContain(__('portal_matters.card.progress', ['submitted' => 0, 'total' => 1]))
+        ->and($html)->not->toContain(__('portal_matters.card.progress_empty'));
+});
+
+/**
+ * Mâu thuẫn ở dạng thuần khiết nhất, và là thứ rà soát Task 3 đo được: một đầu mục KHÔNG bắt
+ * buộc, bị từ chối, mà không còn một tài liệu nào ngoài nhóm D. `ChecklistProgress` cố ý để nó
+ * ngoài **cả hai vế** của `X/Y` (đính chính SPEC §4.10 về mẫu số), nên thẻ in ra câu "chưa có
+ * giấy tờ nào anh/chị cần nộp" — trong khi một bộ đếm huy hiệu viết riêng lại đếm nó và in một
+ * huy hiệu đỏ đòi một tờ giấy, ngay bên dưới.
+ *
+ * Câu trả lời của vòng sửa này là một nguồn sự thật duy nhất, không phải một câu bị bịt đi:
+ * huy hiệu đếm TRÊN ĐÚNG tập dòng mà `ChecklistProgress` gọi là `Y`. Hệ quả nghiệp vụ được nói
+ * thẳng ra chứ không giấu: một đầu mục không bắt buộc mà khách chưa bao giờ nộp gì vào thì không
+ * phải một việc đang chờ khách, kể cả khi ai đó ở văn phòng đã đánh dấu nó "bị từ chối".
+ */
+it('never says the matter has nothing to submit while a red badge asks for a paper', function () {
+    $matter = portalMatter();
+
+    MatterChecklistItem::factory()->for($matter)->create([
+        'is_required' => false,
+        'status' => ChecklistItemStatus::Rejected,
+        'rejection_reason' => 'Bản sao chưa được chứng thực.',
+    ]);
+
+    $html = ClientPortalScope::actingAs($this->clientUser, fn () => renderMyMatters());
+
+    expect($html)->toContain(__('portal_matters.card.progress_empty'))
+        ->and($html)->not->toContain(__('portal_matters.status.outstanding', ['count' => 1]));
+});
+
+/**
+ * Cùng một mâu thuẫn, ở phía bên kia: mẫu số KHÔNG rỗng, nhưng nó đã đếm xong mọi thứ. Thẻ nói
+ * "Đã nộp 1/1" và, ngay dưới, "Còn 1 giấy tờ anh/chị cần nộp" — vì bộ đếm huy hiệu nhìn thấy một
+ * dòng mà thanh tiến độ không nhìn thấy. Một con số đòi nhiều hơn số tờ giấy tồn tại là một con
+ * số không một khách hàng nào đối chiếu được với bất kỳ thứ gì trên màn hình.
+ */
+it('never asks for a paper the progress line has already counted as done', function () {
+    $matter = portalMatter();
+
+    MatterChecklistItem::factory()->for($matter)->create([
+        'is_required' => true, 'status' => ChecklistItemStatus::Accepted,
+    ]);
+    MatterChecklistItem::factory()->for($matter)->create([
+        'is_required' => false,
+        'status' => ChecklistItemStatus::Rejected,
+        'rejection_reason' => 'Ảnh chụp bị mờ.',
+    ]);
+
+    $html = ClientPortalScope::actingAs($this->clientUser, fn () => renderMyMatters());
+
+    expect($html)->toContain(__('portal_matters.card.progress', ['submitted' => 1, 'total' => 1]))
+        ->and($html)->toContain(__('portal_matters.status.settled'))
+        ->and($html)->not->toContain(__('portal_matters.status.outstanding', ['count' => 1]));
 });
 
 it('does not nag about an optional item nobody ever asked the client for', function () {
@@ -397,6 +558,35 @@ it('does not nag about an optional item nobody ever asked the client for', funct
 
     expect($html)->not->toContain(__('portal_matters.status.outstanding', ['count' => 1]))
         ->and($html)->toContain(__('portal_matters.status.settled'));
+});
+
+/**
+ * Và vế còn lại của cùng điều kiện, ở bên TRONG mẫu số lần này: một đầu mục không bắt buộc mà
+ * văn phòng đã tự gắn một tài liệu vào (nhóm B — bản do văn phòng phát hành) nằm trong `Y`, vì
+ * `Y` được định nghĩa bằng chữ "đã có tài liệu". Nhưng nó vẫn đang `missing` và vẫn KHÔNG phải
+ * một việc của khách: không ai đòi họ tờ giấy ấy.
+ *
+ * Nếu thiếu test này thì vế `&& $item->is_required` trong bộ đếm huy hiệu không còn gì ghim —
+ * đo được: xoá nó đi mà mọi test khác vẫn xanh.
+ */
+it('does not nag about an optional item the office itself has already put a paper against', function () {
+    $matter = portalMatter();
+
+    $optional = MatterChecklistItem::factory()->for($matter)->create([
+        'is_required' => false, 'status' => ChecklistItemStatus::Missing,
+    ]);
+
+    Document::factory()->for($matter)->group(DocumentGroup::Issued)->create([
+        'matter_checklist_item_id' => $optional->id,
+        'status' => DocumentStatus::Published,
+        'client_can_view' => true,
+    ]);
+
+    $html = ClientPortalScope::actingAs($this->clientUser, fn () => renderMyMatters());
+
+    // Vế dương: đầu mục ấy CÓ nằm trong mẫu số — nếu không, test này xanh vì một lý do khác hẳn.
+    expect($html)->toContain(__('portal_matters.card.progress', ['submitted' => 0, 'total' => 1]))
+        ->and($html)->not->toContain(__('portal_matters.status.outstanding', ['count' => 1]));
 });
 
 it('turns yellow with a sentence while the office is still checking what was sent', function () {
@@ -482,18 +672,94 @@ it('drops the empty state the moment there is a matter to show', function () {
 // Toolchain §4: dùng được ở 375px — cấu trúc, đo được, không phải một ảnh chụp màn hình
 // =========================================================================================
 
+/**
+ * Bản đầu của test này khẳng định `max([0, ...$widths[1]]) < 376` trên một biểu thức chính quy
+ * `(?:min-)?width:\s*(\d+)px` **không khớp lấy một lần** trong cả trang — mọi bề rộng ở view đều
+ * là `%` hoặc `rem`. Biểu thức rỗng thì `max([0])` là `0`, và `0 < 376` đúng với mọi kết xuất, kể
+ * cả một `width:125rem`. Rà soát Task 3 gọi nó là M6: một khẳng định không thể đỏ.
+ *
+ * Bản này đo thật. Nó gom **mọi** `width` và `min-width` — bất kể đơn vị — rồi quy về pixel
+ * (`rem`/`em` theo gốc 16px của Filament) và đòi từng cái vừa trong một màn hình 375px. `max-width`
+ * cố ý nằm ngoài: nó là một cái TRẦN, nên nó không bao giờ đẩy nội dung ra khỏi màn hình; chính
+ * trạng thái rỗng dùng `max-width:34rem` để dòng chữ không dài quá trên máy tính bàn.
+ *
+ * Và vế `not->toBeEmpty()` là thứ giữ cho lần sửa này không lặp lại khuyết tật nó vừa sửa: nếu
+ * một ngày cách viết style đổi và bộ trích không còn tìm thấy gì, test đỏ ngay ở đó thay vì âm
+ * thầm khẳng định một điều kiện trên tập rỗng.
+ */
 it('lays the cards out in one column with no table and no width wider than a phone', function () {
-    portalMatter();
-    portalMatter();
+    // Hai thẻ ĐỦ BỘ PHẬN, cố ý: thanh tiến độ (`width:…%`) và chấm màu của huy hiệu
+    // (`width:0.625rem`) là hai chỗ duy nhất trang này khai một bề rộng, và một hồ sơ trần không
+    // vẽ cái nào. Bản đầu của test này đo một trang trống rồi kết luận về bề rộng của nó.
+    foreach ([portalMatter(), portalMatter()] as $matter) {
+        MatterChecklistItem::factory()->for($matter)->create([
+            'is_required' => true, 'status' => ChecklistItemStatus::Missing,
+        ]);
+    }
 
     $html = renderMyMatters();
 
-    preg_match_all('/(?:min-)?width:\s*(\d+)px/', $html, $widths);
+    $widths = declaredWidthsInPixels($html);
 
     expect($html)->not->toContain('<table')
         ->and($html)->toContain('flex-direction:column')
         ->and(substr_count($html, 'data-portal-matter-card'))->toBe(2)
-        ->and(max([0, ...array_map('intval', $widths[1])]))->toBeLessThan(376);
+        ->and($widths)->not->toBeEmpty();
+
+    foreach ($widths as $declaration => $pixels) {
+        expect($pixels)->toBeLessThanOrEqual(375.0, "Khai báo `{$declaration}` rộng hơn màn hình 375px.");
+    }
+});
+
+/**
+ * Bộ trích của test trên, tách ra để đo được chính nó.
+ *
+ * Trả về `[khai báo nguyên văn => bề rộng quy ra pixel]`. Bề rộng tương đối (`%`, `auto`, `fit-content`,
+ * `100%`…) không có một con số pixel nào đúng và cũng không bao giờ đẩy nội dung ra khỏi màn
+ * hình, nên chúng được ghi nhận là `0.0`: chúng vẫn đếm vào vế "bộ trích có tìm thấy gì không",
+ * mà không giả vờ đo một thứ chúng không nói.
+ *
+ * @return array<string, float>
+ */
+function declaredWidthsInPixels(string $html): array
+{
+    // `[;"\s]` phía trước là thứ loại `max-width` ra: ở đó chữ `width` đứng sau một dấu gạch nối.
+    preg_match_all('/(?:^|[;"\s])((?:min-)?width:\s*([^;"\']+))/i', $html, $matches, PREG_SET_ORDER);
+
+    $widths = [];
+
+    foreach ($matches as [, $declaration, $value]) {
+        $value = trim($value);
+
+        $widths[trim($declaration)] = match (true) {
+            (bool) preg_match('/^([\d.]+)px$/i', $value, $px) => (float) $px[1],
+            (bool) preg_match('/^([\d.]+)r?em$/i', $value, $em) => (float) $em[1] * 16,
+            (bool) preg_match('/^([\d.]+)pt$/i', $value, $pt) => (float) $pt[1] * 4 / 3,
+            default => 0.0,
+        };
+    }
+
+    return $widths;
+}
+
+/**
+ * Và bộ trích ấy tự chịu một phép đo, vì một biểu thức chính quy hỏng là đúng cách mà khẳng định
+ * trên kia đã mất nghĩa lần đầu. Bốn vế: đọc được pixel, quy đúng `rem`, BỎ QUA `max-width`, và
+ * không giả vờ đo một bề rộng tương đối.
+ */
+it('measures widths instead of matching nothing', function () {
+    $widths = declaredWidthsInPixels(
+        '<div style="width:400px"></div>'
+        .'<div style="display:flex;min-width:2rem"></div>'
+        .'<div style="max-width:34rem"></div>'
+        .'<div style="width:100%"></div>'
+    );
+
+    expect($widths)->toBe([
+        'width:400px' => 400.0,
+        'min-width:2rem' => 32.0,
+        'width:100%' => 0.0,
+    ]);
 });
 
 it('gives every tap target of the empty state at least forty four pixels', function () {
@@ -530,14 +796,18 @@ it('paints with colour variables the panel actually registers', function () {
 // =========================================================================================
 
 /**
- * Vế âm ở đây phải được dựng cẩn thận, và lần đầu nó đã KHÔNG được: một `User::factory()` trần
- * không có vai trò nào, nên `MatterPolicy::viewAny` từ chối họ vì THIẾU QUYỀN và điều kiện
- * `instanceof ClientUser` không bao giờ được chạm tới — xoá điều kiện ấy đi mà bộ test vẫn xanh.
- * Đúng hình dạng "một test mà fixture của nó đoản mạch trước khi chạm tới điều kiện nó nêu tên".
+ * **Test này đo đúng thứ `canAccess()` bảo đảm, không nhiều hơn.** Rà soát Task 3 chứng minh
+ * bằng ba lần đột biến rằng phương thức ấy chỉ còn một điều kiện thật sự từ chối được ai đó:
+ * *không có ai đăng nhập trên guard `client`*. Guard `client` giải về provider `client_users`,
+ * nên người dùng của nó luôn là một `ClientUser` hoặc `null`; và `MatterPolicy::viewAny` trả
+ * `true` vô điều kiện cho `ClientUser`. Lời hứa cũ ở docblock — "không có nó thì một nhân sự
+ * đang mở /admin đi thẳng vào được màn hình khách hàng" — là **sai**: nhân sự bị từ chối vì guard
+ * `client` rỗng, không vì phép so kiểu.
  *
- * Nên nhân sự ở đây là một **quản trị viên đầy đủ quyền**: `viewAny` trả `true` cho họ, và thứ
- * duy nhất còn từ chối là câu "đây là cổng của khách hàng". Hai panel dùng chung cookie phiên
- * (xem `ClientPortalScope`), nên tình huống này không phải giả tưởng.
+ * Nên hai vế dưới đây là hai câu đúng: nhân sự một mình → từ chối; khách → cho vào. Và vế thứ ba
+ * là fixture mà docblock cũ viện tới nhưng chưa bao giờ dựng: **hai guard cùng mở trong một
+ * phiên**. Hai panel dùng chung cookie phiên (xem `ClientPortalScope`), nên đó là một phiên có
+ * thật, và điều phải đúng là câu trả lời đến từ guard `client` chứ không từ người đang mở /admin.
  */
 it('asks the gate before letting anyone onto the page', function () {
     $this->seed(RolesAndPermissionsSeeder::class);
@@ -552,6 +822,36 @@ it('asks the gate before letting anyone onto the page', function () {
 
     $this->actingAs($admin, 'web');
     expect(MyMatters::canAccess())->toBeFalse();
+});
+
+/**
+ * Fixture của chính câu docblock cũ nêu tên, dựng đủ lần này: một nhân sự đầy quyền trên guard
+ * `web` VÀ một khách hàng trên guard `client`, cùng một phiên, cùng một lúc.
+ *
+ * Kết quả đúng không phải "từ chối" — khách hàng ấy có quyền xem hồ sơ của họ, và một trợ lý
+ * đang mở /admin trên cùng trình duyệt không lấy đi quyền đó. Thứ phải đúng là câu trả lời **đến
+ * từ đâu**: `canAccess()` hỏi guard `client` và chỉ guard đó, nên cả hai vế dưới đây cộng lại là
+ * "màn hình này thuộc về ai đang đăng nhập ở cổng khách, bất kể ai đang đăng nhập ở panel kia".
+ */
+it('answers from the client guard even while a member of staff shares the session', function () {
+    $this->seed(RolesAndPermissionsSeeder::class);
+
+    $admin = User::factory()->withRole(Role::Admin)->create();
+
+    $this->actingAs($admin, 'web');
+    expect(MyMatters::canAccess())->toBeFalse();
+
+    $this->actingAs($this->clientUser, 'client');
+
+    // Cả hai guard thật sự đang mở — nếu vế này đỏ thì fixture đã tự tháo mất tình huống nó dựng.
+    expect(Auth::guard('web')->user()?->is($admin))->toBeTrue()
+        ->and(Auth::guard('client')->user()?->is($this->clientUser))->toBeTrue()
+        ->and(MyMatters::canAccess())->toBeTrue();
+
+    auth('client')->logout();
+
+    expect(Auth::guard('web')->user()?->is($admin))->toBeTrue()
+        ->and(MyMatters::canAccess())->toBeFalse();
 });
 
 /**
@@ -691,6 +991,47 @@ it('still shows the list to a one matter client who deliberately asked for it', 
         ->and(MyMatters::getAllUrl())->toContain(MyMatters::SHOW_ALL_PARAMETER);
 });
 
+/**
+ * Và lối quay lại phải là một thứ KHÁCH CHẠM VÀO ĐƯỢC, không phải một phương thức đẹp đẽ không
+ * ai gọi.
+ *
+ * Rà soát Task 3 đo được đúng khuyết tật ấy: `getAllUrl()` không có nơi gọi nào trong `app/` lẫn
+ * `resources/`, còn mục "Hồ sơ của tôi" trên thanh bên thì Filament dựng từ
+ * `Page::getNavigationUrl()`, mà mặc định của nó là `getUrl()` — tức `/portal` trần. Một khách có
+ * đúng MỘT hồ sơ — chính là người tính năng này được thiết kế cho — chạm vào mục ấy và bị
+ * {@see MyMatters::mount()} ném thẳng về trang chi tiết họ vừa đứng. Mục điều hướng chết, và mọi
+ * test của màn hình này lái component bằng `showAll` hoặc `withQueryParams` nên không cái nào
+ * nhìn thấy.
+ *
+ * Nên phép đo ở đây ĐI THEO ĐƯỜNG LINK, không hỏi mã nguồn: một request HTTP thật, đọc `href`
+ * ra khỏi HTML của thanh bên, rồi một request HTTP thật thứ hai vào đúng `href` đó. **200 chứ
+ * không phải 302** là toàn bộ nội dung của khẳng định — một chuyển hướng ở đây nghĩa là khách
+ * không bao giờ tới nơi.
+ */
+it('puts a link on the sidebar that really opens the list for a client with one matter', function () {
+    $only = portalMatter();
+
+    $this->actingAs($this->clientUser, 'client');
+
+    // Vế dương: với đúng một hồ sơ, gốc cổng CHUYỂN HƯỚNG. Nếu dòng này đỏ thì khẳng định bên
+    // dưới không còn đo gì cả — nó sẽ xanh với một `href` bất kỳ trỏ vào `/portal`.
+    $this->get(url('/portal'))->assertRedirect(MatterProgress::getUrl(['record' => $only->id]));
+
+    $page = $this->get(MyMatters::getAllUrl());
+    $page->assertOk();
+
+    $hrefs = portalNavigationHrefs($page->getContent(), __('portal_matters.navigation_label'));
+
+    // Nếu vế này đỏ thì phép đo hỏng ở chỗ ĐỌC, không phải ở chỗ điều hướng — và một khẳng định
+    // rỗng sẽ xanh mãi mãi. Đây đúng hình dạng khuyết tật M6 của cùng vòng rà soát.
+    expect($hrefs)->not->toBeEmpty()
+        ->and(array_values(array_unique($hrefs)))->toHaveCount(1);
+
+    $this->get($hrefs[0])
+        ->assertOk()
+        ->assertSee(__('portal_matters.heading'), false);
+});
+
 /** Mã hồ sơ trên từng thẻ: trợ lý đọc nó ra qua điện thoại, nên nó không được biến mất. */
 it('keeps the matter code on every card and makes the whole card the way in', function () {
     $first = portalMatter();
@@ -721,13 +1062,17 @@ it('keeps the matter code on every card and makes the whole card the way in', fu
  *     kèm bộ đếm tài liệu. Gộp nó vào truy vấn danh sách nghĩa là viết lại luật đếm lần thứ hai
  *     bên màn hình, đúng thứ M4 vừa dọn đi.
  *
- * Phần cố định là **ba**: danh sách hồ sơ (hai `withCount` nằm trong cùng câu lệnh), loại vụ
- * việc, và các giai đoạn của loại đó. Vậy `2N + 3`, tức 43 cho 20 thẻ.
+ * Phần cố định là **bốn**: danh sách hồ sơ, loại vụ việc, các giai đoạn của loại đó, và các dòng
+ * danh mục của cả trang. Truy vấn thứ tư là cái giá của vòng sửa I3 — huy hiệu và thanh tiến độ
+ * nay đọc CÙNG một tập dòng, nên các dòng ấy về một lần cho cả trang thay vì được đếm lại bằng
+ * hai `withCount` riêng. Nó là một truy vấn CỐ ĐỊNH, không một truy vấn cho mỗi thẻ, và khẳng
+ * định độ dốc ở dưới là thứ chứng minh điều đó. Vậy `2N + 4`, tức 44 cho 20 thẻ.
  *
- * Hai khẳng định, vì mỗi cái bắt một hỏng khác nhau: **trần 50** bắt việc một ngày nào đó có
- * người thêm một truy vấn cố định thứ tư và thứ năm; **độ dốc đúng bằng 2** bắt thứ đáng sợ hơn
- * — một truy vấn mới mọc lên TRÊN TỪNG THẺ (một quan hệ chưa nạp sẵn, một `count()` trong view).
- * Chỉ có trần thì một hồi quy như vậy vẫn lọt ở 20 thẻ và nổ ở 200.
+ * Ba khẳng định, vì mỗi cái bắt một hỏng khác nhau: **phần cố định đúng bằng 4** bắt việc có
+ * người thêm một truy vấn cố định thứ năm, và giữ cho con số trong docblock này là một con số
+ * đo được chứ không một con số kể lại; **trần 50** để lại chỗ thở; **độ dốc đúng bằng 2** bắt thứ
+ * đáng sợ hơn — một truy vấn mới mọc lên TRÊN TỪNG THẺ (một quan hệ chưa nạp sẵn, một `count()`
+ * trong view). Chỉ có trần thì một hồi quy như vậy vẫn lọt ở 20 thẻ và nổ ở 200.
  */
 it('does not turn twenty cards into hundreds of queries', function () {
     // Cố ý KHÔNG dùng `renderMyMatters()`: hàm đó bật cờ `showAll`, mà cờ ấy cho `mount()` thoát ra
@@ -761,5 +1106,6 @@ it('does not turn twenty cards into hundreds of queries', function () {
     $twenty = $measure();
 
     expect($twenty)->toBeLessThanOrEqual(50)
-        ->and($twenty - $five)->toBe(2 * 15);
+        ->and($twenty - $five)->toBe(2 * 15)
+        ->and($five - (2 * 5))->toBe(4);
 });

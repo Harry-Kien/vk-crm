@@ -6,12 +6,13 @@ use App\Actions\Document\ChecklistProgress;
 use App\Enums\ChecklistItemStatus;
 use App\Models\ClientUser;
 use App\Models\Matter;
+use App\Models\MatterChecklistItem;
 use BackedEnum;
 use Filament\Pages\Page;
 use Filament\Panel;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Contracts\Support\Htmlable;
-use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 
@@ -30,9 +31,12 @@ use Illuminate\Support\Facades\Gate;
  * chối. Hệ quả: một trang cổng chỉ dựa vào global scope không có tầng phòng thủ thứ hai nào cả,
  * nó chỉ có tầng truy vấn được đếm hai lần.
  *
- * Nên trang này hỏi `Gate` ở hai chỗ, và cả hai đều có test:
+ * Nên trang này hỏi `Gate` ở hai chỗ, và cả hai đều có test — nhưng hai chỗ ấy **không mạnh
+ * ngang nhau**, và docblock của từng chỗ nói ra chính xác nó chặn được gì:
  *
- *  - {@see self::canAccess()} hỏi `viewAny` trước khi ai đó vào được trang;
+ *  - {@see self::canAccess()} hỏi `viewAny` trước khi ai đó vào được trang. Đọc docblock của nó
+ *    trước khi tin vào nó: hôm nay điều kiện DUY NHẤT nó từ chối được là "không có ai đăng nhập
+ *    trên guard `client`";
  *  - {@see self::getCards()} hỏi `view` cho **từng** vụ việc trước khi vẽ nó, kể cả khi truy vấn
  *    đã trả nó về. `MatterPolicy::view` nhánh khách phát biểu lại ba điều kiện của
  *    `Matter::applyClientPortalConstraints()` bằng thuộc tính (`releasedToPortal()`) rồi hỏi lại
@@ -56,6 +60,12 @@ use Illuminate\Support\Facades\Gate;
  * **hai con số khác nhau** cho cùng một hồ sơ tuỳ guard nào đang mở — sai ở đúng phía người đọc
  * nó, tức phía khách hàng. Trang này gọi Action và in ra; nó không biết công thức.
  *
+ * Một ngoại lệ, nói ra chứ không giấu: {@see self::countedByProgress()} nói lại **một** dòng của
+ * luật ấy — điều kiện một đầu mục có nằm trong `Y` hay không — vì `ChecklistProgress::handle()`
+ * trả về hai số nguyên chứ không trả về các dòng, và huy hiệu đỏ phải đếm trên đúng tập dòng ấy
+ * để hai câu trên cùng một tấm thẻ không ngược nhau. Lý do đầy đủ và cách nó được ghim nằm ở
+ * docblock của chính phương thức đó.
+ *
  * # Đường dẫn gốc của panel
  *
  * `getRoutePath()` trả `/`, nên trang này là `/portal`: SPEC §8.2 mô tả nó như màn hình sau khi
@@ -76,7 +86,12 @@ use Illuminate\Support\Facades\Gate;
  *    không bao giờ từ một `Matter::first()`;
  *  - và nó **không được nổ** khi khách cố ý quay lại danh sách từ trang chi tiết, nếu không
  *    một khách có đúng một hồ sơ sẽ không bao giờ mở được màn hình này nữa. Lối quay lại đi
- *    qua {@see self::getAllUrl()}, một URL mang cờ `?tat-ca=1`.
+ *    qua {@see self::getAllUrl()}, một URL mang cờ `?tat-ca=1` — và cờ ấy phải có một NƠI GỌI
+ *    thật, không chỉ một phương thức đẹp đẽ. Nơi gọi là {@see self::getNavigationUrl()}, tức
+ *    chính mục "Hồ sơ của tôi" trên thanh bên; bản đầu để mặc định của Filament trỏ vào
+ *    `/portal` trần và mục ấy chết với đúng người tính năng này được thiết kế cho.
+ *    Lối quay lại thứ hai — một nút trong chính trang chi tiết — thuộc về `MatterProgress`
+ *    và vòng sửa của Task 4, không về tệp này.
  *
  * `RecordStageLogView` **không** được gọi ở đây. Bảng đó là bằng chứng khách ĐÃ ĐỌC một dòng
  * tiến độ, và một lần chuyển hướng thì chưa ai đọc gì cả; `MatterProgress` ghi nó khi thật sự
@@ -140,6 +155,30 @@ class MyMatters extends Page
     }
 
     /**
+     * Mục "Hồ sơ của tôi" trên thanh bên trỏ vào {@see self::getAllUrl()}, không vào `/portal` trần.
+     *
+     * Đây là phương thức Filament THẬT SỰ dựng mục điều hướng từ đó — đã đọc trong bản đang cài,
+     * không viết từ trí nhớ: `Filament\Pages\Page::getNavigationItems()` gọi
+     * `NavigationItem::make(...)->url(static::getNavigationUrl())`, và bản mặc định
+     * `Page::getNavigationUrl()` chỉ trả `static::getUrl()`.
+     *
+     * Vì sao phải đổi: `getUrl()` là `/portal`, và `/portal` với một khách có đúng MỘT hồ sơ là
+     * một lần chuyển hướng ngược về trang chi tiết họ vừa đứng ({@see self::mount()}). Tức mục
+     * điều hướng chết với đúng người mà tính năng này được thiết kế cho — phần lớn khách của văn
+     * phòng chỉ có một hồ sơ. Đo được ở vòng rà soát Task 3: `GET /portal` → 302, `GET
+     * /portal?tat-ca=1` → 200.
+     *
+     * `isActiveWhen` **không** bị ảnh hưởng: `getNavigationItems()` dựng nó từ
+     * `original_request()->routeIs(static::getNavigationItemActiveRoutePattern())`, tức từ TÊN
+     * route chứ không từ URL, nên cờ trên chuỗi truy vấn không làm mục điều hướng mất trạng thái
+     * "đang mở".
+     */
+    public static function getNavigationUrl(): string
+    {
+        return static::getAllUrl();
+    }
+
+    /**
      * `$showAll` là tham số `mount()` để test lái thẳng component; trên một request thật Livewire
      * không có gì để truyền vào đó, nên giá trị rơi về chuỗi truy vấn.
      *
@@ -172,10 +211,34 @@ class MyMatters extends Page
      * là 403. Filament 5 không có seam để phủ đường đó (ghi nhận, không sửa lén ở Task 3). Nói ra
      * ở đây vì ba docblock của M4 từng hứa ngược lại, và vì toàn bộ cổng này là Livewire.
      *
-     * Điều kiện `instanceof ClientUser` không thừa bên cạnh lời gọi `Gate`: `MatterPolicy::viewAny`
-     * cũng trả `true` cho một nhân sự có quyền `matter.viewAny`, và hai panel dùng chung cookie
-     * phiên (xem `ClientPortalScope`), nên không có nó thì một nhân sự đang mở /admin đi thẳng
-     * vào được màn hình khách hàng — nơi mọi truy vấn phía dưới lại giả định có một `ClientUser`.
+     * # Nói đúng phương thức này bảo đảm được gì, vì bản đầu đã hứa nhiều hơn
+     *
+     * Bản đầu viết rằng nếu bỏ `instanceof ClientUser` thì "một nhân sự đang mở /admin đi thẳng
+     * vào được màn hình khách hàng". **Câu ấy sai**, và rà soát Task 3 chứng minh bằng ba lần đột
+     * biến sống sót: thay cả thân hàm bằng một phép kiểm tra "có ai đăng nhập không", bỏ lời gọi
+     * `Gate`, và nới `instanceof ClientUser` thành `!== null` — cả ba đều để bộ test xanh. Lý do
+     * là cấu hình, không phải may mắn: guard `client` giải về provider `client_users`
+     * (`config/auth.php`), nên `Auth::guard('client')->user()` chỉ có thể là một `ClientUser` hoặc
+     * `null`; nhân sự trong test bị từ chối vì guard `client` RỖNG, không vì phép so kiểu. Và
+     * `MatterPolicy::viewAny` trả `true` vô điều kiện cho mọi `ClientUser`, nên lời gọi `Gate`
+     * cũng chưa bao giờ từ chối được ai.
+     *
+     * Vậy hôm nay phương thức này bảo đảm **đúng một điều**: có một tài khoản khách hàng đang
+     * đăng nhập trên guard `client`. Điều kiện ấy có thật và có việc để làm — hai panel dùng
+     * chung cookie phiên (xem `ClientPortalScope`), nên một nhân sự đang mở /admin trên cùng
+     * trình duyệt KHÔNG mở được màn hình này, và `MyMattersTest` dựng đúng phiên hai-guard ấy để
+     * ghim câu trả lời đến từ guard nào.
+     *
+     * Hai vế còn lại được giữ như **phòng thủ theo tầng, không phải điều kiện đang có hiệu lực**,
+     * và chúng được gọi đúng tên ấy ở đây chứ không được kể như một tầng đang chặn ai đó:
+     * `instanceof` là thứ thu kiểu cho `Gate::forUser()` và là cái chốt nếu một ngày
+     * provider của guard đổi; lời gọi `Gate` là chỗ một điều kiện tương lai của
+     * `MatterPolicy::viewAny` (ví dụ `is_active`) tự động có hiệu lực ở đây.
+     *
+     * Hệ quả cho người rà soát tiếp theo, viết ra để không ai mất một vòng đo lại: hai lần đột
+     * biến P11 và P12 của vòng sửa này (`return $clientUser !== null;` và bỏ lời gọi `Gate`)
+     * **sống sót có chủ ý**. Chúng không phải một lỗ hổng trong bộ test; chúng là chính câu
+     * docblock này, đo được.
      */
     public static function canAccess(): bool
     {
@@ -222,20 +285,42 @@ class MyMatters extends Page
      * (`MatterNotPublishedToPortal`), nên mỗi dòng tiến độ đã công bố đều đi kèm một lần ghi cột
      * này.
      *
-     * # Huy hiệu "còn giấy tờ cần nộp", và vì sao nó KHÔNG phải `Y − X`
+     * # Huy hiệu "còn giấy tờ cần nộp": cùng một tập dòng với thanh tiến độ
      *
-     * Hai `withCount` ở dưới nằm trong CÙNG câu lệnh với danh sách, nên chúng không tốn truy vấn
-     * nào thêm. Bộ đếm huy hiệu là **`rejected`, hợp với `missing` VÀ bắt buộc** — cố ý khác với
-     * phần còn lại của thanh tiến độ:
+     * Bản đầu đếm huy hiệu bằng hai `withCount` riêng chạy trên **mọi** dòng danh mục, trong khi
+     * thanh tiến độ chỉ nói về tập `Y` mà {@see ChecklistProgress} chọn ra. Hai tập khác nhau
+     * trên cùng một tấm thẻ, nên tấm thẻ nói được hai câu ngược nhau cùng lúc: với `Y` rỗng nó in
+     * "hồ sơ này chưa có giấy tờ nào anh/chị cần nộp" VÀ một huy hiệu đỏ đòi một tờ giấy. Rà soát
+     * Task 3 đo được đúng kết xuất ấy.
+     *
+     * Nên danh mục được nạp sẵn **một lần, kèm đúng bộ đếm tài liệu của Action**
+     * ({@see ChecklistProgress::countClientFacingDocuments()}, một seam công khai có sẵn vì bảng
+     * ở tab "Danh mục hồ sơ" cần cùng con số), và huy hiệu đếm bên TRONG `Y`
+     * ({@see self::countedByProgress()}). Một tập dòng, hai câu chữ, không mâu thuẫn nào dựng
+     * được nữa.
+     *
+     * Bên trong `Y`, luật đếm giữ nguyên chủ ý cũ và nó vẫn **không** phải `Y − X`:
      *
      *  - `pending_review` cũng là một đầu mục chưa xong, nhưng nó đang chờ VĂN PHÒNG, không chờ
      *    khách. Đếm nó vào huy hiệu đỏ là đòi khách làm một việc họ vừa làm xong.
      *  - một đầu mục KHÔNG bắt buộc, đang `missing`, chưa có tài liệu nào thì chưa bao giờ nằm
      *    trong danh sách giấy tờ khách phải nộp — đúng lý lẽ của đính chính SPEC §4.10 về mẫu số.
-     *    Đếm nó là bịa thêm một việc cho khách.
-     *  - nhưng `rejected` thì tính **kể cả khi không bắt buộc**: khách đã nộp một thứ và văn
-     *    phòng đã trả lại kèm lý do, nên đó là một việc đang chờ họ bất kể đầu mục ấy có bắt buộc
-     *    hay không.
+     *    Đếm nó là bịa thêm một việc cho khách. (Nó cũng không nằm trong `Y`, nên nay hai lý lẽ
+     *    ấy là một.)
+     *  - `rejected` thì tính **kể cả khi không bắt buộc**: khách đã nộp một thứ và văn phòng đã
+     *    trả lại kèm lý do, nên đó là một việc đang chờ họ bất kể đầu mục ấy có bắt buộc hay không.
+     *    Nói thẳng chỗ thay đổi so với bản đầu: một đầu mục không bắt buộc bị đánh dấu `rejected`
+     *    mà **không còn một tài liệu nào ngoài nhóm D** thì nay KHÔNG nhắc nữa — nó nằm ngoài `Y`,
+     *    và chính "khách đã nộp một thứ" là tiền đề mà một đầu mục như vậy không có.
+     *
+     * # `public` là bắt buộc, và nó có nghĩa là trình duyệt gọi được — nói ra chứ không bỏ lửng
+     *
+     * View Blade gọi `$this->getCards()`, và Blade được biên dịch ra ngoài phạm vi lớp, nên
+     * phương thức này **không thể** là `protected`. Hệ quả của Livewire: mọi phương thức `public`
+     * là một hành động gọi được từ trình duyệt, nên một khách gọi thẳng nó và nhận về mảng thẻ.
+     * Đã cân nhắc và để nguyên: mảng ấy chỉ chứa dữ liệu của CHÍNH người gọi — vòng `Gate` từng
+     * bản ghi ở {@see self::buildCards()} chạy y hệt trên đường đó — và từng giá trị trong đó đã
+     * có mặt trên màn hình họ vừa xem. Không có gì đọc thêm được ở đây so với việc mở trang.
      *
      * @return array<int, array{id: int|string, url: string, code: string, title: string, stage_label: ?string, updated_at: ?string, submitted: int, total: int, percent: int, outstanding: int, tone: ?string, status: ?string}>
      */
@@ -256,16 +341,12 @@ class MyMatters extends Page
         $progress = app(ChecklistProgress::class);
 
         return Matter::query()
-            ->with(['matterType.stages'])
-            ->withCount([
-                'checklistItems as outstanding_checklist_items_count' => fn (Builder $items): Builder => $items
-                    ->where(fn (Builder $wanted): Builder => $wanted
-                        ->where('status', ChecklistItemStatus::Rejected->value)
-                        ->orWhere(fn (Builder $missing): Builder => $missing
-                            ->where('status', ChecklistItemStatus::Missing->value)
-                            ->where('is_required', true))),
-                'checklistItems as pending_review_checklist_items_count' => fn (Builder $items): Builder => $items
-                    ->where('status', ChecklistItemStatus::PendingReview->value),
+            ->with([
+                'matterType.stages',
+                // Một truy vấn cố định, không một truy vấn nào thêm cho mỗi thẻ: các dòng danh
+                // mục của cả trang về cùng lúc, mang sẵn bí danh đếm tài liệu mà `Y` được định
+                // nghĩa bằng. Không có `withCount` thứ hai nào viết lại luật đếm ở đây.
+                'checklistItems' => fn (Relation $items) => ChecklistProgress::countClientFacingDocuments($items->getQuery()),
             ])
             ->orderByDesc('last_client_update_at')
             ->orderByDesc('id')
@@ -274,6 +355,29 @@ class MyMatters extends Page
             ->map(fn (Matter $matter): array => $this->toCard($matter, $progress))
             ->values()
             ->all();
+    }
+
+    /**
+     * Dòng danh mục này có nằm trong tập `Y` của SPEC §4.10 hay không — tức thanh tiến độ có nói
+     * về nó hay không.
+     *
+     * **Đây là một câu nói lại, và nói ra chứ không giấu.** Luật `Y` sống ở
+     * {@see ChecklistProgress::handle()}; nhưng phương thức đó trả về hai SỐ NGUYÊN chứ không trả
+     * về các dòng, nên không có cách nào hỏi nó "dòng này có được đếm không". Một dòng duy nhất
+     * được nói lại ở đây — điều kiện thành viên của `Y` — và nó dùng đúng bí danh bộ đếm của
+     * chính Action ({@see ChecklistProgress::DOCUMENT_COUNT_ALIAS}), nên nửa khó của luật (thế
+     * nào là "đã có tài liệu": ngoài nhóm D, chưa xoá mềm, bỏ `ClientPortalScope`) vẫn chỉ có một
+     * chỗ.
+     *
+     * Câu nói lại ấy được GHIM chứ không được tin: `MyMattersTest` đo thẻ ĐẦY ĐỦ — huy hiệu VÀ
+     * thanh tiến độ, trong cùng một khẳng định — ở bốn tình huống mà hai tập từng lệch nhau, nên
+     * một ngày `Y` đổi mà câu này không đổi theo thì một test có tên sẽ đỏ. Đo được: thay thân
+     * hàm này bằng riêng vế bộ đếm tài liệu làm đỏ hai test có tên (probe P6 của vòng sửa).
+     */
+    private static function countedByProgress(MatterChecklistItem $item): bool
+    {
+        return $item->is_required
+            || ((int) ($item->{ChecklistProgress::DOCUMENT_COUNT_ALIAS} ?? 0)) > 0;
     }
 
     /**
@@ -294,8 +398,17 @@ class MyMatters extends Page
     {
         ['submitted' => $submitted, 'total' => $total] = $progress->handle($matter);
 
-        $outstanding = (int) ($matter->outstanding_checklist_items_count ?? 0);
-        $pendingReview = (int) ($matter->pending_review_checklist_items_count ?? 0);
+        // Đúng tập dòng mà `$total` đếm — xem docblock của {@see self::getCards()}.
+        $wanted = $matter->checklistItems->filter(self::countedByProgress(...));
+
+        $outstanding = $wanted
+            ->filter(fn (MatterChecklistItem $item): bool => $item->status === ChecklistItemStatus::Rejected
+                || ($item->status === ChecklistItemStatus::Missing && $item->is_required))
+            ->count();
+
+        $pendingReview = $wanted
+            ->filter(fn (MatterChecklistItem $item): bool => $item->status === ChecklistItemStatus::PendingReview)
+            ->count();
 
         $tone = match (true) {
             $outstanding > 0 => self::TONE_OUTSTANDING,
