@@ -57,6 +57,82 @@ arch('không còn hàm gỡ lỗi nào trong mã nguồn')
     ->expect(['dd', 'dump', 'ray', 'var_dump', 'print_r', 'die'])
     ->not->toBeUsed();
 
+/**
+ * **`toBeUsed()` chỉ nhìn thấy những gì Composer nạp được**, tức các lớp PHP trong `app/`. Một
+ * `dump()` trong một view Blade, một tệp route hay một tệp cấu hình thì vô hình với luật trên —
+ * và đó chính là những chỗ một lần gỡ lỗi vội hay bị bỏ quên nhất, vì chúng không có test đơn vị
+ * nào chạy qua.
+ *
+ * Nên luật được NỚI RỘNG chứ không được chú thích: test này quét thẳng các tệp bằng văn bản.
+ * Nói rõ nó không bắt được gì, để nó không bị tin quá mức: một `dump()` gọi gián tiếp
+ * (`$helper()`, `call_user_func('dd', …)`) thì không có dạng văn bản nào để nhận ra, và luật
+ * `toBeUsed()` ở trên cũng không thấy. Hai lớp cộng lại vẫn không phải một lời bảo đảm; chúng
+ * bắt đúng một thứ: dấu vết gỡ lỗi viết thẳng, thứ đã lọt ra production ở nhiều dự án hơn mọi
+ * kỹ thuật tinh vi.
+ *
+ * Chú thích và docblock bị gỡ bỏ trước khi so, vì chính tệp này nhắc tên các hàm ấy trong văn
+ * xuôi; với Blade thì gỡ `{{-- … --}}`.
+ */
+it('không còn hàm gỡ lỗi nào trong view, route, cấu hình hay seeder', function () {
+    $roots = [
+        resource_path('views'),
+        base_path('routes'),
+        config_path(),
+        base_path('bootstrap'),
+        database_path(),
+    ];
+
+    /** @var list<string> $files */
+    $files = [];
+
+    foreach ($roots as $root) {
+        if (! is_dir($root)) {
+            continue;
+        }
+
+        foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, RecursiveDirectoryIterator::SKIP_DOTS)) as $file) {
+            if ($file->isFile() && in_array($file->getExtension(), ['php'], true)) {
+                $files[] = $file->getPathname();
+            }
+        }
+    }
+
+    // Tiền đề: có tệp để quét. Một danh sách rỗng làm test này xanh mãi mãi mà không đo gì.
+    expect($files)->not->toBeEmpty();
+
+    $offenders = [];
+
+    foreach ($files as $file) {
+        $source = (string) file_get_contents($file);
+        $isBlade = str_ends_with($file, '.blade.php');
+
+        // Bỏ chú thích Blade trước, rồi bỏ chú thích PHP: cả hai đều nhắc tên các hàm này.
+        if ($isBlade) {
+            $source = (string) preg_replace('/\{\{--.*?--\}\}/s', '', $source);
+            $source = (string) preg_replace('/\/\*.*?\*\//s', '', $source);
+        } else {
+            $kept = '';
+            foreach (token_get_all($source) as $token) {
+                if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                    continue;
+                }
+                $kept .= is_array($token) ? $token[1] : $token;
+            }
+            $source = $kept;
+        }
+
+        $pattern = $isBlade
+            ? '/(?:@(?:dd|dump)\b)|(?<![\w$>-])(?:dd|dump|ray|var_dump|print_r)\s*\(/'
+            : '/(?<![\w$>-])(?:dd|dump|ray|var_dump|print_r)\s*\(/';
+
+        if (preg_match($pattern, $source) === 1) {
+            $offenders[] = str_replace(base_path().DIRECTORY_SEPARATOR, '', $file);
+        }
+    }
+
+    expect($offenders)->toBe([], 'dấu vết gỡ lỗi còn sót ở: '.implode(', ', $offenders));
+});
+
 // ---------------------------------------------------------------------------------------------
 // Enum trạng thái phải có nhãn tiếng Việt
 // ---------------------------------------------------------------------------------------------

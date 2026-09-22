@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\Permission;
 use App\Enums\Role;
 use App\Filament\Admin\Widgets\MatterCountsWidget;
 use App\Filament\Admin\Widgets\MattersByStageWidget;
@@ -12,6 +13,7 @@ use App\Models\Matter;
 use App\Models\MatterType;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Support\Facades\Auth;
 
 beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);
@@ -118,6 +120,36 @@ it('shows the tiles to an accountant, who may see counts but not matter content'
     $this->actingAs($accountant, 'web');
 
     expect(MatterCountsWidget::canView())->toBeTrue();
+});
+
+/**
+ * **Nửa QUYỀN của `canView()` cần nhân chứng riêng.**
+ *
+ * Hai test trên chỉ dùng hai loại người: một nhân sự CÓ quyền, và một tài khoản portal. Đo được:
+ * xoá hẳn vế quyền khỏi `canView()` thì cả bảy test của tệp này vẫn xanh — vì tài khoản portal bị
+ * từ chối bởi riêng `instanceof User`, và mọi nhân sự trong các test khác đều có quyền. Cùng hình
+ * dạng mà rà soát Task 3 đã gọi tên hai lần: một test đi tới đúng kết luận vì một lý do khác với
+ * lý do nó mang tên.
+ *
+ * Nên nhân chứng ở đây là một nhân sự THẬT, đăng nhập trên guard `web`, không có `matter.view` và
+ * không có `matter.viewAny` — tình huống có thật khi văn phòng dựng một vai chỉ để làm việc khác
+ * (SPEC §10.1 cho phép đặt vai theo quyền). Test khẳng định TRƯỚC rằng vế `instanceof` đã qua,
+ * nên nó không thể xanh vì một lần từ chối ở cổng khác.
+ */
+it('hides the tiles from a staff account that holds neither matter permission', function () {
+    $stranger = User::factory()->create();
+    $stranger->syncRoles([]);
+    $stranger->syncPermissions([]);
+
+    $this->actingAs($stranger, 'web');
+
+    // Tiền đề: vế `instanceof User` của `canView()` ĐÃ qua, nên câu trả lời chỉ còn phụ thuộc
+    // vào quyền. Không có hai dòng này, test xanh y hệt khi guard rỗng.
+    expect(Auth::user())->toBeInstanceOf(User::class)
+        ->and($stranger->can(Permission::MatterView->value))->toBeFalse()
+        ->and($stranger->can(Permission::MatterViewAny->value))->toBeFalse();
+
+    expect(MatterCountsWidget::canView())->toBeFalse();
 });
 
 it('hides the tiles from a client portal account', function () {
