@@ -8,6 +8,7 @@ use App\Models\ClientUser;
 use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
+use App\Support\UploadThrottle;
 use DomainException;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\FileUpload;
@@ -179,9 +180,12 @@ use Livewire\Features\SupportFileUploads\WithFileUploads;
 class SubmitDocument extends Page
 {
     /**
-     * SPEC §10.3. Cùng một con số cho cả hai cửa — xem docblock lớp.
+     * SPEC §10.3. **Một con số, BA cửa** — hai cửa của trang (xem docblock lớp) và cửa của chính
+     * endpoint tải lên. Nó đọc thẳng {@see UploadThrottle::FILES_PER_HOUR} chứ không viết lại số
+     * 20 ở đây: hai bản của cùng một luật là cách chắc chắn nhất để một ngày chúng lệch nhau, và
+     * mốc này đã tìm thấy đúng hình dạng ấy hai lần ở chỗ khác.
      */
-    public const FILES_PER_HOUR = 20;
+    public const FILES_PER_HOUR = UploadThrottle::FILES_PER_HOUR;
 
     private const LIMIT_WINDOW_SECONDS = 3600;
 
@@ -804,12 +808,28 @@ class SubmitDocument extends Page
      * Đây là nửa còn lại của việc publish `config/livewire.php`, và nửa này ở ngay trong lớp:
      * trần đã nâng lên 20 MB thì dải 13–20 MB hết đi qua đây, nhưng endpoint còn từ chối vì
      * những lý do khác — quá trần thật (một client tự chế khai sai kích thước ở `fileInfo` để
-     * đi vòng qua {@see self::_startUpload()}), chạm `throttle:20,60`, chữ ký hết hạn giữa
-     * chừng, sóng đứt. Mọi lý do đó đi ra bằng MỘT đường, và đường đó là đường của trang.
+     * đi vòng qua {@see self::_startUpload()}), chạm bộ đếm 20 tệp/giờ của endpoint
+     * ({@see UploadThrottle}), chữ ký hết hạn giữa chừng, sóng đứt. Mọi lý do đó đi ra bằng MỘT
+     * đường, và đường đó là đường của trang.
      *
-     * **Không đoán lý do**, vì tới đây không còn gì để đọc ngoài một thân JSON đã dịch: câu
-     * `portal_submit.errors.upload_failed` nêu hai khả năng có thật kèm việc phải làm cho mỗi
-     * khả năng, và kết bằng số điện thoại văn phòng.
+     * # MỘT lý do được hỏi riêng, và chỉ một
+     *
+     * Với một lời từ chối 429 của bộ đếm giờ, câu chung `upload_failed` nói SAI: nó nêu dung
+     * lượng và sóng, trong khi tệp 5 MB và sóng tốt — và người đọc sẽ đi chụp lại ảnh rồi thử
+     * lại suốt một tiếng. Câu đúng đã có sẵn trong cùng tệp ngôn ngữ
+     * (`portal_submit.errors.rate_limited_upload`) và trước vòng sửa này không có đường nào tới
+     * được nó trên nhánh này.
+     *
+     * **Vì sao phải HỎI LẠI bộ đếm thay vì đọc lý do từ response.** JS của Livewire gọi
+     * `_uploadErrored` với `errors` là `null` cho MỌI mã khác 422 (đã đọc trong `livewire.js`
+     * của bản đang cài), nên với một 429 thì component không có gì để đọc: không thân, không mã.
+     * Nó hỏi `RateLimiter` trên ĐÚNG khoá mà middleware vừa ghi
+     * ({@see UploadThrottle::cacheKeyFor()}), và khoá đó được ghim bằng một test đi qua HTTP thật
+     * chứ không được tin.
+     *
+     * **Còn lại thì KHÔNG đoán lý do**, vì tới đó không còn gì để đọc ngoài một thân JSON đã
+     * dịch: câu `portal_submit.errors.upload_failed` nêu hai khả năng có thật kèm việc phải làm
+     * cho mỗi khả năng, và kết bằng số điện thoại văn phòng.
      *
      * `dispatch('upload:errored')` giữ nguyên của bản gốc và **phải** giữ: FilePond nghe sự kiện
      * đó để gỡ vòng quay tải lên. Bỏ nó đi thì ô chọn tệp quay mãi bên cạnh một câu từ chối.
@@ -817,6 +837,16 @@ class SubmitDocument extends Page
     public function _uploadErrored($name, $errorsInJson, $isMultiple) // @phpstan-ignore-line — chữ ký của Livewire
     {
         $this->dispatch('upload:errored', name: $name)->self();
+
+        $endpointKey = UploadThrottle::cacheKeyFor(UploadThrottle::keyFor(request()));
+
+        if (RateLimiter::tooManyAttempts($endpointKey, UploadThrottle::FILES_PER_HOUR)) {
+            $this->failOnFile(__('portal_submit.errors.rate_limited_upload', [
+                'limit' => UploadThrottle::FILES_PER_HOUR,
+                'minutes' => max(1, (int) ceil(RateLimiter::availableIn($endpointKey) / 60)),
+                'hotline' => config('vkcrm.brand.hotline'),
+            ]), $name);
+        }
 
         $this->failOnFile(__('portal_submit.errors.upload_failed', [
             'max' => static::maxMegabytes(),

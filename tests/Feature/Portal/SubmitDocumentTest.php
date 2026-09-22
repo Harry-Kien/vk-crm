@@ -14,11 +14,14 @@ use App\Models\MatterChecklistItem;
 use App\Models\StageLog;
 use App\Models\User;
 use App\Support\Scopes\ClientPortalScope;
+use App\Support\UploadThrottle;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Storage;
@@ -123,7 +126,28 @@ function submitUploadUrl(): string
  */
 function submitPostBytes(int $megabytes, ?string $url = null): TestResponse
 {
-    return test()->actingAs(test()->clientUser, 'client')->post(
+    return submitPostBytesAs(test()->clientUser, $megabytes, $url);
+}
+
+/**
+ * Cùng lần POST ấy nhưng nói rõ AI đang gửi, và **giữ guard mặc định đúng như production**.
+ *
+ * `actingAs($user, 'client')` gọi `Auth::shouldUse('client')`, tức nó đổi luôn guard MẶC ĐỊNH
+ * của cả ứng dụng. Trên máy chủ thật thì `config('auth.defaults.guard')` là `web` và không có gì
+ * đổi nó. Khác biệt đó không vô hại: `ThrottleRequests::resolveRequestSignature()` hỏi
+ * `$request->user()`, tức guard mặc định — nên dưới `actingAs` nó nhìn thấy khách hàng, còn trên
+ * máy chủ thật nó nhìn thấy `null` và rơi về ĐỊA CHỈ. Chính chỗ đó là lỗ hổng mà vòng rà soát
+ * phải đo qua HTTP thật mới thấy, vì mọi test trong tệp này che nó đi.
+ *
+ * Nên helper này trả guard mặc định về `web` sau khi đăng nhập trên guard `client` — phiên của
+ * khách vẫn còn nguyên, chỉ có "guard mặc định" trở lại đúng giá trị của production.
+ */
+function submitPostBytesAs(ClientUser $actor, int $megabytes, ?string $url = null): TestResponse
+{
+    test()->actingAs($actor, 'client');
+    app('auth')->shouldUse('web');
+
+    return test()->post(
         $url ?? submitUploadUrl(),
         ['files' => [UploadedFile::fake()->create('anh-chup.jpg', $megabytes * 1024, 'image/jpeg')]],
         // Thân multipart KÈM `Accept: application/json` — đúng hình dạng XHR mà FilePond gửi.
@@ -1096,6 +1120,123 @@ it('answers a refusal from livewire own upload endpoint in the offices own words
  * Livewire là `throttle:60,1` — 3600 tệp/giờ, gấp 180 lần mức SPEC cho phép, mỗi tệp một lần ghi
  * đĩa mà `VirusScanner` không bao giờ được hỏi tới.
  */
+/**
+ * **Bộ đếm của endpoint phải đếm theo TÀI KHOẢN, không theo ĐỊA CHỈ.**
+ *
+ * `throttle:20,60` cắm thẳng vào `config/livewire.php` khoá theo `$request->user()`, tức guard
+ * MẶC ĐỊNH (`web`). Trên cổng thì guard là `client`, nên giá trị đó là `null` và
+ * `ThrottleRequests` rơi về địa chỉ. Đo được trước vòng sửa này: tài khoản A gửi hết 20 và bị
+ * chặn ở 21 — đúng; rồi tài khoản B, người thứ hai của CÙNG khách hàng, bị chặn ngay ở lần gửi
+ * ĐẦU TIÊN với 429. SPEC §4.3 nêu đích danh hai tài khoản cho một khách hàng (hai vợ chồng) làm
+ * trường hợp được thiết kế, và hai vợ chồng thì dùng chung một wifi.
+ *
+ * **Tiền đề được ĐO chứ không được giả định:** test thu địa chỉ của từng request đi qua kernel và
+ * đòi cả loạt chỉ có MỘT địa chỉ duy nhất. Nếu một ngày nào đó bộ test đổi địa chỉ giữa chừng thì
+ * phép đo này mất nghĩa, và nó phải đỏ chứ không được lặng lẽ xanh.
+ */
+it('does not let one portal account spend the upload limit of the other account on the same address', function () {
+    $spouse = ClientUser::factory()->create(['client_id' => $this->client->id]);
+    $url = submitUploadUrl();
+
+    /** @var list<string> $addresses */
+    $addresses = [];
+    Event::listen(function (RequestHandled $event) use (&$addresses): void {
+        $addresses[] = (string) $event->request->ip();
+    });
+
+    // Vế dương: người thứ nhất tiêu hết đúng 20 suất của mình rồi mới bị chặn.
+    for ($attempt = 1; $attempt <= 20; $attempt++) {
+        expect(submitPostBytesAs($this->clientUser, 1, $url)->status())->toBe(200, 'lần '.$attempt);
+    }
+
+    expect(submitPostBytesAs($this->clientUser, 1, $url)->status())->toBe(429);
+
+    // Và người thứ hai, cùng đường truyền, vẫn còn nguyên mức của mình.
+    expect(submitPostBytesAs($spouse, 1, $url)->status())->toBe(200);
+
+    // Tiền đề: cả loạt đi ra từ đúng một địa chỉ, nên khác biệt trên chỉ có thể đến từ tài khoản.
+    expect($addresses)->not->toBeEmpty()
+        ->and(array_values(array_unique($addresses)))->toHaveCount(1);
+});
+
+/**
+ * **Khoá mà `ThrottleRequests` ghi vào cache phải là khoá mà màn hình hỏi lại được.**
+ *
+ * `UploadThrottle::cacheKeyFor()` chép lại một dòng của framework (`md5($tên.$khoá)`). Một bản
+ * chép thì sẽ trôi, nên nó được ghim từ phía HTTP thật thay vì được tin: 21 lần POST, rồi hỏi
+ * đúng khoá ấy và đòi nó trả `true`. Một `$shouldHashKeys` đổi mặc định, hay một cách dựng khoá
+ * khác ở bản Laravel sau, làm test này đỏ.
+ */
+it('writes the endpoint counter under the key the submit screen asks about', function () {
+    $key = UploadThrottle::cacheKeyFor(Document::recipientToken($this->clientUser));
+
+    expect(RateLimiter::tooManyAttempts($key, UploadThrottle::FILES_PER_HOUR))->toBeFalse();
+
+    $url = submitUploadUrl();
+    for ($attempt = 1; $attempt <= 21; $attempt++) {
+        submitPostBytes(1, $url);
+    }
+
+    expect(RateLimiter::tooManyAttempts($key, UploadThrottle::FILES_PER_HOUR))->toBeTrue();
+});
+
+/**
+ * **Một 429 của endpoint phải đọc ra như một lời từ chối về SỐ LƯỢNG, không như một lời từ chối
+ * về cái tệp.**
+ *
+ * Câu chung `upload_failed` nêu hai khả năng — tệp quá lớn, sóng gián đoạn — và cả hai đều SAI
+ * khi cửa vừa đóng là bộ đếm giờ: tệp 5 MB, sóng tốt, và người đọc sẽ đi chụp lại ảnh rồi thử
+ * lại suốt một tiếng. Câu đúng đã có sẵn ba dòng bên dưới trong cùng tệp ngôn ngữ
+ * (`rate_limited_upload`) nhưng không có đường nào tới được nó trên nhánh này.
+ *
+ * Lý do phải HỎI LẠI bộ đếm thay vì đọc lý do từ response: JS của Livewire truyền `errors` là
+ * `null` cho mọi mã khác 422, nên `_uploadErrored()` không có gì để đọc. Nó hỏi bộ đếm trên
+ * ĐÚNG khoá mà middleware vừa ghi.
+ */
+it('names the hourly limit when the endpoint refuses with 429, instead of blaming the file', function () {
+    $url = submitUploadUrl();
+    for ($attempt = 1; $attempt <= 20; $attempt++) {
+        submitPostBytes(1, $url);
+    }
+
+    $refusal = submitPostBytes(1, $url);
+    expect($refusal->status())->toBe(429);
+
+    $message = submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->call('_uploadErrored', 'data.file', $refusal->getContent(), false)
+        ->errors()->first('data.file');
+
+    expect($message)
+        // Con số và số phút phải có mặt.
+        ->toContain((string) UploadThrottle::FILES_PER_HOUR)
+        ->toContain('phút')
+        ->toContain((string) config('vkcrm.brand.hotline'))
+        // Và KHÔNG phải câu chung đổ cho dung lượng với sóng.
+        ->not->toContain('sóng')
+        ->not->toContain('HDR')
+        ->not->toContain('kilobyte');
+});
+
+/**
+ * Vế âm của test trên, và nó là vế giữ cho câu kia không biến thành câu duy nhất: khi bộ đếm CHƯA
+ * đầy thì một lời từ chối của endpoint vẫn đi ra bằng câu chung nêu hai khả năng.
+ */
+it('still answers a refusal that is not about the hourly limit with the general sentence', function () {
+    $refusal = submitPostBytes(21);
+
+    expect($refusal->status())->toBe(422);
+
+    $message = submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->call('_uploadErrored', 'data.file', $refusal->getContent(), false)
+        ->errors()->first('data.file');
+
+    expect($message)
+        ->toContain('sóng')
+        ->not->toContain('kilobyte');
+});
+
 it('lets one signed upload url be used twenty times an hour and no more', function () {
     $url = submitUploadUrl();
 

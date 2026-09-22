@@ -1,5 +1,7 @@
 <?php
 
+use App\Support\UploadThrottle;
+
 /*
 |-------------------------------------------------------------------------------------------
 | BẢN PUBLISH CỦA NHÀ CUNG CẤP — ĐÃ SỬA ĐÚNG HAI DÒNG
@@ -174,24 +176,39 @@ return [
         'rules' => ['required', 'file', 'max:'.($uploadMaxMb * 1024)],
         'directory' => null,                                  // Example: 'tmp'                     | Default: 'livewire-tmp'
         /*
-         * SPEC §10.3: 20 tệp / giờ / tài khoản. `throttle:20,60` là "20 request mỗi 60 phút".
+         * SPEC §10.3: 20 tệp / giờ / **tài khoản**. Mức và cách khoá đều ở
+         * `App\Support\UploadThrottle`; ở đây chỉ có chỗ cắm vào framework, cùng thành ngữ với
+         * `throttle:document-download` ở `routes/web.php`.
          *
-         * Mặc định `throttle:60,1` cho 3600 tệp/giờ — gấp 180 lần mức SPEC cho phép. Bộ đếm
-         * trong `SubmitDocument::_startUpload()` chặn việc CẤP một URL đã ký; nó không chặn
-         * việc DÙNG một URL đã cấp, và một URL còn hạn năm phút gửi lại được bao nhiêu lần
-         * tuỳ ý (đo được: 25/25 lần POST trả 200, 50 tệp tạm trên đĩa, bộ đếm của trang đứng
-         * yên ở 0, `VirusScanner` không được hỏi lần nào). Đây là cửa cuối cùng của dải đó.
+         * Mặc định của Livewire là `throttle:60,1`, tức 3600 tệp/giờ — gấp 180 lần mức SPEC cho
+         * phép. Bộ đếm trong `SubmitDocument::_startUpload()` chặn việc CẤP một URL đã ký; nó
+         * không chặn việc DÙNG một URL đã cấp, và một URL còn hạn năm phút gửi lại được bao nhiêu
+         * lần tuỳ ý (đo được: 25/25 lần POST trả 200, 50 tệp tạm trên đĩa, `VirusScanner` không
+         * được hỏi lần nào). Đây là cửa cuối cùng của dải đó.
          *
-         * **Phạm vi, nói cho đủ:** endpoint này dùng CHUNG cho cả hai panel, nên mức 20/giờ
-         * áp cả lên nhân sự đang tải tài liệu ở /admin. SPEC §10.3 viết "nộp tài liệu 20 tệp /
-         * giờ / tài khoản" không phân biệt hai bên, nên con số này là con số của SPEC; nếu văn
-         * phòng cần tải hàng loạt thì đó là một quyết định nghiệp vụ phải sửa SPEC trước, chứ
-         * không phải một con số nới lén ở đây. Và `ThrottleRequests` khoá theo
-         * `$request->user()` của guard MẶC ĐỊNH (`web`) — tức theo tài khoản với nhân sự, theo
-         * ĐỊA CHỈ với khách (guard `client`). Đó là lý do nó không thay được cửa thứ nhất:
-         * bộ đếm theo tài khoản vẫn phải đứng ở `_startUpload()`, và nó đứng ở đó.
+         * **ĐÂY LÀ MỘT BỘ ĐẾM CÓ TÊN, và bản trước là `throttle:20,60` trần — khác biệt đó là một
+         * lỗi đã đo được trên người thật.** `ThrottleRequests` không nhận tham số về guard: nó hỏi
+         * `$request->user()`, tức guard MẶC ĐỊNH (`web`). Cổng khách hàng xác thực trên guard
+         * `client`, nên giá trị đó là `null` và nó rơi về ĐỊA CHỈ. Hệ quả đo được qua HTTP thật:
+         * tài khoản A gửi 20 tệp rồi bị chặn ở 21 — đúng; tài khoản B, người thứ hai của cùng
+         * khách hàng trên cùng đường truyền, bị chặn ngay ở tệp ĐẦU TIÊN với 429 và
+         * `Retry-After: 3600`. SPEC §4.3 nêu đích danh hai tài khoản cho một khách hàng — hai vợ
+         * chồng — làm trường hợp được thiết kế, và hai vợ chồng thì dùng chung một wifi.
+         *
+         * **Câu cũ ở đây nói đúng cơ chế rồi kết luận sai**, và lời đính chính được để lại đúng
+         * chỗ nó đứng: câu ấy viết rằng "bộ đếm theo tài khoản vẫn phải đứng ở `_startUpload()`,
+         * và nó đứng ở đó" — như thể cửa theo tài khoản che được cho cửa theo địa chỉ. Nó không
+         * che được, vì cửa theo địa chỉ là cửa CHẶT HƠN và nó phạt nhầm người: vợ hết suất vì
+         * chồng đã gửi. Hai cửa của chính trang vẫn không thừa, nhưng vì một lý do khác — chúng
+         * chặn TRƯỚC khi một URL đã ký được cấp, tức trước khi một byte nào rời khỏi điện thoại.
+         *
+         * **Phạm vi, nói cho đủ:** endpoint này dùng CHUNG cho cả hai panel, nên mức 20/giờ áp cả
+         * lên nhân sự đang tải tài liệu ở /admin. SPEC §10.3 viết "nộp tài liệu 20 tệp / giờ /
+         * tài khoản" không phân biệt hai bên, nên con số này là con số của SPEC; nếu văn phòng
+         * cần tải hàng loạt thì đó là một quyết định nghiệp vụ phải sửa SPEC trước, chứ không
+         * phải một con số nới lén ở đây.
          */
-        'middleware' => 'throttle:20,60',
+        'middleware' => 'throttle:'.UploadThrottle::NAME,
         'preview_mimes' => [                                  // Supported file types for temporary pre-signed file URLs...
             'png', 'gif', 'bmp', 'svg', 'wav', 'mp4',
             'mov', 'avi', 'wmv', 'mp3', 'm4a',

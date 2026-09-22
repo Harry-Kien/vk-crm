@@ -1,6 +1,12 @@
 <?php
 
 use App\Filament\Portal\Pages\SubmitDocument;
+use App\Models\ClientUser;
+use App\Models\Document;
+use App\Support\UploadThrottle;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 
 /**
  * `config/livewire.php` — tệp cấu hình mà M5 Task 5 buộc phải publish, và hai lý do publish nó.
@@ -88,8 +94,42 @@ it('caps the upload endpoint at exactly the number the screen promises', functio
         ->toContain('tối đa 20 MB');
 });
 
-/** SPEC §10.3: 20 tệp / giờ. `throttle:20,60` là "20 request mỗi 60 phút". */
-it('throttles the upload endpoint at the rate SPEC 10.3 allows', function () {
-    expect(config('livewire.temporary_file_upload.middleware'))
-        ->toBe('throttle:'.SubmitDocument::FILES_PER_HOUR.',60');
+/**
+ * SPEC §10.3: 20 tệp / giờ / **tài khoản**.
+ *
+ * Bản trước khẳng định chuỗi `throttle:20,60` và xanh — trong khi cái nó khẳng định là một bộ
+ * đếm khoá theo ĐỊA CHỈ với mọi khách hàng, vì `ThrottleRequests` hỏi guard MẶC ĐỊNH (`web`) và
+ * guard ấy rỗng trên cổng. Nên test này không còn khẳng định một chuỗi nữa: nó lấy chính bộ đếm
+ * đã đăng ký ra, chạy nó trên hai request của HAI tài khoản khác nhau, và đòi ba điều — mức đúng
+ * của SPEC, cửa sổ đúng 60 phút, và hai khoá KHÁC NHAU.
+ */
+it('throttles the upload endpoint per account at the rate SPEC 10.3 allows', function () {
+    expect(config('livewire.temporary_file_upload.middleware'))->toBe('throttle:'.UploadThrottle::NAME);
+
+    $limiter = RateLimiter::limiter(UploadThrottle::NAME);
+
+    expect($limiter)->not->toBeNull('bộ đếm `'.UploadThrottle::NAME.'` chưa được đăng ký ở AppServiceProvider');
+
+    $first = ClientUser::factory()->create();
+    $second = ClientUser::factory()->create(['client_id' => $first->client_id]);
+
+    $limitFor = function (?ClientUser $actor) use ($limiter): Limit {
+        $actor === null ? auth('client')->logout() : auth('client')->setUser($actor);
+
+        return $limiter(Request::create('/livewire/upload-file', 'POST'));
+    };
+
+    $one = $limitFor($first);
+    $two = $limitFor($second);
+
+    expect($one->maxAttempts)->toBe(SubmitDocument::FILES_PER_HOUR)
+        ->and($one->decaySeconds)->toBe(60 * 60)
+        // Hai người của CÙNG một khách hàng trên cùng một đường truyền: hai rổ đếm khác nhau.
+        ->and($one->key)->not->toBe($two->key)
+        // Và cả hai khoá nói về tài khoản chứ không về địa chỉ.
+        ->and($one->key)->toBe(Document::recipientToken($first))
+        ->and($two->key)->toBe(Document::recipientToken($second));
+
+    // Vế còn lại của luật: không có ai đăng nhập thì mới rơi về địa chỉ.
+    expect($limitFor(null)->key)->toStartWith('ip:');
 });
