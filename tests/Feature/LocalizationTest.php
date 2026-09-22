@@ -34,6 +34,23 @@ use Illuminate\Support\Str;
  * Danh sách gói cũng không còn viết tay: nó lấy từ chính các namespace mà các gói Filament đã
  * đăng ký với bộ dịch, nên một gói Filament mới được cài sẽ tự vào phạm vi kiểm tra. Bản trước
  * có một bảng ánh xạ tay và bảng đó đã thiếu `filament-actions` lẫn `filament-query-builder`.
+ *
+ * # Thứ tệp này VẪN không nhìn thấy, và người sau nên biết trước khi tin nó
+ *
+ * Ba hình dạng trên đều là "khoá chưa có bản `vi` dùng được". Có một hình dạng thứ tư mà cấu
+ * trúc ở đây **không thể** bắt: một chuỗi bundled ĐÃ CÓ bản `vi`, dịch đúng nghĩa, nhưng **sai
+ * xưng hô**. Với test này thì khoá ấy đã xong — nó có mặt, nó là tiếng Việt, nó khác bản `en`.
+ *
+ * Đo được ở vòng hợp nhất M5: `filament-panels::auth/pages/login.multi_factor.subheading` và
+ * `.multi_factor.form.provider.label` gọi khách là "bạn" trên chính màn hình nhập mã đăng nhập,
+ * trong khi mọi dòng khác của cổng gọi "anh/chị" — và bộ test này xanh suốt. Hai khoá ấy nay
+ * được publish ở `lang/vendor/filament-panels/vi/auth/pages/login.php`.
+ *
+ * Không mở rộng test này ra để bắt loại lỗi đó, vì "đúng xưng hô" là một phán đoán về văn cảnh
+ * chứ không phải một phép so cấu trúc: một danh sách từ cấm sẽ vừa bỏ sót vừa báo nhầm. Thứ bắt
+ * được nó là một test RENDER một màn hình thật rồi đọc chữ trên đó; `LoginTest` nay có một
+ * ("speaks to the client as anh/chị on the one time code screen"), và mọi màn hình cổng khác nên
+ * có một dòng như vậy khi có người đi qua chúng.
  */
 function flattenTranslationKeys(array $array, string $prefix = ''): array
 {

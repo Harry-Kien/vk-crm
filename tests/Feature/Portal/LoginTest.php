@@ -120,6 +120,40 @@ function postPortalLogin(string $snapshot, array $updates, string $ip): TestResp
 }
 
 /**
+ * **Màn hình nhập mã gọi khách là "bạn" trong khi mọi dòng khác của cổng gọi "anh/chị".**
+ *
+ * Hai chuỗi ấy đến từ bản `vi` bundled của Filament (`filament-panels::auth/pages/login`:
+ * `multi_factor.subheading` và `multi_factor.form.provider.label`), chứ không từ `lang/vi/`. Với
+ * một văn phòng luật ở Việt Nam thì đây không phải chuyện văn phong: xưng hô là chuyện lễ độ với
+ * một người vừa đem việc của mình tới, và nó lệch ngay ở màn hình ĐẦU TIÊN của toàn hệ thống.
+ *
+ * # Điểm mù mà chỗ này phơi ra, ghi lại đúng nơi người sau sẽ tìm
+ *
+ * `LocalizationTest` được viết lại ở mốc này để bắt khoá THIẾU và khoá còn nguyên tiếng Anh: nó
+ * đi từ phía `en` của mỗi gói và hỏi bộ dịch xem `vi` trả về gì. Cấu trúc ấy **không thể** nhìn
+ * thấy một chuỗi bundled đã có bản `vi`, dịch đúng nghĩa, nhưng SAI XƯNG HÔ — với nó, khoá ấy đã
+ * xong. Nên lớp lưới đó không mở rộng ra được bằng cách sửa vài dòng; thứ bắt được loại lỗi này
+ * là một test RENDER một màn hình thật rồi đọc chữ trên đó, và test dưới đây là cái đầu tiên.
+ * Mọi màn hình cổng khác nên có một dòng như vậy khi ai đó đi qua chúng.
+ */
+it('speaks to the client as anh/chị on the one time code screen, like every other line of the portal', function () {
+    $user = portalUser();
+
+    $html = submitPortalPassword($user)->html();
+
+    // Tiền đề: đây đúng là màn hình nhập mã, chứ không phải bước mật khẩu vẽ lại.
+    expect($html)->toContain(__('portal.login.code.label'));
+
+    expect($html)
+        ->toContain(__('filament-panels::auth/pages/login.multi_factor.subheading'))
+        ->and(__('filament-panels::auth/pages/login.multi_factor.subheading'))->toContain('anh/chị')
+        ->and(__('filament-panels::auth/pages/login.multi_factor.form.provider.label'))->toContain('nh/chị');
+
+    // Và không một chữ "bạn" nào còn sót trên chính trang đã render.
+    expect(preg_match('/\bbạn\b/iu', $html))->toBe(0, 'màn hình nhập mã vẫn còn xưng hô "bạn"');
+});
+
+/**
  * Lỗi xác thực mà component trả về. Livewire đáp 200 và đặt chúng vào `memo.errors` của snapshot
  * chứ không trả 422, nên phải mở snapshot ra đọc.
  *
