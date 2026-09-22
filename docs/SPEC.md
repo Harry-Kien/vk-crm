@@ -803,6 +803,14 @@ hosting.
 6. **Thống kê nhanh** — số vụ đang mở theo giai đoạn, dạng biểu đồ cột ngang.
 7. **Cảnh báo hệ thống** — hiện dải đỏ nếu `last_schedule_run_at` cũ hơn 30 phút.
 
+**Đính chính ghi ngày 2026-09-22 (chủ văn phòng yêu cầu).** Thêm một hàng **ô số tóm tắt**
+đứng trên cả bảy widget: tổng số hồ sơ, đang xử lý, đã kết thúc, mở trong tháng này — mỗi ô
+đếm trong phạm vi `Matter::listableBy` của chính người đang xem. Việc nó đứng trên mục 1
+không phá luật "widget quan trọng nhất đặt trên cùng": luật đó nói về việc DANH SÁCH nào dẫn
+đầu, vì danh sách là thứ người ta phải hành động theo. Một hàng cao một dòng là phần tóm tắt,
+không đẩy danh sách quá hạn xuống khỏi màn hình đầu. Nếu hàng này dài thành nhiều dòng thì
+đính chính này hết đúng.
+
 ### 7.2 Resource `Matter`
 
 Bảng danh sách: mã hồ sơ, khách hàng, loại, tiêu đề, giai đoạn (badge màu),
