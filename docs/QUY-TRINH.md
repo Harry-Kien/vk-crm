@@ -167,3 +167,60 @@ quyền, nhưng không có màn hình** — loại thiếu sót khó thấy nh�
    rà soát trước sang phải vá cùng lúc.
 3. **Không có tab nhật ký riêng của từng vụ việc.** Nhật ký toàn hệ thống đã có; đây
    là bản lọc theo một vụ việc. Gộp vào cùng Task 8 của M7.
+
+---
+
+## Tôi sẽ dựa vào gì để nói "xong và sẵn sàng đưa vào hoạt động"
+
+Viết ra trước, để lời báo cáo về sau kiểm được chứ không phải tin. Tôi chỉ báo xong
+khi **cả ba nhóm dưới đây đều đạt**, và báo cáo sẽ kèm bản ghi từng bước chứ không
+kèm một câu khẳng định.
+
+### A. Ba vai chạy thông trên dữ liệu thật
+
+Chạy tay, trên một cơ sở dữ liệu vừa dựng lại từ đầu, không phải trên test.
+
+1. **Quản trị** tạo khách hàng mới, mở vụ việc, hệ thống chặn đúng khi bên đối lập
+   trùng một khách hàng hiện hữu, và mọi lần kiểm tra đều để lại dấu vết.
+2. **Luật sư** áp danh mục giấy tờ, đặt một mốc thời hạn, chuyển giai đoạn kèm một
+   dòng cập nhật công bố cho khách, công bố một tài liệu, và ghi lại một cuộc gọi.
+3. **Khách hàng** đăng nhập trên khổ điện thoại thật, thấy đúng dòng vừa công bố,
+   thấy còn thiếu giấy tờ gì, nộp một ảnh chụp, bị từ chối và đọc được lý do nguyên
+   văn, nộp lại, rồi gửi một câu hỏi và nhận trả lời.
+4. **Quay lại phía văn phòng**: nhãn khách đã xem hiện đúng thời điểm, giấy tờ khách
+   nộp duyệt được, và thanh tiến độ nhảy đúng.
+5. **Ranh giới**: không một đường nào — kể cả sửa tham số trên thanh địa chỉ — cho
+   một khách thấy dữ liệu của khách khác hoặc thấy tài liệu nội bộ.
+
+### B. Chất lượng đo được, không phải cảm nhận
+
+- Toàn bộ bộ kiểm thử xanh trên **cả hai** cơ sở dữ liệu: bản nhẹ dùng khi phát
+  triển và bản thật dùng khi chạy.
+- Độ phủ của tầng nghiệp vụ và tầng phân quyền từ 80% trở lên, có số đo dán kèm.
+- Mỗi milestone đã qua **một lượt rà soát độc lập được giao nhiệm vụ giả định có
+  một lỗi nghiêm trọng**, và mọi phát hiện đã đóng hoặc đã ghi rõ lý do chưa đóng.
+- Dựng lại toàn bộ cơ sở dữ liệu từ số không và quay ngược lại được trọn vòng.
+
+### C. Sẵn sàng vận hành thật
+
+- Tên miền, chứng chỉ bảo mật, và **địa chỉ máy chủ trung gian điền đúng** — chừng
+  nào ô này còn trống thì một người gõ sai mật khẩu năm lần sẽ khoá cả cổng khách.
+- Đúng một dòng lịch chạy tự động, và trang chủ tự báo đỏ khi lịch đó chết.
+- Sao lưu hằng ngày **đã thử khôi phục thật một lần**, có ghi thời gian khôi phục.
+- Xác thực hai lớp bật cho toàn bộ tài khoản nội bộ.
+- Bốn thông tin pháp lý của văn phòng đã điền: mã số thuế, Đoàn Luật sư, số Giấy
+  đăng ký hoạt động, địa chỉ trụ sở.
+- Tài liệu cài đặt đã được **một người chưa từng đọc mã nguồn** dựng lại thành công
+  trên một máy chủ trống.
+
+### Về việc đưa lên điện thoại thành ứng dụng
+
+Cổng khách hàng đã được dựng cho điện thoại ngay từ đầu: một cột, chữ to, vùng bấm
+44 điểm ảnh, không bảng ngang, chụp ảnh thẳng từ máy ảnh. Mở bằng trình duyệt điện
+thoại là dùng được ngay, không cần chờ gì.
+
+Muốn thành ứng dụng tải từ chợ ứng dụng thì cần thêm một lớp giao tiếp dữ liệu, và
+kiến trúc hiện tại đã chừa sẵn chỗ: **toàn bộ nghiệp vụ nằm trong tầng Action chứ
+không nằm trong màn hình**, nên lớp đó chỉ gọi lại đúng những Action đang chạy, không
+phải viết lại luật nào. Đó là một milestone riêng, làm sau khi hệ thống chạy thật một
+thời gian — vì thứ đáng đưa lên ứng dụng phải là thứ đã biết chắc khách dùng.
