@@ -127,8 +127,11 @@ it('reads the row back from the database instead of trusting the object it was h
  * Ở đây người hỏi mở được hồ sơ B và không mở được hồ sơ A; mốc thì nằm ở A.
  */
 it('asks the gate about the real row, not about a matter_id swapped in memory', function () {
-    // Vụ việc `restricted` (SPEC §4.6) là chỗ duy nhất một luật sư KHÔNG mở được hồ sơ của đồng
-    // nghiệp: vai trò luật sư có `matter.viewAny`, nên trên một vụ việc thường họ thấy tất cả.
+    // `restricted` (SPEC §4.6) khép hồ sơ lại với mọi người trừ luật sư phụ trách và quản trị
+    // viên. Ở đây nó là thắt lưng đi cùng dây đeo: một luật sư ngoài đội ngũ đã không thấy hồ sơ
+    // thường (vai trò luật sư KHÔNG có `matter.viewAny` — xem `Role::permissions()`), nhưng test
+    // này nói về một lời từ chối phải đứng vững, nên nó không dựa vào một mình việc thiếu tên
+    // trong `matter_user`.
     $this->matter->update(['confidentiality' => Confidentiality::Restricted]);
 
     $outsider = User::factory()->withRole(Role::Lawyer)->create();

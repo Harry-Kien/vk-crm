@@ -27,10 +27,21 @@ beforeEach(function () {
     $this->matter = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
 });
 
+/**
+ * **Người THÊM mốc cố ý không phải luật sư phụ trách, và đó là điều kiện để test này nói được
+ * gì.** Bản đầu để trợ lý và luật sư phụ trách là một người: đo bằng mutation
+ * (`$responsible ??= $actor` thay cho `$responsible ??= $fresh->leadLawyer`) thì test vẫn XANH —
+ * hai cài đặt khác hẳn nhau cho ra cùng đáp án, đúng hình dạng "fixture rỗng" mà M5 đã tìm thấy
+ * sáu cái. Giờ trợ lý là người gõ, luật sư phụ trách là người nhận, và chỉ một trong hai cài đặt
+ * cho ra đáp án đúng.
+ */
 it('adds a deadline and defaults the responsible person to the matter lead lawyer', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create(['name' => 'Trợ lý Mai']);
+    $this->matter->addTeamMember($assistant, MatterRole::Assistant);
+
     $deadline = app(AddMatterDeadline::class)->handle(
         matter: $this->matter,
-        actor: $this->lawyer,
+        actor: $assistant,
         name: 'Nộp đơn kháng cáo',
         dueDate: today()->addDays(9)->toDateString(),
     );
@@ -38,6 +49,7 @@ it('adds a deadline and defaults the responsible person to the matter lead lawye
     expect($deadline->name)->toBe('Nộp đơn kháng cáo')
         ->and($deadline->matter_id)->toBe($this->matter->id)
         ->and($deadline->responsible_user_id)->toBe($this->lawyer->id)
+        ->and($deadline->responsible_user_id)->not->toBe($assistant->id)
         ->and($deadline->severity)->toBe(DeadlineSeverity::Normal)
         ->and($deadline->is_published)->toBeFalse()
         ->and($deadline->is_completed)->toBeFalse()

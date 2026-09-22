@@ -112,22 +112,25 @@ it('never shows a deadline that belongs to another matter', function () {
 
 /**
  * Đây mới là chỗ `ScopesToVisibleMatters` có việc thật: nó hỏi vụ việc CHỦ có nằm trong tầm nhìn
- * của người đang xem không (`Matter::scopeListableBy`, SPEC §5). Một vụ việc `restricted`
- * (SPEC §4.6) khép lại với mọi luật sư trừ người phụ trách và quản trị viên, kể cả khi họ có
- * `matter.viewAny` — nên nó là ca duy nhất đo được lớp này tách khỏi `canViewForRecord()`.
+ * của người đang xem không (`Matter::scopeListableBy`, SPEC §5).
+ *
+ * **Người đóng vai là TRƯỞNG PHÒNG, và đó là cả điểm của test.** Trưởng phòng có `matter.viewAny`
+ * (`Role::permissions()`), nên `scopeListableBy` không ràng buộc gì với họ trên một vụ việc
+ * thường — vế dương bên dưới. Một vụ việc `restricted` (SPEC §4.6) thì khép lại với họ, và đó là
+ * ca duy nhất trên màn hình này mà lớp lọc hàng đổi được câu trả lời cho MỘT người: cùng một
+ * người, cùng một hồ sơ, hai câu trả lời khác nhau vì đúng một cột.
  *
  * Lớp này KHÔNG phải cổng của tab (cổng là `canViewForRecord()`, test riêng ở trên); nó là lớp
  * thứ hai, và nó tồn tại vì một cổng duy nhất nằm ở một tầng khác là đúng hình dạng mà vòng rà
  * soát M4 đã lên án.
  */
-it('empties the table for a lawyer who cannot list the owner matter at all', function () {
+it('empties the table for a manager once the owner matter turns restricted', function () {
     makeDeadline($this->matter, ['name' => 'Mốc trong hồ sơ hạn chế']);
-    $this->matter->update(['confidentiality' => Confidentiality::Restricted]);
 
-    $this->actingAs($this->lawyer, 'web');
+    $this->actingAs(User::factory()->withRole(Role::Manager)->create(), 'web');
     deadlinesTab($this->matter)->assertSee('Mốc trong hồ sơ hạn chế');
 
-    $this->actingAs(User::factory()->withRole(Role::Lawyer)->create(), 'web');
+    $this->matter->update(['confidentiality' => Confidentiality::Restricted]);
     deadlinesTab($this->matter)->assertDontSee('Mốc trong hồ sơ hạn chế');
 });
 
