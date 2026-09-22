@@ -5,19 +5,23 @@ namespace App\Filament\Portal\Pages;
 use App\Actions\Document\ChecklistProgress;
 use App\Actions\Portal\RecordStageLogView;
 use App\Enums\ChecklistItemStatus;
+use App\Enums\DocumentGroup;
 use App\Models\ClientUser;
 use App\Models\Deadline;
 use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
-use App\Models\MatterTypeStage;
 use App\Models\StageLog;
 use Filament\Facades\Filament;
 use Filament\Pages\Page;
 use Filament\Panel;
 use Illuminate\Contracts\Support\Htmlable;
+use Illuminate\Foundation\Http\Events\RequestHandled;
+use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
+use Livewire\Attributes\Locked;
 
 /**
  * Chi tiết một hồ sơ trên cổng khách hàng — SPEC §8.3, bảy khối dọc, đúng thứ tự SPEC liệt kê.
@@ -28,6 +32,13 @@ use Illuminate\Support\Facades\Gate;
  * tài liệu, mốc thời hạn, gửi yêu cầu. Không có khối thứ tám: `communication_logs` **không** lên
  * cổng (phán quyết của người điều phối M5, 19/09/2026 — SPEC §5 không liệt kê nó, và thêm một
  * model vào danh sách đó là một việc cần chữ ký của văn phòng, không phải một mặc định).
+ *
+ * Dưới bảy khối là **lối quay lại danh sách hồ sơ**, và nó gọi {@see MyMatters::getAllUrl()} chứ
+ * không `MyMatters::getUrl()`: với một khách có đúng MỘT hồ sơ thì `/portal` trần chuyển hướng
+ * ngược về chính trang này, nên một lối quay lại không mang cờ "tất cả" là một cái nút không đi
+ * đâu cả. Đo bằng cách ĐI THEO ĐƯỜNG LINK — đọc `href` ra khỏi HTML rồi gọi thật vào nó và đòi
+ * 200 — cùng thiết bị mà màn hình danh sách phải dựng cho mục điều hướng của nó, và cùng khuyết
+ * tật mà vòng rà soát Task 3 đã tìm thấy.
  *
  * # Trang này tự hỏi `Gate`, và nó BẮT BUỘC phải tự hỏi
  *
@@ -55,7 +66,9 @@ use Illuminate\Support\Facades\Gate;
  * nhưng **không** phủ request cập nhật Livewire (Task 2 đã chứng minh trong vendor: middleware
  * persistent chạy với một response stub 200 trước khi hydrate), và toàn bộ cổng này là Livewire.
  * Một lời từ chối chỉ đúng hình dạng ở một nửa số đường đi là một lời từ chối tự kể ra sự khác
- * nhau giữa hai nửa.
+ * nhau giữa hai nửa. Hình dạng ấy giờ có thêm **câu chữ**: `resources/views/errors/404.blade.php`
+ * trả lời bằng tiếng Việt và kèm số điện thoại văn phòng, vì người không mở được một trang cần
+ * một đường đi tiếp KHÔNG qua một trang.
  *
  * # Ba tầng, và tầng nào đang giữ cái gì trên chính trang này
  *
@@ -72,7 +85,8 @@ use Illuminate\Support\Facades\Gate;
  *     client flags on and the scope emptied": scope bị thay bằng một scope rỗng, hai cờ khách
  *     bật thẳng trong bảng, và tài liệu nhóm D vẫn không lên trang — xoá lần hỏi `Gate` trong
  *     {@see self::documents()} thì test đó đỏ.
- *  3. **Serialize** — `HidesInternalAttributesFromPortal`.
+ *  3. **Serialize** — `HidesInternalAttributesFromPortal`, và **một tầng nữa ở chính trang này**:
+ *     không một phương thức công khai nào trả về model, xem mục kế tiếp.
  *
  * **`internal_note` không được nhắc tới ở bất kỳ đâu trong lớp này lẫn trong view của nó.** Task
  * 2 đã ghim ra một ranh giới mà không ai nên phải tự phát hiện lại: trait kia chỉ chặn ở
@@ -81,12 +95,41 @@ use Illuminate\Support\Facades\Gate;
  * trong HTML/JSON của cổng) đúng vì không đường serialize nào mang nó ra — không phải vì cột đó
  * không với tới được. Luật ở đây vì thế là một luật về mã nguồn: **không nhắc tên cột đó**.
  *
+ * # Trang này là một bề mặt RPC, nên nó trả về HÌNH CHIẾU chứ không trả về bản ghi
+ *
+ * Mọi phương thức `public` của một component Livewire **gọi được từ trình duyệt**, và giá trị trả
+ * về của nó được serialize thẳng vào response cập nhật. Vòng rà soát đã đo: `currentStage()` cũ
+ * trả về cả dòng `matter_type_stages` — nhãn NỘI BỘ của văn phòng, danh sách giai đoạn kế tiếp
+ * được phép, cờ kết thúc, số ngày cập nhật mặc định — còn `matter()` và `timeline()` trả về
+ * nguyên bản ghi kèm id luật sư phụ trách và id người công bố. Hai ranh giới tuyệt đối
+ * (`internal_note`, `description_internal`) vẫn đứng vững, nên đây là một lần thủng **SPEC §8**
+ * ("không thuật ngữ nội bộ trước mặt khách"), không phải §11 — nhưng nó cũng mâu thuẫn với chính
+ * docblock của `currentStage()` và với test `assertDontSee` đứng sau nó.
+ *
+ * Nên từ vòng này: **mọi accessor hướng khách trả về một mảng hẹp gồm đúng những gì view vẽ ra**,
+ * và mọi thứ nhận/trả model ({@see self::matter()}, {@see self::stageLabel()},
+ * {@see self::canDownload()}, {@see self::downloadUrl()}, {@see self::rejectionReason()},
+ * {@see self::isStageChange()}) là `private` — Livewire chỉ gọi được phương thức công khai, nên
+ * `private` ở đây là một điều kiện thật chứ không phải một lời khuyên. Ghim bằng một test phát
+ * biểu LUẬT chứ không liệt kê tên hàm ("serialises no internal terminology from any public method
+ * the browser can call"): nó gọi mọi phương thức công khai khai báo trên chính lớp này và
+ * `json_encode` kết quả. Một hàm mới trả về model sẽ làm test đó đỏ mà không ai phải nhớ ra điều
+ * gì.
+ *
+ * `$record` là `#[Locked]` vì cùng một họ lý do: rà soát đo được rằng một `updates:{"record": …}`
+ * tự chế trỏ sang một hồ sơ KHÁC CỦA CÙNG KHÁCH trả về 200 kèm mảnh HTML của hồ sơ kia — trong
+ * khi thanh địa chỉ vẫn là hồ sơ đầu — và ghi luôn biên bản "đã xem" của hồ sơ kia. Cách ly giữa
+ * hai khách hàng không hề thủng ở đường đó; cái thủng là một thuộc tính mà trình duyệt không có
+ * việc gì phải đặt lại. **Khoá không thay cho việc gác**: lần giải lại ở mọi request vẫn nguyên,
+ * và nó mới là tầng thật.
+ *
  * # Biên bản đã xem — và "Khách đã xem" ở panel nội bộ giờ nghĩa là gì
  *
- * Mỗi dòng đã công bố **được trang này vẽ ra** sinh một lần gọi
- * {@see RecordStageLogView} (Task 2, nơi ghi duy nhất của bảng
- * `stage_log_views`; trang này không bao giờ ghi thẳng vào bảng). Cách đọc đã chốt, và nó phải
- * được nói ra vì đây là **bằng chứng pháp lý**, không phải một con số thống kê:
+ * Mỗi dòng đã công bố mà trang này vẽ ra sinh một lần gọi {@see RecordStageLogView} (Task 2, nơi
+ * ghi duy nhất của bảng `stage_log_views`; trang này không bao giờ ghi thẳng vào bảng) — nhưng
+ * lần gọi ấy chạy SAU KHI response của chính request đó đã dựng xong và thành công, xem hai điều
+ * kiện ở dưới. Cách đọc đã chốt, và nó phải được nói ra vì đây là **bằng chứng pháp lý**, không
+ * phải một con số thống kê:
  *
  *  - Ghi khi khách **mở trang chi tiết hồ sơ** và dòng đó nằm trong phần trang vẽ ra. **Không**
  *    ghi khi dòng chỉ xuất hiện trong một danh sách — "đã lướt qua trong một danh sách" không
@@ -98,13 +141,31 @@ use Illuminate\Support\Facades\Gate;
  *    các dòng đã công bố của hồ sơ". **Nếu có ngày dòng thời gian được phân trang, cách đọc này
  *    đổi nghĩa** và phải được quyết lại chứ không được thừa kế trong im lặng.
  *
+ * **Và từ vòng sửa này, việc ghi KHÔNG nằm trên đường render nữa** — {@see self::timeline()} chỉ
+ * ĐẶT LỊCH, còn lần ghi thật chạy ở `RequestHandled`, tức sau khi response của chính request này
+ * đã dựng xong. Hai điều kiện, mỗi cái đóng một lỗ đã đo được:
+ *
+ *  1. **Phương thức request phải mang được thân.** Filament đăng ký route cho cả `GET` lẫn `HEAD`;
+ *     với `HEAD` thì trang vẫn dựng đủ rồi Symfony cắt sạch thân, nên khách nhận về KHÔNG BYTE
+ *     NÀO trong khi bảng vẫn có đủ biên bản. Xem {@see self::requestCanCarryABody()}.
+ *  2. **Response phải hoàn tất và thành công.** `firstOrCreate` commit ngay, ngoài mọi transaction
+ *     — nên trước vòng này một exception ở khối 4 hay khối 7 trả về trang 500 cho khách mà vẫn để
+ *     lại đủ biên bản "đã xem". Ở `RequestHandled` thì trạng thái cuối cùng đã biết, và một
+ *     response không phải 2xx không ghi gì.
+ *
  * Vậy nhãn **"Khách đã xem lúc …"** ở tab Tiến độ của panel nội bộ (SPEC §7.2, §4.18) từ nay đọc
- * đúng là: *tài khoản portal này đã mở trang chi tiết của hồ sơ, và dòng cập nhật này nằm trong
- * trang được gửi tới trình duyệt của họ, vào thời điểm đó, từ địa chỉ IP đó*. Nó **không** khẳng
- * định người đó đã cuộn xuống tới dòng ấy, đã đọc, hay đã hiểu. Luật sư đọc nhãn đó để quyết định
- * có cần gọi điện hay không; văn phòng đưa nó ra để chứng minh mình đã ĐƯA TIN. Hai việc đó cần
- * đúng mức khẳng định trên, không hơn — và câu này nằm ở đây để người viết màn hình nội bộ
- * (Task 6) và người đứng trước một câu hỏi pháp lý về sau đọc cùng một định nghĩa.
+ * đúng là: *tài khoản portal này đã yêu cầu trang chi tiết của hồ sơ bằng một phương thức mang
+ * được nội dung, và máy chủ đã dựng xong một câu trả lời thành công CÓ CHỨA dòng cập nhật này,
+ * vào thời điểm đó, cho một yêu cầu đến từ địa chỉ IP đó.* Nó **không** khẳng định trang đã đi
+ * hết đường truyền tới máy khách, càng không khẳng định người đó đã cuộn xuống tới dòng ấy, đã
+ * đọc, hay đã hiểu. Câu này hẹp hơn câu cũ ("nằm trong trang được gửi tới trình duyệt của họ")
+ * đúng một bậc, và bậc ấy là bậc duy nhất mã nguồn đo được: điều cuối cùng máy chủ biết chắc là
+ * nó đã hoàn tất một response 200 có chứa dòng đó.
+ *
+ * Luật sư đọc nhãn đó để quyết định có cần gọi điện hay không; văn phòng đưa nó ra để chứng minh
+ * mình đã ĐƯA TIN. Hai việc đó cần đúng mức khẳng định trên, không hơn — và câu này nằm ở đây để
+ * người viết màn hình nội bộ (Task 6) và người đứng trước một câu hỏi pháp lý về sau đọc cùng một
+ * định nghĩa.
  *
  * Dấu thời gian là của **lần mở đầu tiên** và không bao giờ bị dời — hợp đồng đó thuộc về
  * `RecordStageLogView`, và trang này không được phép làm yếu nó đi.
@@ -134,21 +195,30 @@ class MatterProgress extends Page
      */
     protected static bool $shouldRegisterNavigation = false;
 
-    /** Tham số trên URL. Không dùng model binding: bản ghi được đọc lại qua truy vấn đã có scope. */
+    /**
+     * Tham số trên URL. Không dùng model binding: bản ghi được đọc lại qua truy vấn đã có scope.
+     *
+     * **`#[Locked]`, và đây là một điều kiện đo được.** Xem mục "bề mặt RPC" ở docblock lớp: một
+     * `updates:{"record": …}` tự chế trỏ sang hồ sơ khác của cùng khách trả về mảnh HTML của hồ
+     * sơ kia trước khi có khoá này. Khoá không thay cho lần giải lại ở
+     * {@see self::resolveMatter()}; ghim ở `MatterProgressTest`, "refuses a forged record that
+     * names another matter of the same client".
+     */
+    #[Locked]
     public int|string $record;
 
     private ?Matter $resolvedMatter = null;
 
-    /** @var Collection<int, StageLog>|null */
+    /** @var Collection<int, array<string, mixed>>|null */
     private ?Collection $resolvedTimeline = null;
 
-    /** @var Collection<int, MatterChecklistItem>|null */
+    /** @var Collection<int, array<string, mixed>>|null */
     private ?Collection $resolvedChecklist = null;
 
-    /** @var Collection<int, Document>|null */
+    /** @var Collection<int, array<string, mixed>>|null */
     private ?Collection $resolvedDocuments = null;
 
-    /** @var Collection<int, Deadline>|null */
+    /** @var Collection<int, array<string, mixed>>|null */
     private ?Collection $resolvedDeadlines = null;
 
     /**
@@ -185,29 +255,41 @@ class MatterProgress extends Page
         return __('portal_progress.subheading', ['code' => $this->matter()->code]);
     }
 
-    public function matter(): Matter
-    {
-        return $this->resolvedMatter ??= $this->resolveMatter();
-    }
-
     // -------------------------------------------------------------------------------------
     // Khối 1 — Tình trạng hiện tại
     // -------------------------------------------------------------------------------------
 
     /**
-     * Giai đoạn hiện tại, để view lấy `client_label` và `client_description`.
+     * Giai đoạn hiện tại, **đã chiếu xuống đúng hai chuỗi view vẽ ra**.
      *
      * **Không bao giờ `label`.** Cột `label` là chữ của văn phòng ("Thu thập hồ sơ"); `client_label`
      * là chữ viết cho khách ("Đang thu thập giấy tờ"). SPEC §8.2 và §8.3 đều chỉ đích danh cột
      * thứ hai, và §8 cấm thuật ngữ — nên một lần đọc nhầm cột ở đây là đưa ngôn ngữ nội bộ ra
      * trước mặt khách.
      *
-     * `null` khi loại vụ việc không còn cấu hình giai đoạn này (quản trị viên xoá mềm một giai
-     * đoạn trong khi một hồ sơ đang đứng ở đó). View có câu riêng cho trường hợp ấy.
+     * **Và vì thế hàm này trả về một MẢNG, không trả về `MatterTypeStage`.** Trước vòng sửa này
+     * nó trả về cả dòng, nên một lần gọi từ trình duyệt nhận đủ `label` nội bộ,
+     * `allowed_next_stages`, `is_terminal`, `default_update_interval_days` — tức đúng cái
+     * docblock này cấm, chỉ bằng một đường khác. Xem mục "bề mặt RPC" ở docblock lớp.
+     *
+     * `null` khi không tra được giai đoạn: loại vụ việc không còn khai báo nó, HOẶC cả loại vụ
+     * việc đã bị xoá mềm ({@see Matter::currentStage()} dùng `?->` đúng vì trường hợp thứ hai).
+     * View có câu riêng cho trường hợp ấy.
+     *
+     * @return array{label: ?string, description: ?string}|null
      */
-    public function currentStage(): ?MatterTypeStage
+    public function currentStage(): ?array
     {
-        return $this->matter()->currentStage();
+        $stage = $this->matter()->currentStage();
+
+        if ($stage === null) {
+            return null;
+        }
+
+        return [
+            'label' => $stage->client_label,
+            'description' => $stage->client_description,
+        ];
     }
 
     // -------------------------------------------------------------------------------------
@@ -233,17 +315,13 @@ class MatterProgress extends Page
      * lại). `pending_review` cố ý không có mặt — nó đang chờ ở VĂN PHÒNG, và liệt kê nó vào "việc
      * anh/chị cần làm" là giục khách làm một việc họ đã làm xong.
      *
-     * @return Collection<int, MatterChecklistItem>
+     * @return Collection<int, array<string, mixed>>
      */
     public function outstandingItems(): Collection
     {
-        return $this->checklistItems()->filter(
-            fn (MatterChecklistItem $item): bool => in_array(
-                $item->status,
-                [ChecklistItemStatus::Missing, ChecklistItemStatus::Rejected],
-                true,
-            ),
-        )->values();
+        return $this->checklistItems()
+            ->filter(fn (array $item): bool => $this->isWaitingOnTheClient($item['status']))
+            ->values();
     }
 
     /**
@@ -253,10 +331,14 @@ class MatterProgress extends Page
      * về hiện tại — gom `client_action` của mọi dòng lại sẽ dựng ra một danh sách việc mà phần
      * lớn đã xong từ lâu, tức đúng loại màn hình khiến người ta thôi đọc. Những câu cũ vẫn còn
      * nguyên ở dòng thời gian, đúng chỗ của chúng trong lịch sử.
+     *
+     * "Mới nhất" xác định được kể cả khi hai cập nhật cùng một ngày, và đó là công của tiêu chí
+     * phụ `id` giảm dần ở {@see Matter::stageLogs()} — `occurred_at` đến từ một ô chọn NGÀY nên
+     * hai dòng cùng ngày bằng nhau tuyệt đối ở cột sắp xếp.
      */
     public function latestClientAction(): ?string
     {
-        $latest = $this->timeline()->first()?->client_action;
+        $latest = $this->timeline()->first()['client_action'] ?? null;
 
         return filled($latest) ? $latest : null;
     }
@@ -266,24 +348,18 @@ class MatterProgress extends Page
     // -------------------------------------------------------------------------------------
 
     /**
-     * Các dòng đã công bố, mới nhất trên cùng — và **nơi biên bản "đã xem" được ghi**.
+     * Các dòng đã công bố, mới nhất trên cùng — và **nơi biên bản "đã xem" được ĐẶT LỊCH**.
      *
-     * Quan hệ `Matter::stageLogs()` đã sắp xếp giảm dần theo `occurred_at`, và global scope đã
-     * cắt về các dòng `is_published = true` thuộc hồ sơ khách thấy được. Lần lọc qua `Gate` bên
-     * dưới là tầng thứ hai, độc lập: `StageLogPolicy::view()` đọc thẳng `is_published` trên bản
-     * ghi thay vì tin vào câu `where` kia.
+     * Quan hệ `Matter::stageLogs()` đã sắp xếp giảm dần theo `occurred_at` rồi theo `id`, và
+     * global scope đã cắt về các dòng `is_published = true` thuộc hồ sơ khách thấy được. Lần lọc
+     * qua `Gate` bên dưới là tầng thứ hai, độc lập: `StageLogPolicy::view()` đọc thẳng
+     * `is_published` trên bản ghi thay vì tin vào câu `where` kia.
      *
-     * Ghi biên bản ngay sau khi tập hợp đã chốt, nên nó ghi **đúng những dòng trang vẽ ra**, không
-     * nhiều hơn. `RecordStageLogView` tự hỏi lại quyền và tự chống hai tab cùng lúc; trang chỉ
-     * đưa cho nó danh tính người đọc và địa chỉ IP.
+     * **Trả về hình chiếu, không trả về `StageLog`** — xem mục "bề mặt RPC" ở docblock lớp: bản
+     * ghi thật mang id người tạo và id người công bố, và một lần gọi từ trình duyệt serialize
+     * thẳng chúng vào response.
      *
-     * **Một lỗi ở đây được để nổ ra, có chủ ý.** `RecordStageLogView` chỉ từ chối khi khách thật
-     * sự không được xem dòng đó (hồ sơ vừa bị rút khỏi cổng, tài khoản vừa bị vô hiệu hoá giữa
-     * hai câu truy vấn) — và khi đó họ cũng không được xem cả trang, nên một lời từ chối là câu
-     * trả lời đúng. Nuốt lỗi đi thì đổi lại được một trang vẽ xong mà **không có bằng chứng nào
-     * được ghi**, tức đúng thứ hỏng mà không ai nhìn thấy cho tới ngày cần tới bảng này.
-     *
-     * @return Collection<int, StageLog>
+     * @return Collection<int, array<string, mixed>>
      */
     public function timeline(): Collection
     {
@@ -297,11 +373,106 @@ class MatterProgress extends Page
             ->filter(fn (StageLog $log): bool => Gate::forUser($viewer)->allows('view', $log))
             ->values();
 
+        $this->recordViewsOnceTheResponseIsBuilt($logs, $viewer);
+
+        return $this->resolvedTimeline = $logs
+            ->map(fn (StageLog $log): array => $this->presentLog($log))
+            ->values();
+    }
+
+    /**
+     * Đặt lịch ghi biên bản cho **đúng những dòng trang vẽ ra**, rồi trả lại việc render.
+     *
+     * **Vì sao không ghi ngay tại đây, giữa lúc render.** Đó là hình dạng cũ, và nó viết ra bằng
+     * chứng cho những trang khách chưa bao giờ nhận được — đo được hai kiểu:
+     *
+     *  - một request `HEAD` (Filament đăng ký route cho cả `GET` lẫn `HEAD`) dựng trang đủ, ghi
+     *    đủ biên bản, rồi Symfony cắt sạch thân: **không byte nào** được gửi đi;
+     *  - một exception bất kỳ SAU vòng lặp ghi trả về trang 500 cho khách trong khi các dòng đã
+     *    commit — `firstOrCreate` ghi ngay, ngoài mọi transaction, trước khi có một response nào.
+     *
+     * Hai điều kiện dưới đây đóng đúng hai lỗ ấy, và chúng độc lập với nhau — mỗi cái có test
+     * riêng gọi tên nó ở `MatterProgressTest`.
+     *
+     * `RequestHandled` chứ không `terminating()`: sự kiện đó mang theo CHÍNH response cuối cùng,
+     * kể cả response lỗi mà kernel dựng ra từ một exception (đã đọc trong
+     * `Illuminate\Foundation\Http\Kernel::handle()`), nên nó là chỗ duy nhất trả lời được câu
+     * "câu trả lời đã hoàn tất và nó có thành công không". `terminating()` thì chạy cho cả một
+     * response 500, tức không phân biệt được gì.
+     *
+     * So sánh `$event->request !== $request` bằng ĐỒNG NHẤT THỂ, không bằng URL: một tiến trình
+     * thật chỉ phục vụ một request, nhưng trong một test thì nhiều request đi qua cùng một
+     * dispatcher, và một listener còn sót lại của request trước sẽ ghi biên bản lên response của
+     * request sau.
+     *
+     * **Phép so sánh ấy SỐNG SÓT một lần đột biến, và câu đó được nói ra thay vì để người đọc
+     * sau tưởng nó đang giữ một phép đo:** xoá nó đi thì KHÔNG test nào đỏ. Lý do nằm ở hợp đồng
+     * "một dòng, dấu thời gian của lần ĐẦU" của `RecordStageLogView` — một listener còn sót lại
+     * chỉ ghi LẠI đúng những dòng đã có, nên hậu quả không quan sát được từ bên ngoài. Giữ vì
+     * nếu hợp đồng đó đổi thì đây là thứ duy nhất ngăn biên bản của hồ sơ này gắn vào response
+     * của một request khác.
+     *
+     * **Một lỗi ở lần ghi được để nổ ra, có chủ ý** — `RecordStageLogView` chỉ từ chối khi khách
+     * thật sự không được xem dòng đó (hồ sơ vừa bị rút khỏi cổng, tài khoản vừa bị vô hiệu hoá
+     * giữa hai câu truy vấn). Nuốt lỗi đi thì đổi lại được một trang vẽ xong mà **không có bằng
+     * chứng nào được ghi**, tức đúng thứ hỏng mà không ai nhìn thấy cho tới ngày cần tới bảng
+     * này.
+     *
+     * @param  Collection<int, StageLog>  $logs
+     */
+    private function recordViewsOnceTheResponseIsBuilt(Collection $logs, ClientUser $viewer): void
+    {
+        $request = request();
+
+        if ($logs->isEmpty() || ! $this->requestCanCarryABody($request)) {
+            return;
+        }
+
+        $ip = $request->ip();
         $receipts = app(RecordStageLogView::class);
 
-        $logs->each(fn (StageLog $log) => $receipts->handle($log, $viewer, request()->ip()));
+        Event::listen(function (RequestHandled $event) use ($request, $logs, $viewer, $ip, $receipts): void {
+            if ($event->request !== $request || ! $event->response->isSuccessful()) {
+                return;
+            }
 
-        return $this->resolvedTimeline = $logs;
+            $logs->each(fn (StageLog $log) => $receipts->handle($log, $viewer, $ip));
+        });
+    }
+
+    /**
+     * **`HEAD` không mang được thân, nên nó không sinh biên bản nào.**
+     *
+     * Filament đăng ký route của trang cho cả `GET` lẫn `HEAD`. Với `HEAD` thì trang vẫn dựng
+     * đầy đủ — trước lần vá này nghĩa là vòng lặp biên bản cũng chạy qua từng dòng — rồi
+     * `Response::prepare()` của Symfony cắt sạch thân trước khi trả lời. Một dòng
+     * `stage_log_views` sinh ra từ đó khẳng định văn phòng đã cho khách xem một cập nhật, về một
+     * câu trả lời dài **không byte nào**, và nó không phân biệt được với một dòng thật.
+     */
+    private function requestCanCarryABody(Request $request): bool
+    {
+        return ! $request->isMethod('HEAD');
+    }
+
+    /**
+     * Một dòng diễn biến, chiếu xuống đúng bốn phần SPEC §8.3 mục 3 đòi cộng ngày tháng.
+     *
+     * `moved_to` là `null` khi dòng KHÔNG đổi giai đoạn, và cũng `null` khi loại vụ việc không
+     * còn khai báo nhãn của giai đoạn ấy — view chỉ hỏi một câu "có nhãn để vẽ không", không phải
+     * hỏi hai câu rồi tự ghép.
+     *
+     * @return array<string, mixed>
+     */
+    private function presentLog(StageLog $log): array
+    {
+        return [
+            'date' => $log->occurred_at?->format('d/m/Y'),
+            'moved_to' => $this->isStageChange($log) ? $this->stageLabel($log->to_stage) : null,
+            'public_content' => $log->public_content,
+            'next_step' => $log->next_step,
+            'client_action' => $log->client_action,
+            'expected_on' => $log->expected_next_update_at?->format('d/m/Y'),
+        ];
     }
 
     /**
@@ -313,19 +484,28 @@ class MatterProgress extends Page
      * tức kể sai lịch sử vụ việc cho đúng người có quyền được kể đúng. Có test phân biệt được
      * hai cách đọc ở `MatterProgressTest`.
      */
-    public function isStageChange(StageLog $log): bool
+    private function isStageChange(StageLog $log): bool
     {
         return $log->from_stage !== $log->to_stage;
     }
 
-    /** Nhãn dễ hiểu của giai đoạn một dòng chuyển tới; `null` nếu loại vụ việc không còn khai báo nó. */
-    public function stageLabel(?string $key): ?string
+    /**
+     * Nhãn dễ hiểu của giai đoạn một dòng chuyển tới.
+     *
+     * `null` ở ba trường hợp, và view xử một cách như nhau: dòng không ghi giai đoạn đích, loại
+     * vụ việc không còn khai báo giai đoạn ấy, và **cả loại vụ việc đã bị xoá mềm** — trường hợp
+     * thứ ba là lý do `?->` sau `matterType`, không phải một thói quen. Một quản trị viên xoá một
+     * loại vụ việc làm quan hệ này trả `null` cho mọi hồ sơ đang đứng trong loại đó, và trước lần
+     * vá này thì đó là một trang 500 cho từng khách hàng liên quan. Chốt chặn phía ghi nằm ở
+     * `MatterTypePolicy::delete()`.
+     */
+    private function stageLabel(?string $key): ?string
     {
         if (blank($key)) {
             return null;
         }
 
-        return $this->matter()->matterType->stage($key)?->client_label;
+        return $this->matter()->matterType?->stage($key)?->client_label;
     }
 
     // -------------------------------------------------------------------------------------
@@ -333,7 +513,7 @@ class MatterProgress extends Page
     // -------------------------------------------------------------------------------------
 
     /**
-     * Danh mục giấy tờ của hồ sơ.
+     * Danh mục giấy tờ của hồ sơ, đã chiếu xuống những gì khối 4 vẽ ra.
      *
      * **Lần hỏi `Gate` ở đây SỐNG SÓT một lần đột biến, và câu đó phải được nói ra thay vì để
      * người đọc sau tưởng nó đang giữ một điều kiện.** Đo được: xoá dòng `filter()` bên dưới thì
@@ -353,7 +533,10 @@ class MatterProgress extends Page
      * mỗi cái đỡ được lần quên của cái kia. Xoá dòng này vì "không test nào đỏ" là gỡ đúng cái
      * lưới sẽ đỡ lần sửa sau.
      *
-     * @return Collection<int, MatterChecklistItem>
+     * `status` đi qua dưới dạng ENUM chứ không phải chuỗi: view dùng nó cho cả màu lẫn khoá dịch,
+     * và một enum backed serialize ra đúng giá trị chuỗi của nó, không mang theo gì khác.
+     *
+     * @return Collection<int, array<string, mixed>>
      */
     public function checklistItems(): Collection
     {
@@ -361,7 +544,33 @@ class MatterProgress extends Page
 
         return $this->resolvedChecklist ??= $this->matter()->checklistItems()->get()
             ->filter(fn (MatterChecklistItem $item): bool => Gate::forUser($viewer)->allows('view', $item))
+            ->map(fn (MatterChecklistItem $item): array => [
+                'id' => $item->getKey(),
+                'name' => $item->name,
+                'status' => $item->status,
+                'is_required' => (bool) $item->is_required,
+                'description' => $item->description,
+                'rejection_reason' => $this->rejectionReason($item),
+                // Lối vào màn hình nộp: CHỈ hai trạng thái đang chờ ở khách (SPEC §8.3 mục 4).
+                // Khối này là danh sách "còn thiếu gì", không phải một bảng thao tác — một cái nút
+                // trên một đầu mục đã nhận đủ chỉ mời khách gửi lại thứ văn phòng đã có. Màn hình
+                // nộp thì nhận cả những trạng thái khác (nó là đường sửa sai duy nhất của khách);
+                // lối vào ở đây hẹp hơn một cách có chủ đích. URL do `SubmitDocument` sở hữu, nên
+                // gọi bằng LỚP chứ không ghép tay.
+                'submit_url' => $this->isWaitingOnTheClient($item->status)
+                    ? SubmitDocument::urlForItem($item)
+                    : null,
+            ])
             ->values();
+    }
+
+    /**
+     * Đang chờ ở KHÁCH, không ở văn phòng. Một chỗ duy nhất cho cả {@see self::outstandingItems()}
+     * (khối 2) lẫn cái nút nộp ở khối 4, vì hai chỗ đó phải luôn nói cùng một câu.
+     */
+    private function isWaitingOnTheClient(ChecklistItemStatus $status): bool
+    {
+        return in_array($status, [ChecklistItemStatus::Missing, ChecklistItemStatus::Rejected], true);
     }
 
     /**
@@ -385,7 +594,7 @@ class MatterProgress extends Page
      * Câu đó có ràng buộc tối thiểu 20 ký tự ở tầng Action chính vì nó được viết ra cho khách
      * đọc và làm theo. Một dấu "…" ở đây biến một hướng dẫn thành một lời trách.
      */
-    public function rejectionReason(MatterChecklistItem $item): ?string
+    private function rejectionReason(MatterChecklistItem $item): ?string
     {
         return $item->status === ChecklistItemStatus::Rejected && filled($item->rejection_reason)
             ? $item->rejection_reason
@@ -398,9 +607,10 @@ class MatterProgress extends Page
 
     /**
      * Tài liệu khách được xem. **Hai cờ độc lập** (SPEC §6.5 bước 3): `client_can_view` quyết
-     * định tài liệu có mặt trên trang, `client_can_download` quyết định có nút tải — xem
-     * {@see self::canDownload()}. Có tài liệu văn phòng cho khách BIẾT là đã có mà chưa cho tải,
-     * và đó là một lựa chọn hợp lệ của người công bố, không phải một trạng thái lỡ dở.
+     * định tài liệu có mặt trên trang, `client_can_download` quyết định có nút tải — ở hình chiếu
+     * dưới đây nó là `download_url === null` hay không. Có tài liệu văn phòng cho khách BIẾT là
+     * đã có mà chưa cho tải, và đó là một lựa chọn hợp lệ của người công bố, không phải một trạng
+     * thái lỡ dở.
      *
      * Lần lọc qua `Gate` là tầng độc lập giữ **nhóm D** ngoài trang này kể cả khi cả hai cờ đã
      * bị bật thẳng trong bảng và global scope quên mất luật của mình:
@@ -411,7 +621,11 @@ class MatterProgress extends Page
      * thêm ở Task 5 cùng lúc với màn hình nộp tệp, vì trước đó cổng không có đường nào sinh ra
      * bản thứ hai; test đứng sau nó ở `SubmitDocumentTest`.
      *
-     * @return Collection<int, Document>
+     * `id` được giữ lại trong hình chiếu: nó đã nằm sẵn trong đường tải trên chính trang, nên nó
+     * không nói thêm điều gì — và nó là thứ `SubmitDocumentTest` đọc để phân biệt hai bản của một
+     * chuỗi nộp lại.
+     *
+     * @return Collection<int, array<string, mixed>>
      */
     public function documents(): Collection
     {
@@ -430,22 +644,79 @@ class MatterProgress extends Page
         // vẽ hai dòng cùng tên đầu mục, cùng ngày, và khách không có cách nào biết dòng nào là
         // bản đang có hiệu lực — cái cũ lại chính là cái vừa bị văn phòng từ chối.
         //
-        // Nhận biết bản cũ bằng `parent_document_id` của một bản khác ĐANG HIỂN THỊ, không bằng
-        // số `version`: chuỗi có thể đứt (một bản giữa bị xoá mềm, hoặc bản mới nhất là nhóm
-        // khác nên không lên cổng), và khi ấy "số lớn nhất" không còn là câu trả lời đúng cho
-        // "cái nào đang thay thế cái nào". Không truy vấn thêm — cả hai vế đọc từ cùng tập hợp
-        // đã gác quyền ở trên, nên một bản cha mà khách KHÔNG được xem cũng không che được bản
-        // nào.
-        $superseded = $visible->pluck('parent_document_id')->filter()->all();
+        // **Luật: trong mỗi chuỗi, giữ bản có `version` LỚN NHẤT trong số những bản khách được
+        // xem.** Bản cũ của Task 5 nhận biết bản bị thay bằng `parent_document_id` của một bản
+        // ĐANG HIỂN THỊ, và bình luận cũ ở đây khẳng định cách ấy đứng vững khi chuỗi bị đứt.
+        // Nó không đứng vững, và rà soát Task 5 đã đo: bản 1 bị từ chối, bản 2 thay nó, bản 2
+        // bị xoá mềm, bản 3 nộp tiếp — `parent_document_id` của bản 3 trỏ vào bản 2 (chuỗi tra
+        // bằng `withTrashed()`), bản 2 không hiển thị, nên không ai trỏ vào bản 1 và trang vẽ ra
+        // bản 3 CÙNG bản 1. Đúng cái ca mà bình luận cũ nói nó xử được.
+        //
+        // Số `version` trả lời đúng ca đó vì nó là một con số ĐƠN ĐIỆU trong chuỗi và không bao
+        // giờ được cấp lại: `latestInSubmissionChain()` tra bằng `withTrashed()` nên một bản đã
+        // xoá mềm vẫn giữ số của mình. "Lớn nhất trong số bản khách được xem" vì thế đọc đúng cả
+        // khi bản mới nhất KHÔNG lên cổng (nó ở nhóm khác): khi ấy bản mới nhất khách được xem
+        // chính là câu trả lời đúng cho "cái nào đang có hiệu lực với anh/chị".
+        //
+        // Chuỗi nhận biết bằng đầu mục danh mục + nhóm A, đúng định nghĩa mà
+        // `StoresDocumentFile::latestInSubmissionChain()` dùng khi đánh số — tài liệu ngoài
+        // chuỗi (nhóm B, C, hoặc không gắn đầu mục nào) không bao giờ bị lọc, vì chúng không bao
+        // giờ mang `version` thứ hai. Không truy vấn thêm: mọi vế đọc từ cùng tập hợp đã gác
+        // quyền ở trên.
+        //
+        // Tiêu chí phụ `id` cho hai bản cùng số `version`: trạng thái đó xuất hiện được (ai đó
+        // ghi thẳng vào cột, hoặc hai lần nộp song song trên một cơ sở dữ liệu mà
+        // `lockForUpdate()` không có tác dụng — `latestInSubmissionChain()` ghi lại đúng hai
+        // trường hợp ấy), và khi nó xuất hiện thì khối này vẫn phải vẽ đúng MỘT dòng.
+        // Nó SỐNG SÓT một lần đột biến (bỏ `id` ra khỏi khoá sắp xếp: không test nào đỏ) vì
+        // không fixture nào dựng hai bản cùng số — ghi lại ở đây để người sau không đo lại nó
+        // như một khoảng trống.
+        $current = $visible
+            ->filter(fn (Document $document): bool => $this->belongsToASubmissionChain($document))
+            ->groupBy('matter_checklist_item_id')
+            ->map(fn (Collection $chain): int => $chain
+                ->sortBy(fn (Document $document): array => [$document->version, $document->getKey()])
+                ->last()
+                ->getKey())
+            ->all();
 
         return $this->resolvedDocuments = $visible
-            ->reject(fn (Document $document): bool => in_array($document->getKey(), $superseded, true))
+            ->reject(fn (Document $document): bool => $this->belongsToASubmissionChain($document)
+                && ! in_array($document->getKey(), $current, true))
             ->sortByDesc(fn (Document $document) => $document->published_at ?? $document->created_at)
+            ->map(fn (Document $document): array => [
+                'id' => $document->getKey(),
+                'title' => $document->title,
+                'issued_on' => $document->issued_at?->format('d/m/Y'),
+                'download_url' => $this->canDownload($document) ? $this->downloadUrl($document) : null,
+            ])
             ->values();
     }
 
+    /**
+     * Tài liệu này có nằm trong một chuỗi nộp lại không — tức có bị luật "chỉ bản mới nhất" ở
+     * {@see self::documents()} động tới không.
+     *
+     * Định nghĩa lấy nguyên của `StoresDocumentFile::latestInSubmissionChain()`: nhóm A gắn vào
+     * một đầu mục danh mục. Một tài liệu nhóm B hay C gắn vào cùng đầu mục là việc hợp lệ và
+     * KHÔNG phải một lần nộp tờ giấy đó, nên nó không bao giờ che một bản nào và không bao giờ
+     * bị che.
+     *
+     * **Điều kiện `group` ở đây SỐNG SÓT một lần đột biến, và câu đó phải được nói ra.** Bỏ nó
+     * đi (chỉ còn "có gắn đầu mục danh mục") thì KHÔNG test nào đỏ: hôm nay không fixture nào
+     * dựng một tài liệu nhóm B hay C gắn vào cùng một đầu mục với số `version` lớn hơn một bản
+     * nhóm A. Giữ vì định nghĩa chuỗi ở `StoresDocumentFile` có đúng hai vế, và một chuỗi định
+     * nghĩa rộng hơn ở đây sẽ để một văn bản của toà che mất tờ giấy khách vừa nộp — hai thứ
+     * không liên quan gì đến nhau ngoài việc cùng trỏ vào một dòng danh mục.
+     */
+    private function belongsToASubmissionChain(Document $document): bool
+    {
+        return $document->group === DocumentGroup::ClientProvided
+            && filled($document->matter_checklist_item_id);
+    }
+
     /** Cờ thứ hai, hỏi qua policy (`DocumentPolicy::download` hỏi lại `view` trước). */
-    public function canDownload(Document $document): bool
+    private function canDownload(Document $document): bool
     {
         return Gate::forUser($this->viewer())->allows('download', $document);
     }
@@ -456,7 +727,7 @@ class MatterProgress extends Page
      * là đường đi vòng qua policy trong `DocumentDownloadController`, và chữ ký URL không thay
      * thế một lần kiểm tra quyền.
      */
-    public function downloadUrl(Document $document): string
+    private function downloadUrl(Document $document): string
     {
         return $document->downloadUrlFor($this->viewer());
     }
@@ -473,7 +744,10 @@ class MatterProgress extends Page
      * Quan hệ đã sắp xếp tăng dần theo `due_date`, nên mốc gần nhất đứng đầu — đúng thứ tự một
      * người đọc trên điện thoại cần.
      *
-     * @return Collection<int, Deadline>
+     * `days_left` tính ở đây chứ không trong view: nó là một phép tính, và một phép tính trong
+     * Blade là một phép tính không ai đo được.
+     *
+     * @return Collection<int, array<string, mixed>>
      */
     public function deadlines(): Collection
     {
@@ -482,6 +756,11 @@ class MatterProgress extends Page
         return $this->resolvedDeadlines ??= $this->matter()->deadlines()->get()
             ->filter(fn (Deadline $deadline): bool => ! $deadline->is_completed
                 && Gate::forUser($viewer)->allows('view', $deadline))
+            ->map(fn (Deadline $deadline): array => [
+                'name' => $deadline->name,
+                'due_on' => $deadline->due_date->format('d/m/Y'),
+                'days_left' => (int) today()->diffInDays($deadline->due_date, false),
+            ])
             ->values();
     }
 
@@ -490,28 +769,40 @@ class MatterProgress extends Page
     // -------------------------------------------------------------------------------------
 
     /**
-     * Lối vào màn hình gửi yêu cầu (SPEC §8.3 mục 7). **Seam của Task 4, được Task 6 lật.**
+     * Lối vào màn hình gửi yêu cầu (SPEC §8.3 mục 7). **Seam của Task 4, đã được Task 6 lật.**
      *
      * Task 4 để hàm này trả `null` vì {@see MyRequests} chưa tồn tại, và khi `null` thì khối 7
      * đưa ra con đường CÓ THẬT lúc đó: số điện thoại văn phòng — một cái nút dẫn tới một trang
      * chưa có tệ hơn không có nút, vì nó biến một khách đang cần hỏi thành một khách vừa gặp lỗi.
-     * Trang đó đã có, nên hàm trả URL của nó.
+     * Trang đó đã có, nên hàm trả URL của nó, và kiểu trả về nói thẳng điều đó: `string`, không
+     * `?string`.
      *
      * Gọi bằng LỚP chứ không bằng một đường dẫn viết tay: trang kia sở hữu `$slug` và hình dạng
      * `{record}` của chính nó, nên một ngày nó đổi thì lời gọi này đi theo.
      *
-     * **Nói đúng cái giá của lần lật này, vì docblock cũ hứa rộng hơn sự thật.** View vẽ khối 7
-     * bằng `@if ($url = $this->requestEntryPoint()) … @else … @endif`, nên từ lúc hàm này thôi
-     * trả `null`, nhánh `@else` — câu "gọi điện", `portal_progress.blocks.requests.call` — không
-     * còn được vẽ ra nữa. Khoá dịch vẫn còn và nhánh vẫn còn; chúng chỉ thôi chạy tới. Để cả nút
-     * lẫn số điện thoại cùng hiện là một thay đổi trong MARKUP của khối 7, và tệp view đó đang
-     * được ba task dùng chung ở M5 (phán quyết của người điều phối: Task 6 chỉ lật hàm này, Task
-     * 5 chỉ sửa seam nút gửi của khối 4). Nên nó được ghi lại ở đây và giao cho vòng hợp nhất,
-     * chứ không sửa lén vào một tệp người khác đang viết dở.
+     * **Cái giá của lần lật ấy đã được trả ở vòng này.** Khi hàm thôi trả `null`, nhánh `@else`
+     * của view — câu "gọi điện" — không còn đường nào chạy tới, nên số điện thoại văn phòng lặng
+     * lẽ biến mất khỏi trang; docblock cũ ghi lại việc đó và giao cho vòng hợp nhất. Khối 7 giờ
+     * vẽ CẢ HAI, không rẽ nhánh: một cái nút gửi yêu cầu, và một số gọi được. Chúng không thay
+     * thế nhau — một người đang lo lắng lúc chín giờ tối muốn gọi, không muốn điền biểu mẫu — và
+     * một lời từ chối trên cổng (kể cả trang 404) cũng dẫn về đúng số ấy.
      */
-    public function requestEntryPoint(): ?string
+    public function requestEntryPoint(): string
     {
         return MyRequests::getUrl(['record' => $this->matter()->getKey()]);
+    }
+
+    /**
+     * Lối quay lại danh sách hồ sơ.
+     *
+     * **`getAllUrl()`, không `getUrl()`.** `MyMatters::getUrl()` là `/portal` trần, và `/portal`
+     * với một khách có ĐÚNG MỘT hồ sơ chuyển hướng thẳng về chính trang này — tức một lối quay
+     * lại dẫn người ta về chỗ họ đang đứng. Cờ `tat-ca` là thứ phân biệt hai chuyện đó, và trang
+     * kia sở hữu cả tên cờ lẫn hình dạng URL của mình.
+     */
+    public function backToListUrl(): string
+    {
+        return MyMatters::getAllUrl();
     }
 
     // -------------------------------------------------------------------------------------
@@ -524,6 +815,10 @@ class MatterProgress extends Page
      * đúng vì lý do đó. `whereKey()` trên truy vấn đã có `ClientPortalScope` trả `null` cho id
      * của khách khác y hệt như cho một id bịa đặt, và cả hai đi ra bằng cùng một câu trả lời —
      * SPEC §10.10.
+     *
+     * `#[Locked]` trên `$record` KHÔNG thay được lần hỏi này: khoá chặn một đường ghi từ trình
+     * duyệt, còn đây là tầng trả lời câu hỏi "người đang đọc có được xem hồ sơ này không", thứ
+     * phải được hỏi lại ở mọi request dù giá trị đến từ đâu.
      */
     private function resolveMatter(): Matter
     {
@@ -535,6 +830,16 @@ class MatterProgress extends Page
         abort_unless(Gate::forUser($viewer)->allows('view', $matter), 404);
 
         return $matter;
+    }
+
+    /**
+     * Hồ sơ đang đọc. **`private`**: giá trị trả về của một phương thức công khai đi thẳng vào
+     * response cập nhật Livewire, và bản ghi này mang id luật sư phụ trách cùng mọi cột nội bộ
+     * khác của hồ sơ. Xem mục "bề mặt RPC" ở docblock lớp.
+     */
+    private function matter(): Matter
+    {
+        return $this->resolvedMatter ??= $this->resolveMatter();
     }
 
     /**

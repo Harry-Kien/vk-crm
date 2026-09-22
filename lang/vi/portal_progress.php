@@ -72,17 +72,24 @@ return [
         'requests' => [
             'heading' => 'Gửi yêu cầu',
             'lead' => 'Anh/chị có điều gì chưa rõ về hồ sơ này?',
-            /*
-             * Lối vào màn hình gửi yêu cầu là của Task 6 (SPEC §8.3 mục 7). Cho tới khi màn hình
-             * đó có mặt, khối này đưa ra con đường CÓ THẬT hôm nay — gọi điện tới văn phòng —
-             * thay vì một cái nút dẫn tới một trang chưa tồn tại. Xem docblock
-             * `App\Filament\Portal\Pages\MatterProgress::requestEntryPoint()`.
-             */
-            'call' => 'Anh/chị gọi cho chúng tôi theo số :hotline, hoặc nhắn qua Zalo cùng số này.',
-            // CHƯA ĐƯỢC PHỤC VỤ HÔM NAY, và điều đó là cố ý: nhãn của cái nút mà
-            // `requestEntryPoint()` sẽ bật lên khi Task 6 có màn hình. Để sẵn ở đây để Task 6 chỉ
-            // phải đổi MỘT thân hàm, không phải đi tìm cả câu chữ.
             'open' => 'Gửi yêu cầu cho văn phòng',
+
+            /*
+             * **Cả hai cùng hiện, và đó là một lần sửa chứ không phải một lựa chọn thẩm mỹ.**
+             * Task 4 để khối 7 rẽ nhánh: có màn hình gửi yêu cầu thì vẽ cái nút, chưa có thì vẽ
+             * số điện thoại. Task 6 dựng màn hình ấy, nên từ đó nhánh "gọi điện" không còn đường
+             * nào chạy tới và số điện thoại văn phòng lặng lẽ biến mất khỏi trang.
+             *
+             * Một cái nút gửi yêu cầu không thay được một số gọi được: người bấm nút là người
+             * chấp nhận chờ, còn người đang lo lắng lúc chín giờ tối thì không. Nên khối 7 nói cả
+             * hai, và cái nút đứng trước vì nó là cách để lại dấu vết trong hồ sơ.
+             *
+             * `call` là NHÃN của một liên kết `tel:` nên nó ngắn và có số ở trong; `call_lead`
+             * mang phần giải thích. Tách ra vì một câu dài làm nhãn liên kết là một mục tiêu bấm
+             * trải dài ba dòng trên màn hình 375px.
+             */
+            'call_lead' => 'Hoặc anh/chị gọi thẳng cho văn phòng — số này dùng được cả trên Zalo:',
+            'call' => 'Gọi :hotline',
         ],
 
     ],
@@ -130,6 +137,36 @@ return [
         'overdue' => 'Đã quá hạn',
         'today' => 'Hạn hôm nay',
         'in_days' => 'Còn :count ngày',
+    ],
+
+    /**
+     * Lối quay lại danh sách hồ sơ, ở cuối trang chi tiết.
+     *
+     * Không phải "Quay lại" trống không: một nhãn chỉ nói hướng đi thì trên điện thoại không phân
+     * biệt được với nút back của trình duyệt, còn khách thì đang tìm "chỗ có tất cả hồ sơ của
+     * tôi".
+     */
+    'back_to_list' => 'Xem tất cả hồ sơ của tôi',
+
+    /*
+     * Chuỗi của `resources/views/errors/404.blade.php` — trang trả lời chung cho "không tồn tại"
+     * và "không có quyền" (SPEC §10.10 đòi hai tình huống ấy một câu trả lời duy nhất).
+     *
+     * **Ba câu này cố ý không nói bất cứ điều gì về thứ vừa được hỏi tới.** Không tên hồ sơ,
+     * không mã, không "bạn không có quyền" — bất kỳ khác biệt nào giữa hai tình huống cũng là một
+     * máy dò sự tồn tại, và test ghim hai response phải giống nhau ĐÚNG TỪNG BYTE.
+     *
+     * **Chúng nằm ở tệp này vì hôm nay chưa có tệp chuỗi dùng chung cho trang lỗi**, và tệp này
+     * là tệp chuỗi mà vòng sửa trang chi tiết sở hữu. Trang 404 phục vụ CẢ panel nội bộ, nên khi
+     * có người dựng `lang/vi/errors.php` thì ba khoá dưới đây nên chuyển sang đó — ghi ra ở đây
+     * thay vì để người sau tự đoán vì sao chúng ở chỗ này.
+     */
+    'not_found' => [
+        'heading' => 'Không mở được trang này',
+        'body' => 'Đường dẫn anh/chị vừa mở không còn dùng được, hoặc không thuộc tài khoản đang đăng nhập. Anh/chị thử mở lại từ trang chính, hoặc gọi cho văn phòng để chúng tôi tra giúp.',
+        'home' => 'Về trang chính',
+        'call_lead' => 'Gọi cho văn phòng — số này dùng được cả trên Zalo:',
+        'call' => 'Gọi :hotline',
     ],
 
 ];

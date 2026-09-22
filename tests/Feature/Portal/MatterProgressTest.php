@@ -775,7 +775,7 @@ it('carries no authorised record on a public property, so every request must res
     $page = new MatterProgress;
     $page->mount($this->matter->getKey());
 
-    expect($page->matter()->is($this->matter))->toBeTrue();
+    expect($page->getHeading())->toBe($this->matter->title);
 
     foreach ((new ReflectionClass($page))->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
         if ($property->isStatic()) {
@@ -793,17 +793,477 @@ it('refuses again when a fresh component is rebuilt from the id alone', function
 
     $id = $this->matter->getKey();
 
-    $rebuild = function () use ($id): Matter {
+    $rebuild = function () use ($id): string {
         $page = new MatterProgress;
         $page->record = $id;
 
-        return $page->matter();
+        return (string) $page->getHeading();
     };
 
-    expect($rebuild()->is($this->matter))->toBeTrue();
+    expect($rebuild())->toBe($this->matter->title);
 
     // Văn phòng rút hồ sơ khỏi cổng giữa hai request.
     $this->matter->update(['is_published_to_portal' => false]);
 
     expect($rebuild(...))->toThrow(NotFoundHttpException::class);
+});
+
+// =========================================================================================
+// C1 — BIÊN BẢN CHỈ RA ĐỜI TỪ MỘT RESPONSE ĐÃ HOÀN TẤT VÀ CÓ THỂ MANG THÂN
+// =========================================================================================
+
+/**
+ * **Một request `HEAD` không ghi biên bản nào.** Filament đăng ký route cho cả `GET` lẫn `HEAD`,
+ * trang vẫn dựng đủ, rồi Symfony cắt sạch thân trước khi trả lời — khách nhận về KHÔNG BYTE NÀO.
+ * Một dòng `stage_log_views` sinh ra từ đó nói "chúng tôi đã cho anh/chị xem cập nhật này" về một
+ * trang chưa từng có nội dung, và nó không phân biệt được với một dòng thật.
+ *
+ * Phép đo gồm cả tiền đề: nếu `HEAD` một ngày nào đó trả về thân thật thì khẳng định "không byte
+ * nào" đỏ trước, và test này không còn xanh vì một lý do sai.
+ */
+it('writes no view receipt for a HEAD request, which carries no body at all', function () {
+    StageLog::factory()->for($this->matter)->published()->create(['public_content' => 'Toà đã nhận đơn khởi kiện.']);
+
+    $response = $this->actingAs($this->clientUser, 'client')->call('HEAD', progressUrl($this->matter));
+
+    expect($response->getStatusCode())->toBe(200)
+        ->and($response->getContent())->toBe('')
+        ->and(StageLogView::withoutGlobalScope(ClientPortalScope::class)->count())->toBe(0);
+
+    // Vế dương, cùng tài khoản và cùng hồ sơ: một `GET` thì biên bản được ghi. Không có vế này
+    // thì test trên xanh y hệt khi việc ghi biên bản hỏng hoàn toàn.
+    $this->actingAs($this->clientUser, 'client')->get(progressUrl($this->matter))->assertOk();
+
+    expect(StageLogView::withoutGlobalScope(ClientPortalScope::class)->count())->toBe(1);
+});
+
+/**
+ * **Một lỗi xảy ra SAU vòng lặp biên bản không được để lại dòng nào.** Trước vòng sửa này việc
+ * ghi nằm giữa lúc render: `firstOrCreate` commit ngay, ngoài mọi transaction, trước khi có một
+ * response nào tồn tại — nên một exception ở khối 4 hay khối 7 trả về trang lỗi 500 cho khách mà
+ * vẫn để lại đủ biên bản "đã xem".
+ *
+ * Chỗ nổ được chọn là `ChecklistProgress` (khối 4) vì nó nằm SAU khối 3 trong chính view: nếu nó
+ * nổ trước khi dòng thời gian được vẽ thì test này đo một thứ khác, dễ hơn.
+ */
+it('writes no view receipt when the page explodes after the timeline has been drawn', function () {
+    StageLog::factory()->for($this->matter)->published()->create(['public_content' => 'Toà đã nhận đơn khởi kiện.']);
+    MatterChecklistItem::factory()->for($this->matter)->create([
+        'name' => 'Giấy chứng nhận quyền sử dụng đất',
+        'status' => ChecklistItemStatus::Missing,
+    ]);
+
+    $this->app->bind(ChecklistProgress::class, fn () => throw new RuntimeException('Khối 4 vỡ giữa lúc render'));
+
+    $this->actingAs($this->clientUser, 'client')->get(progressUrl($this->matter))->assertStatus(500);
+
+    expect(StageLogView::withoutGlobalScope(ClientPortalScope::class)->count())->toBe(0);
+
+    // Vế dương: cùng hồ sơ, cùng fixture, khối 4 lành lại thì trang 200 và biên bản được ghi.
+    $this->app->bind(ChecklistProgress::class, fn () => new ChecklistProgress);
+
+    $this->actingAs($this->clientUser, 'client')->get(progressUrl($this->matter))->assertOk();
+
+    expect(StageLogView::withoutGlobalScope(ClientPortalScope::class)->count())->toBe(1);
+});
+
+// =========================================================================================
+// I1 — `$record` KHÔNG PHẢI THỨ TRÌNH DUYỆT ĐẶT ĐƯỢC
+// =========================================================================================
+
+/**
+ * **Một `record` giả mạo trên request cập nhật Livewire phải dừng ở framework.** Rà soát đo được
+ * rằng một `updates:{"record": …}` trỏ sang một hồ sơ KHÁC CỦA CÙNG KHÁCH trả về 200 kèm mảnh
+ * HTML của hồ sơ kia trong khi thanh địa chỉ vẫn là hồ sơ đầu — và ghi luôn biên bản của hồ sơ
+ * kia. Cách ly giữa hai khách hàng không hề thủng; khuyết tật là thuộc tính này trình duyệt ghi
+ * được.
+ *
+ * Khoá KHÔNG thay cho việc gác: {@see MatterProgress::resolveMatter()} vẫn hỏi `Gate` ở mọi
+ * request, và các test 404 ở trên vẫn là tầng thật.
+ *
+ * Khẳng định theo CÂU CHỮ chứ không theo tên lớp: Livewire bọc lại exception của mình trước khi
+ * nó ra tới đây (cùng phép đo đã ghi ở `MyRequestsTest`).
+ */
+it('refuses a forged record that names another matter of the same client', function () {
+    $sibling = Matter::factory()->for($this->client)->create([
+        'is_published_to_portal' => true,
+        'title' => 'Hồ sơ thứ hai của cùng khách hàng',
+    ]);
+    $siblingLog = StageLog::factory()->for($sibling)->published()->create(['public_content' => 'Cập nhật của hồ sơ thứ hai.']);
+
+    Filament::setCurrentPanel('portal');
+
+    try {
+        $this->actingAs($this->clientUser, 'client')
+            ->livewire(MatterProgress::class, ['record' => $this->matter->getKey()])
+            ->set('record', $sibling->getKey());
+
+        $this->fail('Livewire đáng lẽ phải từ chối một thuộc tính đã khoá');
+    } catch (Throwable $exception) {
+        expect($exception->getMessage())->toContain('Cannot update locked property')
+            ->and($exception->getMessage())->toContain('record');
+    }
+
+    // Và không một biên bản nào của hồ sơ kia được ghi bằng đường đó.
+    expect(StageLogView::withoutGlobalScope(ClientPortalScope::class)->where('stage_log_id', $siblingLog->getKey())->count())->toBe(0);
+
+    // Vế dương: hồ sơ thứ hai vẫn mở bình thường bằng ĐƯỜNG DẪN của chính nó.
+    $this->actingAs($this->clientUser, 'client')
+        ->get(progressUrl($sibling))
+        ->assertOk()
+        ->assertSee('Cập nhật của hồ sơ thứ hai.', escape: false);
+});
+
+// =========================================================================================
+// I2 — "MỚI NHẤT" PHẢI XÁC ĐỊNH ĐƯỢC KHI HAI CẬP NHẬT CÙNG MỘT NGÀY
+// =========================================================================================
+
+/**
+ * **`occurred_at` đến từ một ô chọn NGÀY, nên nó luôn là nửa đêm.** Hai cập nhật trong cùng một
+ * ngày bằng nhau tuyệt đối ở cột sắp xếp — đó là trường hợp thường ngày, không phải một ca biên.
+ * Không có tiêu chí phụ thì thứ tự do bộ tối ưu truy vấn quyết định, và khi nó đổi thì khối 2 sẽ
+ * đưa một chỉ dẫn ĐÃ BỊ THAY THẾ ra làm việc khách đang phải làm.
+ *
+ * **Test này một mình KHÔNG ghim được tiêu chí phụ** và câu đó phải được nói ra: SQLite lẫn
+ * MariaDB hôm nay đều tình cờ trả về `id` giảm dần, nên xoá tiêu chí phụ vẫn xanh. Thứ ghim là
+ * test cấu trúc ngay dưới; test này là lưới đo HÀNH VI cho ngày thứ tự ấy đổi.
+ */
+it('puts the newer of two updates from the same day first, and reads the latest client_action from it', function () {
+    $sameDay = today();
+
+    $older = StageLog::factory()->for($this->matter)->published()->create([
+        'occurred_at' => $sameDay,
+        'public_content' => 'Buổi sáng: chúng tôi đã nộp đơn.',
+        'client_action' => 'Chỉ dẫn cũ, đã bị thay thế.',
+    ]);
+    $newer = StageLog::factory()->for($this->matter)->published()->create([
+        'occurred_at' => $sameDay,
+        'public_content' => 'Buổi chiều: toà đã nhận đơn.',
+        'client_action' => 'Chỉ dẫn đang có hiệu lực.',
+    ]);
+
+    // Tiền đề của phép đo: hai dòng thật sự bằng nhau ở cột sắp xếp, và dòng mới có id lớn hơn.
+    expect($older->occurred_at->equalTo($newer->occurred_at))->toBeTrue()
+        ->and($newer->getKey())->toBeGreaterThan($older->getKey());
+
+    $html = $this->actingAs($this->clientUser, 'client')->get(progressUrl($this->matter))->assertOk()->getContent();
+
+    expect(strpos($html, 'Buổi chiều: toà đã nhận đơn.'))
+        ->toBeLessThan(strpos($html, 'Buổi sáng: chúng tôi đã nộp đơn.'));
+
+    $todo = substr($html, (int) strpos($html, 'data-portal-block="2"'), (int) strpos($html, 'data-portal-block="3"') - (int) strpos($html, 'data-portal-block="2"'));
+
+    expect($todo)->toContain('Chỉ dẫn đang có hiệu lực.')
+        ->and($todo)->not->toContain('Chỉ dẫn cũ, đã bị thay thế.');
+});
+
+/**
+ * Thứ THẬT SỰ ghim tiêu chí phụ, vì nó hỏi chính câu lệnh chứ không hỏi thứ tự mà một cơ sở dữ
+ * liệu tình cờ trả về hôm nay. `stage_logs` là bảng chỉ ghi thêm (`StageLogImmutable`), nên `id`
+ * tăng dần đúng theo thứ tự sự việc được ghi vào — nó là tiêu chí phụ đúng nghĩa, không phải một
+ * cột được mượn tạm.
+ */
+it('breaks the tie on the stage log relation with a descending id', function () {
+    $orders = $this->matter->stageLogs()->getQuery()->toBase()->orders;
+
+    expect($orders)->toBe([
+        ['column' => 'occurred_at', 'direction' => 'desc'],
+        ['column' => 'id', 'direction' => 'desc'],
+    ]);
+});
+
+// =========================================================================================
+// I3 — MỘT LOẠI VỤ VIỆC BỊ XOÁ MỀM KHÔNG ĐƯỢC LÀM VỠ TRANG CỦA KHÁCH
+// =========================================================================================
+
+/**
+ * Một lần bấm xoá ở màn hình thiết lập không được biến trang của mọi khách hàng đang dùng loại vụ
+ * việc đó thành một trang lỗi. Trường hợp "xoá mềm một GIAI ĐOẠN" đã được xử lý từ Task 4; đây là
+ * trường hợp rộng hơn — xoá mềm cả LOẠI vụ việc — và nó chạm vào hai chỗ khác nhau:
+ * `Matter::currentStage()` (khối 1) và `MatterProgress::stageLabel()` (khối 3).
+ */
+it('still serves the page when the matter type behind it has been soft deleted', function () {
+    StageLog::factory()->for($this->matter)->published()->transition('collecting_documents', 'filed')->create([
+        'public_content' => 'Toà đã nhận đơn khởi kiện.',
+    ]);
+
+    $this->matter->matterType->delete();
+
+    $this->actingAs($this->clientUser, 'client')
+        ->get(progressUrl($this->matter))
+        ->assertOk()
+        // Khối 1 nói một câu tiếng Việt thay vì để trống, và KHÔNG vỡ.
+        ->assertSee(__('portal_progress.blocks.status.unknown'), escape: false)
+        // Khối 3 vẫn kể được diễn biến, chỉ thiếu cái nhãn giai đoạn không còn khai báo ở đâu.
+        ->assertSee('Toà đã nhận đơn khởi kiện.', escape: false);
+});
+
+// =========================================================================================
+// I4 — TRANG LÀ MỘT BỀ MẶT RPC: GIÁ TRỊ TRẢ VỀ CỦA MỌI PHƯƠNG THỨC CÔNG KHAI ĐI VÀO RESPONSE
+// =========================================================================================
+
+/**
+ * **Mọi phương thức `public` của một component Livewire đều gọi được từ trình duyệt, và giá trị
+ * trả về của nó được serialize thẳng vào response.** Rà soát đo được: `currentStage()` trả về cả
+ * dòng `matter_type_stages` — nhãn NỘI BỘ, danh sách giai đoạn kế tiếp được phép, cờ kết thúc,
+ * số ngày cập nhật mặc định — còn `matter()` và `timeline()` trả về nguyên bản ghi kèm id nhân sự
+ * và id người công bố. Ranh giới tuyệt đối (`internal_note`, `description_internal`) vẫn đứng;
+ * cái thủng là SPEC §8, "không thuật ngữ nội bộ trước mặt khách".
+ *
+ * Test phát biểu LUẬT chứ không liệt kê tên hàm: mọi phương thức công khai KHAI BÁO TRÊN CHÍNH
+ * LỚP NÀY mà gọi được không tham số đều bị gọi, kết quả đem `json_encode` — đúng hình dạng đường
+ * đi vào response — và không một mảnh ngôn ngữ nội bộ nào được có mặt. Một hàm mới trả về model
+ * sẽ làm test này đỏ mà không ai phải nhớ ra là phải thêm nó vào một danh sách.
+ */
+it('serialises no internal terminology from any public method the browser can call', function () {
+    $stage = $this->matter->matterType->stage('collecting_documents');
+
+    StageLog::factory()->for($this->matter)->published()->create([
+        'public_content' => 'Toà đã nhận đơn khởi kiện.',
+        'internal_note' => PROGRESS_MARKER,
+    ]);
+    MatterChecklistItem::factory()->for($this->matter)->create(['status' => ChecklistItemStatus::Missing]);
+    Document::factory()->for($this->matter)->group(DocumentGroup::Issued)->create([
+        'status' => DocumentStatus::Published,
+        'client_can_view' => true,
+        'client_can_download' => true,
+    ]);
+    Deadline::factory()->for($this->matter)->published()->create();
+
+    Filament::setCurrentPanel('portal');
+    $this->actingAs($this->clientUser, 'client');
+
+    $page = new MatterProgress;
+    $page->mount($this->matter->getKey());
+
+    $called = [];
+
+    foreach ((new ReflectionClass($page))->getMethods(ReflectionMethod::IS_PUBLIC) as $method) {
+        if ($method->isStatic() || $method->getDeclaringClass()->getName() !== MatterProgress::class) {
+            continue;
+        }
+
+        if ($method->getNumberOfRequiredParameters() > 0) {
+            continue;
+        }
+
+        $called[$method->getName()] = json_encode($method->invoke($page), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
+    // Tiền đề: thật sự có bề mặt để đo, và nó gồm đúng những hàm khối 1–7 đọc dữ liệu.
+    expect($called)->toHaveKeys(['currentStage', 'timeline', 'documents', 'deadlines', 'checklistItems']);
+
+    $json = implode("\n", $called);
+
+    expect($json)
+        // Vế dương: những gì khách ĐƯỢC đọc vẫn đi ra, nếu không thì mọi khẳng định âm vô nghĩa.
+        ->toContain('Toà đã nhận đơn khởi kiện.')
+        ->toContain($stage->client_label)
+        // Ngôn ngữ nội bộ của bảng giai đoạn.
+        ->not->toContain($stage->label)
+        ->not->toContain('allowed_next_stages')
+        ->not->toContain('is_terminal')
+        ->not->toContain('default_update_interval_days')
+        // Nhân sự của văn phòng.
+        ->not->toContain('lead_lawyer_id')
+        ->not->toContain('published_by')
+        ->not->toContain('created_by')
+        // Và ranh giới tuyệt đối, ghim lại ở đúng đường đi này.
+        ->not->toContain('internal_note')
+        ->not->toContain(PROGRESS_MARKER);
+});
+
+/**
+ * Cùng một luật, đo trên **response cập nhật Livewire thật** — "JSON của cổng" mà SPEC §11 nói
+ * tới. `assertReturned()` đọc đúng `effects.returns.0`, tức giá trị mà Livewire đặt vào response
+ * gửi về trình duyệt.
+ */
+it('returns no internal stage row over a real livewire call', function () {
+    $stage = $this->matter->matterType->stage('collecting_documents');
+
+    Filament::setCurrentPanel('portal');
+
+    $returned = null;
+
+    $this->actingAs($this->clientUser, 'client')
+        ->livewire(MatterProgress::class, ['record' => $this->matter->getKey()])
+        ->call('currentStage')
+        ->assertReturned(function ($value) use (&$returned): bool {
+            $returned = $value;
+
+            return true;
+        });
+
+    $json = json_encode($returned, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    expect($json)->toContain($stage->client_label)
+        ->and($json)->not->toContain($stage->label)
+        ->and($json)->not->toContain('allowed_next_stages')
+        ->and($json)->not->toContain('default_update_interval_days');
+});
+
+// =========================================================================================
+// MỘT LỜI TỪ CHỐI CŨNG PHẢI BẰNG TIẾNG VIỆT, VÀ PHẢI CHỈ RA MỘT ĐƯỜNG ĐI TIẾP
+// =========================================================================================
+
+/**
+ * SPEC §10.10 đòi "không có quyền" và "không tồn tại" cùng một câu trả lời; SPEC §8 đòi câu trả
+ * lời ấy bằng tiếng Việt và không dùng thuật ngữ. Trước vòng này không có
+ * `resources/views/errors/404.blade.php`, nên một lời từ chối trên request cập nhật Livewire hiện
+ * ra trang 404 mặc định của Laravel — tiếng Anh — bên trong hộp lỗi của Livewire.
+ *
+ * Hai khẳng định, và cái thứ hai là cái khó: hai tình huống khác nhau phải trả về **đúng từng
+ * byte** cùng một trang.
+ */
+it('answers a denial with a vietnamese 404 that carries the office phone number', function () {
+    $otherClient = Client::factory()->create();
+    $otherMatter = Matter::factory()->for($otherClient)->create([
+        'is_published_to_portal' => true,
+        'title' => 'Hồ sơ của khách khác '.PROGRESS_MARKER,
+    ]);
+
+    $denied = $this->actingAs($this->clientUser, 'client')->get(progressUrl($otherMatter))->assertNotFound()->getContent();
+
+    expect($denied)->toContain(__('portal_progress.not_found.heading'))
+        ->and($denied)->toContain(__('portal_progress.not_found.body'))
+        // Đường đi tiếp KHÔNG qua một trang: người không mở được trang cần một số điện thoại.
+        ->and($denied)->toContain(config('vkcrm.brand.hotline'))
+        ->and($denied)->toContain('tel:')
+        // Không một chữ tiếng Anh nào của trang mặc định Laravel.
+        ->and($denied)->not->toContain('Not Found')
+        // Và không một chữ nào về hồ sơ vừa bị từ chối.
+        ->and($denied)->not->toContain(PROGRESS_MARKER)
+        ->and($denied)->not->toContain($otherMatter->code);
+
+    // §10.10: một id không tồn tại trả về ĐÚNG TỪNG BYTE cùng một trang. Một khác biệt dù nhỏ là
+    // một máy dò sự tồn tại.
+    $missing = $this->actingAs($this->clientUser, 'client')->get(progressUrl(999999))->assertNotFound()->getContent();
+
+    expect($missing)->toBe($denied);
+});
+
+// =========================================================================================
+// KHỐI 7 VÀ LỐI QUAY LẠI — hai thứ khách chạm vào được
+// =========================================================================================
+
+/**
+ * `requestEntryPoint()` nay luôn trả về một URL, nên nhánh `@else` cũ — câu "gọi điện" — không
+ * còn được vẽ ra nữa, và số điện thoại văn phòng lặng lẽ biến mất khỏi trang. Khối 7 giờ nói cả
+ * hai: một cái nút gửi yêu cầu, VÀ một số gọi được. Chúng không thay thế nhau — một người đang
+ * lo lắng vào lúc chín giờ tối muốn gọi, không muốn điền biểu mẫu.
+ */
+it('keeps the office phone number on the page beside the button to send a request', function () {
+    $region = progressRegion(
+        $this->actingAs($this->clientUser, 'client')->get(progressUrl($this->matter))->assertOk()->getContent()
+    );
+
+    expect($region)->toContain(__('portal_progress.blocks.requests.open'))
+        ->and($region)->toContain(config('vkcrm.brand.hotline'))
+        ->and($region)->toContain('tel:'.config('vkcrm.brand.hotline'));
+});
+
+/** @return list<string> `href` của mọi thẻ `<a>` mang đúng nhãn `$label`, đọc từ HTML thật. */
+function progressHrefsFor(string $html, string $label): array
+{
+    preg_match_all(
+        '/<a\b[^>]*\bhref="([^"]*)"[^>]*>(?:(?!<\/a>).)*?'.preg_quote($label, '/').'/su',
+        $html,
+        $matches,
+    );
+
+    return array_map(
+        fn (string $href): string => html_entity_decode($href, ENT_QUOTES | ENT_HTML5),
+        $matches[1],
+    );
+}
+
+/**
+ * **Phép đo ĐI THEO ĐƯỜNG LINK, không hỏi mã nguồn** — cùng thiết bị mà màn hình danh sách vừa
+ * phải dựng cho mục điều hướng của nó. Khách có ĐÚNG MỘT hồ sơ là ca khó: `/portal` trần sẽ đá
+ * họ ngược về đúng trang này, nên một lối quay lại chỉ có thật khi nó mang cờ `tat-ca`.
+ *
+ * `200` chứ không `302` là toàn bộ nội dung của khẳng định cuối.
+ */
+it('puts a back link on the detail page that really opens the matter list', function () {
+    $this->actingAs($this->clientUser, 'client');
+
+    // Tiền đề: khách này có đúng một hồ sơ, nên gốc cổng CHUYỂN HƯỚNG. Nếu dòng này đỏ thì khẳng
+    // định cuối xanh với một `href` bất kỳ trỏ vào `/portal`.
+    $this->get(url('/portal'))->assertRedirect(progressUrl($this->matter));
+
+    $region = progressRegion($this->get(progressUrl($this->matter))->assertOk()->getContent());
+
+    $hrefs = progressHrefsFor($region, __('portal_progress.back_to_list'));
+
+    expect($hrefs)->not->toBeEmpty()
+        ->and(array_values(array_unique($hrefs)))->toHaveCount(1);
+
+    $this->get($hrefs[0])
+        ->assertOk()
+        ->assertSee(__('portal_matters.heading'), escape: false);
+});
+
+// =========================================================================================
+// KHỐI 5 — CHUỖI NỘP LẠI BỊ ĐỨT VẪN CHỈ ĐƯỢC VẼ MỘT BẢN
+// =========================================================================================
+
+/**
+ * **Một chuỗi nộp lại bị đứt giữa chừng không được làm bản ĐÃ BỊ TỪ CHỐI hiện lại cạnh bản đang
+ * có hiệu lực.**
+ *
+ * Fixture là đúng trạng thái cơ sở dữ liệu mà `SubmitClientDocument` sinh ra khi một bản giữa
+ * chuỗi biến mất khỏi tầm nhìn của khách: bản 1 bị từ chối, bản 2 thay nó, bản 2 bị xoá mềm, bản
+ * 3 nộp tiếp — và `parent_document_id` của bản 3 trỏ vào bản 2 chứ không vào bản 1, vì
+ * `latestInSubmissionChain()` tra bằng `withTrashed()` (một bản đã xoá mềm vẫn chiếm số version
+ * của nó).
+ *
+ * Luật cũ — "bản cũ là bản nào được một bản ĐANG HIỂN THỊ trỏ vào" — không bắt được ca này: bản
+ * 2 không hiển thị, nên không ai trỏ vào bản 1, và trang vẽ ra bản 3 CÙNG bản 1. Hai dòng cùng
+ * tên đầu mục, cùng ngày, và cái cũ chính là cái vừa bị văn phòng từ chối.
+ *
+ * Hôm nay chưa có nút xoá tài liệu ở panel nội bộ, nhưng chuyển nhóm thì có — và chuyển một bản
+ * giữa chuỗi sang một nhóm khách không xem được làm đứt chuỗi y hệt.
+ */
+it('shows only the newest visible version when a middle version of the chain is gone', function () {
+    $item = MatterChecklistItem::factory()->for($this->matter)->create([
+        'name' => 'Sổ đỏ',
+        'status' => ChecklistItemStatus::PendingReview,
+    ]);
+
+    $chain = function (int $version, ?Document $parent) use ($item): Document {
+        return Document::factory()->for($this->matter)->pendingReview()->create([
+            'matter_checklist_item_id' => $item->getKey(),
+            'title' => 'Sổ đỏ',
+            'version' => $version,
+            'parent_document_id' => $parent?->getKey(),
+        ]);
+    };
+
+    $first = $chain(1, null);
+    $second = $chain(2, $first);
+    $second->delete();
+    $third = $chain(3, $second);
+
+    // Một chuỗi KHÁC trên cùng hồ sơ: nó phải vẫn hiện ra, nếu không thì luật mới đang gom nhầm.
+    $other = Document::factory()->for($this->matter)->pendingReview()->create([
+        'title' => 'Chứng minh nhân dân',
+        'version' => 1,
+    ]);
+
+    // Tiền đề: bản giữa thật sự biến mất khỏi tầm nhìn, và bản mới trỏ vào chính nó.
+    expect($second->fresh()?->trashed())->toBeTrue()
+        ->and($third->parent_document_id)->toBe($second->getKey());
+
+    $html = $this->actingAs($this->clientUser, 'client')->get(progressUrl($this->matter))->assertOk()->getContent();
+
+    $start = (int) strpos($html, 'data-portal-block="5"');
+    $documents = substr($html, $start, (int) strpos($html, 'data-portal-block="6"') - $start);
+
+    expect($documents)->toContain('documents/'.$third->getKey().'/download')
+        ->and($documents)->toContain('documents/'.$other->getKey().'/download')
+        // Bản vừa bị từ chối KHÔNG đứng cạnh bản đang có hiệu lực.
+        ->and($documents)->not->toContain('documents/'.$first->getKey().'/download')
+        ->and($documents)->not->toContain('documents/'.$second->getKey().'/download')
+        // Đúng hai dòng: bản mới nhất của chuỗi này, và chuỗi kia.
+        ->and(substr_count($documents, '/download'))->toBe(2);
 });
