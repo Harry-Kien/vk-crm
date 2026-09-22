@@ -3,6 +3,8 @@
 use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
 use App\Enums\UserPosition;
+use App\Filament\Portal\Pages\MatterProgress;
+use App\Filament\Portal\Pages\SubmitDocument;
 use App\Models\ChecklistTemplate;
 use App\Models\Client;
 use App\Models\ClientUser;
@@ -18,6 +20,7 @@ use App\Models\StageLogView;
 use App\Models\User;
 use Database\Seeders\DatabaseSeeder;
 use Database\Seeders\Support\DemoPdf;
+use Filament\Facades\Filament;
 use Illuminate\Support\Facades\Storage;
 use Spatie\Activitylog\Models\Activity;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
@@ -63,6 +66,66 @@ it('seeds twelve clients each with one or two portal accounts', function () {
         ->and(Client::doesntHave('clientUsers')->count())->toBe(0)
         ->and(Client::withCount('clientUsers')->get()->max('client_users_count'))->toBe(2)
         ->and(ClientUser::where('email', 'khach1@example.com')->exists())->toBeTrue();
+});
+
+/**
+ * **Khách demo được ghi trong tài liệu phải đi hết được luồng giấy tờ.**
+ *
+ * Trước vòng hợp nhất M5, mọi đầu mục trên cả hai hồ sơ của `khach1@example.com` đều ở
+ * `accepted` hoặc `not_applicable`, nên màn hình nộp giấy tờ KHÔNG BAO GIỜ vẽ ra một cái nút —
+ * và người demo mốc này bằng đúng tài khoản được ghi trong tài liệu sẽ kết luận rằng màn hình nộp
+ * không với tới được. Chỉ `khach6` đi được luồng đó, và không có dòng nào ở đâu nói ra chuyện đó.
+ *
+ * Bốn trạng thái phải cùng có mặt trên MỘT hồ sơ, vì bốn trạng thái ấy là bốn câu khác nhau mà
+ * màn hình phải nói: đang chờ văn phòng, cần nộp lại kèm lý do, chưa nộp (bắt buộc), và chưa nộp
+ * nhưng không bắt buộc — vế cuối là thứ khối "việc anh/chị cần làm" tách thành nhóm thứ hai.
+ */
+it('lets the documented first demo client walk the whole paperwork journey', function () {
+    $demo = ClientUser::query()->where('email', 'khach1@example.com')->firstOrFail();
+
+    $items = MatterChecklistItem::query()
+        ->whereIn('matter_id', Matter::query()->where('client_id', $demo->client_id)->pluck('id'))
+        ->get();
+
+    $byStatus = fn (ChecklistItemStatus $status) => $items->where('status', $status);
+
+    expect($byStatus(ChecklistItemStatus::PendingReview))->not->toBeEmpty()
+        ->and($byStatus(ChecklistItemStatus::Rejected))->not->toBeEmpty()
+        // Chưa nộp, BẮT BUỘC — đây là dòng làm nút "Gửi giấy tờ này" hiện ra.
+        ->and($byStatus(ChecklistItemStatus::Missing)->where('is_required', true))->not->toBeEmpty()
+        // Và chưa nộp, KHÔNG bắt buộc — nhóm thứ hai của khối "việc anh/chị cần làm".
+        ->and($byStatus(ChecklistItemStatus::Missing)->where('is_required', false))->not->toBeEmpty();
+
+    // Lời từ chối phải là một câu THẬT khách đọc và làm theo được, không phải một chỗ điền chữ.
+    $rejected = $byStatus(ChecklistItemStatus::Rejected)->first();
+
+    expect($rejected->rejection_reason)->not->toBeNull()
+        ->and(mb_strlen((string) $rejected->rejection_reason))->toBeGreaterThanOrEqual(20)
+        ->and($rejected->reviewed_by)->not->toBeNull()
+        // Đã từng có một tệp gửi lên rồi mới bị trả lại — nếu không thì "nộp lại" là một câu
+        // không có gốc, và chuỗi version bắt đầu sai.
+        ->and(Document::query()->where('matter_checklist_item_id', $rejected->getKey())->count())->toBeGreaterThan(0);
+
+    // Và cái quan trọng nhất: đi THẬT. Hình dạng dữ liệu đúng mà nút không vẽ ra thì người demo
+    // vẫn kết luận màn hình nộp không với tới được — luật của mốc này: một test nói về một đường
+    // ở tầng request thì phải gửi một request.
+    $matter = Matter::query()
+        ->where('client_id', $demo->client_id)
+        ->whereIn('id', $items->where('status', ChecklistItemStatus::Rejected)->pluck('matter_id'))
+        ->firstOrFail();
+
+    Filament::setCurrentPanel('portal');
+
+    $html = test()->actingAs($demo, 'client')
+        ->get(MatterProgress::getUrl(['record' => $matter->getKey()], panel: 'portal'))
+        ->assertOk()
+        ->getContent();
+
+    expect($html)->toContain($rejected->rejection_reason)
+        ->toContain(SubmitDocument::urlForItem($rejected));
+
+    // Và màn hình nộp mở được từ chính đường dẫn ấy.
+    test()->actingAs($demo, 'client')->get(SubmitDocument::urlForItem($rejected))->assertOk();
 });
 
 /**
@@ -150,8 +213,10 @@ it('routes every seeded document through the production actions, not through add
         ->and(Activity::query()->where('event', 'document_submitted')->count())->toBeGreaterThanOrEqual(5)
         ->and(Activity::query()->where('event', 'document_published')->count())->toBeGreaterThanOrEqual(4);
 
-    // Và hai hệ quả mà chỉ Action mới tạo ra: khách nộp thì đầu mục sang `pending_review`, nhân
-    // viên nộp thay ở nhóm A thì đầu mục sang `accepted` KÈM người duyệt.
+    // Và ba hệ quả mà chỉ Action mới tạo ra: khách nộp thì đầu mục sang `pending_review`, nhân
+    // viên nộp thay ở nhóm A thì sang `accepted` KÈM người duyệt, và văn phòng trả lại thì sang
+    // `rejected` KÈM lý do. Trạng thái thứ ba mới có mặt trong dữ liệu mẫu từ vòng hợp nhất M5 —
+    // trước đó không hồ sơ nào của bản demo đi qua đường "nộp lại" của SPEC §8.3 mục 4.
     $submitted = Document::withoutGlobalScopes()
         ->where('group', DocumentGroup::ClientProvided)
         ->whereNotNull('matter_checklist_item_id')
@@ -161,9 +226,18 @@ it('routes every seeded document through the production actions, not through add
     expect($submitted)->not->toBeEmpty()
         ->and($submitted->every(fn (Document $d): bool => in_array(
             $d->checklistItem?->status,
-            [ChecklistItemStatus::PendingReview, ChecklistItemStatus::Accepted],
+            [ChecklistItemStatus::PendingReview, ChecklistItemStatus::Accepted, ChecklistItemStatus::Rejected],
             true,
         )))->toBeTrue();
+
+    // Nới danh sách trên ra thì phải trả giá bằng một phép đo: cả BA trạng thái đều thật sự có
+    // mặt. Không có câu này, thêm một trạng thái vào danh sách là làm khẳng định trên yếu đi một
+    // cách không ai nhìn thấy.
+    $seen = $submitted->map(fn (Document $d) => $d->checklistItem?->status)->unique()->values();
+
+    expect($seen)->toContain(ChecklistItemStatus::PendingReview)
+        ->toContain(ChecklistItemStatus::Accepted)
+        ->toContain(ChecklistItemStatus::Rejected);
 });
 
 it('lets a seeded document actually download through the signed route', function () {
