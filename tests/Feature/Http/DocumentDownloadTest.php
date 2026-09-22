@@ -151,6 +151,59 @@ it('đường dẫn hết hạn trả 403 chứ không phải 404', function () 
     $this->actingAs($this->lawyer, 'web')->get($url)->assertForbidden();
 });
 
+/**
+ * **Đường dẫn hết hạn là chuyện dùng bình thường, không phải một lần tấn công.** Href tải tệp
+ * được nướng vào trang chi tiết hồ sơ lúc render và hết hạn sau 5 phút
+ * ({@see Document::DOWNLOAD_LINK_MINUTES}); một khách đọc lịch sử vụ việc của mình trong sáu
+ * phút rồi bấm tải là gặp đúng cảnh này. Trước khi có
+ * `resources/views/errors/403.blade.php`, thứ họ nhận được là trang 403 mặc định của Laravel:
+ * "Forbidden", "Invalid signature", tiếng Anh, không số điện thoại, không đường quay lại.
+ *
+ * Trang 403 nói về ĐƯỜNG DẪN chứ không về một bản ghi, nên nói thẳng "liên kết đã hết hạn"
+ * không rò rỉ gì dưới SPEC §10.10: lúc `signed` trả lời thì chưa có bản ghi nào được đọc, và câu
+ * ấy đúng như nhau cho một tài liệu có thật lẫn một id bịa — test ngay dưới ghim đúng điều đó
+ * bằng phép so từng byte.
+ */
+it('trang 403 của đường dẫn hết hạn nói tiếng Việt, bảo bấm lại, và mang số điện thoại', function () {
+    $document = downloadableDocument($this->matter);
+    $url = $document->downloadUrlFor($this->lawyer);
+
+    $this->travel(6)->minutes();
+
+    $expired = $this->actingAs($this->lawyer, 'web')->get($url)->assertForbidden()->getContent();
+
+    expect($expired)->toContain(__('portal_progress.link_expired.heading'))
+        ->toContain(__('portal_progress.link_expired.body'))
+        ->toContain(__('portal_progress.link_expired.retry'))
+        // Đường đi tiếp KHÔNG qua một trang, cùng luật với trang 404.
+        ->toContain(config('vkcrm.brand.hotline'))
+        ->toContain('tel:')
+        // Không một chữ nào của trang mặc định Laravel.
+        ->not->toContain('Forbidden')
+        ->not->toContain('Invalid signature')
+        // Và không một chữ nào về tài liệu vừa bị từ chối. Tên hiển thị là tiền đề của phép đo
+        // này, nên nó được khẳng định là không rỗng trước khi được dùng làm chuỗi phải vắng mặt.
+        ->and($displayName = (string) $document->getFirstMedia('file')?->name)->not->toBe('')
+        ->and($expired)->not->toContain($displayName)
+        ->not->toContain((string) $this->matter->code);
+});
+
+it('trang 403 giống hệt nhau cho một tài liệu có thật và cho một id không tồn tại', function () {
+    $document = downloadableDocument($this->matter);
+    $real = $document->downloadUrlFor($this->lawyer);
+    $fake = URL::temporarySignedRoute('documents.download', now()->addMinutes(5), [
+        'document' => 999999,
+        'recipient' => Document::recipientToken($this->lawyer),
+    ]);
+
+    $this->travel(6)->minutes();
+
+    $realBody = $this->actingAs($this->lawyer, 'web')->get($real)->assertForbidden()->getContent();
+    $fakeBody = $this->actingAs($this->lawyer, 'web')->get($fake)->assertForbidden()->getContent();
+
+    expect($realBody)->toBe($fakeBody);
+});
+
 it('đường dẫn không có chữ ký trả 403', function () {
     $document = downloadableDocument($this->matter);
 

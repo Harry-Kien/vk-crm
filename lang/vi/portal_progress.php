@@ -169,4 +169,25 @@ return [
         'call' => 'Gọi :hotline',
     ],
 
+    /**
+     * Trang 403 — `resources/views/errors/403.blade.php`.
+     *
+     * **Vì sao nó nói ra được lý do trong khi trang 404 thì không.** 403 ở cổng này chỉ đến từ
+     * middleware `signed`, thứ trả lời TRƯỚC khi một bản ghi nào được đọc, nên câu "liên kết đã
+     * hết hạn" nói về ĐƯỜNG DẪN chứ không về một tài liệu. Nó đúng y như nhau cho một tài liệu
+     * có thật lẫn cho một id bịa — `DocumentDownloadTest` ghim hai response ấy phải giống nhau
+     * đúng từng byte — nên nó không rò rỉ gì dưới SPEC §10.10. Mọi lời từ chối CÓ đọc bản ghi
+     * đều là 404 và dùng nhóm khoá `not_found` bên trên.
+     *
+     * Cùng hoàn cảnh với `not_found`: chúng sẽ chuyển sang `lang/vi/errors.php` khi có tệp đó.
+     */
+    'link_expired' => [
+        'heading' => 'Liên kết tải tệp đã hết hạn',
+        'body' => 'Đường dẫn tải tệp chỉ dùng được trong ít phút sau khi trang được mở, để tệp của anh/chị không bị người khác lấy mất nếu đường dẫn lọt ra ngoài.',
+        'retry' => 'Anh/chị quay lại trang hồ sơ, tải lại trang rồi bấm vào tệp một lần nữa là tải được.',
+        'home' => 'Về trang chính',
+        'call_lead' => 'Nếu vẫn không tải được, gọi cho văn phòng — số này dùng được cả trên Zalo:',
+        'call' => 'Gọi :hotline',
+    ],
+
 ];

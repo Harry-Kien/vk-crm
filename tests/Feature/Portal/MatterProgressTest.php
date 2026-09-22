@@ -16,6 +16,8 @@ use App\Models\StageLogView;
 use App\Support\Scopes\ClientPortalScope;
 use Filament\Facades\Filament;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Foundation\Http\Events\RequestHandled;
+use Illuminate\Support\Facades\Event;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
@@ -861,6 +863,56 @@ it('writes no view receipt when the page explodes after the timeline has been dr
 
     // Vế dương: cùng hồ sơ, cùng fixture, khối 4 lành lại thì trang 200 và biên bản được ghi.
     $this->app->bind(ChecklistProgress::class, fn () => new ChecklistProgress);
+
+    $this->actingAs($this->clientUser, 'client')->get(progressUrl($this->matter))->assertOk();
+
+    expect(StageLogView::withoutGlobalScope(ClientPortalScope::class)->count())->toBe(1);
+});
+
+/**
+ * **Một lời từ chối ở listener biên bản KHÔNG được thoát ra ngoài kernel.**
+ *
+ * `Illuminate\Foundation\Http\Kernel::handle()` bắt exception của request bên trong khối `try`
+ * của nó, nhưng nó dispatch `RequestHandled` NGOÀI khối ấy. Nên một exception ném ra từ listener
+ * biên bản không được kernel bắt, không middleware nào nhìn thấy — kể cả
+ * `AnswerDeniedPanelRequestsWithNotFound`, thứ đổi 403 thành 404 cho cổng — và nó nổ tới trình
+ * xử lý lỗi toàn cục. Khách nhận một trang 403 chữ tiếng Anh, còn trang đã dựng xong của họ bị
+ * vứt đi.
+ *
+ * Cảnh này là một cuộc đua có thật, không phải một tình huống bịa: hồ sơ bị rút khỏi cổng, hoặc
+ * tài khoản bị vô hiệu hoá, TRONG khoảng giữa lúc dòng thời gian được vẽ và lúc request kết
+ * thúc — vài giây trên một điện thoại chậm.
+ *
+ * Listener của test này đăng ký TRƯỚC request nên nó chạy TRƯỚC listener của trang (sự kiện chạy
+ * theo thứ tự đăng ký), tức nó dựng đúng cửa sổ ấy.
+ */
+it('still serves the built page when the matter is retracted between the render and the end of the request', function () {
+    StageLog::factory()->for($this->matter)->published()->create(['public_content' => 'Toà đã nhận đơn khởi kiện.']);
+
+    $matterId = $this->matter->getKey();
+
+    Event::listen(function (RequestHandled $event) use ($matterId): void {
+        Matter::withoutGlobalScope(ClientPortalScope::class)
+            ->whereKey($matterId)
+            ->update(['is_published_to_portal' => false]);
+    });
+
+    $this->actingAs($this->clientUser, 'client')
+        ->get(progressUrl($this->matter))
+        ->assertOk()
+        ->assertSee('Toà đã nhận đơn khởi kiện.');
+
+    // Không có biên bản nào: `RecordStageLogView` đã từ chối, đúng như nó phải làm. Cái được sửa
+    // là chỗ lời từ chối ấy hạ cánh, không phải lời từ chối.
+    expect(StageLogView::withoutGlobalScope(ClientPortalScope::class)->count())->toBe(0);
+});
+
+/**
+ * Vế dương của test trên, trong cùng một fixture: không ai rút hồ sơ đi thì biên bản vẫn được
+ * ghi. Không có nó, một `return` đặt ở đầu listener cũng làm test kia xanh.
+ */
+it('still writes the receipt when nothing is retracted mid request', function () {
+    StageLog::factory()->for($this->matter)->published()->create(['public_content' => 'Toà đã nhận đơn khởi kiện.']);
 
     $this->actingAs($this->clientUser, 'client')->get(progressUrl($this->matter))->assertOk();
 

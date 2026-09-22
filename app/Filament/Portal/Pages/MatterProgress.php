@@ -15,6 +15,7 @@ use App\Models\StageLog;
 use Filament\Facades\Filament;
 use Filament\Pages\Page;
 use Filament\Panel;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Http\Request;
@@ -412,11 +413,41 @@ class MatterProgress extends Page
      * nếu hợp đồng đó đổi thì đây là thứ duy nhất ngăn biên bản của hồ sơ này gắn vào response
      * của một request khác.
      *
-     * **Một lỗi ở lần ghi được để nổ ra, có chủ ý** — `RecordStageLogView` chỉ từ chối khi khách
-     * thật sự không được xem dòng đó (hồ sơ vừa bị rút khỏi cổng, tài khoản vừa bị vô hiệu hoá
-     * giữa hai câu truy vấn). Nuốt lỗi đi thì đổi lại được một trang vẽ xong mà **không có bằng
-     * chứng nào được ghi**, tức đúng thứ hỏng mà không ai nhìn thấy cho tới ngày cần tới bảng
-     * này.
+     * # Một lời TỪ CHỐI ở đây bị nuốt, và đây là nơi nói vì sao — kể cả câu trước đây nói ngược lại
+     *
+     * Câu cũ ở chỗ này viết rằng một lỗi khi ghi "được để nổ ra, có chủ ý". Cơ chế nó mô tả thì
+     * đúng, kết luận thì sai, vì nó chưa bao giờ nói ra **chỗ lời nổ ấy hạ cánh**.
+     *
+     * `Illuminate\Foundation\Http\Kernel::handle()` bắt exception của request bên trong khối
+     * `try` của nó, rồi dispatch `RequestHandled` **NGOÀI** khối ấy (đã đọc trong bản đang cài).
+     * Nên một exception từ listener này:
+     *
+     *  - không được kernel bắt, nên nó không thành một response lỗi của ứng dụng;
+     *  - không đi qua middleware nào — kể cả `AnswerDeniedPanelRequestsWithNotFound`, thứ đổi 403
+     *    thành 404 cho cổng theo SPEC §10.10;
+     *  - nổ tới trình xử lý lỗi toàn cục, thứ dựng trang 403 mặc định của Laravel: bố cục minh
+     *    hoạ sẵn có, **chữ tiếng Anh**, không số điện thoại văn phòng, không đường quay lại;
+     *  - và **vứt đi chính cái trang đã dựng xong** mà khách sắp nhận được.
+     *
+     * Vậy nên `AuthorizationException` bị nuốt ở đây. Bỏ một biên bản là chấp nhận được tại đúng
+     * điểm này, và lý do phải nói rõ chứ không để người đọc sau tự đoán: `RecordStageLogView` đã
+     * từ chối ĐÚNG (hồ sơ vừa bị rút khỏi cổng, hoặc tài khoản vừa bị vô hiệu hoá, giữa lúc vẽ
+     * trang và lúc request kết thúc), và tới thời điểm này **không còn trang nào để bảo vệ** —
+     * response đã dựng xong. Một biên bản không ghi làm bằng chứng THIẾU đi một dòng; một
+     * exception thoát ra làm khách đọc một trang lỗi tiếng Anh thay cho hồ sơ của họ, và vẫn
+     * không ghi được dòng nào. Bỏ dòng ghi là mất ít hơn, và nó chỉ mất trong đúng cảnh mà khách
+     * lẽ ra đã không được xem dòng ấy.
+     *
+     * **Chỉ `AuthorizationException`, không phải mọi `Throwable`.** Một lỗi cơ sở dữ liệu không
+     * phải một lời từ chối: nuốt nó đi là giấu một bảng bằng chứng đang hỏng, đúng thứ không ai
+     * nhìn thấy cho tới ngày cần tới nó. Nói thẳng cái giá còn lại của lựa chọn này: một lỗi như
+     * thế VẪN thoát ra theo đúng đường mô tả ở trên và vẫn vứt đi trang đã dựng. Đó là một hỏng
+     * hóc của hệ thống, không phải một trạng thái nghiệp vụ, và nó phải ồn ào.
+     *
+     * Trang 403 nói trên nay cũng có bản tiếng Việt (`resources/views/errors/403.blade.php`), vì
+     * nó còn với tới được từ một đường ký hết hạn; nhưng một trang 403 đẹp không phải lời giải
+     * cho chỗ này — SPEC §10.10 đòi cổng từ chối bằng 404, và 403 ở đây chính là cái máy dò sự
+     * tồn tại mà §10.10 dựng lên để chặn.
      *
      * @param  Collection<int, StageLog>  $logs
      */
@@ -436,7 +467,11 @@ class MatterProgress extends Page
                 return;
             }
 
-            $logs->each(fn (StageLog $log) => $receipts->handle($log, $viewer, $ip));
+            try {
+                $logs->each(fn (StageLog $log) => $receipts->handle($log, $viewer, $ip));
+            } catch (AuthorizationException) {
+                // Có chủ ý và không làm gì thêm — xem docblock phía trên.
+            }
         });
     }
 
