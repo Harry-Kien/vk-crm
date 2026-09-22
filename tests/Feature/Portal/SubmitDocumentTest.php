@@ -1173,11 +1173,19 @@ it('writes the endpoint counter under the key the submit screen asks about', fun
     expect(RateLimiter::tooManyAttempts($key, UploadThrottle::FILES_PER_HOUR))->toBeFalse();
 
     $url = submitUploadUrl();
+    $last = null;
     for ($attempt = 1; $attempt <= 21; $attempt++) {
-        submitPostBytes(1, $url);
+        $last = submitPostBytes(1, $url);
     }
 
-    expect(RateLimiter::tooManyAttempts($key, UploadThrottle::FILES_PER_HOUR))->toBeTrue();
+    expect(RateLimiter::tooManyAttempts($key, UploadThrottle::FILES_PER_HOUR))->toBeTrue()
+        // Cửa sổ đếm cũng được đo ở đây, vì docblock của `UploadThrottle` và của
+        // `config/livewire.php` đều nói ra con số một giờ: lần thứ 21 trả 429 kèm một
+        // `Retry-After` xấp xỉ 3600 giây. Một mức `throttle:20,1` vẫn làm mọi khẳng định khác
+        // của tệp này xanh.
+        ->and($last?->status())->toBe(429)
+        ->and((int) $last?->headers->get('Retry-After'))->toBeGreaterThan(3500)
+        ->and((int) $last?->headers->get('Retry-After'))->toBeLessThanOrEqual(3600);
 });
 
 /**

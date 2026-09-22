@@ -821,8 +821,10 @@ class SubmitDocument extends Page
      * được nó trên nhánh này.
      *
      * **Vì sao phải HỎI LẠI bộ đếm thay vì đọc lý do từ response.** JS của Livewire gọi
-     * `_uploadErrored` với `errors` là `null` cho MỌI mã khác 422 (đã đọc trong `livewire.js`
-     * của bản đang cài), nên với một 429 thì component không có gì để đọc: không thân, không mã.
+     * `_uploadErrored` với `errors` là `null` cho MỌI mã khác 422. Đã đọc trong bản đang cài
+     * (`vendor/livewire/livewire/dist/livewire.esm.js`), nguyên văn:
+     * `let errors = null; if (request.status === 422) { errors = request.response; }`. Nên với
+     * một 429 thì component không có gì để đọc: không thân, không mã.
      * Nó hỏi `RateLimiter` trên ĐÚNG khoá mà middleware vừa ghi
      * ({@see UploadThrottle::cacheKeyFor()}), và khoá đó được ghim bằng một test đi qua HTTP thật
      * chứ không được tin.

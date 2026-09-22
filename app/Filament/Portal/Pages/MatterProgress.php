@@ -468,8 +468,7 @@ class MatterProgress extends Page
      *  - không được kernel bắt, nên nó không thành một response lỗi của ứng dụng;
      *  - không đi qua middleware nào — kể cả `AnswerDeniedPanelRequestsWithNotFound`, thứ đổi 403
      *    thành 404 cho cổng theo SPEC §10.10;
-     *  - nổ tới trình xử lý lỗi toàn cục, thứ dựng trang 403 mặc định của Laravel: bố cục minh
-     *    hoạ sẵn có, **chữ tiếng Anh**, không số điện thoại văn phòng, không đường quay lại;
+     *  - nổ tới trình xử lý lỗi toàn cục, thứ dựng ra một trang **403**;
      *  - và **vứt đi chính cái trang đã dựng xong** mà khách sắp nhận được.
      *
      * Vậy nên `AuthorizationException` bị nuốt ở đây. Bỏ một biên bản là chấp nhận được tại đúng
@@ -487,10 +486,13 @@ class MatterProgress extends Page
      * thế VẪN thoát ra theo đúng đường mô tả ở trên và vẫn vứt đi trang đã dựng. Đó là một hỏng
      * hóc của hệ thống, không phải một trạng thái nghiệp vụ, và nó phải ồn ào.
      *
-     * Trang 403 nói trên nay cũng có bản tiếng Việt (`resources/views/errors/403.blade.php`), vì
-     * nó còn với tới được từ một đường ký hết hạn; nhưng một trang 403 đẹp không phải lời giải
-     * cho chỗ này — SPEC §10.10 đòi cổng từ chối bằng 404, và 403 ở đây chính là cái máy dò sự
-     * tồn tại mà §10.10 dựng lên để chặn.
+     * Về cái trang 403 ấy, nói cho đủ vì nó vừa đổi trong cùng vòng sửa này: trước đây nó là
+     * trang mặc định của Laravel — bố cục minh hoạ sẵn có, chữ tiếng Anh, không số điện thoại,
+     * không đường quay lại; nay đã có `resources/views/errors/403.blade.php` bằng tiếng Việt, vì
+     * một đường tải tệp ký hết hạn cũng dẫn tới đó. **Nhưng nó không phải lời giải cho chỗ
+     * này**, và đừng ai đọc nó như vậy: SPEC §10.10 đòi cổng từ chối bằng 404, nên một 403 ở đây
+     * — dù đẹp và bằng tiếng Việt — vẫn là cái máy dò sự tồn tại mà §10.10 dựng lên để chặn; và
+     * trang khách sắp nhận được thì vẫn mất.
      *
      * @param  Collection<int, StageLog>  $logs
      */
