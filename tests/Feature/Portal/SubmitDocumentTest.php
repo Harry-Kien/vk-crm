@@ -1210,9 +1210,15 @@ it('names the hourly limit when the endpoint refuses with 429, instead of blamin
     $refusal = submitPostBytes(1, $url);
     expect($refusal->status())->toBe(429);
 
+    // TRUYỀN `null`, ĐÚNG NHƯ TRÌNH DUYỆT LÀM. Bản đầu của test này đưa nguyên thân response 429
+    // vào tham số thứ hai — thứ trình duyệt KHÔNG BAO GIỜ gửi, vì JS của Livewire đặt `errors`
+    // là `null` cho mọi mã khác 422. Hệ quả: nếu ai đó "đơn giản hoá" `_uploadErrored()` thành
+    // đọc tham số ấy thay vì hỏi lại bộ đếm, cả 49 test trong tệp này vẫn xanh, và khách chạm
+    // trần giờ sẽ được báo là tệp quá lớn với sóng yếu — đúng lỗi mà cả vòng sửa này sinh ra để
+    // đóng. Phát hiện bởi lượt kiểm chứng độc lập vòng sửa, ngày 2026-09-22.
     $message = submitPage()
         ->call('chooseItem', $this->item->getKey())
-        ->call('_uploadErrored', 'data.file', $refusal->getContent(), false)
+        ->call('_uploadErrored', 'data.file', null, false)
         ->errors()->first('data.file');
 
     expect($message)
