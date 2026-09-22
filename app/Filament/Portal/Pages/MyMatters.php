@@ -361,23 +361,23 @@ class MyMatters extends Page
      * Dòng danh mục này có nằm trong tập `Y` của SPEC §4.10 hay không — tức thanh tiến độ có nói
      * về nó hay không.
      *
-     * **Đây là một câu nói lại, và nói ra chứ không giấu.** Luật `Y` sống ở
-     * {@see ChecklistProgress::handle()}; nhưng phương thức đó trả về hai SỐ NGUYÊN chứ không trả
-     * về các dòng, nên không có cách nào hỏi nó "dòng này có được đếm không". Một dòng duy nhất
-     * được nói lại ở đây — điều kiện thành viên của `Y` — và nó dùng đúng bí danh bộ đếm của
-     * chính Action ({@see ChecklistProgress::DOCUMENT_COUNT_ALIAS}), nên nửa khó của luật (thế
-     * nào là "đã có tài liệu": ngoài nhóm D, chưa xoá mềm, bỏ `ClientPortalScope`) vẫn chỉ có một
-     * chỗ.
+     * **Đây KHÔNG còn là một câu nói lại.** Bản trước viết lại điều kiện thành viên của `Y` ngay
+     * tại đây, kèm một docblock giải thích vì sao nó phải được nói lại (`handle()` trả về hai số
+     * nguyên chứ không trả về các dòng). Lý do đó đúng, nhưng lời giải đúng hơn là mở một seam ở
+     * chính Action — và vòng sửa hợp nhất phải mở nó, vì khối "việc anh/chị cần làm" ở
+     * `MatterProgress` cần đúng câu hỏi ấy và nếu không thì bản nói lại thứ HAI ra đời. Nay luật
+     * ở một chỗ ({@see ChecklistProgress::countedInTotal()}) và ba màn hình đọc nó.
      *
-     * Câu nói lại ấy được GHIM chứ không được tin: `MyMattersTest` đo thẻ ĐẦY ĐỦ — huy hiệu VÀ
-     * thanh tiến độ, trong cùng một khẳng định — ở bốn tình huống mà hai tập từng lệch nhau, nên
-     * một ngày `Y` đổi mà câu này không đổi theo thì một test có tên sẽ đỏ. Đo được: thay thân
-     * hàm này bằng riêng vế bộ đếm tài liệu làm đỏ hai test có tên (probe P6 của vòng sửa).
+     * Hàm này ở lại vì nó còn nói một điều mà Action không nói: bộ đếm tài liệu phải đã được nạp
+     * trên dòng — đó là việc của `getCards()` ngay trên, và {@see self::toCard()} gọi nó trên tập
+     * đã nạp.
+     *
+     * Ghim thì không đổi: `MyMattersTest` đo thẻ ĐẦY ĐỦ — huy hiệu VÀ thanh tiến độ, trong cùng
+     * một khẳng định — ở bốn tình huống mà hai tập từng lệch nhau.
      */
     private static function countedByProgress(MatterChecklistItem $item): bool
     {
-        return $item->is_required
-            || ((int) ($item->{ChecklistProgress::DOCUMENT_COUNT_ALIAS} ?? 0)) > 0;
+        return ChecklistProgress::countedInTotal($item);
     }
 
     /**

@@ -61,10 +61,25 @@
                     <p style="font-size:1.0625rem;line-height:1.5;white-space:pre-line;">{{ $this->latestClientAction() }}</p>
                 @endif
 
-                @if ($this->outstandingItems()->isNotEmpty())
+                @if ($this->outstandingCountedItems()->isNotEmpty())
                     <p style="margin-top:0.75rem;font-weight:600;">{{ __('portal_progress.blocks.todo.documents_lead') }}</p>
                     <ul style="margin-top:0.375rem;padding-left:1.25rem;list-style:disc;">
-                        @foreach ($this->outstandingItems() as $item)
+                        @foreach ($this->outstandingCountedItems() as $item)
+                            <li style="margin-top:0.25rem;">
+                                {{ $item['name'] }}
+                                <span style="{{ $muted }}">— {{ __('portal_progress.checklist.status.'.$item['status']->value) }}</span>
+                            </li>
+                        @endforeach
+                    </ul>
+                @endif
+
+                {{-- Nhóm thứ hai: những dòng thanh tiến độ KHÔNG đếm. Chúng vẫn hiện ra vì khách
+                     vẫn cần biết văn phòng có thể dùng tới chúng, nhưng chúng không được đứng lẫn
+                     vào danh sách việc phải làm — xem MatterProgress::outstandingOptionalItems(). --}}
+                @if ($this->outstandingOptionalItems()->isNotEmpty())
+                    <p style="margin-top:0.75rem;font-weight:600;">{{ __('portal_progress.blocks.todo.documents_optional_lead') }}</p>
+                    <ul style="margin-top:0.375rem;padding-left:1.25rem;list-style:disc;">
+                        @foreach ($this->outstandingOptionalItems() as $item)
                             <li style="margin-top:0.25rem;">
                                 {{ $item['name'] }}
                                 <span style="{{ $muted }}">— {{ __('portal_progress.checklist.status.'.$item['status']->value) }}</span>

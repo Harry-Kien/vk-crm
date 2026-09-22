@@ -316,12 +316,55 @@ class MatterProgress extends Page
      * lại). `pending_review` cố ý không có mặt — nó đang chờ ở VĂN PHÒNG, và liệt kê nó vào "việc
      * anh/chị cần làm" là giục khách làm một việc họ đã làm xong.
      *
+     * # Hai nhóm, vì ô này và thanh tiến độ ngay dưới nó phải nói về CÙNG MỘT tập dòng
+     *
+     * Bản trước liệt kê mọi đầu mục đang chờ ở khách, bất kể bắt buộc hay không, và không vẽ dấu
+     * hiệu nào. Thanh tiến độ thì chỉ nói về tập `Y` của SPEC §4.10. Trên hồ sơ mẫu số 6 khách
+     * đọc mười một dòng giấy tờ bên trên một thanh nói "… / 4", và một trong mười một dòng là
+     * giấy chứng tử mà văn phòng đã đánh dấu KHÔNG bắt buộc. Hai nguồn sự thật cho một câu, trong
+     * ô nổi bật nhất màn hình — cùng hình dạng đã tìm thấy hai lần trước đó trên nhánh này.
+     *
+     * Nên tập dòng vẫn là MỘT, và nó tách làm hai theo đúng câu hỏi thanh tiến độ hỏi
+     * ({@see ChecklistProgress::countedInTotal()}): trong `Y` thì văn phòng còn chờ, ngoài `Y`
+     * thì không bắt buộc và khách được nói thẳng điều đó.
+     *
+     * **"Ngoài `Y`" KHÔNG đồng nghĩa với `is_required = false`.** Một đầu mục không bắt buộc mà
+     * khách đã gửi một tờ giấy vào thì thanh tiến độ ĐẾM nó, nên nó thuộc nhóm văn phòng còn
+     * chờ — đẩy nó xuống nhóm "không bắt buộc" là bảo khách bỏ dở đúng việc họ đã bắt đầu. Có
+     * test riêng gọi tên tình huống đó.
+     *
      * @return Collection<int, array<string, mixed>>
      */
     public function outstandingItems(): Collection
     {
         return $this->checklistItems()
             ->filter(fn (array $item): bool => $this->isWaitingOnTheClient($item['status']))
+            ->values();
+    }
+
+    /**
+     * Phần thanh tiến độ ĐANG ĐẾM — "giấy tờ chúng tôi còn chờ ở anh/chị".
+     *
+     * @return Collection<int, array<string, mixed>>
+     */
+    public function outstandingCountedItems(): Collection
+    {
+        return $this->outstandingItems()
+            ->filter(fn (array $item): bool => $item['counted_by_progress'] === true)
+            ->values();
+    }
+
+    /**
+     * Phần thanh tiến độ KHÔNG đếm — gửi thêm được thì tốt, không gửi cũng không sao. Nó vẫn
+     * hiện ra, vì khách vẫn cần biết văn phòng có thể dùng tới nó; nó chỉ không được đứng lẫn vào
+     * danh sách việc phải làm.
+     *
+     * @return Collection<int, array<string, mixed>>
+     */
+    public function outstandingOptionalItems(): Collection
+    {
+        return $this->outstandingItems()
+            ->filter(fn (array $item): bool => $item['counted_by_progress'] === false)
             ->values();
     }
 
@@ -577,13 +620,19 @@ class MatterProgress extends Page
     {
         $viewer = $this->viewer();
 
-        return $this->resolvedChecklist ??= $this->matter()->checklistItems()->get()
+        return $this->resolvedChecklist ??= ChecklistProgress::countClientFacingDocuments(
+            $this->matter()->checklistItems()->getQuery()
+        )->get()
             ->filter(fn (MatterChecklistItem $item): bool => Gate::forUser($viewer)->allows('view', $item))
             ->map(fn (MatterChecklistItem $item): array => [
                 'id' => $item->getKey(),
                 'name' => $item->name,
                 'status' => $item->status,
                 'is_required' => (bool) $item->is_required,
+                // Thanh tiến độ có đếm dòng này không — {@see ChecklistProgress::countedInTotal()}.
+                // Khối 2 tách hai nhóm bằng ĐÚNG câu hỏi này, nên hai câu trên một màn hình không
+                // thể nói về hai tập khác nhau nữa.
+                'counted_by_progress' => ChecklistProgress::countedInTotal($item),
                 'description' => $item->description,
                 'rejection_reason' => $this->rejectionReason($item),
                 // Lối vào màn hình nộp: CHỈ hai trạng thái đang chờ ở khách (SPEC §8.3 mục 4).

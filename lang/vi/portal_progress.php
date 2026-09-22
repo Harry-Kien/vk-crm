@@ -40,6 +40,16 @@ return [
             'heading' => 'Việc anh/chị cần làm',
             'documents_lead' => 'Giấy tờ chúng tôi còn chờ ở anh/chị:',
             /*
+             * Nhóm thứ hai của khối 2 — xem `MatterProgress::outstandingOptionalItems()`.
+             *
+             * Câu này tồn tại vì ô nổi bật nhất màn hình và thanh tiến độ ngay dưới nó phải nói
+             * về cùng một tập dòng. Một đầu mục nằm NGOÀI mẫu số `Y` của SPEC §4.10 vẫn hiện ra,
+             * vì khách vẫn cần biết văn phòng có thể dùng tới nó, nhưng nó phải được gọi đúng
+             * tên: không bắt buộc. Nói "còn chờ ở anh/chị" về một tờ giấy chứng tử mà chính văn
+             * phòng đã đánh dấu không bắt buộc là giao cho khách một việc không ai cần.
+             */
+            'documents_optional_lead' => 'Nếu anh/chị có sẵn thì gửi thêm giúp chúng tôi — không bắt buộc:',
+            /*
              * Câu này KHÔNG BAO GIỜ được hiển thị, và nó có mặt ở đây đúng vì lý do đó: SPEC
              * §8.3 mục 2 nói khối này "chỉ hiện khi có", nên khi không có việc thì cả khối biến
              * mất chứ không hiện một dòng "không có việc gì". Test

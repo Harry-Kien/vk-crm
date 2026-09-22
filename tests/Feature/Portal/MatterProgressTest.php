@@ -60,6 +60,17 @@ function progressUrl(Matter|int $matter): string
  * trang) — nó có `<a>` riêng và biến CSS riêng, nên một phép đo trên cả trang sẽ đo cả thứ task
  * này không viết ra và không sửa được.
  */
+/** Chỉ khối 2 — "Việc anh/chị cần làm" — cắt ra khỏi phần còn lại của trang. */
+function progressTodoBlock(string $html): string
+{
+    $start = strpos($html, 'data-portal-block="2"');
+    $end = strpos($html, 'data-portal-block="3"');
+
+    expect($start)->not->toBeFalse()->and($end)->not->toBeFalse();
+
+    return substr($html, (int) $start, (int) $end - (int) $start);
+}
+
 function progressRegion(string $html): string
 {
     $start = strpos($html, 'data-portal-page="matter-progress"');
@@ -731,6 +742,90 @@ it('never puts an item that is waiting on the office into the list of things the
         // Vế dương: đầu mục đó vẫn có mặt ở khối 4 với trạng thái của nó.
         ->and($html)->toContain('Sổ đỏ đã gửi chờ kiểm tra')
         ->and($html)->toContain(__('portal_progress.checklist.status.pending_review'));
+});
+
+/**
+ * **Ô nổi bật nhất màn hình và thanh tiến độ ngay dưới nó phải nói về CÙNG MỘT tập dòng.**
+ *
+ * `outstandingItems()` liệt kê mọi đầu mục `missing`/`rejected` bất kể bắt buộc hay không, và
+ * không vẽ dấu hiệu gì; thanh tiến độ thì chỉ nói về tập `Y` của SPEC §4.10 (bắt buộc, hoặc
+ * không bắt buộc nhưng đã có tài liệu). Trên hồ sơ mẫu số 6 khách đọc mười một dòng giấy tờ cần
+ * nộp bên trên một thanh nói "Đã nộp … / 4", và một trong mười một dòng ấy là giấy chứng tử mà
+ * văn phòng đã đánh dấu KHÔNG bắt buộc. Cùng hình dạng "hai nguồn sự thật cho một câu" mà nhánh
+ * này đã tìm thấy hai lần trước đó (thanh X/Y ở M4, huy hiệu thẻ hồ sơ ở vòng sửa danh sách).
+ *
+ * Cách chữa giống hệt vòng sửa danh sách: một tập dòng, hai câu chữ. Đầu mục nào nằm trong `Y`
+ * thì ở nhóm "văn phòng còn chờ"; đầu mục nào nằm ngoài `Y` — tức thanh tiến độ KHÔNG đếm nó —
+ * thì ở nhóm "không bắt buộc", nói thẳng ra là không bắt buộc.
+ */
+it('separates the papers the progress bar counts from the ones it does not', function () {
+    MatterChecklistItem::factory()->for($this->matter)->create([
+        'name' => 'Giấy chứng nhận quyền sử dụng đất',
+        'status' => ChecklistItemStatus::Missing,
+        'is_required' => true,
+    ]);
+    MatterChecklistItem::factory()->for($this->matter)->create([
+        'name' => 'Giấy chứng tử của người để lại di sản',
+        'status' => ChecklistItemStatus::Missing,
+        'is_required' => false,
+    ]);
+
+    $html = $this->actingAs($this->clientUser, 'client')->get(progressUrl($this->matter))->assertOk()->getContent();
+    $todo = progressTodoBlock($html);
+
+    // Tiền đề: thanh tiến độ nói về ĐÚNG MỘT dòng, không phải hai.
+    expect($this->matter->refresh())->not->toBeNull();
+    $progress = app(ChecklistProgress::class)->handle($this->matter);
+    expect($progress['total'])->toBe(1);
+
+    // Cả hai vẫn hiện ra — khách vẫn cần biết cả hai — nhưng dưới hai câu dẫn khác nhau, và
+    // dòng không bắt buộc nằm SAU câu dẫn của nó.
+    expect($todo)->toContain(__('portal_progress.blocks.todo.documents_lead'))
+        ->toContain(__('portal_progress.blocks.todo.documents_optional_lead'))
+        ->toContain('Giấy chứng nhận quyền sử dụng đất')
+        ->toContain('Giấy chứng tử của người để lại di sản');
+
+    $requiredLead = strpos($todo, __('portal_progress.blocks.todo.documents_lead'));
+    $optionalLead = strpos($todo, __('portal_progress.blocks.todo.documents_optional_lead'));
+
+    expect(strpos($todo, 'Giấy chứng nhận quyền sử dụng đất'))->toBeGreaterThan($requiredLead)
+        ->toBeLessThan($optionalLead)
+        ->and(strpos($todo, 'Giấy chứng tử của người để lại di sản'))->toBeGreaterThan($optionalLead);
+});
+
+/**
+ * Vế còn lại của luật `Y`, và nó là vế khiến "không bắt buộc" KHÔNG đồng nghĩa với
+ * `is_required = false`: một đầu mục không bắt buộc mà khách ĐÃ gửi một tờ giấy vào thì thanh
+ * tiến độ đếm nó, nên nó thuộc nhóm văn phòng còn chờ. Không có test này, một câu
+ * `$item['is_required']` trần cũng làm test trên xanh — và nó sẽ đẩy đúng những đầu mục khách đã
+ * bắt đầu làm xuống nhóm "không bắt buộc".
+ */
+it('keeps an optional item the client already sent a paper for in the group the bar counts', function () {
+    $item = MatterChecklistItem::factory()->for($this->matter)->create([
+        'name' => 'Biên bản họp gia đình',
+        'status' => ChecklistItemStatus::Rejected,
+        'rejection_reason' => 'Bản chụp bị mờ mất phần chữ ký, anh/chị chụp lại giúp cho rõ nhé.',
+        'is_required' => false,
+    ]);
+
+    Document::factory()->for($this->matter)->create([
+        'matter_checklist_item_id' => $item->getKey(),
+        'group' => DocumentGroup::ClientProvided,
+        'status' => DocumentStatus::Published,
+    ]);
+
+    $progress = app(ChecklistProgress::class)->handle($this->matter);
+    expect($progress['total'])->toBe(1);
+
+    $todo = progressTodoBlock(
+        $this->actingAs($this->clientUser, 'client')->get(progressUrl($this->matter))->assertOk()->getContent()
+    );
+
+    $optionalLead = strpos($todo, __('portal_progress.blocks.todo.documents_optional_lead'));
+
+    expect($todo)->toContain('Biên bản họp gia đình')
+        // Câu dẫn "không bắt buộc" không được vẽ ra chút nào, vì không có dòng nào thuộc nhóm đó.
+        ->and($optionalLead)->toBeFalse();
 });
 
 /** "Sắp tới" là chữ về việc CÒN PHẢI LÀM: một mốc đã xong thôi là thứ khách cần nhớ. */
