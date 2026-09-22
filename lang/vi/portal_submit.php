@@ -21,6 +21,11 @@
  * `documents.file_guard.too_large` làm thông điệp cho luật `max:` của mình, nên khách đọc **cùng
  * một câu** dù lời từ chối đến từ luật của ô hay từ `FileGuard` phía sau.
  *
+ * `errors.upload_failed` là ngoại lệ duy nhất, và nó không phải một bản chép: nó trả lời một
+ * tình huống mà tới lúc ấy KHÔNG CÒN BIẾT lý do — một lời từ chối của endpoint tải lên Livewire,
+ * đã dịch xong, không còn tên luật nào để đọc. `too_large` khẳng định một điều; câu kia nêu hai
+ * khả năng. Hai câu khác nhau vì hai mức chắc chắn khác nhau, không vì hai người viết khác nhau.
+ *
  * Trạng thái đầu mục cũng không được chép lại: `portal_progress.checklist.status.*` là bản viết
  * cho khách của Task 4, và hai màn hình cạnh nhau gọi cùng một thứ bằng hai cái tên là cách chắc
  * chắn nhất làm khách tưởng đó là hai thứ.
@@ -129,10 +134,37 @@ return [
         'file_required' => 'Anh/chị chụp ảnh hoặc chọn một tệp ở bước 2 trước khi gửi.',
 
         /*
+         * Lời từ chối đến từ ENDPOINT TẢI LÊN của Livewire — một chặng mà màn hình này không
+         * bọc, nên câu mặc định của nó ("data.file không được lớn hơn 20480 kilobyte") vừa đọc
+         * ra một tên thuộc tính, vừa đếm bằng kilobyte, vừa đứng ngay dưới dòng chữ nói "tối đa
+         * 20 MB". `SubmitDocument::_uploadErrored()` chặn đường đó lại và thay bằng câu này.
+         *
+         * Câu này KHÔNG đoán lý do, và đó là một quyết định chứ không phải một chỗ lười: tới
+         * đây chỉ còn một thân JSON đã dịch, không còn tên luật nào để đọc. Nên nó nói ra cả
+         * hai lý do có thật theo đúng thứ tự khả năng, mỗi lý do kèm việc phải làm — và kết
+         * bằng một con đường không đi qua màn hình này.
+         *
+         * Dải trên :max MB thì không tới được đây: {@see SubmitDocument::_startUpload()} đã trả
+         * lời bằng `documents.file_guard.too_large` trước khi một byte nào rời khỏi điện thoại.
+         */
+        'upload_failed' => 'Tệp này chưa lên được. Thường là do tệp lớn hơn :max MB, hoặc do sóng bị gián đoạn giữa chừng. Anh/chị thử chụp lại ở chế độ ảnh thường thay vì HDR, gửi từng trang một, hoặc chờ sóng ổn định rồi chọn lại tệp. Nếu vẫn không được, anh/chị gọi cho văn phòng theo số :hotline.',
+
+        /*
          * SPEC §10.3: 20 tệp / giờ / tài khoản. Câu này phải nói ra CẢ con số CẢ đường đi tiếp,
          * vì người gặp nó thường đang gửi một xấp giấy tờ thật chứ không phải đang phá hệ thống.
+         *
+         * **HAI câu cho HAI cửa, và đó là điều kiện để mỗi câu nói thật.** Hai bộ đếm đo hai
+         * việc khác nhau (xem docblock `SubmitDocument`): một cái đếm số tệp được CHỌN, một cái
+         * đếm số lần bấm GỬI. Dùng chung một câu thì cửa thứ nhất nói với khách rằng họ "đã gửi
+         * 20 tệp" trong khi chưa tệp nào được gửi — và người đọc câu đó sẽ đi tìm xem mình vừa
+         * gửi những gì, ở một màn hình không có gì để tìm.
+         *
+         * `:limit` chứ không viết số ra: `SubmitDocument::FILES_PER_HOUR` là chỗ duy nhất giữ
+         * con số ấy.
          */
-        'rate_limited' => 'Anh/chị đã gửi 20 tệp trong một giờ vừa rồi — đây là mức tối đa hệ thống nhận. Anh/chị chờ khoảng :minutes phút rồi gửi tiếp, hoặc gọi cho văn phòng theo số :hotline nếu cần gửi gấp.',
+        'rate_limited_upload' => 'Anh/chị đã chọn :limit tệp trong một giờ vừa rồi — đây là mức tối đa hệ thống nhận. Anh/chị chờ khoảng :minutes phút rồi chọn tệp tiếp, hoặc gọi cho văn phòng theo số :hotline nếu cần gửi gấp.',
+
+        'rate_limited' => 'Anh/chị đã bấm gửi :limit lần trong một giờ vừa rồi — đây là mức tối đa hệ thống nhận. Anh/chị chờ khoảng :minutes phút rồi gửi tiếp, hoặc gọi cho văn phòng theo số :hotline nếu cần gửi gấp.',
 
     ],
 

@@ -18,10 +18,14 @@ use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Testing\TestResponse;
+use Livewire\Features\SupportFileUploads\FileUploadConfiguration;
+use Livewire\Features\SupportFileUploads\GenerateSignedUploadUrl;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Features\SupportTesting\Testable;
 use Spatie\Activitylog\Models\Activity;
@@ -95,6 +99,38 @@ function submitPage(array $parameters = []): Testable
 {
     return test()->actingAs(test()->clientUser, 'client')
         ->livewire(SubmitDocument::class, array_merge(['record' => test()->matter->getKey()], $parameters));
+}
+
+/**
+ * Một URL tải lên ĐÃ KÝ THẬT — đúng thứ `_startUpload` cấp cho trình duyệt.
+ *
+ * `FileUploadConfiguration::storage()` gọi trước để đăng ký đĩa tạm của Livewire (`tmp-for-tests`,
+ * chỉ tồn tại khi đang chạy test và chỉ được `Storage::fake()` bởi chính lời gọi này). Không có
+ * nó, controller chết ở `Storage::disk()` chứ không trả lời về luật nào cả. Đây là đúng hai dòng
+ * mà `Testable::upload()` của Livewire tự làm trước khi gọi `validateAndStore()`.
+ */
+function submitUploadUrl(): string
+{
+    FileUploadConfiguration::storage();
+
+    return app(GenerateSignedUploadUrl::class)->forLocal();
+}
+
+/**
+ * POST một tệp đúng kích thước lên **chính endpoint của Livewire** — không phải `Testable::upload()`,
+ * thứ gọi thẳng `validateAndStore()` và vì vậy đi vòng qua cả route lẫn middleware của nó. Trần
+ * dung lượng và bộ đếm request nằm ở endpoint, nên chúng chỉ đo được từ đây.
+ */
+function submitPostBytes(int $megabytes, ?string $url = null): TestResponse
+{
+    return test()->actingAs(test()->clientUser, 'client')->post(
+        $url ?? submitUploadUrl(),
+        ['files' => [UploadedFile::fake()->create('anh-chup.jpg', $megabytes * 1024, 'image/jpeg')]],
+        // Thân multipart KÈM `Accept: application/json` — đúng hình dạng XHR mà FilePond gửi.
+        // Không có header này, một lời từ chối của validator đi ra bằng 302 "quay lại trang
+        // trước" thay vì 422 kèm thân JSON, tức đo nhầm cả mã lẫn nội dung câu trả lời.
+        ['Accept' => 'application/json'],
+    );
 }
 
 /** Chỉ phần trang do task này vẽ ra — phần còn lại là khung của Filament. */
@@ -298,8 +334,16 @@ it('answers a submission against another clients checklist item with 404, howeve
     // (a) qua lời gọi chọn đầu mục
     submitPage()->call('chooseItem', $otherItem->getKey())->assertNotFound();
 
-    // (b) qua tham số truy vấn của lần mount
-    submitPage(['item' => $otherItem->getKey()])->assertNotFound();
+    // (b) qua chuỗi truy vấn của một lần GET THẬT — đúng hình dạng lối vào từ khối 4, và đúng
+    //     chỗ mà bản đầu của test này nhầm: nó truyền `item` làm tham số mount, thứ không tồn
+    //     tại trên một request thật. Đường dẫn giữ hồ sơ CỦA CHÍNH KHÁCH, nếu không thì
+    //     `resolveMatter()` đã 404 trước và test đo một cổng khác cổng nó nêu tên.
+    $this->actingAs($this->clientUser, 'client')
+        ->get(SubmitDocument::getUrl([
+            'record' => $this->matter->getKey(),
+            'item' => $otherItem->getKey(),
+        ], panel: 'portal'))
+        ->assertNotFound();
 
     // (c) **Tầng giải lại, đo riêng.** `#[Locked]` chặn lần ghi từ phía trình duyệt (test kế
     //     bên), nhưng nó không nói gì về một giá trị đã nằm sẵn trong component — và đó chính
@@ -319,7 +363,9 @@ it('answers a submission against another clients checklist item with 404, howeve
 
     // Vế dương: cùng ba đường, đầu mục của chính mình thì đi được.
     submitPage()->call('chooseItem', $this->item->getKey())->assertSet('item', $this->item->getKey());
-    submitPage(['item' => $this->item->getKey()])->assertSet('item', $this->item->getKey());
+    $this->actingAs($this->clientUser, 'client')
+        ->get(SubmitDocument::urlForItem($this->item))
+        ->assertOk();
     expect($rebuild($this->item->getKey())->is($this->item))->toBeTrue();
 
     submitPage()
@@ -485,11 +531,11 @@ it('refuses an svg with a sentence a client can act on', function () {
 /**
  * SPEC §8.4 cho sẵn câu này, nguyên văn. Nó phải tới được mắt khách, không phải "Upload failed".
  *
- * Đo ở `_startUpload`, tức **trước khi một byte nào rời khỏi điện thoại** — không phải để tiện,
- * mà vì đó là chỗ duy nhất câu ấy tới được khách: Livewire tự từ chối ở 12 MB tại endpoint tải
- * lên của chính nó, nơi màn hình này không có mặt (xem docblock lớp, mục "trần 12 MB"). Nên một
- * tệp 21 MB gửi qua `set()` chỉ nhận được câu của Livewire, còn cùng tệp đó đi đúng đường của
- * trình duyệt thật thì nhận đúng câu của SPEC.
+ * Đo ở `_startUpload`, tức **trước khi một byte nào rời khỏi điện thoại** — và đó là chỗ duy
+ * nhất câu NÀY tới được khách. Trên một tệp quá cỡ đi đúng đường của trình duyệt, cửa này trả
+ * lời trước; nếu một client tự chế khai sai kích thước ở `fileInfo` để đi vòng qua nó, endpoint
+ * từ chối, và lời từ chối ấy đi ra bằng câu của {@see SubmitDocument::_uploadErrored()} chứ
+ * không bằng câu của framework (có test riêng bên dưới).
  */
 it('refuses a file over 20 MB with the sentence SPEC 8.4 wrote, before any bytes move', function () {
     $component = submitPage()
@@ -736,7 +782,7 @@ it('refuses the twenty first submission, and lets the twentieth through', functi
 
     $component->assertHasErrors('data.file');
 
-    expect($component->errors()->first('data.file'))->toContain('20 tệp')
+    expect($component->errors()->first('data.file'))->toContain('20 lần')
         ->and(Document::query()->count())->toBe(1);
 });
 
@@ -905,14 +951,39 @@ it('links from block 4 of the matter detail for a missing and a rejected item on
         ->and($html)->not->toContain(SubmitDocument::urlForItem($accepted));
 });
 
-/** Lối vào đó mở đúng đầu mục đã bấm, không bắt khách chọn lại. */
+/**
+ * Lối vào đó mở đúng đầu mục đã bấm, không bắt khách chọn lại.
+ *
+ * **Đo trên RESPONSE THẬT của một lần GET, không trên một tham số mount.** `urlForItem()` sinh ra
+ * `/portal/nop-giay-to/{record}?item={id}`: `record` là tham số route, `item` KHÔNG — nó đi qua
+ * chuỗi truy vấn, và `SubmitDocument::mount()` nhặt nó bằng `request()->query('item')`. Trên một
+ * request thật Livewire không có gì để truyền vào tham số `$item` của `mount()`, nên một khẳng
+ * định qua `livewire(..., ['item' => ...])` đi một ĐƯỜNG KHÁC và không nói gì về lối vào này.
+ *
+ * Bản đầu của test này làm đúng như vậy, và nó xanh cả khi lần nhặt chuỗi truy vấn bị xoá hẳn:
+ * tên đầu mục vẫn được in ra ở danh sách chọn của bước 1 nên `assertSee` không phân biệt được
+ * "đã chọn" với "mời chọn". Nên phép đo phải là thứ CHỈ có khi đã chọn — ô chọn tệp — và nó đi
+ * kèm vế âm của chính nó ngay bên dưới.
+ */
 it('opens on the item the client tapped', function () {
-    $this->actingAs($this->clientUser, 'client')
+    $tapped = $this->actingAs($this->clientUser, 'client')
         ->get(SubmitDocument::urlForItem($this->item))
         ->assertOk()
-        ->assertSee('Giấy chứng nhận quyền sử dụng đất');
+        ->getContent();
 
-    expect(submitPage(['item' => $this->item->getKey()])->get('item'))->toBe($this->item->getKey());
+    expect($tapped)->toContain('data-portal-field="file"')
+        ->and($tapped)->toContain(__('portal_submit.steps.item.chosen'))
+        ->and($tapped)->toContain('Giấy chứng nhận quyền sử dụng đất');
+
+    // Vế âm: cùng hồ sơ, cùng tài khoản, KHÔNG chuỗi truy vấn → bước 1 mời chọn và không có ô
+    // chọn tệp. Không có vế này, khẳng định trên xanh kể cả khi `?item=` bị bỏ qua hoàn toàn.
+    $withoutQuery = $this->actingAs($this->clientUser, 'client')
+        ->get(SubmitDocument::getUrl(['record' => $this->matter->getKey()], panel: 'portal'))
+        ->assertOk()
+        ->getContent();
+
+    expect($withoutQuery)->not->toContain('data-portal-field="file"')
+        ->and($withoutQuery)->toContain(__('portal_submit.steps.file.choose_item_first'));
 });
 
 // =========================================================================================
@@ -954,4 +1025,210 @@ it('empties the file field after a successful send', function () {
         ->not->toContain('lan-1.pdf');
 
     expect($component->instance()->pendingFile())->toBeNull();
+});
+
+// =========================================================================================
+// ENDPOINT TẢI LÊN CỦA LIVEWIRE — NƠI BYTE THẬT SỰ RƠI XUỐNG, VÀ NƠI TRẦN THẬT ĐỨNG
+// =========================================================================================
+
+/**
+ * **Con số trên màn hình phải là con số ở endpoint.** Dòng hướng dẫn dưới ô chọn tệp hứa 20 MB và
+ * cổng của trang ({@see SubmitDocument::_startUpload()}) cũng cho qua tới 20 MB — nhưng byte không
+ * đi qua trang này: trình duyệt POST thẳng lên `livewire.upload-file`, một route mà trang không
+ * sở hữu và không bọc. Luật của route ấy là `config('livewire.temporary_file_upload.rules')`, và
+ * khi `config/livewire.php` chưa được publish thì nó trả về `max:12288` — 12 MB.
+ *
+ * Nên test này đi qua **HTTP thật, đúng URL đã ký mà `_startUpload` cấp**. Một bản mô phỏng
+ * (`Testable::upload()`) gọi thẳng `validateAndStore()` nên đo được luật mà KHÔNG đo được route —
+ * trong khi cả trần lẫn bộ đếm request đều nằm ở route.
+ *
+ * Dải 13–20 MB là dải mà SPEC §14 mục 4 sống hay chết: một khách chụp sổ đỏ bằng điện thoại đời
+ * nay ra khoảng 15 MB.
+ */
+it('accepts every size the screen promises, at the endpoint where the bytes actually land', function () {
+    foreach ([11, 12, 13, 15, 19, 20] as $megabytes) {
+        expect(submitPostBytes($megabytes)->status())->toBe(200, $megabytes.' MB');
+    }
+
+    // Vế âm trong cùng một test: trên mức đã hứa thì endpoint VẪN từ chối. Không có nó, khẳng
+    // định trên xanh y hệt khi luật `max` biến mất hoàn toàn.
+    expect(submitPostBytes(21)->status())->toBe(422);
+});
+
+/**
+ * **Mọi lời từ chối của endpoint ấy đi ra bằng câu của văn phòng.**
+ *
+ * `WithFileUploads::_uploadErrored()` mặc định lấy thân JSON của lời từ chối, đổi `files.0` thành
+ * tên thuộc tính rồi ném thẳng ra — khách đọc "data.file không được lớn hơn 12288 kilobyte" ngay
+ * bên dưới dòng chữ hứa 20 MB. SPEC §8.4 cấm đích danh kiểu thông điệp đó.
+ *
+ * Thân JSON ở đây là thân THẬT, lấy từ chính lần POST vừa rồi — không phải một chuỗi bịa.
+ */
+it('answers a refusal from livewire own upload endpoint in the offices own words', function () {
+    $refusal = submitPostBytes(21);
+
+    expect($refusal->status())->toBe(422);
+
+    $component = submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->call('_uploadErrored', 'data.file', $refusal->getContent(), false);
+
+    $component->assertHasErrors('data.file');
+
+    expect($component->errors()->first('data.file'))
+        ->toContain('văn phòng')
+        ->not->toContain('data.file')
+        ->not->toContain('files.0')
+        ->not->toContain('kilobyte');
+});
+
+/**
+ * **Cửa của byte phải đứng ở chính endpoint, không chỉ ở màn hình.** SPEC §10.3: 20 tệp / giờ.
+ *
+ * Bộ đếm trong {@see SubmitDocument::_startUpload()} chặn việc CẤP một URL đã ký; nó không chặn
+ * việc DÙNG một URL đã cấp. Một URL còn hạn (5 phút) dùng lại được, và middleware mặc định của
+ * Livewire là `throttle:60,1` — 3600 tệp/giờ, gấp 180 lần mức SPEC cho phép, mỗi tệp một lần ghi
+ * đĩa mà `VirusScanner` không bao giờ được hỏi tới.
+ */
+it('lets one signed upload url be used twenty times an hour and no more', function () {
+    $url = submitUploadUrl();
+
+    // Vế dương: đúng 20 lần đầu đi qua, nên test này không xanh vì mọi thứ đều bị chặn.
+    for ($attempt = 1; $attempt <= 20; $attempt++) {
+        expect(submitPostBytes(1, $url)->status())->toBe(200, 'lần '.$attempt);
+    }
+
+    expect(submitPostBytes(1, $url)->status())->toBe(429);
+});
+
+// =========================================================================================
+// HAI CỬA, HAI CÂU — VÀ BỘ ĐẾM ĐẾM ĐÚNG THỨ DOCBLOCK NÓI NÓ ĐẾM
+// =========================================================================================
+
+/**
+ * **Câu từ chối phải nói đúng cái cửa vừa đóng.** Bộ đếm BYTE tiêu một suất ngay khi khách CHỌN
+ * một tệp — chưa gửi gì cả. Một câu nói "anh/chị đã gửi 20 tệp" ở cửa đó là sai sự thật với
+ * chính người đang đọc nó, và người đó thì đang tìm xem mình đã gửi những gì.
+ */
+it('tells a client which of the two doors closed', function () {
+    $fileKey = SubmitDocument::fileLimiterKey($this->clientUser);
+
+    for ($i = 0; $i < 20; $i++) {
+        RateLimiter::hit($fileKey, 3600);
+    }
+
+    $atTheByteDoor = submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->call('_startUpload', 'data.file', [['name' => 'anh.jpg', 'size' => 1024, 'type' => 'image/jpeg']], false)
+        ->errors()->first('data.file');
+
+    expect($atTheByteDoor)->toContain('đã chọn 20 tệp')->not->toContain('đã bấm gửi');
+
+    $sendKey = SubmitDocument::submissionLimiterKey($this->clientUser);
+
+    for ($i = 0; $i < 20; $i++) {
+        RateLimiter::hit($sendKey, 3600);
+    }
+
+    $atTheRecordDoor = submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->set('data.file', submitPagePdf())
+        ->call('submit')
+        ->errors()->first('data.file');
+
+    expect($atTheRecordDoor)->toContain('đã bấm gửi 20 lần')
+        ->and($atTheRecordDoor)->not->toBe($atTheByteDoor);
+});
+
+/**
+ * **Một lần bị luật của ô từ chối VẪN là một lần thử.** Docblock của lớp nói bộ đếm tự đếm số lần
+ * thử "vì một lần bị từ chối không để lại dòng nào" — nên một đuôi tệp sai phải tốn đúng một suất
+ * như mọi lần khác. Nếu không, mức 20/giờ chỉ áp lên những lần gửi ĐÚNG, và một client tự chế gửi
+ * mãi một tệp cố ý sai định dạng thì không bao giờ chạm tới trần.
+ */
+it('counts a submission the field rules refuse as an attempt too', function () {
+    $key = SubmitDocument::submissionLimiterKey($this->clientUser);
+
+    for ($attempt = 0; $attempt < 5; $attempt++) {
+        submitPage()
+            ->call('chooseItem', $this->item->getKey())
+            ->set('data.file', UploadedFile::fake()->createWithContent('chu-ky.svg', '<svg xmlns="http://www.w3.org/2000/svg"></svg>'))
+            ->call('submit')
+            ->assertHasErrors('data.file');
+    }
+
+    expect(RateLimiter::attempts($key))->toBe(5)
+        ->and(Document::query()->count())->toBe(0);
+});
+
+/**
+ * **Đổi đầu mục phải quên đầu mục cũ, kể cả bản ghi đã giải.** Livewire mang tới 50 lời gọi trong
+ * MỘT request (`livewire.payload.max_calls`), nên hai lần `chooseItem()` rồi một lần `submit()`
+ * nằm chung một request là một hình dạng có thật. `$item` đổi, còn bản ghi đã nhớ thì không — và
+ * `submit()` đọc bản ghi đã nhớ, nên tệp hạ cánh xuống đầu mục TRƯỚC ĐÓ.
+ *
+ * Không có đường vượt tuyến ở đây: cả hai id đều đã đi qua `resolveItem()`, tức đều của khách
+ * này. Cái hỏng là gửi đúng tệp vào nhầm chỗ — đúng cái bẫy mà bước "xem trước" của SPEC §8.4
+ * tồn tại để tránh, chỉ ở chiều ngược lại.
+ */
+it('forgets the previously resolved item when the client picks another one in the same request', function () {
+    $other = MatterChecklistItem::factory()->for($this->matter)->create(['name' => 'Sổ hộ khẩu']);
+
+    $page = submitPage()->instance();
+
+    $page->chooseItem($this->item->getKey());
+
+    expect($page->checklistItem()?->is($this->item))->toBeTrue();
+
+    $page->chooseItem($other->getKey());
+
+    expect($page->item)->toBe($other->getKey())
+        ->and($page->checklistItem()?->is($other))->toBeTrue();
+});
+
+/**
+ * **Bước 1 hỏi `Gate` từng dòng, và `Gate` không được hỏi lại CSDL từng dòng.**
+ *
+ * `DocumentPolicy::create()` đi qua `$item->matter` — một quan hệ LƯỜI — rồi qua
+ * `MatterPolicy::view()` trên chính vụ việc mà trang vừa gác xong ở `resolveMatter()`. Một danh
+ * mục hai mươi đầu mục là chuyện thường ở một hồ sơ đất đai, và mỗi lần vẽ bước 1 là một lần vẽ
+ * cả danh sách.
+ *
+ * Đo bằng ĐỘ DỐC chứ không bằng một con số tuyệt đối: số truy vấn của khung Filament không phải
+ * việc của test này, còn số truy vấn THÊM cho mỗi đầu mục thì đúng là việc của nó.
+ *
+ * **Ngân sách là 2 truy vấn mỗi đầu mục, và con số đó được nói ra kèm lý do — đo thật, không
+ * suy.** Trước khi sửa: 3. Ba truy vấn ấy là
+ *
+ *  1. nạp lười `$item->matter` — **đã xoá**, vì `choosableItems()` gắn sẵn chính vụ việc mà
+ *     `resolveMatter()` vừa gác xong;
+ *  2. `EXISTS` trên `matter_checklist_items` — câu hỏi portal của RIÊNG đầu mục này, tức đúng
+ *     tầng mà lần hỏi `Gate` từng dòng tồn tại để hỏi. Xoá nó là xoá chính cái lưới;
+ *  3. `EXISTS` trên `matters` — `MatterPolicy::view` hỏi lại portal-visibility của vụ việc, và
+ *     nó hỏi lại **y hệt nhau** ở mọi vòng lặp. Gộp nó lại được, nhưng chỗ gộp nằm trong
+ *     `MatterPolicy` / `ChecksMatterAccess` — những tệp mà task này không sở hữu, nên nó được
+ *     báo lại chứ không sửa lén (cùng hình dạng đường trong bộ nhớ mà nhánh nhân sự đã có khi
+ *     `team` đã nạp).
+ *
+ * Ngưỡng đặt ở ngân sách chứ không ở con số chính xác: một lần gộp được mục 3 ở tệp khác không
+ * được làm test này đỏ, còn một lần trả mục 1 về thì phải.
+ */
+it('does not ask the database again for the matter of every item it offers', function () {
+    $measure = function (int $extraItems): int {
+        MatterChecklistItem::factory()->count($extraItems)->for($this->matter)->create();
+
+        $queries = 0;
+        DB::listen(function () use (&$queries): void {
+            $queries++;
+        });
+
+        submitPage()->html();
+
+        return $queries;
+    };
+
+    $withOneItem = $measure(0);
+    $withElevenItems = $measure(10);
+
+    expect($withElevenItems - $withOneItem)->toBeLessThanOrEqual(2 * 10);
 });

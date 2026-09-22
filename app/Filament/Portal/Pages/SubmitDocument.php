@@ -25,6 +25,7 @@ use Illuminate\Support\Number;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Renderless;
+use Livewire\Features\SupportFileUploads\WithFileUploads;
 
 /**
  * Khách hàng nộp giấy tờ từ điện thoại — SPEC §8.4, bốn bước dọc: **chọn đầu mục → chụp ảnh hoặc
@@ -113,33 +114,53 @@ use Livewire\Attributes\Renderless;
  *
  * **Bộ đếm tự đếm số LẦN THỬ, không dựng lại từ dữ liệu đã ghi.** Một lần bị từ chối (tệp sai
  * định dạng, virus) không để lại dòng nào trong `documents` lẫn trong nhật ký — mà đó lại đúng
- * là những lần đáng đếm nhất.
+ * là những lần đáng đếm nhất. Ở cửa của BẢN GHI, câu đó đúng cho MỌI lời từ chối kể cả lời từ
+ * chối của luật trên ô chọn tệp: bộ đếm đứng TRƯỚC `getState()`, xem {@see self::submit()}.
  *
- * **Phạm vi, nói cho đủ vì nó không phải một cái cổng tuyệt đối.** Bộ đếm ở `_startUpload` chặn
- * cái MÀN HÌNH NÀY xin một URL tải lên. Bản thân endpoint `livewire.upload-file` là của Livewire,
- * dùng chung cho cả hai panel, và nó chỉ có `throttle:60,1` mặc định; một client tự chế giữ lại
- * một URL đã ký còn hạn (5 phút) vẫn gửi thêm được tệp lên thư mục tạm của Livewire trong khoảng
- * đó. Bịt nốt đường ấy là một dòng `temporary_file_upload.middleware` trong `config/livewire.php`
- * — một tệp cấu hình dùng chung mà task này không sở hữu; đã báo lại thay vì sửa lén. Thứ những
- * byte ấy KHÔNG làm được là biến thành một `Document`: cửa thứ hai đứng nguyên.
+ * # CỬA THỨ BA, ở chính endpoint: `config/livewire.php`
  *
- * # MỘT KHIẾM KHUYẾT CHƯA SỬA ĐƯỢC TỪ ĐÂY: trần 12 MB của Livewire
+ * Hai cửa trên là hai cửa của MÀN HÌNH NÀY, và một mình chúng không đủ — câu này từng là một
+ * đoạn "phạm vi, nói cho đủ" ở đây, và rà soát đã đo ra rằng nó mô tả một cái lỗ chứ không phải
+ * một giới hạn. Bộ đếm ở `_startUpload` chặn việc CẤP một URL đã ký; nó không chặn việc DÙNG
+ * một URL đã cấp. Đo được: **một URL đã ký nhận trọn 25/25 lần POST, tất cả 200, 50 tệp tạm
+ * nằm trên đĩa, trong khi bộ đếm của trang đứng yên ở 0** — và `VirusScanner` không được hỏi
+ * một lần nào về đống byte ấy. Middleware mặc định của endpoint là `throttle:60,1`, tức 3600
+ * tệp/giờ: gấp 180 lần mức SPEC §10.3 cho phép.
  *
- * SPEC §6.6 bước 4 và §8.4 nói 20 MB. **Livewire từ chối ở 12 MB**, và nó từ chối ở endpoint
- * tải lên của chính nó, nơi màn hình này không có mặt: `FileUploadConfiguration::rules()` trả
- * `['required','file','max:12288']` khi `config('livewire.temporary_file_upload.rules')` trống,
- * và dự án chưa publish `config/livewire.php`. Hệ quả đo được: một tệp 15 MB bị chặn bằng câu
- * mặc định của framework nói về "12288 kilobytes" — vừa sai so với dòng hướng dẫn ngay phía
- * trên ô ("tối đa 20 MB"), vừa là đúng kiểu thông điệp SPEC §8.4 cấm.
+ * Nên cửa thứ ba đứng ở chính endpoint, bằng `temporary_file_upload.middleware` trong
+ * `config/livewire.php` (`throttle:20,60`). Hai cửa của trang KHÔNG vì thế mà thừa: cửa endpoint
+ * khoá theo `$request->user()` của guard mặc định (`web`), thứ trống rỗng trên cổng khách — tức
+ * nó khoá theo ĐỊA CHỈ với khách, còn SPEC §10.3 đòi khoá theo TÀI KHOẢN. Ba cửa, ba thứ được
+ * bảo vệ: byte không rời khỏi điện thoại, byte không rơi xuống đĩa, bản ghi không sinh ra.
  *
- * Sửa là một dòng trong `config/livewire.php` (`'rules' => ['required','file','max:20480']`),
- * cùng tệp với dòng `middleware` ở đoạn trên — tệp mà task này không sở hữu, nên nó được BÁO
- * LẠI chứ không sửa lén. Cho tới lúc đó: tệp trên 20 MB đi ra bằng đúng câu của SPEC §8.4
- * ({@see self::_startUpload()}), tệp 12–20 MB đi ra bằng câu của Livewire.
+ * # Trần dung lượng: MỘT con số, ba chỗ đọc nó
  *
- * Luật `maxSize()` của ô chọn tệp vì vậy **hôm nay không với tới được** — trần của Livewire
- * thấp hơn nó nên không tệp nào sống tới đó. Nó được giữ vì nó là cái đúng khi trần kia được
- * nâng, và câu này ở đây để không ai tưởng nó đang chặn gì.
+ * SPEC §6.6 bước 4 và §8.4 nói 20 MB, cấu hình qua `UPLOAD_MAX_MB`. Ba chỗ phải nói cùng con số
+ * ấy, và trước lượt rà soát này chỉ có hai:
+ *
+ *  - dòng hướng dẫn dưới ô chọn tệp (`portal_submit.steps.file.help`) và luật `maxSize()` của ô
+ *    — cả hai đọc {@see self::maxMegabytes()};
+ *  - cổng của trang ở {@see self::_startUpload()} — cùng lời gọi đó;
+ *  - **luật của endpoint tải lên** (`temporary_file_upload.rules`), thứ trước đây để trống nên
+ *    `FileUploadConfiguration::rules()` trả `max:12288` — 12 MB.
+ *
+ * Hệ quả đo được của cái lệch ấy: 11 MB và 12 MB trả 200, còn 13 MB và 19 MB trả 422 kèm một
+ * câu của framework — "data.file không được lớn hơn 12288 kilobyte" — in thẳng dưới dòng chữ
+ * hứa 20 MB. Cả dải 13–20 MB hỏng, tức đúng cỡ một tấm sổ đỏ chụp bằng điện thoại đời nay
+ * (~15 MB), và SPEC §14 mục 4 hỏng theo. `config/livewire.php` nay đọc cùng `UPLOAD_MAX_MB`, và
+ * `tests/Feature/Config/LivewireUploadConfigTest.php` ghim ba chỗ ấy vào một con số.
+ *
+ * Luật `maxSize()` của ô chọn tệp vì vậy **nay với tới được**: trần của endpoint không còn thấp
+ * hơn nó. Phần chạy trong trình duyệt (FilePond đọc nó làm `maxFileSize`) vẫn là phần tiết kiệm
+ * cho một khách đang dùng 3G, và phần chạy ở máy chủ nay là một lớp thật.
+ *
+ * # Mọi lời từ chối của endpoint cũng phải bằng tiếng Việt — {@see self::_uploadErrored()}
+ *
+ * Nâng trần không đủ, và nửa này lẽ ra làm được từ đầu: `_uploadErrored()` là một phương thức
+ * của chính component, và câu chữ nằm ở tệp ngôn ngữ của chính task này. Bản gốc của Livewire
+ * lấy thân JSON của lời từ chối rồi ném thẳng ra, nên MỌI lời từ chối của endpoint — quá trần
+ * thật, chạm throttle, chữ ký hết hạn, sóng đứt — đi ra bằng một câu của framework có tên thuộc
+ * tính trong đó. Lớp này ghi đè nó để mọi đường ấy đổ về đúng một lối ra của trang.
  *
  * # Cái trang này cố ý KHÔNG làm
  *
@@ -325,6 +346,25 @@ class SubmitDocument extends Page
      * Hai thứ ở đây vì vậy không phải một thứ nói hai lần: quan hệ giữ PHẠM VI, `Gate` giữ QUYỀN,
      * và mỗi cái đỡ được lần quên của cái kia.
      *
+     * # Vụ việc được GẮN SẴN vào từng đầu mục trước khi hỏi `Gate`
+     *
+     * `DocumentPolicy::create()` đọc `$item->matter` — một quan hệ LƯỜI. Không gắn sẵn thì mỗi
+     * đầu mục kéo theo một truy vấn nạp lại đúng vụ việc mà {@see self::resolveMatter()} vừa
+     * đọc và vừa gác xong ở đầu request. Đo được, 10 đầu mục thêm vào: **30 truy vấn thêm trước
+     * khi sửa, 20 sau** — tức 3 xuống 2 cho mỗi đầu mục, trên một màn hình mà một hồ sơ đất đai
+     * hai mươi đầu mục là chuyện thường.
+     *
+     * Gắn sẵn KHÔNG nới một điều kiện nào: đây đúng là đối tượng mà `MatterPolicy::view` vừa
+     * cho qua, và hai tầng còn lại (`checklistItems()` và `Gate`) không đọc gì từ nó.
+     *
+     * **Hai truy vấn còn lại được nói ra chứ không giấu đi**, vì một trong hai gộp được và chỗ
+     * gộp không nằm ở đây: một `EXISTS` trên `matter_checklist_items` — câu hỏi portal của RIÊNG
+     * đầu mục này, tức đúng tầng mà lần hỏi `Gate` từng dòng tồn tại để hỏi — và một `EXISTS`
+     * trên `matters`, thứ `MatterPolicy::view` chạy lại **y hệt nhau** ở mọi vòng lặp. Cái thứ
+     * hai cần một đường trong bộ nhớ ở `MatterPolicy`/`ChecksMatterAccess` (nhánh nhân sự đã có
+     * một đường như vậy khi `team` đã nạp); đó là tệp task này không sở hữu, nên nó được báo lại
+     * chứ không sửa lén. Ngân sách ấy có test ghim.
+     *
      * @return Collection<int, MatterChecklistItem>
      */
     public function choosableItems(): Collection
@@ -334,8 +374,10 @@ class SubmitDocument extends Page
         }
 
         $viewer = $this->viewer();
+        $matter = $this->matter();
 
         return $this->resolvedChoices = $this->matter()->checklistItems()->get()
+            ->each(fn (MatterChecklistItem $item) => $item->setRelation('matter', $matter))
             ->filter(fn (MatterChecklistItem $item): bool => Gate::forUser($viewer)
                 ->allows('create', [Document::class, $item]))
             ->sortBy(fn (MatterChecklistItem $item): int => $this->isOutstanding($item) ? 0 : 1)
@@ -369,7 +411,14 @@ class SubmitDocument extends Page
      */
     public function chooseItem(int|string $key): void
     {
-        $this->item = $this->resolveItem($key)->getKey();
+        // Bản ghi vừa giải thay luôn bản ghi đã nhớ, KHÔNG chỉ đặt lại `$this->item`. Livewire
+        // mang tới 50 lời gọi trong MỘT request (`livewire.payload.max_calls`), nên hai lần
+        // `chooseItem()` rồi một lần `submit()` nằm chung một request là một hình dạng có thật —
+        // và `$resolvedItem` còn giữ đầu mục CŨ thì `submit()` gửi tệp vào đúng đầu mục cũ đó.
+        // Không phải một đường vượt tuyến (cả hai id đều vừa qua `resolveItem()`), mà là đúng
+        // cái bẫy "gửi đúng tệp vào nhầm chỗ" ở ngay dòng dưới, chỉ ở chiều ngược lại.
+        $this->resolvedItem = $this->resolveItem($key);
+        $this->item = $this->resolvedItem->getKey();
 
         // Tệp đã chọn thuộc về đầu mục CŨ. Giữ lại nó qua một lần đổi đầu mục là dọn sẵn đúng
         // cái bẫy mà bước "xem trước" của SPEC §8.4 tồn tại để tránh: gửi đúng tệp vào nhầm chỗ.
@@ -437,13 +486,14 @@ class SubmitDocument extends Page
      * `too_large` mượn thẳng câu của `FileGuard` để khách đọc **cùng một câu** dù lời từ chối
      * đến từ cửa nào.
      *
-     * Nói cho đúng phần nào của hai luật ấy đang CHẠY hôm nay, vì câu trên rộng hơn sự thật ở
-     * một chỗ: luật `mimetypes` của `acceptedFileTypes()` chạy thật ở tầng máy chủ và có test
-     * đứng sau; luật `max` của `maxSize()` thì **không bao giờ được hỏi**, vì trần 12 MB của
-     * Livewire thấp hơn nó và đứng trước nó (xem mục "trần 12 MB" ở docblock lớp). Phần của
-     * `maxSize()` đang có tác dụng là phần chạy trong TRÌNH DUYỆT — FilePond nhận nó làm
-     * `maxFileSize` và từ chối trước khi tải lên, đó là chỗ "rẻ hơn cho một khách đang dùng 3G"
-     * nói đến. Phía máy chủ, cái cổng có thật cho kích thước nằm ở {@see self::_startUpload()}.
+     * Nói cho đúng phần nào của hai luật ấy đang chạy ở đâu: luật `mimetypes` của
+     * `acceptedFileTypes()` chạy ở tầng máy chủ và có test đứng sau. Luật `max` của `maxSize()`
+     * chạy ở HAI nơi — trong trình duyệt (FilePond đọc nó làm `maxFileSize` và từ chối trước khi
+     * tải lên, đó là chỗ "rẻ hơn cho một khách đang dùng 3G" nói đến), và ở tầng máy chủ khi
+     * bấm Gửi. Trước lượt rà soát này vế thứ hai **không bao giờ được hỏi**, vì trần 12 MB của
+     * endpoint Livewire thấp hơn nó và đứng trước nó; nay `config/livewire.php` đọc cùng một con
+     * số nên nó với tới được. Cái cổng sớm nhất cho kích thước vẫn là {@see self::_startUpload()},
+     * nơi câu của SPEC §8.4 tới được khách trước khi một byte nào rời khỏi điện thoại.
      */
     public function form(Schema $schema): Schema
     {
@@ -577,11 +627,25 @@ class SubmitDocument extends Page
      *  1. **Đầu mục trước.** Chưa chọn gì thì đó không phải một lời từ chối, chỉ là chưa đủ thông
      *     tin — một câu chỉ về bước 1, không phải 404. Đã chọn nhưng id không dùng được thì 404,
      *     và nó phải xảy ra trước khi hệ thống bỏ công đọc một tệp 20 MB.
-     *  2. **Luật của ô chọn tệp** (`getState()`), vì một tệp thiếu hoặc sai định dạng trả lời
+     *  2. **Bộ đếm**, hỏi rồi mới ghi: một lần bị từ chối vẫn TÍNH là một lần thử (xem docblock
+     *     lớp), nên `hit()` đứng trước cả luật của ô lẫn lời gọi Action.
+     *  3. **Luật của ô chọn tệp** (`getState()`), vì một tệp thiếu hoặc sai định dạng trả lời
      *     được mà không cần chạm tới đĩa.
-     *  3. **Bộ đếm**, hỏi rồi mới ghi: một lần bị từ chối vẫn TÍNH là một lần thử (xem docblock
-     *     lớp), nên `hit()` đứng trước lời gọi Action chứ không sau.
      *  4. **Action**, và mọi lời từ chối của nó được đổi thành thứ khách đọc được.
+     *
+     * **Bộ đếm đứng TRƯỚC luật của ô, và thứ tự đó vừa được sửa lại.** Bản đầu đặt nó sau
+     * `getState()`, nên một đuôi tệp sai không bao giờ chạm tới nó: đo được, năm lần gửi một
+     * tệp `.svg` để bộ đếm đứng yên ở 0 trong khi docblock lớp nói bộ đếm đếm số LẦN THỬ. Hai
+     * lối ra, và đây là lối đã chọn cùng lý do:
+     *
+     *  - Mức 20/giờ của SPEC §10.3 là một trần AN NINH. Một trần mà người gửi đi vòng được chỉ
+     *    bằng cách cố ý gửi sai định dạng thì không phải một trần: mỗi lần như vậy vẫn là một
+     *    lần hydrate cả component và đọc cả trạng thái form, và nó không để lại dòng nào ở đâu
+     *    để ai đó đếm lại sau.
+     *  - Cái giá phải nói ra: một khách QUÊN chọn tệp rồi bấm Gửi cũng tốn một suất. Hai mươi
+     *    lần quên trong một giờ là cái giá chấp nhận được, và câu từ chối nói rõ phải chờ bao
+     *    lâu — trong khi lối ra kia (viết lại docblock cho hẹp đi) để nguyên cái trần đi vòng
+     *    được.
      *
      * **Hai đích đến, và sự khác nhau nằm ở ĐÍCH chứ không ở họ exception:**
      *
@@ -603,6 +667,11 @@ class SubmitDocument extends Page
     {
         $item = $this->requireChosenItem();
 
+        $this->guardRate(
+            self::submissionLimiterKey($this->viewer()),
+            'portal_submit.errors.rate_limited',
+        );
+
         /** @var array{file: mixed} $state */
         $state = $this->form->getState();
 
@@ -614,8 +683,6 @@ class SubmitDocument extends Page
             // một `TypeError` bên trong Action — tức một lỗi 500 trên màn hình khách.
             $this->failOnFile(__('portal_submit.errors.file_required'));
         }
-
-        $this->guardRate(self::submissionLimiterKey($this->viewer()));
 
         try {
             app(SubmitClientDocument::class)->handle(
@@ -716,9 +783,45 @@ class SubmitDocument extends Page
             }
         }
 
-        $this->guardRate(self::fileLimiterKey($this->viewer()), $name);
+        $this->guardRate(
+            self::fileLimiterKey($this->viewer()),
+            'portal_submit.errors.rate_limited_upload',
+            $name,
+        );
 
         return parent::_startUpload($name, $fileInfo, $isMultiple);
+    }
+
+    /**
+     * Cửa RA của endpoint tải lên — nơi mọi lời từ chối của framework đổi thành câu của văn phòng.
+     *
+     * Livewire gọi phương thức này khi POST lên `livewire.upload-file` trả về một mã lỗi. Bản
+     * gốc ({@see WithFileUploads::_uploadErrored()}) lấy
+     * thân JSON của lời từ chối, đổi `files.0` thành tên thuộc tính rồi ném thẳng ra — khách
+     * đọc "data.file không được lớn hơn 20480 kilobyte" ngay bên dưới dòng chữ hứa 20 MB. SPEC
+     * §8.4 cấm đích danh kiểu thông điệp đó, và **nó cấm đúng ở màn hình này**.
+     *
+     * Đây là nửa còn lại của việc publish `config/livewire.php`, và nửa này ở ngay trong lớp:
+     * trần đã nâng lên 20 MB thì dải 13–20 MB hết đi qua đây, nhưng endpoint còn từ chối vì
+     * những lý do khác — quá trần thật (một client tự chế khai sai kích thước ở `fileInfo` để
+     * đi vòng qua {@see self::_startUpload()}), chạm `throttle:20,60`, chữ ký hết hạn giữa
+     * chừng, sóng đứt. Mọi lý do đó đi ra bằng MỘT đường, và đường đó là đường của trang.
+     *
+     * **Không đoán lý do**, vì tới đây không còn gì để đọc ngoài một thân JSON đã dịch: câu
+     * `portal_submit.errors.upload_failed` nêu hai khả năng có thật kèm việc phải làm cho mỗi
+     * khả năng, và kết bằng số điện thoại văn phòng.
+     *
+     * `dispatch('upload:errored')` giữ nguyên của bản gốc và **phải** giữ: FilePond nghe sự kiện
+     * đó để gỡ vòng quay tải lên. Bỏ nó đi thì ô chọn tệp quay mãi bên cạnh một câu từ chối.
+     */
+    public function _uploadErrored($name, $errorsInJson, $isMultiple) // @phpstan-ignore-line — chữ ký của Livewire
+    {
+        $this->dispatch('upload:errored', name: $name)->self();
+
+        $this->failOnFile(__('portal_submit.errors.upload_failed', [
+            'max' => static::maxMegabytes(),
+            'hotline' => config('vkcrm.brand.hotline'),
+        ]), $name);
     }
 
     /**
@@ -728,11 +831,17 @@ class SubmitDocument extends Page
      * Câu từ chối nói ra cả con số, cả số phút phải chờ, cả số điện thoại văn phòng: người gặp nó
      * thường đang gửi một xấp giấy tờ thật chứ không phải đang phá hệ thống, và một câu chỉ nói
      * "quá giới hạn" để họ đứng im giữa sân uỷ ban phường.
+     *
+     * **`$message` là tham số vì hai cửa đếm hai việc khác nhau**, và một câu dùng chung nói dối
+     * ở một trong hai: cửa của byte tiêu một suất khi khách mới CHỌN tệp, nên câu "anh/chị đã
+     * gửi 20 tệp" ở đó nói về một việc chưa xảy ra. Con số thì vẫn là một: `:limit` đọc thẳng
+     * {@see self::FILES_PER_HOUR}, không tệp ngôn ngữ nào viết nó ra bằng chữ số.
      */
-    private function guardRate(string $key, ?string $field = null): void
+    private function guardRate(string $key, string $message, ?string $field = null): void
     {
         if (RateLimiter::tooManyAttempts($key, self::FILES_PER_HOUR)) {
-            $this->failOnFile(__('portal_submit.errors.rate_limited', [
+            $this->failOnFile(__($message, [
+                'limit' => self::FILES_PER_HOUR,
                 'minutes' => max(1, (int) ceil(RateLimiter::availableIn($key) / 60)),
                 'hotline' => config('vkcrm.brand.hotline'),
             ]), $field);
