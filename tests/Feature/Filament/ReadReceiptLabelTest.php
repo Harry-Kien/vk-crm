@@ -9,7 +9,9 @@ use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Matter;
 use App\Models\StageLog;
+use App\Models\StageLogView;
 use App\Models\User;
+use App\Support\Scopes\ClientPortalScope;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 
@@ -139,6 +141,74 @@ it('keeps showing the first opening by any account, not the most recent one', fu
     progressTab($this->matter)
         ->assertSee(__('matters.stage_log_fields.viewed_at', ['time' => '21:14', 'date' => '14/09']))
         ->assertDontSee(__('matters.stage_log_fields.viewed_at', ['time' => '08:30', 'date' => '20/09']));
+});
+
+/**
+ * **Hợp đồng "lần mở ĐẦU TIÊN" cũng phải đúng trên nhánh KHÔNG eager-load.**
+ *
+ * Test ngay trên đi qua bảng, và bảng eager-load `views` theo `viewed_at` — nên nó ghim thứ tự
+ * của `modifyQueryUsing()`, không ghim `readReceiptLabel()`. Đo được: đổi `orderBy('viewed_at')`
+ * thành `orderByDesc` ở NHÁNH FALLBACK (dòng `$stageLog->views()->…` trong chính hàm nhãn) để cả
+ * sáu test của tệp này XANH. Nhánh ấy không phải mã chết: mọi lời gọi `readReceiptLabel()` trên
+ * một model chưa qua bảng đều đi vào nó — `ViewMatterTest` và `StageLogPaintingTest` gọi như vậy,
+ * và một widget hay một bản xuất sau này cũng sẽ gọi như vậy.
+ *
+ * Nên test này gọi hàm TRỰC TIẾP trên một model vừa đọc lại từ cơ sở dữ liệu, khẳng định trước
+ * rằng quan hệ CHƯA nạp, và dựng hai biên bản từ hai tài khoản (một tài khoản mở hai lần chỉ sinh
+ * một hàng, nên "đầu" và "cuối" trùng nhau và phép đo mất nghĩa — cùng cái bẫy đã ghi ở test
+ * trên).
+ */
+it('still reads the first opening when the label is called with the relation not loaded', function () {
+    $log = StageLog::factory()->for($this->matter)->published()->create(['published_at' => now()->subDays(8)]);
+
+    $this->travelTo('2026-09-14 21:14:00');
+    clientOpensMatter($this->clientUser, $this->matter);
+
+    $this->travelTo('2026-09-20 08:30:00');
+    clientOpensMatter($this->sibling, $this->matter);
+
+    $this->actingAs($this->lawyer, 'web');
+    Filament::setCurrentPanel('admin');
+
+    $fresh = StageLog::query()->findOrFail($log->getKey());
+
+    // Hai tiền đề, và cả hai đều bắt buộc: đúng nhánh fallback, và hai biên bản khác giờ nhau.
+    expect($fresh->relationLoaded('views'))->toBeFalse()
+        ->and($fresh->views()->count())->toBe(2)
+        ->and($fresh->relationLoaded('views'))->toBeFalse();
+
+    expect(StageLogsRelationManager::readReceiptLabel($fresh)['text'])
+        ->toBe(__('matters.stage_log_fields.viewed_at', ['time' => '21:14', 'date' => '14/09']));
+});
+
+/**
+ * **Gỡ một dòng tiến độ khỏi cổng KHÔNG xoá biên bản, và nhãn ở panel nội bộ vẫn kể lại nó.**
+ *
+ * Đo được và ghi lại vì câu hỏi này được nêu ra ở vòng hợp nhất theo chiều ngược: hàng
+ * `stage_log_views` ở lại nguyên, và nhãn vẫn đọc "Khách đã xem lúc …". Đó là hành vi ĐÚNG — nhãn
+ * nói một sự thật đã xảy ra về dòng này, và một bằng chứng biến mất khi văn phòng đổi ý về việc
+ * công bố thì không còn là bằng chứng. Chiều kia thì có cắn, và nó cắn ở đúng chỗ nó phải cắn:
+ * trong ngữ cảnh portal, `StageLogView::applyClientPortalConstraints()` là `whereHas('stageLog')`
+ * nên cả dòng tiến độ lẫn biên bản của nó cùng biến khỏi tầm mắt của KHÁCH.
+ */
+it('keeps the receipt and the label after the office unpublishes the entry', function () {
+    $log = StageLog::factory()->for($this->matter)->published()->create(['published_at' => now()->subDays(8)]);
+
+    $this->travelTo('2026-09-14 21:14:00');
+    clientOpensMatter($this->clientUser, $this->matter);
+
+    $this->actingAs($this->lawyer, 'web');
+    Filament::setCurrentPanel('admin');
+
+    // Tiền đề: đã có biên bản và nhãn đang đọc nó.
+    expect(StageLogsRelationManager::readReceiptLabel(StageLog::query()->findOrFail($log->getKey()))['text'])
+        ->toBe(__('matters.stage_log_fields.viewed_at', ['time' => '21:14', 'date' => '14/09']));
+
+    $log->update(['is_published' => false]);
+
+    expect(StageLogView::withoutGlobalScope(ClientPortalScope::class)->count())->toBe(1)
+        ->and(StageLogsRelationManager::readReceiptLabel(StageLog::query()->findOrFail($log->getKey()))['text'])
+        ->toBe(__('matters.stage_log_fields.viewed_at', ['time' => '21:14', 'date' => '14/09']));
 });
 
 // =========================================================================================
