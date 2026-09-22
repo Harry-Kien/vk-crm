@@ -283,6 +283,39 @@ Chủ văn phòng hỏi biểu đồ tròn. Biểu đồ tròn đúng **chỉ kh
 
 ---
 
+## Hệ thống màu và quy cách biểu đồ — đã kiểm chứng bằng máy, ngày 2026-09-22
+
+Bổ sung sau khi chủ văn phòng hỏi lại về biểu đồ. **Không chọn màu bằng mắt.** Bộ màu dưới đây đã chạy qua bộ kiểm sáu phép (dải độ sáng, sàn độ bão hoà, tách biệt cho người mù màu, sàn cho mắt thường, tương phản trên nền) **ở cả hai nền: trắng `#ffffff` và nền tối `#18181b`** — và cùng một bộ ba đạt ở cả hai, nên widget **không cần đổi màu theo chế độ**, chỉ đổi màu chữ và lưới.
+
+**Bộ ba của biểu đồ vành khuyên** (đã thu / còn phải thu / quá hạn):
+
+| Phần | Mã màu | Vai trò |
+|---|---|---|
+| Đã thu | `#0ca30c` | trạng thái tốt |
+| Còn phải thu, chưa tới hạn | `#4a73bd` | **chính là màu thương hiệu**, bậc 500 của dải primary |
+| Quá hạn | `#d03b3b` | trạng thái nghiêm trọng |
+
+Số đo: tách biệt mù màu ΔE 19.9 ở cặp xấu nhất, mắt thường 27.6, cả ba đều vượt tương phản 3:1 trên **cả hai** nền. Chỉ có một màu xanh dương duy nhất trong toàn bộ trang, cố ý — hai sắc xanh gần nhau ở hai biểu đồ khác nhau là cách nhanh nhất để người đọc tưởng chúng cùng nghĩa.
+
+**Cột một chuỗi dùng đúng một màu** `#4a73bd`, đạt cả hai nền. Một chuỗi thì **không có chú giải** — tiêu đề đã gọi tên nó rồi.
+
+**Luật bắt buộc, chép vào docblock của trang:**
+
+- **Không bao giờ hai trục y.** Hai đại lượng khác thang thì hai biểu đồ, không phải hai trục. Công tắc *số vụ / số tiền* đã có trong kế hoạch này chính là cách né đúng.
+- **Màu đi theo thực thể, không đi theo thứ hạng.** Lọc bớt một lĩnh vực thì các lĩnh vực còn lại **không được đổi màu**.
+- **Một sắc cho thang liên tục, hai sắc cộng một xám ở giữa cho thang hai cực. Không bao giờ cầu vồng.**
+- **Chú giải luôn có khi từ hai chuỗi trở lên**, và các lát của vành khuyên phải có **nhãn trực tiếp ghi số**, vì cặp đỏ–xanh ở trên nằm sát dải cảnh báo của thị giác tritan; nhãn là lớp mã hoá thứ hai bắt buộc, không phải trang trí.
+- **Chữ mặc màu chữ, không mặc màu chuỗi.** Con số và nhãn dùng màu chữ của Filament; ô màu nhỏ bên cạnh mới mang danh tính.
+- **Bốn màu trạng thái là của riêng trạng thái**, không bao giờ tái sử dụng làm "chuỗi thứ tư", và luôn đi kèm biểu tượng và chữ.
+- **Luôn có một bảng số** đi kèm mỗi biểu đồ, mở ra được. Ai không đọc được màu vẫn phải đọc được dữ liệu, và người muốn con số chính xác cũng cần nó.
+- **Khoảng 2px nền giữa các mảng liền nhau**, đầu cột bo 4px, điểm đánh dấu tối thiểu 8px.
+
+**Một widget nữa, đúng thứ chủ văn phòng vừa hỏi và kế hoạch cũ chưa có:**
+
+`RevenueByStageWidget` — **doanh thu đã thu theo từng đợt/giai đoạn**. Cột ngang xếp theo thứ tự giai đoạn của loại vụ việc (không xếp theo giá trị, vì ở đây thứ tự thời gian chính là thông tin), mỗi cột là tổng tiền thực nhận của các đợt gắn vào giai đoạn đó. Trả lời đúng câu hỏi vận hành: *văn phòng đang kẹt tiền ở khúc nào của quy trình.* Cùng bộ lọc, cùng một màu, cùng bảng số đi kèm.
+
+---
+
 ## 12 lĩnh vực hành nghề — thuộc kế hoạch này, và là Task 1
 
 Seeder hiện có **sáu** loại vụ việc; văn phòng hành nghề **mười hai** lĩnh vực (lấy từ luatvukhang.com). Nghĩa là **một nửa dịch vụ của văn phòng hôm nay không mở được thành hồ sơ.**
@@ -370,7 +403,7 @@ Ghi ở đây để không rơi. Mỗi mục có task phụ trách.
 | `app/Exceptions/{ContractTotalMismatch,ContractNotAmendable,InstalmentNotPayable,PaymentExceedsInstalment,MatterHasOutstandingBalance,BillingModelNotSupported}.php` | |
 | `app/Filament/Admin/Resources/Matters/RelationManagers/BillingRelationManager.php` | Tab "Hợp đồng và thanh toán" trên trang vụ việc |
 | `app/Filament/Admin/Pages/RevenueDashboard.php` | Trang doanh thu, `HasFiltersForm` |
-| `app/Filament/Admin/Widgets/Revenue/{ReceivablesDonut,RevenueOverTime,MatterMixByPracticeArea,LoadPerLawyer,ClosedWithBalance}Widget.php` | |
+| `app/Filament/Admin/Widgets/Revenue/{ReceivablesDonut,RevenueOverTime,RevenueByStage,MatterMixByPracticeArea,LoadPerLawyer,ClosedWithBalance}Widget.php` | |
 | `lang/vi/billing.php`, bổ sung `lang/vi/{enums,permissions,widgets,exceptions}.php` | |
 | `database/seeders/{MatterTypeSeeder,ChecklistTemplateSeeder,BillingSeeder}.php`, `app/Support/StagePresets.php` | |
 | `tests/Feature/Actions/Billing/*`, `tests/Feature/Authorization/BillingAccessTest.php`, `tests/Feature/Filament/RevenueDashboardTest.php` | |

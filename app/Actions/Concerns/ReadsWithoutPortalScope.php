@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Actions\Document\Concerns;
+namespace App\Actions\Concerns;
 
 use App\Support\Scopes\ClientPortalScope;
 use Illuminate\Database\Eloquent\Builder;
@@ -33,7 +33,12 @@ use Illuminate\Database\Eloquent\Builder;
  *
  * Trait này tách ra khỏi `StoresDocumentFile` ở vòng rà soát cuối M4: `PublishDocument` và
  * `RegroupDocument` không lưu tệp nên không dùng trait kia, và vì thế chúng là hai Action duy
- * nhất của milestone đọc `Document::query()` trần.
+ * nhất của milestone đó đọc `Document::query()` trần.
+ *
+ * Và nó rời khỏi `App\Actions\Document\Concerns` ở M5 Task 2, khi `RecordStageLogView` — một
+ * Action không liên quan gì tới tài liệu — cần đúng câu hỏi đó. Lý lẽ của trait chưa bao giờ nói
+ * về tài liệu: nó nói về một Action chạy dưới guard `client`, và M5 là milestone mà MỌI Action
+ * chạy dưới guard đó.
  */
 trait ReadsWithoutPortalScope
 {

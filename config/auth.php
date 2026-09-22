@@ -128,4 +128,29 @@ return [
 
     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Khoảng đệm thời gian của một lần đăng nhập (SPEC §10.10)
+    |--------------------------------------------------------------------------
+    |
+    | `Filament\Auth\Pages\Login::authenticate()` bọc cả nhánh thành công lẫn nhánh thất bại
+    | trong một `Illuminate\Support\Timebox` dài đúng `auth.timebox_duration` micro giây, để một
+    | email có thật và một email bịa ra mất CÙNG một khoảng thời gian. Đó là nửa còn lại của
+    | SPEC §10.10: hai câu trả lời giống hệt nhau vẫn phân biệt được nếu một cái về nhanh hơn.
+    |
+    | Con số phải lớn hơn tổng chi phí thật của nhánh CHẬM NHẤT, nếu không `Timebox` không còn
+    | gì để đệm và chênh lệch lộ ra nguyên vẹn. Đo trên container dev (bcrypt cost 12, đúng
+    | `BCRYPT_ROUNDS` của `.env.example`): `Hash::check()` mất 152–160 ms, trung bình 157 ms.
+    | Cộng thêm một dòng activity log và hai lần ghi cache của bộ đếm thì mặc định 200 ms của
+    | framework chỉ còn khoảng 30 ms dư — đủ hôm nay, và không đủ trên một máy chủ chia sẻ chậm
+    | hơn hoặc khi `BCRYPT_ROUNDS` được nâng.
+    |
+    | 500 ms là nửa giây khách phải chờ ở màn hình đăng nhập — một cái giá nhìn thấy được, trả
+    | có chủ ý để lấy khoảng dư gấp ba chi phí băm. Ghim ở đây chứ không để mặc định vì một con
+    | số không ai viết ra là một con số không ai kiểm lại khi phần cứng đổi.
+    |
+    */
+
+    'timebox_duration' => (int) env('AUTH_TIMEBOX_DURATION', 500_000),
+
 ];

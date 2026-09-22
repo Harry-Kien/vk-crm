@@ -1,0 +1,263 @@
+<?php
+
+namespace App\Actions\Portal;
+
+use App\Actions\Concerns\ChecksAccountActive;
+use App\Actions\Concerns\ReadsWithoutPortalScope;
+use App\Enums\ClientRequestStatus;
+use App\Models\ClientRequest;
+use App\Models\Matter;
+use App\Models\User;
+use App\Support\Audit;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\ValidationException;
+
+/**
+ * Hộp thư của văn phòng, phần KHÔNG phải viết chữ: **nhận, giao việc, đổi trạng thái** —
+ * SPEC §7.2 tab "Yêu cầu từ khách".
+ *
+ * # Vì sao có Action thứ ba, khi kế hoạch M5 chỉ liệt kê hai
+ *
+ * Kế hoạch Task 6 liệt kê `OpenClientRequest` và `ReplyToClientRequest`. Nhưng SPEC §7.2 giao cho
+ * văn phòng **bốn** động từ — "nhận, đổi trạng thái, gán người xử lý, trả lời" — và ba động từ
+ * đầu là những lần GHI vào `client_requests`. CLAUDE.md nói thẳng: *nghiệp vụ nằm trong
+ * `app/Actions/`; Filament resource/controller/job chỉ gọi Action*, và đó không phải một quy ước
+ * trang trí — vòng rà soát M3 đã bắt `ViewMatter` gọi thẳng `$record->update()` và phải tách ra
+ * thành `SetMatterPortalPublication` vì đúng lý do đang áp dụng ở đây: cổng quyền, kiểm tra
+ * trạng thái và dòng nhật ký phải sống cùng một chỗ với lần ghi.
+ *
+ * Nên lệch so với kế hoạch là **có**, và nó được ghi ra chứ không làm lặng lẽ: một tệp Action nữa,
+ * cùng namespace `Portal` với hai tệp kia. Namespace nói về TÍNH NĂNG (cuộc trao đổi với khách),
+ * không về việc ai thao tác — `ReplyToClientRequest` cũng nhận cả hai phía.
+ *
+ * # Hai phương thức, không phải một `handle()` mang bốn tham số
+ *
+ * "Giao cho ai" và "đang ở đâu" là hai câu hỏi, và gộp chúng vào một chữ ký sẽ đẻ ra một tham số
+ * sentinel để phân biệt "gán cho không ai" với "đừng đụng vào người đang giữ" — đúng loại tham số
+ * mà nơi gọi truyền sai một lần là im lặng xoá mất người phụ trách. Hai phương thức, mỗi cái một
+ * câu, dùng chung {@see self::open()} cho phần đọc lại và gác cổng.
+ *
+ * # "Giao việc" cũng là "nhận"
+ *
+ * SPEC §7.2 kể "nhận" như một động từ riêng, nhưng nó không phải một cột riêng: một yêu cầu được
+ * nhận là một yêu cầu **đã có người đứng tên và không còn là `new`**. Nên {@see self::assign()}
+ * tự đẩy `new → in_progress`, và trợ lý bấm "Giao việc" chọn chính mình là đã "nhận". Một nút
+ * thứ hai chỉ để đổi một chữ sẽ là một nút người ta quên bấm, và khi đó cột trạng thái nói sai.
+ *
+ * Chiều ngược lại **không** tự động: gỡ người phụ trách (`null`) KHÔNG kéo trạng thái về `new`.
+ * `new` nghĩa là "chưa ai trong văn phòng nhìn thấy", và một khi đã có người nhìn thì điều đó
+ * không thành chưa xảy ra được nữa. Cùng một luật đó bịt nốt đường vòng: {@see self::setStatus()}
+ * cũng từ chối đặt lại `new` cho một luồng đã rời `new`.
+ *
+ * # Người được giao việc phải MỞ ĐƯỢC hồ sơ, và phải CÒN ĐI LÀM
+ *
+ * {@see self::assign()} hỏi cả hai câu **trên người được giao**, không chỉ trên người đang giao —
+ * xem {@see self::canHoldTheThread()}. Giao một yêu cầu cho người không mở được vụ việc là đẩy nó
+ * vào một hàng đợi không ai nhìn thấy: nó biến mất khỏi "chưa ai nhận" mà không ai làm được gì
+ * với nó. Với một vụ việc `restricted` (SPEC §4.6) đây còn là một cách rò rỉ tên hồ sơ qua một ô
+ * chọn. Câu thứ hai — tài khoản còn hiệu lực — được thêm ở vòng rà soát 21/09/2026, vì
+ * `MatterPolicy::update` không đọc `users.is_active` và một luật sư đã nghỉ việc đi lọt cổng thứ
+ * nhất.
+ *
+ * # Không đọc `auth()`, không tin tham số
+ *
+ * Cùng kỷ luật với {@see OpenClientRequest} và {@see ReplyToClientRequest}.
+ */
+class TriageClientRequest
+{
+    use ChecksAccountActive;
+    use ReadsWithoutPortalScope;
+
+    /**
+     * Giao một yêu cầu cho một người, hoặc gỡ người đang giữ ra (`$assignee === null`).
+     */
+    public function assign(ClientRequest $request, User $actor, ?User $assignee): ClientRequest
+    {
+        return DB::transaction(function () use ($request, $actor, $assignee): ClientRequest {
+            [$thread, $matter] = $this->open($request, $actor);
+
+            if ($assignee !== null && ! $this->canHoldTheThread($assignee, $matter)) {
+                // `ValidationException` chứ không `AuthorizationException`: câu này nói về Ô CHỌN —
+                // người đang giao có quyền, họ chỉ vừa chọn sai người — và nó phải hiện ngay dưới ô
+                // đó. Khoá là tên trần `assigned_to`, trùng tên ô trong modal; `ReportsActionFailures`
+                // dịch nó sang state path thật.
+                throw ValidationException::withMessages([
+                    'assigned_to' => [__('requests.validation.assignee_cannot_open')],
+                ]);
+            }
+
+            $previous = $thread->assigned_to;
+
+            $thread->assigned_to = $assignee?->getKey();
+
+            // "Giao việc" cũng là "nhận" — xem docblock lớp. Một chiều, không có chiều ngược lại.
+            if ($assignee !== null && $thread->status === ClientRequestStatus::New) {
+                $thread->status = ClientRequestStatus::InProgress;
+            }
+
+            $thread->save();
+
+            Audit::record('client_request_assigned', $thread, [
+                'matter_id' => $thread->matter_id,
+                'client_id' => $matter->client_id,
+                'from' => $previous,
+                'to' => $thread->assigned_to,
+            ], causer: $actor);
+
+            return $thread;
+        });
+    }
+
+    /**
+     * **"Người này có thật sự mở được hồ sơ không" — HAI câu hỏi, không một.**
+     *
+     * `MatterPolicy::update` trả lời câu thứ nhất (quyền), và nó **không đọc `users.is_active`**:
+     * chỗ duy nhất trong dự án đọc cột đó là `User::canAccessPanel()`, và hàm ấy chỉ chạy cho
+     * người đang đăng nhập, không bao giờ cho một người thứ ba được nhắc tên trong một ô chọn.
+     * Nên trước bản sửa này một tài khoản đã bị vô hiệu hoá — hoặc đã xoá mềm — đi lọt cổng, và
+     * vì "giao việc" cũng là "nhận" (xem docblock lớp), yêu cầu rời luôn `new` — cột "Người xử
+     * lý" thôi nói "Chưa ai nhận" — và cổng khách bắt đầu nói "Văn phòng đang xem và chuẩn bị
+     * trả lời anh/chị" về một luồng không ai mở được nữa. Đó là đúng cái hố mà cổng này sinh ra
+     * để lấp, đào bằng một cột khác.
+     *
+     * {@see ChecksAccountActive} là **cùng một câu hỏi** mà Action đã hỏi về người đang thao tác;
+     * ở đây nó được hỏi về người sắp phải làm việc. Một định nghĩa, hai lần gọi — không chép lại
+     * điều kiện nào.
+     */
+    private function canHoldTheThread(User $assignee, Matter $matter): bool
+    {
+        return $this->accountIsActive($assignee) && Gate::forUser($assignee)->allows('update', $matter);
+    }
+
+    /**
+     * Đặt trạng thái tay: `new → in_progress → answered → closed`, và ngược lại khi cần mở lại
+     * một việc đã đóng sớm.
+     *
+     * **Không có ma trận chuyển trạng thái nào ở đây, trừ ĐÚNG MỘT bước, và cả hai vế là một
+     * quyết định.** `Matter` có một ma trận đầy đủ (`allowed_next`, SPEC §4.5) vì giai đoạn tố
+     * tụng là một quy trình pháp lý có thứ tự; một cuộc trao đổi qua lại thì không. Một trợ lý
+     * bấm nhầm "Đã đóng" phải mở lại được ngay, và một luật sư trả lời qua điện thoại rồi đánh
+     * dấu thẳng "Đã trả lời" là việc đúng, không phải một bước nhảy cóc.
+     *
+     * Bước bị chặn là **quay về `new`**. `new` không phải một bước trong quy trình mà là một lời
+     * khẳng định về thế giới — *chưa ai trong văn phòng nhìn thấy cái này* — và một khi đã có
+     * người nhìn thì điều đó không thành chưa xảy ra được nữa. Đây là cùng một luật mà
+     * {@see self::assign()} đã giữ ở chiều của nó (gỡ người phụ trách ra KHÔNG kéo trạng thái về
+     * `new`), và docblock lớp đã tuyên bố nó từ đầu; bản đầu của hàm này thì nhận cả bốn giá trị
+     * từ một ô chọn bày ra cả bốn, nên mã và docblock nói hai chuyện khác nhau. Hệ quả thật nếu
+     * để lọt: một hàng vừa mang nhãn "Mới" — tức "chưa ai nhìn thấy" — vừa có tên người phụ
+     * trách ở cột bên cạnh, và cổng khách nói với khách rằng chưa ai xem cái họ gửi, sau khi đã
+     * có người xem.
+     *
+     * Đặt `new` lên một luồng ĐANG `new` vẫn được — đó là một lần không-làm-gì (ô chọn được đổ
+     * sẵn giá trị hiện tại), không phải một bước lùi.
+     *
+     * `answered_at` được ghi khi trạng thái ĐẾN `answered` và cột còn trống — trường hợp thật là
+     * "văn phòng đã gọi điện trả lời rồi mới vào đánh dấu". Nếu cột đã có giá trị thì giữ nguyên,
+     * và {@see ReplyToClientRequest} cũng vậy: cột đó là **lần đầu** văn phòng trả lời và nó
+     * không bao giờ dịch đi (phán quyết 21/09/2026, lý lẽ đầy đủ ở docblock lớp của Action kia).
+     * Rời khỏi `answered` **không** xoá cột: một sự kiện đã xảy ra thì không viết lại được cho
+     * khớp một cái nhãn.
+     */
+    public function setStatus(ClientRequest $request, User $actor, ClientRequestStatus $status): ClientRequest
+    {
+        return DB::transaction(function () use ($request, $actor, $status): ClientRequest {
+            [$thread, $matter] = $this->open($request, $actor);
+
+            $previous = $thread->status;
+
+            if ($status === ClientRequestStatus::New && $previous !== ClientRequestStatus::New) {
+                // Cùng hình dạng với câu từ chối của `assign()`: một ValidationException gắn vào
+                // đúng tên ô trong modal (`status`), vì người đọc đang nhìn thẳng vào ô đó và
+                // việc cần làm là chọn lại một giá trị khác.
+                throw ValidationException::withMessages([
+                    'status' => [__('requests.validation.cannot_return_to_new')],
+                ]);
+            }
+
+            $thread->status = $status;
+
+            if ($status === ClientRequestStatus::Answered && $thread->answered_at === null) {
+                $thread->answered_at = now();
+            }
+
+            $thread->save();
+
+            Audit::record('client_request_status_changed', $thread, [
+                'matter_id' => $thread->matter_id,
+                'client_id' => $matter->client_id,
+                'from' => $previous->value,
+                'to' => $status->value,
+            ], causer: $actor);
+
+            return $thread;
+        });
+    }
+
+    /**
+     * Đọc lại hàng thật, nạp sẵn vụ việc bằng một truy vấn đã gỡ scope, rồi gác cổng.
+     *
+     * **Chỉ gọi được từ bên trong một transaction**, vì nó khoá hàng: cả hai phương thức công
+     * khai ở trên là đọc-sửa-ghi, và không có khoá thì hai người bấm cùng lúc ở hai tab ghi đè
+     * lên nhau — trường hợp cụ thể đã ghi ở {@see ReplyToClientRequest::handle()}. Cùng thành
+     * ngữ `RegroupDocument` dùng. Trên SQLite (bộ test) `lockForUpdate()` biên dịch thành không
+     * gì cả, nên phần khoá là một lập luận về MariaDB chứ không phải một điều kiện test đỏ được.
+     *
+     * `setRelation('matter', ...)` TRƯỚC khi `Gate` chạm vào đối tượng, cùng lý do đã đo ở M4:
+     * một quan hệ nạp lười chạy dưới guard NÀO ĐANG MỞ, nên với một phiên portal đang mở trong
+     * cùng trình duyệt (chuyện thường ngày lúc demo) `$request->matter` trả `null` và một nhân sự
+     * đủ quyền bị từ chối oan.
+     *
+     * @return array{0: ClientRequest, 1: Matter}
+     */
+    private function open(ClientRequest $request, User $actor): array
+    {
+        $thread = $this->scopelessly(ClientRequest::query())
+            ->lockForUpdate()
+            ->find($request->getKey()) ?? $this->refuse();
+
+        $matter = $this->scopelessly(Matter::query())->find($thread->matter_id);
+        $thread->setRelation('matter', $matter);
+
+        if (! $this->accountIsActive($actor)) {
+            $this->refuse();
+        }
+
+        // Hồ sơ đã xoá mềm: `Matter::query()` loại nó, nên lần đọc ngay trên trả `null`.
+        //
+        // **Câu này KHÔNG đỏ được một mình, và nói thẳng ra thay vì để nó trông như một cổng.**
+        // `ClientRequestPolicy::update` uỷ cho `ChecksMatterAccess::canUpdateMatter()`, và hàm
+        // đó tự hỏi `$matter !== null` — nên xoá dòng này đi thì một hồ sơ đã xoá mềm vẫn bị từ
+        // chối, bằng đúng câu ấy, một dòng bên dưới (đo bằng mutation probe ở vòng rà soát
+        // 21/09/2026: probe SỐNG SÓT). Nó ở lại vì nó là thứ bảo đảm KIỂU cho
+        // `@return array{1: Matter}` và cho `$matter->client_id` ở cả hai nơi gọi: không có nó,
+        // tính đúng của hai lời gọi `Audit::record()` phụ thuộc vào một câu `null` nằm bên trong
+        // một policy khác. Cùng cách ghi mà `ReportsActionFailures::failWithFieldErrors()` dùng
+        // cho nhánh không đỏ được của nó.
+        if ($matter === null) {
+            $this->refuse();
+        }
+
+        // `ClientRequestPolicy::update` — tức `MatterPolicy::update`, không phải "thấy được vụ
+        // việc". Kế toán không có `matter.update` nên không nhận, không giao và không đổi trạng
+        // thái yêu cầu của khách (SPEC §5).
+        if (Gate::forUser($actor)->inspect('update', $thread)->denied()) {
+            $this->refuse();
+        }
+
+        return [$thread, $matter];
+    }
+
+    /**
+     * **Mọi lý do, MỘT câu** — SPEC §10.10, và §10.10 không chừa ngoại lệ cho người trong văn
+     * phòng: M3 đã áp đúng luật này cho cả panel nội bộ với chính ví dụ kế toán
+     * (`AnswerDeniedPanelRequestsWithNotFound`). Yêu cầu không tồn tại, thuộc một vụ việc người
+     * hỏi không mở được, vụ việc đã bị xoá mềm, tài khoản đã bị vô hiệu hoá: cùng một câu.
+     */
+    private function refuse(): never
+    {
+        throw new AuthorizationException(__('requests.unavailable'));
+    }
+}

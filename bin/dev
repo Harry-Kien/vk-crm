@@ -4,7 +4,8 @@
 #   bin/dev up|down|build|ps|logs [...]     -> docker compose <args>
 #   bin/dev artisan <args>                  -> php artisan inside app container
 #   bin/dev composer <args>                 -> composer inside app container
-#   bin/dev test [<args>]                   -> php artisan test <args>
+#   bin/dev test [<args>]                   -> php artisan test <args> (SQLite in-memory)
+#   bin/dev test:mariadb [<args>]           -> php artisan test <args> on real MariaDB
 #   bin/dev pint [<args>]                   -> vendor/bin/pint <args>
 #   bin/dev php <args>                      -> php inside app container
 #   bin/dev shell                           -> interactive shell inside app container
@@ -31,6 +32,30 @@ case "$cmd" in
   artisan)  exec_in php artisan "$@" ;;
   composer) exec_in composer "$@" ;;
   test)     exec_in php artisan test "$@" ;;
+  test:mariadb|test-mariadb)
+    # Vài test chỉ nói được sự thật trên MariaDB: cách collation utf8mb4_unicode_ci gấp chuỗi,
+    # và các ràng buộc chỉ mục/khoá ngoại của InnoDB. Trên SQLite chúng TỰ BỎ QUA kèm lý do,
+    # nên nếu không có đường chạy này thì chúng im lặng mãi mãi — đúng thứ đã để lọt một lỗ
+    # hổng đếm số lần đăng nhập sai qua hai vòng sửa.
+    #
+    # phpunit.xml ghim DB_CONNECTION=sqlite qua thẻ <env>; biến môi trường truyền thẳng vào
+    # tiến trình THẮNG thẻ đó, nên phải đi qua `docker compose exec -e`, không qua exec_in.
+    # Dùng một CSDL riêng để không bao giờ chạm vào dữ liệu dev.
+    # Tạo bằng root: người dùng ứng dụng cố ý không có quyền CREATE DATABASE, và không nên có.
+    # Collation đặt tường minh vì đó chính là thứ vài test ở đây đo.
+    db_test="${DB_TEST_DATABASE:-vk_crm_test}"
+    docker compose exec -T mariadb mariadb -uroot -p"${DB_PASSWORD:-password}" \
+      -e "CREATE DATABASE IF NOT EXISTS \`${db_test}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+          GRANT ALL PRIVILEGES ON \`${db_test}\`.* TO '${DB_USERNAME:-sail}'@'%';"
+    # shellcheck disable=SC2086
+    docker compose exec $TTY_FLAG \
+      -e DB_CONNECTION=mariadb \
+      -e DB_HOST="${DB_HOST:-mariadb}" \
+      -e DB_PORT="${DB_PORT:-3306}" \
+      -e DB_DATABASE="$db_test" \
+      -e DB_USERNAME="${DB_USERNAME:-sail}" \
+      -e DB_PASSWORD="${DB_PASSWORD:-password}" \
+      "$SERVICE" php artisan test "$@" ;;
   pint)     exec_in vendor/bin/pint "$@" ;;
   pest)     exec_in vendor/bin/pest "$@" ;;
   php)      exec_in php "$@" ;;

@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Actions\ApplyChecklistTemplate;
+use App\Actions\Document\ReviewChecklistItem;
 use App\Actions\Document\SubmitClientDocument;
 use App\Actions\Document\UploadStaffDocument;
 use App\Enums\ChecklistItemStatus;
@@ -17,9 +18,11 @@ use App\Enums\UserPosition;
 use App\Models\Client;
 use App\Models\ClientRequest;
 use App\Models\ClientRequestReply;
+use App\Models\ClientUser;
 use App\Models\CommunicationLog;
 use App\Models\Deadline;
 use App\Models\Matter;
+use App\Models\MatterChecklistItem;
 use App\Models\MatterParty;
 use App\Models\MatterType;
 use App\Models\OutboundMessage;
@@ -287,6 +290,48 @@ class MatterSeeder extends Seeder
         $lead = $matter->leadLawyer;
 
         foreach ($items as $index => $item) {
+            // Hồ sơ ĐẦU TIÊN của khách demo được ghi trong tài liệu (`khach1@example.com`) mang
+            // đủ bốn trạng thái của luồng giấy tờ, và đó là một yêu cầu chứ không phải một sự
+            // trang trí. Trước đây mọi đầu mục trên cả hai hồ sơ của khách ấy đều `accepted` hoặc
+            // `not_applicable`, nên màn hình nộp KHÔNG BAO GIỜ vẽ một cái nút — và người demo mốc
+            // này bằng đúng tài khoản được ghi trong tài liệu sẽ kết luận rằng màn hình nộp không
+            // với tới được. Chỉ `khach6` đi được luồng đó, và không có dòng nào ở đâu nói ra.
+            //
+            // Bốn trạng thái ấy là bốn CÂU khác nhau mà cổng phải nói: đang chờ văn phòng, cần
+            // nộp lại kèm lý do, chưa nộp (bắt buộc), và chưa nộp nhưng không bắt buộc — vế cuối
+            // là thứ khối "việc anh/chị cần làm" tách ra thành nhóm thứ hai.
+            //
+            // Mọi thứ đi qua Action thật, không qua `update()` tay: `SubmitClientDocument` dựng
+            // chuỗi version và dòng nhật ký y như một lần nộp thật, `ReviewChecklistItem` ghi
+            // `reviewed_by` và ràng buộc độ dài tối thiểu của lý do — nên dữ liệu mẫu không thể
+            // mang một hình dạng mà mã sản phẩm không sinh ra được.
+            if ($i === 1) {
+                match (true) {
+                    // Khách đã gửi, văn phòng chưa kiểm — "đang chờ ở chúng tôi".
+                    $index === 0 => app(SubmitClientDocument::class)->handle(
+                        $item,
+                        $clientUser,
+                        DemoPdf::upload(
+                            Str::slug($item->name).'.pdf',
+                            $item->name,
+                            $matter->code.' - khach gui len qua trang khach hang',
+                        ),
+                    ),
+                    // Khách đã gửi và văn phòng TRẢ LẠI kèm lý do — đường "nộp lại" của SPEC
+                    // §8.3 mục 4, thứ không có một dòng dữ liệu mẫu nào trước vòng này.
+                    $index === 1 => $this->rejectAfterSubmission($item, $clientUser, $lead),
+                    // Chưa nộp, BẮT BUỘC: dòng làm nút "Gửi giấy tờ này" hiện ra.
+                    $index === 2 => $item->update(['status' => ChecklistItemStatus::Missing]),
+                    // Chưa nộp, KHÔNG bắt buộc (giấy chứng tử): nhóm thứ hai của khối 2.
+                    $index === 10 => $item->update(['status' => ChecklistItemStatus::Missing]),
+                    default => $item->update(['status' => $item->is_required
+                        ? ChecklistItemStatus::Accepted
+                        : ChecklistItemStatus::NotApplicable]),
+                };
+
+                continue;
+            }
+
             if ($i >= 6 && $i <= 9) {
                 // Còn thiếu giấy tờ: chỉ mục đầu tiên đã nhận, còn lại chưa nộp. Mục đầu tiên đi
                 // qua `UploadStaffDocument` ở nhóm A — "nhân viên nộp thay" của SPEC §4.11 — nên
@@ -328,6 +373,33 @@ class MatterSeeder extends Seeder
 
             $item->update(['status' => $item->is_required ? ChecklistItemStatus::Accepted : ChecklistItemStatus::NotApplicable]);
         }
+    }
+
+    /**
+     * Khách gửi một tệp, rồi văn phòng trả lại kèm lý do — hai Action thật, đúng thứ tự thật.
+     *
+     * Lý do từ chối là một câu viết cho khách đọc và LÀM THEO ĐƯỢC (`ReviewChecklistItem` đòi tối
+     * thiểu 20 ký tự chính vì thế). Một câu kiểu "không hợp lệ" trên dữ liệu mẫu sẽ dạy người đọc
+     * màn hình rằng ô ấy để điền cho có.
+     */
+    private function rejectAfterSubmission(MatterChecklistItem $item, ClientUser $clientUser, User $lead): void
+    {
+        app(SubmitClientDocument::class)->handle(
+            $item,
+            $clientUser,
+            DemoPdf::upload(
+                Str::slug($item->name).'-lan-1.pdf',
+                $item->name,
+                $item->matter->code.' - ban chup lan dau, bi mo',
+            ),
+        );
+
+        app(ReviewChecklistItem::class)->handle(
+            $item,
+            $lead,
+            ChecklistItemStatus::Rejected,
+            'Ảnh chụp bị mờ ở phần số thửa và số tờ bản đồ nên không đọc được. Anh/chị chụp lại ngoài trời, để phẳng cả trang và tránh bóng đèn hắt vào giúp chúng tôi.',
+        );
     }
 
     /**

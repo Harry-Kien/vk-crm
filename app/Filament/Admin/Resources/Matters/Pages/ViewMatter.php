@@ -12,12 +12,18 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * Trang chi tiết vụ việc (SPEC §7.2): năm tab — Tổng quan (nội dung của chính trang này,
- * infolist ở MatterInfolist), Tiến độ, Danh mục hồ sơ, Tài liệu và Các bên
+ * Trang chi tiết vụ việc (SPEC §7.2): sáu tab — Tổng quan (nội dung của chính trang này,
+ * infolist ở MatterInfolist), Tiến độ, Danh mục hồ sơ, Tài liệu, Các bên và Yêu cầu từ khách
  * (StageLogsRelationManager / ChecklistRelationManager / DocumentsRelationManager /
- * PartiesRelationManager, đăng ký ở MatterResource::getRelations()) — hiển thị chung một dải tab
- * nhờ hasCombinedRelationManagerTabsWithContent(). Các tab M6/M7 (Mốc thời hạn, Liên lạc, Yêu
- * cầu từ khách, Nhật ký) chưa xây.
+ * PartiesRelationManager / ClientRequestsRelationManager, đăng ký ở
+ * MatterResource::getRelations()) — hiển thị chung một dải tab nhờ
+ * hasCombinedRelationManagerTabsWithContent(). Các tab M7 (Mốc thời hạn, Liên lạc, Nhật ký)
+ * chưa xây.
+ *
+ * Nhãn "Khách đã xem lúc …" / "Khách chưa xem" mà SPEC §7.2 đòi trên mỗi dòng tiến độ đã công bố
+ * **không** nằm ở trang này: nó được vẽ ở nơi các dòng tiến độ được vẽ, tức
+ * StageLogsRelationManager::readReceiptLabel(). Nói ra ở đây vì kế hoạch M5 Task 6 đoán nhầm vị
+ * trí của nó.
  */
 class ViewMatter extends ViewRecord
 {

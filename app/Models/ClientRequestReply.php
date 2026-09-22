@@ -19,6 +19,15 @@ class ClientRequestReply extends Model
 
     protected $fillable = ['request_id', 'author_type', 'author_id', 'content'];
 
+    /**
+     * `whereHas('request')` kế thừa nguyên điều kiện của `ClientRequest`, nên cách đọc "của
+     * chính mình" — **theo `Client`, không theo `ClientUser`** (phán quyết 19/09/2026) — chỉ tồn
+     * tại một chỗ: {@see ClientRequest::applyClientPortalConstraints()}. Khách đọc được cả câu
+     * mình hỏi lẫn câu văn phòng trả lời, đúng SPEC §8.3 mục 7 ("xem lại lịch sử trao đổi").
+     *
+     * `author_type`/`author_id` KHÔNG phải một điều kiện lọc: một trả lời của nhân sự trong một
+     * yêu cầu khách thấy được là thứ khách PHẢI đọc được — đó chính là phản hồi.
+     */
     public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
     {
         $query->whereHas('request');

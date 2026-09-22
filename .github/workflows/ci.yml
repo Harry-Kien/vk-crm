@@ -108,3 +108,18 @@ jobs:
 
       - name: Seed lại để chắc chắn dữ liệu demo còn dựng được
         run: php artisan db:seed --force
+
+      # Bộ Pest chạy lần hai, lần này trên MariaDB thật. KHÔNG dư thừa với job `tests`:
+      # `phpunit.xml` ghim SQLite, nên mọi test chỉ nói được sự thật trên MariaDB —
+      # cách collation `utf8mb4_unicode_ci` gấp chuỗi, ràng buộc InnoDB — đều TỰ BỎ QUA
+      # ở job kia và im lặng. Một lỗ hổng đếm số lần đăng nhập sai đã sống qua hai vòng
+      # sửa vì không ai chạy chúng. Biến môi trường thắng thẻ <env> của phpunit.xml.
+      - name: Pest trên MariaDB
+        env:
+          DB_CONNECTION: mariadb
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_DATABASE: vk_crm
+          DB_USERNAME: sail
+          DB_PASSWORD: password
+        run: php artisan test

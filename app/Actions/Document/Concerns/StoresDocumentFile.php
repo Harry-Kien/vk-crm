@@ -2,6 +2,7 @@
 
 namespace App\Actions\Document\Concerns;
 
+use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Exceptions\FileRejected;

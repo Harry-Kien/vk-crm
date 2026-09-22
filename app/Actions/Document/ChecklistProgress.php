@@ -91,8 +91,7 @@ class ChecklistProgress
     {
         $counted = self::countClientFacingDocuments($matter->checklistItems()->getQuery())
             ->get()
-            ->filter(fn (MatterChecklistItem $item): bool => $item->is_required
-                || ($item->{self::DOCUMENT_COUNT_ALIAS} ?? 0) > 0);
+            ->filter(self::countedInTotal(...));
 
         return [
             'submitted' => $counted
@@ -100,6 +99,26 @@ class ChecklistProgress
                 ->count(),
             'total' => $counted->count(),
         ];
+    }
+
+    /**
+     * **Dòng này có nằm trong mẫu số `Y` hay không** — tức thanh tiến độ có nói về nó hay không.
+     *
+     * Tách ra thành một hàm CÔNG KHAI vì `handle()` trả về hai SỐ NGUYÊN chứ không trả về các
+     * dòng, nên không màn hình nào hỏi được nó "dòng này có được đếm không". Trước vòng này mỗi
+     * màn hình tự nói lại điều kiện ấy: `MyMatters` có một bản, và khối "việc anh/chị cần làm" ở
+     * `MatterProgress` thì KHÔNG hỏi gì cả và vì vậy liệt kê mười một dòng bên trên một thanh nói
+     * về bốn. Một chỗ giữ luật, ba chỗ đọc nó.
+     *
+     * Điều kiện đọc `is_required` VÀ bí danh bộ đếm tài liệu, nên người gọi phải nạp bộ đếm ấy
+     * bằng {@see self::countClientFacingDocuments()}; thiếu nó thì `?? 0` làm một đầu mục không
+     * bắt buộc ĐÃ có tài liệu rơi ra khỏi `Y`. Đó là lý do hàm này đứng cạnh hàm kia thay vì ở
+     * một lớp tiện ích nào khác.
+     */
+    public static function countedInTotal(MatterChecklistItem $item): bool
+    {
+        return $item->is_required
+            || ((int) ($item->{self::DOCUMENT_COUNT_ALIAS} ?? 0)) > 0;
     }
 
     /**

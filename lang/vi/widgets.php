@@ -46,6 +46,16 @@ return [
         'empty_state' => 'Không có hồ sơ nào thiếu giấy tờ quá 14 ngày.',
         'open' => 'Mở danh mục hồ sơ',
     ],
+    'matter_counts' => [
+        'total' => 'Tổng số hồ sơ',
+        'total_hint' => 'Toàn bộ hồ sơ anh/chị được xem.',
+        'open' => 'Đang xử lý',
+        'open_hint' => 'Chưa đóng hồ sơ.',
+        'closed' => 'Đã kết thúc',
+        'closed_hint' => 'Đã đóng hồ sơ.',
+        'opened_this_month' => 'Mở trong tháng này',
+        'opened_this_month_hint' => 'Tính từ ngày đầu tháng.',
+    ],
     'matters_by_stage' => [
         'heading' => 'Thống kê nhanh',
         'description' => 'Số vụ việc đang mở theo giai đoạn.',

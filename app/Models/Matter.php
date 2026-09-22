@@ -167,9 +167,22 @@ class Matter extends Model
                 : $this->team()->whereKey($user->getKey())->exists());
     }
 
+    /**
+     * Giai đoạn hiện tại, hoặc `null` khi không tra được.
+     *
+     * **`?->`, không `->`.** `matterType` trỏ vào một model có `SoftDeletes`, nên khi quản trị
+     * viên xoá mềm một LOẠI vụ việc thì quan hệ này trả `null` cho mọi hồ sơ đang đứng trong loại
+     * ấy — và một lần gọi `stage()` trên `null` là một trang 500 cho từng khách hàng của loại đó
+     * (đo được ở `MatterProgressTest`, "still serves the page when the matter type behind it has
+     * been soft deleted"). Trường hợp hẹp hơn — xoá mềm một GIAI ĐOẠN — đã được `stage()` trả
+     * `null` từ trước; đây là trường hợp rộng hơn nằm một tầng trên.
+     *
+     * Đây là nửa ĐỌC của lần vá. Nửa GHI nằm ở `MatterTypePolicy::delete()`, thứ không cho xoá
+     * một loại còn hồ sơ dùng ngay từ đầu; hai nửa đều cần, xem docblock của policy đó.
+     */
     public function currentStage(): ?MatterTypeStage
     {
-        return $this->matterType->stage($this->stage);
+        return $this->matterType?->stage($this->stage);
     }
 
     public function client(): BelongsTo
@@ -183,7 +196,14 @@ class Matter extends Model
     public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
     {
         $query->where($this->qualifyColumn('client_id'), $clientUser->client_id)
-            ->where($this->qualifyColumn('is_published_to_portal'), true);
+            ->where($this->qualifyColumn('is_published_to_portal'), true)
+            // Đã xoá mềm thì không bao giờ ra tới portal, KỂ CẢ khi ai đó gọi `withTrashed()`.
+            // `SoftDeletingScope` đã loại chúng ở truy vấn thường, nhưng nó là một scope KHÁC và
+            // `withTrashed()` gỡ đúng nó ra mà không đụng gì tới `ClientPortalScope`. Ở phía nội
+            // bộ `withTrashed()` là một công cụ đúng đắn (quản trị viên còn phải khôi phục được
+            // hồ sơ); ở phía khách nó là một cái nút mở lại thứ văn phòng vừa rút đi. Một điều
+            // kiện chỉ do một scope khác giữ là một điều kiện người khác tắt được.
+            ->whereNull($this->qualifyColumn('deleted_at'));
 
         // M7 bổ sung điều kiện client_access_until ở đây (SPEC §11 "Bàn giao và lưu trữ").
     }
@@ -206,9 +226,29 @@ class Matter extends Model
             ->withTimestamps();
     }
 
+    /**
+     * Dòng tiến độ, mới nhất trước.
+     *
+     * **`id` giảm dần là TIÊU CHÍ PHỤ, và nó không phải trang trí.** `occurred_at` được nhập qua
+     * một ô chọn NGÀY, nên mọi giá trị đều là nửa đêm: hai cập nhật trong cùng một ngày bằng nhau
+     * tuyệt đối ở cột sắp xếp, và đó là trường hợp thường ngày chứ không phải một ca biên. Không
+     * có tiêu chí phụ thì thứ tự hai dòng ấy do bộ tối ưu truy vấn quyết định — SQLite và MariaDB
+     * hôm nay đều tình cờ trả về `id` giảm dần, nên KHÔNG test hành vi nào bắt được lần đổi ý của
+     * chúng. Hậu quả khi nó đổi không nằm ở thứ tự hiển thị mà ở khối 2 của SPEC §8.3: trang đọc
+     * `client_action` của dòng ĐẦU TIÊN, nên một thứ tự lật đưa một chỉ dẫn đã bị thay thế ra làm
+     * việc khách đang phải làm.
+     *
+     * `id` là tiêu chí phụ đúng nghĩa ở chính bảng này: `StageLog` chặn XOÁ hoàn toàn và chỉ cho
+     * sửa đúng năm cột công bố/thông báo (`StageLog::MUTABLE`) — `occurred_at` không nằm trong
+     * số đó — nên `id` tăng đúng theo thứ tự các cập nhật được ghi vào, và không một dòng nào
+     * đổi ngày hay biến mất về sau.
+     *
+     * Ghim bằng một test CẤU TRÚC (`MatterProgressTest`, "breaks the tie on the stage log relation
+     * with a descending id") chứ không chỉ bằng test hành vi, đúng vì lý do trên.
+     */
     public function stageLogs(): HasMany
     {
-        return $this->hasMany(StageLog::class)->orderByDesc('occurred_at');
+        return $this->hasMany(StageLog::class)->orderByDesc('occurred_at')->orderByDesc('id');
     }
 
     public function checklistItems(): HasMany

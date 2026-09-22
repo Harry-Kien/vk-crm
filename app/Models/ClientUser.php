@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Database\Factories\ClientUserFactory;
+use Filament\Auth\MultiFactor\Email\Contracts\HasEmailAuthentication;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -10,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use LogicException;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
 
@@ -17,7 +19,7 @@ use Spatie\Activitylog\Traits\LogsActivity;
  * Cố ý KHÔNG dùng RestrictedToClientPortal: gọi auth() trong global scope của chính model xác
  * thực sẽ đệ quy vô hạn khi guard nạp người dùng từ session.
  */
-class ClientUser extends Authenticatable implements FilamentUser
+class ClientUser extends Authenticatable implements FilamentUser, HasEmailAuthentication
 {
     /** @use HasFactory<ClientUserFactory> */
     use HasFactory;
@@ -66,6 +68,30 @@ class ClientUser extends Authenticatable implements FilamentUser
     public function canAccessPanel(Panel $panel): bool
     {
         return $panel->getId() === 'portal' && $this->is_active;
+    }
+
+    /**
+     * SPEC §8.1: mã một lần qua email là BẮT BUỘC với mọi tài khoản khách, nên câu trả lời là
+     * `true` cứng — không đọc một cột nào, vì không có cột nào được phép nói khác.
+     *
+     * Đây là nửa thứ nhất của "không có tuỳ chọn tắt". Nửa thứ hai là panel `portal` không đăng
+     * ký trang hồ sơ cá nhân (`EditProfile`) — đó mới là nơi `DisableEmailAuthenticationAction`
+     * sống, và một `toggleEmailAuthentication()` ném ngoại lệ không tự mình ngăn được ai nếu màn
+     * hình kia có mặt. Xem `PortalPanelProvider` và `tests/Feature/Portal/LoginTest.php`.
+     */
+    public function hasEmailAuthentication(): bool
+    {
+        return true;
+    }
+
+    /**
+     * Không có đường tắt. Ném thay vì lặng lẽ không làm gì: một lời gọi tới đây là một chỗ nào
+     * đó trong hệ thống đang tin rằng bật/tắt được, và điều đó phải vỡ ra ngay lúc viết mã chứ
+     * không phải lặng lẽ đúng cho tới ngày ai đó đổi một dòng.
+     */
+    public function toggleEmailAuthentication(bool $condition): void
+    {
+        throw new LogicException('Mã đăng nhập một lần của cổng khách hàng là bắt buộc (SPEC §8.1) và không tắt được.');
     }
 
     /**

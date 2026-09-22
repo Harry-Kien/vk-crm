@@ -19,10 +19,18 @@ class DeadlinePolicy
         return true;
     }
 
+    /**
+     * `is_published` đọc thẳng trên bản ghi, đứng cạnh `visibleToPortal()` — cùng lý lẽ với
+     * `StageLogPolicy::view()` và `MatterPolicy::releasedToPortal()`, thêm ở M5 Task 2. Khối 6
+     * của SPEC §8.3 ("Mốc thời hạn sắp tới — chỉ mốc `is_published`") dựng trên đúng điều kiện
+     * này, và một điều kiện chỉ được phát biểu một lần thì không phải một tầng.
+     */
     public function view(User|ClientUser $user, Deadline $deadline): bool
     {
         return $user instanceof ClientUser
-            ? $this->visibleToPortal($user, $deadline) && $this->canSeeMatter($user, $deadline->matter)
+            ? (bool) $deadline->is_published
+                && $this->visibleToPortal($user, $deadline)
+                && $this->canSeeMatter($user, $deadline->matter)
             : $this->canSeeMatter($user, $deadline->matter);
     }
 

@@ -4,6 +4,7 @@ use App\Filament\Admin\Widgets\MattersByStageWidget;
 use App\Filament\Admin\Widgets\MattersMissingDocumentsWidget;
 use App\Filament\Admin\Widgets\PendingChecklistReviewsWidget;
 use App\Filament\Admin\Widgets\StaleMattersWidget;
+use App\Filament\Admin\Widgets\UnseenUpdatesWidget;
 use Filament\Widgets\AccountWidget;
 
 /**
@@ -15,14 +16,18 @@ use Filament\Widgets\AccountWidget;
  * Filament tình cờ nạp lớp — đo được trên trình duyệt: mục 6 hiện TRƯỚC mục 4. Một con số trùng
  * không gây lỗi gì cả, nên không có gì báo động.
  *
- * Các mục 2, 5 và 7 của SPEC §7.1 chưa tồn tại (cần mốc thời hạn, `stage_log_views` và heartbeat
- * — M6); test so sánh theo THỨ TỰ TƯƠNG ĐỐI nên nó không phải sửa khi chúng được thêm vào.
+ * Mục 5 ra đời ở M5 Task 6 (`UnseenUpdatesWidget`) — `stage_log_views` tới M5 mới có dữ liệu
+ * thật. Để nó có chỗ thì mục 6 phải dời từ `0` lên `1`: `$sort` của Filament là `?int`, nên giữa
+ * `-1` và `0` không còn số nguyên nào. Đó là một lần ĐÁNH SỐ LẠI, không phải một thay đổi thứ tự,
+ * và test này so sánh theo THỨ TỰ TƯƠNG ĐỐI nên nó đo đúng điều đó. Các mục 2 và 7 vẫn chưa tồn
+ * tại (cần mốc thời hạn và heartbeat — M6/M7).
  */
 it('orders the dashboard widgets the way SPEC 7.1 numbers them', function () {
     $sorts = [
         StaleMattersWidget::class => StaleMattersWidget::getSort(),
         PendingChecklistReviewsWidget::class => PendingChecklistReviewsWidget::getSort(),
         MattersMissingDocumentsWidget::class => MattersMissingDocumentsWidget::getSort(),
+        UnseenUpdatesWidget::class => UnseenUpdatesWidget::getSort(),
         MattersByStageWidget::class => MattersByStageWidget::getSort(),
     ];
 

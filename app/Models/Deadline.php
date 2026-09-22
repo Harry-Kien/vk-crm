@@ -60,9 +60,18 @@ class Deadline extends Model
         }
     }
 
+    /**
+     * `whereNull('deleted_at')`: một mốc hạn đã bị văn phòng rút khỏi hồ sơ không quay lại tay
+     * khách bằng một lần `withTrashed()` — thứ chỉ gỡ `SoftDeletingScope` chứ không đụng tới
+     * `ClientPortalScope`. Cùng lý lẽ với {@see Matter::applyClientPortalConstraints()}: một điều
+     * kiện chỉ do một scope KHÁC giữ là một điều kiện người khác tắt được, và ở phía nội bộ
+     * `withTrashed()` là một công cụ đúng đắn nên nó sẽ được gọi.
+     */
     public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
     {
-        $query->where($this->qualifyColumn('is_published'), true)->whereHas('matter');
+        $query->where($this->qualifyColumn('is_published'), true)
+            ->whereNull($this->qualifyColumn('deleted_at'))
+            ->whereHas('matter');
     }
 
     public function matter(): BelongsTo
