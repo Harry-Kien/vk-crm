@@ -72,6 +72,29 @@ it('never moves viewed_at or ip on a later view', function () {
  * là một tình huống không tồn tại trong đời thật (ngoài transaction thì không có savepoint nào),
  * và nếu không nhìn ra thì nó sẽ bị chữa bằng cách sửa mã sản phẩm cho vừa một cái bẫy của bộ
  * test.
+ *
+ * # Cái bẫy THỨ HAI, và nó đã để test này im lặng trên đúng cái driver chạy thật
+ *
+ * Bản đầu nhận ra câu `select` bằng `str_contains($query->sql, 'from "stage_log_views"')`.
+ * Dấu nháy kép là ngữ pháp của SQLite; MariaDB bọc định danh bằng dấu huyền, nên trên MariaDB
+ * cái móc KHÔNG BAO GIỜ khớp, không có tab thứ hai nào được dựng, và test chết ở chính câu tiền
+ * đề của nó ("Expecting null not to be null"). Nghĩa là cuộc đua hai tab — hợp đồng mà cả bảng
+ * `stage_log_views` dựa lên — chưa một lần nào được đo trên driver mà production dùng. Mã sản
+ * phẩm không sai; cái sai là một phép so chuỗi tự cột mình vào một ngữ pháp.
+ *
+ * Nên phép so bây giờ HỎI CHÍNH NGỮ PHÁP đang chạy (`Grammar::wrapTable()`) thay vì chép lại
+ * một trong hai cách bọc: một bản chép tay của bảng người khác thì sẽ trôi, và bài học đó đã
+ * phải trả giá hai vòng ở chỗ khác trong mốc này.
+ *
+ * # Ba việc được đo chứ không được suy ra
+ *
+ * `beforeExecuting` thấy MỌI câu lệnh, kể cả câu ném ngoại lệ; `DB::listen` chỉ thấy câu chạy
+ * xong. Hiệu của hai danh sách chính là câu lệnh đã NỔ:
+ *
+ *  1. tab kia được chèn thật (`$competitorId`, và nó có mặt ở cả hai danh sách);
+ *  2. câu `insert` của Action được THỬ nhưng không hoàn tất — tức lỗi trùng khoá đã xảy ra và đã
+ *     bị bắt (`createOrFirst()` của framework bắt; xem docblock `RecordStageLogView::recordOnce()`);
+ *  3. sau đó còn một câu `select` nữa trên bảng — lần ĐỌC LẠI — và nó chạy xong.
  */
 it('keeps the first receipt when two tabs record the same entry at the same time', function () {
     $this->travelTo('2026-09-20 08:00:00');
@@ -80,8 +103,29 @@ it('keeps the first receipt when two tabs record the same entry at the same time
     $logId = $this->log->id;
     $userId = $this->clientUser->id;
 
-    DB::listen(function ($query) use (&$competitorId, $logId, $userId): void {
-        if ($competitorId !== null || ! str_contains($query->sql, 'from "stage_log_views"')) {
+    // Ngữ pháp của CHÍNH kết nối đang chạy: `from "stage_log_views"` trên SQLite,
+    // `from `stage_log_views`` trên MariaDB. Không tệp test nào viết lại hai cách bọc đó.
+    $from = 'from '.DB::connection()->getQueryGrammar()->wrapTable('stage_log_views');
+
+    /** @var list<string> $attempted mọi câu lệnh chạm bảng, KỂ CẢ câu sắp ném ngoại lệ */
+    $attempted = [];
+    /** @var list<string> $completed chỉ những câu chạy xong không lỗi */
+    $completed = [];
+
+    DB::connection()->beforeExecuting(function (string $query) use (&$attempted): void {
+        if (str_contains($query, 'stage_log_views')) {
+            $attempted[] = $query;
+        }
+    });
+
+    DB::listen(function ($query) use (&$competitorId, &$completed, $from, $logId, $userId): void {
+        if (! str_contains($query->sql, 'stage_log_views')) {
+            return;
+        }
+
+        $completed[] = $query->sql;
+
+        if ($competitorId !== null || ! str_contains($query->sql, $from)) {
             return;
         }
 
@@ -97,7 +141,19 @@ it('keeps the first receipt when two tabs record the same entry at the same time
 
     $receipt = $this->action->handle($this->log, $this->clientUser, '203.0.113.2');
 
+    $attemptedInserts = count(array_filter($attempted, fn (string $sql): bool => str_starts_with($sql, 'insert')));
+    $completedInserts = count(array_filter($completed, fn (string $sql): bool => str_starts_with($sql, 'insert')));
+    $completedSelects = count(array_filter($completed, fn (string $sql): bool => str_starts_with($sql, 'select')));
+
+    // Tiền đề: móc đã bắn và tab kia đã có mặt trong bảng trước câu insert của Action.
     expect($competitorId)->not->toBeNull()
+        // Hai câu insert được THỬ (tab kia, và Action), chỉ MỘT chạy xong: câu còn lại là lỗi
+        // trùng khoá đã bị bắt. Không có nó thì bảng đã có hai dòng.
+        ->and($attemptedInserts)->toBe(2)
+        ->and($completedInserts)->toBe(1)
+        // Hai câu select chạy xong: câu mở đầu của `firstOrCreate()`, và lần ĐỌC LẠI sau lỗi.
+        ->and($completedSelects)->toBe(2)
+        // Và kết quả: một dòng, dòng của người tới trước, giờ và IP của người tới trước.
         ->and(allReceipts()->count())->toBe(1)
         ->and($receipt->getKey())->toBe($competitorId)
         ->and($receipt->viewed_at->toDateTimeString())->toBe('2026-09-20 07:59:58')
