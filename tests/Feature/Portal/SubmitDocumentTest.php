@@ -1044,6 +1044,12 @@ it('empties the file field after a successful send', function () {
  *
  * Dải 13–20 MB là dải mà SPEC §14 mục 4 sống hay chết: một khách chụp sổ đỏ bằng điện thoại đời
  * nay ra khoảng 15 MB.
+ *
+ * **Bảy lần POST, và con số bảy phụ thuộc vào `throttle:20,60` ở cùng tệp cấu hình** — đo được
+ * bằng đột biến: hạ throttle xuống `5,60` thì test này đỏ ở 200/429 chứ không ở kích thước, tức
+ * nó tố cáo đúng lỗi nhưng bằng sai câu. Không tách ra được mà vẫn giữ lời hứa "endpoint THẬT":
+ * cả hai luật sống trên cùng một route. Nên nó được ghi lại ở đây, và ai hạ mức throttle xuống
+ * dưới 8 phải đọc dòng này trước khi đi tìm lỗi ở luật `max`.
  */
 it('accepts every size the screen promises, at the endpoint where the bytes actually land', function () {
     foreach ([11, 12, 13, 15, 19, 20] as $megabytes) {
