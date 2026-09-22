@@ -60,22 +60,36 @@ class ChangePassword extends Page
      * câu chữ khác hẳn. Ghi ra ở đây để nó là một việc được hoãn có chủ ý, không phải một việc
      * bị quên: khách muốn đổi mật khẩu hôm nay thì gọi văn phòng.
      *
-     * Hỏi panel thay vì `Filament::auth()`: `FilamentManager::auth()` gọi
-     * `getCurrentOrDefaultPanel()->auth()` trên một giá trị có thể là `null`, nên ngoài ngữ cảnh
-     * panel nó ném `Error` chứ không trả lời. Qua các route của cổng thì panel luôn có mặt, nên
-     * đây không phải một lỗi với tới được — nhưng `canAccess()` là một phương thức TĨNH công
-     * khai, thứ bất kỳ đoạn mã nào (một lệnh artisan dựng thực đơn, một test) cũng gọi được, và
-     * câu trả lời đúng ở ngoài cổng là "không", không phải một ngoại lệ.
+     * Hỏi panel `portal` THEO TÊN, không hỏi `Filament::auth()` và cũng không hỏi panel hiện
+     * hành. Ba cách, ba câu trả lời khác nhau ngoài ngữ cảnh panel, và chỉ một câu đúng:
+     *
+     *  - `Filament::auth()` gọi `getCurrentOrDefaultPanel()->auth()` trên một giá trị có thể là
+     *    `null`, và không panel nào của dự án gọi `->default()`, nên nó NÉM
+     *    `NoDefaultPanelSetException` thay vì trả lời;
+     *  - `Filament::getCurrentPanel()` rồi rơi về `false` khi không có panel thì không ném, mà
+     *    NÓI SAI: với một khách đang nợ văn phòng một lần đổi mật khẩu, "không" là cánh cổng
+     *    đóng vào mặt đúng người bắt buộc phải đi qua nó. Và vì panel từ chối bằng 404
+     *    (`AnswerDeniedPanelRequestsWithNotFound`), câu sai ấy hiện ra thành "không có trang nào
+     *    như vậy" — một lời nói dối im lặng, không phải một tiếng động ai đó nghe thấy;
+     *  - hỏi panel `portal` theo tên thì câu trả lời nói về NGƯỜI DÙNG, và nó giống nhau dù ai
+     *    đang hỏi. `FilamentManager::getPanel()` trả `null` chứ không ném khi không tìm thấy,
+     *    nên tính chất "không ném ngoài ngữ cảnh panel" vẫn còn nguyên.
+     *
+     * Đường request thật không bao giờ tới được nhánh "không có panel":
+     * `Filament\Http\Middleware\SetUpPanel` nằm trong danh sách middleware BỀN của Livewire và
+     * chạy ở móc `snapshot-verified`, tức trước `hydrateCanAuthorizeAccess()`. Nhưng đó là một
+     * tính chất của thứ tự middleware trong một gói khác, không phải của trang này — nên trang
+     * này thôi dựa vào nó. Có test đo cả hai vế ở `tests/Feature/Portal/LoginTest.php`: câu trả
+     * lời ngoài ngữ cảnh panel, và một request cập nhật Livewire THẬT gửi đi sau khi panel hiện
+     * hành đã bị xoá.
+     *
+     * Tên panel viết cứng ở đây là nhất quán chứ không phải một chỗ rò rỉ mới: cặp đôi của trang
+     * này, `App\Http\Middleware\RequirePortalPasswordChange`, đã gọi
+     * `ChangePassword::getUrl(panel: 'portal')` và `Filament::getPanel('portal')`.
      */
     public static function canAccess(): bool
     {
-        $panel = Filament::getCurrentPanel();
-
-        if ($panel === null) {
-            return false;
-        }
-
-        $user = $panel->auth()->user();
+        $user = Filament::getPanel('portal')?->auth()->user();
 
         return $user instanceof ClientUser && $user->must_change_password;
     }

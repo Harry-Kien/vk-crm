@@ -1378,17 +1378,95 @@ it('opens the change-password screen for a client who still owes the office one'
         ->assertSee(__('portal.change_password.heading'));
 });
 
-it('answers no, instead of throwing, when the change-password gate is asked outside a panel', function () {
+/*
+ * `canAccess()` là một phương thức TĨNH công khai, nên nó phải trả lời được ở NGOÀI một request
+ * của cổng — một lệnh artisan, một test, một lần gọi từ lớp khác. Câu trả lời ở đó phải nói về
+ * NGƯỜI DÙNG, không về việc panel nào tình cờ đang hiện hành.
+ *
+ * Bản trước trả `false` khi không có panel hiện hành. Nó không ném, nhưng nó nói sai: với một
+ * khách ĐANG nợ văn phòng một lần đổi mật khẩu, "không" là câu trả lời của một cánh cổng đóng
+ * vào mặt đúng người bắt buộc phải đi qua nó — và vì panel từ chối bằng 404
+ * (`AnswerDeniedPanelRequestsWithNotFound`), lời nói sai ấy hiện ra thành "không có trang nào
+ * như vậy" chứ không thành một tiếng động ai đó nghe thấy.
+ *
+ * Đường request thật KHÔNG tới được nhánh ấy — `Filament\Http\Middleware\SetUpPanel` là
+ * middleware bền của Livewire và chạy ở `snapshot-verified`, tức TRƯỚC `hydrateCanAuthorizeAccess()`
+ * — và có test ngay bên dưới đo đúng điều đó. Nhưng "không tới được" là một tính chất của thứ
+ * tự middleware ở một gói khác, không phải của trang này; nên trang này thôi hỏi trạng thái
+ * toàn cục và hỏi thẳng panel của chính nó.
+ */
+it('answers the change-password gate about the client, not about whichever panel is current', function () {
     $user = ClientUser::factory()->create(['must_change_password' => true]);
     $this->actingAs($user, 'client');
 
-    // `FilamentManager::auth()` gọi `getCurrentOrDefaultPanel()->auth()`, và ở dự án này KHÔNG
-    // panel nào gọi `->default()`, nên ngoài ngữ cảnh panel thì `getDefaultPanel()` ném
-    // `NoDefaultPanelSetException`. `canAccess()` là một phương thức tĩnh công khai, nên câu trả
-    // lời đúng ở đó là "không", không phải một ngoại lệ.
+    // Ngoài mọi ngữ cảnh panel. `FilamentManager::auth()` ném `NoDefaultPanelSetException` ở đây
+    // (không panel nào của dự án gọi `->default()`), nên câu trả lời phải tới mà không ném.
+    Filament::setCurrentPanel(null);
+    expect(ChangePassword::canAccess())->toBeTrue();
+
+    // Và trong ngữ cảnh panel KHÁC: khách vẫn là khách, món nợ vẫn là món nợ.
+    Filament::setCurrentPanel('admin');
+    expect(ChangePassword::canAccess())->toBeTrue();
+});
+
+it('keeps the change-password gate shut outside a panel for a client who already chose one', function () {
+    $user = portalUser();
+    $this->actingAs($user, 'client');
+
+    Filament::setCurrentPanel(null);
+    expect(ChangePassword::canAccess())->toBeFalse();
+
+    Filament::setCurrentPanel('admin');
+    expect(ChangePassword::canAccess())->toBeFalse();
+});
+
+it('never opens the change-password gate for a staff session, in any panel context', function () {
+    $staff = User::factory()->create();
+    $this->actingAs($staff, 'web');
+
+    // Vế này là lý do trang hỏi guard của panel `portal` chứ không hỏi `Auth::user()`: một phiên
+    // nhân sự đang mở trong cùng trình duyệt không được đếm là một khách hàng.
+    Filament::setCurrentPanel('admin');
+    expect(ChangePassword::canAccess())->toBeFalse();
+
+    Filament::setCurrentPanel(null);
+    expect(ChangePassword::canAccess())->toBeFalse();
+});
+
+/**
+ * Bằng chứng cho câu "đường request thật không bao giờ hỏi cổng này khi chưa có panel".
+ *
+ * Nó phải đi bằng request HTTP thật tới đường cập nhật của Livewire, không bằng `livewire()`:
+ * `PersistentMiddleware` bỏ qua toàn bộ middleware bền khi request không phải route cập nhật
+ * thật (`isLivewireRoute()`), nên một test lái component thẳng KHÔNG đo được điều này — nó chỉ
+ * đo cái `beforeEach` của tệp này vừa đặt.
+ *
+ * `setCurrentPanel(null)` ngay trước khi gửi là để chính request đó phải tự dựng lại ngữ cảnh
+ * panel của mình. Nếu một bản Livewire hay Filament sau đổi thứ tự ấy — middleware bền chạy SAU
+ * khi component được hydrate — thì `hydrateCanAuthorizeAccess()` sẽ hỏi cổng khi chưa có panel,
+ * và dòng này đỏ. Đó là lúc phải đọc lại trang này, không phải lúc khách gặp một 403 không ai
+ * giải thích được.
+ */
+it('opens the change-password screen on a real livewire update with no panel set beforehand', function () {
+    $user = ClientUser::factory()->create(['must_change_password' => true]);
+    $this->actingAs($user, 'client');
+
+    $snapshot = portalSnapshot(
+        $this->get(ChangePassword::getUrl(panel: 'portal'))->assertOk()->getContent(),
+        ChangePassword::class,
+    );
+
     Filament::setCurrentPanel(null);
 
-    expect(ChangePassword::canAccess())->toBeFalse();
+    $this->withHeaders(['X-Livewire' => '1'])
+        ->postJson(Livewire::getUpdateUri(), [
+            'components' => [[
+                'snapshot' => $snapshot,
+                'updates' => ['data.password' => 'mat-khau-moi-cua-toi-2026'],
+                'calls' => [],
+            ]],
+        ])
+        ->assertOk();
 });
 
 /*
