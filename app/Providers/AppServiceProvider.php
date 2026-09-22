@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Http\Controllers\DocumentDownloadController;
+use App\Listeners\RecordOutboundMail;
 use App\Models\Client;
 use App\Models\ClientRequest;
 use App\Models\ClientRequestReply;
@@ -17,11 +18,13 @@ use App\Models\User;
 use App\Support\Files\ClamAvScanner;
 use App\Support\Files\NullScanner;
 use App\Support\Files\VirusScanner;
+use App\Support\Mail\OutboundLedgerMailManager;
 use App\Support\UploadThrottle;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Foundation\Console\AboutCommand;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
@@ -38,6 +41,23 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(VirusScanner::class, fn () => config('vkcrm.clamav.enabled')
             ? new ClamAvScanner(config('vkcrm.clamav.socket'))
             : new NullScanner);
+
+        /*
+         * Mọi transport thư được bọc để một lần gửi HỎNG cũng để lại dòng `outbound_messages`
+         * (SPEC §4.15). Lý do đầy đủ — vì sao phải bọc transport chứ không nghe thêm một sự
+         * kiện, và vì sao bọc ở `createSymfonyTransport()` chứ không ở `Mail::extend()` — nằm ở
+         * docblock của hai lớp trong `App\Support\Mail`.
+         *
+         * `extend()` chứ không `singleton()`, và đây là chỗ dễ sai nhất trong cả việc này:
+         * `Illuminate\Mail\MailServiceProvider` là provider HOÃN và nó đăng ký `mail.manager`,
+         * `mailer` lẫn `Markdown::class`. Một `singleton('mail.manager', …)` đặt ở đây sẽ bị
+         * chính nó ghi đè vào lần đầu ai đó phân giải `mailer` hay `Markdown::class` — tức nhật
+         * ký im lặng biến mất giữa chừng. Extender của container sống sót qua lần đăng ký lại ấy.
+         *
+         * Manager gốc bị bỏ đi chứ không bọc thêm một lớp, vì `MailManager` không mang trạng
+         * thái nào lúc dựng ngoài chính `$app`, và không có nơi nào khác trong dự án thay nó.
+         */
+        $this->app->extend('mail.manager', fn ($manager, $app) => new OutboundLedgerMailManager($app));
     }
 
     /**
@@ -45,6 +65,18 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        /*
+         * Cánh cửa thư đi ra (SPEC §4.15, Phán quyết R1 của M6): nhật ký được ghi bởi một
+         * listener nghe sự kiện thư của Laravel, không bởi từng nơi gửi thư — nên một thư mà
+         * không ai nhớ là mình gửi vẫn để lại dấu vết.
+         *
+         * Đăng ký tường minh để chỗ móc vào framework nhìn thấy được bằng mắt. Laravel 13 CÓ tự
+         * dò listener trong `app/Listeners`, nhưng chỉ nhặt những phương thức tên `handle*` hay
+         * `__invoke` — `RecordOutboundMail` cố ý đặt tên khác, và docblock của nó ghi lại phép
+         * đo vì sao (đăng ký cả hai đường thì mỗi thư sinh ra hai dòng nhật ký).
+         */
+        Event::subscribe(RecordOutboundMail::class);
+
         Relation::enforceMorphMap([
             'user' => User::class,
             'client_user' => ClientUser::class,

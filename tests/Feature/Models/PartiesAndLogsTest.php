@@ -1,8 +1,8 @@
 <?php
 
 use App\Enums\CommunicationType;
-use App\Enums\MessageChannel;
-use App\Enums\MessageStatus;
+use App\Enums\OutboundChannel;
+use App\Enums\OutboundStatus;
 use App\Enums\PartyRole;
 use App\Models\Client;
 use App\Models\CommunicationLog;
@@ -77,8 +77,8 @@ it('records outbound messages against a related model', function () {
         'payload' => ['matter_code' => 'VK-2026-DD-0001'],
     ]);
 
-    expect($message->channel)->toBe(MessageChannel::Email)
-        ->and($message->status)->toBe(MessageStatus::Queued)
+    expect($message->channel)->toBe(OutboundChannel::Email)
+        ->and($message->status)->toBe(OutboundStatus::Queued)
         ->and($message->payload)->toBe(['matter_code' => 'VK-2026-DD-0001'])
         ->and($message->related->is($stageLog))->toBeTrue();
 });

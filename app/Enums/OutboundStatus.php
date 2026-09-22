@@ -2,7 +2,7 @@
 
 namespace App\Enums;
 
-enum MessageStatus: string
+enum OutboundStatus: string
 {
     case Queued = 'queued';
     case Sent = 'sent';
@@ -10,6 +10,6 @@ enum MessageStatus: string
 
     public function label(): string
     {
-        return __('enums.message_status.'.$this->value);
+        return __('enums.outbound_status.'.$this->value);
     }
 }

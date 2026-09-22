@@ -2,8 +2,8 @@
 
 namespace Database\Factories;
 
-use App\Enums\MessageChannel;
-use App\Enums\MessageStatus;
+use App\Enums\OutboundChannel;
+use App\Enums\OutboundStatus;
 use App\Models\OutboundMessage;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -17,16 +17,16 @@ class OutboundMessageFactory extends Factory
     public function definition(): array
     {
         return [
-            'channel' => MessageChannel::Email,
+            'channel' => OutboundChannel::Email,
             'recipient' => fake()->safeEmail(),
             'template' => 'client.stage_update',
             'payload' => [],
-            'status' => MessageStatus::Queued,
+            'status' => OutboundStatus::Queued,
         ];
     }
 
     public function sent(): static
     {
-        return $this->state(fn () => ['status' => MessageStatus::Sent, 'sent_at' => now()]);
+        return $this->state(fn () => ['status' => OutboundStatus::Sent, 'sent_at' => now()]);
     }
 }
