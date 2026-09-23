@@ -77,5 +77,21 @@ return [
             'ignore' => 'Nếu không phải anh/chị vừa đăng nhập, xin bỏ qua thư này và gọi giúp văn phòng theo số :phone.',
             'salutation' => 'Trân trọng, :office',
         ],
+
+        /*
+         * Mẫu `client.stage_update` (SPEC §9). Viết cho một người đang lo về vụ việc của mình,
+         * nên không có thuật ngữ và không có từ viết tắt (SPEC §8). Tiêu đề mang MÃ hồ sơ chứ
+         * không mang tiêu đề vụ việc: mã là thứ khách nhận ra, còn người ngoài liếc qua hộp thư
+         * thì không đọc được gì về nội dung.
+         */
+        'stage_update' => [
+            'subject' => 'Hồ sơ :code có cập nhật mới',
+            'greeting' => 'Kính gửi anh/chị :name,',
+            'line' => 'Văn phòng vừa cập nhật tiến độ hồ sơ :code của anh/chị.',
+            'action_label' => 'Việc anh/chị cần làm:',
+            'open' => 'Mở hồ sơ để xem đầy đủ',
+            'help' => 'Có điều gì chưa rõ, anh/chị gọi giúp văn phòng theo số :phone.',
+            'salutation' => 'Trân trọng, :office',
+        ],
     ],
 ];
