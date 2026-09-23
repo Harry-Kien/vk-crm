@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Schedule\CheckDeadlines;
 use App\Actions\Schedule\RecordScheduleRun;
 use App\Actions\Schedule\SendHeartbeat;
 use Illuminate\Foundation\Inspiring;
@@ -66,4 +67,17 @@ Schedule::command('queue:work --stop-when-empty --max-time=50')
     ->everyMinute()
     ->name('queue.drain')
     ->description('Rút hàng đợi, thay cho worker thường trực')
+    ->withoutOverlapping();
+
+/**
+ * Nhắc mốc thời hạn tố tụng, 07:00 hằng ngày (SPEC §6.8).
+ *
+ * Đây là tác vụ mang rủi ro nghề nghiệp cao nhất trong cả hệ thống: một mốc kháng cáo bị
+ * lỡ là trách nhiệm nghề nghiệp, không phải một bất tiện. `withoutOverlapping()` vì nó gửi
+ * thư — hai tiến trình chồng nhau là hai thư cho cùng một người.
+ */
+Schedule::call(new CheckDeadlines)
+    ->dailyAt('07:00')
+    ->name('deadlines.check')
+    ->description('Nhắc mốc thời hạn tố tụng')
     ->withoutOverlapping();

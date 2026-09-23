@@ -102,4 +102,27 @@ return [
      */
     'unavailable' => 'Không mở được mốc thời hạn này.',
 
+    /*
+     * Mẫu thư `staff.deadline_reminder` (SPEC §9). Thư gửi NHÂN SỰ nên được phép mang mã hồ sơ và
+     * nói bằng ngôn ngữ nghề nghiệp — khác hẳn thư gửi khách. Tiêu đề đổi theo bậc, để người mở
+     * hộp thư lúc 7 giờ sáng phân biệt được "còn bảy ngày" với "đã quá hạn" mà không cần mở thư.
+     */
+    'email' => [
+        'subject' => [
+            'd14' => 'Còn 14 ngày: :name (:code)',
+            'd7' => 'Còn 7 ngày: :name (:code)',
+            'd3' => 'Còn 3 ngày: :name (:code)',
+            'd1' => 'Sắp hết hạn: :name (:code)',
+            'overdue' => 'ĐÃ QUÁ HẠN: :name (:code)',
+        ],
+        'greeting' => 'Kính gửi :name,',
+        'headline' => [
+            'upcoming' => 'Còn :days ngày nữa là tới hạn.',
+            'overdue' => 'Mốc này đã quá hạn :days ngày.',
+        ],
+        'due' => 'Hạn: :date',
+        'matter' => 'Hồ sơ: :code — :title',
+        'action' => 'Anh/chị mở hồ sơ trên hệ thống để xem chi tiết và đánh dấu đã xong khi hoàn tất.',
+        'salutation' => ':office',
+    ],
 ];
