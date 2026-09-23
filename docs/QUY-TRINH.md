@@ -5,7 +5,7 @@ lần đầu gọi tới văn phòng, cho tới lúc hồ sơ của họ đượ
 bước ghi rõ ba thứ: **văn phòng làm gì**, **hệ thống đỡ bằng màn hình hay tác vụ
 nào**, và **hiện đã có hay chưa**.
 
-Rà soát đối chiếu mã nguồn ngày **2026-09-22**. Trạng thái ghi ở đây là thứ đo được
+Rà soát đối chiếu mã nguồn ngày **2026-09-23**. Trạng thái ghi ở đây là thứ đo được
 trong repo, không phải ý định.
 
 Ký hiệu: **[Xong]** đã chạy được và đã hợp nhất · **[Đang làm]** đã có mã, đang khép
@@ -57,7 +57,7 @@ một khách hàng khác.
 | Ghi chú nội bộ không bao giờ lộ ra ngoài | Ghi chú nội bộ tách khỏi nội dung công bố, chặn ở ba lớp | **[Xong]** |
 | Nhận giấy tờ khách nộp, duyệt hoặc từ chối kèm lý do | Tab **Danh mục hồ sơ**, duyệt ngay trên dòng | **[Xong]** |
 | Lưu tài liệu theo bốn nhóm, nhóm nội bộ không bao giờ hiện cho khách | Tab **Tài liệu**, nhóm D nền khác màu và không có nút công bố | **[Xong]** |
-| **Đặt mốc thời hạn tố tụng** | Tab **Mốc thời hạn** — *bảng dữ liệu và quyền đã có từ đầu, nhưng chưa có màn hình nào để tạo một mốc hạn* | **[Có kế hoạch]** M6, mới bổ sung 2026-09-22 |
+| **Đặt mốc thời hạn tố tụng** | Tab **Mốc thời hạn**: thêm nhanh, quá hạn và hết hạn hôm nay tô đỏ, còn dưới bảy ngày tô vàng, đã xong thì xám | **[Xong]** 2026-09-23 |
 | Được nhắc trước khi tới hạn, theo bậc | Tác vụ nhắc hằng ngày, bậc 14/7/3/1 ngày và quá hạn | **[Có kế hoạch]** M6 |
 | **Ghi lại cuộc gọi, buổi làm việc với khách** | Tab **Liên lạc**, ghi một cuộc gọi trong dưới 15 giây | **[Có kế hoạch]** M7, mới bổ sung 2026-09-22 |
 | Biết hồ sơ nào đang đứng im quá lâu | Cảnh báo 14 ngày trong hệ thống, 21 ngày gửi thư cho quản lý | **[Có kế hoạch]** M6 |
@@ -69,12 +69,12 @@ một khách hàng khác.
 
 | Khách làm gì | Hệ thống đỡ bằng gì | Trạng thái |
 |---|---|---|
-| Đăng nhập an toàn trên điện thoại | Mật khẩu cộng mã một lần qua email, khoá sau năm lần sai theo cả tài khoản lẫn địa chỉ mạng | **[Đang làm]** M5 |
-| Xem danh sách hồ sơ của mình | Màn hình danh sách, một hồ sơ thì vào thẳng trang tiến độ | **[Đang làm]** M5 |
-| Xem hồ sơ đang ở giai đoạn nào, sắp tới làm gì | Trang tiến độ bảy khối, viết cho người không học luật | **[Đang làm]** M5 |
-| Biết còn thiếu giấy tờ gì và nộp bằng ảnh chụp | Màn hình nộp giấy tờ, chụp thẳng từ điện thoại | **[Đang làm]** M5 |
-| Đọc lý do khi giấy tờ bị từ chối và nộp lại | Lý do hiện nguyên văn, bản nộp lại nối vào bản cũ | **[Đang làm]** M5 |
-| Hỏi lại văn phòng và nhận trả lời | Yêu cầu từ khách, trả lời theo luồng | **[Đang làm]** M5 |
+| Đăng nhập an toàn trên điện thoại | Mật khẩu cộng mã một lần qua email, khoá sau năm lần sai theo cả tài khoản lẫn địa chỉ mạng | **[Xong]** |
+| Xem danh sách hồ sơ của mình | Màn hình danh sách, một hồ sơ thì vào thẳng trang tiến độ | **[Xong]** |
+| Xem hồ sơ đang ở giai đoạn nào, sắp tới làm gì | Trang tiến độ bảy khối, viết cho người không học luật | **[Xong]** |
+| Biết còn thiếu giấy tờ gì và nộp bằng ảnh chụp | Màn hình nộp giấy tờ, chụp thẳng từ điện thoại | **[Xong]** |
+| Đọc lý do khi giấy tờ bị từ chối và nộp lại | Lý do hiện nguyên văn, bản nộp lại nối vào bản cũ | **[Xong]** |
+| Hỏi lại văn phòng và nhận trả lời | Yêu cầu từ khách, trả lời theo luồng | **[Xong]** |
 | Nhận thư báo khi có cập nhật mới | Bốn mẫu thư cho khách, chỉ chứa nội dung đã công bố | **[Có kế hoạch]** M6 |
 | **Xem đã đóng bao nhiêu trên tổng giá trị hợp đồng** | Hợp đồng và lịch thu trên cổng khách | **[Có kế hoạch]** M9 — *còn một quyết định của chủ văn phòng, xem dưới* |
 
@@ -116,8 +116,8 @@ dòng chưa ai xem quá năm ngày thì nhắc luật sư gọi điện.
 | Nhật ký hoạt động cho mọi thao tác nhạy cảm | **[Xong]** một phần — còn thiếu tab nhật ký riêng của từng vụ việc, **[Có kế hoạch]** M7 |
 | Tệp nằm ngoài thư mục web, chỉ tải qua đường ký có hạn năm phút | **[Xong]** |
 | Thương hiệu văn phòng trên mọi màn hình | **[Xong]** |
-| Thư đi ra đều có nhật ký để tra khi khách nói không nhận được | **[Có kế hoạch]** M6 |
-| Giám sát cron: cron chết thì trang chủ nói ra | **[Có kế hoạch]** M6 |
+| Thư đi ra đều có nhật ký để tra khi khách nói không nhận được | **[Xong]** 2026-09-23 |
+| Giám sát cron: cron chết thì trang chủ nói ra | **[Xong]** 2026-09-23 |
 | Xác thực hai lớp cho toàn bộ tài khoản nội bộ | **[Có kế hoạch]** M8 |
 | Sao lưu hằng ngày **đã thử khôi phục thật** | **[Có kế hoạch]** M8 |
 
