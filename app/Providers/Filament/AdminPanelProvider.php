@@ -61,6 +61,13 @@ class AdminPanelProvider extends PanelProvider
             ->widgets([
                 AccountWidget::class,
             ])
+            /*
+             * Thông báo trong hệ thống, CHỈ trên panel nội bộ. Không bao giờ bật cho cổng khách:
+             * khay thông báo của Filament là một bề mặt của nhân sự, và một khách hàng không bao
+             * giờ được cầm nó — kể cả khi hôm nay chưa có thông báo nào được gửi cho họ. Có test
+             * khẳng định panel `portal` không bật thứ này.
+             */
+            ->databaseNotifications()
             // Đầu danh sách middleware của panel — tức THỨ HAI trong đường ống, vì
             // `Panel::getMiddleware()` tự chèn `panel:{id}` lên trước để dựng panel hiện
             // hành. `isPersistent: true` để nó theo sang cả request cập nhật Livewire, nơi

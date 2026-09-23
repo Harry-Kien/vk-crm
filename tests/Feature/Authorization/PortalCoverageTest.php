@@ -4,6 +4,7 @@ use App\Models\ClientUser;
 use App\Models\Concerns\RestrictedToClientPortal;
 use App\Models\MatterType;
 use App\Models\MatterTypeStage;
+use App\Models\SystemHealth;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Pivot;
@@ -50,8 +51,19 @@ it('makes every model state whether the portal may read it', function () {
      * Cố ý không giới hạn, có lý do ghi trong docblock của từng class:
      * - User, ClientUser: model xác thực, gọi auth() trong scope của chúng sẽ đệ quy.
      * - MatterType, MatterTypeStage: dữ liệu cấu hình, portal cần đọc nhãn giai đoạn (SPEC §8.3).
+     * - SystemHealth: dữ liệu VẬN HÀNH, không phải dữ liệu hồ sơ — một dòng duy nhất nói lịch
+     *   chạy tự động còn sống hay không (SPEC §2). Nó không mang thông tin của khách hàng nào,
+     *   nên một scope theo khách hàng ở đây là vô nghĩa. Ranh giới thật là ở màn hình:
+     *   `SystemHealthWidget::canView()` chỉ trả true cho nhân sự nội bộ, và không màn hình nào
+     *   của cổng khách đọc bảng này. Có test cho cả hai điều đó.
      */
-    $exempt = [User::class, ClientUser::class, MatterType::class, MatterTypeStage::class];
+    $exempt = [
+        User::class,
+        ClientUser::class,
+        MatterType::class,
+        MatterTypeStage::class,
+        SystemHealth::class,
+    ];
 
     $classes = portalCoverageModelClasses();
     expect($classes)->not->toBeEmpty();
