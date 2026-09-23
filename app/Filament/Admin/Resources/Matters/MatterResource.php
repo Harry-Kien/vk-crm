@@ -7,6 +7,7 @@ use App\Filament\Admin\Resources\Matters\Pages\ListMatters;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ChecklistRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ClientRequestsRelationManager;
+use App\Filament\Admin\Resources\Matters\RelationManagers\DeadlinesRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\DocumentsRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\PartiesRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\StageLogsRelationManager;
@@ -31,9 +32,9 @@ use Illuminate\Support\Facades\Auth;
  * Không có trang edit: sửa vụ việc chưa thuộc phạm vi M3. Trang create (`CreateMatter`) KHÔNG
  * dùng luồng `Model::create()` mặc định của Filament — nó gọi Action `OpenMatter`, vì mở một vụ
  * việc là bảy bước nghiệp vụ (kiểm tra xung đột lợi ích, sinh mã, dựng bên khách hàng, sao chép
- * danh mục hồ sơ, nhật ký) chứ không phải một lần ghi bảng. Trang chi tiết (`ViewMatter`) có sáu
- * tab — Tổng quan (infolist dưới đây), Tiến độ, Danh mục hồ sơ, Tài liệu, Các bên và Yêu cầu từ khách
- * (`getRelations()`); các tab Mốc thời hạn, Liên lạc và Nhật ký (M7) chưa xây.
+ * danh mục hồ sơ, nhật ký) chứ không phải một lần ghi bảng. Trang chi tiết (`ViewMatter`) có bảy
+ * tab — Tổng quan (infolist dưới đây), Tiến độ, Danh mục hồ sơ, Tài liệu, Các bên, Yêu cầu từ
+ * khách và Mốc thời hạn (`getRelations()`); các tab Liên lạc và Nhật ký (M7) chưa xây.
  */
 class MatterResource extends Resource
 {
@@ -102,6 +103,11 @@ class MatterResource extends Resource
             // Tab "Yêu cầu từ khách" (SPEC §7.2) — hộp thư của vụ việc, M5 Task 6. Đứng sau
             // "Các bên" vì nó là việc đọc-và-trả-lời hằng ngày, không phải một phần của hồ sơ.
             ClientRequestsRelationManager::class,
+            // Tab "Mốc thời hạn" (SPEC §7.2), M6 Task 5 — màn hình DUY NHẤT tạo ra một hàng
+            // `deadlines` (trước nó chỉ có `MatterSeeder`, tức dữ liệu mẫu), và vì thế là thứ
+            // quyết định `CheckDeadlines` (Task 6) có dữ liệu ở văn phòng hay chỉ xanh trên máy
+            // của lập trình viên.
+            DeadlinesRelationManager::class,
         ];
     }
 

@@ -46,6 +46,12 @@ return [
         'empty_state' => 'Không có hồ sơ nào thiếu giấy tờ quá 14 ngày.',
         'open' => 'Mở danh mục hồ sơ',
     ],
+    'system_health' => [
+        'never_ran' => 'Hệ thống nhắc việc chưa từng chạy',
+        'never_ran_hint' => 'Chưa có dòng lịch tự động nào chạy trên máy chủ này, nên hệ thống chưa nhắc được mốc thời hạn nào. Nhờ người quản trị kiểm tra lại dòng cron.',
+        'stale' => 'Hệ thống nhắc việc đã ngừng chạy',
+        'stale_hint' => 'Lần chạy gần nhất là :at, quá :minutes phút trước. Trong lúc này hệ thống không nhắc mốc thời hạn và không gửi thư nào. Nhờ người quản trị kiểm tra lại dòng cron.',
+    ],
     'matter_counts' => [
         'total' => 'Tổng số hồ sơ',
         'total_hint' => 'Toàn bộ hồ sơ anh/chị được xem.',

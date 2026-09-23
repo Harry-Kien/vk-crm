@@ -51,12 +51,12 @@ return [
         'answered' => 'Đã trả lời',
         'closed' => 'Đã đóng',
     ],
-    'message_channel' => [
+    'outbound_channel' => [
         'email' => 'Email',
         'zns' => 'Zalo ZNS',
         'sms' => 'SMS',
     ],
-    'message_status' => [
+    'outbound_status' => [
         'queued' => 'Chờ gửi',
         'sent' => 'Đã gửi',
         'failed' => 'Gửi lỗi',

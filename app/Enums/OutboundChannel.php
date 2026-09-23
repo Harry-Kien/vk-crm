@@ -2,7 +2,7 @@
 
 namespace App\Enums;
 
-enum MessageChannel: string
+enum OutboundChannel: string
 {
     case Email = 'email';
     case Zns = 'zns';
@@ -10,6 +10,6 @@ enum MessageChannel: string
 
     public function label(): string
     {
-        return __('enums.message_channel.'.$this->value);
+        return __('enums.outbound_channel.'.$this->value);
     }
 }

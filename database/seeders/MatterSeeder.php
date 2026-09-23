@@ -11,8 +11,8 @@ use App\Enums\CommunicationType;
 use App\Enums\Confidentiality;
 use App\Enums\DocumentGroup;
 use App\Enums\MatterRole;
-use App\Enums\MessageChannel;
-use App\Enums\MessageStatus;
+use App\Enums\OutboundChannel;
+use App\Enums\OutboundStatus;
 use App\Enums\PartyRole;
 use App\Enums\UserPosition;
 use App\Models\Client;
@@ -264,13 +264,13 @@ class MatterSeeder extends Seeder
 
             if ($published) {
                 OutboundMessage::factory()->sent()->create([
-                    'channel' => MessageChannel::Email,
+                    'channel' => OutboundChannel::Email,
                     'recipient' => $matter->client->clientUsers()->first()->email,
                     'template' => 'client.stage_update',
                     'payload' => ['matter_code' => $matter->code],
                     'related_type' => $log->getMorphClass(),
                     'related_id' => $log->id,
-                    'status' => MessageStatus::Sent,
+                    'status' => OutboundStatus::Sent,
                     'sent_at' => $occurredAt,
                 ]);
             }

@@ -22,7 +22,7 @@ it('gives every enum case a vietnamese label', function () {
 it('has the enums the data model requires', function () {
     foreach ([
         'MatterRole', 'Confidentiality', 'ChecklistItemStatus', 'DocumentGroup', 'DocumentStatus',
-        'DeadlineSeverity', 'ClientRequestStatus', 'MessageChannel', 'MessageStatus', 'PartyRole', 'CommunicationType',
+        'DeadlineSeverity', 'ClientRequestStatus', 'OutboundChannel', 'OutboundStatus', 'PartyRole', 'CommunicationType',
     ] as $name) {
         expect(enum_exists('App\\Enums\\'.$name))->toBeTrue("Thiếu enum {$name}");
     }

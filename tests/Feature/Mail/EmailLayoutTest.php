@@ -1,0 +1,134 @@
+<?php
+
+use App\Models\ClientUser;
+use App\Notifications\Client\SendLoginCode;
+use App\Support\BrandFooter;
+use Illuminate\Support\Facades\Mail;
+
+/**
+ * Layout thư dùng chung của văn phòng — SPEC §9 ("mọi mẫu email dùng chung một layout có logo và
+ * chân trang"), kế hoạch M6 Task 1.
+ *
+ * Trọng tâm của tệp này là một tình huống đã biết trước và sẽ còn kéo dài: **bốn thông tin pháp
+ * lý ở `config/vkcrm.php` cố ý để trống** (mã số thuế, Đoàn Luật sư, số giấy ĐKHĐ, địa chỉ văn
+ * phòng) vì chủ văn phòng chưa cung cấp, và website của văn phòng không đăng chúng. Layout phải
+ * render đúng trong CẢ HAI trạng thái: hôm nay với bốn chỗ trống, và ngày chúng được điền vào
+ * `.env` mà không ai sửa một dòng mã nào.
+ *
+ * "Đúng" ở đây được đo, không được nhìn: không nhãn nào đứng một mình ("Mã số thuế:" cụt đuôi),
+ * không thẻ khối nào rỗng trong bản HTML, và không dòng trắng thừa nào trong bản văn bản thuần.
+ */
+
+/** Bốn thông tin pháp lý, đúng như chủ văn phòng sẽ điền vào `.env` khi có.  */
+function filledLegalDetails(): void
+{
+    config()->set('vkcrm.brand.office_address', '123 Đường Lê Lợi, Quận 1, TP.HCM');
+    config()->set('vkcrm.brand.tax_code', '0312345678');
+    config()->set('vkcrm.brand.bar_association', 'Đoàn Luật sư TP.HCM');
+    config()->set('vkcrm.brand.licence_number', '41.02.1234/TP/ĐKHĐ');
+}
+
+/** Bản HTML và bản văn bản thuần của thư mã đăng nhập — mẫu thật duy nhất có ở Task 1. */
+function renderedOtpParts(): array
+{
+    $clientUser = ClientUser::factory()->create(['name' => 'Trần Thị B']);
+
+    $clientUser->notify(new SendLoginCode('123456', 5));
+
+    $email = Mail::mailer()->getSymfonyTransport()->innerTransport()->messages()->last()->getOriginalMessage();
+
+    return [(string) $email->getHtmlBody(), (string) $email->getTextBody()];
+}
+
+it('đặt logo, tên pháp lý, hotline và website của văn phòng lên mọi thư', function () {
+    [$html, $text] = renderedOtpParts();
+
+    // Tên pháp lý có dấu `&`, nên bản HTML mang nó ở dạng đã thoát (`&amp;`) còn bản văn bản
+    // thuần thì không. So bằng đúng dạng của từng bản, chứ không hạ khẳng định xuống một mẩu tên
+    // cắt trước dấu `&` — mẩu ấy sẽ còn xanh cả khi loại hình doanh nghiệp biến mất khỏi chân thư.
+    expect($html)->toContain(e(config('vkcrm.brand.legal_name')))
+        ->and($text)->toContain((string) config('vkcrm.brand.legal_name'));
+
+    foreach ([$html, $text] as $body) {
+        expect($body)->toContain((string) config('vkcrm.brand.hotline'))
+            ->and($body)->toContain((string) config('vkcrm.brand.website'));
+    }
+
+    expect($html)->toContain('brand/vk-mark-96.png');
+});
+
+it('in bốn thông tin pháp lý khi chủ văn phòng đã điền vào .env', function () {
+    filledLegalDetails();
+
+    [$html, $text] = renderedOtpParts();
+
+    foreach ([$html, $text] as $body) {
+        expect($body)->toContain('123 Đường Lê Lợi, Quận 1, TP.HCM')
+            ->and($body)->toContain('0312345678')
+            ->and($body)->toContain('Đoàn Luật sư TP.HCM')
+            ->and($body)->toContain('41.02.1234/TP/ĐKHĐ');
+    }
+});
+
+it('không in nhãn cụt đuôi nào khi bốn thông tin pháp lý còn trống', function () {
+    expect(config('vkcrm.brand.tax_code'))->toBeNull()
+        ->and(config('vkcrm.brand.bar_association'))->toBeNull()
+        ->and(config('vkcrm.brand.licence_number'))->toBeNull()
+        ->and(config('vkcrm.brand.office_address'))->toBeNull();
+
+    [$html, $text] = renderedOtpParts();
+
+    // Nhãn lấy từ chính tệp ngôn ngữ, bỏ chỗ dành cho giá trị đi: một khẳng định chép cứng câu
+    // tiếng Việt sẽ xanh mãi mãi sau ngày ai đó sửa lại câu chữ trong `lang/vi/emails.php`.
+    $label = fn (string $key): string => trim(str_replace(':value', '', __("emails.footer.{$key}")));
+
+    foreach ([$html, $text] as $body) {
+        foreach (['tax_code', 'bar_association', 'licence_number'] as $key) {
+            expect($body)->not->toContain($label($key));
+        }
+    }
+});
+
+it('không để lại thẻ khối rỗng nào trong bản HTML khi bốn chỗ trống bị bỏ qua', function () {
+    [$html] = renderedOtpParts();
+
+    preg_match_all('/<(p|div|td|span)\b[^>]*>\s*<\/\1>/', $html, $matches);
+
+    expect($matches[0])->toBe([]);
+});
+
+/**
+ * Blade thoát HTML ở mọi view, kể cả view text/plain — nên một `{{ … }}` trong bản văn bản thuần
+ * in ra chữ `&amp;` giữa tên pháp lý của văn phòng, đúng vào chỗ khách đọc. Laravel giấu chuyện
+ * này ở đường markdown (`Markdown::renderText()` gọi `html_entity_decode()` ở cuối); đường
+ * `->view([html, text])` mà Task 1 chuyển sang thì không có bước đó, và lần đầu dựng layout đã
+ * vấp đúng vào đấy.
+ */
+it('không để lẫn thực thể HTML nào vào bản văn bản thuần', function () {
+    filledLegalDetails();
+
+    [, $text] = renderedOtpParts();
+
+    expect($text)->toContain('Vũ Khang Solutions & Partners')
+        ->and(preg_match('/&(?:amp|quot|#0?39|lt|gt);/', $text))->toBe(0);
+});
+
+it('không để lại dòng trắng thừa nào trong bản văn bản thuần', function () {
+    [, $text] = renderedOtpParts();
+
+    expect($text)->not->toBeEmpty()
+        ->and(preg_match('/\n[ \t]*\n[ \t]*\n/', $text))->toBe(0);
+});
+
+it('dựng chân thư chỉ từ những thông tin pháp lý đã có', function () {
+    expect(BrandFooter::legalLines())->toBe([]);
+
+    filledLegalDetails();
+
+    expect(BrandFooter::legalLines())->toBe([
+        '123 Đường Lê Lợi, Quận 1, TP.HCM',
+        __('emails.footer.tax_code', ['value' => '0312345678']),
+        __('emails.footer.bar_association', ['value' => 'Đoàn Luật sư TP.HCM']),
+        __('emails.footer.licence_number', ['value' => '41.02.1234/TP/ĐKHĐ']),
+    ]);
+});

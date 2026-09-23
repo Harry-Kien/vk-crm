@@ -2,8 +2,8 @@
 
 namespace App\Models;
 
-use App\Enums\MessageChannel;
-use App\Enums\MessageStatus;
+use App\Enums\OutboundChannel;
+use App\Enums\OutboundStatus;
 use App\Models\Concerns\RestrictedToClientPortal;
 use Database\Factories\OutboundMessageFactory;
 use Illuminate\Database\Eloquent\Builder;
@@ -18,6 +18,16 @@ class OutboundMessage extends Model
 
     use RestrictedToClientPortal;
 
+    /**
+     * Mẫu ghi cho một thư KHÔNG khai báo mẫu nào (`App\Mail\OutboundHeaders::TEMPLATE`).
+     *
+     * Một giá trị nói thẳng, chứ không phải `null` và cũng không phải một lần ném lỗi. Nhật ký
+     * này tồn tại để trả lời "tôi không nhận được thông báo", nên nó phải ghi được cả những thư
+     * mà không ai nhớ là mình gửi — một `Mail::raw()` trong một lần vá vội vẫn để lại dấu vết,
+     * và dấu vết ấy tự nói ra rằng nó chưa được khai báo.
+     */
+    public const TEMPLATE_UNDECLARED = 'undeclared';
+
     protected $fillable = [
         'channel', 'recipient', 'template', 'payload', 'related_type', 'related_id', 'status', 'sent_at', 'error',
     ];
@@ -27,8 +37,8 @@ class OutboundMessage extends Model
     protected function casts(): array
     {
         return [
-            'channel' => MessageChannel::class,
-            'status' => MessageStatus::class,
+            'channel' => OutboundChannel::class,
+            'status' => OutboundStatus::class,
             'payload' => 'array',
             'sent_at' => 'datetime',
         ];

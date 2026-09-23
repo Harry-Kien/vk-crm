@@ -2,9 +2,11 @@
 
 namespace App\Notifications\Client;
 
+use App\Mail\OutboundHeaders;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 use SensitiveParameter;
+use Symfony\Component\Mime\Email;
 
 /**
  * Thư mang mã đăng nhập cổng khách hàng — mẫu `client.otp` của SPEC §9.
@@ -21,11 +23,18 @@ use SensitiveParameter;
  *  2. Nội dung phải là tiếng Việt của văn phòng, có xưng hô và có số điện thoại để khách gọi khi
  *     không phải họ vừa đăng nhập.
  *
- * **Phần thuộc về M6, nói ra chứ không để trống:** SPEC §9 đòi mọi mẫu email dùng CHUNG một
- * layout có logo và chân trang công ty, và đòi mỗi lần gửi để lại một dòng `outbound_messages`
- * (SPEC §4.15). Cả hai là việc của M6, cùng lúc với chín mẫu còn lại — M5 chỉ có duy nhất mẫu
- * này. Hôm nay thư dùng layout markdown mặc định của Laravel; khi M6 dựng layout chung thì chỗ
- * sửa là `resources/views/emails/client/otp.blade.php`, không phải lớp này.
+ * **Phần M6 Task 1 đã lấp, thay cho ghi chú "để sau" mà M5 từng đặt ở đây:** SPEC §9 đòi mọi mẫu
+ * email dùng CHUNG một layout có logo và chân trang công ty, và đòi mỗi lần gửi để lại một dòng
+ * `outbound_messages` (SPEC §4.15). Cả hai nay đã có:
+ *
+ *  - thư render bằng `->view()` trên `emails.layout` và `emails.layout-text` (hai bản, HTML và
+ *    văn bản thuần), thay cho layout markdown mặc định của Laravel;
+ *  - header `X-VKCRM-Template` được đặt thẳng ở đây bằng `withSymfonyMessage()`, vì thư này là
+ *    một Notification chứ không phải một Mailable nên nó không đi qua `App\Mail\BrandedMailable`.
+ *    Thiếu header ấy thì thư VẪN được ghi nhật ký, chỉ là với `template = undeclared`: cánh cửa
+ *    không thủng, nhưng dòng nhật ký mất ngữ cảnh.
+ *
+ * Việc KHÔNG xếp hàng thì không đổi, và đó là chủ ý — xem hai điểm ở trên.
  */
 class SendLoginCode extends Notification
 {
@@ -76,12 +85,14 @@ class SendLoginCode extends Notification
     {
         return (new MailMessage)
             ->subject(__('portal.email.otp.subject'))
-            ->markdown('emails.client.otp', [
+            ->view(['emails.client.otp', 'emails.client.otp-text'], [
                 'name' => $notifiable->name ?? '',
                 'code' => $this->code,
                 'codeExpiryMinutes' => $this->codeExpiryMinutes,
                 'hotline' => config('vkcrm.brand.hotline'),
                 'office' => config('vkcrm.brand.legal_name'),
-            ]);
+            ])
+            ->withSymfonyMessage(fn (Email $message) => $message->getHeaders()
+                ->addTextHeader(OutboundHeaders::TEMPLATE, 'client.otp'));
     }
 }
