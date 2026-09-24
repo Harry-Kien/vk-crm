@@ -7,10 +7,14 @@
 | M2 Phân quyền (spatie, Policy, global scope client) | ✅ Xong | 2026-09-14 | 130 test xanh |
 | M3 Panel admin + `TransitionMatterStage` + `RunConflictCheck` | ✅ Xong | 2026-09-16 | 280 test xanh |
 | M4 Danh mục hồ sơ + tài liệu + `PublishDocument` | ✅ Xong | 2026-09-20 | Checklist, upload có `FileGuard` + seam quét virus, duyệt/từ chối, `PublishDocument`, lưu trữ đĩa `private`, route tải có chữ ký vẫn kiểm policy, hai tab mới ở trang vụ việc, hai widget SPEC §7.1 còn thiếu. Đã qua cổng hợp nhất (4 Important + 6 Minor, không Critical). 823 test xanh |
-| M5 Portal khách (OTP, hồ sơ, nộp tài liệu, yêu cầu) | ⬜ | | |
-| M6 Thông báo + tác vụ định kỳ + heartbeat | ⬜ | | |
+| M5 Portal khách (OTP, hồ sơ, nộp tài liệu, yêu cầu) | ✅ Xong | 2026-09-22 | Merge f7f0880. `bin/dev test:mariadb` 1219 xanh / 0 đỏ. Chi tiết ở "Ghi chú M5" |
+| M6 Thông báo + tác vụ định kỳ + heartbeat | 🟡 Đang làm | | Đã trên `main`: nhật ký thư + layout thương hiệu (Task 1), heartbeat/scheduler/dải cảnh báo cron (Task 2), thư `client.stage_update` (một phần Task 3), màn hình mốc thời hạn (Task 5), `CheckDeadlines` (Task 6). 2026-09-23: `bin/dev test:mariadb` 1337 xanh / 0 đỏ. Còn: Task 3 phần còn lại, 4, 7, 8, 9, 10 — **tạm dừng cho M6.5** |
+| M6.5 Sửa lỗi quy trình | ⬜ | | Đợt kiểm tra 2026-09-24 (`docs/audits/2026-09-24-quy-trinh.md`): 90 phát hiện được xác nhận (9 critical, 47 important, 34 minor) + 12 còn tranh chấp. Làm trước phần còn lại của M6 vì các thư M6 xây trên đúng những chỗ đang hỏng. Kèm: CI GitHub đỏ từ 2026-09-22 do dòng `TRUSTED_PROXIES=` rỗng trong `.env.example` |
 | M7 Bàn giao + lưu trữ + liên lạc + tìm kiếm | ⬜ | | |
 | M8 Bảo mật + backup + README triển khai | ⬜ | | |
+| M9 Hợp đồng dịch vụ + đợt thanh toán | ⬜ | | Kế hoạch `docs/superpowers/plans/2026-09-19-m9-contracts-and-payments.md` |
+| M10 Tiếp nhận khách | ⬜ | | Kế hoạch `docs/superpowers/plans/2026-09-22-m10-intake.md` |
+| M11 Máy chủ MCP (ChatGPT, Claude) | ⬜ | | Chủ văn phòng chốt 2026-09-24: làm ngay sau M8; nhân sự đọc **và** ghi; nhân sự dùng tài khoản AI cá nhân; phạm vi dữ liệu theo chuẩn các máy chủ MCP đang chạy thật. Tra cứu: `docs/research/2026-09-24-mcp-phap-ly-goi.md`, `docs/research/2026-09-24-doi-chieu-ung-dung-mcp.md`. Lưu ý đã kiểm chứng: MCP có quyền ghi của ChatGPT chỉ mở cho gói Business/Enterprise/Edu; gửi dữ liệu khách qua AI nước ngoài cần hồ sơ đánh giá tác động chuyển dữ liệu (Luật 91/2025, Nghị định 356) |
 
 ## Ghi chú M0
 
