@@ -64,10 +64,23 @@ class ClientUser extends Authenticatable implements FilamentUser, HasEmailAuthen
 
     /**
      * Khách hàng chỉ vào được portal, và chỉ khi tài khoản còn hoạt động.
+     *
+     * Task 2 (`portal/portal-3`): thêm `$this->client !== null`, ĐỘC LẬP với điều kiện tương tự
+     * ở `Matter::applyClientPortalConstraints()` — hai tầng cố ý tách rời (query của Matter và
+     * cổng vào của chính tài khoản) để một lần đột biến chỉ xoá MỘT trong hai không lặng lẽ mở
+     * lại cả hai. Trước bản sửa này, xoá mềm khách hàng (`Client::delete()`, admin bấm ở
+     * EditClient) không đụng tới `client_users.is_active`, nên tài khoản cổng của khách đã xoá
+     * vẫn đăng nhập, đọc hồ sơ và sinh phiếu "đã xem" như thường.
+     *
+     * `client()` là `BelongsTo` thường, mang theo `SoftDeletingScope` của `Client` (không phải
+     * `ClientPortalScope` — `Client` có cả hai global scope, nhưng scope kia chỉ kích hoạt dưới
+     * `ClientPortalScope::isActive()` và luôn là một AND vô hại thêm đúng `client_id` này, không
+     * đổi kết luận `null`/không-null), nên quan hệ tự trả `null` ngay khi khách đã xoá mềm — hỏi
+     * `deleted_at` trực tiếp ở đây sẽ chỉ lặp lại đúng chuyện `SoftDeletingScope` đã làm.
      */
     public function canAccessPanel(Panel $panel): bool
     {
-        return $panel->getId() === 'portal' && $this->is_active;
+        return $panel->getId() === 'portal' && $this->is_active && $this->client !== null;
     }
 
     /**

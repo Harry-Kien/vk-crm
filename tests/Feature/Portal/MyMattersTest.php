@@ -169,6 +169,52 @@ it('drops a matter from the list the moment the office withdraws it', function (
         ->and($html)->not->toContain('HO-SO-DA-RUT-7V2K');
 });
 
+// =========================================================================================
+// Task 2 (`portal/portal-3`): khách hàng đã xoá mềm — Matter::applyClientPortalConstraints()
+// =========================================================================================
+
+/**
+ * Trước bản sửa này, `applyClientPortalConstraints()` chỉ hỏi bảng `matters` (client_id,
+ * is_published_to_portal, `deleted_at` CỦA CHÍNH VỤ VIỆC) — `clients.deleted_at` không được hỏi
+ * ở đâu cả, nên xoá mềm khách hàng (EditClient → DeleteAction) không rút được vụ việc của họ
+ * khỏi cổng: khách vẫn đăng nhập (điều kiện độc lập, xem `tests/Feature/Portal/LoginTest.php`) và
+ * vẫn đọc được hồ sơ đã công bố của chính mình.
+ *
+ * Đo trực tiếp `Matter::query()` dưới ngữ cảnh cổng (`ClientPortalScope::actingAs()`), độc lập
+ * với bất kỳ màn hình nào — mutation probe nhắm thẳng vào `whereHas('client')` của
+ * `Matter::applyClientPortalConstraints()` (bỏ nó thì test này đỏ).
+ */
+it('empties Matter::query() under the portal scope once the parent client is soft deleted', function () {
+    portalMatter(['title' => 'Hồ sơ của khách đã bị xoá']);
+
+    $this->client->delete();
+
+    $matters = ClientPortalScope::actingAs($this->clientUser, fn () => Matter::query()->get());
+
+    expect($matters)->toBeEmpty();
+});
+
+/** Vế dương: cùng thiết lập đó, khách hàng CHƯA xoá thì vụ việc vẫn ra tới cổng như trước. */
+it('still returns the matter under the portal scope when the client has not been deleted', function () {
+    $matter = portalMatter(['title' => 'Hồ sơ của khách còn nguyên']);
+
+    $matters = ClientPortalScope::actingAs($this->clientUser, fn () => Matter::query()->get());
+
+    expect($matters->pluck('id'))->toContain($matter->id);
+});
+
+/** Và hệ quả trên chính màn hình này: danh sách rỗng ngay khi văn phòng xoá mềm khách hàng. */
+it('drops every matter from the screen the moment the office soft deletes the client itself', function () {
+    $matter = portalMatter(['title' => 'HO-SO-CUA-KHACH-DA-XOA-6M3P']);
+
+    $this->client->delete();
+
+    $html = renderMyMatters();
+
+    expect($html)->not->toContain($matter->code)
+        ->and($html)->not->toContain('HO-SO-CUA-KHACH-DA-XOA-6M3P');
+});
+
 /**
  * Và nó phải biến mất trên request KẾ TIẾP, không đợi khách tải lại trang bằng tay.
  *

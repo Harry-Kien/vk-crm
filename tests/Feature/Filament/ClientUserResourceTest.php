@@ -4,6 +4,7 @@ use App\Enums\Permission;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\ClientUsers\ClientUserResource;
 use App\Filament\Admin\Resources\ClientUsers\Pages\CreateClientUser;
+use App\Filament\Admin\Resources\ClientUsers\Pages\EditClientUser;
 use App\Filament\Admin\Resources\ClientUsers\Pages\ListClientUsers;
 use App\Filament\Admin\Support\VisibleClientOptions;
 use App\Models\Client;
@@ -60,14 +61,90 @@ it('excludes a client user of a client the actor has no matter with, for an acto
         ->assertCanNotSeeTableRecords([$hiddenUser]);
 });
 
-it('lets a lawyer with clientUser.manage see every client user regardless of matter team', function () {
+/**
+ * Task 2 (`roles/roles-02`, important) — ĐẢO NGƯỢC test cũ cùng vị trí, từng có tên
+ * "lets a lawyer with clientUser.manage see every client user regardless of matter team" và ghim
+ * đúng hành vi rò rỉ mà finding này báo: Lawyer có `clientUser.manage` (Role.php) nhưng KHÔNG có
+ * `client.manage`, nên trước bản sửa này họ đọc được tên/email/điện thoại của MỌI tài khoản cổng
+ * trong văn phòng qua đúng bảng này — con đường mà ClientResource/VisibleClientOptions đã chặn ở
+ * trang Khách hàng bên cạnh vẫn còn hở ở đây. `ClientUserResource::getEloquentQuery()` giờ đổi
+ * mốc "thấy tất cả" sang `client.manage`, nên khẳng định đúng bây giờ là NGƯỢC LẠI: ẩn.
+ */
+it('hides a client user of a client the lawyer has no matter with, even though the lawyer has clientUser.manage', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $clientUser = ClientUser::factory()->create();
 
     $this->actingAs($lawyer, 'web');
 
     $this->livewire(ListClientUsers::class)
+        ->assertCanNotSeeTableRecords([$clientUser]);
+});
+
+/** Vế dương của test trên: cùng luật sư đó vẫn thấy tài khoản cổng của khách MÌNH liệt kê được. */
+it('still shows a lawyer the client user of a client they do have a matter with', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $ownClient = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $ownClient->id, 'lead_lawyer_id' => $lawyer->id]);
+    $clientUser = ClientUser::factory()->for($ownClient)->create();
+
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(ListClientUsers::class)
         ->assertCanSeeTableRecords([$clientUser]);
+});
+
+/**
+ * Cùng finding, phần SPEC §4.7 nêu tên rõ nhất: khách của một vụ HẠN CHẾ. Trước bản sửa này bảng
+ * này đọc được cả tên "Khách Bí Mật Đặc Biệt" của roles-02, dù `Gate::allows('view', $matter)`
+ * của chính vụ đó đã là `false` với luật sư đang xem.
+ */
+it('hides a client user of a client whose only matter is restricted and led by someone else', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $otherLawyer = User::factory()->withRole(Role::Lawyer)->create();
+
+    $secretClient = Client::factory()->create(['name' => 'Khách Bí Mật Đặc Biệt']);
+    Matter::factory()->restricted()->create(['client_id' => $secretClient->id, 'lead_lawyer_id' => $otherLawyer->id]);
+    $secretAccount = ClientUser::factory()->for($secretClient)->create();
+
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(ListClientUsers::class)
+        ->assertCanNotSeeTableRecords([$secretAccount])
+        ->assertDontSee('Khách Bí Mật Đặc Biệt');
+});
+
+/** Manager có cả `client.manage`, nên vẫn thấy toàn bộ văn phòng như trước bản sửa này. */
+it('still lets a manager with client.manage see every client user regardless of matter team', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $clientUser = ClientUser::factory()->create();
+
+    $this->actingAs($manager, 'web');
+
+    $this->livewire(ListClientUsers::class)
+        ->assertCanSeeTableRecords([$clientUser]);
+});
+
+/**
+ * `ClientUserResource` không đăng ký trang hay action nào gọi ability `view` (chỉ `index`,
+ * `create`, `edit` — xem `getPages()`), nên nhánh mới của `ClientUserPolicy::view()` không có
+ * màn hình nào tự đo được nó. Đo thẳng qua `Gate`, cùng lý do và cùng thành ngữ với test
+ * `directly denies the update ability…` ở dưới: một lớp phòng thủ độc lập với UI hiện tại vẫn
+ * phải đúng, vì đây là ability mà bất kỳ code nào khác (kể cả một ViewAction thêm sau này) sẽ
+ * gọi lại.
+ *
+ * Mutation probe: đổi vế `ClientManage` trong `view()` lại thành `ClientUserManage` (bản cũ) thì
+ * test này đỏ.
+ */
+it('directly denies the view ability for a client-user outside reach and allows it within reach', function () {
+    $lawyerA = User::factory()->withRole(Role::Lawyer)->create();
+    $lawyerB = User::factory()->withRole(Role::Lawyer)->create();
+
+    $clientB = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $clientB->id, 'lead_lawyer_id' => $lawyerB->id]);
+    $accountB = ClientUser::factory()->for($clientB)->create();
+
+    expect($lawyerA->can('view', $accountB))->toBeFalse()
+        ->and($lawyerB->can('view', $accountB))->toBeTrue();
 });
 
 it('hides the client user create page from the accountant', function () {
@@ -184,4 +261,130 @@ it('lets a lawyer create a client user for a client of a matter they can see', f
         ->assertHasNoFormErrors();
 
     expect(ClientUser::where('email', 'hop-le@example.com')->where('client_id', $ownClient->id)->exists())->toBeTrue();
+});
+
+// =========================================================================================
+// Task 2 (`roles/roles-01`, critical): cách ly tài khoản cổng giữa các khách hàng
+// =========================================================================================
+
+/**
+ * Luật sư A mở trang sửa tài khoản cổng của khách của luật sư B. Trước bản sửa này, trang này mở
+ * bình thường (200, kèm cả email của khách B trong HTML) vì `ClientUserPolicy::update()` chỉ gọi
+ * `create($user)` KHÔNG kèm khách hàng, nên bất kỳ ai có `clientUser.manage` đều sửa được MỌI tài
+ * khoản. Giờ `update()` hỏi lại đúng client_id hiện tại của bản ghi (qua `view()`), nên luật sư A
+ * không liệt kê được khách của B thì trang trả 404 (SPEC §10.10, AnswerDeniedPanelRequestsWithNotFound).
+ */
+it('answers 404 when a lawyer opens the edit page of another lawyers client-user account', function () {
+    $lawyerA = User::factory()->withRole(Role::Lawyer)->create();
+    $lawyerB = User::factory()->withRole(Role::Lawyer)->create();
+
+    $clientB = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $clientB->id, 'lead_lawyer_id' => $lawyerB->id]);
+    $accountB = ClientUser::factory()->for($clientB)->create();
+
+    $this->actingAs($lawyerA, 'web');
+
+    $this->get(ClientUserResource::getUrl('edit', ['record' => $accountB], panel: 'admin'))->assertNotFound();
+});
+
+/** Vế dương: cùng luật sư A mở được trang sửa tài khoản cổng của khách CHÍNH MÌNH. */
+it('lets a lawyer open the edit page of their own clients client-user account', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $ownClient = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $ownClient->id, 'lead_lawyer_id' => $lawyer->id]);
+    $account = ClientUser::factory()->for($ownClient)->create();
+
+    $this->actingAs($lawyer, 'web');
+
+    $this->get(ClientUserResource::getUrl('edit', ['record' => $account], panel: 'admin'))->assertOk();
+});
+
+/**
+ * `ClientUserResource::getEloquentQuery()` (roles-02) đã đủ để chặn 404 ở test trên — route
+ * model binding không tìm thấy bản ghi ngoài tầm nhìn thì `update()`/`canEdit()` không bao giờ
+ * được hỏi tới. Test này đo THẲNG `ClientUserPolicy::update()` qua `Gate`, bỏ qua route binding
+ * và toàn bộ vòng Livewire, để chứng minh chính ability đó — không phải chỉ tầng truy vấn đứng
+ * trước nó — mới là thứ từ chối (carry-forward review M2/M3: `ClientUserPolicy::view` chạy
+ * exists() cho mỗi bản ghi, nên một nơi khác gọi `Gate::authorize('update', $record)` trực tiếp,
+ * bỏ qua getEloquentQuery(), vẫn phải đúng).
+ *
+ * Mutation probe: đổi lại `update()` thành `return $this->create($user);` (bản cũ) thì test này
+ * đỏ — `create($user)` không kèm $client trả `true` cho bất kỳ ai có `clientUser.manage`.
+ */
+it('directly denies the update ability for a client-user outside reach and allows it within reach', function () {
+    $lawyerA = User::factory()->withRole(Role::Lawyer)->create();
+    $lawyerB = User::factory()->withRole(Role::Lawyer)->create();
+
+    $clientB = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $clientB->id, 'lead_lawyer_id' => $lawyerB->id]);
+    $accountB = ClientUser::factory()->for($clientB)->create();
+
+    expect($lawyerA->can('update', $accountB))->toBeFalse()
+        ->and($lawyerB->can('update', $accountB))->toBeTrue();
+});
+
+/**
+ * Trọng tâm của roles-01: lưu form sửa tài khoản của CHÍNH khách mình, với một `client_id` KHÁC
+ * trong payload — cố ý là một khách khác mà luật sư CŨNG liệt kê được (không phải một id ngoài
+ * tầm với), đúng hình dạng cuộc tấn công gốc: chọn khách của CHÍNH MÌNH làm đích, thứ Select's
+ * own "in:options" validation không chặn được vì giá trị đó hợp lệ với chính luật sư này. Chỉ
+ * `EditClientUser::mutateFormDataBeforeSave()` mới chặn được, bằng cách bỏ qua hẳn client_id
+ * trong $data và luôn ghi đè lại giá trị hiện có trên bản ghi.
+ *
+ * Mutation probe: bỏ dòng `$data['client_id'] = $this->record->client_id;` (trả `return $data;`
+ * trần như bản cũ) thì test này đỏ — client_id đổi thật sang $otherOwnClient.
+ */
+it('never changes client_id on save, even when the payload carries a different client the lawyer can also reach', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+
+    $ownClient = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $ownClient->id, 'lead_lawyer_id' => $lawyer->id]);
+    $account = ClientUser::factory()->for($ownClient)->create();
+
+    $otherOwnClient = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $otherOwnClient->id, 'lead_lawyer_id' => $lawyer->id]);
+
+    $this->actingAs($lawyer, 'web');
+    Filament::setCurrentPanel('admin');
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'client_id' => $otherOwnClient->id,
+            'name' => $account->name,
+            'email' => $account->email,
+        ])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($account->fresh()->client_id)->toBe($ownClient->id);
+});
+
+/**
+ * Cùng bất biến, đo thẳng vào hook — độc lập với Select/`disabled()` (đúng thành ngữ của tệp này
+ * cho `CreateClientUser::mutateFormDataBeforeCreate()` ở trên): gọi
+ * `EditClientUser::mutateFormDataBeforeSave()` qua reflection với một payload đã "chỉnh sửa tay",
+ * bỏ qua toàn bộ vòng Livewire/Select.
+ */
+it('the edit-page mutate hook itself restores the original client_id, independent of form validation', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+
+    $ownClient = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $ownClient->id, 'lead_lawyer_id' => $lawyer->id]);
+    $account = ClientUser::factory()->for($ownClient)->create();
+
+    $otherOwnClient = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $otherOwnClient->id, 'lead_lawyer_id' => $lawyer->id]);
+
+    $this->actingAs($lawyer, 'web');
+    Filament::setCurrentPanel('admin');
+
+    $page = new EditClientUser;
+    $page->record = $account;
+
+    $method = new ReflectionMethod($page, 'mutateFormDataBeforeSave');
+    $method->setAccessible(true);
+
+    $result = $method->invoke($page, ['client_id' => $otherOwnClient->id, 'name' => 'Tên đã sửa']);
+
+    expect($result['client_id'])->toBe($ownClient->id);
 });

@@ -203,7 +203,16 @@ class Matter extends Model
             // bộ `withTrashed()` là một công cụ đúng đắn (quản trị viên còn phải khôi phục được
             // hồ sơ); ở phía khách nó là một cái nút mở lại thứ văn phòng vừa rút đi. Một điều
             // kiện chỉ do một scope khác giữ là một điều kiện người khác tắt được.
-            ->whereNull($this->qualifyColumn('deleted_at'));
+            ->whereNull($this->qualifyColumn('deleted_at'))
+            // Task 2 (`portal/portal-3`): khách hàng (Client) đã xoá mềm không được để vụ việc
+            // của họ ra portal, ĐỘC LẬP với điều kiện tương tự ở ClientUser::canAccessPanel() —
+            // xem docblock ở đó cho lý do hai tầng tách rời. Trước bản sửa này, các điều kiện ở
+            // trên chỉ hỏi bảng `matters`; `clients.deleted_at` không được hỏi ở đâu cả, nên xoá
+            // mềm một khách hàng không rút được vụ việc của họ khỏi cổng. `whereHas` kéo theo
+            // đúng `SoftDeletingScope` (global scope thường trực của `Client`) vào truy vấn con,
+            // nên "còn một dòng `clients` chưa xoá mềm" là toàn bộ ý nghĩa của điều kiện này —
+            // không cần lặp lại `whereNull('clients.deleted_at')` bằng tay.
+            ->whereHas('client');
 
         // M7 bổ sung điều kiện client_access_until ở đây (SPEC §11 "Bàn giao và lưu trữ").
     }

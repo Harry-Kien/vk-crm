@@ -2,6 +2,7 @@
 
 use App\Enums\Role;
 use App\Filament\Admin\Resources\Clients\ClientResource;
+use App\Filament\Admin\Resources\Clients\Pages\EditClient;
 use App\Filament\Admin\Resources\Clients\Pages\ListClients;
 use App\Models\Client;
 use App\Models\Matter;
@@ -63,4 +64,58 @@ it('hides the client write pages from a lawyer without client.manage', function 
     // AnswerDeniedPanelRequestsWithNotFound).
     $this->actingAs($lawyer, 'web')->get(ClientResource::getUrl('create', panel: 'admin'))->assertNotFound();
     $this->actingAs($lawyer, 'web')->get(ClientResource::getUrl('edit', ['record' => $client], panel: 'admin'))->assertNotFound();
+});
+
+// =========================================================================================
+// Task 2 (rà soát cuối, "Xoá khách hàng còn vụ việc đang mở"): ClientPolicy::delete()
+// =========================================================================================
+
+/**
+ * Trước bản sửa này, admin xoá được một khách hàng còn vụ việc mở mà không cảnh báo gì —
+ * `Matter::client()` trả `null` cho hồ sơ đó ở mọi màn hình đọc qua quan hệ này ngay sau đó.
+ * Đo qua `callAction('delete')` thật (không gọi thẳng policy): xác nhận cả nút vẫn BẤM ĐƯỢC
+ * (không bị ẩn — `EditClient` đã bật `authorizationNotification()`) lẫn việc khách hàng còn
+ * nguyên, chưa xoá mềm.
+ */
+it('refuses to delete a client that still has an open matter, and tells the admin how many', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $client = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $client->id, 'closed_at' => null]);
+    Matter::factory()->create(['client_id' => $client->id, 'closed_at' => null]);
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(EditClient::class, ['record' => $client->getKey()])
+        ->assertActionVisible('delete')
+        ->callAction('delete')
+        ->assertNotified(__('clients.delete_blocked_open_matters', ['count' => 2]));
+
+    expect($client->fresh()->trashed())->toBeFalse();
+});
+
+/** Vế dương: một khách hàng KHÔNG còn vụ mở thì admin vẫn xoá được như trước. */
+it('lets the admin delete a client whose matters are all closed', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $client = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $client->id, 'closed_at' => now()]);
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(EditClient::class, ['record' => $client->getKey()])
+        ->callAction('delete');
+
+    expect($client->fresh()->trashed())->toBeTrue();
+});
+
+/** Và một khách hàng chưa từng có vụ việc nào cũng xoá được bình thường. */
+it('lets the admin delete a client with no matters at all', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $client = Client::factory()->create();
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(EditClient::class, ['record' => $client->getKey()])
+        ->callAction('delete');
+
+    expect($client->fresh()->trashed())->toBeTrue();
 });

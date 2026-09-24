@@ -852,6 +852,63 @@ it('lets an active client keep working', function () {
 
 /*
 |--------------------------------------------------------------------------
+| Task 2 (`portal/portal-3`): khách hàng đã xoá mềm mất quyền vào cổng
+|--------------------------------------------------------------------------
+| Trước bản sửa này, `ClientUser::canAccessPanel()` chỉ hỏi `is_active` — xoá mềm hồ sơ `Client`
+| (EditClient → DeleteAction, admin bấm ở panel nội bộ) không đụng gì tới cột đó, nên tài khoản
+| cổng của một khách đã xoá vẫn đăng nhập, đọc hồ sơ đã công bố và ghi phiếu "đã xem" như thường.
+| Layer thứ hai, độc lập (Matter::query() rỗng dưới ngữ cảnh cổng), có bằng chứng riêng ở
+| tests/Feature/Portal/MyMattersTest.php — nơi đã có sẵn "ba tầng" (query/policy/serialize) cho
+| đúng loại điều kiện này.
+*/
+
+/**
+ * Đo trực tiếp đúng điều kiện mới, độc lập với toàn bộ đường ống HTTP/middleware bên dưới —
+ * mutation probe nhắm thẳng vào đây (bỏ `&& $this->client !== null` thì test này đỏ).
+ */
+it('reports canAccessPanel false for a client user whose client has been soft deleted', function () {
+    $user = portalUser();
+    $user->client->delete();
+
+    expect($user->fresh()->canAccessPanel(Filament::getPanel('portal')))->toBeFalse();
+});
+
+/** Vế dương: cùng điều kiện, khách hàng CHƯA xoá thì tài khoản vẫn vào được như trước. */
+it('reports canAccessPanel true for a client user whose client has not been deleted', function () {
+    $user = portalUser();
+
+    expect($user->canAccessPanel(Filament::getPanel('portal')))->toBeTrue();
+});
+
+/**
+ * Và hệ quả thật trên màn hình: một phiên ĐÃ đăng nhập, mà khách hàng bị xoá mềm GIỮA CHỪNG, mất
+ * quyền vào cổng ngay ở request kế tiếp — đúng luật `Filament\Http\Middleware\Authenticate` áp
+ * cho mọi `FilamentUser::canAccessPanel()` sai, và đúng mã 404 mà mọi lần từ chối khác của panel
+ * này đã trả (SPEC §10.10, `DenialCodeTest`) — không phải 200 như trước bản sửa này.
+ */
+it('locks a client out of the portal on the very next request once their client is soft deleted mid session', function () {
+    $user = portalUser();
+
+    $this->actingAs($user, 'client');
+    $this->get('/portal')->assertOk();
+
+    $user->client->delete();
+
+    // `SessionGuard::user()` giữ một bộ nhớ đệm trong-tiến-trình cho suốt vòng đời của chính
+    // guard instance đó; trong một request thật (một tiến trình PHP riêng), guard luôn được
+    // dựng lại và tự đọc `EloquentUserProvider::retrieveById()` MỚI — nên bộ nhớ đệm đó chỉ lộ
+    // ra khi HAI request nằm trong CÙNG MỘT bài test (cùng application instance), như ở đây.
+    // `actingAs($user->fresh(), 'client')` mô phỏng đúng cái mà một request thật sự thứ hai làm:
+    // đọc lại `ClientUser` mới toanh từ DB, không có quan hệ `client` nào bị đệm sẵn từ trước khi
+    // xoá — cùng thành ngữ `EnsurePortalAccountIsActive`'s test "ends the session of a client
+    // deactivated mid-visit" đã dùng cho đúng loại tình huống này.
+    $this->actingAs($user->fresh(), 'client');
+
+    $this->get('/portal')->assertNotFound();
+});
+
+/*
+|--------------------------------------------------------------------------
 | SPEC §8 — mọi chữ khách đọc đều là tiếng Việt, qua __()
 |--------------------------------------------------------------------------
 */

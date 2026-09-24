@@ -20,4 +20,5 @@ return [
         'matters_count' => 'Số vụ việc',
     ],
     'note_hint' => 'Chỉ nội bộ, không bao giờ hiện cho khách trên portal.',
+    'delete_blocked_open_matters' => 'Không thể xoá: khách hàng còn :count vụ việc đang mở.',
 ];

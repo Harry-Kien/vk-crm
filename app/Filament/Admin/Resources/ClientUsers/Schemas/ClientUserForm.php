@@ -20,11 +20,25 @@ class ClientUserForm
                 // khách hàng của những vụ việc họ liệt kê được, cùng ranh giới
                 // ClientPolicy::view (và PartiesRelationManager ở nơi khác dùng chung đúng một
                 // App\Filament\Admin\Support\VisibleClientOptions này, không tự lặp lại luật).
+                //
+                // Task 2 (`roles/roles-01`, critical): client_id không đổi được sau khi tạo, với
+                // BẤT KỲ ai — đổi khách nghĩa là tạo tài khoản mới. Ô này vì thế chỉ để ĐỌC trên
+                // trang sửa (`disabled()` khi $operation === 'edit'). `dehydrated()` ép giữ field
+                // này trong $data dù bị disabled — mặc định Filament NGỪNG dehydrate một field bị
+                // disabled (`HasState::isDehydrated()` rơi về `isSaved()`, và `disabled()` đặt
+                // `isSaved()` thành false) — để lớp phòng thủ THẬT nằm ở
+                // `EditClientUser::mutateFormDataBeforeSave()` (độc lập với UI, không tin
+                // `disabled()` — xem chú thích bảo mật ngay trong `CanBeDisabled::disabled()` của
+                // Filament: "skilled users can manipulate Livewire's JavaScript to bypass the
+                // disabled state") luôn nhận được client_id để ghi đè lại, thay vì im lặng không
+                // có gì để ghi đè.
                 Select::make('client_id')
                     ->label(__('client_users.fields.client'))
                     ->options(fn (): array => VisibleClientOptions::forCurrentUser())
                     ->searchable()
-                    ->required(),
+                    ->required()
+                    ->disabled(fn (string $operation): bool => $operation === 'edit')
+                    ->dehydrated(),
                 TextInput::make('name')
                     ->label(__('client_users.fields.name'))
                     ->required()
