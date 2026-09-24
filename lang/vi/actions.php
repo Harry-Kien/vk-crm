@@ -31,8 +31,14 @@ return [
         'role_not_eligible' => 'Người được chọn không giữ được vai này: trợ lý cho vai "Trợ lý"; luật sư hoặc trưởng phòng cho vai "Luật sư cộng sự"; mọi nhân sự nội bộ trừ kế toán cho vai "Theo dõi".',
         'member_inactive' => 'Người được chọn đã bị vô hiệu hoá hoặc đã nghỉ việc, không thể thêm vào đội ngũ.',
         'already_member' => 'Người này đã có trong đội ngũ của vụ việc.',
+        // Fix round 1, finding I1: vụ việc hạn chế (restricted) chỉ luật sư phụ trách và quản
+        // trị viên xem được (SPEC §4.6) — người vừa thêm không thuộc hai nhóm đó thì sẽ không
+        // bao giờ mở được vụ việc họ vừa được thêm vào, nên Action từ chối ngay tại đây.
+        'restricted_visibility_denied' => 'Không thể thêm người này: vụ việc đang ở chế độ hạn chế, chỉ luật sư phụ trách và quản trị viên xem được. Người được chọn sẽ không thấy được vụ việc này sau khi thêm.',
     ],
     'remove_team_member' => [
         'not_member' => 'Người này không có trong đội ngũ của vụ việc.',
+        // Fix round 1, finding S3: vai lead chỉ đổi qua bàn giao vụ việc (ReassignMatter, M7).
+        'lead_role_denied' => 'Không thể gỡ luật sư phụ trách khỏi đội ngũ qua đây — vai này chỉ đổi được qua bàn giao vụ việc (Task 4).',
     ],
 ];

@@ -9,6 +9,7 @@ use App\Filament\Admin\Resources\Matters\RelationManagers\TeamRelationManager;
 use App\Models\Matter;
 use App\Models\User;
 use App\Support\Audit;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
@@ -88,18 +89,62 @@ class AddTeamMember
             ]);
         }
 
-        if ($matter->team()->whereKey($member->getKey())->exists()) {
-            throw ValidationException::withMessages([
-                'user_id' => [__('actions.add_team_member.already_member')],
-            ]);
-        }
+        // Fix round 1, finding I3 — khoá dòng vụ việc TRƯỚC khi hỏi lại "đã trong đội ngũ chưa",
+        // và giữ nguyên khoá đó qua tới câu ghi lẫn dòng audit, trong CÙNG một transaction.
+        //
+        // **Vì sao bấm hai lần từng thành một trang 500.** Trước bản sửa này, `exists()` và
+        // `attach()` là hai câu lệnh RỜI, không khoá gì. Hai request bấm "Thêm" gần như đồng thời
+        // (bấm đúp, hai tab) đều đọc `exists() === false` TRƯỚC KHI request nào kịp `attach()`,
+        // nên cả hai đi tiếp — request thứ hai chạm ràng buộc UNIQUE của `matter_user` và ném
+        // `UniqueConstraintViolationException`, một lỗi hạ tầng tiếng Anh, không phải lời từ chối
+        // tiếng Việt của `ReportsActionFailures` (đo được ở mutation probe: xoá điều kiện
+        // `exists()` cũ cho đúng kết quả này). `lockForUpdate()` trên DÒNG VỤ VIỆC serialize hai
+        // request đó: request thứ hai phải ĐỢI request thứ nhất commit (giải phóng khoá) rồi mới
+        // được đọc `exists()`, và lúc đó `exists()` đã là `true` — ra đúng
+        // `ValidationException` tiếng Việt `already_member`, không phải lỗi DB thô.
+        DB::transaction(function () use ($matter, $actor, $member, $role): void {
+            $locked = Matter::query()->whereKey($matter->getKey())->lockForUpdate()->firstOrFail();
 
-        $matter->addTeamMember($member, $role);
+            if ($locked->team()->whereKey($member->getKey())->exists()) {
+                throw ValidationException::withMessages([
+                    'user_id' => [__('actions.add_team_member.already_member')],
+                ]);
+            }
 
-        Audit::record('team_member_added', $matter, [
-            'user_id' => $member->getKey(),
-            'role' => $role->value,
-        ], $actor);
+            $locked->addTeamMember($member, $role);
+
+            // Fix round 1, finding I1 — hỏi lại `matter.view` TRÊN CHÍNH NGƯỜI VỪA THÊM, SAU khi
+            // đã ghi dòng `matter_user`, không phải trước.
+            //
+            // **Vì sao SAU, không phải TRƯỚC.** `MatterPolicy::view()` cho một vụ việc THƯỜNG
+            // (không `restricted`) đọc TRỰC TIẾP việc có mặt trong `team()` khi người đó chỉ có
+            // `matter.view` (không có `matter.viewAny`, ví dụ Assistant/Lawyer) — hỏi TRƯỚC khi
+            // `attach()` sẽ luôn trả `false` cho MỌI ứng viên hợp lệ (họ chưa vào đội ngũ), tức
+            // chặn nhầm chính hành vi Action này tồn tại để làm. Hỏi SAU, trong CÙNG transaction
+            // với dòng vừa `attach()`, cho một câu trả lời đúng: với vụ THƯỜNG, dòng `team_user`
+            // vừa ghi khiến `view()` trả `true` ngay (nếu người đó có `matter.view`, luôn đúng
+            // với bốn vai `Role::permissions()` mà `eligibleForRole()` chấp nhận). Với vụ
+            // `restricted`, `view()` không đọc `team()` chút nào (`Matter::isListableBy()`, nhánh
+            // `restricted`: chỉ `hasRole(Admin)` hoặc chính `lead_lawyer_id`) — nên câu trả lời
+            // GIỐNG HỆT dù hỏi trước hay sau, và Action đúng đắn từ chối mọi người KHÔNG PHẢI
+            // admin (finding I1: trước bản sửa này, một trợ lý được thêm vào đội ngũ của một vụ
+            // `restricted` vẫn nhận 404 khi mở nó — một cái bẫy "đã vào đội ngũ mà không thấy
+            // được vụ").
+            //
+            // Ném NGAY TRONG closure của `DB::transaction`: Laravel tự rollback toàn bộ (dòng
+            // `matter_user` vừa `attach()` biến mất), đúng yêu cầu "rồi rollback" của phán quyết —
+            // không để lại một thành viên "ma" không thấy được vụ việc của chính mình.
+            if (! Gate::forUser($member)->allows('view', $locked)) {
+                throw ValidationException::withMessages([
+                    'user_id' => [__('actions.add_team_member.restricted_visibility_denied')],
+                ]);
+            }
+
+            Audit::record('team_member_added', $locked, [
+                'user_id' => $member->getKey(),
+                'role' => $role->value,
+            ], $actor);
+        });
     }
 
     /**

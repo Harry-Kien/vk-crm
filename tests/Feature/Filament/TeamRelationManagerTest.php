@@ -1,10 +1,11 @@
 <?php
 
-use App\Actions\OpenMatter;
 use App\Enums\MatterRole;
 use App\Enums\PartyRole;
 use App\Enums\Role;
+use App\Enums\UserPosition;
 use App\Filament\Admin\Resources\Matters\MatterResource;
+use App\Filament\Admin\Resources\Matters\Pages\CreateMatter;
 use App\Filament\Admin\Resources\Matters\Pages\ListMatters;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ClientRequestsRelationManager;
@@ -17,6 +18,9 @@ use App\Models\MatterType;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
+use Filament\Notifications\Livewire\Notifications;
+use Filament\Notifications\Notification;
+use Livewire\Exceptions\MethodNotFoundException;
 use PHPUnit\Framework\ExpectationFailedException;
 use Spatie\Activitylog\Models\Activity;
 
@@ -45,6 +49,44 @@ function teamTab(Matter $matter)
         'ownerRecord' => $matter,
         'pageClass' => ViewMatter::class,
     ]);
+}
+
+/**
+ * Fix round 1, "also fix": `memberOptions()` không còn `public` (một phương thức public trên một
+ * component Livewire là một điểm cuối GỌI ĐƯỢC TỪ XA — bất kỳ ai mở được tab này đều gọi thẳng nó
+ * qua giao thức Livewire, bỏ qua hẳn ô `Select`, và đọc được id lẫn tên của MỌI nhân sự đủ điều
+ * kiện). Test vẫn cần đo được danh sách thật (cùng lý lẽ ở docblock hàm) nên gọi qua
+ * `ReflectionMethod`, đúng tiền lệ `ClientUserResourceTest.php` ("the create-page mutate hook
+ * itself rejects...") đã dùng cho một hook `protected` khác.
+ *
+ * @return array<int, string>
+ */
+function memberOptionsFor($tab, ?string $role): array
+{
+    $method = new ReflectionMethod($tab->instance(), 'memberOptions');
+    $method->setAccessible(true);
+
+    return $method->invoke($tab->instance(), $role);
+}
+
+/**
+ * Tiêu đề VÀ THÂN của mọi thông báo đã gửi, đọc đúng MỘT lần — cùng thành ngữ
+ * `DocumentsRelationManagerTest::sentNotifications()` (tên hàm đổi để không trùng tên toàn cục
+ * giữa hai tệp test).
+ *
+ * @return array<int, array{title: string|null, body: string}>
+ */
+function teamNotifications(): array
+{
+    $component = new Notifications;
+    $component->mount();
+
+    return $component->notifications
+        ->map(fn (Notification $notification): array => [
+            'title' => $notification->getTitle(),
+            'body' => (string) $notification->getBody(),
+        ])
+        ->all();
 }
 
 /**
@@ -131,12 +173,30 @@ it('filters the member picker to active, eligible, not-yet-member staff for the 
 
     $this->actingAs($this->lead, 'web');
 
-    $options = teamTab($this->matter)->instance()->memberOptions(MatterRole::Assistant->value);
+    $options = memberOptionsFor(teamTab($this->matter), MatterRole::Assistant->value);
 
     expect($options)->toHaveKey($eligibleAssistant->id)
         ->and($options)->not->toHaveKey($wrongRoleLawyer->id)
         ->and($options)->not->toHaveKey($retiredAssistant->id)
         ->and($options)->not->toHaveKey($alreadyMember->id);
+});
+
+/**
+ * Fix round 1, "also fix" — `memberOptions()` không còn `public`. Một phương thức `public` trên
+ * một component Livewire là một điểm cuối GỌI ĐƯỢC TỪ XA (`Livewire\Mechanisms\HandleComponents\
+ * HandleComponents::callMethod()` chỉ nhận các tên nằm trong
+ * `Utils::getPublicMethodsDefinedBySubClass()`), độc lập HOÀN TOÀN với việc ô `Select` có hiện
+ * nó ra hay không — bất kỳ ai mở được tab này đều gửi thẳng một request Livewire gọi
+ * `memberOptions('assistant')` và đọc về id lẫn tên của MỌI nhân sự đủ điều kiện, bỏ qua hẳn
+ * giao diện. `->call()` của Livewire test helper đi qua ĐÚNG cơ chế đó (khác `->instance()->
+ * memberOptions()` gọi thẳng PHP, bỏ qua toàn bộ tầng Livewire) — test này mô phỏng ĐÚNG cuộc
+ * tấn công finding mô tả, không phải suy luận từ visibility của mã nguồn.
+ */
+it('cannot be called remotely as a public Livewire method', function () {
+    $this->actingAs($this->lead, 'web');
+
+    expect(fn () => teamTab($this->matter)->call('memberOptions', MatterRole::Assistant->value))
+        ->toThrow(MethodNotFoundException::class);
 });
 
 /**
@@ -159,12 +219,19 @@ it('returns no member options for an unchosen or a lead role', function () {
 
     $tab = teamTab($this->matter);
 
-    expect($tab->instance()->memberOptions(null))->toBe([])
-        ->and($tab->instance()->memberOptions(''))->toBe([])
-        ->and($tab->instance()->memberOptions(MatterRole::Lead->value))->toBe([]);
+    expect(memberOptionsFor($tab, null))->toBe([])
+        ->and(memberOptionsFor($tab, ''))->toBe([])
+        ->and(memberOptionsFor($tab, MatterRole::Lead->value))->toBe([]);
 });
 
-/** R6: gỡ một thành viên còn đứng tên mốc hạn chưa xong bị từ chối, và họ vẫn còn trong đội. */
+/**
+ * R6: gỡ một thành viên còn đứng tên mốc hạn chưa xong bị từ chối, và họ vẫn còn trong đội.
+ *
+ * Fix round 1, "also fix": lời từ chối phải LIỆT KÊ việc còn dở dang ("kèm danh sách") — không
+ * chỉ dừng lại ở "không cho gỡ". `TeamMemberHasOpenWork::make()` đã ghép sẵn danh sách vào thân
+ * thông báo (`OpenWorkResult::describe()`); test này đọc thân thông báo THẬT đã gửi, không chỉ
+ * suy luận từ việc dữ liệu không đổi.
+ */
 it('refuses to remove an assistant still holding an unfinished deadline, and keeps them on the team', function () {
     $assistant = User::factory()->withRole(Role::Assistant)->create(['name' => 'Trợ lý Mai']);
     $this->matter->addTeamMember($assistant, MatterRole::Assistant);
@@ -180,6 +247,11 @@ it('refuses to remove an assistant still holding an unfinished deadline, and kee
 
     expect($this->matter->team()->whereKey($assistant->id)->exists())->toBeTrue()
         ->and($deadline->fresh()->responsible_user_id)->toBe($assistant->id);
+
+    $notifications = teamNotifications();
+
+    expect(array_column($notifications, 'title'))->toContain(__('actions.failed_title'))
+        ->and(implode("\n", array_column($notifications, 'body')))->toContain('Nộp đơn kháng cáo');
 });
 
 it('removes an assistant with no open work and records it on the audit trail', function () {
@@ -201,6 +273,54 @@ it('never shows the remove button on the lead row', function () {
     $this->actingAs($this->lead, 'web');
 
     teamTab($this->matter)->assertTableActionHidden('removeMember', $this->lead);
+});
+
+/**
+ * Fix round 1, finding S3: dòng lead bị ẩn cho MỌI actor có `manageTeam` — không chỉ với chính
+ * lead. Dùng admin (chắc chắn qua được `manageTeam`) để tách RIÊNG điều kiện `->visible()` (ẩn
+ * theo VAI của dòng) khỏi điều kiện `->authorize()` (đã có test riêng ở trên cho actor không đủ
+ * quyền).
+ */
+it('blocks a forced removeMember call on the lead row even for an actor who can manage the team', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+
+    $this->actingAs($admin, 'web');
+
+    $tab = teamTab($this->matter);
+    $tab->assertTableActionHidden('removeMember', $this->lead);
+
+    expect(fn () => $tab->callTableAction('removeMember', $this->lead))
+        ->toThrow(ExpectationFailedException::class);
+
+    expect($this->matter->team()->whereKey($this->lead->id)->exists())->toBeTrue();
+});
+
+/**
+ * Fix round 1, finding S2 (R5): "quản lý đội ngũ đòi `matter.update` VÀ không phải trợ lý."
+ * `EditUser` → `assignRoleFromPosition()` là đường THẬT đổi vai — `matters.lead_lawyer_id`
+ * không tự đổi theo, nên người này vẫn "là lead" trên hồ sơ cũ nhưng không còn được quản lý đội
+ * ngũ của nó nữa.
+ */
+it('hides the add-member button and blocks the call once the lead has been demoted to assistant', function () {
+    $this->actingAs($this->lead, 'web');
+    teamTab($this->matter)->assertTableActionVisible('addMember');
+
+    $this->lead->update(['position' => UserPosition::Assistant]);
+    $this->lead->assignRoleFromPosition();
+
+    $this->actingAs($this->lead->fresh(), 'web');
+
+    $tab = teamTab($this->matter);
+    $tab->assertTableActionHidden('addMember');
+
+    $newHire = User::factory()->withRole(Role::Assistant)->create();
+
+    expect(fn () => $tab->callTableAction('addMember', data: [
+        'role_in_matter' => MatterRole::Assistant->value,
+        'user_id' => $newHire->id,
+    ]))->toThrow(ExpectationFailedException::class);
+
+    expect($this->matter->team()->whereKey($newHire->id)->exists())->toBeFalse();
 });
 
 /** Cùng gotcha của nút "Thêm thành viên" (xem test kế), áp cho nút "Gỡ" trên một dòng không phải lead. */
@@ -247,48 +367,65 @@ it('hides the add-member button from an assistant and blocks a forced call', fun
 });
 
 /**
- * R6: luật sư mở vụ việc rồi giao cho một đồng nghiệp phụ trách vẫn phải mở được vụ SAU KHI LƯU —
- * đi qua đúng màn hình `CreateMatter` thật (không gọi `OpenMatter`/`addTeamMember` trực tiếp),
- * đúng như brief Task 3 đòi.
+ * Fix round 1, finding S1 — bản trước gọi thẳng `app(OpenMatter::class)->handle(...)`, dù tên và
+ * docblock nói "qua màn hình `CreateMatter` thật". Giờ đi ĐÚNG con đường một luật sư thật đi:
+ * `Livewire::test(CreateMatter::class)->fillForm(...)->call('create')`.
+ *
+ * R6: luật sư A mở vụ việc rồi giao cho luật sư B phụ trách vẫn phải mở được vụ SAU KHI LƯU.
  */
 it('lets the opener still open the matter after handing it to another lead through the real create screen', function () {
     $opener = User::factory()->withRole(Role::Lawyer)->create();
     $newLead = User::factory()->withRole(Role::Lawyer)->create();
+
+    // Khách hàng phải NẰM TRONG tầm nhìn của $opener trước — `VisibleClientOptions` chỉ liệt kê
+    // khách của những vụ luật sư đã liệt kê được (cùng lý lẽ `clientVisibleTo()` của
+    // `CreateMatterTest.php`, viết lại tại chỗ vì tên hàm toàn cục không dùng lại được giữa hai
+    // tệp Pest — hai tệp khai báo cùng tên hàm sẽ lỗi nạp tệp).
     $client = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $client->id, 'lead_lawyer_id' => $opener->id]);
+
     $matterType = MatterType::factory()->withStages()->create();
 
     $this->actingAs($opener, 'web');
 
-    $matter = app(OpenMatter::class)->handle(
-        actor: $opener,
-        attributes: [
+    $this->livewire(CreateMatter::class)
+        ->fillForm([
             'client_id' => $client->id,
-            'client_role' => PartyRole::Plaintiff,
+            'client_role' => PartyRole::Plaintiff->value,
             'matter_type_id' => $matterType->id,
-            'title' => 'Tranh chấp hợp đồng thuê nhà',
-            'summary_for_client' => 'Tóm tắt gửi khách hàng',
+            'title' => 'Tranh chấp hợp đồng thuê nhà — bàn giao ngay khi mở',
             'lead_lawyer_id' => $newLead->id,
-            'is_published_to_portal' => false,
-        ],
-        parties: [],
-    )->matter;
+            'summary_for_client' => 'Tóm tắt gửi khách hàng.',
+            'other_parties' => [],
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
 
-    // `OpenMatter` gọi trực tiếp (không qua form `CreateMatter`) vì đo ĐÚNG hệ quả của điều kiện
-    // mới trong Action (đã có test riêng cho luồng form đầy đủ ở `CreateMatterTest.php`); phần
-    // brief Task 3 thật sự đòi đo là "A vẫn mở được vụ SAU KHI LƯU" — khẳng định dưới đây.
+    $matter = Matter::query()->where('title', 'Tranh chấp hợp đồng thuê nhà — bàn giao ngay khi mở')->first();
+
+    expect($matter)->not->toBeNull()
+        ->and($matter->lead_lawyer_id)->toBe($newLead->id);
+
     $this->livewire(ListMatters::class)->assertCanSeeTableRecords([$matter]);
 
     $this->get(MatterResource::getUrl('view', ['record' => $matter], panel: 'admin'))->assertOk();
 });
 
 // =========================================================================================
-// VỤ RESTRICTED — Review Focus 1
+// VỤ RESTRICTED — Review Focus 1, và fix round 1 finding I1
 // =========================================================================================
 
-/** Review Focus 1 (Task 3 brief): vụ `restricted` chỉ lead hoặc admin thêm được thành viên. */
-it('lets only the lead or an admin add a team member on a restricted matter', function () {
+/**
+ * Fix round 1, finding I1 — vụ `restricted` chỉ lead và admin XEM được (`Matter::isListableBy()`,
+ * không đọc `team()` chút nào cho nhánh này). Một trợ lý ĐỦ ĐIỀU KIỆN theo vai (assistant→
+ * `assistant`) vẫn bị `AddTeamMember` từ chối vì họ sẽ KHÔNG BAO GIỜ thấy được vụ việc sau khi
+ * thêm — trước bản sửa này, họ được thêm thành công rồi ăn 404 ngay lần mở tiếp theo. Chỉ một
+ * ADMIN KHÁC (vai `observer`, vai duy nhất `eligibleForRole()` cho phép admin giữ) mới thêm được.
+ */
+it('lets the lead add another admin to a restricted matter, but refuses an assistant who would not see it', function () {
     $restricted = Matter::factory()->restricted()->create(['lead_lawyer_id' => $this->lead->id]);
     $manager = User::factory()->withRole(Role::Manager)->create();
+    $anotherAdmin = User::factory()->withRole(Role::Admin)->create();
     $newHire = User::factory()->withRole(Role::Assistant)->create();
 
     $this->actingAs($manager, 'web');
@@ -298,11 +435,40 @@ it('lets only the lead or an admin add a team member on a restricted matter', fu
     $this->actingAs($this->lead, 'web');
 
     teamTab($restricted)->callTableAction('addMember', data: [
-        'role_in_matter' => MatterRole::Assistant->value,
-        'user_id' => $newHire->id,
+        'role_in_matter' => MatterRole::Observer->value,
+        'user_id' => $anotherAdmin->id,
     ])->assertHasNoTableActionErrors();
 
-    expect($restricted->team()->whereKey($newHire->id)->exists())->toBeTrue();
+    expect($restricted->team()->whereKey($anotherAdmin->id)->exists())->toBeTrue();
+
+    teamTab($restricted)->callTableAction('addMember', data: [
+        'role_in_matter' => MatterRole::Assistant->value,
+        'user_id' => $newHire->id,
+    ])->assertHasTableActionErrors(['user_id']);
+
+    expect($restricted->team()->whereKey($newHire->id)->exists())->toBeFalse();
+});
+
+/**
+ * Fix round 1, finding I1 — "The member picker must leave such people out." Vai `assistant` trên
+ * một vụ `restricted` không có AI đủ điều kiện (một `Assistant` không phải admin, nên không bao
+ * giờ qua được `Gate::allows('view', $matter)` của vụ hạn chế) — ô chọn phải trống, không mời một
+ * lựa chọn `AddTeamMember` sẽ luôn từ chối.
+ */
+it('offers only staff who would see a restricted matter, for that matter', function () {
+    $restricted = Matter::factory()->restricted()->create(['lead_lawyer_id' => $this->lead->id]);
+    $anotherAdmin = User::factory()->withRole(Role::Admin)->create(['name' => 'Quản trị viên khác']);
+    $ineligibleAssistant = User::factory()->withRole(Role::Assistant)->create(['name' => 'Trợ lý không thấy được vụ']);
+
+    $this->actingAs($this->lead, 'web');
+
+    $tab = teamTab($restricted);
+
+    $observerOptions = memberOptionsFor($tab, MatterRole::Observer->value);
+
+    expect($observerOptions)->toHaveKey($anotherAdmin->id)
+        ->and($observerOptions)->not->toHaveKey($ineligibleAssistant->id)
+        ->and(memberOptionsFor($tab, MatterRole::Assistant->value))->toBe([]);
 });
 
 /**

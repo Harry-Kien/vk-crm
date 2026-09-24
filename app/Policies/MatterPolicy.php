@@ -163,12 +163,26 @@ class MatterPolicy
      * `||` bên dưới — kết quả là "chỉ lead hoặc admin quản lý được đội ngũ của vụ `restricted`"
      * (Review Focus 1, Task 3 brief) mà không cần một nhánh `restricted` riêng ở đây. Viết lại
      * luật đó thành một `if` thứ hai sẽ là đúng hai nơi phải lệch nhau nếu SPEC §4.6 đổi.
+     *
+     * **Fix round 1, finding S2 — `matter.update` VÀ không phải trợ lý (R5).** R5 nói thẳng:
+     * "Đổi confidentiality, quản lý đội ngũ và bàn giao đòi `matter.update` VÀ không phải trợ
+     * lý." Bản gốc chỉ hỏi `lead_lawyer_id === $user->getKey()` cho nhánh lead — một luật sư
+     * phụ trách bị ĐỔI CHỨC DANH sang trợ lý (`EditUser` → `assignRoleFromPosition()`, hồ sơ
+     * `matters.lead_lawyer_id` không tự đổi theo) vẫn còn là "lead" trên vụ việc CŨ và vẫn qua
+     * được nhánh đó — trong khi vai `Assistant` CÓ `matter.update` (`Role::Assistant->
+     * permissions()`), nên thiếu điều kiện này để lọt qua được cả `$this->view()`. Đặt hai điều
+     * kiện này ở TRÊN CÙNG (áp cho cả ba nhánh `||`), không chỉ nhánh lead: `Manager`/`Admin`
+     * luôn có `matter.update` và không bao giờ đồng thời là `Assistant` (một người chỉ giữ đúng
+     * một vai qua `assignRoleFromPosition()`), nên hai điều kiện mới không đổi gì cho hai nhánh
+     * đó — chỉ đóng đúng lỗ hổng của nhánh lead.
      */
     public function manageTeam(User|ClientUser $user, Matter $matter): bool
     {
         return $user instanceof User
             && ! $matter->trashed()
             && $this->view($user, $matter)
+            && $user->can(Permission::MatterUpdate->value)
+            && ! $user->hasRole(Role::Assistant->value)
             && (
                 $matter->lead_lawyer_id === $user->getKey()
                 || $user->hasRole(Role::Admin->value)

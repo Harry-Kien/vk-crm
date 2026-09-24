@@ -4,6 +4,7 @@ namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 
 use App\Actions\Matter\AddTeamMember;
 use App\Actions\Matter\RemoveTeamMember;
+use App\Enums\Confidentiality;
 use App\Enums\MatterRole;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Models\Matter;
@@ -92,19 +93,32 @@ class TeamRelationManager extends RelationManager
 
     /**
      * Ô chọn NGƯỜI chỉ gồm nhân sự `is_active`, chưa có trong đội ngũ, có thể giữ ĐÚNG vai đã
-     * chọn ở ô kia (Task 3 brief) — công khai vì cùng lý do
-     * `DeadlinesRelationManager::responsibleOptions()`: options của một `Select` `native(false)`
-     * không đi vào HTML ban đầu, Filament dựng chúng phía trình duyệt, nên đây là chỗ DUY NHẤT
-     * đo được danh sách thật.
+     * chọn ở ô kia (Task 3 brief) — cùng lý do `DeadlinesRelationManager::responsibleOptions()`:
+     * options của một `Select` `native(false)` không đi vào HTML ban đầu, Filament dựng chúng
+     * phía trình duyệt, nên đây là chỗ DUY NHẤT đo được danh sách thật (test gọi qua
+     * `ReflectionMethod` — xem ghi chú `private` dưới đây).
      *
      * Chỉ là một TIỆN ÍCH, không phải cổng: {@see AddTeamMember::eligibleForRole()} hỏi lại TRÊN
      * NGƯỜI ĐƯỢC CHỌN. Loại người ĐÃ trong đội ngũ khỏi danh sách vì lý do tương tự — mời một lựa
      * chọn mà Action luôn từ chối (`already_member`) là một cái bẫy có thể tránh, không phải một
      * lớp bảo vệ (Action vẫn tự hỏi lại `team()->whereKey()->exists()`).
      *
+     * **Fix round 1, finding I1 — vụ `restricted` không mời một người sẽ không bao giờ thấy được
+     * vụ việc đó.** `Matter::isListableBy()` nhánh `restricted` không đọc `team()` chút nào (chỉ
+     * `hasRole(Admin)` hoặc chính `lead_lawyer_id`), nên "có trong đội ngũ hay không" KHÔNG đổi
+     * câu trả lời của `view()` cho một vụ `restricted` — gọi thẳng
+     * `Gate::forUser($user)->allows('view', $matter)` ở đây cho kết quả ĐÚNG dù người đó chưa
+     * được thêm (khác hẳn vụ THƯỜNG, nơi việc này sẽ SAI — xem lý lẽ đầy đủ ở docblock
+     * `AddTeamMember::handle()`, đoạn "Vì sao SAU, không phải TRƯỚC"). Chỉ hỏi Gate khi vụ việc
+     * `restricted`: với vụ thường, `eligibleForRole()` đã đảm bảo `matter.view` (bốn vai đều có),
+     * nên không cần trả giá một truy vấn Gate cho MỖI ứng viên ở đường phổ biến nhất.
+     *
+     * **Fix round 1, "also fix" — `->with('roles')` tránh N+1 khi `eligibleForRole()` gọi
+     * `hasRole()` cho từng người trong `->filter()`.**
+     *
      * @return array<int, string>
      */
-    public function memberOptions(?string $role): array
+    private function memberOptions(?string $role): array
     {
         $matterRole = MatterRole::tryFrom($role ?? '');
 
@@ -114,12 +128,15 @@ class TeamRelationManager extends RelationManager
 
         $matter = $this->getOwnerRecord();
         $existingIds = $matter->team()->pluck('users.id');
+        $isRestricted = $matter->confidentiality === Confidentiality::Restricted;
 
         return User::query()
             ->where('is_active', true)
             ->whereNotIn('id', $existingIds)
+            ->with('roles')
             ->get(['id', 'name'])
             ->filter(fn (User $user): bool => AddTeamMember::eligibleForRole($user, $matterRole))
+            ->filter(fn (User $user): bool => ! $isRestricted || Gate::forUser($user)->allows('view', $matter))
             ->pluck('name', 'id')
             ->all();
     }
@@ -177,9 +194,10 @@ class TeamRelationManager extends RelationManager
             ->modalDescription(__('team.tab.actions.remove_description'))
             ->authorize(fn (): bool => Gate::allows('manageTeam', $matter))
             // Vai `lead` chỉ đổi qua bàn giao vụ việc (M7, R6) — nút "Gỡ" không có việc gì trên
-            // chính dòng đó. `RemoveTeamMember` (qua `OpenWork`) CŨNG chặn gỡ một lead của một vụ
-            // ĐANG MỞ (đọc docblock của nó), nhưng ẩn nút ở đây trước để người dùng không bấm vào
-            // một lời từ chối có thể đoán trước — hai lớp, không phải một lớp thừa.
+            // chính dòng đó. `RemoveTeamMember` CŨNG từ chối gỡ một lead — LUÔN LUÔN, không chỉ
+            // khi vụ việc đang mở (fix round 1, finding S3) — nhưng ẩn nút ở đây trước để người
+            // dùng không bấm vào một lời từ chối có thể đoán trước — hai lớp, không phải một lớp
+            // thừa.
             ->visible(fn (User $record): bool => $record->pivot->role_in_matter !== MatterRole::Lead)
             ->successNotificationTitle(__('team.tab.actions.remove_success'))
             ->action(fn (Action $action, User $record) => $this->runAction(

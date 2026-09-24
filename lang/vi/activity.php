@@ -32,6 +32,10 @@ return [
         'client_identity_resynced' => 'Đồng bộ lại định danh các bên',
         // App\Actions\SetMatterPortalPublication (fix round 2 review, task 2).
         'matter_portal_publication_set' => 'Đổi trạng thái công bố portal',
+        // App\Actions\Matter\{AddTeamMember,RemoveTeamMember} (M6.5 Task 3, fix round 1, "also
+        // fix": thiếu hai khoá này khiến ActivityLogPage hiện nguyên văn khoá sự kiện tiếng Anh).
+        'team_member_added' => 'Thêm thành viên đội ngũ',
+        'team_member_removed' => 'Gỡ thành viên đội ngũ',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

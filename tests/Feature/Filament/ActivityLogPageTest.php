@@ -61,3 +61,24 @@ it('renders a translated label for the M3 audit events, not the raw translation 
     $response->assertSee(__('activity.events.matter_opened'));
     $response->assertDontSee('activity.events.matter_opened');
 });
+
+/**
+ * M6.5 Task 3, fix round 1 ("also fix"): `team_member_added`/`team_member_removed`
+ * (`App\Actions\Matter\{AddTeamMember,RemoveTeamMember}`) thiếu trong `lang/vi/activity.php` —
+ * cùng lỗ hổng đã sửa cho bốn sự kiện M3 ở test trên, cùng cách đo.
+ */
+it('renders a translated label for the team member events, not the raw translation key', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = Matter::factory()->create();
+
+    Audit::record('team_member_added', $matter, [], $admin);
+    Audit::record('team_member_removed', $matter, [], $admin);
+
+    $response = $this->actingAs($admin, 'web')->get(ActivityLogPage::getUrl(panel: 'admin'));
+
+    $response->assertOk();
+    $response->assertSee(__('activity.events.team_member_added'));
+    $response->assertSee(__('activity.events.team_member_removed'));
+    $response->assertDontSee('activity.events.team_member_added');
+    $response->assertDontSee('activity.events.team_member_removed');
+});
