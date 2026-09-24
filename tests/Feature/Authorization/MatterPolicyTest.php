@@ -119,8 +119,14 @@ it('refuses view for a portal user once the client itself is soft deleted, even 
  * cho điều kiện mới này: tầng truy vấn thủng thì tầng policy vẫn phải từ chối, một mình nó,
  * không dựa vào `ClientPortalScope`.
  *
- * Mutation probe (Task 2, vòng sửa 1): bỏ `&& $matter->client()->exists()` khỏi
- * `releasedToPortal()` thì test này đỏ.
+ * Test này CỐ Ý KHÔNG nạp sẵn `client` (không `Matter::with('client')`), nên `releasedToPortal()`
+ * đi qua nhánh DỰ PHÒNG bằng truy vấn (`$matter->client()->withoutGlobalScope(...)->exists()`),
+ * không qua nhánh `relationLoaded('client')` — đường đó có test riêng ngay dưới.
+ *
+ * Mutation probe (Task 2, vòng sửa 2, khớp code hiện tại — bản trước docblock này ghi nhầm dòng
+ * đã đổi hình dạng từ `&& $matter->client()->exists()` thành cụm điều kiện có ternary):
+ * bỏ cả cụm `&& ($matter->relationLoaded('client') ? ... : ...)` khỏi `releasedToPortal()` thì
+ * test này đỏ.
  */
 it('still refuses on the policy layer for a soft deleted client when the portal scope forgets its rule', function () {
     $client = Client::factory()->create();
@@ -146,14 +152,31 @@ it('still refuses on the policy layer for a soft deleted client when the portal 
  * (test ngay trên) và đường trong bộ nhớ khi `client` đã được nạp sẵn (`relationLoaded('client')`
  * — thêm để giữ ngân sách truy vấn của `MyMattersTest`/`SubmitDocumentTest`, xem docblock của
  * `releasedToPortal()`). Test trên KHÔNG đo được đường thứ hai: nó cố tình không nạp `client`.
- * Test này đo THẲNG đường đó, độc lập với cả tầng truy vấn (`Matter::with('client')` không đụng
- * gì tới `ClientPortalScope` của `Matter`) lẫn cách `Client` tự lọc xoá mềm (`SoftDeletes` của
- * `Client` đã khiến `client` eager-load về `null` cho một khách đã xoá — không cần rút
- * `ClientPortalScope` nào của `Client` để đo đúng điều này).
+ * Test này đo THẲNG đường đó.
  *
- * Mutation probe (Task 2, vòng sửa 1): đổi `$matter->client !== null` thành
- * `$matter->client === null` trong nhánh `relationLoaded('client')` của `releasedToPortal()` thì
- * cả test này VÀ vế dương ngay dưới đều đỏ (một cái lật đúng, một cái lật sai).
+ * **Không độc lập với tầng truy vấn nếu thiếu nghi thức ba tầng dưới đây — sửa ở Task 2, vòng sửa
+ * 2 (N1).** Bản trước của test này KHÔNG hoán `ClientPortalScope`, và docblock cũ tuyên bố sai
+ * rằng phép đo "độc lập với cả tầng truy vấn". Sai vì `view()` cho khách là
+ * `releasedToPortal() && visibleToPortal()`, và `visibleToPortal()`
+ * (`ChecksPortalVisibility.php:19-24`) LUÔN gọi lại `ClientPortalScope::actingAs($clientUser,
+ * ...)` — hàm này đặt `self::$actingAs` thẳng, không đọc guard ambient, nên nó chạy VÔ ĐIỀU KIỆN
+ * bất kể ambient auth — rồi chạy lại đúng `Matter::applyClientPortalConstraints()` (kèm
+ * `whereHas('client')`, `Matter.php:215`) qua `ClientPortalScope` THẬT đang đăng ký. Không hoán
+ * scope đó ra, `visibleToPortal()` một mình đã đủ từ chối một khách hàng đã xoá mềm — nhánh
+ * `releasedToPortal()` có đúng hay sai không còn quan trọng, và test xanh dù nhánh
+ * `relationLoaded('client')` bị lật sai (đúng thứ mutation probe 3 của báo cáo vòng sửa 1 đã lộ
+ * ra: "vẫn xanh" — nhưng lúc đó bị hiểu nhầm là "đúng dự đoán" thay vì "phép đo có lỗ hổng").
+ *
+ * Giờ hoán `ClientPortalScope` ra một scope rỗng — CÙNG nghi thức ba tầng của test ngay trên —
+ * nên tầng truy vấn của CẢ `releasedToPortal()` (không quan trọng, test này không đi qua nhánh
+ * đó) LẪN `visibleToPortal()` đều thủng, và câu trả lời `false` chỉ có thể đến từ nhánh
+ * `relationLoaded('client')` đang được đo.
+ *
+ * Mutation probe (Task 2, vòng sửa 2): đổi `$matter->client !== null` thành `true` trong nhánh
+ * `relationLoaded('client')` của `releasedToPortal()` (cho qua vô điều kiện) thì test này đỏ. Vế
+ * dương ngay dưới vẫn xanh với đúng đột biến này (nó đòi `true`, và mutation trả về đúng `true`)
+ * — đó là lý do mutation trước (`=== null`, lật cả hai chiều) không tách được lỗi thật khỏi việc
+ * chỉ đơn giản đã hoán sai chỗ.
  */
 it('refuses via the relation-loaded fast path too, when client is eager loaded and turns out to be null', function () {
     $client = Client::factory()->create();
@@ -165,8 +188,17 @@ it('refuses via the relation-loaded fast path too, when client is eager loaded a
     $matterWithClientLoaded = Matter::query()->with('client')->findOrFail($own->id);
 
     expect($matterWithClientLoaded->relationLoaded('client'))->toBeTrue()
-        ->and($matterWithClientLoaded->client)->toBeNull()
-        ->and($clientUser->fresh()->can('view', $matterWithClientLoaded))->toBeFalse();
+        ->and($matterWithClientLoaded->client)->toBeNull();
+
+    Matter::addGlobalScope(ClientPortalScope::class, function (): void {});
+
+    try {
+        // Tầng truy vấn của visibleToPortal() đã thủng — nếu không thì khẳng định bên dưới
+        // không đo tầng policy, đúng lỗ hổng mà N1 (vòng sửa 2) chỉ ra.
+        expect($clientUser->fresh()->can('view', $matterWithClientLoaded))->toBeFalse();
+    } finally {
+        Matter::addGlobalScope(new ClientPortalScope);
+    }
 });
 
 /** Vế dương của test trên: `client` đã nạp sẵn và KHÔNG bị xoá thì đường trong bộ nhớ vẫn cho qua. */
