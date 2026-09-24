@@ -2,47 +2,87 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Sửa ngày 2026-09-24**, sau khi đối chiếu kế hoạch với SPEC, mã thật, các kế hoạch M6.5/M7/M8 và sổ controller `.superpowers/sdd/2026-09-19-m9-contracts-and-payments/progress.md`. Những thay đổi chính:
+> - Thứ tự dựng mới: M9 chạy **sau M11**, trên CSDL production đã có dữ liệu thật. Bỏ mục "M9 chạy trước M6–M8" và ba "cái giá" của nó.
+> - Hấp thụ phán quyết của sổ controller mà bản cũ chưa theo: **khách xem hợp đồng và lịch thu trên cổng** (P1), **doanh thu ghi cho luật sư phụ trách lúc tiền về**, lưu trên dòng khoản thu (P2).
+> - **Vụ `restricted`:** SPEC thắng kế hoạch. Tiền của vụ hạn chế chỉ luật sư phụ trách và admin thấy và ghi, kế toán không (P3). Một định nghĩa duy nhất: `billing.view` + `Matter::listableBy()`.
+> - Thêm **màn hình "Công nợ"** cho kế toán (Task 8 mới), vì kế toán không mở được trang vụ việc. Quản lý chỉ xem.
+> - **Nhắc đợt quá hạn do M9 cài** (Task 11 mới), không còn đẩy sang M6. Bỏ cột `instalments.reminders_sent`: chống trùng qua `outbound_messages` (M6 R3).
+> - Thêm **cổng khách: hợp đồng và lịch thu** (Task 10 mới), kèm bảng kê thanh toán trong gói bàn giao M7.
+> - Sửa theo mã thật: "đã kết thúc" là `closed_at` / `Matter::scopeOpen()` (M6.5 R8), không phải `is_terminal`; dùng lại sự kiện đổi giai đoạn của M7 Task 3 nếu có; tác vụ định kỳ là Action trong `app/Actions/Schedule/`; alias morph cho mọi model mới; widget doanh thu `$isDiscovered = false`; `StagePresets` phải có nhánh tường minh cho sáu loại mới; guard khoá giai đoạn của M6.5 Task 19 phủ cả đợt thanh toán; tooltip biểu đồ phụ thuộc phán quyết CSP của M8 R4.
+> - Đánh số lại task: 13 task (thêm 3, viết lại thân 10). Trailer `Claude Opus 5.5`. Thêm luật toàn cục của M6.5.
+
 ## Vị trí trong thứ tự dựng — đọc trước mọi thứ khác
 
-**Milestone này làm SAU M5 (cổng khách hàng).** Không phải vì phụ thuộc kỹ thuật — phụ thuộc thật của nó chỉ tới M4 — mà vì **M5 là lý do cả hệ thống tồn tại và M5 vẫn chưa được dựng**. SPEC §1 đặt ra đúng ba việc, việc thứ hai là "khách hàng tự đăng nhập tra cứu tiến độ 24/7"; hôm nay `/portal` chỉ có một màn hình đăng nhập. Một dashboard doanh thu đẹp trên một hệ thống mà khách hàng vẫn phải gọi điện hỏi tiến độ là một hệ thống đã đi chệch khỏi chính lý do nó được đặt hàng.
+**Thứ tự hiện hành** (PROGRESS, chủ văn phòng chốt 2026-09-24): M6.5 → phần còn lại của M6 → M7 → M8 → **M11 (máy chủ MCP)** → **M9** → M10 → M12 (PWA + push).
 
-Nếu chủ văn phòng đảo lại thứ tự đó, đó là quyền của chủ văn phòng — nhưng phải là một lần đảo có ý thức, và cái giá phải được nói ra trước, không phải phát hiện sau.
+Hệ quả cho M9:
 
-**Số hiệu M9** vì nó đứng sau M8 trong bảng SPEC §13. Thứ tự thật mềm hơn số hiệu: M9 chạy được ngay sau M5, trước M6–M8, với ba cái giá cụ thể và đã lường trước:
+- **M9 chạy trên CSDL production có dữ liệu thật.** Migration chỉ **thêm** bảng. Seed phải an toàn khi chạy lại và không ghi đè thứ admin đã sửa trong app (Task 1). Mục "nâng cấp" của `README.md` (M8 R6) phải liệt kê lệnh seed quyền mới và lệnh `billing:check-invariants` (Task 13).
+- **Những thứ M9 dùng lại, không dựng lại:** hạ tầng thư xếp hàng sau commit (M6.5 R2); `ResolveStaffRecipients` (M6.5 R3); `closed_at` + `Matter::scopeOpen()` và `CancelMatter` (M6.5 R8, Task 5); `CreateClient` (M6.5 Task 6); tách `ReferenceDataSeeder` / `DemoDataSeeder` và guard khoá giai đoạn (M6.5 Task 19); sự kiện vào giai đoạn kết thúc và `GenerateHandoverPackage`, `RetractDocument`, `OfficeProfile` (M7 Task 3, 4, 7, 10); phán quyết CSP và `vkcrm:preflight` (M8 R1, R4); presenter theo danh sách cho phép và cờ `matters.ai_access` (M11 R4, R9).
+- **Việc phải dò trước khi viết dòng đầu tiên:** grep những tên trên trong `app/` ở `main` lúc cắt nhánh, và dán kết quả vào báo cáo Task 1. Tên thật thắng tên trong kế hoạch này.
 
-- **Không có email nhắc công nợ** (tầng email là M6). M9 dựng *truy vấn* quá hạn, widget và trang doanh thu; lời nhắc gửi đi là một dòng thêm vào bộ job của M6, **đã đặc tả ở đây, không cài ở đây** — đúng cách M4 đã xử `RetractDocument`.
-- **Gói bàn giao (M7) chưa có bảng kê thanh toán.** Khi M7 dựng `GenerateHandoverPackage`, nó phải nhớ rằng bảng kê đợt thu là thứ khách hàng sẽ hỏi. Ghi ở PROGRESS.
-- **Không có CSP, HSTS, rate limit riêng cho trang tiền** (M8). Trang doanh thu là màn hình nhạy cảm nhất trong cả hệ thống nội bộ; chạy nó trước M8 là một rủi ro vận hành phải ghi vào README, không phải bỏ qua.
+**Goal:** Văn phòng ghi được một hợp đồng dịch vụ pháp lý cho mỗi vụ việc với **một giá trị thoả thuận duy nhất**, chia thành các **đợt thanh toán** gắn vào tiến độ vụ việc ("thanh toán đợt 2 khi nộp đơn khởi kiện"), ghi nhận từng khoản tiền thật sự nhận được kèm người ghi và cách nhận, nhắc công nợ quá hạn, cho khách xem hợp đồng và lịch thu của chính họ, và nhìn thấy toàn bộ bức tranh tiền trên một trang có biểu đồ lọc được theo thời gian, luật sư và lĩnh vực. Đúng mô hình chủ văn phòng mô tả: *"văn phòng ký hồ sơ là giá trị 1 lần nhưng mà thanh toán theo giai đoạn."*
 
-**Goal:** Văn phòng ghi được một hợp đồng dịch vụ pháp lý cho mỗi vụ việc với **một giá trị thoả thuận duy nhất**, chia thành các **đợt thanh toán** gắn vào tiến độ vụ việc ("thanh toán đợt 2 khi nộp đơn khởi kiện"), ghi nhận từng khoản tiền thật sự nhận được kèm người ghi và cách nhận, và nhìn thấy toàn bộ bức tranh tiền trên một trang có biểu đồ lọc được theo thời gian, luật sư và lĩnh vực. Đúng mô hình chủ văn phòng mô tả: *"văn phòng ký hồ sơ là giá trị 1 lần nhưng mà thanh toán theo giai đoạn."*
+**Architecture:** Bốn bảng mới (`contracts`, `instalments`, `payments`, `contract_amendments`) gắn vào `matters`, đúng chỗ SPEC §15 đã chừa sẵn. Tiền lưu bằng **số nguyên đồng**. Nghiệp vụ nằm trong `app/Actions/Billing/`; Filament chỉ gọi Action. Đợt thanh toán theo giai đoạn nối vào `TransitionMatterStage` bằng **một sự kiện** (dùng lại sự kiện M7 đã thêm nếu có) — Action chuyển giai đoạn không biết gì về tiền. Ba màn hình tiền: tab trên trang vụ việc (luật sư, quản lý, admin), trang **"Công nợ"** (kế toán, admin; quản lý chỉ xem), trang **doanh thu** (`Filament\Pages\Dashboard` riêng với `HasFiltersForm`, không nhồi vào trang chủ §7.1). Một khối "Hợp đồng và thanh toán" trên cổng khách.
 
-**Architecture:** Bốn bảng mới (`contracts`, `instalments`, `payments`, `contract_amendments`) gắn vào `matters`, đúng chỗ SPEC §15 đã chừa sẵn. Tiền lưu bằng **số nguyên đồng**. Nghiệp vụ nằm trong `app/Actions/Billing/`; Filament chỉ gọi Action. Đợt thanh toán theo giai đoạn nối vào `TransitionMatterStage` bằng **một sự kiện mới** (`MatterStageChanged`) — Action chuyển giai đoạn không biết gì về tiền, xem mục "Đợt thanh toán theo giai đoạn" bên dưới. Trang doanh thu là một `Filament\Pages\Dashboard` riêng với `HasFiltersForm`, không phải nhồi thêm vào trang chủ §7.1.
+**Tech Stack:** PHP 8.3, Laravel 13.x, Filament 5.8 (biểu đồ: extend `Filament\Widgets\ChartWidget` + `getType()`; `BarChartWidget`/`DoughnutChartWidget` đã `@deprecated`. Bộ lọc: `Filament\Pages\Dashboard\Concerns\HasFiltersForm` + `Filament\Widgets\Concerns\InteractsWithPageFilters`, đã kiểm trong `vendor/`), Pest 4, Pint. **Không gói mới.** Mọi lệnh qua `bin/dev`.
 
-**Tech Stack:** PHP 8.3, Laravel 13.x, Filament 5.8 (`filament/widgets` có sẵn `DoughnutChartWidget`, `BarChartWidget`; `Filament\Pages\Dashboard\Concerns\HasFiltersForm` + `Filament\Widgets\Concerns\InteractsWithPageFilters` là cơ chế lọc — đã kiểm trong `vendor/` hôm nay), Pest 4, Pint. **Không gói mới.** Mọi lệnh qua `bin/dev`.
+**Spec:** `docs/SPEC.md` §1 ("Ngoài phạm vi bản này" — thu hẹp ở M9), §4 (đặc biệt §4.4, §4.5, §4.6 `confidentiality`, §4.8, §4.9 danh mục, §4.11, §4.13 làm tiền lệ quá hạn, §4.15 `outbound_messages`, §4.19), §5 + phần **Portal** (cần **đính chính có ngày**, Task 3 và Task 10), §6.1, §6.2/§6.3, §6.8 (người nhận thư), §6.10 (tiền lệ DTO giới hạn thông tin), §6.11, §6.12 (gói bàn giao), §7.1 (M9 **không** động vào), §7.2 (thêm một tab), §8 (cổng khách), §9 (thêm mẫu thư), §10.2 (CSP), §10.5, §10.6, §10.10, §11, §12, §13, §14, **§15**.
 
-**Spec:** `docs/SPEC.md` §1 ("Ngoài phạm vi bản này" — mục này thu hẹp ở M9), §4 toàn bộ (đặc biệt §4.4 `matter_types`, §4.5 `matter_type_stages`, §4.6 `matters`, §4.8 `stage_logs`, §4.11 `documents` cho tệp phụ lục và uỷ nhiệm chi, §4.13 `deadlines` làm tiền lệ cho phát hiện quá hạn, §4.19 `matter_archives`), §5 + phần **Portal** (cần **một đính chính có ngày**, xem Task 3), §6.1 (sinh mã), §6.2/§6.3 (chuyển giai đoạn — chỗ đợt thanh toán móc vào), §6.8 (tiền lệ nhắc hạn), §6.10 (tiền lệ DTO readonly giới hạn thông tin), §6.11 (tiền lệ "chặn thao tác khi còn việc chưa bàn giao"), §6.12 (bàn giao, `client_access_until`), §7.1 (bảy widget trang chủ đã đặc tả — M9 **không** động vào thứ tự đó), §7.2, §8 (nếu chủ văn phòng cho khách xem hợp đồng), §10.5, §10.6, §10.10, §11, §12, §13, §14, **§15** (nguồn gốc của cả milestone này).
+---
+
+## Phán quyết 2026-09-24 (chủ văn phòng đảo được)
+
+Ghi nhận từ sổ controller M9 và từ controller ngày 2026-09-24. Mỗi phán quyết **chủ văn phòng đảo được**; đảo thì sửa đúng task nêu tên, không vá chỗ khác. Task 13 chép cả bảy vào PROGRESS.
+
+**P1 — Khách xem hợp đồng và lịch thu của chính mình trên cổng** (sổ controller, phán quyết 3). Hiện: số hợp đồng, tổng giá trị, thuế suất, ngày ký, các đợt (tên, số tiền, đến hạn khi nào, đã thu, còn lại, quá hạn), các khoản thu chưa huỷ (ngày, số tiền, cách trả). **Không** hiện: ghi chú nội bộ, lý do miễn, lý do huỷ, lý do phụ lục, người ghi, khoản thu đã huỷ, hợp đồng `draft` hoặc `cancelled`, bản scan biên lai. Ba tầng bảo vệ cổng phủ mọi model mới, `PortalCoverageTest` xanh. Task 2 đóng kín cả bốn model; Task 10 mở có chủ đích. Hệ quả: gói bàn giao M7 có bảng kê thanh toán (Task 10). **Không** có thư nhắc nợ cho khách ở M9.
+
+**P2 — Doanh thu ghi cho luật sư phụ trách tại thời điểm thu**, lưu trên chính dòng khoản thu (`payments.attributed_lawyer_id`, sổ controller, câu hỏi 3). Bàn giao vụ (`ReassignMatter`) không dời tiền đã thu sang người mới. Tiền **chưa** thu (còn phải thu, quá hạn) theo luật sư phụ trách **hiện tại**. Mỗi widget in nghĩa đó lên chính nó.
+
+**P3 — Ai thấy và ghi tiền.**
+- **Một định nghĩa duy nhất của "ai thấy tiền của vụ nào":** có `billing.view` **và** vụ đó nằm trong `Matter::listableBy($user)` (bản trong bộ nhớ: `Matter::isListableBy()`). Không hỏi `MatterPolicy::view` (kế toán không có `matter.view`), không viết điều kiện thứ hai.
+- Hệ quả, khớp SPEC §4.6 "chỉ lead lawyer và quản trị": **tiền của vụ `restricted` chỉ luật sư phụ trách và admin thấy và ghi.** Kế toán và quản lý không thấy. Bản cũ cho kế toán thấy tiền vụ hạn chế (Task 3 điểm 2 cũ); bỏ ngoại lệ đó.
+- **Ghi khoản thu:** kế toán và admin, trên trang "Công nợ" (Task 8). Quản lý **chỉ xem**. Luật sư không ghi, **trừ** luật sư phụ trách của vụ `restricted` (không ai khác ngoài admin thấy vụ đó để ghi), trên tab của vụ (Task 7).
+- **Tổng số của kế toán và quản lý không tính vụ `restricted`**, kể cả dạng gộp. Lý do chọn loại hẳn thay vì gộp: trang doanh thu lọc được theo tháng, luật sư và lĩnh vực; ở quy mô một văn phòng, lọc hẹp là suy ngược được số tiền của đúng một vụ hạn chế bằng phép trừ. Admin thấy đủ. Trang in một câu chung "Số liệu gồm các vụ việc anh/chị được xem", **không** in số vụ bị loại (§10.10: không lộ sự tồn tại).
+- **Nhắc đợt quá hạn** (Task 11): vụ thường gửi kế toán + luật sư phụ trách; vụ `restricted` gửi luật sư phụ trách + admin. Người nhận qua `ResolveStaffRecipients` (M6.5 R3) với cổng "được xem tiền của vụ" thay cho "được xem vụ", trong **cùng** lớp đó, không định nghĩa thứ hai.
+
+**P4 — Thứ tự dựng:** M9 sau M11, M10 sau M9 (xem mục trên).
+
+**P5 — VAT: giữ một cột `vat_rate_percent`, không theo `vat_rate` + `vat_included` của sổ controller (phán quyết 4).** Lý do ở "Kết luận về VAT": `total_amount` luôn là số khách trả, đã gồm VAT, nên `vat_included` lúc nào cũng đúng — một cột luôn mang một giá trị. Ghi sai lệch này vào PROGRESS.
+
+**P6 — Sáu câu hỏi cũ của kế hoạch đã có câu trả lời** (sổ controller): xem mục "Câu hỏi cho chủ văn phòng".
+
+**P7 — Dữ liệu tiền là dữ liệu nhạy cảm** ("tài chính", Nghị định 356/2025, `docs/research/2026-09-24-mcp-phap-ly-goi.md:286`). Bốn model tiền không lộ qua máy chủ MCP của M11 (Task 3).
 
 ---
 
 ## Ràng buộc toàn cục
 
-- **Nhánh:** `m9-contracts-and-payments`, cắt từ `main` **sau khi M5 đã merge**.
+- **Nhánh:** `m9-contracts-and-payments`, cắt từ `main` **sau khi M11 đã merge** (P4).
 - PHP sàn **8.3**, cứng. Không Redis, Horizon, Octane, Reverb, Pulse, Scout, Telescope. Không `storage:link`.
 - **CRM chỉ dùng TIẾNG VIỆT** — quyết định của chủ văn phòng ngày 19/09/2026, ghi ở `.superpowers/sdd/2026-09-19-m5-client-portal/progress.md`. Không dựng bộ chuyển ngôn ngữ, không thêm locale thứ hai. `lang/vi/` là nơi duy nhất; `lang/en/` chỉ tồn tại như fallback của framework. Định danh mã tiếng Anh, **mọi chuỗi hiển thị qua `__()`**.
 - Nghiệp vụ chỉ ở `app/Actions/`. Page, resource, widget, controller, listener, job **chỉ gọi Action** và **phải bắt `DomainException`** để đổi thành lỗi trên form (bài học M3 Task 9 và M4: một exception không được bắt là lỗi 500 trên màn hình).
 - **Enum backed string cho mọi cột trạng thái, có `label()`** đọc từ `lang/vi/enums.php`.
-- **Quy ước actor (M3 fix round 3, agent B).** Mọi Action nhận `User $actor` **tường minh**, không đọc `Auth::` bên trong. Vị trí tham số theo họ Action đang có. Không một dòng `Auth::` nào được xuất hiện trong `app/Actions/Billing/`.
-- **`blameOn($actor)` TRƯỚC `save()`/`update()`** cho mọi model dùng `HasBlameable`. `HasBlameable` rơi về `auth('web')` ambient nếu không ai tuyên bố actor; với tiền, một cột `created_by` sai là một câu trả lời sai cho câu hỏi "ai ghi khoản này". Đã có tiền lệ: `TransitionMatterStage` bước 5 và bước 6.
-- **Chuẩn mutation probe (M4, kỹ thuật kiểm chứng mạnh nhất dự án có).** Với **mỗi** điều kiện người cài đặt thêm vào: xoá đúng điều kiện đó, chạy lại bộ test trong container, **khẳng định đúng những test nêu tên nó chuyển ĐỎ**, khôi phục, dán bằng chứng vào báo cáo. Hai probe **sống sót** ở M4 và cả hai đều lộ ra test rỗng ruột thật. Nếu một probe sống sót, đó không phải nhiễu — đó là một test không kiểm cái nó nói.
-- **Docblock là thứ phải rà lại, không phải thứ để tin.** Sáu milestone liên tiếp, mỗi vòng rà soát đều tìm ra ít nhất một câu docblock nói sai sự thật, và ở M4 chính lần rà docblock tìm ra một lỗi thật (`safeName()` nói "bỏ byte thừa" trong khi `mb_convert_encoding` thay bằng `?`). Kết thúc mỗi task: đọc lại từng câu khẳng định trong docblock mình vừa viết và chứng minh hoặc sửa.
-- **SQLite không bao giờ bắt được ràng buộc chỉ số/khoá ngoại của MariaDB** — nó dựng lại cả bảng mỗi khi index đổi. Dự án đã vỡ vì chuyện này **hai lần** (lỗi 1553 trên `matter_type_stages` ở M3; migration medialibrary không có `down()` nên `migrate:reset` im lặng no-op ở M4). **Mọi task đụng migration phải chạy trên container MariaDB thật: `bin/dev artisan migrate:fresh --seed`, rồi một vòng `bin/dev artisan migrate:reset` → `bin/dev artisan migrate`, và dán NGUYÊN VĂN output vào báo cáo.** M9 có nhiều unique composite và nhiều khoá ngoại hơn bất kỳ milestone nào kể từ M1; đây là nơi quy tắc này cắn mạnh nhất.
-- **Filament 5 khác các bản trước rất nhiều. Không viết mã Filament từ trí nhớ** — phán quyết đã ghi ở kế hoạch M3 và nhắc lại ở M5, vẫn nguyên hiệu lực. Cách làm bắt buộc: chạy `bin/dev artisan make:filament-*` để lấy khung thật, đọc `vendor/filament/` khi cần, hoặc tra context7. **Kế hoạch này mô tả hành vi và luật nghiệp vụ; không có một dòng mã Filament nguyên văn nào là cố ý.**
-- **False-green của Livewire, cho mọi test màn hình (M4 Task 2 fix round).** `PersistentMiddleware::applyPersistentMiddleware()` ghi nhớ theo `"{method}|{path}"` và chỉ xoá khi flush-state, nên **hai POST tới cùng một path trong một `it()`** khiến lần thứ hai chạy KHÔNG middleware bền và trả 200. Mỗi trường hợp phải là một `it()` riêng.
-- **Từ chối trong panel trả 404, không phải 403** (`AnswerDeniedPanelRequestsWithNotFound`, chốt ở M4 Task 2). Mọi màn hình tiền của M9 nằm dưới quy tắc đó. Và như M4 Task 3 đã ghi: **không map exception nghiệp vụ sang một mã HTTP riêng** — làm vậy là dựng lại đúng cái máy dò sự tồn tại mà SPEC §10.10 cấm.
-- TDD với Pest: test đỏ trước. Nếu red-first yếu về cấu trúc (mọi lỗi đều là "class does not exist"), **nói thẳng điều đó** và bù bằng mutation probe, đúng như M4 Task 3 đã làm.
-- Kết thúc mỗi task: `bin/dev test` xanh, `bin/dev pint` sạch, commit **chỉ các tệp của mình theo đường dẫn tường minh** (`git commit -- <path>`), **không `git add -A`**.
-- Commit message kết thúc bằng `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>` (chép nguyên văn).
-- `security-review` **bắt buộc** ở milestone này. Người rà soát cuối được brief là **giả định có một lỗi Critical**. Task phân quyền (Task 3) và task tiền (Task 4, 5) **giao cho Opus** — mọi Critical tìm được từ đầu dự án tới giờ đều đến từ một lượt rà soát Opus.
+- **Actor tường minh.** Mọi Action nhận `User $actor`, không đọc `Auth::` bên trong. Dự án **không** có một vị trí tham số chung (`OpenMatter::handle(User $actor, …)` đứng đầu; `TransitionMatterStage::handle(Matter, User $actor, …)` đứng thứ hai; `SetMatterPortalPublication` đứng cuối). Action mới trong `app/Actions/Billing/` đặt actor **đứng đầu**. Không một dòng `Auth::` nào trong `app/Actions/Billing/`.
+- **`blameOn($actor)` TRƯỚC `save()`/`update()`** cho mọi model dùng `HasBlameable`. `HasBlameable` rơi về `auth('web')` ambient nếu không ai tuyên bố actor; với tiền, một cột `created_by` sai là một câu trả lời sai cho câu hỏi "ai ghi khoản này".
+- **Chuẩn mutation probe (M4).** Với **mỗi** điều kiện thêm vào: xoá đúng điều kiện đó, chạy lại, **khẳng định đúng những test nêu tên nó chuyển ĐỎ**, khôi phục, dán bằng chứng. Probe sống sót nghĩa là test không kiểm cái nó nói. Một test âm không có cặp dương đi kèm thì không tính.
+- **Docblock là thứ phải rà lại, không phải thứ để tin.** Kết thúc mỗi task: đọc lại từng câu khẳng định trong docblock vừa viết và chứng minh hoặc sửa.
+- **SQLite không bắt được ràng buộc chỉ số/khoá ngoại của MariaDB.** Mọi task đụng migration chạy trên container MariaDB thật: `bin/dev artisan migrate:fresh --seed`, rồi `migrate:reset` → `migrate`, dán **nguyên văn** output. Task có khoá (`lockForUpdate`, `Cache::lock`) hoặc so chuỗi tiếng Việt chạy thêm `bin/dev test:mariadb`, **tuần tự**.
+- **Filament 5 — không viết mã Filament từ trí nhớ.** Chạy `bin/dev artisan make:filament-*`, đọc `vendor/filament/`, hoặc tra context7. Kế hoạch này mô tả hành vi, không có mã Filament nguyên văn nào là cố ý.
+- **Mang từ M6.5, áp nguyên cho M9:**
+  - Test màn hình đi qua Livewire hoặc HTTP (`Livewire::test(...)->callTableAction(...)`, `->fillForm(...)->call(...)`), **không gọi thẳng Action**.
+  - Trang Filament tự viết (`Receivables`, `RevenueDashboard`) tự hỏi `Gate::forUser($account)` trong `canAccess()` và ở mọi chỗ resolve record, rồi `abort(404)`.
+  - `maxLength` của form bằng độ dài cột DB (`name` 150, `reference` 100, …). Ô tiền có giới hạn trên là **một hằng** `Money::MAX` dùng chung cho form và Action.
+  - Chỉ style nội tuyến trên biến CSS của Filament (`--danger-500`…). Không có bước build CSS. Mã hex ở mục màu chỉ là màu dữ liệu của Chart.js và chuẩn so sánh.
+  - Mọi thư đi qua hàng đợi, sau khi commit (M6.5 R2). Người nhận qua `ResolveStaffRecipients` (M6.5 R3).
+  - Thư cho khách chỉ tới tài khoản `is_active` **và** `activated_at` không null (M6.5 R12) — M9 không gửi thư cho khách, ghi lại để không ai thêm mà quên.
+- **False-green của Livewire (M4 Task 2).** Hai POST tới cùng một path trong một `it()` khiến lần thứ hai chạy không middleware bền và trả 200. Mỗi trường hợp một `it()` riêng.
+- **Từ chối trong panel trả 404, không phải 403** (`AnswerDeniedPanelRequestsWithNotFound`). **Không** map exception nghiệp vụ sang một mã HTTP riêng (SPEC §10.10).
+- TDD với Pest: test đỏ trước. Nếu red-first yếu về cấu trúc, **nói thẳng** và bù bằng mutation probe.
+- Kết thúc mỗi task: `bin/dev test` xanh, `bin/dev pint` sạch, commit **chỉ các tệp của mình theo đường dẫn tường minh** (`git commit -- <path>`), **không `git add -A`**, không commit trần.
+- Commit message kết thúc bằng `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Chép nguyên văn, không thay tên model.
+- `security-review` **bắt buộc**. Người rà soát mỗi task và rà soát cuối được brief **giả định có một lỗi Critical**. Task 3, 4, 5, 10 **giao cho Opus**.
 
 ---
 
@@ -56,97 +96,96 @@ Kế hoạch này dựng trên bảy quyết định đã được đưa ra trư
 
 **3. Bất biến: tổng các đợt phải khớp ĐÚNG giá trị hợp đồng.** **Tán thành**, và phần dư khi chia theo phần trăm **luôn rơi vào đợt cuối cùng** — một câu, một chỗ (`App\Support\Billing\SplitByPercent`), hiện ra bằng số đồng trên màn hình trước khi lưu.
 
-**4. Khoản thu là bản ghi riêng.** **Tán thành tuyệt đối.** Và đi thêm một bước mà quyết định gốc chưa nói: **`payments` và `contracts` KHÔNG dùng `SoftDeletes`.** Hai lý do, cả hai đã có tiền lệ trong dự án. (a) `contracts.matter_id` là unique; một hợp đồng xoá mềm vẫn chiếm chỗ index, và "xoá mềm rồi tạo lại" chính là lỗ hổng dự án đã vấp **hai lần** (`matter_type_stages.key`, `MatterType.code`). (b) Một khoản thu ghi nhầm không được biến mất — nó được **huỷ** (`voided_at` + lý do ≥ 20 ký tự `mb_strlen`), và vẫn nằm đó. Đây là đúng tinh thần `stage_logs` (chỉ thêm) đã áp cho sổ pháp lý; sổ tiền không đáng được lỏng hơn. Deviation so với câu "Toàn bộ bảng dùng ... `deleted_at`" ở §4 — M1 đã có tiền lệ deviation tương tự cho bảng nhật ký và pivot, ghi rõ lý do.
+**4. Khoản thu là bản ghi riêng.** **Tán thành tuyệt đối.** Và đi thêm một bước: **`payments` và `contracts` KHÔNG dùng `SoftDeletes`.** (a) `contracts.matter_id` là unique; một hợp đồng xoá mềm vẫn chiếm chỗ index, và "xoá mềm rồi tạo lại" chính là lỗ hổng dự án đã vấp **hai lần** (`matter_type_stages.key`, `MatterType.code`). (b) Một khoản thu ghi nhầm không được biến mất — nó được **huỷ** (`voided_at` + lý do ≥ 20 ký tự `mb_strlen`), và vẫn nằm đó. Đúng tinh thần `stage_logs` (chỉ thêm). Deviation so với câu "Toàn bộ bảng dùng ... `deleted_at`" ở §4 — M1 đã có tiền lệ deviation tương tự cho bảng nhật ký và pivot, ghi rõ lý do.
 
-**5. Tiền lưu bằng số nguyên đồng.** **Tán thành.** `unsignedBigInteger`, cast `integer`. Đồng không chia nhỏ trên thực tế, số nguyên là chính xác, và mọi câu hỏi làm tròn bị xoá khỏi tầng lưu trữ. **Cái giá nếu văn phòng có ngày tính phí bằng USD**, nói thẳng:
+**5. Tiền lưu bằng số nguyên đồng.** **Tán thành.** `unsignedBigInteger`, cast `integer`. **Cái giá nếu văn phòng có ngày tính phí bằng USD**, nói thẳng:
 
-> Sẽ không đủ nếu chỉ thêm một cột `currency`. Một hệ thống hai tiền tệ cần **ba** thứ mà hôm nay không có: (a) một **đơn vị nhỏ nhất khác** — USD có cent, nên `amount` phải đổi nghĩa thành "đơn vị nhỏ nhất của đồng tiền đó", và mọi con số đã lưu phải được đọc lại qua đơn vị đó; (b) một **tỷ giá có dấu thời gian** để cộng được hai hợp đồng khác tiền tệ trên cùng một biểu đồ, và một quyết định xem tỷ giá đó chốt lúc ký hay lúc thu; (c) một **tầng hiển thị** biết ký hiệu, vị trí ký hiệu và cách nhóm chữ số của từng đồng tiền. Đó là một milestone riêng có đặc tả riêng, không phải một cột. Vì vậy kế hoạch này **cố ý KHÔNG thêm cột `currency`** — một cột luôn mang đúng một giá trị là một lời hứa chưa được giữ, và nó sẽ khiến người đọc sau tưởng hệ thống đã sẵn sàng cho đồng tiền thứ hai.
+> Sẽ không đủ nếu chỉ thêm một cột `currency`. Một hệ thống hai tiền tệ cần **ba** thứ mà hôm nay không có: (a) một **đơn vị nhỏ nhất khác** — USD có cent, nên `amount` phải đổi nghĩa thành "đơn vị nhỏ nhất của đồng tiền đó"; (b) một **tỷ giá có dấu thời gian** và quyết định chốt tỷ giá lúc ký hay lúc thu; (c) một **tầng hiển thị** biết ký hiệu và cách nhóm chữ số của từng đồng tiền. Đó là một milestone riêng. Vì vậy kế hoạch này **cố ý KHÔNG thêm cột `currency`** — một cột luôn mang đúng một giá trị là một lời hứa chưa được giữ.
 
-**6. Tiền là dữ liệu nhạy cảm, phải giới hạn theo vai trò.** **Tán thành**, chi tiết ở Task 3.
+**6. Tiền là dữ liệu nhạy cảm, phải giới hạn theo vai trò.** **Tán thành**, chi tiết ở P3 và Task 3.
 
-**7. VAT: đừng mô hình hoá quá tay.** **Tán thành, và tôi cắt sâu hơn đề bài.** Xem "Kết luận về VAT" bên dưới — **một cột nullable duy nhất**, không phải hai.
+**7. VAT: đừng mô hình hoá quá tay.** **Tán thành, và cắt sâu hơn đề bài.** Xem "Kết luận về VAT" — **một cột nullable duy nhất** (P5).
 
 ### Chỗ tôi nghĩ một quyết định chưa đúng như đã phát biểu
 
-**Quyết định 1 đọc trần ra sẽ cấm phụ lục hợp đồng.** "Một hợp đồng cho một vụ việc, giá trị chốt một lần, có tính quyết định" là đúng về nguyên tắc, nhưng phụ lục hợp đồng là chuyện có thật và xảy ra thường xuyên trong nghề (vụ việc lên cấp phúc thẩm, phát sinh công việc ngoài phạm vi ban đầu). Nếu để nguyên câu chữ, người cài đặt sẽ làm một trong hai việc và cả hai đều tệ: hoặc **cấm hẳn** (và văn phòng sẽ nhập một hợp đồng giả thứ hai ở đâu đó ngoài hệ thống, tức số liệu doanh thu sai), hoặc **cho sửa thẳng `total_amount`** (và giá trị thoả thuận mất lịch sử, tức không trả lời được "tại sao con số này đổi").
+**Quyết định 1 đọc trần ra sẽ cấm phụ lục hợp đồng.** Phụ lục là chuyện có thật và thường xuyên (lên phúc thẩm, phát sinh việc ngoài phạm vi). Để nguyên câu chữ thì người cài đặt hoặc **cấm hẳn** (văn phòng giữ hợp đồng thứ hai ngoài hệ thống), hoặc **cho sửa thẳng `total_amount`** (mất lịch sử).
 
-Cách giữ được cả hai: **giá trị hợp đồng là một cột, lịch sử của nó là một bảng.** Xem `contract_amendments` trong mô hình dữ liệu. Hợp đồng vẫn là một, vẫn là một dòng, `total_amount` vẫn là nguồn sự thật duy nhất ai cũng đọc; mỗi lần con số đó đổi sinh một dòng phụ lục chỉ-thêm mang giá trị cũ, giá trị mới, lý do, ngày ký và (nếu có) bản scan phụ lục trong `documents`. Không có "phiên bản hợp đồng", không có câu hỏi "bản nào đang có hiệu lực" — thứ sinh ra cả một họ lỗi.
+Cách giữ được cả hai: **giá trị hợp đồng là một cột, lịch sử của nó là một bảng.** `total_amount` vẫn là nguồn sự thật duy nhất; mỗi lần con số đó đổi sinh một dòng `contract_amendments` chỉ-thêm mang giá trị cũ, giá trị mới, lý do, ngày ký và (nếu có) bản scan phụ lục. Không có "phiên bản hợp đồng", không có câu hỏi "bản nào đang có hiệu lực". (Sổ controller đã chấp nhận thiết kế này.)
 
 ---
 
 ## Kết luận về VAT — biểu diễn nhỏ nhất còn trung thực
 
-**Một cột: `contracts.vat_rate_percent` — `unsignedTinyInteger nullable`.** Không có cột `vat_mode`, không có cột tiền thuế, không có bảng thuế.
+**Một cột: `contracts.vat_rate_percent` — `unsignedTinyInteger nullable`.** Không có cột `vat_mode`/`vat_included`, không có cột tiền thuế, không có bảng thuế (P5).
 
-Lập luận. Bất biến số 3 nói tổng các đợt phải khớp đúng giá trị hợp đồng. Nếu khách hàng thực tế trả phí **cộng** VAT thì các đợt phải cộng lại bằng phí-cộng-VAT, nếu không con số "còn phải thu" sai đúng 10%. Vậy chỉ còn một cách đọc nhất quán: **`total_amount` LUÔN là số tiền khách hàng phải trả, đã gồm VAT ở nơi có VAT.** Khi đã cố định như vậy thì "chưa gồm / đã gồm" không còn là một trạng thái cần lưu — nó là một cách nhập liệu, và chỗ của nó là màn hình.
+Lập luận. Bất biến số 3 nói tổng các đợt phải khớp đúng giá trị hợp đồng. Nếu khách trả phí **cộng** VAT thì các đợt phải cộng lại bằng phí-cộng-VAT, nếu không "còn phải thu" sai đúng phần thuế. Vậy chỉ còn một cách đọc nhất quán: **`total_amount` LUÔN là số tiền khách hàng phải trả, đã gồm VAT ở nơi có VAT.** Khi đó "chưa gồm / đã gồm" không còn là một trạng thái cần lưu — nó là một cách nhập liệu, và chỗ của nó là màn hình.
 
 - `vat_rate_percent = null` → không có dòng thuế (không chịu thuế, hoặc không xuất hoá đơn).
-- `vat_rate_percent = 0` → có hoá đơn, thuế suất 0%. Đây là hai chuyện khác nhau trong thực tế Việt Nam, và một cột nullable phân biệt được chúng mà không cần cột thứ hai.
-- `vat_rate_percent = 8` hoặc `10` → phần thuế nằm **trong** `total_amount`, suy ra để hiển thị: `thuế = round(total × r / (100 + r))`, phần chưa thuế là phần còn lại. Suy ra **một chỗ duy nhất**, trong `App\Support\Billing\Vat`, và phép làm tròn phải rơi rõ ràng: **phần thuế làm tròn xuống, phần chưa thuế nhận phần dư**, để hai số luôn cộng lại đúng `total_amount` bằng số nguyên đồng. Có test cho một giá trị lẻ cố ý (ví dụ 33.333.333 đ ở 10%).
+- `vat_rate_percent = 0` → có hoá đơn, thuế suất 0%. Hai chuyện khác nhau; một cột nullable phân biệt được.
+- `vat_rate_percent = 8` hoặc `10` → phần thuế nằm **trong** `total_amount`: `thuế = intdiv(total × r, 100 + r)`, phần chưa thuế nhận phần dư. Suy ra **một chỗ duy nhất**, `App\Support\Billing\Vat`. Có test cho 33.333.333 đ ở 10%.
 
-**Cái giá, nói thẳng:** một hợp đồng báo giá cho khách là "50.000.000 chưa VAT" phải được nhập thành 55.000.000 với thuế suất 10. Đó là một nghĩa vụ của màn hình, không phải của dữ liệu: form soạn hợp đồng có hai ô nhập ("số tiền chưa VAT" và "thuế suất") và hiện ngay số tổng sẽ lưu, hoặc cho nhập thẳng số tổng — nhưng **số được lưu chỉ có một**, và cả ba con số hiện cùng lúc trước khi bấm lưu để không ai gõ nhầm.
+**Thuế suất là dữ liệu của từng hợp đồng, không bao giờ là hằng số.** Repo không có nguồn nào chốt thuế suất cho dịch vụ pháp lý; 8% và 10% trong dữ liệu mẫu chỉ là mẫu.
 
-**Ngoài phạm vi, nói ra để không bị hiểu là quên:** xuất hoá đơn, hoá đơn điện tử, mẫu số / ký hiệu hoá đơn, tờ khai thuế, đối chiếu với phần mềm kế toán. Không có gì trong M9 sinh ra một hoá đơn.
+**Cái giá:** hợp đồng báo giá "50.000.000 chưa VAT" phải nhập thành 55.000.000 với thuế suất 10. Form soạn hợp đồng có hai ô ("số tiền chưa VAT", "thuế suất") và hiện ngay số tổng sẽ lưu, hoặc cho nhập thẳng số tổng — nhưng **số được lưu chỉ có một**, và cả ba con số hiện cùng lúc trước khi bấm lưu.
+
+**Ngoài phạm vi:** xuất hoá đơn, hoá đơn điện tử, mẫu số / ký hiệu hoá đơn, tờ khai thuế, đối chiếu với phần mềm kế toán. Không có gì trong M9 sinh ra một hoá đơn.
 
 ---
 
 ## Đợt thanh toán theo giai đoạn — làm sao để `TransitionMatterStage` không biết gì về tiền
 
-Đây là trái tim của *"thanh toán theo giai đoạn"* và là chỗ dễ làm hỏng nhất.
+**Cái không được làm:** cho `TransitionMatterStage` truy vấn `instalments`. Action đó là nơi nhạy cảm nhất hệ thống (`stage_logs` chỉ-thêm, SLA §6.4, `closed_at` của M6.5 R8, lưu trữ của M7 đều treo vào nó).
 
-**Cái không được làm:** cho `TransitionMatterStage` truy vấn `instalments`. Action đó là nơi nhạy cảm nhất hệ thống (`stage_logs` chỉ-thêm, SLA §6.4, widget §7.1 đều treo vào nó), nó đã đi qua ba vòng sửa với Critical chạm thẳng vào sổ pháp lý, và CLAUDE.md nói nghiệp vụ nằm trong Action chứ không phải Action nào cũng gánh mọi nghiệp vụ.
+**Cái làm:** một **sự kiện đổi giai đoạn**, và **chỉ một**.
 
-**Cái làm:** một **sự kiện** mới, đặt tên theo đúng chuyện đã xảy ra trong từ vựng của chính Action đó.
+- **Trước khi tạo sự kiện mới, grep `app/Events` và `TransitionMatterStage`.** M7 Task 3 đã thêm một listener `afterCommit` "khi `TransitionMatterStage` đưa vụ vào giai đoạn `is_terminal`", tức gần như chắc chắn đã có một sự kiện đổi giai đoạn. Nếu có: **mở rộng đúng sự kiện đó** (mang `StageLog`, chỉ phát khi giai đoạn thật sự đổi, `ShouldDispatchAfterCommit`) và thêm một listener. Nếu chưa có: tạo `app/Events/MatterStageChanged.php` theo đúng hình dạng dưới đây, và M7 dùng chung về sau. Hai sự kiện phát ra từ cùng một dòng là hai định nghĩa của "đã đổi giai đoạn".
+- Sự kiện phát **chỉ khi giai đoạn thật sự đổi** (`! $isSameStage`) — một dòng cập nhật cùng giai đoạn (§6.3) không phải một lần chạm tới giai đoạn.
+- Sự kiện mang `StageLog` (đã có `matter_id`, `from_stage`, `to_stage`, `occurred_at`, `id`) và **không mang trường tiền nào**.
+- **`ShouldDispatchAfterCommit`**, như `StageLogPublished`: nếu transaction ghi `StageLog` rollback thì listener không chạy. Một đợt "đến hạn" vì một lần chuyển giai đoạn đã rollback là một khoản văn phòng đi đòi mà lý do không tồn tại.
 
 ```
-app/Events/MatterStageChanged.php          (implements ShouldDispatchAfterCommit)
+app/Events/<sự kiện đổi giai đoạn — dùng lại của M7 nếu có>.php
 app/Listeners/ReleaseStageTriggeredInstalments.php
 app/Actions/Billing/TriggerInstalmentsForStage.php
-app/Jobs/ReconcileStageTriggeredInstalments.php
+app/Actions/Schedule/ReconcileStageTriggeredInstalments.php
 ```
-
-`TransitionMatterStage` nhận thêm **đúng một dòng**, ngay cạnh dòng `event(new StageLogPublished(...))` đã có:
-
-- Dispatch **chỉ khi giai đoạn thật sự đổi** (`! $isSameStage`) — một dòng cập nhật cùng giai đoạn của §6.3 không phải một lần chạm tới giai đoạn, và tính nó là chạm sẽ làm một luật sư viết ghi chú tuần trở thành một lần phát sinh công nợ.
-- Sự kiện mang `StageLog` (đã có `matter_id`, `from_stage`, `to_stage`, `occurred_at`, `id`) và **không mang một trường nào liên quan tới tiền**.
-- **`ShouldDispatchAfterCommit`**, y hệt `StageLogPublished`, và vì đúng lý do docblock của `StageLogPublished` đã viết ra: nếu transaction ghi `StageLog` rollback thì listener không bao giờ chạy. Với tiền vế này còn nặng hơn — một đợt thanh toán "đến hạn" vì một lần chuyển giai đoạn đã bị rollback là một khoản tiền văn phòng đi đòi mà lý do không tồn tại.
 
 Bốn điểm phải cài đúng, mỗi điểm một test:
 
-1. **Chạy một lần duy nhất.** Giai đoạn có thể vào ra nhiều lần (`allowed_next` có chu trình, `on_hold` ra vào được theo §4.5). Cổng là `instalments.triggered_at IS NULL`, không phải "giai đoạn hiện tại bằng giai đoạn kích hoạt".
-2. **Ngày đến hạn tính từ ngày giai đoạn THẬT SỰ xảy ra**, tức `stage_logs.occurred_at`, cộng `due_days_after_trigger`. Không phải `now()`. Hệ quả đúng và phải có test: một lần chuyển giai đoạn ghi lùi ngày có thể sinh ra một đợt **đã quá hạn ngay khi ra đời** — đó là sự thật, không phải lỗi.
-3. **Chỉ hợp đồng `active`.** Lịch thu của một hợp đồng còn `draft` chưa ràng buộc ai.
-4. **Ghi bằng chứng.** Đợt được kích hoạt lưu `triggered_by_stage_log_id` trỏ đúng dòng nhật ký đã kích hoạt nó. Đây là câu trả lời cho "tại sao đợt này đến hạn", và nó trỏ vào một bảng chỉ-thêm không ai sửa được.
+1. **Chạy một lần duy nhất.** Cổng là `instalments.triggered_at IS NULL`, không phải "giai đoạn hiện tại bằng giai đoạn kích hoạt" (`allowed_next` có chu trình, `on_hold` ra vào được).
+2. **Ngày đến hạn tính từ ngày giai đoạn THẬT SỰ xảy ra** (`stage_logs.occurred_at` + `due_days_after_trigger`), không phải `now()`. Một lần chuyển ghi lùi ngày có thể sinh ra một đợt **đã quá hạn ngay khi ra đời** — đó là sự thật, không phải lỗi.
+3. **Chỉ hợp đồng `active`.**
+4. **Ghi bằng chứng.** `triggered_by_stage_log_id` trỏ đúng dòng nhật ký đã kích hoạt.
 
-**Lưới an toàn — `ReconcileStageTriggeredInstalments`, chạy hằng ngày.** Listener đồng bộ sau commit có thể hỏng (một lỗi trong Action tiền không được phép làm hỏng một lần chuyển giai đoạn), và nó cũng không phủ được ba đường khác hoàn toàn hợp lệ: một đợt được **thêm vào lịch thu sau khi** vụ việc đã đi qua giai đoạn kích hoạt; một hợp đồng được **kích hoạt** khi vụ việc đã ở giai đoạn giữa chừng; và seeder/console ghi thẳng `matters.stage`. Job đối chiếu `instalments` chưa kích hoạt với `stage_logs` (append-only, là bằng chứng thật về việc vụ việc đã từng ở đâu) và kích hoạt những đợt còn thiếu, dùng lại **đúng** Action `TriggerInstalmentsForStage`, không phải một bản sao logic.
+**Giai đoạn đầu tiên của loại vụ việc không làm được giai đoạn kích hoạt.** `Matter::creating` đặt giai đoạn đầu **không** sinh dòng `stage_logs` (`app/Models/Matter.php:69`), nên không sự kiện nào và không lần đối chiếu nào thấy nó. `DraftContract` từ chối `trigger_stage_key` là giai đoạn đầu, thông điệp chỉ sang `on_signing`.
 
-Đăng ký trong `routes/console.php` — **đây là dòng `Schedule::` đầu tiên của dự án**; M6 sẽ thêm tiếp vào cùng tệp đó, và giám sát cron (SPEC §2, `heartbeat`) vẫn thuộc M6. Ghi rõ trong docblock: cho tới khi M6 xong, một cron chết âm thầm nghĩa là job đối chiếu không chạy — nên đường chính **phải** là listener, job chỉ là lưới.
+**Lưới an toàn — `ReconcileStageTriggeredInstalments`, chạy hằng ngày.** Là **Action** trong `app/Actions/Schedule/`, đăng ký bằng `Schedule::call(new ReconcileStageTriggeredInstalments)` trong `routes/console.php` cạnh các mục đã có (`RecordScheduleRun`, `SendHeartbeat`, `queue.drain`, `CheckDeadlines`, và các mục M6/M7 thêm sau), có `withoutOverlapping(<phút>)` có hạn. Nó phủ ba đường listener không phủ: một đợt **thêm vào lịch sau khi** vụ đã qua giai đoạn kích hoạt; một hợp đồng **kích hoạt** khi vụ đã ở giữa chừng; và seeder/console ghi thẳng `matters.stage`. Đối chiếu `instalments` chưa kích hoạt với `stage_logs` (chỉ-thêm) và gọi **đúng** `TriggerInstalmentsForStage`, không bản sao logic. Heartbeat và dải cảnh báo cron đã có từ M6 (`SendHeartbeat`), nên một cron chết sẽ hiện trên trang chủ admin.
 
-**Đã kiểm hôm nay:** `matters.stage` không có nơi ghi nào khác trong `app/` ngoài `TransitionMatterStage` (grep toàn bộ `app/Filament`, `app/Models/Matter.php`; các nơi còn lại là `database/seeders` và `MatterFactory`). Nên một dòng sự kiện phủ được cánh cửa thật, và job đối chiếu phủ phần còn lại. **Người cài đặt phải grep lại** — nếu M6/M7 thêm một Action đổi giai đoạn (ví dụ `ReassignMatter` hay một `CloseMatter`), Action đó cũng phải dispatch sự kiện này, và đó là chỗ nó sẽ bị quên.
+**Người cài đặt phải grep lại mọi nơi ghi `matters.stage`** (M6.5 Task 5 `UpdateMatterDetails`/`CancelMatter`, M7 `ReassignMatter`…). Nơi nào đổi giai đoạn cũng phải phát cùng sự kiện đó. Dán kết quả grep vào báo cáo Task 6.
 
 ---
 
 ## Mô hình dữ liệu
 
-Tất cả bảng: `id` bigint tự tăng, `created_at`, `updated_at`, `created_by`/`updated_by` FK `users` qua `HasBlameable`. **`deleted_at` chỉ có ở nơi ghi rõ.**
+Tất cả bảng: `id` bigint tự tăng, `created_at`, `updated_at`, `created_by`/`updated_by` FK `users` qua `HasBlameable`. **`deleted_at` chỉ có ở nơi ghi rõ.** Mọi model mới có **alias morph** trong `Relation::enforceMorphMap` của `AppServiceProvider` (`contract`, `instalment`, `payment`, `contract_amendment`, và `time_entry` ở Task 12). Map là bản nghiêm ngặt: thiếu alias thì `Audit::record(..., $contract)` và `outbound_messages.related` là lỗi 500 (`ClassMorphViolationException`).
 
 ### `contracts` — một hợp đồng cho một vụ việc
 
 | Cột | Kiểu | Ghi chú |
 |---|---|---|
 | matter_id | FK matters, **unique** | Quyết định 1, cài bằng index thật ở MariaDB |
-| code | string(30) unique | `HD-{YYYY}-{0001}`, sinh bằng `App\Support\CodeSequence` đã có (SPEC §6.1 là tiền lệ). Không bao giờ đổi |
+| code | string(30) unique | `HD-{YYYY}-{0001}`, sinh bằng `App\Support\CodeSequence` đã có (§6.1). Không bao giờ đổi |
 | status | enum `ContractStatus` | `draft`, `active`, `completed`, `cancelled` |
-| billing_model | enum `BillingModel` | `fixed_fee` (duy nhất cài đặt ở M9), `hourly`, `mixed` — xem Task 9 |
+| billing_model | enum `BillingModel` | `fixed_fee` (duy nhất cài đặt ở M9), `hourly`, `mixed` — xem Task 12 |
 | total_amount | unsignedBigInteger | **Đồng.** Số tiền khách phải trả, đã gồm VAT ở nơi có VAT |
 | vat_rate_percent | unsignedTinyInteger nullable | Xem "Kết luận về VAT" |
 | signed_at | date nullable | Bắt buộc khi rời `draft` |
 | activated_by | FK users nullable | Người ở văn phòng ghi nhận việc ký. **Không phải chữ ký số** |
 | ended_at | date nullable | Ngày `completed` hoặc `cancelled` |
-| ended_reason | text nullable | Bắt buộc ≥ 20 ký tự `mb_strlen` khi `cancelled` |
+| ended_reason | text nullable | Bắt buộc ≥ 20 ký tự `mb_strlen` khi `cancelled`. **Nội bộ** |
 | note | text nullable | **Nội bộ. Không bao giờ ra portal** |
 
-**Không `deleted_at`.** Một hợp đồng còn `draft` xoá cứng được (chưa ai ký gì); từ `active` trở đi chỉ `completed` hoặc `cancelled`, không bao giờ xoá. Cài bằng hook `deleting` trên model, tiền lệ `Matter::forceDeleting` → `MatterNotDestroyable` từ M1.
+**Không `deleted_at`.** Hợp đồng `draft` xoá cứng được **khi chưa có khoản thu nào** (sổ controller, câu hỏi 4); từ `active` trở đi chỉ `completed` hoặc `cancelled`. Cài bằng hook `deleting`, tiền lệ `Matter::forceDeleting` → `MatterNotDestroyable`.
 
 Index: `(status)`, `(signed_at)`. Unique `(matter_id)`, `(code)`.
 
@@ -155,104 +194,107 @@ Index: `(status)`, `(signed_at)`. Unique `(matter_id)`, `(code)`.
 | Cột | Kiểu | Ghi chú |
 |---|---|---|
 | contract_id | FK contracts | |
-| sequence | unsignedSmallInteger | Đợt 1, 2, 3… Unique cặp `(contract_id, sequence)` |
-| name | string(150) | "Tạm ứng khi ký hợp đồng", "Thanh toán đợt 2 khi nộp đơn khởi kiện" |
+| sequence | unsignedSmallInteger | Unique cặp `(contract_id, sequence)` |
+| name | string(150) | "Tạm ứng khi ký hợp đồng", "Thanh toán đợt 2 khi nộp đơn khởi kiện". **Khách thấy tên này** (P1); form ghi rõ điều đó |
 | amount | unsignedBigInteger | **Đồng.** Là con số có tính quyết định |
 | percent_basis | decimal(5,2) nullable | Phần trăm người dùng đã gõ, **chỉ để hiển thị và truy vết**. Không bao giờ dùng để tính lại `amount` |
 | trigger_type | enum `InstalmentTrigger` | `on_signing`, `due_date`, `stage` |
-| trigger_stage_key | string(40) nullable | Bắt buộc khi `trigger_type = stage`. Trỏ `matter_type_stages.key` của **đúng loại vụ việc đó** — không phải FK, y như `matters.stage` (mỗi loại có bộ key riêng) |
+| trigger_stage_key | string(40) nullable | Bắt buộc khi `trigger_type = stage`. Trỏ `matter_type_stages.key` của **đúng loại vụ việc đó**, không phải FK. **Không được là giai đoạn đầu** của loại vụ việc (xem trên). Guard của M6.5 Task 19 chặn xoá/đổi key còn được đợt `pending` chưa kích hoạt trỏ tới (Task 6) |
 | due_days_after_trigger | unsignedSmallInteger default 0 | "30 ngày kể từ khi toà thụ lý" |
-| due_date | date nullable | `null` = chưa đến đợt. Điền lúc soạn lịch (`due_date`), lúc kích hoạt hợp đồng (`on_signing`), hoặc lúc chạm giai đoạn (`stage`) |
+| due_date | date nullable | `null` = chưa đến đợt |
 | triggered_at | timestamp nullable | Cổng chống kích hoạt hai lần |
 | triggered_by_stage_log_id | FK stage_logs nullable | Bằng chứng "tại sao đợt này đến hạn" |
-| status | enum `InstalmentStatus` | `pending`, `paid`, `waived`, `cancelled` — **chỉ bốn**, xem dưới |
-| waived_reason | text nullable | Bắt buộc ≥ 20 ký tự `mb_strlen` khi `waived` |
+| status | enum `InstalmentStatus` | `pending`, `paid`, `waived`, `cancelled` — **chỉ bốn** |
+| waived_reason | text nullable | Bắt buộc ≥ 20 ký tự `mb_strlen` khi `waived`. **Nội bộ** |
 | waived_by / waived_at | FK users nullable / timestamp nullable | |
 | note | text nullable | **Nội bộ** |
 
-**Không `deleted_at`.** Một đợt của hợp đồng `draft` xoá cứng được; của hợp đồng `active` thì `cancelled` hoặc `waived`, không xoá.
+**Không `deleted_at`.** Đợt của hợp đồng `draft` xoá cứng được; của hợp đồng `active` thì `cancelled` (chỉ qua `AmendContract`) hoặc `waived`, không xoá.
 
-Index: `(due_date, status)` — đúng hình dạng index `(due_date, is_completed)` của `deadlines` ở §4.13, và vì cùng lý do: truy vấn quá hạn chạy hằng ngày trên toàn bảng. `(contract_id)`, `(trigger_stage_key)`.
+Index: `(due_date, status)` — đúng hình dạng index của `deadlines` §4.13, vì truy vấn quá hạn chạy hằng ngày. `(contract_id)`, `(trigger_stage_key)`.
 
-**Hai điều cố ý KHÔNG có trong bảng này, và lý do:**
+**Ba điều cố ý KHÔNG có trong bảng này:**
 
-- **Không có cột `paid_amount`.** Số tiền đã thu của một đợt là `SUM` của `payments` chưa bị huỷ. Một cột tổng hợp là **nguồn sự thật thứ hai về tiền** và nó sẽ lệch — không phải "có thể lệch", mà sẽ, ở lần đầu tiên ai đó huỷ một khoản thu bằng một đường không đi qua Action. Cái giá: mỗi lần đọc "còn phải thu" là một phép join. Ở quy mô vài nghìn hồ sơ đó là cái giá đúng, y như lập luận SPEC §6.13 chọn `LIKE` thay vì Elasticsearch. Nếu có ngày quy mô đổi, câu trả lời là một materialized summary **có job dựng lại được từ `payments`**, không phải một cột ai cũng ghi được.
-- **Không có trạng thái `overdue` trong enum.** Quá hạn là một hàm của thời gian, không phải một sự kiện. Xem "Phát hiện quá hạn" bên dưới.
+- **Không có cột `paid_amount`.** Số đã thu là `SUM` của `payments` chưa huỷ. Một cột tổng hợp là **nguồn sự thật thứ hai về tiền** và nó **sẽ** lệch. Cái giá: mỗi lần đọc "còn phải thu" là một phép join — Task 9 phải đo. Nếu quy mô đổi, câu trả lời là một bảng tổng hợp **dựng lại được từ `payments`**, không phải một cột ai cũng ghi được.
+- **Không có trạng thái `overdue` trong enum.** Quá hạn là hàm của thời gian. Xem "Phát hiện quá hạn".
+- **Không có cột `reminders_sent`.** Trí nhớ chống gửi trùng là `outbound_messages` (M6 R3: "không thêm cột 'đã nhắc lúc nào' ở đâu nữa"). Xem Task 11.
 
-**Bốn trạng thái lưu, bảy trạng thái hiển thị.** `InstalmentStatus` (lưu) chỉ mang những sự thật **không phụ thuộc vào hôm nay là ngày nào**: `pending`, `paid`, `waived`, `cancelled`. Cái người dùng nhìn thấy là `InstalmentState` (suy ra, tính ở **một chỗ duy nhất** — `Instalment::state()`): `scheduled` (chưa có `due_date`), `due`, `overdue`, `partially_paid`, `paid`, `waived`, `cancelled`. Cả hai đều là enum backed string có `label()`; docblock của cả hai phải nói rõ cái nào lưu, cái nào suy ra, và vì sao — nếu không, milestone sau sẽ thêm `overdue` vào cột lưu và hệ thống sẽ có hai câu trả lời cho một câu hỏi.
+**Bốn trạng thái lưu, bảy trạng thái hiển thị.** `InstalmentStatus` (lưu) chỉ mang sự thật **không phụ thuộc hôm nay**: `pending`, `paid`, `waived`, `cancelled`. Cái người dùng thấy là `InstalmentState` (suy ra, **một chỗ duy nhất** — `Instalment::state()`): `scheduled`, `due`, `overdue`, `partially_paid`, `paid`, `waived`, `cancelled`. Docblock của cả hai nói rõ cái nào lưu, cái nào suy ra, và vì sao.
 
 ### `payments` — khoản thu
 
 | Cột | Kiểu | Ghi chú |
 |---|---|---|
-| instalment_id | FK instalments | Một khoản thu thuộc **một** đợt (quyết định 4) |
-| amount | unsignedBigInteger | **Đồng**, > 0 |
-| paid_on | date | Ngày tiền thật sự về, do người nhập chọn — như `stage_logs.occurred_at`. **Không được ở tương lai** (tiền lệ `TransitionMatterStage` bước 3, cùng cách so sánh theo NGÀY ở múi giờ ứng dụng) |
+| instalment_id | FK instalments | Một khoản thu thuộc **một** đợt |
+| amount | unsignedBigInteger | **Đồng**, > 0, ≤ `Money::MAX` |
+| paid_on | date | Ngày tiền thật sự về. **Không được ở tương lai** (so theo NGÀY ở múi giờ ứng dụng, như `TransitionMatterStage` bước 3) |
 | method | enum `PaymentMethod` | `bank_transfer`, `cash`, `card`, `offset` (cấn trừ), `other` |
 | reference | string(100) nullable | Mã giao dịch, số biên lai |
-| receipt_document_id | FK documents nullable | Bản scan uỷ nhiệm chi / phiếu thu, dùng lại nguyên tầng tệp của M4 |
-| note | text nullable | |
-| voided_at / voided_by / void_reason | timestamp, FK users, text — đều nullable | Lý do bắt buộc ≥ 20 ký tự `mb_strlen` khi huỷ |
+| receipt_document_id | FK documents nullable | Bản scan uỷ nhiệm chi / phiếu thu. **Luôn nhóm D** (không vào gói bàn giao M7 R8, không lên cổng) |
+| attributed_lawyer_id | FK users | **P2.** Luật sư phụ trách của vụ **tại lúc ghi**, đọc từ hàng `matters` đang khoá trong cùng transaction. Không bao giờ cập nhật sau đó, kể cả khi bàn giao |
+| note | text nullable | **Nội bộ** |
+| voided_at / voided_by / void_reason | timestamp, FK users, text — đều nullable | Lý do bắt buộc ≥ 20 ký tự `mb_strlen` khi huỷ. **Nội bộ** |
 
-**Không `deleted_at`, và hook `deleting` từ chối mọi lần xoá.** Một khoản thu ghi nhầm được **huỷ kèm lý do**, không biến mất. `created_by` (qua `HasBlameable` + `blameOn($actor)`) là câu trả lời cho "ai ghi khoản này" — **không** thêm một cột `recorded_by` thứ hai; dự án đã có đúng một quy ước cho câu hỏi đó và quy ước thứ hai là chỗ hai giá trị bắt đầu lệch nhau.
+**Không `deleted_at`, và hook `deleting` từ chối mọi lần xoá.** `created_by` (qua `HasBlameable` + `blameOn($actor)`) là câu trả lời cho "ai ghi khoản này" — **không** thêm cột `recorded_by`. `attributed_lawyer_id` trả lời một câu hỏi **khác** ("doanh thu của ai"), nên không trùng.
 
-Index: `(instalment_id)`, `(paid_on)`, `(voided_at)`.
+Index: `(instalment_id)`, `(paid_on)`, `(voided_at)`, `(attributed_lawyer_id, paid_on)`.
 
 ### `contract_amendments` — phụ lục hợp đồng
 
-Chỉ thêm, không sửa, không xoá — cài bằng model guard, tiền lệ `StageLog` / `StageLogImmutable` từ M1.
+Chỉ thêm, không sửa, không xoá — model guard, tiền lệ `StageLog` / `StageLogImmutable`.
 
 | Cột | Kiểu |
 |---|---|
 | contract_id | FK contracts |
 | sequence | unsignedSmallInteger, unique cặp `(contract_id, sequence)` |
 | previous_total_amount / new_total_amount | unsignedBigInteger |
-| reason | text, bắt buộc ≥ 20 ký tự `mb_strlen` |
+| reason | text, bắt buộc ≥ 20 ký tự `mb_strlen`. **Nội bộ** |
 | signed_at | date |
-| document_id | FK documents nullable — bản scan phụ lục |
+| document_id | FK documents nullable — bản scan phụ lục, **nhóm D** |
 
-### `time_entries` — chỉ dựng khung, xem Task 9
+### `time_entries` — chỉ dựng khung, xem Task 12
 
 `matter_id`, `user_id`, `worked_on` date, `minutes` unsignedSmallInteger, `description` text, `is_billable` boolean, `hourly_rate` unsignedBigInteger nullable (đồng/giờ), `invoiced_at` timestamp nullable. **Không Action, không màn hình, không con số nào trên dashboard đọc bảng này ở M9.**
 
 ### Quan hệ thêm vào model đã có
 
-- `Matter::contract(): HasOne`, `Matter::timeEntries(): HasMany` (đóng đúng ghi chú M1: *"Chưa khai báo `Matter::timeEntries()` (SPEC §15) vì chưa có bảng; làm ở giai đoạn 2 cùng bảng `time_entries`"* — giai đoạn 2 chính là đây).
-- `Document::paymentReceipts()`, `Document::contractAmendments()` — để `DeleteDocument` biết tệp đang được một bản ghi tiền trỏ tới.
-- `StageLog::triggeredInstalments(): HasMany` — chiều ngược của bằng chứng kích hoạt.
+- `Matter::contract(): HasOne`; `Matter::timeEntries(): HasMany` ở Task 12 (đóng ghi chú M1).
+- `Document::paymentReceipts()`, `Document::contractAmendments()` — để **`RetractDocument` (M7 Task 7) và `DocumentPolicy::delete`** từ chối rút/xoá một tệp đang được bản ghi tiền trỏ tới. (Không có Action `DeleteDocument`.)
+- `StageLog::triggeredInstalments(): HasMany`.
+- `User::attributedPayments(): HasMany` (P2).
 
-### Cổng khách hàng: cả năm model đóng kín ngay từ đầu
+### Cổng khách hàng: đóng kín ở Task 2, mở có chủ đích ở Task 10
 
-Cả năm model mới dùng `RestrictedToClientPortal` với `applyClientPortalConstraints()` trả về **không gì cả** dưới guard `client`, policy từ chối mọi `ClientUser`, và cột `note` nằm trong `HidesInternalAttributesFromPortal`. `PortalCoverageTest` (lưới an toàn từ M2: *"mọi model mới ở M3–M8 phải hoặc dùng `RestrictedToClientPortal`, hoặc vào danh sách miễn trừ kèm lý do"*) phải xanh mà **không** thêm một dòng miễn trừ nào.
+Task 2: cả bốn model dùng `RestrictedToClientPortal` với `applyClientPortalConstraints()` trả **không gì cả** dưới guard `client`, policy từ chối mọi `ClientUser`, cột nội bộ nằm trong `HidesInternalAttributesFromPortal`. `PortalCoverageTest` (tự quét mọi model) xanh **không** thêm miễn trừ nào.
 
-Làm vậy **không** phải là đã quyết định khách không được xem hợp đồng của mình — xem Câu hỏi 2 cho chủ văn phòng. Làm vậy là để câu trả lời "có" về sau là **một lần nới đúng một điều kiện trong một scope**, thay vì năm mặt phẳng rò rỉ mới phải dựng từ đầu dưới sức ép.
+Task 10 (P1): nới đúng từng điều kiện ở cả ba tầng, cho đúng khách sở hữu vụ, kèm test chứng minh không gì khác mở theo. `TimeEntry` đóng kín mãi.
 
 ---
 
 ## Phát hiện quá hạn: tính lúc đọc, không phải một job ghi trạng thái
 
-**Quyết định: tính lúc đọc.** `Instalment::state()` so `due_date` với `today()` và với số tiền còn lại. `scopeOverdue()` là cùng điều kiện đó viết bằng SQL, cho widget và dashboard.
+**Quyết định: tính lúc đọc.** `Instalment::state()` so `due_date` với `today()` và với số tiền còn lại. `scopeOverdue()` là cùng điều kiện viết bằng SQL, cho widget, trang "Công nợ" và tác vụ nhắc.
 
-Lý do, và tiền lệ đã có trong chính SPEC. §4.13 + §6.8 dựng `deadlines` đúng hình dạng này: một cột `due_date`, một cột `reminders_sent` json, **không có cột `is_overdue`**; job hằng ngày chỉ **gửi** lời nhắc và ghi lại đã gửi mốc nào, nó không phán xử trạng thái. Một job ghi `overdue` vào cột sẽ sai trong 23 giờ mỗi ngày ngay khi ai đó sửa một ngày đến hạn, và nó tạo ra nguồn sự thật thứ hai — cùng lý do đã loại `paid_amount`.
+Tiền lệ: §4.13 + §6.8 dựng `deadlines` không có cột `is_overdue`; job hằng ngày chỉ **gửi** lời nhắc. Một job ghi `overdue` vào cột sẽ sai ngay khi ai đó sửa một ngày đến hạn, và tạo nguồn sự thật thứ hai.
 
-**Job hằng ngày vẫn cần, nhưng chỉ làm hai việc không tính được lúc đọc:**
+**Hai tác vụ hằng ngày của M9, cả hai là Action trong `app/Actions/Schedule/`:**
 
-- `ReconcileStageTriggeredInstalments` — lưới an toàn cho đợt theo giai đoạn (mô tả ở trên). **Thuộc M9.**
-- `RemindOverdueInstalments` — email nhắc công nợ, chống gửi trùng bằng một cột `reminders_sent` json y như `deadlines`. **Đặc tả ở đây, cài ở M6** cùng tầng email và dòng `outbound_messages`. M9 chỉ thêm cột `instalments.reminders_sent` json nullable để M6 không phải mở lại migration. *(Nếu người cài đặt thấy thêm một cột cho một milestone sau là sai nguyên tắc, hãy nói ra và bỏ cột — cái giá là một migration nữa ở M6, và quy tắc round-trip MariaDB áp lại lần nữa. Tôi nghiêng về thêm, nhưng đây là một lựa chọn chứ không phải một sự thật.)*
+- `ReconcileStageTriggeredInstalments` — lưới an toàn cho đợt theo giai đoạn (Task 6).
+- `RemindOverdueInstalments` — thư nhắc nội bộ cho đợt quá hạn (Task 11, P3). Chống trùng qua `outbound_messages`.
 
 ---
 
 ## Tiền trên một vụ việc đã đóng, đã lưu trữ, đã bàn giao, đã xoá mềm
 
-Bốn tình huống, bốn câu trả lời khác nhau, và chúng khác nhau có lý do.
+**Vụ việc đã kết thúc (`closed_at` khác null, M6.5 R8 — tức ngoài `Matter::scopeOpen()`) mà còn công nợ → KHÔNG chặn, nhưng phải nhìn thấy.** Chặn việc đóng hồ sơ vì còn tiền sẽ dạy luật sư đừng đánh dấu hồ sơ đã kết thúc, và SLA §6.4, widget §7.1, lưu trữ M7 đều đọc giai đoạn. Thay vào đó: widget **"Hồ sơ đã kết thúc còn công nợ"** trên trang doanh thu, một bộ lọc trên trang "Công nợ", và một dải cảnh báo trên tab tiền của vụ. Nợ còn được tính cho tới khi thu xong hoặc **miễn tường minh** (`waived`, có lý do và quyền). Dùng `closed_at`, **không** tự suy từ `is_terminal`: dự án có đúng một định nghĩa "đang mở".
 
-**Vụ việc chuyển sang giai đoạn kết thúc (`is_terminal`) mà còn công nợ → KHÔNG chặn, nhưng phải nhìn thấy.** Chặn việc đóng hồ sơ vì còn tiền sẽ dạy luật sư đừng đánh dấu hồ sơ đã kết thúc — và toàn bộ SLA §6.4, widget §7.1 và dòng thời gian portal đều đọc `stage`, nên làm hỏng dữ liệu giai đoạn để đòi tiền là đánh đổi sai. Thay vào đó: một widget **"Hồ sơ đã kết thúc còn công nợ"** trên trang doanh thu, và một dải cảnh báo trên tab tiền của chính vụ việc đó. Tiền không mất, nó chỉ thôi được giấu.
+**Vụ việc bị xoá mềm mà còn công nợ → CHẶN.** Ở kiểm tra xung đột, vụ xoá mềm **vẫn** được đối chiếu. Với tiền thì ngược chiều: truy vấn doanh thu bỏ qua vụ xoá mềm, nên xoá mềm thành cách làm bốc hơi một khoản nợ. Nên `MatterHasOutstandingBalance` được ném ở **cả hai** chỗ: hook `Matter::deleting` **và** bên trong `CancelMatter` (M6.5 Task 5, admin huỷ vụ mở nhầm), khi còn hợp đồng `active` với số dư > 0. Đường đi qua: huỷ (qua phụ lục) hoặc miễn các đợt còn lại, **kèm lý do**, rồi mới xoá. Thông điệp nêu số tiền và số đợt còn lại (tiền lệ §6.11).
 
-**Vụ việc bị xoá mềm mà còn công nợ → CHẶN.** Đây là chỗ câu trả lời phải khác với `RunConflictCheck`. Ở kiểm tra xung đột, M3 đã chốt *"soft-delete nghĩa là ẩn, không phải chưa từng xảy ra"* nên vụ đã xoá mềm **vẫn** được đối chiếu. Với tiền thì ngược chiều: nếu truy vấn doanh thu bỏ qua vụ đã xoá mềm (mà nó phải bỏ qua — ẩn là ẩn), thì xoá mềm một vụ việc trở thành cách làm bốc hơi một khoản công nợ khỏi sổ sách bằng một cú bấm không ai rà. Nên: `Matter::deleting` ném `MatterHasOutstandingBalance` khi còn hợp đồng `active` với số dư > 0. Đường đi qua là huỷ hoặc miễn các đợt còn lại, **kèm lý do**, rồi mới xoá. Tiền lệ trực tiếp: §6.11 chặn vô hiệu hoá một luật sư còn là lead lawyer của vụ đang mở, với đúng hình dạng thông điệp ("nêu rõ số vụ cần bàn giao" → ở đây là số tiền và số đợt còn lại).
+**Khách hàng bị xoá mềm mà còn công nợ → CHẶN.** M6.5 Task 2 chỉ chặn xoá khách còn vụ **đang mở**. Một khách có vụ đã kết thúc còn nợ sẽ lọt qua, và màn hình tiền hiện khách rỗng. Mở rộng đúng kiểm tra đó (không viết kiểm tra thứ hai): còn hợp đồng `active` có dư nợ thì từ chối, thông điệp nêu số tiền.
 
-**Bàn giao (`ReassignMatter`, M7) → tiền không đổi chủ, nhưng phải biết doanh thu ghi cho ai.** Kế hoạch này gán doanh thu theo `matters.lead_lawyer_id` **hiện tại**, và **nói ra điều đó ngay trên biểu đồ** ("theo luật sư phụ trách hiện tại"). Đây là một mặc định, không phải một kết luận — xem Câu hỏi 3.
+**Bàn giao (`ReassignMatter`) → tiền không đổi chủ** (P2): khoản đã thu giữ `attributed_lawyer_id` cũ; còn phải thu đi theo luật sư phụ trách mới.
 
-**Lưu trữ và hết hạn tra cứu (`client_access_until`, `ExpireClientAccess`, M7) → không liên quan tới sổ tiền.** Một vụ việc biến mất khỏi portal của khách vẫn còn nguyên trong sổ. Hai câu hỏi khác nhau, hai scope khác nhau; ghi vào docblock của scope tiền để M7 không vô tình gộp chúng.
+**Lưu trữ và hết hạn tra cứu (`client_access_until`, `ExpireClientAccess`, M7) → không đổi sổ tiền.** Vụ biến mất khỏi portal thì khối hợp đồng trên cổng cũng biến mất (Task 10 kế thừa ranh giới cổng của vụ), nhưng sổ tiền trong admin còn nguyên. Ghi vào docblock của scope tiền.
 
 ---
 
@@ -262,67 +304,65 @@ Chủ văn phòng hỏi biểu đồ tròn. Biểu đồ tròn đúng **chỉ kh
 
 | Câu hỏi | Dạng biểu đồ | Vì sao |
 |---|---|---|
-| **Đã thu / còn phải thu / quá hạn** | **Vành khuyên (donut)** | Đây là nơi duy nhất biểu đồ tròn xứng đáng: đúng một tổng thể (giá trị đã ký), đúng ba phần, cộng lại bằng 100% |
-| Doanh thu theo thời gian | **Cột** (tháng / quý / năm) | Thời gian là một trục, và mắt người so chiều cao cột tốt hơn so góc |
-| Cơ cấu vụ việc theo **12 lĩnh vực hành nghề** | **Cột ngang xếp hạng** | Một biểu đồ tròn 12 lát là không đọc được. Xếp theo giá trị giảm dần — "xếp hạng" nghĩa là xếp hạng, không phải theo `sort_order` |
-| Vụ việc theo giai đoạn | Phễu hoặc **cột ngang** | Đã có `MattersByStageWidget`; xem việc mang sang |
+| **Đã thu / còn phải thu / quá hạn** | **Vành khuyên (donut)** | Nơi duy nhất biểu đồ tròn xứng đáng: một tổng thể, ba phần, cộng lại 100% |
+| Doanh thu theo thời gian | **Cột** (tháng / quý / năm) | Thời gian là một trục |
+| Cơ cấu vụ việc theo **12 lĩnh vực hành nghề** | **Cột ngang xếp hạng** | Biểu đồ tròn 12 lát không đọc được. Xếp theo giá trị giảm dần |
+| Doanh thu đã thu theo đợt/giai đoạn | **Cột ngang** theo thứ tự giai đoạn | Xem `RevenueByStageWidget` |
 | Tải theo luật sư | **Cột ngang** | |
 
-**Bộ lọc:** khoảng thời gian (từ / đến + phím tắt tháng này, quý này, năm nay), luật sư, lĩnh vực, và công tắc **số vụ / số tiền**. Cài bằng `Filament\Pages\Dashboard\Concerns\HasFiltersForm` trên trang + `Filament\Widgets\Concerns\InteractsWithPageFilters` trên từng widget (đã kiểm có trong `vendor/filament/` hôm nay). Công tắc số vụ / số tiền **đổi thứ được đo**, không thêm trục thứ hai — tiền và số đếm không bao giờ dùng chung một trục.
+(`MattersByStageWidget` của trang chủ §7.1 không làm lại ở đây.)
 
-> **KHÔNG làm ô cho người dùng tự đổi kiểu biểu đồ.** Viết ra ở đây vì đó đúng là thứ một người cài đặt sẽ "giúp thêm". Một ô chọn kiểu biểu đồ cho phép người dùng vẽ ra một biểu đồ sai — 12 lĩnh vực thành một hình tròn, một chuỗi thời gian thành một hình tròn — **rồi tin nó**. Cái giá của việc bỏ ô đó là một người dùng đôi khi muốn một kiểu khác; cái giá của việc có nó là một quyết định kinh doanh dựa trên một hình vẽ nói dối. Câu này phải nằm trong docblock của trang, không phải chỉ trong kế hoạch.
+**Bộ lọc:** khoảng thời gian (từ / đến + phím tắt tháng này, quý này, năm nay), luật sư, lĩnh vực, và công tắc **số vụ / số tiền**. `HasFiltersForm` trên trang + `InteractsWithPageFilters` trên từng widget. Công tắc **đổi thứ được đo**, không thêm trục thứ hai.
 
-**Khoảng thời gian lọc cái gì — phải trả lời, vì trộn lẫn là cách một dashboard nói dối.** Hai nghĩa khác nhau, và mỗi widget **phải in nghĩa của mình lên chính nó bằng tiếng Việt**:
+> **KHÔNG làm ô cho người dùng tự đổi kiểu biểu đồ.** Một ô chọn kiểu biểu đồ cho phép người dùng vẽ ra một biểu đồ sai — 12 lĩnh vực thành một hình tròn, một chuỗi thời gian thành một hình tròn — **rồi tin nó**. Câu này phải nằm trong docblock của trang.
 
-- Biểu đồ **cột doanh thu** lọc theo `payments.paid_on` — *"tiền về trong kỳ"*.
-- **Donut** và **cơ cấu lĩnh vực** lọc theo `contracts.signed_at` — *"việc đã ký trong kỳ"* — và trạng thái đã thu / còn phải thu / **quá hạn** tính **tại hôm nay**, không phải tại ngày cuối kỳ. Nhãn trên widget phải nói đúng câu đó.
+**Khoảng thời gian lọc cái gì** — mỗi widget **in nghĩa của mình lên chính nó bằng tiếng Việt**:
 
-**Phân quyền của trang, dùng lại đúng một định nghĩa đã có.** Trang hiện cho ai có `billing.view`; **mọi** widget lấy tập vụ việc gốc từ `Matter::scopeListableBy($user)` — định nghĩa duy nhất của "nhân sự thấy vụ việc nào" từ M2, và nó đã trả đúng: luật sư chỉ vụ của mình, kế toán và quản lý toàn bộ. Riêng hai widget **so sánh toàn văn phòng** (tải theo luật sư, cơ cấu lĩnh vực) đòi thêm `revenue.viewAny`, vì với một luật sư chúng vừa vô nghĩa vừa tọc mạch.
+- **Cột doanh thu** lọc theo `payments.paid_on` — *"tiền về trong kỳ"*.
+- **Donut** và **cơ cấu lĩnh vực** lọc theo `contracts.signed_at` — *"việc đã ký trong kỳ"* — và đã thu / còn phải thu / **quá hạn** tính **tại hôm nay**.
 
-**Định dạng tiền một chỗ duy nhất:** `App\Support\Money::format(int $dong): string` → `1.250.000 ₫`. Tooltip của Chart.js **cũng** phải đi qua nó; nếu không, một tỷ đồng hiện ra là `1250000000` và không ai đọc được. Có test.
+**Bộ lọc luật sư có hai nghĩa, và widget in ra nghĩa của mình** (P2): tiền **đã thu** lọc theo `payments.attributed_lawyer_id` ("luật sư phụ trách lúc thu"); tiền **còn phải thu / quá hạn** và số vụ lọc theo `matters.lead_lawyer_id` ("luật sư phụ trách hiện tại").
+
+**Phân quyền của trang, dùng đúng một định nghĩa** (P3). Trang mở cho ai có `billing.view` (`canAccess()` + `Gate::forUser()` + `abort(404)`). **Mọi** widget lấy tập vụ việc gốc từ `Matter::scopeListableBy($user)`: luật sư thấy vụ của mình (kể cả vụ `restricted` mình phụ trách); kế toán và quản lý thấy mọi vụ **thường**, không thấy vụ `restricted`; admin thấy tất cả. Hai widget **so sánh toàn văn phòng** (tải theo luật sư, cơ cấu lĩnh vực) đòi thêm `revenue.viewAny`.
+
+**Định dạng tiền một chỗ:** `App\Support\Billing\Money::format(int $dong): string` → `1.250.000 ₫`, và `Money::parse(string): int` nhận `"1.250.000"` → `1250000` (dấu chấm là phân cách nghìn, không phải thập phân). Tooltip Chart.js: xem Task 9 — phụ thuộc phán quyết CSP của M8 R4, và **không** được viết bộ định dạng tiền thứ hai bằng JS.
 
 ---
 
 ## Hệ thống màu và quy cách biểu đồ — đã kiểm chứng bằng máy, ngày 2026-09-22
 
-Bổ sung sau khi chủ văn phòng hỏi lại về biểu đồ. **Không chọn màu bằng mắt.** Bộ màu dưới đây đã chạy qua bộ kiểm sáu phép (dải độ sáng, sàn độ bão hoà, tách biệt cho người mù màu, sàn cho mắt thường, tương phản trên nền) **ở cả hai nền: trắng `#ffffff` và nền tối `#18181b`** — và cùng một bộ ba đạt ở cả hai, nên widget **không cần đổi màu theo chế độ**, chỉ đổi màu chữ và lưới.
+**Không chọn màu bằng mắt.** Bộ màu dưới đây đã chạy qua bộ kiểm sáu phép (dải độ sáng, sàn độ bão hoà, tách biệt cho người mù màu, sàn cho mắt thường, tương phản trên nền) **ở cả hai nền: trắng `#ffffff` và nền tối `#18181b`**, nên widget **không cần đổi màu theo chế độ**, chỉ đổi màu chữ và lưới. Đây là màu **dữ liệu** truyền vào Chart.js; chữ và khung vẫn theo biến CSS của Filament.
 
 **Bộ ba của biểu đồ vành khuyên** (đã thu / còn phải thu / quá hạn):
 
 | Phần | Mã màu | Vai trò |
 |---|---|---|
 | Đã thu | `#0ca30c` | trạng thái tốt |
-| Còn phải thu, chưa tới hạn | `#4a73bd` | **chính là màu thương hiệu**, bậc 500 của dải primary |
-| Quá hạn | `#d03b3b` | trạng thái nghiêm trọng |
+| Còn phải thu, chưa tới hạn | `#4a73bd` | trùng bậc 500 của dải màu **cổng khách** (`config/vkcrm.php` `primary_ramp.500`). Panel admin dùng `primary = Slate`, nên trên admin đây là màu dữ liệu, không phải màu thương hiệu |
+| Quá hạn | `#d03b3b` | trạng thái nghiêm trọng. Gần nhưng **không** bằng `danger` của admin (`#c6283d`, đỏ thương hiệu); giữ `#d03b3b` vì bộ số đo dưới đây đo trên nó |
 
-Số đo: tách biệt mù màu ΔE 19.9 ở cặp xấu nhất, mắt thường 27.6, cả ba đều vượt tương phản 3:1 trên **cả hai** nền. Chỉ có một màu xanh dương duy nhất trong toàn bộ trang, cố ý — hai sắc xanh gần nhau ở hai biểu đồ khác nhau là cách nhanh nhất để người đọc tưởng chúng cùng nghĩa.
+Số đo: tách biệt mù màu ΔE 19.9 ở cặp xấu nhất, mắt thường 27.6, cả ba vượt tương phản 3:1 trên **cả hai** nền. Chỉ có một màu xanh dương duy nhất trong toàn trang, cố ý.
 
-**Cột một chuỗi dùng đúng một màu** `#4a73bd`, đạt cả hai nền. Một chuỗi thì **không có chú giải** — tiêu đề đã gọi tên nó rồi.
+**Cột một chuỗi dùng đúng một màu** `#4a73bd`. Một chuỗi thì **không có chú giải**.
 
 **Luật bắt buộc, chép vào docblock của trang:**
 
-- **Không bao giờ hai trục y.** Hai đại lượng khác thang thì hai biểu đồ, không phải hai trục. Công tắc *số vụ / số tiền* đã có trong kế hoạch này chính là cách né đúng.
-- **Màu đi theo thực thể, không đi theo thứ hạng.** Lọc bớt một lĩnh vực thì các lĩnh vực còn lại **không được đổi màu**.
+- **Không bao giờ hai trục y.**
+- **Màu đi theo thực thể, không đi theo thứ hạng.** Lọc bớt một lĩnh vực thì các lĩnh vực còn lại **không đổi màu**.
 - **Một sắc cho thang liên tục, hai sắc cộng một xám ở giữa cho thang hai cực. Không bao giờ cầu vồng.**
-- **Chú giải luôn có khi từ hai chuỗi trở lên**, và các lát của vành khuyên phải có **nhãn trực tiếp ghi số**, vì cặp đỏ–xanh ở trên nằm sát dải cảnh báo của thị giác tritan; nhãn là lớp mã hoá thứ hai bắt buộc, không phải trang trí.
-- **Chữ mặc màu chữ, không mặc màu chuỗi.** Con số và nhãn dùng màu chữ của Filament; ô màu nhỏ bên cạnh mới mang danh tính.
-- **Bốn màu trạng thái là của riêng trạng thái**, không bao giờ tái sử dụng làm "chuỗi thứ tư", và luôn đi kèm biểu tượng và chữ.
-- **Luôn có một bảng số** đi kèm mỗi biểu đồ, mở ra được. Ai không đọc được màu vẫn phải đọc được dữ liệu, và người muốn con số chính xác cũng cần nó.
+- **Chú giải luôn có khi từ hai chuỗi trở lên**, và lát vành khuyên có **nhãn trực tiếp ghi số** (cặp đỏ–xanh nằm sát dải cảnh báo tritan).
+- **Chữ mặc màu chữ, không mặc màu chuỗi.**
+- **Bốn màu trạng thái là của riêng trạng thái**, luôn đi kèm biểu tượng và chữ.
+- **Luôn có một bảng số** đi kèm mỗi biểu đồ, mở ra được, định dạng qua `Money::format()` ở phía PHP.
 - **Khoảng 2px nền giữa các mảng liền nhau**, đầu cột bo 4px, điểm đánh dấu tối thiểu 8px.
 
-**Một widget nữa, đúng thứ chủ văn phòng vừa hỏi và kế hoạch cũ chưa có:**
-
-`RevenueByStageWidget` — **doanh thu đã thu theo từng đợt/giai đoạn**. Cột ngang xếp theo thứ tự giai đoạn của loại vụ việc (không xếp theo giá trị, vì ở đây thứ tự thời gian chính là thông tin), mỗi cột là tổng tiền thực nhận của các đợt gắn vào giai đoạn đó. Trả lời đúng câu hỏi vận hành: *văn phòng đang kẹt tiền ở khúc nào của quy trình.* Cùng bộ lọc, cùng một màu, cùng bảng số đi kèm.
+**`RevenueByStageWidget`** — doanh thu đã thu theo từng đợt/giai đoạn. Cột ngang xếp theo thứ tự giai đoạn của loại vụ việc (thứ tự thời gian chính là thông tin), mỗi cột là tổng tiền thực nhận của các đợt gắn vào giai đoạn đó. Trả lời: *văn phòng đang kẹt tiền ở khúc nào của quy trình.*
 
 ---
 
 ## 12 lĩnh vực hành nghề — thuộc kế hoạch này, và là Task 1
 
-Seeder hiện có **sáu** loại vụ việc; văn phòng hành nghề **mười hai** lĩnh vực (lấy từ luatvukhang.com). Nghĩa là **một nửa dịch vụ của văn phòng hôm nay không mở được thành hồ sơ.**
-
-**Quyết định: đóng khoảng trống đó trong kế hoạch này, ở một task riêng, và là task ĐẦU TIÊN.** Lý do nó thuộc về đây chứ không phải một việc vặt để sau: biểu đồ đinh của trang doanh thu là *cơ cấu vụ việc theo lĩnh vực hành nghề*, và một biểu đồ hiện 6 trên 12 lĩnh vực là một biểu đồ kể cho chủ văn phòng một câu chuyện sai về chính văn phòng của mình. Lý do nó là task **riêng**: nó không đụng một dòng mã nghiệp vụ nào, nó đụng dữ liệu cấu hình mà **fixture của mọi test khác đang ngồi lên**, nên nó phải xong và ổn định trước khi bốn người khác bắt đầu viết test.
-
-Đối chiếu:
+Seeder hiện có **sáu** loại vụ việc; văn phòng hành nghề **mười hai** lĩnh vực (lấy từ luatvukhang.com). Biểu đồ đinh của trang doanh thu là *cơ cấu vụ việc theo lĩnh vực*, và một biểu đồ hiện 6 trên 12 lĩnh vực kể cho chủ văn phòng một câu chuyện sai. Task **riêng** và **đầu tiên**, vì nó đụng dữ liệu cấu hình mà fixture của mọi test khác ngồi lên.
 
 | Lĩnh vực của văn phòng | Trạng thái |
 |---|---|
@@ -339,44 +379,48 @@ Seeder hiện có **sáu** loại vụ việc; văn phòng hành nghề **mườ
 | Thuế và tài chính | **thiếu** — `TC` |
 | Xây dựng và hạ tầng | **thiếu** — `XD` |
 
-**Cái bẫy phải nói trước: đổi `name` thì được, đổi `code` thì KHÔNG.** SPEC §6.1 nói *"Mã không bao giờ đổi sau khi tạo"*, và `matters.code` đã nhúng mã loại (`VK-2026-DD-0147`). Đổi `matter_types.code` là làm mồ côi mọi mã hồ sơ đã sinh. Task 1 chỉ đổi `name`.
+**Đổi `name` thì được, đổi `code` thì KHÔNG** (§6.1; `matters.code` nhúng mã loại `VK-2026-DD-0147`).
 
-**Bộ giai đoạn cho sáu loại mới là kiến thức tố tụng, không phải việc gõ máy — và kế hoạch này không được bịa nó ra.** Xem Câu hỏi 1.
+**Chạy trên production đã có dữ liệu.** `MatterTypeSeeder` hôm nay dùng `updateOrCreate(['code'], ['name', 'sort_order'])`: chạy lại là ghi đè tên và thứ tự admin đã sửa trong app. Task 1 đổi thành "tạo nếu chưa có, không bao giờ ghi đè", và bốn lần đổi tên đi bằng **migration dữ liệu một lần**, chỉ đổi khi tên hiện tại vẫn **đúng bằng** tên seed cũ.
+
+**Bộ giai đoạn cho sáu loại mới là kiến thức tố tụng.** Sổ controller đã quyết: bộ năm giai đoạn chung, **đánh dấu tạm**, không công bố ra cổng, cho tới khi chủ văn phòng mô tả quy trình thật. **Bẫy:** `StagePresets::for()` có `default => self::civil()` (`app/Support/StagePresets.php`), nên chỉ thêm sáu mã vào seeder sẽ lặng lẽ cấp cho chúng **bộ tố tụng dân sự đầy đủ** (nộp đơn, toà thụ lý, phúc thẩm…), không phải bộ tạm. Phải có nhánh tường minh.
 
 ---
 
-## Việc bắt buộc mang sang từ rà soát M2/M3/M4/M5
-
-Ghi ở đây để không rơi. Mỗi mục có task phụ trách.
+## Việc bắt buộc mang sang từ rà soát M2–M8
 
 | Việc | Nguồn | Task |
 |---|---|---|
-| `MattersByStageWidget` gộp theo **nhãn** giai đoạn, nên hai loại vụ việc có giai đoạn trùng nhãn bị cộng chung một cột — số liệu sai. Hôm nay là lý thuyết; với **12** loại vụ việc nó thành chắc chắn (mọi loại đều có "Tiếp nhận", "Thu thập hồ sơ") | Rà soát M3 → kế hoạch M4 Task 7 → M5 Task 7 | **1** (task làm cho lỗi tiềm ẩn thành lỗi thật thì sở hữu bản vá; nếu M4/M5 đã sửa thì chỉ xác nhận bằng một test hai loại trùng nhãn) |
-| `TransitionMatterStage` vẫn nhận `DateTimeInterface\|string` rồi `Carbon::parse` — tức nó mang lỗi I6 của M4: chuỗi không parse được ném `Carbon\InvalidFormatException`, **ngoài** hợp đồng `DomainException` mà mọi màn hình được dặn bắt, nên thành 500 | Ledger M4, "Deliberately NOT fixed" | **6** (task này là task duy nhất của M9 đụng vào tệp đó; sửa theo đúng cách M4 đã sửa `issuedAt`: parse tường minh → `ValidationException`) |
-| `MatterChecklistItem` chưa dùng `LogsActivity` | Ledger M4 | — (không thuộc M9; ghi lại để không tưởng là đã xong) |
-| `DocumentPolicy::publish` / `::delete` mang cùng vế `document.publish` đã **sống sót** một mutation probe ở `RegroupDocument`, và test của chúng cũng dùng trợ lý — cần probe lại | Ledger M4, "Carried, not fixed" | — (M4/M5 sở hữu; nếu rơi tới đây thì Task 10 nhặt) |
-| `MatterPolicy::view` chạy một EXISTS mỗi lần gọi; **mọi** widget doanh thu gọi policy hoặc `listableBy` theo dòng | Rà soát M2 Task 5 | **8** (đếm truy vấn, có ngưỡng nêu rõ lý do) |
-| **404 chứ không 403 cho mọi từ chối trong panel**, và **không** map exception nghiệp vụ sang mã HTTP riêng | M4 Task 2 + Task 3 ruling (c) | **7**, **8** |
-| False-green `PersistentMiddleware` memoise theo `{method}\|{path}`: hai POST cùng path trong một `it()` → lần hai chạy không middleware bền | M4 Task 2 fix round | mọi task có màn hình |
-| Chuỗi tiếng Việt đếm bằng `mb_strlen`, **không** `strlen` | M3 | **4**, **5** |
-| `LogsActivity` trên model có `SoftDeletes` ghi giá trị cũ dưới khoá `old`, **không** `attributes` | M4 Task 3 fix round | **10** (đọc nhật ký) |
-| **Không viết mã Filament 5 từ trí nhớ** | Kế hoạch M3, nhắc lại M5 | mọi task |
-| `expect(fn () => ...)->not->toThrow(Throwable::class)` là một test **không thể đỏ** — `Throwable` là interface nên `class_exists` false và nhánh `not` của Pest nuốt cả hai kiểu hỏng. Còn ít nhất hai chỗ dùng dạng này trong bộ test | Ledger M4 Task 1 | mọi task (đừng viết thêm; nếu đi ngang qua thì sửa) |
+| `MattersByStageWidget` gộp theo nhãn: **đã vá ở M4** (`MattersByStageWidget.php`, gộp theo `(matter_type_id, stage)`). Với 12 loại, "Tiếp nhận" có ở cả 12 | Rà soát M3 → M4 | **1** (chỉ thêm test hồi quy hai loại trùng nhãn) |
+| `TransitionMatterStage` nhận `DateTimeInterface\|string` rồi `Carbon::parse` — lỗi I6: chuỗi hỏng ném `InvalidFormatException`, ngoài hợp đồng `DomainException`, thành 500. Vẫn còn; M6.5 Task 10 không nhận | Ledger M4 | **6** (nếu M6.5/M7 đã sửa thì chỉ xác nhận bằng test) |
+| `MatterChecklistItem` chưa dùng `LogsActivity` | Ledger M4 | — (không thuộc M9; ghi lại) |
+| `DocumentPolicy::publish` / `::delete` cần probe lại | Ledger M4 | 13 nhặt nếu còn rơi |
+| `MatterPolicy::view` chạy một EXISTS mỗi lần gọi | Rà soát M2 Task 5 | **8**, **9** (dùng `listableBy` ở tầng truy vấn, đếm truy vấn) |
+| **404 chứ không 403**, không map exception sang mã HTTP riêng | M4 | **7**, **8**, **9**, **10** |
+| False-green `PersistentMiddleware` | M4 | mọi task có màn hình |
+| Chuỗi tiếng Việt đếm bằng `mb_strlen` | M3 | **4**, **5** |
+| `LogsActivity` trên model có `SoftDeletes` ghi giá trị cũ dưới khoá `old` | M4 | **13** |
+| `expect(fn () => ...)->not->toThrow(Throwable::class)` là test **không thể đỏ**. Còn ở `tests/Feature/Portal/LoginTest.php:1304` | Ledger M4 | mọi task (đừng viết thêm) |
 
 ---
 
-## Cần chủ văn phòng quyết trước khi bắt đầu task tương ứng
+## Câu hỏi cho chủ văn phòng
 
-Đây là quyết định **nghiệp vụ**, không phải kỹ thuật. Kế hoạch này cố ý **không** quyết thay. Mỗi câu có một mặc định để không chặn việc, và mỗi mặc định đảo ngược được.
+**Sáu câu cũ đã có câu trả lời** (sổ controller; P6). Mỗi câu trả lời **chủ văn phòng đảo được**:
 
-| # | Câu hỏi | Vì sao không tự quyết được | Mặc định | Chặn task |
-|---|---|---|---|---|
-| **1** | **Bộ giai đoạn cho sáu lĩnh vực mới.** Một vụ "hành chính và giấy phép" hay "sở hữu trí tuệ" đi qua những bước nào ở văn phòng này? | Đây là kiến thức hành nghề. Một bộ giai đoạn bịa ra sẽ hiện thẳng cho khách hàng qua `client_label` và `client_description` ở SPEC §8.3 — tức văn phòng sẽ giải thích sai quy trình của chính mình cho khách | Mỗi loại mới nhận **một bộ năm giai đoạn chung** (`intake → collecting_documents → drafting → in_progress → closed`) được **đánh dấu là tạm** trong `description` và trong `docs/PROGRESS.md`, và không loại nào trong sáu loại mới được bật `is_published_to_portal` cho tới khi chủ văn phòng duyệt bộ giai đoạn thật | **1** (mặc định cho phép chạy tiếp) |
-| **2** | **Khách có xem được hợp đồng và lịch thu của mình trên portal không?** | Họ đã ký nó, nên đó là thông tin của chính họ — lập luận này mạnh. Nhưng đây vẫn là một quyết định **công bố**: một khách đang có tranh chấp đọc được dòng "đợt 3 sẽ thu khi có bản án sơ thẩm" có thể đọc nó là một lời hứa về kết quả. Và SPEC §5 phần Portal liệt kê **bảy** loại dữ liệu khách được thấy; thêm một loại là mở rộng phạm vi, đúng thứ cần chữ ký chứ không phải suy ra (M5 đã dựng đúng tiền lệ này với `communication_logs`) | **Không** ở M9. Cả năm model đóng kín ở cả ba tầng ngay từ Task 2, nên câu trả lời "có" về sau là một lần nới có kiểm soát | **2** (đóng kín), và một task riêng của milestone sau nếu câu trả lời là có |
-| **3** | **Doanh thu ghi cho luật sư nào khi vụ việc đã bàn giao?** Luật sư phụ trách hiện tại, hay người phụ trách lúc tiền về? | Nếu con số này có ngày dính tới thưởng hay đánh giá, thì đây là câu hỏi về thù lao của con người, không phải về một câu `GROUP BY` | Luật sư phụ trách **hiện tại**, và biểu đồ **nói ra điều đó** | **8** (mặc định cho phép chạy tiếp; nhưng nếu câu trả lời là "lúc tiền về" thì `payments` cần thêm một cột và đó là một migration — hỏi **trước** Task 2 nếu kịp) |
-| **4** | **Ai được xoá một hợp đồng còn `draft`?** Kế hoạch cho `contract.manage`, tức gồm cả luật sư trên vụ của mình | Một hợp đồng `draft` chưa ràng buộc ai nên rủi ro thấp; nhưng nếu văn phòng muốn mọi con số tiền đi qua kế toán ngay từ bản nháp thì đó là một lựa chọn hợp lệ và khác | Như trên: `contract.manage` | **3** |
-| **5** | **Giá trị hợp đồng có được ghi đè bởi chính người soạn không, hay cần người thứ hai duyệt?** | Với văn phòng nhỏ, bắt hai người duyệt mỗi hợp đồng là cái cổng người ta học cách bấm cho xong (cùng bài học với ghi đè xung đột ở M3). Với văn phòng lớn hơn thì ngược lại | Một người. Phụ lục cần lý do ≥ 20 ký tự và để lại dấu vết, đó là tuyến kiểm soát | **4** |
-| **6** | **Có dựng khung `time_entries` bây giờ không?** (SPEC §15 nói đây là thứ khó gắn thêm sau nhất) | Một bảng không ai ghi là một khoản nợ kỹ thuật; nhưng SPEC nói thẳng nó là thứ khó bolt-on nhất, và ghi chú M1 đã hoãn nó "sang giai đoạn 2 cùng bảng `time_entries`" — giai đoạn 2 chính là đây | **Có**, ở Task 9, task **cuối** và **không có task nào khác phụ thuộc vào nó** — nếu chủ văn phòng nói không thì xoá đúng một task | **9** |
+| # | Câu hỏi | Trả lời | Task |
+|---|---|---|---|
+| 1 | Bộ giai đoạn cho sáu lĩnh vực mới | Bộ năm giai đoạn chung (`intake → collecting_documents → drafting → in_progress → closed`), **đánh dấu tạm**, không loại mới nào bật `is_published_to_portal` trong dữ liệu mẫu, cho tới khi chủ văn phòng mô tả quy trình thật | 1 |
+| 2 | Khách có xem hợp đồng và lịch thu trên cổng không | **Có** (P1) | 2, 10 |
+| 3 | Doanh thu ghi cho ai sau bàn giao | **Luật sư phụ trách lúc tiền về**, lưu trên dòng khoản thu (P2) | 2, 5, 9 |
+| 4 | Ai xoá được hợp đồng `draft` | Người có `contract.manage`, chỉ khi còn `draft` **và chưa có khoản thu nào** | 3, 4 |
+| 5 | Có cần người thứ hai duyệt giá trị hợp đồng | **Không** | 4 |
+| 6 | Có dựng khung `time_entries` | **Có**, task cuối, xoá được | 12 |
+
+**Còn mở, không chặn task nào:**
+- Bộ giai đoạn thật cho sáu lĩnh vực mới (câu 1).
+- Nơi lưu bằng chứng khách **đồng ý cho dùng AI** (điều khoản riêng trong hợp đồng dịch vụ, `docs/research/2026-09-24-mcp-phap-ly-goi.md:372`). M11 làm trước và lưu nó ở cờ `matters.ai_access` kèm ô tích "Khách đã đồng ý bằng văn bản" (kế hoạch M11 R9). M9 **không** thêm cột thứ hai; tab hợp đồng chỉ hiện trạng thái cờ đó, chỉ đọc. Nếu chủ văn phòng muốn bằng chứng gắn với bản ghi hợp đồng (phiên bản điều khoản, bản scan), đó là một đính chính cho M11, không phải một cột của M9.
+- Đầu mục danh mục "✱ Hợp đồng dịch vụ pháp lý và giấy uỷ quyền" (SPEC §4.9) gộp **hai** giấy tờ trong một đầu mục. Có tách làm hai không? (xem Task 7).
 
 ---
 
@@ -384,176 +428,201 @@ Ghi ở đây để không rơi. Mỗi mục có task phụ trách.
 
 | Đường dẫn | Trách nhiệm |
 |---|---|
-| `database/migrations/*_create_contracts_table.php` … `_create_time_entries_table.php` | Năm migration, mỗi cái một bảng |
-| `app/Models/{Contract,Instalment,Payment,ContractAmendment,TimeEntry}.php` | Guard bất biến / chống xoá ở model, đúng chỗ Action không phủ được |
+| `database/migrations/*_create_{contracts,instalments,payments,contract_amendments}_table.php` | **Bốn** migration ở Task 2; `time_entries` ở Task 12 |
+| `database/migrations/*_rename_matter_types_to_office_names.php` | Migration dữ liệu một lần (Task 1) |
+| `app/Models/{Contract,Instalment,Payment,ContractAmendment,TimeEntry}.php` | Guard bất biến / chống xoá ở model |
 | `app/Enums/{ContractStatus,BillingModel,InstalmentTrigger,InstalmentStatus,InstalmentState,PaymentMethod}.php` | Backed string, có `label()` |
 | `app/Policies/{Contract,Instalment,Payment,ContractAmendment,TimeEntry}Policy.php` | |
-| `app/Actions/Billing/DraftContract.php` | Soạn hợp đồng + lịch thu, trạng thái `draft` |
-| `app/Actions/Billing/ActivateContract.php` | Cổng bất biến tổng: không khớp thì không rời `draft` |
-| `app/Actions/Billing/AmendContract.php` | Phụ lục: đổi tổng + lịch, sinh `contract_amendments` |
-| `app/Actions/Billing/{CancelContract,CompleteContract}.php` | |
-| `app/Actions/Billing/{RecordPayment,VoidPayment}.php` | |
-| `app/Actions/Billing/{WaiveInstalment,CancelInstalment}.php` | |
+| `app/Actions/Billing/{DraftContract,ActivateContract,AmendContract,CancelContract,CompleteContract}.php` | |
+| `app/Actions/Billing/{RecordPayment,VoidPayment,WaiveInstalment}.php` | Huỷ một đợt của hợp đồng `active` chỉ đi qua `AmendContract` |
 | `app/Actions/Billing/TriggerInstalmentsForStage.php` | Đường **duy nhất** một đợt theo giai đoạn được kích hoạt |
-| `app/Support/Billing/{Money,Vat,SplitByPercent,BillingSummary,AccountantBillingRow}.php` | `AccountantBillingRow` là DTO readonly giới hạn thông tin, tiền lệ `ConflictMatch` §6.10 |
-| `app/Events/MatterStageChanged.php` | `ShouldDispatchAfterCommit`, không mang trường tiền nào |
-| `app/Listeners/ReleaseStageTriggeredInstalments.php` | |
-| `app/Jobs/ReconcileStageTriggeredInstalments.php` + `routes/console.php` | Dòng `Schedule::` đầu tiên của dự án |
-| `app/Console/Commands/CheckBillingInvariants.php` | `billing:check-invariants` — quét mọi hợp đồng `active` |
+| `app/Actions/Schedule/{ReconcileStageTriggeredInstalments,RemindOverdueInstalments}.php` + `routes/console.php` | Hai tác vụ hằng ngày |
+| `app/Actions/Notification/ResolveStaffRecipients.php` | Thêm cổng "được xem tiền của vụ" (Task 11) |
+| `app/Support/Billing/{Money,Vat,SplitByPercent,BillingSummary,AccountantBillingRow}.php` | `AccountantBillingRow` là DTO readonly giới hạn thông tin, tiền lệ `ConflictMatch` |
+| sự kiện đổi giai đoạn (dùng lại của M7 nếu có) + `app/Listeners/ReleaseStageTriggeredInstalments.php` | |
+| `app/Console/Commands/CheckBillingInvariants.php` | `billing:check-invariants` |
 | `app/Exceptions/{ContractTotalMismatch,ContractNotAmendable,InstalmentNotPayable,PaymentExceedsInstalment,MatterHasOutstandingBalance,BillingModelNotSupported}.php` | |
 | `app/Filament/Admin/Resources/Matters/RelationManagers/BillingRelationManager.php` | Tab "Hợp đồng và thanh toán" trên trang vụ việc |
+| `app/Filament/Admin/Pages/Receivables.php` | Trang "Công nợ" của kế toán |
 | `app/Filament/Admin/Pages/RevenueDashboard.php` | Trang doanh thu, `HasFiltersForm` |
-| `app/Filament/Admin/Widgets/Revenue/{ReceivablesDonut,RevenueOverTime,RevenueByStage,MatterMixByPracticeArea,LoadPerLawyer,ClosedWithBalance}Widget.php` | |
-| `lang/vi/billing.php`, bổ sung `lang/vi/{enums,permissions,widgets,exceptions}.php` | |
-| `database/seeders/{MatterTypeSeeder,ChecklistTemplateSeeder,BillingSeeder}.php`, `app/Support/StagePresets.php` | |
-| `tests/Feature/Actions/Billing/*`, `tests/Feature/Authorization/BillingAccessTest.php`, `tests/Feature/Filament/RevenueDashboardTest.php` | |
+| `app/Filament/Admin/Widgets/Revenue/{ReceivablesDonut,RevenueOverTime,RevenueByStage,MatterMixByPracticeArea,LoadPerLawyer,ClosedWithBalance}Widget.php` | **Sáu** widget, đều `$isDiscovered = false` |
+| `app/Filament/Portal/Pages/MatterProgress.php` + view | Khối "Hợp đồng và thanh toán" trên cổng (Task 10) |
+| thư `staff.instalment_overdue` theo khuôn thư M6 | Task 11 |
+| `lang/vi/billing.php`, bổ sung `lang/vi/{enums,permissions,widgets,exceptions,portal,mail}.php` | |
+| `database/seeders/{MatterTypeSeeder,ChecklistTemplateSeeder}.php` (trong `ReferenceDataSeeder`), `database/seeders/BillingSeeder.php` (trong `DemoDataSeeder`), `app/Support/StagePresets.php` | |
+| `tests/Feature/Actions/Billing/*`, `tests/Feature/Authorization/BillingAccessTest.php`, `tests/Feature/Filament/{BillingRelationManager,Receivables,RevenueDashboard}Test.php`, `tests/Feature/Portal/BillingOnPortalTest.php` | |
 
 ---
 
 ### Task 1: Mười hai lĩnh vực hành nghề
 
-**Files:** `database/seeders/MatterTypeSeeder.php`, `app/Support/StagePresets.php`, `database/seeders/ChecklistTemplateSeeder.php`, `app/Filament/Admin/Widgets/MattersByStageWidget.php`, `lang/vi/matter_types.php`, `tests/Feature/Seeders/MatterTypeSeederTest.php`, `tests/Feature/Filament/MattersByStageWidgetTest.php`
+**Files:** `database/seeders/MatterTypeSeeder.php`, `database/migrations/*_rename_matter_types_to_office_names.php`, `app/Support/StagePresets.php`, `database/seeders/ChecklistTemplateSeeder.php`, `lang/vi/matter_types.php`, `docs/SPEC.md` (§12), `tests/Feature/Seeders/MatterTypeSeederTest.php`, `tests/Feature/Filament/MattersByStageWidgetTest.php`
 
-**Interfaces:** Produces — mười hai `matter_types` đang hoạt động, mỗi loại có bộ giai đoạn đầy đủ và ít nhất một `checklist_template`. Consumes — không gì.
+**Interfaces:** Produces — mười hai `matter_types` đang hoạt động, mỗi loại có bộ giai đoạn và ít nhất một `checklist_template`. Consumes — `ReferenceDataSeeder` (M6.5 Task 19).
 
-1. Sáu loại mới: `HC`, `TM`, `NH`, `SH`, `TC`, `XD` theo bảng ở trên. Bốn loại cũ **đổi tên** cho khớp cách văn phòng tự gọi; **`code` không đổi một chữ nào** (SPEC §6.1, `matters.code` đã nhúng mã loại — đổi là làm mồ côi mọi mã hồ sơ đã sinh). Test khẳng định đúng điều đó.
-2. **Bộ giai đoạn: chờ Câu hỏi 1.** Nếu chưa có câu trả lời, dùng bộ năm giai đoạn chung, đánh dấu **tạm** trong `description`, và ghi vào `docs/PROGRESS.md`. Không loại mới nào được dùng làm dữ liệu demo có `is_published_to_portal = true` cho tới khi bộ giai đoạn được duyệt — khách hàng demo sẽ đọc `client_label` và `client_description`.
-3. `checklist_templates`: SPEC §12 đòi 12 đầu mục cho đất đai và **hai** template khác. Sáu loại mới mỗi loại cần ít nhất một template tối thiểu để `ApplyChecklistTemplate` không sinh ra một vụ việc không có danh mục nào.
-4. **Vá `MattersByStageWidget`** (việc mang sang từ M3, qua M4 Task 7 và M5 Task 7): gộp theo `(matter_type_id, stage)` thay vì theo `label`. Với 12 loại, "Tiếp nhận" xuất hiện ở cả 12 nên lỗi này thành chắc chắn. Nếu M4/M5 đã vá thì chỉ thêm test hai loại trùng nhãn để nó không hồi quy.
-5. **Không có migration** trong task này. Nếu người cài đặt thấy mình cần một migration thì đó là một sai lệch so với kế hoạch — báo lại trước khi viết, và khi đó quy tắc round-trip MariaDB áp dụng đầy đủ.
+0. **Dò trước** (xem "Vị trí trong thứ tự dựng"): grep các tên M6.5/M7/M8/M11 mà M9 dùng lại, dán kết quả vào báo cáo.
+1. Sáu loại mới: `HC`, `TM`, `NH`, `SH`, `TC`, `XD`. `MatterTypeSeeder` chuyển sang **tạo nếu chưa có, không ghi đè** (`firstOrCreate` theo `code`), nằm trong `ReferenceDataSeeder`. Bốn loại cũ **đổi tên** bằng migration dữ liệu một lần, chỉ khi tên hiện tại đúng bằng tên seed cũ; `code` không đổi một chữ nào.
+2. **Bộ giai đoạn tạm** (câu 1): thêm vào `StagePresets::for()` **nhánh tường minh** cho `HC`/`TM`/`NH`/`SH`/`TC`/`XD` trỏ tới bộ năm giai đoạn tạm. Đánh dấu **tạm** trong `description`, ghi vào PROGRESS. Mọi `client_description` ≥ 30 ký tự (test của M6.5 Task 10 lặp qua mọi loại đã seed phải còn xanh). Không loại mới nào có `is_published_to_portal = true` trong dữ liệu mẫu.
+3. `checklist_templates`: mỗi loại mới ít nhất một template tối thiểu, để `ApplyChecklistTemplate` không sinh vụ việc không có danh mục.
+4. **`MattersByStageWidget`**: đã vá ở M4. Chỉ thêm test hồi quy hai loại trùng nhãn.
+5. **Đính chính SPEC §12**: "6 `matter_types`" thành 12, kèm ngày và lý do.
 
-**Test bắt buộc:** đúng 12 loại hoạt động sau `db:seed`; `code` của bốn loại đổi tên giữ nguyên; mỗi loại có ≥ 1 giai đoạn và đúng một giai đoạn `is_terminal`; mỗi loại có ≥ 1 checklist template; `MattersByStageWidget` không gộp hai loại có nhãn giai đoạn trùng nhau (mutation probe: xoá vế `matter_type_id` khỏi `groupBy` phải làm test đỏ).
+**Test bắt buộc:** đúng 12 loại hoạt động sau `db:seed`; `code` của bốn loại đổi tên giữ nguyên; chạy seeder lần hai sau khi admin đổi tên một loại: tên admin **còn nguyên**; migration đổi tên không đụng một loại đã bị admin đổi tên; sáu loại mới nhận bộ **năm** giai đoạn tạm, không phải bộ dân sự (mutation probe: xoá nhánh tường minh phải làm test đỏ); mỗi loại có ≥ 1 giai đoạn và đúng một giai đoạn `is_terminal`; mỗi loại có ≥ 1 checklist template; `MattersByStageWidget` không gộp hai loại có nhãn trùng.
 
-- [ ] Test đỏ, cài đặt, test xanh, pint, commit `feat: mười hai lĩnh vực hành nghề của văn phòng, không phải sáu`.
+- [ ] Test đỏ, cài đặt, test xanh, pint, **vòng MariaDB** (có migration dữ liệu), commit `feat: mười hai lĩnh vực hành nghề của văn phòng, không phải sáu`.
 
 ---
 
 ### Task 2: Bảng, model, enum, factory cho hợp đồng và thu phí
 
-**Files:** năm migration, `app/Models/{Contract,Instalment,Payment,ContractAmendment}.php`, sáu enum, `database/factories/*`, quan hệ mới trên `Matter`/`Document`/`StageLog`, `lang/vi/enums.php`, `tests/Feature/Models/Billing/*`, `tests/Feature/Authorization/PortalCoverageTest.php`
+**Files:** **bốn** migration, `app/Models/{Contract,Instalment,Payment,ContractAmendment}.php`, sáu enum, `database/factories/*`, quan hệ mới trên `Matter`/`Document`/`StageLog`/`User`, `app/Providers/AppServiceProvider.php` (alias morph), `lang/vi/enums.php`, `tests/Feature/Models/Billing/*`
 
-**Interfaces:** Produces — bốn model với quan hệ, sáu enum có `label()`, factory cho cả bốn. **Không nghiệp vụ, không Action.** Consumes — `HasBlameable`, `RestrictedToClientPortal`, `HidesInternalAttributesFromPortal`, `ClientPortalScope` (M2).
+**Interfaces:** Produces — bốn model với quan hệ, sáu enum có `label()`, factory cho cả bốn. **Không nghiệp vụ, không Action.** Consumes — `HasBlameable`, `RestrictedToClientPortal`, `HidesInternalAttributesFromPortal`, `ClientPortalScope`.
 
-Toàn bộ cột và index theo mục "Mô hình dữ liệu" ở trên. Điểm dễ sai:
+Toàn bộ cột và index theo "Mô hình dữ liệu". Điểm dễ sai:
 
-- **`contracts.matter_id` là UNIQUE thật ở MariaDB**, và `contracts` **không có `deleted_at`** — hai điều này đi cùng nhau. Đây là deviation so với câu mở đầu SPEC §4; ghi lý do vào docblock model **và** vào `docs/PROGRESS.md` (M1 đã có tiền lệ deviation cho bảng nhật ký và pivot).
-- **Hook `deleting` trên cả bốn model.** `Contract`: chỉ xoá được khi `draft`. `Payment` và `ContractAmendment`: không bao giờ xoá được. `Instalment`: chỉ xoá được khi hợp đồng còn `draft`. Nơi quyết định (ai được, log gì, thông điệp từ chối) thuộc về Action; hook **không hỏi gì về actor và không quyết định gì** — nó chỉ làm cho Action thành đường duy nhất. Đây chính xác là lập luận M4 đã viết cho `Document::saving` / `RegroupDocument`, và tiền lệ `Matter::forceDeleting` từ M1.
-- **`ContractAmendment` chỉ-thêm**, cài như `StageLog` / `StageLogImmutable` (M1). Guard chạy qua model event, nên **cập nhật bằng query builder sẽ đi vòng qua nó** — ghi vào docblock đúng như ghi chú M1 đã ghi cho `StageLog`, để không ai tưởng nó tuyệt đối.
-- **Cả năm model đóng kín ở portal.** `PortalCoverageTest` phải xanh **không** thêm dòng miễn trừ nào. Mỗi model có một test riêng khẳng định dưới guard `client` truy vấn trả về rỗng, và một mutation probe chứng minh test đó đỏ khi gỡ trait.
-- Cast: `'total_amount' => 'integer'`, `'amount' => 'integer'`. `unsignedBigInteger` ở MariaDB vượt `PHP_INT_MAX` về lý thuyết; không hợp đồng nào tới đó, nhưng ghi một câu trong docblock để người sau không phải tự hỏi.
-- **Morph map**: nếu có cột `*_type` nào thì phải đăng ký alias trong `AppServiceProvider` (bắt buộc từ M1). Theo thiết kế hiện tại **không có** cột morph nào trong M9 — nếu người cài đặt thấy mình cần một cái, đó là một sai lệch, báo lại.
+- **`contracts.matter_id` UNIQUE thật**, và `contracts` **không có `deleted_at`**. Deviation so với §4; ghi lý do vào docblock model **và** PROGRESS.
+- **`payments.attributed_lawyer_id`** (P2) có ngay ở migration này. Không nullable: mọi vụ có luật sư phụ trách.
+- **Không có cột `instalments.reminders_sent`** (M6 R3).
+- **Hook `deleting` trên cả bốn model.** `Contract`: chỉ khi `draft` và chưa có khoản thu. `Payment`, `ContractAmendment`: không bao giờ. `Instalment`: chỉ khi hợp đồng còn `draft`. Hook không hỏi actor và không quyết định gì — nó chỉ làm Action thành đường duy nhất (tiền lệ `Document::saving`, `Matter::forceDeleting`).
+- **`ContractAmendment` chỉ-thêm**, như `StageLog` / `StageLogImmutable`. Cập nhật bằng query builder đi vòng qua guard; ghi vào docblock.
+- **Cả bốn model đóng kín ở portal** (sẽ mở ở Task 10). `PortalCoverageTest` tự quét mọi model, nên xanh mà **không** thêm miễn trừ nào. Mỗi model một test: dưới guard `client` truy vấn trả rỗng, kèm mutation probe gỡ trait.
+- **Alias morph** `contract`, `instalment`, `payment`, `contract_amendment`. Test: `Audit::record(..., $contract)` không ném.
+- Cast `'total_amount' => 'integer'`, `'amount' => 'integer'`. Ghi một câu trong docblock về `unsignedBigInteger` và `PHP_INT_MAX`.
 
-**Bắt buộc trên MariaDB thật:** `migrate:fresh --seed`, rồi `migrate:reset` → `migrate`, **dán nguyên văn output vào báo cáo**. Đây là task có nhiều unique composite và khoá ngoại nhất kể từ M1. Kiểm tay rằng mỗi migration có `down()` thật sự đảo được (bài học medialibrary ở M4: `migrate:reset` in DONE rồi im lặng không làm gì).
+**Bắt buộc trên MariaDB thật:** `migrate:fresh --seed`, rồi `migrate:reset` → `migrate`, **dán nguyên văn output**. Kiểm tay mỗi `down()` đảo được.
 
 - [ ] Test đỏ, cài đặt, test xanh, pint, **round-trip MariaDB dán vào báo cáo**, commit `feat: bảng hợp đồng, đợt thanh toán, khoản thu và phụ lục`.
 
 ---
 
-### Task 3: Bốn quyền mới, policy, và đính chính SPEC §5 — **giao Opus**
+### Task 3: Bốn quyền mới, policy, và đính chính SPEC — **giao Opus**
 
-**Files:** `app/Enums/Permission.php`, `database/seeders/RolesAndPermissionsSeeder.php`, năm policy mới, `app/Support/Billing/AccountantBillingRow.php`, `docs/SPEC.md` (§1, §5, §13, §15), `lang/vi/permissions.php`, `tests/Feature/Authorization/BillingAccessTest.php`
+**Files:** `app/Enums/Permission.php`, `app/Enums/Role.php` (`permissions()` — ma trận vai trò → quyền nằm ở đây; `RolesAndPermissionsSeeder` chỉ đồng bộ từ nó, admin tự có `Permission::cases()`), bốn policy tiền, `app/Support/Billing/AccountantBillingRow.php`, `docs/SPEC.md`, `lang/vi/permissions.php`, bảng R4 của kế hoạch M11 (chỉ ghi đính chính) và một test cấu trúc MCP, `tests/Feature/Authorization/BillingAccessTest.php`
 
-SPEC §5 chốt ở **13 quyền** và `app/Enums/Permission.php` nói thẳng *"Đúng 13 quyền ở SPEC §5"*. M9 cần thêm, nên **SPEC phải được sửa bằng một đính chính có ngày**, theo đúng kiểu "Đính chính 2026-09-16" dưới §6.10 — **không** thêm lặng lẽ vào enum.
+`app/Enums/Permission.php` nói *"Đúng 13 quyền ở SPEC §5"*. M9 thêm bằng **đính chính có ngày**, theo khuôn "Đính chính 2026-09-16" dưới §6.10 — **không** thêm lặng lẽ vào enum. Sửa docblock thành 17.
 
 **Bốn quyền mới, nâng bảng lên 17:** `billing.view`, `contract.manage`, `payment.record`, `revenue.viewAny`.
 
 **Văn bản đính chính — chép nguyên văn vào `docs/SPEC.md`, ngay dưới ma trận quyền ở §5:**
 
-> **Bổ sung 2026-09-19 (M9 — hợp đồng dịch vụ và thu phí theo đợt).** Danh sách 13 quyền ở trên được viết cho phạm vi bản 1.0, vốn **không có tiền** — §1 xếp "hợp đồng dịch vụ và đợt thanh toán, công nợ" vào phần ngoài phạm vi. M9 đưa chúng vào hệ thống, và không quyền nào trong 13 quyền trên diễn tả được chúng: `matter.view` là quyền đọc **nội dung hồ sơ**, còn tiền là một trục riêng — kế toán phải thấy tiền của mọi vụ việc trong khi vẫn **không** được thấy nội dung, còn luật sư phải thấy tiền của vụ mình mà **không** thấy doanh thu toàn văn phòng. Thêm **bốn** quyền:
+> **Bổ sung 2026-09-19, sửa 2026-09-24 (M9 — hợp đồng dịch vụ và thu phí theo đợt).** Danh sách 13 quyền ở trên được viết cho phạm vi bản 1.0, vốn **không có tiền** — §1 xếp "hợp đồng dịch vụ và đợt thanh toán, công nợ" vào phần ngoài phạm vi. M9 đưa chúng vào hệ thống, và không quyền nào trong 13 quyền trên diễn tả được chúng: `matter.view` là quyền đọc **nội dung hồ sơ**, còn tiền là một trục riêng — kế toán phải thấy tiền trong khi vẫn **không** được thấy nội dung, còn luật sư phải thấy tiền của vụ mình mà **không** thấy doanh thu toàn văn phòng. Thêm **bốn** quyền:
 >
 > | Quyền | admin | manager | lawyer | assistant | accountant |
 > |---|---|---|---|---|---|
-> | `billing.view` (hợp đồng, đợt thanh toán và khoản thu của một vụ việc) | ✓ | ✓ | ✓ (vụ của mình) | — | ✓ (mọi vụ, **không kèm nội dung hồ sơ**) |
+> | `billing.view` (hợp đồng, đợt thanh toán và khoản thu của một vụ việc) | ✓ | ✓ | ✓ (vụ của mình) | — | ✓ (**không kèm nội dung hồ sơ**) |
 > | `contract.manage` (soạn, kích hoạt, ký phụ lục, huỷ hợp đồng) | ✓ | ✓ | ✓ (vụ của mình) | — | — |
-> | `payment.record` (ghi nhận và huỷ một khoản thu) | ✓ | ✓ | — | — | ✓ |
-> | `revenue.viewAny` (số liệu doanh thu toàn văn phòng) | ✓ | ✓ | — | — | ✓ |
+> | `payment.record` (ghi nhận và huỷ một khoản thu) | ✓ | — | — (trừ vụ `restricted`, xem dưới) | — | ✓ |
+> | `revenue.viewAny` (số liệu doanh thu toàn văn phòng, trang "Công nợ") | ✓ | ✓ | — | — | ✓ |
 >
-> Cặp `billing.view` / `revenue.viewAny` lặp lại đúng cặp `matter.view` / `matter.viewAny` đã có ở bảng trên: một quyền cho từng bản ghi mình có phần, một quyền cho toàn văn phòng. Đây là thành ngữ sẵn có của bảng này, không phải một kiểu đặt tên mới.
+> **Ai thấy tiền của vụ nào: một định nghĩa.** Có `billing.view` **và** vụ nằm trong danh sách người đó được liệt kê (`Matter::listableBy`, cùng định nghĩa với danh sách vụ việc). Vì vậy tiền của vụ `restricted` (§4.6: "chỉ lead lawyer và quản trị thấy") chỉ luật sư phụ trách và admin thấy; kế toán và quản lý không thấy, kể cả trong số liệu tổng hợp. Trên vụ `restricted`, luật sư phụ trách ghi được khoản thu dù không có `payment.record`, vì ngoài admin không ai khác thấy vụ đó.
 >
-> **Ranh giới của kế toán, viết ra vì đây là một sự nới rộng.** §1 và bảng trên nói kế toán "chỉ xem danh sách vụ việc, không thấy nội dung hồ sơ". `billing.view` **không** làm câu đó sai đi: màn hình tiền của kế toán mang mã hồ sơ, loại vụ việc, tên khách hàng, các con số và các ngày — và **không** mang tiêu đề vụ việc, tóm tắt, mô tả nội bộ, tài liệu, tiến độ hay các bên. Ranh giới này cài bằng một DTO readonly đúng như `ConflictMatch` ở §6.10, **không** bằng quy ước, và có test khẳng định tiêu đề vụ việc không lọt ra. Điểm **mới thật sự** so với bảng cũ là **tên khách hàng**: kế toán không có `client.manage`, nhưng không có tên thì không lập được phiếu thu — nên đây là một sự nới rộng có chủ đích, không phải một hệ quả suy ra.
+> Cặp `billing.view` / `revenue.viewAny` lặp lại đúng cặp `matter.view` / `matter.viewAny`.
 >
-> **`contract.manage` cũng là quyền đổi số tiền của từng đợt.** Cùng loại chú ý như dòng đã ghi dưới bảng về `document.publish`: cấp `contract.manage` cho một vai trò mới là cấp luôn quyền đổi lịch thu và giá trị của một hợp đồng đã ký — qua phụ lục, kèm lý do, có dấu vết, nhưng vẫn là đổi.
+> **Ranh giới của kế toán, viết ra vì đây là một sự nới rộng.** `billing.view` **không** làm câu "kế toán chỉ xem danh sách vụ việc, không thấy nội dung hồ sơ" sai đi: màn hình tiền của kế toán mang mã hồ sơ, loại vụ việc, tên khách hàng, tên đợt, các con số và các ngày — **không** mang tiêu đề vụ việc, tóm tắt, mô tả nội bộ, tài liệu, tiến độ hay các bên. Ranh giới này cài bằng một DTO readonly như `ConflictMatch` ở §6.10, có test. Điểm **mới thật sự** là **tên khách hàng**: không có tên thì không lập được phiếu thu — một sự nới rộng có chủ đích, cũng là một mục đích xử lý dữ liệu mới cần ghi vào PROGRESS.
+>
+> **`contract.manage` cũng là quyền đổi số tiền của từng đợt** qua phụ lục, kèm lý do, có dấu vết.
 
-Kèm theo, ba sửa đổi nhỏ trong cùng commit: **§1** bỏ "hợp đồng dịch vụ và đợt thanh toán, công nợ" khỏi danh sách ngoài phạm vi (giữ nguyên "QR VietQR", "Zalo ZNS", "ký số", …); **§13** thêm một dòng **M9**; **§15** đánh dấu mệnh đề `contracts`/`instalments` là đã làm và ghi `time_entries` còn ở dạng khung.
+**Các đính chính SPEC khác trong cùng commit** (mỗi mục kèm ngày 2026-09-24):
+- **§1**: bỏ "hợp đồng dịch vụ và đợt thanh toán, công nợ" khỏi danh sách ngoài phạm vi (giữ "QR VietQR", "Zalo ZNS", "ký số", …).
+- **§4.6**: tiền của vụ `restricted` theo đúng quy tắc của nội dung (đoạn trên).
+- **§6.8**: người nhận thư về tiền là người "được xem tiền của vụ" (Task 11).
+- **§7.2**: thêm tab "Hợp đồng và thanh toán" (tab **thêm**; §7.2 liệt kê chín tab, M6.5 thêm "Đội ngũ").
+- **§9**: thêm mẫu `staff.instalment_overdue` (Task 11).
+- **§13**: thêm dòng **M9**.
+- **§15**: đánh dấu `contracts`/`instalments` đã làm, `time_entries` còn ở dạng khung.
+- Phần **Portal** của §5 và §8: Task 10 ghi (loại dữ liệu thứ tám khách được thấy).
+- §12: Task 1 ghi.
 
-**Policy — bốn điểm khó:**
+**Policy — năm điểm khó:**
 
-1. **`ContractPolicy::view` không được hỏi "người này có xem được vụ việc không".** Kế toán không xem được vụ việc (§5) nhưng phải xem được tiền của nó. Điều kiện đúng: có `billing.view`, **và** (có `matter.viewAny` **hoặc** có tên trong đội ngũ vụ việc đó). Đây là nơi test sẽ rỗng ruột nếu người viết dùng luật sư làm nhân chứng — **nhân chứng bắt buộc là KẾ TOÁN**, và phải có một cặp khẳng định dương: chính tài khoản đó **đọc được** hợp đồng và **không đọc được** vụ việc.
-2. **Vụ việc `confidentiality = restricted`** (§4.6, chỉ lead lawyer và admin). Tiền của một vụ hạn chế thì sao? Kế hoạch chốt: **kế toán vẫn thấy tiền, không thấy nội dung** — vì `restricted` bảo vệ nội dung hồ sơ, và không thu được tiền của một vụ việc là một hệ quả không ai muốn. Ghi lý do vào docblock và **ghim bằng test**, để một lần đổi ý sau này là một lần đổi có chủ đích.
-3. **DTO `AccountantBillingRow`, readonly, đúng số trường đã liệt kê.** Tiền lệ `ConflictMatch` (§6.10): ranh giới cài bằng kiểu dữ liệu chứ không bằng quy ước, và có test khẳng định tiêu đề vụ việc không lọt ra — chép đúng hình dạng test đó.
-4. **Mutation probe là bắt buộc ở task này và đây là chỗ nó hay sống sót nhất.** Bài học M4: xoá vế `document.publish` trong `RegroupDocument` để lại bộ test **xanh**, vì trợ lý trong test đã bị `view()` từ chối trước rồi — từ chối vì **không được nhìn**, không phải vì **không được quyết**. Với mỗi vế quyền thêm vào, nhân chứng phải là một tài khoản **được cấp quyền trực tiếp** sao cho chỉ đúng vế đang thử là thứ chặn họ, kèm một cặp khẳng định dương chứng minh họ thật sự qua được mọi cổng khác.
+1. **Không hỏi `MatterPolicy::view`.** Kế toán không có `matter.view`. Điều kiện đọc tiền: `billing.view` **và** `$matter->isListableBy($user)` (bản trong bộ nhớ của `scopeListableBy`). **Nhân chứng bắt buộc là KẾ TOÁN**, kèm cặp khẳng định dương: chính tài khoản đó **đọc được** hợp đồng và **không đọc được** vụ việc.
+2. **Vụ `restricted`** (P3): kế toán và quản lý **không** đọc được tiền; luật sư phụ trách và admin đọc được; thành viên đội ngũ không phải lead **không** đọc được. Ghim bằng test, mỗi vế một mutation probe.
+3. **`PaymentPolicy::create(User, Instalment)`**: được xem tiền của vụ, **và** (vụ thường: `payment.record`; vụ `restricted`: admin hoặc luật sư phụ trách). Nhân chứng cho vế `payment.record` là **quản lý** (thấy tiền, không được ghi).
+4. **DTO `AccountantBillingRow`**, readonly, đúng số trường ở đính chính. Test khẳng định tiêu đề vụ việc không lọt ra, chép đúng hình dạng test của `ConflictMatch`.
+5. **Mutation probe bắt buộc.** Với mỗi vế quyền, nhân chứng phải là tài khoản **được cấp quyền trực tiếp** sao cho chỉ đúng vế đang thử là thứ chặn họ (bài học M4 `RegroupDocument`).
 
-- [ ] Test đỏ, cài đặt, test xanh, pint, commit `feat: bốn quyền cho tiền, và đính chính SPEC §5 kèm ngày`.
+**MCP (P7).** Kế hoạch M11 (`docs/superpowers/plans/2026-09-24-m11-mcp.md`, R4) trả dữ liệu qua presenter theo **danh sách cho phép**, nên bốn model tiền mặc định không ra ngoài. M9 không mở chúng: thêm dòng "tiền của vụ việc — không bao giờ" vào bảng R4 của M11 (đính chính có ngày trong PROGRESS), và một test cấu trúc khẳng định không tool hay presenter nào trong `app/Mcp` / `app/Support/Mcp` tham chiếu `Contract`, `Instalment`, `Payment`, `ContractAmendment`. Tên thư mục thật lấy từ bước dò ở Task 1.
+
+- [ ] Test đỏ, cài đặt, test xanh, pint, commit `feat: bốn quyền cho tiền, và đính chính SPEC kèm ngày`.
 
 ---
 
 ### Task 4: Hợp đồng — soạn, kích hoạt, phụ lục, và bất biến tổng — **giao Opus**
 
-**Files:** `app/Actions/Billing/{DraftContract,ActivateContract,AmendContract,CancelContract,CompleteContract}.php`, `app/Support/Billing/{SplitByPercent,Vat,Money}.php`, `app/Console/Commands/CheckBillingInvariants.php`, `app/Exceptions/{ContractTotalMismatch,ContractNotAmendable}.php`, `lang/vi/billing.php`, tests
+**Files:** `app/Actions/Billing/{DraftContract,ActivateContract,AmendContract,CancelContract,CompleteContract}.php`, `app/Support/Billing/{SplitByPercent,Vat,Money}.php`, `app/Console/Commands/CheckBillingInvariants.php`, `app/Exceptions/{ContractTotalMismatch,ContractNotAmendable,BillingModelNotSupported}.php`, `lang/vi/billing.php`, tests
 
-**Interfaces:** Produces — `DraftContract::handle(User $actor, Matter $matter, array $attributes, array $instalments): Contract`; `ActivateContract::handle(User $actor, Contract $contract, DateTimeInterface|string $signedAt): Contract`; `AmendContract::handle(User $actor, Contract $contract, int $newTotalAmount, array $instalmentChanges, string $reason, DateTimeInterface|string $signedAt, ?Document $document = null): ContractAmendment`. Actor **tường minh**, đứng đầu, đúng quy ước M3. Consumes — `CodeSequence::next()`, `Audit::record()`, `Gate`.
+**Interfaces:** Produces — `DraftContract::handle(User $actor, Matter $matter, array $attributes, array $instalments): Contract`; `ActivateContract::handle(User $actor, Contract $contract, DateTimeInterface|string $signedAt): Contract`; `AmendContract::handle(User $actor, Contract $contract, int $newTotalAmount, array $instalmentChanges, string $reason, DateTimeInterface|string $signedAt, ?Document $document = null): ContractAmendment`; `Money::format()`, `Money::parse()`, `Money::MAX`. Actor tường minh, đứng đầu (quy ước cho `app/Actions/Billing/`, xem ràng buộc toàn cục). Consumes — `CodeSequence::next()`, `Audit::record()`, `Gate`.
 
-**Bất biến, và bốn tầng giữ nó.** `SUM(instalments.amount) === contracts.total_amount`, tính bằng số nguyên đồng, không có dung sai.
+**Bất biến, và bốn tầng giữ nó.** `SUM(instalments.amount) === contracts.total_amount`, số nguyên đồng, không dung sai.
 
-1. **`ActivateContract`** — không khớp thì hợp đồng **không rời được `draft`**. Đây là cổng chính.
-2. **Hook `saving`/`deleting` trên `Instalment`** — từ chối mọi lần ghi làm lệch tổng trên một hợp đồng `active`. Cùng lập luận M4 đã viết cho `Document::saving`: quyết định thuộc về Action, hook không hỏi gì về actor và không quyết gì, nó chỉ làm Action thành đường duy nhất — **vì thứ nó chặn CHÍNH LÀ đường đi vòng qua Action**. Một bất biến chỉ được Action giữ là bất biến cho tới màn hình đầu tiên quên gọi Action.
-3. **`AmendContract`** — đổi tổng mà không đổi lịch (hoặc ngược lại) phải thất bại; cả hai đi trong **một** transaction.
-4. **`billing:check-invariants`** — lệnh console quét mọi hợp đồng `active` và in ra những hợp đồng lệch. Ba tầng trên chặn dữ liệu mới; lệnh này là cách tìm ra dữ liệu **đã** lệch (seeder cũ, import, một migration sai). Có test chạy lệnh trên một hợp đồng cố ý làm lệch bằng `DB::table()` — tức đúng đường đi vòng mà ba tầng trên không phủ.
+1. **`ActivateContract`** — không khớp thì **không rời được `draft`**.
+2. **Hook `saving`/`deleting` trên `Instalment`** — từ chối mọi lần ghi làm lệch tổng trên hợp đồng `active`. Thứ nó chặn **chính là** đường đi vòng qua Action.
+3. **`AmendContract`** — đổi tổng mà không đổi lịch (hoặc ngược lại) phải thất bại; cả hai trong **một** transaction. **Huỷ một đợt của hợp đồng `active` chỉ đi qua đây** (không có Action `CancelInstalment` riêng): một đợt biến mất là tổng các đợt đổi, tức là phụ lục.
+4. **`billing:check-invariants`** — quét mọi hợp đồng `active`, in hợp đồng lệch. Test với hợp đồng làm lệch bằng `DB::table()`.
 
-**`SplitByPercent` — phần dư rơi ở đâu.** Một câu, một chỗ: **mọi đợt trừ đợt cuối lấy `intdiv(total × p, 100)`; đợt cuối lấy `total − tổng các đợt trước`.** Màn hình hiện số đồng của cả ba đợt **trước khi** lưu, nên người dùng nhìn thấy 1 đồng đi đâu thay vì được kể lại sau. Test: 33/33/34 trên 100.000.000; chia ba đều trên 10.000.000 (kết quả 3.333.333 / 3.333.333 / 3.333.334); và một test khẳng định `percent_basis` được **lưu nguyên** nhưng **không bao giờ** được dùng để tính lại `amount` (mutation probe: đổi Action sang tính lại từ `percent_basis` phải làm test đỏ).
+**`SplitByPercent`:** mọi đợt trừ đợt cuối lấy `intdiv(total × p, 100)`; đợt cuối lấy phần còn lại. Màn hình hiện số đồng **trước khi** lưu. Test: 33/33/34 trên 100.000.000; chia ba đều trên 10.000.000 (3.333.333 / 3.333.333 / 3.333.334); `percent_basis` lưu nguyên nhưng **không bao giờ** dùng tính lại `amount` (mutation probe).
 
-**`Vat`** — `tax = intdiv(total × r, 100 + r)`, phần chưa thuế nhận phần dư, hai số luôn cộng lại đúng `total_amount`. Test với 33.333.333 đ ở 10%.
+**`Vat`**: `tax = intdiv(total × r, 100 + r)`, phần chưa thuế nhận phần dư. Test 33.333.333 đ ở 10%.
 
-`DraftContract`: sinh `code` qua `CodeSequence` (tiền lệ §6.1); từ chối `billing_model` khác `fixed_fee` bằng `BillingModelNotSupported` với thông điệp tiếng Việt nói rõ đây là việc của giai đoạn sau (xem Task 9). `on_signing` để `due_date` rỗng ở bản nháp. `stage` đòi `trigger_stage_key` **là một giai đoạn có thật của đúng loại vụ việc đó** — kiểm qua `MatterType::stage()`, không phải qua một danh sách chép tay.
+**`Money`**: `format()` → `1.250.000 ₫`; `parse("1.250.000") === 1250000`, `parse("1250000") === 1250000`, `parse("1.25")` → `ValidationException` (không bao giờ hiểu là 1,25); vượt `Money::MAX` → `ValidationException`.
 
-`ActivateContract`: đặt `signed_at`, `activated_by`, `status = active`; điền `due_date` cho mọi đợt `on_signing`; và **gọi `TriggerInstalmentsForStage`** (Task 6) cho những đợt mà vụ việc **đã** đi qua giai đoạn kích hoạt. *(Phụ thuộc chiều Task 6 → Task 4: nếu Task 6 chưa xong thì để lại một điểm nối tường minh và một test `todo`, đừng cài một bản sao logic — hai bản sao của một luật kích hoạt là đúng thứ M3 đã phải gộp lại ba lần.)*
+`DraftContract`: sinh `code` qua `CodeSequence`; từ chối `billing_model` khác `fixed_fee` bằng `BillingModelNotSupported` (thông điệp tiếng Việt). `on_signing` để `due_date` rỗng. `stage` đòi `trigger_stage_key` **là giai đoạn có thật của đúng loại vụ việc** (qua `MatterType::stage()`) **và không phải giai đoạn đầu** (`firstStage()`).
 
-`AmendContract`: chỉ trên hợp đồng `active`; lý do ≥ 20 ký tự **`mb_strlen`**; sinh dòng `contract_amendments` với `previous_total_amount` đọc từ chính hàng đang khoá (`lockForUpdate`), không từ đối tượng caller đưa vào — bài học M4 `PublishDocument`, nơi một `group` bị sửa trong bộ nhớ đã được thử và bị chặn đúng vì lý do này.
+`ActivateContract`: đặt `signed_at`, `activated_by`, `status = active`; điền `due_date` cho mọi đợt `on_signing`; **gọi `TriggerInstalmentsForStage`** (Task 6) cho đợt mà vụ **đã** đi qua giai đoạn kích hoạt. (Task 6 chưa xong thì để điểm nối tường minh và một test `todo`, không cài bản sao logic.) **Không** tự đổi đầu mục danh mục nào (xem Task 7).
 
-Mọi Action ghi `Audit::record(..., $actor)` **bên trong** transaction (bài học M4 I4: cửa sổ giữa commit và `Audit::record` là chỗ một tiến trình chết để lại một thay đổi không có dòng nhật ký; và nói thẳng rằng **không mutation probe nào phân biệt được hai vị trí** — đừng tuyên bố có test cho nó).
+`AmendContract`: chỉ trên `active`; lý do ≥ 20 ký tự **`mb_strlen`**; `previous_total_amount` đọc từ hàng đang khoá (`lockForUpdate`), không từ đối tượng caller đưa vào.
 
-**Test bắt buộc:** tổng lệch 1 đồng → không kích hoạt được; ghi thẳng một `Instalment` lệch tổng trên hợp đồng `active` bằng model → bị từ chối; phần dư rơi vào đợt cuối (ba trường hợp); `percent_basis` không bao giờ tính lại `amount`; phụ lục lưu đúng giá trị cũ; phụ lục không lý do → `ValidationException`; lý do 19 ký tự tiếng Việt có dấu **bị từ chối** và 20 ký tự **được chấp nhận** (đây là test phân biệt `mb_strlen` với `strlen`); hợp đồng `draft` xoá được, `active` thì không; `billing_model = hourly` bị từ chối kèm thông điệp đọc được; `billing:check-invariants` tìm ra một hợp đồng lệch được tạo bằng `DB::table()`.
+Mọi Action ghi `Audit::record(..., $actor)` **bên trong** transaction (và nói thẳng: không mutation probe nào phân biệt được hai vị trí).
+
+**Test bắt buộc:** tổng lệch 1 đồng → không kích hoạt được; ghi thẳng một `Instalment` lệch tổng trên hợp đồng `active` bằng model → bị từ chối; phần dư rơi vào đợt cuối (ba trường hợp); `percent_basis` không bao giờ tính lại `amount`; phụ lục lưu đúng giá trị cũ; phụ lục huỷ một đợt làm tổng mới khớp; phụ lục không lý do → `ValidationException`; lý do 19 ký tự tiếng Việt có dấu **bị từ chối**, 20 ký tự **được chấp nhận**; hợp đồng `draft` xoá được, `draft` có khoản thu hoặc `active` thì không; `billing_model = hourly` bị từ chối; `trigger_stage_key` là giai đoạn đầu bị từ chối; `Money::parse` ba trường hợp; `billing:check-invariants` tìm ra hợp đồng lệch.
 
 - [ ] Test đỏ, cài đặt, test xanh, pint, **mutation probe cho từng điều kiện, dán bằng chứng đỏ**, commit `feat: hợp đồng dịch vụ với bất biến tổng các đợt`.
 
 ---
 
-### Task 5: Khoản thu, miễn, huỷ — và trạng thái suy ra — **giao Opus**
+### Task 5: Khoản thu, miễn, huỷ, chặn xoá — và trạng thái suy ra — **giao Opus**
 
-**Files:** `app/Actions/Billing/{RecordPayment,VoidPayment,WaiveInstalment,CancelInstalment}.php`, `app/Models/Instalment.php` (`state()`, `outstanding()`, `scopeOverdue()`), `app/Support/Billing/BillingSummary.php`, `app/Exceptions/{InstalmentNotPayable,PaymentExceedsInstalment}.php`, tests
+**Files:** `app/Actions/Billing/{RecordPayment,VoidPayment,WaiveInstalment}.php`, `app/Models/Instalment.php` (`state()`, `outstanding()`, `scopeOverdue()`), `app/Models/Matter.php` (hook `deleting`), `app/Actions/Matter/CancelMatter.php` (M6.5), kiểm tra xoá khách của M6.5 Task 2, `app/Support/Billing/BillingSummary.php`, `app/Exceptions/{InstalmentNotPayable,PaymentExceedsInstalment,MatterHasOutstandingBalance}.php`, tests
 
-**Interfaces:** Produces — `RecordPayment::handle(User $actor, Instalment $instalment, int $amount, DateTimeInterface|string $paidOn, PaymentMethod $method, ?string $reference, ?Document $receipt, ?string $note): Payment`; `VoidPayment::handle(User $actor, Payment $payment, string $reason): Payment`; `Instalment::state(): InstalmentState`; `Instalment::outstanding(): int`; `Instalment::scopeOverdue()`. Consumes — Task 4.
+**Interfaces:** Produces — `RecordPayment::handle(User $actor, Instalment $instalment, int $amount, DateTimeInterface|string $paidOn, PaymentMethod $method, ?string $reference, ?Document $receipt, ?string $note): Payment`; `VoidPayment::handle(User $actor, Payment $payment, string $reason): Payment`; `WaiveInstalment::handle(User $actor, Instalment $instalment, string $reason): Instalment`; `Instalment::state()`, `::outstanding()`, `::scopeOverdue()`. Consumes — Task 3, 4.
 
 **Điểm phải cài đúng:**
 
-- **Thu một phần là bình thường**, không phải lỗi. `RecordPayment` chấp nhận số tiền nhỏ hơn số còn lại. **Thu vượt** thì từ chối (`PaymentExceedsInstalment`) và thông điệp nói rõ phải làm gì: hoặc sửa số, hoặc ghi phần vượt vào đợt sau. *Không* tự động rải sang đợt sau — tự động chia tiền của khách là thứ phải có người quyết.
-- **`paid_on` không được ở tương lai.** So theo NGÀY ở múi giờ ứng dụng, sao chép chính xác cách `TransitionMatterStage` bước 3 làm (`config('app.timezone')`, `today()->startOfDay()`), **không** phát minh lại.
-- **`status = paid` viết khi tổng các khoản thu chưa huỷ ≥ `amount`**, tính lại trong cùng transaction với `lockForUpdate` trên đợt. Hai người ghi hai khoản cùng lúc là chuyện có thật ở một văn phòng có hai kế toán.
-- **`VoidPayment` phải hạ `status` trở lại `pending`** nếu việc huỷ làm tổng tụt xuống dưới `amount`. Đây là đường dễ quên nhất trong cả task; có test riêng và một mutation probe.
-- **`Instalment::state()` là chỗ duy nhất** quá hạn được định nghĩa, và `scopeOverdue()` phải là **cùng một điều kiện** viết bằng SQL. Có test khẳng định hai cách cho **cùng** kết quả trên một tập dữ liệu cố tình gồm cả biên (đến hạn đúng hôm nay = chưa quá hạn; đã miễn = không quá hạn dù ngày đã qua; đã huỷ = không quá hạn).
-- **`WaiveInstalment`** đòi lý do ≥ 20 ký tự `mb_strlen`. **Miễn không làm thay đổi `contracts.total_amount`** — giá trị thoả thuận vẫn là giá trị thoả thuận; miễn là một quyết định về việc **thu**, không phải về việc **đã thoả thuận bao nhiêu**. Hệ quả cần nhìn thấy trên dashboard: "còn phải thu" phải trừ phần đã miễn ra, nếu không donut sẽ mãi mãi không khép. Ghi vào docblock của `BillingSummary`.
+- **Cổng quyền** là `PaymentPolicy::create` của Task 3 (gồm vế vụ `restricted`), hỏi qua `Gate::forUser($actor)`.
+- **Thu một phần là bình thường.** **Thu vượt** → `PaymentExceedsInstalment`, thông điệp nói phải làm gì. *Không* tự rải sang đợt sau.
+- **`paid_on` không được ở tương lai**, so theo NGÀY ở múi giờ ứng dụng, chép đúng cách `TransitionMatterStage` bước 3.
+- **`attributed_lawyer_id`** (P2) = `lead_lawyer_id` đọc từ hàng `matters` **khoá trong cùng transaction**, không từ đối tượng caller đưa vào.
+- **`status = paid` khi tổng khoản thu chưa huỷ ≥ `amount`**, tính lại trong cùng transaction với `lockForUpdate` trên đợt.
+- **`VoidPayment` hạ `status` về `pending`** khi tổng tụt dưới `amount`. Test riêng và mutation probe.
+- **`Instalment::state()` là chỗ duy nhất** định nghĩa quá hạn; `scopeOverdue()` là **cùng điều kiện** bằng SQL. Test khẳng định hai cách cho cùng kết quả trên tập biên (đến hạn hôm nay = chưa quá hạn; đã miễn, đã huỷ = không quá hạn).
+- **`WaiveInstalment`**: lý do ≥ 20 ký tự `mb_strlen`; **không** đổi `total_amount`. "Còn phải thu" trừ phần đã miễn (docblock `BillingSummary`).
+- **Chặn xoá khi còn nợ** (xem "Tiền trên một vụ việc…"): `MatterHasOutstandingBalance` ném ở hook `Matter::deleting` **và** trong `CancelMatter`; xoá mềm khách còn hợp đồng `active` có dư nợ bị từ chối bằng cách mở rộng đúng kiểm tra của M6.5 Task 2.
 - Mọi Action ghi `Audit::record` trong transaction với `$actor` tường minh và `blameOn($actor)` trước `save()`.
 
-**Test bắt buộc:** thu một phần → `state()` là `partially_paid`, `status` vẫn `pending`; thu đủ → `paid`; thu vượt → từ chối kèm thông điệp đọc được; huỷ một khoản làm tụt xuống dưới đủ → `status` về `pending` và `state()` về `overdue` nếu ngày đã qua; huỷ không lý do → lỗi xác thực; `paid_on` ngày mai → lỗi xác thực; `state()` và `scopeOverdue()` khớp nhau trên tập biên; một khoản thu **không xoá được** bằng bất kỳ đường nào (thử cả `delete()` lẫn `forceDelete()`); `created_by` là actor được truyền vào **chứ không phải** người đang đăng nhập trong session (test phải đăng nhập một người và truyền một người **khác** — đây là thiết kế test duy nhất bắt được lỗi ambient auth, đúng như `RunConflictCheckActorTest` ở M3).
+**Test bắt buộc:** thu một phần → `partially_paid`, `status` vẫn `pending`; thu đủ → `paid`; thu vượt → từ chối kèm thông điệp đọc được; huỷ làm tụt dưới đủ → `pending`, và `overdue` nếu ngày đã qua; huỷ không lý do → lỗi xác thực; `paid_on` ngày mai → lỗi xác thực; `state()` và `scopeOverdue()` khớp trên tập biên; khoản thu **không xoá được** (`delete()` lẫn `forceDelete()`); `created_by` là actor truyền vào **chứ không phải** người đang đăng nhập (đăng nhập một người, truyền người **khác**, như `RunConflictCheckActorTest`); `attributed_lawyer_id` là lead lúc ghi, và **không đổi** sau `ReassignMatter`; quản lý gọi `RecordPayment` → từ chối; luật sư phụ trách vụ `restricted` ghi được, kế toán trên vụ đó bị từ chối; **hai kế toán ghi hai khoản đồng thời trên cùng đợt** không vượt tổng và `status` đúng — chạy dưới `bin/dev test:mariadb`; xoá mềm vụ còn nợ → từ chối, qua **cả** hook lẫn `CancelMatter`; xoá mềm khách có vụ đã kết thúc còn nợ → từ chối.
 
-- [ ] Test đỏ, cài đặt, test xanh, pint, **mutation probe từng điều kiện**, commit `feat: khoản thu, miễn và huỷ, với trạng thái suy ra thay vì lưu`.
+- [ ] Test đỏ, cài đặt, test xanh, pint, `test:mariadb` tuần tự, **mutation probe từng điều kiện**, commit `feat: khoản thu, miễn và huỷ, với trạng thái suy ra thay vì lưu`.
 
 ---
 
 ### Task 6: Đợt thanh toán kích hoạt theo giai đoạn
 
-**Files:** `app/Events/MatterStageChanged.php`, `app/Listeners/ReleaseStageTriggeredInstalments.php`, `app/Actions/Billing/TriggerInstalmentsForStage.php`, `app/Jobs/ReconcileStageTriggeredInstalments.php`, `app/Actions/TransitionMatterStage.php` (**một dòng dispatch + sửa lỗi I6 mang sang**), `routes/console.php`, `app/Providers/AppServiceProvider.php`, tests
+**Files:** sự kiện đổi giai đoạn (dùng lại của M7 nếu có), `app/Listeners/ReleaseStageTriggeredInstalments.php`, `app/Actions/Billing/TriggerInstalmentsForStage.php`, `app/Actions/Schedule/ReconcileStageTriggeredInstalments.php`, `app/Actions/TransitionMatterStage.php` (**một dòng dispatch, nếu chưa có**, + sửa lỗi I6 nếu còn), `routes/console.php`, `app/Policies/MatterTypeStagePolicy.php` và `.../MatterTypes/RelationManagers/StagesRelationManager.php` (guard của M6.5 Task 19), `app/Providers/AppServiceProvider.php`, tests
 
-**Interfaces:** Produces — `TriggerInstalmentsForStage::handle(Matter $matter, string $stageKey, StageLog $stageLog): int` (trả số đợt đã kích hoạt). **Không có tham số `$actor`**: kích hoạt một đợt không phải một quyết định của ai cả, nó là hệ quả của một sự kiện — và ghi một actor vào đó là **bịa ra một thẩm quyền không tồn tại**. `Audit::record` cho dòng này để `causer` rỗng và ghi `stage_log_id` làm nguồn gốc; tiền lệ: `RunConflictCheck` nhận `?User $actor = null` và ghi `actor_explicit` để người đọc không bao giờ nhầm một causer suy ra với một causer được khẳng định.
+**Interfaces:** Produces — `TriggerInstalmentsForStage::handle(Matter $matter, string $stageKey, StageLog $stageLog): int`. **Không có tham số `$actor`**: kích hoạt một đợt là hệ quả của một sự kiện, không phải quyết định của ai. `Audit::record` để `causer` rỗng và ghi `stage_log_id` làm nguồn gốc (tiền lệ `RunConflictCheck` với `actor_explicit`). Chữ ký thật của `TransitionMatterStage` là `handle(Matter, User $actor, …)`; task này không đổi nó.
 
-Toàn bộ thiết kế ở mục "Đợt thanh toán theo giai đoạn" phía trên. Người cài đặt đọc lại mục đó nguyên văn trước khi viết dòng đầu tiên.
+Toàn bộ thiết kế ở mục "Đợt thanh toán theo giai đoạn". Đọc lại nguyên văn trước khi viết.
 
-Ngoài ra, trong cùng task vì đây là task duy nhất của M9 mở tệp đó:
+Trong cùng task:
 
-- **Sửa lỗi I6 mang sang trong `TransitionMatterStage`**: `occurredAt`/`expectedNextUpdateAt` nhận `DateTimeInterface|string` rồi `Carbon::parse`, nên một chuỗi không hợp lệ ném `Carbon\InvalidFormatException` — **ngoài** hợp đồng `DomainException` mà mọi màn hình được dặn bắt, tức là một trang 500. Sửa đúng cách M4 đã sửa `UploadStaffDocument::$issuedAt`: parse tường minh, chuỗi hỏng → `ValidationException` trên đúng trường, chuỗi rỗng nghĩa là "không có ngày" chứ không phải hôm nay.
-- **Grep lại `matters.stage`.** Hôm nay `TransitionMatterStage` là nơi ghi duy nhất trong `app/`. Nếu M6/M7 đã thêm một Action đổi giai đoạn (`ReassignMatter`, một `CloseMatter`), Action đó **cũng phải** dispatch `MatterStageChanged` — và đó chính là chỗ nó sẽ bị quên. Dán kết quả grep vào báo cáo.
+- **Sự kiện:** grep trước. Có sự kiện đổi giai đoạn của M7 thì mở rộng và nghe nó; chưa có thì tạo và ghi vào PROGRESS để M7/M10 dùng chung. Dán kết quả grep.
+- **Sửa lỗi I6** nếu còn (`TransitionMatterStage` parse `occurredAt`/`expectedNextUpdateAt` bằng `Carbon::parse`): parse tường minh, chuỗi hỏng → `ValidationException` trên đúng trường, chuỗi rỗng là "không có ngày". Tiền lệ `UploadStaffDocument::$issuedAt`.
+- **Grep mọi nơi ghi `matters.stage`**; nơi nào đổi giai đoạn cũng phát cùng sự kiện. Dán kết quả.
+- **Mở rộng guard của M6.5 Task 19:** chặn xoá hoặc đổi `key` của một giai đoạn khi còn đợt `pending`, chưa kích hoạt, của hợp đồng `draft` hoặc `active` trên vụ cùng loại, trỏ tới key đó. Thông điệp nêu số đợt. Không viết guard thứ hai.
+- **Lịch:** `Schedule::call(new ReconcileStageTriggeredInstalments)` hằng ngày, `withoutOverlapping(<phút>)` có hạn, test ghim giờ như M6.5 Task 14.
 
-**Test bắt buộc:** chuyển giai đoạn tới giai đoạn kích hoạt → đúng đợt đó có `due_date` và `triggered_at`, và `triggered_by_stage_log_id` trỏ đúng dòng vừa tạo; **một dòng cập nhật cùng giai đoạn (§6.3) KHÔNG kích hoạt gì** (đây là test quan trọng nhất của task); vào lại cùng giai đoạn lần hai **không** kích hoạt lại; hợp đồng `draft` không bị kích hoạt; `occurred_at` ghi lùi ngày sinh ra một đợt đã quá hạn; transaction rollback → listener **không** chạy (kiểm bằng cách bọc lời gọi trong một transaction ngoài rồi ném lỗi — đây là thứ `ShouldDispatchAfterCommit` hứa, và phải chứng minh chứ không phải tin); job đối chiếu kích hoạt được một đợt **thêm sau khi** vụ việc đã đi qua giai đoạn đó; job chạy hai lần chỉ kích hoạt một lần.
+**Test bắt buộc:** chuyển tới giai đoạn kích hoạt → đúng đợt đó có `due_date`, `triggered_at`, và `triggered_by_stage_log_id` trỏ đúng dòng vừa tạo; **một dòng cập nhật cùng giai đoạn (§6.3) KHÔNG kích hoạt gì** (test quan trọng nhất); vào lại lần hai **không** kích hoạt lại; hợp đồng `draft` không bị kích hoạt; `occurred_at` ghi lùi sinh đợt đã quá hạn; transaction rollback → listener **không** chạy (bọc trong transaction ngoài rồi ném lỗi); đối chiếu kích hoạt được một đợt **thêm sau khi** vụ đã qua giai đoạn đó; đối chiếu chạy hai lần chỉ kích hoạt một lần; đổi `key` của giai đoạn còn đợt `pending` trỏ tới → bị từ chối qua Livewire; chuỗi ngày hỏng ở form chuyển giai đoạn → lỗi trên trường, không 500.
 
 - [ ] Test đỏ, cài đặt, test xanh, pint, mutation probe, commit `feat: đợt thanh toán tự đến hạn khi vụ việc chạm giai đoạn`.
 
@@ -563,80 +632,150 @@ Ngoài ra, trong cùng task vì đây là task duy nhất của M9 mở tệp đ
 
 **Files:** `app/Filament/Admin/Resources/Matters/RelationManagers/BillingRelationManager.php` + form/action classes, `app/Filament/Admin/Resources/Matters/Pages/ViewMatter.php`, `app/Filament/Admin/Resources/Matters/Tables/MattersTable.php` (một cột), `lang/vi/billing.php`, `tests/Feature/Filament/BillingRelationManagerTest.php`
 
-Tab thứ chín của SPEC §7.2 (SPEC §7.2 liệt kê tám tab; tab này là mở rộng đi cùng đính chính §5 ở Task 3 — ghi rõ trong PROGRESS rằng đây là một tab **thêm**, không phải một tab SPEC đã liệt kê).
+Tab **thêm** vào §7.2 (chín tab của SPEC cộng "Đội ngũ" của M6.5; đính chính §7.2 ở Task 3). Người dùng tab: luật sư trên vụ của mình, quản lý, admin — tức người mở được `ViewMatter`. **Kế toán không mở được trang vụ việc** (`MatterPolicy::view` đòi `matter.view`), nên màn hình của kế toán là Task 8, không phải tab này.
 
-Nội dung: giá trị hợp đồng, thuế suất và ba con số VAT; trạng thái; lịch thu dạng bảng dọc với từng đợt (tên, số tiền, kích hoạt bằng gì, đến hạn ngày nào, đã thu bao nhiêu, trạng thái hiển thị theo `InstalmentState`); các khoản thu dưới từng đợt; phụ lục; và một dòng tổng **đã thu / còn phải thu / quá hạn**.
+Nội dung: giá trị hợp đồng, thuế suất và ba con số VAT; trạng thái; lịch thu dạng bảng dọc (tên, số tiền, kích hoạt bằng gì, đến hạn ngày nào, đã thu, trạng thái theo `InstalmentState`); các khoản thu dưới từng đợt (kèm luật sư được ghi doanh thu, P2); phụ lục; dòng tổng **đã thu / còn phải thu / quá hạn**.
 
-- **Ba màu có nghĩa xuyên suốt** (nguyên tắc từ toolchain §4, đã dùng ở M5): xanh đã thu, vàng đang chờ, đỏ quá hạn. **Màu không được là kênh thông tin duy nhất** — luôn kèm chữ.
-- Nút gọi Action, **không** tự viết nghiệp vụ. Mọi nút **bắt `DomainException`** và đổi thành lỗi trên form.
-- **Cổng quyền hỏi kèm ngữ cảnh.** Bài học M4 I3 và M5: nhánh không-ngữ-cảnh của một `create()` policy trả lời câu hỏi *giao diện*, và mọi lần Filament tự hỏi đều **không** truyền ngữ cảnh. Dùng đúng thành ngữ `PartiesRelationManager` đang dùng: `->authorize(fn () => Gate::allows('create', [Payment::class, $this->getOwnerRecord()]))`.
-- **Bẫy `RelationManager::isReadOnly()` mặc định `true` trên trang `ViewRecord`** (M3). Và **lọc qua `ScopesToVisibleMatters`** như mọi relation manager khác.
-- **Dải cảnh báo** khi vụ việc đã ở giai đoạn `is_terminal` mà còn công nợ (xem "Tiền trên một vụ việc đã đóng").
-- Một cột trên bảng danh sách vụ việc: **còn phải thu**, hiện cho ai có `billing.view`, ẩn hẳn cột với ai không có.
+- **Ba màu có nghĩa** (xanh đã thu, vàng đang chờ, đỏ quá hạn), bằng style nội tuyến trên biến CSS Filament; **luôn kèm chữ**.
+- Nút gọi Action, **bắt `DomainException`** và đổi thành lỗi trên form. Ô tiền đi qua `Money::parse()`, `maxLength` và giới hạn bằng cột / `Money::MAX`.
+- **Cổng quyền hỏi kèm ngữ cảnh**, thành ngữ của tab **Tài liệu** (M4): `->authorize(fn () => Gate::allows('create', [Payment::class, $this->getOwnerRecord()]))`. (Tab Các bên dùng `Gate::allows('update', $this->getOwnerRecord())`, không phải dạng này.) Lọc qua `ScopesToVisibleMatters` như mọi relation manager khác.
+- **Nút ghi khoản thu trên tab chỉ hiện khi `PaymentPolicy::create` cho phép** — thực tế: admin, và luật sư phụ trách của vụ `restricted`. Kế toán ghi ở trang "Công nợ".
+- **Dải cảnh báo** khi vụ đã kết thúc (`closed_at` khác null) mà còn công nợ.
+- **Gợi ý đầu mục danh mục.** Sau khi kích hoạt, nếu vụ còn đầu mục bắt buộc "Hợp đồng dịch vụ pháp lý và giấy uỷ quyền" (SPEC §4.9) ở trạng thái thiếu, tab hiện một dòng nhắc luật sư tải bản đã ký lên đúng đầu mục đó qua đường tải của M4, để nhắc §6.9 không đòi khách nộp thứ văn phòng đang giữ. **Không** tự đánh dấu đầu mục là đã nhận: đầu mục gộp cả giấy uỷ quyền, và chỉ nhận diện được bằng tên (câu hỏi mở).
+- Một cột trên danh sách vụ việc: **còn phải thu**, hiện cho ai có `billing.view`, ẩn hẳn với ai không có.
 
-**Test bắt buộc:** luật sư thấy tab trên vụ của mình, không thấy trên vụ khác; **kế toán thấy tab nhưng KHÔNG thấy tiêu đề vụ việc ở bất kỳ đâu trên màn hình đó** (test quét chuỗi đánh dấu duy nhất, đúng hình dạng test `internal_note` của §11); trợ lý không thấy tab; luật sư không thấy nút ghi nhận khoản thu (không có `payment.record`); kế toán không thấy nút soạn hợp đồng; mỗi `DomainException` của Task 4 và 5 hiện thành lỗi trên form chứ không phải 500 — **một `it()` riêng cho từng trường hợp** (false-green `PersistentMiddleware`); vào thẳng URL tab của một vụ không có quyền → **404**.
+**Test bắt buộc (Livewire):** luật sư thấy tab trên vụ của mình, không thấy trên vụ khác; trợ lý không thấy tab; quản lý thấy tab nhưng **không** có nút ghi khoản thu; luật sư vụ thường không có nút ghi khoản thu; luật sư phụ trách vụ `restricted` ghi được; thành viên đội ngũ không phải lead của vụ `restricted` không thấy tiền; `"1.250.000"` lưu thành 1250000; mỗi `DomainException` của Task 4 và 5 hiện thành lỗi trên form, **một `it()` riêng cho từng trường hợp**; vào thẳng URL tab của một vụ không có quyền → **404**; dải cảnh báo hiện khi `closed_at` có giá trị và không hiện khi vụ còn mở.
 
 - [ ] Test đỏ, cài đặt, test xanh, pint, commit `feat: tab hợp đồng và thanh toán trên trang vụ việc`.
 
 ---
 
-### Task 8: Trang doanh thu
+### Task 8: Trang "Công nợ" cho kế toán
 
-**Files:** `app/Filament/Admin/Pages/RevenueDashboard.php`, `app/Filament/Admin/Widgets/Revenue/*.php`, `app/Support/Billing/{Money,BillingSummary}.php`, `lang/vi/widgets.php`, `tests/Feature/Filament/RevenueDashboardTest.php`
+**Files:** `app/Filament/Admin/Pages/Receivables.php` + view nếu cần, `app/Policies/DocumentPolicy.php` (nhánh biên lai, nếu chọn cách (a) dưới đây), `lang/vi/billing.php`, `tests/Feature/Filament/ReceivablesPageTest.php`
 
-Toàn bộ thiết kế ở mục "Trang doanh thu" phía trên — **đọc lại nguyên văn trước khi viết**, gồm cả câu cấm ô đổi kiểu biểu đồ, thứ **phải** được chép vào docblock của trang.
+**Vì sao có task này (P3):** kế toán là người ghi tiền, nhưng không mở được trang vụ việc, và không được cần tới trang đó.
 
-Năm widget: `ReceivablesDonutWidget` (donut, ba lát, kèm ba con số bằng chữ), `RevenueOverTimeWidget` (cột, `$filter` tháng/quý/năm — `ChartWidget::$filter` là cơ chế có sẵn), `MatterMixByPracticeAreaWidget` (cột ngang **xếp hạng**, 12 lĩnh vực), `LoadPerLawyerWidget` (cột ngang, đòi `revenue.viewAny`), `ClosedWithBalanceWidget` (bảng — vụ đã kết thúc còn công nợ).
+- **Trang tự viết**, `canAccess()` hỏi `Gate::forUser($account)` quyền `revenue.viewAny`, và `abort(404)` ở mọi chỗ resolve record. Admin, quản lý, kế toán vào được; luật sư và trợ lý nhận 404.
+- **Dữ liệu chỉ đi qua `AccountantBillingRow`**: mã hồ sơ, loại vụ việc, tên khách, tên đợt, số tiền, đã thu, còn lại, ngày đến hạn, trạng thái hiển thị. **Không** tiêu đề vụ việc. Mã hồ sơ **không** là liên kết tới trang vụ việc với người không qua `MatterPolicy::view`.
+- **Tập dòng:** `Matter::listableBy($user)` + `billing.view` (P3). Kế toán và quản lý không thấy vụ `restricted`; admin thấy.
+- **Bộ lọc:** quá hạn, đến hạn trong 7 ngày, đã kết thúc còn nợ (`closed_at` khác null), theo khách. Sắp xếp mặc định: quá hạn lâu nhất trước.
+- **Hành động** (chỉ hiện khi `PaymentPolicy::create` / `::void` cho phép — tức kế toán và admin; quản lý **chỉ xem**): "Ghi khoản thu" (ô tiền qua `Money::parse`, ngày, cách trả, mã giao dịch, tệp biên lai); xem các khoản thu của một đợt và "Huỷ khoản thu" kèm lý do. Gọi `RecordPayment` / `VoidPayment`, bắt `DomainException`.
+- **Tệp biên lai của kế toán.** `UploadStaffDocument` tự hỏi `DocumentPolicy::create` với ngữ cảnh vụ việc, và vế đó đòi `matter.update` mà kế toán không có. Chọn một, ghi phán quyết vào PROGRESS:
+  - (a) `DocumentPolicy::create` thêm **đúng một** nhánh: ngữ cảnh là khoản thu, người dùng qua `PaymentPolicy::create`, nhóm **bắt buộc là D**; `UploadStaffDocument` vẫn là đường tải duy nhất (FileGuard, quét virus). Mutation probe cho từng vế; test khẳng định kế toán **không** tạo được tài liệu nhóm A/B/C bằng nhánh này.
+  - (b) Nếu (a) phải đụng nhánh cổng khách của `DocumentPolicy::create`, bỏ tệp biên lai khỏi M9; chỉ giữ `reference`.
+- **Hiệu năng:** `listableBy` ở tầng truy vấn, không gọi policy theo dòng. Test đếm truy vấn với ngưỡng có lý do.
 
-**Đừng làm lại `MattersByStageWidget`** — nó đã có ở trang chủ §7.1 và Task 1 đã vá nó. Trang doanh thu tham chiếu lại nó chứ không tạo bản thứ hai.
+**Test bắt buộc (Livewire/HTTP, mỗi trường hợp một `it()`):** kế toán mở trang, thấy dòng, **không thấy tiêu đề vụ việc ở bất kỳ đâu** (chuỗi đánh dấu duy nhất đặt trong tiêu đề, như test `internal_note` của §11); kế toán ghi khoản thu qua Livewire và đợt chuyển trạng thái; quản lý mở trang, không có hành động, và gọi thẳng hành động qua Livewire bị từ chối; luật sư → 404; trợ lý → 404; đợt của vụ `restricted` không có trong bảng của kế toán và quản lý, có trong bảng của admin; `"1.250.000"` → 1250000; mỗi `DomainException` hiện thành lỗi trên form; biên lai theo cách đã chọn ở trên.
 
-**Bốn thứ dễ làm sai:**
+- [ ] Test đỏ, cài đặt, test xanh, pint, commit `feat: trang công nợ cho kế toán, không cần mở hồ sơ`.
 
-1. **Mỗi widget in ra nghĩa của bộ lọc thời gian lên chính nó.** Cột doanh thu lọc theo `payments.paid_on`; donut và cơ cấu lĩnh vực lọc theo `contracts.signed_at`, còn quá hạn tính tại **hôm nay**. Một bộ lọc mang hai nghĩa mà không nói ra là cách nhanh nhất để một dashboard nói dối. Có test khẳng định nhãn có mặt.
-2. **Tiền và số đếm không bao giờ chung một trục.** Công tắc số vụ / số tiền đổi thứ được đo.
-3. **Định dạng qua `Money::format()` ở mọi nơi**, kể cả tooltip Chart.js. Có test.
-4. **Hiệu năng** (việc mang sang từ M2): `MatterPolicy::view` chạy một EXISTS mỗi lần gọi và các widget chạm rất nhiều vụ việc. Dùng `Matter::scopeListableBy()` ở tầng truy vấn, **không** gọi policy theo dòng. Test đếm truy vấn với một ngưỡng **nêu rõ lý do của con số đó**, không phải một con số tròn trịa đặt cho đẹp.
+---
 
-**Test bắt buộc:** luật sư mở được trang và **chỉ** thấy số liệu của vụ mình (dựng hai luật sư và khẳng định hai con số khác nhau, không phải chỉ khẳng định trang mở được); luật sư **không** thấy hai widget toàn văn phòng; kế toán thấy đủ; trợ lý vào thẳng URL → **404**; ba lát donut cộng lại đúng tổng giá trị đã ký trong kỳ trừ phần đã miễn; đổi bộ lọc thời gian đổi đúng những widget nói rằng nó đổi và **không** đổi những widget khác; một hợp đồng của vụ việc đã xoá mềm **không** xuất hiện trong bất kỳ con số nào; một khoản thu đã huỷ **không** được cộng; đủ 12 lĩnh vực xuất hiện trong biểu đồ cơ cấu kể cả lĩnh vực có 0 vụ (một lĩnh vực biến mất vì không có vụ nào là một câu trả lời sai cho câu hỏi "cơ cấu của văn phòng").
+### Task 9: Trang doanh thu
+
+**Files:** `app/Filament/Admin/Pages/RevenueDashboard.php`, `app/Filament/Admin/Widgets/Revenue/*.php`, `app/Support/Billing/BillingSummary.php`, `lang/vi/widgets.php`, `tests/Feature/Filament/RevenueDashboardTest.php`
+
+Toàn bộ thiết kế ở mục "Trang doanh thu" — **đọc lại nguyên văn trước khi viết**, gồm câu cấm ô đổi kiểu biểu đồ, thứ **phải** được chép vào docblock của trang.
+
+**Sáu widget:** `ReceivablesDonutWidget` (donut, ba lát, kèm ba con số bằng chữ), `RevenueOverTimeWidget` (cột, `ChartWidget::$filter` tháng/quý/năm), `RevenueByStageWidget` (cột ngang theo thứ tự giai đoạn), `MatterMixByPracticeAreaWidget` (cột ngang **xếp hạng**, 12 lĩnh vực, đòi `revenue.viewAny`), `LoadPerLawyerWidget` (cột ngang, đòi `revenue.viewAny`), `ClosedWithBalanceWidget` (bảng — vụ có `closed_at` còn công nợ).
+
+**Năm thứ dễ làm sai:**
+
+1. **Widget doanh thu không được lên trang chủ.** Panel admin tự dò widget **đệ quy** (`discoverWidgets` trên cả `Widgets/`, kể cả `Widgets/Revenue/`), và `Dashboard` trang chủ hiện mọi widget của panel. Mỗi widget doanh thu đặt `protected static bool $isDiscovered = false;` và chỉ đăng ký trong `RevenueDashboard::getWidgets()`. `DashboardWidgetOrderTest` phải còn xanh, và có test khẳng định trang chủ **không** có widget doanh thu nào.
+2. **Extend `ChartWidget` + `getType()`**, không dùng `BarChartWidget`/`DoughnutChartWidget` (đã `@deprecated`).
+3. **Tooltip tiền và CSP.** Tuỳ chọn Chart.js đi xuống trình duyệt qua `@js(...)`; một bộ định dạng phải là `RawJs`. **Đọc phán quyết CSP của M8 R4 trước.** Nếu `RawJs` không chạy được dưới CSP đã chốt, đưa sẵn chuỗi `Money::format()` vào nhãn/dataset và vào bảng số đi kèm; **không** viết bộ định dạng tiền thứ hai bằng JS. Test cả trên trang có header CSP thật.
+4. **Mỗi widget in nghĩa của bộ lọc thời gian và bộ lọc luật sư lên chính nó** (xem "Trang doanh thu", P2). Có test khẳng định nhãn có mặt.
+5. **Hiệu năng:** `Matter::scopeListableBy()` ở tầng truy vấn, **không** gọi policy theo dòng. Test đếm truy vấn với ngưỡng **nêu rõ lý do**. **Đo và báo lại** chi phí của việc không có `paid_amount` (sổ controller: "chưa đo" là rủi ro thật).
+
+**Test bắt buộc:** luật sư chỉ thấy số liệu của vụ mình (dựng hai luật sư, khẳng định hai con số khác nhau); luật sư **không** thấy hai widget toàn văn phòng; kế toán thấy đủ **trừ** vụ `restricted`; quản lý như kế toán; admin thấy cả vụ `restricted`; trang không in số vụ bị loại; trợ lý vào thẳng URL → **404**; ba lát donut cộng lại đúng tổng giá trị đã ký trong kỳ trừ phần đã miễn; đổi bộ lọc thời gian đổi đúng widget nói rằng nó đổi và **không** đổi widget khác; lọc luật sư: khoản thu trước bàn giao vẫn tính cho luật sư cũ, còn phải thu tính cho luật sư mới; hợp đồng của vụ đã xoá mềm **không** xuất hiện; khoản thu đã huỷ **không** được cộng; đủ 12 lĩnh vực kể cả lĩnh vực 0 vụ; trang chủ không có widget doanh thu.
 
 - [ ] Test đỏ, cài đặt, test xanh, pint, commit `feat: trang doanh thu với biểu đồ lọc theo kỳ, luật sư và lĩnh vực`.
 
 ---
 
-### Task 9: Khung `time_entries` — **task có thể bỏ**
+### Task 10: Cổng khách — hợp đồng và lịch thu của chính mình (P1) — **giao Opus**
 
-**Files:** migration `time_entries`, `app/Models/TimeEntry.php`, `app/Policies/TimeEntryPolicy.php`, `Matter::timeEntries()`, `User::timeEntries()`, factory, `docs/SPEC.md` §15, tests
+**Files:** `app/Models/{Contract,Instalment,Payment,ContractAmendment}.php` (`applyClientPortalConstraints()`, danh sách ẩn), bốn policy (nhánh `ClientUser`), `app/Filament/Portal/Pages/MatterProgress.php` + view, `lang/vi/portal.php`, `GenerateHandoverPackage` và view `MUC-LUC.pdf` của M7, `docs/SPEC.md` (§5 Portal, §8, §6.12), `tests/Feature/Portal/BillingOnPortalTest.php`, `tests/Feature/Authorization/PortalCoverageTest.php` (chỉ đọc, phải xanh)
 
-SPEC §15: *"Riêng `time_entries` tuy chưa làm ở bản 1.0 nhưng nên tạo sẵn quan hệ trong model `Matter`, vì khi văn phòng chuyển sang tính phí theo giờ thì đây là thứ khó gắn thêm sau nhất."* Ghi chú M1 đã hoãn nó *"sang giai đoạn 2 cùng bảng `time_entries`"*. **Giai đoạn 2 chính là đây.**
+**Nới có chủ đích, từng tầng độc lập** (luật ba tầng của M5):
 
-**Phạm vi chính xác: bảng, model, quan hệ, policy đóng kín, factory. KHÔNG Action, KHÔNG màn hình, KHÔNG một con số nào trên dashboard đọc bảng này.** `contracts.billing_model` đã có từ Task 2 với chỉ `fixed_fee` đi qua được; đó là nửa quan trọng hơn của "chừa chỗ", vì thứ thật sự khó gắn sau không phải cái bảng mà là **việc "giá trị hợp đồng" đổi nghĩa** khi có tính phí theo giờ.
+1. **Scope** `applyClientPortalConstraints()`: `Contract` — vụ của nó hiển thị trên cổng với đúng khách đó (dùng lại ranh giới của `Matter`, gồm `client_access_until` của M7 và khách chưa xoá mềm của M6.5) **và** `status` là `active` hoặc `completed`. `Instalment` — hợp đồng hiển thị **và** `status` khác `cancelled`. `Payment` — đợt hiển thị **và** `voided_at` null. `ContractAmendment` — hợp đồng hiển thị.
+2. **Policy**: nhánh `ClientUser` phát biểu lại cùng các điều kiện bằng thuộc tính (tiền lệ `MatterPolicy::releasedToPortal`), **không** gọi lại scope.
+3. **Ẩn cột**: `HidesInternalAttributesFromPortal` phủ `note`, `ended_reason`, `waived_reason`, `waived_by`, `void_reason`, `voided_by`, `reason` (phụ lục), `created_by`, `updated_by`, `activated_by`, `attributed_lawyer_id`, `receipt_document_id`, `document_id`, `percent_basis`.
 
-**Task này đứng cuối và không có task nào phụ thuộc vào nó.** Nếu chủ văn phòng trả lời "không" cho Câu hỏi 6, xoá đúng task này và không có gì khác phải sửa.
+**Khối trên trang tiến độ của cổng:** số hợp đồng, tổng giá trị, thuế suất, ngày ký; bảng các đợt (tên, số tiền, "đến hạn ngày …" hoặc "đến hạn khi vụ việc tới bước: <`client_label`>", đã thu, còn lại, "quá hạn" bằng chữ và màu); các khoản đã thu (ngày, số tiền, cách trả). Đợt đã miễn hiện "Văn phòng đã miễn", không lý do. Tiền qua `Money::format()`. Không hiện gì khi vụ chưa có hợp đồng `active`/`completed`. `client_label` của sáu loại tạm không hiện ra vì chúng chưa được công bố (Task 1).
 
-**Test bắt buộc:** `PortalCoverageTest` xanh không thêm dòng miễn trừ; `TimeEntryPolicy` từ chối mọi `ClientUser`; `Matter::timeEntries()` và `User::timeEntries()` trả đúng quan hệ; **không tệp nào ngoài thư mục này tham chiếu `TimeEntry`** (một test grep — nó là thứ giữ cho task này xoá được).
+**Gói bàn giao (M7 R8):** thêm vào `MUC-LUC.pdf` một mục "Bảng kê thanh toán", chỉ gồm đúng các trường khối trên cổng hiện, chân trang đọc qua `OfficeProfile` (M7 Task 10). Test trích chữ từ PDF: có bảng kê; chuỗi đánh dấu đặt trong `note`, `waived_reason`, `void_reason` **không** có. Biên lai và bản scan phụ lục là nhóm D nên không vào zip (khẳng định bằng cách giải nén, như M7 R2).
+
+**Đính chính SPEC:** §5 phần Portal — loại dữ liệu thứ tám khách được thấy; §8 — khối "Hợp đồng và thanh toán"; §6.12 — bảng kê trong gói bàn giao.
+
+**Test bắt buộc (mỗi tầng một mutation probe):** khách thấy hợp đồng và lịch thu của vụ mình; khách B không thấy của khách A (scope, policy, URL/Livewire — mỗi đường một `it()`); hợp đồng `draft`, `cancelled` không hiện; đợt `cancelled` và khoản thu đã huỷ không hiện; chuỗi đánh dấu trong từng cột nội bộ không có trong HTML của cổng; vụ chưa công bố cổng hoặc đã hết `client_access_until` → không có khối tiền; khách bị xoá mềm → không thấy gì; `TimeEntry` vẫn đóng; `PortalCoverageTest` xanh không miễn trừ.
+
+- [ ] Test đỏ, cài đặt, test xanh, pint, **mutation probe từng tầng**, commit `feat: khách xem hợp đồng và lịch thu của chính mình trên cổng`.
+
+---
+
+### Task 11: Nhắc đợt quá hạn (`RemindOverdueInstalments`)
+
+**Files:** `app/Actions/Schedule/RemindOverdueInstalments.php`, `app/Actions/Notification/ResolveStaffRecipients.php`, thư `staff.instalment_overdue` theo khuôn thư của M6 (tên lớp và view theo đúng thư M6 đã có), `routes/console.php`, `lang/vi/mail.php`, `docs/SPEC.md` (§6.8, §9 — đã ghi ở Task 3, task này làm cho đúng), tests
+
+- **Chọn đợt:** `Instalment::scopeOverdue()` trên hợp đồng `active`, vụ chưa xoá mềm. Vụ đã kết thúc vẫn nhắc (nợ không biến mất khi đóng hồ sơ).
+- **Người nhận** (P3), qua **`ResolveStaffRecipients`** — thêm một cổng "được xem tiền của vụ" vào **cùng** lớp (ví dụ `forBilling(Matter $matter, array $preferred)`), dùng đúng định nghĩa của Task 3 (`billing.view` + `isListableBy`) thay cho `view` của vụ, cùng điều kiện `is_active` và cùng chuỗi dự phòng R3. **Không** viết định nghĩa người nhận thứ hai.
+  - Vụ thường: mọi kế toán đang hoạt động + luật sư phụ trách.
+  - Vụ `restricted`: luật sư phụ trách + admin. Kế toán **không** nhận, vì không thấy vụ.
+  - Không ai hợp lệ thì theo chuỗi dự phòng tới admin. Không bao giờ im lặng.
+- **Nội dung thư chỉ gồm các trường của `AccountantBillingRow`** (mã hồ sơ, loại vụ việc, tên khách, tên đợt, số tiền còn lại, ngày đến hạn, số ngày quá hạn) và một liên kết: tới trang "Công nợ" với người vào được trang đó, tới tab của vụ với người còn lại. **Không** tiêu đề vụ việc.
+- **Nhịp:** ngày đầu tiên quá hạn, rồi 7 ngày một lần, cho tới khi thu đủ, miễn hoặc huỷ.
+- **Chống trùng** qua `outbound_messages` theo `template` + `related` (đợt, alias `instalment`) + người nhận + `sent_at`, chỉ tính `status = sent` (M6 R3). Không cột mới.
+- **Mọi thư xếp hàng, sau commit** (M6.5 R2). Thư hỏng để lại dòng `failed`, không chặn ai.
+- **Lịch:** `Schedule::call(new RemindOverdueInstalments)` 08:00 hằng ngày, `withoutOverlapping(<phút>)` có hạn, test ghim giờ.
+- **Không có thư cho khách** (P1). Muốn nhắc khách là một phán quyết mới, và phải theo M6.5 R12.
+
+**Test bắt buộc:** chạy hai lần liên tiếp không sinh thư thứ hai (M6 R4); `travelTo()` qua ngày 1, 7, 8, 14 của quá hạn; vụ thường: kế toán và lead nhận, quản lý không; vụ `restricted`: lead và admin nhận, kế toán không; kế toán bị vô hiệu hoá không nhận; lead nghỉ việc (không `is_active`) thì thư đi theo dự phòng; chuỗi đánh dấu trong tiêu đề vụ việc không có trong thư; máy chủ thư hỏng → dòng `failed`, không lỗi 500, và lần chạy sau gửi lại; đợt được thu đủ giữa hai lần chạy → không nhắc nữa.
+
+- [ ] Test đỏ, cài đặt, test xanh, pint, mutation probe, commit `feat: nhắc nội bộ khi đợt thanh toán quá hạn`.
+
+---
+
+### Task 12: Khung `time_entries` — **task có thể bỏ**
+
+**Files:** migration `time_entries`, `app/Models/TimeEntry.php`, `app/Policies/TimeEntryPolicy.php`, `Matter::timeEntries()`, `User::timeEntries()`, alias morph `time_entry`, factory, `docs/SPEC.md` §15, tests
+
+SPEC §15: *"Riêng `time_entries` tuy chưa làm ở bản 1.0 nhưng nên tạo sẵn quan hệ trong model `Matter`, vì khi văn phòng chuyển sang tính phí theo giờ thì đây là thứ khó gắn thêm sau nhất."* Ghi chú M1 đã hoãn nó *"sang giai đoạn 2 cùng bảng `time_entries`"*.
+
+**Phạm vi chính xác: bảng, model, quan hệ, policy đóng kín, factory. KHÔNG Action, KHÔNG màn hình, KHÔNG một con số nào trên dashboard đọc bảng này.**
+
+**Task này đứng cuối và không task nào phụ thuộc vào nó.** Nếu chủ văn phòng nói "không", xoá đúng task này.
+
+**Test bắt buộc:** `PortalCoverageTest` xanh không thêm miễn trừ; `TimeEntryPolicy` từ chối mọi `ClientUser`; `Matter::timeEntries()` và `User::timeEntries()` trả đúng quan hệ; **không tệp nào ngoài danh sách tệp của task này** (migration, model, policy, factory, `Matter.php`, `User.php`, `AppServiceProvider.php`, test của task) tham chiếu `TimeEntry` — test grep, là thứ giữ cho task xoá được.
 
 - [ ] Test đỏ, cài đặt, test xanh, pint, **round-trip MariaDB**, commit `feat: khung time_entries cho mô hình tính phí theo giờ về sau`.
 
 ---
 
-### Task 10: Dữ liệu mẫu, đi bộ tay, tài liệu
+### Task 13: Dữ liệu mẫu, đi bộ tay, tài liệu, cổng merge
 
-**Files:** `database/seeders/BillingSeeder.php`, `database/seeders/DatabaseSeeder.php`, `docs/PROGRESS.md`, `README.md`, `docs/superpowers/specs/2026-09-14-vk-crm-toolchain.md`
+**Files:** `database/seeders/BillingSeeder.php`, `database/seeders/DemoDataSeeder.php` (M6.5 Task 19), lệnh `vkcrm:preflight` (M8 R1), `docs/PROGRESS.md`, `docs/QUY-TRINH.md`, `README.md`, `docs/superpowers/specs/2026-09-14-vk-crm-toolchain.md`
 
-1. **Dữ liệu mẫu đủ để dashboard vẽ ra một bức tranh THẬT**, không phải một bức tranh có màu. SPEC §12 là sàn; M9 thêm:
-   - Mọi vụ việc đã rời `intake` có một hợp đồng `active`; vài vụ ở `intake` có hợp đồng `draft`; ít nhất một vụ **cố ý không có hợp đồng** (để màn hình có trạng thái rỗng thật).
-   - Giá trị rải trong khoảng có thật ở Việt Nam: 15.000.000 – 450.000.000 đ. Vài hợp đồng có VAT 8% và 10%, vài hợp đồng `vat_rate_percent = null`.
-   - Lịch thu ba đợt theo hình dạng thường gặp (tạm ứng khi ký 30% / khi nộp đơn 40% / khi có bản án 30%), và **ít nhất bốn hợp đồng dùng kích hoạt theo giai đoạn** để đường đó có dữ liệu demo.
-   - **Ít nhất hai đợt quá hạn** — một theo ngày, một theo giai đoạn. Đây là yêu cầu tường minh: không có nó thì lát đỏ của donut và widget nhắc nợ đều trống ở buổi demo.
-   - Ít nhất: một đợt thu một phần, một đợt đã miễn **kèm lý do thật đọc được** (không phải chuỗi giả của factory — chủ văn phòng sẽ đọc câu đó), một khoản thu đã huỷ kèm lý do, một hợp đồng có phụ lục, **một vụ đã kết thúc còn công nợ**.
-   - Khoản thu rải trên **ít nhất tám tháng** để biểu đồ cột có hình dạng chứ không phải một cột.
-   - **Tổng phải khớp tuyệt đối.** Seeder là thứ đầu tiên hook bất biến của Task 4 sẽ bắt; nếu nó không chạy được thì đó là bất biến đang làm việc, không phải bất biến sai.
-2. **`migrate:fresh --seed` trên container MariaDB thật**, rồi `migrate:reset` → `migrate`. Dán output.
-3. **`billing:check-invariants` chạy sạch trên dữ liệu mẫu.** Dán output.
-4. **Đi bộ tay**, ghi lại từng bước và kết quả: soạn một hợp đồng ba đợt trong đó đợt 2 kích hoạt bằng giai đoạn; kích hoạt; chuyển vụ việc tới giai đoạn đó và **xác nhận đợt 2 đến hạn ngay**; ghi một khoản thu một phần; ghi nốt; huỷ một khoản và xem trạng thái lùi lại; ký một phụ lục tăng giá trị và xem lịch thu phải chỉnh lại; mở trang doanh thu và **đổi từng bộ lọc một**, xác nhận từng biểu đồ đổi đúng cái nó nói. Thử cả nhánh xấu: tổng lệch 1 đồng, thu vượt, ngày thu ở tương lai, lý do 19 ký tự tiếng Việt có dấu, và đăng nhập bằng **kế toán** để xác nhận không có tiêu đề vụ việc nào hiện ra.
-5. **Việc mang sang chưa ai nhặt** (`DocumentPolicy::publish`/`::delete` cần probe lại; `MatterChecklistItem` chưa có `LogsActivity`) — nhặt nếu M4/M5 đã rơi, hoặc ghi lại rõ là vẫn còn.
-6. **Cập nhật `docs/PROGRESS.md`** dòng M9 và mục "Ghi chú M9": mọi phán quyết, mọi sai lệch so với kế hoạch, mọi việc hoãn, **trả lời của chủ văn phòng cho sáu câu hỏi**, deviation "không `deleted_at`" và lý do, và **`RemindOverdueInstalments` là việc của M6**. Cập nhật `README.md` (lệnh `billing:check-invariants`, rủi ro chạy trang tiền trước M8) và mục M9 của tài liệu bộ công cụ.
-7. **`security-review` bắt buộc.** Người rà soát cuối được brief là giả định có một Critical.
+1. **`BillingSeeder` nằm trong `DemoDataSeeder`**, không bao giờ chạy ở production. Dữ liệu đủ để dashboard vẽ ra một bức tranh THẬT:
+   - Mọi vụ đã rời `intake` có hợp đồng `active`; vài vụ ở `intake` có `draft`; ít nhất một vụ **cố ý không có hợp đồng**.
+   - Giá trị 15.000.000 – 450.000.000 đ. Vài hợp đồng VAT 8% và 10%, vài hợp đồng `vat_rate_percent = null`.
+   - Lịch ba đợt (30% khi ký / 40% khi nộp đơn / 30% khi có bản án), **ít nhất bốn hợp đồng kích hoạt theo giai đoạn**.
+   - **Ít nhất hai đợt quá hạn** (một theo ngày, một theo giai đoạn); một đợt thu một phần; một đợt đã miễn **kèm lý do thật đọc được**; một khoản thu đã huỷ kèm lý do; một hợp đồng có phụ lục; **một vụ đã kết thúc còn công nợ**; **một vụ `restricted` có hợp đồng** (để thử P3); **một vụ đã bàn giao** có khoản thu trước và sau (để thử P2); một vụ đã công bố cổng có hợp đồng (để thử Task 10).
+   - Khoản thu rải trên **ít nhất tám tháng**.
+   - **Tổng khớp tuyệt đối.**
+2. **`migrate:fresh --seed` trên MariaDB thật**, rồi `migrate:reset` → `migrate`. Dán output. Chạy thêm `ReferenceDataSeeder` hai lần trên dữ liệu đã có: không đổi tên admin đã sửa, quyền mới có mặt.
+3. **`billing:check-invariants` chạy sạch** trên dữ liệu mẫu, và được thêm vào `vkcrm:preflight` (đỏ khi có hợp đồng lệch). Dán output.
+4. **Đi bộ tay**, ghi từng bước và kết quả: soạn hợp đồng ba đợt, đợt 2 kích hoạt bằng giai đoạn; kích hoạt; chuyển vụ tới giai đoạn đó và **xác nhận đợt 2 đến hạn ngay**; **đăng nhập kế toán**, mở "Công nợ", ghi một khoản thu một phần bằng `1.250.000`, ghi nốt, huỷ một khoản và xem trạng thái lùi lại — xác nhận không tiêu đề vụ việc nào hiện ra; ký phụ lục tăng giá trị; bàn giao vụ và xem doanh thu cũ vẫn ở luật sư cũ; mở trang doanh thu và **đổi từng bộ lọc một**; đăng nhập khách và xem khối hợp đồng trên cổng; chạy `RemindOverdueInstalments` và mở thư trong Mailpit. Nhánh xấu: tổng lệch 1 đồng, thu vượt, ngày thu ở tương lai, lý do 19 ký tự tiếng Việt có dấu, `1.25` trong ô tiền, kế toán tìm vụ `restricted`.
+5. **Kịch bản "nhập hợp đồng đang chạy lúc go-live":** hợp đồng ký trong quá khứ, khoản đã thu ghi lùi `paid_on`, vụ đã ở giữa chừng. Kiểm đối chiếu kích hoạt đúng đợt theo `stage_logs` có thật, và ghi rõ: vụ nhập thẳng vào giai đoạn giữa không có dòng `stage_logs` cho các giai đoạn trước, nên đợt của các giai đoạn đó phải nhập là `due_date` hoặc ghi lùi thu. Đo donut sau đó; không được có "quá hạn" giả. Viết thành một mục trong `README.md` / `docs/QUY-TRINH.md`.
+6. **Việc mang sang chưa ai nhặt** (`DocumentPolicy::publish`/`::delete` cần probe lại; `MatterChecklistItem` chưa có `LogsActivity`) — nhặt, hoặc ghi rõ là vẫn còn.
+7. **Tài liệu:**
+   - `docs/PROGRESS.md`, dòng M9 và "Ghi chú M9": bảy phán quyết P1–P7, mọi sai lệch so với kế hoạch (gồm P5 so với sổ controller), mọi việc hoãn, deviation "không `deleted_at`", mục đích xử lý mới (kế toán thấy tên khách), cách chọn biên lai ở Task 8.
+   - `docs/QUY-TRINH.md`: bỏ mục "khách có được xem hợp đồng… đang chờ" (đã quyết, P1); thêm quy trình ghi tiền của kế toán.
+   - `README.md`, mục nâng cấp (M8 R6): chạy `ReferenceDataSeeder` để có bốn quyền mới, chạy `billing:check-invariants`.
+   - Tài liệu bộ công cụ: không có "mục M9"; sửa hàng "Giai đoạn 2 (sau M8)" (`installments` → `instalments`) cho khớp.
+8. **Nghiệm thu:** `bin/dev test` xanh, `bin/dev pint --test` sạch, `bin/dev test:mariadb` xanh **tuần tự**; `security-review` bắt buộc; rà soát toàn nhánh bằng Opus, brief **giả định có một Critical**. Merge vào `main`, push, chờ CI xanh.
 
 - [ ] Test xanh, pint sạch, commit `docs: M9 hoàn tất — hợp đồng dịch vụ và thu phí theo đợt`.
 
@@ -645,59 +784,59 @@ SPEC §15: *"Riêng `time_entries` tuy chưa làm ở bản 1.0 nhưng nên tạ
 ## Thứ tự và việc chạy song song
 
 ```
-M5 đã merge
-   ├── Task 1 (12 lĩnh vực) ────────────────────────────────────────┐
-   └── Task 2 (bảng + model) ──┬── Task 3 (quyền + policy) [Opus] ──┤
-                               │                                    │
-                               └── Task 9 (khung time_entries)      │
-                                                                    │
-            Task 4 (hợp đồng) [Opus] ───┬── Task 5 (khoản thu) [Opus] ──┬── Task 6 (theo giai đoạn)
-                                        │                               │
-                                        └───────── Task 7 (tab vụ việc) ┘
-                                                                        │
-                                                      Task 8 (trang doanh thu)
-                                                                        │
-                                                      Task 10 (mẫu + tài liệu)
+main sau khi M11 đã merge
+   ├── Task 1 (12 lĩnh vực) ──────────────────────────────────────────────┐
+   └── Task 2 (bảng + model) ──┬── Task 3 (quyền + policy) [Opus] ────────┤
+                               └── Task 12 (khung time_entries)           │
+                                                                          │
+       Task 4 (hợp đồng) [Opus] ── Task 5 (khoản thu) [Opus] ──┬── Task 6 (theo giai đoạn)
+                                                               ├── Task 7 (tab vụ việc)
+                                                               ├── Task 8 (Công nợ)
+                                                               ├── Task 10 (cổng khách) [Opus]
+                                                               └── Task 11 (nhắc quá hạn)
+                                                                          │
+                                                        Task 9 (trang doanh thu)
+                                                                          │
+                                                        Task 13 (mẫu + tài liệu + merge)
 ```
 
-- **Task 1 và Task 2 chạy song song được** — tệp rời nhau hoàn toàn (một bên seeder cấu hình, một bên migration và model). Task 1 **phải xong trước Task 8**, vì biểu đồ cơ cấu lĩnh vực là lý do nó tồn tại.
-- **Task 3 và Task 9 chạy song song được** sau Task 2.
-- **Task 4 cần Task 2 và Task 3.** Task 5 cần Task 4.
-- **Task 6 và Task 7 chạy song song được** sau Task 5 — Task 6 đụng Action/event/job, Task 7 đụng Filament. Chỗ chạm nhau duy nhất là `lang/vi/billing.php`, nên hai người **phải commit theo đường dẫn tường minh** (bài học M3, học bằng cách làm hỏng). Có một phụ thuộc chiều ngược nhẹ: `ActivateContract` (Task 4) gọi `TriggerInstalmentsForStage` (Task 6) — để lại điểm nối tường minh và một test `todo`, **không** cài một bản sao logic.
-- **Task 8 cuối cùng trong nhóm tính năng**, cần 1, 3, 4, 5, 6.
-- **Task 10 một mình.**
-- Giữ nguyên quy trình M3/M4/M5 vì nó vẫn đang tìm ra lỗi: một người cài đặt mới cho mỗi task, rà soát theo phạm vi task, rà soát lại theo phạm vi sau mỗi vòng sửa, rà soát toàn nhánh trước khi merge, và **brief người rà cuối là giả định có một Critical**. **Task 3, 4, 5 giao cho Opus** — đó là các task phân quyền và tiền, đúng hạng việc mà mọi Critical của dự án tới nay đều đến từ một lượt rà soát Opus.
+- **Task 1 và Task 2 song song được.** Task 1 **phải xong trước Task 9**.
+- **Task 3 và Task 12 song song được** sau Task 2.
+- **Task 4 cần Task 2 và 3.** Task 5 cần Task 4.
+- **Sau Task 5:** Task 6, 7, 8, 10, 11 song song được. Chỗ chạm nhau: `lang/vi/billing.php` (7, 8), `routes/console.php` (6, 11), model tiền (10). **Commit theo đường dẫn tường minh.** `ActivateContract` (Task 4) gọi `TriggerInstalmentsForStage` (Task 6): điểm nối tường minh + test `todo`, **không** bản sao logic.
+- **Task 9** cần 1, 3, 4, 5, 6.
+- **Task 13 một mình**, cuối.
+- Giữ nguyên quy trình: một người cài đặt mới cho mỗi task, rà soát theo phạm vi task, rà soát lại sau mỗi vòng sửa, rà soát toàn nhánh trước merge, brief **giả định có một Critical**. **Task 3, 4, 5, 10 giao Opus.**
 
 ---
 
 ## Tự rà soát kế hoạch
 
-**Độ phủ mô tả của chủ văn phòng.** *"Ký hồ sơ là giá trị 1 lần"* → `contracts.total_amount`, unique trên `matter_id`, bất biến tổng (Task 2, 4). *"Thanh toán theo giai đoạn"* → `instalments.trigger_type = stage` + `MatterStageChanged` + job đối chiếu (Task 2, 6). *"Như các CRM luật thương mại làm"* → khoản thu là bản ghi riêng có người ghi và cách nhận, thu một phần là bình thường, phụ lục có lịch sử, công nợ quá hạn nhìn thấy được (Task 4, 5). *"Dashboard có biểu đồ lọc theo tháng, lĩnh vực…"* → Task 8, với dạng biểu đồ chọn theo câu hỏi chứ không theo sở thích.
+**Độ phủ mô tả của chủ văn phòng.** *"Ký hồ sơ là giá trị 1 lần"* → `contracts.total_amount`, unique `matter_id`, bất biến tổng (Task 2, 4). *"Thanh toán theo giai đoạn"* → `trigger_type = stage` + sự kiện đổi giai đoạn + đối chiếu (Task 2, 6). *"Như các CRM luật thương mại làm"* → khoản thu riêng có người ghi và cách nhận, thu một phần, phụ lục có lịch sử, công nợ quá hạn nhìn thấy và được nhắc (Task 4, 5, 8, 11). *"Dashboard có biểu đồ lọc theo tháng, lĩnh vực…"* → Task 9.
 
-**Độ phủ SPEC §15.** `contracts` + `instalments` gắn vào `matters` → Task 2. `time_entries` gắn vào `matters` và `users` → Task 9. Câu *"mô hình dữ liệu 1.0 phải để chỗ mở rộng mà không phải sửa lại"* → đã kiểm: **không một migration nào của M9 sửa một bảng đã có**, trừ ba quan hệ khai báo ở tầng model và một cột `reminders_sent` trên bảng mới. Tức SPEC §15 đã giữ được lời hứa của nó, và kế hoạch này là bằng chứng.
+**Độ phủ SPEC §15.** `contracts` + `instalments` → Task 2. `time_entries` → Task 12. *"Mô hình dữ liệu 1.0 phải để chỗ mở rộng mà không phải sửa lại"* → **không migration nào của M9 sửa cấu trúc một bảng đã có**; chỉ thêm bảng, thêm quan hệ ở tầng model, và một migration **dữ liệu** đổi tên bốn loại vụ việc.
 
-**Độ phủ §11.** M9 không thêm mục nào vào danh sách test bắt buộc §11, nhưng chạm vào ba mục đã có: *"Kế toán không xem được nội dung hồ sơ"* trở nên sắc hơn vì kế toán giờ có một màn hình mới (Task 3, 7); *"Chuyển giai đoạn sai `allowed_next` → ném exception"* phải vẫn xanh sau khi Task 6 thêm dòng dispatch; mục tiêu độ phủ 80% cho `app/Actions/` và `app/Policies/` áp cho `app/Actions/Billing/` và năm policy mới.
+**Độ phủ §11.** *"Kế toán không xem được nội dung hồ sơ"* sắc hơn vì kế toán có hai màn hình mới và một thư mới (Task 3, 8, 11). *"Chuyển giai đoạn sai `allowed_next` → ném exception"* phải còn xanh sau Task 6. Độ phủ 80% cho `app/Actions/` và `app/Policies/` áp cho `app/Actions/Billing/`, hai Action lịch và bốn policy mới.
 
-**Nhất quán tên gọi.** `TriggerInstalmentsForStage` sinh ở Task 6, gọi ở Task 4 (`ActivateContract`) và Task 6 (listener + job) — **ba nơi gọi, một định nghĩa**. `Instalment::state()` sinh ở Task 5, dùng ở Task 7 và Task 8 — hiển thị **không** được tự tính lại. `Money::format()` sinh ở Task 4, dùng ở Task 7 và Task 8, gồm cả tooltip Chart.js. `SplitByPercent` chỉ Task 4 gọi. `Matter::scopeListableBy()` (M2) là đường duy nhất mọi truy vấn tiền giới hạn theo người dùng. `AccountantBillingRow` sinh ở Task 3, là kiểu dữ liệu duy nhất màn hình kế toán nhận.
+**Nhất quán tên gọi.** `TriggerInstalmentsForStage` sinh ở Task 6, gọi ở Task 4, listener và đối chiếu — **một định nghĩa**. `Instalment::state()` / `scopeOverdue()` sinh ở Task 5, dùng ở Task 7, 8, 9, 10, 11 — hiển thị **không** tự tính lại. `Money::format()`/`parse()` sinh ở Task 4. "Ai thấy tiền của vụ nào" = `billing.view` + `listableBy`, định nghĩa ở Task 3, dùng ở mọi màn hình, thư và policy. `AccountantBillingRow` sinh ở Task 3, là kiểu dữ liệu duy nhất của trang "Công nợ" và thư nhắc. "Vụ đã kết thúc" = `closed_at` (M6.5 R8).
 
 **Rủi ro đã lường trước.**
-- *Bộ giai đoạn cho sáu lĩnh vực mới* là kiến thức hành nghề mà kế hoạch không có. Đã thành Câu hỏi 1 với một mặc định an toàn (bộ chung, đánh dấu tạm, không công bố portal) thay vì một lời đoán trông như sự thật.
-- *`percent_basis`* là một cột chỉ-để-xem nằm cạnh một cột có tính quyết định — đúng hình dạng thứ ai đó sẽ dùng để tính lại. Đã có test và mutation probe riêng cho việc đó, nhưng nếu người cài đặt thấy cột đó gây hiểu nhầm nhiều hơn giúp ích thì **bỏ nó** là một lựa chọn hợp lệ; ghi lại lý do.
-- *Round-trip MariaDB* ở Task 2 là nơi M9 dễ vỡ nhất: nhiều unique composite và nhiều khoá ngoại hơn bất kỳ milestone nào kể từ M1, và dự án đã vỡ đúng chỗ này hai lần.
-- *Task 4 gọi Task 6* là một phụ thuộc chiều ngược. Đã xử bằng điểm nối tường minh, nhưng nếu hai người chạy song song thì đây là chỗ một bản sao logic sẽ mọc ra.
+- *Bộ giai đoạn tạm* là kiến thức hành nghề kế hoạch không có; nhánh tường minh ở `StagePresets` giữ nó khỏi rơi vào bộ dân sự.
+- *`percent_basis`* nằm cạnh một cột có tính quyết định. Có test và probe; bỏ nó là lựa chọn hợp lệ, ghi lý do.
+- *Round-trip MariaDB* ở Task 2 — nhiều unique composite và khoá ngoại nhất kể từ M1.
+- *Task 4 gọi Task 6* — điểm nối tường minh.
+- *Chạy trên production*: seed ghi đè tên admin đã sửa; quyền mới chưa tới production. Task 1 và Task 13 bước 2 giữ.
 
 **Cố ý để lại ngoài M9.**
-- **Xuất hoá đơn, hoá đơn điện tử, tờ khai thuế, đối chiếu với phần mềm kế toán.** Không có gì trong M9 sinh ra một hoá đơn.
-- **Email nhắc công nợ** (`RemindOverdueInstalments`) và dòng `outbound_messages` tương ứng — **M6**. Đặc tả nằm ở mục "Phát hiện quá hạn"; M9 chỉ để sẵn cột `reminders_sent`.
-- **QR VietQR và mọi hình thức đối soát ngân hàng tự động** — SPEC §1 xếp riêng, và nó là một milestone có đặc tả riêng.
-- **Hợp đồng trên portal của khách** — Câu hỏi 2, đóng kín ở cả ba tầng cho tới khi có chữ ký.
-- **Bảng kê thanh toán trong gói bàn giao** (§6.12) — **M7**, ghi vào PROGRESS để M7 không phải tự nghĩ ra.
-- **Tính phí theo giờ** — chỉ có khung bảng (Task 9) và một cổng từ chối ở `billing_model`.
-- **Ô cho người dùng tự đổi kiểu biểu đồ** — không phải bị quên; bị từ chối, kèm lý do, trong docblock của trang.
+- **Xuất hoá đơn, hoá đơn điện tử, tờ khai thuế, đối chiếu phần mềm kế toán.**
+- **Thư nhắc nợ cho khách** (P1). Chỉ có thư nội bộ (Task 11).
+- **QR VietQR và đối soát ngân hàng tự động** — SPEC §1 xếp riêng.
+- **Tính phí theo giờ** — chỉ khung bảng (Task 12) và một cổng từ chối ở `billing_model`.
+- **Ô cho người dùng tự đổi kiểu biểu đồ** — bị từ chối, kèm lý do, trong docblock của trang.
 
-**Điều tôi ít chắc nhất.** Bốn thứ, theo thứ tự đáng lo:
+**Điều tôi ít chắc nhất.**
 
-1. **Không có cột `paid_amount`.** Tôi tin đây là quyết định đúng — một cột tổng hợp về tiền là nguồn sự thật thứ hai và nó **sẽ** lệch. Nhưng tôi đang đánh đổi một chỗ hỏng chắc chắn lấy một chi phí truy vấn tôi **chưa đo**, và trang doanh thu là nơi chi phí đó cộng dồn (năm widget, mỗi widget một phép join qua bốn bảng, nhân với mọi vụ việc người dùng thấy). Nếu Task 8 đo ra một con số xấu, câu trả lời đúng **không phải** là thêm cột `paid_amount` cho ai cũng ghi được — mà là một bảng tổng hợp **có job dựng lại được hoàn toàn từ `payments`**, nghĩa là nó không bao giờ là nguồn sự thật. Người cài Task 8 phải đo và báo lại con số thật, đừng im lặng chịu đựng.
-2. **Vị trí trong thứ tự dựng.** Tôi viết ở đầu rằng M9 đi sau M5, và tôi tin điều đó. Nhưng tôi cũng biết tiền là thứ chủ văn phòng cảm nhận được ngay còn cổng khách hàng là thứ khách hàng cảm nhận được — và người trả tiền cho dự án là chủ văn phòng. Nếu câu trả lời là "làm tiền trước", tôi nghĩ nó **sai về thứ tự giá trị** nhưng **không sai về mặt kỹ thuật**: M9 chạy được ngay sau M4. Ba cái giá đã liệt kê ở đầu kế hoạch là đủ để quyết định một cách có hiểu biết, và đó là tất cả những gì một kế hoạch làm được.
-3. **`TriggerInstalmentsForStage` không nhận actor.** Tôi cho rằng kích hoạt một đợt là hệ quả chứ không phải quyết định, nên ghi một actor vào đó là bịa ra thẩm quyền. Nhưng có một cách đọc ngược lại cũng đứng được: người chuyển giai đoạn **chính là** người gây ra việc đợt đó đến hạn, và một dòng nhật ký không có causer là một dòng khó dùng khi văn phòng phải giải thích với khách vì sao có một khoản phải thu. Tôi đã nghiêng theo tiền lệ `RunConflictCheck` (`?User $actor = null` + `actor_explicit`), nhưng nếu người rà soát thấy ngược lại thì lập luận của họ đáng nghe — và `stage_log_id` trong properties đã là một đường truy ngược tới người chuyển giai đoạn, nên cái giá của việc tôi sai không lớn.
-4. **Số lượng task.** Mười task nhiều hơn M4 (bảy) và M5 (bảy). Tôi đã cân nhắc gộp Task 9 vào Task 2 (chung một vòng round-trip MariaDB) và gộp Task 5 vào Task 4. Không gộp, vì hai lý do: Task 9 phải **xoá được nguyên vẹn** nếu chủ văn phòng nói không, và Task 4 đã lớn sẵn (ba Action, ba lớp support, một lệnh console, một bất biến giữ ở bốn tầng). Nếu người cài đặt thấy Task 4 vượt một phiên, cách cắt đúng là tách **`AmendContract` + phụ lục** ra thành task riêng, **không** tách theo tầng — tách theo tầng nghĩa là hai người cùng sửa một bất biến, đúng chỗ M3 đã va chạm ba lần.
+1. **Không có cột `paid_amount`.** Đúng về tính đúng đắn, nhưng chi phí truy vấn **chưa đo**, và trang doanh thu cùng trang "Công nợ" là nơi nó cộng dồn. Task 9 phải đo. Nếu xấu, câu trả lời là bảng tổng hợp **dựng lại được từ `payments`**, không phải một cột ai cũng ghi được.
+2. **Loại hẳn vụ `restricted` khỏi tổng số của kế toán và quản lý** (P3). Cái giá: con số "toàn văn phòng" của họ thấp hơn thật, và chỉ admin thấy con số đúng. Tôi chọn vậy vì bộ lọc làm cho mọi cách gộp đều suy ngược được. Nếu chủ văn phòng muốn quản lý thấy tổng đúng, cách đúng là một con số gộp **không lọc được** (chỉ tổng toàn thời gian), không phải nới `listableBy`.
+3. **`TriggerInstalmentsForStage` không nhận actor.** Có cách đọc ngược lại đứng được (người chuyển giai đoạn gây ra việc đợt đến hạn). `stage_log_id` trong properties đã truy ngược được tới người đó, nên cái giá nếu tôi sai là nhỏ.
+4. **Số lượng task.** Mười ba task. Nếu Task 4 vượt một phiên, tách **`AmendContract` + phụ lục** ra, **không** tách theo tầng.
