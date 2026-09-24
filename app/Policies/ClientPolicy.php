@@ -76,4 +76,47 @@ class ClientPolicy
 
         return true;
     }
+
+    /**
+     * Task 2, vòng sửa 1 (Critical #1): cổng THÔ của `DeleteBulkAction` trên `ListClients`.
+     * Filament tự hỏi `deleteAny` cho toàn bộ nút xoá hàng loạt (`Page.php::getDefaultActionAuthorizationResponse()`),
+     * và hàm `get_authorization_response()` của Filament coi một ability KHÔNG có phương thức
+     * tương ứng trên policy là CHO PHÉP khi không ở chế độ nghiêm ngặt (`isAuthorizationStrict()`
+     * = false, mặc định của dự án — không cấu hình ở đâu). Thiếu phương thức này, MỌI người vào
+     * được trang danh sách (kể cả Lawyer/Assistant, không chỉ Admin) bấm xoá hàng loạt trót lọt,
+     * bỏ qua cả luật admin-only lẫn luật "còn vụ đang mở" của {@see self::delete()}.
+     *
+     * Đây chỉ là cổng THÔ — quyết định nút có bấm được không. Luật thật cho TỪNG bản ghi (còn vụ
+     * mở hay không) vẫn nằm nguyên một chỗ ở {@see self::delete()}; `ClientsTable` gọi
+     * `->authorizeIndividualRecords('delete')` để mỗi dòng được lọc qua đúng phương thức đó
+     * trước khi bị xoá — không lặp lại luật ở đây.
+     */
+    public function deleteAny(User|ClientUser $user): bool
+    {
+        return $user instanceof User && $user->hasRole(Role::Admin->value);
+    }
+
+    /** Cùng luật với {@see self::delete()}, không có điều kiện "vụ đang mở" (chiều ngược lại). */
+    public function restore(User|ClientUser $user, Client $client): bool
+    {
+        return $user instanceof User && $user->hasRole(Role::Admin->value);
+    }
+
+    /** Cổng thô của `RestoreBulkAction` — cùng lý do {@see self::deleteAny()}. */
+    public function restoreAny(User|ClientUser $user): bool
+    {
+        return $user instanceof User && $user->hasRole(Role::Admin->value);
+    }
+
+    /** Không ai xoá vĩnh viễn một khách hàng được — cùng luật `MatterPolicy::forceDelete()`. */
+    public function forceDelete(User|ClientUser $user, Client $client): bool
+    {
+        return false;
+    }
+
+    /** Cổng thô của `ForceDeleteBulkAction` — cùng lý do {@see self::deleteAny()}, luôn từ chối. */
+    public function forceDeleteAny(User|ClientUser $user): bool
+    {
+        return false;
+    }
 }

@@ -273,6 +273,53 @@ it('tài khoản khách bị vô hiệu không tải được bằng đường d
     $this->actingAs($this->clientUser->fresh(), 'client')->get($url)->assertNotFound();
 });
 
+/*
+ * Task 2, vòng sửa 1 (Important #2, phần đường tải tệp) — `portal/portal-3` lặp lại ở đây. Route
+ * này nằm NGOÀI cả hai panel nên `ClientUser::canAccessPanel()` không bao giờ chạy cho nó; điều
+ * kiện "khách hàng chưa xoá mềm" phải lặp lại độc lập ở `DocumentDownloadController::actor()`.
+ */
+it('khách hàng bị xoá mềm không tải được bằng đường dẫn ký trước đó, dù tài khoản cổng vẫn is_active', function () {
+    $document = downloadableDocument($this->matter);
+    $url = $document->downloadUrlFor($this->clientUser);
+
+    $this->client->delete();
+
+    $this->actingAs($this->clientUser->fresh(), 'client')->get($url)->assertNotFound();
+});
+
+/**
+ * Test trên đi qua CẢ HAI tầng cùng lúc (actor() VÀ MatterPolicy::releasedToPortal(), cả hai đều
+ * đã sửa ở vòng này) — không phân biệt được tầng nào thật sự chặn, vì cả hai cùng từ chối cho
+ * đúng điều kiện này. Đo THẲNG `actor()` qua reflection, bỏ qua toàn bộ phần còn lại của
+ * controller (kể cả `Gate::forUser($actor)->allows('download', ...)`), để mutation probe của
+ * riêng nó không lẫn với mutation probe của `releasedToPortal()` (xem `MatterPolicyTest`).
+ */
+it('actor() itself refuses a client user whose client has been soft deleted, independent of the policy layer', function () {
+    $this->client->delete();
+
+    $this->actingAs($this->clientUser->fresh(), 'client');
+
+    $controller = new DocumentDownloadController;
+    $method = new ReflectionMethod($controller, 'actor');
+    $method->setAccessible(true);
+
+    expect($method->invoke($controller))->toBeNull();
+});
+
+/** Vế dương của test trên: cùng đường, khách hàng CHƯA xoá thì actor() vẫn trả về tài khoản đó. */
+it('actor() returns the client user when the client has not been deleted', function () {
+    $this->actingAs($this->clientUser, 'client');
+
+    $controller = new DocumentDownloadController;
+    $method = new ReflectionMethod($controller, 'actor');
+    $method->setAccessible(true);
+
+    $actor = $method->invoke($controller);
+
+    expect($actor)->not->toBeNull()
+        ->and($actor->is($this->clientUser))->toBeTrue();
+});
+
 it('tài khoản nhân sự bị vô hiệu không tải được', function () {
     $document = downloadableDocument($this->matter, DocumentGroup::Authority);
     $url = $document->downloadUrlFor($this->lawyer);

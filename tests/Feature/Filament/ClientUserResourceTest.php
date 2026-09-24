@@ -11,6 +11,7 @@ use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Matter;
 use App\Models\User;
+use App\Policies\ClientUserPolicy;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -387,4 +388,154 @@ it('the edit-page mutate hook itself restores the original client_id, independen
     $result = $method->invoke($page, ['client_id' => $otherOwnClient->id, 'name' => 'Tên đã sửa']);
 
     expect($result['client_id'])->toBe($ownClient->id);
+});
+
+// =========================================================================================
+// Task 2, vòng sửa 1 (Important #3): ClientUserPolicy::deleteAny()/restoreAny()/forceDeleteAny()
+// + ClientUsersTable::toolbarActions() authorizeIndividualRecords()
+// =========================================================================================
+
+/**
+ * Trước bản sửa này, `ClientUserPolicy` không định nghĩa `deleteAny()`/`restoreAny()`/
+ * `forceDeleteAny()` — cùng lỗ hổng hệt `ClientPolicy` (đọc docblock `ClientPolicy::deleteAny()`).
+ * Một luật sư (không phải admin, `can('delete', $account)` = `false` khi hỏi thẳng) vẫn xoá hàng
+ * loạt trót lọt được tài khoản cổng của khách BẤT KỲ qua `ListClientUsers`, kể cả khách ngoài tầm
+ * quản lý của mình.
+ */
+it('hides every bulk action from a lawyer, who is not an admin', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $ownClient = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $ownClient->id, 'lead_lawyer_id' => $lawyer->id]);
+    ClientUser::factory()->for($ownClient)->create();
+
+    $this->actingAs($lawyer, 'web');
+
+    // `filterTable('trashed', true)` bắt buộc, không phải trang trí — cùng lý do đã giải thích
+    // trong `ClientResourceTest`: `RestoreBulkAction`/`ForceDeleteBulkAction` của Filament tự ẩn
+    // khi bộ lọc "đã xoá" ở giá trị mặc định, bất kể quyền, nên thiếu dòng này thì hai khẳng định
+    // dưới xanh dù `restoreAny()`/`forceDeleteAny()` không hề tồn tại.
+    $this->livewire(ListClientUsers::class)
+        ->filterTable('trashed', true)
+        ->assertTableBulkActionHidden('delete')
+        ->assertTableBulkActionHidden('restore')
+        ->assertTableBulkActionHidden('forceDelete');
+});
+
+/** Lớp phòng thủ thứ hai, độc lập với việc ẩn nút: hỏi thẳng ability, bỏ qua toàn bộ UI. */
+it('directly denies deleteAny for a lawyer and allows it for the admin', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $admin = User::factory()->withRole(Role::Admin)->create();
+
+    expect($lawyer->can('deleteAny', ClientUser::class))->toBeFalse()
+        ->and($admin->can('deleteAny', ClientUser::class))->toBeTrue();
+});
+
+/** Vế dương: admin vẫn thấy nút xoá hàng loạt và xoá được như trước bản sửa này. */
+it('lets the admin bulk delete a client-user account', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $account = ClientUser::factory()->create();
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(ListClientUsers::class)
+        ->assertTableBulkActionVisible('delete')
+        ->callTableBulkAction('delete', [$account]);
+
+    expect($account->fresh()->trashed())->toBeTrue();
+});
+
+/** Vế dương của restore: admin khôi phục hàng loạt một tài khoản đã xoá mềm. */
+it('lets the admin bulk restore a soft deleted client-user account', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $account = ClientUser::factory()->create();
+    $account->delete();
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(ListClientUsers::class)
+        ->filterTable('trashed', true)
+        ->callTableBulkAction('restore', [$account]);
+
+    expect($account->fresh()->trashed())->toBeFalse();
+});
+
+/**
+ * Không ai xoá vĩnh viễn một tài khoản cổng được, kể cả admin: trước bản sửa này, bộ lọc "đã xoá"
+ * cộng xoá vĩnh viễn hàng loạt cuốn theo cả `stage_log_views` (sổ "đã xem" — bằng chứng khách đã
+ * đọc một cập nhật) lẫn `client_requests` liên đới (cascade), không qua bất kỳ policy nào.
+ */
+it('hides the bulk force-delete action from everyone, including the admin', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(ListClientUsers::class)
+        ->filterTable('trashed', true)
+        ->assertTableBulkActionHidden('forceDelete');
+});
+
+/**
+ * Task 2, vòng sửa 1 (Important #3) — bằng chứng riêng cho việc `->authorizeIndividualRecords('delete')`
+ * thật sự CÓ TÁC DỤNG, không chỉ tồn tại trên dòng code: `ClientUserPolicy::delete()` và
+ * `deleteAny()` hiện tại đều là "chỉ admin", nên hai test "lets the admin bulk delete..."/"hides
+ * every bulk action from a lawyer" ở trên KHÔNG phân biệt được việc lọc per-record có chạy hay
+ * không — cùng đúng kết quả dù xoá hẳn `authorizeIndividualRecords('delete')` (đã tự kiểm bằng
+ * đột biến thật, xem báo cáo). Test này giả một `ClientUserPolicy::delete()` từ chối một bản ghi
+ * CỤ THỂ trong khi `deleteAny()` (cổng nút) vẫn cho phép — đúng hình dạng một điều kiện per-record
+ * trong tương lai (vd. tài khoản đang giữ bằng chứng "đã xem" một tài liệu đang tranh chấp) — và
+ * đo thẳng: bản ghi bị `delete()` từ chối phải SỐNG SÓT qua bulk delete, bản ghi còn lại vẫn mất.
+ *
+ * `makePartial()`: chỉ `delete()` bị giả, mọi ability khác (`deleteAny`, `update` cho
+ * `EditAction` trên mỗi dòng…) vẫn chạy đúng code thật.
+ */
+it('authorizes each record individually against ClientUserPolicy::delete(), not only the deleteAny() button gate', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $protected = ClientUser::factory()->create();
+    $deletable = ClientUser::factory()->create();
+
+    $policy = Mockery::mock(ClientUserPolicy::class)->makePartial();
+    $policy->shouldReceive('delete')
+        ->withArgs(fn ($user, $record) => $record->is($protected))
+        ->andReturn(false);
+    $policy->shouldReceive('delete')
+        ->withArgs(fn ($user, $record) => $record->is($deletable))
+        ->andReturn(true);
+
+    app()->instance(ClientUserPolicy::class, $policy);
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(ListClientUsers::class)
+        ->callTableBulkAction('delete', [$protected, $deletable]);
+
+    expect($protected->fresh()->trashed())->toBeFalse()
+        ->and($deletable->fresh()->trashed())->toBeTrue();
+});
+
+/** Cùng lý do và cùng kỹ thuật với test trên, cho `RestoreBulkAction::authorizeIndividualRecords('restore')`. */
+it('authorizes each record individually against ClientUserPolicy::restore(), not only the restoreAny() button gate', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $stillLocked = ClientUser::factory()->create();
+    $stillLocked->delete();
+    $restorable = ClientUser::factory()->create();
+    $restorable->delete();
+
+    $policy = Mockery::mock(ClientUserPolicy::class)->makePartial();
+    $policy->shouldReceive('restore')
+        ->withArgs(fn ($user, $record) => $record->is($stillLocked))
+        ->andReturn(false);
+    $policy->shouldReceive('restore')
+        ->withArgs(fn ($user, $record) => $record->is($restorable))
+        ->andReturn(true);
+
+    app()->instance(ClientUserPolicy::class, $policy);
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(ListClientUsers::class)
+        ->filterTable('trashed', true)
+        ->callTableBulkAction('restore', [$stillLocked, $restorable]);
+
+    expect($stillLocked->fresh()->trashed())->toBeTrue()
+        ->and($restorable->fresh()->trashed())->toBeFalse();
 });

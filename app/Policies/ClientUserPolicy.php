@@ -85,4 +85,39 @@ class ClientUserPolicy
     {
         return $user instanceof User && $user->hasRole(Role::Admin->value);
     }
+
+    /**
+     * Task 2, vòng sửa 1 (Important #3): cổng THÔ của `DeleteBulkAction`/`ForceDeleteBulkAction`/
+     * `RestoreBulkAction` trên `ListClientUsers` — cùng lý do hệt `ClientPolicy::deleteAny()`
+     * (đọc docblock ở đó): thiếu bốn phương thức này, Filament coi bốn ability tương ứng là CHO
+     * PHÉP mặc định (không nghiêm ngặt), nên một luật sư — không chỉ admin — xoá hàng loạt được
+     * tài khoản cổng của khách BẤT KỲ, và bộ lọc "đã xoá" + xoá vĩnh viễn hàng loạt xoá luôn cả
+     * `stage_log_views` (sổ "đã xem") lẫn `client_requests` liên đới (cascade), không qua
+     * {@see self::delete()} một dòng nào.
+     */
+    public function deleteAny(User|ClientUser $user): bool
+    {
+        return $user instanceof User && $user->hasRole(Role::Admin->value);
+    }
+
+    public function restore(User|ClientUser $user, ClientUser $clientUser): bool
+    {
+        return $user instanceof User && $user->hasRole(Role::Admin->value);
+    }
+
+    public function restoreAny(User|ClientUser $user): bool
+    {
+        return $user instanceof User && $user->hasRole(Role::Admin->value);
+    }
+
+    /** Không ai xoá vĩnh viễn một tài khoản cổng được: sẽ cuốn theo cả sổ "đã xem" liên đới. */
+    public function forceDelete(User|ClientUser $user, ClientUser $clientUser): bool
+    {
+        return false;
+    }
+
+    public function forceDeleteAny(User|ClientUser $user): bool
+    {
+        return false;
+    }
 }

@@ -860,6 +860,13 @@ it('lets an active client keep working', function () {
 | Layer thứ hai, độc lập (Matter::query() rỗng dưới ngữ cảnh cổng), có bằng chứng riêng ở
 | tests/Feature/Portal/MyMattersTest.php — nơi đã có sẵn "ba tầng" (query/policy/serialize) cho
 | đúng loại điều kiện này.
+|
+| `canAccessPanel()` (đo trực tiếp ngay dưới) VẪN là cổng thật, không đổi. Nhưng vòng sửa 1 (Task
+| 2, Important #4, phán quyết chủ nhiệm) đổi HÌNH DẠNG câu trả lời ở tầng HTTP: một phiên đã đăng
+| nhập, mà khách hàng bị xoá mềm giữa chừng, giờ được `EnsurePortalAccountIsActive` đăng xuất và
+| đưa về màn hình đăng nhập — đúng khuôn nhánh `is_active = false` đã có — thay vì 404 (khẳng định
+| 404 độc lập với `canAccessPanel()` từng đứng ở đây tới vòng sửa 1; xem
+| `app/Http/Middleware/EnsurePortalAccountIsActive.php` cho toàn bộ lý lẽ).
 */
 
 /**
@@ -881,30 +888,66 @@ it('reports canAccessPanel true for a client user whose client has not been dele
 });
 
 /**
- * Và hệ quả thật trên màn hình: một phiên ĐÃ đăng nhập, mà khách hàng bị xoá mềm GIỮA CHỪNG, mất
- * quyền vào cổng ngay ở request kế tiếp — đúng luật `Filament\Http\Middleware\Authenticate` áp
- * cho mọi `FilamentUser::canAccessPanel()` sai, và đúng mã 404 mà mọi lần từ chối khác của panel
- * này đã trả (SPEC §10.10, `DenialCodeTest`) — không phải 200 như trước bản sửa này.
+ * Task 2, vòng sửa 1 (Important #4, phán quyết chủ nhiệm — thay cho "nhận 403" của brief gốc):
+ * hệ quả thật trên màn hình đổi hẳn so với vòng sửa đầu. Một phiên ĐÃ đăng nhập, mà khách hàng bị
+ * xoá mềm GIỮA CHỪNG, giờ được `EnsurePortalAccountIsActive` xử ĐÚNG khuôn nhánh `is_active`:
+ * đăng xuất, huỷ phiên, đưa về màn hình đăng nhập kèm câu `portal.inactive` — không còn là một
+ * trang 404 chung chung. `canAccessPanel()` vẫn là cổng thật ở tầng dưới (không đổi); middleware
+ * chỉ đứng trước để đổi HÌNH DẠNG câu trả lời, đúng như nó đã làm cho `is_active = false`.
+ *
+ * `SessionGuard::user()` giữ một bộ nhớ đệm trong-tiến-trình cho suốt vòng đời của chính guard
+ * instance đó; trong một request thật (một tiến trình PHP riêng), guard luôn được dựng lại và tự
+ * đọc `EloquentUserProvider::retrieveById()` MỚI — nên bộ nhớ đệm đó chỉ lộ ra khi HAI request
+ * nằm trong CÙNG MỘT bài test (cùng application instance), như ở đây. `actingAs($user->fresh(),
+ * 'client')` mô phỏng đúng cái mà một request thật sự thứ hai làm: đọc lại `ClientUser` mới
+ * toanh từ DB, không có quan hệ `client` nào bị đệm sẵn từ trước khi xoá.
  */
-it('locks a client out of the portal on the very next request once their client is soft deleted mid session', function () {
+it('logs a client out and sends them to the login screen once their client is soft deleted mid session', function () {
     $user = portalUser();
 
     $this->actingAs($user, 'client');
     $this->get('/portal')->assertOk();
 
     $user->client->delete();
-
-    // `SessionGuard::user()` giữ một bộ nhớ đệm trong-tiến-trình cho suốt vòng đời của chính
-    // guard instance đó; trong một request thật (một tiến trình PHP riêng), guard luôn được
-    // dựng lại và tự đọc `EloquentUserProvider::retrieveById()` MỚI — nên bộ nhớ đệm đó chỉ lộ
-    // ra khi HAI request nằm trong CÙNG MỘT bài test (cùng application instance), như ở đây.
-    // `actingAs($user->fresh(), 'client')` mô phỏng đúng cái mà một request thật sự thứ hai làm:
-    // đọc lại `ClientUser` mới toanh từ DB, không có quan hệ `client` nào bị đệm sẵn từ trước khi
-    // xoá — cùng thành ngữ `EnsurePortalAccountIsActive`'s test "ends the session of a client
-    // deactivated mid-visit" đã dùng cho đúng loại tình huống này.
     $this->actingAs($user->fresh(), 'client');
 
-    $this->get('/portal')->assertNotFound();
+    $response = $this->get('/portal');
+
+    $response->assertRedirect('/portal/login');
+    expect($response->getStatusCode())->not->toBe(404)
+        ->and($response->getStatusCode())->not->toBe(403)
+        ->and(auth('client')->check())->toBeFalse();
+
+    $titles = collect(session('filament.notifications', []))->pluck('title');
+
+    expect($titles)->toContain(__('portal.inactive', ['phone' => config('vkcrm.brand.hotline')]));
+});
+
+/**
+ * Và phủ đúng đường cập nhật Livewire mà docblock của middleware nêu tên — cùng thành ngữ test
+ * "ends the session of a client deactivated mid-visit" đã dùng cho nhánh `is_active`, giờ lặp lại
+ * cho nhánh khách hàng đã xoá mềm.
+ */
+it('ends the session of a client whose parent client is deleted mid-visit, on their very next livewire update', function () {
+    $user = portalUser();
+
+    $this->actingAs($user, 'client');
+
+    $snapshot = portalSnapshot(
+        $this->get(MyMatters::getUrl(panel: 'portal'))->assertOk()->getContent(),
+        MyMatters::class,
+    );
+
+    $user->client->delete();
+    $this->actingAs($user->fresh(), 'client');
+
+    $this->withHeaders(['X-Livewire' => '1'])
+        ->postJson(Livewire::getUpdateUri(), [
+            'components' => [['snapshot' => $snapshot, 'updates' => [], 'calls' => []]],
+        ])
+        ->assertRedirect('/portal/login');
+
+    expect(auth('client')->check())->toBeFalse();
 });
 
 /*

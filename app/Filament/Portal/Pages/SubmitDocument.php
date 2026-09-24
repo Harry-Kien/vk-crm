@@ -364,10 +364,21 @@ class SubmitDocument extends Page
      * **Hai truy vấn còn lại được nói ra chứ không giấu đi**, vì một trong hai gộp được và chỗ
      * gộp không nằm ở đây: một `EXISTS` trên `matter_checklist_items` — câu hỏi portal của RIÊNG
      * đầu mục này, tức đúng tầng mà lần hỏi `Gate` từng dòng tồn tại để hỏi — và một `EXISTS`
-     * trên `matters`, thứ `MatterPolicy::view` chạy lại **y hệt nhau** ở mọi vòng lặp. Cái thứ
-     * hai cần một đường trong bộ nhớ ở `MatterPolicy`/`ChecksMatterAccess` (nhánh nhân sự đã có
-     * một đường như vậy khi `team` đã nạp); đó là tệp task này không sở hữu, nên nó được báo lại
-     * chứ không sửa lén. Ngân sách ấy có test ghim.
+     * trên `matters` (`ChecksPortalVisibility::visibleToPortal()`, không đổi từ M5), thứ
+     * `MatterPolicy::view` chạy lại **y hệt nhau** ở mọi vòng lặp. Cái thứ hai vẫn cần một đường
+     * trong bộ nhớ ở `visibleToPortal()`; đó vẫn là tệp task này không sở hữu, nên nó vẫn được
+     * báo lại chứ không sửa lén.
+     *
+     * **Điều Task 2, vòng sửa 1 (Important #2) đổi ở đây KHÔNG PHẢI xoá một trong hai truy vấn
+     * trên** — cả hai còn nguyên, ngân sách vẫn **2**, không giảm xuống 1. Điều nó đổi là NGĂN
+     * một truy vấn thứ BA mọc lên: `releasedToPortal()` (cùng `MatterPolicy::view`, nhưng khác
+     * `visibleToPortal()`) giờ hỏi thêm "khách hàng chưa xoá mềm", và nếu hỏi bằng một truy vấn
+     * mới cho mỗi đầu mục thì ngân sách sẽ thành 3 (đo được: bỏ `->with('client')` ở
+     * {@see self::resolveMatter()} hoặc bỏ nhánh `relationLoaded()` ở `releasedToPortal()` thì
+     * test ngân sách của tệp này đỏ). `{@see self::resolveMatter()}` giờ `->with('client')` một
+     * lần cho `$matter`, và vì `$matter` này được gắn sẵn vào MỌI đầu mục ở trên,
+     * `releasedToPortal()` đọc `relationLoaded('client')` miễn phí cho từng đầu mục — ngân sách
+     * vì vậy giữ nguyên **2 mỗi đầu mục** dù có thêm một điều kiện mới. Ngân sách ấy có test ghim.
      *
      * @return Collection<int, MatterChecklistItem>
      */
@@ -894,7 +905,12 @@ class SubmitDocument extends Page
     {
         $viewer = $this->viewer();
 
-        $matter = Matter::query()->whereKey($this->record)->first();
+        // Task 2, vòng sửa 1 (Important #2): `->with('client')` — `$matter` này được gắn sẵn vào
+        // MỌI đầu mục qua `setRelation('matter', ...)` ở `choosableItems()`, nên nạp `client` một
+        // lần ở đây cho `MatterPolicy::releasedToPortal()` đọc miễn phí qua `relationLoaded()` ở
+        // MỌI lần hỏi `Gate` của từng đầu mục, thay vì một EXISTS mới cho mỗi đầu mục — đúng chỗ
+        // "đường trong bộ nhớ" mà docblock của `choosableItems()` báo là thiếu, nay đã có.
+        $matter = Matter::query()->with('client')->whereKey($this->record)->first();
 
         abort_if($matter === null, 404);
         abort_unless(Gate::forUser($viewer)->allows('view', $matter), 404);

@@ -184,12 +184,29 @@ final class DocumentDownloadController extends Controller
      * trước lúc bị vô hiệu, suốt phần còn lại của 5 phút: policy không hỏi `is_active` (nó hỏi về
      * tài liệu), và global scope portal cũng không (điều kiện của nó là `clients` và
      * `is_published_to_portal`).
+     *
+     * **Cùng lý lẽ đó, Task 2 vòng sửa 1 (Important #2) thêm điều kiện "khách hàng chưa xoá
+     * mềm".** `ClientUser::canAccessPanel()` đã có điều kiện này từ vòng sửa Task 2 đầu tiên
+     * (`portal/portal-3`), nhưng — CÙNG một câu ở trên — `canAccessPanel()` chỉ chạy cho hai
+     * panel, và route tải tệp này nằm ngoài chúng. Không có dòng dưới đây, xoá mềm một `Client`
+     * không rút được quyền tải tệp của tài khoản cổng thuộc khách hàng đó qua một đường dẫn đã ký
+     * từ trước, dù `MatterPolicy::releasedToPortal()` (đã sửa cùng vòng này) đã đóng đường đó lại
+     * ở TẦNG POLICY — hai tầng độc lập, đúng cấu trúc "Ba tầng trả lời khác đi" mà class này nói
+     * ngay ở đầu tệp, giờ thành bốn cho riêng khách hàng đã xoá mềm.
      */
     private function actor(): User|ClientUser|null
     {
         $actor = self::authenticated();
 
-        return $actor?->is_active === true ? $actor : null;
+        if ($actor?->is_active !== true) {
+            return null;
+        }
+
+        if ($actor instanceof ClientUser && $actor->client === null) {
+            return null;
+        }
+
+        return $actor;
     }
 
     /**

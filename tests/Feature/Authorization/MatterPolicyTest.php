@@ -95,6 +95,93 @@ it('answers for a portal user from the portal rules, not from spatie', function 
         ->and($clientUser->can('forceDelete', $own))->toBeFalse();
 });
 
+/**
+ * Task 2, vòng sửa 1 (Important #2): `releasedToPortal()` giờ hỏi thêm "khách hàng (Client) chưa
+ * xoá mềm" — điều kiện thứ tư, khớp `Matter::applyClientPortalConstraints()`'s `whereHas('client')`
+ * (Task 2, `portal/portal-3`, vòng đầu). Trước bản sửa vòng 1 này, xoá mềm CHÍNH khách hàng (không
+ * phải vụ việc) không đụng gì tới `view()` của policy — vụ việc vẫn "xem được" ở tầng này dù
+ * `applyClientPortalConstraints()` đã đóng cửa ở tầng truy vấn, và mọi bản ghi con (Document,
+ * StageLog…) đi qua `ChecksMatterAccess::canSeeMatter()` cũng vì vậy vẫn mở.
+ */
+it('refuses view for a portal user once the client itself is soft deleted, even though the matter stays published', function () {
+    $client = Client::factory()->create();
+    $clientUser = ClientUser::factory()->create(['client_id' => $client->id]);
+    $own = Matter::factory()->for($client)->create();
+
+    $client->delete();
+
+    expect($clientUser->fresh()->can('view', $own->fresh()))->toBeFalse();
+});
+
+/**
+ * Nghi thức ba tầng của M5 (thay `ClientPortalScope` bằng một scope rỗng rồi hỏi lại policy —
+ * `tests/Feature/Authorization/PortalIsolationSweepTest.php` dựng nó cho toàn bộ cổng), áp riêng
+ * cho điều kiện mới này: tầng truy vấn thủng thì tầng policy vẫn phải từ chối, một mình nó,
+ * không dựa vào `ClientPortalScope`.
+ *
+ * Mutation probe (Task 2, vòng sửa 1): bỏ `&& $matter->client()->exists()` khỏi
+ * `releasedToPortal()` thì test này đỏ.
+ */
+it('still refuses on the policy layer for a soft deleted client when the portal scope forgets its rule', function () {
+    $client = Client::factory()->create();
+    $clientUser = ClientUser::factory()->create(['client_id' => $client->id]);
+    $own = Matter::factory()->for($client)->create();
+
+    $client->delete();
+
+    Matter::addGlobalScope(ClientPortalScope::class, function (): void {});
+
+    try {
+        // Tầng truy vấn đã thủng — nếu không thì khẳng định bên dưới không đo tầng policy.
+        expect(Matter::find($own->id))->not->toBeNull();
+
+        expect($clientUser->fresh()->can('view', $own))->toBeFalse();
+    } finally {
+        Matter::addGlobalScope(new ClientPortalScope);
+    }
+});
+
+/**
+ * `releasedToPortal()` có HAI đường cho điều kiện "khách hàng chưa xoá mềm": đường truy vấn
+ * (test ngay trên) và đường trong bộ nhớ khi `client` đã được nạp sẵn (`relationLoaded('client')`
+ * — thêm để giữ ngân sách truy vấn của `MyMattersTest`/`SubmitDocumentTest`, xem docblock của
+ * `releasedToPortal()`). Test trên KHÔNG đo được đường thứ hai: nó cố tình không nạp `client`.
+ * Test này đo THẲNG đường đó, độc lập với cả tầng truy vấn (`Matter::with('client')` không đụng
+ * gì tới `ClientPortalScope` của `Matter`) lẫn cách `Client` tự lọc xoá mềm (`SoftDeletes` của
+ * `Client` đã khiến `client` eager-load về `null` cho một khách đã xoá — không cần rút
+ * `ClientPortalScope` nào của `Client` để đo đúng điều này).
+ *
+ * Mutation probe (Task 2, vòng sửa 1): đổi `$matter->client !== null` thành
+ * `$matter->client === null` trong nhánh `relationLoaded('client')` của `releasedToPortal()` thì
+ * cả test này VÀ vế dương ngay dưới đều đỏ (một cái lật đúng, một cái lật sai).
+ */
+it('refuses via the relation-loaded fast path too, when client is eager loaded and turns out to be null', function () {
+    $client = Client::factory()->create();
+    $clientUser = ClientUser::factory()->create(['client_id' => $client->id]);
+    $own = Matter::factory()->for($client)->create();
+
+    $client->delete();
+
+    $matterWithClientLoaded = Matter::query()->with('client')->findOrFail($own->id);
+
+    expect($matterWithClientLoaded->relationLoaded('client'))->toBeTrue()
+        ->and($matterWithClientLoaded->client)->toBeNull()
+        ->and($clientUser->fresh()->can('view', $matterWithClientLoaded))->toBeFalse();
+});
+
+/** Vế dương của test trên: `client` đã nạp sẵn và KHÔNG bị xoá thì đường trong bộ nhớ vẫn cho qua. */
+it('allows via the relation-loaded fast path when client is eager loaded and not deleted', function () {
+    $client = Client::factory()->create();
+    $clientUser = ClientUser::factory()->create(['client_id' => $client->id]);
+    $own = Matter::factory()->for($client)->create();
+
+    $matterWithClientLoaded = Matter::query()->with('client')->findOrFail($own->id);
+
+    expect($matterWithClientLoaded->relationLoaded('client'))->toBeTrue()
+        ->and($matterWithClientLoaded->client)->not->toBeNull()
+        ->and($clientUser->fresh()->can('view', $matterWithClientLoaded))->toBeTrue();
+});
+
 it('answers the same for a portal user whether or not the client guard is open', function () {
     // ChecksPortalVisibility must not depend on ambient auth state.
     $client = Client::factory()->create();

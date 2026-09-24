@@ -347,6 +347,11 @@ class MyMatters extends Page
                 // mục của cả trang về cùng lúc, mang sẵn bí danh đếm tài liệu mà `Y` được định
                 // nghĩa bằng. Không có `withCount` thứ hai nào viết lại luật đếm ở đây.
                 'checklistItems' => fn (Relation $items) => ChecklistProgress::countClientFacingDocuments($items->getQuery()),
+                // Task 2, vòng sửa 1 (Important #2): nạp sẵn để `MatterPolicy::releasedToPortal()`
+                // đọc miễn phí qua `relationLoaded('client')` thay vì một EXISTS cho mỗi thẻ — xem
+                // docblock của hàm đó. Một truy vấn CỐ ĐỊNH nữa cho cả trang, không một truy vấn
+                // nào thêm cho mỗi thẻ; `MyMattersTest` đo đúng độ dốc này.
+                'client',
             ])
             ->orderByDesc('last_client_update_at')
             ->orderByDesc('id')

@@ -1108,14 +1108,19 @@ it('keeps the matter code on every card and makes the whole card the way in', fu
  *     kèm bộ đếm tài liệu. Gộp nó vào truy vấn danh sách nghĩa là viết lại luật đếm lần thứ hai
  *     bên màn hình, đúng thứ M4 vừa dọn đi.
  *
- * Phần cố định là **bốn**: danh sách hồ sơ, loại vụ việc, các giai đoạn của loại đó, và các dòng
- * danh mục của cả trang. Truy vấn thứ tư là cái giá của vòng sửa I3 — huy hiệu và thanh tiến độ
- * nay đọc CÙNG một tập dòng, nên các dòng ấy về một lần cho cả trang thay vì được đếm lại bằng
- * hai `withCount` riêng. Nó là một truy vấn CỐ ĐỊNH, không một truy vấn cho mỗi thẻ, và khẳng
- * định độ dốc ở dưới là thứ chứng minh điều đó. Vậy `2N + 4`, tức 44 cho 20 thẻ.
+ * Phần cố định là **năm**: danh sách hồ sơ, loại vụ việc, các giai đoạn của loại đó, các dòng
+ * danh mục của cả trang, và — từ Task 2, vòng sửa 1 (Important #2) — quan hệ `client` của cả
+ * trang. Truy vấn thứ tư (danh mục) là cái giá của vòng sửa I3 — huy hiệu và thanh tiến độ nay
+ * đọc CÙNG một tập dòng, nên các dòng ấy về một lần cho cả trang thay vì được đếm lại bằng hai
+ * `withCount` riêng. Truy vấn thứ năm (`client`) là cái giá của Task 2: `MatterPolicy::view` giờ
+ * hỏi thêm "khách hàng chưa xoá mềm" (`releasedToPortal()`), và `MyMatters::buildCards()` nạp sẵn
+ * `client` cho CẢ TRANG một lần để hàm đó đọc qua `relationLoaded()` — miễn phí cho từng thẻ —
+ * thay vì một `EXISTS` mới trên MỖI thẻ (xem docblock của `releasedToPortal()`). Cả hai là truy
+ * vấn CỐ ĐỊNH, không một truy vấn nào cho mỗi thẻ, và khẳng định độ dốc ở dưới là thứ chứng minh
+ * điều đó. Vậy `2N + 5`, tức 45 cho 20 thẻ.
  *
- * Ba khẳng định, vì mỗi cái bắt một hỏng khác nhau: **phần cố định đúng bằng 4** bắt việc có
- * người thêm một truy vấn cố định thứ năm, và giữ cho con số trong docblock này là một con số
+ * Ba khẳng định, vì mỗi cái bắt một hỏng khác nhau: **phần cố định đúng bằng 5** bắt việc có
+ * người thêm một truy vấn cố định thứ sáu, và giữ cho con số trong docblock này là một con số
  * đo được chứ không một con số kể lại; **trần 50** để lại chỗ thở; **độ dốc đúng bằng 2** bắt thứ
  * đáng sợ hơn — một truy vấn mới mọc lên TRÊN TỪNG THẺ (một quan hệ chưa nạp sẵn, một `count()`
  * trong view). Chỉ có trần thì một hồi quy như vậy vẫn lọt ở 20 thẻ và nổ ở 200.
@@ -1153,5 +1158,5 @@ it('does not turn twenty cards into hundreds of queries', function () {
 
     expect($twenty)->toBeLessThanOrEqual(50)
         ->and($twenty - $five)->toBe(2 * 15)
-        ->and($five - (2 * 5))->toBe(4);
+        ->and($five - (2 * 5))->toBe(5);
 });

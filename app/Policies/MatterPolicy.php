@@ -36,10 +36,11 @@ class MatterPolicy
      * `ChecksMatterAccess::canSeeMatter()`, nên hai câu dưới đây bảo vệ cả bảy khối của SPEC
      * §8.3 chứ không riêng trang hồ sơ. Có test ở `PortalIsolationSweepTest`.
      *
-     * Ba điều kiện ở {@see self::releasedToPortal()} là đúng ba điều kiện của
-     * `Matter::applyClientPortalConstraints()`, phát biểu lại bằng thuộc tính thay vì bằng
-     * `where`. Chúng KHÔNG chung một câu lệnh nào với chuỗi `where` kia: đó là toàn bộ giá trị
-     * của việc viết lại, và cũng là lý do không được rút gọn thành một lần gọi lẫn nhau.
+     * Bốn điều kiện ở {@see self::releasedToPortal()} (Task 2 vòng sửa 1 thêm điều kiện thứ tư —
+     * khách hàng chưa xoá mềm) là đúng bốn điều kiện của `Matter::applyClientPortalConstraints()`,
+     * phát biểu lại bằng thuộc tính thay vì bằng `where`. Chúng KHÔNG chung một câu lệnh nào với
+     * chuỗi `where` kia: đó là toàn bộ giá trị của việc viết lại, và cũng là lý do không được rút
+     * gọn thành một lần gọi lẫn nhau.
      */
     public function view(User|ClientUser $user, Matter $matter): bool
     {
@@ -85,12 +86,49 @@ class MatterPolicy
      * Ép kiểu số ở hai vế: `client_id` không nằm trong `casts()` của cả hai model, nên một model
      * chưa đi qua cơ sở dữ liệu có thể còn giữ chuỗi từ request — và `===` giữa `'7'` và `7` sẽ
      * âm thầm từ chối một khách hàng hợp lệ. So lỏng (`==`) thì đi quá xa theo chiều ngược lại.
+     *
+     * Bốn điều kiện ở đây, KHÔNG còn ba: Task 2, vòng sửa 1 (Important #2) thêm "khách hàng
+     * (`Client`) chưa xoá mềm", đúng điều kiện thứ tư mà `Matter::applyClientPortalConstraints()`
+     * mang từ Task 2 vòng đầu (`portal/portal-3`). Trước bản sửa này, hàm chỉ lặp lại BA điều
+     * kiện của `applyClientPortalConstraints()`, nên lời hứa ở đoạn docblock của `view()` ("Ba
+     * điều kiện ở đây là đúng ba điều kiện của `applyClientPortalConstraints()`") đã SAI kể từ
+     * khi vòng đầu thêm `whereHas('client')` — một khách hàng đã xoá mềm vẫn `view($matter)` =
+     * `true` qua nhánh policy này, dù tầng truy vấn đã đóng cửa.
+     *
+     * **Đường trong bộ nhớ khi `client` đã nạp — CÙNG hình dạng nhánh `team` của `view()` staff
+     * ở trên, và bắt buộc, không phải tối ưu tuỳ chọn.** Hai màn hình duyệt nhiều hồ sơ một lúc
+     * (`MyMatters::buildCards()`, mỗi thẻ một lần hỏi `Gate`; `SubmitDocument::choosableItems()`,
+     * mỗi đầu mục một lần hỏi `Gate` trên CÙNG một `$matter`) đã có ngân sách truy vấn đo được
+     * (`MyMattersTest`, `SubmitDocumentTest`) từ trước vòng sửa này — một truy vấn MỚI cho MỖI
+     * bản ghi/đầu mục phá ngân sách đó ngay (đo được: bỏ nhánh `relationLoaded` thì hai test trên
+     * đỏ). Hai nơi gọi ấy giờ `->with('client')` cùng lúc với các quan hệ khác chúng đã nạp sẵn
+     * (`MyMatters::buildCards()`, `SubmitDocument::resolveMatter()` — `$matter` dùng chung cho
+     * mọi đầu mục qua `setRelation('matter', ...)`), nên nhánh này chạy MIỄN PHÍ ở đúng hai chỗ
+     * cần nó rẻ.
+     *
+     * Nhánh dự phòng (`client()->exists()`) vẫn còn cho MỌI nơi gọi khác chưa nạp sẵn — không
+     * đánh đổi đúng/sai lấy tốc độ, chỉ đánh đổi Ở NHỮNG NƠI đã chủ động trả giá bằng một
+     * `with()`. `->withoutGlobalScope(ClientPortalScope::class)` trên truy vấn dự phòng đó — bắt
+     * buộc, KHÔNG phải trang trí: `Client` mang `RestrictedToClientPortal` (xem `Client.php`,
+     * `ClientUser.php` dòng ~76), nên `$matter->client()` KHÔNG PHẢI một truy vấn "sạch" — nó tự
+     * cắt theo khách nào đang có PHIÊN CỔNG đang mở (`ClientPortalScope::isActive()` đọc
+     * `auth('client')->check()` — trạng thái AMBIENT, không phải `$clientUser` tham số của hàm
+     * này). Không có dòng `withoutGlobalScope`, một Action gọi `Gate::forUser($actor)` trong khi
+     * MỘT PHIÊN CỔNG KHÁC đang mở (ví dụ `RecordStageLogView`/`ReplyToClientRequest` nhận actor
+     * qua tham số, không qua session) khiến `exists()` lọc theo khách của phiên lạ đó — gần như
+     * luôn `false` cho một vụ việc của $clientUser thật — và từ chối oan một actor hợp lệ. Đo
+     * được: ba test viết cho đúng tình huống này ("còn phiên khác đang mở") đỏ ngay khi thiếu
+     * dòng `withoutGlobalScope` — xem `ReplyToClientRequestTest`, `SubmitClientDocumentTest`,
+     * `RecordStageLogViewTest`.
      */
     private function releasedToPortal(Matter $matter, ClientUser $clientUser): bool
     {
         return (int) $matter->client_id === (int) $clientUser->client_id
             && (bool) $matter->is_published_to_portal
-            && ! $matter->trashed();
+            && ! $matter->trashed()
+            && ($matter->relationLoaded('client')
+                ? $matter->client !== null
+                : $matter->client()->withoutGlobalScope(ClientPortalScope::class)->exists());
     }
 
     public function create(User|ClientUser $user): bool

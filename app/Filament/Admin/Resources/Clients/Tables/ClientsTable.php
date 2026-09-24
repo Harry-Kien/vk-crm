@@ -58,9 +58,19 @@ class ClientsTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
-                    ForceDeleteBulkAction::make(),
-                    RestoreBulkAction::make(),
+                    // Task 2, vòng sửa 1 (Critical #1): `authorizeIndividualRecords('delete')` bắt
+                    // MỖI bản ghi đã chọn đi qua `ClientPolicy::delete()` thật (qua `Gate::inspect()`
+                    // thường, không qua đường không-nghiêm-ngặt của Filament) trước khi bị xoá — không
+                    // có nó, `deleteAny()` (cổng thô, đã thêm ở ClientPolicy) chỉ quyết định nút có
+                    // BẤM ĐƯỢC không, còn Filament mặc định xoá mọi dòng đã chọn mà không hỏi lại
+                    // `delete()` cho từng dòng, tức bỏ qua thẳng luật "còn vụ đang mở" per-record. Xem
+                    // `ClientPolicy::deleteAny()` và `Filament\Actions\Concerns\InteractsWithSelectedRecords`.
+                    DeleteBulkAction::make()
+                        ->authorizeIndividualRecords('delete'),
+                    ForceDeleteBulkAction::make()
+                        ->authorizeIndividualRecords('forceDelete'),
+                    RestoreBulkAction::make()
+                        ->authorizeIndividualRecords('restore'),
                 ]),
             ]);
     }
