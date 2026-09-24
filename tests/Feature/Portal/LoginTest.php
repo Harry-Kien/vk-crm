@@ -1535,20 +1535,48 @@ it('drives the trusted proxy list from one environment variable', function () {
         'Thiếu config/trustedproxy.php — biến TRUSTED_PROXIES không còn nối với middleware nào.'
     );
 
+    // Đặt CẢ BA nơi mà `Illuminate\Support\Env::getRepository()` có thể đọc — không chỉ $_ENV và
+    // putenv(). Readers mặc định của phpdotenv được thử theo thứ tự $_SERVER, $_ENV, rồi putenv()
+    // (RepositoryBuilder::DEFAULT_ADAPTERS + PutenvAdapter được Laravel gắn thêm sau cùng); một
+    // $_SERVER còn sót từ trước (đúng như CI, xem `e2e/F1`) sẽ che mất hai nơi kia, nên chỉ đặt
+    // $_ENV/putenv() như bản cũ của test này là không tái hiện đúng CI.
     putenv('TRUSTED_PROXIES=203.0.113.1,203.0.113.2');
     $_ENV['TRUSTED_PROXIES'] = '203.0.113.1,203.0.113.2';
+    $_SERVER['TRUSTED_PROXIES'] = '203.0.113.1,203.0.113.2';
 
     try {
         expect((require config_path('trustedproxy.php'))['proxies'] ?? null)
             ->toBe('203.0.113.1,203.0.113.2');
     } finally {
         putenv('TRUSTED_PROXIES');
-        unset($_ENV['TRUSTED_PROXIES']);
+        unset($_ENV['TRUSTED_PROXIES'], $_SERVER['TRUSTED_PROXIES']);
     }
 
     // Twin âm, và nó là mặc định phải giữ: không khai báo gì thì KHÔNG TIN AI. Một mặc định
     // `*` sẽ trả lại quyền tự khai địa chỉ cho bất kỳ ai gửi một header.
     expect((require config_path('trustedproxy.php'))['proxies'] ?? null)->toBeNull();
+});
+
+/**
+ * `e2e/F1` (docs/audits/2026-09-24-quy-trinh.md, critical): CI làm `cp .env.example .env`, và
+ * dòng RỖNG `TRUSTED_PROXIES=` (bản cũ của tệp đó) khiến biến này tồn tại trong môi trường của
+ * tiến trình PHP với giá trị CHUỖI RỖNG — khác hẳn "biến không tồn tại". `env('TRUSTED_PROXIES')`
+ * khi đó trả `''`, và `'proxies' => env('TRUSTED_PROXIES')` (không có `?: null`) giữ nguyên chuỗi
+ * rỗng đó thay vì `null`. Tái hiện CI đúng cách bằng cách đặt CẢ BA nơi `Env::getRepository()` có
+ * thể đọc ($_SERVER, $_ENV, putenv()) cùng giá trị rỗng — không chỉ hai nơi sau, xem docblock của
+ * test phía trên.
+ */
+it('treats an empty TRUSTED_PROXIES as trusting nobody', function () {
+    $_SERVER['TRUSTED_PROXIES'] = '';
+    $_ENV['TRUSTED_PROXIES'] = '';
+    putenv('TRUSTED_PROXIES=');
+
+    try {
+        expect((require config_path('trustedproxy.php'))['proxies'] ?? null)->toBeNull();
+    } finally {
+        unset($_SERVER['TRUSTED_PROXIES'], $_ENV['TRUSTED_PROXIES']);
+        putenv('TRUSTED_PROXIES');
+    }
 });
 
 it('reads the real client address through a proxy once that proxy is named', function () {

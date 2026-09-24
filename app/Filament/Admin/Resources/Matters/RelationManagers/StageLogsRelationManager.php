@@ -67,7 +67,7 @@ class StageLogsRelationManager extends RelationManager
                     ->label(__('matters.stage_log_fields.public_content'))
                     ->html()
                     ->wrap()
-                    ->formatStateUsing(fn (?string $state, StageLog $record): ?HtmlString => static::renderPublicContent($state, $record)),
+                    ->formatStateUsing(fn (?string $state, StageLog $record): HtmlString => static::renderPublicContent($state, $record)),
             ])
             ->defaultSort('occurred_at', 'desc')
             ->headerActions([
@@ -127,11 +127,24 @@ class StageLogsRelationManager extends RelationManager
      * một lớp cũng không có trong bảng kiểu dáng được phục vụ — xem {@see self::renderInternalNote()}
      * — nên màu cảnh báo đó chưa từng hiện ra, trên đúng cái nhãn nói rằng khách có thể chưa
      * nhận được thông báo nào. `--warning-600` là biến Filament tự đặt theo bảng màu của panel.
+     *
+     * **`e2e/F1` (critical, docs/audits/2026-09-24-quy-trinh.md): KHÔNG BAO GIỜ trả `null`.** Cột
+     * này khai `->html()` (xem `table()` ở trên); khi state định dạng xong không phải `Htmlable`,
+     * `Filament\Tables\Columns\Concerns\CanFormatState::formatState()` đưa thẳng nó vào
+     * `Illuminate\Support\Str::sanitizeHtml(string $html): string` — macro khai kiểu `string`
+     * cứng, nên `null` gây `TypeError`, Filament gói lại thành `ViewException`. Một dòng CHƯA
+     * công bố nhưng CÓ `public_content` không phải trường hợp biên: `BuildsStageUpdateSchema::
+     * publicContentField()` tự điền mẫu giai đoạn vào ô này cho CẢ "Chuyển giai đoạn" lẫn "Thêm
+     * cập nhật", bất kể công tắc Công bố bật hay tắt, nên lần cập nhật ĐẦU TIÊN trên mọi vụ vừa
+     * mở (portal luôn tắt lúc `OpenMatter`) đi đúng đường này. Trả `HtmlString('')` giữ nguyên ý
+     * nghĩa "chưa công bố thì không có nhãn/khung" của hàm, chỉ đổi kiểu trả — Filament coi
+     * `Htmlable` là đã an toàn nên không còn chạm `Str::sanitizeHtml()` nữa (xem `CanFormatState`:
+     * `$state instanceof Htmlable` được kiểm TRƯỚC nhánh `$isHtml`).
      */
-    public static function renderPublicContent(?string $content, StageLog $record): ?HtmlString
+    public static function renderPublicContent(?string $content, StageLog $record): HtmlString
     {
         if (! $record->is_published) {
-            return null;
+            return new HtmlString('');
         }
 
         $receipt = static::readReceiptLabel($record);
