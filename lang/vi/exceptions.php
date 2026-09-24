@@ -14,4 +14,5 @@ return [
     'unnamed_party' => 'chưa nhập tên',
     'matter_not_published_to_portal' => 'Không thể công bố dòng tiến độ cho vụ việc :code: vụ việc chưa bật "Công bố portal". Bật công tắc này trước khi công bố tiến độ cho khách.',
     'deadline_matter_not_published_to_portal' => 'Không thể gửi mốc thời hạn cho khách ở vụ việc :code: vụ việc chưa bật "Công bố portal". Bật công tắc này ở tab Tổng quan trước, rồi gửi lại mốc.',
+    'team_member_has_open_work' => 'Không thể gỡ :name khỏi đội ngũ vụ việc :code: người này còn — :items. Hãy chuyển các việc này cho người khác trước khi gỡ khỏi đội ngũ.',
 ];

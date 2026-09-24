@@ -11,6 +11,7 @@ use App\Filament\Admin\Resources\Matters\RelationManagers\DeadlinesRelationManag
 use App\Filament\Admin\Resources\Matters\RelationManagers\DocumentsRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\PartiesRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\StageLogsRelationManager;
+use App\Filament\Admin\Resources\Matters\RelationManagers\TeamRelationManager;
 use App\Filament\Admin\Resources\Matters\Schemas\MatterForm;
 use App\Filament\Admin\Resources\Matters\Schemas\MatterInfolist;
 use App\Filament\Admin\Resources\Matters\Tables\MattersTable;
@@ -96,6 +97,10 @@ class MatterResource extends Resource
     public static function getRelations(): array
     {
         return [
+            // Tab "Đội ngũ" (M6.5 Task 3, R6) — đứng ngay sau Tổng quan vì đội ngũ là thứ quyết
+            // định ai còn THẤY được các tab bên dưới (SPEC §4.7 `matter_user`): trước tab này
+            // không có màn hình nào ghi vào đó ngoài lead do `Matter::created()` tự thêm.
+            TeamRelationManager::class,
             StageLogsRelationManager::class,
             ChecklistRelationManager::class,
             DocumentsRelationManager::class,

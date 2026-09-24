@@ -152,6 +152,30 @@ class MatterPolicy
             && $this->view($user, $matter);
     }
 
+    /**
+     * "Quản lý đội ngũ" (M6.5 Task 3, R6): luật sư phụ trách của CHÍNH vụ việc này, manager được
+     * xem vụ, hoặc admin. Trợ lý không có — SPEC §5 không cho họ quyết định ai vào/ra một vụ
+     * việc, dù chính họ có thể đang đứng trong đội ngũ đó.
+     *
+     * **Dựa trên `view()` làm nền, không viết lại luật hiển thị vụ `restricted`.** `view()` đã
+     * chỉ cho admin và lead lọt qua ở nhánh `restricted` (xem docblock hàm đó); một manager không
+     * phải admin vì vậy tự rớt ở ĐÚNG bước `$this->view()`, trước khi chạm tới ba điều kiện
+     * `||` bên dưới — kết quả là "chỉ lead hoặc admin quản lý được đội ngũ của vụ `restricted`"
+     * (Review Focus 1, Task 3 brief) mà không cần một nhánh `restricted` riêng ở đây. Viết lại
+     * luật đó thành một `if` thứ hai sẽ là đúng hai nơi phải lệch nhau nếu SPEC §4.6 đổi.
+     */
+    public function manageTeam(User|ClientUser $user, Matter $matter): bool
+    {
+        return $user instanceof User
+            && ! $matter->trashed()
+            && $this->view($user, $matter)
+            && (
+                $matter->lead_lawyer_id === $user->getKey()
+                || $user->hasRole(Role::Admin->value)
+                || $user->hasRole(Role::Manager->value)
+            );
+    }
+
     /** Xoá mềm vụ việc là việc hệ trọng: chỉ quản trị. */
     public function delete(User|ClientUser $user, Matter $matter): bool
     {

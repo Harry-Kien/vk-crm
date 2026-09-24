@@ -4,7 +4,9 @@ namespace App\Actions;
 
 use App\Actions\Concerns\BuildsMatterParties;
 use App\Enums\ConflictLevel;
+use App\Enums\MatterRole;
 use App\Enums\PartyRole;
+use App\Enums\Permission;
 use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
 use App\Models\ChecklistTemplate;
@@ -273,6 +275,28 @@ class OpenMatter
             // dùng — phiên đang mở có thể là người khác, hoặc không có phiên nào (job, console).
             $matter = new Matter($attributes);
             $matter->blameOn($actor)->save();
+
+            // M6.5 Task 3 (R6, finding `intake-01`/`roles-03`/`spec-gap-01`/`e2e-F4`, critical).
+            // `Matter::created()` (đã chạy trong `save()` ở trên) chỉ thêm LEAD vào `matter_user`.
+            // Một actor có `matter.create` nhưng KHÔNG có `matter.viewAny` (hôm nay: `Lawyer`) mà
+            // giao vụ việc cho một `lead_lawyer_id` KHÁC mình thì không nằm trong đội ngũ và
+            // không có `matter.viewAny` để bù lại — `scopeListableBy()` không liệt kê được vụ này
+            // cho họ, và mở thẳng URL ra 404, NGAY sau khi họ vừa bấm lưu. Tự thêm actor vào đội
+            // ngũ với vai `associate` ở đây, CÙNG transaction với việc tạo vụ việc (bước 5), nên
+            // không có khoảnh khắc nào vụ việc tồn tại mà chính người mở ra nó không thấy được nó.
+            //
+            // Không cần hỏi `manageTeam` ở đây: đây không phải một lần "thêm thành viên" qua cổng
+            // đội ngũ (`AddTeamMember`), nó là một phần của chính việc MỞ vụ việc — cổng đã kiểm
+            // tra ở bước 1 (`MatterPolicy::create`) là cổng đúng cho hành động này.
+            if (! $actor->can(Permission::MatterViewAny->value) && $matter->lead_lawyer_id !== $actor->getKey()) {
+                $matter->addTeamMember($actor, MatterRole::Associate);
+
+                Audit::record('team_member_added', $matter, [
+                    'user_id' => $actor->getKey(),
+                    'role' => MatterRole::Associate->value,
+                    'auto_added_by_open_matter' => true,
+                ], $actor);
+            }
 
             $proposedParties->each(function (MatterParty $party) use ($matter, $actor): void {
                 $party->blameOn($actor);

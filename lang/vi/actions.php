@@ -26,4 +26,13 @@ return [
     'open_matter' => [
         'client_role_required' => 'Phải chọn vai của khách hàng (nguyên đơn/bị đơn/...) trong vụ việc này trước khi mở vụ việc — không có mặc định, vì mặc định sai sẽ khiến kiểm tra xung đột lợi ích bỏ sót mức đỏ.',
     ],
+    'add_team_member' => [
+        'lead_role_denied' => 'Không thể thêm ai vào đội ngũ với vai "Luật sư phụ trách" qua màn hình này — vai đó chỉ đổi được qua bàn giao vụ việc.',
+        'role_not_eligible' => 'Người được chọn không giữ được vai này: trợ lý cho vai "Trợ lý"; luật sư hoặc trưởng phòng cho vai "Luật sư cộng sự"; mọi nhân sự nội bộ trừ kế toán cho vai "Theo dõi".',
+        'member_inactive' => 'Người được chọn đã bị vô hiệu hoá hoặc đã nghỉ việc, không thể thêm vào đội ngũ.',
+        'already_member' => 'Người này đã có trong đội ngũ của vụ việc.',
+    ],
+    'remove_team_member' => [
+        'not_member' => 'Người này không có trong đội ngũ của vụ việc.',
+    ],
 ];
