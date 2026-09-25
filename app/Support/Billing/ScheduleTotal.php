@@ -178,7 +178,8 @@ final class ScheduleTotal
     /**
      * Tầng 4: mọi hợp đồng `active` mà tổng các đợt được tính khác `total_amount`, kèm
      * `schedule_total` đã đọc. Một truy vấn (tổng tính bằng truy vấn con), so sánh ở PHP để không
-     * phụ thuộc cách từng CSDL trả kiểu của `SUM()`.
+     * phụ thuộc cách từng CSDL trả kiểu của `SUM()`. Hợp đồng không có đợt nào được tính thì
+     * `SUM()` là `NULL`, và `(int) null === 0` — đúng con số cần so.
      *
      * @return Collection<int, Contract>
      */
@@ -188,7 +189,7 @@ final class ScheduleTotal
             ->where('status', ContractStatus::Active->value)
             ->select('contracts.*')
             ->selectSub(
-                self::counted()->selectRaw('COALESCE(SUM(amount), 0)')->whereColumn('instalments.contract_id', 'contracts.id'),
+                self::counted()->selectRaw('SUM(amount)')->whereColumn('instalments.contract_id', 'contracts.id'),
                 'schedule_total',
             )
             ->orderBy('code')

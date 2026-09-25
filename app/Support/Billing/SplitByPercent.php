@@ -34,7 +34,7 @@ final class SplitByPercent
     public static function split(int $total, array $percents): array
     {
         // Danh sách rỗng không cần nhánh riêng: tổng của nó là 0, không phải 100.
-        $basisPoints = array_map(self::toBasisPoints(...), array_values($percents));
+        $basisPoints = array_map(fn ($percent) => self::basisPoints($percent), array_values($percents));
 
         if (array_sum($basisPoints) !== 10_000) {
             throw ValidationException::withMessages(['percents' => [__('billing.validation.percents_must_total_100')]]);
@@ -72,22 +72,27 @@ final class SplitByPercent
     }
 
     /**
-     * `33.33` → `3333`. Từ chối số âm, số 0 và quá hai chữ số thập phân. Không cần trần 100% riêng
-     * cho từng phần: mọi phần ≥ 0,01% và tổng phải đúng 100% (ở `split()`) thì không phần nào vượt
-     * 100% được.
+     * Một phần trăm thành PHẦN VẠN nguyên: `33.33` → `3333`. Cách đọc một phần trăm DUY NHẤT của
+     * hệ thống — `DraftContract`/`AmendContract` dùng nó cho `percent_basis`. Từ chối số âm, số 0
+     * và quá hai chữ số thập phân (lỗi gắn trên `$field`).
+     *
+     * Không có trần 100% ở đây: trong `split()` mọi phần ≥ 0,01% và tổng phải đúng 100% thì không
+     * phần nào vượt 100% được; nơi đọc MỘT phần trăm đứng riêng (`percent_basis`) tự đặt trần.
+     *
+     * @throws ValidationException
      */
-    private static function toBasisPoints(int|float|string $percent): int
+    public static function basisPoints(int|float|string $percent, string $field = 'percents'): int
     {
         $text = is_string($percent) ? trim($percent) : (string) $percent;
 
         if (preg_match('/^(\d{1,3})(?:\.(\d{1,2}))?$/', $text, $match) !== 1) {
-            throw ValidationException::withMessages(['percents' => [__('billing.validation.percent_out_of_range')]]);
+            throw ValidationException::withMessages([$field => [__('billing.validation.percent_out_of_range')]]);
         }
 
         $points = (int) $match[1] * 100 + (int) str_pad($match[2] ?? '', 2, '0');
 
         if ($points < 1) {
-            throw ValidationException::withMessages(['percents' => [__('billing.validation.percent_out_of_range')]]);
+            throw ValidationException::withMessages([$field => [__('billing.validation.percent_out_of_range')]]);
         }
 
         return $points;

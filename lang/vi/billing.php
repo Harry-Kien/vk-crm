@@ -45,7 +45,7 @@ return [
         'contract_not_amendable' => 'Chỉ ký phụ lục được cho hợp đồng đang có hiệu lực. Hợp đồng :code đang ở trạng thái ":status".',
         'contract_not_draft' => 'Chỉ kích hoạt được hợp đồng còn ở trạng thái "Nháp". Hợp đồng :code đang ở trạng thái ":status".',
         'contract_not_active' => 'Chỉ hoàn tất hoặc huỷ được hợp đồng đang có hiệu lực. Hợp đồng :code đang ở trạng thái ":status".',
-        'contract_has_outstanding' => 'Chưa hoàn tất được hợp đồng :code: còn :outstanding chưa thu ở :count đợt. Thu nốt, hoặc miễn các đợt còn lại kèm lý do, rồi hoàn tất.',
+        'contract_has_unsettled' => 'Chưa hoàn tất được hợp đồng :code: còn :count đợt chưa thu đủ và chưa được miễn. Thu nốt, hoặc miễn các đợt còn lại kèm lý do, rồi hoàn tất.',
     ],
 
     'check_invariants' => [

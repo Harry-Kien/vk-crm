@@ -36,6 +36,13 @@ return [
         // fix": thiếu hai khoá này khiến ActivityLogPage hiện nguyên văn khoá sự kiện tiếng Anh).
         'team_member_added' => 'Thêm thành viên đội ngũ',
         'team_member_removed' => 'Gỡ thành viên đội ngũ',
+        // App\Actions\Billing\{DraftContract,ActivateContract,AmendContract,CompleteContract,
+        // CancelContract} (M9 Task 4).
+        'contract_drafted' => 'Soạn hợp đồng dịch vụ',
+        'contract_activated' => 'Kích hoạt hợp đồng dịch vụ',
+        'contract_amended' => 'Ký phụ lục hợp đồng',
+        'contract_completed' => 'Hoàn tất hợp đồng dịch vụ',
+        'contract_cancelled' => 'Huỷ hợp đồng dịch vụ',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */
