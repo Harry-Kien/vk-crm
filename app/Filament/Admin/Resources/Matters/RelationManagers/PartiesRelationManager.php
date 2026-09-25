@@ -610,9 +610,13 @@ class PartiesRelationManager extends RelationManager
      */
     private static function conflictSummary(ConflictCheckResult $result, ?string $overrideReason): string
     {
-        $lines = [$result->matches->isEmpty()
+        // R13c/`conflict-01` (M6.5 Task 8): `allMatches()` gộp khớp MỚI với khớp đã xác
+        // nhận/ghi đè ở một lần chạy trước trên cùng vụ việc. Đây là màn hình duy nhất còn lại
+        // sau khi modal đóng, nên nó phải kể ra cặp bên cũ đó — không chặn lưu nữa, nhưng "vẫn
+        // hiện" đúng như R13c đòi (xem docblock `ConflictCheckResult`).
+        $lines = [$result->allMatches()->isEmpty()
             ? __('matters.parties.conflict_check_clear')
-            : $result->matches
+            : $result->allMatches()
                 ->map(fn (ConflictMatch $match): string => sprintf(
                     '%s (%s) — %s, %s, %s: %s',
                     $match->matterCode,

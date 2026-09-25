@@ -314,7 +314,16 @@ it('saves a green result with an incomplete party once the caller acknowledges i
         ->and($matterOpened->properties->get('incomplete_conflict_parties'))->toBe(['Người Chỉ Có Tên Không Định Danh']);
 });
 
-it('flags the repeat-client case as yellow (same client opening a second matter matches their own first matter), requiring acknowledgement', function () {
+/**
+ * R13(a)/`conflict-02` (M6.5 Task 8, was a real bug — see the mutation probe in
+ * `RunConflictCheckTest.php` for the red evidence). Before this fix, a returning client's own
+ * `matter_parties` row from their FIRST matter always matched the own-client party `OpenMatter`
+ * builds for their SECOND matter (same `id_number_hash`, same client), so every single matter a
+ * lawyer opened for a repeat client came back yellow — a gate that is always up teaches people to
+ * click through it. A client revisiting the firm is not a conflict with themselves: the matching
+ * row is `is_our_client` with the SAME `client_id`, and that self-match is now excluded.
+ */
+it('lets a lawyer open a second matter for a returning client cleanly, with no acknowledgement needed', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $this->actingAs($lawyer, 'web');
 
@@ -326,22 +335,14 @@ it('flags the repeat-client case as yellow (same client opening a second matter 
     expect($firstMatter->exists)->toBeTrue();
 
     // Vụ việc thứ hai của CHÍNH khách hàng đó: own-client party mới trùng id_number_hash với
-    // own-client party của vụ thứ nhất (chính khách hàng này), cùng vai plaintiff cả hai bên nên
-    // không đối lập — mức vàng (tình huống reviewer mô tả), không phải đỏ, nhưng KHÔNG được lưu
-    // im lặng: phải qua cổng xác nhận như mọi mức vàng khác.
-    expect(fn () => app(OpenMatter::class)->handle($lawyer, baseAttributes($client, $lawyer, $type), []))
-        ->toThrow(ConflictAcknowledgementRequired::class);
+    // own-client party của vụ thứ nhất (chính khách hàng này) — R13(a) loại trừ đúng trường hợp
+    // này khỏi kết quả tìm kiếm, nên lần mở vụ thứ hai phải xanh sạch, không cần xác nhận gì cả.
+    $secondOpening = app(OpenMatter::class)->handle($lawyer, baseAttributes($client, $lawyer, $type), []);
 
-    expect(Matter::query()->where('client_id', $client->id)->count())->toBe(1);
-
-    $secondMatter = app(OpenMatter::class)->handle(
-        $lawyer,
-        baseAttributes($client, $lawyer, $type),
-        [],
-        acknowledged: ConflictLevel::Yellow,
-    )->matter;
-
-    expect($secondMatter->exists)->toBeTrue()
+    expect($secondOpening->result->level)->toBe(ConflictLevel::Green)
+        ->and($secondOpening->result->matches)->toBeEmpty()
+        ->and($secondOpening->result->requiresAcknowledgement())->toBeFalse()
+        ->and($secondOpening->matter->exists)->toBeTrue()
         ->and(Matter::query()->where('client_id', $client->id)->count())->toBe(2);
 });
 

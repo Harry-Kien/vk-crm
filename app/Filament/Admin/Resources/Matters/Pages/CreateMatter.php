@@ -160,23 +160,37 @@ class CreateMatter extends CreateRecord
     public function conflictResultViewData(): array
     {
         $result = $this->conflictResult ?? [];
-        $matches = $result['matches'] ?? [];
+        $newMatches = $result['matches'] ?? [];
+        // R13c/`conflict-01` (M6.5 Task 8): khớp đã xác nhận/ghi đè ở một lần chạy TRƯỚC trên
+        // cùng vụ việc không còn tính vào $level, nhưng "vẫn hiện" — gộp cả hai danh sách để hiển
+        // thị, chỉ khác ở cờ `already_confirmed` bên dưới. Xem docblock `ConflictCheckResult`.
+        $confirmedMatches = $result['confirmed_matches'] ?? [];
         $incompleteParties = $result['incomplete_parties'] ?? [];
         $level = $result['level'] ?? ConflictLevel::Green->value;
+
+        $formatMatch = fn (array $match, bool $alreadyConfirmed): array => [
+            'matter_code' => $match['matter_code'],
+            'matter_type_name' => $match['matter_type_name'],
+            'party_role' => PartyRole::from($match['party_role'])->label(),
+            'party_name' => $match['party_name'],
+            'tier' => ConflictMatchTier::from($match['tier'])->label(),
+            'level' => ConflictLevel::from($match['level'])->label(),
+            // R13d/`conflict-07`: vai + tên của bên PHÍA MÌNH gây ra khớp này — không phải bên
+            // tìm thấy. Cùng sáu trường còn lại, dịch ở đây chứ không trong blade, cùng lý do.
+            'our_party_role' => PartyRole::from($match['our_party_role'])->label(),
+            'our_party_name' => $match['our_party_name'],
+            'already_confirmed' => $alreadyConfirmed,
+        ];
 
         return [
             'level' => $level,
             // Cùng luật với PartiesRelationManager::notifyConflictCheckResult(): một mức xanh có
             // bên thiếu định danh KHÔNG được mang màu "sạch".
             'requiresAttention' => $level !== ConflictLevel::Green->value || $incompleteParties !== [],
-            'matches' => array_map(fn (array $match): array => [
-                'matter_code' => $match['matter_code'],
-                'matter_type_name' => $match['matter_type_name'],
-                'party_role' => PartyRole::from($match['party_role'])->label(),
-                'party_name' => $match['party_name'],
-                'tier' => ConflictMatchTier::from($match['tier'])->label(),
-                'level' => ConflictLevel::from($match['level'])->label(),
-            ], $matches),
+            'matches' => [
+                ...array_map(fn (array $match): array => $formatMatch($match, false), $newMatches),
+                ...array_map(fn (array $match): array => $formatMatch($match, true), $confirmedMatches),
+            ],
             'incompleteParties' => $incompleteParties,
         ];
     }
@@ -394,9 +408,13 @@ class CreateMatter extends CreateRecord
      */
     private static function conflictSummary(ConflictCheckResult $result, ?string $overrideReason): string
     {
-        $lines = [$result->matches->isEmpty()
+        // R13c/`conflict-01`: `allMatches()` gộp khớp MỚI với khớp đã xác nhận/ghi đè ở một lần
+        // chạy trước — một lần lưu sạch (không có gì MỚI để xác nhận) trên một vụ việc đã từng bị
+        // chặn trước đó vẫn phải kể ra cặp bên cũ đó, chứ không phải im lặng như thể nó không tồn
+        // tại (xem docblock `ConflictCheckResult`).
+        $lines = [$result->allMatches()->isEmpty()
             ? __('matters.conflict.no_matches')
-            : $result->matches
+            : $result->allMatches()
                 ->map(fn (ConflictMatch $match): string => sprintf(
                     '%s (%s) — %s, %s, %s: %s',
                     $match->matterCode,

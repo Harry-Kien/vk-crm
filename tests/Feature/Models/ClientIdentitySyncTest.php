@@ -4,10 +4,13 @@ use App\Actions\RunConflictCheck;
 use App\Enums\ConflictLevel;
 use App\Enums\ConflictMatchTier;
 use App\Enums\PartyRole;
+use App\Enums\Role;
 use App\Models\Client;
 use App\Models\Matter;
 use App\Models\MatterParty;
+use App\Models\User;
 use App\Support\Normalizer;
+use Database\Seeders\RolesAndPermissionsSeeder;
 use Spatie\Activitylog\Models\Activity;
 
 /**
@@ -187,4 +190,106 @@ it('re-syncs the party name when the client is renamed, so the name tier still m
     // chưa đủ để khẳng định cùng một người, nên nó gọi người xem xét chứ không chặn.
     expect($result->level)->toBe(ConflictLevel::Yellow)
         ->and($result->matches[0]->tier)->toBe(ConflictMatchTier::Name);
+});
+
+/**
+ * R13(e)/`conflict-04` (M6.5 Task 8) — "thời điểm thứ ba" mà PROGRESS từng để ngỏ, giờ đã có
+ * quyết định. Tái hiện đúng kịch bản của phát hiện gốc: khách hàng A gõ sai CCCD lúc tiếp nhận;
+ * văn phòng mở một vụ KHÁC kiện đúng người đó (nhập tay, không đánh dấu là khách hàng của văn
+ * phòng — "Ông D"), lúc đó không thấy gì trùng vì hash sai. Trợ lý sửa CCCD của A cho ĐÚNG: dòng
+ * `matter_parties` của A giờ trùng hash với "Ông D" — một xung đột MỚI mà không ai từng thấy.
+ */
+it('notifies the lead lawyer and every manager who can view the matter when a resync reveals a new conflict', function () {
+    $this->seed(RolesAndPermissionsSeeder::class);
+
+    $lead = User::factory()->withRole(Role::Lawyer)->create();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+
+    $client = Client::factory()->create(['id_number' => '090000000001', 'name' => 'Khách hàng A']);
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lead->id]);
+    MatterParty::factory()->for($matter)->ourClient($client, PartyRole::Plaintiff)->create();
+
+    $otherMatter = Matter::factory()->create();
+    MatterParty::factory()->for($otherMatter)->create(['role' => PartyRole::Defendant, 'name' => 'Ông D'])
+        ->identify('090000000002', null)->save();
+
+    // Trước khi sửa: hoàn toàn xanh, đúng như phát hiện gốc mô tả.
+    $before = app(RunConflictCheck::class)->handle($matter->parties()->get(), $matter);
+    expect($before->level)->toBe(ConflictLevel::Green);
+
+    $client->update(['id_number' => '090000000002']);
+
+    expect($lead->notifications()->count())->toBe(1)
+        ->and($manager->notifications()->count())->toBe(1);
+
+    $audit = Activity::query()->where('event', 'client_identity_conflict_detected')->latest('id')->first();
+
+    expect($audit)->not->toBeNull()
+        ->and($audit->subject_id)->toBe($matter->id)
+        ->and($audit->properties->get('client_id'))->toBe($client->id)
+        ->and(collect($audit->properties->get('notified_user_ids'))->sort()->values()->all())
+        ->toBe(collect([$lead->id, $manager->id])->sort()->values()->all());
+
+    // SPEC §10.5: không ghi số CCCD thô ở BẤT KỲ dòng nhật ký nào, kể cả dòng mới này.
+    $everything = Activity::query()->get()->toJson();
+    expect($everything)->not->toContain('090000000001')
+        ->and($everything)->not->toContain('090000000002');
+});
+
+/** Vụ `restricted`: manager không nhận (R3) dù đang hoạt động, vì họ không Gate::view() được. */
+it('does not notify a manager of a restricted matter when a resync reveals a new conflict, only the lead lawyer', function () {
+    $this->seed(RolesAndPermissionsSeeder::class);
+
+    $lead = User::factory()->withRole(Role::Lawyer)->create();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+
+    $client = Client::factory()->create(['id_number' => '090000000011']);
+    $matter = Matter::factory()->restricted()->create(['lead_lawyer_id' => $lead->id]);
+    MatterParty::factory()->for($matter)->ourClient($client, PartyRole::Plaintiff)->create();
+
+    $otherMatter = Matter::factory()->create();
+    MatterParty::factory()->for($otherMatter)->create(['role' => PartyRole::Defendant, 'name' => 'Bị đơn khác'])
+        ->identify('090000000012', null)->save();
+
+    $client->update(['id_number' => '090000000012']);
+
+    expect($lead->notifications()->count())->toBe(1)
+        ->and($manager->notifications()->count())->toBe(0);
+});
+
+/** Không có gì MỚI (kết quả vẫn xanh) thì không thông báo, không audit — không làm loãng nhật ký. */
+it('does not notify or log anything when a resync does not reveal any new conflict', function () {
+    $this->seed(RolesAndPermissionsSeeder::class);
+
+    $lead = User::factory()->withRole(Role::Lawyer)->create();
+    User::factory()->withRole(Role::Manager)->create();
+
+    $client = Client::factory()->create(['id_number' => '090000000021', 'name' => 'Khách sạch']);
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lead->id]);
+    MatterParty::factory()->for($matter)->ourClient($client, PartyRole::Plaintiff)->create();
+
+    $client->update(['id_number' => '090000000099']);
+
+    expect($lead->notifications()->count())->toBe(0)
+        ->and(Activity::query()->where('event', 'client_identity_conflict_detected')->exists())->toBeFalse();
+});
+
+/** R8: "đang mở" — một vụ việc đã đóng (`closed_at` không rỗng) không được kiểm tra lại. */
+it('does not recheck or notify for a matter that is already closed', function () {
+    $this->seed(RolesAndPermissionsSeeder::class);
+
+    $lead = User::factory()->withRole(Role::Lawyer)->create();
+
+    $client = Client::factory()->create(['id_number' => '090000000031']);
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lead->id, 'closed_at' => now()]);
+    MatterParty::factory()->for($matter)->ourClient($client, PartyRole::Plaintiff)->create();
+
+    $otherMatter = Matter::factory()->create();
+    MatterParty::factory()->for($otherMatter)->create(['role' => PartyRole::Defendant, 'name' => 'Bị đơn khác'])
+        ->identify('090000000032', null)->save();
+
+    $client->update(['id_number' => '090000000032']);
+
+    expect($lead->notifications()->count())->toBe(0)
+        ->and(Activity::query()->where('event', 'client_identity_conflict_detected')->exists())->toBeFalse();
 });

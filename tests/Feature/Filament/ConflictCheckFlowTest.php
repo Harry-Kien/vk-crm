@@ -1,0 +1,220 @@
+<?php
+
+use App\Actions\OpenMatter;
+use App\Enums\PartyRole;
+use App\Enums\Role;
+use App\Filament\Admin\Resources\Matters\Pages\CreateMatter;
+use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
+use App\Filament\Admin\Resources\Matters\RelationManagers\PartiesRelationManager;
+use App\Models\ChecklistTemplate;
+use App\Models\Client;
+use App\Models\Matter;
+use App\Models\MatterParty;
+use App\Models\MatterType;
+use App\Models\User;
+use Database\Seeders\RolesAndPermissionsSeeder;
+use Filament\Facades\Filament;
+use Filament\Notifications\Livewire\Notifications;
+use Filament\Notifications\Notification;
+use Illuminate\Support\Collection;
+use Spatie\Activitylog\Models\Activity;
+
+/**
+ * M6.5 Task 8 — R13(b)/`conflict-03` và R13(c)/`conflict-01`, đi qua MÀN HÌNH thật (Livewire), cả
+ * hai mặt của quy tắc: form mở vụ (`CreateMatter`) VÀ tab "Các bên" (`PartiesRelationManager`) —
+ * đúng "tương tự khi thêm bên thứ hai qua tab Các bên" mà brief đòi cho test (b). Các test đơn vị
+ * thuần (không qua Livewire) và mọi mutation probe nằm ở `tests/Feature/Actions/
+ * RunConflictCheckTest.php`; tệp này chỉ khẳng định lại đúng những quy tắc đó còn đứng vững khi đi
+ * qua đường người dùng thật, không gọi thẳng Action (CLAUDE.md, quy ước TDD của brief M6.5).
+ *
+ * **Không tái dùng các hàm toàn cục của `CreateMatterTest.php`/`ViewMatterTest.php`
+ * (`createMatterFormData()`, `sentNotification()`), dù chạy tuần tự thì vẫn gọi được — đo được
+ * dưới `bin/dev test --parallel`.** ParaTest chạy MỖI tệp test trong một tiến trình PHP RIÊNG khi
+ * chia việc theo tệp, nên một hàm toàn cục khai báo ở tệp KHÁC không được nạp vào tiến trình xử lý
+ * tệp này — `Call to undefined function createMatterFormData()`. Tệp này tự mang bản riêng của cả
+ * hai, tên riêng theo đúng quy ước "hàm toàn cục" đã ghi ở `CreateMatterTest.php`.
+ */
+beforeEach(function () {
+    $this->seed(RolesAndPermissionsSeeder::class);
+    Filament::setCurrentPanel('admin');
+});
+
+/** Loại vụ việc kèm giai đoạn — tên riêng, xem quy ước "hàm toàn cục" ở CreateMatterTest.php. */
+function conflictFlowMatterType(): MatterType
+{
+    $type = MatterType::factory()->withStages()->create();
+    ChecklistTemplate::factory()->withItems(1)->for($type, 'matterType')->create();
+
+    return $type;
+}
+
+/** @return array<string, mixed> dữ liệu form tối thiểu để mở một vụ việc — bản riêng của tệp này. */
+function conflictFlowMatterFormData(Client $client, User $leadLawyer, MatterType $type, array $overrides = []): array
+{
+    return [...[
+        'client_id' => $client->id,
+        'client_role' => PartyRole::Plaintiff->value,
+        'matter_type_id' => $type->id,
+        'title' => 'Tranh chấp hợp đồng thuê nhà',
+        'lead_lawyer_id' => $leadLawyer->id,
+        'summary_for_client' => 'Tóm tắt gửi khách hàng.',
+        'other_parties' => [],
+    ], ...$overrides];
+}
+
+/**
+ * Mọi Notification mà request vừa rồi đã gửi — bản riêng của tệp này, cùng hình dạng
+ * `sentNotification()`/`createFormNotifications()` của `ViewMatterTest.php`/`CreateMatterTest.php`.
+ *
+ * @return Collection<int, Notification>
+ */
+function conflictFlowNotifications(): Collection
+{
+    $component = new Notifications;
+    $component->mount();
+
+    return $component->notifications;
+}
+
+/**
+ * R13(b)/`conflict-03` — brief test (b), nhánh "form mở vụ". Hai khách hàng của văn phòng, CHƯA
+ * từng có vụ nào, ở hai vai đối lập của CÙNG một vụ việc mới: phải Đỏ, không được lưu im lặng.
+ */
+it('blocks a new matter in the create-matter screen when two of our own clients are opposing parties', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $this->actingAs($manager, 'web');
+
+    $mainClient = Client::factory()->create(['name' => 'Khách hàng X']);
+    $opposingOwnClient = Client::factory()->create(['name' => 'Khách hàng W']);
+    $type = conflictFlowMatterType();
+
+    $this->livewire(CreateMatter::class)
+        ->fillForm(conflictFlowMatterFormData($mainClient, $manager, $type, [
+            'other_parties' => [[
+                'role' => PartyRole::Defendant->value,
+                'name' => $opposingOwnClient->name,
+                'is_our_client' => true,
+                'client_id' => $opposingOwnClient->id,
+            ]],
+        ]))
+        ->call('create')
+        ->assertHasFormErrors(['override_reason']);
+
+    expect(Matter::query()->where('client_id', $mainClient->id)->exists())->toBeFalse();
+});
+
+/** Cùng R13(b), nhánh "tab Các bên" của một vụ việc ĐANG chạy. */
+it('blocks adding a second party to the parties tab when it opposes an existing party who is also our own client', function () {
+    // Manager (client.manage) chứ không phải luật sư thường: bên W mới hoàn toàn chưa từng có vụ
+    // nào, nên VisibleClientOptions sẽ không cho một luật sư thường nhìn thấy id đó — một câu hỏi
+    // KHÁC (SPEC §5, roles-04) mà test này không nhắm tới. Ở đây chỉ muốn khẳng định R13(b).
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $x = Client::factory()->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $manager->id]);
+    MatterParty::factory()->for($matter)->ourClient($x, PartyRole::Plaintiff)->create();
+
+    $w = Client::factory()->create();
+
+    $this->actingAs($manager, 'web');
+
+    $this->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('create', data: [
+        'role' => PartyRole::Defendant->value,
+        'is_our_client' => true,
+        'client_id' => $w->id,
+        'name' => $w->name,
+    ])->assertHasTableActionErrors(['override_reason']);
+
+    expect($matter->parties()->where('client_id', $w->id)->exists())->toBeFalse();
+});
+
+/**
+ * R13(c)/`conflict-01` — brief test (c), xuyên suốt HAI Action thật qua HAI màn hình: trưởng
+ * phòng ghi đè đỏ lúc mở vụ (`CreateMatter` → `OpenMatter`), sau đó (một request KHÁC, đúng hình
+ * dạng "lần chạy sau" mà R13c mô tả) một nhân chứng hoàn toàn sạch được thêm qua tab "Các bên"
+ * (`PartiesRelationManager` → `AddMatterParty`) — phải lưu được, không đòi ghi đè lại. Khớp cũ vẫn
+ * phải "hiện" trong thông báo kết quả, chỉ không còn chặn.
+ */
+it('does not re-block an already-overridden pair when a clean witness is added later, and still shows it in the result', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $this->actingAs($manager, 'web');
+
+    $conflictingClient = Client::factory()->create(['id_number' => '071122334455', 'name' => 'Nguyễn Văn Xung Đột']);
+    $conflictMatter = Matter::factory()->create();
+    MatterParty::factory()->for($conflictMatter)->ourClient($conflictingClient, PartyRole::Plaintiff)->create();
+
+    $client = Client::factory()->create();
+    $type = conflictFlowMatterType();
+
+    $component = $this->livewire(CreateMatter::class)
+        ->fillForm(conflictFlowMatterFormData($client, $manager, $type, [
+            'other_parties' => [[
+                'role' => PartyRole::Defendant->value,
+                'name' => 'Bị đơn trùng CCCD',
+                'id_number' => '071122334455',
+            ]],
+        ]));
+
+    $component->call('create')->assertHasFormErrors(['override_reason']);
+
+    $component->fillForm(['override_reason' => 'Đã xác minh, không phải cùng một người.'])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $matter = Matter::query()->where('client_id', $client->id)->first();
+    expect($matter)->not->toBeNull();
+
+    $opened = Activity::query()->where('event', 'matter_opened')->latest('id')->first();
+    expect($opened->properties->get('confirmed_pairs'))->not->toBeEmpty();
+
+    // Lần chạy SAU trên cùng vụ việc: một nhân chứng hoàn toàn sạch. Cặp (bị đơn trùng CCCD ↔ hồ
+    // sơ Nguyễn Văn Xung Đột) vẫn tồn tại trong $matter->parties() và vẫn bị RunConflictCheck xét
+    // lại (cố ý — "fix round 3"), nhưng KHÔNG được phép chặn lại lần này (R13c).
+    $this->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('create', data: [
+        'role' => PartyRole::Related->value,
+        'is_our_client' => false,
+        'name' => 'Nhân chứng hoàn toàn sạch',
+        'id_number' => '099000000999',
+        'phone' => '0933000999',
+    ])->assertHasNoTableActionErrors();
+
+    expect($matter->parties()->where('name', 'Nhân chứng hoàn toàn sạch')->exists())->toBeTrue();
+
+    $saved = conflictFlowNotifications()
+        ->first(fn (Notification $notification): bool => $notification->getTitle() === __('matters.parties.conflict_check_title_clear'));
+
+    expect($saved)->not->toBeNull()
+        ->and($saved->getColor())->toBe('success')
+        // Khớp cũ (đã ghi đè trước đó) "vẫn hiện" trong kết quả — R13c bullet, và §11.
+        ->and($saved->getBody())->toContain($conflictMatter->code);
+});
+
+/**
+ * R13(g)/`conflict-06` — bullet cuối của test (g) brief: "Dòng conflict_check_run lúc mở vụ có
+ * subject là vụ vừa tạo". Đi qua Action trực tiếp là đủ ở đây (không phải hành vi riêng của màn
+ * hình): `OpenMatter` là nơi duy nhất gắn lại `subject`, và `CreateMatter` chỉ gọi thẳng nó.
+ */
+it('links the conflict_check_run row of a matter opening to the matter it just created', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $client = Client::factory()->create();
+    $type = conflictFlowMatterType();
+
+    $opening = app(OpenMatter::class)->handle($lawyer, [
+        'client_id' => $client->id,
+        'client_role' => PartyRole::Plaintiff,
+        'matter_type_id' => $type->id,
+        'title' => 'Vụ việc kiểm tra subject',
+        'lead_lawyer_id' => $lawyer->id,
+    ], []);
+
+    $checkRun = Activity::query()->where('event', 'conflict_check_run')->latest('id')->first();
+
+    expect($checkRun)->not->toBeNull()
+        ->and($checkRun->subject_type)->toBe($opening->matter->getMorphClass())
+        ->and((int) $checkRun->subject_id)->toBe($opening->matter->getKey());
+});

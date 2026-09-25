@@ -2,12 +2,18 @@
     Bảng kết quả kiểm tra xung đột lợi ích, hiện NGAY TRONG form tạo vụ việc (SPEC §6.10, đoạn
     "Giao diện").
 
-    **Ranh giới lộ thông tin có chủ đích — đừng thêm cột nào vào bảng này.** Dữ liệu vào đây đi qua
-    App\Support\ConflictMatch (readonly DTO) và chỉ mang đúng: mã hồ sơ, tên loại vụ việc, vai và
-    tên của bên trùng, tiêu chí đã khớp, mức. Đây là ngoại lệ có chủ đích duy nhất của quy tắc phân
-    quyền trong toàn hệ thống: đủ để nhận ra xung đột, KHÔNG đủ để lộ bí mật hồ sơ khác — người đang
-    nhìn bảng này thường không có quyền xem những hồ sơ đó. View này không nhận model, không truy
-    vấn, và không được phép làm cả hai việc đó.
+    **Ranh giới lộ thông tin có chủ đích — đừng thêm cột nào vào bảng này** ngoài đúng những gì
+    App\Support\ConflictMatch::toArray() liệt kê: mã hồ sơ, tên loại vụ việc, vai và tên của bên
+    trùng, tiêu chí đã khớp, mức, và (M6.5 Task 8, R13d) vai/tên của bên PHÍA MÌNH gây ra khớp đó.
+    Đây là ngoại lệ có chủ đích duy nhất của quy tắc phân quyền trong toàn hệ thống: đủ để nhận ra
+    xung đột, KHÔNG đủ để lộ bí mật hồ sơ khác — người đang nhìn bảng này thường không có quyền xem
+    những hồ sơ đó. View này không nhận model, không truy vấn, và không được phép làm cả hai việc.
+
+    **`already_confirmed` (R13c/`conflict-01`).** Một khớp đã được xác nhận/ghi đè ở một lần chạy
+    TRƯỚC trên CÙNG vụ việc không còn chặn lưu, nhưng SPEC §11 vẫn đòi nó "vẫn hiện" — người xem xét
+    phải thấy đủ bức tranh, không phải chỉ những gì MỚI. Cột "Mức" của một dòng như vậy vẫn đúng
+    (đỏ/vàng thật), chỉ có nhãn nhỏ này nói thêm rằng dòng đó không phải lý do lượt lưu lần này cần
+    xác nhận.
 --}}
 <div
     @class([
@@ -34,6 +40,7 @@
             <table class="w-full text-sm text-left">
                 <thead class="text-gray-600 dark:text-gray-400">
                     <tr>
+                        <th class="py-1 pr-3 font-medium">{{ __('matters.conflict.column_our_party') }}</th>
                         <th class="py-1 pr-3 font-medium">{{ __('matters.conflict.column_matter_code') }}</th>
                         <th class="py-1 pr-3 font-medium">{{ __('matters.conflict.column_matter_type') }}</th>
                         <th class="py-1 pr-3 font-medium">{{ __('matters.conflict.column_party_role') }}</th>
@@ -45,12 +52,20 @@
                 <tbody class="text-gray-900 dark:text-gray-100">
                     @foreach($matches as $match)
                         <tr class="border-t border-gray-200 dark:border-gray-700">
+                            <td class="py-1 pr-3">
+                                {{ $match['our_party_role'] }} — {{ $match['our_party_name'] }}
+                            </td>
                             <td class="py-1 pr-3 font-semibold">{{ $match['matter_code'] }}</td>
                             <td class="py-1 pr-3">{{ $match['matter_type_name'] }}</td>
                             <td class="py-1 pr-3">{{ $match['party_role'] }}</td>
                             <td class="py-1 pr-3">{{ $match['party_name'] }}</td>
                             <td class="py-1 pr-3">{{ $match['tier'] }}</td>
-                            <td class="py-1 font-semibold">{{ $match['level'] }}</td>
+                            <td class="py-1 font-semibold">
+                                {{ $match['level'] }}
+                                @if($match['already_confirmed'] ?? false)
+                                    <span class="block text-xs font-normal text-gray-500 dark:text-gray-400">{{ __('matters.conflict.already_confirmed') }}</span>
+                                @endif
+                            </td>
                         </tr>
                     @endforeach
                 </tbody>

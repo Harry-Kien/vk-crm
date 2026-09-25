@@ -14,6 +14,7 @@ use App\Support\ConflictMatch;
 use App\Support\Normalizer;
 use App\Support\Scopes\ClientPortalScope;
 use Illuminate\Support\Collection;
+use Spatie\Activitylog\Models\Activity;
 
 /**
  * Kiểm tra xung đột lợi ích (SPEC §6.10). Thuần đọc trên dữ liệu nghiệp vụ: Action này không bao
@@ -92,7 +93,9 @@ use Illuminate\Support\Collection;
  * việc mang một trong ba vai này vào vụ mới không tự lên mức đỏ, chỉ có thể lên vàng như mọi bên
  * khác nếu từng xuất hiện ở hồ sơ khác. SPEC không liệt kê ba vai này trong định nghĩa đối lập, và
  * suy rộng ra rủi ro chặn nhầm việc lưu một hồ sơ hợp lệ (vd. mời đúng luật sư đối phương cũ làm
- * `opposing_counsel` ở một vụ khác không phải là xung đột lợi ích).
+ * `opposing_counsel` ở một vụ khác không phải là xung đột lợi ích). Quy tắc này áp cho khớp LỊCH
+ * SỬ (`matchesFor()`, `isOpposing()`) — `sameMatterOppositionMatches()` bên dưới (R13b) là một quy
+ * tắc KHÁC, hẹp hơn, chỉ so `plaintiff`/`defendant` với nhau NGAY TRONG vụ việc đang xét.
  *
  * **Chỉ khớp "chắc chắn" (`id_number_hash`) hoặc "rất khả nghi" (`phone_normalized`) mới đủ tin
  * cậy để lên mức đỏ.** Khớp theo tên đã chuẩn hoá ("cần người xem xét" — SPEC §6.10 bước 2) không
@@ -123,6 +126,60 @@ use Illuminate\Support\Collection;
  * causer (nếu có) chỉ là suy luận từ phiên đang mở của `Audit::record`, và người đọc kiểm toán sau
  * này phải đọc được đúng như vậy chứ không phải như một lời khẳng định. Người sửa sau này: đừng
  * thêm `Auth::` vào lớp này để "điền cho đủ" — chỗ trống đó chính là thông tin.
+ *
+ * ---
+ *
+ * # M6.5 Task 8 — bốn phán quyết mới (R13a/b/c/d)
+ *
+ * **R13(a)/`conflict-02` — khách hàng quay lại không tự xung đột với CHÍNH hồ sơ cũ của mình.**
+ * `OpenMatter::buildOwnClientParty()` dựng một bên `is_our_client` từ hồ sơ `Client` ở MỌI vụ việc
+ * mở qua nó, nên một khách hàng đã có một vụ cũ luôn có sẵn một dòng `matter_parties` mang cùng
+ * `id_number_hash`. Trước bản sửa này, `matchesFor()` không loại trừ trường hợp bản ghi TÌM THẤY
+ * chính là một dòng khác của CÙNG khách hàng đó (`client_id` giống nhau) — nên mọi lần một khách
+ * hàng quay lại mở vụ mới đều tự khớp với chính mình và lên mức vàng, kể cả khi không có ai khác
+ * liên quan. Với luật sư (chỉ thấy khách hàng của những vụ mình đã liệt kê được — SPEC §5), mức
+ * xanh vì vậy KHÔNG THỂ đạt được: mọi lần mở vụ đều phải tích "đã xem xét" trước một "xung đột" là
+ * chính khách hàng của mình — đúng cái cổng luôn bật mà một người dùng thật học cách bấm cho qua.
+ * `matchesFor()` giờ loại trừ TƯỜNG MINH bản ghi tìm thấy khi CẢ hai đúng: bên đang xét
+ * (`$party`) là `is_our_client` với một `client_id`, VÀ bản ghi tìm thấy cũng `is_our_client` với
+ * CÙNG `client_id` đó. Không loại một khách hàng KHÁC (`client_id` khác) — đó có thể là một xung
+ * đột thật; không loại một bên KHÔNG PHẢI `is_our_client` — một bị đơn gõ tay trùng định danh với
+ * chính khách hàng đang mở vụ là đúng tình huống SPEC §11 bullet 1 mô tả và phải tiếp tục lên đỏ.
+ *
+ * **R13(b)/`conflict-03` — hai khách hàng của văn phòng ở hai phía đối lập NGAY TRONG cùng một vụ
+ * việc là Đỏ.** `matchesFor()` chỉ tìm bản ghi TRÙNG ở CÁC VỤ KHÁC (`where('matter_id', '!=',
+ * ...)` khi thêm bên, hoặc hoàn toàn không tìm được gì lúc mở vụ vì chưa có gì để so — cả hai bên
+ * đề xuất đều chưa nằm trong DB). Nếu hai khách hàng của văn phòng CHƯA từng có vụ nào (nên không
+ * để lại dấu vết ở nơi khác) được nhập ở hai vai đối lập của CÙNG một vụ việc — dù qua form mở vụ
+ * hay tab "Các bên" — trước bản sửa này kết quả là XANH SẠCH: hệ thống có đủ dữ kiện (cả hai đều
+ * `is_our_client`, vai đối lập) nhưng chưa từng tự hỏi câu đó. `sameMatterOppositionMatches()`
+ * bên dưới lấp đúng lỗ hổng này: so từng cặp bên `is_our_client` trong `$allParties` (gộp bên đề
+ * xuất VÀ bên đã có của vụ, đúng tập hợp `handle()` đã dùng cho mọi việc khác) với NHAU — không
+ * phải với lịch sử — và luôn Đỏ khi vai đối lập (`plaintiff`/`defendant`, đúng nghĩa hẹp của
+ * `isOpposing()`) và không phải cùng một khách hàng thật (R13a áp lại ở đây: `client_id` khác
+ * nhau). Tier riêng `ConflictMatchTier::SameMatter` vì đây không phải một phép so khớp định danh.
+ *
+ * **R13(c)/`conflict-01` — một khớp đã được xác nhận/ghi đè thì không chặn lại ở lần chạy sau.**
+ * "Fix round 3" ở trên (xét lại MỌI bên đã có ở mỗi lần chạy) là cố ý và vẫn đúng — một vụ việc
+ * chỉ đủ điều kiện đỏ SAU khi khách hàng được thêm vào phải được phát hiện. Nhưng nó có một hệ quả
+ * chưa từng được xử lý: một khi mức đỏ của một cặp bên đã bị `manager` ghi đè (hay mức vàng đã
+ * được xác nhận), CHÍNH cặp đó lại khớp lại ở MỌI lần thêm bên tiếp theo trên cùng vụ việc — với
+ * `AddMatterParty` (không có gì để "ghi đè" cho vai luật sư phụ trách) đây là CHẶN CỨNG vĩnh viễn,
+ * và thông báo còn đổ lỗi nhầm cho bên vừa nhập (xem R13d). `handle()` giờ tách kết quả thành
+ * `matches` (MỚI — quyết định `level`) và `confirmedMatches` (đã xác nhận/ghi đè ở một lần chạy
+ * TRƯỚC trên CÙNG vụ việc — vẫn hiện, không chặn lại) bằng `ConflictMatch::$pairKey` (chữ ký
+ * "bên phía mình ↔ bản ghi tìm thấy", xem docblock ở đó) đối chiếu với `confirmedPairKeys()` —
+ * tập hợp lấy từ chính các dòng `matter_opened`/`matter_party_added` mà `OpenMatter`/
+ * `AddMatterParty` đã ghi (khoá `confirmed_pairs` trong properties, xem docblock hai Action đó).
+ * Chỉ áp cho khớp LỊCH SỬ (`matchesFor()`); `sameMatterOppositionMatches()` (R13b) cố ý không có
+ * `pairKey` — xem docblock hàm đó cho lý do không mở rộng R13c sang loại khớp này.
+ *
+ * **R13(d)/`conflict-07` — mỗi khớp mang nhãn "bên phía mình" gây ra khớp.** `ConflictMatch` giờ
+ * mang thêm `ourPartyRole`/`ourPartyName`: vai và tên của bên ĐANG ĐƯỢC XÉT (`$party` trong
+ * `matchesFor()`, hoặc một trong hai bên đối lập trong `sameMatterOppositionMatches()`) — không
+ * phải bên tìm thấy. Trước bản sửa này bảng kết quả chỉ mô tả bản ghi TÌM THẤY, không nói bên nào
+ * của form (hay bên nào đã có của vụ) gây ra khớp; khi vụ việc có nhiều bên, người xem xét phải
+ * đoán, và `conflict-01` cho thấy đoán sai thì thông báo đổ lỗi nhầm cho bên vô can.
  */
 class RunConflictCheck
 {
@@ -148,16 +205,30 @@ class RunConflictCheck
         // việc xác định vai (fix round 3)".
         $allParties = collect([...$parties->all(), ...$this->existingParties($matter)]);
 
-        $ourClientRoles = $allParties
-            ->filter(fn (MatterParty $party) => $party->is_our_client)
-            ->pluck('role');
+        $ourClientParties = $allParties->filter(fn (MatterParty $party) => $party->is_our_client);
+        $ourClientRoles = $ourClientParties->pluck('role');
 
         $matches = $allParties
             ->flatMap(fn (MatterParty $party) => $this->matchesFor($party, $ourClientRoles, $matter))
+            // R13(b): mâu thuẫn NGAY TRONG vụ việc đang xét, không phải một khớp với lịch sử — xem
+            // docblock lớp và docblock hàm bên dưới.
+            ->concat($this->sameMatterOppositionMatches($ourClientParties))
             ->unique(fn (ConflictMatch $match) => implode('|', [
                 $match->matterCode, $match->partyRole->value, $match->partyName, $match->level->value, $match->tier->value,
+                $match->ourPartyRole->value, $match->ourPartyName,
             ]))
             ->values();
+
+        // R13(c): tách khớp MỚI (quyết định level) khỏi khớp đã xác nhận/ghi đè ở một lần chạy
+        // TRƯỚC trên cùng vụ việc (vẫn hiện, không chặn lại) — xem docblock lớp và
+        // `confirmedPairKeys()`.
+        $confirmedPairKeys = $this->confirmedPairKeys($matter);
+
+        [$confirmedMatches, $newMatches] = $matches->partition(
+            fn (ConflictMatch $match): bool => $match->pairKey !== null && $confirmedPairKeys->contains($match->pairKey)
+        );
+        $newMatches = $newMatches->values();
+        $confirmedMatches = $confirmedMatches->values();
 
         // CỐ Ý tính trên `$parties` chứ không phải `$allParties` — đây là chỗ DUY NHẤT hai tập
         // hợp tách nhau, nên nói rõ vì sao. Danh sách này chỉ phục vụ việc bắt người dùng tích
@@ -173,18 +244,25 @@ class RunConflictCheck
             ->pluck('name')
             ->values();
 
-        $level = $matches->contains(fn (ConflictMatch $match) => $match->level === ConflictLevel::Red)
+        // Chỉ khớp MỚI quyết định mức — một khớp đã xác nhận/ghi đè trước đó không được phép bắt
+        // người dùng xác nhận lại (R13c).
+        $level = $newMatches->contains(fn (ConflictMatch $match) => $match->level === ConflictLevel::Red)
             ? ConflictLevel::Red
-            : ($matches->isEmpty() ? ConflictLevel::Green : ConflictLevel::Yellow);
+            : ($newMatches->isEmpty() ? ConflictLevel::Green : ConflictLevel::Yellow);
 
-        $result = new ConflictCheckResult($level, $matches, $incompleteParties);
+        $result = new ConflictCheckResult($level, $newMatches, $confirmedMatches, $incompleteParties);
 
         // `actor_explicit` đi cùng kết quả chứ không thay thế nó: nó nói dòng này được gán cho ai
         // theo KHẲNG ĐỊNH của caller (true) hay chỉ theo phiên đăng nhập tình cờ đang mở (false).
-        Audit::record('conflict_check_run', $matter, [
+        $activity = Audit::record('conflict_check_run', $matter, [
             ...$result->toArray(),
             'actor_explicit' => $actor !== null,
         ], $actor);
+
+        // R13(g)/`conflict-06`: id của dòng vừa ghi, để `OpenMatter` gắn lại `subject` của nó vào
+        // vụ việc SAU KHI vụ việc được lưu (lúc kiểm tra chạy ở đây, vụ việc mới có thể còn chưa
+        // tồn tại). Xem docblock `ConflictCheckResult::$auditLogId`.
+        $result->auditLogId = $activity?->getKey();
 
         return $result;
     }
@@ -231,6 +309,19 @@ class RunConflictCheck
 
         $isOpposing = $this->isOpposing($party->role, $ourClientRoles);
 
+        // R13(c): chữ ký định danh của CHÍNH bên đang xét — tầng mạnh nhất có sẵn, theo đúng thứ
+        // tự ưu tiên của SPEC §6.10 bước 2. Dùng để dựng `ConflictMatch::$pairKey` bên dưới, tức
+        // "bên phía mình (theo định danh) ↔ bản ghi tìm thấy (theo id thật)" — chữ ký này KHÔNG
+        // cần $party đã được lưu: nó tính lại được y hệt ở lần chạy sau, dù lần đó $party là chính
+        // dòng đã lưu của lần này hay một dòng khác mang cùng định danh, nên không cần theo dõi
+        // đối tượng PHP hay id còn chưa tồn tại lúc lần chạy ĐẦU TIÊN diễn ra.
+        $ourSignature = match (true) {
+            $idNumberHash !== null => 'hash:'.$idNumberHash,
+            $phoneNormalized !== null => 'phone:'.$phoneNormalized,
+            $nameNormalized !== null => 'name:'.$nameNormalized,
+            default => null,
+        };
+
         return MatterParty::query()
             // Đây là kiểm tra lịch sử: một bên đã xoá mềm, hoặc thuộc một vụ đã xoá mềm, vẫn từng
             // đại diện cho một người thật. Bỏ sót ở đây là bỏ sót một xung đột lợi ích thật.
@@ -246,8 +337,19 @@ class RunConflictCheck
                     ->when($phoneNormalized, fn ($q) => $q->orWhere('phone_normalized', $phoneNormalized))
                     ->when($nameNormalized, fn ($q) => $q->orWhere('name_normalized', $nameNormalized));
             })
+            // R13(a)/`conflict-02`: một khách hàng của văn phòng quay lại không phải xung đột với
+            // CHÍNH hồ sơ cũ của mình — bên khớp là `is_our_client` với CÙNG `client_id`. Chỉ áp
+            // khi CHÍNH bên đang xét cũng `is_our_client` kèm `client_id`: không loại một
+            // `client_id` KHÁC (một khách hàng khác thật sự có thể đối lập), và không loại một
+            // bên KHÔNG PHẢI `is_our_client` (một bị đơn gõ tay trùng định danh với đúng khách
+            // hàng đang mở vụ vẫn phải lên đỏ — SPEC §11 bullet 1). Xem docblock lớp.
+            ->when($party->is_our_client && $party->client_id !== null, fn ($query) => $query->where(function ($q) use ($party): void {
+                $q->where('is_our_client', false)
+                    ->orWhereNull('client_id')
+                    ->orWhere('client_id', '!=', $party->client_id);
+            }))
             ->get()
-            ->map(function (MatterParty $found) use ($idNumberHash, $phoneNormalized, $isOpposing): ConflictMatch {
+            ->map(function (MatterParty $found) use ($idNumberHash, $phoneNormalized, $isOpposing, $party, $ourSignature): ConflictMatch {
                 // Ưu tiên khớp SPEC §6.10 bước 2: hash "chắc chắn" > điện thoại "rất khả nghi" >
                 // tên "cần xem xét". Chỉ hai mức đầu đủ tin cậy để lên đỏ (xem docblock lớp).
                 $tier = match (true) {
@@ -267,8 +369,105 @@ class RunConflictCheck
                     partyName: $found->name,
                     level: $isRed ? ConflictLevel::Red : ConflictLevel::Yellow,
                     tier: $tier,
+                    ourPartyRole: $party->role,
+                    ourPartyName: $party->name,
+                    // Bản ghi tìm thấy luôn đã tồn tại trong DB (truy vấn ở trên chỉ đọc các dòng
+                    // đã lưu), nên getKey() luôn có giá trị thật ở đây.
+                    pairKey: $ourSignature !== null ? $ourSignature.'::'.$found->getKey() : null,
                 );
             });
+    }
+
+    /**
+     * R13(b)/`conflict-03`: hai khách hàng của văn phòng ở hai vai đối lập NGAY TRONG vụ việc
+     * đang xét là Đỏ. Đây KHÔNG phải một khớp với lịch sử — `matchesFor()` không bao giờ tự phát
+     * hiện việc này: lúc mở vụ, cả hai bên đề xuất đều CHƯA nằm trong DB nên không có gì để truy
+     * vấn; lúc thêm bên vào một vụ đã tồn tại, `where('matter_id', '!=', $matter->id)` cố tình
+     * loại CHÍNH vụ việc này khỏi kết quả tìm kiếm — đúng cho một khớp LỊCH SỬ, sai cho một mâu
+     * thuẫn ngay trong tập hợp đang xét. Hàm này so từng CẶP bên `is_our_client` trong
+     * `$ourClientParties` (đã gộp bên đề xuất VÀ bên đã có của vụ — đúng `$allParties` mà mọi
+     * việc khác của `handle()` dùng) với NHAU.
+     *
+     * Vòng lặp O(n²) trên số bên `is_our_client` của một vụ việc — luôn nhỏ (một vụ kiện hiếm khi
+     * có quá vài khách hàng của chính văn phòng), nên không cần tối ưu.
+     *
+     * **Vì sao KHÔNG gắn `pairKey` (R13c không áp cho loại khớp này).** R13c chỉ suy giảm một
+     * khớp LỊCH SỬ thành "đã xác nhận, không chặn lại" vì lịch sử đó không đổi — cặp bên đó đã
+     * từng được một manager xem xét và quyết định. Một mâu thuẫn NGAY TRONG vụ việc thì khác: hai
+     * khách hàng đó VẪN đang ở hai phía đối lập của CÙNG một vụ việc cho tới khi ai đó thật sự gỡ
+     * một trong hai bên (Task 9) — im lặng cho qua ở lần chạy sau chỉ vì lần trước đã ghi đè một
+     * lần là để một xung đột đang mở tiếp tục mở, đúng thứ chức năng này tồn tại để CHẶN. Người
+     * ghi đè đã đồng ý ĐÚNG MỘT LẦN chịu trách nhiệm cho quyết định đại diện cả hai phía; không
+     * suy ra rằng họ đã đồng ý một lần cho MỌI lần thêm bên sau đó.
+     *
+     * @param  Collection<int, MatterParty>  $ourClientParties
+     * @return Collection<int, ConflictMatch>
+     */
+    private function sameMatterOppositionMatches(Collection $ourClientParties): Collection
+    {
+        $matches = collect();
+
+        foreach ($ourClientParties as $party) {
+            foreach ($ourClientParties as $other) {
+                if ($party === $other) {
+                    continue;
+                }
+
+                // R13(a) áp lại ở đây: cùng một khách hàng thật (client_id giống nhau) xuất hiện
+                // hai lần không phải xung đột với chính mình.
+                if ($party->client_id !== null && $party->client_id === $other->client_id) {
+                    continue;
+                }
+
+                if (! $this->isOpposing($party->role, collect([$other->role]))) {
+                    continue;
+                }
+
+                $matches->push(new ConflictMatch(
+                    matterCode: __('matters.conflict.same_matter_marker'),
+                    matterTypeName: '',
+                    partyRole: $other->role,
+                    partyName: $other->name,
+                    level: ConflictLevel::Red,
+                    tier: ConflictMatchTier::SameMatter,
+                    ourPartyRole: $party->role,
+                    ourPartyName: $party->name,
+                    pairKey: null,
+                ));
+            }
+        }
+
+        return $matches;
+    }
+
+    /**
+     * R13(c): tập hợp các chữ ký `ConflictMatch::$pairKey` đã từng được xác nhận hoặc ghi đè ở
+     * MỘT LẦN CHẠY TRƯỚC của `RunConflictCheck` trên CÙNG vụ việc `$matter`. Đọc lại từ properties
+     * của chính hai dòng nghiệp vụ mà `OpenMatter`/`AddMatterParty` ghi SAU KHI lưu thành công
+     * (`matter_opened`/`matter_party_added`, khoá `confirmed_pairs`) — không phải từ
+     * `conflict_check_run`: dòng đó được ghi ở GIAI ĐOẠN KIỂM TRA, TRƯỚC KHI biết người dùng có
+     * xác nhận/ghi đè hay không, nên nó không phải là nơi đúng để hỏi "cặp này đã được CHẤP NHẬN
+     * chưa".
+     *
+     * `$matter === null` (lúc mở vụ việc, giai đoạn kiểm tra của `OpenMatter`) luôn trả về rỗng —
+     * đúng về mặt logic: vụ việc còn chưa tồn tại nên không thể có gì được xác nhận từ TRƯỚC trên
+     * nó. `!$matter->exists` (phòng thủ, không nên xảy ra ở lời gọi thật) cũng vậy.
+     *
+     * @return Collection<int, string>
+     */
+    private function confirmedPairKeys(?Matter $matter): Collection
+    {
+        if ($matter === null || ! $matter->exists) {
+            return collect();
+        }
+
+        return Activity::query()
+            ->where('subject_type', $matter->getMorphClass())
+            ->where('subject_id', $matter->getKey())
+            ->whereIn('event', ['matter_opened', 'matter_party_added'])
+            ->get()
+            ->flatMap(fn (Activity $activity): array => (array) $activity->properties->get('confirmed_pairs', []))
+            ->values();
     }
 
     /** "Đối lập" = plaintiff đối defendant, hai chiều. Xem docblock lớp cho related/third_party/opposing_counsel. */
