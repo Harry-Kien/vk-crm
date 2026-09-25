@@ -62,10 +62,23 @@ class UsersTable
                 EditAction::make(),
             ])
             ->toolbarActions([
+                // M6.5 Task 4 (carry-over từ rà soát Task 2, C1-class hole): trước bản sửa này,
+                // UserPolicy không định nghĩa deleteAny()/restoreAny()/forceDeleteAny() — một
+                // ability KHÔNG có phương thức tương ứng được Filament coi là CHO PHÉP ở chế độ
+                // không nghiêm ngặt (mặc định dự án), nên MỌI người vào được trang này bấm xoá
+                // hàng loạt trót lọt, bỏ qua cả settings.manage lẫn luật R7 (còn việc dở dang, hoặc
+                // là admin cuối cùng). authorizeIndividualRecords() là lớp phòng thủ THỨ HAI, độc
+                // lập với ba ability "thô" kia: nó bắt MỖI bản ghi đã chọn đi qua đúng
+                // UserPolicy::delete()/restore()/forceDelete() — không có nó, cổng thô chỉ quyết
+                // định nút có bấm được không, còn Filament vẫn xử lý MỌI dòng đã chọn mà không hỏi
+                // lại policy cho từng dòng. Cùng thành ngữ ClientsTable/ClientUsersTable.
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
-                    ForceDeleteBulkAction::make(),
-                    RestoreBulkAction::make(),
+                    DeleteBulkAction::make()
+                        ->authorizeIndividualRecords('delete'),
+                    ForceDeleteBulkAction::make()
+                        ->authorizeIndividualRecords('forceDelete'),
+                    RestoreBulkAction::make()
+                        ->authorizeIndividualRecords('restore'),
                 ]),
             ]);
     }

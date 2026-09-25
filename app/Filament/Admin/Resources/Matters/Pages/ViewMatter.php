@@ -2,9 +2,18 @@
 
 namespace App\Filament\Admin\Resources\Matters\Pages;
 
+use App\Actions\Matter\ReassignMatter;
 use App\Actions\SetMatterPortalPublication;
+use App\Enums\Confidentiality;
+use App\Enums\Role as StaffRole;
+use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Resources\Matters\MatterResource;
+use App\Models\Matter;
+use App\Models\User;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
 use Filament\Support\Icons\Heroicon;
@@ -26,6 +35,8 @@ use Illuminate\Support\Facades\Gate;
  */
 class ViewMatter extends ViewRecord
 {
+    use ReportsActionFailures;
+
     protected static string $resource = MatterResource::class;
 
     public function getContentTabLabel(): ?string
@@ -55,6 +66,7 @@ class ViewMatter extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
+            $this->reassignAction(),
             Action::make('togglePortalPublication')
                 ->label(fn (): string => $this->getRecord()->is_published_to_portal
                     ? __('matters.actions.unpublish_from_portal')
@@ -80,5 +92,99 @@ class ViewMatter extends ViewRecord
                         ->send();
                 }),
         ];
+    }
+
+    /**
+     * Header action "Bàn giao" (SPEC §6.11; M6.5 Task 4, R7): đổi lead qua
+     * {@see ReassignMatter}, Action DUY NHẤT được đổi `lead_lawyer_id` (R6).
+     *
+     * `->authorize()` dùng ĐÚNG `manageTeam` — R5 nhóm "quản lý đội ngũ và bàn giao" lại làm một
+     * câu, và `MatterPolicy::manageTeam()` đã đúng hình dạng đó (lead của chính vụ việc này,
+     * manager được xem vụ, hoặc admin — trừ trợ lý). Không authorize thì Filament tự ẩn nút cho
+     * người không qua được Gate (`CanBeAuthorized::resolveIsAuthorizedOrNotHiddenWhenUnauthorized()`);
+     * `ReassignMatter::handle()` vẫn tự hỏi lại Gate đó, không tin trang đã lọc đúng.
+     *
+     * Công tắc "giữ luật sư cũ trong đội ngũ" bị ẨN HẲN trên vụ `restricted` (xem docblock
+     * `ReassignMatter` — một associate không phải admin sẽ không bao giờ mở lại được vụ hạn chế),
+     * nên mặc định gửi lên là `false` khi ẩn (trường ẩn không được Filament dehydrate — cùng cơ chế
+     * `BuildsStageUpdateSchema::publishToggleField()` đã ghi).
+     */
+    private function reassignAction(): Action
+    {
+        return Action::make('reassignMatter')
+            ->label(__('reassign.action.label'))
+            ->icon(Heroicon::OutlinedArrowsRightLeft)
+            ->color('gray')
+            ->modalHeading(__('reassign.action.modal_heading'))
+            ->modalSubmitActionLabel(__('reassign.action.submit'))
+            ->authorize(fn (): bool => Gate::allows('manageTeam', $this->getRecord()))
+            ->schema(fn (): array => [
+                Select::make('new_lead_id')
+                    ->label(__('reassign.fields.new_lead_id'))
+                    ->options(fn (): array => self::reassignCandidateOptions($this->getRecord()))
+                    ->searchable()
+                    ->native(false)
+                    ->required(),
+                Toggle::make('keep_old_lead_as_associate')
+                    ->label(__('reassign.fields.keep_old_lead_as_associate'))
+                    ->helperText(__('reassign.fields.keep_old_lead_as_associate_hint'))
+                    ->default(true)
+                    ->visible(fn (): bool => $this->getRecord()->confidentiality !== Confidentiality::Restricted),
+                Textarea::make('reason')
+                    ->label(__('reassign.fields.reason'))
+                    ->rows(3)
+                    ->required()
+                    ->columnSpanFull(),
+            ])
+            ->action(function (Action $action, array $data): void {
+                $this->runAction($action, fn () => $this->submitReassign($data));
+
+                Notification::make()
+                    ->title(__('reassign.action.success'))
+                    ->success()
+                    ->send();
+            });
+    }
+
+    /**
+     * Thân thật của "Bàn giao", tách khỏi `->action()` — cùng lý do `PartiesRelationManager::
+     * createParty()`: một phương thức riêng là chỗ một test "gửi payload giả" (bỏ qua tầng
+     * dehydrate của Filament — ví dụ ép `keep_old_lead_as_associate = true` cho một vụ `restricted`
+     * dù ô đó đã bị `visible()` false và KHÔNG BAO GIỜ dehydrate được giá trị đó qua form thật) có
+     * thể gọi thẳng qua `Closure::bind`, đo đúng lớp phòng thủ NẰM DƯỚI Filament, không phải một
+     * chi tiết dehydrate của framework. `ReassignMatter::handle()` vẫn là nơi quyết định thật; hàm
+     * này chỉ dịch `$data` của form sang tham số của Action — không tự thêm luật nào.
+     */
+    private function submitReassign(array $data): void
+    {
+        app(ReassignMatter::class)->handle(
+            matter: $this->getRecord(),
+            actor: Auth::user(),
+            newLead: User::query()->findOrFail($data['new_lead_id']),
+            reason: $data['reason'] ?? '',
+            keepOldLeadAsAssociate: (bool) ($data['keep_old_lead_as_associate'] ?? false),
+        );
+    }
+
+    /**
+     * Ứng viên lead mới: nhân sự đang hoạt động, giữ vai luật sư hoặc trưởng phòng (hai vai duy
+     * nhất `ReassignMatter`/SPEC §1 coi là "đứng tên phụ trách" được — cùng tập vai
+     * `AddTeamMember::eligibleForRole()` chấp nhận cho `associate`), trừ chính lead hiện tại.
+     *
+     * KHÔNG `public`: cùng gotcha `TeamRelationManager::memberOptions()` (Task 3) đã ghi — một
+     * phương thức `public` trên một trang Filament (cũng là một component Livewire) là một điểm
+     * cuối GỌI ĐƯỢC TỪ XA, độc lập với việc ô `Select` có hiện nó ra hay không.
+     *
+     * @return array<int, string>
+     */
+    private static function reassignCandidateOptions(Matter $matter): array
+    {
+        return User::query()
+            ->where('is_active', true)
+            ->whereKeyNot($matter->lead_lawyer_id)
+            ->get()
+            ->filter(fn (User $user): bool => $user->hasRole(StaffRole::Lawyer->value) || $user->hasRole(StaffRole::Manager->value))
+            ->pluck('name', 'id')
+            ->all();
     }
 }

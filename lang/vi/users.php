@@ -19,4 +19,15 @@ return [
         'last_login_at' => 'Đăng nhập gần nhất',
     ],
     'password_hint' => 'Để trống khi sửa nếu không muốn đổi mật khẩu.',
+
+    // R7 (M6.5 Task 4, kéo lên từ M7 R6) — chặn nghỉ việc khi còn việc dở dang, hoặc khi là quản
+    // trị viên đang hoạt động cuối cùng. Dùng bởi UserPolicy::delete() và
+    // EditUser::handleRecordUpdate() (App\Actions\User\Concerns\GuardsStaffOffboarding), và làm
+    // câu giải thích tĩnh trên form (UserForm).
+    'offboarding' => [
+        'open_work_blocked' => 'Không thể vô hiệu hoá hoặc xoá :name: người này còn là luật sư phụ trách :matters vụ việc đang mở, còn đứng tên :deadlines mốc hạn chưa xong, và còn được giao :requests yêu cầu khách chưa đóng. Hãy bàn giao qua nút "Bàn giao" trên từng vụ việc trước.',
+        'last_admin_blocked' => 'Không thể thực hiện: đây là quản trị viên đang hoạt động cuối cùng của hệ thống. Hãy chỉ định thêm ít nhất một quản trị viên khác trước khi đổi chức danh, vô hiệu hoá hoặc xoá tài khoản này.',
+        'is_active_hint' => 'Sẽ bị chặn nếu nhân sự này còn là luật sư phụ trách một vụ việc đang mở, còn đứng tên mốc hạn hoặc yêu cầu khách chưa xong, hoặc là quản trị viên đang hoạt động cuối cùng của hệ thống.',
+        'position_hint' => 'Đổi chức danh khỏi Quản trị viên sẽ bị chặn nếu đây là quản trị viên đang hoạt động cuối cùng của hệ thống.',
+    ],
 ];
