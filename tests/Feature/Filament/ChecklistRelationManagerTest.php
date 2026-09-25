@@ -1,14 +1,19 @@
 <?php
 
 use App\Actions\Document\ChecklistProgress;
+use App\Actions\Document\ReviewChecklistItem;
+use App\Actions\Document\SubmitClientDocument;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
+use App\Enums\DocumentStatus;
 use App\Enums\MatterRole;
 use App\Enums\Permission;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ChecklistRelationManager;
+use App\Models\Client;
+use App\Models\ClientUser;
 use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
@@ -17,6 +22,8 @@ use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Filament\Notifications\Notification;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Spatie\Activitylog\Models\Activity;
 
 /**
@@ -73,8 +80,9 @@ it('renders the progress bar inside the checklist tab itself', function () {
  * ở `modifyQueryUsing()`. Không có test này, `modifyQueryUsing()` gỡ bộ đếm đi vẫn để mọi thứ
  * khác xanh và cột hiện ra rỗng trên màn hình.
  *
- * Cặp sinh đôi âm nằm ngay trong cùng test: một đầu mục mà tài liệu duy nhất là nhóm D đọc `0`,
- * đúng như nó không nằm trong mẫu số.
+ * Hai cặp sinh đôi âm nằm ngay trong cùng test (checklist-05, M6.5 Task 17): một đầu mục mà tài
+ * liệu duy nhất là nhóm D đọc `0`, và một đầu mục mang một quyết định nhóm C còn `internal_draft`
+ * (chưa `client_can_view`) cũng đọc `0` — khách chưa đọc được thì chưa tính là "đã nộp".
  */
 it('counts the same documents in the table column as in the denominator', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
@@ -82,19 +90,28 @@ it('counts the same documents in the table column as in the denominator', functi
 
     $withClientFile = MatterChecklistItem::factory()->for($matter)->create(['is_required' => true]);
     $withInternalNoteOnly = MatterChecklistItem::factory()->for($matter)->create(['is_required' => true]);
+    $withUnpublishedDecision = MatterChecklistItem::factory()->for($matter)->create(['is_required' => true]);
 
-    Document::factory()->for($matter)->group(DocumentGroup::Authority)->create([
+    Document::factory()->for($matter)->group(DocumentGroup::ClientProvided)->create([
         'matter_checklist_item_id' => $withClientFile->id,
+        'status' => DocumentStatus::Published,
+        'client_can_view' => true,
     ]);
     Document::factory()->for($matter)->group(DocumentGroup::Internal)->create([
         'matter_checklist_item_id' => $withInternalNoteOnly->id,
+    ]);
+    Document::factory()->for($matter)->group(DocumentGroup::Authority)->create([
+        'matter_checklist_item_id' => $withUnpublishedDecision->id,
+        'status' => DocumentStatus::InternalDraft,
+        'client_can_view' => false,
     ]);
 
     $this->actingAs($lawyer, 'web');
 
     checklistManager($matter)
         ->assertTableColumnStateSet(ChecklistProgress::DOCUMENT_COUNT_ALIAS, 1, $withClientFile)
-        ->assertTableColumnStateSet(ChecklistProgress::DOCUMENT_COUNT_ALIAS, 0, $withInternalNoteOnly);
+        ->assertTableColumnStateSet(ChecklistProgress::DOCUMENT_COUNT_ALIAS, 0, $withInternalNoteOnly)
+        ->assertTableColumnStateSet(ChecklistProgress::DOCUMENT_COUNT_ALIAS, 0, $withUnpublishedDecision);
 });
 
 it('renders the progress bar with the counted numbers, and a separate sentence when nothing is counted', function () {
@@ -446,4 +463,198 @@ it('fills the reason box from a template button in one click', function () {
 
     expect($item->refresh()->rejection_reason)
         ->toBe(__('checklist.rejection_templates.uncertified_copy'));
+});
+
+/**
+ * checklist-06: mẫu "Nộp nhầm tài liệu" tự điền tên đầu mục thật vào chỗ `[tên đầu mục]` — tên đó
+ * ĐÃ có sẵn trên chính dòng đang mở, nên màn hình không có lý do gì bắt người duyệt gõ lại nó.
+ * `[tên tài liệu đã nộp]` thì KHÔNG được tự điền: màn hình không biết khách đã gửi ĐÚNG tệp gì,
+ * chỉ người duyệt vừa mở tệp ra mới biết — xem docblock `ReviewChecklistItem::
+ * resolveRejectionReason()`.
+ */
+it('fills the wrong-document template with the real item name, leaving the file name blank', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $item = MatterChecklistItem::factory()->for($matter)
+        ->status(ChecklistItemStatus::PendingReview)
+        ->create(['name' => 'Giấy chứng nhận quyền sử dụng đất']);
+
+    $this->actingAs($lawyer, 'web');
+
+    checklistManager($matter)
+        ->mountAction(TestAction::make('reject')->table($item))
+        ->callAction(TestAction::make('fill_wrong_document')->schemaComponent('rejection_templates'))
+        ->assertActionDataSet([
+            'rejection_reason' => 'File này là [tên tài liệu đã nộp], còn mục đang cần là Giấy chứng nhận quyền sử dụng đất. Anh/chị kiểm tra lại giúp em nhé.',
+        ]);
+});
+
+/**
+ * Cặp âm bắt buộc của test trên: bấm mẫu "Nộp nhầm tài liệu" RỒI GỬI LUÔN — không sửa gì thêm —
+ * vẫn còn `[tên tài liệu đã nộp]` chưa điền, và Action phải chặn lại bằng một câu tiếng Việt gắn
+ * đúng vào ô lý do, không phải một lỗi 500 hay một dòng nói dối gửi tới khách.
+ */
+it('blocks sending the wrong-document template unedited because it still has a placeholder', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $item = MatterChecklistItem::factory()->for($matter)
+        ->status(ChecklistItemStatus::PendingReview)
+        ->create(['name' => 'Giấy chứng nhận quyền sử dụng đất']);
+
+    $this->actingAs($lawyer, 'web');
+
+    checklistManager($matter)
+        ->mountAction(TestAction::make('reject')->table($item))
+        ->callAction(TestAction::make('fill_wrong_document')->schemaComponent('rejection_templates'))
+        ->callMountedAction()
+        ->assertHasActionErrors(['rejection_reason']);
+
+    expect($item->refresh()->status)->toBe(ChecklistItemStatus::PendingReview)
+        ->and($item->rejection_reason)->toBeNull();
+});
+
+// ---------------------------------------------------------------------------------------------
+// R11 (M6.5 Task 17, checklist-04): duyệt gắn với đúng những tệp người duyệt đã THẤY.
+// ---------------------------------------------------------------------------------------------
+
+/** Byte thật của một PDF tối thiểu, để đi qua FileGuard — cùng vai trò `clientSubmitPdf()`. */
+function checklistReviewPdf(string $name = 'so-do.pdf'): UploadedFile
+{
+    return UploadedFile::fake()->createWithContent($name, "%PDF-1.4\n%âãÏÓ\n1 0 obj\n<< /Type /Catalog >>\nendobj\n");
+}
+
+/**
+ * Hộp duyệt phải liệt kê tệp khách đã gửi kèm liên kết mở TỪNG tệp — không phải một câu "đã có
+ * tệp" trơ trọi, và không bắt người duyệt rời tab để xem nội dung.
+ *
+ * `ChecklistRelationManager::documentsList()` được test TRỰC TIẾP, cùng thành ngữ
+ * `progressBar()` (docblock lớp: "Tách static để test được mà không dựng cả bảng") — bộ test
+ * Livewire của dự án này đi qua `assertActionDataSet()`/`assertActionVisible()` để đọc STATE của
+ * một action đã mount, không đọc HTML thô của modal; `->html()` trên component không chắc mang
+ * theo nội dung modal (đã đo trong lúc viết test này). Vế "gắn đúng vào cả hai hộp" được test
+ * riêng ở `it('fills the wrong-document template...')` và ở test R11 ngay dưới, nơi ô ẩn
+ * `document_ids` — cũng do `documentsSchema()` dựng, gọi CÙNG MỘT NGUỒN với danh sách này
+ * (`ReviewChecklistItem::currentDocumentIds()`) — được xác nhận có mặt và đúng giá trị qua một
+ * action đã mount thật.
+ */
+it('lists the submitted files with a link to open each one', function () {
+    Storage::fake('private');
+
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $client = Client::factory()->create();
+    $clientUser = ClientUser::factory()->create(['client_id' => $client->id]);
+    $matter = Matter::factory()->for($client)->create(['lead_lawyer_id' => $lawyer->id]);
+    $item = MatterChecklistItem::factory()->for($matter)->status(ChecklistItemStatus::Missing)->create();
+
+    // `documentsList()` đọc `Auth::user()` để ký đường tải (`downloadUrlFor()`), đúng người ĐANG
+    // MỞ hộp — nên test này cần một phiên nhân sự thật, không gọi tĩnh hoàn toàn "vô danh".
+    $this->actingAs($lawyer, 'web');
+
+    $documents = app(SubmitClientDocument::class)->handle(
+        checklistItem: $item,
+        actor: $clientUser,
+        files: [checklistReviewPdf('cccd-mat-truoc.pdf'), checklistReviewPdf('cccd-mat-sau.pdf')],
+    );
+
+    $html = (string) ChecklistRelationManager::documentsList($item->fresh());
+
+    foreach ($documents as $document) {
+        expect($html)
+            ->toContain('documents/'.$document->getKey().'/download')
+            ->toContain(e($document->getFirstMedia('file')->name));
+    }
+});
+
+/** Cặp âm: không tệp nào thì hiện câu rõ ràng, không phải một danh sách rỗng trơ trọi. */
+it('says there is nothing submitted yet instead of drawing an empty list', function () {
+    $matter = Matter::factory()->create();
+    $item = MatterChecklistItem::factory()->for($matter)->status(ChecklistItemStatus::Missing)->create();
+
+    expect((string) ChecklistRelationManager::documentsList($item))
+        ->toContain(__('checklist.tab.fields.documents_empty'));
+});
+
+/**
+ * Kịch bản đúng nguyên văn finding checklist-04, đi qua MÀN HÌNH THẬT: người duyệt mở hộp "Đã
+ * nhận" (tập tài liệu lúc đó chỉ có một tệp); TRONG LÚC hộp còn mở, khách gửi thêm một tệp qua
+ * đúng Action portal; người duyệt bấm lưu. Action phải từ chối bằng câu tiếng Việt, và dòng audit
+ * — nếu có một dòng nào được ghi — phải mang đúng tập id đã duyệt, không phải tập cũ.
+ */
+it('refuses to accept when the client submits another file while the box is open, and names the reason', function () {
+    Storage::fake('private');
+
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $client = Client::factory()->create();
+    $clientUser = ClientUser::factory()->create(['client_id' => $client->id]);
+    $matter = Matter::factory()->for($client)->create(['lead_lawyer_id' => $lawyer->id]);
+    $item = MatterChecklistItem::factory()->for($matter)->status(ChecklistItemStatus::Missing)->create();
+
+    app(SubmitClientDocument::class)->handle(
+        checklistItem: $item,
+        actor: $clientUser,
+        files: [checklistReviewPdf('trang-1.pdf')],
+    );
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = checklistManager($matter)
+        ->mountAction(TestAction::make('accept')->table($item->fresh()));
+
+    // Khách gửi thêm một tệp NGAY BÂY GIỜ — đầu mục vẫn `pending_review` (R10: bổ sung vào
+    // version đang chờ), nên cổng trạng thái của `guardDecisionAgainstState()` không bắt được ca
+    // này; chỉ có R11 mới bắt được.
+    app(SubmitClientDocument::class)->handle(
+        checklistItem: $item->fresh(),
+        actor: $clientUser,
+        files: [checklistReviewPdf('trang-2.pdf')],
+    );
+
+    $component->callMountedAction();
+
+    Notification::assertNotified(__('actions.failed_title'));
+
+    expect($item->fresh()->status)->toBe(ChecklistItemStatus::PendingReview)
+        ->and($item->fresh()->reviewed_by)->toBeNull();
+
+    // Không dòng audit MỚI nào của LẦN DUYỆT bị chặn — chỉ hai dòng document_submitted (R10: một
+    // dòng mỗi tệp trong lô đầu, cộng một dòng cho tệp gửi thêm), không dòng checklist_item_
+    // reviewed nào.
+    expect(Activity::query()->where('event', 'checklist_item_reviewed')->count())->toBe(0);
+});
+
+/**
+ * Cặp dương của test trên: mở lại hộp (tập id mới, khớp CẢ hai tệp) thì duyệt được bình thường,
+ * và dòng audit ghi đúng CẢ HAI id.
+ */
+it('accepts once the box is reopened with the current set of files, and the audit names both', function () {
+    Storage::fake('private');
+
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $client = Client::factory()->create();
+    $clientUser = ClientUser::factory()->create(['client_id' => $client->id]);
+    $matter = Matter::factory()->for($client)->create(['lead_lawyer_id' => $lawyer->id]);
+    $item = MatterChecklistItem::factory()->for($matter)->status(ChecklistItemStatus::Missing)->create();
+
+    app(SubmitClientDocument::class)->handle(
+        checklistItem: $item,
+        actor: $clientUser,
+        files: [checklistReviewPdf('trang-1.pdf'), checklistReviewPdf('trang-2.pdf')],
+    );
+
+    $this->actingAs($lawyer, 'web');
+
+    checklistManager($matter)
+        ->mountAction(TestAction::make('accept')->table($item->fresh()))
+        ->callMountedAction()
+        ->assertHasNoActionErrors();
+
+    expect($item->fresh()->status)->toBe(ChecklistItemStatus::Accepted);
+
+    $activity = Activity::query()->where('event', 'checklist_item_reviewed')->latest('id')->first();
+    $expectedIds = ReviewChecklistItem::currentDocumentIds($item->fresh());
+
+    expect($activity)->not->toBeNull()
+        ->and(collect($activity->properties->get('document_ids'))->sort()->values()->all())
+        ->toBe(collect($expectedIds)->sort()->values()->all())
+        ->and($expectedIds)->toHaveCount(2);
 });

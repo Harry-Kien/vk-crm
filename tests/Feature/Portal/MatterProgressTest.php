@@ -808,10 +808,15 @@ it('keeps an optional item the client already sent a paper for in the group the 
         'is_required' => false,
     ]);
 
+    // `client_can_view: true` tường minh — checklist-05 (M6.5 Task 17) thu hẹp luật "đã có tài
+    // liệu" thành "khách ĐỌC ĐƯỢC", không chỉ "khác nhóm D". Một tài liệu nhóm A thật sự đến từ
+    // `SubmitClientDocument` luôn mang cờ này; thiếu nó ở đây là một fixture không phản ánh dữ
+    // liệu thật, không phải một điều kiện đáng đo.
     Document::factory()->for($this->matter)->create([
         'matter_checklist_item_id' => $item->getKey(),
         'group' => DocumentGroup::ClientProvided,
         'status' => DocumentStatus::Published,
+        'client_can_view' => true,
     ]);
 
     $progress = app(ChecklistProgress::class)->handle($this->matter);
@@ -1412,5 +1417,39 @@ it('shows only the newest visible version when a middle version of the chain is 
         ->and($documents)->not->toContain('documents/'.$first->getKey().'/download')
         ->and($documents)->not->toContain('documents/'.$second->getKey().'/download')
         // Đúng hai dòng: bản mới nhất của chuỗi này, và chuỗi kia.
+        ->and(substr_count($documents, '/download'))->toBe(2);
+});
+
+/**
+ * R10 (M6.5 Task 17, checklist-03): CCCD hai mặt nộp trong MỘT lần — hai tài liệu CÙNG version,
+ * gắn cùng một đầu mục — phải hiện CẢ HAI trên khối "Tài liệu", không phải chỉ một. Đây là bug
+ * gốc mà finding checklist-03 tả: luật cũ giữ đúng MỘT bản mỗi chuỗi bất kể chúng cùng version
+ * hay không, nên mặt sau "che" mặt trước dù cả hai đứng cùng version — không phải hai version
+ * khác nhau như một lần NỘP LẠI thật.
+ */
+it('shows every file of the latest version, not just one, when a single submission has several', function () {
+    $item = MatterChecklistItem::factory()->for($this->matter)->create([
+        'name' => 'Giấy tờ tuỳ thân',
+        'status' => ChecklistItemStatus::PendingReview,
+    ]);
+
+    $front = Document::factory()->for($this->matter)->pendingReview()->create([
+        'matter_checklist_item_id' => $item->getKey(),
+        'title' => 'Giấy tờ tuỳ thân',
+        'version' => 1,
+    ]);
+    $back = Document::factory()->for($this->matter)->pendingReview()->create([
+        'matter_checklist_item_id' => $item->getKey(),
+        'title' => 'Giấy tờ tuỳ thân',
+        'version' => 1,
+    ]);
+
+    $html = $this->actingAs($this->clientUser, 'client')->get(progressUrl($this->matter))->assertOk()->getContent();
+
+    $start = (int) strpos($html, 'data-portal-block="5"');
+    $documents = substr($html, $start, (int) strpos($html, 'data-portal-block="6"') - $start);
+
+    expect($documents)->toContain('documents/'.$front->getKey().'/download')
+        ->and($documents)->toContain('documents/'.$back->getKey().'/download')
         ->and(substr_count($documents, '/download'))->toBe(2);
 });

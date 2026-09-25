@@ -274,6 +274,35 @@ it('creates a group A document and leaves the item waiting for the office', func
     Storage::disk('private')->assertExists($document->getFirstMedia('file')->getPathRelativeToRoot());
 });
 
+/**
+ * R10 (M6.5 Task 17, checklist-03): CCCD hai mặt nộp trong MỘT lần qua đúng màn hình thật —
+ * `->set('data.file', [tệp1, tệp2])` mô phỏng ô `multiple()` nhận hai tệp cùng lúc rồi bấm Gửi
+ * MỘT lần. Cặp âm của bug gốc: hai tài liệu CÙNG version, không tài liệu nào che tài liệu kia.
+ */
+it('accepts two files in one submission as the same version, and the preview shows both', function () {
+    $component = submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->set('data.file', [
+            submitPagePdf('cccd-mat-truoc.pdf'),
+            submitPagePdf('cccd-mat-sau.pdf'),
+        ]);
+
+    // Bước 3 (xem trước) hiện CẢ HAI tên tệp trước khi khách bấm Gửi.
+    expect(submitRegion($component->html()))
+        ->toContain('cccd-mat-truoc.pdf')
+        ->toContain('cccd-mat-sau.pdf');
+
+    $component->call('submit')->assertHasNoErrors();
+
+    expect(Document::query()->count())->toBe(2);
+
+    $documents = Document::query()->orderBy('id')->get();
+
+    expect($documents->pluck('version')->unique()->all())->toBe([1])
+        ->and($documents->pluck('parent_document_id')->filter()->all())->toBe([])
+        ->and($this->item->refresh()->status)->toBe(ChecklistItemStatus::PendingReview);
+});
+
 /** SPEC §8.4 nguyên văn: "Sau khi gửi hiện trạng thái 'Đang chờ văn phòng kiểm tra'". */
 it('says the office is now checking the file, in those words', function () {
     // Vế âm đo TRƯỚC, khi đầu mục còn `missing`: câu đó không được đứng sẵn trên trang, nếu
@@ -517,6 +546,113 @@ it('never prints an internal note', function () {
  * của màn hình không hề chạy — mutation probe gỡ nhánh đó đi vẫn để test xanh. `Content-Type` do
  * client gửi suy ra từ đuôi nên nó qua được `acceptedFileTypes()`; `finfo` thì không.
  */
+/**
+ * Một gói ZIP tuỳ ý — dùng để dựng một tệp "đội lốt" `.docx` không phải Office thật. Tiền tố
+ * `submitDocx` vì hàm khai báo ở đây là hàm TOÀN CỤC của Pest, và `FileGuardTest.php` đã có
+ * `zipBytes()`/`docxPackageBytes()` cùng vai trò dưới tên khác.
+ */
+function submitDocxZipBytes(array $entries): string
+{
+    $path = tempnam(sys_get_temp_dir(), 'zip');
+    $zip = new ZipArchive;
+    $zip->open($path, ZipArchive::OVERWRITE);
+
+    foreach ($entries as $name => $content) {
+        $zip->addFromString($name, $content);
+    }
+
+    $zip->close();
+    $bytes = (string) file_get_contents($path);
+    unlink($path);
+
+    return $bytes;
+}
+
+/** Gói Office Open XML thật của Word: mang cả ba mục mà một gói `.docx` thật luôn có. */
+function submitDocxPackageBytes(): string
+{
+    return submitDocxZipBytes([
+        '[Content_Types].xml' => '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"></Types>',
+        '_rels/.rels' => '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>',
+        'word/document.xml' => '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body/></w:document>',
+    ]);
+}
+
+/**
+ * `application/zip` phải có mặt trong `acceptedFileTypes()` — không chỉ trong `FileGuard::ALLOWED`
+ * — vì một hệ điều hành không có sẵn bộ nhận diện OOXML để trình duyệt khai đúng, hoặc một bản
+ * `libmagic` cụ thể (xem docblock `FileGuard`), có thể báo `Content-Type: application/zip` cho
+ * một tệp `.docx` THẬT. Thiếu nó, luật `mimetypes` của CHÍNH Ô NÀY — chạy TRƯỚC `FileGuard`, xem
+ * docblock lớp — chặn một tệp thật trước khi `FileGuard` có cơ hội mở gói ra kiểm tra ruột.
+ *
+ * `->mimeType('application/zip')` ghi đè Content-Type CLIENT KHAI trên tệp giả của test — đúng
+ * điều kiện đang được đo (client khai sai, chứ không phải nội dung sai): nội dung vẫn là một gói
+ * Word thật, và `Illuminate\Http\UploadedFile::fake()->createWithContent()` mặc định suy luôn
+ * MIME từ ĐUÔI tệp (không đọc nội dung), nên không có ghi đè này thì test sẽ luôn thấy đúng MIME
+ * OOXML — không đo được nhánh mà bản sửa này thêm vào.
+ */
+it('accepts a real .docx package the client declares as application/zip', function () {
+    $file = UploadedFile::fake()
+        ->createWithContent('don-khoi-kien.docx', submitDocxPackageBytes())
+        ->mimeType('application/zip');
+
+    $component = submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->set('data.file', $file)
+        ->call('submit');
+
+    $component->assertHasNoErrors();
+
+    expect(Document::query()->count())->toBe(1)
+        ->and($this->item->refresh()->status)->toBe(ChecklistItemStatus::PendingReview);
+});
+
+/**
+ * Cặp sinh đôi âm của test trên: nới rộng `accept` để nhận `application/zip` không mở lỗ cho một
+ * ZIP tuỳ ý đội tên `.docx`. `FileGuard::verifyOfficePackage()` (không đụng ở task này) vẫn mở
+ * gói ra và đòi đúng mục bắt buộc của OOXML, nên một gói KHÔNG có `word/document.xml` vẫn bị chặn
+ * — dù MIME đã qua được luật của ô chọn tệp, đúng như chính client thật khai `application/zip`
+ * cho một ZIP thật (không cần ghi đè: một ZIP trần vốn đã mang MIME đó).
+ */
+it('still refuses a plain zip named .docx once application/zip is accepted', function () {
+    $component = submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->set('data.file', UploadedFile::fake()->createWithContent('bang-ke.docx', submitDocxZipBytes([
+            'payload.txt' => 'không phải một gói Office',
+        ]))->mimeType('application/zip'))
+        ->call('submit');
+
+    $component->assertHasErrors('data.file');
+
+    expect(Document::query()->count())->toBe(0)
+        ->and($this->item->refresh()->status)->toBe(ChecklistItemStatus::Missing);
+});
+
+/**
+ * Cặp thứ hai của cùng lỗ hổng, ở phía OLE2 (`.doc`/`.xls` cũ): một hệ điều hành không phân biệt
+ * được container OLE2 cụ thể có thể khai bất kỳ MIME nào trong ba MIME mà `FileGuard::ALLOWED`
+ * chấp nhận cho `doc` — `application/x-ole-storage`, `application/x-cfb`, `application/CDFV2` —
+ * và cả ba phải có mặt ở `acceptedFileTypes()` cho cùng lý do đã nói ở test `.docx` phía trên.
+ */
+it('accepts a real .doc package the client declares under any OLE2 MIME variant', function (string $declaredMime) {
+    $file = UploadedFile::fake()
+        ->createWithContent('hop-dong.doc', "\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1".str_repeat("\x00", 504))
+        ->mimeType($declaredMime);
+
+    $component = submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->set('data.file', $file)
+        ->call('submit');
+
+    $component->assertHasNoErrors();
+
+    expect(Document::query()->count())->toBe(1);
+})->with([
+    'application/x-ole-storage',
+    'application/x-cfb',
+    'application/CDFV2',
+]);
+
 it('binds a file guard refusal to the file field and creates nothing', function () {
     $component = submitPage()
         ->call('chooseItem', $this->item->getKey())
@@ -698,6 +834,15 @@ it('creates version 2 pointing at version 1, and keeps version 1', function () {
  */
 it('does not show the superseded version to the client as a separate document', function () {
     submitPage()->call('chooseItem', $this->item->getKey())->set('data.file', submitPagePdf('lan-1.pdf'))->call('submit');
+
+    // R10 (M6.5 Task 17): nộp thêm khi đầu mục còn `pending_review` là BỔ SUNG vào version đang
+    // chờ, không phải version mới (xem nhóm test R10 của `SubmitClientDocumentTest`). Từ chối
+    // trước để lần nộp thứ hai thật sự là version 2, đúng cái test này đang đo.
+    $this->item->update([
+        'status' => ChecklistItemStatus::Rejected,
+        'rejection_reason' => 'Ảnh bị mờ ở góc trên nên không đọc được số thửa.',
+    ]);
+
     submitPage()->call('chooseItem', $this->item->getKey())->set('data.file', submitPagePdf('lan-2.pdf'))->call('submit');
 
     [$first, $second] = Document::query()->orderBy('version')->get()->all();
@@ -780,6 +925,22 @@ it('counts a real file choice exactly once', function () {
 });
 
 /**
+ * R10 (M6.5 Task 17): SPEC §10.3 viết "20 TỆP/giờ" — chọn hai tệp trong MỘT lượt (CCCD hai mặt)
+ * phải tốn ĐÚNG hai đơn vị, không một. Trước bản sửa này `guardRate()` luôn `hit()` một lần cho
+ * mỗi lượt gọi `_startUpload`, bất kể `$fileInfo` mang bao nhiêu tệp — nên một khách chọn 20 lô ×
+ * 2 tệp lọt qua đúng 40 tệp, gấp đôi trần.
+ */
+it('counts two files chosen together as two attempts, not one', function () {
+    $key = SubmitDocument::fileLimiterKey($this->clientUser);
+
+    submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->upload('data.file', [submitPagePdf('mat-truoc.pdf'), submitPagePdf('mat-sau.pdf')]);
+
+    expect(RateLimiter::attempts($key))->toBe(2);
+});
+
+/**
  * Cửa thứ hai: lúc bấm gửi. Nó tồn tại vì một client tự chế dùng lại được **một** URL đã ký cho
  * nhiều lần gửi — và cái hại của việc nộp lại dồn dập là ở phía `documents` và phía thông báo,
  * không chỉ ở phía đĩa.
@@ -825,6 +986,23 @@ it('counts a refused submission as an attempt', function () {
 
     expect(Document::query()->count())->toBe(0)
         ->and(RateLimiter::attempts($key))->toBe(1);
+});
+
+/**
+ * Cặp sinh đôi R10 của test trên, ở cửa THỨ HAI (lúc bấm Gửi): một lô hai tệp bấm Gửi MỘT lần
+ * vẫn tốn đúng HAI đơn vị của bộ đếm này, đúng số tệp thật trong lô — không phải một đơn vị cho
+ * cả lô. Cùng SPEC §10.3 "20 tệp/giờ" đã áp cho cửa thứ nhất.
+ */
+it('counts a two-file submission as two attempts at the send gate too', function () {
+    $key = SubmitDocument::submissionLimiterKey($this->clientUser);
+
+    submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->set('data.file', [submitPagePdf('mat-truoc.pdf'), submitPagePdf('mat-sau.pdf')])
+        ->call('submit')
+        ->assertHasNoErrors();
+
+    expect(RateLimiter::attempts($key))->toBe(2);
 });
 
 // =========================================================================================
@@ -1048,7 +1226,7 @@ it('empties the file field after a successful send', function () {
         ->toContain('Anh/chị chưa chọn tệp nào')
         ->not->toContain('lan-1.pdf');
 
-    expect($component->instance()->pendingFile())->toBeNull();
+    expect($component->instance()->pendingFiles())->toBe([]);
 });
 
 // =========================================================================================

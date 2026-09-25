@@ -516,10 +516,15 @@ class SubmitDocument extends Page
 
         return $schema
             ->components([
+                // R10 (M6.5 Task 17, checklist-03): `->multiple()` — một lần nộp gồm nhiều tệp
+                // (CCCD hai mặt, sổ đỏ bốn trang…), tất cả cùng một version ở tầng Action
+                // ({@see SubmitClientDocument}). `maxSize()` vẫn áp CHO TỪNG tệp (Filament, không
+                // phải tổng cả lô) — đúng câu hướng dẫn "mỗi tệp tối đa :max MB".
                 FileUpload::make('file')
                     ->label(__('portal_submit.steps.file.label'))
                     ->helperText(__('portal_submit.steps.file.help', ['max' => $max]))
                     ->storeFiles(false)
+                    ->multiple()
                     ->acceptedFileTypes(static::acceptedMimeTypes())
                     ->maxSize($max * 1024)
                     ->required()
@@ -537,20 +542,36 @@ class SubmitDocument extends Page
     }
 
     /**
-     * Danh sách MIME cho thuộc tính `accept` của trình duyệt — **một tiện ích phía trình duyệt,
-     * không phải một ranh giới an ninh.** Ranh giới duy nhất là `FileGuard::ALLOWED`, thứ ánh xạ
-     * từng ĐUÔI tới những MIME THẬT hợp lệ cho riêng đuôi đó và được kiểm bằng `finfo` trên nội
-     * dung tệp.
+     * Danh sách MIME cho thuộc tính `accept` của trình duyệt VÀ cho luật `mimetypes` mà
+     * `acceptedFileTypes()` gắn vào chính ô này — **không phải một ranh giới an ninh**, vì cả hai
+     * đọc Content-Type do CLIENT khai (trình duyệt/hệ điều hành đoán từ đuôi tệp), thứ SPEC §6.6
+     * bước 3 nói thẳng là không được tin. Ranh giới thật là `FileGuard::ALLOWED`, thứ ánh xạ từng
+     * ĐUÔI tới những MIME THẬT hợp lệ cho riêng đuôi đó và được kiểm bằng `finfo` trên NỘI DUNG
+     * tệp — độc lập với bất cứ điều gì trình duyệt khai.
+     *
+     * **Phải mang đúng những MIME "đội lốt" mà `FileGuard::ALLOWED` chấp nhận cho `docx`/`xls`,
+     * không chỉ MIME "sạch" của từng đuôi.** Bài học M6.5 Task 17: một hệ điều hành không có sẵn
+     * bộ nhận diện Office Open XML sẽ để trình duyệt khai `Content-Type: application/zip` cho một
+     * tệp `.docx` THẬT — đúng gói ZIP mà nó là, về mặt container — và tương tự
+     * `application/x-ole-storage`/`application/x-cfb`/`application/CDFV2` cho các gói OLE2 cũ của
+     * `.doc`/`.xls`. Thiếu các MIME ấy ở đây, luật `mimetypes` của CHÍNH Ô NÀY chặn một tệp thật
+     * trước khi `FileGuard` có cơ hội mở gói ra kiểm tra ruột — tức màn hình tự dựng lại đúng cái
+     * cổng mà `FileGuard::verifyOfficePackage()` tồn tại để làm ĐÚNG hơn (mở gói, đòi mục bắt
+     * buộc), chỉ khác là nó làm SAI, bằng cách từ chối trước khi kịp mở.
      *
      * Viết tay thay vì suy ra từ `FileGuard::ALLOWED` vì hai danh sách trả lời hai câu hỏi khác
-     * nhau: bảng kia còn mang `application/x-ole-storage`, `application/CDFV2` và
-     * `application/zip` — những thứ đúng cho một phép kiểm nội dung nhưng vô nghĩa trong một
-     * thuộc tính `accept`, nơi chúng chỉ làm bộ chọn tệp của điện thoại hiển thị lạ.
+     * nhau ở HÌNH DẠNG: bảng kia là "đuôi → tập MIME hợp lệ CHO ĐÚNG đuôi đó" (một cấu trúc lồng,
+     * `docx` không nhận `image/jpeg`), còn danh sách này là một tập MIME phẳng dùng chung cho
+     * MỌI đuôi được liệt trong `accept` — hai câu hỏi khác nhau nên một accessor chung sẽ phải
+     * làm phẳng cấu trúc kia ở đâu đó, và chỗ đó không nên là một task không sở hữu `FileGuard`.
      *
-     * `DocumentsRelationManager` (panel nội bộ) giữ một bản cùng vai trò. Hai bản hôm nay bằng
-     * nhau và cả hai đều không phải cổng an ninh, nên một lần lệch chỉ làm bộ chọn tệp gợi ý
-     * sai — nhưng gộp chúng vào một accessor duy nhất trên `FileGuard` vẫn là việc nên làm, và
-     * nó đã được báo lại thay vì làm lén ở một task không sở hữu tệp đó.
+     * `DocumentsRelationManager` (panel nội bộ) giữ một bản cùng vai trò, và **hai bản KHÔNG còn
+     * bảo đảm bằng nhau tại một thời điểm bất kỳ** — mỗi bên tự sửa theo đúng phát hiện của lượt
+     * rà soát chạm tới nó, và không bên nào suy ra từ bên kia. Cả hai đều không phải cổng an
+     * ninh, nên một lần lệch chỉ làm bộ chọn tệp của MỘT panel gợi ý sai/chặn oan một tệp mà
+     * `FileGuard` lẽ ra chấp nhận — khó chịu cho người dùng, không phải một lỗ hổng. Gộp cả hai
+     * thành một accessor chung trên `FileGuard` vẫn là việc nên làm, và nó đã được báo lại thay
+     * vì làm lén ở một task không sở hữu tệp đó.
      *
      * @return list<string>
      */
@@ -564,6 +585,13 @@ class SubmitDocument extends Page
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             'application/vnd.ms-excel',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            // Các MIME "đội lốt" mà `FileGuard::ALLOWED` cũng chấp nhận cho `doc`/`xls` (gói
+            // OLE2 cũ) và `docx`/`xlsx` (gói OOXML mà một số hệ điều hành chỉ nhận ra là ZIP) —
+            // xem đoạn "Phải mang đúng những MIME đội lốt" ở trên.
+            'application/x-ole-storage',
+            'application/x-cfb',
+            'application/CDFV2',
+            'application/zip',
         ];
     }
 
@@ -584,29 +612,33 @@ class SubmitDocument extends Page
     // -------------------------------------------------------------------------------------
 
     /**
-     * Tệp đang chờ gửi, đọc từ trạng thái thô của ô — `null` khi chưa có gì.
+     * Các tệp đang chờ gửi, đọc từ trạng thái thô của ô — rỗng khi chưa có gì.
      *
      * Vẽ trên MÁY CHỦ chứ không chỉ dựa vào ảnh thu nhỏ của FilePond, vì hai lý do: ảnh thu nhỏ
      * chỉ có với ảnh (một tệp PDF chụp từ máy quét thì không có), và nó phụ thuộc vào JavaScript
-     * chạy trên máy khách. Một dòng "Tệp sẽ gửi: …" do máy chủ vẽ ra thì luôn có, và nó là thứ
-     * test đo được.
+     * chạy trên máy khách. Một danh sách "Tệp sẽ gửi: …" do máy chủ vẽ ra thì luôn có, và nó là
+     * thứ test đo được.
      *
-     * @return array{name: string, size: string}|null
+     * `(array) data_get(...)` — R10 (M6.5 Task 17): với `multiple()`, trạng thái của ô là một
+     * MẢNG các `TemporaryUploadedFile` (khoá theo UUID nội bộ của Filament, không phải chỉ số
+     * liên tục), nên `(array)` là một no-op an toàn ở đây — khác hẳn thời `pendingFile()` (số ít,
+     * đã xoá) khi ô còn nhận một tệp trần và `(array)` phải ép một OBJECT thành mảng THUỘC TÍNH
+     * của nó rồi lọc lại bằng `instanceof`. Giữ nguyên phép lọc `instanceof` đó vì lý do KHÁC vẫn
+     * còn nguyên: trạng thái thô có thể mang cả giá trị không phải tệp (một chuỗi rỗng khi ô mới
+     * mount, chẳng hạn), và chỉ có `UploadedFile` mới đáng vẽ ra.
+     *
+     * @return list<array{name: string, size: string}>
      */
-    public function pendingFile(): ?array
+    public function pendingFiles(): array
     {
-        $file = collect((array) data_get($this->data, 'file'))
-            ->prepend(data_get($this->data, 'file'))
-            ->first(fn (mixed $value): bool => $value instanceof UploadedFile);
-
-        if (! $file instanceof UploadedFile) {
-            return null;
-        }
-
-        return [
-            'name' => $file->getClientOriginalName(),
-            'size' => Number::fileSize((int) $file->getSize(), maxPrecision: 1),
-        ];
+        return collect((array) data_get($this->data, 'file'))
+            ->filter(fn (mixed $value): bool => $value instanceof UploadedFile)
+            ->map(fn (UploadedFile $file): array => [
+                'name' => $file->getClientOriginalName(),
+                'size' => Number::fileSize((int) $file->getSize(), maxPrecision: 1),
+            ])
+            ->values()
+            ->all();
     }
 
     // -------------------------------------------------------------------------------------
@@ -682,20 +714,34 @@ class SubmitDocument extends Page
     {
         $item = $this->requireChosenItem();
 
+        // R10: đếm theo SỐ TỆP thật trong lô, không theo lượt bấm — xem docblock `guardRate()`.
+        // Đọc trạng thái THÔ (`$this->data`, chưa qua `getState()`/validate), cùng lý lẽ với bản
+        // một-tệp trước đây: một lần bị từ chối ngay sau đây (đuôi sai, quá cỡ…) VẪN tính là một
+        // lần thử cho MỖI tệp trong lô, không chỉ tệp đầu. Tối thiểu 1: một khách quên chọn tệp
+        // rồi bấm Gửi vẫn tốn đúng một suất, như bản một-tệp trước đây.
+        $rawFileCount = max(1, count((array) data_get($this->data, 'file')));
+
         $this->guardRate(
             self::submissionLimiterKey($this->viewer()),
             'portal_submit.errors.rate_limited',
+            count: $rawFileCount,
         );
 
         /** @var array{file: mixed} $state */
         $state = $this->form->getState();
 
-        $file = $state['file'] ?? null;
+        // R10 (M6.5 Task 17): `$state['file']` là một MẢNG khi ô mang `multiple()`. Lọc lại bằng
+        // `instanceof` thay vì tin nguyên mảng, cùng lý do bản một-tệp trước đây kiểm
+        // `instanceof UploadedFile`: `getState()` trả về `mixed`, và một phần tử không phải
+        // `UploadedFile` lọt vào `SubmitClientDocument::handle()` sẽ là một `TypeError` bên
+        // trong Action — tức một lỗi 500 trên màn hình khách.
+        $files = collect((array) ($state['file'] ?? []))
+            ->filter(fn (mixed $value): bool => $value instanceof UploadedFile)
+            ->values()
+            ->all();
 
-        if (! $file instanceof UploadedFile) {
+        if ($files === []) {
             // Không với tới được qua giao diện: `required()` đã từ chối một ô trống ở dòng trên.
-            // Nó ở đây vì `getState()` trả về `mixed` và một tệp không phải `UploadedFile` sẽ là
-            // một `TypeError` bên trong Action — tức một lỗi 500 trên màn hình khách.
             $this->failOnFile(__('portal_submit.errors.file_required'));
         }
 
@@ -703,7 +749,7 @@ class SubmitDocument extends Page
             app(SubmitClientDocument::class)->handle(
                 checklistItem: $item,
                 actor: $this->viewer(),
-                file: $file,
+                files: $files,
             );
         } catch (ValidationException $exception) {
             // KHÔNG đường nào hôm nay tới được nhánh này, và câu đó được viết ra thay vì để
@@ -798,10 +844,13 @@ class SubmitDocument extends Page
             }
         }
 
+        // R10: `$fileInfo` mang MỌI tệp mà trình duyệt chọn trong lượt này (có thể nhiều hơn một
+        // khi ô mang `multiple()`) — xem docblock `guardRate()` cho lý do đếm theo tệp.
         $this->guardRate(
             self::fileLimiterKey($this->viewer()),
             'portal_submit.errors.rate_limited_upload',
             $name,
+            count: max(1, count($fileInfo)),
         );
 
         return parent::_startUpload($name, $fileInfo, $isMultiple);
@@ -879,10 +928,26 @@ class SubmitDocument extends Page
      * ở một trong hai: cửa của byte tiêu một suất khi khách mới CHỌN tệp, nên câu "anh/chị đã
      * gửi 20 tệp" ở đó nói về một việc chưa xảy ra. Con số thì vẫn là một: `:limit` đọc thẳng
      * {@see self::FILES_PER_HOUR}, không tệp ngôn ngữ nào viết nó ra bằng chữ số.
+     *
+     * **`$count` — R10 (M6.5 Task 17).** SPEC §10.3 viết "20 TỆP/giờ", không "20 lượt bấm/giờ".
+     * Trước `multiple()`, một lượt CHỌN tệp và một lượt BẤM GỬI luôn đúng một tệp, nên "một đơn vị
+     * mỗi lượt" và "một đơn vị mỗi tệp" là cùng một con số — không ai phải chọn. `multiple()` tách
+     * hai câu đó ra: khách chọn hai mặt CCCD trong MỘT lượt (`_startUpload` gọi MỘT LẦN với
+     * `$fileInfo` chứa hai phần tử — xem docblock của nó) và gửi cả lô trong MỘT lượt bấm
+     * (`submit()` gọi Action với một MẢNG tệp). Đếm theo LƯỢT sẽ để một khách gửi 20 lô × 2 tệp
+     * lọt qua đúng 40 tệp — gấp đôi trần SPEC đặt ra — nên cả hai cửa đếm theo SỐ TỆP thật trong
+     * lô, không theo số lần gọi.
+     *
+     * **Từ chối CẢ LÔ nếu lô sẽ vượt trần, không nhận một phần rồi cắt phần còn lại.** Kiểm
+     * `RateLimiter::attempts($key) + $count > FILES_PER_HOUR` — không phải `tooManyAttempts()`
+     * (thứ chỉ hỏi "ĐÃ vượt chưa", đúng cho lượt-một-tệp nhưng sai cho lô: một khách đang ở mức 19
+     * và chọn lô 2 tệp sẽ được `tooManyAttempts()` cho qua, rồi `hit()` hai lần đẩy bộ đếm lên 21
+     * — vượt trần TRONG một lần cho qua). Cả lô cùng vào hoặc cả lô cùng bị chặn: một CCCD hai mặt
+     * mà chỉ mặt trước lọt qua trần là một hồ sơ dở dang không ai muốn.
      */
-    private function guardRate(string $key, string $message, ?string $field = null): void
+    private function guardRate(string $key, string $message, ?string $field = null, int $count = 1): void
     {
-        if (RateLimiter::tooManyAttempts($key, self::FILES_PER_HOUR)) {
+        if (RateLimiter::attempts($key) + $count > self::FILES_PER_HOUR) {
             $this->failOnFile(__($message, [
                 'limit' => self::FILES_PER_HOUR,
                 'minutes' => max(1, (int) ceil(RateLimiter::availableIn($key) / 60)),
@@ -890,7 +955,9 @@ class SubmitDocument extends Page
             ]), $field);
         }
 
-        RateLimiter::hit($key, self::LIMIT_WINDOW_SECONDS);
+        for ($i = 0; $i < $count; $i++) {
+            RateLimiter::hit($key, self::LIMIT_WINDOW_SECONDS);
+        }
     }
 
     // -------------------------------------------------------------------------------------

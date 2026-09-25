@@ -4,6 +4,8 @@ namespace App\Actions\Document;
 
 use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
+use App\Enums\DocumentStatus;
+use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Support\Scopes\ClientPortalScope;
@@ -33,11 +35,11 @@ use Illuminate\Database\Eloquent\Builder;
  *    liệu nào — đúng nghĩa của trạng thái đó — nên những dòng ấy nằm trong tử số mà không nằm
  *    trong mẫu số. Seeder không sai: một đầu mục không bắt buộc, không tài liệu, được đánh dấu
  *    "không cần nộp" thì đơn giản là không xuất hiện trên thanh tiến độ, ở cả hai vế.
- *  - **"đã có tài liệu" nghĩa là có ít nhất một tài liệu KHÔNG THUỘC NHÓM D.** Một tài liệu nhóm
- *    D (hồ sơ công việc nội bộ) gắn được vào một đầu mục danh mục và đó là việc hợp lệ — một ghi
- *    chú nội bộ về đúng giấy tờ đó. Tính nó là "đầu mục này đã có tài liệu" sẽ để một ghi chú
- *    công việc của văn phòng tự kéo một đầu mục không bắt buộc vào mẫu số, tức tự thêm một việc
- *    vào danh sách khách phải làm.
+ *  - **"đã có tài liệu" nghĩa là có ít nhất một tài liệu KHÁCH ĐỌC ĐƯỢC** — đúng ba điều kiện
+ *    của `Document::isReleasedToPortal()`: `client_can_view`, `status = published`, và khác nhóm
+ *    D. Đây là một sửa lại so với đính chính 2026-09-16, thứ chỉ viết "không thuộc nhóm D" và bỏ
+ *    sót vế `client_can_view`/`status` — xem "**Sửa lại checklist-05**" bên dưới cho lý do và
+ *    bằng chứng.
  *
  * Điều kiện của `X` chỉ đọc cột `status` (thứ mà `UploadStaffDocument`, `ReviewChecklistItem` và
  * `MarkChecklistItemNotApplicable` ghi) và không hỏi bảng `documents` một câu nào — nhưng `X`
@@ -45,25 +47,39 @@ use Illuminate\Database\Eloquent\Builder;
  * `documents` được hỏi là định nghĩa của `Y`, và nó phải được hỏi ở đó, vì chính SPEC §4.10
  * định nghĩa `Y` bằng chữ "đã có tài liệu".
  *
- * # Phép đếm bỏ `ClientPortalScope`, và đó là toàn bộ điểm khác so với bản cũ
+ * # Sửa lại checklist-05: "khác nhóm D" không phải là "khách đọc được"
  *
- * `withCount` áp GLOBAL SCOPE của `Document`. Bản cũ vì thế trả lời hai con số khác nhau cho
- * cùng một hồ sơ tuỳ theo guard nào đang mở: dưới guard `client`, `ClientPortalScope` thu tập
- * đếm được về "đã công bố VÀ khách được xem", trong khi §4.10 định nghĩa `Y` bằng "không thuộc
- * nhóm D" — không phải "đã ra tới khách".
+ * Đính chính 2026-09-16 viết `Y` gồm các đầu mục không bắt buộc "có ít nhất một tài liệu không
+ * thuộc nhóm D" — tức nhóm A, B, C đều tính, bất kể trạng thái vòng đời. Bản đọc đó có một lỗ:
+ * một quyết định nhóm C (`internal_draft`, `client_can_view = false`) gắn vào một đầu mục tuỳ
+ * chọn kéo đầu mục đó vào `Y` NGAY LẬP TỨC, trong khi trạng thái đầu mục vẫn `missing` — tức nó
+ * rơi thẳng vào nhóm "Giấy tờ chúng tôi còn chờ ở anh/chị" mà `MatterProgress::outstandingItems()`
+ * vẽ ra, và mẫu số tăng lên đúng lúc khách bị đòi một thứ văn phòng ĐÃ CÓ trong tay mà họ lại
+ * không nhìn thấy (finding `checklist/checklist-05`, M6.5 Task 17). Docblock trước bản sửa này
+ * còn lập luận NGƯỢC với hậu quả đó — nó viết "một bản đơn văn phòng đang soạn LÀ bằng chứng
+ * rằng đầu mục ấy không còn là một việc của khách" để giải thích vì sao ẩn nó đi khỏi mẫu số là
+ * sai, trong khi hành vi thật là GIỮ nó trong mẫu số mới tạo ra việc phải làm.
  *
- * Đo được, và con số đó chính là thứ `ChecklistProgressTest` ghim: một hồ sơ có 3 đầu mục bắt
- * buộc đã `accepted` cộng một đầu mục KHÔNG bắt buộc mang đúng một tài liệu nhóm B còn
- * `internal_draft` — nhân sự đọc `3/4`, khách đọc `3/3`, cùng một hồ sơ, cùng một thời điểm.
- * Vòng rà soát cuối M4 đo cùng khuyết tật ấy trên dữ liệu mẫu (`VK-2026-DS-0003`: `3/4` so với
- * `2/3`). Và con số của khách mới là con số §4.10 gọi là trường hiển thị trên portal, nên bản cũ
- * sai ở đúng phía người đọc nó.
+ * Luật đúng đọc theo tinh thần của chính đính chính (mẫu số trả lời "văn phòng còn chờ khách nộp
+ * gì", không phải "văn phòng đã có gì trong tủ hồ sơ nội bộ"): một tài liệu chỉ là bằng chứng
+ * "đầu mục này không còn là việc của khách" khi CHÍNH KHÁCH đọc được nó — `client_can_view` và
+ * `published`, không chỉ khác nhóm D. Một quyết định nhóm B/C đã đi hết vòng đời và được công bố
+ * (SPEC §4.11: `internal_draft` → `pending_approval` → `signed_filed` → `published`, cộng
+ * `PublishDocument` bật `client_can_view`) VẪN kéo được đầu mục vào `Y` — nó không khác gì một
+ * tài liệu nhóm A về mặt "khách đã đọc được gì" — nên luật không loại nhóm, nó lọc theo tầm
+ * nhìn. Test `ChecklistProgressTest` ghim cả hai vế: một quyết định nhóm C còn `internal_draft`
+ * không kéo được đầu mục vào `Y`; cùng quyết định đó sau khi `published`/`client_can_view` thì
+ * kéo được.
  *
- * Nói thẳng vì sao "khách chỉ nên đếm thứ khách thấy được" là cách đọc SAI: mẫu số trả lời
- * "văn phòng còn chờ khách nộp gì", không trả lời "khách đọc được gì". Một bản đơn văn phòng
- * đang soạn (nhóm B, `internal_draft`) là bằng chứng rằng đầu mục ấy KHÔNG còn là một việc của
- * khách, dù khách chưa được phép mở nó. Ẩn nó khỏi mẫu số sẽ báo cho khách một việc phải làm mà
- * văn phòng đã làm rồi.
+ * # Phép đếm bỏ `ClientPortalScope`
+ *
+ * `withCount` áp GLOBAL SCOPE của `Document`. Phép đếm tự bỏ nó ra một cách tường minh
+ * (`withoutGlobalScope`) để con số không phụ thuộc vào việc `ClientPortalScope::isActive()` có
+ * đang `true` hay không tại đúng thời điểm `handle()` được gọi — SPEC §4.10 gọi `X/Y` là "trường
+ * tính toán hiển thị trên portal", tức MỘT con số, không phải một con số tuỳ theo có ai đang mở
+ * guard `client` hay không lúc câu truy vấn chạy. Có test riêng dựng một hồ sơ CHƯA công bố lên
+ * portal để đo đúng phần này (vì trên một hồ sơ đã công bố, ba điều kiện còn lại của luật `Y` đã
+ * trùng gần khớp với chính `ClientPortalScope`, nên bỏ hay giữ scope không còn lệch nhau nữa).
  *
  * Scope `SoftDeletingScope` thì được GIỮ: một tài liệu đã xoá mềm không còn trong hồ sơ, nên nó
  * không còn là "đã có tài liệu".
@@ -71,9 +87,10 @@ use Illuminate\Database\Eloquent\Builder;
 class ChecklistProgress
 {
     /**
-     * Bí danh của bộ đếm tài liệu gắn vào một đầu mục, KHÔNG kể nhóm D. Công khai vì bảng ở tab
-     * "Danh mục hồ sơ" hiện đúng con số này thành một cột, và nó phải là CÙNG con số mẫu số đang
-     * dùng — không phải một phép đếm thứ hai viết lại bên màn hình.
+     * Bí danh của bộ đếm tài liệu KHÁCH ĐỌC ĐƯỢC gắn vào một đầu mục (xem "Sửa lại checklist-05"
+     * ở docblock lớp). Công khai vì bảng ở tab "Danh mục hồ sơ" hiện đúng con số này thành một
+     * cột, và nó phải là CÙNG con số mẫu số đang dùng — không phải một phép đếm thứ hai viết lại
+     * bên màn hình.
      */
     public const DOCUMENT_COUNT_ALIAS = 'client_facing_documents_count';
 
@@ -122,14 +139,16 @@ class ChecklistProgress
     }
 
     /**
-     * Gắn bộ đếm "tài liệu không thuộc nhóm D" vào một truy vấn `matter_checklist_items`.
+     * Gắn bộ đếm "tài liệu khách ĐỌC ĐƯỢC" vào một truy vấn `matter_checklist_items` — ba điều
+     * kiện của {@see Document::isReleasedToPortal()}, viết lại bằng `where` vì
+     * `withCount` không gọi được một phương thức instance trên từng dòng con.
      *
      * Tách ra khỏi {@see self::handle()} vì bảng ở tab "Danh mục hồ sơ" cần ĐÚNG con số này trên
      * từng dòng, và một `withCount` viết lại lần thứ hai bên màn hình là cách để cột "Số tài
      * liệu" và mẫu số của thanh tiến độ nói hai chuyện khác nhau trên cùng một dòng.
      *
      * `withoutGlobalScope(ClientPortalScope::class)` tường minh, cùng thành ngữ
-     * `StoresDocumentFile::scopelessly()`: xem docblock lớp cho lý do đầy đủ.
+     * `StoresDocumentFile::scopelessly()` — xem "Phép đếm bỏ `ClientPortalScope`" ở docblock lớp.
      *
      * @param  Builder<MatterChecklistItem>  $items
      * @return Builder<MatterChecklistItem>
@@ -139,6 +158,8 @@ class ChecklistProgress
         return $items->withCount([
             'documents as '.self::DOCUMENT_COUNT_ALIAS => fn (Builder $documents): Builder => $documents
                 ->withoutGlobalScope(ClientPortalScope::class)
+                ->where('client_can_view', true)
+                ->where('status', DocumentStatus::Published->value)
                 ->where('group', '!=', DocumentGroup::Internal->value),
         ]);
     }

@@ -2,6 +2,7 @@
 
 use App\Actions\Document\ReviewChecklistItem;
 use App\Enums\ChecklistItemStatus;
+use App\Enums\DocumentGroup;
 use App\Enums\MatterRole;
 use App\Enums\Permission;
 use App\Enums\Role;
@@ -9,6 +10,7 @@ use App\Events\ChecklistItemRejected;
 use App\Exceptions\ChecklistItemNotReviewable;
 use App\Models\Client;
 use App\Models\ClientUser;
+use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Models\User;
@@ -40,12 +42,14 @@ function reviewChecklistItem(
     User $actor,
     ChecklistItemStatus $decision,
     ?string $rejectionReason = null,
+    ?array $documentIds = null,
 ): MatterChecklistItem {
     return app(ReviewChecklistItem::class)->handle(
         checklistItem: $item,
         actor: $actor,
         decision: $decision,
         rejectionReason: $rejectionReason,
+        documentIds: $documentIds,
     );
 }
 
@@ -139,6 +143,34 @@ it('lý do từ chối ngắn hơn 20 ký tự bị từ chối, và câu lỗi 
     expect($this->item->fresh()->status)->toBe(ChecklistItemStatus::PendingReview);
 });
 
+/**
+ * checklist-06: lý do còn để nguyên chỗ trống `[tên …]` của một mẫu có sẵn — SPEC §6.7 in nguyên
+ * văn ba mẫu kèm cặp ngoặc vuông làm chỗ trống người duyệt tự điền tay (docblock
+ * `rejection_templates`). Bấm mẫu rồi gửi luôn mà quên sửa là gửi cho khách nguyên văn cặp ngoặc
+ * đó — `ChecklistRelationManagerTest` đo đúng ca này qua màn hình thật.
+ */
+it('lý do còn để nguyên chỗ trống [tên …] của mẫu là lỗi xác thực', function () {
+    $reason = 'File này là [tên tài liệu đã nộp], còn mục đang cần là Giấy chứng nhận quyền sử dụng đất.';
+
+    try {
+        reviewChecklistItem($this->item, $this->lawyer, ChecklistItemStatus::Rejected, $reason);
+        $this->fail('Đáng lẽ phải ném ValidationException.');
+    } catch (ValidationException $exception) {
+        expect($exception->errors()['rejection_reason'][0])
+            ->toBe(__('checklist.review.reason_placeholder'));
+    }
+
+    expect($this->item->fresh()->status)->toBe(ChecklistItemStatus::PendingReview);
+});
+
+/** Cặp dương: cùng độ dài, cùng nội dung xung quanh, chỉ khác chỗ đã điền tay thay vì để `[tên`. */
+it('lý do đã điền tay thay cho chỗ trống của mẫu thì được chấp nhận — cặp dương', function () {
+    $reason = 'File này là ảnh mặt sau CCCD, còn mục đang cần là Giấy chứng nhận quyền sử dụng đất.';
+
+    expect(reviewChecklistItem($this->item, $this->lawyer, ChecklistItemStatus::Rejected, $reason)->rejection_reason)
+        ->toBe($reason);
+});
+
 it('lý do từ chối đúng 20 ký tự thì chấp nhận — cặp dương của ngưỡng', function () {
     expect(reviewChecklistItem($this->item, $this->lawyer, ChecklistItemStatus::Rejected, str_repeat('a', 20))->status)
         ->toBe(ChecklistItemStatus::Rejected);
@@ -199,11 +231,19 @@ it('ba mẫu lý do từ chối có nguyên văn trong lang/vi', function () {
 it('mỗi mẫu lý do bấm một cái là qua được ngưỡng độ dài', function (string $key) {
     // Một cái nút điền sẵn một câu rồi bị chính hệ thống từ chối là cái nút không ai bấm lần thứ
     // hai. Ràng buộc này nối hai tệp không đọc lẫn nhau, nên nó phải có một dòng test.
+    //
+    // `wrong_document` KHÔNG nằm trong tập này (checklist-06, M6.5 Task 17): nguyên văn SPEC §6.7
+    // của mẫu đó còn mang cặp ngoặc vuông `[tên …]`, một chỗ trống người duyệt PHẢI tự điền tay,
+    // và bản thân cặp ngoặc vuông giờ bị chặn ở `resolveRejectionReason()` — "bấm rồi gửi luôn"
+    // không còn qua được cổng cho đúng mẫu đó, có chủ đích. Xem `it('lý do còn để nguyên chỗ
+    // trống [tên …] của mẫu là lỗi xác thực')` cho nhánh chặn, và
+    // `it('lý do đã điền tay thay cho chỗ trống của mẫu thì được chấp nhận — cặp dương')` cho cặp
+    // dương của mẫu đó.
     $template = __("checklist.rejection_templates.{$key}");
 
     expect(reviewChecklistItem($this->item, $this->lawyer, ChecklistItemStatus::Rejected, $template)->rejection_reason)
         ->toBe($template);
-})->with(['blurred', 'uncertified_copy', 'wrong_document']);
+})->with(['blurred', 'uncertified_copy']);
 
 // ---------------------------------------------------------------------------------------------
 // Quyền: SPEC §5 `checklist.review`.
@@ -471,4 +511,97 @@ it('tài khoản nhân sự đã bị vô hiệu hoá thì không duyệt đư�
     expectReviewRefusal(fn () => reviewChecklistItem($this->item, $this->lawyer->fresh(), ChecklistItemStatus::Accepted));
 
     expect($this->item->fresh()->status)->toBe(ChecklistItemStatus::PendingReview);
+});
+
+// ---------------------------------------------------------------------------------------------
+// R11 (M6.5 Task 17, checklist-04): duyệt gắn với đúng những tệp người duyệt đã THẤY.
+// ---------------------------------------------------------------------------------------------
+
+/** Một tài liệu nhóm A "khách cung cấp" thật, gắn vào $this->item — dùng cho các test R11. */
+function reviewSubmittedDocument(MatterChecklistItem $item, int $version = 1): Document
+{
+    return Document::factory()->for($item->matter)->group(DocumentGroup::ClientProvided)->create([
+        'matter_checklist_item_id' => $item->getKey(),
+        'version' => $version,
+    ]);
+}
+
+it('currentDocumentIds đọc đúng tập tài liệu version mới nhất, không đọc nhóm B/C/D', function () {
+    $old = reviewSubmittedDocument($this->item, version: 1);
+    $latest = reviewSubmittedDocument($this->item, version: 2);
+    Document::factory()->for($this->matter)->group(DocumentGroup::Authority)->create([
+        'matter_checklist_item_id' => $this->item->id,
+        'version' => 2,
+    ]);
+
+    expect(ReviewChecklistItem::currentDocumentIds($this->item->fresh()))->toBe([$latest->id])
+        ->and(ReviewChecklistItem::currentDocumentIds($this->item->fresh()))->not->toContain($old->id);
+});
+
+it('duyệt khớp đúng tập tài liệu đã truyền — cặp dương', function () {
+    $document = reviewSubmittedDocument($this->item);
+
+    $item = reviewChecklistItem($this->item, $this->lawyer, ChecklistItemStatus::Accepted, documentIds: [$document->id]);
+
+    expect($item->status)->toBe(ChecklistItemStatus::Accepted);
+});
+
+/**
+ * Kịch bản đúng nguyên văn finding checklist-04: người duyệt mở hộp (tập tài liệu lúc đó chỉ có
+ * `$document`), khách gửi thêm MỘT tệp nữa trong lúc hộp còn mở (không đổi trạng thái đầu mục,
+ * vẫn `pending_review`), rồi người duyệt bấm "Đã nhận" với tập id CŨ. Action phải từ chối bằng
+ * câu tiếng Việt, không âm thầm nhận một tệp chưa ai mở.
+ */
+it('từ chối khi tập tài liệu đã đổi giữa lúc mở hộp và lúc bấm lưu', function () {
+    $document = reviewSubmittedDocument($this->item);
+
+    // Khách gửi thêm một tệp trong lúc đầu mục còn `pending_review` — R10 (M6.5 Task 17): đó là
+    // BỔ SUNG vào version đang chờ, không phải một version mới, nên `$newFile` mang CÙNG version
+    // với `$document`. Sau lần gửi này, "tập tài liệu hiện tại" của đầu mục là CẢ HAI — đúng
+    // hình dạng thật của bug gốc: người duyệt đang nhìn một hộp chỉ có `$document`.
+    $newFile = reviewSubmittedDocument($this->item, version: 1);
+
+    expect(fn () => reviewChecklistItem(
+        $this->item,
+        $this->lawyer,
+        ChecklistItemStatus::Accepted,
+        documentIds: [$document->id],
+    ))->toThrow(fn (ChecklistItemNotReviewable $exception) => expect($exception->getMessage())
+        ->toBe(__('checklist.review.documents_changed')));
+
+    // Không ghi gì: đầu mục vẫn chờ đúng người duyệt mở lại.
+    expect($this->item->fresh()->status)->toBe(ChecklistItemStatus::PendingReview)
+        ->and($this->item->fresh()->reviewed_by)->toBeNull();
+
+    // Không lẫn với tập tài liệu MỚI: cặp dương ngay dưới đây khẳng định lần duyệt tiếp theo với
+    // tập ĐÚNG (gồm cả tệp mới) vẫn đi qua bình thường.
+    expect(reviewChecklistItem(
+        $this->item->fresh(),
+        $this->lawyer,
+        ChecklistItemStatus::Accepted,
+        documentIds: [$document->id, $newFile->id],
+    )->status)->toBe(ChecklistItemStatus::Accepted);
+});
+
+it('dòng audit ghi id các tài liệu đã duyệt', function () {
+    $document = reviewSubmittedDocument($this->item);
+
+    reviewChecklistItem($this->item, $this->lawyer, ChecklistItemStatus::Accepted, documentIds: [$document->id]);
+
+    $activity = Activity::query()->where('event', 'checklist_item_reviewed')->latest('id')->first();
+
+    expect($activity->properties->get('document_ids'))->toBe([$document->id]);
+});
+
+/**
+ * `documentIds === null` là đường lùi cho caller KHÔNG quan sát hộp (job, console, test tầng
+ * Action) — không phải một cách để bỏ qua luật. Không có cặp dương này, người đọc dễ tưởng nhầm
+ * R11 là bắt buộc tuyệt đối ở tầng Action.
+ */
+it('bỏ qua lần so tài liệu khi caller không truyền documentIds — đường lùi có chủ đích', function () {
+    reviewSubmittedDocument($this->item);
+    reviewSubmittedDocument($this->item, version: 2);
+
+    expect(reviewChecklistItem($this->item, $this->lawyer, ChecklistItemStatus::Accepted)->status)
+        ->toBe(ChecklistItemStatus::Accepted);
 });

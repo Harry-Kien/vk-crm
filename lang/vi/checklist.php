@@ -43,6 +43,11 @@ return [
         'decision_not_allowed' => 'Kết quả duyệt chỉ có thể là ":accepted" hoặc ":rejected". Anh/chị chọn lại một trong hai rồi lưu.',
         'reason_required' => 'Từ chối một giấy tờ thì phải nói cho khách biết vì sao và phải làm gì tiếp theo — câu này hiện thẳng trên màn hình của khách. Anh/chị nhập lý do (ít nhất :min ký tự), hoặc bấm một trong các mẫu có sẵn rồi sửa lại cho đúng trường hợp.',
         'reason_too_short' => 'Lý do từ chối mới có :length ký tự, chưa đủ :min. Khách đọc câu này để biết phải làm gì, nên một câu cụt như "không hợp lệ" sẽ khiến anh/chị nhận lại đúng cái giấy tờ đó lần nữa. Anh/chị viết rõ chỗ nào chưa đạt và cần nộp lại thế nào, hoặc bấm một trong các mẫu có sẵn.',
+        // checklist-06 (M6.5 Task 17): mẫu "Nộp nhầm tài liệu" còn để lại chỗ trống
+        // `[tên tài liệu đã nộp]` cho người duyệt tự điền tay (xem docblock `rejection_templates`
+        // dưới cùng tệp này). Bấm mẫu rồi gửi luôn mà quên điền là gửi cho khách nguyên văn cặp
+        // ngoặc vuông — câu này chặn lại và nói rõ phải sửa gì trước khi gửi được.
+        'reason_placeholder' => 'Lý do còn để nguyên chỗ trống dạng "[tên …]" của mẫu có sẵn — khách sẽ đọc đúng cặp ngoặc vuông đó. Anh/chị điền cụ thể tên tài liệu/đầu mục rồi gửi lại.',
         // BA tình huống, MỘT câu: mục không còn tồn tại, mục đã bị xoá khỏi danh mục, và mục
         // thuộc một hồ sơ người đang hỏi không được thấy. SPEC §10.10 không chừa ngoại lệ cho
         // người trong văn phòng — kế toán không được cấp quyền nào về hồ sơ, và một cặp câu trả
@@ -56,6 +61,9 @@ return [
         // có gì để nói — xem `ReviewChecklistItem::guardDecisionAgainstState()`.
         'nothing_to_reject' => 'Mục này đang ở trạng thái ":status", tức chưa có tệp nào của khách đang chờ xem. Từ chối lúc này sẽ gửi cho khách một lời chê về thứ họ chưa gửi. Anh/chị chờ khách nộp rồi duyệt, hoặc gọi nhắc khách nộp bổ sung.',
         'matter_unavailable' => 'Hồ sơ chứa mục giấy tờ này đã bị xoá nên không duyệt được. Anh/chị khôi phục hồ sơ trước, rồi duyệt lại.',
+        // R11 (M6.5 Task 17, checklist-04): khách gửi thêm hoặc gửi lại giữa lúc hộp duyệt đang
+        // mở, nên quyết định sắp lưu gắn vào một tệp không còn là tệp mới nhất.
+        'documents_changed' => 'Có tệp mới vừa đến, anh/chị mở lại để xem trước khi duyệt.',
     ],
 
     /*
@@ -123,6 +131,10 @@ return [
             'item_name' => 'Tên đầu mục',
             'item_description' => 'Mô tả cho khách',
             'item_is_required' => 'Bắt buộc',
+            // R11 (M6.5 Task 17, checklist-04): danh sách tệp trong hộp duyệt.
+            'documents_label' => 'Tệp khách đã gửi',
+            'documents_empty' => 'Đầu mục này chưa có tệp nào của khách.',
+            'documents_open' => 'Mở tệp',
         ],
         // Nhãn ngắn của ba cái nút điền mẫu. Nội dung ĐẦY ĐỦ của mỗi mẫu nằm ở
         // `rejection_templates` bên dưới, nguyên văn SPEC §6.7; ba nhãn này chỉ để người duyệt

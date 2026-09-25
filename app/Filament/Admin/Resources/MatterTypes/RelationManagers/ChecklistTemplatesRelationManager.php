@@ -76,6 +76,11 @@ class ChecklistTemplatesRelationManager extends RelationManager
                     ->label(__('matter_types.checklist_templates.fields.is_active'))
                     ->default(true)
                     ->helperText(__('matter_types.checklist_templates.fields.is_active_help')),
+                // M6.5 Task 17 (rà soát Task 15): `->relationship()` để Filament TỰ ghi các dòng
+                // `checklist_template_items` (tạo/sửa/xoá) đi thẳng qua Eloquent, không qua một
+                // Action nào — nên `ChecklistTemplateItemPolicy` KHÔNG được hỏi ở đây. Cổng thật
+                // duy nhất là `ChecklistTemplatePolicy` (`settings.manage`) gác cả relation
+                // manager này, đúng như một tài nguyên CON được biên tập cùng cha của nó.
                 Repeater::make('items')
                     ->relationship()
                     ->label(__('matter_types.checklist_templates.items.title'))
