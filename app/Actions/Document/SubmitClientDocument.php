@@ -18,6 +18,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use InvalidArgumentException;
 
 /**
  * Khách hàng nộp một tệp vào một đầu mục danh mục hồ sơ — chín bước SPEC §6.6.
@@ -138,6 +139,19 @@ class SubmitClientDocument
         ClientUser $actor,
         array $files,
     ): Collection {
+        // Vòng sửa 1: một lô rỗng không phải một điều khách bấm ra được — màn hình SPEC §8.4 đòi
+        // ô tệp trước khi cho bấm Gửi — nhưng Action này không được TIN caller đã kiểm tra thay
+        // mình (cùng kỷ luật với "không đọc `auth()`" ở docblock lớp). Không chặn ở đây, một lô
+        // rỗng chạy hết tới `markPendingReview()`: đầu mục chuyển `pending_review`, phát sự kiện
+        // báo đội ngũ có tệp mới cần xem, và `$documents` rỗng trả về cho caller — một trạng thái
+        // nói dối cả khách lẫn văn phòng về một lần nộp chưa hề xảy ra. `InvalidArgumentException`
+        // (không phải `ValidationException`/`FileRejected`/`DomainException`): đây là một lỗi của
+        // NGƯỜI GỌI, không phải một điều khách làm sai — cùng quy ước với
+        // `AddMatterDeadline::handle()`.
+        if ($files === []) {
+            throw new InvalidArgumentException('SubmitClientDocument::handle() được gọi với một lô rỗng.');
+        }
+
         // Bước 1, phần đọc lại. Đọc TRƯỚC khi hệ thống bỏ công đọc, quét và ghi một tệp 20 MB
         // xuống đĩa: một id bịa hoặc một đầu mục của người khác phải dừng lại ở câu truy vấn
         // rẻ nhất.
@@ -214,15 +228,17 @@ class SubmitClientDocument
             // ::nextInSubmissionChain()`, nơi phát biểu luôn cái bất biến mà không chỉ mục cơ sở dữ
             // liệu nào diễn đạt nổi — và nơi `UploadStaffDocument` hỏi đúng cùng câu hỏi đó, vì một
             // lần nhân viên nộp thay ở nhóm A cũng là một mắt xích của cùng chuỗi.
+            //
+            // R10: MỘT lần hỏi chuỗi version cho CẢ LÔ, không một lần mỗi tệp — xem docblock lớp
+            // và docblock `nextInSubmissionChain()`. Mọi `Document` của lô này dùng CHUNG cặp
+            // version/parent bên dưới, đúng bất biến "một lần nộp là một version". (Vòng sửa 1:
+            // bản trước gọi hàm này HAI LẦN liên tiếp — dòng đầu là một lần gọi chết, kết quả bị
+            // ghi đè ngay bởi dòng thứ hai; `nextInSubmissionChain()` không có tác dụng phụ nên
+            // hai lần gọi cho cùng kết quả và không test nào bắt được, nhưng vẫn là một dòng thừa.)
             $chain = $this->nextInSubmissionChain($locked, DocumentGroup::ClientProvided);
 
             $defaults = $this->defaultsFor(DocumentGroup::ClientProvided);
             $releasedAtCreation = $this->releasesToClientAtCreation($defaults);
-
-            // R10: MỘT lần hỏi chuỗi version cho CẢ LÔ, không một lần mỗi tệp — xem docblock lớp
-            // và docblock `nextInSubmissionChain()`. Mọi `Document` của lô này dùng CHUNG cặp
-            // version/parent bên dưới, đúng bất biến "một lần nộp là một version".
-            $chain = $this->nextInSubmissionChain($locked, DocumentGroup::ClientProvided);
 
             $documents = collect($files)->map(function (UploadedFile $file) use (
                 $locked, $actor, $chain, $defaults, $releasedAtCreation,
@@ -291,12 +307,15 @@ class SubmitClientDocument
                     'group' => DocumentGroup::ClientProvided->value,
                     'version' => $document->version,
                 ], $actor);
-
-                // Bước 9. Listener ở M6; sự kiện là `ShouldDispatchAfterCommit` nên dispatch bên
-                // trong transaction là an toàn. Một sự kiện MỖI tệp: mỗi `Document` là một tệp
-                // đội ngũ cần mở ra xem, kể cả khi chúng tới cùng một lần bấm Gửi.
-                event(new ClientDocumentSubmitted($document));
             });
+
+            // Bước 9. Listener ở M6; sự kiện là `ShouldDispatchAfterCommit` nên dispatch bên
+            // trong transaction là an toàn. MỘT sự kiện cho CẢ LÔ, không một sự kiện mỗi tệp —
+            // vòng sửa 1, finding I4 (xem docblock lớp {@see ClientDocumentSubmitted}): một lần
+            // nộp CCCD hai mặt LÀ một hành động của khách, không phải hai, và đội ngũ chỉ cần
+            // một thông báo cho nó. `$documents` mang đủ cả lô nên listener đọc được mọi tệp từ
+            // một lần dispatch duy nhất.
+            event(new ClientDocumentSubmitted($documents));
 
             return $documents;
         });

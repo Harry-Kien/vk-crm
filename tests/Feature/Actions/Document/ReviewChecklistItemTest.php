@@ -163,6 +163,32 @@ it('lý do còn để nguyên chỗ trống [tên …] của mẫu là lỗi xá
     expect($this->item->fresh()->status)->toBe(ChecklistItemStatus::PendingReview);
 });
 
+/**
+ * Vòng sửa 1: cùng chỗ trống `[tên …]` như test trên, nhưng gõ dưới dạng NFD — `ê` tách thành
+ * `e` (U+0065) cộng dấu mũ tổ hợp (U+0302), thay vì một điểm mã NFC (U+00EA) như chuỗi nguồn
+ * `'[tên'` nằm trong chính tệp Action. Hai chuỗi ĐỌC giống hệt nhau, và một khách/luật sư gõ trên
+ * một bàn phím hoặc hệ điều hành chuẩn hoá kiểu NFD (một số bố cục macOS) tạo ra đúng chuỗi này.
+ * Không chuẩn hoá trước khi so thì `str_contains()` so BYTE, không khớp, và chỗ trống lọt qua.
+ */
+it('bắt được chỗ trống [tên …] cả khi lý do gõ ở dạng NFD (dấu mũ tổ hợp tách rời)', function () {
+    $nfdReason = Normalizer::normalize(
+        'File này là [tên tài liệu đã nộp], còn mục đang cần là Giấy chứng nhận quyền sử dụng đất.',
+        Normalizer::FORM_D,
+    );
+
+    expect($nfdReason)->toBeString();
+
+    try {
+        reviewChecklistItem($this->item, $this->lawyer, ChecklistItemStatus::Rejected, $nfdReason);
+        $this->fail('Đáng lẽ phải ném ValidationException.');
+    } catch (ValidationException $exception) {
+        expect($exception->errors()['rejection_reason'][0])
+            ->toBe(__('checklist.review.reason_placeholder'));
+    }
+
+    expect($this->item->fresh()->status)->toBe(ChecklistItemStatus::PendingReview);
+});
+
 /** Cặp dương: cùng độ dài, cùng nội dung xung quanh, chỉ khác chỗ đã điền tay thay vì để `[tên`. */
 it('lý do đã điền tay thay cho chỗ trống của mẫu thì được chấp nhận — cặp dương', function () {
     $reason = 'File này là ảnh mặt sau CCCD, còn mục đang cần là Giấy chứng nhận quyền sử dụng đất.';

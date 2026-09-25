@@ -203,7 +203,7 @@ class ChecklistRelationManager extends RelationManager
                     ->badge()
                     ->formatStateUsing(fn (ChecklistItemStatus $state): string => $state->label())
                     ->color(fn (ChecklistItemStatus $state): string => static::statusColor($state)),
-                TextColumn::make(ChecklistProgress::DOCUMENT_COUNT_ALIAS)
+                TextColumn::make(ChecklistProgress::CLIENT_SUBMITTED_DOCUMENT_COUNT_ALIAS)
                     ->label(__('checklist.tab.columns.documents_count')),
                 // Câu này khách đang đọc trên portal của họ, nên nó hiện đầy đủ ở đây — người
                 // duyệt phải đọc lại được chính xác thứ văn phòng đã nói, không phải một bản rút
@@ -235,7 +235,7 @@ class ChecklistRelationManager extends RelationManager
             // `ChecklistProgress` chứ không viết lại: một `withCount` thứ hai ở đây là cách để
             // cột "Số tài liệu" và con số `X/Y` ngay trên đầu bảng nói hai chuyện khác nhau về
             // cùng một dòng.
-            ->modifyQueryUsing(fn (Builder $query): Builder => ChecklistProgress::countClientFacingDocuments(
+            ->modifyQueryUsing(fn (Builder $query): Builder => ChecklistProgress::countClientSubmittedDocuments(
                 static::scopeToVisibleMatters($query)
             )->with('reviewer'));
     }

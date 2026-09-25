@@ -303,6 +303,66 @@ it('accepts two files in one submission as the same version, and the preview sho
         ->and($this->item->refresh()->status)->toBe(ChecklistItemStatus::PendingReview);
 });
 
+/**
+ * Vòng sửa 1, S1: hai kịch bản R10 ở `SubmitClientDocumentTest` ("Nộp thêm trang 3 khi đang chờ
+ * duyệt" và "Bị từ chối rồi nộp lại: version mới") trước đó chỉ được đo ở tầng Action, gọi thẳng
+ * `SubmitClientDocument::handle()` — không đi qua `chooseItem()`/`_startUpload()`/`submit()` của
+ * chính trang. Hai test dưới đây lặp lại đúng hai kịch bản đó nhưng qua `submitPage()` thật, mỗi
+ * lần nộp là MỘT lần mount lại component (đúng hình dạng khách đóng rồi mở lại màn hình, hoặc
+ * quay lại từ SPEC §8.3 sau khi văn phòng cập nhật trạng thái) — không tái dùng state Livewire
+ * giữa hai lần gửi, vì trang thật cũng không giữ nó qua một lượt tải trang mới.
+ */
+it('bổ sung trang 3 khi đầu mục đang chờ duyệt qua trang nộp thật, không tạo version mới', function () {
+    submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->set('data.file', [submitPagePdf('trang-1.pdf'), submitPagePdf('trang-2.pdf')])
+        ->call('submit')
+        ->assertHasNoErrors();
+
+    expect($this->item->refresh()->status)->toBe(ChecklistItemStatus::PendingReview);
+
+    submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->set('data.file', submitPagePdf('trang-3.pdf'))
+        ->call('submit')
+        ->assertHasNoErrors();
+
+    expect(Document::query()->count())->toBe(3)
+        ->and(Document::query()->pluck('version')->unique()->all())->toBe([1])
+        ->and(Document::query()->pluck('parent_document_id')->filter()->all())->toBe([])
+        ->and($this->item->refresh()->status)->toBe(ChecklistItemStatus::PendingReview);
+});
+
+it('nộp lại sau khi bị từ chối qua trang nộp thật tạo version mới, không bổ sung vào bản đã bị từ chối', function () {
+    submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->set('data.file', submitPagePdf('lan-1.pdf'))
+        ->call('submit')
+        ->assertHasNoErrors();
+
+    $first = Document::query()->sole();
+
+    $this->item->refresh()->update([
+        'status' => ChecklistItemStatus::Rejected,
+        'rejection_reason' => 'Ảnh bị mờ ở góc trên nên không đọc được số thửa.',
+    ]);
+
+    submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->set('data.file', submitPagePdf('lan-2.pdf'))
+        ->call('submit')
+        ->assertHasNoErrors();
+
+    expect(Document::query()->count())->toBe(2);
+
+    $second = Document::query()->where('version', 2)->sole();
+
+    expect($second->parent_document_id)->toBe($first->getKey())
+        ->and($first->refresh()->version)->toBe(1)
+        ->and($first->getMedia('file'))->toHaveCount(1)
+        ->and($this->item->refresh()->status)->toBe(ChecklistItemStatus::PendingReview);
+});
+
 /** SPEC §8.4 nguyên văn: "Sau khi gửi hiện trạng thái 'Đang chờ văn phòng kiểm tra'". */
 it('says the office is now checking the file, in those words', function () {
     // Vế âm đo TRƯỚC, khi đầu mục còn `missing`: câu đó không được đứng sẵn trên trang, nếu
@@ -538,15 +598,6 @@ it('never prints an internal note', function () {
 // =========================================================================================
 
 /**
- * Họ `FileRejected` (một `DomainException`): đuôi `.pdf` nhưng nội dung thật là một tệp thực thi
- * DOS — trường hợp SPEC §11 "Tải tệp" nêu đích danh.
- *
- * **Tệp phải đi lọt luật của chính schema rồi mới tới `FileGuard`.** Bài học M4: một `.svg` bị
- * `acceptedFileTypes()` loại từ trước, nên lần từ chối là của Filament và nhánh `FileRejected`
- * của màn hình không hề chạy — mutation probe gỡ nhánh đó đi vẫn để test xanh. `Content-Type` do
- * client gửi suy ra từ đuôi nên nó qua được `acceptedFileTypes()`; `finfo` thì không.
- */
-/**
  * Một gói ZIP tuỳ ý — dùng để dựng một tệp "đội lốt" `.docx` không phải Office thật. Tiền tố
  * `submitDocx` vì hàm khai báo ở đây là hàm TOÀN CỤC của Pest, và `FileGuardTest.php` đã có
  * `zipBytes()`/`docxPackageBytes()` cùng vai trò dưới tên khác.
@@ -653,6 +704,20 @@ it('accepts a real .doc package the client declares under any OLE2 MIME variant'
     'application/CDFV2',
 ]);
 
+/**
+ * Vòng sửa 1 (Minor): docblock này bị đặt lạc chỗ ở bản trước — nó đứng trên
+ * `submitDocxZipBytes()` (một hàm phụ trợ, không phải test) thay vì đứng trên chính test nó tả.
+ * Chuyển lại đây: nội dung tệp giả bên dưới (`"MZ\x90\x00\x03\x00\x00\x00"`, chữ ký DOS/PE) đúng
+ * là "đuôi `.pdf` nhưng nội dung thật là một tệp thực thi DOS" mà đoạn văn này mô tả.
+ *
+ * Họ `FileRejected` (một `DomainException`): đuôi `.pdf` nhưng nội dung thật là một tệp thực thi
+ * DOS — trường hợp SPEC §11 "Tải tệp" nêu đích danh.
+ *
+ * **Tệp phải đi lọt luật của chính schema rồi mới tới `FileGuard`.** Bài học M4: một `.svg` bị
+ * `acceptedFileTypes()` loại từ trước, nên lần từ chối là của Filament và nhánh `FileRejected`
+ * của màn hình không hề chạy — mutation probe gỡ nhánh đó đi vẫn để test xanh. `Content-Type` do
+ * client gửi suy ra từ đuôi nên nó qua được `acceptedFileTypes()`; `finfo` thì không.
+ */
 it('binds a file guard refusal to the file field and creates nothing', function () {
     $component = submitPage()
         ->call('chooseItem', $this->item->getKey())
@@ -859,6 +924,56 @@ it('does not show the superseded version to the client as a separate document', 
 // =========================================================================================
 // GIỚI HẠN 20 TỆP / GIỜ / TÀI KHOẢN — SPEC §10.3
 // =========================================================================================
+
+/**
+ * Vòng sửa 1 (Minor): trần MỘT LÔ (một lần bấm Gửi) — không đi qua `_startUpload()` (test này
+ * `->set('data.file', ...)` thẳng, đúng cách mọi test khác của tệp này mô phỏng FilePond), nên
+ * đây là bài đo CHO ĐÚNG cổng `submit()` vừa thêm, không đo lại cổng chọn tệp đã có test riêng.
+ * Hai mươi mốt tệp — một hơn mức 20 tệp/giờ mà SPEC §10.3 đặt — không cách nào gửi trót lọt dù
+ * chờ bao lâu, nên `submit()` chặn ngay, TRƯỚC khi đọc/ghi bất kỳ tệp nào (`Document::count()`
+ * vẫn 0), bằng câu RIÊNG của cổng này — không phải câu `rate_limited`/`rate_limited_upload` của
+ * bộ đếm giờ (khách chưa dùng suất nào, họ chỉ chọn quá nhiều tệp trong một lần).
+ */
+it('refuses a batch of more than twenty files in one submission, before any bytes move', function () {
+    $files = array_map(
+        fn (int $i): UploadedFile => submitPagePdf("trang-{$i}.pdf"),
+        range(1, 21),
+    );
+
+    $component = submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->set('data.file', $files)
+        ->call('submit');
+
+    $component->assertHasErrors('data.file');
+
+    expect($component->errors()->first('data.file'))
+        ->toBe(__('portal_submit.errors.too_many_files_per_submission', ['limit' => 20]))
+        // Vế âm: KHÔNG phải câu của luật `max` (kích thước) — xem docblock `form()`, mục
+        // `maxFiles()`, cho lý do hai luật `max` không thể chung một câu qua field này.
+        ->and($component->errors()->first('data.file'))->not->toContain('MB');
+
+    expect(Document::query()->count())->toBe(0)
+        ->and(Storage::disk('private')->allFiles())->toBe([]);
+});
+
+/**
+ * Cặp dương: đúng hai mươi tệp — mức tối đa — vẫn gửi trót lọt qua đúng cổng vừa thêm ở trên.
+ */
+it('accepts exactly twenty files in one submission — the positive edge of the new batch cap', function () {
+    $files = array_map(
+        fn (int $i): UploadedFile => submitPagePdf("trang-{$i}.pdf"),
+        range(1, 20),
+    );
+
+    submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->set('data.file', $files)
+        ->call('submit')
+        ->assertHasNoErrors();
+
+    expect(Document::query()->count())->toBe(20);
+});
 
 /**
  * **Khoá theo TÀI KHOẢN, không theo IP và không theo khách hàng.** SPEC §10.3 viết "theo tài

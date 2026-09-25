@@ -622,7 +622,7 @@ class MatterProgress extends Page
     {
         $viewer = $this->viewer();
 
-        return $this->resolvedChecklist ??= ChecklistProgress::countClientFacingDocuments(
+        return $this->resolvedChecklist ??= ChecklistProgress::countClientSubmittedDocuments(
             $this->matter()->checklistItems()->getQuery()
         )->get()
             ->filter(fn (MatterChecklistItem $item): bool => Gate::forUser($viewer)->allows('view', $item))

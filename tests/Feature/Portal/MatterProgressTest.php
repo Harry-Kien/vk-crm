@@ -1,9 +1,12 @@
 <?php
 
 use App\Actions\Document\ChecklistProgress;
+use App\Actions\Document\PublishDocument;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
+use App\Enums\MatterRole;
+use App\Enums\Role;
 use App\Filament\Portal\Pages\MatterProgress;
 use App\Models\Client;
 use App\Models\ClientUser;
@@ -13,10 +16,13 @@ use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Models\StageLog;
 use App\Models\StageLogView;
+use App\Models\User;
 use App\Support\Scopes\ClientPortalScope;
+use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Http\Events\RequestHandled;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Event;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -328,6 +334,88 @@ it('takes X of Y from the ChecklistProgress action instead of counting again', f
         ->get(progressUrl($this->matter))
         ->assertOk()
         ->assertSee(__('portal_progress.checklist.progress', $progress), escape: false);
+});
+
+/**
+ * **C1 (nghiêm trọng, fix round 1) — đi đúng màn hình thật của SPEC §14 mục "nghiệm thu", không
+ * chỉ tầng Action.** Văn phòng gắn một quyết định nhóm C vào một đầu mục tuỳ chọn — trước tiên
+ * còn `internal_draft` (chưa công bố), rồi CÔNG BỐ nó qua đúng `PublishDocument` (route thật của
+ * SPEC §6.5, không set cột tay). Ở CẢ HAI thời điểm, mẫu số của thanh tiến độ không tăng, và đầu
+ * mục không đứng trong phần "còn chờ ở anh/chị" (`documents_lead`, phần mà thanh tiến độ ĐẾM) —
+ * nó vẫn hiện ở phần "không bắt buộc" (`documents_optional_lead`) đúng như SPEC §8.3 đòi (khách
+ * vẫn cần biết văn phòng CÓ THỂ dùng tới giấy tờ đó), chỉ không đứng LẪN vào danh sách việc phải
+ * làm. Đây chính là hình dạng mà finding checklist-05/C1 mô tả — bản sửa lần đầu chỉ chặn được
+ * nửa đầu (`internal_draft`) và để lọt nửa sau (`published`), vì nó đọc "Y" là "tài liệu khách
+ * đọc được" thay vì "tài liệu khách NỘP". Phán quyết vòng sửa 1: `Y` đếm CHỈ nhóm A — quyết định
+ * nhóm C không bao giờ vào Y, công bố hay không.
+ */
+it('does not let a published group C decision count toward Y or move into the counted todo section', function () {
+    // `PublishDocument` đòi `document.publish` (SPEC §5) — vai trò gán bằng `withRole()` không tự
+    // có quyền nào, phải gieo bảng quyền thật thì `Gate::forUser($lawyer)->authorize(...)` mới qua.
+    $this->seed(RolesAndPermissionsSeeder::class);
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    // Đổi `lead_lawyer_id` sau khi tạo KHÔNG tự thêm người vào đội ngũ — `Matter::booted()` chỉ
+    // đồng bộ `team` ở sự kiện `created`, một lần duy nhất lúc tạo. Không thêm tay thì
+    // `MatterPolicy::update` (qua `isListableBy()`/`scopeListableBy()`) không thấy $lawyer trong
+    // `team`, và `PublishDocument` ném `AuthorizationException`.
+    $this->matter->update(['lead_lawyer_id' => $lawyer->id]);
+    $this->matter->addTeamMember($lawyer, MatterRole::Lead);
+
+    MatterChecklistItem::factory()->for($this->matter)->create([
+        'name' => 'Giấy chứng nhận quyền sử dụng đất',
+        'is_required' => true,
+        'status' => ChecklistItemStatus::Missing,
+    ]);
+    $optional = MatterChecklistItem::factory()->for($this->matter)->create([
+        'name' => 'Văn bản, quyết định của cơ quan nhà nước liên quan đến thửa đất',
+        'is_required' => false,
+        'status' => ChecklistItemStatus::Missing,
+    ]);
+
+    $decision = Document::factory()->for($this->matter)->group(DocumentGroup::Authority)->create([
+        'matter_checklist_item_id' => $optional->id,
+        'title' => 'Quyết định của UBND',
+        'status' => DocumentStatus::InternalDraft,
+        'client_can_view' => false,
+    ]);
+    // `PublishDocument` đòi có tệp thật trong collection `file` (SPEC §6.5) — `Storage::fake()`
+    // đã bật sẵn cho mọi test Feature (`tests/Pest.php`).
+    $decision->addMedia(UploadedFile::fake()->createWithContent(
+        'quyet-dinh-ubnd.pdf', "%PDF-1.4\n%âãÏÓ\n1 0 obj\n<< /Type /Catalog >>\nendobj\n",
+    ))->toMediaCollection('file');
+
+    $assertOptionalStaysOutOfY = function () use ($optional): void {
+        $html = $this->actingAs($this->clientUser, 'client')->get(progressUrl($this->matter))->assertOk()->getContent();
+        $todo = progressTodoBlock($html);
+
+        $optionalLead = strpos($todo, __('portal_progress.blocks.todo.documents_optional_lead'));
+
+        // Mẫu số vẫn 1 (chỉ đầu mục bắt buộc) — quyết định nhóm C không kéo nó lên 2.
+        expect(app(ChecklistProgress::class)->handle($this->matter))->toBe(['submitted' => 0, 'total' => 1])
+            ->and($html)->toContain(__('portal_progress.checklist.progress', ['submitted' => 0, 'total' => 1]))
+            // Đầu mục vẫn hiện ra (SPEC §8.3: khách vẫn cần biết văn phòng có thể dùng tới nó)...
+            ->and($todo)->toContain($optional->name)
+            // ...nhưng ở phần KHÔNG BẮT BUỘC, đứng SAU câu dẫn của phần đó — không đứng lẫn vào
+            // phần "còn chờ ở anh/chị" mà thanh tiến độ đếm.
+            ->and($optionalLead)->not->toBeFalse()
+            ->and(strpos($todo, $optional->name))->toBeGreaterThan($optionalLead);
+    };
+
+    // Vòng 1 — CHƯA công bố.
+    $assertOptionalStaysOutOfY();
+
+    // Vòng 2 — CÔNG BỐ thật, qua đúng Action của SPEC §6.5, không set cột tay.
+    app(PublishDocument::class)->handle($decision->fresh(), $lawyer, clientCanView: true, clientCanDownload: false);
+
+    $assertOptionalStaysOutOfY();
+
+    // Và khách ĐỌC ĐƯỢC quyết định đã công bố ở khối tài liệu — nó không "biến mất", nó chỉ
+    // không phải một việc khách phải làm. `clientCanDownload: false` ở trên (đúng như khối 5
+    // "shows a viewable document without a download button..." đã đo) có nghĩa KHÔNG có nút
+    // tải — tên tài liệu vẫn hiện là đủ chứng minh nó tới tay khách.
+    $html = $this->actingAs($this->clientUser, 'client')->get(progressUrl($this->matter))->assertOk()->getContent();
+    expect($html)->toContain('Quyết định của UBND')
+        ->and(substr_count($html, 'documents/'.$decision->getKey().'/download'))->toBe(0);
 });
 
 // =========================================================================================

@@ -4,8 +4,6 @@ namespace App\Actions\Document;
 
 use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
-use App\Enums\DocumentStatus;
-use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Support\Scopes\ClientPortalScope;
@@ -24,7 +22,7 @@ use Illuminate\Database\Eloquent\Builder;
  * hoặc viết lại luật lần thứ hai. Cả hai đều là cách để hai panel hiện hai con số khác nhau cho
  * cùng một hồ sơ.
  *
- * # Luật, viết đủ vì cách đọc đã phải sửa hai lần
+ * # Luật, viết đủ vì cách đọc đã phải sửa BA lần
  *
  * SPEC §4.10 định nghĩa `Y` là "số item `is_required = true` cộng số item không bắt buộc nhưng
  * đã có tài liệu". Đính chính 2026-09-16 trong chính SPEC nói rõ hai điều mà bản đầu thiếu:
@@ -35,11 +33,11 @@ use Illuminate\Database\Eloquent\Builder;
  *    liệu nào — đúng nghĩa của trạng thái đó — nên những dòng ấy nằm trong tử số mà không nằm
  *    trong mẫu số. Seeder không sai: một đầu mục không bắt buộc, không tài liệu, được đánh dấu
  *    "không cần nộp" thì đơn giản là không xuất hiện trên thanh tiến độ, ở cả hai vế.
- *  - **"đã có tài liệu" nghĩa là có ít nhất một tài liệu KHÁCH ĐỌC ĐƯỢC** — đúng ba điều kiện
- *    của `Document::isReleasedToPortal()`: `client_can_view`, `status = published`, và khác nhóm
- *    D. Đây là một sửa lại so với đính chính 2026-09-16, thứ chỉ viết "không thuộc nhóm D" và bỏ
- *    sót vế `client_can_view`/`status` — xem "**Sửa lại checklist-05**" bên dưới cho lý do và
- *    bằng chứng.
+ *  - **"đã có tài liệu" nghĩa là có ít nhất một tài liệu NHÓM A** (`DocumentGroup::ClientProvided`)
+ *    — không phải "khác nhóm D" (đính chính 2026-09-16) và cũng không phải "khách đọc được" (bản
+ *    sửa checklist-05 lần đầu, M6.5 Task 17). Cả hai cách đọc trước đều sai theo cùng một hướng:
+ *    chúng để một tài liệu VĂN PHÒNG tự đưa vào (nhóm B/C) kéo một đầu mục tuỳ chọn vào `Y`. Xem
+ *    "**Sửa lại checklist-05, lần hai**" bên dưới cho lý do và bằng chứng.
  *
  * Điều kiện của `X` chỉ đọc cột `status` (thứ mà `UploadStaffDocument`, `ReviewChecklistItem` và
  * `MarkChecklistItemNotApplicable` ghi) và không hỏi bảng `documents` một câu nào — nhưng `X`
@@ -47,29 +45,30 @@ use Illuminate\Database\Eloquent\Builder;
  * `documents` được hỏi là định nghĩa của `Y`, và nó phải được hỏi ở đó, vì chính SPEC §4.10
  * định nghĩa `Y` bằng chữ "đã có tài liệu".
  *
- * # Sửa lại checklist-05: "khác nhóm D" không phải là "khách đọc được"
+ * # Sửa lại checklist-05, lần hai: "khách đọc được" cũng chưa đúng — phải là "khách NỘP"
  *
  * Đính chính 2026-09-16 viết `Y` gồm các đầu mục không bắt buộc "có ít nhất một tài liệu không
- * thuộc nhóm D" — tức nhóm A, B, C đều tính, bất kể trạng thái vòng đời. Bản đọc đó có một lỗ:
- * một quyết định nhóm C (`internal_draft`, `client_can_view = false`) gắn vào một đầu mục tuỳ
- * chọn kéo đầu mục đó vào `Y` NGAY LẬP TỨC, trong khi trạng thái đầu mục vẫn `missing` — tức nó
- * rơi thẳng vào nhóm "Giấy tờ chúng tôi còn chờ ở anh/chị" mà `MatterProgress::outstandingItems()`
- * vẽ ra, và mẫu số tăng lên đúng lúc khách bị đòi một thứ văn phòng ĐÃ CÓ trong tay mà họ lại
- * không nhìn thấy (finding `checklist/checklist-05`, M6.5 Task 17). Docblock trước bản sửa này
- * còn lập luận NGƯỢC với hậu quả đó — nó viết "một bản đơn văn phòng đang soạn LÀ bằng chứng
- * rằng đầu mục ấy không còn là một việc của khách" để giải thích vì sao ẩn nó đi khỏi mẫu số là
- * sai, trong khi hành vi thật là GIỮ nó trong mẫu số mới tạo ra việc phải làm.
+ * thuộc nhóm D" — tức nhóm A, B, C đều tính, bất kể trạng thái vòng đời. Bản sửa đầu tiên của
+ * checklist-05 (M6.5 Task 17, trước rà soát vòng 1) đọc lại thành "khách ĐỌC ĐƯỢC" — ba điều
+ * kiện của `Document::isReleasedToPortal()` (`client_can_view`, `published`, khác nhóm D) — với
+ * lập luận: một quyết định nhóm B/C ĐÃ CÔNG BỐ không khác gì một tài liệu nhóm A về mặt "khách
+ * đọc được gì". Lập luận đó SAI, và rà soát vòng 1 (finding C1, nghiêm trọng) chỉ ra đúng chỗ:
+ * MỘT KHI quyết định ấy được công bố, nó đi qua đúng con đường mà bản sửa lần đầu định sửa — đầu
+ * mục vẫn `missing` (chưa ai duyệt nó là "đã xong"), nên nó VẪN rơi vào "Giấy tờ chúng tôi còn
+ * chờ ở anh/chị" mà `MatterProgress::outstandingItems()` vẽ ra, trong khi khách đã thấy chính
+ * quyết định đó ở khối "Tài liệu" — script y hệt bug gốc, chỉ dịch pha từ "chưa công bố" sang
+ * "đã công bố".
  *
- * Luật đúng đọc theo tinh thần của chính đính chính (mẫu số trả lời "văn phòng còn chờ khách nộp
- * gì", không phải "văn phòng đã có gì trong tủ hồ sơ nội bộ"): một tài liệu chỉ là bằng chứng
- * "đầu mục này không còn là việc của khách" khi CHÍNH KHÁCH đọc được nó — `client_can_view` và
- * `published`, không chỉ khác nhóm D. Một quyết định nhóm B/C đã đi hết vòng đời và được công bố
- * (SPEC §4.11: `internal_draft` → `pending_approval` → `signed_filed` → `published`, cộng
- * `PublishDocument` bật `client_can_view`) VẪN kéo được đầu mục vào `Y` — nó không khác gì một
- * tài liệu nhóm A về mặt "khách đã đọc được gì" — nên luật không loại nhóm, nó lọc theo tầm
- * nhìn. Test `ChecklistProgressTest` ghim cả hai vế: một quyết định nhóm C còn `internal_draft`
- * không kéo được đầu mục vào `Y`; cùng quyết định đó sau khi `published`/`client_can_view` thì
- * kéo được.
+ * Chốt lại: mẫu số trả lời đúng MỘT câu — **"văn phòng còn chờ KHÁCH nộp gì"** — không phải
+ * "khách đọc được gì" và không phải "văn phòng đã có gì trong tủ hồ sơ". Một tài liệu chỉ là
+ * bằng chứng "khách đã làm xong việc này" khi CHÍNH KHÁCH là người tạo ra nó — tức nhóm A
+ * (`DocumentGroup::ClientProvided`, "khách cung cấp bất kể ai bấm nút tải lên", SPEC §4.11).
+ * Một quyết định nhóm B/C, dù đã đi hết vòng đời tới `published`, vẫn là một tài liệu VĂN PHÒNG
+ * tạo ra — nó có thể làm đầu mục hết còn là việc phải làm ở một nghĩa KHÁC (văn phòng tự quyết
+ * định không cần khách nộp nữa), nhưng nghĩa đó có Action riêng
+ * (`MarkChecklistItemNotApplicable`), không phải một cách ngầm định qua việc đính kèm tài liệu.
+ * Test `ChecklistProgressTest` ghim: một quyết định nhóm B/C — dù `internal_draft` hay đã
+ * `published`/`client_can_view` — đều KHÔNG kéo được đầu mục vào `Y`.
  *
  * # Phép đếm bỏ `ClientPortalScope`
  *
@@ -87,12 +86,20 @@ use Illuminate\Database\Eloquent\Builder;
 class ChecklistProgress
 {
     /**
-     * Bí danh của bộ đếm tài liệu KHÁCH ĐỌC ĐƯỢC gắn vào một đầu mục (xem "Sửa lại checklist-05"
+     * Bí danh của bộ đếm tài liệu NHÓM A gắn vào một đầu mục (xem "Sửa lại checklist-05, lần hai"
      * ở docblock lớp). Công khai vì bảng ở tab "Danh mục hồ sơ" hiện đúng con số này thành một
      * cột, và nó phải là CÙNG con số mẫu số đang dùng — không phải một phép đếm thứ hai viết lại
      * bên màn hình.
+     *
+     * **Đổi tên từ `client_facing_documents_count` (fix round 1, C1).** Cái tên cũ nói về TẦM
+     * NHÌN ("khách nhìn thấy được") — đúng cho một quyết định nhóm B/C đã công bố, nhưng KHÔNG
+     * còn đúng cho thứ hằng số này đếm kể từ khi `Y` chỉ tính nhóm A. Giữ tên cũ sẽ để cột "Số
+     * tệp đã nộp" đọc một con số đúng ("0") nhưng do một cái tên SAI đứng đằng sau — một nhân sự
+     * đọc code sẽ tưởng "0 tài liệu khách nhìn thấy" trong khi có thể có một quyết định nhóm C đã
+     * `published` nằm ngay trên đầu mục đó. Tên mới nói đúng thứ được đếm: tài liệu do CHÍNH
+     * KHÁCH gửi lên.
      */
-    public const DOCUMENT_COUNT_ALIAS = 'client_facing_documents_count';
+    public const CLIENT_SUBMITTED_DOCUMENT_COUNT_ALIAS = 'client_submitted_documents_count';
 
     /**
      * Hai trạng thái được tính là "đã xong" ở tử số `X`. `not_applicable` nằm cùng hạng với
@@ -106,7 +113,7 @@ class ChecklistProgress
     /** @return array{submitted: int, total: int} */
     public function handle(Matter $matter): array
     {
-        $counted = self::countClientFacingDocuments($matter->checklistItems()->getQuery())
+        $counted = self::countClientSubmittedDocuments($matter->checklistItems()->getQuery())
             ->get()
             ->filter(self::countedInTotal(...));
 
@@ -128,20 +135,27 @@ class ChecklistProgress
      * về bốn. Một chỗ giữ luật, ba chỗ đọc nó.
      *
      * Điều kiện đọc `is_required` VÀ bí danh bộ đếm tài liệu, nên người gọi phải nạp bộ đếm ấy
-     * bằng {@see self::countClientFacingDocuments()}; thiếu nó thì `?? 0` làm một đầu mục không
+     * bằng {@see self::countClientSubmittedDocuments()}; thiếu nó thì `?? 0` làm một đầu mục không
      * bắt buộc ĐÃ có tài liệu rơi ra khỏi `Y`. Đó là lý do hàm này đứng cạnh hàm kia thay vì ở
      * một lớp tiện ích nào khác.
      */
     public static function countedInTotal(MatterChecklistItem $item): bool
     {
         return $item->is_required
-            || ((int) ($item->{self::DOCUMENT_COUNT_ALIAS} ?? 0)) > 0;
+            || ((int) ($item->{self::CLIENT_SUBMITTED_DOCUMENT_COUNT_ALIAS} ?? 0)) > 0;
     }
 
     /**
-     * Gắn bộ đếm "tài liệu khách ĐỌC ĐƯỢC" vào một truy vấn `matter_checklist_items` — ba điều
-     * kiện của {@see Document::isReleasedToPortal()}, viết lại bằng `where` vì
-     * `withCount` không gọi được một phương thức instance trên từng dòng con.
+     * Gắn bộ đếm "tài liệu NHÓM A" (`DocumentGroup::ClientProvided`) vào một truy vấn
+     * `matter_checklist_items` — đúng MỘT điều kiện kể từ fix round 1 (C1): trước đó hàm này còn
+     * hỏi thêm `client_can_view`/`status = published`, những điều kiện luôn ĐÚNG cho nhóm A ngay
+     * từ lúc tạo (`StoresDocumentFile::defaultsFor()`), nên chúng không loại thêm được gì — trừ
+     * đúng cái không nên loại: một tài liệu nhóm A mà ai đó (một Action tương lai, hay một lệnh
+     * sửa tay) tắt `client_can_view` đi. Bỏ hai điều kiện ấy để "nhóm A" là toàn bộ câu hỏi, đúng
+     * như phán quyết "Y đếm CHỈ nhóm A" — không phải "nhóm A thoả thêm hai điều kiện".
+     *
+     * Đổi tên từ `countClientFacingDocuments()`: tên cũ nói về TẦM NHÌN, tên mới nói về NGƯỜI TẠO
+     * — cùng lý do đổi tên hằng số ở trên.
      *
      * Tách ra khỏi {@see self::handle()} vì bảng ở tab "Danh mục hồ sơ" cần ĐÚNG con số này trên
      * từng dòng, và một `withCount` viết lại lần thứ hai bên màn hình là cách để cột "Số tài
@@ -153,14 +167,12 @@ class ChecklistProgress
      * @param  Builder<MatterChecklistItem>  $items
      * @return Builder<MatterChecklistItem>
      */
-    public static function countClientFacingDocuments(Builder $items): Builder
+    public static function countClientSubmittedDocuments(Builder $items): Builder
     {
         return $items->withCount([
-            'documents as '.self::DOCUMENT_COUNT_ALIAS => fn (Builder $documents): Builder => $documents
+            'documents as '.self::CLIENT_SUBMITTED_DOCUMENT_COUNT_ALIAS => fn (Builder $documents): Builder => $documents
                 ->withoutGlobalScope(ClientPortalScope::class)
-                ->where('client_can_view', true)
-                ->where('status', DocumentStatus::Published->value)
-                ->where('group', '!=', DocumentGroup::Internal->value),
+                ->where('group', DocumentGroup::ClientProvided->value),
         ]);
     }
 }

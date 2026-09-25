@@ -326,7 +326,18 @@ class ReviewChecklistItem
         // sửa (hoặc gõ tay để sót một cặp ngoặc) sẽ đưa nguyên văn `[tên …]` tới khách — đúng bug
         // gốc mà finding checklist-06 tả. Chặn ở đây, sau ngưỡng độ dài: một câu đủ dài nhưng còn
         // để sót chỗ trống vẫn là một câu không nói được gì với khách.
-        if (str_contains($reason, '[tên')) {
+        //
+        // Vòng sửa 1: chuẩn hoá về NFC TRƯỚC khi so — chuỗi nguồn `'[tên'` trong tệp PHP này là
+        // NFC (chữ `ê` một điểm mã `U+00EA`), nhưng một bàn phím/hệ điều hành khác có thể gõ ra
+        // NFD (`e` + dấu mũ tổ hợp `U+0302`, hai điểm mã) — hai chuỗi ĐỌC giống hệt nhau nhưng
+        // `str_contains()` so BYTE nên không khớp, và một câu còn nguyên chỗ trống `[tên đầu
+        // mục]` lọt qua cổng này tới thẳng khách. `\Normalizer` viết đủ tên — cùng lý do đã ghi ở
+        // `PortalLoginThrottle::foldEmail()`: `App\Support\Normalizer` là một lớp khác của dự án.
+        // Chuỗi vào không phải UTF-8 hợp lệ thì `normalize()` trả `false`; giữ nguyên `$reason` ở
+        // đó thay vì biến nó thành rỗng, cùng kỷ luật với `foldEmail()`.
+        $normalizedReason = \Normalizer::normalize($reason, \Normalizer::FORM_C);
+
+        if (str_contains(is_string($normalizedReason) ? $normalizedReason : $reason, '[tên')) {
             throw ValidationException::withMessages([
                 'rejection_reason' => [__('checklist.review.reason_placeholder')],
             ]);

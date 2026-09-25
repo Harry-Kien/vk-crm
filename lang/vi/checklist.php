@@ -100,7 +100,12 @@ return [
             'rejection_reason' => 'Lý do đã nói với khách',
             'reviewer' => 'Người duyệt',
             'reviewed_at' => 'Duyệt lúc',
-            'documents_count' => 'Số tệp đã nộp',
+            // Fix round 1 (C1): "khách đã nộp" viết ra tường minh — cột này CHỈ đếm tài liệu nhóm
+            // A (`ChecklistProgress::CLIENT_SUBMITTED_DOCUMENT_COUNT_ALIAS`), nên "0" ở đây có
+            // thể đứng cạnh một quyết định nhóm B/C đã công bố nằm ngay trên cùng dòng. Nhãn cũ
+            // ("Số tệp đã nộp") không nói RÕ ai là người nộp, và dễ đọc nhầm "0" thành "đầu mục
+            // này chưa có gì cả" — sai, vì văn phòng có thể đã đính kèm một quyết định.
+            'documents_count' => 'Số tệp khách đã nộp',
         ],
         'actions' => [
             // "Thêm đầu mục" — M6.5 Task 15 (finding intake-02/checklist-02/roles-06/spec-gap-04):

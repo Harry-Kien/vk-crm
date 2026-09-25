@@ -276,12 +276,18 @@ it('does not pull an optional item into the denominator for an internal_draft gr
 });
 
 /**
- * Cặp dương của test trên: một quyết định nhóm B/C đã đi hết vòng đời (`published`,
- * `client_can_view = true`) LÀ bằng chứng khách đã đọc được, nên nó vẫn kéo đầu mục vào `Y` —
- * đúng như một tài liệu nhóm A. Luật không phân biệt nhóm, chỉ phân biệt "khách đọc được hay
- * chưa".
+ * Fix round 1 (C1, critical): một quyết định nhóm B/C đã đi hết vòng đời (`published`,
+ * `client_can_view = true`) VẪN KHÔNG kéo đầu mục vào `Y`. Phán quyết của chủ nhiệm sau lượt rà
+ * soát đầu: `Y` đếm CHỈ nhóm A — không phải "tài liệu khách đọc được" như bản sửa trước đó đọc.
+ * Một quyết định nhóm B/C, dù đã công bố, vẫn là tài liệu VĂN PHÒNG đưa ra, không phải tài liệu
+ * KHÁCH nộp; đếm nó vào mẫu số tái lập đúng lỗi mà finding checklist-05 gốc mô tả — khách bị đòi
+ * một thứ họ không hề tạo ra, chỉ khác là lần này đã công bố nên `client_can_view = true` không
+ * còn phân biệt được với một tài liệu nhóm A thật.
+ *
+ * Đây là test bị lật so với vòng sửa trước (từng khẳng định `total => 1`) — chính hình dạng mà
+ * review vòng 1 chỉ ra là sai.
  */
-it('pulls an optional item into the denominator once a group B document reaches the client', function () {
+it('does not pull an optional item into the denominator even once a published group B document reaches the client', function () {
     $matter = Matter::factory()->create();
 
     $optional = MatterChecklistItem::factory()->for($matter)->create([
@@ -295,5 +301,5 @@ it('pulls an optional item into the denominator once a group B document reaches 
         'client_can_view' => true,
     ]);
 
-    expect(checklistProgress($matter))->toBe(['submitted' => 0, 'total' => 1]);
+    expect(checklistProgress($matter))->toBe(['submitted' => 0, 'total' => 0]);
 });

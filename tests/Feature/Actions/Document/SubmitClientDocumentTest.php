@@ -19,6 +19,7 @@ use App\Support\Files\VirusScanner;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
+use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -714,8 +715,45 @@ it('dispatch sự kiện báo cho đội ngũ biết có tệp mới cần kiể
 
     Event::assertDispatched(
         ClientDocumentSubmitted::class,
-        fn (ClientDocumentSubmitted $event) => $event->document->is($document),
+        fn (ClientDocumentSubmitted $event) => $event->documents->pluck('id')->all() === [$document->id],
     );
+});
+
+/**
+ * Vòng sửa 1, finding I4: bản đầu dispatch `ClientDocumentSubmitted` BÊN TRONG vòng lặp tạo
+ * `Document` của R10 — một lần nộp bốn tệp (ví dụ hợp đồng nhiều trang) tạo ra BỐN sự kiện, bốn
+ * thông báo cho đúng MỘT lần khách bấm Gửi. Test này ghim luật đã sửa: đúng MỘT sự kiện cho CẢ
+ * LÔ, và sự kiện đó mang đủ cả bốn `Document` — không phải chỉ tài liệu đầu tiên hay cuối cùng.
+ */
+it('dispatch đúng MỘT sự kiện cho một lần nộp bốn tệp, mang đủ cả bốn tài liệu', function () {
+    Event::fake([ClientDocumentSubmitted::class]);
+
+    $documents = submitClientDocuments($this->item, $this->clientUser, [
+        clientSubmitPdf('trang-1.pdf'),
+        clientSubmitPdf('trang-2.pdf'),
+        clientSubmitPdf('trang-3.pdf'),
+        clientSubmitPdf('trang-4.pdf'),
+    ]);
+
+    expect($documents)->toHaveCount(4);
+
+    Event::assertDispatchedTimes(ClientDocumentSubmitted::class, 1);
+    Event::assertDispatched(
+        ClientDocumentSubmitted::class,
+        fn (ClientDocumentSubmitted $event) => $event->documents->pluck('id')->sort()->values()->all()
+            === $documents->pluck('id')->sort()->values()->all(),
+    );
+});
+
+it('từ chối một lô rỗng ngay trong Action, không tự tin caller đã kiểm tra thay mình', function () {
+    expect(fn () => app(SubmitClientDocument::class)->handle(
+        checklistItem: $this->item,
+        actor: $this->clientUser,
+        files: [],
+    ))->toThrow(InvalidArgumentException::class);
+
+    expect(Document::query()->count())->toBe(0)
+        ->and($this->item->refresh()->status)->toBe(ChecklistItemStatus::Missing);
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -780,10 +818,6 @@ it('hai tài khoản cùng khách nộp song song vào cùng đầu mục thì v
     ]);
 
     $itemId = $this->item->getKey();
-    $matterId = $this->matter->getKey();
-    $clientId = $this->client->getKey();
-    $siblingId = $sibling->getKey();
-    $primaryClientUserId = $this->clientUser->getKey();
 
     // **`RefreshDatabase` bọc CẢ TEST này trong một transaction trên kết nối mặc định** — nên
     // khoá hàng mà chính `SubmitClientDocument` sắp lấy hôm nay đã bị GIỮ SẴN bởi chính phiên
@@ -793,9 +827,32 @@ it('hai tài khoản cùng khách nộp song song vào cùng đầu mục thì v
     // phép đo bên dưới đo được cái nó cần đo: một phiên KHÁC thật sự tranh chấp với phiên đang
     // chạy `SubmitClientDocument`, không tranh chấp với việc dựng fixture của chính test này.
     //
-    // Cái giá của việc này: dữ liệu không tự rollback ở cuối test như mọi test khác trong dự án
-    // — `finally` bên dưới tự xoá sạch, theo đúng thứ tự khoá ngoại.
+    // **Vòng sửa 1, finding I2: cái giá của việc này KHÔNG còn là "dọn tay theo đúng thứ tự khoá
+    // ngoại" — nó là bắt cả bộ test MIGRATE LẠI.** Bản trước (`forceDelete()` năm dòng: Document,
+    // MatterChecklistItem, Matter, ClientUser, Client) chỉ xoá đúng những gì CHÍNH TEST NÀY tạo
+    // ra một cách tường minh, và bỏ sót mọi thứ side-effect kéo theo: `$this->lawyer` (một
+    // `User` — `beforeEach` của tệp này tạo), vai trò/quyền mà `RolesAndPermissionsSeeder`
+    // (cũng `beforeEach`) gieo (`roles`, `permissions`, `role_has_permissions`,
+    // `model_has_roles`), và mọi dòng `activity_log` mà `LogsActivity` ghi khi tạo `Document`/
+    // `Matter`. Tất cả những dòng đó CŨNG bị `DB::commit()` ở trên biến thành VĨNH VIỄN (chúng
+    // nằm TRONG cùng transaction bị commit sớm, không riêng năm bảng được liệt tay), và không gì
+    // dọn chúng — `DemoDataSeederTest` chạy sau trong cùng tiến trình sẽ đếm ra một
+    // `MatterType`/`role`/... thừa mà không dòng test nào ở ĐÂY nói cho biết vì sao.
+    //
+    // Sửa: `RefreshDatabaseState::$migrated = false` — cờ mà `Illuminate\Foundation\Testing
+    // \RefreshDatabase::refreshTestDatabase()` đọc TRƯỚC KHI mở transaction cho MỖI test. Đặt nó
+    // về `false` ở ĐÂY bắt phép gọi đó, ở test KẾ TIẾP, chạy `migrate:fresh` lại — dựng lại TOÀN
+    // BỘ schema từ đầu — trước khi mở transaction của test đó. Không còn "xoá đúng những gì tôi
+    // nhớ đã tạo"; toàn bộ cơ sở dữ liệu bị thay bằng một bản MỚI, nên không bảng nào, có tên hay
+    // không, còn mang theo bất cứ gì của test này. Cái giá đổi từ "một danh sách xoá dễ thiếu"
+    // thành "một lần `migrate:fresh` chậm hơn ở ĐÚNG MỘT test kế tiếp" — chấp nhận được, vì test
+    // này vốn đã hiếm (chỉ chạy dưới `test:mariadb`) và không nằm trên đường mặc định `bin/dev
+    // test`.
+    RefreshDatabaseState::$migrated = false;
+
     DB::commit();
+
+    $race = null;
 
     try {
         // Kết nối THỨ HAI, trỏ về ĐÚNG cơ sở dữ liệu MariaDB đang chạy — nhân bản cấu hình của
@@ -833,7 +890,9 @@ it('hai tài khoản cùng khách nộp song song vào cùng đầu mục thì v
         expect(Document::query()->where('matter_checklist_item_id', $itemId)->count())->toBe(1);
 
         // Kết nối kia giải phóng khoá — không ghi gì vào `documents` (nó chỉ giữ khoá để mô
-        // phỏng), nên chuỗi vẫn đúng y như trước khi cuộc đua bắt đầu: một bản version 1.
+        // phỏng), nên chuỗi vẫn đúng y như trước khi cuộc đua bắt đầu: một bản version 1. Cần
+        // GIẢI PHÓNG THẬT ở đây (không chỉ ở `finally`): lần nộp thứ hai ngay dưới đây còn cần
+        // dùng tới khoá hàng này trong CHÍNH test, không phải chỉ lúc dọn dẹp.
         $race->rollBack();
 
         // Giờ hết tranh chấp, tài khoản thứ hai nộp lại — đi tiếp đúng chuỗi, không cấp lại số 1.
@@ -844,13 +903,15 @@ it('hai tài khoản cùng khách nộp song song vào cùng đầu mục thì v
             ->and(Document::query()->where('matter_checklist_item_id', $itemId)->pluck('version')->sort()->values()->all())
             ->toBe([1, 2]);
     } finally {
-        // Dọn tay, đúng thứ tự khoá ngoại — `COMMIT` ở trên đưa dữ liệu ra khỏi transaction mà
-        // `RefreshDatabase` sẽ rollback, nên nó không tự biến mất ở cuối test như mọi test khác.
-        Document::query()->where('matter_id', $matterId)->forceDelete();
-        MatterChecklistItem::query()->whereKey($itemId)->forceDelete();
-        Matter::query()->whereKey($matterId)->forceDelete();
-        ClientUser::query()->whereIn('id', [$siblingId, $primaryClientUserId])->forceDelete();
-        Client::query()->whereKey($clientId)->forceDelete();
+        // Vòng sửa 1, finding I2: giải phóng `$race` VÔ ĐIỀU KIỆN ở đây, không chỉ trên đường
+        // thành công phía trên. Bất kỳ `expect()` nào ở trên ném ra TRƯỚC dòng `$race->rollBack()`
+        // trong `try` (ví dụ khẳng định "phải bị chặn" thất bại) sẽ nhảy thẳng vào `finally` mà
+        // còn giữ nguyên khoá hàng — và khoá đó nằm trên một CONNECTION THẬT, riêng với connection
+        // mặc định mà `RefreshDatabase::tearDown()` biết dọn; không ai khác đóng nó lại. Gọi
+        // `rollBack()` lần thứ hai (khi đường thành công đã gọi nó rồi) là an toàn — Laravel bỏ
+        // qua một lời gọi `rollBack()` khi không còn transaction nào đang mở, không ném gì cả.
+        $race?->rollBack();
+        $race?->disconnect();
 
         // Mở lại một transaction trên kết nối mặc định để `RefreshDatabase::tearDown()` có đúng
         // thứ nó mong đợi khi gọi `rollBack()` — không có dòng này, tearDown gặp một kết nối

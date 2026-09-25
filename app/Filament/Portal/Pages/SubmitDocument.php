@@ -520,11 +520,36 @@ class SubmitDocument extends Page
                 // (CCCD hai mặt, sổ đỏ bốn trang…), tất cả cùng một version ở tầng Action
                 // ({@see SubmitClientDocument}). `maxSize()` vẫn áp CHO TỪNG tệp (Filament, không
                 // phải tổng cả lô) — đúng câu hướng dẫn "mỗi tệp tối đa :max MB".
+                //
+                // `maxFiles(self::FILES_PER_HOUR)` (vòng sửa 1, Minor): trần một lô KHÔNG THỂ quá
+                // 20 dù sao — SPEC §10.3 đã chặn 20 tệp/giờ/tài khoản ở `guardRate()`, và một lô
+                // 21 tệp trở lên gõ vào `submit()` bị chặn SỚM HƠN, bởi một cổng RIÊNG (đọc dưới)
+                // — không phải bởi luật `max:count` mà dòng này thêm vào. Vẫn thêm dòng này vì nó
+                // cho FilePond một trần THẬT ở TRÌNH DUYỆT (khoá nút "chọn thêm tệp" tại 20, không
+                // để khách chọn 30 tệp rồi mới biết bị từ chối); phần server-side của chính luật
+                // `max:count` mà nó sinh ra vì vậy không bao giờ chạy tới trong `submit()` — xem
+                // lý do KHÔNG gán `validationMessages(['max' => ...])` một câu riêng cho nó ở
+                // đoạn dưới.
+                //
+                // **Vì sao KHÔNG có một câu tiếng Việt riêng cho `max:count` qua
+                // `validationMessages()`.** Field này đã có `'max' => …too_large…` cho `maxSize()`
+                // (kích thước MỖI tệp) — và Filament dùng CHUNG một khoá `'max'` cho MỌI luật tên
+                // `max`, dù nó là luật kích thước (tệp) hay luật số lượng (mảng): cả hai đọc từ
+                // đúng một mảng `$this->getValidationMessages()`
+                // (`vendor/filament/forms/src/Components/BaseFileUpload.php`, so `getValidationRules()`
+                // với `Concerns/CanBeValidated::dehydrateValidationMessages()`). Thêm một câu
+                // "quá nhiều tệp" vào đúng khoá `'max'` sẽ ĐÈ LÊN câu "tệp quá :max MB" hiện có
+                // (hoặc ngược lại) — không cách nào tách hai câu qua API công khai của field này.
+                // Cổng thật cho số lượng vì thế KHÔNG nằm ở field, mà ở {@see self::submit()},
+                // nơi ném `ValidationException` bằng tay qua `failOnFile()` — đúng cơ chế
+                // `guardRate()`/`_startUpload()` ở dưới đã dùng, và không đi qua mảng
+                // `validationMessages()` chung nên không đụng luật `max` của kích thước.
                 FileUpload::make('file')
                     ->label(__('portal_submit.steps.file.label'))
                     ->helperText(__('portal_submit.steps.file.help', ['max' => $max]))
                     ->storeFiles(false)
                     ->multiple()
+                    ->maxFiles(self::FILES_PER_HOUR)
                     ->acceptedFileTypes(static::acceptedMimeTypes())
                     ->maxSize($max * 1024)
                     ->required()
@@ -543,11 +568,37 @@ class SubmitDocument extends Page
 
     /**
      * Danh sách MIME cho thuộc tính `accept` của trình duyệt VÀ cho luật `mimetypes` mà
-     * `acceptedFileTypes()` gắn vào chính ô này — **không phải một ranh giới an ninh**, vì cả hai
-     * đọc Content-Type do CLIENT khai (trình duyệt/hệ điều hành đoán từ đuôi tệp), thứ SPEC §6.6
-     * bước 3 nói thẳng là không được tin. Ranh giới thật là `FileGuard::ALLOWED`, thứ ánh xạ từng
-     * ĐUÔI tới những MIME THẬT hợp lệ cho riêng đuôi đó và được kiểm bằng `finfo` trên NỘI DUNG
-     * tệp — độc lập với bất cứ điều gì trình duyệt khai.
+     * `acceptedFileTypes()` gắn vào chính ô này — **không phải một ranh giới an ninh**, nhưng
+     * KHÔNG phải vì lý do bản trước của đoạn này viết (vòng sửa 1, finding I3: đoạn đó sai sự
+     * thật, sửa lại ở đây).
+     *
+     * Thuộc tính `accept` trên `<input>` thì đúng là một gợi ý phía trình duyệt, và trình duyệt
+     * đoán Content-Type từ đuôi tệp — cái đó không tin được, và SPEC §6.6 bước 3 nói đúng về NÓ.
+     * Nhưng luật `mimetypes` của Livewire/Filament thì KHÔNG chạy trên Content-Type do client
+     * khai. Ô này dùng `->multiple()` với `->storeFiles(false)`, nên đối tượng được validate là
+     * một `Livewire\Features\SupportFileUploads\TemporaryUploadedFile` — và
+     * `TemporaryUploadedFile::getMimeType()` (đọc mã nguồn `vendor/livewire/livewire`) gọi
+     * `detectMimeTypeFromContents()`, mở NỘI DUNG tệp đã nằm trên đĩa tạm và chạy qua
+     * `FinfoMimeTypeDetector` — đúng cơ chế `finfo` mà `FileGuard` cũng dùng. Giá trị client khai
+     * chỉ được đọc khi `app()->runningUnitTests()` là `true` (từ `metaFileData()` mà
+     * `UploadedFile::fake()->create(..., mimeType: ...)` của bộ test ghi vào) — một nhánh CHỈ
+     * chạy dưới Pest, không bao giờ chạy trên máy chủ thật.
+     *
+     * Vậy vì sao danh sách này vẫn KHÔNG phải ranh giới an ninh, nếu nó đã đọc byte thật? Vì nó
+     * dừng ở ĐÚNG MỘT byte-signature chung cho cả họ định dạng (`libmagic` không phân biệt nổi
+     * một `.docx` thật với một `.zip` bất kỳ — cả hai đều là "một gói ZIP", đúng những gì
+     * `finfo` báo cho CẢ HAI), còn `FileGuard::ALLOWED` đi xa hơn: nó ánh xạ từng ĐUÔI tới đúng
+     * tập MIME hợp lệ CHO ĐUÔI đó, và với riêng `docx`/`xlsx`/`doc`/`xls` còn mở gói ra kiểm mục
+     * bắt buộc bên trong (`FileGuard::verifyOfficePackage()`) — thứ ô này không làm và không nên
+     * tự làm lại. Ranh giới thật vẫn là `FileGuard`; ô này chỉ là bộ lọc thô ở tầng màn hình, đủ
+     * thật để không chặn oan một tệp Office hợp lệ trước khi `FileGuard` kịp mở gói ra kiểm.
+     *
+     * Hệ quả cho việc đọc test: `tests/Feature/Portal/SubmitDocumentTest.php` (bộ test của CHÍNH
+     * trang này) đi qua nhánh `runningUnitTests()` — tệp giả `UploadedFile::fake()` khai MIME
+     * tường minh — nên nó đo được đúng MỘT nửa: "ô này có DANH SÁCH đúng không". Nửa kia — "byte
+     * thật của một `.docx`/`.doc` thật có được `finfo` production báo đúng MIME nằm trong danh
+     * sách đó không" — là việc `tests/Feature/Support/FileGuardTest.php` đo, bằng những gói
+     * ZIP/OLE2 dựng thủ công có ruột thật.
      *
      * **Phải mang đúng những MIME "đội lốt" mà `FileGuard::ALLOWED` chấp nhận cho `docx`/`xls`,
      * không chỉ MIME "sạch" của từng đuôi.** Bài học M6.5 Task 17: một hệ điều hành không có sẵn
@@ -720,6 +771,23 @@ class SubmitDocument extends Page
         // lần thử cho MỖI tệp trong lô, không chỉ tệp đầu. Tối thiểu 1: một khách quên chọn tệp
         // rồi bấm Gửi vẫn tốn đúng một suất, như bản một-tệp trước đây.
         $rawFileCount = max(1, count((array) data_get($this->data, 'file')));
+
+        // Vòng sửa 1 (Minor): trần MỘT LÔ, đọc TRƯỚC `guardRate()` — một lô quá khổ không đáng
+        // tốn một suất trong bộ đếm giờ (cùng lý lẽ với việc `_startUpload()` hỏi kích thước
+        // TRƯỚC bộ đếm). Ném bằng tay qua `failOnFile()`, KHÔNG qua `validationMessages()` của
+        // field: xem đoạn giải thích dài ở `form()`, mục `maxFiles()` — hai luật `max` (kích
+        // thước MỖI tệp, số lượng CẢ lô) đọc CHUNG một khoá `'max'` trong Filament nên không thể
+        // mang hai câu khác nhau qua field đó; đây là câu THẬT của cổng này. Không chặn ở đây,
+        // một lô 21 tệp vẫn bị chặn — nhưng bằng câu SAI: `guardRate()` ngay dưới đọc nó là "đã
+        // dùng hết 20 suất trong giờ" (đúng cổng, sai lý do — khách chưa dùng suất nào, họ chỉ
+        // chọn quá nhiều tệp trong MỘT lần). Đo bằng mutation: bỏ khối này, test "refuses a
+        // batch of more than twenty files..." đỏ với đúng câu `rate_limited` thay vì câu của
+        // cổng này.
+        if ($rawFileCount > self::FILES_PER_HOUR) {
+            $this->failOnFile(__('portal_submit.errors.too_many_files_per_submission', [
+                'limit' => self::FILES_PER_HOUR,
+            ]));
+        }
 
         $this->guardRate(
             self::submissionLimiterKey($this->viewer()),

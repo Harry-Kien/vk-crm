@@ -76,7 +76,7 @@ it('renders the progress bar inside the checklist tab itself', function () {
 
 /**
  * Cột "Số tài liệu" của bảng phải là ĐÚNG phép đếm mà mẫu số `Y` dùng — cùng một
- * `ChecklistProgress::countClientFacingDocuments()`, không phải một `withCount` thứ hai viết lại
+ * `ChecklistProgress::countClientSubmittedDocuments()`, không phải một `withCount` thứ hai viết lại
  * ở `modifyQueryUsing()`. Không có test này, `modifyQueryUsing()` gỡ bộ đếm đi vẫn để mọi thứ
  * khác xanh và cột hiện ra rỗng trên màn hình.
  *
@@ -109,9 +109,9 @@ it('counts the same documents in the table column as in the denominator', functi
     $this->actingAs($lawyer, 'web');
 
     checklistManager($matter)
-        ->assertTableColumnStateSet(ChecklistProgress::DOCUMENT_COUNT_ALIAS, 1, $withClientFile)
-        ->assertTableColumnStateSet(ChecklistProgress::DOCUMENT_COUNT_ALIAS, 0, $withInternalNoteOnly)
-        ->assertTableColumnStateSet(ChecklistProgress::DOCUMENT_COUNT_ALIAS, 0, $withUnpublishedDecision);
+        ->assertTableColumnStateSet(ChecklistProgress::CLIENT_SUBMITTED_DOCUMENT_COUNT_ALIAS, 1, $withClientFile)
+        ->assertTableColumnStateSet(ChecklistProgress::CLIENT_SUBMITTED_DOCUMENT_COUNT_ALIAS, 0, $withInternalNoteOnly)
+        ->assertTableColumnStateSet(ChecklistProgress::CLIENT_SUBMITTED_DOCUMENT_COUNT_ALIAS, 0, $withUnpublishedDecision);
 });
 
 it('renders the progress bar with the counted numbers, and a separate sentence when nothing is counted', function () {
@@ -611,7 +611,16 @@ it('refuses to accept when the client submits another file while the box is open
 
     $component->callMountedAction();
 
-    Notification::assertNotified(__('actions.failed_title'));
+    // Vòng sửa 1: đo đúng THÂN thông báo, không chỉ tiêu đề chung `actions.failed_title` — tiêu
+    // đề đó đứng đầu MỌI lời từ chối của `ReportsActionFailures`, nên chỉ khớp nó thì một cổng
+    // sai ném nhầm câu (ví dụ về giới hạn tần suất thay vì "có tệp mới") vẫn làm test này xanh.
+    Notification::assertNotified(
+        Notification::make()
+            ->title(__('actions.failed_title'))
+            ->body(__('checklist.review.documents_changed'))
+            ->danger()
+            ->persistent()
+    );
 
     expect($item->fresh()->status)->toBe(ChecklistItemStatus::PendingReview)
         ->and($item->fresh()->reviewed_by)->toBeNull();
