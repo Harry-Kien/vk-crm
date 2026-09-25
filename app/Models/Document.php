@@ -284,6 +284,22 @@ class Document extends Model implements HasMedia
         return $this->belongsTo(Document::class, 'parent_document_id');
     }
 
+    /**
+     * Bản scan uỷ nhiệm chi / phiếu thu trỏ tới tệp này (`payments.receipt_document_id`). Dùng
+     * bởi `RetractDocument` (M7 Task 7) và `DocumentPolicy::delete` (task khác trong M9) để từ
+     * chối rút/xoá một tệp đang được một khoản thu trỏ tới.
+     */
+    public function paymentReceipts(): HasMany
+    {
+        return $this->hasMany(Payment::class, 'receipt_document_id');
+    }
+
+    /** Bản scan phụ lục hợp đồng trỏ tới tệp này (`contract_amendments.document_id`). Cùng lý do với {@see self::paymentReceipts()}. */
+    public function contractAmendments(): HasMany
+    {
+        return $this->hasMany(ContractAmendment::class, 'document_id');
+    }
+
     public function newerVersions(): HasMany
     {
         return $this->hasMany(Document::class, 'parent_document_id')->orderBy('version');

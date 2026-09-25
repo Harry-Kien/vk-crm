@@ -295,6 +295,12 @@ class Matter extends Model
         return $this->hasOne(MatterArchive::class);
     }
 
+    /** Một hợp đồng cho một vụ việc — `contracts.matter_id` unique thật (M9 quyết định 1). */
+    public function contract(): HasOne
+    {
+        return $this->hasOne(Contract::class);
+    }
+
     /** SPEC §4.6: description_internal không bao giờ ra portal. */
     protected function internalAttributes(): array
     {

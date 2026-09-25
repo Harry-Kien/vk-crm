@@ -15,4 +15,9 @@ return [
     'matter_not_published_to_portal' => 'Không thể công bố dòng tiến độ cho vụ việc :code: vụ việc chưa bật "Công bố portal". Bật công tắc này trước khi công bố tiến độ cho khách.',
     'deadline_matter_not_published_to_portal' => 'Không thể gửi mốc thời hạn cho khách ở vụ việc :code: vụ việc chưa bật "Công bố portal". Bật công tắc này ở tab Tổng quan trước, rồi gửi lại mốc.',
     'team_member_has_open_work' => 'Không thể gỡ :name khỏi đội ngũ vụ việc :code: người này còn — :items. Hãy chuyển các việc này cho người khác trước khi gỡ khỏi đội ngũ.',
+    'contract_not_destroyable_not_draft' => 'Chỉ xoá được hợp đồng khi còn ở trạng thái "Nháp". Hợp đồng đã ký hoặc đã kết thúc thì đóng lại bằng "Hoàn tất" hoặc "Huỷ", không xoá.',
+    'contract_not_destroyable_has_payments' => 'Không thể xoá hợp đồng: đã có khoản thu ghi nhận trên hợp đồng này.',
+    'instalment_not_destroyable' => 'Chỉ xoá được đợt thanh toán khi hợp đồng còn ở trạng thái "Nháp". Đợt của hợp đồng đã ký thì huỷ hoặc miễn, không xoá.',
+    'payment_not_destroyable' => 'Không thể xoá khoản thu đã ghi nhận. Ghi nhầm thì huỷ khoản thu kèm lý do, khoản thu vẫn được giữ lại.',
+    'contract_amendment_immutable' => 'Phụ lục hợp đồng chỉ được thêm mới, không được sửa hoặc xoá sau khi đã ghi.',
 ];
