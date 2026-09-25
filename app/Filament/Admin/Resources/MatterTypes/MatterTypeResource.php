@@ -5,6 +5,7 @@ namespace App\Filament\Admin\Resources\MatterTypes;
 use App\Filament\Admin\Resources\MatterTypes\Pages\CreateMatterType;
 use App\Filament\Admin\Resources\MatterTypes\Pages\EditMatterType;
 use App\Filament\Admin\Resources\MatterTypes\Pages\ListMatterTypes;
+use App\Filament\Admin\Resources\MatterTypes\RelationManagers\ChecklistTemplatesRelationManager;
 use App\Filament\Admin\Resources\MatterTypes\RelationManagers\StagesRelationManager;
 use App\Filament\Admin\Resources\MatterTypes\Schemas\MatterTypeForm;
 use App\Filament\Admin\Resources\MatterTypes\Tables\MatterTypesTable;
@@ -53,6 +54,9 @@ class MatterTypeResource extends Resource
     {
         return [
             StagesRelationManager::class,
+            // M6.5 Task 15 (finding intake-02/checklist-02/roles-06/spec-gap-04): trước đây
+            // không có màn hình nào quản lý ChecklistTemplate — xem docblock lớp đó.
+            ChecklistTemplatesRelationManager::class,
         ];
     }
 
