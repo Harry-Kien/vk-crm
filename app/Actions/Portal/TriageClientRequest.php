@@ -72,11 +72,17 @@ class TriageClientRequest
 
     /**
      * Giao một yêu cầu cho một người, hoặc gỡ người đang giữ ra (`$assignee === null`).
+     *
+     * `$matterId` được đọc ở ĐÂY, TRƯỚC KHI `DB::transaction()` mở — xem "Đọc `matter_id` TRƯỚC
+     * transaction, không phải bên trong" ở docblock {@see self::open()} cho lý do bắt buộc
+     * (fix round 3, finding I3 residual — snapshot REPEATABLE READ).
      */
     public function assign(ClientRequest $request, User $actor, ?User $assignee): ClientRequest
     {
-        return DB::transaction(function () use ($request, $actor, $assignee): ClientRequest {
-            [$thread, $matter] = $this->open($request, $actor);
+        $matterId = $this->realMatterId($request);
+
+        return DB::transaction(function () use ($request, $actor, $assignee, $matterId): ClientRequest {
+            [$thread, $matter] = $this->open($request, $actor, $matterId);
 
             if ($assignee !== null && ! $this->canHoldTheThread($assignee, $matter)) {
                 // `ValidationException` chứ không `AuthorizationException`: câu này nói về Ô CHỌN —
@@ -160,11 +166,15 @@ class TriageClientRequest
      * không bao giờ dịch đi (phán quyết 21/09/2026, lý lẽ đầy đủ ở docblock lớp của Action kia).
      * Rời khỏi `answered` **không** xoá cột: một sự kiện đã xảy ra thì không viết lại được cho
      * khớp một cái nhãn.
+     *
+     * `$matterId` đọc TRƯỚC `DB::transaction()`, cùng lý do ở {@see self::assign()}.
      */
     public function setStatus(ClientRequest $request, User $actor, ClientRequestStatus $status): ClientRequest
     {
-        return DB::transaction(function () use ($request, $actor, $status): ClientRequest {
-            [$thread, $matter] = $this->open($request, $actor);
+        $matterId = $this->realMatterId($request);
+
+        return DB::transaction(function () use ($request, $actor, $status, $matterId): ClientRequest {
+            [$thread, $matter] = $this->open($request, $actor, $matterId);
 
             $previous = $thread->status;
 
@@ -197,40 +207,68 @@ class TriageClientRequest
     }
 
     /**
+     * `matter_id` THẬT của một `client_requests`, đọc thẳng từ CSDL — KHÔNG bao giờ đọc từ thuộc
+     * tính trên đối tượng `$request` mà caller đưa vào (có thể bị sửa trong bộ nhớ: test "reads
+     * the thread back instead of trusting the object it was handed" dựng đúng ca một `$request`
+     * bị sửa `matter_id` trỏ sang một vụ việc actor CÓ quyền, trong khi dòng thật thuộc một vụ
+     * việc actor KHÔNG có quyền).
+     *
+     * **Phải gọi TRƯỚC KHI `DB::transaction()` mở, không phải bên trong (fix round 3, finding
+     * I3 residual).** Đây KHÔNG chỉ là một câu `SELECT` "để biết khoá dòng nào" như round 2 tưởng
+     * — nó còn là một CÂU ĐỌC KHÔNG KHOÁ (`value()`, không `lockForUpdate()`). Trên MariaDB, mức
+     * cô lập REPEATABLE READ (mặc định InnoDB) cố định READ VIEW của một transaction tại LẦN ĐỌC
+     * NHẤT QUÁN (không khoá) ĐẦU TIÊN của nó — các lần đọc khoá (`FOR UPDATE`) không cố định gì,
+     * chúng luôn đọc dữ liệu MỚI NHẤT đã commit. Ở bản round 2, câu `value('matter_id')` là câu
+     * đọc ĐẦU TIÊN bên trong `DB::transaction()`, tức nó KHOÁ SỚM cả READ VIEW của transaction đó
+     * lại — TRƯỚC KHI `lockForUpdate()` trên `matters` kịp đợi/giành khoá. Hệ quả: nếu một
+     * `RemoveTeamMember` khác đang giữ khoá `matters`, `assign()` phải đợi; khi được cấp khoá và
+     * chạy tiếp, câu `Gate::forUser($assignee)->allows('update', $matter)` (một EXISTS không khoá
+     * trên `matter_user`) vẫn đọc theo READ VIEW CŨ — cũ hơn cả lúc `RemoveTeamMember` COMMIT —
+     * nên nó vẫn "thấy" người vừa bị gỡ còn trong đội ngũ và cho gán. Người rà soát đã tái hiện
+     * đúng ca này trên container MariaDB 11.8 của dự án: còn câu đọc sớm này, `still_member=1`
+     * sau khi gỡ xong; bỏ nó ra khỏi transaction, `still_member=0`.
+     *
+     * Gọi hàm này TRƯỚC `DB::transaction()` khiến nó chạy trong một câu lệnh auto-commit RIÊNG,
+     * không thuộc transaction của `assign()`/`setStatus()` — nên nó không cố định gì cho READ
+     * VIEW của transaction đó. An toàn để đọc SỚM: `client_requests.matter_id` không bao giờ đổi
+     * sau khi tạo (không Action nào trong app/ sửa cột này), nên một giá trị đọc trước khi khoá
+     * vẫn đúng khi khoá thật sự chạy — {@see self::open()} còn tự đối chiếu lại giá trị này với
+     * `$thread->matter_id` (đọc dưới khoá) một lần nữa, phòng trường hợp không thể xảy ra hôm nay
+     * nhưng có thể xảy ra nếu một Action tương lai lại sửa cột này.
+     */
+    private function realMatterId(ClientRequest $request): ?int
+    {
+        $matterId = $this->scopelessly(ClientRequest::query())->whereKey($request->getKey())->value('matter_id');
+
+        return $matterId !== null ? (int) $matterId : null;
+    }
+
+    /**
      * Đọc lại hàng thật, nạp sẵn vụ việc bằng một truy vấn đã gỡ scope, rồi gác cổng.
      *
-     * **Chỉ gọi được từ bên trong một transaction**, vì nó khoá hàng: cả hai phương thức công
-     * khai ở trên là đọc-sửa-ghi, và không có khoá thì hai người bấm cùng lúc ở hai tab ghi đè
-     * lên nhau — trường hợp cụ thể đã ghi ở {@see ReplyToClientRequest::handle()}. Cùng thành
-     * ngữ `RegroupDocument` dùng. Trên SQLite (bộ test) `lockForUpdate()` biên dịch thành không
-     * gì cả, nên phần khoá là một lập luận về MariaDB chứ không phải một điều kiện test đỏ được.
+     * **Chỉ gọi được từ bên trong một transaction, và câu ĐẦU TIÊN bên trong nó phải là khoá
+     * `matters`** — cùng thành ngữ `AddMatterDeadline`/`OpensDeadline::openMatterForDeadline()`
+     * (khoá vụ việc là dòng đầu tiên của thân closure `DB::transaction`) và
+     * `RemoveTeamMember`/`AddTeamMember` (đã rà lại ở fix round 3: cả hai Action đó KHÔNG có câu
+     * đọc trần nào trước khoá `matters` bên trong transaction của chúng — mọi thứ đứng trước,
+     * như `Gate::authorize('manageTeam', ...)`, chạy TRƯỚC `DB::transaction()` mở). Không câu đọc
+     * trần nào (không `lockForUpdate()`) được đứng trước khoá này bên trong transaction — xem
+     * {@see self::realMatterId()} cho lý do đầy đủ (fix round 3, finding I3 residual: một câu đọc
+     * trần đứng trước sẽ cố định READ VIEW REPEATABLE READ của transaction TRƯỚC khi khoá kịp
+     * đợi/giành, khiến các câu đọc trần SAU khoá — ví dụ `Gate::allows('update', $matter)` — vẫn
+     * thấy dữ liệu CŨ dù vừa đợi xong một transaction khác vừa commit).
      *
-     * **Khoá `matters` TRƯỚC `client_requests` (fix round 2, finding I3 residual).** Trước bản
-     * sửa này, hàm chỉ khoá dòng `client_requests` của chính nó và đọc `matters` KHÔNG khoá —
-     * một `RemoveTeamMember` chạy đồng thời (khoá `matters` trước khi đọc `OpenWork`, xem
-     * docblock lớp đó) có thể đọc xong `OpenWork` (thấy đội ngũ rảnh) đúng lúc `assign()` ở đây
-     * đang giao yêu cầu này cho chính người sắp bị gỡ, rồi `detach()` chạy — để lại một yêu cầu
-     * "chưa đóng" mà người được giao đã rời đội ngũ. Khoá `matters` Ở ĐÂY, cùng THỨ TỰ TOÀN CỤC
-     * mà `RemoveTeamMember`/`AddTeamMember`/`OpensDeadline::openMatterForDeadline()` dùng (vụ
-     * việc trước, bảng con sau), buộc hai Action tranh chấp trên CÙNG một vụ việc phải xếp hàng:
-     * ai xin khoá `matters` trước thì chạy trọn transaction của mình trước — không có nửa chừng
-     * để interleave.
+     * `$matterId` do {@see self::realMatterId()} tính SẴN, TRƯỚC transaction — xem docblock hàm
+     * đó. Đối chiếu lại với `$thread->matter_id` (đọc dưới khoá) ngay dưới: không tin
+     * `$matterId` mù quáng dù nó đến từ một hàm "đáng tin" hơn `$request->matter_id` — cột này
+     * hôm nay bất biến nên hai giá trị luôn khớp, nhưng đối chiếu là một câu `if` gần như miễn phí
+     * và là hàng rào cuối cùng nếu bất biến đó đổi.
      *
-     * Thứ tự CỐ Ý, không phải ngẫu nhiên: khoá theo hai chiều khác nhau ở hai Action (một bên
-     * khoá `client_requests` rồi mới hỏi tới `matters`, bên kia ngược lại) là công thức deadlock
-     * kinh điển — xem lý lẽ `OpenMatter::lockClients()` đã ghi cho đúng vấn đề này giữa các dòng
-     * `clients`.
-     *
-     * **KHÔNG dùng `$request->matter_id` của tham số truyền vào để chọn dòng cần khoá.** Đây là
-     * đối tượng CALLER đưa vào, và test "reads the thread back instead of trusting the object it
-     * was handed" (tồn tại từ trước fix round 2) dựng đúng ca một `$request` bị sửa `matter_id`
-     * trong bộ nhớ trỏ sang một vụ việc actor CÓ quyền, trong khi dòng thật trong CSDL thuộc một
-     * vụ việc actor KHÔNG có quyền — khoá theo cột trên đối tượng sẽ khoá VÀ ĐỌC nhầm vụ việc kẻ
-     * tấn công chọn, biến chính cổng bảo mật cũ thành một đường vòng qua nó. Đọc `matter_id` THẬT
-     * bằng một câu `value()` không khoá gì (chỉ để biết khoá DÒNG NÀO trước, không phải để tin
-     * bất kỳ giá trị nghiệp vụ nào), rồi khoá `matters` bằng id đó, rồi khoá VÀ ĐỌC LẠI TOÀN BỘ
-     * `client_requests` như cũ (`$thread`) — hàm vẫn chỉ tin đúng một thứ ở tham số truyền vào:
-     * khoá chính `$request->getKey()`, y hệt trước bản sửa này.
+     * **Khoá `matters` TRƯỚC `client_requests`, thứ tự CỐ Ý (fix round 2, finding I3 residual).**
+     * Cùng THỨ TỰ TOÀN CỤC mà `RemoveTeamMember`/`AddTeamMember`/`OpensDeadline::
+     * openMatterForDeadline()` dùng (vụ việc trước, bảng con sau) — khoá theo hai chiều khác nhau
+     * ở hai Action tranh chấp là công thức deadlock kinh điển, xem lý lẽ `OpenMatter::
+     * lockClients()` đã ghi cho đúng vấn đề này giữa các dòng `clients`.
      *
      * `setRelation('matter', ...)` TRƯỚC khi `Gate` chạm vào đối tượng, cùng lý do đã đo ở M4:
      * một quan hệ nạp lười chạy dưới guard NÀO ĐANG MỞ, nên với một phiên portal đang mở trong
@@ -239,10 +277,8 @@ class TriageClientRequest
      *
      * @return array{0: ClientRequest, 1: Matter}
      */
-    private function open(ClientRequest $request, User $actor): array
+    private function open(ClientRequest $request, User $actor, ?int $matterId): array
     {
-        $matterId = $this->scopelessly(ClientRequest::query())->whereKey($request->getKey())->value('matter_id');
-
         $matter = $matterId !== null
             ? $this->scopelessly(Matter::query())->lockForUpdate()->find($matterId)
             : null;
@@ -250,6 +286,10 @@ class TriageClientRequest
         $thread = $this->scopelessly(ClientRequest::query())
             ->lockForUpdate()
             ->find($request->getKey()) ?? $this->refuse();
+
+        if ((int) $thread->matter_id !== $matterId) {
+            $this->refuse();
+        }
 
         $thread->setRelation('matter', $matter);
 

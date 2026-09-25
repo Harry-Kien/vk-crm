@@ -41,4 +41,9 @@ return [
         // Fix round 1, finding S3: vai lead chỉ đổi qua bàn giao vụ việc (ReassignMatter, M7).
         'lead_role_denied' => 'Không thể gỡ luật sư phụ trách khỏi đội ngũ qua đây — vai này chỉ đổi được qua bàn giao vụ việc.',
     ],
+    // M6.5 Task 15 — cùng luật `ApplyChecklistTemplate` dùng để không tạo trùng khi áp lại một
+    // mẫu: tên đầu mục là duy nhất trong một vụ việc, kể cả với đầu mục đã gỡ (xoá mềm).
+    'add_checklist_item' => [
+        'duplicate_name' => 'Vụ việc này đã có một đầu mục tên như vậy, kể cả đầu mục đã gỡ khỏi danh mục. Anh/chị đặt tên khác cho rõ, hoặc mở lại đầu mục cũ nếu nó vẫn còn trong danh mục.',
+    ],
 ];
