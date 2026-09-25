@@ -54,34 +54,54 @@ use Illuminate\Validation\ValidationException;
  * `OpenWork` trước sẽ cho một câu trả lời không liên quan gì tới câu hỏi thật ("người này có
  * trong đội ngũ để mà gỡ không").
  *
- * # Khoá dòng vụ việc, trong một transaction (fix round 1, finding I3; khép lại ở fix round 2)
+ * # Khoá dòng vụ việc, trong một transaction (fix round 1, finding I3; khép lại ở fix round 2 và
+ * round 3)
  *
  * Đọc pivot, hỏi `OpenWork`, `detach()` và ghi audit giờ nằm trong CÙNG một `DB::transaction`,
- * sau khi khoá dòng `matters` bằng `lockForUpdate()`.
+ * và câu ĐẦU TIÊN bên trong transaction đó là khoá dòng `matters` bằng `lockForUpdate()` — không
+ * câu đọc trần (không khoá) nào đứng trước nó. Thứ tự này BẮT BUỘC, không chỉ để gọn: trên
+ * MariaDB, mức cô lập REPEATABLE READ cố định READ VIEW của một transaction tại LẦN ĐỌC KHÔNG
+ * KHOÁ ĐẦU TIÊN của nó (một câu `FOR UPDATE` không cố định gì, nó luôn đọc dữ liệu mới nhất) —
+ * một câu đọc trần đứng TRƯỚC khoá này sẽ khiến MỌI câu đọc trần SAU ĐÓ (kể cả sau khi khoá đã
+ * được cấp) vẫn thấy dữ liệu CŨ. Đây chính xác là lỗi round 3 sửa ở
+ * {@see TriageClientRequest::open()} — xem docblock hàm đó và
+ * {@see TriageClientRequest::realMatterId()} cho cơ chế đầy đủ; hàm NÀY không có câu đọc trần
+ * nào trước khoá — đã rà lại (fix round 3): `Gate::forUser($actor)->authorize('manageTeam',
+ * $matter)` là câu DUY NHẤT chạy trước, và nó chạy TRƯỚC `DB::transaction()` mở (dòng 94), không
+ * phải bên trong nó, nên không cố định gì cho transaction NÀY. Cùng luật đã kiểm lại cho
+ * {@see AddTeamMember}.
  *
- * **Khoá này chỉ đóng được đúng khe hở nó nhắm tới từ fix round 2 trở đi, khi
- * {@see TriageClientRequest::open()} CŨNG khoá đúng dòng `matters` này —
- * và khoá nó TRƯỚC dòng `client_requests` của chính nó, cùng THỨ TỰ TOÀN CỤC (vụ việc trước, bảng
- * con sau) mà hàm này dùng.** Ở fix round 1, khoá ở đây một mình chỉ nối tiếp được các lần
- * gỡ/thêm THÀNH VIÊN khác VỚI NHAU (`RemoveTeamMember`/`AddTeamMember` tranh chấp cùng một vụ
- * việc) — nó KHÔNG nối tiếp được với `TriageClientRequest::assign()`, vì Action đó đọc `matters`
- * không khoá gì (finding I3 residual, round 2). Một `assign()` chạy đồng thời vẫn có thể giao một
- * yêu cầu khách cho đúng người đang bị gỡ NGAY GIỮA lúc `OpenWork` đọc xong (thấy rỗng) và
- * `detach()` chạy ở đây.
+ * **Khoá này chỉ đóng được đúng khe hở finding I3 nhắm tới TỪ FIX ROUND 3 TRỞ ĐI**, khi
+ * {@see TriageClientRequest::open()} CŨNG khoá đúng dòng `matters` này làm câu ĐẦU TIÊN của nó
+ * (không phải chỉ "trước `client_requests`" như round 2 làm — round 2 vẫn còn MỘT câu đọc trần
+ * đứng trước cả hai khoá, xem finding I3 residual). Hai Action tranh chấp trên CÙNG một vụ việc
+ * giờ luôn xếp hàng: dù ai xin khoá `matters` trước, phía CÒN LẠI đợi tới khi phía đó COMMIT rồi
+ * mới chạy tiếp — và vì KHÔNG câu đọc trần nào chạy trước khoá ở CẢ HAI phía, câu đọc đầu tiên
+ * (dù là câu nào) của phía đợi luôn cố định READ VIEW của nó SAU khi phía kia đã commit — không
+ * còn khoảng hở cho một READ VIEW cũ sống sót qua một lần commit của phía kia.
  *
- * Từ fix round 2, hai Action xin khoá `matters` theo CÙNG một thứ tự nên chúng luôn xếp hàng, dù
- * ai tới trước: nếu `assign()` xin khoá trước, nó giao xong yêu cầu VÀ COMMIT rồi `RemoveTeamMember`
- * mới đọc được `OpenWork` — thấy đúng yêu cầu vừa giao, chặn gỡ đúng. Nếu `RemoveTeamMember` xin
- * khoá trước, nó gỡ xong người đó khỏi `team()` VÀ COMMIT rồi `assign()` mới chạy —
- * `canHoldTheThread()` hỏi lại `MatterPolicy::update` trên chính người vừa bị gỡ và tự từ chối
- * (họ không còn `matter.view` qua `team()`, trừ khi có `matter.viewAny`), nên yêu cầu không bị
- * giao cho một người đã rời đội ngũ. Không còn thứ tự thứ ba (đan xen giữa hai lần commit) vì cả
- * hai Action giữ khoá `matters` xuyên suốt transaction của mình.
+ * Cụ thể cho cặp `RemoveTeamMember`/`TriageClientRequest::assign()`: nếu `assign()` xin khoá
+ * trước, nó giao xong yêu cầu VÀ COMMIT rồi `RemoveTeamMember` mới đọc được `OpenWork` — thấy
+ * đúng yêu cầu vừa giao, chặn gỡ đúng. Nếu `RemoveTeamMember` xin khoá trước, nó gỡ xong người đó
+ * khỏi `team()` VÀ COMMIT rồi `assign()` mới chạy tiếp — `canHoldTheThread()` hỏi lại
+ * `MatterPolicy::update` trên chính người vừa bị gỡ, với một READ VIEW cố định SAU khi
+ * `RemoveTeamMember` đã commit, nên tự từ chối đúng (họ không còn `matter.view` qua `team()`, trừ
+ * khi có `matter.viewAny`).
  *
- * Khoá dòng vụ việc vẫn không chặn được MỌI ghi đồng thời trên bảng khác một cách tổng quát (ví
- * dụ hai `AddMatterDeadline` cùng lúc trên hai mốc hạn khác nhau của cùng vụ việc vẫn xếp hàng vì
- * lý do khác — xem `OpensDeadline`) — phạm vi đã đóng ở đây là đúng cặp Action finding I3 nêu
- * tên: `Add`/`RemoveTeamMember` và `TriageClientRequest::assign()`/`setStatus()`.
+ * **Hai `AddMatterDeadline` (hoặc `AddMatterDeadline` với `Add`/`RemoveTeamMember`) cùng lúc trên
+ * CÙNG một vụ việc CŨNG xếp hàng đúng vì lý do NÀY, không phải một lý do khác** —
+ * `OpensDeadline::openMatterForDeadline()` khoá dòng `matters` làm câu ĐẦU TIÊN của nó, cùng thứ
+ * tự toàn cục (vụ việc trước, bảng con sau) mà hàm này dùng. (Sửa lại một câu sai ở bản fix round
+ * 2: bản đó nói hai `AddMatterDeadline` xếp hàng "vì lý do khác" — không đúng, chúng xếp hàng
+ * chính vì tranh chấp CÙNG một khoá `matters` này.)
+ *
+ * **Khe hở CÒN LẠI, KHÔNG được khoá này che: `setStatus()` mở lại một luồng ĐÃ ĐÓNG mà người
+ * đang đứng tên (`assigned_to`) đã rời đội ngũ TRONG LÚC luồng đóng, KHÔNG được đối chiếu lại.**
+ * `setStatus()` chỉ đổi cột `status` — nó không gọi `canHoldTheThread()` (chỉ `assign()` gọi hàm
+ * đó), nên mở lại một luồng đã đóng không hỏi lại "người đang đứng tên còn mở được vụ việc này
+ * không". Khoá `matters` ở đây giải quyết đúng vấn đề ĐỘC LẬP về ĐỌC DỮ LIỆU CŨ (REPEATABLE READ
+ * snapshot); nó không thêm một điều kiện NGHIỆP VỤ nào cho `setStatus()`. Đây là một lỗ hổng
+ * KHÁC, được Task 18 nhận (theo phán quyết fix round 3) — không sửa ở đây.
  */
 class RemoveTeamMember
 {
