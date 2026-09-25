@@ -159,12 +159,12 @@ final class DocumentDownloadController extends Controller
         // nói dối; thừa một dòng thì nó chỉ là một lần mở không ai chủ ý). `Cache-Control:
         // no-store` giữ cho một lần prefetch không biến thành nhiều lần đọc lại từ bộ đệm.
         if (! $request->isMethod('GET')) {
-            return $this->fileResponse($disk, $media);
+            return $this->fileResponse($record, $disk, $media);
         }
 
         $this->recordDownload($record, $actor, $request);
 
-        return $this->fileResponse($disk, $media);
+        return $this->fileResponse($record, $disk, $media);
     }
 
     /**
@@ -375,16 +375,13 @@ final class DocumentDownloadController extends Controller
      * (`Str::ascii()` rồi bỏ `%`) và truyền vào làm `$filenameFallback`, nên header ra đúng cả hai
      * phần RFC 6266 đòi: `filename=` cho phần ASCII và `filename*=UTF-8''…` cho bản có dấu.
      *
-     * Tên truyền vào là `media.name` — tên hiển thị, đã qua `FileGuard::safeName()` lúc nộp — và
-     * {@see self::downloadName()} cho nó đi qua `safeName()` MỘT LẦN NỮA. Không thừa: đây là một
-     * giá trị đọc ra từ cơ sở dữ liệu, có thể do một bản mã cũ hơn, một seeder hay một lần sửa
-     * tay ghi vào, và docblock của `FileGuard` nói thẳng rằng mọi tên đi vào một header
-     * `Content-Disposition` phải đi qua hàm đó trước. Nó bỏ `"`, `;` và ký tự điều khiển — những
-     * thứ tách được một header; xoá lần gọi đó làm đỏ test tên tệp mang mưu đồ chèn header.
+     * Tên truyền vào lấy từ `Document::title` (SPEC §7.2 cột "Tên tài liệu") — xem
+     * {@see self::downloadName()} cho lý do và cho việc nó đi qua `FileGuard::safeName()`, cùng
+     * cổng mà mọi tên đi vào một header `Content-Disposition` phải đi qua.
      */
-    private function fileResponse(FilesystemAdapter $disk, Media $media): Response
+    private function fileResponse(Document $document, FilesystemAdapter $disk, Media $media): Response
     {
-        return $disk->download($media->getPathRelativeToRoot(), $this->downloadName($media), [
+        return $disk->download($media->getPathRelativeToRoot(), $this->downloadName($document, $media), [
             // Tệp hồ sơ không được nằm lại trong bất kỳ bộ nhớ đệm chung nào, và một phản hồi
             // không lưu lại cũng là thứ khiến một lần "quay lại" trong trình duyệt phải đi lại
             // qua chữ ký và policy thay vì đọc bản cũ.
@@ -396,48 +393,51 @@ final class DocumentDownloadController extends Controller
     }
 
     /**
-     * Tên tệp phải CÒN ĐUÔI. Đó là lý do tồn tại của quyết định "tên hiển thị giữ nguyên đuôi" ở
-     * `StoresDocumentFile::storeFile()`: một tệp tải về không có đuôi thì Windows không biết mở
-     * bằng gì, và người nhận ở đây là nhân viên văn phòng.
+     * **Tên tải về lấy từ `title` đã làm sạch, KHÔNG từ tên tệp gốc do nhân sự đặt —
+     * `docs/docs-5`.** Trước bản sửa này, tên đi vào `Content-Disposition` là `media.name`
+     * (`FileGuard::safeName()` của TÊN TỆP GỐC lúc nộp, xem `StoresDocumentFile::storeFile()`).
+     * Gợi ý ở ô "Tên tài liệu" (`documents.tab.fields.title_help`) nói với nhân sự rằng tiêu đề
+     * là thứ DUY NHẤT khách thấy — sai: một tên tệp làm việc nội bộ ("Đơn KK – bản 3 – ý kiến LS
+     * chưa duyệt.pdf") đi thẳng tới máy khách mỗi lần tải, dù trang portal chỉ hiện `title`. Nay
+     * cả hai khớp nhau: khách đọc đúng cái tên họ đã thấy trên màn hình trước khi bấm tải.
      *
-     * `FileGuard::safeName()` giữ đuôi cho mọi tên đi qua cổng nộp tệp (kể cả `....pdf`, vốn từng
-     * bị gọt thành `pdf` — đuôi biến mất — và đã được vá bằng cách tách đuôi ra trước). Nhưng
-     * `media.name` KHÔNG phải lúc nào cũng đến từ cổng đó: mặc định của medialibrary khi gọi
-     * `addMedia()` trơn là tên tệp BỎ đuôi, nên một dòng tạo bằng đường đó — một lần nhập dữ
-     * liệu, một bản mã cũ, một lần sửa tay — có một tên hiển thị không đuôi. Ở đây đuôi được lấy
-     * lại từ `media.file_name`, cái tên NẰM TRÊN ĐĨA.
+     * **Đuôi vẫn lấy từ `media.file_name` (tên NẰM TRÊN ĐĨA), và giờ được nối vào MỘT CÁCH VÔ
+     * ĐIỀU KIỆN**, không còn là một "mượn khi thiếu" như bản trước — vì `title` không phải một
+     * tên tệp, nó gần như không bao giờ tự mang đuôi. Tên tệp phải CÒN ĐUÔI (một tệp tải về
+     * không đuôi thì Windows không biết mở bằng gì), và đây là lý do quyết định "tên hiển thị giữ
+     * nguyên đuôi" ở `StoresDocumentFile::storeFile()` vẫn còn ý nghĩa dù tên hiển thị đó (`media.
+     * name`) không còn là nguồn của tên tải về nữa: nó vẫn là nguồn của ĐUÔI.
      *
-     * (Bản đầu của đoạn này nêu "seeder, factory" làm ví dụ. Câu đó sai suốt milestone: cho tới
-     * vòng rà soát cuối M4 không seeder hay factory nào gắn tệp cả, nên chúng không tạo ra dòng
-     * `media` nào. Nay `MatterSeeder` có gắn tệp, nhưng nó đi qua chính hai Action sản phẩm, tức
-     * qua `safeName()` — nên nó cũng không phải nguồn của nhánh này.)
+     * **`title` không phải một đường dẫn, và không được xử lý như một cái.** Tiêu đề văn bản
+     * tiếng Việt mang dấu `/` một cách hoàn toàn hợp lệ (ví dụ "Quyết định số 42/2026",
+     * "Đơn khởi kiện – QĐ-UBND"), nhưng `FileGuard::safeName()` coi `/` là dấu phân cách thư mục
+     * (`basename(str_replace('\\','/',$name))`, viết cho tên TỆP). Gọi thẳng `safeName($title)`
+     * sẽ CẮT MẤT mọi thứ trước dấu `/` CUỐI CÙNG — "Quyết định số 42/2026" biến thành "2026",
+     * một lỗi mất dữ liệu âm thầm còn tệ hơn một lần từ chối. `/` và `\` vì vậy được thay bằng
+     * `-` TRƯỚC khi tiêu đề đi vào `safeName()`.
      *
-     * **Đuôi mượn về ĐI LẠI qua `safeName()`.** Bản đầu nối nó vào sau khi `safeName()` đã chạy,
-     * nên một `media.file_name` do một bản mã cũ ghi vào đưa được `"` và `;` — đúng hai ký tự
-     * tách được một header `Content-Disposition` — thẳng ra ngoài. `storedFileName()` hôm nay
-     * chuẩn hoá đuôi còn `[a-z0-9]`, nhưng "hôm nay mọi dòng đều do nó sinh ra" là một tính chất
-     * của dữ liệu, không phải của hàm này.
+     * **Đuôi được nối SAU CÙNG, rồi cả cụm mới đi qua `safeName()` một lần** — không phải gọi
+     * `safeName()` trên tiêu đề rồi nối đuôi vào sau (đúng lỗi bản trước mắc với `media.file_name`
+     * cũ). Vì đuôi luôn là DẤU CHẤM CUỐI CÙNG của chuỗi, `pathinfo()` bên trong `safeName()` tách
+     * đúng nó ra làm phần mở rộng dù `title` có mang dấu chấm ở đâu bên trong (ví dụ "Biên bản
+     * ngày 20.03.2026" + ".pdf" tách đúng thành đuôi "pdf", không phải "2026"). `safeName()` cũng
+     * lo nốt phần còn lại: bỏ ký tự điều khiển, `"`, `;` (tách được header), và cắt cho vừa
+     * `varchar(255)` mà vẫn giữ dấu tiếng Việt.
      *
      * **Và tên cuối cùng PHẢI còn một đuôi, nếu không thì lượt tải này là một lỗi 500.**
      * `FilesystemAdapter::download()` tự tính bản dự phòng ASCII bằng `Str::ascii()` rồi bỏ `%`,
      * còn `HeaderUtils::makeDisposition()` ném `InvalidArgumentException` khi bản dự phòng đó
-     * RỖNG. Một `media.name` toàn chữ Hán hay emoji cho đúng chuỗi rỗng ấy (`Str::ascii('日本語')`
-     * → `''`), và khi không có đuôi nào để mượn thì không còn byte ASCII nào sống sót. Dấu chấm
-     * của phần đuôi luôn qua được `Str::ascii()`, nên "còn đuôi" ĐỒNG NGHĨA với "bản dự phòng
-     * không rỗng" — vì vậy một câu kiểm đuôi ở cuối đóng được cả lớp lỗi này, chứ không chỉ cái
-     * ví dụ đã dựng lại được. Không còn đuôi thì trả về tên dự phòng, thứ đã là ASCII thuần.
+     * RỖNG. Một tiêu đề toàn chữ Hán hay emoji cho đúng chuỗi rỗng ấy (`Str::ascii('日本語')` →
+     * `''`), và khi `media.file_name` cũng không có đuôi nào thì không còn byte ASCII nào sống
+     * sót. Dấu chấm của phần đuôi luôn qua được `Str::ascii()`, nên "còn đuôi" ĐỒNG NGHĨA với
+     * "bản dự phòng không rỗng" — một câu kiểm đuôi ở cuối đóng được cả lớp lỗi này. Không còn
+     * đuôi thì trả về tên dự phòng, thứ đã là ASCII thuần.
      */
-    private function downloadName(Media $media): string
+    private function downloadName(Document $document, Media $media): string
     {
-        $name = FileGuard::safeName((string) $media->name);
-
-        if (pathinfo($name, PATHINFO_EXTENSION) === '') {
-            $extension = pathinfo((string) $media->file_name, PATHINFO_EXTENSION);
-
-            if ($extension !== '') {
-                $name = FileGuard::safeName($name.'.'.$extension);
-            }
-        }
+        $extension = pathinfo((string) $media->file_name, PATHINFO_EXTENSION);
+        $stem = str_replace(['/', '\\'], '-', $document->title);
+        $name = FileGuard::safeName($extension === '' ? $stem : $stem.'.'.$extension);
 
         return pathinfo($name, PATHINFO_EXTENSION) === ''
             ? __('documents.fallback_file_name')

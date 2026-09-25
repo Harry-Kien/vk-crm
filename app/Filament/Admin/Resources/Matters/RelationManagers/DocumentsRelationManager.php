@@ -2,8 +2,10 @@
 
 namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 
+use App\Actions\Document\MarkDocumentSignedFiled;
 use App\Actions\Document\PublishDocument;
 use App\Actions\Document\RegroupDocument;
+use App\Actions\Document\SubmitDocumentForApproval;
 use App\Actions\Document\UploadStaffDocument;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
@@ -32,13 +34,17 @@ use Illuminate\Support\HtmlString;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Tab "Tài liệu" (SPEC §7.2): danh sách `documents` của vụ việc, nhóm theo A/B/C/D, với bốn thao
- * tác — đưa tệp vào hồ sơ, công bố cho khách, chuyển nhóm, và tải tệp về.
+ * Tab "Tài liệu" (SPEC §7.2): danh sách `documents` của vụ việc, nhóm theo A/B/C/D, với sáu thao
+ * tác — đưa tệp vào hồ sơ, trình duyệt, đánh dấu đã ký và đã nộp, công bố cho khách, chuyển nhóm,
+ * và tải tệp về. Hai thao tác giữa (Task 16, phán quyết R9) là toàn bộ vòng đời văn bản nhóm B
+ * (SPEC §4.11) mà tới trước đó không có Action, nút hay ô nào ghi được — xem docblock
+ * `SubmitDocumentForApproval` và `MarkDocumentSignedFiled` cho lý do đầy đủ.
  *
- * **Lớp này không có một dòng nghiệp vụ nào.** Bốn thao tác gọi `UploadStaffDocument`,
- * `PublishDocument`, `RegroupDocument` và route tải tệp có chữ ký của Task 5. Lời từ chối của các
- * Action đi ra qua `ReportsActionFailures` (xem docblock trait đó cho bốn họ exception và vì sao
- * không họ nào được ánh xạ sang một mã HTTP riêng).
+ * **Lớp này không có một dòng nghiệp vụ nào.** Sáu thao tác gọi `UploadStaffDocument`,
+ * `SubmitDocumentForApproval`, `MarkDocumentSignedFiled`, `PublishDocument`, `RegroupDocument` và
+ * route tải tệp có chữ ký của Task 5. Lời từ chối của các Action đi ra qua `ReportsActionFailures`
+ * (xem docblock trait đó cho bốn họ exception và vì sao không họ nào được ánh xạ sang một mã HTTP
+ * riêng).
  *
  * **Nhóm D, ba lớp hiển thị chứ không một.** SPEC §7.2 đòi "nền khác màu rõ rệt" VÀ nhãn "Chỉ nội
  * bộ — không bao giờ hiện cho khách". Ở đây có: (1) một cột luôn hiện, mang nguyên văn cái nhãn
@@ -319,6 +325,8 @@ class DocumentsRelationManager extends RelationManager
             ])
             ->recordActions([
                 $this->downloadAction(),
+                $this->submitForApprovalAction(),
+                $this->markSignedFiledAction(),
                 $this->publishAction(),
                 $this->regroupAction(),
             ])
@@ -373,13 +381,41 @@ class DocumentsRelationManager extends RelationManager
                     // `private` hay không. Đây là điều kiện để Action còn là cổng duy nhất: một ô
                     // tự lưu sẽ đặt tệp lên đĩa trước khi có ai kiểm tra nó.
                     ->storeFiles(false)
-                    // Hai luật dưới đây chỉ là tiện lợi phía trình duyệt (chặn sớm, báo ngay tại
-                    // ô) và chúng đọc `Content-Type` do client gửi — thứ SPEC §6.6 bước 3 nói
-                    // thẳng là không được tin. Cổng thật là `FileGuard`, và nó đọc MIME bằng
-                    // `finfo` trên nội dung tệp.
+                    // **Chú thích trước ĐÂY sai, và `docs/docs-7` ghi lại đúng chỗ sai.** Nó nói
+                    // hai luật dưới đây "đọc Content-Type do client gửi". Không đúng: bản thân
+                    // `acceptedFileTypes()` chỉ cài luật `mimetypes:...` của Laravel
+                    // (`BaseFileUpload::acceptedFileTypes()`), và luật đó gọi
+                    // `TemporaryUploadedFile::getMimeType()`. Ở PRODUCTION, hàm đó đi thẳng tới
+                    // `detectMimeTypeFromContents()` — tức `finfo` chạy trên 64 KB đầu của NỘI
+                    // DUNG tệp đã lưu trên đĩa tạm, không đọc header `Content-Type` nào của
+                    // request. Chỉ khi `app()->runningUnitTests()` (bộ test) thì hàm đó mới trả
+                    // `metaFileData['type']` — MIME suy từ ĐUÔI tệp của `UploadedFile::fake()` —
+                    // nên một test tải lên một `.pdf` giả nội dung không phải PDF vẫn "qua" được
+                    // ô này, và `FileGuard` (chạy production thật) mới là nơi chặn nó. `maxSize()`
+                    // thì không liên quan gì tới `Content-Type` cả — nó so kích thước tệp thật
+                    // (`TemporaryUploadedFile::getSize()`) với một con số, ở CẢ hai tầng (trình
+                    // duyệt qua FilePond, và máy chủ qua luật `max:`).
+                    //
+                    // Cổng an ninh THẬT vẫn là `FileGuard`: nó đọc MIME bằng `finfo` trên nội dung
+                    // tệp ở mọi môi trường, kể cả bộ test (không có nhánh `runningUnitTests()` nào
+                    // trong `FileGuard`). Ô này chỉ chặn SỚM, tiện cho người dùng — và với `docx`/
+                    // `xlsx`, nó phải đồng ý với `FileGuard` về việc `application/zip` là hợp lệ,
+                    // xem {@see self::acceptedMimeTypes()}.
                     ->acceptedFileTypes(static::acceptedMimeTypes())
                     ->maxSize(static::maxUploadMegabytes() * 1024)
-                    ->required(),
+                    ->required()
+                    // `docs/docs-7`: không có mảng này, một lần bị chặn ở CHÍNH Ô (trước khi
+                    // `FileGuard` kịp chạy) hiện câu mặc định của Laravel liệt kê nguyên văn chuỗi
+                    // MIME kỹ thuật ("The file field must be a file of type: ..."), không phải
+                    // tiếng Việt và không nói việc cần làm tiếp theo (SPEC §8.4). `max` mượn đúng
+                    // câu `documents.file_guard.too_large` mà `FileRejected::tooLarge()` cũng
+                    // dùng, để người dùng đọc CÙNG một câu dù lời từ chối đến từ cửa nào — cùng
+                    // thành ngữ `SubmitDocument::form()` (portal) đã dùng.
+                    ->validationMessages([
+                        'required' => __('documents.upload.file_required'),
+                        'mimetypes' => __('documents.upload.file_type'),
+                        'max' => __('documents.file_guard.too_large', ['max' => static::maxUploadMegabytes()]),
+                    ]),
                 TextInput::make('title')
                     ->label(__('documents.tab.fields.title'))
                     ->helperText(__('documents.tab.fields.title_help'))
@@ -419,7 +455,69 @@ class DocumentsRelationManager extends RelationManager
             ));
     }
 
-    /** SPEC §6.5. Nhóm D không bao giờ có nút này — xem docblock lớp. */
+    /**
+     * "Trình duyệt" — bước ĐẦU của vòng đời văn bản nhóm B (SPEC §4.11, phán quyết R9): chỉ hiện
+     * trên một dòng nhóm B đang `internal_draft`, và đòi đúng quyền `SubmitDocumentForApproval`
+     * đòi (`document.update`, qua `DocumentPolicy::update`) — trợ lý bấm được nút này.
+     */
+    private function submitForApprovalAction(): Action
+    {
+        return Action::make('submitForApproval')
+            ->label(__('documents.tab.actions.submit_for_approval'))
+            ->icon(Heroicon::OutlinedPaperAirplane)
+            ->color('gray')
+            ->requiresConfirmation()
+            ->modalHeading(__('documents.tab.actions.submit_for_approval_heading'))
+            ->modalDescription(__('documents.tab.actions.submit_for_approval_description'))
+            ->authorize(fn (Document $record): bool => Gate::allows('update', $record))
+            ->visible(fn (Document $record): bool => $record->group === DocumentGroup::Issued
+                && $record->status === DocumentStatus::InternalDraft)
+            ->successNotificationTitle(__('documents.tab.actions.submit_for_approval_success'))
+            ->action(fn (Action $action, Document $record) => $this->runAction(
+                $action,
+                fn () => app(SubmitDocumentForApproval::class)->handle(document: $record, actor: Auth::user()),
+            ));
+    }
+
+    /**
+     * "Đánh dấu đã ký, đã nộp" — bước THỨ HAI của vòng đời văn bản nhóm B, và bước cuối trước khi
+     * nó công bố được (SPEC §4.11, §6.5 bước 2, phán quyết R9). Chỉ hiện trên một dòng nhóm B đang
+     * `pending_approval`, và đòi `document.publish` — trợ lý KHÔNG có quyền này, khác nút "Trình
+     * duyệt" ngay phía trên.
+     */
+    private function markSignedFiledAction(): Action
+    {
+        return Action::make('markSignedFiled')
+            ->label(__('documents.tab.actions.mark_signed_filed'))
+            ->icon(Heroicon::OutlinedCheckBadge)
+            ->color('gray')
+            ->requiresConfirmation()
+            ->modalHeading(__('documents.tab.actions.mark_signed_filed_heading'))
+            ->modalDescription(__('documents.tab.actions.mark_signed_filed_description'))
+            ->authorize(fn (Document $record): bool => Gate::allows('publish', $record))
+            ->visible(fn (Document $record): bool => $record->group === DocumentGroup::Issued
+                && $record->status === DocumentStatus::PendingApproval)
+            ->successNotificationTitle(__('documents.tab.actions.mark_signed_filed_success'))
+            ->action(fn (Action $action, Document $record) => $this->runAction(
+                $action,
+                fn () => app(MarkDocumentSignedFiled::class)->handle(document: $record, actor: Auth::user()),
+            ));
+    }
+
+    /**
+     * SPEC §6.5. Nhóm D không bao giờ có nút này — xem docblock lớp.
+     *
+     * **`fillForm` đọc từ CHÍNH bản ghi, không phải hai cờ cố định (`docs/docs-4`).** Bản trước
+     * `->default(true)` trên cả hai ô, không đọc trạng thái hiện tại: mở lại hộp thoại của một
+     * tài liệu đã công bố "chỉ xem, không tải" (`client_can_download = false`) vẫn thấy ô "Cho
+     * khách tải về" đang BẬT, và bấm xác nhận là lặng lẽ mở lại quyền tải mà không ai chủ ý.
+     *
+     * Vẫn giữ đúng lý do `client_can_view` mặc định bật cho một tài liệu CHƯA từng ra tới khách —
+     * `PublishDocument` từ chối công bố với cờ đó tắt, nên một lần công bố ĐẦU TIÊN với ô này tắt
+     * sẵn không phải một thao tác, nó là một lời từ chối đã biết trước. `isReleasedToPortal()` là
+     * đúng lằn ranh: tài liệu ĐÃ ra tới khách thì form phải trung thực với hai cờ hiện có (kể cả
+     * khi đó là một lần công bố lại), còn CHƯA thì form vẫn gợi ý bộ mặc định thuận tiện cũ.
+     */
     private function publishAction(): Action
     {
         return Action::make('publish')
@@ -429,19 +527,25 @@ class DocumentsRelationManager extends RelationManager
             ->modalHeading(__('documents.tab.actions.publish_heading'))
             ->authorize(fn (Document $record): bool => Gate::allows('publish', $record))
             ->visible(fn (Document $record): bool => ! $record->group->isInternal())
+            ->fillForm(fn (Document $record): array => $record->isReleasedToPortal()
+                ? [
+                    'client_can_view' => $record->client_can_view,
+                    'client_can_download' => $record->client_can_download,
+                ]
+                : [
+                    'client_can_view' => true,
+                    'client_can_download' => true,
+                ])
             ->schema([
                 // Hai cờ ĐỘC LẬP (SPEC §6.5 bước 3): cho khách biết đã có tài liệu mà chưa cho
-                // giữ bản sao là một trường hợp hợp lệ. `client_can_view` mặc định bật vì
-                // `PublishDocument` từ chối công bố mà không cho xem — một lần công bố với ô đó
-                // tắt không phải một thao tác, nó là một lời từ chối đã biết trước.
+                // giữ bản sao là một trường hợp hợp lệ. Giá trị BAN ĐẦU của ô do `fillForm()` ở
+                // trên quyết định — xem docblock ngay phía trên hàm này.
                 Toggle::make('client_can_view')
                     ->label(__('documents.tab.fields.client_can_view'))
-                    ->helperText(__('documents.tab.fields.client_can_view_help'))
-                    ->default(true),
+                    ->helperText(__('documents.tab.fields.client_can_view_help')),
                 Toggle::make('client_can_download')
                     ->label(__('documents.tab.fields.client_can_download'))
-                    ->helperText(__('documents.tab.fields.client_can_download_help'))
-                    ->default(true),
+                    ->helperText(__('documents.tab.fields.client_can_download_help')),
             ])
             ->successNotificationTitle(__('documents.tab.actions.publish_success'))
             ->action(fn (Action $action, Document $record, array $data) => $this->runAction(
@@ -588,6 +692,23 @@ class DocumentsRelationManager extends RelationManager
      * Gợi ý cho hộp thoại chọn tệp của trình duyệt, theo danh sách trắng SPEC §6.6 bước 2. KHÔNG
      * phải một cổng an ninh — xem bình luận ở `FileUpload::acceptedFileTypes()`.
      *
+     * **`application/zip` có mặt vì một docx/xlsx THẬT, và chỉ vì lý do đó (`docs/docs-7`).**
+     * Office Open XML là một gói ZIP: `finfo` đôi khi chỉ đọc ra `application/zip` cho một
+     * `.docx`/`.xlsx` hợp lệ (libmagic chỉ nhận ra MIME OOXML cụ thể khi thứ tự các mục trong gói
+     * hợp với heuristic của nó, và heuristic đó khác nhau giữa các bản libmagic — xem
+     * `FileGuard::verifyOfficePackage()`, nơi ĐÃ có logic chấp nhận trường hợp này bằng cách mở
+     * gói ra và đòi đúng mục bắt buộc, chứ không tin riêng MIME). Trước bản sửa này ô CHỌN TỆP
+     * (luật `mimetypes:` của chính nó) từ chối một tệp như vậy TRƯỚC KHI `FileGuard` kịp chạy —
+     * hai cổng bất đồng, và cổng sớm hơn thắng: một docx thật, hợp lệ, bị chặn oan ngay tại ô.
+     *
+     * **Không nới an ninh.** Đây vẫn KHÔNG phải cổng an ninh — `FileGuard::ALLOWED` mới là ranh
+     * giới thật, và nó không có khoá `'zip'`: một tệp `.zip` trần (đuôi `zip`) vẫn bị
+     * `FileGuard::check()` từ chối ở bước ĐUÔI (`extensionNotAllowed()`), trước khi MIME được xét
+     * tới. `application/zip` ở đây chỉ nới cho hai ĐUÔI `docx`/`xlsx` đã có trong danh sách trắng
+     * — đúng những đuôi mà `FileGuard::OFFICE_PACKAGE_ENTRIES` đòi mở gói ra kiểm tra thêm, nên
+     * một ZIP tuỳ ý đội tên `.docx` vẫn bị `FileGuard` chặn ở bước cấu trúc gói, không phải ở
+     * bước MIME này.
+     *
      * @return array<int, string>
      */
     public static function acceptedMimeTypes(): array
@@ -600,6 +721,7 @@ class DocumentsRelationManager extends RelationManager
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             'application/vnd.ms-excel',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/zip',
         ];
     }
 }

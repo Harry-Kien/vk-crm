@@ -8,6 +8,7 @@ use App\Enums\MatterRole;
 use App\Enums\Permission;
 use App\Enums\Role;
 use App\Exceptions\DocumentGroupNotChangeable;
+use App\Exceptions\DocumentLifecycleNotAllowed;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Document;
@@ -199,6 +200,79 @@ it('không chuyển nhóm được cho tài liệu của một vụ việc đã 
     'rời nhóm D' => [DocumentGroup::Internal, DocumentGroup::Authority],
     'giữa B và C' => [DocumentGroup::Issued, DocumentGroup::Authority],
 ]);
+
+// ---------------------------------------------------------------------------------------------
+// R9 (Task 16, sửa `docs/docs-2`): rời khỏi nhóm B đòi `document.publish` CỘNG tài liệu đã ở
+// `signed_filed` hoặc `published`. Trước bản sửa này, B → C (hay B → A, hay B → D) chỉ đòi
+// `document.update`, mà trợ lý cũng có — đúng đường "giặt" một bản nháp đơn thành nhóm C rồi
+// công bố thẳng, vì `PublishDocument` chỉ áp luật `signed_filed` cho `group === Issued`.
+// ---------------------------------------------------------------------------------------------
+
+function regroupDocumentIssued(Matter $matter, DocumentStatus $status, bool $released = false): Document
+{
+    return Document::factory()->create([
+        'matter_id' => $matter->id,
+        'group' => DocumentGroup::Issued,
+        'status' => $status,
+        'client_can_view' => $released,
+        'client_can_download' => $released,
+    ]);
+}
+
+it('trợ lý có document.update nhưng không có document.publish thì không rời được nhóm B, dù tài liệu đã signed_filed', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $matter = regroupMatter($lawyer);
+    $matter->addTeamMember($assistant, MatterRole::Assistant);
+    $document = regroupDocumentIssued($matter, DocumentStatus::SignedFiled);
+
+    expect(fn () => regroupAs($document, $assistant, DocumentGroup::Authority))
+        ->toThrow(AuthorizationException::class);
+
+    expect($document->fresh()->group)->toBe(DocumentGroup::Issued);
+});
+
+/**
+ * Cặp trạng thái chưa sẵn sàng, cộng nhóm ĐÍCH là D — để chứng minh D không phải một trạm trung
+ * chuyển bỏ qua cổng này (rời D chỉ đòi `document.publish`, không đòi trạng thái nào cả).
+ */
+it('luật sư có document.publish nhưng tài liệu chưa signed_filed thì vẫn không rời được nhóm B', function (DocumentStatus $status, DocumentGroup $destination) {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = regroupMatter($lawyer);
+    $document = regroupDocumentIssued($matter, $status);
+
+    expect(fn () => regroupAs($document, $lawyer, $destination))
+        ->toThrow(DocumentLifecycleNotAllowed::class);
+
+    expect($document->fresh()->group)->toBe(DocumentGroup::Issued);
+})->with([
+    'còn internal_draft → C' => [DocumentStatus::InternalDraft, DocumentGroup::Authority],
+    'chờ duyệt → C' => [DocumentStatus::PendingApproval, DocumentGroup::Authority],
+    'còn internal_draft → D' => [DocumentStatus::InternalDraft, DocumentGroup::Internal],
+]);
+
+/** Cặp dương của hai test trên: đúng trạng thái, đúng quyền, rời nhóm được. */
+it('luật sư có document.publish thì rời được nhóm B một khi tài liệu đã signed_filed', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = regroupMatter($lawyer);
+    $document = regroupDocumentIssued($matter, DocumentStatus::SignedFiled);
+
+    $moved = regroupAs($document, $lawyer, DocumentGroup::Authority);
+
+    expect($moved->group)->toBe(DocumentGroup::Authority);
+});
+
+/** Và một tài liệu B đã published (ví dụ công bố lại) vẫn rời nhóm được — bất biến chỉ chặn cú
+ * NHẢY VÀO trạng thái đó, không khoá cứng tài liệu sau khi đã ra tới khách. */
+it('một tài liệu nhóm B đã published vẫn rời nhóm được', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = regroupMatter($lawyer);
+    $document = regroupDocumentIssued($matter, DocumentStatus::Published, released: true);
+
+    $moved = regroupAs($document, $lawyer, DocumentGroup::Authority);
+
+    expect($moved->group)->toBe(DocumentGroup::Authority);
+});
 
 // ---------------------------------------------------------------------------------------------
 // Hàng rào ở tầng model: không đường nào khác rời được nhóm D.

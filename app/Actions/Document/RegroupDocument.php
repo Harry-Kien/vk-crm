@@ -4,6 +4,8 @@ namespace App\Actions\Document;
 
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\DocumentGroup;
+use App\Enums\DocumentStatus;
+use App\Exceptions\DocumentLifecycleNotAllowed;
 use App\Models\Document;
 use App\Models\User;
 use App\Support\Audit;
@@ -31,9 +33,24 @@ use Illuminate\Support\Facades\Gate;
  * Hai chiều đều đi qua `DocumentPolicy::update` (kèm `view()`, nên không ai đổi nhóm một tài
  * liệu họ không đọc được, và không ai đụng tới tài liệu của một vụ việc đã xoá mềm).
  *
+ * **Rời khỏi nhóm B cũng đòi `document.publish`, CỘNG một cổng vòng đời — phán quyết R9 (Task
+ * 16), sửa `docs/docs-2`.** Trước bản sửa này, B → C (hay B → A) chỉ đòi `document.update`, mà
+ * trợ lý cũng có; `PublishDocument` chỉ áp luật `signed_filed` cho `group === Issued`, nên một
+ * tài liệu B vừa đổi nhãn thành C được công bố THẲNG từ `internal_draft` — đúng thứ SPEC §4.11
+ * cấm ("không được nhảy thẳng từ `internal_draft`... ngăn khách nhìn thấy một bản đơn mà toà chưa
+ * hề nhận được"). Cổng mới chặn CHÍNH XÁC ở đây, bất kể nhóm ĐÍCH là gì — kể cả D: một tài liệu B
+ * chưa ký không được dùng D làm trạm trung chuyển để rồi rời D (chỉ đòi `document.publish`, không
+ * đòi trạng thái) sang C mà không đi qua vòng đời nào. Xem
+ * `App\Exceptions\DocumentLifecycleNotAllowed::notReadyToLeaveGroupB()`.
+ *
  * **Hàng rào ở tầng model là phần không thể bỏ.** Action này là đường đúng; `Document::booted()`
  * là thứ làm cho nó thành đường DUY NHẤT. Xem docblock `Document::duringAuditedRegroup()` để
  * biết vì sao một bất biến dữ liệu được canh ở model trong khi nghiệp vụ vẫn ở Action.
+ *
+ * Cổng nhóm B ở trên KHÔNG có hàng rào tương ứng ở tầng model — khác nhóm D. SPEC không gọi vòng
+ * đời nhóm B là một ranh giới "tuyệt đối" theo đúng nghĩa đó (nó là một CHUỖI trạng thái, không
+ * phải một tập bị cấm tuyệt đối), nên một cổng ở tầng Action là đủ, cùng mức với cổng
+ * `signed_filed` mà `PublishDocument` đã áp từ trước cho chính nhóm này.
  */
 class RegroupDocument
 {
@@ -61,6 +78,20 @@ class RegroupDocument
 
             if ($from === DocumentGroup::Internal) {
                 Gate::forUser($actor)->authorize('publish', $fresh);
+            }
+
+            // R9: rời khỏi nhóm B đòi `document.publish` CỘNG đã đi hết vòng đời
+            // (`internal_draft` → `pending_approval` → `signed_filed`) — xem docblock lớp và
+            // `DocumentLifecycleNotAllowed::notReadyToLeaveGroupB()`. Bất kể nhóm ĐÍCH là gì:
+            // không chỉ chặn "giặt" B → C, mà chặn cả B → D, nếu không D trở thành một trạm
+            // trung chuyển để bỏ qua cổng này (rời D chỉ đòi `document.publish`, không đòi trạng
+            // thái).
+            if ($from === DocumentGroup::Issued) {
+                Gate::forUser($actor)->authorize('publish', $fresh);
+
+                if (! in_array($fresh->status, [DocumentStatus::SignedFiled, DocumentStatus::Published], true)) {
+                    throw DocumentLifecycleNotAllowed::notReadyToLeaveGroupB($fresh);
+                }
             }
 
             Document::duringAuditedRegroup(fn () => $fresh->update(['group' => $group]));

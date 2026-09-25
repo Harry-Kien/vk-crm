@@ -42,6 +42,11 @@ return [
         'title_required' => 'Tài liệu cần một tên gọi để anh/chị và khách nhận ra nó trong danh sách. Anh/chị nhập tên tài liệu rồi tải lên lại.',
         'title_too_long' => 'Tên tài liệu dài quá :max ký tự nên không lưu được. Anh/chị rút gọn lại còn phần chính (ví dụ "Quyết định 123/QĐ-UBND ngày 01/03/2026") rồi tải lên lại.',
         'issued_at_invalid' => 'Ngày ban hành chưa đúng định dạng nên hệ thống không đọc được. Anh/chị nhập theo dạng ngày/tháng/năm (ví dụ 01/03/2026) hoặc chọn từ lịch, hoặc để trống nếu tài liệu không có ngày ban hành.',
+        // Hai câu dưới đây bắt lời từ chối của CHÍNH Ô CHỌN TỆP (luật `mimetypes`/`required` của
+        // Filament), tức khi tệp bị chặn TRƯỚC khi `FileGuard` kịp chạy — xem docblock tại chỗ
+        // `->validationMessages()` được gọi trong `uploadAction()` (`docs/docs-7`).
+        'file_required' => 'Anh/chị chưa chọn tệp. Chọn một tệp rồi tải lên lại.',
+        'file_type' => 'Định dạng tệp này không được chấp nhận. Chỉ nhận PDF, ảnh (JPG, JPEG, PNG) hoặc tệp Word/Excel (DOC, DOCX, XLS, XLSX). Nếu đây là ảnh chụp, hãy lưu lại dưới định dạng JPG hoặc PNG rồi tải lên lại.',
     ],
 
     /*
@@ -70,6 +75,23 @@ return [
      */
     'regroup' => [
         'leaving_internal_group' => 'Tài liệu nhóm D (hồ sơ công việc nội bộ) chỉ chuyển sang nhóm khác bằng thao tác "Chuyển nhóm tài liệu" — thao tác đó ghi lại ai chuyển và chuyển từ nhóm nào sang nhóm nào. Anh/chị dùng thao tác đó thay vì sửa nhóm trực tiếp trên biểu mẫu.',
+    ],
+
+    /*
+     * Vòng đời văn bản nhóm B (SPEC §4.11, phán quyết R9): `internal_draft` → `pending_approval` →
+     * `signed_filed` → `published`. `SubmitDocumentForApproval`, `MarkDocumentSignedFiled` và cổng
+     * mới của `RegroupDocument` (rời nhóm B) đều dùng chung nhóm câu này — xem
+     * `App\Exceptions\DocumentLifecycleNotAllowed`. Cùng luật SPEC §8.4 với `publish.*`: nói rõ
+     * trạng thái hiện tại và việc cần làm tiếp theo, không nhắc tới quyền hay vai trò.
+     */
+    'lifecycle' => [
+        'not_group_b' => 'Chỉ văn bản do văn phòng phát hành (nhóm B) mới đi qua vòng trình duyệt và ký, nộp này. Văn bản của cơ quan nhà nước (nhóm C) không do văn phòng soạn nên không có gì để trình duyệt.',
+        'not_internal_draft' => 'Tài liệu này đang ở trạng thái ":status" nên không trình duyệt được nữa — chỉ bản thảo nội bộ mới trình duyệt được. Nếu cần sửa lại nội dung đã trình duyệt, anh/chị tải lên một bản mới.',
+        'not_pending_approval' => 'Tài liệu này đang ở trạng thái ":status" nên chưa đánh dấu "Đã ký, đã nộp" được. Anh/chị trình duyệt bản thảo trước, rồi đánh dấu sau khi đã có bản ký và đã nộp.',
+        'not_ready_to_leave_group_b' => 'Văn bản do văn phòng phát hành (nhóm B) đang ở trạng thái ":status" nên chưa chuyển sang nhóm khác được: phải trình duyệt và đánh dấu "Đã ký, đã nộp" trước. Quy định này ngăn một bản nháp đơn bị chuyển nhóm rồi công bố thẳng như thể toà đã nhận được nó.',
+        'trashed' => 'Tài liệu này đã bị xoá nên không thao tác được. Anh/chị khôi phục tài liệu trước.',
+        'matter_unavailable' => 'Hồ sơ chứa tài liệu này đã bị xoá nên không thao tác được. Anh/chị khôi phục hồ sơ trước.',
+        'missing' => 'Không tìm thấy tài liệu này nữa — có thể ai đó vừa xoá nó trong lúc anh/chị đang mở trang. Anh/chị tải lại trang để xem danh sách tài liệu hiện tại.',
     ],
 
     /*
@@ -105,6 +127,14 @@ return [
             'upload' => 'Đưa tài liệu vào hồ sơ',
             'upload_heading' => 'Đưa một tài liệu vào hồ sơ',
             'upload_success' => 'Đã lưu tài liệu vào hồ sơ.',
+            'submit_for_approval' => 'Trình duyệt',
+            'submit_for_approval_heading' => 'Trình bản thảo này để duyệt',
+            'submit_for_approval_description' => 'Tài liệu chuyển sang trạng thái "Chờ duyệt". Bước này chưa đưa gì ra tới khách — khách chỉ thấy tài liệu sau khi văn bản được đánh dấu "Đã ký, đã nộp" rồi công bố.',
+            'submit_for_approval_success' => 'Đã chuyển tài liệu sang trạng thái chờ duyệt.',
+            'mark_signed_filed' => 'Đánh dấu đã ký, đã nộp',
+            'mark_signed_filed_heading' => 'Đánh dấu văn bản này đã ký và đã nộp',
+            'mark_signed_filed_description' => 'Chỉ đánh dấu khi văn bản đã thật sự có chữ ký và đã nộp cho cơ quan có thẩm quyền. Sau bước này tài liệu mới công bố được cho khách.',
+            'mark_signed_filed_success' => 'Đã đánh dấu văn bản là đã ký, đã nộp.',
             'publish' => 'Công bố cho khách',
             'publish_heading' => 'Công bố tài liệu này cho khách',
             'publish_success' => 'Đã công bố tài liệu cho khách.',
