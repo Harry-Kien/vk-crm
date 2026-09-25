@@ -87,6 +87,22 @@ class ClientUserPolicy
     }
 
     /**
+     * Task 7 (R12, phát hiện `portal/portal-4`): "Mở khoá đăng nhập"
+     * (`App\Filament\Admin\Resources\ClientUsers\Pages\EditClientUser`, Action `unlockLogin`).
+     * Một ability RIÊNG, không gọi lại `update()` bên trong Filament action — `HeaderActionsAreReachableTest`
+     * đòi mọi thao tác trên thanh tiêu đề của một trang Edit/List phải mang đúng tên một phương
+     * thức policy, để một cái nút không bao giờ là một lời nói dối về hệ thống.
+     *
+     * Ranh giới GIỐNG HỆT `update()` một cách có chủ ý (cùng gọi lại `view()`): ai sửa được thông
+     * tin của tài khoản cổng thì cũng mở khoá đăng nhập được cho tài khoản đó, không mở rộng biên
+     * giới nào so với chính trang đang đứng.
+     */
+    public function unlockLogin(User|ClientUser $user, ClientUser $clientUser): bool
+    {
+        return $this->update($user, $clientUser);
+    }
+
+    /**
      * Task 2, vòng sửa 1 (Important #3): cổng THÔ của `DeleteBulkAction`/`ForceDeleteBulkAction`/
      * `RestoreBulkAction` trên `ListClientUsers` — cùng lý do hệt `ClientPolicy::deleteAny()`
      * (đọc docblock ở đó): thiếu bốn phương thức này, Filament coi bốn ability tương ứng là CHO

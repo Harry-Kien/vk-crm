@@ -243,7 +243,20 @@ final class PortalLoginThrottle
     /** Chiều ĐỊA CHỈ MẠNG của bước nhập email + mật khẩu. */
     public static function passwordIpKey(): string
     {
-        return 'portal-login-ip:'.sha1(self::ip());
+        return self::passwordIpKeyFor(self::ip());
+    }
+
+    /**
+     * Task 7 (`App\Actions\Portal\UnlockPortalLogin`): biến thể nhận thẳng một địa chỉ mạng thay
+     * vì đọc `request()->ip()` của request hiện tại — nhân sự bấm "Mở khoá đăng nhập" không có
+     * request nào của khách để đọc, nhưng cần TRA lại xem chiều IP của địa chỉ đã gây ra lần khoá
+     * gần nhất (đọc từ chính dòng nhật ký `login_failed`) có còn khoá hay không, để câu trả lời
+     * không hứa suông. Cùng công thức khoá với `passwordIpKey()`, tách riêng để hai nơi gọi không
+     * lặp lại `'portal-login-ip:'.sha1(...)`.
+     */
+    public static function passwordIpKeyFor(string $ip): string
+    {
+        return 'portal-login-ip:'.sha1($ip);
     }
 
     /**
@@ -268,7 +281,13 @@ final class PortalLoginThrottle
     /** Chiều ĐỊA CHỈ MẠNG của bước nhập mã. */
     public static function codeIpKey(): string
     {
-        return 'portal-login-code-ip:'.sha1(self::ip());
+        return self::codeIpKeyFor(self::ip());
+    }
+
+    /** Biến thể nhận thẳng một địa chỉ mạng — cùng lý do với {@see self::passwordIpKeyFor()}. */
+    public static function codeIpKeyFor(string $ip): string
+    {
+        return 'portal-login-code-ip:'.sha1($ip);
     }
 
     /**
@@ -334,6 +353,21 @@ final class PortalLoginThrottle
     public static function clearCodeAccount(Authenticatable $user): void
     {
         RateLimiter::clear(self::codeAccountKey($user));
+    }
+
+    /**
+     * Task 7 (phát hiện `portal/portal-4`): "Mở khoá đăng nhập" nhân sự bấm thay mặt khách —
+     * xoá CẢ HAI chiều tài khoản (bước mật khẩu và bước mã) trong một lần gọi, khác với
+     * `clearPasswordAccount()`/`clearCodeAccount()` ở trên vốn chỉ chạy trên đường đăng nhập
+     * THÀNH CÔNG của chính khách. Chiều ĐỊA CHỈ MẠNG cố ý không đụng tới — cùng lý do đã ghi ở
+     * `clearPasswordAccount()`: một lần "đăng nhập lại được" do nhân sự thay mặt khách bấm không
+     * chứng minh gì về những lần hỏng của người khác trên cùng đường truyền. Xem
+     * `App\Actions\Portal\UnlockPortalLogin`, nơi gọi hàm này.
+     */
+    public static function clearAccountLocks(ClientUser $account): void
+    {
+        self::clearPasswordAccount($account->email);
+        self::clearCodeAccount($account);
     }
 
     /**

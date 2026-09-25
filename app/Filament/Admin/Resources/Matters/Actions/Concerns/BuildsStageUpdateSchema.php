@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Resources\Matters\Actions\Concerns;
 
+use App\Actions\Notification\NotifyClientOfStageUpdate;
 use App\Actions\TransitionMatterStage;
 use App\Exceptions\MatterNotPublishedToPortal;
 use App\Models\Matter;
@@ -11,10 +12,12 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
+use Filament\Schemas\Components\Text;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\View;
 use Filament\Support\Enums\Size;
 use Filament\Support\Enums\Width;
+use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 
@@ -193,6 +196,34 @@ trait BuildsStageUpdateSchema
             ->helperText($matter->is_published_to_portal
                 ? null
                 : __('matters.transition_form.publish_disabled_hint'));
+    }
+
+    /**
+     * Task 7 (R12, phát hiện `stage/stage-06` — nửa "luật sư không biết khách không được báo"):
+     * `NotifyClientOfStageUpdate::handle()` âm thầm bỏ qua một dòng công bố khi khách chưa có tài
+     * khoản cổng đủ điều kiện nhận thư (`recipientsFor()` rỗng) — không lỗi, không cảnh báo, chỉ
+     * để `notified_at` trống. Luật sư bấm "Chuyển giai đoạn"/"Thêm cập nhật", thấy thông báo
+     * thành công CỐ ĐỊNH (`setUpStageUpdateAction()` ở trên), và tin rằng khách đã được báo.
+     *
+     * Dùng LẠI đúng `NotifyClientOfStageUpdate::hasEligibleRecipient()` — một nơi duy nhất đọc
+     * "ai đủ điều kiện nhận thư" (R12: `is_active` + `activated_at` không null + khách chưa xoá
+     * mềm) — để cảnh báo này không bao giờ lệch với chính Action gửi thư thật.
+     *
+     * Dùng `Filament\Schemas\Components\Text` với `->color('warning')` thay vì một Blade view tự
+     * viết: dự án không có bước dựng CSS (CLAUDE.md), và một lớp Tailwind tự viết sẽ không có tác
+     * dụng gì trên `theme.css` biên dịch sẵn (xem `StageLogsRelationManager::renderInternalNote()`
+     * và phát hiện `stage/stage-07`). Component CÓ SẴN của Filament thì khác: nó render qua view
+     * nội bộ của chính gói, dùng các lớp `fi-*` đã có trong `theme.css` phục vụ, nên không cần
+     * style nội tuyến ở đây.
+     */
+    protected function noActivatedAccountWarning(Matter $matter): Text
+    {
+        return Text::make(__('matters.transition_form.no_activated_account_warning'))
+            ->icon(Heroicon::OutlinedExclamationTriangle)
+            ->color('warning')
+            ->columnSpanFull()
+            ->visible(fn (): bool => $matter->is_published_to_portal
+                && ! app(NotifyClientOfStageUpdate::class)->hasEligibleRecipient($matter));
     }
 
     /**

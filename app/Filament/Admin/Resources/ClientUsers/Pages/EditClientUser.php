@@ -2,15 +2,38 @@
 
 namespace App\Filament\Admin\Resources\ClientUsers\Pages;
 
+use App\Actions\Portal\UnlockPortalLogin;
 use App\Filament\Admin\Resources\ClientUsers\ClientUserResource;
+use App\Models\ClientUser;
+use App\Models\User;
+use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
+use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
+use Filament\Support\Icons\Heroicon;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Gate;
 
 class EditClientUser extends EditRecord
 {
     protected static string $resource = ClientUserResource::class;
 
     /**
+     * `unlockLogin` (Task 7, R12, phát hiện `portal/portal-4`): giống mọi action tự viết trong dự
+     * án, tự hỏi Gate trong `visible()` — không tin cổng `canEdit()` ngầm định của trang, vì đây
+     * không phải một field của form mà là một thao tác riêng trên `PortalLoginThrottle`. Ability
+     * dùng là `unlockLogin` — một ability RIÊNG trên `ClientUserPolicy`, không phải `update` — vì
+     * `HeaderActionsAreReachableTest` đòi TÊN của mọi thao tác trên thanh tiêu đề của một trang
+     * Edit/List phải khớp đúng tên một phương thức policy (đã tự đo: gọi `Gate::allows('update', …)`
+     * ở đây trong khi action tên `unlockLogin` làm test đó đỏ). `ClientUserPolicy::unlockLogin()`
+     * hiện chỉ gọi lại `update()` (cùng biên giới), nhưng là một ability tách riêng, đổi được độc
+     * lập sau này nếu luật cần khác đi.
+     *
+     * `Gate::authorize()` LẶP LẠI trong `action()`, không chỉ trong `visible()` — cùng thành ngữ
+     * "Mọi admin action phải tự kiểm tra policy" của dự án: `visible()` chỉ quyết định có VẼ nút
+     * hay không, một request Livewire bị chỉnh sửa tay (gọi thẳng `callMountedAction()`) vẫn có
+     * thể bỏ qua điều kiện hiện/ẩn.
+     *
      * Chỉ `DeleteAction`. Khuôn mẫu `make:filament-resource` sinh thêm `ForceDeleteAction` và
      * `RestoreAction`, nhưng policy của model này không định nghĩa `restore` lẫn `forceDelete`,
      * và Laravel từ chối một ability không có phương thức tương ứng khi model đã có policy — nên
@@ -19,6 +42,30 @@ class EditClientUser extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('unlockLogin')
+                ->label(__('client_users.actions.unlock_login'))
+                ->icon(Heroicon::OutlinedLockOpen)
+                ->color('gray')
+                ->requiresConfirmation()
+                ->visible(fn (): bool => Gate::allows('unlockLogin', $this->record))
+                ->action(function (): void {
+                    /** @var ClientUser $account */
+                    $account = $this->record;
+
+                    Gate::authorize('unlockLogin', $account);
+
+                    $actor = Auth::user();
+                    abort_unless($actor instanceof User, 403);
+
+                    $ipStillLocked = app(UnlockPortalLogin::class)->handle($account, $actor);
+
+                    Notification::make()
+                        ->title($ipStillLocked
+                            ? __('client_users.actions.unlock_login_success_ip_still_locked')
+                            : __('client_users.actions.unlock_login_success'))
+                        ->success()
+                        ->send();
+                }),
             DeleteAction::make(),
         ];
     }
@@ -41,10 +88,22 @@ class EditClientUser extends EditRecord
      * tự cảnh báo ngay trong `CanBeDisabled::disabled()` rằng một request bị chỉnh sửa tay vẫn
      * gửi được `client_id` khác. Hàm này là lớp chặn THẬT, không phụ thuộc trạng thái `disabled()`
      * của field.
+     *
+     * Task 7 (R12, phát hiện `intake/intake-05`): đặt lại mật khẩu bật lại `must_change_password`
+     * — trước bản sửa này, đặt lại mật khẩu qua trang sửa không tự bật lại cờ, nên một khách bị
+     * lộ mật khẩu (nhân sự đặt lại, đọc cho khách qua điện thoại) tiếp tục dùng mãi mật khẩu đó
+     * mà không bị bắt đổi lại. Chỉ chạm cột này khi `$data` THẬT SỰ mang một mật khẩu mới —
+     * `filled()` khớp đúng điều kiện `dehydrated()` của ô password ở `ClientUserForm` (chỉ
+     * dehydrate khi có gõ gì), nên "không đổi mật khẩu" không bao giờ vô tình bật lại cờ này khi
+     * nhân sự chỉ sửa tên/điện thoại/is_active.
      */
     protected function mutateFormDataBeforeSave(array $data): array
     {
         $data['client_id'] = $this->record->client_id;
+
+        if (filled($data['password'] ?? null)) {
+            $data['must_change_password'] = true;
+        }
 
         return $data;
     }

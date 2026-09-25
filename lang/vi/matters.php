@@ -74,6 +74,10 @@ return [
         'publish' => 'Công bố cho khách ngay',
         'public_content_publish_hint' => 'Công bố cho khách yêu cầu tối thiểu 30 ký tự.',
         'publish_disabled_hint' => 'Vụ việc chưa bật công bố portal nên chưa công bố được ngay — vào tab Tổng quan để bật trước.',
+        // Task 7 (R12, phát hiện `stage/stage-06`): vụ đã bật cổng nhưng khách không có tài khoản
+        // cổng nào đang hoạt động VÀ đã kích hoạt (activated_at không null) — đúng điều kiện
+        // NotifyClientOfStageUpdate::eligibleRecipientsQuery() dùng để chọn người nhận thư thật.
+        'no_activated_account_warning' => 'Khách chưa có tài khoản cổng đang dùng — sẽ không ai nhận thư.',
         'transition_heading' => 'Chuyển giai đoạn vụ việc',
         'add_update_heading' => 'Thêm cập nhật (không đổi giai đoạn)',
         'transition_success' => 'Đã chuyển giai đoạn.',
