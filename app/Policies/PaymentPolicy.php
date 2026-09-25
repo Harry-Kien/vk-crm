@@ -72,9 +72,15 @@ class PaymentPolicy
      * do bằng chính câu đó: "vì ngoài admin không ai khác thấy vụ đó". Nếu một ngày quản lý được
      * thấy vụ `restricted`, câu hỏi "quản lý có ghi được ở đó không" phải được hỏi lại cùng lúc,
      * ở đây.
+     *
+     * `confidentiality` đọc trên vụ ĐÃ QUA `matterForBillingGate()` (fix round 1, I1), không trên
+     * vụ nơi gọi đưa vào: một vụ nạp thiếu cột có `confidentiality` là `null`, và đọc nó ở đó thì
+     * luật sư phụ trách bị từ chối oan trên chính vụ `restricted` của mình.
      */
     private function canRecordPaymentOn(User|ClientUser $user, ?Matter $matter): bool
     {
+        $matter = $this->matterForBillingGate($matter);
+
         return $this->canSeeBilling($user, $matter)
             && ($matter->confidentiality === Confidentiality::Restricted
                 || $user->can(Permission::PaymentRecord->value));

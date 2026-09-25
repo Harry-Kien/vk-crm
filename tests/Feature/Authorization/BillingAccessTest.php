@@ -472,3 +472,116 @@ it('reads parents the caller already loaded without a query of its own', functio
     expect(DB::getQueryLog())->toBe([])
         ->and($row->matterCode)->toBe($this->matter->code);
 });
+
+// ── Vụ việc nạp thiếu cột (fix round 1, I1) ────────────────────────────────────────────────────
+//
+// `Matter::isListableBy()` đọc thuộc tính trong bộ nhớ. Một vụ nạp bằng
+// `with('matter:id,code,lead_lawyer_id')` — đúng kiểu nạp mà test đếm truy vấn của trang tiền sẽ
+// đẩy người viết tới — không có `confidentiality` (thành `null`, tức nhánh vụ THƯỜNG, nơi mọi người
+// có `matter.viewAny` đều qua) và không có `deleted_at` (thành "chưa xoá mềm"). Bản SQL thì đóng
+// trên `NULL`; bản trong bộ nhớ mở. Các test dưới đây dựng lại đúng những lần nạp đó.
+
+/**
+ * Nạp lại một chuỗi tiền với vụ việc CHỈ có các cột đã cho, qua đúng đường quan hệ mà mỗi policy
+ * đọc (`contract.matter`, `instalment.contract.matter`, …).
+ *
+ * @param  array<int, Contract|Instalment|Payment|ContractAmendment>  $chain
+ * @param  list<string>  $columns
+ * @return array{0: Contract, 1: Instalment, 2: Payment, 3: ContractAmendment}
+ */
+function billingChainLoadedWith(array $chain, array $columns, bool $withTrashed = false): array
+{
+    [$contract, $instalment, $payment, $amendment] = $chain;
+
+    $matter = fn ($query) => $query->select($columns)->when($withTrashed, fn ($query) => $query->withTrashed());
+
+    return [
+        Contract::query()->with(['matter' => $matter])->findOrFail($contract->id),
+        Instalment::query()->with(['contract.matter' => $matter])->findOrFail($instalment->id),
+        Payment::query()->with(['instalment.contract.matter' => $matter])->findOrFail($payment->id),
+        ContractAmendment::query()->with(['contract.matter' => $matter])->findOrFail($amendment->id),
+    ];
+}
+
+it('refuses the accountant and the manager the money of a restricted matter loaded without its confidentiality', function () {
+    $chain = billingChainLoadedWith($this->restrictedChain, ['id', 'code', 'lead_lawyer_id']);
+    $matter = $chain[0]->matter;
+
+    // Dạng nạp đúng như người rà soát nêu, viết bằng chuỗi `relation:cột`.
+    $literal = Contract::query()->with('matter:id,code,lead_lawyer_id')->findOrFail($this->restrictedContract->id);
+
+    expect(array_key_exists('confidentiality', $matter->getAttributes()))->toBeFalse()
+        ->and(array_key_exists('confidentiality', $literal->matter->getAttributes()))->toBeFalse()
+        ->and($this->accountant->can('view', $literal))->toBeFalse()
+        ->and(canReadMoney($this->accountant, $chain))->toBe([false, false, false, false])
+        ->and(canRecordMoney($this->accountant, $matter, $chain))->toBe([false, false, false])
+        ->and($this->accountant->can('viewAny', [Contract::class, $matter]))->toBeFalse()
+        ->and(canReadMoney($this->manager, $chain))->toBe([false, false, false, false])
+        ->and(canRecordMoney($this->manager, $matter, $chain))->toBe([false, false, false])
+        ->and(canManageContract($this->manager, $matter, $chain))->toBe([false, false, false, false]);
+});
+
+it('still gives the lead lawyer and the admin their money on the same partially loaded restricted chain', function () {
+    $chain = billingChainLoadedWith($this->restrictedChain, ['id', 'code', 'lead_lawyer_id']);
+    $matter = $chain[0]->matter;
+
+    expect(canReadMoney($this->lead, $chain))->toBe([true, true, true, true])
+        ->and(canRecordMoney($this->lead, $matter, $chain))->toBe([true, true, true])
+        ->and(canManageContract($this->lead, $matter, $chain))->toBe([true, true, true, true])
+        ->and(canReadMoney($this->admin, $chain))->toBe([true, true, true, true])
+        ->and(canRecordMoney($this->admin, $matter, $chain))->toBe([true, true, true]);
+});
+
+/* Mỗi cột trong ba cột một test riêng: thiếu ĐÚNG cột đó, hai cột kia có mặt. */
+
+it('refuses the accountant a restricted matter loaded without only its confidentiality', function () {
+    $chain = billingChainLoadedWith($this->restrictedChain, ['id', 'code', 'lead_lawyer_id', 'deleted_at']);
+
+    expect(canReadMoney($this->accountant, $chain))->toBe([false, false, false, false])
+        ->and(canRecordMoney($this->accountant, $chain[0]->matter, $chain))->toBe([false, false, false])
+        // Cặp dương trên cùng dạng nạp: vụ thường vẫn mở cho kế toán.
+        ->and(canReadMoney($this->accountant, billingChainLoadedWith($this->chain, ['id', 'code', 'lead_lawyer_id', 'deleted_at'])))
+        ->toBe([true, true, true, true]);
+});
+
+it('gives the lead lawyer a restricted matter loaded without only its lead_lawyer_id', function () {
+    $chain = billingChainLoadedWith($this->restrictedChain, ['id', 'code', 'confidentiality', 'deleted_at']);
+
+    expect(array_key_exists('lead_lawyer_id', $chain[0]->matter->getAttributes()))->toBeFalse()
+        ->and(canReadMoney($this->lead, $chain))->toBe([true, true, true, true])
+        ->and(canRecordMoney($this->lead, $chain[0]->matter, $chain))->toBe([true, true, true])
+        ->and(canReadMoney($this->teammate, $chain))->toBe([false, false, false, false]);
+});
+
+it('refuses the money of a soft deleted matter loaded without its deleted_at', function () {
+    $columns = ['id', 'code', 'lead_lawyer_id', 'confidentiality'];
+
+    // Cặp dương: cùng dạng nạp, vụ chưa xoá mềm → admin thấy.
+    expect(canReadMoney($this->admin, billingChainLoadedWith($this->chain, $columns, withTrashed: true)))
+        ->toBe([true, true, true, true]);
+
+    $this->matter->delete();
+    $chain = billingChainLoadedWith($this->chain, $columns, withTrashed: true);
+
+    expect($chain[0]->matter)->not->toBeNull()
+        ->and(array_key_exists('deleted_at', $chain[0]->matter->getAttributes()))->toBeFalse()
+        ->and(canReadMoney($this->admin, $chain))->toBe([false, false, false, false])
+        ->and(canRecordMoney($this->admin, $chain[0]->matter, $chain))->toBe([false, false, false])
+        ->and($this->admin->can('viewAny', [Contract::class, $chain[0]->matter]))->toBeFalse();
+});
+
+/*
+ * Lần nạp lại chạy một truy vấn `Matter`, và `Matter` mang `ClientPortalScope`: khi một phiên cổng
+ * khách đang mở mà guard `web` thì chưa (một job, một Action gọi `Gate::forUser($staff)`), truy vấn
+ * đó bị cắt theo KHÁCH của phiên kia. Câu trả lời về nhân sự không được đổi theo chuyện đó — cùng
+ * thiết bị với đường truy vấn của `MatterPolicy::view`.
+ */
+it('answers a partially loaded matter the same while an unrelated client portal session is open', function () {
+    $chain = billingChainLoadedWith($this->restrictedChain, ['id', 'code', 'lead_lawyer_id']);
+
+    $this->actingAs(ClientUser::factory()->create(), 'client');
+
+    expect(canReadMoney($this->lead, $chain))->toBe([true, true, true, true])
+        ->and(canRecordMoney($this->lead, $chain[0]->matter, $chain))->toBe([true, true, true])
+        ->and(canReadMoney($this->accountant, $chain))->toBe([false, false, false, false]);
+});
