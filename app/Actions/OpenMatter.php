@@ -9,6 +9,7 @@ use App\Enums\PartyRole;
 use App\Enums\Permission;
 use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
+use App\Exceptions\ConflictCheckBusy;
 use App\Models\ChecklistTemplate;
 use App\Models\Client;
 use App\Models\Matter;
@@ -18,6 +19,7 @@ use App\Support\Audit;
 use App\Support\ConflictCheckResult;
 use App\Support\ConflictOverride;
 use App\Support\OpenMatterResult;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -178,10 +180,15 @@ use Spatie\Activitylog\Models\Activity;
  * nhỏ mà dự án nhắm tới — SPEC §2), còn `lockForUpdate()` vẫn cần cho tính đúng đắn ở tầng dòng dữ
  * liệu (ngăn một sửa đổi `Client` xen ngang, không ngăn hai lần MỞ VỤ VIỆC xen ngang nhau). Khoá
  * hết hạn sau 30 giây (đề phòng một tiến trình chết giữa chừng không giữ khoá vĩnh viễn) và chờ
- * tối đa 10 giây trước khi ném `LockTimeoutException` — cố ý KHÔNG bắt lỗi đó ở đây: quy mô đồng
- * thời của SPEC §2 không cần một hàng đợi thử lại tinh vi, và một lỗi rõ ràng ("khoá không lấy
- * được") tốt hơn một lần lưu treo vô thời hạn; nếu tranh chấp thật sự xảy ra thường xuyên ở quy mô
- * lớn hơn, đó là việc của một milestone khác.
+ * tối đa 10 giây trước khi ném `LockTimeoutException`.
+ *
+ * **Fix round 1, minor ruling — `LockTimeoutException` giờ CÓ bắt, thành một lời từ chối tiếng
+ * Việt.** Bản trước (đoạn này) từng nói "cố ý KHÔNG bắt lỗi đó ở đây" — sai kể từ bản sửa này: một
+ * `LockTimeoutException` không bắt sẽ lọt ra thành lỗi 500 chung chung, không phải một thông báo
+ * người dùng đọc được. `handle()` giờ bọc lời gọi `Cache::lock()->block()` trong try/catch, ném lại
+ * thành `App\Exceptions\ConflictCheckBusy` (một `DomainException` với thông điệp tiếng Việt) khi
+ * khoá không lấy được sau 10 giây. Vẫn không có hàng đợi thử lại tinh vi — quy mô đồng thời của
+ * SPEC §2 không cần — chỉ đổi HÌNH THỨC lỗi từ "treo rồi 500" sang "từ chối ngay, có lý do".
  */
 class OpenMatter
 {
@@ -247,169 +254,201 @@ class OpenMatter
         $clientRole = $clientRole instanceof PartyRole ? $clientRole : PartyRole::from($clientRole);
         unset($attributes['client_role']);
 
+        // Fix round 1, minor ruling: "OpenMatter Action tự nó phải từ chối client_role =
+        // opposing_counsel, không chỉ form." `MatterForm::clientRolePartyOptions()` đã loại giá
+        // trị này khỏi ô chọn (R13f), nhưng đó là ranh giới HIỂN THỊ của panel — cổng THẬT của
+        // Action không được tin caller đã đi qua đúng form đó (console, job, import, hay một
+        // request bị chỉnh sửa gửi thẳng giá trị này). Khách hàng của văn phòng không bao giờ
+        // chính là "luật sư đối phương" của vụ việc mình đang là khách hàng — chọn vai đó âm thầm
+        // tắt hẳn mức đỏ (xem docblock `MatterForm::clientRolePartyOptions()` cho lý do đầy đủ).
+        if ($clientRole === PartyRole::OpposingCounsel) {
+            throw ValidationException::withMessages([
+                'client_role' => [__('actions.open_matter.client_role_opposing_counsel')],
+            ]);
+        }
+
         $overrideReason = $overrideReason !== null ? trim($overrideReason) : null;
 
         // R13(g)/`conflict-11`: bước 3 (kiểm tra) tới hết bước 5 (lưu) chạy dưới MỘT khoá ứng
         // dụng — xem "Về khoá R13(g)" ở docblock lớp cho lý do khoá dòng `clients` một mình
         // không đủ.
-        return Cache::store('database')->lock('conflict-check', 30)->block(10, function () use (
-            $attributes, $parties, $clientRole, $actor, $overrideReason, $acknowledged,
-        ): OpenMatterResult {
-            // Bước 3.
-            /** @var array{0: ConflictCheckResult, 1: Collection<int, MatterParty>} $checked */
-            $checked = DB::transaction(function () use ($attributes, $parties, $clientRole, $actor): array {
-                $clients = $this->lockClients($attributes['client_id'], $parties);
-                $client = $clients->get((int) $attributes['client_id']);
-
-                $proposedParties = collect([
-                    $this->buildOwnClientParty($client, $clientRole),
-                    ...collect($parties)->map(fn (array $party) => $this->buildMatterParty(
-                        $party,
-                        lockedClient: $clients->get((int) ($party['client_id'] ?? 0)),
-                    )),
-                ]);
-
-                // Actor truyền xuống để dòng `conflict_check_run` và dòng `matter_opened` — hai bằng
-                // chứng của CÙNG một thao tác — không bao giờ ghi hai người khác nhau.
-                return [app(RunConflictCheck::class)->handle($proposedParties, null, $actor), $proposedParties];
-            });
-
-            [$result, $proposedParties] = $checked;
-
-            $isOverridden = false;
-
-            // Bước 4.
-            if ($result->isBlocking()) {
-                // Xem `AddMatterParty` bước 3: quy tắc "ai ghi đè được" chỉ có một nơi ở, kể cả ở tầng
-                // cổng thật — hai bản viết tay giống hệt nhau là đúng hình dạng đã lệch nhau bốn lần
-                // trên nhánh này.
-                $canOverride = ConflictOverride::allowedFor($actor)
-                    && $overrideReason !== null && $overrideReason !== '';
-
-                if (! $canOverride) {
-                    throw ConflictBlocked::make($result);
-                }
-
-                $isOverridden = true;
-            } elseif ($result->requiresAcknowledgement() && $acknowledged !== $result->level) {
-                throw ConflictAcknowledgementRequired::make($result);
-            }
-
-            // Bước 5.
-            return DB::transaction(function () use (
-                $attributes, $proposedParties, $result, $isOverridden, $overrideReason, $actor,
+        //
+        // Fix round 1, minor ruling: `LockTimeoutException` (khoá không lấy được sau 10 giây, xem
+        // "Về khoá R13(g)") giờ đổi thành một lời từ chối tiếng Việt qua `ConflictCheckBusy`
+        // (`DomainException`, cùng khuôn `OurClientPartyNeedsClient`), KHÔNG còn là một lỗi 500
+        // trần. `CreateMatter::handleRecordCreation()` đã có sẵn `catch (DomainException $exception)`
+        // cho mọi luật nghiệp vụ ở tầng Action, nên không cần sửa gì ở màn hình — throw đúng loại
+        // là đủ. Round 0 cố ý KHÔNG bắt lỗi này; chủ nhiệm đã đảo phán quyết đó ở round 1.
+        try {
+            return Cache::store('database')->lock('conflict-check', 30)->block(10, function () use (
+                $attributes, $parties, $clientRole, $actor, $overrideReason, $acknowledged,
             ): OpenMatterResult {
-                // `blameOn()` TRƯỚC khi save(), cùng lý do như `TransitionMatterStage` bước 5:
-                // Action đã nhận actor rõ ràng để kiểm tra quyền, nên hai cột "ai tạo" phải ghi đúng
-                // actor đó chứ không suy luận từ `auth('web')` ambient mà `HasBlameable` mặc định
-                // dùng — phiên đang mở có thể là người khác, hoặc không có phiên nào (job, console).
-                $matter = new Matter($attributes);
-                $matter->blameOn($actor)->save();
+                // Bước 3.
+                /** @var array{0: ConflictCheckResult, 1: Collection<int, MatterParty>} $checked */
+                $checked = DB::transaction(function () use ($attributes, $parties, $clientRole, $actor): array {
+                    $clients = $this->lockClients($attributes['client_id'], $parties);
+                    $client = $clients->get((int) $attributes['client_id']);
 
-                // R13(g)/`conflict-06` (M6.5 Task 8): dòng `conflict_check_run` mà `RunConflictCheck`
-                // vừa ghi ở bước 3 có `subject` rỗng — vụ việc lúc đó chưa tồn tại. Gắn lại NGAY khi
-                // vụ việc vừa có id thật, để "bằng chứng đã kiểm tra" thật sự gắn được với vụ việc nó
-                // mô tả (xem docblock `ConflictCheckResult::$auditLogId`). Cập nhật thẳng bằng query,
-                // không qua Eloquent: đây là một dòng nhật ký của thư viện thứ ba, không phải model
-                // của ứng dụng, và một `update()` ở đây không cần (và không nên) chạy lại observer
-                // nào của `Activity`.
-                if ($result->auditLogId !== null) {
-                    Activity::query()->whereKey($result->auditLogId)->update([
-                        'subject_type' => $matter->getMorphClass(),
-                        'subject_id' => $matter->getKey(),
+                    $proposedParties = collect([
+                        $this->buildOwnClientParty($client, $clientRole),
+                        ...collect($parties)->map(fn (array $party) => $this->buildMatterParty(
+                            $party,
+                            lockedClient: $clients->get((int) ($party['client_id'] ?? 0)),
+                        )),
                     ]);
-                }
 
-                // M6.5 Task 3 (R6, finding `intake-01`/`roles-03`/`spec-gap-01`/`e2e-F4`, critical).
-                // `Matter::created()` (đã chạy trong `save()` ở trên) chỉ thêm LEAD vào `matter_user`.
-                // Một actor có `matter.create` nhưng KHÔNG có `matter.viewAny` (hôm nay: `Lawyer`) mà
-                // giao vụ việc cho một `lead_lawyer_id` KHÁC mình thì không nằm trong đội ngũ và
-                // không có `matter.viewAny` để bù lại — `scopeListableBy()` không liệt kê được vụ này
-                // cho họ, và mở thẳng URL ra 404, NGAY sau khi họ vừa bấm lưu. Tự thêm actor vào đội
-                // ngũ với vai `associate` ở đây, CÙNG transaction với việc tạo vụ việc (bước 5), nên
-                // không có khoảnh khắc nào vụ việc tồn tại mà chính người mở ra nó không thấy được nó.
-                //
-                // Không cần hỏi `manageTeam` ở đây: đây không phải một lần "thêm thành viên" qua cổng
-                // đội ngũ (`AddTeamMember`), nó là một phần của chính việc MỞ vụ việc — cổng đã kiểm
-                // tra ở bước 1 (`MatterPolicy::create`) là cổng đúng cho hành động này.
-                //
-                // **Fix round 2, finding "Also fix" — bỏ qua trên một vụ `restricted` mà actor sẽ
-                // KHÔNG thấy được, cùng luật I1 đã áp cho `AddTeamMember`.** `Matter::isListableBy()`
-                // nhánh `restricted` không đọc `team()` chút nào (chỉ `hasRole(Admin)` hoặc chính
-                // `lead_lawyer_id`) — thêm actor vào đội ngũ ở đây KHÔNG đổi câu trả lời của `view()`
-                // cho một vụ `restricted`, nên trước bản sửa này một luật sư mở một vụ `restricted`
-                // rồi giao cho đồng nghiệp phụ trách vẫn bị tự thêm vào đội ngũ với vai `associate` mà
-                // KHÔNG BAO GIỜ mở được vụ đó — đúng "thành viên vô hình" mà phán quyết I1 cấm, và
-                // `CheckDeadlines`/các thư sau này lấy người nhận từ `team()` sẽ mời một người không
-                // đọc được thư đó vào chi tiết vụ việc. Đính lại: `addTeamMember()` rồi hỏi lại CHÍNH
-                // `Gate::view()` như `AddTeamMember::handle()` làm (không viết lại luật `restricted`
-                // một lần nữa ở đây) — nếu không qua, `detach()` ngay, không ghi audit. Không throw:
-                // đây là một tiện ích tự động, không phải một thao tác actor vừa yêu cầu qua một ô
-                // trên form, nên không có gì để báo lỗi vào — actor vẫn mở vụ thành công, chỉ đơn
-                // giản là không có mặt trong đội ngũ (giống hệt trước khi tính năng này tồn tại).
-                if (! $actor->can(Permission::MatterViewAny->value) && $matter->lead_lawyer_id !== $actor->getKey()) {
-                    $matter->addTeamMember($actor, MatterRole::Associate);
-
-                    if (Gate::forUser($actor)->allows('view', $matter)) {
-                        Audit::record('team_member_added', $matter, [
-                            'user_id' => $actor->getKey(),
-                            'role' => MatterRole::Associate->value,
-                            'auto_added_by_open_matter' => true,
-                        ], $actor);
-                    } else {
-                        $matter->team()->detach($actor->getKey());
-                    }
-                }
-
-                $proposedParties->each(function (MatterParty $party) use ($matter, $actor): void {
-                    $party->blameOn($actor);
-                    $matter->parties()->save($party);
+                    // Actor truyền xuống để dòng `conflict_check_run` và dòng `matter_opened` — hai bằng
+                    // chứng của CÙNG một thao tác — không bao giờ ghi hai người khác nhau.
+                    return [app(RunConflictCheck::class)->handle($proposedParties, null, $actor), $proposedParties];
                 });
 
-                // Khoá dòng vụ việc trước khi sao chép danh mục hồ sơ (carry-forward M1) — xem "Về
-                // hai khoá dòng" ở docblock lớp cho ý nghĩa thật của khoá này trong luồng hiện tại.
-                $lockedMatter = Matter::query()->whereKey($matter->id)->lockForUpdate()->firstOrFail();
+                [$result, $proposedParties] = $checked;
 
-                // Nếu (đáng lẽ không xảy ra) loại vụ việc có nhiều hơn một template đang hoạt động,
-                // chọn có chủ đích template MỚI NHẤT (id lớn nhất) thay vì nhận bất kỳ thứ tự ngầm
-                // định nào của DB — quyết định tường minh, không phải mặc định tình cờ.
-                $template = ChecklistTemplate::query()
-                    ->where('matter_type_id', $lockedMatter->matter_type_id)
-                    ->where('is_active', true)
-                    ->orderByDesc('id')
-                    ->first();
+                $isOverridden = false;
 
-                if ($template !== null) {
-                    app(ApplyChecklistTemplate::class)->handle($lockedMatter, $template);
+                // Bước 4.
+                if ($result->isBlocking()) {
+                    // Xem `AddMatterParty` bước 3: quy tắc "ai ghi đè được" chỉ có một nơi ở, kể cả ở tầng
+                    // cổng thật — hai bản viết tay giống hệt nhau là đúng hình dạng đã lệch nhau bốn lần
+                    // trên nhánh này.
+                    $canOverride = ConflictOverride::allowedFor($actor)
+                        && $overrideReason !== null && $overrideReason !== '';
+
+                    if (! $canOverride) {
+                        throw ConflictBlocked::make($result);
+                    }
+
+                    $isOverridden = true;
+                } elseif ($result->requiresAcknowledgement() && $acknowledged !== $result->level) {
+                    throw ConflictAcknowledgementRequired::make($result);
                 }
 
-                Audit::record('matter_opened', $matter, [
-                    'conflict_level' => $result->level->value,
-                    'conflict_overridden' => $isOverridden,
-                    'override_reason' => $isOverridden ? $overrideReason : null,
-                    'incomplete_conflict_parties' => $result->incompleteParties(),
-                    // R13(c)/`conflict-01` (M6.5 Task 8): chữ ký "bên phía mình ↔ bản ghi tìm thấy"
-                    // của MỌI khớp MỚI vừa được chấp nhận ở bước 4 (ghi đè hoặc xác nhận) — nếu
-                    // $result->matches rỗng thì mảng này rỗng, không ghi gì thừa. `pairKey` là
-                    // `null` cho khớp "cùng vụ việc, hai phía đối lập" (R13b) nên `array_filter`
-                    // tự loại chúng: quyết định KHÔNG suy giảm loại khớp đó, xem docblock
-                    // `RunConflictCheck::sameMatterOppositionMatches()`. Đọc lại ở lần chạy sau
-                    // qua `RunConflictCheck::confirmedPairKeys()`.
-                    'confirmed_pairs' => $result->matches->map(fn ($match) => $match->pairKey)->filter()->values()->all(),
-                ], $actor);
+                // Bước 5.
+                return DB::transaction(function () use (
+                    $attributes, $proposedParties, $result, $isOverridden, $overrideReason, $actor,
+                ): OpenMatterResult {
+                    // `blameOn()` TRƯỚC khi save(), cùng lý do như `TransitionMatterStage` bước 5:
+                    // Action đã nhận actor rõ ràng để kiểm tra quyền, nên hai cột "ai tạo" phải ghi đúng
+                    // actor đó chứ không suy luận từ `auth('web')` ambient mà `HasBlameable` mặc định
+                    // dùng — phiên đang mở có thể là người khác, hoặc không có phiên nào (job, console).
+                    $matter = new Matter($attributes);
+                    $matter->blameOn($actor)->save();
 
-                // Xem "Về công bố portal ngay lúc mở vụ việc" ở docblock lớp.
-                if ($matter->is_published_to_portal) {
-                    Audit::record('matter_portal_publication_set', $matter, [
-                        'publish' => true,
-                        'published_stage_log_count' => 0,
-                        'at_creation' => true,
+                    // R13(g)/`conflict-06` (M6.5 Task 8): dòng `conflict_check_run` mà `RunConflictCheck`
+                    // vừa ghi ở bước 3 có `subject` rỗng — vụ việc lúc đó chưa tồn tại. Gắn lại NGAY khi
+                    // vụ việc vừa có id thật, để "bằng chứng đã kiểm tra" thật sự gắn được với vụ việc nó
+                    // mô tả (xem docblock `ConflictCheckResult::$auditLogId`). Cập nhật thẳng bằng query,
+                    // không qua Eloquent: đây là một dòng nhật ký của thư viện thứ ba, không phải model
+                    // của ứng dụng, và một `update()` ở đây không cần (và không nên) chạy lại observer
+                    // nào của `Activity`.
+                    if ($result->auditLogId !== null) {
+                        Activity::query()->whereKey($result->auditLogId)->update([
+                            'subject_type' => $matter->getMorphClass(),
+                            'subject_id' => $matter->getKey(),
+                        ]);
+                    }
+
+                    // M6.5 Task 3 (R6, finding `intake-01`/`roles-03`/`spec-gap-01`/`e2e-F4`, critical).
+                    // `Matter::created()` (đã chạy trong `save()` ở trên) chỉ thêm LEAD vào `matter_user`.
+                    // Một actor có `matter.create` nhưng KHÔNG có `matter.viewAny` (hôm nay: `Lawyer`) mà
+                    // giao vụ việc cho một `lead_lawyer_id` KHÁC mình thì không nằm trong đội ngũ và
+                    // không có `matter.viewAny` để bù lại — `scopeListableBy()` không liệt kê được vụ này
+                    // cho họ, và mở thẳng URL ra 404, NGAY sau khi họ vừa bấm lưu. Tự thêm actor vào đội
+                    // ngũ với vai `associate` ở đây, CÙNG transaction với việc tạo vụ việc (bước 5), nên
+                    // không có khoảnh khắc nào vụ việc tồn tại mà chính người mở ra nó không thấy được nó.
+                    //
+                    // Không cần hỏi `manageTeam` ở đây: đây không phải một lần "thêm thành viên" qua cổng
+                    // đội ngũ (`AddTeamMember`), nó là một phần của chính việc MỞ vụ việc — cổng đã kiểm
+                    // tra ở bước 1 (`MatterPolicy::create`) là cổng đúng cho hành động này.
+                    //
+                    // **Fix round 2, finding "Also fix" — bỏ qua trên một vụ `restricted` mà actor sẽ
+                    // KHÔNG thấy được, cùng luật I1 đã áp cho `AddTeamMember`.** `Matter::isListableBy()`
+                    // nhánh `restricted` không đọc `team()` chút nào (chỉ `hasRole(Admin)` hoặc chính
+                    // `lead_lawyer_id`) — thêm actor vào đội ngũ ở đây KHÔNG đổi câu trả lời của `view()`
+                    // cho một vụ `restricted`, nên trước bản sửa này một luật sư mở một vụ `restricted`
+                    // rồi giao cho đồng nghiệp phụ trách vẫn bị tự thêm vào đội ngũ với vai `associate` mà
+                    // KHÔNG BAO GIỜ mở được vụ đó — đúng "thành viên vô hình" mà phán quyết I1 cấm, và
+                    // `CheckDeadlines`/các thư sau này lấy người nhận từ `team()` sẽ mời một người không
+                    // đọc được thư đó vào chi tiết vụ việc. Đính lại: `addTeamMember()` rồi hỏi lại CHÍNH
+                    // `Gate::view()` như `AddTeamMember::handle()` làm (không viết lại luật `restricted`
+                    // một lần nữa ở đây) — nếu không qua, `detach()` ngay, không ghi audit. Không throw:
+                    // đây là một tiện ích tự động, không phải một thao tác actor vừa yêu cầu qua một ô
+                    // trên form, nên không có gì để báo lỗi vào — actor vẫn mở vụ thành công, chỉ đơn
+                    // giản là không có mặt trong đội ngũ (giống hệt trước khi tính năng này tồn tại).
+                    if (! $actor->can(Permission::MatterViewAny->value) && $matter->lead_lawyer_id !== $actor->getKey()) {
+                        $matter->addTeamMember($actor, MatterRole::Associate);
+
+                        if (Gate::forUser($actor)->allows('view', $matter)) {
+                            Audit::record('team_member_added', $matter, [
+                                'user_id' => $actor->getKey(),
+                                'role' => MatterRole::Associate->value,
+                                'auto_added_by_open_matter' => true,
+                            ], $actor);
+                        } else {
+                            $matter->team()->detach($actor->getKey());
+                        }
+                    }
+
+                    $proposedParties->each(function (MatterParty $party) use ($matter, $actor): void {
+                        $party->blameOn($actor);
+                        $matter->parties()->save($party);
+                    });
+
+                    // Khoá dòng vụ việc trước khi sao chép danh mục hồ sơ (carry-forward M1) — xem "Về
+                    // hai khoá dòng" ở docblock lớp cho ý nghĩa thật của khoá này trong luồng hiện tại.
+                    $lockedMatter = Matter::query()->whereKey($matter->id)->lockForUpdate()->firstOrFail();
+
+                    // Nếu (đáng lẽ không xảy ra) loại vụ việc có nhiều hơn một template đang hoạt động,
+                    // chọn có chủ đích template MỚI NHẤT (id lớn nhất) thay vì nhận bất kỳ thứ tự ngầm
+                    // định nào của DB — quyết định tường minh, không phải mặc định tình cờ.
+                    $template = ChecklistTemplate::query()
+                        ->where('matter_type_id', $lockedMatter->matter_type_id)
+                        ->where('is_active', true)
+                        ->orderByDesc('id')
+                        ->first();
+
+                    if ($template !== null) {
+                        app(ApplyChecklistTemplate::class)->handle($lockedMatter, $template);
+                    }
+
+                    Audit::record('matter_opened', $matter, [
+                        'conflict_level' => $result->level->value,
+                        'conflict_overridden' => $isOverridden,
+                        'override_reason' => $isOverridden ? $overrideReason : null,
+                        'incomplete_conflict_parties' => $result->incompleteParties(),
+                        // R13(c)/`conflict-01` (M6.5 Task 8, fix round 1 C1): chữ ký + MỨC ĐÃ CHẤP
+                        // NHẬN của MỌI khớp MỚI vừa được chấp nhận ở bước 4 (ghi đè hoặc xác nhận) —
+                        // nếu $result->matches rỗng thì mảng này rỗng, không ghi gì thừa. `pairKey()`
+                        // trả `null` khi bên phía mình CHƯA có id thật lúc kiểm tra chạy — nhưng ở
+                        // ĐÂY, sau `$proposedParties->each(save())` phía trên, mọi bên đề xuất đã có id
+                        // thật (cùng đối tượng PHP, xem docblock `ConflictMatch`), nên `pairKey()` gọi
+                        // LẠI ở đây trả về chữ ký thật cho MỌI khớp lịch sử VÀ khớp "cùng vụ việc, hai
+                        // phía đối lập" (R13b tham gia R13c từ fix round 1, I1 — không còn ngoại lệ).
+                        // `filter()` chỉ còn loại trường hợp phòng thủ (found chưa có id — không nên
+                        // xảy ra, xem docblock `ConflictMatch`). Đọc lại ở lần chạy sau qua
+                        // `RunConflictCheck::confirmedPairLevels()`.
+                        'confirmed_pairs' => $result->matches
+                            ->map(fn ($match) => ['pair_key' => $match->pairKey(), 'level' => $match->level->value])
+                            ->filter(fn (array $pair) => $pair['pair_key'] !== null)
+                            ->values()
+                            ->all(),
                     ], $actor);
-                }
 
-                return new OpenMatterResult($matter, $result, $isOverridden, $isOverridden ? $overrideReason : null);
+                    // Xem "Về công bố portal ngay lúc mở vụ việc" ở docblock lớp.
+                    if ($matter->is_published_to_portal) {
+                        Audit::record('matter_portal_publication_set', $matter, [
+                            'publish' => true,
+                            'published_stage_log_count' => 0,
+                            'at_creation' => true,
+                        ], $actor);
+                    }
+
+                    return new OpenMatterResult($matter, $result, $isOverridden, $isOverridden ? $overrideReason : null);
+                });
             });
-        });
+        } catch (LockTimeoutException) {
+            throw ConflictCheckBusy::make();
+        }
     }
 
     /**

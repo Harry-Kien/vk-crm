@@ -50,6 +50,22 @@ use Spatie\Activitylog\Models\Activity;
  *  Hai vụ việc/hai khách hàng/hai luật sư ở lại trong CSDL test MariaDB (`vk_crm_test_<lane>`) sau
  *  khi chạy — một sự đánh đổi chấp nhận được cho một CSDL chỉ dùng để chạy `test:mariadb`, cùng
  *  hình dạng với việc `RefreshDatabase` không dọn đĩa `storage/app/private` (xem `tests/Pest.php`).
+ *
+ * **Fix round 1, I2 — vì sao HAI `MatterType` riêng, không phải một loại dùng chung (bằng chứng đo
+ * được, không chỉ suy luận).** Bản đầu dùng CHUNG một `$matterType` cho cả hai tiến trình. Khi tắt
+ * khoá `Cache::lock('conflict-check')` để làm mutation probe cho chính khoá này, kết quả KHÔNG ổn
+ * định: đôi khi cả hai ra XANH đúng như lỗ hổng `conflict-11` mô tả, nhưng đôi khi MariaDB tự phát
+ * hiện một DEADLOCK thật ở `CodeSequence::next()` (`Matter::nextCode()` — hai tiến trình cùng
+ * `INSERT ... ON DUPLICATE`/tranh khoá dòng `code_sequences` của CÙNG một khoá `matter:{year}:
+ * {type->code}`, vì cùng loại vụ việc) — một `ERROR Illuminate\Database\QueryException: Deadlock
+ * found...`. Đó VẪN là một FAIL hợp lệ (khẳng định `not->toStartWith('ERROR')` bắt được), nhưng
+ * KHÔNG phải bằng chứng đúng chỗ brief đòi: "RED phải là một khẳng định `toContain('RED')` thất
+ * bại, không phải một deadlock InnoDB". Cho mỗi tiến trình một `MatterType` RIÊNG (hai khoá
+ * `code_sequences` khác nhau) loại bỏ hẳn nguồn tranh chấp phụ đó — phần DUY NHẤT hai tiến trình
+ * còn chạm nhau là chính hành vi `RunConflictCheck` đang được đo (đọc chéo hai dòng `clients`
+ * KHÔNG bị khoá bởi bên kia — xem `open_matter_probe.php`), nên tắt khoá giờ luôn cho ra hai
+ * `GREEN` sạch, khiến `toContain('RED')` thất bại đúng cách mỗi lần — xem bằng chứng dán trong
+ * `task-8-report.md`, "Fix round 1", mục R13(g).
  */
 it('blocks at least one of two matters opened concurrently for opposing clients', function () {
     (new RolesAndPermissionsSeeder)->run();
@@ -65,7 +81,11 @@ it('blocks at least one of two matters opened concurrently for opposing clients'
     $clientW = Client::factory()->create(['name' => 'Khách hàng W (kiểm tra đồng thời)', 'id_number' => $idNumberW]);
     $actorA = User::factory()->withRole(Role::Lawyer)->create();
     $actorB = User::factory()->withRole(Role::Lawyer)->create();
-    $matterType = MatterType::factory()->withStages()->create();
+    // Hai LOẠI VỤ VIỆC riêng — xem "Fix round 1, I2" ở docblock lớp cho lý do: dùng chung một loại
+    // khiến hai tiến trình tranh CÙNG một dòng code_sequences, và khi khoá bị tắt (mutation probe)
+    // MariaDB có thể tự báo deadlock ở đó thay vì để RunConflictCheck thật sự chạy sai.
+    $matterTypeA = MatterType::factory()->withStages()->create();
+    $matterTypeB = MatterType::factory()->withStages()->create();
 
     // Xem docblock lớp: phải commit thật để hai tiến trình con (kết nối DB riêng) nhìn thấy được
     // dữ liệu vừa dựng — RefreshDatabase vẫn giữ bài test này trong một transaction chưa commit.
@@ -81,10 +101,10 @@ it('blocks at least one of two matters opened concurrently for opposing clients'
     $barrierFile = sys_get_temp_dir().'/vkcrm-concurrency-barrier-'.uniqid().'.txt';
 
     $processA = Process::timeout(30)->start([
-        'php', $script, (string) $clientX->id, $idNumberW, (string) $actorA->id, (string) $matterType->id, $titleA, $barrierFile,
+        'php', $script, (string) $clientX->id, $idNumberW, (string) $actorA->id, (string) $matterTypeA->id, $titleA, $barrierFile,
     ]);
     $processB = Process::timeout(30)->start([
-        'php', $script, (string) $clientW->id, $idNumberX, (string) $actorB->id, (string) $matterType->id, $titleB, $barrierFile,
+        'php', $script, (string) $clientW->id, $idNumberX, (string) $actorB->id, (string) $matterTypeB->id, $titleB, $barrierFile,
     ]);
 
     file_put_contents($barrierFile, '1');

@@ -167,12 +167,26 @@ use Spatie\Activitylog\Models\Activity;
  * `AddMatterParty` (không có gì để "ghi đè" cho vai luật sư phụ trách) đây là CHẶN CỨNG vĩnh viễn,
  * và thông báo còn đổ lỗi nhầm cho bên vừa nhập (xem R13d). `handle()` giờ tách kết quả thành
  * `matches` (MỚI — quyết định `level`) và `confirmedMatches` (đã xác nhận/ghi đè ở một lần chạy
- * TRƯỚC trên CÙNG vụ việc — vẫn hiện, không chặn lại) bằng `ConflictMatch::$pairKey` (chữ ký
- * "bên phía mình ↔ bản ghi tìm thấy", xem docblock ở đó) đối chiếu với `confirmedPairKeys()` —
- * tập hợp lấy từ chính các dòng `matter_opened`/`matter_party_added` mà `OpenMatter`/
- * `AddMatterParty` đã ghi (khoá `confirmed_pairs` trong properties, xem docblock hai Action đó).
- * Chỉ áp cho khớp LỊCH SỬ (`matchesFor()`); `sameMatterOppositionMatches()` (R13b) cố ý không có
- * `pairKey` — xem docblock hàm đó cho lý do không mở rộng R13c sang loại khớp này.
+ * TRƯỚC trên CÙNG vụ việc — vẫn hiện, không chặn lại) bằng `ConflictMatch::pairKey()` (chữ ký
+ * "bên phía mình ↔ bản ghi tìm thấy", theo ID THẬT của hai dòng — xem docblock ở đó, và xem "fix
+ * round 1, C1" bên dưới cho lý do KHÔNG còn dùng chữ ký định danh) đối chiếu với
+ * `confirmedPairLevels()` — mức CAO NHẤT đã từng được chấp nhận cho từng cặp, lấy từ chính các
+ * dòng `matter_opened`/`matter_party_added` mà `OpenMatter`/`AddMatterParty` đã ghi (khoá
+ * `confirmed_pairs` trong properties, xem docblock hai Action đó). Từ fix round 1 (I1),
+ * `sameMatterOppositionMatches()` (R13b) THAM GIA cơ chế này như mọi khớp khác — không còn miễn
+ * trừ, xem docblock hàm đó.
+ *
+ * **Fix round 1, C1 (Critical) — chữ ký phải theo ID DÒNG, không theo định danh.** Bản đầu của
+ * R13(c) dùng một chữ ký định danh ("hash:xxx" của bên phía mình, nối id thật của bên tìm thấy)
+ * làm `pairKey`, và chỉ lưu chữ ký — không lưu MỨC đã chấp nhận. Hai lỗ hổng, cả hai đều thật:
+ * (1) chữ ký định danh không phân biệt được hai DÒNG khác nhau của cùng một người — Y thêm hai
+ * lần (lần đầu vai `related`, khớp Vàng, được xác nhận; lần sau — một DÒNG MỚI — vai `defendant`,
+ * khớp Đỏ) băm ra CÙNG một chữ ký, nên lần Đỏ bị nhận nhầm là "đã xác nhận" và hiện Xanh; (2)
+ * không lưu mức thì một xác nhận Vàng (tên trùng, chưa đối lập) bị đọc nhầm là đã xử lý một Đỏ
+ * MỚI của chính cặp đó (đổi vai khách hàng, hay một lần đồng bộ định danh nâng tầng khớp từ tên
+ * lên hash). `ConflictMatch::pairKey()` giờ tính từ `getKey()` thật của hai model (xem docblock
+ * lớp đó), và `confirmed_pairs` lưu CẢ mức — `handle()` chỉ coi một cặp là đã xử lý khi
+ * `$match->level->rank() <= $confirmedLevel->rank()`.
  *
  * **R13(d)/`conflict-07` — mỗi khớp mang nhãn "bên phía mình" gây ra khớp.** `ConflictMatch` giờ
  * mang thêm `ourPartyRole`/`ourPartyName`: vai và tên của bên ĐANG ĐƯỢC XÉT (`$party` trong
@@ -213,20 +227,32 @@ class RunConflictCheck
             // R13(b): mâu thuẫn NGAY TRONG vụ việc đang xét, không phải một khớp với lịch sử — xem
             // docblock lớp và docblock hàm bên dưới.
             ->concat($this->sameMatterOppositionMatches($ourClientParties))
+            // `pairKey()` nằm trong khoá gộp (fix round 1, minor ruling): hai khớp giống hệt nhau
+            // ở NĂM trường hiển thị nhưng khác DÒNG thật (một dòng đã xác nhận, một dòng vừa thêm)
+            // không được phép gộp làm một — nếu không, dòng MỚI biến mất vào dòng đã xác nhận, và
+            // partition() bên dưới không còn gì để phân biệt.
             ->unique(fn (ConflictMatch $match) => implode('|', [
                 $match->matterCode, $match->partyRole->value, $match->partyName, $match->level->value, $match->tier->value,
-                $match->ourPartyRole->value, $match->ourPartyName,
+                $match->ourPartyRole->value, $match->ourPartyName, $match->pairKey() ?? 'unsaved',
             ]))
             ->values();
 
         // R13(c): tách khớp MỚI (quyết định level) khỏi khớp đã xác nhận/ghi đè ở một lần chạy
         // TRƯỚC trên cùng vụ việc (vẫn hiện, không chặn lại) — xem docblock lớp và
-        // `confirmedPairKeys()`.
-        $confirmedPairKeys = $this->confirmedPairKeys($matter);
+        // `confirmedPairLevels()`. Fix round 1, C1: một cặp chỉ được coi là "đã xử lý" khi mức của
+        // NÓ Ở LẦN CHẠY NÀY không nghiêm trọng hơn mức đã từng được chấp nhận cho ĐÚNG cặp đó —
+        // một Vàng đã xác nhận không "dùng hộ" cho một Đỏ mới của cùng hai dòng.
+        $confirmedPairLevels = $this->confirmedPairLevels($matter);
 
-        [$confirmedMatches, $newMatches] = $matches->partition(
-            fn (ConflictMatch $match): bool => $match->pairKey !== null && $confirmedPairKeys->contains($match->pairKey)
-        );
+        [$confirmedMatches, $newMatches] = $matches->partition(function (ConflictMatch $match) use ($confirmedPairLevels): bool {
+            $pairKey = $match->pairKey();
+
+            if ($pairKey === null || ! $confirmedPairLevels->has($pairKey)) {
+                return false;
+            }
+
+            return $match->level->rank() <= $confirmedPairLevels->get($pairKey)->rank();
+        });
         $newMatches = $newMatches->values();
         $confirmedMatches = $confirmedMatches->values();
 
@@ -270,9 +296,17 @@ class RunConflictCheck
     /**
      * Các bên đã có của $matter, dùng để bổ sung vào CẢ việc xác định "khách hàng mới" LẪN việc
      * tìm bản ghi trùng (xem docblock lớp — cả hai đều chạy trên cùng tập hợp kể từ fix round 3).
-     * Bỏ CẢ `ClientPortalScope` (cùng lý do với `matchesFor()`) LẪN `SoftDeletingScope` (một bên
-     * khách hàng đã xoá mềm trong chính vụ đang xét vẫn từng đại diện cho khách hàng đó — nhất
-     * quán với cách `matchesFor()` đọc lịch sử).
+     * Bỏ `ClientPortalScope` (cùng lý do với `matchesFor()`).
+     *
+     * **KHÔNG `withTrashed()` (fix round 1, I1/R14).** Bản trước nạp cả các bên đã xoá mềm của
+     * CHÍNH vụ việc đang xét, với lý lẽ "một bên đã xoá mềm vẫn từng đại diện cho khách hàng đó".
+     * Lý lẽ đó đúng cho `matchesFor()` (tìm khớp LỊCH SỬ ở CÁC VỤ KHÁC — không đổi, xem hàm đó) —
+     * nhưng SAI ở đây, vì đây là các bên CỦA CHÍNH vụ việc đang xét, và R14 đã ra phán quyết: "gỡ
+     * một bên là xoá mềm kèm lý do bắt buộc… bên đã gỡ KHÔNG còn trong dữ liệu đối chiếu xung đột,
+     * vì gỡ nghĩa là 'nhập nhầm, chưa từng là bên'". Một bên đã gỡ khỏi CHÍNH vụ việc này không
+     * còn là một phần của `$ourClientRoles` hay của `sameMatterOppositionMatches()` — nạp nó lại
+     * bằng `withTrashed()` sẽ làm một xung đột "cùng vụ việc, hai phía đối lập" đã được gỡ đúng
+     * cách tái xuất hiện, đúng thứ Task 9 gỡ bên tồn tại để ngăn.
      *
      * @return array<int, MatterParty>
      */
@@ -284,7 +318,6 @@ class RunConflictCheck
 
         return $matter->parties()
             ->withoutGlobalScope(ClientPortalScope::class)
-            ->withTrashed()
             ->get()
             ->all();
     }
@@ -308,19 +341,6 @@ class RunConflictCheck
         }
 
         $isOpposing = $this->isOpposing($party->role, $ourClientRoles);
-
-        // R13(c): chữ ký định danh của CHÍNH bên đang xét — tầng mạnh nhất có sẵn, theo đúng thứ
-        // tự ưu tiên của SPEC §6.10 bước 2. Dùng để dựng `ConflictMatch::$pairKey` bên dưới, tức
-        // "bên phía mình (theo định danh) ↔ bản ghi tìm thấy (theo id thật)" — chữ ký này KHÔNG
-        // cần $party đã được lưu: nó tính lại được y hệt ở lần chạy sau, dù lần đó $party là chính
-        // dòng đã lưu của lần này hay một dòng khác mang cùng định danh, nên không cần theo dõi
-        // đối tượng PHP hay id còn chưa tồn tại lúc lần chạy ĐẦU TIÊN diễn ra.
-        $ourSignature = match (true) {
-            $idNumberHash !== null => 'hash:'.$idNumberHash,
-            $phoneNormalized !== null => 'phone:'.$phoneNormalized,
-            $nameNormalized !== null => 'name:'.$nameNormalized,
-            default => null,
-        };
 
         return MatterParty::query()
             // Đây là kiểm tra lịch sử: một bên đã xoá mềm, hoặc thuộc một vụ đã xoá mềm, vẫn từng
@@ -349,7 +369,7 @@ class RunConflictCheck
                     ->orWhere('client_id', '!=', $party->client_id);
             }))
             ->get()
-            ->map(function (MatterParty $found) use ($idNumberHash, $phoneNormalized, $isOpposing, $party, $ourSignature): ConflictMatch {
+            ->map(function (MatterParty $found) use ($idNumberHash, $phoneNormalized, $isOpposing, $party): ConflictMatch {
                 // Ưu tiên khớp SPEC §6.10 bước 2: hash "chắc chắn" > điện thoại "rất khả nghi" >
                 // tên "cần xem xét". Chỉ hai mức đầu đủ tin cậy để lên đỏ (xem docblock lớp).
                 $tier = match (true) {
@@ -371,9 +391,8 @@ class RunConflictCheck
                     tier: $tier,
                     ourPartyRole: $party->role,
                     ourPartyName: $party->name,
-                    // Bản ghi tìm thấy luôn đã tồn tại trong DB (truy vấn ở trên chỉ đọc các dòng
-                    // đã lưu), nên getKey() luôn có giá trị thật ở đây.
-                    pairKey: $ourSignature !== null ? $ourSignature.'::'.$found->getKey() : null,
+                    ourPartyRecord: $party,
+                    foundPartyRecord: $found,
                 );
             });
     }
@@ -391,14 +410,17 @@ class RunConflictCheck
      * Vòng lặp O(n²) trên số bên `is_our_client` của một vụ việc — luôn nhỏ (một vụ kiện hiếm khi
      * có quá vài khách hàng của chính văn phòng), nên không cần tối ưu.
      *
-     * **Vì sao KHÔNG gắn `pairKey` (R13c không áp cho loại khớp này).** R13c chỉ suy giảm một
-     * khớp LỊCH SỬ thành "đã xác nhận, không chặn lại" vì lịch sử đó không đổi — cặp bên đó đã
-     * từng được một manager xem xét và quyết định. Một mâu thuẫn NGAY TRONG vụ việc thì khác: hai
-     * khách hàng đó VẪN đang ở hai phía đối lập của CÙNG một vụ việc cho tới khi ai đó thật sự gỡ
-     * một trong hai bên (Task 9) — im lặng cho qua ở lần chạy sau chỉ vì lần trước đã ghi đè một
-     * lần là để một xung đột đang mở tiếp tục mở, đúng thứ chức năng này tồn tại để CHẶN. Người
-     * ghi đè đã đồng ý ĐÚNG MỘT LẦN chịu trách nhiệm cho quyết định đại diện cả hai phía; không
-     * suy ra rằng họ đã đồng ý một lần cho MỌI lần thêm bên sau đó.
+     * **`pairKey()` áp DỤNG như mọi khớp khác (fix round 1, I1 — không còn miễn trừ).** Bản trước
+     * cố tình gán `pairKey: null` cho loại khớp này, với lý lẽ "một mâu thuẫn ngay trong vụ việc
+     * thì VẪN đang mở cho tới khi ai đó gỡ một bên, nên không được phép im lặng cho qua ở lần chạy
+     * sau". Lý lẽ đó ĐÚNG cho câu hỏi "có được coi là đã xử lý VĨNH VIỄN không" — nhưng chủ nhiệm
+     * đã bác bỏ cách nó được cài đặt (round 1 finding I1): loại trừ HẲN loại khớp này khỏi R13(c)
+     * nghĩa là một manager ghi đè ĐÚNG cặp này một lần vẫn phải ghi đè LẠI ở MỌI lần thêm bên khác,
+     * không liên quan gì tới cặp đó — đúng cái cổng-luôn-bật mà `conflict-01` mô tả, chỉ chuyển
+     * sang một loại khớp khác. Phán quyết mới: dùng CHUNG cơ chế `pairKey()`/`confirmedPairLevels()`
+     * như khớp lịch sử — cặp (X, W) một khi đã bị ghi đè ở ĐÚNG mức đó thì không chặn lại một
+     * request KHÁC không đụng tới cặp đó, nhưng một cặp MỚI (Y đối lập X, hay chính X/W ở một mức
+     * CAO HƠN mức đã ghi đè) vẫn chặn bình thường — cùng bất biến C1 áp cho mọi `pairKey()`.
      *
      * @param  Collection<int, MatterParty>  $ourClientParties
      * @return Collection<int, ConflictMatch>
@@ -432,7 +454,8 @@ class RunConflictCheck
                     tier: ConflictMatchTier::SameMatter,
                     ourPartyRole: $party->role,
                     ourPartyName: $party->name,
-                    pairKey: null,
+                    ourPartyRecord: $party,
+                    foundPartyRecord: $other,
                 ));
             }
         }
@@ -441,21 +464,30 @@ class RunConflictCheck
     }
 
     /**
-     * R13(c): tập hợp các chữ ký `ConflictMatch::$pairKey` đã từng được xác nhận hoặc ghi đè ở
-     * MỘT LẦN CHẠY TRƯỚC của `RunConflictCheck` trên CÙNG vụ việc `$matter`. Đọc lại từ properties
-     * của chính hai dòng nghiệp vụ mà `OpenMatter`/`AddMatterParty` ghi SAU KHI lưu thành công
-     * (`matter_opened`/`matter_party_added`, khoá `confirmed_pairs`) — không phải từ
-     * `conflict_check_run`: dòng đó được ghi ở GIAI ĐOẠN KIỂM TRA, TRƯỚC KHI biết người dùng có
-     * xác nhận/ghi đè hay không, nên nó không phải là nơi đúng để hỏi "cặp này đã được CHẤP NHẬN
-     * chưa".
+     * R13(c): với mỗi chữ ký `ConflictMatch::pairKey()` đã từng được xác nhận hoặc ghi đè ở MỘT
+     * LẦN CHẠY TRƯỚC của `RunConflictCheck` trên CÙNG vụ việc `$matter`, mức CAO NHẤT đã từng được
+     * chấp nhận cho đúng cặp đó. Đọc lại từ properties của chính hai dòng nghiệp vụ mà
+     * `OpenMatter`/`AddMatterParty` ghi SAU KHI lưu thành công (`matter_opened`/
+     * `matter_party_added`, khoá `confirmed_pairs` — mảng `['pair_key' => string, 'level' =>
+     * string]`) — không phải từ `conflict_check_run`: dòng đó được ghi ở GIAI ĐOẠN KIỂM TRA, TRƯỚC
+     * KHI biết người dùng có xác nhận/ghi đè hay không, nên nó không phải là nơi đúng để hỏi "cặp
+     * này đã được CHẤP NHẬN ở mức nào".
+     *
+     * **Vì sao lưu CẢ mức, không chỉ chữ ký (fix round 1, C1/`conflict-01`).** Bản trước chỉ lưu
+     * chữ ký — hệ quả: một cặp được xác nhận ở mức VÀNG (khớp tên, chưa đối lập) sau đó ĐỔI SANG
+     * ĐỎ (một lần sửa vai khách hàng khiến hai bên trở nên đối lập, hay một lần đồng bộ định danh
+     * nâng tầng khớp từ tên lên hash) sẽ bị đọc nhầm là "cặp này đã xác nhận rồi" và hiện XANH —
+     * một xác nhận VÀNG không phải là một quyết định cho một xung đột ĐỎ chưa ai từng thấy. Một
+     * cặp chỉ được coi là đã xử lý khi mức hiện tại KHÔNG NGHIÊM TRỌNG HƠN mức cao nhất đã từng
+     * được chấp nhận — so bằng `ConflictLevel::rank()`, xem `handle()`.
      *
      * `$matter === null` (lúc mở vụ việc, giai đoạn kiểm tra của `OpenMatter`) luôn trả về rỗng —
      * đúng về mặt logic: vụ việc còn chưa tồn tại nên không thể có gì được xác nhận từ TRƯỚC trên
      * nó. `!$matter->exists` (phòng thủ, không nên xảy ra ở lời gọi thật) cũng vậy.
      *
-     * @return Collection<int, string>
+     * @return Collection<string, ConflictLevel>
      */
-    private function confirmedPairKeys(?Matter $matter): Collection
+    private function confirmedPairLevels(?Matter $matter): Collection
     {
         if ($matter === null || ! $matter->exists) {
             return collect();
@@ -467,7 +499,22 @@ class RunConflictCheck
             ->whereIn('event', ['matter_opened', 'matter_party_added'])
             ->get()
             ->flatMap(fn (Activity $activity): array => (array) $activity->properties->get('confirmed_pairs', []))
-            ->values();
+            ->reduce(function (Collection $levels, array $pair): Collection {
+                $pairKey = $pair['pair_key'] ?? null;
+                $level = ConflictLevel::tryFrom($pair['level'] ?? '');
+
+                if ($pairKey === null || $level === null) {
+                    return $levels;
+                }
+
+                $existing = $levels->get($pairKey);
+
+                if ($existing === null || $level->rank() > $existing->rank()) {
+                    $levels->put($pairKey, $level);
+                }
+
+                return $levels;
+            }, collect());
     }
 
     /** "Đối lập" = plaintiff đối defendant, hai chiều. Xem docblock lớp cho related/third_party/opposing_counsel. */

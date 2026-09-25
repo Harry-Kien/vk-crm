@@ -574,9 +574,18 @@ class PartiesRelationManager extends RelationManager
     {
         $result = $addition->result;
 
+        // Fix round 1, C3 (Critical, `conflict-01`): một kết quả không có khớp MỚI nhưng CÓ khớp
+        // đã xác nhận/ghi đè trước đó (R13c) không được phép dùng tiêu đề + màu XANH của "không
+        // tìm thấy xung đột" — trước bản sửa này, một dòng "…: Đỏ" trong thân thông báo đứng cạnh
+        // tiêu đề "Không tìm thấy xung đột lợi ích" màu success, tự mâu thuẫn với chính nội dung
+        // nó vừa hiện ra. Bốn mức, không ba.
         [$title, $color] = match (true) {
             $addition->overridden => [__('matters.parties.saved_overridden'), 'danger'],
             $result->requiresAcknowledgement() => [__('matters.parties.saved_after_review'), 'warning'],
+            $result->confirmedMatches->isNotEmpty() => [
+                __('matters.parties.saved_clear_with_confirmed', ['count' => $result->confirmedMatches->count()]),
+                'warning',
+            ],
             default => [__('matters.parties.conflict_check_title_clear'), 'success'],
         };
 
@@ -607,26 +616,35 @@ class PartiesRelationManager extends RelationManager
      * (`matters.conflict.saved_overridden_reason`): câu đó nói về chính cái nhật ký, không về thao
      * tác, nên nó giống hệt nhau ở hai màn hình. Những câu KHÁC nhau (thao tác là "mở vụ việc" hay
      * "thêm bên") thì mỗi màn hình giữ khoá riêng.
+     *
+     * **Fix round 1 — spec gap: "bên phía mình" (R13d) và nhãn "đã xem xét ở lần trước" (R13c)
+     * giờ có mặt trong CHÍNH thông báo, không chỉ trong bảng `conflict-check-result.blade.php`
+     * của `CreateMatter`.** Round 0 thêm hai trường này vào `ConflictMatch` nhưng chỉ hiện chúng
+     * ở bảng trong form — tab "Các bên" không có bảng nào (modal đóng lại sau khi lưu, xem
+     * docblock lớp), nên thông báo là nơi DUY NHẤT còn lại; thiếu hai nhãn đó ở đây là thiếu hẳn,
+     * không phải thiếu một bản sao. Dùng `allMatches()` (khớp MỚI + đã xác nhận) để một khớp đã
+     * xác nhận/ghi đè trước đó vẫn "hiện" (R13c), đánh dấu bằng `already_confirmed`.
      */
     private static function conflictSummary(ConflictCheckResult $result, ?string $overrideReason): string
     {
-        // R13c/`conflict-01` (M6.5 Task 8): `allMatches()` gộp khớp MỚI với khớp đã xác
-        // nhận/ghi đè ở một lần chạy trước trên cùng vụ việc. Đây là màn hình duy nhất còn lại
-        // sau khi modal đóng, nên nó phải kể ra cặp bên cũ đó — không chặn lưu nữa, nhưng "vẫn
-        // hiện" đúng như R13c đòi (xem docblock `ConflictCheckResult`).
-        $lines = [$result->allMatches()->isEmpty()
-            ? __('matters.parties.conflict_check_clear')
-            : $result->allMatches()
-                ->map(fn (ConflictMatch $match): string => sprintf(
-                    '%s (%s) — %s, %s, %s: %s',
-                    $match->matterCode,
-                    $match->matterTypeName,
-                    $match->partyRole->label(),
-                    $match->partyName,
-                    $match->tier->label(),
-                    $match->level->label(),
-                ))
-                ->implode("\n")];
+        $formatMatch = fn (ConflictMatch $match, bool $alreadyConfirmed): string => sprintf(
+            '%s (%s) — %s, %s, %s: %s — %s: %s, %s%s',
+            $match->matterCode,
+            $match->matterTypeName,
+            $match->partyRole->label(),
+            $match->partyName,
+            $match->tier->label(),
+            $match->level->label(),
+            __('matters.conflict.column_our_party'),
+            $match->ourPartyRole->label(),
+            $match->ourPartyName,
+            $alreadyConfirmed ? ' — '.__('matters.conflict.already_confirmed') : '',
+        );
+
+        $allLines = $result->matches->map(fn (ConflictMatch $match) => $formatMatch($match, false))
+            ->concat($result->confirmedMatches->map(fn (ConflictMatch $match) => $formatMatch($match, true)));
+
+        $lines = [$allLines->isEmpty() ? __('matters.parties.conflict_check_clear') : $allLines->implode("\n")];
 
         if ($result->hasIncompleteParties()) {
             $lines[] = __('matters.parties.conflict_check_incomplete', ['names' => implode(', ', $result->incompleteParties())]);

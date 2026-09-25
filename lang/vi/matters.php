@@ -160,6 +160,10 @@ return [
         'blocked_retry_denied' => 'Mức đỏ: không lưu được vụ việc này. Vai trò hiện tại không ghi đè được — hãy đề nghị trưởng phòng mở vụ việc, hoặc sửa lại thông tin các bên.',
         'ack_retry' => 'Đọc kỹ bảng kết quả kiểm tra xung đột lợi ích ở trên, sau đó tích "Tôi đã xem xét…" rồi bấm lưu lại.',
         'saved_clear' => 'Đã kiểm tra xung đột lợi ích trước khi lưu: không tìm thấy bản ghi trùng nào.',
+        // Fix round 1, C3 (`conflict-01`): không có khớp MỚI, nhưng có khớp đã xác nhận/ghi đè
+        // trước đó (R13c) — KHÔNG được dùng saved_clear/màu success, vì thân thông báo vẫn liệt
+        // kê những khớp đó (có thể ở mức Đỏ).
+        'saved_clear_with_confirmed' => 'Không có xung đột MỚI; :count xung đột đã được xem xét/ghi đè trước đó.',
         'saved_after_review' => 'Đã mở vụ việc sau khi xem xét kết quả kiểm tra xung đột lợi ích.',
         'saved_overridden' => 'ĐÃ GHI ĐÈ XUNG ĐỘT MỨC ĐỎ — vụ việc vẫn được mở theo quyết định của anh/chị.',
         'saved_overridden_reason' => 'Lý do ghi đè đã ghi vĩnh viễn vào nhật ký: :reason',
@@ -172,6 +176,10 @@ return [
         // Ba tiêu đề của giai đoạn ĐÃ LƯU.
         'saved_overridden' => 'ĐÃ GHI ĐÈ XUNG ĐỘT MỨC ĐỎ — bên này vẫn được thêm theo quyết định của anh/chị.',
         'saved_after_review' => 'Đã thêm bên sau khi xem xét kết quả kiểm tra xung đột lợi ích.',
+        // Fix round 1, C3 (`conflict-01`): không có khớp MỚI, nhưng có khớp đã xác nhận/ghi đè
+        // trước đó (R13c) — KHÔNG được dùng conflict_check_title_clear/màu success, vì thân
+        // thông báo vẫn liệt kê những khớp đó (có thể ở mức Đỏ).
+        'saved_clear_with_confirmed' => 'Không có xung đột MỚI; :count xung đột đã được xem xét/ghi đè trước đó.',
         'conflict_check_title_clear' => 'Không tìm thấy xung đột lợi ích',
         'conflict_check_clear' => 'Không tìm thấy bản ghi trùng.',
         'conflict_check_incomplete' => 'Các bên sau chưa có số căn cước/điện thoại để đối chiếu: :names',

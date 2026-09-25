@@ -185,13 +185,79 @@ it('does not re-block an already-overridden pair when a clean witness is added l
 
     expect($matter->parties()->where('name', 'Nhân chứng hoàn toàn sạch')->exists())->toBeTrue();
 
+    // Fix round 1, C3 (Critical, `conflict-01`): không phải "không tìm thấy xung đột" màu xanh —
+    // thân thông báo vẫn liệt kê cặp bên đã ghi đè trước đó, nên tiêu đề/màu phải nói đúng điều
+    // đó (`saved_clear_with_confirmed`, màu warning), không phải `conflict_check_title_clear`.
     $saved = conflictFlowNotifications()
-        ->first(fn (Notification $notification): bool => $notification->getTitle() === __('matters.parties.conflict_check_title_clear'));
+        ->first(fn (Notification $notification): bool => $notification->getTitle() === __('matters.parties.saved_clear_with_confirmed', ['count' => 1]));
 
     expect($saved)->not->toBeNull()
-        ->and($saved->getColor())->toBe('success')
+        ->and($saved->getColor())->toBe('warning')
         // Khớp cũ (đã ghi đè trước đó) "vẫn hiện" trong kết quả — R13c bullet, và §11.
-        ->and($saved->getBody())->toContain($conflictMatter->code);
+        ->and($saved->getBody())->toContain($conflictMatter->code)
+        // Spec gap (fix round 1): "bên phía mình" (R13d) và nhãn "đã xem xét ở lần trước" (R13c)
+        // giờ có trong thông báo, không chỉ trong bảng của CreateMatter.
+        ->and($saved->getBody())->toContain(__('matters.conflict.already_confirmed'))
+        ->and($saved->getBody())->toContain(__('matters.conflict.column_our_party'));
+});
+
+/**
+ * I2 (fix round 1) — mutation-probe-worthy screen test cho chính lệnh ghi `confirmed_pairs` của
+ * `AddMatterParty` (không phải của `OpenMatter`, như test ngay trên). Trưởng phòng ghi đè một mức
+ * Đỏ NGAY TRÊN tab "Các bên" (không qua form mở vụ), rồi cùng luật sư phụ trách thêm một bên KHÔNG
+ * liên quan qua CHÍNH tab đó — phải không bị chặn lại, chứng minh chính dòng `matter_party_added`
+ * (không phải `matter_opened`) đã ghi đúng `confirmed_pairs`.
+ */
+it('does not re-block a pair overridden on the parties tab itself, proving AddMatterParty writes confirmed_pairs', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+
+    $conflictingClient = Client::factory()->create(['id_number' => '073344556677', 'name' => 'Phạm Văn Đối Lập']);
+    $conflictMatter = Matter::factory()->create();
+    MatterParty::factory()->for($conflictMatter)->ourClient($conflictingClient, PartyRole::Plaintiff)->create();
+
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    MatterParty::factory()->for($matter)->ourClient(Client::factory()->create(), PartyRole::Plaintiff)->create();
+
+    $this->actingAs($manager, 'web');
+
+    $this->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('create', data: [
+        'role' => PartyRole::Defendant->value,
+        'is_our_client' => false,
+        'name' => 'Bị đơn trùng CCCD (tab Các bên)',
+        'id_number' => '073344556677',
+    ])->assertHasTableActionErrors(['override_reason'])
+        ->setTableActionData([
+            'role' => PartyRole::Defendant->value,
+            'is_our_client' => false,
+            'name' => 'Bị đơn trùng CCCD (tab Các bên)',
+            'id_number' => '073344556677',
+            'override_reason' => 'Đã xác minh, không phải cùng một người.',
+        ])
+        ->callMountedTableAction()
+        ->assertHasNoTableActionErrors();
+
+    $added = Activity::query()->where('event', 'matter_party_added')->latest('id')->first();
+    expect($added)->not->toBeNull()
+        ->and($added->properties->get('confirmed_pairs'))->not->toBeEmpty();
+
+    // Luật sư phụ trách (không ghi đè được) thêm một bên KHÔNG liên quan — không được chặn lại.
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('create', data: [
+        'role' => PartyRole::Related->value,
+        'is_our_client' => false,
+        'name' => 'Nhân chứng không liên quan (tab Các bên)',
+        'id_number' => '073344556688',
+    ])->assertHasNoTableActionErrors();
+
+    expect($matter->parties()->where('name', 'Nhân chứng không liên quan (tab Các bên)')->exists())->toBeTrue();
 });
 
 /**

@@ -6,6 +6,7 @@ use App\Enums\PartyRole;
 use App\Enums\Role;
 use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
+use App\Exceptions\ConflictCheckBusy;
 use App\Exceptions\OurClientPartyNeedsClient;
 use App\Models\Client;
 use App\Models\Matter;
@@ -14,6 +15,7 @@ use App\Models\User;
 use App\Support\Normalizer;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\Cache;
 use Spatie\Activitylog\Models\Activity;
 
 beforeEach(function () {
@@ -392,4 +394,28 @@ it('refuses a party that claims to be our client without naming a client record'
 
     expect($matter->parties()->count())->toBe(0)
         ->and(Activity::query()->where('event', 'matter_party_added')->exists())->toBeFalse();
+});
+
+/**
+ * Fix round 1, minor ruling: mirror của test cùng tên ở `OpenMatterTest.php` — `LockTimeoutException`
+ * (khoá `conflict-check` không lấy được sau 10 giây) phải thành `ConflictCheckBusy`, không phải
+ * một trang lỗi 500. Chờ thật ~10 giây (thời gian chờ của Action).
+ */
+it('turns a busy conflict-check lock into a Vietnamese refusal, not a 500', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $lock = Cache::store('database')->lock('conflict-check', 30);
+    expect($lock->get())->toBeTrue();
+
+    try {
+        expect(fn () => app(AddMatterParty::class)->handle($matter, $lawyer, [
+            'role' => PartyRole::Related->value,
+            'name' => 'Bên bất kỳ',
+        ]))->toThrow(ConflictCheckBusy::class, __('exceptions.conflict_check_busy'));
+
+        expect($matter->parties()->count())->toBe(0);
+    } finally {
+        $lock->release();
+    }
 });

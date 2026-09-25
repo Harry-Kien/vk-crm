@@ -61,9 +61,27 @@ use Illuminate\Support\Facades\DB;
  * (không phải đã được xác nhận/ghi đè ở một lần chạy trước — R13c lọc đúng việc đó) sinh một thông
  * báo trong hệ thống cho người được xem vụ (R3, qua `ResolveStaffRecipients`) và một dòng audit.**
  *
+ * **Fix round 1, C2 (Critical) — "một bên trỏ về khách đó" nghĩa là gì.** Bản đầu đọc câu đó là
+ * "một bên có `client_id` = khách hàng này" — tức chỉ rà lại những vụ việc mà CHÍNH khách hàng A
+ * đứng tên. Đó là SAI, và đúng kịch bản gốc của `conflict-04` (probe T7) chứng minh: vụ việc CẦN
+ * được báo không phải M1 (nơi A là khách hàng) mà là M2 — nơi "Ông D" được NHẬP TAY (không
+ * `client_id`, không phải khách hàng của văn phòng) và CHỈ trùng A sau khi CCCD của A được sửa
+ * đúng. M2 không có bên nào mang `client_id` = A, nên bản đầu KHÔNG BAO GIỜ rà lại M2 — và nếu vụ
+ * việc CỦA A (M1) tình cờ đã đóng, `recheckAffectedOpenMatters()` bản đầu không còn gì để rà, im
+ * lặng tuyệt đối, đúng như test cũ (đã bị THAY, không còn khoá hành vi đó) từng ghim lại. Phán
+ * quyết C2: rà theo đúng những gì `RunConflictCheck::matchesFor()` THẬT SỰ tìm — mọi vụ việc có
+ * MỘT BÊN BẤT KỲ (không cần `client_id`) mang `id_number_hash`/`phone_normalized` khớp với hash/
+ * số điện thoại MỚI của các bên vừa đồng bộ, xem `matterIdsMatchedByNewIdentity()`. Việc này TỰ
+ * ĐỘNG gồm cả M1 (chính bên vừa đồng bộ khớp với chính nó) lẫn M2 — không cần hai đường dò riêng.
+ * Chỉ hash/điện thoại, KHÔNG gồm tên (đúng phạm vi phán quyết C2 — tầng tên là "cần xem xét", tin
+ * cậy thấp nhất, và một lần sửa hồ sơ khách hàng không đổi TÊN đã đồng bộ theo cùng cách hash/điện
+ * thoại đổi; quét theo tên sẽ kéo vào những vụ việc không hề liên quan tới lần sửa này).
+ *
  * **"Đang mở"** đọc là `closed_at IS NULL` (R8) — ở nhánh này chưa có `Matter::scopeOpen()` chung
  * (task khác của M6.5 dựng nó), nên điều kiện viết thẳng bằng `whereNull('closed_at')`; task đó
- * nên thay bằng scope chung khi nó tồn tại, không đổi ý nghĩa.
+ * nên thay bằng scope chung khi nó tồn tại, không đổi ý nghĩa. Vụ việc CỦA khách hàng đang sửa
+ * (M1) có thể đã đóng mà KHÔNG làm mất M2 — hai truy vấn tách rời (dò theo định danh, rồi lọc mở)
+ * nên một vụ việc đóng chỉ tự loại chính nó, không loại những vụ việc khác cũng khớp.
  *
  * **Vì sao dùng THẲNG `$result->level` của `RunConflictCheck` mà không tự so "trước/sau".** R13c
  * đã dạy `RunConflictCheck` phân biệt khớp MỚI với khớp đã xác nhận/ghi đè trên CHÍNH vụ việc đó
@@ -71,8 +89,9 @@ use Illuminate\Support\Facades\DB;
  * hoặc đỏ MỚI" của R13e chính xác là `$result->level` sau khi lọc đó, không cần tự dựng lại một
  * phép so sánh trạng thái trước/sau nào khác. Một cặp bên đã từng bị chặn rồi được một manager ghi
  * đè (hay một vòng vàng đã được xác nhận) sẽ KHÔNG sinh thông báo lặp lại chỉ vì `id_number_hash`
- * của khách hàng vừa được viết lại — nó vẫn là "cặp bên đó", chữ ký `ConflictMatch::$pairKey` dựa
- * trên định danh (không phải thời điểm ghi) nên sống sót qua một lần resync.
+ * của khách hàng vừa được viết lại — `pairKey()` (fix round 1, C1) theo ID DÒNG, không theo định
+ * danh, nên nó sống sót qua một lần resync (hai dòng vẫn là hai dòng, dù hash của một trong hai
+ * vừa đổi).
  *
  * **Người nhận: `$matter->leadLawyer` + mọi manager + mọi admin đang hoạt động, đưa hết vào
  * `$preferred` của `ResolveStaffRecipients`.** Không tự chọn MỘT manager: SPEC §6.8 (đọc lại theo
@@ -121,18 +140,29 @@ class SyncClientPartyIdentities
     }
 
     /**
-     * R13(e): chạy lại `RunConflictCheck` cho mọi vụ việc ĐANG MỞ có ít nhất một bên (vừa đồng bộ
-     * ở trên) trỏ về `$client`. Xem docblock lớp cho toàn bộ lý lẽ.
+     * R13(e)/fix round 1 C2: chạy lại `RunConflictCheck` cho mọi vụ việc ĐANG MỞ có MỘT BÊN BẤT
+     * KỲ khớp hash/điện thoại MỚI của các bên vừa đồng bộ — xem `matterIdsMatchedByNewIdentity()`
+     * và docblock lớp cho lý do KHÔNG còn thu hẹp theo `client_id`.
      *
      * @param  Collection<int, MatterParty>  $resyncedParties
      */
-    private function recheckAffectedOpenMatters(Client $client, $resyncedParties): void
+    private function recheckAffectedOpenMatters(Client $client, Collection $resyncedParties): void
     {
-        $matterIds = $resyncedParties->pluck('matter_id')->unique()->values();
+        $matterIds = $this->matterIdsMatchedByNewIdentity($resyncedParties);
 
-        // `whereNull('closed_at')` = "đang mở" (R8) — global scope mặc định của Matter đã loại
-        // vụ việc xoá mềm, nên không cần lặp lại điều kiện đó ở đây.
-        $openMatters = Matter::query()->whereIn('id', $matterIds)->whereNull('closed_at')->get();
+        if ($matterIds->isEmpty()) {
+            return;
+        }
+
+        // `whereNull('closed_at')` = "đang mở" (R8). Bỏ `ClientPortalScope` (fix round 1, minor
+        // ruling) cùng lý do đã buộc truy vấn `MatterParty` bên dưới bỏ scope đó: nếu Action lỡ
+        // chạy trong lúc guard `client` đang có phiên, scope này chặn SẠCH bảng `matters` và mọi
+        // vụ việc vừa dò được biến mất khỏi kết quả một cách im lặng.
+        $openMatters = Matter::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->whereIn('id', $matterIds)
+            ->whereNull('closed_at')
+            ->get();
 
         if ($openMatters->isEmpty()) {
             return;
@@ -174,5 +204,37 @@ class SyncClientPartyIdentities
                 'notified_user_ids' => $recipients->pluck('id')->all(),
             ]);
         });
+    }
+
+    /**
+     * Fix round 1, C2 (Critical, `conflict-04`): mọi `matter_id` có MỘT BÊN BẤT KỲ (không cần
+     * `client_id`, không cần `is_our_client`) mang `id_number_hash`/`phone_normalized` khớp với
+     * hash/số điện thoại MỚI của các bên vừa đồng bộ — đúng những gì `RunConflictCheck::
+     * matchesFor()` thật sự tìm ở tầng "chắc chắn"/"rất khả nghi" (KHÔNG gồm tầng tên, xem docblock
+     * lớp). Bỏ `ClientPortalScope` cùng lý do đã buộc `RunConflictCheck` bỏ scope này ở mọi truy
+     * vấn `MatterParty` của nó (docblock lớp). KHÔNG `withTrashed()` (I1/R14): một bên đã GỠ khỏi
+     * vụ việc của nó không còn là dữ liệu đối chiếu xung đột ở bất kỳ đâu.
+     *
+     * @param  Collection<int, MatterParty>  $resyncedParties
+     * @return Collection<int, int>
+     */
+    private function matterIdsMatchedByNewIdentity(Collection $resyncedParties): Collection
+    {
+        $hashes = $resyncedParties->pluck('id_number_hash')->filter()->unique()->values();
+        $phones = $resyncedParties->pluck('phone_normalized')->filter()->unique()->values();
+
+        if ($hashes->isEmpty() && $phones->isEmpty()) {
+            return collect();
+        }
+
+        return MatterParty::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->where(function ($query) use ($hashes, $phones): void {
+                $query->when($hashes->isNotEmpty(), fn ($q) => $q->whereIn('id_number_hash', $hashes->all()))
+                    ->when($phones->isNotEmpty(), fn ($q) => $q->orWhereIn('phone_normalized', $phones->all()));
+            })
+            ->pluck('matter_id')
+            ->unique()
+            ->values();
     }
 }

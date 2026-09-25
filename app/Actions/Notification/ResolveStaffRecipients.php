@@ -68,13 +68,23 @@ class ResolveStaffRecipients
         return $this->fallbackChain($matter);
     }
 
-    /** @return Collection<int, User> */
+    /**
+     * @return Collection<int, User>
+     *
+     * **`! $user->trashed()` (fix round 1, minor ruling).** `$preferred` là caller-supplied — một
+     * caller có thể truyền một `User` đã nạp bằng `withTrashed()` (ví dụ đi lấy "ai TỪNG là người
+     * phụ trách" một mốc hạn), hay một quan hệ không tự áp `SoftDeletingScope`. `is_active` VÀ
+     * `deleted_at` là HAI cột khác nhau — không có gì đảm bảo mọi đường xoá một tài khoản luôn đặt
+     * `is_active = false` TRƯỚC KHI xoá mềm (R7 nói "vô hiệu hoá VÀ xoá" như hai bước, không phải
+     * một bất biến DB). Kiểm tra tường minh ở đây, không tin cột kia làm thay việc của cột này.
+     */
     private function qualify(Collection $candidates, Matter $matter): Collection
     {
         return $candidates
             ->filter(fn (?User $user): bool => $user instanceof User)
             ->unique(fn (User $user): int|string => $user->getKey())
             ->filter(fn (User $user): bool => $user->is_active)
+            ->filter(fn (User $user): bool => ! $user->trashed())
             ->filter(fn (User $user): bool => Gate::forUser($user)->allows('view', $matter))
             ->values();
     }

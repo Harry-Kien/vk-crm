@@ -14,16 +14,25 @@
     phải thấy đủ bức tranh, không phải chỉ những gì MỚI. Cột "Mức" của một dòng như vậy vẫn đúng
     (đỏ/vàng thật), chỉ có nhãn nhỏ này nói thêm rằng dòng đó không phải lý do lượt lưu lần này cần
     xác nhận.
+
+    **Fix round 1, minor (`conflict-check-result.blade.php:44`/`:62`).** Toàn bộ file này TRƯỚC
+    ĐÂY dùng class Tailwind viết tay (`rounded-xl`, `border-danger-300`, `py-1`, `text-gray-600`,
+    v.v.). Dự án KHÔNG có bước build CSS riêng — Filament chỉ phục vụ một tệp theme BIÊN DỊCH SẴN,
+    không JIT-quét các view tuỳ biến của ứng dụng — nên MỌI class như vậy render ra KHÔNG CÓ GÌ
+    (đã xảy ra thật với hai tính năng khác của dự án, xem docblock
+    `resources/views/filament/admin/widgets/system-health.blade.php`, quy ước đã thiết lập ở đó).
+    Toàn bộ style ở đây giờ nội tuyến, lấy màu qua biến CSS của Filament (`var(--danger-600)`,
+    v.v.) — cùng quy ước với `system-health.blade.php` và `resources/views/errors/403.blade.php`.
 --}}
-<div
-    @class([
-        'rounded-xl border p-4 space-y-3',
-        'border-danger-300 bg-danger-50 dark:border-danger-700 dark:bg-danger-950/40' => $level === 'red',
-        'border-warning-300 bg-warning-50 dark:border-warning-700 dark:bg-warning-950/40' => $level !== 'red' && $requiresAttention,
-        'border-success-300 bg-success-50 dark:border-success-700 dark:bg-success-950/40' => $level !== 'red' && ! $requiresAttention,
-    ])
->
-    <p class="text-base font-bold text-gray-950 dark:text-white">
+@php
+    $boxStyle = match (true) {
+        $level === 'red' => 'border-color: var(--danger-300); background-color: var(--danger-50); color: var(--gray-950);',
+        $requiresAttention => 'border-color: var(--warning-300); background-color: var(--warning-50); color: var(--gray-950);',
+        default => 'border-color: var(--success-300); background-color: var(--success-50); color: var(--gray-950);',
+    };
+@endphp
+<div style="{{ $boxStyle }} border-width: 1px; border-style: solid; border-radius: 0.75rem; padding: 1rem;">
+    <p style="font-size: 1rem; font-weight: 700; color: var(--gray-950); margin: 0;">
         @if($level === 'red')
             {{ __('matters.conflict.heading_red') }}
         @elseif($requiresAttention)
@@ -34,36 +43,36 @@
     </p>
 
     @if(count($matches) > 0)
-        <p class="text-sm text-gray-700 dark:text-gray-300">{{ __('matters.conflict.intro') }}</p>
+        <p style="font-size: 0.875rem; color: var(--gray-700); margin-top: 0.75rem;">{{ __('matters.conflict.intro') }}</p>
 
-        <div class="overflow-x-auto">
-            <table class="w-full text-sm text-left">
-                <thead class="text-gray-600 dark:text-gray-400">
+        <div style="overflow-x: auto; margin-top: 0.75rem;">
+            <table style="width: 100%; font-size: 0.875rem; text-align: left; border-collapse: collapse;">
+                <thead style="color: var(--gray-600);">
                     <tr>
-                        <th class="py-1 pr-3 font-medium">{{ __('matters.conflict.column_our_party') }}</th>
-                        <th class="py-1 pr-3 font-medium">{{ __('matters.conflict.column_matter_code') }}</th>
-                        <th class="py-1 pr-3 font-medium">{{ __('matters.conflict.column_matter_type') }}</th>
-                        <th class="py-1 pr-3 font-medium">{{ __('matters.conflict.column_party_role') }}</th>
-                        <th class="py-1 pr-3 font-medium">{{ __('matters.conflict.column_party_name') }}</th>
-                        <th class="py-1 pr-3 font-medium">{{ __('matters.conflict.column_tier') }}</th>
-                        <th class="py-1 font-medium">{{ __('matters.conflict.column_level') }}</th>
+                        <th style="padding: 0.25rem 0.75rem 0.25rem 0; font-weight: 500;">{{ __('matters.conflict.column_our_party') }}</th>
+                        <th style="padding: 0.25rem 0.75rem 0.25rem 0; font-weight: 500;">{{ __('matters.conflict.column_matter_code') }}</th>
+                        <th style="padding: 0.25rem 0.75rem 0.25rem 0; font-weight: 500;">{{ __('matters.conflict.column_matter_type') }}</th>
+                        <th style="padding: 0.25rem 0.75rem 0.25rem 0; font-weight: 500;">{{ __('matters.conflict.column_party_role') }}</th>
+                        <th style="padding: 0.25rem 0.75rem 0.25rem 0; font-weight: 500;">{{ __('matters.conflict.column_party_name') }}</th>
+                        <th style="padding: 0.25rem 0.75rem 0.25rem 0; font-weight: 500;">{{ __('matters.conflict.column_tier') }}</th>
+                        <th style="padding: 0.25rem 0; font-weight: 500;">{{ __('matters.conflict.column_level') }}</th>
                     </tr>
                 </thead>
-                <tbody class="text-gray-900 dark:text-gray-100">
+                <tbody style="color: var(--gray-900);">
                     @foreach($matches as $match)
-                        <tr class="border-t border-gray-200 dark:border-gray-700">
-                            <td class="py-1 pr-3">
+                        <tr style="border-top: 1px solid var(--gray-200);">
+                            <td style="padding: 0.25rem 0.75rem 0.25rem 0;">
                                 {{ $match['our_party_role'] }} — {{ $match['our_party_name'] }}
                             </td>
-                            <td class="py-1 pr-3 font-semibold">{{ $match['matter_code'] }}</td>
-                            <td class="py-1 pr-3">{{ $match['matter_type_name'] }}</td>
-                            <td class="py-1 pr-3">{{ $match['party_role'] }}</td>
-                            <td class="py-1 pr-3">{{ $match['party_name'] }}</td>
-                            <td class="py-1 pr-3">{{ $match['tier'] }}</td>
-                            <td class="py-1 font-semibold">
+                            <td style="padding: 0.25rem 0.75rem 0.25rem 0; font-weight: 600;">{{ $match['matter_code'] }}</td>
+                            <td style="padding: 0.25rem 0.75rem 0.25rem 0;">{{ $match['matter_type_name'] }}</td>
+                            <td style="padding: 0.25rem 0.75rem 0.25rem 0;">{{ $match['party_role'] }}</td>
+                            <td style="padding: 0.25rem 0.75rem 0.25rem 0;">{{ $match['party_name'] }}</td>
+                            <td style="padding: 0.25rem 0.75rem 0.25rem 0;">{{ $match['tier'] }}</td>
+                            <td style="padding: 0.25rem 0; font-weight: 600;">
                                 {{ $match['level'] }}
                                 @if($match['already_confirmed'] ?? false)
-                                    <span class="block text-xs font-normal text-gray-500 dark:text-gray-400">{{ __('matters.conflict.already_confirmed') }}</span>
+                                    <span style="display: block; font-size: 0.75rem; font-weight: 400; color: var(--gray-500);">{{ __('matters.conflict.already_confirmed') }}</span>
                                 @endif
                             </td>
                         </tr>
@@ -72,13 +81,13 @@
             </table>
         </div>
 
-        <p class="text-xs text-gray-600 dark:text-gray-400">{{ __('matters.conflict.boundary_note') }}</p>
+        <p style="font-size: 0.75rem; color: var(--gray-600); margin-top: 0.75rem;">{{ __('matters.conflict.boundary_note') }}</p>
     @else
-        <p class="text-sm text-gray-700 dark:text-gray-300">{{ __('matters.conflict.no_matches') }}</p>
+        <p style="font-size: 0.875rem; color: var(--gray-700); margin-top: 0.75rem;">{{ __('matters.conflict.no_matches') }}</p>
     @endif
 
     @if(count($incompleteParties) > 0)
-        <p class="text-sm font-medium text-warning-700 dark:text-warning-400">
+        <p style="font-size: 0.875rem; font-weight: 500; color: var(--warning-700); margin-top: 0.75rem;">
             {{ __('matters.conflict.incomplete', ['names' => implode(', ', $incompleteParties)]) }}
         </p>
     @endif

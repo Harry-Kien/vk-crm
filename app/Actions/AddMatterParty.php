@@ -6,6 +6,7 @@ use App\Actions\Concerns\BuildsMatterParties;
 use App\Enums\ConflictLevel;
 use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
+use App\Exceptions\ConflictCheckBusy;
 use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Models\User;
@@ -13,6 +14,7 @@ use App\Support\AddMatterPartyResult;
 use App\Support\Audit;
 use App\Support\ConflictCheckResult;
 use App\Support\ConflictOverride;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -74,7 +76,11 @@ use Illuminate\Support\Facades\Gate;
  * AddMatterParty) share the same narrow window already fixed in OpenMatter: one side's check
  * phase can run before the other side's save phase commits. See OpenMatter's class docblock,
  * "Ve khoa R13(g)", for the full reasoning, including why locking the clients row alone is not
- * enough and why LockTimeoutException is deliberately left uncaught here.
+ * enough. **Fix round 1 update:** `LockTimeoutException` is no longer left uncaught -- round 0
+ * deliberately let it surface as a 500; the controller reversed that call. It is now converted
+ * into `ConflictCheckBusy` (a Vietnamese-worded `DomainException`), caught generically by
+ * `PartiesRelationManager::createParty()`'s existing `catch (DomainException $exception)` — no
+ * screen change was needed, just throwing the right type.
  */
 class AddMatterParty
 {
@@ -103,75 +109,86 @@ class AddMatterParty
         $overrideReason = $overrideReason !== null ? trim($overrideReason) : null;
 
         // R13(g)/`conflict-11` (M6.5 Task 8): bước 2 (kiểm tra) tới hết bước 4 (lưu) chạy dưới
-        // MỘT khoá ứng dụng, CÙNG tên với `OpenMatter` — xem docblock lớp.
-        return Cache::store('database')->lock('conflict-check', 30)->block(10, function () use (
-            $matter, $actor, $partyData, $overrideReason, $acknowledged,
-        ): AddMatterPartyResult {
-            // Bước 2.
-            /** @var array{0: ConflictCheckResult, 1: MatterParty} $checked */
-            $checked = DB::transaction(function () use ($matter, $partyData, $actor): array {
-                $party = $this->buildParty($matter, $partyData);
+        // MỘT khoá ứng dụng, CÙNG tên với `OpenMatter` — xem docblock lớp. Fix round 1: khoá
+        // không lấy được (`LockTimeoutException`) giờ thành `ConflictCheckBusy`, không còn một
+        // lỗi 500 trần — xem docblock lớp.
+        try {
+            return Cache::store('database')->lock('conflict-check', 30)->block(10, function () use (
+                $matter, $actor, $partyData, $overrideReason, $acknowledged,
+            ): AddMatterPartyResult {
+                // Bước 2.
+                /** @var array{0: ConflictCheckResult, 1: MatterParty} $checked */
+                $checked = DB::transaction(function () use ($matter, $partyData, $actor): array {
+                    $party = $this->buildParty($matter, $partyData);
 
-                // Actor truyền xuống `RunConflictCheck` (fix M3, review toàn nhánh, finding 2): dòng
-                // `conflict_check_run` ở đây và dòng `matter_party_added` ở bước 4 là hai bằng chứng
-                // của CÙNG một thao tác, nên phải ghi CÙNG một người. Trước bản sửa này chỉ dòng thứ
-                // hai nhận actor tường minh, dòng thứ nhất rơi về `auth()` ambient — trên mọi đường
-                // không có phiên `web` (job, lệnh console, test) hai dòng đó bất đồng về người thực
-                // hiện, đúng chỗ chúng tồn tại để chứng minh ai đã kiểm tra.
-                return [app(RunConflictCheck::class)->handle(collect([$party]), $matter, $actor), $party];
-            });
+                    // Actor truyền xuống `RunConflictCheck` (fix M3, review toàn nhánh, finding 2): dòng
+                    // `conflict_check_run` ở đây và dòng `matter_party_added` ở bước 4 là hai bằng chứng
+                    // của CÙNG một thao tác, nên phải ghi CÙNG một người. Trước bản sửa này chỉ dòng thứ
+                    // hai nhận actor tường minh, dòng thứ nhất rơi về `auth()` ambient — trên mọi đường
+                    // không có phiên `web` (job, lệnh console, test) hai dòng đó bất đồng về người thực
+                    // hiện, đúng chỗ chúng tồn tại để chứng minh ai đã kiểm tra.
+                    return [app(RunConflictCheck::class)->handle(collect([$party]), $matter, $actor), $party];
+                });
 
-            [$result, $party] = $checked;
+                [$result, $party] = $checked;
 
-            $isOverridden = false;
+                $isOverridden = false;
 
-            // Bước 3.
-            if ($result->isBlocking()) {
-                // Vai nào ghi đè được thì hỏi `ConflictOverride`, không viết lại tại chỗ (Minor, review
-                // gộp nhánh M3): vòng 4 đã gom nửa HIỂN THỊ của quy tắc này về một lớp nhưng để nguyên
-                // hai bản viết tay ở đây và ở `OpenMatter` — mà đây mới là tầng mà một lần lệch nhau
-                // cho phép SAI NGƯỜI ghi đè một xung đột mức đỏ, chứ không chỉ làm màn hình nói sai.
-                $canOverride = ConflictOverride::allowedFor($actor)
-                    && $overrideReason !== null && $overrideReason !== '';
+                // Bước 3.
+                if ($result->isBlocking()) {
+                    // Vai nào ghi đè được thì hỏi `ConflictOverride`, không viết lại tại chỗ (Minor, review
+                    // gộp nhánh M3): vòng 4 đã gom nửa HIỂN THỊ của quy tắc này về một lớp nhưng để nguyên
+                    // hai bản viết tay ở đây và ở `OpenMatter` — mà đây mới là tầng mà một lần lệch nhau
+                    // cho phép SAI NGƯỜI ghi đè một xung đột mức đỏ, chứ không chỉ làm màn hình nói sai.
+                    $canOverride = ConflictOverride::allowedFor($actor)
+                        && $overrideReason !== null && $overrideReason !== '';
 
-                if (! $canOverride) {
-                    throw ConflictBlocked::make($result);
+                    if (! $canOverride) {
+                        throw ConflictBlocked::make($result);
+                    }
+
+                    $isOverridden = true;
+                } elseif ($result->requiresAcknowledgement() && $acknowledged !== $result->level) {
+                    throw ConflictAcknowledgementRequired::make($result);
                 }
 
-                $isOverridden = true;
-            } elseif ($result->requiresAcknowledgement() && $acknowledged !== $result->level) {
-                throw ConflictAcknowledgementRequired::make($result);
-            }
+                // Bước 4.
+                return DB::transaction(function () use ($matter, $party, $result, $isOverridden, $overrideReason, $actor): AddMatterPartyResult {
+                    // `blameOn()` TRƯỚC khi save(), cùng lý do và cùng hình dạng như `OpenMatter` bước
+                    // 5 và `TransitionMatterStage`: `MatterParty` dùng `HasBlameable`, vốn điền
+                    // `created_by`/`updated_by` từ `auth('web')` ambient. Action này đã nhận `$actor`
+                    // tường minh và đem chính actor đó đi kiểm tra quyền ở bước 1, nên hai cột "ai tạo"
+                    // phải chỉ về người đó — phiên đang mở có thể là người khác, hoặc không tồn tại (job,
+                    // lệnh console). Dòng `matter_parties` là hồ sơ pháp lý, không phải nhật ký phụ trợ.
+                    $party->blameOn($actor);
 
-            // Bước 4.
-            return DB::transaction(function () use ($matter, $party, $result, $isOverridden, $overrideReason, $actor): AddMatterPartyResult {
-                // `blameOn()` TRƯỚC khi save(), cùng lý do và cùng hình dạng như `OpenMatter` bước
-                // 5 và `TransitionMatterStage`: `MatterParty` dùng `HasBlameable`, vốn điền
-                // `created_by`/`updated_by` từ `auth('web')` ambient. Action này đã nhận `$actor`
-                // tường minh và đem chính actor đó đi kiểm tra quyền ở bước 1, nên hai cột "ai tạo"
-                // phải chỉ về người đó — phiên đang mở có thể là người khác, hoặc không tồn tại (job,
-                // lệnh console). Dòng `matter_parties` là hồ sơ pháp lý, không phải nhật ký phụ trợ.
-                $party->blameOn($actor);
+                    $matter->parties()->save($party);
 
-                $matter->parties()->save($party);
+                    Audit::record('matter_party_added', $matter, [
+                        'party_id' => $party->id,
+                        'conflict_level' => $result->level->value,
+                        'conflict_overridden' => $isOverridden,
+                        'override_reason' => $isOverridden ? $overrideReason : null,
+                        'incomplete_conflict_parties' => $result->incompleteParties(),
+                        // R13(c)/`conflict-01` (M6.5 Task 8, fix round 1 C1): xem chú thích cùng
+                        // khoá ở `OpenMatter::handle()` — chữ ký + MỨC ĐÃ CHẤP NHẬN của các khớp
+                        // MỚI vừa được chấp nhận ở bước 3, đọc lại ở lần chạy sau qua
+                        // `RunConflictCheck::confirmedPairLevels()`.
+                        'confirmed_pairs' => $result->matches
+                            ->map(fn ($match) => ['pair_key' => $match->pairKey(), 'level' => $match->level->value])
+                            ->filter(fn (array $pair) => $pair['pair_key'] !== null)
+                            ->values()
+                            ->all(),
+                    ], $actor);
 
-                Audit::record('matter_party_added', $matter, [
-                    'party_id' => $party->id,
-                    'conflict_level' => $result->level->value,
-                    'conflict_overridden' => $isOverridden,
-                    'override_reason' => $isOverridden ? $overrideReason : null,
-                    'incomplete_conflict_parties' => $result->incompleteParties(),
-                    // R13(c)/`conflict-01` (M6.5 Task 8): xem chú thích cùng khoá ở
-                    // `OpenMatter::handle()` — chữ ký các khớp MỚI vừa được chấp nhận ở bước 3,
-                    // đọc lại ở lần chạy sau qua `RunConflictCheck::confirmedPairKeys()`.
-                    'confirmed_pairs' => $result->matches->map(fn ($match) => $match->pairKey)->filter()->values()->all(),
-                ], $actor);
-
-                // Cùng giá trị đã ghi vào dòng nhật ký ngay trên — không tính lại, để màn hình không
-                // thể hiện ra một lý do khác với lý do đã lưu vĩnh viễn (fix round 4, C-1).
-                return new AddMatterPartyResult($party, $result, $isOverridden, $isOverridden ? $overrideReason : null);
+                    // Cùng giá trị đã ghi vào dòng nhật ký ngay trên — không tính lại, để màn hình không
+                    // thể hiện ra một lý do khác với lý do đã lưu vĩnh viễn (fix round 4, C-1).
+                    return new AddMatterPartyResult($party, $result, $isOverridden, $isOverridden ? $overrideReason : null);
+                });
             });
-        });
+        } catch (LockTimeoutException) {
+            throw ConflictCheckBusy::make();
+        }
     }
 
     /**

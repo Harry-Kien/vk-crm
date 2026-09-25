@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Enums\ConflictLevel;
 use App\Enums\ConflictMatchTier;
 use App\Enums\PartyRole;
+use App\Models\MatterParty;
 use Illuminate\Contracts\Support\Arrayable;
 
 /**
@@ -19,7 +20,8 @@ use Illuminate\Contracts\Support\Arrayable;
  * dùng không có quyền xem. `tier` là ngoại lệ an toàn: nó mô tả CÁCH chúng ta so khớp (số căn
  * cước/điện thoại/tên), không phải nội dung của hồ sơ kia, nên không mở rộng ranh giới lộ thông
  * tin — nhưng cho người xem xét biết một mức vàng là khớp điện thoại mạnh hay chỉ trùng tên tình
- * cờ. `readonly` để không ai vô tình gắn thêm thuộc tính sau khi tạo.
+ * cờ. `readonly` để không ai vô tình gắn thêm thuộc tính sau khi tạo (bản thân hai model bên dưới
+ * VẪN mutable như mọi Eloquent model khác — `readonly` chỉ khoá việc GÁN LẠI hai thuộc tính đó).
  *
  * **`ourPartyRole`/`ourPartyName` (M6.5 Task 8, R13d/`conflict-07`).** Vai và tên của bên PHÍA
  * MÌNH — bên đang được `RunConflictCheck::matchesFor()` xét, tức bên gây ra khớp này — không phải
@@ -29,12 +31,26 @@ use Illuminate\Contracts\Support\Arrayable;
  * một bảng nhiều bên mà không nói RÕ bên nào của form gây khớp, người dùng phải đoán — và
  * `conflict-01` cho thấy đoán sai thì đổ lỗi nhầm cho bên vô can.
  *
- * **`pairKey` (R13c/`conflict-01`) — KHÔNG có trong `toArray()`, không bao giờ tới trình duyệt.**
- * Chữ ký nội bộ "bên phía mình ↔ bản ghi tìm thấy", dùng để `RunConflictCheck::handle()` nhận ra
- * một khớp đã từng được xác nhận/ghi đè ở một lần chạy TRƯỚC trên CÙNG vụ việc (xem docblock
- * `RunConflictCheck`). `null` cho khớp "cùng vụ việc, hai phía đối lập" (`ConflictMatchTier::
- * SameMatter`) — R13c cố ý KHÔNG áp cho loại khớp đó, xem docblock `RunConflictCheck::
- * sameMatterOppositionMatches()`.
+ * **`ourPartyRecord`/`foundPartyRecord` VÀ `pairKey()` — KHÔNG có trong `toArray()`, không bao giờ
+ * tới trình duyệt (M6.5 Task 8, fix round 1, C1/`conflict-01`).** Bản trước dùng một CHỮ KÝ ĐỊNH
+ * DANH ("hash:xxx"/"phone:xxx"/"name:xxx" của bên phía mình, nối với id thật của bên tìm thấy) làm
+ * `pairKey`. Đó là một lỗi thật (Critical, fix round 1): chữ ký định danh không phân biệt được HAI
+ * DÒNG `matter_parties` KHÁC NHAU của cùng một người — nếu Y được thêm hai lần (một lần vai
+ * `related`, khớp vàng, được xác nhận; một lần khác — dòng MỚI, vai `defendant`, khớp ĐỎ) thì cả
+ * hai lần đều băm ra CÙNG một chữ ký (chữ ký chỉ phụ thuộc định danh của Y, không phụ thuộc dòng
+ * nào hay vai gì), nên lần ĐỎ bị nhận nhầm là "đã xác nhận" và hiện XANH — chính lỗ hổng nó được
+ * sinh ra để chặn. `pairKey()` giờ tính từ ID THẬT của HAI DÒNG (`ourPartyRecord->getKey()` ↔
+ * `foundPartyRecord->getKey()`), không phải từ định danh. Hai model được giữ NGUYÊN THAM CHIẾU
+ * (không copy id lúc dựng `ConflictMatch`) vì bên phía mình có thể CHƯA LƯU tại thời điểm
+ * `RunConflictCheck` dựng khớp này (giai đoạn kiểm tra chạy TRƯỚC giai đoạn lưu) — `getKey()` của
+ * nó là `null` lúc này, và `pairKey()` phải trả về `null` (không thể là "đã xác nhận" nếu chưa từng
+ * có id để so). Vì đây là THAM CHIẾU cùng object, khi `OpenMatter`/`AddMatterParty` gọi
+ * `$party->save()` ở giai đoạn lưu, CHÍNH đối tượng đó (không phải một bản sao) nhận id thật — gọi
+ * lại `pairKey()` sau đó (đúng lúc ghi `confirmed_pairs`) trả về chữ ký thật, đúng cặp DÒNG vừa
+ * được chấp nhận. `foundPartyRecord` (khớp lịch sử) LUÔN đã tồn tại trong DB (truy vấn của
+ * `matchesFor()` chỉ đọc các dòng đã lưu) nên `getKey()` của nó luôn có giá trị — chỉ phía
+ * `ourPartyRecord` mới có thể null lúc tính. `null` cho CẢ `pairKey()` VÀ `toArray()`: hai model
+ * này không được lộ ra ngoài Action dưới bất kỳ hình thức nào (không id, không thuộc tính khác).
  */
 final readonly class ConflictMatch implements Arrayable
 {
@@ -47,8 +63,23 @@ final readonly class ConflictMatch implements Arrayable
         public ConflictMatchTier $tier,
         public PartyRole $ourPartyRole,
         public string $ourPartyName,
-        public ?string $pairKey = null,
+        public MatterParty $ourPartyRecord,
+        public MatterParty $foundPartyRecord,
     ) {}
+
+    /**
+     * Chữ ký nội bộ "bên phía mình ↔ bản ghi tìm thấy", theo ID THẬT của hai dòng `matter_parties`
+     * — xem docblock lớp cho lý do không dùng định danh nữa. `null` khi `ourPartyRecord` CHƯA LƯU
+     * (giai đoạn kiểm tra, trước khi giai đoạn lưu chạy) — một dòng chưa có id không thể là "đã
+     * từng được xác nhận" ở một lần chạy trước, vì nó chưa từng tồn tại để mà xác nhận.
+     */
+    public function pairKey(): ?string
+    {
+        $ourId = $this->ourPartyRecord->getKey();
+        $foundId = $this->foundPartyRecord->getKey();
+
+        return ($ourId !== null && $foundId !== null) ? "{$ourId}::{$foundId}" : null;
+    }
 
     public function toArray(): array
     {

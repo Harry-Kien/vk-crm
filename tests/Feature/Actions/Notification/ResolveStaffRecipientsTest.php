@@ -137,3 +137,27 @@ it('silently skips null entries in the preferred list', function () {
 
     expect($recipients->pluck('id')->all())->toBe([$manager->id]);
 });
+
+/**
+ * Fix round 1, minor ruling: một tài khoản đã xoá mềm (`trashed()`) không được nhận, kể cả khi
+ * caller lỡ truyền một instance `User` nạp bằng `withTrashed()` mà `is_active` vẫn còn `true` (hai
+ * cột KHÁC nhau — không có gì đảm bảo mọi đường xoá luôn đặt `is_active = false` trước, xem
+ * docblock `qualify()`).
+ */
+it('excludes a soft-deleted user even when is_active is still true on the row', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $lead = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lead->id]);
+
+    $deletedButActive = User::factory()->withRole(Role::Manager)->create(['is_active' => true]);
+    $deletedButActive->delete();
+
+    $reloaded = User::withTrashed()->whereKey($deletedButActive->id)->first();
+    expect($reloaded->is_active)->toBeTrue()
+        ->and($reloaded->trashed())->toBeTrue();
+
+    $recipients = app(ResolveStaffRecipients::class)->handle($matter, [$reloaded, $manager]);
+
+    expect($recipients->pluck('id')->all())->toBe([$manager->id])
+        ->and($recipients->pluck('id')->all())->not->toContain($deletedButActive->id);
+});

@@ -6,6 +6,7 @@ use App\Enums\PartyRole;
 use App\Enums\Role;
 use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
+use App\Exceptions\ConflictCheckBusy;
 use App\Exceptions\OurClientPartyNeedsClient;
 use App\Models\ChecklistTemplate;
 use App\Models\Client;
@@ -19,6 +20,7 @@ use App\Support\OpenMatterResult;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Spatie\Activitylog\Models\Activity;
@@ -355,6 +357,26 @@ it('requires client_role: a missing key throws a validation error and saves noth
 
     $attributes = baseAttributes($newClient, $lawyer, $type);
     unset($attributes['client_role']);
+
+    expect(fn () => app(OpenMatter::class)->handle($lawyer, $attributes, []))->toThrow(ValidationException::class);
+    expect(Matter::count())->toBe(0);
+});
+
+/**
+ * Fix round 1, minor ruling: "The OpenMatter Action itself must reject client_role =
+ * opposing_counsel, not only the form." `MatterForm::clientRolePartyOptions()` (R13f) đã loại giá
+ * trị này khỏi ô chọn — đó là ranh giới HIỂN THỊ của panel, không phải cổng thật. Gọi thẳng Action
+ * với giá trị đó (đường mà một console/job/import/request bị chỉnh sửa có thể đi) phải bị từ chối
+ * ở ĐÂY, không tin caller đã đi qua đúng form.
+ */
+it('refuses client_role = opposing_counsel at the Action itself, not only at the form', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $this->actingAs($lawyer, 'web');
+
+    $newClient = Client::factory()->create();
+    $type = matterTypeWithTemplate();
+
+    $attributes = baseAttributes($newClient, $lawyer, $type, ['client_role' => PartyRole::OpposingCounsel]);
 
     expect(fn () => app(OpenMatter::class)->handle($lawyer, $attributes, []))->toThrow(ValidationException::class);
     expect(Matter::count())->toBe(0);
@@ -736,4 +758,31 @@ it('refuses to open a matter when an other-party claims to be our client without
     ))->toThrow(OurClientPartyNeedsClient::class);
 
     expect(Matter::count())->toBe($matterCountBefore);
+});
+
+/**
+ * Fix round 1, minor ruling: `LockTimeoutException` (khoá `conflict-check` không lấy được sau 10
+ * giây — xem docblock lớp "Về khoá R13(g)") phải thành một lời từ chối tiếng Việt, không phải một
+ * trang lỗi 500. Giữ khoá thật (cùng tên, cùng cache store) trước khi gọi `handle()`, để lần gọi
+ * này THẬT SỰ không lấy được khoá — bài test này chờ ĐÚNG 10 giây thật (thời gian chờ của Action).
+ */
+it('turns a busy conflict-check lock into a Vietnamese refusal, not a 500', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $this->actingAs($lawyer, 'web');
+
+    $client = Client::factory()->create();
+    $type = matterTypeWithTemplate();
+    $matterCountBefore = Matter::count();
+
+    $lock = Cache::store('database')->lock('conflict-check', 30);
+    expect($lock->get())->toBeTrue();
+
+    try {
+        expect(fn () => app(OpenMatter::class)->handle($lawyer, baseAttributes($client, $lawyer, $type), []))
+            ->toThrow(ConflictCheckBusy::class, __('exceptions.conflict_check_busy'));
+
+        expect(Matter::count())->toBe($matterCountBefore);
+    } finally {
+        $lock->release();
+    }
 });
