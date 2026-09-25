@@ -62,7 +62,8 @@ beforeEach(function () {
 function billingAccessChain(Matter $matter): array
 {
     $contract = Contract::factory()->for($matter)->active()->create();
-    $instalment = Instalment::factory()->for($contract)->create();
+    // Một đợt bằng đúng giá trị hợp đồng: hợp đồng `active` phải khớp tổng (bất biến M9 Task 4).
+    $instalment = Instalment::factory()->for($contract)->create(['amount' => $contract->total_amount]);
     $payment = Payment::factory()->for($instalment)->create();
     $amendment = ContractAmendment::factory()->for($contract)->create();
 
@@ -391,7 +392,7 @@ it('carries only the matter code, type, client, instalment name, numbers, due da
         'description_internal' => 'Noi dung noi bo tuyet mat',
         'summary_for_client' => 'Tom tat rieng tu cho khach',
     ]);
-    $contract = Contract::factory()->for($matter)->active()->create(['note' => 'Ghi chu hop dong KHONGLO1']);
+    $contract = Contract::factory()->for($matter)->active()->create(['note' => 'Ghi chu hop dong KHONGLO1', 'total_amount' => 30_000_000]);
     $instalment = Instalment::factory()->for($contract)->create([
         'name' => 'Thanh toán đợt 2 khi nộp đơn khởi kiện',
         'amount' => 30_000_000,

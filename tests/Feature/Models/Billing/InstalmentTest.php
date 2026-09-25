@@ -10,7 +10,7 @@ use App\Models\Payment;
 
 it('cannot be deleted once the contract has left draft', function () {
     $contract = Contract::factory()->active()->create();
-    $instalment = Instalment::factory()->for($contract)->create();
+    $instalment = Instalment::factory()->for($contract)->create(['amount' => $contract->total_amount]);
 
     expect(fn () => $instalment->delete())->toThrow(InstalmentNotDestroyable::class)
         ->and(Instalment::count())->toBe(1);
@@ -27,7 +27,7 @@ it('can be hard deleted while the contract is still draft', function () {
 
 it('refuses in vietnamese, from the language file', function () {
     $contract = Contract::factory()->active()->create();
-    $instalment = Instalment::factory()->for($contract)->create();
+    $instalment = Instalment::factory()->for($contract)->create(['amount' => $contract->total_amount]);
 
     expect(fn () => $instalment->delete())
         ->toThrow(InstalmentNotDestroyable::class, __('exceptions.instalment_not_destroyable'));
@@ -49,7 +49,10 @@ it('derives the display state from stored status, due date, and uncancelled paym
     int $collected,
     InstalmentState $expected,
 ) {
-    $contract = Contract::factory()->active()->create();
+    // Hợp đồng NHÁP, có chủ đích: `state()` không đọc trạng thái hợp đồng, còn trên hợp đồng
+    // `active` một đợt `cancelled` đứng một mình là một lịch thu lệch tổng mà hook bất biến (M9
+    // Task 4) từ chối ghi.
+    $contract = Contract::factory()->create(['status' => ContractStatus::Draft, 'total_amount' => $amount]);
     $instalment = Instalment::factory()->for($contract)->create([
         'status' => $status,
         'amount' => $amount,
@@ -74,7 +77,7 @@ it('derives the display state from stored status, due date, and uncancelled paym
 ]);
 
 it('ignores voided payments when computing the collected total for state()', function () {
-    $contract = Contract::factory()->active()->create();
+    $contract = Contract::factory()->active()->create(['total_amount' => 10_000_000]);
     $instalment = Instalment::factory()->for($contract)->create([
         'status' => InstalmentStatus::Pending,
         'amount' => 10_000_000,

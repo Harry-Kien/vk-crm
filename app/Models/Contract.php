@@ -8,6 +8,7 @@ use App\Exceptions\ContractNotDestroyable;
 use App\Models\Concerns\HasBlameable;
 use App\Models\Concerns\HidesInternalAttributesFromPortal;
 use App\Models\Concerns\RestrictedToClientPortal;
+use App\Support\Billing\ScheduleTotal;
 use Database\Factories\ContractFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -61,8 +62,22 @@ class Contract extends Model
         ];
     }
 
+    /**
+     * `updating` — phía hợp đồng của tầng 2 bất biến tổng M9
+     * ({@see ScheduleTotal::assertContractWriteKeepsBalance()}): đưa hợp đồng vào `active`, hay đổi
+     * `total_amount` khi đang `active`, qua model mà để lại tổng các đợt lệch thì bị từ chối — đường
+     * đi vòng qua `ActivateContract` và `AmendContract`. Là `updating` chứ không `saving`: tạo thẳng
+     * một hợp đồng `active` là cách factory dựng fixture và không Action nào làm vậy (xem
+     * {@see ScheduleTotal}).
+     *
+     * `deleting` — chỉ xoá được bản nháp chưa có khoản thu nào (M9 Task 2).
+     */
     protected static function booted(): void
     {
+        static::updating(function (Contract $contract): void {
+            ScheduleTotal::assertContractWriteKeepsBalance($contract);
+        });
+
         static::deleting(function (Contract $contract): void {
             if ($contract->status !== ContractStatus::Draft) {
                 throw ContractNotDestroyable::notDraft();

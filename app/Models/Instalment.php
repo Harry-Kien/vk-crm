@@ -10,6 +10,7 @@ use App\Exceptions\InstalmentNotDestroyable;
 use App\Models\Concerns\HasBlameable;
 use App\Models\Concerns\HidesInternalAttributesFromPortal;
 use App\Models\Concerns\RestrictedToClientPortal;
+use App\Support\Billing\ScheduleTotal;
 use Database\Factories\InstalmentFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -24,8 +25,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * `trigger_stage_key` — KHÔNG phải FK `matter_type_stages`, và không được là giai đoạn đầu).
  *
  * **KHÔNG `SoftDeletes`, cùng lý do với `Contract` (M9 quyết định 4).** Đợt của hợp đồng `draft`
- * xoá cứng được; từ `active` trở đi chỉ `cancelled` (qua Action `AmendContract` ở task khác) hoặc
- * `waived`, không bao giờ xoá — {@see self::booted()}.
+ * xoá cứng được; từ `active` trở đi chỉ `cancelled` (qua Action `AmendContract`) hoặc `waived`,
+ * không bao giờ xoá — {@see self::booted()}. Trên hợp đồng `active`, số tiền và trạng thái huỷ của
+ * một đợt còn bị hook `saving` canh bất biến tổng — xem {@see ScheduleTotal}.
  *
  * **Không có cột `paid_amount`.** Số đã thu là SUM của {@see Payment} chưa huỷ trên đợt này —
  * một cột tổng hợp là nguồn sự thật THỨ HAI về tiền, và nó sẽ lệch. Đọc "còn phải thu" luôn là
@@ -62,8 +64,24 @@ class Instalment extends Model
         ];
     }
 
+    /**
+     * Hai hook, cả hai giữ lịch thu của một hợp đồng đã ký:
+     *
+     * - `saving` — tầng 2 của bất biến tổng M9 ({@see ScheduleTotal::assertInstalmentWriteKeepsBalance()}):
+     *   trên hợp đồng `active`, một lần ghi qua model làm tổng các đợt chưa huỷ lệch khỏi
+     *   `total_amount` bị từ chối bằng `ContractTotalMismatch`. Phụ lục (`AmendContract`) là đường
+     *   duy nhất đổi được số tiền của hợp đồng đã ký.
+     * - `deleting` — đợt chỉ xoá được khi hợp đồng còn `draft` (M9 Task 2). Vì thế `saving` không
+     *   phải canh đường xoá: trên hợp đồng `active` không lần xoá nào qua được tới bước làm lệch tổng.
+     *
+     * Cả hai chỉ canh đường Eloquent; `DB::table()` đi vòng qua — xem docblock của {@see ScheduleTotal}.
+     */
     protected static function booted(): void
     {
+        static::saving(function (Instalment $instalment): void {
+            ScheduleTotal::assertInstalmentWriteKeepsBalance($instalment);
+        });
+
         static::deleting(function (Instalment $instalment): void {
             if ($instalment->contract->status !== ContractStatus::Draft) {
                 throw InstalmentNotDestroyable::make();
