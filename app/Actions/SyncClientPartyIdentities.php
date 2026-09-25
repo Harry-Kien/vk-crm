@@ -13,7 +13,9 @@ use App\Support\Audit;
 use App\Support\Scopes\ClientPortalScope;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * Đồng bộ lại ảnh chụp định danh (`name`/`name_normalized`, `id_number_hash`, `phone_normalized`)
@@ -28,11 +30,14 @@ use Illuminate\Support\Facades\DB;
  * đối với đúng khách hàng đó — một vụ việc mới ghi tên họ ở vai đối lập, nhập số ĐÚNG, sẽ băm ra
  * một hash không khớp hash cũ (sai) nào cả và trả về XANH, không một dòng cảnh báo nào.
  *
- * **Bất đối xứng có chủ đích, giống hệt bản thân phép kiểm tra:** đồng bộ cả các bên đã xoá mềm
- * (`withTrashed()`). `RunConflictCheck` cố tình đọc cả lịch sử đã xoá mềm, nên một dòng đã xoá
- * mang hash cũ vẫn tham gia so khớp; bỏ nó lại chính là để nguyên lỗ hổng ở đúng những dòng khó
- * nhìn thấy nhất. Một dòng cũ gây cảnh báo vàng thừa rẻ hơn rất nhiều so với một xung đột lợi
- * ích bị bỏ sót.
+ * **Đồng bộ cả các bên đã xoá mềm (`withTrashed()`) — nhưng KHÔNG còn vì lý do "vẫn tham gia so
+ * khớp" (đính chính fix round 2, I1/R14).** Đoạn này TỪNG nói `RunConflictCheck` cố tình đọc cả
+ * lịch sử đã xoá mềm nên một dòng đã xoá vẫn cần hash đúng — SAI kể từ phán quyết R14 đầy đủ: một
+ * bên đã GỠ (xoá mềm) không còn là dữ liệu đối chiếu xung đột ở bất kỳ đâu (`RunConflictCheck::
+ * matchesFor()` không còn `withTrashed()` ở `MatterParty`). Vẫn đồng bộ các dòng này CHỈ vì vệ
+ * sinh dữ liệu — nếu một bên có ngày được khôi phục (Task 9 chưa cài huỷ khôi phục), ảnh chụp định
+ * danh của nó phải đúng ngay lúc khôi phục, không lệch từ trước đó. Không còn hậu quả nghiệp vụ gì
+ * nếu bỏ bước này (khác hẳn hai bước đồng bộ kia), nhưng giữ lại vì rẻ và đúng.
  *
  * Cũng bỏ `ClientPortalScope` vì `MatterParty::applyClientPortalConstraints()` chặn SẠCH bảng
  * này khi guard `client` có phiên: nếu không bỏ, một lần đồng bộ chạy trong hoàn cảnh đó sẽ tìm
@@ -98,13 +103,27 @@ use Illuminate\Support\Facades\DB;
  * R3) là "mọi manager được xem vụ đó", và `ResolveStaffRecipients::handle()` đã tự lọc
  * `is_active`/`Gate::view()` — một vụ `restricted` tự loại các manager thường ở đúng bước lọc đó,
  * không cần lớp này biết gì về `confidentiality`.
+ *
+ * **Fix round 2 (ruling) — lần rà chạy SAU KHI đồng bộ định danh đã commit, dưới CHÍNH khoá
+ * `conflict-check` mà `OpenMatter`/`AddMatterParty` dùng.** Bản round 1 gọi
+ * `recheckAffectedOpenMatters()` NGAY TRONG `DB::transaction()` của việc ghi lại định danh, không
+ * qua khoá nào — hai vấn đề: (1) lần rà đọc dữ liệu `matter_parties`/`clients` SONG SONG với chính
+ * giai đoạn kiểm tra+lưu của một `OpenMatter`/`AddMatterParty` khác đang chạy, đúng loại đua tranh
+ * mà khoá `conflict-check` (R13g) tồn tại để ngăn — chỉ là ở một Action KHÁC chưa từng được đưa
+ * vào cùng khoá đó; (2) một lỗi bất kỳ TRONG lần rà (kể cả không lấy được khoá) ném ra TRONG cùng
+ * transaction sẽ CUỐN THEO việc sửa định danh vừa ghi, rollback luôn cả một thao tác lưu hồ sơ
+ * khách hàng hợp lệ vì một lý do hoàn toàn không liên quan tới chính hồ sơ đó. `handle()` giờ gọi
+ * `recheckAffectedOpenMattersSafely()` SAU KHI `DB::transaction()` phía trên đã TRẢ VỀ (không còn
+ * nằm trong cùng transaction — không có gì để rollback nữa về mặt cấu trúc), và hàm đó tự khoá
+ * `conflict-check` rồi bọc TOÀN BỘ trong try/catch + `report()`, không bao giờ ném lại — xem
+ * docblock của nó.
  */
 class SyncClientPartyIdentities
 {
     /** @return int Số dòng `matter_parties` đã được đồng bộ lại. */
     public function handle(Client $client): int
     {
-        return DB::transaction(function () use ($client): int {
+        $parties = DB::transaction(function () use ($client): Collection {
             $parties = MatterParty::query()
                 ->withoutGlobalScope(ClientPortalScope::class)
                 ->withTrashed()
@@ -112,9 +131,7 @@ class SyncClientPartyIdentities
                 ->get();
 
             if ($parties->isEmpty()) {
-                // Không có gì để đồng bộ thì cũng không có sự kiện nào để kể lại; ghi nhật ký ở
-                // đây chỉ làm loãng nhật ký bằng một dòng cho mỗi lần sửa hồ sơ khách hàng.
-                return 0;
+                return $parties;
             }
 
             $parties->each(function (MatterParty $party) use ($client): void {
@@ -133,10 +150,50 @@ class SyncClientPartyIdentities
                 'parties_resynced' => $parties->count(),
             ]);
 
-            $this->recheckAffectedOpenMatters($client, $parties);
-
-            return $parties->count();
+            return $parties;
         });
+
+        if ($parties->isEmpty()) {
+            // Không có gì để đồng bộ thì cũng không có sự kiện nào để kể lại; ghi nhật ký ở đây
+            // chỉ làm loãng nhật ký bằng một dòng cho mỗi lần sửa hồ sơ khách hàng.
+            return 0;
+        }
+
+        // Ruling (fix round 2): rà lại chạy SAU KHI transaction đồng bộ định danh ở trên đã TRẢ VỀ
+        // (đã commit, ở lời gọi thật không lồng trong một transaction ngoài nào khác — xem docblock
+        // `recheckAffectedOpenMattersSafely()`), KHÔNG còn nằm TRONG cùng transaction với việc ghi
+        // lại định danh như bản round 1.
+        $this->recheckAffectedOpenMattersSafely($client, $parties);
+
+        return $parties->count();
+    }
+
+    /**
+     * Ruling (fix round 2): bọc `recheckAffectedOpenMatters()` bằng CHÍNH khoá `conflict-check` mà
+     * `OpenMatter`/`AddMatterParty` dùng cho giai đoạn kiểm tra+lưu của họ — một lần rà không được
+     * phép đọc dữ liệu song song với chính giai đoạn đó của một Action khác (cùng lý do R13g).
+     *
+     * **Không bao giờ được phép cuốn theo việc sửa định danh vừa lưu.** Việc sửa định danh (ở
+     * `handle()`, phía trên) đã TRẢ VỀ THÀNH CÔNG trước khi hàm này được gọi — không còn nằm trong
+     * cùng transaction, nên về mặt CẤU TRÚC không có gì để mà rollback nữa. Nhưng một lỗi Ở ĐÂY
+     * (không lấy được khoá sau 10 giây, `RunConflictCheck`/`ResolveStaffRecipients` ném ra một lỗi
+     * bất ngờ, ...) vẫn có thể LỌT RA khỏi `Client::updated()` và làm hỏng chính màn hình vừa lưu
+     * hồ sơ khách hàng thành công — `try`/`catch` toàn bộ, `report()` rồi bỏ qua, KHÔNG ném lại:
+     * người dùng (vd. trợ lý ở `EditClient::save()`) vẫn thấy hồ sơ lưu thành công dù lần rà xung
+     * đột sau đó thất bại vì bất kỳ lý do gì — một lần rà bị lỡ (rồi được báo qua kênh lỗi/`report()`
+     * để đội kỹ thuật biết) rẻ hơn RẤT nhiều so với việc huỷ luôn một lần sửa hồ sơ khách hàng hợp lệ.
+     *
+     * @param  Collection<int, MatterParty>  $resyncedParties
+     */
+    private function recheckAffectedOpenMattersSafely(Client $client, Collection $resyncedParties): void
+    {
+        try {
+            Cache::store('database')->lock('conflict-check', 30)->block(10, function () use ($client, $resyncedParties): void {
+                $this->recheckAffectedOpenMatters($client, $resyncedParties);
+            });
+        } catch (Throwable $e) {
+            report($e);
+        }
     }
 
     /**

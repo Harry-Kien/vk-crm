@@ -34,13 +34,19 @@ use Spatie\Activitylog\Models\Activity;
  *    của chính vụ này ra khỏi kết quả tìm kiếm (không tự xung đột với chính mình — xem
  *    `matchesFor()`, `where('matter_id', '!=', ...)`).
  *
- * **Đây là kiểm tra LỊCH SỬ, không phải kiểm tra sự tồn tại hiện thời.** Một hồ sơ đã xoá mềm
- * (`Matter::forceDeleting` bị chặn — vụ việc không bao giờ thật sự biến mất) hoặc một bên đã xoá
- * mềm vẫn từng đại diện cho một người, ở một thời điểm nào đó. Action này cố ý bỏ qua
- * `SoftDeletingScope` của cả `Matter` lẫn `MatterParty` khi tìm bản ghi trùng: một dòng cũ gây ra
- * cảnh báo vàng giả (người xem xét bấm xác nhận rồi tiếp tục) rẻ hơn RẤT nhiều so với bỏ sót một
- * xung đột lợi ích thật — đây là chức năng duy nhất trong hệ thống nơi false negative là vi phạm
- * đạo đức nghề nghiệp, còn false positive chỉ là một cú xác nhận thêm.
+ * **Đây là kiểm tra LỊCH SỬ theo VỤ VIỆC, không phải kiểm tra sự tồn tại hiện thời của vụ việc đó
+ * — nhưng KHÔNG áp dụng cho từng BÊN (fix round 2, I1/R14, đính chính đoạn này).** Một hồ sơ vụ
+ * việc đã xoá mềm (`Matter::forceDeleting` bị chặn — vụ việc không bao giờ thật sự biến mất) vẫn
+ * từng đại diện cho một tranh chấp thật, nên Action này cố ý bỏ qua `SoftDeletingScope` của
+ * `Matter` khi tìm bản ghi trùng — một dòng cũ gây ra cảnh báo vàng giả (người xem xét bấm xác
+ * nhận rồi tiếp tục) rẻ hơn RẤT nhiều so với bỏ sót một xung đột lợi ích thật, đây là chức năng
+ * duy nhất trong hệ thống nơi false negative là vi phạm đạo đức nghề nghiệp, còn false positive
+ * chỉ là một cú xác nhận thêm. **Nhưng một BÊN (`MatterParty`) đã xoá mềm — tức đã bị GỠ khỏi
+ * chính vụ việc của nó — thì KHÁC:** R14 ra phán quyết một bên đã gỡ "chưa từng là bên" (gỡ kèm lý
+ * do bắt buộc, không phải một hành vi tình cờ), nên nó không còn là dữ liệu đối chiếu xung đột ở
+ * BẤT KỲ ĐÂU — kể cả khi đang so khớp LỊCH SỬ ở một vụ việc khác vẫn đang mở. Bản round 1 chỉ sửa
+ * đúng nửa này ở `existingParties()` (các bên CỦA vụ việc đang xét), để sót `matchesFor()` (các bên
+ * ở CÁC VỤ VIỆC KHÁC) vẫn `withTrashed()` — xem docblock ở đó.
  *
  * **Ngoại lệ có chủ đích của phân quyền** (SPEC §6.10 đoạn cuối): truy vấn toàn bộ
  * `matter_parties`, KHÔNG qua `Matter::listableBy`. Cùng lý do đó, Action cũng bỏ qua
@@ -222,19 +228,13 @@ class RunConflictCheck
         $ourClientParties = $allParties->filter(fn (MatterParty $party) => $party->is_our_client);
         $ourClientRoles = $ourClientParties->pluck('role');
 
-        $matches = $allParties
+        // "Thô" — CHƯA gộp hiển thị (xem "Fix round 2, NB1" bên dưới cho lý do phải tách hai bước
+        // này ra làm hai biến khác nhau, không còn gộp NGAY tại đây như round 1).
+        $rawMatches = $allParties
             ->flatMap(fn (MatterParty $party) => $this->matchesFor($party, $ourClientRoles, $matter))
             // R13(b): mâu thuẫn NGAY TRONG vụ việc đang xét, không phải một khớp với lịch sử — xem
             // docblock lớp và docblock hàm bên dưới.
             ->concat($this->sameMatterOppositionMatches($ourClientParties))
-            // `pairKey()` nằm trong khoá gộp (fix round 1, minor ruling): hai khớp giống hệt nhau
-            // ở NĂM trường hiển thị nhưng khác DÒNG thật (một dòng đã xác nhận, một dòng vừa thêm)
-            // không được phép gộp làm một — nếu không, dòng MỚI biến mất vào dòng đã xác nhận, và
-            // partition() bên dưới không còn gì để phân biệt.
-            ->unique(fn (ConflictMatch $match) => implode('|', [
-                $match->matterCode, $match->partyRole->value, $match->partyName, $match->level->value, $match->tier->value,
-                $match->ourPartyRole->value, $match->ourPartyName, $match->pairKey() ?? 'unsaved',
-            ]))
             ->values();
 
         // R13(c): tách khớp MỚI (quyết định level) khỏi khớp đã xác nhận/ghi đè ở một lần chạy
@@ -242,9 +242,14 @@ class RunConflictCheck
         // `confirmedPairLevels()`. Fix round 1, C1: một cặp chỉ được coi là "đã xử lý" khi mức của
         // NÓ Ở LẦN CHẠY NÀY không nghiêm trọng hơn mức đã từng được chấp nhận cho ĐÚNG cặp đó —
         // một Vàng đã xác nhận không "dùng hộ" cho một Đỏ mới của cùng hai dòng.
+        //
+        // Phân chia trên danh sách THÔ (fix round 2, NB1): mỗi cặp (bên phía mình ↔ bản ghi tìm
+        // thấy) THẬT được xét độc lập — hai cặp thật khác nhau nhưng hiện giống hệt nhau không
+        // được phép "dùng chung" một quyết định đã xác nhận/ghi đè chỉ vì gộp hiển thị làm chúng
+        // trông như một.
         $confirmedPairLevels = $this->confirmedPairLevels($matter);
 
-        [$confirmedMatches, $newMatches] = $matches->partition(function (ConflictMatch $match) use ($confirmedPairLevels): bool {
+        $isConfirmed = function (ConflictMatch $match) use ($confirmedPairLevels): bool {
             $pairKey = $match->pairKey();
 
             if ($pairKey === null || ! $confirmedPairLevels->has($pairKey)) {
@@ -252,9 +257,26 @@ class RunConflictCheck
             }
 
             return $match->level->rank() <= $confirmedPairLevels->get($pairKey)->rank();
-        });
-        $newMatches = $newMatches->values();
-        $confirmedMatches = $confirmedMatches->values();
+        };
+
+        [$rawConfirmed, $rawNew] = $rawMatches->partition($isConfirmed);
+        $rawNew = $rawNew->values();
+        $rawConfirmed = $rawConfirmed->values();
+
+        // Khoá gộp CHỈ dùng cho hai danh sách HIỂN THỊ (`$newMatches`/`$confirmedMatches`) — xem
+        // docblock `ConflictCheckResult::$allNewMatches` cho lý do `$rawNew` (dùng để GHI
+        // `confirmed_pairs`) không được đi qua bước gộp này. `pairKey()` nằm trong khoá gộp (fix
+        // round 1, minor ruling): hai khớp giống hệt nhau ở NĂM trường hiển thị nhưng khác DÒNG
+        // thật không được phép gộp làm một khi CẢ HAI đều có id thật — chỉ hai dòng CHƯA lưu,
+        // giống hệt nhau ở mọi trường hiển thị (kể cả bên phía mình), mới cố tình gộp thành một
+        // dòng cho người xem xét (xem test "deduplicates identical matches...").
+        $dedupeKey = fn (ConflictMatch $match) => implode('|', [
+            $match->matterCode, $match->partyRole->value, $match->partyName, $match->level->value, $match->tier->value,
+            $match->ourPartyRole->value, $match->ourPartyName, $match->pairKey() ?? 'unsaved',
+        ]);
+
+        $newMatches = $rawNew->unique($dedupeKey)->values();
+        $confirmedMatches = $rawConfirmed->unique($dedupeKey)->values();
 
         // CỐ Ý tính trên `$parties` chứ không phải `$allParties` — đây là chỗ DUY NHẤT hai tập
         // hợp tách nhau, nên nói rõ vì sao. Danh sách này chỉ phục vụ việc bắt người dùng tích
@@ -276,7 +298,7 @@ class RunConflictCheck
             ? ConflictLevel::Red
             : ($newMatches->isEmpty() ? ConflictLevel::Green : ConflictLevel::Yellow);
 
-        $result = new ConflictCheckResult($level, $newMatches, $confirmedMatches, $incompleteParties);
+        $result = new ConflictCheckResult($level, $newMatches, $confirmedMatches, $incompleteParties, $rawNew);
 
         // `actor_explicit` đi cùng kết quả chứ không thay thế nó: nó nói dòng này được gán cho ai
         // theo KHẲNG ĐỊNH của caller (true) hay chỉ theo phiên đăng nhập tình cờ đang mở (false).
@@ -343,9 +365,15 @@ class RunConflictCheck
         $isOpposing = $this->isOpposing($party->role, $ourClientRoles);
 
         return MatterParty::query()
-            // Đây là kiểm tra lịch sử: một bên đã xoá mềm, hoặc thuộc một vụ đã xoá mềm, vẫn từng
-            // đại diện cho một người thật. Bỏ sót ở đây là bỏ sót một xung đột lợi ích thật.
-            ->withTrashed()
+            // Fix round 2, I1/R14 (bản round 1 chỉ sửa nửa `existingParties()`, để sót chỗ này):
+            // KHÔNG `withTrashed()` ở CHÍNH `MatterParty` — một bên đã GỠ (xoá mềm) khỏi vụ việc
+            // của nó không còn là dữ liệu đối chiếu xung đột Ở BẤT KỲ ĐÂU (phán quyết R14: "gỡ
+            // nghĩa là nhập nhầm, chưa từng là bên"), kể cả khi vụ việc CHỨA nó vẫn đang mở và
+            // đang được so khớp LỊCH SỬ ở đây. Đây là kiểm tra lịch sử theo VỤ VIỆC (một vụ đã
+            // xoá mềm vẫn từng thật), KHÔNG phải theo BÊN đã gỡ (một bên đã gỡ được phán quyết là
+            // chưa từng thật) — hai trục khác nhau, không dùng chung một `withTrashed()`. `matter`
+            // nạp kèm VẪN `withTrashed()` (dòng dưới) để một bên còn hợp lệ của một VỤ đã xoá mềm
+            // tiếp tục khớp được — chỉ trục "bên" đổi, trục "vụ việc" giữ nguyên.
             ->withoutGlobalScope(ClientPortalScope::class)
             ->with([
                 'matter' => fn ($query) => $query->withTrashed()->withoutGlobalScope(ClientPortalScope::class)
@@ -485,6 +513,15 @@ class RunConflictCheck
      * đúng về mặt logic: vụ việc còn chưa tồn tại nên không thể có gì được xác nhận từ TRƯỚC trên
      * nó. `!$matter->exists` (phòng thủ, không nên xảy ra ở lời gọi thật) cũng vậy.
      *
+     * **Bỏ qua một dòng `confirmed_pairs` không phải mảng (fix round 2, minor).** Bản round 0 (TRƯỚC
+     * `pairKey()`/mức) từng ghi mảng CHUỖI trần (`['hash:xxx::123', ...]`, không phải
+     * `['pair_key' => ..., 'level' => ...]`). Một vụ việc còn giữ dòng `matter_opened`/
+     * `matter_party_added` cũ dạng đó (từ trước khi lớp này tồn tại) khiến `flatMap()` đẩy một
+     * CHUỖI vào `reduce()` — chữ ký cũ `array $pair` ném `TypeError`, thành một lỗi 500 mỗi lần
+     * `RunConflictCheck` chạy trên đúng vụ việc đó. Chữ ký giờ nhận `mixed`, và `is_array()` loại
+     * êm những dòng cũ đó — không đọc được (chấp nhận được: dữ liệu định dạng cũ không mang đủ
+     * thông tin để khôi phục mức đã xác nhận), nhưng không còn làm SẬP cả lần kiểm tra.
+     *
      * @return Collection<string, ConflictLevel>
      */
     private function confirmedPairLevels(?Matter $matter): Collection
@@ -499,7 +536,11 @@ class RunConflictCheck
             ->whereIn('event', ['matter_opened', 'matter_party_added'])
             ->get()
             ->flatMap(fn (Activity $activity): array => (array) $activity->properties->get('confirmed_pairs', []))
-            ->reduce(function (Collection $levels, array $pair): Collection {
+            ->reduce(function (Collection $levels, mixed $pair): Collection {
+                if (! is_array($pair)) {
+                    return $levels;
+                }
+
                 $pairKey = $pair['pair_key'] ?? null;
                 $level = ConflictLevel::tryFrom($pair['level'] ?? '');
 

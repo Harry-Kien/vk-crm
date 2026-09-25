@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Support\Normalizer;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
+use Illuminate\Support\Facades\Cache;
 use Spatie\Activitylog\Models\Activity;
 
 /**
@@ -62,7 +63,15 @@ it('re-syncs the identity snapshot on every party row when the client id number 
         ->and($result->matches->pluck('matterCode')->all())->toContain($matter->code);
 });
 
-it('re-syncs soft-deleted party rows too, because the conflict check reads them as history', function () {
+/**
+ * Đính chính fix round 2, I1: trước đây test này khẳng định một dòng đã xoá mềm VẪN lên Đỏ, với lý
+ * lẽ "RunConflictCheck cố tình đọc cả bên đã xoá mềm". Lý lẽ đó SAI kể từ phán quyết R14 đầy đủ
+ * (round 2 sửa nốt nửa còn lại của round 1) — một bên đã GỠ (xoá mềm) không còn là dữ liệu đối
+ * chiếu xung đột Ở BẤT KỲ ĐÂU, kể cả sau khi đồng bộ lại định danh của nó. Đồng bộ lại ảnh chụp
+ * của một dòng đã xoá mềm giờ CHỈ còn là vệ sinh dữ liệu (đúng nếu dòng đó có ngày được khôi phục),
+ * không còn liên quan gì tới kết quả RunConflictCheck.
+ */
+it('re-syncs soft-deleted party rows too, purely for data hygiene — a soft-deleted party never matches (I1/R14)', function () {
     $client = Client::factory()->create(['id_number' => '066011112222']);
     $matter = Matter::factory()->create();
     $party = MatterParty::factory()->for($matter)->ourClient($client)->create();
@@ -73,13 +82,11 @@ it('re-syncs soft-deleted party rows too, because the conflict check reads them 
     expect(MatterParty::withTrashed()->find($party->id)->id_number_hash)
         ->toBe(Normalizer::idNumberHash('066033334444'));
 
-    // RunConflictCheck cố tình đọc cả bên đã xoá mềm; một dòng cũ gây vàng giả rẻ hơn rất nhiều
-    // so với một xung đột bị bỏ sót, nên việc đồng bộ phải áp dụng cùng một sự bất đối xứng đó.
     $result = app(RunConflictCheck::class)->handle(
         collect([ourNewClientParty(), opposingPartyWith(idNumber: '066033334444')])
     );
 
-    expect($result->level)->toBe(ConflictLevel::Red);
+    expect($result->level)->toBe(ConflictLevel::Green);
 });
 
 it('re-syncs the normalized phone when the client phone is corrected', function () {
@@ -427,4 +434,79 @@ it('does not notify for the resynced client’s own closed matter, but still not
     expect($otherLead->notifications()->count())->toBe(1)
         ->and(Activity::query()->where('event', 'client_identity_conflict_detected')
             ->where('subject_type', $otherMatter->getMorphClass())->where('subject_id', $otherMatter->id)->exists())->toBeTrue();
+});
+
+/**
+ * Fix round 2, Ruling — `recheckAffectedOpenMattersSafely()` chạy SAU KHI transaction đồng bộ định
+ * danh đã trả về (không còn nằm trong cùng transaction), và bọc toàn bộ trong try/catch + report().
+ * Test này giả lập một lỗi BẤT KỲ ngay TRONG lần rà (ở đây: `RunConflictCheck` ném ra) — hồ sơ
+ * khách hàng vừa sửa PHẢI vẫn còn nguyên giá trị mới, không bị cuốn theo.
+ */
+it('never rolls back the client identity correction when the post-commit recheck throws', function () {
+    $this->seed(RolesAndPermissionsSeeder::class);
+
+    $lead = User::factory()->withRole(Role::Lawyer)->create();
+    $client = Client::factory()->create(['id_number' => '090000000041']);
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lead->id]);
+    MatterParty::factory()->for($matter)->ourClient($client, PartyRole::Plaintiff)->create();
+
+    // Một vụ việc KHÁC, đang mở, sẽ khớp hash mới — bắt buộc để matterIdsMatchedByNewIdentity()
+    // không rỗng và recheckAffectedOpenMattersSafely() thật sự gọi tới RunConflictCheck (giả lập
+    // ném lỗi bên dưới mới có gì để chạm tới).
+    $otherMatter = Matter::factory()->create();
+    MatterParty::factory()->for($otherMatter)->create(['role' => PartyRole::Defendant, 'name' => 'Bị đơn khác'])
+        ->identify('090000000042', null)->save();
+
+    $this->mock(RunConflictCheck::class)
+        ->shouldReceive('handle')
+        ->andThrow(new RuntimeException('Sự cố giả lập — kiểm tra việc sửa định danh không bị cuốn theo.'));
+
+    // Không được phép ném ra ngoài — người gọi thật (EditClient::save()) không có gì để bắt riêng
+    // cho lỗi này, và không nên phải có.
+    $client->update(['id_number' => '090000000042']);
+
+    expect($client->fresh()->id_number)->toBe('090000000042')
+        ->and(MatterParty::where('matter_id', $matter->id)->first()->id_number_hash)
+        ->toBe(Normalizer::idNumberHash('090000000042'))
+        // Lần rà thất bại trước khi kịp ghi — không có dòng audit "đã phát hiện xung đột" nào,
+        // không thông báo nào gửi ra, đúng như một lần rà chưa từng chạy xong.
+        ->and(Activity::query()->where('event', 'client_identity_conflict_detected')->exists())->toBeFalse()
+        ->and($lead->notifications()->count())->toBe(0);
+});
+
+/**
+ * Fix round 2, Ruling — `recheckAffectedOpenMattersSafely()` phải THẬT SỰ tranh chính khoá
+ * `conflict-check` mà `OpenMatter`/`AddMatterParty` dùng, không chỉ gọi `Cache::lock()` cho có.
+ * Giữ khoá đó bằng tay (đúng khuôn "turns a busy conflict-check lock..." của `OpenMatterTest.php`)
+ * rồi sửa hồ sơ khách hàng: lần rà phải KHÔNG lấy được khoá trong 10 giây, `LockTimeoutException`
+ * bị bắt+report()+bỏ qua (test "never rolls back..." ở trên đã chứng minh phần bắt lỗi) — nghĩa là
+ * không có thông báo/dòng audit "đã phát hiện xung đột" nào, dù $otherMatter đáng lẽ khớp Đỏ. Hồ
+ * sơ khách hàng vẫn phải lưu thành công.
+ */
+it('actually contends for the conflict-check lock, not just calls it', function () {
+    $this->seed(RolesAndPermissionsSeeder::class);
+
+    $otherLead = User::factory()->withRole(Role::Lawyer)->create();
+    $client = Client::factory()->create(['id_number' => '090000000051']);
+    $matter = Matter::factory()->create();
+    MatterParty::factory()->for($matter)->ourClient($client, PartyRole::Plaintiff)->create();
+
+    // $otherMatter khớp ĐỎ thật (không phải mock) nếu lần rà chạy được — chứng minh việc không có
+    // thông báo dưới đây là do KHOÁ, không phải do không có gì để báo.
+    $otherMatter = Matter::factory()->create(['lead_lawyer_id' => $otherLead->id]);
+    $otherClient = Client::factory()->create(['id_number' => '090000000052']);
+    MatterParty::factory()->for($otherMatter)->ourClient($otherClient, PartyRole::Defendant)->create();
+
+    $lock = Cache::store('database')->lock('conflict-check', 30);
+    expect($lock->get())->toBeTrue();
+
+    try {
+        $client->update(['id_number' => '090000000052']);
+    } finally {
+        $lock->release();
+    }
+
+    expect($client->fresh()->id_number)->toBe('090000000052')
+        ->and(Activity::query()->where('event', 'client_identity_conflict_detected')->exists())->toBeFalse()
+        ->and($otherLead->notifications()->count())->toBe(0);
 });

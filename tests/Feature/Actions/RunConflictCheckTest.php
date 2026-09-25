@@ -291,7 +291,15 @@ it('still reports a match whose matter has been soft-deleted, with its code, ins
         ->and($result->matches->pluck('matterCode')->all())->toContain($deletedMatter->code);
 });
 
-it('still counts a matching party row that has itself been soft-deleted', function () {
+/**
+ * Fix round 2, I1 (bản round 1 chỉ sửa MỘT nửa — R14): `matchesFor()` từng nạp
+ * `MatterParty::query()->withTrashed()`, nên một bên đã GỠ (xoá mềm) khỏi vụ việc CỦA NÓ vẫn tạo
+ * ra khớp Vàng/Đỏ ở đây — đúng phần I1/R14 mà chủ nhiệm ra phán quyết là "bên đã gỡ không còn là
+ * dữ liệu đối chiếu xung đột Ở BẤT KỲ ĐÂU", không chỉ ở vụ việc đang xét (`existingParties()`,
+ * round 1 đã sửa đúng phần đó). Test này TRƯỚC ĐÂY khẳng định ngược lại ("vẫn tính") — round 2
+ * lật lại đúng hướng R14 đòi.
+ */
+it('no longer matches a party row that has been soft-deleted from another matter', function () {
     $existingClient = Client::factory()->create(['id_number' => '033322211100']);
     $otherMatter = Matter::factory()->create();
     $historicalParty = MatterParty::factory()->for($otherMatter)->ourClient($existingClient)->create();
@@ -302,8 +310,8 @@ it('still counts a matching party row that has itself been soft-deleted', functi
 
     $result = app(RunConflictCheck::class)->handle(collect([$ourNewClient, $opposingParty]));
 
-    expect($result->level)->toBe(ConflictLevel::Red)
-        ->and($result->matches->pluck('matterCode')->all())->toContain($otherMatter->code);
+    expect($result->level)->toBe(ConflictLevel::Green)
+        ->and($result->matches->pluck('matterCode')->all())->not->toContain($otherMatter->code);
 });
 
 it('bypasses the client portal scope so a red conflict still surfaces while a client is authenticated on the portal guard', function () {
@@ -408,6 +416,36 @@ it('deduplicates identical matches when the exact same proposed party would othe
     $result = app(RunConflictCheck::class)->handle(collect([$ourNewClient, $duplicateA, $duplicateB]));
 
     expect($result->matches)->toHaveCount(1);
+});
+
+/**
+ * Fix round 2, NB1 (Important) — hai mặt của cùng MỘT cơ chế mới, `ConflictCheckResult::$allNewMatches`.
+ * Test NGAY TRÊN khẳng định `matches` (gộp hiển thị) chỉ còn MỘT dòng cho hai bên form trùng nhau —
+ * điều đó vẫn ĐÚNG và không đổi. Nhưng `allNewMatches` (KHÔNG gộp, chỉ dùng để ghi `confirmed_pairs`)
+ * phải giữ ĐỦ CẢ HAI cặp thật — nếu không, một trong hai `pairKey()` "biến mất" khỏi những gì được
+ * ghi lại, và lần thêm bên kế tiếp (không liên quan) sẽ thấy cặp đó như một Đỏ MỚI (xem test màn
+ * hình "does not permanently hard-block..." ở `ConflictCheckFlowTest.php` cho hệ quả đầy đủ). Cùng
+ * cơ chế cũng áp dụng cho trường hợp `AddMatterParty` nêu trong finding — MỘT bên mới khớp HAI dòng
+ * lịch sử giống hệt nhau (thay vì HAI bên mới khớp MỘT dòng) — nên test dưới dựng đúng hình dạng đó.
+ */
+it('keeps every raw pair in allNewMatches even when display-level dedupe collapses them to one match', function () {
+    $existingClient = Client::factory()->create(['id_number' => '066677889900']);
+    $otherMatter = Matter::factory()->create();
+    // HAI dòng lịch sử THẬT khác nhau ở CÙNG một vụ việc khác, giống hệt nhau (dữ liệu nhập trùng
+    // ở phía BÊN KIA) — đúng hình dạng "AddMatterParty" mà finding NB1 nêu riêng: MỘT bên mới khớp
+    // HAI dòng lịch sử, thay vì HAI bên mới khớp MỘT dòng.
+    MatterParty::factory()->for($otherMatter)->ourClient($existingClient, PartyRole::Plaintiff)->create();
+    MatterParty::factory()->for($otherMatter)->ourClient($existingClient, PartyRole::Plaintiff)->create();
+
+    $proposedParty = proposedParty(PartyRole::Defendant, 'Bên đối lập', idNumber: '066677889900');
+
+    $result = app(RunConflictCheck::class)->handle(collect([$proposedParty]));
+
+    // Hiển thị: gộp thành một dòng (đúng thiết kế, không đổi).
+    expect($result->matches)->toHaveCount(1);
+    // Ghi lại: cả hai cặp thật vẫn còn nguyên, với hai found-row id khác nhau.
+    expect($result->allNewMatches)->toHaveCount(2)
+        ->and($result->allNewMatches->map(fn ($match) => $match->foundPartyRecord->getKey())->unique()->count())->toBe(2);
 });
 
 /**
@@ -616,6 +654,33 @@ it('excludes an already-confirmed pair from the new matches on a later run of th
         ->and($secondRun->confirmedMatches)->toHaveCount(1)
         ->and($secondRun->confirmedMatches->first()->matterCode)->toBe($otherMatter->code)
         ->and($secondRun->confirmedMatches->first()->level)->toBe(ConflictLevel::Red);
+});
+
+/**
+ * Fix round 2, minor — một vụ việc còn giữ dòng `matter_opened`/`matter_party_added` dạng round 0
+ * (`confirmed_pairs` là mảng CHUỖI trần, không phải `['pair_key' => ..., 'level' => ...]`) không
+ * được phép làm SẬP lần kiểm tra kế tiếp trên đúng vụ việc đó — `confirmedPairLevels()` phải bỏ
+ * qua êm những dòng không đọc được, không ném `TypeError`.
+ */
+it('ignores a legacy string confirmed_pairs entry instead of throwing a TypeError', function () {
+    $existingClient = Client::factory()->create(['id_number' => '052233445577']);
+    $otherMatter = Matter::factory()->create();
+    MatterParty::factory()->for($otherMatter)->ourClient($existingClient)->create();
+
+    $matter = Matter::factory()->create();
+    $opposingParty = MatterParty::factory()->for($matter)->create(['role' => PartyRole::Defendant, 'name' => 'Bị đơn trùng']);
+    $opposingParty->identify('052233445577', null)->save();
+
+    // Đúng hình dạng round 0: mảng chuỗi trần, không phải mảng liên kết pair_key/level.
+    Audit::record('matter_party_added', $matter, [
+        'confirmed_pairs' => ['hash:052233445577::999'],
+    ]);
+
+    $result = app(RunConflictCheck::class)->handle($matter->parties()->get(), $matter);
+
+    // Dòng cũ không đọc được thì không "xác nhận" được gì — khớp vẫn hiện là MỚI (không 500).
+    expect($result->matches)->toHaveCount(1)
+        ->and($result->confirmedMatches)->toBeEmpty();
 });
 
 /**

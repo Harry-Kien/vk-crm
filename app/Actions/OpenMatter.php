@@ -418,16 +418,22 @@ class OpenMatter
                         'incomplete_conflict_parties' => $result->incompleteParties(),
                         // R13(c)/`conflict-01` (M6.5 Task 8, fix round 1 C1): chữ ký + MỨC ĐÃ CHẤP
                         // NHẬN của MỌI khớp MỚI vừa được chấp nhận ở bước 4 (ghi đè hoặc xác nhận) —
-                        // nếu $result->matches rỗng thì mảng này rỗng, không ghi gì thừa. `pairKey()`
-                        // trả `null` khi bên phía mình CHƯA có id thật lúc kiểm tra chạy — nhưng ở
-                        // ĐÂY, sau `$proposedParties->each(save())` phía trên, mọi bên đề xuất đã có id
-                        // thật (cùng đối tượng PHP, xem docblock `ConflictMatch`), nên `pairKey()` gọi
-                        // LẠI ở đây trả về chữ ký thật cho MỌI khớp lịch sử VÀ khớp "cùng vụ việc, hai
-                        // phía đối lập" (R13b tham gia R13c từ fix round 1, I1 — không còn ngoại lệ).
-                        // `filter()` chỉ còn loại trường hợp phòng thủ (found chưa có id — không nên
-                        // xảy ra, xem docblock `ConflictMatch`). Đọc lại ở lần chạy sau qua
-                        // `RunConflictCheck::confirmedPairLevels()`.
-                        'confirmed_pairs' => $result->matches
+                        // nếu $result->allNewMatches rỗng thì mảng này rỗng, không ghi gì thừa.
+                        // `pairKey()` trả `null` khi bên phía mình CHƯA có id thật lúc kiểm tra chạy
+                        // — nhưng ở ĐÂY, sau `$proposedParties->each(save())` phía trên, mọi bên đề
+                        // xuất đã có id thật (cùng đối tượng PHP, xem docblock `ConflictMatch`), nên
+                        // `pairKey()` gọi LẠI ở đây trả về chữ ký thật cho MỌI khớp lịch sử VÀ khớp
+                        // "cùng vụ việc, hai phía đối lập" (R13b tham gia R13c từ fix round 1, I1 —
+                        // không còn ngoại lệ). `filter()` chỉ còn loại trường hợp phòng thủ (found
+                        // chưa có id — không nên xảy ra, xem docblock `ConflictMatch`). Đọc lại ở
+                        // lần chạy sau qua `RunConflictCheck::confirmedPairLevels()`.
+                        //
+                        // **`allNewMatches`, KHÔNG phải `matches` (fix round 2, NB1).** `matches` đã
+                        // gộp hiển thị (hai dòng form trùng nhau do gõ nhầm hai lần hiện thành MỘT
+                        // dòng) — ghi `confirmed_pairs` từ đó bỏ sót `pairKey()` của dòng bị gộp
+                        // mất, và lần thêm bên KẾ TIẾP (không liên quan) sẽ thấy cặp đó là "Đỏ MỚI"
+                        // và chặn cứng người thêm. Xem docblock `ConflictCheckResult::$allNewMatches`.
+                        'confirmed_pairs' => $result->allNewMatches
                             ->map(fn ($match) => ['pair_key' => $match->pairKey(), 'level' => $match->level->value])
                             ->filter(fn (array $pair) => $pair['pair_key'] !== null)
                             ->values()

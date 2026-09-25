@@ -26,10 +26,24 @@ use Illuminate\Support\Collection;
  * vĩnh viễn (`conflict-01`). `matches` giờ chỉ còn những khớp MỚI — thứ thật sự cần một quyết
  * định ở lần chạy này, và là thứ `level`/`isBlocking()`/`requiresAcknowledgement()` bên dưới tính
  * trên đó. `confirmedMatches` là những khớp đã được xác nhận/ghi đè ở một lần chạy TRƯỚC trên
- * CÙNG vụ việc (nhận ra qua `ConflictMatch::$pairKey`, xem docblock ở đó và ở
- * `RunConflictCheck::confirmedPairKeys()`): R13c bắt buộc chúng "vẫn hiện, nhưng không chặn lại"
+ * CÙNG vụ việc (nhận ra qua `ConflictMatch::pairKey()`, xem docblock ở đó và ở
+ * `RunConflictCheck::confirmedPairLevels()`): R13c bắt buộc chúng "vẫn hiện, nhưng không chặn lại"
  * — vẫn nằm trong kết quả để người xem xét thấy đủ bức tranh, chỉ không còn tính vào `level`. Dùng
  * `allMatches()` khi cần hiển thị cả hai gộp lại theo đúng thứ tự đã tìm thấy.
+ *
+ * **`allNewMatches` (fix round 2, NB1) — bản CHƯA gộp hiển thị của `matches`, chỉ dùng để GHI
+ * `confirmed_pairs`.** `matches` (ở trên) đã qua `unique()` để gộp các khớp giống hệt nhau ở mọi
+ * trường HIỂN THỊ (cố ý — hai dòng form trùng nhau do gõ nhầm hai lần chỉ nên hiện MỘT dòng cho
+ * người xem xét). Nhưng "giống hệt khi hiển thị" không có nghĩa là "cùng MỘT cặp (bên phía mình ↔
+ * bản ghi tìm thấy)": hai dòng `matter_parties` THẬT khác nhau (hai `pairKey()` khác nhau sau khi
+ * lưu) có thể hiện giống hệt nhau. Nếu `OpenMatter`/`AddMatterParty` ghi `confirmed_pairs` từ
+ * `matches` (đã gộp), chỉ MỘT trong hai `pairKey()` thật được ghi lại — cặp còn lại "vô hình" với
+ * `confirmedPairLevels()` ở lần chạy sau, và một lần thêm bên hoàn toàn không liên quan sẽ khiến
+ * `RunConflictCheck` (xét lại MỌI bên đã có, fix round 3) phát hiện lại đúng cặp đó như một Đỏ
+ * MỚI — CHẶN CỨNG một người không có gì để ghi đè, dù manager vừa xác nhận xong. `allNewMatches`
+ * giữ NGUYÊN mọi cặp thô (trước `unique()`), để hai Action ghi lại ĐỦ mọi `pairKey()` thật đã được
+ * chấp nhận ở lần lưu này — không ảnh hưởng gì tới những gì người dùng NHÌN THẤY (`matches` vẫn
+ * gộp như cũ), chỉ ảnh hưởng tới những gì được GHI LẠI cho lần chạy sau.
  */
 final class ConflictCheckResult implements Arrayable
 {
@@ -48,18 +62,25 @@ final class ConflictCheckResult implements Arrayable
     public ?int $auditLogId = null;
 
     /**
-     * @param  Collection<int, ConflictMatch>  $matches  Khớp MỚI — chưa từng được xác nhận/ghi đè
-     *                                                   trên vụ việc này. Quyết định `level`.
+     * @param  Collection<int, ConflictMatch>  $matches  Khớp MỚI, ĐÃ GỘP hiển thị — chưa từng
+     *                                                   được xác nhận/ghi đè trên vụ việc này.
+     *                                                   Quyết định `level`. Dùng để HIỂN THỊ.
      * @param  Collection<int, ConflictMatch>  $confirmedMatches  Khớp đã xác nhận/ghi đè ở một
      *                                                            lần chạy trước — vẫn hiện, không
      *                                                            chặn lại (R13c).
      * @param  Collection<int, string>  $incompleteParties
+     * @param  Collection<int, ConflictMatch>  $allNewMatches  Khớp MỚI, CHƯA gộp hiển thị — mọi
+     *                                                         cặp (bên phía mình ↔ bản ghi tìm
+     *                                                         thấy) thật đã được chấp nhận ở lần
+     *                                                         chạy này. Dùng để GHI `confirmed_pairs`
+     *                                                         (fix round 2, NB1) — xem docblock lớp.
      */
     public function __construct(
         public readonly ConflictLevel $level,
         public readonly Collection $matches,
         public readonly Collection $confirmedMatches,
         public readonly Collection $incompleteParties,
+        public readonly Collection $allNewMatches,
     ) {}
 
     /** Cả khớp mới lẫn khớp đã xác nhận trước đó, theo đúng thứ tự tìm thấy — dùng để HIỂN THỊ. */

@@ -173,8 +173,10 @@ class AddMatterParty
                         // R13(c)/`conflict-01` (M6.5 Task 8, fix round 1 C1): xem chú thích cùng
                         // khoá ở `OpenMatter::handle()` — chữ ký + MỨC ĐÃ CHẤP NHẬN của các khớp
                         // MỚI vừa được chấp nhận ở bước 3, đọc lại ở lần chạy sau qua
-                        // `RunConflictCheck::confirmedPairLevels()`.
-                        'confirmed_pairs' => $result->matches
+                        // `RunConflictCheck::confirmedPairLevels()`. `allNewMatches`, KHÔNG phải
+                        // `matches` (fix round 2, NB1) — xem chú thích cùng khoá ở
+                        // `OpenMatter::handle()` và docblock `ConflictCheckResult::$allNewMatches`.
+                        'confirmed_pairs' => $result->allNewMatches
                             ->map(fn ($match) => ['pair_key' => $match->pairKey(), 'level' => $match->level->value])
                             ->filter(fn (array $pair) => $pair['pair_key'] !== null)
                             ->values()
