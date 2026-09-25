@@ -39,6 +39,6 @@ return [
     'remove_team_member' => [
         'not_member' => 'Người này không có trong đội ngũ của vụ việc.',
         // Fix round 1, finding S3: vai lead chỉ đổi qua bàn giao vụ việc (ReassignMatter, M7).
-        'lead_role_denied' => 'Không thể gỡ luật sư phụ trách khỏi đội ngũ qua đây — vai này chỉ đổi được qua bàn giao vụ việc (Task 4).',
+        'lead_role_denied' => 'Không thể gỡ luật sư phụ trách khỏi đội ngũ qua đây — vai này chỉ đổi được qua bàn giao vụ việc.',
     ],
 ];

@@ -2,6 +2,7 @@
 
 namespace App\Actions\Matter;
 
+use App\Actions\Portal\TriageClientRequest;
 use App\Enums\MatterRole;
 use App\Exceptions\TeamMemberHasOpenWork;
 use App\Models\Matter;
@@ -53,17 +54,34 @@ use Illuminate\Validation\ValidationException;
  * `OpenWork` trước sẽ cho một câu trả lời không liên quan gì tới câu hỏi thật ("người này có
  * trong đội ngũ để mà gỡ không").
  *
- * # Khoá dòng vụ việc, trong một transaction (fix round 1, finding I3)
+ * # Khoá dòng vụ việc, trong một transaction (fix round 1, finding I3; khép lại ở fix round 2)
  *
  * Đọc pivot, hỏi `OpenWork`, `detach()` và ghi audit giờ nằm trong CÙNG một `DB::transaction`,
- * sau khi khoá dòng `matters` bằng `lockForUpdate()`. Không có khoá này, một
- * `TriageClientRequest::assign()` chạy đồng thời có thể giao một yêu cầu khách cho đúng người
- * đang bị gỡ NGAY GIỮA lúc `OpenWork` đọc xong (thấy rỗng) và `detach()` chạy — để lại một yêu
- * cầu khách còn "chưa đóng" nhưng người được giao đã rời đội ngũ, không ai thấy nó nữa qua
- * `ClientRequestsRelationManager::assignableUsers()`. Khoá dòng vụ việc không chặn được MỌI ghi
- * đồng thời trên bảng khác (nó chỉ khoá `matters`, không khoá `deadlines`/`client_requests`),
- * nhưng nó BẮT BUỘC mọi lần gỡ/thêm THÀNH VIÊN của CHÍNH vụ việc này phải xếp hàng — đúng phạm vi
- * phán quyết của round này.
+ * sau khi khoá dòng `matters` bằng `lockForUpdate()`.
+ *
+ * **Khoá này chỉ đóng được đúng khe hở nó nhắm tới từ fix round 2 trở đi, khi
+ * {@see TriageClientRequest::open()} CŨNG khoá đúng dòng `matters` này —
+ * và khoá nó TRƯỚC dòng `client_requests` của chính nó, cùng THỨ TỰ TOÀN CỤC (vụ việc trước, bảng
+ * con sau) mà hàm này dùng.** Ở fix round 1, khoá ở đây một mình chỉ nối tiếp được các lần
+ * gỡ/thêm THÀNH VIÊN khác VỚI NHAU (`RemoveTeamMember`/`AddTeamMember` tranh chấp cùng một vụ
+ * việc) — nó KHÔNG nối tiếp được với `TriageClientRequest::assign()`, vì Action đó đọc `matters`
+ * không khoá gì (finding I3 residual, round 2). Một `assign()` chạy đồng thời vẫn có thể giao một
+ * yêu cầu khách cho đúng người đang bị gỡ NGAY GIỮA lúc `OpenWork` đọc xong (thấy rỗng) và
+ * `detach()` chạy ở đây.
+ *
+ * Từ fix round 2, hai Action xin khoá `matters` theo CÙNG một thứ tự nên chúng luôn xếp hàng, dù
+ * ai tới trước: nếu `assign()` xin khoá trước, nó giao xong yêu cầu VÀ COMMIT rồi `RemoveTeamMember`
+ * mới đọc được `OpenWork` — thấy đúng yêu cầu vừa giao, chặn gỡ đúng. Nếu `RemoveTeamMember` xin
+ * khoá trước, nó gỡ xong người đó khỏi `team()` VÀ COMMIT rồi `assign()` mới chạy —
+ * `canHoldTheThread()` hỏi lại `MatterPolicy::update` trên chính người vừa bị gỡ và tự từ chối
+ * (họ không còn `matter.view` qua `team()`, trừ khi có `matter.viewAny`), nên yêu cầu không bị
+ * giao cho một người đã rời đội ngũ. Không còn thứ tự thứ ba (đan xen giữa hai lần commit) vì cả
+ * hai Action giữ khoá `matters` xuyên suốt transaction của mình.
+ *
+ * Khoá dòng vụ việc vẫn không chặn được MỌI ghi đồng thời trên bảng khác một cách tổng quát (ví
+ * dụ hai `AddMatterDeadline` cùng lúc trên hai mốc hạn khác nhau của cùng vụ việc vẫn xếp hàng vì
+ * lý do khác — xem `OpensDeadline`) — phạm vi đã đóng ở đây là đúng cặp Action finding I3 nêu
+ * tên: `Add`/`RemoveTeamMember` và `TriageClientRequest::assign()`/`setStatus()`.
  */
 class RemoveTeamMember
 {

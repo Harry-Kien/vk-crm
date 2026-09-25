@@ -205,6 +205,33 @@ class TriageClientRequest
      * ngữ `RegroupDocument` dùng. Trên SQLite (bộ test) `lockForUpdate()` biên dịch thành không
      * gì cả, nên phần khoá là một lập luận về MariaDB chứ không phải một điều kiện test đỏ được.
      *
+     * **Khoá `matters` TRƯỚC `client_requests` (fix round 2, finding I3 residual).** Trước bản
+     * sửa này, hàm chỉ khoá dòng `client_requests` của chính nó và đọc `matters` KHÔNG khoá —
+     * một `RemoveTeamMember` chạy đồng thời (khoá `matters` trước khi đọc `OpenWork`, xem
+     * docblock lớp đó) có thể đọc xong `OpenWork` (thấy đội ngũ rảnh) đúng lúc `assign()` ở đây
+     * đang giao yêu cầu này cho chính người sắp bị gỡ, rồi `detach()` chạy — để lại một yêu cầu
+     * "chưa đóng" mà người được giao đã rời đội ngũ. Khoá `matters` Ở ĐÂY, cùng THỨ TỰ TOÀN CỤC
+     * mà `RemoveTeamMember`/`AddTeamMember`/`OpensDeadline::openMatterForDeadline()` dùng (vụ
+     * việc trước, bảng con sau), buộc hai Action tranh chấp trên CÙNG một vụ việc phải xếp hàng:
+     * ai xin khoá `matters` trước thì chạy trọn transaction của mình trước — không có nửa chừng
+     * để interleave.
+     *
+     * Thứ tự CỐ Ý, không phải ngẫu nhiên: khoá theo hai chiều khác nhau ở hai Action (một bên
+     * khoá `client_requests` rồi mới hỏi tới `matters`, bên kia ngược lại) là công thức deadlock
+     * kinh điển — xem lý lẽ `OpenMatter::lockClients()` đã ghi cho đúng vấn đề này giữa các dòng
+     * `clients`.
+     *
+     * **KHÔNG dùng `$request->matter_id` của tham số truyền vào để chọn dòng cần khoá.** Đây là
+     * đối tượng CALLER đưa vào, và test "reads the thread back instead of trusting the object it
+     * was handed" (tồn tại từ trước fix round 2) dựng đúng ca một `$request` bị sửa `matter_id`
+     * trong bộ nhớ trỏ sang một vụ việc actor CÓ quyền, trong khi dòng thật trong CSDL thuộc một
+     * vụ việc actor KHÔNG có quyền — khoá theo cột trên đối tượng sẽ khoá VÀ ĐỌC nhầm vụ việc kẻ
+     * tấn công chọn, biến chính cổng bảo mật cũ thành một đường vòng qua nó. Đọc `matter_id` THẬT
+     * bằng một câu `value()` không khoá gì (chỉ để biết khoá DÒNG NÀO trước, không phải để tin
+     * bất kỳ giá trị nghiệp vụ nào), rồi khoá `matters` bằng id đó, rồi khoá VÀ ĐỌC LẠI TOÀN BỘ
+     * `client_requests` như cũ (`$thread`) — hàm vẫn chỉ tin đúng một thứ ở tham số truyền vào:
+     * khoá chính `$request->getKey()`, y hệt trước bản sửa này.
+     *
      * `setRelation('matter', ...)` TRƯỚC khi `Gate` chạm vào đối tượng, cùng lý do đã đo ở M4:
      * một quan hệ nạp lười chạy dưới guard NÀO ĐANG MỞ, nên với một phiên portal đang mở trong
      * cùng trình duyệt (chuyện thường ngày lúc demo) `$request->matter` trả `null` và một nhân sự
@@ -214,11 +241,16 @@ class TriageClientRequest
      */
     private function open(ClientRequest $request, User $actor): array
     {
+        $matterId = $this->scopelessly(ClientRequest::query())->whereKey($request->getKey())->value('matter_id');
+
+        $matter = $matterId !== null
+            ? $this->scopelessly(Matter::query())->lockForUpdate()->find($matterId)
+            : null;
+
         $thread = $this->scopelessly(ClientRequest::query())
             ->lockForUpdate()
             ->find($request->getKey()) ?? $this->refuse();
 
-        $matter = $this->scopelessly(Matter::query())->find($thread->matter_id);
         $thread->setRelation('matter', $matter);
 
         if (! $this->accountIsActive($actor)) {

@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\Confidentiality;
 use App\Enums\MatterRole;
 use App\Enums\PartyRole;
 use App\Enums\Role;
@@ -409,6 +410,54 @@ it('lets the opener still open the matter after handing it to another lead throu
     $this->livewire(ListMatters::class)->assertCanSeeTableRecords([$matter]);
 
     $this->get(MatterResource::getUrl('view', ['record' => $matter], panel: 'admin'))->assertOk();
+});
+
+/**
+ * Fix round 2, "also fix" — `OpenMatter` vẫn tự thêm actor vào đội ngũ với vai `associate` trên
+ * một vụ `restricted`, dù `Matter::isListableBy()` nhánh đó không đọc `team()` chút nào. Kết quả
+ * trước bản sửa: một luật sư mở vụ `restricted` rồi giao cho đồng nghiệp phụ trách VẪN bị tự
+ * thêm vào đội ngũ — một "thành viên vô hình" không bao giờ mở được chính vụ việc họ vừa mở, y
+ * hệt lỗ hổng I1 đã sửa cho `AddTeamMember`. Đi qua ĐÚNG màn hình `CreateMatter` thật, không gọi
+ * `OpenMatter` trực tiếp — đúng yêu cầu của phán quyết.
+ */
+it('does not add the opener to a restricted matter they would not see, through the real create screen', function () {
+    $opener = User::factory()->withRole(Role::Lawyer)->create();
+    $newLead = User::factory()->withRole(Role::Lawyer)->create();
+
+    $client = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $client->id, 'lead_lawyer_id' => $opener->id]);
+
+    $matterType = MatterType::factory()->withStages()->create();
+
+    $this->actingAs($opener, 'web');
+
+    $this->livewire(CreateMatter::class)
+        ->fillForm([
+            'client_id' => $client->id,
+            'client_role' => PartyRole::Plaintiff->value,
+            'matter_type_id' => $matterType->id,
+            'title' => 'Tranh chấp hợp đồng thuê nhà — vụ hạn chế, bàn giao ngay',
+            'lead_lawyer_id' => $newLead->id,
+            'summary_for_client' => 'Tóm tắt gửi khách hàng.',
+            'confidentiality' => Confidentiality::Restricted->value,
+            'other_parties' => [],
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $matter = Matter::query()->where('title', 'Tranh chấp hợp đồng thuê nhà — vụ hạn chế, bàn giao ngay')->first();
+
+    expect($matter)->not->toBeNull()
+        ->and($matter->confidentiality)->toBe(Confidentiality::Restricted)
+        ->and($matter->lead_lawyer_id)->toBe($newLead->id)
+        ->and($matter->team()->whereKey($opener->id)->exists())->toBeFalse()
+        ->and($matter->team()->count())->toBe(1); // chỉ lead, không có "thành viên vô hình"
+
+    expect(Activity::query()->where('event', 'team_member_added')
+        ->where('properties->user_id', $opener->id)
+        ->exists())->toBeFalse();
+
+    $this->get(MatterResource::getUrl('view', ['record' => $matter], panel: 'admin'))->assertNotFound();
 });
 
 // =========================================================================================

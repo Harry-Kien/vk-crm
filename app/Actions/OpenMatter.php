@@ -288,14 +288,33 @@ class OpenMatter
             // Không cần hỏi `manageTeam` ở đây: đây không phải một lần "thêm thành viên" qua cổng
             // đội ngũ (`AddTeamMember`), nó là một phần của chính việc MỞ vụ việc — cổng đã kiểm
             // tra ở bước 1 (`MatterPolicy::create`) là cổng đúng cho hành động này.
+            //
+            // **Fix round 2, finding "Also fix" — bỏ qua trên một vụ `restricted` mà actor sẽ
+            // KHÔNG thấy được, cùng luật I1 đã áp cho `AddTeamMember`.** `Matter::isListableBy()`
+            // nhánh `restricted` không đọc `team()` chút nào (chỉ `hasRole(Admin)` hoặc chính
+            // `lead_lawyer_id`) — thêm actor vào đội ngũ ở đây KHÔNG đổi câu trả lời của `view()`
+            // cho một vụ `restricted`, nên trước bản sửa này một luật sư mở một vụ `restricted`
+            // rồi giao cho đồng nghiệp phụ trách vẫn bị tự thêm vào đội ngũ với vai `associate` mà
+            // KHÔNG BAO GIỜ mở được vụ đó — đúng "thành viên vô hình" mà phán quyết I1 cấm, và
+            // `CheckDeadlines`/các thư sau này lấy người nhận từ `team()` sẽ mời một người không
+            // đọc được thư đó vào chi tiết vụ việc. Đính lại: `addTeamMember()` rồi hỏi lại CHÍNH
+            // `Gate::view()` như `AddTeamMember::handle()` làm (không viết lại luật `restricted`
+            // một lần nữa ở đây) — nếu không qua, `detach()` ngay, không ghi audit. Không throw:
+            // đây là một tiện ích tự động, không phải một thao tác actor vừa yêu cầu qua một ô
+            // trên form, nên không có gì để báo lỗi vào — actor vẫn mở vụ thành công, chỉ đơn
+            // giản là không có mặt trong đội ngũ (giống hệt trước khi tính năng này tồn tại).
             if (! $actor->can(Permission::MatterViewAny->value) && $matter->lead_lawyer_id !== $actor->getKey()) {
                 $matter->addTeamMember($actor, MatterRole::Associate);
 
-                Audit::record('team_member_added', $matter, [
-                    'user_id' => $actor->getKey(),
-                    'role' => MatterRole::Associate->value,
-                    'auto_added_by_open_matter' => true,
-                ], $actor);
+                if (Gate::forUser($actor)->allows('view', $matter)) {
+                    Audit::record('team_member_added', $matter, [
+                        'user_id' => $actor->getKey(),
+                        'role' => MatterRole::Associate->value,
+                        'auto_added_by_open_matter' => true,
+                    ], $actor);
+                } else {
+                    $matter->team()->detach($actor->getKey());
+                }
             }
 
             $proposedParties->each(function (MatterParty $party) use ($matter, $actor): void {
