@@ -67,7 +67,7 @@ use Illuminate\Validation\ValidationException;
  * {@see TriageClientRequest::open()} — xem docblock hàm đó và
  * {@see TriageClientRequest::realMatterId()} cho cơ chế đầy đủ; hàm NÀY không có câu đọc trần
  * nào trước khoá — đã rà lại (fix round 3): `Gate::forUser($actor)->authorize('manageTeam',
- * $matter)` là câu DUY NHẤT chạy trước, và nó chạy TRƯỚC `DB::transaction()` mở (dòng 94), không
+ * $matter)` là câu DUY NHẤT chạy trước, và nó chạy TRƯỚC `DB::transaction()` mở (dòng 116), không
  * phải bên trong nó, nên không cố định gì cho transaction NÀY. Cùng luật đã kiểm lại cho
  * {@see AddTeamMember}.
  *

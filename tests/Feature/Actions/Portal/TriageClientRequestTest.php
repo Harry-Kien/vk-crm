@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Support\Scopes\ClientPortalScope;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -420,17 +421,44 @@ function requireMariadbForLocking(): void
  * xem báo cáo). Cái bug này CHỈ hiện ra khi `assign()` PHẢI ĐỢI khoá đang bị `RemoveTeamMember`
  * giữ, rồi chạy tiếp NGAY SAU khi khoá đó được nhả — đúng nhịp một cuộc đua thật. Vì PHP một
  * luồng không "tạm dừng" được nửa chừng một lời gọi hàm, test này `pcntl_fork()` một tiến trình
- * CON thật: con giữ khoá `matters` (BEGIN + FOR UPDATE, CHƯA commit), báo hiệu bằng một tệp, đợi
- * một khoảng ngắn, rồi gỡ trợ lý khỏi `matter_user` và COMMIT — nhả khoá đúng lúc tiến trình CHA
- * (đang chạy `TriageClientRequest::assign()` THẬT trên một kết nối riêng) đang bị khoá đó chặn.
+ * CON thật: con giữ khoá `matters` (BEGIN + FOR UPDATE, CHƯA commit), báo hiệu bằng một tệp,
+ * ĐỢI CHO TỚI KHI THẤY tiến trình CHA (đang chạy `TriageClientRequest::assign()` THẬT trên một
+ * kết nối riêng) đang đứng ở câu `FOR UPDATE` trên `matters`, rồi mới gỡ trợ lý khỏi
+ * `matter_user` và COMMIT — nhả khoá đúng lúc tiến trình cha đang bị khoá đó chặn.
  *
- * Tiến trình CON dùng kết nối `mariadb` MẶC ĐỊNH sau khi `DB::purge()` (bắt buộc: sau `fork()`,
- * cha và con CHIA SẺ cùng một socket TCP bên dưới nếu không purge/kết nối lại — dùng chung sẽ
- * làm hỏng luồng giao thức của CẢ HAI). Tiến trình CHA đổi kết nối MẶC ĐỊNH sang một kết nối THỨ
- * HAI (`mariadb_b`, cùng cấu hình, một phiên CSDL độc lập) trước khi gọi `assign()` — vì Eloquent
- * dùng kết nối MẶC ĐỊNH hiện hành cho mọi model không tự khai `$connection`, đây là cách gọi
- * ĐÚNG mã sản phẩm không sửa đổi ("chạy `open()`/`assign()` trên một kết nối chỉ định" — phán
- * quyết cho phép cách này khi không tách được đường sản phẩm).
+ * **Chờ được XÁC MINH, không đoán bằng thời gian (fix round 4, N2).** Con không `usleep()` một
+ * khoảng cố định rồi hy vọng cha đã kịp tới chỗ khoá: trên một container chậm, khoảng đó có thể
+ * hết trước khi cha kịp chạy tới, con commit sớm, và test xanh cả trên mã lỗi. Con hỏi
+ * `information_schema.PROCESSLIST` cho tới khi phiên CSDL của cha (biết trước bằng
+ * `CONNECTION_ID()`) đang thực thi một câu `... from `matters` ... for update` — câu đó không thể
+ * xong khi con còn giữ khoá, nên thấy nó đang chạy nghĩa là cha ĐANG bị chặn (và mọi câu đọc
+ * trước nó, gồm câu đọc sớm của lỗi round 2, đã chạy xong). Không dùng
+ * `information_schema.INNODB_LOCK_WAITS`/`INNODB_TRX` (chính xác hơn) vì chúng đòi quyền toàn cục
+ * `PROCESS`, người dùng `sail` không có và không nên có; `PROCESSLIST` thì một người dùng luôn
+ * xem được các phiên của chính mình (MariaDB 11 không có `performance_schema.data_lock_waits`).
+ * Hết 10 giây vẫn không thấy thì con NHẢ khoá mà KHÔNG gỡ ai, ghi "timeout" vào tệp kết quả, và
+ * cha `fail()` test thành tiếng — không bao giờ xanh im lặng.
+ *
+ * Tiến trình CON mở một kết nối MỚI tên riêng (`mariadb_child`) và KHÔNG đụng tới các kết nối
+ * thừa hưởng từ cha: sau `fork()`, cha và con CHIA SẺ cùng các socket TCP bên dưới; dùng hay
+ * đóng (`DB::purge()` gửi `COM_QUIT`) một socket chung ở phía con sẽ làm hỏng phiên của CHA. Con
+ * kết thúc bằng `SIGKILL` nên không destructor nào chạy trên các socket thừa hưởng. Tiến trình CHA
+ * đổi kết nối MẶC ĐỊNH sang một kết nối THỨ HAI (`mariadb_b`, cùng cấu hình, một phiên CSDL độc
+ * lập) trước khi gọi `assign()` — vì Eloquent dùng kết nối MẶC ĐỊNH hiện hành cho mọi model không
+ * tự khai `$connection`, đây là cách gọi ĐÚNG mã sản phẩm không sửa đổi ("chạy `open()`/`assign()`
+ * trên một kết nối chỉ định" — phán quyết cho phép cách này khi không tách được đường sản phẩm).
+ *
+ * **Dọn CSDL: bắt bài test KẾ TIẾP migrate lại (fix round 4, N1).** Con và cha ở hai phiên khác
+ * nhau chỉ thấy dữ liệu của nhau khi nó được COMMIT THẬT, nên test phải `DB::commit()` cái
+ * transaction `RefreshDatabase` bọc quanh nó — và từ lúc đó mọi thứ `beforeEach()`, factory,
+ * seeder, observer ghi ra (vai trò, quyền, `model_has_roles`, loại vụ việc + các giai đoạn của
+ * nó, `activity_log`...) nằm lại THẬT trong CSDL test, không rollback nào gỡ được. Dọn tay từng
+ * bảng là một danh sách phải nhớ cập nhật mỗi khi một factory/observer ghi thêm một bảng mới —
+ * round 3 đã quên đúng như vậy (còn lại một loại vụ việc thứ bảy làm "seeds six matter types" đỏ).
+ * Nên test đặt `RefreshDatabaseState::$migrated = false` NGAY TRƯỚC lần commit đầu tiên: bài test
+ * `RefreshDatabase` kế tiếp sẽ `migrate:fresh`, xoá SẠCH mọi bảng bất kể ai đã ghi gì — kể cả
+ * khi test này hỏng giữa chừng. (Hook `tearDown()` của `RefreshDatabase` chỉ đặt cờ này về
+ * `false`, không bao giờ về `true`, nên không gì ghi đè nó.)
  */
 it('reads fresh matter_user membership through the production assign() call, after waiting on a lock RemoveTeamMember holds (MariaDB, two connections)', function () {
     requireMariadbForLocking();
@@ -439,12 +467,19 @@ it('reads fresh matter_user membership through the production assign() call, aft
         test()->markTestSkipped('Cần pcntl và posix để giả lập hai phiên CSDL thật đồng thời.');
     }
 
-    config(['database.connections.mariadb_b' => config('database.connections.mariadb')]);
+    config([
+        'database.connections.mariadb_b' => config('database.connections.mariadb'),
+        'database.connections.mariadb_child' => config('database.connections.mariadb'),
+    ]);
+
+    // Từ đây CSDL test bị coi là bẩn: bài test RefreshDatabase kế tiếp sẽ `migrate:fresh` (xem
+    // docblock, fix round 4 N1). Đặt TRƯỚC lần commit đầu tiên, không đợi tới `finally`, để cả
+    // một lỗi xảy ra giữa commit và khối `try` bên dưới cũng không để lại dữ liệu cho test sau.
+    RefreshDatabaseState::$migrated = false;
 
     // RefreshDatabase bọc kết nối MẶC ĐỊNH trong một transaction CHƯA COMMIT suốt bài test — một
     // tiến trình/kết nối KHÁC sẽ không thấy được dữ liệu dựng ở beforeEach() (matter/client/
-    // lawyer/request) cho tới khi transaction đó COMMIT THẬT. Commit tường minh ở đây; dọn tay ở
-    // khối `finally` vì RefreshDatabase không còn gì để tự rollback nữa (xem cuối hàm).
+    // lawyer/request) cho tới khi transaction đó COMMIT THẬT.
     DB::commit();
 
     $assistant = User::factory()->withRole(Role::Assistant)->create();
@@ -453,8 +488,16 @@ it('reads fresh matter_user membership through the production assign() call, aft
 
     $matterId = $this->matter->id;
     $assistantId = $assistant->id;
-    $lockHeldSignal = sys_get_temp_dir().'/vkcrm_mariadb_lock_test_'.getmypid().'.signal';
+
+    // Phiên CSDL mà `assign()` sẽ chạy trên đó — mở TRƯỚC khi fork để con biết trước id phiên cần
+    // theo dõi. Con thừa hưởng socket này nhưng không bao giờ dùng hay đóng nó (xem docblock).
+    $parentConnectionId = (int) DB::connection('mariadb_b')->selectOne('select connection_id() as id')->id;
+
+    $filePrefix = sys_get_temp_dir().'/vkcrm_mariadb_lock_test_'.getmypid();
+    $lockHeldSignal = $filePrefix.'.signal';
+    $childOutcomeFile = $filePrefix.'.outcome';
     @unlink($lockHeldSignal);
+    @unlink($childOutcomeFile);
 
     $pid = pcntl_fork();
 
@@ -464,30 +507,64 @@ it('reads fresh matter_user membership through the production assign() call, aft
 
     if ($pid === 0) {
         // ---- TIẾN TRÌNH CON — đóng vai RemoveTeamMember đang giữ khoá `matters`. ----
+        $outcome = 'error: tiến trình con dừng trước khi ghi kết quả';
+
         try {
-            DB::purge('mariadb');
-            DB::connection('mariadb')->beginTransaction();
-            DB::connection('mariadb')->table('matters')->where('id', $matterId)->lockForUpdate()->first();
+            $child = DB::connection('mariadb_child'); // kết nối MỚI, không dùng socket thừa hưởng.
+            $child->beginTransaction();
+            $child->table('matters')->where('id', $matterId)->lockForUpdate()->first();
 
             touch($lockHeldSignal); // báo cho tiến trình cha: khoá đã được giữ, có thể thử xin khoá.
 
-            usleep(400_000); // giữ khoá một khoảng đủ để cha CHẮC CHẮN đã bị chặn khi xin cùng khoá.
+            // Chờ XÁC MINH (N2): phiên của cha đang thực thi câu FOR UPDATE trên `matters` — câu
+            // đó không xong được khi con còn giữ khoá, nên thấy nó nghĩa là cha đang bị chặn.
+            $deadline = microtime(true) + 10.0;
+            $parentIsBlocked = false;
 
-            DB::connection('mariadb')->table('matter_user')
-                ->where('matter_id', $matterId)
-                ->where('user_id', $assistantId)
-                ->delete();
+            while (! $parentIsBlocked && microtime(true) < $deadline) {
+                $parentIsBlocked = $child->table('information_schema.PROCESSLIST')
+                    ->where('ID', $parentConnectionId)
+                    ->whereIn('COMMAND', ['Query', 'Execute']) // Execute: câu prepared phía máy chủ (PDO).
+                    ->whereRaw("LOWER(INFO) LIKE '%from `matters`%for update%'")
+                    ->exists();
 
-            DB::connection('mariadb')->commit(); // nhả khoá matters NGAY ĐÂY.
+                if (! $parentIsBlocked) {
+                    usleep(10_000);
+                }
+            }
+
+            if ($parentIsBlocked) {
+                $child->table('matter_user')
+                    ->where('matter_id', $matterId)
+                    ->where('user_id', $assistantId)
+                    ->delete();
+
+                $child->commit(); // nhả khoá matters NGAY ĐÂY, trong lúc cha đang đợi nó.
+                $outcome = 'removed-while-parent-blocked';
+            } else {
+                $lastSeen = $child->table('information_schema.PROCESSLIST')
+                    ->where('ID', $parentConnectionId)
+                    ->first(['COMMAND', 'STATE', 'INFO']);
+
+                $child->rollBack(); // nhả khoá mà KHÔNG gỡ ai — cha sẽ fail() thành tiếng.
+                $outcome = 'timeout: sau 10 giây không thấy phiên #'.$parentConnectionId
+                    .' đợi khoá matters; phiên đó đang: '.json_encode($lastSeen, JSON_UNESCAPED_UNICODE);
+            }
+        } catch (Throwable $exception) {
+            $outcome = 'error: '.$exception->getMessage();
         } finally {
-            // Dừng tiến trình con NGAY LẬP TỨC, không đi qua bất kỳ shutdown handler nào của
-            // PHPUnit/Pest — tiếp tục chạy sẽ khiến tiến trình con cũng cố "chạy nốt" phần còn
-            // lại của bộ test, nhân đôi output và làm hỏng tiến trình cha.
+            file_put_contents($childOutcomeFile, $outcome);
+
+            // Dừng tiến trình con NGAY LẬP TỨC, không đi qua bất kỳ shutdown handler/destructor
+            // nào của PHPUnit/Pest/PDO — tiếp tục chạy sẽ khiến tiến trình con cũng cố "chạy nốt"
+            // phần còn lại của bộ test, và destructor PDO sẽ đóng các socket chung với cha.
             posix_kill(posix_getpid(), SIGKILL);
         }
     }
 
     // ---- TIẾN TRÌNH CHA — đóng vai request thật gọi TriageClientRequest::assign(). ----
+    $childReaped = false;
+
     try {
         $deadline = microtime(true) + 5.0;
 
@@ -513,27 +590,27 @@ it('reads fresh matter_user membership through the production assign() call, aft
         }
 
         pcntl_waitpid($pid, $status);
+        $childReaped = true;
+
+        $childOutcome = (string) @file_get_contents($childOutcomeFile);
+
+        if ($childOutcome !== 'removed-while-parent-blocked') {
+            test()->fail('Không dựng được cuộc đua cần đo — tiến trình con báo: ['.$childOutcome.'].');
+        }
 
         expect($stillAssignable)->toBeFalse();
     } finally {
+        if (! $childReaped) {
+            pcntl_waitpid($pid, $status); // con luôn tự dừng trong ~10 giây (xem vòng chờ của nó).
+        }
+
         DB::connection('mariadb_b')->rollBack();
         DB::purge('mariadb_b');
         DB::setDefaultConnection('mariadb');
         @unlink($lockHeldSignal);
+        @unlink($childOutcomeFile);
 
-        // Dọn tay mọi thứ đã COMMIT ở trên (xem lý do ở đầu hàm) — theo đúng thứ tự khoá ngoại
-        // (matters trước, vì lead_lawyer_id là restrictOnDelete()).
-        DB::table('matters')->where('id', $this->matter->id)->delete(); // cascade: matter_user, client_requests
-        DB::table('client_users')->where('client_id', $this->client->id)->delete();
-        DB::table('clients')->where('id', $this->client->id)->delete();
-        DB::table('users')->whereIn('id', [$this->lawyer->id, $assistant->id])->delete();
-
-        // Mở lại MỘT transaction để RefreshDatabase còn cái để rollback lúc `tearDown()` — không
-        // có nó, `Connection::rollBack()` no-op (đúng, vô hại — xem `ManagesTransactions::
-        // rollBack()`: `$toLevel = -1` thì return sớm) NHƯNG `RefreshDatabaseState::$migrated`
-        // bị đặt lại `false` (điều kiện `! $connection->getPdo()->inTransaction()` ở
-        // `beginDatabaseTransaction()`), khiến bài test KẾ TIẾP trong cùng lượt `bin/dev
-        // test:mariadb` phải `migrate:fresh` lại từ đầu — không sai, chỉ chậm.
-        DB::beginTransaction();
+        // Không dọn tay bảng nào: `RefreshDatabaseState::$migrated = false` ở trên khiến bài test
+        // kế tiếp `migrate:fresh` (xem docblock, fix round 4 N1).
     }
 })->group('mariadb-locking');
