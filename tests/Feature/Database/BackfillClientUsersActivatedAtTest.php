@@ -45,26 +45,45 @@ it('leaves activated_at null for an account that has never signed in', function 
 });
 
 /**
- * Điều kiện quan trọng nhất của migration: KHÔNG được ghi đè một activated_at THẬT đã có (ví dụ
- * đã đi qua ChangePassword::changePassword() trước khi migration này chạy) bằng một giá trị suy
- * diễn từ last_login_at — hai ngày đó có thể khác nhau (đặt lại mật khẩu sau lần kích hoạt đầu,
- * xem LoginTest.php "keeps the original activation timestamp across a later forced reset").
+ * Fix round 1 (I3): ĐẢO NGƯỢC khẳng định của vòng đầu. Bản đầu GIỮ một `activated_at` đã có, với
+ * lý do sai — cột đó có thể mang một giá trị NHÂN SỰ GÕ TAY qua `DateTimePicker` đã gỡ (đúng phát
+ * hiện `intake/intake-05`: "activated_at là một ô ngày giờ nhân sự gõ tay"), không phải bằng
+ * chứng khách tự đổi mật khẩu lần đầu. Phán quyết fix round 1: BỎ QUA giá trị cũ vô điều kiện,
+ * luôn đặt lại bằng `last_login_at` — kể cả khi hai ngày đó khác nhau và kể cả khi giá trị cũ
+ * "trông hợp lý hơn" (mới hơn, gần hơn).
  *
- * Mutation probe: bỏ `->whereNull('activated_at')` khỏi migration thì test này đỏ — activated_at
- * bị ghi đè thành last_login_at (xem báo cáo).
+ * Mutation probe: thêm lại `->whereNull('activated_at')` vào migration thì test này đỏ —
+ * activated_at giữ nguyên giá trị gõ tay thay vì bị ghi đè (xem báo cáo).
  */
-it('never overwrites an activated_at that is already set, even when last_login_at is a different, later date', function () {
-    $alreadyActivated = ClientUser::factory()->create([
-        'last_login_at' => now()->subDay(),
-        'activated_at' => now()->subDays(30),
-    ]);
+it('overwrites any existing activated_at with last_login_at, ignoring what staff had typed in before', function () {
+    $staffTypedDate = now()->subDays(30);
 
-    // Đọc lại từ CSDL trước khi so sánh: cột datetime bỏ phần micro giây khi lưu, còn biến
-    // Carbon vừa gán ở trên vẫn còn nguyên — so hai bên khác độ chính xác sẽ luôn lệch dù
-    // migration đúng. Cùng thành ngữ LoginTest.php "keeps the original activation timestamp…".
-    $originalActivatedAt = $alreadyActivated->fresh()->activated_at;
+    $account = ClientUser::factory()->create([
+        'last_login_at' => now()->subDay(),
+        'activated_at' => $staffTypedDate,
+    ]);
 
     runBackfillClientUsersActivatedAtMigration();
 
-    expect($alreadyActivated->fresh()->activated_at->equalTo($originalActivatedAt))->toBeTrue();
+    $account->refresh();
+
+    expect($account->activated_at->equalTo($account->last_login_at))->toBeTrue()
+        ->and($account->activated_at->equalTo($staffTypedDate))->toBeFalse();
+});
+
+/**
+ * I3: "Ghi nhớ đăng nhập" đã gỡ hẳn khỏi cổng (phát hiện `portal/portal-1`) và chưa có môi trường
+ * production nào đang chạy — remember_token còn sót lại chỉ là dữ liệu chết của một tính năng
+ * không còn tồn tại, nên xoá luôn trong cùng lượt backfill này.
+ *
+ * Mutation probe: bỏ `'remember_token' => null` khỏi migration thì test này đỏ.
+ */
+it('clears remember_token for every account, active or not', function () {
+    $account = ClientUser::factory()->create(['remember_token' => 'con-token-cu-cua-ghi-nho-dang-nhap']);
+
+    expect($account->remember_token)->not->toBeNull();
+
+    runBackfillClientUsersActivatedAtMigration();
+
+    expect($account->fresh()->remember_token)->toBeNull();
 });

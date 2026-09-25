@@ -55,6 +55,13 @@ use Illuminate\Support\Facades\RateLimiter;
  * một cửa sổ 5 lần mới cho mỗi email khác, không giới hạn số lần — tức chiều IP của SPEC §10.3
  * biến mất hoàn toàn.
  *
+ * **Ngoại lệ duy nhất, và nó không phải một lần đăng nhập:** `App\Actions\Portal\UnlockPortalLogin`
+ * (Task 7, phát hiện `portal/portal-4`) cho phép NHÂN SỰ xoá cả chiều địa chỉ mạng, nhưng chỉ khi
+ * đã tự tra lại nhật ký `login_failed` và xác nhận MỌI lần hỏng ghi nhận ở đúng địa chỉ đó, trong
+ * đúng cửa sổ còn hiệu lực, đều thuộc về CHÍNH tài khoản đang mở khoá — tức khi biết chắc địa chỉ
+ * đó không phải một NAT dùng chung. `clearKey()` bên dưới là chỗ duy nhất lớp này cho phép xoá một
+ * khoá IP tuỳ ý, và chỉ Action đó gọi tới.
+ *
  * # Cái giá của chiều IP, ghi ra vì nó có thật
  *
  * Khoá theo IP nghĩa là nhiều người sau cùng một đường truyền (văn phòng, wifi quán, mạng di
@@ -368,6 +375,19 @@ final class PortalLoginThrottle
     {
         self::clearPasswordAccount($account->email);
         self::clearCodeAccount($account);
+    }
+
+    /**
+     * Fix round 1 (I2): xoá MỘT khoá IP cụ thể (bước mật khẩu hoặc bước mã) — chỗ duy nhất lớp
+     * này cho một khoá địa chỉ mạng bị xoá theo yêu cầu, khác hẳn mọi hàm `clear*Account()` ở
+     * trên vốn chỉ đụng chiều tài khoản. Chỉ `UnlockPortalLogin::clearSafeIpDimensions()` gọi
+     * hàm này, và chỉ SAU KHI đã tự xác nhận mọi lần hỏng ghi nhận ở đúng địa chỉ đó đều thuộc về
+     * chính tài khoản đang mở khoá (không phải một NAT dùng chung) — xem docblock lớp ở trên và
+     * docblock của Action đó.
+     */
+    public static function clearKey(string $key): void
+    {
+        RateLimiter::clear($key);
     }
 
     /**

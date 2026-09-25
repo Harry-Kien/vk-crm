@@ -1,24 +1,32 @@
 <?php
 
+use App\Actions\Notification\NotifyClientOfStageUpdate;
 use App\Enums\Permission;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\ClientUsers\ClientUserResource;
 use App\Filament\Admin\Resources\ClientUsers\Pages\CreateClientUser;
 use App\Filament\Admin\Resources\ClientUsers\Pages\EditClientUser;
 use App\Filament\Admin\Resources\ClientUsers\Pages\ListClientUsers;
+use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
+use App\Filament\Admin\Resources\Matters\RelationManagers\StageLogsRelationManager;
 use App\Filament\Admin\Support\VisibleClientOptions;
 use App\Filament\Portal\Pages\Auth\Login;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Matter;
+use App\Models\StageLog;
 use App\Models\User;
+use App\Notifications\Client\SendLoginCode;
 use App\Policies\ClientUserPolicy;
-use App\Support\Audit;
 use App\Support\PortalLoginThrottle;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
+use Filament\Schemas\Components\Text;
+use Filament\Schemas\Schema;
 use Illuminate\Auth\Access\AuthorizationException;
-use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Notification;
+use Livewire\Features\SupportTesting\Testable;
 use Spatie\Activitylog\Models\Activity;
 
 beforeEach(function () {
@@ -449,13 +457,21 @@ it('has no must_change_password toggle or activated_at field on the create form'
 /**
  * Vế "payload giả gửi false thì vẫn lưu true" của test bắt buộc: gỡ Toggle khỏi schema đã chặn
  * đường tấn công qua UI (test trên), nhưng đây là lớp phòng thủ ĐỘC LẬP bên dưới — cùng thành ngữ
- * `mutateFormDataBeforeCreate` đã dùng cho `client_id` ở trên (Task 2): gọi thẳng hook qua
- * reflection với một payload đã "chỉnh sửa tay", bỏ qua toàn bộ vòng Livewire/schema.
+ * `mutateFormDataBeforeCreate` đã dùng cho `client_id` ở trên (Task 2).
  *
- * Mutation probe: xoá dòng `$data['must_change_password'] = true;` (giữ nguyên $data như cũ) thì
- * test này đỏ — trả lại `false`.
+ * Fix round 1 (minor): thay lời gọi qua reflection (vòng đầu) bằng một request Livewire THẬT —
+ * `set('data.must_change_password', false)` đặt thẳng vào state thô của Livewire, bỏ qua toàn bộ
+ * UI/schema (đúng hình dạng "một request đã chỉnh sửa tay", cùng thành ngữ các test khác trong
+ * tệp này dùng cho `data.remember`/`data.password`), rồi gọi `create()` thật. `ClientUserForm`
+ * không còn khai báo field này nên `getState()` không trả khoá đó về — nhưng phép đo này không
+ * phụ thuộc vào việc đó: nó chứng minh bản ghi LƯU RA đúng giá trị `true`, bất kể field có tồn
+ * tại hay không, qua đúng đường Livewire thật.
+ *
+ * Mutation probe: xoá dòng `$data['must_change_password'] = true;` khỏi
+ * `CreateClientUser::mutateFormDataBeforeCreate()` (giữ nguyên $data như cũ) thì test này đỏ —
+ * trả lại `false`.
  */
-it('the create-page mutate hook forces must_change_password true, independent of whatever the payload carries', function () {
+it('still saves must_change_password true even when a tampered livewire request sets it false directly', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $ownClient = Client::factory()->create();
     Matter::factory()->create(['client_id' => $ownClient->id, 'lead_lawyer_id' => $lawyer->id]);
@@ -463,16 +479,20 @@ it('the create-page mutate hook forces must_change_password true, independent of
     $this->actingAs($lawyer, 'web');
     Filament::setCurrentPanel('admin');
 
-    $page = new CreateClientUser;
-    $method = new ReflectionMethod($page, 'mutateFormDataBeforeCreate');
-    $method->setAccessible(true);
+    $this->livewire(CreateClientUser::class)
+        ->fillForm([
+            'client_id' => $ownClient->id,
+            'name' => 'Tài khoản bị chỉnh sửa tay',
+            'email' => 'chinh-sua-tay@example.com',
+            'password' => 'MatKhauTamThoi2026',
+        ])
+        ->set('data.must_change_password', false)
+        ->call('create')
+        ->assertHasNoFormErrors();
 
-    $result = $method->invoke($page, [
-        'client_id' => $ownClient->id,
-        'must_change_password' => false,
-    ]);
+    $created = ClientUser::where('email', 'chinh-sua-tay@example.com')->firstOrFail();
 
-    expect($result['must_change_password'])->toBeTrue();
+    expect($created->must_change_password)->toBeTrue();
 });
 
 /** Đầu-cuối thật qua Livewire: tạo xong, phải đọc lại bản ghi và thấy must_change_password=true. */
@@ -566,6 +586,131 @@ it('leaves must_change_password alone when the edit form saves without touching 
         ->assertHasNoFormErrors();
 
     expect($account->fresh()->must_change_password)->toBeFalse();
+});
+
+// =========================================================================================
+// Fix round 1, I1: đổi email đặt lại activated_at (và must_change_password) — email tài khoản
+// cổng do nhân sự gõ tay lúc nghe điện thoại, không qua bước xác minh nào (cùng lỗ hổng
+// `intake/intake-04` đã lấp cho lúc TẠO ở R12 — hở lại ở lúc SỬA vì activated_at không được đụng
+// tới khi email đổi).
+// =========================================================================================
+
+/**
+ * Tìm ĐÚNG component cảnh báo "Khách chưa có tài khoản cổng đang dùng" trong cây schema đang
+ * mount trên form Chuyển giai đoạn/Thêm cập nhật — cùng kỹ thuật (đọc `Schema::getFlatComponents()`
+ * rồi lọc theo nội dung, vì Text không phải Field) mà `TransitionStageActionTest.php` dùng, đặt
+ * tên KHÁC ở đây vì Pest nạp mọi tệp test vào chung một tiến trình — hai hàm toàn cục cùng tên sẽ
+ * là một lỗi "cannot redeclare function" chết cứng cả bộ test.
+ */
+function clientUserEditWarningComponent(Testable $component): Text
+{
+    $formName = $component->instance()->getMountedActionSchemaName();
+    /** @var Schema $schema */
+    $schema = $component->instance()->{$formName};
+
+    $warning = __('matters.transition_form.no_activated_account_warning');
+
+    $matches = array_values(array_filter(
+        $schema->getFlatComponents(withHidden: true),
+        fn ($c) => $c instanceof Text && $c->getContent() === $warning,
+    ));
+
+    expect($matches)->toHaveCount(1, 'Không tìm thấy đúng một component cảnh báo trong schema đang mount.');
+
+    return $matches[0];
+}
+
+/**
+ * Cặp đôi chính của I1: đổi email dừng thư `client.stage_update` VÀ hiện cảnh báo trên form
+ * Chuyển giai đoạn/Thêm cập nhật — cả hai cùng đọc từ `NotifyClientOfStageUpdate::hasEligibleRecipient()`,
+ * nên cùng một bằng chứng `activated_at = null` chứng minh cả hai đường cùng lúc.
+ */
+it('resets activation and stops the stage-update mail when staff edits the email', function () {
+    Mail::fake();
+
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $ownClient = Client::factory()->create();
+    $account = ClientUser::factory()->for($ownClient)->activated()->create(['is_active' => true]);
+    $matter = Matter::factory()->create([
+        'client_id' => $ownClient->id,
+        'lead_lawyer_id' => $lawyer->id,
+        'is_published_to_portal' => true,
+    ]);
+
+    // Tiền đề: trước khi sửa, khách này ĐANG đủ điều kiện nhận thư — nếu không test dưới xanh vì
+    // lý do khác (không có ai để mất tư cách nhận thư ngay từ đầu).
+    expect(app(NotifyClientOfStageUpdate::class)->hasEligibleRecipient($matter))->toBeTrue();
+
+    $this->actingAs($lawyer, 'web');
+    Filament::setCurrentPanel('admin');
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'name' => $account->name,
+            'email' => 'email-moi-nham-lan@example.com',
+        ])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    $account->refresh();
+    expect($account->activated_at)->toBeNull()
+        ->and($account->must_change_password)->toBeTrue()
+        ->and(app(NotifyClientOfStageUpdate::class)->hasEligibleRecipient($matter))->toBeFalse();
+
+    $log = StageLog::factory()->create([
+        'matter_id' => $matter->id,
+        'is_published' => true,
+        'published_at' => now(),
+        'public_content' => 'Văn phòng vừa nộp hồ sơ khởi kiện tới toà án có thẩm quyền.',
+    ]);
+
+    app(NotifyClientOfStageUpdate::class)->handle($log);
+
+    Mail::assertNothingSent();
+
+    $warningComponent = $this->livewire(StageLogsRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->mountTableAction('addUpdate');
+
+    expect(clientUserEditWarningComponent($warningComponent)->isVisible())->toBeTrue();
+});
+
+/** Twin âm: sửa TÊN, giữ nguyên email — không đụng tới activated_at, không thư nào bị chặn, không cảnh báo. */
+it('leaves activation alone when staff edits only the name, keeping the email', function () {
+    Mail::fake();
+
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $ownClient = Client::factory()->create();
+    $account = ClientUser::factory()->for($ownClient)->activated()->create(['is_active' => true]);
+    $matter = Matter::factory()->create([
+        'client_id' => $ownClient->id,
+        'lead_lawyer_id' => $lawyer->id,
+        'is_published_to_portal' => true,
+    ]);
+
+    $this->actingAs($lawyer, 'web');
+    Filament::setCurrentPanel('admin');
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'name' => 'Tên đã sửa, giữ nguyên email',
+            'email' => $account->email,
+        ])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    $account->refresh();
+    expect($account->activated_at)->not->toBeNull()
+        ->and($account->must_change_password)->toBeFalse()
+        ->and(app(NotifyClientOfStageUpdate::class)->hasEligibleRecipient($matter))->toBeTrue();
+
+    $warningComponent = $this->livewire(StageLogsRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->mountTableAction('addUpdate');
+
+    expect(clientUserEditWarningComponent($warningComponent)->isVisible())->toBeFalse();
 });
 
 // =========================================================================================
@@ -720,34 +865,53 @@ it('authorizes each record individually against ClientUserPolicy::restore(), not
 
 // =========================================================================================
 // Task 7 (R12, phát hiện `portal/portal-4`): nút "Mở khoá đăng nhập" trên trang sửa tài khoản
-// cổng — xoá khoá đếm THEO TÀI KHOẢN (App\Support\PortalLoginThrottle) và ghi audit.
+// cổng — xoá khoá đếm và ghi audit.
+//
+// Fix round 1 (S1, I2): vòng đầu dựng khoá TAY qua RateLimiter::hit()/Audit::record() thủ công,
+// chỉ trên chiều tài khoản — "khách đăng nhập được ngay" từng xanh GIẢ, vì 5 lần sai THẬT qua
+// Login Livewire cũng đập chiều IP (PortalLoginThrottle::passwordKeys() = tài khoản + IP), và
+// Unlock (vòng đầu) không đụng chiều đó. Mọi bài dưới đây đi qua ĐÚNG đường thật: form đăng nhập
+// Livewire thật (Livewire test luôn chạy ở 127.0.0.1 — xem docblock đầu LoginTest.php), nút thật
+// trên EditClientUser, và — khi cần chứng minh "đăng nhập lại được" — một lần đăng nhập thật lần
+// hai.
 // =========================================================================================
 
+/** Mã 6 số MỚI NHẤT đã gửi cho một tài khoản — cùng cơ chế `portalCodesSentTo()` của LoginTest.php, viết riêng ở đây để tệp này không phụ thuộc ngầm vào một hàm toàn cục của tệp khác. */
+function loginCodeSentTo(ClientUser $user): string
+{
+    return Notification::sent($user, SendLoginCode::class)
+        ->map(fn (SendLoginCode $notification): string => $notification->code())
+        ->last();
+}
+
 /**
- * Test bắt buộc của brief: "sau 5 lần sai, nhân sự bấm mở khoá, khách đăng nhập được ngay."
- *
- * Khoá CHỈ chiều TÀI KHOẢN trực tiếp qua RateLimiter (đúng khoá PortalLoginThrottle dùng thật) —
- * cố ý không đụng chiều IP — để phép đo cô lập đúng thứ Unlock sửa. Chiều IP có bài riêng bên
- * dưới ("tells staff the IP lock is still up…"), vì Unlock cố ý không đụng chiều đó (xem docblock
- * UnlockPortalLogin và PortalLoginThrottle::clearPasswordAccount()).
+ * Test bắt buộc của brief (S1) + I2 bullet 1: "sau 5 lần sai, nhân sự bấm mở khoá, khách đăng
+ * nhập được ngay" — 5 lần sai THẬT, cùng một tài khoản, cùng một địa chỉ (127.0.0.1). Đúng điều
+ * kiện NAT-an toàn của I2 (mọi dòng `login_failed` trong cửa sổ, ở đúng địa chỉ đó, đều thuộc về
+ * CHÍNH tài khoản này), nên Unlock phải xoá CẢ HAI chiều — không chỉ chiều tài khoản.
  */
-it('lets a client sign in again immediately once staff unlocks the account, after five wrong passwords', function () {
+it('lets a client sign in again immediately once staff unlocks the account, after five real wrong passwords', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $ownClient = Client::factory()->create();
     Matter::factory()->create(['client_id' => $ownClient->id, 'lead_lawyer_id' => $lawyer->id]);
     $account = ClientUser::factory()->for($ownClient)->activated()->create();
 
-    $accountKey = PortalLoginThrottle::passwordAccountKey($account->email);
-
-    foreach (range(1, 5) as $ignored) {
-        RateLimiter::hit($accountKey, PortalLoginThrottle::DECAY_SECONDS);
-    }
-
-    expect(PortalLoginThrottle::tooManyAttempts([$accountKey]))->toBeTrue();
-
-    // Trước khi mở khoá: đúng mật khẩu vẫn bị chặn ngay ở bước mật khẩu.
     Filament::setCurrentPanel('portal');
 
+    foreach (range(1, 5) as $ignored) {
+        $this->livewire(Login::class)
+            ->set('data.email', $account->email)
+            ->set('data.password', 'sai-mat-khau')
+            ->call('authenticate');
+    }
+
+    $accountKey = PortalLoginThrottle::passwordAccountKey($account->email);
+    $ipKey = PortalLoginThrottle::passwordIpKeyFor('127.0.0.1');
+
+    expect(PortalLoginThrottle::tooManyAttempts([$accountKey]))->toBeTrue()
+        ->and(PortalLoginThrottle::tooManyAttempts([$ipKey]))->toBeTrue();
+
+    // Trước khi mở khoá: đúng mật khẩu vẫn bị chặn.
     $this->livewire(Login::class)
         ->set('data.email', $account->email)
         ->set('data.password', 'password')
@@ -762,11 +926,13 @@ it('lets a client sign in again immediately once staff unlocks the account, afte
 
     $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
         ->assertActionVisible('unlockLogin')
-        ->callAction('unlockLogin');
+        ->callAction('unlockLogin')
+        ->assertNotified(__('client_users.actions.unlock_login_success'));
 
-    expect(PortalLoginThrottle::tooManyAttempts([$accountKey]))->toBeFalse();
+    expect(PortalLoginThrottle::tooManyAttempts([$accountKey]))->toBeFalse()
+        ->and(PortalLoginThrottle::tooManyAttempts([$ipKey]))->toBeFalse();
 
-    // Khách thử lại ngay: đúng mật khẩu đi qua được, không còn lỗi khoá tạm.
+    // Khách thử lại ngay, từ CHÍNH địa chỉ vừa gõ sai: đúng mật khẩu đi qua được.
     Filament::setCurrentPanel('portal');
 
     $this->livewire(Login::class)
@@ -777,38 +943,117 @@ it('lets a client sign in again immediately once staff unlocks the account, afte
 });
 
 /**
- * R12: "Nếu khoá theo IP vẫn còn, câu trả về cho nhân sự nói rõ điều đó." Mở khoá cố ý CHỈ xoá
- * chiều tài khoản — dựng lại đúng năm dòng nhật ký `login_failed` từ MỘT địa chỉ mạng (đúng
- * nguồn UnlockPortalLogin đọc để biết địa chỉ nào vừa gây khoá) và khoá chiều IP của chính địa
- * chỉ đó, để chứng minh câu trả lời phản ánh đúng trạng thái thật.
+ * I2 bullet 2: cùng use case, cho bước MÃ. Đây cũng là bằng chứng I2(b): trước bản sửa,
+ * `PortalEmailAuthentication` không ghi nhật ký cho bước mã nên `UnlockPortalLogin` không thấy
+ * gì để xoá ở chiều IP của bước này, và nhân sự nhận câu "đăng nhập lại được ngay" trong khi
+ * chiều đó còn khoá.
  */
-it('tells staff the IP lock is still up after unlocking the account, when the failures came from an IP still over the limit', function () {
+it('lets a client sign in again immediately once staff unlocks the account, after five real wrong one-time codes', function () {
+    Notification::fake();
+
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $ownClient = Client::factory()->create();
     Matter::factory()->create(['client_id' => $ownClient->id, 'lead_lawyer_id' => $lawyer->id]);
     $account = ClientUser::factory()->for($ownClient)->activated()->create();
 
-    $ip = '198.51.100.77';
+    Filament::setCurrentPanel('portal');
+
+    $component = $this->livewire(Login::class)
+        ->set('data.email', $account->email)
+        ->set('data.password', 'password')
+        ->call('authenticate');
+
+    $realCode = loginCodeSentTo($account);
 
     foreach (range(1, 5) as $ignored) {
-        Audit::record('login_failed', $account, [
-            'guard' => 'client',
-            'email' => $account->email,
-            'ip' => $ip,
-        ], $account);
-
-        RateLimiter::hit(PortalLoginThrottle::passwordIpKeyFor($ip), PortalLoginThrottle::DECAY_SECONDS);
+        $component->set('data.multiFactor.email_code.code', '000000')->call('authenticate');
     }
 
-    $this->actingAs($lawyer, 'web');
+    $codeAccountKey = PortalLoginThrottle::codeAccountKey($account);
+    $codeIpKey = PortalLoginThrottle::codeIpKeyFor('127.0.0.1');
+
+    expect(PortalLoginThrottle::tooManyAttempts([$codeAccountKey]))->toBeTrue()
+        ->and(PortalLoginThrottle::tooManyAttempts([$codeIpKey]))->toBeTrue();
+
     Filament::setCurrentPanel('admin');
+    $this->actingAs($lawyer, 'web');
 
     $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
         ->callAction('unlockLogin')
-        ->assertNotified(__('client_users.actions.unlock_login_success_ip_still_locked'));
+        ->assertNotified(__('client_users.actions.unlock_login_success'));
+
+    expect(PortalLoginThrottle::tooManyAttempts([$codeAccountKey]))->toBeFalse()
+        ->and(PortalLoginThrottle::tooManyAttempts([$codeIpKey]))->toBeFalse();
+
+    Filament::setCurrentPanel('portal');
+
+    $component->set('data.multiFactor.email_code.code', $realCode)
+        ->call('authenticate')
+        ->assertHasNoErrors();
+
+    expect(auth('client')->check())->toBeTrue();
 });
 
-/** Vế dương của test trên: không có khoá IP nào để báo thì câu trả lời là câu đơn giản. */
+/**
+ * I2 bullet 3: chiều IP dùng CHUNG với một tài khoản khác không được xoá — "mọi lần hỏng trong
+ * cửa sổ đó phải thuộc về CHÍNH tài khoản" mới là NAT-an toàn (docblock `UnlockPortalLogin`), và
+ * ở đây có một dòng của tài khoản B, cùng địa chỉ 127.0.0.1.
+ *
+ * **Thứ tự bắt buộc, và vì sao**: `Login::rateLimit()` khoá CẢ HAI chiều (tài khoản + IP) bằng
+ * MỘT phép kiểm `tooManyAttempts($keys)` — chạm trần ở BẤT KỲ chiều nào chặn nguyên lần thử, kể
+ * cả bước ghi nhật ký. Nếu B thử SAU KHI IP đã chạm trần (vd. sau 5 lần sai của A), chính lần thử
+ * của B bị chặn NGAY Ở rateLimit(), không bao giờ tới được `fireFailedEvent()`/`auditFailedLogin()`
+ * — B không để lại dòng nào, và bài kiểm sẽ đo nhầm một chiều IP "an toàn" (chỉ thấy dòng của A).
+ * Nên B PHẢI thử TRƯỚC: B thử 1 lần (khi IP còn sạch, được ghi nhật ký), rồi A thử 4 lần (đẩy IP
+ * từ 1 lên 5, đúng trần) — tổng 5 lần sai trên IP, TRỘN hai người thật, và dòng thứ 5 (của A) vẫn
+ * kịp qua trước khi lần thử tiếp theo (nếu có) bị chặn. A không cần đủ 5 lần sai CỦA RIÊNG MÌNH —
+ * chiều tài khoản của A chỉ cần bất kỳ trạng thái nào, vì bài này đo chiều IP, không đo chiều đó.
+ */
+it('leaves the shared IP lock in place when another account also failed from the same address', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $ownClient = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $ownClient->id, 'lead_lawyer_id' => $lawyer->id]);
+    $accountA = ClientUser::factory()->for($ownClient)->activated()->create();
+    $accountB = ClientUser::factory()->for($ownClient)->activated()->create();
+
+    Filament::setCurrentPanel('portal');
+
+    // B trước, đúng MỘT lần, trong khi IP còn sạch — nếu không dòng của B sẽ không được ghi.
+    $this->livewire(Login::class)
+        ->set('data.email', $accountB->email)
+        ->set('data.password', 'sai-mat-khau-B')
+        ->call('authenticate');
+
+    // Rồi A bốn lần — cùng địa chỉ (Livewire test luôn ở 127.0.0.1) — đủ để đẩy IP (1 của B + 4
+    // của A) lên đúng trần 5, đúng hình dạng một NAT dùng chung (wifi văn phòng, mạng di động).
+    foreach (range(1, 4) as $ignored) {
+        $this->livewire(Login::class)
+            ->set('data.email', $accountA->email)
+            ->set('data.password', 'sai-mat-khau-A')
+            ->call('authenticate');
+    }
+
+    $accountAKey = PortalLoginThrottle::passwordAccountKey($accountA->email);
+    $ipKey = PortalLoginThrottle::passwordIpKeyFor('127.0.0.1');
+
+    expect(PortalLoginThrottle::tooManyAttempts([$ipKey]))->toBeTrue();
+
+    Filament::setCurrentPanel('admin');
+    $this->actingAs($lawyer, 'web');
+
+    // DECAY_SECONDS = 900 giây = đúng 15 phút — cùng con số ceil() sẽ tính ra ở đây, hardcode
+    // theo đúng thành ngữ portalThrottleMessage(15) của LoginTest.php thay vì gọi lại
+    // availableInMinutes() (tính hai lần cùng một việc không chứng minh gì thêm).
+    $this->livewire(EditClientUser::class, ['record' => $accountA->getKey()])
+        ->callAction('unlockLogin')
+        ->assertNotified(__('client_users.actions.unlock_login_success_ip_still_locked', ['minutes' => 15]));
+
+    // Chiều TÀI KHOẢN của A vẫn được xoá — chỉ chiều IP dùng chung là bị giữ lại.
+    expect(PortalLoginThrottle::tooManyAttempts([$accountAKey]))->toBeFalse()
+        ->and(PortalLoginThrottle::tooManyAttempts([$ipKey]))->toBeTrue();
+});
+
+/** Vế dương của ba test trên: không có khoá IP nào để báo thì câu trả lời là câu đơn giản. */
 it('tells staff the plain unlock message when there is no IP lock to report', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $ownClient = Client::factory()->create();

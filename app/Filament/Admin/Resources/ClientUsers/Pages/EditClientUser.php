@@ -3,6 +3,7 @@
 namespace App\Filament\Admin\Resources\ClientUsers\Pages;
 
 use App\Actions\Portal\UnlockPortalLogin;
+use App\Actions\Portal\UnlockPortalLoginResult;
 use App\Filament\Admin\Resources\ClientUsers\ClientUserResource;
 use App\Models\ClientUser;
 use App\Models\User;
@@ -57,11 +58,14 @@ class EditClientUser extends EditRecord
                     $actor = Auth::user();
                     abort_unless($actor instanceof User, 403);
 
-                    $ipStillLocked = app(UnlockPortalLogin::class)->handle($account, $actor);
+                    /** @var UnlockPortalLoginResult $result */
+                    $result = app(UnlockPortalLogin::class)->handle($account, $actor);
 
                     Notification::make()
-                        ->title($ipStillLocked
-                            ? __('client_users.actions.unlock_login_success_ip_still_locked')
+                        ->title($result->ipStillLocked
+                            ? __('client_users.actions.unlock_login_success_ip_still_locked', [
+                                'minutes' => $result->minutesRemaining,
+                            ])
                             : __('client_users.actions.unlock_login_success'))
                         ->success()
                         ->send();
@@ -96,12 +100,28 @@ class EditClientUser extends EditRecord
      * `filled()` khớp đúng điều kiện `dehydrated()` của ô password ở `ClientUserForm` (chỉ
      * dehydrate khi có gõ gì), nên "không đổi mật khẩu" không bao giờ vô tình bật lại cờ này khi
      * nhân sự chỉ sửa tên/điện thoại/is_active.
+     *
+     * Fix round 1 (I1): đổi EMAIL cũng đặt lại `activated_at = null` VÀ `must_change_password =
+     * true`, cùng lý lẽ như đặt lại mật khẩu. `activated_at` (R12) là bằng chứng người TỰ TAY đổi
+     * mật khẩu lần đầu qua đúng hộp thư đó — đổi sang một địa chỉ khác (gõ đúng hoặc gõ NHẦM lúc
+     * nghe điện thoại) làm bằng chứng đó không còn nói lên gì về hộp thư MỚI, nhưng trước bản sửa
+     * này `activated_at` vẫn giữ nguyên, nên `NotifyClientOfStageUpdate::eligibleRecipientsQuery()`
+     * tiếp tục coi địa chỉ mới là "đã kích hoạt" và gửi `client.stage_update` (tên khách, mã hồ
+     * sơ, nội dung công bố) tới một hộp thư chưa ai xác minh — đúng lỗ hổng `intake/intake-04` đã
+     * lấp cho lúc TẠO, còn hở ở lúc SỬA. So với `$this->record->email`, KHÔNG với giá trị cũ của
+     * `$data` (chưa có gì để so trước dòng này).
      */
     protected function mutateFormDataBeforeSave(array $data): array
     {
         $data['client_id'] = $this->record->client_id;
 
-        if (filled($data['password'] ?? null)) {
+        $emailChanged = array_key_exists('email', $data) && $data['email'] !== $this->record->email;
+
+        if ($emailChanged) {
+            $data['activated_at'] = null;
+        }
+
+        if ($emailChanged || filled($data['password'] ?? null)) {
             $data['must_change_password'] = true;
         }
 

@@ -258,6 +258,13 @@ class Login extends BaseLogin
 
         Audit::record('login_failed', $clientUser, [
             'guard' => 'client',
+            // Fix round 1 (I2): 'step' phân biệt dòng này với dòng mà
+            // App\Filament\Portal\Auth\PortalEmailAuthentication ghi cho bước nhập mã —
+            // App\Actions\Portal\UnlockPortalLogin đọc khoá này để biết tra
+            // PortalLoginThrottle::passwordIpKeyFor() hay codeIpKeyFor() cho đúng địa chỉ. Cả hai
+            // nhánh gọi hàm này (mật khẩu sai, và "kiểm lại credentials sau khi mã đã đúng") đều
+            // đập PortalLoginThrottle::passwordKeys(), nên cả hai đều đúng là bước mật khẩu.
+            'step' => 'password',
             'email' => $this->submittedEmail(),
             'ip' => request()->ip(),
         ], $clientUser);

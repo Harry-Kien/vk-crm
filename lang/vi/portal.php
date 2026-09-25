@@ -43,8 +43,15 @@ return [
          * đi qua tài khoản, nên câu này kèm số điện thoại văn phòng. Cố ý không nói vì sao bị
          * khoá theo email hay theo địa chỉ mạng — người bị khoá không cần biết cơ chế, và người
          * đang dò mật khẩu thì càng không.
+         *
+         * Fix round 1 (S2): từ khi văn phòng có nút "Mở khoá đăng nhập"
+         * (App\Actions\Portal\UnlockPortalLogin), gọi điện THẬT SỰ giúp được — nhưng không phải
+         * lúc nào cũng vào được ngay: nếu đang dùng chung một mạng với người (hay chính mình) vừa
+         * gõ sai nhiều lần, chiều địa chỉ mạng có thể vẫn còn khoá sau khi văn phòng đã mở khoá
+         * tài khoản (xem docblock UnlockPortalLogin — luật NAT-an toàn). Câu cũ hứa "gọi là vào
+         * ngay", một lời hứa không phải lúc nào cũng giữ được; câu mới không hứa vậy nữa.
          */
-        'throttled' => 'Anh/chị đã thử quá nhiều lần. Xin đợi :minutes phút rồi thử lại. Nếu cần vào ngay, anh/chị gọi giúp văn phòng theo số :phone.',
+        'throttled' => 'Anh/chị đã thử quá nhiều lần. Xin đợi :minutes phút rồi thử lại, hoặc gọi văn phòng theo số :phone để được hỗ trợ mở khoá tài khoản sớm hơn — nếu vẫn đang dùng chung mạng với lần gõ sai, có thể phải đợi hết :minutes phút dù tài khoản đã được mở khoá.',
     ],
 
     /*

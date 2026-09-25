@@ -328,7 +328,15 @@ it('warns on the transition-stage form when the matter is published but the clie
         'pageClass' => ViewMatter::class,
     ])->mountTableAction('transitionStage');
 
-    expect(noActivatedAccountWarningComponent($component)->isVisible())->toBeTrue();
+    $warning = noActivatedAccountWarningComponent($component);
+
+    expect($warning->isVisible())->toBeTrue();
+
+    // Fix round 1 (minor): không chỉ isVisible() — đo THẬT màu trên markup đã render. `fi-color-warning`
+    // là lớp Filament thật sự phát ra cho `->color('warning')` (đã tự đo bằng cách render component
+    // này qua toSchemaHtml() và đọc markup; class="fi-color fi-color-warning fi-text-color-700
+    // dark:fi-text-color-400 fi-sc-text"), không phải một chuỗi suy đoán.
+    expect($warning->toSchemaHtml(true))->toContain('fi-color-warning');
 });
 
 /** Vế dương: khách CÓ một tài khoản cổng đủ điều kiện (đang hoạt động, đã kích hoạt) thì không cảnh báo. */
