@@ -4,21 +4,29 @@ namespace App\Policies;
 
 use App\Models\ClientUser;
 use App\Models\ContractAmendment;
+use App\Models\Matter;
 use App\Models\User;
-use App\Policies\Concerns\ChecksMatterAccess;
+use App\Policies\Concerns\ChecksBillingAccess;
 
-/** Cùng lý do và cùng giới hạn với {@see ContractPolicy} — xem docblock ở đó. */
+/**
+ * Cùng định nghĩa "ai thấy tiền của vụ nào" với {@see ContractPolicy}, đọc qua hợp đồng cha.
+ *
+ * Chỉ đọc. Phụ lục chỉ sinh ra bên trong `AmendContract`, và cổng của việc đó là
+ * `ContractPolicy::update` (SPEC §5: `contract.manage` gồm "ký phụ lục"); model chặn sửa và xoá
+ * (`ContractAmendmentImmutable`). Gate trả `false` cho mọi ability không có ở đây.
+ */
 class ContractAmendmentPolicy
 {
-    use ChecksMatterAccess;
+    use ChecksBillingAccess;
 
-    public function viewAny(User|ClientUser $user): bool
+    /** @param  Matter|null  $context  xem {@see ChecksBillingAccess::canListBilling()} */
+    public function viewAny(User|ClientUser $user, mixed $context = null): bool
     {
-        return $user instanceof User;
+        return $this->canListBilling($user, $context);
     }
 
     public function view(User|ClientUser $user, ContractAmendment $amendment): bool
     {
-        return $user instanceof User && $this->canSeeMatter($user, $amendment->contract->matter);
+        return $this->canSeeBilling($user, $amendment->contract->matter);
     }
 }

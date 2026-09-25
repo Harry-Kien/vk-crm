@@ -37,6 +37,11 @@ enum Role: string
                 Permission::ClientManage,
                 Permission::ClientUserManage,
                 Permission::AuditLogView,
+                // M9: quản lý thấy tiền và doanh thu, soạn hợp đồng, nhưng CHỈ XEM khoản thu —
+                // không `payment.record` (SPEC §5, bổ sung 2026-09-19, sửa 2026-09-24).
+                Permission::BillingView,
+                Permission::ContractManage,
+                Permission::RevenueViewAny,
             ],
             self::Lawyer => [
                 Permission::MatterView,
@@ -48,6 +53,11 @@ enum Role: string
                 Permission::DocumentPublish,
                 Permission::ChecklistReview,
                 Permission::ClientUserManage,
+                // M9: tiền của vụ mình ("của mình" = `Matter::listableBy`), không doanh thu toàn
+                // văn phòng, không ghi khoản thu — trừ vụ `restricted` mình phụ trách, xem
+                // `PaymentPolicy::canRecordPaymentOn()`.
+                Permission::BillingView,
+                Permission::ContractManage,
             ],
             self::Assistant => [
                 Permission::MatterView,
@@ -56,9 +66,14 @@ enum Role: string
                 Permission::ClientManage,
                 Permission::ClientUserManage,
             ],
-            // Kế toán chỉ thấy danh sách rút gọn, không mở được nội dung hồ sơ (SPEC §5).
+            // Kế toán chỉ thấy danh sách rút gọn, không mở được nội dung hồ sơ (SPEC §5) — vẫn
+            // đúng sau M9: `billing.view` là một trục riêng, không kèm `matter.view`. Kế toán thấy
+            // và ghi TIỀN (qua `AccountantBillingRow`), không soạn hợp đồng.
             self::Accountant => [
                 Permission::MatterViewAny,
+                Permission::BillingView,
+                Permission::PaymentRecord,
+                Permission::RevenueViewAny,
             ],
         };
     }

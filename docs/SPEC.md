@@ -24,9 +24,17 @@ Hệ thống này giải quyết đúng ba việc:
 ### Ngoài phạm vi bản này
 
 Ghi rõ để không làm thừa. Các phần sau **không** làm ở bản 1.0 nhưng mô hình dữ
-liệu phải để chỗ mở rộng: hợp đồng dịch vụ và đợt thanh toán, công nợ, QR
-VietQR, tích hợp Zalo ZNS, tích hợp form website, dashboard phân tích nguồn
-khách, ký số.
+liệu phải để chỗ mở rộng: QR VietQR, tích hợp Zalo ZNS, tích hợp form website,
+dashboard phân tích nguồn khách, ký số.
+
+**Đính chính 2026-09-24 (M9 — hợp đồng dịch vụ và thu phí theo đợt).** Danh sách
+trên từng mở đầu bằng "hợp đồng dịch vụ và đợt thanh toán, công nợ". M9 đưa chúng
+vào hệ thống — một hợp đồng dịch vụ pháp lý cho mỗi vụ việc với một giá trị thoả
+thuận, thu theo đợt, ghi nhận khoản thu, nhắc nội bộ đợt quá hạn, trang "Công nợ"
+và trang doanh thu — nên chúng không còn ngoài phạm vi. Quyền mới: §5, "Bổ sung
+2026-09-19, sửa 2026-09-24". Phần còn lại của danh sách giữ nguyên. Dòng "Kế toán"
+ở bảng dưới vẫn đúng về **nội dung hồ sơ**; từ M9 kế toán còn xem và ghi **tiền**
+của các vụ thường, trong ranh giới viết ở §5.
 
 ### Người dùng
 
@@ -256,6 +264,13 @@ cộng trạng thái `on_hold` có thể vào ra từ `intake` và `collecting_d
 
 Index: `(client_id)`, `(lead_lawyer_id)`, `(stage)`, `(last_client_update_at)`,
 `(is_published_to_portal, client_id)`.
+
+**Đính chính 2026-09-24 (M9).** "`restricted` chỉ lead lawyer và quản trị thấy" áp
+cho cả **tiền** của vụ — hợp đồng, đợt thanh toán, khoản thu, phụ lục — theo đúng
+quy tắc của nội dung, qua cùng một định nghĩa `Matter::listableBy` (§5, "Bổ sung
+2026-09-19, sửa 2026-09-24"). Kế toán và trưởng phòng không thấy tiền của vụ
+`restricted`, kể cả trong số liệu tổng hợp; luật sư phụ trách ghi được khoản thu
+trên vụ đó dù không có `payment.record`.
 
 ### 4.7 `matter_user` — đội ngũ tham gia vụ việc
 
@@ -531,6 +546,35 @@ Dùng `spatie/laravel-permission`. Quyền đặt tên dạng `<resource>.<actio
 > vì mọi vai trò có `matter.view` đều có luôn `matter.update`. Cấp `document.publish` cho một
 > vai trò mới là cấp luôn quyền xoá tài liệu của vai trò đó.
 
+> **Bổ sung 2026-09-19, sửa 2026-09-24 (M9 — hợp đồng dịch vụ và thu phí theo đợt).** Danh sách 13 quyền ở trên được viết cho phạm vi bản 1.0, vốn **không có tiền** — §1 xếp "hợp đồng dịch vụ và đợt thanh toán, công nợ" vào phần ngoài phạm vi. M9 đưa chúng vào hệ thống, và không quyền nào trong 13 quyền trên diễn tả được chúng: `matter.view` là quyền đọc **nội dung hồ sơ**, còn tiền là một trục riêng — kế toán phải thấy tiền trong khi vẫn **không** được thấy nội dung, còn luật sư phải thấy tiền của vụ mình mà **không** thấy doanh thu toàn văn phòng. Thêm **bốn** quyền:
+>
+> | Quyền | admin | manager | lawyer | assistant | accountant |
+> |---|---|---|---|---|---|
+> | `billing.view` (hợp đồng, đợt thanh toán và khoản thu của một vụ việc) | ✓ | ✓ | ✓ (vụ của mình) | — | ✓ (**không kèm nội dung hồ sơ**) |
+> | `contract.manage` (soạn, kích hoạt, ký phụ lục, huỷ hợp đồng) | ✓ | ✓ | ✓ (vụ của mình) | — | — |
+> | `payment.record` (ghi nhận và huỷ một khoản thu) | ✓ | — | — (trừ vụ `restricted`, xem dưới) | — | ✓ |
+> | `revenue.viewAny` (số liệu doanh thu toàn văn phòng, trang "Công nợ") | ✓ | ✓ | — | — | ✓ |
+>
+> **Ai thấy tiền của vụ nào: một định nghĩa.** Có `billing.view` **và** vụ nằm trong danh sách người đó được liệt kê (`Matter::listableBy`, cùng định nghĩa với danh sách vụ việc). Vì vậy tiền của vụ `restricted` (§4.6: "chỉ lead lawyer và quản trị thấy") chỉ luật sư phụ trách và admin thấy; kế toán và quản lý không thấy, kể cả trong số liệu tổng hợp. Trên vụ `restricted`, luật sư phụ trách ghi được khoản thu dù không có `payment.record`, vì ngoài admin không ai khác thấy vụ đó.
+>
+> Cặp `billing.view` / `revenue.viewAny` lặp lại đúng cặp `matter.view` / `matter.viewAny`.
+>
+> **Ranh giới của kế toán, viết ra vì đây là một sự nới rộng.** `billing.view` **không** làm câu "kế toán chỉ xem danh sách vụ việc, không thấy nội dung hồ sơ" sai đi: màn hình tiền của kế toán mang mã hồ sơ, loại vụ việc, tên khách hàng, tên đợt, các con số và các ngày — **không** mang tiêu đề vụ việc, tóm tắt, mô tả nội bộ, tài liệu, tiến độ hay các bên. Ranh giới này cài bằng một DTO readonly như `ConflictMatch` ở §6.10, có test. Điểm **mới thật sự** là **tên khách hàng**: không có tên thì không lập được phiếu thu — một sự nới rộng có chủ đích, cũng là một mục đích xử lý dữ liệu mới cần ghi vào PROGRESS.
+>
+> **`contract.manage` cũng là quyền đổi số tiền của từng đợt** qua phụ lục, kèm lý do, có dấu vết.
+
+**Mang sang M11, ghi 2026-09-24 (M9 Task 3).** Dữ liệu tiền là dữ liệu nhạy cảm
+("tài chính", Nghị định 356/2025). Bảng R4 của kế hoạch M11
+(`docs/superpowers/plans/2026-09-24-m11-mcp.md`, "Các loại dữ liệu không bao giờ
+rời hệ thống qua MCP") thêm một dòng: **tiền của vụ việc — không bao giờ**
+(`contracts`, `instalments`, `payments`, `contract_amendments`), kể cả với người
+được xem tiền đó trên web. Presenter theo danh sách cho phép của M11 đã loại bốn
+model này theo mặc định; M11 thêm một test cấu trúc khẳng định không tool hay
+presenter nào dưới `app/Mcp` / `app/Support/Mcp` tham chiếu `Contract`,
+`Instalment`, `Payment`, `ContractAmendment`. M9 Task 3 không viết được test đó vì
+lúc ấy thư mục MCP chưa tồn tại; việc chép dòng này vào bảng R4 ghi ở PROGRESS
+(M9 Task 13).
+
 Cài bằng Policy cho từng model. `MatterPolicy::view()` kiểm tra: người dùng có
 `matter.viewAny`, **hoặc** có bản ghi trong `matter_user`. Vụ việc
 `confidentiality = restricted` thì chỉ `lead_lawyer_id` và vai trò `admin`.
@@ -668,6 +712,14 @@ Chạy hằng ngày 07:00. Với mỗi deadline chưa hoàn thành:
 
 Cột `reminders_sent` chống gửi trùng. Deadline `severity = critical` thì thêm
 mốc nhắc ở 14 ngày.
+
+**Đính chính 2026-09-24 (M9).** Thư nội bộ về **tiền** (`staff.instalment_overdue`,
+§9 — nhắc đợt thanh toán quá hạn) đi tới người **được xem tiền của vụ** (có
+`billing.view` và vụ nằm trong `Matter::listableBy` của họ, §5 bổ sung M9), không
+phải người được xem vụ: vụ thường gửi kế toán và luật sư phụ trách; vụ `restricted`
+gửi luật sư phụ trách và admin. Người nhận lấy qua cùng lớp tìm người nhận của thư
+nội bộ, với cổng "được xem tiền của vụ" — không một định nghĩa thứ hai. Chống gửi
+trùng qua `outbound_messages`; bảng `instalments` không có cột `reminders_sent`.
 
 ### 6.9 Nhắc khách bổ sung giấy tờ — `RemindMissingDocuments`
 
@@ -836,6 +888,13 @@ Trang chi tiết dùng tabs:
 - **Yêu cầu từ khách** — hộp thư của vụ việc.
 - **Nhật ký** — activity log của riêng vụ việc này.
 
+**Đính chính 2026-09-24 (M9).** Thêm tab **Hợp đồng và thanh toán**: giá trị hợp
+đồng và thuế suất, lịch thu theo đợt (đến hạn khi nào, đã thu, trạng thái), các
+khoản thu, phụ lục, và dòng tổng đã thu / còn phải thu / quá hạn. Đây là một tab
+**thêm** vào chín tab trên (cùng tab "Đội ngũ" của M6.5), và chỉ hiện với người
+được xem tiền của vụ (§5, bổ sung M9). Kế toán không mở được trang vụ việc — màn
+hình tiền của kế toán là trang "Công nợ", không phải tab này.
+
 Mỗi dòng tiến độ đã công bố hiển thị nhãn trạng thái đọc: *"Khách đã xem lúc
 21:14 ngày 14/09"* hoặc *"Khách chưa xem"* — nhãn chưa xem quá 5 ngày tô vàng.
 
@@ -929,6 +988,12 @@ logo và chân trang công ty. Gửi qua SMTP tên miền riêng, cấu hình tr
 | `staff.stale_matter` | Job SLA 14/21 ngày |
 | `staff.new_client_document` | Khách nộp tài liệu |
 | `staff.new_client_request` | Khách gửi yêu cầu |
+| `staff.instalment_overdue` | Job nhắc đợt thanh toán quá hạn — thêm 2026-09-24 (M9), người nhận theo §6.8 đính chính M9 |
+
+**Đính chính 2026-09-24 (M9).** Mẫu `staff.instalment_overdue` là thư **nội bộ**;
+nội dung đi qua cùng ranh giới với màn hình tiền của kế toán (§5 bổ sung M9): mã
+hồ sơ, loại vụ việc, tên khách, tên đợt, các con số và ngày — không tiêu đề vụ
+việc. M9 **không** gửi thư nhắc nợ nào cho khách.
 
 Email gửi cho khách **chỉ chứa nội dung đã công bố**, tuyệt đối không nhúng
 `internal_note`. Nội dung tóm tắt ngắn, chi tiết mời bấm vào portal.
@@ -1065,6 +1130,11 @@ Làm đúng thứ tự. Kết thúc mỗi milestone: test xanh, chạy Pint, c�
 | **M6** | Thông báo và tác vụ định kỳ: email templates, các job, SLA 14 ngày, nhắc hạn, nhắc khách chưa xem, heartbeat | Chạy `schedule:test` sinh đúng email vào log |
 | **M7** | Bàn giao và lưu trữ: `ReassignMatter`, `GenerateHandoverPackage`, `ExpireClientAccess`, nhật ký liên lạc, tìm kiếm | Test phần "bàn giao và lưu trữ" xanh, giải nén gói bàn giao kiểm tra được |
 | **M8** | Bảo mật và hoàn thiện: header, rate limit, activity log, backup, kiểm tra toàn bộ mục 10, viết `README.md` và hướng dẫn triển khai | Toàn bộ test xanh, checklist mục 10 tick hết |
+| **M9** | Hợp đồng dịch vụ pháp lý và thu phí theo đợt: bốn quyền tiền (§5 bổ sung M9), hợp đồng một giá trị chia đợt (theo ngày, khi ký, theo giai đoạn), khoản thu, miễn, phụ lục, nhắc nội bộ đợt quá hạn, tab tiền trên trang vụ việc, trang "Công nợ", trang doanh thu, khối hợp đồng và lịch thu trên cổng khách, khung `time_entries` | Bất biến "tổng các đợt = giá trị hợp đồng" giữ ở mọi đường ghi; test phân quyền tiền và cách ly cổng khách xanh; `billing:check-invariants` sạch trên dữ liệu mẫu |
+
+**Đính chính 2026-09-24 (M9).** Thêm dòng **M9** ở bảng trên. Thứ tự dựng hiện hành
+không phải thứ tự dòng trong bảng: xem `docs/PROGRESS.md` (M9 chạy sau M11, trên
+cơ sở dữ liệu production đã có dữ liệu thật).
 
 ---
 
@@ -1103,3 +1173,10 @@ không nằm trong controller).
 Riêng `time_entries` tuy chưa làm ở bản 1.0 nhưng nên tạo sẵn quan hệ trong
 model `Matter`, vì khi văn phòng chuyển sang tính phí theo giờ thì đây là thứ
 khó gắn thêm sau nhất.
+
+**Đính chính 2026-09-24 (M9).** Hợp đồng dịch vụ và đợt thanh toán **đã làm** ở
+M9: bảng `contracts` và `instalments` gắn vào `matters` như trên, cùng `payments`
+(khoản thu) và `contract_amendments` (phụ lục). `time_entries` M9 chỉ dựng ở
+**dạng khung** — bảng, model, quan hệ với `matters` và `users`, policy đóng kín —
+không Action, không màn hình, không con số nào đọc bảng này; tính phí theo giờ
+vẫn là việc của giai đoạn sau.

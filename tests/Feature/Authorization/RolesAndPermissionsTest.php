@@ -28,7 +28,26 @@ it('grants the admin every permission and the accountant almost none', function 
     expect($accountant->can(Permission::MatterViewAny->value))->toBeTrue()
         ->and($accountant->can(Permission::MatterView->value))->toBeFalse()
         ->and($accountant->can(Permission::MatterCreate->value))->toBeFalse()
-        ->and($accountant->can(Permission::SettingsManage->value))->toBeFalse();
+        ->and($accountant->can(Permission::SettingsManage->value))->toBeFalse()
+        // M9 (SPEC §5, bổ sung 2026-09-19, sửa 2026-09-24): kế toán thấy và ghi TIỀN, không
+        // soạn hợp đồng — và vẫn không có `matter.view` ở trên.
+        ->and($accountant->can(Permission::BillingView->value))->toBeTrue()
+        ->and($accountant->can(Permission::PaymentRecord->value))->toBeTrue()
+        ->and($accountant->can(Permission::RevenueViewAny->value))->toBeTrue()
+        ->and($accountant->can(Permission::ContractManage->value))->toBeFalse();
+});
+
+/*
+ * `EnumLabelsTest` chỉ bắt nhãn thiếu ở dạng `enums.…`; nhãn quyền đọc từ `lang/vi/permissions.php`,
+ * nên một quyền thiếu nhãn trả về chính khoá `permissions.…` và lọt qua test đó. Bốn quyền M9 là
+ * lần đầu bảng quyền đổi kể từ M2, nên chốt ở đây cho cả mười bảy.
+ */
+it('gives every permission a vietnamese label', function () {
+    expect(Permission::cases())->toHaveCount(17);
+
+    foreach (Permission::cases() as $permission) {
+        expect($permission->label())->not->toStartWith('permissions.', "{$permission->value} thiếu nhãn trong lang/vi/permissions.php");
+    }
 });
 
 it('matches the spec permission table for every role', function () {
@@ -37,21 +56,24 @@ it('matches the spec permission table for every role', function () {
             'matter.viewAny', 'matter.view', 'matter.create', 'matter.update', 'matter.transitionStage',
             'stageLog.publish', 'document.viewInternal', 'document.publish', 'checklist.review',
             'client.manage', 'clientUser.manage', 'settings.manage', 'auditLog.view',
+            'billing.view', 'contract.manage', 'payment.record', 'revenue.viewAny',
         ],
         Role::Manager->value => [
             'matter.viewAny', 'matter.view', 'matter.create', 'matter.update', 'matter.transitionStage',
             'stageLog.publish', 'document.viewInternal', 'document.publish', 'checklist.review',
             'client.manage', 'clientUser.manage', 'auditLog.view',
+            'billing.view', 'contract.manage', 'revenue.viewAny',
         ],
         Role::Lawyer->value => [
             'matter.view', 'matter.create', 'matter.update', 'matter.transitionStage',
             'stageLog.publish', 'document.viewInternal', 'document.publish', 'checklist.review',
             'clientUser.manage',
+            'billing.view', 'contract.manage',
         ],
         Role::Assistant->value => [
             'matter.view', 'matter.update', 'checklist.review', 'client.manage', 'clientUser.manage',
         ],
-        Role::Accountant->value => ['matter.viewAny'],
+        Role::Accountant->value => ['matter.viewAny', 'billing.view', 'payment.record', 'revenue.viewAny'],
     ];
 
     foreach ($expected as $roleName => $permissions) {
