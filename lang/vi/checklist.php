@@ -95,6 +95,12 @@ return [
             'documents_count' => 'Số tệp đã nộp',
         ],
         'actions' => [
+            // "Thêm đầu mục" — M6.5 Task 15 (finding intake-02/checklist-02/roles-06/spec-gap-04):
+            // trước đây không có nút nào thêm được một giấy tờ riêng cho một vụ việc đã mở.
+            'add_item' => 'Thêm đầu mục',
+            'add_item_heading' => 'Thêm đầu mục giấy tờ cho vụ việc này',
+            'add_item_submit' => 'Thêm',
+            'add_item_success' => 'Đã thêm đầu mục vào danh mục hồ sơ.',
             'accept' => 'Đã nhận',
             'accept_heading' => 'Xác nhận đã nhận đủ giấy tờ của đầu mục này',
             'accept_description' => 'Khách sẽ thấy mục này chuyển sang "Đã nhận" và không còn bị nhắc nộp nữa.',
@@ -113,6 +119,10 @@ return [
             // "không hợp lệ", và một dòng nhắc ngay dưới ô nhập rẻ hơn một vòng nộp lại.
             'rejection_reason_help' => 'Câu này hiện nguyên văn trên màn hình của khách và được gửi kèm email, nên hãy viết như đang nói chuyện với họ: chỗ nào chưa đạt, và cần làm gì để nộp lại cho đúng. Bấm một mẫu bên dưới rồi sửa lại cho đúng trường hợp.',
             'templates' => 'Mẫu có sẵn — bấm một cái là điền',
+            // Ba ô của modal "Thêm đầu mục" — M6.5 Task 15.
+            'item_name' => 'Tên đầu mục',
+            'item_description' => 'Mô tả cho khách',
+            'item_is_required' => 'Bắt buộc',
         ],
         // Nhãn ngắn của ba cái nút điền mẫu. Nội dung ĐẦY ĐỦ của mỗi mẫu nằm ở
         // `rejection_templates` bên dưới, nguyên văn SPEC §6.7; ba nhãn này chỉ để người duyệt

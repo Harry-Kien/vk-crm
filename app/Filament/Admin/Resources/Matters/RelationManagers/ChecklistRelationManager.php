@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 
+use App\Actions\Document\AddChecklistItem;
 use App\Actions\Document\ChecklistProgress;
 use App\Actions\Document\MarkChecklistItemNotApplicable;
 use App\Actions\Document\ReviewChecklistItem;
@@ -12,6 +13,8 @@ use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Components\Actions as SchemaActions;
 use Filament\Schemas\Components\Utilities\Set;
@@ -27,14 +30,22 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\HtmlString;
 
 /**
- * Tab "Danh mục hồ sơ" (SPEC §7.2): bảng `matter_checklist_items` kèm thanh tiến độ `X/Y` và ba
+ * Tab "Danh mục hồ sơ" (SPEC §7.2): bảng `matter_checklist_items` kèm thanh tiến độ `X/Y`, ba
  * thao tác ngay trên dòng — duyệt, từ chối (có ba mẫu lý do bấm một cái là điền, SPEC §6.7), và
- * đánh dấu không cần nộp (SPEC §4.10).
+ * đánh dấu không cần nộp (SPEC §4.10) — và một nút đầu bảng, "Thêm đầu mục" (M6.5 Task 15, SPEC
+ * §4.10/§7.4), để thêm một giấy tờ riêng cho ĐÚNG vụ việc này.
  *
- * **Lớp này không có một dòng nghiệp vụ nào.** Mọi lần ghi đi qua `ReviewChecklistItem` hoặc
- * `MarkChecklistItemNotApplicable` (CLAUDE.md: nghiệp vụ chỉ ở `app/Actions/`). Những gì ở đây
- * là: cột nào hiện, nút nào hiện cho ai, và một lời từ chối của Action đến được mắt người dùng
- * bằng tiếng Việt thay vì thành trang 500 — xem `ReportsActionFailures`.
+ * **"Thêm đầu mục" tồn tại vì trước Task 15 không có đường nào khác ghi một dòng MỚI vào
+ * `matter_checklist_items`.** Xem docblock {@see AddChecklistItem} cho hậu
+ * quả đầy đủ (finding `intake-02`/`checklist-02`/`roles-06`/`spec-gap-04`, critical): ba loại vụ
+ * việc không có mẫu mở ra với 0 đầu mục vĩnh viễn, và khách của các vụ đó không nộp được gì qua
+ * cổng.
+ *
+ * **Lớp này không có một dòng nghiệp vụ nào.** Mọi lần ghi đi qua `ReviewChecklistItem`,
+ * `MarkChecklistItemNotApplicable`, hoặc `AddChecklistItem` (CLAUDE.md: nghiệp vụ chỉ ở
+ * `app/Actions/`). Những gì ở đây là: cột nào hiện, nút nào hiện cho ai, và một lời từ chối của
+ * Action đến được mắt người dùng bằng tiếng Việt thay vì thành trang 500 — xem
+ * `ReportsActionFailures`.
  *
  * **Hai cổng khác nhau trên mỗi nút, cố ý tách rời.** `->authorize()` hỏi `Gate` về QUYỀN
  * (`MatterChecklistItemPolicy::review`, tức `checklist.review` cộng khả năng thấy hồ sơ);
@@ -56,10 +67,17 @@ use Illuminate\Support\HtmlString;
  * chép theo, kèm một câu docblock nói rằng mặc định `true` "từ chối MỌI thao tác bất kể policy".
  * Câu đó SAI. `RelationManager::getDefaultActionAuthorizationResponse()` chỉ hỏi `isReadOnly()`
  * cho các lớp action dựng sẵn của Filament (`CreateAction`, `EditAction`, `DeleteAction`,
- * `AttachAction`, …); mọi thứ khác rơi vào `default => null`. Cả ba thao tác ở đây là
- * `Filament\Actions\Action` thuần, nên phương thức đó không đổi được gì — một mutation probe
- * đặt nó thành `true` đã để cả bộ test xanh. Nếu một ngày có ai thêm `DeleteAction` vào bảng này
- * thì mới cần tắt nó, và lúc đó nó sẽ có test đi kèm.
+ * `AttachAction`, …); mọi thứ khác rơi vào `default => null`. Cả bốn thao tác ở đây (ba trên
+ * dòng, cộng "Thêm đầu mục" đầu bảng) đều là `Filament\Actions\Action` thuần, nên phương thức đó
+ * không đổi được gì — một mutation probe đặt nó thành `true` đã để cả bộ test xanh. Nếu một ngày
+ * có ai thêm `DeleteAction` vào bảng này thì mới cần tắt nó, và lúc đó nó sẽ có test đi kèm.
+ *
+ * Đúng vì `isReadOnly()` không chạm tới, "Thêm đầu mục" PHẢI tự khai `->authorize()` — nguyên tắc
+ * của task này: mặc định trang/Action tự viết luôn CHO PHÉP, mỗi Action phải tự hỏi policy. Cổng
+ * đó hỏi thẳng `MatterChecklistItemPolicy::create()` (uỷ cho `MatterPolicy::update()`), KHÔNG
+ * phải `checklist.review` như ba nút kia — thêm một giấy tờ vào danh mục là một việc khác với
+ * duyệt một giấy tờ khách đã nộp (xem docblock `AddChecklistItem`), và trợ lý thêm được vì họ có
+ * sẵn `matter.update` (`Role::Assistant->permissions()`), không phải vì họ có `checklist.review`.
  */
 class ChecklistRelationManager extends RelationManager
 {
@@ -200,6 +218,9 @@ class ChecklistRelationManager extends RelationManager
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->defaultSort('sort_order')
+            ->headerActions([
+                $this->addItemAction(),
+            ])
             ->recordActions([
                 $this->acceptAction(),
                 $this->rejectAction(),
@@ -212,6 +233,55 @@ class ChecklistRelationManager extends RelationManager
             ->modifyQueryUsing(fn (Builder $query): Builder => ChecklistProgress::countClientFacingDocuments(
                 static::scopeToVisibleMatters($query)
             )->with('reviewer'));
+    }
+
+    /**
+     * "Thêm đầu mục" (M6.5 Task 15) — đầu bảng, không gắn với một dòng nào. Ba ô đủ cho việc xin
+     * thêm MỘT giấy tờ riêng cho vụ việc này: tên, mô tả cho khách (câu này khách đọc trên portal
+     * — xem `MatterProgress::checklistItems()`), và có bắt buộc hay không. Không có ô "thứ tự":
+     * `AddChecklistItem` tự nối đầu mục mới vào CUỐI danh mục hiện có, người thêm không cần biết
+     * số thứ tự hiện tại của những dòng khác.
+     *
+     * `->maxLength(200)` khớp đúng cột `matter_checklist_items.name` (migration
+     * `2026_09_14_000011`) — MariaDB strict mode biến việc vượt quá thành lỗi 500, SQLite của bộ
+     * test thì không thấy (CLAUDE.md, bài học `intake/intake-08`).
+     */
+    private function addItemAction(): Action
+    {
+        $matter = $this->getOwnerRecord();
+
+        return Action::make('addItem')
+            ->label(__('checklist.tab.actions.add_item'))
+            ->icon(Heroicon::OutlinedPlus)
+            ->modalHeading(__('checklist.tab.actions.add_item_heading'))
+            ->modalSubmitActionLabel(__('checklist.tab.actions.add_item_submit'))
+            // Cổng THẬT — không có nó, một `Filament\Actions\Action` thuần mặc định CHO PHÉP mọi
+            // người (xem docblock lớp). Hỏi `MatterChecklistItemPolicy::create()`, KHÔNG phải
+            // `checklist.review`: đây là "xin thêm giấy tờ", không phải "duyệt giấy tờ đã nộp".
+            ->authorize(fn (): bool => Gate::allows('create', [MatterChecklistItem::class, $matter]))
+            ->schema([
+                TextInput::make('name')
+                    ->label(__('checklist.tab.fields.item_name'))
+                    ->required()
+                    ->maxLength(200),
+                Textarea::make('description')
+                    ->label(__('checklist.tab.fields.item_description'))
+                    ->columnSpanFull(),
+                Toggle::make('is_required')
+                    ->label(__('checklist.tab.fields.item_is_required'))
+                    ->default(false),
+            ])
+            ->successNotificationTitle(__('checklist.tab.actions.add_item_success'))
+            ->action(fn (Action $action, array $data) => $this->runAction(
+                $action,
+                fn () => app(AddChecklistItem::class)->handle(
+                    matter: $matter,
+                    actor: Auth::user(),
+                    name: $data['name'],
+                    description: $data['description'] ?? null,
+                    isRequired: (bool) ($data['is_required'] ?? false),
+                ),
+            ));
     }
 
     private function acceptAction(): Action
