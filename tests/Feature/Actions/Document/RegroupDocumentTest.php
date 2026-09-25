@@ -371,6 +371,44 @@ it('một lý do chỉ toàn khoảng trắng bị coi như không nhập gì', 
 });
 
 /**
+ * Vòng sửa 2, mục nhỏ: `trim()` trần chỉ gỡ khoảng trắng ASCII (dấu cách, tab, xuống dòng...),
+ * KHÔNG gỡ khoảng trắng Unicode — một lý do toàn NBSP (U+00A0, ký tự bàn phím điện thoại hay
+ * chèn khi gõ tiếng Việt có dấu, hoặc copy-paste từ Word) đi lọt qua `trim()` với độ dài > 0, nên
+ * `mb_strlen($trimmedReason) < 10` không bắt được nó nếu đủ 10 NBSP trở lên — một "lý do" không
+ * mang chữ nào vẫn được chấp nhận là một lời giải thích hợp lệ.
+ */
+it('một lý do chỉ toàn NBSP (U+00A0) bị coi như không nhập gì, không lọt qua trim() ASCII', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = regroupMatter($lawyer);
+    $document = regroupDocumentIssued($matter, DocumentStatus::InternalDraft);
+
+    expect(fn () => app(RegroupDocument::class)->handle(
+        document: $document,
+        actor: $lawyer,
+        group: DocumentGroup::Authority,
+        reason: str_repeat("\u{00A0}", 12),
+    ))->toThrow(DocumentLifecycleNotAllowed::class, __('documents.lifecycle.not_ready_to_leave_group_b', [
+        'status' => DocumentStatus::InternalDraft->label(),
+    ]));
+});
+
+/** Cùng lỗ hổng, khoảng trắng biểu ý (U+3000) — phổ biến trong bàn phím IME Đông Á. */
+it('một lý do chỉ toàn khoảng trắng biểu ý (U+3000) bị coi như không nhập gì', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = regroupMatter($lawyer);
+    $document = regroupDocumentIssued($matter, DocumentStatus::InternalDraft);
+
+    expect(fn () => app(RegroupDocument::class)->handle(
+        document: $document,
+        actor: $lawyer,
+        group: DocumentGroup::Authority,
+        reason: str_repeat("\u{3000}", 12),
+    ))->toThrow(DocumentLifecycleNotAllowed::class, __('documents.lifecycle.not_ready_to_leave_group_b', [
+        'status' => DocumentStatus::InternalDraft->label(),
+    ]));
+});
+
+/**
  * Trợ lý không có `document.publish` — dù nhập một lý do hợp lệ, cổng vẫn từ chối TRƯỚC KHI kịp
  * xét lý do (`Gate::authorize('publish')` đứng trước cổng lý do trong `RegroupDocument`).
  */
@@ -543,11 +581,17 @@ it('sau vòng khứ hồi, đường duy nhất về tay khách là PublishDocum
 
     expect($back->isReleasedToPortal())->toBeFalse();
 
+    // Ảnh chụp khớp trạng thái THẬT lúc gọi (chưa công bố, sau vòng khứ hồi) — một hộp thoại vừa
+    // mở ra sau khi tài liệu đã về lại, không phải một ảnh chụp cũ từ trước lúc thu hồi. Xem
+    // `PublishDocumentTest` cho kịch bản NGƯỢC lại (ảnh chụp CŨ, từ trước thu hồi).
     app(PublishDocument::class)->handle(
         document: $back,
         actor: $lawyer,
         clientCanView: true,
         clientCanDownload: true,
+        expectedClientCanView: $back->client_can_view,
+        expectedClientCanDownload: $back->client_can_download,
+        expectedIsReleased: $back->wasPublishedToClient(),
     );
 
     expect($document->fresh()->isReleasedToPortal())->toBeTrue()

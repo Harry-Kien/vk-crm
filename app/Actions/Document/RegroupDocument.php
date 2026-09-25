@@ -108,7 +108,19 @@ class RegroupDocument
                     || $fresh->wasPublishedToClient();
 
                 if (! $hasClearedLifecycle) {
-                    $trimmedReason = $reason === null ? '' : trim($reason);
+                    // `trim()` trần chỉ gỡ khoảng trắng ASCII (` \t\n\r\0\x0B`) — một lý do gõ
+                    // toàn NBSP (U+00A0, bàn phím điện thoại hay chèn khi gõ có dấu, hoặc dán từ
+                    // Word) hay khoảng trắng biểu ý (U+3000, IME Đông Á) đi lọt qua với độ dài > 0
+                    // và không mang chữ nào — vòng sửa 2. `\p{Z}` (nhóm Unicode "Separator") phủ
+                    // cả hai cộng mọi khoảng trắng Unicode khác; `\x{200B}` (zero-width space)
+                    // không thuộc `\p{Z}` nên phải liệt kê riêng.
+                    // `?? ''`: `preg_replace()` với cờ `/u` trả `null` nếu `$reason` không phải
+                    // UTF-8 hợp lệ — một chuỗi như vậy không mang lý do gì đọc được, nên coi như
+                    // rỗng (từ chối bằng câu "chưa sẵn sàng" chung) thay vì để `null` rơi xuống
+                    // `mb_strlen()` phía dưới.
+                    $trimmedReason = $reason === null
+                        ? ''
+                        : preg_replace('/^[\s\p{Z}\x{200B}]+|[\s\p{Z}\x{200B}]+$/u', '', $reason) ?? '';
 
                     if ($trimmedReason === '') {
                         throw DocumentLifecycleNotAllowed::notReadyToLeaveGroupB($fresh);

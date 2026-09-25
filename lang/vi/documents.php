@@ -91,6 +91,11 @@ return [
     'lifecycle' => [
         'not_group_b' => 'Chỉ văn bản do văn phòng phát hành (nhóm B) mới đi qua vòng trình duyệt và ký, nộp này. Văn bản của cơ quan nhà nước (nhóm C) không do văn phòng soạn nên không có gì để trình duyệt.',
         'not_internal_draft' => 'Tài liệu này đang ở trạng thái ":status" nên không trình duyệt được nữa — chỉ bản thảo nội bộ mới trình duyệt được. Nếu cần sửa lại nội dung đã trình duyệt, anh/chị tải lên một bản mới.',
+        // Vòng sửa 2: nhánh RIÊNG cho `pending_approval` — từ vòng sửa 1, "Trả về bản nháp" là
+        // đường quay lại `internal_draft` thật sự cho đúng trạng thái này. Câu `not_internal_draft`
+        // phía trên (đẩy đi tải bản mới) chỉ còn đúng cho `signed_filed`/`published`, nơi không có
+        // đường quay lại nào — xem `DocumentLifecycleNotAllowed::notInternalDraft()` cho nhánh chọn.
+        'not_internal_draft_pending' => 'Tài liệu này đang ở trạng thái ":status" nên không trình duyệt được nữa. Anh/chị bấm "Trả về bản nháp" để đưa nó về lại bản thảo nội bộ, rồi trình duyệt lại.',
         'not_pending_approval' => 'Tài liệu này đang ở trạng thái ":status" nên chưa đánh dấu "Đã ký, đã nộp" được. Anh/chị trình duyệt bản thảo trước, rồi đánh dấu sau khi đã có bản ký và đã nộp.',
         // Vòng sửa 1 (phán quyết R9 mở rộng): giờ có HAI đường rời nhóm B — đã ký/đã nộp/đã công
         // bố, HOẶC một lý do sửa nhầm nhóm ghi rõ. Câu từ chối phải nói ra cả hai, vì người đọc

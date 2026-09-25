@@ -2,6 +2,7 @@
 
 namespace App\Exceptions;
 
+use App\Enums\DocumentStatus;
 use App\Models\Document;
 use DomainException;
 
@@ -51,10 +52,20 @@ class DocumentLifecycleNotAllowed extends DomainException
      * `SubmitDocumentForApproval` chỉ trình duyệt được một bản thảo `internal_draft`. Gọi lại lần
      * hai trên một tài liệu đã ở `pending_approval` (hay xa hơn) không phải một thao tác — nó là
      * một dấu hiệu người dùng đang thao tác trên một trang mở đã lâu.
+     *
+     * **Hai câu, tuỳ trạng thái HIỆN TẠI — vòng sửa 2.** `pending_approval` có một đường quay lại
+     * thật (`ReturnDocumentToDraft`, ruling vòng sửa 1): câu từ chối phải trỏ TỚI đường đó, không
+     * đẩy người dùng đi tải một bản trùng lặp không cần thiết. `signed_filed`/`published` không có
+     * đường quay lại nào (`ReturnDocumentToDraft` chỉ chấp nhận `pending_approval`), nên câu cũ —
+     * tải lên một bản mới — vẫn đúng cho hai trạng thái đó.
      */
     public static function notInternalDraft(Document $document): self
     {
-        return new self(__('documents.lifecycle.not_internal_draft', [
+        $key = $document->status === DocumentStatus::PendingApproval
+            ? 'documents.lifecycle.not_internal_draft_pending'
+            : 'documents.lifecycle.not_internal_draft';
+
+        return new self(__($key, [
             'status' => $document->status->label(),
         ]), $document);
     }

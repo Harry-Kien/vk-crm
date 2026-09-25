@@ -119,8 +119,9 @@ class RefusingPublishDocument extends PublishDocument
         User $actor,
         bool $clientCanView,
         bool $clientCanDownload,
-        ?bool $expectedClientCanView = null,
-        ?bool $expectedClientCanDownload = null,
+        bool $expectedClientCanView,
+        bool $expectedClientCanDownload,
+        bool $expectedIsReleased,
     ): Document {
         throw new AuthorizationException;
     }
@@ -457,23 +458,50 @@ it('offers every group including D to a lawyer, who may both publish and read in
         ->toBe(['A', 'B', 'C', 'D']);
 });
 
-it('never offers group D to someone without document.viewInternal', function () {
+/**
+ * **Sửa lại ở vòng sửa 2 (Minor 4).** Tên và điều kiện cũ ("never offers D to someone without
+ * document.viewInternal") không còn đúng: phán quyết (a) mở rộng nói D được mời cho bất kỳ ai có
+ * `document.update`, BẤT KỂ nguồn — bản vòng sửa 1 chỉ áp dụng ngoại lệ đó cho nguồn B.
+ * `regroupOptions()` giờ hỏi `document.update`, không còn hỏi "nguồn có phải B không", nên phép
+ * đo đúng cho lằn ranh CÒN LẠI phải chọn một actor thiếu CẢ HAI quyền (`document.update` VÀ
+ * `document.viewInternal`) — một trợ lý NGOÀI đội ngũ (không có `document.update` trên vụ việc
+ * này), không phải một trợ lý trong đội ngũ như bản cũ (thứ giờ ĐÚNG là phải thấy D, xem test
+ * riêng ngay bên dưới).
+ */
+it('never offers group D to someone without document.update or document.viewInternal', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
-    // Nhóm C (Authority), không phải B: bài test này đo lọc theo `document.viewInternal`, một
-    // điều kiện KHÁC với lọc theo nhóm B mà vòng sửa 1 thêm vào `regroupOptions()` — dùng nhóm C
-    // để hai điều kiện không lẫn vào nhau.
+    $document = Document::factory()->for($matter)->group(DocumentGroup::Authority)->create();
+
+    // Trợ lý NGOÀI đội ngũ: không `document.update` trên vụ việc này (chưa từng thêm vào), và
+    // không vai trò Assistant nào có `document.viewInternal` — thiếu cả hai lối vào D.
+    $outsiderAssistant = User::factory()->withRole(Role::Assistant)->create();
+
+    $this->actingAs($outsiderAssistant, 'web');
+
+    expect(array_keys(DocumentsRelationManager::groupOptions($matter)))->not->toContain('D')
+        ->and(array_keys(DocumentsRelationManager::regroupOptions($document)))->not->toContain('D');
+
+    $this->actingAs($lawyer, 'web');
+
+    expect(array_keys(DocumentsRelationManager::regroupOptions($document)))->toContain('D');
+});
+
+/**
+ * Cặp bổ sung (vòng sửa 2, Minor 4): một trợ lý TRONG đội ngũ — có `document.update` trên chính
+ * vụ việc này — giờ thấy được nhóm D dù không có `document.viewInternal`, BẤT KỂ nguồn (ở đây là
+ * nhóm C, không phải B, đúng phạm vi mà bản vòng sửa 1 còn bỏ sót). Mutation probe cho điều kiện
+ * này nằm ở test màn hình đầy đủ ("trợ lý rút được một tài liệu nhóm A...") phía trên.
+ */
+it('trợ lý trong đội ngũ (có document.update) vẫn thấy nhóm D dù không có document.viewInternal, bất kể nguồn', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
     $document = Document::factory()->for($matter)->group(DocumentGroup::Authority)->create();
 
     $assistant = User::factory()->withRole(Role::Assistant)->create();
     $matter->addTeamMember($assistant, MatterRole::Assistant);
 
     $this->actingAs($assistant, 'web');
-
-    expect(array_keys(DocumentsRelationManager::groupOptions($matter)))->not->toContain('D')
-        ->and(array_keys(DocumentsRelationManager::regroupOptions($document)))->not->toContain('D');
-
-    $this->actingAs($lawyer, 'web');
 
     expect(array_keys(DocumentsRelationManager::regroupOptions($document)))->toContain('D');
 });
@@ -886,6 +914,14 @@ it('refuses to regroup a group B document out of B while it is still internal_dr
 // `RegroupDocument` (đã có test riêng, chi tiết hơn, ở `RegroupDocumentTest`).
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * **"Biến mất khỏi cổng khách" đo bằng HTTP thật — vòng sửa 2, mục nhỏ.** Bản vòng sửa 1 chỉ gọi
+ * `isReleasedToPortal()` sau khi chuyển nhóm — hàm đó đọc lại đúng những cột mà CHÍNH test này vừa
+ * ghi, không đi qua `ClientPortalScope`/`DocumentPolicy`/route tải có chữ ký nào cả, nên nó không
+ * đo được gì hơn "cột đã đổi giá trị". Test này lấy đường dẫn tải có chữ ký TRƯỚC khi thu hồi
+ * (đúng thứ một khách đã mở trang trước đó có thể còn giữ), rồi đo lại CẢ trang portal LẪN đường
+ * dẫn đó SAU khi thu hồi, dưới guard `client` thật — cùng kỹ thuật với walk test S2.
+ */
 it('trợ lý chuyển được một tài liệu nhóm B ĐÃ CÔNG BỐ vào nhóm D qua màn hình, không cần document.publish, và nó biến mất khỏi cổng khách', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $client = Client::factory()->create();
@@ -897,6 +933,21 @@ it('trợ lý chuyển được một tài liệu nhóm B ĐÃ CÔNG BỐ vào n
         'client_can_download' => true,
     ]);
 
+    // Khách thấy TRƯỚC khi thu hồi — cả trang portal lẫn đường dẫn tải có chữ ký, đo qua HTTP
+    // thật dưới guard `client`. Giữ lại đường dẫn ký: nó phải hết tác dụng SAU khi thu hồi, dù
+    // chữ ký (còn hạn 5 phút) vẫn hợp lệ — cổng phải nằm ở policy, không phải ở chữ ký.
+    $this->actingAs($clientUser, 'client');
+    $this->get(MatterProgress::getUrl(['record' => $matter->getKey()], panel: 'portal'))
+        ->assertOk()
+        ->assertSee($document->title);
+    $signedDownloadUrl = $document->downloadUrlFor($clientUser);
+    $this->get($signedDownloadUrl)->assertOk();
+    auth('client')->logout();
+
+    // Request portal vừa rồi đổi panel HIỆN TẠI sang `portal` — đặt lại `admin` trước khi gọi
+    // `documentsManager()` (Livewire component của panel admin), cùng lý do với walk test S2.
+    Filament::setCurrentPanel('admin');
+
     $assistant = User::factory()->withRole(Role::Assistant)->create();
     $matter->addTeamMember($assistant, MatterRole::Assistant);
 
@@ -905,6 +956,46 @@ it('trợ lý chuyển được một tài liệu nhóm B ĐÃ CÔNG BỐ vào n
     // Ô chọn nhóm chỉ được offer B (giữ nguyên) và D — không phải A/C, thứ Action luôn từ chối
     // trợ lý — xem docblock `regroupOptions()`.
     expect(array_keys(DocumentsRelationManager::regroupOptions($document)))->toBe(['B', 'D']);
+
+    documentsManager($matter)
+        ->callAction(TestAction::make('regroup')->table($document), data: [
+            'group' => DocumentGroup::Internal->value,
+        ])
+        ->assertHasNoActionErrors();
+
+    expect($document->refresh()->group)->toBe(DocumentGroup::Internal)
+        ->and($document->isReleasedToPortal())->toBeFalse();
+
+    // Và khách THẬT SỰ không còn thấy nó — cùng trang, cùng đường dẫn ký, đo lại SAU khi thu hồi.
+    auth('web')->logout();
+    $this->actingAs($clientUser, 'client');
+    $this->get(MatterProgress::getUrl(['record' => $matter->getKey()], panel: 'portal'))
+        ->assertOk()
+        ->assertDontSee($document->title);
+    $this->get($signedDownloadUrl)->assertNotFound();
+});
+
+/**
+ * Vòng sửa 2, mục nhỏ: phán quyết (a) nói "vào D luôn được phép với `document.update`, BẤT KỂ
+ * nhóm NGUỒN" — nhưng `regroupOptions()` (vòng sửa 1) chỉ mời D cho ai không có
+ * `document.viewInternal` khi nguồn LÀ B. Một tài liệu nhóm A (`ClientProvided`) công bố nhầm
+ * cũng cần rút được, và một trợ lý cũng phải làm được việc đó — cùng lý lẽ với nhóm B.
+ */
+it('trợ lý rút được một tài liệu nhóm A ĐÃ CÔNG BỐ vào nhóm D qua màn hình, không cần document.viewInternal', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $document = documentWithFile($matter, DocumentGroup::ClientProvided, [
+        'status' => DocumentStatus::Published,
+        'client_can_view' => true,
+        'client_can_download' => true,
+    ]);
+
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    $this->actingAs($assistant, 'web');
+
+    expect(array_keys(DocumentsRelationManager::regroupOptions($document)))->toContain('D');
 
     documentsManager($matter)
         ->callAction(TestAction::make('regroup')->table($document), data: [

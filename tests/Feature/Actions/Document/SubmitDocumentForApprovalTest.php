@@ -121,6 +121,25 @@ it('một bản thảo đã trình duyệt rồi không trình duyệt lại đ�
 ]);
 
 /**
+ * Vòng sửa 2, mục nhỏ: `lifecycle.not_internal_draft` chỉ nói "tải lên một bản mới" — đúng cho
+ * `signed_filed`/`published` (không còn đường quay lại `internal_draft`), nhưng SAI cho
+ * `pending_approval`: từ vòng sửa 1, "Trả về bản nháp" (`ReturnDocumentToDraft`) chính là đường đó,
+ * và câu cũ giấu nó đi, đẩy người dùng đi tải một bản trùng lặp không cần thiết.
+ */
+it('câu từ chối trỏ tới "Trả về bản nháp" khi tài liệu đang chờ duyệt, và tới việc tải bản mới khi đã xa hơn', function (DocumentStatus $status, string $expectedKey) {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = submitMatter($lawyer);
+    $document = submitDocument($matter, status: $status);
+
+    expect(fn () => submitForApprovalAs($document, $lawyer))
+        ->toThrow(DocumentLifecycleNotAllowed::class, __($expectedKey, ['status' => $status->label()]));
+})->with([
+    'pending_approval → trỏ tới "Trả về bản nháp"' => [DocumentStatus::PendingApproval, 'documents.lifecycle.not_internal_draft_pending'],
+    'signed_filed → trỏ tới tải bản mới' => [DocumentStatus::SignedFiled, 'documents.lifecycle.not_internal_draft'],
+    'published → trỏ tới tải bản mới' => [DocumentStatus::Published, 'documents.lifecycle.not_internal_draft'],
+]);
+
+/**
  * Cổng "vụ việc đã xoá mềm" ở đây đứng TRƯỚC `Gate`, cùng lý lẽ với `PublishDocument`: nó nói về
  * TRẠNG THÁI bản ghi chứ không về người hỏi, nên nó ném `DocumentLifecycleNotAllowed` (một câu
  * tiếng Việt cụ thể — "hồ sơ đã bị xoá") chứ không phải `AuthorizationException` chung chung.

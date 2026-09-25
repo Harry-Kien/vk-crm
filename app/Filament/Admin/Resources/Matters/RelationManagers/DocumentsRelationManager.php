@@ -226,13 +226,18 @@ class DocumentsRelationManager extends RelationManager
     /**
      * Các nhóm cho ô chọn của lần CHUYỂN NHÓM — lọc theo CHÍNH bản ghi (vòng sửa 1, `I1`).
      *
-     * **Nhóm D là ĐÍCH cho một tài liệu B: luôn mời, kể cả cho ai không có `document.viewInternal`
-     * — ngoại lệ có chủ đích với `visibleGroups()`.** Phán quyết R9 mở rộng: rút một tài liệu B
-     * lỡ công bố vào D là đường DUY NHẤT thu hồi nó trước khi `RetractDocument` (M7) tồn tại, và
-     * nó chỉ đòi `document.update` — một trợ lý PHẢI làm được, dù họ không đọc lại được nhóm D
-     * sau đó (thông báo thành công vẫn xác nhận việc đã xảy ra; nhật ký vẫn ghi). Với MỌI nhóm
-     * NGUỒN khác, lý lẽ cũ của `visibleGroups()` vẫn đứng: bày một lựa chọn dẫn tới chỗ không đọc
-     * lại được là bày một cái bẫy, nên D vẫn ẩn với ai không có `document.viewInternal`.
+     * **Nhóm D là ĐÍCH cho MỌI nhóm nguồn: luôn mời, kể cả cho ai không có
+     * `document.viewInternal` — ngoại lệ có chủ đích với `visibleGroups()` (vòng sửa 1, MỞ RỘNG
+     * ở vòng sửa 2 — phán quyết (a) nói "bất kể nhóm nguồn", bản vòng sửa 1 chỉ áp cho nguồn B).**
+     * Rút một tài liệu lỡ công bố vào D là đường DUY NHẤT thu hồi nó trước khi `RetractDocument`
+     * (M7) tồn tại, và nó chỉ đòi `document.update` — MỘT trợ lý phát hiện một tài liệu NHÓM A
+     * (`ClientProvided`, khách tự nộp) công bố nhầm cũng phải rút được nó ngay, cùng lý lẽ với
+     * nhóm B, không chỉ nhóm B. Điều kiện ở đây vì vậy là "actor có `document.update`" — không
+     * còn gắn với nhóm NGUỒN cụ thể nào — mà bất kỳ ai mở được màn hình này đều có, nên D được
+     * mời cho MỌI nguồn. Vẫn giữ `$canSeeInternal` làm lối vào THAY THẾ (không phải điều kiện
+     * CỘNG THÊM): ai đã có `document.viewInternal` thấy D bất kể có `document.update` hay không,
+     * đúng lý lẽ cũ. `document.update` bên dưới hỏi lại đúng CÂU HỎI mà `->authorize()` của Action
+     * cũng hỏi — không lệch nhau.
      *
      * **Rời nhóm D (nguồn là D): không lọc.** Giữ đúng lý lẽ cũ — "siết thêm không phải nới ra",
      * và bắt một trợ lý đi tìm luật sư để dời một tài liệu xếp nhầm sẽ để nó nằm ở chỗ rộng hơn
@@ -254,13 +259,14 @@ class DocumentsRelationManager extends RelationManager
     public static function regroupOptions(Document $record): array
     {
         $canSeeInternal = Auth::user()?->can(Permission::DocumentViewInternal->value) ?? false;
+        $canUpdate = Gate::allows('update', $record);
         $canPublish = Gate::allows('publish', $record);
         $isFromGroupB = $record->group === DocumentGroup::Issued;
 
         return collect(DocumentGroup::cases())
-            ->reject(function (DocumentGroup $group) use ($canSeeInternal, $canPublish, $isFromGroupB): bool {
+            ->reject(function (DocumentGroup $group) use ($canSeeInternal, $canUpdate, $canPublish, $isFromGroupB): bool {
                 if ($group->isInternal()) {
-                    return ! $canSeeInternal && ! $isFromGroupB;
+                    return ! $canSeeInternal && ! $canUpdate;
                 }
 
                 return $isFromGroupB
@@ -581,15 +587,21 @@ class DocumentsRelationManager extends RelationManager
      * đúng lằn ranh: tài liệu ĐÃ ra tới khách thì form phải trung thực với hai cờ hiện có (kể cả
      * khi đó là một lần công bố lại), còn CHƯA thì form vẫn gợi ý bộ mặc định thuận tiện cũ.
      *
-     * **Hai ô ẩn `mounted_*` — kiểm tra optimistic, vòng sửa 1.** `PublishDocument` không tự biết
-     * hộp thoại này đã mở TỪ LÚC NÀO — nó chỉ thấy dữ liệu gửi lên khi bấm xác nhận. Hai ô ẩn này
-     * mang đúng ẢNH CHỤP hai cờ mà `fillForm()` ở trên đã đọc LÚC MỞ hộp thoại, đi kèm (không thay
-     * thế) hai `Toggle` — người dùng có thể đổi `Toggle`, nhưng hai ô ẩn giữ nguyên giá trị lúc
-     * mount. Action so ảnh chụp đó với dữ liệu MỚI NHẤT trong CSDL lúc ghi: lệch nhau nghĩa là ai
-     * đó (kể cả chính người này, ở một tab khác) đã công bố lại tài liệu SAU khi hộp thoại mở,
-     * TRƯỚC khi hộp thoại này kịp xác nhận. `mounted_is_released` phân biệt "lần công bố đầu"
-     * (không có ảnh chụp thật nào để so, hai ô kia mang giá trị mặc định `true`/`true` chỉ để tiện
-     * người dùng — KHÔNG phải dữ liệu đã có) khỏi "công bố lại" (ảnh chụp là dữ liệu thật).
+     * **Ba ô ẩn `mounted_*` — kiểm tra optimistic, vòng sửa 1, MỞ RỘNG vòng sửa 2 (N1).**
+     * `PublishDocument` không tự biết hộp thoại này đã mở TỪ LÚC NÀO — nó chỉ thấy dữ liệu gửi lên
+     * khi bấm xác nhận. Ba ô ẩn này mang đúng ẢNH CHỤP trạng thái công bố mà `fillForm()` ở trên
+     * đã đọc LÚC MỞ hộp thoại, đi kèm (không thay thế) hai `Toggle` — người dùng có thể đổi
+     * `Toggle`, nhưng ba ô ẩn giữ nguyên giá trị lúc mount.
+     *
+     * **Luôn gửi giá trị THẬT — không còn `null` làm dấu hiệu "lần đầu" (vòng sửa 2 sửa đúng lỗ
+     * hổng N1).** Bản vòng sửa 1 gửi `mounted_client_can_view`/`mounted_client_can_download` là
+     * `null` cho một tài liệu chưa release, và `PublishDocument` đọc `null` đó thành "đừng so gì
+     * cả" — bỏ lọt đúng lúc TRẠNG THÁI CÔNG BỐ đổi giữa lúc mount và lúc xác nhận (hai tab cùng
+     * công bố lần đầu; hoặc một vòng thu hồi-rồi-trả-lại xảy ra giữa chừng). Nay ba ô LUÔN mang
+     * giá trị hiện có của chính bản ghi (`$record->client_can_view`/`client_can_download`, và
+     * `$record->wasPublishedToClient()` cho `mounted_is_released`) — kể cả khi tài liệu chưa từng
+     * release (khi đó cả ba đều `false`, KHÔNG phải bộ mặc định tiện lợi `true`/`true` mà hai
+     * `Toggle` hiển thị). `PublishDocument` so sánh LUÔN chạy, xem docblock lớp đó.
      */
     private function publishAction(): Action
     {
@@ -600,21 +612,13 @@ class DocumentsRelationManager extends RelationManager
             ->modalHeading(__('documents.tab.actions.publish_heading'))
             ->authorize(fn (Document $record): bool => Gate::allows('publish', $record))
             ->visible(fn (Document $record): bool => ! $record->group->isInternal())
-            ->fillForm(fn (Document $record): array => $record->isReleasedToPortal()
-                ? [
-                    'client_can_view' => $record->client_can_view,
-                    'client_can_download' => $record->client_can_download,
-                    'mounted_client_can_view' => $record->client_can_view,
-                    'mounted_client_can_download' => $record->client_can_download,
-                    'mounted_is_released' => true,
-                ]
-                : [
-                    'client_can_view' => true,
-                    'client_can_download' => true,
-                    'mounted_client_can_view' => null,
-                    'mounted_client_can_download' => null,
-                    'mounted_is_released' => false,
-                ])
+            ->fillForm(fn (Document $record): array => [
+                'client_can_view' => $record->isReleasedToPortal() ? $record->client_can_view : true,
+                'client_can_download' => $record->isReleasedToPortal() ? $record->client_can_download : true,
+                'mounted_client_can_view' => $record->client_can_view,
+                'mounted_client_can_download' => $record->client_can_download,
+                'mounted_is_released' => $record->wasPublishedToClient(),
+            ])
             ->schema([
                 // Hai cờ ĐỘC LẬP (SPEC §6.5 bước 3): cho khách biết đã có tài liệu mà chưa cho
                 // giữ bản sao là một trường hợp hợp lệ. Giá trị BAN ĐẦU của ô do `fillForm()` ở
@@ -639,10 +643,9 @@ class DocumentsRelationManager extends RelationManager
                     actor: Auth::user(),
                     clientCanView: (bool) ($data['client_can_view'] ?? false),
                     clientCanDownload: (bool) ($data['client_can_download'] ?? false),
-                    expectedClientCanView: ($data['mounted_is_released'] ?? false)
-                        ? (bool) $data['mounted_client_can_view'] : null,
-                    expectedClientCanDownload: ($data['mounted_is_released'] ?? false)
-                        ? (bool) $data['mounted_client_can_download'] : null,
+                    expectedClientCanView: (bool) ($data['mounted_client_can_view'] ?? false),
+                    expectedClientCanDownload: (bool) ($data['mounted_client_can_download'] ?? false),
+                    expectedIsReleased: (bool) ($data['mounted_is_released'] ?? false),
                 ),
             ));
     }

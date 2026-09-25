@@ -59,17 +59,40 @@ use Illuminate\Support\Facades\Gate;
  * đã ở đó.** Đây là phân biệt mà bản đầu của Action không có, và nó biến "rút quyền tải, giữ
  * quyền xem" (SPEC §6.5 bước 3) thành một việc không làm nổi với nhóm B — xem bình luận tại chỗ.
  *
- * **Form cũ bị từ chối (kiểm tra optimistic) — vòng sửa 1.** `$expectedClientCanView`/
- * `$expectedClientCanDownload` là ảnh chụp hai cờ LÚC MÀN HÌNH MỞ RA (`fillForm()` của
- * `DocumentsRelationManager::publishAction()`), truyền song song với `$clientCanView`/
- * `$clientCanDownload` — thứ hai là GIÁ TRỊ MUỐN ĐẶT, không phải giá trị đang có, nên không thể
- * dùng nó để dò xem có ai sửa tài liệu này ở nơi khác. Không có ảnh chụp riêng, hai tab cùng mở
- * một tài liệu ĐÃ công bố sẽ đè lên nhau trong im lặng: tab 1 thấy "xem+tải", tab 2 (hay chính
- * `PublishDocument` gọi từ một nơi khác) tắt "tải" trước; tab 1 xác nhận KHÔNG SỬA GÌ vẫn gửi lại
- * đúng "xem+tải" nó đã thấy — và vì đó là giá trị MUỐN ĐẶT hợp lệ như mọi lần khác, Action mở lại
- * quyền tải mà tab 1 không hề chủ ý bật nó lên. Chỉ so khi tài liệu ĐÃ công bố lúc màn hình mở
- * (`$expectedClientCanView !== null`) — một lần công bố ĐẦU TIÊN không có "trạng thái cũ" nào để
- * lệch khỏi.
+ * **Form cũ bị từ chối (kiểm tra optimistic) — vòng sửa 1, MỞ RỘNG ở vòng sửa 2 (N1).**
+ * `$expectedClientCanView`/`$expectedClientCanDownload`/`$expectedIsReleased` là ảnh chụp trạng
+ * thái công bố LÚC MÀN HÌNH MỞ RA (`fillForm()` của `DocumentsRelationManager::publishAction()`),
+ * truyền song song với `$clientCanView`/`$clientCanDownload` — hai thứ sau là GIÁ TRỊ MUỐN ĐẶT,
+ * không phải giá trị đang có, nên không thể dùng chúng để dò xem có ai sửa tài liệu này ở nơi
+ * khác. Không có ảnh chụp riêng, hai tab cùng mở một tài liệu ĐÃ công bố sẽ đè lên nhau trong im
+ * lặng: tab 1 thấy "xem+tải", tab 2 (hay chính `PublishDocument` gọi từ một nơi khác) tắt "tải"
+ * trước; tab 1 xác nhận KHÔNG SỬA GÌ vẫn gửi lại đúng "xem+tải" nó đã thấy — và vì đó là giá trị
+ * MUỐN ĐẶT hợp lệ như mọi lần khác, Action mở lại quyền tải mà tab 1 không hề chủ ý bật nó lên.
+ *
+ * **Vòng sửa 1 chỉ so khi tài liệu ĐÃ công bố LÚC ĐANG XÉT (`$wasAlreadyReleased`), và đó là lỗ
+ * hổng `task-16-fix2-findings.md` N1 ghi lại.** Bản đó bỏ lọt đúng hai tình huống mà một cổng
+ * optimistic tồn tại để bắt — cả hai đều là lúc TRẠNG THÁI CÔNG BỐ đổi giữa lúc mount và lúc xác
+ * nhận, không phải lúc nó đứng yên:
+ *  - **Hai tab, lần công bố ĐẦU.** Tab 1 mount khi CHƯA công bố (`expectedClientCanView = null`,
+ *    cách màn hình cũ nói "đây là lần đầu"). Tab 2 công bố trước. Tab 1 xác nhận SAU: lúc đó
+ *    `$wasAlreadyReleased` đã là `true`, nhưng điều kiện `$expectedClientCanView !== null` SAI
+ *    (nó vẫn là `null`, ảnh chụp từ lúc CHƯA công bố) — cổng tắt, tab 1 ghi đè tab 2.
+ *  - **Thu hồi rồi trả lại.** Ảnh chụp lấy lúc ĐÃ công bố. Giữa đó và lúc xác nhận, tài liệu bị
+ *    rút vào nhóm D rồi trả về nhóm cũ (cờ khách không tự phục hồi — xem hook `saving` của
+ *    `Document`). Lúc xác nhận, `$wasAlreadyReleased` HIỆN TẠI là `false` — điều kiện đầu của cổng
+ *    (`$wasAlreadyReleased &&`) sai, cổng tắt, ảnh chụp cũ không hề bị so.
+ *
+ * **Sửa: so sánh LUÔN chạy, trên hai vế.** `$expectedIsReleased` là ảnh chụp của chính
+ * `$wasAlreadyReleased` lúc mount — `fillForm()` giờ LUÔN gửi giá trị THẬT của nó (không còn
+ * `null` làm dấu hiệu "lần đầu"). Cổng từ chối khi:
+ *  1. `$expectedIsReleased !== $wasAlreadyReleased` (HIỆN TẠI) — trạng thái công bố đã đổi dưới
+ *     chân form, bất kể đổi theo chiều nào (chưa→đã, hay đã→chưa qua một vòng khứ hồi); hoặc
+ *  2. tài liệu ĐANG công bố (`$wasAlreadyReleased`) và hai cờ khách đã đổi so với ảnh chụp.
+ * Nhánh (1) một mình đã phủ cả hai kịch bản trên; nhánh (2) bắt thêm trường hợp trạng thái công
+ * bố KHÔNG đổi (vẫn đang công bố cả hai lần) nhưng ai đó đổi CỜ TẢI ở giữa — đúng phạm vi vòng sửa
+ * 1 đã bắt. Không còn `null` nào trong ba tham số này: một lần công bố ĐẦU TIÊN gửi
+ * `expectedIsReleased = false` (khớp `$wasAlreadyReleased` hiện tại, cũng `false`, nếu không ai
+ * chen ngang) thay vì bỏ qua cổng bằng một giá trị đặc biệt.
  */
 class PublishDocument
 {
@@ -80,12 +103,13 @@ class PublishDocument
         User $actor,
         bool $clientCanView,
         bool $clientCanDownload,
-        ?bool $expectedClientCanView = null,
-        ?bool $expectedClientCanDownload = null,
+        bool $expectedClientCanView,
+        bool $expectedClientCanDownload,
+        bool $expectedIsReleased,
     ): Document {
         return DB::transaction(function () use (
             $document, $actor, $clientCanView, $clientCanDownload,
-            $expectedClientCanView, $expectedClientCanDownload,
+            $expectedClientCanView, $expectedClientCanDownload, $expectedIsReleased,
         ): Document {
             // Đọc lại bản ghi thật. `withTrashed()` để một tài liệu đã xoá mềm nhận được câu trả
             // lời riêng của nó thay vì lẫn vào "không tồn tại".
@@ -152,14 +176,14 @@ class PublishDocument
             // từng tính hai biểu thức khác nhau cho cùng câu hỏi).
             $wasAlreadyReleased = $fresh->wasPublishedToClient();
 
-            // Kiểm tra optimistic (vòng sửa 1) — xem docblock lớp. Đứng NGAY SAU khi
-            // `$wasAlreadyReleased` có giá trị, vì nó chỉ áp dụng khi tài liệu ĐÃ công bố từ
-            // trước: một lần công bố ĐẦU TIÊN không có ảnh chụp cũ nào để lệch khỏi, và
-            // `$expectedClientCanView === null` chính là cách màn hình nói "đây là lần đầu".
-            if ($wasAlreadyReleased
-                && $expectedClientCanView !== null
-                && ($expectedClientCanView !== $fresh->client_can_view
-                    || $expectedClientCanDownload !== $fresh->client_can_download)
+            // Kiểm tra optimistic (vòng sửa 1, MỞ RỘNG vòng sửa 2 — xem docblock lớp cho lý do
+            // đầy đủ). Đứng NGAY SAU khi `$wasAlreadyReleased` có giá trị, vì nhánh thứ hai cần
+            // nó. So sánh LUÔN chạy — không còn nhánh "bỏ qua vì đây là lần đầu" (đúng lỗ hổng N1
+            // vòng sửa 2 ghi lại: chính cái bỏ qua đó là chỗ hai kịch bản lọt qua).
+            if ($expectedIsReleased !== $wasAlreadyReleased
+                || ($wasAlreadyReleased
+                    && ($expectedClientCanView !== $fresh->client_can_view
+                        || $expectedClientCanDownload !== $fresh->client_can_download))
             ) {
                 throw DocumentNotPublishable::staleForm($fresh);
             }
