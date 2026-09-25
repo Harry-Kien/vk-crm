@@ -533,20 +533,22 @@ it('khách không tải được tài liệu của một hồ sơ chưa công b�
 // Content-Disposition (SPEC: tên tệp phải mở được ở đầu bên kia).
 // ---------------------------------------------------------------------------------------------
 
-/**
- * `docs/docs-5`: tên tải về lấy từ TIÊU ĐỀ đã công bố, không từ tên tệp gốc do nhân sự đặt lúc
- * nộp. `$mediaName` ở đây cố ý là một tên tệp làm việc nội bộ hoàn toàn khác `$title` — nếu nó lọt
- * được vào header thì test đỏ ngay ở nhánh `not->toContain()`.
- */
-it('tên tệp tiếng Việt có cả bản ASCII dự phòng lẫn bản RFC 5987, lấy từ tiêu đề chứ không phải tên tệp gốc', function () {
+// ---------------------------------------------------------------------------------------------
+// Khách (portal): tên tải về lấy từ TIÊU ĐỀ đã công bố — `docs/docs-5`, ruling vòng sửa 1.
+// `$mediaName` ở mọi test dưới đây cố ý là một tên tệp làm việc nội bộ hoàn toàn khác `$title` —
+// nếu nó lọt được vào header thì test đỏ ngay ở nhánh `not->toContain()`.
+// ---------------------------------------------------------------------------------------------
+
+it('khách: tên tệp tiếng Việt có cả bản ASCII dự phòng lẫn bản RFC 5987, lấy từ tiêu đề chứ không phải tên tệp gốc', function () {
     $document = downloadableDocument(
         $this->matter,
         title: 'Giấy chứng nhận 50% quyền sử dụng đất',
         mediaName: 'Ban chup CCCD nguoi lien quan - noi bo.pdf',
     );
 
-    $disposition = $this->actingAs($this->lawyer, 'web')
-        ->get($document->downloadUrlFor($this->lawyer))
+    $this->actingAs($this->clientUser, 'client');
+
+    $disposition = $this->get($document->downloadUrlFor($this->clientUser))
         ->headers->get('Content-Disposition');
 
     // Khẳng định CHÍNH XÁC cả header, không `toContain`: một `toContain('.pdf')` từng sống sót
@@ -591,24 +593,26 @@ it('khách tải tài liệu có tiêu đề "Quyết định thụ lý" nhận 
  * 42/2026" còn mỗi "2026" — một lỗi mất dữ liệu âm thầm còn tệ hơn một lần từ chối. Test này đo
  * đúng cái bẫy đó.
  */
-it('tiêu đề mang dấu gạch chéo hợp lệ (số hiệu văn bản) không bị cắt cụt thành phần sau dấu chéo cuối', function () {
+it('khách: tiêu đề mang dấu gạch chéo hợp lệ (số hiệu văn bản) không bị cắt cụt thành phần sau dấu chéo cuối', function () {
     $document = downloadableDocument($this->matter, title: 'Quyết định số 42/2026 về việc thụ lý');
 
-    $disposition = $this->actingAs($this->lawyer, 'web')
-        ->get($document->downloadUrlFor($this->lawyer))
+    $this->actingAs($this->clientUser, 'client');
+
+    $disposition = $this->get($document->downloadUrlFor($this->clientUser))
         ->headers->get('Content-Disposition');
 
     expect($disposition)->toContain('filename="Quyet dinh so 42-2026 ve viec thu ly.pdf"')
         ->and($disposition)->not->toContain('filename="2026.pdf"');
 });
 
-it('tên hiển thị không có đuôi vẫn tải về kèm đuôi lấy từ tên tệp trên đĩa', function () {
+it('khách: tên hiển thị không có đuôi vẫn tải về kèm đuôi lấy từ tên tệp trên đĩa', function () {
     // `title` không bao giờ tự mang đuôi — đuôi luôn được nối VÔ ĐIỀU KIỆN từ tên tệp trên đĩa
-    // (`storedName`), xem docblock `DocumentDownloadController::downloadName()`.
+    // (`storedName`), xem docblock `DocumentDownloadController::portalDownloadName()`.
     $document = downloadableDocument($this->matter, title: 'bang-ke-chi-phi', storedName: '01k5g7q8wz0000000000000001.xlsx');
 
-    $disposition = $this->actingAs($this->lawyer, 'web')
-        ->get($document->downloadUrlFor($this->lawyer))
+    $this->actingAs($this->clientUser, 'client');
+
+    $disposition = $this->get($document->downloadUrlFor($this->clientUser))
         ->headers->get('Content-Disposition');
 
     expect($disposition)->toBe('attachment; filename=bang-ke-chi-phi.xlsx');
@@ -616,27 +620,29 @@ it('tên hiển thị không có đuôi vẫn tải về kèm đuôi lấy từ 
 
 /**
  * **Tiêu đề mang dấu chấm bên trong (ngày tháng) không được lẫn với đuôi tệp.** Nếu đuôi chỉ
- * được nối "khi thiếu" (hành vi CŨ, viết cho `media.name` — một tên tệp thật, hiếm khi có dấu
- * chấm giữa chừng) thay vì nối VÔ ĐIỀU KIỆN, `safeName()` sẽ tách nhầm ".2026" ở cuối tiêu đề
- * thành "đuôi", và đuôi THẬT trên đĩa (`.pdf`) không bao giờ được gắn vào — tệp tải về sẽ có một
- * "đuôi" là `2026`, thứ Windows không mở được bằng gì.
+ * được nối "khi thiếu" (hành vi của nhánh NHÂN SỰ — một tên tệp thật, hiếm khi có dấu chấm giữa
+ * chừng) thay vì nối VÔ ĐIỀU KIỆN, `safeName()` sẽ tách nhầm ".2026" ở cuối tiêu đề thành "đuôi",
+ * và đuôi THẬT trên đĩa (`.pdf`) không bao giờ được gắn vào — tệp tải về sẽ có một "đuôi" là
+ * `2026`, thứ Windows không mở được bằng gì.
  */
-it('tiêu đề mang dấu chấm bên trong (ngày tháng) vẫn nhận đúng đuôi thật từ đĩa, không lẫn với ngày', function () {
+it('khách: tiêu đề mang dấu chấm bên trong (ngày tháng) vẫn nhận đúng đuôi thật từ đĩa, không lẫn với ngày', function () {
     $document = downloadableDocument($this->matter, title: 'Biên bản làm việc ngày 20.03.2026', storedName: '01k5g7q8wz0000000000000003.pdf');
 
-    $disposition = $this->actingAs($this->lawyer, 'web')
-        ->get($document->downloadUrlFor($this->lawyer))
+    $this->actingAs($this->clientUser, 'client');
+
+    $disposition = $this->get($document->downloadUrlFor($this->clientUser))
         ->headers->get('Content-Disposition');
 
     expect($disposition)->toContain('filename="Bien ban lam viec ngay 20.03.2026.pdf"')
         ->and($disposition)->not->toContain('filename="Bien ban lam viec ngay 20.03.pdf"');
 });
 
-it('tên hiển thị mang mưu đồ tách header bị gỡ trước khi vào Content-Disposition', function () {
+it('khách: tiêu đề mang mưu đồ tách header bị gỡ trước khi vào Content-Disposition', function () {
     $document = downloadableDocument($this->matter, title: 'a";X-Injected: 1');
 
-    $disposition = $this->actingAs($this->lawyer, 'web')
-        ->get($document->downloadUrlFor($this->lawyer))
+    $this->actingAs($this->clientUser, 'client');
+
+    $disposition = $this->get($document->downloadUrlFor($this->clientUser))
         ->headers->get('Content-Disposition');
 
     // Thứ nguy hiểm không phải chuỗi `X-Injected: 1` — nằm gọn trong một giá trị có dấu nháy thì
@@ -646,6 +652,101 @@ it('tên hiển thị mang mưu đồ tách header bị gỡ trước khi vào C
     expect($disposition)->toBe('attachment; filename="aX-Injected: 1.pdf"')
         ->and(substr_count((string) $disposition, ';'))->toBe(1)
         ->and(preg_match('/[\r\n]/', (string) $disposition))->toBe(0);
+});
+
+it('khách: tiêu đề không còn ký tự ASCII nào và tên tệp trên đĩa không có đuôi thì tải về bằng tên dự phòng', function (string $title) {
+    // `title` đọc ra từ cơ sở dữ liệu nên nó có thể do một bản mã cũ, một lần nhập dữ liệu hay
+    // một lần sửa tay ghi vào — `portalDownloadName()` phải tự đứng vững trước mọi giá trị.
+    $document = downloadableDocument($this->matter, title: $title, storedName: '01k5g7q8wz0000000000000002');
+
+    $this->actingAs($this->clientUser, 'client');
+
+    $disposition = $this->get($document->downloadUrlFor($this->clientUser))
+        ->assertOk()
+        ->headers->get('Content-Disposition');
+
+    expect($disposition)->toBe('attachment; filename='.__('documents.fallback_file_name'));
+})->with([
+    'chữ Hán' => ['日本語'],
+    'emoji' => ['🙂🙂'],
+]);
+
+// ---------------------------------------------------------------------------------------------
+// Nhân sự: tên tải về vẫn là tên tệp GỐC do người nộp đặt (`media.name`) — ruling vòng sửa 1.
+// `$title` ở mọi test dưới đây cố ý khác hẳn `$mediaName` — nếu nó lọt được vào header thì test
+// đỏ ngay ở nhánh `not->toContain()`.
+// ---------------------------------------------------------------------------------------------
+
+it('nhân sự: tên tệp tiếng Việt có cả bản ASCII dự phòng lẫn bản RFC 5987, lấy từ tên tệp gốc chứ không phải tiêu đề', function () {
+    $document = downloadableDocument(
+        $this->matter,
+        title: 'Quyết định thụ lý',
+        mediaName: 'Giấy chứng nhận 50% quyền sử dụng đất.pdf',
+    );
+
+    $disposition = $this->actingAs($this->lawyer, 'web')
+        ->get($document->downloadUrlFor($this->lawyer))
+        ->headers->get('Content-Disposition');
+
+    expect($disposition)->toBe(
+        'attachment; filename="Giay chung nhan 50 quyen su dung dat.pdf"; '
+        ."filename*=utf-8''Gi%E1%BA%A5y%20ch%E1%BB%A9ng%20nh%E1%BA%ADn%2050%25%20quy%E1%BB%81n%20s%E1%BB%AD%20d%E1%BB%A5ng%20%C4%91%E1%BA%A5t.pdf"
+    )
+        ->and($disposition)->not->toContain('Quyet dinh');
+});
+
+it('nhân sự: tên hiển thị không có đuôi vẫn tải về kèm đuôi lấy từ tên tệp trên đĩa', function () {
+    // Đúng thứ `addMedia()` trơn sinh ra: medialibrary mặc định đặt `name` là tên tệp BỎ đuôi.
+    // Nhánh nhân sự MƯỢN đuôi CHỈ KHI THIẾU — khác nhánh khách (vô điều kiện) — vì `media.name`
+    // hầu như luôn tự mang đuôi thật, xem docblock `staffDownloadName()`.
+    $document = downloadableDocument($this->matter, mediaName: 'bang-ke-chi-phi', storedName: '01k5g7q8wz0000000000000001.xlsx');
+
+    $disposition = $this->actingAs($this->lawyer, 'web')
+        ->get($document->downloadUrlFor($this->lawyer))
+        ->headers->get('Content-Disposition');
+
+    expect($disposition)->toBe('attachment; filename=bang-ke-chi-phi.xlsx');
+});
+
+it('nhân sự: tên tệp mang mưu đồ tách header bị gỡ trước khi vào Content-Disposition', function () {
+    $document = downloadableDocument($this->matter, mediaName: 'a";X-Injected: 1.pdf');
+
+    $disposition = $this->actingAs($this->lawyer, 'web')
+        ->get($document->downloadUrlFor($this->lawyer))
+        ->headers->get('Content-Disposition');
+
+    expect($disposition)->toBe('attachment; filename="aX-Injected: 1.pdf"')
+        ->and(substr_count((string) $disposition, ';'))->toBe(1)
+        ->and(preg_match('/[\r\n]/', (string) $disposition))->toBe(0);
+});
+
+it('nhân sự: tên tệp không còn ký tự ASCII nào và không có đuôi thì tải về bằng tên dự phòng', function (string $mediaName) {
+    $document = downloadableDocument($this->matter, mediaName: $mediaName, storedName: '01k5g7q8wz0000000000000002');
+
+    $disposition = $this->actingAs($this->lawyer, 'web')
+        ->get($document->downloadUrlFor($this->lawyer))
+        ->assertOk()
+        ->headers->get('Content-Disposition');
+
+    expect($disposition)->toBe('attachment; filename='.__('documents.fallback_file_name'));
+})->with([
+    'chữ Hán' => ['日本語'],
+    'emoji' => ['🙂🙂'],
+]);
+
+it('nhân sự: đuôi mượn từ tên trên đĩa cũng đi qua safeName một lần nữa', function () {
+    // Đuôi được nối vào SAU `safeName()`, nên nếu nó không đi lại qua đó thì một `media.file_name`
+    // do một bản mã cũ ghi vào đưa được dấu `"` và `;` thẳng vào `Content-Disposition` — đúng hai
+    // ký tự tách được header mà `safeName()` sinh ra để gỡ.
+    $document = downloadableDocument($this->matter, mediaName: 'bang-ke', storedName: 'x.pd"f');
+
+    $disposition = $this->actingAs($this->lawyer, 'web')
+        ->get($document->downloadUrlFor($this->lawyer))
+        ->assertOk()
+        ->headers->get('Content-Disposition');
+
+    expect($disposition)->toBe('attachment; filename=bang-ke.pdf')
+        ->and(substr_count((string) $disposition, ';'))->toBe(1);
 });
 
 it('phản hồi không được lưu lại và không được đoán kiểu nội dung', function () {
@@ -835,44 +936,6 @@ it('nhật ký tải về không bao giờ hiện ra dưới guard khách', func
 
     expect(DocumentDownload::withoutGlobalScopes()->count())->toBe(1)
         ->and(DocumentDownload::count())->toBe(0);
-});
-
-// ---------------------------------------------------------------------------------------------
-// Tên tệp không còn một ký tự ASCII nào. `FilesystemAdapter::download()` tự dựng bản dự phòng
-// bằng `Str::ascii()` rồi bỏ dấu `%`, và `HeaderUtils::makeDisposition()` NÉM
-// `InvalidArgumentException` khi bản dự phòng đó rỗng — tức một cái tên toàn chữ Hán hay emoji,
-// không đuôi, là một lỗi 500 cho một lượt tải hoàn toàn hợp lệ.
-// ---------------------------------------------------------------------------------------------
-
-it('tiêu đề không còn ký tự ASCII nào và tên tệp trên đĩa không có đuôi thì tải về bằng tên dự phòng', function (string $title) {
-    // `title` đọc ra từ cơ sở dữ liệu nên nó có thể do một bản mã cũ, một lần nhập dữ liệu hay
-    // một lần sửa tay ghi vào — `downloadName()` phải tự đứng vững trước mọi giá trị.
-    $document = downloadableDocument($this->matter, title: $title, storedName: '01k5g7q8wz0000000000000002');
-
-    $disposition = $this->actingAs($this->lawyer, 'web')
-        ->get($document->downloadUrlFor($this->lawyer))
-        ->assertOk()
-        ->headers->get('Content-Disposition');
-
-    expect($disposition)->toBe('attachment; filename='.__('documents.fallback_file_name'));
-})->with([
-    'chữ Hán' => ['日本語'],
-    'emoji' => ['🙂🙂'],
-]);
-
-it('đuôi mượn từ tên trên đĩa cũng đi qua safeName một lần nữa', function () {
-    // Đuôi được nối vào SAU `safeName()`, nên nếu nó không đi lại qua đó thì một `media.file_name`
-    // do một bản mã cũ ghi vào đưa được dấu `"` và `;` thẳng vào `Content-Disposition` — đúng hai
-    // ký tự tách được header mà `safeName()` sinh ra để gỡ.
-    $document = downloadableDocument($this->matter, title: 'bang-ke', storedName: 'x.pd"f');
-
-    $disposition = $this->actingAs($this->lawyer, 'web')
-        ->get($document->downloadUrlFor($this->lawyer))
-        ->assertOk()
-        ->headers->get('Content-Disposition');
-
-    expect($disposition)->toBe('attachment; filename=bang-ke.pdf')
-        ->and(substr_count((string) $disposition, ';'))->toBe(1);
 });
 
 // ---------------------------------------------------------------------------------------------

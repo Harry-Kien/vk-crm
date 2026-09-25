@@ -58,6 +58,18 @@ use Illuminate\Support\Facades\Gate;
  * **Cổng vòng đời nhóm B chặn cú NHẢY VÀO `published`, không chặn một lần đổi cờ trên tài liệu
  * đã ở đó.** Đây là phân biệt mà bản đầu của Action không có, và nó biến "rút quyền tải, giữ
  * quyền xem" (SPEC §6.5 bước 3) thành một việc không làm nổi với nhóm B — xem bình luận tại chỗ.
+ *
+ * **Form cũ bị từ chối (kiểm tra optimistic) — vòng sửa 1.** `$expectedClientCanView`/
+ * `$expectedClientCanDownload` là ảnh chụp hai cờ LÚC MÀN HÌNH MỞ RA (`fillForm()` của
+ * `DocumentsRelationManager::publishAction()`), truyền song song với `$clientCanView`/
+ * `$clientCanDownload` — thứ hai là GIÁ TRỊ MUỐN ĐẶT, không phải giá trị đang có, nên không thể
+ * dùng nó để dò xem có ai sửa tài liệu này ở nơi khác. Không có ảnh chụp riêng, hai tab cùng mở
+ * một tài liệu ĐÃ công bố sẽ đè lên nhau trong im lặng: tab 1 thấy "xem+tải", tab 2 (hay chính
+ * `PublishDocument` gọi từ một nơi khác) tắt "tải" trước; tab 1 xác nhận KHÔNG SỬA GÌ vẫn gửi lại
+ * đúng "xem+tải" nó đã thấy — và vì đó là giá trị MUỐN ĐẶT hợp lệ như mọi lần khác, Action mở lại
+ * quyền tải mà tab 1 không hề chủ ý bật nó lên. Chỉ so khi tài liệu ĐÃ công bố lúc màn hình mở
+ * (`$expectedClientCanView !== null`) — một lần công bố ĐẦU TIÊN không có "trạng thái cũ" nào để
+ * lệch khỏi.
  */
 class PublishDocument
 {
@@ -68,9 +80,12 @@ class PublishDocument
         User $actor,
         bool $clientCanView,
         bool $clientCanDownload,
+        ?bool $expectedClientCanView = null,
+        ?bool $expectedClientCanDownload = null,
     ): Document {
         return DB::transaction(function () use (
             $document, $actor, $clientCanView, $clientCanDownload,
+            $expectedClientCanView, $expectedClientCanDownload,
         ): Document {
             // Đọc lại bản ghi thật. `withTrashed()` để một tài liệu đã xoá mềm nhận được câu trả
             // lời riêng của nó thay vì lẫn vào "không tồn tại".
@@ -132,10 +147,22 @@ class PublishDocument
             // cần câu trả lời. Không dùng riêng `status = published`: một lệnh ghi thẳng vào cột
             // `status` (sửa tay, một màn hình quên đi qua Action) không phải một lần tài liệu ra
             // tới khách, và nhận nó là "đã công bố" sẽ biến nó thành lối tắt qua vòng đời nhóm B.
-            // Hai điều kiện này là `isReleasedToPortal()` trừ điều kiện nhóm D — đã bị cổng đầu
-            // tiên loại từ trước, nên gọi thẳng phương thức đó ở đây cũng cho cùng kết quả; viết
-            // rời ra để cổng ghi không đổi hành vi theo một phương thức của đường ĐỌC.
-            $wasAlreadyReleased = $fresh->status === DocumentStatus::Published && $fresh->client_can_view;
+            // `Document::wasPublishedToClient()` là MỘT chỗ định nghĩa duy nhất cho câu hỏi này —
+            // `RegroupDocument` cũng gọi đúng hàm đó, xem docblock của nó (vòng sửa 1: hai Action
+            // từng tính hai biểu thức khác nhau cho cùng câu hỏi).
+            $wasAlreadyReleased = $fresh->wasPublishedToClient();
+
+            // Kiểm tra optimistic (vòng sửa 1) — xem docblock lớp. Đứng NGAY SAU khi
+            // `$wasAlreadyReleased` có giá trị, vì nó chỉ áp dụng khi tài liệu ĐÃ công bố từ
+            // trước: một lần công bố ĐẦU TIÊN không có ảnh chụp cũ nào để lệch khỏi, và
+            // `$expectedClientCanView === null` chính là cách màn hình nói "đây là lần đầu".
+            if ($wasAlreadyReleased
+                && $expectedClientCanView !== null
+                && ($expectedClientCanView !== $fresh->client_can_view
+                    || $expectedClientCanDownload !== $fresh->client_can_download)
+            ) {
+                throw DocumentNotPublishable::staleForm($fresh);
+            }
 
             // Bước 2: vòng đời nhóm B (SPEC §4.11). Chỉ nhóm B — nhóm C là văn bản do cơ quan nhà
             // nước ban hành, văn phòng không soạn và không ký nên không có gì để trình duyệt.

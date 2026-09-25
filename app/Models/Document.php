@@ -264,6 +264,31 @@ class Document extends Model implements HasMedia
             && ! $this->trashed();
     }
 
+    /**
+     * "Tài liệu này đã từng được CÔNG BỐ cho khách chưa" — MỘT chỗ định nghĩa duy nhất cho đúng
+     * hai cột mà `PublishDocument` dùng để phân biệt "lần công bố đầu" với "công bố lại"
+     * (`status = published` CỘNG `client_can_view = true`). Trước vòng sửa 1 của Task 16,
+     * `PublishDocument` tính thẳng biểu thức này, còn `RegroupDocument` tính một biểu thức
+     * KHÁC (`status` thuộc `[signed_filed, published]`, thiếu điều kiện `client_can_view`) cho
+     * cùng một câu hỏi "tài liệu nhóm B này đã đi hết vòng đời chưa" — hai định nghĩa lệch nhau
+     * cho đúng một trường hợp có thật: một tài liệu `published` mà `client_can_view = false` (ví
+     * dụ vừa đi qua vòng D → B, xem hook `saving` phía trên — vào D hạ cờ, ra khỏi D không trả
+     * lại). `RegroupDocument` cũ sẽ coi tài liệu đó "đã đi hết vòng đời" dù nó KHÔNG còn hiện với
+     * khách, tức cho rời nhóm B mà không đòi chữ ký thật hay một lý do — đúng lỗ hổng vòng sửa 1
+     * chỉ ra. Nay cả hai Action gọi đúng một hàm này.
+     *
+     * KHÔNG trùng `isReleasedToPortal()`: hàm đó CÒN kèm `! group->isInternal()` và `! trashed()`
+     * — hai điều kiện mà cả hai caller của hàm này đều đã tự kiểm riêng (nhóm D chặn tuyệt đối ở
+     * `PublishDocument`; xoá mềm chặn ở cổng đầu của cả hai Action), nên lặp lại chúng ở đây sẽ
+     * làm một lời gọi trông như thừa. Và KHÔNG kèm nhánh `signed_filed`: một tài liệu vừa ký xong,
+     * chưa ai bấm "Công bố cho khách", chưa từng ra tới khách — hai câu hỏi khác nhau, `RegroupDocument`
+     * tự hỏi thêm nhánh đó bằng `OR` ở chỗ gọi, không gộp vào đây.
+     */
+    public function wasPublishedToClient(): bool
+    {
+        return $this->status === DocumentStatus::Published && $this->client_can_view;
+    }
+
     public function matter(): BelongsTo
     {
         return $this->belongsTo(Matter::class);

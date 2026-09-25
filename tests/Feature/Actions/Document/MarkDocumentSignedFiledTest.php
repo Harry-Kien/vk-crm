@@ -148,6 +148,19 @@ it('không đánh dấu được cho tài liệu của một vụ việc đã xo
     expect($document->fresh()->status)->toBe(DocumentStatus::PendingApproval);
 });
 
+/**
+ * Nhánh xoá mềm CHÍNH TÀI LIỆU (khác nhánh vụ việc xoá mềm ở trên) — vòng sửa 1, "Also fix" đòi
+ * test + mutation probe riêng cho nhánh `$fresh->trashed()`.
+ */
+it('không đánh dấu được cho một tài liệu đã bị xoá mềm', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = markMatter($lawyer);
+    $document = markDocument($matter);
+    $document->delete();
+
+    expect(fn () => markSignedFiledAs($document, $lawyer))->toThrow(DocumentLifecycleNotAllowed::class);
+});
+
 it('bản ghi bị xoá cứng giữa chừng thì nhận một lời từ chối, không phải lỗi 500', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = markMatter($lawyer);

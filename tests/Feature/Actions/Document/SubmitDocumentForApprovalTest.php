@@ -138,6 +138,21 @@ it('không trình duyệt được cho tài liệu của một vụ việc đã 
     expect($document->fresh()->status)->toBe(DocumentStatus::InternalDraft);
 });
 
+/**
+ * Nhánh xoá mềm CHÍNH TÀI LIỆU (khác nhánh vụ việc xoá mềm ở trên) — vòng sửa 1, "Also fix" đòi
+ * test + mutation probe riêng cho nhánh `$fresh->trashed()`. Đọc bằng `withTrashed()->find()` nên
+ * một tài liệu đã xoá mềm vẫn đọc ra được (không rơi vào nhánh `missing()`), và phải bị từ chối
+ * bằng một câu RIÊNG ("tài liệu này đã bị xoá"), không phải "không tìm thấy".
+ */
+it('không trình duyệt được cho một tài liệu đã bị xoá mềm', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = submitMatter($lawyer);
+    $document = submitDocument($matter);
+    $document->delete();
+
+    expect(fn () => submitForApprovalAs($document, $lawyer))->toThrow(DocumentLifecycleNotAllowed::class);
+});
+
 it('bản ghi bị xoá cứng giữa chừng thì nhận một lời từ chối, không phải lỗi 500', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = submitMatter($lawyer);

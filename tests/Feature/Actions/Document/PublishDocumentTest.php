@@ -553,3 +553,79 @@ it('công bố được dưới guard khách, vì Action không đọc dữ li�
     expect($published->status)->toBe(DocumentStatus::Published)
         ->and($published->client_can_view)->toBeTrue();
 });
+
+// ---------------------------------------------------------------------------------------------
+// Kiểm tra optimistic (vòng sửa 1): "hai tab" — một tài liệu ĐÃ công bố, ai đó đổi cờ SAU khi
+// một hộp thoại khác đã mở, TRƯỚC khi hộp thoại đó kịp xác nhận.
+// ---------------------------------------------------------------------------------------------
+
+it('công bố lại bị từ chối nếu ảnh chụp lúc mở hộp thoại lệch với dữ liệu hiện tại — hai tab', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = publishableMatter($lawyer);
+    // "Tab 1" mở hộp thoại khi tài liệu đang view=true/download=true.
+    $document = documentOn($matter, DocumentGroup::Authority, DocumentStatus::Published);
+    $document->update(['client_can_view' => true, 'client_can_download' => true]);
+
+    // "Tab 2" công bố lại TRƯỚC, tắt quyền tải.
+    publishDocumentAs($document->fresh(), $lawyer, view: true, download: false);
+
+    expect($document->fresh()->client_can_download)->toBeFalse();
+
+    // "Tab 1" xác nhận với ảnh chụp CŨ (view=true, download=true) — dữ liệu nó gửi lên TRÙNG với
+    // ảnh chụp, vì người dùng không sửa gì trên form, nhưng CSDL đã đổi ở dưới chân họ.
+    expect(fn () => app(PublishDocument::class)->handle(
+        document: $document->fresh(),
+        actor: $lawyer,
+        clientCanView: true,
+        clientCanDownload: true,
+        expectedClientCanView: true,
+        expectedClientCanDownload: true,
+    ))->toThrow(DocumentNotPublishable::class);
+
+    // "download stays off" — lần xác nhận cũ (stale) không được phép ghi đè CSDL trở lại.
+    expect($document->fresh()->client_can_download)->toBeFalse();
+});
+
+/**
+ * Cặp dương: ảnh chụp KHỚP với CSDL hiện tại (không ai đổi gì ở giữa) — công bố lại vẫn thành
+ * công như bình thường.
+ */
+it('công bố lại vẫn thành công khi ảnh chụp lúc mở hộp thoại khớp với dữ liệu hiện tại', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = publishableMatter($lawyer);
+    $document = documentOn($matter, DocumentGroup::Authority, DocumentStatus::Published);
+    $document->update(['client_can_view' => true, 'client_can_download' => true]);
+
+    $republished = app(PublishDocument::class)->handle(
+        document: $document->fresh(),
+        actor: $lawyer,
+        clientCanView: true,
+        clientCanDownload: false,
+        expectedClientCanView: true,
+        expectedClientCanDownload: true,
+    );
+
+    expect($republished->client_can_download)->toBeFalse();
+});
+
+/**
+ * Mutation probe (nói bằng lời, xem báo cáo cho RED thật): xoá điều kiện `$wasAlreadyReleased`
+ * khỏi cổng optimistic làm test này đỏ — một lần công bố ĐẦU TIÊN (không có ảnh chụp thật, màn
+ * hình gửi `expectedClientCanView = null`) không được phép bị cổng này chặn.
+ */
+it('lần công bố ĐẦU TIÊN không bị cổng optimistic chặn, dù không truyền ảnh chụp nào', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = publishableMatter($lawyer);
+    $document = documentOn($matter, DocumentGroup::Authority, DocumentStatus::InternalDraft);
+
+    $published = app(PublishDocument::class)->handle(
+        document: $document,
+        actor: $lawyer,
+        clientCanView: true,
+        clientCanDownload: true,
+        expectedClientCanView: null,
+        expectedClientCanDownload: null,
+    );
+
+    expect($published->status)->toBe(DocumentStatus::Published);
+});

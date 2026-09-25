@@ -197,8 +197,15 @@ it('accepts một đường dẫn string thật trỏ tới một PDF hợp lệ
 
 /**
  * Một gói ZIP tuỳ ý: dùng để dựng các tệp "đội lốt" `.docx`/`.xlsx` trong các test dưới đây.
- * `finfo` đọc một gói như thế này ra `application/zip` — đúng MIME mà bản đầu của `FileGuard`
- * chấp nhận cho hai đuôi Office, nên bất kỳ ZIP nào cũng lọt qua.
+ *
+ * **MIME thật mà `finfo` đọc ra cho một gói như thế này KHÔNG cố định** — nó phụ thuộc thứ tự
+ * mục và bản libmagic của máy đang chạy (xem docblock `FileGuard::verifyOfficePackage()`, và
+ * `DocumentsRelationManagerTest::adminDocxRecognizedAsZipBytes()` cho một phép đo cụ thể: trên
+ * container này, `docxPackageBytes()` bên dưới — `[Content_Types].xml` đứng ĐẦU — cho MIME OOXML
+ * cụ thể, không phải `application/zip`). Điều đó KHÔNG quan trọng cho các test dưới đây: chúng
+ * không khẳng định giá trị MIME cụ thể nào, chỉ khẳng định `FileGuard::check()` chấp nhận hay từ
+ * chối — và `FileGuard::ALLOWED` đã liệt kê CẢ HAI (`application/zip` lẫn MIME OOXML cụ thể) cho
+ * `docx`/`xlsx`, nên `check()` cho cùng kết quả dù `finfo` đọc ra cái nào.
  *
  * @param  array<string, string>  $entries  tên mục trong gói => nội dung
  */
