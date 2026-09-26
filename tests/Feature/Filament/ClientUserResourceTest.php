@@ -775,6 +775,40 @@ it('still resets activation when the email change is a real one, not just a case
         ->and($account->must_change_password)->toBeTrue();
 });
 
+/**
+ * Fix round 1, finding minor "EditClientUser.php:128": `PortalLoginThrottle::foldEmail()` không
+ * dành cho việc so sánh ĐỊNH DANH — nó cố ý NFD-tách dấu rồi bỏ dấu đi (để một khoá throttle ổn
+ * định cho một chuỗi không tra ra tài khoản nào), nên `foldEmail('a@thu.vn')` và
+ * `foldEmail('a@thú.vn')` ra CÙNG một chuỗi dù hai địa chỉ này KHÁC NHAU thật sự (khác chữ cái,
+ * không chỉ khác hoa/thường) — so sánh qua `foldEmail()` sẽ giữ nguyên `activated_at` một cách
+ * SAI cho một hộp thư khác hẳn. So sánh đúng là gấp CASE thôi (`mb_strtolower`), không tách dấu.
+ */
+it('resets activation when the email changes by more than case, even though the two strings look similar', function () {
+    Mail::fake();
+
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $ownClient = Client::factory()->create();
+    $account = ClientUser::factory()->for($ownClient)->activated()->create([
+        'is_active' => true,
+        'email' => 'a@thu.vn',
+    ]);
+
+    $this->actingAs($admin, 'web');
+    Filament::setCurrentPanel('admin');
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'name' => $account->name,
+            'email' => 'a@thú.vn',
+        ])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    $account->refresh();
+    expect($account->activated_at)->toBeNull()
+        ->and($account->must_change_password)->toBeTrue();
+});
+
 // =========================================================================================
 // Task 2, vòng sửa 1 (Important #3): ClientUserPolicy::deleteAny()/restoreAny()/forceDeleteAny()
 // + ClientUsersTable::toolbarActions() authorizeIndividualRecords()

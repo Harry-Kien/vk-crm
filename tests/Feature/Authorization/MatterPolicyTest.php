@@ -288,24 +288,43 @@ it('answers the staff view ability the same way while a portal session of anothe
 });
 
 // =========================================================================================
-// updateConfidentiality (M6.5 Task 5, R5): matter.update VÀ không phải trợ lý — cùng luật
-// với manageTeam.
+// updateConfidentiality (M6.5 Task 5, R5; fix round 1, finding I2): CHỈ luật sư phụ trách của
+// CHÍNH vụ việc này hoặc admin — không còn "matter.update VÀ không phải trợ lý" như bản đầu.
+// Một trưởng phòng (matter.update, không phải trợ lý, nhưng KHÔNG phải lead của vụ này) và một
+// luật sư cộng sự trong đội ngũ đều bị từ chối.
 // =========================================================================================
 
-it('lets the lead, a manager, and an admin change confidentiality, but not an assistant', function () {
-    $assistant = User::factory()->withRole(Role::Assistant)->create();
-    $this->matter->addTeamMember($assistant, MatterRole::Assistant);
+it('lets only the lead of this matter and an admin change confidentiality', function () {
+    $associate = User::factory()->withRole(Role::Lawyer)->create();
+    $this->matter->addTeamMember($associate, MatterRole::Associate);
 
     expect($this->lead->can('updateConfidentiality', $this->matter))->toBeTrue()
-        ->and($this->manager->can('updateConfidentiality', $this->matter))->toBeTrue()
         ->and($this->admin->can('updateConfidentiality', $this->matter))->toBeTrue()
-        ->and($assistant->can('updateConfidentiality', $this->matter))->toBeFalse();
+        ->and($this->manager->can('updateConfidentiality', $this->matter))->toBeFalse()
+        ->and($associate->can('updateConfidentiality', $this->matter))->toBeFalse();
 });
 
 it('refuses updateConfidentiality on a soft deleted matter, even for the lead', function () {
     $this->matter->delete();
 
     expect($this->lead->can('updateConfidentiality', $this->matter))->toBeFalse();
+});
+
+// =========================================================================================
+// updateSummaryForClient (fix round 1, finding I1): cùng quyền với công bố tiến độ cho khách
+// (`stageLog.publish`) — SPEC §8.3 khối 1 đọc `summary_for_client` y hệt một lời văn phòng ĐƯA
+// RA cho khách, nên trợ lý (có matter.update nhưng không có stageLog.publish) không đổi được.
+// =========================================================================================
+
+it('lets the lead lawyer, who holds stageLog.publish, change summary_for_client', function () {
+    expect($this->lead->can('updateSummaryForClient', $this->matter))->toBeTrue();
+});
+
+it('refuses an assistant, who has matter.update but not stageLog.publish, to change summary_for_client', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $this->matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    expect($assistant->can('updateSummaryForClient', $this->matter))->toBeFalse();
 });
 
 // =========================================================================================

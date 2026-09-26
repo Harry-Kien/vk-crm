@@ -3,13 +3,13 @@
 namespace App\Filament\Admin\Resources\Matters\Schemas;
 
 use App\Enums\Confidentiality;
-use App\Enums\Role;
+use App\Models\Matter;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
-use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Gate;
 
 /**
  * Form "Sửa vụ việc" (SPEC §4.6, §5; M6.5 Task 5, findings `intake/intake-06`,
@@ -24,14 +24,22 @@ use Illuminate\Support\Facades\Auth;
  * schema, vì `App\Actions\Matter\UpdateMatterDetails` không nhận ba khoá đó trong chữ ký
  * `handle()` của nó (xem docblock Action đó). Một trường `disabled()` vẫn có thể bị Filament gửi
  * lên (dù không dehydrate — nhưng "không dehydrate" là một chi tiết framework, không phải một
- * cổng); vắng mặt khỏi schema và khỏi `EditMatter::mutateFormDataBeforeSave()` là cách duy nhất
- * không phụ thuộc vào chi tiết đó.
+ * cổng); vắng mặt khỏi schema và khỏi `EditMatter::handleRecordUpdate()` (Action chỉ nhận đúng
+ * năm khoá tường minh, xem docblock của nó) là cách duy nhất không phụ thuộc vào chi tiết đó.
  *
- * **`confidentiality` bị `disabled()` với trợ lý (R5), nhưng KHÔNG vắng mặt.** Trợ lý cần ĐỌC
- * được mức bảo mật hiện tại và hiểu vì sao ô bị khoá; `Action` vẫn tự hỏi lại
- * `MatterPolicy::updateConfidentiality` khi giá trị thật sự đổi, nên đây chỉ là lớp UI — cùng
- * nguyên tắc "không tin `disabled()` một mình" mà `EditClientUser::mutateFormDataBeforeSave()` đã
- * ghi lại cho `client_id`.
+ * **`confidentiality` và `summary_for_client` bị `disabled()` cho ai không có quyền, nhưng KHÔNG
+ * vắng mặt.** Người bị khoá vẫn cần ĐỌC được giá trị hiện tại và hiểu vì sao ô bị khoá.
+ * Fix round 1 (finding I2/minor): `disabled()` gọi THẲNG `Gate::allows()` — không còn một điều
+ * kiện vai trò tự viết tay (`hasRole(Assistant)`) lặp lại luật đã sống trong `MatterPolicy` —
+ * nên khi luật đổi (ví dụ I2 đổi `updateConfidentiality` từ "không phải trợ lý" sang "chỉ lead/
+ * admin"), ô này tự động đổi theo, không cần sửa hai chỗ. `Action` vẫn tự hỏi lại đúng ability đó
+ * khi giá trị thật sự đổi, nên đây chỉ là lớp UI — cùng nguyên tắc "không tin `disabled()` một
+ * mình" mà `EditClientUser::mutateFormDataBeforeSave()` đã ghi lại cho `client_id`.
+ *
+ * `?Matter $record` được Filament tự bơm vào closure theo kiểu tham số — cùng thiết bị bơm
+ * `$livewire`/`$get` mà `MatterForm::forgetConflictResult()` đã dùng, chỉ khác object được bơm.
+ * `null` chỉ xảy ra khi schema chưa gắn với bản ghi nào (không phải tình huống thật của trang
+ * sửa, luôn có `$record`) — khoá lại cho an toàn kiểu, không phải một nhánh có ý nghĩa nghiệp vụ.
  */
 class MatterEditForm
 {
@@ -57,7 +65,13 @@ class MatterEditForm
             Textarea::make('summary_for_client')
                 ->label(__('matters.fields.summary_for_client'))
                 ->rows(2)
-                ->columnSpanFull(),
+                ->columnSpanFull()
+                // Fix round 1, finding I1: cùng quyền `stageLog.publish` như công bố cho khách.
+                ->disabled(fn (?Matter $record): bool => $record === null
+                    || Gate::denies('updateSummaryForClient', $record))
+                ->helperText(fn (?Matter $record): ?string => ($record !== null && Gate::denies('updateSummaryForClient', $record))
+                    ? __('matters.edit_form.summary_for_client_denied')
+                    : null),
             TextInput::make('court_name')
                 ->label(__('matters.overview_fields.court_name'))
                 ->maxLength(200),
@@ -71,9 +85,11 @@ class MatterEditForm
                     ->all())
                 ->native(false)
                 ->required()
-                // R5: chỉ lớp UI — xem docblock lớp. Action tự hỏi lại Gate là cổng THẬT.
-                ->disabled(fn (): bool => Auth::user()?->hasRole(Role::Assistant->value) ?? true)
-                ->helperText(fn (): ?string => Auth::user()?->hasRole(Role::Assistant->value)
+                // Fix round 1, finding I2: chỉ lead của CHÍNH vụ việc này hoặc admin — xem
+                // docblock lớp.
+                ->disabled(fn (?Matter $record): bool => $record === null
+                    || Gate::denies('updateConfidentiality', $record))
+                ->helperText(fn (?Matter $record): ?string => ($record !== null && Gate::denies('updateConfidentiality', $record))
                     ? __('matters.edit_form.confidentiality_denied')
                     : null),
         ];

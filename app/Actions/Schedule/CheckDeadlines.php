@@ -6,6 +6,7 @@ use App\Enums\DeadlineSeverity;
 use App\Enums\Role;
 use App\Mail\Staff\DeadlineReminder;
 use App\Models\Deadline;
+use App\Models\Matter;
 use App\Models\User;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -58,14 +59,18 @@ class CheckDeadlines
 
         $candidates = Deadline::query()
             ->where('is_completed', false)
-            // `deadlines/F8` (M6.5 Task 5): vụ việc đã xoá mềm (huỷ hồ sơ mở nhầm, qua
-            // `CancelMatter`) không còn được ai thao tác được qua giao diện —
-            // `SetDeadlineCompletion` không đánh dấu xong được vì `MatterPolicy::update` chặn vụ
-            // trashed — nên trước dòng này một mốc như vậy cứ leo bậc nhắc mãi, và
-            // `$deadline->matter` trả `null` khiến mã hồ sơ trong thư rỗng. `whereHas('matter')`
-            // tự áp `SoftDeletingScope` mặc định của `Matter`, loại đúng những mốc đó ra khỏi tập
-            // ứng viên trước khi vòng lặp bắt đầu.
-            ->whereHas('matter')
+            // `deadlines/F8` + fix round 1, finding S1 (M6.5 Task 5): vụ việc đã xoá mềm HOẶC đã
+            // đóng (`closed_at` có giá trị, qua `TransitionMatterStage` vào giai đoạn
+            // `is_terminal` — R8) không còn "việc dở dang" theo đúng định nghĩa mà `OpenWork`
+            // dùng cho nghỉ việc/gỡ thành viên — CheckDeadlines phải đồng ý với chúng.
+            // `whereHas('matter', fn ($q) => $q->open())` gọi ĐÚNG MỘT định nghĩa
+            // `Matter::scopeOpen()` (SoftDeletingScope + closed_at null), không viết lại nó lần
+            // nữa. Bản trước chỉ `whereHas('matter')` — loại được vụ xoá mềm nhưng bỏ sót vụ đã
+            // đóng: một mốc của vụ ĐÃ ĐÓNG (không xoá mềm) vẫn bị nhắc mãi, và
+            // `SetDeadlineCompletion` cũng chặn vụ đã đóng cùng cách nó chặn vụ trashed
+            // (`MatterPolicy::update`), nên mốc đó không đánh dấu xong được — cùng cái bẫy F8,
+            // khác đường vào.
+            ->whereHas('matter', fn ($query) => $query->open())
             ->orderBy('due_date')
             ->pluck('id');
 
@@ -80,6 +85,18 @@ class CheckDeadlines
                 // Có thể đã xong hoặc đã bị rút trong lúc vòng lặp chạy. Khoá dòng rồi đọc lại
                 // là cách duy nhất để hai tiến trình cron chồng nhau không gửi hai thư.
                 if ($deadline === null || $deadline->is_completed) {
+                    return;
+                }
+
+                // Fix round 1, finding S1 (phần thứ hai): tập ứng viên được dựng TRƯỚC vòng lặp
+                // này — một lần huỷ/đóng vụ việc chạy đua GIỮA lúc cron đang xử lý CÁC MỐC KHÁC
+                // (không phải trước khi vòng lặp bắt đầu) vẫn để mốc này lọt vào danh sách. Đọc
+                // lại `Matter::scopeOpen()` NGAY TRONG giao dịch của chính dòng này — sau khi đã
+                // khoá dòng `deadlines`, cùng vị trí với lần đọc lại `is_completed` ngay trên —
+                // để một lần huỷ vừa commit ở một giao dịch khác trong lúc chờ tới lượt vẫn được
+                // thấy (mỗi vòng lặp mở một `DB::transaction()` MỚI, nên ảnh chụp REPEATABLE READ
+                // của nó bắt đầu lại từ đây, không phải từ lúc `pluck('id')` chạy).
+                if (! Matter::query()->whereKey($deadline->matter_id)->open()->exists()) {
                     return;
                 }
 

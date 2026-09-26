@@ -13,6 +13,11 @@ return [
         'lead_lawyer' => 'Luật sư phụ trách',
         'last_client_update_at' => 'Cập nhật gần nhất cho khách',
         'is_published_to_portal' => 'Công bố portal',
+        // Fix round 1, finding S2: Filament không tô màu lên một ô trống — một vụ quá hạn nhưng
+        // CHƯA TỪNG cập nhật cho khách (last_client_update_at null) phải hiện chữ này, không phải
+        // để trống, để màu đỏ có một dòng chữ đi kèm (tài liệu bộ công cụ §4: màu không bao giờ
+        // là kênh thông tin duy nhất).
+        'never_updated' => 'Chưa cập nhật lần nào',
     ],
     'filters' => [
         'stage' => 'Giai đoạn',
@@ -65,7 +70,13 @@ return [
     // M6.5 Task 5 — trang "Sửa vụ việc" (findings intake-06, spec-gap-06).
     'edit_form' => [
         'section' => 'Sửa thông tin vụ việc',
-        'confidentiality_denied' => 'Chỉ ai không phải trợ lý mới đổi được mức bảo mật của vụ việc.',
+        // Fix round 1, finding I2: chỉ lead hoặc admin, không còn "không phải trợ lý".
+        'confidentiality_denied' => 'Chỉ luật sư phụ trách của vụ việc này hoặc quản trị viên mới đổi được mức bảo mật.',
+        // Fix round 1, finding I2: chuyển sang mức hạn chế trong khi đội ngũ còn thành viên khác
+        // lead/admin — họ sẽ hết thấy được vụ việc ngay sau khi đổi.
+        'confidentiality_blocked_by_team' => 'Không thể chuyển sang mức hạn chế khi đội ngũ còn: :names. Hãy chuyển họ ra khỏi đội ngũ qua tab Đội ngũ trước.',
+        // Fix round 1, finding I1: summary_for_client đòi quyền công bố cho khách (stageLog.publish).
+        'summary_for_client_denied' => 'Chỉ ai có quyền công bố cho khách mới sửa được tóm tắt cho khách.',
     ],
     // M6.5 Task 5 — hộp thoại "Huỷ hồ sơ mở nhầm" trên trang Sửa vụ việc.
     'cancel_form' => [

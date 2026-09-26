@@ -184,8 +184,19 @@ class TransitionMatterStage
                 // allowed_next — mở lại vụ việc, nên closed_at về null. Một dòng cùng giai đoạn
                 // (§6.3, $isSameStage) không rơi vào nhánh này, cùng lý do với stage_entered_at
                 // ngay trên: nó không phải một lần VÀO hay RỜI giai đoạn nào cả.
+                //
+                // Fix round 1 (R8 minor): "VÀO một giai đoạn terminal" chỉ tính là VÀO LẦN ĐẦU —
+                // tức giai đoạn TRƯỚC ĐÓ không phải terminal. Bản đầu chỉ hỏi giai đoạn ĐÍCH,
+                // nên chuyển từ một giai đoạn terminal SANG một giai đoạn terminal KHÁC (ví dụ
+                // "Kết thúc" → "Lưu trữ", cả hai đều is_terminal) bị coi là một lần VÀO mới, ghi
+                // đè `closed_at` bằng `now()` — xoá mất ngày vụ việc THẬT SỰ đã đóng. Giai đoạn
+                // TRƯỚC đã terminal rồi thì vụ việc đã đóng rồi; chuyển tiếp sang một giai đoạn
+                // terminal khác không phải một lần đóng MỚI, nên không ghi gì cho `closed_at` —
+                // giữ nguyên giá trị đang có.
                 if ($targetStageConfig->is_terminal) {
-                    $matterUpdates['closed_at'] = now();
+                    if (! ($currentStageConfig?->is_terminal ?? false)) {
+                        $matterUpdates['closed_at'] = now();
+                    }
                 } elseif ($currentStageConfig?->is_terminal) {
                     $matterUpdates['closed_at'] = null;
                 }

@@ -1,9 +1,14 @@
 <?php
 
 use App\Actions\Matter\CancelMatter;
+use App\Actions\RunConflictCheck;
+use App\Enums\ConflictLevel;
+use App\Enums\PartyRole;
 use App\Enums\Role;
+use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Matter;
+use App\Models\MatterParty;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -90,4 +95,43 @@ it('keeps a cancelled matter off the portal query even while still marked publis
     $matter->applyClientPortalConstraints($visible, $clientUser);
 
     expect($visible->whereKey($matter->getKey())->exists())->toBeFalse();
+});
+
+/**
+ * Ruling của fix round 1: bên của một vụ ĐÃ HUỶ (qua chính `CancelMatter`, không phải một
+ * `->delete()` viết tay) VẪN nằm trong dữ liệu đối chiếu xung đột — một dương tính giả (báo động
+ * nhầm về một vụ đã huỷ) an toàn hơn một âm tính giả (bỏ sót một xung đột thật). Đây là bằng
+ * chứng cho đúng câu docblock lớp (`CancelMatter.php`) vừa sửa; hành vi bên dưới đã đúng SẴN
+ * trước fix round 1 (`RunConflictCheck::query()` tự `withTrashed()`), không phải một điều kiện
+ * mới — nên không có mutation probe: Action này không viết thêm một dòng mã nào cho luật này,
+ * đúng như phán quyết yêu cầu ("Add no code that removes them").
+ */
+function conflictCheckPartyStub(
+    PartyRole $role,
+    string $name,
+    ?string $idNumber = null,
+    bool $isOurClient = false,
+): MatterParty {
+    return (new MatterParty([
+        'role' => $role,
+        'name' => $name,
+        'is_our_client' => $isOurClient,
+    ]))->identify($idNumber, null);
+}
+
+it('keeps a cancelled matters party in conflict-check data instead of a false-clean result', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $existingClient = Client::factory()->create(['id_number' => '055566677788']);
+    $matter = Matter::factory()->create();
+    MatterParty::factory()->for($matter)->ourClient($existingClient)->create();
+
+    app(CancelMatter::class)->handle($matter, $admin, 'Mở nhầm khách hàng, huỷ để mở lại đúng.');
+
+    $ourNewClient = conflictCheckPartyStub(PartyRole::Plaintiff, 'Khách hàng khác', isOurClient: true);
+    $opposingParty = conflictCheckPartyStub(PartyRole::Defendant, 'Bên trùng', '055566677788');
+
+    $result = app(RunConflictCheck::class)->handle(collect([$ourNewClient, $opposingParty]));
+
+    expect($result->level)->toBe(ConflictLevel::Red)
+        ->and($result->matches->pluck('matterCode')->all())->toContain($matter->code);
 });

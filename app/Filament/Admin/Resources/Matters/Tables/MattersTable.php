@@ -52,9 +52,24 @@ class MattersTable
                     ->searchable()
                     ->sortable(),
                 // "12 ngày trước", tô vàng khi > 10 ngày, đỏ khi > 14 (SPEC §7.2).
+                //
+                // Fix round 1, finding S2: `->since()` đọc thẳng cột `last_client_update_at` —
+                // với một vụ CHƯA TỪNG cập nhật cho khách, cột đó là `null`, `->since()` không vẽ
+                // gì, và Filament không bao giờ tô màu lên một ô TRỐNG (đo được: `->color()` vẫn
+                // trả `'danger'` đúng, nhưng không có chữ nào để mang màu đó). Đây đúng là ca
+                // `StaleMattersWidget` coi là XẤU NHẤT (dùng `stage_entered_at` làm đồng hồ dự
+                // phòng — xem `MatterStaleness`), nên nó không được phép là ca DUY NHẤT không có
+                // gì hiện ra. `->state()` thay `->since()`: có `last_client_update_at` thì hiện
+                // đúng chữ `->since()` vẫn hiện (`diffForHumans()`), không thì hỏi lại
+                // `MatterStaleness::color()` — quá hạn (có màu) thì hiện câu "Chưa cập nhật lần
+                // nào", còn chưa quá hạn thì để trống như cũ (một vụ mới mở, chưa tới hạn báo cáo,
+                // không cần một câu cảnh báo).
                 TextColumn::make('last_client_update_at')
                     ->label(__('matters.fields.last_client_update_at'))
-                    ->since()
+                    ->state(fn (Matter $record): ?string => $record->last_client_update_at?->diffForHumans()
+                        ?? (static::lastClientUpdateColor($record) !== null
+                            ? __('matters.fields.never_updated')
+                            : null))
                     ->color(fn (Matter $record): ?string => static::lastClientUpdateColor($record))
                     ->sortable(),
             ])

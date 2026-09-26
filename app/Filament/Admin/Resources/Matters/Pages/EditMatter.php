@@ -13,7 +13,6 @@ use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Schemas\Schema;
-use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -40,6 +39,19 @@ class EditMatter extends EditRecord
     public function form(Schema $schema): Schema
     {
         return MatterEditForm::configure($schema);
+    }
+
+    /**
+     * Fix round 1, minor: không kế thừa bảy tab quan hệ của `MatterResource::getRelations()`.
+     * Filament mặc định gắn TOÀN BỘ danh sách quan hệ của resource vào MỌI trang của nó — kể cả
+     * một trang Edit chỉ có việc sửa năm trường (xem docblock lớp). Không ghi đè hàm này, trang
+     * "Sửa vụ việc" sẽ lặp lại nguyên bảy tab của `ViewMatter` (Đội ngũ, Tiến độ, Danh mục hồ sơ,
+     * Tài liệu, Các bên, Yêu cầu từ khách, Mốc thời hạn) bên dưới form — một bản sao vô nghĩa của
+     * trang Xem, không phải một chức năng của trang Sửa.
+     */
+    public function getRelationManagers(): array
+    {
+        return [];
     }
 
     /**
@@ -102,11 +114,21 @@ class EditMatter extends EditRecord
     }
 
     /**
-     * Cổng thật: `Gate::authorize('update', ...)` chạy TRONG Action (`UpdateMatterDetails`), nên
-     * lời gọi ở đây không phải cổng — nó là nơi DUY NHẤT dịch `AuthorizationException` (R5, trợ
-     * lý đổi `confidentiality`) thành một lỗi gắn vào đúng ô `confidentiality`, cùng hình dạng
-     * `CreateMatter::handleRecordCreation()` dịch `ConflictBlocked`/`ConflictAcknowledgementRequired`
-     * thành `ValidationException`.
+     * Cổng thật: `Gate::authorize('update', ...)` chạy TRONG Action (`UpdateMatterDetails`).
+     * `confidentiality` và `summary_for_client` cũng vậy — Action tự ném `ValidationException`
+     * gắn ĐÚNG tên trường ngay tại nơi phát hiện lỗi (xem docblock Action), nên trang này KHÔNG
+     * còn phải ĐOÁN trường nào gây lỗi (fix round 1, finding minor "EditMatter.php:119": bản đầu
+     * bắt MỌI `AuthorizationException` rồi gán cứng vào ô `confidentiality` — sai ngay khi Action
+     * thêm một cổng thứ hai cho `summary_for_client`). Việc DUY NHẤT còn lại ở đây là dịch khoá
+     * TRẦN của Action (`confidentiality`, `summary_for_client`) sang state path THẬT của form
+     * đang mount (`data.<trường>`) — cùng công thức `CreateMatter::errorKey()`.
+     *
+     * **Một `AuthorizationException` (gate `update` bị thu hồi giữa lúc mở trang và lúc lưu) KHÔNG
+     * còn bị bắt ở đây.** Nó không ứng với một ô nào trên form này để gắn vào, nên "map only the
+     * confidentiality refusal" (fix round 1) đọc ngược lại thành "đừng map nó vào bất cứ ô nào cả"
+     * — để nó tự trôi lên xử lý mặc định của framework (câu chữ và mã trạng thái của chính nó),
+     * đúng nghĩa "để một lần thu hồi quyền `update` tự nói bằng câu của nó", không bị ép mượn câu
+     * của `confidentiality`.
      */
     protected function handleRecordUpdate(Model $record, array $data): Model
     {
@@ -116,14 +138,12 @@ class EditMatter extends EditRecord
 
         try {
             return app(UpdateMatterDetails::class)->handle($record, $actor, $data);
-        } catch (AuthorizationException) {
-            // Không có ô nào khác trong form này gây ra AuthorizationException ngoài R5
-            // (`confidentiality`): `update` chính nó đã được Filament hỏi trước khi trang này
-            // dựng ra (EditRecord::mount()), nên tới lúc save() nó không đổi ý trong cùng một
-            // request — trừ đúng cổng thứ hai mà Action này thêm vào.
-            throw ValidationException::withMessages([
-                $this->errorKey('confidentiality') => [__('matters.edit_form.confidentiality_denied')],
-            ]);
+        } catch (ValidationException $exception) {
+            throw ValidationException::withMessages(
+                collect($exception->errors())
+                    ->mapWithKeys(fn (array $messages, string $field): array => [$this->errorKey($field) => $messages])
+                    ->all()
+            );
         }
     }
 

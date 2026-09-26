@@ -7,7 +7,6 @@ use App\Actions\Portal\UnlockPortalLoginResult;
 use App\Filament\Admin\Resources\ClientUsers\ClientUserResource;
 use App\Models\ClientUser;
 use App\Models\User;
-use App\Support\PortalLoginThrottle;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
@@ -112,20 +111,26 @@ class EditClientUser extends EditRecord
      * lấp cho lúc TẠO, còn hở ở lúc SỬA. So với `$this->record->email`, KHÔNG với giá trị cũ của
      * `$data` (chưa có gì để so trước dòng này).
      *
-     * **Rà soát Task 7 (M6.5 Task 5): so sánh qua `PortalLoginThrottle::foldEmail()`, không phải
-     * `!==` trên chuỗi thô.** Một lần sửa chỉ đổi HOA/THƯỜNG (`Nam@x.vn` → `nam@x.vn`, gõ lại vì
-     * quen tay lúc nghe điện thoại) là CÙNG một hộp thư — cùng lần khách đã tự tay đổi mật khẩu
-     * lần đầu để xác minh nó — nhưng so sánh thô coi đó là "đổi email" và xoá `activated_at` một
-     * cách sai lệch, dừng oan thư `client.stage_update` cho một hộp thư khách vẫn đang dùng. Cùng
-     * phép gấp mà cổng đăng nhập dùng để nhận ra hai chuỗi khác nhau về mặt byte nhưng là MỘT địa
-     * chỉ — không phải collation DB, xem docblock `PortalLoginThrottle::foldEmail()`.
+     * **Rà soát Task 7 (M6.5 Task 5): so sánh CASE-FOLD (`mb_strtolower`), không phải `!==` trên
+     * chuỗi thô.** Một lần sửa chỉ đổi HOA/THƯỜNG (`Nam@x.vn` → `nam@x.vn`, gõ lại vì quen tay lúc
+     * nghe điện thoại) là CÙNG một hộp thư — cùng lần khách đã tự tay đổi mật khẩu lần đầu để xác
+     * minh nó — nhưng so sánh thô coi đó là "đổi email" và xoá `activated_at` một cách sai lệch,
+     * dừng oan thư `client.stage_update` cho một hộp thư khách vẫn đang dùng.
+     *
+     * **Fix round 1, finding minor: KHÔNG dùng `PortalLoginThrottle::foldEmail()`.** Hàm đó tự
+     * nhận nó không phải một phép so sánh định danh (xem docblock của chính nó) — nó NFD-tách dấu
+     * rồi bỏ dấu đi, vì việc DUY NHẤT nó tồn tại để làm là dựng một khoá throttle ổn định cho một
+     * chuỗi KHÔNG tra ra tài khoản nào. Dùng nó ở đây sẽ coi `a@thu.vn` và `a@thú.vn` — hai địa
+     * chỉ THẬT SỰ khác nhau, không chỉ khác hoa/thường — là "cùng một email", giữ nguyên
+     * `activated_at` một cách SAI cho một hộp thư khác hẳn. So sánh đúng ở đây chỉ cần gấp CASE,
+     * không tách dấu — `mb_strtolower()`.
      */
     protected function mutateFormDataBeforeSave(array $data): array
     {
         $data['client_id'] = $this->record->client_id;
 
         $emailChanged = array_key_exists('email', $data)
-            && PortalLoginThrottle::foldEmail($data['email']) !== PortalLoginThrottle::foldEmail($this->record->email);
+            && mb_strtolower($data['email']) !== mb_strtolower($this->record->email);
 
         if ($emailChanged) {
             $data['activated_at'] = null;

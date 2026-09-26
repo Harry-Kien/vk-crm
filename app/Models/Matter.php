@@ -217,10 +217,21 @@ class Matter extends Model
      * `deleted_at` trong mảng thuộc tính, dù giá trị có là `null` hay không — SELECT mặc định
      * (`*`) hay bất kỳ SELECT tường minh nào bao gồm nó đều để lại khoá. Chỉ một SELECT rút gọn
      * CỐ Ý bỏ nó ra mới làm khoá biến mất, và đó đúng là trường hợp cần chặn.
+     *
+     * **Fix round 1, finding minor: `wasRecentlyCreated` CŨNG đếm là "biết `deleted_at`, và biết
+     * nó là `null`".** Câu khẳng định ngay trên ("mọi nơi gọi hợp lệ đều đã qua một lần truy vấn
+     * thật") sai ở đúng MỘT trường hợp: `Matter::factory()->create()` rồi `->load('team')` NGAY
+     * trên instance đó (không `->fresh()`/reload) — INSERT không refetch các cột nullable chưa
+     * từng được set, nên `deleted_at` vắng mặt khỏi `getAttributes()` y hệt một select rút gọn.
+     * Trước bản sửa này, một Matter như vậy — VỪA mở, chắc chắn chưa xoá mềm — vẫn rơi vào nhánh
+     * restricted một cách SAI. `wasRecentlyCreated` (cờ chuẩn của Eloquent, bật ngay sau
+     * `save()`/`create()` thành công, tắt lại ở lần `save()` kế tiếp) phân biệt được đúng ca này
+     * với một select rút gọn thật sự: một bản ghi vừa tạo trong CHÍNH request này chắc chắn chưa
+     * ai xoá mềm được, dù `getAttributes()` chưa có khoá đó.
      */
     public function isListableBy(User $user): bool
     {
-        $deletedAtKnown = array_key_exists('deleted_at', $this->getAttributes());
+        $deletedAtKnown = array_key_exists('deleted_at', $this->getAttributes()) || $this->wasRecentlyCreated;
 
         if (! $deletedAtKnown || $this->confidentiality !== Confidentiality::Normal) {
             return $user->hasRole(StaffRole::Admin->value)

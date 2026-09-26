@@ -13,8 +13,26 @@ use Illuminate\Validation\ValidationException;
  * "Huỷ hồ sơ mở nhầm" (M6.5 Task 5) — admin, xoá mềm kèm lý do BẮT BUỘC. Đây là đường sửa cho
  * vụ gắn nhầm khách hàng hoặc nhầm loại vụ việc: hai cột đó (`client_id`, `matter_type_id`)
  * KHÔNG sửa được qua {@see UpdateMatterDetails} (xem docblock lớp đó), nên hồ sơ mở sai chỉ còn
- * một đường là huỷ và mở lại đúng — cùng lý lẽ SPEC dùng cho việc gỡ một bên nhập nhầm (R14: "gỡ
- * nghĩa là nhập nhầm, chưa từng là bên").
+ * một đường là huỷ và mở lại đúng.
+ *
+ * # Các bên của vụ đã huỷ VẪN nằm trong dữ liệu đối chiếu xung đột — chủ ý, phán quyết riêng
+ *
+ * Fix round 1: bản đầu của docblock này so sánh việc này với R14 ("gỡ một bên nghĩa là nhập
+ * nhầm, chưa từng là bên, nên KHÔNG còn trong dữ liệu đối chiếu xung đột") — phép so sánh đó SAI
+ * và đã bị sửa. "Huỷ hồ sơ mở nhầm" không phải "nhập nhầm, chưa từng có vụ việc": vụ việc đó CÓ
+ * THẬT, mỗi bên trong nó đã CÓ THẬT quan hệ với văn phòng ở một thời điểm nào đó, chỉ là hồ sơ bị
+ * gắn sai khách hàng hoặc sai loại. Một xung đột lợi ích không biến mất chỉ vì văn phòng sau đó
+ * huỷ tờ giấy ghi lại nó — luật sư đối lập hôm nay vẫn từng là luật sư đối lập trong vụ đã huỷ
+ * đó. Vì kiểm tra xung đột là một CÔNG CỤ ĐẠO ĐỨC NGHỀ NGHIỆP, một kết quả DƯƠNG TÍNH GIẢ (báo
+ * động nhầm, người xem lại thấy vụ đã huỷ nên bỏ qua) an toàn hơn NHIỀU so với một kết quả ÂM
+ * TÍNH GIẢ (im lặng bỏ sót một xung đột thật) — nên các bên của vụ đã huỷ PHẢI còn nằm trong dữ
+ * liệu đối chiếu, và Action này KHÔNG được thêm bất kỳ mã nào gỡ chúng ra.
+ *
+ * Hành vi này đã đúng SẴN, không cần Action ở đây làm thêm gì: `RunConflictCheck` tự
+ * `withTrashed()` trên cả `MatterParty::query()` lẫn quan hệ `matter` của nó (đọc lại xác nhận
+ * trong `app/Actions/RunConflictCheck.php`), nên gọi `$locked->delete()` (xoá mềm) không rút một
+ * bên nào ra khỏi tầm nhìn của lần kiểm tra xung đột KẾ TIẾP. Ghi lại ở đây để người sau không tự
+ * "sửa" nó bằng một `whereNull('deleted_at')` tưởng là đúng.
  *
  * # Khoá TRƯỚC, không đọc gì trước khi khoá
  *

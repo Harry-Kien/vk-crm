@@ -801,3 +801,55 @@ it('does not touch closed_at on a same-stage update while already in a terminal 
 
     expect($matter->fresh()->closed_at->toDateString())->toBe($closedAt->toDateString());
 });
+
+/**
+ * Vụ việc có HAI giai đoạn `is_terminal`, ví dụ "Kết thúc" và "Lưu trữ" — một vụ đã kết thúc có
+ * thể cần chuyển sang một giai đoạn kết thúc KHÁC (đường bỏ qua của admin) mà không phải "mở lại
+ * rồi đóng lại". Tách khỏi `matterWithTerminalStage()` vì bản đó chỉ có một giai đoạn terminal.
+ */
+function matterWithTwoTerminalStages(array $attributes = []): Matter
+{
+    $type = MatterType::factory()->create();
+
+    $type->stages()->create([
+        'key' => 'closed', 'label' => 'Kết thúc', 'client_label' => 'Đã kết thúc',
+        'client_description' => 'Đã kết thúc', 'sort_order' => 1, 'is_terminal' => true,
+        'allowed_next' => ['archived'], 'default_next_update_days' => 30,
+    ]);
+    $type->stages()->create([
+        'key' => 'archived', 'label' => 'Lưu trữ', 'client_label' => 'Đã lưu trữ',
+        'client_description' => 'Đã lưu trữ', 'sort_order' => 2, 'is_terminal' => true,
+        'allowed_next' => [], 'default_next_update_days' => 30,
+    ]);
+    $type->unsetRelation('stages');
+
+    return Matter::factory()->for($type, 'matterType')->create($attributes);
+}
+
+/**
+ * Fix round 1, R8 minor: chuyển từ một giai đoạn `is_terminal` SANG một giai đoạn `is_terminal`
+ * KHÁC phải GIỮ NGUYÊN `closed_at` gốc — không phải reset về hôm nay. Bản đầu chỉ hỏi "giai đoạn
+ * ĐÍCH có terminal không", nên mọi lần vào một giai đoạn terminal (kể cả từ một giai đoạn terminal
+ * khác) đều ghi đè `closed_at` bằng `now()`, xoá mất ngày vụ việc THẬT SỰ đã đóng.
+ *
+ * Cặp dương của luật "vào lần đầu thì ghi `now()`" đã có sẵn ở test
+ * "sets closed_at to now when transitioning into a terminal stage" phía trên — không lặp lại ở
+ * đây, chỉ thêm đúng ca mới: terminal → terminal khác.
+ */
+it('keeps the original closed_at when moving from one terminal stage to another', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = matterWithTwoTerminalStages(['stage' => 'closed', 'closed_at' => now()->subDays(30)]);
+    $originalClosedAt = $matter->closed_at;
+    $this->actingAs($admin, 'web');
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter, actor: $admin, toStage: 'archived', occurredAt: now(),
+        internalNote: 'Chuyển sang lưu trữ', publicContent: null, nextStep: null,
+        clientAction: null, expectedNextUpdateAt: null, publish: false,
+    );
+
+    $fresh = $matter->fresh();
+
+    expect($fresh->stage)->toBe('archived')
+        ->and($fresh->closed_at->toDateString())->toBe($originalClosedAt->toDateString());
+});
