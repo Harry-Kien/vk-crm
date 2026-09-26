@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Matter\RemoveTeamMember;
 use App\Actions\Portal\TriageClientRequest;
 use App\Enums\ClientRequestStatus;
 use App\Enums\Confidentiality;
@@ -59,6 +60,36 @@ it('assigns the request and lifts it out of new in one move', function () {
 
     expect(reloadThread($this->request)->assigned_to)->toBe($assistant->id)
         ->and(reloadThread($this->request)->status)->toBe(ClientRequestStatus::InProgress);
+});
+
+/**
+ * **Fix round 1, ruling — `last_activity_at` chỉ nhảy khi giao việc CŨNG đổi trạng thái.** Vế
+ * dương: giao một luồng `new` (đẩy sang `in_progress`) đóng dấu hoạt động. Vế âm, TRONG CÙNG
+ * test: giao LẠI một luồng đã `in_progress` cho người khác (không đổi trạng thái) — cột giữ
+ * nguyên, dù việc giao vẫn thành công.
+ */
+it('stamps last_activity_at only when assigning also changes the status', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $this->matter->addTeamMember($assistant, MatterRole::Assistant);
+    $secondAssistant = User::factory()->withRole(Role::Assistant)->create();
+    $this->matter->addTeamMember($secondAssistant, MatterRole::Assistant);
+
+    $this->travelTo('2026-09-21 09:00:00');
+    $this->request->update(['last_activity_at' => '2026-09-20 00:00:00']);
+
+    $this->travelTo('2026-09-21 10:00:00');
+    $this->action->assign(reloadThread($this->request), $this->lawyer, $assistant);
+
+    expect(reloadThread($this->request)->status)->toBe(ClientRequestStatus::InProgress)
+        ->and(reloadThread($this->request)->last_activity_at->toDateTimeString())->toBe('2026-09-21 10:00:00');
+
+    $this->travelTo('2026-09-25 12:00:00');
+    $this->action->assign(reloadThread($this->request), $this->lawyer, $secondAssistant);
+
+    expect(reloadThread($this->request)->assigned_to)->toBe($secondAssistant->id)
+        // Không đổi trạng thái ở lần giao thứ hai — cột GIỮ mốc của lần trước, không nhảy tới
+        // '2026-09-25 12:00:00'.
+        ->and(reloadThread($this->request)->last_activity_at->toDateTimeString())->toBe('2026-09-21 10:00:00');
 });
 
 /**
@@ -222,6 +253,37 @@ it('lets a closed thread be reopened, because there is no transition matrix here
     $this->action->setStatus(reloadThread($this->request), $this->lawyer, ClientRequestStatus::InProgress);
 
     expect(reloadThread($this->request)->status)->toBe(ClientRequestStatus::InProgress);
+});
+
+/**
+ * **Fix round 1, minor — hợp đồng của `SetClientRequestStatusResult`, đo Ở TẦNG ACTION.** Test
+ * qua màn hình (`ClientRequestsRelationManagerTest`, "unassigns a teammate...") đo câu thông báo
+ * tiếng Việt; test này đo trực tiếp `setStatus()` TRẢ VỀ CÁI GÌ — không suy từ so sánh hai lần
+ * đọc bên ngoài Action.
+ */
+it('reports exactly who it unassigned when reopening a closed thread they can no longer hold', function () {
+    $holder = User::factory()->withRole(Role::Assistant)->create(['name' => 'Trợ lý Rời Đội']);
+    $this->matter->addTeamMember($holder, MatterRole::Assistant);
+    $this->request->update(['assigned_to' => $holder->id, 'status' => ClientRequestStatus::Closed]);
+    // Chỉ dựng fixture — luồng đã ĐÓNG nên `OpenWork` không chặn lần gỡ này (đúng luật Task 3).
+    app(RemoveTeamMember::class)->handle($this->matter, $this->lawyer, $holder);
+
+    $result = $this->action->setStatus(reloadThread($this->request), $this->lawyer, ClientRequestStatus::InProgress);
+
+    expect($result->thread->assigned_to)->toBeNull()
+        ->and($result->unassignedAssignee)->not->toBeNull()
+        ->and($result->unassignedAssignee->getKey())->toBe($holder->id)
+        ->and($result->unassignedAssignee->name)->toBe('Trợ lý Rời Đội');
+
+    // Vế dương: khi KHÔNG có ai bị gỡ, kết quả nói rõ điều đó bằng `null` — không một giá trị giả
+    // nào khác cho màn hình lỡ đọc nhầm thành "có gỡ".
+    $untouched = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'status' => ClientRequestStatus::New,
+    ]);
+
+    expect($this->action->setStatus($untouched, $this->lawyer, ClientRequestStatus::InProgress)->unassignedAssignee)
+        ->toBeNull();
 });
 
 // =========================================================================================

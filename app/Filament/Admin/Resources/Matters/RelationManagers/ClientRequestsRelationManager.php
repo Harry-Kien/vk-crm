@@ -4,6 +4,7 @@ namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 
 use App\Actions\Portal\OpenClientRequest;
 use App\Actions\Portal\ReplyToClientRequest;
+use App\Actions\Portal\SetClientRequestStatusResult;
 use App\Actions\Portal\TriageClientRequest;
 use App\Enums\ClientRequestStatus;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
@@ -154,17 +155,14 @@ class ClientRequestsRelationManager extends RelationManager
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             // Mới nhất trên cùng theo HOẠT ĐỘNG GẦN NHẤT, không theo lúc khách gửi (Task 18,
-            // REQ-2 — đảo lại quyết định trước đó). `last_activity_at` là một CỘT, không một truy
-            // vấn con trên `client_request_replies`: lý do đầy đủ ở docblock migration
-            // `add_last_activity_at_to_client_requests_table`, tóm tắt là "đổi trạng thái tay
-            // (REQ-5: luật sư trả lời qua điện thoại rồi bấm 'Đã trả lời') là một lần hoạt động
-            // không sinh dòng `client_request_replies` nào, nên một `MAX()` trên bảng đó bỏ sót
-            // đúng ca này". Cột được các Action tự cập nhật ở bốn đường: yêu cầu mới
-            // ({@see OpenClientRequest}), khách hỏi tiếp và nhân sự trả lời (cả hai ở
-            // {@see ReplyToClientRequest}), đổi trạng thái tay ({@see TriageClientRequest::
-            // setStatus()}) — và KHÔNG ở `assign()`: giao việc là một việc quản trị, không phải
-            // một lượt trao đổi, và đẩy một luồng im lặng lên đầu chỉ vì vừa được giao cho ai đó
-            // là đúng thứ hộp thư này không được làm.
+            // REQ-2 — đảo lại quyết định trước đó). CÙNG cột và cùng chiều mà
+            // {@see MyRequests::threads()} dùng ở đầu bên kia (fix round 1, ruling: hai màn hình
+            // của một cuộc trao đổi không được sắp khác nhau). `last_activity_at` là một CỘT,
+            // không một truy vấn con trên `client_request_replies`: lý do đầy đủ và ranh giới
+            // chính xác của "hoạt động" ở docblock migration
+            // `add_last_activity_at_to_client_requests_table` — tóm tắt là bốn nguồn (yêu cầu
+            // mới, khách hỏi tiếp, nhân sự trả lời, đổi trạng thái tay), và `assign()` CHỈ tính
+            // khi nó cũng đổi trạng thái (`new → in_progress`), không tính khi chỉ đổi tay.
             ->defaultSort('last_activity_at', 'desc')
             ->recordActions([
                 $this->replyAction(),
@@ -334,10 +332,17 @@ class ClientRequestsRelationManager extends RelationManager
      *
      * **Thông báo thành công KHÔNG còn tĩnh (Task 3 review, R-carried — REQ-3).**
      * `TriageClientRequest::setStatus()` có thể tự gỡ người đang giữ khi mở lại một luồng đã đóng
-     * mà người đó không còn mở nổi hồ sơ nữa (xem docblock của nó). Đây là NƠI DUY NHẤT khác đụng
-     * tới `assigned_to` ngoài `assign()`, nên so `$record->assigned_to` (đọc TRƯỚC lời gọi, từ
-     * quan hệ đã nạp kèm `withTrashed()` ở `table()`) với `assigned_to` của luồng SAU lời gọi là
-     * đủ để biết chính XÁC việc đó vừa xảy ra — không cần Action trả thêm một cờ boolean nào.
+     * mà người đó không còn mở nổi hồ sơ nữa (xem docblock của nó).
+     *
+     * **Đọc thẳng kết quả Action trả về, không tự so hai ảnh chụp (fix round 1, minor).** Bản
+     * trước so `$record->assigned_to` (đọc TRƯỚC lời gọi) với `assigned_to` của luồng SAU lời gọi
+     * để SUY ra việc gỡ người có xảy ra không — dựa trên tiền đề "không Action nào khác đụng cột
+     * này giữa hai lần đọc", một tiền đề không còn chắc chắn một khi có Action khác (bàn giao hàng
+     * loạt) cũng ghi `assigned_to`. Bản dự phòng khi đó còn ghép nhãn "Chưa ai nhận" (placeholder
+     * của Ô TRỐNG) vào chỗ một cái TÊN nếu quan hệ `assignee` không có sẵn, ra một câu vô nghĩa.
+     * Nay `setStatus()` tự báo qua {@see SetClientRequestStatusResult}: `unassignedAssignee` chỉ
+     * khác `null` khi Action THẬT SỰ vừa gỡ ai, và nó luôn là người đó — không cần suy, không cần
+     * dự phòng cho tên.
      */
     private function changeStatusAction(): Action
     {
@@ -356,32 +361,25 @@ class ClientRequestsRelationManager extends RelationManager
                     ->required()
                     ->native(false),
             ])
-            ->action(function (Action $action, ClientRequest $record, array $data): void {
-                $previousAssigneeId = $record->assigned_to;
-                $previousAssigneeName = $record->assignee?->name;
+            ->action(fn (Action $action, ClientRequest $record, array $data) => $this->runAction(
+                $action,
+                function () use ($record, $data): void {
+                    $result = app(TriageClientRequest::class)->setStatus(
+                        $record,
+                        Auth::user(),
+                        ClientRequestStatus::from($data['status']),
+                    );
 
-                $this->runAction(
-                    $action,
-                    function () use ($record, $data, $previousAssigneeId, $previousAssigneeName): void {
-                        $thread = app(TriageClientRequest::class)->setStatus(
-                            $record,
-                            Auth::user(),
-                            ClientRequestStatus::from($data['status']),
-                        );
-
-                        $wasAutoUnassigned = $previousAssigneeId !== null && $thread->assigned_to === null;
-
-                        Notification::make()
-                            ->title($wasAutoUnassigned
-                                ? __('requests.tab.actions.change_status_unassigned', [
-                                    'name' => $previousAssigneeName ?? __('requests.tab.unassigned'),
-                                ])
-                                : __('requests.tab.actions.change_status_success'))
-                            ->success()
-                            ->send();
-                    },
-                );
-            });
+                    Notification::make()
+                        ->title($result->unassignedAssignee !== null
+                            ? __('requests.tab.actions.change_status_unassigned', [
+                                'name' => $result->unassignedAssignee->name,
+                            ])
+                            : __('requests.tab.actions.change_status_success'))
+                        ->success()
+                        ->send();
+                },
+            ));
     }
 
     /**

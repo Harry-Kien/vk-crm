@@ -202,7 +202,17 @@ class MyRequests extends Page
     }
 
     /**
-     * Các cuộc trao đổi của hồ sơ này, mới nhất trên cùng.
+     * Các cuộc trao đổi của hồ sơ này, HOẠT ĐỘNG GẦN NHẤT trên cùng.
+     *
+     * **Cùng cột, cùng chiều với hộp thư của văn phòng (fix round 1, ruling).** Bản trước sắp
+     * theo `created_at` — lúc khách GỬI — trong khi tab nội bộ
+     * ({@see ClientRequestsRelationManager})
+     * đã đổi sang `last_activity_at` ở chính milestone này (Task 18, REQ-2). Hai màn hình của
+     * MỘT cuộc trao đổi sắp khác nhau là một cách âm thầm nói hai câu chuyện khác nhau về "luồng
+     * nào đang cần chú ý" — khách thấy luồng cũ đã có hồi âm mới nằm dưới một luồng mới nhưng im
+     * lặng, đúng lúc văn phòng (nhìn hộp thư của mình) thấy nó nằm trên. Ranh giới chính xác của
+     * "hoạt động" — bốn nguồn, và `assign()` chỉ tính khi cũng đổi trạng thái — nằm ở docblock
+     * migration `add_last_activity_at_to_client_requests_table`.
      *
      * Hai tầng: truy vấn (`ClientPortalScope` cắt theo khách đang đăng nhập — không một dòng nào
      * ở đây viết `where('client_id', ...)`), rồi `Gate::allows('view', ...)` trên **từng** bản
@@ -234,7 +244,7 @@ class MyRequests extends Page
 
         return $this->resolvedThreads = $this->matter()->clientRequests()
             ->with(['replies'])
-            ->orderByDesc('created_at')
+            ->orderByDesc('last_activity_at')
             ->get()
             ->filter(fn (ClientRequest $request): bool => Gate::forUser($viewer)->allows('view', $request))
             ->values();
@@ -352,13 +362,24 @@ class MyRequests extends Page
      * vì {@see self::threadEntries()} gọi nó ở CẢ HAI chỗ (câu hỏi đầu luồng và mọi lượt viết
      * tiếp), và hai lần chép tay phép so sánh id là hai chỗ để nó lệch nhau.
      *
+     * **Tên dự phòng KHÔNG BAO GIỜ là `history.from_client` ("Anh/chị viết") — fix round 1,
+     * minor.** Bản trước dùng chung một khoá cho cả HAI việc khác nhau: (1) nhãn "Anh/chị viết"
+     * đứng TRƯỚC tên trong blade, cho vai `client_self`; (2) tên dự phòng khi
+     * `$names['client'][$authorId]` không tìm thấy gì — một id lọt ra ngoài phạm vi
+     * `where('client_id', ...)` của {@see self::authorNames()} (dữ liệu hỏng: `author_id` trỏ
+     * sang một khách hàng khác). Dùng chung nghĩa là một dòng `client_sibling` với tên KHÔNG giải
+     * quyết được sẽ hiện literal "Anh/chị viết" như thể đó là TÊN của người nhà — đúng câu REQ-8
+     * cấm, chỉ đổi chỗ. Nay tên dự phòng là một khoá RIÊNG, trung lập
+     * (`history.unknown_client_author`, "Người cùng khách hàng"), không mượn nhãn của vai
+     * `client_self`.
+     *
      * @param  array{staff: Collection<int, string>, client: Collection<int, string>}  $names
      * @return array{author: string, role: string, content: string, at: string}
      */
     private function clientEntry(?int $authorId, string $content, string $at, array $names, int|string $viewerId): array
     {
         return [
-            'author' => $names['client'][$authorId] ?? __('requests.portal.history.from_client'),
+            'author' => $names['client'][$authorId] ?? __('requests.portal.history.unknown_client_author'),
             'role' => $authorId !== null && (string) $authorId === (string) $viewerId
                 ? 'client_self'
                 : 'client_sibling',

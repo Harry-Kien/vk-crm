@@ -107,8 +107,14 @@
                                 {{-- Nhãn "Anh/chị viết" chỉ dành cho CHÍNH người đang xem
                                      (`client_self`). Một dòng của người nhà (`client_sibling`,
                                      REQ-8) mang tên người đó, không mượn nhãn này — nếu không,
-                                     người đang xem sẽ tưởng câu của người kia là câu của mình. --}}
-                                <p style="font-size:0.9375rem;font-weight:600;">
+                                     người đang xem sẽ tưởng câu của người kia là câu của mình.
+
+                                     `data-portal-entry-author` (fix round 1, I2): mốc để TEST cắt
+                                     đúng dòng tác giả của TỪNG mục, thay vì `assertSee` trên cả
+                                     trang — thứ trước đây để lọt một test vô nghĩa (nội dung câu
+                                     trả lời tự chứa tên người viết, nên `toContain(tên)` xanh dù
+                                     nhãn có đúng hay không). --}}
+                                <p data-portal-entry-author="{{ $loop->index }}" style="font-size:0.9375rem;font-weight:600;">
                                     @if ($entry['role'] === 'office')
                                         {{ __('requests.portal.history.from_office') }} — {{ $entry['author'] }}
                                     @elseif ($entry['role'] === 'client_self')

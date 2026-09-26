@@ -53,11 +53,26 @@ return [
         ],
 
         'history' => [
-            'heading' => 'Những điều anh/chị đã gửi',
+            /*
+             * Đổi từ "Những điều anh/chị đã gửi" (fix round 1, minor, REQ-8). Câu cũ chỉ đúng khi
+             * người xem là người DUY NHẤT đã viết vào luồng — sai ngay khi người nhà (cùng
+             * `client_id`) đã viết tiếp, vì lúc đó tiêu đề này đứng trên cả những câu người xem
+             * KHÔNG hề gửi. Câu mới trung lập, đúng với cả hai trường hợp.
+             */
+            'heading' => 'Những điều đã trao đổi về hồ sơ này',
             'empty' => 'Anh/chị chưa gửi yêu cầu nào cho hồ sơ này. Khi nào cần hỏi, anh/chị dùng ô bên trên.',
             'from_office' => 'Văn phòng trả lời',
             'from_client' => 'Anh/chị viết',
             'unknown_author' => 'Văn phòng',
+
+            /*
+             * Tên dự phòng cho một dòng của KHÁCH mà id không giải quyết được (dữ liệu hỏng: một
+             * `author_id` trỏ ra ngoài phạm vi `client_id` của người đang xem — xem docblock
+             * {@see \App\Filament\Portal\Pages\MyRequests::clientEntry()}). PHẢI khác `from_client`
+             * ("Anh/chị viết"): dòng đó có thể là của người NHÀ KHÁC (`client_sibling`), và một
+             * tên dự phòng mượn nhãn của chính người xem là đúng câu REQ-8 cấm.
+             */
+            'unknown_client_author' => 'Người cùng khách hàng',
         ],
 
         'reply' => [
@@ -76,17 +91,27 @@ return [
             'in_progress' => 'Văn phòng đang xem và chuẩn bị trả lời anh/chị',
             'answered' => 'Văn phòng đã trả lời, anh/chị xem bên dưới',
             'closed' => 'Việc này đã xong. Nếu còn điều cần hỏi, anh/chị gửi một yêu cầu mới.',
-        ],
 
-        /*
-         * REQ-5: `TriageClientRequest::setStatus()` cho phép đặt thẳng `answered` mà không cần
-         * viết câu trả lời nào — ca có chủ đích, "luật sư trả lời qua điện thoại rồi đánh dấu
-         * thẳng Đã trả lời" ({@see \App\Actions\Portal\TriageClientRequest::setStatus()}). Câu
-         * `status.answered` ở trên mời khách "xem bên dưới", nhưng bên dưới khi đó trống — không
-         * có mục nào của văn phòng. `MyRequests::statusLine()` chọn câu này thay vì câu đó khi
-         * luồng `answered` không có lời trả lời nào viết ra.
-         */
-        'answered_by_phone' => 'Văn phòng đã trả lời anh/chị qua điện thoại hoặc trực tiếp.',
+            /*
+             * REQ-5: `TriageClientRequest::setStatus()` cho phép đặt thẳng `answered` mà không
+             * cần viết câu trả lời nào — ca có chủ đích, "luật sư trả lời qua điện thoại rồi đánh
+             * dấu thẳng Đã trả lời" ({@see \App\Actions\Portal\TriageClientRequest::setStatus()}).
+             * Câu `answered` ở trên mời khách "xem bên dưới", nhưng bên dưới khi đó trống — không
+             * có mục nào của văn phòng. `MyRequests::statusLine()` chọn câu này thay vì câu đó
+             * khi luồng `answered` không có lời trả lời nào viết ra.
+             *
+             * **Khoá PHẢI nằm TRONG mảng `status`, không phải cạnh nó (fix round 1, C1).**
+             * `statusLine()` gọi `__('requests.portal.status.answered_by_phone')` — bản trước đặt
+             * khoá này ở `portal.answered_by_phone`, một tầng NGOÀI `status`, nên lời gọi đó
+             * không tìm thấy gì và Laravel trả về NGUYÊN VĂN chuỗi khoá — khách nhìn thấy
+             * "requests.portal.status.answered_by_phone" trên màn hình thay vì một câu tiếng
+             * Việt. Bài học: một khoá lệch tầng không tự báo lỗi ở đâu cả, kể cả khi test so
+             * `__($key)` với `__($key)` — cả hai vế đều là cùng một khoá thô, và một khẳng định so
+             * một thứ với chính nó luôn xanh. Test thật viết thẳng câu tiếng Việt kỳ vọng, không
+             * gọi lại `__()`.
+             */
+            'answered_by_phone' => 'Văn phòng đã trả lời anh/chị qua điện thoại hoặc trực tiếp.',
+        ],
 
         /*
          * Câu này nhắc tới "ô trên cùng" — cái ô "Gửi một yêu cầu mới" của CHÍNH trang này. Nó
