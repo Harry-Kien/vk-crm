@@ -88,3 +88,100 @@ it('ignores voided payments when computing the collected total for state()', fun
 
     expect($instalment->state())->toBe(InstalmentState::Due);
 });
+
+/**
+ * `outstanding()` (M9 Task 5) — còn phải thu của MỘT đợt, số nguyên đồng.
+ */
+it('computes outstanding as amount minus uncancelled payments, zero for waived/cancelled/paid', function (
+    InstalmentStatus $status,
+    int $collected,
+    int $expected,
+) {
+    // Hợp đồng NHÁP, cố ý — cùng lý do test state() ở trên: cô lập outstanding() khỏi bất biến
+    // tổng M9, không liên quan tới điều đang thử ở đây.
+    $contract = Contract::factory()->create(['status' => ContractStatus::Draft, 'total_amount' => 10_000_000]);
+    $instalment = Instalment::factory()->for($contract)->create(['status' => $status, 'amount' => 10_000_000]);
+
+    if ($collected > 0) {
+        Payment::factory()->for($instalment)->create(['amount' => $collected]);
+    }
+
+    expect($instalment->fresh()->outstanding())->toBe($expected);
+})->with([
+    'pending, nothing collected' => [InstalmentStatus::Pending, 0, 10_000_000],
+    'pending, partially collected' => [InstalmentStatus::Pending, 4_000_000, 6_000_000],
+    'pending, fully collected' => [InstalmentStatus::Pending, 10_000_000, 0],
+    'paid -> 0 by definition, regardless of any payments row' => [InstalmentStatus::Paid, 0, 0],
+    'waived -> 0' => [InstalmentStatus::Waived, 0, 0],
+    'cancelled -> 0' => [InstalmentStatus::Cancelled, 0, 0],
+]);
+
+it('ignores voided payments when computing outstanding()', function () {
+    $contract = Contract::factory()->create(['status' => ContractStatus::Draft, 'total_amount' => 10_000_000]);
+    $instalment = Instalment::factory()->for($contract)->create(['status' => InstalmentStatus::Pending, 'amount' => 10_000_000]);
+
+    Payment::factory()->for($instalment)->voided()->create(['amount' => 10_000_000]);
+
+    expect($instalment->outstanding())->toBe(10_000_000);
+});
+
+/**
+ * `scopeOverdue()` (M9 Task 5) — cùng điều kiện với nhánh cuối của `pendingState()`, viết bằng SQL.
+ * Tập biên NẰM TRÊN MỘT HỢP ĐỒNG `active` DUY NHẤT (constraint (b), Task 4: fixture phải giữ tổng
+ * cân bằng — soạn nháp, thêm đủ đợt, rồi mới kích hoạt bằng một lần ghi thẳng).
+ */
+it('agrees with state() on the instalment-level boundary set: due today, past due, partially paid, waived, cancelled', function () {
+    // Tổng chỉ tính 5 đợt CHƯA HUỶ (10 triệu x 5 = 50 triệu, `ScheduleTotal::counted()` loại đợt
+    // `cancelled` khỏi bất biến tổng M9), không phải 60 triệu gồm cả đợt `cancelled` thứ sáu.
+    $contract = Contract::factory()->create(['status' => ContractStatus::Draft, 'total_amount' => 50_000_000]);
+
+    $dueToday = Instalment::factory()->for($contract)->create(['sequence' => 1, 'amount' => 10_000_000, 'due_date' => today()->toDateString()]);
+    $overdue = Instalment::factory()->for($contract)->create(['sequence' => 2, 'amount' => 10_000_000, 'due_date' => today()->subDay()->toDateString()]);
+    $partiallyPaidPastDue = Instalment::factory()->for($contract)->create(['sequence' => 3, 'amount' => 10_000_000, 'due_date' => today()->subDays(5)->toDateString()]);
+    $fullyCollectedStillPending = Instalment::factory()->for($contract)->create(['sequence' => 4, 'amount' => 10_000_000, 'due_date' => today()->subDays(5)->toDateString()]);
+    $waived = Instalment::factory()->for($contract)->create(['sequence' => 5, 'amount' => 10_000_000, 'due_date' => today()->subDay()->toDateString(), 'status' => InstalmentStatus::Waived, 'waived_reason' => str_repeat('a', 20), 'waived_at' => now()]);
+    $cancelled = Instalment::factory()->for($contract)->create(['sequence' => 6, 'amount' => 10_000_000, 'due_date' => today()->subDay()->toDateString(), 'status' => InstalmentStatus::Cancelled]);
+
+    Payment::factory()->for($partiallyPaidPastDue)->create(['amount' => 4_000_000]);
+    Payment::factory()->for($fullyCollectedStillPending)->create(['amount' => 10_000_000]);
+
+    // Kích hoạt bằng cách ghi thẳng model (constraint (b)): tổng các đợt chưa huỷ (60 triệu) đã
+    // khớp `total_amount` từ trước, nên lần chuyển sang `active` này qua được hook bất biến.
+    $contract->fill(['status' => ContractStatus::Active, 'signed_at' => today()->subDay()->toDateString()])->save();
+
+    $cases = [
+        'due today' => $dueToday,
+        'overdue' => $overdue,
+        'partially paid, past due' => $partiallyPaidPastDue,
+        'fully collected, status not yet synced' => $fullyCollectedStillPending,
+        'waived' => $waived,
+        'cancelled' => $cancelled,
+    ];
+
+    foreach ($cases as $label => $instalment) {
+        $fresh = $instalment->fresh();
+        $isOverdueByState = $fresh->state() === InstalmentState::Overdue;
+        $isOverdueByScope = Instalment::query()->overdue()->whereKey($instalment->id)->exists();
+
+        expect($isOverdueByScope)->toBe($isOverdueByState, "lệch nhau ở ca: {$label}");
+    }
+
+    expect($overdue->fresh()->state())->toBe(InstalmentState::Overdue)
+        ->and(Instalment::query()->overdue()->pluck('id')->all())->toBe([$overdue->id]);
+});
+
+/**
+ * Constraint (a), mang từ Task 4: `scopeOverdue()` phải lọc hợp đồng `active`. Đây là điểm DUY
+ * NHẤT `state()` (gọi trên một instance, không biết gì về hợp đồng cha) và `scopeOverdue()` được
+ * PHÉP lệch nhau, có chủ đích — xem docblock `scopeOverdue()`.
+ */
+it('excludes a pending instalment of a cancelled or completed contract from scopeOverdue(), even though its own state() calls it overdue', function (string $contractState) {
+    $contract = Contract::factory()->{$contractState}()->create();
+    $instalment = Instalment::factory()->for($contract)->create([
+        'status' => InstalmentStatus::Pending,
+        'due_date' => today()->subDays(5)->toDateString(),
+    ]);
+
+    expect($instalment->state())->toBe(InstalmentState::Overdue)
+        ->and(Instalment::query()->overdue()->whereKey($instalment->id)->exists())->toBeFalse();
+})->with(['cancelled', 'completed']);

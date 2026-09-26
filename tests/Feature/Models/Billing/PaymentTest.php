@@ -32,6 +32,18 @@ it('can never be deleted, regardless of state', function () {
         ->and(Payment::count())->toBe(1);
 });
 
+/**
+ * M9 Task 5 ("Test bắt buộc": "khoản thu không xoá được — delete() lẫn forceDelete()"). Không
+ * `SoftDeletes`, nên `Model::forceDelete()` mặc định CHỈ gọi thẳng `delete()` — cùng sự kiện
+ * `deleting`, cùng hook. Test riêng để mutation probe không lẫn hai đường gọi làm một.
+ */
+it('can never be force deleted either', function () {
+    $payment = Payment::factory()->create();
+
+    expect(fn () => $payment->forceDelete())->toThrow(PaymentNotDestroyable::class)
+        ->and(Payment::count())->toBe(1);
+});
+
 it('cannot be deleted even after being voided', function () {
     $payment = Payment::factory()->voided()->create();
 

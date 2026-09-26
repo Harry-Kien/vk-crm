@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\InstalmentState;
+use App\Enums\InstalmentStatus;
 use App\Enums\MatterRole;
 use App\Enums\Permission;
 use App\Enums\Role;
@@ -264,9 +265,22 @@ it('refuses a money list question whose context is not a matter', function () {
 
 // ── Vụ đã xoá mềm: không nằm trong `listableBy`, nên không có tiền ─────────────────────────────
 
+/**
+ * Ba test dưới đây xoá mềm `$this->matter`, và `$this->chain` (từ `billingAccessChain()`) luôn
+ * mang một đợt `pending` bằng đúng giá trị hợp đồng — nên từ M9 Task 5, `Matter::deleting` sẽ
+ * chặn xoá vì còn dư nợ nếu không đánh dấu đợt đó đã xong trước. Việc chặn đó không phải điều ba
+ * test này đang thử (chúng thử tầng policy SAU KHI xoá được), nên đánh dấu `paid` ở đây chỉ để dọn
+ * đường — không phải một khẳng định về tiền.
+ */
+function settleChainDebt(array $chain): void
+{
+    $chain[1]->fill(['status' => InstalmentStatus::Paid])->save();
+}
+
 it('refuses the money of a soft deleted matter instead of failing', function () {
     expect($this->admin->can('view', $this->contract))->toBeTrue();
 
+    settleChainDebt($this->chain);
     $this->matter->delete();
 
     expect(canReadMoney($this->admin, [
@@ -275,6 +289,7 @@ it('refuses the money of a soft deleted matter instead of failing', function () 
 });
 
 it('refuses the money of a soft deleted matter even when the caller loaded the trashed matter', function () {
+    settleChainDebt($this->chain);
     $this->matter->delete();
 
     $contract = Contract::query()
@@ -561,6 +576,7 @@ it('refuses the money of a soft deleted matter loaded without its deleted_at', f
     expect(canReadMoney($this->admin, billingChainLoadedWith($this->chain, $columns, withTrashed: true)))
         ->toBe([true, true, true, true]);
 
+    settleChainDebt($this->chain);
     $this->matter->delete();
     $chain = billingChainLoadedWith($this->chain, $columns, withTrashed: true);
 

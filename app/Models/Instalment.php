@@ -10,6 +10,7 @@ use App\Exceptions\InstalmentNotDestroyable;
 use App\Models\Concerns\HasBlameable;
 use App\Models\Concerns\HidesInternalAttributesFromPortal;
 use App\Models\Concerns\RestrictedToClientPortal;
+use App\Support\Billing\BillingSummary;
 use App\Support\Billing\ScheduleTotal;
 use Database\Factories\InstalmentFactory;
 use Illuminate\Database\Eloquent\Builder;
@@ -135,6 +136,80 @@ class Instalment extends Model
         // vì nó so với thời khắc HIỆN TẠI (luôn sau nửa đêm), biến "đến hạn hôm nay" thành "quá
         // hạn" ngay từ 00:00:01. Cùng thành ngữ `today()` với `Deadline::scopeUpcoming()`.
         return $this->due_date->lt(today()) ? InstalmentState::Overdue : InstalmentState::Due;
+    }
+
+    /**
+     * Còn phải thu của ĐÚNG đợt này — số nguyên đồng, không âm (M9 Task 5). Định nghĩa MỘT chỗ,
+     * dùng bởi {@see BillingSummary} và bởi các chốt chặn xoá còn nợ.
+     *
+     * - `waived`, `cancelled` → `0`: miễn là bớt số khách phải trả trên một hợp đồng không đổi giá
+     *   trị (không phải phụ lục — xem docblock `BillingSummary`); huỷ đợt cũng ra khỏi số phải đòi.
+     * - `paid` → `0` theo ĐỊNH NGHĨA: cột `status` là sự thật văn phòng đã tuyên bố (giống lý do
+     *   `state()` ưu tiên ba trạng thái LƯU không mơ hồ trước khi suy luận từ due_date/số đã thu).
+     * - `pending` → `amount` trừ tổng khoản thu CHƯA HUỶ, kẹp dưới ở `0`. Kẹp dưới chỉ là một lưới
+     *   an toàn cho dữ liệu ghi thẳng vào DB đi vòng qua Action — qua đường hợp lệ duy nhất
+     *   (`RecordPayment`), thu vượt bị chặn từ trước bởi `PaymentExceedsInstalment`, nên số âm
+     *   không bao giờ xảy ra.
+     *
+     * **Không đọc `state()`.** Một đợt `pending` đã thu đủ nhưng cột `status` chưa kịp đồng bộ (ca
+     * biên `state()` xử lý bằng cách hiển thị `paid`) vẫn tính đúng `0` ở đây — vì hàm này CỘNG
+     * TRỪ theo số thu thật (`amount - collected`), không theo một bảng tra trạng thái hiển thị.
+     * Hai hàm trả lời hai câu khác nhau: `state()` là "hiển thị cái gì", `outstanding()` là "còn nợ
+     * bao nhiêu tiền" — chúng tình cờ khớp nhau ở phần lớn ca, không phải luôn luôn, và không cần
+     * phải luôn luôn.
+     */
+    public function outstanding(): int
+    {
+        return match ($this->status) {
+            InstalmentStatus::Waived, InstalmentStatus::Cancelled, InstalmentStatus::Paid => 0,
+            InstalmentStatus::Pending => max(0, $this->amount - $this->collectedAmount()),
+        };
+    }
+
+    private function collectedAmount(): int
+    {
+        return (int) $this->payments()->whereNull('voided_at')->sum('amount');
+    }
+
+    /**
+     * SQL kin của nhánh CUỐI trong {@see self::pendingState()} — "quá hạn" bằng đúng điều kiện đó,
+     * viết lại bằng truy vấn cho các trang tổng hợp (widget, trang "Công nợ", tác vụ nhắc quá hạn
+     * hằng ngày, Task 8/9/11). `InstalmentTest` ("agrees with state() on the boundary set") khẳng
+     * định hai cách cho cùng kết quả trên tập biên INSTALMENT (đến hạn hôm nay, đã miễn, đã huỷ,
+     * thu một phần) của các đợt thuộc hợp đồng `active`.
+     *
+     * Bốn điều kiện, đúng thứ tự `pendingState()` đọc chúng:
+     *  - `status = pending` — ba trạng thái LƯU khác không bao giờ "quá hạn" (`state()` trả chúng
+     *    trước khi chạm tới nhánh ngày tháng).
+     *  - `due_date` khác `null` — chưa có hạn thì không thể "quá hạn" một thứ chưa có hạn.
+     *  - `due_date < hôm nay` — hôm nay so bằng NGÀY, không phải thời khắc (cùng lý do `state()`
+     *    dùng `today()` chứ không `isPast()`); đến hạn ĐÚNG hôm nay là `due`, chưa `overdue`.
+     *  - **Chưa thu đồng nào.** `pendingState()` trả `overdue` CHỈ khi `collected === 0` — thu một
+     *    phần (dù đã quá hạn) là `partially_paid`, không phải `overdue` (mất "đã thu một phần" để
+     *    đổi lấy "quá hạn" là một lựa chọn tệ hơn khi kế toán đang cần biết còn bao nhiêu để giục).
+     *    Đây KHÔNG phải "amount > collected": một đợt đã thu 1 đồng trên 10 triệu vẫn không nằm
+     *    trong `scopeOverdue()`, đúng như `state()` không gọi nó `overdue`.
+     *
+     * **Constraint (a), mang từ Task 4 (xem docblock `App\Actions\Billing\CancelContract`): chỉ
+     * hợp đồng `active`.** Một đợt `pending` của hợp đồng đã `cancelled`/`completed` (data model
+     * cho phép trạng thái này tồn tại — `CancelContract`/`CompleteContract` không chạm tới đợt)
+     * VẪN có thể khớp bốn điều kiện trên nếu tính theo `state()` của riêng nó, nhưng KHÔNG được
+     * lọt vào truy vấn công nợ tổng hợp — nếu không, lịch thu lịch sử của một hợp đồng đã đóng sẽ
+     * hiện thành nợ quá hạn đang đòi. Đây là điểm DUY NHẤT `scopeOverdue()` và `state()` (gọi trên
+     * một instance, không biết gì về trạng thái hợp đồng cha) có thể lệch nhau, có chủ đích — xem
+     * `InstalmentTest`, "excludes a pending instalment of a cancelled/completed contract even
+     * though its own state() would call it overdue".
+     */
+    public function scopeOverdue(Builder $query): Builder
+    {
+        return $query
+            ->where($this->qualifyColumn('status'), InstalmentStatus::Pending->value)
+            ->whereNotNull($this->qualifyColumn('due_date'))
+            ->where($this->qualifyColumn('due_date'), '<', today()->toDateString())
+            ->whereHas('contract', fn (Builder $contract) => $contract->where('status', ContractStatus::Active->value))
+            ->whereRaw(
+                '0 = coalesce((select sum(amount) from payments where payments.instalment_id = '.$this->qualifyColumn('id').' and payments.voided_at is null), 0)'
+            );
     }
 
     public function contract(): BelongsTo

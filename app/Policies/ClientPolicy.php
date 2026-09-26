@@ -9,6 +9,8 @@ use App\Models\ClientUser;
 use App\Models\Matter;
 use App\Models\User;
 use App\Policies\Concerns\ChecksPortalVisibility;
+use App\Support\Billing\BillingSummary;
+use App\Support\Billing\Money;
 use Illuminate\Auth\Access\Response;
 
 class ClientPolicy
@@ -61,6 +63,16 @@ class ClientPolicy
      * `authorizationNotification()` cho đúng `DeleteAction` này, nên thông điệp ở đây là thứ admin
      * đọc được ngay khi bấm — "vì sao không xoá được" — thay vì một nút biến mất không lời giải
      * thích.
+     *
+     * **Mở rộng M9 Task 5 — "Khách hàng bị xoá mềm mà còn công nợ → CHẶN".** Kiểm tra "vụ đang
+     * mở" ở trên chỉ hỏi `closed_at`, nên một khách hàng có vụ việc đã ĐÓNG mà còn hợp đồng
+     * `active` dư nợ lọt qua được: `Matter::client()` sẽ trả `null` cho hồ sơ đó ở màn hình tiền
+     * ngay sau khi xoá, và dư nợ đó BỐC HƠI khỏi mọi báo cáo doanh thu (chúng bỏ qua vụ xoá mềm
+     * qua quan hệ `client`, cùng cách `Matter::deleting` mô tả). Đây là kiểm tra THỨ HAI, không
+     * phải bản viết lại của kiểm tra "vụ đang mở": nó hỏi TOÀN BỘ vụ việc CHƯA xoá mềm của khách
+     * (`matters()` tự áp `SoftDeletingScope`), bất kể đang mở hay đã đóng, qua đúng MỘT hàm dùng
+     * chung với hook `Matter::deleting` — {@see BillingSummary::outstandingForMatter()} — không
+     * viết lại phép tính dư nợ ở đây.
      */
     public function delete(User|ClientUser $user, Client $client): bool|Response
     {
@@ -72,6 +84,25 @@ class ClientPolicy
 
         if ($openMattersCount > 0) {
             return Response::deny(__('clients.delete_blocked_open_matters', ['count' => $openMattersCount]));
+        }
+
+        $outstanding = $client->matters()->get()->reduce(
+            function (array $carry, Matter $matter): array {
+                $balance = BillingSummary::outstandingForMatter($matter->getKey());
+
+                return [
+                    'amount' => $carry['amount'] + $balance['amount'],
+                    'count' => $carry['count'] + $balance['count'],
+                ];
+            },
+            ['amount' => 0, 'count' => 0],
+        );
+
+        if ($outstanding['amount'] > 0) {
+            return Response::deny(__('clients.delete_blocked_outstanding_balance', [
+                'amount' => Money::format($outstanding['amount']),
+                'count' => $outstanding['count'],
+            ]));
         }
 
         return true;

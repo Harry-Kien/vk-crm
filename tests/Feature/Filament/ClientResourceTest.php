@@ -1,13 +1,18 @@
 <?php
 
+use App\Enums\InstalmentStatus;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\Clients\ClientResource;
 use App\Filament\Admin\Resources\Clients\Pages\EditClient;
 use App\Filament\Admin\Resources\Clients\Pages\ListClients;
 use App\Models\Client;
 use App\Models\ClientUser;
+use App\Models\Contract;
+use App\Models\Instalment;
 use App\Models\Matter;
+use App\Models\Payment;
 use App\Models\User;
+use App\Support\Billing\Money;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 
@@ -99,6 +104,53 @@ it('lets the admin delete a client whose matters are all closed', function () {
     $admin = User::factory()->withRole(Role::Admin)->create();
     $client = Client::factory()->create();
     Matter::factory()->create(['client_id' => $client->id, 'closed_at' => now()]);
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(EditClient::class, ['record' => $client->getKey()])
+        ->callAction('delete');
+
+    expect($client->fresh()->trashed())->toBeTrue();
+});
+
+/**
+ * M9 Task 5 — mở rộng ĐÚNG kiểm tra "vụ đang mở" ở trên (không viết kiểm tra thứ hai): một vụ việc
+ * đã ĐÓNG (`closed_at` khác null, nên không bị chặn bởi kiểm tra "vụ đang mở") mà còn hợp đồng
+ * `active` dư nợ vẫn phải chặn xoá mềm khách hàng — xoá mềm vụ việc làm dư nợ đó bốc hơi khỏi mọi
+ * báo cáo doanh thu (chúng bỏ qua vụ đã xoá mềm).
+ */
+it('refuses to delete a client whose closed matter still carries an outstanding balance', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $client = Client::factory()->create();
+    $matter = Matter::factory()->create(['client_id' => $client->id, 'closed_at' => now()]);
+    $contract = Contract::factory()->for($matter)->active()->create(['total_amount' => 10_000_000]);
+    Instalment::factory()->for($contract)->create([
+        'amount' => 10_000_000,
+        'status' => InstalmentStatus::Pending,
+    ]);
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(EditClient::class, ['record' => $client->getKey()])
+        ->assertActionVisible('delete')
+        ->callAction('delete')
+        ->assertNotified(__('clients.delete_blocked_outstanding_balance', [
+            'amount' => Money::format(10_000_000),
+            'count' => 1,
+        ]));
+
+    expect($client->fresh()->trashed())->toBeFalse();
+});
+
+/** Cặp dương: cùng một vụ đã đóng, nhưng đợt đã thu đủ — dư nợ về 0, xoá được như thường. */
+it('lets the admin delete a client whose closed matter has been fully collected', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $client = Client::factory()->create();
+    $matter = Matter::factory()->create(['client_id' => $client->id, 'closed_at' => now()]);
+    $contract = Contract::factory()->for($matter)->active()->create(['total_amount' => 10_000_000]);
+    $instalment = Instalment::factory()->for($contract)->create(['amount' => 10_000_000]);
+    Payment::factory()->for($instalment)->create(['amount' => 10_000_000]);
+    $instalment->fill(['status' => InstalmentStatus::Paid])->save();
 
     $this->actingAs($admin, 'web');
 

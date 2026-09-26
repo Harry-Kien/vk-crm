@@ -35,6 +35,8 @@ return [
         'instalment_below_collected' => 'Số tiền mới của đợt ":name" không được nhỏ hơn số đã thu (:collected).',
         'instalment_has_payments' => 'Không thể huỷ đợt ":name": đợt này đã có khoản thu :collected. Huỷ các khoản thu trước (kèm lý do), hoặc giảm số tiền của đợt thay vì huỷ.',
         'document_not_eligible' => 'Bản scan phụ lục phải là một tài liệu nội bộ (nhóm D) của chính vụ việc này.',
+        'receipt_not_eligible' => 'Bản scan biên lai phải là một tài liệu nội bộ (nhóm D) của chính vụ việc này.',
+        'reference_too_long' => 'Mã giao dịch / số biên lai không được dài quá :max ký tự.',
     ],
 
     'errors' => [
@@ -46,6 +48,11 @@ return [
         'contract_not_draft' => 'Chỉ kích hoạt được hợp đồng còn ở trạng thái "Nháp". Hợp đồng :code đang ở trạng thái ":status".',
         'contract_not_active' => 'Chỉ hoàn tất hoặc huỷ được hợp đồng đang có hiệu lực. Hợp đồng :code đang ở trạng thái ":status".',
         'contract_has_unsettled' => 'Chưa hoàn tất được hợp đồng :code: còn :count đợt chưa thu đủ và chưa được miễn. Thu nốt, hoặc miễn các đợt còn lại kèm lý do, rồi hoàn tất.',
+        'instalment_not_payable_to_record' => 'Không thể ghi khoản thu cho đợt ":name": đợt này đang ở trạng thái ":status".',
+        'instalment_not_payable_to_waive' => 'Không thể miễn đợt ":name": đợt này đang ở trạng thái ":status".',
+        'instalment_contract_not_active' => 'Không thể thao tác trên đợt ":name": hợp đồng :code đang ở trạng thái ":status", không còn hiệu lực.',
+        'payment_exceeds_instalment' => 'Số tiền :amount vượt quá số còn phải thu (:remaining) của đợt ":name". Đây là thu vượt: không tự rải sang đợt sau — ghi đúng số còn lại, hoặc sửa lại nếu đã ghi nhầm khoản trước.',
+        'payment_already_voided' => 'Khoản thu này đã được huỷ từ trước, không huỷ lần hai.',
     ],
 
     'check_invariants' => [

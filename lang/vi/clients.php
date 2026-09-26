@@ -21,4 +21,7 @@ return [
     ],
     'note_hint' => 'Chỉ nội bộ, không bao giờ hiện cho khách trên portal.',
     'delete_blocked_open_matters' => 'Không thể xoá: khách hàng còn :count vụ việc đang mở.',
+    // M9 Task 5: kể cả khi mọi vụ việc đã đóng, còn dư nợ trên hợp đồng đang có hiệu lực vẫn chặn
+    // xoá mềm khách hàng — xem ClientPolicy::delete().
+    'delete_blocked_outstanding_balance' => 'Không thể xoá: khách hàng còn dư nợ :amount trên :count đợt thanh toán của hợp đồng đang có hiệu lực (kể cả vụ việc đã đóng). Thu nốt hoặc miễn các đợt còn lại (kèm lý do) trước khi xoá.',
 ];

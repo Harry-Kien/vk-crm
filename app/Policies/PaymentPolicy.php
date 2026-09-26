@@ -76,9 +76,25 @@ class PaymentPolicy
      * `confidentiality` đọc trên vụ ĐÃ QUA `matterForBillingGate()` (fix round 1, I1), không trên
      * vụ nơi gọi đưa vào: một vụ nạp thiếu cột có `confidentiality` là `null`, và đọc nó ở đó thì
      * luật sư phụ trách bị từ chối oan trên chính vụ `restricted` của mình.
+     *
+     * **`$user instanceof User` đứng ĐẦU (fix vòng M9 Task 5, carry-forward từ Task 3).** Bản
+     * trước gọi `matterForBillingGate($matter)` TRƯỚC khi biết `$user` có phải nhân sự hay không:
+     * với một `Matter` nạp thiếu cột, hàm đó nạp lại bằng một truy vấn KHÔNG có khoá `client`
+     * (`withoutGlobalScope(ClientPortalScope::class)`) — tức một `ClientUser` gọi `create`/`void`
+     * kích hoạt một lần đọc KHÔNG bị cắt theo phiên cổng khách của chính nó, trước khi bị từ chối.
+     * Không đổi kết quả cuối (vẫn từ chối, `canSeeBilling()` đóng ngay ở nhánh khách), nhưng đổi
+     * THỨ TỰ: một khách hàng không nên khiến cổng tiền chạy một truy vấn không khoá cổng khách chỉ
+     * để rồi bị từ chối — cùng lý lẽ với `canSeeBilling()` tự nó đặt điều kiện này lên đầu. Test
+     * `PaymentPolicyRecordOrderTest` ("refuses a client user before ever reloading a partially
+     * loaded matter") dùng một `Matter` nạp thiếu cột (`select('id')`) để chứng minh không có
+     * truy vấn nạp lại nào chạy trước khi bị từ chối.
      */
     private function canRecordPaymentOn(User|ClientUser $user, ?Matter $matter): bool
     {
+        if (! $user instanceof User) {
+            return false;
+        }
+
         $matter = $this->matterForBillingGate($matter);
 
         return $this->canSeeBilling($user, $matter)
