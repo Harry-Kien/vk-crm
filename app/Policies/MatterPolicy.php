@@ -235,6 +235,24 @@ class MatterPolicy
     }
 
     /**
+     * Bật/tắt công tắc "công bố cho khách" của TOÀN vụ việc (SPEC §7.2) — R5 (roles-05, M6.5
+     * Task 10): "Các công tắc công bố (cổng của vụ việc, công bố mốc hạn) đòi `stageLog.publish`."
+     * Trước bản sửa này, `SetMatterPortalPublication` chỉ hỏi `matter.update`, và trợ lý CÓ quyền
+     * đó (`Role::Assistant->permissions()`) nhưng KHÔNG có `stageLog.publish` — nên trợ lý bật
+     * được công tắc tổng, đưa CẢ vụ việc (và mọi dòng `stage_logs.is_published = true` đã tích
+     * luỹ trong lúc tắt — carry-forward M6, xem docblock `SetMatterPortalPublication`) ra trước
+     * mắt khách hàng, hoặc giấu nó đi. Cùng LOẠI quyết định với `updateSummaryForClient()` ở trên:
+     * "đưa gì ra cho khách" luôn đòi `stageLog.publish`, dù đối tượng là một dòng tiến độ, cả vụ
+     * việc, hay một mốc hạn (xem `DeadlinePolicy::publish()`, cùng luật).
+     */
+    public function setPortalPublication(User|ClientUser $user, Matter $matter): bool
+    {
+        return $user instanceof User
+            && $this->update($user, $matter)
+            && $user->can(Permission::StageLogPublish->value);
+    }
+
+    /**
      * "Huỷ hồ sơ mở nhầm" (M6.5 Task 5) — xoá mềm kèm lý do bắt buộc, qua {@see
      * \App\Actions\Matter\CancelMatter}. Cùng luật với {@see self::delete()} (chỉ quản trị), vì
      * đây đúng là hành động đó — cổng riêng chỉ để tên ability khớp đúng tên header action trên

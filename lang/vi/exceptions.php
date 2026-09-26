@@ -9,6 +9,7 @@ return [
     'duplicate_stage_key' => 'Loại vụ việc ":name" đã có một giai đoạn còn dùng với định danh ":key". Xoá hoặc đổi định danh giai đoạn cũ trước khi tạo lại.',
     'stage_key_in_use' => 'Không thể đổi định danh ":key" của loại vụ việc ":name": còn hồ sơ, dòng tiến độ, hoặc một giai đoạn khác (mục "Được chuyển tới") đang dùng định danh này. Tạo một giai đoạn mới nếu cần một định danh khác.',
     'invalid_stage_transition' => 'Vụ việc :code không thể chuyển sang giai đoạn ":to": giai đoạn này không nằm trong danh sách giai đoạn kế tiếp được phép của ":from", hoặc không tồn tại trong cấu hình loại vụ việc.',
+    'matter_stage_changed' => 'Giai đoạn của vụ việc :code đã đổi trong lúc anh/chị thao tác. Hãy tải lại trang để xem giai đoạn mới nhất rồi thử lại.',
     'conflict_blocked' => 'Không thể lưu vụ việc: phát hiện xung đột lợi ích mức đỏ với hồ sơ :codes. Chỉ trưởng phòng hoặc quản trị mới được ghi đè, và phải nhập lý do.',
     'conflict_acknowledgement_required' => 'Phát hiện cảnh báo xung đột lợi ích mức vàng: hãy xem lại danh sách bản ghi trùng và tích xác nhận trước khi lưu vụ việc.',
     'our_client_party_needs_client' => 'Bên ":name" được đánh dấu là khách hàng của văn phòng nhưng chưa chọn hồ sơ khách hàng. Hãy chọn đúng hồ sơ ở ô "Khách hàng", hoặc tắt công tắc "Là khách hàng của văn phòng" — tên và số căn cước của một bên như vậy phải lấy từ hồ sơ thật thì lần kiểm tra xung đột sau mới nhìn thấy bên này.',

@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Deadline\SetDeadlinePublication;
+use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Exceptions\MatterNotPublishedToPortal;
 use App\Models\ClientUser;
@@ -110,6 +111,26 @@ it('refuses an actor who cannot write to the matter', function () {
         ->toThrow(AuthorizationException::class);
 
     expect($this->deadline->fresh()->is_published)->toBeFalse();
+});
+
+/**
+ * R5 (roles-05, M6.5 Task 10): công bố/gỡ một mốc hạn cho khách là cùng LOẠI quyết định với công
+ * bố một dòng tiến độ (SetMatterPortalPublication) — trợ lý có `matter.update` nhưng không có
+ * `stageLog.publish` nên không tự ý quyết định. Xem DeadlinePolicy::publish().
+ */
+it('refuses an assistant with matter.update but without stageLog.publish, on both directions', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $this->matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    expect(fn () => app(SetDeadlinePublication::class)->handle($this->deadline, true, $assistant))
+        ->toThrow(AuthorizationException::class);
+
+    $this->deadline->update(['is_published' => true]);
+
+    expect(fn () => app(SetDeadlinePublication::class)->handle($this->deadline->fresh(), false, $assistant))
+        ->toThrow(AuthorizationException::class);
+
+    expect($this->deadline->fresh()->is_published)->toBeTrue();
 });
 
 it('refuses an actor whose account has been deactivated', function () {

@@ -404,6 +404,28 @@ it('hides every write button from someone who cannot write to the matter', funct
 });
 
 /**
+ * R5 (roles-05, M6.5 Task 10): trợ lý có `matter.update` (đổi tên, ngày, người phụ trách…) nhưng
+ * không có `stageLog.publish` — công bố/gỡ một mốc hạn cho khách là "quyết định đưa gì ra cho
+ * khách", cùng loại quyết định với SetMatterPortalPublication (xem DeadlinePolicy::publish()).
+ * Nút "changeResponsible"/"complete" vẫn hiện (không đổi bởi task này) — chỉ hai nút công bố ẩn.
+ */
+it('hides only the publish/unpublish buttons from an assistant, keeping the other write buttons', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $this->matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    $private = makeDeadline($this->matter, ['name' => 'Chỉ nội bộ']);
+    $shared = makeDeadline($this->matter, ['name' => 'Đã gửi khách', 'is_published' => true]);
+
+    $this->actingAs($assistant, 'web');
+
+    deadlinesTab($this->matter)
+        ->assertTableActionHidden('publish', $private)
+        ->assertTableActionHidden('unpublish', $shared)
+        ->assertTableActionVisible('complete', $private)
+        ->assertTableActionVisible('changeResponsible', $private);
+});
+
+/**
  * **Cuộc đua có thật, không phải một ca dựng.** Hai tab đang mở: một người rút hồ sơ khỏi cổng
  * khách trong lúc người kia đang nhìn cái nút "Gửi cho khách" đã vẽ ra từ trước. Lời từ chối của
  * Action (`MatterNotPublishedToPortal`, một `DomainException`) phải tới mắt người dùng bằng tiếng

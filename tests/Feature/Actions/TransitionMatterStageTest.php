@@ -6,6 +6,7 @@ use App\Enums\Role;
 use App\Events\StageLogPublished;
 use App\Exceptions\InvalidStageTransition;
 use App\Exceptions\MatterNotPublishedToPortal;
+use App\Exceptions\MatterStageChanged;
 use App\Models\Matter;
 use App\Models\MatterType;
 use App\Models\StageLog;
@@ -132,6 +133,92 @@ it('does not let a non-admin bypass the allowed_next check even with matter.tran
         expectedNextUpdateAt: null,
         publish: false,
     ))->toThrow(InvalidStageTransition::class);
+});
+
+/*
+|--------------------------------------------------------------------------
+| `stage/stage-05` (M6.5 Task 10) — khoá dòng vụ việc khi chuyển giai đoạn.
+|--------------------------------------------------------------------------
+|
+| `handle()` giờ khoá dòng `matters` NGAY LẦN CHẠM ĐẦU TIÊN vào CSDL trong transaction
+| (`lockForUpdate()`), rồi so giai đoạn ĐỌC LẠI DƯỚI KHOÁ với giai đoạn mà `$matter` truyền vào
+| đang cầm TRƯỚC transaction. Test này chạy được trên SQLite (không cần khoá thật — SQLite khoá cả
+| CSDL, không phải một dòng) vì nó không đo TÁC DỤNG của khoá, mà đo ĐÚNG PHÉP SO SÁNH: gọi
+| `handle()` hai lần TRONG CÙNG một tiến trình, với HAI instance `Matter` tách biệt của CÙNG một
+| dòng — instance thứ hai vẫn mang giai đoạn CŨ trong bộ nhớ dù dòng CSDL đã đổi ở lần gọi đầu. Đây
+| chính là "Probe 1" của phát hiện gốc (`docs/audits/2026-09-24-quy-trinh.md`, mục `stage-05`),
+| viết lại thành một test thường trực. Bài test THẬT có khoá, hai tiến trình HĐH, hai kết nối DB
+| riêng trên MariaDB nằm ở `TransitionMatterStageConcurrencyTest.php`.
+*/
+
+/**
+ * Đối chứng DƯƠNG trước: khi KHÔNG có race (chỉ một instance, gọi một lần), một transition bình
+ * thường vẫn đi qua — test này tồn tại để cặp với test ÂM ngay dưới không "chỉ toàn âm".
+ */
+it('still lets a normal, single transition through unaffected by the stage-change guard', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = matterWithLawyer($lawyer);
+    $this->actingAs($lawyer, 'web');
+
+    $stageLog = app(TransitionMatterStage::class)->handle(
+        matter: $matter,
+        actor: $lawyer,
+        toStage: 'collecting',
+        occurredAt: now(),
+        internalNote: null,
+        publicContent: null,
+        nextStep: null,
+        clientAction: null,
+        expectedNextUpdateAt: null,
+        publish: false,
+    );
+
+    expect($stageLog->to_stage)->toBe('collecting')
+        ->and($matter->fresh()->stage)->toBe('collecting');
+});
+
+it('rejects a transition built from a stale snapshot of the matter, even though to_stage was valid when read', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = matterWithLawyer($lawyer);
+    $this->actingAs($lawyer, 'web');
+
+    // Hai instance TÁCH BIỆT của CÙNG một dòng — mô phỏng hai request đọc $matter trước khi vào
+    // transaction của handle(), đúng như hai tiến trình thật của bài test MariaDB.
+    $staleMatter = Matter::find($matter->id);
+
+    // Request "thắng": chuyển thật, commit — dòng CSDL giờ ở 'collecting'.
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter,
+        actor: $lawyer,
+        toStage: 'collecting',
+        occurredAt: now(),
+        internalNote: null,
+        publicContent: null,
+        nextStep: null,
+        clientAction: null,
+        expectedNextUpdateAt: null,
+        publish: false,
+    );
+
+    // Request "thua": $staleMatter->stage vẫn là 'intake' trong bộ nhớ (snapshot cũ) — 'collecting'
+    // ĐÚNG là một allowed_next hợp lệ của 'intake', nên nếu không có khoá+so sánh, request này sẽ
+    // âm thầm ghi một dòng StageLog thứ hai với from_stage sai (Probe 1 gốc). Với bản sửa, nó phải
+    // bị từ chối NGAY, không tạo StageLog nào.
+    expect(fn () => app(TransitionMatterStage::class)->handle(
+        matter: $staleMatter,
+        actor: $lawyer,
+        toStage: 'collecting',
+        occurredAt: now(),
+        internalNote: null,
+        publicContent: null,
+        nextStep: null,
+        clientAction: null,
+        expectedNextUpdateAt: null,
+        publish: false,
+    ))->toThrow(MatterStageChanged::class);
+
+    expect($matter->fresh()->stage)->toBe('collecting')
+        ->and(StageLog::query()->where('matter_id', $matter->id)->count())->toBe(1);
 });
 
 it('throws a validation error when publish is true and public_content is 29 characters', function () {

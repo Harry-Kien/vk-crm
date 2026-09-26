@@ -83,7 +83,10 @@ class ViewMatter extends ViewRecord
                     : Heroicon::OutlinedEye)
                 ->color(fn (): string => $this->getRecord()->is_published_to_portal ? 'gray' : 'success')
                 ->requiresConfirmation()
-                ->visible(fn (): bool => Gate::allows('update', $this->getRecord()))
+                // R5 (roles-05, M6.5 Task 10): 'setPortalPublication', không phải 'update' — xem
+                // MatterPolicy::setPortalPublication(). Action vẫn tự kiểm tra lại (không đổi ở
+                // đây), đây chỉ là ẩn nút đúng cho người không có quyền.
+                ->visible(fn (): bool => Gate::allows('setPortalPublication', $this->getRecord()))
                 ->action(function (): void {
                     $record = $this->getRecord();
 
