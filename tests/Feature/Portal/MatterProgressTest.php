@@ -405,7 +405,16 @@ it('does not let a published group C decision count toward Y or move into the co
     $assertOptionalStaysOutOfY();
 
     // Vòng 2 — CÔNG BỐ thật, qua đúng Action của SPEC §6.5, không set cột tay.
-    app(PublishDocument::class)->handle($decision->fresh(), $lawyer, clientCanView: true, clientCanDownload: false);
+    $decisionBeforePublish = $decision->fresh();
+    app(PublishDocument::class)->handle(
+        document: $decisionBeforePublish,
+        actor: $lawyer,
+        clientCanView: true,
+        clientCanDownload: false,
+        expectedClientCanView: $decisionBeforePublish->client_can_view,
+        expectedClientCanDownload: $decisionBeforePublish->client_can_download,
+        expectedIsReleased: $decisionBeforePublish->wasPublishedToClient(),
+    );
 
     $assertOptionalStaysOutOfY();
 
