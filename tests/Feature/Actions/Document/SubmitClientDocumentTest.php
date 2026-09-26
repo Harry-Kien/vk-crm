@@ -745,6 +745,30 @@ it('dispatch đúng MỘT sự kiện cho một lần nộp bốn tệp, mang đ
     );
 });
 
+/**
+ * Vòng sửa 2, finding 4: `$documents` của sự kiện phải là một
+ * `Illuminate\Database\Eloquent\Collection` — không phải một `Illuminate\Support\Collection` bình
+ * thường (dù bản thân `handle()` của Action trả về đúng kiểu Support Collection). Lý do:
+ * `SerializesModels` (dùng bởi sự kiện này) chỉ nén một `QueueableCollection` (giao diện Eloquent
+ * Collection cài) thành tên lớp + mảng id; một Support Collection lọt qua bị PHP `serialize()`
+ * y nguyên, chép cả state của từng `Document` vào payload — vô hại HÔM NAY (sự kiện dispatch đồng
+ * bộ, không job nào serialize nó), nhưng phình to và có thể cũ ngay khi một listener tương lai
+ * (R2) implement `ShouldQueue`.
+ */
+it('mang $documents dưới dạng Eloquent Collection, không phải Support Collection thường', function () {
+    Event::fake([ClientDocumentSubmitted::class]);
+
+    submitClientDocuments($this->item, $this->clientUser, [
+        clientSubmitPdf('trang-1.pdf'),
+        clientSubmitPdf('trang-2.pdf'),
+    ]);
+
+    Event::assertDispatched(
+        ClientDocumentSubmitted::class,
+        fn (ClientDocumentSubmitted $event) => $event->documents instanceof Illuminate\Database\Eloquent\Collection,
+    );
+});
+
 it('từ chối một lô rỗng ngay trong Action, không tự tin caller đã kiểm tra thay mình', function () {
     expect(fn () => app(SubmitClientDocument::class)->handle(
         checklistItem: $this->item,

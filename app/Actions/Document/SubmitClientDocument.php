@@ -14,6 +14,7 @@ use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Support\Audit;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -315,7 +316,13 @@ class SubmitClientDocument
             // nộp CCCD hai mặt LÀ một hành động của khách, không phải hai, và đội ngũ chỉ cần
             // một thông báo cho nó. `$documents` mang đủ cả lô nên listener đọc được mọi tệp từ
             // một lần dispatch duy nhất.
-            event(new ClientDocumentSubmitted($documents));
+            //
+            // `EloquentCollection::make($documents)` — vòng sửa 2, finding 4: `$documents` ở đây
+            // là một `Illuminate\Support\Collection` (từ `collect($files)->map(...)`), nhưng
+            // `ClientDocumentSubmitted` đòi một `Illuminate\Database\Eloquent\Collection` — xem
+            // docblock constructor của sự kiện đó cho lý do (`SerializesModels` chỉ nhận diện
+            // Eloquent Collection để nén thành id, không nhận diện Support Collection).
+            event(new ClientDocumentSubmitted(EloquentCollection::make($documents->all())));
 
             return $documents;
         });

@@ -926,13 +926,31 @@ it('does not show the superseded version to the client as a separate document', 
 // =========================================================================================
 
 /**
- * Vòng sửa 1 (Minor): trần MỘT LÔ (một lần bấm Gửi) — không đi qua `_startUpload()` (test này
- * `->set('data.file', ...)` thẳng, đúng cách mọi test khác của tệp này mô phỏng FilePond), nên
- * đây là bài đo CHO ĐÚNG cổng `submit()` vừa thêm, không đo lại cổng chọn tệp đã có test riêng.
- * Hai mươi mốt tệp — một hơn mức 20 tệp/giờ mà SPEC §10.3 đặt — không cách nào gửi trót lọt dù
- * chờ bao lâu, nên `submit()` chặn ngay, TRƯỚC khi đọc/ghi bất kỳ tệp nào (`Document::count()`
- * vẫn 0), bằng câu RIÊNG của cổng này — không phải câu `rate_limited`/`rate_limited_upload` của
- * bộ đếm giờ (khách chưa dùng suất nào, họ chỉ chọn quá nhiều tệp trong một lần).
+ * Vòng sửa 1 (Minor), sửa lại ở vòng sửa 2: trần MỘT LÔ (một lần bấm Gửi) — cổng `submit()` vừa
+ * thêm.
+ *
+ * **Bản trước viết sai một câu: "không đi qua `_startUpload()`".** SAI — `->set('data.file',
+ * $files)` với một MẢNG `UploadedFile` route thẳng qua
+ * `Livewire\Features\SupportTesting\Testable::setProperty()`, và hàm đó gọi
+ * `$this->upload($name, $files, isMultiple: true)`, thứ TỰ NÓ gọi `$this->call('_startUpload',
+ * ...)` trước khi lưu tệp (đọc mã nguồn `vendor/livewire/livewire/src/Features/SupportTesting
+ * /Testable.php`) — đúng cơ chế mọi test khác của tệp này dùng để mô phỏng FilePond, không có
+ * đường nào trong Testable đi vòng qua nó.
+ *
+ * Vì `_startUpload()` CŨNG chạy, `guardRate(fileLimiterKey, ...)` của nó (bộ đếm CHỌN tệp, SPEC
+ * §10.3) cũng thấy 21 tệp trong một lượt và cũng từ chối — với câu RIÊNG của nó
+ * (`rate_limited_upload`, "Anh/chị đã chọn 20 tệp trong một giờ..."). Đo trực tiếp (dump lỗi ngay
+ * sau `->set()`, trước khi gọi `submit()`): đúng câu đó đứng trên `data.file`. Test này không đo
+ * nhánh đó — nó đã có test riêng ("refuses the twenty first file at the moment it is chosen…").
+ *
+ * Thứ test NÀY thật sự đo: `->call('submit')` chạy SAU, và lần gọi thành công đó ghi ĐÈ trạng
+ * thái lỗi của component (mỗi `call()`/`set()` là một chu trình cập nhật/validate MỚI, không
+ * cộng dồn lỗi từ lượt trước) — nên khẳng định cuối cùng, đọc SAU `submit()`, phản ánh ĐÚNG cổng
+ * mới trong `submit()`, không phải cổng chọn tệp. Hai mươi mốt tệp — một hơn mức 20 tệp/giờ mà
+ * SPEC §10.3 đặt — không cách nào gửi trót lọt dù chờ bao lâu, nên `submit()` chặn, TRƯỚC khi
+ * đọc/ghi bất kỳ tệp nào (`Document::count()` vẫn 0), bằng câu RIÊNG của CHÍNH cổng đó — không
+ * phải câu `rate_limited`/`rate_limited_upload` của hai bộ đếm giờ (khách chưa dùng suất nào ở
+ * cổng GỬI, họ chỉ chọn quá nhiều tệp trong một lần).
  */
 it('refuses a batch of more than twenty files in one submission, before any bytes move', function () {
     $files = array_map(

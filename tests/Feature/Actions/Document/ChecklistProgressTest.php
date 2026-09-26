@@ -164,13 +164,17 @@ it('never counts a settled item that is not in the denominator', function () {
  * `client`.** Và đó chính là guard mà SPEC §4.10 nói tới — `X/Y` là "trường tính toán hiển thị
  * trên portal".
  *
- * Sau bản sửa checklist-05, luật đếm ("đã có tài liệu" = tài liệu khách ĐỌC ĐƯỢC —
- * `client_can_view` + `published` + khác nhóm D) trùng khớp gần như nguyên vẹn với chính
- * `ClientPortalScope::applyClientPortalConstraints()` của `Document`, nên trên một hồ sơ đã công
- * bố hai cách đọc không còn tình huống nào để lệch nhau nữa — đó là một hệ quả TỐT của bản sửa
- * (một nguồn sự thật, không phải hai công thức tình cờ ra cùng một số). Test này giữ lại tính
- * chất "hai guard, một con số" như một hồi quy, không còn như một nhân chứng cho một lỗ hổng cụ
- * thể.
+ * **Vòng sửa 2 — đoạn dưới đây bị đánh dấu lạc hậu và đã viết lại.** Bản trước lập luận "sau
+ * bản sửa checklist-05, luật đếm (ba điều kiện: `client_can_view` + `published` + khác nhóm D)
+ * trùng khớp gần như nguyên vẹn với `ClientPortalScope`" — câu đó nói về BA điều kiện mà C1 đã bỏ.
+ * Từ C1, luật đếm chỉ còn MỘT điều kiện (`group = ClientProvided`), và điều kiện đó không có
+ * liên hệ nào với những gì `ClientPortalScope` lọc theo (phiên đăng nhập, cờ công bố của hồ sơ) —
+ * nên "hai cách đọc trùng nhau" không còn là lý do đúng nữa. Lý do ĐÚNG, và cũng là lý do luôn
+ * đúng bất kể luật `Y` là gì: `countClientSubmittedDocuments()` tự bỏ `ClientPortalScope` một
+ * cách tường minh (`withoutGlobalScope`, xem docblock lớp mục "Phép đếm bỏ `ClientPortalScope`"),
+ * nên guard nào đang mở lúc gọi `handle()` không chạm được vào câu SQL của phép đếm — hai con số
+ * giống nhau vì CÙNG MỘT câu truy vấn chạy, không phải vì hai luật tình cờ cho cùng kết quả. Test
+ * này giữ lại tính chất "hai guard, một con số" như một hồi quy cho đúng cơ chế đó.
  */
 it('reads the same X/Y under the client guard as under the staff guard', function () {
     $client = Client::factory()->create();
@@ -247,11 +251,20 @@ it('drops the portal scope inside the count even when nobody is on the client gu
  * — tăng mẫu số từ 3 lên 4 — trong khi trạng thái đầu mục vẫn `missing`: khách bị đòi đúng thứ
  * văn phòng đã có trong tay mà họ lại không nhìn thấy.
  *
- * Cặp sinh đôi dương nằm ngay trong `'pulls an optional item into the denominator once it has a
- * client-facing document'` phía trên: một tài liệu nhóm A đã công bố VẪN kéo được đầu mục vào
- * `Y`, nên luật ở đây không phải "bỏ mọi tài liệu ngoài nhóm A" mà là "chỉ tính tài liệu khách
- * ĐỌC ĐƯỢC" — một quyết định nhóm B đã đi hết vòng đời và được công bố cũng qua được (xem test kế
- * tiếp).
+ * **Vòng sửa 2 — đoạn dưới đây bị đánh dấu lạc hậu và đã viết lại: nó nói ngược với chính test kế
+ * tiếp.** Bản trước viết "một quyết định nhóm B đã đi hết vòng đời và được công bố CŨNG qua được"
+ * — đúng dưới luật BA điều kiện của bản sửa checklist-05 lần đầu, nhưng SAI dưới phán quyết C1
+ * (vòng sửa 1): một quyết định nhóm B/C, dù đã `published`/`client_can_view`, KHÔNG BAO GIỜ kéo
+ * được đầu mục vào `Y` — xem test kế tiếp (`'does not pull an optional item into the denominator
+ * even once a published group B document reaches the client'`), test đó ghim đúng vế NGƯỢC với
+ * câu bản trước viết ở đây.
+ *
+ * Cặp sinh đôi dương thật của test này nằm trong `'pulls an optional item into the denominator
+ * once it has a client-facing document'` phía trên: một tài liệu NHÓM A (bất kể trạng thái công
+ * bố) kéo được đầu mục vào `Y`. Luật ở đây, từ C1, là "chỉ tính tài liệu NHÓM A" — không phải
+ * "khác nhóm D" (đính chính SPEC 2026-09-16, sai) và cũng không phải "khách đọc được" (bản sửa
+ * checklist-05 lần đầu, sai theo cách khác — xem docblock lớp `ChecklistProgress`, mục "Sửa lại
+ * checklist-05, lần hai").
  */
 it('does not pull an optional item into the denominator for an internal_draft group C decision', function () {
     $matter = Matter::factory()->create();

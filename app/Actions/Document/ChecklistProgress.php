@@ -76,9 +76,19 @@ use Illuminate\Database\Eloquent\Builder;
  * (`withoutGlobalScope`) để con số không phụ thuộc vào việc `ClientPortalScope::isActive()` có
  * đang `true` hay không tại đúng thời điểm `handle()` được gọi — SPEC §4.10 gọi `X/Y` là "trường
  * tính toán hiển thị trên portal", tức MỘT con số, không phải một con số tuỳ theo có ai đang mở
- * guard `client` hay không lúc câu truy vấn chạy. Có test riêng dựng một hồ sơ CHƯA công bố lên
- * portal để đo đúng phần này (vì trên một hồ sơ đã công bố, ba điều kiện còn lại của luật `Y` đã
- * trùng gần khớp với chính `ClientPortalScope`, nên bỏ hay giữ scope không còn lệch nhau nữa).
+ * guard `client` hay không lúc câu truy vấn chạy.
+ *
+ * **Vòng sửa 2 — viết lại lý do sau khi luật `Y` đổi còn một điều kiện.** Bản trước lập luận
+ * "trên một hồ sơ đã công bố, ba điều kiện còn lại của luật `Y` gần trùng với chính
+ * `ClientPortalScope`, nên bỏ hay giữ scope không còn lệch nhau" — câu đó nói về BA điều kiện
+ * (`client_can_view`, `published`, khác nhóm D) mà C1 đã bỏ. Từ C1, `Y` chỉ hỏi MỘT câu (`group
+ * = ClientProvided`), thứ không có quan hệ gì với các điều kiện `ClientPortalScope` lọc theo
+ * (phiên đăng nhập nào đang mở, hồ sơ đã công bố lên portal chưa) — nên phép bỏ scope này giờ
+ * LUÔN cần thiết, không chỉ trên một hồ sơ chưa công bố. Test riêng vẫn dựng một hồ sơ CHƯA công
+ * bố lên portal (`Matter::factory()->unpublished()`) để đo đúng phần này, vì đó là kịch bản DỄ
+ * THẤY NHẤT phép bỏ scope tạo khác biệt — `ClientPortalScope` trên `Matter`/`Document` đóng cửa
+ * hoàn toàn khi hồ sơ chưa công bố, nên không bỏ scope thì con số tụt về không bất kể tài liệu
+ * nhóm A nào đã tồn tại.
  *
  * Scope `SoftDeletingScope` thì được GIỮ: một tài liệu đã xoá mềm không còn trong hồ sơ, nên nó
  * không còn là "đã có tài liệu".

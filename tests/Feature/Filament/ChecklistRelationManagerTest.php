@@ -82,7 +82,13 @@ it('renders the progress bar inside the checklist tab itself', function () {
  *
  * Hai cặp sinh đôi âm nằm ngay trong cùng test (checklist-05, M6.5 Task 17): một đầu mục mà tài
  * liệu duy nhất là nhóm D đọc `0`, và một đầu mục mang một quyết định nhóm C còn `internal_draft`
- * (chưa `client_can_view`) cũng đọc `0` — khách chưa đọc được thì chưa tính là "đã nộp".
+ * (chưa `client_can_view`) cũng đọc `0`. Vòng sửa 2: viết lại lý do — từ phán quyết C1 (vòng sửa
+ * 1), cả hai đọc `0` vì đúng MỘT lẽ duy nhất, "không phải nhóm A" (`DocumentGroup::ClientProvided`
+ * — tài liệu do CHÍNH KHÁCH nộp lên); `client_can_view`/trạng thái công bố không còn là một phần
+ * của luật đếm này (dù quyết định nhóm C ở đây tình cờ CŨNG chưa `client_can_view`, đó không phải
+ * lý do nó đọc `0` — một quyết định nhóm C đã `published`/`client_can_view` vẫn đọc `0` y hệt, xem
+ * `ChecklistProgressTest`, test `'does not pull an optional item into the denominator even once a
+ * published group B document reaches the client'`).
  */
 it('counts the same documents in the table column as in the denominator', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();

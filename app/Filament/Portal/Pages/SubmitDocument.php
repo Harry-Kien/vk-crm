@@ -601,14 +601,19 @@ class SubmitDocument extends Page
      * ZIP/OLE2 dựng thủ công có ruột thật.
      *
      * **Phải mang đúng những MIME "đội lốt" mà `FileGuard::ALLOWED` chấp nhận cho `docx`/`xls`,
-     * không chỉ MIME "sạch" của từng đuôi.** Bài học M6.5 Task 17: một hệ điều hành không có sẵn
-     * bộ nhận diện Office Open XML sẽ để trình duyệt khai `Content-Type: application/zip` cho một
-     * tệp `.docx` THẬT — đúng gói ZIP mà nó là, về mặt container — và tương tự
-     * `application/x-ole-storage`/`application/x-cfb`/`application/CDFV2` cho các gói OLE2 cũ của
-     * `.doc`/`.xls`. Thiếu các MIME ấy ở đây, luật `mimetypes` của CHÍNH Ô NÀY chặn một tệp thật
-     * trước khi `FileGuard` có cơ hội mở gói ra kiểm tra ruột — tức màn hình tự dựng lại đúng cái
-     * cổng mà `FileGuard::verifyOfficePackage()` tồn tại để làm ĐÚNG hơn (mở gói, đòi mục bắt
-     * buộc), chỉ khác là nó làm SAI, bằng cách từ chối trước khi kịp mở.
+     * không chỉ MIME "sạch" của từng đuôi.** Bài học M6.5 Task 17 — vòng sửa 2 viết lại đoạn này
+     * cho khớp với đoạn I3 phía trên (bản trước còn nói "trình duyệt khai", đúng cái đoạn trên
+     * vừa bác bỏ): đây KHÔNG phải chuyện client đoán sai, mà là chính `finfo`/`libmagic` — thứ
+     * đang đọc NỘI DUNG THẬT của tệp ở production (xem đoạn I3 phía trên) — báo `application/zip`
+     * cho một `.docx`/`.xlsx` THẬT, vì OOXML VỀ MẶT CONTAINER đúng là một gói ZIP; `libmagic`
+     * không mở sâu hơn để phân biệt "một gói ZIP mang cấu trúc Office" với "một ZIP bất kỳ". Cùng
+     * lý lẽ đó cho `.doc`/`.xls` THẬT: chúng là gói OLE2/CFB, và `libmagic` báo
+     * `application/x-ole-storage`/`application/x-cfb`/`application/CDFV2` — đúng chữ ký byte thật
+     * của container đó, không phải một suy đoán. Thiếu các MIME ấy ở đây, luật `mimetypes` của
+     * CHÍNH Ô NÀY chặn một tệp thật trước khi `FileGuard` có cơ hội mở gói ra kiểm tra ruột — tức
+     * màn hình tự dựng lại đúng cái cổng mà `FileGuard::verifyOfficePackage()` tồn tại để làm
+     * ĐÚNG hơn (mở gói, đòi mục bắt buộc), chỉ khác là nó làm SAI, bằng cách từ chối trước khi
+     * kịp mở.
      *
      * Viết tay thay vì suy ra từ `FileGuard::ALLOWED` vì hai danh sách trả lời hai câu hỏi khác
      * nhau ở HÌNH DẠNG: bảng kia là "đuôi → tập MIME hợp lệ CHO ĐÚNG đuôi đó" (một cấu trúc lồng,
@@ -637,8 +642,9 @@ class SubmitDocument extends Page
             'application/vnd.ms-excel',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             // Các MIME "đội lốt" mà `FileGuard::ALLOWED` cũng chấp nhận cho `doc`/`xls` (gói
-            // OLE2 cũ) và `docx`/`xlsx` (gói OOXML mà một số hệ điều hành chỉ nhận ra là ZIP) —
-            // xem đoạn "Phải mang đúng những MIME đội lốt" ở trên.
+            // OLE2 cũ) và `docx`/`xlsx` (gói OOXML) — `libmagic` (finfo) báo đúng những MIME này
+            // cho NỘI DUNG THẬT của các gói đó, không phải một suy đoán của trình duyệt/hệ điều
+            // hành — xem đoạn "Phải mang đúng những MIME đội lốt" ở trên.
             'application/x-ole-storage',
             'application/x-cfb',
             'application/CDFV2',

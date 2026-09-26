@@ -896,10 +896,11 @@ it('keeps an optional item the client already sent a paper for in the group the 
         'is_required' => false,
     ]);
 
-    // `client_can_view: true` tường minh — checklist-05 (M6.5 Task 17) thu hẹp luật "đã có tài
-    // liệu" thành "khách ĐỌC ĐƯỢC", không chỉ "khác nhóm D". Một tài liệu nhóm A thật sự đến từ
-    // `SubmitClientDocument` luôn mang cờ này; thiếu nó ở đây là một fixture không phản ánh dữ
-    // liệu thật, không phải một điều kiện đáng đo.
+    // `client_can_view: true` tường minh — dù từ phán quyết C1 (vòng sửa 1) luật "đã có tài liệu"
+    // của `Y` chỉ còn hỏi `group = ClientProvided` và không còn đọc cờ này nữa, một tài liệu nhóm
+    // A thật sự đến từ `SubmitClientDocument` LUÔN mang cờ này (`StoresDocumentFile::defaultsFor()`
+    // công bố nhóm A ngay lúc tạo). Giữ nó ở đây là để fixture phản ánh đúng dữ liệu thật một tài
+    // liệu nhóm A luôn có, không phải vì nó còn là một điều kiện của luật đếm.
     Document::factory()->for($this->matter)->create([
         'matter_checklist_item_id' => $item->getKey(),
         'group' => DocumentGroup::ClientProvided,

@@ -4,9 +4,10 @@ namespace App\Events;
 
 use App\Models\Document;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Collection;
+use LogicException;
 
 /**
  * Dispatch ở SPEC §6.6 bước 9, khi một khách hàng vừa nộp MỘT LẦN vào một đầu mục danh mục hồ sơ.
@@ -39,6 +40,18 @@ class ClientDocumentSubmitted implements ShouldDispatchAfterCommit
     use SerializesModels;
 
     /**
+     * **`Illuminate\Database\Eloquent\Collection`, không phải `Illuminate\Support\Collection`
+     * (vòng sửa 2).** `SerializesModels::getSerializedPropertyValue()` chỉ nhận diện một
+     * `QueueableCollection` — giao diện mà Eloquent Collection cài, Support Collection thì
+     * không — để đổi nó thành một `ModelIdentifier` (tên lớp + mảng id, không mang theo thuộc
+     * tính). Một `Support\Collection<Document>` không được nhận diện, nên rơi xuống nhánh cuối
+     * (`return $value`) và bị PHP serialize() y nguyên — chép cả state của từng `Document` vào
+     * payload thay vì một tên lớp và vài id. Sự kiện này hôm nay dispatch ĐỒNG BỘ (chưa listener
+     * nào ở M6 implement `ShouldQueue`), nên khác biệt chưa lộ ra ở bất kỳ hành vi nào hôm nay;
+     * nó chỉ lộ ra ĐÚNG lúc một listener tương lai (R2) queue nó — khi đó một payload phình to và
+     * mang state CŨ (từ lúc dispatch, không phải lúc job chạy) là một lớp lỗi mà đổi kiểu ngay từ
+     * bây giờ ngăn được hoàn toàn.
+     *
      * @param  Collection<int, Document>  $documents  Mọi `Document` sinh ra từ CÙNG một lần nộp
      *                                                (R10: một lô có thể gồm nhiều tệp, tất cả
      *                                                cùng version) — không bao giờ rỗng.
@@ -49,9 +62,25 @@ class ClientDocumentSubmitted implements ShouldDispatchAfterCommit
      * Tài liệu đầu của lô — dùng khi listener chỉ cần MỘT đại diện của cả lô (ví dụ để đọc
      * `matter`, `matter_checklist_item_id`: cả lô cùng một đầu mục nên giá trị này giống nhau
      * trên mọi phần tử).
+     *
+     * Ném `LogicException` trên một lô rỗng thay vì trả `null` — "không bao giờ rỗng" ở docblock
+     * `$documents` là một BẤT BIẾN của Action tạo ra sự kiện này
+     * (`SubmitClientDocument::handle()` từ chối một lô rỗng trước khi tới đây), không phải một
+     * khả năng bình thường mà listener phải tự kiểm tra mỗi lần gọi. Một chữ ký `?Document` sẽ
+     * buộc MỌI listener rải `?->`/`if (... === null)` cho một trường hợp không bao giờ xảy ra
+     * thật; một ngoại lệ ở đây nói đúng hơn: nếu nó ném, có gì đó ở Action đã sai, và lỗi ấy nên
+     * ồn ào ngay tại chỗ, không lặng lẽ biến thành một `TypeError` xa nguồn gốc bên trong
+     * listener.
      */
     public function firstDocument(): Document
     {
+        if ($this->documents->isEmpty()) {
+            throw new LogicException(
+                'ClientDocumentSubmitted::$documents rỗng — vi phạm bất biến "không bao giờ '
+                .'rỗng" mà SubmitClientDocument::handle() phải giữ trước khi dispatch sự kiện này.'
+            );
+        }
+
         return $this->documents->first();
     }
 }
