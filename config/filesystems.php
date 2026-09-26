@@ -83,6 +83,20 @@ return [
             'report' => false,
         ],
 
+        /*
+         * Đích sao lưu local mặc định khi `BACKUP_DISKS` chưa khai báo (SPEC §10 mục 8, M8a
+         * Task 1) — `App\Support\Backup\BackupDisks::DEFAULT_DISK`. CỐ Ý một thư mục RIÊNG,
+         * không lồng vào `private` hay `local` ở trên: một archive sao lưu chứa TOÀN BỘ
+         * `storage/app/private`, nên nếu nó nằm dưới `private` thì mỗi lượt `backup:run` sẽ sao
+         * lưu luôn cả archive của chính lượt chạy trước — một vòng lặp phình vô hạn.
+         */
+        'local_backups' => [
+            'driver' => 'local',
+            'root' => storage_path('app/backups'),
+            'throw' => false,
+            'report' => false,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),

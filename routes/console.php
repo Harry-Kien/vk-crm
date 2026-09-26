@@ -81,3 +81,35 @@ Schedule::call(new CheckDeadlines)
     ->name('deadlines.check')
     ->description('Nhắc mốc thời hạn tố tụng')
     ->withoutOverlapping();
+
+/**
+ * Dọn bản sao lưu cũ rồi tạo bản mới, 02:00 hằng ngày (SPEC §10 mục 8, R3; M8a Task 1).
+ *
+ * Dọn TRƯỚC khi sao lưu, đúng thứ tự Task 1 brief yêu cầu — `config/backup.php` chọn
+ * `keep_all_backups_for_days = 29` (không phải 30) chính vì thứ tự này: sau khi dọn, hôm nay
+ * CHƯA có bản mới, nên "còn đúng 30 bản" chỉ đúng SAU KHI `backup:run` chạy xong (xem
+ * `tests/Feature/Backup/BackupCleanupTest.php`).
+ *
+ * `->then()` — KHÔNG `->onSuccess()` — vì `backup:run` phải chạy dù `backup:clean` thất bại: một
+ * lượt dọn dẹp hỏng (ví dụ một disk không xoá được tệp cũ) không được phép cũng chặn luôn bản sao
+ * lưu CỦA HÔM NAY. `withoutOverlapping()` vì cả hai lệnh có thể chạy lâu trên một CSDL lớn — hai
+ * tiến trình `backup:run` chồng nhau ghi hai archive cùng lúc là lãng phí I/O, không phải lỗi dữ
+ * liệu, nhưng vẫn không đáng để cho phép.
+ */
+Schedule::command('backup:clean')
+    ->dailyAt('02:00')
+    ->name('backup.clean')
+    ->description('Dọn bản sao lưu cũ trước khi sao lưu mới')
+    ->withoutOverlapping()
+    ->then(fn () => Artisan::call('backup:run'));
+
+/**
+ * Giám sát sức khoẻ các bản sao lưu, 08:00 hằng ngày (SPEC §10 mục 8) — đủ xa lượt 02:00 để một
+ * lượt sao lưu chạy lâu (hồ sơ vài trăm MB) chắc chắn đã xong. Phát `UnhealthyBackupWasFound` khi
+ * bản mới nhất quá cũ hoặc một disk vượt hạn mức lưu trữ (`config('backup.monitor_backups')`).
+ */
+Schedule::command('backup:monitor')
+    ->dailyAt('08:00')
+    ->name('backup.monitor')
+    ->description('Giám sát sức khoẻ bản sao lưu')
+    ->withoutOverlapping();

@@ -33,6 +33,18 @@ return [
         'timeout' => (int) env('CLAMAV_TIMEOUT', 30),
     ],
 
+    'backup' => [
+        /*
+         * Người nhận thư báo lỗi sao lưu/dọn dẹp/bản sao không lành mạnh (SPEC §10 mục 8, M8a
+         * Task 1). Đọc qua ĐÂY (`config('vkcrm.backup.notify_email')`, `null` khi trống) — không
+         * qua `config('backup.notifications.mail.to')` của gói: trường đó BẮT BUỘC là một email
+         * hợp lệ (xem docblock ở `config/backup.php`) nên không thể mang giá trị rỗng, còn nghiệp
+         * vụ "trống thì gửi mọi admin đang hoạt động" (App\Actions\Backup\
+         * ResolveBackupNotificationRecipients) cần phân biệt được "trống" với "một email".
+         */
+        'notify_email' => $domain(env('BACKUP_NOTIFY_EMAIL')),
+    ],
+
     /*
      * Nhận diện thương hiệu của chính văn phòng, lấy từ luatvukhang.com để hệ thống nội bộ và
      * cổng khách hàng trông liền một mạch với website — khách đăng nhập vào đây phải thấy ngay

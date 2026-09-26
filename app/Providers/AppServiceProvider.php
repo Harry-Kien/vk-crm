@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Console\Commands\BackupCommand;
 use App\Http\Controllers\DocumentDownloadController;
 use App\Listeners\RecordOutboundMail;
 use App\Models\Client;
@@ -27,6 +28,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Spatie\Backup\Commands\BackupCommand as SpatieBackupCommand;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -58,6 +60,14 @@ class AppServiceProvider extends ServiceProvider
          * thái nào lúc dựng ngoài chính `$app`, và không có nơi nào khác trong dự án thay nó.
          */
         $this->app->extend('mail.manager', fn ($manager, $app) => new OutboundLedgerMailManager($app));
+
+        /*
+         * `backup:run` chạy qua {@see BackupCommand} của chính dự án thay vì bản gốc của gói,
+         * để guard mật khẩu production (R3) áp cho MỌI đường gọi lệnh này. Lý do dùng container
+         * binding thay vì nghe `CommandStarting` — và vì sao đó là lựa chọn BẮT BUỘC, không phải
+         * sở thích — nằm ở docblock của `BackupCommand`.
+         */
+        $this->app->bind(SpatieBackupCommand::class, BackupCommand::class);
     }
 
     /**
