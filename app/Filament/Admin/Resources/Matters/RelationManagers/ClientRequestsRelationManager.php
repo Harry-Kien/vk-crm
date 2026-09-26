@@ -4,6 +4,7 @@ namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 
 use App\Actions\Portal\OpenClientRequest;
 use App\Actions\Portal\ReplyToClientRequest;
+use App\Actions\Portal\SetClientRequestStatusResult;
 use App\Actions\Portal\TriageClientRequest;
 use App\Enums\ClientRequestStatus;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
@@ -15,6 +16,7 @@ use App\Models\User;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
+use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
@@ -91,9 +93,6 @@ class ClientRequestsRelationManager extends RelationManager
 
     protected static string $relationship = 'clientRequests';
 
-    /** Bí danh của mốc "lần trao đổi gần nhất" — xem {@see self::table()}. */
-    private const LAST_REPLY_AT_ALIAS = 'last_reply_at';
-
     public static function getTitle(Model $ownerRecord, string $pageClass): string
     {
         return __('requests.tab.title');
@@ -119,6 +118,10 @@ class ClientRequestsRelationManager extends RelationManager
                     ->label(__('requests.tab.columns.subject'))
                     ->wrap()
                     ->searchable(),
+                // Nạp kèm `withTrashed()` (xem `modifyQueryUsing` bên dưới, REQ-7): một tài
+                // khoản khách đã bị xoá mềm vẫn phải hiện tên người gửi. Không có nó, cột đọc ra
+                // `null` và bỏ trống đúng ô mà modal trả lời ({@see self::renderThread()}) vẫn vẽ
+                // ra tên — cùng luồng, hai chỗ nói khác nhau về ai đã gửi nó.
                 TextColumn::make('clientUser.name')
                     ->label(__('requests.tab.columns.client_user')),
                 TextColumn::make('status')
@@ -130,14 +133,19 @@ class ClientRequestsRelationManager extends RelationManager
                 // việc vẫn phải hiện tên. Không có nó, cột đọc ra `null` và in "Chưa ai nhận"
                 // trong khi `assigned_to` vẫn giữ nguyên id của họ — một cái bảng nói sai về
                 // chính cột nó đang vẽ, và người đọc không có cách nào biết.
+                //
+                // `formatStateUsing` thêm dấu "đã nghỉ việc" (REQ-3, phần hiển thị — phần CHẶN đã
+                // ở Task 4): tên hiện ra đúng, nhưng một cái tên trơn không nói được rằng người đó
+                // không còn xử lý được, và cột "Trạng thái" bên cạnh vẫn im lặng về việc đó.
                 TextColumn::make('assignee.name')
                     ->label(__('requests.tab.columns.assignee'))
-                    ->placeholder(__('requests.tab.unassigned')),
+                    ->placeholder(__('requests.tab.unassigned'))
+                    ->formatStateUsing(fn (?string $state, ClientRequest $record): ?string => static::assigneeLabel($record, $state)),
                 TextColumn::make('created_at')
                     ->label(__('requests.tab.columns.created_at'))
                     ->dateTime('H:i d/m/Y')
                     ->sortable(),
-                TextColumn::make(self::LAST_REPLY_AT_ALIAS)
+                TextColumn::make('last_activity_at')
                     ->label(__('requests.tab.columns.last_activity'))
                     ->dateTime('H:i d/m/Y')
                     ->placeholder('—')
@@ -146,11 +154,16 @@ class ClientRequestsRelationManager extends RelationManager
                     ->label(__('requests.tab.columns.replies_count'))
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
-            // Mới nhất trên cùng theo lúc KHÁCH GỬI, không theo lần trao đổi gần nhất: câu trả
-            // lời của chính văn phòng đẩy một luồng lên đầu là một hộp thư sắp theo việc mình vừa
-            // làm, không theo việc còn phải làm. `last_reply_at` vẫn là một cột bấm sắp được cho
-            // ai muốn đọc theo dòng thời gian trao đổi.
-            ->defaultSort('created_at', 'desc')
+            // Mới nhất trên cùng theo HOẠT ĐỘNG GẦN NHẤT, không theo lúc khách gửi (Task 18,
+            // REQ-2 — đảo lại quyết định trước đó). CÙNG cột và cùng chiều mà
+            // {@see MyRequests::threads()} dùng ở đầu bên kia (fix round 1, ruling: hai màn hình
+            // của một cuộc trao đổi không được sắp khác nhau). `last_activity_at` là một CỘT,
+            // không một truy vấn con trên `client_request_replies`: lý do đầy đủ và ranh giới
+            // chính xác của "hoạt động" ở docblock migration
+            // `add_last_activity_at_to_client_requests_table` — tóm tắt là bốn nguồn (yêu cầu
+            // mới, khách hỏi tiếp, nhân sự trả lời, đổi trạng thái tay), và `assign()` CHỈ tính
+            // khi nó cũng đổi trạng thái (`new → in_progress`), không tính khi chỉ đổi tay.
+            ->defaultSort('last_activity_at', 'desc')
             ->recordActions([
                 $this->replyAction(),
                 $this->assignAction(),
@@ -158,12 +171,35 @@ class ClientRequestsRelationManager extends RelationManager
             ])
             ->modifyQueryUsing(fn (Builder $query): Builder => static::scopeToVisibleMatters($query)
                 ->with([
-                    'clientUser',
+                    'clientUser' => fn (BelongsTo $clientUser): BelongsTo => $clientUser->withTrashed(),
                     'assignee' => fn (BelongsTo $assignee): BelongsTo => $assignee->withTrashed(),
                     'replies' => fn (HasMany $replies): HasMany => $replies->orderBy('created_at'),
                 ])
-                ->withCount('replies')
-                ->withMax('replies as '.self::LAST_REPLY_AT_ALIAS, 'created_at'));
+                ->withCount('replies'));
+    }
+
+    /**
+     * Tên người xử lý, kèm một dấu hiệu khi họ đã bị vô hiệu hoá hoặc xoá mềm (REQ-3, phần hiển
+     * thị). "Đã nghỉ việc" gộp cả hai — cùng cách dùng chữ mà docblock của cột này và của
+     * {@see self::authorNames()} đã dùng — vì SPEC không phân biệt hai lý do và người đọc cột
+     * này không cần biết CÁCH người đó rời đi, chỉ cần biết họ không còn xử lý được nữa.
+     *
+     * Public vì cùng lý do các hàm tĩnh khác của lớp này công khai: kết quả đi thẳng vào HTML của
+     * `TextColumn`, nên đo trực tiếp qua chuỗi trả về nhanh và rõ hơn dựng cả bảng rồi `assertSee`.
+     */
+    public static function assigneeLabel(ClientRequest $record, ?string $name): ?string
+    {
+        if ($name === null) {
+            return null;
+        }
+
+        $assignee = $record->assignee;
+
+        if ($assignee !== null && ($assignee->trashed() || ! $assignee->is_active)) {
+            return __('requests.tab.assignee_deactivated', ['name' => $name]);
+        }
+
+        return $name;
     }
 
     /** Màu badge của từng trạng thái. Chỉ hiển thị — không luật nghiệp vụ nào đọc nó. */
@@ -186,6 +222,15 @@ class ClientRequestsRelationManager extends RelationManager
      * Ô nhập tên là `content` — TRẦN, trùng khoá mà `ReplyToClientRequest` gắn vào
      * `ValidationException` của nó, nên {@see ReportsActionFailures} dịch được sang state path
      * thật của modal và câu lỗi hiện đúng dưới ô.
+     *
+     * **Thông báo thành công KHÔNG còn tĩnh (REQ-6).** Bản trước luôn nói "Khách đọc được ngay
+     * trên cổng khách hàng" — đúng khi hồ sơ đã công bố lên cổng, sai khi chưa: câu trả lời vẫn
+     * được lưu (`is_published_to_portal` không phải một điều kiện của
+     * `ReplyToClientRequest`/`ClientRequestReplyPolicy` — nhân sự vẫn trả lời được vào một hồ sơ
+     * đang ẩn), nhưng khách nhận 404 khi mở trang, vì `MyRequests::resolveMatter()` từ chối một
+     * hồ sơ chưa công bố. Nên câu báo đọc đúng `$this->getOwnerRecord()->is_published_to_portal`
+     * — vụ việc CHỦ của cả relation manager, không cần nạp lại `$record->matter` — và chọn một
+     * trong hai câu.
      */
     private function replyAction(): Action
     {
@@ -209,15 +254,27 @@ class ClientRequestsRelationManager extends RelationManager
                     ->columnSpanFull()
                     ->required(),
             ])
-            ->successNotificationTitle(__('requests.tab.actions.reply_success'))
-            ->action(fn (Action $action, ClientRequest $record, array $data) => $this->runAction(
-                $action,
-                fn () => app(ReplyToClientRequest::class)->handle(
-                    $record,
-                    Auth::user(),
-                    $data['content'] ?? '',
-                ),
-            ));
+            ->action(function (Action $action, ClientRequest $record, array $data): void {
+                $isPublished = (bool) $this->getOwnerRecord()->is_published_to_portal;
+
+                $this->runAction(
+                    $action,
+                    function () use ($record, $data, $isPublished): void {
+                        app(ReplyToClientRequest::class)->handle(
+                            $record,
+                            Auth::user(),
+                            $data['content'] ?? '',
+                        );
+
+                        Notification::make()
+                            ->title($isPublished
+                                ? __('requests.tab.actions.reply_success')
+                                : __('requests.tab.actions.reply_success_hidden'))
+                            ->success()
+                            ->send();
+                    },
+                );
+            });
     }
 
     /**
@@ -272,6 +329,20 @@ class ClientRequestsRelationManager extends RelationManager
      * trong văn phòng nhìn thấy"), không phải một bước trong quy trình. Như mọi ô chọn khác ở
      * đây, đây là tiện ích chứ không phải cổng: Action từ chối giá trị đó dù ai gửi lên bằng
      * đường nào.
+     *
+     * **Thông báo thành công KHÔNG còn tĩnh (Task 3 review, R-carried — REQ-3).**
+     * `TriageClientRequest::setStatus()` có thể tự gỡ người đang giữ khi mở lại một luồng đã đóng
+     * mà người đó không còn mở nổi hồ sơ nữa (xem docblock của nó).
+     *
+     * **Đọc thẳng kết quả Action trả về, không tự so hai ảnh chụp (fix round 1, minor).** Bản
+     * trước so `$record->assigned_to` (đọc TRƯỚC lời gọi) với `assigned_to` của luồng SAU lời gọi
+     * để SUY ra việc gỡ người có xảy ra không — dựa trên tiền đề "không Action nào khác đụng cột
+     * này giữa hai lần đọc", một tiền đề không còn chắc chắn một khi có Action khác (bàn giao hàng
+     * loạt) cũng ghi `assigned_to`. Bản dự phòng khi đó còn ghép nhãn "Chưa ai nhận" (placeholder
+     * của Ô TRỐNG) vào chỗ một cái TÊN nếu quan hệ `assignee` không có sẵn, ra một câu vô nghĩa.
+     * Nay `setStatus()` tự báo qua {@see SetClientRequestStatusResult}: `unassignedAssignee` chỉ
+     * khác `null` khi Action THẬT SỰ vừa gỡ ai, và nó luôn là người đó — không cần suy, không cần
+     * dự phòng cho tên.
      */
     private function changeStatusAction(): Action
     {
@@ -290,14 +361,24 @@ class ClientRequestsRelationManager extends RelationManager
                     ->required()
                     ->native(false),
             ])
-            ->successNotificationTitle(__('requests.tab.actions.change_status_success'))
             ->action(fn (Action $action, ClientRequest $record, array $data) => $this->runAction(
                 $action,
-                fn () => app(TriageClientRequest::class)->setStatus(
-                    $record,
-                    Auth::user(),
-                    ClientRequestStatus::from($data['status']),
-                ),
+                function () use ($record, $data): void {
+                    $result = app(TriageClientRequest::class)->setStatus(
+                        $record,
+                        Auth::user(),
+                        ClientRequestStatus::from($data['status']),
+                    );
+
+                    Notification::make()
+                        ->title($result->unassignedAssignee !== null
+                            ? __('requests.tab.actions.change_status_unassigned', [
+                                'name' => $result->unassignedAssignee->name,
+                            ])
+                            : __('requests.tab.actions.change_status_success'))
+                        ->success()
+                        ->send();
+                },
             ));
     }
 

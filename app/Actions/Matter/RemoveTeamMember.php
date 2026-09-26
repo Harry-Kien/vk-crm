@@ -95,13 +95,14 @@ use Illuminate\Validation\ValidationException;
  * 2: bản đó nói hai `AddMatterDeadline` xếp hàng "vì lý do khác" — không đúng, chúng xếp hàng
  * chính vì tranh chấp CÙNG một khoá `matters` này.)
  *
- * **Khe hở CÒN LẠI, KHÔNG được khoá này che: `setStatus()` mở lại một luồng ĐÃ ĐÓNG mà người
- * đang đứng tên (`assigned_to`) đã rời đội ngũ TRONG LÚC luồng đóng, KHÔNG được đối chiếu lại.**
- * `setStatus()` chỉ đổi cột `status` — nó không gọi `canHoldTheThread()` (chỉ `assign()` gọi hàm
- * đó), nên mở lại một luồng đã đóng không hỏi lại "người đang đứng tên còn mở được vụ việc này
- * không". Khoá `matters` ở đây giải quyết đúng vấn đề ĐỘC LẬP về ĐỌC DỮ LIỆU CŨ (REPEATABLE READ
- * snapshot); nó không thêm một điều kiện NGHIỆP VỤ nào cho `setStatus()`. Đây là một lỗ hổng
- * KHÁC, được Task 18 nhận (theo phán quyết fix round 3) — không sửa ở đây.
+ * **Khe hở ĐÃ TỪNG CÒN LẠI ở đây, không phải một điều kiện của khoá này — nay đã ĐÓNG, ở Task 18
+ * (fix round 1).** `setStatus()` mở lại một luồng ĐÃ ĐÓNG mà người đang đứng tên (`assigned_to`)
+ * đã rời đội ngũ TRONG LÚC luồng đóng từng không được đối chiếu lại: hàm chỉ đổi cột `status`, và
+ * không gọi `canHoldTheThread()` (khi đó chỉ `assign()` gọi hàm đó). Khoá `matters` ở đây giải
+ * quyết đúng vấn đề ĐỘC LẬP về ĐỌC DỮ LIỆU CŨ (REPEATABLE READ snapshot); nó không thêm một điều
+ * kiện NGHIỆP VỤ nào cho `setStatus()` — điều kiện đó nằm ở chính {@see \App\Actions\Portal\
+ * TriageClientRequest::setStatus()}, hỏi lại `canHoldTheThread()` khi MỞ LẠI một luồng `closed`,
+ * và gỡ người không còn giữ được ra kèm một thông báo tiếng Việt cho người thao tác.
  */
 class RemoveTeamMember
 {

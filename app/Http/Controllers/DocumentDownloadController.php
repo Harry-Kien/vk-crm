@@ -159,12 +159,12 @@ final class DocumentDownloadController extends Controller
         // nói dối; thừa một dòng thì nó chỉ là một lần mở không ai chủ ý). `Cache-Control:
         // no-store` giữ cho một lần prefetch không biến thành nhiều lần đọc lại từ bộ đệm.
         if (! $request->isMethod('GET')) {
-            return $this->fileResponse($disk, $media);
+            return $this->fileResponse($record, $actor, $disk, $media);
         }
 
         $this->recordDownload($record, $actor, $request);
 
-        return $this->fileResponse($disk, $media);
+        return $this->fileResponse($record, $actor, $disk, $media);
     }
 
     /**
@@ -375,16 +375,13 @@ final class DocumentDownloadController extends Controller
      * (`Str::ascii()` rồi bỏ `%`) và truyền vào làm `$filenameFallback`, nên header ra đúng cả hai
      * phần RFC 6266 đòi: `filename=` cho phần ASCII và `filename*=UTF-8''…` cho bản có dấu.
      *
-     * Tên truyền vào là `media.name` — tên hiển thị, đã qua `FileGuard::safeName()` lúc nộp — và
-     * {@see self::downloadName()} cho nó đi qua `safeName()` MỘT LẦN NỮA. Không thừa: đây là một
-     * giá trị đọc ra từ cơ sở dữ liệu, có thể do một bản mã cũ hơn, một seeder hay một lần sửa
-     * tay ghi vào, và docblock của `FileGuard` nói thẳng rằng mọi tên đi vào một header
-     * `Content-Disposition` phải đi qua hàm đó trước. Nó bỏ `"`, `;` và ký tự điều khiển — những
-     * thứ tách được một header; xoá lần gọi đó làm đỏ test tên tệp mang mưu đồ chèn header.
+     * Tên truyền vào phụ thuộc AI đang tải — xem {@see self::downloadName()} cho luật đầy đủ
+     * (ruling vòng sửa 1) và cho việc nó đi qua `FileGuard::safeName()`, cùng cổng mà mọi tên đi
+     * vào một header `Content-Disposition` phải đi qua.
      */
-    private function fileResponse(FilesystemAdapter $disk, Media $media): Response
+    private function fileResponse(Document $document, User|ClientUser $actor, FilesystemAdapter $disk, Media $media): Response
     {
-        return $disk->download($media->getPathRelativeToRoot(), $this->downloadName($media), [
+        return $disk->download($media->getPathRelativeToRoot(), $this->downloadName($document, $actor, $media), [
             // Tệp hồ sơ không được nằm lại trong bất kỳ bộ nhớ đệm chung nào, và một phản hồi
             // không lưu lại cũng là thứ khiến một lần "quay lại" trong trình duyệt phải đi lại
             // qua chữ ký và policy thay vì đọc bản cũ.
@@ -396,38 +393,47 @@ final class DocumentDownloadController extends Controller
     }
 
     /**
-     * Tên tệp phải CÒN ĐUÔI. Đó là lý do tồn tại của quyết định "tên hiển thị giữ nguyên đuôi" ở
-     * `StoresDocumentFile::storeFile()`: một tệp tải về không có đuôi thì Windows không biết mở
-     * bằng gì, và người nhận ở đây là nhân viên văn phòng.
+     * **Tên tải về phụ thuộc AI đang tải — ruling vòng sửa 1 Task 16, sửa lại phần "chỉ dùng
+     * `title`" của `docs/docs-5`.** Nhân sự văn phòng (`User`) vẫn nhận tên tệp GỐC do chính họ
+     * (hoặc đồng nghiệp) đặt lúc nộp — `media.name`, y hệt hành vi trước Task 16: họ cần nhận ra
+     * đúng bản trong đống tệp làm việc của mình ("Đơn KK – bản 3 – ý kiến LS chưa duyệt.pdf" là
+     * một cái tên CÓ ÍCH cho chính người đang giữ hồ sơ đó, dù vô nghĩa với khách). Chỉ khách
+     * (`ClientUser`, tải qua cổng) nhận tên theo `Document::title` đã công bố — đúng sự thật
+     * `docs/docs-5` chỉ ra: khách chỉ từng thấy `title` trên portal, không bao giờ thấy tên tệp
+     * nội bộ, nên tên tải về phải khớp cái họ đã thấy.
      *
-     * `FileGuard::safeName()` giữ đuôi cho mọi tên đi qua cổng nộp tệp (kể cả `....pdf`, vốn từng
-     * bị gọt thành `pdf` — đuôi biến mất — và đã được vá bằng cách tách đuôi ra trước). Nhưng
-     * `media.name` KHÔNG phải lúc nào cũng đến từ cổng đó: mặc định của medialibrary khi gọi
-     * `addMedia()` trơn là tên tệp BỎ đuôi, nên một dòng tạo bằng đường đó — một lần nhập dữ
-     * liệu, một bản mã cũ, một lần sửa tay — có một tên hiển thị không đuôi. Ở đây đuôi được lấy
-     * lại từ `media.file_name`, cái tên NẰM TRÊN ĐĨA.
-     *
-     * (Bản đầu của đoạn này nêu "seeder, factory" làm ví dụ. Câu đó sai suốt milestone: cho tới
-     * vòng rà soát cuối M4 không seeder hay factory nào gắn tệp cả, nên chúng không tạo ra dòng
-     * `media` nào. Nay `MatterSeeder` có gắn tệp, nhưng nó đi qua chính hai Action sản phẩm, tức
-     * qua `safeName()` — nên nó cũng không phải nguồn của nhánh này.)
-     *
-     * **Đuôi mượn về ĐI LẠI qua `safeName()`.** Bản đầu nối nó vào sau khi `safeName()` đã chạy,
-     * nên một `media.file_name` do một bản mã cũ ghi vào đưa được `"` và `;` — đúng hai ký tự
-     * tách được một header `Content-Disposition` — thẳng ra ngoài. `storedFileName()` hôm nay
-     * chuẩn hoá đuôi còn `[a-z0-9]`, nhưng "hôm nay mọi dòng đều do nó sinh ra" là một tính chất
-     * của dữ liệu, không phải của hàm này.
-     *
-     * **Và tên cuối cùng PHẢI còn một đuôi, nếu không thì lượt tải này là một lỗi 500.**
-     * `FilesystemAdapter::download()` tự tính bản dự phòng ASCII bằng `Str::ascii()` rồi bỏ `%`,
-     * còn `HeaderUtils::makeDisposition()` ném `InvalidArgumentException` khi bản dự phòng đó
-     * RỖNG. Một `media.name` toàn chữ Hán hay emoji cho đúng chuỗi rỗng ấy (`Str::ascii('日本語')`
-     * → `''`), và khi không có đuôi nào để mượn thì không còn byte ASCII nào sống sót. Dấu chấm
-     * của phần đuôi luôn qua được `Str::ascii()`, nên "còn đuôi" ĐỒNG NGHĨA với "bản dự phòng
-     * không rỗng" — vì vậy một câu kiểm đuôi ở cuối đóng được cả lớp lỗi này, chứ không chỉ cái
-     * ví dụ đã dựng lại được. Không còn đuôi thì trả về tên dự phòng, thứ đã là ASCII thuần.
+     * Hai nhánh, hai hàm riêng — {@see self::staffDownloadName()} và
+     * {@see self::portalDownloadName()} — vì chúng không chia sẻ luật: nhánh nhân sự "mượn đuôi
+     * KHI THIẾU" (hành vi gốc, `media.name` hầu như luôn tự mang đuôi thật); nhánh khách nối đuôi
+     * VÔ ĐIỀU KIỆN (`title` không phải tên tệp, gần như không bao giờ tự mang đuôi — xem docblock
+     * `portalDownloadName()`). Gộp chung một nhánh "mượn khi thiếu" cho cả `title` sẽ tái hiện lỗi
+     * vòng sửa 1 sửa: một tiêu đề có dấu chấm bên trong (ví dụ ngày tháng) bị hiểu nhầm đã có đuôi.
      */
-    private function downloadName(Media $media): string
+    private function downloadName(Document $document, User|ClientUser $actor, Media $media): string
+    {
+        return $actor instanceof ClientUser
+            ? $this->portalDownloadName($document, $media)
+            : $this->staffDownloadName($media);
+    }
+
+    /**
+     * **Nhân sự: tên tệp GỐC do người nộp đặt, y hệt hành vi trước Task 16.** `media.name` đã qua
+     * `FileGuard::safeName()` một lần lúc nộp (`StoresDocumentFile::storeFile()`); ở đây nó đi qua
+     * LẦN NỮA vì đây là một giá trị đọc ra từ cơ sở dữ liệu — có thể do một bản mã cũ, một lần sửa
+     * tay — và docblock `FileGuard` nói thẳng mọi tên đi vào `Content-Disposition` phải qua hàm đó
+     * trước, không có ngoại lệ cho "chắc nó đã sạch rồi".
+     *
+     * **Đuôi chỉ MƯỢN KHI THIẾU** — khác nhánh khách. `media.name` gần như luôn tự mang đuôi thật
+     * (nó LÀ một tên tệp), nhưng mặc định của medialibrary khi gọi `addMedia()` trơn (không qua
+     * `StoresDocumentFile`) là tên BỎ đuôi, nên một dòng tạo bằng đường khác — một lần nhập dữ
+     * liệu, một bản mã cũ — có thể có tên hiển thị không đuôi. Đuôi mượn về từ `media.file_name`
+     * (tên NẰM TRÊN ĐĨA) cũng đi qua `safeName()` một lần nữa trước khi nối, cùng lý do ở trên.
+     *
+     * Tên cuối cùng PHẢI còn đuôi — xem đoạn cuối docblock {@see self::portalDownloadName()} cho
+     * lý do đầy đủ (`HeaderUtils::makeDisposition()` ném lỗi với bản dự phòng ASCII rỗng); không
+     * còn đuôi thì trả tên dự phòng, thứ đã là ASCII thuần.
+     */
+    private function staffDownloadName(Media $media): string
     {
         $name = FileGuard::safeName((string) $media->name);
 
@@ -438,6 +444,48 @@ final class DocumentDownloadController extends Controller
                 $name = FileGuard::safeName($name.'.'.$extension);
             }
         }
+
+        return pathinfo($name, PATHINFO_EXTENSION) === ''
+            ? __('documents.fallback_file_name')
+            : $name;
+    }
+
+    /**
+     * **Khách: `title` đã làm sạch, cộng đuôi tệp gốc — `docs/docs-5`.** Gợi ý ở ô "Tên tài liệu"
+     * (`documents.tab.fields.title_help`) nói với nhân sự rằng tiêu đề là thứ DUY NHẤT khách
+     * thấy — đúng cho nhánh này: khách chỉ từng đọc `title` trên portal, chưa bao giờ thấy tên tệp
+     * nội bộ, nên tên tải về phải khớp cái họ đã thấy trước khi bấm tải.
+     *
+     * **Đuôi lấy từ `media.file_name` (tên NẰM TRÊN ĐĨA), nối vào MỘT CÁCH VÔ ĐIỀU KIỆN** — khác
+     * nhánh nhân sự. `title` không phải một tên tệp, nó gần như không bao giờ tự mang đuôi, nên
+     * "mượn khi thiếu" luôn đúng cho nhánh này — nhưng viết `pathinfo($title, PATHINFO_EXTENSION)`
+     * để QUYẾT ĐỊNH có mượn hay không là một cái bẫy: một tiêu đề có dấu chấm bên trong (ví dụ
+     * "Biên bản ngày 20.03.2026") bị hiểu nhầm đã có đuôi ("2026"), và đuôi THẬT trên đĩa (`.pdf`)
+     * không bao giờ được gắn vào. Nối vô điều kiện rồi để `safeName()` tách đuôi từ DẤU CHẤM CUỐI
+     * CÙNG (luôn là đuôi mới nối) tránh được bẫy đó.
+     *
+     * **`title` không phải một đường dẫn, và không được xử lý như một cái.** Tiêu đề văn bản
+     * tiếng Việt mang dấu `/` một cách hoàn toàn hợp lệ (ví dụ "Quyết định số 42/2026"), nhưng
+     * `FileGuard::safeName()` coi `/` là dấu phân cách thư mục (`basename(str_replace('\\','/',
+     * $name))`, viết cho tên TỆP). Gọi thẳng `safeName($title)` sẽ CẮT MẤT mọi thứ trước dấu `/`
+     * CUỐI CÙNG — "Quyết định số 42/2026" biến thành "2026", một lỗi mất dữ liệu âm thầm còn tệ
+     * hơn một lần từ chối. `/` và `\` vì vậy được thay bằng `-` TRƯỚC khi tiêu đề đi vào
+     * `safeName()`.
+     *
+     * **Và tên cuối cùng PHẢI còn một đuôi, nếu không thì lượt tải này là một lỗi 500.**
+     * `FilesystemAdapter::download()` tự tính bản dự phòng ASCII bằng `Str::ascii()` rồi bỏ `%`,
+     * còn `HeaderUtils::makeDisposition()` ném `InvalidArgumentException` khi bản dự phòng đó
+     * RỖNG. Một tiêu đề toàn chữ Hán hay emoji cho đúng chuỗi rỗng ấy (`Str::ascii('日本語')` →
+     * `''`), và khi `media.file_name` cũng không có đuôi nào thì không còn byte ASCII nào sống
+     * sót. Dấu chấm của phần đuôi luôn qua được `Str::ascii()`, nên "còn đuôi" ĐỒNG NGHĨA với
+     * "bản dự phòng không rỗng" — một câu kiểm đuôi ở cuối đóng được cả lớp lỗi này. Không còn
+     * đuôi thì trả về tên dự phòng, thứ đã là ASCII thuần.
+     */
+    private function portalDownloadName(Document $document, Media $media): string
+    {
+        $extension = pathinfo((string) $media->file_name, PATHINFO_EXTENSION);
+        $stem = str_replace(['/', '\\'], '-', $document->title);
+        $name = FileGuard::safeName($extension === '' ? $stem : $stem.'.'.$extension);
 
         return pathinfo($name, PATHINFO_EXTENSION) === ''
             ? __('documents.fallback_file_name')

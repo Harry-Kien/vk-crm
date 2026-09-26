@@ -4,6 +4,8 @@ namespace App\Actions\Document;
 
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\DocumentGroup;
+use App\Enums\DocumentStatus;
+use App\Exceptions\DocumentLifecycleNotAllowed;
 use App\Models\Document;
 use App\Models\User;
 use App\Support\Audit;
@@ -31,17 +33,47 @@ use Illuminate\Support\Facades\Gate;
  * Hai chiều đều đi qua `DocumentPolicy::update` (kèm `view()`, nên không ai đổi nhóm một tài
  * liệu họ không đọc được, và không ai đụng tới tài liệu của một vụ việc đã xoá mềm).
  *
+ * **Rời khỏi nhóm B, SANG A HOẶC C, cũng đòi `document.publish` CỘNG một cổng vòng đời — phán
+ * quyết R9 (Task 16), sửa `docs/docs-2`, MỞ RỘNG ở vòng sửa 1.** Trước Task 16, B → C (hay B → A)
+ * chỉ đòi `document.update`, mà trợ lý cũng có; `PublishDocument` chỉ áp luật `signed_filed` cho
+ * `group === Issued`, nên một tài liệu B vừa đổi nhãn thành C được công bố THẲNG từ
+ * `internal_draft` — đúng thứ SPEC §4.11 cấm ("không được nhảy thẳng từ `internal_draft`... ngăn
+ * khách nhìn thấy một bản đơn mà toà chưa hề nhận được"). Cổng chặn CHÍNH XÁC ở đây.
+ *
+ * **Vòng sửa 1 sửa lại phạm vi: cổng KHÔNG áp dụng khi nhóm ĐÍCH là D.** Bản đầu (Task 16) chặn
+ * "bất kể nhóm đích là gì, kể cả D", với lý do D có thể thành trạm trung chuyển. Phán quyết vòng
+ * sửa 1 lật lại phần đó: chuyển VÀO nhóm D luôn được phép với `document.update` — nó chỉ SIẾT lại
+ * (khách mất quyền xem NGAY LẬP TỨC, xem hook `saving` của `Document`), và đây là đường DUY NHẤT
+ * để rút một tài liệu nhóm B đã lỡ công bố ra khỏi tầm mắt khách, cho tới khi `M7` có
+ * `RetractDocument` thật. Một trợ lý phát hiện một văn bản B bị công bố nhầm phải rút được nó
+ * NGAY, không phải đi tìm ai đó có `document.publish` trước.
+ *
+ * **Hai đường rời B sang A/C (R9 mở rộng phần b):** (1) tài liệu đã `wasPublishedToClient()` hoặc
+ * `signed_filed` — không có gì để "giặt" nữa, nó đã thật sự ký/nộp/ra tới khách; hoặc (2) người
+ * chuyển nhập một LÝ DO SỬA NHẦM NHÓM ít nhất 10 ký tự, được ghi vào nhật ký
+ * `document_regrouped.misfiling_reason`. Đường (2) tồn tại vì không phải mọi lần nộp sai nhóm đều
+ * là một văn bản B thật: một tài liệu bị gắn NHẦM nhóm B ngay từ lúc tải lên (chưa từng định trình
+ * duyệt) không nên bị buộc đi hết vòng đời giả để sửa một lỗi gõ. Đường (2) không đi vòng qua
+ * vòng đời — nó THÚ NHẬN công khai, có dấu vết, rằng đây là một lần sửa nhầm, khác hẳn việc lặng
+ * lẽ đổi nhóm rồi công bố như thể mọi thứ đúng quy trình. Xem
+ * `App\Exceptions\DocumentLifecycleNotAllowed::notReadyToLeaveGroupB()`/`misfilingReasonTooShort()`.
+ *
  * **Hàng rào ở tầng model là phần không thể bỏ.** Action này là đường đúng; `Document::booted()`
  * là thứ làm cho nó thành đường DUY NHẤT. Xem docblock `Document::duringAuditedRegroup()` để
  * biết vì sao một bất biến dữ liệu được canh ở model trong khi nghiệp vụ vẫn ở Action.
+ *
+ * Cổng nhóm B ở trên KHÔNG có hàng rào tương ứng ở tầng model — khác nhóm D. SPEC không gọi vòng
+ * đời nhóm B là một ranh giới "tuyệt đối" theo đúng nghĩa đó (nó là một CHUỖI trạng thái, không
+ * phải một tập bị cấm tuyệt đối), nên một cổng ở tầng Action là đủ, cùng mức với cổng
+ * `signed_filed` mà `PublishDocument` đã áp từ trước cho chính nhóm này.
  */
 class RegroupDocument
 {
     use ReadsWithoutPortalScope;
 
-    public function handle(Document $document, User $actor, DocumentGroup $group): Document
+    public function handle(Document $document, User $actor, DocumentGroup $group, ?string $reason = null): Document
     {
-        return DB::transaction(function () use ($document, $actor, $group): Document {
+        return DB::transaction(function () use ($document, $actor, $group, $reason): Document {
             // Đọc lại dưới khoá, cùng lý do với `PublishDocument`: nhóm hiện tại quyết định cần
             // quyền gì, nên đọc nó từ đối tượng caller cầm trong tay là để caller tự khai. Và vì
             // lần đọc lại ấy tồn tại để KHÔNG tin caller, nó cũng không được để guard đang mở
@@ -63,15 +95,57 @@ class RegroupDocument
                 Gate::forUser($actor)->authorize('publish', $fresh);
             }
 
+            // R9 mở rộng (vòng sửa 1): rời khỏi nhóm B SANG A HOẶC C — không áp dụng khi nhóm
+            // ĐÍCH là D, xem docblock lớp. `$misfilingReason` chỉ khác `null` khi đường "lý do sửa
+            // nhầm nhóm" là đường được dùng (tài liệu chưa signed_filed/published), để dòng nhật
+            // ký bên dưới ghi lại đúng NGUYÊN NHÂN của lần chuyển, không chỉ nhóm cũ/nhóm mới.
+            $misfilingReason = null;
+
+            if ($from === DocumentGroup::Issued && $group !== DocumentGroup::Internal) {
+                Gate::forUser($actor)->authorize('publish', $fresh);
+
+                $hasClearedLifecycle = $fresh->status === DocumentStatus::SignedFiled
+                    || $fresh->wasPublishedToClient();
+
+                if (! $hasClearedLifecycle) {
+                    // `trim()` trần chỉ gỡ khoảng trắng ASCII (` \t\n\r\0\x0B`) — một lý do gõ
+                    // toàn NBSP (U+00A0, bàn phím điện thoại hay chèn khi gõ có dấu, hoặc dán từ
+                    // Word) hay khoảng trắng biểu ý (U+3000, IME Đông Á) đi lọt qua với độ dài > 0
+                    // và không mang chữ nào — vòng sửa 2. `\p{Z}` (nhóm Unicode "Separator") phủ
+                    // cả hai cộng mọi khoảng trắng Unicode khác; `\x{200B}` (zero-width space)
+                    // không thuộc `\p{Z}` nên phải liệt kê riêng.
+                    // `?? ''`: `preg_replace()` với cờ `/u` trả `null` nếu `$reason` không phải
+                    // UTF-8 hợp lệ — một chuỗi như vậy không mang lý do gì đọc được, nên coi như
+                    // rỗng (từ chối bằng câu "chưa sẵn sàng" chung) thay vì để `null` rơi xuống
+                    // `mb_strlen()` phía dưới.
+                    $trimmedReason = $reason === null
+                        ? ''
+                        : preg_replace('/^[\s\p{Z}\x{200B}]+|[\s\p{Z}\x{200B}]+$/u', '', $reason) ?? '';
+
+                    if ($trimmedReason === '') {
+                        throw DocumentLifecycleNotAllowed::notReadyToLeaveGroupB($fresh);
+                    }
+
+                    if (mb_strlen($trimmedReason) < 10) {
+                        throw DocumentLifecycleNotAllowed::misfilingReasonTooShort($fresh);
+                    }
+
+                    $misfilingReason = $trimmedReason;
+                }
+            }
+
             Document::duringAuditedRegroup(fn () => $fresh->update(['group' => $group]));
 
             // SPEC §10.6 không liệt kê "đổi nhóm tài liệu", vì bảng đó được viết trước khi ai
             // nhận ra đổi nhóm LÀ cách mở khoá nhóm D. Dòng này ghi cả nhóm cũ lẫn nhóm mới:
             // nhóm mới đọc được từ bản ghi, còn nhóm CŨ thì sau thao tác không còn ở đâu nữa.
+            // `misfiling_reason` luôn có mặt (kể cả `null`) để một truy vấn lọc theo khoá đó
+            // không phải phân biệt "khoá vắng mặt" với "khoá null".
             Audit::record('document_regrouped', $fresh, [
                 'matter_id' => $fresh->matter_id,
                 'from_group' => $from->value,
                 'to_group' => $group->value,
+                'misfiling_reason' => $misfilingReason,
             ], $actor);
 
             return $fresh;

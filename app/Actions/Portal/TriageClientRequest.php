@@ -76,6 +76,15 @@ class TriageClientRequest
      * `$matterId` được đọc ở ĐÂY, TRƯỚC KHI `DB::transaction()` mở — xem "Đọc `matter_id` TRƯỚC
      * transaction, không phải bên trong" ở docblock {@see self::open()} cho lý do bắt buộc
      * (fix round 3, finding I3 residual — snapshot REPEATABLE READ).
+     *
+     * **`last_activity_at` chỉ nhảy khi lần giao việc này CŨNG đổi trạng thái (fix round 1,
+     * ruling).** "Giao việc" tự nó là một việc QUẢN TRỊ — chọn ai đứng tên — không phải một lượt
+     * trao đổi, nên nó không tự động là "hoạt động" của hộp thư (xem docblock migration
+     * `add_last_activity_at_to_client_requests_table`). Nhưng khi giao việc ĐẨY luồng ra khỏi
+     * `new` (nhánh `new → in_progress` ngay dưới), đó là thời điểm "chưa ai xem" chuyển thành "đã
+     * có người xem" — một sự kiện thật về cuộc trao đổi, không chỉ về sổ phân công — nên khi đó
+     * (và chỉ khi đó) cột được đóng dấu lại. Gán lại một luồng ĐANG `in_progress` cho một người
+     * khác (đổi tay, không đổi trạng thái) thì KHÔNG đóng dấu.
      */
     public function assign(ClientRequest $request, User $actor, ?User $assignee): ClientRequest
     {
@@ -95,12 +104,18 @@ class TriageClientRequest
             }
 
             $previous = $thread->assigned_to;
+            $previousStatus = $thread->status;
 
             $thread->assigned_to = $assignee?->getKey();
 
             // "Giao việc" cũng là "nhận" — xem docblock lớp. Một chiều, không có chiều ngược lại.
             if ($assignee !== null && $thread->status === ClientRequestStatus::New) {
                 $thread->status = ClientRequestStatus::InProgress;
+            }
+
+            // Chỉ đóng dấu hoạt động khi trạng thái THẬT SỰ đổi — xem docblock hàm ngay ở trên.
+            if ($thread->status !== $previousStatus) {
+                $thread->last_activity_at = now();
             }
 
             $thread->save();
@@ -167,13 +182,47 @@ class TriageClientRequest
      * Rời khỏi `answered` **không** xoá cột: một sự kiện đã xảy ra thì không viết lại được cho
      * khớp một cái nhãn.
      *
+     * `last_activity_at` luôn được đóng dấu lại: đổi trạng thái tay là một trong bốn đường hoạt
+     * động mà hộp thư sắp theo (Task 18, REQ-2 — xem docblock migration
+     * `add_last_activity_at_to_client_requests_table`), kể cả khi giá trị `$status` trùng với
+     * trạng thái hiện tại (ô chọn được đổ sẵn giá trị cũ và người dùng bấm Lưu mà không đổi gì
+     * vẫn là một lần nhân sự vừa động vào luồng này).
+     *
+     * **Mở lại một luồng đã đóng thì hỏi lại người đang đứng tên (vòng rà soát Task 3, mang sang
+     * đây).** `assign()` chỉ hỏi `canHoldTheThread()` một LẦN, lúc giao việc. Một luồng `closed`
+     * có thể đã bị bỏ quên nhiều ngày, và trong lúc đó người đang giữ (`assigned_to`) có thể đã
+     * rời khỏi đội ngũ vụ việc, bị vô hiệu hoá, bị xoá mềm, hoặc không còn `MatterPolicy::update`
+     * vì một lý do khác — không đường nào khác hỏi lại câu đó cho một luồng đã đóng, vì nó không
+     * đi qua `assign()` nữa. Mở nó ra lại mà không hỏi lại là tái tạo đúng lỗ hổng mà REQ-3 nêu
+     * tên: cột "Người xử lý" nói một cái tên, còn người đó không mở nổi hồ sơ để làm gì với nó.
+     *
+     * Nên khi `$previous === Closed` và `$status` mới KHÔNG phải `Closed` (tức đang MỞ LẠI), nếu
+     * luồng còn người đứng tên thì hỏi lại đúng luật `assign()` dùng — {@see self::
+     * canHoldTheThread()} — và gỡ người đó ra nếu không còn giữ được, thay vì âm thầm mở lại một
+     * luồng "đang xử lý" mà không ai xử lý được.
+     *
+     * **Trả về một {@see SetClientRequestStatusResult}, không phải `ClientRequest` trần (fix
+     * round 1, minor).** Bản trước chỉ trả luồng, và màn hình gọi hàm này
+     * ({@see ClientRequestsRelationManager}) tự SUY ra việc gỡ người có xảy ra không bằng cách so
+     * `assigned_to` của bản ghi TRƯỚC lời gọi với `assigned_to` của luồng SAU lời gọi — một phép
+     * trừ hai ảnh chụp màn hình dựa trên tiền đề "không đường nào khác đụng `assigned_to` giữa
+     * hai lần đọc". Tiền đề đó KHÔNG còn đúng tuyệt đối một khi có Action khác (ví dụ
+     * `ReassignMatter`, bàn giao hàng loạt) cũng ghi cột này, và một khác biệt bị đọc sai thành
+     * "vừa gỡ người" đẻ ra đúng câu bị cấm: thông báo lấy TÊN từ một chỗ không phải người vừa bị
+     * gỡ (nếu bản ghi trước lời gọi không có `assignee` nạp sẵn, phần dự phòng từng ghép nhãn
+     * "Chưa ai nhận" — nguyên văn placeholder của ô trống — vào chỗ một cái TÊN, ra một câu vô
+     * nghĩa "Chưa ai nhận không còn mở được vụ việc này..."). Nay Action tự báo: nó biết chính xác
+     * nó vừa gỡ AI (chính đối tượng `User` đã hỏi `canHoldTheThread()`, không phải một id đọc lại
+     * hụt), và trả thẳng ra — màn hình chỉ đọc kết quả, không suy đoán, không cần một câu dự phòng
+     * nào cho tên.
+     *
      * `$matterId` đọc TRƯỚC `DB::transaction()`, cùng lý do ở {@see self::assign()}.
      */
-    public function setStatus(ClientRequest $request, User $actor, ClientRequestStatus $status): ClientRequest
+    public function setStatus(ClientRequest $request, User $actor, ClientRequestStatus $status): SetClientRequestStatusResult
     {
         $matterId = $this->realMatterId($request);
 
-        return DB::transaction(function () use ($request, $actor, $status, $matterId): ClientRequest {
+        return DB::transaction(function () use ($request, $actor, $status, $matterId): SetClientRequestStatusResult {
             [$thread, $matter] = $this->open($request, $actor, $matterId);
 
             $previous = $thread->status;
@@ -188,9 +237,35 @@ class TriageClientRequest
             }
 
             $thread->status = $status;
+            $thread->last_activity_at = now();
 
             if ($status === ClientRequestStatus::Answered && $thread->answered_at === null) {
                 $thread->answered_at = now();
+            }
+
+            // Mở lại một luồng đã đóng — xem docblock ở trên cho lý do và cho giới hạn cố ý của
+            // nhánh này (chỉ hỏi lại lúc MỞ LẠI, không hỏi lại ở mọi lần đổi trạng thái khác).
+            //
+            // Hai biến, không một: `$unassignedAssignee` (cho MÀN HÌNH, qua kết quả trả về — có
+            // thể `null` nếu chính hàng `users` không còn tồn tại, một ca không thể xảy ra qua
+            // ứng dụng vì FK + xoá mềm, nhưng kiểu vẫn khai `?User` để không giả định điều đó) và
+            // `$unassignedPreviousAssigneeId` (cho NHẬT KÝ, luôn có giá trị khi có gỡ, vì nó đọc
+            // TRƯỚC khi `$assignee` được tìm — một hàng nhật ký không được phép rỗng `from` chỉ vì
+            // `User::find()` tình cờ trả về `null`).
+            $unassignedAssignee = null;
+            $unassignedPreviousAssigneeId = null;
+
+            if ($previous === ClientRequestStatus::Closed
+                && $status !== ClientRequestStatus::Closed
+                && $thread->assigned_to !== null) {
+                $previousAssigneeId = $thread->assigned_to;
+                $assignee = User::withTrashed()->find($previousAssigneeId);
+
+                if ($assignee === null || ! $this->canHoldTheThread($assignee, $matter)) {
+                    $unassignedAssignee = $assignee;
+                    $unassignedPreviousAssigneeId = $previousAssigneeId;
+                    $thread->assigned_to = null;
+                }
             }
 
             $thread->save();
@@ -202,7 +277,19 @@ class TriageClientRequest
                 'to' => $status->value,
             ], causer: $actor);
 
-            return $thread;
+            if ($unassignedPreviousAssigneeId !== null) {
+                // Tên sự kiện GIỐNG {@see self::assign()}: một lần rà soát "ai từng giữ luồng
+                // này" đọc được bằng một truy vấn trên cột `event`, không cần biết trước lần gỡ
+                // nào đến từ giao việc tay và lần nào đến từ đây.
+                Audit::record('client_request_assigned', $thread, [
+                    'matter_id' => $thread->matter_id,
+                    'client_id' => $matter->client_id,
+                    'from' => $unassignedPreviousAssigneeId,
+                    'to' => null,
+                ], causer: $actor);
+            }
+
+            return new SetClientRequestStatusResult($thread, $unassignedAssignee);
         });
     }
 

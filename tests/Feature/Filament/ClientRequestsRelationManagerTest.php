@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Matter\RemoveTeamMember;
 use App\Actions\Portal\ReplyToClientRequest;
 use App\Enums\ClientRequestStatus;
 use App\Enums\Confidentiality;
@@ -8,6 +9,7 @@ use App\Enums\Role;
 use App\Exceptions\ClientRequestNotOpen;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ClientRequestsRelationManager;
+use App\Filament\Portal\Pages\MyRequests;
 use App\Models\Client;
 use App\Models\ClientRequest;
 use App\Models\ClientRequestReply;
@@ -406,4 +408,323 @@ it('labels the status in the offices own words and never in the enum name', func
             ->assertDontSee($status->name)
             ->assertDontSee(__('requests.portal.status.'.$status->value));
     }
+});
+
+// =========================================================================================
+// HOẠT ĐỘNG GẦN NHẤT — REQ-2 (thứ tự hộp thư)
+// =========================================================================================
+
+/**
+ * Hộp thư sắp theo HOẠT ĐỘNG GẦN NHẤT của luồng, không theo lúc khách gửi (Task 18, REQ-2 —
+ * đảo lại quyết định trước đó). Luồng CŨ hơn nhận một câu hỏi tiếp — qua đúng đường khách dùng,
+ * `MyRequests::submitReply()` (Livewire), không gọi thẳng Action — phải nổi lên TRÊN luồng MỚI
+ * hơn nhưng im lặng kể từ lúc tạo.
+ *
+ * Tiền đề đứng trước: TRƯỚC khi có hoạt động, luồng mới hơn đã đứng trên theo đúng
+ * `last_activity_at` ban đầu — không có tiền đề này, vế sau xanh một cách vô nghĩa (có thể đang
+ * đo lại đúng thứ tự tạo mà bản sửa này lẽ ra phải đảo).
+ */
+it('sorts the inbox by latest activity, not by when the client first wrote in', function () {
+    $older = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'subject' => 'Luồng cũ, vừa có câu hỏi mới',
+        'created_at' => now()->subDays(3),
+        'last_activity_at' => now()->subDays(3),
+    ]);
+    $newer = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'subject' => 'Luồng mới hơn, im lặng',
+        'created_at' => now()->subHour(),
+        'last_activity_at' => now()->subHour(),
+    ]);
+
+    $this->actingAs($this->lawyer, 'web');
+    requestsInbox($this->matter)->assertCanSeeTableRecords([$newer, $older], inOrder: true);
+
+    Filament::setCurrentPanel('portal');
+    test()->actingAs($this->clientUser, 'client')
+        ->livewire(MyRequests::class, ['record' => $this->matter->getKey()])
+        ->set('replies.'.$older->id, 'Tôi hỏi thêm một chút.')
+        ->call('submitReply', $older->id)
+        ->assertHasNoErrors();
+    Filament::setCurrentPanel('admin');
+
+    // `actingAs(..., 'client')` cũng đổi GUARD MẶC ĐỊNH của bộ test (Laravel `shouldUse()`), nên
+    // phải xác thực lại rõ ràng ở guard `web` trước khi dựng lại bảng nội bộ — nếu không,
+    // `Auth::user()` phía dưới `ScopesToVisibleMatters` vẫn trả về `ClientUser` của khách.
+    $this->actingAs($this->lawyer, 'web');
+
+    requestsInbox($this->matter)->assertCanSeeTableRecords([$older, $newer], inOrder: true);
+});
+
+/**
+ * Fix round 1, I1 — đường thứ hai trong bốn đường ghi `last_activity_at`: NHÂN SỰ trả lời qua tab
+ * (`ReplyToClientRequest`, nhánh `$actor instanceof User`). Cùng hình dạng với test ngay ở trên
+ * (tiền đề đứng trước để vế sau không xanh vô nghĩa), nhưng hoạt động lần này đến từ chính hộp
+ * thư nội bộ, không phải cổng khách.
+ */
+it('a staff reply through the tab moves an older thread above a newer but silent one', function () {
+    $older = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'subject' => 'Luồng cũ, văn phòng vừa trả lời',
+        'created_at' => now()->subDays(3),
+        'last_activity_at' => now()->subDays(3),
+    ]);
+    $newer = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'subject' => 'Luồng mới hơn, im lặng',
+        'created_at' => now()->subHour(),
+        'last_activity_at' => now()->subHour(),
+    ]);
+
+    $this->actingAs($this->lawyer, 'web');
+    requestsInbox($this->matter)->assertCanSeeTableRecords([$newer, $older], inOrder: true);
+
+    requestsInbox($this->matter)
+        ->callTableAction('reply', $older, ['content' => 'Văn phòng trả lời luồng cũ trước.'])
+        ->assertHasNoTableActionErrors();
+
+    requestsInbox($this->matter)->assertCanSeeTableRecords([$older, $newer], inOrder: true);
+});
+
+/**
+ * Fix round 1, I1 — đường thứ ba: NHÂN SỰ đổi trạng thái tay qua tab
+ * (`TriageClientRequest::setStatus()`), kể cả khi giá trị mới trùng giá trị cũ đôi khi không —
+ * ở đây đổi hẳn sang `in_progress` để không lẫn với ca "không đổi gì" đã được ghim riêng ở test
+ * khác của tệp này.
+ */
+it('changing status through the tab moves an older thread above a newer but silent one', function () {
+    $older = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'subject' => 'Luồng cũ, vừa đổi trạng thái',
+        'created_at' => now()->subDays(3),
+        'last_activity_at' => now()->subDays(3),
+    ]);
+    $newer = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'subject' => 'Luồng mới hơn, im lặng',
+        'created_at' => now()->subHour(),
+        'last_activity_at' => now()->subHour(),
+    ]);
+
+    $this->actingAs($this->lawyer, 'web');
+    requestsInbox($this->matter)->assertCanSeeTableRecords([$newer, $older], inOrder: true);
+
+    requestsInbox($this->matter)
+        ->callTableAction('changeStatus', $older, ['status' => ClientRequestStatus::InProgress->value])
+        ->assertHasNoTableActionErrors();
+
+    requestsInbox($this->matter)->assertCanSeeTableRecords([$older, $newer], inOrder: true);
+});
+
+/**
+ * Fix round 1, I1 + ruling — đường thứ tư, và MỘT điều kiện: `assign()` chỉ đóng dấu hoạt động
+ * khi lần giao việc đó CŨNG đổi trạng thái (`new → in_progress`, "giao việc cũng là nhận"). Vế
+ * dương: giao một luồng `new` — có đổi trạng thái — đẩy nó lên trên. Vế âm, TRONG CÙNG test: giao
+ * LẠI một luồng đã `in_progress` cho người khác — không đổi trạng thái, chỉ đổi tay — KHÔNG đóng
+ * dấu, nên nó không nhảy lên lần thứ hai dù được giao lại sau đó rất lâu.
+ */
+it('assigning a new thread bumps it above a silent one, but reassigning an in-progress thread does not', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create(['name' => 'Trợ lý Một']);
+    $this->matter->addTeamMember($assistant, MatterRole::Assistant);
+    $secondAssistant = User::factory()->withRole(Role::Assistant)->create(['name' => 'Trợ lý Hai']);
+    $this->matter->addTeamMember($secondAssistant, MatterRole::Assistant);
+
+    $older = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'subject' => 'Luồng cũ, còn mới (new)',
+        'status' => ClientRequestStatus::New,
+        'created_at' => now()->subDays(3),
+        'last_activity_at' => now()->subDays(3),
+    ]);
+    $newer = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'subject' => 'Luồng mới hơn, im lặng',
+        'created_at' => now()->subHour(),
+        'last_activity_at' => now()->subHour(),
+    ]);
+
+    $this->actingAs($this->lawyer, 'web');
+    requestsInbox($this->matter)->assertCanSeeTableRecords([$newer, $older], inOrder: true);
+
+    // Vế dương: giao việc lần đầu đẩy `new` sang `in_progress` — CÓ đổi trạng thái.
+    requestsInbox($this->matter)
+        ->callTableAction('assign', $older, ['assigned_to' => $assistant->id])
+        ->assertHasNoTableActionErrors();
+
+    requestsInbox($this->matter)->assertCanSeeTableRecords([$older, $newer], inOrder: true);
+
+    $activityAfterFirstAssign = reloadRequest($older)->last_activity_at;
+
+    // Vế âm: đi tới TƯƠNG LAI rồi giao LẠI luồng đã `in_progress` cho người khác — không đổi
+    // trạng thái. Nếu mutation xoá điều kiện "chỉ đóng dấu khi status đổi" thì cột này sẽ nhảy
+    // theo thời điểm MỚI, và khẳng định bằng nhau ngay dưới sẽ đỏ.
+    $this->travelTo(now()->addMinutes(30));
+
+    requestsInbox($this->matter)
+        ->callTableAction('assign', $older, ['assigned_to' => $secondAssistant->id])
+        ->assertHasNoTableActionErrors();
+
+    expect(reloadRequest($older)->assigned_to)->toBe($secondAssistant->id)
+        ->and(reloadRequest($older)->last_activity_at->toDateTimeString())
+        ->toBe($activityAfterFirstAssign->toDateTimeString());
+});
+
+// =========================================================================================
+// NGƯỜI XỬ LÝ ĐÃ NGHỈ VIỆC — REQ-3, phần hiển thị
+// =========================================================================================
+
+/**
+ * Cột "Người xử lý" vẫn phải hiện đúng tên (xem docblock `table()`), nhưng một cái tên trơn
+ * không nói được rằng người đó không còn xử lý được nữa. Vế dương đứng cạnh: một người xử lý
+ * còn hiệu lực không mang dấu hiệu gì.
+ */
+it('marks a deactivated assignee in the handler column and leaves an active one plain', function () {
+    $departed = User::factory()->withRole(Role::Manager)->create(['name' => 'Luật sư Đã Nghỉ']);
+    $this->matter->addTeamMember($departed, MatterRole::Assistant);
+    $this->request->update(['assigned_to' => $departed->id, 'status' => ClientRequestStatus::InProgress]);
+    $departed->update(['is_active' => false]);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    requestsInbox($this->matter)->assertSee(
+        __('requests.tab.assignee_deactivated', ['name' => 'Luật sư Đã Nghỉ'])
+    );
+
+    expect(ClientRequestsRelationManager::assigneeLabel(reloadRequest($this->request)->load('assignee'), 'Luật sư Đã Nghỉ'))
+        ->toBe(__('requests.tab.assignee_deactivated', ['name' => 'Luật sư Đã Nghỉ']));
+
+    // Vế dương: một người xử lý còn hiệu lực không mang dấu hiệu gì, chỉ tên trơn.
+    $active = User::factory()->withRole(Role::Assistant)->create(['name' => 'Trợ lý Đang Làm']);
+    $this->matter->addTeamMember($active, MatterRole::Assistant);
+    $this->request->update(['assigned_to' => $active->id]);
+
+    requestsInbox($this->matter)
+        ->assertSee('Trợ lý Đang Làm')
+        ->assertDontSee(__('requests.tab.assignee_deactivated', ['name' => 'Trợ lý Đang Làm']));
+});
+
+/**
+ * Fix round 1, minor — vế `trashed()` của {@see ClientRequestsRelationManager::assigneeLabel()}
+ * chưa có test riêng: test ngay ở trên chỉ đo nhánh `! is_active`. Ở đây tài khoản bị XOÁ MỀM còn
+ * `is_active` vẫn giữ nguyên `true` — hai cột nói hai chuyện khác nhau (xem docblock
+ * `ChecksAccountActive`) — nên chỉ `trashed()` một mình phải đủ để bật dấu hiệu.
+ */
+it('marks a soft deleted assignee even when is_active is still true', function () {
+    $departed = User::factory()->withRole(Role::Manager)->create(['name' => 'Luật sư Đã Xoá Mềm']);
+    $this->matter->addTeamMember($departed, MatterRole::Assistant);
+    $this->request->update(['assigned_to' => $departed->id, 'status' => ClientRequestStatus::InProgress]);
+    $departed->delete();
+
+    // `delete()` (xoá mềm) không đụng `is_active` — hai cột nói hai chuyện khác nhau. Đọc lại
+    // BẤT CHẤP xoá mềm để đo đúng giá trị còn trong CSDL, không phải giá trị trong bộ nhớ trước
+    // khi gọi `delete()` (có thể trùng hợp đúng dù code có lỗi).
+    expect(User::withTrashed()->find($departed->id)?->is_active)->toBeTrue();
+
+    $this->actingAs($this->lawyer, 'web');
+
+    requestsInbox($this->matter)->assertSee(
+        __('requests.tab.assignee_deactivated', ['name' => 'Luật sư Đã Xoá Mềm'])
+    );
+});
+
+// =========================================================================================
+// NGƯỜI GỬI ĐÃ XOÁ MỀM — REQ-7
+// =========================================================================================
+
+/**
+ * `clientUser` được nạp KÈM `withTrashed()`: một tài khoản khách đã bị xoá mềm vẫn phải hiện tên
+ * ở cột "Người gửi", cùng lý do `assignee` đã làm cho một luật sư đã nghỉ việc. Trước bản sửa
+ * này, cột để trống trong khi modal trả lời ({@see ClientRequestsRelationManager::renderThread()})
+ * vẫn vẽ ra tên — cùng luồng, hai chỗ nói khác nhau về ai đã gửi nó.
+ */
+it('still shows the senders name in the inbox after their portal account is soft deleted', function () {
+    $this->clientUser->delete();
+
+    $this->actingAs($this->lawyer, 'web');
+
+    requestsInbox($this->matter)
+        ->assertSee('Nguyễn Văn An')
+        ->assertSee('Xin hỏi về ngày hoà giải');
+});
+
+// =========================================================================================
+// TRẢ LỜI TRÊN VỤ CHƯA CÔNG BỐ — REQ-6
+// =========================================================================================
+
+/**
+ * Câu trả lời vẫn được LƯU dù hồ sơ chưa công bố lên cổng — không điều kiện nào trong
+ * `ReplyToClientRequest` xét `is_published_to_portal` — nhưng khách nhận 404 khi mở trang. Thông
+ * báo thành công phải nói đúng sự thật đó thay vì hứa "khách đọc được ngay".
+ */
+it('warns that the client cannot see the reply yet when the matter is hidden from the portal', function () {
+    $this->matter->update(['is_published_to_portal' => false]);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    requestsInbox($this->matter)
+        ->callTableAction('reply', $this->request, ['content' => 'Đã nộp đơn xong.'])
+        ->assertHasNoTableActionErrors()
+        ->assertNotified(__('requests.tab.actions.reply_success_hidden'));
+
+    // Vế dương: hồ sơ đã công bố thì câu báo là câu gốc, không phải câu cảnh báo.
+    $this->matter->update(['is_published_to_portal' => true]);
+    $second = ClientRequest::factory()->for($this->matter)->create(['client_user_id' => $this->clientUser->id]);
+
+    requestsInbox($this->matter)
+        ->callTableAction('reply', $second, ['content' => 'Đã nộp đơn xong.'])
+        ->assertNotified(__('requests.tab.actions.reply_success'));
+});
+
+// =========================================================================================
+// MỞ LẠI MỘT LUỒNG ĐÃ ĐÓNG — REQ-3, mang sang từ vòng rà soát Task 3
+// =========================================================================================
+
+/**
+ * Một thành viên bị gỡ khỏi đội ngũ trong lúc luồng đang ĐÓNG với họ vẫn đứng tên. Mở lại luồng
+ * đó phải hỏi lại đúng luật `assign()` dùng, thấy họ không còn mở nổi hồ sơ, và GỠ họ ra thay vì
+ * âm thầm để một luồng "đang xử lý" không ai xử lý được — kèm một thông báo tiếng Việt cho người
+ * thao tác.
+ */
+it('unassigns a teammate who was removed from the team when their closed thread is reopened', function () {
+    $holder = User::factory()->withRole(Role::Assistant)->create(['name' => 'Trợ lý Đã Rời Đội']);
+    $this->matter->addTeamMember($holder, MatterRole::Assistant);
+    $this->request->update([
+        'assigned_to' => $holder->id,
+        'status' => ClientRequestStatus::Closed,
+    ]);
+    // Chỉ dựng fixture — luồng đã ĐÓNG nên `OpenWork` không chặn lần gỡ này (đúng luật Task 3).
+    app(RemoveTeamMember::class)->handle($this->matter, $this->lawyer, $holder);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    requestsInbox($this->matter)
+        ->callTableAction('changeStatus', $this->request, ['status' => ClientRequestStatus::InProgress->value])
+        ->assertHasNoTableActionErrors()
+        ->assertNotified(__('requests.tab.actions.change_status_unassigned', ['name' => 'Trợ lý Đã Rời Đội']));
+
+    expect(reloadRequest($this->request)->status)->toBe(ClientRequestStatus::InProgress)
+        ->and(reloadRequest($this->request)->assigned_to)->toBeNull();
+});
+
+/**
+ * Vế dương của test trên: mở lại một luồng mà người đứng tên VẪN còn mở được hồ sơ giữ nguyên
+ * người đó, và thông báo là câu gốc — không phải câu cảnh báo gỡ người.
+ */
+it('keeps the assignee when reopening a closed thread and they can still open the matter', function () {
+    $holder = User::factory()->withRole(Role::Assistant)->create(['name' => 'Trợ lý Còn Đội']);
+    $this->matter->addTeamMember($holder, MatterRole::Assistant);
+    $this->request->update([
+        'assigned_to' => $holder->id,
+        'status' => ClientRequestStatus::Closed,
+    ]);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    requestsInbox($this->matter)
+        ->callTableAction('changeStatus', $this->request, ['status' => ClientRequestStatus::InProgress->value])
+        ->assertHasNoTableActionErrors()
+        ->assertNotified(__('requests.tab.actions.change_status_success'));
+
+    expect(reloadRequest($this->request)->assigned_to)->toBe($holder->id);
 });

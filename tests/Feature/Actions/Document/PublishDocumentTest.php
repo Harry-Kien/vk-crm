@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Document\PublishDocument;
+use App\Actions\Document\RegroupDocument;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Enums\MatterRole;
@@ -72,13 +73,27 @@ dataset('nhóm ra được tới khách', [
     'nhóm C bản nháp nội bộ' => [DocumentGroup::Authority, DocumentStatus::InternalDraft],
 ]);
 
+/**
+ * Ảnh chụp gửi kèm LUÔN khớp trạng thái công bố THẬT của tài liệu lúc gọi — mô phỏng đúng một hộp
+ * thoại vừa mở ra (không có gì lệch thời gian để cổng optimistic bắt), cho mọi test KHÔNG chủ ý
+ * đo chính cổng đó. Vòng sửa 2 (N1): ba tham số này không còn `null` mặc định được nữa.
+ */
 function publishDocumentAs(Document $document, User $actor, bool $view = true, bool $download = true): Document
 {
+    // `?->` cùng `??`: một vài test cố ý xoá CỨNG bản ghi trước khi gọi hàm này (đo nhánh
+    // `missing()` của chính Action) — `fresh()` trả `null` lúc đó, và Action sẽ từ chối ở cổng
+    // "không tìm thấy" TRƯỚC KHI kịp chạm tới cổng optimistic, nên giá trị dự phòng ở đây không
+    // ảnh hưởng gì tới điều test đó đang đo.
+    $fresh = $document->fresh();
+
     return app(PublishDocument::class)->handle(
         document: $document,
         actor: $actor,
         clientCanView: $view,
         clientCanDownload: $download,
+        expectedClientCanView: $fresh?->client_can_view ?? $document->client_can_view,
+        expectedClientCanDownload: $fresh?->client_can_download ?? $document->client_can_download,
+        expectedIsReleased: $fresh?->wasPublishedToClient() ?? false,
     );
 }
 
@@ -552,4 +567,177 @@ it('công bố được dưới guard khách, vì Action không đọc dữ li�
 
     expect($published->status)->toBe(DocumentStatus::Published)
         ->and($published->client_can_view)->toBeTrue();
+});
+
+// ---------------------------------------------------------------------------------------------
+// Kiểm tra optimistic (vòng sửa 1): "hai tab" — một tài liệu ĐÃ công bố, ai đó đổi cờ SAU khi
+// một hộp thoại khác đã mở, TRƯỚC khi hộp thoại đó kịp xác nhận.
+// ---------------------------------------------------------------------------------------------
+
+it('công bố lại bị từ chối nếu ảnh chụp lúc mở hộp thoại lệch với dữ liệu hiện tại — hai tab', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = publishableMatter($lawyer);
+    // "Tab 1" mở hộp thoại khi tài liệu đang view=true/download=true.
+    $document = documentOn($matter, DocumentGroup::Authority, DocumentStatus::Published);
+    $document->update(['client_can_view' => true, 'client_can_download' => true]);
+
+    // "Tab 2" công bố lại TRƯỚC, tắt quyền tải.
+    publishDocumentAs($document->fresh(), $lawyer, view: true, download: false);
+
+    expect($document->fresh()->client_can_download)->toBeFalse();
+
+    // "Tab 1" xác nhận với ảnh chụp CŨ (view=true, download=true) — dữ liệu nó gửi lên TRÙNG với
+    // ảnh chụp, vì người dùng không sửa gì trên form, nhưng CSDL đã đổi ở dưới chân họ.
+    expect(fn () => app(PublishDocument::class)->handle(
+        document: $document->fresh(),
+        actor: $lawyer,
+        clientCanView: true,
+        clientCanDownload: true,
+        expectedClientCanView: true,
+        expectedClientCanDownload: true,
+        expectedIsReleased: true,
+    ))->toThrow(DocumentNotPublishable::class);
+
+    // "download stays off" — lần xác nhận cũ (stale) không được phép ghi đè CSDL trở lại.
+    expect($document->fresh()->client_can_download)->toBeFalse();
+});
+
+/**
+ * Cặp dương: ảnh chụp KHỚP với CSDL hiện tại (không ai đổi gì ở giữa) — công bố lại vẫn thành
+ * công như bình thường.
+ */
+it('công bố lại vẫn thành công khi ảnh chụp lúc mở hộp thoại khớp với dữ liệu hiện tại', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = publishableMatter($lawyer);
+    $document = documentOn($matter, DocumentGroup::Authority, DocumentStatus::Published);
+    $document->update(['client_can_view' => true, 'client_can_download' => true]);
+
+    $republished = app(PublishDocument::class)->handle(
+        document: $document->fresh(),
+        actor: $lawyer,
+        clientCanView: true,
+        clientCanDownload: false,
+        expectedClientCanView: true,
+        expectedClientCanDownload: true,
+        expectedIsReleased: true,
+    );
+
+    expect($republished->client_can_download)->toBeFalse();
+});
+
+// ---------------------------------------------------------------------------------------------
+// Vòng sửa 2 (N1): cổng optimistic vòng sửa 1 chỉ so sánh khi `$wasAlreadyReleased` ĐANG đúng —
+// tức nó tự tắt đúng lúc trạng thái công bố đã ĐỔI giữa lúc mount và lúc xác nhận, hai tình huống
+// duy nhất mà một cổng optimistic tồn tại để bắt. `task-16-fix2-findings.md` N1 chỉ đích danh hai
+// kịch bản dưới đây.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * **Kịch bản A — "hai tab", lần công bố ĐẦU.** Tab 1 mở hộp thoại khi tài liệu CHƯA công bố —
+ * ảnh chụp THẬT của nó lúc đó là "chưa công bố" (`expectedIsReleased: false`, cộng hai cờ hiện có
+ * lúc đó — `false`/`false`, KHÔNG phải bộ mặc định tiện lợi `true`/`true` mà hai `Toggle` hiển
+ * thị; xem docblock `DocumentsRelationManager::publishAction()`). Trong lúc tab 1 còn mở, tab 2
+ * công bố trước (chỉ cho xem, không cho tải). Tab 1 xác nhận SAU, không sửa gì trên form (gửi lại
+ * đúng cặp cờ MUỐN ĐẶT mặc định `true`/`true`) — phải bị từ chối, vì trạng thái công bố đã đổi
+ * dưới chân nó (từ "chưa" sang "đã", do tab 2), không phải vì hai cờ nó MUỐN ĐẶT sai.
+ *
+ * Cổng vòng sửa 1 (`$wasAlreadyReleased && $expectedClientCanView !== null && ...`) bỏ lọt kịch
+ * bản này: lúc tab 1 xác nhận, `$wasAlreadyReleased` đã là `true` (tab 2 vừa công bố), nhưng
+ * `$expectedClientCanView` tab 1 gửi (vòng sửa 1) là `null` — điều kiện `!== null` sai, cả cổng
+ * bị tắt, và tab 1 công bố lại thành công, ghi đè `client_can_download` từ `false` (tab 2 đặt) về
+ * lại `true`. Cổng vòng sửa 2 so `expectedIsReleased` (ảnh chụp: `false`) với `$wasAlreadyReleased`
+ * hiện tại (`true`) — lệch nhau, từ chối đúng.
+ */
+it('công bố lần đầu qua hai tab: tab xác nhận sau (ảnh chụp "chưa công bố") vẫn ghi đè cờ tải của tab kia', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = publishableMatter($lawyer);
+    $document = documentOn($matter, DocumentGroup::Authority, DocumentStatus::InternalDraft);
+
+    // "Tab 2" công bố trước — chỉ cho xem, không cho tải.
+    publishDocumentAs($document->fresh(), $lawyer, view: true, download: false);
+
+    expect($document->fresh()->client_can_download)->toBeFalse();
+
+    // "Tab 1" xác nhận SAU, với ảnh chụp THẬT từ lúc nó mở hộp thoại (TRƯỚC tab 2): tài liệu khi
+    // đó chưa công bố, nên cả ba giá trị ảnh chụp là `false`. Cặp cờ MUỐN ĐẶT vẫn là mặc định
+    // tiện lợi `true`/`true` mà hai `Toggle` hiển thị cho một lần công bố đầu — không sửa gì.
+    expect(fn () => app(PublishDocument::class)->handle(
+        document: $document->fresh(),
+        actor: $lawyer,
+        clientCanView: true,
+        clientCanDownload: true,
+        expectedClientCanView: false,
+        expectedClientCanDownload: false,
+        expectedIsReleased: false,
+    ))->toThrow(DocumentNotPublishable::class);
+
+    // "download stays off" — tab 1 (lỗi thời) không được ghi đè lựa chọn của tab 2.
+    expect($document->fresh()->client_can_download)->toBeFalse();
+});
+
+/**
+ * **Kịch bản B — thu hồi rồi trả lại.** Ảnh chụp lấy lúc tài liệu ĐANG công bố đầy đủ. Giữa lúc
+ * đó và lúc xác nhận, tài liệu bị RÚT vào nhóm D (hạ cả hai cờ khách — hook `saving` của
+ * `Document`) rồi được TRẢ LẠI đúng nhóm cũ (cờ khách KHÔNG tự phục hồi, xem docblock hook đó).
+ * Lúc xác nhận, tài liệu đang ở trạng thái CHƯA công bố (`client_can_view = false`), nên
+ * `$wasAlreadyReleased` hiện tại là `false` — cổng vòng sửa 1 lại tắt vì đúng lý do đối xứng với
+ * kịch bản A (điều kiện đầu `$wasAlreadyReleased &&` sai), và ảnh chụp CŨ (tưởng còn công bố)
+ * không hề bị so sánh.
+ */
+it('công bố lại bị từ chối sau một vòng thu hồi rồi trả lại — ảnh chụp cũ tưởng còn công bố đầy đủ', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = publishableMatter($lawyer);
+    $document = documentOn($matter, DocumentGroup::Authority, DocumentStatus::Published);
+    $document->update(['client_can_view' => true, 'client_can_download' => true]);
+
+    // Ảnh chụp lúc mở hộp thoại: tài liệu đang công bố đầy đủ.
+    $snapshotView = true;
+    $snapshotDownload = true;
+
+    // Thu hồi: chuyển vào nhóm D — hạ cờ khách ngay lập tức.
+    app(RegroupDocument::class)->handle(document: $document->fresh(), actor: $lawyer, group: DocumentGroup::Internal);
+    // Trả lại: chuyển ra khỏi D về đúng nhóm cũ — cờ khách KHÔNG tự phục hồi.
+    app(RegroupDocument::class)->handle(document: $document->fresh(), actor: $lawyer, group: DocumentGroup::Authority);
+
+    expect($document->fresh()->client_can_view)->toBeFalse()
+        ->and($document->fresh()->status)->toBe(DocumentStatus::Published);
+
+    // Xác nhận với ảnh chụp CŨ — tưởng tài liệu vẫn đang công bố đầy đủ.
+    expect(fn () => app(PublishDocument::class)->handle(
+        document: $document->fresh(),
+        actor: $lawyer,
+        clientCanView: true,
+        clientCanDownload: true,
+        expectedClientCanView: $snapshotView,
+        expectedClientCanDownload: $snapshotDownload,
+        expectedIsReleased: true,
+    ))->toThrow(DocumentNotPublishable::class);
+});
+
+/**
+ * **Lật lại (vòng sửa 2) so với bản vòng sửa 1.** Bản cũ ở đây gửi `expectedClientCanView: null`
+ * và khẳng định điều đó KHÔNG bị cổng chặn — đúng cái lỗ hổng N1 lợi dụng (`null` là dấu hiệu "bỏ
+ * qua", không phải một ảnh chụp thật). Không còn `null` nào trong ba tham số nữa; cặp dương đúng
+ * của một lần công bố ĐẦU TIÊN là gửi ảnh chụp THẬT (khớp trạng thái "chưa công bố" hiện có: cả
+ * ba `false`) — không có gì lệch nên không bị chặn. Cặp âm (ảnh chụp lệch ngay ở lần đầu) đã có ở
+ * kịch bản A ngay phía trên.
+ */
+it('lần công bố ĐẦU TIÊN không bị cổng optimistic chặn, khi ảnh chụp gửi lên khớp trạng thái "chưa công bố" thật', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = publishableMatter($lawyer);
+    $document = documentOn($matter, DocumentGroup::Authority, DocumentStatus::InternalDraft);
+
+    expect($document->wasPublishedToClient())->toBeFalse();
+
+    $published = app(PublishDocument::class)->handle(
+        document: $document,
+        actor: $lawyer,
+        clientCanView: true,
+        clientCanDownload: true,
+        expectedClientCanView: false,
+        expectedClientCanDownload: false,
+        expectedIsReleased: false,
+    );
+
+    expect($published->status)->toBe(DocumentStatus::Published);
 });

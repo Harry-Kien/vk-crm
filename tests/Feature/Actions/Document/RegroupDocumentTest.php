@@ -8,6 +8,7 @@ use App\Enums\MatterRole;
 use App\Enums\Permission;
 use App\Enums\Role;
 use App\Exceptions\DocumentGroupNotChangeable;
+use App\Exceptions\DocumentLifecycleNotAllowed;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Document;
@@ -201,6 +202,247 @@ it('không chuyển nhóm được cho tài liệu của một vụ việc đã 
 ]);
 
 // ---------------------------------------------------------------------------------------------
+// R9 (Task 16, sửa `docs/docs-2`): rời khỏi nhóm B đòi `document.publish` CỘNG tài liệu đã ở
+// `signed_filed` hoặc `published`. Trước bản sửa này, B → C (hay B → A, hay B → D) chỉ đòi
+// `document.update`, mà trợ lý cũng có — đúng đường "giặt" một bản nháp đơn thành nhóm C rồi
+// công bố thẳng, vì `PublishDocument` chỉ áp luật `signed_filed` cho `group === Issued`.
+// ---------------------------------------------------------------------------------------------
+
+function regroupDocumentIssued(Matter $matter, DocumentStatus $status, bool $released = false): Document
+{
+    return Document::factory()->create([
+        'matter_id' => $matter->id,
+        'group' => DocumentGroup::Issued,
+        'status' => $status,
+        'client_can_view' => $released,
+        'client_can_download' => $released,
+    ]);
+}
+
+it('trợ lý có document.update nhưng không có document.publish thì không rời được nhóm B SANG C, dù tài liệu đã signed_filed', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $matter = regroupMatter($lawyer);
+    $matter->addTeamMember($assistant, MatterRole::Assistant);
+    $document = regroupDocumentIssued($matter, DocumentStatus::SignedFiled);
+
+    expect(fn () => regroupAs($document, $assistant, DocumentGroup::Authority))
+        ->toThrow(AuthorizationException::class);
+
+    expect($document->fresh()->group)->toBe(DocumentGroup::Issued);
+});
+
+/**
+ * Cặp trạng thái chưa sẵn sàng, SANG A hoặc C, không kèm lý do — cổng phải từ chối cả hai.
+ */
+it('luật sư có document.publish nhưng tài liệu chưa signed_filed và không có lý do thì vẫn không rời được nhóm B sang A/C', function (DocumentStatus $status, DocumentGroup $destination) {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = regroupMatter($lawyer);
+    $document = regroupDocumentIssued($matter, $status);
+
+    expect(fn () => regroupAs($document, $lawyer, $destination))
+        ->toThrow(DocumentLifecycleNotAllowed::class);
+
+    expect($document->fresh()->group)->toBe(DocumentGroup::Issued);
+})->with([
+    'còn internal_draft → C' => [DocumentStatus::InternalDraft, DocumentGroup::Authority],
+    'chờ duyệt → C' => [DocumentStatus::PendingApproval, DocumentGroup::Authority],
+    'còn internal_draft → A' => [DocumentStatus::InternalDraft, DocumentGroup::ClientProvided],
+]);
+
+/** Cặp dương của hai test trên: đúng trạng thái, đúng quyền, rời nhóm được. */
+it('luật sư có document.publish thì rời được nhóm B một khi tài liệu đã signed_filed', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = regroupMatter($lawyer);
+    $document = regroupDocumentIssued($matter, DocumentStatus::SignedFiled);
+
+    $moved = regroupAs($document, $lawyer, DocumentGroup::Authority);
+
+    expect($moved->group)->toBe(DocumentGroup::Authority);
+});
+
+/** Và một tài liệu B đã published (ví dụ công bố lại) vẫn rời nhóm được — bất biến chỉ chặn cú
+ * NHẢY VÀO trạng thái đó, không khoá cứng tài liệu sau khi đã ra tới khách. */
+it('một tài liệu nhóm B đã published vẫn rời nhóm được', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = regroupMatter($lawyer);
+    $document = regroupDocumentIssued($matter, DocumentStatus::Published, released: true);
+
+    $moved = regroupAs($document, $lawyer, DocumentGroup::Authority);
+
+    expect($moved->group)->toBe(DocumentGroup::Authority);
+});
+
+// ---------------------------------------------------------------------------------------------
+// R9 mở rộng (vòng sửa 1): (a) rời khỏi B VÀO nhóm D luôn được phép với `document.update` — nó
+// KHÔNG đi qua cổng B-rời-sang-A/C ở trên, vì đó là đường DUY NHẤT rút một tài liệu B lỡ công bố
+// khỏi tầm mắt khách trước khi `RetractDocument` (M7) tồn tại. (b) rời B sang A/C mà CHƯA
+// signed_filed/published thì có một đường THỨ HAI: một lý do sửa nhầm nhóm ≥ 10 ký tự, ghi vào
+// audit `misfiling_reason`.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Chính test finding `I1` đòi: một trợ lý (không có `document.publish`) vẫn rút được một tài
+ * liệu B ĐÃ CÔNG BỐ vào nhóm D — và nó biến mất khỏi cổng khách ngay lập tức (hook `saving` của
+ * `Document` hạ `client_can_view`/`client_can_download`, xem `RegroupDocumentTest` cũ hơn).
+ */
+it('trợ lý rút được một tài liệu nhóm B ĐÃ CÔNG BỐ vào nhóm D, không cần document.publish, và nó biến mất khỏi cổng khách', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $matter = regroupMatter($lawyer);
+    $matter->addTeamMember($assistant, MatterRole::Assistant);
+    $document = regroupDocumentIssued($matter, DocumentStatus::Published, released: true);
+
+    expect($document->isReleasedToPortal())->toBeTrue();
+
+    $moved = regroupAs($document, $assistant, DocumentGroup::Internal);
+
+    expect($moved->group)->toBe(DocumentGroup::Internal)
+        ->and($moved->isReleasedToPortal())->toBeFalse();
+});
+
+/**
+ * Mutation probe cho điều kiện `$group !== DocumentGroup::Internal` (nếu xoá, B → D quay lại đòi
+ * `document.publish` + trạng thái/lý do): cùng tài liệu, cùng người, nhưng B còn `internal_draft`
+ * — trạng thái "tệ nhất" theo cổng cũ. Phải vẫn cho qua.
+ */
+it('trợ lý rút được một tài liệu nhóm B còn internal_draft vào nhóm D — D không đòi trạng thái nào cả', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $matter = regroupMatter($lawyer);
+    $matter->addTeamMember($assistant, MatterRole::Assistant);
+    $document = regroupDocumentIssued($matter, DocumentStatus::InternalDraft);
+
+    $moved = regroupAs($document, $assistant, DocumentGroup::Internal);
+
+    expect($moved->group)->toBe(DocumentGroup::Internal);
+});
+
+it('luật sư rời B sang C kèm một lý do hợp lệ (≥10 ký tự) dù chưa signed_filed, và lý do được ghi vào nhật ký', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = regroupMatter($lawyer);
+    $document = regroupDocumentIssued($matter, DocumentStatus::InternalDraft);
+
+    $moved = app(RegroupDocument::class)->handle(
+        document: $document,
+        actor: $lawyer,
+        group: DocumentGroup::Authority,
+        reason: 'Nộp nhầm nhóm — đây là ghi chú nội bộ, không phải văn bản phát hành.',
+    );
+
+    expect($moved->group)->toBe(DocumentGroup::Authority);
+
+    $activity = Activity::query()->where('event', 'document_regrouped')->latest('id')->first();
+
+    expect($activity->properties->get('misfiling_reason'))
+        ->toBe('Nộp nhầm nhóm — đây là ghi chú nội bộ, không phải văn bản phát hành.');
+});
+
+/** Mutation probe cho điều kiện độ dài lý do (< 10 ký tự bị từ chối bằng một câu RIÊNG). */
+it('một lý do quá ngắn (dưới 10 ký tự) bị từ chối bằng một câu riêng, không phải câu "chưa sẵn sàng"', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = regroupMatter($lawyer);
+    $document = regroupDocumentIssued($matter, DocumentStatus::InternalDraft);
+
+    expect(fn () => app(RegroupDocument::class)->handle(
+        document: $document,
+        actor: $lawyer,
+        group: DocumentGroup::Authority,
+        reason: 'nhầm',
+    ))->toThrow(DocumentLifecycleNotAllowed::class, __('documents.lifecycle.misfiling_reason_too_short'));
+
+    expect($document->fresh()->group)->toBe(DocumentGroup::Issued);
+});
+
+/** Một lý do chỉ toàn khoảng trắng phải bị coi như KHÔNG có lý do (câu "chưa sẵn sàng" chung). */
+it('một lý do chỉ toàn khoảng trắng bị coi như không nhập gì', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = regroupMatter($lawyer);
+    $document = regroupDocumentIssued($matter, DocumentStatus::InternalDraft);
+
+    expect(fn () => app(RegroupDocument::class)->handle(
+        document: $document,
+        actor: $lawyer,
+        group: DocumentGroup::Authority,
+        reason: '          ',
+    ))->toThrow(DocumentLifecycleNotAllowed::class, __('documents.lifecycle.not_ready_to_leave_group_b', [
+        'status' => DocumentStatus::InternalDraft->label(),
+    ]));
+});
+
+/**
+ * Vòng sửa 2, mục nhỏ: `trim()` trần chỉ gỡ khoảng trắng ASCII (dấu cách, tab, xuống dòng...),
+ * KHÔNG gỡ khoảng trắng Unicode — một lý do toàn NBSP (U+00A0, ký tự bàn phím điện thoại hay
+ * chèn khi gõ tiếng Việt có dấu, hoặc copy-paste từ Word) đi lọt qua `trim()` với độ dài > 0, nên
+ * `mb_strlen($trimmedReason) < 10` không bắt được nó nếu đủ 10 NBSP trở lên — một "lý do" không
+ * mang chữ nào vẫn được chấp nhận là một lời giải thích hợp lệ.
+ */
+it('một lý do chỉ toàn NBSP (U+00A0) bị coi như không nhập gì, không lọt qua trim() ASCII', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = regroupMatter($lawyer);
+    $document = regroupDocumentIssued($matter, DocumentStatus::InternalDraft);
+
+    expect(fn () => app(RegroupDocument::class)->handle(
+        document: $document,
+        actor: $lawyer,
+        group: DocumentGroup::Authority,
+        reason: str_repeat("\u{00A0}", 12),
+    ))->toThrow(DocumentLifecycleNotAllowed::class, __('documents.lifecycle.not_ready_to_leave_group_b', [
+        'status' => DocumentStatus::InternalDraft->label(),
+    ]));
+});
+
+/** Cùng lỗ hổng, khoảng trắng biểu ý (U+3000) — phổ biến trong bàn phím IME Đông Á. */
+it('một lý do chỉ toàn khoảng trắng biểu ý (U+3000) bị coi như không nhập gì', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = regroupMatter($lawyer);
+    $document = regroupDocumentIssued($matter, DocumentStatus::InternalDraft);
+
+    expect(fn () => app(RegroupDocument::class)->handle(
+        document: $document,
+        actor: $lawyer,
+        group: DocumentGroup::Authority,
+        reason: str_repeat("\u{3000}", 12),
+    ))->toThrow(DocumentLifecycleNotAllowed::class, __('documents.lifecycle.not_ready_to_leave_group_b', [
+        'status' => DocumentStatus::InternalDraft->label(),
+    ]));
+});
+
+/**
+ * Trợ lý không có `document.publish` — dù nhập một lý do hợp lệ, cổng vẫn từ chối TRƯỚC KHI kịp
+ * xét lý do (`Gate::authorize('publish')` đứng trước cổng lý do trong `RegroupDocument`).
+ */
+it('trợ lý không rời được B sang C dù có nhập lý do hợp lệ — document.publish đứng trước', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $matter = regroupMatter($lawyer);
+    $matter->addTeamMember($assistant, MatterRole::Assistant);
+    $document = regroupDocumentIssued($matter, DocumentStatus::InternalDraft);
+
+    expect(fn () => app(RegroupDocument::class)->handle(
+        document: $document,
+        actor: $assistant,
+        group: DocumentGroup::Authority,
+        reason: 'Nộp nhầm nhóm, đây chỉ là ghi chú nội bộ thôi.',
+    ))->toThrow(AuthorizationException::class);
+
+    expect($document->fresh()->group)->toBe(DocumentGroup::Issued);
+});
+
+/** Một tài liệu B rời KHÔNG kèm lý do (giá trị mặc định `null`) không ghi `misfiling_reason`. */
+it('rời B sang C sau khi đã signed_filed, không kèm lý do, ghi misfiling_reason là null', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = regroupMatter($lawyer);
+    $document = regroupDocumentIssued($matter, DocumentStatus::SignedFiled);
+
+    regroupAs($document, $lawyer, DocumentGroup::Authority);
+
+    $activity = Activity::query()->where('event', 'document_regrouped')->latest('id')->first();
+
+    expect($activity->properties->get('misfiling_reason'))->toBeNull();
+});
+
+// ---------------------------------------------------------------------------------------------
 // Hàng rào ở tầng model: không đường nào khác rời được nhóm D.
 // ---------------------------------------------------------------------------------------------
 
@@ -339,11 +581,17 @@ it('sau vòng khứ hồi, đường duy nhất về tay khách là PublishDocum
 
     expect($back->isReleasedToPortal())->toBeFalse();
 
+    // Ảnh chụp khớp trạng thái THẬT lúc gọi (chưa công bố, sau vòng khứ hồi) — một hộp thoại vừa
+    // mở ra sau khi tài liệu đã về lại, không phải một ảnh chụp cũ từ trước lúc thu hồi. Xem
+    // `PublishDocumentTest` cho kịch bản NGƯỢC lại (ảnh chụp CŨ, từ trước thu hồi).
     app(PublishDocument::class)->handle(
         document: $back,
         actor: $lawyer,
         clientCanView: true,
         clientCanDownload: true,
+        expectedClientCanView: $back->client_can_view,
+        expectedClientCanDownload: $back->client_can_download,
+        expectedIsReleased: $back->wasPublishedToClient(),
     );
 
     expect($document->fresh()->isReleasedToPortal())->toBeTrue()
