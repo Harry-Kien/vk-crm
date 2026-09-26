@@ -24,16 +24,30 @@ use Spatie\Backup\Tasks\Monitor\HealthChecks\MaximumStorageInMegabytes;
 | nguy cơ cuốn theo `.env` nếu ai đó lỡ gộp `base_path()` với `storage_path()` (đích đang mã hoá
 | bằng CHÍNH mật khẩu lấy từ `.env` đó — sao lưu luôn cả `.env` là tự khoá chìa trong hộp).
 */
+
+/*
+ * Tên bản sao lưu: `BACKUP_NAME`, trống thì `APP_NAME`, trống nữa thì `VK-CRM`. Dùng ở ba chỗ
+ * bên dưới (`backup.name`, `destination.filename_prefix`, `monitor_backups[0].name`), tính MỘT
+ * lần để ba chỗ không thể lệch nhau.
+ *
+ * `?:`, KHÔNG `env('BACKUP_NAME', mặc-định)` (fix NB1, review vòng 2): `.env.example` giao
+ * `BACKUP_NAME=` rỗng, và `env()` trả `''` cho một biến có mặt mà rỗng — tham số mặc định chỉ
+ * dùng khi biến VẮNG MẶT. Bản trước vì vậy cho `backup.name = ''` và tiền tố `'-'`: archive rơi
+ * thẳng vào gốc mọi disk đích, `backup:clean`/`backup:monitor` cũng làm việc trên gốc disk. Kiểm
+ * ở `tests/Feature/Backup/BackupConfigTest.php` (các test "fix NB1").
+ */
+$backupName = env('BACKUP_NAME') ?: (env('APP_NAME') ?: 'VK-CRM');
+
 return [
 
     'backup' => [
         /*
-         * Tên ứng dụng dùng làm tiền tố thư mục trên MỖI disk đích (SPEC §10 mục 8: "tên
-         * archive có tiền tố nhận ra được của văn phòng"). `BACKUP_NAME` cho phép đặt riêng,
-         * khác `APP_NAME` — hữu ích khi nhiều môi trường (staging/production) dùng chung một
-         * Google Drive và cần phân biệt bằng mắt.
+         * Tên ứng dụng dùng làm tên thư mục trên MỖI disk đích (SPEC §10 mục 8: "tên archive có
+         * tiền tố nhận ra được của văn phòng"). `BACKUP_NAME` cho phép đặt riêng, khác
+         * `APP_NAME` — hữu ích khi nhiều môi trường (staging/production) dùng chung một Google
+         * Drive và cần phân biệt bằng mắt. Thứ tự rơi về: xem `$backupName` ở trên.
          */
-        'name' => env('BACKUP_NAME', env('APP_NAME', 'VK-CRM')),
+        'name' => $backupName,
 
         'source' => [
             'files' => [
@@ -86,7 +100,7 @@ return [
              * Tiền tố tên archive — SPEC §10 mục 8. `Str::slug` để tên tệp không mang dấu tiếng
              * Việt hay khoảng trắng (một số adapter/hệ điều hành đích không chịu được).
              */
-            'filename_prefix' => Str::slug(env('BACKUP_NAME', env('APP_NAME', 'VK-CRM'))).'-',
+            'filename_prefix' => Str::slug($backupName).'-',
 
             /*
              * Danh sách disk đích — `BACKUP_DISKS` (SPEC §10 mục 8: "đẩy ra một disk ngoài máy
@@ -227,7 +241,7 @@ return [
 
     'monitor_backups' => [
         [
-            'name' => env('BACKUP_NAME', env('APP_NAME', 'VK-CRM')),
+            'name' => $backupName,
             // Cùng danh sách disk với `destination.disks` ở trên — nếu không, `backup:monitor`
             // âm thầm không giám sát disk mà `backup:run` vừa ghi vào.
             'disks' => BackupDisks::parse(env('BACKUP_DISKS')),

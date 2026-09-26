@@ -31,12 +31,16 @@ use Spatie\Backup\Config\Config;
  *
  * - không để lại archive nào (khối `catch` của `run()` xoá thư mục tạm, không bản nào được chép
  *   ra disk đích);
- * - đi đúng đường báo lỗi của gói: `run()` bọc nó thành `BackupFailed`, `BackupCommand::handle()`
- *   của gói bắt, phát `BackupHasFailed`, và `App\Notifications\Backup\BackupHasFailedNotification`
- *   xếp hàng thư báo lỗi nêu thông điệp của ngoại lệ này (fix I2, review vòng 1 — bản trước ném
- *   từ một lớp con của lệnh, TRƯỚC khối `try` đó, nên trên lịch chạy thật lỗi chỉ vào log);
- * - áp cho mọi đường tạo archive: lệnh `backup:run` (CLI, lịch, `Artisan::call()`), tuỳ chọn
- *   `--config=`, và cả code gọi thẳng `BackupJob::run()`.
+ * - `run()` bọc nó thành `BackupFailed` và ném lại;
+ * - qua lệnh `backup:run` (CLI, lịch, `Artisan::call()`, cả tuỳ chọn `--config=`), đi đúng đường
+ *   báo lỗi của gói: `BackupCommand::handle()` của gói bắt `BackupFailed`, phát
+ *   `BackupHasFailed`, và `App\Notifications\Backup\BackupHasFailedNotification` xếp hàng thư báo
+ *   lỗi nêu thông điệp của ngoại lệ này (fix I2, review vòng 1 — bản trước ném từ một lớp con của
+ *   lệnh, TRƯỚC khối `try` đó, nên trên lịch chạy thật lỗi chỉ vào log);
+ * - code gọi THẲNG `BackupJob::run()` (không qua lệnh) vẫn bị chặn — không archive, thư mục tạm
+ *   bị xoá — nhưng KHÔNG có `BackupHasFailed` nào được phát, nên không có thư báo lỗi: người gọi
+ *   chỉ nhận `BackupFailed` (có `getPrevious()` là ngoại lệ của guard) và tự xử lý. Phát sự kiện
+ *   là việc của lệnh, không phải của `BackupJob`.
  *
  * Bản dump CSDL (nếu có) được tạo TRƯỚC sự kiện này, trong thư mục tạm của gói — y như mọi lượt
  * sao lưu bình thường trước khi nén — và bị khối `catch` nói trên xoá đi.

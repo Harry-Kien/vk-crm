@@ -14,40 +14,34 @@ use Spatie\Backup\Config\Config;
 |--------------------------------------------------------------------------
 */
 
-it('§10.8 / fix I1 — BACKUP_NOTIFY_EMAIL và MAIL_FROM_ADDRESS sai định dạng không làm hỏng lệnh artisan nào', function () {
-    // `config/backup.php` đã chạy xong (đọc `env()`) TRƯỚC khi thân test bắt đầu, nên đổi
-    // `config()` ở đây không kiểm được gì. Đặt biến môi trường rác rồi DỰNG LẠI ứng dụng
-    // (`refreshApplication()`), để tệp cấu hình đọc lại chúng đúng như một tiến trình
-    // `php artisan schedule:run` mới trên máy chủ.
-    //
-    // `Env::enablePutenv()` chỉ để XOÁ repository `env()` đã cache (putenv vốn đã bật): writer
-    // bất biến của Dotenv nhớ những biến CHÍNH NÓ đã nạp từ `.env` ở lần dựng đầu và được phép
-    // ghi đè chúng khi nạp lại. Không có dòng này, `MAIL_FROM_ADDRESS` trong `.env` của máy
-    // lặng lẽ thắng giá trị rác đặt ở đây (đo được: câu tự kiểm bên dưới đỏ). Repository mới
-    // không nhớ gì, nên giá trị đặt ở đây giữ nguyên như một biến môi trường thật của tiến trình.
-    $garbage = [
-        'BACKUP_NOTIFY_EMAIL' => 'ops@vidu.test;ke-toan@vidu.test',
-        'MAIL_FROM_ADDRESS' => 'khong-phai-email',
-    ];
+/**
+ * Đặt biến môi trường cho CẢ TIẾN TRÌNH để một ứng dụng dựng lại sau đó (`refreshApplication()`)
+ * đọc chúng khi nạp `config/*.php` — đúng như một tiến trình `php artisan schedule:run` mới trên
+ * máy chủ. Cần vì `config/backup.php` đã chạy xong (đọc `env()`) TRƯỚC khi thân test bắt đầu,
+ * nên đổi `config()` trong test không kiểm được gì về cách tệp cấu hình đọc biến môi trường.
+ *
+ * `Env::enablePutenv()` chỉ để XOÁ repository `env()` đã cache (putenv vốn đã bật): writer bất
+ * biến của Dotenv nhớ những biến CHÍNH NÓ đã nạp từ `.env` ở lần dựng đầu và được phép ghi đè
+ * chúng khi nạp lại. Không có dòng này, giá trị trong `.env` của máy (ví dụ `MAIL_FROM_ADDRESS`,
+ * `APP_NAME`) lặng lẽ thắng giá trị đặt ở đây. Repository mới không nhớ gì, nên giá trị đặt ở
+ * đây giữ nguyên như một biến môi trường thật của tiến trình.
+ *
+ * @param  array<string, string>  $vars
+ * @return Closure(): void hàm khôi phục — gọi trong `finally`
+ */
+function overrideProcessEnv(array $vars): Closure
+{
     $saved = [];
 
-    foreach ($garbage as $key => $value) {
+    foreach ($vars as $key => $value) {
         $saved[$key] = [getenv($key), $_ENV[$key] ?? null, $_SERVER[$key] ?? null];
         putenv("{$key}={$value}");
         $_ENV[$key] = $_SERVER[$key] = $value;
     }
 
-    try {
-        Env::enablePutenv();
-        $this->refreshApplication();
+    Env::enablePutenv();
 
-        // Tự kiểm: giá trị rác thật sự đã tới ứng dụng mới dựng, không thì test xanh giả.
-        expect(config('vkcrm.backup.notify_email'))->toBe($garbage['BACKUP_NOTIFY_EMAIL'])
-            ->and(config('mail.from.address'))->toBe($garbage['MAIL_FROM_ADDRESS']);
-
-        expect(fn () => app(Config::class))->not->toThrow(Throwable::class)
-            ->and(Artisan::call('list'))->toBe(0);
-    } finally {
+    return function () use ($saved): void {
         foreach ($saved as $key => [$env, $envConst, $server]) {
             $env === false ? putenv($key) : putenv("{$key}={$env}");
 
@@ -63,6 +57,67 @@ it('§10.8 / fix I1 — BACKUP_NOTIFY_EMAIL và MAIL_FROM_ADDRESS sai định d�
                 $_SERVER[$key] = $server;
             }
         }
+
+        Env::enablePutenv();
+    };
+}
+
+it('§10.8 / fix I1 — BACKUP_NOTIFY_EMAIL và MAIL_FROM_ADDRESS sai định dạng không làm hỏng lệnh artisan nào', function () {
+    $garbage = [
+        'BACKUP_NOTIFY_EMAIL' => 'ops@vidu.test;ke-toan@vidu.test',
+        'MAIL_FROM_ADDRESS' => 'khong-phai-email',
+    ];
+    $restore = overrideProcessEnv($garbage);
+
+    try {
+        $this->refreshApplication();
+
+        // Tự kiểm: giá trị rác thật sự đã tới ứng dụng mới dựng, không thì test xanh giả.
+        expect(config('vkcrm.backup.notify_email'))->toBe($garbage['BACKUP_NOTIFY_EMAIL'])
+            ->and(config('mail.from.address'))->toBe($garbage['MAIL_FROM_ADDRESS']);
+
+        expect(fn () => app(Config::class))->not->toThrow(Throwable::class)
+            ->and(Artisan::call('list'))->toBe(0);
+    } finally {
+        $restore();
+    }
+});
+
+it('§10.8 / fix NB1 — BACKUP_NAME để trống (như .env.example) thì tên và tiền tố archive rơi về APP_NAME', function () {
+    // `.env.example` giao `BACKUP_NAME=` rỗng. `env('BACKUP_NAME', mặc-định)` trả `''` cho biến
+    // rỗng chứ không trả mặc định — bản trước vì vậy cho `backup.name = ''` và tiền tố `'-'`:
+    // archive rơi thẳng vào gốc mọi disk đích, và `backup:clean`/`backup:monitor` cũng làm việc
+    // trên gốc disk.
+    $restore = overrideProcessEnv([
+        'BACKUP_NAME' => '',
+        'APP_NAME' => 'VK-CRM Kiểm thử',
+    ]);
+
+    try {
+        $this->refreshApplication();
+
+        expect(config('backup.backup.name'))->toBe('VK-CRM Kiểm thử')
+            ->and(config('backup.backup.destination.filename_prefix'))->toBe('vk-crm-kiem-thu-')
+            ->and(config('backup.monitor_backups.0.name'))->toBe('VK-CRM Kiểm thử');
+    } finally {
+        $restore();
+    }
+});
+
+it('§10.8 / fix NB1 — BACKUP_NAME có giá trị thì thắng APP_NAME', function () {
+    $restore = overrideProcessEnv([
+        'BACKUP_NAME' => 'VK-CRM Production',
+        'APP_NAME' => 'VK-CRM Kiểm thử',
+    ]);
+
+    try {
+        $this->refreshApplication();
+
+        expect(config('backup.backup.name'))->toBe('VK-CRM Production')
+            ->and(config('backup.backup.destination.filename_prefix'))->toBe('vk-crm-production-')
+            ->and(config('backup.monitor_backups.0.name'))->toBe('VK-CRM Production');
+    } finally {
+        $restore();
     }
 });
 
