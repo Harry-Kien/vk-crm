@@ -79,6 +79,15 @@ class RecordOutboundMessage
      * Lý do gồm cả TÊN LỚP ngoại lệ, vì phần lời của transport một mình thường không đủ để biết
      * phải làm gì — "Connection could not be established" đọc y hệt nhau khi máy chủ SMTP tắt,
      * khi mật khẩu sai và khi tường lửa chặn cổng.
+     *
+     * M6.5 Task 11 (R2) — vì sao dòng này KHÔNG BAO GIỜ mất, kể cả khi job hết sạch lượt thử.
+     * `update()` ở đây là một câu lệnh SQL ĐƠN, tự commit ngay (autocommit), KHÔNG nằm trong bất
+     * kỳ `DB::transaction()` nghiệp vụ nào — cả `CheckDeadlines` (từ Task 11) lẫn listener thư
+     * tiến độ đều gọi Action gửi thư của mình từ BÊN NGOÀI mọi transaction nghiệp vụ (job hàng
+     * đợi chạy sau khi transaction đã commit). Vì vậy: (1) một mốc/dòng tiến độ khác trong CÙNG
+     * transaction rollback vì lý do khác không kéo dòng `failed` này theo; (2) hàng đợi tự thử
+     * lại job (`$tries`/`backoff()`) và cuối cùng chuyển nó sang `failed_jobs` không xoá hay sửa
+     * dòng này — đó là một bảng hoàn toàn khác, do Laravel tự quản lý.
      */
     public function failed(Message $message, Throwable $error): void
     {

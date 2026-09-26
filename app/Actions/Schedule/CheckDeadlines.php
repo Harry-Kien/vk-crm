@@ -4,13 +4,13 @@ namespace App\Actions\Schedule;
 
 use App\Enums\DeadlineSeverity;
 use App\Enums\Role;
-use App\Mail\Staff\DeadlineReminder;
+use App\Jobs\SendDeadlineReminderMail;
 use App\Models\Deadline;
 use App\Models\Matter;
 use App\Models\User;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Mail;
+use Throwable;
 
 /**
  * SPEC §6.8 — nhắc mốc thời hạn tố tụng, chạy 07:00 hằng ngày.
@@ -36,6 +36,30 @@ use Illuminate\Support\Facades\Mail;
  * "ĐÁNH DẤU QUÁ HẠN" của SPEC §6.8 không phải một cột: quá hạn là `due_date < today` và chưa
  * xong, tính lúc đọc. Thêm một cột `is_overdue` là tạo ra thứ có thể lệch với ngày tháng, và nó
  * sẽ lệch. Dấu vết của việc ĐÃ CẢNH BÁO nằm ở khoá `overdue` trong `reminders_sent`.
+ *
+ * # M6.5 Task 11 (`deadlines/F1`, `notify/notify-2`, `e2e/F3`) — thư ra khỏi transaction
+ *
+ * Trước Task 11, `Mail::to()->send()` chạy ĐỒNG BỘ ngay trong `DB::transaction()` của từng mốc.
+ * Một transport hỏng ném `TransportException` xuyên qua transaction: dòng `outbound_messages` vừa
+ * ghi (kể cả dòng `sent` của thư đã thật sự tới người trước đó trong cùng mốc) bị ROLLBACK theo,
+ * và ngoại lệ thoát khỏi `foreach` nên mọi mốc xếp sau (gấp hơn, vì `orderBy('due_date')`) không
+ * bao giờ được xét trong lượt chạy đó — đúng phán quyết R2 bị vi phạm ("mọi thư qua hàng đợi, sau
+ * khi commit, không bao giờ nằm trong transaction").
+ *
+ * Bây giờ: transaction của từng mốc CHỈ khoá dòng, tính bậc, và ghi `reminders_sent` — không có gì
+ * gọi ra mạng bên trong nó. Việc gửi thư thật được giao cho {@see SendDeadlineReminderMail},
+ * dispatch bằng `->afterCommit()` NGAY TRONG transaction (Laravel hoãn việc đẩy job tới khi
+ * transaction ngoài cùng thật sự commit — cùng cơ chế `ShouldDispatchAfterCommit` mà
+ * `StageLogPublished` dùng). Job chỉ nhận ID, tự đọc lại mốc/người nhận lúc nó THẬT SỰ chạy — xem
+ * docblock của job để biết vì sao (`reminders_sent` đánh dấu trước, vụ việc có thể đã huỷ giữa
+ * chừng).
+ *
+ * `handle()` bọc mỗi `DB::transaction()` của một mốc trong `try`/`catch` riêng: dưới hàng đợi
+ * `sync` (mặc định của bộ test), job vừa dispatch chạy ĐỒNG BỘ ngay khi transaction commit, nên
+ * một transport hỏng vẫn có thể ném ngược lên tới đây. Bọc riêng từng mốc là cách duy nhất giữ
+ * đúng "mỗi mốc độc lập, lỗi ở một mốc không dừng vòng lặp" bất kể hàng đợi nào đang chạy — dưới
+ * hàng đợi `database` thật (production), dispatch chỉ là một câu INSERT nhanh và sẽ không bao giờ
+ * ném vì lý do mạng, nhưng `try`/`catch` không hại gì khi đó, chỉ là không có gì để bắt.
  */
 class CheckDeadlines
 {
@@ -75,69 +99,92 @@ class CheckDeadlines
             ->pluck('id');
 
         foreach ($candidates as $id) {
-            DB::transaction(function () use ($id, &$reminded, &$skipped): void {
-                /** @var Deadline|null $deadline */
-                $deadline = Deadline::query()
-                    ->whereKey($id)
-                    ->lockForUpdate()
-                    ->first();
-
-                // Có thể đã xong hoặc đã bị rút trong lúc vòng lặp chạy. Khoá dòng rồi đọc lại
-                // là cách duy nhất để hai tiến trình cron chồng nhau không gửi hai thư.
-                if ($deadline === null || $deadline->is_completed) {
-                    return;
-                }
-
-                // Fix round 1, finding S1 (phần thứ hai): tập ứng viên được dựng TRƯỚC vòng lặp
-                // này — một lần huỷ/đóng vụ việc chạy đua GIỮA lúc cron đang xử lý CÁC MỐC KHÁC
-                // (không phải trước khi vòng lặp bắt đầu) vẫn để mốc này lọt vào danh sách. Đọc
-                // lại `Matter::scopeOpen()` NGAY TRONG giao dịch của chính dòng này — sau khi đã
-                // khoá dòng `deadlines`, cùng vị trí với lần đọc lại `is_completed` ngay trên —
-                // để một lần huỷ vừa commit ở một giao dịch khác trong lúc chờ tới lượt vẫn được
-                // thấy (mỗi vòng lặp mở một `DB::transaction()` MỚI, nên ảnh chụp REPEATABLE READ
-                // của nó bắt đầu lại từ đây, không phải từ lúc `pluck('id')` chạy).
-                if (! Matter::query()->whereKey($deadline->matter_id)->open()->exists()) {
-                    return;
-                }
-
-                $key = $this->tierFor($deadline);
-
-                if ($key === null) {
-                    return;
-                }
-
-                $already = $deadline->reminders_sent ?? [];
-
-                // Đánh dấu những bậc đã trôi qua mà chưa gửi, để chúng không bắn ngược về sau.
-                foreach ($this->passedTiers($deadline, $key) as $passed) {
-                    if (! in_array($passed, $already, true)) {
-                        $deadline->markReminderSent($passed);
-                        $skipped++;
-                    }
-                }
-
-                if (in_array($key, $already, true)) {
-                    return;
-                }
-
-                $recipients = $this->recipientsFor($deadline, $key);
-
-                if ($recipients->isEmpty()) {
-                    // Không ai nhận được thì cũng không đánh dấu đã gửi: khi văn phòng bật lại
-                    // tài khoản người phụ trách, lời nhắc phải còn nguyên chứ không biến mất.
-                    return;
-                }
-
-                foreach ($recipients as $recipient) {
-                    Mail::to($recipient->email)->send(new DeadlineReminder($deadline, $recipient, $key));
-                }
-
-                $deadline->markReminderSent($key);
-                $reminded++;
-            });
+            try {
+                $this->processOne($id, $reminded, $skipped);
+            } catch (Throwable $e) {
+                // "Mỗi mốc độc lập, lỗi ở một mốc không dừng vòng lặp" (brief Task 11): dưới hàng
+                // đợi `sync` của bộ test, `SendDeadlineReminderMail::dispatch()->afterCommit()`
+                // chạy ĐỒNG BỘ ngay khi transaction của DÒNG NÀY commit — một transport hỏng có
+                // thể ném ngược lên tới đây. Bắt và tiếp tục, thay vì để nó phá vòng `foreach` như
+                // trước Task 11. `report()` để lỗi không biến mất hoàn toàn khỏi `laravel.log`,
+                // dù trên shared hosting (SPEC §2) không ai đọc file đó thường xuyên — bằng chứng
+                // thật của một thư hỏng vẫn nằm ở dòng `outbound_messages` do job ghi, không phải
+                // ở đây.
+                report($e);
+            }
         }
 
         return ['reminded' => $reminded, 'skipped_tiers' => $skipped];
+    }
+
+    /** Một mốc, một transaction — tách ra khỏi {@see self::handle()} để foreach bắt lỗi gọn. */
+    private function processOne(int $id, int &$reminded, int &$skipped): void
+    {
+        DB::transaction(function () use ($id, &$reminded, &$skipped): void {
+            /** @var Deadline|null $deadline */
+            $deadline = Deadline::query()
+                ->whereKey($id)
+                ->lockForUpdate()
+                ->first();
+
+            // Có thể đã xong hoặc đã bị rút trong lúc vòng lặp chạy. Khoá dòng rồi đọc lại
+            // là cách duy nhất để hai tiến trình cron chồng nhau không gửi hai thư.
+            if ($deadline === null || $deadline->is_completed) {
+                return;
+            }
+
+            // Fix round 1, finding S1 (phần thứ hai): tập ứng viên được dựng TRƯỚC vòng lặp
+            // này — một lần huỷ/đóng vụ việc chạy đua GIỮA lúc cron đang xử lý CÁC MỐC KHÁC
+            // (không phải trước khi vòng lặp bắt đầu) vẫn để mốc này lọt vào danh sách. Đọc
+            // lại `Matter::scopeOpen()` NGAY TRONG giao dịch của chính dòng này — sau khi đã
+            // khoá dòng `deadlines`, cùng vị trí với lần đọc lại `is_completed` ngay trên —
+            // để một lần huỷ vừa commit ở một giao dịch khác trong lúc chờ tới lượt vẫn được
+            // thấy (mỗi vòng lặp mở một `DB::transaction()` MỚI, nên ảnh chụp REPEATABLE READ
+            // của nó bắt đầu lại từ đây, không phải từ lúc `pluck('id')` chạy).
+            if (! Matter::query()->whereKey($deadline->matter_id)->open()->exists()) {
+                return;
+            }
+
+            $key = $this->tierFor($deadline);
+
+            if ($key === null) {
+                return;
+            }
+
+            $already = $deadline->reminders_sent ?? [];
+
+            // Đánh dấu những bậc đã trôi qua mà chưa gửi, để chúng không bắn ngược về sau.
+            foreach ($this->passedTiers($deadline, $key) as $passed) {
+                if (! in_array($passed, $already, true)) {
+                    $deadline->markReminderSent($passed);
+                    $skipped++;
+                }
+            }
+
+            if (in_array($key, $already, true)) {
+                return;
+            }
+
+            $recipients = $this->recipientsFor($deadline, $key);
+
+            if ($recipients->isEmpty()) {
+                // Không ai nhận được thì cũng không đánh dấu đã gửi: khi văn phòng bật lại
+                // tài khoản người phụ trách, lời nhắc phải còn nguyên chứ không biến mất.
+                return;
+            }
+
+            // Đánh dấu NGAY, trước khi thư rời tay: xem docblock lớp này và docblock
+            // `SendDeadlineReminderMail` — chống gửi trùng từ đây là "đã có job xếp hàng đi
+            // gửi", không phải "đã gửi tới hộp thư".
+            $deadline->markReminderSent($key);
+            $reminded++;
+
+            // `->afterCommit()`: Laravel hoãn việc đẩy job tới khi transaction NÀY thật sự
+            // commit. Payload chỉ mang ID (SPEC §10.5) — job tự đọc lại mốc và người nhận lúc
+            // nó chạy, xem docblock của job để biết vì sao.
+            SendDeadlineReminderMail::dispatch($deadline->getKey(), $recipients->pluck('id')->all(), $key)
+                ->afterCommit();
+        });
     }
 
     /** Bậc áp dụng hôm nay, hoặc `null` nếu còn quá xa để nhắc. */

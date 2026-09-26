@@ -235,6 +235,90 @@ it('không tệp nào của cổng khách nhắc tới ghi chú nội bộ', fun
 });
 
 // ---------------------------------------------------------------------------------------------
+// M6.5 Task 11 (R2) — thư luôn qua hàng đợi, không bao giờ nằm trong transaction
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * `deadlines/F1`, `notify/notify-2`, `e2e/F3`: trước Task 11, `CheckDeadlines` gọi
+ * `Mail::to()->send()` ngay bên trong `DB::transaction()` của từng mốc — một transport hỏng ném
+ * lỗi xuyên transaction, rollback xoá cả dòng `outbound_messages` vừa ghi. Luật thay thế: KHÔNG
+ * Action nào trong `app/Actions` được gọi `Mail::` bên trong một `DB::transaction()`. Việc gửi
+ * thư luôn được giao cho một job/listener hàng đợi, dispatch SAU khi transaction đã commit.
+ *
+ * Quét bằng token (`token_get_all`), bỏ comment trước khi so — cùng lý do đã ghi ở luật "không
+ * còn hàm gỡ lỗi" phía trên: rất nhiều docblock của chính `CheckDeadlines` nhắc tới
+ * `Mail::to()->send()` trong VĂN XUÔI để giải thích lịch sử, và một luật đọc chữ thô sẽ tự tố
+ * chính lời giải thích của nó.
+ */
+it('không có Mail:: nào chạy bên trong DB::transaction ở app/Actions', function () {
+    $root = app_path('Actions');
+    $offenders = [];
+
+    foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, RecursiveDirectoryIterator::SKIP_DOTS)) as $file) {
+        if (! $file->isFile() || $file->getExtension() !== 'php') {
+            continue;
+        }
+
+        $tokens = array_values(array_filter(
+            token_get_all((string) file_get_contents($file->getPathname())),
+            fn ($token) => ! (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)),
+        ));
+
+        $text = fn ($token): string => is_array($token) ? $token[1] : $token;
+
+        // `$armed`: đã thấy "DB" "::" "transaction", đang đợi đúng dấu "(" mở đầu lời gọi — TÁCH
+        // RIÊNG khỏi việc đếm độ sâu ngoặc, để dấu "(" đó chỉ được đếm ĐÚNG MỘT LẦN (bởi nhánh
+        // đếm chung bên dưới). Gộp hai việc vào một nhánh từng làm ngoặc đó bị đếm hai lần — một
+        // lần gán tay `$depth = 1`, một lần nữa khi vòng lặp tự nhiên đi tới đúng token đó — nên
+        // độ sâu không bao giờ trở lại 0 ở đúng ngoặc đóng, và luật này không bắt được gì cả.
+        $armed = false;
+        $depth = 0; // > 0: đang ở trong dấu ngoặc của một lời gọi DB::transaction(...).
+        $sawMail = false;
+
+        foreach ($tokens as $i => $token) {
+            if ($depth === 0 && ! $armed) {
+                if (is_array($token) && $token[0] === T_STRING && $token[1] === 'transaction'
+                    && $text($tokens[$i - 1] ?? null) === '::'
+                    && $text($tokens[$i - 2] ?? null) === 'DB'
+                ) {
+                    $armed = true;
+                }
+
+                continue;
+            }
+
+            if ($armed && $depth === 0) {
+                if ($token === '(') {
+                    $depth = 1;
+                    $sawMail = false;
+                    $armed = false;
+                } elseif (! (is_array($token) && $token[0] === T_WHITESPACE)) {
+                    // Không có gì khác hơn khoảng trắng đứng giữa "transaction" và "(" trong PHP
+                    // hợp lệ — nhánh này chỉ để không kẹt mãi ở trạng thái "armed" nếu có.
+                    $armed = false;
+                }
+
+                continue;
+            }
+
+            if ($token === '(') {
+                $depth++;
+            } elseif ($token === ')') {
+                $depth--;
+
+                if ($depth === 0 && $sawMail) {
+                    $offenders[] = str_replace(base_path().DIRECTORY_SEPARATOR, '', $file->getPathname());
+                }
+            } elseif (is_array($token) && $token[0] === T_STRING && $token[1] === 'Mail') {
+                $sawMail = true;
+            }
+        }
+    }
+
+    expect($offenders)->toBe([], 'Mail:: chạy bên trong DB::transaction ở: '.implode(', ', $offenders));
+});
+
+// ---------------------------------------------------------------------------------------------
 // Hai sự thật về CSS mà dự án đã trả giá để biết
 // ---------------------------------------------------------------------------------------------
 

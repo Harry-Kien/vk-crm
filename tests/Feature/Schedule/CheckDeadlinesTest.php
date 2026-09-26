@@ -3,20 +3,68 @@
 use App\Actions\Matter\CancelMatter;
 use App\Actions\Schedule\CheckDeadlines;
 use App\Enums\DeadlineSeverity;
+use App\Enums\OutboundStatus;
 use App\Enums\Role;
 use App\Mail\Staff\DeadlineReminder;
 use App\Models\Deadline;
 use App\Models\Matter;
 use App\Models\MatterType;
+use App\Models\OutboundMessage;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Database\Events\TransactionCommitted;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
+use Symfony\Component\Mailer\Envelope as SymfonyEnvelope;
+use Symfony\Component\Mailer\Exception\TransportException;
+use Symfony\Component\Mailer\SentMessage as SymfonySentMessage;
+use Symfony\Component\Mailer\Transport\TransportInterface;
+use Symfony\Component\Mime\Address;
+use Symfony\Component\Mime\Email;
+use Symfony\Component\Mime\RawMessage;
 
 beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);
 });
+
+/**
+ * Transport CHỌN LỌC dùng riêng cho các test Task 11 của tệp này: hỏng cho đúng một địa chỉ,
+ * thành công (không thật sự gửi, chỉ trả về một `SentMessage`) cho những địa chỉ khác — cùng kỹ
+ * thuật `tests/Feature/Mail/StageUpdateNotificationTest.php` dùng, tên riêng để không đụng lớp.
+ */
+class DeadlineSelectiveFailTransport implements TransportInterface
+{
+    public function __construct(private readonly string $failingAddress) {}
+
+    public function send(RawMessage $message, ?SymfonyEnvelope $envelope = null): ?SymfonySentMessage
+    {
+        if ($message instanceof Email) {
+            foreach ($message->getTo() as $address) {
+                if ($address->getAddress() === $this->failingAddress) {
+                    throw new TransportException('SMTP từ chối '.$this->failingAddress);
+                }
+            }
+        }
+
+        return new SymfonySentMessage($message, new SymfonyEnvelope(
+            new Address('gui@vidu.test'),
+            [new Address('nhan@vidu.test')],
+        ));
+    }
+
+    public function __toString(): string
+    {
+        return 'deadline-selective-fail://';
+    }
+}
+
+function deadlineSelectiveFailMailer(string $failingAddress): string
+{
+    config()->set('mail.mailers.deadline_selective_fail', ['transport' => 'deadline_selective_fail']);
+    Mail::extend('deadline_selective_fail', fn (): TransportInterface => new DeadlineSelectiveFailTransport($failingAddress));
+
+    return 'deadline_selective_fail';
+}
 
 function deadlineDueIn(int $days, ?User $responsible = null, DeadlineSeverity $severity = DeadlineSeverity::Normal): Deadline
 {
@@ -338,4 +386,59 @@ it('sends nothing for a deadline whose matter is cancelled between building the 
     Mail::assertNotSent(function (DeadlineReminder $mail) use ($second): bool {
         return $mail->deadline->is($second);
     });
+});
+
+// ---------------------------------------------------------------------------------------------
+// M6.5 Task 11 (`deadlines/F1`, `notify/notify-2`, `e2e/F3`) — thư ra khỏi transaction
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Đúng kịch bản của brief Task 11: ba mốc, thư của mốc thứ nhất (mốc GẤP NHẤT — `orderBy('due_date')`
+ * xử lý nó trước) hỏng. Mốc hai và ba vẫn được xếp thư bình thường — không dùng `Mail::fake()`,
+ * vì điều đang được đo là hành vi THẬT của transport/transaction, đúng tiền lệ
+ * `tests/Feature/Mail/OutboundLedgerTest.php`.
+ *
+ * Cả ba tầng đều tránh bậc `d1`/`overdue` (có gộp thêm TOÀN BỘ quản lý — xem `recipientsFor()`),
+ * để mỗi mốc chỉ có ĐÚNG một người nhận và phép đếm dưới đây không lẫn lộn.
+ */
+it('keeps mailing the other deadlines when the first ones mail fails, and leaves its failed row behind', function () {
+    $failingLawyer = User::factory()->withRole(Role::Lawyer)->create(['email' => 'ls-hong-thu@vidu.test']);
+    config(['mail.default' => deadlineSelectiveFailMailer('ls-hong-thu@vidu.test')]);
+
+    $first = deadlineDueIn(2, $failingLawyer); // tier d3, xử lý TRƯỚC vì due_date gần nhất.
+    $second = deadlineDueIn(5); // tier d7.
+    $third = deadlineDueIn(9, severity: DeadlineSeverity::Critical); // tier d14.
+
+    $result = (new CheckDeadlines)->handle();
+
+    expect($result['reminded'])->toBe(3);
+
+    $secondSent = OutboundMessage::query()->withoutGlobalScopes()
+        ->where('recipient', $second->responsible->email)->where('status', OutboundStatus::Sent)->count();
+    $thirdSent = OutboundMessage::query()->withoutGlobalScopes()
+        ->where('recipient', $third->responsible->email)->where('status', OutboundStatus::Sent)->count();
+
+    // Mốc gấp nhất hỏng KHÔNG chặn mốc hai và mốc ba — vẫn xếp thư như thường.
+    expect($secondSent)->toBe(1)
+        ->and($thirdSent)->toBe(1);
+
+    $failedRows = OutboundMessage::query()->withoutGlobalScopes()
+        ->where('recipient', $failingLawyer->email)->where('status', OutboundStatus::Failed)->get();
+
+    expect($failedRows)->toHaveCount(1)
+        ->and($failedRows->first()->error)->toContain('TransportException');
+
+    // reminders_sent được đánh dấu cho CẢ BA — kể cả mốc một, dù thư của nó hỏng (xem docblock
+    // lớp: chống gửi trùng nghĩa là "đã có job xếp hàng đi gửi", không phải "đã tới nơi").
+    expect($first->fresh()->reminders_sent)->toContain('d3')
+        ->and($second->fresh()->reminders_sent)->toContain('d7')
+        ->and($third->fresh()->reminders_sent)->toContain('d14');
+
+    $totalBefore = OutboundMessage::query()->withoutGlobalScopes()->count();
+
+    // Chạy lại NGAY: reminders_sent đã đánh dấu nên không xếp thư trùng cho bất kỳ mốc nào,
+    // kể cả mốc đã hỏng ở lượt trước.
+    (new CheckDeadlines)->handle();
+
+    expect(OutboundMessage::query()->withoutGlobalScopes()->count())->toBe($totalBefore);
 });

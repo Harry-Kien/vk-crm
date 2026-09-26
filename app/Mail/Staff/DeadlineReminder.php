@@ -3,6 +3,7 @@
 namespace App\Mail\Staff;
 
 use App\Actions\Schedule\CheckDeadlines;
+use App\Jobs\SendDeadlineReminderMail;
 use App\Mail\BrandedMailable;
 use App\Models\Deadline;
 use App\Models\User;
@@ -19,6 +20,11 @@ use Illuminate\Mail\Mailables\Envelope;
  *
  * Tiêu đề thư đổi theo bậc, và đó là chủ ý: một người mở hộp thư lúc 7 giờ sáng phải phân biệt
  * được "còn bảy ngày" với "đã quá hạn" mà không cần mở thư.
+ *
+ * M6.5 Task 11: lớp này KHÔNG tự `ShouldQueue` — nó không cần, vì kể từ Task 11 nó chỉ còn được
+ * dựng bên trong {@see SendDeadlineReminderMail}, một job ĐÃ nằm trên hàng đợi. Trước
+ * đó, `CheckDeadlines` dựng và `Mail::to()->send()` lớp này ngay trong `DB::transaction()` của nó
+ * — xem docblock của job và của `CheckDeadlines` cho lý do đổi.
  */
 class DeadlineReminder extends BrandedMailable
 {

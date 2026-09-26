@@ -1,23 +1,66 @@
 <?php
 
+use App\Actions\Matter\CancelMatter;
 use App\Actions\Notification\NotifyClientOfStageUpdate;
 use App\Actions\TransitionMatterStage;
+use App\Enums\OutboundStatus;
 use App\Enums\Role;
 use App\Events\StageLogPublished;
+use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
+use App\Filament\Admin\Resources\Matters\RelationManagers\StageLogsRelationManager;
+use App\Listeners\SendStageUpdateNotification;
 use App\Mail\Client\StageUpdate;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Matter;
 use App\Models\MatterType;
+use App\Models\OutboundMessage;
 use App\Models\StageLog;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Filament\Facades\Filament;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
+use Symfony\Component\Mailer\Envelope as SymfonyEnvelope;
+use Symfony\Component\Mailer\Exception\TransportException;
+use Symfony\Component\Mailer\SentMessage as SymfonySentMessage;
+use Symfony\Component\Mailer\Transport\TransportInterface;
+use Symfony\Component\Mime\Address;
+use Symfony\Component\Mime\Email;
+use Symfony\Component\Mime\RawMessage;
 
 beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);
 });
+
+/**
+ * Transport giả LUÔN hỏng, đi đúng đường cấu hình thật của Laravel (không `Mail::fake()` — xem
+ * docblock `tests/Feature/Mail/OutboundLedgerTest.php` cho lý do: `MailFake` thay cả trình gửi
+ * thư, không phát sự kiện, vô hiệu hoá đúng cơ chế Task 11 cần đo).
+ */
+class StageUpdateFailingTransport implements TransportInterface
+{
+    public function send(RawMessage $message, ?SymfonyEnvelope $envelope = null): ?SymfonySentMessage
+    {
+        throw new TransportException('SMTP giả lập chết hẳn (Task 11)');
+    }
+
+    public function __toString(): string
+    {
+        return 'stage-update-failing://';
+    }
+}
+
+function stageUpdateFailingMailer(): string
+{
+    config()->set('mail.mailers.stage_update_failing', ['transport' => 'stage_update_failing']);
+    Mail::extend('stage_update_failing', fn (): TransportInterface => new StageUpdateFailingTransport);
+
+    return 'stage_update_failing';
+}
 
 /**
  * Một vụ việc đã công bố cổng khách, kèm một tài khoản khách còn hoạt động VÀ đã kích hoạt
@@ -205,7 +248,18 @@ it('never tells the client twice about the same update', function () {
     expect($log->fresh()->notified_at)->not->toBeNull();
 });
 
-it('keeps the notice pending when the client has no account that could receive it', function () {
+/**
+ * `notify/notify-13` (test_gap): bản trước gọi `handle()` MỘT LẦN NỮA sau khi kích hoạt lại tài
+ * khoản, để chứng minh "lời báo còn nguyên" — nhưng không đường sản phẩm nào từng gọi lại
+ * `NotifyClientOfStageUpdate` như vậy: `StageLogPublished` chỉ bắn ĐÚNG MỘT LẦN, lúc tạo dòng.
+ * Test đó xanh vì tự dựng một đường không tồn tại ngoài đời, không phải vì hệ thống thật sự gửi
+ * lại. Bỏ vế đó; giữ lại đúng phần có thật: không có ai nhận thì không đánh dấu đã báo (không
+ * đánh dấu SAI một lần gửi không hề xảy ra), và KHÔNG có gì tự gửi lại sau đó nữa — xem docblock
+ * lớp `NotifyClientOfStageUpdate` (mục "Lời hứa đã BỎ") và cảnh báo thay thế của Task 7
+ * (`BuildsStageUpdateSchema::noActivatedAccountWarning()`, `tests/Feature/Filament/
+ * TransitionStageActionTest.php`).
+ */
+it('keeps the notice pending, without marking it sent, when the client has no account that could receive it', function () {
     Mail::fake();
     [$matter, , $account] = publishedMatterWithClientAccount();
     $account->update(['is_active' => false]);
@@ -217,15 +271,11 @@ it('keeps the notice pending when the client has no account that could receive i
         'public_content' => 'Văn phòng vừa gửi bổ sung tài liệu theo yêu cầu của cơ quan tố tụng.',
     ]);
 
-    app(NotifyClientOfStageUpdate::class)->handle($log);
+    $sent = app(NotifyClientOfStageUpdate::class)->handle($log);
 
-    // Không đánh dấu đã báo: mở lại tài khoản thì lời báo phải còn nguyên, không biến mất.
-    expect($log->fresh()->notified_at)->toBeNull();
-
-    $account->update(['is_active' => true]);
-    app(NotifyClientOfStageUpdate::class)->handle($log);
-
-    Mail::assertSent(StageUpdate::class, 1);
+    expect($sent)->toBe(0)
+        ->and($log->fresh()->notified_at)->toBeNull();
+    Mail::assertNothingSent();
 });
 
 /**
@@ -275,4 +325,301 @@ it('wires the published event to the listener, not just to a class that exists',
     $listeners = Event::getRawListeners();
 
     expect(array_key_exists(StageLogPublished::class, $listeners))->toBeTrue();
+});
+
+// ---------------------------------------------------------------------------------------------
+// M6.5 Task 11 (`stage/stage-01`, `notify/notify-1`, `spec-gap/spec-gap-02`, `e2e/F2`) — hàng đợi
+// ---------------------------------------------------------------------------------------------
+
+it('is a queued listener with a real retry budget, not a plain synchronous one', function () {
+    $listener = app(SendStageUpdateNotification::class);
+
+    expect($listener)->toBeInstanceOf(ShouldQueue::class)
+        ->and($listener->tries)->toBe(5)
+        // Đúng $tries - 1 độ trễ: worker thả lại hàng đợi sau lần thử 1..4, lần thứ 5 hỏng thì
+        // dừng hẳn (cùng lý lẽ đã ghim ở `RecheckClientIdentityConflictsTest`).
+        ->and($listener->backoff)->toHaveCount($listener->tries - 1);
+});
+
+/**
+ * Đúng ba khẳng định của brief Task 11: bấm "Thêm cập nhật" qua Livewire với transport LUÔN hỏng
+ * KHÔNG lỗi 500, dòng tiến độ chỉ lưu một lần, và có một job nằm trong hàng đợi (chưa chạy).
+ *
+ * `queue.default = database` là ĐIỀU KIỆN của test này: dưới hàng đợi `sync` (mặc định bộ test),
+ * `push()` chạy job NGAY, đồng bộ — đúng cái mà Task 11 xoá bỏ (xem docblock
+ * `SendStageUpdateNotification`). Chuyển sang `database` để phép đo phản ánh đúng production, nơi
+ * `queue:work` là một tiến trình cron RIÊNG, tách khỏi request Livewire của luật sư.
+ */
+it('never 500s the lawyer on a broken transport: it queues the send instead of running it inline', function () {
+    config(['queue.default' => 'database']);
+    config(['mail.default' => stageUpdateFailingMailer()]);
+    Filament::setCurrentPanel('admin');
+
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $client = Client::factory()->create();
+    ClientUser::factory()->activated()->create(['client_id' => $client->id, 'is_active' => true]);
+    $type = MatterType::factory()->withStages()->create();
+    $matter = Matter::factory()->atStage('intake')->create([
+        'client_id' => $client->id,
+        'lead_lawyer_id' => $lawyer->id,
+        'matter_type_id' => $type->id,
+        'is_published_to_portal' => true,
+    ]);
+
+    $this->actingAs($lawyer, 'web');
+
+    // Không bọc trong expect(fn () => ...)->not->toThrow(): nếu listener vẫn chạy đồng bộ và ném
+    // ra, PestPHP tự báo LỖI cho chính dòng gọi này — đó CHÍNH LÀ phép đo "không lỗi 500".
+    $this->livewire(StageLogsRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('addUpdate', data: [
+        'occurred_at' => today()->toDateString(),
+        'internal_note' => null,
+        'public_content' => 'Toà án đã thụ lý và đang xem xét hồ sơ khởi kiện của khách hàng.',
+        'next_step' => null,
+        'client_action' => null,
+        'expected_next_update_at' => null,
+        'publish' => true,
+    ]);
+
+    expect(StageLog::query()->where('matter_id', $matter->id)->count())->toBe(1)
+        ->and(StageLog::query()->where('matter_id', $matter->id)->sole()->notified_at)->toBeNull()
+        ->and(DB::table('jobs')->count())->toBe(1);
+});
+
+/**
+ * Chạy worker THẬT (`queue:work`, từng lần một — cùng cách rút hàng đợi mà
+ * `tests/Feature/Actions/OpenMatterTest.php` đã dùng) với transport hỏng: một dòng
+ * `outbound_messages` `failed` xuất hiện, mang lý do, và nó CÒN LẠI sau khi job đã hết `$tries`
+ * lần thử — đúng phán quyết R2 ("một thư gửi hỏng để lại dòng outbound_messages với
+ * status = failed, và dòng đó phải còn lại").
+ */
+it('leaves a failed outbound row behind that survives even after the job exhausts every retry', function () {
+    config(['queue.default' => 'database']);
+    config(['mail.default' => stageUpdateFailingMailer()]);
+
+    [$matter, $lawyer, $account, $open] = publishedMatterWithClientAccount();
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter,
+        actor: $lawyer,
+        toStage: $open->skip(1)->first()->key,
+        occurredAt: today(),
+        internalNote: null,
+        publicContent: 'Văn phòng vừa nộp đơn khởi kiện tới toà án có thẩm quyền xét xử.',
+        nextStep: null,
+        clientAction: null,
+        expectedNextUpdateAt: null,
+        publish: true,
+    );
+
+    // $tries = 5: 4 lần thả lại (backoff 60/300/900/3600s), lần thứ 5 hỏng thì dừng hẳn.
+    $delays = [0, 61, 301, 901, 3601];
+
+    foreach ($delays as $delay) {
+        if ($delay > 0) {
+            $this->travel($delay)->seconds();
+        }
+
+        Artisan::call('queue:work', ['connection' => 'database', '--once' => true, '--sleep' => 0]);
+    }
+
+    $log = StageLog::query()->where('matter_id', $matter->id)->sole();
+
+    expect($log->notified_at)->toBeNull()
+        ->and(DB::table('jobs')->count())->toBe(0)
+        ->and(DB::table('failed_jobs')->count())->toBe(1);
+
+    $failedRows = OutboundMessage::query()->withoutGlobalScopes()
+        ->where('recipient', $account->email)
+        ->where('status', OutboundStatus::Failed)
+        ->get();
+
+    expect($failedRows)->not->toBeEmpty();
+    expect($failedRows->first()->error)->toContain('TransportException');
+});
+
+/**
+ * Đối xứng của test trên: transport phục hồi TRƯỚC khi job hết lượt thử — worker gửi được, đúng
+ * một lần, và `notified_at` được ghi.
+ */
+it('delivers on a later retry once the transport recovers, and marks notified_at exactly once', function () {
+    config(['queue.default' => 'database']);
+    config(['mail.default' => stageUpdateFailingMailer()]);
+
+    [$matter, $lawyer, $account, $open] = publishedMatterWithClientAccount();
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter,
+        actor: $lawyer,
+        toStage: $open->skip(1)->first()->key,
+        occurredAt: today(),
+        internalNote: null,
+        publicContent: 'Văn phòng vừa nộp đơn khởi kiện tới toà án có thẩm quyền xét xử.',
+        nextStep: null,
+        clientAction: null,
+        expectedNextUpdateAt: null,
+        publish: true,
+    );
+
+    // Lượt 1: transport còn hỏng.
+    Artisan::call('queue:work', ['connection' => 'database', '--once' => true, '--sleep' => 0]);
+
+    $log = StageLog::query()->where('matter_id', $matter->id)->sole();
+    expect($log->notified_at)->toBeNull();
+
+    // Transport phục hồi; hàng đợi mặc định của bộ test (`array`) không bao giờ ném.
+    config(['mail.default' => 'array']);
+    $this->travel(61)->seconds();
+
+    Artisan::call('queue:work', ['connection' => 'database', '--once' => true, '--sleep' => 0]);
+
+    expect($log->fresh()->notified_at)->not->toBeNull();
+
+    $sentRows = OutboundMessage::query()->withoutGlobalScopes()
+        ->where('recipient', $account->email)
+        ->where('status', OutboundStatus::Sent)
+        ->count();
+
+    // Đúng một lần: lượt 1 hỏng không để lại một bản "đã gửi" nào cho người này.
+    expect($sentRows)->toBe(1);
+});
+
+/**
+ * Transport CHỌN LỌC: hỏng cho đúng một địa chỉ, thành công cho những địa chỉ khác — dựng lại
+ * chính kịch bản của `notify/notify-1`: "khách có hai tài khoản, SMTP chết giữa chừng, người đầu
+ * đã nhận thư".
+ */
+class StageUpdateSelectiveFailTransport implements TransportInterface
+{
+    public function __construct(private readonly string $failingAddress) {}
+
+    public function send(RawMessage $message, ?SymfonyEnvelope $envelope = null): ?SymfonySentMessage
+    {
+        if ($message instanceof Email) {
+            foreach ($message->getTo() as $address) {
+                if ($address->getAddress() === $this->failingAddress) {
+                    throw new TransportException('SMTP từ chối '.$this->failingAddress);
+                }
+            }
+        }
+
+        return new SymfonySentMessage($message, new SymfonyEnvelope(
+            new Address('gui@vidu.test'),
+            [new Address('nhan@vidu.test')],
+        ));
+    }
+
+    public function __toString(): string
+    {
+        return 'stage-update-selective-fail://';
+    }
+}
+
+function stageUpdateSelectiveFailMailer(string $failingAddress): string
+{
+    config()->set('mail.mailers.stage_update_selective_fail', ['transport' => 'stage_update_selective_fail']);
+    Mail::extend('stage_update_selective_fail', fn (): TransportInterface => new StageUpdateSelectiveFailTransport($failingAddress));
+
+    return 'stage_update_selective_fail';
+}
+
+/**
+ * `notify/notify-1`, point (b) + (c) réunis: một người nhận hỏng KHÔNG chặn người còn lại trong
+ * CÙNG lượt gọi, và một lượt thử lại (job hàng đợi retry) KHÔNG gửi thêm một bản cho người đã
+ * nhận thành công ở lượt trước.
+ *
+ * Mutation probe (paste vào báo cáo): bỏ khối `if ($this->alreadyDelivered(...)) { continue; }`
+ * khỏi `NotifyClientOfStageUpdate::handle()` — test này ĐỎ vì $secondAttemptSentToWife trở thành
+ * 2, không phải 1.
+ */
+it('does not double-mail a recipient who already received the update once another recipient keeps failing on retry', function () {
+    config(['mail.default' => stageUpdateSelectiveFailMailer('chong-fail@vidu.test')]);
+
+    [$matter, , $wife] = publishedMatterWithClientAccount();
+    $husband = ClientUser::factory()->activated()->create([
+        'client_id' => $wife->client_id,
+        'is_active' => true,
+        'email' => 'chong-fail@vidu.test',
+    ]);
+    // Tạo SAU chồng: đứng SAU trong danh sách recipientsFor() (khoá tăng dần). Nếu handle() vẫn
+    // dừng hẳn ở người hỏng đầu tiên (bug notify-1, điểm b) thì người này sẽ KHÔNG nhận được gì
+    // ở lượt 1 — điều test này cũng phải bắt được, không chỉ chuyện gửi trùng ở lượt 2.
+    $sibling = ClientUser::factory()->activated()->create([
+        'client_id' => $wife->client_id,
+        'is_active' => true,
+    ]);
+
+    $log = StageLog::factory()->create([
+        'matter_id' => $matter->id,
+        'is_published' => true,
+        'published_at' => now(),
+        'public_content' => 'Văn phòng đã nộp hồ sơ và đang chờ toà án thụ lý vụ việc.',
+    ]);
+
+    // Lượt 1: vợ và người thứ ba nhận được, chồng (đứng GIỮA) hỏng — handle() phải ném lại,
+    // NHƯNG cả hai người kia đã được gửi trong CÙNG lượt gọi này.
+    try {
+        app(NotifyClientOfStageUpdate::class)->handle($log);
+    } catch (TransportException) {
+        // Kỳ vọng: lượt gọi này thất bại vì địa chỉ của chồng — job hàng đợi thật sẽ thử lại.
+    }
+
+    expect($log->fresh()->notified_at)->toBeNull();
+
+    // Lượt 2 (mô phỏng job hàng đợi thử lại): chồng vẫn hỏng.
+    try {
+        app(NotifyClientOfStageUpdate::class)->handle($log);
+    } catch (TransportException) {
+        //
+    }
+
+    $sentToWife = OutboundMessage::query()->withoutGlobalScopes()
+        ->where('recipient', $wife->email)
+        ->where('status', OutboundStatus::Sent)
+        ->count();
+
+    $sentToSibling = OutboundMessage::query()->withoutGlobalScopes()
+        ->where('recipient', $sibling->email)
+        ->where('status', OutboundStatus::Sent)
+        ->count();
+
+    $attemptsForHusband = OutboundMessage::query()->withoutGlobalScopes()
+        ->where('recipient', $husband->email)
+        ->where('status', OutboundStatus::Failed)
+        ->count();
+
+    expect($sentToWife)->toBe(1)
+        ->and($sentToSibling)->toBe(1)
+        ->and($attemptsForHusband)->toBe(2);
+});
+
+/**
+ * Carry-forward binding của Task 11: "queued client mail jobs re-check before sending" — vụ việc
+ * bị huỷ (`CancelMatter`, Task 5, xoá mềm) GIỮA lúc listener được xếp hàng và lúc nó thật sự chạy
+ * không được gửi thư, và không được ném lỗi. `recipientsFor()` đọc `$stageLog->matter?->client_id`
+ * TƯƠI ngay lúc `handle()` chạy — quan hệ `BelongsTo` mang theo `SoftDeletingScope` của `Matter`
+ * nên một vụ đã huỷ tự trả `null`, không cần thêm điều kiện nào khác.
+ */
+it('skips silently, without error, when the matter is cancelled between queuing and running the job', function () {
+    Mail::fake();
+
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    [$matter, , $account] = publishedMatterWithClientAccount();
+
+    $log = StageLog::factory()->create([
+        'matter_id' => $matter->id,
+        'is_published' => true,
+        'published_at' => now(),
+        'public_content' => 'Văn phòng đã nộp hồ sơ và đang theo dõi tiến độ xử lý tại toà án.',
+    ]);
+
+    app(CancelMatter::class)->handle($matter, $admin, 'Mở nhầm hồ sơ, huỷ ngay trước khi job kịp chạy.');
+
+    $sent = app(NotifyClientOfStageUpdate::class)->handle($log);
+
+    expect($sent)->toBe(0)
+        ->and($log->fresh()->notified_at)->toBeNull();
+    Mail::assertNothingSent();
 });

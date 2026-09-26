@@ -41,6 +41,12 @@ use Symfony\Component\Mime\Message;
  * `Illuminate\Mail\Mailer::sendSymfonyMessage()` để ngoại lệ đi thẳng lên nơi gọi. Nên chặng
  * "gửi hỏng" được canh ở `App\Support\Mail\OutboundLedgerTransport`, lớp bọc quanh transport
  * thật, và nó cũng gọi đúng Action này. Hai chỗ móc, một nơi giữ luật.
+ *
+ * M6.5 Task 11 (R2): kể từ Task 11, `Mail::to()->send()` của thư tiến độ và thư nhắc mốc thời
+ * hạn luôn chạy BÊN TRONG một job/listener hàng đợi (`App\Listeners\SendStageUpdateNotification`,
+ * `App\Jobs\SendDeadlineReminderMail`), không còn chạy đồng bộ trong transaction nghiệp vụ nào
+ * nữa. Hai phương thức dưới đây vẫn không đổi gì — chúng chưa từng biết Action gọi mình từ đâu,
+ * và đó chính xác là lý do bảng `outbound_messages` không cần sửa để theo kịp Task 11.
  */
 class RecordOutboundMail
 {
