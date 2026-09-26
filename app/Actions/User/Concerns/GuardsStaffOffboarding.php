@@ -93,6 +93,30 @@ trait GuardsStaffOffboarding
      * tính là admin đang hoạt động không" — nơi gọi tự tính (tắt `is_active`, đổi `position` khỏi
      * Admin, hoặc xoá hẳn đều làm câu này thành `false`).
      */
+    /**
+     * "Còn dẫn một vụ việc đang mở" — CHỈ `leadMatters`, khác {@see self::offboardingOpenWorkReason()}
+     * (cả ba loại việc). Dùng riêng cho ruling "guard demotion" (fix round 1) SAU KHI vòng sửa round
+     * 2 thu hẹp lại (minor finding): đổi chức danh sang Trợ lý/Kế toán chỉ thật sự để lại hệ quả R7
+     * muốn chặn (SPEC §7.4: hai chức danh đó không đứng tên `lead_lawyer_id` được) khi người đó CÒN
+     * DẪN một vụ — chỉ còn giữ một mốc hạn hay một yêu cầu khách KHÔNG chặn được việc đổi sang Trợ
+     * lý, vì Trợ lý vẫn giữ được cả hai loại việc đó (chỉ không giữ được vai `lead`). Bản trước dùng
+     * chung `offboardingOpenWorkReason()` (cả ba loại) cho cả vô hiệu hoá LẪN đổi chức danh — đúng
+     * cho vô hiệu hoá (một người nghỉ việc không giữ được BẤT KỲ loại việc nào), sai cho đổi chức
+     * danh (chặn nhầm một người chỉ còn mốc hạn/yêu cầu khách, không còn vụ việc lead nào).
+     */
+    protected function demotionBlockedByLeadMattersReason(User $user): ?string
+    {
+        $leadMatters = OpenWork::forUser($user)->leadMatters;
+
+        if ($leadMatters->isEmpty()) {
+            return null;
+        }
+
+        return __('users.offboarding.open_work_intro', ['name' => $user->name])
+            .' '.__('users.offboarding.open_work_lead_matters', ['count' => $leadMatters->count()]).'. '
+            .__('users.offboarding.open_work_outro');
+    }
+
     protected function wouldLeaveNoActiveAdmin(User $user, bool $remainsActiveAdmin): bool
     {
         if (! $user->is_active || ! $user->hasRole(Role::Admin->value)) {

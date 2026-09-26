@@ -83,12 +83,24 @@ use Illuminate\Validation\ValidationException;
  *
  * Câu ĐẦU TIÊN bên trong `DB::transaction` là `lockForUpdate()` trên `matters` — không câu đọc
  * trần nào đứng trước nó bên trong transaction. `Gate::forUser($actor)->authorize('manageTeam',
- * $matter)` và hai kiểm tra không đụng CSDL (`$reason` rỗng, `$newLead` còn hoạt động — cả hai chỉ
- * đọc thuộc tính đã nạp sẵn trên đối tượng, không phát sinh câu SELECT nào) chạy TRƯỚC khi mở
- * transaction, cùng thành ngữ {@see RemoveTeamMember}, {@see AddTeamMember}. `$oldLead` phải tra
- * lại DƯỚI khoá (không tin `$matter->lead_lawyer_id` của đối tượng caller đưa vào, có thể cũ) —
- * `withTrashed()` vì một lead cũ đã bị xoá mềm (qua một đường khác, trước khi luật này tồn tại)
- * vẫn cần tên thật cho dòng `stage_logs`/audit, không phải `null`.
+ * $matter)` và ba kiểm tra không đụng CSDL (`$reason` rỗng, `$newLead` còn hoạt động, `$newLead`
+ * giữ đúng vai — cả ba chỉ đọc thuộc tính/quan hệ ĐÃ NẠP SẴN trên đối tượng caller đưa vào, không
+ * tự phát sinh câu SELECT MỚI nào ở đây) chạy TRƯỚC khi mở transaction, cùng thành ngữ
+ * {@see RemoveTeamMember}, {@see AddTeamMember}. `$oldLead` phải tra lại DƯỚI khoá (không tin
+ * `$matter->lead_lawyer_id` của đối tượng caller đưa vào, có thể cũ) — `withTrashed()` vì một lead
+ * cũ đã bị xoá mềm (qua một đường khác, trước khi luật này tồn tại) vẫn cần tên thật cho dòng
+ * `stage_logs`/audit, không phải `null`.
+ *
+ * **I3 residual (fix round 2) — vai cũng được hỏi lại trên `$lockedNewLead`, không chỉ
+ * `is_active`/`trashed()`.** Bản round 1 chỉ khoá lại is_active/trashed; nếu đối tượng `$newLead`
+ * caller đưa vào đã CACHE quan hệ `roles` từ một lần chạm trước đó (ví dụ
+ * `ViewMatter::reassignCandidateOptions()` vừa lọc ô chọn bằng `hasRole()`), một lần đổi chức danh
+ * xảy ra GIỮA lúc màn hình đó dựng danh sách và lúc lượt bàn giao này giành được khoá sẽ không bị
+ * câu kiểm tra TRƯỚC transaction bắt được (đọc lại bản cache cũ, không tự query). Hỏi lại đúng câu
+ * đó trên `$lockedNewLead` (một đối tượng MỚI, tự query `roles` riêng, không chia sẻ cache với
+ * `$newLead`) đóng khe hở đó — mutation probe xác nhận: một test mô phỏng đúng cache cũ (gọi
+ * `hasRole()` một lần trên `$newLead` TRƯỚC khi đổi vai qua một đối tượng khác) đỏ nếu thiếu câu
+ * hỏi lại này (xem báo cáo).
  */
 class ReassignMatter
 {
@@ -140,6 +152,19 @@ class ReassignMatter
             if ($lockedNewLead === null || ! $lockedNewLead->is_active || $lockedNewLead->trashed()) {
                 throw ValidationException::withMessages([
                     'new_lead_id' => [__('reassign.validation.new_lead_inactive')],
+                ]);
+            }
+
+            // I3 residual (fix round 2): câu kiểm tra vai NGAY TRÊN (trước transaction) đọc
+            // `$newLead` — đối tượng caller đưa vào, có thể đã CACHE quan hệ `roles` từ một lần
+            // chạm trước đó (ví dụ danh sách chọn của `ViewMatter::reassignCandidateOptions()` đã
+            // lọc bằng `hasRole()`), nên không tự thấy một lần đổi chức danh xảy ra GIỮA lúc màn
+            // hình đó dựng danh sách và lúc lượt bàn giao này giành được khoá. Hỏi lại CHÍNH câu đó
+            // trên `$lockedNewLead` — đọc thẳng CSDL dưới khoá, không cache — đóng đúng khe hở đó,
+            // cùng công thức `is_active`/`trashed()` ngay trên.
+            if (! ($lockedNewLead->hasRole(Role::Lawyer->value) || $lockedNewLead->hasRole(Role::Manager->value))) {
+                throw ValidationException::withMessages([
+                    'new_lead_id' => [__('reassign.validation.new_lead_not_eligible')],
                 ]);
             }
 

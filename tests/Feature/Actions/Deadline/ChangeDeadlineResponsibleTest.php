@@ -111,6 +111,27 @@ it('accepts a new responsible who is a member of the matter team', function () {
     expect($changed->responsible_user_id)->toBe($assistant->id);
 });
 
+/**
+ * Minor (fix round 2): một mốc ĐÃ HOÀN THÀNH không còn "việc" nào để đổi người phụ trách nữa —
+ * Action tự chặn (lớp phòng thủ THẬT), không chỉ ẩn nút ở tầng UI
+ * (`DeadlinesRelationManagerTest`'s "hides the change-responsible button on a completed
+ * deadline"). Đọc `is_completed` từ `$fresh` (đã khoá dòng), không phải `$deadline` caller đưa
+ * vào — cùng kỷ luật đọc mọi điều kiện từ bản ghi đã khoá của Action này.
+ */
+it('refuses to change the responsible person on a deadline that is already completed', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $this->matter->addTeamMember($assistant, MatterRole::Assistant);
+    $deadline = makeChangeableDeadline($this->matter, ['is_completed' => true, 'completed_at' => now()]);
+
+    expect(fn () => app(ChangeDeadlineResponsible::class)->handle(
+        deadline: $deadline,
+        actor: $this->lawyer,
+        newResponsible: $assistant,
+    ))->toThrow(ValidationException::class);
+
+    expect($deadline->fresh()->responsible_user_id)->toBe($this->lawyer->id);
+});
+
 it('refuses a new responsible whose account has been deactivated', function () {
     $assistant = User::factory()->withRole(Role::Assistant)->create(['is_active' => false]);
     $this->matter->addTeamMember($assistant, MatterRole::Assistant);
@@ -136,4 +157,56 @@ it('refuses a new responsible whose account has been soft deleted', function () 
         actor: $this->lawyer,
         newResponsible: $assistant,
     ))->toThrow(ValidationException::class);
+});
+
+/**
+ * Minor (fix round 2): `canHoldTheDeadline()` đọc `$newResponsible->is_active` — đối tượng caller
+ * đưa vào, không khoá/đọc lại gì. Mô phỏng đúng cuộc đua: form mở ra lúc người mới còn hoạt động
+ * (đối tượng trong tay test VẪN `is_active = true`), một request khác vô hiệu hoá họ thẳng trên
+ * CSDL (không qua đối tượng này) NGAY TRƯỚC khi lượt đổi người phụ trách này bấm lưu.
+ */
+it('refuses a new responsible deactivated between when the form opened and when it was submitted', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $this->matter->addTeamMember($assistant, MatterRole::Assistant);
+    $deadline = makeChangeableDeadline($this->matter);
+
+    User::query()->whereKey($assistant->id)->update(['is_active' => false]);
+
+    expect(fn () => app(ChangeDeadlineResponsible::class)->handle(
+        deadline: $deadline,
+        actor: $this->lawyer,
+        newResponsible: $assistant,
+    ))->toThrow(ValidationException::class);
+
+    expect($deadline->fresh()->responsible_user_id)->toBe($this->lawyer->id);
+});
+
+/**
+ * Minor (fix round 2): điều kiện actor còn hiệu lực (`ChangeDeadlineResponsible.php:70`) chưa có
+ * test riêng — mọi test khác đo bằng một actor không đủ quyền `matter.update`
+ * (`Gate::forUser()->denied()`), một nhánh KHÁC. Actor đã bị vô hiệu hoá chặn TRƯỚC CẢ khi chạm
+ * Gate — đối tượng `$actor` truyền vào đã `is_active = false` NGAY TỪ ĐẦU (không cần mô phỏng cuộc
+ * đua: đây là actor tự thao tác khi tài khoản CHÍNH HỌ đã bị khoá, ví dụ một phiên cũ còn sống sau
+ * khi bị vô hiệu hoá). **Actor phải là LEAD của vụ việc** (qua được `DeadlinePolicy::update`) — nếu
+ * không, một mutation probe xoá điều kiện `accountIsActive` đi vẫn xanh vì actor đã bị chặn ở Gate
+ * TRƯỚC (một nhánh KHÁC, không phải nhánh đang đo) — `MatterPolicy::update` không tự hỏi
+ * `is_active` (xem docblock `ChecksAccountActive`), nên một lead đã vô hiệu hoá vẫn qua được Gate.
+ */
+it('refuses an actor whose own account has been deactivated', function () {
+    $inactiveActor = User::factory()->withRole(Role::Lawyer)->create(['is_active' => false]);
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $inactiveActor->id]);
+    $deadline = makeChangeableDeadline($matter);
+    // Người nhận việc phải là một lựa chọn hợp lệ RIÊNG trên chính $matter này (khác đội ngũ của
+    // $this->matter) — để một lần RED giả (thất bại vì "người mới không mở được hồ sơ", một nhánh
+    // KHÁC) không nguỵ trang thành bằng chứng cho nhánh đang đo.
+    $newResponsible = User::factory()->withRole(Role::Assistant)->create();
+    $matter->addTeamMember($newResponsible, MatterRole::Assistant);
+
+    expect(fn () => app(ChangeDeadlineResponsible::class)->handle(
+        deadline: $deadline,
+        actor: $inactiveActor,
+        newResponsible: $newResponsible,
+    ))->toThrow(AuthorizationException::class);
+
+    expect($deadline->fresh()->responsible_user_id)->toBe($inactiveActor->id);
 });

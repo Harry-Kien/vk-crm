@@ -24,6 +24,24 @@ class EditUser extends EditRecord
     protected static string $resource = UserResource::class;
 
     /**
+     * **Ghim `false`, không để `null` rơi về mặc định của panel (I2.4, fix round 2).** Panel admin
+     * (`AdminPanelProvider`) không gọi `->databaseTransactions()`, nên `hasDatabaseTransactions()`
+     * của `CanUseDatabaseTransactions` (trait Filament tự trộn vào MỌI trang) rơi về `false` —
+     * `beginDatabaseTransaction()`/`commitDatabaseTransaction()` của `EditRecord::save()` đều là
+     * no-op hôm nay. Bản Round 1 từng nói SAI ở đây (xem sửa docblock ngay dưới
+     * `handleRecordUpdate()`): tưởng Filament tự mở một transaction NGOÀI rồi chạy một câu đọc trần
+     * (kiểm tra `unique` email) TRƯỚC KHI hook này chạy, làm bẩn snapshot REPEATABLE READ của
+     * `Cache::lock`/`lockForUpdate()` bên dưới. Đã đọc lại
+     * `vendor/filament/filament/src/Pages/Concerns/CanUseDatabaseTransactions.php` để xác nhận:
+     * không có gì như vậy xảy ra — không transaction ngoài, không câu đọc trần nào đứng trước khoá
+     * của tôi. Ghim CỨNG `false` ở đây (không phải chỉ dựa vào mặc định của panel hôm nay) để một
+     * thay đổi cấu hình panel SAU NÀY (ai đó bật `->databaseTransactions()`) không âm thầm phá vỡ
+     * đúng giả định "khoá của tôi là câu đầu tiên trong MỘT transaction duy nhất" — cùng cách
+     * `CreateMatter::hasDatabaseTransactions()` đã ghim.
+     */
+    protected ?bool $hasDatabaseTransactions = false;
+
+    /**
      * Chỉ `DeleteAction`. Khuôn mẫu `make:filament-resource` sinh thêm `ForceDeleteAction` và
      * `RestoreAction`, nhưng `UserPolicy::restore()`/`forceDelete()` luôn từ chối (cùng luật
      * `ClientPolicy`) — nên hai nút đó vẫn không hiện, giờ vì policy TỪ CHỐI thật (`false`), không
@@ -79,8 +97,14 @@ class EditUser extends EditRecord
      * chặn, không phải "mọi lần đổi chức danh của người đang dẫn vụ".
      *
      * **Quản trị viên đang hoạt động cuối cùng**: cả hai đường (tắt `is_active`, đổi `position`
-     * khỏi Admin) đều hỏi {@see GuardsStaffOffboarding::wouldLeaveNoActiveAdmin()} — dùng chung
-     * với `UserPolicy::delete()`, để hai nơi không định nghĩa "admin cuối cùng" theo hai cách.
+     * khỏi Admin) đều hỏi {@see GuardsStaffOffboarding::wouldLeaveNoActiveAdmin()} — CÙNG HÀM (một
+     * định nghĩa "admin cuối cùng" duy nhất, không phải hai cách định nghĩa lệch nhau), nhưng
+     * **KHÔNG dùng chung ĐƯỜNG VÀO với `UserPolicy::delete()`** (I4-adjacent, sửa lại ở đây, fix
+     * round 2 — bản round 1 nói sai chỗ này): `UserPolicy::delete()` KHÔNG hỏi hàm đó (xem docblock
+     * của chính nó cho lý do — tự xoá đã bị `$user->isNot($model)` chặn tuyệt đối, một admin KHÁC
+     * xoá đúng admin cuối cùng là mã chết). Hàm này CHỈ được gọi ở đây (tự SỬA, khác tự XOÁ, luôn
+     * được phép) và ở {@see DeleteStaffMember} (I2, fix round 1/2 — xoá qua `DeleteAction`/
+     * `DeleteBulkAction`, một luật KHÁC, không phải `UserPolicy::delete()`).
      *
      * **`Cache::lock('staff-admin-headcount')` (I2, fix round 1) — cùng khoá tên
      * {@see DeleteStaffMember} giữ, đóng cuộc đua HAI HÀNG KHÁC NHAU** (hai admin cuối cùng tự hạ
@@ -90,21 +114,31 @@ class EditUser extends EditRecord
      * **`lockForUpdate()` trên chính dòng `$record` — đóng cuộc đua CÙNG MỘT HÀNG** (hai request
      * cùng sửa một nhân sự). Đọc lại `is_active`/`position` từ `$locked` (không phải `$record` do
      * Filament truyền vào, có thể cũ hơn CSDL) cho MỌI điều kiện dưới đây. Việc GHI thật vẫn qua
-     * `$record` (giữ nguyên định danh đối tượng `$this->record` để `afterSave()` đọc đúng), không
-     * phải `$locked` — hai biến trỏ tới CÙNG một hàng CSDL, khoá đã giữ nó ổn định tới hết
-     * transaction.
+     * `$record` (giữ nguyên định danh đối tượng `$this->record` để phần còn lại của vòng đời
+     * `save()` đọc đúng), không phải `$locked` — hai biến trỏ tới CÙNG một hàng CSDL, khoá đã giữ nó
+     * ổn định tới hết transaction.
      *
-     * Ném `ValidationException` gắn đúng state path của form (`errorKey()`, cùng công thức
-     * `CreateMatter::errorKey()`/`PartiesRelationManager::errorKey()`): `save()` của
-     * `EditRecord` bắt `Throwable` và rollback transaction đang mở, nên một lần chặn ở đây không để
-     * lại nửa bản ghi đã lưu.
+     * **Đồng bộ vai trò NGAY TRONG transaction này, không còn `afterSave()` (I2.3, fix round 2).**
+     * Bản round 1 gọi `User::assignRoleFromPosition()` ở `afterSave()` — một bước RIÊNG, chạy SAU
+     * khi `handleRecordUpdate()` đã trả về VÀ khoá `Cache::lock('staff-admin-headcount')` đã NHẢ.
+     * `wouldLeaveNoActiveAdmin()` đếm vai SPATIE (bảng `model_has_roles`), không đếm cột `position` —
+     * nên hai admin cuối cùng cùng tự hạ chức danh gần như đồng thời có thể để lọt: lượt hai giành
+     * lại khoá NGAY SAU khi lượt một nhả ra, nhưng TRƯỚC KHI `afterSave()` của lượt một kịp đồng bộ
+     * vai — đọc thấy admin thứ nhất "vẫn còn vai Admin" (spatie chưa đổi dù `position` đã đổi), cho
+     * qua NHẦM cả hai lượt, để hệ thống còn 0 admin thật. Gọi `assignRoleFromPosition()` NGAY SAU
+     * `parent::handleRecordUpdate()` thành công, còn TRONG cùng transaction/khoá, đóng đúng khe hở
+     * đó: lượt hai không giành được khoá cho tới khi lượt một (kể cả đồng bộ vai) đã commit xong.
      */
     protected function handleRecordUpdate(Model $record, array $data): Model
     {
         /** @var User $record */
         return Cache::lock('staff-admin-headcount', 10)->block(5, function () use ($record, $data): Model {
             return DB::transaction(function () use ($record, $data): Model {
-                $locked = User::query()->whereKey($record->getKey())->lockForUpdate()->firstOrFail();
+                // `withTrashed()` (minor, fix round 2): không có nó, lưu form sửa của một tài
+                // khoản ĐÃ xoá mềm (ví dụ một tab khác vừa xoá xong, tab này vẫn đang mở form sửa
+                // cũ) 404 ngay tại đây thay vì chạy đúng luật bên dưới — SoftDeletes global scope
+                // của `User::query()` mặc định loại bỏ hàng đã xoá mềm.
+                $locked = User::query()->withTrashed()->whereKey($record->getKey())->lockForUpdate()->firstOrFail();
 
                 $newIsActive = array_key_exists('is_active', $data) ? (bool) $data['is_active'] : (bool) $locked->is_active;
                 $newPosition = isset($data['position']) ? UserPosition::from($data['position']) : $locked->position;
@@ -118,7 +152,7 @@ class EditUser extends EditRecord
                 }
 
                 if ($newPosition !== $locked->position && in_array($newPosition, self::NON_LEADING_POSITIONS, true)) {
-                    $reason = $this->offboardingOpenWorkReason($locked);
+                    $reason = $this->demotionBlockedByLeadMattersReason($locked);
 
                     if ($reason !== null) {
                         throw ValidationException::withMessages([$this->errorKey('position') => [$reason]]);
@@ -133,15 +167,13 @@ class EditUser extends EditRecord
                     throw ValidationException::withMessages([$this->errorKey($field) => [$this->lastActiveAdminReason()]]);
                 }
 
-                return parent::handleRecordUpdate($record, $data);
+                $updated = parent::handleRecordUpdate($record, $data);
+
+                $updated->assignRoleFromPosition();
+
+                return $updated;
             });
         });
-    }
-
-    /** Đổi chức danh phải đồng bộ lại vai trò ngay (xem ghi chú ở User::assignRoleFromPosition()). */
-    protected function afterSave(): void
-    {
-        $this->record->assignRoleFromPosition();
     }
 
     /**

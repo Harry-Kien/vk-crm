@@ -310,6 +310,18 @@ it('hides the change-responsible button from someone who cannot write to the mat
     deadlinesTab($this->matter)->assertTableActionHidden('changeResponsible', $deadline);
 });
 
+/**
+ * Minor (fix round 2): một mốc ĐÃ HOÀN THÀNH không còn "việc" nào để đổi người phụ trách nữa —
+ * ẩn hẳn nút, cùng chỗ `ChangeDeadlineResponsible::handle()` tự chặn ở tầng Action (test Action-tier
+ * riêng đo lớp bên dưới này, cùng thành ngữ mọi cặp UI-ẩn/Action-tự-chặn khác trong dự án).
+ */
+it('hides the change-responsible button on a completed deadline', function () {
+    $deadline = makeDeadline($this->matter, ['is_completed' => true, 'completed_at' => now()]);
+
+    $this->actingAs($this->lawyer, 'web');
+    deadlinesTab($this->matter)->assertTableActionHidden('changeResponsible', $deadline);
+});
+
 // =========================================================================================
 // ĐÁNH DẤU HOÀN THÀNH, VÀ ĐƯỜNG LÙI
 // =========================================================================================

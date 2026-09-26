@@ -2,6 +2,8 @@
 
 namespace App\Actions\User;
 
+use App\Actions\User\Concerns\GuardsStaffOffboarding;
+use App\Enums\Role;
 use App\Models\User;
 use DomainException;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -46,16 +48,61 @@ use Illuminate\Support\Facades\Gate;
  * trên, không chỉ những lượt đụng tới admin — nhân sự là bảng ít thao tác (vài chục nhân sự, sửa
  * vài lần một tuần), nên cái giá thông lượng gần như bằng không. Không có test đo cuộc đua thật
  * (cần hai tiến trình PHP thật) — bằng chứng cho khoá này chỉ là nó có mặt trong đường đi.
+ *
+ * # Đọc lại CHÍNH actor dưới khoá (I2, fix round 2) — không tin `$actor` caller đưa vào
+ *
+ * Bản fix round 1 chỉ khoá lại DÒNG CỦA TARGET rồi hỏi `Gate::forUser($actor)` — nhưng `$actor` vẫn
+ * là đối tượng Filament nạp lúc ĐẦU request (qua `Auth::user()`), không đọc lại gì. Cuộc đua thật:
+ * hai admin A và B là hai admin đang hoạt động CUỐI CÙNG; request 1 (A xoá B) và request 2 (B xoá
+ * A) gần như đồng thời. `Cache::lock` tuần tự hoá hai transaction, nhưng nếu KHÔNG đọc lại actor,
+ * request 2 (chạy SAU khi request 1 đã xoá B) vẫn hỏi `Gate::forUser($actor = B đối tượng CŨ)` —
+ * đối tượng đó trong bộ nhớ vẫn "is_active = true", dù B vừa bị chính request 1 xoá — nên request 2
+ * xoá luôn A, hệ thống còn 0 admin. Đọc lại actor DƯỚI khoá (locking read, luôn thấy mới nhất bất kể
+ * snapshot REPEATABLE READ — bài học Task 3) đóng đúng khe hở đó: actor B của request 2 lúc này đã
+ * `trashed()`, bị từ chối trước khi chạm gì tới A.
+ *
+ * Ba điều kiện đọc lại: `is_active`, không `trashed()`, và vẫn giữ vai Admin
+ * (`hasRole(Role::Admin)`) — CÙNG ba điều kiện `UserPolicy::viewAny()`/`GuardsStaffOffboarding::
+ * wouldLeaveNoActiveAdmin()` đã dùng để định nghĩa "admin đang hoạt động", không phải một định nghĩa
+ * riêng. Thiếu một trong ba, actor không còn là chính người mà `Gate::forUser()` tưởng là đang thao
+ * tác — `AuthorizationException` (không lý do, cùng lớp/câu SPEC §10.10 quy định cho một cổng thô).
+ *
+ * **Nói thẳng: chỉ `is_active` là điều kiện ĐỘC LẬP thật sự (mutation probe xác nhận — xem báo
+ * cáo).** Một khi `$lockedActor` (đọc mới, không phải `$actor` cũ) được truyền vào
+ * `Gate::forUser()`, chính `UserPolicy::viewAny()` (settings.manage) đã tự từ chối một actor mất
+ * vai Admin hoặc đã bị xoá mềm (không `Auth::user()` nào là actor null) — hai điều kiện `trashed()`/
+ * `hasRole()` ở đây trùng lặp với đường đó, giữ lại làm phòng thủ tường minh (đọc code không cần
+ * lần theo `Gate` mới hiểu actor phải còn là ai). `is_active` thì KHÔNG — `viewAny()` không hỏi cột
+ * đó, nên chỉ điều kiện này mới đóng đúng khe hở "actor bị vô hiệu hoá nhưng còn nguyên vai Admin".
+ *
+ * # `wouldLeaveNoActiveAdmin()` gọi lại trên `$lockedTarget` (I2, fix round 2)
+ *
+ * Giữ ĐÚNG chữ finding round 2 đòi ("check the last-admin rule against fresh data"), dù phân tích kỹ
+ * cho thấy — MỘT KHI actor đã qua được ba điều kiện ngay trên (còn là admin đang hoạt động, khác
+ * target vì tự xoá đã bị `UserPolicy::delete()`'s `$user->isNot($model)` chặn từ trước) — actor TỰ
+ * NÓ luôn là "một admin khác" đang hoạt động, nên nhánh này không còn kịch bản nào tới được nữa
+ * trong kiến trúc hiện tại (không có mutation probe RED cho riêng nhánh này tách khỏi ba điều kiện
+ * actor — xem báo cáo, mục "Tự đánh giá"). Giữ lại làm phòng thủ nhiều lớp CÓ CHỦ ĐÍCH, không phải
+ * mã thừa: nếu một vòng sửa tương lai đổi thứ tự (ví dụ actor được đọc lại LỎNG hơn), nhánh này vẫn
+ * đứng đó bắt lại đúng luật R7.
  */
 class DeleteStaffMember
 {
+    use GuardsStaffOffboarding;
+
     public function handle(User $actor, User $target): void
     {
         Cache::lock('staff-admin-headcount', 10)->block(5, function () use ($actor, $target): void {
             DB::transaction(function () use ($actor, $target): void {
-                $locked = User::query()->whereKey($target->getKey())->lockForUpdate()->firstOrFail();
+                $lockedTarget = User::query()->whereKey($target->getKey())->lockForUpdate()->firstOrFail();
 
-                $response = Gate::forUser($actor)->inspect('delete', $locked);
+                $lockedActor = User::query()->withTrashed()->whereKey($actor->getKey())->lockForUpdate()->first();
+
+                if ($lockedActor === null || ! $lockedActor->is_active || $lockedActor->trashed() || ! $lockedActor->hasRole(Role::Admin->value)) {
+                    throw new AuthorizationException;
+                }
+
+                $response = Gate::forUser($lockedActor)->inspect('delete', $lockedTarget);
 
                 if ($response->denied()) {
                     if (blank($response->message())) {
@@ -65,7 +112,11 @@ class DeleteStaffMember
                     throw new DomainException($response->message());
                 }
 
-                $locked->delete();
+                if ($this->wouldLeaveNoActiveAdmin($lockedTarget, remainsActiveAdmin: false)) {
+                    throw new DomainException($this->lastActiveAdminReason());
+                }
+
+                $lockedTarget->delete();
             });
         });
     }

@@ -113,6 +113,40 @@ it('refuses a new lead deactivated between when the form opened and when it was 
     expect($this->matter->fresh()->lead_lawyer_id)->toBe($this->oldLead->id);
 });
 
+/**
+ * ReassignMatter's I3 residual (fix round 2): câu kiểm tra vai TRƯỚC transaction đọc `$newLead`
+ * (đối tượng caller đưa vào) — cùng khe hở I2 vừa đóng cho `is_active`/`trashed()`, nhưng vẫn còn
+ * hở cho VAI TRÒ: form mở ra lúc lead mới còn là Lawyer, một request khác đổi chức danh họ sang
+ * Trợ lý (`EditUser`) NGAY TRƯỚC khi lượt bàn giao này bấm lưu. Câu kiểm tra trước transaction
+ * không bắt được (đối tượng trong tay vẫn `hasRole(Lawyer)` cũ); chỉ câu hỏi lại trên
+ * `$lockedNewLead` (đọc thẳng CSDL dưới khoá) mới bắt được.
+ */
+it('refuses a new lead whose role changed away from lawyer/manager between when the form opened and when it was submitted', function () {
+    $newLead = User::factory()->withRole(Role::Lawyer)->create();
+
+    // `hasRole()` (Eloquent) chỉ tự đọc CSDL ở lần đầu chạm quan hệ `roles` — gọi một lần Ở ĐÂY mô
+    // phỏng đúng "màn hình đã chạm quan hệ này trước rồi" (ví dụ danh sách chọn lead mới của
+    // `ViewMatter::reassignCandidateOptions()` đã lọc theo `hasRole()`), CACHE lại quan hệ TRÊN
+    // ĐÚNG đối tượng `$newLead` này — để câu kiểm tra trước transaction (nếu còn đọc `$newLead`)
+    // dùng lại bản CACHE cũ, không tự query lại.
+    expect($newLead->hasRole(Role::Lawyer->value))->toBeTrue();
+
+    // Đổi vai thẳng qua một đối tượng KHÁC (đọc lại từ CSDL) — KHÔNG qua $newLead, để đối tượng
+    // trong tay test vẫn còn hasRole(Lawyer) = true trong bộ nhớ (quan hệ đã cache ở trên), đúng
+    // hình dạng một request khác đã chen vào.
+    User::query()->findOrFail($newLead->id)->syncRoles([Role::Assistant->value]);
+
+    expect(fn () => app(ReassignMatter::class)->handle(
+        matter: $this->matter,
+        actor: $this->oldLead,
+        newLead: $newLead,
+        reason: 'Bàn giao.',
+        keepOldLeadAsAssociate: false,
+    ))->toThrow(ValidationException::class);
+
+    expect($this->matter->fresh()->lead_lawyer_id)->toBe($this->oldLead->id);
+});
+
 // =========================================================================================
 // Minor items (fix round 1)
 // =========================================================================================

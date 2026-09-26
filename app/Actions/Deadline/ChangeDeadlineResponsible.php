@@ -87,7 +87,26 @@ class ChangeDeadlineResponsible
                 $this->refuse();
             }
 
-            if (! $this->canHoldTheDeadline($newResponsible, $matter)) {
+            // Minor (fix round 2): một mốc ĐÃ HOÀN THÀNH (đọc từ `$fresh`, đã khoá dòng — không
+            // phải `$deadline` caller đưa vào) không còn "việc" nào để đổi người phụ trách nữa.
+            // `DeadlinesRelationManager` ẩn nút cho trường hợp này, nhưng Action tự chặn LÀ lớp
+            // phòng thủ thật — cùng kỷ luật "màn hình không phải cổng, Action mới là cổng" của cả
+            // dự án.
+            if ($fresh->is_completed) {
+                throw ValidationException::withMessages([
+                    'responsible_user_id' => [__('deadlines.validation.already_completed')],
+                ]);
+            }
+
+            // Minor (fix round 2): khoá dòng người mới NGAY SAU vụ việc/mốc hạn — cùng thứ tự
+            // toàn cục "vụ việc trước, bảng con sau, người thứ ba sau cùng" — rồi đọc lại
+            // `is_active`/`trashed()` DƯỚI KHOÁ qua `canHoldTheDeadline()`. `$newResponsible` do
+            // caller đưa vào chỉ đọc thuộc tính đã nạp sẵn, có thể cũ (form mở ra lúc người đó còn
+            // hoạt động, rồi bị vô hiệu hoá/xoá giữa lúc người dùng đang chọn và lúc họ bấm lưu) —
+            // câu này đóng đúng khe hở đó, cùng công thức `ReassignMatter`'s `$lockedNewLead`.
+            $lockedNewResponsible = User::query()->withTrashed()->whereKey($newResponsible->getKey())->lockForUpdate()->first();
+
+            if ($lockedNewResponsible === null || ! $this->canHoldTheDeadline($lockedNewResponsible, $matter)) {
                 throw ValidationException::withMessages([
                     'responsible_user_id' => [__('deadlines.validation.responsible_cannot_open')],
                 ]);
@@ -95,13 +114,13 @@ class ChangeDeadlineResponsible
 
             $previous = $fresh->responsible_user_id;
 
-            $fresh->blameOn($actor)->update(['responsible_user_id' => $newResponsible->getKey()]);
+            $fresh->blameOn($actor)->update(['responsible_user_id' => $lockedNewResponsible->getKey()]);
 
             Audit::record('deadline_responsible_changed', $fresh, [
                 'matter_id' => $matter->getKey(),
                 'client_id' => $matter->client_id,
                 'from' => $previous,
-                'to' => $newResponsible->getKey(),
+                'to' => $lockedNewResponsible->getKey(),
             ], causer: $actor);
 
             return $fresh;

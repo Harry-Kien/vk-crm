@@ -101,6 +101,8 @@ return [
         'name_too_long' => 'Nội dung mốc thời hạn tối đa :max ký tự.',
         'due_date_required' => 'Hãy chọn ngày đến hạn.',
         'responsible_cannot_open' => 'Người này không mở được hồ sơ, hoặc tài khoản đã ngừng hoạt động. Hãy chọn một người trong đội ngũ vụ việc.',
+        // Minor (fix round 2): mốc đã hoàn thành không còn "việc" nào để đổi người phụ trách nữa.
+        'already_completed' => 'Mốc này đã hoàn thành, không đổi người phụ trách được nữa. Hãy mở lại mốc (nút "Mở lại") trước, nếu thật sự cần đổi.',
     ],
 
     /*

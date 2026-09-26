@@ -466,6 +466,10 @@ class DeadlinesRelationManager extends RelationManager
             ->modalHeading(__('deadlines.tab.actions.change_responsible_heading'))
             ->modalSubmitActionLabel(__('deadlines.tab.actions.change_responsible_submit'))
             ->authorize(fn (Deadline $record): bool => Gate::allows('update', $record))
+            // Minor (fix round 2): một mốc ĐÃ HOÀN THÀNH không còn "việc" nào để đổi người phụ
+            // trách nữa — ẩn nút, cùng chỗ `ChangeDeadlineResponsible::handle()` tự chặn Ở TẦNG
+            // ACTION (lớp phòng thủ thật, không chỉ ẩn nút).
+            ->visible(fn (Deadline $record): bool => ! $record->is_completed)
             ->fillForm(fn (Deadline $record): array => ['responsible_user_id' => $record->responsible_user_id])
             ->schema([
                 Select::make('responsible_user_id')

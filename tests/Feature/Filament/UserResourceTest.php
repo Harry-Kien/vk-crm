@@ -17,6 +17,7 @@ use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Filament\Notifications\Livewire\Notifications;
+use Illuminate\Validation\ValidationException;
 
 beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);
@@ -319,6 +320,32 @@ it('lets a lawyer who leads an open matter be promoted to manager', function () 
     expect($lawyer->fresh()->position)->toBe(UserPosition::Manager);
 });
 
+/**
+ * Minor (fix round 2): luật "guard demotion" thu hẹp lại — chỉ chặn khi người đó CÒN DẪN một vụ
+ * việc đang mở (SPEC §7.4: Trợ lý/Kế toán không đứng tên `lead_lawyer_id` được). Một mốc thời hạn
+ * (Trợ lý VẪN giữ được) không chặn được lần đổi này — bản trước dùng chung
+ * `offboardingOpenWorkReason()` (cả ba loại việc) nên chặn NHẦM một người chỉ còn mốc hạn, không
+ * còn vụ việc lead nào.
+ */
+it('lets a lawyer holding only an unfinished deadline (no lead matter) be demoted to assistant', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create();
+    Deadline::factory()->for($matter)->create([
+        'responsible_user_id' => $lawyer->id,
+        'is_completed' => false,
+    ]);
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(EditUser::class, ['record' => $lawyer->getRouteKey()])
+        ->fillForm(['position' => UserPosition::Assistant->value])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($lawyer->fresh()->position)->toBe(UserPosition::Assistant);
+});
+
 /** Vế dương thứ hai: không còn việc mở nào thì đổi sang Trợ lý cũng thành công như trước. */
 it('lets a lawyer with no open work be demoted to assistant', function () {
     $admin = User::factory()->withRole(Role::Admin)->create();
@@ -455,6 +482,29 @@ it('offboards a lead lawyer once their matter is handed off through the Bàn gia
     expect($oldLead->fresh()->is_active)->toBeFalse();
 });
 
+/**
+ * Minor (fix round 2): `EditUser::handleRecordUpdate()` khoá dòng bằng `User::query()` (không
+ * `withTrashed()`) — SoftDeletes global scope mặc định loại bỏ hàng đã xoá mềm, nên lưu form sửa
+ * của một tài khoản ĐÃ xoá mềm 404 (`ModelNotFoundException` từ `firstOrFail()`) ngay tại khoá
+ * dòng. Trang vẫn MỞ ĐƯỢC (`UserResource::getRecordRouteBindingEloquentQuery()` đã tự bỏ scope đó
+ * cho việc MỞ trang — ví dụ một admin lọc `TrashedFilter` rồi mở form của một người đã nghỉ việc để
+ * sửa lại số điện thoại cũ) — một cặp lệch nhau: mở được nhưng lưu không được.
+ */
+it('saves the edit form of a soft-deleted user instead of 404ing at the row lock', function () {
+    $admin = User::factory()->admin()->create();
+    $trashed = User::factory()->withRole(Role::Lawyer)->create();
+    $trashed->delete();
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(EditUser::class, ['record' => $trashed->getRouteKey()])
+        ->fillForm(['phone' => '0909000000'])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($trashed->fresh()->phone)->toBe('0909000000');
+});
+
 // =========================================================================================
 // R7 — quản trị viên đang hoạt động cuối cùng
 // =========================================================================================
@@ -515,6 +565,48 @@ it('still hides the delete button on the last active admins own edit page, via t
         ->assertActionHidden('delete');
 
     expect($admin->fresh()->trashed())->toBeFalse();
+});
+
+/**
+ * I2.3 (fix round 2) — `assignRoleFromPosition()` giờ chạy TRONG transaction bị khoá của
+ * `handleRecordUpdate()` (đã bỏ `afterSave()`), không còn tách rời SAU khi khoá đã nhả. Bản round 1
+ * để hở đúng khe hở này: `wouldLeaveNoActiveAdmin()` đếm vai SPATIE (`GuardsStaffOffboarding.php`),
+ * còn đồng bộ vai lại chạy ở `afterSave()` — RA KHỎI khoá. Hai admin cuối cùng cùng tự hạ chức danh
+ * gần như đồng thời: lượt hai có thể acquire lại `Cache::lock` (đã được lượt một nhả ra ngay khi
+ * `handleRecordUpdate()` trả về) TRƯỚC KHI `afterSave()` của lượt một kịp đồng bộ vai — đọc thấy
+ * admin thứ nhất "vẫn còn vai Admin" (spatie chưa đổi), cho qua NHẦM cả hai, để hệ thống còn 0 admin.
+ *
+ * Mô phỏng TUẦN TỰ (không cần hai tiến trình PHP thật — "sequential simulation" đúng chữ finding
+ * đòi): gọi thẳng `handleRecordUpdate()` qua `Closure::bind` (cùng thành ngữ
+ * `ReassignMatterActionTest`'s `Closure::bind` trên `submitReassign()`), KHÔNG qua toàn bộ vòng đời
+ * `save()` của Filament (tức KHÔNG có cơ hội cho một `afterSave()` tách rời chạy giữa hai lượt, dù
+ * có tồn tại hay không) — nếu code đồng bộ vai NGAY TRONG cùng lệnh gọi này (bản sửa), lượt thứ hai
+ * PHẢI thấy vai đã đổi. Nếu (giả sử) đồng bộ vai còn tách rời ở một bước riêng SAU lệnh gọi này,
+ * lượt thứ hai gọi liền theo sau sẽ không thấy được thay đổi đó — chính khe hở round 1 để lại.
+ */
+it('keeps at least one admin when two last admins demote themselves sequentially, because the role sync now runs inside the same lock', function () {
+    $adminA = User::factory()->admin()->create();
+    $adminB = User::factory()->admin()->create();
+
+    $this->actingAs($adminA, 'web');
+
+    $pageA = $this->livewire(EditUser::class, ['record' => $adminA->getRouteKey()])->instance();
+    $handleA = Closure::bind(fn (array $data) => $this->handleRecordUpdate($this->getRecord(), $data), $pageA, EditUser::class);
+
+    $handleA(['position' => UserPosition::Lawyer->value]);
+
+    // Nếu đồng bộ vai còn tách rời (bug round 1), dòng dưới đây đỏ NGAY Ở ĐÂY — spatie vẫn nói
+    // Admin dù cột `position` đã đổi. Cùng cách round 1 phát hiện `withRole()`/`position` lệch
+    // nhau: đo trực tiếp trạng thái spatie, không suy diễn từ cột `position`.
+    expect($adminA->fresh()->hasRole(Role::Admin->value))->toBeFalse();
+
+    $pageB = $this->livewire(EditUser::class, ['record' => $adminB->getRouteKey()])->instance();
+    $handleB = Closure::bind(fn (array $data) => $this->handleRecordUpdate($this->getRecord(), $data), $pageB, EditUser::class);
+
+    expect(fn () => $handleB(['position' => UserPosition::Lawyer->value]))
+        ->toThrow(ValidationException::class);
+
+    expect($adminB->fresh()->position)->toBe(UserPosition::Admin);
 });
 
 /**
@@ -579,6 +671,33 @@ it('bulk-deletes only the staff member with no open work, and shows the real Vie
     $bodies = $component->notifications->map(fn ($notification): string => (string) $notification->getBody())->implode("\n");
 
     expect($bodies)->toContain(staffOffboardingMessage($withOpenMatter->name, matters: 1, deadlines: 0, requests: 0));
+});
+
+/**
+ * I2.1 (fix round 2) — bulk delete phải đi qua `DeleteStaffMember`, không còn `$record->delete()`
+ * trần của Filament: cùng luật "admin cuối cùng"/khoá dòng mà nút xoá ĐƠN (`EditUser`) đã áp từ
+ * fix round 1, giờ áp luôn cho xoá hàng loạt — trước bản sửa này, `UsersTable::toolbarActions()`
+ * chỉ lọc bằng `authorizeIndividualRecords('delete')` (KHÔNG khoá gì, không re-check gì dưới khoá)
+ * rồi để Filament tự `$record->delete()`.
+ *
+ * Dựng cuộc đua CÙNG HÌNH DẠNG với `DeleteStaffMemberTest` (Action-tier): actor vừa bị hạ vai admin
+ * bởi MỘT request khác NGAY TRƯỚC lượt xoá hàng loạt này — sửa CSDL trực tiếp, không qua đối tượng
+ * PHP `$admin` mà `actingAs()` đang cầm, mô phỏng một request khác đã âm thầm đổi actor. Nếu
+ * `DeleteStaffMember` không đọc lại actor dưới khoá (bug mà vòng sửa này đóng), `$lastAdmin` — admin
+ * đang hoạt động DUY NHẤT còn lại sau khi actor mất vai — sẽ bị xoá, để hệ thống còn 0 admin.
+ */
+it('refuses a bulk delete that would leave zero active admins, once the acting admin has lost their own role mid-request', function () {
+    $admin = User::factory()->admin()->create();
+    $lastAdmin = User::factory()->admin()->create();
+
+    $this->actingAs($admin, 'web');
+
+    User::query()->whereKey($admin->id)->update(['is_active' => false]);
+
+    $this->livewire(ListUsers::class)
+        ->callTableBulkAction('delete', [$lastAdmin]);
+
+    expect($lastAdmin->fresh()->trashed())->toBeFalse();
 });
 
 /**

@@ -2,7 +2,10 @@
 
 namespace App\Filament\Admin\Resources\Users\Tables;
 
+use App\Actions\User\DeleteStaffMember;
 use App\Enums\UserPosition;
+use App\Models\User;
+use DomainException;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -14,6 +17,11 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Filters\TrashedFilter;
 use Filament\Tables\Table;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\LazyCollection;
 
 /** Không có cột nào cho password / two_factor_secret / two_factor_recovery_codes (ràng buộc task). */
 class UsersTable
@@ -72,9 +80,33 @@ class UsersTable
                 // UserPolicy::delete()/restore()/forceDelete() — không có nó, cổng thô chỉ quyết
                 // định nút có bấm được không, còn Filament vẫn xử lý MỌI dòng đã chọn mà không hỏi
                 // lại policy cho từng dòng. Cùng thành ngữ ClientsTable/ClientUsersTable.
+                //
+                // `->using()` (I2.1, fix round 2): trước bản sửa này, sau khi
+                // `authorizeIndividualRecords('delete')` lọc bằng UserPolicy::delete() KHÔNG khoá
+                // gì, Filament tự `$record->delete()` từng dòng còn lại — bỏ qua hẳn khoá dòng VÀ
+                // Cache::lock('staff-admin-headcount') mà DeleteStaffMember giữ (I2, fix round 1/2)
+                // cho đúng nút xoá ĐƠN của EditUser. Hai đường xoá một nhân sự (đơn và hàng loạt)
+                // phải cùng đi qua MỘT luật, không phải hai luật tưởng giống nhau. `$records` ở đây
+                // đã qua bộ lọc coarse ở trên (không khoá), nên DeleteStaffMember::handle() vẫn là
+                // nơi DUY NHẤT khoá dòng và hỏi lại dưới khoá — using() chỉ định tuyến, không lặp
+                // lại luật.
                 BulkActionGroup::make([
                     DeleteBulkAction::make()
-                        ->authorizeIndividualRecords('delete'),
+                        ->authorizeIndividualRecords('delete')
+                        ->using(function (DeleteBulkAction $action, EloquentCollection|Collection|LazyCollection $records): void {
+                            /** @var User $actor */
+                            $actor = Auth::user();
+
+                            $records->each(function (User $record) use ($action, $actor): void {
+                                try {
+                                    app(DeleteStaffMember::class)->handle($actor, $record);
+                                } catch (DomainException $exception) {
+                                    $action->reportBulkProcessingFailure((string) $record->getKey(), $exception->getMessage());
+                                } catch (AuthorizationException) {
+                                    $action->reportBulkProcessingFailure((string) $record->getKey(), __('actions.unauthorized'));
+                                }
+                            });
+                        }),
                     ForceDeleteBulkAction::make()
                         ->authorizeIndividualRecords('forceDelete'),
                     RestoreBulkAction::make()
