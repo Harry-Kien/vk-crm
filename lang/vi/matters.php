@@ -63,6 +63,11 @@ return [
         'portal_publication_toggled' => 'Đã cập nhật trạng thái công bố portal.',
         'add_party' => 'Thêm một bên',
         'add_party_heading' => 'Thêm một bên vào vụ việc',
+        // M6.5 Task 9 (`conflict-05`, brief R14).
+        'edit_party' => 'Sửa',
+        'edit_party_heading' => 'Sửa thông tin bên',
+        'remove_party' => 'Gỡ',
+        'remove_party_heading' => 'Gỡ bên khỏi vụ việc',
         'transition_stage' => 'Chuyển giai đoạn',
         'add_update' => 'Thêm cập nhật',
         'cancel_matter' => 'Huỷ hồ sơ mở nhầm',
@@ -137,6 +142,13 @@ return [
         'phone' => 'Số điện thoại',
         'address' => 'Địa chỉ',
         'note' => 'Ghi chú',
+        // M6.5 Task 9: chỉ hiện trên form SỬA — hai ô id_number/phone luôn bắt đầu trống ở đó
+        // (số gốc không bao giờ được lưu, SPEC §10.5), khác form thêm bên.
+        'id_number_edit_help' => 'Để trống nếu không đổi số căn cước đã lưu — hệ thống không lưu số gốc nên không hiện lại được ở đây.',
+        'phone_edit_help' => 'Để trống nếu không đổi số điện thoại đã lưu.',
+        // `conflict-10`: thay cho thông điệp "Định dạng số điện thoại không hợp lệ." mặc định của
+        // ->tel(), giờ chỉ nổ khi Normalizer::phone() không tìm được chữ số nào trong ô.
+        'phone_invalid' => 'Định dạng số điện thoại không hợp lệ.',
         'acknowledge_conflict' => 'Tôi đã xem xét kết quả kiểm tra xung đột lợi ích và xác nhận vẫn muốn thêm bên này',
         'acknowledge_conflict_help' => 'Chỉ cần tích khi thông báo kết quả kiểm tra yêu cầu xem xét trước khi lưu.',
         'override_reason' => 'Lý do ghi đè mức đỏ',
@@ -213,5 +225,23 @@ return [
         'conflict_blocked_retry' => 'Mức đỏ: chưa thêm bên này. Chỉ trưởng phòng hoặc quản trị mới ghi đè được, và bắt buộc nhập lý do vào ô này.',
         'conflict_blocked_retry_denied' => 'Mức đỏ: chưa thêm bên này. Vai trò hiện tại không ghi đè được — hãy đề nghị trưởng phòng thêm bên này, hoặc sửa lại thông tin bên vừa nhập.',
         'conflict_ack_retry' => 'Đọc kỹ thông báo kết quả kiểm tra xung đột lợi ích ở trên, sau đó tích "Tôi đã xem xét…" rồi gửi lại.',
+    ],
+    // M6.5 Task 9 — hộp thoại "Gỡ bên khỏi vụ việc" trên tab "Các bên" (brief R14).
+    'remove_party_form' => [
+        'reason' => 'Lý do gỡ',
+        'reason_help' => 'Bắt buộc. Bên đã gỡ được xem là "nhập nhầm, chưa từng là bên" và không còn tham gia đối chiếu xung đột lợi ích — lý do được ghi vĩnh viễn vào nhật ký.',
+        'reason_required' => 'Bắt buộc nhập lý do gỡ.',
+        'success' => 'Đã gỡ bên khỏi vụ việc.',
+        'own_client_denied' => 'Đây là khách hàng của chính vụ việc này — sửa qua hồ sơ khách hàng, không gỡ được ở đây.',
+    ],
+    // M6.5 Task 9 — ba tiêu đề/thông báo riêng của "sửa một bên" khác câu với "thêm một bên"
+    // (`parties` ở trên). Hai khoá KHÔNG lặp lại ở đây (`saved_clear_with_confirmed`,
+    // `conflict_check_title_clear`) không nhắc "thêm bên" nên dùng chung được với `notifySaved()`.
+    'update_parties' => [
+        'conflict_blocked_title' => 'Mức đỏ — chưa lưu thay đổi này',
+        'saved_overridden' => 'ĐÃ GHI ĐÈ XUNG ĐỘT MỨC ĐỎ — thay đổi vẫn được lưu theo quyết định của anh/chị.',
+        'saved_after_review' => 'Đã lưu thay đổi sau khi xem xét kết quả kiểm tra xung đột lợi ích.',
+        'conflict_blocked_retry' => 'Mức đỏ: chưa lưu thay đổi này. Chỉ trưởng phòng hoặc quản trị mới ghi đè được, và bắt buộc nhập lý do vào ô này.',
+        'conflict_blocked_retry_denied' => 'Mức đỏ: chưa lưu thay đổi này. Vai trò hiện tại không ghi đè được — hãy đề nghị trưởng phòng sửa bên này, hoặc sửa lại thông tin vừa nhập.',
     ],
 ];

@@ -7,6 +7,7 @@ use App\Enums\PartyRole;
 use App\Filament\Admin\Resources\Matters\Pages\CreateMatter;
 use App\Filament\Admin\Support\VisibleClientOptions;
 use App\Models\MatterType;
+use App\Support\Normalizer;
 use Closure;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Repeater;
@@ -202,7 +203,19 @@ class MatterForm
                 TextInput::make('phone')
                     ->label(__('matters.party_fields.phone'))
                     ->helperText(__('matters.create_form.phone_help'))
+                    // `conflict-10`: regex mặc định của `->tel()` từ chối `(+84) 912 345 678` và
+                    // `+84 (0) 912-345-678` mà `Normalizer::phone()` chuẩn hoá đúng cả hai — xem
+                    // docblock `PartiesRelationManager::partyFields()` cho lý lẽ đầy đủ (cùng bản
+                    // sửa, cùng lý do, hai form sinh đôi không được lệch nhau). `->regex(null)` GHI
+                    // ĐÈ closure của `->tel()` (gọi SAU, `CanBeValidated::regex()` chỉ ghi đè
+                    // `$regexPattern`) — giữ `type="tel"`, bỏ ràng buộc hình dạng chuỗi.
                     ->tel()
+                    ->regex(null)
+                    ->rule(fn (): Closure => function (string $attribute, mixed $value, Closure $fail): void {
+                        if (filled($value) && Normalizer::phone($value) === null) {
+                            $fail(__('matters.party_fields.phone_invalid'));
+                        }
+                    })
                     ->live(onBlur: true)
                     ->maxLength(20),
                 static::identityMissingWarning(),

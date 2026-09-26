@@ -81,9 +81,9 @@ use Illuminate\Support\Facades\DB;
  * cậy thấp nhất, và một lần sửa hồ sơ khách hàng không đổi TÊN đã đồng bộ theo cùng cách hash/điện
  * thoại đổi; quét theo tên sẽ kéo vào những vụ việc không hề liên quan tới lần sửa này).
  *
- * **"Đang mở"** đọc là `closed_at IS NULL` (R8) — ở nhánh này chưa có `Matter::scopeOpen()` chung
- * (task khác của M6.5 dựng nó), nên điều kiện viết thẳng bằng `whereNull('closed_at')`; task đó
- * nên thay bằng scope chung khi nó tồn tại, không đổi ý nghĩa. Vụ việc CỦA khách hàng đang sửa
+ * **"Đang mở"** đọc là `Matter::scopeOpen()` (R8, M6.5 Task 5) — không còn viết thẳng
+ * `whereNull('closed_at')` như bản round trước Task 5 (M6.5 Task 9, đúng phán quyết đã hẹn từ
+ * trước) — cùng hai điều kiện `closed_at`/`deleted_at`, không đổi ý nghĩa. Vụ việc CỦA khách hàng đang sửa
  * (M1) có thể đã đóng mà KHÔNG làm mất M2 — hai truy vấn tách rời (dò theo định danh, rồi lọc mở)
  * nên một vụ việc đóng chỉ tự loại chính nó, không loại những vụ việc khác cũng khớp.
  *
@@ -251,14 +251,16 @@ class SyncClientPartyIdentities
             return;
         }
 
-        // `whereNull('closed_at')` = "đang mở" (R8). Bỏ `ClientPortalScope` (fix round 1, minor
-        // ruling) cùng lý do đã buộc truy vấn `MatterParty` bên dưới bỏ scope đó: nếu Action lỡ
-        // chạy trong lúc guard `client` đang có phiên, scope này chặn SẠCH bảng `matters` và mọi
-        // vụ việc vừa dò được biến mất khỏi kết quả một cách im lặng.
+        // `->open()` = "đang mở" (R8, `Matter::scopeOpen()` — M6.5 Task 9 thay `whereNull('closed_at')`
+        // viết tay bằng scope chung, đúng phán quyết "chỗ DUY NHẤT được viết tường minh là chính
+        // TransitionMatterStage"). Bỏ `ClientPortalScope` (fix round 1, minor ruling) cùng lý do đã
+        // buộc truy vấn `MatterParty` bên dưới bỏ scope đó: nếu Action lỡ chạy trong lúc guard
+        // `client` đang có phiên, scope này chặn SẠCH bảng `matters` và mọi vụ việc vừa dò được
+        // biến mất khỏi kết quả một cách im lặng.
         $openMatters = Matter::query()
             ->withoutGlobalScope(ClientPortalScope::class)
             ->whereIn('id', $matterIds)
-            ->whereNull('closed_at')
+            ->open()
             ->get();
 
         if ($openMatters->isEmpty()) {

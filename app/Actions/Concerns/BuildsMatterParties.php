@@ -69,12 +69,42 @@ trait BuildsMatterParties
      */
     protected function buildMatterParty(array $data, ?int $matterId = null, ?Client $lockedClient = null): MatterParty
     {
+        return $this->applyMatterPartyData(new MatterParty(['matter_id' => $matterId]), $data, $lockedClient);
+    }
+
+    /**
+     * Gán vai trò, "là khách hàng của văn phòng" + `client_id`, và định danh (tên + hash CCCD/điện
+     * thoại) lên MỘT bên — tách ra từ `buildMatterParty()` (M6.5 Task 9) để dùng CHUNG cho cả việc
+     * DỰNG một bên mới (`buildMatterParty()`, gọi trên một `MatterParty` rỗng) LẪN việc SỬA một bên
+     * đã tồn tại (`UpdateMatterParty`, gọi thẳng trên bản ghi đã khoá): luật "định danh của bên
+     * `is_our_client` luôn lấy từ hồ sơ `Client` thật, không lấy từ form" phải áp CẢ hai đường như
+     * nhau — trước Task 9 luật này chưa từng cần áp cho một bản ghi ĐÃ tồn tại, vì không Action nào
+     * sửa được một bên (`conflict-05`).
+     *
+     * **`$keepIdentityWhenBlank` (Task 9) — vì sao SỬA không dùng lại `identify()` như lúc TẠO.**
+     * Số căn cước/điện thoại GỐC không bao giờ được lưu (SPEC §10.5); chỉ hash/số đã chuẩn hoá còn
+     * lại. Form "sửa một bên" vì vậy không có gì để điền sẵn vào hai ô đó — chúng LUÔN bắt đầu
+     * trống, kể cả khi bên này đã có định danh từ trước. Nếu `false` (mặc định — đường TẠO), hai ô
+     * trống nghĩa là "không có định danh nào" và `identify(null, null)` xoá sạch cả hai, đúng ý
+     * nghĩa lúc tạo mới. Nếu `true` (đường SỬA, `UpdateMatterParty` luôn truyền `true`), hai ô
+     * trống nghĩa là "không đổi" và `MatterParty::identifyKeepingWhenBlank()` giữ nguyên giá trị
+     * cũ — không làm vậy, một lượt sửa chỉ đổi `address` (không đụng gì tới định danh) sẽ vô tình
+     * xoá sạch định danh đã có, đúng hạng lỗi `conflict-05` mô tả nhưng đảo chiều. Cờ này chỉ có ý
+     * nghĩa ở nhánh KHÔNG `is_our_client`: bên `is_our_client` không bao giờ đọc `id_number`/`phone`
+     * của form, luôn lấy thẳng từ hồ sơ `Client` (xem bên dưới) bất kể `$keepIdentityWhenBlank`.
+     */
+    protected function applyMatterPartyData(
+        MatterParty $party,
+        array $data,
+        ?Client $lockedClient = null,
+        bool $keepIdentityWhenBlank = false,
+    ): MatterParty {
         $role = $data['role'] instanceof PartyRole ? $data['role'] : PartyRole::from($data['role']);
         $isOurClient = (bool) ($data['is_our_client'] ?? false);
         $clientId = $isOurClient ? ($data['client_id'] ?? null) : null;
 
-        // Trước khi dựng bất cứ thứ gì: một bên tự nhận là khách hàng của văn phòng mà không chỉ
-        // ra hồ sơ nào thì không có dòng hợp lệ nào để dựng cả (I-2, xem docblock trait).
+        // Trước khi gán bất cứ thứ gì: một bên tự nhận là khách hàng của văn phòng mà không chỉ
+        // ra hồ sơ nào thì không có dòng hợp lệ nào để dựng/sửa cả (I-2, xem docblock trait).
         //
         // `blank()`, không `=== null` (Minor, review gộp nhánh M3): một `client_id` là chuỗi rỗng
         // hay chuỗi toàn khoảng trắng — đúng thứ một mảng dựng tay trong seeder, job hay lệnh
@@ -88,18 +118,18 @@ trait BuildsMatterParties
             throw OurClientPartyNeedsClient::make($data['name'] ?? null);
         }
 
-        $party = new MatterParty([
-            'matter_id' => $matterId,
-            'role' => $role,
-            'is_our_client' => $isOurClient,
-            'client_id' => $clientId,
-            'name' => $data['name'],
-            'address' => $data['address'] ?? null,
-            'note' => $data['note'] ?? null,
-        ]);
+        $party->role = $role;
+        $party->is_our_client = $isOurClient;
+        $party->client_id = $clientId;
+        $party->address = $data['address'] ?? null;
+        $party->note = $data['note'] ?? null;
 
         if ($clientId === null) {
-            return $party->identify($data['id_number'] ?? null, $data['phone'] ?? null);
+            $party->name = $data['name'];
+
+            return $keepIdentityWhenBlank
+                ? $party->identifyKeepingWhenBlank($data['id_number'] ?? null, $data['phone'] ?? null)
+                : $party->identify($data['id_number'] ?? null, $data['phone'] ?? null);
         }
 
         $client = ($lockedClient !== null && (int) $lockedClient->getKey() === (int) $clientId)

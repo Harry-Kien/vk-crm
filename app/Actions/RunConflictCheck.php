@@ -216,14 +216,48 @@ class RunConflictCheck
      *                            thực hiện xác định — khi đó dòng nhật ký tự đánh dấu
      *                            `actor_explicit = false` thay vì im lặng nhận causer của phiên
      *                            đang mở như một khẳng định. Xem docblock lớp.
+     * @param  int|null  $excludePartyId  (M6.5 Task 9) Id của một bên ĐÃ CÓ SẴN của `$matter` cần
+     *                                    loại khỏi `existingParties()`. `UpdateMatterParty` truyền
+     *                                    id của CHÍNH bên đang sửa: bên đó đã nằm trong `$parties`
+     *                                    (bản trong bộ nhớ, mang định danh MỚI chưa lưu), và vì nó
+     *                                    đã tồn tại thật trong `matter_parties`, `existingParties()`
+     *                                    mặc định sẽ nạp LẠI đúng dòng đó — nhưng là bản CŨ (định
+     *                                    danh/vai trò còn nằm trong CSDL, vì chưa `save()`). Không
+     *                                    loại trừ, `$allParties` sẽ mang HAI bản của CÙNG một bên
+     *                                    (một cũ, một mới) cùng lúc: `sameMatterOppositionMatches()`
+     *                                    có thể so hai bản đó với NHAU như hai bên khác nhau (hai
+     *                                    object PHP khác nhau nên `$party === $other` không loại
+     *                                    được), sinh một xung đột "tự đối lập với chính mình" giả
+     *                                    nếu vai trò vừa đổi. `null` (mặc định) giữ nguyên hành vi
+     *                                    cũ cho `OpenMatter`/`AddMatterParty`, nơi bên trong
+     *                                    `$parties` luôn CHƯA lưu nên không thể trùng với bất kỳ
+     *                                    dòng nào `existingParties()` nạp.
+     * @param  Collection<int, int>|null  $ignoreConfirmedForPartyIds  (M6.5 Task 9, R14) Id các bên
+     *                                                                 (phía "của mình", vế trái của `pairKey()`) mà LẦN CHẠY NÀY
+     *                                                                 phải coi MỌI xác nhận/ghi đè trước đó của chúng là chưa hề
+     *                                                                 xảy ra. `UpdateMatterParty` truyền id của bên đang sửa khi
+     *                                                                 và chỉ khi lượt sửa vừa đổi ĐỊNH DANH của nó (tên, hash
+     *                                                                 CCCD, điện thoại, hoặc liên kết khách hàng) — xem docblock
+     *                                                                 `UpdateMatterParty`. Lý do: `confirmed_pairs` khoá theo ID
+     *                                                                 DÒNG (`pairKey()`, cố ý — xem docblock lớp), không theo
+     *                                                                 định danh; một cặp (dòng X, dòng Y) từng được xác nhận khi
+     *                                                                 X còn mang định danh CŨ vẫn mang CÙNG `pairKey()` sau khi X
+     *                                                                 được sửa để đại diện cho một NGƯỜI hoàn toàn khác — nếu
+     *                                                                 không bị bỏ qua ở đây, xác nhận cũ đó sẽ ÂM THẦM che một
+     *                                                                 xung đột mới của một người khác đứng sau cùng cặp id đó.
      */
-    public function handle(Collection $parties, ?Matter $matter = null, ?User $actor = null): ConflictCheckResult
-    {
+    public function handle(
+        Collection $parties,
+        ?Matter $matter = null,
+        ?User $actor = null,
+        ?int $excludePartyId = null,
+        ?Collection $ignoreConfirmedForPartyIds = null,
+    ): ConflictCheckResult {
         // Mảng thuần, không phải Collection::merge() — xem docblock lớp "Gộp không được dùng
         // Eloquent Collection::merge()". Tập hợp CHUNG này nuôi CẢ việc xác định vai LẪN việc tìm
         // bản ghi trùng bên dưới — xem docblock lớp "Tìm kiếm phải chạy trên CÙNG tập hợp với
         // việc xác định vai (fix round 3)".
-        $allParties = collect([...$parties->all(), ...$this->existingParties($matter)]);
+        $allParties = collect([...$parties->all(), ...$this->existingParties($matter, $excludePartyId)]);
 
         $ourClientParties = $allParties->filter(fn (MatterParty $party) => $party->is_our_client);
         $ourClientRoles = $ourClientParties->pluck('role');
@@ -248,6 +282,19 @@ class RunConflictCheck
         // được phép "dùng chung" một quyết định đã xác nhận/ghi đè chỉ vì gộp hiển thị làm chúng
         // trông như một.
         $confirmedPairLevels = $this->confirmedPairLevels($matter);
+
+        // M6.5 Task 9, R14: một lượt SỬA đổi định danh của bên $excludePartyId phải coi MỌI xác
+        // nhận/ghi đè trước đó của cặp mà nó đứng vế trái là chưa hề xảy ra — xem docblock tham số
+        // `$ignoreConfirmedForPartyIds` ở trên cho lý do (chữ ký `pairKey()` theo ID DÒNG, không
+        // theo định danh, nên một dòng đổi ý nghĩa người mà nó đại diện vẫn giữ nguyên chữ ký cũ).
+        // Lọc bằng CHUỖI (vế trái của "{ourId}::{foundId}"), không phải bằng `ConflictMatch`, vì
+        // đây là lịch sử ĐỌC LẠI từ nhật ký — không còn object `MatterParty` nào để so `getKey()`.
+        if ($ignoreConfirmedForPartyIds !== null && $ignoreConfirmedForPartyIds->isNotEmpty()) {
+            $confirmedPairLevels = $confirmedPairLevels->reject(
+                fn (ConflictLevel $level, string $pairKey): bool => $ignoreConfirmedForPartyIds
+                    ->contains((int) strstr($pairKey, '::', true))
+            );
+        }
 
         $isConfirmed = function (ConflictMatch $match) use ($confirmedPairLevels): bool {
             $pairKey = $match->pairKey();
@@ -337,9 +384,15 @@ class RunConflictCheck
      * được, khác trục với một BÊN đã gỡ). R14 áp cho MỌI nơi, không chỉ vụ việc đang xét — xem
      * docblock lớp và docblock `matchesFor()`.
      *
+     * **`$excludePartyId` (M6.5 Task 9).** Loại đúng MỘT id khỏi kết quả — xem docblock tham số
+     * cùng tên ở `handle()` cho lý do đây không phải một tối ưu mà là một điều kiện đúng đắn:
+     * `UpdateMatterParty` truyền một bản TRONG BỘ NHỚ (mang định danh MỚI, chưa `save()`) của
+     * chính bên này qua `$parties`, nên nạp lại bản CŨ của cùng dòng ở đây sẽ khiến vụ việc có hai
+     * "bản" của cùng một bên cùng lúc.
+     *
      * @return array<int, MatterParty>
      */
-    private function existingParties(?Matter $matter): array
+    private function existingParties(?Matter $matter, ?int $excludePartyId = null): array
     {
         if ($matter === null) {
             return [];
@@ -347,6 +400,7 @@ class RunConflictCheck
 
         return $matter->parties()
             ->withoutGlobalScope(ClientPortalScope::class)
+            ->when($excludePartyId !== null, fn ($query) => $query->where('id', '!=', $excludePartyId))
             ->get()
             ->all();
     }
@@ -520,6 +574,13 @@ class RunConflictCheck
      * đúng về mặt logic: vụ việc còn chưa tồn tại nên không thể có gì được xác nhận từ TRƯỚC trên
      * nó. `!$matter->exists` (phòng thủ, không nên xảy ra ở lời gọi thật) cũng vậy.
      *
+     * **`matter_party_updated` (M6.5 Task 9).** `UpdateMatterParty` ghi `confirmed_pairs` dưới tên
+     * sự kiện riêng của nó, cùng lý do `matter_party_added` có tên riêng thay vì dùng lại
+     * `matter_opened`: mỗi Action tự đứng tên đúng thao tác nó vừa làm. Bỏ sự kiện này khỏi
+     * `whereIn` sẽ khiến MỌI xác nhận/ghi đè thực hiện lúc SỬA một bên biến mất khỏi lịch sử ngay ở
+     * lần kiểm tra tiếp theo (dù là do `AddMatterParty` hay `UpdateMatterParty` chạy) — đúng cái
+     * cổng-luôn-bật mà R13(c) tồn tại để chặn, chỉ chuyển sang một đường ghi khác.
+     *
      * **Bỏ qua một dòng `confirmed_pairs` không phải mảng (fix round 2, minor).** Bản round 0 (TRƯỚC
      * `pairKey()`/mức) từng ghi mảng CHUỖI trần (`['hash:xxx::123', ...]`, không phải
      * `['pair_key' => ..., 'level' => ...]`). Một vụ việc còn giữ dòng `matter_opened`/
@@ -540,7 +601,7 @@ class RunConflictCheck
         return Activity::query()
             ->where('subject_type', $matter->getMorphClass())
             ->where('subject_id', $matter->getKey())
-            ->whereIn('event', ['matter_opened', 'matter_party_added'])
+            ->whereIn('event', ['matter_opened', 'matter_party_added', 'matter_party_updated'])
             ->get()
             ->flatMap(fn (Activity $activity): array => (array) $activity->properties->get('confirmed_pairs', []))
             ->reduce(function (Collection $levels, mixed $pair): Collection {

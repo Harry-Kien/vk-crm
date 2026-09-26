@@ -3,6 +3,8 @@
 namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 
 use App\Actions\AddMatterParty;
+use App\Actions\RemoveMatterParty;
+use App\Actions\UpdateMatterParty;
 use App\Enums\ConflictLevel;
 use App\Enums\PartyRole;
 use App\Exceptions\ConflictAcknowledgementRequired;
@@ -15,8 +17,11 @@ use App\Support\AddMatterPartyResult;
 use App\Support\ConflictCheckResult;
 use App\Support\ConflictMatch;
 use App\Support\ConflictOverride;
+use App\Support\Normalizer;
+use App\Support\UpdateMatterPartyResult;
 use Closure;
 use DomainException;
+use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -98,6 +103,26 @@ use Livewire\Attributes\Locked;
  * SPEC §6.10 đòi dạng bảng cho *form tạo vụ việc*; ở đây modal đóng lại sau khi lưu nên một bảng
  * trong modal sẽ biến mất đúng lúc cần đọc nhất, còn Notification `persistent()` thì ở lại. Ghi ra
  * đây để lần sau ai đó thấy hai màn hình khác nhau thì biết là quyết định, không phải bỏ sót.
+ *
+ * ---
+ *
+ * # M6.5 Task 9 — sửa, gỡ, hiển thị (`conflict-05`, `conflict-09`, `conflict-10`, brief R14)
+ *
+ * Bảng giờ có thêm hai `recordActions`: `editPartyAction()` (gọi `App\Actions\UpdateMatterParty`,
+ * cùng cơ chế RED/override/acknowledge của `AddMatterParty`, xem docblock Action đó) và
+ * `removePartyAction()` (gọi `App\Actions\RemoveMatterParty`, xoá mềm kèm lý do bắt buộc). Cả ba
+ * form (thêm/sửa) giờ dùng CHUNG `partyFields()` — tách ra từ `form()` cũ — để không lệch nhau lần
+ * thứ tư trên nhánh này; hai màn hình chỉ khác câu giúp của `id_number`/`phone` (form sửa: "để
+ * trống nếu không đổi", vì hai ô đó không bao giờ điền sẵn được — số gốc không lưu, SPEC §10.5).
+ *
+ * `conflictSummary()` giờ ghép các dòng bằng `<br>` (đã escape từng mảnh động qua `e()`), không
+ * còn `"\n"` — `conflict-09`: CSS đã biên dịch của Filament không có `white-space: pre-line`, nên
+ * nhiều khớp từng chạy liền thành một đoạn khó đọc.
+ *
+ * Ô điện thoại (`partyFields()`) bỏ regex mặc định của `->tel()` (`->regex(null)`, gọi SAU
+ * `->tel()`), thay bằng một `->rule()` kiểm bằng `Normalizer::phone()` — `conflict-10`: regex cũ
+ * từ chối `(+84) 912 345 678`/`+84 (0) 912-345-678`, hai cách viết Normalizer chuẩn hoá đúng.
+ * `app/Filament/Admin/Resources/Matters/Schemas/MatterForm.php` (form mở vụ) sửa y hệt.
  */
 class PartiesRelationManager extends RelationManager
 {
@@ -164,78 +189,116 @@ class PartiesRelationManager extends RelationManager
 
     public function form(Schema $schema): Schema
     {
-        return $schema
-            ->components([
-                Select::make('role')
-                    ->label(__('matters.party_fields.role'))
-                    ->options(collect(PartyRole::cases())->mapWithKeys(fn (PartyRole $role) => [$role->value => $role->label()]))
-                    ->live()
-                    ->afterStateUpdated($this->forgetConflictResultOnChange())
-                    ->required(),
-                Toggle::make('is_our_client')
-                    ->label(__('matters.party_fields.is_our_client'))
-                    ->live()
-                    ->afterStateUpdated($this->forgetConflictResultOnChange())
-                    ->default(false),
-                Select::make('client_id')
-                    ->label(__('matters.party_fields.client'))
-                    // Fix round 1 finding 3: KHÔNG liệt kê toàn bộ khách hàng văn phòng — một
-                    // lawyer có matter.update nhưng không có client.manage chỉ được thấy khách
-                    // hàng của những vụ việc họ đã liệt kê được (Matter::listableBy), đúng ranh
-                    // giới ClientPolicy::view đã định nghĩa cho MỌI nơi khác đọc danh sách khách
-                    // hàng. Chỉ ai có client.manage mới thấy toàn bộ.
-                    ->options(fn (): array => VisibleClientOptions::forCurrentUser())
-                    ->searchable()
-                    // I-2: bắt buộc khi công tắc bật — `BuildsMatterParties` từ chối một bên tự
-                    // nhận là khách hàng của văn phòng mà không có hồ sơ nào. Luật ở trait (đúng
-                    // cả với seeder/job/console); ô này chỉ nói ra luật đó bằng lỗi gắn đúng ô.
-                    ->required(fn (Get $get): bool => (bool) $get('is_our_client'))
-                    ->visible(fn (Get $get): bool => (bool) $get('is_our_client'))
-                    ->live()
-                    ->afterStateUpdated($this->forgetConflictResultOnChange()),
-                TextInput::make('name')
-                    ->label(__('matters.party_fields.name'))
-                    ->live(onBlur: true)
-                    ->afterStateUpdated($this->forgetConflictResultOnChange())
-                    ->required()
-                    ->maxLength(200),
-                TextInput::make('id_number')
-                    ->label(__('matters.party_fields.id_number'))
-                    ->live(onBlur: true)
-                    ->afterStateUpdated($this->forgetConflictResultOnChange())
-                    ->maxLength(20),
-                TextInput::make('phone')
-                    ->label(__('matters.party_fields.phone'))
-                    ->tel()
-                    ->live(onBlur: true)
-                    ->afterStateUpdated($this->forgetConflictResultOnChange())
-                    ->maxLength(20),
-                TextInput::make('address')
-                    ->label(__('matters.party_fields.address'))
-                    ->maxLength(300),
-                Textarea::make('note')
-                    ->label(__('matters.party_fields.note'))
-                    ->columnSpanFull(),
-                // Hai ô QUYẾT ĐỊNH (C-1, xem docblock lớp): chỉ TỒN TẠI sau khi một kết quả kiểm
-                // tra thật đã hiện ra cho người dùng đọc.
-                Toggle::make('acknowledge_conflict')
-                    ->label(__('matters.party_fields.acknowledge_conflict'))
-                    ->helperText(__('matters.party_fields.acknowledge_conflict_help'))
-                    ->visible(fn (): bool => $this->conflictResult !== null)
-                    ->default(false),
-                Textarea::make('override_reason')
-                    ->label(__('matters.party_fields.override_reason'))
-                    // Hiện cho MỌI vai trò nhưng KHOÁ với ai không ghi đè được, đúng như
-                    // `MatterForm`: người dùng cần đọc được luật ngay tại chỗ, và lỗi mức đỏ cần
-                    // một ô để bám vào.
-                    ->helperText(fn (): string => $this->canOverrideRedConflict()
-                        ? __('matters.party_fields.override_reason_help_allowed')
-                        : __('matters.party_fields.override_reason_help_denied'))
-                    ->visible(fn (): bool => $this->redResultShown())
-                    ->disabled(fn (): bool => ! $this->canOverrideRedConflict())
-                    ->rows(2)
-                    ->columnSpanFull(),
-            ]);
+        return $schema->components($this->partyFields(isEdit: false));
+    }
+
+    /**
+     * Trường của form "thêm bên" VÀ form "sửa bên" (M6.5 Task 9) — tách ra một hàm dùng chung để
+     * hai màn hình không lệch nhau như `conflict-05` mô tả (sửa từng lệch tạo nhiều lần trên nhánh
+     * này). Chỉ HAI ô đổi theo `$isEdit`, không đổi luật, chỉ đổi CÂU:
+     *
+     *  - `id_number`/`phone`: giúp đọc "để trống nếu không đổi" chỉ đúng ở form SỬA. Số căn cước/
+     *    điện thoại GỐC không bao giờ được lưu (SPEC §10.5), nên form sửa không có gì để điền sẵn
+     *    vào hai ô này — chúng LUÔN bắt đầu trống dù bên đã có định danh, và
+     *    `MatterParty::identifyKeepingWhenBlank()` (qua `UpdateMatterParty`) giữ nguyên định danh cũ
+     *    khi bỏ trống. Câu giúp của form TẠO ("nên nhập… bỏ trống thì không đối chiếu được") sẽ nói
+     *    SAI ở form sửa: một bên ĐÃ có định danh mà bỏ trống hai ô này không hề mất định danh.
+     *
+     * **Regex mặc định của `->tel()` bị bỏ (`conflict-10`).** Filament gắn kèm
+     * `/^[+]*[(]{0,1}[0-9]{1,4}[)]{0,1}[-\s\.\/0-9]*$/` — từ chối cả `(+84) 912 345 678` (dấu `(`
+     * đứng SAU `+`) lẫn `+84 (0) 912-345-678` (dấu `(` nằm ngoài phần mã đầu), hai cách viết rất
+     * hay gặp trên danh thiếp/hợp đồng Việt Nam mà `Normalizer::phone()` chuẩn hoá đúng cả hai.
+     * `->regex(null)` GHI ĐÈ closure mà `->tel()` vừa gắn (gọi SAU `->tel()`, `CanBeValidated::
+     * regex()` chỉ ghi đè `$regexPattern` — không hợp hai lời gọi) — giữ nguyên `type="tel"` (bàn
+     * phím số trên di động) mà không còn ràng buộc hình dạng chuỗi nào. `->rule()` thay bằng đúng
+     * hàm mà `RunConflictCheck` sẽ dùng để đối chiếu: `Normalizer::phone()` trả `null` khi KHÔNG có
+     * chữ số nào trong chuỗi — tức chuỗi không giống một số điện thoại ở bất kỳ cách viết nào —
+     * đúng và chỉ đúng loại lỗi gõ (`"abc"`, toàn ký tự) cần chặn; mọi cách viết có chữ số, dù ngoặc
+     * hay khoảng trắng ở đâu, đều qua được, đúng ý "bỏ regex mặc định… kiểm bằng Normalizer::phone()".
+     *
+     * @return array<int, mixed>
+     */
+    private function partyFields(bool $isEdit): array
+    {
+        return [
+            Select::make('role')
+                ->label(__('matters.party_fields.role'))
+                ->options(collect(PartyRole::cases())->mapWithKeys(fn (PartyRole $role) => [$role->value => $role->label()]))
+                ->live()
+                ->afterStateUpdated($this->forgetConflictResultOnChange())
+                ->required(),
+            Toggle::make('is_our_client')
+                ->label(__('matters.party_fields.is_our_client'))
+                ->live()
+                ->afterStateUpdated($this->forgetConflictResultOnChange())
+                ->default(false),
+            Select::make('client_id')
+                ->label(__('matters.party_fields.client'))
+                // Fix round 1 finding 3: KHÔNG liệt kê toàn bộ khách hàng văn phòng — một
+                // lawyer có matter.update nhưng không có client.manage chỉ được thấy khách
+                // hàng của những vụ việc họ đã liệt kê được (Matter::listableBy), đúng ranh
+                // giới ClientPolicy::view đã định nghĩa cho MỌI nơi khác đọc danh sách khách
+                // hàng. Chỉ ai có client.manage mới thấy toàn bộ.
+                ->options(fn (): array => VisibleClientOptions::forCurrentUser())
+                ->searchable()
+                // I-2: bắt buộc khi công tắc bật — `BuildsMatterParties` từ chối một bên tự
+                // nhận là khách hàng của văn phòng mà không có hồ sơ nào. Luật ở trait (đúng
+                // cả với seeder/job/console); ô này chỉ nói ra luật đó bằng lỗi gắn đúng ô.
+                ->required(fn (Get $get): bool => (bool) $get('is_our_client'))
+                ->visible(fn (Get $get): bool => (bool) $get('is_our_client'))
+                ->live()
+                ->afterStateUpdated($this->forgetConflictResultOnChange()),
+            TextInput::make('name')
+                ->label(__('matters.party_fields.name'))
+                ->live(onBlur: true)
+                ->afterStateUpdated($this->forgetConflictResultOnChange())
+                ->required()
+                ->maxLength(200),
+            TextInput::make('id_number')
+                ->label(__('matters.party_fields.id_number'))
+                ->helperText($isEdit ? __('matters.party_fields.id_number_edit_help') : null)
+                ->live(onBlur: true)
+                ->afterStateUpdated($this->forgetConflictResultOnChange())
+                ->maxLength(20),
+            TextInput::make('phone')
+                ->label(__('matters.party_fields.phone'))
+                ->helperText($isEdit ? __('matters.party_fields.phone_edit_help') : null)
+                ->tel()
+                ->regex(null)
+                ->rule(fn (): Closure => function (string $attribute, mixed $value, Closure $fail): void {
+                    if (filled($value) && Normalizer::phone($value) === null) {
+                        $fail(__('matters.party_fields.phone_invalid'));
+                    }
+                })
+                ->live(onBlur: true)
+                ->afterStateUpdated($this->forgetConflictResultOnChange())
+                ->maxLength(20),
+            TextInput::make('address')
+                ->label(__('matters.party_fields.address'))
+                ->maxLength(300),
+            Textarea::make('note')
+                ->label(__('matters.party_fields.note'))
+                ->columnSpanFull(),
+            // Hai ô QUYẾT ĐỊNH (C-1, xem docblock lớp): chỉ TỒN TẠI sau khi một kết quả kiểm
+            // tra thật đã hiện ra cho người dùng đọc.
+            Toggle::make('acknowledge_conflict')
+                ->label(__('matters.party_fields.acknowledge_conflict'))
+                ->helperText(__('matters.party_fields.acknowledge_conflict_help'))
+                ->visible(fn (): bool => $this->conflictResult !== null)
+                ->default(false),
+            Textarea::make('override_reason')
+                ->label(__('matters.party_fields.override_reason'))
+                // Hiện cho MỌI vai trò nhưng KHOÁ với ai không ghi đè được, đúng như
+                // `MatterForm`: người dùng cần đọc được luật ngay tại chỗ, và lỗi mức đỏ cần
+                // một ô để bám vào.
+                ->helperText(fn (): string => $this->canOverrideRedConflict()
+                    ? __('matters.party_fields.override_reason_help_allowed')
+                    : __('matters.party_fields.override_reason_help_denied'))
+                ->visible(fn (): bool => $this->redResultShown())
+                ->disabled(fn (): bool => ! $this->canOverrideRedConflict())
+                ->rows(2)
+                ->columnSpanFull(),
+        ];
     }
 
     /** SPEC §6.10 bước 3: chỉ `manager`/`admin` ghi đè được mức đỏ. Chỉ để HIỂN THỊ — cổng thật ở `AddMatterParty`. */
@@ -361,7 +424,91 @@ class PartiesRelationManager extends RelationManager
                     // đó là "ĐÃ GHI ĐÈ XUNG ĐỘT MỨC ĐỎ".
                     ->successNotification(null),
             ])
+            ->recordActions([
+                $this->editPartyAction(),
+                $this->removePartyAction(),
+            ])
             ->modifyQueryUsing(fn (Builder $query): Builder => static::scopeToVisibleMatters($query));
+    }
+
+    /**
+     * "Sửa" một bên (M6.5 Task 9, `conflict-05`). Dùng một `Action` viết tay, KHÔNG phải
+     * `Filament\Actions\EditAction` mặc định: cần gọi `App\Actions\UpdateMatterParty` (nghiệp vụ
+     * nằm ở `app/Actions/`, CLAUDE.md) và dịch hai exception xung đột thành lỗi form giữ modal mở —
+     * đúng hình dạng `CreateAction` bên trên, cùng lớp `partyFields()` dùng chung (đọc docblock
+     * hàm đó cho lý do hai form không được lệch nhau).
+     *
+     * **`mountUsing()` làm HAI việc, không phải một (như `CreateAction` ở trên).** Filament tự
+     * dựng `mountUsing()` từ `->fillForm()` (xem `CanBeMounted::fillForm()` — nó CHÍNH LÀ
+     * `mountUsing(fn ($action, $schema) => $schema?->fill(...))`), nên gọi CẢ `->fillForm()` LẪN
+     * `->mountUsing()` sẽ để lời gọi SAU ghi đè lời gọi TRƯỚC (cùng một thuộc tính `$mountUsing`
+     * duy nhất) — không "cộng dồn" như tên hai hàm gợi ý. Vì mọi lần MỞ modal sửa cũng phải
+     * `forgetConflictResult()` (C-1, cùng lý do `CreateAction`: một modal bỏ dở rồi mở cho một
+     * bên KHÁC không được hiện sẵn kết quả kiểm tra của bên trước), hàm này viết MỘT `mountUsing()`
+     * làm cả hai việc, không dùng `->fillForm()`.
+     *
+     * **Không điền `id_number`/`phone` (cố ý, khác mọi trường khác).** Hai cột đó không tồn tại
+     * trên `MatterParty` — chỉ `id_number_hash`/`phone_normalized` còn lại (SPEC §10.5) — nên
+     * không có GIÁ TRỊ THẬT nào để điền sẵn; bỏ qua hai khoá này trong mảng fill là đủ, `Schema::
+     * fill()` để trống những khoá không có mặt.
+     */
+    private function editPartyAction(): Action
+    {
+        return Action::make('editParty')
+            ->label(__('matters.actions.edit_party'))
+            ->icon(Heroicon::OutlinedPencilSquare)
+            ->modalHeading(__('matters.actions.edit_party_heading'))
+            // Cùng lớp phòng thủ hai tầng của `AddMatterParty`/`CreateAction`:
+            // `MatterPartyPolicy::update()` không phân biệt vụ việc RESTRICTED khỏi vụ thường theo
+            // TỪNG BÊN (nó gọi lại `canSeeMatter()`), nên tự hỏi Gate tại đây trên ĐÚNG bản ghi là
+            // lớp phòng thủ đứng cạnh chính sách, không thay thế nó.
+            ->authorize(fn (MatterParty $record): bool => Gate::allows('update', $record))
+            ->schema($this->partyFields(isEdit: true))
+            ->mountUsing(function (?Schema $schema, MatterParty $record): void {
+                $this->forgetConflictResult();
+                $schema?->fill([
+                    'role' => $record->role->value,
+                    'is_our_client' => $record->is_our_client,
+                    'client_id' => $record->client_id,
+                    'name' => $record->name,
+                    'address' => $record->address,
+                    'note' => $record->note,
+                ]);
+            })
+            // `Action` (chung, khác `EditAction`) không có `->using()` — dùng `->action()` như
+            // mọi Action viết tay khác của lớp này (`changeResponsibleAction()` ở
+            // `DeadlinesRelationManager` cùng công thức).
+            ->action(function (MatterParty $record, array $data): void {
+                $this->editParty($record, $data);
+            })
+            // Cùng lý do `CreateAction`: thông báo mặc định của Filament sẽ chồng lên
+            // `notifyUpdateSaved()`, đúng lúc câu đó có thể là "ĐÃ GHI ĐÈ XUNG ĐỘT MỨC ĐỎ".
+            ->successNotification(null);
+    }
+
+    /**
+     * "Gỡ" một bên (M6.5 Task 9, brief R14). Xoá mềm kèm lý do bắt buộc — đọc docblock
+     * `App\Actions\RemoveMatterParty` cho lý lẽ đầy đủ, kể cả vì sao bên của CHÍNH khách hàng vụ
+     * việc không gỡ được ở đây.
+     */
+    private function removePartyAction(): Action
+    {
+        return Action::make('removeParty')
+            ->label(__('matters.actions.remove_party'))
+            ->icon(Heroicon::OutlinedUserMinus)
+            ->color('danger')
+            ->modalHeading(__('matters.actions.remove_party_heading'))
+            ->authorize(fn (MatterParty $record): bool => Gate::allows('delete', $record))
+            ->schema([
+                Textarea::make('reason')
+                    ->label(__('matters.remove_party_form.reason'))
+                    ->helperText(__('matters.remove_party_form.reason_help'))
+                    ->required()
+                    ->rows(3),
+            ])
+            ->action(function (MatterParty $record, array $data): void {
+                $this->removeParty($record, $data);
+            });
     }
 
     /**
@@ -488,6 +635,102 @@ class PartiesRelationManager extends RelationManager
     }
 
     /**
+     * Thu dữ liệu form → gọi `App\Actions\UpdateMatterParty` → dịch hai exception nghiệp vụ thành
+     * lỗi form giữ modal mở — CÙNG hình dạng `createParty()` ở trên (đọc docblock hàm đó cho lý lẽ
+     * đầy đủ về `$pendingConflictLevel`/`errorKey()`, không lặp lại ở đây), chỉ khác Action đích và
+     * ba khoá dịch câu (`update_parties.*` thay vì `parties.*`, xem `notifyUpdateSaved()`).
+     */
+    private function editParty(MatterParty $record, array $data): MatterParty
+    {
+        $actor = Auth::user();
+        $isOurClient = (bool) ($data['is_our_client'] ?? false);
+
+        // Cùng lý do `createParty()`: `VisibleClientOptions` chỉ giới hạn ô chọn HIỂN THỊ gì, còn
+        // payload thì phía client gửi gì cũng được.
+        if ($isOurClient && filled($data['client_id'] ?? null)) {
+            VisibleClientOptions::assertVisibleToCurrentUser($data['client_id']);
+        }
+
+        $acknowledgeTicked = (bool) ($data['acknowledge_conflict'] ?? false);
+        $acknowledged = ($acknowledgeTicked && $this->pendingConflictLevel !== null)
+            ? ConflictLevel::tryFrom($this->pendingConflictLevel)
+            : null;
+
+        $overrideReason = $this->redResultShown() ? ($data['override_reason'] ?? null) : null;
+
+        try {
+            $update = app(UpdateMatterParty::class)->handle(
+                party: $record,
+                actor: $actor,
+                partyData: [
+                    'role' => $data['role'],
+                    'is_our_client' => $isOurClient,
+                    'client_id' => $isOurClient ? ($data['client_id'] ?? null) : null,
+                    'name' => $data['name'],
+                    'address' => $data['address'] ?? null,
+                    'note' => $data['note'] ?? null,
+                    // Để trống nghĩa là "không đổi" ở form SỬA (xem docblock `partyFields()` và
+                    // `BuildsMatterParties::applyMatterPartyData()`), KHÁC form thêm bên.
+                    'id_number' => $data['id_number'] ?? null,
+                    'phone' => $data['phone'] ?? null,
+                ],
+                overrideReason: $overrideReason,
+                acknowledged: $acknowledged,
+            );
+        } catch (ConflictBlocked $exception) {
+            $this->pendingConflictLevel = null;
+            $this->conflictResult = $exception->result->toArray();
+            static::notifyUpdateConflictBlocked($exception->result);
+
+            throw ValidationException::withMessages([
+                $this->errorKey('override_reason') => [$this->canOverrideRedConflict()
+                    ? __('matters.update_parties.conflict_blocked_retry')
+                    : __('matters.update_parties.conflict_blocked_retry_denied')],
+            ]);
+        } catch (ConflictAcknowledgementRequired $exception) {
+            $this->pendingConflictLevel = $exception->result->level->value;
+            $this->conflictResult = $exception->result->toArray();
+            static::notifyAcknowledgementRequired($exception->result);
+
+            throw ValidationException::withMessages([
+                $this->errorKey('acknowledge_conflict') => [__('matters.parties.conflict_ack_retry')],
+            ]);
+        } catch (DomainException $exception) {
+            throw ValidationException::withMessages([
+                $this->errorKey('client_id') => [$exception->getMessage()],
+            ]);
+        }
+
+        static::notifyUpdateSaved($update);
+
+        $this->forgetConflictResult();
+
+        return $update->party;
+    }
+
+    /**
+     * Thu lý do gỡ → gọi `App\Actions\RemoveMatterParty` → dịch `ValidationException` của Action
+     * (lý do rỗng, hoặc bên của chính khách hàng vụ việc) sang đúng ô `reason` của modal đang mở.
+     */
+    private function removeParty(MatterParty $record, array $data): void
+    {
+        $actor = Auth::user();
+
+        try {
+            app(RemoveMatterParty::class)->handle($record, $actor, $data['reason'] ?? '');
+        } catch (ValidationException $exception) {
+            throw ValidationException::withMessages([
+                $this->errorKey('reason') => $exception->errors()['reason'] ?? [__('actions.unauthorized')],
+            ]);
+        }
+
+        Notification::make()
+            ->title(__('matters.remove_party_form.success'))
+            ->success()
+            ->send();
+    }
+
+    /**
      * `{mountedActionSchemaN}.{field}` — cùng công thức `Filament\Forms\Testing\TestsForms::
      * assertHasFormErrors()` dùng để định vị lỗi trường của action đang mở (mượn tên schema từ
      * chính action đang mounted thay vì tự đoán chỉ số, vì action có thể lồng nhau).
@@ -598,6 +841,49 @@ class PartiesRelationManager extends RelationManager
     }
 
     /**
+     * Mức đỏ, KHÔNG có ghi đè hợp lệ, khi đang SỬA một bên (M6.5 Task 9). Cùng lý lẽ
+     * `notifyConflictBlocked()` ở trên — chưa lưu gì cả, chỉ khác câu: "chưa lưu THAY ĐỔI này",
+     * không phải "chưa thêm bên này", vì bên đó đã tồn tại từ trước lượt sửa.
+     */
+    private static function notifyUpdateConflictBlocked(ConflictCheckResult $result): void
+    {
+        Notification::make()
+            ->title(__('matters.update_parties.conflict_blocked_title'))
+            ->body(static::conflictSummary($result, null))
+            ->color('danger')
+            ->persistent()
+            ->send();
+    }
+
+    /**
+     * Bên ĐÃ SỬA XONG (M6.5 Task 9) — cùng bốn mức, cùng lý lẽ `notifySaved()` ở trên, chỉ đổi hai
+     * khoá dịch nói riêng về việc "thêm" thành "sửa"/"lưu thay đổi". Hai khoá còn lại
+     * (`saved_clear_with_confirmed`, `conflict_check_title_clear`) dùng CHUNG với `notifySaved()`:
+     * câu chữ của chúng không nhắc "thêm bên" nên đúng cho cả hai thao tác.
+     */
+    private static function notifyUpdateSaved(UpdateMatterPartyResult $update): void
+    {
+        $result = $update->result;
+
+        [$title, $color] = match (true) {
+            $update->overridden => [__('matters.update_parties.saved_overridden'), 'danger'],
+            $result->requiresAcknowledgement() => [__('matters.update_parties.saved_after_review'), 'warning'],
+            $result->confirmedMatches->isNotEmpty() => [
+                __('matters.parties.saved_clear_with_confirmed', ['count' => $result->confirmedMatches->count()]),
+                'warning',
+            ],
+            default => [__('matters.parties.conflict_check_title_clear'), 'success'],
+        };
+
+        Notification::make()
+            ->title($title)
+            ->body(static::conflictSummary($result, $update->overrideReason))
+            ->color($color)
+            ->persistent()
+            ->send();
+    }
+
+    /**
      * Phần thân chung của cả ba thông báo: danh sách hồ sơ trùng, cảnh báo bên thiếu định danh, và
      * lý do ghi đè nếu có.
      *
@@ -624,36 +910,50 @@ class PartiesRelationManager extends RelationManager
      * docblock lớp), nên thông báo là nơi DUY NHẤT còn lại; thiếu hai nhãn đó ở đây là thiếu hẳn,
      * không phải thiếu một bản sao. Dùng `allMatches()` (khớp MỚI + đã xác nhận) để một khớp đã
      * xác nhận/ghi đè trước đó vẫn "hiện" (R13c), đánh dấu bằng `already_confirmed`.
+     *
+     * **`<br>`, không `"\n"` (`conflict-09`, M6.5 Task 9).** Filament in thân thông báo qua
+     * `str($body)->sanitizeHtml()` (`Symfony\Component\HtmlSanitizer`, cấu hình `allowSafeElements()`
+     * — cho phép các thẻ định dạng cơ bản như `<br>`), rồi bơm HTML đó thẳng vào DOM trong một
+     * `<div>`. CSS đã biên dịch của lớp `.fi-no-notification-body` không có `white-space: pre-line`,
+     * nên MỘT chuỗi xuống dòng bằng `"\n"` chạy liền thành một đoạn — hai hồ sơ trùng trở thành một
+     * dòng khó đọc, đúng lỗ hổng `conflict-09` mô tả. `<br>` là HTML thật, được sanitizer giữ lại.
+     *
+     * **Từng mảnh ĐỘNG (tên bên, lý do ghi đè, danh sách bên thiếu định danh) phải qua `e()` TRƯỚC
+     * khi ghép chuỗi.** Sanitizer chạy trên CẢ CHUỖI cuối cùng, nên một tên bên gõ tay chứa `<`/`&`
+     * (dù vô tình hay cố ý) sẽ được TRÌNH DUYỆT/SANITIZER hiểu như mở đầu một thẻ HTML nếu không
+     * escape trước — `e()` biến nó về thực thể HTML (`&lt;`) để nó luôn hiện đúng NGUYÊN VĂN như
+     * một tên, không bao giờ bị hiểu nhầm là đánh dấu. Chỉ hai dấu phân cách `<br>` do CHÍNH hàm
+     * này chèn vào mới là HTML thật, cố ý không escape.
      */
     private static function conflictSummary(ConflictCheckResult $result, ?string $overrideReason): string
     {
         $formatMatch = fn (ConflictMatch $match, bool $alreadyConfirmed): string => sprintf(
             '%s (%s) — %s, %s, %s: %s — %s: %s, %s%s',
-            $match->matterCode,
-            $match->matterTypeName,
-            $match->partyRole->label(),
-            $match->partyName,
-            $match->tier->label(),
-            $match->level->label(),
-            __('matters.conflict.column_our_party'),
-            $match->ourPartyRole->label(),
-            $match->ourPartyName,
-            $alreadyConfirmed ? ' — '.__('matters.conflict.already_confirmed') : '',
+            e($match->matterCode),
+            e($match->matterTypeName),
+            e($match->partyRole->label()),
+            e($match->partyName),
+            e($match->tier->label()),
+            e($match->level->label()),
+            e(__('matters.conflict.column_our_party')),
+            e($match->ourPartyRole->label()),
+            e($match->ourPartyName),
+            $alreadyConfirmed ? ' — '.e(__('matters.conflict.already_confirmed')) : '',
         );
 
         $allLines = $result->matches->map(fn (ConflictMatch $match) => $formatMatch($match, false))
             ->concat($result->confirmedMatches->map(fn (ConflictMatch $match) => $formatMatch($match, true)));
 
-        $lines = [$allLines->isEmpty() ? __('matters.parties.conflict_check_clear') : $allLines->implode("\n")];
+        $lines = [$allLines->isEmpty() ? e(__('matters.parties.conflict_check_clear')) : $allLines->implode('<br>')];
 
         if ($result->hasIncompleteParties()) {
-            $lines[] = __('matters.parties.conflict_check_incomplete', ['names' => implode(', ', $result->incompleteParties())]);
+            $lines[] = e(__('matters.parties.conflict_check_incomplete', ['names' => implode(', ', $result->incompleteParties())]));
         }
 
         if (filled($overrideReason)) {
-            $lines[] = __('matters.conflict.saved_overridden_reason', ['reason' => $overrideReason]);
+            $lines[] = e(__('matters.conflict.saved_overridden_reason', ['reason' => $overrideReason]));
         }
 
-        return implode("\n", $lines);
+        return implode('<br>', $lines);
     }
 }
