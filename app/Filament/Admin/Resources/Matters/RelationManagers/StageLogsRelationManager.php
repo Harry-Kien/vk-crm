@@ -57,7 +57,15 @@ class StageLogsRelationManager extends RelationManager
                     // không dùng chung cache); $this->getOwnerRecord() chỉ chạm quan hệ matterType một
                     // lần cho CẢ bảng vì mọi dòng gọi trên cùng một instance Matter, quan hệ đã nạp
                     // được Eloquent cache lại từ lần truy cập đầu tiên.
-                    ->formatStateUsing(fn (StageLog $record): string => $this->getOwnerRecord()->matterType->stage($record->to_stage)?->label ?? $record->to_stage),
+                    //
+                    // Task 19, vòng sửa 1 (Important): stage($key) chỉ nhìn thấy giai đoạn CÒN
+                    // SỐNG — xoá mềm một giai đoạn mà chỉ LỊCH SỬ (stage_logs) còn dùng là hành vi
+                    // ĐƯỢC PHÉP (MatterTypeStagePolicy::delete() không chặn lịch sử), nên trước
+                    // đây dòng lịch sử đó rơi thẳng về ?? $record->to_stage — khoá kỹ thuật thô,
+                    // không phải câu tiếng Việt. stageIncludingTrashed() (MatterType) tra thêm
+                    // các dòng đã xoá mềm, dùng chung với MatterProgress::stageLabel() (cổng
+                    // khách) để hai màn hình không lệch nhau.
+                    ->formatStateUsing(fn (StageLog $record): string => $this->getOwnerRecord()->matterType->stageIncludingTrashed($record->to_stage)?->label ?? $record->to_stage),
                 TextColumn::make('internal_note')
                     ->label(__('matters.stage_log_fields.internal_note'))
                     ->html()

@@ -4,6 +4,7 @@ use App\Enums\Role;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\StageLogsRelationManager;
 use App\Models\Matter;
+use App\Models\MatterType;
 use App\Models\StageLog;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -63,4 +64,33 @@ it('renders the progress tab again after an unpublished update carries non-empty
     ])
         ->assertOk()
         ->assertSee('Đã gọi khách, hẹn tuần sau.');
+});
+
+/**
+ * Task 19, vòng sửa 1 (Important — I1): xoá mềm một giai đoạn mà chỉ LỊCH SỬ (`stage_logs`) còn
+ * dùng là hành vi ĐƯỢC PHÉP (`MatterTypeStagePolicy::delete()` chỉ chặn hồ sơ ĐANG đứng và
+ * `allowed_next`, không chặn lịch sử) — nhưng trước bản vá này, cột "Giai đoạn" của tab Tiến độ
+ * rơi về `?? $record->to_stage` (khoá kỹ thuật thô, không phải câu tiếng Việt) cho đúng dòng lịch
+ * sử đó, vì `MatterType::stage($key)` chỉ đọc các giai đoạn CÒN SỐNG.
+ */
+it('shows the Vietnamese label of a soft-deleted stage on the admin timeline, not its raw key', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $type = MatterType::factory()->withStages()->create();
+    $matter = Matter::factory()->for($type)->atStage('collecting_documents')->create(['lead_lawyer_id' => $lawyer->id]);
+
+    // Cột được vẽ ra là `to_stage` (formatStateUsing đọc $record->to_stage) — giai đoạn bị xoá
+    // mềm PHẢI là đích của dòng chuyển (`to_stage`), không phải điểm xuất phát (`from_stage`).
+    StageLog::factory()->for($matter)->transition('collecting_documents', 'drafting')->create();
+
+    $draftingLabel = $type->stage('drafting')->label;
+    $type->stage('drafting')->delete();
+
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(StageLogsRelationManager::class, [
+        'ownerRecord' => $matter->fresh(),
+        'pageClass' => ViewMatter::class,
+    ])
+        ->assertOk()
+        ->assertSee($draftingLabel);
 });

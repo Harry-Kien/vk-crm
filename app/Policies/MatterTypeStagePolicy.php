@@ -70,12 +70,14 @@ class MatterTypeStagePolicy
             return Response::deny(__('matter_types.stages.delete_blocked_in_use', ['count' => $matterCount]));
         }
 
-        $referencingLabels = MatterTypeStage::query()
-            ->where('matter_type_id', $matterTypeStage->matter_type_id)
-            ->whereKeyNot($matterTypeStage->getKey())
-            ->get()
-            ->filter(fn (MatterTypeStage $other): bool => $other->allows($matterTypeStage->key))
-            ->pluck('label');
+        // Task 19, vòng sửa 1: dùng chung MatterTypeStage::stagesReferencing() với luật đổi
+        // `key` (MatterTypeStage::keyInUse()) — cùng một câu hỏi ("còn giai đoạn nào khác trỏ
+        // allowed_next vào key này không"), không lặp lại truy vấn ở hai nơi.
+        $referencingLabels = MatterTypeStage::stagesReferencing(
+            (int) $matterTypeStage->matter_type_id,
+            $matterTypeStage->key,
+            $matterTypeStage->getKey(),
+        )->pluck('label');
 
         if ($referencingLabels->isNotEmpty()) {
             return Response::deny(__('matter_types.stages.delete_blocked_allowed_next', [

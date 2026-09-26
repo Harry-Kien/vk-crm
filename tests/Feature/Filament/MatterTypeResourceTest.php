@@ -348,10 +348,21 @@ it('refuses to change the key of a stage a stage log points at', function () {
 });
 
 /** Vế dương: đổi `key` của một giai đoạn KHÔNG ai dùng vẫn bình thường. */
+/**
+ * KHÔNG dùng `withStages()` (StagePresets::civil()) ở đây: bộ đó không có giai đoạn nào KHÔNG bị
+ * một giai đoạn khác trỏ tới trong `allowed_next` (kể cả `'on_hold'`, bị `intake` VÀ
+ * `collecting_documents` cùng trỏ tới) — xem ghi chú ở
+ * `MatterTypeTest::"lets a stage change its key through the bare Eloquent relation..."`. Bản test
+ * trước fix round 1 dùng `'on_hold'` và xanh sai lý do: `keyInUse()` khi đó chưa kiểm
+ * `allowed_next`.
+ */
 it('lets the admin change the key of a stage nothing uses', function () {
     $admin = User::factory()->withRole(Role::Admin)->create();
-    $type = MatterType::factory()->withStages()->create();
-    $stage = $type->stage('on_hold');
+    $type = MatterType::factory()->create();
+    $stage = $type->stages()->create([
+        'key' => 'a', 'label' => 'Giai đoạn A', 'client_label' => 'A', 'sort_order' => 1,
+        'allowed_next' => [], 'default_next_update_days' => 14,
+    ]);
 
     $this->actingAs($admin, 'web');
     Filament::setCurrentPanel('admin');
@@ -372,6 +383,53 @@ it('lets the admin change the key of a stage nothing uses', function () {
         ->assertHasNoTableActionErrors();
 
     expect($stage->fresh()->key)->toBe('tam_dung');
+});
+
+/**
+ * Task 19, vòng sửa 1 (Critical): đổi `key` của một giai đoạn còn nằm trong `allowed_next` của
+ * một giai đoạn KHÁC bị chặn NGAY TRÊN màn hình sửa, kèm một câu tiếng Việt NÊU TÊN giai đoạn
+ * đang trỏ tới — không phải câu chung chung "đang có hồ sơ hoặc dòng tiến độ dùng". Trước bản vá
+ * này đường này lọt qua trót lọt (xem `MatterTypeTest` cho phép đo qua Eloquent trần).
+ */
+it('refuses to change the key of a stage still listed in another stage\'s allowed_next', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $type = MatterType::factory()->create();
+    $a = $type->stages()->create([
+        'key' => 'a', 'label' => 'Giai đoạn A', 'client_label' => 'A', 'sort_order' => 1,
+        'allowed_next' => ['b'], 'default_next_update_days' => 14,
+    ]);
+    $b = $type->stages()->create([
+        'key' => 'b', 'label' => 'Giai đoạn B', 'client_label' => 'B', 'sort_order' => 2,
+        'allowed_next' => [], 'default_next_update_days' => 14,
+    ]);
+
+    $this->actingAs($admin, 'web');
+    Filament::setCurrentPanel('admin');
+
+    $component = $this->livewire(StagesRelationManager::class, [
+        'ownerRecord' => $type,
+        'pageClass' => EditMatterType::class,
+    ])
+        ->mountTableAction('edit', $b)
+        ->setTableActionData([
+            'key' => 'c',
+            'label' => $b->label,
+            'client_label' => $b->client_label,
+            'sort_order' => $b->sort_order,
+            'default_next_update_days' => $b->default_next_update_days,
+        ])
+        ->callMountedTableAction()
+        ->assertHasTableActionErrors(['key']);
+
+    // `assertHasTableActionErrors(['key' => $message])` không dùng được ở đây: Livewire cắt
+    // chuỗi tại dấu ':' đầu tiên rồi coi phần trước là TÊN LUẬT (đúng cú pháp "min:3" của Laravel)
+    // — thông điệp thật của mình có dấu ':' ("Không đổi được định danh: ..."), nên nó bị cắt cụt
+    // và so sai. Đọc thẳng error bag ở đúng state path mà thông báo lỗi phía trên xác nhận
+    // (`mountedActions.0.data.<field>`) để so nguyên văn.
+    expect($component->errors()->first('mountedActions.0.data.key'))
+        ->toBe(__('matter_types.stage_fields.key_locked_allowed_next', ['labels' => $a->label]));
+
+    expect($b->fresh()->key)->toBe('b');
 });
 
 /** Cặp dương đã có ở trên (create), nhưng cần khẳng định riêng: LƯU LẠI không đổi `key` không trip guard dù hồ sơ đang dùng nó. */

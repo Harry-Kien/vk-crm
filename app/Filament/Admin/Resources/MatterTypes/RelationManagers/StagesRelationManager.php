@@ -66,8 +66,24 @@ class StagesRelationManager extends RelationManager
                     // (không trip guard), khớp cặp dương "lets a stage save again without
                     // changing its key". Model::booted() (static::saving) là chốt chặn thứ hai,
                     // phủ mọi đường ghi không qua form này (Action, artisan, seeder, factory).
+                    //
+                    // Task 19, vòng sửa 1 (Critical): kiểm `referencingStageLabels()` TRƯỚC —
+                    // đây là nhánh của `isKeyInUse()` cần một câu NÊU TÊN giai đoạn đang trỏ tới,
+                    // không phải câu chung chung `key_locked`. Không tách nhánh này thì
+                    // `isKeyInUse()` vẫn từ chối đúng (nó đã gộp cả ba điều kiện), nhưng người
+                    // bấm chỉ đọc được "đang có hồ sơ hoặc dòng tiến độ dùng" — sai lý do thật.
                     ->rule(fn (?MatterTypeStage $record): Closure => function (string $attribute, mixed $value, Closure $fail) use ($record): void {
                         if ($record === null || $value === $record->key) {
+                            return;
+                        }
+
+                        $referencingLabels = $record->referencingStageLabels();
+
+                        if ($referencingLabels->isNotEmpty()) {
+                            $fail(__('matter_types.stage_fields.key_locked_allowed_next', [
+                                'labels' => $referencingLabels->implode(', '),
+                            ]));
+
                             return;
                         }
 

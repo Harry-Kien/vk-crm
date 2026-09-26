@@ -1239,6 +1239,32 @@ it('still serves the page when the matter type behind it has been soft deleted',
         ->assertSee('Toà đã nhận đơn khởi kiện.', escape: false);
 });
 
+/**
+ * Task 19, vòng sửa 1 (Important — I1): cùng lỗ hổng ở tab Tiến độ của admin
+ * (`StageLogsRelationManager`), phía cổng khách: xoá mềm MỘT giai đoạn mà chỉ LỊCH SỬ
+ * (`stage_logs`) còn dùng là hành vi ĐƯỢC PHÉP (`MatterTypeStagePolicy::delete()` chỉ chặn hồ sơ
+ * ĐANG đứng và `allowed_next`, không chặn lịch sử). Trước bản vá này, `stageLabel()` trả `null`
+ * cho đúng dòng đó — khách đọc một dòng "đã chuyển giai đoạn" mà không có tên giai đoạn nào, dù
+ * dòng lịch sử đó là thật. `stageIncludingTrashed()` (dùng chung với admin) đóng lỗ này.
+ */
+it('shows the client label of a soft-deleted stage on the portal timeline, not leaving it blank', function () {
+    $draftingLabel = $this->matter->matterType->stage('drafting')->client_label;
+
+    StageLog::factory()->for($this->matter)->published()->transition('collecting_documents', 'drafting')->create([
+        'public_content' => 'Đã chuyển sang bước soạn đơn.',
+    ]);
+
+    $this->matter->matterType->stage('drafting')->delete();
+
+    $html = $this->actingAs($this->clientUser, 'client')
+        ->get(progressUrl($this->matter))
+        ->assertOk()
+        ->getContent();
+
+    expect($html)->toContain($draftingLabel)
+        ->toContain('Đã chuyển sang bước soạn đơn.');
+});
+
 // =========================================================================================
 // I4 — TRANG LÀ MỘT BỀ MẶT RPC: GIÁ TRỊ TRẢ VỀ CỦA MỌI PHƯƠNG THỨC CÔNG KHAI ĐI VÀO RESPONSE
 // =========================================================================================

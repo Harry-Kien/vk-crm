@@ -572,12 +572,18 @@ class MatterProgress extends Page
     /**
      * Nhãn dễ hiểu của giai đoạn một dòng chuyển tới.
      *
-     * `null` ở ba trường hợp, và view xử một cách như nhau: dòng không ghi giai đoạn đích, loại
-     * vụ việc không còn khai báo giai đoạn ấy, và **cả loại vụ việc đã bị xoá mềm** — trường hợp
-     * thứ ba là lý do `?->` sau `matterType`, không phải một thói quen. Một quản trị viên xoá một
-     * loại vụ việc làm quan hệ này trả `null` cho mọi hồ sơ đang đứng trong loại đó, và trước lần
-     * vá này thì đó là một trang 500 cho từng khách hàng liên quan. Chốt chặn phía ghi nằm ở
-     * `MatterTypePolicy::delete()`.
+     * `null` ở hai trường hợp, và view xử một cách như nhau: dòng không ghi giai đoạn đích, và
+     * **cả loại vụ việc đã bị xoá mềm** — trường hợp thứ hai là lý do `?->` sau `matterType`,
+     * không phải một thói quen. Một quản trị viên xoá một loại vụ việc làm quan hệ này trả `null`
+     * cho mọi hồ sơ đang đứng trong loại đó, và trước lần vá này thì đó là một trang 500 cho từng
+     * khách hàng liên quan. Chốt chặn phía ghi nằm ở `MatterTypePolicy::delete()`.
+     *
+     * **KHÔNG còn `null` khi chỉ MỘT GIAI ĐOẠN đã bị xoá mềm** (Task 19, vòng sửa 1 — Important):
+     * xoá mềm một giai đoạn mà chỉ LỊCH SỬ (`stage_logs`) còn dùng là hành vi ĐƯỢC PHÉP
+     * (`MatterTypeStagePolicy::delete()` không chặn lịch sử), nên trước đây khách đọc một dòng
+     * tiến độ CÓ THẬT nhưng không có nhãn nào — `stageIncludingTrashed()` (MatterType) tra thêm
+     * các dòng đã xoá mềm, dùng chung với `StageLogsRelationManager` (tab "Tiến độ" của admin) để
+     * hai màn hình không lệch nhau.
      */
     private function stageLabel(?string $key): ?string
     {
@@ -585,7 +591,7 @@ class MatterProgress extends Page
             return null;
         }
 
-        return $this->matter()->matterType?->stage($key)?->client_label;
+        return $this->matter()->matterType?->stageIncludingTrashed($key)?->client_label;
     }
 
     // -------------------------------------------------------------------------------------
