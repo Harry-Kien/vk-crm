@@ -106,6 +106,25 @@ it('records the activation in the audit log against the actor passed in', functi
         ->and($audit->properties['on_signing_released'])->toBe(1);
 });
 
+/**
+ * Ba người khác nhau: quản lý soạn nháp, quản trị đang giữ phiên, luật sư phụ trách kích hoạt. Nếu
+ * người soạn cũng là người kích hoạt thì `updated_by` đã đúng từ lúc soạn và không test nào thấy
+ * được một `blameOn($actor)` bị quên ở bước kích hoạt (probe A10/A11 từng sống sót vì thế).
+ */
+it('blames the contract and its on-signing instalments on the activating actor, not the drafter or the session', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $draft = activationDraft($manager, $this->matter, 100_000_000);
+    $this->actingAs(User::factory()->withRole(Role::Admin)->create(), 'web');
+
+    $contract = activate($this->lead, $draft, '2026-09-20');
+    [$onSigning, $byStage] = $contract->instalments()->get()->all();
+
+    expect($contract->created_by)->toBe($manager->id)
+        ->and($contract->updated_by)->toBe($this->lead->id)
+        ->and($onSigning->updated_by)->toBe($this->lead->id)
+        ->and($byStage->updated_by)->toBe($manager->id);
+});
+
 it('refuses an account that cannot manage the contract', function () {
     $contract = activationDraft($this->lead, $this->matter, 100_000_000);
     $outsider = User::factory()->withRole(Role::Lawyer)->create();

@@ -236,6 +236,16 @@ it('holds while a client portal session is open', function () {
             ->and(fn () => Instalment::factory()->for($contract)->create(['sequence' => 3, 'amount' => 1]))
             ->toThrow(ContractTotalMismatch::class)
             ->and(fn () => Contract::query()->withoutGlobalScopes()->find($contract->id)->update(['total_amount' => 1]))
+            ->toThrow(ContractTotalMismatch::class)
+            // Hai lần ghi mà một tổng đọc CÓ scope (0 hàng) sẽ nhận nhầm là khớp: đợt đầu thành
+            // 100.000.000 (các đợt khác "không có" + chính nó = giá trị hợp đồng), và giá trị hợp
+            // đồng thành 0 ("không có" đợt nào). Tổng thật là 140.000.000 và 100.000.000.
+            ->and(fn () => $contract->instalments()->withoutGlobalScopes()->first()->update(['amount' => 100_000_000]))
+            ->toThrow(ContractTotalMismatch::class)
+            ->and(fn () => Contract::query()->withoutGlobalScopes()->find($contract->id)->update(['total_amount' => 0]))
             ->toThrow(ContractTotalMismatch::class);
     });
+
+    expect(ScheduleTotal::of($contract->id))->toBe(100_000_000)
+        ->and($contract->refresh()->total_amount)->toBe(100_000_000);
 });

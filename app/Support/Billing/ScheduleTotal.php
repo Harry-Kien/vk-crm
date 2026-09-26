@@ -31,8 +31,9 @@ use Illuminate\Support\Collection;
  *     {@see self::whileAmending()}, rồi kiểm lại tổng từ DB trước khi commit.
  *  4. `billing:check-invariants` — {@see self::mismatchedActiveContracts()}.
  *
- * **Tầng 2 chỉ canh đường Eloquent.** `DB::table('instalments')->update(...)`,
- * `Instalment::query()->update(...)` và SQL thô đi vòng qua hook — cùng giới hạn đã ghi ở
+ * **Tầng 2 chỉ canh đường Eloquent có sự kiện.** `DB::table('instalments')->update(...)`,
+ * `Instalment::query()->update(...)`, SQL thô, và cả `saveQuietly()` / `Model::withoutEvents()`
+ * (tắt sự kiện model nên hook không chạy) đi vòng qua hook — cùng giới hạn đã ghi ở
  * `ContractAmendment` và `Client::booted()`. Tầng 4 là thứ bắt được chúng, sau khi đã xảy ra.
  * Hook cũng không khoá: hai lần ghi qua model đồng thời trên cùng một hợp đồng có thể cùng đọc một
  * tổng cũ. Đường ghi hợp lệ duy nhất đổi số tiền (phụ lục) khoá hàng `contracts` trước.

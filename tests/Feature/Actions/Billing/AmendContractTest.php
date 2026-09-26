@@ -190,6 +190,32 @@ it('records the amendment in the audit log against the actor passed in', functio
         ->and($audit->properties['cancelled'])->toBe([$this->third->id]);
 });
 
+/**
+ * Người ký phụ lục (quản lý) khác người soạn và kích hoạt (luật sư phụ trách) và khác người giữ
+ * phiên (quản trị): nếu trùng, `updated_by` đã đúng từ trước và không test nào thấy được một
+ * `blameOn($actor)` bị quên (probe M25 từng sống sót vì thế).
+ */
+it('blames every row it writes on the amending actor, not on the drafter or the session', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $this->actingAs(User::factory()->withRole(Role::Admin)->create(), 'web');
+
+    $amendment = amend($manager, $this->contract, 80_000_000, [
+        ['action' => 'update', 'instalment_id' => $this->second->id, 'amount' => 30_000_000],
+        ['action' => 'cancel', 'instalment_id' => $this->third->id],
+        ['action' => 'add', 'name' => 'Đợt bổ sung', 'amount' => 20_000_000, 'trigger_type' => 'due_date', 'due_date' => '2027-06-30'],
+    ]);
+
+    $added = $this->contract->instalments()->get()->last();
+
+    expect($amendment->created_by)->toBe($manager->id)
+        ->and($this->contract->refresh()->updated_by)->toBe($manager->id)
+        ->and($this->second->refresh()->updated_by)->toBe($manager->id)
+        ->and($this->third->refresh()->updated_by)->toBe($manager->id)
+        ->and($added->created_by)->toBe($manager->id)
+        ->and($this->first->refresh()->updated_by)->toBe($this->lead->id)
+        ->and(Activity::query()->where('event', 'contract_amended')->sole()->causer_id)->toBe($manager->id);
+});
+
 it('puts the per-write guard back once the amendment is done', function () {
     amend($this->lead, $this->contract, 70_000_000, [['action' => 'cancel', 'instalment_id' => $this->third->id]]);
 
