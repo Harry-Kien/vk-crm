@@ -22,7 +22,10 @@ use Illuminate\Validation\ValidationException;
  */
 trait ValidatesBillingInput
 {
-    /** Độ dài tối thiểu của MỌI lý do nội bộ của M9 (phụ lục, huỷ hợp đồng; miễn và huỷ khoản thu ở Task 5). */
+    /**
+     * Độ dài tối thiểu của lý do nội bộ: phụ lục và huỷ hợp đồng hôm nay; miễn đợt và huỷ khoản thu
+     * (M9 Task 5) nên dùng lại đúng hằng và `validatedReason()` này thay vì viết lần thứ hai.
+     */
     public const MIN_REASON_LENGTH = 20;
 
     /** `instalments.name` là `string(150)`. */

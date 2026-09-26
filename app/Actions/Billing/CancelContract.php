@@ -20,9 +20,10 @@ use Illuminate\Support\Facades\Gate;
  * `Contract::deleting`).
  *
  * **Không chạm tới đợt nào và khoản thu nào.** Tiền đã thu vẫn là tiền đã thu, và lịch thu là lịch
- * sử của hợp đồng đó. Mọi nơi đọc công nợ (M9 Task 5, 8, 9, 11) chỉ đọc hợp đồng `active`, nên các
- * đợt còn `pending` của một hợp đồng đã huỷ không hiện thành nợ ở đâu cả — điều kiện đó thuộc về
- * các truy vấn ấy, ghi ở đây để chúng không quên. Bất biến tổng chỉ giữ trên hợp đồng `active`.
+ * sử của hợp đồng đó. Hệ quả cho các task sau, ghi ở đây để chúng không quên: mọi nơi đọc công nợ
+ * (M9 Task 5 `scopeOverdue`/`BillingSummary`, Task 8, 9, 11) PHẢI lọc hợp đồng `active` — nếu
+ * không, các đợt còn `pending` của một hợp đồng đã huỷ sẽ hiện thành nợ quá hạn. Bất biến tổng chỉ
+ * giữ trên hợp đồng `active`.
  *
  * Khoá hàng `contracts`, đọc lại từ hàng đã khoá; `ContractPolicy::update` qua
  * `Gate::forUser($actor)`; `Audit::record(..., $actor)` bên trong transaction.

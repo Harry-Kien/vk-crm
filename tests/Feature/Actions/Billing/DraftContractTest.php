@@ -15,6 +15,7 @@ use App\Models\User;
 use App\Support\Billing\Money;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Spatie\Activitylog\Models\Activity;
 
@@ -143,6 +144,21 @@ it('refuses an account that cannot manage the money of this matter', function ()
     $outsider = User::factory()->withRole(Role::Lawyer)->create();
 
     expect(fn () => draftFor($outsider, $this->matter))->toThrow(AuthorizationException::class)
+        ->and(Contract::count())->toBe(0);
+});
+
+it('lets the manager draft on an ordinary matter', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+
+    expect(draftFor($manager, $this->matter)->created_by)->toBe($manager->id);
+});
+
+it('asks the gate about the matter as it is now, not as the caller loaded it', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $stale = Matter::query()->findOrFail($this->matter->id);
+    DB::table('matters')->where('id', $this->matter->id)->update(['confidentiality' => 'restricted']);
+
+    expect(fn () => draftFor($manager, $stale))->toThrow(AuthorizationException::class)
         ->and(Contract::count())->toBe(0);
 });
 

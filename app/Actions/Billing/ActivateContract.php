@@ -31,8 +31,8 @@ use Illuminate\Support\Facades\Gate;
  *  6. Ghi `status = active`, `signed_at`, `activated_by = $actor` (người ở văn phòng ghi nhận việc
  *     ký — không phải chữ ký số).
  *  7. Mọi đợt `on_signing`: `due_date = signed_at + due_days_after_trigger`, `triggered_at =
- *     now()`. (Đợt của một bản nháp luôn `pending` — `DraftContract` chỉ tạo đợt `pending`, và
- *     không Action nào đổi trạng thái đợt trước khi kích hoạt.)
+ *     now()`. (Đợt của một bản nháp luôn `pending` — hôm nay `DraftContract` chỉ tạo đợt
+ *     `pending`, và không Action nào đổi trạng thái đợt của bản nháp.)
  *  8. **Điểm nối cho đợt theo giai đoạn** — {@see self::releaseStageTriggeredInstalments()}.
  *  9. `Audit::record('contract_activated', ..., $actor)` bên trong transaction.
  *
