@@ -25,6 +25,7 @@ return [
     ],
     'open_matter' => [
         'client_role_required' => 'Phải chọn vai của khách hàng (nguyên đơn/bị đơn/...) trong vụ việc này trước khi mở vụ việc — không có mặc định, vì mặc định sai sẽ khiến kiểm tra xung đột lợi ích bỏ sót mức đỏ.',
+        'client_role_opposing_counsel' => 'Khách hàng của văn phòng không thể mang vai "Luật sư đối phương" trong chính vụ việc mình đang là khách hàng.',
     ],
     'add_team_member' => [
         'lead_role_denied' => 'Không thể thêm ai vào đội ngũ với vai "Luật sư phụ trách" qua màn hình này — vai đó chỉ đổi được qua bàn giao vụ việc.',

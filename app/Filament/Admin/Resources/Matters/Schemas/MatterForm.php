@@ -93,7 +93,12 @@ class MatterForm
             Select::make('client_role')
                 ->label(__('matters.create_form.client_role'))
                 ->helperText(__('matters.create_form.client_role_help'))
-                ->options(static::partyRoleOptions())
+                // R13(f)/`conflict-12` (M6.5 Task 8): "Luật sư đối phương" bị loại khỏi vai của
+                // CHÍNH khách hàng — xem `clientRolePartyOptions()`. Ô "Vai của bên đó" trong danh
+                // sách các bên KHÁC (`otherPartiesRepeater()`, dưới) vẫn dùng `partyRoleOptions()`
+                // đầy đủ: một bên không phải khách hàng của văn phòng (luật sư đối phương thật ở
+                // một vụ khác) có thể chính đáng mang vai đó.
+                ->options(static::clientRolePartyOptions())
                 ->native(false)
                 // Vai của khách hàng quyết định bên nào là bên ĐỐI LẬP, tức quyết định mức đỏ có
                 // nổ hay không: đổi nó có thể lật thẳng vàng thành đỏ.
@@ -309,6 +314,23 @@ class MatterForm
     private static function partyRoleOptions(): array
     {
         return collect(PartyRole::cases())
+            ->mapWithKeys(fn (PartyRole $role) => [$role->value => $role->label()])
+            ->all();
+    }
+
+    /**
+     * Vai của CHÍNH khách hàng (ô `client_role`) — R13(f)/`conflict-12` (M6.5 Task 8): danh sách
+     * `partyRoleOptions()` đầy đủ trừ `PartyRole::OpposingCounsel`. Khách hàng của văn phòng không
+     * bao giờ chính là "luật sư đối phương" của chính vụ việc mình đang là khách hàng — cho phép
+     * chọn vai đó không chỉ vô nghĩa mà còn âm thầm TẮT hẳn mức đỏ của vụ việc: `RunConflictCheck::
+     * isOpposing()` chỉ coi `plaintiff`/`defendant` là đối lập, nên chọn `opposing_counsel` (hay
+     * `related`/`third_party`) cho khách hàng khiến `$ourClientRoles` không bao giờ chứa
+     * `plaintiff`/`defendant`, và một bị đơn trùng CCCD với đúng khách hàng đó chỉ còn lên vàng.
+     */
+    private static function clientRolePartyOptions(): array
+    {
+        return collect(PartyRole::cases())
+            ->reject(fn (PartyRole $role): bool => $role === PartyRole::OpposingCounsel)
             ->mapWithKeys(fn (PartyRole $role) => [$role->value => $role->label()])
             ->all();
     }

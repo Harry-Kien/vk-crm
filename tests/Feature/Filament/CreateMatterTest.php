@@ -46,13 +46,25 @@ function createFormMatterType(int $checklistItems = 2): MatterType
  *
  * Luật sư không có `client.manage` (SPEC §5) nên `VisibleClientOptions` chỉ trả về khách hàng của
  * những vụ việc họ đã liệt kê được — muốn luật sư mở được vụ việc cho khách hàng này thì phải có
- * sẵn một vụ việc cũ nối hai người. `Matter::factory()` KHÔNG tạo `matter_parties`, nên vụ việc
- * cũ này không làm nhiễu kết quả kiểm tra xung đột của các test bên dưới.
+ * sẵn một vụ việc cũ nối hai người.
+ *
+ * **`MatterParty::factory()->ourClient()` — KHÔNG còn `Matter::factory()` trần (M6.5 Task 8,
+ * conflict-02/`intake-10`).** Bản trước dùng `Matter::factory()->create()` để dựng vụ việc cũ,
+ * cố ý KHÔNG kèm `matter_parties`, với lý do ghi thẳng trong docblock cũ: "để vụ việc cũ này
+ * không làm nhiễu kết quả kiểm tra xung đột". Lý do đó là SAI: `OpenMatter::buildOwnClientParty()`
+ * luôn dựng một bên `is_our_client` từ hồ sơ `Client` ở MỌI vụ việc mở qua nó, nên trên dữ liệu
+ * THẬT một khách hàng quay lại LUÔN có một dòng `matter_parties` mang hash của chính họ ở vụ việc
+ * trước. Test "lưu sạch" cũ xanh không phải vì hệ thống đúng, mà vì factory dựng một tình huống
+ * không bao giờ xảy ra ngoài đời — đúng cách `conflict-02` lọt qua bộ test trong ba vòng sửa liền.
+ * Giờ R13(a) đã loại trừ đúng self-match đó (xem `RunConflictCheck::matchesFor()`), nên factory
+ * này dựng lại đúng hình dạng thật — một `MatterParty` `ourClient()` — và MỌI test dùng hàm này
+ * vẫn phải xanh giống hệt trước: nếu R13(a) thoái lui, cả bộ test này sẽ đỏ hàng loạt.
  */
 function clientVisibleTo(User $lawyer): Client
 {
     $client = Client::factory()->create();
-    Matter::factory()->create(['client_id' => $client->id, 'lead_lawyer_id' => $lawyer->id]);
+    $priorMatter = Matter::factory()->create(['client_id' => $client->id, 'lead_lawyer_id' => $lawyer->id]);
+    MatterParty::factory()->for($priorMatter)->ourClient($client, PartyRole::Plaintiff)->create();
 
     return $client;
 }
@@ -156,6 +168,28 @@ it('refuses to submit without the client role', function () {
 
     $this->livewire(CreateMatter::class)
         ->fillForm([...$data, 'client_role' => null])
+        ->call('create')
+        ->assertHasFormErrors(['client_role']);
+
+    expect(Matter::query()->where('title', 'Tranh chấp hợp đồng thuê nhà')->exists())->toBeFalse();
+});
+
+/**
+ * R13(f)/`conflict-12` (M6.5 Task 8): "Luật sư đối phương" không còn là một lựa chọn cho vai của
+ * CHÍNH khách hàng — chọn nó cho khách hàng không chỉ vô nghĩa mà còn âm thầm tắt hẳn mức đỏ (xem
+ * docblock `MatterForm::clientRolePartyOptions()`). `Select::options()` của Filament tự cài một
+ * luật `in:` phía máy chủ dựng từ chính danh sách tuỳ chọn, nên gửi thẳng giá trị đó (bỏ qua ô
+ * chọn trên trình duyệt) vẫn phải bị từ chối — đúng cổng thật, không chỉ giao diện.
+ */
+it('refuses opposing_counsel as the client role', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $client = clientVisibleTo($lawyer);
+    $type = createFormMatterType();
+
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(CreateMatter::class)
+        ->fillForm(createMatterFormData($client, $lawyer, $type, ['client_role' => PartyRole::OpposingCounsel->value]))
         ->call('create')
         ->assertHasFormErrors(['client_role']);
 

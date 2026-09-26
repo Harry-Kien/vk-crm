@@ -160,23 +160,37 @@ class CreateMatter extends CreateRecord
     public function conflictResultViewData(): array
     {
         $result = $this->conflictResult ?? [];
-        $matches = $result['matches'] ?? [];
+        $newMatches = $result['matches'] ?? [];
+        // R13c/`conflict-01` (M6.5 Task 8): khớp đã xác nhận/ghi đè ở một lần chạy TRƯỚC trên
+        // cùng vụ việc không còn tính vào $level, nhưng "vẫn hiện" — gộp cả hai danh sách để hiển
+        // thị, chỉ khác ở cờ `already_confirmed` bên dưới. Xem docblock `ConflictCheckResult`.
+        $confirmedMatches = $result['confirmed_matches'] ?? [];
         $incompleteParties = $result['incomplete_parties'] ?? [];
         $level = $result['level'] ?? ConflictLevel::Green->value;
+
+        $formatMatch = fn (array $match, bool $alreadyConfirmed): array => [
+            'matter_code' => $match['matter_code'],
+            'matter_type_name' => $match['matter_type_name'],
+            'party_role' => PartyRole::from($match['party_role'])->label(),
+            'party_name' => $match['party_name'],
+            'tier' => ConflictMatchTier::from($match['tier'])->label(),
+            'level' => ConflictLevel::from($match['level'])->label(),
+            // R13d/`conflict-07`: vai + tên của bên PHÍA MÌNH gây ra khớp này — không phải bên
+            // tìm thấy. Cùng sáu trường còn lại, dịch ở đây chứ không trong blade, cùng lý do.
+            'our_party_role' => PartyRole::from($match['our_party_role'])->label(),
+            'our_party_name' => $match['our_party_name'],
+            'already_confirmed' => $alreadyConfirmed,
+        ];
 
         return [
             'level' => $level,
             // Cùng luật với PartiesRelationManager::notifyConflictCheckResult(): một mức xanh có
             // bên thiếu định danh KHÔNG được mang màu "sạch".
             'requiresAttention' => $level !== ConflictLevel::Green->value || $incompleteParties !== [],
-            'matches' => array_map(fn (array $match): array => [
-                'matter_code' => $match['matter_code'],
-                'matter_type_name' => $match['matter_type_name'],
-                'party_role' => PartyRole::from($match['party_role'])->label(),
-                'party_name' => $match['party_name'],
-                'tier' => ConflictMatchTier::from($match['tier'])->label(),
-                'level' => ConflictLevel::from($match['level'])->label(),
-            ], $matches),
+            'matches' => [
+                ...array_map(fn (array $match): array => $formatMatch($match, false), $newMatches),
+                ...array_map(fn (array $match): array => $formatMatch($match, true), $confirmedMatches),
+            ],
             'incompleteParties' => $incompleteParties,
         ];
     }
@@ -359,9 +373,18 @@ class CreateMatter extends CreateRecord
         $result = $opening->result;
         $needsAttention = $result->requiresAcknowledgement();
 
+        // Fix round 1, C3 (Critical, `conflict-01`): bốn mức, không ba — một vụ việc mở SẠCH về
+        // khớp MỚI nhưng còn mang khớp đã xác nhận/ghi đè ở một lần chạy trước (R13c) không được
+        // phép hiện tiêu đề + màu của "không tìm thấy xung đột": thân thông báo vẫn kể ra những
+        // khớp đó, có thể ở mức Đỏ — một tiêu đề "sạch" màu success đứng cạnh một dòng "…: Đỏ" tự
+        // mâu thuẫn với chính nó.
         [$title, $color] = match (true) {
             $opening->overridden => [__('matters.conflict.saved_overridden'), 'danger'],
             $needsAttention => [__('matters.conflict.saved_after_review'), 'warning'],
+            $result->confirmedMatches->isNotEmpty() => [
+                __('matters.conflict.saved_clear_with_confirmed', ['count' => $result->confirmedMatches->count()]),
+                'warning',
+            ],
             default => [__('matters.conflict.saved_clear'), 'success'],
         };
 
@@ -391,22 +414,32 @@ class CreateMatter extends CreateRecord
      * về hai thao tác khác nhau ("mở vụ việc" và "thêm bên") nên bộ chuỗi tiếng Việt khác nhau, và
      * gộp lại sẽ đẻ ra một hàm nhận tiền tố khoá dịch làm tham số — khó đọc hơn chính đoạn nó thay
      * thế. Ghi ra đây để lần sau ai đó thấy hai đoạn giống nhau thì biết là có chủ đích.
+     *
+     * **Fix round 1 — spec gap: "bên phía mình" (R13d) và nhãn "đã xem xét ở lần trước" (R13c)
+     * giờ có trong CHÍNH thông báo.** Bảng trong form (`conflictResultViewData()`) đã có hai nhãn
+     * này từ round 0, nhưng đây là bản ghi CUỐI CÙNG người dùng còn đọc được sau khi trang chuyển
+     * sang hồ sơ vừa mở — thiếu chúng ở đây là thiếu hẳn, không phải thiếu một bản sao của bảng.
      */
     private static function conflictSummary(ConflictCheckResult $result, ?string $overrideReason): string
     {
-        $lines = [$result->matches->isEmpty()
-            ? __('matters.conflict.no_matches')
-            : $result->matches
-                ->map(fn (ConflictMatch $match): string => sprintf(
-                    '%s (%s) — %s, %s, %s: %s',
-                    $match->matterCode,
-                    $match->matterTypeName,
-                    $match->partyRole->label(),
-                    $match->partyName,
-                    $match->tier->label(),
-                    $match->level->label(),
-                ))
-                ->implode("\n")];
+        $formatMatch = fn (ConflictMatch $match, bool $alreadyConfirmed): string => sprintf(
+            '%s (%s) — %s, %s, %s: %s — %s: %s, %s%s',
+            $match->matterCode,
+            $match->matterTypeName,
+            $match->partyRole->label(),
+            $match->partyName,
+            $match->tier->label(),
+            $match->level->label(),
+            __('matters.conflict.column_our_party'),
+            $match->ourPartyRole->label(),
+            $match->ourPartyName,
+            $alreadyConfirmed ? ' — '.__('matters.conflict.already_confirmed') : '',
+        );
+
+        $allLines = $result->matches->map(fn (ConflictMatch $match) => $formatMatch($match, false))
+            ->concat($result->confirmedMatches->map(fn (ConflictMatch $match) => $formatMatch($match, true)));
+
+        $lines = [$allLines->isEmpty() ? __('matters.conflict.no_matches') : $allLines->implode("\n")];
 
         if ($result->hasIncompleteParties()) {
             $lines[] = __('matters.conflict.incomplete', ['names' => implode(', ', $result->incompleteParties())]);
