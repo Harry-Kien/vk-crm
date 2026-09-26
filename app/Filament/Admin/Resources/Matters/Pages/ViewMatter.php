@@ -5,6 +5,7 @@ namespace App\Filament\Admin\Resources\Matters\Pages;
 use App\Actions\SetMatterPortalPublication;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use Filament\Actions\Action;
+use Filament\Actions\EditAction;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
 use Filament\Support\Icons\Heroicon;
@@ -55,6 +56,12 @@ class ViewMatter extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
+            // Lối vào "Sửa vụ việc" (M6.5 Task 5, EditMatter). Cổng mặc định của EditAction là
+            // ability `update` trên model — đúng MatterPolicy::update() đã có, không cần khai báo
+            // lại. Đứng NGOÀI dataset của HeaderActionsAreReachableTest (chỉ xét trang List/Edit,
+            // xem docblock test đó) nên tên `edit` không phải khớp một phương thức policy tên
+            // `edit` — nó vẫn đi qua đúng ability `update`.
+            EditAction::make(),
             Action::make('togglePortalPublication')
                 ->label(fn (): string => $this->getRecord()->is_published_to_portal
                     ? __('matters.actions.unpublish_from_portal')

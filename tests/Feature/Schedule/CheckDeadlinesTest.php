@@ -227,3 +227,35 @@ it('carries the matter code, because this one goes to staff and not to a client'
 
     expect($subject)->toContain($deadline->matter->code);
 });
+
+// ---------------------------------------------------------------------------------------------
+// Vụ việc đã huỷ (M6.5 Task 5, finding deadlines/F8)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * `deadlines/F8`: trước bản sửa này, tập ứng viên chỉ lọc `is_completed = false`, không hỏi gì
+ * về vụ việc đứng sau. Xoá mềm vụ việc (nay có đường thật qua `CancelMatter`, admin) khiến
+ * `$deadline->matter` trả `null` — thư vẫn gửi, mã hồ sơ rỗng, và `SetDeadlineCompletion` không
+ * đánh dấu xong được vì `MatterPolicy::update` chặn vụ đã xoá mềm — mốc cứ leo bậc nhắc mãi.
+ */
+it('does not remind a deadline whose matter has been soft-deleted (cancelled)', function () {
+    Mail::fake();
+
+    $deadline = deadlineDueIn(1);
+    $deadline->matter->delete();
+
+    (new CheckDeadlines)->handle();
+
+    Mail::assertNothingSent();
+});
+
+/** Cặp dương của test trên: một mốc y hệt, nhưng vụ việc còn nguyên, vẫn được nhắc như thường. */
+it('still reminds a deadline whose matter has not been cancelled', function () {
+    Mail::fake();
+
+    $deadline = deadlineDueIn(1);
+
+    (new CheckDeadlines)->handle();
+
+    Mail::assertSent(DeadlineReminder::class, 1);
+});

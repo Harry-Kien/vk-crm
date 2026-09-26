@@ -58,6 +58,14 @@ class CheckDeadlines
 
         $candidates = Deadline::query()
             ->where('is_completed', false)
+            // `deadlines/F8` (M6.5 Task 5): vụ việc đã xoá mềm (huỷ hồ sơ mở nhầm, qua
+            // `CancelMatter`) không còn được ai thao tác được qua giao diện —
+            // `SetDeadlineCompletion` không đánh dấu xong được vì `MatterPolicy::update` chặn vụ
+            // trashed — nên trước dòng này một mốc như vậy cứ leo bậc nhắc mãi, và
+            // `$deadline->matter` trả `null` khiến mã hồ sơ trong thư rỗng. `whereHas('matter')`
+            // tự áp `SoftDeletingScope` mặc định của `Matter`, loại đúng những mốc đó ra khỏi tập
+            // ứng viên trước khi vòng lặp bắt đầu.
+            ->whereHas('matter')
             ->orderBy('due_date')
             ->pluck('id');
 

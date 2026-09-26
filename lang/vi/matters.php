@@ -60,6 +60,18 @@ return [
         'add_party_heading' => 'Thêm một bên vào vụ việc',
         'transition_stage' => 'Chuyển giai đoạn',
         'add_update' => 'Thêm cập nhật',
+        'cancel_matter' => 'Huỷ hồ sơ mở nhầm',
+    ],
+    // M6.5 Task 5 — trang "Sửa vụ việc" (findings intake-06, spec-gap-06).
+    'edit_form' => [
+        'section' => 'Sửa thông tin vụ việc',
+        'confidentiality_denied' => 'Chỉ ai không phải trợ lý mới đổi được mức bảo mật của vụ việc.',
+    ],
+    // M6.5 Task 5 — hộp thoại "Huỷ hồ sơ mở nhầm" trên trang Sửa vụ việc.
+    'cancel_form' => [
+        'reason' => 'Lý do huỷ',
+        'reason_help' => 'Bắt buộc. Vụ gắn nhầm khách hàng hoặc nhầm loại vụ việc thì huỷ và mở lại đúng, thay vì sửa — lý do được ghi vĩnh viễn vào nhật ký.',
+        'success' => 'Đã huỷ hồ sơ mở nhầm.',
     ],
     'transition_form' => [
         'to_stage' => 'Giai đoạn mới',

@@ -713,6 +713,68 @@ it('leaves activation alone when staff edits only the name, keeping the email', 
     expect(clientUserEditWarningComponent($warningComponent)->isVisible())->toBeFalse();
 });
 
+/**
+ * M6.5 Task 5 (rà soát Task 7): `mutateFormDataBeforeSave()` so `$data['email']` với
+ * `$this->record->email` bằng `!==` — so CHUỖI THÔ, không gấp trường hợp. Một lần sửa chỉ đổi
+ * HOA/THƯỜNG (`Nam@x.vn` → `nam@x.vn`) là cùng một hộp thư, cùng một lần khách đã xác minh, nhưng
+ * trước bản sửa này nó vẫn bị coi là "đổi email" và mất `activated_at`. So sánh giờ gấp cả hai vế
+ * qua `PortalLoginThrottle::foldEmail()` — cùng phép gấp mà cổng đăng nhập dùng để nhận ra hai
+ * chuỗi khác nhau về mặt byte nhưng là MỘT địa chỉ.
+ */
+it('keeps activation when staff makes a case-only change to the email', function () {
+    Mail::fake();
+
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $ownClient = Client::factory()->create();
+    $account = ClientUser::factory()->for($ownClient)->activated()->create([
+        'is_active' => true,
+        'email' => 'nam@x.vn',
+    ]);
+
+    $this->actingAs($admin, 'web');
+    Filament::setCurrentPanel('admin');
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'name' => $account->name,
+            'email' => 'Nam@X.vn',
+        ])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    $account->refresh();
+    expect($account->email)->toBe('Nam@X.vn')
+        ->and($account->activated_at)->not->toBeNull()
+        ->and($account->must_change_password)->toBeFalse();
+});
+
+/** Cặp dương giữ nguyên: một đổi email THẬT (không chỉ đổi hoa/thường) vẫn phải mất activated_at. */
+it('still resets activation when the email change is a real one, not just a case change', function () {
+    Mail::fake();
+
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $ownClient = Client::factory()->create();
+    $account = ClientUser::factory()->for($ownClient)->activated()->create([
+        'is_active' => true,
+        'email' => 'nam@x.vn',
+    ]);
+
+    $this->actingAs($admin, 'web');
+    Filament::setCurrentPanel('admin');
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'name' => $account->name,
+            'email' => 'nam.khac@x.vn',
+        ])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    $account->refresh();
+    expect($account->activated_at)->toBeNull()
+        ->and($account->must_change_password)->toBeTrue();
+});
+
 // =========================================================================================
 // Task 2, vòng sửa 1 (Important #3): ClientUserPolicy::deleteAny()/restoreAny()/forceDeleteAny()
 // + ClientUsersTable::toolbarActions() authorizeIndividualRecords()

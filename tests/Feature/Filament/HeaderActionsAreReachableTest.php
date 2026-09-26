@@ -4,6 +4,7 @@ use App\Filament\Admin\Resources\Clients\Pages\EditClient;
 use App\Filament\Admin\Resources\Clients\Pages\ListClients;
 use App\Filament\Admin\Resources\ClientUsers\Pages\EditClientUser;
 use App\Filament\Admin\Resources\ClientUsers\Pages\ListClientUsers;
+use App\Filament\Admin\Resources\Matters\Pages\EditMatter;
 use App\Filament\Admin\Resources\Matters\Pages\ListMatters;
 use App\Filament\Admin\Resources\MatterTypes\Pages\EditMatterType;
 use App\Filament\Admin\Resources\MatterTypes\Pages\ListMatterTypes;
@@ -64,6 +65,7 @@ it('registers no header action whose ability the policy does not define', functi
 })->with([
     EditClient::class,
     EditClientUser::class,
+    EditMatter::class,
     EditMatterType::class,
     EditUser::class,
     ListClients::class,

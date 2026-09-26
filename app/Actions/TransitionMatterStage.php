@@ -50,7 +50,13 @@ use Illuminate\Validation\ValidationException;
  *     sai, hoặc rỗng) từ `auth()` ambient như `HasBlameable` mặc định làm.
  *  6. Cập nhật `matters.stage`; `stage_entered_at` CHỈ đổi khi giai đoạn thật sự thay đổi — một
  *     dòng cập nhật không đổi giai đoạn (§6.3) không được phép tua lại "đã ở giai đoạn này bao
- *     lâu", vì SPEC §6.4 (SLA 14 ngày) và widget quá hạn ở §7.1 đọc tín hiệu đó.
+ *     lâu", vì SPEC §6.4 (SLA 14 ngày) và widget quá hạn ở §7.1 đọc tín hiệu đó. Cùng điều kiện
+ *     "giai đoạn thật sự thay đổi" còn ghi `closed_at` (R8, M6.5 Task 5): VÀO một giai đoạn
+ *     `is_terminal` đặt `closed_at = now()`; RỜI một giai đoạn `is_terminal` (đường bỏ qua của
+ *     admin — `is_terminal` thường không khai báo `allowed_next` quay ra) xoá nó về `null`. Đây
+ *     là chỗ DUY NHẤT trong `app/` ghi cột này; `Matter::scopeOpen()` đọc lại nó.
+ *     `App\Support\MatterStaleness` (widget "quá hạn cập nhật" và cột danh sách) đọc chung định
+ *     nghĩa "đang mở" qua scope đó.
  *  7. Chỉ khi `publish` VÀ `matter.is_published_to_portal`: cập nhật `last_client_update_at` và
  *     dispatch `StageLogPublished` (listener + job gửi thông báo thuộc M6, không viết ở đây).
  *     Bước 6 và 7 dùng CHUNG một lệnh `update()` để không tạo hai dòng "updated" riêng của
@@ -169,6 +175,20 @@ class TransitionMatterStage
 
             if (! $isSameStage) {
                 $matterUpdates['stage_entered_at'] = $occurredAt;
+
+                // R8 (M6.5 Task 5): đúng MỘT nơi ghi closed_at trong toàn hệ thống. VÀO một giai
+                // đoạn is_terminal đóng vụ việc (dùng now(), không dùng $occurredAt — "đóng vụ"
+                // là một hành động của HÔM NAY, khác với "xảy ra vào ngày" mà occurred_at ghi lại
+                // cho stage_entered_at/StageLog). RỜI một giai đoạn is_terminal — trên thực tế
+                // luôn qua đường bỏ qua của admin, vì is_terminal thường không khai báo
+                // allowed_next — mở lại vụ việc, nên closed_at về null. Một dòng cùng giai đoạn
+                // (§6.3, $isSameStage) không rơi vào nhánh này, cùng lý do với stage_entered_at
+                // ngay trên: nó không phải một lần VÀO hay RỜI giai đoạn nào cả.
+                if ($targetStageConfig->is_terminal) {
+                    $matterUpdates['closed_at'] = now();
+                } elseif ($currentStageConfig?->is_terminal) {
+                    $matterUpdates['closed_at'] = null;
+                }
             }
 
             if ($publishedToPortal) {

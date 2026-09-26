@@ -26,10 +26,17 @@ use Illuminate\Support\Facades\Auth;
  * sẽ thôi tin cả màn hình. Một luật sư thấy con số của chính họ; quản lý và kế toán thấy toàn bộ.
  * Cùng một định nghĩa "ai thấy vụ việc nào" mà MatterResource và mọi widget khác dùng, từ M2.
  *
- * "Đã kết thúc" đọc theo `closed_at`, không đọc theo giai đoạn cuối. Một vụ việc có thể đang ở
- * giai đoạn cuối mà chưa ai đóng hồ sơ (còn chờ bàn giao, còn công nợ), và ngược lại. `closed_at`
- * là hành động dứt khoát của văn phòng; giai đoạn là nơi hồ sơ đang nằm. Biểu đồ "Thống kê nhanh"
- * bên dưới trả lời câu "đang nằm ở đâu", nên hai widget không nói chồng nhau.
+ * "Đang xử lý" và "Đã kết thúc" đọc theo `Matter::scopeOpen()` (R8, M6.5 Task 5) — tức theo
+ * `closed_at`, không theo giai đoạn cuối. Một vụ việc có thể đang ở giai đoạn cuối mà chưa ai
+ * đóng hồ sơ (còn chờ bàn giao, còn công nợ), và ngược lại. `closed_at` là hành động dứt khoát
+ * của văn phòng, ghi bởi `TransitionMatterStage` khi vào/rời một giai đoạn `is_terminal`; giai
+ * đoạn là nơi hồ sơ đang nằm. Biểu đồ "Thống kê nhanh" bên dưới trả lời câu "đang nằm ở đâu", nên
+ * hai widget không nói chồng nhau.
+ *
+ * `$closed` tính bằng `$total - $open`, không phải một câu truy vấn `closed_at` riêng: `scopeOpen()`
+ * là chỗ DUY NHẤT trong `app/` được lọc theo cột đó (`grep -rn closed_at app/`), và "không mở"
+ * đã đúng nghĩa "đã đóng" trên đúng tập `$visible()` (hồ sơ đã xoá mềm không có mặt ở cả hai vế,
+ * vì `SoftDeletingScope` loại chúng khỏi `$visible()` từ đầu).
  *
  * Hồ sơ đã rút (soft delete) không nằm trong bất kỳ ô nào: `Matter::query()` mang sẵn
  * SoftDeletingScope. Có test, vì nếu tổng ở đây lệch với danh sách vụ việc thì người dùng sẽ tin
@@ -67,8 +74,8 @@ class MatterCountsWidget extends StatsOverviewWidget
         $visible = fn (): Builder => Matter::query()->listableBy($user);
 
         $total = $visible()->count();
-        $open = $visible()->whereNull('closed_at')->count();
-        $closed = $visible()->whereNotNull('closed_at')->count();
+        $open = $visible()->open()->count();
+        $closed = $total - $open;
         $openedThisMonth = $visible()->where('opened_at', '>=', now()->startOfMonth())->count();
 
         return [

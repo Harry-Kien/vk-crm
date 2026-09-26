@@ -286,3 +286,34 @@ it('answers the staff view ability the same way while a portal session of anothe
         ->and($this->accountant->can('view', $matter))->toBeFalse()
         ->and($this->teammate->can('view', $restricted))->toBeFalse();
 });
+
+// =========================================================================================
+// updateConfidentiality (M6.5 Task 5, R5): matter.update VÀ không phải trợ lý — cùng luật
+// với manageTeam.
+// =========================================================================================
+
+it('lets the lead, a manager, and an admin change confidentiality, but not an assistant', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $this->matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    expect($this->lead->can('updateConfidentiality', $this->matter))->toBeTrue()
+        ->and($this->manager->can('updateConfidentiality', $this->matter))->toBeTrue()
+        ->and($this->admin->can('updateConfidentiality', $this->matter))->toBeTrue()
+        ->and($assistant->can('updateConfidentiality', $this->matter))->toBeFalse();
+});
+
+it('refuses updateConfidentiality on a soft deleted matter, even for the lead', function () {
+    $this->matter->delete();
+
+    expect($this->lead->can('updateConfidentiality', $this->matter))->toBeFalse();
+});
+
+// =========================================================================================
+// cancelMatter (M6.5 Task 5): admin-only, "huỷ hồ sơ mở nhầm".
+// =========================================================================================
+
+it('lets only the admin cancel a wrongly opened matter', function () {
+    expect($this->admin->can('cancelMatter', $this->matter))->toBeTrue()
+        ->and($this->manager->can('cancelMatter', $this->matter))->toBeFalse()
+        ->and($this->lead->can('cancelMatter', $this->matter))->toBeFalse();
+});

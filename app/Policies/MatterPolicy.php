@@ -190,6 +190,35 @@ class MatterPolicy
             );
     }
 
+    /**
+     * R5 (M6.5 Task 5): "Đổi confidentiality... đòi matter.update VÀ không phải trợ lý" — chữ
+     * SPEC chỉ nêu đúng hai điều kiện đó, không thêm "phải là lead/manager/admin" như
+     * {@see self::manageTeam()} tự thêm cho việc quản lý đội ngũ. Nên hàm này KHÔNG lặp lại ba
+     * điều kiện `||` của `manageTeam()` — một luật sư cộng sự (associate) có `matter.update` và
+     * không phải trợ lý cũng đổi được, đúng nghĩa "hạn chế" của trợ lý là ngoại lệ DUY NHẤT R5
+     * nêu tên cho quyền này.
+     *
+     * `$this->update()` đã gồm `view()` (không cho vụ đã xoá mềm, xem docblock `update()`), nên
+     * không cần lặp lại `! $matter->trashed()` ở đây.
+     */
+    public function updateConfidentiality(User|ClientUser $user, Matter $matter): bool
+    {
+        return $user instanceof User
+            && $this->update($user, $matter)
+            && ! $user->hasRole(Role::Assistant->value);
+    }
+
+    /**
+     * "Huỷ hồ sơ mở nhầm" (M6.5 Task 5) — xoá mềm kèm lý do bắt buộc, qua {@see
+     * \App\Actions\Matter\CancelMatter}. Cùng luật với {@see self::delete()} (chỉ quản trị), vì
+     * đây đúng là hành động đó — cổng riêng chỉ để tên ability khớp đúng tên header action trên
+     * `EditMatter` (`HeaderActionsAreReachableTest` đòi tên action trùng tên phương thức policy).
+     */
+    public function cancelMatter(User|ClientUser $user, Matter $matter): bool
+    {
+        return $this->delete($user, $matter);
+    }
+
     /** Xoá mềm vụ việc là việc hệ trọng: chỉ quản trị. */
     public function delete(User|ClientUser $user, Matter $matter): bool
     {

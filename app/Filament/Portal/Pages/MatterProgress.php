@@ -293,6 +293,22 @@ class MatterProgress extends Page
         ];
     }
 
+    /**
+     * `summary_for_client` (SPEC §4.6 "Mô tả ngắn hiện trên portal") — finding `portal/portal-2`
+     * (M6.5 Task 5): nhân sự điền cột này ở form nội bộ với nhãn "Tóm tắt cho khách" và hiểu biết
+     * rằng khách đọc được, nhưng trước bản sửa này không màn hình cổng nào đọc nó. §8.3 không gọi
+     * tên cột này trong bảy khối, nên đặt ở khối 1 "Tình trạng hiện tại" — cạnh nhãn giai đoạn,
+     * đúng nơi văn phòng viết nó để mô tả TÌNH TRẠNG hiện tại bằng lời của chính mình, không phải
+     * bằng nhãn cấu hình sẵn của giai đoạn.
+     *
+     * `null` khi rỗng: view chỉ vẽ dòng này khi có nội dung (SPEC §8 — không vẽ một dòng trống ở
+     * khối nổi bật nhất màn hình).
+     */
+    public function summaryForClient(): ?string
+    {
+        return filled($this->matter()->summary_for_client) ? $this->matter()->summary_for_client : null;
+    }
+
     // -------------------------------------------------------------------------------------
     // Khối 2 — Việc anh/chị cần làm (CHỈ hiện khi có)
     // -------------------------------------------------------------------------------------

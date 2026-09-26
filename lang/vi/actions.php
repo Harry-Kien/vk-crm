@@ -41,4 +41,9 @@ return [
         // Fix round 1, finding S3: vai lead chỉ đổi qua bàn giao vụ việc (ReassignMatter, M7).
         'lead_role_denied' => 'Không thể gỡ luật sư phụ trách khỏi đội ngũ qua đây — vai này chỉ đổi được qua bàn giao vụ việc.',
     ],
+    // M6.5 Task 5.
+    'cancel_matter' => [
+        'reason_required' => 'Phải nhập lý do huỷ hồ sơ.',
+        'already_cancelled' => 'Vụ việc này đã bị huỷ trước đó.',
+    ],
 ];
