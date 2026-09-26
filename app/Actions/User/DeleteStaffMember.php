@@ -12,7 +12,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * Xoá (mềm) một tài khoản nhân sự qua `EditUser`'s `DeleteAction` (I2, fix round 1).
+ * Xoá (mềm) một tài khoản nhân sự qua `EditUser`'s `DeleteAction` (I2, fix round 1), VÀ qua
+ * `UsersTable`'s `DeleteBulkAction` (I2.1, fix round 2 — cùng luật, một Action DUY NHẤT cho cả hai
+ * đường vào, không phải hai luật tưởng giống nhau).
  *
  * # Vì sao Action này tồn tại, khi luật thật đã nằm trong `UserPolicy::delete()`
  *
@@ -67,13 +69,20 @@ use Illuminate\Support\Facades\Gate;
  * riêng. Thiếu một trong ba, actor không còn là chính người mà `Gate::forUser()` tưởng là đang thao
  * tác — `AuthorizationException` (không lý do, cùng lớp/câu SPEC §10.10 quy định cho một cổng thô).
  *
- * **Nói thẳng: chỉ `is_active` là điều kiện ĐỘC LẬP thật sự (mutation probe xác nhận — xem báo
- * cáo).** Một khi `$lockedActor` (đọc mới, không phải `$actor` cũ) được truyền vào
- * `Gate::forUser()`, chính `UserPolicy::viewAny()` (settings.manage) đã tự từ chối một actor mất
- * vai Admin hoặc đã bị xoá mềm (không `Auth::user()` nào là actor null) — hai điều kiện `trashed()`/
- * `hasRole()` ở đây trùng lặp với đường đó, giữ lại làm phòng thủ tường minh (đọc code không cần
- * lần theo `Gate` mới hiểu actor phải còn là ai). `is_active` thì KHÔNG — `viewAny()` không hỏi cột
- * đó, nên chỉ điều kiện này mới đóng đúng khe hở "actor bị vô hiệu hoá nhưng còn nguyên vai Admin".
+ * **Sửa lại (fix round 3) — tuyên bố trước đây ở đây SAI: `is_active` KHÔNG phải điều kiện độc lập
+ * duy nhất.** Bản round 2 nói `UserPolicy::viewAny()` "đã tự từ chối một actor... đã bị xoá mềm",
+ * suy luận từ chỗ nó chỉ hỏi `settings.manage`. SAI: xoá mềm (`SoftDeletes`) chỉ đặt `deleted_at`
+ * trên bảng `users`, KHÔNG đụng gì tới bảng vai trò riêng của spatie/laravel-permission
+ * (`model_has_roles`) — một actor đã bị xoá mềm vẫn còn NGUYÊN vai Admin, nên `can(SettingsManage)`
+ * vẫn trả `true`, và `Gate::forUser($lockedActor)->inspect('delete', ...)` KHÔNG hề từ chối họ.
+ * Mutation probe (xoá riêng điều kiện `trashed()`, giữ nguyên ba điều kiện còn lại) xác nhận: test
+ * "refuses when the actor was soft deleted after being loaded" ĐỎ ngay — chính điều kiện `trashed()`
+ * ở đây, KHÔNG phải `Gate`, mới đóng đúng cuộc đua "A xoá B trong khi B xoá A" cho vế "actor đã bị
+ * chính lượt kia xoá". Chỉ `hasRole(Role::Admin)` mới thật sự trùng lặp với `Gate` (mất vai Admin
+ * làm `can(SettingsManage)` tự trả `false`) — giữ lại làm phòng thủ tường minh (đọc code không cần
+ * lần theo `Gate` mới hiểu actor phải còn là ai). `is_active` VÀ `trashed()` đều là điều kiện ĐỘC
+ * LẬP thật sự: `viewAny()` không hỏi cột `is_active`, và không hỏi `deleted_at` — thiếu MỘT trong
+ * hai, actor bị vô hiệu hoá/xoá mềm giữa chừng vẫn qua được `Gate`.
  *
  * # `wouldLeaveNoActiveAdmin()` gọi lại trên `$lockedTarget` (I2, fix round 2)
  *

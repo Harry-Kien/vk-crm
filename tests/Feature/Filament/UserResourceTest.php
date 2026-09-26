@@ -50,6 +50,32 @@ function staffOffboardingMessage(string $name, int $matters, int $deadlines, int
         .__('users.offboarding.open_work_outro');
 }
 
+/**
+ * Cùng thân câu với `staffOffboardingMessage()` ở trên, khác câu MỞ ĐẦU — đổi chức danh KHÔNG phải
+ * vô hiệu hoá/xoá (finding round 3, mục 4: `demotion_intro`, dùng bởi
+ * `demotionBlockedByLeadMattersReason()`/`demotionBlockedByAnyOpenWorkReason()`).
+ */
+function staffDemotionMessage(string $name, int $matters, int $deadlines, int $requests): string
+{
+    $parts = [];
+
+    if ($matters > 0) {
+        $parts[] = __('users.offboarding.open_work_lead_matters', ['count' => $matters]);
+    }
+
+    if ($deadlines > 0) {
+        $parts[] = __('users.offboarding.open_work_deadlines', ['count' => $deadlines]);
+    }
+
+    if ($requests > 0) {
+        $parts[] = __('users.offboarding.open_work_client_requests', ['count' => $requests]);
+    }
+
+    return __('users.offboarding.demotion_intro', ['name' => $name])
+        .' '.implode('; ', $parts).'. '
+        .__('users.offboarding.open_work_outro');
+}
+
 it('lets an admin open every staff administration page', function () {
     $admin = User::factory()->withRole(Role::Admin)->create();
     $staff = User::factory()->create();
@@ -280,7 +306,7 @@ it('refuses to demote a lawyer who leads an open matter to a role that cannot le
         ->call('save')
         ->assertHasFormErrors(['position']);
 
-    expect($component->errors()->first('data.position'))->toBe(staffOffboardingMessage($lawyer->name, matters: 1, deadlines: 0, requests: 0))
+    expect($component->errors()->first('data.position'))->toBe(staffDemotionMessage($lawyer->name, matters: 1, deadlines: 0, requests: 0))
         ->and($lawyer->fresh()->position)->toBe(UserPosition::Lawyer);
 });
 
@@ -298,6 +324,31 @@ it('refuses to demote a lawyer who leads an open matter to accountant', function
         ->assertHasFormErrors(['position']);
 
     expect($lawyer->fresh()->position)->toBe(UserPosition::Lawyer);
+});
+
+/**
+ * Ruling (fix round 3, mục 5): Kế toán không xử lý được BẤT KỲ việc pháp lý nào — khác Trợ lý (vẫn
+ * giữ được mốc hạn/yêu cầu khách). Một luật sư chỉ còn đứng tên MỘT mốc hạn chưa xong (không dẫn
+ * vụ nào) VẪN bị chặn đổi sang Kế toán, dù đường sang Trợ lý (test kề bên) cho qua đúng người này.
+ */
+it('refuses to demote a lawyer holding only an unfinished deadline (no lead matter) to accountant', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create();
+    Deadline::factory()->for($matter)->create([
+        'responsible_user_id' => $lawyer->id,
+        'is_completed' => false,
+    ]);
+
+    $this->actingAs($admin, 'web');
+
+    $component = $this->livewire(EditUser::class, ['record' => $lawyer->getRouteKey()])
+        ->fillForm(['position' => UserPosition::Accountant->value])
+        ->call('save')
+        ->assertHasFormErrors(['position']);
+
+    expect($component->errors()->first('data.position'))->toBe(staffDemotionMessage($lawyer->name, matters: 0, deadlines: 1, requests: 0))
+        ->and($lawyer->fresh()->position)->toBe(UserPosition::Lawyer);
 });
 
 /**
@@ -671,6 +722,30 @@ it('bulk-deletes only the staff member with no open work, and shows the real Vie
     $bodies = $component->notifications->map(fn ($notification): string => (string) $notification->getBody())->implode("\n");
 
     expect($bodies)->toContain(staffOffboardingMessage($withOpenMatter->name, matters: 1, deadlines: 0, requests: 0));
+});
+
+/**
+ * Minor (fix round 3): một hàng ĐÃ XOÁ MỀM, chọn được qua bộ lọc "kèm đã xoá" — trước bản sửa này,
+ * `DeleteStaffMember::handle()`'s `firstOrFail()` (không `withTrashed()`) ném `ModelNotFoundException`
+ * cho đúng hàng đó, và `->using()` chỉ bắt `DomainException`/`AuthorizationException` — exception đó
+ * THOÁT RA khỏi `$records->each()`, phá vỡ toàn bộ lượt xoá hàng loạt: những bản ghi CÒN LẠI (đứng
+ * sau hàng đã xoá trong danh sách) không hề được xử lý. Đặt tên để hàng đã xoá LUÔN đứng TRƯỚC hàng
+ * còn hoạt động trong sắp xếp mặc định (`defaultSort('name')`), để một khi lỗi thoát ra ở hàng đầu,
+ * hàng thứ hai chắc chắn KHÔNG được xử lý nếu bug còn đó.
+ */
+it('does not abort a bulk delete when one of the selected rows is already soft-deleted', function () {
+    $admin = User::factory()->admin()->create();
+    $alreadyTrashed = User::factory()->withRole(Role::Lawyer)->create(['name' => 'A - Đã Nghỉ Việc']);
+    $alreadyTrashed->delete();
+    $stillActive = User::factory()->withRole(Role::Lawyer)->create(['name' => 'Z - Còn Đi Làm']);
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(ListUsers::class)
+        ->filterTable('trashed', true)
+        ->callTableBulkAction('delete', [$alreadyTrashed, $stillActive]);
+
+    expect($stillActive->fresh()->trashed())->toBeTrue();
 });
 
 /**

@@ -78,6 +78,15 @@ class EditUser extends EditRecord
     private const NON_LEADING_POSITIONS = [UserPosition::Assistant, UserPosition::Accountant];
 
     /**
+     * Ruling (fix round 3, mục 5): trong hai đích "không lãnh đạo được", CHỈ Kế toán bị chặn khi
+     * còn giữ BẤT KỲ loại việc nào (kể cả mốc hạn/yêu cầu khách) — họ không xử lý được việc pháp lý
+     * nào cả. Trợ lý vẫn giữ được mốc hạn/yêu cầu khách (chỉ không giữ được vai `lead`), nên chỉ bị
+     * chặn khi còn dẫn vụ. Xem {@see GuardsStaffOffboarding::demotionBlockedByAnyOpenWorkReason()}
+     * so với {@see GuardsStaffOffboarding::demotionBlockedByLeadMattersReason()}.
+     */
+    private const FULLY_BLOCKED_DEMOTION_POSITIONS = [UserPosition::Accountant];
+
+    /**
      * R7 (M6.5 Task 4): chặn Ở ĐÂY, KHÔNG ở `UserPolicy::update()` — policy chỉ nhận `$model` HIỆN
      * TẠI, không nhận `$data` mới đang gửi lên, nên "sắp tắt `is_active`" hay "sắp đổi chức danh
      * khỏi Quản trị" chỉ đọc được ở đây, TRƯỚC KHI `parent::handleRecordUpdate()` thật sự ghi đè
@@ -87,14 +96,21 @@ class EditUser extends EditRecord
      * {@see GuardsStaffOffboarding::offboardingOpenWorkReason()} — TRÊN TOÀN HỆ THỐNG (`$matter =
      * null`), khác `RemoveTeamMember` (Task 3) chỉ hỏi trong một vụ việc.
      *
-     * **Đổi chức danh sang một chức danh KHÔNG lãnh đạo được (Trợ lý/Kế toán) — ruling fix round 1
-     * "guard demotion" — hỏi CÙNG câu đó.** R7 gốc chỉ liệt "vô hiệu hoá và xoá", nhưng đổi chức
-     * danh sang Trợ lý/Kế toán trong khi còn dẫn một vụ đang mở để lại đúng hệ quả mà R7 muốn chặn
-     * (SPEC §7.4 không cho hai chức danh đó đứng tên `lead_lawyer_id`, và
-     * `ReassignMatter`/`ViewMatter::reassignCandidateOptions()` cũng từ chối họ làm lead mới — I3,
-     * cùng vòng sửa) — vụ việc mất người phụ trách hợp lệ y hệt một lần vô hiệu hoá. Đổi SANG
-     * Trưởng phòng hay Quản trị (VẪN lãnh đạo được) không hỏi câu này — chỉ hai đích cụ thể mới
-     * chặn, không phải "mọi lần đổi chức danh của người đang dẫn vụ".
+     * **Đổi chức danh sang một chức danh KHÔNG lãnh đạo được (Trợ lý/Kế toán) — ruling "guard
+     * demotion" (fix round 1), HAI CÂU HỎI KHÁC NHAU từ ruling round 3 (mục 5).** R7 gốc chỉ liệt
+     * "vô hiệu hoá và xoá", nhưng đổi chức danh sang Trợ lý/Kế toán trong khi còn giữ việc pháp lý
+     * để lại đúng hệ quả mà R7 muốn chặn — vụ việc/mốc hạn/yêu cầu khách mất người xử lý hợp lệ y
+     * hệt một lần vô hiệu hoá. Hai đích hỏi HAI CÂU KHÁC NHAU, không còn "cùng câu" như round 1/2:
+     *  - **Trợ lý** → {@see GuardsStaffOffboarding::demotionBlockedByLeadMattersReason()} — CHỈ hỏi
+     *    `leadMatters` (SPEC §7.4 không cho Trợ lý đứng tên `lead_lawyer_id`, và
+     *    `ReassignMatter`/`ViewMatter::reassignCandidateOptions()` cũng từ chối họ làm lead mới —
+     *    I3). Trợ lý VẪN giữ được mốc hạn/yêu cầu khách, nên còn giữ MỘT TRONG HAI loại đó không
+     *    chặn được lần đổi này.
+     *  - **Kế toán** → {@see GuardsStaffOffboarding::demotionBlockedByAnyOpenWorkReason()} — hỏi
+     *    CẢ BA loại việc, vì Kế toán không xử lý được BẤT KỲ việc pháp lý nào (không đứng tên lead,
+     *    không mở được mốc hạn hay yêu cầu khách để xử lý).
+     * Đổi SANG Trưởng phòng hay Quản trị (VẪN lãnh đạo được) không hỏi câu nào ở đây — chỉ hai đích
+     * cụ thể mới chặn, không phải "mọi lần đổi chức danh của người đang dẫn vụ".
      *
      * **Quản trị viên đang hoạt động cuối cùng**: cả hai đường (tắt `is_active`, đổi `position`
      * khỏi Admin) đều hỏi {@see GuardsStaffOffboarding::wouldLeaveNoActiveAdmin()} — CÙNG HÀM (một
@@ -152,7 +168,12 @@ class EditUser extends EditRecord
                 }
 
                 if ($newPosition !== $locked->position && in_array($newPosition, self::NON_LEADING_POSITIONS, true)) {
-                    $reason = $this->demotionBlockedByLeadMattersReason($locked);
+                    // Ruling (fix round 3, mục 5): Kế toán hỏi CẢ BA loại việc (không xử lý được
+                    // BẤT KỲ việc pháp lý nào); Trợ lý chỉ hỏi `leadMatters` (vẫn giữ được mốc
+                    // hạn/yêu cầu khách) — xem docblock lớp cho lý lẽ đầy đủ.
+                    $reason = in_array($newPosition, self::FULLY_BLOCKED_DEMOTION_POSITIONS, true)
+                        ? $this->demotionBlockedByAnyOpenWorkReason($locked)
+                        : $this->demotionBlockedByLeadMattersReason($locked);
 
                     if ($reason !== null) {
                         throw ValidationException::withMessages([$this->errorKey('position') => [$reason]]);

@@ -32,6 +32,10 @@ return [
     // không phải lead.
     'offboarding' => [
         'open_work_intro' => 'Không thể vô hiệu hoá hoặc xoá :name: người này còn',
+        // Fix round 3, finding 4: đổi chức danh KHÔNG phải vô hiệu hoá/xoá — câu mở đầu riêng, dùng
+        // bởi `demotionBlockedByLeadMattersReason()` (đích Trợ lý) VÀ
+        // `demotionBlockedByAnyOpenWorkReason()` (đích Kế toán, ruling round 3 mục 5).
+        'demotion_intro' => 'Không thể đổi chức danh :name sang chức danh này: người này còn',
         'open_work_lead_matters' => ':count vụ việc đang mở với vai luật sư phụ trách — dùng "Bàn giao" trên từng vụ việc',
         'open_work_deadlines' => ':count mốc hạn chưa xong — dùng "Đổi người phụ trách" trên tab Mốc thời hạn của từng vụ việc',
         'open_work_client_requests' => ':count yêu cầu khách chưa đóng — dùng "Giao việc" trên tab Yêu cầu từ khách của từng vụ việc',

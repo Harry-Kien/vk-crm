@@ -82,14 +82,26 @@ use Illuminate\Validation\ValidationException;
  * # Khoá dòng vụ việc, đúng thứ tự Task 3 để lại (fix round 3 lesson)
  *
  * Câu ĐẦU TIÊN bên trong `DB::transaction` là `lockForUpdate()` trên `matters` — không câu đọc
- * trần nào đứng trước nó bên trong transaction. `Gate::forUser($actor)->authorize('manageTeam',
- * $matter)` và ba kiểm tra không đụng CSDL (`$reason` rỗng, `$newLead` còn hoạt động, `$newLead`
- * giữ đúng vai — cả ba chỉ đọc thuộc tính/quan hệ ĐÃ NẠP SẴN trên đối tượng caller đưa vào, không
- * tự phát sinh câu SELECT MỚI nào ở đây) chạy TRƯỚC khi mở transaction, cùng thành ngữ
- * {@see RemoveTeamMember}, {@see AddTeamMember}. `$oldLead` phải tra lại DƯỚI khoá (không tin
- * `$matter->lead_lawyer_id` của đối tượng caller đưa vào, có thể cũ) — `withTrashed()` vì một lead
- * cũ đã bị xoá mềm (qua một đường khác, trước khi luật này tồn tại) vẫn cần tên thật cho dòng
- * `stage_logs`/audit, không phải `null`.
+ * trần nào đứng trước nó bên trong transaction, TRÊN CHÍNH bảng `matters` (hay bất kỳ hàng nào
+ * đang bị khoá dưới đây). `Gate::forUser($actor)->authorize('manageTeam', $matter)` và ba kiểm tra
+ * TRƯỚC transaction (`$reason` rỗng, `$newLead` còn hoạt động, `$newLead` giữ đúng vai) chạy TRƯỚC
+ * khi mở transaction, cùng thành ngữ {@see RemoveTeamMember}, {@see AddTeamMember}.
+ *
+ * **Sửa lại (fix round 3): câu "không tự phát sinh câu SELECT MỚI nào" ở trên từng SAI cho điều
+ * kiện thứ ba.** Hai kiểm tra đầu (`$reason` rỗng, `$newLead->is_active`/`trashed()`) chỉ đọc thuộc
+ * tính đã nạp sẵn, đúng là không SELECT. Nhưng `$newLead->hasRole(...)` (điều kiện thứ ba) LÀ một
+ * quan hệ Eloquent (`roles`, qua spatie/laravel-permission) — nếu nó CHƯA được nạp sẵn trên đối
+ * tượng `$newLead` (ví dụ bởi màn hình gọi vào), lần gọi `hasRole()` ĐẦU TIÊN này TỰ PHÁT SINH một
+ * câu SELECT (lazy load), y hệt cách I3 residual ngay dưới đây khai thác để đóng khe hở "vai đổi
+ * giữa lúc màn hình dựng danh sách và lúc lượt bàn giao giành được khoá". Điều đó KHÔNG vi phạm kỷ
+ * luật "khoá là câu đầu tiên" — câu SELECT đó chạm bảng `roles`/`model_has_roles`, không phải
+ * `matters` hay bất kỳ hàng nào sẽ bị `lockForUpdate()` khoá, nên không có gì để làm bẩn snapshot
+ * REPEATABLE READ của các khoá dưới đây cả; nó chỉ SAI ở chỗ tự nhận "không SELECT nào", không sai
+ * ở chỗ an toàn giao dịch.
+ *
+ * `$oldLead` phải tra lại DƯỚI khoá (không tin `$matter->lead_lawyer_id` của đối tượng caller đưa
+ * vào, có thể cũ) — `withTrashed()` vì một lead cũ đã bị xoá mềm (qua một đường khác, trước khi
+ * luật này tồn tại) vẫn cần tên thật cho dòng `stage_logs`/audit, không phải `null`.
  *
  * **I3 residual (fix round 2) — vai cũng được hỏi lại trên `$lockedNewLead`, không chỉ
  * `is_active`/`trashed()`.** Bản round 1 chỉ khoá lại is_active/trashed; nếu đối tượng `$newLead`
@@ -129,10 +141,11 @@ class ReassignMatter
         }
 
         // I3 (fix round 1): chỉ Lawyer/Manager "đứng tên phụ trách" được — cùng tập vai
-        // AddTeamMember::eligibleForRole() chấp nhận cho `associate`. Đọc `hasRole()` KHÔNG đụng
-        // CSDL bảng `matters`/`users` (bảng vai trò riêng, spatie/laravel-permission), và câu này
-        // vẫn đứng TRƯỚC khi mở transaction, cùng hai câu ngay trên — không phải một câu đọc trần
-        // cần lo về REPEATABLE READ (xem docblock lớp, mục khoá dòng vụ việc).
+        // AddTeamMember::eligibleForRole() chấp nhận cho `associate`. `hasRole()` CÓ THỂ tự phát
+        // sinh một câu SELECT (lazy load quan hệ `roles`, nếu chưa nạp sẵn — sửa lại claim SAI ở
+        // fix round 3: bảng đó là bảng vai trò riêng của spatie/laravel-permission, KHÔNG phải
+        // `matters`/`users`, nên câu SELECT đó (nếu có) không làm bẩn snapshot REPEATABLE READ của
+        // các khoá dưới đây — xem docblock lớp, mục khoá dòng vụ việc, cho lý lẽ đầy đủ).
         if (! ($newLead->hasRole(Role::Lawyer->value) || $newLead->hasRole(Role::Manager->value))) {
             throw ValidationException::withMessages([
                 'new_lead_id' => [__('reassign.validation.new_lead_not_eligible')],
