@@ -4,12 +4,73 @@ use App\Notifications\Backup\BackupHasFailedNotification;
 use App\Notifications\Backup\CleanupHasFailedNotification;
 use App\Notifications\Backup\UnhealthyBackupWasFoundNotification;
 use App\Support\Backup\BackupDisks;
+use Illuminate\Support\Env;
+use Illuminate\Support\Facades\Artisan;
+use Spatie\Backup\Config\Config;
 
 /*
 |--------------------------------------------------------------------------
 | §10.8 — hình dạng cấu hình `config/backup.php`
 |--------------------------------------------------------------------------
 */
+
+it('§10.8 / fix I1 — BACKUP_NOTIFY_EMAIL và MAIL_FROM_ADDRESS sai định dạng không làm hỏng lệnh artisan nào', function () {
+    // `config/backup.php` đã chạy xong (đọc `env()`) TRƯỚC khi thân test bắt đầu, nên đổi
+    // `config()` ở đây không kiểm được gì. Đặt biến môi trường rác rồi DỰNG LẠI ứng dụng
+    // (`refreshApplication()`), để tệp cấu hình đọc lại chúng đúng như một tiến trình
+    // `php artisan schedule:run` mới trên máy chủ.
+    //
+    // `Env::enablePutenv()` chỉ để XOÁ repository `env()` đã cache (putenv vốn đã bật): writer
+    // bất biến của Dotenv nhớ những biến CHÍNH NÓ đã nạp từ `.env` ở lần dựng đầu và được phép
+    // ghi đè chúng khi nạp lại. Không có dòng này, `MAIL_FROM_ADDRESS` trong `.env` của máy
+    // lặng lẽ thắng giá trị rác đặt ở đây (đo được: câu tự kiểm bên dưới đỏ). Repository mới
+    // không nhớ gì, nên giá trị đặt ở đây giữ nguyên như một biến môi trường thật của tiến trình.
+    $garbage = [
+        'BACKUP_NOTIFY_EMAIL' => 'ops@vidu.test;ke-toan@vidu.test',
+        'MAIL_FROM_ADDRESS' => 'khong-phai-email',
+    ];
+    $saved = [];
+
+    foreach ($garbage as $key => $value) {
+        $saved[$key] = [getenv($key), $_ENV[$key] ?? null, $_SERVER[$key] ?? null];
+        putenv("{$key}={$value}");
+        $_ENV[$key] = $_SERVER[$key] = $value;
+    }
+
+    try {
+        Env::enablePutenv();
+        $this->refreshApplication();
+
+        // Tự kiểm: giá trị rác thật sự đã tới ứng dụng mới dựng, không thì test xanh giả.
+        expect(config('vkcrm.backup.notify_email'))->toBe($garbage['BACKUP_NOTIFY_EMAIL'])
+            ->and(config('mail.from.address'))->toBe($garbage['MAIL_FROM_ADDRESS']);
+
+        expect(fn () => app(Config::class))->not->toThrow(Throwable::class)
+            ->and(Artisan::call('list'))->toBe(0);
+    } finally {
+        foreach ($saved as $key => [$env, $envConst, $server]) {
+            $env === false ? putenv($key) : putenv("{$key}={$env}");
+
+            if ($envConst === null) {
+                unset($_ENV[$key]);
+            } else {
+                $_ENV[$key] = $envConst;
+            }
+
+            if ($server === null) {
+                unset($_SERVER[$key]);
+            } else {
+                $_SERVER[$key] = $server;
+            }
+        }
+    }
+});
+
+it('§10.8 / fix I6 — BACKUP_NAME có trong .env.example kèm chú thích', function () {
+    $envExample = file_get_contents(base_path('.env.example'));
+
+    expect($envExample)->toContain('BACKUP_NAME=');
+});
 
 it('§10.8 nguồn sao lưu gồm storage/app/private, không gồm storage/logs', function () {
     $include = config('backup.backup.source.files.include');

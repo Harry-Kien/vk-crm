@@ -23,6 +23,14 @@ it('§10.8 dùng BACKUP_NOTIFY_EMAIL khi đã cấu hình, bỏ qua danh sách a
     expect($recipients)->toBe(['ops@luatvukhang.com']);
 });
 
+it('§10.8 chấp nhận BACKUP_NOTIFY_EMAIL là một danh sách phẩy, lọc bỏ địa chỉ hỏng', function () {
+    config(['vkcrm.backup.notify_email' => 'ops@luatvukhang.com, khong-hop-le, ke-toan@luatvukhang.com']);
+
+    $recipients = app(ResolveBackupNotificationRecipients::class)->handle();
+
+    expect($recipients)->toBe(['ops@luatvukhang.com', 'ke-toan@luatvukhang.com']);
+});
+
 it('§10.8 rơi về mọi admin đang hoạt động khi BACKUP_NOTIFY_EMAIL trống', function () {
     config(['vkcrm.backup.notify_email' => null]);
 

@@ -4,19 +4,22 @@ namespace App\Actions\Backup;
 
 use App\Enums\Role;
 use App\Models\User;
+use App\Support\Backup\BackupNotifyEmails;
 use Spatie\Permission\Models\Role as SpatieRole;
 
 /**
  * SPEC §10 mục 8, M8a Task 1 — người nhận thư báo lỗi sao lưu/dọn dẹp/bản sao không lành mạnh.
  *
- * `BACKUP_NOTIFY_EMAIL` (`config('vkcrm.backup.notify_email')`) thắng tuyệt đối khi có khai báo.
- * Trống thì rơi về MỌI nhân sự đang hoạt động (`is_active = true`) mang vai trò Admin — không
- * phải toàn bộ Admin đã từng tồn tại, và không phải nhân sự khác: một lỗi hạ tầng là việc của
- * người vận hành, không phải của luật sư đang xử lý hồ sơ.
+ * `BACKUP_NOTIFY_EMAIL` (`config('vkcrm.backup.notify_email')`, một hoặc nhiều địa chỉ phân
+ * tách dấu phẩy — xem {@see BackupNotifyEmails}) thắng tuyệt đối khi có ÍT NHẤT một địa chỉ hợp
+ * lệ. Trống hoặc toàn địa chỉ hỏng thì rơi về MỌI nhân sự đang hoạt động (`is_active = true`)
+ * mang vai trò Admin — không phải toàn bộ Admin đã từng tồn tại, và không phải nhân sự khác: một
+ * lỗi hạ tầng là việc của người vận hành, không phải của luật sư đang xử lý hồ sơ.
  *
  * Đọc `config('vkcrm.backup.notify_email')` chứ KHÔNG `config('backup.notifications.mail.to')`
- * của gói: trường đó bị ép luôn là một email hợp lệ (xem docblock ở `config/backup.php`), nên
- * không phân biệt được "trống" với "một địa chỉ email" — đúng phân biệt mà Action này cần.
+ * của gói: trường đó luôn là một placeholder cố định, không liên quan tới biến này (xem docblock
+ * ở `config/backup.php`, fix I1 — đưa giá trị thô của toán tử vào trường validate chặt của gói
+ * làm hỏng MỌI lệnh artisan).
  *
  * Kiểm tra vai trò Admin TỒN TẠI trước khi lọc theo nó: `HasRoles::scopeRole()` (từ
  * `spatie/laravel-permission`) ném `RoleDoesNotExist` khi tên vai trò chưa có dòng nào trong
@@ -30,10 +33,10 @@ class ResolveBackupNotificationRecipients
     /** @return list<string> */
     public function handle(): array
     {
-        $configured = config('vkcrm.backup.notify_email');
+        $configured = BackupNotifyEmails::parse(config('vkcrm.backup.notify_email'));
 
-        if (filled($configured)) {
-            return [$configured];
+        if ($configured !== []) {
+            return $configured;
         }
 
         if (! SpatieRole::query()->where('name', Role::Admin->value)->exists()) {

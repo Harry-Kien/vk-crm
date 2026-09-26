@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Console\Scheduling\Event;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 
@@ -13,28 +14,46 @@ use Illuminate\Support\Facades\Schedule;
 | múi giờ ứng dụng, nên "02:00"/"08:00" chỉ có ý nghĩa khi múi giờ đó là giờ Việt Nam.
 */
 
+/*
+ * Tìm tác vụ theo LỆNH ARTISAN THẬT nó chạy (`$event->command`, dạng `'/usr/bin/php' 'artisan'
+ * backup:clean`), không theo mô tả tiếng Việt: mô tả là chữ cho người đọc, còn lệnh mới là thứ
+ * chạy lúc 02:00 (fix I7). Khớp đúng cả từ, để `backup:clean` không vô tình khớp một lệnh dài hơn.
+ */
+function backupScheduleEvent(string $command): ?Event
+{
+    $matches = collect(Schedule::events())
+        ->filter(fn (Event $event) => preg_match('/ '.preg_quote($command, '/').'$/', (string) $event->command) === 1)
+        ->values();
+
+    expect($matches)->toHaveCount(1, "phải có đúng một tác vụ lịch chạy {$command}");
+
+    return $matches->first();
+}
+
 it('§10.8 config(app.timezone) là giờ Việt Nam, nên 02:00/08:00 là giờ văn phòng', function () {
     expect(config('app.timezone'))->toBe('Asia/Ho_Chi_Minh');
 });
 
-it('§10.8 đăng ký backup.clean lúc 02:00, không chồng lấn, rồi gọi backup:run', function () {
-    $event = collect(Schedule::events())->first(fn ($e) => $e->description === 'Dọn bản sao lưu cũ trước khi sao lưu mới');
+it('§10.8 lịch chạy lệnh backup:clean lúc 02:00, không chồng lấn', function () {
+    $event = backupScheduleEvent('backup:clean');
 
     expect($event)->not->toBeNull()
+        ->and($event->description)->toBe('Dọn bản sao lưu cũ trước khi sao lưu mới')
         ->and($event->getExpression())->toBe('0 2 * * *')
         ->and($event->withoutOverlapping)->toBeTrue();
 });
 
-it('§10.8 đăng ký backup.monitor lúc 08:00, không chồng lấn', function () {
-    $event = collect(Schedule::events())->first(fn ($e) => $e->description === 'Giám sát sức khoẻ bản sao lưu');
+it('§10.8 lịch chạy lệnh backup:monitor lúc 08:00, không chồng lấn', function () {
+    $event = backupScheduleEvent('backup:monitor');
 
     expect($event)->not->toBeNull()
+        ->and($event->description)->toBe('Giám sát sức khoẻ bản sao lưu')
         ->and($event->getExpression())->toBe('0 8 * * *')
         ->and($event->withoutOverlapping)->toBeTrue();
 });
 
 it('§10.8 backup:clean gọi backup:run dù thất bại, không chỉ khi thành công', function () {
-    $event = collect(Schedule::events())->first(fn ($e) => $e->description === 'Dọn bản sao lưu cũ trước khi sao lưu mới');
+    $event = backupScheduleEvent('backup:clean');
 
     $after = (new ReflectionProperty($event, 'afterCallbacks'))->getValue($event);
     expect($after)->toHaveCount(1);

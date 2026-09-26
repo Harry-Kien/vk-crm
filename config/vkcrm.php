@@ -36,11 +36,14 @@ return [
     'backup' => [
         /*
          * Người nhận thư báo lỗi sao lưu/dọn dẹp/bản sao không lành mạnh (SPEC §10 mục 8, M8a
-         * Task 1). Đọc qua ĐÂY (`config('vkcrm.backup.notify_email')`, `null` khi trống) — không
-         * qua `config('backup.notifications.mail.to')` của gói: trường đó BẮT BUỘC là một email
-         * hợp lệ (xem docblock ở `config/backup.php`) nên không thể mang giá trị rỗng, còn nghiệp
-         * vụ "trống thì gửi mọi admin đang hoạt động" (App\Actions\Backup\
-         * ResolveBackupNotificationRecipients) cần phân biệt được "trống" với "một email".
+         * Task 1, fix I1). Một hoặc nhiều địa chỉ phân tách dấu phẩy — phân tích và validate
+         * TỪNG địa chỉ ở `App\Support\Backup\BackupNotifyEmails::parse()` (địa chỉ hỏng bị bỏ
+         * qua + ghi log, không ném lỗi). Giá trị THÔ (chưa validate) được giữ nguyên ở đây.
+         *
+         * Đọc qua ĐÂY (`config('vkcrm.backup.notify_email')`) — KHÔNG BAO GIỜ qua
+         * `config('backup.notifications.mail.to')` của gói: trường đó là một placeholder CỐ ĐỊNH,
+         * không liên quan tới biến này (xem docblock ở `config/backup.php` — đưa giá trị thô của
+         * biến này vào đó làm hỏng MỌI lệnh artisan, không riêng sao lưu).
          */
         'notify_email' => $domain(env('BACKUP_NOTIFY_EMAIL')),
     ],

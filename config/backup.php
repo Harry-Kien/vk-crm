@@ -113,8 +113,9 @@ return [
         /*
          * Mật khẩu mã hoá archive (SPEC §10 mục 8, R3). Rỗng ở local/testing (không bắt buộc
          * cấu hình bí mật để chạy máy dev); BẮT BUỘC ở production —
-         * `App\Actions\Backup\GuardBackupEncryption` chặn `backup:run` khi thiếu, xem
-         * `App\Console\Commands\BackupCommand`.
+         * `App\Actions\Backup\GuardBackupEncryption` làm lượt sao lưu thất bại (không archive,
+         * có thư báo lỗi) khi thiếu mật khẩu, hoặc khi máy chủ không mã hoá được bằng thuật toán
+         * ở `encryption` bên dưới. Chỗ móc và lý do ở docblock của lớp đó.
          */
         'password' => env('BACKUP_ARCHIVE_PASSWORD'),
 
@@ -167,29 +168,40 @@ return [
 
         'mail' => [
             /*
-             * Trường NÀY KHÔNG dùng để gửi thực: cả ba lớp notification của dự án trả một
-             * `App\Mail\Staff\BackupAlert` (một Mailable) từ `toMail()`, và
-             * `Illuminate\Notifications\Channels\MailChannel::send()` khi thấy `toMail()` trả về
-             * một Mailable thì gọi thẳng `$message->send($mailer)` — bỏ qua hoàn toàn
-             * `$notifiable->routeNotificationFor('mail')`. Người nhận THẬT tính bởi
-             * `App\Actions\Backup\ResolveBackupNotificationRecipients` (đọc `BACKUP_NOTIFY_EMAIL`
-             * qua `config('vkcrm.backup.notify_email')`, không qua đây).
+             * CẢ KHỐI NÀY KHÔNG DÙNG ĐỂ GỬI THƯ, và cố ý là HẰNG SỐ — không đọc biến môi trường
+             * nào (fix I1, review vòng 1).
              *
-             * Trường này vẫn phải là một email HỢP LỆ: `Spatie\Backup\Config\
-             * NotificationMailConfig::fromArray()` gọi `filter_var(..., FILTER_VALIDATE_EMAIL)`
-             * vô điều kiện mỗi khi `Config::class` (một `scoped` singleton, dựng lại mỗi lần
-             * `Config::rebind()` hay đầu mỗi request/lệnh) được dựng — TỨC LÀ MỌI LẦN chạy
-             * `backup:run`/`backup:clean`/`backup:monitor`, kể cả khi `BACKUP_NOTIFY_EMAIL` để
-             * trống. Để trống chuỗi ở đây sẽ làm CẢ BA LỆNH ném `InvalidConfig` ngay từ bước
-             * dựng, trước khi guard hay logic nào của dự án kịp chạy. `config('mail.from.address')`
-             * luôn có giá trị hợp lệ (mặc định `hello@example.com`), nên dùng làm placeholder vô
-             * hại.
+             * Vì sao không dùng để gửi: ba lớp `App\Notifications\Backup\*` trả về một Mailable
+             * (`App\Mail\Staff\BackupAlert`) từ `toMail()`, và
+             * `Illuminate\Notifications\Channels\MailChannel::send()` gặp Mailable thì gọi thẳng
+             * `$message->send($mailer)` — không hỏi `routeNotificationFor('mail')`, nên `to` ở
+             * đây không bao giờ được đọc. Người nhận THẬT (một địa chỉ hoặc danh sách phẩy, từng
+             * địa chỉ được validate, địa chỉ hỏng bị bỏ qua và ghi log) do
+             * `App\Actions\Backup\ResolveBackupNotificationRecipients` tính từ
+             * `config('vkcrm.backup.notify_email')`. Người gửi THẬT là người gửi chung của
+             * mailer (`config('mail.from')`), như mọi thư khác của dự án.
+             *
+             * Vì sao phải là hằng số: `Spatie\Backup\Config\NotificationMailConfig::fromArray()`
+             * validate `to`, và `NotificationMailSenderConfig::fromArray()` validate
+             * `from.address`, bằng `filter_var(..., FILTER_VALIDATE_EMAIL)` — sai thì ném
+             * `InvalidConfig`. Việc đó chạy mỗi khi `Spatie\Backup\Config\Config` được dựng, và
+             * nó được dựng ở constructor của các lệnh `backup:*`, những lệnh Artisan khởi tạo mỗi
+             * khi console application khởi động, BẤT KỂ lệnh nào được gọi. Các bản trước đưa
+             * `BACKUP_NOTIFY_EMAIL` rồi `MAIL_FROM_ADDRESS` vào đây: một danh sách phẩy hay một
+             * lỗi gõ tay ở `.env` làm chết MỌI lệnh artisan, kể cả `schedule:run` (sao lưu, giám
+             * sát, `CheckDeadlines`) và `queue:work`. Hằng số không phụ thuộc người vận hành thì
+             * không hỏng theo cách đó. Kiểm ở `tests/Feature/Backup/BackupConfigTest.php`, test
+             * "fix I1 — BACKUP_NOTIFY_EMAIL và MAIL_FROM_ADDRESS sai định dạng không làm hỏng lệnh
+             * artisan nào".
+             *
+             * `localhost.localdomain` không trỏ tới hộp thư có thật nào, nhưng vẫn qua được
+             * `FILTER_VALIDATE_EMAIL`.
              */
-            'to' => env('BACKUP_NOTIFY_EMAIL') ?: config('mail.from.address', 'hello@example.com'),
+            'to' => 'backup-placeholder@localhost.localdomain',
 
             'from' => [
-                'address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),
-                'name' => env('MAIL_FROM_NAME', 'Example'),
+                'address' => 'backup-placeholder@localhost.localdomain',
+                'name' => 'VK-CRM',
             ],
         ],
 

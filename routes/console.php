@@ -95,10 +95,15 @@ Schedule::call(new CheckDeadlines)
  * lưu CỦA HÔM NAY. `withoutOverlapping()` vì cả hai lệnh có thể chạy lâu trên một CSDL lớn — hai
  * tiến trình `backup:run` chồng nhau ghi hai archive cùng lúc là lãng phí I/O, không phải lỗi dữ
  * liệu, nhưng vẫn không đáng để cho phép.
+ *
+ * KHÔNG gọi `->name(...)`: `Illuminate\Console\Scheduling\ManagesAttributes::name()` chỉ là một
+ * BÍ DANH của `description()` — cả hai cùng ghi vào MỘT thuộc tính `$description` (fix I7, review
+ * vòng 1). Gọi cả hai làm lời gọi SAU ghi đè lời gọi TRƯỚC một cách im lặng; test không được nhận
+ * dạng tác vụ bằng "tên" tưởng tượng đó — dùng `$event->command` (chuỗi lệnh Artisan thật) thay
+ * vì mô tả tiếng Việt, xem `tests/Feature/Schedule/BackupScheduleTest.php`.
  */
 Schedule::command('backup:clean')
     ->dailyAt('02:00')
-    ->name('backup.clean')
     ->description('Dọn bản sao lưu cũ trước khi sao lưu mới')
     ->withoutOverlapping()
     ->then(fn () => Artisan::call('backup:run'));
@@ -110,6 +115,5 @@ Schedule::command('backup:clean')
  */
 Schedule::command('backup:monitor')
     ->dailyAt('08:00')
-    ->name('backup.monitor')
     ->description('Giám sát sức khoẻ bản sao lưu')
     ->withoutOverlapping();

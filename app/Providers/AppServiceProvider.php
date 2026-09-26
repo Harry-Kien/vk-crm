@@ -2,7 +2,7 @@
 
 namespace App\Providers;
 
-use App\Console\Commands\BackupCommand;
+use App\Actions\Backup\GuardBackupEncryption;
 use App\Http\Controllers\DocumentDownloadController;
 use App\Listeners\RecordOutboundMail;
 use App\Models\Client;
@@ -28,7 +28,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
-use Spatie\Backup\Commands\BackupCommand as SpatieBackupCommand;
+use Spatie\Backup\Events\BackupManifestWasCreated;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -60,14 +60,6 @@ class AppServiceProvider extends ServiceProvider
          * thái nào lúc dựng ngoài chính `$app`, và không có nơi nào khác trong dự án thay nó.
          */
         $this->app->extend('mail.manager', fn ($manager, $app) => new OutboundLedgerMailManager($app));
-
-        /*
-         * `backup:run` chạy qua {@see BackupCommand} của chính dự án thay vì bản gốc của gói,
-         * để guard mật khẩu production (R3) áp cho MỌI đường gọi lệnh này. Lý do dùng container
-         * binding thay vì nghe `CommandStarting` — và vì sao đó là lựa chọn BẮT BUỘC, không phải
-         * sở thích — nằm ở docblock của `BackupCommand`.
-         */
-        $this->app->bind(SpatieBackupCommand::class, BackupCommand::class);
     }
 
     /**
@@ -86,6 +78,16 @@ class AppServiceProvider extends ServiceProvider
          * đo vì sao (đăng ký cả hai đường thì mỗi thư sinh ra hai dòng nhật ký).
          */
         Event::subscribe(RecordOutboundMail::class);
+
+        /*
+         * Guard mã hoá sao lưu ở production (SPEC §10 mục 8, R3) chạy BÊN TRONG
+         * `Spatie\Backup\Tasks\Backup\BackupJob::run()`, lúc manifest vừa dựng xong và zip chưa
+         * được tạo — để lượt sao lưu bị từ chối đi đúng đường `BackupHasFailed` → thư báo lỗi,
+         * và để không đường gọi nào (lệnh, `--config=`, gọi thẳng `BackupJob`) bỏ qua được. Lý
+         * do đầy đủ ở docblock của `GuardBackupEncryption`. Listener đồng bộ: ngoại lệ phải nổi
+         * lên trong chính `run()`.
+         */
+        Event::listen(BackupManifestWasCreated::class, [GuardBackupEncryption::class, 'handle']);
 
         Relation::enforceMorphMap([
             'user' => User::class,

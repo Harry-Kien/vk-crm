@@ -11,6 +11,10 @@ return [
         'password_required_in_production' => 'Không thể chạy sao lưu ở môi trường production: '
             .'chưa cấu hình BACKUP_ARCHIVE_PASSWORD. Đặt biến môi trường này rồi chạy lại — '
             .'không được phép tạo bản sao lưu không mã hoá.',
+        'encryption_unavailable_in_production' => 'Không thể chạy sao lưu ở môi trường production: '
+            .'máy chủ không mã hoá được archive bằng thuật toán đã cấu hình (thường do thư viện '
+            .'libzip của PHP quá cũ, thiếu AES-256). Nâng cấp libzip/PHP zip rồi chạy lại — không '
+            .'được phép tạo bản sao lưu không mã hoá.',
     ],
 
     'email' => [
