@@ -143,6 +143,27 @@ it('lists the matters of the signed in client and never those of another client'
         ->and($html)->not->toContain('HO-SO-CUA-KHACH-KHAC-9X7M');
 });
 
+/**
+ * `portal/portal-2` (M6.5 Task 5): `summary_for_client` chỉ hiện được ở tab Tổng quan phía nội
+ * bộ trước bản sửa này. §8.2 liệt kê thẻ hồ sơ như một trong hai nơi đặt trường này.
+ */
+it('shows summary_for_client on the matter card when it has content', function () {
+    portalMatter(['summary_for_client' => 'TOM-TAT-THE-HO-SO-3F9L']);
+
+    $html = renderMyMatters();
+
+    expect($html)->toContain('TOM-TAT-THE-HO-SO-3F9L');
+});
+
+/** Cặp âm bắt buộc: rỗng thì thẻ không vẽ một dòng trống cho trường này. */
+it('does not render a summary line on the card when summary_for_client is empty', function () {
+    portalMatter(['summary_for_client' => null]);
+
+    $html = renderMyMatters();
+
+    expect($html)->not->toContain('data-portal-card-summary');
+});
+
 it('never lists a matter of the right client that is not published to the portal', function () {
     $published = portalMatter(['title' => 'Hồ sơ đang mở cho khách']);
     $unpublished = portalMatter([

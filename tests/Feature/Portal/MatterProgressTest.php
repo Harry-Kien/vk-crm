@@ -137,6 +137,32 @@ it('serves a real Vietnamese heading for each of the seven blocks', function () 
 // KHỐI 1 — TÌNH TRẠNG HIỆN TẠI
 // =========================================================================================
 
+/**
+ * `portal/portal-2` (M6.5 Task 5): `summary_for_client` được nhân sự điền ở form nội bộ với nhãn
+ * "Tóm tắt cho khách" và HIỂU BIẾT rằng khách đọc được, nhưng trước bản sửa này không màn hình
+ * cổng nào đọc cột này. Đặt ở khối 1, cạnh nhãn giai đoạn.
+ */
+it('shows summary_for_client in block 1 when it has content', function () {
+    $this->matter->update(['summary_for_client' => 'TOM-TAT-CHO-KHACH-9Q7Z']);
+
+    $this->actingAs($this->clientUser, 'client')
+        ->get(progressUrl($this->matter))
+        ->assertOk()
+        ->assertSee('TOM-TAT-CHO-KHACH-9Q7Z', escape: false);
+});
+
+/** Cặp âm bắt buộc: rỗng thì không vẽ ra một dòng trống. */
+it('does not show any summary line in block 1 when summary_for_client is empty', function () {
+    $this->matter->update(['summary_for_client' => null]);
+
+    $html = $this->actingAs($this->clientUser, 'client')
+        ->get(progressUrl($this->matter))
+        ->assertOk()
+        ->getContent();
+
+    expect($html)->not->toContain('data-portal-summary');
+});
+
 it('shows the client label and the client description of the current stage, never the internal label', function () {
     $stage = $this->matter->matterType->stage('collecting_documents');
 

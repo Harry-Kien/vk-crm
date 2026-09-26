@@ -5,6 +5,7 @@ namespace App\Filament\Admin\Resources\Matters\Tables;
 use App\Enums\Permission;
 use App\Models\Matter;
 use App\Models\MatterTypeStage;
+use App\Support\MatterStaleness;
 use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -51,9 +52,24 @@ class MattersTable
                     ->searchable()
                     ->sortable(),
                 // "12 ngày trước", tô vàng khi > 10 ngày, đỏ khi > 14 (SPEC §7.2).
+                //
+                // Fix round 1, finding S2: `->since()` đọc thẳng cột `last_client_update_at` —
+                // với một vụ CHƯA TỪNG cập nhật cho khách, cột đó là `null`, `->since()` không vẽ
+                // gì, và Filament không bao giờ tô màu lên một ô TRỐNG (đo được: `->color()` vẫn
+                // trả `'danger'` đúng, nhưng không có chữ nào để mang màu đó). Đây đúng là ca
+                // `StaleMattersWidget` coi là XẤU NHẤT (dùng `stage_entered_at` làm đồng hồ dự
+                // phòng — xem `MatterStaleness`), nên nó không được phép là ca DUY NHẤT không có
+                // gì hiện ra. `->state()` thay `->since()`: có `last_client_update_at` thì hiện
+                // đúng chữ `->since()` vẫn hiện (`diffForHumans()`), không thì hỏi lại
+                // `MatterStaleness::color()` — quá hạn (có màu) thì hiện câu "Chưa cập nhật lần
+                // nào", còn chưa quá hạn thì để trống như cũ (một vụ mới mở, chưa tới hạn báo cáo,
+                // không cần một câu cảnh báo).
                 TextColumn::make('last_client_update_at')
                     ->label(__('matters.fields.last_client_update_at'))
-                    ->since()
+                    ->state(fn (Matter $record): ?string => $record->last_client_update_at?->diffForHumans()
+                        ?? (static::lastClientUpdateColor($record) !== null
+                            ? __('matters.fields.never_updated')
+                            : null))
                     ->color(fn (Matter $record): ?string => static::lastClientUpdateColor($record))
                     ->sortable(),
             ])
@@ -79,19 +95,15 @@ class MattersTable
      * SPEC §7.2: "cập nhật gần nhất cho khách" tô vàng khi > 10 ngày, đỏ khi > 14 ngày. Tách
      * thành hàm tĩnh riêng (thay vì closure ẩn danh trong ->color()) để test được trực tiếp,
      * không phải dựng cả bảng Livewire chỉ để kiểm tra ba ngưỡng màu.
+     *
+     * **Uỷ toàn bộ cho `App\Support\MatterStaleness::color()` (M6.5 Task 5, finding
+     * `stage/stage-09`).** Bản trước chỉ đọc `last_client_update_at` — tô đỏ cả một vụ ĐÃ ĐÓNG
+     * hay CHƯA công bố portal (những vụ mà `StaleMattersWidget` không bao giờ liệt kê), và không
+     * tô gì cho một vụ CHƯA TỪNG cập nhật (widget coi đó là ca xấu nhất). Hai nơi giờ đọc đúng
+     * MỘT định nghĩa "quá hạn"; xem docblock của lớp kia cho ba điều kiện đầy đủ.
      */
     public static function lastClientUpdateColor(Matter $record): ?string
     {
-        if (! $record->last_client_update_at) {
-            return null;
-        }
-
-        $daysSinceUpdate = $record->last_client_update_at->diffInDays(now());
-
-        return match (true) {
-            $daysSinceUpdate > 14 => 'danger',
-            $daysSinceUpdate > 10 => 'warning',
-            default => null,
-        };
+        return MatterStaleness::color($record);
     }
 }

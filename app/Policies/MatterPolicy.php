@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Actions\Matter\UpdateMatterDetails;
 use App\Enums\Permission;
 use App\Enums\Role;
 use App\Models\ClientUser;
@@ -188,6 +189,60 @@ class MatterPolicy
                 || $user->hasRole(Role::Admin->value)
                 || $user->hasRole(Role::Manager->value)
             );
+    }
+
+    /**
+     * Fix round 1, finding I2 (chốt lại R5): đổi `confidentiality`, MỘT TRONG HAI CHIỀU, chỉ
+     * dành cho LUẬT SƯ PHỤ TRÁCH của chính vụ việc này hoặc ADMIN — không còn "matter.update VÀ
+     * không phải trợ lý" của bản đầu. Bản đầu đọc R5 theo nghĩa rộng nhất có thể ("mọi việc trừ
+     * quyết định đưa gì ra cho khách và cấu trúc vụ việc"), nên để lọt một luật sư cộng sự
+     * (associate) — có `matter.update`, không phải trợ lý — đổi được mức bảo mật của một vụ việc
+     * họ không phụ trách. Quyết định ai được xem một vụ `restricted` (chỉ lead + admin,
+     * `Matter::isListableBy()`) và quyết định AI ĐƯỢC CHUYỂN một vụ vào/ra khỏi trạng thái đó
+     * phải là CÙNG một tập người — một trưởng phòng hay một cộng sự đổi được mức bảo mật của một
+     * vụ họ không phụ trách, trong khi chính họ (nếu không phải admin) có thể không còn xem được
+     * vụ đó SAU lần đổi, là một quyết định không ai chịu trách nhiệm được.
+     *
+     * `$this->update()` đã gồm `view()` (không cho vụ đã xoá mềm, xem docblock `update()`), nên
+     * không cần lặp lại `! $matter->trashed()` ở đây.
+     *
+     * Luật "chuyển sang restricted khi còn thành viên khác lead/admin thì bị từ chối, kèm danh
+     * sách" KHÔNG nằm ở đây — một ability policy chỉ nhận `(User, Matter)`, không nhận GIÁ TRỊ
+     * MỚI đang định gán, nên không thể tự phân biệt "giữ nguyên"/"chuyển sang normal" (luôn được)
+     * với "chuyển sang restricted" (cần thêm điều kiện đội ngũ). Luật đó nằm trong
+     * {@see UpdateMatterDetails}, nơi giá trị MỚI đã có sẵn trong `$data`.
+     */
+    public function updateConfidentiality(User|ClientUser $user, Matter $matter): bool
+    {
+        return $user instanceof User
+            && $this->update($user, $matter)
+            && ($matter->lead_lawyer_id === $user->getKey() || $user->hasRole(Role::Admin->value));
+    }
+
+    /**
+     * Fix round 1, finding I1: `summary_for_client` là lời văn phòng ĐƯA RA CHO KHÁCH đọc (SPEC
+     * §4.6, và SPEC §8.3 khối 1 vẽ nó ra ngay cạnh nhãn giai đoạn) — cùng LOẠI quyết định với công
+     * bố một dòng tiến độ cho khách, nên đòi CÙNG quyền `stageLog.publish`, không phải chỉ
+     * `matter.update`. Trợ lý có `matter.update` (`Role::Assistant->permissions()`) nhưng không có
+     * `stageLog.publish`, nên không đổi được trường này — dù vẫn sửa được bốn trường còn lại của
+     * `UpdateMatterDetails`.
+     */
+    public function updateSummaryForClient(User|ClientUser $user, Matter $matter): bool
+    {
+        return $user instanceof User
+            && $this->update($user, $matter)
+            && $user->can(Permission::StageLogPublish->value);
+    }
+
+    /**
+     * "Huỷ hồ sơ mở nhầm" (M6.5 Task 5) — xoá mềm kèm lý do bắt buộc, qua {@see
+     * \App\Actions\Matter\CancelMatter}. Cùng luật với {@see self::delete()} (chỉ quản trị), vì
+     * đây đúng là hành động đó — cổng riêng chỉ để tên ability khớp đúng tên header action trên
+     * `EditMatter` (`HeaderActionsAreReachableTest` đòi tên action trùng tên phương thức policy).
+     */
+    public function cancelMatter(User|ClientUser $user, Matter $matter): bool
+    {
+        return $this->delete($user, $matter);
     }
 
     /** Xoá mềm vụ việc là việc hệ trọng: chỉ quản trị. */

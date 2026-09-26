@@ -93,6 +93,7 @@ class TransitionStageAction extends Action
             $this->clientActionField(),
             $this->expectedNextUpdateAtField(null),
             $this->publishToggleField($matter),
+            $this->noActivatedAccountWarning($matter),
             $this->previewField(fn (Get $get): array => [
                 'stageLabel' => $this->stageClientLabel($matter, $get('to_stage')),
                 'publicContent' => $get('public_content'),

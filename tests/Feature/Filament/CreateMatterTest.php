@@ -420,6 +420,28 @@ it('offers only active staff who may run a matter as lead lawyer', function () {
 });
 
 /**
+ * `intake/intake-09`: ô "Loại vụ việc" không lọc `is_active`, khác hẳn ô "Luật sư phụ trách"
+ * ngay trên (test này) — một quản trị viên đã ngưng dùng một loại vụ việc (`MatterTypeForm`
+ * toggle "Đang dùng") thì loại đó vẫn chọn được khi mở vụ mới. Đi đúng đường luật sư dùng: đọc
+ * HTML thật của form qua Livewire, không gọi thẳng truy vấn.
+ */
+it('offers only active matter types in the matter-type picker', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    Client::factory()->create();
+
+    $active = MatterType::factory()->withStages()->create(['name' => 'LOAIVUVIEC-CONHOATDONG']);
+    $inactive = MatterType::factory()->withStages()->create([
+        'name' => 'LOAIVUVIEC-DANGNGUNG', 'is_active' => false,
+    ]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(CreateMatter::class)
+        ->assertSee($active->name)
+        ->assertDontSee($inactive->name);
+});
+
+/**
  * `CreateMatter::mutateFormDataBeforeCreate()` — cổng phía máy chủ cho ba id mà form gửi lên —
  * dưới dạng một closure gọi được. `protected`, nên phải buộc vào chính instance Livewire đang
  * chạy (nó đọc `Auth::user()` gián tiếp qua `VisibleClientOptions`/`leadLawyerOptions()`).

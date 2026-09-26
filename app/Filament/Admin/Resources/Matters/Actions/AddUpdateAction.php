@@ -55,6 +55,7 @@ class AddUpdateAction extends Action
             $this->clientActionField(),
             $this->expectedNextUpdateAtField($this->stageDefaultNextUpdateAt($matter, $stageKey)),
             $this->publishToggleField($matter),
+            $this->noActivatedAccountWarning($matter),
             $this->previewField(fn (Get $get): array => [
                 'stageLabel' => $matter->currentStage()?->client_label,
                 'publicContent' => $get('public_content'),

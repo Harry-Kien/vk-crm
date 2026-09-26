@@ -13,6 +13,11 @@ return [
         'lead_lawyer' => 'Luật sư phụ trách',
         'last_client_update_at' => 'Cập nhật gần nhất cho khách',
         'is_published_to_portal' => 'Công bố portal',
+        // Fix round 1, finding S2: Filament không tô màu lên một ô trống — một vụ quá hạn nhưng
+        // CHƯA TỪNG cập nhật cho khách (last_client_update_at null) phải hiện chữ này, không phải
+        // để trống, để màu đỏ có một dòng chữ đi kèm (tài liệu bộ công cụ §4: màu không bao giờ
+        // là kênh thông tin duy nhất).
+        'never_updated' => 'Chưa cập nhật lần nào',
     ],
     'filters' => [
         'stage' => 'Giai đoạn',
@@ -60,6 +65,24 @@ return [
         'add_party_heading' => 'Thêm một bên vào vụ việc',
         'transition_stage' => 'Chuyển giai đoạn',
         'add_update' => 'Thêm cập nhật',
+        'cancel_matter' => 'Huỷ hồ sơ mở nhầm',
+    ],
+    // M6.5 Task 5 — trang "Sửa vụ việc" (findings intake-06, spec-gap-06).
+    'edit_form' => [
+        'section' => 'Sửa thông tin vụ việc',
+        // Fix round 1, finding I2: chỉ lead hoặc admin, không còn "không phải trợ lý".
+        'confidentiality_denied' => 'Chỉ luật sư phụ trách của vụ việc này hoặc quản trị viên mới đổi được mức bảo mật.',
+        // Fix round 1, finding I2: chuyển sang mức hạn chế trong khi đội ngũ còn thành viên khác
+        // lead/admin — họ sẽ hết thấy được vụ việc ngay sau khi đổi.
+        'confidentiality_blocked_by_team' => 'Không thể chuyển sang mức hạn chế khi đội ngũ còn: :names. Hãy chuyển họ ra khỏi đội ngũ qua tab Đội ngũ trước.',
+        // Fix round 1, finding I1: summary_for_client đòi quyền công bố cho khách (stageLog.publish).
+        'summary_for_client_denied' => 'Chỉ ai có quyền công bố cho khách mới sửa được tóm tắt cho khách.',
+    ],
+    // M6.5 Task 5 — hộp thoại "Huỷ hồ sơ mở nhầm" trên trang Sửa vụ việc.
+    'cancel_form' => [
+        'reason' => 'Lý do huỷ',
+        'reason_help' => 'Bắt buộc. Vụ gắn nhầm khách hàng hoặc nhầm loại vụ việc thì huỷ và mở lại đúng, thay vì sửa — lý do được ghi vĩnh viễn vào nhật ký.',
+        'success' => 'Đã huỷ hồ sơ mở nhầm.',
     ],
     'transition_form' => [
         'to_stage' => 'Giai đoạn mới',
@@ -74,6 +97,10 @@ return [
         'publish' => 'Công bố cho khách ngay',
         'public_content_publish_hint' => 'Công bố cho khách yêu cầu tối thiểu 30 ký tự.',
         'publish_disabled_hint' => 'Vụ việc chưa bật công bố portal nên chưa công bố được ngay — vào tab Tổng quan để bật trước.',
+        // Task 7 (R12, phát hiện `stage/stage-06`): vụ đã bật cổng nhưng khách không có tài khoản
+        // cổng nào đang hoạt động VÀ đã kích hoạt (activated_at không null) — đúng điều kiện
+        // NotifyClientOfStageUpdate::eligibleRecipientsQuery() dùng để chọn người nhận thư thật.
+        'no_activated_account_warning' => 'Khách chưa có tài khoản cổng đang dùng — sẽ không ai nhận thư.',
         'transition_heading' => 'Chuyển giai đoạn vụ việc',
         'add_update_heading' => 'Thêm cập nhật (không đổi giai đoạn)',
         'transition_success' => 'Đã chuyển giai đoạn.',

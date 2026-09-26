@@ -5,11 +5,16 @@ use App\Enums\Role;
 use App\Filament\Admin\Resources\Matters\Actions\TransitionStageAction;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\StageLogsRelationManager;
+use App\Models\Client;
+use App\Models\ClientUser;
 use App\Models\Matter;
 use App\Models\StageLog;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
+use Filament\Schemas\Components\Text;
+use Filament\Schemas\Schema;
+use Livewire\Features\SupportTesting\Testable;
 
 beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);
@@ -269,4 +274,121 @@ it('still refreshes the public_content template when the target stage changes an
     $component->assertTableActionDataSet([
         'public_content' => $matter->matterType->stage('on_hold')->client_description,
     ]);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Task 7 (R12, phát hiện `stage/stage-06` — nửa "luật sư không biết khách không được báo"):
+| BuildsStageUpdateSchema::noActivatedAccountWarning() dùng CHUNG điều kiện với
+| NotifyClientOfStageUpdate::hasEligibleRecipient(), nên cảnh báo trên form không bao giờ lệch
+| với chính Action gửi thư thật.
+|--------------------------------------------------------------------------
+|
+| `assertSee()` không đọc được nội dung của modal action trên RelationManager: `.html()` của một
+| test Livewire chỉ render lại CHÍNH component đó (bảng), không phải toàn trang panel nơi modal
+| action thật sự được vẽ (đã tự đo: một trường luôn hiện như `to_stage`/`occurred_at` cũng vắng
+| mặt trong cùng phép `.html()`). Vì vậy đọc thẳng CÂY SCHEMA đang mount — cùng kỹ thuật
+| `assertFormFieldDisabled()`/`assertFormFieldEnabled()` của chính Filament dùng (đọc
+| `Schema::getFlatFields()` thay vì đọc HTML) — chỉ khác Text không phải Field nên phải dùng
+| `getFlatComponents()` (bao gồm mọi component, không riêng field) rồi tự lọc theo NỘI DUNG, vì
+| Text không có tên state path để tra theo khoá như một field.
+*/
+
+/** Tìm ĐÚNG component Text của cảnh báo này trong cây schema đang mount — không lẫn với Text ẩn
+ *  bên trong helperText() của các field khác (đã đo: cùng là instance Text). */
+function noActivatedAccountWarningComponent(Testable $component): Text
+{
+    $formName = $component->instance()->getMountedActionSchemaName();
+    /** @var Schema $schema */
+    $schema = $component->instance()->{$formName};
+
+    $warning = __('matters.transition_form.no_activated_account_warning');
+
+    $matches = array_values(array_filter(
+        $schema->getFlatComponents(withHidden: true),
+        fn ($c) => $c instanceof Text && $c->getContent() === $warning,
+    ));
+
+    expect($matches)->toHaveCount(1, 'Không tìm thấy đúng một component cảnh báo trong schema đang mount.');
+
+    return $matches[0];
+}
+
+it('warns on the transition-stage form when the matter is published but the client has no eligible portal account', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->atStage('intake')->create([
+        'lead_lawyer_id' => $lawyer->id,
+        'is_published_to_portal' => true,
+    ]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(StageLogsRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->mountTableAction('transitionStage');
+
+    $warning = noActivatedAccountWarningComponent($component);
+
+    expect($warning->isVisible())->toBeTrue();
+
+    // Fix round 1 (minor): không chỉ isVisible() — đo THẬT màu trên markup đã render. `fi-color-warning`
+    // là lớp Filament thật sự phát ra cho `->color('warning')` (đã tự đo bằng cách render component
+    // này qua toSchemaHtml() và đọc markup; class="fi-color fi-color-warning fi-text-color-700
+    // dark:fi-text-color-400 fi-sc-text"), không phải một chuỗi suy đoán.
+    expect($warning->toSchemaHtml(true))->toContain('fi-color-warning');
+});
+
+/** Vế dương: khách CÓ một tài khoản cổng đủ điều kiện (đang hoạt động, đã kích hoạt) thì không cảnh báo. */
+it('hides the warning when the client has an active, activated portal account', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $client = Client::factory()->create();
+    ClientUser::factory()->activated()->create(['client_id' => $client->id, 'is_active' => true]);
+    $matter = Matter::factory()->atStage('intake')->create([
+        'client_id' => $client->id,
+        'lead_lawyer_id' => $lawyer->id,
+        'is_published_to_portal' => true,
+    ]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(StageLogsRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->mountTableAction('transitionStage');
+
+    expect(noActivatedAccountWarningComponent($component)->isVisible())->toBeFalse();
+});
+
+/** Vế dương thứ hai: vụ CHƯA bật cổng — không ai định nhận thư ngay nên cảnh báo cũng không cần hiện. */
+it('hides the warning when the matter is not published to the portal at all', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->unpublished()->atStage('intake')->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(StageLogsRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->mountTableAction('transitionStage');
+
+    expect(noActivatedAccountWarningComponent($component)->isVisible())->toBeFalse();
+});
+
+/** Cùng cảnh báo dùng chung ở nút "Thêm cập nhật" — BuildsStageUpdateSchema là trait dùng chung. */
+it('shows the same warning on the add-update form', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->atStage('intake')->create([
+        'lead_lawyer_id' => $lawyer->id,
+        'is_published_to_portal' => true,
+    ]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(StageLogsRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->mountTableAction('addUpdate');
+
+    expect(noActivatedAccountWarningComponent($component)->isVisible())->toBeTrue();
 });

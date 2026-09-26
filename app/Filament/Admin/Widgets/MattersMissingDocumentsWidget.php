@@ -27,7 +27,8 @@ use Illuminate\Support\Facades\DB;
  * lead lawyer là hồ sơ đang đình trệ vì thiếu giấy tờ". Widget này là cái nhìn thấy được của
  * đúng thông báo đó, nên bốn điều kiện đi liền nhau, không tách rời:
  *
- * 1. `closed_at` null — §6.9 "đang mở";
+ * 1. `Matter::scopeOpen()` — §6.9 "đang mở" (R8, M6.5 Task 5: một định nghĩa dùng chung toàn
+ *    hệ thống, ghi bởi `TransitionMatterStage`);
  * 2. `is_published_to_portal` — §6.9 "đã công bố portal". Chưa công bố thì khách không có đường
  *    nào để nộp, nên hồ sơ có tắc cũng không phải tắc vì khách;
  * 3. đầu mục `is_required = true` với `status` thuộc {`missing`, `rejected`};
@@ -112,7 +113,7 @@ class MattersMissingDocumentsWidget extends TableWidget
 
         return Matter::query()
             ->listableBy($user)
-            ->whereNull('matters.closed_at')
+            ->open()
             ->where('matters.is_published_to_portal', true)
             ->whereHas(
                 'checklistItems',

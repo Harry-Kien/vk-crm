@@ -4,7 +4,9 @@ namespace App\Actions\Notification;
 
 use App\Mail\Client\StageUpdate;
 use App\Models\ClientUser;
+use App\Models\Matter;
 use App\Models\StageLog;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
 
@@ -62,9 +64,53 @@ class NotifyClientOfStageUpdate
             return collect();
         }
 
+        return $this->eligibleRecipientsQuery($clientId)->get();
+    }
+
+    /**
+     * Task 7 (R12, phát hiện `stage/stage-06` nửa "luật sư không biết khách không được báo"):
+     * form "Chuyển giai đoạn"/"Thêm cập nhật" gọi hàm này TRƯỚC khi gửi, để cảnh báo luật sư ngay
+     * trên form khi sẽ không ai nhận được thư — xem
+     * `App\Filament\Admin\Resources\Matters\Actions\Concerns\BuildsStageUpdateSchema::noActivatedAccountWarning()`.
+     * Đi qua `eligibleRecipientsQuery()` — CÙNG một điều kiện với `recipientsFor()` — để cảnh báo
+     * này không bao giờ lệch với chính Action gửi thư thật.
+     */
+    public function hasEligibleRecipient(Matter $matter): bool
+    {
+        return $this->eligibleRecipientsQuery($matter->client_id)->exists();
+    }
+
+    /**
+     * Một nơi DUY NHẤT đọc "tài khoản cổng nào của một khách hàng đủ điều kiện nhận thư về vụ
+     * việc" — `recipientsFor()` (gửi thư thật) và `hasEligibleRecipient()` (cảnh báo trên form,
+     * Task 7) đều gọi qua đây, để Task 11 (đưa Action này lên hàng đợi — xem brief Task 7, mục
+     * "Controller context") chỉ phải giữ một chỗ khi mang luật này sang, không phải chép lại ba
+     * điều kiện dưới đây ở hai nơi rồi để chúng trôi lệch nhau.
+     *
+     * `is_active` (giữ nguyên từ trước): tài khoản văn phòng đã chủ động khoá thì không nhận —
+     * gửi vào đó mâu thuẫn với chính quyết định khoá.
+     *
+     * `whereNotNull('activated_at')` (R12, phát hiện `intake/intake-04`, `intake/intake-05`):
+     * activated_at chỉ được hệ thống ghi khi khách TỰ TAY đổi mật khẩu lần đầu thành công
+     * (`App\Filament\Portal\Pages\Auth\ChangePassword::changePassword()`) — bằng chứng DUY NHẤT
+     * người nhận làm chủ hộp thư đã gõ. Email tài khoản cổng do nhân sự gõ tay lúc nghe điện
+     * thoại, không qua bước xác minh nào; thiếu điều kiện này thì một địa chỉ gõ nhầm nhận được
+     * tên khách, mã hồ sơ và nội dung công bố ở MỌI lần cập nhật sau đó, và văn phòng không có
+     * tín hiệu nào để biết (đây là toàn bộ nội dung hai phát hiện trên).
+     *
+     * `whereHas('client')` (rà soát Task 2): `Client::delete()`
+     * (`App\Filament\Admin\Resources\Clients\Pages\EditClient` → `DeleteAction`) không tự tắt các
+     * `client_users` của khách đó — `is_active` MỘT MÌNH không đủ để loại một tài khoản của khách
+     * hàng văn phòng đã xoá mềm. `ClientUser::client()` là `BelongsTo` thường nên mang theo
+     * `SoftDeletingScope` của `Client` (cùng lý lẽ đã dùng ở `ClientUser::canAccessPanel()`), nên
+     * `whereHas('client')` tự loại đúng những tài khoản mà quan hệ đó rơi về `null`.
+     */
+    private function eligibleRecipientsQuery(int $clientId): Builder
+    {
         return ClientUser::query()
             ->where('client_id', $clientId)
             ->where('is_active', true)
-            ->get();
+            ->whereNotNull('activated_at')
+            ->whereHas('client');
     }
 }

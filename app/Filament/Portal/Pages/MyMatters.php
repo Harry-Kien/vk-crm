@@ -322,7 +322,7 @@ class MyMatters extends Page
      * bản ghi ở {@see self::buildCards()} chạy y hệt trên đường đó — và từng giá trị trong đó đã
      * có mặt trên màn hình họ vừa xem. Không có gì đọc thêm được ở đây so với việc mở trang.
      *
-     * @return array<int, array{id: int|string, url: string, code: string, title: string, stage_label: ?string, updated_at: ?string, submitted: int, total: int, percent: int, outstanding: int, tone: ?string, status: ?string}>
+     * @return array<int, array{id: int|string, url: string, code: string, title: string, summary: ?string, stage_label: ?string, updated_at: ?string, submitted: int, total: int, percent: int, outstanding: int, tone: ?string, status: ?string}>
      */
     public function getCards(): array
     {
@@ -397,7 +397,7 @@ class MyMatters extends Page
      * `matter_type_stages.label` không được đọc ở tệp này lẫn ở view, và
      * `MyMattersTest` ghim điều đó bằng một giai đoạn có hai nhãn khác hẳn nhau.
      *
-     * @return array{id: int|string, url: string, code: string, title: string, stage_label: ?string, updated_at: ?string, submitted: int, total: int, percent: int, outstanding: int, tone: ?string, status: ?string}
+     * @return array{id: int|string, url: string, code: string, title: string, summary: ?string, stage_label: ?string, updated_at: ?string, submitted: int, total: int, percent: int, outstanding: int, tone: ?string, status: ?string}
      */
     private function toCard(Matter $matter, ChecklistProgress $progress): array
     {
@@ -429,6 +429,9 @@ class MyMatters extends Page
             'url' => MatterProgress::getUrl(['record' => $matter->getKey()]),
             'code' => (string) $matter->code,
             'title' => (string) $matter->title,
+            // `portal/portal-2` (M6.5 Task 5): `null` khi rỗng, để view chỉ vẽ dòng này khi có
+            // nội dung — xem docblock lớp cho lý do trường này từng vắng mặt khỏi cả cổng.
+            'summary' => filled($matter->summary_for_client) ? $matter->summary_for_client : null,
             'stage_label' => $matter->matterType?->stage((string) $matter->stage)?->client_label,
             'updated_at' => $matter->last_client_update_at?->format('d/m/Y'),
             'submitted' => $submitted,

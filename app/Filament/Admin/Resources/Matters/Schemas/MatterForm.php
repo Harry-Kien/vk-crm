@@ -107,7 +107,15 @@ class MatterForm
                 ->required(),
             Select::make('matter_type_id')
                 ->label(__('matters.fields.matter_type'))
-                ->options(fn (): array => MatterType::query()->orderBy('name')->pluck('name', 'id')->all())
+                // `intake/intake-09`: `is_active` (toggle "Đang dùng" của MatterTypeForm) đánh
+                // dấu một loại vụ việc đã ngưng dùng. Ô "Luật sư phụ trách" ngay dưới lọc đúng
+                // cờ tương ứng (`leadLawyerOptions()`, `is_active` của User); ô này trước bản sửa
+                // không lọc gì, nên một loại đã ngưng vẫn chọn được khi mở vụ mới.
+                ->options(fn (): array => MatterType::query()
+                    ->where('is_active', true)
+                    ->orderBy('name')
+                    ->pluck('name', 'id')
+                    ->all())
                 ->searchable()
                 ->required(),
             Select::make('lead_lawyer_id')

@@ -10,7 +10,9 @@ use App\Notifications\Client\SendLoginCode;
 use App\Support\PortalLoginThrottle;
 use Filament\Facades\Filament;
 use Illuminate\Auth\Events\Attempting;
+use Illuminate\Auth\SessionGuard;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Hash;
@@ -543,6 +545,50 @@ it('locks the code step by account and by address, as two independent conditions
 
     expect(RateLimiter::attempts($bobAccountKey))->toBe(0)
         ->and(PortalLoginThrottle::tooManyAttempts(PortalLoginThrottle::codeKeys($bob)))->toBeTrue();
+});
+
+/*
+|--------------------------------------------------------------------------
+| Task 7 (phát hiện `portal/portal-1`, critical): không "Ghi nhớ đăng nhập" trên cổng khách hàng
+|--------------------------------------------------------------------------
+|
+| Lớp cha (Filament\Auth\Pages\Login) nạp form() với ba trường (email, password, remember) —
+| checkbox đó đặt cookie recaller sống 400 ngày (rememberDuration mặc định của SessionGuard),
+| ngoài luồng "email + mật khẩu → mã OTP → nhập mã" mà SPEC §8.1 mô tả không có ngoại lệ nào. Một
+| máy/điện thoại dùng chung trong gia đình (SPEC §4.3 nêu đúng ví dụ vợ chồng) mở lại được hồ sơ
+| pháp lý của người khác không cần mật khẩu lẫn mã, và lần vào đó không qua
+| Login::recordSuccessfulLogin() nên không để lại dòng login_success nào (SPEC §10.6).
+*/
+
+it('has no remember-me checkbox on the portal login form', function () {
+    $this->livewire(Login::class)
+        ->assertFormFieldDoesNotExist('remember');
+});
+
+/**
+ * `set('data.remember', true)` đi THẲNG vào state thô của Livewire, bỏ qua toàn bộ UI — đúng hình
+ * dạng "một request đã chỉnh sửa tay" mà phát hiện portal-1 tái hiện được (xem audit). Đo bằng
+ * cookie recaller THẬT được xếp hàng (Cookie::queued()), không chỉ đọc lại $data, vì đó mới là
+ * hậu quả quan sát được từ bên ngoài.
+ *
+ * Mutation probe: khôi phục lại form() mặc định của lớp cha (bỏ override bên dưới) thì test này
+ * đỏ — cookie recaller được xếp hàng, sống 400 ngày (xem báo cáo).
+ */
+it('never queues a remember-me cookie, even when a tampered request sends remember=1', function () {
+    $user = portalUser();
+
+    submitPortalPassword($user)
+        ->set('data.remember', true)
+        ->set(portalCodeStatePath(), portalCodesSentTo($user)[0])
+        ->call('authenticate')
+        ->assertHasNoErrors();
+
+    expect(auth('client')->check())->toBeTrue();
+
+    /** @var SessionGuard $guard */
+    $guard = auth('client');
+
+    expect(Cookie::queued($guard->getRecallerName()))->toBeNull();
 });
 
 /*
@@ -1486,6 +1532,55 @@ it('keeps the client signed in after they set their very first password', functi
 | SPEC §8.1 — màn hình đổi mật khẩu là một cánh cổng bắt buộc, không phải một trang tự do
 |--------------------------------------------------------------------------
 */
+
+/**
+ * Task 7 (R12, phát hiện `intake/intake-04`, `intake/intake-05`): activated_at chỉ hệ thống ghi,
+ * đúng lúc khách đổi mật khẩu lần đầu thành công — bằng chứng duy nhất người này làm chủ hộp thư
+ * đã gõ. Trước bản sửa này không đường nào ghi cột này, nên NotifyClientOfStageUpdate không có gì
+ * để lọc (xem StageUpdateNotificationTest.php).
+ */
+it('stamps activated_at the moment a client sets their first password, proof they own the mailbox', function () {
+    $user = ClientUser::factory()->create(['must_change_password' => true]);
+    expect($user->activated_at)->toBeNull();
+
+    $this->actingAs($user, 'client');
+
+    $this->livewire(ChangePassword::class)
+        ->set('data.password', 'mat-khau-dau-tien-cua-toi-2026')
+        ->set('data.passwordConfirmation', 'mat-khau-dau-tien-cua-toi-2026')
+        ->call('changePassword')
+        ->assertHasNoErrors();
+
+    expect($user->fresh()->activated_at)->not->toBeNull();
+});
+
+/**
+ * "Chỉ hệ thống ghi" cũng nghĩa là chỉ ghi MỘT LẦN: nhân sự đặt lại mật khẩu (EditClientUser) bật
+ * must_change_password lên lại và đưa khách quay lại màn hình này lần hai, nhưng đó không phải
+ * một lần "kích hoạt" mới — ngày kích hoạt vẫn phải là lần đầu tiên khách chứng minh làm chủ hộp
+ * thư, không phải ngày lần đặt lại gần nhất.
+ *
+ * Mutation probe: đổi `$user->activated_at ?? now()` thành luôn `now()` ở
+ * ChangePassword::changePassword() thì test này đỏ (xem báo cáo).
+ */
+it('keeps the original activation timestamp across a later forced reset, not the second change', function () {
+    $user = portalUser();
+    $firstActivatedAt = $user->activated_at;
+    expect($firstActivatedAt)->not->toBeNull();
+
+    $this->travel(3)->days();
+
+    $user->forceFill(['must_change_password' => true])->save();
+    $this->actingAs($user->fresh(), 'client');
+
+    $this->livewire(ChangePassword::class)
+        ->set('data.password', 'mat-khau-thu-hai-cua-toi-2026')
+        ->set('data.passwordConfirmation', 'mat-khau-thu-hai-cua-toi-2026')
+        ->call('changePassword')
+        ->assertHasNoErrors();
+
+    expect($user->fresh()->activated_at->equalTo($firstActivatedAt))->toBeTrue();
+});
 
 it('keeps the change-password screen shut for a client who already chose one', function () {
     $user = portalUser();

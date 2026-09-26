@@ -2,6 +2,7 @@
 
 namespace App\Filament\Portal\Auth;
 
+use App\Support\Audit;
 use Closure;
 use Filament\Actions\Action;
 use Filament\Auth\MultiFactor\Email\Contracts\HasEmailAuthentication;
@@ -53,6 +54,20 @@ use SensitiveParameter;
  * dựng cho một `$user` mà `Login::authenticate()` đã xác thực xong. Bước nhập email + mật khẩu
  * giữ nguyên câu chung chung của Filament, nên không câu nào ở đây tiết lộ một tài khoản có tồn
  * tại hay không.
+ *
+ * # Nhật ký của bước mã (Fix round 1, I2)
+ *
+ * `Login::isMultiFactorChallengeRateLimited()` đập bộ đếm CỦA BƯỚC MÃ ở MỌI lần gửi mã (kể cả lần
+ * đúng — xem `PortalMultiFactorChallenge`), nhưng trước bản sửa này không dòng nhật ký
+ * `login_failed` nào được ghi cho một lần gõ sai mã. Hệ quả: `App\Actions\Portal\UnlockPortalLogin`
+ * không có gì để đọc khi tra "địa chỉ nào gây ra lần khoá bước mã", nên nó im lặng coi như không
+ * ai gõ sai — nhân sự bấm "Mở khoá đăng nhập" nhận được câu "đăng nhập lại được ngay" trong khi
+ * chiều IP của bước mã vẫn còn khoá.
+ *
+ * `auditCodeFailure()` bên dưới ghi đúng một dòng cho MỖI lần rule này gọi `$fail()` — cả hai
+ * nhánh (mã hết hạn/đã dùng, và mã gõ sai) — với `step = 'code'`, để phân biệt với dòng
+ * `step = 'password'` mà `Login::auditFailedLogin()` ghi. Đúng một dòng cho mỗi lần `$fail()`,
+ * khớp 1-1 với đúng một lần `hitRateLimiter()` đã đập bộ đếm cho lần gửi đó.
  */
 class PortalEmailAuthentication extends EmailAuthentication
 {
@@ -129,15 +144,36 @@ class PortalEmailAuthentication extends EmailAuthentication
                 ->required()
                 ->rule(fn (): Closure => function (string $attribute, #[SensitiveParameter] $value, Closure $fail) use ($user): void {
                     if ($this->isCodeUnusable($user)) {
+                        $this->auditCodeFailure($user);
                         $fail(__('portal.login.code.expired'));
 
                         return;
                     }
 
                     if (! (is_string($value) && $this->verifyCode($value, $user))) {
+                        $this->auditCodeFailure($user);
                         $fail(__('portal.login.code.invalid'));
                     }
                 }),
         ];
+    }
+
+    /**
+     * Fix round 1 (I2) — xem docblock lớp. `$user` khai kiểu `Authenticatable` ở chữ ký của
+     * `getChallengeFormComponents()`; canh lại `instanceof Model` ở đây vì `Audit::record()` đòi
+     * `?Model` cho cả `$subject` lẫn `$causer` — `App\Models\ClientUser` luôn thoả cả hai, nhánh
+     * `else` chỉ là lưới an toàn cho một `Authenticatable` không phải Eloquent trong tương lai.
+     */
+    private function auditCodeFailure(Authenticatable $user): void
+    {
+        if (! $user instanceof Model) {
+            return;
+        }
+
+        Audit::record('login_failed', $user, [
+            'guard' => 'client',
+            'step' => 'code',
+            'ip' => request()->ip(),
+        ], $user);
     }
 }

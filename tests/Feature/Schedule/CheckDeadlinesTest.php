@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Matter\CancelMatter;
 use App\Actions\Schedule\CheckDeadlines;
 use App\Enums\DeadlineSeverity;
 use App\Enums\Role;
@@ -9,6 +10,8 @@ use App\Models\Matter;
 use App\Models\MatterType;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Database\Events\TransactionCommitted;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
 
 beforeEach(function () {
@@ -226,4 +229,113 @@ it('carries the matter code, because this one goes to staff and not to a client'
     $subject = (new DeadlineReminder($deadline, $deadline->responsible, 'd3'))->envelope()->subject;
 
     expect($subject)->toContain($deadline->matter->code);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Vụ việc đã huỷ (M6.5 Task 5, finding deadlines/F8)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * `deadlines/F8`: trước bản sửa này, tập ứng viên chỉ lọc `is_completed = false`, không hỏi gì
+ * về vụ việc đứng sau. Xoá mềm vụ việc (nay có đường thật qua `CancelMatter`, admin) khiến
+ * `$deadline->matter` trả `null` — thư vẫn gửi, mã hồ sơ rỗng, và `SetDeadlineCompletion` không
+ * đánh dấu xong được vì `MatterPolicy::update` chặn vụ đã xoá mềm — mốc cứ leo bậc nhắc mãi.
+ */
+it('does not remind a deadline whose matter has been soft-deleted (cancelled)', function () {
+    Mail::fake();
+
+    $deadline = deadlineDueIn(1);
+    $deadline->matter->delete();
+
+    (new CheckDeadlines)->handle();
+
+    Mail::assertNothingSent();
+});
+
+/** Cặp dương của test trên: một mốc y hệt, nhưng vụ việc còn nguyên, vẫn được nhắc như thường. */
+it('still reminds a deadline whose matter has not been cancelled', function () {
+    Mail::fake();
+
+    $deadline = deadlineDueIn(1);
+
+    (new CheckDeadlines)->handle();
+
+    Mail::assertSent(DeadlineReminder::class, 1);
+});
+
+/**
+ * Fix round 1, finding S1: `whereHas('matter')` chỉ loại vụ đã XOÁ MỀM, không loại vụ đã ĐÓNG
+ * (`closed_at` có giá trị, qua TransitionMatterStage vào giai đoạn is_terminal — R8). Một vụ đã
+ * đóng và OpenWork (nghỉ việc, gỡ thành viên) đều coi là "không còn việc dở dang" — CheckDeadlines
+ * phải đồng ý với chúng, dùng đúng `Matter::scopeOpen()`, không viết lại định nghĩa lần nữa.
+ */
+it('does not remind a deadline whose matter has been closed, even though it was not soft-deleted', function () {
+    Mail::fake();
+
+    $deadline = deadlineDueIn(1);
+    $deadline->matter->update(['closed_at' => now()->subDay()]);
+
+    (new CheckDeadlines)->handle();
+
+    Mail::assertNothingSent();
+});
+
+/**
+ * Cặp dương: chưa đóng thì vẫn nhắc — ghim rằng test trên đỏ vì `closed_at`, không vì lý do khác.
+ */
+it('still reminds a deadline whose matter has not been closed', function () {
+    Mail::fake();
+
+    $deadline = deadlineDueIn(1);
+
+    expect($deadline->matter->closed_at)->toBeNull();
+
+    (new CheckDeadlines)->handle();
+
+    Mail::assertSent(DeadlineReminder::class, 1);
+});
+
+/**
+ * Fix round 1, finding S1 (phần thứ hai của phán quyết): "re-check dưới khoá của từng dòng rằng
+ * vụ việc vẫn còn mở, để một lần huỷ chạy đua với cron không gửi gì cả". Tập ứng viên được dựng
+ * TRƯỚC vòng lặp; nếu một vụ việc bị huỷ NGAY GIỮA lúc cron đang xử lý các mốc khác (không phải
+ * lúc dựng danh sách), mốc của vụ đó đã lọt vào danh sách rồi — phải bị chặn LẦN NỮA, ngay trong
+ * giao dịch của chính dòng đó, không chỉ ở câu truy vấn đầu.
+ *
+ * Mô phỏng cuộc đua bằng `TransactionCommitted`: mốc thứ nhất (due sớm hơn, xử lý trước) huỷ vụ
+ * việc của mốc thứ hai (due muộn hơn, xử lý sau) ngay khi giao dịch xử lý mốc thứ nhất VỪA commit
+ * — tức đúng khoảng giữa hai lượt của vòng lặp, không phải trước khi vòng lặp bắt đầu.
+ */
+it('sends nothing for a deadline whose matter is cancelled between building the candidate list and its own turn in the loop', function () {
+    Mail::fake();
+
+    $admin = User::factory()->withRole(Role::Admin)->create();
+
+    $first = deadlineDueIn(1);
+    $second = deadlineDueIn(2);
+
+    $raced = false;
+
+    Event::listen(TransactionCommitted::class, function () use (&$raced, $second, $admin): void {
+        if ($raced) {
+            return;
+        }
+
+        $raced = true;
+
+        app(CancelMatter::class)->handle(
+            $second->matter,
+            $admin,
+            'Huỷ giữa lúc cron đang xử lý mốc khác.',
+        );
+    });
+
+    (new CheckDeadlines)->handle();
+
+    Event::forget(TransactionCommitted::class);
+
+    Mail::assertSent(DeadlineReminder::class, 1);
+    Mail::assertNotSent(function (DeadlineReminder $mail) use ($second): bool {
+        return $mail->deadline->is($second);
+    });
 });

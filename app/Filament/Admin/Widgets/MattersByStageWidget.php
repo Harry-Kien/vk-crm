@@ -66,7 +66,7 @@ class MattersByStageWidget extends ChartWidget
         // trơ trọi không trả lời được "của loại nào".
         $counts = Matter::query()
             ->listableBy($user)
-            ->whereNull('matters.closed_at')
+            ->open()
             ->join('matter_type_stages', function ($join): void {
                 $join->on('matter_type_stages.matter_type_id', '=', 'matters.matter_type_id')
                     ->on('matter_type_stages.key', '=', 'matters.stage')

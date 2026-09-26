@@ -47,4 +47,9 @@ return [
     'add_checklist_item' => [
         'duplicate_name' => 'Vụ việc này đã có một đầu mục tên như vậy, kể cả đầu mục đã gỡ khỏi danh mục. Anh/chị đặt tên khác cho rõ, hoặc mở lại đầu mục cũ nếu nó vẫn còn trong danh mục.',
     ],
+    // M6.5 Task 5.
+    'cancel_matter' => [
+        'reason_required' => 'Phải nhập lý do huỷ hồ sơ.',
+        'already_cancelled' => 'Vụ việc này đã bị huỷ trước đó.',
+    ],
 ];

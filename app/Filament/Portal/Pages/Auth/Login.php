@@ -10,6 +10,7 @@ use Filament\Auth\Http\Responses\Contracts\LoginResponse;
 use Filament\Auth\MultiFactor\MultiFactorChallenge;
 use Filament\Auth\Pages\Login as BaseLogin;
 use Filament\Facades\Filament;
+use Filament\Schemas\Schema;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Auth\Guard;
 use Illuminate\Validation\ValidationException;
@@ -185,6 +186,32 @@ class Login extends BaseLogin
         return PortalMultiFactorChallenge::make();
     }
 
+    /**
+     * SPEC §8.1, §10.6 (phát hiện `portal/portal-1`, critical): bỏ hẳn ô "Ghi nhớ đăng nhập" khỏi
+     * cổng khách hàng. Lớp cha nạp `form()` với ba trường (email, password, remember) — ghi đè
+     * NGUYÊN `form()`, không chỉ ẩn checkbox bằng `->hidden()`, vì một trường ẩn vẫn tồn tại
+     * trong schema và vẫn dehydrate được (một request bị chỉnh sửa tay vẫn gửi `remember=1` qua
+     * state thô của Livewire). Bỏ hẳn component thì `Schema::validate()` không còn LUẬT nào cho
+     * khoá `remember` để trả về (`Illuminate\Validation\Validator::isValidatable()` không đưa một
+     * khoá không có rule vào `validated()`), nên `$remember = $data['remember'] ?? false` ở
+     * `Filament\Auth\Pages\Login::authenticate()` LUÔN rơi về `false` — không phụ thuộc gì vào
+     * Livewire state thô mang theo.
+     *
+     * Hệ quả nếu còn: `SessionGuard` phát cookie recaller sống 400 ngày
+     * (`$rememberDuration = 576000` phút, mặc định của framework), khách hàng dùng chung
+     * máy/điện thoại trong gia đình (SPEC §4.3 nêu đúng ví dụ vợ chồng) mở lại được hồ sơ pháp lý
+     * của người khác không cần mật khẩu lẫn mã OTP, và lần vào đó không đi qua
+     * `recordSuccessfulLogin()` nên không để lại dòng `login_success` nào (SPEC §10.6).
+     */
+    public function form(Schema $schema): Schema
+    {
+        return $schema
+            ->components([
+                $this->getEmailFormComponent(),
+                $this->getPasswordFormComponent(),
+            ]);
+    }
+
     public function authenticate(): ?LoginResponse
     {
         $response = parent::authenticate();
@@ -231,6 +258,13 @@ class Login extends BaseLogin
 
         Audit::record('login_failed', $clientUser, [
             'guard' => 'client',
+            // Fix round 1 (I2): 'step' phân biệt dòng này với dòng mà
+            // App\Filament\Portal\Auth\PortalEmailAuthentication ghi cho bước nhập mã —
+            // App\Actions\Portal\UnlockPortalLogin đọc khoá này để biết tra
+            // PortalLoginThrottle::passwordIpKeyFor() hay codeIpKeyFor() cho đúng địa chỉ. Cả hai
+            // nhánh gọi hàm này (mật khẩu sai, và "kiểm lại credentials sau khi mã đã đúng") đều
+            // đập PortalLoginThrottle::passwordKeys(), nên cả hai đều đúng là bước mật khẩu.
+            'step' => 'password',
             'email' => $this->submittedEmail(),
             'ip' => request()->ip(),
         ], $clientUser);

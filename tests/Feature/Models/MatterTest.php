@@ -112,3 +112,23 @@ it('can be soft deleted but never force deleted', function () {
     expect(fn () => $matter->forceDelete())->toThrow(MatterNotDestroyable::class)
         ->and(StageLog::count())->toBe(1);
 });
+
+/**
+ * R8 (M6.5 Task 5): `scopeOpen()` là định nghĩa DUY NHẤT của "vụ đang mở" — `closed_at` null và
+ * chưa xoá mềm. Ba trường hợp cùng một khẳng định: một vụ bình thường đang mở lọt qua, một vụ đã
+ * đóng (`closed_at` có giá trị) bị loại, và một vụ đã huỷ (xoá mềm, `closed_at` vẫn null) cũng bị
+ * loại — vế thứ hai không tự nhiên đến từ SoftDeletingScope một mình vì scope này còn phải đứng
+ * vững sau khi ai đó gỡ global scope (`withTrashed()`), nên nó tự khẳng định lại `deleted_at`.
+ */
+it('scopeOpen keeps only matters with no closed_at and not soft deleted', function () {
+    $open = Matter::factory()->create();
+    $closed = Matter::factory()->create(['closed_at' => now()->subDay()]);
+    $cancelled = Matter::factory()->create();
+    $cancelled->delete();
+
+    $ids = Matter::query()->withTrashed()->open()->pluck('id');
+
+    expect($ids)->toContain($open->id)
+        ->and($ids)->not->toContain($closed->id)
+        ->and($ids)->not->toContain($cancelled->id);
+});
