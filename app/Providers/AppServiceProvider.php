@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Actions\Backup\GuardBackupEncryption;
+use App\Actions\Backup\GuardRcloneDestinationReachable;
 use App\Actions\Backup\PushBackupArchiveToRclone;
 use App\Http\Controllers\DocumentDownloadController;
 use App\Listeners\RecordOutboundMail;
@@ -90,6 +91,14 @@ class AppServiceProvider extends ServiceProvider
          * lên trong chính `run()`.
          */
         Event::listen(BackupManifestWasCreated::class, [GuardBackupEncryption::class, 'handle']);
+
+        /*
+         * Cấu hình "đẩy Google Drive sẽ không bao giờ chạy" (M8a Task 2, vòng rà soát 1, fix I2 —
+         * phần "consider" của brief) — CÙNG sự kiện với `GuardBackupEncryption` ngay trên, nhưng
+         * KHÔNG NÉM LỖI (đọc docblock của `GuardRcloneDestinationReachable`): một `BackupHasFailed`
+         * được phát thẳng, không chặn lượt sao lưu cục bộ đêm nay.
+         */
+        Event::listen(BackupManifestWasCreated::class, [GuardRcloneDestinationReachable::class, 'handle']);
 
         /*
          * Đẩy archive vừa sao lưu xong lên Google Drive bằng `rclone` (M8a Task 2, Ruling 1 của

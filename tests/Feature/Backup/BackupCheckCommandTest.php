@@ -1,5 +1,6 @@
 <?php
 
+use App\Support\Backup\BackupDisks;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
@@ -21,8 +22,11 @@ use League\Flysystem\UnableToWriteFile;
 
 it('§10.8 mặc định (không {target}) kiểm HẾT các disk và rclone khi remote đã bật, thoát mã 0', function () {
     Storage::fake('backup_check_disk_ok');
+    Storage::fake(BackupDisks::DEFAULT_DISK);
     config([
-        'backup.backup.destination.disks' => ['backup_check_disk_ok'],
+        // local_backups PHẢI có mặt — fix I2 (vòng rà soát 1): thiếu nó, lượt đẩy rclone không
+        // bao giờ chạy, và checkRclone() từ chối thẳng trước khi chạm tới bất kỳ lệnh rclone nào.
+        'backup.backup.destination.disks' => ['backup_check_disk_ok', BackupDisks::DEFAULT_DISK],
         'vkcrm.backup.rclone.remote' => 'gdrive:VK-CRM-backups',
     ]);
 
@@ -154,4 +158,66 @@ it('§10.8 "rclone" không phải một target hợp lệ khi BACKUP_RCLONE_REMO
     $exitCode = Artisan::call('vkcrm:backup-check', ['target' => 'rclone']);
 
     expect($exitCode)->not->toBe(0);
+});
+
+it('§10.8 fix I1 — tệp thử rclone đi vào .backup-check, không phải gốc archive', function () {
+    config(['vkcrm.backup.rclone.remote' => 'gdrive:VK-CRM-backups']);
+
+    $copyDestination = null;
+    $probeFilename = null;
+    $lsjsonDestination = null;
+    $deleteDestination = null;
+
+    Process::fake(function ($process) use (&$copyDestination, &$probeFilename, &$lsjsonDestination, &$deleteDestination) {
+        if (in_array('copy', $process->command, true)) {
+            $probeFilename = basename($process->command[array_key_last($process->command) - 1]);
+            $copyDestination = end($process->command);
+
+            return Process::result(exitCode: 0);
+        }
+
+        if (in_array('lsjson', $process->command, true)) {
+            $lsjsonDestination = end($process->command);
+
+            return Process::result(output: json_encode([
+                ['Name' => $probeFilename, 'Size' => 999, 'ModTime' => now()->toIso8601String(), 'IsDir' => false],
+            ]));
+        }
+
+        if (in_array('deletefile', $process->command, true)) {
+            $deleteDestination = end($process->command);
+
+            return Process::result(exitCode: 0);
+        }
+
+        return Process::result(exitCode: 1, errorOutput: 'lệnh không mong đợi');
+    });
+
+    $exitCode = Artisan::call('vkcrm:backup-check', ['target' => 'rclone']);
+
+    expect($exitCode)->toBe(0)
+        ->and($copyDestination)->toBe('gdrive:VK-CRM-backups/.backup-check')
+        ->and($lsjsonDestination)->toBe('gdrive:VK-CRM-backups/.backup-check')
+        ->and($deleteDestination)->toBe('gdrive:VK-CRM-backups/.backup-check/'.$probeFilename);
+});
+
+it('§10.8 fix I2 — BACKUP_RCLONE_REMOTE bật nhưng BACKUP_DISKS thiếu local_backups: LỖI rõ ràng, không chạm tới rclone', function () {
+    Storage::fake('backup_check_disk_without_local');
+    config([
+        'backup.backup.destination.disks' => ['backup_check_disk_without_local'],
+        'vkcrm.backup.rclone.remote' => 'gdrive:VK-CRM-backups',
+    ]);
+
+    Process::fake();
+
+    $exitCode = Artisan::call('vkcrm:backup-check', ['target' => 'rclone']);
+    $output = Artisan::output();
+
+    expect($exitCode)->not->toBe(0)
+        ->and($output)->toContain('LỖI')
+        ->and($output)->toContain('BACKUP_DISKS')
+        ->and($output)->toContain(BackupDisks::DEFAULT_DISK);
+
+    // Cấu hình đã sai từ đầu — không tốn một lệnh rclone nào để phát hiện ra điều đó.
+    Process::assertNothingRan();
 });

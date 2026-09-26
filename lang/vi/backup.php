@@ -23,6 +23,9 @@ return [
         'rclone_no_output' => '(rclone không trả về thông điệp lỗi)',
         'rclone_verification_mismatch' => 'Không xác minh được archive ":file" đã lên đích rclone '
             .'(không thấy tệp trên remote, hoặc dung lượng không khớp).',
+        'rclone_push_never_runs' => 'BACKUP_DISKS không có disk ":disk", nên lượt đẩy sao lưu lên '
+            .'Google Drive mỗi đêm sẽ KHÔNG BAO GIỜ chạy dù BACKUP_RCLONE_REMOTE đã cấu hình đúng. '
+            .'Thêm ":disk" vào BACKUP_DISKS.',
     ],
 
     'check' => [

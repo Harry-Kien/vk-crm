@@ -22,9 +22,19 @@ use Throwable;
  *   đó KHÔNG thấy tệp, hoặc thấy tệp với dung lượng khác — "thành công" của rclone không đủ, xem
  *   docblock của {@see PushBackupArchiveToRclone}.
  *
- * KHÔNG BAO GIỜ đưa nội dung `--config`/token vào thông điệp: lớp này chỉ đọc `stdout`/`stderr`
- * của chính tiến trình, và dự án không bao giờ truyền `-v`/`-vv` cho rclone (mặc định của rclone
- * không in nội dung `rclone.conf` hay access token ra output ở mức log thường).
+ * # Điều KHÔNG BAO GIỜ lọt vào thông điệp, và điều CÓ THỂ lọt vào (sửa đúng lại sau vòng rà soát 1
+ * — bản trước ghi sai rằng lớp này "chỉ đọc stdout/stderr")
+ *
+ * {@see self::fromExitCode()} chỉ đọc `stdout`/`stderr` của tiến trình. Nhưng
+ * {@see self::fromThrowable()} đọc `Throwable::getMessage()` của chính `Process`/Symfony —
+ * `Symfony\Component\Process\Exception\ProcessTimedOutException`, ví dụ, thường IN LẠI NGUYÊN
+ * DÒNG LỆNH đã chạy (binary, `copy`/`lsjson`/`deletefile`, đường dẫn tệp cục bộ, tên remote, và
+ * đường dẫn `--config` NẾU có) — không chỉ "hết hạn sau N giây". Thông điệp đó VẪN AN TOÀN để
+ * mail/log, vì dự án CHỈ BAO GIỜ truyền một ĐƯỜNG DẪN tới `rclone.conf` (`--config <path>`) làm
+ * đối số dòng lệnh, KHÔNG BAO GIỜ truyền nội dung tệp đó hay bất kỳ access token nào — và không
+ * bao giờ truyền `-v`/`-vv` cho rclone (mặc định của rclone không tự in nội dung cấu hình ra
+ * output ở mức log thường). Đường dẫn `--config` tự nó không phải bí mật (không phải mật khẩu,
+ * không phải token) — chỉ là một đường dẫn tệp trên máy chủ.
  */
 class RcloneCommandFailed extends RuntimeException
 {

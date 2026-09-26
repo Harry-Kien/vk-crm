@@ -171,6 +171,14 @@ BACKUP_LOCAL_KEEP=7
   và 3 dùng đúng vị trí mặc định của `rclone`). Chỉ điền nếu người quản trị máy chủ cố tình cài
   `rclone` ở một nơi khác, hoặc dùng một tệp `rclone.conf` khác vị trí mặc định.
 
+**⚠ `BACKUP_DISKS` PHẢI CÒN `local_backups` khi đã bật `BACKUP_RCLONE_REMOTE`.** Việc đẩy lên
+Google Drive đi qua đúng bước ghi vào đĩa `local_backups` trên máy chủ — nếu ai đó sau này sửa
+`BACKUP_DISKS` và lỡ bỏ mất `local_backups` (ví dụ gõ nhầm, hoặc dọn `.env` không cẩn thận), lượt
+đẩy lên Google Drive mỗi đêm **lặng lẽ không chạy nữa**, dù không có lỗi nào hiện ra ngay lúc đó.
+`php artisan vkcrm:backup-check` (Bước 5) bắt được ngay tình huống này; `backup:run` mỗi đêm cũng tự
+gửi thư báo lỗi khi phát hiện — nhưng cách chắc nhất vẫn là không đụng vào `BACKUP_DISKS` sau khi
+đã cấu hình xong, trừ khi THÊM một disk mới.
+
 Sau khi sửa `.env`, khởi động lại tiến trình chạy nền của ứng dụng (nếu có) để giá trị mới có hiệu
 lực — hỏi người quản trị máy chủ cách làm đúng trên máy chủ cụ thể của văn phòng.
 
