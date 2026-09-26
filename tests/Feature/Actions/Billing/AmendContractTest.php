@@ -23,6 +23,7 @@ use App\Support\Billing\ScheduleTotal;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Spatie\Activitylog\Models\Activity;
 
@@ -348,6 +349,63 @@ it('refuses a scan that belongs to another matter, or that the client can see', 
     expect(amendErrors(fn () => amend($this->lead, $this->contract, 70_000_000, [['action' => 'cancel', 'instalment_id' => $this->third->id]], AMEND_REASON, '2026-09-24', $scan)))
         ->toBe(['document_id' => [__('billing.validation.document_not_eligible')]]);
 })->with(['other matter', 'group B']);
+
+// --- I1: AmendContract phải đọc lại và khoá bản scan trong transaction, không tin đối tượng caller
+//     đưa vào. Mỗi cặp dưới đây đổi CSDL bằng DB::table() sau khi đối tượng đã được nạp vào bộ nhớ,
+//     rồi gọi AmendContract với đúng đối tượng CŨ đó — chỉ CSDL đổi, không đối tượng PHP. Nếu Action
+//     tin đối tượng caller cầm (mã cũ), test dương bên dưới sẽ ĐỎ (nó sẽ từ chối một bản scan đủ điều
+//     kiện) và test âm sẽ đọc nhầm trạng thái cũ thay vì trạng thái mới. --------------------------
+
+it('refuses a stale document object whose group changed to a non-internal one only in the database', function () {
+    $scan = Document::factory()->group(DocumentGroup::Internal)->create(['matter_id' => $this->matter->id]);
+
+    DB::table('documents')->where('id', $scan->id)->update(['group' => DocumentGroup::Issued->value]);
+
+    expect(amendErrors(fn () => amend($this->lead, $this->contract, 70_000_000, [['action' => 'cancel', 'instalment_id' => $this->third->id]], AMEND_REASON, '2026-09-24', $scan)))
+        ->toBe(['document_id' => [__('billing.validation.document_not_eligible')]]);
+});
+
+it('refuses a stale document object whose matter changed only in the database', function () {
+    $scan = Document::factory()->group(DocumentGroup::Internal)->create(['matter_id' => $this->matter->id]);
+    $otherMatter = Matter::factory()->for($this->civilType, 'matterType')->create();
+
+    DB::table('documents')->where('id', $scan->id)->update(['matter_id' => $otherMatter->id]);
+
+    expect(amendErrors(fn () => amend($this->lead, $this->contract, 70_000_000, [['action' => 'cancel', 'instalment_id' => $this->third->id]], AMEND_REASON, '2026-09-24', $scan)))
+        ->toBe(['document_id' => [__('billing.validation.document_not_eligible')]]);
+});
+
+it('accepts a document whose stale in-memory copy looked ineligible by group, reading the fresh row instead', function () {
+    $scan = Document::factory()->group(DocumentGroup::Issued)->create(['matter_id' => $this->matter->id]);
+    $stale = Document::find($scan->id);
+
+    DB::table('documents')->where('id', $scan->id)->update(['group' => DocumentGroup::Internal->value]);
+
+    expect($stale->group)->toBe(DocumentGroup::Issued)
+        ->and(amend($this->lead, $this->contract, 70_000_000, [['action' => 'cancel', 'instalment_id' => $this->third->id]], AMEND_REASON, '2026-09-24', $stale)->document_id)
+        ->toBe($scan->id);
+});
+
+it('accepts a document whose stale in-memory copy looked ineligible by matter, reading the fresh row instead', function () {
+    $otherMatter = Matter::factory()->for($this->civilType, 'matterType')->create();
+    $scan = Document::factory()->group(DocumentGroup::Internal)->create(['matter_id' => $otherMatter->id]);
+    $stale = Document::find($scan->id);
+
+    DB::table('documents')->where('id', $scan->id)->update(['matter_id' => $this->matter->id]);
+
+    expect($stale->matter_id)->toBe($otherMatter->id)
+        ->and(amend($this->lead, $this->contract, 70_000_000, [['action' => 'cancel', 'instalment_id' => $this->third->id]], AMEND_REASON, '2026-09-24', $stale)->document_id)
+        ->toBe($scan->id);
+});
+
+it('refuses a document that was soft-deleted only in the database after it was loaded', function () {
+    $scan = Document::factory()->group(DocumentGroup::Internal)->create(['matter_id' => $this->matter->id]);
+
+    DB::table('documents')->where('id', $scan->id)->update(['deleted_at' => now()]);
+
+    expect(amendErrors(fn () => amend($this->lead, $this->contract, 70_000_000, [['action' => 'cancel', 'instalment_id' => $this->third->id]], AMEND_REASON, '2026-09-24', $scan)))
+        ->toBe(['document_id' => [__('billing.validation.document_not_eligible')]]);
+});
 
 it('refuses an amendment that changes nothing', function () {
     expect(amendErrors(fn () => amend($this->lead, $this->contract, 100_000_000, [])))

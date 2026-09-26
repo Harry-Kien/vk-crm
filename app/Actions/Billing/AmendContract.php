@@ -53,8 +53,12 @@ use Illuminate\Validation\ValidationException;
  *     `contract.manage`; `ContractAmendmentPolicy` vì thế không có `create`).
  *  3. Chỉ trên `active` (`ContractNotAmendable`).
  *  4. Lý do ≥ 20 ký tự `mb_strlen`; ngày ký là ngày hợp lệ, không ở tương lai, không trước ngày ký
- *     hợp đồng; giá trị mới từ 1 tới `Money::MAX`; bản scan (nếu có) là tài liệu nhóm D của chính
- *     vụ này; phụ lục phải đổi ít nhất một thứ.
+ *     hợp đồng; giá trị mới từ 1 tới `Money::MAX`; bản scan (nếu có) được **đọc lại và khoá bằng
+ *     khoá của nó** (`lockForUpdate`, cùng lý do với bước 1 — đối tượng người gọi đưa vào có thể
+ *     đã đổi `matter_id`/`group` từ lúc màn hình nạp nó), rồi mới hỏi có phải tài liệu nhóm D của
+ *     chính vụ này không; đã bị xoá mềm giữa chừng thì cùng một câu từ chối. `document_id` ghi vào
+ *     phụ lục là khoá của hàng ĐÃ ĐỌC LẠI, không phải của `$document`; phụ lục phải đổi ít nhất một
+ *     thứ.
  *  5. Khoá các đợt của hợp đồng, kiểm từng thay đổi, rồi ghi tất cả bên trong
  *     `ScheduleTotal::whileAmending()` — hook tầng 2 tạm tắt cho ĐÚNG hợp đồng này, vì giữa các
  *     lần ghi tổng lệch là tất yếu.
@@ -103,8 +107,17 @@ class AmendContract
 
             $newTotal = $this->validatedAmount($newTotalAmount, 'new_total_amount');
 
-            if ($document !== null && ($document->matter_id !== $locked->matter_id || $document->group !== DocumentGroup::Internal)) {
-                throw ValidationException::withMessages(['document_id' => [__('billing.validation.document_not_eligible')]]);
+            $lockedDocument = null;
+
+            if ($document !== null) {
+                $lockedDocument = $this->scopelessly(Document::query())
+                    ->whereKey($document->getKey())
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($lockedDocument === null || $lockedDocument->matter_id !== $locked->matter_id || $lockedDocument->group !== DocumentGroup::Internal) {
+                    throw ValidationException::withMessages(['document_id' => [__('billing.validation.document_not_eligible')]]);
+                }
             }
 
             if ($instalmentChanges === [] && $newTotal === $locked->total_amount) {
@@ -164,7 +177,7 @@ class AmendContract
                 'new_total_amount' => $newTotal,
                 'reason' => $reason,
                 'signed_at' => $signedOn->toDateString(),
-                'document_id' => $document?->id,
+                'document_id' => $lockedDocument?->id,
             ]);
             $amendment->blameOn($actor)->save();
 
