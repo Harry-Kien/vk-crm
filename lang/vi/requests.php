@@ -33,6 +33,14 @@ return [
         'subheading' => 'Hồ sơ :code — :title',
         'back_to_matter' => 'Quay lại trang hồ sơ',
 
+        /*
+         * REQ-8: khách hàng có nhiều tài khoản portal (SPEC §4.3, ví dụ hai vợ chồng) đọc và viết
+         * chung một cuộc trao đổi ({@see \App\Models\ClientRequest::applyClientPortalConstraints()}).
+         * Trước bản sửa này, sự thật đó chỉ được ghi trong docblock — người gửi không có cách nào
+         * biết trên chính màn hình mình đang gõ.
+         */
+        'shared_accounts_notice' => 'Các tài khoản khác của cùng khách hàng cũng đọc được các trao đổi này.',
+
         'new' => [
             'heading' => 'Gửi một yêu cầu mới',
             'lead' => 'Anh/chị có điều gì cần hỏi, hoặc cần văn phòng làm giúp việc gì, xin viết vào đây. Văn phòng sẽ trả lời ngay trên trang này.',
@@ -71,6 +79,16 @@ return [
         ],
 
         /*
+         * REQ-5: `TriageClientRequest::setStatus()` cho phép đặt thẳng `answered` mà không cần
+         * viết câu trả lời nào — ca có chủ đích, "luật sư trả lời qua điện thoại rồi đánh dấu
+         * thẳng Đã trả lời" ({@see \App\Actions\Portal\TriageClientRequest::setStatus()}). Câu
+         * `status.answered` ở trên mời khách "xem bên dưới", nhưng bên dưới khi đó trống — không
+         * có mục nào của văn phòng. `MyRequests::statusLine()` chọn câu này thay vì câu đó khi
+         * luồng `answered` không có lời trả lời nào viết ra.
+         */
+        'answered_by_phone' => 'Văn phòng đã trả lời anh/chị qua điện thoại hoặc trực tiếp.',
+
+        /*
          * Câu này nhắc tới "ô trên cùng" — cái ô "Gửi một yêu cầu mới" của CHÍNH trang này. Nó
          * chỉ tồn tại trên cổng khách, nên nửa `tab.*` có câu riêng của nó
          * (`tab.closed_notice`), không mượn câu này.
@@ -99,6 +117,13 @@ return [
         'unassigned' => 'Chưa ai nhận',
 
         /*
+         * REQ-3, phần hiển thị (phần CHẶN nghỉ việc đã ở Task 4). Cột "Người xử lý" vẫn phải
+         * hiện đúng tên — cùng lý do `assignee` được nạp `withTrashed()` — nhưng một cái tên trơn
+         * không nói được rằng người đó không còn xử lý được nữa.
+         */
+        'assignee_deactivated' => ':name (đã nghỉ việc)',
+
+        /*
          * Cùng cổng trạng thái với `portal.closed_notice`, hai người đọc khác nhau. Câu của
          * khách mời họ "gửi một yêu cầu mới ở ô trên cùng"; ở panel nội bộ cái ô đó không tồn
          * tại, và văn phòng KHÔNG mở yêu cầu thay khách (xem docblock
@@ -113,6 +138,14 @@ return [
             'reply_submit' => 'Gửi câu trả lời',
             'reply_success' => 'Đã gửi câu trả lời. Khách đọc được ngay trên cổng khách hàng.',
 
+            /*
+             * REQ-6: hồ sơ chưa công bố lên cổng (`is_published_to_portal = false`) vẫn nhận câu
+             * trả lời — không điều kiện nào trong `ReplyToClientRequest`/`ClientRequestReplyPolicy`
+             * xét cột đó — nhưng khách nhận 404 khi mở trang (`MyRequests::resolveMatter()`).
+             * Câu báo thành công phải nói đúng sự thật đó thay vì hứa một điều không xảy ra.
+             */
+            'reply_success_hidden' => 'Đã gửi câu trả lời. Khách chưa xem được trên cổng vì hồ sơ đang ẩn.',
+
             'assign' => 'Giao việc',
             'assign_heading' => 'Ai xử lý yêu cầu này?',
             'assign_submit' => 'Lưu',
@@ -122,6 +155,15 @@ return [
             'change_status_heading' => 'Yêu cầu này đang ở đâu?',
             'change_status_submit' => 'Lưu',
             'change_status_success' => 'Đã đổi trạng thái.',
+
+            /*
+             * Mang sang từ vòng rà soát Task 3: mở lại một luồng đã đóng mà người đang giữ không
+             * còn mở nổi hồ sơ (đã rời đội ngũ, bị vô hiệu hoá, xoá mềm) thì
+             * `TriageClientRequest::setStatus()` tự gỡ họ ra thay vì âm thầm mở lại một luồng
+             * không ai xử lý được. Người thao tác phải biết việc đó vừa xảy ra và phải giao lại
+             * cho người khác.
+             */
+            'change_status_unassigned' => 'Đã mở lại yêu cầu. :name không còn mở được vụ việc này nên đã được gỡ khỏi vai trò người xử lý — hãy giao lại cho người khác.',
         ],
 
         'fields' => [

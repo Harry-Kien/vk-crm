@@ -163,14 +163,25 @@ it('prints the staff name and never their email, phone or bar number', function 
 /**
  * SPEC §8: không thuật ngữ. Bốn trạng thái hiện ra bằng CÂU, không bằng tên enum — và không bằng
  * nhãn ngắn của panel nội bộ, thứ nói một điều khác cho một người đọc khác.
+ *
+ * `answered` ở đây đi KÈM một câu trả lời viết ra (REQ-5): không có nó, câu là câu "trả lời qua
+ * điện thoại" ({@see self::statusLineFor()} — test riêng ngay ở section REQ-5) chứ không phải
+ * câu chung `requests.portal.status.answered` mà vòng lặp này đang đo.
  */
 it('says the status in whole sentences and never in the enum name', function () {
     foreach (ClientRequestStatus::cases() as $status) {
         $matter = Matter::factory()->for($this->client)->create(['is_published_to_portal' => true]);
-        ClientRequest::factory()->for($matter)->create([
+        $request = ClientRequest::factory()->for($matter)->create([
             'client_user_id' => $this->clientUser->id,
             'status' => $status,
         ]);
+
+        if ($status === ClientRequestStatus::Answered) {
+            ClientRequestReply::factory()->for($request, 'request')->create([
+                'author_type' => $this->lawyer->getMorphClass(),
+                'author_id' => $this->lawyer->id,
+            ]);
+        }
 
         $page = requestsRegion(
             $this->actingAs($this->clientUser, 'client')->get(requestsUrl($matter))->assertOk()->getContent()
@@ -526,4 +537,92 @@ it('lays the page out in one column with no table and 44px tap targets', functio
     foreach ($controls[1] as $style) {
         expect($style)->toContain('min-height:44px');
     }
+});
+
+// =========================================================================================
+// "ĐÃ TRẢ LỜI" MÀ KHÔNG CÓ CÂU TRẢ LỜI VIẾT RA — REQ-5
+// =========================================================================================
+
+/** Câu status của MỘT luồng cụ thể, cắt ra khỏi trang bằng chính thuộc tính đo được của nó. */
+function statusLineFor(string $html, int|string $requestId): string
+{
+    preg_match('/data-portal-status="'.preg_quote((string) $requestId, '/').'"[^>]*>(.*?)<\/p>/s', $html, $matches);
+
+    return trim($matches[1] ?? '');
+}
+
+/**
+ * `TriageClientRequest::setStatus()` cho phép đặt thẳng `answered` mà không cần viết câu trả lời
+ * nào — ca có chủ đích ("luật sư trả lời qua điện thoại rồi đánh dấu thẳng Đã trả lời"). Câu mặc
+ * định (`requests.portal.status.answered`) mời khách "xem bên dưới", nhưng bên dưới khi đó
+ * TRỐNG. Vế dương đứng cạnh, TRONG CÙNG trang: một luồng `answered` CÓ câu trả lời viết ra vẫn
+ * dùng câu gốc — nếu không, một mutation biến MỌI luồng `answered` thành câu điện thoại vẫn xanh.
+ */
+it('tells the client the office answered by phone when nothing was written, and the normal line otherwise', function () {
+    $silent = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'status' => ClientRequestStatus::Answered,
+    ]);
+    $written = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'status' => ClientRequestStatus::Answered,
+    ]);
+    ClientRequestReply::factory()->for($written, 'request')->create([
+        'author_type' => $this->lawyer->getMorphClass(),
+        'author_id' => $this->lawyer->id,
+        'content' => 'Đã nộp đơn xong.',
+    ]);
+
+    $page = requestsRegion(
+        $this->actingAs($this->clientUser, 'client')->get(requestsUrl($this->matter))->assertOk()->getContent()
+    );
+
+    expect(statusLineFor($page, $silent->id))->toBe(__('requests.portal.status.answered_by_phone'))
+        ->and(statusLineFor($page, $written->id))->toBe(__('requests.portal.status.answered'));
+});
+
+// =========================================================================================
+// TÀI KHOẢN NGƯỜI NHÀ — REQ-8
+// =========================================================================================
+
+it('tells the client that other accounts of the same customer can read this too', function () {
+    $page = requestsRegion(
+        $this->actingAs($this->clientUser, 'client')->get(requestsUrl($this->matter))->assertOk()->getContent()
+    );
+
+    expect($page)->toContain(__('requests.portal.shared_accounts_notice'));
+});
+
+/**
+ * **Nhãn "Anh/chị viết" chỉ dành cho CHÍNH người đang xem — câu của người NHÀ KHÁC mang tên
+ * người đó.** Trước bản sửa này mọi dòng do một `ClientUser` viết đều mang nhãn "Anh/chị viết",
+ * kể cả dòng của người kia — người đang xem sẽ tưởng câu của người nhà là câu của chính mình.
+ * Test đổi VAI người xem giữa hai nửa, trên CÙNG một cuộc trao đổi, để đo đúng "theo người đang
+ * xem" chứ không phải "theo người viết câu đầu tiên".
+ */
+it('labels a co-accounts message with their own name, never with anh/chi viet', function () {
+    $request = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'content' => 'Câu hỏi của Nguyễn Văn An',
+    ]);
+    ClientRequestReply::factory()->for($request, 'request')->create([
+        'author_type' => $this->sibling->getMorphClass(),
+        'author_id' => $this->sibling->id,
+        'content' => 'Câu trả lời thêm của Trần Thị Bình',
+    ]);
+
+    $ownerPage = requestsRegion(
+        $this->actingAs($this->clientUser, 'client')->get(requestsUrl($this->matter))->assertOk()->getContent()
+    );
+
+    expect($ownerPage)->toContain(__('requests.portal.history.from_client').' — Nguyễn Văn An')
+        ->and($ownerPage)->toContain('Trần Thị Bình')
+        ->and($ownerPage)->not->toContain(__('requests.portal.history.from_client').' — Trần Thị Bình');
+
+    $siblingPage = requestsRegion(
+        $this->actingAs($this->sibling, 'client')->get(requestsUrl($this->matter))->assertOk()->getContent()
+    );
+
+    expect($siblingPage)->toContain(__('requests.portal.history.from_client').' — Trần Thị Bình')
+        ->and($siblingPage)->not->toContain(__('requests.portal.history.from_client').' — Nguyễn Văn An');
 });

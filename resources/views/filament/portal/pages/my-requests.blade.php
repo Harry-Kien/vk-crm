@@ -79,6 +79,12 @@
         <section data-portal-block="history" style="{{ $card }}">
             <h2 style="{{ $blockHeading }}">{{ __('requests.portal.history.heading') }}</h2>
 
+            {{-- REQ-8: hai tài khoản portal của cùng một khách hàng đọc và viết chung một luồng
+                 (phán quyết 19/09/2026) — trước bản sửa này chỉ docblock biết điều đó. --}}
+            <p data-portal-notice="shared-accounts" style="margin-bottom:0.75rem;{{ $muted }}">
+                {{ __('requests.portal.shared_accounts_notice') }}
+            </p>
+
             @forelse ($this->threads() as $thread)
                 @php($entries = $this->threadEntries($thread))
                 <article
@@ -98,11 +104,18 @@
                             <div style="border-radius:0.5rem;padding:0.625rem 0.75rem;{{ $entry['role'] === 'office'
                                 ? 'background-color:color-mix(in srgb, var(--primary-500) 12%, transparent);'
                                 : 'border:1px solid color-mix(in srgb, var(--gray-500) 30%, transparent);' }}">
+                                {{-- Nhãn "Anh/chị viết" chỉ dành cho CHÍNH người đang xem
+                                     (`client_self`). Một dòng của người nhà (`client_sibling`,
+                                     REQ-8) mang tên người đó, không mượn nhãn này — nếu không,
+                                     người đang xem sẽ tưởng câu của người kia là câu của mình. --}}
                                 <p style="font-size:0.9375rem;font-weight:600;">
-                                    {{ $entry['role'] === 'office'
-                                        ? __('requests.portal.history.from_office')
-                                        : __('requests.portal.history.from_client') }}
-                                    — {{ $entry['author'] }}
+                                    @if ($entry['role'] === 'office')
+                                        {{ __('requests.portal.history.from_office') }} — {{ $entry['author'] }}
+                                    @elseif ($entry['role'] === 'client_self')
+                                        {{ __('requests.portal.history.from_client') }} — {{ $entry['author'] }}
+                                    @else
+                                        {{ $entry['author'] }}
+                                    @endif
                                 </p>
                                 <p style="margin-top:0.125rem;font-size:0.875rem;{{ $muted }}">{{ $entry['at'] }}</p>
                                 <p style="margin-top:0.375rem;line-height:1.5;white-space:pre-line;">{{ $entry['content'] }}</p>

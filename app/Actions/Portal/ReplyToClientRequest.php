@@ -207,13 +207,22 @@ class ReplyToClientRequest
      * `save()` thường không sinh dòng nhật ký nào — dấu vết của việc này là dòng `Audit` mà
      * {@see self::handle()} ghi ngay sau đó, và nó nói đúng chuyện đã xảy ra ("ai vừa viết gì")
      * thay vì "cột `status` đổi từ X sang Y".
+     *
+     * **Luôn `save()`, kể cả khi `status` không đổi (Task 18, REQ-2).** Bản trước hàm này không
+     * ghi gì khi khách viết tiếp vào một luồng `new` hoặc `in_progress` — đúng cho CỘT
+     * `status`, nhưng `last_activity_at` phải nhảy ở CẢ BỐN đường hoạt động, và "khách hỏi tiếp"
+     * là một trong bốn dù trạng thái có đổi hay không. Không có dòng `save()` này, một luồng
+     * `in_progress` nhận thêm câu hỏi vẫn nằm nguyên chỗ cũ trong hộp thư sắp theo hoạt động gần
+     * nhất — đúng cái lỗ mà `ClientRequestsRelationManager` tồn tại để lấp.
      */
     private function advanceStatus(ClientRequest $thread, User|ClientUser $actor): void
     {
-        // Văn phòng vừa trả lời. `??=` chứ không `=`: cột này là LẦN ĐẦU văn phòng trả lời và
-        // nó không bao giờ dịch đi — xem docblock lớp. Câu trả lời thứ hai đặt lại trạng thái
-        // `answered` (khách có thể đã kéo nó về `in_progress` bằng một câu hỏi tiếp) nhưng không
-        // chạm vào mốc.
+        $thread->last_activity_at = now();
+
+        // Văn phòng vừa trả lời. `??=` chứ không `=`: cột `answered_at` là LẦN ĐẦU văn phòng trả
+        // lời và nó không bao giờ dịch đi — xem docblock lớp. Câu trả lời thứ hai đặt lại trạng
+        // thái `answered` (khách có thể đã kéo nó về `in_progress` bằng một câu hỏi tiếp) nhưng
+        // không chạm vào mốc đó.
         if ($actor instanceof User) {
             $thread->status = ClientRequestStatus::Answered;
             $thread->answered_at ??= now();
@@ -223,14 +232,14 @@ class ReplyToClientRequest
         }
 
         // Khách vừa hỏi tiếp vào một việc văn phòng tưởng đã xong. `answered_at` KHÔNG bị xoá:
-        // văn phòng đã trả lời thật, vào lúc đó.
+        // văn phòng đã trả lời thật, vào lúc đó. `new` và `in_progress` không đổi — khách viết
+        // thêm không làm cho ai đó trong văn phòng đã xem, và cũng không gỡ việc khỏi tay người
+        // đang giữ — nhưng cả hai vẫn `save()` được ở trên vì `last_activity_at` luôn phải ghi.
         if ($thread->status === ClientRequestStatus::Answered) {
             $thread->status = ClientRequestStatus::InProgress;
-            $thread->save();
         }
 
-        // `new` và `in_progress` không đổi, và không có lần `save()` nào: khách viết thêm không
-        // làm cho ai đó trong văn phòng đã xem, và cũng không gỡ việc khỏi tay người đang giữ.
+        $thread->save();
     }
 
     /**

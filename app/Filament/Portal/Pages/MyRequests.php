@@ -4,6 +4,7 @@ namespace App\Filament\Portal\Pages;
 
 use App\Actions\Portal\OpenClientRequest;
 use App\Actions\Portal\ReplyToClientRequest;
+use App\Enums\ClientRequestStatus;
 use App\Exceptions\ClientRequestNotOpen;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ClientRequestsRelationManager;
 use App\Models\ClientRequest;
@@ -248,10 +249,31 @@ class MyRequests extends Page
      * gửi chưa, và bao giờ tôi có câu trả lời*. Nên ở đây mỗi trạng thái là một CÂU, lấy từ
      * `requests.portal.status.*`. Không phải một bản dịch thứ hai của cùng một thứ — hai bên bàn
      * cần biết hai điều khác nhau về cùng một dòng dữ liệu.
+     *
+     * **`answered` có HAI câu, không một (REQ-5).** `TriageClientRequest::setStatus()` cho phép
+     * đặt thẳng `answered` mà không cần viết câu trả lời nào — ca có chủ đích, "luật sư trả lời
+     * qua điện thoại rồi đánh dấu thẳng Đã trả lời". Câu mặc định mời khách "xem bên dưới", và
+     * khi không có lời trả lời nào viết ra thì bên dưới đó TRỐNG — một lời mời đi vào một khoảng
+     * trắng. Nên câu đổi tuỳ theo `$request->replies` có dòng nào của NHÂN SỰ hay không; khách tự
+     * hỏi tiếp (dòng `author_type` = `ClientUser`) không tính, vì đó không phải câu trả lời.
      */
     public function statusLine(ClientRequest $request): string
     {
+        if ($request->status === ClientRequestStatus::Answered && ! $this->hasStaffReply($request)) {
+            return __('requests.portal.status.answered_by_phone');
+        }
+
         return __('requests.portal.status.'.$request->status->value);
+    }
+
+    /** @see self::statusLine() */
+    private function hasStaffReply(ClientRequest $request): bool
+    {
+        $staffMorph = (new User)->getMorphClass();
+
+        return $request->replies->contains(
+            fn (ClientRequestReply $reply): bool => $reply->author_type === $staffMorph,
+        );
     }
 
     /**
@@ -278,33 +300,71 @@ class MyRequests extends Page
      * gửi đi rồi, và một dòng "không rõ ai" trong lịch sử trao đổi là một dòng làm người đọc mất
      * tin. Nên truy vấn dùng `withTrashed()`.
      *
+     * **`role` có BA giá trị, không hai (REQ-8).** Phán quyết 19/09/2026 cho hai tài khoản portal
+     * của cùng một khách hàng đọc VÀ VIẾT chung một luồng (xem docblock lớp), nhưng trước bản sửa
+     * này mọi dòng do một `ClientUser` viết đều mang `role: 'client'`, và blade gắn nhãn "Anh/chị
+     * viết" cho MỌI dòng đó — kể cả dòng do người NHÀ KHÁC của cùng khách hàng viết. Người đang
+     * xem trang thấy câu của người kia dưới nhãn "Anh/chị viết", như thể chính họ đã gõ ra câu đó.
+     * Nên ở đây `role` phân biệt `'client_self'` (đúng người đang xem — `author_id` trùng
+     * `$this->viewer()->getKey()`) và `'client_sibling'` (một tài khoản KHÁC của cùng khách hàng).
+     * Nhãn "Anh/chị viết" chỉ gắn cho `'client_self'`; view mang tên người viết cho
+     * `'client_sibling'`, không mượn nhãn đó — xem `my-requests.blade.php`.
+     *
      * @return list<array{author: string, role: string, content: string, at: string}>
      */
     public function threadEntries(ClientRequest $request): array
     {
         $names = $this->authorNames($request);
+        $viewerId = $this->viewer()->getKey();
 
-        $entries = [[
-            'author' => $names['client'][$request->client_user_id] ?? __('requests.portal.history.from_client'),
-            'role' => 'client',
-            'content' => (string) $request->content,
-            'at' => $request->created_at->format('H:i d/m/Y'),
-        ]];
+        $entries = [$this->clientEntry(
+            $request->client_user_id,
+            (string) $request->content,
+            $request->created_at->format('H:i d/m/Y'),
+            $names,
+            $viewerId,
+        )];
 
         foreach ($request->replies as $reply) {
             $fromOffice = $reply->author_type === (new User)->getMorphClass();
 
-            $entries[] = [
-                'author' => $fromOffice
-                    ? ($names['staff'][$reply->author_id] ?? __('requests.portal.history.unknown_author'))
-                    : ($names['client'][$reply->author_id] ?? __('requests.portal.history.from_client')),
-                'role' => $fromOffice ? 'office' : 'client',
-                'content' => (string) $reply->content,
-                'at' => $reply->created_at->format('H:i d/m/Y'),
-            ];
+            $entries[] = $fromOffice
+                ? [
+                    'author' => $names['staff'][$reply->author_id] ?? __('requests.portal.history.unknown_author'),
+                    'role' => 'office',
+                    'content' => (string) $reply->content,
+                    'at' => $reply->created_at->format('H:i d/m/Y'),
+                ]
+                : $this->clientEntry(
+                    $reply->author_id,
+                    (string) $reply->content,
+                    $reply->created_at->format('H:i d/m/Y'),
+                    $names,
+                    $viewerId,
+                );
         }
 
         return $entries;
+    }
+
+    /**
+     * Một dòng do một `ClientUser` viết — của chính người đang xem, hay của người nhà. Tách riêng
+     * vì {@see self::threadEntries()} gọi nó ở CẢ HAI chỗ (câu hỏi đầu luồng và mọi lượt viết
+     * tiếp), và hai lần chép tay phép so sánh id là hai chỗ để nó lệch nhau.
+     *
+     * @param  array{staff: Collection<int, string>, client: Collection<int, string>}  $names
+     * @return array{author: string, role: string, content: string, at: string}
+     */
+    private function clientEntry(?int $authorId, string $content, string $at, array $names, int|string $viewerId): array
+    {
+        return [
+            'author' => $names['client'][$authorId] ?? __('requests.portal.history.from_client'),
+            'role' => $authorId !== null && (string) $authorId === (string) $viewerId
+                ? 'client_self'
+                : 'client_sibling',
+            'content' => $content,
+            'at' => $at,
+        ];
     }
 
     /**

@@ -23,6 +23,11 @@ class ClientRequestFactory extends Factory
             'subject' => 'Hỏi về '.fake()->words(3, true),
             'content' => fake()->paragraph(),
             'status' => ClientRequestStatus::New,
+            // Mặc định bằng `created_at` giả lập: mọi luồng do các Action thật tạo ra đều có giá
+            // trị này (Task 18, REQ-2), nên một fixture không đi qua Action mà bỏ trống cột sẽ
+            // xếp hạng theo `null` — khác hẳn dữ liệu thật và làm test sắp xếp không đo đúng thứ
+            // nó cần đo.
+            'last_activity_at' => now(),
         ];
     }
 }

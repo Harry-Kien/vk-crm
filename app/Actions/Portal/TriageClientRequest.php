@@ -167,6 +167,28 @@ class TriageClientRequest
      * Rời khỏi `answered` **không** xoá cột: một sự kiện đã xảy ra thì không viết lại được cho
      * khớp một cái nhãn.
      *
+     * `last_activity_at` luôn được đóng dấu lại: đổi trạng thái tay là một trong bốn đường hoạt
+     * động mà hộp thư sắp theo (Task 18, REQ-2 — xem docblock migration
+     * `add_last_activity_at_to_client_requests_table`), kể cả khi giá trị `$status` trùng với
+     * trạng thái hiện tại (ô chọn được đổ sẵn giá trị cũ và người dùng bấm Lưu mà không đổi gì
+     * vẫn là một lần nhân sự vừa động vào luồng này).
+     *
+     * **Mở lại một luồng đã đóng thì hỏi lại người đang đứng tên (vòng rà soát Task 3, mang sang
+     * đây).** `assign()` chỉ hỏi `canHoldTheThread()` một LẦN, lúc giao việc. Một luồng `closed`
+     * có thể đã bị bỏ quên nhiều ngày, và trong lúc đó người đang giữ (`assigned_to`) có thể đã
+     * rời khỏi đội ngũ vụ việc, bị vô hiệu hoá, bị xoá mềm, hoặc không còn `MatterPolicy::update`
+     * vì một lý do khác — không đường nào khác hỏi lại câu đó cho một luồng đã đóng, vì nó không
+     * đi qua `assign()` nữa. Mở nó ra lại mà không hỏi lại là tái tạo đúng lỗ hổng mà REQ-3 nêu
+     * tên: cột "Người xử lý" nói một cái tên, còn người đó không mở nổi hồ sơ để làm gì với nó.
+     *
+     * Nên khi `$previous === Closed` và `$status` mới KHÔNG phải `Closed` (tức đang MỞ LẠI), nếu
+     * luồng còn người đứng tên thì hỏi lại đúng luật `assign()` dùng — {@see self::
+     * canHoldTheThread()} — và gỡ người đó ra nếu không còn giữ được, thay vì âm thầm mở lại một
+     * luồng "đang xử lý" mà không ai xử lý được. Phần "báo cho người thao tác bằng tiếng Việt"
+     * là việc của màn hình gọi hàm này ({@see ClientRequestsRelationManager}), so sánh
+     * `assigned_to` trước/sau lời gọi — {@see self::assign()} là nơi DUY NHẤT khác đụng tới cột
+     * đó, nên một khác biệt ở đây chỉ có thể đến từ chính nhánh này.
+     *
      * `$matterId` đọc TRƯỚC `DB::transaction()`, cùng lý do ở {@see self::assign()}.
      */
     public function setStatus(ClientRequest $request, User $actor, ClientRequestStatus $status): ClientRequest
@@ -188,9 +210,25 @@ class TriageClientRequest
             }
 
             $thread->status = $status;
+            $thread->last_activity_at = now();
 
             if ($status === ClientRequestStatus::Answered && $thread->answered_at === null) {
                 $thread->answered_at = now();
+            }
+
+            // Mở lại một luồng đã đóng — xem docblock ở trên cho lý do và cho giới hạn cố ý của
+            // nhánh này (chỉ hỏi lại lúc MỞ LẠI, không hỏi lại ở mọi lần đổi trạng thái khác).
+            $unassignedPreviousAssigneeId = null;
+
+            if ($previous === ClientRequestStatus::Closed
+                && $status !== ClientRequestStatus::Closed
+                && $thread->assigned_to !== null) {
+                $assignee = User::withTrashed()->find($thread->assigned_to);
+
+                if ($assignee === null || ! $this->canHoldTheThread($assignee, $matter)) {
+                    $unassignedPreviousAssigneeId = $thread->assigned_to;
+                    $thread->assigned_to = null;
+                }
             }
 
             $thread->save();
@@ -201,6 +239,18 @@ class TriageClientRequest
                 'from' => $previous->value,
                 'to' => $status->value,
             ], causer: $actor);
+
+            if ($unassignedPreviousAssigneeId !== null) {
+                // Tên sự kiện GIỐNG {@see self::assign()}: một lần rà soát "ai từng giữ luồng
+                // này" đọc được bằng một truy vấn trên cột `event`, không cần biết trước lần gỡ
+                // nào đến từ giao việc tay và lần nào đến từ đây.
+                Audit::record('client_request_assigned', $thread, [
+                    'matter_id' => $thread->matter_id,
+                    'client_id' => $matter->client_id,
+                    'from' => $unassignedPreviousAssigneeId,
+                    'to' => null,
+                ], causer: $actor);
+            }
 
             return $thread;
         });
