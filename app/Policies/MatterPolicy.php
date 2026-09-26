@@ -244,12 +244,25 @@ class MatterPolicy
      * mắt khách hàng, hoặc giấu nó đi. Cùng LOẠI quyết định với `updateSummaryForClient()` ở trên:
      * "đưa gì ra cho khách" luôn đòi `stageLog.publish`, dù đối tượng là một dòng tiến độ, cả vụ
      * việc, hay một mốc hạn (xem `DeadlinePolicy::publish()`, cùng luật).
+     *
+     * **Fix round 1 — ruling (task-10-fix1-findings.md): chỉ CHIỀU BẬT đòi `stageLog.publish`.**
+     * Bản đầu đòi quyền đó cho CẢ HAI chiều. Chủ nhiệm chốt lại: BẬT là quyết định ĐƯA MỘT VỤ VIỆC
+     * ra trước mắt khách (đúng loại quyết định `stageLog.publish` canh) — nhưng TẮT chỉ RÚT một vụ
+     * việc khỏi cổng, tức THU HẸP những gì khách thấy, không phải một quyết định "đưa gì ra cho
+     * khách" mới. Một trợ lý phát hiện vụ việc lỡ công bố nhầm (ví dụ do một luật sư khác thao tác
+     * sai) phải tự rút được ngay, không phải chờ đúng người có `stageLog.publish` rảnh tay — cùng
+     * tinh thần bất đối xứng mà `SetDeadlinePublication`/`DeadlinePolicy::publish()` đã áp dụng cho
+     * điều kiện "vụ việc đã bật portal" (chỉ chặn chiều bật, không chặn chiều gỡ).
+     *
+     * `$publish` là tham số THỨ HAI của ability — truyền qua mảng khi hỏi Gate:
+     * `Gate::allows('setPortalPublication', [$matter, $publish])`. KHÔNG có giá trị mặc định: mọi
+     * nơi gọi phải tự quyết định rõ chiều đang hỏi là gì, không được suy luận ngầm.
      */
-    public function setPortalPublication(User|ClientUser $user, Matter $matter): bool
+    public function setPortalPublication(User|ClientUser $user, Matter $matter, bool $publish): bool
     {
         return $user instanceof User
             && $this->update($user, $matter)
-            && $user->can(Permission::StageLogPublish->value);
+            && (! $publish || $user->can(Permission::StageLogPublish->value));
     }
 
     /**

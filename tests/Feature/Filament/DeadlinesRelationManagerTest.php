@@ -405,11 +405,14 @@ it('hides every write button from someone who cannot write to the matter', funct
 
 /**
  * R5 (roles-05, M6.5 Task 10): trợ lý có `matter.update` (đổi tên, ngày, người phụ trách…) nhưng
- * không có `stageLog.publish` — công bố/gỡ một mốc hạn cho khách là "quyết định đưa gì ra cho
+ * không có `stageLog.publish` — công bố (BẬT) một mốc hạn cho khách là "quyết định đưa gì ra cho
  * khách", cùng loại quyết định với SetMatterPortalPublication (xem DeadlinePolicy::publish()).
- * Nút "changeResponsible"/"complete" vẫn hiện (không đổi bởi task này) — chỉ hai nút công bố ẩn.
+ * Nút "changeResponsible"/"complete" vẫn hiện (không đổi bởi task này) — chỉ nút "publish" ẩn.
+ *
+ * Fix round 1 (ruling task-10-fix1-findings.md): nút "unpublish" (GỠ, chỉ thu hẹp những gì khách
+ * thấy) chỉ cần `matter.update` — trợ lý VẪN thấy và bấm được, khác bản trước ẩn cả hai nút.
  */
-it('hides only the publish/unpublish buttons from an assistant, keeping the other write buttons', function () {
+it('hides only the publish button from an assistant, keeping unpublish and the other write buttons', function () {
     $assistant = User::factory()->withRole(Role::Assistant)->create();
     $this->matter->addTeamMember($assistant, MatterRole::Assistant);
 
@@ -420,9 +423,12 @@ it('hides only the publish/unpublish buttons from an assistant, keeping the othe
 
     deadlinesTab($this->matter)
         ->assertTableActionHidden('publish', $private)
-        ->assertTableActionHidden('unpublish', $shared)
         ->assertTableActionVisible('complete', $private)
-        ->assertTableActionVisible('changeResponsible', $private);
+        ->assertTableActionVisible('changeResponsible', $private)
+        ->assertTableActionVisible('unpublish', $shared)
+        ->callTableAction('unpublish', $shared);
+
+    expect($shared->fresh()->is_published)->toBeFalse();
 });
 
 /**

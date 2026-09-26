@@ -30,8 +30,9 @@ class SetMatterPortalPublication
     {
         // R5 (roles-05, M6.5 Task 10): 'setPortalPublication', không phải 'update' — xem docblock
         // MatterPolicy::setPortalPublication() cho lý do (đưa cả vụ việc ra khách đòi
-        // stageLog.publish, không chỉ matter.update).
-        Gate::forUser($actor)->authorize('setPortalPublication', $matter);
+        // stageLog.publish, không chỉ matter.update). Fix round 1 (ruling): $publish truyền kèm —
+        // chỉ chiều BẬT đòi stageLog.publish, chiều TẮT chỉ cần matter.update.
+        Gate::forUser($actor)->authorize('setPortalPublication', [$matter, $publish]);
 
         return DB::transaction(function () use ($matter, $publish, $actor): Matter {
             $publishedStageLogCount = $matter->stageLogs()->where('is_published', true)->count();

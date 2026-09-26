@@ -1,7 +1,9 @@
 <?php
 
+use App\Actions\TransitionMatterStage;
 use App\Enums\MatterRole;
 use App\Enums\Role;
+use App\Exceptions\MatterStageChanged;
 use App\Filament\Admin\Resources\Matters\Actions\TransitionStageAction;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\StageLogsRelationManager;
@@ -559,4 +561,82 @@ it('never shows a stage label in the add-update preview, and keeps the generic n
     expect($html)->not->toContain($currentLabel)
         ->and($html)->toContain(__('matters.transition_form.preview_not_publishing'))
         ->and($html)->not->toContain('giai đoạn mới:');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Fix round 1 — C1 (Critical): MatterStageChanged thoát ra thành trang 500.
+|--------------------------------------------------------------------------
+|
+| Đây LÀ đúng ca "bấm hai lần, hai tab" của Review Focus 4 nhìn từ phía màn hình, không phải từ
+| phía Action: `BuildsStageUpdateSchema::setUpStageUpdateAction()` chỉ bắt `MatterNotPublishedToPortal`
+| trong `try/catch`, nên `MatterStageChanged` — thứ `TransitionMatterStage::handle()` ném khi giai
+| đoạn đã đổi dưới chân người dùng (M6.5 Task 10, `stage/stage-05`) — thoát thẳng ra thành một
+| `DomainException` không ai bắt, tức một trang 500 (SPEC §10.10 cấm điều này).
+|
+| **Vì sao GIẢ `TransitionMatterStage`, không dựng một race thật.** Đã tự đo (probe riêng, xoá
+| sau khi đo): Filament DỰNG LẠI TOÀN BỘ schema — kể cả `options()` của Select `to_stage` — bằng
+| `$livewire->getOwnerRecord()` ĐỌC LẠI TỪ CSDL ở MỌI lượt gọi Livewire tiếp theo (không chỉ lúc
+| mount). Nghĩa là kịch bản "mount lúc A, người khác chuyển sang B, rồi gửi lại to_stage cũ" KHÔNG
+| bao giờ chạm tới `TransitionMatterStage::handle()`: Select tự validate `to_stage` theo
+| `allowed_next` của giai đoạn MỚI trước, và nếu lựa chọn cũ không còn hợp lệ thì dừng lại ở lỗi
+| "giai đoạn mới đã chọn không hợp lệ" ngay trong form — đúng test "still refuses a lawyer..." đã
+| có ở trên. `MatterStageChanged` chỉ sinh ra được khi HAI YÊU CẦU THẬT chồng lấn nhau trong lúc cả
+| hai đã qua khỏi cổng validate đó (đúng cửa sổ mà `TransitionMatterStageConcurrencyTest`, hai tiến
+| trình HĐH thật trên MariaDB, đo được) — một tệp Pest chạy trong một tiến trình không dựng lại
+| được cửa sổ đó. Giả `TransitionMatterStage::handle()` ném thẳng exception này là cách duy nhất
+| cô lập ĐÚNG một điều: màn hình có bắt được nó và nói tiếng Việt hay không — phần "có race thật
+| không" đã có bằng chứng riêng ở test kia.
+*/
+
+it('shows a Vietnamese notification instead of a 500 when the matter changed stage behind the transition-stage modal', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->atStage('intake')->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $mock = Mockery::mock(TransitionMatterStage::class);
+    $mock->shouldReceive('handle')->once()->andThrow(MatterStageChanged::make($matter));
+    app()->instance(TransitionMatterStage::class, $mock);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(StageLogsRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('transitionStage', data: [
+        'to_stage' => 'collecting_documents',
+        'occurred_at' => today()->toDateString(),
+        'publish' => false,
+    ]);
+
+    $component->assertNotified(__('exceptions.matter_stage_changed', ['code' => $matter->code]));
+
+    expect(StageLog::query()->count())->toBe(0)
+        // halt() giữ modal mở thay vì đóng lại — người dùng không mất nội dung đã gõ.
+        ->and($component->get('mountedActions'))->not->toBeEmpty();
+});
+
+/** Cùng lỗ hổng, cùng cách sửa — "Thêm cập nhật" gọi CHUNG một TransitionMatterStage. */
+it('shows a Vietnamese notification instead of a 500 when the matter changed stage behind the add-update modal', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->atStage('intake')->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $mock = Mockery::mock(TransitionMatterStage::class);
+    $mock->shouldReceive('handle')->once()->andThrow(MatterStageChanged::make($matter));
+    app()->instance(TransitionMatterStage::class, $mock);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(StageLogsRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('addUpdate', data: [
+        'occurred_at' => today()->toDateString(),
+        'next_step' => 'Tuần này chưa có văn bản mới từ toà.',
+        'publish' => false,
+    ]);
+
+    $component->assertNotified(__('exceptions.matter_stage_changed', ['code' => $matter->code]));
+
+    expect(StageLog::query()->count())->toBe(0)
+        ->and($component->get('mountedActions'))->not->toBeEmpty();
 });

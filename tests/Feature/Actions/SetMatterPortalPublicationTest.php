@@ -105,35 +105,60 @@ it('refuses someone without matter.update, regardless of caller-side checks', fu
 
 /**
  * R5 (roles-05, M6.5 Task 10): trợ lý có `matter.update` (Role::Assistant->permissions()) nhưng
- * KHÔNG có `stageLog.publish` — bật/tắt công tắc công bố cả vụ việc cho khách là "quyết định đưa
- * gì ra cho khách", cùng loại quyết định với công bố một dòng tiến độ, nên đòi cùng quyền. Trước
- * bản sửa này, Action chỉ hỏi `matter.update`, nên trợ lý bật/tắt được công tắc — xem
+ * KHÔNG có `stageLog.publish` — BẬT công tắc công bố cả vụ việc cho khách là "quyết định đưa gì
+ * ra cho khách", cùng loại quyết định với công bố một dòng tiến độ, nên đòi cùng quyền. Trước bản
+ * sửa này, Action chỉ hỏi `matter.update`, nên trợ lý bật được công tắc — xem
  * MatterPolicy::setPortalPublication().
+ *
+ * Fix round 1 (ruling task-10-fix1-findings.md): CHỈ CHIỀU BẬT đòi `stageLog.publish` — TẮT (rút
+ * một vụ việc KHỎI cổng, chỉ THU HẸP những gì khách thấy) chỉ cần `matter.update`, cùng luật với
+ * `DeadlinePolicy::publish()`. Trước bản sửa NÀY, cả hai chiều đều đòi `stageLog.publish` — quá
+ * chặt cho chiều tắt: một trợ lý phát hiện vụ việc lỡ công bố nhầm không tự rút xuống được, phải
+ * chờ đúng người có `stageLog.publish` rảnh tay.
  */
-it('refuses an assistant with matter.update but without stageLog.publish, on both directions', function () {
+it('refuses an assistant without stageLog.publish from turning publication ON', function () {
     $assistant = User::factory()->withRole(Role::Assistant)->create();
-    $matterOff = Matter::factory()->create(['is_published_to_portal' => false]);
-    $matterOn = Matter::factory()->create(['is_published_to_portal' => true]);
+    $matter = Matter::factory()->create(['is_published_to_portal' => false]);
     // Cần đứng trong đội ngũ để qua được `view()`/`update()` trước — nếu không việc bị từ chối là
     // vì KHÔNG THẤY vụ việc (chưa trong đội ngũ), không phải vì thiếu stageLog.publish, và test sẽ
     // xanh vì lý do sai.
-    $matterOff->addTeamMember($assistant, MatterRole::Assistant);
-    $matterOn->addTeamMember($assistant, MatterRole::Assistant);
+    $matter->addTeamMember($assistant, MatterRole::Assistant);
 
     expect(fn () => app(SetMatterPortalPublication::class)->handle(
-        matter: $matterOff,
+        matter: $matter,
         publish: true,
         actor: $assistant,
     ))->toThrow(AuthorizationException::class);
 
-    expect(fn () => app(SetMatterPortalPublication::class)->handle(
-        matter: $matterOn,
+    expect($matter->fresh()->is_published_to_portal)->toBeFalse();
+});
+
+/** Cặp dương của test trên: TẮT chỉ cần `matter.update` — trợ lý làm được. */
+it('lets an assistant without stageLog.publish turn publication OFF', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $matter = Matter::factory()->create(['is_published_to_portal' => true]);
+    $matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    app(SetMatterPortalPublication::class)->handle(
+        matter: $matter,
         publish: false,
         actor: $assistant,
-    ))->toThrow(AuthorizationException::class);
+    );
 
-    expect($matterOff->fresh()->is_published_to_portal)->toBeFalse()
-        ->and($matterOn->fresh()->is_published_to_portal)->toBeTrue();
+    expect($matter->fresh()->is_published_to_portal)->toBeFalse();
+});
+
+/** Đối chứng: luật sư (có cả hai quyền) vẫn làm được cả hai chiều — không đổi bởi ruling này. */
+it('lets a lawyer with stageLog.publish do both directions', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matterOff = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'is_published_to_portal' => false]);
+    $matterOn = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'is_published_to_portal' => true]);
+
+    app(SetMatterPortalPublication::class)->handle(matter: $matterOff, publish: true, actor: $lawyer);
+    app(SetMatterPortalPublication::class)->handle(matter: $matterOn, publish: false, actor: $lawyer);
+
+    expect($matterOff->fresh()->is_published_to_portal)->toBeTrue()
+        ->and($matterOn->fresh()->is_published_to_portal)->toBeFalse();
 });
 
 /**
