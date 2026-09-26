@@ -46,6 +46,56 @@ return [
          * biến này vào đó làm hỏng MỌI lệnh artisan, không riêng sao lưu).
          */
         'notify_email' => $domain(env('BACKUP_NOTIFY_EMAIL')),
+
+        /*
+         * Số bản giữ lại TRÊN MÁY CHỦ (disk `local_backups`) khi đích rclone bên dưới đã bật (M8a
+         * Task 2, phán quyết Ruling 2 của brief). `local_backups` khi đó chỉ còn là đĩa TRUNG
+         * CHUYỂN — 30 bản đầy đủ hồ sơ khách hàng có thể lấp đầy một VPS 60 GB, nên chỉ giữ vài
+         * bản gần nhất để khôi phục nhanh; bản đầy đủ (30 bản, SPEC §10 mục 8) nằm ở Google Drive.
+         *
+         * `max(1, ...)` — KHÔNG BAO GIỜ ĐƯỢC LÀ 0: {@see \App\Actions\Backup\PruneLocalBackupsDisk}
+         * giữ N bản MỚI NHẤT; một cấu hình sai (`BACKUP_LOCAL_KEEP=0`) không được phép biến thành
+         * "xoá luôn cả bản vừa tạo" — bản đó là bản DUY NHẤT còn lại nếu lượt đẩy lên rclone chưa
+         * chạy hay đã hỏng.
+         */
+        'local_keep' => max(1, (int) env('BACKUP_LOCAL_KEEP', 7)),
+
+        'rclone' => [
+            /*
+             * Remote rclone đích, ví dụ `gdrive:VK-CRM-backups` (M8a Task 2, Ruling 1 của brief —
+             * dùng `rclone`, KHÔNG dùng adapter Flysystem `masbug/flysystem-google-drive-ext`; lý
+             * do đầy đủ ở docs/research/2026-09-26-sao-luu.md, mục "Task 2 — chuyển sang rclone").
+             * Rỗng thì TẮT HẲN việc đẩy — {@see \App\Actions\Backup\PushBackupArchiveToRclone}
+             * không chạy `rclone` nào, và {@see \App\Actions\Backup\CheckBackupDestinations} bỏ
+             * qua đích này.
+             */
+            'remote' => $domain(env('BACKUP_RCLONE_REMOTE')),
+
+            // Đường dẫn binary `rclone` trên máy chủ. Rỗng dùng "rclone" (tìm trong PATH).
+            'binary' => env('BACKUP_RCLONE_BINARY') ?: 'rclone',
+
+            /*
+             * Đường dẫn tệp `rclone.conf` nếu KHÔNG dùng nơi dò tìm mặc định của rclone hay biến
+             * `RCLONE_CONFIG_*`. Rỗng thì KHÔNG truyền `--config` — để rclone tự dò (hành vi mặc
+             * định của chính nó, không phải một giá trị dự án tự chọn).
+             */
+            'config_path' => $domain(env('BACKUP_RCLONE_CONFIG')),
+
+            /*
+             * Hạn cho MỖI lệnh `rclone` (giây) — KHÔNG đọc từ env (Task 2 brief: "put the timeout
+             * in config and pick a generous one"). 30 phút vì archive có thể nặng vài GB và mạng
+             * lên Google Drive từ một VPS không phải lúc nào cũng nhanh; hạn quá ngắn biến "mạng
+             * chậm" thành "sao lưu thất bại" mỗi đêm.
+             */
+            'timeout' => 1800,
+
+            /*
+             * Số bản GIỮ LẠI trên remote (SPEC §10 mục 8: "giữ 30 bản"). Hằng số, không đọc env —
+             * cùng lý lẽ với `keep_all_backups_for_days` ở `config/backup.php`: đây là một con số
+             * của SPEC, không phải một tham số vận hành.
+             */
+            'keep' => 30,
+        ],
     ],
 
     /*

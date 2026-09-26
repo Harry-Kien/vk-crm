@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Actions\Backup\GuardBackupEncryption;
+use App\Actions\Backup\PushBackupArchiveToRclone;
 use App\Http\Controllers\DocumentDownloadController;
 use App\Listeners\RecordOutboundMail;
 use App\Models\Client;
@@ -29,6 +30,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Spatie\Backup\Events\BackupManifestWasCreated;
+use Spatie\Backup\Events\BackupWasSuccessful;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -88,6 +90,15 @@ class AppServiceProvider extends ServiceProvider
          * lên trong chính `run()`.
          */
         Event::listen(BackupManifestWasCreated::class, [GuardBackupEncryption::class, 'handle']);
+
+        /*
+         * Đẩy archive vừa sao lưu xong lên Google Drive bằng `rclone` (M8a Task 2, Ruling 1 của
+         * brief). `BackupWasSuccessful` bắn NGAY SAU khi gói ghi xong archive vào một disk đích —
+         * đăng ký tường minh, cùng thành ngữ với `GuardBackupEncryption` ngay trên. Lý do đầy đủ,
+         * kể cả vì sao chỉ phản ứng với disk `local_backups`, ở docblock của
+         * `PushBackupArchiveToRclone`.
+         */
+        Event::listen(BackupWasSuccessful::class, [PushBackupArchiveToRclone::class, 'handle']);
 
         Relation::enforceMorphMap([
             'user' => User::class,
