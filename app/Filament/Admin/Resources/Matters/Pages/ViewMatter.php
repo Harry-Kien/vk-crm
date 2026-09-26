@@ -134,15 +134,46 @@ class ViewMatter extends ViewRecord
                     ->label(__('reassign.fields.reason'))
                     ->rows(3)
                     ->required()
+                    // Fix round 1 (minor): stage_logs.internal_note là cột TEXT (tối đa 65,535
+                    // byte), không phải không giới hạn — reason.stage_log.internal_note còn ghép
+                    // thêm tên hai người và câu khung quanh $reason (xem lang/vi/reassign.php).
+                    // 5.000 ký tự là mức trần CHỦ ĐỘNG, không phải mức tối đa kỹ thuật của cột:
+                    // đủ dài cho một lý do bàn giao thật, và chừa hẳn khoảng trống cho phần khung
+                    // câu lẫn tiếng Việt nhiều byte (utf8mb4).
+                    ->maxLength(5000)
                     ->columnSpanFull(),
             ])
             ->action(function (Action $action, array $data): void {
+                $matter = $this->getRecord();
+                $wasPublishedToPortal = $matter->is_published_to_portal;
+
                 $this->runAction($action, fn () => $this->submitReassign($data));
 
                 Notification::make()
                     ->title(__('reassign.action.success'))
                     ->success()
                     ->send();
+
+                // Spec gap (fix round 1) — SPEC §6.11 bước 4: một GỢI Ý trên giao diện, KHÔNG BAO
+                // GIỜ tự soạn hay tự gửi (xem docblock lớp `ReassignMatter`, mục "Deferred"). Chỉ
+                // có nghĩa khi khách ĐÃ thấy được vụ việc này trên cổng.
+                if ($wasPublishedToPortal) {
+                    Notification::make()
+                        ->title(__('reassign.action.suggest_introduction_title'))
+                        ->body(__('reassign.action.suggest_introduction_body'))
+                        ->info()
+                        ->persistent()
+                        ->send();
+                }
+
+                // Minor (fix round 1): một vụ `restricted` mà lead cũ TỰ bàn giao và không được
+                // giữ lại làm associate (công tắc đó bị ẩn trên vụ hạn chế) khiến chính người đang
+                // đứng trên trang này mất quyền xem nó ngay lập tức. Ở lại là một trang 404 chờ
+                // sẵn ở lần re-render kế tiếp; điều hướng về danh sách vụ việc thay vì để họ tự
+                // khám phá ra điều đó.
+                if (Gate::forUser(Auth::user())->denies('view', $matter->fresh())) {
+                    $this->redirect(MatterResource::getUrl('index', panel: 'admin'));
+                }
             });
     }
 

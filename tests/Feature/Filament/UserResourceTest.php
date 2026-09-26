@@ -1,8 +1,11 @@
 <?php
 
 use App\Enums\ClientRequestStatus;
+use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Enums\UserPosition;
+use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
+use App\Filament\Admin\Resources\Matters\RelationManagers\DeadlinesRelationManager;
 use App\Filament\Admin\Resources\Users\Pages\CreateUser;
 use App\Filament\Admin\Resources\Users\Pages\EditUser;
 use App\Filament\Admin\Resources\Users\Pages\ListUsers;
@@ -13,12 +16,38 @@ use App\Models\Matter;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
-use Illuminate\Support\Facades\Gate;
+use Filament\Notifications\Livewire\Notifications;
 
 beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);
     Filament::setCurrentPanel('admin');
 });
+
+/**
+ * Câu ghép của `offboardingOpenWorkReason()` (fix round 1, CRITICAL) — cùng hàm dùng ở
+ * `GuardsStaffOffboardingTest.php`, chép lại tại chỗ vì hai tệp Pest không dùng chung được một
+ * hàm toàn cục (trùng tên khi cả hai tệp cùng nạp).
+ */
+function staffOffboardingMessage(string $name, int $matters, int $deadlines, int $requests): string
+{
+    $parts = [];
+
+    if ($matters > 0) {
+        $parts[] = __('users.offboarding.open_work_lead_matters', ['count' => $matters]);
+    }
+
+    if ($deadlines > 0) {
+        $parts[] = __('users.offboarding.open_work_deadlines', ['count' => $deadlines]);
+    }
+
+    if ($requests > 0) {
+        $parts[] = __('users.offboarding.open_work_client_requests', ['count' => $requests]);
+    }
+
+    return __('users.offboarding.open_work_intro', ['name' => $name])
+        .' '.implode('; ', $parts).'. '
+        .__('users.offboarding.open_work_outro');
+}
 
 it('lets an admin open every staff administration page', function () {
     $admin = User::factory()->withRole(Role::Admin)->create();
@@ -119,12 +148,7 @@ it('refuses to delete a lawyer who still leads an open matter, and tells the adm
     $this->livewire(EditUser::class, ['record' => $lawyer->getRouteKey()])
         ->assertActionVisible('delete')
         ->callAction('delete')
-        ->assertNotified(__('users.offboarding.open_work_blocked', [
-            'name' => $lawyer->name,
-            'matters' => 1,
-            'deadlines' => 0,
-            'requests' => 0,
-        ]));
+        ->assertNotified(staffOffboardingMessage($lawyer->name, matters: 1, deadlines: 0, requests: 0));
 
     expect($lawyer->fresh()->trashed())->toBeFalse()
         ->and($matter->fresh()->lead_lawyer_id)->toBe($lawyer->id);
@@ -165,12 +189,7 @@ it('refuses to deactivate a staff member still holding an unfinished deadline, w
         ->call('save')
         ->assertHasFormErrors(['is_active']);
 
-    expect($component->errors()->first('data.is_active'))->toBe(__('users.offboarding.open_work_blocked', [
-        'name' => $assistant->name,
-        'matters' => 0,
-        'deadlines' => 1,
-        'requests' => 0,
-    ]));
+    expect($component->errors()->first('data.is_active'))->toBe(staffOffboardingMessage($assistant->name, matters: 0, deadlines: 1, requests: 0));
 
     expect($assistant->fresh()->is_active)->toBeTrue();
 });
@@ -241,6 +260,199 @@ it('refuses to deactivate a staff member still assigned an open client request',
         ->assertHasFormErrors(['is_active']);
 
     expect($assistant->fresh()->is_active)->toBeTrue();
+});
+
+// =========================================================================================
+// Ruling fix round 1 — "guard demotion": đổi chức danh sang một chức danh KHÔNG lãnh đạo được
+// (Trợ lý/Kế toán) trong khi còn dẫn vụ đang mở bị chặn, cùng thông điệp còn việc dở dang.
+// =========================================================================================
+
+it('refuses to demote a lawyer who leads an open matter to a role that cannot lead', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'closed_at' => null]);
+
+    $this->actingAs($admin, 'web');
+
+    $component = $this->livewire(EditUser::class, ['record' => $lawyer->getRouteKey()])
+        ->fillForm(['position' => UserPosition::Assistant->value])
+        ->call('save')
+        ->assertHasFormErrors(['position']);
+
+    expect($component->errors()->first('data.position'))->toBe(staffOffboardingMessage($lawyer->name, matters: 1, deadlines: 0, requests: 0))
+        ->and($lawyer->fresh()->position)->toBe(UserPosition::Lawyer);
+});
+
+/** Cùng luật, đích đến là Kế toán thay vì Trợ lý — cả hai đều "không lãnh đạo được". */
+it('refuses to demote a lawyer who leads an open matter to accountant', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'closed_at' => null]);
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(EditUser::class, ['record' => $lawyer->getRouteKey()])
+        ->fillForm(['position' => UserPosition::Accountant->value])
+        ->call('save')
+        ->assertHasFormErrors(['position']);
+
+    expect($lawyer->fresh()->position)->toBe(UserPosition::Lawyer);
+});
+
+/**
+ * Vế dương bắt buộc: đổi sang Trưởng phòng (VẪN lãnh đạo được) không bị chặn dù đang dẫn vụ mở —
+ * chứng minh luật chỉ chặn đúng hai đích "không lãnh đạo được", không chặn mọi lần đổi chức danh
+ * của một người đang dẫn vụ.
+ */
+it('lets a lawyer who leads an open matter be promoted to manager', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'closed_at' => null]);
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(EditUser::class, ['record' => $lawyer->getRouteKey()])
+        ->fillForm(['position' => UserPosition::Manager->value])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($lawyer->fresh()->position)->toBe(UserPosition::Manager);
+});
+
+/** Vế dương thứ hai: không còn việc mở nào thì đổi sang Trợ lý cũng thành công như trước. */
+it('lets a lawyer with no open work be demoted to assistant', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(EditUser::class, ['record' => $lawyer->getRouteKey()])
+        ->fillForm(['position' => UserPosition::Assistant->value])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($lawyer->fresh()->position)->toBe(UserPosition::Assistant);
+});
+
+/**
+ * Vế dương thứ ba, mutation probe cho điều kiện "chức danh THẬT SỰ đổi": một trợ lý ĐÃ Ở SẴN
+ * chức danh không lãnh đạo được, còn đứng tên mốc hạn chưa xong (không phải lead vụ nào), lưu lại
+ * form KHÔNG đụng ô chức danh (gửi lên đúng giá trị hiện tại — điều Filament luôn làm, mọi ô đã
+ * mount đều có mặt trong `$data`) không bị chặn — luật chỉ áp cho một lần ĐỔI SANG, không áp cho
+ * mọi lần lưu của một người đã ở chức danh đó.
+ */
+it('lets an assistant with an unfinished deadline save the form without changing position', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    // `.position()` TƯỜNG MINH — `withRole()` một mình chỉ đồng bộ vai spatie, KHÔNG đụng cột
+    // `position` (mặc định `Lawyer` của factory). Thiếu dòng này, $record->position thật sự VẪN
+    // là Lawyer, nên "đổi sang Assistant" bị hiểu nhầm thành một lần đổi CHỨC DANH THẬT — đúng
+    // cái bẫy test này cần tránh để đo đúng điều kiện "không đổi".
+    $assistant = User::factory()->position(UserPosition::Assistant)->withRole(Role::Assistant)->create(['name' => 'Trợ lý Cũ']);
+    $matter = Matter::factory()->create();
+    Deadline::factory()->for($matter)->create([
+        'responsible_user_id' => $assistant->id,
+        'is_completed' => false,
+    ]);
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(EditUser::class, ['record' => $assistant->getRouteKey()])
+        ->fillForm(['position' => UserPosition::Assistant->value, 'name' => 'Trợ lý Mới'])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($assistant->fresh()->name)->toBe('Trợ lý Mới');
+});
+
+/**
+ * CRITICAL (fix round 1) — bằng chứng end-to-end đủ ba bước cho đúng kịch bản mà đợt rà soát bắt
+ * được: một trợ lý KHÔNG phải lead của bất kỳ vụ việc nào vẫn bị kẹt lại mãi mãi vì không màn
+ * hình nào đổi được `responsible_user_id`. (1) Bị chặn vô hiệu hoá. (2) Đổi người phụ trách qua
+ * ĐÚNG màn hình Mốc thời hạn (`DeadlinesRelationManager`, không gọi thẳng Action). (3) Vô hiệu
+ * hoá thành công.
+ */
+it('offboards a non-lead staff member once their deadline is handed off through the Deadlines tab', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $matter->addTeamMember($assistant, MatterRole::Assistant);
+    $deadline = Deadline::factory()->for($matter)->create([
+        'responsible_user_id' => $assistant->id,
+        'is_completed' => false,
+    ]);
+
+    $this->actingAs($admin, 'web');
+
+    // Bước 1: bị chặn — assistant không hề là lead của vụ việc nào, nên trước fix round 1 không
+    // có đường ra nào cho họ.
+    $this->livewire(EditUser::class, ['record' => $assistant->getRouteKey()])
+        ->fillForm(['is_active' => false])
+        ->call('save')
+        ->assertHasFormErrors(['is_active']);
+
+    expect($assistant->fresh()->is_active)->toBeTrue();
+
+    // Bước 2: đổi người phụ trách qua ĐÚNG màn hình Mốc thời hạn.
+    $this->livewire(DeadlinesRelationManager::class, ['ownerRecord' => $matter, 'pageClass' => ViewMatter::class])
+        ->callTableAction('changeResponsible', $deadline, data: ['responsible_user_id' => $lawyer->id])
+        ->assertHasNoTableActionErrors();
+
+    expect($deadline->fresh()->responsible_user_id)->toBe($lawyer->id);
+
+    // Bước 3: vô hiệu hoá thành công.
+    $this->livewire(EditUser::class, ['record' => $assistant->getRouteKey()])
+        ->fillForm(['is_active' => false])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($assistant->fresh()->is_active)->toBeFalse();
+});
+
+/**
+ * Spec gap (fix round 1): "Sau khi bàn giao hết thì vô hiệu hoá được" — bằng chứng end-to-end đủ
+ * ba bước cho một LEAD: (1) bị chặn vô hiệu hoá vì còn dẫn vụ đang mở kèm mốc hạn. (2) Bàn giao
+ * qua ĐÚNG header action "Bàn giao" trên `ViewMatter` (không gọi thẳng `ReassignMatter`). (3) Vô
+ * hiệu hoá thành công.
+ */
+it('offboards a lead lawyer once their matter is handed off through the Bàn giao action', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $oldLead = User::factory()->withRole(Role::Lawyer)->create();
+    $newLead = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $oldLead->id, 'closed_at' => null]);
+    Deadline::factory()->for($matter)->create([
+        'responsible_user_id' => $oldLead->id,
+        'is_completed' => false,
+    ]);
+
+    $this->actingAs($admin, 'web');
+
+    // Bước 1: bị chặn.
+    $this->livewire(EditUser::class, ['record' => $oldLead->getRouteKey()])
+        ->fillForm(['is_active' => false])
+        ->call('save')
+        ->assertHasFormErrors(['is_active']);
+
+    expect($oldLead->fresh()->is_active)->toBeTrue();
+
+    // Bước 2: bàn giao qua ĐÚNG header action — chuyển cả vai lead LẪN mốc hạn chưa xong của họ.
+    $this->livewire(ViewMatter::class, ['record' => $matter->getKey()])
+        ->callAction('reassignMatter', data: [
+            'new_lead_id' => $newLead->id,
+            'keep_old_lead_as_associate' => false,
+            'reason' => 'Nghỉ việc, bàn giao toàn bộ.',
+        ])
+        ->assertHasNoActionErrors();
+
+    expect($matter->fresh()->lead_lawyer_id)->toBe($newLead->id);
+
+    // Bước 3: vô hiệu hoá thành công.
+    $this->livewire(EditUser::class, ['record' => $oldLead->getRouteKey()])
+        ->fillForm(['is_active' => false])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($oldLead->fresh()->is_active)->toBeFalse();
 });
 
 // =========================================================================================
@@ -336,8 +548,18 @@ it('lets an admin demote or deactivate themself when another active admin still 
 // bulk actions của UsersTable phải tự đi qua UserPolicy::delete() cho TỪNG bản ghi đã chọn.
 // =========================================================================================
 
-/** Lớp phòng thủ thứ hai: một luật sư còn dẫn vụ mở sống sót qua bulk delete, người còn lại mất. */
-it('bulk-deletes only the staff member with no open work, and leaves the reason discoverable on the other', function () {
+/**
+ * Lớp phòng thủ thứ hai: một luật sư còn dẫn vụ mở sống sót qua bulk delete, người còn lại mất.
+ *
+ * **Fix round 1 (spec gap): đo thông báo THẬT mà bulk action gửi qua Livewire, không
+ * `Gate::inspect()`.** Bản trước chỉ hỏi lại policy trực tiếp — đúng về mặt LOGIC (cùng hàm
+ * `authorizeIndividualRecords('delete')` gọi) nhưng không chứng minh được thông điệp đó có thật
+ * sự TỚI MẮT admin hay không. `Filament\Actions\Concerns\InteractsWithSelectedRecords` gom
+ * `Response::deny($reason)` của từng bản ghi bị từ chối vào `bulkAuthorizationFailureMessages`,
+ * rồi `CanNotify::getFailureNotificationBody()` ghép chúng vào THÂN của một `Notification` thật
+ * — đọc đúng notification đó, cùng thành ngữ `sentNotification()` của `ViewMatterTest`.
+ */
+it('bulk-deletes only the staff member with no open work, and shows the real Vietnamese reason for the other', function () {
     $admin = User::factory()->withRole(Role::Admin)->create();
     $withOpenMatter = User::factory()->withRole(Role::Lawyer)->create();
     Matter::factory()->create(['lead_lawyer_id' => $withOpenMatter->id, 'closed_at' => null]);
@@ -351,17 +573,12 @@ it('bulk-deletes only the staff member with no open work, and leaves the reason 
     expect($withOpenMatter->fresh()->trashed())->toBeFalse()
         ->and($withoutOpenWork->fresh()->trashed())->toBeTrue();
 
-    // Lý do bị chặn vẫn đi qua đúng UserPolicy::delete() — thứ authorizeIndividualRecords('delete')
-    // gọi cho từng dòng — dù bulk delete không hiện nó ra thành một toast riêng cho từng bản ghi.
-    $response = Gate::forUser($admin)->inspect('delete', $withOpenMatter);
+    $component = new Notifications;
+    $component->mount();
 
-    expect($response->denied())->toBeTrue()
-        ->and($response->message())->toBe(__('users.offboarding.open_work_blocked', [
-            'name' => $withOpenMatter->name,
-            'matters' => 1,
-            'deadlines' => 0,
-            'requests' => 0,
-        ]));
+    $bodies = $component->notifications->map(fn ($notification): string => (string) $notification->getBody())->implode("\n");
+
+    expect($bodies)->toContain(staffOffboardingMessage($withOpenMatter->name, matters: 1, deadlines: 0, requests: 0));
 });
 
 /**

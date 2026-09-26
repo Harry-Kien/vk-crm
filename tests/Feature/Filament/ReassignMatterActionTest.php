@@ -12,6 +12,8 @@ use App\Models\StageLog;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
+use Filament\Notifications\Livewire\Notifications;
+use Filament\Notifications\Notification;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification as NotificationFacade;
@@ -75,6 +77,63 @@ it('reassigns the lead through the header action: lead changes, unfinished deadl
 
     Mail::assertNothingSent();
     NotificationFacade::assertNothingSent();
+});
+
+/**
+ * Spec gap (fix round 1): SPEC §6.11 bước 4 — "gợi ý soạn một dòng cập nhật công bố giới thiệu
+ * luật sư mới". Chỉ MỘT gợi ý trên giao diện (Filament Notification), KHÔNG BAO GIỜ tự gửi —
+ * `Mail::assertNothingSent()` giữ nguyên vế đó. Chỉ hiện khi vụ việc ĐÃ công bố portal: gợi ý
+ * "giới thiệu luật sư mới cho khách" không có nghĩa gì trên một vụ khách còn chưa thấy được.
+ */
+it('suggests introducing the new lead to the client when the matter is published to the portal', function () {
+    $oldLead = User::factory()->withRole(Role::Lawyer)->create();
+    $newLead = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $oldLead->id, 'is_published_to_portal' => true]);
+
+    $this->actingAs($oldLead, 'web');
+
+    $this->livewire(ViewMatter::class, ['record' => $matter->getKey()])
+        ->callAction('reassignMatter', data: [
+            'new_lead_id' => $newLead->id,
+            'keep_old_lead_as_associate' => false,
+            'reason' => 'Bàn giao.',
+        ])
+        ->assertHasNoActionErrors();
+
+    Notification::assertNotified(__('reassign.action.suggest_introduction_title'));
+    Mail::assertNothingSent();
+});
+
+/** Vế âm bắt buộc: một vụ CHƯA công bố portal không hiện gợi ý này. */
+/**
+ * `keep_old_lead_as_associate: true` — CỐ Ý, để cô lập ĐÚNG điều kiện đang đo (công bố portal).
+ * Giữ lead cũ trong đội ngũ nghĩa là họ vẫn `view` được vụ việc sau khi bàn giao, nên không nhánh
+ * "điều hướng về danh sách" (test riêng) chen vào chặn mất việc đọc lại notification ở dưới.
+ */
+it('does not suggest a client introduction when the matter is not published to the portal', function () {
+    $oldLead = User::factory()->withRole(Role::Lawyer)->create();
+    $newLead = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $oldLead->id, 'is_published_to_portal' => false]);
+
+    $this->actingAs($oldLead, 'web');
+
+    $this->livewire(ViewMatter::class, ['record' => $matter->getKey()])
+        ->callAction('reassignMatter', data: [
+            'new_lead_id' => $newLead->id,
+            'keep_old_lead_as_associate' => true,
+            'reason' => 'Bàn giao.',
+        ])
+        ->assertHasNoActionErrors();
+
+    $component = new Notifications;
+    $component->mount();
+
+    // `pluck('title')` KHÔNG dùng được ở đây: `Notification::$title` là `protected`, nên
+    // `data_get()` (thứ `pluck()` gọi) không đọc được nó từ NGOÀI lớp — luôn trả `null`, và một
+    // khẳng định "không chứa" trên một cột toàn `null` xanh vô điều kiện, đo được gì cũng vậy.
+    // `getTitle()` là getter công khai thật.
+    expect($component->notifications->map(fn ($n): ?string => $n->getTitle()))
+        ->not->toContain(__('reassign.action.suggest_introduction_title'));
 });
 
 it('moves only open client requests assigned to the old lead, leaving a closed one alone', function () {
@@ -174,6 +233,48 @@ it('reassigns a restricted matter to another lawyer: the new lead can see it, th
     $this->actingAs($oldLead, 'web')
         ->get(MatterResource::getUrl('view', ['record' => $matter], panel: 'admin'))
         ->assertNotFound();
+});
+
+/**
+ * Minor (fix round 1): sau khi TỰ bàn giao một vụ `restricted`, chính lead cũ đang đứng trên
+ * trang này mất luôn quyền xem nó (họ không được giữ lại làm associate — công tắc đó bị ẩn trên
+ * vụ hạn chế). Ở lại trên một trang họ không còn mở được là một trang 404 chờ sẵn ở lần
+ * Livewire re-render kế tiếp; điều hướng ngay về danh sách vụ việc, kèm thông báo thành công.
+ */
+it('redirects a lead to the matter list after handing off a restricted matter they can no longer view', function () {
+    $oldLead = User::factory()->withRole(Role::Lawyer)->create();
+    $newLead = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->restricted()->create(['lead_lawyer_id' => $oldLead->id]);
+
+    $this->actingAs($oldLead, 'web');
+
+    $this->livewire(ViewMatter::class, ['record' => $matter->getKey()])
+        ->callAction('reassignMatter', data: [
+            'new_lead_id' => $newLead->id,
+            'reason' => 'Bàn giao vụ hạn chế, tự bàn giao.',
+        ])
+        ->assertHasNoActionErrors()
+        ->assertRedirect(MatterResource::getUrl('index', panel: 'admin'));
+
+    Notification::assertNotified(__('reassign.action.success'));
+});
+
+/** Vế dương: admin vẫn xem được vụ hạn chế sau khi bàn giao (nhánh admin của isListableBy), nên KHÔNG bị điều hướng đi. */
+it('does not redirect an admin away after reassigning a restricted matter, since they can still view it', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $oldLead = User::factory()->withRole(Role::Lawyer)->create();
+    $newLead = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->restricted()->create(['lead_lawyer_id' => $oldLead->id]);
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(ViewMatter::class, ['record' => $matter->getKey()])
+        ->callAction('reassignMatter', data: [
+            'new_lead_id' => $newLead->id,
+            'reason' => 'Bàn giao vụ hạn chế.',
+        ])
+        ->assertHasNoActionErrors()
+        ->assertNoRedirect();
 });
 
 /**

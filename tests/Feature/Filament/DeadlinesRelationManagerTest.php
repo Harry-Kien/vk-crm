@@ -274,6 +274,43 @@ it('hides the add button from someone who cannot write to the matter', function 
 });
 
 // =========================================================================================
+// ĐỔI NGƯỜI PHỤ TRÁCH (fix round 1, CRITICAL) — trước bản sửa này không màn hình nào đổi được
+// `responsible_user_id` sau khi tạo, nên một người KHÔNG phải lead còn đứng tên một mốc chưa
+// xong không bao giờ nghỉ việc được: `ReassignMatter` chỉ chuyển việc của LEAD, và cột này không
+// có đường ghi nào khác ngoài lúc tạo mốc. `App\Actions\Deadline\ChangeDeadlineResponsible` là
+// đường ghi thứ hai; test Action-tier riêng (`tests/Feature/Actions/Deadline/
+// ChangeDeadlineResponsibleTest.php`) đo luật của chính Action.
+// =========================================================================================
+
+it('changes the responsible person through the changeResponsible action, and writes an audit entry', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create(['name' => 'Trợ lý Mai']);
+    $this->matter->addTeamMember($assistant, MatterRole::Assistant);
+    $deadline = makeDeadline($this->matter, ['name' => 'Nộp đơn kháng cáo', 'responsible_user_id' => $assistant->id]);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('changeResponsible', $deadline, data: [
+        'responsible_user_id' => $this->lawyer->id,
+    ])->assertHasNoTableActionErrors();
+
+    expect($deadline->fresh()->responsible_user_id)->toBe($this->lawyer->id)
+        ->and(Activity::query()->where('event', 'deadline_responsible_changed')
+            ->where('properties->from', $assistant->id)
+            ->where('properties->to', $this->lawyer->id)
+            ->exists())->toBeTrue();
+});
+
+it('hides the change-responsible button from someone who cannot write to the matter', function () {
+    $deadline = makeDeadline($this->matter);
+
+    $this->actingAs($this->lawyer, 'web');
+    deadlinesTab($this->matter)->assertTableActionVisible('changeResponsible', $deadline);
+
+    $this->actingAs(User::factory()->withRole(Role::Accountant)->create(), 'web');
+    deadlinesTab($this->matter)->assertTableActionHidden('changeResponsible', $deadline);
+});
+
+// =========================================================================================
 // ĐÁNH DẤU HOÀN THÀNH, VÀ ĐƯỜNG LÙI
 // =========================================================================================
 

@@ -3,6 +3,7 @@
 namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 
 use App\Actions\Deadline\AddMatterDeadline;
+use App\Actions\Deadline\ChangeDeadlineResponsible;
 use App\Actions\Deadline\SetDeadlineCompletion;
 use App\Actions\Deadline\SetDeadlinePublication;
 use App\Enums\DeadlineSeverity;
@@ -248,6 +249,7 @@ class DeadlinesRelationManager extends RelationManager
                 $this->addAction(),
             ])
             ->recordActions([
+                $this->changeResponsibleAction(),
                 $this->completeAction(),
                 $this->reopenAction(),
                 $this->publishAction(),
@@ -441,6 +443,46 @@ class DeadlinesRelationManager extends RelationManager
     public static function resolveResponsible(mixed $id): ?User
     {
         return filled($id) ? User::withTrashed()->find($id) : null;
+    }
+
+    /**
+     * "Đổi người phụ trách" (fix round 1, CRITICAL) — đường ghi thứ hai vào `responsible_user_id`
+     * qua {@see ChangeDeadlineResponsible}. Xem docblock của Action đó cho lý do nó phải tồn tại:
+     * không có nút này, một người không phải lead vẫn còn đứng tên mốc chưa xong không bao giờ
+     * nghỉ việc được.
+     *
+     * Cổng: cùng `DeadlinePolicy::update` với bốn nút còn lại của tab. Ô chọn dùng lại
+     * {@see self::responsibleOptions()} — CÙNG danh sách với form "thêm nhanh" (đội ngũ còn đi
+     * làm, qua được `matter.update`) — dù `ChangeDeadlineResponsible` tự nới nhẹ hơn ở tầng Action
+     * (chỉ đòi `view`, xem docblock Action đó): danh sách này là một tập CON của những gì Action
+     * chấp nhận, nên không khoá ai đúng ra sẽ được nhận qua đây.
+     */
+    private function changeResponsibleAction(): Action
+    {
+        return Action::make('changeResponsible')
+            ->label(__('deadlines.tab.actions.change_responsible'))
+            ->icon(Heroicon::OutlinedUserCircle)
+            ->color('gray')
+            ->modalHeading(__('deadlines.tab.actions.change_responsible_heading'))
+            ->modalSubmitActionLabel(__('deadlines.tab.actions.change_responsible_submit'))
+            ->authorize(fn (Deadline $record): bool => Gate::allows('update', $record))
+            ->fillForm(fn (Deadline $record): array => ['responsible_user_id' => $record->responsible_user_id])
+            ->schema([
+                Select::make('responsible_user_id')
+                    ->label(__('deadlines.tab.fields.responsible'))
+                    ->options(fn (): array => $this->responsibleOptions())
+                    ->required()
+                    ->native(false),
+            ])
+            ->successNotificationTitle(__('deadlines.tab.actions.change_responsible_success'))
+            ->action(fn (Action $action, Deadline $record, array $data) => $this->runAction(
+                $action,
+                fn () => app(ChangeDeadlineResponsible::class)->handle(
+                    deadline: $record,
+                    actor: Auth::user(),
+                    newResponsible: User::query()->findOrFail($data['responsible_user_id'] ?? null),
+                ),
+            ));
     }
 
     private function completeAction(): Action

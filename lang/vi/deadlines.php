@@ -73,6 +73,14 @@ return [
             'unpublish_heading' => 'Gỡ mốc này khỏi cổng khách hàng?',
             'unpublish_description' => 'Khách sẽ không còn thấy mốc này. Mốc vẫn nằm trong hồ sơ của văn phòng.',
             'unpublish_success' => 'Đã gỡ mốc khỏi cổng khách hàng.',
+
+            // Fix round 1, CRITICAL — App\Actions\Deadline\ChangeDeadlineResponsible: đường ghi
+            // thứ hai vào responsible_user_id, sau khi mốc đã tạo. Không có nút này thì một
+            // người không phải lead còn đứng tên mốc chưa xong không bao giờ nghỉ việc được.
+            'change_responsible' => 'Đổi người phụ trách',
+            'change_responsible_heading' => 'Chuyển mốc này cho ai?',
+            'change_responsible_submit' => 'Lưu',
+            'change_responsible_success' => 'Đã đổi người phụ trách.',
         ],
 
         /*
