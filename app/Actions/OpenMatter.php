@@ -389,6 +389,11 @@ class OpenMatter
                         }
                     }
 
+                    // Ruling (fix round 3) — đua tranh hash cũ: khoá lại VÀ ĐỌC LẠI hồ sơ Client
+                    // ngay TRƯỚC KHI lưu, không tin ảnh chụp đã dựng ở bước 3 (xem docblock
+                    // `refreshOwnClientIdentitiesUnderLock()`).
+                    $this->refreshOwnClientIdentitiesUnderLock($proposedParties);
+
                     $proposedParties->each(function (MatterParty $party) use ($matter, $actor): void {
                         $party->blameOn($actor);
                         $matter->parties()->save($party);
@@ -455,6 +460,64 @@ class OpenMatter
         } catch (LockTimeoutException) {
             throw ConflictCheckBusy::make();
         }
+    }
+
+    /**
+     * Ruling (fix round 3) — đóng lỗ hổng đua tranh hash cũ (`stale-hash race`).
+     *
+     * **Lỗ hổng.** `buildOwnClientParty()`/`buildMatterParty()` (bước 3) dựng ảnh chụp định danh
+     * (`name`, `id_number_hash`, `phone_normalized`) của một bên `is_our_client` từ hồ sơ `Client`
+     * đã khoá (`lockClients()`) — nhưng khoá dòng đó CHỈ sống trong transaction của bước 3, và
+     * được RELEASE ngay khi transaction đó COMMIT. Giữa lúc đó và lúc bước 5 (một transaction
+     * RIÊNG) thật sự `save()` các bên, không có gì giữ dòng `clients` nữa. Nếu một
+     * `EditClient::save()` KHÁC chen vào ĐÚNG khoảng trống đó và sửa CCCD/điện thoại/tên của CHÍNH
+     * khách hàng này, bên vừa lưu ở bước 5 mang HASH CŨ — sai VĨNH VIỄN nếu đây là vụ việc ĐẦU TIÊN
+     * của khách hàng đó: `SyncClientPartyIdentities` của lần sửa kia chạy TRƯỚC khi dòng
+     * `matter_parties` này tồn tại trong CSDL, nên không có gì để nó đồng bộ lại — không lần kiểm
+     * tra xung đột nào trong tương lai từng thấy định danh ĐÚNG của bên này.
+     *
+     * **Sửa.** Ngay TRƯỚC khi lưu (bước 5, vẫn trong transaction của bước đó), khoá LẠI (thứ tự
+     * tăng dần, cùng quy ước `lockClients()`) và ĐỌC LẠI mọi hồ sơ `Client` mà các bên
+     * `is_our_client` trỏ tới, rồi gán lại `name`/`identify()` từ giá trị VỪA đọc — không tin ảnh
+     * chụp đã dựng ở bước 3, dù chỉ vài mili giây trước. Đây là khoá dòng THỨ HAI trên CÙNG một
+     * dòng `clients` trong CÙNG một lần mở vụ (bước 3 và bước 5) — an toàn vì hai transaction đó
+     * KHÔNG chồng lấn nhau (bước 3 đã commit và release khoá trước khi bước 5 mở transaction mới),
+     * nên không có gì để deadlock với chính nó.
+     *
+     * @param  Collection<int, MatterParty>  $proposedParties
+     */
+    private function refreshOwnClientIdentitiesUnderLock(Collection $proposedParties): void
+    {
+        $clientIds = $proposedParties
+            ->filter(fn (MatterParty $party): bool => $party->is_our_client && $party->client_id !== null)
+            ->pluck('client_id')
+            ->unique()
+            ->sort()
+            ->values();
+
+        if ($clientIds->isEmpty()) {
+            return;
+        }
+
+        $freshClients = Client::query()
+            ->whereIn('id', $clientIds->all())
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get()
+            ->keyBy('id');
+
+        $proposedParties
+            ->filter(fn (MatterParty $party): bool => $party->is_our_client && $party->client_id !== null)
+            ->each(function (MatterParty $party) use ($freshClients): void {
+                $client = $freshClients->get((int) $party->client_id);
+
+                if ($client === null) {
+                    return;
+                }
+
+                $party->name = $client->name;
+                $party->identify($client->id_number, $client->phone);
+            });
     }
 
     /**

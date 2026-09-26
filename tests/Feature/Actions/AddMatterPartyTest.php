@@ -419,3 +419,42 @@ it('turns a busy conflict-check lock into a Vietnamese refusal, not a 500', func
         $lock->release();
     }
 });
+
+/**
+ * Fix round 3, ruling — cùng lỗ hổng đua tranh hash cũ đã sửa ở `OpenMatter` bước 5, áp cho
+ * `AddMatterParty` bước 4 (xem docblock `OpenMatter::refreshOwnClientIdentitiesUnderLock()` cho lý
+ * lẽ đầy đủ, không lặp lại ở đây). `$party` (khách hàng của văn phòng) được dựng ở bước 2, khoá
+ * Client release ngay khi transaction đó commit — nếu một `EditClient::save()` khác chen vào trước
+ * khi bước 4 lưu, bên vừa thêm phải mang HASH MỚI, không phải ảnh chụp cũ từ bước 2.
+ *
+ * **Seam mô phỏng đua tranh: sự kiện `Activity::created` cho đúng dòng `conflict_check_run`.**
+ * Dòng đó được `RunConflictCheck::handle()` ghi ở CUỐI bước 2 — đúng lúc `$party` đã được dựng
+ * (với ảnh chụp CŨ) nhưng bước 4 (lưu) còn chưa chạy. Không cần một hook giả lập riêng.
+ */
+it('re-reads the client identity under lock at step 4, so a concurrent identity edit between check and save is never lost', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $client = Client::factory()->create(['id_number' => '071000000001']);
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    MatterParty::factory()->for($matter)->create(['role' => PartyRole::Defendant]);
+
+    Activity::created(function (Activity $activity) use ($client): void {
+        if ($activity->event !== 'conflict_check_run') {
+            return;
+        }
+
+        // Giả lập một EditClient::save() xen ngang NGAY GIỮA lúc kiểm tra xong (bước 2) và lúc bên
+        // được lưu (bước 4).
+        $client->update(['id_number' => '071000000002']);
+    });
+
+    app(AddMatterParty::class)->handle($matter, $lawyer, [
+        'role' => PartyRole::Plaintiff->value,
+        'is_our_client' => true,
+        'client_id' => $client->getKey(),
+        'name' => $client->name,
+    ]);
+
+    $savedParty = $matter->parties()->where('client_id', $client->getKey())->first();
+
+    expect($savedParty->id_number_hash)->toBe(Normalizer::idNumberHash('071000000002'));
+});

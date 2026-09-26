@@ -14,7 +14,7 @@ use App\Models\User;
 use App\Support\Normalizer;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
-use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Spatie\Activitylog\Models\Activity;
 
 /**
@@ -324,6 +324,14 @@ it('notifies a different matter matched only through the phone branch, not the h
  * panel dùng chung cookie phiên, xem docblock `ClientPortalScope`), scope sẽ TỰ kích hoạt trên MỌI
  * truy vấn `MatterParty` không tường minh bỏ nó, và vụ việc KHÁC (không phải của khách hàng đang
  * đăng nhập portal) sẽ biến mất khỏi kết quả rà — im lặng bỏ sót đúng thứ C2 tồn tại để sửa.
+ *
+ * **Fix round 3 — phát hiện thêm một điểm cùng lỗ hổng, ở CHÍNH `Client`.** Đi tìm test này (đo
+ * lại sau khi lần rà trở thành job) lộ ra `recheckForQueuedClient()`'s `Client::withTrashed()->
+ * find($clientId)` CŨNG cần bỏ `ClientPortalScope` — `Client` mang scope này qua trait
+ * `RestrictedToClientPortal` (một điều bản round 1 bỏ sót vì grep chỉ tìm chữ "ClientPortalScope"
+ * trong `Client.php`, không thấy nó đến từ trait). Không có bản sửa đó, `find()` âm thầm trả về
+ * `null` cho một khách hàng có thật, và toàn bộ lần rà bỏ cuộc ngay từ bước đầu — test NÀY (đi qua
+ * đúng đường `$client->update()` thật, không gọi thẳng job) là nơi phát hiện ra bug đó.
  */
 it('bypasses the client portal scope on the resync recheck query too, not just on RunConflictCheck', function () {
     $this->seed(RolesAndPermissionsSeeder::class);
@@ -437,76 +445,87 @@ it('does not notify for the resynced client’s own closed matter, but still not
 });
 
 /**
- * Fix round 2, Ruling — `recheckAffectedOpenMattersSafely()` chạy SAU KHI transaction đồng bộ định
- * danh đã trả về (không còn nằm trong cùng transaction), và bọc toàn bộ trong try/catch + report().
- * Test này giả lập một lỗi BẤT KỲ ngay TRONG lần rà (ở đây: `RunConflictCheck` ném ra) — hồ sơ
- * khách hàng vừa sửa PHẢI vẫn còn nguyên giá trị mới, không bị cuốn theo.
+ * Fix round 3, N1/Minor 2 — lần rà giờ là job `RecheckClientIdentityConflicts`, dispatch
+ * `afterCommit()` ở cuối `SyncClientPartyIdentities::handle()`. Đây là "bảo đảm transaction ngoài"
+ * mà round 2 chỉ có được nhờ QUY ƯỚC (gọi tuần tự sau một `DB::transaction()` riêng của CHÍNH
+ * Action — không biết gì về một transaction NGOÀI bao quanh cả lời gọi `$client->update()`), giờ
+ * là CẤU TRÚC thật: bọc `$client->update()` trong một transaction riêng của TEST rồi CHỦ Ý rollback
+ * — job không được phép chạy, dù dữ liệu để nó "có gì đó để báo" đã được dựng sẵn.
+ *
+ * **Vì sao khẳng định qua Mockery `->never()`, không qua một dòng CSDL (notification/audit).**
+ * Với hàng đợi `sync` (mặc định bộ test), một dispatch KHÔNG `afterCommit()` vẫn chạy `handle()`
+ * NGAY LẬP TỨC, cùng kết nối, cùng transaction đang mở — TỰ nó cũng bị cuốn theo khi transaction
+ * đó rollback (đã kiểm chứng bằng tay: dòng notification/audit "biến mất" y hệt CẢ HAI trường hợp,
+ * có `afterCommit()` hay không — SQL rollback xoá đều, không phân biệt được gì). `->never()` của
+ * Mockery là một khẳng định Ở TẦNG PHP, không phải CSDL — không bị rollback "xoá" theo, nên đây là
+ * tín hiệu DUY NHẤT thật sự phân biệt được "job không hề chạy" với "job chạy rồi bị cuốn theo".
+ *
+ * Không dùng `Queue::fake()` (đã kiểm chứng bằng tay: `QueueFake::push()` không đi qua
+ * `Queue::enqueueUsing()`/`shouldDispatchAfterCommit()` của Laravel, nên nó GHI NHẬN job ngay lập
+ * tức bất kể transaction có rollback hay không — một false negative khác cho đúng thứ test này
+ * cần đo).
  */
-it('never rolls back the client identity correction when the post-commit recheck throws', function () {
+it('does not dispatch the identity recheck job when the enclosing transaction rolls back', function () {
     $this->seed(RolesAndPermissionsSeeder::class);
 
-    $lead = User::factory()->withRole(Role::Lawyer)->create();
-    $client = Client::factory()->create(['id_number' => '090000000041']);
-    $matter = Matter::factory()->create(['lead_lawyer_id' => $lead->id]);
-    MatterParty::factory()->for($matter)->ourClient($client, PartyRole::Plaintiff)->create();
-
-    // Một vụ việc KHÁC, đang mở, sẽ khớp hash mới — bắt buộc để matterIdsMatchedByNewIdentity()
-    // không rỗng và recheckAffectedOpenMattersSafely() thật sự gọi tới RunConflictCheck (giả lập
-    // ném lỗi bên dưới mới có gì để chạm tới).
-    $otherMatter = Matter::factory()->create();
-    MatterParty::factory()->for($otherMatter)->create(['role' => PartyRole::Defendant, 'name' => 'Bị đơn khác'])
-        ->identify('090000000042', null)->save();
-
-    $this->mock(RunConflictCheck::class)
-        ->shouldReceive('handle')
-        ->andThrow(new RuntimeException('Sự cố giả lập — kiểm tra việc sửa định danh không bị cuốn theo.'));
-
-    // Không được phép ném ra ngoài — người gọi thật (EditClient::save()) không có gì để bắt riêng
-    // cho lỗi này, và không nên phải có.
-    $client->update(['id_number' => '090000000042']);
-
-    expect($client->fresh()->id_number)->toBe('090000000042')
-        ->and(MatterParty::where('matter_id', $matter->id)->first()->id_number_hash)
-        ->toBe(Normalizer::idNumberHash('090000000042'))
-        // Lần rà thất bại trước khi kịp ghi — không có dòng audit "đã phát hiện xung đột" nào,
-        // không thông báo nào gửi ra, đúng như một lần rà chưa từng chạy xong.
-        ->and(Activity::query()->where('event', 'client_identity_conflict_detected')->exists())->toBeFalse()
-        ->and($lead->notifications()->count())->toBe(0);
-});
-
-/**
- * Fix round 2, Ruling — `recheckAffectedOpenMattersSafely()` phải THẬT SỰ tranh chính khoá
- * `conflict-check` mà `OpenMatter`/`AddMatterParty` dùng, không chỉ gọi `Cache::lock()` cho có.
- * Giữ khoá đó bằng tay (đúng khuôn "turns a busy conflict-check lock..." của `OpenMatterTest.php`)
- * rồi sửa hồ sơ khách hàng: lần rà phải KHÔNG lấy được khoá trong 10 giây, `LockTimeoutException`
- * bị bắt+report()+bỏ qua (test "never rolls back..." ở trên đã chứng minh phần bắt lỗi) — nghĩa là
- * không có thông báo/dòng audit "đã phát hiện xung đột" nào, dù $otherMatter đáng lẽ khớp Đỏ. Hồ
- * sơ khách hàng vẫn phải lưu thành công.
- */
-it('actually contends for the conflict-check lock, not just calls it', function () {
-    $this->seed(RolesAndPermissionsSeeder::class);
-
-    $otherLead = User::factory()->withRole(Role::Lawyer)->create();
-    $client = Client::factory()->create(['id_number' => '090000000051']);
+    $client = Client::factory()->create(['id_number' => '090000000061']);
     $matter = Matter::factory()->create();
     MatterParty::factory()->for($matter)->ourClient($client, PartyRole::Plaintiff)->create();
 
-    // $otherMatter khớp ĐỎ thật (không phải mock) nếu lần rà chạy được — chứng minh việc không có
-    // thông báo dưới đây là do KHOÁ, không phải do không có gì để báo.
-    $otherMatter = Matter::factory()->create(['lead_lawyer_id' => $otherLead->id]);
-    $otherClient = Client::factory()->create(['id_number' => '090000000052']);
+    // $otherMatter khớp ĐỎ thật nếu job chạy được — chứng minh RunConflictCheck có việc thật để
+    // làm nếu job THẬT SỰ chạy tới đó, không phải một mock trơ trọi không có gì để chạm vào.
+    $otherMatter = Matter::factory()->create();
+    $otherClient = Client::factory()->create(['id_number' => '090000000062']);
     MatterParty::factory()->for($otherMatter)->ourClient($otherClient, PartyRole::Defendant)->create();
 
-    $lock = Cache::store('database')->lock('conflict-check', 30);
-    expect($lock->get())->toBeTrue();
+    $this->mock(RunConflictCheck::class)->shouldReceive('handle')->never();
 
     try {
-        $client->update(['id_number' => '090000000052']);
-    } finally {
-        $lock->release();
+        DB::transaction(function () use ($client): void {
+            $client->update(['id_number' => '090000000062']);
+
+            throw new RuntimeException('Huỷ có chủ đích — job không được phép chạy sau việc này.');
+        });
+    } catch (RuntimeException) {
+        // Mong đợi — xem để lộ rõ ý định thay vì một catch im lặng không giải thích.
     }
 
-    expect($client->fresh()->id_number)->toBe('090000000052')
-        ->and(Activity::query()->where('event', 'client_identity_conflict_detected')->exists())->toBeFalse()
-        ->and($otherLead->notifications()->count())->toBe(0);
+    expect($client->fresh()->id_number)->not->toBe('090000000062');
+});
+
+/**
+ * Fix round 3, N1 — mặt còn lại của cùng cơ chế: khi transaction đồng bộ định danh THẬT SỰ commit
+ * (không phải nested/savepoint dưới `RefreshDatabase`), job phải THẬT SỰ chạy qua đúng đường
+ * dispatch (không gọi thẳng `handle()`/`recheckForQueuedClient()` như các test khác của N1), và
+ * phải báo đúng vụ việc bị ảnh hưởng — "the lock is later free → the recheck runs and notifies"
+ * của phán quyết N1, đo ở ĐÚNG tầng dispatch thay vì tầng job (job's lock/retry/failed() có tệp
+ * riêng, `RecheckClientIdentityConflictsTest.php`).
+ *
+ * `DB::commit()` — cùng kỹ thuật đã dùng ở `OpenMatterConcurrencyTest` để thoát transaction bọc
+ * của `RefreshDatabase` (level không bao giờ tự về 0 nếu không ép): `afterCommit()` CHỈ chạy
+ * callback khi `DatabaseTransactionsManager` thấy transaction level THẬT SỰ về 0. Hệ quả đã biết
+ * (xem docblock lớp ở tệp đó): `RefreshDatabaseState::$migrated` bị đặt lại `false`, buộc bài test
+ * KẾ TIẾP `migrate:fresh` lại — một chi phí, không phải lỗi.
+ */
+it('runs the identity recheck job through the real dispatch path once the transaction truly commits', function () {
+    $this->seed(RolesAndPermissionsSeeder::class);
+
+    $otherLead = User::factory()->withRole(Role::Lawyer)->create();
+    $client = Client::factory()->create(['id_number' => '090000000071']);
+    $matter = Matter::factory()->create();
+    MatterParty::factory()->for($matter)->ourClient($client, PartyRole::Plaintiff)->create();
+
+    $otherMatter = Matter::factory()->create(['lead_lawyer_id' => $otherLead->id]);
+    $otherClient = Client::factory()->create(['id_number' => '090000000072']);
+    MatterParty::factory()->for($otherMatter)->ourClient($otherClient, PartyRole::Defendant)->create();
+
+    $client->update(['id_number' => '090000000072']);
+
+    DB::commit();
+
+    $conflictAudit = Activity::query()->where('event', 'client_identity_conflict_detected')
+        ->where('subject_type', $otherMatter->getMorphClass())->where('subject_id', $otherMatter->id)->first();
+
+    expect($conflictAudit)->not->toBeNull()
+        ->and($otherLead->notifications()->count())->toBe(1);
 });

@@ -322,13 +322,20 @@ class RunConflictCheck
      *
      * **KHÔNG `withTrashed()` (fix round 1, I1/R14).** Bản trước nạp cả các bên đã xoá mềm của
      * CHÍNH vụ việc đang xét, với lý lẽ "một bên đã xoá mềm vẫn từng đại diện cho khách hàng đó".
-     * Lý lẽ đó đúng cho `matchesFor()` (tìm khớp LỊCH SỬ ở CÁC VỤ KHÁC — không đổi, xem hàm đó) —
-     * nhưng SAI ở đây, vì đây là các bên CỦA CHÍNH vụ việc đang xét, và R14 đã ra phán quyết: "gỡ
-     * một bên là xoá mềm kèm lý do bắt buộc… bên đã gỡ KHÔNG còn trong dữ liệu đối chiếu xung đột,
-     * vì gỡ nghĩa là 'nhập nhầm, chưa từng là bên'". Một bên đã gỡ khỏi CHÍNH vụ việc này không
-     * còn là một phần của `$ourClientRoles` hay của `sameMatterOppositionMatches()` — nạp nó lại
-     * bằng `withTrashed()` sẽ làm một xung đột "cùng vụ việc, hai phía đối lập" đã được gỡ đúng
-     * cách tái xuất hiện, đúng thứ Task 9 gỡ bên tồn tại để ngăn.
+     * Bên CỦA CHÍNH vụ việc đang xét, và R14 đã ra phán quyết: "gỡ một bên là xoá mềm kèm lý do bắt
+     * buộc… bên đã gỡ KHÔNG còn trong dữ liệu đối chiếu xung đột, vì gỡ nghĩa là 'nhập nhầm, chưa
+     * từng là bên'". Một bên đã gỡ khỏi CHÍNH vụ việc này không còn là một phần của `$ourClientRoles`
+     * hay của `sameMatterOppositionMatches()` — nạp nó lại bằng `withTrashed()` sẽ làm một xung đột
+     * "cùng vụ việc, hai phía đối lập" đã được gỡ đúng cách tái xuất hiện, đúng thứ Task 9 gỡ bên
+     * tồn tại để ngăn.
+     *
+     * **Đính chính fix round 3 — `matchesFor()` KHÔNG còn là ngoại lệ của luật này.** Đoạn TRÊN
+     * (bản round 1) từng viết "lý lẽ đó đúng cho `matchesFor()` — không đổi", ngụ ý hàm đó VẪN
+     * `withTrashed()` ở `MatterParty` và một bên đã gỡ vẫn khớp được khi tìm ở CÁC VỤ VIỆC KHÁC.
+     * SAI kể từ fix round 2 (I1, hoàn tất phán quyết R14): `matchesFor()` cũng đã bỏ `withTrashed()`
+     * ở `MatterParty` (chỉ còn giữ ở quan hệ `matter` nạp kèm — một VỤ VIỆC đã xoá mềm vẫn khớp
+     * được, khác trục với một BÊN đã gỡ). R14 áp cho MỌI nơi, không chỉ vụ việc đang xét — xem
+     * docblock lớp và docblock `matchesFor()`.
      *
      * @return array<int, MatterParty>
      */

@@ -321,6 +321,65 @@ it('does not re-block a pair overridden on the parties tab itself, proving AddMa
 });
 
 /**
+ * Fix round 3, minor — NB1 chưa có bằng chứng riêng cho `AddMatterParty` ở đúng hình dạng phụ mà
+ * finding NB1 (round 2) nêu: MỘT bên MỚI (qua tab "Các bên", không phải form mở vụ) khớp HAI dòng
+ * LỊCH SỬ giống hệt nhau ở một vụ việc khác (nhập trùng ở phía kia, không phải phía mình) — thay vì
+ * hai bên mới khớp một dòng lịch sử (đã có test ngay trên). `RunConflictCheckTest.php` đã có bản
+ * đơn vị cho `allNewMatches` (round 2); đây là bản MÀN HÌNH, qua đúng tab "Các bên".
+ */
+it('does not permanently hard-block on the parties tab when a new party matches two identical historical rows', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+
+    $conflictingClient = Client::factory()->create(['id_number' => '075566778899', 'name' => 'Lê Văn Trùng Sử']);
+    $otherMatter = Matter::factory()->create();
+    // Hai dòng LỊCH SỬ thật khác nhau, giống hệt nhau (nhập trùng ở phía BÊN KIA, không phải phía
+    // mình) — khác test ngay trên (nơi hai dòng MỚI trùng nhau khớp MỘT dòng lịch sử).
+    MatterParty::factory()->for($otherMatter)->ourClient($conflictingClient, PartyRole::Plaintiff)->create();
+    MatterParty::factory()->for($otherMatter)->ourClient($conflictingClient, PartyRole::Plaintiff)->create();
+
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    MatterParty::factory()->for($matter)->ourClient(Client::factory()->create(), PartyRole::Defendant)->create();
+
+    $this->actingAs($manager, 'web');
+
+    $this->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('create', data: [
+        'role' => PartyRole::Plaintiff->value,
+        'is_our_client' => false,
+        'name' => 'Bên mới khớp hai dòng cũ',
+        'id_number' => '075566778899',
+    ])->assertHasTableActionErrors(['override_reason'])
+        ->setTableActionData([
+            'role' => PartyRole::Plaintiff->value,
+            'is_our_client' => false,
+            'name' => 'Bên mới khớp hai dòng cũ',
+            'id_number' => '075566778899',
+            'override_reason' => 'Đã xác minh, không phải cùng một người.',
+        ])
+        ->callMountedTableAction()
+        ->assertHasNoTableActionErrors();
+
+    // Luật sư phụ trách (không ghi đè được) thêm một bên KHÔNG liên quan — không được chặn lại, dù
+    // RunConflictCheck xét lại CẢ HAI dòng lịch sử ở lần này.
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('create', data: [
+        'role' => PartyRole::Related->value,
+        'is_our_client' => false,
+        'name' => 'Nhân chứng không liên quan (NB1 phụ)',
+        'id_number' => '075566778800',
+    ])->assertHasNoTableActionErrors();
+
+    expect($matter->parties()->where('name', 'Nhân chứng không liên quan (NB1 phụ)')->exists())->toBeTrue();
+});
+
+/**
  * R13(g)/`conflict-06` — bullet cuối của test (g) brief: "Dòng conflict_check_run lúc mở vụ có
  * subject là vụ vừa tạo". Đi qua Action trực tiếp là đủ ở đây (không phải hành vi riêng của màn
  * hình): `OpenMatter` là nơi duy nhất gắn lại `subject`, và `CreateMatter` chỉ gọi thẳng nó.

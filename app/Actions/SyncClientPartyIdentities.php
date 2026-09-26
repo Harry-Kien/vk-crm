@@ -5,6 +5,7 @@ namespace App\Actions;
 use App\Actions\Notification\ResolveStaffRecipients;
 use App\Enums\ConflictLevel;
 use App\Enums\Role;
+use App\Jobs\RecheckClientIdentityConflicts;
 use App\Models\Client;
 use App\Models\Matter;
 use App\Models\MatterParty;
@@ -13,9 +14,7 @@ use App\Support\Audit;
 use App\Support\Scopes\ClientPortalScope;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Throwable;
 
 /**
  * Đồng bộ lại ảnh chụp định danh (`name`/`name_normalized`, `id_number_hash`, `phone_normalized`)
@@ -112,11 +111,25 @@ use Throwable;
  * mà khoá `conflict-check` (R13g) tồn tại để ngăn — chỉ là ở một Action KHÁC chưa từng được đưa
  * vào cùng khoá đó; (2) một lỗi bất kỳ TRONG lần rà (kể cả không lấy được khoá) ném ra TRONG cùng
  * transaction sẽ CUỐN THEO việc sửa định danh vừa ghi, rollback luôn cả một thao tác lưu hồ sơ
- * khách hàng hợp lệ vì một lý do hoàn toàn không liên quan tới chính hồ sơ đó. `handle()` giờ gọi
- * `recheckAffectedOpenMattersSafely()` SAU KHI `DB::transaction()` phía trên đã TRẢ VỀ (không còn
- * nằm trong cùng transaction — không có gì để rollback nữa về mặt cấu trúc), và hàm đó tự khoá
- * `conflict-check` rồi bọc TOÀN BỘ trong try/catch + `report()`, không bao giờ ném lại — xem
- * docblock của nó.
+ * khách hàng hợp lệ vì một lý do hoàn toàn không liên quan tới chính hồ sơ đó.
+ *
+ * **Fix round 3 (N1, Important) — lần rà giờ là một JOB HÀNG ĐỢI, không còn chạy đồng bộ trong
+ * request.** Round 2 đã tách lần rà khỏi transaction đồng bộ định danh (đúng), nhưng vẫn chạy nó
+ * NGAY trong request (chờ khoá tối đa 10 giây) rồi NUỐT mọi lỗi bằng `report()` — một lần lỡ (khoá
+ * bận, hay bất kỳ lỗi nào khác) MẤT VĨNH VIỄN và ÂM THẦM, không dòng audit, không gì re-trigger,
+ * và `report()` chỉ ghi `laravel.log` mà trên shared hosting (SPEC §2) không ai đọc. `handle()` giờ
+ * chỉ còn lo phần ĐỒNG BỘ (ghi lại ảnh chụp định danh — nhanh, không đụng khoá `conflict-check`),
+ * rồi dispatch `RecheckClientIdentityConflicts::dispatch($client->getKey())->afterCommit()` — job
+ * đó mới khoá `conflict-check`, để `LockTimeoutException` LỌT RA cho hàng đợi tự thử lại (`$tries`/
+ * `backoff()`), và chỉ khi CẢ `$tries` lần đều thất bại mới ghi audit + báo admin qua `failed()` —
+ * xem docblock lớp của job đó cho đầy đủ. `afterCommit()` (không phải "gọi tuần tự sau khi closure
+ * trả về" như round 2 làm cho chính lần rà) giờ là BẮT BUỘC, không chỉ tiện: một `DB::transaction()`
+ * NGOÀI bọc quanh `$client->update()` mà sau đó ROLLBACK phải khiến job KHÔNG BAO GIỜ chạy — job
+ * mang `clientId`, và nếu nó chạy trên một client mà lần sửa định danh đã bị huỷ, nó sẽ rà theo
+ * định danh CŨ một cách vô nghĩa (hoặc tệ hơn, một client đã rollback về trạng thái trước khi tồn
+ * tại). Chỉ cơ chế `afterCommit()` thật của Laravel (gắn vào `DatabaseTransactionsManager`) mới tự
+ * huỷ đúng cách khi transaction NGOÀI rollback; gọi tuần tự sau một `DB::transaction()` riêng của
+ * CHÍNH Action này (như round 2) không biết gì về một transaction NGOÀI bao quanh cả lời gọi.
  */
 class SyncClientPartyIdentities
 {
@@ -159,41 +172,55 @@ class SyncClientPartyIdentities
             return 0;
         }
 
-        // Ruling (fix round 2): rà lại chạy SAU KHI transaction đồng bộ định danh ở trên đã TRẢ VỀ
-        // (đã commit, ở lời gọi thật không lồng trong một transaction ngoài nào khác — xem docblock
-        // `recheckAffectedOpenMattersSafely()`), KHÔNG còn nằm TRONG cùng transaction với việc ghi
-        // lại định danh như bản round 1.
-        $this->recheckAffectedOpenMattersSafely($client, $parties);
+        // Fix round 3, N1: lần rà giờ là một job hàng đợi, dispatch SAU KHI transaction đồng bộ
+        // định danh ở trên THẬT SỰ commit — `afterCommit()`, không phải "gọi tuần tự sau khi
+        // closure trả về" (bản round 2 làm vậy cho chính lần rà, nhưng lần rà đó lúc này chưa phải
+        // một job nên không cần tới ngữ nghĩa transaction thật). Xem docblock lớp và docblock lớp
+        // của `RecheckClientIdentityConflicts` cho lý do đầy đủ.
+        RecheckClientIdentityConflicts::dispatch($client->getKey())->afterCommit();
 
         return $parties->count();
     }
 
     /**
-     * Ruling (fix round 2): bọc `recheckAffectedOpenMatters()` bằng CHÍNH khoá `conflict-check` mà
-     * `OpenMatter`/`AddMatterParty` dùng cho giai đoạn kiểm tra+lưu của họ — một lần rà không được
-     * phép đọc dữ liệu song song với chính giai đoạn đó của một Action khác (cùng lý do R13g).
+     * Fix round 3, N1 — điểm vào DUY NHẤT mà `RecheckClientIdentityConflicts::handle()` gọi tới.
+     * Nhận ĐÚNG MỘT `clientId` (không phải các bên đã đồng bộ như `recheckAffectedOpenMatters()`
+     * nhận) — job chỉ mang id qua hàng đợi (SPEC §10.5), nên ở đây phải tự ĐỌC LẠI mọi thứ từ CSDL
+     * ngay lúc job THẬT SỰ chạy, không tin bất kỳ ảnh chụp nào được dựng lúc dispatch. Đọc lại
+     * cũng đúng hơn về mặt nghiệp vụ: khách hàng có thể đã đổi định danh THÊM một lần nữa giữa lúc
+     * job được xếp hàng và lúc nó chạy (worker bận, backoff), và rà theo giá trị MỚI NHẤT luôn là
+     * điều đúng cần làm — không có phiên bản "cũ hơn nhưng vẫn hợp lệ" nào của một câu hỏi xung đột
+     * lợi ích (xem docblock lớp `RunConflictCheck`, "đây là kiểm tra LỊCH SỬ").
      *
-     * **Không bao giờ được phép cuốn theo việc sửa định danh vừa lưu.** Việc sửa định danh (ở
-     * `handle()`, phía trên) đã TRẢ VỀ THÀNH CÔNG trước khi hàm này được gọi — không còn nằm trong
-     * cùng transaction, nên về mặt CẤU TRÚC không có gì để mà rollback nữa. Nhưng một lỗi Ở ĐÂY
-     * (không lấy được khoá sau 10 giây, `RunConflictCheck`/`ResolveStaffRecipients` ném ra một lỗi
-     * bất ngờ, ...) vẫn có thể LỌT RA khỏi `Client::updated()` và làm hỏng chính màn hình vừa lưu
-     * hồ sơ khách hàng thành công — `try`/`catch` toàn bộ, `report()` rồi bỏ qua, KHÔNG ném lại:
-     * người dùng (vd. trợ lý ở `EditClient::save()`) vẫn thấy hồ sơ lưu thành công dù lần rà xung
-     * đột sau đó thất bại vì bất kỳ lý do gì — một lần rà bị lỡ (rồi được báo qua kênh lỗi/`report()`
-     * để đội kỹ thuật biết) rẻ hơn RẤT nhiều so với việc huỷ luôn một lần sửa hồ sơ khách hàng hợp lệ.
-     *
-     * @param  Collection<int, MatterParty>  $resyncedParties
+     * Truy vấn giống hệt truy vấn đồng bộ ở `handle()` (cùng `client_id`, cùng `withTrashed()`,
+     * cùng bỏ `ClientPortalScope`, cùng lý do) — nhưng KHÔNG dùng lại kết quả của `handle()`: đây
+     * là một lần đọc ĐỘC LẬP, có thể chạy giây/phút sau, trong một tiến trình worker khác hẳn.
      */
-    private function recheckAffectedOpenMattersSafely(Client $client, Collection $resyncedParties): void
+    public function recheckForQueuedClient(int $clientId): void
     {
-        try {
-            Cache::store('database')->lock('conflict-check', 30)->block(10, function () use ($client, $resyncedParties): void {
-                $this->recheckAffectedOpenMatters($client, $resyncedParties);
-            });
-        } catch (Throwable $e) {
-            report($e);
+        // Bỏ ClientPortalScope (cùng lý do mọi truy vấn khác của lớp này) — `Client` cũng mang
+        // scope này (qua `RestrictedToClientPortal`), một điều tự kiểm tra ban đầu đã bỏ sót: một
+        // job chạy trong ngữ cảnh worker bình thường không có phiên nào, nhưng nếu container vẫn
+        // còn một `ClientUser` "đang đăng nhập" từ một lần dùng lại tiến trình (hay đúng ngữ cảnh
+        // test), dòng `find()` dưới đây sẽ ÂM THẦM trả về null cho một khách hàng có thật, và toàn
+        // bộ lần rà bỏ cuộc ngay tại đây — im lặng, không lỗi, không audit.
+        $client = Client::withoutGlobalScope(ClientPortalScope::class)->withTrashed()->find($clientId);
+
+        if ($client === null) {
+            return;
         }
+
+        $resyncedParties = MatterParty::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->withTrashed()
+            ->where('client_id', $client->getKey())
+            ->get();
+
+        if ($resyncedParties->isEmpty()) {
+            return;
+        }
+
+        $this->recheckAffectedOpenMatters($client, $resyncedParties);
     }
 
     /**

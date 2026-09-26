@@ -160,6 +160,18 @@ class AddMatterParty
                     // tường minh và đem chính actor đó đi kiểm tra quyền ở bước 1, nên hai cột "ai tạo"
                     // phải chỉ về người đó — phiên đang mở có thể là người khác, hoặc không tồn tại (job,
                     // lệnh console). Dòng `matter_parties` là hồ sơ pháp lý, không phải nhật ký phụ trợ.
+                    // Ruling (fix round 3, cùng lỗ hổng OpenMatter bước 5) — đua tranh hash cũ:
+                    // $party được dựng ở bước 2 (transaction RIÊNG, khoá Client đã release khi
+                    // transaction đó commit). Khoá lại VÀ đọc lại hồ sơ Client ngay trước khi lưu,
+                    // không tin ảnh chụp đã dựng trước đó — xem docblock
+                    // `OpenMatter::refreshOwnClientIdentitiesUnderLock()` cho lý do đầy đủ (cùng
+                    // lỗ hổng, không viết lại lý lẽ ở đây).
+                    if ($party->is_our_client && $party->client_id !== null) {
+                        $freshClient = $this->lockClient($party->client_id);
+                        $party->name = $freshClient->name;
+                        $party->identify($freshClient->id_number, $freshClient->phone);
+                    }
+
                     $party->blameOn($actor);
 
                     $matter->parties()->save($party);

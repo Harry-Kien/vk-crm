@@ -786,3 +786,39 @@ it('turns a busy conflict-check lock into a Vietnamese refusal, not a 500', func
         $lock->release();
     }
 });
+
+/**
+ * Fix round 3, ruling — đua tranh hash cũ. `buildOwnClientParty()` dựng ảnh chụp định danh (tên,
+ * `id_number_hash`, `phone_normalized`) của khách hàng CHÍNH dưới khoá dòng `clients` ở bước 3
+ * (`lockClients()`), nhưng khoá đó được RELEASE khi transaction bước 3 commit — trước khi bước 5
+ * (transaction RIÊNG, `DB::transaction` thứ hai) lưu các bên. Nếu một `EditClient::save()` khác
+ * chen vào ĐÚNG khoảng trống giữa hai transaction đó và sửa CCCD của CHÍNH khách hàng này, bên vừa
+ * lưu ở bước 5 sẽ mang HASH CŨ — sai vĩnh viễn, và nếu đây là vụ việc ĐẦU TIÊN của khách hàng đó,
+ * không có gì tự sửa lại (`SyncClientPartyIdentities` của lần sửa kia chạy TRƯỚC khi dòng
+ * `matter_parties` này tồn tại, nên không thấy gì để đồng bộ).
+ *
+ * **Seam mô phỏng đua tranh: sự kiện `Matter::created`.** Sự kiện này tự nhiên rơi ĐÚNG vào cửa sổ
+ * đua — nó fire ngay sau khi vụ việc được `save()` (đầu bước 5) nhưng TRƯỚC khi vòng lặp lưu các
+ * bên chạy — không cần một hook giả lập riêng, không đụng gì tới code sản xuất.
+ */
+it('re-reads the client identity under lock at step 5, so a concurrent identity edit between check and save is never lost', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $this->actingAs($lawyer, 'web');
+
+    $client = Client::factory()->create(['id_number' => '070000000001']);
+    $type = matterTypeWithTemplate();
+
+    Matter::created(function () use ($client): void {
+        // Giả lập một EditClient::save() xen ngang NGAY GIỮA lúc vụ việc vừa được lưu và lúc các
+        // bên của nó được lưu — đúng cửa sổ đua ruling mô tả. `update()` thật (không phải SQL
+        // trần) để đi qua đúng cast `encrypted` và đúng sự kiện model như một EditClient::save()
+        // thật sự sẽ làm.
+        $client->update(['id_number' => '070000000002']);
+    });
+
+    $opening = app(OpenMatter::class)->handle($lawyer, baseAttributes($client, $lawyer, $type), []);
+
+    $savedParty = $opening->matter->parties()->where('client_id', $client->getKey())->first();
+
+    expect($savedParty->id_number_hash)->toBe(Normalizer::idNumberHash('070000000002'));
+});

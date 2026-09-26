@@ -18,4 +18,10 @@ return [
         'title' => 'Xung đột lợi ích mức :level sau khi sửa hồ sơ khách hàng',
         'body' => 'Hồ sơ :code có bên trùng với khách hàng vừa được sửa định danh — mở lại kết quả kiểm tra xung đột trên hồ sơ để xem xét.',
     ],
+    // Fix round 3, N1: job RecheckClientIdentityConflicts thất bại sau tất cả các lần thử lại —
+    // phải hiện ra trong ứng dụng cho admin, không chỉ nằm trong laravel.log (SPEC §2).
+    'recheck_failed_notification' => [
+        'title' => 'Không thể rà lại xung đột lợi ích sau khi sửa hồ sơ khách hàng',
+        'body' => 'Đã thử lại nhiều lần nhưng không thể rà lại xung đột lợi ích cho khách hàng #:client_id sau khi hồ sơ được sửa. Cần kiểm tra thủ công.',
+    ],
 ];
