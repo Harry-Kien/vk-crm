@@ -42,6 +42,18 @@ it('lets a LockTimeoutException escape when the conflict-check lock is already h
 });
 
 /**
+ * Fix round 4, minor — `$tries` lần thử nghĩa là `$tries - 1` lần thả lại hàng đợi: worker lấy
+ * `backoff()[attempts - 1]` sau lần thử thứ 1..(`$tries` - 1), còn lần thử cuối thất bại thì gọi
+ * `failed()` chứ không thả lại. Một phần tử thừa ở cuối mảng là một độ trễ không bao giờ xảy ra,
+ * và làm sai mọi phép tính "bao lâu thì admin được báo" dựa trên mảng đó.
+ */
+it('configures exactly one backoff delay per release, so no delay is dead', function () {
+    $job = new RecheckClientIdentityConflicts(1);
+
+    expect($job->backoff())->toHaveCount($job->tries - 1);
+});
+
+/**
  * Đối xứng với test trên: khoá RẢNH thì `handle()` phải THẬT SỰ chạy lần rà và báo đúng vụ việc bị
  * ảnh hưởng — "the lock is later free → the recheck runs and notifies" của phán quyết N1.
  */

@@ -38,6 +38,13 @@ use Throwable;
  * (`client_identity_recheck_failed`) và một thông báo trong ứng dụng cho MỌI admin đang hoạt động,
  * để một lần lỡ hẳn không còn ÂM THẦM.
  *
+ * **Fix round 4 (NB-1) — ai xếp job này.** `SyncClientPartyIdentities::handle()` xếp nó sau MỌI lần
+ * sửa định danh, kể cả khi chưa có dòng `matter_parties` nào để đồng bộ; `OpenMatter` (bước 5) và
+ * `AddMatterParty` (bước 4) xếp nó khi lần làm mới dưới khoá thấy định danh của khách hàng đã đổi
+ * so với ảnh chụp mà lần kiểm tra vừa dùng. Hai lời dispatch sau nằm BÊN TRONG khoá
+ * `conflict-check` — đúng với hàng đợi `database`, vì job chỉ lấy được khoá sau khi Action nhả nó
+ * (xem docblock `OpenMatter::refreshOwnClientIdentitiesUnderLock()`).
+ *
  * **`$lockWaitSeconds` (khác `10` cứng của round 2) — vì sao là một property, không phải hằng số.**
  * Test không nên chờ 10 giây thật cho một khẳng định "khoá bận thì ném LockTimeoutException" — bộ
  * test đã có tiền lệ chờ thật ~10-17s ở `OpenMatterTest`/`AddMatterPartyTest` cho một khẳng định
@@ -50,7 +57,10 @@ class RecheckClientIdentityConflicts implements ShouldQueue
 {
     use Queueable;
 
-    /** 5 lần thử, backoff tăng dần — một lần thất bại thoáng qua (khoá bận) không cần báo động ngay. */
+    /**
+     * 5 lần thử, backoff tăng dần — một lần thất bại thoáng qua (khoá bận) không cần báo động ngay.
+     * Thời gian tệ nhất tới lúc `failed()` báo admin: xem `backoff()`.
+     */
     public int $tries = 5;
 
     /** Không hằng số (xem docblock lớp): test đặt ngắn lại trước khi gọi handle() trực tiếp. */
@@ -58,10 +68,24 @@ class RecheckClientIdentityConflicts implements ShouldQueue
 
     public function __construct(public readonly int $clientId) {}
 
-    /** @return array<int, int> */
+    /**
+     * Đúng `$tries - 1` = 4 độ trễ (fix round 4, minor): worker thả job lại hàng đợi sau lần thử
+     * 1..4 với `backoff()[attempts - 1]`; lần thử thứ 5 thất bại thì gọi `failed()`, không thả lại.
+     * Bản trước có phần tử thứ năm (300 giây) không bao giờ được dùng tới.
+     *
+     * **Thời gian tệ nhất tới lúc admin được báo: khoảng 7–8 phút.** Mỗi lần thử chờ khoá tối đa
+     * `$lockWaitSeconds` (10 giây), nên cộng thuần là 5 × 10 + (10 + 30 + 60 + 120) = 270 giây.
+     * Nhưng hàng đợi được rút bằng cron mỗi phút với `--stop-when-empty` (`queue.drain`): khi job
+     * duy nhất còn lại đang chờ backoff, lần rút đó dừng ngay, và lần thử kế chỉ chạy ở lần cron
+     * ĐẦU TIÊN sau khi độ trễ hết. Tính từ lần thử đầu (phút 0): thử lại ở phút 1, 2, 4 và 7; lần
+     * thứ năm hỏng vào khoảng 7 phút 10 giây. Cộng tối đa một phút từ lúc dispatch tới lần rút đầu
+     * tiên: khoảng 8 phút sau lần sửa hồ sơ khách hàng.
+     *
+     * @return array<int, int>
+     */
     public function backoff(): array
     {
-        return [10, 30, 60, 120, 300];
+        return [10, 30, 60, 120];
     }
 
     /**

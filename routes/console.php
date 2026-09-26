@@ -67,7 +67,7 @@ Schedule::command('queue:work --stop-when-empty --max-time=50')
     ->everyMinute()
     ->name('queue.drain')
     ->description('Rút hàng đợi, thay cho worker thường trực')
-    ->withoutOverlapping();
+    ->withoutOverlapping(10);
 
 /**
  * Nhắc mốc thời hạn tố tụng, 07:00 hằng ngày (SPEC §6.8).

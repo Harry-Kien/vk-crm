@@ -130,6 +130,19 @@ use Illuminate\Support\Facades\DB;
  * tại). Chỉ cơ chế `afterCommit()` thật của Laravel (gắn vào `DatabaseTransactionsManager`) mới tự
  * huỷ đúng cách khi transaction NGOÀI rollback; gọi tuần tự sau một `DB::transaction()` riêng của
  * CHÍNH Action này (như round 2) không biết gì về một transaction NGOÀI bao quanh cả lời gọi.
+ *
+ * **Fix round 4 (NB-1, phán quyết (b)) — dispatch lần rà CẢ KHI 0 dòng được đồng bộ.** Bản round 3
+ * trả sớm khi khách hàng chưa có dòng `matter_parties` nào, TRƯỚC lời dispatch. Nhưng "chưa có dòng
+ * nào" có thể chỉ đúng trong vài mili giây: một `OpenMatter`/`AddMatterParty` khác có thể đang giữ
+ * khoá `conflict-check`, đã kiểm tra xung đột trên định danh CŨ, và sắp lưu bên ĐẦU TIÊN của khách
+ * hàng này. Lần sửa ở đây commit giữa hai giai đoạn đó thì không thấy gì để đồng bộ, và không ai
+ * từng đối chiếu định danh MỚI với các vụ việc đang mở khác. Job chỉ mang `clientId`, khoá CÙNG
+ * `conflict-check`, và tự đọc lại mọi thứ khi nó chạy — tức là SAU KHI bên kia đã lưu xong — nên
+ * xếp nó cả khi 0 dòng là đủ. Khi khách hàng thật sự không có vụ nào, job chỉ đọc hồ sơ và danh
+ * sách bên (rỗng) rồi dừng (`recheckForQueuedClient()`). `OpenMatter`/`AddMatterParty` tự xếp
+ * thêm một lần rà từ phía chúng khi lần làm mới dưới khoá thấy định danh đã đổi (phán quyết (a),
+ * xem `OpenMatter::refreshOwnClientIdentitiesUnderLock()`) — hai đường độc lập, vì mỗi đường che
+ * một lối ghi mà đường kia không thấy.
  */
 class SyncClientPartyIdentities
 {
@@ -166,17 +179,15 @@ class SyncClientPartyIdentities
             return $parties;
         });
 
-        if ($parties->isEmpty()) {
-            // Không có gì để đồng bộ thì cũng không có sự kiện nào để kể lại; ghi nhật ký ở đây
-            // chỉ làm loãng nhật ký bằng một dòng cho mỗi lần sửa hồ sơ khách hàng.
-            return 0;
-        }
-
         // Fix round 3, N1: lần rà giờ là một job hàng đợi, dispatch SAU KHI transaction đồng bộ
         // định danh ở trên THẬT SỰ commit — `afterCommit()`, không phải "gọi tuần tự sau khi
         // closure trả về" (bản round 2 làm vậy cho chính lần rà, nhưng lần rà đó lúc này chưa phải
         // một job nên không cần tới ngữ nghĩa transaction thật). Xem docblock lớp và docblock lớp
         // của `RecheckClientIdentityConflicts` cho lý do đầy đủ.
+        //
+        // Fix round 4 (NB-1, phán quyết (b)): dispatch CẢ KHI 0 dòng được đồng bộ. Không có dòng
+        // nào để ghi lại (nên không có dòng nhật ký đồng bộ nào — closure ở trên đã trả sớm) không
+        // có nghĩa là không có gì để rà: xem "Fix round 4" ở docblock lớp.
         RecheckClientIdentityConflicts::dispatch($client->getKey())->afterCommit();
 
         return $parties->count();
@@ -216,6 +227,8 @@ class SyncClientPartyIdentities
             ->where('client_id', $client->getKey())
             ->get();
 
+        // Khách hàng vẫn chưa có bên nào (fix round 4, phán quyết (b): job giờ được xếp cả khi lần
+        // đồng bộ thấy 0 dòng) thì không có định danh nào trong `matter_parties` để đối chiếu.
         if ($resyncedParties->isEmpty()) {
             return;
         }

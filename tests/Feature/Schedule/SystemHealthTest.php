@@ -227,3 +227,15 @@ it('never lets the queue drain overlap itself', function () {
     // tới khi máy chủ hết bộ nhớ.
     expect($drain->withoutOverlapping)->toBeTrue();
 });
+
+it('lets a killed queue drain hold its overlap lock for ten minutes at most, not a whole day', function () {
+    $drain = collect(Schedule::events())
+        ->first(fn ($event) => $event->description === 'Rút hàng đợi, thay cho worker thường trực');
+
+    // `withoutOverlapping()` trần giữ khoá 1440 phút. Trên shared hosting tiến trình rút hàng đợi
+    // hay bị giết giữa chừng (giới hạn CPU/thời gian của nhà cung cấp) — khi đó khoá không được
+    // nhả, và mọi lần cron sau bị bỏ qua suốt 24 giờ: thư, lần rà xung đột lợi ích, tất cả nằm im
+    // trong bảng `jobs`, trong khi đồng hồ sức khoẻ (một tác vụ KHÁC) vẫn báo xanh. Mỗi lần rút
+    // tự dừng sau `--max-time=50` giây, nên 10 phút vẫn rộng gấp mười hai lần một lần chạy thật.
+    expect($drain->expiresAt)->toBe(10);
+});

@@ -10,6 +10,7 @@ use App\Enums\Permission;
 use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
 use App\Exceptions\ConflictCheckBusy;
+use App\Jobs\RecheckClientIdentityConflicts;
 use App\Models\ChecklistTemplate;
 use App\Models\Client;
 use App\Models\Matter;
@@ -390,7 +391,8 @@ class OpenMatter
                     }
 
                     // Ruling (fix round 3) — đua tranh hash cũ: khoá lại VÀ ĐỌC LẠI hồ sơ Client
-                    // ngay TRƯỚC KHI lưu, không tin ảnh chụp đã dựng ở bước 3 (xem docblock
+                    // ngay TRƯỚC KHI lưu, không tin ảnh chụp đã dựng ở bước 3; fix round 4 (NB-1):
+                    // định danh đã đổi thì xếp một lần rà lại (xem docblock
                     // `refreshOwnClientIdentitiesUnderLock()`).
                     $this->refreshOwnClientIdentitiesUnderLock($proposedParties);
 
@@ -484,6 +486,28 @@ class OpenMatter
      * KHÔNG chồng lấn nhau (bước 3 đã commit và release khoá trước khi bước 5 mở transaction mới),
      * nên không có gì để deadlock với chính nó.
      *
+     * **Fix round 4 (NB-1, phán quyết (a)) — định danh đã đổi thì xếp một lần rà lại.** Lưu đúng
+     * hash thôi chưa đủ: kết quả kiểm tra ở bước 3 và xác nhận/ghi đè ở bước 4 được tính trên ảnh
+     * chụp CŨ, nên định danh MỚI chưa từng được đối chiếu với các vụ việc đang mở khác. Nếu đây là
+     * vụ ĐẦU TIÊN của khách hàng, `SyncClientPartyIdentities` của lần sửa kia cũng không có dòng nào
+     * để đồng bộ. Vì vậy, khi tên, `id_number_hash` hay `phone_normalized` vừa đọc lại KHÁC ảnh chụp
+     * lần kiểm tra đã dùng (`reapplyFreshClientIdentity()`, dùng chung với `AddMatterParty`), xếp
+     * `RecheckClientIdentityConflicts` cho khách hàng đó, `afterCommit()` — job đọc lại mọi thứ khi
+     * nó chạy, nên nó thấy bên vừa lưu ở đây. Không tự chạy lại `RunConflictCheck` tại chỗ: vụ việc
+     * đã được chấp nhận ở bước 4, và đường báo "xung đột lộ ra sau khi sửa định danh" (thông báo +
+     * audit `client_identity_conflict_detected`, R13e) chỉ có một nơi ở, là job đó.
+     *
+     * `SyncClientPartyIdentities` cũng xếp lần rà từ phía lần sửa (phán quyết (b)), nên một lần đua
+     * đi qua `Client::updated()` xếp HAI job cho cùng khách hàng. Không bỏ bên nào: đường này che
+     * những lối ghi không kích hoạt sự kiện model (docblock `Client::booted()`), đường kia che những
+     * lối lưu bên không đi qua lần làm mới này.
+     *
+     * **Dispatch nằm bên trong khoá `conflict-check`.** `afterCommit()` chèn dòng `jobs` ngay khi
+     * transaction bước 5 commit — vẫn trong closure của khoá. Với hàng đợi `database` (cấu hình thật
+     * của dự án, `.env.example`) đó chỉ là một câu `INSERT`; worker chỉ lấy được khoá sau khi
+     * `handle()` nhả nó. Với driver `sync`, job sẽ chạy tại chỗ và chờ chính khoá này — các test đi
+     * vào nhánh này vì vậy chuyển sang hàng đợi `database` (xem `OpenMatterTest.php`).
+     *
      * @param  Collection<int, MatterParty>  $proposedParties
      */
     private function refreshOwnClientIdentitiesUnderLock(Collection $proposedParties): void
@@ -506,18 +530,24 @@ class OpenMatter
             ->get()
             ->keyBy('id');
 
-        $proposedParties
-            ->filter(fn (MatterParty $party): bool => $party->is_our_client && $party->client_id !== null)
-            ->each(function (MatterParty $party) use ($freshClients): void {
-                $client = $freshClients->get((int) $party->client_id);
+        /** @var array<int, true> $changedClientIds Khoá theo id — một khách hàng, một job. */
+        $changedClientIds = [];
 
-                if ($client === null) {
-                    return;
-                }
+        foreach ($proposedParties as $party) {
+            if (! $party->is_our_client || $party->client_id === null) {
+                continue;
+            }
 
-                $party->name = $client->name;
-                $party->identify($client->id_number, $client->phone);
-            });
+            $client = $freshClients->get((int) $party->client_id);
+
+            if ($client !== null && $this->reapplyFreshClientIdentity($party, $client)) {
+                $changedClientIds[(int) $party->client_id] = true;
+            }
+        }
+
+        foreach (array_keys($changedClientIds) as $clientId) {
+            RecheckClientIdentityConflicts::dispatch($clientId)->afterCommit();
+        }
     }
 
     /**

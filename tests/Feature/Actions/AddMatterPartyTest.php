@@ -8,6 +8,7 @@ use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
 use App\Exceptions\ConflictCheckBusy;
 use App\Exceptions\OurClientPartyNeedsClient;
+use App\Jobs\RecheckClientIdentityConflicts;
 use App\Models\Client;
 use App\Models\Matter;
 use App\Models\MatterParty;
@@ -15,7 +16,9 @@ use App\Models\User;
 use App\Support\Normalizer;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Spatie\Activitylog\Models\Activity;
 
 beforeEach(function () {
@@ -429,25 +432,50 @@ it('turns a busy conflict-check lock into a Vietnamese refusal, not a 500', func
  *
  * **Seam mô phỏng đua tranh: sự kiện `Activity::created` cho đúng dòng `conflict_check_run`.**
  * Dòng đó được `RunConflictCheck::handle()` ghi ở CUỐI bước 2 — đúng lúc `$party` đã được dựng
- * (với ảnh chụp CŨ) nhưng bước 4 (lưu) còn chưa chạy. Không cần một hook giả lập riêng.
+ * (với ảnh chụp CŨ) nhưng bước 4 (lưu) còn chưa chạy. Không cần một hook giả lập riêng. Seam chỉ
+ * bắn MỘT lần: lần rà lại (fix round 4) cũng ghi `conflict_check_run` khi hàng đợi chạy, và không
+ * được "sửa xen ngang" thêm lần nữa ở đó.
+ *
+ * **Fix round 4 (NB-1)** — cùng lý lẽ với test cùng tên ở `OpenMatterTest.php` (bước 5): lưu đúng
+ * hash chưa đủ, vì kết quả kiểm tra ở bước 2 tính trên định danh CŨ. Định danh mới trùng "Ông Z" mà
+ * văn phòng đang kiện ở một vụ khác đang mở; hai đường độc lập — (b) `SyncClientPartyIdentities`
+ * của lần sửa (0 dòng lúc đó) và (a) khối làm mới ở bước 4 — cùng xếp một lần rà, và khi hàng đợi
+ * chạy, vụ kia phải bị gắn cờ. Hàng đợi `database` thay cho `sync` vì mọi dispatch ở đây xảy ra
+ * bên trong khoá `conflict-check` mà Action đang giữ (xem docblock
+ * `openMatterQueuedRecheckClientIds()` ở `OpenMatterTest.php`).
  */
 it('re-reads the client identity under lock at step 4, so a concurrent identity edit between check and save is never lost', function () {
+    config(['queue.default' => 'database']);
+
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $otherLead = User::factory()->withRole(Role::Lawyer)->create();
     $client = Client::factory()->create(['id_number' => '071000000001']);
     $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
     MatterParty::factory()->for($matter)->create(['role' => PartyRole::Defendant]);
 
-    Activity::created(function (Activity $activity) use ($client): void {
-        if ($activity->event !== 'conflict_check_run') {
+    // Vụ KHÁC đang mở: văn phòng đại diện khách hàng P kiện "Ông Z", người mang đúng số CCCD MỚI mà
+    // lần sửa xen ngang sắp gán cho khách hàng vừa được thêm vào vụ này.
+    $otherMatter = Matter::factory()->create(['lead_lawyer_id' => $otherLead->id]);
+    MatterParty::factory()->for($otherMatter)
+        ->ourClient(Client::factory()->create(['id_number' => '071000000009']), PartyRole::Plaintiff)->create();
+    MatterParty::factory()->for($otherMatter)->create(['role' => PartyRole::Defendant, 'name' => 'Ông Z'])
+        ->identify('071000000002', null)->save();
+
+    $raced = false;
+
+    Activity::created(function (Activity $activity) use ($client, &$raced): void {
+        if ($raced || $activity->event !== 'conflict_check_run') {
             return;
         }
+
+        $raced = true;
 
         // Giả lập một EditClient::save() xen ngang NGAY GIỮA lúc kiểm tra xong (bước 2) và lúc bên
         // được lưu (bước 4).
         $client->update(['id_number' => '071000000002']);
     });
 
-    app(AddMatterParty::class)->handle($matter, $lawyer, [
+    $addition = app(AddMatterParty::class)->handle($matter, $lawyer, [
         'role' => PartyRole::Plaintiff->value,
         'is_our_client' => true,
         'client_id' => $client->getKey(),
@@ -456,5 +484,102 @@ it('re-reads the client identity under lock at step 4, so a concurrent identity 
 
     $savedParty = $matter->parties()->where('client_id', $client->getKey())->first();
 
-    expect($savedParty->id_number_hash)->toBe(Normalizer::idNumberHash('071000000002'));
+    expect($savedParty->id_number_hash)->toBe(Normalizer::idNumberHash('071000000002'))
+        ->and($addition->result->level)->toBe(ConflictLevel::Green)
+        ->and(addMatterPartyQueuedRecheckClientIds())->toBe([$client->getKey(), $client->getKey()]);
+
+    addMatterPartyDrainDatabaseQueue();
+
+    $otherAudit = Activity::query()->where('event', 'client_identity_conflict_detected')
+        ->where('subject_type', $otherMatter->getMorphClass())->where('subject_id', $otherMatter->id)
+        ->latest('id')->first();
+
+    expect($otherAudit)->not->toBeNull()
+        ->and($otherAudit->properties->get('level'))->toBe(ConflictLevel::Red->value)
+        ->and($otherAudit->properties->get('client_id'))->toBe($client->getKey())
+        ->and($otherAudit->properties->get('notified_user_ids'))->toContain($otherLead->id)
+        ->and($otherLead->notifications()->exists())->toBeTrue();
 });
+
+/**
+ * Fix round 4 (NB-1, phán quyết (a)) — mirror của test cùng ý ở `OpenMatterTest.php`: khối làm mới
+ * ở bước 4 phải TỰ xếp lần rà, không dựa vào `SyncClientPartyIdentities`. Lần sửa xen ngang đi qua
+ * query builder nên không kích hoạt `Client::updated()` — chỉ bước 4 còn biết định danh đã đổi.
+ */
+it('queues the identity recheck itself when the identity changed between check and save through a write that fired no model event', function () {
+    config(['queue.default' => 'database']);
+
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $otherLead = User::factory()->withRole(Role::Lawyer)->create();
+    $client = Client::factory()->create(['id_number' => '071000000011', 'phone' => '0907100011']);
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    MatterParty::factory()->for($matter)->create(['role' => PartyRole::Defendant]);
+
+    $otherMatter = Matter::factory()->create(['lead_lawyer_id' => $otherLead->id]);
+    MatterParty::factory()->for($otherMatter)->create(['role' => PartyRole::Defendant, 'name' => 'Bà T'])
+        ->identify(null, '0907100012')->save();
+
+    $raced = false;
+
+    Activity::created(function (Activity $activity) use ($client, &$raced): void {
+        if ($raced || $activity->event !== 'conflict_check_run') {
+            return;
+        }
+
+        $raced = true;
+
+        Client::query()->whereKey($client->getKey())->update(['phone' => '0907100012']);
+    });
+
+    $addition = app(AddMatterParty::class)->handle($matter, $lawyer, [
+        'role' => PartyRole::Plaintiff->value,
+        'is_our_client' => true,
+        'client_id' => $client->getKey(),
+        'name' => $client->name,
+    ]);
+
+    expect($addition->party->phone_normalized)->toBe(Normalizer::phone('0907100012'))
+        ->and($addition->result->level)->toBe(ConflictLevel::Green)
+        ->and(addMatterPartyQueuedRecheckClientIds())->toBe([$client->getKey()]);
+
+    addMatterPartyDrainDatabaseQueue();
+
+    $otherAudit = Activity::query()->where('event', 'client_identity_conflict_detected')
+        ->where('subject_type', $otherMatter->getMorphClass())->where('subject_id', $otherMatter->id)
+        ->first();
+
+    expect($otherAudit)->not->toBeNull()
+        ->and($otherAudit->properties->get('notified_user_ids'))->toContain($otherLead->id)
+        ->and($otherLead->notifications()->count())->toBe(1);
+});
+
+/**
+ * Bản riêng của tệp này (không gọi hàm cùng việc ở `OpenMatterTest.php`): ParaTest chia việc theo
+ * tệp trên các tiến trình riêng, nên hàm toàn cục của tệp khác không tồn tại ở đây.
+ *
+ * @return array<int, int> `clientId` của từng job rà lại đang xếp hàng, theo thứ tự xếp.
+ */
+function addMatterPartyQueuedRecheckClientIds(): array
+{
+    return DB::table('jobs')->orderBy('id')->pluck('payload')
+        ->map(fn (string $payload) => unserialize(json_decode($payload, true)['data']['command']))
+        ->filter(fn (object $job): bool => $job instanceof RecheckClientIdentityConflicts)
+        ->map(fn (RecheckClientIdentityConflicts $job): int => $job->clientId)
+        ->values()
+        ->all();
+}
+
+/** Bản riêng của `openMatterDrainDatabaseQueue()` (`OpenMatterTest.php`) — xem docblock ở đó. */
+function addMatterPartyDrainDatabaseQueue(): void
+{
+    for ($guard = 0; $guard < 50; $guard++) {
+        if (! DB::table('jobs')->where('available_at', '<=', now()->getTimestamp())->exists()) {
+            break;
+        }
+
+        Artisan::call('queue:work', ['connection' => 'database', '--once' => true, '--sleep' => 0]);
+    }
+
+    expect(DB::table('jobs')->count())->toBe(0)
+        ->and(DB::table('failed_jobs')->count())->toBe(0);
+}

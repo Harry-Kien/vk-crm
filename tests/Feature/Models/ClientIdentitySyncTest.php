@@ -6,6 +6,7 @@ use App\Enums\ConflictMatchTier;
 use App\Enums\PartyRole;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\Clients\Pages\EditClient;
+use App\Jobs\RecheckClientIdentityConflicts;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Matter;
@@ -15,6 +16,7 @@ use App\Support\Normalizer;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Spatie\Activitylog\Models\Activity;
 
 /**
@@ -163,6 +165,30 @@ it('does not log a re-sync for a client that has no party rows at all', function
     $client->update(['id_number' => '088000999888']);
 
     expect(Activity::query()->where('event', 'client_identity_resynced')->exists())->toBeFalse();
+});
+
+/**
+ * Fix round 4 (NB-1, phán quyết (b)) — không có dòng nào để đồng bộ KHÔNG có nghĩa là không có gì
+ * để rà. Đúng lúc này một `OpenMatter`/`AddMatterParty` khác có thể đang giữ khoá `conflict-check`
+ * và sắp lưu bên ĐẦU TIÊN của khách hàng này (lần đồng bộ ở đây chạy TRƯỚC khi dòng đó tồn tại, nên
+ * thấy 0 dòng). Job chỉ mang `clientId` và tự đọc lại mọi thứ khi nó chạy — dưới CÙNG khoá đó, tức
+ * là sau khi bên kia đã lưu — nên xếp nó cả khi 0 dòng là đủ để định danh mới được đối chiếu. Vẫn
+ * không ghi dòng nhật ký đồng bộ nào (test ngay trên): không có gì đã được đồng bộ để mà kể lại.
+ *
+ * `Queue::fake()` được phép ở đây (khác test rollback bên dưới): câu hỏi duy nhất là "có xếp job
+ * không", không dính gì tới ngữ nghĩa `afterCommit()` mà `QueueFake` bỏ qua.
+ */
+it('still queues the identity recheck when the client has no party rows yet', function () {
+    Queue::fake();
+
+    $client = Client::factory()->create(['id_number' => '088000111333']);
+
+    $client->update(['id_number' => '088000999777']);
+
+    Queue::assertPushed(
+        RecheckClientIdentityConflicts::class,
+        fn (RecheckClientIdentityConflicts $job): bool => $job->clientId === $client->getKey(),
+    );
 });
 
 it('re-syncs the party name when the client is renamed, so the name tier still matches', function () {
@@ -501,11 +527,17 @@ it('does not dispatch the identity recheck job when the enclosing transaction ro
  * của phán quyết N1, đo ở ĐÚNG tầng dispatch thay vì tầng job (job's lock/retry/failed() có tệp
  * riêng, `RecheckClientIdentityConflictsTest.php`).
  *
- * `DB::commit()` — cùng kỹ thuật đã dùng ở `OpenMatterConcurrencyTest` để thoát transaction bọc
- * của `RefreshDatabase` (level không bao giờ tự về 0 nếu không ép): `afterCommit()` CHỈ chạy
- * callback khi `DatabaseTransactionsManager` thấy transaction level THẬT SỰ về 0. Hệ quả đã biết
- * (xem docblock lớp ở tệp đó): `RefreshDatabaseState::$migrated` bị đặt lại `false`, buộc bài test
- * KẾ TIẾP `migrate:fresh` lại — một chi phí, không phải lỗi.
+ * **Không cần `DB::commit()` (đính chính fix round 4, minor).** Bản round 3 gọi `DB::commit()` để
+ * "thoát" transaction bọc của `RefreshDatabase`, với tiền đề `afterCommit()` chỉ chạy callback khi
+ * level về 0 — tiền đề đó SAI dưới bộ test. `RefreshDatabase` thay `db.transactions` bằng
+ * `Illuminate\Foundation\Testing\DatabaseTransactionsManager`, lớp này (1) bỏ qua transaction bọc
+ * của test khi chọn nơi gắn callback (`callbackApplicableTransactions()` bỏ đúng số kết nối đang
+ * bọc), nên một dispatch ở level 1 chạy NGAY, và (2) chạy callback khi một transaction lồng commit
+ * về level 1 (`afterCommitCallbacksShouldBeExecuted()` so với 1, không phải 0). Ở đây transaction
+ * đồng bộ định danh của `SyncClientPartyIdentities` commit về level 1, lời dispatch sau đó thấy
+ * không còn transaction nào "của ứng dụng" đang mở — đúng hình dạng của level 0 ngoài đời — và
+ * job `sync` chạy tại chỗ. Bỏ `DB::commit()` cũng bỏ luôn hệ quả phụ của nó
+ * (`RefreshDatabaseState::$migrated` bị đặt lại, buộc bài test kế tiếp `migrate:fresh`).
  */
 it('runs the identity recheck job through the real dispatch path once the transaction truly commits', function () {
     $this->seed(RolesAndPermissionsSeeder::class);
@@ -520,8 +552,6 @@ it('runs the identity recheck job through the real dispatch path once the transa
     MatterParty::factory()->for($otherMatter)->ourClient($otherClient, PartyRole::Defendant)->create();
 
     $client->update(['id_number' => '090000000072']);
-
-    DB::commit();
 
     $conflictAudit = Activity::query()->where('event', 'client_identity_conflict_detected')
         ->where('subject_type', $otherMatter->getMorphClass())->where('subject_id', $otherMatter->id)->first();

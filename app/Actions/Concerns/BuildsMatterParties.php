@@ -119,4 +119,42 @@ trait BuildsMatterParties
     {
         return Client::query()->whereKey($clientId)->lockForUpdate()->firstOrFail();
     }
+
+    /**
+     * Gán lại tên và định danh của một bên CHƯA LƯU từ hồ sơ `Client` vừa khoá và đọc lại, ngay
+     * trước khi lưu (fix round 3, đua tranh hash cũ — xem
+     * `OpenMatter::refreshOwnClientIdentitiesUnderLock()`), và cho biết ảnh chụp đó có KHÁC ảnh
+     * chụp mà lần kiểm tra xung đột vừa dùng hay không.
+     *
+     * **Vì sao trả về cờ "đã đổi" (fix round 4, NB-1).** Lưu đúng hash chưa đủ: kết quả kiểm tra
+     * (và xác nhận của người dùng) được tính trên ảnh chụp CŨ, nên định danh MỚI chưa từng được đối
+     * chiếu với các vụ việc đang mở khác. Khi cờ này là `true`, caller xếp
+     * `RecheckClientIdentityConflicts` sau khi commit. So CẢ BA trường mà `RunConflictCheck` đọc —
+     * `name` (tầng tên), `id_number_hash` (tầng chắc chắn), `phone_normalized` (tầng điện thoại) —
+     * vì đổi bất kỳ trường nào cũng có thể làm lộ một khớp mới. Một chỗ so duy nhất cho cả
+     * `OpenMatter` lẫn `AddMatterParty`, cùng lý do trait này tồn tại (docblock trait).
+     */
+    protected function reapplyFreshClientIdentity(MatterParty $party, Client $freshClient): bool
+    {
+        $checked = $this->conflictIdentityOf($party);
+
+        $party->name = $freshClient->name;
+        $party->identify($freshClient->id_number, $freshClient->phone);
+
+        return $this->conflictIdentityOf($party) !== $checked;
+    }
+
+    /**
+     * Đúng những trường của một bên mà `RunConflictCheck` đối chiếu.
+     *
+     * @return array{name: ?string, id_number_hash: ?string, phone_normalized: ?string}
+     */
+    private function conflictIdentityOf(MatterParty $party): array
+    {
+        return [
+            'name' => $party->name,
+            'id_number_hash' => $party->id_number_hash,
+            'phone_normalized' => $party->phone_normalized,
+        ];
+    }
 }

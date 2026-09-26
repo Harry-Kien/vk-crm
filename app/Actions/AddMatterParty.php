@@ -7,6 +7,7 @@ use App\Enums\ConflictLevel;
 use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
 use App\Exceptions\ConflictCheckBusy;
+use App\Jobs\RecheckClientIdentityConflicts;
 use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Models\User;
@@ -166,10 +167,17 @@ class AddMatterParty
                     // không tin ảnh chụp đã dựng trước đó — xem docblock
                     // `OpenMatter::refreshOwnClientIdentitiesUnderLock()` cho lý do đầy đủ (cùng
                     // lỗ hổng, không viết lại lý lẽ ở đây).
+                    //
+                    // Fix round 4 (NB-1, phán quyết (a)): kết quả kiểm tra ở bước 2 tính trên ảnh
+                    // chụp CŨ — định danh vừa đọc lại khác đi thì xếp một lần rà lại sau khi commit,
+                    // đúng như `OpenMatter` bước 5 (cùng docblock, kể cả vì sao dispatch nằm trong
+                    // khoá `conflict-check` mà vẫn đúng với hàng đợi `database`).
                     if ($party->is_our_client && $party->client_id !== null) {
                         $freshClient = $this->lockClient($party->client_id);
-                        $party->name = $freshClient->name;
-                        $party->identify($freshClient->id_number, $freshClient->phone);
+
+                        if ($this->reapplyFreshClientIdentity($party, $freshClient)) {
+                            RecheckClientIdentityConflicts::dispatch((int) $party->client_id)->afterCommit();
+                        }
                     }
 
                     $party->blameOn($actor);

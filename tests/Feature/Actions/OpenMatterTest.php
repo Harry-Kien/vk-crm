@@ -8,6 +8,7 @@ use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
 use App\Exceptions\ConflictCheckBusy;
 use App\Exceptions\OurClientPartyNeedsClient;
+use App\Jobs\RecheckClientIdentityConflicts;
 use App\Models\ChecklistTemplate;
 use App\Models\Client;
 use App\Models\Matter;
@@ -20,6 +21,7 @@ use App\Support\OpenMatterResult;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -788,6 +790,50 @@ it('turns a busy conflict-check lock into a Vietnamese refusal, not a 500', func
 });
 
 /**
+ * Fix round 4 (NB-1) — hàng đợi `database`, đúng cấu hình thật (`.env.example`), thay cho `sync`
+ * của `phpunit.xml`, cho các test đua tranh bên dưới. Lý do bắt buộc, không phải sở thích: mọi
+ * lần dispatch `RecheckClientIdentityConflicts` ở các test đó xảy ra BÊN TRONG khoá
+ * `conflict-check` mà `OpenMatter::handle()` đang giữ (lần sửa xen ngang được giả lập ngay trong
+ * bước 5, và lần làm mới dưới khoá cũng nằm ở bước 5). Với `sync`, job chạy tại chỗ lúc bước 5
+ * commit, chờ CHÍNH khoá mà lời gọi này đang giữ, rồi ném `LockTimeoutException` sau 10 giây —
+ * điều không xảy ra ngoài đời, nơi job chỉ là một dòng `jobs` và cron `queue.drain` rút nó SAU
+ * KHI khoá đã nhả.
+ *
+ * @return array<int, int> `clientId` của từng job rà lại đang xếp hàng, theo thứ tự xếp.
+ */
+function openMatterQueuedRecheckClientIds(): array
+{
+    return DB::table('jobs')->orderBy('id')->pluck('payload')
+        ->map(fn (string $payload) => unserialize(json_decode($payload, true)['data']['command']))
+        ->filter(fn (object $job): bool => $job instanceof RecheckClientIdentityConflicts)
+        ->map(fn (RecheckClientIdentityConflicts $job): int => $job->clientId)
+        ->values()
+        ->all();
+}
+
+/**
+ * Rút hàng đợi `database` như cron `queue.drain` làm — từng job một, sau khi Action đã nhả khoá,
+ * cho tới khi không còn job nào SẴN SÀNG. Lặp vì lần rà lại tự xếp thêm job (thông báo trong ứng
+ * dụng của Filament đi qua hàng đợi); có giới hạn vì một job hỏng bị thả lại với độ trễ sẽ không
+ * bao giờ sẵn sàng trong bài test.
+ */
+function openMatterDrainDatabaseQueue(): void
+{
+    for ($guard = 0; $guard < 50; $guard++) {
+        if (! DB::table('jobs')->where('available_at', '<=', now()->getTimestamp())->exists()) {
+            break;
+        }
+
+        Artisan::call('queue:work', ['connection' => 'database', '--once' => true, '--sleep' => 0]);
+    }
+
+    // Một job ném lỗi ở lần thử đầu được thả lại hàng đợi (backoff) chứ không biến mất — nên "hàng
+    // đợi rỗng, không job hỏng" mới chứng minh được MỌI job đã THẬT SỰ chạy xong.
+    expect(DB::table('jobs')->count())->toBe(0)
+        ->and(DB::table('failed_jobs')->count())->toBe(0);
+}
+
+/**
  * Fix round 3, ruling — đua tranh hash cũ. `buildOwnClientParty()` dựng ảnh chụp định danh (tên,
  * `id_number_hash`, `phone_normalized`) của khách hàng CHÍNH dưới khoá dòng `clients` ở bước 3
  * (`lockClients()`), nhưng khoá đó được RELEASE khi transaction bước 3 commit — trước khi bước 5
@@ -800,13 +846,35 @@ it('turns a busy conflict-check lock into a Vietnamese refusal, not a 500', func
  * **Seam mô phỏng đua tranh: sự kiện `Matter::created`.** Sự kiện này tự nhiên rơi ĐÚNG vào cửa sổ
  * đua — nó fire ngay sau khi vụ việc được `save()` (đầu bước 5) nhưng TRƯỚC khi vòng lặp lưu các
  * bên chạy — không cần một hook giả lập riêng, không đụng gì tới code sản xuất.
+ *
+ * **Fix round 4 (NB-1) — lưu đúng hash thôi CHƯA đủ.** Kết quả kiểm tra (và xác nhận, nếu có) ở
+ * bước 3/4 được tính trên định danh CŨ; không ai từng đối chiếu định danh MỚI với các vụ việc đang
+ * mở khác. Ở đây định danh mới trùng đúng "Ông X" mà văn phòng đang kiện ở một vụ khác — lần mở
+ * vụ vẫn ra xanh (đúng, với định danh nó đã thấy), nên PHẢI có một lần rà lại được xếp hàng, và
+ * khi hàng đợi chạy, lần rà đó phải gắn cờ vụ kia. Hai đường độc lập cùng xếp lần rà cho khách
+ * hàng này: (b) `SyncClientPartyIdentities` của chính lần sửa (0 dòng lúc đó, nhưng giờ vẫn
+ * dispatch) và (a) `refreshOwnClientIdentitiesUnderLock()` thấy định danh đã đổi. Vì vậy ĐÚNG hai
+ * job — mỗi đường một — và mỗi đường tự đứng được (hai test ngay sau cho (a), và
+ * `ClientIdentitySyncTest` cho (b)).
  */
 it('re-reads the client identity under lock at step 5, so a concurrent identity edit between check and save is never lost', function () {
+    config(['queue.default' => 'database']);
+
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $this->actingAs($lawyer, 'web');
+    $otherLead = User::factory()->withRole(Role::Lawyer)->create();
 
     $client = Client::factory()->create(['id_number' => '070000000001']);
     $type = matterTypeWithTemplate();
+
+    // Vụ KHÁC đang mở: văn phòng đại diện khách hàng P kiện "Ông X" (nhập tay, không client_id),
+    // và X mang đúng số CCCD MỚI mà lần sửa xen ngang sắp gán cho khách hàng của vụ mới — tức văn
+    // phòng sắp nhận làm khách chính người mình đang kiện.
+    $otherMatter = Matter::factory()->create(['lead_lawyer_id' => $otherLead->id]);
+    MatterParty::factory()->for($otherMatter)
+        ->ourClient(Client::factory()->create(['id_number' => '070000000009']), PartyRole::Plaintiff)->create();
+    MatterParty::factory()->for($otherMatter)->create(['role' => PartyRole::Defendant, 'name' => 'Ông X'])
+        ->identify('070000000002', null)->save();
 
     Matter::created(function () use ($client): void {
         // Giả lập một EditClient::save() xen ngang NGAY GIỮA lúc vụ việc vừa được lưu và lúc các
@@ -820,5 +888,115 @@ it('re-reads the client identity under lock at step 5, so a concurrent identity 
 
     $savedParty = $opening->matter->parties()->where('client_id', $client->getKey())->first();
 
-    expect($savedParty->id_number_hash)->toBe(Normalizer::idNumberHash('070000000002'));
+    expect($savedParty->id_number_hash)->toBe(Normalizer::idNumberHash('070000000002'))
+        // Kiểm tra lúc mở vụ chỉ thấy định danh CŨ, nên nó xanh — đúng lỗ hổng NB-1.
+        ->and($opening->result->level)->toBe(ConflictLevel::Green)
+        ->and(openMatterQueuedRecheckClientIds())->toBe([$client->getKey(), $client->getKey()]);
+
+    openMatterDrainDatabaseQueue();
+
+    $otherAudit = Activity::query()->where('event', 'client_identity_conflict_detected')
+        ->where('subject_type', $otherMatter->getMorphClass())->where('subject_id', $otherMatter->id)
+        ->latest('id')->first();
+
+    expect($otherAudit)->not->toBeNull()
+        ->and($otherAudit->properties->get('level'))->toBe(ConflictLevel::Red->value)
+        ->and($otherAudit->properties->get('client_id'))->toBe($client->getKey())
+        ->and($otherAudit->properties->get('notified_user_ids'))->toContain($otherLead->id)
+        ->and($otherLead->notifications()->exists())->toBeTrue();
+});
+
+/**
+ * Fix round 4 (NB-1, phán quyết (a)) — đường (a) phải tự đứng được, không dựa vào (b). Lần sửa xen
+ * ngang ở đây đi qua query builder (`Client::query()->update()`), không kích hoạt sự kiện model nào
+ * — đúng loại đường ghi mà docblock `Client::booted()` thừa nhận là KHÔNG được `Client::updated()`
+ * che (sửa hàng loạt cột `phone`/`name`). `SyncClientPartyIdentities` không chạy, nên CHỈ lần làm
+ * mới dưới khoá ở bước 5 còn biết định danh đã đổi. Đổi SỐ ĐIỆN THOẠI (không phải CCCD) để ghim
+ * đúng nhánh "điện thoại khác ảnh chụp" của điều kiện.
+ *
+ * Khách hàng đứng tên HAI dòng trong vụ mới (khách hàng chính, và thêm một vai "liên quan") — cả
+ * hai dòng đều đổi, nhưng lần rà là theo KHÁCH HÀNG (job chỉ mang `clientId`), nên chỉ xếp MỘT job.
+ */
+it('queues the identity recheck itself when the phone changed between check and save through a write that fired no model event', function () {
+    config(['queue.default' => 'database']);
+
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $this->actingAs($lawyer, 'web');
+    $otherLead = User::factory()->withRole(Role::Lawyer)->create();
+
+    $client = Client::factory()->create(['id_number' => '070000000011', 'phone' => '0907000011']);
+    $type = matterTypeWithTemplate();
+
+    $otherMatter = Matter::factory()->create(['lead_lawyer_id' => $otherLead->id]);
+    MatterParty::factory()->for($otherMatter)->create(['role' => PartyRole::Defendant, 'name' => 'Bà Y'])
+        ->identify(null, '0907000012')->save();
+
+    Matter::created(function () use ($client): void {
+        Client::query()->whereKey($client->getKey())->update(['phone' => '0907000012']);
+    });
+
+    $opening = app(OpenMatter::class)->handle($lawyer, baseAttributes($client, $lawyer, $type), [[
+        'role' => PartyRole::Related->value,
+        'is_our_client' => true,
+        'client_id' => $client->getKey(),
+        'name' => $client->name,
+    ]]);
+
+    $savedParties = $opening->matter->parties()->where('client_id', $client->getKey())->get();
+
+    expect($savedParties)->toHaveCount(2)
+        ->and($savedParties->pluck('phone_normalized')->unique()->all())->toBe([Normalizer::phone('0907000012')])
+        ->and($opening->result->level)->toBe(ConflictLevel::Green)
+        ->and(openMatterQueuedRecheckClientIds())->toBe([$client->getKey()]);
+
+    openMatterDrainDatabaseQueue();
+
+    $otherAudit = Activity::query()->where('event', 'client_identity_conflict_detected')
+        ->where('subject_type', $otherMatter->getMorphClass())->where('subject_id', $otherMatter->id)
+        ->first();
+
+    expect($otherAudit)->not->toBeNull()
+        ->and($otherAudit->properties->get('notified_user_ids'))->toContain($otherLead->id)
+        ->and($otherLead->notifications()->count())->toBe(1);
+});
+
+/**
+ * Fix round 4 (NB-1, phán quyết (a)) — nhánh "TÊN khác ảnh chụp" của cùng điều kiện. Tên là tầng
+ * so khớp thứ ba (chỉ ra vàng), nên xung đột mà tên mới tạo ra hiện trên CHÍNH vụ vừa mở: bên của
+ * khách hàng giờ trùng tên "bị đơn" ở một vụ khác đang mở. Lần rà tìm vụ theo hash/điện thoại
+ * (xem `SyncClientPartyIdentities::matterIdsMatchedByNewIdentity()`) — khách hàng có CCCD nên vụ
+ * vừa mở được tìm thấy qua chính bên của nó, rồi `RunConflictCheck` trên vụ đó thấy tên trùng.
+ */
+it('queues the identity recheck when only the client name changed between check and save', function () {
+    config(['queue.default' => 'database']);
+
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $this->actingAs($lawyer, 'web');
+
+    $client = Client::factory()->create(['id_number' => '070000000021', 'name' => 'Công ty TNHH Tên Cũ']);
+    $type = matterTypeWithTemplate();
+
+    $otherMatter = Matter::factory()->create();
+    MatterParty::factory()->for($otherMatter)->create(['role' => PartyRole::Defendant, 'name' => 'Công ty TNHH Tên Mới'])
+        ->identify(null, null)->save();
+
+    Matter::created(function () use ($client): void {
+        Client::query()->whereKey($client->getKey())->update(['name' => 'Công ty TNHH Tên Mới']);
+    });
+
+    $opening = app(OpenMatter::class)->handle($lawyer, baseAttributes($client, $lawyer, $type), []);
+
+    expect($opening->matter->parties()->where('client_id', $client->getKey())->value('name'))->toBe('Công ty TNHH Tên Mới')
+        ->and($opening->result->level)->toBe(ConflictLevel::Green)
+        ->and(openMatterQueuedRecheckClientIds())->toBe([$client->getKey()]);
+
+    openMatterDrainDatabaseQueue();
+
+    $audit = Activity::query()->where('event', 'client_identity_conflict_detected')
+        ->where('subject_type', $opening->matter->getMorphClass())->where('subject_id', $opening->matter->id)
+        ->first();
+
+    expect($audit)->not->toBeNull()
+        ->and($audit->properties->get('level'))->toBe(ConflictLevel::Yellow->value)
+        ->and($audit->properties->get('notified_user_ids'))->toContain($lawyer->id);
 });
