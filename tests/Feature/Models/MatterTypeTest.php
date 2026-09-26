@@ -2,7 +2,10 @@
 
 use App\Exceptions\DuplicateMatterTypeCode;
 use App\Exceptions\DuplicateStageKey;
+use App\Exceptions\StageKeyInUse;
+use App\Models\Matter;
 use App\Models\MatterType;
+use App\Models\StageLog;
 use App\Support\StagePresets;
 
 it('orders stages and exposes allowed transitions', function () {
@@ -86,6 +89,44 @@ it('lets a stage save again without changing its key without tripping the duplic
     $intake->update(['label' => 'Tiếp nhận (đổi nhãn)']);
 
     expect($intake->fresh()->label)->toBe('Tiếp nhận (đổi nhãn)');
+});
+
+/**
+ * Task 19 (rà soát cuối, "Cấu hình không phá dữ liệu đang chạy") — CHỐT CHẶN THỨ HAI của
+ * `MatterTypeStage::booted()`: `StagesRelationManager` đã chặn đường đổi `key` ở tầng FORM (một
+ * lỗi gắn vào ô `key`, xem `MatterTypeResourceTest`); test này đi qua Eloquent trần, không qua
+ * form đó, cùng đúng lý do `DuplicateStageKey` có test riêng cho đường bare-Eloquent.
+ */
+it('rejects changing the key of a stage a matter is standing at, through the bare Eloquent relation, not just the form', function () {
+    $type = MatterType::factory()->withStages()->create();
+    $stage = $type->stage('intake');
+    Matter::factory()->create(['matter_type_id' => $type->id, 'stage' => 'intake']);
+
+    expect(fn () => $stage->update(['key' => 'tiep_nhan']))->toThrow(StageKeyInUse::class, $type->name);
+
+    expect($stage->fresh()->key)->toBe('intake');
+});
+
+/** Cùng luật, qua dòng tiến độ (`stage_logs.from_stage`/`to_stage`) thay vì `matters.stage` trực tiếp. */
+it('rejects changing the key of a stage a stage log points at, through the bare Eloquent relation', function () {
+    $type = MatterType::factory()->withStages()->create();
+    $stage = $type->stage('intake');
+    $matter = Matter::factory()->create(['matter_type_id' => $type->id, 'stage' => 'collecting_documents']);
+    StageLog::factory()->for($matter)->transition('intake', 'collecting_documents')->create();
+
+    expect(fn () => $stage->update(['key' => 'tiep_nhan']))->toThrow(StageKeyInUse::class, $type->name);
+
+    expect($stage->fresh()->key)->toBe('intake');
+});
+
+/** Vế dương: một giai đoạn không hồ sơ hay dòng tiến độ nào dùng vẫn đổi `key` được qua Eloquent trần. */
+it('lets a stage change its key through the bare Eloquent relation when nothing uses it', function () {
+    $type = MatterType::factory()->withStages()->create();
+    $stage = $type->stage('on_hold');
+
+    $stage->update(['key' => 'tam_dung']);
+
+    expect($stage->fresh()->key)->toBe('tam_dung');
 });
 
 /**

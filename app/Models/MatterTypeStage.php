@@ -3,7 +3,10 @@
 namespace App\Models;
 
 use App\Exceptions\DuplicateStageKey;
+use App\Exceptions\StageKeyInUse;
+use App\Policies\MatterTypeStagePolicy;
 use Database\Factories\MatterTypeStageFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -47,7 +50,60 @@ class MatterTypeStage extends Model
 
                 throw DuplicateStageKey::make($type, $stage->key);
             }
+
+            /**
+             * Task 19 (rà soát cuối, "Cấu hình không phá dữ liệu đang chạy"): đổi `key` của một
+             * giai đoạn ĐANG được `matters.stage` hoặc `stage_logs.from_stage`/`to_stage` dùng làm
+             * mọi hồ sơ đứng ở đó ĐÓNG BĂNG ngay lập tức — `MatterType::stage($key)` không còn tìm
+             * thấy cấu hình cũ, nên `TransitionMatterStage` từ chối MỌI lần chuyển giai đoạn (kể cả
+             * "thêm cập nhật" cùng giai đoạn, §6.3) bằng `InvalidStageTransition`, và không có
+             * đường sửa nào trên giao diện, kể cả với admin.
+             *
+             * Đây là CHỐT CHẶN THỨ HAI — `StagesRelationManager` đã chặn ở tầng form (thông báo
+             * gắn vào đúng ô `key`) cho đường bấm nút thật; chốt này phủ mọi đường ghi KHÔNG qua
+             * form đó (Action, artisan, seeder, factory), cùng đúng lý do `DuplicateStageKey` ở
+             * trên tồn tại cả hai nơi.
+             *
+             * So sánh với `isDirty('key')`, KHÔNG so `getOriginal('key') !== $stage->key` sau khi
+             * gán: `isDirty` đã tự loại trường hợp gán lại đúng giá trị cũ (không có gì thật sự
+             * đổi), khớp test "lets a stage save again without changing its key".
+             */
+            if ($stage->exists && $stage->isDirty('key')) {
+                $oldKey = $stage->getOriginal('key');
+
+                if (static::keyInUse((int) $stage->matter_type_id, $oldKey)) {
+                    $type = $stage->matterType ?? MatterType::query()->findOrFail($stage->matter_type_id);
+
+                    throw StageKeyInUse::make($type, $oldKey);
+                }
+            }
         });
+    }
+
+    /**
+     * True nếu còn HỒ SƠ đang đứng ở `key` này (kể cả đã xoá mềm — vẫn khôi phục được, cùng lý do
+     * `MatterTypePolicy::delete()` dùng `withTrashed()`), hoặc một DÒNG TIẾN ĐỘ
+     * (`stage_logs.from_stage`/`to_stage`) của cùng loại vụ việc đã dùng `key` này. Dùng để chặn
+     * ĐỔI `key` (xem `booted()`); KHÔNG dùng cho luật xoá — luật xoá hẹp hơn (chỉ hồ sơ ĐANG đứng
+     * cộng `allowed_next`, không tính `stage_logs` lịch sử) và sống ở
+     * {@see MatterTypeStagePolicy::delete()}.
+     */
+    private static function keyInUse(int $matterTypeId, string $key): bool
+    {
+        return Matter::withTrashed()
+            ->where('matter_type_id', $matterTypeId)
+            ->where('stage', $key)
+            ->exists()
+            || StageLog::withoutGlobalScopes()
+                ->where(fn (Builder $query) => $query->where('from_stage', $key)->orWhere('to_stage', $key))
+                ->whereHas('matter', fn (Builder $query) => $query->withTrashed()->where('matter_type_id', $matterTypeId))
+                ->exists();
+    }
+
+    /** Bản đọc công khai của {@see self::keyInUse()} cho `key` HIỆN TẠI — dùng ở form (xem StagesRelationManager). */
+    public function isKeyInUse(): bool
+    {
+        return static::keyInUse((int) $this->matter_type_id, $this->key);
     }
 
     protected function casts(): array

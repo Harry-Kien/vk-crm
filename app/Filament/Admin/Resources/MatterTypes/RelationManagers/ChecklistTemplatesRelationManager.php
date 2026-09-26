@@ -103,6 +103,10 @@ class ChecklistTemplatesRelationManager extends RelationManager
                             ->label(__('matter_types.checklist_templates.item_fields.sort_order'))
                             ->numeric()
                             ->integer()
+                            // Task 19: cột DB là unsignedInteger (migration 2026_09_14_000010) —
+                            // một giá trị âm qua thẳng form là một lỗi 500 trên MariaDB strict,
+                            // SQLite của bộ test không thấy (xem intake/intake-08).
+                            ->minValue(0)
                             ->default(1)
                             ->required(),
                     ])
