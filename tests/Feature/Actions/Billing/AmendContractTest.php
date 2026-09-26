@@ -15,6 +15,7 @@ use App\Models\ContractAmendment;
 use App\Models\Document;
 use App\Models\Instalment;
 use App\Models\Matter;
+use App\Models\MatterType;
 use App\Models\Payment;
 use App\Models\User;
 use App\Support\Billing\Money;
@@ -33,7 +34,12 @@ beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);
 
     $this->lead = User::factory()->withRole(Role::Lawyer)->create();
-    $this->matter = Matter::factory()->create(['lead_lawyer_id' => $this->lead->id]);
+    // Loại vụ việc dân sự CỐ ĐỊNH (mã ba chữ `CIV` → `StagePresets::civil()`: `intake` đầu tiên,
+    // có `filed`, `court_accepted`). `MatterTypeFactory` tự sinh mã hai chữ ngẫu nhiên, và 2/676
+    // lần nó ra `HS`/`DN` — bộ giai đoạn hình sự/doanh nghiệp không có `filed`, test đỏ ngẫu nhiên
+    // (đã xảy ra một lần trong full suite). Mã ba chữ không bao giờ trùng mã factory sinh ra.
+    $this->civilType = MatterType::factory()->withStages()->create(['code' => 'CIV']);
+    $this->matter = Matter::factory()->for($this->civilType, 'matterType')->create(['lead_lawyer_id' => $this->lead->id]);
 
     $draft = app(DraftContract::class)->handle($this->lead, $this->matter, ['total_amount' => 100_000_000], [
         ['name' => 'Tạm ứng khi ký hợp đồng', 'amount' => 30_000_000, 'trigger_type' => 'on_signing'],
@@ -256,14 +262,14 @@ it('fails when an instalment is cancelled but the total is kept, and writes noth
 // --- Trạng thái và quyền ---------------------------------------------------------------------------
 
 it('amends only an active contract', function (string $state) {
-    $contract = Contract::factory()->for(Matter::factory()->create(['lead_lawyer_id' => $this->lead->id]))->{$state}()->create();
+    $contract = Contract::factory()->for(Matter::factory()->for($this->civilType, 'matterType')->create(['lead_lawyer_id' => $this->lead->id]))->{$state}()->create();
 
     expect(fn () => amend($this->lead, $contract, 1_000_000, []))
         ->toThrow(ContractNotAmendable::class, ContractNotAmendable::make($contract)->getMessage());
 })->with(['completed', 'cancelled']);
 
 it('does not amend a draft', function () {
-    $draft = Contract::factory()->for(Matter::factory()->create(['lead_lawyer_id' => $this->lead->id]))->create(['status' => ContractStatus::Draft]);
+    $draft = Contract::factory()->for(Matter::factory()->for($this->civilType, 'matterType')->create(['lead_lawyer_id' => $this->lead->id]))->create(['status' => ContractStatus::Draft]);
 
     expect(fn () => amend($this->lead, $draft, 1_000_000, []))->toThrow(ContractNotAmendable::class);
 });

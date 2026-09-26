@@ -23,8 +23,12 @@ beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);
 
     $this->lead = User::factory()->withRole(Role::Lawyer)->create();
-    // Loại vụ việc dân sự (StagePresets::civil): giai đoạn đầu là `intake`, `filed` là "Đã nộp đơn".
-    $this->matter = Matter::factory()->create(['lead_lawyer_id' => $this->lead->id]);
+    // Loại vụ việc dân sự CỐ ĐỊNH (mã ba chữ `CIV` → `StagePresets::civil()`: `intake` đầu tiên,
+    // có `filed`, `court_accepted`). `MatterTypeFactory` tự sinh mã hai chữ ngẫu nhiên, và 2/676
+    // lần nó ra `HS`/`DN` — bộ giai đoạn hình sự/doanh nghiệp không có `filed`, test đỏ ngẫu nhiên
+    // (đã xảy ra một lần trong full suite). Mã ba chữ không bao giờ trùng mã factory sinh ra.
+    $this->civilType = MatterType::factory()->withStages()->create(['code' => 'CIV']);
+    $this->matter = Matter::factory()->for($this->civilType, 'matterType')->create(['lead_lawyer_id' => $this->lead->id]);
 });
 
 /** @return list<array<string, mixed>> */
@@ -97,7 +101,7 @@ it('drafts a contract with its schedule, in draft, coded HD-year-0001', function
         ->and($instalments[2]->trigger_type)->toBe(InstalmentTrigger::DueDate)
         ->and($instalments[2]->due_date->toDateString())->toBe('2027-03-31');
 
-    $second = draftFor($this->lead, Matter::factory()->create(['lead_lawyer_id' => $this->lead->id]));
+    $second = draftFor($this->lead, Matter::factory()->for($this->civilType, 'matterType')->create(['lead_lawyer_id' => $this->lead->id]));
 
     expect($second->code)->toBe("HD-{$year}-0002");
 });
@@ -312,7 +316,7 @@ it('reads a blank percent_basis and a blank note as nothing, and trims a note', 
     expect($instalment->percent_basis)->toBeNull()
         ->and($instalment->note)->toBe('Khách xin trả bằng tiền mặt.')
         ->and($contract->note)->toBeNull()
-        ->and(draftFor($this->lead, Matter::factory()->create(['lead_lawyer_id' => $this->lead->id]), ['note' => ' Giá đã gồm VAT. '])->note)
+        ->and(draftFor($this->lead, Matter::factory()->for($this->civilType, 'matterType')->create(['lead_lawyer_id' => $this->lead->id]), ['note' => ' Giá đã gồm VAT. '])->note)
         ->toBe('Giá đã gồm VAT.');
 });
 

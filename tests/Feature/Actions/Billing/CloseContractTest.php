@@ -9,6 +9,7 @@ use App\Exceptions\ContractStatusConflict;
 use App\Models\Contract;
 use App\Models\Instalment;
 use App\Models\Matter;
+use App\Models\MatterType;
 use App\Models\Payment;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -22,7 +23,12 @@ beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);
 
     $this->lead = User::factory()->withRole(Role::Lawyer)->create();
-    $this->matter = Matter::factory()->create(['lead_lawyer_id' => $this->lead->id]);
+    // Loại vụ việc dân sự CỐ ĐỊNH (mã ba chữ `CIV` → `StagePresets::civil()`: `intake` đầu tiên,
+    // có `filed`, `court_accepted`). `MatterTypeFactory` tự sinh mã hai chữ ngẫu nhiên, và 2/676
+    // lần nó ra `HS`/`DN` — bộ giai đoạn hình sự/doanh nghiệp không có `filed`, test đỏ ngẫu nhiên
+    // (đã xảy ra một lần trong full suite). Mã ba chữ không bao giờ trùng mã factory sinh ra.
+    $this->civilType = MatterType::factory()->withStages()->create(['code' => 'CIV']);
+    $this->matter = Matter::factory()->for($this->civilType, 'matterType')->create(['lead_lawyer_id' => $this->lead->id]);
 
     // Hợp đồng `active` khớp tổng: 60.000.000 + 40.000.000, đợt 2 đã có hạn (2026-10-15).
     $this->contract = Contract::factory()->for($this->matter)->create(['status' => ContractStatus::Draft, 'total_amount' => 100_000_000]);
@@ -56,7 +62,7 @@ it('completes a contract whose last instalment was waived', function () {
 });
 
 it('completes a contract with a cancelled instalment left in its schedule', function () {
-    $contract = Contract::factory()->for(Matter::factory()->create(['lead_lawyer_id' => $this->lead->id]))
+    $contract = Contract::factory()->for(Matter::factory()->for($this->civilType, 'matterType')->create(['lead_lawyer_id' => $this->lead->id]))
         ->create(['status' => ContractStatus::Draft, 'total_amount' => 70_000_000]);
     Instalment::factory()->for($contract)->paid()->create(['sequence' => 1, 'amount' => 70_000_000]);
     Instalment::factory()->for($contract)->cancelled()->create(['sequence' => 2, 'amount' => 30_000_000]);
@@ -80,7 +86,7 @@ it('counts every unsettled instalment in the refusal', function () {
 });
 
 it('completes only an active contract', function () {
-    $draft = Contract::factory()->for(Matter::factory()->create(['lead_lawyer_id' => $this->lead->id]))->create(['status' => ContractStatus::Draft]);
+    $draft = Contract::factory()->for(Matter::factory()->for($this->civilType, 'matterType')->create(['lead_lawyer_id' => $this->lead->id]))->create(['status' => ContractStatus::Draft]);
 
     expect(fn () => app(CompleteContract::class)->handle($this->lead, $draft))
         ->toThrow(ContractStatusConflict::class, ContractStatusConflict::notActive($draft)->getMessage());

@@ -9,6 +9,7 @@ use App\Exceptions\ContractStatusConflict;
 use App\Exceptions\ContractTotalMismatch;
 use App\Models\Contract;
 use App\Models\Matter;
+use App\Models\MatterType;
 use App\Models\User;
 use App\Support\Billing\Money;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -23,7 +24,12 @@ beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);
 
     $this->lead = User::factory()->withRole(Role::Lawyer)->create();
-    $this->matter = Matter::factory()->create(['lead_lawyer_id' => $this->lead->id]);
+    // Loại vụ việc dân sự CỐ ĐỊNH (mã ba chữ `CIV` → `StagePresets::civil()`: `intake` đầu tiên,
+    // có `filed`, `court_accepted`). `MatterTypeFactory` tự sinh mã hai chữ ngẫu nhiên, và 2/676
+    // lần nó ra `HS`/`DN` — bộ giai đoạn hình sự/doanh nghiệp không có `filed`, test đỏ ngẫu nhiên
+    // (đã xảy ra một lần trong full suite). Mã ba chữ không bao giờ trùng mã factory sinh ra.
+    $this->civilType = MatterType::factory()->withStages()->create(['code' => 'CIV']);
+    $this->matter = Matter::factory()->for($this->civilType, 'matterType')->create(['lead_lawyer_id' => $this->lead->id]);
 });
 
 /**
