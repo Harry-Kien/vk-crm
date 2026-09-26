@@ -86,4 +86,28 @@ class MatterType extends Model
     {
         return $this->stages->firstWhere('key', $key);
     }
+
+    /**
+     * Task 19, vòng sửa 1 (Important — "admin timeline hiện raw key cho giai đoạn đã xoá mềm"):
+     * `stage($key)` chỉ đọc quan hệ `stages` đã nạp, LUÔN loại các dòng đã xoá mềm (global scope
+     * của `SoftDeletes` trên `MatterTypeStage`). Xoá mềm một giai đoạn mà chỉ LỊCH SỬ
+     * (`stage_logs`) còn dùng là hành vi ĐƯỢC PHÉP (`MatterTypeStagePolicy::delete()` chỉ chặn hồ
+     * sơ ĐANG đứng và `allowed_next`, không chặn lịch sử) — nên "không tìm thấy trong `stages()`
+     * còn sống" không có nghĩa "chưa từng tồn tại thật", và một dòng lịch sử không nên mất nhãn
+     * tiếng Việt của nó chỉ vì cấu hình đã dọn.
+     *
+     * Ưu tiên giai đoạn CÒN SỐNG nếu trùng `key` (trường hợp xoá mềm rồi tạo lại cùng `key`, xem
+     * `MatterTypeStage::booted()`); nếu không, lấy dòng đã xoá mềm GẦN NHẤT khớp `key` —
+     * `orderByDesc('deleted_at')` vì hôm nay không có cột nào khác gắn một dòng `stage_log` cụ
+     * thể với đúng phiên bản giai đoạn đã tạo ra nó.
+     *
+     * Dùng chung cho `StageLogsRelationManager` (tab "Tiến độ", admin) và
+     * `MatterProgress::stageLabel()` (cổng khách) — MỘT helper duy nhất để hai màn hình không
+     * lệch nhau (I1, rà soát vòng 1).
+     */
+    public function stageIncludingTrashed(string $key): ?MatterTypeStage
+    {
+        return $this->stage($key)
+            ?? $this->stages()->onlyTrashed()->where('key', $key)->orderByDesc('deleted_at')->first();
+    }
 }

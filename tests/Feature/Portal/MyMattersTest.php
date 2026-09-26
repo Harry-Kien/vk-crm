@@ -607,15 +607,17 @@ it('does not nag about an optional item nobody ever asked the client for', funct
 });
 
 /**
- * Và vế còn lại của cùng điều kiện, ở bên TRONG mẫu số lần này: một đầu mục không bắt buộc mà
- * văn phòng đã tự gắn một tài liệu vào (nhóm B — bản do văn phòng phát hành) nằm trong `Y`, vì
- * `Y` được định nghĩa bằng chữ "đã có tài liệu". Nhưng nó vẫn đang `missing` và vẫn KHÔNG phải
- * một việc của khách: không ai đòi họ tờ giấy ấy.
+ * checklist-05, fix round 1 (C1): Y đếm CHỈ nhóm A. Một đầu mục không bắt buộc mà văn phòng tự
+ * gắn một tài liệu nhóm B vào — dù bản đó đã đi hết vòng đời (`published`, `client_can_view =
+ * true`) — KHÔNG được kéo vào `Y`: nó không phải một tài liệu KHÁCH nộp, nên nó không phải bằng
+ * chứng "khách đã làm xong việc gì đó" theo nghĩa mẫu số này đếm.
  *
- * Nếu thiếu test này thì vế `&& $item->is_required` trong bộ đếm huy hiệu không còn gì ghim —
- * đo được: xoá nó đi mà mọi test khác vẫn xanh.
+ * Trước phán quyết vòng sửa 1, test này khẳng định điều NGƯỢC LẠI (một tài liệu nhóm B đã công
+ * bố kéo được đầu mục vào Y) — chính hình dạng mà finding C1 chỉ ra là sai: đầu mục vẫn `missing`
+ * nên nó rơi vào "Giấy tờ chúng tôi còn chờ ở anh/chị" trong khi khách chỉ thấy một quyết định
+ * nhóm B nằm ở khối "Tài liệu", không phải một việc phải làm.
  */
-it('does not nag about an optional item the office itself has already put a paper against', function () {
+it('does not nag about an optional item even when the office has published a group B document for it', function () {
     $matter = portalMatter();
 
     $optional = MatterChecklistItem::factory()->for($matter)->create([
@@ -630,7 +632,37 @@ it('does not nag about an optional item the office itself has already put a pape
 
     $html = ClientPortalScope::actingAs($this->clientUser, fn () => renderMyMatters());
 
-    // Vế dương: đầu mục ấy CÓ nằm trong mẫu số — nếu không, test này xanh vì một lý do khác hẳn.
+    // Vế âm: đầu mục ấy KHÔNG nằm trong mẫu số — nếu Y vẫn đếm nhóm B, test này đỏ ở đúng dòng
+    // dưới, không xanh vì một lý do khác.
+    expect($html)->toContain(__('portal_matters.card.progress_empty'))
+        ->and($html)->not->toContain(__('portal_matters.status.outstanding', ['count' => 1]));
+});
+
+/**
+ * Người thừa kế của bài học cũ mà test trên từng ghim (`&& $item->is_required` trong bộ đếm huy
+ * hiệu): giờ Y CHỈ đếm nhóm A, nên nhân chứng phải là một tài liệu nhóm A để đầu mục còn ở trong
+ * Y — rồi mới đo được việc nó KHÔNG bị tính vào huy hiệu "còn X giấy tờ cần nộp" vì nó không bắt
+ * buộc. Không có test này, vế `&& $item->is_required` không còn gì ghim (đo được: xoá nó đi mà
+ * mọi test khác vẫn xanh, kể cả test C1 ở trên — item ấy đã rời Y từ trước khi tới bước đếm huy
+ * hiệu).
+ */
+it('does not count an optional missing item toward the outstanding badge even while it stays in Y', function () {
+    $matter = portalMatter();
+
+    $optional = MatterChecklistItem::factory()->for($matter)->create([
+        'is_required' => false, 'status' => ChecklistItemStatus::Missing,
+    ]);
+
+    Document::factory()->for($matter)->group(DocumentGroup::ClientProvided)->create([
+        'matter_checklist_item_id' => $optional->id,
+        'status' => DocumentStatus::Published,
+        'client_can_view' => true,
+    ]);
+
+    $html = ClientPortalScope::actingAs($this->clientUser, fn () => renderMyMatters());
+
+    // Vế dương: đầu mục CÓ nằm trong Y (mẫu số = 1, tử số vẫn 0 vì trạng thái còn `missing`) —
+    // nếu không, test này xanh vì một lý do khác.
     expect($html)->toContain(__('portal_matters.card.progress', ['submitted' => 0, 'total' => 1]))
         ->and($html)->not->toContain(__('portal_matters.status.outstanding', ['count' => 1]));
 });

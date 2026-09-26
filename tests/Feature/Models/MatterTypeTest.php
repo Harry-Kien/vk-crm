@@ -2,7 +2,10 @@
 
 use App\Exceptions\DuplicateMatterTypeCode;
 use App\Exceptions\DuplicateStageKey;
+use App\Exceptions\StageKeyInUse;
+use App\Models\Matter;
 use App\Models\MatterType;
+use App\Models\StageLog;
 use App\Support\StagePresets;
 
 it('orders stages and exposes allowed transitions', function () {
@@ -86,6 +89,127 @@ it('lets a stage save again without changing its key without tripping the duplic
     $intake->update(['label' => 'Tiếp nhận (đổi nhãn)']);
 
     expect($intake->fresh()->label)->toBe('Tiếp nhận (đổi nhãn)');
+});
+
+/**
+ * Task 19 (rà soát cuối, "Cấu hình không phá dữ liệu đang chạy") — CHỐT CHẶN THỨ HAI của
+ * `MatterTypeStage::booted()`: `StagesRelationManager` đã chặn đường đổi `key` ở tầng FORM (một
+ * lỗi gắn vào ô `key`, xem `MatterTypeResourceTest`); test này đi qua Eloquent trần, không qua
+ * form đó, cùng đúng lý do `DuplicateStageKey` có test riêng cho đường bare-Eloquent.
+ */
+it('rejects changing the key of a stage a matter is standing at, through the bare Eloquent relation, not just the form', function () {
+    $type = MatterType::factory()->withStages()->create();
+    $stage = $type->stage('intake');
+    Matter::factory()->create(['matter_type_id' => $type->id, 'stage' => 'intake']);
+
+    expect(fn () => $stage->update(['key' => 'tiep_nhan']))->toThrow(StageKeyInUse::class, $type->name);
+
+    expect($stage->fresh()->key)->toBe('intake');
+});
+
+/** Cùng luật, qua dòng tiến độ (`stage_logs.from_stage`/`to_stage`) thay vì `matters.stage` trực tiếp. */
+it('rejects changing the key of a stage a stage log points at, through the bare Eloquent relation', function () {
+    $type = MatterType::factory()->withStages()->create();
+    $stage = $type->stage('intake');
+    $matter = Matter::factory()->create(['matter_type_id' => $type->id, 'stage' => 'collecting_documents']);
+    StageLog::factory()->for($matter)->transition('intake', 'collecting_documents')->create();
+
+    expect(fn () => $stage->update(['key' => 'tiep_nhan']))->toThrow(StageKeyInUse::class, $type->name);
+
+    expect($stage->fresh()->key)->toBe('intake');
+});
+
+/**
+ * Vế dương: một giai đoạn không hồ sơ hay dòng tiến độ nào dùng, và KHÔNG ai trỏ tới trong
+ * `allowed_next`, vẫn đổi `key` được qua Eloquent trần.
+ *
+ * KHÔNG dùng `StagePresets::civil()` (bộ `withStages()` gắn) ở đây: bộ đó không có giai đoạn nào
+ * mà KHÔNG bị một giai đoạn khác trỏ tới trong `allowed_next` — kể cả `'on_hold'`, bị `intake` VÀ
+ * `collecting_documents` cùng trỏ tới — nên bản test trước fix round 1 dùng `'on_hold'` ở đây
+ * thực ra đang chứng minh sai điều nó nói: nó xanh không phải vì "không ai dùng", mà vì
+ * `keyInUse()` khi đó CHƯA kiểm `allowed_next` (đúng lỗ hổng Critical của vòng sửa 1). Hai giai
+ * đoạn tối giản dưới đây tách bạch điều kiện.
+ */
+it('lets a stage change its key through the bare Eloquent relation when nothing uses it', function () {
+    $type = MatterType::factory()->create();
+    $stage = $type->stages()->create([
+        'key' => 'a', 'label' => 'Giai đoạn A', 'client_label' => 'A', 'sort_order' => 1, 'allowed_next' => [],
+    ]);
+
+    $stage->update(['key' => 'tam_dung']);
+
+    expect($stage->fresh()->key)->toBe('tam_dung');
+});
+
+/**
+ * Task 19, vòng sửa 1 (Critical): đổi `key` của một giai đoạn còn nằm trong `allowed_next` của
+ * một giai đoạn KHÁC bỏ lại một tham chiếu TREO — một hồ sơ ở giai đoạn kia mở "Chuyển giai đoạn"
+ * sẽ thấy `key` cũ (không còn tồn tại) trong danh sách, và chọn nó ném `InvalidStageTransition`.
+ * Trước bản vá này, `keyInUse()` chỉ kiểm `matters.stage`/`stage_logs`, nên đường này lọt qua.
+ */
+it('rejects changing the key of a stage still listed in another stage\'s allowed_next, through the bare Eloquent relation', function () {
+    $type = MatterType::factory()->create();
+    $a = $type->stages()->create([
+        'key' => 'a', 'label' => 'Giai đoạn A', 'client_label' => 'A', 'sort_order' => 1, 'allowed_next' => ['b'],
+    ]);
+    $b = $type->stages()->create([
+        'key' => 'b', 'label' => 'Giai đoạn B', 'client_label' => 'B', 'sort_order' => 2, 'allowed_next' => [],
+    ]);
+
+    expect(fn () => $b->update(['key' => 'c']))->toThrow(StageKeyInUse::class, $type->name);
+
+    expect($b->fresh()->key)->toBe('b');
+});
+
+/**
+ * `MatterTypeStagePolicy::delete()` (luật xoá) và `MatterTypeStage::keyInUse()` (luật đổi `key`)
+ * phải trả lời GIỐNG NHAU cho câu hỏi "còn giai đoạn nào khác trỏ `allowed_next` vào key này
+ * không" — cả hai dùng chung `stagesReferencing()`, không lặp lại truy vấn ở hai nơi (đúng yêu
+ * cầu vòng rà soát: "share one helper between the two paths").
+ */
+it('shares the allowed_next reference check between the delete guard and the rename guard', function () {
+    $type = MatterType::factory()->create();
+    $a = $type->stages()->create([
+        'key' => 'a', 'label' => 'Giai đoạn A', 'client_label' => 'A', 'sort_order' => 1, 'allowed_next' => ['b'],
+    ]);
+    $b = $type->stages()->create([
+        'key' => 'b', 'label' => 'Giai đoạn B', 'client_label' => 'B', 'sort_order' => 2, 'allowed_next' => [],
+    ]);
+
+    expect($b->referencingStageLabels()->all())->toBe([$a->label])
+        ->and($b->isKeyInUse())->toBeTrue()
+        ->and($a->referencingStageLabels()->all())->toBe([])
+        ->and($a->isKeyInUse())->toBeFalse();
+});
+
+/**
+ * Task 19, vòng sửa 1 (Important): `MatterType::stageIncludingTrashed()` — xoá mềm một giai đoạn
+ * mà chỉ LỊCH SỬ (`stage_logs`) còn dùng là hành vi ĐƯỢC PHÉP, nên `stage($key)` (chỉ đọc dòng còn
+ * sống) trả `null` không có nghĩa là dòng lịch sử đó phải mất nhãn tiếng Việt của nó.
+ */
+it('resolves a stage label including a soft-deleted one that only history still references', function () {
+    $type = MatterType::factory()->withStages()->create();
+    $label = $type->stage('intake')->label;
+
+    $type->stage('intake')->delete();
+
+    $fresh = $type->fresh();
+
+    expect($fresh->stage('intake'))->toBeNull()
+        ->and($fresh->stageIncludingTrashed('intake')?->key)->toBe('intake')
+        ->and($fresh->stageIncludingTrashed('intake')?->label)->toBe($label);
+});
+
+/** Vế dương: một `key` còn SỐNG vẫn được ưu tiên (trường hợp xoá mềm rồi tạo lại cùng `key`). */
+it('prefers the live stage over a soft-deleted one with the same key', function () {
+    $type = MatterType::factory()->withStages()->create();
+    $type->stage('intake')->delete();
+
+    $recreated = $type->stages()->create([
+        'key' => 'intake', 'label' => 'Tiếp nhận lại', 'client_label' => 'x', 'sort_order' => 1, 'allowed_next' => [],
+    ]);
+
+    expect($type->fresh()->stageIncludingTrashed('intake')?->getKey())->toBe($recreated->getKey());
 });
 
 /**

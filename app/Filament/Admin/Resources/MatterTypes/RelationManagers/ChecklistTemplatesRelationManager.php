@@ -76,6 +76,11 @@ class ChecklistTemplatesRelationManager extends RelationManager
                     ->label(__('matter_types.checklist_templates.fields.is_active'))
                     ->default(true)
                     ->helperText(__('matter_types.checklist_templates.fields.is_active_help')),
+                // M6.5 Task 17 (rà soát Task 15): `->relationship()` để Filament TỰ ghi các dòng
+                // `checklist_template_items` (tạo/sửa/xoá) đi thẳng qua Eloquent, không qua một
+                // Action nào — nên `ChecklistTemplateItemPolicy` KHÔNG được hỏi ở đây. Cổng thật
+                // duy nhất là `ChecklistTemplatePolicy` (`settings.manage`) gác cả relation
+                // manager này, đúng như một tài nguyên CON được biên tập cùng cha của nó.
                 Repeater::make('items')
                     ->relationship()
                     ->label(__('matter_types.checklist_templates.items.title'))
@@ -98,6 +103,10 @@ class ChecklistTemplatesRelationManager extends RelationManager
                             ->label(__('matter_types.checklist_templates.item_fields.sort_order'))
                             ->numeric()
                             ->integer()
+                            // Task 19: cột DB là unsignedInteger (migration 2026_09_14_000010) —
+                            // một giá trị âm qua thẳng form là một lỗi 500 trên MariaDB strict,
+                            // SQLite của bộ test không thấy (xem intake/intake-08).
+                            ->minValue(0)
                             ->default(1)
                             ->required(),
                     ])

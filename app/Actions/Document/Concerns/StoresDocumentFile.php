@@ -3,6 +3,7 @@
 namespace App\Actions\Document\Concerns;
 
 use App\Actions\Concerns\ReadsWithoutPortalScope;
+use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Exceptions\FileRejected;
@@ -221,6 +222,31 @@ trait StoresDocumentFile
      * {@see self::latestInSubmissionChain()}. Ba nhóm còn lại luôn bắt đầu ở `version = 1` không
      * bản cha: chúng không phải những lần nộp lại cùng một tờ giấy, nên chúng không có chuỗi.
      *
+     * # R10 (M6.5 Task 17, checklist-03/checklist-07): BỔ SUNG vào version đang chờ, không phải
+     * lúc nào cũng NỘP LẠI
+     *
+     * Một lần nộp của khách gồm NHIỀU tệp (CCCD hai mặt, sổ đỏ bốn trang…), và tất cả tệp của
+     * cùng một lần nộp phải mang CÙNG một số `version` — đó là việc của caller, gọi hàm này ĐÚNG
+     * MỘT LẦN cho cả lô rồi dùng chung kết quả cho mọi `Document` nó tạo, chứ không phải việc của
+     * hàm này (hàm này không biết "lô" là gì).
+     *
+     * Cái hàm này PHẢI tự quyết định là: khi khách quay lại nộp thêm trong lúc đầu mục còn đang
+     * `pending_review` (trang 3 gửi sau trang 1-2, ví dụ), lần nộp đó có phải một "lần nộp lại"
+     * (version mới) hay là một lần BỔ SUNG vào chính lần nộp đang chờ (giữ nguyên version)? SPEC
+     * §6.6 bước 7 không tách hai câu hỏi này ra — nó viết cho MỘT tệp mỗi lần nộp. Luật ở đây:
+     * **`pending_review` nghĩa là "còn đang trong CÙNG một lần nộp chưa ai xem xong"**, nên tệp
+     * mới nối vào ĐÚNG version đó (và đúng bản cha của version đó, nếu chuỗi từng có một version
+     * trước). Bất kỳ trạng thái nào KHÁC (`missing`, `rejected`, `accepted`, `not_applicable`) là
+     * "phiên nộp trước đã kết thúc" — theo đúng nghĩa của SPEC §6.6 bước 8/`ReviewChecklistItem`
+     * — nên tệp mới mở một version MỚI, đúng luật cũ.
+     *
+     * Nói cho đúng vì sao nhánh này KHÔNG với tới được từ `UploadStaffDocument`: một lần nhân
+     * viên nộp thay ở nhóm A LUÔN đóng đầu mục lại (`settleChecklistItem()`), và
+     * `RefusesWhileAwaitingReview` chặn chính lần gọi đó TRƯỚC khi tới hàm này nếu đầu mục đang
+     * `pending_review` — nên `$checklistItem->status` mà `UploadStaffDocument` đưa vào đây không
+     * bao giờ là `pending_review`. Nhánh mới chỉ chạy được từ `SubmitClientDocument`, nơi khách
+     * tự nộp và không ai "đóng đầu mục lại" thay họ.
+     *
      * @return array{version: int, parent_document_id: int|null}
      */
     protected function nextInSubmissionChain(?MatterChecklistItem $checklistItem, DocumentGroup $group): array
@@ -230,6 +256,20 @@ trait StoresDocumentFile
         }
 
         $previous = $this->latestInSubmissionChain($checklistItem);
+
+        // R10: đang chờ xem NGHĨA LÀ còn trong cùng một lần nộp — bổ sung, không mở version mới.
+        // `$previous` chắc chắn khác `null` ở đây trên MỌI đường thật: một đầu mục không thể
+        // mang `pending_review` mà chưa từng có ai nộp gì vào nó (`markPendingReview()` là nơi
+        // DUY NHẤT đặt trạng thái đó, và nó luôn chạy ngay sau khi đã tạo `Document` đầu tiên của
+        // lần nộp). Vẫn kiểm `$previous !== null` một cách tường minh thay vì giả định: một dòng
+        // bị sửa thẳng qua `update()` đi vòng qua Action (đúng thứ SPEC §11 dặn phải canh) không
+        // được phép biến thành một `parent_document_id` trỏ vào `null->getKey()`.
+        if ($checklistItem->status === ChecklistItemStatus::PendingReview && $previous !== null) {
+            return [
+                'version' => $previous->version,
+                'parent_document_id' => $previous->parent_document_id,
+            ];
+        }
 
         return [
             'version' => $previous === null ? 1 : $previous->version + 1,

@@ -1,9 +1,12 @@
 <?php
 
 use App\Actions\Document\ChecklistProgress;
+use App\Actions\Document\PublishDocument;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
+use App\Enums\MatterRole;
+use App\Enums\Role;
 use App\Filament\Portal\Pages\MatterProgress;
 use App\Models\Client;
 use App\Models\ClientUser;
@@ -13,10 +16,13 @@ use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Models\StageLog;
 use App\Models\StageLogView;
+use App\Models\User;
 use App\Support\Scopes\ClientPortalScope;
+use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Http\Events\RequestHandled;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Event;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -328,6 +334,88 @@ it('takes X of Y from the ChecklistProgress action instead of counting again', f
         ->get(progressUrl($this->matter))
         ->assertOk()
         ->assertSee(__('portal_progress.checklist.progress', $progress), escape: false);
+});
+
+/**
+ * **C1 (nghiêm trọng, fix round 1) — đi đúng màn hình thật của SPEC §14 mục "nghiệm thu", không
+ * chỉ tầng Action.** Văn phòng gắn một quyết định nhóm C vào một đầu mục tuỳ chọn — trước tiên
+ * còn `internal_draft` (chưa công bố), rồi CÔNG BỐ nó qua đúng `PublishDocument` (route thật của
+ * SPEC §6.5, không set cột tay). Ở CẢ HAI thời điểm, mẫu số của thanh tiến độ không tăng, và đầu
+ * mục không đứng trong phần "còn chờ ở anh/chị" (`documents_lead`, phần mà thanh tiến độ ĐẾM) —
+ * nó vẫn hiện ở phần "không bắt buộc" (`documents_optional_lead`) đúng như SPEC §8.3 đòi (khách
+ * vẫn cần biết văn phòng CÓ THỂ dùng tới giấy tờ đó), chỉ không đứng LẪN vào danh sách việc phải
+ * làm. Đây chính là hình dạng mà finding checklist-05/C1 mô tả — bản sửa lần đầu chỉ chặn được
+ * nửa đầu (`internal_draft`) và để lọt nửa sau (`published`), vì nó đọc "Y" là "tài liệu khách
+ * đọc được" thay vì "tài liệu khách NỘP". Phán quyết vòng sửa 1: `Y` đếm CHỈ nhóm A — quyết định
+ * nhóm C không bao giờ vào Y, công bố hay không.
+ */
+it('does not let a published group C decision count toward Y or move into the counted todo section', function () {
+    // `PublishDocument` đòi `document.publish` (SPEC §5) — vai trò gán bằng `withRole()` không tự
+    // có quyền nào, phải gieo bảng quyền thật thì `Gate::forUser($lawyer)->authorize(...)` mới qua.
+    $this->seed(RolesAndPermissionsSeeder::class);
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    // Đổi `lead_lawyer_id` sau khi tạo KHÔNG tự thêm người vào đội ngũ — `Matter::booted()` chỉ
+    // đồng bộ `team` ở sự kiện `created`, một lần duy nhất lúc tạo. Không thêm tay thì
+    // `MatterPolicy::update` (qua `isListableBy()`/`scopeListableBy()`) không thấy $lawyer trong
+    // `team`, và `PublishDocument` ném `AuthorizationException`.
+    $this->matter->update(['lead_lawyer_id' => $lawyer->id]);
+    $this->matter->addTeamMember($lawyer, MatterRole::Lead);
+
+    MatterChecklistItem::factory()->for($this->matter)->create([
+        'name' => 'Giấy chứng nhận quyền sử dụng đất',
+        'is_required' => true,
+        'status' => ChecklistItemStatus::Missing,
+    ]);
+    $optional = MatterChecklistItem::factory()->for($this->matter)->create([
+        'name' => 'Văn bản, quyết định của cơ quan nhà nước liên quan đến thửa đất',
+        'is_required' => false,
+        'status' => ChecklistItemStatus::Missing,
+    ]);
+
+    $decision = Document::factory()->for($this->matter)->group(DocumentGroup::Authority)->create([
+        'matter_checklist_item_id' => $optional->id,
+        'title' => 'Quyết định của UBND',
+        'status' => DocumentStatus::InternalDraft,
+        'client_can_view' => false,
+    ]);
+    // `PublishDocument` đòi có tệp thật trong collection `file` (SPEC §6.5) — `Storage::fake()`
+    // đã bật sẵn cho mọi test Feature (`tests/Pest.php`).
+    $decision->addMedia(UploadedFile::fake()->createWithContent(
+        'quyet-dinh-ubnd.pdf', "%PDF-1.4\n%âãÏÓ\n1 0 obj\n<< /Type /Catalog >>\nendobj\n",
+    ))->toMediaCollection('file');
+
+    $assertOptionalStaysOutOfY = function () use ($optional): void {
+        $html = $this->actingAs($this->clientUser, 'client')->get(progressUrl($this->matter))->assertOk()->getContent();
+        $todo = progressTodoBlock($html);
+
+        $optionalLead = strpos($todo, __('portal_progress.blocks.todo.documents_optional_lead'));
+
+        // Mẫu số vẫn 1 (chỉ đầu mục bắt buộc) — quyết định nhóm C không kéo nó lên 2.
+        expect(app(ChecklistProgress::class)->handle($this->matter))->toBe(['submitted' => 0, 'total' => 1])
+            ->and($html)->toContain(__('portal_progress.checklist.progress', ['submitted' => 0, 'total' => 1]))
+            // Đầu mục vẫn hiện ra (SPEC §8.3: khách vẫn cần biết văn phòng có thể dùng tới nó)...
+            ->and($todo)->toContain($optional->name)
+            // ...nhưng ở phần KHÔNG BẮT BUỘC, đứng SAU câu dẫn của phần đó — không đứng lẫn vào
+            // phần "còn chờ ở anh/chị" mà thanh tiến độ đếm.
+            ->and($optionalLead)->not->toBeFalse()
+            ->and(strpos($todo, $optional->name))->toBeGreaterThan($optionalLead);
+    };
+
+    // Vòng 1 — CHƯA công bố.
+    $assertOptionalStaysOutOfY();
+
+    // Vòng 2 — CÔNG BỐ thật, qua đúng Action của SPEC §6.5, không set cột tay.
+    app(PublishDocument::class)->handle($decision->fresh(), $lawyer, clientCanView: true, clientCanDownload: false);
+
+    $assertOptionalStaysOutOfY();
+
+    // Và khách ĐỌC ĐƯỢC quyết định đã công bố ở khối tài liệu — nó không "biến mất", nó chỉ
+    // không phải một việc khách phải làm. `clientCanDownload: false` ở trên (đúng như khối 5
+    // "shows a viewable document without a download button..." đã đo) có nghĩa KHÔNG có nút
+    // tải — tên tài liệu vẫn hiện là đủ chứng minh nó tới tay khách.
+    $html = $this->actingAs($this->clientUser, 'client')->get(progressUrl($this->matter))->assertOk()->getContent();
+    expect($html)->toContain('Quyết định của UBND')
+        ->and(substr_count($html, 'documents/'.$decision->getKey().'/download'))->toBe(0);
 });
 
 // =========================================================================================
@@ -808,10 +896,16 @@ it('keeps an optional item the client already sent a paper for in the group the 
         'is_required' => false,
     ]);
 
+    // `client_can_view: true` tường minh — dù từ phán quyết C1 (vòng sửa 1) luật "đã có tài liệu"
+    // của `Y` chỉ còn hỏi `group = ClientProvided` và không còn đọc cờ này nữa, một tài liệu nhóm
+    // A thật sự đến từ `SubmitClientDocument` LUÔN mang cờ này (`StoresDocumentFile::defaultsFor()`
+    // công bố nhóm A ngay lúc tạo). Giữ nó ở đây là để fixture phản ánh đúng dữ liệu thật một tài
+    // liệu nhóm A luôn có, không phải vì nó còn là một điều kiện của luật đếm.
     Document::factory()->for($this->matter)->create([
         'matter_checklist_item_id' => $item->getKey(),
         'group' => DocumentGroup::ClientProvided,
         'status' => DocumentStatus::Published,
+        'client_can_view' => true,
     ]);
 
     $progress = app(ChecklistProgress::class)->handle($this->matter);
@@ -1145,6 +1239,32 @@ it('still serves the page when the matter type behind it has been soft deleted',
         ->assertSee('Toà đã nhận đơn khởi kiện.', escape: false);
 });
 
+/**
+ * Task 19, vòng sửa 1 (Important — I1): cùng lỗ hổng ở tab Tiến độ của admin
+ * (`StageLogsRelationManager`), phía cổng khách: xoá mềm MỘT giai đoạn mà chỉ LỊCH SỬ
+ * (`stage_logs`) còn dùng là hành vi ĐƯỢC PHÉP (`MatterTypeStagePolicy::delete()` chỉ chặn hồ sơ
+ * ĐANG đứng và `allowed_next`, không chặn lịch sử). Trước bản vá này, `stageLabel()` trả `null`
+ * cho đúng dòng đó — khách đọc một dòng "đã chuyển giai đoạn" mà không có tên giai đoạn nào, dù
+ * dòng lịch sử đó là thật. `stageIncludingTrashed()` (dùng chung với admin) đóng lỗ này.
+ */
+it('shows the client label of a soft-deleted stage on the portal timeline, not leaving it blank', function () {
+    $draftingLabel = $this->matter->matterType->stage('drafting')->client_label;
+
+    StageLog::factory()->for($this->matter)->published()->transition('collecting_documents', 'drafting')->create([
+        'public_content' => 'Đã chuyển sang bước soạn đơn.',
+    ]);
+
+    $this->matter->matterType->stage('drafting')->delete();
+
+    $html = $this->actingAs($this->clientUser, 'client')
+        ->get(progressUrl($this->matter))
+        ->assertOk()
+        ->getContent();
+
+    expect($html)->toContain($draftingLabel)
+        ->toContain('Đã chuyển sang bước soạn đơn.');
+});
+
 // =========================================================================================
 // I4 — TRANG LÀ MỘT BỀ MẶT RPC: GIÁ TRỊ TRẢ VỀ CỦA MỌI PHƯƠNG THỨC CÔNG KHAI ĐI VÀO RESPONSE
 // =========================================================================================
@@ -1412,5 +1532,39 @@ it('shows only the newest visible version when a middle version of the chain is 
         ->and($documents)->not->toContain('documents/'.$first->getKey().'/download')
         ->and($documents)->not->toContain('documents/'.$second->getKey().'/download')
         // Đúng hai dòng: bản mới nhất của chuỗi này, và chuỗi kia.
+        ->and(substr_count($documents, '/download'))->toBe(2);
+});
+
+/**
+ * R10 (M6.5 Task 17, checklist-03): CCCD hai mặt nộp trong MỘT lần — hai tài liệu CÙNG version,
+ * gắn cùng một đầu mục — phải hiện CẢ HAI trên khối "Tài liệu", không phải chỉ một. Đây là bug
+ * gốc mà finding checklist-03 tả: luật cũ giữ đúng MỘT bản mỗi chuỗi bất kể chúng cùng version
+ * hay không, nên mặt sau "che" mặt trước dù cả hai đứng cùng version — không phải hai version
+ * khác nhau như một lần NỘP LẠI thật.
+ */
+it('shows every file of the latest version, not just one, when a single submission has several', function () {
+    $item = MatterChecklistItem::factory()->for($this->matter)->create([
+        'name' => 'Giấy tờ tuỳ thân',
+        'status' => ChecklistItemStatus::PendingReview,
+    ]);
+
+    $front = Document::factory()->for($this->matter)->pendingReview()->create([
+        'matter_checklist_item_id' => $item->getKey(),
+        'title' => 'Giấy tờ tuỳ thân',
+        'version' => 1,
+    ]);
+    $back = Document::factory()->for($this->matter)->pendingReview()->create([
+        'matter_checklist_item_id' => $item->getKey(),
+        'title' => 'Giấy tờ tuỳ thân',
+        'version' => 1,
+    ]);
+
+    $html = $this->actingAs($this->clientUser, 'client')->get(progressUrl($this->matter))->assertOk()->getContent();
+
+    $start = (int) strpos($html, 'data-portal-block="5"');
+    $documents = substr($html, $start, (int) strpos($html, 'data-portal-block="6"') - $start);
+
+    expect($documents)->toContain('documents/'.$front->getKey().'/download')
+        ->and($documents)->toContain('documents/'.$back->getKey().'/download')
         ->and(substr_count($documents, '/download'))->toBe(2);
 });

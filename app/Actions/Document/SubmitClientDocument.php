@@ -7,15 +7,19 @@ use App\Actions\Document\Concerns\StoresDocumentFile;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
 use App\Events\ClientDocumentSubmitted;
+use App\Filament\Portal\Pages\MatterProgress;
 use App\Models\ClientUser;
 use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Support\Audit;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use InvalidArgumentException;
 
 /**
  * Khách hàng nộp một tệp vào một đầu mục danh mục hồ sơ — chín bước SPEC §6.6.
@@ -96,17 +100,59 @@ use Illuminate\Support\Facades\Gate;
  * công bố những gì" đếm thêm những tài liệu không ai trong văn phòng quyết định. Dấu vết của lần
  * nộp này là `document_submitted`. Hệ quả cho người đi tìm — "khách đọc được những gì" là HỢP
  * của hai tên sự kiện — được phát biểu ở docblock của {@see Audit}.
+ *
+ * **R10 (M6.5 Task 17, checklist-03) — MỘT lần nộp có thể gồm NHIỀU tệp, và chúng là MỘT
+ * version.** Bản đầu (M4) nhận đúng một `UploadedFile`; ô tải lên của SPEC §8.4 khi đó chỉ nhận
+ * một tệp, nên CCCD hai mặt hay một hợp đồng bốn trang buộc khách phải nộp nhiều LẦN — và mỗi lần
+ * là một `Document` mới trong chuỗi version, nên `StoresDocumentFile::nextInSubmissionChain()`
+ * (đọc "đã nộp trang trước rồi" từ chính chuỗi đó) hiểu nhầm trang sau là một lần NỘP LẠI trang
+ * trước: mặt sau thành version 2, `parent_document_id` trỏ về mặt trước, và khối "Tài liệu" của
+ * khách (chỉ vẽ bản mới nhất mỗi chuỗi — {@see MatterProgress}) làm mặt
+ * trước biến mất ngay khi mặt sau tới. Finding checklist-03.
+ *
+ * Sửa ở ĐÚNG MỘT chỗ mỗi bên của ranh giới "một lần nộp = một version": `nextInSubmissionChain()`
+ * được hỏi ĐÚNG MỘT LẦN cho cả lô (không phải một lần mỗi tệp), và mọi `Document` sinh ra từ lô đó
+ * dùng CHUNG một cặp `version`/`parent_document_id`. `Concerns/RefusesWhileAwaitingReview.php` thì
+ * KHÔNG đổi: luật "không đóng một đầu mục đang có tệp chờ xem" vẫn đúng y hệt, vì nó nói về việc
+ * ĐÓNG (accept/not_applicable), không nói về việc BỔ SUNG (khách tự nộp thêm) — hai luật sống cạnh
+ * nhau mà không chạm nhau, xem thêm ở docblock
+ * {@see StoresDocumentFile::nextInSubmissionChain()} cho luật
+ * "bổ sung vào version đang chờ, không phải version mới" chạy TRONG chính hàm đó.
+ *
+ * Mỗi tệp của lô vẫn đi qua ĐỦ chín bước SPEC §6.6 CHO RIÊNG NÓ — `guardFile()` (đuôi, MIME thật,
+ * kích thước, quét virus) chạy trên TỪNG tệp, không chỉ tệp đầu tiên, vì một lô hai tệp mà một tệp
+ * là mã độc thì cả lô phải dừng, không được "chấp nhận nửa lô". Ba thứ CÒN LẠI vẫn dùng chung cho
+ * cả lô, đúng như tên gọi "một lần nộp": một lần hỏi quyền (đầu mục không đổi giữa các tệp của
+ * cùng một lô), một lần khoá hàng đầu mục, một lần chuyển trạng thái `pending_review`.
  */
 class SubmitClientDocument
 {
     use ChecksAccountActive;
     use StoresDocumentFile;
 
+    /**
+     * @param  list<UploadedFile>  $files  Một lần nộp — một hoặc nhiều tệp, tất cả cùng một
+     *                                     version (xem docblock lớp, mục R10).
+     * @return Collection<int, Document>
+     */
     public function handle(
         MatterChecklistItem $checklistItem,
         ClientUser $actor,
-        UploadedFile $file,
-    ): Document {
+        array $files,
+    ): Collection {
+        // Vòng sửa 1: một lô rỗng không phải một điều khách bấm ra được — màn hình SPEC §8.4 đòi
+        // ô tệp trước khi cho bấm Gửi — nhưng Action này không được TIN caller đã kiểm tra thay
+        // mình (cùng kỷ luật với "không đọc `auth()`" ở docblock lớp). Không chặn ở đây, một lô
+        // rỗng chạy hết tới `markPendingReview()`: đầu mục chuyển `pending_review`, phát sự kiện
+        // báo đội ngũ có tệp mới cần xem, và `$documents` rỗng trả về cho caller — một trạng thái
+        // nói dối cả khách lẫn văn phòng về một lần nộp chưa hề xảy ra. `InvalidArgumentException`
+        // (không phải `ValidationException`/`FileRejected`/`DomainException`): đây là một lỗi của
+        // NGƯỜI GỌI, không phải một điều khách làm sai — cùng quy ước với
+        // `AddMatterDeadline::handle()`.
+        if ($files === []) {
+            throw new InvalidArgumentException('SubmitClientDocument::handle() được gọi với một lô rỗng.');
+        }
+
         // Bước 1, phần đọc lại. Đọc TRƯỚC khi hệ thống bỏ công đọc, quét và ghi một tệp 20 MB
         // xuống đĩa: một id bịa hoặc một đầu mục của người khác phải dừng lại ở câu truy vấn
         // rẻ nhất.
@@ -134,12 +180,15 @@ class SubmitClientDocument
         // Bước 1, phần quyết định. KÈM đầu mục — xem docblock lớp.
         $this->authorize($actor, $item);
 
-        // Bước 2-5: đuôi tệp, MIME thật, kích thước, quét virus. Cùng một cổng với nhân sự,
-        // không có bản nới lỏng cho khách — nếu có thì cổng đã mở đúng ở phía người ngoài.
-        // NGOÀI transaction, xem docblock `StoresDocumentFile`.
-        $this->guardFile($file);
+        // Bước 2-5, cho TỪNG tệp của lô — xem docblock lớp, mục R10. Một lô hai tệp mà tệp thứ
+        // hai là mã độc phải dừng CẢ LÔ trước khi bất kỳ tệp nào của nó chạm tới đĩa `private`:
+        // vòng lặp này chạy NGOÀI transaction, trước khi `Document` đầu tiên được tạo, nên một
+        // lần `FileRejected` ở tệp thứ N không để lại tệp nào của N-1 tệp trước đó.
+        foreach ($files as $file) {
+            $this->guardFile($file);
+        }
 
-        return DB::transaction(function () use ($item, $actor, $file): Document {
+        return DB::transaction(function () use ($item, $actor, $files): Collection {
             // Đọc lại LẦN NỮA, dưới khoá, và mọi giá trị ghi xuống dưới đây đều lấy từ bản đọc
             // lại này chứ không từ `$item`.
             //
@@ -180,74 +229,102 @@ class SubmitClientDocument
             // ::nextInSubmissionChain()`, nơi phát biểu luôn cái bất biến mà không chỉ mục cơ sở dữ
             // liệu nào diễn đạt nổi — và nơi `UploadStaffDocument` hỏi đúng cùng câu hỏi đó, vì một
             // lần nhân viên nộp thay ở nhóm A cũng là một mắt xích của cùng chuỗi.
+            //
+            // R10: MỘT lần hỏi chuỗi version cho CẢ LÔ, không một lần mỗi tệp — xem docblock lớp
+            // và docblock `nextInSubmissionChain()`. Mọi `Document` của lô này dùng CHUNG cặp
+            // version/parent bên dưới, đúng bất biến "một lần nộp là một version". (Vòng sửa 1:
+            // bản trước gọi hàm này HAI LẦN liên tiếp — dòng đầu là một lần gọi chết, kết quả bị
+            // ghi đè ngay bởi dòng thứ hai; `nextInSubmissionChain()` không có tác dụng phụ nên
+            // hai lần gọi cho cùng kết quả và không test nào bắt được, nhưng vẫn là một dòng thừa.)
             $chain = $this->nextInSubmissionChain($locked, DocumentGroup::ClientProvided);
 
             $defaults = $this->defaultsFor(DocumentGroup::ClientProvided);
             $releasedAtCreation = $this->releasesToClientAtCreation($defaults);
 
-            // Bước 7 chạy TRƯỚC bước 6, cố ý: medialibrary chỉ gắn được tệp vào một model đã có
-            // khoá chính, nên `Document` phải tồn tại trước khi `storeFile()` chạy. Cả hai nằm
-            // trong cùng một transaction nên không có trạng thái dở dang nào commit được.
-            $document = Document::query()->create([
-                'matter_id' => $locked->matter_id,
-                'matter_checklist_item_id' => $locked->getKey(),
-                'group' => DocumentGroup::ClientProvided,
-                'title' => $locked->name,
-                'status' => $defaults['status'],
-                'version' => $chain['version'],
-                'parent_document_id' => $chain['parent_document_id'],
-                'uploader_type' => $actor->getMorphClass(),
-                'uploader_id' => $actor->getKey(),
-                'client_can_view' => $defaults['client_can_view'],
-                'client_can_download' => $defaults['client_can_download'],
-                // `published_at` có giá trị vì tệp này ở trong tầm tay khách kể từ giây phút nó
-                // được tạo, y như nhóm A của `UploadStaffDocument`. `published_by` thì KHÔNG:
-                // cột đó là khoá ngoại tới `users`, và người đưa tài liệu này ra không phải nhân
-                // sự — họ là chính khách hàng. Điền đại một nhân sự nào đó vào đây (luật sư phụ
-                // trách chẳng hạn) sẽ là ghi vào nhật ký một quyết định người đó chưa hề ra. Ai
-                // đưa tệp vào hệ thống đọc ở cặp `uploader_type`/`uploader_id`.
-                'published_at' => $releasedAtCreation ? now() : null,
-                'published_by' => null,
-                // Khách không khai ngày ban hành: màn hình nộp tệp ở SPEC §8.4 là "chọn đầu mục
-                // → tải tệp lên → xem trước → gửi", không có ô nào cho ngày. Một ngày bịa ra ở
-                // đây sẽ đứng cạnh những ngày ban hành thật của nhóm B và C mà không phân biệt
-                // được.
-                'issued_at' => null,
-            ]);
+            $documents = collect($files)->map(function (UploadedFile $file) use (
+                $locked, $actor, $chain, $defaults, $releasedAtCreation,
+            ): Document {
+                // Bước 7 chạy TRƯỚC bước 6, cố ý: medialibrary chỉ gắn được tệp vào một model đã
+                // có khoá chính, nên `Document` phải tồn tại trước khi `storeFile()` chạy. Cả hai
+                // nằm trong cùng một transaction nên không có trạng thái dở dang nào commit được.
+                $document = Document::query()->create([
+                    'matter_id' => $locked->matter_id,
+                    'matter_checklist_item_id' => $locked->getKey(),
+                    'group' => DocumentGroup::ClientProvided,
+                    'title' => $locked->name,
+                    'status' => $defaults['status'],
+                    'version' => $chain['version'],
+                    'parent_document_id' => $chain['parent_document_id'],
+                    'uploader_type' => $actor->getMorphClass(),
+                    'uploader_id' => $actor->getKey(),
+                    'client_can_view' => $defaults['client_can_view'],
+                    'client_can_download' => $defaults['client_can_download'],
+                    // `published_at` có giá trị vì tệp này ở trong tầm tay khách kể từ giây phút
+                    // nó được tạo, y như nhóm A của `UploadStaffDocument`. `published_by` thì
+                    // KHÔNG: cột đó là khoá ngoại tới `users`, và người đưa tài liệu này ra không
+                    // phải nhân sự — họ là chính khách hàng. Điền đại một nhân sự nào đó vào đây
+                    // (luật sư phụ trách chẳng hạn) sẽ là ghi vào nhật ký một quyết định người đó
+                    // chưa hề ra. Ai đưa tệp vào hệ thống đọc ở cặp `uploader_type`/`uploader_id`.
+                    'published_at' => $releasedAtCreation ? now() : null,
+                    'published_by' => null,
+                    // Khách không khai ngày ban hành: màn hình nộp tệp ở SPEC §8.4 là "chọn đầu
+                    // mục → tải tệp lên → xem trước → gửi", không có ô nào cho ngày. Một ngày bịa
+                    // ra ở đây sẽ đứng cạnh những ngày ban hành thật của nhóm B và C mà không
+                    // phân biệt được.
+                    'issued_at' => null,
+                ]);
 
-            // Bước 6.
-            $this->storeFile($document, $file);
+                // Bước 6.
+                $this->storeFile($document, $file);
 
-            // Bước 8.
+                return $document;
+            });
+
+            // Bước 8. MỘT LẦN cho cả lô — đầu mục chỉ có một trạng thái, không phải một trạng
+            // thái mỗi tệp.
             $this->markPendingReview($locked);
 
-            // SPEC §10.6 không liệt kê "khách nộp tệp", vì bảng đó liệt kê những việc văn phòng
-            // làm. Dòng này vẫn phải có, và lý do hẹp hơn "vì không có dấu vết nào khác": trait
-            // `LogsActivity` trên `Document` CÓ ghi một dòng `created` mang `version` và
-            // `matter_checklist_item_id`, nhưng causer của nó suy ra từ phiên đăng nhập theo
-            // resolver mặc định của spatie, thứ đọc guard mặc định (`web`) — trống rỗng trong
-            // một request portal. Nên đây là dòng DUY NHẤT nêu đích danh tài khoản khách hàng
-            // đã gửi tệp lên.
-            //
-            // `client_id` chép vào đây chứ không để người đọc suy ra qua `matter`: `matters
-            // .client_id` là một cột sửa được, nên một hồ sơ chuyển sang khách hàng khác sẽ viết
-            // lại lịch sử của mọi lần nộp đã xảy ra. Cùng lý lẽ với `PublishDocument`.
-            //
-            // Causer là `$actor`, truyền tường minh: đây là lần đầu tiên trong hệ thống một
-            // `ClientUser` đứng tên một dòng nhật ký do Action ghi ra.
-            Audit::record('document_submitted', $document, [
-                'matter_id' => $locked->matter_id,
-                'client_id' => $matter->client_id,
-                'matter_checklist_item_id' => $locked->getKey(),
-                'group' => DocumentGroup::ClientProvided->value,
-                'version' => $document->version,
-            ], $actor);
+            $documents->each(function (Document $document) use ($locked, $actor, $matter): void {
+                // SPEC §10.6 không liệt kê "khách nộp tệp", vì bảng đó liệt kê những việc văn
+                // phòng làm. Dòng này vẫn phải có, và lý do hẹp hơn "vì không có dấu vết nào
+                // khác": trait `LogsActivity` trên `Document` CÓ ghi một dòng `created` mang
+                // `version` và `matter_checklist_item_id`, nhưng causer của nó suy ra từ phiên
+                // đăng nhập theo resolver mặc định của spatie, thứ đọc guard mặc định (`web`) —
+                // trống rỗng trong một request portal. Nên đây là dòng DUY NHẤT nêu đích danh tài
+                // khoản khách hàng đã gửi tệp lên — MỘT dòng cho MỖI tệp của lô, vì mỗi tệp là
+                // một `Document` riêng và một lần rà soát "khách đã nộp gì, lúc nào" cần thấy cả
+                // hai mặt CCCD, không chỉ một.
+                //
+                // `client_id` chép vào đây chứ không để người đọc suy ra qua `matter`: `matters
+                // .client_id` là một cột sửa được, nên một hồ sơ chuyển sang khách hàng khác sẽ
+                // viết lại lịch sử của mọi lần nộp đã xảy ra. Cùng lý lẽ với `PublishDocument`.
+                //
+                // Causer là `$actor`, truyền tường minh: đây là lần đầu tiên trong hệ thống một
+                // `ClientUser` đứng tên một dòng nhật ký do Action ghi ra.
+                Audit::record('document_submitted', $document, [
+                    'matter_id' => $locked->matter_id,
+                    'client_id' => $matter->client_id,
+                    'matter_checklist_item_id' => $locked->getKey(),
+                    'group' => DocumentGroup::ClientProvided->value,
+                    'version' => $document->version,
+                ], $actor);
+            });
 
             // Bước 9. Listener ở M6; sự kiện là `ShouldDispatchAfterCommit` nên dispatch bên
-            // trong transaction là an toàn.
-            event(new ClientDocumentSubmitted($document));
+            // trong transaction là an toàn. MỘT sự kiện cho CẢ LÔ, không một sự kiện mỗi tệp —
+            // vòng sửa 1, finding I4 (xem docblock lớp {@see ClientDocumentSubmitted}): một lần
+            // nộp CCCD hai mặt LÀ một hành động của khách, không phải hai, và đội ngũ chỉ cần
+            // một thông báo cho nó. `$documents` mang đủ cả lô nên listener đọc được mọi tệp từ
+            // một lần dispatch duy nhất.
+            //
+            // `EloquentCollection::make($documents)` — vòng sửa 2, finding 4: `$documents` ở đây
+            // là một `Illuminate\Support\Collection` (từ `collect($files)->map(...)`), nhưng
+            // `ClientDocumentSubmitted` đòi một `Illuminate\Database\Eloquent\Collection` — xem
+            // docblock constructor của sự kiện đó cho lý do (`SerializesModels` chỉ nhận diện
+            // Eloquent Collection để nén thành id, không nhận diện Support Collection).
+            event(new ClientDocumentSubmitted(EloquentCollection::make($documents->all())));
 
-            return $document;
+            return $documents;
         });
     }
 
