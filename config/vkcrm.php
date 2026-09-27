@@ -98,6 +98,16 @@ return [
         ],
     ],
 
+    'security' => [
+        /*
+         * Chế độ Content-Security-Policy (SPEC §10 mục 2, phán quyết R4): `off` | `report` |
+         * `enforce`. Đọc và chuẩn hoá ở {@see \App\Support\Security\ContentSecurityPolicy::mode()}
+         * — một giá trị lạ rơi về `enforce`. Chế độ `report` gửi header Report-Only: trình duyệt
+         * chỉ báo vi phạm, không chặn.
+         */
+        'csp_mode' => env('CSP_MODE') ?: 'off',
+    ],
+
     /*
      * Nhận diện thương hiệu của chính văn phòng, lấy từ luatvukhang.com để hệ thống nội bộ và
      * cổng khách hàng trông liền một mạch với website — khách đăng nhập vào đây phải thấy ngay
