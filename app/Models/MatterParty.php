@@ -66,6 +66,35 @@ class MatterParty extends Model
         return $this;
     }
 
+    /**
+     * Sửa một bên (M6.5 Task 9, `conflict-05`): giữ NGUYÊN `id_number_hash`/`phone_normalized` cũ
+     * ở ô nào bị bỏ trống, thay vì xoá mất như `identify()`.
+     *
+     * **Vì sao `identify()` không dùng được nguyên vẹn cho màn hình sửa.** Số căn cước/điện thoại
+     * GỐC không bao giờ được lưu (SPEC §10.5) — chỉ hash/số đã chuẩn hoá còn lại. Form "sửa một
+     * bên" vì vậy không có gì để điền sẵn vào hai ô đó: chúng LUÔN bắt đầu trống, kể cả khi bên này
+     * đã có định danh từ trước. Nếu form đi qua `identify()` như lúc TẠO, một lượt sửa chỉ đổi
+     * `address` (không đụng gì tới định danh) sẽ vô tình gửi `id_number = null, phone = null` và
+     * xoá SẠCH định danh đã có — đúng hạng lỗi mà `conflict-05` mô tả cho chiều "gõ sai không sửa
+     * được", nay đảo ngược thành "sửa cái khác cũng làm mất luôn cái đúng".
+     *
+     * Chỉ áp cho bên KHÔNG `is_our_client`: bên `is_our_client` không bao giờ gọi hàm này —
+     * `BuildsMatterParties` luôn lấy định danh của bên đó từ hồ sơ `Client` (qua `identify()`
+     * thẳng), không đọc `id_number`/`phone` của form.
+     */
+    public function identifyKeepingWhenBlank(?string $idNumber, ?string $phone): static
+    {
+        if (filled($idNumber)) {
+            $this->id_number_hash = Normalizer::idNumberHash($idNumber);
+        }
+
+        if (filled($phone)) {
+            $this->phone_normalized = Normalizer::phone($phone);
+        }
+
+        return $this;
+    }
+
     /** Tìm bản ghi trùng hash căn cước hoặc trùng số điện thoại đã chuẩn hoá (SPEC §6.10 bước 2). */
     public function scopeMatchingIdentity(Builder $query, ?string $idNumberHash, ?string $phoneNormalized): Builder
     {
