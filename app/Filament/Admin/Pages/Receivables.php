@@ -120,12 +120,23 @@ class Receivables extends Page implements HasTable
         return __('billing.receivables.title');
     }
 
-    /** Cổng của cả TRANG — xem docblock lớp. */
+    /**
+     * Cổng của cả TRANG — xem docblock lớp.
+     *
+     * **`billing.view` cộng thêm, có chủ đích (fix vòng 1, minor).** Bảng quyền hôm nay (`Role::
+     * permissions()`) đã khiến `revenue.viewAny` một mình đủ — cả ba vai trò được cấp nó (admin,
+     * quản lý, kế toán) đều có sẵn `billing.view`. Hỏi thêm ở đây không đổi ai vào được trang hôm
+     * nay; nó là một lưới an toàn nếu một ngày `revenue.viewAny` được cấp riêng cho một vai trò
+     * không có `billing.view` — trang này không có gì để hiện nếu vậy (`rowsQuery()` vẫn lọc theo
+     * `listableBy()`, không đọc `billing.view`), nên đúng hơn là từ chối thẳng ở cổng.
+     */
     public static function canAccess(): bool
     {
         $user = Auth::user();
 
-        return $user instanceof User && Gate::forUser($user)->allows(Permission::RevenueViewAny->value);
+        return $user instanceof User
+            && $user->can(Permission::BillingView->value)
+            && Gate::forUser($user)->allows(Permission::RevenueViewAny->value);
     }
 
     public static function shouldRegisterNavigation(): bool
@@ -370,12 +381,31 @@ class Receivables extends Page implements HasTable
                     ->required(),
             ])
             ->successNotificationTitle(__('billing.receivables.actions.void_payment_success'))
-            ->action(fn (Action $action, array $data) => $this->runAction(
+            ->action(fn (Action $action, Instalment $record, array $data) => $this->runAction(
                 $action,
-                function () use ($data): Payment {
+                function () use ($data, $record): Payment {
                     $payment = Payment::query()->whereNull('voided_at')->find($data['payment_id'] ?? null);
 
-                    if ($payment === null) {
+                    // **Không tin `payment_id` từ Livewire (fix vòng 1, minor).** Ô `Select` chỉ
+                    // liệt kê khoản thu của ĐÚNG đợt đang mở modal, nhưng đó là một ràng buộc GIAO
+                    // DIỆN — một request `wire:submit` dựng tay có thể gửi id của một khoản thu
+                    // thuộc đợt KHÁC. `PaymentPolicy::void()` (qua `VoidPayment::handle()`) vẫn
+                    // xét đúng vụ việc của KHOẢN ĐÓ nên không lộ tiền của vụ khác, nhưng nó có thể
+                    // huỷ nhầm một khoản của một đợt/vụ THƯỜNG khác mà kế toán cũng có quyền — một
+                    // đợt hiện trên màn hình không phải đợt bị đổi. Chốt ở đây: khoản được chọn
+                    // phải thuộc ĐÚNG đợt đang mở modal, không chỉ "một khoản nào đó kế toán có
+                    // quyền huỷ".
+                    //
+                    // **Đo được, kèm một giới hạn thành thật.** `ReceivablesPageTest`'s "refuses to
+                    // void a payment whose id belongs to a different instalment…" đi qua đúng
+                    // đường Livewire (`callAction()`) và ĐANG xanh; nhưng xoá điều kiện này rồi
+                    // chạy lại KHÔNG làm test đó đỏ — validation "in options" của chính `Select`
+                    // (vendor, sinh từ `getOptions()` được tính lại đúng cho `$record` đang mount)
+                    // đã chặn TRƯỚC khi request chạm tới đây, với lỗi field `payment_id` "đã chọn
+                    // không hợp lệ". Điều kiện này vì vậy là PHÒNG THỦ CHIỀU SÂU không độc lập đo
+                    // được qua đường Livewire hiện có — giữ lại vì rẻ và đúng bất biến, nhưng không
+                    // phải là chốt chặn DUY NHẤT; xem báo cáo Task 8, "Fix round 1" cho chi tiết.
+                    if ($payment === null || $payment->instalment_id !== $record->id) {
                         throw ValidationException::withMessages(['payment_id' => [__('billing.receivables.no_payment_to_void')]]);
                     }
 

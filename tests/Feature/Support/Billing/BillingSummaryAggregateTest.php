@@ -23,8 +23,11 @@ use Illuminate\Support\Facades\DB;
  *  - `waived`   — miễn, dư nợ 0 dù `amount` không đổi (bất biến tổng vẫn tính đợt này).
  *  - `voided`   — có MỘT khoản thu đã huỷ (10 triệu): khoản đó không được trừ vào dư nợ, dư nợ vẫn
  *    đủ 10 triệu — đây là ca hay bị viết sai nhất khi chuyển phép SUM() sang SQL.
- * Cộng một hợp đồng THỨ HAI, `cancelled`, mang một đợt `pending` còn nguyên — không được lọt vào
- * cả hai cách tính gộp (constraint (a), Task 4), dù tự nó có `outstanding() > 0`.
+ * Cộng hai hợp đồng KHÔNG active — `cancelled` và `completed` — mỗi hợp đồng mang một đợt
+ * `pending` còn nguyên: cả hai KHÔNG được lọt vào cả hai cách tính gộp (constraint (a), Task 4),
+ * dù tự chúng có `outstanding() > 0`. Hai trạng thái riêng vì `CompleteContract`/`CancelContract`
+ * là hai Action khác nhau (Task 4) — một mutation chỉ xoá nhánh `cancelled` khỏi bộ lọc SQL vẫn có
+ * thể để lọt nhánh `completed`, nên cả hai phải có mặt, không chỉ một đại diện.
  */
 function aggregateFixture(): array
 {
@@ -47,7 +50,15 @@ function aggregateFixture(): array
     $cancelledContract = Contract::factory()->for($cancelledMatter)->cancelled()->create(['total_amount' => 5_000_000]);
     $stillPendingOnCancelled = Instalment::factory()->for($cancelledContract)->create(['amount' => 5_000_000, 'due_date' => today()->subDay()->toDateString()]);
 
-    return compact('matter', 'contract', 'partial', 'paid', 'waived', 'voided', 'cancelledMatter', 'cancelledContract', 'stillPendingOnCancelled');
+    $completedMatter = Matter::factory()->create();
+    $completedContract = Contract::factory()->for($completedMatter)->completed()->create(['total_amount' => 7_000_000]);
+    $stillPendingOnCompleted = Instalment::factory()->for($completedContract)->create(['amount' => 7_000_000, 'due_date' => today()->subDay()->toDateString()]);
+
+    return compact(
+        'matter', 'contract', 'partial', 'paid', 'waived', 'voided',
+        'cancelledMatter', 'cancelledContract', 'stillPendingOnCancelled',
+        'completedMatter', 'completedContract', 'stillPendingOnCompleted',
+    );
 }
 
 it('agrees with Instalment::outstanding() per instalment, across partial, waived, and voided-payment rows still pending', function () {
@@ -76,10 +87,13 @@ it('agrees with Instalment::outstanding() per instalment, across partial, waived
             ->and((int) $byId[$instalment->id]->outstanding_amount)->toBe($fresh->outstanding(), "lệch với outstanding() ở ca: {$key}");
     }
 
-    // Đợt pending của hợp đồng cancelled KHÔNG lọt vào, dù outstanding() riêng của nó > 0
-    // (constraint (a), Task 4) — cặp âm chứng minh bộ lọc hợp đồng active có tác dụng thật.
+    // Đợt pending của hợp đồng cancelled/completed KHÔNG lọt vào, dù outstanding() riêng của
+    // chúng > 0 (constraint (a), Task 4) — cặp âm chứng minh bộ lọc hợp đồng active có tác dụng
+    // thật, trên CẢ HAI trạng thái không active.
     expect($fixture['stillPendingOnCancelled']->fresh()->outstanding())->toBe(5_000_000)
-        ->and($byId->has($fixture['stillPendingOnCancelled']->id))->toBeFalse();
+        ->and($byId->has($fixture['stillPendingOnCancelled']->id))->toBeFalse()
+        ->and($fixture['stillPendingOnCompleted']->fresh()->outstanding())->toBe(7_000_000)
+        ->and($byId->has($fixture['stillPendingOnCompleted']->id))->toBeFalse();
 });
 
 it('agrees with BillingSummary::outstandingForMatter() per matter, on the same mixed fixture', function () {
@@ -96,16 +110,18 @@ it('agrees with BillingSummary::outstandingForMatter() per matter, on the same m
 
     expect($aggregate)->toBe($expected);
 
-    // Vụ việc mang hợp đồng cancelled: cả hai cách tính đều ra 0, dù đợt pending còn đó.
-    $cancelledExpected = BillingSummary::outstandingForMatter($fixture['cancelledMatter']->id)['amount'];
-    $cancelledAggregate = (int) Matter::query()
-        ->selectRaw('matters.id, ('.BillingSummary::outstandingPerMatterExpression().') as outstanding_balance_amount')
-        ->whereKey($fixture['cancelledMatter']->id)
-        ->first()
-        ->outstanding_balance_amount;
+    // Vụ việc mang hợp đồng cancelled/completed: cả hai cách tính đều ra 0, dù đợt pending còn đó.
+    foreach (['cancelledMatter', 'completedMatter'] as $key) {
+        $matterExpected = BillingSummary::outstandingForMatter($fixture[$key]->id)['amount'];
+        $matterAggregate = (int) Matter::query()
+            ->selectRaw('matters.id, ('.BillingSummary::outstandingPerMatterExpression().') as outstanding_balance_amount')
+            ->whereKey($fixture[$key]->id)
+            ->first()
+            ->outstanding_balance_amount;
 
-    expect($cancelledExpected)->toBe(0)
-        ->and($cancelledAggregate)->toBe(0);
+        expect($matterExpected)->toBe(0, "sai ở outstandingForMatter() của ca: {$key}")
+            ->and($matterAggregate)->toBe(0, "sai ở outstandingPerMatterExpression() của ca: {$key}");
+    }
 });
 
 /**

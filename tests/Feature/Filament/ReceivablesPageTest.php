@@ -5,15 +5,18 @@ use App\Enums\PaymentMethod;
 use App\Enums\Role;
 use App\Filament\Admin\Pages\Receivables;
 use App\Http\Middleware\AnswerDeniedPanelRequestsWithNotFound;
+use App\Models\Client;
 use App\Models\Contract;
 use App\Models\Instalment;
 use App\Models\Matter;
+use App\Models\MatterParty;
 use App\Models\Payment;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Filament\Notifications\Notification;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Trang "Công nợ" cho kế toán (M9 Task 8). Kế toán không mở được trang vụ việc
@@ -86,18 +89,116 @@ it('answers 404 to an assistant', function () {
 });
 
 // =================================================================================================
-// Ranh giới của kế toán: không tiêu đề vụ việc ở bất kỳ đâu (DTO AccountantBillingRow).
+// Ranh giới của kế toán: không tiêu đề vụ việc, tóm tắt nội bộ, hay tên các bên — bất kỳ đâu (DTO
+// AccountantBillingRow). Fix vòng 1, I1: bản trước chỉ `assertDontSee`, một bảng RỖNG cũng qua
+// được test đó — thêm khẳng định DƯƠNG (mã hồ sơ, tên khách hàng thật sự có trên trang) để chứng
+// minh dòng ĐANG hiện ra, không phải hiện KHÔNG GÌ CẢ.
 // =================================================================================================
 
-it('never leaks the matter title anywhere on the page, even though the accountant sees the row', function () {
+it('never leaks the matter title, internal summary, or a party name, while still showing the matter code and client name', function () {
     $secretTitle = 'TIEU DE TUYET MAT KHONG DUOC LO XXQ123';
-    $matter = Matter::factory()->create(['title' => $secretTitle]);
+    $secretSummary = 'TOM TAT NOI BO TUYET MAT KHONG DUOC LO YYQ456';
+    $secretPartyName = 'BEN LIEN QUAN TUYET MAT KHONG DUOC LO ZZQ789';
+
+    $matter = Matter::factory()->create([
+        'title' => $secretTitle,
+        'summary_for_client' => $secretSummary,
+    ]);
+    MatterParty::factory()->for($matter)->create(['name' => $secretPartyName]);
     receivableOn($matter);
 
     $response = $this->actingAs($this->accountant, 'web')->get(Receivables::getUrl(panel: 'admin'));
 
     $response->assertOk();
+
+    // Dương: dòng THẬT SỰ hiện ra, không phải một bảng rỗng tình cờ qua được các assertDontSee bên
+    // dưới.
+    $response->assertSee($matter->code);
+    $response->assertSee($matter->client->name);
+
+    // Âm: ba trường nội bộ không bao giờ đi qua AccountantBillingRow.
     $response->assertDontSee($secretTitle);
+    $response->assertDontSee($secretSummary);
+    $response->assertDontSee($secretPartyName);
+});
+
+// =================================================================================================
+// Đếm truy vấn ở tầng TRANG (fix vòng 1, I2). Ghim phán quyết controller 6 ("eager loading"):
+// `->authorize()` của hai nút hỏi Gate cho MỖI dòng khi Filament vẽ bảng — nếu `contract.matter`
+// nạp thiếu ba cột mà `ChecksBillingAccess::matterForBillingGate()` cần
+// (`confidentiality`/`lead_lawyer_id`/`deleted_at`), mỗi lần hỏi lại là một truy vấn NẠP LẠI vụ
+// việc, và số truy vấn của trang sẽ TĂNG THEO SỐ DÒNG. So sánh N dòng với 3N dòng (không phải một
+// ngưỡng tuyệt đối — lý do nêu ở `MatterResourceTest`'s test tương tự): SQL-aggregate cộng eager
+// loading đầy đủ giữ số truy vấn CỐ ĐỊNH bất kể N.
+// =================================================================================================
+
+it('runs the same number of queries for the accountant whether the page has N rows or 3N', function () {
+    $this->actingAs($this->accountant, 'web');
+
+    $makeRow = fn () => receivableOn(Matter::factory()->create());
+
+    $makeRow();
+    $makeRow();
+    $makeRow();
+
+    // Hâm nóng cache quyền Spatie trước khi đo — nạp một lần cho cả tiến trình test, không phải
+    // chi phí phụ thuộc số dòng (cùng lý do `MatterResourceTest`'s test tương tự).
+    $this->livewire(Receivables::class);
+
+    DB::enableQueryLog();
+    DB::flushQueryLog();
+    $this->livewire(Receivables::class);
+    $queriesForN = count(DB::getQueryLog());
+
+    $makeRow();
+    $makeRow();
+    $makeRow();
+    $makeRow();
+    $makeRow();
+    $makeRow();
+
+    DB::flushQueryLog();
+    $this->livewire(Receivables::class);
+    $queriesFor3N = count(DB::getQueryLog());
+
+    DB::disableQueryLog();
+
+    expect($queriesFor3N)->toBe($queriesForN);
+});
+
+/** Cùng phép đo, nhưng có MỘT dòng của vụ `restricted` trong cả hai lần — admin thấy được dòng đó
+ * (nhánh `restricted` của `isListableBy()`), và `->authorize()` của nút trên dòng đó cũng phải
+ * không tốn thêm truy vấn nào, đúng như mọi dòng khác. */
+it('runs the same number of queries for the admin, including one restricted matter row, whether the page has N rows or 3N', function () {
+    $this->actingAs($this->admin, 'web');
+
+    $makeRow = fn () => receivableOn(Matter::factory()->create());
+
+    receivableOn($this->restricted);
+    $makeRow();
+    $makeRow();
+
+    $this->livewire(Receivables::class);
+
+    DB::enableQueryLog();
+    DB::flushQueryLog();
+    $this->livewire(Receivables::class);
+    $queriesForN = count(DB::getQueryLog());
+
+    $makeRow();
+    $makeRow();
+    $makeRow();
+    $makeRow();
+    $makeRow();
+    $makeRow();
+
+    DB::flushQueryLog();
+    $this->livewire(Receivables::class);
+    $queriesFor3N = count(DB::getQueryLog());
+
+    DB::disableQueryLog();
+
+    expect($queriesFor3N)->toBe($queriesForN);
 });
 
 // =================================================================================================
@@ -121,6 +222,65 @@ it('shows the accountant an ordinary matters instalment but hides a restricted o
     $this->actingAs($this->admin, 'web');
     $this->livewire(Receivables::class)
         ->assertCanSeeTableRecords([$ordinary, $restricted]);
+});
+
+// =================================================================================================
+// Bộ lọc (fix vòng 1, I4). Options của bộ lọc "khách hàng" không được rộng hơn tập dòng mà chính
+// người xem thấy — cùng ranh giới `rowsQuery()` đã áp cho danh sách; ba bộ lọc còn lại chỉ cần một
+// bài kiểm tra khói mỗi cái (chúng tái dùng `scopeOverdue()`/điều kiện `whereHas` đơn giản, đã kiểm
+// kỹ ở nơi khác).
+// =================================================================================================
+
+it('excludes a client whose only debt is on a restricted matter from the accountants filter options, but includes it for the admin', function () {
+    $client = Client::factory()->create();
+    $restrictedForClient = Matter::factory()->restricted()->for($client)->create(['lead_lawyer_id' => $this->lawyer->id]);
+    receivableOn($restrictedForClient);
+
+    $this->actingAs($this->accountant, 'web');
+    $accountantOptions = $this->livewire(Receivables::class)->instance()->getTable()->getFilter('client_id')->getOptions();
+    expect($accountantOptions)->not->toHaveKey($client->id);
+
+    $this->actingAs($this->admin, 'web');
+    $adminOptions = $this->livewire(Receivables::class)->instance()->getTable()->getFilter('client_id')->getOptions();
+    expect($adminOptions)->toHaveKey($client->id);
+});
+
+it('filters to only overdue instalments when the overdue filter is applied', function () {
+    $overdue = receivableOn($this->matter, 10_000_000, ['due_date' => today()->subDays(5)->toDateString()]);
+    $notYetDue = receivableOn(Matter::factory()->create(), 10_000_000, ['due_date' => today()->addDays(5)->toDateString()]);
+
+    $this->actingAs($this->accountant, 'web');
+
+    $this->livewire(Receivables::class)
+        ->filterTable('overdue')
+        ->assertCanSeeTableRecords([$overdue])
+        ->assertCanNotSeeTableRecords([$notYetDue]);
+});
+
+it('filters to only instalments due within 7 days when that filter is applied', function () {
+    $dueSoon = receivableOn($this->matter, 10_000_000, ['due_date' => today()->addDays(3)->toDateString()]);
+    $dueFar = receivableOn(Matter::factory()->create(), 10_000_000, ['due_date' => today()->addDays(20)->toDateString()]);
+    $alreadyOverdue = receivableOn(Matter::factory()->create(), 10_000_000, ['due_date' => today()->subDays(5)->toDateString()]);
+
+    $this->actingAs($this->accountant, 'web');
+
+    $this->livewire(Receivables::class)
+        ->filterTable('due_within_7_days')
+        ->assertCanSeeTableRecords([$dueSoon])
+        ->assertCanNotSeeTableRecords([$dueFar, $alreadyOverdue]);
+});
+
+it('filters to only instalments of a closed matter still carrying a balance when that filter is applied', function () {
+    $closedMatter = Matter::factory()->create(['closed_at' => today()->subDay()->toDateString()]);
+    $closedWithBalance = receivableOn($closedMatter);
+    $openWithBalance = receivableOn($this->matter);
+
+    $this->actingAs($this->accountant, 'web');
+
+    $this->livewire(Receivables::class)
+        ->filterTable('closed_with_balance')
+        ->assertCanSeeTableRecords([$closedWithBalance])
+        ->assertCanNotSeeTableRecords([$openWithBalance]);
 });
 
 // =================================================================================================
@@ -178,6 +338,49 @@ it('hides both money buttons from the manager, who can only look', function () {
         ->assertActionHidden(TestAction::make('voidPayment')->table($instalment));
 });
 
+/**
+ * Fix vòng 1, I3(a). `->callAction()` (dùng ở mọi test khác) tự `assertActionVisible()` TRƯỚC KHI
+ * mount — một cổng của KHUNG TEST, không phải của sản xuất. Ở đây gọi thẳng phương thức Livewire
+ * `mountAction()` (bỏ qua macro `TestsActions::callAction()` và cái `assertTrue()` của nó), đúng
+ * đường một request `wire:submit` giả có thể đi: `InteractsWithActions::mountAction()` (vendor,
+ * dòng ~163) tự hỏi `$action->isDisabled()` — đọc lại `->authorize()` — và trả `null` NGAY, không
+ * mount, không ném lỗi, khi nó `false`. Đây là chỗ SẢN XUẤT thật sự chặn, không phải một giả định.
+ */
+it('refuses recordPayment for the manager even when mounted directly through Livewire, bypassing the hidden button', function () {
+    $instalment = receivableOn($this->matter);
+
+    $this->actingAs($this->manager, 'web');
+
+    $this->livewire(Receivables::class)
+        ->call('mountAction', 'recordPayment', [], ['table' => true, 'recordKey' => (string) $instalment->id])
+        // Bằng chứng CHÍNH: không có gì được MOUNT — không chỉ "không có Payment" (điều đó vẫn
+        // đúng dù mount có thành công hay không, vì chưa nộp dữ liệu nào). `mountedActions` rỗng
+        // là dấu vết trực tiếp của nhánh `isDisabled()` (vendor, dòng ~163) đã chặn TRƯỚC khi mở
+        // modal.
+        ->assertActionNotMounted();
+
+    expect(Payment::query()->where('instalment_id', $instalment->id)->count())->toBe(0);
+});
+
+/**
+ * Fix vòng 1, I3(b). Kế toán không thấy dòng của vụ `restricted` trong tập dòng của mình
+ * (`rowsQuery()` đã lọc), nên `getTableRecord()` (vendor) chạy lại ĐÚNG truy vấn đó với
+ * `recordKey` giả mạo — không tìm thấy — và `mountAction()` bắt `ActionNotResolvableException` rồi
+ * trả `null`, cùng một kết quả im lặng như test trên. Không có Payment nào được ghi dù `recordKey`
+ * trỏ thẳng vào một đợt thật.
+ */
+it('refuses recordPayment for the accountant when the recordKey belongs to a restricted matters instalment', function () {
+    $instalment = receivableOn($this->restricted);
+
+    $this->actingAs($this->accountant, 'web');
+
+    $this->livewire(Receivables::class)
+        ->call('mountAction', 'recordPayment', [], ['table' => true, 'recordKey' => (string) $instalment->id])
+        ->assertActionNotMounted();
+
+    expect(Payment::query()->where('instalment_id', $instalment->id)->count())->toBe(0);
+});
+
 it('turns PaymentExceedsInstalment into a notification instead of a 500, and does not record anything', function () {
     $instalment = receivableOn($this->matter, 10_000_000);
 
@@ -233,6 +436,39 @@ it('lets the accountant void the newer payment by id while an older one on the s
         ->and($older->fresh()->voided_at)->toBeNull();
 });
 
+/**
+ * Fix vòng 1, minor: không tin `payment_id` từ Livewire — xem chú thích ở `voidPaymentAction()`.
+ * Ô `Select` chỉ hiện các khoản CỦA ĐÚNG đợt đang mở modal, nhưng một request dựng tay có thể gửi
+ * id của một khoản thu thuộc đợt KHÁC (cả hai vụ đều thường, kế toán có quyền huỷ trên cả hai) —
+ * đợt đang mở modal phải không đổi gì, dù id đó có thật và kế toán có quyền chung trên vụ của nó.
+ *
+ * **Giới hạn thành thật của test này:** đo qua `callAction()` (đúng đường Livewire thật), validation
+ * "in options" của chính `Select` (vendor) đã chặn TRƯỚC khi request chạm tới điều kiện
+ * `instalment_id !== $record->id` trong action — nên xoá điều kiện đó KHÔNG làm test này đỏ (đã
+ * thử). Test vẫn giữ vì nó đo đúng KẾT QUẢ cần có (không huỷ nhầm), và ghim rằng validation của
+ * `Select` đang là chốt chặn thật sự cho đường này — xem docblock `voidPaymentAction()`.
+ */
+it('refuses to void a payment whose id belongs to a different instalment, even one the accountant can also act on', function () {
+    $instalmentA = receivableOn($this->matter, 10_000_000);
+    // Un khoản THẬT trên A, để nút "Huỷ khoản thu" hiện ra (visible() đòi còn khoản chưa huỷ) —
+    // đây không phải khoản bị nhắm tới; test chỉ cần nút hiện, không cần huỷ đúng khoản này.
+    Payment::factory()->for($instalmentA)->create(['amount' => 1_000_000]);
+
+    $otherMatter = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
+    $instalmentB = receivableOn($otherMatter, 10_000_000);
+    $paymentOnB = Payment::factory()->for($instalmentB)->create(['amount' => 4_000_000]);
+
+    $this->actingAs($this->accountant, 'web');
+
+    $this->livewire(Receivables::class)
+        ->callAction(TestAction::make('voidPayment')->table($instalmentA), data: [
+            'payment_id' => $paymentOnB->id,
+            'reason' => str_repeat('a', 20),
+        ]);
+
+    expect($paymentOnB->fresh()->voided_at)->toBeNull();
+});
+
 it('hides the void button once every payment on the instalment has already been voided', function () {
     $instalment = receivableOn($this->matter, 10_000_000);
     Payment::factory()->for($instalment)->voided()->create(['amount' => 4_000_000]);
@@ -243,9 +479,6 @@ it('hides the void button once every payment on the instalment has already been 
         ->assertActionHidden(TestAction::make('voidPayment')->table($instalment));
 });
 
-// Vụ `restricted` không được ghi bởi kế toán: đã chứng minh ở mức row-scope (bài test "shows the
-// accountant an ordinary matter's instalment but hides a restricted one" phía trên) — dòng đó
-// không có trong tập dòng của kế toán nên không có gì để bấm, và khung test action của Filament từ
-// chối resolve một record ngoài tập đó (cùng cơ chế vừa chứng minh ở test quản lý bên trên). Định
-// nghĩa "ai ghi được payment.record trên vụ restricted" (chỉ lead lawyer/admin) đã có bộ test riêng,
-// đầy đủ, ở `tests/Feature/Authorization/BillingAccessTest.php` — không lặp lại ở đây.
+// Định nghĩa đầy đủ "ai ghi được payment.record trên vụ restricted" (chỉ lead lawyer/admin) đã có
+// bộ test riêng ở tests/Feature/Authorization/BillingAccessTest.php — không lặp lại ở đây; hai
+// test trên chỉ ghim rằng TRANG NÀY tôn trọng đúng cổng đó, kể cả khi bị gọi thẳng qua Livewire.
