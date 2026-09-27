@@ -463,10 +463,24 @@ it('silently reuses a duplicate client that is visible to the lawyer, without cr
  * isVisibleTo()` (C1) đã chặn đúng con đường "tạo khách mới". Sau bản sửa: từ chối trung lập,
  * không tên, không mã hồ sơ — và vụ việc không mở được nếu chỉ dựa vào kết quả tra đó.
  *
- * Kiểm tra "raw response, không `assertDontSee` có strip" (Minor round 2): gọi thẳng
- * `assertDontSee($name, escape: true, stripInitialData: false)` để soi cả phần snapshot Livewire
- * tuần tự hoá trong HTML, không chỉ phần người dùng nhìn thấy sau khi Livewire tự lọc dữ liệu
- * khởi tạo — một tên còn sót lại TRONG snapshot (dù không hiện trên màn hình) vẫn là một rò rỉ.
+ * **Fix round 3 — kiểm tra bằng CHÍNH dữ liệu Livewire thật sự gửi đi, không phải HTML.**
+ * `assertDontSee($x, escape: true, stripInitialData: false)` (bản round 2) SAI ở hai chỗ, cả hai
+ * đều làm khẳng định đó không đo được gì:
+ *  - Nó gọi SAU một `->call('lookupClient', ...)` tiếp theo — không phải lượt render TRANG ĐẦU
+ *    TIÊN. `assertDontSee()` đọc `$this->lastState->getHtml($stripInitialData)`, và sau một
+ *    `call()`, `lastState` là phản hồi AJAX của CHÍNH lượt gọi đó: `getHtml()` chỉ trả về mảnh
+ *    HTML nằm trong `effects['html']` của phản hồi — nó KHÔNG BAO GIỜ chứa thuộc tính
+ *    `wire:snapshot="..."` (thuộc tính đó chỉ có ở lượt RENDER TRANG ĐẦU, gắn vào thẻ gốc của
+ *    component). Đối số `stripInitialData: false` vì vậy không tắt được gì — không có gì để tắt.
+ *  - Ngay cả nếu có: `json_encode()` (cách Livewire tuần tự hoá snapshot/effects thành JSON gửi
+ *    đi) mặc định ESCAPE ký tự ngoài ASCII thành `\uXXXX`. Một chuỗi tiếng Việt thô
+ *    ("Khách hàng...") không bao giờ khớp một chuỗi JSON đã escape — phép so khớp chuỗi thất bại
+ *    vì LÝ DO SAI, không phải vì dữ liệu sạch.
+ *
+ * Kiểm tra ĐÚNG: `$component->snapshot`/`$component->effects` (thuộc tính ảo của `Testable`, đọc
+ * qua `__get()`, luôn phản ánh state/effects của phản hồi GẦN NHẤT — kể cả sau một `call()`) mã
+ * hoá lại bằng `JSON_UNESCAPED_UNICODE` để chuỗi tiếng Việt giữ nguyên dạng đọc được, rồi so
+ * trực tiếp — đây là TOÀN BỘ những gì Livewire thực sự gửi về trình duyệt cho lượt gọi vừa rồi.
  */
 it('refuses the identifier lookup for a client whose matters are all restricted and unlistable, revealing nothing raw', function () {
     $otherLawyer = User::factory()->withRole(Role::Lawyer)->create();
@@ -487,9 +501,15 @@ it('refuses the identifier lookup for a client whose matters are all restricted 
     expect($component->instance()->resolvedClientId)->toBeNull()
         ->and($component->instance()->resolvedClientLabel)->toBeNull();
 
-    // Raw: không strip dữ liệu khởi tạo, không escape đặc biệt gì thêm — soi cả snapshot.
-    $component->assertDontSee('Khách hàng chỉ có vụ hạn chế', true, false);
-    $component->assertDontSee($secretClient->code, true, false);
+    // Đúng dữ liệu Livewire thật sự gửi đi cho lượt gọi vừa rồi — không phải HTML, không bị
+    // json_encode() escape mất chữ tiếng Việt.
+    $snapshotJson = json_encode($component->snapshot, JSON_UNESCAPED_UNICODE);
+    $effectsJson = json_encode($component->effects, JSON_UNESCAPED_UNICODE);
+
+    expect($snapshotJson)->not->toContain('Khách hàng chỉ có vụ hạn chế')
+        ->and($snapshotJson)->not->toContain($secretClient->code)
+        ->and($effectsJson)->not->toContain('Khách hàng chỉ có vụ hạn chế')
+        ->and($effectsJson)->not->toContain($secretClient->code);
 
     // Không mở được vụ việc chỉ dựa vào kết quả tra bị từ chối đó (client_id vẫn thiếu).
     $component->fillForm(['client_role' => PartyRole::Plaintiff->value])
