@@ -27,10 +27,27 @@ Mỗi đêm lúc 02:00 (giờ Việt Nam), hệ thống tự động:
 | Máy chủ (đĩa trung chuyển) | 7 bản gần nhất (đổi được bằng `BACKUP_LOCAL_KEEP`) | Khôi phục nhanh khi cần, không cần tải lại từ Google Drive; đồng thời tránh đầy ổ đĩa máy chủ |
 
 Nếu Google Drive **chưa bật cấu hình**, máy chủ tự giữ đủ 30 bản (không có đĩa trung chuyển, vì
-không có nơi nào khác giữ bản đầy đủ).
+không có nơi nào khác giữ bản đầy đủ). Trên máy chủ thật (`APP_ENV=production`) cấu hình đó **gửi
+email báo lỗi mỗi đêm** — "không có bản sao ngoài máy chủ" — cho tới khi bật Google Drive (hoặc một
+đĩa sao lưu khác nằm ngoài máy chủ): bản sao lưu nằm cùng ổ đĩa với dữ liệu thì máy chủ hỏng ổ là
+mất cả hai.
+
+**Mỗi môi trường một thư mục trên Google Drive.** Hệ thống đẩy bản sao lưu vào một thư mục con của
+remote, đặt tên theo `BACKUP_NAME` (ví dụ `BACKUP_NAME="VK-CRM production"` → thư mục
+`gdrive:VK-CRM-backups/vk-crm-production`). Nếu máy chủ thật và máy thử (staging) dùng chung một
+Google Drive, **mỗi máy phải có `BACKUP_NAME` khác nhau** — đó là thứ giữ cho lượt dọn "giữ 30 bản"
+của máy này không bao giờ đếm hay xoá bản sao lưu của máy kia. Đừng chép tay tệp giữa các thư mục
+đó.
+
+**Bản bị dọn trên Google Drive đi vào Thùng rác**, không mất ngay: Google giữ chúng thêm 30 ngày và
+chúng **vẫn tính vào dung lượng** của tài khoản trong 30 ngày đó. Khi tính dung lượng Google Drive
+cần mua, tính cho khoảng **60 bản** (30 bản đang giữ + khoảng 30 bản trong Thùng rác), không phải
+30. Có thể dọn Thùng rác sớm bằng tay trên giao diện Google Drive nếu thiếu chỗ.
 
 **Nếu một lượt sao lưu, dọn dẹp, hay đẩy lên Google Drive thất bại**, hệ thống gửi email báo lỗi
 tới địa chỉ khai ở `BACKUP_NOTIFY_EMAIL` (hoặc mọi Admin đang hoạt động, nếu chưa khai địa chỉ đó).
+Ngoài ra, **mỗi sáng lúc 08:00** hệ thống tự kiểm: bản mới nhất trên Google Drive phải dưới 36 giờ
+tuổi — nếu các lượt đẩy đêm gần đây lặng lẽ không lên được, sáng hôm đó có email báo lỗi.
 **Một email báo lỗi sao lưu không phải chuyện có thể để đó "xem sau"** — vụ việc mất một ngày sao
 lưu vào đúng ngày máy chủ hỏng là vụ việc không lấy lại được.
 
@@ -42,20 +59,49 @@ lưu vào đúng ngày máy chủ hỏng là vụ việc không lấy lại đư
 nó thay vì tự nói chuyện trực tiếp với Google (lý do kỹ thuật: xem
 `docs/research/2026-09-26-sao-luu.md`, mục "Task 2").
 
-Trên máy chủ Ubuntu/Debian, nhờ người quản trị máy chủ chạy (một lần, cần quyền quản trị):
+`rclone` là MỘT tệp chạy duy nhất, không cần quyền quản trị để cài — cách dưới đây dùng được cả
+trên VPS lẫn trên shared hosting (nơi không có `sudo`). Nhờ người quản trị máy chủ, hoặc tự làm qua
+SSH bằng đúng tài khoản chạy ứng dụng, một lần:
 
 ```
-curl https://rclone.org/install.sh | sudo bash
+cd ~
+curl -O https://downloads.rclone.org/rclone-current-linux-amd64.zip
+curl -O https://downloads.rclone.org/SHA256SUMS
 ```
 
-Kiểm tra đã cài xong:
+Đối chiếu tệp vừa tải với bảng mã kiểm tra chính thức (dòng `rclone-v…-linux-amd64.zip` trong
+`SHA256SUMS` phải trùng với kết quả của lệnh dưới — khác là tệp tải về bị hỏng hoặc bị tráo, dừng
+lại):
 
 ```
-rclone version
+sha256sum rclone-current-linux-amd64.zip
 ```
 
-Lệnh trên phải in ra một số phiên bản (ví dụ `rclone v1.68.0`), không phải lỗi "command not
-found".
+Rồi giải nén và đặt vào thư mục `bin` trong thư mục nhà của tài khoản đó:
+
+```
+unzip rclone-current-linux-amd64.zip
+mkdir -p ~/bin
+cp rclone-v*-linux-amd64/rclone ~/bin/rclone
+chmod 755 ~/bin/rclone
+rm -r rclone-current-linux-amd64.zip SHA256SUMS rclone-v*-linux-amd64
+```
+
+(Máy chủ dùng chip ARM thì thay `linux-amd64` bằng `linux-arm64`. **Không** dùng cách
+`curl … | sudo bash` hay thấy trên mạng: nó chạy một kịch bản tải về với quyền quản trị mà không
+cho ai xem trước, và không làm được trên shared hosting.)
+
+Kiểm tra đã cài xong (dùng đường dẫn đầy đủ — thư mục `~/bin` không nhất thiết nằm trong `PATH` của
+tiến trình chạy lịch hằng đêm):
+
+```
+~/bin/rclone version
+```
+
+Lệnh trên phải in ra một số phiên bản (ví dụ `rclone v1.68.0`), không phải lỗi "No such file".
+Ghi lại đường dẫn đầy đủ của tệp (in bằng `echo ~/bin/rclone`, ví dụ `/home/vukhang/bin/rclone`) —
+Bước 4 điền nó vào `BACKUP_RCLONE_BINARY`. Ở các bước dưới, chỗ nào ghi `rclone …` thì gõ đường
+dẫn đầy đủ đó.
 
 ---
 
@@ -145,6 +191,9 @@ thực là đã đúng. Sau đó tạo trước thư mục sẽ chứa bản sao
 rclone mkdir gdrive:VK-CRM-backups
 ```
 
+Không cần tạo thư mục con cho từng môi trường — hệ thống tự tạo `gdrive:VK-CRM-backups/<tên>`
+(theo `BACKUP_NAME`, xem Bước 4) ở lượt đẩy đầu tiên.
+
 ---
 
 ## Bước 4 — Điền `.env` trên máy chủ
@@ -154,22 +203,39 @@ sẵn trong `.env.example`, chỉ cần điền giá trị thật):
 
 ```
 BACKUP_DISKS=local_backups
+BACKUP_NAME="VK-CRM production"
 BACKUP_ARCHIVE_PASSWORD=<một-chuỗi-ngẫu-nhiên-dài-tự-tạo>
 BACKUP_NOTIFY_EMAIL=<email-nhận-báo-lỗi>
 BACKUP_RCLONE_REMOTE=gdrive:VK-CRM-backups
-BACKUP_RCLONE_BINARY=
+BACKUP_RCLONE_BINARY=<đường-dẫn-đầy-đủ-ghi-lại-ở-Bước-1>
 BACKUP_RCLONE_CONFIG=
 BACKUP_LOCAL_KEEP=7
+BACKUP_RCLONE_TIMEOUT=
+BACKUP_MAX_STORAGE_MB=
 ```
 
+- `BACKUP_NAME`: tên của MÔI TRƯỜNG này. Nó đặt tên thư mục con trên Google Drive
+  (`"VK-CRM production"` → `gdrive:VK-CRM-backups/vk-crm-production`) và tiền tố tên từng bản sao
+  lưu. Máy thử (staging) dùng chung Google Drive thì đặt tên khác (ví dụ `"VK-CRM staging"`). Để
+  trống thì dùng `APP_NAME`.
 - `BACKUP_ARCHIVE_PASSWORD`: tự tạo một chuỗi dài, ngẫu nhiên (ví dụ bằng một trình quản lý mật
-  khẩu). **Đây là chìa khoá duy nhất mở được bản sao lưu** — xem Bước 5 về nơi cất nó.
+  khẩu). **Đây là chìa khoá duy nhất mở được bản sao lưu** — xem Bước 6 về nơi cất nó.
 - `BACKUP_RCLONE_REMOTE`: đúng tên remote đã tạo ở Bước 3 (`gdrive`), cộng dấu hai chấm, cộng tên
   thư mục đã tạo (`VK-CRM-backups`). Để TRỐNG dòng này thì tắt hẳn việc đẩy lên Google Drive — máy
-  chủ tự giữ đủ 30 bản như khi chưa có Google Drive.
-- `BACKUP_RCLONE_BINARY` và `BACKUP_RCLONE_CONFIG`: để trống trong tình huống thông thường (bước 1
-  và 3 dùng đúng vị trí mặc định của `rclone`). Chỉ điền nếu người quản trị máy chủ cố tình cài
-  `rclone` ở một nơi khác, hoặc dùng một tệp `rclone.conf` khác vị trí mặc định.
+  chủ tự giữ đủ 30 bản như khi chưa có Google Drive, và trên máy chủ thật mỗi đêm có email báo lỗi
+  "không có bản sao ngoài máy chủ".
+- `BACKUP_RCLONE_BINARY`: đường dẫn đầy đủ tới tệp `rclone` đã cài ở Bước 1 (ví dụ
+  `/home/vukhang/bin/rclone`). Chỉ để trống khi `rclone` đã nằm trong `PATH` của hệ thống (ví dụ
+  người quản trị VPS tự cài vào `/usr/local/bin`) — lịch chạy hằng đêm không đọc `PATH` của phiên
+  SSH của anh/chị.
+- `BACKUP_RCLONE_CONFIG`: để trống trong tình huống thông thường (Bước 3 lưu cấu hình vào vị trí
+  mặc định của `rclone`). Chỉ điền nếu dùng một tệp `rclone.conf` khác vị trí mặc định.
+- `BACKUP_LOCAL_KEEP`: số bản giữ trên máy chủ khi đã bật Google Drive. Để trống là 7.
+- `BACKUP_RCLONE_TIMEOUT`: hạn cho mỗi lệnh `rclone`, tính bằng giây. Để trống là 1800 (30 phút).
+  Chỉ nới ra khi email báo lỗi nói lệnh `rclone` bị quá hạn (bản sao lưu rất lớn, mạng chậm).
+- `BACKUP_MAX_STORAGE_MB`: hạn mức dung lượng mỗi đĩa sao lưu, tính bằng MB — vượt mức thì kiểm tra
+  08:00 gửi email "bản sao lưu không lành mạnh". Để trống là 25000 (~24 GB, đủ 7 bản của một bản
+  sao lưu 3 GB). Chọn theo dung lượng ổ đĩa máy chủ.
 
 **⚠ `BACKUP_DISKS` PHẢI CÒN `local_backups` khi đã bật `BACKUP_RCLONE_REMOTE`.** Việc đẩy lên
 Google Drive đi qua đúng bước ghi vào đĩa `local_backups` trên máy chủ — nếu ai đó sau này sửa
@@ -268,8 +334,17 @@ quý một lần, ghi kết quả vào `docs/PROGRESS.md`):
    hỏng): `APP_KEY` và `BACKUP_ARCHIVE_PASSWORD` — đúng bản đi kèm THỜI ĐIỂM của bản sao lưu sẽ
    dùng. Không có cả hai thì dừng lại ở đây; đọc tiếp không giải quyết được gì.
 2. **Lấy bản sao lưu** — tải tệp `.zip` mới nhất (hoặc bản ở đúng ngày cần khôi phục) từ Google
-   Drive (`gdrive:VK-CRM-backups`, xem Bước 3) hoặc từ đĩa `local_backups` trên máy chủ văn phòng
-   nếu còn.
+   Drive, hoặc từ đĩa `local_backups` trên máy chủ văn phòng nếu còn. Bản trên Google Drive nằm
+   trong thư mục của môi trường (`gdrive:VK-CRM-backups/<tên theo BACKUP_NAME>`, xem Bước 4); tên
+   tệp mang ngày giờ tạo, nên bản mới nhất là dòng CUỐI của danh sách. Trên máy khôi phục đã cài
+   `rclone` và nối remote `gdrive` (Bước 1 và 3):
+   ```
+   rclone lsf gdrive:VK-CRM-backups/vk-crm-production/
+   rclone copy gdrive:VK-CRM-backups/vk-crm-production/vk-crm-production-2026-09-27-02-00-12.zip ./khoi-phuc/
+   ```
+   Lệnh thứ hai tải đúng một tệp (thay tên tệp bằng tên thấy ở lệnh thứ nhất) vào thư mục
+   `./khoi-phuc/`. Không có `rclone` thì tải bằng trình duyệt từ giao diện Google Drive — cùng
+   một tệp.
 3. **Dựng một môi trường SẠCH** — máy chủ mới hoặc máy chủ đã cài lại từ đầu theo `README.md`/
    `docs/CAI-DAT.md` (mã nguồn qua Git, `composer install`, extension PHP đầy đủ), với MỘT cơ sở
    dữ liệu MariaDB RỖNG (không phải cơ sở dữ liệu cũ còn sót lại — một cơ sở dữ liệu cũ có thể che
@@ -288,8 +363,9 @@ quý một lần, ghi kết quả vào `docs/PROGRESS.md`):
    mariadb -u<user> -p<mật khẩu CSDL> <tên-csdl> < duong-dan/db-dumps/ten-tep.sql
    ```
    Máy chủ đích PHẢI có sẵn gói mang lệnh `mariadb`/`mariadb-dump` (ví dụ `apt install
-   mariadb-client` trên Ubuntu/Debian) — đây là điều kiện cần đã nêu ở SPEC §10 mục 8 và kiểm bởi
-   `vkcrm:preflight`.
+   mariadb-client` trên Ubuntu/Debian) — đây là điều kiện cần đã nêu ở SPEC §10 mục 8 (lệnh kiểm
+   tự động `vkcrm:preflight` thuộc M8 Task 8, **chưa có** — hiện phải kiểm tay bằng
+   `mariadb-dump --version`; xem `docs/CAI-DAT.md`, mục "Khi đưa lên máy chủ thật").
 6. **Chép tệp hồ sơ** — mọi mục trong archive có tiền tố `storage/app/private/` (đường TƯƠNG ĐỐI
    tính từ gốc ứng dụng — xem đoạn giải thích `relative_path` ở docblock
    `config/backup.php`) chép về ĐÚNG thư mục `storage/app/private/` của máy chủ mới, giữ nguyên
@@ -313,33 +389,38 @@ quý một lần, ghi kết quả vào `docs/PROGRESS.md`):
 sản xuất sẽ khác (mạng, cấu hình máy, dung lượng dữ liệu thật), nhưng THỨ TỰ các bước và việc bước
 nào tốn thời gian nhất thì giữ nguyên. Diễn tập lại trên máy chủ thật khi có, ghi đè bảng này.
 
+Lượt đo dưới đây chạy lúc 20:14 ngày 2026-09-27, sau lượt rà soát cuối M8a (kịch bản nay dựng cả
+"máy nguồn" trong một bản sao riêng — bước 1 — nên có 13 bước thay vì 12 như lượt đo đầu).
+
 | # | Bước | Thời gian |
 |---|---|---:|
-| 1 | Xây lại CSDL nguồn (`migrate:fresh --seed`) | 16,17 s |
-| 2 | Tạo dữ liệu thử (khách hàng + tài liệu) | 8,51 s |
-| 3 | `backup:run` thật (dump CSDL + tệp, mã hoá AES-256) | 15,00 s |
-| 4 | Định vị archive | 0,09 s |
-| 5 | Dựng bản sao mã nguồn sạch (không `storage/app/private`) | 6,50 s |
-| 6 | Dựng MariaDB sạch tạm thời | 4,01 s |
-| 7 | Giải nén archive bằng mật khẩu | 1,21 s |
-| 8 | Nạp bản dump vào MariaDB sạch | 0,76 s |
-| 9 | Chép tệp hồ sơ về `storage/app/private` | 0,11 s |
-| 10 | `migrate:status` trên bản khôi phục | 22,22 s |
-| 11 | Giải mã `id_number` + so checksum tệp + đếm dòng | 10,01 s |
-| 12 | Chứng minh thất bại với `APP_KEY` mới | 7,85 s |
-| | **TỔNG** | **92,44 s (~1 phút 32 giây)** |
+| 1 | Dựng bản sao mã nguồn NGUỒN (không dữ liệu, không `.env`, không cache) | 10,77 s |
+| 2 | Xây CSDL nguồn riêng (`migrate:fresh --seed`) | 42,66 s |
+| 3 | Tạo dữ liệu thử (khách hàng + tài liệu) | 11,82 s |
+| 4 | `backup:run` thật (dump CSDL + tệp, mã hoá AES-256) | 15,14 s |
+| 5 | Định vị archive | 0,11 s |
+| 6 | Dựng bản sao mã nguồn SẠCH cho bản khôi phục (không `storage/app/private`) | 8,09 s |
+| 7 | Dựng MariaDB sạch tạm thời | 4,65 s |
+| 8 | Giải nén archive bằng mật khẩu | 1,22 s |
+| 9 | Nạp bản dump vào MariaDB sạch | 0,92 s |
+| 10 | Chép tệp hồ sơ về `storage/app/private` | 0,11 s |
+| 11 | `migrate:status` trên bản khôi phục | 19,05 s |
+| 12 | Giải mã `id_number` + so checksum tệp + đếm dòng | 11,18 s |
+| 13 | Chứng minh thất bại với `APP_KEY` mới | 8,75 s |
+| | **TỔNG** | **134,46 s (~2 phút 14 giây)** |
 
-Dữ liệu ở lượt đo này: 13 khách hàng, 21 vụ việc, 49 tài liệu (149 mục trong archive, 103 KB nén —
-dữ liệu mẫu, không phải quy mô dữ liệu thật của văn phòng sau vài năm vận hành). Bước 10
-(`migrate:status`) và bước 3 (`backup:run`) tốn thời gian nhất trong lượt đo này vì chi phí khởi
-động container (`apk add mariadb-client`, kéo image `mariadb:11` lần đầu) tính vào — trên máy chủ
+Dữ liệu ở lượt đo này: 13 khách hàng, 21 vụ việc, 49 tài liệu (99 mục trong archive, 76 KB nén —
+dữ liệu mẫu, không phải quy mô dữ liệu thật của văn phòng sau vài năm vận hành). Bước 2
+(`migrate:fresh --seed`), bước 11 (`migrate:status`) và bước 4 (`backup:run`) tốn thời gian nhất
+trong lượt đo này vì chi phí khởi động container (`apk add mariadb-client`, khởi động PHP trong
+container mới cho mỗi bước) và vì máy dev đang chạy chung Docker với các làn khác — trên máy chủ
 thật, nơi các gói cần thiết đã cài sẵn và không phải khởi động container mới cho mỗi bước, quy
 trình thật (mục "Quy trình cho máy chủ thật" ở trên) sẽ nhanh hơn đáng kể; ngược lại, dữ liệu thật
-sau nhiều năm (hàng GB tệp hồ sơ) sẽ làm bước giải nén và bước chép tệp (7, 9) chậm hơn nhiều so
-với 149 tệp mẫu ở đây. Diễn tập định kỳ trên dữ liệu thật là cách duy nhất biết con số thật.
+sau nhiều năm (hàng GB tệp hồ sơ) sẽ làm bước giải nén và bước chép tệp (8, 10) chậm hơn nhiều so
+với 49 tệp mẫu ở đây. Diễn tập định kỳ trên dữ liệu thật là cách duy nhất biết con số thật.
 
 **Bằng chứng "APP_KEY là một nửa của bản sao lưu" (R3), đo được thật, không suy luận:** lặp lại
-bước 11 với một `APP_KEY` ngẫu nhiên KHÁC (không phải khoá đã tạo dữ liệu) trên ĐÚNG bản khôi phục
+bước 12 với một `APP_KEY` ngẫu nhiên KHÁC (không phải khoá đã tạo dữ liệu) trên ĐÚNG bản khôi phục
 vừa nạp — `Illuminate\Contracts\Encryption\DecryptException: The MAC is invalid.` Cơ sở dữ liệu vẫn
 nạp được, `migrate:status` vẫn xanh, tệp tài liệu vẫn mở được (nó không mã hoá bằng `APP_KEY`) —
 nhưng `id_number` của MỌI khách hàng vĩnh viễn không đọc lại được. Đây chính xác là kịch bản
@@ -351,11 +432,17 @@ nhưng `id_number` của MỌI khách hàng vĩnh viễn không đọc lại đ�
 tools/backup/restore-drill.sh
 ```
 
-Chạy từ Git Bash, trong worktree này. Kịch bản tự làm lại toàn bộ 12 bước ở trên trong container
-tạm (không đụng `vk_crm`, chỉ dùng `vk_crm_lane_m8` làm nguồn và một container MariaDB tạm thời
-tên `vkcrm-lane-m8-restore-<thời gian>` làm đích khôi phục), tự dọn dẹp khi xong, và không để lại
-archive hay thư mục tạm nào trong repo. Không chạy trên máy chủ thật — kịch bản này giả lập, không
-thay thế quy trình thật ở trên (nó cũng KHÔNG dùng SFTP/rclone, vì đích thử là chính máy dev).
+Chạy từ Git Bash, trong worktree này. Kịch bản tự làm lại toàn bộ 13 bước ở trên trong container
+tạm: "máy nguồn" là một BẢN SAO mã nguồn riêng của lượt chạy (seed, dữ liệu thử và `backup:run`
+chạy trong bản sao đó, không ghi gì vào `storage/app/private`, `storage/app/backups` hay
+`bootstrap/cache` của worktree), CSDL nguồn là `vk_crm_lane_m8_drill_<thời gian>_<PID>` do chính
+lượt chạy tạo và xoá (không đụng `vk_crm` hay `vk_crm_lane_m8`; hai lượt chạy cùng lúc không đụng
+nhau), đích khôi phục là một container MariaDB tạm thời tên `vkcrm-lane-m8-restore-<thời gian>_<PID>`
+và một bản sao mã nguồn sạch thứ hai. Kịch bản dừng ngay nếu một bản sao có
+`bootstrap/cache/config.php` (cache cấu hình làm Laravel bỏ qua CSDL và khoá dùng một lần). Mọi
+thứ của lượt chạy nằm dưới `storage/app/_drill/` (git bỏ qua) và bị xoá khi xong, kể cả khi lỗi
+giữa chừng. Không chạy trên máy chủ thật — kịch bản này giả lập, không thay thế quy trình thật ở
+trên (nó cũng KHÔNG dùng SFTP/rclone, vì đích thử là chính máy dev).
 
 ### Đóng gói bàn giao M7 — có sao lưu lại không?
 

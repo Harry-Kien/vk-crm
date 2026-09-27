@@ -47,8 +47,11 @@ trở thành không đọc được, vĩnh viễn.** Không có cách khôi ph�
 - Dựng máy mới với dữ liệu mẫu: sinh khoá mới thoải mái.
 - Dựng lại để dùng tiếp dữ liệu thật: **giữ nguyên `APP_KEY` cũ**, chép từ bản `.env` đang chạy.
 
-Vì vậy `.env` của máy đang chạy phải được giữ ở một chỗ an toàn **ngoài kho** — cùng chỗ
-với bản sao lưu cơ sở dữ liệu, không phải trong thư mục dự án.
+Vì vậy `.env` của máy đang chạy — nó chứa `APP_KEY` **và** `BACKUP_ARCHIVE_PASSWORD`, mật
+khẩu mở mọi bản sao lưu — phải được cất ở **hai nơi ngoài máy chủ, KHÔNG cùng chỗ với bản sao
+lưu**, và không trong thư mục dự án. Ai có cả bản sao lưu lẫn `.env` là mở được mọi bản sao lưu
+và đọc được mọi số định danh đã mã hoá: cất `.env` cạnh bản sao lưu (ví dụ cùng thư mục Google
+Drive) là tự đưa chìa khoá kèm két. Cách cất cụ thể: `docs/SAO-LUU-KHOI-PHUC.md`, **Bước 6**.
 
 ## Tài khoản dùng thử sau khi gieo dữ liệu mẫu
 
@@ -98,11 +101,30 @@ cách một lỗ hổng đếm số lần đăng nhập sai sống sót qua hai 
 
 ## Khi đưa lên máy chủ thật
 
-Chưa làm, thuộc phần bảo mật và vận hành. Bốn thứ bắt buộc phải xong trước:
+Chưa làm, thuộc phần bảo mật và vận hành. Những thứ bắt buộc phải xong trước:
 
 1. **`TRUSTED_PROXIES` phải điền địa chỉ proxy thật.** Để trống nghĩa là mọi khách hàng dùng
    chung một bộ đếm đăng nhập: năm lần gõ sai của bất kỳ ai khoá cả cổng trong 15 phút.
 2. Đúng một dòng lịch chạy tự động:
    `* * * * * cd /đường/dẫn && php artisan schedule:run >> /dev/null 2>&1`
-3. Sao lưu hằng ngày, và **đã thử khôi phục thật một lần**.
+3. Sao lưu hằng ngày ra Google Drive, và **đã thử khôi phục thật một lần** — làm theo từng bước ở
+   `docs/SAO-LUU-KHOI-PHUC.md`. Các biến `.env` của phần sao lưu và bảo mật trình duyệt (giải thích
+   từng biến ở `.env.example` và ở Bước 4 của tài liệu đó):
+   - sao lưu: `BACKUP_DISKS`, `BACKUP_NAME`, `BACKUP_ARCHIVE_PASSWORD` (bắt buộc ở production),
+     `BACKUP_NOTIFY_EMAIL`, `BACKUP_RCLONE_REMOTE`, `BACKUP_RCLONE_BINARY`, `BACKUP_RCLONE_CONFIG`,
+     `BACKUP_LOCAL_KEEP`, `BACKUP_RCLONE_TIMEOUT`, `BACKUP_MAX_STORAGE_MB`;
+   - Content-Security-Policy: `CSP_MODE` (để trống ở production là `enforce`).
+
+   Biến cũ `BACKUP_DISK` (số ít) không còn được đọc — dùng `BACKUP_DISKS`.
 4. Xác thực hai lớp cho toàn bộ tài khoản nội bộ.
+5. **Máy chủ có đủ những thứ mà sao lưu cần** (M8; lệnh kiểm tự động `vkcrm:preflight` là M8 Task 8,
+   chưa có — hiện kiểm tay):
+   - PHP extension `zip` dựng với libzip có mã hoá AES — `php -r 'var_dump(defined("ZipArchive::EM_AES_256"));'`
+     phải in `bool(true)`. Thiếu nó, mọi lượt sao lưu ở production bị từ chối (không tạo bản sao
+     lưu không mã hoá) và có email báo lỗi;
+   - hàm `proc_open` không bị tắt — `php -r 'var_dump(function_exists("proc_open"));'` phải in
+     `bool(true)` (nhiều shared hosting tắt nó trong `disable_functions`; thiếu nó thì không dump
+     được CSDL và không gọi được `rclone`);
+   - lệnh `mariadb-dump` (gói `mariadb-client`, ví dụ `apt install mariadb-client`) —
+     `mariadb-dump --version` phải in ra một số phiên bản;
+   - cộng tệp chạy `rclone` cho đích Google Drive (Bước 1 của `docs/SAO-LUU-KHOI-PHUC.md`).

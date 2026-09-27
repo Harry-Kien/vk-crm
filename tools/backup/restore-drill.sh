@@ -6,38 +6,48 @@
 # cất APP_KEY/BACKUP_ARCHIVE_PASSWORD) nằm ở docs/SAO-LUU-KHOI-PHUC.md, mục "Khôi phục thử".
 #
 # Thứ tự đúng như Task 3 đòi:
-#   1. Xây một CSDL NGUỒN RIÊNG của kịch bản này (`vk_crm_lane_m8_drill`, KHÔNG PHẢI
+#   1. Dựng một BẢN SAO mã nguồn làm "máy nguồn" (lượt rà soát cuối M8a, M2): seeder, dữ liệu thử
+#      và `backup:run` đều chạy TRONG bản sao này, nên tệp hồ sơ mẫu, tệp của dữ liệu thử và
+#      archive đều nằm trong bản sao — KHÔNG trong storage/app/private hay storage/app/backups của
+#      worktree (bản trước ghi thẳng vào hai thư mục đó của worktree, và nén luôn mọi thứ đang có
+#      trong storage/app/private của worktree vào archive).
+#   2. Xây một CSDL NGUỒN RIÊNG của lượt chạy này (`vk_crm_lane_m8_drill_<TS>`, KHÔNG PHẢI
 #      `vk_crm_lane_m8` — đĩa serve `:8090` và các task khác của làn đọc/ghi CSDL đó ĐANG lúc kịch
-#      bản này có thể chạy; `migrate:fresh` xoá sạch bảng, nên đụng nhầm vào nó phá luôn việc của
-#      người khác) bằng một APP_KEY DÙNG MỘT LẦN — không phải APP_KEY thật của `.env` trên máy dev.
-#      Lý do cần khoá dùng một lần: bước "đặt APP_KEY cũ" ở dưới chỉ chứng minh được điều nó phải
-#      chứng minh (khôi phục cần ĐÚNG khoá, không phải BẤT KỲ khoá nào) nếu khoá đó không lẫn với
-#      khoá thật của máy đang chạy kịch bản.
-#   2. Tạo thêm một khách hàng có `id_number` (qua `Client::create()`, tôn trọng cast `encrypted`)
+#      bản này có thể chạy; `migrate:fresh` xoá sạch bảng) bằng một APP_KEY DÙNG MỘT LẦN — không
+#      phải APP_KEY thật của `.env` trên máy dev. Tên CSDL mang hậu tố của lượt chạy, nên hai lượt
+#      diễn tập chạy cùng lúc không xoá CSDL của nhau.
+#   3. Tạo thêm một khách hàng có `id_number` (qua `Client::create()`, tôn trọng cast `encrypted`)
 #      và một tài liệu có tệp thật (qua `UploadStaffDocument`, Action có sẵn — cùng đường tệp thật
 #      mà `MatterSeeder` dùng).
-#   3. `backup:run` thật: dump CSDL bằng `mariadb-dump` (cài trong container tạm, không sửa
-#      image), nén cùng tệp hồ sơ, mã hoá AES-256, ghi ra disk `local_backups`.
-#   4. Dựng một MariaDB SẠCH (container mới, không map cổng ra host) và một BẢN SAO mã nguồn
-#      KHÔNG có `storage/app/private` — không ghi đè trực tiếp vào máy dev đang chạy.
-#   5. Giải nén archive bằng mật khẩu, nạp dump vào MariaDB sạch, chép tệp về đúng chỗ,
+#   4. `backup:run` thật: dump CSDL bằng `mariadb-dump` (cài trong container tạm, không sửa
+#      image), nén cùng tệp hồ sơ CỦA BẢN SAO NGUỒN, mã hoá AES-256, ghi ra disk `local_backups`
+#      CỦA BẢN SAO NGUỒN.
+#   5. Dựng một MariaDB SẠCH (container mới, không map cổng ra host) và một BẢN SAO mã nguồn SẠCH
+#      thứ hai, KHÔNG có `storage/app/private`.
+#   6. Giải nén archive bằng mật khẩu, nạp dump vào MariaDB sạch, chép tệp về đúng chỗ,
 #      `migrate:status`, rồi giải mã `id_number` + so checksum tệp + đếm dòng các bảng chính.
-#   6. Chạy lại đúng bước giải mã đó với một APP_KEY MỚI để chứng minh nó thất bại — APP_KEY là
+#   7. Chạy lại đúng bước giải mã đó với một APP_KEY MỚI để chứng minh nó thất bại — APP_KEY là
 #      một nửa của bản sao lưu (R3).
-#   7. Dọn container, CSDL nguồn riêng, thư mục tạm — không để lại archive thật, tệp tạm, hay CSDL
-#      nào trong repo hay trên MariaDB dùng chung.
+#   8. Dọn container, CSDL nguồn riêng, cả hai bản sao — không để lại archive thật, tệp tạm, hay
+#      CSDL nào trong repo hay trên MariaDB dùng chung.
 #
-# Chạy lại được: mỗi lần chạy tự sinh một hậu tố thời gian cho tên container/CSDL/thư mục tạm, và
-# một `trap ... EXIT` dọn dẹp dù script thoát giữa chừng (lỗi, Ctrl-C, `set -e`).
+# Điều kịch bản này ĐỌC và GHI trong worktree: chỉ ĐỌC mã nguồn và `vendor` (robocopy sang bản
+# sao), và chỉ GHI dưới `storage/app/_drill/<lượt chạy>/` (git bỏ qua, xoá khi thoát). Không đọc
+# cũng không ghi `storage/app/private`, `storage/app/backups`, `bootstrap/cache` hay `.env` của
+# worktree.
 #
-# KHÔNG BAO GIỜ đụng tới `vk_crm_lane_m8` (CSDL phục vụ bản chạy `:8090` của làn — các task khác
-# có thể đang seed/đọc/ghi nó CÙNG LÚC kịch bản này chạy) hay bất kỳ CSDL nào khác ngoài
-# `vk_crm_lane_m8_drill` mà chính kịch bản này tạo và xoá.
+# Cache cấu hình (lượt rà soát cuối M8a, M1): cả hai bản sao KHÔNG chép `bootstrap/cache`, và kịch
+# bản dừng ngay nếu một bản sao vẫn có `bootstrap/cache/config.php`. Với một config.php đã cache,
+# Laravel bỏ qua mọi biến `-e DB_DATABASE=… -e APP_KEY=…` của `docker run` — lượt diễn tập sẽ
+# seed/khôi phục vào CSDL và khoá ghi trong cache, không phải CSDL và khoá dùng một lần ở đây.
+#
+# Chạy lại được: mỗi lần chạy tự sinh một hậu tố (thời gian + PID) cho tên container/CSDL/thư mục
+# tạm, và một `trap ... EXIT` dọn dẹp dù script thoát giữa chừng (lỗi, Ctrl-C, `set -e`).
 #
 # Yêu cầu trên máy dev: Docker Desktop; container `crmkhachhang-mariadb-1` đang chạy trên mạng
-# `crmkhachhang_vkcrm` (kịch bản tự tạo CSDL nguồn riêng `vk_crm_lane_m8_drill` trên CHÍNH container
-# đó ở bước 1 — không cần chuẩn bị gì trước); Git Bash (MSYS) trên Windows với `openssl`,
-# `cygpath`, `robocopy` sẵn có (đều là công cụ có sẵn của Git for Windows / Windows).
+# `crmkhachhang_vkcrm` (kịch bản tự tạo CSDL nguồn riêng trên CHÍNH container đó ở bước 2 — không
+# cần chuẩn bị gì trước); Git Bash (MSYS) trên Windows với `openssl`, `cygpath`, `robocopy` sẵn có
+# (đều là công cụ có sẵn của Git for Windows / Windows).
 #
 # Bí mật: KHÔNG bao giờ ghi APP_KEY hay BACKUP_ARCHIVE_PASSWORD ra file, log, hay report — cả hai
 # được SINH MỚI (dùng một lần) ở mỗi lần chạy, không đọc từ `.env` thật của làn.
@@ -52,23 +62,25 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LANE_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 LANE_DIR_WIN="$(cygpath -w "${LANE_DIR}")"
 
-TS="$(date +%Y%m%d%H%M%S)"
+TS="$(date +%Y%m%d%H%M%S)_$$"
 IMAGE='webdevops/php:8.3-alpine'
 NETWORK='crmkhachhang_vkcrm'
 SOURCE_DB_CONTAINER='crmkhachhang-mariadb-1'
-# CSDL NGUỒN RIÊNG của kịch bản này — KHÔNG PHẢI `vk_crm_lane_m8` (đĩa serve `:8090` của làn, các
-# task khác có thể đang dùng đúng lúc này). Sống trên CÙNG container MariaDB dùng chung
-# (`crmkhachhang-mariadb-1`, đỡ phải dựng thêm một container MariaDB thứ hai chỉ để seed), nhưng là
-# một CSDL riêng, tạo mới ở bước 1 và xoá hẳn ở bước dọn dẹp — không migration, không seed, không
-# dữ liệu thử nào của kịch bản này từng chạm vào `vk_crm_lane_m8`.
-SOURCE_DB_NAME='vk_crm_lane_m8_drill'
+# CSDL NGUỒN RIÊNG của LƯỢT CHẠY này — KHÔNG PHẢI `vk_crm_lane_m8` (đĩa serve `:8090` của làn, các
+# task khác có thể đang dùng đúng lúc này), và mang hậu tố lượt chạy để hai lượt diễn tập đồng thời
+# không `migrate:fresh`/`DROP` CSDL của nhau. Sống trên CÙNG container MariaDB dùng chung, tạo mới
+# ở bước 2 và xoá hẳn ở bước dọn dẹp.
+SOURCE_DB_NAME="vk_crm_lane_m8_drill_${TS}"
 RESTORE_DB_CONTAINER="vkcrm-lane-m8-restore-${TS}"
 RESTORE_DB_NAME='vkcrm_restore_drill'
 DRILL_ID_NUMBER='099999888777'
 
-WORK_DIR="${LANE_DIR}/storage/app/_drill/work-${TS}"
+RUN_DIR="${LANE_DIR}/storage/app/_drill/run-${TS}"
+WORK_DIR="${RUN_DIR}/work"
 WORK_DIR_WIN="$(cygpath -w "${WORK_DIR}")"
-CLEAN_APP_DIR="${LANE_DIR}/storage/app/_drill/clean-app-${TS}"
+SOURCE_APP_DIR="${RUN_DIR}/source-app"
+SOURCE_APP_DIR_WIN="$(cygpath -w "${SOURCE_APP_DIR}")"
+CLEAN_APP_DIR="${RUN_DIR}/clean-app"
 CLEAN_APP_DIR_WIN="$(cygpath -w "${CLEAN_APP_DIR}")"
 
 ARCHIVE_HOST_PATH=""
@@ -125,19 +137,14 @@ cleanup() {
   echo
   echo "== dọn dẹp =="
   docker rm -f "${RESTORE_DB_CONTAINER}" >/dev/null 2>&1
-  # CSDL nguồn RIÊNG của kịch bản này — không phải vk_crm_lane_m8, xem hằng số SOURCE_DB_NAME.
-  # An toàn khi gọi dù bước 1 chưa từng chạy (CREATE DATABASE chưa xảy ra): DROP ... IF EXISTS.
+  # CSDL nguồn RIÊNG của lượt chạy này — xem hằng số SOURCE_DB_NAME. An toàn khi gọi dù bước 2
+  # chưa từng chạy: DROP ... IF EXISTS.
   docker exec "${SOURCE_DB_CONTAINER}" mariadb -uroot -ppassword \
     -e "DROP DATABASE IF EXISTS \`${SOURCE_DB_NAME}\`;" >/dev/null 2>&1
-  rm -rf "${WORK_DIR}" "${CLEAN_APP_DIR}"
-  # Archive của lượt drill KHÔNG phải một bản sao lưu thật cần giữ lại — xoá để
-  # storage/app/backups không tích rác qua nhiều lần chạy thử (thư mục vốn đã .gitignore, dọn
-  # vẫn đúng: một agent chạy script này nhiều lần không nên để lại hàng chục archive thử).
-  if [ -n "${ARCHIVE_HOST_PATH}" ] && [ -f "${ARCHIVE_HOST_PATH}" ]; then
-    rm -f "${ARCHIVE_HOST_PATH}"
-    rmdir "$(dirname "${ARCHIVE_HOST_PATH}")" 2>/dev/null || true
-  fi
-  echo "Đã xoá container ${RESTORE_DB_CONTAINER}, CSDL ${SOURCE_DB_NAME}, thư mục tạm, và archive của lượt thử này."
+  # Cả hai bản sao (kể cả archive của lượt thử, nằm trong bản sao nguồn) và thư mục làm việc.
+  rm -rf "${RUN_DIR}"
+  rmdir "${LANE_DIR}/storage/app/_drill" 2>/dev/null || true
+  echo "Đã xoá container ${RESTORE_DB_CONTAINER}, CSDL ${SOURCE_DB_NAME}, hai bản sao mã nguồn, archive và thư mục tạm của lượt thử này."
   exit "${status}"
 }
 # Đăng ký trap TRƯỚC khi tạo bất kỳ tài nguyên tạm nào (thư mục, CSDL, container) — một lỗi xảy ra
@@ -148,14 +155,64 @@ trap cleanup EXIT
 mkdir -p "${WORK_DIR}"
 
 # --------------------------------------------------------------------------------------------
-# Bước 1 — Xây CSDL nguồn RIÊNG (vk_crm_lane_m8_drill) bằng APP_KEY dùng một lần
+# Bản sao mã nguồn: mọi thứ TRỪ dữ liệu, bí mật và cache của worktree. Dùng lại `vendor` đã cài
+# (không composer install lại) — "sạch" ở đây là KHÔNG hồ sơ khách, KHÔNG archive, KHÔNG `.env`,
+# KHÔNG cache cấu hình; không phải "không có PHP dependency nào".
+# --------------------------------------------------------------------------------------------
+copy_app_tree() {
+  local dest="$1" dest_win="$2"
+
+  mkdir -p "${dest}"
+
+  set +e
+  robocopy "${LANE_DIR_WIN}" "${dest_win}" /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 \
+    /XF ".env" \
+    /XD "${LANE_DIR_WIN}\storage\app\private" \
+        "${LANE_DIR_WIN}\storage\app\backups" \
+        "${LANE_DIR_WIN}\storage\app\backup-temp" \
+        "${LANE_DIR_WIN}\storage\app\_drill" \
+        "${LANE_DIR_WIN}\storage\framework\testing" \
+        "${LANE_DIR_WIN}\storage\logs" \
+        "${LANE_DIR_WIN}\bootstrap\cache" \
+        "${LANE_DIR_WIN}\.git" \
+        "${LANE_DIR_WIN}\node_modules" \
+    >/dev/null
+  local rc=$?
+  set -e
+  # Robocopy: 0-7 là các mã THÀNH CÔNG (kèm chi tiết vô hại, ví dụ "có tệp mới"); chỉ >=8 là lỗi
+  # thật. Xem tài liệu Microsoft "Robocopy exit codes".
+  if [ "${rc}" -ge 8 ]; then
+    echo "robocopy thất bại, mã ${rc}" >&2
+    exit 1
+  fi
+
+  mkdir -p "${dest}/storage/app/private" "${dest}/storage/app/backups" "${dest}/storage/logs" "${dest}/bootstrap/cache"
+
+  # M1: không bao giờ chạy Laravel trên một bản sao còn cache cấu hình (xem đầu tệp).
+  if [ -e "${dest}/bootstrap/cache/config.php" ]; then
+    echo "Bản sao ${dest} có bootstrap/cache/config.php — Laravel sẽ bỏ qua mọi biến -e của docker run. Dừng." >&2
+    exit 1
+  fi
+
+  # KHÔNG chép .env thật (loại trừ ở trên) — dùng .env.example (bí mật rỗng/mẫu) làm nền, mọi
+  # biến cần cho lượt diễn tập (APP_KEY, DB_*, ...) truyền qua `-e` của `docker run`. APP_KEY THẬT
+  # của máy dev không bao giờ nằm trong bản sao tạm, dù chỉ trong lúc script đang chạy.
+  cp "${LANE_DIR}/.env.example" "${dest}/.env"
+}
+
+prepare_source_app() {
+  copy_app_tree "${SOURCE_APP_DIR}" "${SOURCE_APP_DIR_WIN}"
+}
+
+# --------------------------------------------------------------------------------------------
+# Bước 2 — Xây CSDL nguồn RIÊNG bằng APP_KEY dùng một lần, trong bản sao nguồn
 # --------------------------------------------------------------------------------------------
 seed_source_db() {
   docker exec "${SOURCE_DB_CONTAINER}" mariadb -uroot -ppassword \
     -e "CREATE DATABASE IF NOT EXISTS \`${SOURCE_DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON \`${SOURCE_DB_NAME}\`.* TO 'sail'@'%';"
 
   docker run --rm -i --network "${NETWORK}" \
-    -v "${LANE_DIR_WIN}:/var/www/html" -w /var/www/html \
+    -v "${SOURCE_APP_DIR_WIN}:/var/www/html" -w /var/www/html \
     -e DB_CONNECTION=mariadb -e DB_HOST=mariadb -e DB_PORT=3306 \
     -e DB_DATABASE="${SOURCE_DB_NAME}" -e DB_USERNAME=sail -e DB_PASSWORD=password \
     -e APP_KEY="${APP_KEY_OLD}" \
@@ -163,7 +220,7 @@ seed_source_db() {
 }
 
 # --------------------------------------------------------------------------------------------
-# Bước 2 — Dữ liệu thử: một khách hàng (id_number) + một tài liệu (tệp thật)
+# Bước 3 — Dữ liệu thử: một khách hàng (id_number) + một tài liệu (tệp thật)
 # --------------------------------------------------------------------------------------------
 write_fixture_script() {
   cat > "${WORK_DIR}/fixture.php" <<'PHP'
@@ -245,7 +302,7 @@ create_fixture() {
   write_fixture_script
 
   docker run --rm -i --network "${NETWORK}" \
-    -v "${LANE_DIR_WIN}:/var/www/html" -w /var/www/html \
+    -v "${SOURCE_APP_DIR_WIN}:/var/www/html" -w /var/www/html \
     -v "${WORK_DIR_WIN}:/drill" \
     -e DB_CONNECTION=mariadb -e DB_HOST=mariadb -e DB_PORT=3306 \
     -e DB_DATABASE="${SOURCE_DB_NAME}" -e DB_USERNAME=sail -e DB_PASSWORD=password \
@@ -267,15 +324,11 @@ create_fixture() {
 }
 
 # --------------------------------------------------------------------------------------------
-# Bước 3 — backup:run thật (dump CSDL + tệp, mã hoá), ra disk local_backups
+# Bước 4 — backup:run thật (dump CSDL + tệp, mã hoá), ra disk local_backups CỦA BẢN SAO NGUỒN
 # --------------------------------------------------------------------------------------------
 run_backup() {
-  # Thư mục của WORKTREE (disk local_backups trên đĩa, không phải một CSDL) — dọn trước mỗi lượt
-  # chỉ để bước 4 (định vị archive) luôn thấy đúng MỘT archive, của LƯỢT NÀY.
-  rm -rf "${LANE_DIR}/storage/app/backups"/* 2>/dev/null || true
-
   docker run --rm -i --network "${NETWORK}" \
-    -v "${LANE_DIR_WIN}:/var/www/html" -w /var/www/html \
+    -v "${SOURCE_APP_DIR_WIN}:/var/www/html" -w /var/www/html \
     -e DB_CONNECTION=mariadb -e DB_HOST=mariadb -e DB_PORT=3306 \
     -e DB_DATABASE="${SOURCE_DB_NAME}" -e DB_USERNAME=sail -e DB_PASSWORD=password \
     -e APP_KEY="${APP_KEY_OLD}" \
@@ -285,53 +338,27 @@ run_backup() {
 }
 
 locate_archive() {
-  ARCHIVE_HOST_PATH="$(find "${LANE_DIR}/storage/app/backups" -type f -name '*.zip' | sort | tail -n1)"
+  # Bản sao nguồn vừa dựng có storage/app/backups RỖNG, nên thấy đúng MỘT archive — của lượt này.
+  ARCHIVE_HOST_PATH="$(find "${SOURCE_APP_DIR}/storage/app/backups" -type f -name '*.zip' | sort | tail -n1)"
 
   if [ -z "${ARCHIVE_HOST_PATH}" ]; then
     echo "Không tìm thấy archive sau backup:run" >&2
     exit 1
   fi
 
-  ARCHIVE_REL_PATH="${ARCHIVE_HOST_PATH#"${LANE_DIR}"/}"
+  ARCHIVE_REL_PATH="${ARCHIVE_HOST_PATH#"${SOURCE_APP_DIR}"/}"
   echo "Archive: ${ARCHIVE_REL_PATH} ($(du -h "${ARCHIVE_HOST_PATH}" | cut -f1))"
 }
 
 # --------------------------------------------------------------------------------------------
-# Bước 4a — Bản sao mã nguồn SẠCH: mọi thứ TRỪ storage/app/private (dùng lại vendor đã cài, để
-# không phải composer install lại — cái "sạch" ở đây là KHÔNG hồ sơ khách, KHÔNG CSDL cũ, không
-# phải "không có PHP dependency nào")
+# Bước 6a — Bản sao mã nguồn SẠCH cho bản khôi phục (không có storage/app/private)
 # --------------------------------------------------------------------------------------------
 prepare_clean_app() {
-  mkdir -p "${CLEAN_APP_DIR}"
-
-  set +e
-  robocopy "${LANE_DIR_WIN}" "${CLEAN_APP_DIR_WIN}" /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1 \
-    /XF ".env" \
-    /XD "${LANE_DIR_WIN}\storage\app\private" \
-        "${LANE_DIR_WIN}\storage\app\backups" \
-        "${LANE_DIR_WIN}\storage\app\_drill" \
-        "${LANE_DIR_WIN}\.git" \
-        "${LANE_DIR_WIN}\node_modules" \
-    >/dev/null
-  rc=$?
-  set -e
-  # Robocopy: 0-7 là các mã THÀNH CÔNG (kèm chi tiết vô hại, ví dụ "có tệp mới"); chỉ >=8 là lỗi
-  # thật. Xem tài liệu Microsoft "Robocopy exit codes".
-  if [ "${rc}" -ge 8 ]; then
-    echo "robocopy thất bại, mã ${rc}" >&2
-    exit 1
-  fi
-
-  mkdir -p "${CLEAN_APP_DIR}/storage/app/private"
-  # KHÔNG chép .env thật (loại trừ ở trên) — dùng .env.example (bí mật rỗng/mẫu) làm nền, mọi
-  # biến cần cho lượt khôi phục (APP_KEY, DB_*, ...) truyền qua `-e` của `docker run`, đè lên
-  # đúng như README/`.env.example` đã ghi. Tức là APP_KEY THẬT của máy dev không bao giờ nằm
-  # trong bản sao tạm này, dù chỉ trong lúc script đang chạy.
-  cp "${LANE_DIR}/.env.example" "${CLEAN_APP_DIR}/.env"
+  copy_app_tree "${CLEAN_APP_DIR}" "${CLEAN_APP_DIR_WIN}"
 }
 
 # --------------------------------------------------------------------------------------------
-# Bước 4b — MariaDB SẠCH tạm thời, không map cổng ra host
+# Bước 6b — MariaDB SẠCH tạm thời, không map cổng ra host
 # --------------------------------------------------------------------------------------------
 start_restore_db() {
   docker run -d --name "${RESTORE_DB_CONTAINER}" --network "${NETWORK}" \
@@ -355,7 +382,7 @@ start_restore_db() {
 }
 
 # --------------------------------------------------------------------------------------------
-# Bước 5 — giải nén bằng mật khẩu (PHP ZipArchive — `unzip` của Alpine không mở được AES)
+# Bước 7 — giải nén bằng mật khẩu (PHP ZipArchive — `unzip` của Alpine không mở được AES)
 # --------------------------------------------------------------------------------------------
 write_extract_script() {
   cat > "${WORK_DIR}/extract.php" <<'PHP'
@@ -393,7 +420,7 @@ extract_archive() {
   write_extract_script
 
   docker run --rm -i \
-    -v "${LANE_DIR_WIN}:/host:ro" \
+    -v "${SOURCE_APP_DIR_WIN}:/host:ro" \
     -v "${WORK_DIR_WIN}:/drill" \
     -e BACKUP_ARCHIVE_PASSWORD="${BACKUP_PASSWORD}" \
     -e ARCHIVE_PATH="/host/${ARCHIVE_REL_PATH}" \
@@ -401,7 +428,7 @@ extract_archive() {
 }
 
 # --------------------------------------------------------------------------------------------
-# Bước 6 — nạp dump vào MariaDB sạch
+# Bước 8 — nạp dump vào MariaDB sạch
 # --------------------------------------------------------------------------------------------
 load_dump() {
   local dumpfile
@@ -423,7 +450,7 @@ load_dump() {
 }
 
 # --------------------------------------------------------------------------------------------
-# Bước 7 — chép tệp hồ sơ về đúng chỗ trên bản sao sạch
+# Bước 9 — chép tệp hồ sơ về đúng chỗ trên bản sao sạch
 # --------------------------------------------------------------------------------------------
 copy_private_files() {
   mkdir -p "${CLEAN_APP_DIR}/storage/app/private"
@@ -442,7 +469,7 @@ copy_private_files() {
 }
 
 # --------------------------------------------------------------------------------------------
-# Bước 8 — migrate:status trên bản khôi phục (không có migration đang chờ)
+# Bước 10 — migrate:status trên bản khôi phục (không có migration đang chờ)
 # --------------------------------------------------------------------------------------------
 migrate_status() {
   docker run --rm -i --network "${NETWORK}" \
@@ -454,7 +481,7 @@ migrate_status() {
 }
 
 # --------------------------------------------------------------------------------------------
-# Bước 9 — giải mã id_number + so checksum tệp + đếm dòng các bảng chính (APP_KEY CŨ, đúng)
+# Bước 11 — giải mã id_number + so checksum tệp + đếm dòng các bảng chính (APP_KEY CŨ, đúng)
 # --------------------------------------------------------------------------------------------
 write_verify_script() {
   cat > "${WORK_DIR}/verify.php" <<'PHP'
@@ -526,7 +553,7 @@ verify_restore() {
 }
 
 # --------------------------------------------------------------------------------------------
-# Bước 10 — CHỨNG MINH thất bại với một APP_KEY MỚI (R3: "APP_KEY là một nửa của bản sao lưu")
+# Bước 12 — CHỨNG MINH thất bại với một APP_KEY MỚI (R3: "APP_KEY là một nửa của bản sao lưu")
 # --------------------------------------------------------------------------------------------
 verify_wrong_key() {
   set +e
@@ -556,22 +583,23 @@ verify_wrong_key() {
 # --------------------------------------------------------------------------------------------
 main() {
   echo "Khôi phục thử M8a Task 3 (R3) — bắt đầu $(date -Iseconds)"
-  echo "Worktree: ${LANE_DIR}"
+  echo "Worktree: ${LANE_DIR} (chỉ đọc mã nguồn; mọi thứ của lượt chạy nằm dưới ${RUN_DIR})"
   echo "CSDL nguồn riêng: ${SOURCE_DB_NAME} (không đụng vk_crm_lane_m8)"
   echo "Container MariaDB sạch: ${RESTORE_DB_CONTAINER}"
 
-  step "1. Xây CSDL nguồn riêng ${SOURCE_DB_NAME} (migrate:fresh --seed, APP_KEY dùng một lần)" seed_source_db
-  step "2. Tạo dữ liệu thử (khách hàng có id_number + tài liệu có tệp thật)" create_fixture
-  step "3. backup:run thật (dump CSDL + tệp, mã hoá AES-256)" run_backup
-  step "4. Định vị archive vừa tạo" locate_archive
-  step "5. Dựng bản sao mã nguồn SẠCH (không có storage/app/private)" prepare_clean_app
-  step "6. Dựng MariaDB SẠCH tạm thời (không map cổng ra host)" start_restore_db
-  step "7. Giải nén archive bằng mật khẩu (PHP ZipArchive)" extract_archive
-  step "8. Nạp bản dump vào MariaDB sạch" load_dump
-  step "9. Chép tệp hồ sơ về storage/app/private của bản sao sạch" copy_private_files
-  step "10. migrate:status trên bản khôi phục (không migration nào đang chờ)" migrate_status
-  step "11. Giải mã id_number + so checksum tệp + đếm dòng bảng chính (APP_KEY CŨ, đúng)" verify_restore
-  step "12. Chứng minh thất bại với APP_KEY MỚI (R3)" verify_wrong_key
+  step "1. Dựng bản sao mã nguồn NGUỒN (không dữ liệu, không .env, không cache của worktree)" prepare_source_app
+  step "2. Xây CSDL nguồn riêng (migrate:fresh --seed, APP_KEY dùng một lần)" seed_source_db
+  step "3. Tạo dữ liệu thử (khách hàng có id_number + tài liệu có tệp thật)" create_fixture
+  step "4. backup:run thật (dump CSDL + tệp, mã hoá AES-256)" run_backup
+  step "5. Định vị archive vừa tạo" locate_archive
+  step "6. Dựng bản sao mã nguồn SẠCH cho bản khôi phục (không storage/app/private)" prepare_clean_app
+  step "7. Dựng MariaDB SẠCH tạm thời (không map cổng ra host)" start_restore_db
+  step "8. Giải nén archive bằng mật khẩu (PHP ZipArchive)" extract_archive
+  step "9. Nạp bản dump vào MariaDB sạch" load_dump
+  step "10. Chép tệp hồ sơ về storage/app/private của bản sao sạch" copy_private_files
+  step "11. migrate:status trên bản khôi phục (không migration nào đang chờ)" migrate_status
+  step "12. Giải mã id_number + so checksum tệp + đếm dòng bảng chính (APP_KEY CŨ, đúng)" verify_restore
+  step "13. Chứng minh thất bại với APP_KEY MỚI (R3)" verify_wrong_key
 
   print_summary
 
