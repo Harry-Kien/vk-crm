@@ -550,7 +550,10 @@ class DeadlinesRelationManager extends RelationManager
             ->requiresConfirmation()
             ->modalHeading(__('deadlines.tab.actions.publish_heading'))
             ->modalDescription(__('deadlines.tab.actions.publish_description'))
-            ->authorize(fn (Deadline $record): bool => Gate::allows('update', $record))
+            // R5 (roles-05, M6.5 Task 10): 'publish', không phải 'update' — xem DeadlinePolicy::publish().
+            // Nút này LUÔN bật (visible() chỉ hiện khi ! is_published), nên chiều hỏi Gate luôn là
+            // `true` — fix round 1 (ruling): chỉ chiều BẬT đòi stageLog.publish.
+            ->authorize(fn (Deadline $record): bool => Gate::allows('publish', [$record, true]))
             ->visible(fn (Deadline $record): bool => ! $record->is_published)
             ->successNotificationTitle(__('deadlines.tab.actions.publish_success'))
             ->action(fn (Action $action, Deadline $record) => $this->runAction(
@@ -568,7 +571,10 @@ class DeadlinesRelationManager extends RelationManager
             ->requiresConfirmation()
             ->modalHeading(__('deadlines.tab.actions.unpublish_heading'))
             ->modalDescription(__('deadlines.tab.actions.unpublish_description'))
-            ->authorize(fn (Deadline $record): bool => Gate::allows('update', $record))
+            // R5 (roles-05, M6.5 Task 10): 'publish', không phải 'update' — xem DeadlinePolicy::publish().
+            // Nút này LUÔN gỡ (visible() chỉ hiện khi is_published), nên chiều hỏi Gate luôn là
+            // `false` — fix round 1 (ruling): chiều GỠ chỉ cần matter.update, không cần stageLog.publish.
+            ->authorize(fn (Deadline $record): bool => Gate::allows('publish', [$record, false]))
             ->visible(fn (Deadline $record): bool => (bool) $record->is_published)
             ->successNotificationTitle(__('deadlines.tab.actions.unpublish_success'))
             ->action(fn (Action $action, Deadline $record) => $this->runAction(

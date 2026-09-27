@@ -1,7 +1,9 @@
 <?php
 
+use App\Actions\TransitionMatterStage;
 use App\Enums\MatterRole;
 use App\Enums\Role;
+use App\Exceptions\MatterStageChanged;
 use App\Filament\Admin\Resources\Matters\Actions\TransitionStageAction;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\StageLogsRelationManager;
@@ -13,8 +15,10 @@ use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Filament\Schemas\Components\Text;
+use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
 use Livewire\Features\SupportTesting\Testable;
+use Spatie\Activitylog\Models\Activity;
 
 beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);
@@ -33,6 +37,45 @@ it('lists only the stages allowed from the current stage in the picker', functio
         'collecting_documents' => 'Thu thập hồ sơ',
         'on_hold' => 'Tạm dừng',
     ]);
+});
+
+/**
+ * `stage/stage-04` (M6.5 Task 10): một luật sư truyền vào `stageOptions()` không đổi gì — chỉ
+ * `Role::Admin` mới thấy thêm. Cặp dương của test admin ngay dưới.
+ */
+it('still lists only allowed_next when the actor passed in is not an admin', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->atStage('intake')->create();
+
+    expect(TransitionStageAction::stageOptions($matter, $lawyer))->toBe([
+        'collecting_documents' => 'Thu thập hồ sơ',
+        'on_hold' => 'Tạm dừng',
+    ]);
+});
+
+/**
+ * `stage/stage-04` (spec_gap, xử bằng quyền bỏ qua của admin trên giao diện): quyền bỏ qua
+ * `allowed_next` của SPEC §6.2 bước 1 (`TransitionMatterStage::handle()`, đã có sẵn) chỉ có tác
+ * dụng thật nếu giao diện cũng cho CHỌN — nếu không, admin không có đường nào sửa một vụ kẹt ở
+ * giai đoạn cuối ('closed' có `allowed_next = []`) ngoài sửa thẳng CSDL. Admin thấy MỌI giai đoạn
+ * khác giai đoạn hiện tại của loại vụ việc; giai đoạn NGOÀI `allowed_next` mang nhãn cảnh báo để
+ * admin biết mình đang đi ngoài luồng thường, không bấm nhầm.
+ */
+it('lets an admin see every configured stage, with a warning suffix on the ones outside allowed_next', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = Matter::factory()->atStage('intake')->create();
+
+    $options = TransitionStageAction::stageOptions($matter, $admin);
+
+    $suffix = ' '.__('matters.transition_form.outside_allowed_next_suffix');
+
+    expect($options)->toHaveKey('collecting_documents', 'Thu thập hồ sơ')
+        ->and($options)->toHaveKey('on_hold', 'Tạm dừng')
+        ->and($options)->toHaveKey('drafting', 'Soạn đơn'.$suffix)
+        ->and($options)->toHaveKey('closed', 'Kết thúc'.$suffix)
+        // Giai đoạn HIỆN TẠI ('intake') không phải một lựa chọn hợp lệ, kể cả cho admin — đó là
+        // việc của "Thêm cập nhật" (SPEC §6.3), một nút RIÊNG.
+        ->and($options)->not->toHaveKey('intake');
 });
 
 /**
@@ -90,6 +133,62 @@ it('submits the transition-stage form, calls the action, and creates a StageLog'
         ->and($log->to_stage)->toBe('collecting_documents')
         ->and($log->internal_note)->toBe('Đã gọi điện xác nhận với khách.')
         ->and($log->created_by)->toBe($lawyer->id);
+});
+
+/**
+ * `stage/stage-04` (M6.5 Task 10): admin chuyển một vụ đã "Kết thúc" (allowed_next rỗng) về một
+ * giai đoạn trước đó qua ĐÚNG form thật (không gọi thẳng Action) — phải đi qua được, và audit của
+ * `TransitionMatterStage` phải ghi `bypassed_allowed_next = true` (bước 1, đã có sẵn ở Action; chỉ
+ * giao diện là mới ở task này).
+ */
+it('lets an admin transition out of a terminal stage through the form, and records bypassed_allowed_next', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = Matter::factory()->atStage('closed')->create();
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(StageLogsRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('transitionStage', data: [
+        'to_stage' => 'mediation',
+        'occurred_at' => today()->toDateString(),
+        'internal_note' => 'Kết thúc nhầm, mở lại để hoà giải tiếp.',
+        'public_content' => null,
+        'publish' => false,
+    ])->assertHasNoTableActionErrors();
+
+    expect($matter->refresh()->stage)->toBe('mediation');
+
+    $activity = Activity::query()
+        ->where('event', 'matter_stage_transitioned')
+        ->latest('id')->first();
+
+    expect($activity)->not->toBeNull()
+        ->and($activity->properties->get('bypassed_allowed_next'))->toBeTrue();
+});
+
+/**
+ * Cặp âm của test trên: một LUẬT SƯ (không phải admin) không thấy 'mediation' trong danh sách của
+ * cùng vụ việc ở 'closed' — gửi form vẫn báo lỗi ngay trên `to_stage`, không lọt qua bằng cách gõ
+ * tay giá trị vào request (Select validate 'in' theo đúng options mà `stageOptions()` trả về).
+ */
+it('still refuses a lawyer trying the same out-of-allowed_next stage through the form', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->atStage('closed')->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(StageLogsRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('transitionStage', data: [
+        'to_stage' => 'mediation',
+        'occurred_at' => today()->toDateString(),
+        'publish' => false,
+    ])->assertHasTableActionErrors(['to_stage']);
+
+    expect($matter->refresh()->stage)->toBe('closed');
 });
 
 /**
@@ -391,4 +490,153 @@ it('shows the same warning on the add-update form', function () {
     ])->mountTableAction('addUpdate');
 
     expect(noActivatedAccountWarningComponent($component)->isVisible())->toBeTrue();
+});
+
+/*
+|--------------------------------------------------------------------------
+| `stage/stage-02` + `stage/stage-07` (M6.5 Task 10): bản xem trước (client-preview.blade.php),
+| đúng đường thật của hai Action — không gọi thẳng view()/blade.
+|--------------------------------------------------------------------------
+*/
+
+/** Cùng kỹ thuật `noActivatedAccountWarningComponent()` ngay trên, chỉ khác lọc theo kiểu View. */
+function clientPreviewHtml(Testable $component): string
+{
+    $formName = $component->instance()->getMountedActionSchemaName();
+    /** @var Schema $schema */
+    $schema = $component->instance()->{$formName};
+
+    $matches = array_values(array_filter(
+        $schema->getFlatComponents(withHidden: true),
+        fn ($c) => $c instanceof View,
+    ));
+
+    expect($matches)->toHaveCount(1, 'Không tìm thấy đúng một component xem trước trong schema đang mount.');
+
+    return $matches[0]->toSchemaHtml(true);
+}
+
+it('shows the target stage label in the transition-stage preview, and the new not-publishing sentence naming it', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->atStage('intake')->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(StageLogsRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->mountTableAction('transitionStage')
+        ->set('mountedActions.0.data.to_stage', 'collecting_documents')
+        ->set('mountedActions.0.data.publish', false);
+
+    $targetLabel = $matter->matterType->stage('collecting_documents')->client_label;
+    $html = clientPreviewHtml($component);
+
+    expect($html)->toContain($targetLabel)
+        ->and($html)->toContain(__('matters.transition_form.preview_not_publishing_with_stage_change', [
+            'stage' => $targetLabel,
+        ]));
+});
+
+/**
+ * `stage/stage-07`: "Thêm cập nhật" không đổi giai đoạn — bản xem trước của nó KHÔNG được vẽ nhãn
+ * giai đoạn (kể cả nhãn của giai đoạn HIỆN TẠI), và câu không-công-bố phải là câu CHUNG, không
+ * phải câu nêu tên "giai đoạn mới" (không có giai đoạn mới nào ở đây).
+ */
+it('never shows a stage label in the add-update preview, and keeps the generic not-publishing sentence', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->atStage('intake')->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(StageLogsRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->mountTableAction('addUpdate')
+        ->set('mountedActions.0.data.publish', false);
+
+    $currentLabel = $matter->matterType->stage('intake')->client_label;
+    $html = clientPreviewHtml($component);
+
+    expect($html)->not->toContain($currentLabel)
+        ->and($html)->toContain(__('matters.transition_form.preview_not_publishing'))
+        ->and($html)->not->toContain('giai đoạn mới:');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Fix round 1 — C1 (Critical): MatterStageChanged thoát ra thành trang 500.
+|--------------------------------------------------------------------------
+|
+| Đây LÀ đúng ca "bấm hai lần, hai tab" của Review Focus 4 nhìn từ phía màn hình, không phải từ
+| phía Action: `BuildsStageUpdateSchema::setUpStageUpdateAction()` chỉ bắt `MatterNotPublishedToPortal`
+| trong `try/catch`, nên `MatterStageChanged` — thứ `TransitionMatterStage::handle()` ném khi giai
+| đoạn đã đổi dưới chân người dùng (M6.5 Task 10, `stage/stage-05`) — thoát thẳng ra thành một
+| `DomainException` không ai bắt, tức một trang 500 (SPEC §10.10 cấm điều này).
+|
+| **Vì sao GIẢ `TransitionMatterStage`, không dựng một race thật.** Đã tự đo (probe riêng, xoá
+| sau khi đo): Filament DỰNG LẠI TOÀN BỘ schema — kể cả `options()` của Select `to_stage` — bằng
+| `$livewire->getOwnerRecord()` ĐỌC LẠI TỪ CSDL ở MỌI lượt gọi Livewire tiếp theo (không chỉ lúc
+| mount). Nghĩa là kịch bản "mount lúc A, người khác chuyển sang B, rồi gửi lại to_stage cũ" KHÔNG
+| bao giờ chạm tới `TransitionMatterStage::handle()`: Select tự validate `to_stage` theo
+| `allowed_next` của giai đoạn MỚI trước, và nếu lựa chọn cũ không còn hợp lệ thì dừng lại ở lỗi
+| "giai đoạn mới đã chọn không hợp lệ" ngay trong form — đúng test "still refuses a lawyer..." đã
+| có ở trên. `MatterStageChanged` chỉ sinh ra được khi HAI YÊU CẦU THẬT chồng lấn nhau trong lúc cả
+| hai đã qua khỏi cổng validate đó (đúng cửa sổ mà `TransitionMatterStageConcurrencyTest`, hai tiến
+| trình HĐH thật trên MariaDB, đo được) — một tệp Pest chạy trong một tiến trình không dựng lại
+| được cửa sổ đó. Giả `TransitionMatterStage::handle()` ném thẳng exception này là cách duy nhất
+| cô lập ĐÚNG một điều: màn hình có bắt được nó và nói tiếng Việt hay không — phần "có race thật
+| không" đã có bằng chứng riêng ở test kia.
+*/
+
+it('shows a Vietnamese notification instead of a 500 when the matter changed stage behind the transition-stage modal', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->atStage('intake')->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $mock = Mockery::mock(TransitionMatterStage::class);
+    $mock->shouldReceive('handle')->once()->andThrow(MatterStageChanged::make($matter));
+    app()->instance(TransitionMatterStage::class, $mock);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(StageLogsRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('transitionStage', data: [
+        'to_stage' => 'collecting_documents',
+        'occurred_at' => today()->toDateString(),
+        'publish' => false,
+    ]);
+
+    $component->assertNotified(__('exceptions.matter_stage_changed', ['code' => $matter->code]));
+
+    expect(StageLog::query()->count())->toBe(0)
+        // halt() giữ modal mở thay vì đóng lại — người dùng không mất nội dung đã gõ.
+        ->and($component->get('mountedActions'))->not->toBeEmpty();
+});
+
+/** Cùng lỗ hổng, cùng cách sửa — "Thêm cập nhật" gọi CHUNG một TransitionMatterStage. */
+it('shows a Vietnamese notification instead of a 500 when the matter changed stage behind the add-update modal', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->atStage('intake')->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $mock = Mockery::mock(TransitionMatterStage::class);
+    $mock->shouldReceive('handle')->once()->andThrow(MatterStageChanged::make($matter));
+    app()->instance(TransitionMatterStage::class, $mock);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(StageLogsRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('addUpdate', data: [
+        'occurred_at' => today()->toDateString(),
+        'next_step' => 'Tuần này chưa có văn bản mới từ toà.',
+        'publish' => false,
+    ]);
+
+    $component->assertNotified(__('exceptions.matter_stage_changed', ['code' => $matter->code]));
+
+    expect(StageLog::query()->count())->toBe(0)
+        ->and($component->get('mountedActions'))->not->toBeEmpty();
 });

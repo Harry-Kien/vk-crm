@@ -20,6 +20,15 @@ return [
     ],
     'password_hint' => 'Để trống khi sửa nếu không muốn đổi mật khẩu.',
 
+    /**
+     * Fix round 1 (ruling "the staff profile page"): trang hồ sơ cá nhân
+     * (App\Filament\Admin\Pages\Auth\EditProfile) khoá ô email — đổi email đăng nhập của một nhân
+     * sự là việc của admin khác, qua trang Nhân sự (EditUser), không phải việc tự làm ở đây.
+     */
+    'profile' => [
+        'email_readonly_hint' => 'Liên hệ quản trị viên để đổi email đăng nhập.',
+    ],
+
     // R7 (M6.5 Task 4, kéo lên từ M7 R6) — chặn nghỉ việc khi còn việc dở dang, hoặc khi là quản
     // trị viên đang hoạt động cuối cùng. Dùng bởi UserPolicy::delete() và
     // EditUser::handleRecordUpdate() (App\Actions\User\Concerns\GuardsStaffOffboarding), và làm

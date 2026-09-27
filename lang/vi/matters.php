@@ -91,6 +91,9 @@ return [
     ],
     'transition_form' => [
         'to_stage' => 'Giai đoạn mới',
+        // `stage/stage-04` (M6.5 Task 10): nhãn gắn thêm vào các giai đoạn NGOÀI allowed_next mà
+        // chỉ admin thấy trong ô chọn — TransitionStageAction::stageOptions().
+        'outside_allowed_next_suffix' => '(ngoài luồng thông thường)',
         'occurred_at' => 'Ngày xảy ra',
         'internal_note' => 'Ghi chú nội bộ',
         'internal_note_hint' => 'Chỉ nội bộ, khách không đọc được',
@@ -112,6 +115,11 @@ return [
         'add_update_success' => 'Đã thêm cập nhật.',
         'preview_heading' => 'Bản xem trước — đúng như khách sẽ thấy',
         'preview_not_publishing' => 'Sẽ KHÔNG công bố cho khách với lựa chọn hiện tại.',
+        // `stage/stage-02` (M6.5 Task 10): dòng CẬP NHẬT không công bố, nhưng `matters.stage` vẫn
+        // ghi vô điều kiện (SPEC §6.2 bước 5) — khách vẫn thấy NHÃN GIAI ĐOẠN mới ngay, dù dòng
+        // tiến độ nói về nó thì không lên timeline. Chỉ dùng khi bản xem trước đang thật sự đổi
+        // giai đoạn (TransitionStageAction, không phải AddUpdateAction — xem client-preview.blade.php).
+        'preview_not_publishing_with_stage_change' => 'Dòng này không công bố. Khách vẫn thấy giai đoạn mới: :stage.',
         'preview_no_stage' => 'Chưa chọn giai đoạn',
         'preview_empty_public_content' => '(Chưa có nội dung công bố)',
         'preview_next_step' => 'Tiếp theo',

@@ -18,6 +18,7 @@ use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Filament\Notifications\Livewire\Notifications;
 use Illuminate\Validation\ValidationException;
+use Spatie\Activitylog\Models\Activity;
 
 beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);
@@ -806,4 +807,69 @@ it('shows the bulk delete and restore actions to the admin, but never force-dele
         ->filterTable('trashed', true)
         ->assertTableBulkActionVisible('restore')
         ->assertTableBulkActionHidden('forceDelete');
+});
+
+// -------------------------------------------------------------------------------------------
+// Task 20 — mật khẩu nhân sự: cùng PasswordRule::default() với cổng khách (Task 7), và một
+// dòng nhật ký mỗi lần admin đặt lại. Phát hiện gốc: "admin đặt được mật khẩu 1 cho luật sư mà
+// không có nhật ký nào".
+// -------------------------------------------------------------------------------------------
+
+it('rejects a weak password when an admin resets a staff password', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $staff = User::factory()->position(UserPosition::Lawyer)->withRole(Role::Lawyer)->create();
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(EditUser::class, ['record' => $staff->getRouteKey()])
+        ->fillForm(['password' => '1'])
+        ->call('save')
+        ->assertHasFormErrors(['password']);
+
+    expect(
+        Activity::query()->where('event', 'user_password_reset')->where('subject_id', $staff->id)->exists()
+    )->toBeFalse();
+});
+
+it('logs an audit line when an admin resets a staff password with a valid one', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $staff = User::factory()->position(UserPosition::Lawyer)->withRole(Role::Lawyer)->create();
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(EditUser::class, ['record' => $staff->getRouteKey()])
+        ->fillForm(['password' => 'mat-khau-moi'])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    $activity = Activity::query()
+        ->where('event', 'user_password_reset')
+        ->where('subject_type', $staff->getMorphClass())
+        ->where('subject_id', $staff->id)
+        ->latest('id')
+        ->first();
+
+    expect($activity)->not->toBeNull()
+        ->and($activity->causer?->is($admin))->toBeTrue();
+});
+
+/**
+ * Vế "không đổi mật khẩu": sửa tên/điện thoại mà không chạm ô mật khẩu không được sinh một dòng
+ * `user_password_reset` — nếu không, dòng nhật ký không còn nói lên gì (đặt lại mật khẩu là một
+ * SỰ KIỆN, không phải một tác dụng phụ của mọi lần lưu form sửa nhân sự).
+ */
+it('does not log a password-reset audit line when a staff record is saved without a new password', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $staff = User::factory()->position(UserPosition::Lawyer)->withRole(Role::Lawyer)->create(['phone' => '0900000000']);
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(EditUser::class, ['record' => $staff->getRouteKey()])
+        ->fillForm(['phone' => '0911111111'])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect(
+        Activity::query()->where('event', 'user_password_reset')->where('subject_id', $staff->id)->exists()
+    )->toBeFalse();
 });

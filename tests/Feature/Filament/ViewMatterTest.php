@@ -168,6 +168,46 @@ it('toggles portal publication only for someone with matter.update, and the swit
 });
 
 /**
+ * R5 (roles-05, M6.5 Task 10): trợ lý có `matter.update` nhưng không có `stageLog.publish` — BẬT
+ * công tắc công bố cả vụ việc là "quyết định đưa gì ra cho khách" (xem
+ * MatterPolicy::setPortalPublication()), nên nút này ẩn với trợ lý khi vụ việc CHƯA công bố (bấm
+ * vào sẽ BẬT).
+ *
+ * Fix round 1 (ruling task-10-fix1-findings.md): chiều NGƯỢC LẠI — vụ việc ĐÃ công bố, bấm nút sẽ
+ * TẮT (chỉ thu hẹp những gì khách thấy) — chỉ cần `matter.update`, nên trợ lý VẪN thấy nút. Cặp
+ * test dưới đây thay cho test "ẩn cả hai chiều" của commit trước, vì ruling này đổi đúng nửa đó.
+ */
+it('hides the toggle-portal-publication button from an assistant when the matter is not yet published (would turn it ON)', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'is_published_to_portal' => false]);
+
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    $this->actingAs($assistant, 'web');
+
+    $this->livewire(ViewMatter::class, ['record' => $matter->getKey()])
+        ->assertActionHidden('togglePortalPublication');
+});
+
+/** Cặp dương: vụ việc ĐÃ công bố, bấm nút sẽ TẮT — trợ lý vẫn thấy và bấm được. */
+it('shows the toggle-portal-publication button to an assistant when the matter is already published (would turn it OFF)', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'is_published_to_portal' => true]);
+
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    $this->actingAs($assistant, 'web');
+
+    $this->livewire(ViewMatter::class, ['record' => $matter->getKey()])
+        ->assertActionVisible('togglePortalPublication')
+        ->callAction('togglePortalPublication');
+
+    expect($matter->refresh()->is_published_to_portal)->toBeFalse();
+});
+
+/**
  * SPEC §6.10: "mỗi lần thêm một bên mới vào vụ việc đang chạy" phải chạy kiểm tra xung đột lợi
  * ích NGAY và mức đỏ phải chặn lưu (fix round 1, finding 1 — trước đó bên vẫn được lưu bất kể
  * mức, đúng lỗ hổng review chỉ ra). Kịch bản: một bị đơn mới trùng số căn cước với khách hàng

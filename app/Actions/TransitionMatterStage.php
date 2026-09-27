@@ -2,10 +2,12 @@
 
 namespace App\Actions;
 
+use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\Role;
 use App\Events\StageLogPublished;
 use App\Exceptions\InvalidStageTransition;
 use App\Exceptions\MatterNotPublishedToPortal;
+use App\Exceptions\MatterStageChanged;
 use App\Models\Matter;
 use App\Models\StageLog;
 use App\Models\User;
@@ -64,9 +66,31 @@ use Illuminate\Validation\ValidationException;
  *  8. Ghi activity log — luôn ghi, kể cả khi không có gì bất thường, và ghi rõ nếu bước 1 đã bị
  *     một admin bỏ qua (`bypassed_allowed_next`), để dấu vết không bị mất. Causer được truyền
  *     tường minh là `$actor`, cùng lý do với bước 5.
+ *
+ * **Bước 0 (`stage/stage-05`, Review Focus 4, M6.5 Task 10) — khoá dòng `matters` TRƯỚC MỌI THỨ
+ * KHÁC.** `lockForUpdate()` là câu lệnh ĐẦU TIÊN chạm CSDL bên trong transaction — không một
+ * `SELECT` trần nào đứng trước nó. Trên MariaDB REPEATABLE READ, câu lệnh ĐẦU TIÊN chạy trong một
+ * transaction đóng băng snapshot cho MỌI lần đọc "thường" (non-locking) sau đó trong CÙNG
+ * transaction; một `SELECT` trần trước `lockForUpdate()` sẽ khoá đúng dòng nhưng ĐỌC RA dữ liệu
+ * của snapshot đã đóng băng từ trước — khoá xong vẫn sai. `scopelessly()` (từ
+ * {@see ReadsWithoutPortalScope}) gỡ `ClientPortalScope`, cùng lý do với `OpensDeadline`: một
+ * nhân sự có thể đang mở song song một phiên `/portal` trong cùng trình duyệt.
+ *
+ * Không có khoá này, hai lần gọi `handle()` gần như đồng thời trên CÙNG một vụ việc đều đọc
+ * `$matter->stage` TRƯỚC transaction, đều vượt qua kiểm tra `allowed_next` của CÙNG một giai đoạn
+ * gốc, và đều ghi một `StageLog` — hai dòng append-only mâu thuẫn nhau, khách có thể nhận hai thư
+ * chồng nhau, và vụ việc dừng lại ở giai đoạn của LẦN GHI SAU (đúng hình dạng `stage/stage-05`).
+ *
+ * `$expectedFromStage` (giai đoạn của $matter caller cầm trong tay, đọc TRƯỚC transaction) so với
+ * giai đoạn đọc lại được DƯỚI KHOÁ: khác nhau nghĩa là một lần chuyển giai đoạn KHÁC đã chen vào
+ * và commit trong lúc request này còn đợi khoá — từ chối thẳng bằng {@see MatterStageChanged},
+ * KHÔNG lặng lẽ coi đó là một dòng "cùng giai đoạn" (§6.3) dù `to_stage` vô tình trùng giai đoạn
+ * mới, và KHÔNG dùng lại `InvalidStageTransition` (xem docblock lớp đó cho lý do).
  */
 class TransitionMatterStage
 {
+    use ReadsWithoutPortalScope;
+
     public function handle(
         Matter $matter,
         User $actor,
@@ -79,10 +103,20 @@ class TransitionMatterStage
         DateTimeInterface|string|null $expectedNextUpdateAt,
         bool $publish,
     ): StageLog {
+        $matterId = $matter->getKey();
+        $expectedFromStage = $matter->stage;
+
         return DB::transaction(function () use (
-            $matter, $actor, $toStage, $occurredAt, $internalNote, $publicContent,
+            $matterId, $expectedFromStage, $actor, $toStage, $occurredAt, $internalNote, $publicContent,
             $nextStep, $clientAction, $expectedNextUpdateAt, $publish,
         ): StageLog {
+            // Bước 0 — xem docblock lớp. Câu lệnh ĐẦU TIÊN chạm CSDL trong transaction này.
+            $matter = $this->scopelessly(Matter::query())->lockForUpdate()->findOrFail($matterId);
+
+            if ($matter->stage !== $expectedFromStage) {
+                throw MatterStageChanged::make($matter);
+            }
+
             $fromStage = $matter->stage;
             $isSameStage = $toStage === $fromStage;
             $currentStageConfig = $matter->currentStage();

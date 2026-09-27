@@ -4,9 +4,9 @@ namespace App\Filament\Admin\Resources\Matters\Actions\Concerns;
 
 use App\Actions\Notification\NotifyClientOfStageUpdate;
 use App\Actions\TransitionMatterStage;
-use App\Exceptions\MatterNotPublishedToPortal;
 use App\Models\Matter;
 use Closure;
+use DomainException;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
@@ -61,11 +61,33 @@ trait BuildsStageUpdateSchema
                         expectedNextUpdateAt: $data['expected_next_update_at'] ?: null,
                         publish: (bool) ($data['publish'] ?? false),
                     );
-                } catch (MatterNotPublishedToPortal $exception) {
-                    // Lớp phòng thủ thứ hai (fix round 1, finding 2): tắt/disable công tắc "publish"
-                    // khi vụ chưa bật portal (publishToggleField()) đã chặn đường chính, nên đây là
-                    // lưới an toàn cho một đường vào tương lai nào đó chưa lường trước — không để một
-                    // DomainException thoát ra khỏi modal thành lỗi 500 không thân thiện.
+                } catch (DomainException $exception) {
+                    // M6.5 Task 10, fix round 1 (C1, Critical): bắt CHUNG mọi `DomainException` mà
+                    // `TransitionMatterStage::handle()` có thể ném, không chỉ
+                    // `MatterNotPublishedToPortal` như bản trước. `MatterStageChanged` (stage-05:
+                    // giai đoạn đã đổi dưới chân người dùng — hai tab, bấm hai lần, hai người cùng
+                    // sửa một vụ việc) trước đây thoát thẳng ra ngoài `try/catch` này thành một
+                    // trang 500 không ai bắt (SPEC §10.10 cấm điều này) — đúng lỗ hổng "double-submit"
+                    // Review Focus 4 nói tới, chỉ khác là nó xảy ra ở màn hình, không phải ở Action
+                    // (Action đã tự đúng từ commit trước: nó NÉM lỗi thay vì âm thầm ghi sai).
+                    //
+                    // Bắt theo LỚP CHA thay vì liệt kê từng lớp con: đây chính là "lớp phòng thủ thứ
+                    // hai" `MatterNotPublishedToPortal` đã có từ trước (tắt/disable công tắc publish
+                    // đã chặn đường chính, đây là lưới an toàn) — cùng nguyên tắc, mở rộng cho MỌI
+                    // đường TransitionMatterStage từ chối bằng một DomainException, kể cả những
+                    // đường chưa lường trước sau này (ví dụ InvalidStageTransition lọt qua được nếu
+                    // ai đó forge request bỏ qua ràng buộc `in:` của Select `to_stage`).
+                    //
+                    // Thông điệp lấy THẲNG từ exception (không đổi thành một câu chung như
+                    // `actions.unauthorized`): mỗi lớp DomainException ở đây tự viết câu của mình
+                    // bằng lang/vi (xem MatterNotPublishedToPortal::make(), MatterStageChanged::make(),
+                    // InvalidStageTransition::make()), và với MatterStageChanged câu đó ĐÃ nói rõ việc
+                    // cần làm tiếp theo ("Hãy tải lại trang..." — đúng yêu cầu review "nếu không giữ
+                    // được nội dung đã gõ thì phải nói rõ cần tải lại trang").
+                    //
+                    // `halt()` (không đổi): giữ modal MỞ thay vì đóng lại, nên nội dung luật sư đã gõ
+                    // (ghi chú nội bộ, nội dung công bố…) không mất — chỉ `to_stage`/kết quả submit
+                    // là không áp dụng được nữa.
                     Notification::make()
                         ->title($exception->getMessage())
                         ->danger()

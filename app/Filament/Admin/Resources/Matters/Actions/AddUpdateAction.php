@@ -57,7 +57,11 @@ class AddUpdateAction extends Action
             $this->publishToggleField($matter),
             $this->noActivatedAccountWarning($matter),
             $this->previewField(fn (Get $get): array => [
-                'stageLabel' => $matter->currentStage()?->client_label,
+                // `stage/stage-07`: to_stage == giai đoạn hiện tại LUÔN đúng ở Action này (SPEC
+                // §6.3) — không có "giai đoạn MỚI" nào để vẽ, cùng cách cổng khách không vẽ nhãn
+                // cho một dòng không đổi giai đoạn (xem docblock client-preview.blade.php).
+                'showStageLabel' => false,
+                'stageLabel' => null,
                 'publicContent' => $get('public_content'),
                 'nextStep' => $get('next_step'),
                 'clientAction' => $get('client_action'),

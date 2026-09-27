@@ -86,7 +86,16 @@ class ViewMatter extends ViewRecord
                     : Heroicon::OutlinedEye)
                 ->color(fn (): string => $this->getRecord()->is_published_to_portal ? 'gray' : 'success')
                 ->requiresConfirmation()
-                ->visible(fn (): bool => Gate::allows('update', $this->getRecord()))
+                // R5 (roles-05, M6.5 Task 10): 'setPortalPublication', không phải 'update' — xem
+                // MatterPolicy::setPortalPublication(). Action vẫn tự kiểm tra lại (không đổi ở
+                // đây), đây chỉ là ẩn nút đúng cho người không có quyền. Fix round 1 (ruling): nút
+                // này BẤM MỘT LẦN LÀ ĐẢO CHIỀU, nên chiều phải hỏi Gate là chiều NGƯỢC với trạng
+                // thái hiện tại (`! is_published_to_portal`) — đúng chiều mà `->action()` bên dưới
+                // sẽ thật sự gọi.
+                ->visible(fn (): bool => Gate::allows('setPortalPublication', [
+                    $this->getRecord(),
+                    ! $this->getRecord()->is_published_to_portal,
+                ]))
                 ->action(function (): void {
                     $record = $this->getRecord();
 
