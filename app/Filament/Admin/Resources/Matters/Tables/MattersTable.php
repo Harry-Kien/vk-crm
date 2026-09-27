@@ -5,6 +5,8 @@ namespace App\Filament\Admin\Resources\Matters\Tables;
 use App\Enums\Permission;
 use App\Models\Matter;
 use App\Models\MatterTypeStage;
+use App\Support\Billing\BillingSummary;
+use App\Support\Billing\Money;
 use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -56,6 +58,16 @@ class MattersTable
                     ->since()
                     ->color(fn (Matter $record): ?string => static::lastClientUpdateColor($record))
                     ->sortable(),
+                // "Còn phải thu" (M9 Task 7): ẩn HẲN với ai không có `billing.view` — không chỉ
+                // rỗng, không có ở đó để dò — cùng lý do `title`/`summary_for_client` ẩn với kế
+                // toán không có `matter.view`. `BillingSummary::outstandingForMatter()` đã tự lọc
+                // hợp đồng `active` và trừ phần đã miễn; vụ chưa có hợp đồng hay hợp đồng đã đóng
+                // không còn dư nợ đều ra `0`.
+                TextColumn::make('outstanding_balance')
+                    ->label(__('matters.fields.outstanding_balance'))
+                    ->state(fn (Matter $record): string => Money::format(BillingSummary::outstandingForMatter($record->id)['amount']))
+                    ->visible(fn (): bool => (bool) Auth::user()?->can(Permission::BillingView->value))
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 SelectFilter::make('stage')

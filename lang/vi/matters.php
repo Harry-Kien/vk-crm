@@ -13,6 +13,8 @@ return [
         'lead_lawyer' => 'Luật sư phụ trách',
         'last_client_update_at' => 'Cập nhật gần nhất cho khách',
         'is_published_to_portal' => 'Công bố portal',
+        // M9 Task 7 — hiện cho ai có `billing.view`, ẩn hẳn với ai không có (xem MattersTable).
+        'outstanding_balance' => 'Còn phải thu',
     ],
     'filters' => [
         'stage' => 'Giai đoạn',

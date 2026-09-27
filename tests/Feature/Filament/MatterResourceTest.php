@@ -69,6 +69,22 @@ it('gives the accountant the list without the title or client-summary columns', 
 });
 
 /**
+ * M9 Task 7: cột "còn phải thu" hiện cho ai có `billing.view` (kế toán; luật sư cũng có quyền đó
+ * trên vụ của mình — SPEC §5), ẩn HẲN với ai không có (trợ lý không được cấp `billing.view`).
+ */
+it('shows the outstanding-balance column to the accountant and hides it from an assistant', function () {
+    $accountant = User::factory()->withRole(Role::Accountant)->create();
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    Matter::factory()->create();
+
+    $this->actingAs($accountant, 'web');
+    $this->livewire(ListMatters::class)->assertTableColumnVisible('outstanding_balance');
+
+    $this->actingAs($assistant, 'web');
+    $this->livewire(ListMatters::class)->assertTableColumnHidden('outstanding_balance');
+});
+
+/**
  * getRecordRouteBindingEloquentQuery() phải áp cùng listableBy() như getEloquentQuery():
  * nếu không, một luật sư ngoài đội ngũ không thấy vụ việc trong danh sách vẫn có thể mở thẳng
  * URL trang xem và đọc được nội dung.
