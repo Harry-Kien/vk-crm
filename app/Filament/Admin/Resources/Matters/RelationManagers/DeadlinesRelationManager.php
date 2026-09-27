@@ -4,8 +4,10 @@ namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 
 use App\Actions\Deadline\AddMatterDeadline;
 use App\Actions\Deadline\ChangeDeadlineResponsible;
+use App\Actions\Deadline\DeleteDeadline;
 use App\Actions\Deadline\SetDeadlineCompletion;
 use App\Actions\Deadline\SetDeadlinePublication;
+use App\Actions\Deadline\UpdateDeadline;
 use App\Enums\DeadlineSeverity;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Concerns\ScopesToVisibleMatters;
@@ -15,8 +17,10 @@ use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
+use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
@@ -52,8 +56,9 @@ use Illuminate\Support\HtmlString;
  *
  * # Lớp này không có một dòng nghiệp vụ nào
  *
- * Mọi lần ghi đi qua {@see AddMatterDeadline}, {@see SetDeadlineCompletion} hoặc
- * {@see SetDeadlinePublication} (CLAUDE.md: nghiệp vụ chỉ ở `app/Actions/`; M3 đã phải tách
+ * Mọi lần ghi đi qua {@see AddMatterDeadline}, {@see UpdateDeadline}, {@see DeleteDeadline},
+ * {@see ChangeDeadlineResponsible}, {@see SetDeadlineCompletion} hoặc {@see SetDeadlinePublication}
+ * (CLAUDE.md: nghiệp vụ chỉ ở `app/Actions/`; M3 đã phải tách
  * `SetMatterPortalPublication` ra khỏi `ViewMatter` vì đúng chuyện này). Những gì ở đây là: cột
  * nào hiện, nút nào hiện cho ai, một dòng quá hạn TRÔNG như thế nào, và một lời từ chối của
  * Action đến được mắt người dùng bằng tiếng Việt thay vì thành trang 500 — xem
@@ -63,7 +68,7 @@ use Illuminate\Support\HtmlString;
  *
  * `->authorize()` hỏi `Gate` về QUYỀN (`DeadlinePolicy::update`, tức `MatterPolicy::update` — nên
  * kế toán không thấy nút nào ở đây); `->visible()` hỏi về TRẠNG THÁI bản ghi. Không cổng nào ở
- * đây là cổng thật: cả ba Action tự hỏi lại tất cả và không tin màn hình đã lọc. Cùng thành ngữ
+ * đây là cổng thật: mọi Action tự hỏi lại tất cả và không tin màn hình đã lọc. Cùng thành ngữ
  * {@see ChecklistRelationManager} và {@see ClientRequestsRelationManager} dùng.
  *
  * **`->authorize()` trên `CreateAction` KHÔNG phải trang trí, và nó làm một việc mà
@@ -249,11 +254,13 @@ class DeadlinesRelationManager extends RelationManager
                 $this->addAction(),
             ])
             ->recordActions([
+                $this->editAction(),
                 $this->changeResponsibleAction(),
                 $this->completeAction(),
                 $this->reopenAction(),
                 $this->publishAction(),
                 $this->unpublishAction(),
+                $this->deleteAction(),
             ])
             // `responsible` nạp KÈM cả tài khoản đã xoá mềm: một luật sư đã nghỉ việc vẫn phải
             // hiện tên. Không có nó, cột đọc ra `null` và in "—" trong khi `responsible_user_id`
@@ -429,6 +436,82 @@ class DeadlinesRelationManager extends RelationManager
     }
 
     /**
+     * "Sửa" (M6.5 Task 14, `deadlines/F7`) — tên, ngày đến hạn, mức độ và người phụ trách, qua
+     * {@see UpdateDeadline}. Trước Action này, phiên toà hoãn (rất thường gặp) không có đường sửa:
+     * cách lách duy nhất là đánh dấu "hoàn thành" sai sự thật rồi thêm mốc mới — đúng loại bằng
+     * chứng mà một hồ sơ trách nhiệm nghề nghiệp sẽ đọc.
+     *
+     * **Công bố KHÔNG sửa ở đây** — nó có nút riêng ({@see self::publishAction()}/
+     * {@see self::unpublishAction()}) với cổng riêng (R5).
+     *
+     * **Ô người phụ trách** bày ra đúng {@see self::responsibleOptions()} — cùng danh sách của form
+     * "thêm nhanh" và nút "Đổi người phụ trách". Nó chỉ điền sẵn người đang giữ mốc khi người đó
+     * còn nằm trong danh sách: một giá trị ngoài `options()` bị luật `in:` chặn bằng một câu lỗi về
+     * thứ người dùng chưa từng chọn (cùng cái bẫy ô mặc định của `form()` đã ghi lại), nên với một
+     * người giữ đã nghỉ việc ô để trống và `required()` bắt người sửa chọn một người còn giữ được
+     * mốc. Mốc ĐÃ XONG thì ô bị ẩn (ô ẩn không bị kiểm, không được gửi — `null` ở Action nghĩa là
+     * giữ nguyên), cùng luật `ChangeDeadlineResponsible` từ chối đổi người trên mốc đã xong.
+     *
+     * Cổng: cùng `DeadlinePolicy::update` với các nút còn lại của tab — `->authorize()` hỏi thẳng
+     * `Gate` để ẩn nút, Action tự hỏi lại lần nữa.
+     */
+    private function editAction(): Action
+    {
+        return Action::make('edit')
+            ->label(__('deadlines.tab.actions.edit'))
+            ->icon(Heroicon::OutlinedPencilSquare)
+            ->color('gray')
+            ->modalHeading(__('deadlines.tab.actions.edit_heading'))
+            ->modalSubmitActionLabel(__('deadlines.tab.actions.edit_submit'))
+            ->authorize(fn (Deadline $record): bool => Gate::allows('update', $record))
+            ->fillForm(fn (Deadline $record): array => [
+                'name' => $record->name,
+                'due_date' => $record->due_date->toDateString(),
+                'severity' => $record->severity->value,
+                'responsible_user_id' => array_key_exists((int) $record->responsible_user_id, $this->responsibleOptions())
+                    ? $record->responsible_user_id
+                    : null,
+            ])
+            ->schema([
+                TextInput::make('name')
+                    ->label(__('deadlines.tab.fields.name'))
+                    ->required()
+                    ->maxLength(UpdateDeadline::NAME_MAX_LENGTH)
+                    ->columnSpanFull(),
+                DatePicker::make('due_date')
+                    ->label(__('deadlines.tab.fields.due_date'))
+                    ->required()
+                    ->native(false),
+                Select::make('severity')
+                    ->label(__('deadlines.tab.fields.severity'))
+                    ->helperText(__('deadlines.tab.fields.severity_help'))
+                    ->options(collect(DeadlineSeverity::cases())
+                        ->mapWithKeys(fn (DeadlineSeverity $severity): array => [$severity->value => $severity->label()])
+                        ->all())
+                    ->required()
+                    ->native(false),
+                Select::make('responsible_user_id')
+                    ->label(__('deadlines.tab.fields.responsible'))
+                    ->options(fn (): array => $this->responsibleOptions())
+                    ->hidden(fn (?Deadline $record): bool => (bool) $record?->is_completed)
+                    ->required()
+                    ->native(false),
+            ])
+            ->successNotificationTitle(__('deadlines.tab.actions.edit_success'))
+            ->action(fn (Action $action, Deadline $record, array $data) => $this->runAction(
+                $action,
+                fn () => app(UpdateDeadline::class)->handle(
+                    deadline: $record,
+                    actor: Auth::user(),
+                    name: $data['name'] ?? '',
+                    dueDate: $data['due_date'] ?? '',
+                    severity: DeadlineSeverity::tryFrom($data['severity'] ?? '') ?? DeadlineSeverity::Normal,
+                    responsible: static::resolveResponsible($data['responsible_user_id'] ?? null),
+                ),
+            ));
+    }
+
+    /**
      * Đổi giá trị ô chọn thành người thật — hoặc `null`.
      *
      * `withTrashed()` cùng lý do {@see ClientRequestsRelationManager::resolveAssignee()} ghi lại:
@@ -510,6 +593,12 @@ class DeadlinesRelationManager extends RelationManager
     /**
      * Đường lùi của cái nút trên. Nó tồn tại vì một mốc đánh dấu nhầm là một mốc mà
      * `CheckDeadlines` (Task 6) thôi nhắc — tức một hạn tố tụng im lặng cho tới ngày nó trôi qua.
+     *
+     * **Mở lại có thể đổi người phụ trách (M6.5 Task 14)** — khi người giữ mốc không còn hợp lệ,
+     * {@see SetDeadlineCompletion} giao mốc cho luật sư phụ trách hồ sơ (xem docblock Action đó).
+     * Một lần đổi người mà màn hình im lặng là một lần đổi người không ai biết, nên khi bản ghi trả
+     * về có `wasChanged('responsible_user_id')`, nút gửi thêm một thông báo cảnh báo `persistent()`
+     * nêu tên người nhận mốc và lý do.
      */
     private function reopenAction(): Action
     {
@@ -523,10 +612,26 @@ class DeadlinesRelationManager extends RelationManager
             ->authorize(fn (Deadline $record): bool => Gate::allows('update', $record))
             ->visible(fn (Deadline $record): bool => (bool) $record->is_completed)
             ->successNotificationTitle(__('deadlines.tab.actions.reopen_success'))
-            ->action(fn (Action $action, Deadline $record) => $this->runAction(
-                $action,
-                fn () => app(SetDeadlineCompletion::class)->handle($record, false, Auth::user()),
-            ));
+            ->action(function (Action $action, Deadline $record): void {
+                $reopened = null;
+
+                $this->runAction($action, function () use ($record, &$reopened): void {
+                    $reopened = app(SetDeadlineCompletion::class)->handle($record, false, Auth::user());
+                });
+
+                // `runAction()` kết thúc bằng một exception ở mọi nhánh từ chối, nên tới đây là
+                // Action đã trả về bản ghi đã mở lại.
+                if ($reopened instanceof Deadline && $reopened->wasChanged('responsible_user_id')) {
+                    Notification::make()
+                        ->title(__('deadlines.tab.actions.reopen_reassigned_title', [
+                            'name' => User::withTrashed()->find($reopened->responsible_user_id)?->name ?? '—',
+                        ]))
+                        ->body(__('deadlines.tab.actions.reopen_reassigned_body'))
+                        ->warning()
+                        ->persistent()
+                        ->send();
+                }
+            });
     }
 
     /**
@@ -580,6 +685,40 @@ class DeadlinesRelationManager extends RelationManager
             ->action(fn (Action $action, Deadline $record) => $this->runAction(
                 $action,
                 fn () => app(SetDeadlinePublication::class)->handle($record, false, Auth::user()),
+            ));
+    }
+
+    /**
+     * "Xoá" (M6.5 Task 14, `deadlines/F7`; R14) — xoá mềm kèm lý do bắt buộc, qua
+     * {@see DeleteDeadline}. Cùng hình dạng nút "Gỡ" của `PartiesRelationManager`: một `Textarea`
+     * `required()` là nửa "cho người dùng thấy"; nửa gác cổng thật nằm trong chính Action (xem
+     * docblock của nó), không tin modal đã chặn đủ.
+     *
+     * Cổng: cùng `DeadlinePolicy::delete` (uỷ thẳng cho `update`) với mọi nút còn lại của tab.
+     */
+    private function deleteAction(): Action
+    {
+        return Action::make('delete')
+            ->label(__('deadlines.tab.actions.delete'))
+            ->icon(Heroicon::OutlinedTrash)
+            ->color('danger')
+            ->modalHeading(__('deadlines.tab.actions.delete_heading'))
+            ->modalDescription(__('deadlines.tab.actions.delete_description'))
+            ->authorize(fn (Deadline $record): bool => Gate::allows('delete', $record))
+            ->schema([
+                Textarea::make('reason')
+                    ->label(__('deadlines.tab.fields.delete_reason'))
+                    ->required()
+                    ->rows(3),
+            ])
+            ->successNotificationTitle(__('deadlines.tab.actions.delete_success'))
+            ->action(fn (Action $action, Deadline $record, array $data) => $this->runAction(
+                $action,
+                fn () => app(DeleteDeadline::class)->handle(
+                    deadline: $record,
+                    actor: Auth::user(),
+                    reason: $data['reason'] ?? '',
+                ),
             ));
     }
 }

@@ -46,6 +46,8 @@ return [
             'is_published' => 'Hiện mốc này cho khách',
             'is_published_help' => 'Tắt thì mốc chỉ nằm trong văn phòng. Bật thì khách thấy trên cổng.',
             'is_published_disabled_hint' => 'Hồ sơ này chưa được công bố lên cổng khách hàng, nên chưa gửi mốc nào cho khách được.',
+            // M6.5 Task 14 (R14): xoá một mốc là xoá mềm kèm lý do bắt buộc.
+            'delete_reason' => 'Vì sao xoá mốc này',
         ],
 
         'actions' => [
@@ -63,6 +65,10 @@ return [
             'reopen_heading' => 'Mở lại mốc này?',
             'reopen_description' => 'Hệ thống nhắc lại mốc này như trước. Những lần nhắc đã gửi thì không gửi lại.',
             'reopen_success' => 'Đã mở lại mốc thời hạn.',
+            // M6.5 Task 14: người giữ mốc không còn hợp lệ nên lần mở lại giao mốc cho luật sư
+            // phụ trách hồ sơ — xem docblock App\Actions\Deadline\SetDeadlineCompletion.
+            'reopen_reassigned_title' => 'Mốc đã được giao cho :name',
+            'reopen_reassigned_body' => 'Người phụ trách trước không còn giữ được mốc này (đã nghỉ việc, bị vô hiệu hoá, không còn trong đội ngũ hoặc không còn xem được hồ sơ), nên mốc chuyển cho luật sư phụ trách hồ sơ. Muốn giao cho người khác, dùng nút "Đổi người phụ trách".',
 
             'publish' => 'Gửi cho khách',
             'publish_heading' => 'Hiện mốc này trên cổng khách hàng?',
@@ -81,6 +87,18 @@ return [
             'change_responsible_heading' => 'Chuyển mốc này cho ai?',
             'change_responsible_submit' => 'Lưu',
             'change_responsible_success' => 'Đã đổi người phụ trách.',
+
+            // M6.5 Task 14 (`deadlines/F7`) — trước bản sửa này, phiên toà hoãn không sửa được
+            // ngày: cách duy nhất là đánh dấu "hoàn thành" sai sự thật rồi thêm mốc mới.
+            'edit' => 'Sửa',
+            'edit_heading' => 'Sửa mốc thời hạn',
+            'edit_submit' => 'Lưu',
+            'edit_success' => 'Đã lưu thay đổi.',
+
+            'delete' => 'Xoá',
+            'delete_heading' => 'Xoá mốc thời hạn này?',
+            'delete_description' => 'Mốc sẽ không còn hiện ở đâu và không được nhắc nữa. Ghi rõ lý do bên dưới.',
+            'delete_success' => 'Đã xoá mốc thời hạn.',
         ],
 
         /*
@@ -103,6 +121,11 @@ return [
         'responsible_cannot_open' => 'Người này không mở được hồ sơ, hoặc tài khoản đã ngừng hoạt động. Hãy chọn một người trong đội ngũ vụ việc.',
         // Minor (fix round 2): mốc đã hoàn thành không còn "việc" nào để đổi người phụ trách nữa.
         'already_completed' => 'Mốc này đã hoàn thành, không đổi người phụ trách được nữa. Hãy mở lại mốc (nút "Mở lại") trước, nếu thật sự cần đổi.',
+        // M6.5 Task 14 (carried từ rà soát Task 3): mở lại một mốc mà cả người giữ mốc lẫn luật
+        // sư phụ trách hồ sơ đều không còn giữ được — SetDeadlineCompletion không có ai để giao.
+        'reopen_without_holder' => 'Chưa mở lại được: người phụ trách mốc này và luật sư phụ trách hồ sơ đều không còn giữ được mốc (đã nghỉ việc, bị vô hiệu hoá, không còn trong đội ngũ hoặc không còn xem được hồ sơ). Hãy bàn giao hồ sơ cho một luật sư khác trước, rồi mở lại mốc.',
+        // R14: gỡ một mốc là xoá mềm kèm lý do bắt buộc.
+        'delete_reason_required' => 'Hãy ghi vì sao xoá mốc này.',
     ],
 
     /*
@@ -152,5 +175,17 @@ return [
     'reminder_failed_notification' => [
         'title' => 'Không gửi được thư nhắc mốc thời hạn',
         'body' => 'Đã thử lại nhiều lần nhưng không gửi được thư nhắc bậc :tier cho mốc ":name" (hồ sơ :code). Cần kiểm tra thủ công.',
+    ],
+
+    /*
+     * M6.5 Task 14 (`deadlines/F6`, `spec-gap-05`): SPEC §6.8 phân biệt bậc 7/3/1 là "Email" và
+     * bậc quá hạn là "Đánh dấu quá hạn, TẠO THÔNG BÁO CẢNH BÁO" — trước bản sửa này chỉ có email.
+     * Xem docblock `App\Actions\Schedule\CheckDeadlines` và
+     * `App\Notifications\Staff\DeadlineOverdueAlert` cho lý do thông báo này KHÔNG dựng bằng
+     * `Filament\Notifications\Notification` (App\Actions không được phụ thuộc Filament).
+     */
+    'overdue_notification' => [
+        'title' => 'Mốc thời hạn đã quá hạn',
+        'body' => 'Mốc ":name" (hồ sơ :code) đã quá hạn. Cần xử lý ngay.',
     ],
 ];

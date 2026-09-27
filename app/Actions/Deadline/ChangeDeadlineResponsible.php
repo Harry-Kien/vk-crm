@@ -4,6 +4,7 @@ namespace App\Actions\Deadline;
 
 use App\Actions\Concerns\ChecksAccountActive;
 use App\Actions\Concerns\ReadsWithoutPortalScope;
+use App\Actions\Deadline\Concerns\ChecksDeadlineHolder;
 use App\Actions\Deadline\Concerns\OpensDeadline;
 use App\Actions\Matter\ReassignMatter;
 use App\Models\Deadline;
@@ -38,6 +39,14 @@ use Illuminate\Validation\ValidationException;
  * biết mốc đó là gì và đọc lại tiến độ. Đây là phán quyết của vòng sửa 1 (fix round 1 findings,
  * CRITICAL); nó nới nhẹ so với `AddMatterDeadline` một cách có chủ đích, không phải một chỗ lệch.
  *
+ * **M6.5 Task 14: câu hỏi này dời sang {@see ChecksDeadlineHolder::canHoldDeadline()}**, dùng
+ * chung với `UpdateDeadline` (ô người phụ trách của nút "Sửa") và lần mở lại của
+ * `SetDeadlineCompletion` — ba đường ghi cột này sau lúc tạo, MỘT luật. Luật đó thêm một vế mà bản
+ * cũ không có: người mới phải CÒN TRONG ĐỘI NGŨ (hoặc là lead). Với luật sư/trợ lý vế này vốn đã
+ * nằm trong `Gate::view()` của một vụ thường; nó chỉ đổi câu trả lời cho trưởng phòng/admin ngoài
+ * đội ngũ — những người màn hình chưa bao giờ bày ra (`responsibleOptions()` chỉ liệt kê đội ngũ),
+ * và R6 giữ đúng bất biến đó ("mốc chưa xong nằm trong tay đội ngũ").
+ *
  * # Khoá vụ việc TRƯỚC, mốc thời hạn SAU — khác thứ tự của `OpensDeadline`
  *
  * {@see OpensDeadline::openDeadline()} (dùng bởi
@@ -54,6 +63,7 @@ use Illuminate\Validation\ValidationException;
 class ChangeDeadlineResponsible
 {
     use ChecksAccountActive;
+    use ChecksDeadlineHolder;
     use ReadsWithoutPortalScope;
 
     /**
@@ -100,13 +110,13 @@ class ChangeDeadlineResponsible
 
             // Minor (fix round 2): khoá dòng người mới NGAY SAU vụ việc/mốc hạn — cùng thứ tự
             // toàn cục "vụ việc trước, bảng con sau, người thứ ba sau cùng" — rồi đọc lại
-            // `is_active`/`trashed()` DƯỚI KHOÁ qua `canHoldTheDeadline()`. `$newResponsible` do
+            // `is_active`/`trashed()` DƯỚI KHOÁ qua `canHoldDeadline()`. `$newResponsible` do
             // caller đưa vào chỉ đọc thuộc tính đã nạp sẵn, có thể cũ (form mở ra lúc người đó còn
             // hoạt động, rồi bị vô hiệu hoá/xoá giữa lúc người dùng đang chọn và lúc họ bấm lưu) —
             // câu này đóng đúng khe hở đó, cùng công thức `ReassignMatter`'s `$lockedNewLead`.
             $lockedNewResponsible = User::query()->withTrashed()->whereKey($newResponsible->getKey())->lockForUpdate()->first();
 
-            if ($lockedNewResponsible === null || ! $this->canHoldTheDeadline($lockedNewResponsible, $matter)) {
+            if ($lockedNewResponsible === null || ! $this->canHoldDeadline($lockedNewResponsible, $matter)) {
                 throw ValidationException::withMessages([
                     'responsible_user_id' => [__('deadlines.validation.responsible_cannot_open')],
                 ]);
@@ -125,16 +135,6 @@ class ChangeDeadlineResponsible
 
             return $fresh;
         });
-    }
-
-    /**
-     * "Còn đi làm, và mở được hồ sơ" — `view`, không `update` (xem docblock lớp cho lý do lệch có
-     * chủ đích với {@see AddMatterDeadline::canHoldTheDeadline()}).
-     */
-    private function canHoldTheDeadline(User $newResponsible, Matter $matter): bool
-    {
-        return $this->accountIsActive($newResponsible)
-            && Gate::forUser($newResponsible)->allows('view', $matter);
     }
 
     /**

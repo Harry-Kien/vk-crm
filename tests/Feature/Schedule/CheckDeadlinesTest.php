@@ -14,8 +14,11 @@ use App\Models\Matter;
 use App\Models\MatterType;
 use App\Models\OutboundMessage;
 use App\Models\User;
+use App\Notifications\Staff\DeadlineOverdueAlert;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Filament\Notifications\Notification as FilamentNotification;
 use Illuminate\Database\Events\TransactionCommitted;
+use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -293,6 +296,26 @@ it('carries the matter code, because this one goes to staff and not to a client'
 // ---------------------------------------------------------------------------------------------
 // Vụ việc đã huỷ (M6.5 Task 5, finding deadlines/F8)
 // ---------------------------------------------------------------------------------------------
+
+/**
+ * M6.5 Task 14 (R14): xoá một mốc là xoá mềm — `Deadline::query()` (bảng ứng viên của
+ * `handle()`) mang sẵn `SoftDeletingScope` từ M1, nên một mốc đã gỡ không lọt vào danh sách này
+ * mà không cần thêm điều kiện. Mốc thứ hai, không bị gỡ, cùng bậc, là vế dương trong cùng lượt.
+ */
+it('does not remind a deadline that has been soft-deleted, while still reminding one that has not', function () {
+    Mail::fake();
+
+    $deleted = deadlineDueIn(1);
+    $deleted->delete();
+    $kept = deadlineDueIn(1);
+
+    (new CheckDeadlines)->handle();
+
+    Mail::assertSent(DeadlineReminder::class, fn ($mail) => $mail->hasTo($kept->responsible->email));
+    Mail::assertNotSent(DeadlineReminder::class, fn ($mail) => $mail->hasTo($deleted->responsible->email));
+    // `fresh()` đọc không qua global scope, nên thấy được cả dòng đã xoá mềm.
+    expect($deleted->fresh()->reminders_sent)->toBe([]);
+});
 
 /**
  * `deadlines/F8`: trước bản sửa này, tập ứng viên chỉ lọc `is_completed = false`, không hỏi gì
@@ -803,4 +826,124 @@ it('substitutes the lead lawyer for a legacy associate responsible who cannot vi
         collect([$lead->id, $admin->id])->sort()->values()->all()
     )->and($recipients->pluck('id')->all())->not->toContain($manager->id)
         ->and($recipients->pluck('id')->all())->not->toContain($responsible->id);
+});
+
+// ---------------------------------------------------------------------------------------------
+// M6.5 Task 14 (`deadlines/F6`, `spec-gap-05`) — bậc quá hạn tạo một dòng `notifications` TRONG
+// HỆ THỐNG, cạnh email (SPEC §6.8: bậc "< 0" ghi "Đánh dấu quá hạn, TẠO THÔNG BÁO CẢNH BÁO").
+// ---------------------------------------------------------------------------------------------
+
+it('creates a database notification for the responsible lawyer at the overdue tier', function () {
+    Mail::fake();
+    $deadline = deadlineDueIn(-3);
+
+    (new CheckDeadlines)->handle();
+
+    expect(DatabaseNotification::query()
+        ->where('notifiable_id', $deadline->responsible_user_id)
+        ->where('type', DeadlineOverdueAlert::class)
+        ->count())->toBe(1);
+});
+
+/**
+ * Cặp âm/dương với test trên: các bậc CHƯA quá hạn (7/3/1 ngày, SPEC §6.8 chỉ ghi "Email") không
+ * tạo thông báo trong hệ thống — chỉ bậc `< 0` mới làm việc đó.
+ */
+it('does not create a database notification at the seven-day tier', function () {
+    Mail::fake();
+    $deadline = deadlineDueIn(7);
+
+    (new CheckDeadlines)->handle();
+
+    expect(DatabaseNotification::query()
+        ->where('notifiable_id', $deadline->responsible_user_id)
+        ->where('type', DeadlineOverdueAlert::class)
+        ->count())->toBe(0);
+});
+
+/**
+ * "Chỉ tạo MỘT dòng mỗi mốc mỗi bậc" — cùng khoá chống trùng `reminders_sent` mà email dùng, nên
+ * cron gọi lại (gia hạn gói, đổi múi giờ, người quản trị chạy tay) không đẻ thêm thông báo.
+ */
+it('never creates a second database notification for the same deadline and tier, however often the job runs', function () {
+    Mail::fake();
+    $deadline = deadlineDueIn(-3);
+
+    (new CheckDeadlines)->handle();
+    (new CheckDeadlines)->handle();
+    (new CheckDeadlines)->handle();
+
+    expect(DatabaseNotification::query()
+        ->where('notifiable_id', $deadline->responsible_user_id)
+        ->where('type', DeadlineOverdueAlert::class)
+        ->count())->toBe(1);
+});
+
+/**
+ * R3: "người nhận thư về một vụ việc là người được xem vụ đó", ĐÚNG NHƯ email cùng bậc — cùng
+ * `$recipients` đã tính, không phải một luật nhận thứ hai. Bậc quá hạn cộng
+ * `ResolveStaffRecipients::supervisorsFor()` (một quản lý được xem vụ), nên cả người phụ trách
+ * LẪN quản lý đều phải nhận thông báo trong hệ thống, đúng số người mà `Mail::assertSent(...)` đã
+ * đếm ở test "marks every earlier tier as spent..." phía trên.
+ */
+it('notifies every recipient of the overdue tier in the database, matching the mail audience', function () {
+    Mail::fake();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $deadline = deadlineDueIn(-3);
+
+    (new CheckDeadlines)->handle();
+
+    $notifiedIds = DatabaseNotification::query()
+        ->where('type', DeadlineOverdueAlert::class)
+        ->pluck('notifiable_id')
+        ->all();
+
+    expect($notifiedIds)->toContain($deadline->responsible_user_id)
+        ->and($notifiedIds)->toContain($manager->id)
+        ->and($notifiedIds)->toHaveCount(2);
+});
+
+/**
+ * Review Focus 1 (vụ `restricted` đi qua mọi thông báo mới): cùng luật R3 như thư cùng bậc —
+ * `supervisorsFor()` thay trưởng phòng bằng admin ở vụ hạn chế. Trưởng phòng không được nhận một
+ * thông báo mang mã hồ sơ và tên mốc của một vụ họ không được xem.
+ */
+it('notifies an admin instead of a manager about an overdue deadline of a restricted matter', function () {
+    Mail::fake();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $admin = User::factory()->admin()->create();
+    $deadline = deadlineDueIn(-2);
+    $deadline->matter->update(['confidentiality' => Confidentiality::Restricted]);
+
+    (new CheckDeadlines)->handle();
+
+    $notifiedIds = DatabaseNotification::query()
+        ->where('type', DeadlineOverdueAlert::class)
+        ->pluck('notifiable_id')
+        ->all();
+
+    expect($notifiedIds)->toContain($deadline->responsible_user_id)
+        ->and($notifiedIds)->toContain($admin->id)
+        ->and($notifiedIds)->not->toContain($manager->id);
+});
+
+/**
+ * Chuông thông báo của panel admin (`->databaseNotifications()`) dựng lại mỗi dòng bằng
+ * `Filament\Notifications\Notification::fromDatabase()`. Dòng do `DeadlineOverdueAlert` ghi phải
+ * đọc ra đúng tiêu đề, nội dung (tên mốc, mã hồ sơ) và màu — không thì nó là một dòng trong bảng
+ * mà không ai thấy.
+ */
+it('writes an overdue notification the admin panel bell can render', function () {
+    Mail::fake();
+    $deadline = deadlineDueIn(-2);
+
+    (new CheckDeadlines)->handle();
+
+    $row = DatabaseNotification::query()->where('type', DeadlineOverdueAlert::class)->sole();
+    $rendered = FilamentNotification::fromDatabase($row);
+
+    expect($rendered->getTitle())->toBe(__('deadlines.overdue_notification.title'))
+        ->and($rendered->getBody())->toContain($deadline->name)
+        ->and($rendered->getBody())->toContain($deadline->matter->code)
+        ->and($rendered->getColor())->toBe('danger');
 });

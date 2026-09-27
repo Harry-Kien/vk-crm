@@ -50,6 +50,9 @@ return [
         'deadline_responsible_changed' => 'Đổi người phụ trách mốc hạn',
         'deadline_completion_set' => 'Cập nhật hoàn thành mốc hạn',
         'deadline_publication_set' => 'Đổi công bố mốc hạn',
+        // M6.5 Task 14: app/Actions/Deadline/{UpdateDeadline,DeleteDeadline}.php.
+        'deadline_updated' => 'Sửa mốc thời hạn',
+        'deadline_deleted' => 'Xoá mốc thời hạn',
         // app/Actions/Document/*.php
         'checklist_item_added' => 'Thêm đầu mục danh mục',
         'checklist_item_marked_not_applicable' => 'Đánh dấu không áp dụng đầu mục danh mục',
@@ -64,6 +67,17 @@ return [
         'matter_cancelled' => 'Huỷ vụ việc',
         'matter_reassigned' => 'Bàn giao vụ việc',
         'matter_details_updated' => 'Sửa thông tin vụ việc',
+        // Task 14 (bước đầu tiên, theo chỉ đạo controller): năm khoá dưới đây đã được ghi qua
+        // Audit::record() từ trước nhưng chưa có nhãn — ActivityLogEventTranslationsTest đỏ ngay
+        // trước khi task này bắt đầu vì đúng lý do đó. Bổ sung trước, không đụng gì khác, để bộ
+        // test xanh lại trước khi làm việc chính của task.
+        // app/Actions/RemoveMatterParty.php:126, app/Actions/UpdateMatterParty.php:226
+        'matter_party_removed' => 'Gỡ bên khỏi vụ việc',
+        'matter_party_updated' => 'Sửa thông tin bên trong vụ việc',
+        // app/Actions/Client/CreateClient.php:152, app/Actions/Client/FindClientByIdentifier.php:72,88
+        // (R4: tra định danh khi mở vụ cho khách mới — trúng hay trượt, không ghi số thô)
+        'client_lookup' => 'Tra cứu định danh khách hàng',
+        'client_lookup_throttled' => 'Tra cứu định danh khách hàng bị khoá tạm (thử quá nhiều lần)',
         // app/Actions/Portal/*.php
         'client_request_opened' => 'Mở yêu cầu của khách',
         'client_request_assigned' => 'Giao yêu cầu của khách',
@@ -74,6 +88,8 @@ return [
         // app/Actions/SyncClientPartyIdentities.php, app/Jobs/RecheckClientIdentityConflicts.php
         'client_identity_conflict_detected' => 'Phát hiện xung đột khi đồng bộ định danh',
         'client_identity_recheck_failed' => 'Kiểm tra lại xung đột lỗi',
+        // app/Jobs/SendDeadlineReminderMail.php:198 — job nhắc mốc hỏng hẳn sau hết lượt thử lại.
+        'deadline_reminder_failed' => 'Gửi thư nhắc mốc thời hạn thất bại hẳn',
         // Task 20: app/Filament/Admin/Resources/Users/Pages/EditUser.php.
         'user_password_reset' => 'Đặt lại mật khẩu nhân sự',
     ],

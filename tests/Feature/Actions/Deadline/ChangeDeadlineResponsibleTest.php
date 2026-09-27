@@ -96,6 +96,24 @@ it('refuses a new responsible who cannot view the matter', function () {
     expect($deadline->fresh()->responsible_user_id)->toBe($this->lawyer->id);
 });
 
+/**
+ * M6.5 Task 14: luật chung `ChecksDeadlineHolder::canHoldDeadline()` thêm vế "còn trong đội ngũ".
+ * Trưởng phòng XEM được vụ thường (`matter.viewAny`) nhưng không ở trong đội ngũ — không nhận được
+ * mốc, dù qua được `view`. Cặp dương là test ngay dưới.
+ */
+it('refuses a new responsible who can view the matter but is outside its team', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $deadline = makeChangeableDeadline($this->matter);
+
+    expect(fn () => app(ChangeDeadlineResponsible::class)->handle(
+        deadline: $deadline,
+        actor: $this->lawyer,
+        newResponsible: $manager,
+    ))->toThrow(ValidationException::class);
+
+    expect($deadline->fresh()->responsible_user_id)->toBe($this->lawyer->id);
+});
+
 /** Vế dương của test trên: một thành viên đội ngũ (qua được `view`) nhận được mốc bình thường. */
 it('accepts a new responsible who is a member of the matter team', function () {
     $assistant = User::factory()->withRole(Role::Assistant)->create();

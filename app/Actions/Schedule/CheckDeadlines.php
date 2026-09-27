@@ -9,6 +9,7 @@ use App\Jobs\SendDeadlineReminderMail;
 use App\Models\Deadline;
 use App\Models\Matter;
 use App\Models\User;
+use App\Notifications\Staff\DeadlineOverdueAlert;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -118,10 +119,18 @@ class CheckDeadlines
         return ['reminded' => $reminded, 'skipped_tiers' => $skipped];
     }
 
-    /** Một mốc, một transaction — tách ra khỏi {@see self::handle()} để foreach bắt lỗi gọn. */
+    /**
+     * Một mốc, một transaction — tách ra khỏi {@see self::handle()} để foreach bắt lỗi gọn.
+     *
+     * `$overdueNotify` (`array{deadline: Deadline, recipients: Collection<int, User>}|null`) mang
+     * dữ liệu cho thông báo TRONG HỆ THỐNG của bậc quá hạn (M6.5 Task 14) ra NGOÀI closure của
+     * transaction — xem chú thích tại chỗ gán nó cho lý do bắt buộc phải làm vậy.
+     */
     private function processOne(int $id, int &$reminded, int &$skipped): void
     {
-        DB::transaction(function () use ($id, &$reminded, &$skipped): void {
+        $overdueNotify = null;
+
+        DB::transaction(function () use ($id, &$reminded, &$skipped, &$overdueNotify): void {
             /** @var Deadline|null $deadline */
             $deadline = Deadline::query()
                 ->whereKey($id)
@@ -180,6 +189,20 @@ class CheckDeadlines
             $deadline->markReminderSent($key);
             $reminded++;
 
+            // M6.5 Task 14 (`deadlines/F6`, `spec-gap-05`): SPEC §6.8 bậc quá hạn ghi "Đánh dấu
+            // quá hạn, TẠO THÔNG BÁO CẢNH BÁO" — khác ba bậc 7/3/1 chỉ ghi "Email". CHỈ chuẩn bị
+            // dữ liệu ở đây, KHÔNG gọi `->notify(` bên trong transaction: luật kiến trúc "không có
+            // Mail::/Notification::send/route/->notify( nào chạy bên trong DB::transaction ở
+            // app/Actions" (ArchitectureTest.php, vòng sửa 1 của Task 11) cấm đúng lời gọi đó —
+            // cùng lý do `Mail::` bị cấm, dù kênh `database` của `DeadlineOverdueAlert` không chạm
+            // mạng: luật quét theo TÊN PHƯƠNG THỨC, không theo từng lớp. Người nhận là
+            // `$recipients` ở trên — tức `recipientsFor()`, CÙNG hàm mà job gửi thư gọi lại lúc
+            // chạy (R3, không viết luật nhận thứ hai) — gửi thật diễn ra ở `processOne()`, NGOÀI
+            // closure này, sau khi transaction đã commit.
+            if ($key === self::OVERDUE_KEY) {
+                $overdueNotify = ['deadline' => $deadline, 'recipients' => $recipients];
+            }
+
             // `->afterCommit()`: Laravel hoãn việc đẩy job tới khi transaction NÀY thật sự
             // commit. Payload chỉ mang ID + bậc (SPEC §10.5) — vòng sửa 1 (ruling "re-derive
             // audience at send time") bỏ hẳn danh sách người nhận khỏi payload: job tự gọi lại
@@ -188,6 +211,16 @@ class CheckDeadlines
             // để quyết định CÓ dispatch hay không (rỗng thì không đánh dấu, xem trên).
             SendDeadlineReminderMail::dispatch($deadline->getKey(), $key)->afterCommit();
         });
+
+        // Ngoài transaction, cố ý — xem chú thích ở trên. Tier đã được đánh dấu VÀ commit trước
+        // khi tới đây, nên một lần chạy `CheckDeadlines` kế tiếp không bao giờ lặp lại nhánh này
+        // cho cùng một mốc/bậc (`in_array($key, $already, true)` chặn ở đầu closure) — "chỉ tạo
+        // một dòng notifications cho mỗi mốc mỗi bậc" không cần một cột chống trùng RIÊNG.
+        if ($overdueNotify !== null) {
+            foreach ($overdueNotify['recipients'] as $recipient) {
+                $recipient->notify(new DeadlineOverdueAlert($overdueNotify['deadline']));
+            }
+        }
     }
 
     /** Bậc áp dụng hôm nay, hoặc `null` nếu còn quá xa để nhắc. */

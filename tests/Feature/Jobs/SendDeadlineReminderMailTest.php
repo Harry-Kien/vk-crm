@@ -119,6 +119,39 @@ it('skips silently when the deadline no longer exists or is already marked compl
     Mail::assertNothingSent();
 });
 
+/**
+ * M6.5 Task 14 (R14): xoá một mốc là xoá mềm. Job có thể đã được xếp hàng TRƯỚC khi văn phòng gỡ
+ * mốc (`DeleteDeadline`) và chỉ chạy SAU đó — `Deadline::query()->find()` (dòng đầu của
+ * `handle()`) mang sẵn `SoftDeletingScope` (từ M1) nên một mốc đã gỡ trả về `null` và job dừng ở
+ * ĐÚNG điều kiện đã có, không cần thêm mã.
+ *
+ * Mutation probe (đã chạy tay, khôi phục sau khi dán bằng chứng vào báo cáo): đổi
+ * `Deadline::query()->find($this->deadlineId)` thành `Deadline::withTrashed()->find(...)` —
+ * `Mail::assertNothingSent()` thất bại (RuntimeException: Ran into unexpected mail), chứng minh
+ * đây là chỗ đang thật sự chặn, không phải một dòng vô hại.
+ */
+it('skips silently when the deadline has been soft-deleted', function () {
+    Mail::fake();
+    [$deadline] = deadlineWithLawyer();
+    $deadline->delete();
+
+    $job = new SendDeadlineReminderMail($deadline->id, 'd3');
+    $job->handle();
+
+    Mail::assertNothingSent();
+});
+
+/** Cặp dương: một mốc còn nguyên (chưa gỡ) thì vẫn gửi như thường — test trên đỏ vì xoá mềm, không vì lý do khác. */
+it('still mails when the deadline has not been deleted', function () {
+    Mail::fake();
+    [$deadline, $lawyer] = deadlineWithLawyer();
+
+    $job = new SendDeadlineReminderMail($deadline->id, 'd3');
+    $job->handle();
+
+    Mail::assertSent(DeadlineReminder::class, fn ($mail) => $mail->hasTo($lawyer->email));
+});
+
 /** `$tries - 1` độ trễ, cùng kỷ luật đã ghim ở `RecheckClientIdentityConflictsTest`. */
 it('configures exactly one backoff delay per release', function () {
     $job = new SendDeadlineReminderMail(1, 'd7');
