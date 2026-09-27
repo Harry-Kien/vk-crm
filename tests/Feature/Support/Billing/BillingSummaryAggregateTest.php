@@ -25,9 +25,10 @@ use Illuminate\Support\Facades\DB;
  *    đủ 10 triệu — đây là ca hay bị viết sai nhất khi chuyển phép SUM() sang SQL.
  * Cộng hai hợp đồng KHÔNG active — `cancelled` và `completed` — mỗi hợp đồng mang một đợt
  * `pending` còn nguyên: cả hai KHÔNG được lọt vào cả hai cách tính gộp (constraint (a), Task 4),
- * dù tự chúng có `outstanding() > 0`. Hai trạng thái riêng vì `CompleteContract`/`CancelContract`
- * là hai Action khác nhau (Task 4) — một mutation chỉ xoá nhánh `cancelled` khỏi bộ lọc SQL vẫn có
- * thể để lọt nhánh `completed`, nên cả hai phải có mặt, không chỉ một đại diện.
+ * và `outstanding()` của chính chúng cũng là 0 (lượt rà soát cuối M9, I4). Hai trạng thái riêng
+ * vì `CompleteContract`/`CancelContract` là hai Action khác nhau (Task 4) — một mutation chỉ xoá
+ * nhánh `cancelled` khỏi bộ lọc SQL vẫn có thể để lọt nhánh `completed`, nên cả hai phải có mặt,
+ * không chỉ một đại diện.
  */
 function aggregateFixture(): array
 {
@@ -87,12 +88,14 @@ it('agrees with Instalment::outstanding() per instalment, across partial, waived
             ->and((int) $byId[$instalment->id]->outstanding_amount)->toBe($fresh->outstanding(), "lệch với outstanding() ở ca: {$key}");
     }
 
-    // Đợt pending của hợp đồng cancelled/completed KHÔNG lọt vào, dù outstanding() riêng của
-    // chúng > 0 (constraint (a), Task 4) — cặp âm chứng minh bộ lọc hợp đồng active có tác dụng
-    // thật, trên CẢ HAI trạng thái không active.
-    expect($fixture['stillPendingOnCancelled']->fresh()->outstanding())->toBe(5_000_000)
+    // Đợt pending của hợp đồng cancelled/completed KHÔNG lọt vào cách tính gộp (constraint (a),
+    // Task 4) — cặp âm chứng minh bộ lọc hợp đồng active có tác dụng thật, trên CẢ HAI trạng thái
+    // không active. Lượt rà soát cuối M9, I4: outstanding() của chính đợt đó giờ CŨNG là 0 (hợp
+    // đồng không active thì không còn gì để đòi) — hai cách tính ĐỒNG Ý với nhau ở đây, không còn
+    // là chỗ duy nhất chúng được phép lệch.
+    expect($fixture['stillPendingOnCancelled']->fresh()->outstanding())->toBe(0)
         ->and($byId->has($fixture['stillPendingOnCancelled']->id))->toBeFalse()
-        ->and($fixture['stillPendingOnCompleted']->fresh()->outstanding())->toBe(7_000_000)
+        ->and($fixture['stillPendingOnCompleted']->fresh()->outstanding())->toBe(0)
         ->and($byId->has($fixture['stillPendingOnCompleted']->id))->toBeFalse();
 });
 
