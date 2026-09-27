@@ -8,7 +8,9 @@ use App\Enums\Confidentiality;
 use App\Enums\Role as StaffRole;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Resources\Matters\MatterResource;
+use App\Filament\Admin\Resources\OutboundMessages\OutboundMessageResource;
 use App\Models\Matter;
+use App\Models\OutboundMessage;
 use App\Models\User;
 use Filament\Actions\Action;
 use Filament\Actions\EditAction;
@@ -68,6 +70,7 @@ class ViewMatter extends ViewRecord
     {
         return [
             $this->reassignAction(),
+            $this->outboundMessagesAction(),
             // Lối vào "Sửa vụ việc" (M6.5 Task 5, EditMatter). Cổng mặc định của EditAction là
             // ability `update` trên model — đúng MatterPolicy::update() đã có, không cần khai báo
             // lại. Đứng NGOÀI dataset của HeaderActionsAreReachableTest (chỉ xét trang List/Edit,
@@ -99,6 +102,40 @@ class ViewMatter extends ViewRecord
                         ->send();
                 }),
         ];
+    }
+
+    /**
+     * Liên kết "Thư đã gửi" (M6.5 Task 13, findings `notify-8`/`spec-gap-07`): mở
+     * `OutboundMessageResource` đã LỌC SẴN theo vụ việc này, qua bộ lọc `matter` mà
+     * `OutboundMessagesTable` đăng ký (`SelectFilter::make('matter')`).
+     *
+     * `->authorize()` tự hỏi lại `OutboundMessagePolicy::viewAny()` — đúng yêu cầu "Custom pages
+     * and actions check the policy themselves" của brief: một trợ lý không có `matter.view`
+     * (không có ở SPEC §5, nhưng phòng khi chức danh đổi) sẽ không thấy nút này. `matter` được
+     * gán tay trong bộ lọc bảng KHÔNG mở rộng những gì `OutboundMessageResource::
+     * getEloquentQuery()` đã cho `visibleTo()` lọc — `OutboundMessage::scopeForMatter()` chỉ thu
+     * hẹp THÊM bên trong tập đã lọc đó (xem docblock của scope này), nên nút này không phải một
+     * đường vòng qua quyền hiển thị.
+     *
+     * Khoá query string là `filters`, KHÔNG phải `tableFilters`: `ListRecords` (Filament) khai
+     * `#[Url(as: 'filters')] public ?array $tableFilters` — tên property Livewire và tên tham số
+     * trên URL lệch nhau, và một liên kết dùng nhầm tên thuộc tính sẽ lặng lẽ không lọc gì (không
+     * lỗi, chỉ mở ra một danh sách KHÔNG lọc — mà không lọc tức là mọi vụ việc `$user` xem được,
+     * không phải mất bảo mật vì `getEloquentQuery()` vẫn còn `visibleTo()`, nhưng làm sai đúng
+     * hành vi "lọc sẵn theo vụ" brief đòi).
+     */
+    private function outboundMessagesAction(): Action
+    {
+        return Action::make('outboundMessages')
+            ->label(__('outbound.matter_tab.label'))
+            ->icon(Heroicon::OutlinedPaperAirplane)
+            ->color('gray')
+            ->authorize(fn (): bool => Gate::allows('viewAny', OutboundMessage::class))
+            ->url(fn (): string => OutboundMessageResource::getUrl('index', [
+                'filters' => [
+                    'matter' => ['value' => $this->getRecord()->getKey()],
+                ],
+            ], panel: 'admin'));
     }
 
     /**
