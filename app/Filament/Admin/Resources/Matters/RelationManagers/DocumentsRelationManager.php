@@ -714,21 +714,19 @@ class DocumentsRelationManager extends RelationManager
     /**
      * "Ô lý do chuyển nhóm có cần hiện cho lựa chọn hiện tại không" — tách static để hai closure
      * `->visible()`/`->required()` của {@see self::regroupAction()} hỏi đúng MỘT câu hỏi, không
-     * lệch nhau nếu một trong hai bị sửa riêng. Không gọi `Gate`/`RegroupDocument` ở đây: đây là
-     * một gợi ý GIAO DIỆN, cổng THẬT nằm trong chính Action (một actor không có `document.publish`
-     * gõ đủ 10 ký tự vào ô này vẫn bị Action từ chối ở bước `Gate::authorize('publish')`).
+     * lệch nhau nếu một trong hai bị sửa riêng. Không gọi `Gate` ở đây: đây là một gợi ý GIAO
+     * DIỆN, cổng THẬT nằm trong chính Action (một actor không có `document.publish` gõ đủ 10 ký tự
+     * vào ô này vẫn bị Action từ chối ở bước `Gate::authorize('publish')`).
+     *
+     * Final review X7: hỏi thẳng `RegroupDocument::needsMisfilingReason()` — cùng câu Action hỏi
+     * dưới khoá (kể cả một bản nháp B đã đi qua D, và `published` tính là đã hết vòng đời), không
+     * chép lại điều kiện ở đây.
      */
     private static function regroupReasonNeeded(Document $record, mixed $selectedGroup): bool
     {
-        if ($record->group !== DocumentGroup::Issued) {
-            return false;
-        }
+        $target = is_string($selectedGroup) ? DocumentGroup::tryFrom($selectedGroup) : null;
 
-        if (! in_array($selectedGroup, [DocumentGroup::ClientProvided->value, DocumentGroup::Authority->value], true)) {
-            return false;
-        }
-
-        return $record->status !== DocumentStatus::SignedFiled && ! $record->wasPublishedToClient();
+        return $target !== null && RegroupDocument::needsMisfilingReason($record, $target);
     }
 
     /**

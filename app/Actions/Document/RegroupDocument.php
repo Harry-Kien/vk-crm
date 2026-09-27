@@ -4,13 +4,13 @@ namespace App\Actions\Document;
 
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\DocumentGroup;
-use App\Enums\DocumentStatus;
 use App\Exceptions\DocumentLifecycleNotAllowed;
 use App\Models\Document;
 use App\Models\User;
 use App\Support\Audit;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Spatie\Activitylog\Models\Activity;
 
 /**
  * Đổi nhóm của một tài liệu (SPEC §4.11) — cửa DUY NHẤT để một tài liệu rời nhóm D.
@@ -101,13 +101,10 @@ class RegroupDocument
             // ký bên dưới ghi lại đúng NGUYÊN NHÂN của lần chuyển, không chỉ nhóm cũ/nhóm mới.
             $misfilingReason = null;
 
-            if ($from === DocumentGroup::Issued && $group !== DocumentGroup::Internal) {
+            if (self::leavesGroupB($fresh, $group)) {
                 Gate::forUser($actor)->authorize('publish', $fresh);
 
-                $hasClearedLifecycle = $fresh->status === DocumentStatus::SignedFiled
-                    || $fresh->wasPublishedToClient();
-
-                if (! $hasClearedLifecycle) {
+                if (! $fresh->hasClearedIssuedLifecycle()) {
                     // `trim()` trần chỉ gỡ khoảng trắng ASCII (` \t\n\r\0\x0B`) — một lý do gõ
                     // toàn NBSP (U+00A0, bàn phím điện thoại hay chèn khi gõ có dấu, hoặc dán từ
                     // Word) hay khoảng trắng biểu ý (U+3000, IME Đông Á) đi lọt qua với độ dài > 0
@@ -150,5 +147,53 @@ class RegroupDocument
 
             return $fresh;
         });
+    }
+
+    /**
+     * Lần chuyển này có phải là RỜI NHÓM B sang A hoặc C không (R9 mở rộng, cộng final review X7
+     * C-I2). "Rời nhóm B" gồm cả một tài liệu đang ở D mà ngay trước khi vào D nó ở B — không có
+     * vế đó, D là trạm giặt: B (nháp chưa ký) → D → C đi lọt mà không cần vòng đời hay lý do.
+     * Nhóm đích B hoặc D thì không phải rời B.
+     */
+    public static function leavesGroupB(Document $document, DocumentGroup $target): bool
+    {
+        if (in_array($target, [DocumentGroup::Internal, DocumentGroup::Issued], true)) {
+            return false;
+        }
+
+        $origin = $document->group === DocumentGroup::Internal
+            ? self::groupBeforeInternal($document)
+            : $document->group;
+
+        return $origin === DocumentGroup::Issued;
+    }
+
+    /**
+     * Màn hình "Chuyển nhóm" hỏi đúng câu Action sẽ hỏi dưới khoá: rời nhóm B khi văn bản chưa đi
+     * hết vòng đời thì phải có lý do sửa nhầm nhóm. Một chỗ, để ô lý do không lệch với cổng thật.
+     */
+    public static function needsMisfilingReason(Document $document, DocumentGroup $target): bool
+    {
+        return self::leavesGroupB($document, $target) && ! $document->hasClearedIssuedLifecycle();
+    }
+
+    /**
+     * Nhóm của tài liệu NGAY TRƯỚC lần vào nhóm D gần nhất — đọc từ dòng `document_regrouped`
+     * mới nhất có `to_group = D` (chỉ Action này đưa được một tài liệu đã có vào D kèm nhật ký).
+     * `null` khi tài liệu được tạo thẳng trong D (không có lần vào D nào để hỏi).
+     */
+    private static function groupBeforeInternal(Document $document): ?DocumentGroup
+    {
+        $properties = Activity::query()
+            ->where('subject_type', $document->getMorphClass())
+            ->where('subject_id', $document->getKey())
+            ->where('event', 'document_regrouped')
+            ->where('properties->to_group', DocumentGroup::Internal->value)
+            ->latest('id')
+            ->value('properties');
+
+        $from = $properties === null ? null : collect($properties)->get('from_group');
+
+        return is_string($from) ? DocumentGroup::tryFrom($from) : null;
     }
 }

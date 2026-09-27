@@ -9,6 +9,7 @@ use App\Enums\Permission;
 use App\Enums\Role;
 use App\Exceptions\DocumentGroupNotChangeable;
 use App\Exceptions\DocumentLifecycleNotAllowed;
+use App\Exceptions\DocumentNotPublishable;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Document;
@@ -656,4 +657,121 @@ it('chuyển nhóm được một tài liệu khách không thấy, kể cả kh
     );
 
     expect($moved->group)->toBe(DocumentGroup::Issued);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Final review X7 (C-I1, C-I2): hai vòng khứ hồi qua nhóm D của một tài liệu nhóm B.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * C-I1: một văn bản B đã công bố bị rút vào D (khách mất quyền xem, `status` vẫn `published`) rồi
+ * đưa về B. `PublishDocument` trước đây đòi đúng `signed_filed` cho một lần ra MỚI của nhóm B, nên
+ * văn bản đã ký, đã nộp, đã từng ra tới khách này không bao giờ công bố lại được. `published` cũng
+ * là "đã đi hết vòng đời".
+ */
+it('lets a group B document that went B → D → B be published again', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = regroupMatter($lawyer);
+    $document = documentWithFileForRegroup($matter, DocumentGroup::Issued);
+    // Đã thật sự ra tới khách một lần — như mọi lần đi qua `PublishDocument`.
+    $document->update(['published_at' => now()->subDay(), 'published_by' => $lawyer->id]);
+
+    regroupAs($document, $lawyer, DocumentGroup::Internal);
+    $back = regroupAs($document->fresh(), $lawyer, DocumentGroup::Issued);
+
+    expect($back->status)->toBe(DocumentStatus::Published)
+        ->and($back->wasPublishedToClient())->toBeFalse();
+
+    app(PublishDocument::class)->handle(
+        document: $back,
+        actor: $lawyer,
+        clientCanView: true,
+        clientCanDownload: false,
+        expectedClientCanView: $back->client_can_view,
+        expectedClientCanDownload: $back->client_can_download,
+        expectedIsReleased: $back->wasPublishedToClient(),
+    );
+
+    expect($document->fresh()->isReleasedToPortal())->toBeTrue();
+});
+
+/**
+ * C-I2: B còn `internal_draft` → D → C. Rời D sang C trước đây chỉ hỏi `document.publish`, nên
+ * nhóm D thành trạm giặt: đi vòng qua D là rời B mà không cần đi hết vòng đời hay khai lý do sửa
+ * nhầm nhóm. Luật rời B áp cho cả tài liệu đã ở B NGAY TRƯỚC khi vào D.
+ */
+it('applies the leaving-group-B rule to a draft that went B → D → C: refused without a reason', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = regroupMatter($lawyer);
+    $document = regroupDocumentIssued($matter, DocumentStatus::InternalDraft);
+
+    regroupAs($document, $lawyer, DocumentGroup::Internal);
+
+    expect(fn () => regroupAs($document->fresh(), $lawyer, DocumentGroup::Authority))
+        ->toThrow(DocumentLifecycleNotAllowed::class);
+
+    expect($document->fresh()->group)->toBe(DocumentGroup::Internal);
+});
+
+it('lets a draft that went B → D → C through with a misfiling reason and document.publish, and audits the reason', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = regroupMatter($lawyer);
+    $document = regroupDocumentIssued($matter, DocumentStatus::InternalDraft);
+
+    regroupAs($document, $lawyer, DocumentGroup::Internal);
+
+    $moved = app(RegroupDocument::class)->handle(
+        document: $document->fresh(),
+        actor: $lawyer,
+        group: DocumentGroup::Authority,
+        reason: 'Nộp nhầm nhóm từ đầu — đây là quyết định của toà, không phải văn bản của văn phòng.',
+    );
+
+    $activity = Activity::query()->where('event', 'document_regrouped')->latest('id')->first();
+
+    expect($moved->group)->toBe(DocumentGroup::Authority)
+        ->and($activity->properties->get('from_group'))->toBe(DocumentGroup::Internal->value)
+        ->and($activity->properties->get('misfiling_reason'))
+        ->toBe('Nộp nhầm nhóm từ đầu — đây là quyết định của toà, không phải văn bản của văn phòng.');
+});
+
+it('does not apply the leaving-group-B rule to a document that was never in group B before D', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = regroupMatter($lawyer);
+
+    // Tạo thẳng trong D — không có lần vào D nào từ B.
+    $direct = regroupDocument($matter, DocumentGroup::Internal);
+    expect(regroupAs($direct, $lawyer, DocumentGroup::Authority)->group)->toBe(DocumentGroup::Authority);
+
+    // B → A (đi hết luật rời B bằng một lý do) → D → C: lần vào D gần nhất là từ A.
+    $viaA = regroupDocumentIssued($matter, DocumentStatus::InternalDraft);
+    app(RegroupDocument::class)->handle(document: $viaA, actor: $lawyer, group: DocumentGroup::ClientProvided, reason: 'Khách gửi lên, gắn nhầm nhóm B.');
+    regroupAs($viaA->fresh(), $lawyer, DocumentGroup::Internal);
+
+    expect(regroupAs($viaA->fresh(), $lawyer, DocumentGroup::Authority)->group)->toBe(DocumentGroup::Authority);
+});
+
+/**
+ * Cặp âm của test "B → D → B công bố lại": một văn bản B chỉ bị ghi tay `status = published` (chưa
+ * từng ra tới khách, `published_at` trống) rồi đi qua D vẫn không công bố thẳng được — cùng lối
+ * tắt `PublishDocumentTest` đã chặn, đo lại sau vòng D.
+ */
+it('still refuses to publish a group B document whose status was written to published by hand, after a trip through D', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = regroupMatter($lawyer);
+    $document = documentWithFileForRegroup($matter, DocumentGroup::Issued);
+    DB::table('documents')->where('id', $document->id)->update(['client_can_view' => false, 'client_can_download' => false, 'published_at' => null]);
+
+    regroupAs($document->fresh(), $lawyer, DocumentGroup::Internal);
+    $back = regroupAs($document->fresh(), $lawyer, DocumentGroup::Issued);
+
+    expect(fn () => app(PublishDocument::class)->handle(
+        document: $back,
+        actor: $lawyer,
+        clientCanView: true,
+        clientCanDownload: false,
+        expectedClientCanView: $back->client_can_view,
+        expectedClientCanDownload: $back->client_can_download,
+        expectedIsReleased: $back->wasPublishedToClient(),
+    ))->toThrow(DocumentNotPublishable::class);
 });

@@ -1751,3 +1751,28 @@ it('tải lên được một .doc OLE2 thật mà libmagic nhận là applicati
     expect($document->title)->toBe('Hợp đồng định dạng cũ')
         ->and($document->getMedia('file'))->toHaveCount(1);
 });
+
+/**
+ * Final review X7 (C-I2), màn hình: ô "Lý do chuyển nhóm" cũng hiện (và bắt buộc) cho một bản nháp
+ * đã đi B → D, khi nó rời D sang C — cùng luật `RegroupDocument` áp dưới khoá.
+ */
+it('requires the misfiling reason on screen for a draft that went B → D and now leaves D for C', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $document = documentWithFile($matter, DocumentGroup::Issued, ['status' => DocumentStatus::InternalDraft]);
+
+    $this->actingAs($lawyer, 'web');
+
+    documentsManager($matter)
+        ->callAction(TestAction::make('regroup')->table($document), data: ['group' => DocumentGroup::Internal->value])
+        ->assertHasNoActionErrors();
+
+    documentsManager($matter)
+        ->callAction(TestAction::make('regroup')->table($document->fresh()), data: [
+            'group' => DocumentGroup::Authority->value,
+            'reason' => '',
+        ])
+        ->assertHasActionErrors(['reason' => 'required']);
+
+    expect($document->fresh()->group)->toBe(DocumentGroup::Internal);
+});

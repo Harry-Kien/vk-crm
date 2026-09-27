@@ -198,9 +198,12 @@ class PublishDocument
             // nộp, trong khi nó đã ký, đã nộp và đang nằm trong cổng của khách. Hậu quả là SPEC
             // §6.5 bước 3 ("cho xem mà chưa cho tải") không với tới được nhóm B, đúng nhóm mà
             // SPEC dựng cả một vòng đời để canh.
+            // Final review X7 (C-I1): `published` cũng là "đã đi hết vòng đời" — một văn bản đã công
+            // bố rồi bị rút qua D và đưa về B phải công bố lại được. Một định nghĩa duy nhất:
+            // `Document::hasClearedIssuedLifecycle()`.
             if (! $wasAlreadyReleased
                 && $fresh->group === DocumentGroup::Issued
-                && $fresh->status !== DocumentStatus::SignedFiled
+                && ! $fresh->hasClearedIssuedLifecycle()
             ) {
                 throw DocumentNotPublishable::notSignedAndFiled($fresh);
             }
