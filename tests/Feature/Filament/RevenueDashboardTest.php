@@ -1040,3 +1040,60 @@ function widgetRowsAs(User $user, string $class, array $pageFilters = []): array
 
     return widgetRows($class, $pageFilters);
 }
+
+// =================================================================================================
+// Lượt rà soát cuối M9 — M4 (nhãn quý tiếng Việt), M6 (màu số của bảng số đọc được ở chế độ tối),
+// M7 (cơ cấu lĩnh vực bỏ hợp đồng đã huỷ, cùng quần thể với biểu đồ vành khuyên).
+// =================================================================================================
+
+it('labels a quarter bucket of the over-time chart in vietnamese, from the language file', function () {
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
+    $contract = signedContract($matter, 10_000_000);
+    Payment::factory()->for($contract->instalments()->sole())->create([
+        'amount' => 1_000_000, 'paid_on' => '2026-08-15', 'attributed_lawyer_id' => $this->lawyer->id,
+    ]);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    $instance = Livewire::test(RevenueOverTimeWidget::class, ['pageFilters' => [
+        'period' => 'custom', 'date_from' => '2026-07-01', 'date_to' => '2026-09-30',
+    ]])->set('filter', 'quarter')->instance();
+    $method = new ReflectionMethod($instance, 'getData');
+
+    expect($method->invoke($instance)['labels'])->toBe([
+        __('widgets.revenue_dashboard.over_time.quarter_label', ['quarter' => 3, 'year' => 2026]),
+    ]);
+});
+
+it('paints the values of the number table in a colour that follows light and dark mode, not a fixed near-black', function () {
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
+    signedContract($matter, 10_000_000);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    Livewire::test(ReceivablesDonutWidget::class)
+        ->assertSee(__('widgets.revenue_dashboard.number_table_toggle'))
+        ->assertDontSeeHtml('var(--gray-950)')
+        ->assertSeeHtml('font-weight: 600; color: inherit;');
+});
+
+it('leaves a cancelled contract out of the practice-area mix, by amount and by count, like the donut', function () {
+    $type = MatterType::factory()->withStages()->create(['name' => 'Lĩnh vực có hợp đồng huỷ']);
+
+    signedContract(Matter::factory()->create(['matter_type_id' => $type->id, 'lead_lawyer_id' => $this->lawyer->id]), 10_000_000);
+
+    $completed = signedContract(Matter::factory()->create(['matter_type_id' => $type->id, 'lead_lawyer_id' => $this->lawyer->id]), 20_000_000);
+    $completed->instalments()->sole()->update(['status' => InstalmentStatus::Paid]);
+    $completed->update(['status' => ContractStatus::Completed, 'ended_at' => today()->toDateString()]);
+
+    $cancelled = signedContract(Matter::factory()->create(['matter_type_id' => $type->id, 'lead_lawyer_id' => $this->lawyer->id]), 50_000_000);
+    $cancelled->update(['status' => ContractStatus::Cancelled, 'ended_at' => today()->toDateString(), 'ended_reason' => str_repeat('a', 20)]);
+
+    $this->actingAs($this->admin, 'web');
+
+    $byAmount = collect(widgetRows(MatterMixByPracticeAreaWidget::class))->firstWhere('label', 'Lĩnh vực có hợp đồng huỷ');
+    $byCount = collect(widgetRows(MatterMixByPracticeAreaWidget::class, ['by_count' => true]))->firstWhere('label', 'Lĩnh vực có hợp đồng huỷ');
+
+    expect($byAmount['value'])->toBe(Money::format(30_000_000))
+        ->and($byCount['value'])->toBe('2');
+});

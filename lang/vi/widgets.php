@@ -116,6 +116,8 @@ return [
             'filter_month' => 'Theo tháng',
             'filter_quarter' => 'Theo quý',
             'filter_year' => 'Theo năm',
+            // Lượt rà soát cuối M9, M4: nhãn một cột khi xem theo quý.
+            'quarter_label' => 'Quý :quarter/:year',
             'series' => 'Doanh thu đã thu',
         ],
         'by_stage' => [
@@ -129,7 +131,7 @@ return [
         ],
         'mix_by_practice_area' => [
             'heading' => 'Cơ cấu vụ việc theo lĩnh vực',
-            'description' => 'Việc đã ký trong kỳ (:range) — theo contracts.signed_at. Bộ lọc luật sư: luật sư phụ trách HIỆN TẠI (matters.lead_lawyer_id). Công tắc "đếm theo số vụ" đổi số vụ/số tiền được đo, xếp giảm dần theo giá trị đó.',
+            'description' => 'Việc đã ký trong kỳ (:range), hợp đồng đang hiệu lực hoặc đã hoàn tất (không tính hợp đồng đã huỷ) — theo contracts.signed_at. Bộ lọc luật sư: luật sư phụ trách HIỆN TẠI (matters.lead_lawyer_id). Công tắc "đếm theo số vụ" đổi số vụ/số tiền được đo, xếp giảm dần theo giá trị đó.',
             'series_amount' => 'Giá trị đã ký',
             'series_count' => 'Số vụ',
         ],

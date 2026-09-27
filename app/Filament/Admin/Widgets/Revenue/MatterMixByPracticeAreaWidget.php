@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Widgets\Revenue;
 
+use App\Enums\ContractStatus;
 use App\Enums\Permission;
 use App\Filament\Admin\Widgets\Revenue\Concerns\HasMoneyNumberTable;
 use App\Models\Contract;
@@ -31,6 +32,11 @@ use Illuminate\Support\Facades\Gate;
  *
  * **Thời gian lọc `contracts.signed_at`** ("việc đã ký trong kỳ"), **luật sư lọc
  * `matters.lead_lawyer_id`** ("luật sư phụ trách hiện tại") — cùng nghĩa với donut.
+ *
+ * **Chỉ hợp đồng `active` và `completed`** (lượt rà soát cuối M9, M7) — CÙNG quần thể với phần đối
+ * chiếu của `ReceivablesDonutWidget`: một hợp đồng đã huỷ không còn là "việc đã ký" của lĩnh vực
+ * đó, và bản trước cộng nó vào cả số tiền lẫn số vụ, nên hai biểu đồ cạnh nhau trên cùng trang nói
+ * hai con số "giá trị đã ký" khác nhau. `draft` tự ra ngoài vì chưa có `signed_at`.
  *
  * **Công tắc "đếm theo số vụ"** (`RevenueFilters::$byCount`) đổi THỨ ĐƯỢC ĐO — số hợp đồng đã ký
  * hay tổng giá trị đã ký — KHÔNG thêm trục thứ hai: luôn đúng một chuỗi dữ liệu.
@@ -143,6 +149,7 @@ class MatterMixByPracticeAreaWidget extends ChartWidget
         $signed = Contract::query()
             ->join('matters', 'matters.id', '=', 'contracts.matter_id')
             ->whereBetween('contracts.signed_at', [$from, $to])
+            ->whereIn('contracts.status', [ContractStatus::Active->value, ContractStatus::Completed->value])
             ->whereHas('matter', fn (Builder $q) => $q
                 ->listableBy($user)
                 ->when($filters->lawyerId, fn (Builder $mq, int $v) => $mq->where('lead_lawyer_id', $v)))

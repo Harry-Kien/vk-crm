@@ -186,7 +186,12 @@
             </div>
         </div>
 
-        {{-- Thêm so với vendor: bảng số đi kèm mỗi biểu đồ (kế hoạch M9, "luôn có một bảng số"). --}}
+        {{-- Thêm so với vendor: bảng số đi kèm mỗi biểu đồ (kế hoạch M9, "luôn có một bảng số").
+             Màu chữ (lượt rà soát cuối M9, M6): theme Filament không có MỘT biến CSS màu chữ tự đổi
+             theo chế độ tối — nó đổi bằng class `:where(.dark, .dark *)`. Nên ô số KHÔNG đặt màu
+             cố định (bản trước `var(--gray-950)` — gần đen trên nền tối, không đọc được) mà
+             `inherit` màu chữ của `.fi-body` (gray-950 ở chế độ sáng, trắng ở chế độ tối); nhãn
+             dùng `var(--gray-500)`, mức xám trung tính đọc được trên cả hai nền. --}}
         @if (! $isEmpty && count($rows))
             <details style="margin-top: 12px;">
                 <summary style="cursor: pointer; font-size: 0.875rem; color: var(--gray-500);">
@@ -197,8 +202,8 @@
                     <tbody>
                         @foreach ($rows as $row)
                             <tr style="border-top: 1px solid var(--gray-200);">
-                                <td style="padding: 4px 8px 4px 0; color: var(--gray-600);">{{ $row['label'] }}</td>
-                                <td style="padding: 4px 0; text-align: right; font-weight: 600; color: var(--gray-950);">{{ $row['value'] }}</td>
+                                <td style="padding: 4px 8px 4px 0; color: var(--gray-500);">{{ $row['label'] }}</td>
+                                <td style="padding: 4px 0; text-align: right; font-weight: 600; color: inherit;">{{ $row['value'] }}</td>
                             </tr>
                         @endforeach
                     </tbody>

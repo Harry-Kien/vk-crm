@@ -140,7 +140,8 @@ class RevenueOverTimeWidget extends ChartWidget
         foreach ($rows as $row) {
             $date = Carbon::parse($row->paid_on);
             [$sortKey, $label] = match ($granularity) {
-                'quarter' => ["{$date->year}-{$date->quarter}", "Q{$date->quarter}/{$date->year}"],
+                // Lượt rà soát cuối M9, M4: nhãn quý qua lang/vi, không chữ "Q" viết cứng.
+                'quarter' => ["{$date->year}-{$date->quarter}", __('widgets.revenue_dashboard.over_time.quarter_label', ['quarter' => $date->quarter, 'year' => $date->year])],
                 'year' => [(string) $date->year, (string) $date->year],
                 default => [$date->format('Y-m'), $date->format('m/Y')],
             };
