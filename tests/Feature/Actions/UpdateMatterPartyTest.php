@@ -1,12 +1,15 @@
 <?php
 
 use App\Actions\AddMatterParty;
+use App\Actions\RemoveMatterParty;
 use App\Actions\UpdateMatterParty;
 use App\Enums\ConflictLevel;
 use App\Enums\PartyRole;
 use App\Enums\Role;
 use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
+use App\Exceptions\ConflictCheckBusy;
+use App\Exceptions\MatterPartyAlreadyRemoved;
 use App\Models\Client;
 use App\Models\Matter;
 use App\Models\MatterParty;
@@ -14,6 +17,7 @@ use App\Models\User;
 use App\Support\Normalizer;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\Cache;
 use Spatie\Activitylog\Models\Activity;
 
 beforeEach(function () {
@@ -288,4 +292,139 @@ it('leaves the party untouched when the check phase fails unexpectedly', functio
         ->toThrow(ValueError::class);
 
     expect($party->fresh()->name)->toBe('Chưa sửa được');
+});
+
+/**
+ * Fix round 1, C1: hai tab cùng nhìn một bên — tab A gỡ nó, tab B (modal sửa đã mở TRƯỚC lúc gỡ)
+ * gửi lại. `MatterParty` dùng `SoftDeletes`, nên `lockForUpdate()->firstOrFail()` trần ném
+ * `ModelNotFoundException` (404 không câu tiếng Việt) thay vì một `DomainException` mà
+ * `PartiesRelationManager` bắt được. `$party` ở đây CỐ Ý là đối tượng PHP cũ (được nạp TRƯỚC khi
+ * gỡ) — đúng hình dạng "tab B cầm một tham chiếu cũ" — không `fresh()` lại trước khi gọi `handle()`.
+ */
+it('refuses with a Vietnamese message instead of a raw 404 when the party was already removed by another request', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $party = MatterParty::factory()->for($matter)->create(['name' => 'Bên sẽ bị gỡ']);
+
+    app(RemoveMatterParty::class)->handle($party, $lawyer, 'Nhập nhầm, gỡ từ tab khác.');
+
+    expect(fn () => app(UpdateMatterParty::class)->handle($party, $lawyer, [
+        'role' => PartyRole::Related->value,
+        'name' => 'Bên sửa sau khi đã gỡ',
+    ]))->toThrow(MatterPartyAlreadyRemoved::class, __('matters.parties.already_removed'));
+});
+
+/**
+ * Fix round 1, C2 (ruling): MỌI lần sửa `matter_parties` — `AddMatterParty`, `UpdateMatterParty`,
+ * `RemoveMatterParty`, và bước lưu bên của `OpenMatter` — đi qua CÙNG một khoá `conflict-check`.
+ * `UpdateMatterParty` đã có khoá này từ Task 9; test này khoá giữ SẴN từ bên ngoài (mô phỏng một
+ * `RemoveMatterParty`/`AddMatterParty` khác đang giữ khoá) và xác nhận `UpdateMatterParty` bị từ
+ * chối bằng tiếng Việt (`ConflictCheckBusy`), không chờ vô hạn, không lưu gì.
+ */
+it('turns a busy conflict-check lock into a Vietnamese refusal, not a 500', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $party = MatterParty::factory()->for($matter)->create(['name' => 'Tên gốc']);
+
+    $lock = Cache::store('database')->lock('conflict-check', 30);
+    expect($lock->get())->toBeTrue();
+
+    try {
+        expect(fn () => app(UpdateMatterParty::class)->handle($party, $lawyer, [
+            'role' => PartyRole::Related->value,
+            'name' => 'Tên mới',
+        ]))->toThrow(ConflictCheckBusy::class, __('exceptions.conflict_check_busy'));
+
+        expect($party->fresh()->name)->toBe('Tên gốc');
+    } finally {
+        $lock->release();
+    }
+});
+
+/**
+ * Fix round 1, I1: `identitySnapshot()` từng so RAW `name`, nên một lượt sửa chỉ đổi HOA/THƯỜNG
+ * hay khoảng trắng (không đổi gì mà `RunConflictCheck` thật sự đối chiếu — `Normalizer::name()` ra
+ * CÙNG một chuỗi) vẫn bị tính là "đổi định danh" và xoá xác nhận đã có. Cặp dương của test "clears
+ * a previously confirmed match…" ở trên (một đổi tên THẬT, khác `Normalizer::name()`).
+ */
+it('keeps a previously acknowledged match confirmed when the rename only changes case or whitespace', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $otherMatter = Matter::factory()->create();
+    MatterParty::factory()->for($otherMatter)->create(['role' => PartyRole::Plaintiff, 'is_our_client' => true, 'name' => 'Lê Thị Hoa']);
+
+    $addition = app(AddMatterParty::class)->handle($matter, $lawyer, [
+        'role' => PartyRole::Defendant->value,
+        'name' => 'Lê Thị Hoa',
+        'id_number' => '000000000077',
+    ], acknowledged: ConflictLevel::Yellow);
+
+    $party = $addition->party;
+
+    // Chỉ đổi cách viết (hoa/thường + khoảng trắng thừa) — Normalizer::name() cho CÙNG một chuỗi.
+    $update = app(UpdateMatterParty::class)->handle($party, $lawyer, [
+        'role' => PartyRole::Defendant->value,
+        'name' => '  lê   THỊ HOA  ',
+        'id_number' => '000000000077',
+    ]);
+
+    expect($update->result->requiresAcknowledgement())->toBeFalse()
+        ->and($update->result->confirmedMatches)->toHaveCount(1)
+        ->and($update->result->matches)->toHaveCount(0);
+});
+
+/**
+ * Fix round 1, I1: đối chứng của test trên — một đổi tên THẬT (khác cả sau `Normalizer::name()`)
+ * vẫn phải bị tính là "đổi định danh" và đòi xác nhận lại, đúng phán quyết R14 gốc.
+ */
+it('clears a previously acknowledged match when the rename is a genuinely different name', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+
+    // Bên kia CŨNG mang cùng số căn cước — khớp qua id_number (tầng "chắc chắn"), không chỉ qua
+    // tên, để việc đổi tên KHÔNG tự làm biến mất khớp (mới đo được đúng điều muốn kiểm: đổi tên có
+    // bị tính là "đổi định danh" hay không, chứ không phải "còn khớp ai không").
+    $otherMatter = Matter::factory()->create();
+    MatterParty::factory()->for($otherMatter)->create(['role' => PartyRole::Plaintiff, 'is_our_client' => true, 'name' => 'Lê Thị Hoa'])
+        ->identify('000000000078', null)->save();
+
+    $addition = app(AddMatterParty::class)->handle($matter, $lawyer, [
+        'role' => PartyRole::Related->value,
+        'name' => 'Lê Thị Hoa',
+        'id_number' => '000000000078',
+    ], acknowledged: ConflictLevel::Yellow);
+
+    $party = $addition->party;
+
+    // Đổi tên THẬT SỰ (khác người) — id_number để trống nghĩa là giữ nguyên (vẫn khớp CÙNG dòng
+    // qua id_number, chỉ tên đổi), nên vẫn còn một khớp để đòi xác nhận lại.
+    expect(fn () => app(UpdateMatterParty::class)->handle($party, $lawyer, [
+        'role' => PartyRole::Related->value,
+        'name' => 'Trần Văn Khác',
+        'id_number' => '000000000078',
+    ]))->toThrow(ConflictAcknowledgementRequired::class);
+});
+
+/**
+ * Fix round 1, I1: `client_id` phải so bằng SỐ NGUYÊN ở cả hai vế — một form gửi lên `client_id`
+ * dạng CHUỖI (bình thường từ một ô Select) không được tính là "đổi liên kết khách hàng" nếu vẫn là
+ * ĐÚNG khách hàng cũ, chỉ khác kiểu dữ liệu.
+ */
+it('does not treat client_id as changed merely because the form submits it as a string', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $client = Client::factory()->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $party = MatterParty::factory()->for($matter)->ourClient($client, PartyRole::Plaintiff)->create();
+
+    app(UpdateMatterParty::class)->handle($party, $lawyer, [
+        'role' => PartyRole::Plaintiff->value,
+        'is_our_client' => true,
+        'client_id' => (string) $client->id,
+        'name' => $client->name,
+        'address' => 'Địa chỉ mới',
+    ]);
+
+    $audit = Activity::query()->where('event', 'matter_party_updated')->latest('id')->first();
+    expect($audit->properties->get('identity_changed'))->toBeFalse();
 });

@@ -5,12 +5,15 @@ use App\Actions\RunConflictCheck;
 use App\Enums\ConflictLevel;
 use App\Enums\PartyRole;
 use App\Enums\Role;
+use App\Exceptions\ConflictCheckBusy;
+use App\Exceptions\MatterPartyAlreadyRemoved;
 use App\Models\Client;
 use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\ValidationException;
 use Spatie\Activitylog\Models\Activity;
 
@@ -144,4 +147,47 @@ it('still matches when the MATTER itself (not the party) has been soft-deleted, 
 
     expect($result->level)->not->toBe(ConflictLevel::Green)
         ->and($result->allMatches()->pluck('matterCode')->all())->toContain($deletedMatter->code);
+});
+
+/**
+ * Fix round 1, C1: gỡ hai lần cùng một bên (hai tab, một tab đã gỡ xong TRƯỚC, tab kia gửi lại
+ * đúng modal "Gỡ" đã mở từ trước). `MatterParty` dùng `SoftDeletes` nên lần gỡ thứ hai trên id đó
+ * (đã bị `SoftDeletingScope` loại) phải gặp `ModelNotFoundException` nếu còn dùng
+ * `lockForUpdate()->firstOrFail()` trần — một 404 không câu tiếng Việt, không phải
+ * `DomainException` nên `PartiesRelationManager` không bắt được.
+ */
+it('refuses with a Vietnamese message instead of a raw 404 when removing a party that is already removed', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $party = MatterParty::factory()->for($matter)->create();
+
+    app(RemoveMatterParty::class)->handle($party, $lawyer, 'Nhập nhầm, gỡ lần đầu.');
+
+    expect(fn () => app(RemoveMatterParty::class)->handle($party, $lawyer, 'Gỡ lần hai, từ tab khác.'))
+        ->toThrow(MatterPartyAlreadyRemoved::class, __('matters.parties.already_removed'));
+});
+
+/**
+ * Fix round 1, C2 (ruling): `AddMatterParty`/`UpdateMatterParty`/`OpenMatter` đã khoá
+ * `conflict-check` từ Task 8/9; `RemoveMatterParty` TRƯỚC bản sửa này không hề đi qua khoá đó —
+ * nó có thể xoá mềm một bên NGAY GIỮA giai đoạn kiểm tra+lưu của một trong ba luồng kia, đúng cửa
+ * sổ đua tranh mà khoá chung này tồn tại để chặn. Cùng TTL (30s)/thời gian chờ (10s) như ba luồng
+ * kia; khoá bận → `ConflictCheckBusy` (dùng lại), không chờ vô hạn, không xoá gì.
+ */
+it('turns a busy conflict-check lock into a Vietnamese refusal, not an infinite wait or a silent removal', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $party = MatterParty::factory()->for($matter)->create();
+
+    $lock = Cache::store('database')->lock('conflict-check', 30);
+    expect($lock->get())->toBeTrue();
+
+    try {
+        expect(fn () => app(RemoveMatterParty::class)->handle($party, $lawyer, 'Bất kỳ lý do nào'))
+            ->toThrow(ConflictCheckBusy::class, __('exceptions.conflict_check_busy'));
+
+        expect($party->fresh()->trashed())->toBeFalse();
+    } finally {
+        $lock->release();
+    }
 });

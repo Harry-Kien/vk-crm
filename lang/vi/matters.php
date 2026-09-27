@@ -225,6 +225,9 @@ return [
         'conflict_blocked_retry' => 'Mức đỏ: chưa thêm bên này. Chỉ trưởng phòng hoặc quản trị mới ghi đè được, và bắt buộc nhập lý do vào ô này.',
         'conflict_blocked_retry_denied' => 'Mức đỏ: chưa thêm bên này. Vai trò hiện tại không ghi đè được — hãy đề nghị trưởng phòng thêm bên này, hoặc sửa lại thông tin bên vừa nhập.',
         'conflict_ack_retry' => 'Đọc kỹ thông báo kết quả kiểm tra xung đột lợi ích ở trên, sau đó tích "Tôi đã xem xét…" rồi gửi lại.',
+        // M6.5 Task 9, fix round 1, C1: dùng chung cho CẢ sửa LẪN gỡ — hai tab cùng nhìn một bên,
+        // một tab gỡ nó trước, tab kia gửi lại một modal đã mở từ trước đó.
+        'already_removed' => 'Bên này đã được gỡ khỏi vụ việc. Anh/chị tải lại trang.',
     ],
     // M6.5 Task 9 — hộp thoại "Gỡ bên khỏi vụ việc" trên tab "Các bên" (brief R14).
     'remove_party_form' => [

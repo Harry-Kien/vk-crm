@@ -9,6 +9,7 @@ use App\Enums\ConflictLevel;
 use App\Enums\PartyRole;
 use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
+use App\Exceptions\MatterPartyAlreadyRemoved;
 use App\Filament\Admin\Concerns\ScopesToVisibleMatters;
 use App\Filament\Admin\Support\VisibleClientOptions;
 use App\Models\Matter;
@@ -695,6 +696,15 @@ class PartiesRelationManager extends RelationManager
             throw ValidationException::withMessages([
                 $this->errorKey('acknowledge_conflict') => [__('matters.parties.conflict_ack_retry')],
             ]);
+        } catch (MatterPartyAlreadyRemoved $exception) {
+            // Fix round 1, C1: bên đã bị GỠ (tab khác) trong lúc modal SỬA này còn mở. Không còn ô
+            // nào để gắn lỗi vào — cả dòng đã biến mất — nên đây KHÔNG đi qua `ValidationException`
+            // như mọi lỗi khác của hàm này: chỉ một Notification, modal đóng lại bình thường như
+            // một lượt lưu (dù thực ra không lưu gì), người dùng tải lại trang theo đúng câu vừa
+            // đọc. Xem docblock lớp cho lý do "notification, không phải exception".
+            static::notifyAlreadyRemoved();
+
+            return $record;
         } catch (DomainException $exception) {
             throw ValidationException::withMessages([
                 $this->errorKey('client_id') => [$exception->getMessage()],
@@ -711,6 +721,11 @@ class PartiesRelationManager extends RelationManager
     /**
      * Thu lý do gỡ → gọi `App\Actions\RemoveMatterParty` → dịch `ValidationException` của Action
      * (lý do rỗng, hoặc bên của chính khách hàng vụ việc) sang đúng ô `reason` của modal đang mở.
+     *
+     * **`MatterPartyAlreadyRemoved` (fix round 1, C1) bắt RIÊNG, trước `ValidationException`.** Bên
+     * đã bị gỡ ở một tab khác trong lúc modal GỠ này còn mở (gỡ lần hai) — không có ô `reason` nào
+     * để gắn lỗi vào có ý nghĩa nữa (đã gỡ xong rồi), nên đây chỉ là một Notification, không phải
+     * một lỗi form.
      */
     private function removeParty(MatterParty $record, array $data): void
     {
@@ -718,6 +733,10 @@ class PartiesRelationManager extends RelationManager
 
         try {
             app(RemoveMatterParty::class)->handle($record, $actor, $data['reason'] ?? '');
+        } catch (MatterPartyAlreadyRemoved $exception) {
+            static::notifyAlreadyRemoved();
+
+            return;
         } catch (ValidationException $exception) {
             throw ValidationException::withMessages([
                 $this->errorKey('reason') => $exception->errors()['reason'] ?? [__('actions.unauthorized')],
@@ -727,6 +746,20 @@ class PartiesRelationManager extends RelationManager
         Notification::make()
             ->title(__('matters.remove_party_form.success'))
             ->success()
+            ->send();
+    }
+
+    /**
+     * Thông báo DUY NHẤT cho cả hai màn hình (sửa/gỡ) khi bên đã biến mất dưới khoá (fix round 1,
+     * C1) — cùng một câu, cùng một lý do (SPEC §10.5: không nêu gì về CCCD/định danh, chỉ nói bên
+     * này không còn nữa).
+     */
+    private static function notifyAlreadyRemoved(): void
+    {
+        Notification::make()
+            ->title(__('matters.parties.already_removed'))
+            ->color('warning')
+            ->persistent()
             ->send();
     }
 

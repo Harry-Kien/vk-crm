@@ -3,10 +3,14 @@
 namespace App\Actions;
 
 use App\Actions\Matter\CancelMatter;
+use App\Exceptions\ConflictCheckBusy;
+use App\Exceptions\MatterPartyAlreadyRemoved;
 use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Models\User;
 use App\Support\Audit;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -41,15 +45,36 @@ use Illuminate\Validation\ValidationException;
  * phòng đứng vai đồng nguyên đơn (`is_our_client = true` nhưng `client_id` khác `matters.client_id`)
  * vẫn gỡ được bình thường qua đây, vì đó không phải khách hàng CỦA HỒ SƠ.
  *
- * # Khoá dòng vụ việc TRƯỚC (cùng kỷ luật `UpdateMatterDetails`/`RemoveTeamMember`)
+ * # Một khoá DUY NHẤT cho MỌI lần sửa `matter_parties` (fix round 1, C2 — phán quyết của chủ nhiệm)
  *
- * Câu ĐẦU TIÊN trong transaction là khoá dòng `matters`, rồi khoá dòng `matter_parties` đang gỡ —
- * không có câu đọc trần nào đứng trước, cùng lý do REPEATABLE READ đã ghi ở hai Action kia (không
- * lặp lại lý lẽ ở đây). Hàm này KHÔNG đi qua `Cache::lock('conflict-check')`: xoá mềm không chạy
- * lại `RunConflictCheck`, nên không có gì để hai giai đoạn kiểm tra+lưu của `OpenMatter`/
- * `AddMatterParty`/`UpdateMatterParty` phải xếp hàng cùng — khoá dòng `matters` (chung với ba
- * Action đó ở `UpdateMatterParty`) là đủ để không tranh chấp trực tiếp trên CÙNG một dòng
- * `matter_parties`.
+ * **Bản round 0 SAI: "hàm này KHÔNG đi qua `Cache::lock('conflict-check')`, vì xoá mềm không chạy
+ * lại `RunConflictCheck`".** Chủ nhiệm đã lật lại phán quyết đó. `AddMatterParty`, `UpdateMatterParty`
+ * và `OpenMatter` (bước lưu bên) đã khoá `Cache::store('database')->lock('conflict-check', 30)`
+ * quanh giai đoạn kiểm tra+lưu của chúng — nhưng `RemoveMatterParty` KHÔNG khoá gì cả, nên nó có
+ * thể xoá mềm một bên NGAY GIỮA giai đoạn kiểm tra của một trong ba Action kia: giai đoạn kiểm tra
+ * đó đã ĐỌC `matter_parties` của vụ việc (qua `existingParties()`) để tính `$ourClientRoles`/tìm
+ * bản ghi trùng, và nếu `RemoveMatterParty` xen vào ngay sau lần đọc đó, kết quả kiểm tra vừa tính
+ * xong đã dựa trên một tập hợp bên LỖI THỜI — đúng cửa sổ đua tranh mà khoá `conflict-check` (R13g)
+ * tồn tại để chặn, chỉ là chưa từng phủ tới Action này. Hàm này giờ khoá y hệt ba Action kia — CÙNG
+ * tên khoá, CÙNG TTL (30 giây), CÙNG thời gian chờ (10 giây) — và một `LockTimeoutException` thành
+ * `ConflictCheckBusy` y hệt (không còn chờ vô hạn, không còn 500 trần).
+ *
+ * # Khoá dòng vụ việc là câu ĐẦU TIÊN của transaction (cùng kỷ luật `UpdateMatterDetails`/
+ * `RemoveTeamMember`/`UpdateMatterParty`)
+ *
+ * Bên TRONG khoá `conflict-check`, câu ĐẦU TIÊN của transaction là khoá dòng `matters`, rồi khoá
+ * dòng `matter_parties` đang gỡ — không có câu đọc trần nào đứng trước, cùng lý do REPEATABLE READ
+ * đã ghi ở `UpdateMatterDetails`/`RemoveTeamMember` (không lặp lại lý lẽ ở đây).
+ *
+ * # Bên đã bị GỠ dưới khoá (fix round 1, C1)
+ *
+ * Hai tab cùng nhìn một bên: tab A gỡ nó, tab B (modal GỠ hoặc SỬA đã mở TỪ TRƯỚC, không biết) gửi
+ * lại. `MatterParty` dùng `SoftDeletes`, nên khoá xong mà không tìm thấy dòng (đã bị
+ * `SoftDeletingScope` loại, hoặc chưa từng có id đó) từng ném `ModelNotFoundException` trần — một
+ * trang lỗi 404 không câu tiếng Việt nào, và KHÔNG phải `DomainException` nên không đi qua được
+ * lưới `catch (DomainException)` mà `PartiesRelationManager` đã có sẵn. Giờ
+ * `lockForUpdate()->first()` (không phải `firstOrFail()`) và ném `MatterPartyAlreadyRemoved` khi
+ * `null` — đúng lớp `DomainException` màn hình đã bắt.
  *
  * # Audit ghi TRONG transaction, TRƯỚC lệnh xoá mềm (cùng thứ tự `CancelMatter`)
  *
@@ -64,41 +89,54 @@ class RemoveMatterParty
         $matterId = $party->matter_id;
         $partyId = $party->getKey();
 
-        return DB::transaction(function () use ($matterId, $partyId, $actor, $reason): MatterParty {
-            // Câu ĐẦU TIÊN: khoá dòng vụ việc, rồi khoá dòng bên đang gỡ.
-            $matter = Matter::query()->whereKey($matterId)->lockForUpdate()->firstOrFail();
-            $locked = MatterParty::query()->whereKey($partyId)->lockForUpdate()->firstOrFail();
-            $locked->setRelation('matter', $matter);
+        try {
+            return Cache::store('database')->lock('conflict-check', 30)->block(10, function () use (
+                $matterId, $partyId, $actor, $reason,
+            ): MatterParty {
+                return DB::transaction(function () use ($matterId, $partyId, $actor, $reason): MatterParty {
+                    // Câu ĐẦU TIÊN: khoá dòng vụ việc, rồi khoá dòng bên đang gỡ.
+                    $matter = Matter::query()->whereKey($matterId)->lockForUpdate()->firstOrFail();
+                    $locked = MatterParty::query()->whereKey($partyId)->lockForUpdate()->first();
 
-            Gate::forUser($actor)->authorize('delete', $locked);
+                    if ($locked === null) {
+                        throw MatterPartyAlreadyRemoved::make();
+                    }
 
-            // Bên của CHÍNH khách hàng vụ việc — xem docblock lớp.
-            if (
-                $locked->is_our_client
-                && $locked->client_id !== null
-                && (int) $locked->client_id === (int) $matter->client_id
-            ) {
-                throw ValidationException::withMessages([
-                    'reason' => [__('matters.remove_party_form.own_client_denied')],
-                ]);
-            }
+                    $locked->setRelation('matter', $matter);
 
-            if ($reason === '') {
-                throw ValidationException::withMessages([
-                    'reason' => [__('matters.remove_party_form.reason_required')],
-                ]);
-            }
+                    Gate::forUser($actor)->authorize('delete', $locked);
 
-            Audit::record('matter_party_removed', $matter, [
-                'party_id' => $locked->id,
-                'role' => $locked->role->value,
-                'name' => $locked->name,
-                'reason' => $reason,
-            ], $actor);
+                    // Bên của CHÍNH khách hàng vụ việc — xem docblock lớp.
+                    if (
+                        $locked->is_our_client
+                        && $locked->client_id !== null
+                        && (int) $locked->client_id === (int) $matter->client_id
+                    ) {
+                        throw ValidationException::withMessages([
+                            'reason' => [__('matters.remove_party_form.own_client_denied')],
+                        ]);
+                    }
 
-            $locked->delete();
+                    if ($reason === '') {
+                        throw ValidationException::withMessages([
+                            'reason' => [__('matters.remove_party_form.reason_required')],
+                        ]);
+                    }
 
-            return $locked;
-        });
+                    Audit::record('matter_party_removed', $matter, [
+                        'party_id' => $locked->id,
+                        'role' => $locked->role->value,
+                        'name' => $locked->name,
+                        'reason' => $reason,
+                    ], $actor);
+
+                    $locked->delete();
+
+                    return $locked;
+                });
+            });
+        } catch (LockTimeoutException) {
+            throw ConflictCheckBusy::make();
+        }
     }
 }

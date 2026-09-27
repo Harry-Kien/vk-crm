@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\RemoveMatterParty;
 use App\Actions\RunConflictCheck;
 use App\Enums\PartyRole;
 use App\Enums\Role;
@@ -179,4 +180,75 @@ it('renders a notification with more than one conflict match as separate lines, 
         // Không còn "\n" thô nối hai dòng: mỗi khớp phải đứng SAU một thẻ <br>, không dính liền.
         ->and(preg_match('/'.preg_quote($firstMatter->code, '/').'[^<]*\n[^<]*'.preg_quote($secondMatter->code, '/').'/', $body))
         ->toBe(0);
+});
+
+/**
+ * Fix round 1, C1 — hai tab cùng nhìn một bên. Gọi thẳng `editParty()`/`removeParty()` (private)
+ * trên MỘT instance component ĐÃ MOUNT modal cho `$party` — đúng hình dạng "tab B giữ một tham
+ * chiếu Model cũ, được dựng TRƯỚC lúc tab A gỡ nó". Không đi qua `callMountedTableAction()`: Filament
+ * tự resolve lại bản ghi của MỘT action đã mount qua `resolveTableAction()` mỗi lần gọi (không
+ * cache tham chiếu cũ), và khi bản ghi biến mất (bị `SoftDeletingScope` loại), NÓ tự ném
+ * `ActionNotResolvableException` và lặng lẽ HUỶ MOUNT action — một lớp bảo vệ RIÊNG của framework,
+ * đứng TRƯỚC mã của chính lớp này, nên không bao giờ chạm tới `editParty()`/`removeParty()` để mà
+ * kiểm được đúng nhánh `catch (MatterPartyAlreadyRemoved)` vừa thêm. Gọi thẳng hai hàm private này
+ * (qua `ReflectionMethod`) mới THẬT SỰ tái hiện được đúng điều Task 9 phải tự lo: hai Action
+ * (`UpdateMatterParty`/`RemoveMatterParty`) TỰ chúng nhận một `MatterParty` không còn tồn tại dưới
+ * khoá, và lớp màn hình này dịch đúng ngoại lệ đó thành một Notification, không phải một exception
+ * lọt ra ngoài.
+ */
+function invokePrivate(object $instance, string $method, mixed ...$args): mixed
+{
+    $reflection = new ReflectionMethod($instance, $method);
+    $reflection->setAccessible(true);
+
+    return $reflection->invoke($instance, ...$args);
+}
+
+it('shows a notification, not an exception, when editing a party that another tab already removed', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $party = MatterParty::factory()->for($matter)->create(['role' => PartyRole::Defendant, 'name' => 'Bên A']);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ]);
+
+    // "Tab A": gỡ đúng bên đó qua đúng đường màn hình.
+    app(RemoveMatterParty::class)->handle($party, $lawyer, 'Nhập nhầm, gỡ từ tab khác.');
+
+    // "Tab B": gửi lại modal SỬA đang mở cho $party — vẫn tham chiếu PHP object CŨ, y hệt những gì
+    // `->action()` của `editPartyAction()` nhận được nếu Filament không tự huỷ mount trước đó.
+    invokePrivate($component->instance(), 'editParty', $party, [
+        'role' => PartyRole::Related->value,
+        'name' => 'Bên A sửa',
+    ]);
+
+    $notification = editRemovePartyNotifications()->first();
+    expect($notification)->not->toBeNull()
+        ->and($notification->getTitle())->toBe(__('matters.parties.already_removed'))
+        ->and($party->fresh()->name)->toBe('Bên A');
+});
+
+it('shows a notification, not an exception, when removing a party that another tab already removed', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $party = MatterParty::factory()->for($matter)->create(['role' => PartyRole::Defendant, 'name' => 'Bên B']);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ]);
+
+    app(RemoveMatterParty::class)->handle($party, $lawyer, 'Nhập nhầm, gỡ lần đầu từ tab khác.');
+
+    invokePrivate($component->instance(), 'removeParty', $party, ['reason' => 'Gỡ lần hai, từ tab này.']);
+
+    $notification = editRemovePartyNotifications()->first();
+    expect($notification)->not->toBeNull()
+        ->and($notification->getTitle())->toBe(__('matters.parties.already_removed'));
 });
