@@ -159,6 +159,21 @@ class SendDeadlineReminderMail implements ShouldQueue
         public readonly ?string $dueDate = null,
     ) {}
 
+    /**
+     * Ảnh chụp `due_date`, hoặc `null` cho một job xếp hàng trước fix round 1 — và là đường DUY NHẤT
+     * đọc `$dueDate` (Task 14 fix round 2, Important).
+     *
+     * `= null` ở constructor là mặc định của THAM SỐ, không phải của thuộc tính readonly có kiểu.
+     * Payload serialize trước 5098fd6 không có khoá `dueDate`, và `unserialize()` không chạy
+     * constructor, nên thuộc tính ở trạng thái CHƯA KHỞI TẠO: `$this->dueDate === null` ném Error,
+     * job hỏng đủ `$tries`, `failed()` rút bậc, lượt sau gửi lại cho người đã nhận. `isset()` không
+     * ném trên một thuộc tính chưa khởi tạo — nó trả `false`, đúng nghĩa "không có ảnh chụp".
+     */
+    private function dueDateSnapshot(): ?string
+    {
+        return isset($this->dueDate) ? $this->dueDate : null;
+    }
+
     /** @return array<int, int> */
     public function backoff(): array
     {
@@ -186,7 +201,7 @@ class SendDeadlineReminderMail implements ShouldQueue
         $recipients = app(CheckDeadlines::class)->recipientsFor($deadline, $this->tierKey);
 
         // Ngày đến hạn mà lời nhắc này nói tới — xem docblock lớp, mục "fix round 1 (C1)".
-        $aboutDueDate = $this->dueDate ?? $deadline->due_date->toDateString();
+        $aboutDueDate = $this->dueDateSnapshot() ?? $deadline->due_date->toDateString();
 
         foreach ($recipients as $recipient) {
             // "Không gửi trùng khi thử lại" — xem docblock lớp, mục "Vòng sửa 2 (I1)". Bỏ qua
@@ -209,7 +224,7 @@ class SendDeadlineReminderMail implements ShouldQueue
         $keys = [DeadlineReminder::ledgerTier($this->tierKey, $aboutDueDate)];
 
         // Dòng trần (trước fix round 1) chỉ tính cho job CŨ không có ảnh chụp ngày — docblock lớp.
-        if ($this->dueDate === null) {
+        if ($this->dueDateSnapshot() === null) {
             $keys[] = $this->tierKey;
         }
 

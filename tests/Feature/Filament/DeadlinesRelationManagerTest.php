@@ -511,7 +511,7 @@ function sentReminderRows(User $recipient, string $tier)
         ->where('recipient', $recipient->email)
         ->where('status', OutboundStatus::Sent)
         ->get()
-        ->filter(fn ($row): bool => str_starts_with((string) ($row->payload['tier'] ?? ''), $tier))
+        ->filter(fn ($row): bool => str_starts_with((string) ($row->payload['tier'] ?? ''), $tier.'@'))
         ->values();
 }
 
@@ -561,6 +561,24 @@ it('warns about an overdue deadline again after it was re-dated into the future 
 });
 
 /**
+ * Lời từ chối của form cũ đến được mắt người dùng với ĐÚNG câu `stale_form`, không chỉ một tiêu đề
+ * "không thực hiện được" chung chung (fix round 2). `Filament\Notifications\Notification::send()`
+ * đẩy mảng thông báo vào session `filament.notifications`; khi một request Livewire kết thúc,
+ * Filament chuyển chúng sang `filament.claimed_notifications` — đọc cả hai.
+ */
+function assertStaleFormRefusalShown(): void
+{
+    $bodies = collect([
+        ...session()->get('filament.notifications', []),
+        ...session()->get('filament.claimed_notifications', []),
+    ])->pluck('body')->all();
+
+    expect($bodies)->toContain(__('deadlines.validation.stale_form'));
+
+    Notification::assertNotified(__('actions.failed_title'));
+}
+
+/**
  * Fix round 1, I1. Form "Sửa" gửi lại MỌI ô, nên một tab mở từ trước (hay một đồng nghiệp đang
  * mở cùng mốc) ghi đè ngược lại lần sửa vừa lưu — trả về ngày cũ, hoặc huỷ một lần giao việc — và
  * nhật ký đổ cho người thứ hai. Form mang ảnh chụp lúc mở; `UpdateDeadline` từ chối khi dòng đã đổi
@@ -582,7 +600,7 @@ it('refuses an edit made from a form that was opened before someone else saved t
     $tabB->setTableActionData(['name' => 'Phiên toà sơ thẩm (tab B)'])
         ->callMountedTableAction();
 
-    Notification::assertNotified(__('actions.failed_title'));
+    assertStaleFormRefusalShown();
 
     expect($deadline->fresh()->due_date->toDateString())->toBe(today()->addDays(10)->toDateString())
         ->and($deadline->fresh()->name)->toBe('Phiên toà sơ thẩm')
@@ -606,7 +624,7 @@ it('refuses an edit from a form opened before the deadline changed in a column t
     $tabB->setTableActionData(['name' => 'Phiên toà sơ thẩm (tab B)'])
         ->callMountedTableAction();
 
-    Notification::assertNotified(__('actions.failed_title'));
+    assertStaleFormRefusalShown();
 
     expect($deadline->fresh()->name)->toBe('Phiên toà sơ thẩm');
 });

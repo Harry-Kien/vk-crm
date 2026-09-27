@@ -670,3 +670,50 @@ it('is queued by CheckDeadlines with the due date it is about', function () {
             && $job->dueDate === $deadline->due_date->toDateString(),
     );
 });
+
+/**
+ * Fix round 2 (Important): một job xếp hàng TRƯỚC 5098fd6 được serialize không có `dueDate`.
+ * `unserialize()` không chạy constructor, nên thuộc tính readonly có kiểu đó ở trạng thái CHƯA KHỞI
+ * TẠO — mặc định `= null` là của tham số constructor, không phải của thuộc tính. Đọc thẳng nó ném
+ * Error, job hỏng đủ 5 lần, `failed()` rút bậc, lượt sau gửi lại cho người đã nhận. Test dựng đúng
+ * payload đó: serialize một job thật, gỡ `dueDate` khỏi chuỗi, unserialize, chạy `handle()`.
+ */
+function legacyJobWithoutDueDate(int $deadlineId, string $tier): SendDeadlineReminderMail
+{
+    $serialized = serialize(new SendDeadlineReminderMail($deadlineId, $tier));
+
+    $stripped = str_replace('s:7:"dueDate";N;', '', $serialized, $removed);
+    expect($removed)->toBe(1);
+
+    // Số thuộc tính trong tiêu đề `O:<len>:"<class>":<count>:` giảm đi một.
+    $stripped = preg_replace_callback(
+        '/^O:(\d+):"([^"]+)":(\d+):/',
+        fn (array $m): string => 'O:'.$m[1].':"'.$m[2].'":'.((int) $m[3] - 1).':',
+        $stripped,
+    );
+
+    $job = unserialize($stripped);
+    expect((new ReflectionProperty($job, 'dueDate'))->isInitialized($job))->toBeFalse();
+
+    return $job;
+}
+
+it('runs a job queued before the due-date snapshot existed, and still honours its legacy bare-tier ledger row', function () {
+    Mail::fake();
+    [$deadline, $lawyer] = deadlineWithLawyer(); // due in 3 days => tier d3
+    ledgerRowFor($deadline, $lawyer, 'd3');
+
+    legacyJobWithoutDueDate($deadline->id, 'd3')->handle();
+
+    Mail::assertNothingSent();
+});
+
+/** Cặp dương: cùng job cũ, không có dòng nhật ký nào — nó gửi, tức `handle()` thật sự chạy hết. */
+it('mails from a job queued before the due-date snapshot existed when nothing was delivered yet', function () {
+    Mail::fake();
+    [$deadline, $lawyer] = deadlineWithLawyer();
+
+    legacyJobWithoutDueDate($deadline->id, 'd3')->handle();
+
+    Mail::assertSent(DeadlineReminder::class, fn ($mail) => $mail->hasTo($lawyer->email));
+});
