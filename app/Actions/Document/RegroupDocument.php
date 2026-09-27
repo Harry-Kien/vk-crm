@@ -62,6 +62,11 @@ use Spatie\Activitylog\Models\Activity;
  * là thứ làm cho nó thành đường DUY NHẤT. Xem docblock `Document::duringAuditedRegroup()` để
  * biết vì sao một bất biến dữ liệu được canh ở model trong khi nghiệp vụ vẫn ở Action.
  *
+ * **Final review X7 (C-I2): nhóm D không phải trạm giặt.** "Rời nhóm B" gồm cả một tài liệu đang
+ * ở D mà ngay trước lần vào D gần nhất nó ở B (đọc từ dòng `document_regrouped` có `to_group = D`)
+ * — xem {@see self::leavesGroupB()}. Và "đã đi hết vòng đời" là
+ * `Document::hasClearedIssuedLifecycle()`, cùng định nghĩa `PublishDocument` dùng (C-I1).
+ *
  * Cổng nhóm B ở trên KHÔNG có hàng rào tương ứng ở tầng model — khác nhóm D. SPEC không gọi vòng
  * đời nhóm B là một ranh giới "tuyệt đối" theo đúng nghĩa đó (nó là một CHUỖI trạng thái, không
  * phải một tập bị cấm tuyệt đối), nên một cổng ở tầng Action là đủ, cùng mức với cổng
