@@ -5,6 +5,7 @@ use App\Enums\Role;
 use App\Models\Matter;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -202,4 +203,37 @@ it('re-attaches the old lead as an associate even when their team_user row was r
 
     expect($matter->fresh()->team()->whereKey($oldLeadManager->id)
         ->wherePivot('role_in_matter', 'associate')->exists())->toBeTrue();
+});
+
+/**
+ * Final review A-M5: `manageTeam` được hỏi TRƯỚC khoá, trên đối tượng caller đưa vào — có thể đã
+ * cũ. Luật sư A mở màn hình khi còn là lead; một lượt khác đã bàn giao vụ cho B (A ở lại làm cộng
+ * sự). A bấm lưu với đối tượng cũ vẫn ghi `lead_lawyer_id = A`: câu hỏi trước khoá cho qua, và
+ * trước bản sửa này A giành lại vụ việc. Hỏi lại `manageTeam` trên bản ghi ĐÃ KHOÁ — M7 sẽ gọi
+ * Action này hàng loạt, cổng phải đúng dưới khoá.
+ */
+it('re-checks manageTeam under the lock, so a stale matter object cannot let a former lead reassign', function () {
+    $lawyerB = User::factory()->withRole(Role::Lawyer)->create();
+    $lawyerC = User::factory()->withRole(Role::Lawyer)->create();
+    $stale = $this->matter->fresh();
+
+    app(ReassignMatter::class)->handle(
+        matter: $this->matter,
+        actor: $this->oldLead,
+        newLead: $lawyerB,
+        reason: 'Bàn giao cho B.',
+        keepOldLeadAsAssociate: true,
+    );
+
+    expect($stale->lead_lawyer_id)->toBe($this->oldLead->id);
+
+    expect(fn () => app(ReassignMatter::class)->handle(
+        matter: $stale,
+        actor: $this->oldLead,
+        newLead: $lawyerC,
+        reason: 'A bấm lưu trên màn hình đã cũ.',
+        keepOldLeadAsAssociate: false,
+    ))->toThrow(AuthorizationException::class);
+
+    expect($this->matter->fresh()->lead_lawyer_id)->toBe($lawyerB->id);
 });

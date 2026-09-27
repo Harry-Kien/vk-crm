@@ -2,6 +2,7 @@
 
 namespace App\Actions;
 
+use App\Actions\Client\CreateClient;
 use App\Actions\Concerns\BuildsMatterParties;
 use App\Enums\ConflictLevel;
 use App\Enums\MatterRole;
@@ -233,6 +234,13 @@ class OpenMatter
      *                                            một xác nhận lưu từ một request kiểm tra trước đó
      *                                            (mức có thể đã đổi vì dữ liệu đổi) không tự động
      *                                            hợp lệ nếu mức mới khác.
+     * @param  Client|null  $newClient  Final review A-M7: một khách hàng MỚI CHƯA LƯU (từ
+     *                                  `CreateClient::resolve()`) thay cho `$attributes['client_id']`.
+     *                                  Bước 3 kiểm tra xung đột trên một bên khách hàng dựng từ
+     *                                  CHÍNH dữ liệu đó (chưa có `client_id` — một hồ sơ mới không có
+     *                                  dòng cũ nào để tự khớp); hồ sơ chỉ được LƯU ở bước 5, sau khi
+     *                                  bước 4 cho qua. Bị chặn đỏ/vàng thì không có gì được ghi — không
+     *                                  còn khách hàng mồ côi của một lần mở vụ không thành.
      */
     public function handle(
         User $actor,
@@ -240,7 +248,12 @@ class OpenMatter
         array $parties,
         ?string $overrideReason = null,
         ?ConflictLevel $acknowledged = null,
+        ?Client $newClient = null,
     ): OpenMatterResult {
+        if ($newClient !== null && $newClient->exists) {
+            $attributes['client_id'] = $newClient->getKey();
+            $newClient = null;
+        }
         // Bước 1.
         Gate::forUser($actor)->authorize('create', Matter::class);
 
@@ -282,16 +295,17 @@ class OpenMatter
         // là đủ. Round 0 cố ý KHÔNG bắt lỗi này; chủ nhiệm đã đảo phán quyết đó ở round 1.
         try {
             return Cache::store('database')->lock('conflict-check', 30)->block(10, function () use (
-                $attributes, $parties, $clientRole, $actor, $overrideReason, $acknowledged,
+                $attributes, $parties, $clientRole, $actor, $overrideReason, $acknowledged, $newClient,
             ): OpenMatterResult {
                 // Bước 3.
                 /** @var array{0: ConflictCheckResult, 1: Collection<int, MatterParty>} $checked */
-                $checked = DB::transaction(function () use ($attributes, $parties, $clientRole, $actor): array {
-                    $clients = $this->lockClients($attributes['client_id'], $parties);
-                    $client = $clients->get((int) $attributes['client_id']);
+                $checked = DB::transaction(function () use ($attributes, $parties, $clientRole, $actor, $newClient): array {
+                    $clients = $this->lockClients($newClient === null ? $attributes['client_id'] : null, $parties);
 
                     $proposedParties = collect([
-                        $this->buildOwnClientParty($client, $clientRole),
+                        $newClient === null
+                            ? $this->buildOwnClientParty($clients->get((int) $attributes['client_id']), $clientRole)
+                            : $this->buildUnsavedOwnClientParty($newClient, $clientRole),
                         ...collect($parties)->map(fn (array $party) => $this->buildMatterParty(
                             $party,
                             lockedClient: $clients->get((int) ($party['client_id'] ?? 0)),
@@ -326,8 +340,18 @@ class OpenMatter
 
                 // Bước 5.
                 return DB::transaction(function () use (
-                    $attributes, $proposedParties, $result, $isOverridden, $overrideReason, $actor,
+                    $attributes, $proposedParties, $result, $isOverridden, $overrideReason, $actor, $newClient,
                 ): OpenMatterResult {
+                    // Final review A-M7: khách hàng mới chỉ ra đời ở ĐÂY — bước 4 đã cho qua. Bên
+                    // khách hàng dựng ở bước 3 (chưa có `client_id`) nhận id vừa có, rồi
+                    // `refreshOwnClientIdentitiesUnderLock()` bên dưới khoá và áp lại định danh từ
+                    // chính hồ sơ này như mọi bên `is_our_client` khác.
+                    if ($newClient !== null) {
+                        $client = app(CreateClient::class)->persist($actor, $newClient);
+                        $attributes['client_id'] = $client->getKey();
+                        $proposedParties->first()->client_id = $client->getKey();
+                    }
+
                     // `blameOn()` TRƯỚC khi save(), cùng lý do như `TransitionMatterStage` bước 5:
                     // Action đã nhận actor rõ ràng để kiểm tra quyền, nên hai cột "ai tạo" phải ghi đúng
                     // actor đó chứ không suy luận từ `auth('web')` ambient mà `HasBlameable` mặc định
@@ -562,7 +586,7 @@ class OpenMatter
      * @param  array<int, array<string, mixed>>  $parties
      * @return Collection<int, Client> Hồ sơ đã khoá, khoá mảng theo id.
      */
-    private function lockClients(int|string $primaryClientId, array $parties): Collection
+    private function lockClients(int|string|null $primaryClientId, array $parties): Collection
     {
         $ids = collect([$primaryClientId])
             ->merge(collect($parties)
@@ -606,5 +630,25 @@ class OpenMatter
             'name' => $client->name,
             'address' => $client->address,
         ], lockedClient: $client);
+    }
+
+    /**
+     * Final review A-M7: bên khách hàng cho một hồ sơ `Client` CHƯA LƯU — cùng tên, địa chỉ và định
+     * danh mà `buildOwnClientParty()` sẽ lấy từ hồ sơ đó sau khi lưu, nên kết quả kiểm tra ở bước 3
+     * đúng là kết quả của bên sẽ được lưu ở bước 5. Không đi qua `buildMatterParty()`: trait đó
+     * từ chối một bên `is_our_client` chưa có `client_id` (`OurClientPartyNeedsClient`) — đúng cho
+     * mọi đường khác, và ở đây `client_id` được gán ngay khi hồ sơ ra đời ở bước 5.
+     */
+    private function buildUnsavedOwnClientParty(Client $client, PartyRole $role): MatterParty
+    {
+        $party = new MatterParty([
+            'role' => $role,
+            'is_our_client' => true,
+            'client_id' => null,
+            'address' => $client->address,
+        ]);
+        $party->name = $client->name;
+
+        return $party->identify($client->id_number, $client->phone);
     }
 }

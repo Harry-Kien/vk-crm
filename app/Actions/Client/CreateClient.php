@@ -73,6 +73,22 @@ class CreateClient
      */
     public function handle(User $actor, array $attributes, bool $confirmDuplicate = false): Client
     {
+        $client = $this->resolve($actor, $attributes, $confirmDuplicate);
+
+        return $client->exists ? $client : $this->persist($actor, $client);
+    }
+
+    /**
+     * Final review A-M7: nửa ĐẦU của {@see self::handle()} — quyền, giới hạn tần suất, dò trùng và
+     * luật dùng lại — mà CHƯA ghi gì. Trả về hồ sơ ĐÃ CÓ (dùng lại) hoặc một `Client` MỚI CHƯA LƯU
+     * (`exists === false`). `OpenMatter` cần tách đôi như vậy: hồ sơ khách mới chỉ được lưu SAU khi
+     * kiểm tra xung đột cho qua, không trước — nếu không, một lần bị chặn để lại một khách hàng mồ
+     * côi (xem docblock `OpenMatter`, tham số `$newClient`).
+     *
+     * @param  array<string, mixed>  $attributes  Cùng hình dạng {@see self::handle()}.
+     */
+    public function resolve(User $actor, array $attributes, bool $confirmDuplicate = false): Client
+    {
         $canManage = $actor->can(Permission::ClientManage->value);
 
         abort_unless($canManage || $actor->can(Permission::MatterCreate->value), 403);
@@ -107,17 +123,30 @@ class CreateClient
             // Đã xác nhận: tạo một hồ sơ MỚI dù trùng định danh — rơi xuống dưới, không return.
         }
 
-        return DB::transaction(function () use ($actor, $attributes): Client {
-            $client = new Client([
-                'type' => $attributes['type'] ?? null,
-                'name' => $attributes['name'] ?? null,
-                'id_number' => $attributes['id_number'] ?? null,
-                'phone' => $attributes['phone'] ?? null,
-                'email' => $attributes['email'] ?? null,
-                'representative_name' => $attributes['representative_name'] ?? null,
-                'address' => $attributes['address'] ?? null,
-                'note' => $attributes['note'] ?? null,
-            ]);
+        return new Client([
+            'type' => $attributes['type'] ?? null,
+            'name' => $attributes['name'] ?? null,
+            'id_number' => $attributes['id_number'] ?? null,
+            'phone' => $attributes['phone'] ?? null,
+            'email' => $attributes['email'] ?? null,
+            'representative_name' => $attributes['representative_name'] ?? null,
+            'address' => $attributes['address'] ?? null,
+            'note' => $attributes['note'] ?? null,
+        ]);
+    }
+
+    /**
+     * Nửa SAU của {@see self::handle()}: lưu một `Client` mới do {@see self::resolve()} dựng. Gọi
+     * được bên trong một transaction đang mở (bước lưu của `OpenMatter`) — `DB::transaction()` lồng
+     * thành một savepoint.
+     */
+    public function persist(User $actor, Client $client): Client
+    {
+        if ($client->exists) {
+            return $client;
+        }
+
+        return DB::transaction(function () use ($actor, $client): Client {
             $client->blameOn($actor)->save();
 
             return $client;

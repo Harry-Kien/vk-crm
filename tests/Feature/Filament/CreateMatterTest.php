@@ -15,6 +15,7 @@ use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Models\MatterType;
 use App\Models\User;
+use App\Support\Normalizer;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Filament\Notifications\Livewire\Notifications;
@@ -184,6 +185,14 @@ it('opens a matter end to end for a brand new client, without building any prior
         ->and($matter->lead_lawyer_id)->toBe($lawyer->id)
         ->and(Client::count())->toBe(1)
         ->and(Matter::count())->toBe(1);
+
+    // Final review A-M7: bên khách hàng được dựng TRƯỚC khi hồ sơ tồn tại (kiểm tra xung đột), rồi
+    // nhận đúng `client_id` và định danh của hồ sơ vừa lưu.
+    $ownParty = $matter->parties()->where('is_our_client', true)->sole();
+
+    expect($ownParty->client_id)->toBe($client->id)
+        ->and($ownParty->id_number_hash)->toBe(Normalizer::idNumberHash('079099001234'))
+        ->and($ownParty->phone_normalized)->toBe(Normalizer::phone('0909111222'));
 });
 
 /**
@@ -225,9 +234,9 @@ it('does not leave an orphan client behind when a new client is blocked by a yel
 
     $component->call('create')->assertHasFormErrors(['acknowledge_conflict']);
 
-    // Lượt 1 đã tạo một hồ sơ Client (bên khách hàng CHƯA được lưu — bị chặn trước bước 5 của
-    // OpenMatter), nhưng CHỈ MỘT, không hơn.
-    expect(Client::where('name', 'Trùng tên với người khác')->count())->toBe(1);
+    // Final review A-M7: lượt 1 bị chặn KHÔNG tạo hồ sơ Client nào — hồ sơ chỉ được tạo sau khi
+    // kiểm tra xung đột cho qua (bước lưu của OpenMatter), nên không có khách hàng mồ côi.
+    expect(Client::where('name', 'Trùng tên với người khác')->count())->toBe(0);
 
     $component->fillForm(['acknowledge_conflict' => true])
         ->call('create')
@@ -1565,4 +1574,93 @@ it('names the matched party in the notification after a red conflict is overridd
     expect($overridden)->not->toBeNull()
         // Tên của bên trùng ở hồ sơ kia, không phải tên bên vừa nhập.
         ->and($overridden->getBody())->toContain('Nguyễn Văn Hùng');
+});
+
+// =========================================================================================
+// Final review A-M7: hồ sơ khách hàng mới (khối "Tạo khách mới") chỉ được tạo SAU khi kiểm tra
+// xung đột cho qua — một lần bị chặn đỏ không để lại khách hàng mồ côi, và lượt gửi lại dùng đúng
+// dữ liệu người dùng vừa sửa trên form.
+// =========================================================================================
+
+it('creates no client at all when a new client is blocked by a red conflict', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $type = createFormMatterType();
+
+    // Bị đơn của vụ mới chính là một khách hàng hiện tại của văn phòng → đỏ.
+    existingFirmClientParty('079012300001', 'Khách hiện tại của văn phòng');
+
+    $this->actingAs($lawyer, 'web');
+
+    $clientsBefore = Client::count();
+
+    $this->livewire(CreateMatter::class)
+        ->fillForm([
+            'client_role' => PartyRole::Plaintiff->value,
+            'matter_type_id' => $type->id,
+            'title' => 'Vụ việc bị chặn đỏ',
+            'lead_lawyer_id' => $lawyer->id,
+            'other_parties' => [[
+                'role' => PartyRole::Defendant->value,
+                'name' => 'Khách hiện tại (bị đơn)',
+                'id_number' => '079012300001',
+            ]],
+            'new_client' => [
+                'type' => ClientType::Individual->value,
+                'name' => 'Khách mới bị chặn',
+            ],
+        ])
+        ->call('create')
+        ->assertHasFormErrors(['override_reason']);
+
+    expect(Client::count())->toBe($clientsBefore)
+        ->and(Matter::query()->where('title', 'Vụ việc bị chặn đỏ')->exists())->toBeFalse();
+});
+
+it('uses the corrected new-client details on the second submit after a yellow block', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $type = createFormMatterType();
+
+    $twinMatter = Matter::factory()->create();
+    MatterParty::factory()->for($twinMatter)->create(['name' => 'Trùng tên lần hai', 'is_our_client' => false]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(CreateMatter::class)
+        ->fillForm([
+            'client_role' => PartyRole::Plaintiff->value,
+            'matter_type_id' => $type->id,
+            'title' => 'Vụ việc sửa dữ liệu khách giữa hai lượt',
+            'lead_lawyer_id' => $lawyer->id,
+            'other_parties' => [],
+            'new_client' => [
+                'type' => ClientType::Individual->value,
+                'name' => 'Trùng tên lần hai',
+                'address' => 'Địa chỉ gõ sai',
+            ],
+        ]);
+
+    $component->call('create')->assertHasFormErrors(['acknowledge_conflict']);
+
+    // Người dùng sửa dữ liệu khách mới — nếu lần sửa xoá kết quả kiểm tra (xem
+    // `forgetConflictResult()`), lượt gửi kế tiếp chạy lại kiểm tra; tích xác nhận rồi gửi.
+    $component->fillForm([
+        'new_client' => [
+            'type' => ClientType::Individual->value,
+            'name' => 'Trùng tên lần hai',
+            'address' => 'Địa chỉ đã sửa',
+        ],
+    ]);
+
+    if ($component->instance()->conflictResult === null) {
+        $component->call('create')->assertHasFormErrors(['acknowledge_conflict']);
+    }
+
+    expect(Client::query()->where('name', 'Trùng tên lần hai')->exists())->toBeFalse();
+
+    $component->fillForm(['acknowledge_conflict' => true])->call('create')->assertHasNoFormErrors();
+
+    $client = Client::query()->where('name', 'Trùng tên lần hai')->sole();
+
+    expect($client->address)->toBe('Địa chỉ đã sửa')
+        ->and(Matter::query()->where('title', 'Vụ việc sửa dữ liệu khách giữa hai lượt')->first()?->client_id)->toBe($client->id);
 });

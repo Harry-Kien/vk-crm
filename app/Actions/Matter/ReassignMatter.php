@@ -155,6 +155,11 @@ class ReassignMatter
         return DB::transaction(function () use ($matter, $actor, $newLead, $reason, $keepOldLeadAsAssociate): StageLog {
             $locked = Matter::query()->whereKey($matter->getKey())->lockForUpdate()->firstOrFail();
 
+            // Final review A-M5: câu `manageTeam` ở đầu hàm hỏi trên đối tượng caller đưa vào —
+            // có thể đã cũ (một lượt bàn giao khác vừa đổi `lead_lawyer_id`). Hỏi lại trên bản
+            // ghi ĐÃ KHOÁ; M7 sẽ gọi Action này hàng loạt, cổng phải đúng dưới khoá.
+            Gate::forUser($actor)->authorize('manageTeam', $locked);
+
             // I2 (fix round 1): khoá dòng lead mới NGAY SAU dòng vụ việc — cùng thứ tự toàn cục
             // "vụ việc trước, bảng con sau" — rồi đọc lại `is_active`/`trashed()` DƯỚI KHOÁ. Câu
             // kiểm tra TRƯỚC transaction (ngay trên) chỉ đọc đối tượng caller đưa vào, có thể đã
