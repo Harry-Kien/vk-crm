@@ -1,14 +1,15 @@
 #!/usr/bin/env node
 /*
  * Khảo sát CSP có đo đạc (M8a Task 4, phán quyết R4 của kế hoạch M8) — đi qua các trang chính
- * của CẢ HAI panel bằng một Chromium thật, với đăng nhập thật, và ghi từng vi phạm CSP.
+ * của CẢ HAI panel bằng một trình duyệt thật (Chromium hoặc WebKit), với đăng nhập thật, và ghi
+ * từng vi phạm CSP.
  *
  * Kết quả và phán quyết: docs/research/2026-09-26-csp-khao-sat.md.
  *
  * Playwright KHÔNG nằm trong package.json của repo. Cài nó vào một thư mục ngoài repo rồi trỏ
  * NODE_PATH vào đó (tệp này là CommonJS chính vì thế — `import` của ESM không đọc NODE_PATH):
  *
- *   mkdir -p /d/vkwt/m8-tools && cd /d/vkwt/m8-tools && npm i playwright && npx playwright install chromium
+ *   mkdir -p /d/vkwt/m8-tools && cd /d/vkwt/m8-tools && npm i playwright && npx playwright install chromium webkit
  *   /d/vkwt/m8-dev seed
  *   /d/vkwt/m8-dev serve -e CSP_MODE=report -e PHP_INI_SCAN_DIR=:/var/www/html/tools/csp/php
  *   (tệp ini chỉ bật opcache cho `php artisan serve` — không có nó một trang mất ~20 giây)
@@ -20,8 +21,24 @@
  *            (mặc định storage/logs/laravel.log của repo này; bản chạy dùng MAIL_MAILER=log)
  *   LABEL    tên lượt đo, in ra đầu bảng
  *   OUT      ghi toàn bộ kết quả (JSON) ra tệp này
- *   ACTIONS  =1 thì làm thêm các HÀNH ĐỘNG CHÍNH, có ghi dữ liệu: nộp một giấy tờ thật, tải một
- *            tệp, chuyển giai đoạn một vụ việc. Dùng cho lượt kiểm ở chế độ enforce.
+ *   BROWSER  chromium (mặc định) | webkit
+ *   SCOPE    =uploads thì CHỈ đi các bước tải ảnh lên (đăng nhập hai panel, modal "Đưa tài liệu vào
+ *            hồ sơ" của nhân sự, trang nộp giấy tờ của khách) — lượt đo nhanh cho worker-src.
+ *   ACTIONS  =1 thì làm thêm các HÀNH ĐỘNG CHÍNH, có ghi dữ liệu: GỬI các ảnh đã chọn — khách nộp
+ *            giấy tờ thật (một ảnh JPEG và một ảnh PNG — đường chụp ảnh bằng điện thoại của SPEC
+ *            §8.4), nhân sự lưu một ảnh JPEG qua modal "Đưa tài liệu vào hồ sơ" — rồi tải một tệp
+ *            và chuyển giai đoạn một vụ việc. Không có ACTIONS, các ảnh vẫn được CHỌN (tải lên tạm,
+ *            dựng bản xem trước) nhưng không gửi. Dùng cho lượt kiểm ở chế độ enforce.
+ *
+ * Ảnh JPEG/PNG do CHÍNH trình duyệt mã hoá (canvas → toDataURL) nên là ảnh thật, không phải vài
+ * byte giả: ô tải lên của Filament (FilePond) dựng bản xem trước cho ảnh trong một Web Worker
+ * tạo từ `blob:` — thứ CSP phải cho phép qua `worker-src`, và chỉ một ảnh thật mới đi tới đó.
+ *
+ * Mỗi lần trang dựng một Web Worker, script ghi lại (bọc `window.Worker` trong init script): Worker
+ * từ `blob:` hay không, đã nhận thông điệp đầu tiên từ Worker chưa (tức Worker THẬT SỰ chạy), có sự
+ * kiện `error` không. Mỗi bước chọn ảnh bắt buộc: ≥ 1 Worker `blob:` đã trả thông điệp, 0 Worker
+ * lỗi, ≥ 1 canvas xem trước — thiếu một điều là bước đó hỏng, nên một lượt "0 vi phạm" không thể
+ * đến từ một bước không bao giờ đi tới Worker.
  *
  * Mã thoát: 0 khi không có vi phạm CSP, lỗi JavaScript hay hành động hỏng nào; 1 nếu có.
  *
@@ -34,13 +51,18 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { chromium } = require('playwright');
+const playwright = require('playwright');
 
 const BASE = (process.env.BASE || 'http://localhost:8090').replace(/\/$/, '');
 const LOG = process.env.LOG || path.resolve(__dirname, '../../storage/logs/laravel.log');
 const LABEL = process.env.LABEL || 'survey';
 const OUT = process.env.OUT || '';
 const ACTIONS = process.env.ACTIONS === '1';
+const BROWSER = process.env.BROWSER || 'chromium';
+const FULL = process.env.SCOPE !== 'uploads';
+
+/** Ảnh thật do trình duyệt mã hoá, dựng một lần khi khởi động: { jpeg: Buffer, png: Buffer }. */
+const images = {};
 
 const STAFF = { email: 'admin@luatvukhang.com', password: 'password' };
 const CLIENT = { email: 'khach1@example.com', password: 'password' };
@@ -51,7 +73,10 @@ const actions = [];
 let current = null;
 
 function begin(label) {
-  current = { label, url: '', violations: [], errors: [], scripts: [], notes: [] };
+  current = {
+    label, url: '', violations: [], errors: [], scripts: [], notes: [],
+    workers: { blob: 0, other: 0, message: 0, error: 0 },
+  };
   pages.push(current);
   return current;
 }
@@ -145,6 +170,25 @@ async function closeModal(page) {
   await settle(page, 300);
 }
 
+/**
+ * Sau khi chọn một ẢNH: chờ Worker `blob:` của FilePond trả thông điệp đầu tiên, rồi đòi đủ bằng
+ * chứng rằng đường xem trước ảnh đã THẬT SỰ chạy. Ném lỗi (→ bước hỏng, mã thoát 1) nếu thiếu.
+ */
+async function requireImagePreview(page, scope, entry) {
+  const deadline = Date.now() + 30000;
+  while (entry.workers.message === 0 && entry.workers.error === 0 && Date.now() < deadline) {
+    await page.waitForTimeout(200);
+  }
+  await settle(page, 500);
+  const canvases = await scope.locator('.filepond--image-preview canvas, .filepond--image-bitmap canvas').count();
+  const w = entry.workers;
+  const summary = `Worker blob: ${w.blob}, đã trả thông điệp ${w.message}, lỗi ${w.error}; ${canvases} canvas xem trước`;
+  note(summary);
+  if (w.blob < 1 || w.message < 1 || w.error > 0 || canvases < 1) {
+    throw new Error('đường xem trước ảnh KHÔNG chạy đủ — ' + summary);
+  }
+}
+
 // ---------------------------------------------------------------------------------------------
 
 async function staffTour(browser) {
@@ -163,11 +207,11 @@ async function staffTour(browser) {
     await p.waitForURL(/\/admin\/?$/);
   });
 
-  await visit(page, 'admin: bảng điều khiển', '/admin');
+  if (FULL) await visit(page, 'admin: bảng điều khiển', '/admin');
   await visit(page, 'admin: danh sách vụ việc', '/admin/matters');
   const matterUrl = await firstHref(page, /\/admin\/matters\/\d+$/);
 
-  await visit(page, 'admin: trang vụ việc + từng tab', matterUrl, async (p) => {
+  if (FULL) await visit(page, 'admin: trang vụ việc + từng tab', matterUrl, async (p) => {
     const tabs = p.locator('.fi-tabs [role="tab"], .fi-tabs-item');
     const count = await tabs.count();
     for (let i = 0; i < count; i++) {
@@ -179,44 +223,46 @@ async function staffTour(browser) {
     note(`${count} tab đã bấm`);
   });
 
-  await visit(page, 'admin: form "Chuyển giai đoạn"', matterUrl, async (p) => {
+  if (FULL) await visit(page, 'admin: form "Chuyển giai đoạn"', matterUrl, async (p) => {
     await openStageTab(p);
     await openModal(p, 'Chuyển giai đoạn');
     await closeModal(p);
   });
 
-  await visit(page, 'admin: form "Thêm cập nhật"', matterUrl, async (p) => {
+  if (FULL) await visit(page, 'admin: form "Thêm cập nhật"', matterUrl, async (p) => {
     await openStageTab(p);
     await openModal(p, 'Thêm cập nhật');
     await closeModal(p);
   });
 
-  await visit(page, 'admin: tạo vụ việc', '/admin/matters/create');
-  await visit(page, 'admin: danh sách khách hàng', '/admin/clients');
-  const clientEdit = await firstHref(page, /\/admin\/clients\/\d+\/edit$/);
-  await visit(page, 'admin: sửa khách hàng', clientEdit);
-  await visit(page, 'admin: tạo khách hàng', '/admin/clients/create');
-  await visit(page, 'admin: tài khoản cổng', '/admin/client-users');
-  const clientUserEdit = await firstHref(page, /\/admin\/client-users\/\d+\/edit$/);
-  if (clientUserEdit) await visit(page, 'admin: sửa tài khoản cổng', clientUserEdit);
-  await visit(page, 'admin: tạo tài khoản cổng', '/admin/client-users/create');
-  await visit(page, 'admin: nhân sự', '/admin/users');
-  const userEdit = await firstHref(page, /\/admin\/users\/\d+\/edit$/);
-  if (userEdit) await visit(page, 'admin: sửa nhân sự', userEdit);
-  await visit(page, 'admin: tạo nhân sự', '/admin/users/create');
-  await visit(page, 'admin: loại vụ việc', '/admin/matter-types');
-  const typeEdit = await firstHref(page, /\/admin\/matter-types\/\d+\/edit$/);
-  if (typeEdit) await visit(page, 'admin: sửa loại vụ việc', typeEdit);
-  await visit(page, 'admin: tạo loại vụ việc', '/admin/matter-types/create');
-  await visit(page, 'admin: nhật ký hệ thống', '/admin/activity-log-page');
-  await visit(page, 'web: trang 404', '/khong-ton-tai-' + Date.now());
-  await visit(page, 'web: /up (kiểm tra sống)', '/up');
-  // Trang /up của Laravel nạp Tailwind từ cdn.jsdelivr.net để tô chữ "Application up". CSP chặn
-  // nó là ĐÚNG (không cho script bên thứ ba), trang vẫn trả 200 — thứ duy nhất bộ giám sát đọc.
-  // Chấp nhận có chủ đích, xem docs/research/2026-09-26-csp-khao-sat.md.
-  current.accepted = /^https:\/\/cdn\.jsdelivr\.net\//;
+  if (FULL) {
+    await visit(page, 'admin: tạo vụ việc', '/admin/matters/create');
+    await visit(page, 'admin: danh sách khách hàng', '/admin/clients');
+    const clientEdit = await firstHref(page, /\/admin\/clients\/\d+\/edit$/);
+    await visit(page, 'admin: sửa khách hàng', clientEdit);
+    await visit(page, 'admin: tạo khách hàng', '/admin/clients/create');
+    await visit(page, 'admin: tài khoản cổng', '/admin/client-users');
+    const clientUserEdit = await firstHref(page, /\/admin\/client-users\/\d+\/edit$/);
+    if (clientUserEdit) await visit(page, 'admin: sửa tài khoản cổng', clientUserEdit);
+    await visit(page, 'admin: tạo tài khoản cổng', '/admin/client-users/create');
+    await visit(page, 'admin: nhân sự', '/admin/users');
+    const userEdit = await firstHref(page, /\/admin\/users\/\d+\/edit$/);
+    if (userEdit) await visit(page, 'admin: sửa nhân sự', userEdit);
+    await visit(page, 'admin: tạo nhân sự', '/admin/users/create');
+    await visit(page, 'admin: loại vụ việc', '/admin/matter-types');
+    const typeEdit = await firstHref(page, /\/admin\/matter-types\/\d+\/edit$/);
+    if (typeEdit) await visit(page, 'admin: sửa loại vụ việc', typeEdit);
+    await visit(page, 'admin: tạo loại vụ việc', '/admin/matter-types/create');
+    await visit(page, 'admin: nhật ký hệ thống', '/admin/activity-log-page');
+    await visit(page, 'web: trang 404', '/khong-ton-tai-' + Date.now());
+    await visit(page, 'web: /up (kiểm tra sống)', '/up');
+    // Trang /up của Laravel nạp Tailwind từ cdn.jsdelivr.net để tô chữ "Application up". CSP chặn
+    // nó là ĐÚNG (không cho script bên thứ ba), trang vẫn trả 200 — thứ duy nhất bộ giám sát đọc.
+    // Chấp nhận có chủ đích, xem docs/research/2026-09-26-csp-khao-sat.md.
+    current.accepted = /^https:\/\/cdn\.jsdelivr\.net\//;
+  }
 
-  if (ACTIONS) {
+  if (ACTIONS && FULL) {
     await visit(page, 'HÀNH ĐỘNG admin: chuyển giai đoạn', matterUrl, async (p) => {
       try {
         await openStageTab(p);
@@ -246,6 +292,41 @@ async function staffTour(browser) {
       }
     });
   }
+
+  // Modal "Đưa tài liệu vào hồ sơ" của tab Tài liệu (DocumentsRelationManager): chọn một ảnh JPEG
+  // thật ở MỌI lượt; chỉ lượt ACTIONS mới điền nốt và gửi.
+  await visit(page, `admin: modal "Đưa tài liệu vào hồ sơ" — chọn ảnh JPEG${ACTIONS ? ' rồi gửi' : ''}`, matterUrl, async (p, entry) => {
+    const tab = p.locator('.fi-tabs-item', { hasText: 'Tài liệu' }).first();
+    await p.waitForFunction((el) => !el.disabled, await tab.elementHandle());
+    await tab.click();
+    await settle(p, 300);
+    const modal = await openModal(p, 'Đưa tài liệu vào hồ sơ');
+    await modal.locator('input[type="file"]').first().setInputFiles({
+      name: 'anh-chup-khao-sat.jpg', mimeType: 'image/jpeg', buffer: images.jpeg,
+    });
+    await modal.getByText('Tải lên thành công').first().waitFor({ timeout: 60000 });
+    await requireImagePreview(p, modal, entry);
+    if (!ACTIONS) return closeModal(p);
+
+    const name = 'admin đưa một ảnh JPEG vào hồ sơ qua modal tải lên';
+    try {
+      await modal.getByLabel('Tên tài liệu').fill('Ảnh chụp khảo sát CSP');
+      const group = modal.getByLabel('Nhóm tài liệu');
+      if (await group.evaluate((el) => el.tagName === 'SELECT')) {
+        const values = await group.locator('option').evaluateAll((os) => os.map((o) => o.value).filter(Boolean));
+        await group.selectOption(values[0]);
+      } else {
+        await group.click();
+        await p.locator('.fi-select-input-option:visible, [role="option"]:visible').first().click();
+      }
+      await settle(p, 300);
+      await modal.getByRole('button', { name: 'Gửi', exact: true }).click();
+      await p.getByText('Đã lưu tài liệu vào hồ sơ.').first().waitFor({ timeout: 60000 });
+      action(name, true, `thấy "Đã lưu tài liệu vào hồ sơ." ở ${matterUrl}`);
+    } catch (e) {
+      action(name, false, e.message.split('\n')[0]);
+    }
+  });
 
   await context.close();
 }
@@ -319,47 +400,71 @@ async function clientTour(browser) {
       '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n',
   );
 
-  if (submitUrl) {
-    await visit(page, 'portal: nộp giấy tờ (mở form, chọn tệp)', submitUrl, async (p) => {
-      const choice = p.locator('[data-portal-block="1"] button[wire\\:click^="chooseItem"]').first();
-      if (await choice.count()) {
-        await choice.click();
-        await settle(p);
-      }
-      const input = p.locator('input[type="file"]').first();
-      await input.waitFor({ state: 'attached', timeout: 15000 });
-      await input.setInputFiles({ name: 'giay-to-khao-sat.pdf', mimeType: 'application/pdf', buffer: pdf });
-      // FilePond báo "Tải lên thành công" khi tệp đã lên máy chủ (tệp tạm của Livewire).
-      await p.getByText('Tải lên thành công').first().waitFor({ timeout: 60000 });
-      await settle(p);
-      note('đã chọn một tệp PDF, tải lên tạm thành công');
+  /** Đầu mục còn thiếu đầu tiên: đọc lại từ trang hồ sơ, vì mỗi lần nộp làm một đầu mục đổi trạng thái. */
+  async function freshSubmitUrl() {
+    for (const u of matterUrls) {
+      await page.goto(BASE + u);
+      await settle(page, 200);
+      const found = await firstHref(page, /\/portal\/nop-giay-to\/\d+/);
+      if (found) return found;
+    }
+    return submitUrl;
+  }
 
-      if (ACTIONS) {
-        try {
-          await p.locator('[data-portal-action="send"]').click();
-          // Khối "Chúng tôi đã nhận được" chỉ vẽ ra SAU KHI `SubmitClientDocument` chạy xong.
-          await p.getByText('Chúng tôi đã nhận được').first().waitFor({ timeout: 60000 });
-          action('portal nộp một giấy tờ thật', true, `thấy "Chúng tôi đã nhận được" ở ${p.url().replace(BASE, '')}`);
-        } catch (e) {
-          action('portal nộp một giấy tờ thật', false, e.message.split('\n')[0]);
+  const uploads = [
+    { kind: 'ảnh JPEG', file: { name: 'anh-chup-giay-to.jpg', mimeType: 'image/jpeg', buffer: images.jpeg }, image: true, send: ACTIONS },
+    { kind: 'ảnh PNG', file: { name: 'anh-chup-giay-to.png', mimeType: 'image/png', buffer: images.png }, image: true, send: ACTIONS },
+    { kind: 'PDF', file: { name: 'giay-to-khao-sat.pdf', mimeType: 'application/pdf', buffer: pdf }, image: false, send: false },
+  ];
+
+  if (submitUrl) {
+    for (const upload of uploads) {
+      const url = await freshSubmitUrl();
+      await visit(page, `portal: nộp giấy tờ — chọn ${upload.kind}${upload.send ? ' rồi gửi' : ''}`, url, async (p, entry) => {
+        const choice = p.locator('[data-portal-block="1"] button[wire\\:click^="chooseItem"]').first();
+        if (await choice.count()) {
+          await choice.click();
+          await settle(p);
         }
-      }
-    });
+        const input = p.locator('input[type="file"]').first();
+        await input.waitFor({ state: 'attached', timeout: 15000 });
+        await input.setInputFiles(upload.file);
+        // FilePond báo "Tải lên thành công" khi tệp đã lên máy chủ (tệp tạm của Livewire).
+        await p.getByText('Tải lên thành công').first().waitFor({ timeout: 60000 });
+        note(`đã chọn ${upload.kind}, tải lên tạm thành công`);
+        // Ảnh: bản xem trước dựng trong Worker `blob:` — đòi bằng chứng nó đã chạy.
+        if (upload.image) await requireImagePreview(p, p, entry);
+
+        if (upload.send) {
+          const name = `portal nộp một giấy tờ thật (${upload.kind})`;
+          try {
+            await p.locator('[data-portal-action="send"]').click();
+            // Khối "Chúng tôi đã nhận được" chỉ vẽ ra SAU KHI `SubmitClientDocument` chạy xong.
+            await p.getByText('Chúng tôi đã nhận được').first().waitFor({ timeout: 60000 });
+            action(name, true, `thấy "Chúng tôi đã nhận được" ở ${p.url().replace(BASE, '')}`);
+          } catch (e) {
+            action(name, false, e.message.split('\n')[0]);
+          }
+        }
+      });
+    }
   } else {
     begin('portal: nộp giấy tờ');
     note('BỎ QUA: không hồ sơ nào của khach1 có đường nộp giấy tờ');
   }
 
-  if (requestUrl) {
+  if (!FULL) {
+    // SCOPE=uploads: dừng sau các bước tải ảnh lên.
+  } else if (requestUrl) {
     await visit(page, 'portal: yêu cầu', requestUrl);
   } else {
     begin('portal: yêu cầu');
     note('BỎ QUA: không thấy đường tới trang yêu cầu');
   }
 
-  await visit(page, 'portal: đổi mật khẩu', '/portal/change-password');
+  if (FULL) await visit(page, 'portal: đổi mật khẩu', '/portal/change-password');
 
-  if (ACTIONS) {
+  if (ACTIONS && FULL) {
     if (downloadUrl) {
       begin('HÀNH ĐỘNG portal: tải tệp');
       try {
@@ -394,7 +499,33 @@ async function wire(context) {
   await context.exposeBinding('__cspReport', (_source, v) => {
     if (current) current.violations.push(v);
   });
+  await context.exposeBinding('__workerReport', (_source, kind) => {
+    if (current) current.workers[kind]++;
+  });
   await context.addInitScript(() => {
+    // Bọc `Worker` để biết Worker nào được dựng, từ `blob:` hay không, và nó có THẬT SỰ chạy
+    // (trả thông điệp đầu tiên) hay hỏng (sự kiện `error`, hoặc hàm dựng ném lỗi).
+    const NativeWorker = window.Worker;
+    if (NativeWorker) {
+      window.Worker = function (url, options) {
+        window.__workerReport(String(url).startsWith('blob:') ? 'blob' : 'other');
+        let worker;
+        try {
+          worker = new NativeWorker(url, options);
+        } catch (e) {
+          window.__workerReport('error');
+          throw e;
+        }
+        let first = true;
+        worker.addEventListener('message', () => {
+          if (first) window.__workerReport('message');
+          first = false;
+        });
+        worker.addEventListener('error', () => window.__workerReport('error'));
+        return worker;
+      };
+      window.Worker.prototype = NativeWorker.prototype;
+    }
     document.addEventListener('securitypolicyviolation', (e) => {
       window.__cspReport({
         directive: e.effectiveDirective,
@@ -445,9 +576,9 @@ function report() {
     p.errors = p.errors.filter((e) => !/Failed to load resource: .* 404/.test(e));
     p.notes.push('trả 404 như mong đợi');
   }
-  console.log(`\n=== ${LABEL} — ${BASE} ===`);
-  console.log('| Trang | Vi phạm (sự kiện) | Vi phạm khác nhau | Loại (chỉ thị → nguồn bị chặn) | Lỗi JS |');
-  console.log('|---|---|---|---|---|');
+  console.log(`\n=== ${LABEL} — ${BROWSER} — ${BASE} ===`);
+  console.log('| Trang | Vi phạm (sự kiện) | Vi phạm khác nhau | Loại (chỉ thị → nguồn bị chặn) | Lỗi JS | Worker blob:/chạy/lỗi |');
+  console.log('|---|---|---|---|---|---|');
   for (const p of pages) {
     const kinds = {};
     for (const v of p.violations) {
@@ -459,9 +590,15 @@ function report() {
     const kindText = Object.entries(kinds).map(([k, n]) => `${k} ×${n}`).join('; ') || '—';
     const noteText = p.notes.length ? ` (${p.notes.join('; ')})` : '';
     const distinctOnPage = new Set(p.violations.map(violationKey)).size;
-    console.log(`| ${p.label}${noteText} | ${p.violations.length} | ${distinctOnPage} | ${kindText} | ${p.errors.length} |`);
+    const w = p.workers;
+    const workerText = w.blob || w.other || w.error ? `${w.blob}/${w.message}/${w.error}` : '—';
+    console.log(`| ${p.label}${noteText} | ${p.violations.length} | ${distinctOnPage} | ${kindText} | ${p.errors.length} | ${workerText} |`);
   }
-  console.log(`\nTổng vi phạm: ${total}. Lỗi JS: ${errors}.`);
+  const workers = pages.reduce(
+    (a, p) => ({ blob: a.blob + p.workers.blob, message: a.message + p.workers.message, error: a.error + p.workers.error }),
+    { blob: 0, message: 0, error: 0 },
+  );
+  console.log(`\nTổng vi phạm: ${total}. Lỗi JS: ${errors}. Worker blob: ${workers.blob}, đã chạy ${workers.message}, lỗi ${workers.error}.`);
 
   const distinct = new Map();
   for (const p of pages) for (const v of p.violations) {
@@ -504,8 +641,29 @@ function report() {
 }
 
 (async () => {
-  const browser = await chromium.launch();
+  const browser = await playwright[BROWSER].launch();
   try {
+    const canvasPage = await browser.newPage();
+    const [jpeg, png] = await canvasPage.evaluate(() => {
+      const c = document.createElement('canvas');
+      c.width = 1200;
+      c.height = 900;
+      const x = c.getContext('2d');
+      const g = x.createLinearGradient(0, 0, 1200, 900);
+      g.addColorStop(0, '#f7f8fa');
+      g.addColorStop(1, '#101d35');
+      x.fillStyle = g;
+      x.fillRect(0, 0, 1200, 900);
+      x.fillStyle = '#c6283d';
+      x.font = 'bold 64px sans-serif';
+      x.fillText('Giấy tờ khảo sát CSP', 80, 450);
+      return [c.toDataURL('image/jpeg', 0.85), c.toDataURL('image/png')];
+    });
+    await canvasPage.close();
+    images.jpeg = Buffer.from(jpeg.split(',')[1], 'base64');
+    images.png = Buffer.from(png.split(',')[1], 'base64');
+    console.log(`${BROWSER} ${browser.version()}: ảnh JPEG ${images.jpeg.length} byte, PNG ${images.png.length} byte`);
+
     await staffTour(browser);
     await clientTour(browser);
   } catch (e) {

@@ -203,13 +203,13 @@ bước hỏng: page.fill: Timeout 90000ms exceeded.
 `enforce`.** Chính sách thi hành:
 
 ```
-default-src 'self'; script-src 'self' 'nonce-{mỗi request}' 'unsafe-eval';
+default-src 'self'; script-src 'self' 'nonce-{mỗi request}' 'unsafe-eval'; worker-src 'self' blob:;
 style-src 'self' 'unsafe-inline' https://fonts.bunny.net; font-src 'self' https://fonts.bunny.net data:;
 img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self';
 form-action 'self'; object-src 'none'
 ```
 
-Hai điểm khác chính sách nháp, cả hai do số đo:
+Ba điểm khác chính sách nháp, cả ba do số đo (điểm 3 thêm ở vòng sửa 1, mục 7):
 
 1. **`'unsafe-eval'` trong `script-src`.** Đo ở mục 3: thiếu nó thì không đăng nhập được; cách
    duy nhất bỏ được nó (cách 3) làm hỏng nút nghiệp vụ. SPEC §10.2 chỉ cấm `unsafe-inline`, nên
@@ -217,14 +217,18 @@ Hai điểm khác chính sách nháp, cả hai do số đo:
 2. **Không thêm `https://ui-avatars.com` vào `img-src`.** Thay vào đó, cả hai panel dùng ảnh đại
    diện chữ cái đầu dựng ngay trên máy chủ (một ảnh SVG `data:`, `img-src` đã cho phép `data:`):
    bỏ luôn một lượt gửi tên khách tới bên thứ ba chưa ai quyết, thay vì hợp thức hoá nó trong CSP.
+3. **`worker-src 'self' blob:`.** FilePond dựng bản xem trước ảnh trong một Worker tạo từ `blob:`;
+   thiếu chỉ thị này thì Worker rơi về `script-src` và bị chặn ở cả Chromium lẫn WebKit (mục 7).
+   `blob:` chỉ mở cho Worker, không cho `script-src`.
 
 Và một vi phạm được chấp nhận có chủ đích: **`/up`** (trang kiểm tra sống của Laravel) nạp Tailwind
 từ `cdn.jsdelivr.net`. CSP chặn nó là đúng — không cho script bên thứ ba — và trang vẫn trả 200,
 thứ duy nhất bộ giám sát đọc; chỉ mất phần tô màu chữ "Application up". Script khảo sát ghi vi phạm
 này riêng, không tính vào tổng.
 
-`CSP_MODE` mặc định: `enforce` khi `APP_ENV=production`, `report` ở mọi môi trường khác; một giá
-trị gõ sai rơi về `enforce`.
+`CSP_MODE` để trống: `report` CHỈ khi `APP_ENV` là `local` hoặc `testing`, `enforce` ở mọi môi
+trường khác (production, staging, APP_ENV gõ sai — vòng sửa 1); một giá trị `CSP_MODE` gõ sai cũng
+rơi về `enforce`.
 
 Cách 1 (băm) được giữ trong khảo sát làm phương án dự phòng: nếu một ngày giữ riêng view thành
 gánh nặng, 4 băm đo ở trên thay được nonce mà không cần view nào — đổi lại là giòn theo nội dung.
@@ -242,6 +246,9 @@ gánh nặng, 4 băm đo ở trên thay được nonce mà không cần view nà
   biểu thức Alpine trong hàng chục view của Filament. Không đáng ở v1.
 
 ## 6. Kiểm ở chế độ `enforce` (M8a Task 5) — đầu ra thật
+
+> Lượt này dùng chính sách CHƯA có `worker-src` và chỉ tải lên một PDF — nên nó không đi tới
+> Worker xem trước ảnh. Vòng sửa 1 (mục 7) đo lại với ảnh JPEG/PNG thật trên Chromium và WebKit.
 
 `/d/vkwt/m8-dev serve -e CSP_MODE=enforce -e PHP_INI_SCAN_DIR=:/var/www/html/tools/csp/php`, rồi
 `ACTIONS=1 NODE_PATH=/d/vkwt/m8-tools/node_modules node tools/csp/survey.cjs` (mã thoát 0). Header:
@@ -268,3 +275,69 @@ Hành động chính:
 Đối chiếu trong CSDL `vk_crm_lane_m8` sau lượt chạy: `documents.id=50` (matter 1) là giấy tờ vừa
 nộp; `document_downloads.id=2` trỏ `document_id=50` — tức tệp tải về chính là tệp vừa nộp qua
 trình duyệt; `stage_logs.id=115` chuyển matter 1 sang `on_hold`.
+
+## 7. Vòng sửa 1 — `worker-src` cho bản xem trước ảnh (C1), đo trên Chromium và WebKit
+
+**Nguyên nhân.** Ô tải lên của Filament (FilePond, `public/js/filament/forms/components/file-upload.js`)
+dựng bản xem trước ẢNH trong một Web Worker: `new Worker(URL.createObjectURL(new Blob([...])))`.
+Không có `worker-src` thì trình duyệt dùng `script-src 'self' …`, nơi `blob:` không khớp — Worker
+bị chặn. Lượt mục 6 chỉ tải một PDF, nên không đi tới đường này. Đường chụp ảnh giấy tờ bằng điện
+thoại của khách (SPEC §8.4) là đúng đường này.
+
+**Cách đo.** `tools/csp/survey.cjs` giờ dựng một ảnh JPEG và một ảnh PNG thật (canvas 1200×900 do
+chính trình duyệt mã hoá), bọc `window.Worker` để đếm Worker `blob:` đã dựng / đã trả thông điệp
+đầu tiên / lỗi, và buộc mỗi bước chọn ảnh có ≥ 1 Worker `blob:` đã chạy, 0 Worker lỗi, ≥ 1 canvas
+xem trước — thiếu là bước hỏng, mã thoát 1. Hai màn hình tải lên: modal "Đưa tài liệu vào hồ sơ"
+của tab Tài liệu (nhân sự) và trang nộp giấy tờ của cổng khách (JPEG, PNG, rồi PDF). `SCOPE=uploads`
+chỉ đi các bước này; `BROWSER=webkit` chạy WebKit 26.6 (động cơ của Safari trên iPhone).
+
+**Đỏ — enforce, chính sách KHÔNG có `worker-src`** (`SCOPE=uploads`, mã thoát 1, cả hai trình duyệt
+cùng một kết quả):
+
+| Bước | Chromium 153 | WebKit 26.6 |
+|---|---|---|
+| admin: modal "Đưa tài liệu vào hồ sơ" — ảnh JPEG | 1 vi phạm `worker-src → blob`; Worker 1/0/1; 0 canvas | như Chromium |
+| portal: nộp giấy tờ — ảnh JPEG | 1 vi phạm `worker-src → blob`; Worker 1/0/1; 0 canvas | như Chromium |
+| portal: nộp giấy tờ — ảnh PNG | 1 vi phạm `worker-src → blob`; Worker 1/0/1; 0 canvas | như Chromium |
+| portal: nộp giấy tờ — PDF | 0 (không dựng Worker) | 0 |
+
+(Worker a/b/c = dựng từ `blob:` / đã trả thông điệp / lỗi.)
+
+**Xanh — enforce, chính sách có `worker-src 'self' blob:`.** Chromium, lượt đầy đủ
+`ACTIONS=1` (mã thoát 0, 6 phút 44 giây):
+
+```
+Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-…' 'unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.bunny.net; font-src 'self' https://fonts.bunny.net data:; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'
+| admin: modal "Đưa tài liệu vào hồ sơ" — chọn ảnh JPEG rồi gửi (Worker blob: 1, đã trả thông điệp 1, lỗi 0; 1 canvas xem trước) | 0 | 0 | — | 0 | 1/1/0 |
+| portal: nộp giấy tờ — chọn ảnh JPEG rồi gửi (…; Worker blob: 1, đã trả thông điệp 1, lỗi 0; 1 canvas xem trước) | 0 | 0 | — | 0 | 1/1/0 |
+| portal: nộp giấy tờ — chọn ảnh PNG rồi gửi (…; Worker blob: 1, đã trả thông điệp 1, lỗi 0; 1 canvas xem trước) | 0 | 0 | — | 0 | 1/1/0 |
+| portal: nộp giấy tờ — chọn PDF (đã chọn PDF, tải lên tạm thành công) | 0 | 0 | — | 0 | — |
+Tổng vi phạm: 0. Lỗi JS: 0. Worker blob: 3, đã chạy 3, lỗi 0.
+Script nội tuyến KHÔNG nonce: 0 loại.
+  [OK ] admin chuyển giai đoạn một vụ việc — thấy thông báo "Đã chuyển giai đoạn." ở /admin/matters/1
+  [OK ] admin đưa một ảnh JPEG vào hồ sơ qua modal tải lên — thấy "Đã lưu tài liệu vào hồ sơ." ở /admin/matters/1
+  [OK ] portal đăng nhập đủ hai bước (mật khẩu + mã) — tới /portal
+  [OK ] portal mở trang hồ sơ — /portal/ho-so/1
+  [OK ] portal nộp một giấy tờ thật (ảnh JPEG) — thấy "Chúng tôi đã nhận được" ở /portal/nop-giay-to/1?item=2
+  [OK ] portal nộp một giấy tờ thật (ảnh PNG) — thấy "Chúng tôi đã nhận được" ở /portal/nop-giay-to/1?item=3
+  [OK ] portal tải một tệp — anh-chup-giay-to.png (1158082 byte)
+```
+
+Mọi trang còn lại của lượt đầy đủ (29 dòng khác, cùng danh sách mục 6) đều 0 vi phạm, 0 lỗi JS.
+
+WebKit, `SCOPE=uploads ACTIONS=1`: 3 bước ảnh đều 0 vi phạm, Worker 1/1/0, 1 canvas; ba lần gửi
+đều OK ("Đã lưu tài liệu vào hồ sơ.", hai lần "Chúng tôi đã nhận được"). Tổng vi phạm 0. Lượt này
+ghi 1 lỗi JS ở "admin: danh sách vụ việc":
+`pageerror: /localhost:8090/livewire-…/update due to access control checks.` — đó là cách WebKit
+báo một request Livewire bị huỷ khi trang chuyển đi. **Không do CSP**: không có sự kiện vi phạm nào
+đi kèm, nó có cả ở lượt đỏ, và lượt đối chứng `CSP_MODE=off` (không gửi CSP nào) cũng ghi đúng lỗi
+đó ở đúng trang ấy (lượt đối chứng còn ghi thêm một `pageerror: [object Object]` ở trang đó, cũng
+không kèm vi phạm nào). Lượt đối chứng không đi tới trang nộp giấy tờ vì các lượt trước đã nộp
+hết đầu mục còn thiếu của `khach1`.
+
+Đối chiếu CSDL `vk_crm_lane_m8` sau hai lượt xanh: `documents` 49–54 là sáu tài liệu ảnh vừa lưu
+qua trình duyệt, cỡ tệp trong `media` khớp đúng từng byte với ảnh script dựng — Chromium JPEG
+28427 / PNG 1158082, WebKit JPEG 28665 / PNG 197456.
+
+**`blob:` chỉ mở cho Worker.** `script-src` không có `blob:` (test `§10.2 worker-src cho Worker
+blob: …` ghim điều này), nên một `<script src="blob:…">` vẫn bị chặn; `default-src` không đổi.

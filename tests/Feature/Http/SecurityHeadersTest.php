@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Support\Security\ContentSecurityPolicy;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
+use Illuminate\Contracts\Foundation\MaintenanceMode as MaintenanceModeContract;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Str;
@@ -119,7 +120,11 @@ it('§10.2 các chỉ thị còn lại đúng chính sách đã duyệt (R4, SPE
 
     $policy = cspDirectives($this->get('/admin/login')->headers->get('Content-Security-Policy'));
 
-    expect($policy['default-src'])->toBe(["'self'"])
+    expect(array_keys($policy))->toBe([
+        'default-src', 'script-src', 'worker-src', 'style-src', 'font-src', 'img-src',
+        'connect-src', 'frame-ancestors', 'base-uri', 'form-action', 'object-src',
+    ])
+        ->and($policy['default-src'])->toBe(["'self'"])
         ->and($policy['style-src'])->toBe(["'self'", "'unsafe-inline'", 'https://fonts.bunny.net'])
         ->and($policy['font-src'])->toBe(["'self'", 'https://fonts.bunny.net', 'data:'])
         ->and($policy['img-src'])->toBe(["'self'", 'data:', 'blob:'])
@@ -128,6 +133,22 @@ it('§10.2 các chỉ thị còn lại đúng chính sách đã duyệt (R4, SPE
         ->and($policy['base-uri'])->toBe(["'self'"])
         ->and($policy['form-action'])->toBe(["'self'"])
         ->and($policy['object-src'])->toBe(["'none'"]);
+});
+
+/**
+ * Vòng sửa 1, C1: ô tải lên của Filament (FilePond) dựng bản xem trước ẢNH trong một Web Worker
+ * tạo từ `blob:`. Không có `worker-src` thì trình duyệt rơi về `script-src`, nơi `blob:` không
+ * khớp — đo được ở cả Chromium lẫn WebKit trên đường chụp ảnh nộp giấy tờ của khách (SPEC §8.4).
+ * `blob:` chỉ được mở cho Worker, KHÔNG cho `script-src`: một `<script src="blob:…">` vẫn bị chặn.
+ */
+it('§10.2 worker-src cho Worker blob: của FilePond, script-src không có blob:', function () {
+    config(['vkcrm.security.csp_mode' => 'enforce']);
+
+    $policy = cspDirectives($this->get('/portal/login')->headers->get('Content-Security-Policy'));
+
+    expect($policy['worker-src'])->toBe(["'self'", 'blob:'])
+        ->and($policy['script-src'])->not->toContain('blob:')
+        ->and($policy['default-src'])->not->toContain('blob:');
 });
 
 it('§10.2 nonce khác nhau giữa hai request', function () {
@@ -270,18 +291,47 @@ it('§10.2 ba header luôn bật kể cả khi CSP ở chế độ off', functio
 // Task 5 — chế độ mặc định theo phán quyết R4.
 // ---------------------------------------------------------------------------------------------
 
-it('§10.2 CSP_MODE để trống: enforce ở production', function () {
+/**
+ * Vòng sửa 1, I3: chiều an toàn phải là chiều MẶC ĐỊNH. Để trống chỉ được hạ xuống `report` ở
+ * đúng hai môi trường có tên trong danh sách (máy dev, bộ test); mọi môi trường khác — staging,
+ * production, một APP_ENV gõ sai — là `enforce`.
+ */
+it('§10.2 CSP_MODE để trống: enforce ở mọi môi trường không phải local/testing', function (?string $blank, string $environment) {
+    config(['vkcrm.security.csp_mode' => $blank]);
+    app()->detectEnvironment(fn () => $environment);
+
+    expect(ContentSecurityPolicy::mode())->toBe('enforce');
+})->with(['null' => [null], 'chuỗi rỗng' => [''], 'chỉ khoảng trắng' => ['  ']])
+    ->with(['production', 'staging', 'prod', 'loacl', 'LOCAL', 'demo']);
+
+it('§10.2 CSP_MODE để trống: report chỉ ở local và testing', function (?string $blank, string $environment) {
+    config(['vkcrm.security.csp_mode' => $blank]);
+    app()->detectEnvironment(fn () => $environment);
+
+    expect(ContentSecurityPolicy::mode())->toBe('report');
+})->with(['null' => [null], 'chuỗi rỗng' => [''], 'chỉ khoảng trắng' => ['  ']])
+    ->with(['local', 'testing']);
+
+/**
+ * Chiều hạ xuống phải được GỌI TÊN: chỉ một `CSP_MODE=report` hay `off` viết ra mới nới CSP, và nó
+ * được tôn trọng ở mọi môi trường (người vận hành cần tắt tạm khi một trang hỏng trên production).
+ * Ngược lại `enforce` viết ra thì thi hành cả trên máy dev.
+ */
+it('§10.2 CSP_MODE viết ra được tôn trọng ở mọi môi trường', function (string $mode, string $environment) {
+    config(['vkcrm.security.csp_mode' => $mode]);
+    app()->detectEnvironment(fn () => $environment);
+
+    expect(ContentSecurityPolicy::mode())->toBe($mode);
+})->with(['off', 'report', 'enforce'])->with(['production', 'staging', 'local', 'testing']);
+
+it('§10.2 CSP_MODE để trống trên production: phản hồi thật mang header thi hành', function () {
     config(['vkcrm.security.csp_mode' => null]);
     app()->detectEnvironment(fn () => 'production');
 
-    expect(ContentSecurityPolicy::mode())->toBe('enforce');
-});
+    $response = $this->get('/portal/login')->assertOk();
 
-it('§10.2 CSP_MODE để trống: report ở mọi môi trường khác production', function () {
-    config(['vkcrm.security.csp_mode' => '']);
-    app()->detectEnvironment(fn () => 'local');
-
-    expect(ContentSecurityPolicy::mode())->toBe('report');
+    expect($response->headers->get('Content-Security-Policy'))->toBeString()->not->toBeEmpty()
+        ->and($response->headers->has('Content-Security-Policy-Report-Only'))->toBeFalse();
 });
 
 it('§10.2 cấu hình giữ CSP_MODE thô, mặc định theo môi trường nằm ở ContentSecurityPolicy::mode()', function () {
@@ -364,4 +414,86 @@ it('§10.2 ảnh đại diện dựng tại chỗ mang chữ đầu của từ �
 
     expect($url)->toStartWith('data:image/svg+xml;base64,')
         ->and(base64_decode(Str::after($url, 'data:image/svg+xml;base64,')))->toContain('>TB</text>');
+});
+
+// ---------------------------------------------------------------------------------------------
+// Vòng sửa 1 — header có mặt cả trên phản hồi do middleware toàn cục KHÁC dựng ra, và trên
+// endpoint cập nhật Livewire.
+// ---------------------------------------------------------------------------------------------
+
+function assertThreeHeaders(TestResponse $response, string $surface): void
+{
+    expect($response->headers->get('X-Frame-Options'))->toBe('DENY', "thiếu ở {$surface}")
+        ->and($response->headers->get('X-Content-Type-Options'))->toBe('nosniff', "thiếu ở {$surface}")
+        ->and($response->headers->get('Referrer-Policy'))->toBe('strict-origin-when-cross-origin', "thiếu ở {$surface}");
+}
+
+/**
+ * Chế độ bảo trì giả qua container — KHÔNG `artisan down`: tệp `storage/framework/down` dùng
+ * chung cho mọi tiến trình test song song và cả bản chạy của làn.
+ */
+it('§10.2 trang bảo trì 503 mang ba header và CSP', function () {
+    config(['vkcrm.security.csp_mode' => 'enforce']);
+
+    $this->app->instance(MaintenanceModeContract::class, new class implements MaintenanceModeContract
+    {
+        public function activate(array $payload): void {}
+
+        public function deactivate(): void {}
+
+        public function active(): bool
+        {
+            return true;
+        }
+
+        public function data(): array
+        {
+            return ['status' => 503];
+        }
+    });
+
+    $response = $this->get('/portal/login')->assertStatus(503);
+
+    assertThreeHeaders($response, '503 bảo trì');
+    expect($response->headers->get('Content-Security-Policy'))->toBeString()->not->toBeEmpty();
+});
+
+it('§10.2 phản hồi 413 của ValidatePostSize mang ba header', function () {
+    // Trang lỗi của production, không phải trang gỡ lỗi (vẽ trang gỡ lỗi chậm trên bind
+    // mount) — và đó cũng là phản hồi khách thật sẽ nhận.
+    config(['app.debug' => false]);
+
+    $response = $this->call('POST', '/portal/login', server: ['CONTENT_LENGTH' => (string) (200 * 1024 * 1024)]);
+
+    $response->assertStatus(413);
+    assertThreeHeaders($response, '413');
+});
+
+it('§10.2 phản hồi 400 của ValidatePathEncoding mang ba header', function () {
+    config(['app.debug' => false]);
+
+    $response = $this->get('/portal/%FF');
+
+    $response->assertStatus(400);
+    assertThreeHeaders($response, '400');
+});
+
+it('§10.2 SendSecurityHeaders đứng ĐẦU danh sách middleware toàn cục', function () {
+    expect(app(Kernel::class)->getGlobalMiddleware()[0])->toBe(SendSecurityHeaders::class);
+});
+
+it('§10.2 phản hồi của endpoint cập nhật Livewire mang ba header', function () {
+    $page = $this->get('/portal/login')->assertOk()->getContent();
+
+    expect(preg_match('/data-update-uri="([^"]+)"/', $page, $uri))->toBe(1)
+        ->and(preg_match('/wire:snapshot="([^"]+)"/', $page, $snapshot))->toBe(1);
+
+    $response = $this->withHeaders(['X-Livewire' => 'true'])->postJson(
+        (string) parse_url(html_entity_decode($uri[1]), PHP_URL_PATH),
+        ['components' => [['snapshot' => html_entity_decode($snapshot[1]), 'updates' => [], 'calls' => []]]],
+    );
+
+    $response->assertOk();
+    expect($response->json('components'))->toBeArray()->not->toBeEmpty();
+    assertThreeHeaders($response, '/livewire/update');
 });

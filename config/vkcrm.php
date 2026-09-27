@@ -102,10 +102,10 @@ return [
         /*
          * Chế độ Content-Security-Policy (SPEC §10 mục 2, phán quyết R4): `off` | `report` |
          * `enforce`. Giữ giá trị THÔ ở đây; đọc, chuẩn hoá và chọn mặc định ở
-         * {@see \App\Support\Security\ContentSecurityPolicy::mode()} — để trống là `enforce` ở
-         * production và `report` ở nơi khác, một giá trị lạ rơi về `enforce`. Mặc định nằm ở đó
-         * chứ không ở đây để nó đọc `app()->isProduction()` lúc chạy, cùng một nguồn với mọi chỗ
-         * khác của ứng dụng hỏi "có phải production không".
+         * {@see \App\Support\Security\ContentSecurityPolicy::mode()} — để trống là `report` CHỈ ở
+         * `local`/`testing` và `enforce` ở mọi môi trường khác, một giá trị lạ rơi về `enforce`.
+         * Mặc định nằm ở đó chứ không ở đây để nó hỏi `app()->environment()` lúc chạy, cùng một
+         * nguồn với mọi chỗ khác của ứng dụng hỏi "đây là môi trường nào".
          */
         'csp_mode' => env('CSP_MODE'),
     ],

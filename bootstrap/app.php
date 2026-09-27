@@ -30,8 +30,9 @@ return Application::configure(basePath: dirname(__DIR__))
          * docblock ở đó trước khi đổi bất cứ thứ gì, SPEC §10.3 phụ thuộc vào nó.
          */
 
-        // SPEC §10.2 — toàn cục để phủ cả hai panel, nhóm `web` và trang lỗi; lý do ở docblock.
-        $middleware->append(SendSecurityHeaders::class);
+        // SPEC §10.2 — toàn cục, ĐẦU danh sách, để phủ cả hai panel, nhóm `web`, trang lỗi và cả
+        // phản hồi do middleware toàn cục khác dựng (400, 503 bảo trì, 413); lý do ở docblock.
+        $middleware->prepend(SendSecurityHeaders::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

@@ -15,9 +15,13 @@ use App\Filament\AvatarProviders\InitialsAvatarProvider;
  *    console và sự kiện `securitypolicyviolation`, không chặn gì;
  *  - `enforce`: gửi `Content-Security-Policy` — trình duyệt chặn.
  *
- * Để trống: `enforce` ở production, `report` ở mọi môi trường khác (phán quyết R4 — máy dev thấy
- * vi phạm trong console mà không bị chặn). Một giá trị lạ (gõ sai `enforced`…) rơi về `enforce`:
- * lỗi gõ ở `.env` production không được phép lặng lẽ tắt CSP. Không phân biệt hoa thường.
+ * Để trống: `report` CHỈ khi `APP_ENV` là `local` hoặc `testing` (máy dev thấy vi phạm trong
+ * console mà không bị chặn); mọi môi trường khác — production, staging, một `APP_ENV` gõ sai — là
+ * `enforce`. Chiều hạ xuống phải được gọi tên, chiều an toàn là mặc định (vòng sửa 1, I3): chỉ
+ * một `CSP_MODE=report` hay `off` viết ra mới nới CSP, và giá trị viết ra được tôn trọng ở mọi
+ * môi trường. Một giá trị `CSP_MODE` lạ (gõ sai `enforced`…) cũng rơi về `enforce`: lỗi gõ ở
+ * `.env` không được phép lặng lẽ tắt CSP. Giá trị `CSP_MODE` không phân biệt hoa thường và bỏ
+ * khoảng trắng hai đầu (chỉ khoảng trắng = để trống); tên môi trường thì phân biệt hoa thường.
  */
 final class ContentSecurityPolicy
 {
@@ -31,12 +35,15 @@ final class ContentSecurityPolicy
 
     public const HEADER_REPORT = 'Content-Security-Policy-Report-Only';
 
+    /** Hai môi trường duy nhất mà `CSP_MODE` để trống được hạ xuống `report`. */
+    public const REPORT_BY_DEFAULT_IN = ['local', 'testing'];
+
     public static function mode(): string
     {
         $mode = strtolower(trim((string) config('vkcrm.security.csp_mode')));
 
         if ($mode === '') {
-            return app()->isProduction() ? self::MODE_ENFORCE : self::MODE_REPORT;
+            return app()->environment(self::REPORT_BY_DEFAULT_IN) ? self::MODE_REPORT : self::MODE_ENFORCE;
         }
 
         return in_array($mode, [self::MODE_OFF, self::MODE_REPORT, self::MODE_ENFORCE], true)
@@ -70,6 +77,12 @@ final class ContentSecurityPolicy
      * (`livewire.csp_safe`) bỏ được nó nhưng làm hỏng form "Chuyển giai đoạn". SPEC chỉ cấm
      * `unsafe-inline`. Cái giá của nó ghi ở mục 5 của tài liệu khảo sát.
      *
+     * `worker-src 'self' blob:` — ĐO ĐƯỢC (vòng sửa 1, C1): ô tải lên của Filament (FilePond) dựng
+     * bản xem trước ẢNH trong một Worker tạo từ `URL.createObjectURL(blob)`. Không có chỉ thị này
+     * thì trình duyệt dùng `script-src`, nơi `blob:` không khớp, và bản xem trước ảnh chụp của
+     * khách (SPEC §8.4) hỏng ở cả Chromium lẫn WebKit. `blob:` CHỈ mở cho Worker: `script-src`
+     * không có nó, nên một `<script src="blob:…">` vẫn bị chặn.
+     *
      * `style-src` CÓ `'unsafe-inline'` — luật style nội tuyến của dự án (không có bước build CSS)
      * và Filament in `style=""` khắp nơi; SPEC chỉ cấm với script. Vì thế cũng KHÔNG được thêm
      * nonce vào `style-src`: có nonce thì trình duyệt bỏ qua `'unsafe-inline'` và mọi `style=""`
@@ -83,6 +96,7 @@ final class ContentSecurityPolicy
         $directives = [
             'default-src' => ["'self'"],
             'script-src' => ["'self'", "'nonce-{$nonce}'", "'unsafe-eval'"],
+            'worker-src' => ["'self'", 'blob:'],
             'style-src' => ["'self'", "'unsafe-inline'", 'https://fonts.bunny.net'],
             'font-src' => ["'self'", 'https://fonts.bunny.net', 'data:'],
             'img-src' => ["'self'", 'data:', 'blob:'],

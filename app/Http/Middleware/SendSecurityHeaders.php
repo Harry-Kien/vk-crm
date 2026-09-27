@@ -9,19 +9,31 @@ use Illuminate\Support\Facades\Vite;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Header bảo mật của SPEC §10 mục 2 trên MỌI phản hồi: cả hai panel, route web (kể cả route tải
- * tệp có chữ ký), endpoint cập nhật Livewire và trang lỗi.
+ * Header bảo mật của SPEC §10 mục 2 trên mọi phản hồi mà Kernel HTTP dựng ra sau khi ứng dụng đã
+ * khởi động: cả hai panel, route web (kể cả route tải tệp có chữ ký), endpoint cập nhật Livewire,
+ * trang lỗi, và phản hồi do middleware toàn cục khác tự dựng (503 bảo trì, 413, 400).
  *
  *  - Ba header LUÔN gửi, ở mọi chế độ CSP: `X-Frame-Options: DENY`,
  *    `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`.
  *  - Content-Security-Policy theo chế độ `CSP_MODE`; chế độ và chính sách:
  *    {@see ContentSecurityPolicy}.
  *
- * **Vì sao là middleware toàn cục (`bootstrap/app.php`) chứ không nằm trong danh sách của từng
- * panel.** Route của Filament KHÔNG đi qua nhóm `web` — mỗi panel mang danh sách middleware riêng
- * — còn route tải tệp và `/livewire/update` thì đi qua nhóm `web` và không đi qua panel nào.
- * Gắn ở ba nơi là ba chỗ để quên; gắn toàn cục là một chỗ, và nó bọc cả phản hồi lỗi mà
- * exception handler dựng ra bên trong đường ống.
+ * **Vì sao là middleware toàn cục chứ không nằm trong danh sách của từng panel.** Route của
+ * Filament KHÔNG đi qua nhóm `web` — mỗi panel mang danh sách middleware riêng — còn route tải
+ * tệp và `/livewire/update` thì đi qua nhóm `web` và không đi qua panel nào. Gắn ở ba nơi là ba
+ * chỗ để quên; gắn toàn cục là một chỗ, và nó bọc cả phản hồi lỗi mà exception handler dựng ra
+ * bên trong đường ống.
+ *
+ * **Vì sao ĐẦU danh sách toàn cục (`$middleware->prepend()` ở `bootstrap/app.php`).** Middleware
+ * toàn cục đứng TRƯỚC lớp này trả phản hồi của nó mà không đi qua lớp này:
+ * `ValidatePathEncoding` (400), `PreventRequestsDuringMaintenance` (503 bảo trì),
+ * `ValidatePostSize` (413). Gắn cuối (`append`) thì ba phản hồi đó không có header nào.
+ *
+ * Không phủ (không sửa được ở tầng middleware): phản hồi cho một lỗi ném ra lúc ứng dụng KHỞI
+ * ĐỘNG, trước đường ống — `Kernel::handle()` vẽ thẳng lỗi đó; trang bảo trì VẼ SẴN
+ * (`artisan down --render=…`), do `storage/framework/maintenance.php` in ra từ `public/index.php`
+ * trước cả khi có Kernel (`artisan down` không `--render` thì vẫn đi qua lớp này); và tệp tĩnh
+ * dưới `public/` do máy chủ web trả, không qua PHP.
  *
  * Nonce sinh MỖI request bằng `Vite::useCspNonce()` — TRƯỚC khi view được vẽ, vì Livewire đọc
  * `Vite::cspNonce()` để gắn nonce vào thẻ script của nó, và các view Filament đã giữ riêng ở
