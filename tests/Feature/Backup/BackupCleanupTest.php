@@ -29,7 +29,14 @@ use Spatie\Backup\Notifications\EventHandler;
 | sau trong CÙNG worker khi `--parallel` gộp hai tệp vào một tiến trình.
 */
 
-beforeEach(fn () => Carbon::setTestNow(Carbon::create(2026, 3, 1, 2, 0, 0)));
+beforeEach(function () {
+    Carbon::setTestNow(Carbon::create(2026, 3, 1, 2, 0, 0));
+
+    // Thư mục tạm RIÊNG cho tiến trình test này — xem docblock `backupTemporaryTestDirectory()`
+    // ở `tests/Pest.php` ("backup-temp parallel race") và `BackupRunIntegrationTest.php`.
+    config(['backup.backup.temporary_directory' => backupTemporaryTestDirectory()]);
+});
+
 afterEach(function () {
     Carbon::setTestNow();
     EventHandler::enable();

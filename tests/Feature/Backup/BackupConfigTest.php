@@ -136,6 +136,17 @@ it('§10.8 nguồn sao lưu gồm storage/app/private, không gồm storage/logs
         ->and($exclude)->toContain(storage_path('logs'));
 });
 
+it('§10.8 mục trong archive tương đối theo base_path(), không phải đường tuyệt đối của container tạo archive (M8a Task 3, R3)', function () {
+    // `relative_path = null` (mặc định gói) đặt tên mục bằng đường TUYỆT ĐỐI của container đã
+    // chạy `backup:run`, bỏ dấu `/` đầu — ví dụ `var/www/html/storage/app/private/1/tep.pdf`.
+    // Đường đó chỉ khớp lại được trên máy khôi phục NẾU base_path() của máy đó trùng hệt máy đã
+    // sao lưu — một sự trùng hợp, không phải một bất biến. `tools/backup/restore-drill.sh` chạy
+    // trên máy dev (base_path() khác `/var/www/html` của container tạo archive) chứng minh điều
+    // này bằng cách tách đúng mục có tiền tố `storage/app/private/` — tiền tố đó CHỈ tồn tại khi
+    // `relative_path` là `base_path()` (xem docblock `config/backup.php`).
+    expect(config('backup.backup.source.files.relative_path'))->toBe(base_path());
+});
+
 it('§10.8 sao lưu CSDL mặc định của kết nối hiện tại', function () {
     expect(config('backup.backup.source.databases'))->toContain(config('database.default'));
 });

@@ -147,10 +147,51 @@ function forceClientFlags(Document $document): Document
 
 $storageRunToken = $_SERVER['TEST_TOKEN'] ?? ($_SERVER['TEST_TOKEN'] = (string) getmypid());
 
+/*
+|--------------------------------------------------------------------------
+| Thư mục tạm RIÊNG cho `backup:run` ở mỗi tiến trình test chạy `--parallel`
+|--------------------------------------------------------------------------
+|
+| M8a Task 1/2, quan sát thấy flake thật ở `--parallel --processes=2` (ghi lại trong SDD ledger
+| của làn, "backup-temp parallel race"): bốn tệp chạy `backup:run`/`backup:clean` THẬT
+| (`BackupRunIntegrationTest`, `GuardBackupEncryptionTest`, `BackupCleanupTest`,
+| `BackupDatabaseDumpTest`) đều dùng `Spatie\Backup\Tasks\Backup\BackupJob`, và job đó tạo RỒI XOÁ
+| `config('backup.backup.temporary_directory')` (mặc định `storage_path('app/backup-temp')`,
+| xem `config/backup.php`) ở mỗi lượt chạy — kể cả lượt bị `GuardBackupEncryption` chặn giữa
+| chừng. Với `--parallel`, hai worker là hai TIẾN TRÌNH PHP riêng nhưng CÙNG đọc/ghi/xoá đúng một
+| thư mục vật lý: worker A đang ghi dump CSDL vào `backup-temp/db-dumps/` thì worker B, ở một test
+| khác, xoá sạch cả thư mục đó khi lượt `backup:run` của NÓ kết thúc — bài nào flake tuỳ thuộc
+| worker nào xoá đúng lúc worker kia đang đọc, nên lần đỏ không cố định vào một test.
+|
+| Cách chữa CHỈ áp cho bộ test: mỗi tiến trình test được gán một thư mục tạm riêng, đặt tên bằng
+| CHÍNH token đã dùng cho đĩa `private` giả ở trên (`ParallelTesting::token()`, đọc qua
+| `$_SERVER['TEST_TOKEN']`) — hai worker chạy `--parallel` có hai token khác nhau, nên hai thư mục
+| khác nhau, và không còn tài nguyên nào bị chia sẻ. KHÔNG đổi `config/backup.php`: hành vi thật
+| (một máy chủ, một tiến trình `backup:run` mỗi đêm) không đổi, `temporary_directory` production
+| vẫn là `storage_path('app/backup-temp')` mặc định.
+|
+| Bốn tệp test ở trên tự gọi hàm này trong `beforeEach` của CHÍNH chúng (không đặt Ở ĐÂY một
+| `beforeEach` toàn cục áp cho mọi test Feature — phần lớn test Feature không đụng gói backup,
+| và một `config()` thừa mỗi test là một chỗ nữa phải giải thích khi có ai đọc lại `tests/Pest.php`
+| tìm hiểu vì sao một biến cấu hình không giữ nguyên giá trị mặc định).
+*/
+function backupTemporaryTestDirectory(): string
+{
+    $token = $_SERVER['TEST_TOKEN'] ?? (string) getmypid();
+
+    return storage_path('app/backup-temp_test_'.$token);
+}
+
 register_shutdown_function(function () use ($storageRunToken): void {
     foreach ((array) glob(__DIR__.'/../storage/framework/testing/disks/*_test_'.$storageRunToken) as $path) {
         if (is_dir($path)) {
             (new Filesystem)->deleteDirectory($path);
         }
+    }
+
+    $backupTempDirectory = __DIR__.'/../storage/app/backup-temp_test_'.$storageRunToken;
+
+    if (is_dir($backupTempDirectory)) {
+        (new Filesystem)->deleteDirectory($backupTempDirectory);
     }
 });

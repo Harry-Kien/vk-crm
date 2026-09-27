@@ -74,7 +74,28 @@ return [
 
                 'follow_links' => false,
                 'ignore_unreadable_directories' => false,
-                'relative_path' => null,
+
+                /*
+                 * M8a Task 3 (R3, phục hồi thật): `null` (mặc định gói) đặt tên mục trong archive
+                 * bằng đường dẫn TUYỆT ĐỐI của container đã tạo archive, bỏ dấu `/` đầu
+                 * (`Zip::determineNameOfFileInZip()`) — ví dụ
+                 * `var/www/html/storage/app/private/1/tep.pdf`. Đường đó chỉ đúng NẾU máy khôi
+                 * phục dùng đúng cùng một đường lắp `base_path()` với máy đã sao lưu — một trùng
+                 * hợp, không phải một bất biến, và `tools/backup/restore-drill.sh` (chạy trên máy
+                 * dev, `base_path()` khác `/var/www/html` của container backup:run) sẽ không tự
+                 * khớp được mục nào về `storage/app/private` nếu không đoán/patch đường dẫn.
+                 *
+                 * `base_path()` làm mục trong archive RELATIVE tới gốc ứng dụng (ví dụ
+                 * `storage/app/private/1/tep.pdf`), bất kể `base_path()` tuyệt đối của máy đang
+                 * chạy `backup:run` là gì. Bước khôi phục vì vậy chỉ cần tách mục có tiền tố
+                 * `storage/app/private/` và chép PHẦN SAU tiền tố đó vào đúng thư mục cùng tên
+                 * trên máy sạch — không cần biết máy sao lưu chạy trong container nào.
+                 *
+                 * Không có test Task 1 nào khoá giá trị `null` cũ (kiểm bằng
+                 * `grep -rn relative_path tests/`, không ra kết quả) — đổi ở đây không cần sửa
+                 * test nào đã có.
+                 */
+                'relative_path' => base_path(),
             ],
 
             /*

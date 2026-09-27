@@ -41,6 +41,11 @@ function rebindBackup(): void
 }
 
 beforeEach(function () {
+    // Thư mục tạm RIÊNG cho tiến trình test này — xem docblock `backupTemporaryTestDirectory()`
+    // ở `tests/Pest.php` ("backup-temp parallel race"). Không có dòng này, tệp này đua chung một
+    // `storage_path('app/backup-temp')` với ba tệp Backup khác khi chạy `--parallel`.
+    config(['backup.backup.temporary_directory' => backupTemporaryTestDirectory()]);
+
     // `Spatie\Backup\Notifications\EventHandler::$enabled` là một cờ STATIC, sống qua CẢ TIẾN
     // TRÌNH test — `--disable-notifications` (dùng ở hai test khác trong tệp này) gọi
     // `EventHandler::disable()` và KHÔNG BAO GIỜ tự bật lại. Không có dòng này, bài "một disk

@@ -242,8 +242,140 @@ nghĩa.** Mất `APP_KEY` là mất vĩnh viễn mọi số CCCD và mọi bí m
 
 ---
 
-## Khôi phục thử (Task 3 — CHƯA VIẾT)
+## Khôi phục thử
 
-> Phần này để trống có chủ đích. Quy trình khôi phục đầy đủ — kèm số đo thời gian thật, làm trên
-> một container sạch, mở lại một hồ sơ và giải mã được một số CCCD — thuộc M8a Task 3 (R3: "Sao lưu
-> chưa khôi phục thử thì chưa phải sao lưu"). Task 3 điền tiếp đúng vào mục này, không tạo tệp mới.
+> ⚠ **Khôi phục mà không có `APP_KEY` CŨ (đúng bản đi kèm bản sao lưu đang khôi phục) mất vĩnh
+> viễn mọi số CCCD và mọi bí mật hai lớp của nhân sự trong bản sao lưu đó.** Đây là lỗi KHÔNG sửa
+> được sau khi đã xảy ra — tệp `.zip` vẫn mở được, cơ sở dữ liệu vẫn nạp được, ứng dụng vẫn chạy
+> được, nhưng mọi cột `encrypted` (`clients.id_number`, secret 2FA của nhân sự) đọc ra sẽ ném lỗi
+> `The MAC is invalid.` (hoặc tương đương) — không có "phục hồi lần hai". Trước khi làm bất cứ điều
+> gì dưới đây, xác nhận đã lấy được **đúng** `APP_KEY` và `BACKUP_ARCHIVE_PASSWORD` đi cùng THỜI
+> ĐIỂM của bản sao lưu đang khôi phục (Bước 6 ở trên) — không phải giá trị hiện tại của `.env` nếu
+> `APP_KEY` từng bị đổi.
+
+R3 (kế hoạch M8, `docs/superpowers/plans/2026-09-21-m8-security-and-launch.md`): "sao lưu chưa
+khôi phục thử thì chưa phải sao lưu". Mục này ghi lại quy trình cho **máy chủ thật**, và bảng số đo
+thật của một lượt khôi phục thử đã chạy trên máy dev bằng `tools/backup/restore-drill.sh` (kịch
+bản đó làm lại đúng các bước dưới đây trong container, tự động, để diễn tập định kỳ không cần làm
+tay).
+
+### Quy trình cho máy chủ thật
+
+Khi cần khôi phục thật (máy chủ hỏng, cần dựng lại, hoặc diễn tập định kỳ — khuyến nghị ít nhất mỗi
+quý một lần, ghi kết quả vào `docs/PROGRESS.md`):
+
+1. **Lấy hai chìa khoá TRƯỚC TIÊN**, từ chỗ cất riêng (Bước 6 ở trên, KHÔNG phải từ máy chủ đã
+   hỏng): `APP_KEY` và `BACKUP_ARCHIVE_PASSWORD` — đúng bản đi kèm THỜI ĐIỂM của bản sao lưu sẽ
+   dùng. Không có cả hai thì dừng lại ở đây; đọc tiếp không giải quyết được gì.
+2. **Lấy bản sao lưu** — tải tệp `.zip` mới nhất (hoặc bản ở đúng ngày cần khôi phục) từ Google
+   Drive (`gdrive:VK-CRM-backups`, xem Bước 3) hoặc từ đĩa `local_backups` trên máy chủ văn phòng
+   nếu còn.
+3. **Dựng một môi trường SẠCH** — máy chủ mới hoặc máy chủ đã cài lại từ đầu theo `README.md`/
+   `docs/CAI-DAT.md` (mã nguồn qua Git, `composer install`, extension PHP đầy đủ), với MỘT cơ sở
+   dữ liệu MariaDB RỖNG (không phải cơ sở dữ liệu cũ còn sót lại — một cơ sở dữ liệu cũ có thể che
+   giấu một lỗi nạp dump bằng dữ liệu vốn đã có sẵn).
+4. **Giải nén** bằng `BACKUP_ARCHIVE_PASSWORD` lấy ở bước 1. Archive dùng mã hoá AES-256
+   (`ZipArchive::EM_AES_256`) — chương trình `unzip` tiêu chuẩn trên nhiều bản Linux (và trên
+   Alpine) KHÔNG mở được kiểu mã hoá này và báo lỗi mập mờ kiểu "unsupported compression method";
+   dùng `7z x -p'<mật khẩu>' <tệp>.zip` (gói `p7zip`) hoặc một đoạn PHP ngắn qua `ZipArchive`
+   (`$zip->setPassword($pw); $zip->extractTo($thư_mục);`) — đây chính xác là cách
+   `tools/backup/restore-drill.sh` làm.
+5. **Nạp bản dump CSDL** — tệp nằm ở `db-dumps/<tên-driver>-<tên-csdl>.sql` sau khi giải nén.
+   ⚠ Bản dump tạo bằng `mariadb-dump` (bản mới) mở đầu bằng dòng
+   `/*M!999999\- enable the sandbox mode */`. Nạp bằng client **`mariadb`** (không phải `mysql` cũ
+   hay MySQL, thứ không đọc được dòng đó và dừng lại với lỗi cú pháp ngay dòng đầu tiên):
+   ```
+   mariadb -u<user> -p<mật khẩu CSDL> <tên-csdl> < duong-dan/db-dumps/ten-tep.sql
+   ```
+   Máy chủ đích PHẢI có sẵn gói mang lệnh `mariadb`/`mariadb-dump` (ví dụ `apt install
+   mariadb-client` trên Ubuntu/Debian) — đây là điều kiện cần đã nêu ở SPEC §10 mục 8 và kiểm bởi
+   `vkcrm:preflight`.
+6. **Chép tệp hồ sơ** — mọi mục trong archive có tiền tố `storage/app/private/` (đường TƯƠNG ĐỐI
+   tính từ gốc ứng dụng — xem đoạn giải thích `relative_path` ở docblock
+   `config/backup.php`) chép về ĐÚNG thư mục `storage/app/private/` của máy chủ mới, giữ nguyên
+   cấu trúc thư mục con.
+7. **Đặt `APP_KEY`** trong `.env` của máy chủ mới bằng ĐÚNG giá trị lấy ở bước 1 — làm TRƯỚC khi
+   cho ứng dụng chạy thật (trước khi ai đăng nhập hay đọc một hồ sơ nào).
+8. **`php artisan migrate:status`** — xác nhận không có migration nào "đang chờ" (mọi dòng đều có
+   `Ran`). Nếu có dòng chưa chạy, đó là dấu hiệu bản dump cũ hơn mã nguồn đang triển khai — dừng
+   lại, đối chiếu lại phiên bản mã nguồn với thời điểm bản sao lưu trước khi đi tiếp.
+9. **Mở thử một hồ sơ khách hàng bất kỳ** và xác nhận đọc được `id_number` (không ném lỗi giải
+   mã), rồi **mở thử một tài liệu** và xác nhận tệp mở được, đúng nội dung. Đây là bước "coi là
+   xong" duy nhất được chấp nhận — `migrate:status` xanh không đủ, vì nó không chạm tới cột
+   `encrypted` hay tệp nhị phân nào.
+10. **So dòng vài bảng chính** (`clients`, `matters`, `documents`, `users`) với số liệu ghi nhận
+    lúc sao lưu (nếu có) — một hệ thống giám sát tốt (`backup:monitor`, Task 1) nên đã cảnh báo từ
+    trước nếu bản sao lưu bị cắt cụt, nhưng đối chiếu lại ở đây là lớp phòng thủ cuối.
+
+### Bảng số đo thật (lượt khôi phục thử ngày 2026-09-27, máy dev, `tools/backup/restore-drill.sh`)
+
+Đo trên máy dev (Docker Desktop, Windows), KHÔNG phải máy chủ sản xuất — số đo thật trên máy chủ
+sản xuất sẽ khác (mạng, cấu hình máy, dung lượng dữ liệu thật), nhưng THỨ TỰ các bước và việc bước
+nào tốn thời gian nhất thì giữ nguyên. Diễn tập lại trên máy chủ thật khi có, ghi đè bảng này.
+
+| # | Bước | Thời gian |
+|---|---|---:|
+| 1 | Xây lại CSDL nguồn (`migrate:fresh --seed`) | 16,17 s |
+| 2 | Tạo dữ liệu thử (khách hàng + tài liệu) | 8,51 s |
+| 3 | `backup:run` thật (dump CSDL + tệp, mã hoá AES-256) | 15,00 s |
+| 4 | Định vị archive | 0,09 s |
+| 5 | Dựng bản sao mã nguồn sạch (không `storage/app/private`) | 6,50 s |
+| 6 | Dựng MariaDB sạch tạm thời | 4,01 s |
+| 7 | Giải nén archive bằng mật khẩu | 1,21 s |
+| 8 | Nạp bản dump vào MariaDB sạch | 0,76 s |
+| 9 | Chép tệp hồ sơ về `storage/app/private` | 0,11 s |
+| 10 | `migrate:status` trên bản khôi phục | 22,22 s |
+| 11 | Giải mã `id_number` + so checksum tệp + đếm dòng | 10,01 s |
+| 12 | Chứng minh thất bại với `APP_KEY` mới | 7,85 s |
+| | **TỔNG** | **92,44 s (~1 phút 32 giây)** |
+
+Dữ liệu ở lượt đo này: 13 khách hàng, 21 vụ việc, 49 tài liệu (149 mục trong archive, 103 KB nén —
+dữ liệu mẫu, không phải quy mô dữ liệu thật của văn phòng sau vài năm vận hành). Bước 10
+(`migrate:status`) và bước 3 (`backup:run`) tốn thời gian nhất trong lượt đo này vì chi phí khởi
+động container (`apk add mariadb-client`, kéo image `mariadb:11` lần đầu) tính vào — trên máy chủ
+thật, nơi các gói cần thiết đã cài sẵn và không phải khởi động container mới cho mỗi bước, quy
+trình thật (mục "Quy trình cho máy chủ thật" ở trên) sẽ nhanh hơn đáng kể; ngược lại, dữ liệu thật
+sau nhiều năm (hàng GB tệp hồ sơ) sẽ làm bước giải nén và bước chép tệp (7, 9) chậm hơn nhiều so
+với 149 tệp mẫu ở đây. Diễn tập định kỳ trên dữ liệu thật là cách duy nhất biết con số thật.
+
+**Bằng chứng "APP_KEY là một nửa của bản sao lưu" (R3), đo được thật, không suy luận:** lặp lại
+bước 11 với một `APP_KEY` ngẫu nhiên KHÁC (không phải khoá đã tạo dữ liệu) trên ĐÚNG bản khôi phục
+vừa nạp — `Illuminate\Contracts\Encryption\DecryptException: The MAC is invalid.` Cơ sở dữ liệu vẫn
+nạp được, `migrate:status` vẫn xanh, tệp tài liệu vẫn mở được (nó không mã hoá bằng `APP_KEY`) —
+nhưng `id_number` của MỌI khách hàng vĩnh viễn không đọc lại được. Đây chính xác là kịch bản
+"khôi phục sinh khoá mới vẫn thành công nhưng mất mọi số CCCD" mà R3 cảnh báo.
+
+### Diễn tập lại trên máy dev
+
+```
+tools/backup/restore-drill.sh
+```
+
+Chạy từ Git Bash, trong worktree này. Kịch bản tự làm lại toàn bộ 12 bước ở trên trong container
+tạm (không đụng `vk_crm`, chỉ dùng `vk_crm_lane_m8` làm nguồn và một container MariaDB tạm thời
+tên `vkcrm-lane-m8-restore-<thời gian>` làm đích khôi phục), tự dọn dẹp khi xong, và không để lại
+archive hay thư mục tạm nào trong repo. Không chạy trên máy chủ thật — kịch bản này giả lập, không
+thay thế quy trình thật ở trên (nó cũng KHÔNG dùng SFTP/rclone, vì đích thử là chính máy dev).
+
+### Đóng gói bàn giao M7 — có sao lưu lại không?
+
+Kế hoạch M8 (Task 5) yêu cầu phán quyết "có loại gói bàn giao (M7 Task 4) khỏi bản sao lưu hay
+không — nó là bản sao thứ hai của tệp đã có". Tại thời điểm viết mục này, **M7 chưa merge vào
+nhánh này** (làn M8a cắt từ `b34e95c`, trước M7), nên chưa có gói bàn giao nào tồn tại để đo dung
+lượng hay tần suất sinh ra. Phán quyết dưới đây vì vậy là TẠM, ghi lại để M7 (hoặc lượt gộp làn sau
+M7) đọc và xác nhận lại, không phải viết mã ở Task 3 này:
+
+**Phán quyết tạm:** KHÔNG loại trừ gói bàn giao khỏi `include` của `config/backup.php`. Lý do dự
+kiến: gói bàn giao (theo mô tả M7 Task 4 trong kế hoạch) là một tệp TỔNG HỢP sinh ra TỪ dữ liệu đã
+có trong CSDL và `storage/app/private` — về lý thuyết "sao lưu lại nó" là dư thừa, vì phục hồi được
+CSDL + tệp gốc thì dựng lại được gói bàn giao bất cứ lúc nào bằng đúng lệnh đã sinh ra nó lần đầu.
+Nhưng loại trừ nó đòi hỏi: (a) gói bàn giao phải luôn tái sinh được TỰ ĐỘNG mà không cần con người
+nhớ chạy lại lệnh — nếu M7 không đảm bảo điều này (ví dụ gói bàn giao có thể được chỉnh tay sau khi
+sinh, hoặc sinh ra một lần và không lưu lại "công thức" đủ để tái tạo y hệt), loại trừ nó khỏi sao
+lưu là mất dữ liệu thật; (b) biết chắc gói bàn giao luôn nằm ở một thư mục cố định, tách biệt khỏi
+`storage/app/private`, để loại trừ đúng chỗ mà không loại nhầm tài liệu khách hàng thật đứng cạnh
+nó. Không mục nào trong hai điều trên có thể xác nhận trước khi đọc mã M7 thật. Vì vậy, cho tới khi
+người đọc lại phán quyết này (sau khi M7 merge) xác nhận cả (a) và (b), **giữ nguyên: sao lưu tất
+cả những gì nằm trong `storage/app/private`**, kể cả khi có trùng lặp — dư thừa vài phần trăm dung
+lượng archive rẻ hơn một gói bàn giao không khôi phục lại được. Xem thêm PROGRESS-note trong báo
+cáo Task 3 (`.superpowers/sdd/2026-09-26-m8a-backup-csp/task-3-report.md`).
