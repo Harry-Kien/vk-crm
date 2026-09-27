@@ -7,6 +7,8 @@ use App\Exceptions\InstalmentNotDestroyable;
 use App\Models\Contract;
 use App\Models\Instalment;
 use App\Models\Payment;
+use App\Support\Billing\BillingSummary;
+use Illuminate\Support\Facades\DB;
 
 it('cannot be deleted once the contract has left draft', function () {
     $contract = Contract::factory()->active()->create();
@@ -185,3 +187,56 @@ it('excludes a pending instalment of a cancelled or completed contract from scop
     expect($instalment->state())->toBe(InstalmentState::Overdue)
         ->and(Instalment::query()->overdue()->whereKey($instalment->id)->exists())->toBeFalse();
 })->with(['cancelled', 'completed']);
+
+/**
+ * M9 Task 8, phán quyết controller 1: `state()` (qua `pendingState()`) trả lời ĐÚNG như trước khi
+ * đọc bằng cách nào (BillingSummary::pendingInstalmentsQuery()` selectRaw `collected_amount`, hay
+ * truy vấn `payments()->sum()` như mọi nơi khác) — chỉ NGUỒN đọc khác, không kết quả.
+ */
+it('agrees with the normal query path whether collected_amount comes pre-computed or is queried fresh', function () {
+    $contract = Contract::factory()->active()->create(['total_amount' => 10_000_000]);
+    $instalment = Instalment::factory()->for($contract)->create([
+        'status' => InstalmentStatus::Pending,
+        'amount' => 10_000_000,
+        'due_date' => today()->subDays(3)->toDateString(),
+    ]);
+    Payment::factory()->for($instalment)->create(['amount' => 4_000_000]);
+
+    $viaQuery = Instalment::query()->find($instalment->id)->state();
+    $viaAggregate = BillingSummary::pendingInstalmentsQuery()->find($instalment->id)->state();
+
+    expect($viaAggregate)->toBe(InstalmentState::PartiallyPaid)
+        ->and($viaAggregate)->toBe($viaQuery);
+});
+
+/**
+ * Chuẩn mutation probe (M4): con số trên PHẢI đến từ cột `collected_amount` đã tính sẵn, không
+ * phải một truy vấn `payments()->sum()` mới — đo bằng số truy vấn, không chỉ bằng kết quả (hai
+ * nguồn đọc CÙNG một số tiền một cách tình cờ sẽ không bị một test chỉ so kết quả bắt được).
+ */
+it('reads state() from the pre-computed collected_amount column without an extra payments query', function () {
+    $contract = Contract::factory()->active()->create(['total_amount' => 10_000_000]);
+    $instalment = Instalment::factory()->for($contract)->create([
+        'status' => InstalmentStatus::Pending,
+        'amount' => 10_000_000,
+        'due_date' => today()->subDays(3)->toDateString(),
+    ]);
+    Payment::factory()->for($instalment)->create(['amount' => 4_000_000]);
+
+    $viaAggregate = BillingSummary::pendingInstalmentsQuery()->findOrFail($instalment->id);
+
+    DB::enableQueryLog();
+    DB::flushQueryLog();
+    $stateFromAggregate = $viaAggregate->state();
+    $queriesWithAggregate = count(DB::getQueryLog());
+
+    $plain = Instalment::query()->findOrFail($instalment->id);
+    DB::flushQueryLog();
+    $stateFromPlainLoad = $plain->state();
+    $queriesWithoutAggregate = count(DB::getQueryLog());
+    DB::disableQueryLog();
+
+    expect($stateFromAggregate)->toBe($stateFromPlainLoad)
+        ->and($queriesWithAggregate)->toBe(0)
+        ->and($queriesWithoutAggregate)->toBe(1);
+});

@@ -15,6 +15,7 @@ use App\Models\Payment;
 use App\Models\User;
 use App\Support\Billing\AccountantBillingRow;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -473,6 +474,25 @@ it('still names a client and a matter type that were soft deleted', function () 
     expect($row->clientName)->toBe($client->name)
         ->and($row->matterTypeName)->toBe($type->name)
         ->and($row->matterCode)->toBe($this->matter->code);
+});
+
+/**
+ * M9 Task 8, carry-forward fix: KHÁC client/matterType (test trên), `matter` KHÔNG đi qua
+ * `withTrashed()` — một hợp đồng còn trỏ tới một vụ việc ĐÃ XOÁ MỀM không được dựng thành một dòng
+ * của kế toán. Trước bản sửa này, `parentOf()` dùng CHUNG cho cả ba quan hệ nên một vụ đã xoá mềm
+ * vẫn dựng được dòng — trong khi `canSeeBilling()` đã đóng đúng vụ đó bằng `trashed()`; đây là cặp
+ * âm của cùng ranh giới, dùng đúng nhân chứng (vụ việc, không phải client/matterType).
+ */
+it('refuses to build a row once the matter itself was soft deleted, unlike a soft deleted client or matter type', function () {
+    settleChainDebt($this->chain);
+    $this->matter->delete();
+
+    expect(fn () => AccountantBillingRow::fromInstalment(
+        $this->instalment->fresh(),
+        collected: $this->instalment->amount,
+        outstanding: 0,
+        state: InstalmentState::Paid,
+    ))->toThrow(ModelNotFoundException::class);
 });
 
 it('reads parents the caller already loaded without a query of its own', function () {

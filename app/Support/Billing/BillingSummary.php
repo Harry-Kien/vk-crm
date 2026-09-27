@@ -74,4 +74,79 @@ final class BillingSummary
                 ->where('matter_id', $matterId)
                 ->where('status', ContractStatus::Active->value));
     }
+
+    // =============================================================================================
+    // Cách tính TỔNG HỢP bằng SQL — M9 Task 8, phán quyết controller 1 ("SQL-aggregate outstanding").
+    // =============================================================================================
+
+    /**
+     * MỘT công thức, viết đúng một chỗ: "còn phải thu của một đợt" — `amount` trừ tổng khoản thu
+     * CHƯA HUỶ, kẹp dưới 0. Cùng định nghĩa với {@see Instalment::outstanding()}, nhưng viết bằng
+     * biểu thức SQL để cơ sở dữ liệu tính GỘP trong một câu SELECT, thay vì một câu SUM() riêng
+     * cho từng đợt — {@see BillingSummary::outstandingForMatter()} và
+     * `Instalment::outstanding()`/`collectedAmount()` đều đúng nhưng chạy N+1 khi gọi lặp qua một
+     * danh sách (trang "Công nợ" Task 8, cột "còn phải thu" của `MattersTable` Task 7).
+     *
+     * `$amountColumn`/`$idColumn` để MỘT công thức phục vụ được hai ngữ cảnh khác bảng: chạy trên
+     * chính `instalments` ({@see self::instalmentAggregatesQuery()}) hay chạy như một cột con
+     * tương quan bên trong câu truy vấn của MỘT bảng khác ({@see self::outstandingPerMatterExpression()},
+     * alias `i`) — không viết lại phép trừ đó ở hai nơi.
+     *
+     * `case when … > 0 then … else 0 end`, không `greatest()`/`max(a,b)`: hai hàm đó có nghĩa khác
+     * nhau giữa MariaDB (hàm vô hướng `GREATEST`) và SQLite (`max()` đa đối số đóng vai trò đó,
+     * nhưng SQLite không có `GREATEST`) — dự án chạy test trên cả hai (SQLite ở `bin/dev test`,
+     * MariaDB thật ở `bin/dev test:mariadb`), nên biểu thức phải là SQL chuẩn cả hai hiểu giống
+     * nhau. `case when` là SQL chuẩn, không phải một hàm riêng của một hãng.
+     */
+    private static function outstandingExpression(string $amountColumn, string $idColumn): string
+    {
+        $diff = "({$amountColumn} - ".self::collectedExpression($idColumn).')';
+
+        return "(case when {$diff} > 0 then {$diff} else 0 end)";
+    }
+
+    /** Biểu thức SQL: tổng khoản thu CHƯA HUỶ của một đợt, tương quan theo `$idColumn`. */
+    public static function collectedExpression(string $idColumn = 'instalments.id'): string
+    {
+        return "coalesce((select sum(amount) from payments where payments.instalment_id = {$idColumn} and payments.voided_at is null), 0)";
+    }
+
+    /**
+     * Mọi đợt còn tính là công nợ (`pending`, hợp đồng `active`) trong MỘT câu truy vấn, kèm hai
+     * cột tính sẵn `collected_amount`/`outstanding_amount` — nền của trang "Công nợ" (Task 8): một
+     * round-trip cho TOÀN BỘ danh sách, không phải một câu SUM() cho từng dòng.
+     *
+     * Nơi gọi tự thêm điều kiện phạm vi (`Matter::listableBy`, bộ lọc quá hạn/đến hạn/đã đóng còn
+     * nợ/theo khách) và tự nạp quan hệ cần cho hiển thị — hàm này chỉ giữ đúng BỘ LỌC và HAI CỘT
+     * mà mọi nơi dùng đều cần, không viết lại chúng.
+     *
+     * @return Builder<Instalment>
+     */
+    public static function pendingInstalmentsQuery(): Builder
+    {
+        return Instalment::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->where('status', InstalmentStatus::Pending->value)
+            ->whereHas('contract', fn (Builder $query) => $query->where('status', ContractStatus::Active->value))
+            ->selectRaw('instalments.*')
+            ->selectRaw(self::collectedExpression().' as collected_amount')
+            ->selectRaw(self::outstandingExpression('instalments.amount', 'instalments.id').' as outstanding_amount');
+    }
+
+    /**
+     * Biểu thức SQL: tổng còn phải thu của MỘT vụ việc, tương quan `matters.id` của câu truy vấn
+     * NGOÀI (`MattersTable` Task 7, cột "còn phải thu") — cùng công thức với
+     * {@see self::pendingInstalmentsQuery()}, chỉ đổi bảng gốc từ `instalments` sang một subquery
+     * `instalments i JOIN contracts c`, để MỘT câu SELECT liệt kê nhiều vụ việc tính được cột này
+     * cho MỌI dòng cùng lúc, thay vì `outstandingForMatter()` gọi lặp mỗi dòng của bảng liệt kê.
+     */
+    public static function outstandingPerMatterExpression(): string
+    {
+        $perInstalment = self::outstandingExpression('i.amount', 'i.id');
+
+        return 'coalesce((select sum('.$perInstalment.') from instalments i '
+            .'inner join contracts c on c.id = i.contract_id '
+            ."where c.matter_id = matters.id and c.status = '".ContractStatus::Active->value."' "
+            ."and i.status = '".InstalmentStatus::Pending->value."'), 0)";
+    }
 }

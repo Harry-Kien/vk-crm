@@ -121,7 +121,7 @@ class Instalment extends Model
             return InstalmentState::Scheduled;
         }
 
-        $collected = $this->payments()->whereNull('voided_at')->sum('amount');
+        $collected = $this->collectedForState();
 
         if ($collected >= $this->amount) {
             return InstalmentState::Paid;
@@ -136,6 +136,33 @@ class Instalment extends Model
         // vì nó so với thời khắc HIỆN TẠI (luôn sau nửa đêm), biến "đến hạn hôm nay" thành "quá
         // hạn" ngay từ 00:00:01. Cùng thành ngữ `today()` với `Deadline::scopeUpcoming()`.
         return $this->due_date->lt(today()) ? InstalmentState::Overdue : InstalmentState::Due;
+    }
+
+    /**
+     * Tổng khoản thu CHƯA HUỶ dùng để suy `state()` — CÙNG con số với
+     * {@see self::collectedAmount()}, chỉ khác NGUỒN đọc (M9 Task 8, phán quyết controller 1).
+     *
+     * **Tin cột `collected_amount` nếu nó CÓ MẶT trong thuộc tính đã nạp** — cột đó không tồn tại
+     * trên bảng `instalments`; nó chỉ xuất hiện khi model được nạp qua
+     * {@see BillingSummary::pendingInstalmentsQuery()} (`selectRaw … as collected_amount`), tức
+     * nơi gọi đã tính SẴN bằng MỘT câu SQL cho CẢ danh sách (trang "Công nợ", Task 8). Trang đó gọi
+     * `state()` cho MỖI dòng để tô màu badge; nếu hàm này luôn tự chạy `payments()->sum()`, mỗi
+     * lần gọi `state()` lại là một truy vấn SUM() riêng — đúng N+1 mà phán quyết controller 1 yêu
+     * cầu xoá, chỉ là bị giấu sau `state()` thay vì sau `outstanding()`.
+     *
+     * **Không có cột đó thì tự truy vấn như trước** — mọi nơi gọi `state()` KHÔNG qua đường
+     * `pendingInstalmentsQuery()` (tab tiền của vụ Task 7, test model, `RecordPayment`/
+     * `VoidPayment` đọc lại sau khi ghi) không thấy khác biệt gì: `array_key_exists` trên
+     * `getAttributes()` chỉ đúng khi khoá đó THẬT SỰ có mặt, một model nạp bình thường
+     * (`Instalment::find()`, `$contract->instalments`) không bao giờ có khoá này.
+     */
+    private function collectedForState(): int
+    {
+        $attributes = $this->getAttributes();
+
+        return array_key_exists('collected_amount', $attributes)
+            ? (int) $attributes['collected_amount']
+            : $this->collectedAmount();
     }
 
     /**

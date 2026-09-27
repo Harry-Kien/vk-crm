@@ -1,14 +1,18 @@
 <?php
 
+use App\Enums\ContractStatus;
 use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Filament\Admin\Resources\Matters\Pages\ListMatters;
 use App\Filament\Admin\Resources\Matters\Tables\MattersTable;
+use App\Models\Contract;
+use App\Models\Instalment;
 use App\Models\Matter;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
+use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);
@@ -82,6 +86,65 @@ it('shows the outstanding-balance column to the accountant and hides it from an 
 
     $this->actingAs($assistant, 'web');
     $this->livewire(ListMatters::class)->assertTableColumnHidden('outstanding_balance');
+});
+
+/**
+ * M9 Task 8, phán quyết controller 1 ("SQL-aggregate outstanding"): "còn phải thu" phải là MỘT
+ * round-trip cho toàn bộ danh sách — {@see MattersTable}'s `modifyQueryUsing()` giờ đọc một cột
+ * `selectRaw()` tính sẵn (`BillingSummary::outstandingPerMatterExpression()`), thay vì gọi
+ * `BillingSummary::outstandingForMatter()` (một SUM() riêng) cho MỖI dòng — bản trước đó là N+1.
+ *
+ * Ngưỡng: đo bằng SO SÁNH 2 vụ việc với 6 vụ việc (mỗi vụ một hợp đồng đang hiệu lực, hai đợt còn
+ * `pending`) thay vì một con số tuyệt đối cố định — con số tuyệt đối phụ thuộc quá nhiều vào bao
+ * nhiêu quan hệ `MatterResource::getEloquentQuery()` nạp kèm (`client`, `matterType.stages`,
+ * `leadLawyer`, `team`) và có thể đổi khi những phần đó đổi mà không liên quan gì tới cột này.
+ * Điều BẤT BIẾN mà phán quyết controller 1 đòi hỏi là: số truy vấn KHÔNG tăng theo số dòng. Nếu
+ * cột quay lại gọi `outstandingForMatter()` mỗi dòng (N+1), 6 vụ việc sẽ tốn nhiều truy vấn hơn
+ * hẳn 2 vụ việc — đúng thứ test này bắt được mà một ngưỡng tuyệt đối không bắt được.
+ */
+it('runs the same number of queries for the outstanding-balance column whether there are two matters or six', function () {
+    $accountant = User::factory()->withRole(Role::Accountant)->create();
+    $this->actingAs($accountant, 'web');
+
+    // Soạn nháp, thêm đủ đợt, rồi kích hoạt bằng một lần ghi thẳng — constraint (b), Task 4: mỗi
+    // đợt tạo ra trên một hợp đồng ĐANG active bị hook bất biến so với TOÀN BỘ total_amount ngay
+    // khi vừa tạo, nên hai đợt phải dựng lúc còn draft.
+    $matterWithBalance = function (): Matter {
+        $matter = Matter::factory()->create();
+        $contract = Contract::factory()->for($matter)->create(['status' => ContractStatus::Draft, 'total_amount' => 20_000_000, 'signed_at' => null]);
+        Instalment::factory()->for($contract)->create(['sequence' => 1, 'amount' => 10_000_000, 'due_date' => today()->addDays(10)->toDateString()]);
+        Instalment::factory()->for($contract)->create(['sequence' => 2, 'amount' => 10_000_000, 'due_date' => today()->addDays(20)->toDateString()]);
+        $contract->forceFill(['status' => ContractStatus::Active, 'signed_at' => today()->subDay()->toDateString(), 'activated_by' => $matter->lead_lawyer_id])->save();
+
+        return $matter;
+    };
+
+    $matterWithBalance();
+    $matterWithBalance();
+
+    // Một lần vẽ bảng KHÔNG đo, để hâm nóng cache quyền của Spatie (permissions/roles nạp một
+    // lần cho cả tiến trình, không phải một chi phí phụ thuộc số dòng) — không hâm nóng trước,
+    // lần đo ĐẦU sẽ cõng thêm bốn truy vấn nạp quyền mà lần đo THỨ HAI không còn, làm phép so
+    // sánh sai lệch vì một lý do không liên quan gì tới cột "còn phải thu".
+    $this->livewire(ListMatters::class);
+
+    DB::enableQueryLog();
+    DB::flushQueryLog();
+    $this->livewire(ListMatters::class);
+    $queriesForTwo = count(DB::getQueryLog());
+
+    $matterWithBalance();
+    $matterWithBalance();
+    $matterWithBalance();
+    $matterWithBalance();
+
+    DB::flushQueryLog();
+    $this->livewire(ListMatters::class);
+    $queriesForSix = count(DB::getQueryLog());
+
+    DB::disableQueryLog();
+
+    expect($queriesForSix)->toBe($queriesForTwo);
 });
 
 /**

@@ -175,4 +175,42 @@ return [
             'payment_note' => 'Ghi chú nội bộ',
         ],
     ],
+
+    // Trang "Công nợ" cho kế toán (M9 Task 8): kế toán không mở được trang vụ việc, đây là màn
+    // hình duy nhất của họ về tiền.
+    'receivables' => [
+        'navigation_label' => 'Công nợ',
+        'title' => 'Công nợ',
+        'scope_note' => 'Số liệu gồm các vụ việc anh/chị được xem.',
+        'empty_heading' => 'Không có đợt thanh toán nào còn công nợ.',
+        'no_payment_to_void' => 'Khoản thu được chọn không còn để huỷ — có thể đã bị huỷ từ trước.',
+        'columns' => [
+            'matter_code' => 'Mã hồ sơ',
+            'matter_type' => 'Loại vụ việc',
+            'client' => 'Khách hàng',
+            'instalment' => 'Đợt thanh toán',
+            'amount' => 'Số tiền',
+            'collected' => 'Đã thu',
+            'outstanding' => 'Còn lại',
+            'due_date' => 'Đến hạn',
+            'state' => 'Trạng thái',
+            'payments' => 'Các khoản thu',
+        ],
+        'filters' => [
+            'overdue' => 'Quá hạn',
+            'due_within_7_days' => 'Đến hạn trong 7 ngày',
+            'closed_with_balance' => 'Đã kết thúc, còn công nợ',
+            'client' => 'Khách hàng',
+        ],
+        'actions' => [
+            'record_payment' => 'Ghi khoản thu',
+            'record_payment_heading' => 'Ghi khoản thu',
+            'void_payment' => 'Huỷ khoản thu',
+            'void_payment_heading' => 'Huỷ khoản thu',
+            'void_payment_success' => 'Đã huỷ khoản thu.',
+        ],
+        'fields' => [
+            'payment_to_void' => 'Chọn khoản thu cần huỷ',
+        ],
+    ],
 ];

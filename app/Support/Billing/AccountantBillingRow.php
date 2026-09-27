@@ -3,7 +3,10 @@
 namespace App\Support\Billing;
 
 use App\Enums\InstalmentState;
+use App\Models\Contract;
 use App\Models\Instalment;
+use App\Models\Matter;
+use App\Policies\Concerns\ChecksBillingAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Database\Eloquent\Model;
@@ -49,10 +52,22 @@ final readonly class AccountantBillingRow implements Arrayable
      * Task 3 viết lớp này). Lớp này không tính gì về tiền; nó cũng không chạy truy vấn tổng hợp
      * nào, để trang "Công nợ" có thể tính tổng một lần ở tầng SQL thay vì một lần mỗi dòng.
      *
-     * **Cha đã nạp thì không truy vấn.** Vụ việc, loại vụ việc và khách hàng đều xoá mềm được;
-     * nơi gọi nạp sẵn `contract.matter.matterType` và `contract.matter.client` thì không có truy
-     * vấn nào ở đây, và nếu chưa nạp (hoặc đã nạp mà ra `null` vì bị xoá mềm) thì hỏi lại bằng
-     * `withTrashed()` — kế toán vẫn phải lập được phiếu thu cho khách đã lưu hồ sơ.
+     * **Cha đã nạp thì không truy vấn.** Loại vụ việc và khách hàng đều xoá mềm được; nơi gọi nạp
+     * sẵn `contract.matter.matterType` và `contract.matter.client` thì không có truy vấn nào ở
+     * đây, và nếu chưa nạp (hoặc đã nạp mà ra `null` vì bị xoá mềm) thì hỏi lại bằng
+     * `withTrashed()` — kế toán vẫn phải lập được phiếu thu cho khách đã lưu hồ sơ hay loại vụ
+     * việc đã ngừng dùng.
+     *
+     * **`matter` (từ `contract`) KHÔNG đi qua `withTrashed()` — fix vòng 1, carry-forward từ Task
+     * 3.** Bản đầu dùng CHUNG `parentOf()` cho cả ba quan hệ, nên một hợp đồng còn trỏ tới một vụ
+     * việc ĐÃ XOÁ MỀM (`Matter` cũng `SoftDeletes`) vẫn dựng được một dòng — trong khi cổng tiền
+     * ({@see ChecksBillingAccess::canSeeBilling()}) đã đóng đúng vụ đó
+     * bằng `trashed()`. `matter` vì vậy đọc qua nhánh riêng, KHÔNG `withTrashed()`: quan hệ đã nạp
+     * thì dùng (kể cả khi nó `null` vì bị xoá mềm — `Instalment::contract` không có `SoftDeletes`
+     * nên bản thân hợp đồng luôn còn, nhưng `matter` phía dưới có thể `null`), chưa nạp thì hỏi
+     * lại bằng truy vấn THƯỜNG (đóng trên vụ đã xoá mềm, đúng ranh giới của cổng tiền) — cả hai
+     * đường đều `firstOrFail()` khi ra `null`, nên một vụ đã xoá mềm không có đường lọt qua đây
+     * bằng cách "quên nạp trước".
      */
     public static function fromInstalment(
         Instalment $instalment,
@@ -60,7 +75,7 @@ final readonly class AccountantBillingRow implements Arrayable
         int $outstanding,
         InstalmentState $state,
     ): self {
-        $matter = self::parentOf($instalment->contract, 'matter');
+        $matter = self::matterOf($instalment->contract);
 
         return new self(
             matterCode: $matter->code,
@@ -90,11 +105,23 @@ final readonly class AccountantBillingRow implements Arrayable
         ];
     }
 
-    /** Chỉ cho quan hệ `BelongsTo` trỏ tới model có `SoftDeletes`. */
+    /** Chỉ cho quan hệ `BelongsTo` trỏ tới model có `SoftDeletes`, KHÔNG phải `matter` — xem `matterOf()`. */
     private static function parentOf(Model $child, string $relation): Model
     {
         $loaded = $child->relationLoaded($relation) ? $child->getRelation($relation) : null;
 
         return $loaded ?? $child->{$relation}()->withTrashed()->firstOrFail();
+    }
+
+    /**
+     * `Contract::matter()`, KHÔNG `withTrashed()` — fix vòng 1 (xem docblock `fromInstalment()`):
+     * một vụ việc đã xoá mềm phải RA NGOÀI ở đây, đúng ranh giới `canSeeBilling()` đã đóng, không
+     * phải "dựng được dòng nhờ hỏi lại bằng một truy vấn rộng hơn".
+     */
+    private static function matterOf(Contract $contract): Matter
+    {
+        $loaded = $contract->relationLoaded('matter') ? $contract->getRelation('matter') : null;
+
+        return $loaded ?? $contract->matter()->firstOrFail();
     }
 }

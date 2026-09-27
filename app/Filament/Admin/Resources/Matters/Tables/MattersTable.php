@@ -12,6 +12,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 
 class MattersTable
@@ -58,14 +59,16 @@ class MattersTable
                     ->since()
                     ->color(fn (Matter $record): ?string => static::lastClientUpdateColor($record))
                     ->sortable(),
-                // "Còn phải thu" (M9 Task 7): ẩn HẲN với ai không có `billing.view` — không chỉ
-                // rỗng, không có ở đó để dò — cùng lý do `title`/`summary_for_client` ẩn với kế
-                // toán không có `matter.view`. `BillingSummary::outstandingForMatter()` đã tự lọc
-                // hợp đồng `active` và trừ phần đã miễn; vụ chưa có hợp đồng hay hợp đồng đã đóng
-                // không còn dư nợ đều ra `0`.
+                // "Còn phải thu" (M9 Task 7, cột tính lại bằng SQL-aggregate ở M9 Task 8, phán
+                // quyết controller 1): ẩn HẲN với ai không có `billing.view` — không chỉ rỗng,
+                // không có ở đó để dò — cùng lý do `title`/`summary_for_client` ẩn với kế toán
+                // không có `matter.view`. Giá trị đọc thẳng cột `outstanding_balance_amount` mà
+                // `self::modifyQueryUsing()` bên dưới đã tính SẴN trong CHÍNH câu truy vấn liệt kê
+                // (một round-trip cho toàn bảng), không gọi lại `BillingSummary::
+                // outstandingForMatter()` mỗi dòng như bản trước (N+1 — xem docblock hàm đó).
                 TextColumn::make('outstanding_balance')
                     ->label(__('matters.fields.outstanding_balance'))
-                    ->state(fn (Matter $record): string => Money::format(BillingSummary::outstandingForMatter($record->id)['amount']))
+                    ->state(fn (Matter $record): string => Money::format((int) ($record->getAttribute('outstanding_balance_amount') ?? 0)))
                     ->visible(fn (): bool => (bool) Auth::user()?->can(Permission::BillingView->value))
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
@@ -84,7 +87,25 @@ class MattersTable
             ])
             ->recordActions([
                 ViewAction::make(),
-            ]);
+            ])
+            // Cột thêm CHỈ khi người xem có `billing.view` — bản thân biểu thức SQL không lộ gì
+            // (nó không đọc `confidentiality`), nhưng tính nó cho MỌI luật sư/trợ lý không có
+            // `billing.view` là một phép JOIN tương quan thừa trên mỗi lần mở danh sách vụ việc,
+            // đúng cỡ đa số người dùng hệ thống. `selectRaw()` không đụng gì tới điều kiện
+            // `listableBy()` mà `MatterResource::getEloquentQuery()` đã áp — chỉ THÊM một cột.
+            //
+            // `matters.*` PHẢI đứng ngay trong CÙNG lời gọi `selectRaw()`: gọi `selectRaw()` lần
+            // đầu trên một truy vấn chưa từng `select()` một cột nào (mặc định "columns" là
+            // `null`, tức "SELECT *" NGẦM ĐỊNH của trình biên dịch) làm chính cái ngầm định đó
+            // BIẾN MẤT — `Builder::addSelect()` (vendor) chỉ `$this->columns[] = $column` khi
+            // `$this->columns` còn `null`, không tự thêm `*` trước — nên câu SELECT chỉ còn ĐÚNG
+            // cột vừa thêm, mất cả khoá chính. Đo được: bản đầu gọi `selectRaw($expr.' as
+            // outstanding_balance_amount')` một mình làm `ListRecords::getTableRecordKey()` ném
+            // `TypeError` ("Return value must be of type string, null returned") trên MỌI dòng —
+            // `$record->getKey()` đọc `id` mà câu SELECT không còn cột đó.
+            ->modifyQueryUsing(fn (Builder $query): Builder => (bool) Auth::user()?->can(Permission::BillingView->value)
+                ? $query->selectRaw('matters.*, '.BillingSummary::outstandingPerMatterExpression().' as outstanding_balance_amount')
+                : $query);
     }
 
     /**
