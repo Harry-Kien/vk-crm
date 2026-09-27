@@ -38,20 +38,31 @@ Artisan::command('inspire', function () {
  * chống chồng lấn sống trong cache; nếu một tiến trình chết giữa chừng thì khoá còn lại tới
  * khi hết hạn, và hệ quả sẽ là đồng hồ sức khoẻ đứng im trong khi cron vẫn chạy — tức báo
  * động giả về đúng thứ nó theo dõi.
+ *
+ * Ghi nhận scheduler còn sống.
+ *
+ * Vòng sửa 1, I1: `->name()` chỉ là bí danh của `->description()` trong Laravel 13 — cả hai
+ * cùng ghi một property `$description`, nên một lời gọi CẢ HAI chỉ giữ lại giá trị của lời
+ * gọi SAU CÙNG. Bản trước gọi `->name('system-health.touch')` rồi `->description('Ghi nhận
+ * scheduler còn sống')`, nên định danh ổn định `system-health.touch` bị GHI ĐÈ và biến mất —
+ * không còn cách nào tra một tác vụ theo mã của nó (`tests/Feature/Schedule/
+ * SystemHealthTest.php` chỉ tình cờ còn xanh vì nó tra theo đúng câu tiếng Việt còn sót lại).
+ * Từ đây MỖI tác vụ chỉ gọi `->name($id)`, giữ ĐÚNG MỘT giá trị ổn định; câu tiếng Việt mô tả
+ * việc nó làm chuyển hẳn vào docblock phía trên, như đoạn này.
  */
 Schedule::call(new RecordScheduleRun)
     ->everyMinute()
-    ->name('system-health.touch')
-    ->description('Ghi nhận scheduler còn sống');
+    ->name('system-health.touch');
 
 /**
  * Heartbeat ra dịch vụ giám sát bên ngoài, 5 phút một lần (SPEC §2). Action không bao giờ
  * ném — xem docblock của nó — nên một dịch vụ giám sát chết không kéo theo cả lịch.
+ *
+ * Ping dịch vụ giám sát cron bên ngoài.
  */
 Schedule::call(new SendHeartbeat)
     ->everyFiveMinutes()
     ->name('system-health.heartbeat')
-    ->description('Ping dịch vụ giám sát cron bên ngoài')
     ->withoutOverlapping();
 
 /**
@@ -62,11 +73,12 @@ Schedule::call(new SendHeartbeat)
  * liên tục có việc mới; `withoutOverlapping()` là lớp thứ hai cho đúng trường hợp đó.
  * Thư OTP đăng nhập KHÔNG đi qua hàng đợi (phán quyết M5): một mã sống 5 phút mà nằm chờ
  * cron là một mã chết.
+ *
+ * Rút hàng đợi, thay cho worker thường trực.
  */
 Schedule::command('queue:work --stop-when-empty --max-time=50')
     ->everyMinute()
     ->name('queue.drain')
-    ->description('Rút hàng đợi, thay cho worker thường trực')
     ->withoutOverlapping(10);
 
 /**
@@ -75,9 +87,10 @@ Schedule::command('queue:work --stop-when-empty --max-time=50')
  * Đây là tác vụ mang rủi ro nghề nghiệp cao nhất trong cả hệ thống: một mốc kháng cáo bị
  * lỡ là trách nhiệm nghề nghiệp, không phải một bất tiện. `withoutOverlapping()` vì nó gửi
  * thư — hai tiến trình chồng nhau là hai thư cho cùng một người.
+ *
+ * Nhắc mốc thời hạn tố tụng.
  */
 Schedule::call(new CheckDeadlines)
     ->dailyAt('07:00')
     ->name('deadlines.check')
-    ->description('Nhắc mốc thời hạn tố tụng')
     ->withoutOverlapping();

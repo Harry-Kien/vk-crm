@@ -135,4 +135,13 @@ return [
         'action' => 'Anh/chị mở hồ sơ trên hệ thống để xem chi tiết và đánh dấu đã xong khi hoàn tất.',
         'salutation' => ':office',
     ],
+
+    /*
+     * M6.5 Task 11, vòng sửa 1 (C1): thông báo trong ứng dụng khi job gửi thư nhắc mốc thất bại
+     * HẲN (hết mọi lượt thử) — xem docblock `App\Jobs\SendDeadlineReminderMail::failed()`.
+     */
+    'reminder_failed_notification' => [
+        'title' => 'Không gửi được thư nhắc mốc thời hạn',
+        'body' => 'Đã thử lại nhiều lần nhưng không gửi được thư nhắc bậc :tier cho mốc ":name" (hồ sơ :code). Cần kiểm tra thủ công.',
+    ],
 ];

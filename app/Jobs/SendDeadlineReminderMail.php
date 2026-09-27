@@ -2,13 +2,19 @@
 
 namespace App\Jobs;
 
+use App\Actions\Notification\ResolveStaffRecipients;
+use App\Enums\Role;
 use App\Mail\Staff\DeadlineReminder;
 use App\Models\Deadline;
 use App\Models\Matter;
 use App\Models\User;
+use App\Support\Audit;
+use Filament\Notifications\Notification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use Throwable;
 
 /**
  * M6.5 Task 11 (`deadlines/F1`, `notify/notify-2`, `e2e/F3`) — việc gửi thư nhắc mốc thời hạn tách
@@ -34,10 +40,26 @@ use Illuminate\Support\Facades\Mail;
  * **Vì sao `reminders_sent` được đánh dấu TRƯỚC khi job này chạy, không phải sau khi gửi thành
  * công.** Đây là chỗ "chỉ đánh dấu khi thư đã được xếp hàng" của brief: chống gửi trùng bây giờ
  * nghĩa là "mốc này đã có một job xếp hàng đi gửi nó", không phải "mốc này đã thật sự tới hộp thư
- * người nhận". Hệ quả cần biết: nếu job này thất bại HẲN (hết `$tries`), `reminders_sent` KHÔNG
- * tự rút lại — mốc đó không được nhắc lại ở bậc này nữa, dòng `outbound_messages` `failed` là bằng
- * chứng duy nhất còn lại. Đánh đổi có chủ ý: cách khác (chỉ đánh dấu sau khi gửi thành công) sẽ
- * lặp lại đúng lỗi cũ — CheckDeadlines phải chờ kết quả mạng bên trong transaction.
+ * người nhận". Đánh đổi có chủ ý: cách khác (chỉ đánh dấu sau khi gửi thành công) sẽ lặp lại đúng
+ * lỗi cũ — CheckDeadlines phải chờ kết quả mạng bên trong transaction.
+ *
+ * # Vòng sửa 1, C1 (critical): job hỏng HẲN không được để mốc mất vĩnh viễn
+ *
+ * Bản Task 11 gốc để nguyên hệ quả của đánh đổi trên: nếu job hỏng HẲN (hết `$tries`), không có
+ * gì rút `reminders_sent` lại, nên mốc đó KHÔNG BAO GIỜ được nhắc lại ở bậc này — dòng
+ * `outbound_messages` `failed` là bằng chứng duy nhất, và không ai chủ động đọc nó (chưa có
+ * trang xem nhật ký thư, `spec-gap-07`). Một mốc kháng cáo `d1`/`overdue` bị lỡ vì lý do này là
+ * đúng cái mà cả `CheckDeadlines` sinh ra để chống.
+ *
+ * `failed()` (dưới đây) sửa cả hai vế của "không bao giờ im lặng" (R3):
+ *
+ *  1. **Rút bậc này khỏi `reminders_sent`**, dưới `lockForUpdate` — CÂU LỆNH ĐẦU TIÊN của
+ *     transaction là khoá dòng, cùng kỷ luật `CheckDeadlines`/`UpdateMatterDetails` — để lượt
+ *     `CheckDeadlines` KẾ TIẾP coi mốc này như CHƯA từng được xếp hàng ở bậc đó, và xếp lại.
+ *  2. **Ghi một dòng audit** `deadline_reminder_failed` (chỉ mang `deadline_id` và `tier` — SPEC
+ *     §10.6, không ghi gì khác), rồi **báo trong ứng dụng** cho người phụ trách mốc, luật sư phụ
+ *     trách vụ việc, và MỌI admin đang hoạt động — qua {@see ResolveStaffRecipients} (R3: chỉ báo
+ *     người đang xem được vụ việc đó, và "không bao giờ im lặng" — luôn có ít nhất admin nhận).
  *
  * **Đọc lại tại thời điểm chạy, không tin payload đã cũ** (kỷ luật giống hệt
  * `RecheckClientIdentityConflicts`, cũng của M6.5): giữa lúc job được xếp hàng và lúc nó THẬT SỰ
@@ -95,6 +117,63 @@ class SendDeadlineReminderMail implements ShouldQueue
 
         foreach ($recipients as $recipient) {
             Mail::to($recipient->email)->send(new DeadlineReminder($deadline, $recipient, $this->tierKey));
+        }
+    }
+
+    /**
+     * Chạy đúng MỘT lần, sau khi CẢ `$tries` lần đều thất bại — xem docblock lớp, mục "Vòng sửa 1,
+     * C1". `?Throwable $exception` không dùng tới: SPEC §10.5 cấm nội suy văn bản lỗi tự do vào
+     * dữ liệu ghi lại (một exception tương lai không đảm bảo không vô tình mang dữ liệu nhạy cảm);
+     * tên lớp/JSON của nó đã nằm trong `outbound_messages.error` do `RecordOutboundMessage::failed()`
+     * ghi ở LẦN THỬ CUỐI, không cần lặp lại ở đây.
+     */
+    public function failed(?Throwable $exception): void
+    {
+        DB::transaction(function (): void {
+            /** @var Deadline|null $deadline */
+            $deadline = Deadline::query()->whereKey($this->deadlineId)->lockForUpdate()->first();
+
+            if ($deadline === null) {
+                return;
+            }
+
+            $deadline->update([
+                'reminders_sent' => array_values(array_diff($deadline->reminders_sent ?? [], [$this->tierKey])),
+            ]);
+        });
+
+        /** @var Deadline|null $deadline */
+        $deadline = Deadline::query()->withTrashed()->find($this->deadlineId);
+
+        Audit::record('deadline_reminder_failed', $deadline, [
+            'deadline_id' => $this->deadlineId,
+            'tier' => $this->tierKey,
+        ]);
+
+        $admins = User::query()->where('is_active', true)->role(Role::Admin->value)->get();
+
+        // Mốc/vụ việc không còn tồn tại là một tình huống chưa từng xảy ra thật (Deadline dùng
+        // SoftDeletes, matter_id là khoá ngoại bắt buộc) — nhưng nếu có, vẫn phải báo, chỉ là
+        // không còn Matter nào để hỏi Gate::view(), nên rơi thẳng về mọi admin đang hoạt động.
+        $matter = $deadline?->matter()->withTrashed()->first();
+
+        $recipients = $matter !== null
+            ? app(ResolveStaffRecipients::class)->handle(
+                $matter,
+                collect([$deadline->responsible, $matter->leadLawyer])->merge($admins)->all(),
+            )
+            : $admins;
+
+        foreach ($recipients as $recipient) {
+            Notification::make()
+                ->title(__('deadlines.reminder_failed_notification.title'))
+                ->body(__('deadlines.reminder_failed_notification.body', [
+                    'tier' => $this->tierKey,
+                    'name' => $deadline->name ?? '',
+                    'code' => $matter->code ?? '',
+                ]))
+                ->color('danger')
+                ->sendToDatabase($recipient);
         }
     }
 }

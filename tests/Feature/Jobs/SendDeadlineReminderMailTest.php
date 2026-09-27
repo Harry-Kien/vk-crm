@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Jobs\SendDeadlineReminderMail;
 use App\Mail\Staff\DeadlineReminder;
@@ -9,6 +10,7 @@ use App\Models\MatterType;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Support\Facades\Mail;
+use Spatie\Activitylog\Models\Activity;
 
 /**
  * M6.5 Task 11 — hành vi RIÊNG của job (đọc lại tại thời điểm chạy, re-check trước khi gửi), tách
@@ -136,4 +138,100 @@ it('configures exactly one backoff delay per release', function () {
     $job = new SendDeadlineReminderMail(1, [1], 'd7');
 
     expect($job->backoff())->toHaveCount($job->tries - 1);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Vòng sửa 1, C1 (critical): job hỏng HẲN không được để mốc mất vĩnh viễn.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * `responsible` và `leadLawyer` là HAI người KHÁC NHAU — để phân biệt được ba nhóm nhận thông
+ * báo của C1 (người phụ trách mốc, luật sư phụ trách vụ, quản trị) không lẫn vào nhau. Người
+ * phụ trách được thêm vào đội ngũ vụ việc, đúng SPEC (`lang/vi/deadlines.php`:
+ * "Chỉ chọn được người trong đội ngũ vụ việc"), để `Gate::view()` của `ResolveStaffRecipients`
+ * không tình cờ loại họ ra vì lý do KHÁC với điều đang được đo.
+ */
+function deadlineWithDistinctResponsibleAndLead(): array
+{
+    $lead = User::factory()->withRole(Role::Lawyer)->create();
+    $responsible = User::factory()->withRole(Role::Lawyer)->create();
+
+    $type = MatterType::factory()->withStages()->create();
+    $matter = Matter::factory()->create([
+        'lead_lawyer_id' => $lead->id,
+        'matter_type_id' => $type->id,
+        'stage' => $type->stages->reject(fn ($s) => $s->is_terminal)->first()->key,
+    ]);
+    $matter->addTeamMember($responsible, MatterRole::Associate);
+
+    $deadline = Deadline::factory()->create([
+        'matter_id' => $matter->id,
+        'responsible_user_id' => $responsible->id,
+        'due_date' => today()->addDays(7),
+        'is_completed' => false,
+        'reminders_sent' => [],
+    ]);
+
+    return [$deadline, $responsible, $lead, $matter];
+}
+
+/**
+ * C1 (critical, vòng sửa 1): trước bản sửa này, `reminders_sent` được đánh dấu TRƯỚC khi job gửi
+ * (Task 11), nhưng không có gì rút lại đánh dấu đó nếu job hỏng HẲN — mốc `d1`/`overdue` mất
+ * vĩnh viễn, không lần chạy `CheckDeadlines` nào sau đó còn thử lại.
+ *
+ * Mutation probe: xoá khối un-mark tier khỏi `SendDeadlineReminderMail::failed()` — test này ĐỎ
+ * vì `reminders_sent` vẫn còn `'d7'` (xem báo cáo).
+ */
+it('un-marks the tier in reminders_sent when the job permanently fails, so it is not lost forever', function () {
+    [$deadline, $responsible] = deadlineWithDistinctResponsibleAndLead();
+    $deadline->update(['reminders_sent' => ['d14', 'd7']]);
+
+    $job = new SendDeadlineReminderMail($deadline->id, [$responsible->id], 'd7');
+    $job->failed(new RuntimeException('SMTP giả lập chết hẳn.'));
+
+    expect($deadline->fresh()->reminders_sent)->not->toContain('d7');
+});
+
+/** Cặp dương: một bậc KHÁC bậc đang hỏng (đã gửi thật ở một lượt trước) không bị đụng tới. */
+it('leaves every other tier untouched when only one tier failed', function () {
+    [$deadline, $responsible] = deadlineWithDistinctResponsibleAndLead();
+    $deadline->update(['reminders_sent' => ['d14', 'd7']]);
+
+    $job = new SendDeadlineReminderMail($deadline->id, [$responsible->id], 'd7');
+    $job->failed(new RuntimeException('SMTP giả lập chết hẳn.'));
+
+    expect($deadline->fresh()->reminders_sent)->toBe(['d14']);
+});
+
+/**
+ * C1, phần "surface the failure in the app": một dòng audit mang ID và bậc (KHÔNG mang gì khác —
+ * không tên mốc, không nội dung), và ba nhóm nhận thông báo trong ứng dụng: người phụ trách mốc,
+ * luật sư phụ trách vụ (qua `ResolveStaffRecipients`, để R3 giữ nguyên), và MỌI admin đang hoạt
+ * động. Admin đã vô hiệu hoá không nhận — cặp âm/dương nằm chung một test.
+ *
+ * Mutation probe từng phần (xem báo cáo cho log ĐỎ):
+ *  - xoá `Audit::record(...)` → `$audit` là null;
+ *  - bỏ `$deadline->responsible` khỏi `$preferred` → `$responsible->notifications()->count()` = 0;
+ *  - bỏ `$matter->leadLawyer` khỏi `$preferred` → `$lead->notifications()->count()` = 0;
+ *  - bỏ `$admins` khỏi `$preferred` → `$admin->notifications()->count()` = 0.
+ */
+it('writes an audit row and notifies the responsible user, the lead and every active admin when the job permanently fails', function () {
+    [$deadline, $responsible, $lead] = deadlineWithDistinctResponsibleAndLead();
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $inactiveAdmin = User::factory()->withRole(Role::Admin)->create(['is_active' => false]);
+
+    $job = new SendDeadlineReminderMail($deadline->id, [$responsible->id], 'd7');
+    $job->failed(new RuntimeException('SMTP giả lập chết hẳn.'));
+
+    $audit = Activity::query()->where('event', 'deadline_reminder_failed')->latest('id')->first();
+
+    expect($audit)->not->toBeNull()
+        ->and($audit->properties->get('deadline_id'))->toBe($deadline->id)
+        ->and($audit->properties->get('tier'))->toBe('d7');
+
+    expect($responsible->notifications()->count())->toBe(1)
+        ->and($lead->notifications()->count())->toBe(1)
+        ->and($admin->notifications()->count())->toBe(1)
+        ->and($inactiveAdmin->notifications()->count())->toBe(0);
 });

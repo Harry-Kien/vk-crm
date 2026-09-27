@@ -249,8 +249,24 @@ it('không tệp nào của cổng khách nhắc tới ghi chú nội bộ', fun
  * còn hàm gỡ lỗi" phía trên: rất nhiều docblock của chính `CheckDeadlines` nhắc tới
  * `Mail::to()->send()` trong VĂN XUÔI để giải thích lịch sử, và một luật đọc chữ thô sẽ tự tố
  * chính lời giải thích của nó.
+ *
+ * # Vòng sửa 1 (Minor): mở rộng sang thông báo trong ứng dụng
+ *
+ * Cùng một rủi ro với `Mail::`: `Notification::send()`/`Notification::route()` (facade
+ * `Illuminate\Support\Facades\Notification`) và `$model->notify()` (trait `Notifiable`) đều có
+ * thể chạy một kênh MẠNG THẬT (kênh `mail`, `broadcast`, `slack`, ...) tuỳ theo lớp
+ * `Illuminate\Notifications\Notification` được truyền vào — cùng hình dạng rủi ro đã buộc `Mail::`
+ * ra khỏi transaction. Luật quét thêm HAI mẫu này, CHỈ khi chúng thật sự là lời GỌI (`::send`/
+ * `::route`/`->notify(`), không phải mọi chữ "Notification" xuất hiện.
+ *
+ * **CỐ Ý không chặn `Notification::make()`.** Đó là `Filament\Notifications\Notification` (đã
+ * dùng ở `SyncClientPartyIdentities.php` qua `->sendToDatabase()`) — một câu GHI CSDL đơn thuần
+ * vào bảng `notifications` của chính ứng dụng, không mở kết nối mạng nào, nên không mang cùng
+ * rủi ro với `Mail::`/`Notification::send()`. Phân biệt bằng TÊN PHƯƠNG THỨC đứng sau `::`, không
+ * phải bằng tên lớp — token hoá không biết `Notification::make()` ở một tệp là lớp nào trong hai
+ * lớp cùng tên "Notification" đó, và cũng không cần biết, miễn phương thức được gọi đúng là an toàn.
  */
-it('không có Mail:: nào chạy bên trong DB::transaction ở app/Actions', function () {
+it('không có Mail::/Notification::send/route/->notify( nào chạy bên trong DB::transaction ở app/Actions', function () {
     $root = app_path('Actions');
     $offenders = [];
 
@@ -265,6 +281,29 @@ it('không có Mail:: nào chạy bên trong DB::transaction ở app/Actions', f
         ));
 
         $text = fn ($token): string => is_array($token) ? $token[1] : $token;
+        $isWhitespace = fn ($token): bool => is_array($token) && $token[0] === T_WHITESPACE;
+
+        /** Token tiếp theo, bỏ qua khoảng trắng — dùng để nhận `::send`/`::route`/`->notify(`. */
+        $nextNonWs = function (array $tokens, int $i) use ($isWhitespace) {
+            $j = $i + 1;
+
+            while (isset($tokens[$j]) && $isWhitespace($tokens[$j])) {
+                $j++;
+            }
+
+            return $tokens[$j] ?? null;
+        };
+
+        /** Token đứng trước, bỏ qua khoảng trắng — dùng để nhận `->` ngay trước `notify`. */
+        $prevNonWs = function (array $tokens, int $i) use ($isWhitespace) {
+            $j = $i - 1;
+
+            while ($j >= 0 && $isWhitespace($tokens[$j])) {
+                $j--;
+            }
+
+            return $tokens[$j] ?? null;
+        };
 
         // `$armed`: đã thấy "DB" "::" "transaction", đang đợi đúng dấu "(" mở đầu lời gọi — TÁCH
         // RIÊNG khỏi việc đếm độ sâu ngoặc, để dấu "(" đó chỉ được đếm ĐÚNG MỘT LẦN (bởi nhánh
@@ -273,7 +312,7 @@ it('không có Mail:: nào chạy bên trong DB::transaction ở app/Actions', f
         // độ sâu không bao giờ trở lại 0 ở đúng ngoặc đóng, và luật này không bắt được gì cả.
         $armed = false;
         $depth = 0; // > 0: đang ở trong dấu ngoặc của một lời gọi DB::transaction(...).
-        $sawMail = false;
+        $sawOffense = false;
 
         foreach ($tokens as $i => $token) {
             if ($depth === 0 && ! $armed) {
@@ -290,7 +329,7 @@ it('không có Mail:: nào chạy bên trong DB::transaction ở app/Actions', f
             if ($armed && $depth === 0) {
                 if ($token === '(') {
                     $depth = 1;
-                    $sawMail = false;
+                    $sawOffense = false;
                     $armed = false;
                 } elseif (! (is_array($token) && $token[0] === T_WHITESPACE)) {
                     // Không có gì khác hơn khoảng trắng đứng giữa "transaction" và "(" trong PHP
@@ -306,16 +345,42 @@ it('không có Mail:: nào chạy bên trong DB::transaction ở app/Actions', f
             } elseif ($token === ')') {
                 $depth--;
 
-                if ($depth === 0 && $sawMail) {
+                if ($depth === 0 && $sawOffense) {
                     $offenders[] = str_replace(base_path().DIRECTORY_SEPARATOR, '', $file->getPathname());
                 }
-            } elseif (is_array($token) && $token[0] === T_STRING && $token[1] === 'Mail') {
-                $sawMail = true;
+            } elseif (is_array($token) && $token[0] === T_STRING) {
+                $name = $token[1];
+
+                if ($name === 'Mail') {
+                    $sawOffense = true;
+                } elseif ($name === 'Notification' && $text($nextNonWs($tokens, $i)) === '::') {
+                    // Tên phương thức ngay sau '::' — CHỈ send()/route() bị chặn. make() (đọc
+                    // docblock ở trên) cố ý không chặn.
+                    $j = $i + 1;
+
+                    while (isset($tokens[$j]) && ($isWhitespace($tokens[$j]) || $text($tokens[$j]) === '::')) {
+                        $j++;
+                    }
+
+                    $method = $tokens[$j] ?? null;
+
+                    if (is_array($method) && $method[0] === T_STRING && in_array($method[1], ['send', 'route'], true)) {
+                        $sawOffense = true;
+                    }
+                } elseif ($name === 'notify'
+                    && $text($prevNonWs($tokens, $i)) === '->'
+                    && $text($nextNonWs($tokens, $i)) === '('
+                ) {
+                    $sawOffense = true;
+                }
             }
         }
     }
 
-    expect($offenders)->toBe([], 'Mail:: chạy bên trong DB::transaction ở: '.implode(', ', $offenders));
+    expect($offenders)->toBe(
+        [],
+        'Mail::/Notification::send/route/->notify( chạy bên trong DB::transaction ở: '.implode(', ', $offenders),
+    );
 });
 
 // ---------------------------------------------------------------------------------------------

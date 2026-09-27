@@ -207,6 +207,15 @@ it('runs the schedule on Vietnam time, so an 0700 job is 0700 at the office', fu
     expect(config('app.timezone'))->toBe('Asia/Ho_Chi_Minh');
 });
 
+/**
+ * Vòng sửa 1, I1: `->name()` chỉ là bí danh của `->description()` trong Laravel 13 (cả hai ghi
+ * cùng một property `$description`) — một lời gọi cả hai chỉ còn giữ giá trị của lời gọi SAU
+ * CÙNG, và bản routes/console.php trước bản sửa này gọi `->name($id)` RỒI `->description($text)`,
+ * nên định danh ổn định `$id` bị mất hẳn, chỉ còn lại chuỗi tiếng Việt. Bản sửa giữ ĐÚNG MỘT giá
+ * trị ổn định cho mỗi tác vụ (chuỗi định danh, ví dụ `queue.drain`) bằng cách chỉ gọi `->name()`,
+ * bỏ hẳn `->description()` — nên các test dưới đây tra theo ĐÚNG chuỗi định danh đó, không phải
+ * câu tiếng Việt (câu tiếng Việt vẫn còn, nhưng nay chỉ nằm trong docblock phía trên mỗi khai báo).
+ */
 it('registers the heartbeat, the health touch and the queue drain', function () {
     $names = collect(Schedule::events())
         ->map(fn ($event) => $event->description)
@@ -214,14 +223,14 @@ it('registers the heartbeat, the health touch and the queue drain', function () 
         ->values()
         ->all();
 
-    expect($names)->toContain('Ghi nhận scheduler còn sống')
-        ->and($names)->toContain('Ping dịch vụ giám sát cron bên ngoài')
-        ->and($names)->toContain('Rút hàng đợi, thay cho worker thường trực');
+    expect($names)->toContain('system-health.touch')
+        ->and($names)->toContain('system-health.heartbeat')
+        ->and($names)->toContain('queue.drain');
 });
 
 it('never lets the queue drain overlap itself', function () {
     $drain = collect(Schedule::events())
-        ->first(fn ($event) => $event->description === 'Rút hàng đợi, thay cho worker thường trực');
+        ->first(fn ($event) => $event->description === 'queue.drain');
 
     // Cron gọi mỗi phút. Không có khoá này, một hàng đợi bận sẽ chồng tiến trình lên nhau cho
     // tới khi máy chủ hết bộ nhớ.
@@ -230,7 +239,7 @@ it('never lets the queue drain overlap itself', function () {
 
 it('lets a killed queue drain hold its overlap lock for ten minutes at most, not a whole day', function () {
     $drain = collect(Schedule::events())
-        ->first(fn ($event) => $event->description === 'Rút hàng đợi, thay cho worker thường trực');
+        ->first(fn ($event) => $event->description === 'queue.drain');
 
     // `withoutOverlapping()` trần giữ khoá 1440 phút. Trên shared hosting tiến trình rút hàng đợi
     // hay bị giết giữa chừng (giới hạn CPU/thời gian của nhà cung cấp) — khi đó khoá không được
@@ -238,4 +247,15 @@ it('lets a killed queue drain hold its overlap lock for ten minutes at most, not
     // trong bảng `jobs`, trong khi đồng hồ sức khoẻ (một tác vụ KHÁC) vẫn báo xanh. Mỗi lần rút
     // tự dừng sau `--max-time=50` giây, nên 10 phút vẫn rộng gấp mười hai lần một lần chạy thật.
     expect($drain->expiresAt)->toBe(10);
+});
+
+/** Vòng sửa 1, I1: mốc nhắc hạn cũng phải tra được theo đúng định danh ổn định của nó. */
+it('registers the deadline check under its stable id', function () {
+    $names = collect(Schedule::events())
+        ->map(fn ($event) => $event->description)
+        ->filter()
+        ->values()
+        ->all();
+
+    expect($names)->toContain('deadlines.check');
 });

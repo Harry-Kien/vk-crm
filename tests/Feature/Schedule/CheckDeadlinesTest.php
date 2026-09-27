@@ -5,6 +5,7 @@ use App\Actions\Schedule\CheckDeadlines;
 use App\Enums\DeadlineSeverity;
 use App\Enums\OutboundStatus;
 use App\Enums\Role;
+use App\Jobs\SendDeadlineReminderMail;
 use App\Mail\Staff\DeadlineReminder;
 use App\Models\Deadline;
 use App\Models\Matter;
@@ -13,6 +14,8 @@ use App\Models\OutboundMessage;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Database\Events\TransactionCommitted;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
 use Symfony\Component\Mailer\Envelope as SymfonyEnvelope;
@@ -400,8 +403,26 @@ it('sends nothing for a deadline whose matter is cancelled between building the 
  *
  * Cả ba tầng đều tránh bậc `d1`/`overdue` (có gộp thêm TOÀN BỘ quản lý — xem `recipientsFor()`),
  * để mỗi mốc chỉ có ĐÚNG một người nhận và phép đếm dưới đây không lẫn lộn.
+ *
+ * Vòng sửa 1: rút hàng đợi thật ĐÚNG MỘT LƯỢT (`queue:work`, hàng đợi `database`, không phải
+ * `sync` mặc định — xem lý do bên dưới), rồi đối chiếu `reminders_sent` của mốc hỏng vẫn CÒN
+ * đánh dấu, vì một lần hỏng không phải là "hết lượt thử". Hành vi "rút lại đánh dấu SAU KHI hết
+ * $tries" được đo riêng, xa hơn ở `SendDeadlineReminderMailTest` (gọi thẳng `->failed()`, không
+ * cần dựng lại toàn bộ nhịp thời gian 5 lượt thử/backoff của hàng đợi thật) và ở test "dispatches
+ * the tier again..." ngay dưới đây — tách khỏi test này để không phải mô phỏng cả năm lượt
+ * `backoff()` (60/300/900/3600s) bằng `$this->travel()` chỉ để chứng minh một điều đã đo được
+ * gọn hơn ở nơi khác.
+ *
+ * **Vì sao test này KHÔNG dùng hàng đợi `sync` mặc định.** `Illuminate\Queue\Jobs\Job::fail()`
+ * (được `SyncQueue::handleException()` gọi cho MỌI ngoại lệ, không kiểm tra `$tries`) luôn gọi
+ * `failed()` ngay từ lần hỏng ĐẦU TIÊN — `sync` không có khái niệm "còn lượt thử" vì nó không
+ * xếp hàng thật. Chỉ `Illuminate\Queue\Worker::process()` (dùng bởi `queue:work`, tức hàng đợi
+ * `database` thật) mới so `attempts()` với `$tries` trước khi quyết định thả lại (`release()`)
+ * hay coi là hỏng hẳn (`fail()`) — và CHỈ MỘT lượt thử (chưa hết `$tries`) là đủ để phân biệt hai
+ * đường đó, không cần đi hết cả năm lượt.
  */
-it('keeps mailing the other deadlines when the first ones mail fails, and leaves its failed row behind', function () {
+it('keeps mailing the other deadlines when the first one fails once, without treating one failure as exhausted', function () {
+    config(['queue.default' => 'database']);
     $failingLawyer = User::factory()->withRole(Role::Lawyer)->create(['email' => 'ls-hong-thu@vidu.test']);
     config(['mail.default' => deadlineSelectiveFailMailer('ls-hong-thu@vidu.test')]);
 
@@ -413,12 +434,23 @@ it('keeps mailing the other deadlines when the first ones mail fails, and leaves
 
     expect($result['reminded'])->toBe(3);
 
+    // Rút từng job MỘT, bằng `--once` (tiền lệ `tests/Feature/Actions/OpenMatterTest.php`,
+    // `openMatterDrainDatabaseQueue()`) — KHÔNG dùng `--stop-when-empty`: một lần hỏng ngay job
+    // ĐẦU TIÊN khiến `release()` XOÁ RỒI TẠO LẠI dòng đó với id MỚI (lớn hơn hai job còn lại).
+    // Vòng lặp bên trong CỦA MỘT lần gọi `queue:work` (giữa các lượt `getNextJob()`) đã đo được
+    // là không luôn tiếp tục sang job kế tiếp một cách đáng tin cậy ngay sau một job vừa ném lỗi
+    // và được thả lại — ba lời gọi `--once` RIÊNG BIỆT, mỗi lời gọi khởi tạo một `Worker` mới, mới
+    // chắc chắn mỗi job (dù thành công hay hỏng) đều được xét đúng một lần.
+    for ($i = 0; $i < 3; $i++) {
+        Artisan::call('queue:work', ['connection' => 'database', '--once' => true, '--sleep' => 0]);
+    }
+
     $secondSent = OutboundMessage::query()->withoutGlobalScopes()
         ->where('recipient', $second->responsible->email)->where('status', OutboundStatus::Sent)->count();
     $thirdSent = OutboundMessage::query()->withoutGlobalScopes()
         ->where('recipient', $third->responsible->email)->where('status', OutboundStatus::Sent)->count();
 
-    // Mốc gấp nhất hỏng KHÔNG chặn mốc hai và mốc ba — vẫn xếp thư như thường.
+    // Mốc gấp nhất hỏng KHÔNG chặn mốc hai và mốc ba — vẫn xếp thư và gửi được như thường.
     expect($secondSent)->toBe(1)
         ->and($thirdSent)->toBe(1);
 
@@ -428,17 +460,43 @@ it('keeps mailing the other deadlines when the first ones mail fails, and leaves
     expect($failedRows)->toHaveCount(1)
         ->and($failedRows->first()->error)->toContain('TransportException');
 
-    // reminders_sent được đánh dấu cho CẢ BA — kể cả mốc một, dù thư của nó hỏng (xem docblock
-    // lớp: chống gửi trùng nghĩa là "đã có job xếp hàng đi gửi", không phải "đã tới nơi").
+    // Job của mốc một chưa hết $tries: vẫn còn trong bảng jobs (thả lại chờ backoff), CHƯA sang
+    // failed_jobs — nên reminders_sent của nó vẫn còn 'd3'. Một lần hỏng không phải là "hết lượt
+    // thử": xem docblock `SendDeadlineReminderMail::failed()`.
+    expect(DB::table('jobs')->count())->toBe(1)
+        ->and(DB::table('failed_jobs')->count())->toBe(0);
+
     expect($first->fresh()->reminders_sent)->toContain('d3')
         ->and($second->fresh()->reminders_sent)->toContain('d7')
         ->and($third->fresh()->reminders_sent)->toContain('d14');
+});
 
-    $totalBefore = OutboundMessage::query()->withoutGlobalScopes()->count();
+// ---------------------------------------------------------------------------------------------
+// Vòng sửa 1, C1 (critical): job hỏng HẲN không được để mốc mất vĩnh viễn.
+// ---------------------------------------------------------------------------------------------
 
-    // Chạy lại NGAY: reminders_sent đã đánh dấu nên không xếp thư trùng cho bất kỳ mốc nào,
-    // kể cả mốc đã hỏng ở lượt trước.
+/**
+ * C1: trước bản sửa này, `reminders_sent` chỉ được ghi TRƯỚC khi gửi (Task 11) và không có gì
+ * rút lại nếu job hỏng hẳn — mốc mất vĩnh viễn, vì lượt `CheckDeadlines` kế tiếp bỏ qua nó mãi
+ * mãi (`in_array($key, $already, true)` đúng ở dòng 164 của Action). `SendDeadlineReminderMail::
+ * failed()` (mới, vòng sửa 1) rút bậc đó ra khỏi `reminders_sent`, nên lượt kế tiếp coi mốc này
+ * như CHƯA từng được xếp hàng ở bậc đó, và xếp lại.
+ */
+it('dispatches the tier again on the next CheckDeadlines run after the job for it permanently failed', function () {
+    Mail::fake();
+    $deadline = deadlineDueIn(3); // tier d3
+
+    (new CheckDeadlines)->handle();
+    Mail::assertSent(DeadlineReminder::class, 1);
+    expect($deadline->fresh()->reminders_sent)->toContain('d3');
+
+    $job = new SendDeadlineReminderMail($deadline->id, [$deadline->responsible_user_id], 'd3');
+    $job->failed(new RuntimeException('SMTP giả lập chết hẳn, hết mọi lượt thử.'));
+
+    expect($deadline->fresh()->reminders_sent)->not->toContain('d3');
+
     (new CheckDeadlines)->handle();
 
-    expect(OutboundMessage::query()->withoutGlobalScopes()->count())->toBe($totalBefore);
+    Mail::assertSent(DeadlineReminder::class, 2);
+    expect($deadline->fresh()->reminders_sent)->toContain('d3');
 });
