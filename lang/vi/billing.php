@@ -82,6 +82,9 @@ return [
         'checklist_nudge' => 'Đầu mục danh mục "Hợp đồng dịch vụ pháp lý và giấy uỷ quyền" vẫn còn thiếu. Tải bản đã ký lên đúng đầu mục đó ở tab Tài liệu.',
         'payment_line' => ':date — :amount (:method), luật sư được ghi doanh thu: :lawyer',
         'payment_line_voided' => ':date — :amount (:method), luật sư được ghi doanh thu: :lawyer — ĐÃ HUỶ (:reason)',
+        // Lượt rà soát cuối M9, I4: badge xám của một đợt thuộc hợp đồng không còn hiệu lực — nói
+        // trạng thái HỢP ĐỒNG thay cho "Quá hạn"/"Đến hạn" của đợt.
+        'contract_state_badge' => 'Hợp đồng: :status',
         'summary' => [
             'status' => 'Trạng thái',
             'total_amount' => 'Tổng giá trị hợp đồng',

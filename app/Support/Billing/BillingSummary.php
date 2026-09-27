@@ -8,6 +8,7 @@ use App\Models\Instalment;
 use App\Models\Payment;
 use App\Support\Scopes\ClientPortalScope;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 
 /**
  * "Còn phải thu" của MỘT vụ việc — MỘT định nghĩa, dùng ở mọi chỗ cần chặn hay báo cáo dư nợ (M9
@@ -72,7 +73,10 @@ final class BillingSummary
             ->where('status', InstalmentStatus::Pending->value)
             ->whereHas('contract', fn (Builder $query) => $query
                 ->where('matter_id', $matterId)
-                ->where('status', ContractStatus::Active->value));
+                ->where('status', ContractStatus::Active->value))
+            // `Instalment::outstanding()` đọc `$this->contract->status` (I4) — nạp sẵn một lần cho
+            // cả danh sách, không một truy vấn mỗi đợt.
+            ->with(['contract' => fn ($query) => $query->withoutGlobalScope(ClientPortalScope::class)]);
     }
 
     // =============================================================================================
@@ -131,6 +135,24 @@ final class BillingSummary
             ->selectRaw('instalments.*')
             ->selectRaw(self::collectedExpression().' as collected_amount')
             ->selectRaw(self::outstandingExpression('instalments.amount', 'instalments.id').' as outstanding_amount');
+    }
+
+    /**
+     * Tổng cột `outstanding_amount` của một truy vấn dựng từ {@see self::pendingInstalmentsQuery()}
+     * (đã thêm phạm vi của nơi gọi, và `->overdue()` nếu cần "quá hạn") — cộng ngay trong CSDL,
+     * không hydrate một `Instalment` nào (lượt rà soát cuối M9, I1: lát "quá hạn" của biểu đồ và
+     * tổng "Quá hạn" của tab tiền là PHẦN CÒN LẠI của đợt quá hạn, không phải giá trị mặt, vì một đợt
+     * thu một phần giờ cũng có thể quá hạn).
+     *
+     * **`fromSub()->sum()`, không `->sum('outstanding_amount')` thẳng:** `outstanding_amount` là một
+     * bí danh `selectRaw`, mà `aggregate()` của query builder xoá sạch SELECT hiện có trước khi
+     * chạy — bọc truy vấn làm một BẢNG CON rồi mới cộng.
+     *
+     * @param  Builder<Instalment>  $pendingInstalments
+     */
+    public static function sumOutstanding(Builder $pendingInstalments): int
+    {
+        return (int) DB::query()->fromSub($pendingInstalments, 'pending')->sum('outstanding_amount');
     }
 
     /**

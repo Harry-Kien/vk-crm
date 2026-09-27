@@ -19,7 +19,6 @@ use Filament\Widgets\Concerns\InteractsWithPageFilters;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
 
 /**
  * "Đã thu / còn phải thu / quá hạn" — vành khuyên, BA lát, kèm một bảng số (M9 Task 9). Nơi DUY
@@ -40,9 +39,15 @@ use Illuminate\Support\Facades\DB;
  * Sửa: "còn phải thu"/"quá hạn" đọc THẲNG từ {@see BillingSummary::pendingInstalmentsQuery()} (chỉ
  * hợp đồng `active`, đúng một công thức toàn dự án) và {@see Instalment::scopeOverdue()} — không
  * công thức nào khác. `not_yet_due = outstanding - overdue`, và phép trừ này AN TOÀN vì tập hợp
- * "quá hạn" là một TẬP CON chặt của tập hợp "còn phải thu" (cùng `pendingInstalmentsQuery()`, cộng
- * đúng hai điều kiện: `due_date < hôm nay` và `chưa thu đồng nào` — không đợt nào vừa "quá hạn" vừa
- * nằm ngoài "còn phải thu").
+ * "quá hạn" là một TẬP CON của tập hợp "còn phải thu" (cùng `pendingInstalmentsQuery()` cộng
+ * `->overdue()`), và CẢ HAI lát cộng cùng một cột `outstanding_amount`
+ * ({@see BillingSummary::sumOutstanding()}) — không đợt nào góp vào "quá hạn" nhiều hơn phần nó góp
+ * vào "còn phải thu".
+ *
+ * **Lát "quá hạn" là PHẦN CÒN LẠI của các đợt đã quá hạn, kể cả đợt đã thu một phần** (lượt rà
+ * soát cuối M9, I1: một định nghĩa "quá hạn" — xem `Instalment::scopeOverdue()`). Phần đã thu của
+ * đợt đó nằm ở lát "đã thu"; bản trước cộng GIÁ TRỊ MẶT của đợt quá hạn, đúng khi "quá hạn" còn đòi
+ * "chưa thu đồng nào", sai ngay khi một đợt thu một phần được tính là quá hạn.
  *
  * **Quần thể của phần đối chiếu (`signed`/`written_off`/`cancelled`) là hợp đồng `active` +
  * `completed`.** Hợp đồng `cancelled` không bao giờ tính vào công nợ (khớp `BillingSummary`, vốn
@@ -226,34 +231,22 @@ class ReceivablesDonutWidget extends ChartWidget
             ->sum('amount');
 
         // C1: còn phải thu — CHỈ từ BillingSummary::pendingInstalmentsQuery() (chỉ hợp đồng
-        // `active`, đúng MỘT công thức toàn dự án).
-        //
-        // **`fromSub()->sum()`, KHÔNG `.get()->sum()`** (Fix round 2, minor): bản trước NẠP HẾT
-        // mọi đợt còn công nợ thành model Eloquent chỉ để cộng một cột trong PHP — đúng chi phí mà
-        // `BillingSummary::pendingInstalmentsQuery()` được viết ra để TRÁNH (một round-trip TÍNH
-        // SẴN bằng SQL, không phải kéo dữ liệu về rồi tính tay). `outstanding_amount` là một bí
-        // danh `selectRaw` nên không gọi thẳng `.sum('outstanding_amount')` được (xem docblock
-        // `$writtenOffRow`: `aggregate()` của query builder xoá sạch SELECT hiện có trước khi
-        // chạy) — bọc câu truy vấn Eloquent làm một BẢNG CON (`fromSub`, Laravel chấp nhận thẳng
-        // một `Illuminate\Database\Eloquent\Builder`, xem `Query\Builder::parseSub()`) rồi mới
-        // `.sum()` trên bảng con đó: cộng vẫn chạy trong CSDL, không một Instalment nào được hydrate.
-        $outstanding = (int) DB::query()
-            ->fromSub(
-                BillingSummary::pendingInstalmentsQuery()
-                    ->whereHas('contract', fn (Builder $q) => $contractPeriodScope($q)->whereHas('matter', $outstandingMatterScope)),
-                'pending',
-            )
-            ->sum('outstanding_amount');
+        // `active`, đúng MỘT công thức toàn dự án), cộng trong CSDL qua
+        // BillingSummary::sumOutstanding() (Fix round 2, minor: không nạp hết các đợt về PHP chỉ
+        // để cộng một cột).
+        $pendingInScope = fn (): Builder => BillingSummary::pendingInstalmentsQuery()
+            ->whereHas('contract', fn (Builder $q) => $contractPeriodScope($q)->whereHas('matter', $outstandingMatterScope));
 
-        $overdue = (int) Instalment::query()
-            ->withoutGlobalScope(ClientPortalScope::class)
-            ->overdue()
-            ->whereHas('contract', fn (Builder $q) => $contractPeriodScope($q)->whereHas('matter', $outstandingMatterScope))
-            ->sum('amount');
+        $outstanding = BillingSummary::sumOutstanding($pendingInScope());
 
-        // An toàn: tập "quá hạn" là tập con chặt của tập "còn phải thu" (xem docblock lớp), nên
-        // phép trừ này không bao giờ cần kẹp ở 0 trên dữ liệu hợp lệ — vẫn kẹp để không âm nếu một
-        // ngày điều đó đổi.
+        // I1 (lượt rà soát cuối M9): cùng tập đợt, thêm `->overdue()`, cộng CÙNG cột
+        // `outstanding_amount` — phần CÒN LẠI của đợt quá hạn (kể cả đợt đã thu một phần), không
+        // phải giá trị mặt của nó.
+        $overdue = BillingSummary::sumOutstanding($pendingInScope()->overdue());
+
+        // An toàn: tập "quá hạn" là tập con của tập "còn phải thu" và hai lát cộng cùng một cột
+        // (xem docblock lớp), nên phép trừ này không bao giờ cần kẹp ở 0 trên dữ liệu hợp lệ — vẫn
+        // kẹp để không âm nếu một ngày điều đó đổi.
         $notYetDue = max(0, $outstanding - $overdue);
 
         return [

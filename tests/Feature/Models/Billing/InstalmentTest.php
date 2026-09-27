@@ -71,7 +71,11 @@ it('derives the display state from stored status, due date, and uncancelled paym
     'pending, due date in the future, nothing collected -> due' => [InstalmentStatus::Pending, '10', 10_000_000, 0, InstalmentState::Due],
     'pending, due date today, nothing collected -> due (not overdue)' => [InstalmentStatus::Pending, '0', 10_000_000, 0, InstalmentState::Due],
     'pending, due date in the past, nothing collected -> overdue' => [InstalmentStatus::Pending, '-1', 10_000_000, 0, InstalmentState::Overdue],
-    'pending, past due date, partially collected -> partially_paid (not overdue)' => [InstalmentStatus::Pending, '-5', 10_000_000, 4_000_000, InstalmentState::PartiallyPaid],
+    // Lượt rà soát cuối M9, I1: MỘT định nghĩa "quá hạn" — đã quá ngày và còn phải thu > 0, DÙ đã
+    // thu một phần. Phần đã thu vẫn hiện ở cột "Đã thu"/"Còn lại", không mất đi đâu.
+    'pending, past due date, partially collected -> overdue' => [InstalmentStatus::Pending, '-5', 10_000_000, 4_000_000, InstalmentState::Overdue],
+    'pending, due date today, partially collected -> partially_paid' => [InstalmentStatus::Pending, '0', 10_000_000, 4_000_000, InstalmentState::PartiallyPaid],
+    'pending, due date in the future, partially collected -> partially_paid' => [InstalmentStatus::Pending, '10', 10_000_000, 4_000_000, InstalmentState::PartiallyPaid],
     'pending, fully collected but status not synced yet -> paid' => [InstalmentStatus::Pending, '-5', 10_000_000, 10_000_000, InstalmentState::Paid],
     'stored paid -> paid' => [InstalmentStatus::Paid, '-5', 10_000_000, 0, InstalmentState::Paid],
     'stored waived -> waived' => [InstalmentStatus::Waived, null, 10_000_000, 0, InstalmentState::Waived],
@@ -92,17 +96,33 @@ it('ignores voided payments when computing the collected total for state()', fun
 });
 
 /**
- * `outstanding()` (M9 Task 5) — còn phải thu của MỘT đợt, số nguyên đồng.
+ * Hợp đồng ĐANG HIỆU LỰC mang đúng một đợt — dựng ở `draft` rồi chuyển thẳng `active` bằng một lần
+ * ghi model (dựng DỮ LIỆU CHO TEST, không phải hành vi đang kiểm). Đợt `cancelled` ra khỏi tổng M9
+ * (`ScheduleTotal::counted()`), nên giá trị hợp đồng khi đó là 0 để bất biến tổng vẫn khớp.
+ *
+ * @param  array<string, mixed>  $attributes
+ */
+function instalmentOnActiveContract(array $attributes): Instalment
+{
+    $amount = $attributes['amount'] ?? 10_000_000;
+    $counted = ($attributes['status'] ?? InstalmentStatus::Pending) === InstalmentStatus::Cancelled ? 0 : $amount;
+
+    $contract = Contract::factory()->create(['status' => ContractStatus::Draft, 'total_amount' => $counted]);
+    $instalment = Instalment::factory()->for($contract)->create(['amount' => $amount, ...$attributes]);
+    $contract->forceFill(['status' => ContractStatus::Active, 'signed_at' => today()->subDay()->toDateString()])->save();
+
+    return $instalment->fresh();
+}
+
+/**
+ * `outstanding()` (M9 Task 5) — còn phải thu của MỘT đợt, số nguyên đồng, trên hợp đồng `active`.
  */
 it('computes outstanding as amount minus uncancelled payments, zero for waived/cancelled/paid', function (
     InstalmentStatus $status,
     int $collected,
     int $expected,
 ) {
-    // Hợp đồng NHÁP, cố ý — cùng lý do test state() ở trên: cô lập outstanding() khỏi bất biến
-    // tổng M9, không liên quan tới điều đang thử ở đây.
-    $contract = Contract::factory()->create(['status' => ContractStatus::Draft, 'total_amount' => 10_000_000]);
-    $instalment = Instalment::factory()->for($contract)->create(['status' => $status, 'amount' => 10_000_000]);
+    $instalment = instalmentOnActiveContract(['status' => $status, 'amount' => 10_000_000]);
 
     if ($collected > 0) {
         Payment::factory()->for($instalment)->create(['amount' => $collected]);
@@ -119,8 +139,7 @@ it('computes outstanding as amount minus uncancelled payments, zero for waived/c
 ]);
 
 it('ignores voided payments when computing outstanding()', function () {
-    $contract = Contract::factory()->create(['status' => ContractStatus::Draft, 'total_amount' => 10_000_000]);
-    $instalment = Instalment::factory()->for($contract)->create(['status' => InstalmentStatus::Pending, 'amount' => 10_000_000]);
+    $instalment = instalmentOnActiveContract(['status' => InstalmentStatus::Pending, 'amount' => 10_000_000]);
 
     Payment::factory()->for($instalment)->voided()->create(['amount' => 10_000_000]);
 
@@ -128,14 +147,37 @@ it('ignores voided payments when computing outstanding()', function () {
 });
 
 /**
+ * Lượt rà soát cuối M9, I4: "còn phải thu" của một đợt là 0 khi hợp đồng không `active` — cùng
+ * định nghĩa với mọi tổng (`BillingSummary`, `scopeOverdue()`, trang "Công nợ"), để dòng của tab
+ * không nói ngược với con số tổng ngay trên nó. Tiền đã thu vẫn là tiền đã thu (không đổi ở đây).
+ */
+it('has nothing outstanding on a contract that is not active, even with money still unpaid on a pending instalment', function (string $contractState) {
+    // Trạng thái mặc định của ContractFactory là `draft` — không có state `draft()` riêng.
+    $factory = $contractState === 'draft' ? Contract::factory() : Contract::factory()->{$contractState}();
+    $contract = $factory->create(['total_amount' => 10_000_000]);
+    $instalment = Instalment::factory()->for($contract)->create([
+        'status' => InstalmentStatus::Pending,
+        'amount' => 10_000_000,
+        'due_date' => today()->subDays(5)->toDateString(),
+    ]);
+    Payment::factory()->for($instalment)->create(['amount' => 4_000_000]);
+
+    expect($instalment->fresh()->outstanding())->toBe(0);
+})->with([
+    'cancelled' => 'cancelled',
+    'completed' => 'completed',
+    'draft' => 'draft',
+]);
+
+/**
  * `scopeOverdue()` (M9 Task 5) — cùng điều kiện với nhánh cuối của `pendingState()`, viết bằng SQL.
  * Tập biên NẰM TRÊN MỘT HỢP ĐỒNG `active` DUY NHẤT (constraint (b), Task 4: fixture phải giữ tổng
  * cân bằng — soạn nháp, thêm đủ đợt, rồi mới kích hoạt bằng một lần ghi thẳng).
  */
-it('agrees with state() on the instalment-level boundary set: due today, past due, partially paid, waived, cancelled', function () {
-    // Tổng chỉ tính 5 đợt CHƯA HUỶ (10 triệu x 5 = 50 triệu, `ScheduleTotal::counted()` loại đợt
-    // `cancelled` khỏi bất biến tổng M9), không phải 60 triệu gồm cả đợt `cancelled` thứ sáu.
-    $contract = Contract::factory()->create(['status' => ContractStatus::Draft, 'total_amount' => 50_000_000]);
+it('agrees with state() on the instalment-level boundary set: due today, past due, partially paid and past due, partially paid and due today, waived, cancelled', function () {
+    // Tổng chỉ tính 6 đợt CHƯA HUỶ (10 triệu x 6 = 60 triệu, `ScheduleTotal::counted()` loại đợt
+    // `cancelled` khỏi bất biến tổng M9), không phải 70 triệu gồm cả đợt `cancelled`.
+    $contract = Contract::factory()->create(['status' => ContractStatus::Draft, 'total_amount' => 60_000_000]);
 
     $dueToday = Instalment::factory()->for($contract)->create(['sequence' => 1, 'amount' => 10_000_000, 'due_date' => today()->toDateString()]);
     $overdue = Instalment::factory()->for($contract)->create(['sequence' => 2, 'amount' => 10_000_000, 'due_date' => today()->subDay()->toDateString()]);
@@ -143,9 +185,11 @@ it('agrees with state() on the instalment-level boundary set: due today, past du
     $fullyCollectedStillPending = Instalment::factory()->for($contract)->create(['sequence' => 4, 'amount' => 10_000_000, 'due_date' => today()->subDays(5)->toDateString()]);
     $waived = Instalment::factory()->for($contract)->create(['sequence' => 5, 'amount' => 10_000_000, 'due_date' => today()->subDay()->toDateString(), 'status' => InstalmentStatus::Waived, 'waived_reason' => str_repeat('a', 20), 'waived_at' => now()]);
     $cancelled = Instalment::factory()->for($contract)->create(['sequence' => 6, 'amount' => 10_000_000, 'due_date' => today()->subDay()->toDateString(), 'status' => InstalmentStatus::Cancelled]);
+    $partiallyPaidDueToday = Instalment::factory()->for($contract)->create(['sequence' => 7, 'amount' => 10_000_000, 'due_date' => today()->toDateString()]);
 
     Payment::factory()->for($partiallyPaidPastDue)->create(['amount' => 4_000_000]);
     Payment::factory()->for($fullyCollectedStillPending)->create(['amount' => 10_000_000]);
+    Payment::factory()->for($partiallyPaidDueToday)->create(['amount' => 4_000_000]);
 
     // Kích hoạt bằng cách ghi thẳng model (constraint (b)): tổng các đợt chưa huỷ (60 triệu) đã
     // khớp `total_amount` từ trước, nên lần chuyển sang `active` này qua được hook bất biến.
@@ -155,6 +199,7 @@ it('agrees with state() on the instalment-level boundary set: due today, past du
         'due today' => $dueToday,
         'overdue' => $overdue,
         'partially paid, past due' => $partiallyPaidPastDue,
+        'partially paid, due today' => $partiallyPaidDueToday,
         'fully collected, status not yet synced' => $fullyCollectedStillPending,
         'waived' => $waived,
         'cancelled' => $cancelled,
@@ -168,8 +213,10 @@ it('agrees with state() on the instalment-level boundary set: due today, past du
         expect($isOverdueByScope)->toBe($isOverdueByState, "lệch nhau ở ca: {$label}");
     }
 
+    // I1: đợt thu một phần đã quá hạn LÀ quá hạn ở cả hai nơi; đợt đã thu đủ (còn lại 0) thì không.
     expect($overdue->fresh()->state())->toBe(InstalmentState::Overdue)
-        ->and(Instalment::query()->overdue()->pluck('id')->all())->toBe([$overdue->id]);
+        ->and($partiallyPaidPastDue->fresh()->state())->toBe(InstalmentState::Overdue)
+        ->and(Instalment::query()->overdue()->orderBy('id')->pluck('id')->all())->toBe([$overdue->id, $partiallyPaidPastDue->id]);
 });
 
 /**
@@ -198,7 +245,9 @@ it('agrees with the normal query path whether collected_amount comes pre-compute
     $instalment = Instalment::factory()->for($contract)->create([
         'status' => InstalmentStatus::Pending,
         'amount' => 10_000_000,
-        'due_date' => today()->subDays(3)->toDateString(),
+        // Chưa tới hạn (I1: đã quá hạn thì `overdue` dù thu một phần) — để `partially_paid` ở đây
+        // THẬT SỰ phụ thuộc vào số đã thu đọc từ nguồn nào.
+        'due_date' => today()->addDays(3)->toDateString(),
     ]);
     Payment::factory()->for($instalment)->create(['amount' => 4_000_000]);
 

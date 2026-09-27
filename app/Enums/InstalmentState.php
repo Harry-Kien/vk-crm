@@ -17,10 +17,10 @@ enum InstalmentState: string
     /** `status = pending`, có `due_date`, `due_date` chưa qua, chưa thu đồng nào. */
     case Due = 'due';
 
-    /** `status = pending`, có `due_date`, `due_date` đã qua, chưa thu đủ. */
+    /** `status = pending`, có `due_date`, `due_date` đã qua, chưa thu đủ — KỂ CẢ đã thu một phần (I1). */
     case Overdue = 'overdue';
 
-    /** `status = pending`, đã thu một phần (SUM khoản thu chưa huỷ > 0 và < `amount`). */
+    /** `status = pending`, `due_date` chưa qua, đã thu một phần (SUM khoản thu chưa huỷ > 0 và < `amount`). */
     case PartiallyPaid = 'partially_paid';
 
     /** `status = paid`, HOẶC `status = pending` mà tổng khoản thu chưa huỷ đã ≥ `amount`. */

@@ -105,7 +105,9 @@ return [
                 'cancelled_total' => 'Hợp đồng đã huỷ trong kỳ (không tính vào công nợ)',
                 'collected' => 'Đã thu',
                 'not_yet_due' => 'Còn phải thu, chưa tới hạn',
-                'overdue' => 'Quá hạn',
+                // Lượt rà soát cuối M9, I1: lát này là phần CÒN LẠI của đợt quá hạn, kể cả đợt đã
+                // thu một phần — phần đã thu nằm ở dòng "Đã thu".
+                'overdue' => 'Quá hạn (phần còn lại chưa thu, kể cả đợt đã thu một phần)',
             ],
         ],
         'over_time' => [

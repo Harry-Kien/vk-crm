@@ -120,6 +120,13 @@ use Illuminate\Validation\ValidationException;
  * cả `scheduled`/`due`/`partially_paid`), đỏ (`danger`) quá hạn, xám (`gray`) đã miễn/đã huỷ. Badge
  * luôn mang nhãn chữ của {@see InstalmentState::label()} — không có ô màu nào đứng một mình.
  *
+ * **Dòng của hợp đồng KHÔNG `active` hiện trạng thái HỢP ĐỒNG, xám** (lượt rà soát cuối M9, I4 —
+ * {@see self::displayState()}): ba con số tổng ở đầu bảng chỉ đọc hợp đồng `active`, nên một đợt
+ * còn `pending` của hợp đồng đã huỷ/đã hoàn tất mà hiện "Quá hạn" (đỏ) cùng "Còn lại" dương sẽ nói
+ * ngược với dòng "Còn phải thu: 0 ₫" ngay trên nó. "Còn lại" của những dòng đó là 0 vì chính
+ * {@see Instalment::outstanding()} trả 0 khi hợp đồng không `active` — một chỗ, không phải một
+ * điều kiện riêng của màn hình. "Đã thu" vẫn là số đã thu thật.
+ *
  * # Ô tiền
  *
  * Mọi ô tiền (`total_amount`, `new_total_amount`, `amount` của một đợt hay một khoản thu) là
@@ -148,9 +155,9 @@ use Illuminate\Validation\ValidationException;
  * # N+1 có chủ đích, có giới hạn
  *
  * `Instalment::outstanding()` chạy một truy vấn mỗi dòng — chấp nhận được trên một bảng của MỘT
- * vụ việc (kế hoạch M9 Task 7, "Do not call BillingSummary per row repeatedly"). Ba con số TỔNG
- * (đã thu / còn phải thu / quá hạn) ở đầu bảng tính MỘT LẦN qua
- * {@see BillingSummary} cộng hai truy vấn tổng hợp riêng — không lặp lại
+ * vụ việc (kế hoạch M9 Task 7, "Do not call BillingSummary per row repeatedly"); `contract` nạp
+ * sẵn cho cả bảng (`outstanding()` và badge đọc trạng thái hợp đồng). Ba con số TỔNG (đã thu /
+ * còn phải thu / quá hạn) ở đầu bảng tính MỘT LẦN qua {@see BillingSummary} — không lặp lại
  * `outstanding()` của từng dòng để cộng dồn.
  */
 class BillingRelationManager extends RelationManager
@@ -235,9 +242,11 @@ class BillingRelationManager extends RelationManager
                 TextColumn::make('state')
                     ->label(__('billing.tab.columns.state'))
                     ->badge()
-                    ->state(fn (Instalment $record): InstalmentState => $record->state())
-                    ->formatStateUsing(fn (InstalmentState $state): string => $state->label())
-                    ->color(fn (InstalmentState $state): string => static::stateColor($state)),
+                    ->state(fn (Instalment $record): InstalmentState|ContractStatus => static::displayState($record))
+                    ->formatStateUsing(fn (InstalmentState|ContractStatus $state): string => $state instanceof ContractStatus
+                        ? __('billing.tab.contract_state_badge', ['status' => $state->label()])
+                        : $state->label())
+                    ->color(fn (Instalment $record): string => static::displayStateColor($record)),
                 TextColumn::make('payments_list')
                     ->label(__('billing.tab.columns.payments'))
                     ->html()
@@ -258,7 +267,7 @@ class BillingRelationManager extends RelationManager
                 $this->voidPaymentAction(),
             ])
             ->modifyQueryUsing(fn (Builder $query): Builder => static::scopeToVisibleMatters($query, 'contract.matter')
-                ->with(['payments' => fn ($payments) => $payments->with('attributedLawyer')]));
+                ->with(['contract', 'payments' => fn ($payments) => $payments->with('attributedLawyer')]));
     }
 
     // =============================================================================================
@@ -326,11 +335,11 @@ class BillingRelationManager extends RelationManager
 
         $outstanding = BillingSummary::outstandingForMatter($matter->id)['amount'];
 
-        $overdue = (int) Instalment::query()
-            ->where('contract_id', $contract->id)
-            ->overdue()
-            ->get()
-            ->sum(fn (Instalment $instalment): int => $instalment->outstanding());
+        // I1 (lượt rà soát cuối M9): phần CÒN LẠI của các đợt quá hạn (kể cả đợt đã thu một phần),
+        // cộng trong CSDL bằng đúng công thức của biểu đồ doanh thu.
+        $overdue = BillingSummary::sumOutstanding(
+            BillingSummary::pendingInstalmentsQuery()->where('contract_id', $contract->id)->overdue()
+        );
 
         return sprintf(
             '<p style="font-weight:600">%s: <span style="color:var(--success-600)">%s</span> — %s: <span style="color:var(--warning-600)">%s</span> — %s: <span style="color:var(--danger-600)">%s</span></p>',
@@ -396,6 +405,25 @@ class BillingRelationManager extends RelationManager
                     ?? $instalment->trigger_stage_key,
             ]),
         };
+    }
+
+    /**
+     * Cái badge của một dòng nói: trạng thái của ĐỢT khi hợp đồng `active`, trạng thái của HỢP ĐỒNG
+     * khi không (I4 — xem docblock lớp). `contract` đã nạp sẵn cho cả bảng.
+     */
+    public static function displayState(Instalment $instalment): InstalmentState|ContractStatus
+    {
+        $contractStatus = $instalment->contract->status;
+
+        return $contractStatus === ContractStatus::Active ? $instalment->state() : $contractStatus;
+    }
+
+    /** Màu của badge {@see self::displayState()}: xám trung tính cho hợp đồng không `active`. */
+    public static function displayStateColor(Instalment $instalment): string
+    {
+        $state = static::displayState($instalment);
+
+        return $state instanceof ContractStatus ? 'gray' : static::stateColor($state);
     }
 
     public static function stateColor(InstalmentState $state): string

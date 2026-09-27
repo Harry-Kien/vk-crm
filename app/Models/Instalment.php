@@ -100,10 +100,19 @@ class Instalment extends Model
      * còn lại: chưa có `due_date` là `scheduled` (chưa tới lúc, không thể nói "quá hạn" một thứ
      * chưa có hạn); có `due_date` thì so tổng đã thu — thu đủ (dù `status` cột chưa kịp cập nhật
      * qua Action) hiển thị `paid` chứ không phải `due`/`overdue`, vì bảy trạng thái hiển thị nói
-     * cho người xem biết sự thật ngay bây giờ, không đợi một Action đồng bộ lại cột `status`; thu
-     * một phần là `partially_paid`, DÙ đã quá hạn — mất thông tin "đã thu một phần" để đổi lấy
-     * "quá hạn" là một lựa chọn tệ hơn khi kế toán đang cần biết còn bao nhiêu để giục; cuối cùng
-     * so ngày để phân `due`/`overdue`.
+     * cho người xem biết sự thật ngay bây giờ, không đợi một Action đồng bộ lại cột `status`.
+     *
+     * **Còn phải thu mà đã quá ngày là `overdue` — DÙ đã thu một phần** (lượt rà soát cuối M9, I1:
+     * MỘT định nghĩa "quá hạn" cho cả hệ thống, xem {@see self::scopeOverdue()}). Bản trước cho
+     * `partially_paid` thắng `overdue`, nên một đợt thu 1 đồng trên 10 triệu rồi bỏ đó không bao
+     * giờ hiện là quá hạn ở bất kỳ đâu — đúng loại nợ kế toán cần giục nhất. Phần đã thu KHÔNG mất:
+     * nó vẫn nằm ở cột "Đã thu"/"Còn lại" của mọi màn hình. `partially_paid` chỉ còn cho đợt đã
+     * thu một phần mà CHƯA quá hạn (đến hạn hôm nay hoặc sau); còn lại so ngày để phân
+     * `due`/`overdue`.
+     *
+     * **Không đọc trạng thái hợp đồng cha** — `state()` trả lời về MỘT đợt. Nơi nào hiện dòng của một
+     * hợp đồng KHÔNG `active` thì hiện trạng thái HỢP ĐỒNG thay cho hàm này (tab tiền của vụ, I4);
+     * mọi truy vấn tổng hợp đã tự lọc hợp đồng `active`.
      */
     public function state(): InstalmentState
     {
@@ -127,15 +136,16 @@ class Instalment extends Model
             return InstalmentState::Paid;
         }
 
-        if ($collected > 0) {
-            return InstalmentState::PartiallyPaid;
+        // Tới đây còn phải thu > 0. So theo NGÀY (`today()`), không theo giờ phút: `due_date` là
+        // một cột `date`, nên một đợt đến hạn ĐÚNG HÔM NAY vẫn là `due`, không phải `overdue` —
+        // `isPast()` sẽ sai ở đây vì nó so với thời khắc HIỆN TẠI (luôn sau nửa đêm), biến "đến
+        // hạn hôm nay" thành "quá hạn" ngay từ 00:00:01. Cùng thành ngữ `today()` với
+        // `Deadline::scopeUpcoming()`.
+        if ($this->due_date->lt(today())) {
+            return InstalmentState::Overdue;
         }
 
-        // So theo NGÀY (`today()`), không theo giờ phút: `due_date` là một cột `date`, nên một
-        // đợt đến hạn ĐÚNG HÔM NAY vẫn là `due`, không phải `overdue` — `isPast()` sẽ sai ở đây
-        // vì nó so với thời khắc HIỆN TẠI (luôn sau nửa đêm), biến "đến hạn hôm nay" thành "quá
-        // hạn" ngay từ 00:00:01. Cùng thành ngữ `today()` với `Deadline::scopeUpcoming()`.
-        return $this->due_date->lt(today()) ? InstalmentState::Overdue : InstalmentState::Due;
+        return $collected > 0 ? InstalmentState::PartiallyPaid : InstalmentState::Due;
     }
 
     /**
@@ -169,6 +179,12 @@ class Instalment extends Model
      * Còn phải thu của ĐÚNG đợt này — số nguyên đồng, không âm (M9 Task 5). Định nghĩa MỘT chỗ,
      * dùng bởi {@see BillingSummary} và bởi các chốt chặn xoá còn nợ.
      *
+     * - **Hợp đồng cha không `active` → `0`** (lượt rà soát cuối M9, I4), bất kể đợt ở trạng thái
+     *   nào: một hợp đồng nháp chưa ai phải trả gì, một hợp đồng đã huỷ/hoàn tất không còn gì để
+     *   đòi (constraint (a), docblock `App\Actions\Billing\CancelContract`). Mọi TỔNG (`BillingSummary`,
+     *   `scopeOverdue()`, trang "Công nợ", biểu đồ) đã lọc hợp đồng `active`; kiểm cùng điều kiện
+     *   ở đây để dòng của tab tiền không nói ngược với con số tổng ngay trên nó. Đọc
+     *   `$this->contract` — nơi gọi lặp qua nhiều đợt phải nạp sẵn quan hệ đó.
      * - `waived`, `cancelled` → `0`: miễn là bớt số khách phải trả trên một hợp đồng không đổi giá
      *   trị (không phải phụ lục — xem docblock `BillingSummary`); huỷ đợt cũng ra khỏi số phải đòi.
      * - `paid` → `0` theo ĐỊNH NGHĨA: cột `status` là sự thật văn phòng đã tuyên bố (giống lý do
@@ -187,6 +203,10 @@ class Instalment extends Model
      */
     public function outstanding(): int
     {
+        if ($this->contract->status !== ContractStatus::Active) {
+            return 0;
+        }
+
         return match ($this->status) {
             InstalmentStatus::Waived, InstalmentStatus::Cancelled, InstalmentStatus::Paid => 0,
             InstalmentStatus::Pending => max(0, $this->amount - $this->collectedAmount()),
@@ -199,28 +219,30 @@ class Instalment extends Model
     }
 
     /**
-     * SQL kin của nhánh CUỐI trong {@see self::pendingState()} — "quá hạn" bằng đúng điều kiện đó,
-     * viết lại bằng truy vấn cho các trang tổng hợp (widget, trang "Công nợ", tác vụ nhắc quá hạn
-     * hằng ngày, Task 8/9/11). `InstalmentTest` ("agrees with state() on the boundary set") khẳng
-     * định hai cách cho cùng kết quả trên tập biên INSTALMENT (đến hạn hôm nay, đã miễn, đã huỷ,
-     * thu một phần) của các đợt thuộc hợp đồng `active`.
+     * **MỘT định nghĩa "quá hạn" cho cả hệ thống** (lượt rà soát cuối M9, I1): đợt `pending`, hợp
+     * đồng `active`, `due_date` < hôm nay (NGÀY theo múi giờ ứng dụng), còn phải thu > 0. SQL kin
+     * của nhánh `overdue` trong {@see self::pendingState()}, dùng cho mọi trang tổng hợp (widget,
+     * trang "Công nợ", tác vụ nhắc quá hạn hằng ngày, Task 8/9/11). `InstalmentTest` ("agrees with
+     * state() on the boundary set") khẳng định hai cách cho cùng kết quả trên tập biên INSTALMENT
+     * (đến hạn hôm nay, quá hạn, thu một phần đã quá hạn, thu một phần đến hạn hôm nay, thu đủ mà
+     * cột chưa đồng bộ, đã miễn, đã huỷ) của các đợt thuộc hợp đồng `active`.
      *
-     * Bốn điều kiện, đúng thứ tự `pendingState()` đọc chúng:
+     * Các điều kiện, đúng thứ tự `pendingState()` đọc chúng:
      *  - `status = pending` — ba trạng thái LƯU khác không bao giờ "quá hạn" (`state()` trả chúng
      *    trước khi chạm tới nhánh ngày tháng).
      *  - `due_date` khác `null` — chưa có hạn thì không thể "quá hạn" một thứ chưa có hạn.
+     *  - **Còn phải thu > 0** — `amount` lớn hơn tổng khoản thu CHƯA HUỶ, đọc bằng đúng biểu thức
+     *    {@see BillingSummary::collectedExpression()} (không viết lại subquery SUM() lần thứ hai). Đợt
+     *    đã thu đủ mà cột `status` chưa kịp đồng bộ hiển thị `paid`, nên không "quá hạn"; đợt thu MỘT
+     *    PHẦN thì VẪN quá hạn (bản trước đòi "chưa thu đồng nào" — một đợt thu 1 đồng rồi bỏ đó
+     *    không bao giờ bị nhắc).
      *  - `due_date < hôm nay` — hôm nay so bằng NGÀY, không phải thời khắc (cùng lý do `state()`
      *    dùng `today()` chứ không `isPast()`); đến hạn ĐÚNG hôm nay là `due`, chưa `overdue`.
-     *  - **Chưa thu đồng nào.** `pendingState()` trả `overdue` CHỈ khi `collected === 0` — thu một
-     *    phần (dù đã quá hạn) là `partially_paid`, không phải `overdue` (mất "đã thu một phần" để
-     *    đổi lấy "quá hạn" là một lựa chọn tệ hơn khi kế toán đang cần biết còn bao nhiêu để giục).
-     *    Đây KHÔNG phải "amount > collected": một đợt đã thu 1 đồng trên 10 triệu vẫn không nằm
-     *    trong `scopeOverdue()`, đúng như `state()` không gọi nó `overdue`.
      *
      * **Constraint (a), mang từ Task 4 (xem docblock `App\Actions\Billing\CancelContract`): chỉ
      * hợp đồng `active`.** Một đợt `pending` của hợp đồng đã `cancelled`/`completed` (data model
      * cho phép trạng thái này tồn tại — `CancelContract`/`CompleteContract` không chạm tới đợt)
-     * VẪN có thể khớp bốn điều kiện trên nếu tính theo `state()` của riêng nó, nhưng KHÔNG được
+     * VẪN có thể khớp các điều kiện trên nếu tính theo `state()` của riêng nó, nhưng KHÔNG được
      * lọt vào truy vấn công nợ tổng hợp — nếu không, lịch thu lịch sử của một hợp đồng đã đóng sẽ
      * hiện thành nợ quá hạn đang đòi. Đây là điểm DUY NHẤT `scopeOverdue()` và `state()` (gọi trên
      * một instance, không biết gì về trạng thái hợp đồng cha) có thể lệch nhau, có chủ đích — xem
@@ -234,9 +256,7 @@ class Instalment extends Model
             ->whereNotNull($this->qualifyColumn('due_date'))
             ->where($this->qualifyColumn('due_date'), '<', today()->toDateString())
             ->whereHas('contract', fn (Builder $contract) => $contract->where('status', ContractStatus::Active->value))
-            ->whereRaw(
-                '0 = coalesce((select sum(amount) from payments where payments.instalment_id = '.$this->qualifyColumn('id').' and payments.voided_at is null), 0)'
-            );
+            ->whereRaw($this->qualifyColumn('amount').' > '.BillingSummary::collectedExpression($this->qualifyColumn('id')));
     }
 
     public function contract(): BelongsTo

@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\ContractStatus;
+use App\Enums\InstalmentState;
 use App\Enums\InstalmentStatus;
 use App\Enums\InstalmentTrigger;
 use App\Enums\MatterRole;
@@ -14,6 +15,7 @@ use App\Models\Instalment;
 use App\Models\Matter;
 use App\Models\Payment;
 use App\Models\User;
+use App\Support\Billing\Money;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
@@ -233,6 +235,63 @@ it('shows the closed-with-balance banner only when the matter is closed and a de
     $this->matter->forceFill(['closed_at' => today()->toDateString()])->save();
 
     billingTab($this->matter->fresh())->assertSee(__('billing.tab.closed_with_balance_warning'));
+});
+
+// =================================================================================================
+// Lượt rà soát cuối M9, I4 — dòng của hợp đồng KHÔNG active không được nói ngược với con số tổng.
+// Tổng ("Còn phải thu"/"Quá hạn") chỉ đọc hợp đồng active; nên mỗi dòng của một hợp đồng đã huỷ /
+// đã hoàn tất có "Còn lại" 0 và một badge TRUNG TÍNH mang trạng thái HỢP ĐỒNG, không phải "Quá hạn".
+// =================================================================================================
+
+it('shows a neutral contract-status badge and nothing outstanding on the rows of a contract that is no longer active', function (string $contractState, ContractStatus $status) {
+    $contract = Contract::factory()->for($this->matter)->{$contractState}()->create(['total_amount' => 10_000_000]);
+    $instalment = Instalment::factory()->for($contract)->create([
+        'amount' => 10_000_000,
+        'status' => InstalmentStatus::Pending,
+        'trigger_type' => InstalmentTrigger::DueDate,
+        'due_date' => today()->subDays(5)->toDateString(),
+    ]);
+    Payment::factory()->for($instalment)->create(['amount' => 4_000_000]);
+
+    $this->actingAs($this->lead, 'web');
+
+    billingTab($this->matter)
+        ->assertTableColumnFormattedStateSet('state', __('billing.tab.contract_state_badge', ['status' => $status->label()]), $instalment)
+        ->assertTableColumnFormattedStateNotSet('state', InstalmentState::Overdue->label(), $instalment)
+        ->assertTableColumnStateSet('outstanding', Money::format(0), $instalment)
+        // Tiền đã thu vẫn là tiền đã thu.
+        ->assertTableColumnStateSet('collected', Money::format(4_000_000), $instalment);
+
+    expect(BillingRelationManager::displayStateColor($instalment->fresh()))->toBe('gray');
+})->with([
+    'cancelled' => ['cancelled', ContractStatus::Cancelled],
+    'completed' => ['completed', ContractStatus::Completed],
+]);
+
+/** Cặp dương: hợp đồng active vẫn hiện trạng thái của ĐỢT, tô đỏ khi quá hạn, và "Còn lại" thật. */
+it('keeps showing the instalment state and the real remainder on the rows of an active contract', function () {
+    [$contract, $instalment] = activeContractOneInstalment($this->matter, 10_000_000);
+    Payment::factory()->for($instalment)->create(['amount' => 4_000_000]);
+
+    $this->actingAs($this->lead, 'web');
+
+    billingTab($this->matter)
+        ->assertTableColumnFormattedStateSet('state', InstalmentState::Overdue->label(), $instalment)
+        ->assertTableColumnStateSet('outstanding', Money::format(6_000_000), $instalment);
+
+    expect(BillingRelationManager::displayStateColor($instalment->fresh()))->toBe('danger');
+});
+
+/** I1 trên tab: tổng "Quá hạn" tính PHẦN CÒN LẠI của đợt thu một phần đã quá hạn. */
+it('counts the remainder of a partly-paid past-due instalment in the overdue total of the tab', function () {
+    [$contract, $instalment] = activeContractOneInstalment($this->matter, 10_000_000);
+    Payment::factory()->for($instalment)->create(['amount' => 4_000_000]);
+
+    $this->actingAs($this->lead, 'web');
+
+    billingTab($this->matter)->assertSeeHtml(
+        e(__('billing.tab.totals.overdue')).': <span style="color:var(--danger-600)">'.e(Money::format(6_000_000)).'</span>'
+    );
 });
 
 // =================================================================================================

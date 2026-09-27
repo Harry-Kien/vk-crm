@@ -668,6 +668,32 @@ it('does not double-subtract a partly-paid instalment that is later waived', fun
     expect($writtenOffRow['value'])->toBe(Money::format(6_000_000));
 });
 
+/**
+ * Lượt rà soát cuối M9, I1: MỘT định nghĩa "quá hạn" (đợt `pending`, hợp đồng `active`, đã quá
+ * ngày, còn phải thu > 0). Một đợt đã thu một phần mà quá hạn nằm trong lát "quá hạn" bằng đúng
+ * PHẦN CÒN LẠI của nó — không phải nguyên giá trị mặt (phần đã thu đã nằm ở lát "đã thu"), và
+ * không rơi sang lát "chưa tới hạn" như trước.
+ */
+it('puts the remainder of a partly-paid past-due instalment into the overdue slice, not the not-yet-due one', function () {
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
+
+    $contract = contractWithSchedule($matter, 30_000_000, [
+        ['amount' => 10_000_000, 'due_date' => today()->subDays(5)->toDateString()],
+        ['amount' => 20_000_000, 'due_date' => today()->addDays(10)->toDateString()],
+    ], today()->toDateString());
+
+    $partlyPaid = $contract->instalments()->where('amount', 10_000_000)->sole();
+    Payment::factory()->for($partlyPaid)->create(['amount' => 4_000_000, 'paid_on' => today()->toDateString(), 'attributed_lawyer_id' => $this->lawyer->id]);
+
+    $this->actingAs($this->lawyer, 'web');
+    [$collected, $notYetDue, $overdue] = widgetData(ReceivablesDonutWidget::class)['datasets'][0]['data'];
+
+    expect($collected)->toBe(4_000_000)
+        ->and($overdue)->toBe(6_000_000)
+        ->and($notYetDue)->toBe(20_000_000)
+        ->and($collected + $notYetDue + $overdue)->toBe(30_000_000);
+});
+
 /** Đối chiếu chéo: "còn phải thu" + "quá hạn" của donut khớp ĐÚNG tổng BillingSummary cho cùng tập vụ việc. */
 it('matches BillingSummary exactly: donut not_yet_due plus overdue equals the BillingSummary sum for the same matters', function () {
     $matterA = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);

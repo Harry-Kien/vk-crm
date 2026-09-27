@@ -55,12 +55,21 @@ function recordFor(User $actor, Instalment $instalment, array $overrides = []): 
 
 // --- Đường chính: một phần, đủ, vượt -------------------------------------------------------------
 
-it('records a partial payment, leaving the instalment pending and displaying partially_paid', function () {
+it('records a partial payment, leaving the instalment pending and displaying partially_paid while not yet due', function () {
+    $this->instalment->forceFill(['due_date' => today()->addDays(5)->toDateString()])->save();
+
     $payment = recordFor($this->accountant, $this->instalment, ['amount' => 4_000_000]);
 
     expect($payment->amount)->toBe(4_000_000)
         ->and($this->instalment->fresh()->status)->toBe(InstalmentStatus::Pending)
         ->and($this->instalment->fresh()->state())->toBe(InstalmentState::PartiallyPaid);
+});
+
+/** Lượt rà soát cuối M9, I1: đợt đã quá hạn vẫn QUÁ HẠN sau một khoản thu một phần — còn nợ là còn nợ. */
+it('keeps a past-due instalment overdue after a partial payment', function () {
+    recordFor($this->accountant, $this->instalment, ['amount' => 4_000_000]);
+
+    expect($this->instalment->fresh()->state())->toBe(InstalmentState::Overdue);
 });
 
 it('marks the instalment paid once collected reaches its amount, across two payments', function () {
