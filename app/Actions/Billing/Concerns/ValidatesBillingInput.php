@@ -51,6 +51,24 @@ trait ValidatesBillingInput
     }
 
     /**
+     * `null` (không có dòng thuế) hoặc số nguyên 0–100. `0` là hoá đơn thuế suất 0%, khác `null`.
+     * Dùng chung bởi `DraftContract` và `UpdateDraftContract` (M9 Task 7) — một hợp đồng nháp
+     * được soạn hay được sửa đều đọc thuế suất theo đúng một luật, không phải hai bản chép tay.
+     */
+    protected function validatedVatRate(mixed $value): ?int
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if (! is_int($value) || $value < 0 || $value > 100) {
+            throw ValidationException::withMessages(['vat_rate_percent' => [__('billing.validation.vat_rate_out_of_range')]]);
+        }
+
+        return $value;
+    }
+
+    /**
      * Lý do nội bộ: ≥ {@see self::MIN_REASON_LENGTH} ký tự đếm bằng `mb_strlen` — một chuỗi tiếng
      * Việt có dấu dài hơn số ký tự của nó khi đếm bằng byte, và `strlen` sẽ nhận nhầm một lý do quá
      * ngắn. Khoảng trắng hai đầu không được tính.

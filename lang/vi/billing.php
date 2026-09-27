@@ -46,6 +46,7 @@ return [
         'billing_model_not_supported' => 'Cách tính phí ":model" chưa được hỗ trợ. Hiện chỉ ghi được hợp đồng trọn gói (giá trị thoả thuận một lần).',
         'contract_not_amendable' => 'Chỉ ký phụ lục được cho hợp đồng đang có hiệu lực. Hợp đồng :code đang ở trạng thái ":status".',
         'contract_not_draft' => 'Chỉ kích hoạt được hợp đồng còn ở trạng thái "Nháp". Hợp đồng :code đang ở trạng thái ":status".',
+        'contract_not_draft_for_update' => 'Chỉ sửa được hợp đồng còn ở trạng thái "Nháp". Hợp đồng :code đang ở trạng thái ":status"; sửa giá trị hoặc lịch thu của một hợp đồng đã ký bằng phụ lục.',
         'contract_not_active' => 'Chỉ hoàn tất hoặc huỷ được hợp đồng đang có hiệu lực. Hợp đồng :code đang ở trạng thái ":status".',
         'contract_has_unsettled' => 'Chưa hoàn tất được hợp đồng :code: còn :count đợt chưa thu đủ và chưa được miễn. Thu nốt, hoặc miễn các đợt còn lại kèm lý do, rồi hoàn tất.',
         'instalment_not_payable_to_record' => 'Không thể ghi khoản thu cho đợt ":name": đợt này đang ở trạng thái ":status".',

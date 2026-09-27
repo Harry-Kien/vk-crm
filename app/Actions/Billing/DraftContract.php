@@ -73,7 +73,7 @@ class DraftContract
             }
 
             $totalAmount = $this->validatedAmount($attributes['total_amount'] ?? null, 'total_amount');
-            $vatRate = $this->vatRate($attributes['vat_rate_percent'] ?? null);
+            $vatRate = $this->validatedVatRate($attributes['vat_rate_percent'] ?? null);
 
             $rows = [];
 
@@ -128,19 +128,5 @@ class DraftContract
         }
 
         return $model;
-    }
-
-    /** `null` (không có dòng thuế) hoặc số nguyên 0–100. `0` là hoá đơn thuế suất 0%, khác `null`. */
-    private function vatRate(mixed $value): ?int
-    {
-        if ($value === null) {
-            return null;
-        }
-
-        if (! is_int($value) || $value < 0 || $value > 100) {
-            throw ValidationException::withMessages(['vat_rate_percent' => [__('billing.validation.vat_rate_out_of_range')]]);
-        }
-
-        return $value;
     }
 }

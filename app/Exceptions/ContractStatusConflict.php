@@ -18,6 +18,17 @@ class ContractStatusConflict extends DomainException
         return new self(__('billing.errors.contract_not_draft', self::describe($contract)));
     }
 
+    /**
+     * `UpdateDraftContract` (M9 Task 7): sửa giá trị/thuế/lịch thu chỉ trên bản nháp. Câu RIÊNG
+     * với {@see self::notDraft()} (dùng cho kích hoạt): câu đó nói "kích hoạt", câu này nói "sửa"
+     * và chỉ đường đúng (phụ lục) cho một hợp đồng đã ký — hai việc khác nhau không nên dùng
+     * chung một câu chỉ vì cùng chung điều kiện `status !== draft`.
+     */
+    public static function notDraftForUpdate(Contract $contract): self
+    {
+        return new self(__('billing.errors.contract_not_draft_for_update', self::describe($contract)));
+    }
+
     public static function notActive(Contract $contract): self
     {
         return new self(__('billing.errors.contract_not_active', self::describe($contract)));
