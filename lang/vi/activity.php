@@ -43,6 +43,35 @@ return [
         'contract_amended' => 'Ký phụ lục hợp đồng',
         'contract_completed' => 'Hoàn tất hợp đồng dịch vụ',
         'contract_cancelled' => 'Huỷ hợp đồng dịch vụ',
+        // Lượt rà soát cuối M9, I3: bốn sự kiện tiền còn thiếu nhãn —
+        // App\Actions\Billing\{UpdateDraftContract,RecordPayment,VoidPayment,WaiveInstalment}.
+        // tests/Feature/ActivityLogEventTranslationsTest.php (cùng nội dung với tệp của M6.5 Task 20)
+        // quét MỌI literal Audit::record('…') trong app/ và đòi có mặt ở đây.
+        'contract_draft_updated' => 'Sửa hợp đồng nháp',
+        'payment_recorded' => 'Ghi khoản thu',
+        'payment_voided' => 'Huỷ khoản thu',
+        'instalment_waived' => 'Miễn đợt thanh toán',
+
+        /*
+         * Các sự kiện ngoài M9 đã ghi qua Audit::record() từ trước nhưng chưa có nhãn ở nhánh này
+         * — cùng nhãn M6.5 Task 20 đã đặt trên nhánh của nó, để lúc merge chỉ còn chọn một bản.
+         */
+        // app/Actions/Deadline/*.php
+        'deadline_added' => 'Thêm mốc hạn',
+        'deadline_completion_set' => 'Cập nhật hoàn thành mốc hạn',
+        'deadline_publication_set' => 'Đổi công bố mốc hạn',
+        // app/Actions/Document/*.php
+        'checklist_item_marked_not_applicable' => 'Đánh dấu không áp dụng đầu mục danh mục',
+        'checklist_item_reviewed' => 'Duyệt đầu mục danh mục',
+        'document_regrouped' => 'Đổi nhóm tài liệu',
+        'document_submitted' => 'Khách nộp tài liệu',
+        'document_uploaded' => 'Tải tài liệu lên',
+        // app/Actions/Portal/*.php
+        'client_request_opened' => 'Mở yêu cầu của khách',
+        'client_request_assigned' => 'Giao yêu cầu của khách',
+        'client_request_status_changed' => 'Đổi trạng thái yêu cầu của khách',
+        'client_request_replied_by_client' => 'Khách trả lời yêu cầu',
+        'client_request_answered_by_staff' => 'Nhân sự trả lời yêu cầu',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */
