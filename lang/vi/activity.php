@@ -51,6 +51,8 @@ return [
         'payment_recorded' => 'Ghi khoản thu',
         'payment_voided' => 'Huỷ khoản thu',
         'instalment_waived' => 'Miễn đợt thanh toán',
+        // Lượt rà soát cuối M9, M9: App\Actions\Billing\DeleteDraftContract.
+        'contract_draft_deleted' => 'Xoá hợp đồng nháp',
 
         /*
          * Các sự kiện ngoài M9 đã ghi qua Audit::record() từ trước nhưng chưa có nhãn ở nhánh này

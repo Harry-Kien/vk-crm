@@ -70,7 +70,8 @@ class Contract extends Model
      * một hợp đồng `active` là cách factory dựng fixture và không Action nào làm vậy (xem
      * {@see ScheduleTotal}).
      *
-     * `deleting` — chỉ xoá được bản nháp chưa có khoản thu nào (M9 Task 2).
+     * `deleting` — chỉ xoá được bản nháp chưa có khoản thu nào (M9 Task 2), qua
+     * {@see self::assertDestroyable()}.
      */
     protected static function booted(): void
     {
@@ -79,14 +80,27 @@ class Contract extends Model
         });
 
         static::deleting(function (Contract $contract): void {
-            if ($contract->status !== ContractStatus::Draft) {
-                throw ContractNotDestroyable::notDraft();
-            }
-
-            if ($contract->hasPayments()) {
-                throw ContractNotDestroyable::hasPayments();
-            }
+            $contract->assertDestroyable();
         });
+    }
+
+    /**
+     * "Khi nào xoá được một hợp đồng" — MỘT định nghĩa (M9 Task 2): còn `draft` VÀ chưa có khoản thu
+     * nào. Hook `deleting` gọi hàm này; `App\Actions\Billing\DeleteDraftContract` gọi nó TRƯỚC khi
+     * xoá các đợt, để một lần từ chối nói đúng câu của HỢP ĐỒNG (không phải câu "đợt không xoá
+     * được" của `Instalment::deleting`) và không đợt nào bị xoá dở.
+     *
+     * @throws ContractNotDestroyable
+     */
+    public function assertDestroyable(): void
+    {
+        if ($this->status !== ContractStatus::Draft) {
+            throw ContractNotDestroyable::notDraft();
+        }
+
+        if ($this->hasPayments()) {
+            throw ContractNotDestroyable::hasPayments();
+        }
     }
 
     /** Có khoản thu nào (chưa huỷ hay đã huỷ đều tính — một dòng đã tồn tại là đủ) trên bất kỳ đợt nào của hợp đồng này. */

@@ -65,3 +65,8 @@ it('refuses a number too long to fit in an integer without overflowing', functio
     expect(fn () => Money::parse('99999999999999999999999'))
         ->toThrow(ValidationException::class, __('billing.validation.money_too_large', ['max' => Money::format(Money::MAX)]));
 });
+
+it('formats a value for an input field that parse() reads straight back, without the dong sign', function (int $dong) {
+    expect(Money::formatForInput($dong))->not->toContain('₫')
+        ->and(Money::parse(Money::formatForInput($dong)))->toBe($dong);
+})->with([0, 7, 1_250_000, Money::MAX]);

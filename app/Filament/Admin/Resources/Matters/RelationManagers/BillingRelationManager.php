@@ -6,6 +6,7 @@ use App\Actions\Billing\ActivateContract;
 use App\Actions\Billing\AmendContract;
 use App\Actions\Billing\CancelContract;
 use App\Actions\Billing\CompleteContract;
+use App\Actions\Billing\DeleteDraftContract;
 use App\Actions\Billing\DraftContract;
 use App\Actions\Billing\RecordPayment;
 use App\Actions\Billing\UpdateDraftContract;
@@ -13,7 +14,6 @@ use App\Actions\Billing\VoidPayment;
 use App\Actions\Billing\WaiveInstalment;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\ContractStatus;
-use App\Enums\DocumentGroup;
 use App\Enums\InstalmentState;
 use App\Enums\InstalmentStatus;
 use App\Enums\InstalmentTrigger;
@@ -23,14 +23,15 @@ use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Concerns\ScopesToVisibleMatters;
 use App\Models\Contract;
 use App\Models\ContractAmendment;
-use App\Models\Document;
 use App\Models\Instalment;
 use App\Models\Matter;
 use App\Models\Payment;
 use App\Policies\Concerns\ChecksBillingAccess;
 use App\Support\Billing\BillingSummary;
 use App\Support\Billing\Money;
+use App\Support\Billing\SplitByPercent;
 use App\Support\Billing\Vat;
+use Closure;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Hidden;
@@ -38,6 +39,7 @@ use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Infolists\Components\TextEntry;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Icons\Heroicon;
@@ -58,10 +60,10 @@ use Illuminate\Validation\ValidationException;
  * toán không mở được trang vụ việc** (`MatterPolicy::view` đòi `matter.view`), nên màn hình của
  * kế toán là trang "Công nợ" (Task 8), không phải tab này.
  *
- * **Lớp này không có một dòng nghiệp vụ nào** (CLAUDE.md): chín Action của Task 4/5/7 —
- * {@see DraftContract}, {@see UpdateDraftContract}, {@see ActivateContract}, {@see AmendContract},
- * {@see CompleteContract}, {@see CancelContract}, {@see RecordPayment}, {@see WaiveInstalment},
- * {@see VoidPayment} — là nơi DUY NHẤT ghi. Mọi `DomainException`/`ValidationException`/
+ * **Lớp này không có một dòng nghiệp vụ nào** (CLAUDE.md): mười Action của Task 4/5/7 và lượt rà
+ * soát cuối — {@see DraftContract}, {@see UpdateDraftContract}, {@see DeleteDraftContract},
+ * {@see ActivateContract}, {@see AmendContract}, {@see CompleteContract}, {@see CancelContract},
+ * {@see RecordPayment}, {@see WaiveInstalment}, {@see VoidPayment} — là nơi DUY NHẤT ghi. Mọi `DomainException`/`ValidationException`/
  * `AuthorizationException` của chúng đi ra qua {@see ReportsActionFailures}, đúng thành ngữ
  * {@see DocumentsRelationManager}/{@see DeadlinesRelationManager}.
  *
@@ -103,9 +105,10 @@ use Illuminate\Validation\ValidationException;
  * # Ba nút ghi trên mỗi dòng, một cụm nút trên đầu bảng cho hợp đồng
  *
  * Đầu bảng: soạn hợp đồng ({@see self::draftContractAction()}, khi vụ chưa có hợp đồng), sửa bản
- * nháp ({@see self::updateDraftContractAction()}), kích hoạt, ký phụ lục, hoàn tất, huỷ — tất cả
- * qua `ContractPolicy::update` (hay `::create` cho soạn mới), thành ngữ `->authorize()` của
- * {@see TeamRelationManager}/{@see DeadlinesRelationManager}.
+ * nháp ({@see self::updateDraftContractAction()}), xoá bản nháp
+ * ({@see self::deleteDraftContractAction()}), kích hoạt, ký phụ lục, hoàn tất, huỷ — tất cả qua
+ * `ContractPolicy::update` (hay `::create` cho soạn mới, `::delete` cho xoá bản nháp), thành ngữ
+ * `->authorize()` của {@see TeamRelationManager}/{@see DeadlinesRelationManager}.
  *
  * Mỗi dòng (một đợt thanh toán): ghi khoản thu, miễn, huỷ khoản thu gần nhất. **Nút ghi khoản thu
  * hỏi quyền kèm NGỮ CẢNH VỤ VIỆC**, đúng thành ngữ tab Tài liệu (M4): `->authorize(fn () =>
@@ -136,6 +139,19 @@ use Illuminate\Validation\ValidationException;
  * `instalment_changes.0.amount`), không khác gì lỗi mà chính Action ném ra. `maxLength(15)` khớp
  * `"999.999.999.999"` (`Money::MAX` đã định dạng) — trần thật vẫn là hằng số đó, dùng chung cho
  * form và Action.
+ *
+ * # Chia theo phần trăm và ba con số VAT — xem trước NGAY trong form (lượt rà soát cuối M9, I5)
+ *
+ * Mỗi dòng lịch thu (soạn/sửa bản nháp, và dòng thêm/sửa của phụ lục) nhập HOẶC phần trăm của tổng
+ * giá trị HOẶC số tiền, không bao giờ cả hai: điền phần trăm thì ô số tiền bị khoá (và không gửi
+ * lên), số tiền TÍNH từ phần trăm bằng {@see SplitByPercent::amountsForRows()} — mọi dòng theo
+ * phần trăm cộng đủ 100% thì đợt cuối nhận phần dư làm tròn, tổng các đợt bằng đúng giá trị; gõ số
+ * tiền thì `percent_basis` để trống. Cùng MỘT hàm tính cho khung xem trước lúc gõ
+ * ({@see self::schedulePreview()}, {@see self::amendmentPreview()}) và cho lúc lưu
+ * ({@see self::parsedInstalmentRows()}, {@see self::parsedAmendmentChanges()}) — số người dùng
+ * thấy là số được ghi. Khung xem trước còn in ba con số VAT của tổng qua {@see Vat} (tổng khách
+ * trả, phần thuế nằm trong tổng, phần thực nhận). Không Action nào đổi: Action vẫn nhận `amount`
+ * (số quyết định) và `percent_basis` (truy vết) như trước.
  *
  * # Gợi ý đầu mục danh mục — {@see self::checklistNudge()}
  *
@@ -256,6 +272,7 @@ class BillingRelationManager extends RelationManager
             ->headerActions([
                 $this->draftContractAction(),
                 $this->updateDraftContractAction(),
+                $this->deleteDraftContractAction(),
                 $this->activateContractAction(),
                 $this->amendContractAction(),
                 $this->completeContractAction(),
@@ -482,12 +499,16 @@ class BillingRelationManager extends RelationManager
             ->successNotificationTitle(__('billing.tab.actions.draft_success'))
             ->action(fn (Action $action, array $data) => $this->runAction(
                 $action,
-                fn () => app(DraftContract::class)->handle(
-                    Auth::user(),
-                    $matter,
-                    ['total_amount' => Money::parse((string) ($data['total_amount'] ?? ''), 'total_amount'), 'vat_rate_percent' => static::intOrNull($data['vat_rate_percent'] ?? null)],
-                    static::parsedInstalmentRows($data['instalments'] ?? [], 'instalments'),
-                ),
+                function () use ($matter, $data): Contract {
+                    $total = Money::parse((string) ($data['total_amount'] ?? ''), 'total_amount');
+
+                    return app(DraftContract::class)->handle(
+                        Auth::user(),
+                        $matter,
+                        ['total_amount' => $total, 'vat_rate_percent' => static::intOrNull($data['vat_rate_percent'] ?? null)],
+                        static::parsedInstalmentRows($data['instalments'] ?? [], $total, 'instalments'),
+                    );
+                },
             ));
     }
 
@@ -505,12 +526,15 @@ class BillingRelationManager extends RelationManager
             ->fillForm(function () use ($matter): array {
                 $contract = $matter->contract;
 
+                // `Money::formatForInput()`, không `Money::format()`: ô nhập nhận đúng dạng
+                // `Money::parse()` đọc được ("50.000.000"), không kèm "₫" — nếu không, mở form rồi
+                // bấm lưu ngay mà không sửa gì cũng ra lỗi định dạng số tiền.
                 return [
-                    'total_amount' => $contract === null ? null : Money::format($contract->total_amount),
+                    'total_amount' => $contract === null ? null : Money::formatForInput($contract->total_amount),
                     'vat_rate_percent' => $contract?->vat_rate_percent,
                     'instalments' => $contract === null ? [] : $contract->instalments->map(fn (Instalment $i): array => [
                         'name' => $i->name,
-                        'amount' => Money::format($i->amount),
+                        'amount' => Money::formatForInput($i->amount),
                         'percent_basis' => $i->percent_basis,
                         'trigger_type' => $i->trigger_type->value,
                         'trigger_stage_key' => $i->trigger_stage_key,
@@ -523,12 +547,51 @@ class BillingRelationManager extends RelationManager
             ->successNotificationTitle(__('billing.tab.actions.update_draft_success'))
             ->action(fn (Action $action, array $data) => $this->runAction(
                 $action,
-                fn () => app(UpdateDraftContract::class)->handle(
-                    Auth::user(),
-                    $matter->contract,
-                    ['total_amount' => Money::parse((string) ($data['total_amount'] ?? ''), 'total_amount'), 'vat_rate_percent' => static::intOrNull($data['vat_rate_percent'] ?? null)],
-                    static::parsedInstalmentRows($data['instalments'] ?? [], 'instalments'),
-                ),
+                function () use ($matter, $data): Contract {
+                    $total = Money::parse((string) ($data['total_amount'] ?? ''), 'total_amount');
+
+                    return app(UpdateDraftContract::class)->handle(
+                        Auth::user(),
+                        $matter->contract,
+                        ['total_amount' => $total, 'vat_rate_percent' => static::intOrNull($data['vat_rate_percent'] ?? null)],
+                        static::parsedInstalmentRows($data['instalments'] ?? [], $total, 'instalments'),
+                    );
+                },
+            ));
+    }
+
+    /**
+     * Xoá một hợp đồng còn nháp (lượt rà soát cuối M9, M9) qua {@see DeleteDraftContract} —
+     * `ContractPolicy::delete`, nhật ký, và "xoá được không" là `Contract::assertDestroyable()`.
+     *
+     * `->visible()` đọc TRẠNG THÁI (còn nháp), cùng cách nút "Sửa hợp đồng" ngay trên: nút xoá bản
+     * nháp trên một hợp đồng đã ký là một lời mời sai. Cái giá đã biết (chú thích ở
+     * `activateContractAction()`): nếu hợp đồng được kích hoạt ở tab khác giữa lúc vẽ và lúc bấm,
+     * nút tự ẩn lúc bấm và KHÔNG xoá gì — hỏng về phía an toàn.
+     */
+    private function deleteDraftContractAction(): Action
+    {
+        $matter = $this->getOwnerRecord();
+
+        return Action::make('deleteDraftContract')
+            ->label(__('billing.tab.actions.delete_draft'))
+            ->icon(Heroicon::OutlinedTrash)
+            ->color('danger')
+            ->requiresConfirmation()
+            ->modalHeading(__('billing.tab.actions.delete_draft_heading'))
+            ->modalDescription(__('billing.tab.actions.delete_draft_description'))
+            ->visible(fn (): bool => $matter->contract?->status === ContractStatus::Draft)
+            ->authorize(fn (): bool => $matter->contract !== null && Gate::allows('delete', $matter->contract))
+            ->successNotificationTitle(__('billing.tab.actions.delete_draft_success'))
+            ->action(fn (Action $action) => $this->runAction(
+                $action,
+                function () use ($matter): void {
+                    app(DeleteDraftContract::class)->handle(Auth::user(), $matter->contract);
+
+                    // Hàng đã xoá — quan hệ đã nạp trên vụ việc không được giữ nó lại cho phần
+                    // còn lại của lần vẽ này.
+                    $matter->unsetRelation('contract');
+                },
             ));
     }
 
@@ -634,7 +697,8 @@ class BillingRelationManager extends RelationManager
                     ->label(__('billing.tab.fields.new_total_amount'))
                     ->helperText(__('billing.tab.fields.total_amount_help'))
                     ->maxLength(15)
-                    ->required(),
+                    ->required()
+                    ->live(onBlur: true),
                 DatePicker::make('signed_at')
                     ->label(__('billing.tab.fields.signed_at'))
                     ->default(today()->toDateString())
@@ -650,6 +714,7 @@ class BillingRelationManager extends RelationManager
                     ->addActionLabel(__('billing.tab.actions.add_change'))
                     ->defaultItems(0)
                     ->columns(2)
+                    ->live()
                     ->schema([
                         Select::make('action')
                             ->label(__('billing.tab.fields.change_action'))
@@ -671,10 +736,10 @@ class BillingRelationManager extends RelationManager
                             ->label(__('billing.tab.fields.instalment_name'))
                             ->maxLength(150)
                             ->visible(fn (Get $get): bool => $get('action') === 'add'),
-                        TextInput::make('amount')
-                            ->label(__('billing.tab.fields.instalment_amount'))
-                            ->maxLength(15)
-                            ->visible(fn (Get $get): bool => in_array($get('action'), ['add', 'update'], true)),
+                        ...static::percentOrAmountFields(
+                            fn (Get $get): bool => in_array($get('action'), ['add', 'update'], true),
+                            __('billing.tab.fields.change_percent_basis_help'),
+                        ),
                         Select::make('trigger_type')
                             ->label(__('billing.tab.fields.trigger_type'))
                             ->options(static::triggerOptions())
@@ -694,18 +759,31 @@ class BillingRelationManager extends RelationManager
                             ->default(0)
                             ->visible(fn (Get $get): bool => $get('action') === 'add' && $get('trigger_type') !== 'due_date' && $get('trigger_type') !== null),
                     ]),
+                TextEntry::make('amendment_preview')
+                    ->label(__('billing.tab.preview.heading'))
+                    ->state(fn (Get $get): HtmlString => static::amendmentPreview(
+                        $matter->contract,
+                        $get('new_total_amount'),
+                        (array) ($get('instalment_changes') ?? []),
+                    ))
+                    ->html()
+                    ->columnSpanFull(),
             ])
             ->successNotificationTitle(__('billing.tab.actions.amend_success'))
             ->action(fn (Action $action, array $data) => $this->runAction(
                 $action,
-                fn () => app(AmendContract::class)->handle(
-                    Auth::user(),
-                    $matter->contract,
-                    Money::parse((string) ($data['new_total_amount'] ?? ''), 'new_total_amount'),
-                    static::parsedAmendmentChanges($data['instalment_changes'] ?? []),
-                    $data['reason'] ?? '',
-                    $data['signed_at'] ?? '',
-                ),
+                function () use ($matter, $data) {
+                    $newTotal = Money::parse((string) ($data['new_total_amount'] ?? ''), 'new_total_amount');
+
+                    return app(AmendContract::class)->handle(
+                        Auth::user(),
+                        $matter->contract,
+                        $newTotal,
+                        static::parsedAmendmentChanges($data['instalment_changes'] ?? [], $newTotal),
+                        $data['reason'] ?? '',
+                        $data['signed_at'] ?? '',
+                    );
+                },
             ));
     }
 
@@ -731,7 +809,7 @@ class BillingRelationManager extends RelationManager
             ->schema([
                 TextInput::make('amount')
                     ->label(__('billing.tab.fields.amount'))
-                    ->helperText(__('billing.tab.fields.total_amount_help'))
+                    ->helperText(__('billing.tab.fields.payment_amount_help'))
                     ->maxLength(15)
                     ->required(),
                 DatePicker::make('paid_on')
@@ -747,13 +825,12 @@ class BillingRelationManager extends RelationManager
                 TextInput::make('reference')
                     ->label(__('billing.tab.fields.reference'))
                     ->maxLength(RecordPayment::MAX_REFERENCE_LENGTH),
-                Select::make('receipt_document_id')
-                    ->label(__('billing.tab.fields.receipt_document'))
-                    ->options(fn (): array => static::internalDocumentOptions($matter)),
                 Textarea::make('note')
                     ->label(__('billing.tab.fields.payment_note')),
             ])
             ->successNotificationTitle(__('billing.tab.actions.record_payment_success'))
+            // Không có ô chọn bản scan biên lai (lượt rà soát cuối M9, M3; phán quyết Task 8 (b):
+            // `receipt_document_id` để trống, chưa dùng ở làn này — cùng cách trang "Công nợ").
             ->action(fn (Action $action, Instalment $record, array $data) => $this->runAction(
                 $action,
                 fn () => app(RecordPayment::class)->handle(
@@ -763,7 +840,7 @@ class BillingRelationManager extends RelationManager
                     $data['paid_on'] ?? '',
                     PaymentMethod::from($data['method']),
                     $data['reference'] ?? null,
-                    static::resolveDocument($data['receipt_document_id'] ?? null),
+                    null,
                     $data['note'] ?? null,
                 ),
             ));
@@ -875,16 +952,19 @@ class BillingRelationManager extends RelationManager
                 ->label(__('billing.tab.fields.total_amount'))
                 ->helperText(__('billing.tab.fields.total_amount_help'))
                 ->maxLength(15)
-                ->required(),
+                ->required()
+                ->live(onBlur: true),
             TextInput::make('vat_rate_percent')
                 ->label(__('billing.tab.fields.vat_rate_percent'))
                 ->helperText(__('billing.tab.fields.vat_rate_percent_help'))
-                ->numeric(),
+                ->numeric()
+                ->live(onBlur: true),
             Repeater::make('instalments')
                 ->label(__('billing.tab.columns.name'))
                 ->addActionLabel(__('billing.tab.actions.add_instalment'))
                 ->defaultItems(1)
                 ->columns(2)
+                ->live()
                 ->schema([
                     TextInput::make('name')
                         ->label(__('billing.tab.fields.instalment_name'))
@@ -892,12 +972,7 @@ class BillingRelationManager extends RelationManager
                         ->maxLength(150)
                         ->required()
                         ->columnSpanFull(),
-                    TextInput::make('amount')
-                        ->label(__('billing.tab.fields.instalment_amount'))
-                        ->maxLength(15)
-                        ->required(),
-                    TextInput::make('percent_basis')
-                        ->label(__('billing.tab.fields.instalment_percent_basis')),
+                    ...static::percentOrAmountFields(null, __('billing.tab.fields.instalment_percent_basis_help')),
                     Select::make('trigger_type')
                         ->label(__('billing.tab.fields.trigger_type'))
                         ->options(static::triggerOptions())
@@ -920,7 +995,203 @@ class BillingRelationManager extends RelationManager
                         ->label(__('billing.tab.fields.note'))
                         ->columnSpanFull(),
                 ]),
+            TextEntry::make('schedule_preview')
+                ->label(__('billing.tab.preview.heading'))
+                ->state(fn (Get $get): HtmlString => static::schedulePreview(
+                    $get('total_amount'),
+                    $get('vat_rate_percent'),
+                    (array) ($get('instalments') ?? []),
+                ))
+                ->html()
+                ->columnSpanFull(),
         ];
+    }
+
+    /**
+     * Cặp ô "phần trăm HOẶC số tiền" của một dòng lịch thu (I5 — xem docblock lớp): điền phần trăm
+     * thì ô số tiền bị khoá, không bắt buộc và KHÔNG gửi lên (số tiền tính lại từ phần trăm lúc
+     * lưu); để trống phần trăm thì số tiền bắt buộc.
+     *
+     * @param  (Closure(Get): bool)|null  $visible  điều kiện hiện của CẢ HAI ô (dòng phụ lục chỉ hiện chúng khi thêm/sửa)
+     * @return array<int, TextInput>
+     */
+    private static function percentOrAmountFields(?Closure $visible, string $percentHelp): array
+    {
+        $isVisible = fn (Get $get): bool => $visible === null || $visible($get);
+        $byPercent = fn (Get $get): bool => filled($get('percent_basis'));
+
+        return [
+            TextInput::make('percent_basis')
+                ->label(__('billing.tab.fields.instalment_percent_basis'))
+                ->helperText($percentHelp)
+                ->maxLength(6)
+                ->live(onBlur: true)
+                ->visible($isVisible),
+            TextInput::make('amount')
+                ->label(__('billing.tab.fields.instalment_amount'))
+                ->maxLength(15)
+                ->live(onBlur: true)
+                ->required(fn (Get $get): bool => ! $byPercent($get))
+                ->disabled($byPercent)
+                ->placeholder(fn (Get $get): ?string => $byPercent($get) ? __('billing.tab.fields.instalment_amount_from_percent') : null)
+                ->visible($isVisible),
+        ];
+    }
+
+    /**
+     * Khung xem trước của form soạn/sửa bản nháp (I5): ba con số VAT của tổng, số tiền từng đợt
+     * (tính từ phần trăm bằng {@see SplitByPercent::amountsForRows()}, hay số đã gõ), và tổng các
+     * đợt so với giá trị hợp đồng. Chỉ HIỂN THỊ — không ghi gì, không thay bất biến tổng của Action.
+     *
+     * @param  array<array-key, mixed>  $rows
+     */
+    public static function schedulePreview(mixed $totalInput, mixed $vatInput, array $rows): HtmlString
+    {
+        $total = static::tryParseMoney($totalInput);
+
+        if ($total === null) {
+            return new HtmlString('<em>'.e(__('billing.tab.preview.enter_total')).'</em>');
+        }
+
+        $rows = array_values(array_filter($rows, 'is_array'));
+        $lines = [e(static::vatPreviewLine($total, $vatInput))];
+
+        try {
+            $derived = SplitByPercent::amountsForRows($total, array_map(fn (array $row): mixed => $row['percent_basis'] ?? null, $rows));
+        } catch (ValidationException) {
+            return new HtmlString(implode('<br/>', [...$lines, e(__('billing.tab.preview.percent_invalid'))]));
+        }
+
+        $sum = 0;
+        $complete = true;
+
+        foreach ($rows as $index => $row) {
+            $amount = $derived[$index] ?? static::tryParseMoney($row['amount'] ?? null);
+            $complete = $complete && $amount !== null;
+            $sum += $amount ?? 0;
+            $lines[] = e(static::previewRowLine(
+                __('billing.tab.preview.row_label_instalment', ['number' => $index + 1]),
+                (string) ($row['name'] ?? ''),
+                $row['percent_basis'] ?? null,
+                $amount,
+            ));
+        }
+
+        if ($rows !== [] && $complete) {
+            $lines[] = e($sum === $total
+                ? __('billing.tab.preview.sum_matches', ['sum' => Money::format($sum)])
+                : __('billing.tab.preview.sum_differs', ['sum' => Money::format($sum), 'total' => Money::format($total), 'difference' => Money::format(abs($total - $sum))]));
+        }
+
+        return new HtmlString(implode('<br/>', $lines));
+    }
+
+    /**
+     * Khung xem trước của form phụ lục (I5): ba con số VAT của giá trị MỚI (thuế suất của hợp đồng),
+     * và số tiền của từng dòng thêm/sửa — tính từ phần trăm của giá trị mới, hay số đã gõ. Không
+     * tính trước bất biến tổng sau phụ lục: đó là việc của `AmendContract` (kiểm lại từ CSDL).
+     *
+     * @param  array<array-key, mixed>  $rows
+     */
+    public static function amendmentPreview(?Contract $contract, mixed $newTotalInput, array $rows): HtmlString
+    {
+        $newTotal = static::tryParseMoney($newTotalInput);
+
+        if ($contract === null || $newTotal === null) {
+            return new HtmlString('<em>'.e(__('billing.tab.preview.enter_new_total')).'</em>');
+        }
+
+        $rows = array_values(array_filter($rows, 'is_array'));
+        $lines = [e(static::vatPreviewLine($newTotal, $contract->vat_rate_percent))];
+
+        try {
+            $derived = SplitByPercent::amountsForRows($newTotal, static::amendmentPercents($rows), 'instalment_changes');
+        } catch (ValidationException) {
+            return new HtmlString(implode('<br/>', [...$lines, e(__('billing.tab.preview.percent_invalid'))]));
+        }
+
+        $names = $contract->instalments()->pluck('name', 'id');
+
+        foreach ($rows as $index => $row) {
+            $action = $row['action'] ?? null;
+
+            if (! in_array($action, [AmendContract::ADD, AmendContract::UPDATE], true)) {
+                continue;
+            }
+
+            $name = $action === AmendContract::ADD
+                ? (string) ($row['name'] ?? '')
+                : (string) ($names[$row['instalment_id'] ?? null] ?? '');
+
+            $lines[] = e(static::previewRowLine(
+                __('billing.tab.preview.row_label_change', ['number' => $index + 1]),
+                $name,
+                $row['percent_basis'] ?? null,
+                $derived[$index] ?? static::tryParseMoney($row['amount'] ?? null),
+            ));
+        }
+
+        return new HtmlString(implode('<br/>', $lines));
+    }
+
+    /** Ba con số VAT của một tổng (qua {@see Vat}), hoặc câu "không có dòng thuế". */
+    private static function vatPreviewLine(int $total, mixed $vatInput): string
+    {
+        $rate = is_numeric($vatInput) && (int) $vatInput >= 0 && (int) $vatInput <= 100 ? (int) $vatInput : null;
+
+        if ($rate === null) {
+            return __('billing.tab.preview.vat_none_line', ['total' => Money::format($total)]);
+        }
+
+        return __('billing.tab.preview.vat_line', [
+            'total' => Money::format($total),
+            'rate' => $rate,
+            'tax' => Money::format(Vat::tax($total, $rate)),
+            'net' => Money::format(Vat::net($total, $rate)),
+        ]);
+    }
+
+    private static function previewRowLine(string $label, string $name, mixed $percent, ?int $amount): string
+    {
+        $amountText = $amount === null ? __('billing.tab.preview.amount_missing') : Money::format($amount);
+
+        return filled($percent)
+            ? __('billing.tab.preview.row_by_percent', ['label' => $label, 'name' => $name, 'percent' => trim((string) $percent), 'amount' => $amountText])
+            : __('billing.tab.preview.row_by_amount', ['label' => $label, 'name' => $name, 'amount' => $amountText]);
+    }
+
+    /**
+     * Phần trăm của các dòng THÊM/SỬA của một phụ lục, khoá = chỉ số dòng trong form (dòng huỷ không
+     * mang số tiền nên không có mặt).
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return array<int, mixed>
+     */
+    private static function amendmentPercents(array $rows): array
+    {
+        $percents = [];
+
+        foreach ($rows as $index => $row) {
+            if (in_array($row['action'] ?? null, [AmendContract::ADD, AmendContract::UPDATE], true)) {
+                $percents[$index] = $row['percent_basis'] ?? null;
+            }
+        }
+
+        return $percents;
+    }
+
+    /** `null` khi ô trống hoặc chưa đọc được — khung xem trước không báo lỗi, chỉ chưa có gì để hiện. */
+    private static function tryParseMoney(mixed $input): ?int
+    {
+        if (blank($input)) {
+            return null;
+        }
+
+        try {
+            return Money::parse((string) $input);
+        } catch (ValidationException) {
+            return null;
+        }
     }
 
     /** @return array<string, string> */
@@ -943,74 +1214,80 @@ class BillingRelationManager extends RelationManager
             ->all();
     }
 
-    /** Tài liệu nội bộ (nhóm D) của ĐÚNG vụ này — bản scan biên lai/phụ lục chỉ chọn được trong số đó. */
-    private static function internalDocumentOptions(Matter $matter): array
-    {
-        return Document::query()
-            ->where('matter_id', $matter->id)
-            ->where('group', DocumentGroup::Internal->value)
-            ->pluck('title', 'id')
-            ->all();
-    }
-
-    private static function resolveDocument(mixed $id): ?Document
-    {
-        return blank($id) ? null : Document::query()->find($id);
-    }
-
     private static function intOrNull(mixed $value): ?int
     {
         return blank($value) ? null : (int) $value;
     }
 
+    /** Chuỗi phần trăm đã cắt hai đầu, hoặc `null` khi ô trống — "dòng này gõ số tiền". */
+    private static function percentOrNull(mixed $value): ?string
+    {
+        return blank($value) ? null : trim((string) $value);
+    }
+
     /**
-     * Một danh sách dòng lịch thu từ form (`DraftContract`/`UpdateDraftContract`): mỗi dòng đi qua
-     * `Money::parse()` cho `amount`, gắn field path `"{$prefix}.{i}.amount"` để một chuỗi hỏng ra
-     * lỗi cạnh đúng ô — phần còn lại (tên, loại kích hoạt, ngày…) ĐỂ NGUYÊN cho chính Action kiểm
-     * qua `ValidatesBillingInput::instalmentAttributes()`, không kiểm hai lần.
+     * Một danh sách dòng lịch thu từ form (`DraftContract`/`UpdateDraftContract`). Dòng có phần trăm
+     * nhận số tiền TÍNH bằng {@see SplitByPercent::amountsForRows()} trên `$total` — cùng hàm của
+     * khung xem trước, nên số được lưu là số người dùng đã thấy; ô số tiền của dòng đó bị khoá và
+     * không được gửi lên, nếu có gửi cũng bị bỏ qua. Dòng không có phần trăm đi qua `Money::parse()`
+     * (lỗi gắn `"{$prefix}.{i}.amount"`) và `percent_basis` để `null`. Phần còn lại (tên, loại kích
+     * hoạt, ngày…) ĐỂ NGUYÊN cho chính Action kiểm qua
+     * `ValidatesBillingInput::instalmentAttributes()`, không kiểm hai lần.
      *
-     * @param  array<int, array<string, mixed>>  $rows
+     * @param  array<array-key, array<string, mixed>>  $rows
      * @return list<array<string, mixed>>
      */
-    private static function parsedInstalmentRows(array $rows, string $prefix): array
+    private static function parsedInstalmentRows(array $rows, int $total, string $prefix): array
     {
-        return collect(array_values($rows))->map(fn (array $row, int $index): array => [
+        $rows = array_values($rows);
+        $percents = array_map(fn (array $row): ?string => static::percentOrNull($row['percent_basis'] ?? null), $rows);
+        $derived = SplitByPercent::amountsForRows($total, $percents, $prefix);
+
+        return collect($rows)->map(fn (array $row, int $index): array => [
             ...$row,
-            'amount' => Money::parse((string) ($row['amount'] ?? ''), "{$prefix}.{$index}.amount"),
+            'amount' => $derived[$index] ?? Money::parse((string) ($row['amount'] ?? ''), "{$prefix}.{$index}.amount"),
+            'percent_basis' => $percents[$index],
             'due_days_after_trigger' => static::intOrNull($row['due_days_after_trigger'] ?? null) ?? 0,
         ])->all();
     }
 
     /**
      * `AmendContract::$instalmentChanges` — cùng phép biến đổi, tiền tố `instalment_changes`
-     * (đúng tiền tố `AmendContract::plan()` đã dùng cho lỗi của chính nó).
+     * (đúng tiền tố `AmendContract::plan()` đã dùng cho lỗi của chính nó). Phần trăm của một dòng
+     * thêm/sửa là phần trăm của GIÁ TRỊ MỚI (`$newTotal`), tính bằng cùng
+     * {@see SplitByPercent::amountsForRows()} như khung xem trước của phụ lục.
      *
-     * @param  array<int, array<string, mixed>>  $rows
+     * @param  array<array-key, array<string, mixed>>  $rows
      * @return list<array<string, mixed>>
      */
-    private static function parsedAmendmentChanges(array $rows): array
+    private static function parsedAmendmentChanges(array $rows, int $newTotal): array
     {
-        return collect(array_values($rows))->map(function (array $row, int $index): array {
+        $rows = array_values($rows);
+        $percents = array_map(fn (mixed $percent): ?string => static::percentOrNull($percent), static::amendmentPercents($rows));
+        $derived = SplitByPercent::amountsForRows($newTotal, $percents, 'instalment_changes');
+
+        return collect($rows)->map(function (array $row, int $index) use ($percents, $derived): array {
             $prefix = "instalment_changes.{$index}";
             $change = ['action' => $row['action'] ?? null];
+            $amount = fn (): int => $derived[$index] ?? Money::parse((string) ($row['amount'] ?? ''), "{$prefix}.amount");
 
-            if ($change['action'] === 'add') {
+            if ($change['action'] === AmendContract::ADD) {
                 $change = [
                     ...$change,
                     'name' => $row['name'] ?? null,
-                    'amount' => Money::parse((string) ($row['amount'] ?? ''), "{$prefix}.amount"),
-                    'percent_basis' => $row['percent_basis'] ?? null,
+                    'amount' => $amount(),
+                    'percent_basis' => $percents[$index] ?? null,
                     'trigger_type' => $row['trigger_type'] ?? null,
                     'trigger_stage_key' => $row['trigger_stage_key'] ?? null,
                     'due_date' => $row['due_date'] ?? null,
                     'due_days_after_trigger' => static::intOrNull($row['due_days_after_trigger'] ?? null) ?? 0,
                 ];
-            } elseif ($change['action'] === 'update') {
+            } elseif ($change['action'] === AmendContract::UPDATE) {
                 $change = [
                     ...$change,
                     'instalment_id' => static::intOrNull($row['instalment_id'] ?? null),
-                    'amount' => Money::parse((string) ($row['amount'] ?? ''), "{$prefix}.amount"),
-                    'percent_basis' => $row['percent_basis'] ?? null,
+                    'amount' => $amount(),
+                    'percent_basis' => $percents[$index] ?? null,
                 ];
             } else {
                 $change['instalment_id'] = static::intOrNull($row['instalment_id'] ?? null);

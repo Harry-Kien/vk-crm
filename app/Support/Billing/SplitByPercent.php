@@ -43,12 +43,89 @@ final class SplitByPercent
         $amounts = [];
 
         foreach (array_slice($basisPoints, 0, -1) as $points) {
-            $amounts[] = intdiv($total * $points, 10_000);
+            $amounts[] = self::partOf($total, $points);
         }
 
         $amounts[] = $total - array_sum($amounts);
 
         return $amounts;
+    }
+
+    /**
+     * Số tiền của MỘT phần trăm trên một tổng — cùng phép làm tròn XUỐNG mà {@see self::split()}
+     * dùng cho mọi đợt trừ đợt cuối (một chỗ tính: {@see self::partOf()}).
+     *
+     * @throws ValidationException
+     */
+    public static function part(int $total, int|float|string $percent, string $field = 'percents'): int
+    {
+        return self::partOf($total, self::basisPoints($percent, $field));
+    }
+
+    /**
+     * Số tiền của từng dòng lịch thu mà người dùng nhập bằng PHẦN TRĂM, trong form (lượt rà soát
+     * cuối M9, I5) — xem trước lúc gõ VÀ tính lại lúc lưu bằng CÙNG hàm này, để số người dùng thấy là
+     * số được lưu. Dòng không có phần trăm (`null`/chuỗi rỗng — người dùng gõ số tiền) trả `null`
+     * ở đúng vị trí đó.
+     *
+     * - **Mọi dòng đều có phần trăm VÀ cộng lại đúng 100%** → {@see self::split()}: đợt cuối nhận phần
+     *   dư làm tròn, tổng các đợt bằng ĐÚNG `$total`.
+     * - **Còn lại** (có dòng gõ số tiền, hoặc phần trăm chưa đủ/vượt 100% — ví dụ lúc đang gõ dở, hay
+     *   một phụ lục chỉ đổi vài đợt) → mỗi dòng phần trăm là {@see self::part()} (làm tròn xuống);
+     *   không dòng nào "nhận phần dư", vì các dòng này không mô tả trọn tổng. Bất biến tổng vẫn do
+     *   Action kiểm (`ActivateContract`, `AmendContract`), không phải hàm này.
+     *
+     * **Giữ nguyên khoá của `$percents`** — khoá là chỉ số dòng trong form, nên một phụ lục truyền
+     * CHỈ các dòng thêm/sửa (bỏ dòng huỷ) vẫn nhận lại đúng chỉ số của từng dòng, và phần trăm sai
+     * định dạng ném `ValidationException` trên `"{$fieldPrefix}.{khoá}.percent_basis"` — đúng ô của
+     * dòng đó.
+     *
+     * @param  array<int, mixed>  $percents  khoá = chỉ số dòng; `null`/chuỗi rỗng = dòng gõ số tiền
+     * @return array<int, int|null> cùng khoá với `$percents`
+     *
+     * @throws ValidationException
+     */
+    public static function amountsForRows(int $total, array $percents, string $fieldPrefix = 'instalments'): array
+    {
+        $basisPoints = [];
+
+        foreach ($percents as $index => $percent) {
+            if (self::isBlank($percent)) {
+                $basisPoints[$index] = null;
+
+                continue;
+            }
+
+            $field = "{$fieldPrefix}.{$index}.percent_basis";
+            $basisPoints[$index] = self::basisPoints($percent, $field);
+
+            // Trần 100% của MỘT dòng — cùng trần `ValidatesBillingInput::validatedPercentBasis()`
+            // đặt cho `percent_basis`, để xem trước không hiện một số tiền lớn hơn cả tổng.
+            if ($basisPoints[$index] > 10_000) {
+                throw ValidationException::withMessages([$field => [__('billing.validation.percent_out_of_range')]]);
+            }
+        }
+
+        if ($basisPoints !== [] && ! in_array(null, $basisPoints, true) && array_sum($basisPoints) === 10_000) {
+            return array_combine(array_keys($percents), self::split($total, array_values($percents)));
+        }
+
+        // `array_map()` với MỘT mảng giữ nguyên khoá.
+        return array_map(
+            fn (?int $points): ?int => $points === null ? null : self::partOf($total, $points),
+            $basisPoints,
+        );
+    }
+
+    /** `intdiv(total × phần vạn, 10000)` — phép làm tròn xuống DUY NHẤT của lớp này. */
+    private static function partOf(int $total, int $basisPoints): int
+    {
+        return intdiv($total * $basisPoints, 10_000);
+    }
+
+    private static function isBlank(mixed $value): bool
+    {
+        return $value === null || (is_string($value) && trim($value) === '');
     }
 
     /**

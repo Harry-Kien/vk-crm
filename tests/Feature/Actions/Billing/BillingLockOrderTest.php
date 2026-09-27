@@ -4,6 +4,7 @@ use App\Actions\Billing\ActivateContract;
 use App\Actions\Billing\AmendContract;
 use App\Actions\Billing\CancelContract;
 use App\Actions\Billing\CompleteContract;
+use App\Actions\Billing\DeleteDraftContract;
 use App\Actions\Billing\DraftContract;
 use App\Actions\Billing\RecordPayment;
 use App\Actions\Billing\UpdateDraftContract;
@@ -190,6 +191,16 @@ it('locks matters first, then contracts, when updating a draft', function () {
     $order = lockOrderOf(fn () => app(UpdateDraftContract::class)->handle($this->lead, $draft, ['total_amount' => 20_000_000], [
         ['name' => 'Trọn gói', 'amount' => 20_000_000, 'trigger_type' => 'on_signing'],
     ]));
+
+    expect($order)->toBe(['matters', 'contracts']);
+});
+
+it('locks matters first, then contracts, when deleting a draft', function () {
+    $draft = Contract::factory()->for(Matter::factory()->create(['lead_lawyer_id' => $this->lead->id]))
+        ->create(['status' => ContractStatus::Draft, 'total_amount' => 10_000_000]);
+    Instalment::factory()->for($draft)->create(['amount' => 10_000_000]);
+
+    $order = lockOrderOf(fn () => app(DeleteDraftContract::class)->handle($this->lead, $draft));
 
     expect($order)->toBe(['matters', 'contracts']);
 });

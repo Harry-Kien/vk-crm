@@ -76,3 +76,42 @@ it('keeps one split into a single instalment whole', function () {
     expect(SplitByPercent::split(50_000_000, [100]))->toBe([50_000_000])
         ->and(SplitByPercent::evenly(50_000_000, 1))->toBe([50_000_000]);
 });
+
+/**
+ * `amountsForRows()` — lượt rà soát cuối M9, I5: số tiền của từng dòng lịch thu nhập bằng phần
+ * trăm, xem trước VÀ lưu bằng cùng một hàm.
+ */
+it('gives the leftover dong to the last row when every row is a percent and they add up to 100', function () {
+    expect(SplitByPercent::amountsForRows(33_333_333, ['30', '30', '40']))
+        ->toBe([9_999_999, 9_999_999, 13_333_335]);
+});
+
+it('rounds each percent row down, with no leftover row, when some row is typed as an amount', function () {
+    expect(SplitByPercent::amountsForRows(33_333_333, ['30', null, '']))
+        ->toBe([9_999_999, null, null]);
+});
+
+it('rounds each percent row down, with no leftover row, when the percents do not add up to 100', function () {
+    expect(SplitByPercent::amountsForRows(33_333_333, ['30', '30']))
+        ->toBe([9_999_999, 9_999_999]);
+});
+
+it('points a malformed or over-100 percent at its own row field', function (string $percent) {
+    try {
+        SplitByPercent::amountsForRows(10_000_000, ['50', $percent], 'instalment_changes');
+    } catch (ValidationException $exception) {
+        expect($exception->errors())->toHaveKey('instalment_changes.1.percent_basis');
+
+        return;
+    }
+
+    test()->fail('Không ném ValidationException.');
+})->with(['12,5', '100.01', '0']);
+
+it('gives an empty list for no rows', function () {
+    expect(SplitByPercent::amountsForRows(10_000_000, []))->toBe([]);
+});
+
+it('reads one percent of a total the same way split() rounds its non-last parts', function () {
+    expect(SplitByPercent::part(33_333_333, '30'))->toBe(9_999_999);
+});

@@ -26,7 +26,17 @@ final class Money
     /** `1250000` → `"1.250.000 ₫"`. */
     public static function format(int $dong): string
     {
-        return number_format($dong, 0, ',', '.').' ₫';
+        return self::formatForInput($dong).' ₫';
+    }
+
+    /**
+     * `1250000` → `"1.250.000"` — đúng dạng {@see self::parse()} đọc lại được, KHÔNG kèm "₫": giá trị
+     * điền sẵn vào một ô nhập tiền (form sửa bản nháp). Điền `format()` vào ô rồi bấm lưu ngay sẽ
+     * ra lỗi định dạng, vì `parse()` cố tình không đoán nghĩa ký tự "₫".
+     */
+    public static function formatForInput(int $dong): string
+    {
+        return number_format($dong, 0, ',', '.');
     }
 
     /**

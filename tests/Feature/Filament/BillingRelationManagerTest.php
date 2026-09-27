@@ -19,6 +19,7 @@ use App\Support\Billing\Money;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
+use Filament\Forms\Components\Repeater;
 use Filament\Notifications\Notification;
 use Illuminate\Database\Eloquent\Model;
 
@@ -591,4 +592,268 @@ it('updates a draft contract through the update button, replacing its schedule',
     expect($contract->total_amount)->toBe(80_000_000)
         ->and($contract->vat_rate_percent)->toBe(8)
         ->and($contract->instalments()->pluck('name')->all())->toBe(['Mới']);
+});
+
+// =================================================================================================
+// Lượt rà soát cuối M9, I5 — chia theo phần trăm và ba con số VAT hiện NGAY trong form, trước khi
+// lưu. Nhập phần trăm thì số tiền của đợt TÍNH từ đó (SplitByPercent, đợt cuối nhận phần dư — ô số
+// tiền bị khoá); nhập số tiền thì phần trăm để trống.
+// =================================================================================================
+
+it('previews the amount of each instalment split by percent, the last one taking the leftover dong, before saving', function () {
+    $this->actingAs($this->lead, 'web');
+
+    billingTab($this->matter)
+        ->mountAction(TestAction::make('draftContract')->table())
+        ->setActionData([
+            'total_amount' => '10.000.001',
+            'instalments' => [
+                ['name' => 'Tạm ứng', 'percent_basis' => '50', 'trigger_type' => 'on_signing'],
+                ['name' => 'Đợt cuối', 'percent_basis' => '50', 'trigger_type' => 'on_signing'],
+            ],
+        ])
+        ->assertMountedActionModalSee([Money::format(5_000_000), Money::format(5_000_001)]);
+
+    expect(Contract::query()->where('matter_id', $this->matter->id)->exists())->toBeFalse();
+});
+
+it('saves the amounts computed from the percents, with the leftover dong on the last instalment, and keeps the percents', function () {
+    $this->actingAs($this->lead, 'web');
+
+    billingTab($this->matter)
+        ->callAction(TestAction::make('draftContract')->table(), data: [
+            'total_amount' => '10.000.001',
+            'instalments' => [
+                // Số tiền gõ tay ở đây bị BỎ QUA: phần trăm đã điền thì số tiền tính từ phần trăm.
+                ['name' => 'Tạm ứng', 'percent_basis' => '50', 'amount' => '1', 'trigger_type' => 'on_signing'],
+                ['name' => 'Đợt cuối', 'percent_basis' => '50', 'trigger_type' => 'on_signing'],
+            ],
+        ])
+        ->assertHasNoActionErrors();
+
+    $instalments = Contract::query()->where('matter_id', $this->matter->id)->sole()->instalments()->get();
+
+    expect($instalments->pluck('amount')->all())->toBe([5_000_000, 5_000_001])
+        ->and($instalments->pluck('percent_basis')->all())->toBe(['50.00', '50.00']);
+});
+
+it('leaves the percent empty when the amount is typed directly', function () {
+    $this->actingAs($this->lead, 'web');
+
+    billingTab($this->matter)
+        ->callAction(TestAction::make('draftContract')->table(), data: [
+            'total_amount' => '10.000.000',
+            'instalments' => [
+                ['name' => 'Trọn gói', 'amount' => '10.000.000', 'percent_basis' => '', 'trigger_type' => 'on_signing'],
+            ],
+        ])
+        ->assertHasNoActionErrors();
+
+    $instalment = Contract::query()->where('matter_id', $this->matter->id)->sole()->instalments()->sole();
+
+    expect($instalment->amount)->toBe(10_000_000)
+        ->and($instalment->percent_basis)->toBeNull();
+});
+
+it('locks the amount field of an instalment whose percent is filled in, and leaves it open otherwise', function () {
+    $undoRepeaterFake = Repeater::fake();
+    $this->actingAs($this->lead, 'web');
+
+    billingTab($this->matter)
+        ->mountAction(TestAction::make('draftContract')->table())
+        ->setActionData([
+            'total_amount' => '10.000.000',
+            'instalments' => [
+                ['name' => 'Theo phần trăm', 'percent_basis' => '40', 'trigger_type' => 'on_signing'],
+                ['name' => 'Theo số tiền', 'amount' => '6.000.000', 'trigger_type' => 'on_signing'],
+            ],
+        ])
+        ->assertFormFieldDisabled('instalments.0.amount')
+        ->assertFormFieldEnabled('instalments.1.amount');
+
+    $undoRepeaterFake();
+});
+
+it('points a malformed percent back at its own field instead of saving', function () {
+    $this->actingAs($this->lead, 'web');
+
+    billingTab($this->matter)
+        ->callAction(TestAction::make('draftContract')->table(), data: [
+            'total_amount' => '10.000.000',
+            'instalments' => [
+                ['name' => 'Sai', 'percent_basis' => '12,5', 'trigger_type' => 'on_signing'],
+            ],
+        ])
+        ->assertHasActionErrors(['instalments.0.percent_basis']);
+
+    expect(Contract::query()->where('matter_id', $this->matter->id)->exists())->toBeFalse();
+});
+
+it('previews the three VAT figures of the total before saving', function () {
+    $this->actingAs($this->lead, 'web');
+
+    billingTab($this->matter)
+        ->mountAction(TestAction::make('draftContract')->table())
+        ->setActionData([
+            'total_amount' => '55.000.000',
+            'vat_rate_percent' => '10',
+            'instalments' => [
+                ['name' => 'Trọn gói', 'amount' => '55.000.000', 'trigger_type' => 'on_signing'],
+            ],
+        ])
+        ->assertMountedActionModalSee([
+            __('billing.tab.preview.vat_line', [
+                'total' => Money::format(55_000_000),
+                'rate' => 10,
+                'tax' => Money::format(5_000_000),
+                'net' => Money::format(50_000_000),
+            ]),
+        ]);
+});
+
+/**
+ * Phát hiện khi làm I5: form "Sửa hợp đồng" điền sẵn số tiền bằng `Money::format()` ("50.000.000 ₫")
+ * — `Money::parse()` cố tình không đọc "₫", nên mở form rồi bấm lưu NGAY mà không sửa gì cũng ra
+ * lỗi định dạng. Điền sẵn phải là dạng `Money::parse()` đọc lại được.
+ */
+it('saves an untouched update-draft form back without a money format error', function () {
+    $contract = Contract::factory()->for($this->matter)->create(['status' => ContractStatus::Draft, 'total_amount' => 50_000_000]);
+    Instalment::factory()->for($contract)->create(['name' => 'Trọn gói', 'amount' => 50_000_000, 'trigger_type' => InstalmentTrigger::OnSigning, 'due_date' => null]);
+
+    $this->actingAs($this->lead, 'web');
+
+    billingTab($this->matter)
+        ->mountAction(TestAction::make('updateDraftContract')->table())
+        ->assertActionDataSet(['total_amount' => '50.000.000'])
+        ->callMountedAction()
+        ->assertHasNoActionErrors();
+
+    expect($contract->fresh()->total_amount)->toBe(50_000_000)
+        ->and($contract->instalments()->sole()->amount)->toBe(50_000_000);
+});
+
+it('previews the percent split and the VAT figures in the update-draft form too', function () {
+    $contract = Contract::factory()->for($this->matter)->create(['status' => ContractStatus::Draft, 'total_amount' => 50_000_000]);
+    Instalment::factory()->for($contract)->create(['name' => 'Cũ', 'amount' => 50_000_000]);
+
+    $this->actingAs($this->lead, 'web');
+
+    billingTab($this->matter)
+        ->mountAction(TestAction::make('updateDraftContract')->table())
+        ->setActionData([
+            'total_amount' => '33.000.000',
+            'vat_rate_percent' => '10',
+            'instalments' => [
+                ['name' => 'Một phần ba', 'percent_basis' => '33.33', 'trigger_type' => 'on_signing'],
+                ['name' => 'Một phần ba', 'percent_basis' => '33.33', 'trigger_type' => 'on_signing'],
+                ['name' => 'Phần còn lại', 'percent_basis' => '33.34', 'trigger_type' => 'on_signing'],
+            ],
+        ])
+        // 33.000.000 × 33,33% = 10.998.900 (hai đợt đầu); đợt cuối nhận 33.000.000 − 21.997.800.
+        ->assertMountedActionModalSee([Money::format(10_998_900), Money::format(11_002_200), Money::format(3_000_000)]);
+});
+
+it('previews the amount of an amendment change typed as a percent of the new total, and the VAT figures of the new total', function () {
+    [$contract, $instalment] = activeContractOneInstalment($this->matter, 100_000_000);
+    $contract->forceFill(['vat_rate_percent' => 8])->save();
+
+    $this->actingAs($this->lead, 'web');
+
+    billingTab($this->matter)
+        ->mountAction(TestAction::make('amendContract')->table())
+        ->setActionData([
+            'new_total_amount' => '108.000.000',
+            'instalment_changes' => [
+                ['action' => 'update', 'instalment_id' => $instalment->id, 'percent_basis' => '25'],
+                ['action' => 'add', 'name' => 'Phúc thẩm', 'percent_basis' => '75', 'trigger_type' => 'on_signing'],
+            ],
+        ])
+        ->assertMountedActionModalSee([
+            Money::format(27_000_000),
+            Money::format(81_000_000),
+            __('billing.tab.preview.vat_line', [
+                'total' => Money::format(108_000_000),
+                'rate' => 8,
+                'tax' => Money::format(8_000_000),
+                'net' => Money::format(100_000_000),
+            ]),
+        ]);
+});
+
+it('amends with the amounts computed from the percents of the new total', function () {
+    [$contract, $instalment] = activeContractOneInstalment($this->matter, 100_000_000);
+
+    $this->actingAs($this->lead, 'web');
+
+    billingTab($this->matter)
+        ->callAction(TestAction::make('amendContract')->table(), data: [
+            'new_total_amount' => '120.000.000',
+            'signed_at' => today()->toDateString(),
+            'reason' => 'Phát sinh công việc ngoài phạm vi ban đầu do vụ việc lên phúc thẩm.',
+            'instalment_changes' => [
+                ['action' => 'update', 'instalment_id' => $instalment->id, 'percent_basis' => '50'],
+                ['action' => 'add', 'name' => 'Phúc thẩm', 'percent_basis' => '50', 'trigger_type' => 'on_signing'],
+            ],
+        ])
+        ->assertHasNoActionErrors();
+
+    expect($contract->fresh()->total_amount)->toBe(120_000_000)
+        ->and($contract->instalments()->pluck('amount')->all())->toBe([60_000_000, 60_000_000])
+        ->and($contract->instalments()->pluck('percent_basis')->all())->toBe(['50.00', '50.00']);
+});
+
+// =================================================================================================
+// Lượt rà soát cuối M9 — M3 (không ô chọn biên lai), M5 (câu hướng dẫn riêng cho số tiền thu),
+// M9 (xoá bản nháp qua DeleteDraftContract).
+// =================================================================================================
+
+it('has no receipt picker in the record-payment form, since receipts are not attached in this lane', function () {
+    [$contract, $instalment] = activeContractOneInstalment($this->restricted);
+
+    $this->actingAs($this->lead, 'web');
+
+    billingTab($this->restricted)
+        ->mountAction(TestAction::make('recordPayment')->table($instalment))
+        ->assertFormFieldDoesNotExist('receipt_document_id');
+});
+
+it('explains the payment amount field as the money actually received this time, not as the contract total', function () {
+    [$contract, $instalment] = activeContractOneInstalment($this->restricted);
+
+    $this->actingAs($this->lead, 'web');
+
+    billingTab($this->restricted)
+        ->mountAction(TestAction::make('recordPayment')->table($instalment))
+        ->assertMountedActionModalSee(__('billing.tab.fields.payment_amount_help'))
+        ->assertMountedActionModalDontSee(__('billing.tab.fields.total_amount_help'));
+});
+
+it('deletes a draft contract with no payment through the delete-draft button', function () {
+    $contract = Contract::factory()->for($this->matter)->create(['status' => ContractStatus::Draft, 'total_amount' => 50_000_000]);
+    Instalment::factory()->for($contract)->create(['amount' => 50_000_000]);
+
+    $this->actingAs($this->lead, 'web');
+
+    billingTab($this->matter)
+        ->assertActionVisible(TestAction::make('deleteDraftContract')->table())
+        ->callAction(TestAction::make('deleteDraftContract')->table())
+        ->assertHasNoActionErrors();
+
+    expect(Contract::query()->whereKey($contract->id)->exists())->toBeFalse();
+});
+
+it('does not offer delete-draft on a contract that has been signed', function () {
+    activeContractOneInstalment($this->matter);
+
+    $this->actingAs($this->lead, 'web');
+
+    billingTab($this->matter)->assertActionHidden(TestAction::make('deleteDraftContract')->table());
+});
+
+it('does not offer delete-draft to the accountant, who cannot manage contracts', function () {
+    Contract::factory()->for($this->matter)->create(['status' => ContractStatus::Draft, 'total_amount' => 50_000_000]);
+
+    $this->actingAs($this->accountant, 'web');
+
+    billingTab($this->matter)->assertActionHidden(TestAction::make('deleteDraftContract')->table());
 });
