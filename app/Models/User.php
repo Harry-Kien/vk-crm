@@ -85,6 +85,15 @@ class User extends Authenticatable implements FilamentUser
     }
 
     /**
+     * Khung cho tính phí theo giờ giai đoạn 2 (SPEC §15, M9 Task 12 — chỉ khung). Xem docblock
+     * {@see TimeEntry}.
+     */
+    public function timeEntries(): HasMany
+    {
+        return $this->hasMany(TimeEntry::class);
+    }
+
+    /**
      * Nhân sự chỉ vào được panel nội bộ, và chỉ khi tài khoản còn hoạt động.
      */
     public function canAccessPanel(Panel $panel): bool

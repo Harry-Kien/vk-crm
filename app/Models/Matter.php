@@ -325,6 +325,15 @@ class Matter extends Model
         return $this->hasOne(Contract::class);
     }
 
+    /**
+     * Khung cho tính phí theo giờ giai đoạn 2 (SPEC §15, M9 Task 12 — chỉ khung, không nghiệp vụ
+     * nào đọc quan hệ này ở M9). Xem docblock {@see TimeEntry}.
+     */
+    public function timeEntries(): HasMany
+    {
+        return $this->hasMany(TimeEntry::class);
+    }
+
     /** SPEC §4.6: description_internal không bao giờ ra portal. */
     protected function internalAttributes(): array
     {
