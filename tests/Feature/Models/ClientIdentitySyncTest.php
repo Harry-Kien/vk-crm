@@ -418,6 +418,47 @@ it('does not notify a manager of a restricted matter when a resync reveals a new
         ->and($matterAudit->properties->get('notified_user_ids'))->not->toContain($manager->id);
 });
 
+/**
+ * Vòng sửa 1, M1: `recheckAffectedOpenMatters()` từng CỘNG CẢ manager LẪN admin không điều kiện —
+ * một vụ THƯỜNG cũng cho admin `Gate::view()` qua (`matter.viewAny`), nên admin nhận thông báo
+ * của MỌI vụ THƯỜNG, không riêng vụ `restricted`. Từ vòng sửa này, người nhận đi qua
+ * `ResolveStaffRecipients::supervisorsFor()` — MỘT định nghĩa duy nhất, dùng chung với
+ * `CheckDeadlines`/`SendDeadlineReminderMail::failed()` — nên một vụ THƯỜNG chỉ cộng MANAGER,
+ * không admin.
+ *
+ * Mutation probe: xem báo cáo — trả `supervisorsFor()` về lại
+ * `collect([...managers, ...admins])` (bản cũ) làm test này đỏ.
+ */
+it('does not notify an admin about a standard matter’s new conflict, only the lead lawyer and manager, via supervisorsFor', function () {
+    $this->seed(RolesAndPermissionsSeeder::class);
+
+    $lead = User::factory()->withRole(Role::Lawyer)->create();
+    $otherLead = User::factory()->withRole(Role::Lawyer)->create();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $admin = User::factory()->withRole(Role::Admin)->create();
+
+    $client = Client::factory()->create(['id_number' => '090000000031']);
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lead->id]);
+    MatterParty::factory()->for($matter)->ourClient($client, PartyRole::Plaintiff)->create();
+
+    $otherMatter = Matter::factory()->create(['lead_lawyer_id' => $otherLead->id]);
+    MatterParty::factory()->for($otherMatter)->create(['role' => PartyRole::Defendant, 'name' => 'Bị đơn khác'])
+        ->identify('090000000032', null)->save();
+
+    $client->update(['id_number' => '090000000032']);
+
+    $matterAudit = Activity::query()->where('event', 'client_identity_conflict_detected')
+        ->where('subject_type', $matter->getMorphClass())->where('subject_id', $matter->id)->first();
+
+    expect($matterAudit)->not->toBeNull()
+        ->and(collect($matterAudit->properties->get('notified_user_ids'))->sort()->values()->all())
+        ->toBe(collect([$lead->id, $manager->id])->sort()->values()->all())
+        ->and($matterAudit->properties->get('notified_user_ids'))->not->toContain($admin->id);
+
+    expect($admin->notifications()->count())->toBe(0)
+        ->and($manager->notifications()->count())->toBeGreaterThan(0);
+});
+
 /** Không có gì MỚI (kết quả vẫn xanh) thì không thông báo, không audit — không làm loãng nhật ký. */
 it('does not notify or log anything when a resync does not reveal any new conflict', function () {
     $this->seed(RolesAndPermissionsSeeder::class);

@@ -53,7 +53,6 @@ class StageUpdate extends BrandedMailable
             subject: __('portal.email.stage_update.subject', [
                 'code' => $this->stageLog->matter?->code ?? '',
             ]),
-            replyTo: $this->replyToAddresses(),
         );
     }
 

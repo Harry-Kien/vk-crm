@@ -161,3 +161,64 @@ it('excludes a soft-deleted user even when is_active is still true on the row', 
     expect($recipients->pluck('id')->all())->toBe([$manager->id])
         ->and($recipients->pluck('id')->all())->not->toContain($deletedButActive->id);
 });
+
+// ---------------------------------------------------------------------------------------------
+// Vòng sửa 1, M1 — supervisorsFor(): MỘT định nghĩa DUY NHẤT "ai giám sát vụ việc này", để ba
+// caller (CheckDeadlines, SyncClientPartyIdentities, SendDeadlineReminderMail::failed()) không
+// còn mỗi nơi tự quyết theo một cách khác nhau (hai trong ba từng CỘNG CẢ manager LẪN admin,
+// không điều kiện).
+// ---------------------------------------------------------------------------------------------
+
+/** Vụ THƯỜNG: mọi manager được xem vụ, KHÔNG admin (trừ khi họ tình cờ cũng có vai trò manager). */
+it('supervisorsFor returns every manager who can view a standard matter, not admins', function () {
+    $lead = User::factory()->withRole(Role::Lawyer)->create();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lead->id]);
+
+    $supervisors = app(ResolveStaffRecipients::class)->supervisorsFor($matter);
+
+    expect($supervisors->pluck('id')->all())->toBe([$manager->id])
+        ->and($supervisors->pluck('id')->all())->not->toContain($admin->id);
+});
+
+/** Vụ restricted: đổi hẳn sang admin, KHÔNG manager — một quyết định vai trò có chủ ý, không phải hệ quả tình cờ của Gate. */
+it('supervisorsFor returns admins instead of managers on a restricted matter', function () {
+    $lead = User::factory()->withRole(Role::Lawyer)->create();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = Matter::factory()->restricted()->create(['lead_lawyer_id' => $lead->id]);
+
+    $supervisors = app(ResolveStaffRecipients::class)->supervisorsFor($matter);
+
+    expect($supervisors->pluck('id')->all())->toBe([$admin->id])
+        ->and($supervisors->pluck('id')->all())->not->toContain($manager->id);
+});
+
+/** supervisorsFor() vẫn đi qua qualify(): một manager vô hiệu hoá giữa chừng không được trả về. */
+it('supervisorsFor excludes an inactive manager', function () {
+    $lead = User::factory()->withRole(Role::Lawyer)->create();
+    User::factory()->withRole(Role::Manager)->create(['is_active' => false]);
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lead->id]);
+
+    $supervisors = app(ResolveStaffRecipients::class)->supervisorsFor($matter);
+
+    expect($supervisors)->toBeEmpty();
+});
+
+/** qualifies(): kiểm tra MỘT người, cùng luật is_active + Gate::view của qualify(). */
+it('qualifies returns true for an active user who can view the matter', function () {
+    $lead = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lead->id]);
+
+    expect(app(ResolveStaffRecipients::class)->qualifies($lead, $matter))->toBeTrue();
+});
+
+/** Cặp âm: người không được xem vụ (ở đây: một luật sư không có trong đội ngũ) thì qualifies() trả false. */
+it('qualifies returns false for a lawyer who is not on the matter’s team', function () {
+    $lead = User::factory()->withRole(Role::Lawyer)->create();
+    $outsider = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lead->id]);
+
+    expect(app(ResolveStaffRecipients::class)->qualifies($outsider, $matter))->toBeFalse();
+});

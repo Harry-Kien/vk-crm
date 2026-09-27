@@ -498,7 +498,7 @@ it('dispatches the tier again on the next CheckDeadlines run after the job for i
     Mail::assertSent(DeadlineReminder::class, 1);
     expect($deadline->fresh()->reminders_sent)->toContain('d3');
 
-    $job = new SendDeadlineReminderMail($deadline->id, [$deadline->responsible_user_id], 'd3');
+    $job = new SendDeadlineReminderMail($deadline->id, 'd3');
     $job->failed(new RuntimeException('SMTP giả lập chết hẳn, hết mọi lượt thử.'));
 
     expect($deadline->fresh()->reminders_sent)->not->toContain('d3');
@@ -729,4 +729,78 @@ it('shows "Hết hạn hôm nay" in the body headline for a deadline due today, 
 
     expect($html)->toContain('Hết hạn hôm nay')
         ->and($html)->not->toContain('0 ngày');
+});
+
+// ---------------------------------------------------------------------------------------------
+// Vòng sửa 1, I1 — luật sư phụ trách VỤ thế chỗ người phụ trách MỐC không hợp lệ ở MỌI bậc, không
+// chỉ khi TOÀN BỘ preferred rỗng (bản trước: một trợ lý/quản lý hợp lệ khác trong preferred giữ
+// $qualified không rỗng, nên chuỗi dự phòng toàn cục không bao giờ kích hoạt, và luật sư phụ
+// trách vụ biến mất khỏi bậc đó dù người phụ trách MỐC đã nghỉ việc).
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Ruling I1, kịch bản 1: người phụ trách mốc bị vô hiệu hoá, bậc 1 ngày — luật sư phụ trách vụ
+ * PHẢI có mặt CẠNH quản lý (supervisorsFor), không chỉ một mình quản lý.
+ */
+it('substitutes the lead lawyer for a deactivated responsible person, alongside the tier supervisors, at the one-day tier', function () {
+    $lead = User::factory()->withRole(Role::Lawyer)->create();
+    $responsible = User::factory()->withRole(Role::Lawyer)->create(['is_active' => false]);
+    $manager = User::factory()->withRole(Role::Manager)->create();
+
+    $type = MatterType::factory()->withStages()->create();
+    $matter = Matter::factory()->create([
+        'lead_lawyer_id' => $lead->id,
+        'matter_type_id' => $type->id,
+        'stage' => $type->stages->reject(fn ($s) => $s->is_terminal)->first()->key,
+    ]);
+
+    $deadline = Deadline::factory()->create([
+        'matter_id' => $matter->id,
+        'responsible_user_id' => $responsible->id,
+        'due_date' => today()->addDay(),
+        'is_completed' => false,
+        'reminders_sent' => [],
+    ]);
+
+    $recipients = (new CheckDeadlines)->recipientsFor($deadline, 'd1');
+
+    expect($recipients->pluck('id')->sort()->values()->all())->toBe(
+        collect([$lead->id, $manager->id])->sort()->values()->all()
+    );
+});
+
+/**
+ * Ruling I1, kịch bản 2: người phụ trách mốc là một cộng sự cũ (từ trước khi vụ bị siết thành
+ * restricted) nên không còn Gate::view() được — luật sư phụ trách vụ thế chỗ, CẠNH admin
+ * (supervisorsFor của vụ restricted), không phải chỉ một mình admin.
+ */
+it('substitutes the lead lawyer for a legacy associate responsible who cannot view a restricted matter, alongside admins, at the one-day tier', function () {
+    $lead = User::factory()->withRole(Role::Lawyer)->create();
+    $responsible = User::factory()->withRole(Role::Lawyer)->create();
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+
+    $type = MatterType::factory()->withStages()->create();
+    $matter = Matter::factory()->restricted()->create([
+        'lead_lawyer_id' => $lead->id,
+        'matter_type_id' => $type->id,
+        'stage' => $type->stages->reject(fn ($s) => $s->is_terminal)->first()->key,
+    ]);
+    // Dữ liệu cũ: cộng sự được thêm vào đội ngũ TRƯỚC khi vụ bị siết thành restricted.
+    $matter->addTeamMember($responsible, MatterRole::Associate);
+
+    $deadline = Deadline::factory()->create([
+        'matter_id' => $matter->id,
+        'responsible_user_id' => $responsible->id,
+        'due_date' => today()->addDay(),
+        'is_completed' => false,
+        'reminders_sent' => [],
+    ]);
+
+    $recipients = (new CheckDeadlines)->recipientsFor($deadline, 'd1');
+
+    expect($recipients->pluck('id')->sort()->values()->all())->toBe(
+        collect([$lead->id, $admin->id])->sort()->values()->all()
+    )->and($recipients->pluck('id')->all())->not->toContain($manager->id)
+        ->and($recipients->pluck('id')->all())->not->toContain($responsible->id);
 });

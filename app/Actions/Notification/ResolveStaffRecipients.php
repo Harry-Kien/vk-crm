@@ -2,6 +2,7 @@
 
 namespace App\Actions\Notification;
 
+use App\Enums\Confidentiality;
 use App\Enums\Role;
 use App\Models\Matter;
 use App\Models\User;
@@ -26,16 +27,20 @@ use Illuminate\Support\Facades\Gate;
  * trưởng phòng thường lỡ có mặt trong `$preferred` tự động bị lọc ra — lớp này không cần biết gì
  * về `confidentiality` để làm việc đó.
  *
- * **Sửa lại (M6.5 Task 12, đọc code thật thay vì suy đoán): "vụ `restricted` thì thay manager
- * bằng admin" của R3 KHÔNG nên đọc là "caller cứ đưa cả manager LẪN admin vào `$preferred`,
- * `Gate::view()` sẽ tự lọc đúng người" — như bản docblock trước đây của đoạn này từng viết. Một
- * vụ THƯỜNG cũng cho admin `Gate::view()` qua (`matter.viewAny` là đủ), nên đẩy cả hai vai trò
- * KHÔNG PHÂN BIỆT vụ việc sẽ khiến MỌI admin đang hoạt động nhận thêm thư của MỌI vụ THƯỜNG, không
- * riêng vụ `restricted` — đo được bằng một test đã có sẵn của `CheckDeadlinesTest`
- * ("sends nothing for a deadline whose matter is cancelled...", dựng sẵn một admin cho việc khác
- * cạnh một mốc `d1` của vụ THƯỜNG): đẩy cả hai vai trò không điều kiện làm test đó đỏ. Vì vậy
- * CALLER (không phải lớp này) phải tự chọn MỘT trong hai theo `confidentiality`, xem
- * `CheckDeadlines::recipientsFor()`.
+ * **{@see self::supervisorsFor()} — MỘT định nghĩa DUY NHẤT "ai giám sát vụ việc này" (vòng sửa
+ * 1, M1, đọc code thật thay vì suy đoán, thay cho bản Task 12 gốc bên dưới).** Bản Task 12 gốc
+ * đẩy quyết định "manager hay admin" ra từng CALLER, với lý lẽ "cứ đưa cả hai vai trò vào
+ * `$preferred`, `Gate::view()` sẽ tự lọc đúng người" — kết quả là BA caller
+ * (`CheckDeadlines`, `SyncClientPartyIdentities`, `SendDeadlineReminderMail::failed()`) mỗi nơi
+ * tự quyết một cách khác nhau: một nơi làm đúng (ternary theo `confidentiality`), hai nơi CỘNG CẢ
+ * manager LẪN admin không điều kiện. Sai ở đúng chỗ hai nơi kia: một vụ THƯỜNG cũng cho admin
+ * `Gate::view()` qua (`matter.viewAny` là đủ), nên cộng cả hai vai trò không phân biệt vụ việc sẽ
+ * khiến MỌI admin đang hoạt động nhận thêm thông báo của MỌI vụ THƯỜNG, không riêng vụ
+ * `restricted` (đo được: một test đã có sẵn của `CheckDeadlinesTest`, "sends nothing for a
+ * deadline whose matter is cancelled...", dựng sẵn một admin cho việc khác cạnh một mốc `d1` của
+ * vụ THƯỜNG — cộng cả hai vai trò không điều kiện làm test đó đỏ). `supervisorsFor()` là NƠI DUY
+ * NHẤT quyết định vai trò nào được hỏi — mọi caller cần "ai giám sát vụ này" gọi thẳng nó, không
+ * tự dựng lại quyết định đó theo cách riêng.
  *
  * **Chuỗi dự phòng CHỈ chạy khi `$preferred` không còn ai hợp lệ ("Không bao giờ im lặng" — R3).**
  * Không phải một danh sách caller có thể tự chọn: đây là lưới an toàn CUỐI CÙNG của R3, giống nhau
@@ -76,6 +81,40 @@ class ResolveStaffRecipients
         }
 
         return $this->fallbackChain($matter);
+    }
+
+    /**
+     * "Ai giám sát vụ việc này" (vòng sửa 1, M1) — MỘT định nghĩa DUY NHẤT, xem docblock lớp. Mọi
+     * quản lý được xem vụ; RIÊNG vụ `restricted`, mọi admin đang hoạt động THAY VÌ quản lý — một
+     * quyết định vai trò có chủ ý, không phải hệ quả tình cờ của `Gate::view()` (khác hẳn
+     * `fallbackChain()`, nơi "restricted thì manager tự rớt, rơi xuống admin" ĐÚNG LÀ hệ quả tình
+     * cờ của Gate — hai cơ chế khác nhau, đừng nhầm).
+     *
+     * Vẫn đi qua {@see self::qualify()} như mọi danh sách khác: một quản lý bị vô hiệu hoá giữa
+     * chừng vẫn bị loại dù đúng vai trò.
+     *
+     * @return Collection<int, User>
+     */
+    public function supervisorsFor(Matter $matter): Collection
+    {
+        $role = $matter->confidentiality === Confidentiality::Restricted ? Role::Admin : Role::Manager;
+
+        return $this->qualify(
+            User::query()->where('is_active', true)->role($role->value)->get(),
+            $matter,
+        );
+    }
+
+    /**
+     * Một người CÓ qua được `is_active` + `Gate::view()` của `$matter` hay không — cùng luật của
+     * {@see self::qualify()}, chỉ khác là hỏi về MỘT người thay vì lọc một danh sách. Dùng khi
+     * caller cần biết "người X có còn hợp lệ không" để tự quyết định thay THẾ họ bằng ai (ví dụ
+     * `CheckDeadlines::recipientsFor()`: người phụ trách mốc không qua được thì thế bằng luật sư
+     * phụ trách vụ — I1, vòng sửa 1), chứ không chỉ đơn thuần lọc một danh sách sẵn có.
+     */
+    public function qualifies(User $user, Matter $matter): bool
+    {
+        return $this->qualify(collect([$user]), $matter)->isNotEmpty();
     }
 
     /**

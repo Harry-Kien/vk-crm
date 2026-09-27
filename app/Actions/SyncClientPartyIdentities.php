@@ -4,12 +4,10 @@ namespace App\Actions;
 
 use App\Actions\Notification\ResolveStaffRecipients;
 use App\Enums\ConflictLevel;
-use App\Enums\Role;
 use App\Jobs\RecheckClientIdentityConflicts;
 use App\Models\Client;
 use App\Models\Matter;
 use App\Models\MatterParty;
-use App\Models\User;
 use App\Support\Audit;
 use App\Support\Scopes\ClientPortalScope;
 use Filament\Notifications\Notification;
@@ -97,11 +95,16 @@ use Illuminate\Support\Facades\DB;
  * danh, nên nó sống sót qua một lần resync (hai dòng vẫn là hai dòng, dù hash của một trong hai
  * vừa đổi).
  *
- * **Người nhận: `$matter->leadLawyer` + mọi manager + mọi admin đang hoạt động, đưa hết vào
- * `$preferred` của `ResolveStaffRecipients`.** Không tự chọn MỘT manager: SPEC §6.8 (đọc lại theo
- * R3) là "mọi manager được xem vụ đó", và `ResolveStaffRecipients::handle()` đã tự lọc
- * `is_active`/`Gate::view()` — một vụ `restricted` tự loại các manager thường ở đúng bước lọc đó,
- * không cần lớp này biết gì về `confidentiality`.
+ * **Người nhận: `$matter->leadLawyer` + {@see ResolveStaffRecipients::
+ * supervisorsFor()}, đưa hết vào `$preferred` của `ResolveStaffRecipients::handle()` (vòng sửa 1,
+ * M1 — đính chính bản trước, từng cộng thẳng "mọi manager + mọi admin đang hoạt động" không điều
+ * kiện: một vụ THƯỜNG cũng cho admin `Gate::view()` qua — `matter.viewAny` là đủ — nên cộng cả hai
+ * vai trò khiến MỌI admin nhận thông báo của MỌI vụ THƯỜNG, không riêng vụ `restricted`).**
+ * `supervisorsFor()` là NƠI DUY NHẤT quyết định "quản lý hay admin" cho một vụ việc, dùng chung
+ * với `CheckDeadlines`/`SendDeadlineReminderMail::failed()` — không tự quyết lại ở đây. Không tự
+ * chọn MỘT manager: SPEC §6.8 (đọc lại theo R3) là "mọi manager được xem vụ đó", và
+ * `supervisorsFor()`/`ResolveStaffRecipients::handle()` đã tự lọc `is_active`/`Gate::view()` —
+ * một vụ `restricted` tự đổi sang admin ở đúng bước đó.
  *
  * **Fix round 2 (ruling) — lần rà chạy SAU KHI đồng bộ định danh đã commit, dưới CHÍNH khoá
  * `conflict-check` mà `OpenMatter`/`AddMatterParty` dùng.** Bản round 1 gọi
@@ -269,21 +272,25 @@ class SyncClientPartyIdentities
             $result = app(RunConflictCheck::class)->handle($matter->parties()->get(), $matter);
 
             // Chỉ khớp MỚI (R13c đã lọc khớp đã xác nhận/ghi đè ra khỏi $result->level) mới sinh
-            // thông báo — "vàng hoặc đỏ MỚI" của R13e, đúng nguyên văn. Cố ý truy vấn
-            // manager/admin BÊN TRONG nhánh này, không nạp sẵn trước vòng lặp: phần lớn các lần
-            // sửa hồ sơ khách hàng không lộ ra gì mới (đa số vụ việc của một khách hàng không đối
-            // lập với ai), nên đây là đường thường gặp nhất — không có lý do gì để mọi lần sửa hồ
-            // sơ khách hàng, kể cả một sửa vô hại, đều phải truy vấn toàn bộ manager/admin của văn
-            // phòng.
+            // thông báo — "vàng hoặc đỏ MỚI" của R13e, đúng nguyên văn. Cố ý gọi
+            // `supervisorsFor()` BÊN TRONG nhánh này, không nạp sẵn trước vòng lặp: phần lớn các
+            // lần sửa hồ sơ khách hàng không lộ ra gì mới (đa số vụ việc của một khách hàng không
+            // đối lập với ai), nên đây là đường thường gặp nhất — không có lý do gì để mọi lần sửa
+            // hồ sơ khách hàng, kể cả một sửa vô hại, đều phải truy vấn toàn bộ manager/admin của
+            // văn phòng.
             if ($result->level === ConflictLevel::Green) {
                 return;
             }
 
-            $managers = User::query()->where('is_active', true)->role(Role::Manager->value)->get();
-            $admins = User::query()->where('is_active', true)->role(Role::Admin->value)->get();
-
-            $preferred = collect([$matter->leadLawyer])->merge($managers)->merge($admins)->all();
-            $recipients = app(ResolveStaffRecipients::class)->handle($matter, $preferred);
+            // Vòng sửa 1, M1: KHÔNG còn cộng cả manager LẪN admin không điều kiện — bản trước làm
+            // vậy, và một vụ THƯỜNG cũng cho admin Gate::view() qua (matter.viewAny là đủ), nên
+            // MỌI admin đang hoạt động nhận thông báo của MỌI vụ THƯỜNG, không riêng vụ
+            // restricted. `ResolveStaffRecipients::supervisorsFor()` là NƠI DUY NHẤT quyết định
+            // "quản lý hay admin" — dùng lại, không tự quyết theo cách riêng của lớp này (đúng
+            // luật R3 mà CheckDeadlines/SendDeadlineReminderMail::failed() cũng dùng).
+            $resolver = app(ResolveStaffRecipients::class);
+            $preferred = collect([$matter->leadLawyer])->merge($resolver->supervisorsFor($matter))->all();
+            $recipients = $resolver->handle($matter, $preferred);
 
             foreach ($recipients as $recipient) {
                 Notification::make()

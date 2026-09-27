@@ -43,6 +43,14 @@ use Throwable;
  * `Ledger-Id`) — lớp này giữ nó trong một biến cục bộ để đóng dòng ở CẢ HAI nhánh dưới đây, thay
  * vì để `App\Listeners\RecordOutboundMail` nghe `MessageSent` như trước Task 12 (bản đó đọc lại
  * header từ thông điệp đã bị clone và đã bị gỡ — luôn thất bại tra dòng, một chỗ chết lặng lẽ).
+ *
+ * **`markSent()` đứng NGOÀI `try` (vòng sửa 1, minor).** Bản trước gọi nó BÊN TRONG cùng `try` bọc
+ * `$this->inner->send()` — nếu chính `markSent()` ném lỗi (CSDL bận đúng lúc đóng dòng, mất kết
+ * nối tạm thời, ...), `catch` bên dưới bắt NHẦM nó, gọi `markFailed()` và biến một thư ĐÃ GỬI
+ * THÀNH CÔNG thành một dòng `failed` — đúng tín hiệu mà hàng đợi (`SendDeadlineReminderMail`,
+ * `SendStageUpdateNotification`) đọc để quyết định GỬI LẠI, tức gửi trùng cho một người đã nhận
+ * rồi. Việc gửi thật (`$this->inner->send()`) và việc ĐÓNG SỔ (`markSent()`) là hai rủi ro khác
+ * nhau, không được gộp chung một `catch`.
  */
 class OutboundLedgerTransport implements TransportInterface
 {
@@ -61,12 +69,6 @@ class OutboundLedgerTransport implements TransportInterface
 
         try {
             $sent = $this->inner->send($message, $envelope);
-
-            if ($ledgerId !== null) {
-                $this->ledger->markSent($ledgerId);
-            }
-
-            return $sent;
         } catch (Throwable $error) {
             if ($ledgerId !== null) {
                 $this->ledger->markFailed($ledgerId, $error);
@@ -74,6 +76,15 @@ class OutboundLedgerTransport implements TransportInterface
 
             throw $error;
         }
+
+        // NGOÀI try/catch ở trên có chủ ý (xem docblock lớp): việc gửi đã THÀNH CÔNG tại đây, nên
+        // một lỗi của CHÍNH markSent() không được lẫn với một lỗi gửi thư — nó tự ném ra, không bị
+        // gọi nhầm là markFailed().
+        if ($ledgerId !== null) {
+            $this->ledger->markSent($ledgerId);
+        }
+
+        return $sent;
     }
 
     /** Transport thật bên trong — bộ test đọc thư đã gửi qua `ArrayTransport::messages()`. */

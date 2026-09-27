@@ -36,16 +36,52 @@ abstract class BrandedMailable extends Mailable
      * `MAIL_FROM_ADDRESS` — một hộp `no-reply@` không ai đọc, dùng cho SPF/DKIM chứ không phải
      * cho người trả lời. `config('vkcrm.brand.reply_to')` là địa chỉ liên hệ THẬT của văn phòng.
      *
-     * Trả về `array` (không phải `?string`) đúng chữ ký `Envelope::$replyTo` — mỗi Mailable con
-     * gọi thẳng `replyTo: $this->replyToAddresses()` trong `envelope()` của mình: lớp này không có
-     * một `envelope()` chung để ghi đè (mỗi mẫu thư có tham số tiêu đề riêng), nên không có chỗ
-     * nào khác để đặt Reply-To một lần cho tất cả.
+     * **Blank-safe (vòng sửa 1, minor).** `BRAND_REPLY_TO_ADDRESS=` (rỗng, có chủ ý đặt vậy trong
+     * `.env`) nghĩa là "chưa cấu hình", KHÔNG được dựng thành một `Address('')` — trả `null` để
+     * {@see self::prepareMailableForDelivery()} bỏ qua hẳn, không gọi `$this->replyTo()` chút nào.
      *
-     * @return array<int, string>
+     * `filled()` (trim rồi so `''`), không `empty()`: một chuỗi CHỈ CÓ KHOẢNG TRẮNG (gõ nhầm
+     * `BRAND_REPLY_TO_ADDRESS=" "`) làm `empty(' ')` trả `false` (PHP chỉ coi chuỗi RỖNG là
+     * empty, không tính khoảng trắng) — thiếu điều kiện này, giá trị đó lọt qua và Symfony ném
+     * `RfcComplianceException` ngay khi gửi thư thật (`Email " " does not comply with addr-spec of
+     * RFC 2822`), một lỗi 500 cho MỌI thư của văn phòng chỉ vì một khoảng trắng gõ nhầm trong
+     * `.env`. Đo được: `tests/Feature/Mail/SenderIdentityTest.php`, "treats a whitespace-only
+     * reply-to address as blank too".
      */
-    protected function replyToAddresses(): array
+    protected function replyToAddress(): ?string
     {
-        return [config('vkcrm.brand.reply_to')];
+        $address = config('vkcrm.brand.reply_to');
+
+        return filled($address) ? $address : null;
+    }
+
+    /**
+     * Áp Reply-To MẶC ĐỊNH cho MỌI mẫu thư kế thừa lớp này (vòng sửa 1, minor — "set it in
+     * BrandedMailable itself so every subclass gets it by default").
+     *
+     * **Vì sao ở ĐÂY, không phải một `envelope()` chung.** Lớp này không có `envelope()` để mẫu
+     * con ghi đè (mỗi mẫu có tham số tiêu đề riêng — `template()`/`content()` là trừu tượng, nhưng
+     * `envelope()` thì KHÔNG, mỗi mẫu tự khai báo trọn vẹn). `prepareMailableForDelivery()` thì
+     * KHÁC: `Illuminate\Mail\Mailable::send()` luôn gọi nó — bất kể mẫu con có tự định nghĩa
+     * `envelope()` ra sao — NGAY TRƯỚC khi thư được dựng, nên đây là chỗ DUY NHẤT áp một mặc định
+     * cho "mọi mẫu thư", không cần từng mẫu tự gọi một dòng nào.
+     *
+     * `parent::prepareMailableForDelivery()` TRƯỚC: đó là nơi Laravel hydrate `$this->replyTo` từ
+     * `envelope()->replyTo` của chính mẫu con (nếu mẫu con có tự đặt — hiện tại chưa mẫu nào cần,
+     * nhưng không cấm). `empty($this->replyTo)` sau đó mới đúng nghĩa "mẫu con chưa tự đặt gì" —
+     * kiểm TRƯỚC khi gọi parent sẽ luôn thấy rỗng, dù mẫu con CÓ đặt, và ghi đè nhầm lên nó.
+     */
+    protected function prepareMailableForDelivery()
+    {
+        parent::prepareMailableForDelivery();
+
+        if (empty($this->replyTo)) {
+            $address = $this->replyToAddress();
+
+            if ($address !== null) {
+                $this->replyTo($address);
+            }
+        }
     }
 
     public function headers(): Headers

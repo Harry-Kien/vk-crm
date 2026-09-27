@@ -1,23 +1,43 @@
 <?php
 
+use App\Actions\Notification\ResolveStaffRecipients;
 use App\Enums\Confidentiality;
 use App\Enums\MatterRole;
+use App\Enums\OutboundChannel;
+use App\Enums\OutboundStatus;
 use App\Enums\Role;
 use App\Jobs\SendDeadlineReminderMail;
 use App\Mail\Staff\DeadlineReminder;
 use App\Models\Deadline;
 use App\Models\Matter;
 use App\Models\MatterType;
+use App\Models\OutboundMessage;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Support\Facades\Mail;
 use Spatie\Activitylog\Models\Activity;
+use Symfony\Component\Mailer\Envelope;
+use Symfony\Component\Mailer\Exception\TransportException;
+use Symfony\Component\Mailer\SentMessage;
+use Symfony\Component\Mailer\Transport\TransportInterface;
+use Symfony\Component\Mime\Address;
+use Symfony\Component\Mime\Email;
+use Symfony\Component\Mime\RawMessage;
 
 /**
  * M6.5 Task 11 — hành vi RIÊNG của job (đọc lại tại thời điểm chạy, re-check trước khi gửi), tách
  * khỏi câu hỏi "job có được dispatch đúng lúc, đúng người hay không" (đó là việc của
  * `tests/Feature/Schedule/CheckDeadlinesTest.php`). Mọi test ở đây gọi `->handle()` TRỰC TIẾP trên
  * một instance job tự dựng — cùng phong cách `tests/Feature/Jobs/RecheckClientIdentityConflictsTest.php`.
+ *
+ * Vòng sửa 1 (ruling "re-derive the audience at send time"): `SendDeadlineReminderMail` không còn
+ * nhận `$recipientIds` — job chỉ mang `deadlineId` + `tierKey`, và tự gọi
+ * `CheckDeadlines::recipientsFor()` để tính lại TOÀN BỘ đối tượng nhận thư mỗi lần `handle()` chạy.
+ * Vì vậy phần lớn test "re-check is_active/Gate::view" của vòng Task 12 gốc không còn cần thiết ở
+ * ĐÂY — chúng đã được `tests/Feature/Schedule/CheckDeadlinesTest.php` phủ kỹ cho chính hàm
+ * `recipientsFor()`. Test còn lại ở tệp này chỉ đo NHỮNG GÌ RIÊNG của job: các điều kiện dừng sớm
+ * của chính `handle()` (mốc/vụ việc không còn hợp lệ), việc nó THẬT SỰ gọi lại `recipientsFor()`
+ * mỗi lần chạy (không có gì để mà "chụp ảnh" nữa), chống gửi trùng khi thử lại, và `failed()`.
  */
 beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);
@@ -43,11 +63,11 @@ function deadlineWithLawyer(): array
     return [$deadline, $lawyer, $matter];
 }
 
-it('mails every recipient it was given, re-read fresh from the database', function () {
+it('mails the responsible lawyer, computed fresh from the database', function () {
     Mail::fake();
     [$deadline, $lawyer] = deadlineWithLawyer();
 
-    $job = new SendDeadlineReminderMail($deadline->id, [$lawyer->id], 'd3');
+    $job = new SendDeadlineReminderMail($deadline->id, 'd3');
     $job->handle();
 
     Mail::assertSent(DeadlineReminder::class, fn ($mail) => $mail->hasTo($lawyer->email) && $mail->deadline->is($deadline));
@@ -64,10 +84,10 @@ it('mails every recipient it was given, re-read fresh from the database', functi
  */
 it('skips silently when the matter has been cancelled since the deadline was queued', function () {
     Mail::fake();
-    [$deadline, $lawyer, $matter] = deadlineWithLawyer();
+    [$deadline, , $matter] = deadlineWithLawyer();
     $matter->delete();
 
-    $job = new SendDeadlineReminderMail($deadline->id, [$lawyer->id], 'd3');
+    $job = new SendDeadlineReminderMail($deadline->id, 'd3');
     $job->handle();
 
     Mail::assertNothingSent();
@@ -76,47 +96,12 @@ it('skips silently when the matter has been cancelled since the deadline was que
 /** Cặp dương: vụ việc còn nguyên thì vẫn gửi như thường — ghim rằng test trên đỏ vì huỷ vụ, không vì lý do khác. */
 it('still mails when the matter has not been cancelled', function () {
     Mail::fake();
-    [$deadline, $lawyer] = deadlineWithLawyer();
+    [$deadline] = deadlineWithLawyer();
 
-    $job = new SendDeadlineReminderMail($deadline->id, [$lawyer->id], 'd3');
+    $job = new SendDeadlineReminderMail($deadline->id, 'd3');
     $job->handle();
 
     Mail::assertSent(DeadlineReminder::class, 1);
-});
-
-/**
- * Cùng carry-forward: người phụ trách có thể bị vô hiệu hoá (R7, nghỉ việc) trong CÙNG khoảng trễ
- * đó. Job bỏ qua đúng người đó, KHÔNG ném lỗi, và vẫn gửi cho những người nhận còn lại trong cùng
- * danh sách.
- *
- * Mutation probe: xoá `->where('is_active', true)` khỏi truy vấn người nhận của
- * `SendDeadlineReminderMail::handle()` — test này ĐỎ vì lawyer bị khoá vẫn nhận được thư
- * (`Mail::assertNotSent` thất bại).
- */
-it('skips a recipient who has been deactivated since the deadline was queued, but still mails the others', function () {
-    Mail::fake();
-    [$deadline, $lawyer] = deadlineWithLawyer();
-    $manager = User::factory()->withRole(Role::Manager)->create();
-
-    $lawyer->update(['is_active' => false]);
-
-    $job = new SendDeadlineReminderMail($deadline->id, [$lawyer->id, $manager->id], 'd1');
-    $job->handle();
-
-    Mail::assertSent(DeadlineReminder::class, fn ($mail) => $mail->hasTo($manager->email));
-    Mail::assertNotSent(fn (DeadlineReminder $mail) => $mail->hasTo($lawyer->email));
-});
-
-/** Cặp dương: cả hai còn hoạt động thì cả hai đều nhận được thư. */
-it('still mails a recipient who has not been deactivated', function () {
-    Mail::fake();
-    [$deadline, $lawyer] = deadlineWithLawyer();
-    $manager = User::factory()->withRole(Role::Manager)->create();
-
-    $job = new SendDeadlineReminderMail($deadline->id, [$lawyer->id, $manager->id], 'd1');
-    $job->handle();
-
-    Mail::assertSent(DeadlineReminder::class, 2);
 });
 
 /**
@@ -125,10 +110,10 @@ it('still mails a recipient who has not been deactivated', function () {
  */
 it('skips silently when the deadline no longer exists or is already marked complete', function () {
     Mail::fake();
-    [$deadline, $lawyer] = deadlineWithLawyer();
+    [$deadline] = deadlineWithLawyer();
     $deadline->update(['is_completed' => true, 'completed_at' => now()]);
 
-    $job = new SendDeadlineReminderMail($deadline->id, [$lawyer->id], 'd3');
+    $job = new SendDeadlineReminderMail($deadline->id, 'd3');
     $job->handle();
 
     Mail::assertNothingSent();
@@ -136,52 +121,214 @@ it('skips silently when the deadline no longer exists or is already marked compl
 
 /** `$tries - 1` độ trễ, cùng kỷ luật đã ghim ở `RecheckClientIdentityConflictsTest`. */
 it('configures exactly one backoff delay per release', function () {
-    $job = new SendDeadlineReminderMail(1, [1], 'd7');
+    $job = new SendDeadlineReminderMail(1, 'd7');
 
     expect($job->backoff())->toHaveCount($job->tries - 1);
 });
 
 // ---------------------------------------------------------------------------------------------
-// M6.5 Task 12 (R3) — re-check ĐI QUA ResolveStaffRecipients tại thời điểm chạy, không chỉ lọc
-// is_active trên danh sách id đã cũ từ lúc dispatch.
+// Vòng sửa 1 — "re-derive the audience at send time": không còn `$recipientIds` để mà "chụp ảnh",
+// nên job PHẢI thấy đúng trạng thái MỚI NHẤT khi `handle()` chạy, dù trạng thái đó đổi SAU KHI
+// job đã được khởi tạo (constructor không mang gì ngoài deadlineId/tierKey).
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Giữa lúc `CheckDeadlines` xếp job này và lúc nó thật sự chạy, vụ việc có thể đã bị siết thành
- * `restricted` (đổi `confidentiality`, một Action của M6.5 khác) — R3: người nhận thư về một vụ
- * việc chỉ là người ĐANG được xem vụ đó, kiểm tra lại tại thời điểm gửi, không phải tại thời điểm
- * dispatch. Một quản lý có mặt trong payload không còn được xem vụ hạn chế thì không được nhận,
- * dù id của họ vẫn còn trong `$recipientIds`.
+ * Giữa lúc job được dựng và lúc `handle()` chạy, vụ việc có thể đã bị siết thành `restricted` —
+ * job phải thấy trạng thái MỚI, không phải trạng thái lúc dựng (mà giờ cũng không CÓ gì để "chụp
+ * ảnh" nữa — điểm khác biệt so với vòng Task 12 gốc).
  *
- * Mutation probe: thay lời gọi `ResolveStaffRecipients` bằng bộ lọc cũ (chỉ `is_active`, không
- * `Gate::view`) — test này ĐỎ vì quản lý vẫn nhận được thư (`Mail::assertNotSent` thất bại).
+ * Mutation probe: xem báo cáo — thay lời gọi `CheckDeadlines::recipientsFor()` bằng một danh sách
+ * cứng dựng SẴN lúc `handle()` bắt đầu (mô phỏng "chụp ảnh") làm test này đỏ.
  */
-it('re-checks Gate::view at send time, so a manager in the payload does not receive it once the matter has turned restricted since the deadline was queued', function () {
+it('re-derives the audience when it runs, so a matter turning restricted after construction is honored', function () {
     Mail::fake();
     [$deadline, $lawyer, $matter] = deadlineWithLawyer();
     $manager = User::factory()->withRole(Role::Manager)->create();
 
+    $job = new SendDeadlineReminderMail($deadline->id, 'd1');
+
+    // Đổi trạng thái SAU KHI job đã dựng — không có gì trong constructor để mà "biết trước".
     $matter->update(['confidentiality' => Confidentiality::Restricted]);
 
-    $job = new SendDeadlineReminderMail($deadline->id, [$lawyer->id, $manager->id], 'd1');
     $job->handle();
 
     Mail::assertSent(DeadlineReminder::class, fn ($mail) => $mail->hasTo($lawyer->email));
     Mail::assertNotSent(fn (DeadlineReminder $mail) => $mail->hasTo($manager->email));
 });
 
-/** Cặp dương: vụ việc còn bình thường thì cả hai (luật sư phụ trách vụ VÀ quản lý) đều nhận, như trước. */
-it('still mails everyone in the payload when the matter has not turned restricted', function () {
+/** Cặp dương: vụ việc còn bình thường thì quản lý vẫn nhận, như tính lại lúc dispatch sẽ cho ra. */
+it('still mails the manager when the matter has not turned restricted', function () {
     Mail::fake();
-    [$deadline, $lawyer, $matter] = deadlineWithLawyer();
+    [$deadline, $lawyer] = deadlineWithLawyer();
     $manager = User::factory()->withRole(Role::Manager)->create();
 
-    $job = new SendDeadlineReminderMail($deadline->id, [$lawyer->id, $manager->id], 'd1');
+    $job = new SendDeadlineReminderMail($deadline->id, 'd1');
     $job->handle();
 
     Mail::assertSent(DeadlineReminder::class, fn ($mail) => $mail->hasTo($lawyer->email));
     Mail::assertSent(DeadlineReminder::class, fn ($mail) => $mail->hasTo($manager->email));
 });
+
+// ---------------------------------------------------------------------------------------------
+// Vòng sửa 1, ruling "no duplicate reminders on retry".
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Người nhận đã có một dòng `outbound_messages` trạng thái `sent` cho ĐÚNG mốc này và ĐÚNG tiêu
+ * đề (bậc) này — đúng dấu vết mà một lượt `handle()` trước đó (thử lại vì người KHÁC trong cùng
+ * bậc hỏng) để lại. Lượt `handle()` này phải BỎ QUA người đó, không gửi lần hai.
+ *
+ * Mutation probe: xoá điều kiện `alreadyDelivered()` khỏi vòng lặp của `handle()` — test này ĐỎ
+ * vì thư được gửi lại (`Mail::assertNothingSent()` thất bại).
+ */
+it('does not mail a recipient twice when they already have a sent ledger row for this exact tier', function () {
+    Mail::fake();
+    [$deadline, $lawyer] = deadlineWithLawyer();
+
+    $subject = (new DeadlineReminder($deadline, $lawyer, 'd3'))->envelope()->subject;
+
+    OutboundMessage::factory()->create([
+        'channel' => OutboundChannel::Email,
+        'recipient' => $lawyer->email,
+        'template' => 'staff.deadline_reminder',
+        'payload' => ['subject' => $subject],
+        'related_type' => $deadline->getMorphClass(),
+        'related_id' => $deadline->getKey(),
+        'status' => OutboundStatus::Sent,
+    ]);
+
+    $job = new SendDeadlineReminderMail($deadline->id, 'd3');
+    $job->handle();
+
+    Mail::assertNothingSent();
+});
+
+/**
+ * Phân biệt với `NotifyClientOfStageUpdate::alreadyDelivered()` (xem docblock lớp): một dòng
+ * `sent` từ một bậc CŨ, KHÁC (tiêu đề khác, vì tiêu đề mang số ngày còn lại THẬT — M6.5 Task 12,
+ * `deadlines/F3`) không được chặn bậc MỚI của HÔM NAY — nếu không, một mốc từng nhắc `d3` tuần
+ * trước sẽ KHÔNG BAO GIỜ nhắc được `d1` tuần này, đúng "im lặng" mà cả tác vụ này chống.
+ *
+ * Mutation probe: xem báo cáo — bỏ `->where('payload->subject', $subject)` khỏi
+ * `alreadyDelivered()` làm chính test này đỏ (bị chặn nhầm bởi dòng `sent` của bậc cũ).
+ */
+it('still mails a recipient whose only sent ledger row belongs to an earlier, different tier', function () {
+    Mail::fake();
+    [$deadline, $lawyer] = deadlineWithLawyer(); // due in 3 days => tier d3
+
+    $oldSubject = (new DeadlineReminder($deadline, $lawyer, 'd3'))->envelope()->subject;
+
+    OutboundMessage::factory()->create([
+        'channel' => OutboundChannel::Email,
+        'recipient' => $lawyer->email,
+        'template' => 'staff.deadline_reminder',
+        'payload' => ['subject' => $oldSubject],
+        'related_type' => $deadline->getMorphClass(),
+        'related_id' => $deadline->getKey(),
+        'status' => OutboundStatus::Sent,
+    ]);
+
+    // Thời gian trôi: mốc giờ chỉ còn 1 ngày — bậc MỚI, tiêu đề THẬT khác hẳn dòng đã gửi ở trên.
+    $deadline->update(['due_date' => today()->addDay()]);
+
+    $job = new SendDeadlineReminderMail($deadline->id, 'd1');
+    $job->handle();
+
+    Mail::assertSent(DeadlineReminder::class, fn ($mail) => $mail->hasTo($lawyer->email));
+});
+
+/** Cặp dương: không có dòng `sent` nào từ trước thì vẫn gửi như thường — test trên đỏ đúng vì dòng đã có, không vì lý do khác. */
+it('still mails a recipient who has no prior sent ledger row for this tier', function () {
+    Mail::fake();
+    [$deadline, $lawyer] = deadlineWithLawyer();
+
+    $job = new SendDeadlineReminderMail($deadline->id, 'd3');
+    $job->handle();
+
+    Mail::assertSent(DeadlineReminder::class, 1);
+});
+
+/**
+ * Kịch bản trọn vẹn của ruling: hai người nhận CÙNG bậc, một transport hỏng CHỌN LỌC cho đúng một
+ * địa chỉ. Lượt đầu: người 1 nhận thành công (dòng `sent`), người 2 hỏng (ném ngoại lệ, thoát khỏi
+ * `handle()`). Lượt "thử lại" (gọi lại `handle()`, đúng cách hàng đợi thật thả lại job): người 1
+ * KHÔNG được gửi lần hai, chỉ người 2 được thử lại.
+ */
+it('does not re-mail the first recipient when the job retries after the second recipient failed', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $failingManager = User::factory()->withRole(Role::Manager)->create(['email' => 'quanly-hong@vidu.test']);
+
+    $type = MatterType::factory()->withStages()->create();
+    $matter = Matter::factory()->create([
+        'lead_lawyer_id' => $lawyer->id,
+        'matter_type_id' => $type->id,
+        'stage' => $type->stages->reject(fn ($s) => $s->is_terminal)->first()->key,
+    ]);
+    $deadline = Deadline::factory()->create([
+        'matter_id' => $matter->id,
+        'responsible_user_id' => $lawyer->id,
+        'due_date' => today()->addDay(),
+        'is_completed' => false,
+    ]);
+
+    config(['mail.default' => deadlineJobSelectiveFailMailer('quanly-hong@vidu.test')]);
+
+    $job = new SendDeadlineReminderMail($deadline->id, 'd1');
+
+    try {
+        $job->handle();
+    } catch (TransportException) {
+        // Đúng kỳ vọng: người 1 (lawyer, xử lý trước theo thứ tự ResolveStaffRecipients) đã nhận,
+        // người 2 (manager) hỏng — ngoại lệ thoát ra ngoài, đúng như hàng đợi thật sẽ thấy.
+    }
+
+    // "Thử lại": hàng đợi thật gọi lại chính `handle()` này trên CÙNG instance job.
+    try {
+        $job->handle();
+    } catch (TransportException) {
+        //
+    }
+
+    $sentToLawyer = OutboundMessage::query()->withoutGlobalScopes()
+        ->where('recipient', $lawyer->email)->where('status', OutboundStatus::Sent)->count();
+
+    expect($sentToLawyer)->toBe(1);
+});
+
+/** Transport hỏng cho ĐÚNG MỘT địa chỉ, dùng riêng cho test retry ở trên. */
+class DeadlineJobSelectiveFailTransport implements TransportInterface
+{
+    public function __construct(private readonly string $failingAddress) {}
+
+    public function send(RawMessage $message, ?Envelope $envelope = null): ?SentMessage
+    {
+        if ($message instanceof Email) {
+            foreach ($message->getTo() as $address) {
+                if ($address->getAddress() === $this->failingAddress) {
+                    throw new TransportException('SMTP từ chối '.$this->failingAddress);
+                }
+            }
+        }
+
+        return new SentMessage($message, new Envelope(
+            new Address('gui@vidu.test'),
+            [new Address('nhan@vidu.test')],
+        ));
+    }
+
+    public function __toString(): string
+    {
+        return 'deadline-job-selective-fail://';
+    }
+}
+
+function deadlineJobSelectiveFailMailer(string $failingAddress): string
+{
+    config()->set('mail.mailers.deadline_job_selective_fail', ['transport' => 'deadline_job_selective_fail']);
+    Mail::extend('deadline_job_selective_fail', fn () => new DeadlineJobSelectiveFailTransport($failingAddress));
+
+    return 'deadline_job_selective_fail';
+}
 
 // ---------------------------------------------------------------------------------------------
 // Vòng sửa 1, C1 (critical): job hỏng HẲN không được để mốc mất vĩnh viễn.
@@ -227,10 +374,10 @@ function deadlineWithDistinctResponsibleAndLead(): array
  * vì `reminders_sent` vẫn còn `'d7'` (xem báo cáo).
  */
 it('un-marks the tier in reminders_sent when the job permanently fails, so it is not lost forever', function () {
-    [$deadline, $responsible] = deadlineWithDistinctResponsibleAndLead();
+    [$deadline] = deadlineWithDistinctResponsibleAndLead();
     $deadline->update(['reminders_sent' => ['d14', 'd7']]);
 
-    $job = new SendDeadlineReminderMail($deadline->id, [$responsible->id], 'd7');
+    $job = new SendDeadlineReminderMail($deadline->id, 'd7');
     $job->failed(new RuntimeException('SMTP giả lập chết hẳn.'));
 
     expect($deadline->fresh()->reminders_sent)->not->toContain('d7');
@@ -238,33 +385,26 @@ it('un-marks the tier in reminders_sent when the job permanently fails, so it is
 
 /** Cặp dương: một bậc KHÁC bậc đang hỏng (đã gửi thật ở một lượt trước) không bị đụng tới. */
 it('leaves every other tier untouched when only one tier failed', function () {
-    [$deadline, $responsible] = deadlineWithDistinctResponsibleAndLead();
+    [$deadline] = deadlineWithDistinctResponsibleAndLead();
     $deadline->update(['reminders_sent' => ['d14', 'd7']]);
 
-    $job = new SendDeadlineReminderMail($deadline->id, [$responsible->id], 'd7');
+    $job = new SendDeadlineReminderMail($deadline->id, 'd7');
     $job->failed(new RuntimeException('SMTP giả lập chết hẳn.'));
 
     expect($deadline->fresh()->reminders_sent)->toBe(['d14']);
 });
 
 /**
- * C1, phần "surface the failure in the app": một dòng audit mang ID và bậc (KHÔNG mang gì khác —
- * không tên mốc, không nội dung), và ba nhóm nhận thông báo trong ứng dụng: người phụ trách mốc,
- * luật sư phụ trách vụ (qua `ResolveStaffRecipients`, để R3 giữ nguyên), và MỌI admin đang hoạt
- * động. Admin đã vô hiệu hoá không nhận — cặp âm/dương nằm chung một test.
- *
- * Mutation probe từng phần (xem báo cáo cho log ĐỎ):
- *  - xoá `Audit::record(...)` → `$audit` là null;
- *  - bỏ `$deadline->responsible` khỏi `$preferred` → `$responsible->notifications()->count()` = 0;
- *  - bỏ `$matter->leadLawyer` khỏi `$preferred` → `$lead->notifications()->count()` = 0;
- *  - bỏ `$admins` khỏi `$preferred` → `$admin->notifications()->count()` = 0.
+ * C1, phần "surface the failure in the app": một dòng audit mang ID và bậc (KHÔNG mang gì khác),
+ * và thông báo trong ứng dụng cho người phụ trách mốc + luật sư phụ trách vụ. Không có manager
+ * hay admin nào trong kịch bản này (vụ THƯỜNG, không tạo ai khác) — vòng sửa 1, M1: `failed()`
+ * giờ cộng {@see ResolveStaffRecipients::supervisorsFor()} thay vì "mọi
+ * admin đang hoạt động" không điều kiện, nên một vụ THƯỜNG không có manager thì không kéo thêm ai.
  */
-it('writes an audit row and notifies the responsible user, the lead and every active admin when the job permanently fails', function () {
+it('writes an audit row and notifies the responsible user and the lead when the job permanently fails', function () {
     [$deadline, $responsible, $lead] = deadlineWithDistinctResponsibleAndLead();
-    $admin = User::factory()->withRole(Role::Admin)->create();
-    $inactiveAdmin = User::factory()->withRole(Role::Admin)->create(['is_active' => false]);
 
-    $job = new SendDeadlineReminderMail($deadline->id, [$responsible->id], 'd7');
+    $job = new SendDeadlineReminderMail($deadline->id, 'd7');
     $job->failed(new RuntimeException('SMTP giả lập chết hẳn.'));
 
     $audit = Activity::query()->where('event', 'deadline_reminder_failed')->latest('id')->first();
@@ -274,7 +414,85 @@ it('writes an audit row and notifies the responsible user, the lead and every ac
         ->and($audit->properties->get('tier'))->toBe('d7');
 
     expect($responsible->notifications()->count())->toBe(1)
-        ->and($lead->notifications()->count())->toBe(1)
-        ->and($admin->notifications()->count())->toBe(1)
-        ->and($inactiveAdmin->notifications()->count())->toBe(0);
+        ->and($lead->notifications()->count())->toBe(1);
+});
+
+/**
+ * Vòng sửa 1, M1: trên một vụ THƯỜNG, `failed()` không còn kéo MỌI admin đang hoạt động không
+ * điều kiện — chỉ những ai `supervisorsFor()` thật sự trả về (quản lý được xem vụ, trên vụ
+ * THƯỜNG). Một admin không phải quản lý thì KHÔNG nhận, trừ khi chuỗi dự phòng của
+ * `ResolveStaffRecipients` phải kích hoạt (không xảy ra ở đây, vì responsible+lead đã hợp lệ).
+ *
+ * Mutation probe: đổi `supervisorsFor($matter)` trong `failed()` trở lại
+ * `User::query()->where('is_active', true)->role(Role::Admin->value)->get()` (bản cũ) — test này
+ * ĐỎ vì admin nhận được thông báo (`count()` thành 1).
+ */
+it('does not notify an admin about a standard matter’s permanent failure, only a manager, via supervisorsFor', function () {
+    [$deadline, , , $matter] = deadlineWithDistinctResponsibleAndLead();
+    $admin = User::factory()->withRole(Role::Admin)->create();
+
+    $job = new SendDeadlineReminderMail($deadline->id, 'd7');
+    $job->failed(new RuntimeException('SMTP giả lập chết hẳn.'));
+
+    expect($admin->notifications()->count())->toBe(0)
+        ->and($matter->confidentiality)->toBe(Confidentiality::Normal);
+});
+
+/** Cặp dương: cùng kịch bản, nhưng một manager được xem vụ THÌ nhận — chứng minh supervisorsFor() thật sự có nối dây, không phải luôn rỗng. */
+it('notifies a manager (not an admin) about a standard matter’s permanent failure, via supervisorsFor', function () {
+    [$deadline] = deadlineWithDistinctResponsibleAndLead();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+
+    $job = new SendDeadlineReminderMail($deadline->id, 'd7');
+    $job->failed(new RuntimeException('SMTP giả lập chết hẳn.'));
+
+    expect($manager->notifications()->count())->toBe(1);
+});
+
+/**
+ * Vụ `restricted`: `supervisorsFor()` đổi sang admin thay vì manager — `failed()` phải thấy đúng
+ * điều đó, không phải một nhánh riêng của chính job này.
+ */
+it('notifies an admin instead of a manager about a restricted matter’s permanent failure, via supervisorsFor', function () {
+    $lead = User::factory()->withRole(Role::Lawyer)->create();
+    $responsible = User::factory()->withRole(Role::Lawyer)->create();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $admin = User::factory()->withRole(Role::Admin)->create();
+
+    $type = MatterType::factory()->withStages()->create();
+    $matter = Matter::factory()->restricted()->create([
+        'lead_lawyer_id' => $lead->id,
+        'matter_type_id' => $type->id,
+        'stage' => $type->stages->reject(fn ($s) => $s->is_terminal)->first()->key,
+    ]);
+    $matter->addTeamMember($responsible, MatterRole::Associate);
+
+    $deadline = Deadline::factory()->create([
+        'matter_id' => $matter->id,
+        'responsible_user_id' => $responsible->id,
+        'due_date' => today()->addDays(7),
+        'is_completed' => false,
+        'reminders_sent' => ['d14', 'd7'],
+    ]);
+
+    $job = new SendDeadlineReminderMail($deadline->id, 'd7');
+    $job->failed(new RuntimeException('SMTP giả lập chết hẳn.'));
+
+    expect($admin->notifications()->count())->toBe(1)
+        ->and($manager->notifications()->count())->toBe(0);
+});
+
+/** Admin đã vô hiệu hoá không nhận, kể cả khi họ là admin duy nhất — cặp âm/dương của "lưới an toàn cuối cùng". */
+it('does not notify a deactivated admin even as the last-resort fallback', function () {
+    [$deadline, $responsible, $lead] = deadlineWithDistinctResponsibleAndLead();
+    $responsible->update(['is_active' => false]);
+    $lead->update(['is_active' => false]);
+    $inactiveAdmin = User::factory()->withRole(Role::Admin)->create(['is_active' => false]);
+    $activeAdmin = User::factory()->withRole(Role::Admin)->create();
+
+    $job = new SendDeadlineReminderMail($deadline->id, 'd7');
+    $job->failed(new RuntimeException('SMTP giả lập chết hẳn.'));
+
+    expect($inactiveAdmin->notifications()->count())->toBe(0)
+        ->and($activeAdmin->notifications()->count())->toBe(1);
 });

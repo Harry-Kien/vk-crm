@@ -30,6 +30,9 @@
         <env name="DB_DATABASE" value=":memory:"/>
         <env name="DB_URL" value=""/>
         <env name="MAIL_MAILER" value="array"/>
+        <!-- Vòng sửa 1 (M6.5 Task 12, notify-14): ghim ở đây, không phụ thuộc `.env` cục bộ
+             (gitignored) — xem tests/Feature/Mail/SenderIdentityTest.php và docs/CAI-DAT.md. -->
+        <env name="MAIL_FROM_NAME" value="Luật Vũ Khang"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="PULSE_ENABLED" value="false"/>

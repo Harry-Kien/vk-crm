@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Notification\RecordOutboundMessage;
 use App\Enums\OutboundChannel;
 use App\Enums\OutboundStatus;
 use App\Mail\BrandedMailable;
@@ -359,4 +360,44 @@ it('vẫn ghi status failed kèm template/related khi việc gửi hỏng, dù h
         ->and($row->template)->toBe('test.probe')
         ->and($row->related_type)->toBe($stageLog->getMorphClass())
         ->and($row->related_id)->toBe($stageLog->getKey());
+});
+
+// ---------------------------------------------------------------------------------------------
+// Vòng sửa 1 (minor) — `markSent()` phải nằm NGOÀI `try`: một lỗi khi ĐÓNG dòng nhật ký (ví dụ
+// CSDL bận đúng lúc đó) không được biến một thư ĐÃ GỬI THÀNH CÔNG thành một dòng `failed` — dòng
+// `failed` là tín hiệu cho hàng đợi (`SendDeadlineReminderMail`, `SendStageUpdateNotification`)
+// THỬ LẠI, và thử lại một thư đã thật sự tới nơi là GỬI TRÙNG cho người nhận.
+// ---------------------------------------------------------------------------------------------
+
+/** Ledger giả: `markSent()` luôn ném lỗi, mọi lời gọi khác giữ nguyên hành vi thật. */
+class ThrowingOnMarkSentLedger extends RecordOutboundMessage
+{
+    public function markSent(int $ledgerId): void
+    {
+        throw new RuntimeException('CSDL bận đúng lúc đóng dòng nhật ký.');
+    }
+}
+
+/**
+ * Mutation probe: xem báo cáo — đưa `markSent()` trở lại BÊN TRONG `try` (bản trước vòng sửa 1)
+ * làm chính test này đỏ: dòng chuyển sang `Failed` thay vì giữ nguyên KHÔNG PHẢI `Failed`.
+ */
+it('does not mark a delivered mail as failed when closing the ledger row itself throws', function () {
+    app()->instance(RecordOutboundMessage::class, new ThrowingOnMarkSentLedger);
+
+    expect(fn () => Mail::to('khach@vidu.test')->send(new LedgerProbeMail))->toThrow(RuntimeException::class);
+
+    $row = OutboundMessage::query()->sole();
+
+    expect($row->status)->not->toBe(OutboundStatus::Failed);
+});
+
+/** Cặp dương: khi markSent() không ném gì, dòng đóng thành `Sent` bình thường — ghim rằng test trên đỏ đúng vì markSent ném lỗi, không vì lý do khác. */
+it('still marks the row sent when closing the ledger row does not throw', function () {
+    $row = null;
+    Mail::to('khach@vidu.test')->send(new LedgerProbeMail);
+
+    $row = OutboundMessage::query()->sole();
+
+    expect($row->status)->toBe(OutboundStatus::Sent);
 });

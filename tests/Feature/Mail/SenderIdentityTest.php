@@ -82,3 +82,58 @@ it('sets a reply-to address on staff mail too', function () {
     expect($replyTo)->toHaveCount(1)
         ->and($replyTo[0]->getAddress())->toBe((string) config('vkcrm.brand.reply_to'));
 });
+
+// ---------------------------------------------------------------------------------------------
+// Vòng sửa 1 (minor) — Reply-To phải "blank-safe" (BRAND_REPLY_TO_ADDRESS= rỗng nghĩa là "chưa
+// cấu hình", không phải Address('')), và phải áp dụng MẶC ĐỊNH từ chính BrandedMailable, không
+// cần mỗi mẫu con tự gọi.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Mutation probe: xem báo cáo — bỏ điều kiện `filled($address)` trong
+ * `BrandedMailable::replyToAddress()` (trả thẳng `config(...)` dù rỗng) làm test này đỏ:
+ * `Address('')` khiến `getReplyTo()` không còn rỗng (Symfony vẫn dựng một Address, dù chuỗi rỗng).
+ */
+it('does not set a reply-to header when the configured address is blank', function () {
+    config(['vkcrm.brand.reply_to' => '']);
+
+    $stageLog = StageLog::factory()->create();
+    $recipient = ClientUser::factory()->create();
+
+    Mail::to($recipient->email)->send(new StageUpdate($stageLog, $recipient));
+
+    expect(lastSentSymfonyEmail()->getReplyTo())->toBeEmpty();
+});
+
+/** Cặp dương: một địa chỉ có giá trị thì vẫn có Reply-To như thường — ghim rằng test trên đỏ đúng vì rỗng, không vì lý do khác. */
+it('still sets a reply-to header when the configured address is not blank', function () {
+    config(['vkcrm.brand.reply_to' => 'lienhe@luatvukhang.com']);
+
+    $stageLog = StageLog::factory()->create();
+    $recipient = ClientUser::factory()->create();
+
+    Mail::to($recipient->email)->send(new StageUpdate($stageLog, $recipient));
+
+    expect(lastSentSymfonyEmail()->getReplyTo())->toHaveCount(1);
+});
+
+/**
+ * Biến thể của "blank-safe": một giá trị CHỈ CÓ KHOẢNG TRẮNG (`' '`) — PHP coi `empty(' ')` là
+ * `false` (chỉ chuỗi RỖNG mới `empty()`), nên đây là ca DUY NHẤT phân biệt được điều kiện
+ * `filled()` của `replyToAddress()` với việc dựa vào `Illuminate\Mail\Mailable::setAddress()` tự
+ * lọc (hàm đó dùng `empty()`, không lọc được khoảng trắng). Không có điều kiện `filled()` riêng,
+ * một cấu hình gõ nhầm khoảng trắng sẽ cố dựng một địa chỉ Reply-To không hợp lệ.
+ *
+ * Mutation probe: xem báo cáo — bỏ `filled()`, trả thẳng `config(...)`, làm test này đỏ (Reply-To
+ * không còn rỗng, mang một địa chỉ chỉ có khoảng trắng).
+ */
+it('treats a whitespace-only reply-to address as blank too, not just an empty string', function () {
+    config(['vkcrm.brand.reply_to' => ' ']);
+
+    $stageLog = StageLog::factory()->create();
+    $recipient = ClientUser::factory()->create();
+
+    Mail::to($recipient->email)->send(new StageUpdate($stageLog, $recipient));
+
+    expect(lastSentSymfonyEmail()->getReplyTo())->toBeEmpty();
+});

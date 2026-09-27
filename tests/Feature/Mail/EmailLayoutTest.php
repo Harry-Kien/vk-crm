@@ -3,6 +3,7 @@
 use App\Models\ClientUser;
 use App\Notifications\Client\SendLoginCode;
 use App\Support\BrandFooter;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 
 /**
@@ -131,4 +132,40 @@ it('dựng chân thư chỉ từ những thông tin pháp lý đã có', functio
         __('emails.footer.bar_association', ['value' => 'Đoàn Luật sư TP.HCM']),
         __('emails.footer.licence_number', ['value' => '41.02.1234/TP/ĐKHĐ']),
     ]);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Vòng sửa 1 (minor) — logo thư (`asset()`) đọc theo request hiện tại (hay `APP_URL` khi không có
+// request nào, dưới `queue:work`) — cùng lỗi mà `App\Support\PortalUrl` đã sửa cho liên kết cổng.
+// Một thư CHO KHÁCH dựng ngay sau một request `/admin` có thể mang logo trỏ vào tên miền QUẢN
+// TRỊ nếu APP_URL trỏ về đó.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Mutation probe: xem báo cáo — trả lại `asset('brand/vk-mark-96.png')` (bản trước) ở
+ * `emails/layout.blade.php` làm test này đỏ (logo quay về host quản trị).
+ */
+it('builds the logo URL from the portal domain, not the host of the current (admin) request', function () {
+    config([
+        'vkcrm.admin_domain' => 'quantri.luatvukhang.test',
+        'vkcrm.portal_domain' => 'khachhang.luatvukhang.test',
+    ]);
+
+    app()->instance('request', Request::create('https://quantri.luatvukhang.test/admin/matters/1'));
+
+    [$html] = renderedOtpParts();
+
+    $scheme = parse_url((string) config('app.url'), PHP_URL_SCHEME) ?? 'https';
+
+    expect($html)->toContain('src="'.$scheme.'://khachhang.luatvukhang.test/brand/vk-mark-96.png"')
+        ->and($html)->not->toContain('quantri.luatvukhang.test');
+});
+
+/** Cặp dương: một tên miền (không tách ADMIN_DOMAIN/PORTAL_DOMAIN) thì logo vẫn dựng đúng. */
+it('still builds a working logo URL when a single domain serves both panels', function () {
+    config(['vkcrm.admin_domain' => null, 'vkcrm.portal_domain' => null]);
+
+    [$html] = renderedOtpParts();
+
+    expect($html)->toContain(rtrim(config('app.url'), '/').'/brand/vk-mark-96.png');
 });

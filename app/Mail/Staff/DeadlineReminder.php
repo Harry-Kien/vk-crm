@@ -62,7 +62,6 @@ class DeadlineReminder extends BrandedMailable
                 'name' => $this->deadline->name,
                 'code' => $this->deadline->matter?->code ?? '',
             ]),
-            replyTo: $this->replyToAddresses(),
         );
     }
 
