@@ -23,10 +23,6 @@ use Symfony\Component\Process\ExecutableFinder;
 */
 
 beforeEach(function () {
-    // Thư mục tạm RIÊNG cho tiến trình test này — xem docblock `backupTemporaryTestDirectory()`
-    // ở `tests/Pest.php` ("backup-temp parallel race") và `BackupRunIntegrationTest.php`.
-    config(['backup.backup.temporary_directory' => backupTemporaryTestDirectory()]);
-
     // Cờ static của gói; lý do ở `BackupRunIntegrationTest.php`.
     EventHandler::enable();
 });

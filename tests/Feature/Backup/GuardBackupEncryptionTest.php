@@ -26,10 +26,6 @@ use Spatie\Backup\Tasks\Backup\BackupJobFactory;
 */
 
 beforeEach(function () {
-    // Thư mục tạm RIÊNG cho tiến trình test này — xem docblock `backupTemporaryTestDirectory()`
-    // ở `tests/Pest.php` ("backup-temp parallel race") và `BackupRunIntegrationTest.php`.
-    config(['backup.backup.temporary_directory' => backupTemporaryTestDirectory()]);
-
     // Cờ static của gói; tệp khác dùng `--disable-notifications` tắt nó và không bật lại. Lý do
     // đầy đủ ở `BackupRunIntegrationTest.php`.
     EventHandler::enable();

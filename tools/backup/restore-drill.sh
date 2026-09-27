@@ -6,8 +6,11 @@
 # cất APP_KEY/BACKUP_ARCHIVE_PASSWORD) nằm ở docs/SAO-LUU-KHOI-PHUC.md, mục "Khôi phục thử".
 #
 # Thứ tự đúng như Task 3 đòi:
-#   1. Xây lại CSDL vk_crm_lane_m8 bằng một APP_KEY DÙNG MỘT LẦN — không phải APP_KEY thật của
-#      .env trên máy dev. Lý do: bước "đặt APP_KEY cũ" ở dưới chỉ chứng minh được điều nó phải
+#   1. Xây một CSDL NGUỒN RIÊNG của kịch bản này (`vk_crm_lane_m8_drill`, KHÔNG PHẢI
+#      `vk_crm_lane_m8` — đĩa serve `:8090` và các task khác của làn đọc/ghi CSDL đó ĐANG lúc kịch
+#      bản này có thể chạy; `migrate:fresh` xoá sạch bảng, nên đụng nhầm vào nó phá luôn việc của
+#      người khác) bằng một APP_KEY DÙNG MỘT LẦN — không phải APP_KEY thật của `.env` trên máy dev.
+#      Lý do cần khoá dùng một lần: bước "đặt APP_KEY cũ" ở dưới chỉ chứng minh được điều nó phải
 #      chứng minh (khôi phục cần ĐÚNG khoá, không phải BẤT KỲ khoá nào) nếu khoá đó không lẫn với
 #      khoá thật của máy đang chạy kịch bản.
 #   2. Tạo thêm một khách hàng có `id_number` (qua `Client::create()`, tôn trọng cast `encrypted`)
@@ -21,15 +24,20 @@
 #      `migrate:status`, rồi giải mã `id_number` + so checksum tệp + đếm dòng các bảng chính.
 #   6. Chạy lại đúng bước giải mã đó với một APP_KEY MỚI để chứng minh nó thất bại — APP_KEY là
 #      một nửa của bản sao lưu (R3).
-#   7. Dọn container, thư mục tạm — không để lại archive thật hay tệp tạm nào trong repo.
+#   7. Dọn container, CSDL nguồn riêng, thư mục tạm — không để lại archive thật, tệp tạm, hay CSDL
+#      nào trong repo hay trên MariaDB dùng chung.
 #
-# Chạy lại được: mỗi lần chạy tự sinh một hậu tố thời gian cho tên container/thư mục tạm, và một
-# `trap ... EXIT` dọn dẹp dù script thoát giữa chừng (lỗi, Ctrl-C, `set -e`).
+# Chạy lại được: mỗi lần chạy tự sinh một hậu tố thời gian cho tên container/CSDL/thư mục tạm, và
+# một `trap ... EXIT` dọn dẹp dù script thoát giữa chừng (lỗi, Ctrl-C, `set -e`).
+#
+# KHÔNG BAO GIỜ đụng tới `vk_crm_lane_m8` (CSDL phục vụ bản chạy `:8090` của làn — các task khác
+# có thể đang seed/đọc/ghi nó CÙNG LÚC kịch bản này chạy) hay bất kỳ CSDL nào khác ngoài
+# `vk_crm_lane_m8_drill` mà chính kịch bản này tạo và xoá.
 #
 # Yêu cầu trên máy dev: Docker Desktop; container `crmkhachhang-mariadb-1` đang chạy trên mạng
-# `crmkhachhang_vkcrm` (CSDL nguồn `vk_crm_lane_m8` — dựng bằng `migrate:fresh --seed` ngay ở
-# bước 1, không cần đã seed sẵn); Git Bash (MSYS) trên Windows với `openssl`, `cygpath`,
-# `robocopy` sẵn có (đều là công cụ có sẵn của Git for Windows / Windows).
+# `crmkhachhang_vkcrm` (kịch bản tự tạo CSDL nguồn riêng `vk_crm_lane_m8_drill` trên CHÍNH container
+# đó ở bước 1 — không cần chuẩn bị gì trước); Git Bash (MSYS) trên Windows với `openssl`,
+# `cygpath`, `robocopy` sẵn có (đều là công cụ có sẵn của Git for Windows / Windows).
 #
 # Bí mật: KHÔNG bao giờ ghi APP_KEY hay BACKUP_ARCHIVE_PASSWORD ra file, log, hay report — cả hai
 # được SINH MỚI (dùng một lần) ở mỗi lần chạy, không đọc từ `.env` thật của làn.
@@ -48,7 +56,12 @@ TS="$(date +%Y%m%d%H%M%S)"
 IMAGE='webdevops/php:8.3-alpine'
 NETWORK='crmkhachhang_vkcrm'
 SOURCE_DB_CONTAINER='crmkhachhang-mariadb-1'
-SOURCE_DB_NAME='vk_crm_lane_m8'
+# CSDL NGUỒN RIÊNG của kịch bản này — KHÔNG PHẢI `vk_crm_lane_m8` (đĩa serve `:8090` của làn, các
+# task khác có thể đang dùng đúng lúc này). Sống trên CÙNG container MariaDB dùng chung
+# (`crmkhachhang-mariadb-1`, đỡ phải dựng thêm một container MariaDB thứ hai chỉ để seed), nhưng là
+# một CSDL riêng, tạo mới ở bước 1 và xoá hẳn ở bước dọn dẹp — không migration, không seed, không
+# dữ liệu thử nào của kịch bản này từng chạm vào `vk_crm_lane_m8`.
+SOURCE_DB_NAME='vk_crm_lane_m8_drill'
 RESTORE_DB_CONTAINER="vkcrm-lane-m8-restore-${TS}"
 RESTORE_DB_NAME='vkcrm_restore_drill'
 DRILL_ID_NUMBER='099999888777'
@@ -57,8 +70,6 @@ WORK_DIR="${LANE_DIR}/storage/app/_drill/work-${TS}"
 WORK_DIR_WIN="$(cygpath -w "${WORK_DIR}")"
 CLEAN_APP_DIR="${LANE_DIR}/storage/app/_drill/clean-app-${TS}"
 CLEAN_APP_DIR_WIN="$(cygpath -w "${CLEAN_APP_DIR}")"
-
-mkdir -p "${WORK_DIR}"
 
 ARCHIVE_HOST_PATH=""
 ARCHIVE_REL_PATH=""
@@ -114,6 +125,10 @@ cleanup() {
   echo
   echo "== dọn dẹp =="
   docker rm -f "${RESTORE_DB_CONTAINER}" >/dev/null 2>&1
+  # CSDL nguồn RIÊNG của kịch bản này — không phải vk_crm_lane_m8, xem hằng số SOURCE_DB_NAME.
+  # An toàn khi gọi dù bước 1 chưa từng chạy (CREATE DATABASE chưa xảy ra): DROP ... IF EXISTS.
+  docker exec "${SOURCE_DB_CONTAINER}" mariadb -uroot -ppassword \
+    -e "DROP DATABASE IF EXISTS \`${SOURCE_DB_NAME}\`;" >/dev/null 2>&1
   rm -rf "${WORK_DIR}" "${CLEAN_APP_DIR}"
   # Archive của lượt drill KHÔNG phải một bản sao lưu thật cần giữ lại — xoá để
   # storage/app/backups không tích rác qua nhiều lần chạy thử (thư mục vốn đã .gitignore, dọn
@@ -122,13 +137,18 @@ cleanup() {
     rm -f "${ARCHIVE_HOST_PATH}"
     rmdir "$(dirname "${ARCHIVE_HOST_PATH}")" 2>/dev/null || true
   fi
-  echo "Đã xoá container ${RESTORE_DB_CONTAINER}, thư mục tạm, và archive của lượt thử này."
+  echo "Đã xoá container ${RESTORE_DB_CONTAINER}, CSDL ${SOURCE_DB_NAME}, thư mục tạm, và archive của lượt thử này."
   exit "${status}"
 }
+# Đăng ký trap TRƯỚC khi tạo bất kỳ tài nguyên tạm nào (thư mục, CSDL, container) — một lỗi xảy ra
+# NGAY SAU một bước tạo tài nguyên nhưng TRƯỚC khi trap tồn tại sẽ để tài nguyên đó rò rỉ mãi mãi,
+# vì không có gì đứng ra dọn nó khi script thoát.
 trap cleanup EXIT
 
+mkdir -p "${WORK_DIR}"
+
 # --------------------------------------------------------------------------------------------
-# Bước 1 — Xây lại CSDL nguồn bằng APP_KEY dùng một lần
+# Bước 1 — Xây CSDL nguồn RIÊNG (vk_crm_lane_m8_drill) bằng APP_KEY dùng một lần
 # --------------------------------------------------------------------------------------------
 seed_source_db() {
   docker exec "${SOURCE_DB_CONTAINER}" mariadb -uroot -ppassword \
@@ -250,6 +270,8 @@ create_fixture() {
 # Bước 3 — backup:run thật (dump CSDL + tệp, mã hoá), ra disk local_backups
 # --------------------------------------------------------------------------------------------
 run_backup() {
+  # Thư mục của WORKTREE (disk local_backups trên đĩa, không phải một CSDL) — dọn trước mỗi lượt
+  # chỉ để bước 4 (định vị archive) luôn thấy đúng MỘT archive, của LƯỢT NÀY.
   rm -rf "${LANE_DIR}/storage/app/backups"/* 2>/dev/null || true
 
   docker run --rm -i --network "${NETWORK}" \
@@ -535,9 +557,10 @@ verify_wrong_key() {
 main() {
   echo "Khôi phục thử M8a Task 3 (R3) — bắt đầu $(date -Iseconds)"
   echo "Worktree: ${LANE_DIR}"
+  echo "CSDL nguồn riêng: ${SOURCE_DB_NAME} (không đụng vk_crm_lane_m8)"
   echo "Container MariaDB sạch: ${RESTORE_DB_CONTAINER}"
 
-  step "1. Xây lại CSDL nguồn vk_crm_lane_m8 (migrate:fresh --seed, APP_KEY dùng một lần)" seed_source_db
+  step "1. Xây CSDL nguồn riêng ${SOURCE_DB_NAME} (migrate:fresh --seed, APP_KEY dùng một lần)" seed_source_db
   step "2. Tạo dữ liệu thử (khách hàng có id_number + tài liệu có tệp thật)" create_fixture
   step "3. backup:run thật (dump CSDL + tệp, mã hoá AES-256)" run_backup
   step "4. Định vị archive vừa tạo" locate_archive
