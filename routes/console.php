@@ -94,26 +94,39 @@ Schedule::call(new CheckDeadlines)
  * lượt dọn dẹp hỏng (ví dụ một disk không xoá được tệp cũ) không được phép cũng chặn luôn bản sao
  * lưu CỦA HÔM NAY. `withoutOverlapping()` vì cả hai lệnh có thể chạy lâu trên một CSDL lớn — hai
  * tiến trình `backup:run` chồng nhau ghi hai archive cùng lúc là lãng phí I/O, không phải lỗi dữ
- * liệu, nhưng vẫn không đáng để cho phép.
+ * liệu, nhưng vẫn không đáng để cho phép. Khoá chồng lấn giữ cả `backup:run` (callback `->then()`
+ * chạy TRƯỚC khi scheduler gỡ khoá).
  *
- * KHÔNG gọi `->name(...)`: `Illuminate\Console\Scheduling\ManagesAttributes::name()` chỉ là một
- * BÍ DANH của `description()` — cả hai cùng ghi vào MỘT thuộc tính `$description` (fix I7, review
- * vòng 1). Gọi cả hai làm lời gọi SAU ghi đè lời gọi TRƯỚC một cách im lặng; test không được nhận
- * dạng tác vụ bằng "tên" tưởng tượng đó — dùng `$event->command` (chuỗi lệnh Artisan thật) thay
- * vì mô tả tiếng Việt, xem `tests/Feature/Schedule/BackupScheduleTest.php`.
+ * `withoutOverlapping(360)` — khoá tự hết hạn sau 6 giờ, không phải 24 giờ mặc định (fix I5, lượt
+ * rà soát cuối M8a): một tiến trình bị giết giữa chừng (máy chủ khởi động lại lúc 02:30) để lại
+ * khoá; với 24 giờ, khoá đó chặn luôn lượt sao lưu 02:00 của ĐÊM SAU — hai đêm liền không bản sao
+ * nào. 6 giờ đủ cho một lượt sao lưu vài GB và hết hạn trước 02:00 hôm sau.
+ *
+ * CHỈ `->name('backup.nightly')`, không `->description()`: trong Laravel 13
+ * `Illuminate\Console\Scheduling\ManagesAttributes::name()` và `description()` là BÍ DANH của
+ * nhau (cùng ghi `$description`), gọi cả hai thì lời gọi SAU ghi đè lời gọi TRƯỚC. Theo quy ước
+ * M6.5 cho mọi tác vụ lịch, mỗi tác vụ chỉ mang một tên máy đọc được, và
+ * `tests/Feature/Schedule/BackupScheduleTest.php` tra tác vụ bằng tên đó rồi khẳng định thêm lệnh
+ * Artisan thật (`$event->command`) nó chạy.
  */
 Schedule::command('backup:clean')
     ->dailyAt('02:00')
-    ->description('Dọn bản sao lưu cũ trước khi sao lưu mới')
-    ->withoutOverlapping()
+    ->name('backup.nightly')
+    ->withoutOverlapping(360)
     ->then(fn () => Artisan::call('backup:run'));
 
 /**
  * Giám sát sức khoẻ các bản sao lưu, 08:00 hằng ngày (SPEC §10 mục 8) — đủ xa lượt 02:00 để một
- * lượt sao lưu chạy lâu (hồ sơ vài trăm MB) chắc chắn đã xong. Phát `UnhealthyBackupWasFound` khi
- * bản mới nhất quá cũ hoặc một disk vượt hạn mức lưu trữ (`config('backup.monitor_backups')`).
+ * lượt sao lưu chạy lâu (hồ sơ vài trăm MB) chắc chắn đã xong. `backup:monitor` phát
+ * `UnhealthyBackupWasFound` khi bản mới nhất trên một đĩa trong `BACKUP_DISKS` quá cũ hoặc đĩa vượt
+ * hạn mức (`config('backup.monitor_backups')`). Rồi — `->then()`, chạy cả khi `backup:monitor`
+ * thất bại — kiểm độ tươi của bản trên đích rclone, thứ `backup:monitor` không nhìn thấy (fix I4,
+ * lượt rà soát cuối M8a; `App\Actions\Backup\CheckRcloneRemoteFreshness`). Lớp được gọi bằng
+ * chuỗi `Lớp@handle` thay vì `use` + `::class`: luật làn song song cho tệp này là CHỈ NỐI THÊM
+ * dòng ở cuối, và Pint tự chèn một dòng `use` lên đầu tệp cho mọi tên lớp viết đầy đủ.
  */
 Schedule::command('backup:monitor')
     ->dailyAt('08:00')
-    ->description('Giám sát sức khoẻ bản sao lưu')
-    ->withoutOverlapping();
+    ->name('backup.monitor')
+    ->withoutOverlapping()
+    ->then(fn () => app()->call('App\Actions\Backup\CheckRcloneRemoteFreshness@handle'));

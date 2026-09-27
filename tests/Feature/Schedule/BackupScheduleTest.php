@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Backup\CheckRcloneRemoteFreshness;
 use Illuminate\Console\Scheduling\Event;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -15,45 +16,65 @@ use Illuminate\Support\Facades\Schedule;
 */
 
 /*
- * Tìm tác vụ theo LỆNH ARTISAN THẬT nó chạy (`$event->command`, dạng `'/usr/bin/php' 'artisan'
- * backup:clean`), không theo mô tả tiếng Việt: mô tả là chữ cho người đọc, còn lệnh mới là thứ
- * chạy lúc 02:00 (fix I7). Khớp đúng cả từ, để `backup:clean` không vô tình khớp một lệnh dài hơn.
+ * Tìm tác vụ theo TÊN (`->name('backup.nightly')`, lượt rà soát cuối M8a, I5) — cùng quy ước M6.5
+ * áp cho mọi tác vụ lịch: trong Laravel 13 `name()` và `description()` là BÍ DANH của nhau (cùng
+ * ghi `$event->description`), nên mỗi tác vụ chỉ gọi `->name()`, và tên máy đọc được đó là khoá tra
+ * cứu ổn định. Rồi khẳng định thêm LỆNH ARTISAN THẬT nó chạy (`$event->command`), vì lệnh mới là
+ * thứ chạy lúc 02:00 (fix I7 của Task 1).
  */
-function backupScheduleEvent(string $command): ?Event
+function backupScheduleEvent(string $name, string $command): Event
 {
     $matches = collect(Schedule::events())
-        ->filter(fn (Event $event) => preg_match('/ '.preg_quote($command, '/').'$/', (string) $event->command) === 1)
+        ->filter(fn (Event $event) => $event->description === $name)
         ->values();
 
-    expect($matches)->toHaveCount(1, "phải có đúng một tác vụ lịch chạy {$command}");
+    expect($matches)->toHaveCount(1, "phải có đúng một tác vụ lịch tên {$name}");
 
-    return $matches->first();
+    $event = $matches->first();
+
+    expect(preg_match('/ '.preg_quote($command, '/').'$/', (string) $event->command))->toBe(1, "tác vụ {$name} phải chạy {$command}");
+
+    return $event;
 }
 
 it('§10.8 config(app.timezone) là giờ Việt Nam, nên 02:00/08:00 là giờ văn phòng', function () {
     expect(config('app.timezone'))->toBe('Asia/Ho_Chi_Minh');
 });
 
-it('§10.8 lịch chạy lệnh backup:clean lúc 02:00, không chồng lấn', function () {
-    $event = backupScheduleEvent('backup:clean');
+it('§10.8 backup.nightly chạy backup:clean lúc 02:00, không chồng lấn, khoá tự hết hạn sau 6 giờ', function () {
+    $event = backupScheduleEvent('backup.nightly', 'backup:clean');
 
-    expect($event)->not->toBeNull()
-        ->and($event->description)->toBe('Dọn bản sao lưu cũ trước khi sao lưu mới')
-        ->and($event->getExpression())->toBe('0 2 * * *')
+    // `expiresAt` 360 phút (fix I5, lượt rà soát cuối M8a): mặc định của `withoutOverlapping()` là
+    // 1440 phút — một tiến trình bị giết giữa chừng (máy chủ khởi động lại lúc 02:30) để lại khoá
+    // chặn luôn lượt sao lưu của ĐÊM SAU. 6 giờ đủ dài cho một lượt sao lưu vài GB, đủ ngắn để hết
+    // hạn trước 02:00 hôm sau.
+    expect($event->getExpression())->toBe('0 2 * * *')
+        ->and($event->withoutOverlapping)->toBeTrue()
+        ->and($event->expiresAt)->toBe(360);
+});
+
+it('§10.8 backup.monitor chạy backup:monitor lúc 08:00, không chồng lấn', function () {
+    $event = backupScheduleEvent('backup.monitor', 'backup:monitor');
+
+    expect($event->getExpression())->toBe('0 8 * * *')
         ->and($event->withoutOverlapping)->toBeTrue();
 });
 
-it('§10.8 lịch chạy lệnh backup:monitor lúc 08:00, không chồng lấn', function () {
-    $event = backupScheduleEvent('backup:monitor');
+it('§10.8 backup.monitor kiểm luôn độ tươi của bản trên đích rclone (fix I4), dù backup:monitor thất bại', function () {
+    $event = backupScheduleEvent('backup.monitor', 'backup:monitor');
 
-    expect($event)->not->toBeNull()
-        ->and($event->description)->toBe('Giám sát sức khoẻ bản sao lưu')
-        ->and($event->getExpression())->toBe('0 8 * * *')
-        ->and($event->withoutOverlapping)->toBeTrue();
+    $after = (new ReflectionProperty($event, 'afterCallbacks'))->getValue($event);
+    expect($after)->toHaveCount(1);
+
+    $event->exitCode = 1;
+
+    $this->mock(CheckRcloneRemoteFreshness::class, fn ($mock) => $mock->shouldReceive('handle')->once());
+
+    app()->call($after[0]);
 });
 
 it('§10.8 backup:clean gọi backup:run dù thất bại, không chỉ khi thành công', function () {
-    $event = backupScheduleEvent('backup:clean');
+    $event = backupScheduleEvent('backup.nightly', 'backup:clean');
 
     $after = (new ReflectionProperty($event, 'afterCallbacks'))->getValue($event);
     expect($after)->toHaveCount(1);

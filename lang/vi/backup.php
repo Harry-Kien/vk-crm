@@ -26,6 +26,17 @@ return [
         'rclone_push_never_runs' => 'BACKUP_DISKS không có disk ":disk", nên lượt đẩy sao lưu lên '
             .'Google Drive mỗi đêm sẽ KHÔNG BAO GIỜ chạy dù BACKUP_RCLONE_REMOTE đã cấu hình đúng. '
             .'Thêm ":disk" vào BACKUP_DISKS.',
+        'rclone_archive_missing' => 'Sao lưu báo thành công nhưng không tìm thấy archive nào trong thư '
+            .'mục ":folder" của đĩa ":disk" — không có gì để đẩy lên Google Drive, nên đêm nay KHÔNG có '
+            .'bản sao ngoài máy chủ.',
+        'no_off_server_copy' => 'Sao lưu đêm nay không có bản sao ngoài máy chủ: BACKUP_RCLONE_REMOTE '
+            .'để trống và mọi đĩa trong BACKUP_DISKS (:disks) đều nằm trên chính máy chủ này. Máy chủ '
+            .'hỏng là mất cả dữ liệu lẫn mọi bản sao lưu. Bật Google Drive theo '
+            .'docs/SAO-LUU-KHOI-PHUC.md (Bước 1–5).',
+        'rclone_remote_empty' => 'Không có bản sao lưu nào trong thư mục ":folder" trên đích rclone — '
+            .'lượt đẩy lên Google Drive chưa từng thành công cho môi trường này.',
+        'rclone_remote_stale' => 'Bản sao lưu mới nhất trên đích rclone (":file") đã :hours giờ tuổi, '
+            .'quá hạn :max giờ — lượt đẩy lên Google Drive các đêm gần đây đã không thành công.',
     ],
 
     'check' => [
@@ -35,6 +46,7 @@ return [
         'rclone_ok' => 'Đích rclone ":remote": OK — đẩy, liệt kê, xoá tệp thử đều thành công.',
         'rclone_failed' => 'Đích rclone ":remote": LỖI — :detail',
         'rclone_not_found_after_copy' => 'đã đẩy tệp thử lên nhưng không thấy trong danh sách remote',
+        'probe_not_writable' => 'không ghi được tệp thử vào thư mục tạm ":path" trên máy chủ',
         'target_not_found' => 'Không tìm thấy đích ":target". Các đích hợp lệ: :available.',
         'no_targets' => 'Không có đích sao lưu nào để kiểm tra.',
         'summary_ok' => 'Tất cả đích sao lưu đều ổn.',

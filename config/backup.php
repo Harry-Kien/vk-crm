@@ -268,7 +268,23 @@ return [
             'disks' => BackupDisks::parse(env('BACKUP_DISKS')),
             'health_checks' => [
                 MaximumAgeInDays::class => 1,
-                MaximumStorageInMegabytes::class => 5000,
+
+                /*
+                 * Hạn mức dung lượng MỖI disk đích (MB), `BACKUP_MAX_STORAGE_MB`, trống thì 25000
+                 * (lượt rà soát cuối M8a — bản trước là hằng số 5000 của gói). 5000 MB nghĩa là
+                 * `backup:monitor` báo "không lành mạnh" MỖI NGÀY ngay khi 7 bản trên máy chủ
+                 * (`BACKUP_LOCAL_KEEP`) vượt 5 GB, tức mỗi archive chỉ cần quá ~700 MB — một văn
+                 * phòng vài năm tuổi đã quá mức đó, và một thư báo động giả mỗi sáng dạy người
+                 * nhận bỏ qua thư sao lưu. 25000 MB (~24 GB, khoảng 40% ổ 60 GB của máy chủ khuyến
+                 * nghị ở SPEC §2) chứa đủ 7 bản của một archive 3 GB; vượt mức đó thật sự là lúc
+                 * cần xem lại ổ đĩa. Khi CHƯA bật Google Drive, máy chủ giữ 30 bản — khi đó
+                 * `App\Actions\Backup\GuardOffServerBackupDestination` đã báo lỗi mỗi đêm ở
+                 * production, nên hạn mức này không phải lớp báo động duy nhất.
+                 *
+                 * `?:` + `max(1, ...)`, cùng thành ngữ với `vkcrm.backup.local_keep`: trống là mặc
+                 * định, không phải 0 (0 MB = báo động mọi ngày).
+                 */
+                MaximumStorageInMegabytes::class => max(1, (int) (env('BACKUP_MAX_STORAGE_MB') ?: 25000)),
             ],
         ],
     ],

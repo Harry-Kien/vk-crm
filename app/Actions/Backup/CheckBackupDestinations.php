@@ -4,6 +4,7 @@ namespace App\Actions\Backup;
 
 use App\Support\Backup\BackupDisks;
 use App\Support\Backup\RcloneProcess;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Throwable;
@@ -139,23 +140,37 @@ class CheckBackupDestinations
             ];
         }
 
+        /*
+         * Fix M7, lượt rà soát cuối M8a — tệp thử CỤC BỘ nằm trong thư mục tạm của chính gói sao
+         * lưu (`backup.backup.temporary_directory`, production là `storage/app/backup-temp`), thư
+         * mục con `backup-check`, KHÔNG ở `sys_get_temp_dir()`: trên shared hosting `/tmp` có thể
+         * nằm ngoài `open_basedir`, dùng chung với tài khoản khác, hoặc bị dọn giữa chừng — và
+         * `backup:run` vốn đã cần ghi được vào thư mục này, nên lệnh kiểm cũng thử đúng chỗ đó.
+         * Thư mục con riêng vì `BackupJob::run()` tạo rồi XOÁ thư mục con `temp` của thư mục tạm
+         * ở mỗi lượt sao lưu — tệp thử không được nằm chung chỗ đó.
+         */
         $filename = 'vkcrm-backup-check-'.Str::random(16).'.txt';
-        $localPath = sys_get_temp_dir().DIRECTORY_SEPARATOR.$filename;
+        $localDirectory = rtrim((string) (config('backup.backup.temporary_directory') ?: storage_path('app/backup-temp')), '/\\')
+            .DIRECTORY_SEPARATOR.'backup-check';
+        $localPath = $localDirectory.DIRECTORY_SEPARATOR.$filename;
 
         /*
          * Fix I1, vòng rà soát 1 — tệp thử đi vào một THƯ MỤC CON RIÊNG (`.backup-check`), KHÔNG
-         * BAO GIỜ vào gốc remote nơi archive thật nằm. `checkDisk()` ở trên đã làm đúng việc này
-         * cho disk local (`'.backup-check/'.Str::uuid()...`) — trước fix này, `checkRclone()` lại
-         * đẩy thẳng vào gốc, cùng chỗ với archive: `PruneRcloneRemoteBackups::handle()` liệt kê
-         * MỌI tệp phẳng trong gốc, nên một tệp thử kẹt lại (dọn hỏng, tiến trình bị ngắt giữa
-         * chừng) chiếm một trong 30 suất giữ lại. Tách thư mục xong, `PruneRcloneRemoteBackups`
-         * gọi `lsjson` trên GỐC (không đệ quy vào `.backup-check`) nên không bao giờ thấy tệp thử,
-         * và bộ lọc tên archive ở đó là lớp phòng thủ THỨ HAI, độc lập với việc tách thư mục này.
+         * BAO GIỜ vào chỗ archive thật nằm. `checkDisk()` ở trên đã làm đúng việc này cho disk
+         * local (`'.backup-check/'.Str::uuid()...`). Từ fix I3 (lượt rà soát cuối M8a) archive nằm
+         * trong thư mục của môi trường (`{remote}/{slug}`, `RcloneArchives::folder()`), còn tệp thử
+         * nằm ở `{remote}/.backup-check` — hai thư mục khác nhau, và `PruneRcloneRemoteBackups`
+         * chỉ `lsjson` (không đệ quy) thư mục môi trường, nên không bao giờ thấy tệp thử. Bộ lọc
+         * tên archive chính xác ở đó là lớp phòng thủ THỨ HAI, độc lập với việc tách thư mục này.
          */
         $remoteProbeDir = rtrim($remote, '/').'/.backup-check';
 
         try {
-            file_put_contents($localPath, 'vkcrm-backup-check');
+            File::ensureDirectoryExists($localDirectory);
+
+            if (file_put_contents($localPath, 'vkcrm-backup-check') === false) {
+                throw new \RuntimeException(__('backup.check.probe_not_writable', ['path' => $localDirectory]));
+            }
 
             RcloneProcess::copy($localPath, $remoteProbeDir);
 

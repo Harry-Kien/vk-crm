@@ -4,6 +4,7 @@ namespace App\Actions\Backup;
 
 use App\Exceptions\RcloneCommandFailed;
 use App\Support\Backup\BackupDisks;
+use App\Support\Backup\RcloneArchives;
 use App\Support\Backup\RcloneProcess;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Storage;
@@ -33,6 +34,18 @@ use Spatie\Backup\Events\BackupWasSuccessful;
  * `BackupWasSuccessful` không mang đường dẫn tệp, chỉ mang `diskName`/`backupName` (thư mục con).
  * Lấy tệp MỚI NHẤT theo `lastModified()` trong thư mục đó — đúng lúc sự kiện này bắn, tệp vừa ghi
  * xong luôn là tệp mới nhất (đồng bộ, không tiến trình nào khác ghi xen vào cùng lúc).
+ *
+ * Không tìm thấy tệp nào (fix M4, lượt rà soát cuối M8a) là một lượt đẩy HỎNG, không phải "không có
+ * gì để làm": gói vừa báo sao lưu thành công lên chính disk này, nên thiếu archive nghĩa là đêm nay
+ * không có bản sao ngoài máy chủ. Báo lỗi theo cùng đường với một `rclone copy` thất bại — bản
+ * trước `return` lặng lẽ ở đây.
+ *
+ * # Đích: thư mục RIÊNG của môi trường
+ *
+ * Archive đi vào `{BACKUP_RCLONE_REMOTE}/{slug(backupName)}` ({@see RcloneArchives::folder()}, fix
+ * I3, lượt rà soát cuối M8a), không vào gốc remote: production và staging dùng chung một Google
+ * Drive thì mỗi bên có thư mục của mình, và lượt xác minh + lượt dọn ở dưới làm việc trên ĐÚNG thư
+ * mục vừa đẩy vào.
  *
  * # Thất bại: báo lỗi NÊU TÊN REMOTE, không phải tên disk
  *
@@ -74,14 +87,20 @@ class PushBackupArchiveToRclone
         $archive = $this->newestArchive($disk, $event->backupName);
 
         if ($archive === null) {
+            $this->reportFailure($remote, $event->backupName, __('backup.errors.rclone_archive_missing', [
+                'disk' => $event->diskName,
+                'folder' => $event->backupName,
+            ]));
+
             return;
         }
 
         $absolutePath = $disk->path($archive);
+        $remoteFolder = RcloneArchives::folder($remote, $event->backupName);
 
         try {
-            RcloneProcess::copy($absolutePath, $remote);
-            $this->verify($remote, basename($archive), $absolutePath);
+            RcloneProcess::copy($absolutePath, $remoteFolder);
+            $this->verify($remoteFolder, basename($archive), $absolutePath);
         } catch (RcloneCommandFailed $exception) {
             $this->reportFailure($remote, $event->backupName, $exception->getMessage());
 
@@ -89,7 +108,7 @@ class PushBackupArchiveToRclone
         }
 
         try {
-            app(PruneRcloneRemoteBackups::class)->handle($remote);
+            app(PruneRcloneRemoteBackups::class)->handle($remoteFolder);
         } catch (RcloneCommandFailed $exception) {
             $this->reportFailure($remote, $event->backupName, $exception->getMessage());
         }
@@ -111,7 +130,7 @@ class PushBackupArchiveToRclone
     }
 
     /** @throws RcloneCommandFailed */
-    private function verify(string $remote, string $filename, string $absolutePath): void
+    private function verify(string $remoteFolder, string $filename, string $absolutePath): void
     {
         $expectedSize = @filesize($absolutePath);
 
@@ -119,7 +138,7 @@ class PushBackupArchiveToRclone
             throw RcloneCommandFailed::verificationFailed($filename);
         }
 
-        foreach (RcloneProcess::listJson($remote) as $entry) {
+        foreach (RcloneProcess::listJson($remoteFolder) as $entry) {
             if ($entry['name'] === $filename && $entry['size'] === $expectedSize) {
                 return;
             }

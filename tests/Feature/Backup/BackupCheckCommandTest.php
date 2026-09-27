@@ -165,12 +165,16 @@ it('§10.8 fix I1 — tệp thử rclone đi vào .backup-check, không phải g
 
     $copyDestination = null;
     $probeFilename = null;
+    $probeLocalPath = null;
+    $probeExistedWhenCopied = false;
     $lsjsonDestination = null;
     $deleteDestination = null;
 
-    Process::fake(function ($process) use (&$copyDestination, &$probeFilename, &$lsjsonDestination, &$deleteDestination) {
+    Process::fake(function ($process) use (&$copyDestination, &$probeFilename, &$probeLocalPath, &$probeExistedWhenCopied, &$lsjsonDestination, &$deleteDestination) {
         if (in_array('copy', $process->command, true)) {
-            $probeFilename = basename($process->command[array_key_last($process->command) - 1]);
+            $probeLocalPath = $process->command[array_key_last($process->command) - 1];
+            $probeExistedWhenCopied = is_file($probeLocalPath);
+            $probeFilename = basename($probeLocalPath);
             $copyDestination = end($process->command);
 
             return Process::result(exitCode: 0);
@@ -199,6 +203,14 @@ it('§10.8 fix I1 — tệp thử rclone đi vào .backup-check, không phải g
         ->and($copyDestination)->toBe('gdrive:VK-CRM-backups/.backup-check')
         ->and($lsjsonDestination)->toBe('gdrive:VK-CRM-backups/.backup-check')
         ->and($deleteDestination)->toBe('gdrive:VK-CRM-backups/.backup-check/'.$probeFilename);
+
+    // Fix M7 (lượt rà soát cuối M8a): tệp thử CỤC BỘ nằm dưới thư mục tạm của sao lưu
+    // (`backup.backup.temporary_directory`, production là `storage/app/backup-temp`), không ở
+    // `sys_get_temp_dir()` — trên shared hosting `/tmp` có thể nằm ngoài `open_basedir`, dùng chung
+    // với tài khoản khác, hay bị dọn giữa chừng. Và được dọn sau khi kiểm xong.
+    expect($probeLocalPath)->toStartWith(config('backup.backup.temporary_directory').DIRECTORY_SEPARATOR)
+        ->and($probeExistedWhenCopied)->toBeTrue()
+        ->and(is_file($probeLocalPath))->toBeFalse();
 });
 
 it('§10.8 fix I2 — BACKUP_RCLONE_REMOTE bật nhưng BACKUP_DISKS thiếu local_backups: LỖI rõ ràng, không chạm tới rclone', function () {

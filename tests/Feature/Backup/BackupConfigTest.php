@@ -7,6 +7,7 @@ use App\Support\Backup\BackupDisks;
 use Illuminate\Support\Env;
 use Illuminate\Support\Facades\Artisan;
 use Spatie\Backup\Config\Config;
+use Spatie\Backup\Tasks\Monitor\HealthChecks\MaximumStorageInMegabytes;
 
 /*
 |--------------------------------------------------------------------------
@@ -185,4 +186,71 @@ it('§10.8 giữ 30 bản hằng ngày theo cấu hình dọn dẹp', function (
         ->and(config('backup.cleanup.default_strategy.keep_weekly_backups_for_weeks'))->toBe(0)
         ->and(config('backup.cleanup.default_strategy.keep_monthly_backups_for_months'))->toBe(0)
         ->and(config('backup.cleanup.default_strategy.keep_yearly_backups_for_years'))->toBe(0);
+});
+
+/*
+ * Lượt rà soát cuối M8a — biến số của sao lưu để TRỐNG (đúng như `.env.example` giao) phải rơi về
+ * mặc định, không về 0. `env('X', mặc-định)` trả `''` cho một biến có mặt mà rỗng, và
+ * `(int) ''` là 0 — bản trước vì vậy cho `BACKUP_LOCAL_KEEP=` → `max(1, 0)` = GIỮ MỘT BẢN thay vì 7.
+ */
+it('§10.8 / fix I1 — BACKUP_LOCAL_KEEP để trống giữ 7 bản, không phải 1', function () {
+    $restore = overrideProcessEnv(['BACKUP_LOCAL_KEEP' => '']);
+
+    try {
+        $this->refreshApplication();
+
+        expect(config('vkcrm.backup.local_keep'))->toBe(7);
+    } finally {
+        $restore();
+    }
+});
+
+it('§10.8 / fix I1 — BACKUP_LOCAL_KEEP có giá trị thì dùng giá trị đó; 0 rơi về 7, số âm thành 1 — không bao giờ dưới 1', function () {
+    foreach (['3' => 3, '0' => 7, '-3' => 1] as $raw => $expected) {
+        $restore = overrideProcessEnv(['BACKUP_LOCAL_KEEP' => $raw]);
+
+        try {
+            $this->refreshApplication();
+
+            expect(config('vkcrm.backup.local_keep'))->toBe($expected);
+        } finally {
+            $restore();
+        }
+    }
+});
+
+it('§10.8 BACKUP_RCLONE_TIMEOUT để trống là 1800 giây, có giá trị thì dùng giá trị đó', function () {
+    foreach (['' => 1800, '600' => 600, '0' => 1800, '-5' => 1] as $raw => $expected) {
+        $restore = overrideProcessEnv(['BACKUP_RCLONE_TIMEOUT' => (string) $raw]);
+
+        try {
+            $this->refreshApplication();
+
+            expect(config('vkcrm.backup.rclone.timeout'))->toBe($expected);
+        } finally {
+            $restore();
+        }
+    }
+});
+
+it('§10.8 BACKUP_MAX_STORAGE_MB để trống là 25000 MB, có giá trị thì backup:monitor dùng giá trị đó', function () {
+    foreach (['' => 25000, '12000' => 12000, '0' => 25000, '-1' => 1] as $raw => $expected) {
+        $restore = overrideProcessEnv(['BACKUP_MAX_STORAGE_MB' => (string) $raw]);
+
+        try {
+            $this->refreshApplication();
+
+            expect(config('backup.monitor_backups.0.health_checks')[MaximumStorageInMegabytes::class])->toBe($expected);
+        } finally {
+            $restore();
+        }
+    }
+});
+
+it('§10.8 các biến số mới của sao lưu có trong .env.example kèm chú thích', function () {
+    $envExample = file_get_contents(base_path('.env.example'));
+
+    foreach (['BACKUP_RCLONE_TIMEOUT=', 'BACKUP_MAX_STORAGE_MB='] as $line) {
+        expect($envExample)->toContain("\n".$line);
+    }
 });

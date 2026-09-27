@@ -19,18 +19,32 @@ use Spatie\Backup\Notifications\EventHandler;
 | is needed"). Đường thất bại đi qua chính đường báo lỗi của Task 1 (`BackupHasFailed` →
 | `BackupHasFailedNotification` → hàng đợi), kiểm bằng `Queue::fake()`, cùng thành ngữ với
 | `GuardBackupEncryptionTest.php`.
+|
+| Fix I3 (lượt rà soát cuối M8a): archive đi vào thư mục RIÊNG của môi trường,
+| `{BACKUP_RCLONE_REMOTE}/{slug(backup.name)}` — ở đây `gdrive:VK-CRM-backups/vk-crm` cho tên
+| sao lưu "VK-CRM". Tên archive trong các test "thành công" là tên THẬT của gói
+| (`vk-crm-Y-m-d-H-i-s.zip`), vì lượt dọn remote chỉ đếm đúng hình dạng đó.
 */
+
+const PUSH_TEST_REMOTE = 'gdrive:VK-CRM-backups';
+const PUSH_TEST_FOLDER = 'gdrive:VK-CRM-backups/vk-crm';
 
 beforeEach(function () {
     EventHandler::enable();
-    // Tường minh, không lệ thuộc APP_NAME của môi trường test — fix I1 (vòng rà soát 1) của
-    // PruneRcloneRemoteBackups lọc theo đúng tiền tố này trước khi đếm/xoá.
+    $this->freezeTime();
+    // Tường minh, không lệ thuộc APP_NAME của môi trường test — PruneRcloneRemoteBackups lọc
+    // theo đúng tiền tố này trước khi đếm/xoá.
     config(['backup.backup.destination.filename_prefix' => 'vk-crm-']);
 });
 
 afterEach(function () {
     EventHandler::enable();
 });
+
+function pushTestArchiveName(int $ageInMinutes): string
+{
+    return 'vk-crm-'.now()->copy()->subMinutes($ageInMinutes)->format('Y-m-d-H-i-s').'.zip';
+}
 
 /** Bắt một BackupHasFailedNotification đã xếp hàng, nêu đúng "đích" (diskName) và thông điệp. */
 function assertRcloneFailureQueued(string $expectedDiskNamePrefix, ?string $expectedMessageContains = null): void
@@ -71,7 +85,7 @@ it('§10.8 BACKUP_RCLONE_REMOTE rỗng: không chạy rclone nào, không dọn 
 });
 
 it('§10.8 sự kiện của một disk KHÁC local_backups bị bỏ qua dù remote đã cấu hình', function () {
-    config(['vkcrm.backup.rclone.remote' => 'gdrive:VK-CRM-backups']);
+    config(['vkcrm.backup.rclone.remote' => PUSH_TEST_REMOTE]);
     Process::fake();
 
     app(PushBackupArchiveToRclone::class)->handle(new BackupWasSuccessful('office_sftp', 'VK-CRM'));
@@ -79,19 +93,23 @@ it('§10.8 sự kiện của một disk KHÁC local_backups bị bỏ qua dù re
     Process::assertNothingRan();
 });
 
-it('§10.8 thư mục local_backups rỗng: không có gì để đẩy, không chạy rclone', function () {
-    config(['vkcrm.backup.rclone.remote' => 'gdrive:VK-CRM-backups']);
+it('§10.8 fix M4 — sao lưu báo thành công mà local_backups không có archive nào: báo lỗi như một lượt đẩy hỏng', function () {
+    // Trước fix này nhánh này `return` lặng lẽ: bản sao ngoài máy chủ đêm nay không có, và không ai
+    // biết. Đó đúng là một lượt đẩy hỏng — cùng đường báo lỗi.
+    Queue::fake();
+    config(['vkcrm.backup.rclone.remote' => PUSH_TEST_REMOTE]);
     Process::fake();
     Storage::fake(BackupDisks::DEFAULT_DISK);
 
     app(PushBackupArchiveToRclone::class)->handle(new BackupWasSuccessful(BackupDisks::DEFAULT_DISK, 'VK-CRM'));
 
     Process::assertNothingRan();
+    assertRcloneFailureQueued('rclone:'.PUSH_TEST_REMOTE, BackupDisks::DEFAULT_DISK);
 });
 
 it('§10.8 rclone copy thất bại: báo lỗi nêu tên REMOTE (không phải disk), không dọn máy chủ', function () {
     Queue::fake();
-    config(['vkcrm.backup.rclone.remote' => 'gdrive:VK-CRM-backups']);
+    config(['vkcrm.backup.rclone.remote' => PUSH_TEST_REMOTE]);
     Storage::fake(BackupDisks::DEFAULT_DISK);
     $disk = Storage::disk(BackupDisks::DEFAULT_DISK);
     $disk->put('VK-CRM/new.zip', 'noi-dung-archive');
@@ -100,14 +118,14 @@ it('§10.8 rclone copy thất bại: báo lỗi nêu tên REMOTE (không phải 
 
     app(PushBackupArchiveToRclone::class)->handle(new BackupWasSuccessful(BackupDisks::DEFAULT_DISK, 'VK-CRM'));
 
-    assertRcloneFailureQueued('rclone:gdrive:VK-CRM-backups', 'het han muc Google Drive');
+    assertRcloneFailureQueued('rclone:'.PUSH_TEST_REMOTE, 'het han muc Google Drive');
     // Không dọn máy chủ: archive vẫn còn nguyên.
     expect($disk->allFiles('VK-CRM'))->toBe(['VK-CRM/new.zip']);
 });
 
 it('§10.8 rclone copy thoát mã 0 nhưng lsjson KHÔNG thấy tệp: coi là thất bại, không dọn gì', function () {
     Queue::fake();
-    config(['vkcrm.backup.rclone.remote' => 'gdrive:VK-CRM-backups']);
+    config(['vkcrm.backup.rclone.remote' => PUSH_TEST_REMOTE]);
     Storage::fake(BackupDisks::DEFAULT_DISK);
     $disk = Storage::disk(BackupDisks::DEFAULT_DISK);
     $disk->put('VK-CRM/new.zip', 'noi-dung-archive');
@@ -126,13 +144,13 @@ it('§10.8 rclone copy thoát mã 0 nhưng lsjson KHÔNG thấy tệp: coi là t
 
     app(PushBackupArchiveToRclone::class)->handle(new BackupWasSuccessful(BackupDisks::DEFAULT_DISK, 'VK-CRM'));
 
-    assertRcloneFailureQueued('rclone:gdrive:VK-CRM-backups');
+    assertRcloneFailureQueued('rclone:'.PUSH_TEST_REMOTE);
     expect($disk->allFiles('VK-CRM'))->toBe(['VK-CRM/new.zip']);
 });
 
 it('§10.8 rclone copy thoát mã 0 nhưng dung lượng trên remote KHÔNG khớp: coi là thất bại', function () {
     Queue::fake();
-    config(['vkcrm.backup.rclone.remote' => 'gdrive:VK-CRM-backups']);
+    config(['vkcrm.backup.rclone.remote' => PUSH_TEST_REMOTE]);
     Storage::fake(BackupDisks::DEFAULT_DISK);
     $disk = Storage::disk(BackupDisks::DEFAULT_DISK);
     $disk->put('VK-CRM/new.zip', 'noi-dung-archive'); // 16 byte
@@ -153,15 +171,15 @@ it('§10.8 rclone copy thoát mã 0 nhưng dung lượng trên remote KHÔNG kh�
 
     app(PushBackupArchiveToRclone::class)->handle(new BackupWasSuccessful(BackupDisks::DEFAULT_DISK, 'VK-CRM'));
 
-    assertRcloneFailureQueued('rclone:gdrive:VK-CRM-backups');
+    assertRcloneFailureQueued('rclone:'.PUSH_TEST_REMOTE);
     expect($disk->allFiles('VK-CRM'))->toBe(['VK-CRM/new.zip']);
 });
 
-it('§10.8 đẩy và xác minh thành công: dọn remote xuống config keep, dọn máy chủ xuống BACKUP_LOCAL_KEEP', function () {
+it('§10.8 đẩy và xác minh thành công: đẩy vào thư mục môi trường, dọn remote xuống config keep, dọn máy chủ xuống BACKUP_LOCAL_KEEP', function () {
     Queue::fake();
 
     config([
-        'vkcrm.backup.rclone.remote' => 'gdrive:VK-CRM-backups',
+        'vkcrm.backup.rclone.remote' => PUSH_TEST_REMOTE,
         'vkcrm.backup.rclone.keep' => 1,
         'vkcrm.backup.local_keep' => 1,
     ]);
@@ -176,22 +194,32 @@ it('§10.8 đẩy và xác minh thành công: dọn remote xuống config keep, 
     touch($disk->path('VK-CRM/local-old-2.zip'), now()->copy()->subMinutes(5)->getTimestamp());
 
     $content = 'noi-dung-archive-vua-tao';
-    $disk->put('VK-CRM/vk-crm-new.zip', $content);
+    $newName = pushTestArchiveName(0);
+    $disk->put('VK-CRM/'.$newName, $content);
 
+    $old1 = pushTestArchiveName(5 * 1440);
+    $old2 = pushTestArchiveName(4 * 1440);
+
+    $copyTarget = null;
+    $lsjsonTargets = [];
     $deletedOnRemote = [];
 
-    Process::fake(function ($process) use ($content, &$deletedOnRemote) {
+    Process::fake(function ($process) use ($content, $newName, $old1, $old2, &$copyTarget, &$lsjsonTargets, &$deletedOnRemote) {
         if (in_array('copy', $process->command, true)) {
+            $copyTarget = end($process->command);
+
             return Process::result(exitCode: 0);
         }
 
         if (in_array('lsjson', $process->command, true)) {
+            $lsjsonTargets[] = end($process->command);
+
             return Process::result(output: json_encode([
-                ['Name' => 'vk-crm-remote-old-1.zip', 'Size' => 500, 'ModTime' => now()->subDays(5)->toIso8601String(), 'IsDir' => false],
-                ['Name' => 'vk-crm-remote-old-2.zip', 'Size' => 500, 'ModTime' => now()->subDays(4)->toIso8601String(), 'IsDir' => false],
-                ['Name' => 'vk-crm-new.zip', 'Size' => strlen($content), 'ModTime' => now()->toIso8601String(), 'IsDir' => false],
-                // Tệp lạ, không khớp hình dạng archive (fix I1) — phải sống sót, dù CŨ NHẤT trong
-                // tất cả và remote đang dọn xuống chỉ còn 1 bản.
+                ['Name' => $old1, 'Size' => 500, 'ModTime' => now()->subDays(5)->toIso8601String(), 'IsDir' => false],
+                ['Name' => $old2, 'Size' => 500, 'ModTime' => now()->subDays(4)->toIso8601String(), 'IsDir' => false],
+                ['Name' => $newName, 'Size' => strlen($content), 'ModTime' => now()->toIso8601String(), 'IsDir' => false],
+                // Tệp lạ, không khớp hình dạng archive — phải sống sót, dù CŨ NHẤT trong tất cả và
+                // remote đang dọn xuống chỉ còn 1 bản.
                 ['Name' => 'ghi-chu-van-phong.pdf', 'Size' => 200, 'ModTime' => now()->subDays(30)->toIso8601String(), 'IsDir' => false],
             ]));
         }
@@ -209,21 +237,25 @@ it('§10.8 đẩy và xác minh thành công: dọn remote xuống config keep, 
 
     assertNoRcloneFailureQueued();
 
-    // Remote: giữ đúng "vk-crm-new.zip", xoá hai bản archive cũ — KHÔNG đụng tệp lạ.
-    expect($deletedOnRemote)->toHaveCount(2)
-        ->and(collect($deletedOnRemote)->contains(fn (string $t) => str_contains($t, 'vk-crm-remote-old-1.zip')))->toBeTrue()
-        ->and(collect($deletedOnRemote)->contains(fn (string $t) => str_contains($t, 'vk-crm-remote-old-2.zip')))->toBeTrue()
-        ->and(collect($deletedOnRemote)->contains(fn (string $t) => str_contains($t, 'ghi-chu-van-phong.pdf')))->toBeFalse();
+    // Fix I3: đẩy, xác minh, dọn — cả ba đều ở ĐÚNG thư mục của môi trường, không ở gốc remote.
+    expect($copyTarget)->toBe(PUSH_TEST_FOLDER)
+        ->and(array_unique($lsjsonTargets))->toBe([PUSH_TEST_FOLDER]);
+
+    // Remote: giữ đúng bản mới, xoá hai bản archive cũ — KHÔNG đụng tệp lạ.
+    expect($deletedOnRemote)->toEqualCanonicalizing([
+        PUSH_TEST_FOLDER.'/'.$old1,
+        PUSH_TEST_FOLDER.'/'.$old2,
+    ]);
 
     // Máy chủ: chỉ còn bản mới nhất.
-    expect($disk->allFiles('VK-CRM'))->toBe(['VK-CRM/vk-crm-new.zip']);
+    expect($disk->allFiles('VK-CRM'))->toBe(['VK-CRM/'.$newName]);
 });
 
 it('§10.8 dọn remote hỏng (deletefile lỗi) VẪN báo lỗi, nhưng KHÔNG chặn dọn máy chủ', function () {
     Queue::fake();
 
     config([
-        'vkcrm.backup.rclone.remote' => 'gdrive:VK-CRM-backups',
+        'vkcrm.backup.rclone.remote' => PUSH_TEST_REMOTE,
         'vkcrm.backup.rclone.keep' => 1,
         'vkcrm.backup.local_keep' => 1,
     ]);
@@ -235,17 +267,19 @@ it('§10.8 dọn remote hỏng (deletefile lỗi) VẪN báo lỗi, nhưng KHÔN
     touch($disk->path('VK-CRM/local-old-1.zip'), now()->copy()->subMinutes(10)->getTimestamp());
 
     $content = 'noi-dung-archive-vua-tao';
-    $disk->put('VK-CRM/vk-crm-new.zip', $content);
+    $newName = pushTestArchiveName(0);
+    $disk->put('VK-CRM/'.$newName, $content);
+    $old = pushTestArchiveName(5 * 1440);
 
-    Process::fake(function ($process) use ($content) {
+    Process::fake(function ($process) use ($content, $newName, $old) {
         if (in_array('copy', $process->command, true)) {
             return Process::result(exitCode: 0);
         }
 
         if (in_array('lsjson', $process->command, true)) {
             return Process::result(output: json_encode([
-                ['Name' => 'vk-crm-remote-old-1.zip', 'Size' => 500, 'ModTime' => now()->subDays(5)->toIso8601String(), 'IsDir' => false],
-                ['Name' => 'vk-crm-new.zip', 'Size' => strlen($content), 'ModTime' => now()->toIso8601String(), 'IsDir' => false],
+                ['Name' => $old, 'Size' => 500, 'ModTime' => now()->subDays(5)->toIso8601String(), 'IsDir' => false],
+                ['Name' => $newName, 'Size' => strlen($content), 'ModTime' => now()->toIso8601String(), 'IsDir' => false],
             ]));
         }
 
@@ -258,8 +292,8 @@ it('§10.8 dọn remote hỏng (deletefile lỗi) VẪN báo lỗi, nhưng KHÔN
 
     app(PushBackupArchiveToRclone::class)->handle(new BackupWasSuccessful(BackupDisks::DEFAULT_DISK, 'VK-CRM'));
 
-    assertRcloneFailureQueued('rclone:gdrive:VK-CRM-backups', 'remote treo giữa chừng');
+    assertRcloneFailureQueued('rclone:'.PUSH_TEST_REMOTE, 'remote treo giữa chừng');
 
     // Bản MỚI đã lên remote và được xác minh — dọn máy chủ vẫn chạy dù dọn remote hỏng.
-    expect($disk->allFiles('VK-CRM'))->toBe(['VK-CRM/vk-crm-new.zip']);
+    expect($disk->allFiles('VK-CRM'))->toBe(['VK-CRM/'.$newName]);
 });

@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Actions\Backup\GuardBackupEncryption;
+use App\Actions\Backup\GuardOffServerBackupDestination;
 use App\Actions\Backup\GuardRcloneDestinationReachable;
 use App\Actions\Backup\PushBackupArchiveToRclone;
 use App\Http\Controllers\DocumentDownloadController;
@@ -99,6 +100,14 @@ class AppServiceProvider extends ServiceProvider
          * được phát thẳng, không chặn lượt sao lưu cục bộ đêm nay.
          */
         Event::listen(BackupManifestWasCreated::class, [GuardRcloneDestinationReachable::class, 'handle']);
+
+        /*
+         * Production không có bản sao NGOÀI máy chủ (không remote rclone, mọi đĩa đích là local) —
+         * fix I4, lượt rà soát cuối M8a, SPEC §10 mục 8. Cùng sự kiện, cùng thành ngữ "báo mà không
+         * chặn" với `GuardRcloneDestinationReachable` ngay trên; lý do ở docblock của
+         * `GuardOffServerBackupDestination`.
+         */
+        Event::listen(BackupManifestWasCreated::class, [GuardOffServerBackupDestination::class, 'handle']);
 
         /*
          * Đẩy archive vừa sao lưu xong lên Google Drive bằng `rclone` (M8a Task 2, Ruling 1 của

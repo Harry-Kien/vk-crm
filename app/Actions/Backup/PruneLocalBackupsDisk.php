@@ -10,8 +10,9 @@ use Illuminate\Contracts\Filesystem\Filesystem;
  * rclone đã được {@see PushBackupArchiveToRclone} XÁC MINH THÀNH CÔNG — brief: "never prune
  * locally when the push failed". Không disk hỏng nào ở đây được phép ăn mất bản DUY NHẤT còn lại.
  *
- * HAI lớp `max(1, ...)` độc lập chặn `BACKUP_LOCAL_KEEP=0` — không phải một: `config/vkcrm.php`
- * chặn giá trị ĐỌC TỪ `.env` (`env('BACKUP_LOCAL_KEEP', 7)`), còn dòng `max(1, ...)` NGAY TRONG
+ * HAI lớp độc lập chặn một giá trị dưới 1 — không phải một: `config/vkcrm.php` chặn giá trị ĐỌC
+ * TỪ `.env` (`max(1, (int) (env('BACKUP_LOCAL_KEEP') ?: 7))` — trống hay `0` rơi về 7, số âm thành
+ * 1), còn dòng `max(1, ...)` NGAY TRONG
  * `handle()` bên dưới chặn cả trường hợp một đoạn code khác gọi thẳng
  * `config(['vkcrm.backup.local_keep' => 0])` lúc chạy, bỏ qua tệp cấu hình (test giả lập đúng tình
  * huống đó). Nếu bỏ dòng `max(1, ...)` này, `$keep = 0` khiến {@see array_slice()} coi TOÀN BỘ
