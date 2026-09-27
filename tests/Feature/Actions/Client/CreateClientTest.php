@@ -53,5 +53,6 @@ it('hashes the id_number instead of an explicit blank phone string once the look
     $throttled = Activity::query()->where('event', 'client_lookup_throttled')->latest('id')->first();
 
     expect($throttled)->not->toBeNull()
-        ->and($throttled->properties->get('identifier_hash'))->toBe(hash('sha256', '079088776655'));
+        ->and($throttled->properties->get('identifier_hash'))->toBe(hash_hmac('sha256', '079088776655', config('app.key')))
+        ->and($throttled->properties->get('identifier_hash'))->not->toBe(hash('sha256', '079088776655'));
 });

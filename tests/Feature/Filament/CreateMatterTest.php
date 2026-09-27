@@ -344,8 +344,16 @@ it('never writes the raw phone number into the client_lookup audit trail, on a h
     foreach ($lookups as $lookup) {
         $encoded = $lookup->properties->toJson();
         expect($encoded)->not->toContain('0912345678')
-            ->not->toContain('912345678');
+            ->not->toContain('912345678')
+            // Final review X8: một sha256 TRẦN của 10–12 chữ số dò ngược được bằng vét cạn —
+            // băm có khoá (HMAC với APP_KEY), không bao giờ sha256 trần.
+            ->not->toContain(hash('sha256', '0912345678'))
+            ->not->toContain(hash('sha256', '0912345679'));
     }
+
+    expect($lookups->pluck('properties.identifier_hash')->all())
+        ->toContain(hash_hmac('sha256', '0912345678', config('app.key')))
+        ->toContain(hash_hmac('sha256', '0912345679', config('app.key')));
 
     expect($lookups->firstWhere('properties.hit', true))->not->toBeNull()
         ->and($lookups->firstWhere('properties.hit', false))->not->toBeNull();
@@ -649,7 +657,9 @@ it('refuses the 21st client lookup within an hour for the same staff user, and a
 
     // Không ghi số thô vào dòng audit đã chặn.
     $throttled = Activity::query()->where('event', 'client_lookup_throttled')->first();
-    expect($throttled->properties->toJson())->not->toContain('0900009999');
+    expect($throttled->properties->toJson())->not->toContain('0900009999')
+        ->not->toContain(hash('sha256', '0900009999'))
+        ->and($throttled->properties->get('identifier_hash'))->toBe(hash_hmac('sha256', '0900009999', config('app.key')));
 });
 
 /**
@@ -724,7 +734,8 @@ it('hashes the id_number, not a blank phone, in the throttled audit for the new-
     $throttled = Activity::query()->where('event', 'client_lookup_throttled')->latest('id')->first();
 
     expect($throttled)->not->toBeNull()
-        ->and($throttled->properties->get('identifier_hash'))->toBe(hash('sha256', '079088776655'));
+        ->and($throttled->properties->get('identifier_hash'))->toBe(hash_hmac('sha256', '079088776655', config('app.key')))
+        ->and($throttled->properties->get('identifier_hash'))->not->toBe(hash('sha256', '079088776655'));
 });
 
 // =========================================================================================

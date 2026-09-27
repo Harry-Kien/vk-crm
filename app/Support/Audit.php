@@ -69,4 +69,19 @@ final class Audit
 
         return $log->log($event);
     }
+
+    /**
+     * Băm MỘT định danh (số CCCD, số điện thoại — đã bỏ ký tự không phải chữ số) để ghi vào
+     * `properties` của một dòng nhật ký (final review X8, C-I4). HMAC-SHA256 với `APP_KEY`, không
+     * phải `sha256` trần: định danh chỉ có 10–12 chữ số, nên một sha256 trần dò ngược được bằng
+     * vét cạn bởi bất kỳ ai đọc được bảng nhật ký. Cùng một số vẫn cho cùng một hash (đối chiếu
+     * được giữa các dòng) trong khi còn cùng `APP_KEY`.
+     *
+     * Chỉ dùng cho NHẬT KÝ. `matter_parties.id_number_hash` (so trùng xung đột, `Normalizer`) là
+     * một mối lo khác và không đổi ở đây.
+     */
+    public static function identifierHash(string $value): string
+    {
+        return hash_hmac('sha256', $value, (string) config('app.key'));
+    }
 }

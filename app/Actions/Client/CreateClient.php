@@ -150,7 +150,7 @@ class CreateClient
         $digits = preg_replace('/\D+/', '', (string) $identifierRaw) ?? '';
 
         Audit::record('client_lookup_throttled', null, [
-            'identifier_hash' => $digits !== '' ? hash('sha256', $digits) : null,
+            'identifier_hash' => $digits !== '' ? Audit::identifierHash($digits) : null,
         ], $actor);
 
         throw ClientLookupThrottled::make();

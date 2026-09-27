@@ -70,7 +70,7 @@ class FindClientByIdentifier
             $digits = preg_replace('/\D+/', '', $identifier) ?? '';
 
             Audit::record('client_lookup_throttled', null, [
-                'identifier_hash' => hash('sha256', $digits !== '' ? $digits : $identifier),
+                'identifier_hash' => Audit::identifierHash($digits !== '' ? $digits : $identifier),
             ], $actor);
 
             throw ClientLookupThrottled::make();
@@ -87,7 +87,7 @@ class FindClientByIdentifier
 
         Audit::record('client_lookup', null, [
             'hit' => $match !== null,
-            'identifier_hash' => hash('sha256', $digits !== '' ? $digits : $identifier),
+            'identifier_hash' => Audit::identifierHash($digits !== '' ? $digits : $identifier),
             'matched_client_id' => $match?->getKey(),
         ], $actor);
 

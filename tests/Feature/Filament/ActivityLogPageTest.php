@@ -3,13 +3,18 @@
 use App\Enums\Confidentiality;
 use App\Enums\Role;
 use App\Filament\Admin\Pages\ActivityLogPage;
+use App\Filament\Admin\Resources\Matters\Pages\CreateMatter;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Models\Client;
+use App\Models\Deadline;
+use App\Models\Document;
 use App\Models\Matter;
+use App\Models\MatterParty;
 use App\Models\User;
 use App\Support\Audit;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
+use Illuminate\Support\Facades\DB;
 use Spatie\Activitylog\Models\Activity;
 
 beforeEach(function () {
@@ -221,4 +226,169 @@ it('masks a client edit\'s phone, email and address in the details modal, in bot
         ->not->toContain('nam@luatvukhang.com')
         ->not->toContain('456 Đường Mới, Ba Đình')
         ->not->toContain('123 Đường Láng, Đống Đa');
+});
+
+// -------------------------------------------------------------------------------------------
+// Final review X1 (A-C1 = C-C1): trang nhật ký không được là cửa sau vào nội dung một vụ
+// `restricted`. Mỗi dòng được quy về vụ việc sở hữu nó (`ActivityOwningMatter`); với người xem
+// không phải admin, bảng KHÔNG liệt kê dòng thuộc một vụ họ không `view` được, và modal "Xem chi
+// tiết" tự hỏi lại luật đó.
+// -------------------------------------------------------------------------------------------
+
+/**
+ * @return array{0: User, 1: Matter}
+ */
+function restrictedMatterLedByAnotherLawyer(): array
+{
+    $lead = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->restricted()->create([
+        'lead_lawyer_id' => $lead->id,
+        'title' => 'Vụ tuyệt mật XYZ',
+    ]);
+
+    return [$lead, $matter];
+}
+
+function mountedPropertiesOf($component): ?string
+{
+    $mounted = $component->instance()->getMountedActions();
+
+    return $mounted === [] ? null : (string) $mounted[0]->getModalContent();
+}
+
+it('does not list, nor open the details of, a restricted matter\'s row for a manager outside it', function () {
+    [$lead, $matter] = restrictedMatterLedByAnotherLawyer();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+
+    $activity = Audit::record('matter_details_updated', $matter, ['title' => 'Vụ tuyệt mật XYZ'], $lead);
+
+    $this->actingAs($manager, 'web');
+
+    $component = $this->livewire(ActivityLogPage::class)
+        ->assertCanNotSeeTableRecords([$activity]);
+
+    try {
+        $component->mountTableAction('viewProperties', $activity);
+    } catch (Throwable) {
+        // Filament không tìm thấy bản ghi trong truy vấn bảng — cũng là một lần từ chối.
+    }
+
+    expect(mountedPropertiesOf($component))->toBeNull();
+});
+
+it('hides a restricted matter\'s child rows (party, document, deadline) and property-linked rows from a manager', function () {
+    [$lead, $matter] = restrictedMatterLedByAnotherLawyer();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+
+    $party = MatterParty::factory()->create(['matter_id' => $matter->id]);
+    $document = Document::factory()->create(['matter_id' => $matter->id]);
+    $deadline = Deadline::factory()->create(['matter_id' => $matter->id]);
+
+    $rows = [
+        Audit::record('matter_party_updated', $party, [], $lead),
+        Audit::record('document_published', $document, [], $lead),
+        Audit::record('deadline_added', $deadline, [], $lead),
+        // Không chủ thể, chỉ properties.matter_id.
+        Audit::record('client_lookup', null, ['matter_id' => $matter->id], $lead),
+    ];
+
+    $this->actingAs($manager, 'web');
+
+    $this->livewire(ActivityLogPage::class)->assertCanNotSeeTableRecords($rows);
+});
+
+it('hides a row whose matter-owned subject no longer resolves to any matter from a manager, but not from an admin', function () {
+    [$lead, $matter] = restrictedMatterLedByAnotherLawyer();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $admin = User::factory()->withRole(Role::Admin)->create();
+
+    $party = MatterParty::factory()->create(['matter_id' => $matter->id]);
+    $activity = Audit::record('matter_party_updated', $party, [], $lead);
+
+    DB::table('matter_parties')->where('id', $party->id)->delete();
+
+    $this->actingAs($manager, 'web');
+    $this->livewire(ActivityLogPage::class)->assertCanNotSeeTableRecords([$activity]);
+
+    $this->actingAs($admin, 'web');
+    $this->livewire(ActivityLogPage::class)->assertCanSeeTableRecords([$activity]);
+});
+
+it('keeps listing a normal matter\'s rows and rows with no matter at all for a manager', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $matter = Matter::factory()->create();
+    $party = MatterParty::factory()->create(['matter_id' => $matter->id]);
+
+    $rows = [
+        Audit::record('matter_details_updated', $matter, [], $manager),
+        Audit::record('matter_party_updated', $party, [], $manager),
+        Audit::record('client_lookup', null, ['matter_id' => $matter->id], $manager),
+        Audit::record('login_success', $manager, ['guard' => 'web'], $manager),
+    ];
+
+    $this->actingAs($manager, 'web');
+
+    $component = $this->livewire(ActivityLogPage::class)->assertCanSeeTableRecords($rows);
+
+    $component->mountTableAction('viewProperties', $rows[3]);
+    expect(mountedPropertiesOf($component))->toContain('web');
+});
+
+it('lets an admin list and open a restricted matter\'s row', function () {
+    [$lead, $matter] = restrictedMatterLedByAnotherLawyer();
+    $admin = User::factory()->withRole(Role::Admin)->create();
+
+    $activity = Audit::record('matter_details_updated', $matter, ['title' => 'Vụ tuyệt mật XYZ'], $lead);
+
+    $this->actingAs($admin, 'web');
+
+    $component = $this->livewire(ActivityLogPage::class)
+        ->assertCanSeeTableRecords([$activity])
+        ->mountTableAction('viewProperties', $activity);
+
+    expect(mountedPropertiesOf($component))->toContain('Vụ tuyệt mật XYZ');
+});
+
+/**
+ * Trang nhật ký chỉ mở cho auditLog.view (admin, trưởng phòng). "Người trong đội vụ restricted"
+ * có quyền đó ở đây là một trưởng phòng làm LUẬT SƯ PHỤ TRÁCH của vụ — `Matter::scopeListableBy`
+ * chỉ mở vụ `restricted` cho lead và admin.
+ */
+it('lets a manager who leads the restricted matter list and open its row', function () {
+    $managerLead = User::factory()->withRole(Role::Manager)->create();
+    $matter = Matter::factory()->restricted()->create(['lead_lawyer_id' => $managerLead->id]);
+
+    $activity = Audit::record('matter_details_updated', $matter, ['title' => 'Vụ tuyệt mật XYZ'], $managerLead);
+
+    $this->actingAs($managerLead, 'web');
+
+    $component = $this->livewire(ActivityLogPage::class)
+        ->assertCanSeeTableRecords([$activity])
+        ->mountTableAction('viewProperties', $activity);
+
+    expect(mountedPropertiesOf($component))->toContain('Vụ tuyệt mật XYZ');
+});
+
+/**
+ * Final review X8: dòng `client_lookup` ghi `identifier_hash` (HMAC có khoá). Modal "Xem chi
+ * tiết" không hiện nó, kể cả cho admin — xem `SensitivePropertyFilter`, mọi khoá `*_hash`.
+ */
+it('never shows an identifier hash in the details modal, even to an admin', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(CreateMatter::class)
+        ->call('lookupClient', '0912345678');
+
+    $activity = Activity::query()->where('event', 'client_lookup')->latest('id')->firstOrFail();
+    $stored = $activity->properties->get('identifier_hash');
+
+    expect($stored)->toBeString()->not->toBe(hash('sha256', '0912345678'));
+
+    $component = $this->livewire(ActivityLogPage::class)
+        ->mountTableAction('viewProperties', $activity);
+
+    expect(mountedPropertiesOf($component))
+        ->not->toContain($stored)
+        ->toContain(__('activity.page.properties.redacted'));
 });

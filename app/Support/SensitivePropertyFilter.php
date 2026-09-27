@@ -40,12 +40,17 @@ namespace App\Support;
  * (`snake_case`) như quy ước của dự án. So khớp qua `mb_strtolower($key)` để một khoá viết
  * `ID_NUMBER`/`Phone` vẫn bị chặn/che đúng như `id_number`/`phone`.
  *
- * # Hash thì được, miễn có nhãn
+ * # Mọi `*_hash` cũng bị chặn (final review X8, thay luật cũ "hash thì được, miễn có nhãn")
  *
- * `id_number_hash` (xem `App\Models\MatterParty`) KHÔNG nằm trong danh sách chặn: nó là một hash
- * một chiều, và chính cái tên `_hash` đã là "nhãn" mà Controller decision đòi — người xem biết
- * ngay đây không phải số CCCD thô. Danh sách chặn vì vậy liệt kê CHÍNH XÁC từng tên khoá (so khớp
- * BẰNG, không phải "chứa"), nên `id_number_hash`/`ID_NUMBER_HASH` không khớp `id_number`.
+ * Một hash của số CCCD (12 chữ số) hay số điện thoại (10 chữ số) dò ngược được bằng vét cạn —
+ * "một chiều" không có nghĩa là "không đọc được". Nên ngoài danh sách chặn đích danh (so khớp
+ * BẰNG), MỌI khoá kết thúc bằng `_hash` cũng bị thay bằng câu "đã ẩn", ở mọi tầng, mọi kiểu chữ.
+ * Tầng ghi cũng đã đổi sang băm có khoá (`Audit::identifierHash()`); hai lớp, không phải một.
+ *
+ * # Giá trị không phải chuỗi
+ *
+ * Khoá bị chặn: thay bằng câu "đã ẩn" bất kể kiểu giá trị. Khoá bị che: số che như chuỗi, mảng
+ * che từng lá (xem `maskValue()`), bool/null giữ nguyên.
  */
 final class SensitivePropertyFilter
 {
@@ -102,14 +107,14 @@ final class SensitivePropertyFilter
         foreach ($data as $key => $value) {
             $normalizedKey = is_string($key) ? mb_strtolower($key) : null;
 
-            if ($normalizedKey !== null && in_array($normalizedKey, self::BLOCKED_KEYS, true)) {
+            if ($normalizedKey !== null && self::isBlocked($normalizedKey)) {
                 $result[$key] = __('activity.page.properties.redacted');
 
                 continue;
             }
 
-            if ($normalizedKey !== null && is_string($value) && in_array($normalizedKey, self::MASKED_KEYS, true)) {
-                $result[$key] = self::mask($normalizedKey, $value);
+            if ($normalizedKey !== null && in_array($normalizedKey, self::MASKED_KEYS, true)) {
+                $result[$key] = self::maskValue($normalizedKey, $value);
 
                 continue;
             }
@@ -118,6 +123,51 @@ final class SensitivePropertyFilter
         }
 
         return $result;
+    }
+
+    /**
+     * Final review X8: ngoài danh sách đích danh, MỌI khoá kết thúc bằng `_hash` — hash của một
+     * định danh 10–12 chữ số dò ngược được, có khoá hay không.
+     */
+    private static function isBlocked(string $normalizedKey): bool
+    {
+        return in_array($normalizedKey, self::BLOCKED_KEYS, true)
+            || str_ends_with($normalizedKey, '_hash');
+    }
+
+    /**
+     * Final review X1: giá trị dưới một khoá cần che không phải lúc nào cũng là chuỗi. Số (một số
+     * điện thoại lưu dạng số) che như chuỗi; mảng (một danh sách email) che TỪNG LÁ theo cùng khoá
+     * cha — riêng các khoá chuỗi con vẫn đi qua luật chặn/che của chính chúng trước; bool/null
+     * không mang thông tin định danh nên giữ nguyên.
+     */
+    private static function maskValue(string $normalizedKey, mixed $value): mixed
+    {
+        if (is_string($value)) {
+            return self::mask($normalizedKey, $value);
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return self::mask($normalizedKey, (string) $value);
+        }
+
+        if (is_array($value)) {
+            $masked = [];
+
+            foreach ($value as $childKey => $child) {
+                $normalizedChild = is_string($childKey) ? mb_strtolower($childKey) : null;
+
+                $masked[$childKey] = match (true) {
+                    $normalizedChild !== null && self::isBlocked($normalizedChild) => __('activity.page.properties.redacted'),
+                    $normalizedChild !== null && in_array($normalizedChild, self::MASKED_KEYS, true) => self::maskValue($normalizedChild, $child),
+                    default => self::maskValue($normalizedKey, $child),
+                };
+            }
+
+            return $masked;
+        }
+
+        return $value;
     }
 
     private static function mask(string $normalizedKey, string $value): string

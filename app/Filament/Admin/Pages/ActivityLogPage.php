@@ -13,6 +13,7 @@ use App\Models\ClientUser;
 use App\Models\Matter;
 use App\Models\MatterType;
 use App\Models\User;
+use App\Support\ActivityOwningMatter;
 use App\Support\SensitivePropertyFilter;
 use BackedEnum;
 use Filament\Actions\Action;
@@ -42,7 +43,13 @@ use Spatie\Activitylog\Models\Activity;
  *    cho phép `view` — một manager không thấy được một vụ `restricted` thì không được một liên
  *    kết rò rỉ sự tồn tại của nó qua trang này;
  *  - action `viewProperties` mở modal hiện `properties` đã lọc qua
- *    {@see SensitivePropertyFilter} — không bao giờ `id_number` thô, hash thì được.
+ *    {@see SensitivePropertyFilter} — không bao giờ `id_number` thô, không bao giờ một `*_hash`.
+ *
+ * Final review X1 (A-C1): với người xem không phải admin, bảng KHÔNG liệt kê dòng thuộc một vụ
+ * việc họ không `view` được (vụ `restricted` của người khác, hoặc dòng con không còn quy được về
+ * vụ nào), và modal hỏi lại cùng luật đó hai lần (`authorize()` và trong closure nội dung) —
+ * luật nằm ở {@see ActivityOwningMatter}. Dòng không thuộc vụ nào (đăng nhập, người dùng, khách
+ * hàng) giữ nguyên như trước.
  */
 class ActivityLogPage extends Page implements HasTable
 {
@@ -75,7 +82,13 @@ class ActivityLogPage extends Page implements HasTable
     public function table(Table $table): Table
     {
         return $table
-            ->query(fn (): Builder => Activity::query()->with(['causer', 'subject']))
+            ->query(function (): Builder {
+                $query = Activity::query()->with(['causer', 'subject']);
+
+                ActivityOwningMatter::scopeVisibleTo($query, Auth::user());
+
+                return $query;
+            })
             ->columns([
                 TextColumn::make('created_at')
                     ->label(__('activity.page.columns.created_at'))
@@ -111,9 +124,16 @@ class ActivityLogPage extends Page implements HasTable
                     ->color('gray')
                     ->modal()
                     ->modalHeading(__('activity.page.properties.modal_heading'))
-                    ->modalContent(fn (Activity $record) => view('filament.admin.pages.activity-log-properties', [
-                        'properties' => SensitivePropertyFilter::filter($record->properties?->toArray() ?? []),
-                    ]))
+                    ->authorize(fn (Activity $record): bool => ActivityOwningMatter::canView(Auth::user(), $record))
+                    ->modalContent(function (Activity $record) {
+                        // Hỏi lại ngay lúc dựng nội dung, không tin riêng vào `authorize()` hay
+                        // vào việc dòng này đã lọt qua truy vấn bảng (final review X1).
+                        abort_unless(ActivityOwningMatter::canView(Auth::user(), $record), 404);
+
+                        return view('filament.admin.pages.activity-log-properties', [
+                            'properties' => SensitivePropertyFilter::filter($record->properties?->toArray() ?? []),
+                        ]);
+                    })
                     ->modalSubmitAction(false),
             ])
             ->defaultSort('id', 'desc')
