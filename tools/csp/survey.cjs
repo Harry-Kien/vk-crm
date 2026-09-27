@@ -9,7 +9,9 @@
  * NODE_PATH vào đó (tệp này là CommonJS chính vì thế — `import` của ESM không đọc NODE_PATH):
  *
  *   mkdir -p /d/vkwt/m8-tools && cd /d/vkwt/m8-tools && npm i playwright && npx playwright install chromium
- *   /d/vkwt/m8-dev seed && /d/vkwt/m8-dev serve -e CSP_MODE=report
+ *   /d/vkwt/m8-dev seed
+ *   /d/vkwt/m8-dev serve -e CSP_MODE=report -e PHP_INI_SCAN_DIR=:/var/www/html/tools/csp/php
+ *   (tệp ini chỉ bật opcache cho `php artisan serve` — không có nó một trang mất ~20 giây)
  *   NODE_PATH=/d/vkwt/m8-tools/node_modules node tools/csp/survey.cjs
  *
  * Biến môi trường:
@@ -229,8 +231,15 @@ async function staffTour(browser) {
           await p.locator('.fi-select-input-option:visible, [role="option"]:visible').last().click();
         }
         await settle(p, 300);
-        await modal.getByRole('button', { name: /Chuyển giai đoạn|Xác nhận|Lưu|Gửi/ }).last().click();
-        await p.getByText('Đã chuyển giai đoạn.').first().waitFor({ timeout: 15000 });
+        // "Công bố cho khách ngay" bật sẵn thì nội dung công bố phải ≥ 30 ký tự; giai đoạn có mẫu
+        // thì ô đã được điền sẵn, không có thì điền một câu thật.
+        const publicContent = modal.getByLabel('Nội dung công bố cho khách');
+        if ((await publicContent.inputValue()).trim().length < 30) {
+          await publicContent.fill('Văn phòng đã hoàn tất bước này và chuyển hồ sơ sang giai đoạn tiếp theo.');
+          await settle(p, 300);
+        }
+        await modal.getByRole('button', { name: 'Gửi', exact: true }).click();
+        await p.getByText('Đã chuyển giai đoạn.').first().waitFor({ timeout: 60000 });
         action('admin chuyển giai đoạn một vụ việc', true, `thấy thông báo "Đã chuyển giai đoạn." ở ${matterUrl}`);
       } catch (e) {
         action('admin chuyển giai đoạn một vụ việc', false, e.message.split('\n')[0]);
@@ -320,17 +329,17 @@ async function clientTour(browser) {
       const input = p.locator('input[type="file"]').first();
       await input.waitFor({ state: 'attached', timeout: 15000 });
       await input.setInputFiles({ name: 'giay-to-khao-sat.pdf', mimeType: 'application/pdf', buffer: pdf });
-      await settle(p, 2500);
-      note('đã chọn một tệp PDF');
+      // FilePond báo "Tải lên thành công" khi tệp đã lên máy chủ (tệp tạm của Livewire).
+      await p.getByText('Tải lên thành công').first().waitFor({ timeout: 60000 });
+      await settle(p);
+      note('đã chọn một tệp PDF, tải lên tạm thành công');
 
       if (ACTIONS) {
         try {
           await p.locator('[data-portal-action="send"]').click();
-          await settle(p, 1500);
-          const body = await p.locator('body').innerText();
-          const ok = !/lỗi|không hợp lệ/i.test(await p.locator('.fi-fo-field-wrp-error-message, [data-portal-block] p[style*="danger"]').allInnerTexts().then((t) => t.join(' ')))
-            && (/\/portal\/ho-so\//.test(p.url()) || /đã (nhận|gửi)/i.test(body));
-          action('portal nộp một giấy tờ thật', ok, `sau khi gửi: ${p.url().replace(BASE, '')}`);
+          // Khối "Chúng tôi đã nhận được" chỉ vẽ ra SAU KHI `SubmitClientDocument` chạy xong.
+          await p.getByText('Chúng tôi đã nhận được').first().waitFor({ timeout: 60000 });
+          action('portal nộp một giấy tờ thật', true, `thấy "Chúng tôi đã nhận được" ở ${p.url().replace(BASE, '')}`);
         } catch (e) {
           action('portal nộp một giấy tờ thật', false, e.message.split('\n')[0]);
         }

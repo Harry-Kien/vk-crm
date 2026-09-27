@@ -240,3 +240,31 @@ gánh nặng, 4 băm đo ở trên thay được nonce mà không cần view nà
   (`{!! !!}`, `HtmlString`) là chỗ phải soát khi review.
 - Muốn bỏ `'unsafe-eval'` thì phải chờ Filament hỗ trợ bản Alpine CSP (hiện chưa), hoặc viết lại
   biểu thức Alpine trong hàng chục view của Filament. Không đáng ở v1.
+
+## 6. Kiểm ở chế độ `enforce` (M8a Task 5) — đầu ra thật
+
+`/d/vkwt/m8-dev serve -e CSP_MODE=enforce -e PHP_INI_SCAN_DIR=:/var/www/html/tools/csp/php`, rồi
+`ACTIONS=1 NODE_PATH=/d/vkwt/m8-tools/node_modules node tools/csp/survey.cjs` (mã thoát 0). Header:
+
+```
+X-Frame-Options: DENY
+X-Content-Type-Options: nosniff
+Referrer-Policy: strict-origin-when-cross-origin
+Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-tYp0Bs64NUTlrEHpn3pMyRrYWcNLSdnaOvIUtS6z' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.bunny.net; font-src 'self' https://fonts.bunny.net data:; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'
+```
+
+Kết quả: 30 bước (27 trang + `/up` + 2 bước hành động), **0 vi phạm, 0 lỗi JS, 0 script nội tuyến
+không nonce**, và:
+
+```
+Hành động chính:
+  [OK ] admin chuyển giai đoạn một vụ việc — thấy thông báo "Đã chuyển giai đoạn." ở /admin/matters/1
+  [OK ] portal đăng nhập đủ hai bước (mật khẩu + mã) — tới /portal
+  [OK ] portal mở trang hồ sơ — /portal/ho-so/1
+  [OK ] portal nộp một giấy tờ thật — thấy "Chúng tôi đã nhận được" ở /portal/nop-giay-to/1?item=3
+  [OK ] portal tải một tệp — giay-to-khao-sat.pdf (193 byte)
+```
+
+Đối chiếu trong CSDL `vk_crm_lane_m8` sau lượt chạy: `documents.id=50` (matter 1) là giấy tờ vừa
+nộp; `document_downloads.id=2` trỏ `document_id=50` — tức tệp tải về chính là tệp vừa nộp qua
+trình duyệt; `stage_logs.id=115` chuyển matter 1 sang `on_hold`.

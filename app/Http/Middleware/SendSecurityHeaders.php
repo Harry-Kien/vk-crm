@@ -9,9 +9,13 @@ use Illuminate\Support\Facades\Vite;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Content-Security-Policy của SPEC §10 mục 2 trên MỌI phản hồi: cả hai panel, route web (kể cả
- * route tải tệp có chữ ký), endpoint cập nhật Livewire và trang lỗi. Chế độ và chính sách:
- * {@see ContentSecurityPolicy}.
+ * Header bảo mật của SPEC §10 mục 2 trên MỌI phản hồi: cả hai panel, route web (kể cả route tải
+ * tệp có chữ ký), endpoint cập nhật Livewire và trang lỗi.
+ *
+ *  - Ba header LUÔN gửi, ở mọi chế độ CSP: `X-Frame-Options: DENY`,
+ *    `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`.
+ *  - Content-Security-Policy theo chế độ `CSP_MODE`; chế độ và chính sách:
+ *    {@see ContentSecurityPolicy}.
  *
  * **Vì sao là middleware toàn cục (`bootstrap/app.php`) chứ không nằm trong danh sách của từng
  * panel.** Route của Filament KHÔNG đi qua nhóm `web` — mỗi panel mang danh sách middleware riêng
@@ -31,6 +35,10 @@ class SendSecurityHeaders
         $nonce = Vite::useCspNonce();
 
         $response = $next($request);
+
+        $response->headers->set('X-Frame-Options', 'DENY');
+        $response->headers->set('X-Content-Type-Options', 'nosniff');
+        $response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
 
         if ($header = ContentSecurityPolicy::headerName()) {
             $response->headers->set($header, ContentSecurityPolicy::policy($nonce));

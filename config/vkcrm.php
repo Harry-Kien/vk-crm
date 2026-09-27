@@ -101,11 +101,13 @@ return [
     'security' => [
         /*
          * Chế độ Content-Security-Policy (SPEC §10 mục 2, phán quyết R4): `off` | `report` |
-         * `enforce`. Đọc và chuẩn hoá ở {@see \App\Support\Security\ContentSecurityPolicy::mode()}
-         * — một giá trị lạ rơi về `enforce`. Chế độ `report` gửi header Report-Only: trình duyệt
-         * chỉ báo vi phạm, không chặn.
+         * `enforce`. Giữ giá trị THÔ ở đây; đọc, chuẩn hoá và chọn mặc định ở
+         * {@see \App\Support\Security\ContentSecurityPolicy::mode()} — để trống là `enforce` ở
+         * production và `report` ở nơi khác, một giá trị lạ rơi về `enforce`. Mặc định nằm ở đó
+         * chứ không ở đây để nó đọc `app()->isProduction()` lúc chạy, cùng một nguồn với mọi chỗ
+         * khác của ứng dụng hỏi "có phải production không".
          */
-        'csp_mode' => env('CSP_MODE') ?: 'off',
+        'csp_mode' => env('CSP_MODE'),
     ],
 
     /*

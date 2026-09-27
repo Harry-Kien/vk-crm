@@ -1,9 +1,22 @@
 <?php
 
+use App\Enums\DocumentGroup;
+use App\Enums\DocumentStatus;
+use App\Enums\Role;
+use App\Filament\AvatarProviders\InitialsAvatarProvider;
 use App\Http\Middleware\SendSecurityHeaders;
+use App\Models\Client;
 use App\Models\ClientUser;
+use App\Models\Document;
+use App\Models\Matter;
 use App\Models\User;
+use App\Support\Security\ContentSecurityPolicy;
+use Database\Seeders\RolesAndPermissionsSeeder;
+use Filament\Facades\Filament;
 use Illuminate\Contracts\Http\Kernel;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Str;
+use Illuminate\Testing\TestResponse;
 
 /**
  * SPEC §10 mục 2 — header bảo mật và Content-Security-Policy (M8a Task 4, 5; phán quyết R4).
@@ -84,6 +97,23 @@ it('§10.2 script-src không chứa unsafe-inline và mang nonce của request',
         ->toHaveCount(1);
 });
 
+/**
+ * `'unsafe-eval'` là thứ ĐO ĐƯỢC là bắt buộc (docs/research/2026-09-26-csp-khao-sat.md, mục 3):
+ * bản Alpine của Livewire dựng mọi biểu thức bằng `Function`, thiếu nó thì trang đăng nhập nhân
+ * sự không dùng được; bản Alpine CSP (`livewire.csp_safe`) làm hỏng nút "Chuyển giai đoạn". Test
+ * này ghim đúng ba nguồn để không ai thêm một nguồn thứ tư mà không có số đo.
+ */
+it('§10.2 script-src đúng ba nguồn: self, nonce của request, unsafe-eval (đo ở khảo sát R4)', function () {
+    config(['vkcrm.security.csp_mode' => 'enforce']);
+
+    $policy = cspDirectives($this->get('/admin/login')->headers->get('Content-Security-Policy'));
+
+    expect($policy['script-src'])->toHaveCount(3)
+        ->and($policy['script-src'][0])->toBe("'self'")
+        ->and($policy['script-src'][1])->toStartWith("'nonce-")
+        ->and($policy['script-src'][2])->toBe("'unsafe-eval'");
+});
+
 it('§10.2 các chỉ thị còn lại đúng chính sách đã duyệt (R4, SPEC §3 Bunny Fonts)', function () {
     config(['vkcrm.security.csp_mode' => 'enforce']);
 
@@ -158,4 +188,180 @@ it('§10.2 trang đã đăng nhập của cả hai panel cũng mang CSP', functi
 
     expect($this->actingAs($client, 'client')->get('/portal')->assertOk()->headers->get('Content-Security-Policy'))
         ->toBeString()->not->toBeEmpty();
+});
+
+// ---------------------------------------------------------------------------------------------
+// Task 5 — ba header luôn bật, trên mọi bề mặt, ở mọi chế độ CSP.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Một tài liệu có tệp thật trên đĩa giả và đường tải có chữ ký cho luật sư phụ trách — để khẳng
+ * định header có mặt trên phản hồi TẢI TỆP THẬT (200), không chỉ trên một lời từ chối.
+ *
+ * @return array{0: User, 1: string}
+ */
+function signedDownloadForHeaders(): array
+{
+    test()->seed(RolesAndPermissionsSeeder::class);
+    config(['media-library.prefix' => 'test-'.Str::random(16)]);
+
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->for(Client::factory())->create(['lead_lawyer_id' => $lawyer->id]);
+    $document = Document::factory()->create([
+        'matter_id' => $matter->id,
+        'group' => DocumentGroup::Authority,
+        'status' => DocumentStatus::Published,
+    ]);
+    $document->addMedia(UploadedFile::fake()->createWithContent('nguon.pdf', '%PDF-1.4 noi dung'))
+        ->usingFileName('01k5g7q8wz0000000000000000.pdf')
+        ->toMediaCollection('file');
+
+    return [$lawyer, $document->refresh()->downloadUrlFor($lawyer)];
+}
+
+/**
+ * Mọi bề mặt mà §10.2 nói tới: hai trang đăng nhập (route của panel), route web chuyển hướng,
+ * trang lỗi 404 (dựng bởi exception handler), và route tải tệp có chữ ký (tệp thật, 200).
+ *
+ * @return array<string, TestResponse>
+ */
+function responsesOnEverySurface(): array
+{
+    [$lawyer, $downloadUrl] = signedDownloadForHeaders();
+
+    return [
+        'admin/login' => test()->get('/admin/login')->assertOk(),
+        'portal/login' => test()->get('/portal/login')->assertOk(),
+        'web /' => test()->get('/')->assertRedirect('/portal'),
+        '404' => test()->get('/khong-ton-tai')->assertNotFound(),
+        'tải tệp có chữ ký' => test()->actingAs($lawyer, 'web')->get($downloadUrl)->assertOk(),
+    ];
+}
+
+it('§10.2 X-Frame-Options: DENY trên cả hai panel, route web, trang lỗi và route tải tệp có chữ ký', function () {
+    foreach (responsesOnEverySurface() as $surface => $response) {
+        expect($response->headers->get('X-Frame-Options'))->toBe('DENY', "thiếu ở {$surface}");
+    }
+});
+
+it('§10.2 X-Content-Type-Options: nosniff trên cả hai panel, route web, trang lỗi và route tải tệp có chữ ký', function () {
+    foreach (responsesOnEverySurface() as $surface => $response) {
+        expect($response->headers->get('X-Content-Type-Options'))->toBe('nosniff', "thiếu ở {$surface}");
+    }
+});
+
+it('§10.2 Referrer-Policy: strict-origin-when-cross-origin trên cả hai panel, route web, trang lỗi và route tải tệp có chữ ký', function () {
+    foreach (responsesOnEverySurface() as $surface => $response) {
+        expect($response->headers->get('Referrer-Policy'))->toBe('strict-origin-when-cross-origin', "thiếu ở {$surface}");
+    }
+});
+
+it('§10.2 ba header luôn bật kể cả khi CSP ở chế độ off', function () {
+    config(['vkcrm.security.csp_mode' => 'off']);
+
+    $response = $this->get('/portal/login')->assertOk();
+
+    expect($response->headers->get('X-Frame-Options'))->toBe('DENY')
+        ->and($response->headers->get('X-Content-Type-Options'))->toBe('nosniff')
+        ->and($response->headers->get('Referrer-Policy'))->toBe('strict-origin-when-cross-origin');
+});
+
+// ---------------------------------------------------------------------------------------------
+// Task 5 — chế độ mặc định theo phán quyết R4.
+// ---------------------------------------------------------------------------------------------
+
+it('§10.2 CSP_MODE để trống: enforce ở production', function () {
+    config(['vkcrm.security.csp_mode' => null]);
+    app()->detectEnvironment(fn () => 'production');
+
+    expect(ContentSecurityPolicy::mode())->toBe('enforce');
+});
+
+it('§10.2 CSP_MODE để trống: report ở mọi môi trường khác production', function () {
+    config(['vkcrm.security.csp_mode' => '']);
+    app()->detectEnvironment(fn () => 'local');
+
+    expect(ContentSecurityPolicy::mode())->toBe('report');
+});
+
+it('§10.2 cấu hình giữ CSP_MODE thô, mặc định theo môi trường nằm ở ContentSecurityPolicy::mode()', function () {
+    expect(config('vkcrm.security'))->toHaveKey('csp_mode')
+        ->and(config('vkcrm.security.csp_mode'))->toBe(env('CSP_MODE'));
+});
+
+// ---------------------------------------------------------------------------------------------
+// Task 5 — mọi script nội tuyến mang nonce (3 view Filament giữ riêng + Livewire).
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Mọi thẻ `<script>` KHÔNG có `src` của một trang phải mang đúng nonce trong header. Test này nói
+ * thay cho trình duyệt: một script nội tuyến thiếu nonce là một script bị chặn ở `enforce` — chế
+ * độ tối, thu gọn thanh bên, dữ liệu khởi động của Filament hỏng lặng lẽ.
+ */
+function assertEveryInlineScriptCarriesTheNonce(TestResponse $response, string $page): void
+{
+    $policy = cspDirectives($response->headers->get('Content-Security-Policy'));
+    $nonce = substr(collect($policy['script-src'])->first(fn (string $s) => str_starts_with($s, "'nonce-")), 7, -1);
+
+    preg_match_all('/<script\b(?![^>]*\bsrc=)[^>]*>/i', $response->getContent(), $tags);
+
+    expect($tags[0])->not->toBeEmpty("{$page}: không thấy script nội tuyến nào — test không còn đo gì");
+
+    foreach ($tags[0] as $tag) {
+        expect(str_contains($tag, 'nonce="'.$nonce.'"'))->toBeTrue("{$page}: script nội tuyến thiếu nonce: {$tag}");
+    }
+}
+
+it('§10.2 mọi script nội tuyến ở trang đăng nhập của hai panel mang nonce của request', function () {
+    config(['vkcrm.security.csp_mode' => 'enforce']);
+
+    assertEveryInlineScriptCarriesTheNonce($this->get('/admin/login')->assertOk(), 'admin/login');
+    assertEveryInlineScriptCarriesTheNonce($this->get('/portal/login')->assertOk(), 'portal/login');
+});
+
+it('§10.2 mọi script nội tuyến ở trang đã đăng nhập (có thanh bên) của hai panel mang nonce của request', function () {
+    config(['vkcrm.security.csp_mode' => 'enforce']);
+
+    $staff = User::factory()->create();
+    $client = ClientUser::factory()->activated()->create();
+
+    $admin = $this->actingAs($staff, 'web')->get('/admin')->assertOk();
+    expect($admin->getContent())->toContain('collapsedGroups');
+    assertEveryInlineScriptCarriesTheNonce($admin, '/admin');
+
+    auth('web')->logout();
+
+    $portal = $this->actingAs($client, 'client')->get('/portal')->assertOk();
+    expect($portal->getContent())->toContain('collapsedGroups');
+    assertEveryInlineScriptCarriesTheNonce($portal, '/portal');
+});
+
+// ---------------------------------------------------------------------------------------------
+// Task 5 — ảnh đại diện không đi ra bên thứ ba (khảo sát R4: vi phạm img-src ui-avatars.com).
+// ---------------------------------------------------------------------------------------------
+
+it('§10.2 ảnh đại diện mặc định của cả hai panel là ảnh data: dựng tại chỗ, không gọi ui-avatars.com', function () {
+    $staff = User::factory()->create(['name' => 'Quản trị hệ thống']);
+    $client = ClientUser::factory()->activated()->create(['name' => 'Nguyễn Văn An']);
+
+    $admin = $this->actingAs($staff, 'web')->get('/admin')->assertOk()->getContent();
+    auth('web')->logout();
+    $portal = $this->actingAs($client, 'client')->get('/portal')->assertOk()->getContent();
+
+    expect($admin)->not->toContain('ui-avatars.com')->toContain('src="data:image/svg+xml;base64,')
+        ->and($portal)->not->toContain('ui-avatars.com')->toContain('src="data:image/svg+xml;base64,');
+});
+
+it('§10.2 ảnh đại diện dựng tại chỗ mang chữ đầu của từ đầu và từ cuối, theo lối gọi tên tiếng Việt', function () {
+    expect(InitialsAvatarProvider::initials('Nguyễn Văn An'))->toBe('NA')
+        ->and(InitialsAvatarProvider::initials('  quản   trị hệ thống '))->toBe('QT')
+        ->and(InitialsAvatarProvider::initials('Ánh'))->toBe('Á')
+        ->and(InitialsAvatarProvider::initials('[HỆ THỐNG] Sao lưu'))->toBe('HL')
+        ->and(InitialsAvatarProvider::initials(''))->toBe('');
+
+    Filament::setCurrentPanel(Filament::getPanel('portal'));
+    $url = (new InitialsAvatarProvider)->get(ClientUser::factory()->make(['name' => 'Trần Văn Bình']));
+
+    expect($url)->toStartWith('data:image/svg+xml;base64,')
+        ->and(base64_decode(Str::after($url, 'data:image/svg+xml;base64,')))->toContain('>TB</text>');
 });
