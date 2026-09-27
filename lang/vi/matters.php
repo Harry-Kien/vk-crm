@@ -252,6 +252,12 @@ return [
         'success' => 'Đã gỡ bên khỏi vụ việc.',
         'own_client_denied' => 'Đây là khách hàng của chính vụ việc này — sửa qua hồ sơ khách hàng, không gỡ được ở đây.',
     ],
+    // Final review B-M3: thư báo tiến độ cho khách đã hỏng hẳn
+    // (NotifyClientOfStageUpdate::reportFailure()).
+    'stage_update_failed_notification' => [
+        'title' => 'Chưa gửi được thư báo tiến độ cho khách hàng',
+        'body' => 'Thư báo cập nhật tiến độ hồ sơ :code đã thử gửi nhiều lần nhưng không tới được khách hàng. Hãy báo cho khách qua kênh khác và kiểm tra email của tài khoản cổng.',
+    ],
     // M6.5 Task 9 — ba tiêu đề/thông báo riêng của "sửa một bên" khác câu với "thêm một bên"
     // (`parties` ở trên). Hai khoá KHÔNG lặp lại ở đây (`saved_clear_with_confirmed`,
     // `conflict_check_title_clear`) không nhắc "thêm bên" nên dùng chung được với `notifySaved()`.

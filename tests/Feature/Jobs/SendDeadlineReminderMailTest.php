@@ -717,3 +717,44 @@ it('mails from a job queued before the due-date snapshot existed when nothing wa
 
     Mail::assertSent(DeadlineReminder::class, fn ($mail) => $mail->hasTo($lawyer->email));
 });
+
+/**
+ * Final review X5 (B-I1): người nhận ĐẦU TIÊN hỏng (hộp thư của luật sư phụ trách bị máy chủ từ
+ * chối) không được chặn thư leo thang tới trưởng phòng — ở mọi lần thử lại, mọi ngày. Mỗi người
+ * nhận một lần thử riêng; ngoại lệ đầu tiên vẫn được ném lại SAU vòng lặp, nên hàng đợi vẫn thấy
+ * job hỏng và `failed()` vẫn chạy đúng như trước.
+ */
+it('still mails the manager when the first recipient\'s transport fails, and still fails the job', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create(['email' => 'luatsu-hong@vidu.test']);
+    $manager = User::factory()->withRole(Role::Manager)->create(['email' => 'quanly@vidu.test']);
+
+    $type = MatterType::factory()->withStages()->create();
+    $matter = Matter::factory()->create([
+        'lead_lawyer_id' => $lawyer->id,
+        'matter_type_id' => $type->id,
+        'stage' => $type->stages->reject(fn ($s) => $s->is_terminal)->first()->key,
+    ]);
+    $deadline = Deadline::factory()->create([
+        'matter_id' => $matter->id,
+        'responsible_user_id' => $lawyer->id,
+        'due_date' => today()->addDay(),
+        'is_completed' => false,
+    ]);
+
+    config(['mail.default' => deadlineJobSelectiveFailMailer('luatsu-hong@vidu.test')]);
+
+    $thrown = null;
+
+    try {
+        (new SendDeadlineReminderMail($deadline->id, 'd1', $deadline->due_date->toDateString()))->handle();
+    } catch (TransportException $exception) {
+        $thrown = $exception;
+    }
+
+    expect($thrown)->not->toBeNull();
+
+    $managerRows = OutboundMessage::query()->withoutGlobalScopes()
+        ->where('recipient', $manager->email)->where('status', OutboundStatus::Sent)->count();
+
+    expect($managerRows)->toBe(1);
+});

@@ -1056,3 +1056,44 @@ it('still notifies the other overdue recipients when notifying one of them throw
     expect($notifiedIds)->toBe([$manager->id]);
     Exceptions::assertReported(RuntimeException::class);
 });
+
+/**
+ * Final review B-M1: thư quá hạn hỏng HẲN → `SendDeadlineReminderMail::failed()` rút bậc
+ * `overdue` khỏi `reminders_sent` để lượt sau thử gửi lại thư. Trước bản sửa này lượt sau đó
+ * cũng tạo lại cảnh báo trong hệ thống — mỗi ngày một dòng, và từ khi `deadlines.check` chạy mỗi
+ * 30 phút (X6) là mỗi lượt một dòng. Cảnh báo trong hệ thống chỉ một lần cho mỗi người mỗi mốc;
+ * thư vẫn được thử lại.
+ */
+it('does not create a second overdue alert when the overdue tier is retried after its mail failed for good', function () {
+    Mail::fake();
+    $deadline = deadlineDueIn(-3);
+
+    (new CheckDeadlines)->handle();
+
+    // Job gửi thư hỏng hẳn: `failed()` rút bậc, đúng như hàng đợi thật làm sau lần thử cuối.
+    (new SendDeadlineReminderMail($deadline->id, CheckDeadlines::OVERDUE_KEY, $deadline->due_date->toDateString()))
+        ->failed(new RuntimeException('SMTP từ chối'));
+
+    expect($deadline->fresh()->reminders_sent)->not->toContain(CheckDeadlines::OVERDUE_KEY);
+
+    (new CheckDeadlines)->handle();
+
+    expect($deadline->fresh()->reminders_sent)->toContain(CheckDeadlines::OVERDUE_KEY)
+        ->and(DatabaseNotification::query()
+            ->where('notifiable_id', $deadline->responsible_user_id)
+            ->where('type', DeadlineOverdueAlert::class)
+            ->count())->toBe(1);
+});
+
+it('still gives one overdue alert per deadline to the same person, not one per person', function () {
+    Mail::fake();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    deadlineDueIn(-3, $lawyer);
+    deadlineDueIn(-5, $lawyer);
+
+    (new CheckDeadlines)->handle();
+
+    // Khoá chống lặp là (người, mốc): cảnh báo của mốc kia không chặn mốc này.
+    expect(DatabaseNotification::query()->where('type', DeadlineOverdueAlert::class)
+        ->where('notifiable_id', $lawyer->id)->count())->toBe(2);
+});

@@ -673,3 +673,92 @@ it('still builds a working portal link when a single domain serves both panels',
 
     expect($html)->toContain(rtrim(config('app.url'), '/').'/portal');
 });
+
+/**
+ * Final review B-M2: cửa sổ hàng đợi — từ lúc listener được xếp tới lúc nó chạy, dòng tiến độ có
+ * thể bị rút khỏi cổng, hoặc cả vụ việc bị tắt công bố. Hỏi lại cả hai NGAY LÚC GỬI; không gửi,
+ * và không đánh dấu `notified_at` (không có gì đã được báo).
+ */
+it('sends nothing, and leaves notified_at empty, when the update or the matter was unpublished before the job ran', function (string $what) {
+    Mail::fake();
+
+    [$matter] = publishedMatterWithClientAccount();
+
+    $log = StageLog::factory()->create([
+        'matter_id' => $matter->id,
+        'is_published' => true,
+        'published_at' => now(),
+        'public_content' => 'Văn phòng đã nộp hồ sơ và đang theo dõi tiến độ xử lý tại toà án.',
+    ]);
+
+    if ($what === 'update') {
+        DB::table('stage_logs')->where('id', $log->id)->update(['is_published' => false]);
+    } else {
+        DB::table('matters')->where('id', $matter->id)->update(['is_published_to_portal' => false]);
+    }
+
+    $sent = app(NotifyClientOfStageUpdate::class)->handle($log);
+
+    expect($sent)->toBe(0)
+        ->and($log->fresh()->notified_at)->toBeNull();
+    Mail::assertNothingSent();
+})->with(['update', 'matter']);
+
+/**
+ * Final review B-M3: thư tiến độ hỏng HẲN (hết `$tries`) trước đây chỉ để lại một dòng
+ * `failed_jobs` — không ai trong văn phòng biết khách chưa được báo. `failed()` giờ gửi một thông
+ * báo trong hệ thống cho luật sư phụ trách, qua `ResolveStaffRecipients` (R3: chỉ người xem được
+ * vụ, còn đi làm).
+ */
+it('tells the lead lawyer in-app when the client update mail fails for good', function () {
+    config(['queue.default' => 'database']);
+    config(['mail.default' => stageUpdateFailingMailer()]);
+
+    [$matter, $lawyer, , $open] = publishedMatterWithClientAccount();
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter,
+        actor: $lawyer,
+        toStage: $open->skip(1)->first()->key,
+        occurredAt: today(),
+        internalNote: null,
+        publicContent: 'Văn phòng vừa nộp đơn khởi kiện tới toà án có thẩm quyền xét xử.',
+        nextStep: null,
+        clientAction: null,
+        expectedNextUpdateAt: null,
+        publish: true,
+    );
+
+    foreach ([0, 61, 301, 901, 3601] as $delay) {
+        if ($delay > 0) {
+            $this->travel($delay)->seconds();
+        }
+
+        Artisan::call('queue:work', ['connection' => 'database', '--once' => true, '--sleep' => 0]);
+    }
+
+    expect(DB::table('failed_jobs')->count())->toBe(1);
+
+    $notice = $lawyer->fresh()->notifications()->latest()->first();
+
+    expect($notice)->not->toBeNull()
+        ->and($notice->data['title'] ?? null)->toBe(__('matters.stage_update_failed_notification.title'))
+        ->and($notice->data['body'] ?? '')->toContain($matter->code);
+});
+
+it('does not tell a lead lawyer who has been deactivated about the failed update mail', function () {
+    [$matter, $lawyer] = publishedMatterWithClientAccount();
+
+    $log = StageLog::factory()->create([
+        'matter_id' => $matter->id,
+        'is_published' => true,
+        'published_at' => now(),
+        'public_content' => 'Văn phòng đã nộp hồ sơ.',
+    ]);
+
+    $lawyer->update(['is_active' => false]);
+
+    app(SendStageUpdateNotification::class)->failed(new StageLogPublished($log), new RuntimeException('SMTP'));
+
+    expect($lawyer->fresh()->notifications()->count())->toBe(0);
+});

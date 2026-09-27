@@ -215,20 +215,39 @@ class CheckDeadlines
         });
 
         // Ngoài transaction, cố ý — xem chú thích ở trên. Tier đã được đánh dấu VÀ commit trước
-        // khi tới đây, nên một lần chạy `CheckDeadlines` kế tiếp không bao giờ lặp lại nhánh này
-        // cho cùng một mốc/bậc (`in_array($key, $already, true)` chặn ở đầu closure) — "chỉ tạo
-        // một dòng notifications cho mỗi mốc mỗi bậc" không cần một cột chống trùng RIÊNG.
+        // khi tới đây, nên lượt chạy kế tiếp bỏ qua nhánh này cho cùng mốc/bậc
+        // (`in_array($key, $already, true)` chặn ở đầu closure) — NHƯNG không phải "không bao
+        // giờ": khi thư quá hạn hỏng hẳn, `SendDeadlineReminderMail::failed()` rút bậc `overdue`
+        // khỏi `reminders_sent` để thư được thử lại, và lượt sau lại tới đây. Final review B-M1:
+        // cảnh báo trong hệ thống vì vậy tự chống trùng theo (người nhận, mốc) — xem
+        // `alreadyAlerted()` — còn thư thì vẫn được thử lại.
         if ($overdueNotify !== null) {
             foreach ($overdueNotify['recipients'] as $recipient) {
                 // Task 14 fix round 1 (M2): mỗi người một `try` — một lần ghi hỏng cho người này
                 // không được làm những người nhận còn lại mất cảnh báo. Lỗi vẫn `report()`.
                 try {
+                    if ($this->alreadyAlerted($recipient, $overdueNotify['deadline'])) {
+                        continue;
+                    }
+
                     $recipient->notify(new DeadlineOverdueAlert($overdueNotify['deadline']));
                 } catch (Throwable $e) {
                     report($e);
                 }
             }
         }
+    }
+
+    /**
+     * Người này đã có cảnh báo quá hạn (trong hệ thống) cho ĐÚNG mốc này chưa — final review B-M1.
+     * Khoá là `viewData.deadline_id` mà {@see DeadlineOverdueAlert::toDatabase()} ghi.
+     */
+    private function alreadyAlerted(User $recipient, Deadline $deadline): bool
+    {
+        return $recipient->notifications()
+            ->where('type', DeadlineOverdueAlert::class)
+            ->where('data->viewData->deadline_id', $deadline->getKey())
+            ->exists();
     }
 
     /** Bậc áp dụng hôm nay, hoặc `null` nếu còn quá xa để nhắc. */

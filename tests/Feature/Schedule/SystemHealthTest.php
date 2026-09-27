@@ -261,35 +261,49 @@ it('registers the deadline check under its stable id', function () {
 });
 
 /**
- * `deadlines/F9` (M6.5 Task 14): "runs the schedule on Vietnam time" ở trên chỉ assert
- * `config('app.timezone')` — không hỏi CHÍNH sự kiện `deadlines.check` có thật sự tới hạn lúc
- * 07:00 giờ Việt Nam hay không. Test đó xanh ngay cả khi ai đó gỡ hẳn dòng
- * `Schedule::call(new CheckDeadlines)->dailyAt('07:00')` khỏi `routes/console.php`, vì nó không
- * chạm tới sự kiện đó chút nào.
+ * Final review X6 (B-I2): `deadlines.check` chạy lần đầu lúc 07:00 giờ Việt Nam, rồi mỗi 30 phút
+ * tới 19:30 (trong khung 07:00–20:00) — lần chạy lặp lại vô hại (khoá dòng + `reminders_sent` +
+ * sổ thư bậc@ngày), và một phút cron bị bỏ lỡ trên shared hosting không còn làm mất cả một ngày
+ * nhắc hạn. Cron thuần `*\/30 7-19`, không `->between()`: `between()` chụp `now()` lúc lịch được
+ * dựng, nên `isDue()` sau `travelTo()` sẽ trả lời theo giờ khởi động của bộ test.
  *
- * `routes/console.php` không gọi `->timezone()` trên sự kiện, nên nó mang timezone của chính
- * `Schedule` — Laravel dựng `Schedule` với `config('app.schedule_timezone')`, rơi về
- * `config('app.timezone')` (`Asia/Ho_Chi_Minh`, ghim ở test "runs the schedule on Vietnam time"
- * phía trên). `today()` của bộ test cũng ở múi giờ đó, nên `travelTo` 07:00 là 07:00 giờ Việt Nam,
- * còn 14:00 giờ Việt Nam là đúng 07:00 UTC — giờ mà sự kiện sẽ chạy nếu nó rơi về UTC. Hai phép
- * `isDue()` phân biệt đúng hai trường hợp đó.
- *
- * Mutation probe (xem báo cáo Task 14): xoá cả khối `Schedule::call(new CheckDeadlines)...` khỏi
- * `routes/console.php` làm test này đỏ ở `expect($event)->not->toBeNull()`; đổi `dailyAt('07:00')`
- * thành `dailyAt('00:00')` làm nó đỏ ở vế 07:00.
+ * Giờ Việt Nam, không phải UTC: 07:00 Việt Nam là 00:00 UTC (ngoài khung nếu sự kiện rơi về
+ * UTC), còn 21:00 Việt Nam là 14:00 UTC (trong khung nếu rơi về UTC) — hai phép `isDue()` đó bắt
+ * đúng lỗi múi giờ mà test cũ ở vị trí này bắt.
  */
-it('says the deadline check is due at 07:00 Vietnam time, and only then', function () {
+it('says the deadline check is due at 07:00 Vietnam time and every 30 minutes until 19:30, and only then', function () {
     $event = collect(Schedule::events())->first(fn ($e) => $e->description === 'deadlines.check');
 
     expect($event)->not->toBeNull();
 
     $today = today()->startOfDay();
 
-    $this->travelTo($today->copy()->addHours(7));
-    expect($event->isDue(app()))->toBeTrue();
+    foreach (['07:00', '07:30', '12:00', '19:30'] as $due) {
+        [$h, $m] = explode(':', $due);
+        $this->travelTo($today->copy()->setTime((int) $h, (int) $m));
+        expect($event->isDue(app()))->toBeTrue("phải tới hạn lúc {$due}");
+    }
 
-    // 14:00 giờ hệ thống (= Việt Nam, xem chú thích ở trên) là đúng 07:00 UTC — sự kiện KHÔNG
-    // được tới hạn ở giờ đó, nếu không thư nhắc hạn sẽ rời văn phòng lúc 2 giờ sáng.
-    $this->travelTo($today->copy()->addHours(14));
-    expect($event->isDue(app()))->toBeFalse();
+    foreach (['00:00', '06:30', '07:10', '20:00', '20:30', '21:00'] as $notDue) {
+        [$h, $m] = explode(':', $notDue);
+        $this->travelTo($today->copy()->setTime((int) $h, (int) $m));
+        expect($event->isDue(app()))->toBeFalse("không được tới hạn lúc {$notDue}");
+    }
+});
+
+/**
+ * Final review X6 (B-I2): `withoutOverlapping()` trần giữ khoá 1440 phút — một lần 07:00 bị giết
+ * giữa chừng (giới hạn CPU của shared hosting) khoá luôn lần chạy của ngày hôm sau. Cùng lý lẽ đã
+ * áp cho `queue.drain`: khoá phải hết hạn trong thời gian một lần chạy thật còn có thể kéo dài.
+ */
+it('lets a killed deadline check hold its overlap lock for an hour at most, and the heartbeat for ten minutes', function () {
+    $events = collect(Schedule::events());
+
+    $check = $events->first(fn ($e) => $e->description === 'deadlines.check');
+    $heartbeat = $events->first(fn ($e) => $e->description === 'system-health.heartbeat');
+
+    expect($check->withoutOverlapping)->toBeTrue()
+        ->and($check->expiresAt)->toBe(60)
+        ->and($heartbeat->withoutOverlapping)->toBeTrue()
+        ->and($heartbeat->expiresAt)->toBeLessThanOrEqual(10);
 });

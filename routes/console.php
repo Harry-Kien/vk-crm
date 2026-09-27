@@ -63,7 +63,9 @@ Schedule::call(new RecordScheduleRun)
 Schedule::call(new SendHeartbeat)
     ->everyFiveMinutes()
     ->name('system-health.heartbeat')
-    ->withoutOverlapping();
+    // Final review X6: không để khoá mặc định 1440 phút — một lần ping bị giết giữa chừng không
+    // được tắt heartbeat cả ngày (dịch vụ giám sát sẽ báo "cron chết" dù cron vẫn chạy).
+    ->withoutOverlapping(10);
 
 /**
  * Hàng đợi, theo phán quyết R2 của kế hoạch M6: trên VPS chạy `queue:work` bằng systemd,
@@ -82,15 +84,23 @@ Schedule::command('queue:work --stop-when-empty --max-time=50')
     ->withoutOverlapping(10);
 
 /**
- * Nhắc mốc thời hạn tố tụng, 07:00 hằng ngày (SPEC §6.8).
+ * Nhắc mốc thời hạn tố tụng: lần đầu 07:00 hằng ngày (SPEC §6.8), rồi mỗi 30 phút, lần cuối 19:30.
  *
  * Đây là tác vụ mang rủi ro nghề nghiệp cao nhất trong cả hệ thống: một mốc kháng cáo bị
  * lỡ là trách nhiệm nghề nghiệp, không phải một bất tiện. `withoutOverlapping()` vì nó gửi
  * thư — hai tiến trình chồng nhau là hai thư cho cùng một người.
  *
- * Nhắc mốc thời hạn tố tụng.
+ * Final review X6 (B-I2), hai thay đổi:
+ *  - chạy LẶP mỗi 30 phút trong giờ làm việc (07:00–19:30): trên shared hosting một phút cron
+ *    bị bỏ qua (máy bận, cron của nhà cung cấp trễ) từng làm mất CẢ NGÀY nhắc hạn. Chạy lại là
+ *    vô hại — mỗi mốc
+ *    bị khoá dòng, bậc đã đánh dấu ở `reminders_sent`, và sổ thư chặn gửi trùng theo bậc@ngày —
+ *    nên lần 07:30 chỉ làm việc lần 07:00 chưa làm được. Lần đầu trong ngày vẫn là 07:00.
+ *  - khoá chống chồng lấn hết hạn sau 60 phút, không phải 1440 mặc định: một lần chạy bị giết
+ *    giữa chừng không còn khoá luôn mọi lần chạy tới cùng giờ ngày hôm sau.
  */
 Schedule::call(new CheckDeadlines)
-    ->dailyAt('07:00')
+    // Cron thuần, không `->between()`: `between()` chụp `now()` lúc lịch được DỰNG, không lúc hỏi.
+    ->cron('*/30 7-19 * * *')
     ->name('deadlines.check')
-    ->withoutOverlapping();
+    ->withoutOverlapping(60);

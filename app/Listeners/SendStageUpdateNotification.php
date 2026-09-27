@@ -5,6 +5,7 @@ namespace App\Listeners;
 use App\Actions\Notification\NotifyClientOfStageUpdate;
 use App\Events\StageLogPublished;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Throwable;
 
 /**
  * Nối `StageLogPublished` với Action gửi thư. Mỏng có chủ ý: luật nằm trong Action, listener chỉ
@@ -43,10 +44,8 @@ use Illuminate\Contracts\Queue\ShouldQueue;
  */
 class SendStageUpdateNotification implements ShouldQueue
 {
-    /** Một lần hỏng thoáng qua (SMTP chết tạm) không cần báo động ngay: 5 lần thử, backoff tăng dần. */
     public int $tries = 5;
 
-    /** @var array<int, int> */
     public array $backoff = [60, 300, 900, 3600];
 
     public function __construct(private NotifyClientOfStageUpdate $notify) {}
@@ -54,5 +53,16 @@ class SendStageUpdateNotification implements ShouldQueue
     public function handle(StageLogPublished $event): void
     {
         $this->notify->handle($event->stageLog);
+    }
+
+    /**
+     * Final review B-M3: chạy một lần, sau khi CẢ `$tries` lần gửi đều hỏng. Trước bản sửa này chỉ
+     * còn một dòng `failed_jobs` — không ai trong văn phòng biết khách chưa được báo. Luật báo ai
+     * nằm ở Action ({@see NotifyClientOfStageUpdate::reportFailure()}); listener chỉ là sợi dây.
+     * `?Throwable` không dùng tới — cùng lý do `SendDeadlineReminderMail::failed()`.
+     */
+    public function failed(StageLogPublished $event, ?Throwable $exception): void
+    {
+        $this->notify->reportFailure($event->stageLog);
     }
 }

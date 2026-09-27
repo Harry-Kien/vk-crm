@@ -203,6 +203,8 @@ class SendDeadlineReminderMail implements ShouldQueue
         // Ngày đến hạn mà lời nhắc này nói tới — xem docblock lớp, mục "fix round 1 (C1)".
         $aboutDueDate = $this->dueDateSnapshot() ?? $deadline->due_date->toDateString();
 
+        $failure = null;
+
         foreach ($recipients as $recipient) {
             // "Không gửi trùng khi thử lại" — xem docblock lớp, mục "Vòng sửa 2 (I1)". Bỏ qua
             // NGƯỜI NÀY, không phải cả lượt: người khác trong cùng bậc có thể vẫn chưa nhận được.
@@ -210,7 +212,19 @@ class SendDeadlineReminderMail implements ShouldQueue
                 continue;
             }
 
-            Mail::to($recipient->email)->send(new DeadlineReminder($deadline, $recipient, $this->tierKey, $aboutDueDate));
+            // Final review X5 (B-I1): một người nhận hỏng không được chặn những người sau — nhất là
+            // thư leo thang tới trưởng phòng khi hộp thư của chính luật sư phụ trách bị từ chối.
+            // Cùng hình dạng `NotifyClientOfStageUpdate::handle()`: giữ ngoại lệ ĐẦU TIÊN, thử hết,
+            // rồi ném lại để hàng đợi vẫn thấy job hỏng (thử lại, rồi `failed()`).
+            try {
+                Mail::to($recipient->email)->send(new DeadlineReminder($deadline, $recipient, $this->tierKey, $aboutDueDate));
+            } catch (Throwable $exception) {
+                $failure ??= $exception;
+            }
+        }
+
+        if ($failure !== null) {
+            throw $failure;
         }
     }
 

@@ -8,6 +8,8 @@ use App\Models\ClientUser;
 use App\Models\Matter;
 use App\Models\OutboundMessage;
 use App\Models\StageLog;
+use App\Support\Scopes\ClientPortalScope;
+use Filament\Notifications\Notification;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
@@ -69,6 +71,12 @@ class NotifyClientOfStageUpdate
     public function handle(StageLog $stageLog): int
     {
         if ($stageLog->notified_at !== null) {
+            return 0;
+        }
+
+        // Final review B-M2: hỏi lại NGAY LÚC GỬI — trong cửa sổ hàng đợi dòng tiến độ có thể đã bị
+        // rút khỏi cổng, hoặc vụ việc đã tắt công bố. Không gửi, không đánh dấu `notified_at`.
+        if (! $this->stillReleasedToPortal($stageLog)) {
             return 0;
         }
 
@@ -150,6 +158,61 @@ class NotifyClientOfStageUpdate
      * Đi qua `eligibleRecipientsQuery()` — CÙNG một điều kiện với `recipientsFor()` — để cảnh báo
      * này không bao giờ lệch với chính Action gửi thư thật.
      */
+    /**
+     * Final review B-M2: đọc TƯƠI từ CSDL (không tin bản trong bộ nhớ của `$stageLog`, có thể đã
+     * cũ từ lúc xếp hàng) rằng dòng tiến độ còn `is_published` VÀ vụ việc còn
+     * `is_published_to_portal`. Vụ đã xoá mềm do `recipientsFor()` lo (quan hệ `matter` mang
+     * `SoftDeletingScope`), không lặp lại ở đây.
+     */
+    private function stillReleasedToPortal(StageLog $stageLog): bool
+    {
+        $fresh = StageLog::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->whereKey($stageLog->getKey())
+            ->first(['id', 'matter_id', 'is_published']);
+
+        if ($fresh === null || ! $fresh->is_published) {
+            return false;
+        }
+
+        return Matter::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->whereKey($fresh->matter_id)
+            ->where('is_published_to_portal', true)
+            ->exists();
+    }
+
+    /**
+     * Final review B-M3: thư báo tiến độ đã hỏng HẲN (listener hết `$tries`). Báo trong hệ thống
+     * cho luật sư phụ trách — qua {@see ResolveStaffRecipients::handle()} (R3: còn đi làm, xem được
+     * vụ; lead không nhận được thì rơi xuống chuỗi dự phòng của chính resolver đó), để văn phòng
+     * biết khách CHƯA được báo và liên hệ bằng kênh khác. Vụ việc không còn (đã xoá cứng) thì
+     * không có ai để báo về nó.
+     */
+    public function reportFailure(StageLog $stageLog): void
+    {
+        $matter = Matter::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->withTrashed()
+            ->find($stageLog->matter_id);
+
+        if ($matter === null) {
+            return;
+        }
+
+        $recipients = app(ResolveStaffRecipients::class)->handle($matter, [$matter->leadLawyer]);
+
+        foreach ($recipients as $recipient) {
+            // `notifyNow()`, không `sendToDatabase()`: bản Filament xếp thêm MỘT job hàng đợi cho
+            // mỗi người nhận, trong khi đây chính là lúc một job hàng đợi vừa hỏng hẳn.
+            $recipient->notifyNow(Notification::make()
+                ->title(__('matters.stage_update_failed_notification.title'))
+                ->body(__('matters.stage_update_failed_notification.body', ['code' => $matter->code]))
+                ->color('danger')
+                ->toDatabase());
+        }
+    }
+
     public function hasEligibleRecipient(Matter $matter): bool
     {
         return $this->eligibleRecipientsQuery($matter->client_id)->exists();
