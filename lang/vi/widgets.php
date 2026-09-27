@@ -92,15 +92,17 @@ return [
         ],
         'donut' => [
             'heading' => 'Đã thu / còn phải thu / quá hạn',
-            'description' => 'Việc đã ký trong kỳ (:range) — theo contracts.signed_at. Ba lát tính TẠI HÔM NAY. Bộ lọc luật sư: luật sư phụ trách HIỆN TẠI của vụ (matters.lead_lawyer_id).',
+            'description' => 'Việc đã ký trong kỳ (:range), hợp đồng đang hiệu lực hoặc đã hoàn tất — theo contracts.signed_at. Ba lát tính TẠI HÔM NAY. Bộ lọc luật sư mang hai nghĩa: "Đã thu" theo payments.attributed_lawyer_id (luật sư lúc thu); "còn phải thu"/"quá hạn" theo matters.lead_lawyer_id (luật sư phụ trách hiện tại).',
+            'description_lawyer_filtered' => 'Đang lọc theo một luật sư cụ thể: hai tập vụ việc trên có thể khác nhau sau một lần bàn giao — xem lại nghĩa của từng lát ở trên trước khi so sánh với tổng đã ký.',
             'slices' => [
                 'collected' => 'Đã thu: :amount',
                 'not_yet_due' => 'Còn phải thu, chưa tới hạn: :amount',
                 'overdue' => 'Quá hạn: :amount',
             ],
             'table' => [
-                'signed_total' => 'Tổng giá trị đã ký trong kỳ',
-                'waived_total' => 'Đã miễn',
+                'signed_total' => 'Tổng giá trị đã ký trong kỳ (hợp đồng còn hiệu lực/đã hoàn tất)',
+                'written_off' => 'Đã miễn (phần còn lại thật sự bị xoá)',
+                'cancelled_total' => 'Hợp đồng đã huỷ trong kỳ (không tính vào công nợ)',
                 'collected' => 'Đã thu',
                 'not_yet_due' => 'Còn phải thu, chưa tới hạn',
                 'overdue' => 'Quá hạn',
@@ -130,12 +132,12 @@ return [
         ],
         'load_per_lawyer' => [
             'heading' => 'Tải theo luật sư',
-            'description' => 'Ảnh chụp HIỆN TẠI: số vụ đang mở của mỗi luật sư phụ trách. KHÔNG phụ thuộc bộ lọc thời gian của trang.',
+            'description' => 'Ảnh chụp HIỆN TẠI: số vụ đang mở của mỗi luật sư phụ trách hiện tại (matters.lead_lawyer_id). KHÔNG phụ thuộc bộ lọc thời gian của trang. Bộ lọc luật sư (matters.lead_lawyer_id) thu hẹp còn đúng một cột.',
             'series' => 'Số vụ đang mở',
         ],
         'closed_with_balance' => [
             'heading' => 'Hồ sơ đã kết thúc còn công nợ',
-            'description' => 'KHÔNG phụ thuộc bộ lọc thời gian hay công tắc đếm — luôn liệt kê mọi vụ việc anh/chị được xem đã kết thúc mà còn dư nợ.',
+            'description' => 'KHÔNG phụ thuộc bộ lọc thời gian hay công tắc đếm — luôn liệt kê mọi vụ việc anh/chị được xem đã kết thúc mà còn dư nợ. Bộ lọc luật sư (matters.lead_lawyer_id) và lĩnh vực vẫn thu hẹp phạm vi vụ việc.',
             'columns' => [
                 'matter_code' => 'Mã hồ sơ',
                 'client' => 'Khách hàng',

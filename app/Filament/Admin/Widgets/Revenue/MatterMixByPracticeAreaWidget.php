@@ -51,6 +51,9 @@ class MatterMixByPracticeAreaWidget extends ChartWidget
 
     protected string $view = 'filament.admin.widgets.revenue.chart-with-table';
 
+    /** Tránh tính hai lần khi cả `getData()` lẫn `numberTableRows()` cùng đọc (Fix round 1). */
+    private ?array $rankedCache = null;
+
     public static function canView(): bool
     {
         $user = Auth::user();
@@ -120,6 +123,12 @@ class MatterMixByPracticeAreaWidget extends ChartWidget
 
     /** @return list<array{label: string, count: int, amount: int}> Xếp giảm dần theo giá trị đang đo. */
     private function ranked(): array
+    {
+        return $this->rankedCache ??= $this->computeRanked();
+    }
+
+    /** @return list<array{label: string, count: int, amount: int}> */
+    private function computeRanked(): array
     {
         $user = Auth::user();
 

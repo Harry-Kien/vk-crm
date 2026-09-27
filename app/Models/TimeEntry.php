@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\HasBlameable;
+use App\Models\Concerns\HidesInternalAttributesFromPortal;
 use App\Models\Concerns\RestrictedToClientPortal;
 use Database\Factories\TimeEntryFactory;
 use Illuminate\Database\Eloquent\Builder;
@@ -31,6 +32,7 @@ class TimeEntry extends Model
     /** @use HasFactory<TimeEntryFactory> */
     use HasFactory;
 
+    use HidesInternalAttributesFromPortal;
     use RestrictedToClientPortal;
 
     protected $fillable = [
@@ -66,5 +68,16 @@ class TimeEntry extends Model
     public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
     {
         $query->whereRaw('1 = 0');
+    }
+
+    /**
+     * Tầng phòng thủ THỨ BA (Fix round 1, minor), dù `1 = 0` ở trên đã chặn sạch mọi truy vấn
+     * portal: `description` (ghi chú tự do của luật sư) và `hourly_rate` (đơn giá/giờ nội bộ)
+     * không bao giờ được phép serialize ra một response portal, kể cả nếu một view tương lai nào
+     * đó đọc thẳng thuộc tính thay vì qua truy vấn đã lọc.
+     */
+    protected function internalAttributes(): array
+    {
+        return ['description', 'hourly_rate'];
     }
 }

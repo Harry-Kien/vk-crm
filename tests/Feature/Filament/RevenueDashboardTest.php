@@ -16,6 +16,7 @@ use App\Models\Matter;
 use App\Models\MatterType;
 use App\Models\Payment;
 use App\Models\User;
+use App\Support\Billing\BillingSummary;
 use App\Support\Billing\Money;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
@@ -112,6 +113,18 @@ function widgetDescription(string $class, array $pageFilters = []): string
     $description = Livewire::test($class, ['pageFilters' => $pageFilters])->instance()->getDescription();
 
     return (string) $description;
+}
+
+/**
+ * `numberTableRows()` trả giá trị đã qua `Money::format()` (có "₫" và dấu chấm nhóm nghìn) — KHÔNG
+ * đọc lại được bằng `Money::parse()` (nó cố tình từ chối mọi ký tự ngoài chữ số và dấu chấm nhóm
+ * ba, để không đoán nghĩa một chuỗi gõ sai). Test ở đây chỉ cần đọc LẠI một chuỗi CHÍNH NÓ đã tự
+ * sinh ra bằng `Money::format()`, nên bóc "₫" trước khi gọi `Money::parse()` là an toàn — không
+ * viết một bộ định dạng/đọc tiền thứ hai, chỉ là bước ngược lại của bước hiển thị.
+ */
+function parseMoneyRow(string $formatted): int
+{
+    return Money::parse(trim(str_replace('₫', '', $formatted)));
 }
 
 // =================================================================================================
@@ -305,18 +318,20 @@ it('keeps a collected payment with the old lawyer after handover, but moves the 
     expect(array_sum($overTimeOldLawyer['datasets'][0]['data']))->toBe(8_000_000)
         ->and(array_sum($overTimeNewLawyer['datasets'][0]['data']))->toBe(0);
 
-    // Donut lọc luật sư theo MỘT nghĩa duy nhất cho cả ba lát — matters.lead_lawyer_id HIỆN TẠI
-    // (xem docblock ReceivablesDonutWidget): lọc theo luật sư mới cho thấy TOÀN BỘ bức tranh của
-    // vụ (đã thu 8tr + còn phải thu 12tr = đúng 20tr đã ký), không chỉ phần còn lại — nhưng đúng
-    // lát "còn phải thu, chưa tới hạn" (chỉ số 1) là đúng con số 12tr mà test này cần chứng minh
-    // ("còn phải thu tính cho luật sư MỚI"). Lọc theo luật sư CŨ không còn thấy vụ này (đã đổi lead
-    // lawyer_id), nên cả ba lát về 0 — không mâu thuẫn với việc RevenueOverTimeWidget (ở trên) vẫn
-    // cho luật sư CŨ thấy khoản đã thu qua `attributed_lawyer_id`, một trục lọc KHÁC.
+    // Fix round 1, I2: donut lọc luật sư theo ĐÚNG P2 — mỗi lát mang nghĩa riêng. "Đã thu" (chỉ
+    // số 0) lọc theo payments.attributed_lawyer_id: khoản 8tr vẫn tính cho luật sư CŨ, dù matter
+    // giờ đã đổi lead_lawyer_id. "Còn phải thu"/"quá hạn" (chỉ số 1, 2) lọc theo
+    // matters.lead_lawyer_id HIỆN TẠI: 12tr còn lại giờ thuộc về luật sư MỚI, không phải cũ.
     $donutNewLawyer = widgetData(ReceivablesDonutWidget::class, ['lawyer_id' => $newLawyer->id]);
     $donutOldLawyer = widgetData(ReceivablesDonutWidget::class, ['lawyer_id' => $oldLawyer->id]);
 
-    expect($donutNewLawyer['datasets'][0]['data'][1])->toBe(12_000_000)
-        ->and(array_sum($donutOldLawyer['datasets'][0]['data']))->toBe(0);
+    // Luật sư MỚI: không thu đồng nào (khoản 8tr đã ghi cho người cũ), nhưng đang gánh 12tr còn
+    // phải thu (vụ giờ do người mới phụ trách).
+    expect($donutNewLawyer['datasets'][0]['data'])->toBe([0, 12_000_000, 0]);
+
+    // Luật sư CŨ: vẫn đứng tên đã thu 8tr (lịch sử không đổi), nhưng không còn gánh khoản còn phải
+    // thu nào (vụ không còn do người cũ phụ trách).
+    expect($donutOldLawyer['datasets'][0]['data'])->toBe([8_000_000, 0, 0]);
 });
 
 // =================================================================================================
@@ -400,8 +415,20 @@ it('prints the meaning of the time filter and the lawyer filter on every widget 
         ->toContain('contracts.signed_at')
         ->toContain('lead_lawyer_id');
 
+    // Fix round 1, I6: LoadPerLawyerWidget và ClosedWithBalanceWidget áp bộ lọc luật sư (hiện tại)
+    // nhưng bản trước không nói ra — giờ cả hai phải nêu rõ cột `lead_lawyer_id`.
     expect(widgetDescription(LoadPerLawyerWidget::class))
-        ->toContain('KHÔNG phụ thuộc bộ lọc thời gian');
+        ->toContain('KHÔNG phụ thuộc bộ lọc thời gian')
+        ->toContain('lead_lawyer_id');
+
+    $closedWithBalanceDescription = (string) Livewire::test(ClosedWithBalanceWidget::class, ['pageFilters' => []])
+        ->instance()
+        ->getTable()
+        ->getDescription();
+
+    expect($closedWithBalanceDescription)
+        ->toContain('KHÔNG phụ thuộc bộ lọc thời gian')
+        ->toContain('lead_lawyer_id');
 });
 
 // =================================================================================================
@@ -578,3 +605,292 @@ it('lists only closed matters that still carry a balance, hiding open ones, full
     Livewire::test(ClosedWithBalanceWidget::class)
         ->assertCanSeeTableRecords([$closedWithBalance, $restrictedClosed]);
 });
+
+// =================================================================================================
+// Fix round 1, C1 (Critical) — "còn phải thu"/"quá hạn" chỉ từ BillingSummary/scopeOverdue(), không
+// công thức trừ tay nào.
+// =================================================================================================
+
+/** (a) Một hợp đồng đã HUỶ không góp phần dư vào "chưa tới hạn". */
+it('does not count a cancelled contracts pending instalment as receivable', function () {
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
+
+    $contract = contractWithSchedule($matter, 100_000_000, [
+        ['amount' => 20_000_000, 'due_date' => today()->subDays(5)->toDateString(), 'status' => InstalmentStatus::Paid],
+        ['amount' => 80_000_000, 'due_date' => today()->addDays(20)->toDateString()],
+    ], today()->toDateString());
+
+    Payment::factory()->for($contract->instalments()->where('amount', 20_000_000)->sole())->create([
+        'amount' => 20_000_000, 'paid_on' => today()->toDateString(), 'attributed_lawyer_id' => $this->lawyer->id,
+    ]);
+
+    $contract->update(['status' => ContractStatus::Cancelled, 'ended_at' => today()->toDateString(), 'ended_reason' => str_repeat('a', 20)]);
+
+    $this->actingAs($this->lawyer, 'web');
+    $data = widgetData(ReceivablesDonutWidget::class);
+    [, $notYetDue, $overdue] = $data['datasets'][0]['data'];
+
+    // BillingSummary đồng ý: hợp đồng cancelled không có gì "còn phải thu".
+    expect(BillingSummary::outstandingForMatter($matter->id)['amount'])->toBe(0)
+        ->and($notYetDue)->toBe(0)
+        ->and($overdue)->toBe(0);
+
+    $rows = widgetRows(ReceivablesDonutWidget::class);
+    $cancelledRow = collect($rows)->firstWhere('label', __('widgets.revenue_dashboard.donut.table.cancelled_total'));
+    expect($cancelledRow['value'])->toBe(Money::format(100_000_000));
+});
+
+/** (b) Một đợt đã thu MỘT PHẦN rồi mới được miễn không bị trừ hai lần. */
+it('does not double-subtract a partly-paid instalment that is later waived', function () {
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
+
+    $contract = contractWithSchedule($matter, 30_000_000, [
+        ['amount' => 10_000_000, 'due_date' => today()->addDays(5)->toDateString()],
+        ['amount' => 20_000_000, 'due_date' => today()->addDays(10)->toDateString()],
+    ], today()->toDateString());
+
+    $partlyPaid = $contract->instalments()->where('amount', 10_000_000)->sole();
+    Payment::factory()->for($partlyPaid)->create(['amount' => 4_000_000, 'paid_on' => today()->toDateString(), 'attributed_lawyer_id' => $this->lawyer->id]);
+    $partlyPaid->update(['status' => InstalmentStatus::Waived, 'waived_reason' => str_repeat('a', 20), 'waived_at' => now()]);
+
+    $this->actingAs($this->lawyer, 'web');
+    $data = widgetData(ReceivablesDonutWidget::class);
+    [$collected, $notYetDue, $overdue] = $data['datasets'][0]['data'];
+
+    // 4tr đã thu vẫn đứng; 20tr đợt kia còn nguyên — KHÔNG phải 16tr (30 - 10(mặt) - 4 - 0).
+    expect($collected)->toBe(4_000_000)
+        ->and($notYetDue + $overdue)->toBe(20_000_000);
+
+    $rows = widgetRows(ReceivablesDonutWidget::class);
+    $writtenOffRow = collect($rows)->firstWhere('label', __('widgets.revenue_dashboard.donut.table.written_off'));
+    // Phần THẬT SỰ bị xoá là 10tr - 4tr đã thu = 6tr, không phải nguyên 10tr mặt giá trị.
+    expect($writtenOffRow['value'])->toBe(Money::format(6_000_000));
+});
+
+/** Đối chiếu chéo: "còn phải thu" + "quá hạn" của donut khớp ĐÚNG tổng BillingSummary cho cùng tập vụ việc. */
+it('matches BillingSummary exactly: donut not_yet_due plus overdue equals the BillingSummary sum for the same matters', function () {
+    $matterA = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
+    $matterB = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
+
+    $contractA = contractWithSchedule($matterA, 15_000_000, [
+        ['amount' => 5_000_000, 'due_date' => today()->subDays(3)->toDateString()], // overdue
+        ['amount' => 10_000_000, 'due_date' => today()->addDays(15)->toDateString()], // not yet due
+    ], today()->toDateString());
+
+    contractWithSchedule($matterB, 9_000_000, [
+        ['amount' => 9_000_000, 'due_date' => today()->subDay()->toDateString()], // overdue
+    ], today()->toDateString());
+
+    // Một hợp đồng cancelled xen vào — BillingSummary và donut phải CÙNG bỏ qua nó (probe C1).
+    $matterC = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
+    $contractC = contractWithSchedule($matterC, 50_000_000, [
+        ['amount' => 50_000_000, 'due_date' => today()->subDays(2)->toDateString()],
+    ], today()->toDateString());
+    $contractC->update(['status' => ContractStatus::Cancelled, 'ended_at' => today()->toDateString(), 'ended_reason' => str_repeat('a', 20)]);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    $billingSummaryTotal = BillingSummary::outstandingForMatter($matterA->id)['amount']
+        + BillingSummary::outstandingForMatter($matterB->id)['amount']
+        + BillingSummary::outstandingForMatter($matterC->id)['amount'];
+
+    $data = widgetData(ReceivablesDonutWidget::class);
+    [, $notYetDue, $overdue] = $data['datasets'][0]['data'];
+
+    expect($billingSummaryTotal)->toBe(24_000_000)
+        ->and($notYetDue + $overdue)->toBe($billingSummaryTotal);
+});
+
+// =================================================================================================
+// Fix round 1, I3 — gộp theo ID (không theo nhãn); JOIN cả giai đoạn đã xoá mềm.
+// =================================================================================================
+
+it('still counts revenue attributed to a stage that was later soft-deleted', function () {
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
+    $stage = $matter->matterType->stages->firstWhere('key', 'court_accepted');
+
+    $contract = Contract::factory()->for($matter)->create(['total_amount' => 12_000_000, 'signed_at' => null]);
+    $instalment = Instalment::factory()->for($contract)->onStage('court_accepted')->create(['sequence' => 1, 'amount' => 12_000_000]);
+    $contract->update(['status' => ContractStatus::Active, 'signed_at' => today()->toDateString()]);
+
+    Payment::factory()->for($instalment)->create(['amount' => 12_000_000, 'paid_on' => today()->toDateString(), 'attributed_lawyer_id' => $this->lawyer->id]);
+
+    // Xoá mềm giai đoạn SAU KHI tiền đã về.
+    $stage->delete();
+    expect($stage->fresh()->trashed())->toBeTrue();
+
+    $this->actingAs($this->lawyer, 'web');
+    $rows = widgetRows(RevenueByStageWidget::class);
+    $total = collect($rows)->sum(fn (array $row): int => parseMoneyRow($row['value']));
+
+    expect($total)->toBe(12_000_000);
+});
+
+it('keeps two stages that happen to share a display label as two separate buckets, neither overwriting the other', function () {
+    $matterX = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]); // preset "civil" -> stage "court_accepted" / "Toà thụ lý"
+    $matterY = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]); // another independently-seeded civil-preset type, same label
+
+    $contractX = Contract::factory()->for($matterX)->create(['total_amount' => 3_000_000, 'signed_at' => null]);
+    $instalmentX = Instalment::factory()->for($contractX)->onStage('court_accepted')->create(['sequence' => 1, 'amount' => 3_000_000]);
+    $contractX->update(['status' => ContractStatus::Active, 'signed_at' => today()->toDateString()]);
+    Payment::factory()->for($instalmentX)->create(['amount' => 3_000_000, 'paid_on' => today()->toDateString(), 'attributed_lawyer_id' => $this->lawyer->id]);
+
+    $contractY = Contract::factory()->for($matterY)->create(['total_amount' => 7_000_000, 'signed_at' => null]);
+    $instalmentY = Instalment::factory()->for($contractY)->onStage('court_accepted')->create(['sequence' => 1, 'amount' => 7_000_000]);
+    $contractY->update(['status' => ContractStatus::Active, 'signed_at' => today()->toDateString()]);
+    Payment::factory()->for($instalmentY)->create(['amount' => 7_000_000, 'paid_on' => today()->toDateString(), 'attributed_lawyer_id' => $this->lawyer->id]);
+
+    $this->actingAs($this->lawyer, 'web');
+    $rows = widgetRows(RevenueByStageWidget::class);
+    $matchingRows = collect($rows)->filter(fn (array $row): bool => str_contains($row['label'], 'Toà thụ lý'));
+
+    // Hai bó, KHÔNG một — nhãn trùng không được đè lên nhau (Fix round 1, I3).
+    expect($matchingRows)->toHaveCount(2);
+    expect((int) $matchingRows->sum(fn (array $row): int => parseMoneyRow($row['value'])))->toBe(10_000_000);
+});
+
+it('keeps two lawyers that share the same display name as two separate columns in load-per-lawyer', function () {
+    $twinA = User::factory()->withRole(Role::Lawyer)->create(['name' => 'Nguyễn Văn A']);
+    $twinB = User::factory()->withRole(Role::Lawyer)->create(['name' => 'Nguyễn Văn A']);
+
+    Matter::factory()->count(2)->create(['lead_lawyer_id' => $twinA->id]);
+    Matter::factory()->count(3)->create(['lead_lawyer_id' => $twinB->id]);
+
+    $this->actingAs($this->admin, 'web');
+    $rows = widgetRows(LoadPerLawyerWidget::class);
+    $matchingRows = collect($rows)->filter(fn (array $row): bool => $row['label'] === 'Nguyễn Văn A');
+
+    expect($matchingRows)->toHaveCount(2);
+    expect((int) $matchingRows->sum(fn (array $row): int => (int) $row['value']))->toBe(5);
+});
+
+it('sums the by-stage buckets to exactly the revenue-over-time total for the same filters', function () {
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
+
+    $contract = Contract::factory()->for($matter)->create(['total_amount' => 45_000_000, 'signed_at' => null]);
+
+    $onSigning = Instalment::factory()->for($contract)->onSigning()->create(['sequence' => 1, 'amount' => 10_000_000]);
+    $onStage = Instalment::factory()->for($contract)->onStage('court_accepted')->create(['sequence' => 2, 'amount' => 15_000_000]);
+    $onDueDate = Instalment::factory()->for($contract)->create(['sequence' => 3, 'amount' => 20_000_000, 'due_date' => today()->toDateString()]);
+
+    $contract->update(['status' => ContractStatus::Active, 'signed_at' => today()->toDateString()]);
+
+    foreach ([$onSigning, $onStage, $onDueDate] as $instalment) {
+        Payment::factory()->for($instalment)->create([
+            'amount' => $instalment->amount,
+            'paid_on' => today()->toDateString(),
+            'attributed_lawyer_id' => $this->lawyer->id,
+        ]);
+    }
+
+    $this->actingAs($this->lawyer, 'web');
+
+    $byStageRows = widgetRows(RevenueByStageWidget::class);
+    $byStageTotal = (int) collect($byStageRows)->sum(fn (array $row): int => parseMoneyRow($row['value']));
+
+    $overTimeData = widgetData(RevenueOverTimeWidget::class);
+    $overTimeTotal = array_sum($overTimeData['datasets'][0]['data']);
+
+    expect($byStageTotal)->toBe(45_000_000)
+        ->and($byStageTotal)->toBe($overTimeTotal);
+});
+
+// =================================================================================================
+// Fix round 1, I4 — listableBy và voided_at trên bốn/hai widget còn thiếu test riêng, cộng nhánh
+// practiceAreaId.
+// =================================================================================================
+
+it('never lets an accountant see a restricted matters money in over-time, by-stage, mix or load-per-lawyer', function () {
+    $restricted = Matter::factory()->restricted()->create(['lead_lawyer_id' => $this->lawyer->id, 'closed_at' => null]);
+    $contract = contractWithSchedule($restricted, 60_000_000, [
+        ['amount' => 60_000_000, 'due_date' => today()->subDay()->toDateString()],
+    ], today()->toDateString());
+    Payment::factory()->for($contract->instalments()->sole())->create(['amount' => 60_000_000, 'paid_on' => today()->toDateString(), 'attributed_lawyer_id' => $this->lawyer->id]);
+
+    $this->actingAs($this->accountant, 'web');
+
+    $overTime = widgetData(RevenueOverTimeWidget::class);
+    expect(array_sum($overTime['datasets'][0]['data']))->toBe(0);
+
+    $byStageRows = widgetRows(RevenueByStageWidget::class);
+    expect(collect($byStageRows)->sum(fn (array $row): int => parseMoneyRow($row['value'])))->toBe(0);
+
+    $this->actingAs($this->admin, 'web');
+    $mixRows = widgetRows(MatterMixByPracticeAreaWidget::class);
+    $adminAmount = (int) collect($mixRows)->sum(fn (array $row): int => parseMoneyRow($row['value']));
+
+    $this->actingAs($this->accountant, 'web');
+    $accountantMixRows = widgetRows(MatterMixByPracticeAreaWidget::class);
+    $accountantAmount = (int) collect($accountantMixRows)->sum(fn (array $row): int => parseMoneyRow($row['value']));
+
+    expect($accountantAmount)->toBeLessThan($adminAmount);
+
+    $loadRows = widgetRows(LoadPerLawyerWidget::class);
+    $lawyerRow = collect($loadRows)->firstWhere('label', $this->lawyer->name);
+    // Kế toán không thấy vụ restricted của luật sư này còn mở — nếu đó là vụ đang mở DUY NHẤT của
+    // luật sư, tên anh ta/cô ta không xuất hiện với kế toán, dù có xuất hiện với admin.
+    $adminLoadRows = collect(widgetRowsAs($this->admin, LoadPerLawyerWidget::class));
+    expect($adminLoadRows->firstWhere('label', $this->lawyer->name))->not->toBeNull()
+        ->and($lawyerRow)->toBeNull();
+});
+
+it('never counts a voided payment in revenue-over-time or revenue-by-stage', function () {
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
+    $contract = Contract::factory()->for($matter)->create(['total_amount' => 8_000_000, 'signed_at' => null]);
+    $instalment = Instalment::factory()->for($contract)->onSigning()->create(['sequence' => 1, 'amount' => 8_000_000]);
+    $contract->update(['status' => ContractStatus::Active, 'signed_at' => today()->toDateString()]);
+
+    Payment::factory()->for($instalment)->voided()->create([
+        'amount' => 8_000_000, 'paid_on' => today()->toDateString(), 'attributed_lawyer_id' => $this->lawyer->id,
+    ]);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    $overTime = widgetData(RevenueOverTimeWidget::class);
+    expect(array_sum($overTime['datasets'][0]['data']))->toBe(0);
+
+    $byStageRows = widgetRows(RevenueByStageWidget::class);
+    expect(collect($byStageRows)->sum(fn (array $row): int => parseMoneyRow($row['value'])))->toBe(0);
+});
+
+it('narrows every widget down to a single practice area when the practice-area filter is set', function () {
+    $typeA = MatterType::factory()->withStages()->create();
+    $typeB = MatterType::factory()->withStages()->create();
+
+    $matterA = Matter::factory()->create(['matter_type_id' => $typeA->id, 'lead_lawyer_id' => $this->lawyer->id]);
+    $matterB = Matter::factory()->create(['matter_type_id' => $typeB->id, 'lead_lawyer_id' => $this->lawyer->id]);
+
+    signedContract($matterA, 11_000_000);
+    signedContract($matterB, 22_000_000);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    $filteredToA = widgetData(ReceivablesDonutWidget::class, ['practice_area_id' => $typeA->id]);
+    $unfiltered = widgetData(ReceivablesDonutWidget::class);
+
+    expect(array_sum($filteredToA['datasets'][0]['data']))->toBe(11_000_000)
+        ->and(array_sum($unfiltered['datasets'][0]['data']))->toBe(33_000_000);
+});
+
+// =================================================================================================
+// Fix round 1, I5 — bảng số KHÔNG được cắt mất ô lọc tháng/quý/năm hay accessibility của vendor.
+// =================================================================================================
+
+it('still renders the vendor month/quarter/year filter select and the accessible canvas label', function () {
+    $this->actingAs($this->lawyer, 'web');
+
+    $html = Livewire::test(RevenueOverTimeWidget::class)->html();
+
+    expect($html)->toContain(__('widgets.revenue_dashboard.over_time.filter_month'))
+        ->toContain(__('widgets.revenue_dashboard.over_time.filter_quarter'))
+        ->toContain(__('widgets.revenue_dashboard.over_time.filter_year'))
+        ->toContain('role="img"');
+});
+
+/** @return list<array{label: string, value: string}> */
+function widgetRowsAs(User $user, string $class, array $pageFilters = []): array
+{
+    test()->actingAs($user, 'web');
+
+    return widgetRows($class, $pageFilters);
+}

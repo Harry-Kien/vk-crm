@@ -4,6 +4,7 @@ namespace App\Filament\Admin\Widgets\Revenue;
 
 use App\Enums\InstalmentTrigger;
 use App\Filament\Admin\Widgets\Revenue\Concerns\HasMoneyNumberTable;
+use App\Filament\Admin\Widgets\Revenue\Concerns\RequiresBillingView;
 use App\Models\Matter;
 use App\Models\User;
 use App\Support\Billing\Money;
@@ -27,8 +28,27 @@ use Illuminate\Support\Facades\DB;
  * hai "bó" riêng, có nhãn rõ ràng ("Tạm ứng khi ký hợp đồng", "Đến hạn theo ngày cụ thể"), KHÔNG bị
  * bỏ sót và KHÔNG bị gộp lẫn vào một giai đoạn nào chúng không thuộc về.
  *
- * **Gộp theo (matter_type, stage), không theo nhãn** — cùng lý do `MattersByStageWidget`: nhãn
- * giai đoạn không duy nhất toàn hệ thống, chỉ duy nhất trong một loại vụ việc.
+ * **Gộp theo (matter_type, stage) BẰNG ID, không theo nhãn** (Fix round 1, I3) — cùng lý do
+ * `MattersByStageWidget`: nhãn giai đoạn không duy nhất toàn hệ thống, chỉ duy nhất trong một loại
+ * vụ việc. Bản trước dùng NHÃN đã dịch làm khoá của mảng kết quả — hai giai đoạn (của hai loại vụ
+ * việc khác nhau, hoặc một giai đoạn đã đổi tên rồi một giai đoạn MỚI trùng tên cũ) đè lên nhau nếu
+ * nhãn hiển thị trùng. Sửa: `buckets()` trả về một DANH SÁCH có thứ tự (khoá số, không phải mảng
+ * kết hợp theo nhãn), mỗi phần tử tự mang `key` (chuỗi ổn định: `stage:{id giai đoạn}` hoặc
+ * `on_signing`/`due_date`) và `label` hiển thị riêng — hai bó trùng nhãn vẫn là hai PHẦN TỬ khác
+ * nhau trong mảng dữ liệu Chart.js, không mất bó nào.
+ *
+ * **JOIN cả giai đoạn đã xoá mềm** (Fix round 1, I3): câu hỏi của widget này là LỊCH SỬ ("tiền đã
+ * về ở khúc nào") — một giai đoạn bị quản trị viên xoá mềm SAU KHI tiền đã về đó không được phép
+ * làm khoản tiền đó biến mất khỏi báo cáo. Bản trước lọc `whereNull('matter_type_stages.deleted_at')`
+ * trong điều kiện JOIN, nên tiền của một giai đoạn đã xoá mềm không JOIN được và rơi mất khỏi cả
+ * biểu đồ lẫn tổng — không rơi vào bó "khác" nào, chỉ biến mất im lặng.
+ *
+ * **Giới hạn thành thật:** `MatterTypeStage::booted()` chỉ chặn trùng `(matter_type_id, key)`
+ * trong số các dòng CÒN SỐNG (`static::query()` đã tự loại xoá mềm) — nên về lý thuyết một giai
+ * đoạn xoá mềm và một giai đoạn MỚI của CÙNG loại vụ việc có thể trùng `key`. JOIN không lọc
+ * `deleted_at` khớp CẢ HAI dòng, và một khoản thu sẽ bị đếm vào CẢ HAI bucket (`stage_id` khác
+ * nhau) — tổng theo bucket khi đó vượt quá tổng thật. Đây là một đánh đổi có chủ đích (thà đếm dư
+ * một tình huống hiếm còn hơn làm biến mất một khoản có thật), không phải một lỗ hổng chưa biết.
  *
  * **Thời gian lọc `payments.paid_on`** ("tiền về trong kỳ"); **luật sư lọc
  * `payments.attributed_lawyer_id`** ("luật sư phụ trách lúc thu") — cùng nghĩa với
@@ -40,10 +60,14 @@ class RevenueByStageWidget extends ChartWidget
 {
     use HasMoneyNumberTable;
     use InteractsWithPageFilters;
+    use RequiresBillingView;
 
     protected static bool $isDiscovered = false;
 
     protected string $view = 'filament.admin.widgets.revenue.chart-with-table';
+
+    /** Tránh tính hai lần khi cả `getData()` lẫn `numberTableRows()` cùng đọc (Fix round 1). */
+    private ?array $bucketsCache = null;
 
     public function getHeading(): string|Htmlable|null
     {
@@ -65,7 +89,7 @@ class RevenueByStageWidget extends ChartWidget
     public function numberTableRows(): array
     {
         return collect($this->buckets())
-            ->map(fn (int $amount, string $label): array => ['label' => $label, 'value' => Money::format($amount)])
+            ->map(fn (array $row): array => ['label' => $row['label'], 'value' => Money::format($row['amount'])])
             ->values()
             ->all();
     }
@@ -75,11 +99,11 @@ class RevenueByStageWidget extends ChartWidget
         $buckets = $this->buckets();
 
         return [
-            'labels' => array_keys($buckets),
+            'labels' => array_column($buckets, 'label'),
             'datasets' => [
                 [
                     'label' => __('widgets.revenue_dashboard.by_stage.series'),
-                    'data' => array_values($buckets),
+                    'data' => array_column($buckets, 'amount'),
                     'backgroundColor' => '#4a73bd',
                 ],
             ],
@@ -95,8 +119,14 @@ class RevenueByStageWidget extends ChartWidget
         ];
     }
 
-    /** @return array<string, int> Nhãn bó (theo thứ tự giai đoạn, rồi hai bó "khác") => tổng đã thu. */
+    /** @return list<array{key: string, label: string, amount: int}> Theo thứ tự giai đoạn, rồi hai bó "khác". */
     private function buckets(): array
+    {
+        return $this->bucketsCache ??= $this->computeBuckets();
+    }
+
+    /** @return list<array{key: string, label: string, amount: int}> */
+    private function computeBuckets(): array
     {
         $user = Auth::user();
 
@@ -108,43 +138,39 @@ class RevenueByStageWidget extends ChartWidget
         $from = $filters->from->toDateString();
         $to = $filters->to->toDateString();
 
-        // Một truy vấn Eloquent để lấy đúng tập vụ việc `Matter::scopeListableBy()` cho phép,
-        // rồi dùng lại tập id đó trong truy vấn JOIN thô bên dưới — không viết lại điều kiện
-        // "ai thấy vụ nào" bằng SQL tay (P3: MỘT định nghĩa duy nhất).
-        $matterIds = Matter::query()
+        // Subquery, KHÔNG `->pluck('id')` (Fix round 1, minor): `Matter::scopeListableBy()` vẫn
+        // là MỘT định nghĩa duy nhất (P3), nhưng giữ nó ở dạng SQL con thay vì kéo danh sách id về
+        // PHP rồi nhồi vào `whereIn` — tránh một danh sách id dài tràn ra một câu SQL khổng lồ khi
+        // văn phòng có nhiều vụ việc.
+        $matterIdsQuery = Matter::query()
             ->listableBy($user)
             ->when($filters->practiceAreaId, fn ($q, int $v) => $q->where('matter_type_id', $v))
-            ->pluck('id');
-
-        if ($matterIds->isEmpty()) {
-            return [];
-        }
+            ->select('id');
 
         $base = fn (): Builder => DB::table('payments')
             ->join('instalments', 'instalments.id', '=', 'payments.instalment_id')
             ->join('contracts', 'contracts.id', '=', 'instalments.contract_id')
-            ->whereIn('contracts.matter_id', $matterIds)
+            ->whereIn('contracts.matter_id', $matterIdsQuery)
             ->whereNull('payments.voided_at')
             ->whereBetween('payments.paid_on', [$from, $to])
             ->when($filters->lawyerId, fn (Builder $q, int $v) => $q->where('payments.attributed_lawyer_id', $v));
 
+        // KHÔNG `whereNull('matter_type_stages.deleted_at')` ở đây (Fix round 1, I3) — xem docblock
+        // lớp: câu hỏi là LỊCH SỬ, một giai đoạn xoá mềm SAU KHI tiền đã về vẫn phải hiện.
         $stageRows = $base()
             ->join('matters', 'matters.id', '=', 'contracts.matter_id')
-            ->join('matter_type_stages', function ($join): void {
-                $join->on('matter_type_stages.matter_type_id', '=', 'matters.matter_type_id')
-                    ->on('matter_type_stages.key', '=', 'instalments.trigger_stage_key')
-                    ->whereNull('matter_type_stages.deleted_at');
-            })
+            ->join('matter_type_stages', 'matter_type_stages.matter_type_id', '=', 'matters.matter_type_id')
+            ->whereColumn('matter_type_stages.key', 'instalments.trigger_stage_key')
             ->join('matter_types', 'matter_types.id', '=', 'matter_type_stages.matter_type_id')
             ->where('instalments.trigger_type', InstalmentTrigger::Stage->value)
             ->groupBy(
-                'matter_types.id', 'matter_types.name', 'matter_types.sort_order',
+                'matter_type_stages.id', 'matter_types.name', 'matter_types.sort_order',
                 'matter_type_stages.label', 'matter_type_stages.sort_order',
             )
             ->orderBy('matter_types.sort_order')
             ->orderBy('matter_types.id')
             ->orderBy('matter_type_stages.sort_order')
-            ->selectRaw('matter_types.name as type_name, matter_type_stages.label as stage_label, sum(payments.amount) as total')
+            ->selectRaw('matter_type_stages.id as stage_id, matter_types.name as type_name, matter_type_stages.label as stage_label, sum(payments.amount) as total')
             ->get();
 
         $catchAllRows = $base()
@@ -157,19 +183,30 @@ class RevenueByStageWidget extends ChartWidget
         $buckets = [];
 
         foreach ($stageRows as $row) {
-            $label = __('widgets.revenue_dashboard.by_stage.bucket_label', [
-                'type' => $row->type_name,
-                'stage' => $row->stage_label,
-            ]);
-            $buckets[$label] = (int) $row->total;
+            $buckets[] = [
+                'key' => 'stage:'.$row->stage_id,
+                'label' => __('widgets.revenue_dashboard.by_stage.bucket_label', [
+                    'type' => $row->type_name,
+                    'stage' => $row->stage_label,
+                ]),
+                'amount' => (int) $row->total,
+            ];
         }
 
         if ($onSigning = $catchAllRows->get(InstalmentTrigger::OnSigning->value)) {
-            $buckets[__('widgets.revenue_dashboard.by_stage.on_signing_bucket')] = (int) $onSigning->total;
+            $buckets[] = [
+                'key' => 'on_signing',
+                'label' => __('widgets.revenue_dashboard.by_stage.on_signing_bucket'),
+                'amount' => (int) $onSigning->total,
+            ];
         }
 
         if ($dueDate = $catchAllRows->get(InstalmentTrigger::DueDate->value)) {
-            $buckets[__('widgets.revenue_dashboard.by_stage.due_date_bucket')] = (int) $dueDate->total;
+            $buckets[] = [
+                'key' => 'due_date',
+                'label' => __('widgets.revenue_dashboard.by_stage.due_date_bucket'),
+                'amount' => (int) $dueDate->total,
+            ];
         }
 
         return $buckets;

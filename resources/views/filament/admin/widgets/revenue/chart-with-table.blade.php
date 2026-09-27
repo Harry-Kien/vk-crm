@@ -1,13 +1,15 @@
 {{--
-    View DÙNG CHUNG cho năm widget ChartWidget của trang doanh thu (M9 Task 9). Sao lại đúng phần
-    khung của filament-widgets::chart-widget (canvas + Alpine `chart()`), CHỈ thêm một bảng số ở
-    cuối — "luôn có một bảng số đi kèm mỗi biểu đồ" (kế hoạch M9).
+    View DÙNG CHUNG cho các widget ChartWidget của trang doanh thu (M9 Task 9). Bản sao TRUNG THỰC
+    của vendor/filament/widgets/resources/views/chart-widget.blade.php — kể cả bộ lọc riêng của
+    widget (`getFilters()`, ô <select> tháng/quý/năm), `role="img"`/`aria-label` cho canvas, polling
+    và trạng thái rỗng — CHỈ THÊM một bảng số ở cuối, trước khi đóng `<x-filament::section>` (Fix
+    round 1, I5: bản trước cắt bớt ô lọc và thuộc tính accessibility của vendor khi tự viết lại từ
+    đầu; giờ sao lại NGUYÊN VẸN rồi mới thêm).
 
     KHÔNG có class Tailwind viết tay: dự án không có bước build CSS (xem
-    resources/views/filament/admin/widgets/system-health.blade.php). `<x-filament::section>` và
-    `<x-filament-widgets::widget>` an toàn vì chúng là COMPONENT của Filament — CSS của chúng đã
-    nằm sẵn trong theme biên dịch, không phải class tôi tự gõ. Bảng số dùng style nội tuyến trên
-    biến CSS của Filament, cùng thành ngữ system-health.blade.php.
+    resources/views/filament/admin/widgets/system-health.blade.php). Mọi class ở đây hoặc là
+    nguyên văn từ vendor (đã có sẵn trong theme biên dịch) hoặc là style nội tuyến trên biến CSS
+    của Filament, cùng thành ngữ system-health.blade.php.
 
     KHÔNG tooltip callback, KHÔNG RawJs (M8 R4 chưa có phán quyết CSP — xem docblock từng widget):
     `getOptions()` chỉ là mảng PHP thuần, `@js()` serialize nó y hệt cách vendor làm. Toàn bộ số
@@ -16,18 +18,91 @@
 --}}
 @php
     use Filament\Support\Facades\FilamentAsset;
+    use Filament\Support\View\ComponentAttributeBag as FilamentComponentAttributeBag;
+    use Filament\Widgets\View\Components\ChartWidgetComponent;
+    use Illuminate\Contracts\Support\Htmlable;
 
+    $color = $this->getColor();
     $heading = $this->getHeading();
     $description = $this->getDescription();
+    $filters = $this->getFilters();
+    $isCollapsible = $this->isCollapsible();
     $type = $this->getType();
+    $maxHeight = $this->getMaxHeight();
+    $hasMaxHeight = filled($maxHeight) && $maxHeight !== '100%';
     $isEmpty = $this->isEmpty();
     $rows = $this->numberTableRows();
+
+    $chartAccessibleLabel = trim(implode('. ', array_filter([
+        $heading instanceof Htmlable ? strip_tags($heading->toHtml()) : $heading,
+        $description instanceof Htmlable ? strip_tags($description->toHtml()) : $description,
+    ], fn ($value): bool => filled($value))));
 @endphp
 
 <x-filament-widgets::widget class="fi-wi-chart">
-    <x-filament::section :description="$description" :heading="$heading">
+    <x-filament::section
+        :description="$description"
+        :heading="$heading"
+        :collapsible="$isCollapsible"
+    >
+        @if ($filters || method_exists($this, 'getFiltersSchema'))
+            <x-slot name="afterHeader">
+                @if ($filters)
+                    <x-filament::input.wrapper
+                        inline-prefix
+                        wire:target="filter"
+                        class="fi-wi-chart-filter"
+                    >
+                        <x-filament::input.select
+                            :aria-label="__('filament-widgets::chart.filter.label')"
+                            inline-prefix
+                            wire:model.live="filter"
+                        >
+                            @foreach ($filters as $value => $label)
+                                <option value="{{ $value }}">
+                                    {{ $label }}
+                                </option>
+                            @endforeach
+                        </x-filament::input.select>
+                    </x-filament::input.wrapper>
+                @endif
+
+                @if (method_exists($this, 'getFiltersSchema'))
+                    <x-filament::dropdown
+                        placement="bottom-end"
+                        shift
+                        width="xs"
+                        class="fi-wi-chart-filter"
+                    >
+                        <x-slot name="trigger">
+                            {{ $this->getFiltersTriggerAction() }}
+                        </x-slot>
+
+                        <div class="fi-wi-chart-filter-content">
+                            {{ $this->getFiltersSchema() }}
+
+                            @if (method_exists($this, 'hasDeferredFilters') && $this->hasDeferredFilters())
+                                <div
+                                    class="fi-wi-chart-filter-content-actions-ctn"
+                                >
+                                    {{ $this->getFiltersApplyAction() }}
+
+                                    {{ $this->getFiltersResetAction() }}
+                                </div>
+                            @endif
+                        </div>
+                    </x-filament::dropdown>
+                @endif
+            </x-slot>
+        @endif
+
         <div
-            @if ($isEmpty) style="display: none" @endif
+            @if ($pollingInterval = $this->getPollingInterval())
+                wire:poll.{{ $pollingInterval }}="updateChartData"
+            @endif
+            @if ($isEmpty)
+                style="display: none"
+            @endif
         >
             <div
                 x-load
@@ -39,20 +114,79 @@
                             options: @js($this->getOptions()),
                             type: @js($type),
                         })"
-                class="fi-wi-chart-frame fi-wi-chart-canvas-ctn"
+                {{
+                    (new FilamentComponentAttributeBag)
+                        ->color(ChartWidgetComponent::class, $color)
+                        ->class([
+                            'fi-wi-chart-frame',
+                            'fi-wi-chart-canvas-ctn',
+                            'fi-wi-chart-frame-no-aspect-ratio' => $hasMaxHeight,
+                        ])
+                }}
             >
-                <canvas x-ref="canvas" style="width: 100%; height: 100%; max-height: 100%"></canvas>
+                <canvas
+                    x-ref="canvas"
+                    @if (filled($chartAccessibleLabel))
+                        role="img"
+                        aria-label="{{ $chartAccessibleLabel }}"
+                    @endif
+                    @style([
+                        'width: 100%',
+                        'height: 100%; max-height: 100%' => ! $hasMaxHeight,
+                        ('max-height: ' . e($maxHeight)) => $hasMaxHeight,
+                    ])
+                ></canvas>
 
-                <span aria-hidden="true" x-ref="backgroundColorElement" class="fi-wi-chart-bg-color"></span>
-                <span aria-hidden="true" x-ref="borderColorElement" class="fi-wi-chart-border-color"></span>
-                <span aria-hidden="true" x-ref="gridColorElement" class="fi-wi-chart-grid-color"></span>
-                <span aria-hidden="true" x-ref="textColorElement" class="fi-wi-chart-text-color"></span>
-                <span aria-hidden="true" x-ref="tooltipBackgroundColorElement" class="fi-wi-chart-tooltip-bg-color"></span>
-                <span aria-hidden="true" x-ref="tooltipTextColorElement" class="fi-wi-chart-tooltip-text-color"></span>
-                <span aria-hidden="true" x-ref="tooltipBorderColorElement" class="fi-wi-chart-tooltip-border-color"></span>
+                {{--
+                    Chart.js paints the chart onto the canvas, where a stylesheet cannot reach it. These empty
+                    elements carry the colors it should use, so that a theme can set them with an ordinary
+                    `color` declaration and they follow light and dark mode like any other element.
+                --}}
+                <span
+                    aria-hidden="true"
+                    x-ref="backgroundColorElement"
+                    class="fi-wi-chart-bg-color"
+                ></span>
+
+                <span
+                    aria-hidden="true"
+                    x-ref="borderColorElement"
+                    class="fi-wi-chart-border-color"
+                ></span>
+
+                <span
+                    aria-hidden="true"
+                    x-ref="gridColorElement"
+                    class="fi-wi-chart-grid-color"
+                ></span>
+
+                <span
+                    aria-hidden="true"
+                    x-ref="textColorElement"
+                    class="fi-wi-chart-text-color"
+                ></span>
+
+                <span
+                    aria-hidden="true"
+                    x-ref="tooltipBackgroundColorElement"
+                    class="fi-wi-chart-tooltip-bg-color"
+                ></span>
+
+                <span
+                    aria-hidden="true"
+                    x-ref="tooltipTextColorElement"
+                    class="fi-wi-chart-tooltip-text-color"
+                ></span>
+
+                <span
+                    aria-hidden="true"
+                    x-ref="tooltipBorderColorElement"
+                    class="fi-wi-chart-tooltip-border-color"
+                ></span>
             </div>
         </div>
 
+        {{-- Thêm so với vendor: bảng số đi kèm mỗi biểu đồ (kế hoạch M9, "luôn có một bảng số"). --}}
         @if (! $isEmpty && count($rows))
             <details style="margin-top: 12px;">
                 <summary style="cursor: pointer; font-size: 0.875rem; color: var(--gray-500);">
@@ -73,13 +207,36 @@
         @endif
 
         @if ($isEmpty)
-            <x-filament::empty-state
-                :contained="false"
-                :description="$this->getEmptyStateDescription()"
-                :heading="$this->getEmptyStateHeading()"
-                :icon="$this->getEmptyStateIcon()"
-                icon-color="gray"
-            />
+            @if ($emptyState = $this->getEmptyState())
+                {{ $emptyState }}
+            @else
+                <div
+                    @class([
+                        'fi-wi-chart-frame',
+                        'fi-wi-chart-frame-no-aspect-ratio' => $hasMaxHeight,
+                    ])
+                    @style([
+                        ('min-height: ' . e($maxHeight)) => $hasMaxHeight,
+                    ])
+                >
+                    <x-filament::empty-state
+                        :contained="false"
+                        :description="$this->getEmptyStateDescription()"
+                        :heading="$this->getEmptyStateHeading()"
+                        :icon="$this->getEmptyStateIcon()"
+                        icon-color="gray"
+                    >
+                        @if ($emptyStateActions = $this->getEmptyStateActions())
+                            <x-slot name="footer">
+                                <x-filament::actions
+                                    :actions="$emptyStateActions"
+                                    alignment="center"
+                                />
+                            </x-slot>
+                        @endif
+                    </x-filament::empty-state>
+                </div>
+            @endif
         @endif
     </x-filament::section>
 </x-filament-widgets::widget>

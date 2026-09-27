@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Widgets\Revenue;
 
+use App\Filament\Admin\Widgets\Revenue\Concerns\RequiresBillingView;
 use App\Models\Matter;
 use App\Models\User;
 use App\Support\Billing\BillingSummary;
@@ -32,6 +33,7 @@ use Illuminate\Support\Facades\Auth;
 class ClosedWithBalanceWidget extends TableWidget
 {
     use InteractsWithPageFilters;
+    use RequiresBillingView;
 
     protected static bool $isDiscovered = false;
 

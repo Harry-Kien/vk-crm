@@ -15,12 +15,20 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * Tải theo luật sư — cột ngang, số vụ việc ĐANG MỞ (`closed_at is null`) theo luật sư phụ trách.
+ * Tải theo luật sư — cột ngang, số vụ việc ĐANG MỞ (`closed_at is null`) theo luật sư phụ trách
+ * HIỆN TẠI (`matters.lead_lawyer_id`, Fix round 1, I6 — nghĩa này giờ được NÓI RA trên
+ * `getDescription()`, không chỉ ngụ ý qua tên widget).
  *
  * **KHÔNG phụ thuộc bộ lọc thời gian của trang.** Đây là một ẢNH CHỤP HIỆN TẠI ("ai đang cầm bao
  * nhiêu vụ ngay lúc này"), không phải một số phát sinh trong một kỳ — nên đổi kỳ lọc trên trang
- * KHÔNG đổi widget này (có test khẳng định đúng điều đó). Bộ lọc luật sư, nếu chọn, chỉ còn lại
- * đúng một cột — một phép thu hẹp tầm thường nhưng nhất quán với mọi widget khác.
+ * KHÔNG đổi widget này (có test khẳng định đúng điều đó). Bộ lọc luật sư (`matters.lead_lawyer_id`),
+ * nếu chọn, chỉ còn lại đúng một cột — một phép thu hẹp tầm thường nhưng nhất quán với mọi widget
+ * khác.
+ *
+ * **Gộp theo ID luật sư, không theo tên** (Fix round 1, I3): hai luật sư trùng tên (không hiếm ở
+ * Việt Nam) sẽ đè số vụ của nhau nếu khoá là chuỗi tên hiển thị. `counts()` trả về một DANH SÁCH
+ * (không phải mảng kết hợp theo tên), mỗi phần tử tự mang `key` (id luật sư) và `label` (tên hiển
+ * thị) riêng.
  *
  * **Đòi thêm `revenue.viewAny`** — widget so sánh toàn văn phòng thứ hai (cùng lý do
  * `MatterMixByPracticeAreaWidget`): luật sư không thấy widget này.
@@ -37,6 +45,9 @@ class LoadPerLawyerWidget extends ChartWidget
     protected static bool $isDiscovered = false;
 
     protected string $view = 'filament.admin.widgets.revenue.chart-with-table';
+
+    /** Tránh tính hai lần khi cả `getData()` lẫn `numberTableRows()` cùng đọc (Fix round 1). */
+    private ?array $countsCache = null;
 
     public static function canView(): bool
     {
@@ -63,7 +74,7 @@ class LoadPerLawyerWidget extends ChartWidget
     public function numberTableRows(): array
     {
         return collect($this->counts())
-            ->map(fn (int $count, string $label): array => ['label' => $label, 'value' => (string) $count])
+            ->map(fn (array $row): array => ['label' => $row['label'], 'value' => (string) $row['amount']])
             ->values()
             ->all();
     }
@@ -73,11 +84,11 @@ class LoadPerLawyerWidget extends ChartWidget
         $counts = $this->counts();
 
         return [
-            'labels' => array_keys($counts),
+            'labels' => array_column($counts, 'label'),
             'datasets' => [
                 [
                     'label' => __('widgets.revenue_dashboard.load_per_lawyer.series'),
-                    'data' => array_values($counts),
+                    'data' => array_column($counts, 'amount'),
                     'backgroundColor' => '#4a73bd',
                 ],
             ],
@@ -93,8 +104,14 @@ class LoadPerLawyerWidget extends ChartWidget
         ];
     }
 
-    /** @return array<string, int> Tên luật sư (giảm dần theo số vụ) => số vụ đang mở. */
+    /** @return list<array{key: int, label: string, amount: int}> Theo luật sư (id), giảm dần theo số vụ. */
     private function counts(): array
+    {
+        return $this->countsCache ??= $this->computeCounts();
+    }
+
+    /** @return list<array{key: int, label: string, amount: int}> */
+    private function computeCounts(): array
     {
         $user = Auth::user();
 
@@ -116,11 +133,10 @@ class LoadPerLawyerWidget extends ChartWidget
             ->selectRaw('users.id as user_id, users.name as lawyer_name, count(*) as total')
             ->get();
 
-        $result = [];
-        foreach ($rows as $row) {
-            $result[$row->lawyer_name] = (int) $row->total;
-        }
-
-        return $result;
+        return $rows->map(fn ($row): array => [
+            'key' => (int) $row->user_id,
+            'label' => $row->lawyer_name,
+            'amount' => (int) $row->total,
+        ])->all();
     }
 }

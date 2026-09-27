@@ -3,6 +3,7 @@
 namespace App\Filament\Admin\Widgets\Revenue;
 
 use App\Filament\Admin\Widgets\Revenue\Concerns\HasMoneyNumberTable;
+use App\Filament\Admin\Widgets\Revenue\Concerns\RequiresBillingView;
 use App\Models\Payment;
 use App\Models\User;
 use App\Support\Billing\Money;
@@ -33,12 +34,16 @@ class RevenueOverTimeWidget extends ChartWidget
 {
     use HasMoneyNumberTable;
     use InteractsWithPageFilters;
+    use RequiresBillingView;
 
     protected static bool $isDiscovered = false;
 
     protected string $view = 'filament.admin.widgets.revenue.chart-with-table';
 
     public ?string $filter = 'month';
+
+    /** Tránh tính hai lần khi cả `getData()` lẫn `numberTableRows()` cùng đọc (Fix round 1). */
+    private ?array $bucketsCache = null;
 
     public function getHeading(): string|Htmlable|null
     {
@@ -100,6 +105,15 @@ class RevenueOverTimeWidget extends ChartWidget
 
     /** @return array<string, int> Nhãn kỳ (đã sắp theo thời gian) => tổng đã thu, chưa định dạng. */
     private function buckets(): array
+    {
+        // Bộ nhớ đệm phải tính theo $this->filter (granularity tháng/quý/năm đổi bucket) — không
+        // chỉ một cache tĩnh, vì `getData()` và `numberTableRows()` phải thấy CÙNG kết quả trong
+        // MỘT lần render, nhưng một lần đổi `$filter` qua Livewire lại phải tính lại.
+        return $this->bucketsCache[$this->filter ?? 'month'] ??= $this->computeBuckets();
+    }
+
+    /** @return array<string, int> */
+    private function computeBuckets(): array
     {
         $user = Auth::user();
 

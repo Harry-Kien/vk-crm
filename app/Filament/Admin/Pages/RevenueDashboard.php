@@ -134,11 +134,25 @@ class RevenueDashboard extends Dashboard
                 ->visible(fn ($get) => $get('period') === 'custom'),
             Select::make('lawyer_id')
                 ->label(__('widgets.revenue_dashboard.filters.lawyer'))
-                ->options(fn () => User::query()
-                    ->whereHas('leadMatters')
-                    ->orderBy('name')
-                    ->pluck('name', 'id')
-                    ->all())
+                // Fix round 1, minor: options chỉ liệt kê luật sư đang phụ trách ÍT NHẤT một vụ
+                // mà NGƯỜI ĐANG XEM được thấy (`Matter::scopeListableBy()`) — không phải MỌI luật
+                // sư có leadMatters trong hệ thống. Một kế toán/quản lý (không thấy vụ `restricted`)
+                // không bao giờ được đưa cho một cái tên luật sư chỉ phụ trách toàn vụ `restricted`
+                // để chọn — chọn cái tên đó rồi mọi widget ra 0 dòng sẽ ngầm xác nhận "có một luật
+                // sư như vậy tồn tại", đúng kiểu rò rỉ SỰ TỒN TẠI mà SPEC §10.10 cấm.
+                ->options(function (): array {
+                    $user = Auth::user();
+
+                    if (! $user instanceof User) {
+                        return [];
+                    }
+
+                    return User::query()
+                        ->whereHas('leadMatters', fn ($q) => $q->listableBy($user))
+                        ->orderBy('name')
+                        ->pluck('name', 'id')
+                        ->all();
+                })
                 ->native(false)
                 ->searchable(),
             Select::make('practice_area_id')
