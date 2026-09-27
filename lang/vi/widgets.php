@@ -69,4 +69,80 @@ return [
         // vì vậy luôn kèm tên loại, nếu không hai cột khác nhau trông y hệt nhau.
         'stage_label' => ':type — :stage',
     ],
+
+    // Trang doanh thu (M9 Task 9) — sáu widget, KHÔNG trên trang chủ §7.1.
+    'revenue_dashboard' => [
+        'navigation_label' => 'Doanh thu',
+        'title' => 'Doanh thu',
+        'number_table_toggle' => 'Xem bảng số',
+        'filters' => [
+            'period' => 'Kỳ',
+            'period_options' => [
+                'this_month' => 'Tháng này',
+                'this_quarter' => 'Quý này',
+                'this_year' => 'Năm nay',
+                'custom' => 'Tuỳ chọn (từ – đến)',
+            ],
+            'date_from' => 'Từ ngày',
+            'date_to' => 'Đến ngày',
+            'lawyer' => 'Luật sư phụ trách',
+            'practice_area' => 'Lĩnh vực',
+            'by_count' => 'Đếm theo số vụ',
+            'by_count_help' => 'Bật để đếm theo số vụ việc thay vì tổng giá trị. Chỉ đổi con số được đo trên biểu đồ "Cơ cấu vụ việc theo lĩnh vực", không thêm trục nào khác.',
+        ],
+        'donut' => [
+            'heading' => 'Đã thu / còn phải thu / quá hạn',
+            'description' => 'Việc đã ký trong kỳ (:range) — theo contracts.signed_at. Ba lát tính TẠI HÔM NAY. Bộ lọc luật sư: luật sư phụ trách HIỆN TẠI của vụ (matters.lead_lawyer_id).',
+            'slices' => [
+                'collected' => 'Đã thu: :amount',
+                'not_yet_due' => 'Còn phải thu, chưa tới hạn: :amount',
+                'overdue' => 'Quá hạn: :amount',
+            ],
+            'table' => [
+                'signed_total' => 'Tổng giá trị đã ký trong kỳ',
+                'waived_total' => 'Đã miễn',
+                'collected' => 'Đã thu',
+                'not_yet_due' => 'Còn phải thu, chưa tới hạn',
+                'overdue' => 'Quá hạn',
+            ],
+        ],
+        'over_time' => [
+            'heading' => 'Doanh thu theo thời gian',
+            'description' => 'Tiền về trong kỳ (:range) — theo payments.paid_on. Bộ lọc luật sư: luật sư phụ trách LÚC THU (payments.attributed_lawyer_id).',
+            'filter_month' => 'Theo tháng',
+            'filter_quarter' => 'Theo quý',
+            'filter_year' => 'Theo năm',
+            'series' => 'Doanh thu đã thu',
+        ],
+        'by_stage' => [
+            'heading' => 'Doanh thu đã thu theo đợt/giai đoạn',
+            'description' => 'Tiền về trong kỳ (:range) — theo payments.paid_on, gộp theo giai đoạn kích hoạt đợt. Bộ lọc luật sư: luật sư phụ trách LÚC THU (payments.attributed_lawyer_id).',
+            'bucket_label' => ':type — :stage',
+            'on_signing_bucket' => 'Tạm ứng khi ký hợp đồng (mọi loại vụ việc)',
+            'due_date_bucket' => 'Đến hạn theo ngày cụ thể, không theo giai đoạn (mọi loại vụ việc)',
+            'series' => 'Đã thu',
+        ],
+        'mix_by_practice_area' => [
+            'heading' => 'Cơ cấu vụ việc theo lĩnh vực',
+            'description' => 'Việc đã ký trong kỳ (:range) — theo contracts.signed_at. Bộ lọc luật sư: luật sư phụ trách HIỆN TẠI (matters.lead_lawyer_id). Công tắc "đếm theo số vụ" đổi số vụ/số tiền được đo, xếp giảm dần theo giá trị đó.',
+            'series_amount' => 'Giá trị đã ký',
+            'series_count' => 'Số vụ',
+        ],
+        'load_per_lawyer' => [
+            'heading' => 'Tải theo luật sư',
+            'description' => 'Ảnh chụp HIỆN TẠI: số vụ đang mở của mỗi luật sư phụ trách. KHÔNG phụ thuộc bộ lọc thời gian của trang.',
+            'series' => 'Số vụ đang mở',
+        ],
+        'closed_with_balance' => [
+            'heading' => 'Hồ sơ đã kết thúc còn công nợ',
+            'description' => 'KHÔNG phụ thuộc bộ lọc thời gian hay công tắc đếm — luôn liệt kê mọi vụ việc anh/chị được xem đã kết thúc mà còn dư nợ.',
+            'columns' => [
+                'matter_code' => 'Mã hồ sơ',
+                'client' => 'Khách hàng',
+                'closed_at' => 'Kết thúc ngày',
+                'outstanding' => 'Còn phải thu',
+            ],
+            'empty_heading' => 'Không có hồ sơ đã kết thúc nào còn công nợ.',
+        ],
+    ],
 ];
