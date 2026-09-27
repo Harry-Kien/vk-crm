@@ -8,6 +8,7 @@ use App\Enums\UserPosition;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Resources\Users\UserResource;
 use App\Models\User;
+use App\Support\Audit;
 use Filament\Actions\DeleteAction;
 use Filament\Resources\Pages\EditRecord;
 use Illuminate\Database\Eloquent\Model;
@@ -191,6 +192,16 @@ class EditUser extends EditRecord
                 $updated = parent::handleRecordUpdate($record, $data);
 
                 $updated->assignRoleFromPosition();
+
+                // Task 20 (phát hiện "admin đặt được mật khẩu 1 cho luật sư mà không có nhật ký
+                // nào"): CÙNG điều kiện dehydrate của ô mật khẩu ở UserForm (`filled($state)`) —
+                // "không gõ gì vào ô mật khẩu" không bao giờ sinh dòng này, chỉ một lần THẬT SỰ
+                // đặt lại mới sinh. Không ghi mật khẩu (thô hay đã băm) vào properties, chỉ ghi
+                // SỰ KIỆN đã xảy ra — cùng nguyên tắc R14 (không ghi định danh/bí mật thô vào
+                // nhật ký).
+                if (array_key_exists('password', $data) && filled($data['password'])) {
+                    Audit::record('user_password_reset', $updated, [], Auth::user());
+                }
 
                 return $updated;
             });

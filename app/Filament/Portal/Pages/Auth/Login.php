@@ -10,12 +10,15 @@ use Filament\Auth\Http\Responses\Contracts\LoginResponse;
 use Filament\Auth\MultiFactor\MultiFactorChallenge;
 use Filament\Auth\Pages\Login as BaseLogin;
 use Filament\Facades\Filament;
+use Filament\Notifications\Notification;
 use Filament\Schemas\Schema;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Auth\Guard;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use LogicException;
 use SensitiveParameter;
+use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 
 /**
  * Trang đăng nhập cổng khách hàng — SPEC §8.1, §10.3, §10.6, §10.10.
@@ -212,9 +215,54 @@ class Login extends BaseLogin
             ]);
     }
 
+    /**
+     * Task 20 (phát hiện "mã OTP cổng không gửi được vì máy chủ thư lỗi thì trang đăng nhập ném
+     * exception"). `SendLoginCode` gửi THẲNG, không qua hàng đợi (SPEC §8.1 — mã chỉ sống 5 phút,
+     * khách đang ngồi chờ), nên một transport hỏng ném
+     * `Symfony\Component\Mailer\Exception\TransportExceptionInterface` NGAY TRONG
+     * `parent::authenticate()`: mật khẩu đã đúng, `PortalEmailAuthentication::beforeChallenge()`
+     * gọi `sendCode()` → `$user->notify(...)` → transport hỏng → ném thẳng lên đây, chưa từng đi
+     * qua `throwFailureValidationException()`.
+     *
+     * Bắt Ở ĐÂY, không bắt sâu hơn trong `PortalEmailAuthentication`, vì đây đúng là "trang đăng
+     * nhập" mà phát hiện gốc chỉ đích danh, và vì lần gửi DUY NHẤT xảy ra bên trong một lượt
+     * `authenticate()` là lần này (ngay sau khi mật khẩu đúng, trước khi màn hình nhập mã hiện
+     * ra).
+     *
+     * **Không đi qua `throwFailureValidationException()`.** Đó là nút cổ chai của mọi nhánh HỎNG
+     * Ở BƯỚC MẬT KHẨU (xem docblock của hàm đó) — mật khẩu ở đây KHÔNG hỏng, máy chủ thư mới hỏng,
+     * nên đi qua đó sẽ đập nhầm `PortalLoginThrottle` một lần y hệt một lần gõ sai mật khẩu (đúng
+     * điều test "does not touch the password lock counter" cấm). Một `Notification` (cùng thành
+     * ngữ `resend_throttled` của `PortalEmailAuthentication::beforeChallenge()`) là đủ: khách vẫn
+     * đứng ở đúng màn hình, đọc được câu tiếng Việt, và có thể bấm lại.
+     *
+     * Ghi log lỗi thật (không phải chỉ dòng `outbound_messages` mà `OutboundLedgerTransport` đã
+     * ghi trước khi ném lại) — để một đợt SMTP chết kéo dài ồn ào ở nơi vận hành đang xem, không
+     * chỉ nằm im trong một bảng CSDL không ai chủ động tra.
+     *
+     * **Chưa lấp: nút "Gửi lại mã"** (`PortalEmailAuthentication::getChallengeFormComponents()`,
+     * action `resend`) gọi lại `sendCode()` bằng MỘT lời gọi Livewire RIÊNG, không đi qua
+     * `authenticate()` — một transport hỏng đúng lúc khách bấm nút đó vẫn ném ra ngoài chưa bắt.
+     * Nằm ngoài phạm vi brief của task này (chỉ nêu "trang đăng nhập"); ghi lại để không ai tưởng
+     * đây là một lỗ hổng bị bỏ quên.
+     */
     public function authenticate(): ?LoginResponse
     {
-        $response = parent::authenticate();
+        try {
+            $response = parent::authenticate();
+        } catch (TransportExceptionInterface $exception) {
+            Log::error('Không gửi được mã OTP đăng nhập cổng khách hàng: máy chủ thư lỗi.', [
+                'email' => $this->submittedEmail(),
+                'exception' => $exception,
+            ]);
+
+            Notification::make()
+                ->title(__('portal.login.code.send_failed'))
+                ->danger()
+                ->send();
+
+            return null;
+        }
 
         if ($response !== null) {
             $this->recordSuccessfulLogin();

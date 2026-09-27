@@ -42,6 +42,21 @@ class AdminPanelProvider extends PanelProvider
             ->authGuard('web')
             ->authPasswordBroker('users')
             ->login()
+            /*
+             * Task 20 (SPEC §10.6, phát hiện "nhân sự không có chỗ nào tự đổi mật khẩu"):
+             * trang hồ sơ cá nhân MẶC ĐỊNH của Filament (`Filament\Auth\Pages\EditProfile`), không
+             * ghi đè. Nó đã có sẵn đúng thứ cần: tên, email, mật khẩu mới + xác nhận, và một ô
+             * "mật khẩu hiện tại" chỉ hiện/bắt buộc khi mật khẩu hoặc email đổi
+             * (`EditProfile::getCurrentPasswordFormComponent()` — `->currentPassword()` tự xác
+             * thực bằng `Hash::check()` trên guard hiện hành).
+             *
+             * KHÔNG bật `->multiFactorAuthentication()` cho panel này (khác `PortalPanelProvider`),
+             * nên `EditProfile::getMultiFactorAuthenticationContentComponent()` trả về `null` —
+             * trang không vẽ khối 2FA nào, và vì vậy không có nút tắt 2FA nào để lo: M8 sẽ bật
+             * 2FA bắt buộc cho nhân sự, và quyết định của chủ nhiệm là không dựng gì giả định 2FA
+             * tắt được trước khi M8 tới.
+             */
+            ->profile()
             ->brandName(__('panels.admin.brand'))
             ->brandLogo(fn () => view('brand.logo'))
             ->brandLogoHeight('3rem')

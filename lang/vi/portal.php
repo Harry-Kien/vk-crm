@@ -36,6 +36,13 @@ return [
 
             'invalid' => 'Mã chưa đúng. Mã gồm 6 chữ số; anh/chị xem lại thư mới nhất chúng tôi gửi rồi gõ lại giúp.',
             'expired' => 'Mã này không còn dùng được nữa, vì đã quá hạn hoặc đã dùng rồi. Anh/chị bấm "Gửi lại mã" để nhận mã mới.',
+
+            /*
+             * Task 20 (phát hiện "mã OTP cổng không gửi được vì máy chủ thư lỗi thì trang đăng
+             * nhập ném exception"). Câu đúng nguyên văn theo brief — xem
+             * App\Filament\Portal\Pages\Auth\Login::authenticate().
+             */
+            'send_failed' => 'Chưa gửi được mã, anh/chị thử lại sau ít phút.',
         ],
 
         /*
