@@ -63,8 +63,8 @@ return [
         'not_signed_and_filed' => 'Văn bản do văn phòng phát hành phải ở trạng thái "Đã ký, đã nộp" thì mới công bố cho khách được; tài liệu này đang ở trạng thái ":status". Anh/chị bấm "Trình duyệt" (nếu còn là bản thảo), rồi "Đánh dấu đã ký, đã nộp" khi đã có bản ký và đã nộp, sau đó công bố lại.',
         'without_client_view' => 'Công bố mà không cho khách xem thì không có tác dụng gì: nếu chưa muốn khách thấy tài liệu này, anh/chị cứ để nguyên, đừng công bố. Nếu chỉ muốn khách biết là đã có mà chưa cho tải về, hãy bật "Cho khách xem" và tắt "Cho khách tải về".',
         'without_file' => 'Tài liệu này chưa có tệp đính kèm nên chưa công bố được: khách sẽ thấy một dòng trong danh sách mà bấm vào không mở được gì. Anh/chị tải tệp lên cho tài liệu này trước, rồi công bố.',
-        'matter_unavailable' => 'Hồ sơ chứa tài liệu này đã bị xoá nên không công bố được. Anh/chị khôi phục hồ sơ trước, rồi công bố lại tài liệu.',
-        'trashed' => 'Tài liệu này đã bị xoá nên không công bố được. Anh/chị khôi phục tài liệu trước, hoặc tải lên lại bản mới rồi công bố.',
+        'matter_unavailable' => 'Hồ sơ chứa tài liệu này đã bị huỷ hoặc xoá nên không công bố được tài liệu.',
+        'trashed' => 'Tài liệu này đã bị xoá nên không công bố được. Nếu cần, hãy tải lên lại bản mới rồi công bố.',
         'missing' => 'Không tìm thấy tài liệu này nữa — có thể ai đó vừa xoá nó trong lúc anh/chị đang mở trang. Anh/chị tải lại trang để xem danh sách tài liệu hiện tại.',
         // Vòng sửa 1 Task 16: kiểm tra optimistic — ai đó đã đổi cờ xem/tải của tài liệu này sau
         // khi hộp thoại được mở. Nói ra NGUYÊN NHÂN thật (hai tab, hay một người khác vừa công bố
@@ -104,8 +104,8 @@ return [
         'misfiling_reason_too_short' => 'Lý do chuyển nhóm cần ít nhất 10 ký tự để người rà soát sau này hiểu vì sao đây là một lần nộp nhầm nhóm, không phải một lần "giặt" bản nháp. Anh/chị viết rõ hơn rồi thử lại.',
         // "Trả về bản nháp" — ruling vòng sửa 1: đưa một văn bản đang chờ duyệt về lại bản thảo.
         'not_pending_approval_to_return' => 'Tài liệu này đang ở trạng thái ":status" nên không trả về bản nháp được — chỉ một văn bản đang "Chờ duyệt" mới trả về được.',
-        'trashed' => 'Tài liệu này đã bị xoá nên không thao tác được. Anh/chị khôi phục tài liệu trước.',
-        'matter_unavailable' => 'Hồ sơ chứa tài liệu này đã bị xoá nên không thao tác được. Anh/chị khôi phục hồ sơ trước.',
+        'trashed' => 'Tài liệu này đã bị xoá nên không thao tác được nữa.',
+        'matter_unavailable' => 'Hồ sơ chứa tài liệu này đã bị huỷ hoặc xoá nên không thao tác được với tài liệu.',
         'missing' => 'Không tìm thấy tài liệu này nữa — có thể ai đó vừa xoá nó trong lúc anh/chị đang mở trang. Anh/chị tải lại trang để xem danh sách tài liệu hiện tại.',
     ],
 

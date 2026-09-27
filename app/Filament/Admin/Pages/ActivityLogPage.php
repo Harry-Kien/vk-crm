@@ -28,6 +28,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Lang;
 use Spatie\Activitylog\Models\Activity;
 
 /**
@@ -109,6 +110,12 @@ class ActivityLogPage extends Page implements HasTable
                     ->url(fn (Activity $record): ?string => static::subjectUrl($record)),
                 TextColumn::make('description')
                     ->label(__('activity.page.columns.description'))
+                    // Final review C-M2: `Audit::record()` và `LogsActivity` đều ghi MÃ sự kiện làm
+                    // mô tả (`matter_details_updated`, `updated`) — hiện nhãn tiếng Việt của mã đó
+                    // khi có; một mô tả tự do (không phải mã nào) giữ nguyên.
+                    ->formatStateUsing(fn (?string $state): ?string => $state !== null && Lang::has('activity.events.'.$state)
+                        ? __('activity.events.'.$state)
+                        : $state)
                     ->limit(80)
                     ->wrap(),
             ])

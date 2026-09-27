@@ -29,6 +29,10 @@ use Illuminate\Auth\Events\Failed;
  *
  * Không log mật khẩu: `$event->credentials` mang cả khoá `password`, nên chỉ đọc `email` ra khỏi
  * nó, đúng thành ngữ `App\Filament\Portal\Pages\Auth\Login::auditFailedLogin()`.
+ *
+ * **Final review C-M6: và chỉ ghi `email` khi nó THẬT SỰ là một địa chỉ email.** Ô email có thể
+ * chứa một mật khẩu gõ/dán nhầm ô; ghi nguyên văn thì mật khẩu đó nằm dạng chữ trong nhật ký. Giá
+ * trị không phải email → `null`.
  */
 class RecordStaffLoginFailure
 {
@@ -39,10 +43,11 @@ class RecordStaffLoginFailure
         }
 
         $user = $event->user instanceof User ? $event->user : null;
+        $typed = $event->credentials['email'] ?? null;
 
         Audit::record('login_failed', $user, [
             'guard' => 'web',
-            'email' => $event->credentials['email'] ?? null,
+            'email' => is_string($typed) && filter_var(trim($typed), FILTER_VALIDATE_EMAIL) !== false ? trim($typed) : null,
             'ip' => request()->ip(),
         ], $user);
     }

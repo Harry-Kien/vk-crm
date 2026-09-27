@@ -61,6 +61,7 @@ return [
         'publish_to_portal' => 'Bật công bố portal',
         'unpublish_from_portal' => 'Tắt công bố portal',
         'portal_publication_toggled' => 'Đã cập nhật trạng thái công bố portal.',
+        'portal_publication_changed' => 'Trạng thái công bố của vụ việc vừa được người khác đổi trong lúc anh/chị xác nhận — chưa thay đổi gì. Hãy xem lại trạng thái hiện tại rồi thử lại nếu vẫn cần.',
         'add_party' => 'Thêm một bên',
         'add_party_heading' => 'Thêm một bên vào vụ việc',
         // M6.5 Task 9 (`conflict-05`, brief R14).
@@ -104,7 +105,7 @@ return [
         'expected_next_update_at' => 'Dự kiến có tin tiếp theo trước ngày',
         'publish' => 'Công bố cho khách ngay',
         'public_content_publish_hint' => 'Công bố cho khách yêu cầu tối thiểu 30 ký tự.',
-        'publish_disabled_hint' => 'Vụ việc chưa bật công bố portal nên chưa công bố được ngay — vào tab Tổng quan để bật trước.',
+        'publish_disabled_hint' => 'Vụ việc chưa bật công bố portal nên dòng này chưa công bố được ngay — bật bằng nút "Bật công bố portal" ở đầu trang vụ việc (cần quyền công bố), rồi thêm cập nhật.',
         // Task 7 (R12, phát hiện `stage/stage-06`): vụ đã bật cổng nhưng khách không có tài khoản
         // cổng nào đang hoạt động VÀ đã kích hoạt (activated_at không null) — đúng điều kiện
         // NotifyClientOfStageUpdate::eligibleRecipientsQuery() dùng để chọn người nhận thư thật.
@@ -119,7 +120,7 @@ return [
         // ghi vô điều kiện (SPEC §6.2 bước 5) — khách vẫn thấy NHÃN GIAI ĐOẠN mới ngay, dù dòng
         // tiến độ nói về nó thì không lên timeline. Chỉ dùng khi bản xem trước đang thật sự đổi
         // giai đoạn (TransitionStageAction, không phải AddUpdateAction — xem client-preview.blade.php).
-        'preview_not_publishing_with_stage_change' => 'Dòng này không công bố. Khách vẫn thấy giai đoạn mới: :stage.',
+        'preview_not_publishing_with_stage_change' => 'Dòng này không công bố. Nếu vụ việc đang bật công bố portal, khách vẫn thấy giai đoạn mới: :stage.',
         'preview_no_stage' => 'Chưa chọn giai đoạn',
         'preview_empty_public_content' => '(Chưa có nội dung công bố)',
         'preview_next_step' => 'Tiếp theo',

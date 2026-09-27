@@ -113,10 +113,11 @@ use Livewire\Features\SupportFileUploads\WithFileUploads;
  * của mỗi bên, nên mức thật vẫn là 20 lượt/giờ; gộp hai cửa vào một bộ đếm thì mỗi lượt tốn hai
  * đơn vị và mức thật tụt xuống 10.
  *
- * **Bộ đếm tự đếm số LẦN THỬ, không dựng lại từ dữ liệu đã ghi.** Một lần bị từ chối (tệp sai
- * định dạng, virus) không để lại dòng nào trong `documents` lẫn trong nhật ký — mà đó lại đúng
- * là những lần đáng đếm nhất. Ở cửa của BẢN GHI, câu đó đúng cho MỌI lời từ chối kể cả lời từ
- * chối của luật trên ô chọn tệp: bộ đếm đứng TRƯỚC `getState()`, xem {@see self::submit()}.
+ * **Hai cửa đếm hai thứ khác nhau (final review C-M10).** Cửa của BYTE tự đếm số LẦN CHỌN tệp —
+ * một lần bị từ chối ở đó vẫn đã tốn đĩa. Cửa của BẢN GHI chỉ đếm những tệp Action ĐÃ NHẬN: một
+ * lần bấm Gửi bị từ chối (sai định dạng, `FileGuard`/`VirusScanner` chặn, quên chọn tệp) không
+ * đưa thêm byte nào vào máy chủ và không tạo bản ghi nào, nên không tốn suất — xem
+ * {@see self::submit()}.
  *
  * # CỬA THỨ BA, ở chính endpoint: `config/livewire.php`
  *
@@ -731,25 +732,19 @@ class SubmitDocument extends Page
      *  1. **Đầu mục trước.** Chưa chọn gì thì đó không phải một lời từ chối, chỉ là chưa đủ thông
      *     tin — một câu chỉ về bước 1, không phải 404. Đã chọn nhưng id không dùng được thì 404,
      *     và nó phải xảy ra trước khi hệ thống bỏ công đọc một tệp 20 MB.
-     *  2. **Bộ đếm**, hỏi rồi mới ghi: một lần bị từ chối vẫn TÍNH là một lần thử (xem docblock
-     *     lớp), nên `hit()` đứng trước cả luật của ô lẫn lời gọi Action.
+     *  2. **Bộ đếm — chỉ HỎI** ở đây (lô này có vượt trần không), trước luật của ô và Action.
      *  3. **Luật của ô chọn tệp** (`getState()`), vì một tệp thiếu hoặc sai định dạng trả lời
      *     được mà không cần chạm tới đĩa.
      *  4. **Action**, và mọi lời từ chối của nó được đổi thành thứ khách đọc được.
+     *  5. **Bộ đếm — GHI**, đúng số tệp Action vừa nhận.
      *
-     * **Bộ đếm đứng TRƯỚC luật của ô, và thứ tự đó vừa được sửa lại.** Bản đầu đặt nó sau
-     * `getState()`, nên một đuôi tệp sai không bao giờ chạm tới nó: đo được, năm lần gửi một
-     * tệp `.svg` để bộ đếm đứng yên ở 0 trong khi docblock lớp nói bộ đếm đếm số LẦN THỬ. Hai
-     * lối ra, và đây là lối đã chọn cùng lý do:
-     *
-     *  - Mức 20/giờ của SPEC §10.3 là một trần AN NINH. Một trần mà người gửi đi vòng được chỉ
-     *    bằng cách cố ý gửi sai định dạng thì không phải một trần: mỗi lần như vậy vẫn là một
-     *    lần hydrate cả component và đọc cả trạng thái form, và nó không để lại dòng nào ở đâu
-     *    để ai đó đếm lại sau.
-     *  - Cái giá phải nói ra: một khách QUÊN chọn tệp rồi bấm Gửi cũng tốn một suất. Hai mươi
-     *    lần quên trong một giờ là cái giá chấp nhận được, và câu từ chối nói rõ phải chờ bao
-     *    lâu — trong khi lối ra kia (viết lại docblock cho hẹp đi) để nguyên cái trần đi vòng
-     *    được.
+     * **Final review C-M10 — lật lại thứ tự "ghi trước luật của ô" của vòng sửa trước.** Bản đó
+     * tính MỌI lần bấm Gửi, kể cả lần bị từ chối (quên chọn tệp, sai định dạng, `FileGuard` chặn),
+     * với lý lẽ "trần an ninh không được đi vòng bằng cách cố ý gửi sai". Phán quyết lượt rà soát
+     * cuối: trần an ninh trên BYTE đã nằm ở cửa thứ nhất (`_startUpload`, đếm lúc CHỌN tệp) và ở
+     * `UploadThrottle` của endpoint tải lên — một lần bấm Gửi không đưa thêm byte nào vào máy chủ.
+     * Cửa thứ hai vì vậy chỉ đếm những tệp thật sự vào hồ sơ, và một khách gửi sai định dạng hai
+     * lần không bị trừ hai suất của 20 tệp/giờ mà họ cần cho giấy tờ thật.
      *
      * **Hai đích đến, và sự khác nhau nằm ở ĐÍCH chứ không ở họ exception:**
      *
@@ -772,10 +767,8 @@ class SubmitDocument extends Page
         $item = $this->requireChosenItem();
 
         // R10: đếm theo SỐ TỆP thật trong lô, không theo lượt bấm — xem docblock `guardRate()`.
-        // Đọc trạng thái THÔ (`$this->data`, chưa qua `getState()`/validate), cùng lý lẽ với bản
-        // một-tệp trước đây: một lần bị từ chối ngay sau đây (đuôi sai, quá cỡ…) VẪN tính là một
-        // lần thử cho MỖI tệp trong lô, không chỉ tệp đầu. Tối thiểu 1: một khách quên chọn tệp
-        // rồi bấm Gửi vẫn tốn đúng một suất, như bản một-tệp trước đây.
+        // Đọc trạng thái THÔ (`$this->data`, chưa qua `getState()`/validate) để HỎI trước xem cả
+        // lô có vượt trần không; suất chỉ bị trừ sau khi Action nhận lô (final review C-M10).
         $rawFileCount = max(1, count((array) data_get($this->data, 'file')));
 
         // Vòng sửa 1 (Minor): trần MỘT LÔ, đọc TRƯỚC `guardRate()` — một lô quá khổ không đáng
@@ -795,7 +788,12 @@ class SubmitDocument extends Page
             ]));
         }
 
-        $this->guardRate(
+        // Final review C-M10: cửa này chỉ HỎI ở đây; nó chỉ GHI sau khi Action đã nhận lô (mọi
+        // tệp qua luật của ô, `FileGuard` và `VirusScanner`) — xem `chargeRate()` ở cuối hàm. Một
+        // lần gửi bị từ chối (quên chọn tệp, sai định dạng, tệp bị chặn) không tốn suất nào nữa:
+        // trần AN NINH trên số byte đã có cửa thứ nhất (`_startUpload`, đếm lúc CHỌN tệp) và
+        // `UploadThrottle` ở endpoint tải lên, nên cửa này chỉ còn đếm những gì thật sự vào hồ sơ.
+        $this->refuseIfOverRate(
             self::submissionLimiterKey($this->viewer()),
             'portal_submit.errors.rate_limited',
             count: $rawFileCount,
@@ -845,6 +843,9 @@ class SubmitDocument extends Page
         } catch (AuthorizationException) {
             abort(404);
         }
+
+        // Final review C-M10: chỉ những tệp Action vừa nhận mới tốn suất ở cửa này.
+        $this->chargeRate(self::submissionLimiterKey($this->viewer()), count($files));
 
         $this->submitted = true;
         $this->submittedItemName = $item->name;
@@ -1021,6 +1022,13 @@ class SubmitDocument extends Page
      */
     private function guardRate(string $key, string $message, ?string $field = null, int $count = 1): void
     {
+        $this->refuseIfOverRate($key, $message, $field, $count);
+        $this->chargeRate($key, $count);
+    }
+
+    /** Nửa "hỏi" của {@see self::guardRate()} — từ chối nếu `$count` tệp nữa sẽ vượt trần. */
+    private function refuseIfOverRate(string $key, string $message, ?string $field = null, int $count = 1): void
+    {
         if (RateLimiter::attempts($key) + $count > self::FILES_PER_HOUR) {
             $this->failOnFile(__($message, [
                 'limit' => self::FILES_PER_HOUR,
@@ -1028,7 +1036,11 @@ class SubmitDocument extends Page
                 'hotline' => config('vkcrm.brand.hotline'),
             ]), $field);
         }
+    }
 
+    /** Nửa "ghi" của {@see self::guardRate()}. */
+    private function chargeRate(string $key, int $count): void
+    {
         for ($i = 0; $i < $count; $i++) {
             RateLimiter::hit($key, self::LIMIT_WINDOW_SECONDS);
         }

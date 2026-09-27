@@ -65,7 +65,15 @@ class AddChecklistItem
         ?string $description,
         bool $isRequired,
     ): MatterChecklistItem {
-        Gate::forUser($actor)->authorize('create', [MatterChecklistItem::class, $matter]);
+        // Final review C-M7: cắt khoảng trắng hai đầu (kể cả NBSP và khoảng trắng Unicode khác)
+        // trước khi so trùng và lưu — "Giấy tờ A " và "Giấy tờ A" không được thành hai đầu mục.
+        $name = preg_replace('/^[\s\p{Z}\x{200B}]+|[\s\p{Z}\x{200B}]+$/u', '', $name) ?? '';
+
+        if ($name === '') {
+            throw ValidationException::withMessages([
+                'name' => [__('actions.add_checklist_item.name_required')],
+            ]);
+        }
 
         return DB::transaction(function () use ($matter, $actor, $name, $description, $isRequired): MatterChecklistItem {
             // Khoá dòng vụ việc trước khi hỏi lại tên có trùng không — cùng lý do
@@ -73,6 +81,10 @@ class AddChecklistItem
             // thêm gần như đồng thời cùng một tên đều đọc "chưa trùng" trước khi lần nào kịp ghi,
             // và ra hai dòng trùng tên thay vì một lời từ chối tiếng Việt.
             $locked = Matter::query()->whereKey($matter->getKey())->lockForUpdate()->firstOrFail();
+
+            // Final review C-M7: quyền hỏi SAU khoá, trên bản ghi đã khoá — một câu đọc trần trước
+            // khoá (Gate đọc vụ việc, đội ngũ) cố định ảnh chụp REPEATABLE READ ở một thời điểm cũ.
+            Gate::forUser($actor)->authorize('create', [MatterChecklistItem::class, $locked]);
 
             $duplicateExists = $locked->checklistItems()->withTrashed()->where('name', $name)->exists();
 

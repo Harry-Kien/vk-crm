@@ -874,3 +874,35 @@ it('names the matched party in the parties-tab conflict notification', function 
         // Tên của bên trùng ở hồ sơ kia — thứ duy nhất cho người đọc biết họ đang bị chặn vì AI.
         ->and($blocked->getBody())->toContain('Người trùng căn cước');
 });
+
+/**
+ * Final review C-M1: nút "công bố/thôi công bố" tính chiều từ trạng thái LÚC BẤM XÁC NHẬN, nên một
+ * hộp xác nhận mở ra lúc vụ còn chưa công bố — rồi một người khác công bố trong lúc đó — sẽ THÔI
+ * công bố, đúng chiều ngược với câu người dùng vừa đọc. Chiều giờ được chụp lúc mở hộp; nếu trạng
+ * thái đã đổi, Action từ chối và không đổi gì.
+ */
+it('refuses to flip the portal switch the other way when someone else changed it while the confirmation was open', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'is_published_to_portal' => false]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(ViewMatter::class, ['record' => $matter->getKey()])
+        ->mountAction('togglePortalPublication');
+
+    // Người khác công bố vụ việc trong lúc hộp xác nhận còn mở.
+    Matter::query()->whereKey($matter->id)->update(['is_published_to_portal' => true]);
+
+    $component->callMountedAction();
+
+    Notification::assertNotified(
+        Notification::make()
+            ->title(__('actions.failed_title'))
+            ->body(__('matters.actions.portal_publication_changed'))
+            ->danger()
+            ->persistent()
+    );
+
+    expect($matter->refresh()->is_published_to_portal)->toBeTrue()
+        ->and(Activity::query()->where('event', 'matter_portal_publication_set')->exists())->toBeFalse();
+});

@@ -2,9 +2,11 @@
 
 namespace App\Actions;
 
+use App\Exceptions\MatterPortalPublicationChanged;
 use App\Models\Matter;
 use App\Models\User;
 use App\Support\Audit;
+use App\Support\Scopes\ClientPortalScope;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
@@ -26,28 +28,46 @@ use Illuminate\Support\Facades\Gate;
  */
 class SetMatterPortalPublication
 {
+    /**
+     * @param  bool  $publish  Trạng thái ĐÍCH mà người dùng đã đọc và xác nhận — không phải "đảo
+     *                         chiều". Final review C-M1: nếu dưới khoá vụ việc đã ở đúng trạng thái
+     *                         đó (người khác vừa đổi), Action từ chối bằng
+     *                         `MatterPortalPublicationChanged` và không ghi gì.
+     */
     public function handle(Matter $matter, bool $publish, User $actor): Matter
     {
-        // R5 (roles-05, M6.5 Task 10): 'setPortalPublication', không phải 'update' — xem docblock
-        // MatterPolicy::setPortalPublication() cho lý do (đưa cả vụ việc ra khách đòi
-        // stageLog.publish, không chỉ matter.update). Fix round 1 (ruling): $publish truyền kèm —
-        // chỉ chiều BẬT đòi stageLog.publish, chiều TẮT chỉ cần matter.update.
-        Gate::forUser($actor)->authorize('setPortalPublication', [$matter, $publish]);
-
         return DB::transaction(function () use ($matter, $publish, $actor): Matter {
-            $publishedStageLogCount = $matter->stageLogs()->where('is_published', true)->count();
+            // Câu ĐẦU TIÊN là khoá dòng vụ việc, cùng kỷ luật `UpdateMatterDetails`; mọi câu hỏi
+            // sau đó (quyền, trạng thái hiện tại) đọc trên bản đã khoá.
+            $locked = Matter::query()
+                ->withoutGlobalScope(ClientPortalScope::class)
+                ->whereKey($matter->getKey())
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            // R5 (roles-05, M6.5 Task 10): 'setPortalPublication', không phải 'update' — xem
+            // docblock MatterPolicy::setPortalPublication() cho lý do (đưa cả vụ việc ra khách đòi
+            // stageLog.publish, không chỉ matter.update). Fix round 1 (ruling): $publish truyền kèm
+            // — chỉ chiều BẬT đòi stageLog.publish, chiều TẮT chỉ cần matter.update.
+            Gate::forUser($actor)->authorize('setPortalPublication', [$locked, $publish]);
+
+            if ((bool) $locked->is_published_to_portal === $publish) {
+                throw MatterPortalPublicationChanged::make();
+            }
+
+            $publishedStageLogCount = $locked->stageLogs()->where('is_published', true)->count();
 
             // `blameOn()` trước `update()`: `HasBlameable::updating` ghi `updated_by` từ
             // `auth('web')` ambient nếu không ai tuyên bố actor, và Action đã biết actor là ai
             // (chính actor vừa qua Gate ở trên). Xem docblock của trait.
-            $matter->blameOn($actor)->update(['is_published_to_portal' => $publish]);
+            $locked->blameOn($actor)->update(['is_published_to_portal' => $publish]);
 
-            Audit::record('matter_portal_publication_set', $matter, [
+            Audit::record('matter_portal_publication_set', $locked, [
                 'publish' => $publish,
                 'published_stage_log_count' => $publishedStageLogCount,
             ], $actor);
 
-            return $matter;
+            return $locked;
         });
     }
 }

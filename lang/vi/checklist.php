@@ -60,7 +60,7 @@ return [
         // Từ chối là một câu nói với khách về thứ họ đã gửi lên. Không có gì trên bàn thì không
         // có gì để nói — xem `ReviewChecklistItem::guardDecisionAgainstState()`.
         'nothing_to_reject' => 'Mục này đang ở trạng thái ":status", tức chưa có tệp nào của khách đang chờ xem. Từ chối lúc này sẽ gửi cho khách một lời chê về thứ họ chưa gửi. Anh/chị chờ khách nộp rồi duyệt, hoặc gọi nhắc khách nộp bổ sung.',
-        'matter_unavailable' => 'Hồ sơ chứa mục giấy tờ này đã bị xoá nên không duyệt được. Anh/chị khôi phục hồ sơ trước, rồi duyệt lại.',
+        'matter_unavailable' => 'Hồ sơ chứa mục giấy tờ này đã bị huỷ hoặc xoá nên không duyệt được.',
         // R11 (M6.5 Task 17, checklist-04): khách gửi thêm hoặc gửi lại giữa lúc hộp duyệt đang
         // mở, nên quyết định sắp lưu gắn vào một tệp không còn là tệp mới nhất.
         'documents_changed' => 'Có tệp mới vừa đến, anh/chị mở lại để xem trước khi duyệt.',
@@ -119,8 +119,8 @@ return [
             'accept_description' => 'Khách sẽ thấy mục này chuyển sang "Đã nhận" và không còn bị nhắc nộp nữa.',
             'accept_success' => 'Đã ghi nhận đầu mục này là đã nhận đủ.',
             'reject' => 'Cần nộp lại',
-            'reject_heading' => 'Từ chối giấy tờ và báo cho khách biết phải làm gì',
-            'reject_success' => 'Đã gửi yêu cầu nộp lại kèm lý do cho khách.',
+            'reject_heading' => 'Từ chối giấy tờ và ghi rõ khách cần làm gì',
+            'reject_success' => 'Đã từ chối — lý do hiện cho khách trên cổng khách hàng. Hệ thống chưa gửi email cho việc này; văn phòng sẽ liên hệ khách nếu cần gấp.',
             'not_applicable' => 'Không cần nộp',
             'not_applicable_heading' => 'Đánh dấu đầu mục này là không cần nộp',
             'not_applicable_description' => 'Mục này sẽ không còn nằm trong danh sách giấy tờ khách phải nộp, và thanh tiến độ tính lại theo đó.',
@@ -130,7 +130,7 @@ return [
             'rejection_reason' => 'Lý do, viết cho khách đọc',
             // Nhắc thẳng rằng câu này ra khỏi văn phòng. SPEC §6.7 tồn tại vì trợ lý hay viết
             // "không hợp lệ", và một dòng nhắc ngay dưới ô nhập rẻ hơn một vòng nộp lại.
-            'rejection_reason_help' => 'Câu này hiện nguyên văn trên màn hình của khách và được gửi kèm email, nên hãy viết như đang nói chuyện với họ: chỗ nào chưa đạt, và cần làm gì để nộp lại cho đúng. Bấm một mẫu bên dưới rồi sửa lại cho đúng trường hợp.',
+            'rejection_reason_help' => 'Câu này hiện nguyên văn trên cổng khách hàng (hệ thống chưa gửi email cho việc này), nên hãy viết như đang nói chuyện với khách: chỗ nào chưa đạt, và cần làm gì để nộp lại cho đúng. Bấm một mẫu bên dưới rồi sửa lại cho đúng trường hợp.',
             'templates' => 'Mẫu có sẵn — bấm một cái là điền',
             // Ba ô của modal "Thêm đầu mục" — M6.5 Task 15.
             'item_name' => 'Tên đầu mục',

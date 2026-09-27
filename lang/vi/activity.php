@@ -12,6 +12,8 @@ return [
         'created' => 'Tạo mới',
         'updated' => 'Cập nhật',
         'deleted' => 'Xoá',
+        // Final review C-M2: LogsActivity ghi sự kiện này khi khôi phục một bản ghi đã xoá mềm.
+        'restored' => 'Khôi phục',
         'login_success' => 'Đăng nhập thành công',
         'login_failed' => 'Đăng nhập thất bại',
         'document_downloaded' => 'Tải tài liệu',

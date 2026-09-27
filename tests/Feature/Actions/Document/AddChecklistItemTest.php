@@ -110,3 +110,23 @@ it('vẫn thêm được một tên khác trên cùng vụ việc đã có đầ
     expect($item->exists)->toBeTrue()
         ->and(MatterChecklistItem::query()->where('matter_id', $this->matter->id)->count())->toBe(2);
 });
+
+/**
+ * Final review C-M7: tên đầu mục được cắt khoảng trắng hai đầu trước khi so trùng và lưu — nếu
+ * không, "Giấy tờ A " và "Giấy tờ A" là hai đầu mục trông giống hệt nhau trên màn hình khách.
+ */
+it('trims the item name before checking for duplicates and saving', function () {
+    $item = addChecklistItem($this->matter, $this->lawyer, '  Bản sao sổ hộ khẩu  ');
+
+    expect($item->name)->toBe('Bản sao sổ hộ khẩu');
+
+    expect(fn () => addChecklistItem($this->matter, $this->lawyer, 'Bản sao sổ hộ khẩu   '))
+        ->toThrow(ValidationException::class);
+
+    expect(MatterChecklistItem::query()->where('matter_id', $this->matter->id)->where('name', 'like', '%sổ hộ khẩu%')->count())->toBe(1);
+});
+
+it('refuses a name made only of whitespace', function () {
+    expect(fn () => addChecklistItem($this->matter, $this->lawyer, "   \u{00A0} "))
+        ->toThrow(ValidationException::class);
+});

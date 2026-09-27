@@ -104,7 +104,7 @@ return [
     'done' => [
         'heading' => 'Chúng tôi đã nhận được',
         'status' => 'Đang chờ văn phòng kiểm tra',
-        'body' => 'Chúng tôi đã nhận ":name" và sẽ kiểm tra trong thời gian sớm nhất. Nếu có gì chưa ổn, chúng tôi sẽ ghi rõ lý do vào hồ sơ và báo anh/chị gửi lại.',
+        'body' => 'Chúng tôi đã nhận ":name" và sẽ kiểm tra trong thời gian sớm nhất. Nếu có gì chưa ổn, lý do sẽ hiện trên trang tiến độ hồ sơ để anh/chị gửi lại, và văn phòng sẽ liên hệ khi cần.',
         'another' => 'Gửi thêm giấy tờ khác',
     ],
 

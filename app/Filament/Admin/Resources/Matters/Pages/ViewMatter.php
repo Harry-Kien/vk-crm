@@ -14,6 +14,7 @@ use App\Models\OutboundMessage;
 use App\Models\User;
 use Filament\Actions\Action;
 use Filament\Actions\EditAction;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
@@ -96,14 +97,17 @@ class ViewMatter extends ViewRecord
                     $this->getRecord(),
                     ! $this->getRecord()->is_published_to_portal,
                 ]))
-                ->action(function (): void {
-                    $record = $this->getRecord();
-
-                    app(SetMatterPortalPublication::class)->handle(
-                        matter: $record,
-                        publish: ! $record->is_published_to_portal,
+                // Final review C-M1: chiều được CHỤP lúc mở hộp xác nhận — đúng câu người dùng đang
+                // đọc — chứ không tính lại lúc bấm "Xác nhận". Nếu trong lúc đó người khác đã đổi,
+                // Action từ chối (`MatterPortalPublicationChanged`) thay vì lật ngược lại.
+                ->schema([Hidden::make('publish')])
+                ->fillForm(fn (): array => ['publish' => ! $this->getRecord()->is_published_to_portal])
+                ->action(function (Action $action, array $data): void {
+                    $this->runAction($action, fn () => app(SetMatterPortalPublication::class)->handle(
+                        matter: $this->getRecord(),
+                        publish: (bool) ($data['publish'] ?? false),
                         actor: Auth::user(),
-                    );
+                    ));
 
                     Notification::make()
                         ->title(__('matters.actions.portal_publication_toggled'))

@@ -266,10 +266,14 @@ class MyRequests extends Page
      * khi không có lời trả lời nào viết ra thì bên dưới đó TRỐNG — một lời mời đi vào một khoảng
      * trắng. Nên câu đổi tuỳ theo `$request->replies` có dòng nào của NHÂN SỰ hay không; khách tự
      * hỏi tiếp (dòng `author_type` = `ClientUser`) không tính, vì đó không phải câu trả lời.
+     *
+     * **Final review C-M5: câu của văn phòng phải đứng SAU lần viết cuối của khách.** Một câu trả
+     * lời có trước câu khách hỏi thêm không trả lời câu hỏi thêm đó — "xem bên dưới" khi ấy chỉ
+     * khách tới một câu cũ. Thứ tự đọc theo `id` của dòng trả lời (cùng thứ tự luồng hiện ra).
      */
     public function statusLine(ClientRequest $request): string
     {
-        if ($request->status === ClientRequestStatus::Answered && ! $this->hasStaffReply($request)) {
+        if ($request->status === ClientRequestStatus::Answered && ! $this->hasStaffReplyAfterClientsLastEntry($request)) {
             return __('requests.portal.status.answered_by_phone');
         }
 
@@ -277,12 +281,17 @@ class MyRequests extends Page
     }
 
     /** @see self::statusLine() */
-    private function hasStaffReply(ClientRequest $request): bool
+    private function hasStaffReplyAfterClientsLastEntry(ClientRequest $request): bool
     {
         $staffMorph = (new User)->getMorphClass();
 
+        $lastClientEntryId = $request->replies
+            ->filter(fn (ClientRequestReply $reply): bool => $reply->author_type !== $staffMorph)
+            ->max('id') ?? 0;
+
         return $request->replies->contains(
-            fn (ClientRequestReply $reply): bool => $reply->author_type === $staffMorph,
+            fn (ClientRequestReply $reply): bool => $reply->author_type === $staffMorph
+                && (int) $reply->getKey() > (int) $lastClientEntryId,
         );
     }
 

@@ -1105,10 +1105,12 @@ it('refuses the twenty first submission, and lets the twentieth through', functi
 });
 
 /**
- * Một lần bị từ chối KHÔNG để lại dòng nào trong `documents` lẫn trong nhật ký, nên bộ đếm phải
- * tự đếm số LẦN THỬ — dựng lại nó từ dữ liệu đã ghi sẽ đếm thiếu đúng những lần đáng đếm nhất.
+ * Final review C-M10 — ĐẢO NGƯỢC test cũ cùng vị trí ("counts a refused submission as an
+ * attempt"): cửa của BẢN GHI chỉ tính những tệp Action đã nhận. Một tệp bị `FileGuard` chặn
+ * (đuôi `.pdf` nhưng ruột là một tệp thực thi) không tạo bản ghi nào và không tốn suất nào — trần
+ * trên byte đã nằm ở cửa chọn tệp và ở `UploadThrottle`.
  */
-it('counts a refused submission as an attempt', function () {
+it('does not charge the send gate for a submission FileGuard refuses', function () {
     $key = SubmitDocument::submissionLimiterKey($this->clientUser);
 
     submitPage()
@@ -1118,6 +1120,20 @@ it('counts a refused submission as an attempt', function () {
         ->assertHasErrors('data.file');
 
     expect(Document::query()->count())->toBe(0)
+        ->and(RateLimiter::attempts($key))->toBe(0);
+});
+
+/** Vế dương: một lần gửi được nhận tốn đúng số tệp đã nhận. */
+it('charges the send gate once the submission is accepted', function () {
+    $key = SubmitDocument::submissionLimiterKey($this->clientUser);
+
+    submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->set('data.file', submitPagePdf())
+        ->call('submit')
+        ->assertHasNoErrors();
+
+    expect(Document::query()->count())->toBe(1)
         ->and(RateLimiter::attempts($key))->toBe(1);
 });
 
@@ -1613,12 +1629,11 @@ it('tells a client which of the two doors closed', function () {
 });
 
 /**
- * **Một lần bị luật của ô từ chối VẪN là một lần thử.** Docblock của lớp nói bộ đếm tự đếm số lần
- * thử "vì một lần bị từ chối không để lại dòng nào" — nên một đuôi tệp sai phải tốn đúng một suất
- * như mọi lần khác. Nếu không, mức 20/giờ chỉ áp lên những lần gửi ĐÚNG, và một client tự chế gửi
- * mãi một tệp cố ý sai định dạng thì không bao giờ chạm tới trần.
+ * Final review C-M10 — ĐẢO NGƯỢC test cũ cùng vị trí ("counts a submission the field rules refuse
+ * as an attempt too"): một đuôi tệp sai bị luật của ô từ chối không tốn suất nào ở cửa của BẢN
+ * GHI. Năm lần gửi nhầm định dạng không được trừ năm trong 20 tệp/giờ khách cần cho giấy tờ thật.
  */
-it('counts a submission the field rules refuse as an attempt too', function () {
+it('does not charge the send gate for a submission the field rules refuse', function () {
     $key = SubmitDocument::submissionLimiterKey($this->clientUser);
 
     for ($attempt = 0; $attempt < 5; $attempt++) {
@@ -1629,7 +1644,7 @@ it('counts a submission the field rules refuse as an attempt too', function () {
             ->assertHasErrors('data.file');
     }
 
-    expect(RateLimiter::attempts($key))->toBe(5)
+    expect(RateLimiter::attempts($key))->toBe(0)
         ->and(Document::query()->count())->toBe(0);
 });
 

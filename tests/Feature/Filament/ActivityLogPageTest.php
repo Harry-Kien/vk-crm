@@ -392,3 +392,37 @@ it('never shows an identifier hash in the details modal, even to an admin', func
         ->not->toContain($stored)
         ->toContain(__('activity.page.properties.redacted'));
 });
+
+/**
+ * Final review C-M2: (1) `restored` — sự kiện `LogsActivity` sinh khi khôi phục một bản ghi xoá mềm —
+ * thiếu nhãn tiếng Việt, cột "Sự kiện" hiện nguyên khoá dịch; (2) cột "Mô tả" hiện nguyên mã sự
+ * kiện (`matter_details_updated`), vì `Audit::record()` và `LogsActivity` đều ghi mã đó làm mô tả.
+ */
+it('labels the restored event in Vietnamese', function () {
+    expect(__('activity.events.restored'))->not->toBe('activity.events.restored');
+
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $this->actingAs($admin, 'web');
+
+    $client = Client::factory()->create();
+    $client->delete();
+    $client->restore();
+
+    $restored = Activity::query()->where('event', 'restored')->latest('id')->firstOrFail();
+
+    $this->livewire(ActivityLogPage::class)
+        ->assertTableColumnFormattedStateSet('event', __('activity.events.restored'), $restored)
+        ->assertTableColumnFormattedStateSet('description', __('activity.events.restored'), $restored);
+});
+
+it('shows the translated label in the description column, not the raw event code', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = Matter::factory()->create();
+    $activity = Audit::record('matter_details_updated', $matter, [], $admin);
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(ActivityLogPage::class)
+        ->assertTableColumnFormattedStateSet('description', __('activity.events.matter_details_updated'), $activity)
+        ->assertTableColumnFormattedStateNotSet('description', 'matter_details_updated', $activity);
+});

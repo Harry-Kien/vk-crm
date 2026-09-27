@@ -5,6 +5,7 @@ use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Auth\Pages\Login;
 use Filament\Facades\Filament;
+use Illuminate\Auth\Events\Failed;
 use Spatie\Activitylog\Models\Activity;
 
 /**
@@ -107,4 +108,26 @@ it('logs a login_failed row when a deactivated staff account is tried', function
 
     expect(Activity::query()->where('event', 'login_failed')->where('causer_id', $staff->id)->exists())->toBeTrue()
         ->and($staff->fresh()->last_login_at)->toBeNull();
+});
+
+/**
+ * Final review C-M6: ô "email" của một lần đăng nhập hỏng có thể chứa MẬT KHẨU (người dùng gõ nhầm
+ * ô, hay dán nhầm). Listener ghi thẳng `credentials['email']` vào nhật ký, nên một lần như vậy để
+ * lại mật khẩu dạng chữ trong `activity_log`. Chỉ ghi khi nó THẬT SỰ là một địa chỉ email.
+ */
+it('never writes a typed value that is not an email address into the failed-login audit row', function () {
+    event(new Failed('web', null, ['email' => 'MatKhau#Bi-Mat-2026', 'password' => 'x']));
+
+    $failure = Activity::query()->where('event', 'login_failed')->latest('id')->firstOrFail();
+
+    expect($failure->properties->toJson())->not->toContain('MatKhau#Bi-Mat-2026')
+        ->and($failure->properties->get('email'))->toBeNull()
+        ->and($failure->properties->get('guard'))->toBe('web');
+});
+
+it('still records a real email address typed into a failed login', function () {
+    event(new Failed('web', null, ['email' => 'ai-do@luatvukhang.com', 'password' => 'x']));
+
+    expect(Activity::query()->where('event', 'login_failed')->latest('id')->firstOrFail()->properties->get('email'))
+        ->toBe('ai-do@luatvukhang.com');
 });

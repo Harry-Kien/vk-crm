@@ -798,3 +798,47 @@ it('shows a neutral label instead of anh/chi viet when a co-accounts name cannot
     expect(entryAuthorLine($page, 1))->toBe(__('requests.portal.history.unknown_client_author'))
         ->and(entryAuthorLine($page, 1))->not->toContain(__('requests.portal.history.from_client'));
 });
+
+/**
+ * Final review C-M5: một câu trả lời viết ra có TRƯỚC lần khách viết tiếp cuối cùng không phải là
+ * câu trả lời cho điều khách vừa hỏi — "xem bên dưới" khi đó chỉ khách tới một câu cũ. Chỉ nói
+ * "xem bên dưới" khi có ít nhất một câu của văn phòng SAU lần viết cuối cùng của khách.
+ */
+it('only says "see below" when a staff reply comes after the client\'s last entry', function () {
+    $stale = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'status' => ClientRequestStatus::Answered,
+    ]);
+    ClientRequestReply::factory()->for($stale, 'request')->create([
+        'author_type' => $this->lawyer->getMorphClass(),
+        'author_id' => $this->lawyer->id,
+        'content' => 'Trả lời câu hỏi đầu.',
+    ]);
+    ClientRequestReply::factory()->for($stale, 'request')->create([
+        'author_type' => $this->clientUser->getMorphClass(),
+        'author_id' => $this->clientUser->id,
+        'content' => 'Tôi hỏi thêm một điều nữa.',
+    ]);
+
+    $fresh = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'status' => ClientRequestStatus::Answered,
+    ]);
+    ClientRequestReply::factory()->for($fresh, 'request')->create([
+        'author_type' => $this->clientUser->getMorphClass(),
+        'author_id' => $this->clientUser->id,
+        'content' => 'Tôi hỏi thêm.',
+    ]);
+    ClientRequestReply::factory()->for($fresh, 'request')->create([
+        'author_type' => $this->lawyer->getMorphClass(),
+        'author_id' => $this->lawyer->id,
+        'content' => 'Trả lời câu hỏi thêm.',
+    ]);
+
+    $page = requestsRegion(
+        $this->actingAs($this->clientUser, 'client')->get(requestsUrl($this->matter))->assertOk()->getContent()
+    );
+
+    expect(statusLineFor($page, $stale->id))->not->toBe('Văn phòng đã trả lời, anh/chị xem bên dưới')
+        ->and(statusLineFor($page, $fresh->id))->toBe('Văn phòng đã trả lời, anh/chị xem bên dưới');
+});
