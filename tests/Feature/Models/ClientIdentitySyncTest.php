@@ -419,6 +419,51 @@ it('does not notify a manager of a restricted matter when a resync reveals a new
 });
 
 /**
+ * Vòng sửa 2 (minor, `task-12-fix2-findings.md`): lỗ hổng bộ test — test trên chứng minh manager
+ * KHÔNG nhận, nhưng không có admin nào trong kịch bản để chứng minh chuỗi dự phòng của
+ * `supervisorsFor()` (R3, câu thứ hai: vụ `restricted` cộng ADMIN thay vì manager) thật sự CÓ chạy
+ * qua caller này — thiếu test này, một bản cài sai đơn giản là "vụ restricted thì không báo ai cả"
+ * (thay vì "báo admin thay vì manager") vẫn làm test trên xanh.
+ *
+ * Mutation probe: xem báo cáo — đổi dòng cộng `supervisorsFor()` ở `SyncClientPartyIdentities::
+ * recheckAffectedOpenMatters()` thành cộng thẳng mọi manager (không hỏi supervisorsFor) làm chính
+ * test này đỏ (thiếu admin, thừa không có gì thay thế vì manager cũng bị Gate::view() chặn).
+ */
+it('notifies an admin instead of a manager of a restricted matter when a resync reveals a new conflict', function () {
+    $this->seed(RolesAndPermissionsSeeder::class);
+
+    $lead = User::factory()->withRole(Role::Lawyer)->create();
+    $otherLead = User::factory()->withRole(Role::Lawyer)->create();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $admin = User::factory()->withRole(Role::Admin)->create();
+
+    $client = Client::factory()->create(['id_number' => '090000000041']);
+    $matter = Matter::factory()->restricted()->create(['lead_lawyer_id' => $lead->id]);
+    MatterParty::factory()->for($matter)->ourClient($client, PartyRole::Plaintiff)->create();
+
+    // M2 KHÔNG restricted, có luật sư phụ trách riêng — cùng lý do tách audit ở test chị em phía
+    // trên (một bên KHÁC MATTER thật sự cần thiết để `matterIdsMatchedByNewIdentity()` coi đây là
+    // một xung đột lợi ích, không phải chỉ hai vai trong cùng một vụ kiện).
+    $otherMatter = Matter::factory()->create(['lead_lawyer_id' => $otherLead->id]);
+    MatterParty::factory()->for($otherMatter)->create(['role' => PartyRole::Defendant, 'name' => 'Bị đơn khác'])
+        ->identify('090000000042', null)->save();
+
+    $client->update(['id_number' => '090000000042']);
+
+    $matterAudit = Activity::query()->where('event', 'client_identity_conflict_detected')
+        ->where('subject_type', $matter->getMorphClass())->where('subject_id', $matter->id)->first();
+
+    expect($matterAudit)->not->toBeNull()
+        ->and(collect($matterAudit->properties->get('notified_user_ids'))->sort()->values()->all())
+        ->toBe(collect([$lead->id, $admin->id])->sort()->values()->all())
+        ->and($matterAudit->properties->get('notified_user_ids'))->not->toContain($manager->id);
+
+    // $admin không đứng tên trong đội ngũ/lead của $otherMatter (standard) nên chỉ $matter
+    // (restricted) có thể là nguồn thông báo của admin — số đếm này an toàn, không lẫn giữa hai vụ.
+    expect($admin->notifications()->count())->toBeGreaterThan(0);
+});
+
+/**
  * Vòng sửa 1, M1: `recheckAffectedOpenMatters()` từng CỘNG CẢ manager LẪN admin không điều kiện —
  * một vụ THƯỜNG cũng cho admin `Gate::view()` qua (`matter.viewAny`), nên admin nhận thông báo
  * của MỌI vụ THƯỜNG, không riêng vụ `restricted`. Từ vòng sửa này, người nhận đi qua

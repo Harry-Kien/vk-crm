@@ -96,6 +96,21 @@ abstract class BrandedMailable extends Mailable
             $text[OutboundHeaders::RELATED] = $related->getMorphClass().':'.$related->getKey();
         }
 
-        return new Headers(text: $text);
+        return new Headers(text: $text + $this->additionalLedgerHeaders());
+    }
+
+    /**
+     * Header nội bộ THÊM, ngoài `Template`/`Related` — vòng sửa 2 (I1): `App\Mail\Staff\
+     * DeadlineReminder` ghi đè để mang theo BẬC nhắc (`X-VKCRM-Ledger-Tier`), thứ
+     * `RecordOutboundMessage::sending()` chép vào `payload['tier']`, và
+     * `App\Support\Mail\OutboundLedgerTransport` gỡ khỏi thông điệp trước khi nó rời máy chủ —
+     * cùng luật với `Template`/`Related`/`Ledger-Id` (`notify/notify-11`). Rỗng theo mặc định:
+     * hầu hết mẫu thư không có khái niệm "bậc" nào để mang.
+     *
+     * @return array<string, string>
+     */
+    protected function additionalLedgerHeaders(): array
+    {
+        return [];
     }
 }

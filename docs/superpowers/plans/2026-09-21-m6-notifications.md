@@ -72,9 +72,65 @@ Task có migration → bắt buộc vòng MariaDB thật, dán output.
 
 `client.activation`, `client.stage_update`, `client.document_published`, `client.document_rejected`. Mỗi mẫu nối vào Action đã có (`TransitionMatterStage`, `PublishDocument`, `ReviewChecklistItem`). **Lỗ hổng phải lấp trong task này:** hôm nay tài khoản portal được tạo bằng cách một luật sư **gõ tay mật khẩu vào form** rồi đọc cho khách qua điện thoại — không có thư kích hoạt nào cả. Thêm Action `App\Actions\Client\IssuePortalAccess` sinh mật khẩu tạm, đặt `must_change_password`, gửi `client.activation`, và **bỏ ô mật khẩu khỏi form tạo** (giữ đường đặt lại cho luật sư, nhưng cũng đi qua Action và cũng gửi thư). Áp dụng R6 cho cả bốn mẫu.
 
+**Sửa 2026-09-27, sau M6.5 (Task 21).** Đợt rà soát 2026-09-24 xác nhận hai sự kiện nghiệp vụ của
+đúng hai mẫu thư này đã bắn từ lâu mà chưa từng có listener — task này phải lấp đích danh, không
+chỉ theo tên mẫu thư:
+- `notify/notify-5` / `docs/docs-3`: `DocumentPublished` (bắn từ `PublishDocument`, là sự kiện
+  `ShouldDispatchAfterCommit`) không có listener — khách không bao giờ được báo có văn bản mới của
+  toà hay văn phòng.
+- `notify/notify-6` / `checklist/checklist-01` / `e2e/F6`: `ChecklistItemRejected` (bắn từ
+  `ReviewChecklistItem`) không có listener — khách bị từ chối giấy tờ không được báo, trong khi
+  màn hình admin nói với luật sư **"Đã gửi yêu cầu nộp lại kèm lý do cho khách."** (khoá
+  `checklist.tab.actions.reject_success`, dùng ở `ChecklistRelationManager`). Câu đó nói sai cho tới khi thư
+  `client.document_rejected` có thật; sửa câu cùng lúc với việc thêm listener.
+
+Mỗi listener của hai sự kiện trên **dùng đúng hạ tầng thư của M6.5**: `ShouldQueue` + `tries`/
+`backoff` (R2), người nhận chỉ tài khoản `client_users` đang `is_active` **và** `activated_at`
+không null của khách sở hữu vụ việc (M6.5 R12) — không chỉ `is_active` một mình. Job kiểm tra lại
+lúc gửi rằng vụ việc chưa bị xoá mềm (cùng cách `SendDeadlineReminderMail` của M6.5 Task 11 kiểm
+`Matter::open()`).
+
+**Tiêu đề thư không bao giờ nêu tên tài liệu nhóm D** (sổ tay M6.5, Task 13): dòng
+`outbound_messages` của thư về tài liệu hiện ra cho mọi người xem được vụ việc, kể cả trợ lý, trên
+màn hình nhật ký thư của M6.5 Task 13. Áp cho cả Task 3 và Task 4.
+
 ### - [ ] Task 4 — Hai mẫu thư cho nhân sự, kích hoạt bởi khách
 
 `staff.new_client_document` (khách nộp tài liệu — `SubmitClientDocument`), `staff.new_client_request` (khách gửi yêu cầu — `OpenClientRequest` của M5 Task 6), kèm thông báo trong hệ thống cho lead lawyer và người phụ trách. Người nhận suy từ đội ngũ vụ việc, không hardcode vai trò.
+
+**Sửa 2026-09-27, sau M6.5 (Task 21).** R1 của M6.5 chuyển các phát hiện **tranh chấp** sau về
+đúng task này. "Tranh chấp" (disputed) trong tệp audit nghĩa là những người kiểm chứng chia rẽ về
+phát hiện, thường vì kế hoạch M6 đã nhận việc đó; lỗ hổng thì có thật:
+- `requests/REQ-1`, `notify/notify-7`, `roles/roles-08`, `spec-gap/spec-gap-08` (phần yêu cầu
+  khách), `e2e/F5`: khách gửi yêu cầu qua cổng (`OpenClientRequest`) thì không ai trong văn phòng
+  được báo bằng bất kỳ cách nào — không thư, không thông báo trong hệ thống, không danh sách tổng
+  — trong khi cổng khách vẫn nói "Văn phòng đã nhận được".
+
+Thêm hai việc **không nằm trong SPEC gốc**, cả hai đến từ cùng một khoảng trống mà đợt rà soát tìm
+ra ở luồng yêu cầu khách:
+- **`requests/REQ-2` — khách hỏi tiếp vào một luồng cũ.** `ReplyToClientRequest` đổi trạng thái
+  luồng (`answered` → `in_progress`) khi khách viết thêm, nhưng không ai trong văn phòng được báo.
+  Thêm thông báo trong hệ thống (và tuỳ chọn thư) cho người đang giữ luồng đó, qua cùng luật người
+  nhận của việc này.
+- **`requests/REQ-4` — mẫu thư mới `client.request_answered`** (đã thêm vào SPEC §9, đính chính
+  2026-09-27): kích hoạt khi một câu trả lời của văn phòng đổi trạng thái luồng sang `answered`.
+  Đồng thời thêm **huy hiệu "có trả lời mới"** trên thẻ hồ sơ ở cổng khách (`MyMatters`/
+  `MatterProgress`), vì trước đó trang tiến độ không có bất kỳ dấu hiệu nào báo khách là văn phòng
+  đã trả lời — khách phải tự đoán để bấm vào xem.
+
+Ràng buộc dùng chung cho mọi listener mới của task này (R1–R2–R3 của M6.5, đã cài đặt sẵn, chỉ cần
+gọi lại — không viết lại):
+- Listener nghe `ClientDocumentSubmitted` **dùng đúng sự kiện đã có, không tự bắn sự kiện mới**:
+  M6.5 Task 17 đổi sự kiện này bắn **đúng một lần cho mỗi lần nộp** (không phải một lần mỗi tệp) và
+  mang một **Eloquent collection** các tài liệu của lần nộp đó (`SerializesModels`) — listener đọc
+  thẳng collection này, không tự truy vấn lại.
+- **Tiêu đề thư không bao giờ nêu tên tài liệu nhóm D** (xem Task 3).
+- Người nhận phía nhân sự đi qua `App\Actions\Notification\ResolveStaffRecipients` (R3, M6.5 Task
+  8/12) — không tự viết lại luật "lead + trợ lý trong đội ngũ", vì lớp đó đã gộp nhánh vụ
+  `restricted` (thay manager bằng admin, `supervisorsFor()`) và chuỗi dự phòng không bao giờ rỗng.
+- **`Reply-To` đã có sẵn:** `BrandedMailable` (M6.5 Task 12) gắn `Reply-To` theo
+  `config('vkcrm.brand.reply_to')` cho mọi Mailable kế thừa nó, trừ khi mẫu con tự đặt. Mẫu mới
+  chỉ cần kế thừa lớp cơ sở.
 
 ### - [ ] Task 5 — Màn hình mốc thời hạn (SPEC §7.2 tab "Mốc thời hạn")
 
@@ -90,6 +146,17 @@ Bậc 7/3/1/quá hạn, thêm bậc 14 khi `severity = critical`; `reminders_sen
 
 14 ngày → thông báo trong hệ thống cho lead lawyer; 21 ngày → email cho lead lawyer, đồng gửi mọi `manager`; theo R5 về tần suất. `StaleMattersWidget` đã có từ M3 — **kiểm chứng nó dùng chung đúng một định nghĩa "quá hạn cập nhật"** với job này, không hai định nghĩa (M4 đã tìm ra đúng hình dạng lỗi đó ở thanh X/Y). Lịch 07:30 hằng ngày.
 
+**Sửa 2026-09-27, sau M6.5 (Task 21).** Ba điều bắt buộc dùng lại hạ tầng M6.5, không viết lại:
+- **Chỉ vụ việc đang mở.** Dùng `Matter::open()` (M6.5 R8/Task 5: `closed_at` null và
+  `deleted_at` null) — không tự viết `whereNull('closed_at')` hay `whereHas('matter')` trần. Review
+  M6.5 Task 5 từng bắt đúng lỗi này ở `CheckDeadlines`.
+- **Một định nghĩa "quá hạn cập nhật".** M6.5 Task 5 (`stage/stage-09`) đã gom định nghĩa này vào
+  `App\Support\MatterStaleness`, dùng chung bởi `StaleMattersWidget` và cột tô màu của danh sách
+  vụ việc. Job này dùng lại đúng lớp đó.
+- **Người nhận theo R3.** "Đồng gửi mọi `manager`" đọc là "mọi manager xem được vụ việc đó" qua
+  `App\Actions\Notification\ResolveStaffRecipients::supervisorsFor()` (M6.5 Task 12), thay manager
+  bằng admin ở vụ `restricted` — không lấy toàn bộ user có vai trò manager của văn phòng.
+
 ### - [ ] Task 8 — `RemindMissingDocuments` (SPEC §6.9)
 
 Thứ Hai/Tư/Sáu 08:00. Chỉ matter đang mở, đã công bố portal, còn item **bắt buộc** ở `missing`/`rejected`. Liệt kê đúng những gì thiếu (R7). Không quá một thư mỗi 3 ngày cho cùng một matter (R3). Thiếu kéo dài quá 14 ngày → báo lead lawyer để gọi điện. Dùng đúng một nguồn sự thật về "còn thiếu": `App\Actions\Document\ChecklistProgress`.
@@ -101,6 +168,21 @@ Dòng đã công bố quá 5 ngày mà `stage_log_views` chưa có dòng nào �
 ### - [ ] Task 10 — Nghiệm thu, tài liệu, cổng merge
 
 Chạy `schedule:list` và `schedule:test` cho **từng tác vụ** trên dữ liệu seed thật trong container, dán nguyên văn output và các thư sinh ra trong log. Cập nhật `docs/PROGRESS.md` theo đúng lối M3/M4 (đường đi thật, số đo thật). Rà soát toàn nhánh, brief "giả định có một Critical". Cập nhật `.env.example` với mọi biến mới; điền giá trị thật lúc triển khai là việc của M8.
+
+**Sửa 2026-09-27, sau M6.5 (Task 21).** Thêm một việc mà M6.5 Task 13 cố ý để lại cho task này —
+brief của task đó ghi: "Không có nút gửi lại ở task này. Gửi lại thủ công là việc riêng, ghi vào M6
+Task 10." Màn hình nhật ký thư (`App\Filament\Admin\Resources\OutboundMessages`, M6.5 Task 13) chỉ
+**đọc** `outbound_messages`. Task này thêm **nút "Gửi lại"** trên một dòng `status = failed`:
+- dựng lại Mailable từ `template` + `related_type`/`related_id` đã ghi, xếp vào hàng đợi qua hạ
+  tầng R2, và ghi một dòng `outbound_messages` mới; không sửa dòng cũ (đó là bằng chứng của lần
+  gửi hỏng);
+- suy lại người nhận lúc gửi lại (R3 cho nhân sự, R12 cho khách), vì người nhận cũ có thể đã nghỉ
+  việc hoặc bị khoá;
+- không đụng tới thư nhắc mốc hạn đã có đường thử lại riêng (`SendDeadlineReminderMail::failed()`
+  trả bậc về cho `CheckDeadlines` hôm sau), để không gửi hai lần;
+- quyền bấm là một ability riêng trên `OutboundMessagePolicy`. Trang này **không** chỉ dành cho
+  `auditLog.view`: M6.5 Task 13 mở `viewAny` cho cả ai có `matter.view`, và `view()` lọc theo vụ.
+  Task này quyết ai được gửi lại (đề xuất: admin) và ghi audit.
 
 ---
 

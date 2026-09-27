@@ -720,6 +720,85 @@ it('falls back to a manager who can view the matter when both the responsible pe
     expect($recipients->pluck('id')->all())->toBe([$manager->id]);
 });
 
+/**
+ * Vòng sửa 2 (minor, `task-12-fix2-findings.md`): "khi cả người phụ trách LẪN luật sư phụ trách
+ * vụ đều không hợp lệ, cộng supervisorsFor ở MỌI bậc, không chỉ d1/quá hạn."
+ *
+ * Bậc `d3` là bậc DUY NHẤT trước bản sửa này có thể để `$preferred` KHÔNG rỗng (một trợ lý trong
+ * đội ngũ hợp lệ) trong khi ô "người phụ trách" (responsible/lead) vẫn trống — nên chuỗi dự phòng
+ * của `ResolveStaffRecipients::handle()` (chỉ kích hoạt khi `$preferred` rỗng TOÀN BỘ) không bao
+ * giờ chạy, và một mốc chỉ còn được đúng một trợ lý biết tới — không quản lý/admin nào giám sát,
+ * dù "người phụ trách" thật sự của mốc đã hoàn toàn biến mất khỏi bức tranh. Ruling: một trợ lý
+ * không được đứng MỘT MÌNH thay cho một chuỗi giám sát đã mất — cộng `supervisorsFor` NGAY CẢ ở
+ * `d3`, khi ô người phụ trách trống.
+ *
+ * Mutation probe: xem báo cáo — trả điều kiện cộng `supervisorsFor` về lại `$key === 'd1' ||
+ * $key === self::OVERDUE_KEY` (bỏ `|| ! $responsibleSlotFilled`) làm chính test này đỏ (thiếu
+ * manager).
+ */
+it('escalates to a supervisor at the three-day tier too when neither the responsible person nor the lead lawyer qualifies', function () {
+    $lead = User::factory()->withRole(Role::Lawyer)->create(['is_active' => false]);
+    $responsible = User::factory()->withRole(Role::Lawyer)->create(['is_active' => false]);
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+
+    $type = MatterType::factory()->withStages()->create();
+    $matter = Matter::factory()->create([
+        'lead_lawyer_id' => $lead->id,
+        'matter_type_id' => $type->id,
+        'stage' => $type->stages->reject(fn ($s) => $s->is_terminal)->first()->key,
+    ]);
+    $matter->addTeamMember($responsible, MatterRole::Associate);
+    $matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    $deadline = Deadline::factory()->create([
+        'matter_id' => $matter->id,
+        'responsible_user_id' => $responsible->id,
+        'due_date' => today()->addDays(3),
+        'is_completed' => false,
+        'reminders_sent' => [],
+    ]);
+
+    $recipients = (new CheckDeadlines)->recipientsFor($deadline, 'd3');
+
+    expect($recipients->pluck('id')->all())->toContain($assistant->id)
+        ->and($recipients->pluck('id')->all())->toContain($manager->id);
+});
+
+/**
+ * Cặp dương: cùng bậc `d3`, cùng đội ngũ, nhưng người phụ trách CÒN hoạt động (ô đó ĐÃ được lấp) —
+ * manager không được cộng vào, để chứng minh test trên đỏ đúng vì ô người phụ trách trống, không
+ * phải vì `d3` giờ luôn cộng supervisor vô điều kiện.
+ */
+it('does not escalate to a supervisor at the three-day tier when the responsible person already qualifies', function () {
+    $lead = User::factory()->withRole(Role::Lawyer)->create();
+    $responsible = User::factory()->withRole(Role::Lawyer)->create();
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+
+    $type = MatterType::factory()->withStages()->create();
+    $matter = Matter::factory()->create([
+        'lead_lawyer_id' => $lead->id,
+        'matter_type_id' => $type->id,
+        'stage' => $type->stages->reject(fn ($s) => $s->is_terminal)->first()->key,
+    ]);
+    $matter->addTeamMember($responsible, MatterRole::Associate);
+    $matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    $deadline = Deadline::factory()->create([
+        'matter_id' => $matter->id,
+        'responsible_user_id' => $responsible->id,
+        'due_date' => today()->addDays(3),
+        'is_completed' => false,
+        'reminders_sent' => [],
+    ]);
+
+    $recipients = (new CheckDeadlines)->recipientsFor($deadline, 'd3');
+
+    expect($recipients->pluck('id')->all())->toContain($assistant->id)
+        ->and($recipients->pluck('id')->all())->not->toContain($manager->id);
+});
+
 // ---------------------------------------------------------------------------------------------
 // M6.5 Task 12 (`deadlines/F3`) — tiêu đề mang số ngày còn lại THẬT, không mang con số của bậc.
 // ---------------------------------------------------------------------------------------------

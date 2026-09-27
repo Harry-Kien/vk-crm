@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Mail;
 use Symfony\Component\Mailer\Envelope as SymfonyEnvelope;
 use Symfony\Component\Mailer\Exception\TransportException;
@@ -379,17 +380,32 @@ class ThrowingOnMarkSentLedger extends RecordOutboundMessage
 }
 
 /**
- * Mutation probe: xem báo cáo — đưa `markSent()` trở lại BÊN TRONG `try` (bản trước vòng sửa 1)
- * làm chính test này đỏ: dòng chuyển sang `Failed` thay vì giữ nguyên KHÔNG PHẢI `Failed`.
+ * Vòng sửa 2 (minor, `task-12-fix2-findings.md`): trước bản sửa này, một `markSent()` hỏng ĐI
+ * XUYÊN QUA `send()` — thư đã tới nơi thật, nhưng lời gọi ném ngoại lệ ra tới `Mail::send()`, và
+ * job đứng sau (`SendDeadlineReminderMail`, `SendStageUpdateNotification`) đọc đó là "gửi thất
+ * bại" rồi THỬ LẠI, tức gửi trùng cho một người đã nhận rồi — đúng thứ mà nhánh `markSent()` NGOÀI
+ * `try` gửi/nhận (vòng sửa 1) định tránh, nhưng chưa tránh hết: nó chỉ tránh nhầm `Failed`, không
+ * tránh việc ngoại lệ vẫn thoát ra khỏi `send()`.
+ *
+ * Ruling: `markSent()` giờ nằm trong `try/catch` RIÊNG của chính nó — lỗi được `report()`, KHÔNG
+ * ném tiếp — và `send()` vẫn trả về `$sent` bình thường, để hàng đợi không thấy gì khác một lượt
+ * gửi trót lọt.
+ *
+ * Mutation probe: xem báo cáo — bỏ try/catch riêng của `markSent()` (đưa lại `throw` xuyên qua)
+ * làm chính test này đỏ, vì `Mail::to(...)->send(...)` ném `RuntimeException` thay vì trả về êm.
  */
 it('does not mark a delivered mail as failed when closing the ledger row itself throws', function () {
+    Exceptions::fake();
+
     app()->instance(RecordOutboundMessage::class, new ThrowingOnMarkSentLedger);
 
-    expect(fn () => Mail::to('khach@vidu.test')->send(new LedgerProbeMail))->toThrow(RuntimeException::class);
+    Mail::to('khach@vidu.test')->send(new LedgerProbeMail);
 
     $row = OutboundMessage::query()->sole();
 
     expect($row->status)->not->toBe(OutboundStatus::Failed);
+
+    Exceptions::assertReported(RuntimeException::class);
 });
 
 /** Cặp dương: khi markSent() không ném gì, dòng đóng thành `Sent` bình thường — ghim rằng test trên đỏ đúng vì markSent ném lỗi, không vì lý do khác. */

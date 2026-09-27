@@ -257,6 +257,16 @@ cộng trạng thái `on_hold` có thể vào ra từ `intake` và `collecting_d
 Index: `(client_id)`, `(lead_lawyer_id)`, `(stage)`, `(last_client_update_at)`,
 `(is_published_to_portal, client_id)`.
 
+**Đính chính 2026-09-27 (M6.5 Task 5, ghi ở Task 21; phán quyết R8).** Trước M6.5 không chỗ nào
+ghi `closed_at` (`stage/stage-03`, `spec-gap/spec-gap-03`). "Kết thúc vụ việc" nghĩa là
+`TransitionMatterStage` đưa vụ việc vào một giai đoạn `is_terminal = true`: Action ghi
+`closed_at = now()`, và xoá `closed_at` khi đường bỏ qua của admin đưa vụ việc rời giai đoạn kết
+thúc đó. **"Vụ đang mở" có đúng một định nghĩa**, `Matter::scopeOpen()`: `closed_at` null **và**
+`deleted_at` null (điều kiện thứ hai viết tường minh, để một lời gọi `withTrashed()` phía trên
+không kéo vụ đã huỷ vào). Widget, cột tô màu, `CheckDeadlines` và mọi tác vụ sau này (`CheckStaleMatters`
+ở M6, lưu trữ ở M7) dùng scope này hoặc bản trong bộ nhớ `Matter::isOpen()`, không tự viết lại
+điều kiện.
+
 ### 4.7 `matter_user` — đội ngũ tham gia vụ việc
 
 | Cột | Kiểu |
@@ -358,6 +368,20 @@ hai vế**. Nó chưa bao giờ nằm trong danh sách giấy tờ khách phải
 tuyên bố nó không cần nộp không làm thanh tiến độ nhúc nhích. Dữ liệu mẫu ở §12
 sinh ra đúng những item như vậy và chúng không phải dữ liệu sai.
 
+**Đính chính 2026-09-27 (M6.5 Task 17, ghi ở Task 21; `checklist/checklist-05`).** Câu "đang có
+ít nhất một tài liệu **không thuộc nhóm D**" ở trên quá rộng. Khi văn phòng gắn một văn bản nhóm
+B hoặc C vào một item không bắt buộc, item đó vào Y trong khi vẫn ở `missing`, và cổng báo khách
+"chúng tôi còn chờ ở anh/chị" một giấy tờ mà chính văn phòng phát hành. Luật đúng, cài ở
+`App\Actions\Document\ChecklistProgress`:
+
+- **Y** = các item `is_required = true`, **hợp** với các item không bắt buộc đang có ít nhất một
+  tài liệu **nhóm A** (`ClientProvided`, do khách cung cấp, kể cả khi nhân sự nộp thay) gắn vào.
+  Tài liệu nhóm B, C, D không bao giờ đưa một item vào Y, dù đã công bố hay chưa.
+- **X** không đổi: số item trong Y có `status` là `accepted` hoặc `not_applicable`.
+
+Hệ quả: một item không bắt buộc chỉ được thoả bằng văn bản văn phòng phát hành thì không hiện
+trên thanh tiến độ. Chủ nhiệm chấp nhận điều này (sổ tay M6.5, phán quyết Task 17).
+
 ### 4.11 `documents`
 
 | Cột | Kiểu | Ghi chú |
@@ -394,6 +418,27 @@ Quy tắc chuyển trạng thái nhóm B: `internal_draft` → `pending_approval
 `signed_filed` → `published`. **Không được nhảy thẳng từ `internal_draft` hoặc
 `pending_approval` sang `published`.** Đây là ràng buộc ngăn khách nhìn thấy một
 bản đơn mà toà chưa hề nhận được.
+
+**Đính chính 2026-09-27 (M6.5 Task 16, ghi ở Task 21; phán quyết R9).** SPEC gốc im lặng về
+việc ai được đi từng bước, và trước M6.5 giao diện không có đường nào tới `signed_filed`
+(`docs/docs-1`), nên văn bản nhóm B không bao giờ công bố được. Luật đã cài:
+
+- **"Trình duyệt"** (`internal_draft` → `pending_approval`): ai có quyền `update` tài liệu.
+- **"Đã ký, đã nộp"** (`pending_approval` → `signed_filed`): đòi `document.publish`. Chỉ sau bước
+  này mới công bố được (`PublishDocument`, cũng đòi `document.publish`).
+- **"Trả về bản nháp"** (`pending_approval` → `internal_draft`): đòi `document.publish`, có audit.
+  Thêm vì một bản bị từ chối duyệt nội bộ trước đó nằm ở `pending_approval` mãi, không rời B được.
+- **Đổi nhóm** (`RegroupDocument`, `docs/docs-2`):
+  - chuyển **vào** nhóm D luôn được với `document.update`: nó chỉ làm giảm cái khách thấy, và là
+    đường rút tạm duy nhất cho tới `RetractDocument` (M7 Task 7);
+  - rời nhóm D đòi `document.publish`;
+  - rời nhóm B sang A hoặc C đòi `document.publish` **và** một trong hai: tài liệu đã
+    `signed_filed`, hoặc đang `published` với `client_can_view = true`; hoặc một lý do sửa xếp nhầm nhóm (tối thiểu 10
+    ký tự, không tính khoảng trắng hai đầu) được ghi vào `document_regrouped.misfiling_reason`.
+    Không được lặng lẽ "giặt" một bản nháp B thành nhóm C để công bố thẳng.
+
+Audit mới cho ba bước đầu: `document_submitted_for_approval`, `document_signed_filed`,
+`document_returned_to_draft` (xem §10.6).
 
 ### 4.12 `document_downloads` — nhật ký tải về
 
@@ -554,6 +599,16 @@ Cài đặt bắt buộc: các điều kiện trên phải nằm trong **global 
 khi guard đang hoạt động là `client` (`app/Support/Scopes/`), không phải viết
 `where()` ở từng resource. Một chỗ quên là một vụ rò rỉ dữ liệu.
 
+**Đính chính 2026-09-27 (M6.5 Task 21, `requests/REQ-8`).** "Của chính mình" ở dòng
+`ClientRequest` đọc là **của khách hàng (`Client`)**, không phải của riêng tài khoản đăng nhập
+(`ClientUser`) đã mở luồng: mọi tài khoản cổng của cùng một khách hàng (ví dụ người nhà) đọc và
+viết được vào cùng một luồng yêu cầu. Mã làm đúng như vậy từ M5:
+`ClientRequest::applyClientPortalConstraints()` chỉ đòi luồng thuộc một vụ việc khách xem được
+(`whereHas('matter')`, và vụ việc tự lọc theo `client_id` cộng `is_published_to_portal`), không
+lọc theo `client_user_id`. Trước bản đính chính này, cách đọc đó chỉ nằm trong docblock. M6.5 Task
+18 thêm trên trang "Yêu cầu của tôi" một dòng nói rõ điều này, và chỉ gắn nhãn "Anh/chị viết"
+cho câu của chính tài khoản đang xem; câu của tài khoản khác cùng khách hàng mang tên người viết.
+
 ---
 
 ## 6. Logic nghiệp vụ
@@ -669,6 +724,26 @@ Chạy hằng ngày 07:00. Với mỗi deadline chưa hoàn thành:
 Cột `reminders_sent` chống gửi trùng. Deadline `severity = critical` thì thêm
 mốc nhắc ở 14 ngày.
 
+**Đính chính 2026-09-27 (M6.5 Task 8 và 12, ghi ở Task 21; phán quyết R3).** Trước M6.5, thư
+nhắc của một vụ `restricted` đi tới manager và trợ lý không được xem vụ đó (`deadlines/F2`,
+`notify/notify-3`), và người phụ trách bị khoá thì mốc im lặng (`deadlines/F4`,
+`notify/notify-4`). Luật đã cài:
+
+- **Người nhận là người được xem vụ**: đang `is_active`, chưa xoá, và qua
+  `Gate::forUser($u)->allows('view', $matter)`. Mọi thư và thông báo trong hệ thống gửi cho nhân
+  sự về một vụ việc đi qua `App\Actions\Notification\ResolveStaffRecipients`, không riêng
+  `CheckDeadlines`.
+- **"Toàn bộ vai trò `manager`"** trong bảng trên đọc là **mọi manager xem được vụ đó**
+  (`ResolveStaffRecipients::supervisorsFor()`); với vụ `restricted` thì là mọi admin đang hoạt
+  động thay cho manager.
+- **Người phụ trách không hợp lệ** (bị khoá, bị xoá, không còn xem được vụ) thì luật sư phụ trách
+  vụ thế chỗ ở mọi bậc. Cả hai đều không hợp lệ thì `supervisorsFor()` được thêm vào ở mọi bậc,
+  không chỉ bậc 1 ngày và quá hạn.
+- **Không bao giờ im lặng:** nếu không ai trong danh sách ưu tiên hợp lệ, chuỗi dự phòng là luật
+  sư phụ trách → một manager xem được vụ → một admin xem được vụ.
+- Job gửi thư suy lại người nhận lúc thật sự gửi, và không gửi lại cho người đã nhận thư của đúng
+  mốc và bậc đó khi hàng đợi thử lại.
+
 ### 6.9 Nhắc khách bổ sung giấy tờ — `RemindMissingDocuments`
 
 Chạy 08:00 các ngày thứ Hai, Tư, Sáu. Với mỗi matter đang mở, đã công bố
@@ -708,10 +783,17 @@ Thuật toán:
    khi kết quả xanh. Phải chứng minh được là đã kiểm tra.
 
 Giao diện: kết quả hiện ngay trong form tạo vụ việc, dạng bảng liệt kê vụ việc
-liên quan kèm mã hồ sơ và vai của bên đó. Người dùng bấm được sang xem — **nhưng
-chỉ xem được mã hồ sơ, loại vụ việc và vai**, không xem được nội dung, kể cả khi
-họ không có quyền trên vụ đó. Đây là ngoại lệ có chủ đích của quy tắc phân
-quyền: đủ thông tin để nhận ra xung đột, không đủ để lộ bí mật hồ sơ khác.
+liên quan kèm mã hồ sơ và vai của bên đó — **chỉ mã hồ sơ, loại vụ việc và vai**,
+không xem được nội dung, kể cả khi người dùng không có quyền trên vụ đó. Đây là
+ngoại lệ có chủ đích của quy tắc phân quyền: đủ thông tin để nhận ra xung đột,
+không đủ để lộ bí mật hồ sơ khác.
+
+**Đính chính 2026-09-27 (M6.5 Task 9, ghi ở Task 21; `conflict/conflict-08`).** Câu "Người dùng
+bấm được sang xem" đã bị bỏ khỏi đoạn trên. Đợt kiểm tra 2026-09-24 xác nhận bảng kết quả không có
+liên kết nào sang hồ sơ trùng, và kế hoạch M6.5 Task 9 quyết định giữ nguyên như vậy: những gì
+người kiểm tra được phép biết đã nằm sẵn trong các cột của bảng (xem đính chính 2026-09-16 ngay
+dưới), còn một liên kết sang vụ việc mà họ không có quyền xem chỉ dẫn tới trang 404 hoặc, tệ hơn,
+thành một đường lộ. Đây là chỗ SPEC gốc mô tả sai, không phải cài đặt làm thiếu.
 
 **Đính chính 2026-09-16 (sau review M3).** Bảng kết quả trên thực tế hiện **năm**
 cột chứ không phải ba: mã hồ sơ, loại vụ việc, vai của bên, **tên của bên trùng**,
@@ -929,9 +1011,19 @@ logo và chân trang công ty. Gửi qua SMTP tên miền riêng, cấu hình tr
 | `staff.stale_matter` | Job SLA 14/21 ngày |
 | `staff.new_client_document` | Khách nộp tài liệu |
 | `staff.new_client_request` | Khách gửi yêu cầu |
+| `client.request_answered` | Văn phòng trả lời một yêu cầu của khách |
 
 Email gửi cho khách **chỉ chứa nội dung đã công bố**, tuyệt đối không nhúng
 `internal_note`. Nội dung tóm tắt ngắn, chi tiết mời bấm vào portal.
+
+**Đính chính 2026-09-27 (M6.5 Task 21, `requests/REQ-4`).** Thêm mẫu `client.request_answered`
+vào bảng trên. Đợt kiểm tra 2026-09-24 tìm ra: khách gửi câu hỏi qua cổng, văn phòng trả lời, mà
+khách không được báo bằng cách nào (không thư, không dấu hiệu trên thẻ hồ sơ). Đây là khoảng trống
+của chính SPEC. Chủ văn phòng giao "làm cho tốt nhất". Mẫu gửi khi văn phòng trả lời một luồng
+(luồng chuyển sang `answered`), tới các tài khoản cổng của khách sở hữu luồng, cùng điều kiện với
+mọi thư cho khách: `is_active` **và** `activated_at` không null (M6.5 R12). Cài đặt thuộc M6 Task 4
+(`docs/superpowers/plans/2026-09-21-m6-notifications.md`), cùng với huy hiệu "có trả lời mới" trên
+thẻ hồ sơ ở cổng; M6.5 không viết mẫu thư này (R1).
 
 ---
 
@@ -951,6 +1043,24 @@ Email gửi cho khách **chỉ chứa nội dung đã công bố**, tuyệt đ�
 6. Activity log bắt buộc ghi: đăng nhập thành công và thất bại (cả hai guard),
    tải tài liệu, công bố tài liệu, công bố tiến độ, đổi phân quyền, tạo và vô
    hiệu hoá tài khoản portal, xuất dữ liệu.
+
+   **Đính chính 2026-09-27 (§10.6, M6.5 Task 21).** M6.5 thêm 19 sự kiện `Audit::record()`
+   vào danh sách bắt buộc ghi. Đếm bằng cách so `Audit::record('…'` giữa `main` và nhánh gộp
+   `m6-5-lane-d` ngày 2026-09-27:
+   - vụ việc: `matter_details_updated`, `matter_cancelled`, `matter_reassigned` (R7, R14);
+   - đội ngũ và nghỉ việc: `team_member_added`, `team_member_removed`,
+     `deadline_responsible_changed`, `user_password_reset` (R6, R7);
+   - các bên và xung đột: `matter_party_updated`, `matter_party_removed`,
+     `client_identity_conflict_detected`, `client_identity_recheck_failed` (R13, R14);
+   - tra khách khi mở vụ: `client_lookup`, `client_lookup_throttled` (R4; không ghi số thô);
+   - tài liệu nhóm B: `document_submitted_for_approval`, `document_signed_filed`,
+     `document_returned_to_draft` (R9);
+   - danh mục: `checklist_item_added`;
+   - cổng và thư: `portal_login_unlocked`, `deadline_reminder_failed`.
+
+   Task 14 (sửa và xoá mốc hạn) còn đang làm lúc ghi đính chính này và có thể thêm sự kiện. Trước
+   khi merge, chạy lại phép so trên và `ActivityLogEventTranslationsTest` (mọi sự kiện phải có
+   nhãn trong `lang/vi/activity.php`).
 7. 2FA bắt buộc cho toàn bộ tài khoản nội bộ. Không có tuỳ chọn tắt.
 8. `spatie/laravel-backup` cấu hình sao lưu hằng ngày cả CSDL lẫn thư mục tệp,
    đẩy ra một disk ngoài máy chủ (S3 hoặc tương đương), giữ 30 bản.

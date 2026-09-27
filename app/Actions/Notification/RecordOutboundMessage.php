@@ -52,11 +52,22 @@ class RecordOutboundMessage
     {
         [$relatedType, $relatedId] = $this->related($message);
 
+        $payload = ['subject' => $message->getSubject()];
+
+        // Vòng sửa 2 (I1): chỉ `App\Mail\Staff\DeadlineReminder` đặt header này — mọi mẫu thư
+        // khác (thư tiến độ, OTP, ...) không có khái niệm "bậc" nên `tier()` trả `null` và khoá
+        // này vắng mặt khỏi `payload`, đúng như trước bản sửa này.
+        $tier = $this->tier($message);
+
+        if ($tier !== null) {
+            $payload['tier'] = $tier;
+        }
+
         $row = OutboundMessage::query()->create([
             'channel' => OutboundChannel::Email,
             'recipient' => $this->recipients($message),
             'template' => $this->template($message),
-            'payload' => ['subject' => $message->getSubject()],
+            'payload' => $payload,
             'related_type' => $relatedType,
             'related_id' => $relatedId,
             'status' => OutboundStatus::Queued,
@@ -101,7 +112,12 @@ class RecordOutboundMessage
         $raw = (string) $headers->get(OutboundHeaders::LEDGER_ID)?->getBodyAsString();
         $ledgerId = ctype_digit($raw) ? (int) $raw : null;
 
-        foreach ([OutboundHeaders::TEMPLATE, OutboundHeaders::RELATED, OutboundHeaders::LEDGER_ID] as $name) {
+        foreach ([
+            OutboundHeaders::TEMPLATE,
+            OutboundHeaders::RELATED,
+            OutboundHeaders::LEDGER_TIER,
+            OutboundHeaders::LEDGER_ID,
+        ] as $name) {
             $headers->remove($name);
         }
 
@@ -150,6 +166,18 @@ class RecordOutboundMessage
             'status' => OutboundStatus::Failed,
             'error' => $error::class.': '.$error->getMessage(),
         ]);
+    }
+
+    /**
+     * Bậc nhắc (vòng sửa 2, I1) — `null` khi thư không khai báo header đó (mọi mẫu thư TRỪ
+     * `App\Mail\Staff\DeadlineReminder`). Không ghi khoá `tier` vào `payload` khi `null`, để hình
+     * dạng `payload` của các mẫu thư khác không đổi.
+     */
+    private function tier(Email $message): ?string
+    {
+        $tier = trim((string) $message->getHeaders()->get(OutboundHeaders::LEDGER_TIER)?->getBodyAsString());
+
+        return $tier === '' ? null : $tier;
     }
 
     /**
