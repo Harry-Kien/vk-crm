@@ -17,4 +17,6 @@ return [
     'deadline_matter_not_published_to_portal' => 'Không thể gửi mốc thời hạn cho khách ở vụ việc :code: vụ việc chưa bật "Công bố portal". Bật công tắc này ở tab Tổng quan trước, rồi gửi lại mốc.',
     'team_member_has_open_work' => 'Không thể gỡ :name khỏi đội ngũ vụ việc :code: người này còn — :items. Hãy chuyển các việc này cho người khác trước khi gỡ khỏi đội ngũ.',
     'conflict_check_busy' => 'Hệ thống đang kiểm tra xung đột cho một yêu cầu khác, thử lại sau.',
+    // M6.5 Task 6 (R4, `intake-07`): App\Actions\Client\CreateClient.
+    'duplicate_client_detected' => 'Đã có một khách hàng khác mang cùng số điện thoại hoặc số CCCD vừa nhập — mã :code. Xem lại hồ sơ đó ở liên kết bên trên trước khi quyết định.',
 ];

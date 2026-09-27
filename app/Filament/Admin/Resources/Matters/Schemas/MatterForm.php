@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Resources\Matters\Schemas;
 
+use App\Enums\ClientType;
 use App\Enums\Confidentiality;
 use App\Enums\PartyRole;
 use App\Filament\Admin\Resources\Matters\Pages\CreateMatter;
@@ -73,6 +74,16 @@ class MatterForm
             // Ô chọn khách hàng dùng chung VisibleClientOptions với mọi ô "Khách hàng" khác của
             // panel: ai không có client.manage chỉ thấy khách hàng của những vụ việc mình liệt kê
             // được. Đây là cổng HIỂN THỊ; cổng thật nằm ở CreateMatter::mutateFormDataBeforeCreate().
+            //
+            // **`required()` không còn vô điều kiện (M6.5 Task 6, R4).** Một luật sư không có
+            // client.manage không bao giờ thấy khách hàng MỚI trong danh sách này (VisibleClientOptions
+            // chỉ liệt kê khách của những vụ họ đã liệt kê được — findings intake-03/roles-04) — hai
+            // đường thay thế ở lawyerClientLookupFields() (tra đúng định danh, hoặc tạo mới ngay
+            // trong form) mới là lối họ mở được vụ đầu tiên cho khách đó. Ô này KHÔNG bắt buộc khi
+            // một trong hai đường đó đã có kết quả: đã tra được một hồ sơ (resolvedClientId), hoặc
+            // đang điền dở khối "Tạo khách mới" (new_client.name). Không đổi gì cho ai vẫn chọn từ
+            // danh sách (client.manage hoặc luật sư có khách cũ) — cả hai điều kiện trên đều rơi về
+            // false, required() về lại y hệt trước bản sửa này.
             Select::make('client_id')
                 ->label(__('matters.fields.client'))
                 ->options(fn (): array => VisibleClientOptions::forCurrentUser())
@@ -81,7 +92,9 @@ class MatterForm
                 // quả kiểm tra đang hiện không còn nói về vụ việc này nữa.
                 ->live()
                 ->afterStateUpdated(static::forgetConflictResult())
-                ->required(),
+                ->required(fn (CreateMatter $livewire, Get $get): bool => $livewire->resolvedClientId === null
+                    && blank($get('new_client.name'))),
+            ...static::lawyerClientLookupFields(),
             // KHÔNG có ->default(): SPEC §6.10 và OpenMatter bước 2 đều đòi vai này được chọn có ý
             // thức. Một mặc định ngầm (từng là `plaintiff`) làm mọi vụ mà khách hàng là bị đơn bị
             // tính sai vai đối lập, hạ mức đỏ xuống vàng trong im lặng.
@@ -161,6 +174,135 @@ class MatterForm
             Toggle::make('is_published_to_portal')
                 ->label(__('matters.fields.is_published_to_portal'))
                 ->default(false),
+        ];
+    }
+
+    /**
+     * Hai đường thay thế cho một actor KHÔNG có `client.manage` (M6.5 Task 6, R4 — findings
+     * `intake/intake-03`, `roles/roles-04`): tra ĐÚNG số điện thoại/CCCD của một hồ sơ đã có
+     * (`App\Actions\Client\FindClientByIdentifier`, qua `CreateMatter::lookupClient()`), hoặc điền
+     * khối "Tạo khách mới" ngay dưới để tạo một hồ sơ mới (`App\Actions\Client\CreateClient`, qua
+     * `CreateMatter::mutateFormDataBeforeCreate()`). Ẩn hẳn với ai có `client.manage` — người đó
+     * đã có Select ngay trên để chọn/tìm bất kỳ khách hàng nào, không cần hai đường này.
+     *
+     * **Không có gợi ý, không có danh sách (R4).** Ô tra chỉ có MỘT kết quả: khớp tuyệt đối hoặc
+     * không gì cả — xem docblock `FindClientByIdentifier` cho lý do ranh giới lộ thông tin.
+     *
+     * @return array<int, mixed>
+     */
+    private static function lawyerClientLookupFields(): array
+    {
+        $hiddenFromListPicker = fn (): bool => ! VisibleClientOptions::currentUserCanChooseFromList();
+
+        return [
+            Text::make(__('matters.create_form.client_lookup_intro'))
+                ->color('gray')
+                ->visible($hiddenFromListPicker)
+                ->columnSpanFull(),
+            TextInput::make('client_lookup_identifier')
+                ->label(__('matters.create_form.client_lookup_identifier'))
+                ->helperText(__('matters.create_form.client_lookup_identifier_help'))
+                // onBlur, không từng ký tự: một lần tra là một dòng audit client_lookup (R4) —
+                // gõ dở không nên sinh ra một lượt tra cho mỗi phím bấm.
+                ->live(onBlur: true)
+                ->afterStateUpdated(fn (CreateMatter $livewire, ?string $state) => $livewire->lookupClient($state))
+                ->maxLength(30)
+                ->visible($hiddenFromListPicker)
+                ->columnSpanFull(),
+            // Câu đã dịch sẵn ở CreateMatter::lookupClient() — xem docblock đó cho lý do #[Locked].
+            View::make('filament.client-lookup-result')
+                ->viewData(fn (CreateMatter $livewire): array => ['label' => $livewire->resolvedClientLabel])
+                ->visible(fn (CreateMatter $livewire): bool => $hiddenFromListPicker() && $livewire->resolvedClientId !== null)
+                ->columnSpanFull(),
+            Text::make(__('matters.create_form.new_client_intro'))
+                ->color('gray')
+                ->visible(fn (CreateMatter $livewire): bool => $hiddenFromListPicker() && $livewire->resolvedClientId === null)
+                ->columnSpanFull(),
+            ...static::newClientFields($hiddenFromListPicker),
+        ];
+    }
+
+    /**
+     * "Tạo khách mới ngay trong form" (R4 b). Cùng RÀNG BUỘC dữ liệu với `ClientForm::fields()`
+     * (bugfix `intake-08`: `type` live(), `representative_name` <= 120, `address` <= 300,
+     * `id_number` không bắt buộc) nhưng viết LẠI ở đây thay vì tái dùng hàm đó trực tiếp: khối này
+     * cần một điều kiện `visible()`/`required()` THỨ HAI ("chỉ khi luật sư chưa chọn/tra được hồ
+     * sơ nào khác", `$livewire->resolvedClientId === null` VÀ ô Select `client_id` còn trống) đan
+     * xen với điều kiện riêng của `representative_name` ("chỉ khi Tổ chức") — Filament không cộng
+     * dồn được hai lời gọi `->visible()` liên tiếp trên CÙNG một field (lời gọi sau ghi đè lời gọi
+     * trước, không AND lại với nhau), nên gọi `ClientForm::fields()` rồi cố "vá" thêm điều kiện
+     * bằng cách gọi lại `->visible()` một lần nữa sẽ ÂM THẦM xoá mất điều kiện "chỉ khi Tổ chức" —
+     * bảy trường ở đây và ở `ClientForm::fields()` phải đổi CÙNG NHAU nếu quy tắc SPEC §4.2 đổi,
+     * cùng đánh đổi mà `CreateMatter::conflictSummary()` đã chọn cho lý do tương tự (xem docblock
+     * ở đó).
+     *
+     * **`blank($get('client_id'))` — bắt buộc, không phải phòng thủ thừa.** Một luật sư có thể
+     * KHÔNG có khách mới, nhưng vẫn chọn được một khách CŨ từ Select (`VisibleClientOptions` không
+     * rỗng với vụ việc thứ hai trở đi — `intake-03`) mà không hề gọi `lookupClient()`. Không có
+     * điều kiện này, `$livewire->resolvedClientId` vẫn `null` ở tình huống đó và khối "Tạo khách
+     * mới" bị bắt buộc điền dù người dùng đã chọn khách xong ở Select — regressions thật, bắt
+     * được bởi toàn bộ các test khác của tệp này dùng `clientVisibleTo()` (chọn qua Select, không
+     * qua khối này).
+     *
+     * `App\Actions\Client\CreateClient::handle()` tự dò trùng theo số điện thoại/CCCD đã nhập ở
+     * đây (so với các bên `is_our_client` đã lưu) — một luật sư gõ đúng định danh của khách hàng
+     * trợ lý vừa tạo (mà không dùng ô tra ở trên) vẫn KHÔNG tạo ra một hồ sơ thứ hai (R4 b).
+     *
+     * @return array<int, mixed>
+     */
+    private static function newClientFields(Closure $hiddenFromListPicker): array
+    {
+        $visible = fn (CreateMatter $livewire, Get $get): bool => $hiddenFromListPicker()
+            && $livewire->resolvedClientId === null
+            && blank($get('client_id'));
+
+        return [
+            Select::make('new_client.type')
+                ->label(__('clients.fields.type'))
+                ->options(fn (): array => collect(ClientType::cases())
+                    ->mapWithKeys(fn (ClientType $type) => [$type->value => $type->label()])
+                    ->all())
+                ->live()
+                ->afterStateUpdated(static::forgetConflictResult())
+                ->required($visible)
+                ->visible($visible),
+            TextInput::make('new_client.name')
+                ->label(__('clients.fields.name'))
+                ->live(onBlur: true)
+                ->afterStateUpdated(static::forgetConflictResult())
+                ->required($visible)
+                ->visible($visible)
+                ->maxLength(200),
+            TextInput::make('new_client.id_number')
+                ->label(__('clients.fields.id_number'))
+                ->live(onBlur: true)
+                ->afterStateUpdated(static::forgetConflictResult())
+                ->visible($visible)
+                ->maxLength(20),
+            TextInput::make('new_client.phone')
+                ->label(__('clients.fields.phone'))
+                ->tel()
+                ->live(onBlur: true)
+                ->afterStateUpdated(static::forgetConflictResult())
+                ->visible($visible)
+                ->maxLength(20),
+            TextInput::make('new_client.email')
+                ->label(__('clients.fields.email'))
+                ->email()
+                ->visible($visible)
+                ->maxLength(150),
+            TextInput::make('new_client.representative_name')
+                ->label(__('clients.fields.representative_name'))
+                ->maxLength(120)
+                ->visible(fn (CreateMatter $livewire, Get $get): bool => $visible($livewire, $get)
+                    && $get('new_client.type') === ClientType::Organization->value),
+            Textarea::make('new_client.address')
+                ->label(__('clients.fields.address'))
+                ->live(onBlur: true)
+                ->afterStateUpdated(static::forgetConflictResult())
+                ->visible($visible)
+                ->maxLength(300)
+                ->columnSpanFull(),
         ];
     }
 

@@ -47,6 +47,19 @@ final class VisibleClientOptions
         abort_unless(array_key_exists((int) $clientId, self::forCurrentUser()), 404);
     }
 
+    /**
+     * "Chọn từ danh sách" (Select có sẵn của `VisibleClientOptions::forCurrentUser()`) hay "tra
+     * theo định danh / tạo mới" (M6.5 Task 6, R4)? MỘT nơi quyết định luật này, để `MatterForm`
+     * (hiện khối nào) và `CreateMatter::mutateFormDataBeforeCreate()` (nhánh nào xử lý `client_id`)
+     * không thể lệch nhau — đúng triết lý "dùng chung" của cả lớp này.
+     */
+    public static function currentUserCanChooseFromList(): bool
+    {
+        $user = Auth::user();
+
+        return $user instanceof User && $user->can(Permission::ClientManage->value);
+    }
+
     /** @return array<int, string> */
     public static function forCurrentUser(): array
     {

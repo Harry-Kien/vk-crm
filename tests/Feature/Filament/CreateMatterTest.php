@@ -1,7 +1,9 @@
 <?php
 
+use App\Enums\ClientType;
 use App\Enums\PartyRole;
 use App\Enums\Role;
+use App\Filament\Admin\Resources\Clients\Pages\CreateClient as CreateClientPage;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Filament\Admin\Resources\Matters\Pages\CreateMatter;
 use App\Filament\Admin\Resources\Matters\Pages\ListMatters;
@@ -135,6 +137,217 @@ it('opens a matter end to end through the create form, with its parties and its 
     // SPEC §6.10 bước 4: mọi lần chạy đều để lại bằng chứng, kể cả xanh.
     expect(Activity::query()->where('event', 'conflict_check_run')->count())->toBe(1)
         ->and(Activity::query()->where('event', 'matter_opened')->count())->toBe(1);
+});
+
+/**
+ * M6.5 Task 6 (R4, findings `intake/intake-03`/`roles/roles-04`) — đây là test THAY THẾ đường
+ * `clientVisibleTo()` của test ngay trên cho đúng câu hỏi mà `intake-10` nêu tên: "tạo được vụ
+ * việc end-to-end" phải xanh với một khách hàng HOÀN TOÀN MỚI, không dựng sẵn một vụ cũ nối luật
+ * sư với khách hàng. Trước bản sửa Task 6, `VisibleClientOptions` chỉ liệt kê khách hàng của
+ * những vụ luật sư đã liệt kê được — một khách chưa từng có vụ nào không bao giờ lọt vào ô chọn,
+ * và luật sư không có `client.manage` để tự tạo hồ sơ khách qua màn hình "Khách hàng". Không
+ * `client_id`, không `clientVisibleTo()` nào ở đây — chỉ khối "Tạo khách mới" của `MatterForm`.
+ */
+it('opens a matter end to end for a brand new client, without building any prior matter', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $type = createFormMatterType(2);
+
+    expect(Client::count())->toBe(0)
+        ->and(Matter::count())->toBe(0);
+
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(CreateMatter::class)
+        ->fillForm([
+            'client_role' => PartyRole::Plaintiff->value,
+            'matter_type_id' => $type->id,
+            'title' => 'Ly hôn cho khách hoàn toàn mới',
+            'lead_lawyer_id' => $lawyer->id,
+            'other_parties' => [],
+            'new_client' => [
+                'type' => ClientType::Individual->value,
+                'name' => 'Trần Thị Mới',
+                'id_number' => '079099001234',
+                'phone' => '0909111222',
+            ],
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $matter = Matter::query()->where('title', 'Ly hôn cho khách hoàn toàn mới')->first();
+    $client = Client::query()->where('name', 'Trần Thị Mới')->first();
+
+    expect($client)->not->toBeNull()
+        ->and($matter)->not->toBeNull()
+        ->and($matter->client_id)->toBe($client->id)
+        ->and($matter->lead_lawyer_id)->toBe($lawyer->id)
+        ->and(Client::count())->toBe(1)
+        ->and(Matter::count())->toBe(1);
+});
+
+/**
+ * M6.5 Task 6 (R4b) — không phải một finding của brief, tự phát hiện bằng probe trong lúc rà soát.
+ *
+ * `mutateFormDataBeforeCreate()` (tạo `Client` mới qua nhánh "Tạo khách mới") chạy TRƯỚC
+ * `handleRecordCreation()` (nơi `OpenMatter` kiểm tra xung đột) — nếu `OpenMatter` chặn (vàng cần
+ * xác nhận, đỏ cần ghi đè), hồ sơ `Client` vừa tạo đã COMMIT dù `Matter` chưa hề tồn tại. Lượt gửi
+ * THỨ HAI (sau khi tích "đã xem xét") gửi lại CÙNG dữ liệu khách hàng mới — không nhớ lại hồ sơ đã
+ * tạo ở lượt 1 thì lượt 2 sẽ dò trùng qua `matter_parties` (vẫn rỗng, vì bên khách hàng chưa từng
+ * được lưu) và tạo một hồ sơ Client THỨ HAI cho CÙNG một người, để lại hồ sơ đầu tiên mồ côi vĩnh
+ * viễn. `resolveClientId()` giờ ghi kết quả tạo mới vào CHÍNH `resolvedClientId` để lượt gửi sau
+ * dùng lại, không tạo thêm — đúng bằng chứng probe tìm thấy TRƯỚC khi sửa: 2 hồ sơ "Trùng tên với
+ * người khác" thay vì 1.
+ */
+it('does not leave an orphan client behind when a new client is blocked by a yellow conflict, then acknowledged', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $type = createFormMatterType();
+
+    // Một bên tên trùng (tầng tên, chưa chắc đối lập) ở một vụ khác không liên quan — đủ để đưa
+    // mức kiểm tra lên vàng (cần xác nhận), không cần đỏ.
+    $twinMatter = Matter::factory()->create();
+    MatterParty::factory()->for($twinMatter)->create(['name' => 'Trùng tên với người khác', 'is_our_client' => false]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(CreateMatter::class)
+        ->fillForm([
+            'client_role' => PartyRole::Plaintiff->value,
+            'matter_type_id' => $type->id,
+            'title' => 'Vụ việc có xung đột mức vàng',
+            'lead_lawyer_id' => $lawyer->id,
+            'other_parties' => [],
+            'new_client' => [
+                'type' => ClientType::Individual->value,
+                'name' => 'Trùng tên với người khác',
+            ],
+        ]);
+
+    $component->call('create')->assertHasFormErrors(['acknowledge_conflict']);
+
+    // Lượt 1 đã tạo một hồ sơ Client (bên khách hàng CHƯA được lưu — bị chặn trước bước 5 của
+    // OpenMatter), nhưng CHỈ MỘT, không hơn.
+    expect(Client::where('name', 'Trùng tên với người khác')->count())->toBe(1);
+
+    $component->fillForm(['acknowledge_conflict' => true])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $matter = Matter::query()->where('title', 'Vụ việc có xung đột mức vàng')->first();
+    $client = Client::query()->where('name', 'Trùng tên với người khác')->first();
+
+    expect(Client::where('name', 'Trùng tên với người khác')->count())->toBe(1)
+        ->and($matter)->not->toBeNull()
+        ->and($matter->client_id)->toBe($client->id);
+});
+
+/**
+ * M6.5 Task 6 (R4a): luật sư tra ĐÚNG số điện thoại của một khách hàng do trợ lý vừa tạo (không
+ * gắn với vụ việc nào) — chọn được, mở vụ được, không cần trưởng phòng/admin can thiệp.
+ */
+it('lets the lawyer look up the exact phone of a client the assistant just created, then open the matter', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+
+    $this->actingAs($assistant, 'web');
+    $this->livewire(CreateClientPage::class)
+        ->fillForm([
+            'type' => ClientType::Individual->value,
+            'name' => 'Khách do trợ lý tạo',
+            'phone' => '0912345678',
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $client = Client::query()->where('name', 'Khách do trợ lý tạo')->firstOrFail();
+
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $type = createFormMatterType(1);
+
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(CreateMatter::class)
+        ->fillForm(['client_lookup_identifier' => '0912345678'])
+        // afterStateUpdated() của Livewire::fillForm() không tự chạy — gọi thẳng phương thức mà
+        // ô đó gọi, đúng cách CreateMatter::lookupClient() được thiết kế để test được trực tiếp.
+        ->call('lookupClient', '0912345678')
+        ->fillForm([
+            'client_role' => PartyRole::Plaintiff->value,
+            'matter_type_id' => $type->id,
+            'title' => 'Vụ việc của khách trợ lý tạo',
+            'lead_lawyer_id' => $lawyer->id,
+            'other_parties' => [],
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $matter = Matter::query()->where('title', 'Vụ việc của khách trợ lý tạo')->first();
+
+    expect($matter)->not->toBeNull()
+        ->and($matter->client_id)->toBe($client->id)
+        // Không tạo thêm một hồ sơ khách hàng thứ hai.
+        ->and(Client::count())->toBe(1);
+});
+
+/**
+ * M6.5 Task 6 (R4a) — số gần đúng (sai một chữ số cuối) không được gợi ý gì, không lộ tên: kết
+ * quả phải giống HỆT một số hoàn toàn không tồn tại — không có ô nào trên form nói ra tên khách.
+ */
+it('shows no suggestion and no name when the lawyer looks up a near-miss phone number', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $this->actingAs($assistant, 'web');
+    $this->livewire(CreateClientPage::class)
+        ->fillForm([
+            'type' => ClientType::Individual->value,
+            'name' => 'Khách hàng bí mật',
+            'phone' => '0912345678',
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(CreateMatter::class)
+        ->call('lookupClient', '0912345679'); // sai một chữ số cuối
+
+    expect($component->instance()->resolvedClientId)->toBeNull()
+        ->and($component->instance()->resolvedClientLabel)->toBeNull();
+
+    $component->assertDontSee('Khách hàng bí mật');
+});
+
+/**
+ * M6.5 Task 6 (R4) — audit `client_lookup` không bao giờ chứa số thô, trúng hay trượt.
+ */
+it('never writes the raw phone number into the client_lookup audit trail, on a hit or a miss', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $this->actingAs($assistant, 'web');
+    $this->livewire(CreateClientPage::class)
+        ->fillForm([
+            'type' => ClientType::Individual->value,
+            'name' => 'Khách hàng có số điện thoại nhạy cảm',
+            'phone' => '0912345678',
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(CreateMatter::class)->call('lookupClient', '0912345678');
+    $this->livewire(CreateMatter::class)->call('lookupClient', '0912345679');
+
+    $lookups = Activity::query()->where('event', 'client_lookup')->get();
+
+    expect($lookups)->toHaveCount(2);
+
+    foreach ($lookups as $lookup) {
+        $encoded = $lookup->properties->toJson();
+        expect($encoded)->not->toContain('0912345678')
+            ->not->toContain('912345678');
+    }
+
+    expect($lookups->firstWhere('properties.hit', true))->not->toBeNull()
+        ->and($lookups->firstWhere('properties.hit', false))->not->toBeNull();
 });
 
 it('offers the create action to a lawyer but not to an accountant, whose create page is not there', function () {

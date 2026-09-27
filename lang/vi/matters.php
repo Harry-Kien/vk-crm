@@ -170,6 +170,13 @@ return [
         'phone_help' => 'Nên nhập. Đây là tiêu chí đối chiếu mạnh thứ hai, sau số căn cước.',
         'identity_missing_warning' => 'Bên này chưa có số căn cước lẫn số điện thoại nên chỉ đối chiếu được theo tên — mức tin cậy thấp nhất. Kết quả xanh với bên như vậy không có nghĩa là đã kiểm tra kỹ, và hệ thống sẽ bắt xác nhận trước khi lưu.',
         'create_heading' => 'Mở vụ việc mới',
+        // M6.5 Task 6 (R4, findings `intake-03`/`roles-04`): luật sư không có client.manage nên
+        // không thấy danh sách khách hàng của văn phòng — hai đường thay thế dưới đây.
+        'client_lookup_intro' => 'Anh/chị không có quyền xem danh sách khách hàng của văn phòng. Tra đúng số điện thoại hoặc số CCCD nếu khách đã có hồ sơ, hoặc tạo khách hàng mới ngay bên dưới nếu chưa có.',
+        'client_lookup_identifier' => 'Số điện thoại hoặc số CCCD của khách hàng (nếu đã có hồ sơ)',
+        'client_lookup_identifier_help' => 'Phải khớp ĐÚNG số đã đăng ký. Hệ thống không gợi ý theo tên và không liệt kê hồ sơ gần đúng.',
+        'client_lookup_found' => 'Đã tìm thấy hồ sơ khách hàng: :code — :name',
+        'new_client_intro' => 'Không tìm thấy hồ sơ khớp — điền thông tin bên dưới để tạo khách hàng mới.',
     ],
     'conflict' => [
         'section' => 'Kiểm tra xung đột lợi ích',

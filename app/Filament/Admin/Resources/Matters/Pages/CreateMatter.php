@@ -2,6 +2,8 @@
 
 namespace App\Filament\Admin\Resources\Matters\Pages;
 
+use App\Actions\Client\CreateClient;
+use App\Actions\Client\FindClientByIdentifier;
 use App\Actions\OpenMatter;
 use App\Enums\ConflictLevel;
 use App\Enums\ConflictMatchTier;
@@ -95,6 +97,73 @@ class CreateMatter extends CreateRecord
      */
     #[Locked]
     public ?string $pendingConflictLevel = null;
+
+    /**
+     * Id của hồ sơ `Client` cần dùng cho lần lưu này, hoặc `null` (M6.5 Task 6, R4). Chỉ có ý
+     * nghĩa cho actor KHÔNG có `client.manage` — xem `MatterForm::lawyerClientLookupFields()`. Có
+     * giá trị theo HAI cách, cả hai đều ở phía máy chủ, không bao giờ từ dữ liệu client tự khai:
+     *
+     *  - `lookupClient()` gán khi tra ĐÚNG được một hồ sơ đã có (R4 a).
+     *  - `resolveClientId()` tự gán SAU KHI gọi `CreateClient::handle()` tạo một hồ sơ MỚI (R4 b)
+     *    — xem "Đường vào — orphan client" ở docblock hàm đó cho lý do: nếu không nhớ lại, một
+     *    lượt gửi lại sau khi bị chặn xung đột (form giữ nguyên `new_client.name`) sẽ tạo thêm một
+     *    hồ sơ `Client` thứ hai cho CÙNG một người.
+     *
+     * `#[Locked]` cùng lý do `$conflictResult`: dù có giá trị bằng cách nào, đây luôn là kết quả
+     * một lần gọi Action THẬT ở máy chủ — nếu client sửa được nó, một payload dàn dựng có thể tự
+     * gán một id KHÔNG nằm trong tầm nhìn của actor, đúng lỗ hổng
+     * `VisibleClientOptions::assertVisibleToCurrentUser()` tồn tại để chặn. Vì
+     * `mutateFormDataBeforeCreate()` dùng THẲNG giá trị này làm `client_id` (không hỏi lại
+     * `VisibleClientOptions`, xem docblock ở đó), nó phải bất khả xâm phạm từ phía client.
+     */
+    #[Locked]
+    public ?int $resolvedClientId = null;
+
+    /**
+     * Câu đã dịch sẵn hiện cho người dùng khi `resolvedClientId` có giá trị — do `lookupClient()`
+     * gán khi tra ĐÚNG được (R4 a), hoặc do `resolveClientId()` gán ngay sau khi tạo một hồ sơ mới
+     * (R4 b, xem "Đường vào — orphan client" ở docblock hàm đó): một khi `resolvedClientId` khác
+     * `null`, khối "Tạo khách mới" tự ẩn đi (`MatterForm::newClientFields()`) và nhường chỗ cho
+     * câu này — không có nó, một lượt gửi lại sau khi bị chặn xung đột sẽ hiện một khối kết quả
+     * tra RỖNG thay vì nói rõ hồ sơ nào đang được dùng.
+     */
+    #[Locked]
+    public ?string $resolvedClientLabel = null;
+
+    /**
+     * Tra ĐÚNG một hồ sơ `Client` theo định danh vừa gõ (M6.5 Task 6, R4a) — gọi từ
+     * `afterStateUpdated` của `client_lookup_identifier` (`MatterForm::lawyerClientLookupFields()`).
+     *
+     * Bỏ trống ô tra (identifier rỗng) xoá luôn kết quả cũ: một luật sư xoá số đã gõ để chuyển
+     * sang tạo khách mới không được để `resolvedClientId` của lần tra TRƯỚC còn sống sót và âm
+     * thầm ghi đè khối "Tạo khách mới" họ sắp điền.
+     */
+    public function lookupClient(?string $identifier): void
+    {
+        $actor = Auth::user();
+        abort_unless($actor instanceof User, 403);
+
+        $identifier = trim((string) $identifier);
+
+        if ($identifier === '') {
+            $this->resolvedClientId = null;
+            $this->resolvedClientLabel = null;
+            $this->forgetConflictResult();
+
+            return;
+        }
+
+        $client = app(FindClientByIdentifier::class)->handle($actor, $identifier);
+
+        $this->resolvedClientId = $client?->getKey();
+        $this->resolvedClientLabel = $client === null
+            ? null
+            : __('matters.create_form.client_lookup_found', ['code' => $client->code, 'name' => $client->name]);
+
+        // Đổi khách hàng (tìm thấy hay không) làm bảng kết quả kiểm tra xung đột đang hiện không
+        // còn nói về vụ việc này nữa — cùng lý do mọi ô "có thể đổi khách hàng" khác của form.
+        $this->forgetConflictResult();
+    }
 
     public function getTitle(): string
     {
@@ -200,11 +269,22 @@ class CreateMatter extends CreateRecord
      * request bị chỉnh sửa vẫn gửi thẳng được một id ngoài tầm nhìn. Chặn thật ở đây, đúng lúc mọi
      * id đã biết, giống hệt `CreateClientUser::mutateFormDataBeforeCreate()`.
      *
+     * **`client_id` của VỤ VIỆC giờ đi qua `resolveClientId()`, không còn hỏi thẳng
+     * `assertVisibleToCurrentUser()` vô điều kiện (M6.5 Task 6, R4).** Với ai có `client.manage`
+     * (hoặc một luật sư vẫn chọn được khách cũ từ danh sách), hành vi không đổi: giá trị Select
+     * gửi lên vẫn phải nằm trong `VisibleClientOptions::forCurrentUser()`. Với một luật sư đã
+     * TRA hoặc TẠO một khách hàng mới (R4 a/b), `resolveClientId()` bỏ qua HẲN `$data['client_id']`
+     * mà form gửi lên và tự tính lại từ `$this->resolvedClientId` (kết quả một lần tra THẬT,
+     * `#[Locked]`) hoặc bằng cách gọi `CreateClient::handle()` — một request bị chỉnh sửa không
+     * thể forge được client_id theo đường này: giá trị cuối cùng luôn bắt nguồn từ một lần gọi
+     * Action thật ở phía máy chủ, không phải từ dữ liệu client tự khai.
+     *
      * **Cả `client_id` của TỪNG BÊN trong repeater, không chỉ của vụ việc (review fix round 3,
      * finding I-5).** Bên nào bật "là khách hàng của văn phòng" cũng mang một `client_id` xuống
      * `OpenMatter`, và `BuildsMatterParties` lấy TÊN + định danh của bên đó thẳng từ hồ sơ `Client`
      * đã khoá — nên một id giả mạo ghi TÊN THẬT của một khách hàng ngoài tầm nhìn lên một dòng bên
-     * mà người gửi đọc lại được ngay sau khi lưu.
+     * mà người gửi đọc lại được ngay sau khi lưu. (Khối này KHÔNG có hai đường thay thế của R4 —
+     * ngoài phạm vi Task 6, xem brief.)
      *
      * **Vì sao kiểm tra ở MÀN HÌNH chứ không trong Action.** Luật đang áp là "panel user này được
      * tham chiếu tới những hồ sơ khách hàng nào", tức `VisibleClientOptions` — một ranh giới HIỂN
@@ -225,7 +305,7 @@ class CreateMatter extends CreateRecord
      */
     protected function mutateFormDataBeforeCreate(array $data): array
     {
-        VisibleClientOptions::assertVisibleToCurrentUser($data['client_id'] ?? null);
+        $data['client_id'] = static::resolveClientId($this, $data);
 
         foreach ($data['other_parties'] ?? [] as $party) {
             // Cùng điều kiện với partiesPayload(): một client_id mồ côi (công tắc đã tắt lại) bị
@@ -240,6 +320,69 @@ class CreateMatter extends CreateRecord
         abort_unless(array_key_exists((int) ($data['lead_lawyer_id'] ?? 0), static::leadLawyerOptions()), 404);
 
         return $data;
+    }
+
+    /**
+     * Ba nguồn của `client_id`, theo đúng thứ tự ưu tiên (M6.5 Task 6, R4):
+     *
+     *  1. `$livewire->resolvedClientId` — một lần TRA THẬT vừa khớp (R4 a, `lookupClient()`), HOẶC
+     *     hồ sơ vừa được (2) tạo ở một lượt gửi TRƯỚC (xem đoạn "Đường vào — orphan client" ngay
+     *     dưới). `#[Locked]`, nên đây là bằng chứng không thể giả mạo từ phía client.
+     *  2. `$data['new_client']['name']` có điền — khối "Tạo khách mới" (R4 b). Gọi thẳng
+     *     `CreateClient::handle()`, Action đó tự dò trùng và tự quyết định dùng hồ sơ cũ hay tạo
+     *     hồ sơ mới (xem docblock `CreateClient`) — màn hình không đoán thay.
+     *  3. Không có gì ở (1)/(2): hành vi CŨ — `$data['client_id']` do Select gửi lên, phải nằm
+     *     trong `VisibleClientOptions::forCurrentUser()`.
+     *
+     * **Đường vào — orphan client, tự phát hiện bằng probe (không có trong brief).**
+     * `mutateFormDataBeforeCreate()` chạy TRƯỚC `handleRecordCreation()`, nên nhánh (2) tạo
+     * `Client` xong TRƯỚC KHI `OpenMatter` kịp chạy kiểm tra xung đột. Nếu `OpenMatter` sau đó ném
+     * `ConflictBlocked`/`ConflictAcknowledgementRequired` (đúng luồng "hai lượt gửi" của chính
+     * trang này — xem docblock lớp), `Matter`/`MatterParty` KHÔNG được tạo, nhưng `Client` vừa tạo
+     * ở lượt 1 đã COMMIT (không transaction nào bọc chung cả hai). Lượt gửi THỨ HAI (sau khi tích
+     * "đã xem xét") gọi lại `mutateFormDataBeforeCreate()` với CÙNG `new_client.name` — nếu không
+     * nhớ lại hồ sơ vừa tạo, nhánh (2) sẽ dò trùng qua `matter_parties` (vẫn RỖNG, vì bên khách
+     * hàng chưa từng được lưu ở lượt 1) và tạo một `Client` THỨ HAI cho CÙNG một người — một khách
+     * hàng mồ côi vĩnh viễn, nhân đôi theo mỗi lượt "bị chặn rồi xác nhận". Vì vậy nhánh (2) ghi
+     * lại kết quả vào CHÍNH `$livewire->resolvedClientId` (không phải một property mới) ngay sau
+     * khi tạo — lượt gửi kế tiếp trong CÙNG phiên Livewire này rơi thẳng vào nhánh (1), y hệt một
+     * lần tra thật đã khớp, và không gọi `CreateClient::handle()` lần thứ hai nữa.
+     *
+     * Tách static + nhận `$livewire` tường minh để test được trực tiếp, cùng lý do
+     * `leadLawyerOptions()`.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private static function resolveClientId(self $livewire, array $data): int
+    {
+        if ($livewire->resolvedClientId !== null) {
+            return $livewire->resolvedClientId;
+        }
+
+        if (filled($data['new_client']['name'] ?? null)) {
+            $actor = Auth::user();
+            abort_unless($actor instanceof User, 403);
+
+            $client = app(CreateClient::class)->handle($actor, $data['new_client']);
+
+            // Xem đoạn "Đường vào — orphan client" ở trên: một lượt gửi lại sau khi bị chặn phải
+            // dùng LẠI đúng hồ sơ này, không tạo thêm một hồ sơ nữa. `resolvedClientLabel` đi kèm
+            // (cùng câu dịch với `lookupClient()`) để lượt gửi lại không hiện một khối kết quả tra
+            // rỗng — khối "Tạo khách mới" đã tự ẩn ngay khi `resolvedClientId !== null`
+            // (`MatterForm::newClientFields()`), nên đây là thứ DUY NHẤT còn lại để người dùng
+            // biết mình đang thao tác trên hồ sơ nào.
+            $livewire->resolvedClientId = $client->getKey();
+            $livewire->resolvedClientLabel = __('matters.create_form.client_lookup_found', [
+                'code' => $client->code,
+                'name' => $client->name,
+            ]);
+
+            return $livewire->resolvedClientId;
+        }
+
+        VisibleClientOptions::assertVisibleToCurrentUser($data['client_id'] ?? null);
+
+        return (int) $data['client_id'];
     }
 
     protected function handleRecordCreation(array $data): Model
