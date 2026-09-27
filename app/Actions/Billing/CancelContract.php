@@ -2,6 +2,7 @@
 
 namespace App\Actions\Billing;
 
+use App\Actions\Billing\Concerns\LocksBillingRows;
 use App\Actions\Billing\Concerns\ValidatesBillingInput;
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\ContractStatus;
@@ -25,18 +26,20 @@ use Illuminate\Support\Facades\Gate;
  * không, các đợt còn `pending` của một hợp đồng đã huỷ sẽ hiện thành nợ quá hạn. Bất biến tổng chỉ
  * giữ trên hợp đồng `active`.
  *
- * Khoá hàng `contracts`, đọc lại từ hàng đã khoá; `ContractPolicy::update` qua
- * `Gate::forUser($actor)`; `Audit::record(..., $actor)` bên trong transaction.
+ * Khoá theo thứ tự DUY NHẤT của mọi Action tiền ({@see LocksBillingRows}): `matters` TRƯỚC, rồi
+ * `contracts`; đọc lại từ hàng đã khoá; `ContractPolicy::update` qua `Gate::forUser($actor)`;
+ * `Audit::record(..., $actor)` bên trong transaction.
  */
 class CancelContract
 {
+    use LocksBillingRows;
     use ReadsWithoutPortalScope;
     use ValidatesBillingInput;
 
     public function handle(User $actor, Contract $contract, string $reason): Contract
     {
         return DB::transaction(function () use ($actor, $contract, $reason): Contract {
-            $locked = $this->scopelessly(Contract::query())->whereKey($contract->getKey())->lockForUpdate()->firstOrFail();
+            [, $locked] = $this->lockContractChain((int) $contract->getKey());
 
             Gate::forUser($actor)->authorize('update', $locked);
 

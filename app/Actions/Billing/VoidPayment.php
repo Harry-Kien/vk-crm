@@ -2,12 +2,13 @@
 
 namespace App\Actions\Billing;
 
+use App\Actions\Billing\Concerns\LocksBillingRows;
 use App\Actions\Billing\Concerns\ValidatesBillingInput;
 use App\Actions\Concerns\ReadsWithoutPortalScope;
+use App\Enums\ContractStatus;
 use App\Enums\InstalmentStatus;
+use App\Exceptions\ContractStatusConflict;
 use App\Exceptions\PaymentAlreadyVoided;
-use App\Models\Contract;
-use App\Models\Instalment;
 use App\Models\Payment;
 use App\Models\User;
 use App\Support\Audit;
@@ -24,41 +25,50 @@ use Illuminate\Support\Facades\Gate;
  * thì `state()` tự tính lại `overdue`/`due`/`partially_paid` từ `due_date` và số còn lại; không có
  * gì phải làm thêm ở đây cho hiển thị.
  *
- * **Thứ tự khoá bảng — CÙNG hình dạng với `RecordPayment` (hợp đồng, rồi đợt, rồi khoản thu),
- * KHÔNG phải thứ tự "tự nhiên" (khoản thu → đợt → hợp đồng, đi ngược quan hệ `belongsTo`).** Nếu
- * khoá ngược, một `VoidPayment` và một `RecordPayment` chạy đồng thời trên cùng đợt có thể khoá
- * chéo nhau (A giữ hợp đồng chờ đợt, B giữ khoản thu... không, B giữ đợt chờ hợp đồng do A đang
- * giữ) — deadlock. Hai lần đọc ĐẦU (`$probe*`) KHÔNG khoá, chỉ để biết id hợp đồng và id đợt của
- * đúng khoản thu này trước khi khoá theo đúng thứ tự đó; an toàn vì `payments.instalment_id` và
- * `instalments.contract_id` không Action nào đổi sau khi tạo.
+ * **Thứ tự khoá bảng — thứ tự DUY NHẤT của mọi Action tiền ({@see LocksBillingRows}): `matters`
+ * TRƯỚC, rồi `contracts` → `instalments` → `payments`,** KHÔNG phải thứ tự "tự nhiên" của một lần
+ * huỷ khoản thu (khoản thu → đợt → hợp đồng, đi ngược quan hệ `belongsTo`). Khoá ngược thì một
+ * `VoidPayment` và một `RecordPayment` chạy đồng thời trên cùng đợt khoá chéo nhau — deadlock. Các
+ * lần đọc thăm dò đi ngược lên (không khoá) chỉ để biết vụ việc/hợp đồng/đợt nào cần khoá — xem
+ * docblock trait.
+ *
+ * **Hợp đồng đã `completed` thì từ chối** ({@see ContractStatusConflict::voidOnCompleted()},
+ * phán quyết C1 của lượt rà soát cuối M9). Mọi màn hình công nợ đọc hợp đồng `active` (constraint
+ * (a), docblock `CancelContract`); huỷ một khoản thu trên hợp đồng đã hoàn tất sẽ mở lại một khoản
+ * nợ mà KHÔNG màn hình nào thấy và KHÔNG ai thu được (`RecordPayment` đòi hợp đồng `active`) —
+ * một khoản nợ tàng hình. Mở lại một hợp đồng đã hoàn tất là một hành động tường minh riêng của
+ * milestone sau (phán quyết controller cho câu hỏi đã gác lại). Hợp đồng `active` và `cancelled`
+ * vẫn huỷ được: trên `active` đợt quay về `pending` và hiện lại thành nợ đúng chỗ; trên `cancelled`
+ * tiền ghi nhầm của một hợp đồng đã huỷ phải sửa được, và không gì của nó tính vào công nợ.
  *
  * Các bước:
- *  1. Đọc (không khoá) khoản thu và đợt của nó để biết id hợp đồng/đợt cần khoá.
- *  2. Khoá `contracts`, rồi `instalments`, rồi `payments` — đúng hàng, đọc lại từ hàng đã khoá.
- *  3. **Quyền:** `PaymentPolicy::void` qua `Gate::forUser($actor)`, trên khoản thu ĐÃ KHOÁ.
+ *  1. Khoá `matters`, `contracts`, `instalments`, rồi `payments` — đúng hàng, đọc lại từ hàng đã
+ *     khoá (thăm dò không khoá trước đó, xem trait).
+ *  2. **Quyền:** `PaymentPolicy::void` qua `Gate::forUser($actor)`, trên khoản thu ĐÃ KHOÁ.
+ *  3. Hợp đồng `completed` thì từ chối (xem trên).
  *  4. Đã huỷ từ trước thì từ chối ({@see PaymentAlreadyVoided}) — `PaymentPolicy::void()` cố ý
  *     không hỏi câu này (docblock `ContractPolicy`), nên đây là chốt chặn DUY NHẤT.
  *  5. Lý do ≥ 20 ký tự `mb_strlen`.
  *  6. Ghi `voided_at`/`voided_by`/`void_reason`. Tính lại tổng khoản thu CHƯA HUỶ (đã loại dòng vừa
- *     huỷ) dưới khoá của bước 2; tụt dưới `amount` VÀ đợt đang `paid` thì hạ về `pending`.
+ *     huỷ) dưới khoá của bước 1; tụt dưới `amount` VÀ đợt đang `paid` thì hạ về `pending`.
  *  7. `Audit::record('payment_voided', …, $actor)` bên trong transaction.
  */
 class VoidPayment
 {
+    use LocksBillingRows;
     use ReadsWithoutPortalScope;
     use ValidatesBillingInput;
 
     public function handle(User $actor, Payment $payment, string $reason): Payment
     {
         return DB::transaction(function () use ($actor, $payment, $reason): Payment {
-            $probePayment = $this->scopelessly(Payment::query())->whereKey($payment->getKey())->firstOrFail();
-            $probeInstalment = $this->scopelessly(Instalment::query())->whereKey($probePayment->instalment_id)->firstOrFail();
-
-            $this->scopelessly(Contract::query())->whereKey($probeInstalment->contract_id)->lockForUpdate()->firstOrFail();
-            $lockedInstalment = $this->scopelessly(Instalment::query())->whereKey($probeInstalment->getKey())->lockForUpdate()->firstOrFail();
-            $lockedPayment = $this->scopelessly(Payment::query())->whereKey($payment->getKey())->lockForUpdate()->firstOrFail();
+            [, $lockedContract, $lockedInstalment, $lockedPayment] = $this->lockPaymentChain((int) $payment->getKey());
 
             Gate::forUser($actor)->authorize('void', $lockedPayment);
+
+            if ($lockedContract->status === ContractStatus::Completed) {
+                throw ContractStatusConflict::voidOnCompleted();
+            }
 
             if ($lockedPayment->voided_at !== null) {
                 throw PaymentAlreadyVoided::make();

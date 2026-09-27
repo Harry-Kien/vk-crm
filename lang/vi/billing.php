@@ -54,6 +54,8 @@ return [
         'instalment_contract_not_active' => 'Không thể thao tác trên đợt ":name": hợp đồng :code đang ở trạng thái ":status", không còn hiệu lực.',
         'payment_exceeds_instalment' => 'Số tiền :amount vượt quá số còn phải thu (:remaining) của đợt ":name". Đây là thu vượt: không tự rải sang đợt sau — ghi đúng số còn lại, hoặc sửa lại nếu đã ghi nhầm khoản trước.',
         'payment_already_voided' => 'Khoản thu này đã được huỷ từ trước, không huỷ lần hai.',
+        // Lượt rà soát cuối M9, C1 — câu do controller chốt, giữ nguyên văn.
+        'payment_void_on_completed_contract' => 'Hợp đồng đã hoàn tất — không huỷ khoản thu được; nếu khách thực sự chưa trả, ghi nhận bằng phụ lục/xử lý ngoài hệ thống và báo quản trị.',
     ],
 
     'check_invariants' => [

@@ -7,8 +7,8 @@ use DomainException;
 
 /**
  * Một bước trong vòng đời hợp đồng được gọi ở sai trạng thái: kích hoạt một hợp đồng không còn
- * `draft`, hoàn tất hay huỷ một hợp đồng không `active`, hoặc hoàn tất khi còn đợt chưa thu đủ
- * và chưa được miễn.
+ * `draft`, hoàn tất hay huỷ một hợp đồng không `active`, hoàn tất khi còn đợt chưa thu đủ và chưa
+ * được miễn, hoặc huỷ một khoản thu trên hợp đồng đã hoàn tất.
  * (Phụ lục có lớp riêng, {@see ContractNotAmendable}, vì kế hoạch M9 đặt tên nó.)
  */
 class ContractStatusConflict extends DomainException
@@ -32,6 +32,16 @@ class ContractStatusConflict extends DomainException
     public static function notActive(Contract $contract): self
     {
         return new self(__('billing.errors.contract_not_active', self::describe($contract)));
+    }
+
+    /**
+     * `VoidPayment` trên hợp đồng `completed` (lượt rà soát cuối M9, C1): huỷ khoản thu ở đó mở lại
+     * một khoản nợ mà mọi màn hình công nợ (chỉ đọc hợp đồng `active`) không thấy và
+     * `RecordPayment` không thu được. Câu do controller chốt, không mang mã hợp đồng.
+     */
+    public static function voidOnCompleted(): self
+    {
+        return new self(__('billing.errors.payment_void_on_completed_contract'));
     }
 
     public static function hasUnsettled(Contract $contract, int $instalmentCount): self

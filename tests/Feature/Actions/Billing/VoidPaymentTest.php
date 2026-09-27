@@ -1,9 +1,11 @@
 <?php
 
 use App\Actions\Billing\VoidPayment;
+use App\Enums\ContractStatus;
 use App\Enums\InstalmentState;
 use App\Enums\InstalmentStatus;
 use App\Enums\Role;
+use App\Exceptions\ContractStatusConflict;
 use App\Exceptions\PaymentAlreadyVoided;
 use App\Models\Contract;
 use App\Models\Instalment;
@@ -96,6 +98,40 @@ it('refuses to void a payment that has already been voided', function () {
     voidFor($this->accountant, $this->payment);
 
     expect(fn () => voidFor($this->accountant, $this->payment))->toThrow(PaymentAlreadyVoided::class);
+});
+
+// --- Trạng thái hợp đồng (lượt rà soát cuối M9, C1) ----------------------------------------------
+
+/**
+ * C1 (Critical): huỷ một khoản thu trên hợp đồng ĐÃ HOÀN TẤT mở lại một khoản nợ mà mọi màn hình
+ * công nợ (chỉ đọc hợp đồng `active`) không thấy và `RecordPayment` (đòi `active`) không thu được
+ * — một khoản nợ tàng hình. Phán quyết: từ chối, câu tiếng Việt chỉ đường đi tiếp.
+ */
+it('refuses to void a payment on a completed contract, with the vietnamese message that says what to do', function () {
+    $this->contract->forceFill(['status' => ContractStatus::Completed, 'ended_at' => today()->toDateString()])->save();
+
+    expect(fn () => voidFor($this->accountant, $this->payment))
+        ->toThrow(ContractStatusConflict::class, __('billing.errors.payment_void_on_completed_contract'));
+
+    expect($this->payment->fresh()->voided_at)->toBeNull()
+        ->and($this->instalment->fresh()->status)->toBe(InstalmentStatus::Paid)
+        ->and(Activity::query()->where('event', 'payment_voided')->exists())->toBeFalse();
+});
+
+/** Cặp dương: hợp đồng `cancelled` vẫn huỷ được khoản thu ghi nhầm (phán quyết C1: chỉ `completed` bị chặn). */
+it('still voids a payment on a cancelled contract', function () {
+    $this->contract->forceFill([
+        'status' => ContractStatus::Cancelled,
+        'ended_at' => today()->toDateString(),
+        'ended_reason' => str_repeat('b', 20),
+    ])->save();
+
+    expect(voidFor($this->accountant, $this->payment)->voided_at)->not->toBeNull();
+});
+
+it('still voids a payment on an active contract', function () {
+    expect($this->contract->fresh()->status)->toBe(ContractStatus::Active)
+        ->and(voidFor($this->accountant, $this->payment)->voided_at)->not->toBeNull();
 });
 
 // --- Actor tường minh ----------------------------------------------------------------------------

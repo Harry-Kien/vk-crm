@@ -473,6 +473,36 @@ it('lowers an instalment to exactly what was collected on it', function () {
     expect($this->third->refresh()->amount)->toBe(20_000_000);
 });
 
+/**
+ * Lượt rà soát cuối M9, M2: một đợt sửa về ĐÚNG số đã thu (> 0) là một đợt đã thu đủ — `status`
+ * phải thành `paid` ngay trong phụ lục, cùng cách `RecordPayment` bước 8 làm khi tiền về đủ. Để
+ * nguyên `pending` thì đợt treo mãi ở trạng thái "chờ thu 0 đồng": không ghi thêm khoản thu được
+ * (thu vượt), nhưng vẫn đếm là "chưa xong" ở mọi nơi đọc cột `status`.
+ */
+it('marks an instalment paid when the amendment lowers it to exactly what was collected', function () {
+    Payment::factory()->for($this->third)->create(['amount' => 20_000_000]);
+
+    amend($this->lead, $this->contract, 90_000_000, [['action' => 'update', 'instalment_id' => $this->third->id, 'amount' => 20_000_000]]);
+
+    expect($this->third->refresh()->status)->toBe(InstalmentStatus::Paid);
+});
+
+/** Cặp: còn thiếu dù một đồng thì vẫn `pending`. */
+it('keeps an instalment pending when the amendment leaves something still to collect', function () {
+    Payment::factory()->for($this->third)->create(['amount' => 20_000_000]);
+
+    amend($this->lead, $this->contract, 90_000_001, [['action' => 'update', 'instalment_id' => $this->third->id, 'amount' => 20_000_001]]);
+
+    expect($this->third->refresh()->status)->toBe(InstalmentStatus::Pending);
+});
+
+/** Cặp: "đã thu > 0" — đợt chưa thu đồng nào thì không bao giờ tự thành `paid`, dù số mới là bao nhiêu. */
+it('never marks an instalment with nothing collected paid through an amendment', function () {
+    amend($this->lead, $this->contract, 71_000_000, [['action' => 'update', 'instalment_id' => $this->third->id, 'amount' => 1_000_000]]);
+
+    expect($this->third->refresh()->status)->toBe(InstalmentStatus::Pending);
+});
+
 it('checks an added instalment by the same rules as a drafted one', function () {
     expect(amendErrors(fn () => amend($this->lead, $this->contract, 110_000_000, [
         ['action' => 'add', 'name' => 'Sai giai đoạn', 'amount' => 10_000_000, 'trigger_type' => 'stage', 'trigger_stage_key' => 'intake'],

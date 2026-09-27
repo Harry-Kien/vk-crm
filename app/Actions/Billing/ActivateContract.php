@@ -2,6 +2,7 @@
 
 namespace App\Actions\Billing;
 
+use App\Actions\Billing\Concerns\LocksBillingRows;
 use App\Actions\Billing\Concerns\ValidatesBillingInput;
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\ContractStatus;
@@ -21,8 +22,9 @@ use Illuminate\Support\Facades\Gate;
  * Kích hoạt một hợp đồng đã ký: `draft` → `active` (M9 Task 4). Đây là TẦNG 1 của bất biến tổng —
  * lịch thu lệch khỏi giá trị hợp đồng dù một đồng thì hợp đồng không rời được `draft`.
  *
- *  1. Khoá hàng `contracts` rồi đọc lại trạng thái và giá trị từ hàng đã khoá — không tin đối
- *     tượng người gọi cầm trong tay.
+ *  1. Khoá theo thứ tự DUY NHẤT của mọi Action tiền ({@see LocksBillingRows}): hàng `matters`
+ *     TRƯỚC, rồi `contracts`; đọc lại trạng thái và giá trị từ hàng đã khoá — không tin đối tượng
+ *     người gọi cầm trong tay.
  *  2. **Quyền:** `ContractPolicy::update` qua `Gate::forUser($actor)`.
  *  3. Chỉ từ `draft` (`ContractStatusConflict::notDraft`).
  *  4. `signed_at` là một ngày hợp lệ, không ở tương lai (so theo ngày, múi giờ ứng dụng).
@@ -40,13 +42,14 @@ use Illuminate\Support\Facades\Gate;
  */
 class ActivateContract
 {
+    use LocksBillingRows;
     use ReadsWithoutPortalScope;
     use ValidatesBillingInput;
 
     public function handle(User $actor, Contract $contract, DateTimeInterface|string $signedAt): Contract
     {
         return DB::transaction(function () use ($actor, $contract, $signedAt): Contract {
-            $locked = $this->scopelessly(Contract::query())->whereKey($contract->getKey())->lockForUpdate()->firstOrFail();
+            [, $locked] = $this->lockContractChain((int) $contract->getKey());
 
             Gate::forUser($actor)->authorize('update', $locked);
 

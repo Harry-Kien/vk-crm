@@ -2,6 +2,7 @@
 
 namespace App\Actions\Billing;
 
+use App\Actions\Billing\Concerns\LocksBillingRows;
 use App\Actions\Billing\Concerns\ValidatesBillingInput;
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\ContractStatus;
@@ -10,10 +11,8 @@ use App\Enums\InstalmentStatus;
 use App\Enums\PaymentMethod;
 use App\Exceptions\InstalmentNotPayable;
 use App\Exceptions\PaymentExceedsInstalment;
-use App\Models\Contract;
 use App\Models\Document;
 use App\Models\Instalment;
-use App\Models\Matter;
 use App\Models\Payment;
 use App\Models\User;
 use App\Support\Audit;
@@ -31,10 +30,9 @@ use Illuminate\Validation\ValidationException;
  * `AmendContract`), không phải việc của một Action ghi tiền đã về.
  *
  * Các bước, tất cả trong MỘT transaction:
- *  1. Khoá hàng `contracts` (không phải hàng người gọi cầm trong tay), rồi khoá `instalments` của
- *     đúng hợp đồng đó, rồi khoá hàng `matters` — CÙNG thứ tự bảng với `AmendContract` (hợp đồng
- *     trước, đợt sau) để hai Action không bao giờ khoá ngược nhau và gây deadlock; `matters` khoá
- *     SAU CÙNG vì không Action nào khác trong `app/Actions/Billing/` khoá nó.
+ *  1. Khoá theo thứ tự DUY NHẤT của mọi Action tiền ({@see LocksBillingRows}): hàng `matters`
+ *     TRƯỚC, rồi `contracts`, rồi đúng hàng `instalments` này — không phải các hàng người gọi cầm
+ *     trong tay. Bản scan biên lai (nếu có, bước 6) khoá SAU chuỗi đó.
  *  2. **Quyền:** `PaymentPolicy::create` qua `Gate::forUser($actor)`, với NGỮ CẢNH VỤ VIỆC (hàng
  *     `matters` VỪA khoá ở bước 1) — không dùng `$matter` người gọi đưa vào, đúng lý do
  *     `ChecksBillingAccess::matterForBillingGate()` (I1): một vụ khách gọi đưa vào có thể đã đổi
@@ -59,6 +57,7 @@ use Illuminate\Validation\ValidationException;
  */
 class RecordPayment
 {
+    use LocksBillingRows;
     use ReadsWithoutPortalScope;
     use ValidatesBillingInput;
 
@@ -76,14 +75,12 @@ class RecordPayment
         ?string $note,
     ): Payment {
         return DB::transaction(function () use ($actor, $instalment, $amount, $paidOn, $method, $reference, $receipt, $note): Payment {
-            $lockedContract = $this->scopelessly(Contract::query())->whereKey($instalment->contract_id)->lockForUpdate()->firstOrFail();
-            $lockedInstalment = $this->scopelessly(Instalment::query())->whereKey($instalment->getKey())->lockForUpdate()->firstOrFail();
-            $lockedMatter = $this->scopelessly(Matter::query())->whereKey($lockedContract->matter_id)->lockForUpdate()->firstOrFail();
+            [$lockedMatter, $lockedContract, $lockedInstalment] = $this->lockInstalmentChain((int) $instalment->getKey());
 
             Gate::forUser($actor)->authorize('create', [Payment::class, $lockedMatter]);
 
             if ($lockedContract->status !== ContractStatus::Active) {
-                throw InstalmentNotPayable::contractNotActive($lockedInstalment->setRelation('contract', $lockedContract));
+                throw InstalmentNotPayable::contractNotActive($lockedInstalment);
             }
 
             if ($lockedInstalment->status !== InstalmentStatus::Pending) {

@@ -2,6 +2,7 @@
 
 namespace App\Actions\Billing;
 
+use App\Actions\Billing\Concerns\LocksBillingRows;
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\ContractStatus;
 use App\Enums\InstalmentState;
@@ -22,17 +23,20 @@ use Illuminate\Support\Facades\Gate;
  * biến khỏi mọi màn hình mà không ai quyết định miễn nó. Đường đi qua là thu nốt, hoặc miễn tường
  * minh kèm lý do (`WaiveInstalment`, Task 5).
  *
- * Khoá hàng `contracts`, đọc lại từ hàng đã khoá; `ContractPolicy::update` qua
- * `Gate::forUser($actor)`; `Audit::record(..., $actor)` bên trong transaction.
+ * Khoá theo thứ tự DUY NHẤT của mọi Action tiền ({@see LocksBillingRows}): `matters` TRƯỚC, rồi
+ * `contracts`, rồi mọi hàng `instalments` của hợp đồng; đọc lại từ hàng đã khoá;
+ * `ContractPolicy::update` qua `Gate::forUser($actor)`; `Audit::record(..., $actor)` bên trong
+ * transaction.
  */
 class CompleteContract
 {
+    use LocksBillingRows;
     use ReadsWithoutPortalScope;
 
     public function handle(User $actor, Contract $contract): Contract
     {
         return DB::transaction(function () use ($actor, $contract): Contract {
-            $locked = $this->scopelessly(Contract::query())->whereKey($contract->getKey())->lockForUpdate()->firstOrFail();
+            [, $locked] = $this->lockContractChain((int) $contract->getKey());
 
             Gate::forUser($actor)->authorize('update', $locked);
 

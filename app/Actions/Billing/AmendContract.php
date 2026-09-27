@@ -2,6 +2,7 @@
 
 namespace App\Actions\Billing;
 
+use App\Actions\Billing\Concerns\LocksBillingRows;
 use App\Actions\Billing\Concerns\ValidatesBillingInput;
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\ContractStatus;
@@ -14,7 +15,6 @@ use App\Models\Contract;
 use App\Models\ContractAmendment;
 use App\Models\Document;
 use App\Models\Instalment;
-use App\Models\Matter;
 use App\Models\Payment;
 use App\Models\User;
 use App\Support\Audit;
@@ -47,27 +47,31 @@ use Illuminate\Validation\ValidationException;
  *   nào (chưa huỷ). Đợt vẫn nằm đó với `status = cancelled`, ra khỏi tổng.
  *
  * Các bước, tất cả trong một transaction:
- *  1. Khoá hàng `contracts`; mọi con số cũ — kể cả `previous_total_amount` — đọc từ hàng ĐÃ KHOÁ,
+ *  1. Khoá theo thứ tự DUY NHẤT của mọi Action tiền ({@see LocksBillingRows}): hàng `matters`
+ *     TRƯỚC, rồi `contracts`; mọi con số cũ — kể cả `previous_total_amount` — đọc từ hàng ĐÃ KHOÁ,
  *     không từ đối tượng người gọi đưa vào (có thể cũ hơn một phụ lục vừa ký ở tab khác).
  *  2. **Quyền:** `ContractPolicy::update` qua `Gate::forUser($actor)` (SPEC §5 gom phụ lục vào
  *     `contract.manage`; `ContractAmendmentPolicy` vì thế không có `create`).
  *  3. Chỉ trên `active` (`ContractNotAmendable`).
  *  4. Lý do ≥ 20 ký tự `mb_strlen`; ngày ký là ngày hợp lệ, không ở tương lai, không trước ngày ký
- *     hợp đồng; giá trị mới từ 1 tới `Money::MAX`; bản scan (nếu có) được **đọc lại và khoá bằng
- *     khoá của nó** (`lockForUpdate`, cùng lý do với bước 1 — đối tượng người gọi đưa vào có thể
- *     đã đổi `matter_id`/`group` từ lúc màn hình nạp nó), rồi mới hỏi có phải tài liệu nhóm D của
- *     chính vụ này không; đã bị xoá mềm giữa chừng thì cùng một câu từ chối. `document_id` ghi vào
- *     phụ lục là khoá của hàng ĐÃ ĐỌC LẠI, không phải của `$document`; phụ lục phải đổi ít nhất một
- *     thứ.
- *  5. Khoá các đợt của hợp đồng, kiểm từng thay đổi, rồi ghi tất cả bên trong
+ *     hợp đồng; giá trị mới từ 1 tới `Money::MAX`.
+ *  5. Khoá MỌI đợt của hợp đồng (tiếp chuỗi khoá của bước 1: `instalments` sau `contracts`).
+ *  6. Bản scan (nếu có) được **đọc lại và khoá bằng khoá của nó** — SAU chuỗi khoá tiền, không xen
+ *     giữa (`lockForUpdate`, cùng lý do với bước 1 — đối tượng người gọi đưa vào có thể đã đổi
+ *     `matter_id`/`group` từ lúc màn hình nạp nó), rồi mới hỏi có phải tài liệu nhóm D của chính
+ *     vụ này không; đã bị xoá mềm giữa chừng thì cùng một câu từ chối. `document_id` ghi vào phụ
+ *     lục là khoá của hàng ĐÃ ĐỌC LẠI, không phải của `$document`; phụ lục phải đổi ít nhất một thứ.
+ *  7. Kiểm từng thay đổi trên các đợt đã khoá, rồi ghi tất cả bên trong
  *     `ScheduleTotal::whileAmending()` — hook tầng 2 tạm tắt cho ĐÚNG hợp đồng này, vì giữa các
- *     lần ghi tổng lệch là tất yếu.
+ *     lần ghi tổng lệch là tất yếu. Một đợt sửa về ĐÚNG số đã thu (và số đó > 0) chuyển luôn sang
+ *     `paid` — xem {@see self::plan()}.
  *  6. **Kiểm lại bất biến từ DB** sau khi ghi (`ScheduleTotal::of()` === giá trị mới). Đây là kiểm
  *     tra DUY NHẤT của tầng này — không có bản tính trước trong bộ nhớ, để không có hai định nghĩa.
  *  7. Ghi dòng `contract_amendments` (chỉ thêm) và `Audit::record('contract_amended', …, $actor)`.
  */
 class AmendContract
 {
+    use LocksBillingRows;
     use ReadsWithoutPortalScope;
     use ValidatesBillingInput;
 
@@ -88,7 +92,7 @@ class AmendContract
         ?Document $document = null,
     ): ContractAmendment {
         return DB::transaction(function () use ($actor, $contract, $newTotalAmount, $instalmentChanges, $reason, $signedAt, $document): ContractAmendment {
-            $locked = $this->scopelessly(Contract::query())->whereKey($contract->getKey())->lockForUpdate()->firstOrFail();
+            [, $locked] = $this->lockContractChain((int) $contract->getKey());
 
             Gate::forUser($actor)->authorize('update', $locked);
 
@@ -107,6 +111,14 @@ class AmendContract
 
             $newTotal = $this->validatedAmount($newTotalAmount, 'new_total_amount');
 
+            // Đợt khoá TRƯỚC bản scan: `instalments` thuộc chuỗi khoá tiền, `documents` khoá SAU
+            // chuỗi đó (LocksBillingRows).
+            $instalments = $this->scopelessly(Instalment::query())
+                ->where('contract_id', $locked->id)
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+
             $lockedDocument = null;
 
             if ($document !== null) {
@@ -123,12 +135,6 @@ class AmendContract
             if ($instalmentChanges === [] && $newTotal === $locked->total_amount) {
                 throw ValidationException::withMessages(['instalment_changes' => [__('billing.validation.amendment_changes_nothing')]]);
             }
-
-            $instalments = $this->scopelessly(Instalment::query())
-                ->where('contract_id', $locked->id)
-                ->lockForUpdate()
-                ->get()
-                ->keyBy('id');
 
             $plan = $this->plan($locked, $instalments, $instalmentChanges);
             $previousTotal = $locked->total_amount;
@@ -207,15 +213,14 @@ class AmendContract
     {
         $plan = ['add' => [], 'update' => [], 'cancel' => []];
         $touched = [];
-        $matter = null;
 
         foreach (array_values($changes) as $index => $change) {
             $prefix = "instalment_changes.{$index}";
             $action = $change['action'] ?? null;
 
             if ($action === self::ADD) {
-                $matter ??= $this->scopelessly(Matter::query())->findOrFail($contract->matter_id);
-                $plan['add'][] = $this->instalmentAttributes($matter, $change, $prefix);
+                // `$contract->matter` là hàng `matters` ĐÃ KHOÁ ở bước 1 (LocksBillingRows gắn sẵn).
+                $plan['add'][] = $this->instalmentAttributes($contract->matter, $change, $prefix);
 
                 continue;
             }
@@ -277,6 +282,14 @@ class AmendContract
                 'amount' => $amount,
                 'percent_basis' => $this->validatedPercentBasis($change['percent_basis'] ?? null, "{$prefix}.percent_basis"),
             ];
+
+            // Lượt rà soát cuối M9, M2: sửa về ĐÚNG số đã thu là đã thu đủ — `paid` ngay, cùng
+            // cách `RecordPayment` bước 8 đổi `status` khi tiền về đủ. "Đã thu > 0" không cần viết
+            // thêm: `validatedAmount()` đòi `$amount` ≥ 1, nên `$amount === $collected` đã kéo theo
+            // `$collected` ≥ 1 — một đợt chưa thu đồng nào không bao giờ tới được nhánh này.
+            if ($amount === $collected) {
+                $plan['update'][$instalment->id]['status'] = InstalmentStatus::Paid;
+            }
         }
 
         return $plan;

@@ -2,6 +2,7 @@
 
 namespace App\Actions\Billing;
 
+use App\Actions\Billing\Concerns\LocksBillingRows;
 use App\Actions\Billing\Concerns\ValidatesBillingInput;
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\ContractStatus;
@@ -9,7 +10,6 @@ use App\Enums\InstalmentStatus;
 use App\Exceptions\ContractStatusConflict;
 use App\Models\Contract;
 use App\Models\Instalment;
-use App\Models\Matter;
 use App\Models\User;
 use App\Support\Audit;
 use Illuminate\Support\Facades\DB;
@@ -37,7 +37,9 @@ use Illuminate\Support\Facades\Gate;
  * một đường đi vòng qua nó.
  *
  * Các bước, tất cả trong MỘT transaction:
- *  1. Khoá hàng `contracts`, đọc lại từ hàng đã khoá.
+ *  1. Khoá theo thứ tự DUY NHẤT của mọi Action tiền ({@see LocksBillingRows}): hàng `matters`
+ *     TRƯỚC, rồi `contracts`; đọc lại cả hai từ hàng đã khoá (vụ việc đã khoá là ngữ cảnh kiểm giai
+ *     đoạn kích hoạt ở bước 5).
  *  2. **Quyền:** `ContractPolicy::update` qua `Gate::forUser($actor)` (SPEC §5: `contract.manage`
  *     là cổng của MỌI thay đổi trên một hợp đồng đã có, kể cả sửa bản nháp — xem docblock
  *     `ContractPolicy`).
@@ -53,6 +55,7 @@ use Illuminate\Support\Facades\Gate;
  */
 class UpdateDraftContract
 {
+    use LocksBillingRows;
     use ReadsWithoutPortalScope;
     use ValidatesBillingInput;
 
@@ -63,7 +66,7 @@ class UpdateDraftContract
     public function handle(User $actor, Contract $contract, array $attributes, array $instalments): Contract
     {
         return DB::transaction(function () use ($actor, $contract, $attributes, $instalments): Contract {
-            $locked = $this->scopelessly(Contract::query())->whereKey($contract->getKey())->lockForUpdate()->firstOrFail();
+            [$lockedMatter, $locked] = $this->lockContractChain((int) $contract->getKey());
 
             Gate::forUser($actor)->authorize('update', $locked);
 
@@ -71,15 +74,13 @@ class UpdateDraftContract
                 throw ContractStatusConflict::notDraftForUpdate($locked);
             }
 
-            $matter = $this->scopelessly(Matter::query())->findOrFail($locked->matter_id);
-
             $totalAmount = $this->validatedAmount($attributes['total_amount'] ?? null, 'total_amount');
             $vatRate = $this->validatedVatRate($attributes['vat_rate_percent'] ?? null);
 
             $rows = [];
 
             foreach (array_values($instalments) as $index => $row) {
-                $rows[] = $this->instalmentAttributes($matter, $row, "instalments.{$index}");
+                $rows[] = $this->instalmentAttributes($lockedMatter, $row, "instalments.{$index}");
             }
 
             // Xoá qua model (không `->delete()` trên query builder) để hook `deleting` của

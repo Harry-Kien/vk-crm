@@ -2,12 +2,12 @@
 
 namespace App\Actions\Billing;
 
+use App\Actions\Billing\Concerns\LocksBillingRows;
 use App\Actions\Billing\Concerns\ValidatesBillingInput;
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\ContractStatus;
 use App\Enums\InstalmentStatus;
 use App\Exceptions\InstalmentNotPayable;
-use App\Models\Contract;
 use App\Models\Instalment;
 use App\Models\User;
 use App\Support\Audit;
@@ -28,8 +28,8 @@ use Illuminate\Support\Facades\Gate;
  * ra portal (`HidesInternalAttributesFromPortal` trên `Instalment`).
  *
  * Các bước, trong MỘT transaction:
- *  1. Khoá `contracts` (từ `instalment->contract_id`, không đổi sau khi tạo đợt), rồi khoá đúng
- *     hàng `instalments` này — CÙNG thứ tự bảng với `RecordPayment`/`VoidPayment`.
+ *  1. Khoá theo thứ tự DUY NHẤT của mọi Action tiền ({@see LocksBillingRows}): `matters` TRƯỚC,
+ *     rồi `contracts`, rồi đúng hàng `instalments` này.
  *  2. **Quyền:** `InstalmentPolicy::waive` qua `Gate::forUser($actor)` — đi theo `contract.manage`
  *     (quyết định thương mại), KHÔNG theo `payment.record` (xem docblock policy).
  *  3. Hợp đồng phải `active` ({@see InstalmentNotPayable::contractNotActive()}) và đợt phải
@@ -40,19 +40,19 @@ use Illuminate\Support\Facades\Gate;
  */
 class WaiveInstalment
 {
+    use LocksBillingRows;
     use ReadsWithoutPortalScope;
     use ValidatesBillingInput;
 
     public function handle(User $actor, Instalment $instalment, string $reason): Instalment
     {
         return DB::transaction(function () use ($actor, $instalment, $reason): Instalment {
-            $lockedContract = $this->scopelessly(Contract::query())->whereKey($instalment->contract_id)->lockForUpdate()->firstOrFail();
-            $lockedInstalment = $this->scopelessly(Instalment::query())->whereKey($instalment->getKey())->lockForUpdate()->firstOrFail();
+            [, $lockedContract, $lockedInstalment] = $this->lockInstalmentChain((int) $instalment->getKey());
 
             Gate::forUser($actor)->authorize('waive', $lockedInstalment);
 
             if ($lockedContract->status !== ContractStatus::Active) {
-                throw InstalmentNotPayable::contractNotActive($lockedInstalment->setRelation('contract', $lockedContract));
+                throw InstalmentNotPayable::contractNotActive($lockedInstalment);
             }
 
             if ($lockedInstalment->status !== InstalmentStatus::Pending) {
