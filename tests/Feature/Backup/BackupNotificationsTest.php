@@ -7,7 +7,9 @@ use App\Notifications\Backup\BackupHasFailedNotification;
 use App\Notifications\Backup\CleanupHasFailedNotification;
 use App\Notifications\Backup\UnhealthyBackupWasFoundNotification;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Mail\Events\MessageSent;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Event;
 use Spatie\Backup\Events\BackupHasFailed;
 use Spatie\Backup\Events\CleanupHasFailed;
 use Spatie\Backup\Events\UnhealthyBackupWasFound;
@@ -92,6 +94,14 @@ it('§10.8 một BackupHasFailed thật đi hết đường: hàng đợi, thư 
         'backup.backup.password' => 'mat-khau-that-khong-duoc-lo',
     ]);
 
+    // Bắt đúng thư ĐÃ GỬI (tiêu đề + thân HTML + thân chữ), không chỉ tiêu đề trong nhật ký (fix
+    // lượt rà soát cuối M8a: câu kiểm cũ chỉ nhìn tiêu đề, nơi mật khẩu không có đường nào lọt
+    // vào — nó không bao giờ đỏ được). Thân thư là chỗ một template lỡ in cấu hình sẽ làm lộ.
+    $sent = [];
+    Event::listen(MessageSent::class, function (MessageSent $event) use (&$sent): void {
+        $sent[] = $event->message;
+    });
+
     event(new BackupHasFailed(new Exception('Hết dung lượng lưu trữ'), 'google', 'VK-CRM'));
 
     $row = OutboundMessage::query()->sole();
@@ -99,6 +109,18 @@ it('§10.8 một BackupHasFailed thật đi hết đường: hàng đợi, thư 
     expect($row->status)->toBe(OutboundStatus::Sent)
         ->and($row->recipient)->toBe('ops@luatvukhang.com')
         ->and($row->template)->toBe('staff.backup_alert.backup_failed')
-        ->and($row->payload['subject'] ?? null)->toContain('google')
-        ->and($row->payload['subject'] ?? null)->not->toContain('mat-khau-that-khong-duoc-lo');
+        ->and($row->payload['subject'] ?? null)->toContain('google');
+
+    expect($sent)->toHaveCount(1);
+
+    $html = (string) $sent[0]->getHtmlBody();
+    $text = (string) $sent[0]->getTextBody();
+
+    // Tự kiểm: đúng là đang đọc thân thư thật (có chi tiết lỗi), không phải một chuỗi rỗng.
+    expect($html)->toContain('Hết dung lượng lưu trữ')
+        ->and($text)->toContain('Hết dung lượng lưu trữ');
+
+    foreach ([$sent[0]->getSubject(), $html, $text, json_encode($row->payload)] as $part) {
+        expect((string) $part)->not->toContain('mat-khau-that-khong-duoc-lo');
+    }
 });

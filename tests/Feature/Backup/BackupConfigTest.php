@@ -128,8 +128,12 @@ it('§10.8 / fix I6 — BACKUP_NAME có trong .env.example kèm chú thích', fu
 });
 
 it('§10.8 nguồn sao lưu gồm storage/app/private, không gồm storage/logs', function () {
-    $include = config('backup.backup.source.files.include');
-    $exclude = config('backup.backup.source.files.exclude');
+    // Đọc thẳng tệp cấu hình, KHÔNG `config()`: hook của `tests/Pest.php` (fix I2, lượt rà soát
+    // cuối M8a) đổi `backup.backup.source.files.include` sang một thư mục nguồn tạm cho MỌI test
+    // ở thư mục này, để `backup:run` thật không nén hồ sơ thật của máy.
+    $source = (require config_path('backup.php'))['backup']['source']['files'];
+    $include = $source['include'];
+    $exclude = $source['exclude'];
 
     expect($include)->toContain(storage_path('app/private'))
         ->and($include)->not->toContain(storage_path('logs'))

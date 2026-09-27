@@ -25,14 +25,19 @@ use Spatie\Backup\Notifications\EventHandler;
 | `BackupDatabaseDumpTest` (chạy bằng `m8-dev test:dump`); phần kiểm ở ĐÂY là nhiều đích, xử lý
 | một disk hỏng, và mã hoá — cả ba xảy ra SAU bước dump, trên archive chứa tệp.
 |
-| MỖI TEST DÙNG TÊN DISK RIÊNG (không tái dùng `disk_a`/`disk_b` giữa các `it()`):
-| `Illuminate\Filesystem\FilesystemManager` là một singleton SỐNG QUA CẢ TIẾN TRÌNH test, không
-| bị `RefreshDatabase` reset. `Storage::fake('disk_b')` ở một test trước CACHE một driver còn
-| hoạt động dưới tên `disk_b`; nếu test sau ghi đè `config('filesystems.disks.disk_b')` bằng một
-| root hỏng, driver ĐÃ CACHE (còn tốt) vẫn được dùng — disk "hỏng" thực ra không hỏng, và bài test
-| tưởng đang kiểm tra một disk lỗi lại đang kiểm tra một disk lành. Đo được: gộp chung tên disk
-| giữa hai `it()` làm bài "một disk hỏng" xanh giả (không có `BackupHasFailed` nào được bắn, vì
-| Flysystem coi driver cache là còn dùng được).
+| MỖI TEST DÙNG TÊN DISK RIÊNG — một quy ước phòng thủ, KHÔNG phải vì một driver đã phân giải
+| sống sang test sau (đính chính ở lượt rà soát cuối M8a: bản trước của đoạn này nói sai rằng
+| `FilesystemManager` là singleton sống qua cả tiến trình test). Ứng dụng — kể cả container và
+| `FilesystemManager` trong đó — được DỰNG LẠI cho mỗi test (`TestCase::setUp()` gọi
+| `refreshApplication()`; `tearDown` xoá instance facade đã phân giải), nên `Storage::fake('x')` ở
+| test trước không để lại driver nào cho test sau. Thứ THẬT SỰ sống qua các test trong một tiến
+| trình là thư mục trên đĩa của `Storage::fake()` (`storage/framework/testing/disks/{tên}_test_
+| {token}`, dọn khi tiến trình kết thúc — xem `tests/Pest.php`) và cờ static
+| `EventHandler::$enabled` (xử lý ở `beforeEach`/`afterEach` dưới đây). Tên riêng cho mỗi test giữ
+| cho mỗi câu kiểm "disk X có đúng một archive" chỉ nhìn thấy tệp của chính test đó.
+|
+| Nguồn được nén là thư mục nguồn TẠM do `tests/Pest.php` đặt cho cả thư mục `Feature/Backup`
+| (fix I2), không phải `storage/app/private` thật của máy.
 */
 
 function rebindBackup(): void

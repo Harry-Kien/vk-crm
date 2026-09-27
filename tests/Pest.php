@@ -5,6 +5,7 @@ use Filament\Support\Facades\FilamentColor;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -201,8 +202,55 @@ function backupTemporaryTestDirectory(): string
     return storage_path('app/backup-temp_test_'.getmypid().'_'.$token);
 }
 
+/*
+|--------------------------------------------------------------------------
+| Hai hàng rào nữa cho `Feature/Backup` (fix I2, lượt rà soát cuối M8a)
+|--------------------------------------------------------------------------
+|
+| 1. `Process::preventStrayProcesses()` + `Process::fake([])` — mọi lời gọi facade `Process` mà
+|    test không TỰ giả (bằng `Process::fake(...)` của chính nó, thứ thay bộ giả rỗng này) ném
+|    `RuntimeException` "without a matching fake" thay vì chạy tiến trình thật. `RcloneProcess`
+|    là nơi duy nhất trong mã gọi facade đó, nên không test nào ở thư mục này còn chạy được
+|    `rclone` thật: trước fix này, `GuardRcloneDestinationReachableTest` chạy `backup:run` trên
+|    `local_backups` với `BACKUP_RCLONE_REMOTE=gdrive:...` mà không giả gì — trên một máy có
+|    `rclone` và remote `gdrive`, test đẩy archive thật lên Google Drive thật; và vì test đó dùng
+|    `--disable-notifications`, lỗi của lượt đẩy cũng không lộ ra. `preventStrayProcesses()` MỘT
+|    MÌNH không làm gì cả: `PendingProcess::run()` chỉ chặn khi factory ĐANG GHI (`isRecording()`),
+|    tức sau một lời gọi `fake()` — vì vậy cần cả `fake([])` (ghi, không đăng ký lệnh giả nào).
+|
+|    Giới hạn, ghi rõ: `mariadb-dump` của `BackupDatabaseDumpTest` chạy qua
+|    `Symfony\Component\Process\Process` bên trong `spatie/db-dumper`, không qua facade — hàng
+|    rào này không chặn nó. Nó dump đúng CSDL test của lần chạy (`test:dump`), không phải một đích
+|    từ xa.
+| 2. `backup.backup.source.files.include` trỏ vào một thư mục NGUỒN TẠM riêng cho tiến trình (có
+|    một tệp nhỏ, để `backup:run --only-files` có gì để nén) — `backup:run` thật trong thư mục này
+|    không bao giờ nén `storage/app/private` thật của máy đang chạy test. Test cấu hình nguồn thật
+|    (`BackupConfigTest`) đọc thẳng `config/backup.php`, không đọc giá trị bị hook này đổi.
+|
+| Nhân chứng: `tests/Feature/Backup/BackupTestIsolationTest.php` (không tự giả gì).
+*/
+function backupSourceTestDirectory(): string
+{
+    $token = $_SERVER['TEST_TOKEN'] ?? '0';
+
+    return storage_path('app/backup-source_test_'.getmypid().'_'.$token);
+}
+
 pest()->in('Feature/Backup')->beforeEach(function (): void {
     config(['backup.backup.temporary_directory' => backupTemporaryTestDirectory()]);
+
+    Process::preventStrayProcesses();
+    Process::fake([]);
+
+    $source = backupSourceTestDirectory();
+
+    if (! is_dir($source)) {
+        mkdir($source, 0777, true);
+    }
+
+    file_put_contents($source.'/tep-nguon-thu.txt', 'Tệp nguồn giả cho backup:run trong test — không phải hồ sơ thật.');
+
+    config(['backup.backup.source.files.include' => [$source]]);
 });
 
 register_shutdown_function(function () use ($storageRunToken): void {
@@ -220,5 +268,12 @@ register_shutdown_function(function () use ($storageRunToken): void {
 
     if (is_dir($backupTempDirectory)) {
         (new Filesystem)->deleteDirectory($backupTempDirectory);
+    }
+
+    // Thư mục nguồn tạm của `backupSourceTestDirectory()` — cùng cách đặt tên, cùng lý do tính lại.
+    $backupSourceDirectory = __DIR__.'/../storage/app/backup-source_test_'.getmypid().'_'.$backupTempToken;
+
+    if (is_dir($backupSourceDirectory)) {
+        (new Filesystem)->deleteDirectory($backupSourceDirectory);
     }
 });
