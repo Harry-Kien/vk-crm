@@ -63,6 +63,14 @@ return [
         'zalo' => env('BRAND_ZALO', 'https://zalo.me/0832270898'),
 
         /*
+         * M6.5 Task 12 (`notify/notify-14`): Reply-To dùng chung cho MỌI thư của văn phòng — xem
+         * `App\Mail\BrandedMailable::replyToAddresses()`. Khác `MAIL_FROM_ADDRESS`
+         * (`no-reply@luatvukhang.com`, chỉ dùng cho SPF/DKIM): đây là hộp thư THẬT có người đọc,
+         * để khách/nhân sự bấm "Trả lời" không rơi vào chỗ không ai xem.
+         */
+        'reply_to' => env('BRAND_REPLY_TO_ADDRESS', 'lienhe@luatvukhang.com'),
+
+        /*
          * Bốn thông tin dưới đây PHẢI có trước khi hệ thống gửi email cho khách hoặc xuất PDF:
          * luật và thông lệ đều đòi chân thư của một tổ chức hành nghề luật nêu đủ tên pháp lý, mã
          * số thuế, Đoàn Luật sư và số Giấy đăng ký hoạt động.

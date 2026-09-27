@@ -114,20 +114,29 @@ return [
 
     /*
      * Mẫu thư `staff.deadline_reminder` (SPEC §9). Thư gửi NHÂN SỰ nên được phép mang mã hồ sơ và
-     * nói bằng ngôn ngữ nghề nghiệp — khác hẳn thư gửi khách. Tiêu đề đổi theo bậc, để người mở
-     * hộp thư lúc 7 giờ sáng phân biệt được "còn bảy ngày" với "đã quá hạn" mà không cần mở thư.
+     * nói bằng ngôn ngữ nghề nghiệp — khác hẳn thư gửi khách.
+     *
+     * M6.5 Task 12 (`deadlines/F3`): tiêu đề (và câu đầu thân thư) đọc theo SỐ NGÀY THẬT CÒN LẠI
+     * (`today()->diffInDays($deadline->due_date, false)`), KHÔNG theo con số của bậc nhắc
+     * (`$tierKey`). Trước bản sửa này, khoá tra là `subject.d14`/`d7`/`d3` — CHUỖI CỐ ĐỊNH không
+     * có tham số `:days` — nên một mốc `critical` xen giữa hai bậc (rất thường: luật sư ghi hạn
+     * vào một ngày bất kỳ, không đúng lúc còn 14/7/3 ngày tròn) nhận tiêu đề ghi NHIỀU thời gian
+     * hơn thực tế (còn 10 ngày mà tiêu đề "Còn 14 ngày"). Ba khoá dưới đây thay thế NĂM khoá cũ
+     * (`d14`/`d7`/`d3`/`d1`/`overdue`), phân biệt theo DẤU của số ngày còn lại — không theo bậc —
+     * nên áp dụng cho MỌI bậc như nhau: `upcoming` (còn > 0 ngày), `due_today` (đúng 0 ngày — câu
+     * riêng "Hết hạn hôm nay", KHÔNG viết "Còn 0 ngày": không ai nói "còn 0 ngày nữa"), `overdue`
+     * (< 0 ngày, mang trị tuyệt đối của số ngày đã trôi qua hạn).
      */
     'email' => [
         'subject' => [
-            'd14' => 'Còn 14 ngày: :name (:code)',
-            'd7' => 'Còn 7 ngày: :name (:code)',
-            'd3' => 'Còn 3 ngày: :name (:code)',
-            'd1' => 'Sắp hết hạn: :name (:code)',
-            'overdue' => 'ĐÃ QUÁ HẠN: :name (:code)',
+            'upcoming' => 'Còn :days ngày: :name (:code)',
+            'due_today' => 'Hết hạn hôm nay: :name (:code)',
+            'overdue' => 'Đã quá hạn :days ngày: :name (:code)',
         ],
         'greeting' => 'Kính gửi :name,',
         'headline' => [
             'upcoming' => 'Còn :days ngày nữa là tới hạn.',
+            'due_today' => 'Hết hạn hôm nay.',
             'overdue' => 'Mốc này đã quá hạn :days ngày.',
         ],
         'due' => 'Hạn: :date',

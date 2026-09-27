@@ -30,6 +30,24 @@ abstract class BrandedMailable extends Mailable
         return null;
     }
 
+    /**
+     * Reply-To dùng chung cho MỌI thư của văn phòng (M6.5 Task 12, `notify/notify-14`): trước bản
+     * sửa này không mẫu nào đặt Reply-To, nên khách/nhân sự bấm "Trả lời" rơi vào
+     * `MAIL_FROM_ADDRESS` — một hộp `no-reply@` không ai đọc, dùng cho SPF/DKIM chứ không phải
+     * cho người trả lời. `config('vkcrm.brand.reply_to')` là địa chỉ liên hệ THẬT của văn phòng.
+     *
+     * Trả về `array` (không phải `?string`) đúng chữ ký `Envelope::$replyTo` — mỗi Mailable con
+     * gọi thẳng `replyTo: $this->replyToAddresses()` trong `envelope()` của mình: lớp này không có
+     * một `envelope()` chung để ghi đè (mỗi mẫu thư có tham số tiêu đề riêng), nên không có chỗ
+     * nào khác để đặt Reply-To một lần cho tất cả.
+     *
+     * @return array<int, string>
+     */
+    protected function replyToAddresses(): array
+    {
+        return [config('vkcrm.brand.reply_to')];
+    }
+
     public function headers(): Headers
     {
         $text = [OutboundHeaders::TEMPLATE => $this->template()];

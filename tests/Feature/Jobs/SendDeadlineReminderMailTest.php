@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\Confidentiality;
 use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Jobs\SendDeadlineReminderMail;
@@ -138,6 +139,48 @@ it('configures exactly one backoff delay per release', function () {
     $job = new SendDeadlineReminderMail(1, [1], 'd7');
 
     expect($job->backoff())->toHaveCount($job->tries - 1);
+});
+
+// ---------------------------------------------------------------------------------------------
+// M6.5 Task 12 (R3) — re-check ĐI QUA ResolveStaffRecipients tại thời điểm chạy, không chỉ lọc
+// is_active trên danh sách id đã cũ từ lúc dispatch.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Giữa lúc `CheckDeadlines` xếp job này và lúc nó thật sự chạy, vụ việc có thể đã bị siết thành
+ * `restricted` (đổi `confidentiality`, một Action của M6.5 khác) — R3: người nhận thư về một vụ
+ * việc chỉ là người ĐANG được xem vụ đó, kiểm tra lại tại thời điểm gửi, không phải tại thời điểm
+ * dispatch. Một quản lý có mặt trong payload không còn được xem vụ hạn chế thì không được nhận,
+ * dù id của họ vẫn còn trong `$recipientIds`.
+ *
+ * Mutation probe: thay lời gọi `ResolveStaffRecipients` bằng bộ lọc cũ (chỉ `is_active`, không
+ * `Gate::view`) — test này ĐỎ vì quản lý vẫn nhận được thư (`Mail::assertNotSent` thất bại).
+ */
+it('re-checks Gate::view at send time, so a manager in the payload does not receive it once the matter has turned restricted since the deadline was queued', function () {
+    Mail::fake();
+    [$deadline, $lawyer, $matter] = deadlineWithLawyer();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+
+    $matter->update(['confidentiality' => Confidentiality::Restricted]);
+
+    $job = new SendDeadlineReminderMail($deadline->id, [$lawyer->id, $manager->id], 'd1');
+    $job->handle();
+
+    Mail::assertSent(DeadlineReminder::class, fn ($mail) => $mail->hasTo($lawyer->email));
+    Mail::assertNotSent(fn (DeadlineReminder $mail) => $mail->hasTo($manager->email));
+});
+
+/** Cặp dương: vụ việc còn bình thường thì cả hai (luật sư phụ trách vụ VÀ quản lý) đều nhận, như trước. */
+it('still mails everyone in the payload when the matter has not turned restricted', function () {
+    Mail::fake();
+    [$deadline, $lawyer, $matter] = deadlineWithLawyer();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+
+    $job = new SendDeadlineReminderMail($deadline->id, [$lawyer->id, $manager->id], 'd1');
+    $job->handle();
+
+    Mail::assertSent(DeadlineReminder::class, fn ($mail) => $mail->hasTo($lawyer->email));
+    Mail::assertSent(DeadlineReminder::class, fn ($mail) => $mail->hasTo($manager->email));
 });
 
 // ---------------------------------------------------------------------------------------------

@@ -11,17 +11,16 @@ use App\Notifications\Client\SendLoginCode;
 use App\Support\Mail\OutboundLedgerTransport;
 use App\Support\Scopes\ClientPortalScope;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Mail\Events\MessageSent;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
-use Illuminate\Mail\SentMessage;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
 use Symfony\Component\Mailer\Envelope as SymfonyEnvelope;
 use Symfony\Component\Mailer\Exception\TransportException;
 use Symfony\Component\Mailer\SentMessage as SymfonySentMessage;
 use Symfony\Component\Mailer\Transport\TransportInterface;
-use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
+use Symfony\Component\Mime\Message;
 use Symfony\Component\Mime\RawMessage;
 
 /**
@@ -171,15 +170,29 @@ it('không để một mẫu thư tự trỏ dòng nhật ký của mình sang c
         ->and($row->sent_at)->not->toBeNull();
 });
 
-it('không ngã khi sự kiện MessageSent mang một thư thô không có header nào', function () {
-    $sent = new SentMessage(new SymfonySentMessage(
-        new RawMessage('Thư thô, không phải Message.'),
-        new SymfonyEnvelope(new Address('gui@vidu.test'), [new Address('nhan@vidu.test')]),
-    ));
+/**
+ * M6.5 Task 12 (`notify/notify-11`): trước bản sửa này, chặng "gửi xong" nằm ở
+ * `RecordOutboundMail::recordSent()` (nghe `MessageSent`) — test này khi đó bắn thẳng sự kiện đó
+ * với một `RawMessage` không có header để chứng minh listener không sập. Từ Task 12, chặng đó
+ * chuyển hẳn sang `OutboundLedgerTransport::send()` (xem docblock lớp và của
+ * `App\Listeners\RecordOutboundMail`), nên phép đo tương đương là gọi THẲNG transport thật với
+ * một `RawMessage` trần và xác nhận nó gửi THÀNH CÔNG mà không dựng/sửa dòng nào — không có
+ * header nào để tra khoá, nên không có gì để `markSent()`.
+ */
+it('không ngã khi một thư thô không có header đi thẳng vào transport và gửi thành công', function () {
+    $transport = Mail::mailer()->getSymfonyTransport();
+    expect($transport)->toBeInstanceOf(OutboundLedgerTransport::class);
 
-    event(new MessageSent($sent));
+    $email = (new Email)
+        ->from('gui@vidu.test')
+        ->to('nhan@vidu.test')
+        ->subject('Đi tắt, không qua Mailer')
+        ->text('Không có MessageSending nào mở dòng cho thư này.');
 
-    expect(OutboundMessage::query()->count())->toBe(0);
+    $sent = $transport->send($email);
+
+    expect($sent)->not->toBeNull()
+        ->and(OutboundMessage::query()->count())->toBe(0);
 });
 
 it('không ngã khi transport hỏng trên một thư thô không có header nào', function () {
@@ -280,4 +293,70 @@ it('bỏ qua header related viết sai thay vì dựng một liên kết rỗng'
         expect($row->related_type)->toBeNull("[{$value}] không được dựng thành related_type")
             ->and($row->related_id)->toBeNull("[{$value}] không được dựng thành related_id");
     }
+});
+
+// ---------------------------------------------------------------------------------------------
+// M6.5 Task 12 (`notify/notify-11`) — gỡ header X-VKCRM-* khỏi thư TRƯỚC KHI nó rời máy chủ.
+// Nhật ký đã đọc xong template/related ở MessageSending (RecordOutboundMessage::sending()), nên
+// không mất ngữ cảnh khi gỡ — chỉ mất thứ lộ id tuần tự nội bộ ra hộp thư khách.
+// ---------------------------------------------------------------------------------------------
+
+/** @return Collection<int, string> Tên MỌI header của thông điệp thật đã "gửi". */
+function headerNamesOf(Message $message): Collection
+{
+    return collect(iterator_to_array($message->getHeaders()->all()))
+        ->map(fn ($header) => $header->getName());
+}
+
+it('gỡ cả ba header X-VKCRM-* khỏi thư thật trước khi nó rời máy chủ, nhưng dòng nhật ký vẫn còn template và related', function () {
+    $stageLog = StageLog::factory()->create();
+
+    Mail::to('khach@vidu.test')->send(new LedgerProbeMail($stageLog));
+
+    $sent = Mail::mailer()->getSymfonyTransport()->innerTransport()->messages()->last()->getOriginalMessage();
+    $names = headerNamesOf($sent);
+
+    expect($names->contains(fn (string $name) => str_starts_with($name, 'X-VKCRM-')))->toBeFalse();
+
+    $row = OutboundMessage::query()->sole();
+    expect($row->template)->toBe('test.probe')
+        ->and($row->related_type)->toBe($stageLog->getMorphClass())
+        ->and($row->related_id)->toBe($stageLog->getKey())
+        ->and($row->status)->toBe(OutboundStatus::Sent);
+});
+
+/** Cặp dương: một thư KHÔNG khai báo mẫu/bản ghi liên quan thì cũng không còn header nào, dòng nhật ký vẫn ghi "undeclared". */
+it('vẫn ghi undeclared khi thư không khai báo gì, sau khi đã gỡ header', function () {
+    Mail::raw('Xin chào.', fn ($message) => $message->to('khach@vidu.test')->subject('Không khai báo gì'));
+
+    $sent = Mail::mailer()->getSymfonyTransport()->innerTransport()->messages()->last()->getOriginalMessage();
+
+    expect(headerNamesOf($sent)->contains(fn (string $name) => str_starts_with($name, 'X-VKCRM-')))->toBeFalse();
+
+    $row = OutboundMessage::query()->sole();
+    expect($row->template)->toBe(OutboundMessage::TEMPLATE_UNDECLARED);
+});
+
+/**
+ * Đối chứng "gửi hỏng": header bị gỡ TRƯỚC KHI transport thật chạy (không phải sau), nên ngay cả
+ * khi việc gửi ném lỗi, dòng nhật ký vẫn phải còn template/related — chúng được đọc ở
+ * MessageSending, không phụ thuộc gì vào việc gỡ header có xảy ra hay không.
+ *
+ * Mutation probe: xem báo cáo — đổi thứ tự gỡ/gửi trong `OutboundLedgerTransport::send()` (gỡ
+ * SAU khi gửi thành công thay vì TRƯỚC) làm chính test "gỡ cả ba header..." ở trên đỏ, vì
+ * `ArrayTransport` lưu lại đúng thông điệp đã đi qua `doSend()` — tức đã có header.
+ */
+it('vẫn ghi status failed kèm template/related khi việc gửi hỏng, dù header đã bị gỡ trước khi transport thật chạy', function () {
+    $stageLog = StageLog::factory()->create();
+    $mailer = closedDoorMailer();
+
+    expect(fn () => Mail::mailer($mailer)->to('khach@vidu.test')->send(new LedgerProbeMail($stageLog)))
+        ->toThrow(TransportException::class);
+
+    $row = OutboundMessage::query()->sole();
+
+    expect($row->status)->toBe(OutboundStatus::Failed)
+        ->and($row->template)->toBe('test.probe')
+        ->and($row->related_type)->toBe($stageLog->getMorphClass())
+        ->and($row->related_id)->toBe($stageLog->getKey());
 });

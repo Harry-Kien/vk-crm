@@ -68,6 +68,18 @@ use Throwable;
  * người nhận có thể đã bị khoá/nghỉ việc (R7). `handle()` re-check cả hai TRƯỚC khi gửi và BỎ QUA
  * (không gửi, không ném lỗi) người/mốc không còn hợp lệ — im lặng đúng nghĩa "vốn không nên gửi",
  * không phải một lần gửi thất bại.
+ *
+ * # M6.5 Task 12 (R3) — re-check đi qua {@see ResolveStaffRecipients}, không chỉ lọc `is_active`
+ *
+ * Trước bản sửa này, `handle()` chỉ đọc lại `is_active` trên danh sách `$recipientIds` — đủ cho
+ * R7 (nghỉ việc), nhưng KHÔNG đủ cho R3: vụ việc có thể đã bị siết thành `confidentiality =
+ * restricted` (một Action KHÁC của M6.5) giữa lúc `CheckDeadlines` dựng payload và lúc job này
+ * chạy, và một quản lý còn `is_active` trong payload đó không còn được `Gate::view()` vụ ấy nữa.
+ * Payload chỉ mang ID (SPEC §10.5), không mang lại QUYẾT ĐỊNH "ai được xem" — quyết định đó phải
+ * được hỏi LẠI, đúng lúc thư sắp rời tay, qua `ResolveStaffRecipients` (Task 8; NƠI DUY NHẤT giữ
+ * luật R3, dùng lại chứ không viết một bản lọc thứ hai). `$recipientIds` giờ chỉ còn là "danh sách
+ * ưu tiên" của `ResolveStaffRecipients::handle()` — lớp đó tự lọc `is_active` + `Gate::view()`,
+ * và tự đi chuỗi dự phòng "không bao giờ im lặng" (R3) nếu KHÔNG CÒN ai trong payload hợp lệ.
  */
 class SendDeadlineReminderMail implements ShouldQueue
 {
@@ -103,17 +115,18 @@ class SendDeadlineReminderMail implements ShouldQueue
         // Vụ việc đã bị huỷ (CancelMatter, Task 5) hoặc đã đóng (R8) giữa lúc job xếp hàng và lúc
         // nó chạy — cùng định nghĩa DUY NHẤT `Matter::scopeOpen()` mà CheckDeadlines đã dùng để
         // dựng danh sách ứng viên, không viết lại nó lần nữa ở đây.
-        if (! Matter::query()->whereKey($deadline->matter_id)->open()->exists()) {
+        $matter = Matter::query()->whereKey($deadline->matter_id)->open()->first();
+
+        if ($matter === null) {
             return;
         }
 
-        // Re-check người nhận: `is_active` có thể đã đổi (nghỉ việc, R7) từ lúc CheckDeadlines
-        // tính `recipientsFor()` tới lúc job này thật sự chạy. `SoftDeletes` mặc định của User đã
-        // tự loại người đã xoá mềm khỏi truy vấn dưới đây.
-        $recipients = User::query()
-            ->whereKey($this->recipientIds)
-            ->where('is_active', true)
-            ->get();
+        // Re-check người nhận TẠI THỜI ĐIỂM GỬI (R3, xem docblock lớp): `$recipientIds` chỉ còn
+        // là danh sách ƯU TIÊN, ResolveStaffRecipients tự lọc is_active + Gate::view() + chuỗi dự
+        // phòng "không bao giờ im lặng" nếu không còn ai trong đó hợp lệ.
+        $preferred = User::query()->whereKey($this->recipientIds)->get();
+
+        $recipients = app(ResolveStaffRecipients::class)->handle($matter, $preferred->all());
 
         foreach ($recipients as $recipient) {
             Mail::to($recipient->email)->send(new DeadlineReminder($deadline, $recipient, $this->tierKey));
@@ -124,7 +137,7 @@ class SendDeadlineReminderMail implements ShouldQueue
      * Chạy đúng MỘT lần, sau khi CẢ `$tries` lần đều thất bại — xem docblock lớp, mục "Vòng sửa 1,
      * C1". `?Throwable $exception` không dùng tới: SPEC §10.5 cấm nội suy văn bản lỗi tự do vào
      * dữ liệu ghi lại (một exception tương lai không đảm bảo không vô tình mang dữ liệu nhạy cảm);
-     * tên lớp/JSON của nó đã nằm trong `outbound_messages.error` do `RecordOutboundMessage::failed()`
+     * tên lớp/JSON của nó đã nằm trong `outbound_messages.error` do `RecordOutboundMessage::markFailed()`
      * ghi ở LẦN THỬ CUỐI, không cần lặp lại ở đây.
      */
     public function failed(?Throwable $exception): void

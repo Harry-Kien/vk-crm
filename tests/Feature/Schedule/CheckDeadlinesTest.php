@@ -2,7 +2,9 @@
 
 use App\Actions\Matter\CancelMatter;
 use App\Actions\Schedule\CheckDeadlines;
+use App\Enums\Confidentiality;
 use App\Enums\DeadlineSeverity;
+use App\Enums\MatterRole;
 use App\Enums\OutboundStatus;
 use App\Enums\Role;
 use App\Jobs\SendDeadlineReminderMail;
@@ -261,6 +263,12 @@ it('marks every earlier tier as spent once a deadline is already overdue', funct
 // Nội dung thư
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * M6.5 Task 12 (`deadlines/F3`): trước bản sửa này tiêu đề bậc quá hạn là chuỗi cố định
+ * "ĐÃ QUÁ HẠN" (viết hoa, không mang số ngày thật). Giờ tiêu đề mang đúng số ngày đã trôi qua
+ * hạn, chữ thường theo lang/vi/deadlines.php — cập nhật cụm assert theo đúng chữ mới, không phải
+ * nới lỏng: bài test vẫn ghim đúng yêu cầu gốc ("phân biệt được còn hạn với quá hạn qua tiêu đề").
+ */
 it('tells the reader in the subject line whether it is a warning or a breach', function () {
     $soon = deadlineDueIn(7);
     $late = deadlineDueIn(-2);
@@ -270,7 +278,7 @@ it('tells the reader in the subject line whether it is a warning or a breach', f
 
     // Người mở hộp thư lúc 7 giờ sáng phải phân biệt được hai thứ này mà không cần mở thư.
     expect($soonSubject)->toContain('7 ngày')
-        ->and($lateSubject)->toContain('QUÁ HẠN')
+        ->and($lateSubject)->toContain('Đã quá hạn 2 ngày')
         ->and($soonSubject)->not->toBe($lateSubject);
 });
 
@@ -499,4 +507,226 @@ it('dispatches the tier again on the next CheckDeadlines run after the job for i
 
     Mail::assertSent(DeadlineReminder::class, 2);
     expect($deadline->fresh()->reminders_sent)->toContain('d3');
+});
+
+// ---------------------------------------------------------------------------------------------
+// M6.5 Task 12 (`deadlines/F2`, `notify/notify-3`; `deadlines/F4`, `notify/notify-4`) —
+// người nhận đi qua ResolveStaffRecipients (R3), không còn tự lọc thủ công.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * `deadlines/F2`, `notify/notify-3`: trước bản sửa này, bậc 1 ngày/quá hạn cộng THẲNG
+ * `User::query()->role('manager')` mà không hỏi Gate::view — một vụ `restricted` vẫn gửi mã hồ
+ * sơ và tiêu đề cho trưởng phòng, người `Matter::isListableBy()` từ chối thẳng thừng. R3 (câu
+ * thứ hai) đọc lại SPEC §6.8: vụ `restricted` thì bậc này cộng ADMIN thay vì manager.
+ *
+ * Người phụ trách của mốc CỐ Ý không phải là luật sư phụ trách vụ (lead lawyer) — chỉ lead lawyer
+ * và admin qua được Gate::view() của một vụ restricted (xem `Matter::isListableBy()`), nên nếu
+ * responsible = lead lawyer thì test không phân biệt được "admin nhận vì được cộng vào" với "admin
+ * nhận vì lead lawyer tình cờ có vai trò admin".
+ */
+it('replaces the manager audience with admin at the one-day tier of a restricted matter', function () {
+    $lead = User::factory()->withRole(Role::Lawyer)->create();
+    $responsible = User::factory()->withRole(Role::Lawyer)->create();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $admin = User::factory()->withRole(Role::Admin)->create();
+
+    $type = MatterType::factory()->withStages()->create();
+    $matter = Matter::factory()->restricted()->create([
+        'lead_lawyer_id' => $lead->id,
+        'matter_type_id' => $type->id,
+        'stage' => $type->stages->reject(fn ($s) => $s->is_terminal)->first()->key,
+    ]);
+    $matter->addTeamMember($responsible, MatterRole::Associate);
+
+    $deadline = Deadline::factory()->create([
+        'matter_id' => $matter->id,
+        'responsible_user_id' => $responsible->id,
+        'due_date' => today()->addDay(),
+        'is_completed' => false,
+        'reminders_sent' => [],
+    ]);
+
+    $recipients = (new CheckDeadlines)->recipientsFor($deadline, 'd1');
+
+    expect($recipients->pluck('id')->all())->toContain($admin->id)
+        ->and($recipients->pluck('id')->all())->not->toContain($manager->id)
+        ->and($recipients->pluck('id')->all())->not->toContain($responsible->id);
+});
+
+/** Cặp dương: cùng bậc, cùng dữ liệu, nhưng vụ THƯỜNG thì manager nhận, không phải admin. */
+it('still widens the one-day tier to managers on a standard (non-restricted) matter', function () {
+    $lead = User::factory()->withRole(Role::Lawyer)->create();
+    $responsible = User::factory()->withRole(Role::Lawyer)->create();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $admin = User::factory()->withRole(Role::Admin)->create();
+
+    $type = MatterType::factory()->withStages()->create();
+    $matter = Matter::factory()->create([
+        'lead_lawyer_id' => $lead->id,
+        'matter_type_id' => $type->id,
+        'stage' => $type->stages->reject(fn ($s) => $s->is_terminal)->first()->key,
+    ]);
+    $matter->addTeamMember($responsible, MatterRole::Associate);
+
+    $deadline = Deadline::factory()->create([
+        'matter_id' => $matter->id,
+        'responsible_user_id' => $responsible->id,
+        'due_date' => today()->addDay(),
+        'is_completed' => false,
+        'reminders_sent' => [],
+    ]);
+
+    $recipients = (new CheckDeadlines)->recipientsFor($deadline, 'd1');
+
+    expect($recipients->pluck('id')->all())->toContain($manager->id)
+        ->and($recipients->pluck('id')->all())->not->toContain($admin->id);
+});
+
+/**
+ * Carry-forward của rà soát Task 3 (brief Task 12): một trợ lý đứng tên trong đội ngũ của một vụ
+ * `restricted` (dữ liệu có thể có TỪ TRƯỚC khi luật hạn chế siết lại — `matter_user` không tự dọn)
+ * không được nhận thư nhắc bậc 3 ngày, vì `Matter::isListableBy()` nhánh restricted không đọc
+ * `team()` chút nào — chỉ `lead_lawyer_id`/admin.
+ */
+it('does not mail a team assistant who cannot view a restricted matter at the three-day tier', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $deadline = deadlineDueIn(3);
+    $deadline->matter->update(['confidentiality' => Confidentiality::Restricted]);
+    $deadline->matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    $recipients = (new CheckDeadlines)->recipientsFor($deadline->fresh(), 'd3');
+
+    expect($recipients->pluck('id')->all())->not->toContain($assistant->id);
+});
+
+/** Cặp dương: cùng đội ngũ, vụ THƯỜNG thì trợ lý nhận bình thường — test trên đỏ vì restricted, không vì lý do khác. */
+it('still mails a team assistant on a standard matter at the three-day tier', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $deadline = deadlineDueIn(3);
+    $deadline->matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    $recipients = (new CheckDeadlines)->recipientsFor($deadline->fresh(), 'd3');
+
+    expect($recipients->pluck('id')->all())->toContain($assistant->id);
+});
+
+/**
+ * `deadlines/F4`, `notify/notify-4`: người phụ trách bị vô hiệu hoá không còn để mốc im lặng tới
+ * bậc 1 ngày — R3 "không bao giờ im lặng" đưa lời nhắc bậc 7 ngày tới luật sư phụ trách VỤ
+ * (lead lawyer), qua chuỗi dự phòng của `ResolveStaffRecipients`.
+ */
+it('falls back to the lead lawyer at the seven-day tier when the responsible person has been deactivated', function () {
+    $lead = User::factory()->withRole(Role::Lawyer)->create();
+    $responsible = User::factory()->withRole(Role::Lawyer)->create(['is_active' => false]);
+
+    $type = MatterType::factory()->withStages()->create();
+    $matter = Matter::factory()->create([
+        'lead_lawyer_id' => $lead->id,
+        'matter_type_id' => $type->id,
+        'stage' => $type->stages->reject(fn ($s) => $s->is_terminal)->first()->key,
+    ]);
+    $matter->addTeamMember($responsible, MatterRole::Associate);
+
+    $deadline = Deadline::factory()->create([
+        'matter_id' => $matter->id,
+        'responsible_user_id' => $responsible->id,
+        'due_date' => today()->addDays(7),
+        'is_completed' => false,
+        'reminders_sent' => [],
+    ]);
+
+    $recipients = (new CheckDeadlines)->recipientsFor($deadline, 'd7');
+
+    expect($recipients->pluck('id')->all())->toBe([$lead->id]);
+});
+
+/** Cặp dương: người phụ trách còn hoạt động thì thư đi thẳng tới họ, không phải lead lawyer. */
+it('still goes straight to the responsible person at the seven-day tier when they have not been deactivated', function () {
+    $lead = User::factory()->withRole(Role::Lawyer)->create();
+    $responsible = User::factory()->withRole(Role::Lawyer)->create();
+
+    $type = MatterType::factory()->withStages()->create();
+    $matter = Matter::factory()->create([
+        'lead_lawyer_id' => $lead->id,
+        'matter_type_id' => $type->id,
+        'stage' => $type->stages->reject(fn ($s) => $s->is_terminal)->first()->key,
+    ]);
+    $matter->addTeamMember($responsible, MatterRole::Associate);
+
+    $deadline = Deadline::factory()->create([
+        'matter_id' => $matter->id,
+        'responsible_user_id' => $responsible->id,
+        'due_date' => today()->addDays(7),
+        'is_completed' => false,
+        'reminders_sent' => [],
+    ]);
+
+    $recipients = (new CheckDeadlines)->recipientsFor($deadline, 'd7');
+
+    expect($recipients->pluck('id')->all())->toBe([$responsible->id]);
+});
+
+/**
+ * `deadlines/F4`, `notify/notify-4`: lead lawyer CŨNG bị vô hiệu hoá — chuỗi dự phòng đi tiếp tới
+ * một manager được xem vụ, R3 "không bao giờ im lặng".
+ */
+it('falls back to a manager who can view the matter when both the responsible person and the lead lawyer have been deactivated', function () {
+    $lead = User::factory()->withRole(Role::Lawyer)->create(['is_active' => false]);
+    $responsible = User::factory()->withRole(Role::Lawyer)->create(['is_active' => false]);
+    $manager = User::factory()->withRole(Role::Manager)->create();
+
+    $type = MatterType::factory()->withStages()->create();
+    $matter = Matter::factory()->create([
+        'lead_lawyer_id' => $lead->id,
+        'matter_type_id' => $type->id,
+        'stage' => $type->stages->reject(fn ($s) => $s->is_terminal)->first()->key,
+    ]);
+    $matter->addTeamMember($responsible, MatterRole::Associate);
+
+    $deadline = Deadline::factory()->create([
+        'matter_id' => $matter->id,
+        'responsible_user_id' => $responsible->id,
+        'due_date' => today()->addDays(7),
+        'is_completed' => false,
+        'reminders_sent' => [],
+    ]);
+
+    $recipients = (new CheckDeadlines)->recipientsFor($deadline, 'd7');
+
+    expect($recipients->pluck('id')->all())->toBe([$manager->id]);
+});
+
+// ---------------------------------------------------------------------------------------------
+// M6.5 Task 12 (`deadlines/F3`) — tiêu đề mang số ngày còn lại THẬT, không mang con số của bậc.
+// ---------------------------------------------------------------------------------------------
+
+/** Mốc còn 10 ngày, xét ở bậc 14 (critical): tiêu đề phải ghi "Còn 10 ngày", không phải "Còn 14 ngày". */
+it('writes the real number of days left in the subject, not the tier label', function () {
+    $deadline = deadlineDueIn(10, severity: DeadlineSeverity::Critical);
+
+    $subject = (new DeadlineReminder($deadline, $deadline->responsible, 'd14'))->envelope()->subject;
+
+    expect($subject)->toContain('Còn 10 ngày')
+        ->and($subject)->not->toContain('Còn 14 ngày');
+});
+
+/** Mốc đến hạn hôm nay (còn 0 ngày): tiêu đề "Hết hạn hôm nay", không phải "Còn 0 ngày". */
+it('writes "Hết hạn hôm nay" for a deadline due today, never "0 ngày"', function () {
+    $deadline = deadlineDueIn(0);
+
+    $subject = (new DeadlineReminder($deadline, $deadline->responsible, 'd1'))->envelope()->subject;
+
+    expect($subject)->toContain('Hết hạn hôm nay')
+        ->and($subject)->not->toContain('0 ngày');
+});
+
+/** Cùng luật ở thân thư (không chỉ tiêu đề): dòng đầu tiên khách/nhân sự đọc cũng không được nói "còn 0 ngày". */
+it('shows "Hết hạn hôm nay" in the body headline for a deadline due today, never "0 ngày"', function () {
+    $deadline = deadlineDueIn(0);
+
+    $html = (new DeadlineReminder($deadline, $deadline->responsible, 'd1'))->render();
+
+    expect($html)->toContain('Hết hạn hôm nay')
+        ->and($html)->not->toContain('0 ngày');
 });

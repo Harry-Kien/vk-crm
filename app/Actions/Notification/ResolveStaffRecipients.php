@@ -21,11 +21,21 @@ use Illuminate\Support\Facades\Gate;
  * KHÔNG tồn tại ở tầng `Matter`, nên không thể "cứng" vào lớp này). Lớp CHỈ lọc: giữ lại đúng
  * những người trong `$preferred` đang `is_active` VÀ được xem `$matter`, theo ĐÚNG thứ tự đã
  * truyền — có thể trả về NHIỀU người (ví dụ: cả luật sư phụ trách LẪN mọi trưởng phòng được xem vụ
- * đều hợp lệ thì cả hai đều nhận, không phải chỉ người đầu tiên). "Vụ `restricted`: thay manager
- * bằng admin" của R3 không cần một nhánh riêng ở đây: `Gate::view()` cho một vụ `restricted` vốn
- * đã chỉ cho `lead_lawyer`/`admin` đi qua (xem `Matter::isListableBy()`), nên một trưởng phòng
- * thường trong `$preferred` tự động bị lọc ra — caller chỉ cần đưa cả manager LẪN admin vào
- * `$preferred` (thứ tự không quan trọng cho việc lọc, vì lớp không dừng ở người đầu tiên hợp lệ).
+ * đều hợp lệ thì cả hai đều nhận, không phải chỉ người đầu tiên). `Gate::view()` cho một vụ
+ * `restricted` vốn đã chỉ cho `lead_lawyer`/`admin` đi qua (xem `Matter::isListableBy()`), nên một
+ * trưởng phòng thường lỡ có mặt trong `$preferred` tự động bị lọc ra — lớp này không cần biết gì
+ * về `confidentiality` để làm việc đó.
+ *
+ * **Sửa lại (M6.5 Task 12, đọc code thật thay vì suy đoán): "vụ `restricted` thì thay manager
+ * bằng admin" của R3 KHÔNG nên đọc là "caller cứ đưa cả manager LẪN admin vào `$preferred`,
+ * `Gate::view()` sẽ tự lọc đúng người" — như bản docblock trước đây của đoạn này từng viết. Một
+ * vụ THƯỜNG cũng cho admin `Gate::view()` qua (`matter.viewAny` là đủ), nên đẩy cả hai vai trò
+ * KHÔNG PHÂN BIỆT vụ việc sẽ khiến MỌI admin đang hoạt động nhận thêm thư của MỌI vụ THƯỜNG, không
+ * riêng vụ `restricted` — đo được bằng một test đã có sẵn của `CheckDeadlinesTest`
+ * ("sends nothing for a deadline whose matter is cancelled...", dựng sẵn một admin cho việc khác
+ * cạnh một mốc `d1` của vụ THƯỜNG): đẩy cả hai vai trò không điều kiện làm test đó đỏ. Vì vậy
+ * CALLER (không phải lớp này) phải tự chọn MỘT trong hai theo `confidentiality`, xem
+ * `CheckDeadlines::recipientsFor()`.
  *
  * **Chuỗi dự phòng CHỈ chạy khi `$preferred` không còn ai hợp lệ ("Không bao giờ im lặng" — R3).**
  * Không phải một danh sách caller có thể tự chọn: đây là lưới an toàn CUỐI CÙNG của R3, giống nhau
