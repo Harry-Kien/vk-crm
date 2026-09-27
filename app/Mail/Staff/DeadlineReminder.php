@@ -37,11 +37,32 @@ use Illuminate\Mail\Mailables\Envelope;
  */
 class DeadlineReminder extends BrandedMailable
 {
+    /**
+     * @param  string|null  $dueDate  ngày đến hạn (`Y-m-d`) mà lời nhắc này nói tới — ảnh chụp
+     *                                `SendDeadlineReminderMail` mang từ lúc CheckDeadlines xếp hàng;
+     *                                `null` thì lấy `due_date` hiện tại của mốc. Xem {@see self::ledgerTier()}.
+     */
     public function __construct(
         public Deadline $deadline,
         public User $recipient,
         public string $tierKey,
+        public ?string $dueDate = null,
     ) {}
+
+    /**
+     * Khoá chống gửi trùng của nhật ký thư: `bậc@ngày đến hạn`, ví dụ `d1@2026-10-01` (M6.5 Task
+     * 14, fix round 1, C1). MỘT định nghĩa — lớp này ghi nó vào header, và
+     * `App\Jobs\SendDeadlineReminderMail::alreadyDelivered()` so đúng chuỗi này.
+     *
+     * Ngày là phần bắt buộc của khoá: `UpdateDeadline` dọn `reminders_sent` khi hoãn một mốc để bậc
+     * được nhắc lại cho ngày MỚI, và một khoá chỉ theo bậc sẽ thấy `d1` đã gửi cho ngày CŨ rồi im
+     * lặng. Trong đời của MỘT ngày đến hạn, khoá vẫn ổn định qua ranh giới ngày (`d1` ở còn 1 ngày
+     * và còn 0 ngày; `overdue` mọi ngày quá hạn) — đúng chống trùng của vòng sửa 2 Task 12.
+     */
+    public static function ledgerTier(string $tierKey, string $dueDate): string
+    {
+        return $tierKey.'@'.$dueDate;
+    }
 
     protected function template(): string
     {
@@ -57,13 +78,16 @@ class DeadlineReminder extends BrandedMailable
      * Vòng sửa 2 (I1): mang theo BẬC nhắc qua header nội bộ, để nhật ký chống gửi trùng theo
      * ĐÚNG bậc (`payload['tier']`) chứ không theo tiêu đề (đổi mỗi ngày) — xem docblock
      * `App\Mail\OutboundHeaders::LEDGER_TIER` và `App\Jobs\SendDeadlineReminderMail::
-     * alreadyDelivered()`.
+     * alreadyDelivered()`. Task 14 fix round 1 (C1): bậc KÈM ngày đến hạn — {@see self::ledgerTier()}.
      *
      * @return array<string, string>
      */
     protected function additionalLedgerHeaders(): array
     {
-        return [OutboundHeaders::LEDGER_TIER => $this->tierKey];
+        return [OutboundHeaders::LEDGER_TIER => self::ledgerTier(
+            $this->tierKey,
+            $this->dueDate ?? $this->deadline->due_date->toDateString(),
+        )];
     }
 
     public function envelope(): Envelope

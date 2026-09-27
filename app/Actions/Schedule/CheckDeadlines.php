@@ -208,8 +208,10 @@ class CheckDeadlines
             // audience at send time") bỏ hẳn danh sách người nhận khỏi payload: job tự gọi lại
             // CHÍNH `recipientsFor()` này lúc nó THẬT SỰ chạy, không tin bất kỳ ảnh chụp nào được
             // dựng ở đây — xem docblock của job để biết vì sao. `$recipients` ở trên chỉ còn dùng
-            // để quyết định CÓ dispatch hay không (rỗng thì không đánh dấu, xem trên).
-            SendDeadlineReminderMail::dispatch($deadline->getKey(), $key)->afterCommit();
+            // để quyết định CÓ dispatch hay không (rỗng thì không đánh dấu, xem trên). Task 14 fix
+            // round 1 (C1): payload thêm `due_date` lúc này — khoá chống gửi trùng của job là bậc
+            // KÈM ngày đến hạn, để một mốc được hoãn nhận lại bậc đã gửi cho ngày cũ.
+            SendDeadlineReminderMail::dispatch($deadline->getKey(), $key, $deadline->due_date->toDateString())->afterCommit();
         });
 
         // Ngoài transaction, cố ý — xem chú thích ở trên. Tier đã được đánh dấu VÀ commit trước
@@ -218,7 +220,13 @@ class CheckDeadlines
         // một dòng notifications cho mỗi mốc mỗi bậc" không cần một cột chống trùng RIÊNG.
         if ($overdueNotify !== null) {
             foreach ($overdueNotify['recipients'] as $recipient) {
-                $recipient->notify(new DeadlineOverdueAlert($overdueNotify['deadline']));
+                // Task 14 fix round 1 (M2): mỗi người một `try` — một lần ghi hỏng cho người này
+                // không được làm những người nhận còn lại mất cảnh báo. Lỗi vẫn `report()`.
+                try {
+                    $recipient->notify(new DeadlineOverdueAlert($overdueNotify['deadline']));
+                } catch (Throwable $e) {
+                    report($e);
+                }
             }
         }
     }

@@ -4,6 +4,7 @@ use App\Actions\Schedule\CheckDeadlines;
 use App\Enums\Confidentiality;
 use App\Enums\DeadlineSeverity;
 use App\Enums\MatterRole;
+use App\Enums\OutboundStatus;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\DeadlinesRelationManager;
@@ -11,10 +12,12 @@ use App\Filament\Admin\Widgets\UpcomingDeadlinesWidget;
 use App\Mail\Staff\DeadlineReminder;
 use App\Models\Deadline;
 use App\Models\Matter;
+use App\Models\OutboundMessage;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Filament\Notifications\Notification;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
 use Spatie\Activitylog\Models\Activity;
 
@@ -486,6 +489,148 @@ it('leaves reminders_sent alone when the due date is resubmitted unchanged', fun
 
     expect($deadline->fresh()->reminders_sent)->toBe(['d1'])
         ->and($deadline->fresh()->name)->toBe('Phiên hoà giải (đổi tên)');
+});
+
+/**
+ * Fix round 1, C1 (Critical). Dọn `reminders_sent` mới là NỬA đầu của "nhắc lại đúng sau khi hoãn":
+ * `SendDeadlineReminderMail::alreadyDelivered()` còn một khoá chống gửi trùng THỨ HAI, trên nhật
+ * ký thư (`outbound_messages`). Khoá đó từng chỉ theo BẬC, nên một `d1` đã THẬT SỰ gửi cho phiên
+ * toà cũ chặn mất `d1` của phiên toà mới — CheckDeadlines đánh dấu "đã gửi", không ai nhận thư.
+ *
+ * Không `Mail::fake()`: transport `array` của `phpunit.xml` đi qua `OutboundLedgerTransport`, nên
+ * dòng `outbound_messages` được ghi thật — `Mail::fake()` không ghi dòng nào và đã giấu lỗi này ở
+ * vòng đầu. Hàng đợi `sync` chạy job ngay khi CheckDeadlines commit.
+ *
+ * @return Collection<int, OutboundMessage>
+ */
+function sentReminderRows(User $recipient, string $tier)
+{
+    return OutboundMessage::query()
+        ->withoutGlobalScopes()
+        ->where('template', 'staff.deadline_reminder')
+        ->where('recipient', $recipient->email)
+        ->where('status', OutboundStatus::Sent)
+        ->get()
+        ->filter(fn ($row): bool => str_starts_with((string) ($row->payload['tier'] ?? ''), $tier))
+        ->values();
+}
+
+it('reminds again at the one-day tier of a postponed hearing, even though that tier was really mailed for the old date', function () {
+    $deadline = makeDeadline($this->matter, [
+        'name' => 'Phiên toà sơ thẩm',
+        'due_date' => today()->addDay(),
+        'reminders_sent' => [],
+    ]);
+
+    (new CheckDeadlines)->handle();
+    expect(sentReminderRows($this->lawyer, 'd1'))->toHaveCount(1);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('edit', $deadline, data: [
+        'due_date' => today()->addDays(31)->toDateString(),
+    ])->assertHasNoTableActionErrors();
+
+    $this->travelTo(today()->addDays(30));
+    (new CheckDeadlines)->handle();
+
+    expect(sentReminderRows($this->lawyer, 'd1'))->toHaveCount(2)
+        ->and($deadline->fresh()->reminders_sent)->toContain('d1');
+});
+
+it('warns about an overdue deadline again after it was re-dated into the future and then slipped past again', function () {
+    $deadline = makeDeadline($this->matter, [
+        'name' => 'Nộp tạm ứng án phí',
+        'due_date' => today()->subDays(2),
+        'reminders_sent' => [],
+    ]);
+
+    (new CheckDeadlines)->handle();
+    expect(sentReminderRows($this->lawyer, 'overdue'))->toHaveCount(1);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('edit', $deadline, data: [
+        'due_date' => today()->addDays(10)->toDateString(),
+    ])->assertHasNoTableActionErrors();
+
+    $this->travelTo(today()->addDays(12));
+    (new CheckDeadlines)->handle();
+
+    expect(sentReminderRows($this->lawyer, 'overdue'))->toHaveCount(2);
+});
+
+/**
+ * Fix round 1, I1. Form "Sửa" gửi lại MỌI ô, nên một tab mở từ trước (hay một đồng nghiệp đang
+ * mở cùng mốc) ghi đè ngược lại lần sửa vừa lưu — trả về ngày cũ, hoặc huỷ một lần giao việc — và
+ * nhật ký đổ cho người thứ hai. Form mang ảnh chụp lúc mở; `UpdateDeadline` từ chối khi dòng đã đổi
+ * từ lúc đó. Tab B được MỞ trước khi tab A lưu.
+ */
+it('refuses an edit made from a form that was opened before someone else saved the deadline', function () {
+    $deadline = makeDeadline($this->matter, ['name' => 'Phiên toà sơ thẩm', 'due_date' => today()->addDays(5)]);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    $tabB = deadlinesTab($this->matter)->mountTableAction('edit', $deadline);
+
+    $this->travel(2)->seconds();
+
+    deadlinesTab($this->matter)->callTableAction('edit', $deadline, data: [
+        'due_date' => today()->addDays(10)->toDateString(),
+    ])->assertHasNoTableActionErrors();
+
+    $tabB->setTableActionData(['name' => 'Phiên toà sơ thẩm (tab B)'])
+        ->callMountedTableAction();
+
+    Notification::assertNotified(__('actions.failed_title'));
+
+    expect($deadline->fresh()->due_date->toDateString())->toBe(today()->addDays(10)->toDateString())
+        ->and($deadline->fresh()->name)->toBe('Phiên toà sơ thẩm')
+        ->and(Activity::query()->where('event', 'deadline_updated')->count())->toBe(1);
+});
+
+/**
+ * Vế `updated_at` của ảnh chụp: dòng đổi ở một cột mà form "Sửa" không có (ở đây: công bố cho
+ * khách) — bốn ô của form vẫn khớp, chỉ `updated_at` nói rằng người đang sửa đã nhìn một bản cũ.
+ */
+it('refuses an edit from a form opened before the deadline changed in a column the form does not show', function () {
+    $deadline = makeDeadline($this->matter, ['name' => 'Phiên toà sơ thẩm', 'is_published' => false]);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    $tabB = deadlinesTab($this->matter)->mountTableAction('edit', $deadline);
+
+    $this->travel(2)->seconds();
+    $deadline->fresh()->update(['is_published' => true]);
+
+    $tabB->setTableActionData(['name' => 'Phiên toà sơ thẩm (tab B)'])
+        ->callMountedTableAction();
+
+    Notification::assertNotified(__('actions.failed_title'));
+
+    expect($deadline->fresh()->name)->toBe('Phiên toà sơ thẩm');
+});
+
+/** Cặp dương: cùng hai bước, nhưng tab B được mở SAU khi tab A lưu — lưu bình thường. */
+it('accepts an edit from a form opened after the last save', function () {
+    $deadline = makeDeadline($this->matter, ['name' => 'Phiên toà sơ thẩm', 'due_date' => today()->addDays(5)]);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('edit', $deadline, data: [
+        'due_date' => today()->addDays(10)->toDateString(),
+    ])->assertHasNoTableActionErrors();
+
+    $this->travel(2)->seconds();
+
+    deadlinesTab($this->matter)->mountTableAction('edit', $deadline)
+        ->setTableActionData(['name' => 'Phiên toà sơ thẩm (tab B)'])
+        ->callMountedTableAction()
+        ->assertHasNoTableActionErrors();
+
+    expect($deadline->fresh()->due_date->toDateString())->toBe(today()->addDays(10)->toDateString())
+        ->and($deadline->fresh()->name)->toBe('Phiên toà sơ thẩm (tab B)')
+        ->and(Activity::query()->where('event', 'deadline_updated')->count())->toBe(2);
 });
 
 it('refuses an empty name on edit with an error on the field', function () {

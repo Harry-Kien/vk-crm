@@ -19,9 +19,11 @@ use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Notifications\Notification as FilamentNotification;
 use Illuminate\Database\Events\TransactionCommitted;
 use Illuminate\Notifications\DatabaseNotification;
+use Illuminate\Notifications\Events\NotificationSending;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Mail;
 use Symfony\Component\Mailer\Envelope as SymfonyEnvelope;
 use Symfony\Component\Mailer\Exception\TransportException;
@@ -1025,4 +1027,32 @@ it('writes an overdue notification the admin panel bell can render', function ()
         ->and($rendered->getBody())->toContain($deadline->name)
         ->and($rendered->getBody())->toContain($deadline->matter->code)
         ->and($rendered->getColor())->toBe('danger');
+});
+
+/**
+ * Fix round 1, M2: một lần `notify()` ném lỗi (ở đây: cho người phụ trách) không được làm những
+ * người nhận còn lại của CÙNG mốc mất cảnh báo. Lỗi vẫn được `report()`, không nuốt im lặng.
+ */
+it('still notifies the other overdue recipients when notifying one of them throws', function () {
+    Mail::fake();
+    Exceptions::fake();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $deadline = deadlineDueIn(-3);
+    $responsibleId = $deadline->responsible_user_id;
+
+    Event::listen(NotificationSending::class, function ($event) use ($responsibleId): void {
+        if ($event->notification instanceof DeadlineOverdueAlert && $event->notifiable->getKey() === $responsibleId) {
+            throw new RuntimeException('database channel down for this recipient');
+        }
+    });
+
+    (new CheckDeadlines)->handle();
+
+    $notifiedIds = DatabaseNotification::query()
+        ->where('type', DeadlineOverdueAlert::class)
+        ->pluck('notifiable_id')
+        ->all();
+
+    expect($notifiedIds)->toBe([$manager->id]);
+    Exceptions::assertReported(RuntimeException::class);
 });

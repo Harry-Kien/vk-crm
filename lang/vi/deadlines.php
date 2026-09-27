@@ -124,6 +124,8 @@ return [
         // M6.5 Task 14 (carried từ rà soát Task 3): mở lại một mốc mà cả người giữ mốc lẫn luật
         // sư phụ trách hồ sơ đều không còn giữ được — SetDeadlineCompletion không có ai để giao.
         'reopen_without_holder' => 'Chưa mở lại được: người phụ trách mốc này và luật sư phụ trách hồ sơ đều không còn giữ được mốc (đã nghỉ việc, bị vô hiệu hoá, không còn trong đội ngũ hoặc không còn xem được hồ sơ). Hãy bàn giao hồ sơ cho một luật sư khác trước, rồi mở lại mốc.',
+        // M6.5 Task 14 fix round 1 (I1): form "Sửa" mở từ trước lần ghi gần nhất của người khác.
+        'stale_form' => 'Mốc này vừa được người khác sửa. Anh/chị mở lại để xem bản mới.',
         // R14: gỡ một mốc là xoá mềm kèm lý do bắt buộc.
         'delete_reason_required' => 'Hãy ghi vì sao xoá mốc này.',
     ],

@@ -16,6 +16,7 @@ use App\Models\User;
 use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -454,6 +455,10 @@ class DeadlinesRelationManager extends RelationManager
      *
      * Cổng: cùng `DeadlinePolicy::update` với các nút còn lại của tab — `->authorize()` hỏi thẳng
      * `Gate` để ẩn nút, Action tự hỏi lại lần nữa.
+     *
+     * **Năm ô ẩn `mounted_*` (fix round 1, I1)** mang ảnh chụp lúc mở form — cùng thành ngữ
+     * `DocumentsRelationManager::publishAction()` (Task 16). `UpdateDeadline` từ chối khi dòng đã
+     * đổi từ lúc đó, để một tab mở từ trước không ghi đè lần sửa của người khác.
      */
     private function editAction(): Action
     {
@@ -471,6 +476,13 @@ class DeadlinesRelationManager extends RelationManager
                 'responsible_user_id' => array_key_exists((int) $record->responsible_user_id, $this->responsibleOptions())
                     ? $record->responsible_user_id
                     : null,
+                // Fix round 1 (I1): ảnh chụp LÚC MỞ — người dùng sửa các ô trên, không sửa các ô
+                // này; `UpdateDeadline` so chúng với dòng đã khoá (xem docblock Action đó).
+                'mounted_name' => $record->name,
+                'mounted_due_date' => $record->due_date->toDateString(),
+                'mounted_severity' => $record->severity->value,
+                'mounted_responsible_user_id' => $record->responsible_user_id,
+                'mounted_updated_at' => $record->updated_at?->toDateTimeString(),
             ])
             ->schema([
                 TextInput::make('name')
@@ -496,6 +508,11 @@ class DeadlinesRelationManager extends RelationManager
                     ->hidden(fn (?Deadline $record): bool => (bool) $record?->is_completed)
                     ->required()
                     ->native(false),
+                Hidden::make('mounted_name'),
+                Hidden::make('mounted_due_date'),
+                Hidden::make('mounted_severity'),
+                Hidden::make('mounted_responsible_user_id'),
+                Hidden::make('mounted_updated_at'),
             ])
             ->successNotificationTitle(__('deadlines.tab.actions.edit_success'))
             ->action(fn (Action $action, Deadline $record, array $data) => $this->runAction(
@@ -507,6 +524,13 @@ class DeadlinesRelationManager extends RelationManager
                     dueDate: $data['due_date'] ?? '',
                     severity: DeadlineSeverity::tryFrom($data['severity'] ?? '') ?? DeadlineSeverity::Normal,
                     responsible: static::resolveResponsible($data['responsible_user_id'] ?? null),
+                    expected: [
+                        'name' => $data['mounted_name'] ?? null,
+                        'due_date' => $data['mounted_due_date'] ?? null,
+                        'severity' => $data['mounted_severity'] ?? null,
+                        'responsible_user_id' => $data['mounted_responsible_user_id'] ?? null,
+                        'updated_at' => $data['mounted_updated_at'] ?? null,
+                    ],
                 ),
             ));
     }

@@ -79,6 +79,21 @@ use Throwable;
  *
  * Cùng kỷ luật {@see SetDeadlineCompletion}: một lượt gửi lại y hệt dữ liệu cũ (double-submit,
  * hai tab) không ghi thêm một dòng lịch sử trống nghĩa.
+ *
+ * # Form mở từ trước không được ghi đè lần sửa của người khác (fix round 1, I1)
+ *
+ * Form "Sửa" gửi lại MỌI ô. Không có gì khác, Action coi mọi chỗ khác với dòng hiện tại là một
+ * thay đổi có chủ ý — nên một tab mở từ trước (hay một đồng nghiệp đang mở cùng mốc) trả ngày đến
+ * hạn về giá trị cũ, hay huỷ một lần giao việc vừa lưu, và nhật ký đổ cho người thứ hai. Cùng
+ * hình dạng ảnh chụp lúc mở mà `PublishDocument` dùng cho form công bố (Task 16): màn hình gửi kèm
+ * `$expected` — `name`, `due_date`, `severity`, `responsible_user_id` và `updated_at` như chúng
+ * đứng LÚC MỞ form — và Action so với dòng đã khoá; lệch ở bất kỳ khoá nào thì từ chối bằng
+ * `deadlines.validation.stale_form`, không ghi gì.
+ *
+ * `updated_at` bắt cả lần đổi ở cột form không có (công bố, hoàn thành, và cả `reminders_sent`
+ * do CheckDeadlines ghi lúc 07:00). Đó là một lần từ chối thừa hiếm gặp, người dùng chỉ cần mở lại
+ * form — rẻ hơn nhiều so với một lần ghi đè im lặng. `$expected = null` (không qua màn hình) bỏ
+ * qua phép so.
  */
 class UpdateDeadline
 {
@@ -92,6 +107,9 @@ class UpdateDeadline
     /**
      * @param  string|CarbonInterface  $dueDate  chuỗi `Y-m-d` (ô chọn ngày) hoặc một mốc Carbon
      * @param  User|null  $responsible  người giữ mốc mới; `null` = giữ nguyên người đang giữ
+     * @param  array<string, mixed>|null  $expected  ảnh chụp lúc mở form (`name`, `due_date`,
+     *                                               `severity`, `responsible_user_id`, `updated_at`)
+     *                                               — xem docblock lớp, mục "fix round 1, I1"
      *
      * @throws AuthorizationException
      * @throws ValidationException
@@ -103,8 +121,9 @@ class UpdateDeadline
         string|CarbonInterface $dueDate,
         DeadlineSeverity $severity,
         ?User $responsible = null,
+        ?array $expected = null,
     ): Deadline {
-        return DB::transaction(function () use ($deadline, $actor, $name, $dueDate, $severity, $responsible): Deadline {
+        return DB::transaction(function () use ($deadline, $actor, $name, $dueDate, $severity, $responsible, $expected): Deadline {
             // Câu ĐẦU TIÊN: khoá vụ việc, đọc lại từ CSDL — không tin `$deadline->matter` do
             // caller đưa vào.
             $matter = $this->scopelessly(Matter::query())->lockForUpdate()->find($deadline->matter_id);
@@ -127,6 +146,13 @@ class UpdateDeadline
             // `DeadlinePolicy::update` — cùng cổng bốn nút còn lại của tab này.
             if (Gate::forUser($actor)->inspect('update', $fresh)->denied()) {
                 $this->refuse();
+            }
+
+            // Form mở từ trước lần ghi gần nhất — xem docblock lớp, mục "fix round 1, I1".
+            if ($expected !== null && $this->changedSinceMount($fresh, $expected)) {
+                throw ValidationException::withMessages([
+                    'deadline' => [__('deadlines.validation.stale_form')],
+                ]);
             }
 
             $cleanName = $this->cleanName($name);
@@ -170,6 +196,28 @@ class UpdateDeadline
 
             return $fresh;
         });
+    }
+
+    /**
+     * Dòng (đã khoá) còn khớp ảnh chụp lúc mở form không. So theo chuỗi: ô ẩn của Livewire trả số
+     * thành chuỗi, và `null` với `''` cùng nghĩa "không có".
+     *
+     * @param  array<string, mixed>  $expected
+     */
+    private function changedSinceMount(Deadline $fresh, array $expected): bool
+    {
+        $current = [
+            ...$this->snapshot($fresh),
+            'updated_at' => $fresh->updated_at?->toDateTimeString(),
+        ];
+
+        foreach ($current as $key => $value) {
+            if ((string) ($expected[$key] ?? '') !== (string) ($value ?? '')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

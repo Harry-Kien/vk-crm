@@ -117,6 +117,30 @@ use Throwable;
  * sending()} chép vào `payload['tier']`, và {@see RecordOutboundMessage::
  * detachInternalHeaders()} gỡ nó khỏi thông điệp trước khi thư rời máy chủ, CÙNG luật với
  * `Template`/`Related`/`Ledger-Id` (`notify/notify-11`).
+ *
+ * # M6.5 Task 14, fix round 1 (C1, Critical) — khoá là BẬC + NGÀY ĐẾN HẠN
+ *
+ * Khoá chỉ theo bậc đúng cho MỘT ngày đến hạn, và sai ngay khi ngày đó đổi. `UpdateDeadline`
+ * (nút "Sửa", Task 14) dọn khỏi `reminders_sent` những bậc mà ngày MỚI chưa tới, để hoãn phiên
+ * toà thì được nhắc lại. CheckDeadlines đánh dấu lại bậc đó và xếp job này — nhưng khoá chỉ theo
+ * bậc thấy `d1` (hay `overdue`, hay bất kỳ bậc nào đã THẬT SỰ gửi) cho phiên toà CŨ, và bỏ qua mọi
+ * người nhận: dữ liệu nói "đã gửi", không ai nhận thư.
+ *
+ * Nay job mang `$dueDate` — ảnh chụp `due_date` lúc CheckDeadlines xếp hàng — và khoá là
+ * {@see DeadlineReminder::ledgerTier()} (`d1@2026-10-01`), cùng chuỗi mà thư ghi vào header
+ * `LEDGER_TIER`. Vẫn giữ nguyên chống trùng khi thử lại và qua ranh giới ngày của vòng sửa 2: cùng
+ * một ngày đến hạn, `d1` ở còn 1 ngày và còn 0 ngày, `overdue` mọi ngày quá hạn đều ra CÙNG khoá.
+ *
+ * **Dòng nhật ký cũ chỉ mang bậc trần (`d1`, ghi trước bản sửa này).** Nó không biết mình nói về
+ * ngày nào, nên:
+ *
+ *  - Nó VẪN chặn đúng một job CŨ đang chờ thử lại — job xếp hàng trước bản sửa, deserialize ra
+ *    `$dueDate = null`. Chỉ loại job đó mới có thể đã ghi dòng trần; nó thử lại CÙNG lần nhắc, nên
+ *    dòng trần của nó là "đã gửi" thật. Ảnh chụp ngày của nó là `due_date` hiện tại của mốc.
+ *  - Nó KHÔNG chặn một job MỚI (có `$dueDate`) — job đó do một lượt CheckDeadlines sau bản sửa xếp,
+ *    và dòng trần có thể nói về một ngày đến hạn đã bị hoãn. Chặn nhầm là im lặng; không chặn thì
+ *    tệ nhất một người nhận thêm MỘT thư trùng (chỉ khi một `failed()` rút bậc đúng qua lúc triển
+ *    khai). Giữa hai cái sai đó, R3 chọn "nói ra".
  */
 class SendDeadlineReminderMail implements ShouldQueue
 {
@@ -125,9 +149,14 @@ class SendDeadlineReminderMail implements ShouldQueue
     /** Một lần hỏng thoáng qua (SMTP chết tạm) không cần báo động ngay; xem `backoff()`. */
     public int $tries = 5;
 
+    /**
+     * @param  string|null  $dueDate  `due_date` (`Y-m-d`) của mốc lúc CheckDeadlines xếp job;
+     *                                `null` chỉ ở job xếp trước fix round 1 — xem docblock lớp.
+     */
     public function __construct(
         public readonly int $deadlineId,
         public readonly string $tierKey,
+        public readonly ?string $dueDate = null,
     ) {}
 
     /** @return array<int, int> */
@@ -156,31 +185,41 @@ class SendDeadlineReminderMail implements ShouldQueue
         // để quyết định dispatch — xem docblock lớp, mục "re-derive the audience at send time".
         $recipients = app(CheckDeadlines::class)->recipientsFor($deadline, $this->tierKey);
 
+        // Ngày đến hạn mà lời nhắc này nói tới — xem docblock lớp, mục "fix round 1 (C1)".
+        $aboutDueDate = $this->dueDate ?? $deadline->due_date->toDateString();
+
         foreach ($recipients as $recipient) {
             // "Không gửi trùng khi thử lại" — xem docblock lớp, mục "Vòng sửa 2 (I1)". Bỏ qua
             // NGƯỜI NÀY, không phải cả lượt: người khác trong cùng bậc có thể vẫn chưa nhận được.
-            if ($this->alreadyDelivered($deadline, $recipient)) {
+            if ($this->alreadyDelivered($deadline, $recipient, $aboutDueDate)) {
                 continue;
             }
 
-            Mail::to($recipient->email)->send(new DeadlineReminder($deadline, $recipient, $this->tierKey));
+            Mail::to($recipient->email)->send(new DeadlineReminder($deadline, $recipient, $this->tierKey, $aboutDueDate));
         }
     }
 
     /**
      * Cùng hình dạng {@see NotifyClientOfStageUpdate::alreadyDelivered()}, cộng một điều kiện lọc
-     * theo BẬC (`payload->tier`) — xem docblock lớp, mục "Vòng sửa 2 (I1)", cho lý do cần thêm
-     * điều kiện đó ở đây mà bên kia không cần.
+     * theo BẬC + NGÀY ĐẾN HẠN (`payload->tier`) — xem docblock lớp, mục "Vòng sửa 2 (I1)" và
+     * "fix round 1 (C1)", cho lý do cần thêm điều kiện đó ở đây mà bên kia không cần.
      */
-    private function alreadyDelivered(Deadline $deadline, User $recipient): bool
+    private function alreadyDelivered(Deadline $deadline, User $recipient, string $aboutDueDate): bool
     {
+        $keys = [DeadlineReminder::ledgerTier($this->tierKey, $aboutDueDate)];
+
+        // Dòng trần (trước fix round 1) chỉ tính cho job CŨ không có ảnh chụp ngày — docblock lớp.
+        if ($this->dueDate === null) {
+            $keys[] = $this->tierKey;
+        }
+
         return OutboundMessage::query()
             ->withoutGlobalScopes()
             ->where('related_type', $deadline->getMorphClass())
             ->where('related_id', $deadline->getKey())
             ->where('recipient', $recipient->email)
             ->where('status', OutboundStatus::Sent)
-            ->where('payload->tier', $this->tierKey)
+            ->whereIn('payload->tier', $keys)
             ->exists();
     }
 

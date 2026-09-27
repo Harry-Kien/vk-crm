@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Notification\ResolveStaffRecipients;
+use App\Actions\Schedule\CheckDeadlines;
 use App\Enums\Confidentiality;
 use App\Enums\MatterRole;
 use App\Enums\OutboundChannel;
@@ -16,6 +17,7 @@ use App\Models\OutboundMessage;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Queue;
 use Spatie\Activitylog\Models\Activity;
 use Symfony\Component\Mailer\Envelope;
 use Symfony\Component\Mailer\Exception\TransportException;
@@ -324,7 +326,7 @@ it('does not mail a recipient twice for the same tier even when the real subject
  * luật với Template/Related/Ledger-Id (`notify/notify-11`). Không `Mail::fake()`: cần thư đi qua
  * transport thật (`array`, `phpunit.xml`) để đọc lại thông điệp đã "gửi".
  */
-it('never lets the internal tier header reach the wire, but the ledger still records the tier', function () {
+it('never lets the internal tier header reach the wire, but the ledger still records the tier and the due date it is about', function () {
     [$deadline, $lawyer] = deadlineWithLawyer();
 
     Mail::to($lawyer->email)->send(new DeadlineReminder($deadline, $lawyer, 'd3'));
@@ -333,8 +335,9 @@ it('never lets the internal tier header reach the wire, but the ledger still rec
 
     expect($sentEmail->getHeaders()->has(OutboundHeaders::LEDGER_TIER))->toBeFalse();
 
+    // Fix round 1 (C1): khoá là `bậc@ngày đến hạn` — xem `DeadlineReminder::ledgerTier()`.
     $row = OutboundMessage::query()->withoutGlobalScopes()->sole();
-    expect($row->payload['tier'] ?? null)->toBe('d3');
+    expect($row->payload['tier'] ?? null)->toBe('d3@'.$deadline->due_date->toDateString());
 });
 
 /** Cặp dương: không có dòng `sent` nào từ trước thì vẫn gửi như thường — test trên đỏ đúng vì dòng đã có, không vì lý do khác. */
@@ -595,4 +598,75 @@ it('does not notify a deactivated admin even as the last-resort fallback', funct
 
     expect($inactiveAdmin->notifications()->count())->toBe(0)
         ->and($activeAdmin->notifications()->count())->toBe(1);
+});
+
+// ---------------------------------------------------------------------------------------------
+// M6.5 Task 14, fix round 1 (C1): khoá chống gửi trùng là BẬC + NGÀY ĐẾN HẠN mà lời nhắc nói tới
+// (`d1@2026-10-01`), không chỉ bậc. Job mang ảnh chụp `due_date` lúc CheckDeadlines xếp hàng.
+// ---------------------------------------------------------------------------------------------
+
+function ledgerRowFor(Deadline $deadline, User $recipient, string $tier): OutboundMessage
+{
+    return OutboundMessage::factory()->create([
+        'channel' => OutboundChannel::Email,
+        'recipient' => $recipient->email,
+        'template' => 'staff.deadline_reminder',
+        'payload' => ['subject' => 'Bất kỳ', 'tier' => $tier],
+        'related_type' => $deadline->getMorphClass(),
+        'related_id' => $deadline->getKey(),
+        'status' => OutboundStatus::Sent,
+    ]);
+}
+
+/** Thử lại CÙNG một job (cùng bậc, cùng ngày đến hạn): người đã nhận không nhận lần hai. */
+it('does not mail twice for the same tier and the same due date', function () {
+    Mail::fake();
+    [$deadline, $lawyer] = deadlineWithLawyer();
+    $dueDate = $deadline->due_date->toDateString();
+    ledgerRowFor($deadline, $lawyer, 'd3@'.$dueDate);
+
+    (new SendDeadlineReminderMail($deadline->id, 'd3', $dueDate))->handle();
+
+    Mail::assertNothingSent();
+});
+
+/** Hoãn phiên toà: `d3` đã gửi cho ngày CŨ không chặn `d3` của ngày MỚI. */
+it('still mails a tier that was delivered for a different due date', function () {
+    Mail::fake();
+    [$deadline, $lawyer] = deadlineWithLawyer();
+    ledgerRowFor($deadline, $lawyer, 'd3@'.today()->subDays(20)->toDateString());
+
+    (new SendDeadlineReminderMail($deadline->id, 'd3', $deadline->due_date->toDateString()))->handle();
+
+    Mail::assertSent(DeadlineReminder::class, fn ($mail) => $mail->hasTo($lawyer->email));
+});
+
+/**
+ * Dòng cũ chỉ mang bậc trần (ghi trước bản sửa này) không biết nó nói về ngày nào — nên nó KHÔNG
+ * chặn một job mới (có ảnh chụp ngày). Nó vẫn chặn đúng một job CŨ đang chờ thử lại (không có ảnh
+ * chụp) — các test "does not mail … same tier" ở trên đo vế đó bằng `new SendDeadlineReminderMail($id, 'd1')`.
+ */
+it('does not let a legacy bare-tier ledger row block a job that carries its due date', function () {
+    Mail::fake();
+    [$deadline, $lawyer] = deadlineWithLawyer();
+    ledgerRowFor($deadline, $lawyer, 'd3');
+
+    (new SendDeadlineReminderMail($deadline->id, 'd3', $deadline->due_date->toDateString()))->handle();
+
+    Mail::assertSent(DeadlineReminder::class, fn ($mail) => $mail->hasTo($lawyer->email));
+});
+
+/** CheckDeadlines xếp job kèm ngày đến hạn của lúc đó. */
+it('is queued by CheckDeadlines with the due date it is about', function () {
+    Queue::fake();
+    [$deadline] = deadlineWithLawyer();
+
+    (new CheckDeadlines)->handle();
+
+    Queue::assertPushed(
+        SendDeadlineReminderMail::class,
+        fn (SendDeadlineReminderMail $job): bool => $job->deadlineId === $deadline->id
+            && $job->tierKey === 'd3'
+            && $job->dueDate === $deadline->due_date->toDateString(),
+    );
 });
