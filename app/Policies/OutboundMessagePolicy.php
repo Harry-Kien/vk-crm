@@ -24,8 +24,14 @@ use App\Models\User;
  * **`view()` một dòng là nơi lọc thật, không phải `viewAny()`.** Một dòng CÓ vụ việc chỉ lọt qua
  * khi `Gate::allows('view', $matter)` của ĐÚNG vụ đó cho `$user` — dùng lại `MatterPolicy::view()`
  * thay vì viết lại luật restricted/team, để hai nơi không lệch nhau. Một dòng KHÔNG gắn vụ việc
- * nào (OTP tài khoản cổng, thư nội bộ không về vụ việc nào) mặc định CHỈ ADMIN xem — quyết định
- * của task này vì SPEC im lặng, xem thêm docblock `OutboundMessage::NO_MATTER_TYPES`.
+ * nào (OTP tài khoản cổng, thư nội bộ không về vụ việc nào, hay một dòng mồ côi do dữ liệu hỏng)
+ * mặc định CHỈ ADMIN xem — quyết định của task này vì SPEC im lặng.
+ *
+ * **Fix round 1 (chủ nhiệm): admin thấy MỌI dòng, kể cả dòng của một vụ việc đã xoá mềm.**
+ * `relatedMatter()` đọc vụ việc bằng `Matter::query()->withTrashed()`, và
+ * `Matter::scopeListableBy()` cho admin không lọc gì trên vụ đang sống — nên nhánh admin ở trên
+ * (`hasRole(Role::Admin)`) đã đúng mà không cần sửa gì thêm ở đây; xem docblock
+ * `OutboundMessage::scopeVisibleTo()` cho mặt SQL của cùng quyết định (admin không lọc gì cả).
  */
 class OutboundMessagePolicy
 {

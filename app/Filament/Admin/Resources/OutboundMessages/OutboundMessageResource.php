@@ -6,21 +6,13 @@ use App\Filament\Admin\Resources\OutboundMessages\Pages\ListOutboundMessages;
 use App\Filament\Admin\Resources\OutboundMessages\Pages\ViewOutboundMessage;
 use App\Filament\Admin\Resources\OutboundMessages\Schemas\OutboundMessageInfolist;
 use App\Filament\Admin\Resources\OutboundMessages\Tables\OutboundMessagesTable;
-use App\Models\ClientRequest;
-use App\Models\ClientRequestReply;
-use App\Models\Deadline;
-use App\Models\Document;
-use App\Models\MatterChecklistItem;
-use App\Models\MatterParty;
 use App\Models\OutboundMessage;
-use App\Models\StageLog;
 use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Support\Facades\Auth;
 
 /**
@@ -85,19 +77,17 @@ class OutboundMessageResource extends Resource
         ];
     }
 
+    /**
+     * Không còn `->with(['related' => ...])` (fix round 1): {@see OutboundMessage::relatedMatter()}
+     * đọc thẳng bằng SQL trên bảng con thay vì qua quan hệ Eloquent `related()`, nên nạp trước
+     * quan hệ đó không còn ích gì cho cột/link "Bản ghi liên quan" — xem docblock hàm đó cho lý
+     * do (I1: quan hệ Eloquent tự áp `SoftDeletingScope`, làm nhãn và quyền lệch nhau trên một
+     * dòng có mốc thời hạn đã xoá mềm).
+     */
     public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()
-            ->visibleTo(Auth::user())
-            ->with(['related' => fn (MorphTo $morphTo) => $morphTo->morphWith([
-                StageLog::class => ['matter'],
-                Document::class => ['matter'],
-                Deadline::class => ['matter'],
-                ClientRequest::class => ['matter'],
-                MatterParty::class => ['matter'],
-                MatterChecklistItem::class => ['matter'],
-                ClientRequestReply::class => ['request.matter'],
-            ])]);
+            ->visibleTo(Auth::user());
     }
 
     public static function getRecordRouteBindingEloquentQuery(): Builder

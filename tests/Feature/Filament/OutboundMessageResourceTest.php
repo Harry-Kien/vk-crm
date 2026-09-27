@@ -6,6 +6,7 @@ use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\OutboundMessages\OutboundMessageResource;
 use App\Filament\Admin\Resources\OutboundMessages\Pages\ListOutboundMessages;
 use App\Filament\Admin\Resources\OutboundMessages\Pages\ViewOutboundMessage;
+use App\Models\Deadline;
 use App\Models\Matter;
 use App\Models\OutboundMessage;
 use App\Models\StageLog;
@@ -215,4 +216,178 @@ it('shows only the linked matter\'s messages, and returns nothing for a matter i
     $this->get($craftedUrl)
         ->assertOk()
         ->assertDontSee('nguoi-khac@vidu.vn');
+});
+
+// -------------------------------------------------------------------------------------------
+// Fix round 1 (opus review of bf0fca4..e8cb7a5)
+// -------------------------------------------------------------------------------------------
+
+/**
+ * I1: một mốc thời hạn bị xoá mềm (R14, "Xoá một mốc hạn là xoá mềm kèm lý do") không được làm
+ * MẤT dòng nhật ký thư nhắc mốc của nó khỏi tầm nhìn của lead — cả trong danh sách (label/link
+ * đúng vụ việc, không phải "Không gắn vụ việc nào") lẫn trang xem (200, không 403/404).
+ */
+it('still shows the lead their deadline_reminder message after the deadline was soft-deleted', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $deadline = Deadline::factory()->create(['matter_id' => $matter->id]);
+    $message = OutboundMessage::factory()->create([
+        'template' => 'staff.deadline_reminder',
+        'related_type' => 'deadline',
+        'related_id' => $deadline->id,
+    ]);
+
+    $deadline->delete();
+    expect(Deadline::query()->whereKey($deadline->getKey())->exists())->toBeFalse(); // xoá mềm.
+
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(ListOutboundMessages::class)
+        ->assertCanSeeTableRecords([$message])
+        ->assertSeeHtml($matter->code);
+
+    $this->get(OutboundMessageResource::getUrl('view', ['record' => $message], panel: 'admin'))
+        ->assertOk();
+});
+
+/** Cặp âm của test trên: một luật sư ngoài đội ngũ vẫn không thấy dòng đó. */
+it('still hides the deadline_reminder message of a soft-deleted deadline from an outside lawyer', function () {
+    $outsider = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create();
+    $deadline = Deadline::factory()->create(['matter_id' => $matter->id]);
+    $message = OutboundMessage::factory()->create([
+        'template' => 'staff.deadline_reminder',
+        'related_type' => 'deadline',
+        'related_id' => $deadline->id,
+    ]);
+
+    $deadline->delete();
+
+    $this->actingAs($outsider, 'web');
+
+    $this->livewire(ListOutboundMessages::class)->assertCanNotSeeTableRecords([$message]);
+    $this->get(OutboundMessageResource::getUrl('view', ['record' => $message], panel: 'admin'))
+        ->assertNotFound();
+});
+
+/**
+ * Ruling (chủ nhiệm): admin thấy MỌI dòng, kể cả dòng có `related_type` lạ/mồ côi (dữ liệu hỏng,
+ * hay một bí danh morph tương lai chưa được khai ở `DIRECT_MATTER_TYPES`) và dòng của một vụ
+ * việc đã xoá mềm — nhật ký thư không bao giờ được phép "mất" một dòng trước mắt admin. Manager
+ * (không phải admin) vẫn theo đúng `listableBy`, nên không thấy cả hai.
+ */
+it('shows the admin an orphaned row and a soft-deleted matter\'s row that a manager cannot see', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+
+    $orphan = OutboundMessage::factory()->create([
+        'related_type' => 'unknown_type_from_the_future',
+        'related_id' => 999999,
+    ]);
+
+    $deletedMatter = Matter::factory()->create();
+    $deletedMatterMessage = OutboundMessage::factory()->create([
+        'related_type' => 'matter',
+        'related_id' => $deletedMatter->id,
+    ]);
+    $deletedMatter->delete();
+
+    $this->actingAs($admin, 'web');
+    $html = $this->livewire(ListOutboundMessages::class)
+        ->assertCanSeeTableRecords([$orphan, $deletedMatterMessage])
+        ->html();
+    // Nhãn phải đúng mã vụ việc, KHÔNG phải "Không gắn vụ việc nào" — đo đúng
+    // `relatedMatter()` tìm được vụ việc đã xoá mềm (`Matter::query()->withTrashed()`), không
+    // chỉ đo việc admin qua được Gate nhờ nhánh "không có vụ việc → admin" (nhánh đó cũng trả
+    // `true` cho admin, nên riêng `assertOk()` ở trang xem không tự phân biệt được hai lý do).
+    expect($html)->toContain($deletedMatter->code);
+    $this->get(OutboundMessageResource::getUrl('view', ['record' => $orphan], panel: 'admin'))->assertOk();
+    $this->get(OutboundMessageResource::getUrl('view', ['record' => $deletedMatterMessage], panel: 'admin'))
+        ->assertOk()
+        ->assertSee($deletedMatter->code);
+
+    $this->actingAs($manager, 'web');
+    $this->livewire(ListOutboundMessages::class)
+        ->assertCanNotSeeTableRecords([$orphan, $deletedMatterMessage]);
+});
+
+/**
+ * I2: bộ lọc "vụ việc" của bảng phải tự lọc theo `listableBy()`, không liệt kê mọi vụ việc của
+ * văn phòng — dropdown là một nơi rò rỉ mã/tiêu đề vụ việc CÒN TRƯỚC KHI người dùng bấm lọc.
+ * Không tạo dòng nào gắn với hai vụ việc dưới đây: mã vụ việc chỉ có thể xuất hiện trên trang
+ * qua chính ô chọn của bộ lọc, không lẫn với cột "Bản ghi liên quan" của bảng.
+ */
+it('scopes the matter filter dropdown to a lawyer\'s own matters, excluding another lawyer\'s', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $ownMatter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $otherMatter = Matter::factory()->create();
+
+    $this->actingAs($lawyer, 'web');
+
+    $html = $this->livewire(ListOutboundMessages::class)->html();
+
+    expect($html)->toContain($ownMatter->code)
+        ->not->toContain($otherMatter->code);
+});
+
+/** Nửa còn lại: một vụ `restricted` không hiện trong dropdown của manager (không phải lead). */
+it('scopes the matter filter dropdown to a manager\'s visible matters, excluding a restricted one', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $normalMatter = Matter::factory()->create();
+    $restrictedMatter = Matter::factory()->restricted()->create();
+
+    $this->actingAs($manager, 'web');
+
+    $html = $this->livewire(ListOutboundMessages::class)->html();
+
+    expect($html)->toContain($normalMatter->code)
+        ->not->toContain($restrictedMatter->code);
+});
+
+/**
+ * Minor: bí danh `deadline` chưa có test riêng nào trước fix round 1 (chỉ `stage_log` được
+ * dùng) — cùng cơ chế `DIRECT_MATTER_TYPES` nhưng đo trên một bí danh khác, kèm cặp âm
+ * `restricted`.
+ */
+it('shows the lead a staff.deadline_reminder row, and hides a restricted matter\'s from a manager', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $deadline = Deadline::factory()->create(['matter_id' => $matter->id]);
+    $message = OutboundMessage::factory()->create([
+        'template' => 'staff.deadline_reminder',
+        'related_type' => 'deadline',
+        'related_id' => $deadline->id,
+    ]);
+
+    $this->actingAs($lawyer, 'web');
+    $this->livewire(ListOutboundMessages::class)->assertCanSeeTableRecords([$message]);
+
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $restrictedMatter = Matter::factory()->restricted()->create();
+    $restrictedDeadline = Deadline::factory()->create(['matter_id' => $restrictedMatter->id]);
+    $restrictedMessage = OutboundMessage::factory()->create([
+        'template' => 'staff.deadline_reminder',
+        'related_type' => 'deadline',
+        'related_id' => $restrictedDeadline->id,
+    ]);
+
+    $this->actingAs($manager, 'web');
+    $this->livewire(ListOutboundMessages::class)->assertCanNotSeeTableRecords([$restrictedMessage]);
+});
+
+/**
+ * Minor: kế toán phải bị chặn ngay ở SCOPE (`OutboundMessage::scopeVisibleTo()`), không chỉ ở
+ * `OutboundMessagePolicy::viewAny()` — trước fix round 1, `Matter::listableBy($accountant)` trả
+ * về TOÀN BỘ vụ việc thường (kế toán có `matter.viewAny`), nên nếu policy từng bị nới lỏng ở một
+ * chỗ khác (hay scope này được gọi từ một nơi không qua policy), kế toán vẫn đọc được nhật ký
+ * thư của mọi vụ việc thường. Test thẳng vào scope, không qua trang, để đo đúng lớp phòng thủ
+ * này — độc lập với `OutboundMessagePolicy`.
+ */
+it('excludes the accountant in the query scope itself, independently of the page policy', function () {
+    $accountant = User::factory()->withRole(Role::Accountant)->create();
+    $matter = Matter::factory()->create();
+    $log = StageLog::factory()->create(['matter_id' => $matter->id]);
+    $message = OutboundMessage::factory()->create(['related_type' => 'stage_log', 'related_id' => $log->id]);
+
+    expect(OutboundMessage::query()->visibleTo($accountant)->whereKey($message->getKey())->exists())->toBeFalse();
 });

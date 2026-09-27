@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\OutboundChannel;
 use App\Enums\OutboundStatus;
+use App\Enums\Permission;
 use App\Enums\Role as StaffRole;
 use App\Models\Concerns\RestrictedToClientPortal;
 use Database\Factories\OutboundMessageFactory;
@@ -57,16 +58,6 @@ class OutboundMessage extends Model
         'matter_checklist_item' => 'matter_checklist_items',
     ];
 
-    /**
-     * Bí danh của những bản ghi KHÔNG BAO GIỜ gắn với một vụ việc nào (tài khoản cổng, nhân sự
-     * nhận thư không về vụ việc nào). Dòng `related_type` là một trong số này, hoặc `null`
-     * (không khai được bản ghi liên quan), mặc định CHỈ ADMIN xem — quyết định của M6.5 Task 13
-     * (SPEC §4.15/§7.4 không nói ai xem loại thư này), xem thêm `OutboundMessagePolicy::view()`.
-     *
-     * @var list<string>
-     */
-    private const NO_MATTER_TYPES = ['user', 'client_user', 'client'];
-
     protected $fillable = [
         'channel', 'recipient', 'template', 'payload', 'related_type', 'related_id', 'status', 'sent_at', 'error',
     ];
@@ -98,36 +89,93 @@ class OutboundMessage extends Model
     }
 
     /**
-     * Vụ việc mà thư này nói về, đọc qua bản ghi `related()` (M6.5 Task 13, notify-8/spec-gap-07).
+     * Vụ việc mà thư này nói về (M6.5 Task 13, notify-8/spec-gap-07).
      *
-     * `related_type` có thể chính là `matter` (thư nói thẳng về vụ việc), hoặc một bản ghi CON
-     * của vụ việc (`stage_log`, `deadline`, `document`, `client_request`, `matter_party`,
-     * `matter_checklist_item` — mọi model này đều có quan hệ `matter()`), hoặc
-     * `client_request_reply` (đi qua `request()->matter`, vì bảng đó không có cột `matter_id`
-     * trực tiếp), hoặc không gắn vụ việc nào (`user`, `client_user`, `client`, hay `null`).
+     * **Fix round 1, finding I1 — đọc thẳng bằng SQL trên bảng con, KHÔNG qua quan hệ Eloquent
+     * `related()`/`matter()` như bản đầu.** Quan hệ Eloquent tự áp `SoftDeletingScope` của model
+     * con: một mốc thời hạn bị xoá mềm (R14 — "Xoá một mốc hạn là xoá mềm kèm lý do", bình
+     * thường, không phải lỗi) khiến `$this->related` trả `null`, nên bản đầu của hàm này cũng trả
+     * `null` — trong khi {@see self::scopeVisibleTo()} (dùng `DB::table()`, không áp scope đó)
+     * vẫn xếp đúng dòng vào tập nhìn thấy được của lead. Kết quả: dòng hiện trong danh sách
+     * nhưng nhãn "Không gắn vụ việc nào" và trang xem trả 403 — nhãn/quyền và danh sách LỆCH
+     * NHAU trên CÙNG một dòng. Hàm này giờ đọc đúng MỘT nguồn dữ liệu mà cả hai nơi dùng
+     * ({@see self::DIRECT_MATTER_TYPES}), nên không còn lệch được nữa.
      *
-     * `method_exists($related, 'matter')` — không liệt kê cứng danh sách lớp — để một model MỚI
-     * mai sau có quan hệ `matter()` tự được nhận ra ở đây mà không cần sửa hàm này; danh sách CÓ
-     * liệt kê cứng nằm ở mặt SQL ({@see self::DIRECT_MATTER_TYPES}), nơi bắt buộc phải biết tên
-     * cột/bảng.
+     * `Matter::query()->withTrashed()`: chính vụ việc cũng có thể đã xoá mềm (ruling fix round 1:
+     * admin vẫn phải thấy dòng của một vụ đã xoá mềm) — thiếu `withTrashed()` ở bước cuối này,
+     * `relatedMatterId()` trả đúng id nhưng `find()` lại không thấy gì, y hệt lỗi vừa sửa nhưng
+     * lùi một bước.
      */
     public function relatedMatter(): ?Matter
     {
-        $related = $this->related;
+        $matterId = $this->relatedMatterId();
 
-        return match (true) {
-            $related instanceof Matter => $related,
-            $related instanceof ClientRequestReply => $related->request?->matter,
-            $related !== null && method_exists($related, 'matter') => $related->matter,
-            default => null,
-        };
+        return $matterId === null ? null : Matter::query()->withTrashed()->find($matterId);
+    }
+
+    /**
+     * ID vụ việc, đọc thẳng bằng SQL — mặt PHP dùng chung nguồn dữ liệu với mặt SQL của
+     * {@see self::scopeVisibleTo()}/{@see self::scopeForMatter()} (xem docblock
+     * {@see self::relatedMatter()} cho lý do phải chung nguồn).
+     *
+     * Trả `null` cho `related_type` là `null`, hoặc một bí danh KHÔNG nằm trong
+     * {@see self::DIRECT_MATTER_TYPES} và không phải `matter`/`client_request_reply` (bao gồm cả
+     * một bí danh LẠ — dữ liệu hỏng, hay một loại morph tương lai chưa được khai ở đây) — dòng đó
+     * "không có vụ việc" theo đúng nghĩa `OutboundMessagePolicy::view()` dùng, không phải một lần
+     * ném lỗi.
+     */
+    private function relatedMatterId(): ?int
+    {
+        if ($this->related_type === null) {
+            return null;
+        }
+
+        if ($this->related_type === 'matter') {
+            return (int) $this->related_id;
+        }
+
+        if ($this->related_type === 'client_request_reply') {
+            $matterId = DB::table('client_request_replies')
+                ->join('client_requests', 'client_requests.id', '=', 'client_request_replies.request_id')
+                ->where('client_request_replies.id', $this->related_id)
+                ->value('client_requests.matter_id');
+
+            return $matterId === null ? null : (int) $matterId;
+        }
+
+        if (! array_key_exists($this->related_type, self::DIRECT_MATTER_TYPES)) {
+            return null;
+        }
+
+        $matterId = DB::table(self::DIRECT_MATTER_TYPES[$this->related_type])
+            ->where('id', $this->related_id)
+            ->value('matter_id');
+
+        return $matterId === null ? null : (int) $matterId;
     }
 
     /**
      * Nhật ký thư chỉ hiện dòng mà `$user` được xem (SPEC §4.15, M6.5 Task 13). Dòng gắn vụ việc
      * đi qua ĐÚNG MỘT định nghĩa hiển thị của toàn hệ thống, {@see Matter::scopeListableBy()} —
-     * không viết lại luật restricted/team ở đây. Dòng KHÔNG gắn vụ việc nào mặc định chỉ admin
-     * (xem {@see self::NO_MATTER_TYPES}).
+     * không viết lại luật restricted/team ở đây.
+     *
+     * **Ruling fix round 1 (chủ nhiệm) — admin không lọc gì cả, thấy MỌI dòng.** Nhật ký thư tồn
+     * tại để trả lời "khách nói không nhận được thư" (SPEC §4.15); nó không được phép LÀM MẤT một
+     * dòng trước mắt admin chỉ vì dòng đó gắn với một vụ việc đã xoá mềm, hay mang một
+     * `related_type` lạ/mồ côi (dữ liệu hỏng, hay một bí danh morph tương lai chưa kịp thêm vào
+     * {@see self::DIRECT_MATTER_TYPES}) — hai ca mà một luật viết theo kiểu "liệt kê những gì
+     * admin được thấy thêm" (bản trước: `whereNull()->orWhereIn(NO_MATTER_TYPES)`) không bao giờ
+     * phủ hết được, vì nó chỉ biết liệt kê những gì ĐÃ NGHĨ TỚI. `return $query` không lọc gì —
+     * không nhánh nào có thể bỏ sót.
+     *
+     * **Fix round 1, minor — kế toán (và bất kỳ vai nào không có `matter.view`) bị chặn ngay TẠI
+     * SCOPE, không chỉ tại `OutboundMessagePolicy::viewAny()`.** Trước bản sửa này, thiếu điều
+     * kiện này thì `Matter::scopeListableBy($accountant)` vẫn trả về TOÀN BỘ vụ việc thường (kế
+     * toán có `matter.viewAny`, và nhánh "thường" của `listableBy()` trả sớm — không lọc gì thêm
+     * — cho bất kỳ ai có quyền đó), nên nếu scope này được gọi từ một nơi không đi qua
+     * `OutboundMessagePolicy` (một Action, một lệnh console, hay chính policy đó bị nới lỏng ở
+     * một bản sửa sau này), kế toán vẫn đọc được nhật ký thư của mọi vụ việc thường — hai lớp
+     * phòng thủ (scope + policy) phải ĐỘC LẬP đúng, không phải một lớp dựa vào lớp kia.
      *
      * Viết bằng `where`/`whereIn` trên bảng con thay vì nạp từng bản ghi rồi hỏi
      * {@see self::relatedMatter()}: cách đó sẽ là N+1 truy vấn VÀ không lọc được ở tầng SQL, tức
@@ -135,6 +183,14 @@ class OutboundMessage extends Model
      */
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
+        if ($user->hasRole(StaffRole::Admin->value)) {
+            return $query;
+        }
+
+        if (! $user->can(Permission::MatterView->value)) {
+            return $query->whereRaw('1 = 0');
+        }
+
         return $query->where(function (Builder $outer) use ($user): void {
             $matterIds = fn () => Matter::query()->listableBy($user)->select('id');
 
@@ -149,10 +205,6 @@ class OutboundMessage extends Model
                 ->whereIn('related_id', DB::table('client_request_replies')
                     ->whereIn('request_id', DB::table('client_requests')->whereIn('matter_id', $matterIds())->select('id'))
                     ->select('id')));
-
-            if ($user->hasRole(StaffRole::Admin->value)) {
-                $outer->orWhere(fn (Builder $q) => $q->whereNull('related_type')->orWhereIn('related_type', self::NO_MATTER_TYPES));
-            }
         });
     }
 

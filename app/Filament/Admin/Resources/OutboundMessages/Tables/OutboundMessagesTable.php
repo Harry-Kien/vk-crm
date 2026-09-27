@@ -73,9 +73,12 @@ class OutboundMessagesTable
                     ->options(fn (): array => collect(OutboundStatus::cases())
                         ->mapWithKeys(fn (OutboundStatus $status): array => [$status->value => $status->label()])
                         ->all()),
+                // Fix round 1, minor: bỏ ->searchable() — nó tìm trên KHOÁ thô
+                // (`client.stage_update`) chứ không phải nhãn tiếng Việt hiện trên màn hình, nên
+                // gõ đúng chữ đang thấy ("Cập nhật tiến độ cho khách") lại không tìm ra gì. Chỉ
+                // bốn mẫu đã khai (`lang/vi/outbound.php`), một select thường đủ dùng.
                 SelectFilter::make('template')
                     ->label(__('outbound.filters.template'))
-                    ->searchable()
                     ->options(fn (): array => OutboundMessage::query()
                         ->distinct()
                         ->orderBy('template')
