@@ -13,6 +13,7 @@ use App\Models\StageLog;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
+use Illuminate\Support\Facades\Gate;
 
 beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);
@@ -390,4 +391,30 @@ it('excludes the accountant in the query scope itself, independently of the page
     $message = OutboundMessage::factory()->create(['related_type' => 'stage_log', 'related_id' => $log->id]);
 
     expect(OutboundMessage::query()->visibleTo($accountant)->whereKey($message->getKey())->exists())->toBeFalse();
+});
+
+// -------------------------------------------------------------------------------------------
+// Fix round 2 (vấn đề còn sót lại từ rà soát của fix round 1)
+// -------------------------------------------------------------------------------------------
+
+/**
+ * `OutboundMessagePolicy::view()` phải TỰ đồng ý với `OutboundMessage::scopeVisibleTo()`, không
+ * được phép trông vào việc route binding của `OutboundMessageResource` đã chặn từ trước để che
+ * một chỗ lệch của chính nó. `relatedMatter()` (fix round 1) đọc vụ việc bằng `withTrashed()`,
+ * nên `$matter` có thể là một vụ ĐÃ XOÁ MỀM — và `MatterPolicy::view()` CỐ Ý cho vụ xoá mềm lọt
+ * qua (để admin còn thao tác được). Gọi thẳng `Gate::forUser($manager)->allows('view', $row)`
+ * (không qua HTTP/route binding, như một Action hay lệnh console tương lai sẽ làm) phải vẫn ra
+ * đúng câu trả lời: manager (không phải admin) bị từ chối, admin thì không.
+ */
+it('denies Gate view for a manager on a trashed-matter row, directly (not through route binding)', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $matter = Matter::factory()->create();
+    $log = StageLog::factory()->create(['matter_id' => $matter->id]);
+    $message = OutboundMessage::factory()->create(['related_type' => 'stage_log', 'related_id' => $log->id]);
+
+    $matter->delete();
+
+    expect(Gate::forUser($manager)->allows('view', $message))->toBeFalse()
+        ->and(Gate::forUser($admin)->allows('view', $message))->toBeTrue();
 });

@@ -32,6 +32,22 @@ use App\Models\User;
  * `Matter::scopeListableBy()` cho admin không lọc gì trên vụ đang sống — nên nhánh admin ở trên
  * (`hasRole(Role::Admin)`) đã đúng mà không cần sửa gì thêm ở đây; xem docblock
  * `OutboundMessage::scopeVisibleTo()` cho mặt SQL của cùng quyết định (admin không lọc gì cả).
+ *
+ * **Fix round 2 — `view()` phải TỰ đồng ý với `scopeVisibleTo()`, không dựa vào route binding
+ * để che một chỗ lệch.** `relatedMatter()` (fix round 1) đọc vụ việc bằng `withTrashed()`, nên
+ * `$matter` ở đây có thể là một vụ ĐÃ XOÁ MỀM. `MatterPolicy::view()` CỐ Ý cho một vụ đã xoá mềm
+ * lọt qua (đọc docblock hàm đó: "cũng cho phép vụ đã xoá mềm, để admin còn thao tác được") — đúng
+ * cho chính `MatterResource`, nơi `getRecordRouteBindingEloquentQuery()` áp `listableBy()` KHÔNG
+ * `withTrashed()` nên một vụ đã xoá mềm không bao giờ tới được `view()` qua đường đó để bắt đầu.
+ * Nhưng ở đây, `OutboundMessage::scopeVisibleTo()` cho NON-ADMIN cũng dùng
+ * `Matter::listableBy($user)` không `withTrashed()` (Ruling fix round 1: "Non-admins keep the
+ * `listableBy` rule") — tức route binding của CHÍNH resource này cũng chặn đúng như vậy. Nhưng
+ * `Gate::forUser($manager)->allows('view', $row)` gọi TRỰC TIẾP (không qua route, ví dụ từ một
+ * Action hay lệnh console tương lai) sẽ không có tầng chặn đó, và khi ấy `view()` phải TỰ đúng —
+ * không được phép trông vào việc "route binding chặn trước rồi" để che một quyết định sai của
+ * chính nó. Nên: một `$matter` đã xoá mềm chỉ admin qua được ở ĐÂY, bất kể `MatterPolicy::view()`
+ * nói gì — hai lớp (scope và policy) phải độc lập đúng, đúng nguyên tắc fix round 1 đã áp cho
+ * kế toán (`scopeVisibleTo()`) giờ áp tiếp cho ca này (`view()`).
  */
 class OutboundMessagePolicy
 {
@@ -49,7 +65,7 @@ class OutboundMessagePolicy
 
         $matter = $message->relatedMatter();
 
-        if ($matter === null) {
+        if ($matter === null || $matter->trashed()) {
             return $user instanceof User && $user->hasRole(Role::Admin->value);
         }
 
