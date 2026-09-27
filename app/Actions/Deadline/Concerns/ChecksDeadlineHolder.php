@@ -24,7 +24,8 @@ use App\Models\User;
  *    định người phụ trách mốc còn nhận được thư nhắc hay không. Người giữ mốc mà không nhận được
  *    thư nhắc của chính mốc đó là một mốc im lặng.
  *  - **Còn trong đội ngũ** (hoặc là luật sư phụ trách hồ sơ — `lead_lawyer_id` là nguồn sự thật
- *    của vai `lead`, dòng `matter_user` tương ứng không phải lúc nào cũng có). Không suy ra được từ
+ *    của vai `lead`; `Matter::booted()` và `ReassignMatter` giữ dòng `matter_user` của lead khớp
+ *    với nó, nhưng câu hỏi này không dựa vào việc đồng bộ đó). Không suy ra được từ
  *    `Gate::view()`: trưởng phòng và admin có `matter.viewAny`, nên vẫn XEM được một vụ thường sau
  *    khi bị gỡ khỏi đội ngũ. R6 giữ bất biến "mốc chưa xong nằm trong tay đội ngũ" bằng cách từ
  *    chối gỡ một người còn giữ mốc chưa xong — điều kiện này giữ cùng bất biến đó ở các cửa còn lại.

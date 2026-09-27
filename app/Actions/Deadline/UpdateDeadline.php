@@ -22,7 +22,8 @@ use InvalidArgumentException;
 use Throwable;
 
 /**
- * Sửa một mốc thời hạn đã có — tên, ngày đến hạn, mức độ (M6.5 Task 14, `deadlines/F7`; R14).
+ * Sửa một mốc thời hạn đã có — tên, ngày đến hạn, mức độ, người phụ trách (M6.5 Task 14,
+ * `deadlines/F7`; R14).
  *
  * # Vì sao Action này tồn tại: phiên toà hoãn không có đường sửa
  *
