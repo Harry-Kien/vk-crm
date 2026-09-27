@@ -248,6 +248,17 @@ class MatterForm
      * đây (so với các bên `is_our_client` đã lưu) — một luật sư gõ đúng định danh của khách hàng
      * trợ lý vừa tạo (mà không dùng ô tra ở trên) vẫn KHÔNG tạo ra một hồ sơ thứ hai (R4 b).
      *
+     * **`dehydrated()` — chỉ ai KHÔNG có `client.manage` (fix round 1, Minor).** Khối này không
+     * dành cho actor có `client.manage` (họ có Select ngay trên) — `visible($visible)` đã ẩn nó,
+     * nhưng ẩn KHÔNG chắc chắn ngăn được dehydrate nếu một request bị chỉnh sửa tay gửi thẳng
+     * `data.new_client.name`. Điều kiện dehydrate ở đây CỐ Ý chỉ hỏi quyền
+     * (`currentUserCanChooseFromList()`), không hỏi `$visible` (vốn còn phụ thuộc
+     * `resolvedClientId`/Select `client_id`): một actor có `client.manage` không bao giờ được
+     * dehydrate khối này, bất kể họ đã chọn gì ở Select. Thiếu lớp này, một payload bị chỉnh tay
+     * có thể buộc `CreateMatter::resolveClientId()` chạy nhánh "Tạo khách mới" LẼ RA không dành
+     * cho họ — `App\Actions\Client\CreateClient::handle()` khi đó ném `DuplicateClientDetected`
+     * cho một khách hàng trùng mà chính actor này chưa từng xác nhận.
+     *
      * @return array<int, mixed>
      */
     private static function newClientFields(Closure $hiddenFromListPicker): array
@@ -255,6 +266,8 @@ class MatterForm
         $visible = fn (CreateMatter $livewire, Get $get): bool => $hiddenFromListPicker()
             && $livewire->resolvedClientId === null
             && blank($get('client_id'));
+
+        $dehydrated = fn (): bool => ! VisibleClientOptions::currentUserCanChooseFromList();
 
         return [
             Select::make('new_client.type')
@@ -265,19 +278,22 @@ class MatterForm
                 ->live()
                 ->afterStateUpdated(static::forgetConflictResult())
                 ->required($visible)
-                ->visible($visible),
+                ->visible($visible)
+                ->dehydrated($dehydrated),
             TextInput::make('new_client.name')
                 ->label(__('clients.fields.name'))
                 ->live(onBlur: true)
                 ->afterStateUpdated(static::forgetConflictResult())
                 ->required($visible)
                 ->visible($visible)
+                ->dehydrated($dehydrated)
                 ->maxLength(200),
             TextInput::make('new_client.id_number')
                 ->label(__('clients.fields.id_number'))
                 ->live(onBlur: true)
                 ->afterStateUpdated(static::forgetConflictResult())
                 ->visible($visible)
+                ->dehydrated($dehydrated)
                 ->maxLength(20),
             TextInput::make('new_client.phone')
                 ->label(__('clients.fields.phone'))
@@ -285,15 +301,18 @@ class MatterForm
                 ->live(onBlur: true)
                 ->afterStateUpdated(static::forgetConflictResult())
                 ->visible($visible)
+                ->dehydrated($dehydrated)
                 ->maxLength(20),
             TextInput::make('new_client.email')
                 ->label(__('clients.fields.email'))
                 ->email()
                 ->visible($visible)
+                ->dehydrated($dehydrated)
                 ->maxLength(150),
             TextInput::make('new_client.representative_name')
                 ->label(__('clients.fields.representative_name'))
                 ->maxLength(120)
+                ->dehydrated($dehydrated)
                 ->visible(fn (CreateMatter $livewire, Get $get): bool => $visible($livewire, $get)
                     && $get('new_client.type') === ClientType::Organization->value),
             Textarea::make('new_client.address')
@@ -301,6 +320,7 @@ class MatterForm
                 ->live(onBlur: true)
                 ->afterStateUpdated(static::forgetConflictResult())
                 ->visible($visible)
+                ->dehydrated($dehydrated)
                 ->maxLength(300)
                 ->columnSpanFull(),
         ];

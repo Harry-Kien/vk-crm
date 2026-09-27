@@ -3,10 +3,15 @@
 namespace App\Actions\Client;
 
 use App\Enums\Permission;
+use App\Exceptions\ClientLookupThrottled;
 use App\Exceptions\DuplicateClientDetected;
+use App\Exceptions\DuplicateClientNotVisible;
 use App\Models\Client;
 use App\Models\MatterParty;
 use App\Models\User;
+use App\Support\Audit;
+use App\Support\ClientLookupThrottle;
+use App\Support\ClientVisibility;
 use App\Support\Normalizer;
 use App\Support\Scopes\ClientPortalScope;
 use Illuminate\Support\Facades\DB;
@@ -37,13 +42,25 @@ use Illuminate\Support\Facades\DB;
  * vụ việc không để lại dấu vết ở đây) — có chủ đích: dò trùng liên hệ đầy đủ trên toàn bảng
  * `clients` đã được lên kế hoạch riêng, sau M6.5 (M10, `intake-07` bản rà soát cuối).
  *
- * **Hai nhánh khi tìm thấy trùng, theo quyền của actor (R4):**
- *  - Không `client.manage` (luật sư): DÙNG hồ sơ đã có, im lặng — không hỏi xác nhận, vì actor đó
- *    không có quyền tạo một hồ sơ thứ hai dù có muốn (R4 b: "nếu (b) trùng định danh chính xác với
- *    một hồ sơ đã có thì dùng hồ sơ đó, không tạo bản thứ hai").
+ * **Ba nhánh khi tìm thấy trùng, theo quyền của actor VÀ tầm nhìn (R4, fix round 1 C1):**
+ *  - Không `client.manage`, hồ sơ trùng THẤY ĐƯỢC (`ClientVisibility::isVisibleTo()`): DÙNG hồ sơ
+ *    đã có, im lặng — không hỏi xác nhận, vì actor đó không có quyền tạo một hồ sơ thứ hai dù có
+ *    muốn (R4 b: "nếu (b) trùng định danh chính xác với một hồ sơ đã có thì dùng hồ sơ đó, không
+ *    tạo bản thứ hai").
+ *  - Không `client.manage`, hồ sơ trùng KHÔNG thấy được (ví dụ vụ DUY NHẤT của khách hàng đó là
+ *    `restricted` và do người khác phụ trách): ném `DuplicateClientNotVisible` — một câu TRUNG
+ *    LẬP không nêu tên ai, không tạo hồ sơ thứ hai, không dùng lại hồ sơ tìm thấy (Review Focus
+ *    #1: một vụ `restricted` không được rò rỉ danh tính khách hàng qua đường này).
  *  - Có `client.manage` (trợ lý/trưởng phòng/admin ở màn hình "Khách hàng"): ném
  *    `DuplicateClientDetected` (mang hồ sơ trùng) TRỪ KHI `$confirmDuplicate` — người này được
- *    xem cảnh báo kèm liên kết tới hồ sơ trùng và vẫn tạo được một hồ sơ MỚI nếu xác nhận.
+ *    xem cảnh báo kèm liên kết tới hồ sơ trùng và vẫn tạo được một hồ sơ MỚI nếu xác nhận. Tầm
+ *    nhìn không áp cho nhánh này: `client.manage` đã thấy TOÀN BỘ khách hàng của văn phòng.
+ *
+ * **Giới hạn tần suất (fix round 1, I1).** Với actor không có `client.manage`, chính lần dò trùng
+ * này CŨNG là một "oracle" — quan sát kết quả (dùng lại hay tạo mới) cho biết một định danh có
+ * khớp ai không, giống hệt `FindClientByIdentifier`. Dùng CHUNG một bộ đếm với Action đó
+ * (`App\Support\ClientLookupThrottle`, xem docblock lớp), chỉ khi form thực sự gửi một số điện
+ * thoại hoặc số CCCD để dò (không tính một lần tạo khách không có định danh nào).
  */
 class CreateClient
 {
@@ -60,14 +77,27 @@ class CreateClient
 
         abort_unless($canManage || $actor->can(Permission::MatterCreate->value), 403);
 
-        $existing = $this->findExistingClient(
-            Normalizer::phone($attributes['phone'] ?? null),
-            Normalizer::idNumberHash($attributes['id_number'] ?? null),
-        );
+        $phoneNormalized = Normalizer::phone($attributes['phone'] ?? null);
+        $idNumberHash = Normalizer::idNumberHash($attributes['id_number'] ?? null);
+
+        // Fix round 1, I1: chỉ đếm một lần "dò" khi có gì đó để dò, và chỉ cho actor mà đây thật
+        // sự là một oracle (client.manage đã thấy toàn bộ khách hàng, không cần giới hạn).
+        if (! $canManage && ($phoneNormalized !== null || $idNumberHash !== null)) {
+            $this->guardThrottle($actor, $attributes);
+        }
+
+        $existing = $this->findExistingClient($phoneNormalized, $idNumberHash);
 
         if ($existing !== null) {
             if (! $canManage) {
-                return $existing;
+                // Fix round 1, C1: chỉ dùng lại khi actor THẤY ĐƯỢC hồ sơ trùng — một khách hàng
+                // mà vụ DUY NHẤT là `restricted` do người khác phụ trách không được gắn thẳng vào
+                // một vụ việc mới, tên không được lộ ra (xem docblock lớp).
+                if (ClientVisibility::isVisibleTo($actor, $existing->getKey())) {
+                    return $existing;
+                }
+
+                throw DuplicateClientNotVisible::make();
             }
 
             if (! $confirmDuplicate) {
@@ -92,6 +122,28 @@ class CreateClient
 
             return $client;
         });
+    }
+
+    /**
+     * Fix round 1, I1: cùng bộ đếm với `FindClientByIdentifier` — xem docblock lớp đó và
+     * `App\Support\ClientLookupThrottle` cho lý do một bộ đếm dùng chung cho cả hai đường.
+     */
+    private function guardThrottle(User $actor, array $attributes): void
+    {
+        if (! ClientLookupThrottle::tooManyAttempts($actor)) {
+            ClientLookupThrottle::hit($actor);
+
+            return;
+        }
+
+        // SPEC §10.5/R4: hash, không phải số thô — cùng công thức với `FindClientByIdentifier`.
+        $digits = preg_replace('/\D+/', '', (string) ($attributes['phone'] ?? $attributes['id_number'] ?? '')) ?? '';
+
+        Audit::record('client_lookup_throttled', null, [
+            'identifier_hash' => $digits !== '' ? hash('sha256', $digits) : null,
+        ], $actor);
+
+        throw ClientLookupThrottled::make();
     }
 
     private function findExistingClient(?string $phoneNormalized, ?string $idNumberHash): ?Client

@@ -9,6 +9,7 @@ use App\Enums\ConflictLevel;
 use App\Enums\ConflictMatchTier;
 use App\Enums\PartyRole;
 use App\Enums\Permission;
+use App\Exceptions\ClientLookupThrottled;
 use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
 use App\Filament\Admin\Resources\Matters\MatterResource;
@@ -137,6 +138,12 @@ class CreateMatter extends CreateRecord
      * Bỏ trống ô tra (identifier rỗng) xoá luôn kết quả cũ: một luật sư xoá số đã gõ để chuyển
      * sang tạo khách mới không được để `resolvedClientId` của lần tra TRƯỚC còn sống sót và âm
      * thầm ghi đè khối "Tạo khách mới" họ sắp điền.
+     *
+     * **`ClientLookupThrottled` (fix round 1, I1) bắt ở ĐÂY, không để lọt ra ngoài.** Hàm này là
+     * một Livewire action gọi từ `afterStateUpdated` khi rời ô — khác `mutateFormDataBeforeCreate()`
+     * (nơi Livewire tự bắt `ValidationException` thành lỗi form), một ngoại lệ ném ra từ đây sẽ
+     * lọt thẳng thành lỗi 500 chung chung. `Notification::make()->warning()` là cách đúng để báo
+     * một lỗi không gắn với ô nào cụ thể của form.
      */
     public function lookupClient(?string $identifier): void
     {
@@ -153,7 +160,13 @@ class CreateMatter extends CreateRecord
             return;
         }
 
-        $client = app(FindClientByIdentifier::class)->handle($actor, $identifier);
+        try {
+            $client = app(FindClientByIdentifier::class)->handle($actor, $identifier);
+        } catch (ClientLookupThrottled $exception) {
+            Notification::make()->title($exception->getMessage())->warning()->send();
+
+            return;
+        }
 
         $this->resolvedClientId = $client?->getKey();
         $this->resolvedClientLabel = $client === null
@@ -363,7 +376,20 @@ class CreateMatter extends CreateRecord
             $actor = Auth::user();
             abort_unless($actor instanceof User, 403);
 
-            $client = app(CreateClient::class)->handle($actor, $data['new_client']);
+            // Fix round 1, Minor: `CreateClient::handle()` có thể ném một luật nghiệp vụ
+            // (`DuplicateClientDetected` khi một client.manage bị chỉnh payload lọt qua được
+            // `dehydrated(false)` của `MatterForm::newClientFields()`; `DuplicateClientNotVisible`
+            // — C1 — hay `ClientLookupThrottled` — I1 — cho một luật sư bình thường). Không có
+            // `try/catch` ở đây, bất kỳ luật nào trong số đó thoát ra thành lỗi 500: hàm này chạy
+            // TRONG `mutateFormDataBeforeCreate()`, TRƯỚC `handleRecordCreation()` — lưới an toàn
+            // `catch (DomainException)` ở đó không với tới được đây.
+            try {
+                $client = app(CreateClient::class)->handle($actor, $data['new_client']);
+            } catch (DomainException $exception) {
+                throw ValidationException::withMessages([
+                    $livewire->errorKey('new_client.name') => [$exception->getMessage()],
+                ]);
+            }
 
             // Xem đoạn "Đường vào — orphan client" ở trên: một lượt gửi lại sau khi bị chặn phải
             // dùng LẠI đúng hồ sơ này, không tạo thêm một hồ sơ nữa. `resolvedClientLabel` đi kèm

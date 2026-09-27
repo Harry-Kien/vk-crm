@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\ClientType;
+use App\Enums\Confidentiality;
 use App\Enums\PartyRole;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\Clients\Pages\CreateClient as CreateClientPage;
@@ -348,6 +349,208 @@ it('never writes the raw phone number into the client_lookup audit trail, on a h
 
     expect($lookups->firstWhere('properties.hit', true))->not->toBeNull()
         ->and($lookups->firstWhere('properties.hit', false))->not->toBeNull();
+});
+
+// =========================================================================================
+// Fix round 1 (task-6-fix1-findings.md) — C1: dò trùng khi tạo khách mới không còn dùng lại
+// một hồ sơ mà actor không thấy được.
+// =========================================================================================
+
+/**
+ * C1 (Critical): trước bản sửa này, `CreateClient::findExistingClient()` dùng lại BẤT KỲ bên
+ * `is_our_client` nào khớp định danh, không hỏi actor có thấy được khách hàng đó không — một
+ * luật sư không có `client.manage` gõ đúng CCCD của một khách mà vụ DUY NHẤT của họ là
+ * `restricted` (luật sư phụ trách là NGƯỜI KHÁC) sẽ được gắn thẳng vào khách đó, và tên khách
+ * hiện ra ngay trên hồ sơ vụ việc luật sư B vừa mở — lộ danh tính một khách hàng thuộc một vụ
+ * hạn chế mà B không có quyền xem (Review Focus #1).
+ *
+ * Sau bản sửa: dò trùng không tìm thấy CŨNG không tạo hồ sơ thứ hai — bị TỪ CHỐI thẳng, bằng một
+ * câu trung lập không nêu tên ai, không mã hồ sơ nào. Không có vụ việc nào được mở.
+ */
+it('refuses to silently reuse a duplicate client whose only matter is restricted and led by someone else', function () {
+    $otherLawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $type = createFormMatterType();
+
+    // Dựng đúng hình dạng OpenMatter thật để lại: khách hàng là CHÍNH client_id của vụ việc
+    // (không chỉ một bên trong danh sách), và một MatterParty is_our_client mang định danh của
+    // nó — đúng những gì OpenMatter::buildOwnClientParty() luôn tạo ra. Chỉ gắn một MatterParty
+    // rời rạc (như existingFirmClientParty() làm cho các test kiểm tra xung đột) không đủ để
+    // kiểm tra tầm nhìn: ClientVisibility::isVisibleTo() hỏi "khách hàng này có phải client_id
+    // CHÍNH của một vụ việc actor liệt kê được không", đúng luật VisibleClientOptions gốc.
+    $secretClient = Client::factory()->create(['name' => 'Khách hàng bí mật của luật sư khác', 'id_number' => '079011112222']);
+    $restrictedMatter = Matter::factory()->create([
+        'client_id' => $secretClient->id,
+        'lead_lawyer_id' => $otherLawyer->id,
+        'confidentiality' => Confidentiality::Restricted,
+    ]);
+    MatterParty::factory()->for($restrictedMatter)->ourClient($secretClient, PartyRole::Plaintiff)->create();
+
+    // Baseline TRƯỚC khi luật sư B gửi form: hồ sơ bí mật cộng khách hàng riêng mà
+    // Matter::factory() tự dựng cho $type (MatterType không cần khách hàng riêng, nhưng
+    // createFormMatterType() không tạo Matter nào — chỉ $restrictedMatter tạo một Client).
+    $clientsBefore = Client::count();
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(CreateMatter::class)
+        ->fillForm([
+            'client_role' => PartyRole::Plaintiff->value,
+            'matter_type_id' => $type->id,
+            'title' => 'Vụ việc bị từ chối vì trùng khách hạn chế',
+            'lead_lawyer_id' => $lawyer->id,
+            'other_parties' => [],
+            'new_client' => [
+                'type' => ClientType::Individual->value,
+                'name' => 'Tên khác hoàn toàn do luật sư B gõ',
+                'id_number' => '079011112222',
+            ],
+        ]);
+
+    $component->call('create')->assertHasFormErrors(['new_client.name']);
+
+    // I2: câu từ chối trung lập, không nêu tên hay mã hồ sơ của khách hàng thật.
+    $component->assertDontSee('Khách hàng bí mật của luật sư khác');
+    expect($component->instance()->resolvedClientLabel)->toBeNull();
+
+    expect(Client::count())->toBe($clientsBefore) // không tạo thêm một hồ sơ thứ hai
+        ->and(Matter::query()->where('title', 'Vụ việc bị từ chối vì trùng khách hạn chế')->exists())->toBeFalse();
+});
+
+/** Vế dương: cùng tình huống, nhưng khách hàng trùng VẪN thấy được (vụ cũ luật sư có tên trong đội ngũ) — dùng lại, im lặng. */
+it('silently reuses a duplicate client that is visible to the lawyer, without creating a second record', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $type = createFormMatterType();
+
+    $client = clientVisibleTo($lawyer);
+    $clientsBefore = Client::count();
+
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(CreateMatter::class)
+        ->fillForm([
+            'client_role' => PartyRole::Plaintiff->value,
+            'matter_type_id' => $type->id,
+            'title' => 'Vụ việc mới cho khách đã có, trùng CCCD',
+            'lead_lawyer_id' => $lawyer->id,
+            'other_parties' => [],
+            'new_client' => [
+                'type' => ClientType::Individual->value,
+                'name' => 'Tên gõ khác đi, không trùng',
+                'id_number' => $client->id_number,
+            ],
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $matter = Matter::query()->where('title', 'Vụ việc mới cho khách đã có, trùng CCCD')->first();
+
+    expect(Client::count())->toBe($clientsBefore) // không tạo thêm một hồ sơ thứ hai
+        ->and($matter)->not->toBeNull()
+        ->and($matter->client_id)->toBe($client->id);
+});
+
+// =========================================================================================
+// Fix round 1 — I1: giới hạn 20 lần tra/giờ cho một nhân sự, chung một bộ đếm cho cả tra
+// (lookupClient) lẫn dò trùng khi tạo khách mới (new_client.*).
+// =========================================================================================
+
+it('refuses the 21st client lookup within an hour for the same staff user, and audits the refusal', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(CreateMatter::class);
+
+    for ($i = 1; $i <= 20; $i++) {
+        $component->call('lookupClient', sprintf('090000%04d', $i));
+    }
+
+    expect(Activity::query()->where('event', 'client_lookup')->count())->toBe(20)
+        ->and(Activity::query()->where('event', 'client_lookup_throttled')->count())->toBe(0);
+
+    $component->call('lookupClient', '0900009999');
+
+    expect(Activity::query()->where('event', 'client_lookup')->count())->toBe(20)
+        ->and(Activity::query()->where('event', 'client_lookup_throttled')->count())->toBe(1);
+
+    // Không ghi số thô vào dòng audit đã chặn.
+    $throttled = Activity::query()->where('event', 'client_lookup_throttled')->first();
+    expect($throttled->properties->toJson())->not->toContain('0900009999');
+});
+
+/**
+ * Cùng MỘT bộ đếm cho cả hai đường (I1 nêu rõ: "Rate-limit both paths"): 20 lần tra qua
+ * `lookupClient()` đã dùng hết giờ, nên lần dò trùng THỨ 21 — lần này đi qua khối "Tạo khách
+ * mới" — cũng bị chặn, không phải một bộ đếm riêng mà một luật sư có thể lách bằng cách đổi
+ * đường.
+ */
+it('shares the same hourly limit between lookupClient and the new-client duplicate scan', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $type = createFormMatterType();
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(CreateMatter::class);
+
+    for ($i = 1; $i <= 20; $i++) {
+        $component->call('lookupClient', sprintf('090000%04d', $i));
+    }
+
+    $component->fillForm([
+        'client_role' => PartyRole::Plaintiff->value,
+        'matter_type_id' => $type->id,
+        'title' => 'Vụ việc thứ 21 bị chặn vì quá tần suất',
+        'lead_lawyer_id' => $lawyer->id,
+        'other_parties' => [],
+        'new_client' => [
+            'type' => ClientType::Individual->value,
+            'name' => 'Khách mới, không liên quan',
+            'phone' => '0977000000',
+        ],
+    ]);
+
+    $component->call('create')->assertHasFormErrors(['new_client.name']);
+
+    expect(Client::where('name', 'Khách mới, không liên quan')->exists())->toBeFalse()
+        ->and(Matter::query()->where('title', 'Vụ việc thứ 21 bị chặn vì quá tần suất')->exists())->toBeFalse();
+});
+
+// =========================================================================================
+// Fix round 1 — Minor: DuplicateClientDetected (hay bất kỳ luật nghiệp vụ nào của CreateClient)
+// không còn thoát ra thành lỗi 500 khi actor có client.manage bị chỉnh sửa payload để đi qua
+// khối "Tạo khách mới" vốn không dành cho họ.
+// =========================================================================================
+
+it('does not crash with a 500 when a client.manage actor submits a tampered new_client payload', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $client = Client::factory()->create();
+    $type = createFormMatterType();
+
+    $this->actingAs($manager, 'web');
+
+    $this->livewire(CreateMatter::class)
+        ->fillForm([
+            'client_id' => $client->id,
+            'client_role' => PartyRole::Plaintiff->value,
+            'matter_type_id' => $type->id,
+            'title' => 'Vụ việc của trưởng phòng, payload new_client bị chỉnh tay',
+            'lead_lawyer_id' => $manager->id,
+            'other_parties' => [],
+            // Trường này bị ẩn/không dehydrate với client.manage — mô phỏng một payload bị
+            // chỉnh sửa để gửi thẳng khoá này lên máy chủ.
+            'new_client' => [
+                'type' => ClientType::Individual->value,
+                'name' => 'Tên không nên được dùng',
+            ],
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $matter = Matter::query()->where('title', 'Vụ việc của trưởng phòng, payload new_client bị chỉnh tay')->first();
+
+    expect($matter)->not->toBeNull()
+        ->and($matter->client_id)->toBe($client->id)
+        // new_client bị bỏ qua hoàn toàn — không có hồ sơ khách hàng nào tên "Tên không nên được dùng".
+        ->and(Client::where('name', 'Tên không nên được dùng')->exists())->toBeFalse();
 });
 
 it('offers the create action to a lawyer but not to an accountant, whose create page is not there', function () {

@@ -19,4 +19,8 @@ return [
     'conflict_check_busy' => 'Hệ thống đang kiểm tra xung đột cho một yêu cầu khác, thử lại sau.',
     // M6.5 Task 6 (R4, `intake-07`): App\Actions\Client\CreateClient.
     'duplicate_client_detected' => 'Đã có một khách hàng khác mang cùng số điện thoại hoặc số CCCD vừa nhập — mã :code. Xem lại hồ sơ đó ở liên kết bên trên trước khi quyết định.',
+    // M6.5 Task 6, fix round 1 (C1): câu trung lập, không nêu tên hay mã hồ sơ của ai.
+    'duplicate_client_not_visible' => 'Có thể khách hàng này đã có hồ sơ ở văn phòng. Nhờ trưởng phòng hoặc quản trị viên mở vụ.',
+    // M6.5 Task 6, fix round 1 (I1).
+    'client_lookup_throttled' => 'Đã tra hoặc thử quá nhiều lần trong một giờ. Vui lòng thử lại sau, hoặc nhờ trưởng phòng/quản trị viên mở vụ giúp.',
 ];

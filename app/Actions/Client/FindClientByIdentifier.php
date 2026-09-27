@@ -2,9 +2,11 @@
 
 namespace App\Actions\Client;
 
+use App\Exceptions\ClientLookupThrottled;
 use App\Models\Client;
 use App\Models\User;
 use App\Support\Audit;
+use App\Support\ClientLookupThrottle;
 use App\Support\Normalizer;
 
 /**
@@ -34,6 +36,12 @@ use App\Support\Normalizer;
  * một hash của định danh đã nhập — không phải chính số đó. Khớp thì ghi thêm id khách hàng khớp
  * được (không phải tên/số của họ) để phục vụ tra cứu nội bộ sau này; không mở rộng ranh giới lộ
  * thông tin, vì id một mình không đọc được là ai.
+ *
+ * **Giới hạn tần suất (fix round 1, I1, `intake` review).** Không giới hạn, ô tra này là một
+ * "oracle" cho toàn bộ danh sách khách hàng của văn phòng — dò từng số một, không giới hạn, cuối
+ * cùng dựng lại được cả danh sách mà `VisibleClientOptions` cố tình không cho luật sư thấy. Dùng
+ * chung một bộ đếm với `App\Actions\Client\CreateClient` (`App\Support\ClientLookupThrottle`, xem
+ * docblock lớp đó) — 20 lần/giờ/nhân sự, cả hai đường CỘNG LẠI, không phải hai bộ đếm riêng.
  */
 class FindClientByIdentifier
 {
@@ -44,6 +52,18 @@ class FindClientByIdentifier
         if ($identifier === '') {
             return null;
         }
+
+        if (ClientLookupThrottle::tooManyAttempts($actor)) {
+            $digits = preg_replace('/\D+/', '', $identifier) ?? '';
+
+            Audit::record('client_lookup_throttled', null, [
+                'identifier_hash' => hash('sha256', $digits !== '' ? $digits : $identifier),
+            ], $actor);
+
+            throw ClientLookupThrottled::make();
+        }
+
+        ClientLookupThrottle::hit($actor);
 
         $match = $this->searchClients($identifier);
 

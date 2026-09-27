@@ -6,6 +6,7 @@ use App\Enums\Permission;
 use App\Models\Client;
 use App\Models\Matter;
 use App\Models\User;
+use App\Support\ClientVisibility;
 use Illuminate\Support\Facades\Auth;
 
 /**
@@ -41,10 +42,18 @@ final class VisibleClientOptions
      *
      * @param  mixed  $clientId  Giá trị thô từ form; `null`/rỗng cũng bị từ chối — một id bắt buộc
      *                           mà không gửi lên thì không có gì để cho phép.
+     *
+     * **Fix round 1 (C1, M6.5 Task 6): đi qua `App\Support\ClientVisibility::isVisibleTo()`**,
+     * không còn tự tính bằng `array_key_exists(..., self::forCurrentUser())`. Cùng MỘT luật giờ
+     * phục vụ hai nơi: ô CHỌN hiển thị gì (`forCurrentUser()`, dưới) và `App\Actions\Client\
+     * CreateClient` quyết định có được DÙNG LẠI một hồ sơ trùng hay không — xem docblock
+     * `ClientVisibility` cho lý do luật phải sống ở `App\Support`, không phải ở đây.
      */
     public static function assertVisibleToCurrentUser(mixed $clientId): void
     {
-        abort_unless(array_key_exists((int) $clientId, self::forCurrentUser()), 404);
+        $user = Auth::user();
+
+        abort_unless($user instanceof User && ClientVisibility::isVisibleTo($user, (int) $clientId), 404);
     }
 
     /**
