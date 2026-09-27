@@ -3,6 +3,7 @@
 use App\Enums\InstalmentState;
 use App\Enums\InstalmentStatus;
 use App\Enums\MatterRole;
+use App\Enums\PaymentMethod;
 use App\Enums\Permission;
 use App\Enums\Role;
 use App\Models\Client;
@@ -14,6 +15,7 @@ use App\Models\Matter;
 use App\Models\Payment;
 use App\Models\User;
 use App\Support\Billing\AccountantBillingRow;
+use App\Support\Billing\AccountantPaymentRow;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
@@ -451,6 +453,66 @@ it('is a final readonly class with exactly the nine fields of the SPEC amendment
             'matterCode', 'matterTypeName', 'clientName', 'instalmentName',
             'amount', 'collected', 'outstanding', 'dueDate', 'state',
         ]);
+});
+
+// ── Lượt rà soát cuối M9, I2: `AccountantPaymentRow` — một KHOẢN THU đúng như kế toán được thấy ──
+
+it('carries only the matter code, client, instalment name, amount, paid on, method and reference of a payment', function () {
+    $secretTitle = 'TIEU DE TUYET MAT KHONG DUOC LO PAYQ1';
+    $client = Client::factory()->create(['name' => 'Công ty TNHH Thương mại Hải Đăng']);
+    $matter = Matter::factory()->for($client)->create(['title' => $secretTitle, 'description_internal' => 'Noi dung noi bo tuyet mat']);
+    $contract = Contract::factory()->for($matter)->active()->create(['note' => 'Ghi chu hop dong KHONGLO1', 'total_amount' => 30_000_000]);
+    $instalment = Instalment::factory()->for($contract)->create([
+        'name' => 'Thanh toán đợt 2 khi nộp đơn khởi kiện',
+        'amount' => 30_000_000,
+        'note' => 'Ghi chu dot thanh toan KHONGLO2',
+    ]);
+    $payment = Payment::factory()->for($instalment)->create([
+        'amount' => 12_500_000,
+        'paid_on' => '2026-09-20',
+        'method' => PaymentMethod::BankTransfer,
+        'reference' => 'UNC-0042',
+        'note' => 'Ghi chu khoan thu KHONGLO3',
+    ]);
+
+    $row = AccountantPaymentRow::fromPayment($payment);
+    $serialized = json_encode($row->toArray());
+
+    expect($row->toArray())->toBe([
+        'matter_code' => $matter->code,
+        'client_name' => 'Công ty TNHH Thương mại Hải Đăng',
+        'instalment_name' => 'Thanh toán đợt 2 khi nộp đơn khởi kiện',
+        'amount' => 12_500_000,
+        'paid_on' => '2026-09-20',
+        'method' => 'bank_transfer',
+        'reference' => 'UNC-0042',
+    ])
+        ->and($serialized)->not->toContain($secretTitle)
+        ->and($serialized)->not->toContain('tuyet mat')
+        ->and($serialized)->not->toContain('KHONGLO');
+});
+
+it('is a final readonly payment row class with exactly seven fields', function () {
+    $class = new ReflectionClass(AccountantPaymentRow::class);
+
+    expect($class->isFinal())->toBeTrue()
+        ->and($class->isReadOnly())->toBeTrue()
+        ->and(array_map(fn (ReflectionProperty $property) => $property->getName(), $class->getProperties()))->toBe([
+            'matterCode', 'clientName', 'instalmentName', 'amount', 'paidOn', 'method', 'reference',
+        ]);
+});
+
+it('refuses to build a payment row once the matter was soft deleted, but still names a soft deleted client', function () {
+    $payment = Payment::factory()->for($this->instalment)->create(['amount' => 1_000_000]);
+    $client = $this->matter->client;
+    $client->delete();
+
+    expect(AccountantPaymentRow::fromPayment($payment->fresh())->clientName)->toBe($client->name);
+
+    settleChainDebt($this->chain);
+    $this->matter->delete();
+
+    expect(fn () => AccountantPaymentRow::fromPayment($payment->fresh()))->toThrow(ModelNotFoundException::class);
 });
 
 /*

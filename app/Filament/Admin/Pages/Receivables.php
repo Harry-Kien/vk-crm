@@ -11,6 +11,7 @@ use App\Enums\PaymentMethod;
 use App\Enums\Permission;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Resources\Matters\RelationManagers\BillingRelationManager;
+use App\Filament\Admin\Widgets\Billing\RecentPaymentsWidget;
 use App\Models\Client;
 use App\Models\Instalment;
 use App\Models\Payment;
@@ -33,6 +34,7 @@ use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Filament\Widgets\Widget;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -100,6 +102,13 @@ use Illuminate\Validation\ValidationException;
  * đường tải tệp cho kế toán đòi sửa `DocumentPolicy::create` (kế toán không có `matter.update`),
  * một thay đổi NGOÀI PHẠM VI làn này. `reference` (mã giao dịch/số biên lai) vẫn ghi được như một
  * chuỗi.
+ *
+ * # Mục thứ hai — "Khoản thu gần đây" (lượt rà soát cuối M9, I2)
+ *
+ * Bảng trên chỉ có đợt còn `pending`; một đợt đã thu đủ hay đã miễn rời khỏi nó, và cùng lúc nút
+ * "Huỷ khoản thu" của bảng không còn tới được khoản thu ghi nhầm trên đợt đó. Chân trang mang
+ * {@see RecentPaymentsWidget} ({@see self::getFooterWidgets()}): khoản thu chưa huỷ trong 90 ngày,
+ * cùng phạm vi `listableBy()`, qua DTO `AccountantPaymentRow`, mỗi dòng một nút huỷ.
  */
 class Receivables extends Page implements HasTable
 {
@@ -142,6 +151,17 @@ class Receivables extends Page implements HasTable
     public static function shouldRegisterNavigation(): bool
     {
         return static::canAccess();
+    }
+
+    /** @return array<class-string<Widget>> */
+    protected function getFooterWidgets(): array
+    {
+        return [RecentPaymentsWidget::class];
+    }
+
+    public function getFooterWidgetsColumns(): int|array
+    {
+        return 1;
     }
 
     public function table(Table $table): Table
@@ -310,7 +330,7 @@ class Receivables extends Page implements HasTable
             ->schema([
                 TextInput::make('amount')
                     ->label(__('billing.tab.fields.amount'))
-                    ->helperText(__('billing.tab.fields.total_amount_help'))
+                    ->helperText(__('billing.tab.fields.payment_amount_help'))
                     ->maxLength(15)
                     ->required(),
                 DatePicker::make('paid_on')

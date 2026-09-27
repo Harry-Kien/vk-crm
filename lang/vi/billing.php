@@ -243,5 +243,20 @@ return [
         'fields' => [
             'payment_to_void' => 'Chọn khoản thu cần huỷ',
         ],
+        // Lượt rà soát cuối M9, I2: mục thứ hai của trang — khoản thu gần đây, kể cả của đợt đã
+        // thu đủ hay đã miễn (những đợt không còn trong bảng công nợ ở trên).
+        'recent_payments' => [
+            'heading' => 'Khoản thu gần đây',
+            'description' => 'Các khoản thu chưa huỷ trong :days ngày gần nhất (theo ngày thu), kể cả của đợt đã thu đủ — huỷ một khoản ghi nhầm ở đây.',
+            'empty_heading' => 'Không có khoản thu nào trong khoảng thời gian này.',
+            'columns' => [
+                'paid_on' => 'Ngày thu',
+                'method' => 'Cách nhận',
+                'reference' => 'Mã giao dịch / số biên lai',
+            ],
+            'filters' => [
+                'matter_code' => 'Mã hồ sơ',
+            ],
+        ],
     ],
 ];

@@ -1,9 +1,11 @@
 <?php
 
+use App\Enums\ContractStatus;
 use App\Enums\InstalmentStatus;
 use App\Enums\PaymentMethod;
 use App\Enums\Role;
 use App\Filament\Admin\Pages\Receivables;
+use App\Filament\Admin\Widgets\Billing\RecentPaymentsWidget;
 use App\Http\Middleware\AnswerDeniedPanelRequestsWithNotFound;
 use App\Models\Client;
 use App\Models\Contract;
@@ -12,6 +14,7 @@ use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Models\Payment;
 use App\Models\User;
+use App\Support\Billing\Money;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
@@ -477,6 +480,223 @@ it('hides the void button once every payment on the instalment has already been 
 
     $this->livewire(Receivables::class)
         ->assertActionHidden(TestAction::make('voidPayment')->table($instalment));
+});
+
+/** Lượt rà soát cuối M9, M5: ô số tiền của khoản thu có câu hướng dẫn RIÊNG, không mượn câu "giá trị hợp đồng". */
+it('explains the payment amount field as the money actually received this time', function () {
+    $instalment = receivableOn($this->matter);
+
+    $this->actingAs($this->accountant, 'web');
+
+    $this->livewire(Receivables::class)
+        ->mountAction(TestAction::make('recordPayment')->table($instalment))
+        ->assertMountedActionModalSee(__('billing.tab.fields.payment_amount_help'))
+        ->assertMountedActionModalDontSee(__('billing.tab.fields.total_amount_help'));
+});
+
+// =================================================================================================
+// Lượt rà soát cuối M9, I2 — "Khoản thu gần đây": một đợt đã thu đủ/đã miễn rời bảng công nợ, nên
+// kế toán (không mở được trang vụ việc) không còn đường nào huỷ một khoản thu ghi nhầm trên nó. Mục
+// thứ hai của trang liệt kê khoản thu CHƯA HUỶ trong 90 ngày theo `paid_on`, cùng phạm vi
+// `listableBy()`, dữ liệu chỉ qua `AccountantPaymentRow`, mỗi dòng một nút huỷ qua `VoidPayment`.
+// =================================================================================================
+
+/**
+ * Một đợt ĐÃ THU ĐỦ (rời bảng công nợ) cùng khoản thu của nó.
+ *
+ * @return array{0: Instalment, 1: Payment}
+ */
+function paidInstalmentOn(Matter $matter, int $amount = 10_000_000, array $paymentOverrides = []): array
+{
+    $instalment = receivableOn($matter, $amount, ['status' => InstalmentStatus::Paid]);
+    $payment = Payment::factory()->for($instalment)->create([
+        'amount' => $amount,
+        'paid_on' => today()->subDays(2)->toDateString(),
+        ...$paymentOverrides,
+    ]);
+
+    return [$instalment, $payment];
+}
+
+it('puts the recent-payments section on the receivables page', function () {
+    $this->actingAs($this->accountant, 'web');
+
+    $this->livewire(Receivables::class)->assertSeeLivewire(RecentPaymentsWidget::class);
+});
+
+it('keeps the recent-payments section off the home dashboard', function () {
+    expect(RecentPaymentsWidget::isDiscovered())->toBeFalse()
+        ->and(Filament::getPanel('admin')->getWidgets())->not->toContain(RecentPaymentsWidget::class);
+});
+
+it('lets the accountant void the payment of an instalment that is already paid and no longer in the receivables rows', function () {
+    [$instalment, $payment] = paidInstalmentOn($this->matter);
+
+    $this->actingAs($this->accountant, 'web');
+
+    $this->livewire(Receivables::class)->assertCanNotSeeTableRecords([$instalment]);
+
+    $this->livewire(RecentPaymentsWidget::class)
+        ->assertCanSeeTableRecords([$payment])
+        ->assertActionVisible(TestAction::make('voidPayment')->table($payment))
+        ->callAction(TestAction::make('voidPayment')->table($payment), data: [
+            'reason' => 'Ghi nhầm khoản thu, khách chưa chuyển khoản.',
+        ])
+        ->assertHasNoActionErrors();
+
+    expect($payment->fresh()->voided_at)->not->toBeNull()
+        ->and($payment->fresh()->voided_by)->toBe($this->accountant->id)
+        ->and($instalment->fresh()->status)->toBe(InstalmentStatus::Pending);
+});
+
+it('never lists a restricted matters payment for the accountant or the manager, while the admin sees it', function () {
+    [, $ordinary] = paidInstalmentOn($this->matter);
+    [, $restricted] = paidInstalmentOn($this->restricted);
+
+    foreach ([$this->accountant, $this->manager] as $viewer) {
+        $this->actingAs($viewer, 'web');
+        $this->livewire(RecentPaymentsWidget::class)
+            ->assertCanSeeTableRecords([$ordinary])
+            ->assertCanNotSeeTableRecords([$restricted]);
+    }
+
+    $this->actingAs($this->admin, 'web');
+    $this->livewire(RecentPaymentsWidget::class)->assertCanSeeTableRecords([$ordinary, $restricted]);
+});
+
+it('shows the manager the recent payments without a void button', function () {
+    [, $payment] = paidInstalmentOn($this->matter);
+
+    $this->actingAs($this->manager, 'web');
+
+    $this->livewire(RecentPaymentsWidget::class)
+        ->assertCanSeeTableRecords([$payment])
+        ->assertActionHidden(TestAction::make('voidPayment')->table($payment));
+});
+
+/** Cùng lối tấn công `mountAction()` thẳng như nút ghi khoản thu ở trên: cổng thật là `->authorize()`. */
+it('refuses voidPayment for the manager even when mounted directly through Livewire', function () {
+    [, $payment] = paidInstalmentOn($this->matter);
+
+    $this->actingAs($this->manager, 'web');
+
+    $this->livewire(RecentPaymentsWidget::class)
+        ->call('mountAction', 'voidPayment', [], ['table' => true, 'recordKey' => (string) $payment->id])
+        ->assertActionNotMounted();
+
+    expect($payment->fresh()->voided_at)->toBeNull();
+});
+
+it('lists only unvoided payments paid within the last 90 days, newest first', function () {
+    [, $today] = paidInstalmentOn($this->matter, 10_000_000, ['paid_on' => today()->toDateString()]);
+    [, $edge] = paidInstalmentOn(Matter::factory()->create(), 10_000_000, ['paid_on' => today()->subDays(90)->toDateString()]);
+    [, $tooOld] = paidInstalmentOn(Matter::factory()->create(), 10_000_000, ['paid_on' => today()->subDays(91)->toDateString()]);
+    [, $voided] = paidInstalmentOn(Matter::factory()->create(), 10_000_000, [
+        'voided_at' => now(), 'voided_by' => $this->admin->id, 'void_reason' => str_repeat('v', 20),
+    ]);
+
+    $this->actingAs($this->accountant, 'web');
+
+    $this->livewire(RecentPaymentsWidget::class)
+        ->assertCanSeeTableRecords([$today, $edge], inOrder: true)
+        ->assertCanNotSeeTableRecords([$tooOld, $voided]);
+});
+
+it('filters recent payments by client and by matter code', function () {
+    $client = Client::factory()->create();
+    [, $mine] = paidInstalmentOn(Matter::factory()->for($client)->create());
+    [, $other] = paidInstalmentOn($this->matter);
+
+    $this->actingAs($this->accountant, 'web');
+
+    $this->livewire(RecentPaymentsWidget::class)
+        ->filterTable('client_id', $client->id)
+        ->assertCanSeeTableRecords([$mine])
+        ->assertCanNotSeeTableRecords([$other]);
+
+    $this->livewire(RecentPaymentsWidget::class)
+        ->filterTable('matter_code', ['code' => $this->matter->code])
+        ->assertCanSeeTableRecords([$other])
+        ->assertCanNotSeeTableRecords([$mine]);
+});
+
+it('excludes a client whose only payment is on a restricted matter from the accountants client filter', function () {
+    $client = Client::factory()->create();
+    paidInstalmentOn(Matter::factory()->restricted()->for($client)->create(['lead_lawyer_id' => $this->lawyer->id]));
+
+    $this->actingAs($this->accountant, 'web');
+    $options = $this->livewire(RecentPaymentsWidget::class)->instance()->getTable()->getFilter('client_id')->getOptions();
+    expect($options)->not->toHaveKey($client->id);
+
+    $this->actingAs($this->admin, 'web');
+    $options = $this->livewire(RecentPaymentsWidget::class)->instance()->getTable()->getFilter('client_id')->getOptions();
+    expect($options)->toHaveKey($client->id);
+});
+
+it('never leaks the matter title, a party name, or the internal payment note, while still showing the code, client, amount and reference', function () {
+    $secretTitle = 'TIEU DE TUYET MAT KHONG DUOC LO PAY123';
+    $secretParty = 'BEN LIEN QUAN TUYET MAT KHONG DUOC LO PAY456';
+    $secretNote = 'GHI CHU NOI BO KHOAN THU KHONG DUOC LO PAY789';
+
+    $matter = Matter::factory()->create(['title' => $secretTitle]);
+    MatterParty::factory()->for($matter)->create(['name' => $secretParty]);
+    paidInstalmentOn($matter, 7_000_000, ['note' => $secretNote, 'reference' => 'UNC-2026-0042']);
+
+    $this->actingAs($this->accountant, 'web');
+
+    $this->livewire(RecentPaymentsWidget::class)
+        ->assertSee($matter->code)
+        ->assertSee($matter->client->name)
+        ->assertSee(Money::format(7_000_000))
+        ->assertSee('UNC-2026-0042')
+        ->assertDontSee($secretTitle)
+        ->assertDontSee($secretParty)
+        ->assertDontSee($secretNote);
+});
+
+it('runs the same number of queries for the recent-payments section whether it has N rows or 3N', function () {
+    $this->actingAs($this->accountant, 'web');
+
+    $makeRow = fn () => paidInstalmentOn(Matter::factory()->create());
+
+    $makeRow();
+    $makeRow();
+    $makeRow();
+
+    $this->livewire(RecentPaymentsWidget::class);
+
+    DB::enableQueryLog();
+    DB::flushQueryLog();
+    $this->livewire(RecentPaymentsWidget::class);
+    $queriesForN = count(DB::getQueryLog());
+
+    foreach (range(1, 6) as $ignored) {
+        $makeRow();
+    }
+
+    DB::flushQueryLog();
+    $this->livewire(RecentPaymentsWidget::class);
+    $queriesFor3N = count(DB::getQueryLog());
+
+    DB::disableQueryLog();
+
+    expect($queriesFor3N)->toBe($queriesForN);
+});
+
+/** C1 qua đúng màn hình kế toán dùng: huỷ trên hợp đồng đã hoàn tất là một lời từ chối đọc được, không phải 500. */
+it('turns a void refused on a completed contract into a notification, and voids nothing', function () {
+    [$instalment, $payment] = paidInstalmentOn($this->matter);
+    $instalment->contract->forceFill(['status' => ContractStatus::Completed, 'ended_at' => today()->toDateString()])->save();
+
+    $this->actingAs($this->accountant, 'web');
+
+    $this->livewire(RecentPaymentsWidget::class)
+        ->callAction(TestAction::make('voidPayment')->table($payment), data: [
+            'reason' => 'Ghi nhầm khoản thu, khách chưa chuyển khoản.',
+        ]);
+
+    Notification::assertNotified(__('actions.failed_title'));
+    expect($payment->fresh()->voided_at)->toBeNull();
 });
 
 // Định nghĩa đầy đủ "ai ghi được payment.record trên vụ restricted" (chỉ lead lawyer/admin) đã có
