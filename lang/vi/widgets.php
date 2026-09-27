@@ -122,6 +122,7 @@ return [
             'bucket_label' => ':type — :stage',
             'on_signing_bucket' => 'Tạm ứng khi ký hợp đồng (mọi loại vụ việc)',
             'due_date_bucket' => 'Đến hạn theo ngày cụ thể, không theo giai đoạn (mọi loại vụ việc)',
+            'unknown_stage_bucket' => 'Giai đoạn không còn trong cấu hình',
             'series' => 'Đã thu',
         ],
         'mix_by_practice_area' => [

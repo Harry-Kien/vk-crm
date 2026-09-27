@@ -14,6 +14,7 @@ use App\Models\Contract;
 use App\Models\Instalment;
 use App\Models\Matter;
 use App\Models\MatterType;
+use App\Models\MatterTypeStage;
 use App\Models\Payment;
 use App\Models\User;
 use App\Support\Billing\BillingSummary;
@@ -885,6 +886,125 @@ it('still renders the vendor month/quarter/year filter select and the accessible
         ->toContain(__('widgets.revenue_dashboard.over_time.filter_quarter'))
         ->toContain(__('widgets.revenue_dashboard.over_time.filter_year'))
         ->toContain('role="img"');
+});
+
+// =================================================================================================
+// Fix round 2, Important — bó theo giai đoạn còn bị đếm HAI LẦN khi một key bị xoá mềm rồi TẠO LẠI
+// (round 1 chỉ sửa "JOIN cả giai đoạn xoá mềm", chưa sửa "nhiều dòng cùng key"). Sửa bằng bảng dẫn
+// xuất chọn ĐÚNG MỘT id cho mỗi (matter_type_id, key); LEFT JOIN + bó "không còn trong cấu hình"
+// cho đợt không khớp được dòng nào (xoá CỨNG, hoặc vụ việc đổi loại).
+// =================================================================================================
+
+/** Helper: tạo một MatterTypeStage sống mới, TRÙNG key với một stage đã xoá mềm — đúng thao tác
+ * "xoá rồi tạo lại" mà quản trị viên có thể làm (ràng buộc trùng chỉ tính trên dòng còn sống). */
+function recreateStage(MatterTypeStage $original): MatterTypeStage
+{
+    return MatterTypeStage::create([
+        'matter_type_id' => $original->matter_type_id,
+        'key' => $original->key,
+        'label' => $original->label,
+        'client_label' => $original->client_label,
+        'client_description' => $original->client_description,
+        'sort_order' => $original->sort_order,
+        'is_terminal' => $original->is_terminal,
+        'allowed_next' => $original->allowed_next,
+        'default_next_update_days' => $original->default_next_update_days,
+    ]);
+}
+
+/** Trả về đúng một đợt `stage` đã thu, gắn vào $matter (cùng matter_type với stage gốc). */
+function payOnStage(Matter $matter, string $key, int $amount, User $lawyer): void
+{
+    $contract = Contract::factory()->for($matter)->create(['total_amount' => $amount, 'signed_at' => null]);
+    $instalment = Instalment::factory()->for($contract)->onStage($key)->create(['sequence' => 1, 'amount' => $amount]);
+    $contract->update(['status' => ContractStatus::Active, 'signed_at' => today()->toDateString()]);
+    Payment::factory()->for($instalment)->create(['amount' => $amount, 'paid_on' => today()->toDateString(), 'attributed_lawyer_id' => $lawyer->id]);
+}
+
+/** (a) Xoá mềm giai đoạn K, tạo lại giai đoạn K — vẫn ĐÚNG MỘT bó, không hai. */
+it('counts exactly one bucket for a stage key that was soft-deleted and recreated, matching the over-time total', function () {
+    $matterBefore = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
+    $originalStage = $matterBefore->matterType->stages->firstWhere('key', 'court_accepted');
+
+    payOnStage($matterBefore, 'court_accepted', 8_000_000, $this->lawyer);
+
+    $originalStage->delete();
+    recreateStage($originalStage->fresh());
+
+    $matterAfter = Matter::factory()->create([
+        'matter_type_id' => $matterBefore->matter_type_id,
+        'lead_lawyer_id' => $this->lawyer->id,
+    ]);
+    payOnStage($matterAfter, 'court_accepted', 5_000_000, $this->lawyer);
+
+    $this->actingAs($this->lawyer, 'web');
+    $rows = widgetRows(RevenueByStageWidget::class);
+    $matchingRows = collect($rows)->filter(fn (array $row): bool => str_contains($row['label'], 'Toà thụ lý'));
+
+    // ĐÚNG MỘT bó (không hai, dù có hai dòng matter_type_stages cho cùng key: một xoá mềm, một mới).
+    expect($matchingRows)->toHaveCount(1);
+    expect(parseMoneyRow($matchingRows->sole()['value']))->toBe(13_000_000);
+
+    $byStageTotal = (int) collect($rows)->sum(fn (array $row): int => parseMoneyRow($row['value']));
+    $overTimeTotal = array_sum(widgetData(RevenueOverTimeWidget::class)['datasets'][0]['data']);
+    expect($byStageTotal)->toBe($overTimeTotal);
+});
+
+/** (b) Xoá — tạo lại — xoá lần nữa: không dòng SỐNG nào còn lại, vẫn ĐÚNG MỘT bó. */
+it('still counts exactly one bucket when a stage key was deleted, recreated, and deleted again, leaving two trashed rows', function () {
+    $matterBefore = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
+    $originalStage = $matterBefore->matterType->stages->firstWhere('key', 'court_accepted');
+
+    payOnStage($matterBefore, 'court_accepted', 6_000_000, $this->lawyer);
+
+    $originalStage->delete();
+    $recreated = recreateStage($originalStage->fresh());
+    $recreated->delete();
+
+    expect(MatterTypeStage::withTrashed()
+        ->where('matter_type_id', $matterBefore->matter_type_id)
+        ->where('key', 'court_accepted')
+        ->count())->toBe(2)
+        ->and(MatterTypeStage::query()
+            ->where('matter_type_id', $matterBefore->matter_type_id)
+            ->where('key', 'court_accepted')
+            ->count())->toBe(0); // không dòng sống nào
+
+    $matterAfter = Matter::factory()->create([
+        'matter_type_id' => $matterBefore->matter_type_id,
+        'lead_lawyer_id' => $this->lawyer->id,
+    ]);
+    payOnStage($matterAfter, 'court_accepted', 4_000_000, $this->lawyer);
+
+    $this->actingAs($this->lawyer, 'web');
+    $rows = widgetRows(RevenueByStageWidget::class);
+    $matchingRows = collect($rows)->filter(fn (array $row): bool => str_contains($row['label'], 'Toà thụ lý'));
+
+    expect($matchingRows)->toHaveCount(1);
+    expect(parseMoneyRow($matchingRows->sole()['value']))->toBe(10_000_000);
+});
+
+/** (c) Giai đoạn bị xoá CỨNG — đợt vẫn được đếm, chỉ rơi vào bó "không còn trong cấu hình". */
+it('lands a payment whose stage row was force-deleted in the unknown-stage bucket, and the totals still match', function () {
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
+    $stage = $matter->matterType->stages->firstWhere('key', 'court_accepted');
+
+    payOnStage($matter, 'court_accepted', 7_000_000, $this->lawyer);
+
+    // Xoá CỨNG — không còn dòng nào cho (matter_type_id, key) này, kể cả xoá mềm.
+    $stage->forceDelete();
+    expect(MatterTypeStage::withTrashed()->whereKey($stage->id)->exists())->toBeFalse();
+
+    $this->actingAs($this->lawyer, 'web');
+    $rows = widgetRows(RevenueByStageWidget::class);
+    $unknownRow = collect($rows)->firstWhere('label', __('widgets.revenue_dashboard.by_stage.unknown_stage_bucket'));
+
+    expect($unknownRow)->not->toBeNull();
+    expect(parseMoneyRow($unknownRow['value']))->toBe(7_000_000);
+
+    $byStageTotal = (int) collect($rows)->sum(fn (array $row): int => parseMoneyRow($row['value']));
+    $overTimeTotal = array_sum(widgetData(RevenueOverTimeWidget::class)['datasets'][0]['data']);
+    expect($byStageTotal)->toBe($overTimeTotal);
 });
 
 /** @return list<array{label: string, value: string}> */

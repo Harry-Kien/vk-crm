@@ -19,6 +19,7 @@ use Filament\Widgets\Concerns\InteractsWithPageFilters;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 
 /**
  * "Đã thu / còn phải thu / quá hạn" — vành khuyên, BA lát, kèm một bảng số (M9 Task 9). Nơi DUY
@@ -225,12 +226,23 @@ class ReceivablesDonutWidget extends ChartWidget
             ->sum('amount');
 
         // C1: còn phải thu — CHỈ từ BillingSummary::pendingInstalmentsQuery() (chỉ hợp đồng
-        // `active`, đúng MỘT công thức toàn dự án). `.get()->sum()` (Collection, không phải
-        // aggregate của query builder) vì lý do đã nêu ở `$writtenOffRow` — `outstanding_amount`
-        // cũng là một bí danh selectRaw.
-        $outstanding = (int) BillingSummary::pendingInstalmentsQuery()
-            ->whereHas('contract', fn (Builder $q) => $contractPeriodScope($q)->whereHas('matter', $outstandingMatterScope))
-            ->get()
+        // `active`, đúng MỘT công thức toàn dự án).
+        //
+        // **`fromSub()->sum()`, KHÔNG `.get()->sum()`** (Fix round 2, minor): bản trước NẠP HẾT
+        // mọi đợt còn công nợ thành model Eloquent chỉ để cộng một cột trong PHP — đúng chi phí mà
+        // `BillingSummary::pendingInstalmentsQuery()` được viết ra để TRÁNH (một round-trip TÍNH
+        // SẴN bằng SQL, không phải kéo dữ liệu về rồi tính tay). `outstanding_amount` là một bí
+        // danh `selectRaw` nên không gọi thẳng `.sum('outstanding_amount')` được (xem docblock
+        // `$writtenOffRow`: `aggregate()` của query builder xoá sạch SELECT hiện có trước khi
+        // chạy) — bọc câu truy vấn Eloquent làm một BẢNG CON (`fromSub`, Laravel chấp nhận thẳng
+        // một `Illuminate\Database\Eloquent\Builder`, xem `Query\Builder::parseSub()`) rồi mới
+        // `.sum()` trên bảng con đó: cộng vẫn chạy trong CSDL, không một Instalment nào được hydrate.
+        $outstanding = (int) DB::query()
+            ->fromSub(
+                BillingSummary::pendingInstalmentsQuery()
+                    ->whereHas('contract', fn (Builder $q) => $contractPeriodScope($q)->whereHas('matter', $outstandingMatterScope)),
+                'pending',
+            )
             ->sum('outstanding_amount');
 
         $overdue = (int) Instalment::query()
