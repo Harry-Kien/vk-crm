@@ -3,10 +3,12 @@
 namespace App\Actions\Client;
 
 use App\Exceptions\ClientLookupThrottled;
+use App\Exceptions\DuplicateClientNotVisible;
 use App\Models\Client;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\ClientLookupThrottle;
+use App\Support\ClientVisibility;
 use App\Support\Normalizer;
 
 /**
@@ -42,6 +44,17 @@ use App\Support\Normalizer;
  * cùng dựng lại được cả danh sách mà `VisibleClientOptions` cố tình không cho luật sư thấy. Dùng
  * chung một bộ đếm với `App\Actions\Client\CreateClient` (`App\Support\ClientLookupThrottle`, xem
  * docblock lớp đó) — 20 lần/giờ/nhân sự, cả hai đường CỘNG LẠI, không phải hai bộ đếm riêng.
+ *
+ * **Ranh giới `restricted` (fix round 2, E1, re-review).** Khớp TUYỆT ĐỐI không còn là đủ để trả
+ * về một `Client` — round 1 vá đúng nhánh "tạo khách mới" (`CreateClient::findExistingClient()`,
+ * qua `ClientVisibility::isVisibleTo()`) nhưng bỏ sót nhánh TRA này: một luật sư B gõ đúng CCCD
+ * của khách hàng C mà vụ DUY NHẤT là `restricted` do luật sư A phụ trách vẫn tra ra được tên và
+ * mã hồ sơ của C qua đây, dù `isVisibleTo()` đã chặn đúng con đường kia. `searchClients()` tìm
+ * thấy một khớp thì phải hỏi thêm `ClientVisibility::isOfferableByLookup()` (luật NHẸ HƠN
+ * `isVisibleTo()` — xem docblock hàm đó cho hai trường hợp còn tra được: chưa có vụ nào, hoặc có
+ * ít nhất một vụ KHÔNG `restricted`) trước khi trả `Client` đó ra — không thấy được thì ném
+ * `DuplicateClientNotVisible`, CÙNG câu trung lập với nhánh "tạo khách mới", để hai đường không
+ * lộ ra hai câu khác nhau tiết lộ có tồn tại một sự phân biệt nào đó.
  */
 class FindClientByIdentifier
 {
@@ -77,6 +90,13 @@ class FindClientByIdentifier
             'identifier_hash' => hash('sha256', $digits !== '' ? $digits : $identifier),
             'matched_client_id' => $match?->getKey(),
         ], $actor);
+
+        // Fix round 2, E1: dòng audit ở trên GHI SỰ THẬT (đã khớp, khớp với id nào) trước khi từ
+        // chối — bằng chứng nội bộ không được xoá chỉ vì actor không được PHÉP nhận câu trả lời
+        // đó. Ném ngoại lệ SAU khi ghi, không phải thay cho việc ghi.
+        if ($match !== null && ! ClientVisibility::isOfferableByLookup($actor, $match->getKey())) {
+            throw DuplicateClientNotVisible::make();
+        }
 
         return $match;
     }

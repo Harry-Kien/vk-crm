@@ -451,6 +451,160 @@ it('silently reuses a duplicate client that is visible to the lawyer, without cr
 });
 
 // =========================================================================================
+// Fix round 2 (E1, tinh chỉnh R4a) — ô TRA cũng phải áp đúng ranh giới `restricted` mà C1 đã vá
+// cho nhánh "tạo khách mới": không tra ra được một khách hàng mà MỌI vụ việc đều `restricted`
+// và không vụ nào actor liệt kê được.
+// =========================================================================================
+
+/**
+ * E1 (ruling): trước bản sửa này, `FindClientByIdentifier::searchClients()` không lọc gì theo
+ * tầm nhìn — một luật sư B gõ đúng CCCD của khách hàng C, mà vụ DUY NHẤT là `restricted` do luật
+ * sư A phụ trách, vẫn tra ra được TÊN và MÃ HỒ SƠ của C qua chính ô tra, dù `ClientVisibility::
+ * isVisibleTo()` (C1) đã chặn đúng con đường "tạo khách mới". Sau bản sửa: từ chối trung lập,
+ * không tên, không mã hồ sơ — và vụ việc không mở được nếu chỉ dựa vào kết quả tra đó.
+ *
+ * Kiểm tra "raw response, không `assertDontSee` có strip" (Minor round 2): gọi thẳng
+ * `assertDontSee($name, escape: true, stripInitialData: false)` để soi cả phần snapshot Livewire
+ * tuần tự hoá trong HTML, không chỉ phần người dùng nhìn thấy sau khi Livewire tự lọc dữ liệu
+ * khởi tạo — một tên còn sót lại TRONG snapshot (dù không hiện trên màn hình) vẫn là một rò rỉ.
+ */
+it('refuses the identifier lookup for a client whose matters are all restricted and unlistable, revealing nothing raw', function () {
+    $otherLawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+
+    $secretClient = Client::factory()->create(['name' => 'Khách hàng chỉ có vụ hạn chế', 'phone' => '0913000001']);
+    Matter::factory()->create([
+        'client_id' => $secretClient->id,
+        'lead_lawyer_id' => $otherLawyer->id,
+        'confidentiality' => Confidentiality::Restricted,
+    ]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(CreateMatter::class)
+        ->call('lookupClient', '0913000001');
+
+    expect($component->instance()->resolvedClientId)->toBeNull()
+        ->and($component->instance()->resolvedClientLabel)->toBeNull();
+
+    // Raw: không strip dữ liệu khởi tạo, không escape đặc biệt gì thêm — soi cả snapshot.
+    $component->assertDontSee('Khách hàng chỉ có vụ hạn chế', true, false);
+    $component->assertDontSee($secretClient->code, true, false);
+
+    // Không mở được vụ việc chỉ dựa vào kết quả tra bị từ chối đó (client_id vẫn thiếu).
+    $component->fillForm(['client_role' => PartyRole::Plaintiff->value])
+        ->call('create')
+        ->assertHasFormErrors(['client_id']);
+
+    expect(Matter::query()->where('client_id', $secretClient->id)->count())->toBe(1); // chỉ vụ hạn chế cũ
+});
+
+/**
+ * Vế dương thứ nhất (khách chưa có vụ nào vẫn tra được — `intake-03`) đã có sẵn ở test "lets the
+ * lawyer look up the exact phone of a client the assistant just created..." — không lặp lại ở
+ * đây, nhưng probe của mục đó dùng chính test kia (xem báo cáo).
+ *
+ * Vế dương thứ hai: khách hàng có MỘT vụ THƯỜNG cộng MỘT vụ `restricted` (không liên quan tới
+ * luật sư đang tra) — vẫn tra được, vì "mọi vụ đều restricted" SAI ngay khi có một vụ thường.
+ */
+it('still finds a client by lookup when it has one normal matter alongside an unrelated restricted matter', function () {
+    $otherLawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+
+    $client = Client::factory()->create(['phone' => '0913000002']);
+    Matter::factory()->create([
+        'client_id' => $client->id,
+        'lead_lawyer_id' => $otherLawyer->id,
+        'confidentiality' => Confidentiality::Restricted,
+    ]);
+    Matter::factory()->create([
+        'client_id' => $client->id,
+        'lead_lawyer_id' => $otherLawyer->id,
+        'confidentiality' => Confidentiality::Normal,
+    ]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(CreateMatter::class)
+        ->call('lookupClient', '0913000002');
+
+    expect($component->instance()->resolvedClientId)->toBe($client->id)
+        ->and($component->instance()->resolvedClientLabel)->not->toBeNull();
+});
+
+// =========================================================================================
+// Fix round 2 (Minor) — một lượt tra bị chặn (quá tần suất, hay khớp một khách hàng không tra ra
+// được) phải xoá SẠCH kết quả tra THÀNH CÔNG trước đó, không để nó sống sót.
+// =========================================================================================
+
+it('clears a previously resolved client when a later lookup is throttled', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $client = Client::factory()->create(['phone' => '0913000003']);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(CreateMatter::class);
+
+    // 19 lượt trượt trước, dùng budget 1..19 — không đụng gì tới resolvedClientId (giữ null).
+    for ($i = 1; $i <= 19; $i++) {
+        $component->call('lookupClient', sprintf('090000%04d', $i));
+    }
+
+    // Lượt thứ 20 (còn trong hạn mức): tra TRÚNG — resolvedClientId phải khác null trước khi bị
+    // chặn ở lượt kế tiếp, để phép thử này đo ĐÚNG việc chặn xoá được một kết quả THÀNH CÔNG chứ
+    // không phải chỉ giữ nguyên một `null` đã có sẵn từ một lượt trượt trước đó.
+    $component->call('lookupClient', '0913000003');
+    expect($component->instance()->resolvedClientId)->toBe($client->id);
+
+    // Lượt thứ 21: đã chạm trần, bị chặn — phải xoá sạch kết quả TRÚNG vừa có ở lượt 20.
+    $component->call('lookupClient', '0900009999');
+
+    expect($component->instance()->resolvedClientId)->toBeNull()
+        ->and($component->instance()->resolvedClientLabel)->toBeNull();
+});
+
+/**
+ * E1: `resolveClientId()` hỏi LẠI `isOfferableByLookup()` tại thời điểm LƯU, không chỉ tin kết
+ * quả của lần TRA. Luật sư tra được khách hàng C lúc C CHƯA có vụ nào (offerable); giữa lúc đó và
+ * lúc bấm "Lưu", một vụ `restricted` do người khác phụ trách được mở cho CHÍNH C (mô phỏng một
+ * người khác vừa mở vụ trong lúc luật sư đang gõ form) — C không còn offerable nữa. Lượt lưu phải
+ * từ chối, không mở vụ việc, dù `resolvedClientId` đã set từ trước.
+ */
+it('re-checks offerability at save time, refusing a lookup result that went stale', function () {
+    $otherLawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $type = createFormMatterType();
+
+    $client = Client::factory()->create(['phone' => '0913000004']);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(CreateMatter::class)
+        ->call('lookupClient', '0913000004');
+
+    expect($component->instance()->resolvedClientId)->toBe($client->id);
+
+    // Giữa lượt tra và lượt lưu: một vụ restricted xuất hiện, do người khác phụ trách.
+    Matter::factory()->create([
+        'client_id' => $client->id,
+        'lead_lawyer_id' => $otherLawyer->id,
+        'confidentiality' => Confidentiality::Restricted,
+    ]);
+
+    $component->fillForm([
+        'client_role' => PartyRole::Plaintiff->value,
+        'matter_type_id' => $type->id,
+        'title' => 'Vụ việc lưu trên một kết quả tra đã cũ',
+        'lead_lawyer_id' => $lawyer->id,
+        'other_parties' => [],
+    ])
+        ->call('create')
+        ->assertHasFormErrors(['client_lookup_identifier']);
+
+    expect(Matter::query()->where('title', 'Vụ việc lưu trên một kết quả tra đã cũ')->exists())->toBeFalse();
+});
+
+// =========================================================================================
 // Fix round 1 — I1: giới hạn 20 lần tra/giờ cho một nhân sự, chung một bộ đếm cho cả tra
 // (lookupClient) lẫn dò trùng khi tạo khách mới (new_client.*).
 // =========================================================================================
@@ -512,6 +666,45 @@ it('shares the same hourly limit between lookupClient and the new-client duplica
 
     expect(Client::where('name', 'Khách mới, không liên quan')->exists())->toBeFalse()
         ->and(Matter::query()->where('title', 'Vụ việc thứ 21 bị chặn vì quá tần suất')->exists())->toBeFalse();
+});
+
+/**
+ * Fix round 2 (Minor): `CreateClient::guardThrottle()` chọn định danh để băm bằng `filled()`,
+ * không phải `??` — một `phone` gửi lên là CHUỖI RỖNG (form còn để trống ô điện thoại, chỉ điền
+ * CCCD) không phải `null`, nên `??` không rơi xuống `id_number` như mong đợi và băm nhầm một
+ * chuỗi rỗng, làm mất hẳn giá trị nội bộ của dòng audit đó.
+ */
+it('hashes the id_number, not a blank phone, in the throttled audit for the new-client duplicate scan', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $type = createFormMatterType();
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(CreateMatter::class);
+
+    for ($i = 1; $i <= 20; $i++) {
+        $component->call('lookupClient', sprintf('090001%04d', $i));
+    }
+
+    $component->fillForm([
+        'client_role' => PartyRole::Plaintiff->value,
+        'matter_type_id' => $type->id,
+        'title' => 'Vụ việc bị chặn, phone rỗng nhưng có CCCD',
+        'lead_lawyer_id' => $lawyer->id,
+        'other_parties' => [],
+        'new_client' => [
+            'type' => ClientType::Individual->value,
+            'name' => 'Khách mới',
+            'phone' => '',
+            'id_number' => '079088776655',
+        ],
+    ]);
+
+    $component->call('create')->assertHasFormErrors(['new_client.name']);
+
+    $throttled = Activity::query()->where('event', 'client_lookup_throttled')->latest('id')->first();
+
+    expect($throttled)->not->toBeNull()
+        ->and($throttled->properties->get('identifier_hash'))->toBe(hash('sha256', '079088776655'));
 });
 
 // =========================================================================================

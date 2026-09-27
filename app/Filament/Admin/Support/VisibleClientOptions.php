@@ -3,8 +3,6 @@
 namespace App\Filament\Admin\Support;
 
 use App\Enums\Permission;
-use App\Models\Client;
-use App\Models\Matter;
 use App\Models\User;
 use App\Support\ClientVisibility;
 use Illuminate\Support\Facades\Auth;
@@ -69,23 +67,23 @@ final class VisibleClientOptions
         return $user instanceof User && $user->can(Permission::ClientManage->value);
     }
 
-    /** @return array<int, string> */
+    /**
+     * Fix round 2 (Minor): truy vấn đi qua `ClientVisibility::visibleClientQuery()` — MỘT nơi
+     * quyết định "ai thấy khách hàng nào", không còn một bản sao thứ hai của cùng luật viết tay
+     * ở đây (bản trước tự lặp lại đúng nhánh `client.manage`/`listableBy()` mà `ClientVisibility`
+     * đã có).
+     *
+     * @return array<int, string>
+     */
     public static function forCurrentUser(): array
     {
         $user = Auth::user();
-
-        if ($user instanceof User && $user->can(Permission::ClientManage->value)) {
-            return Client::query()->orderBy('name')->pluck('name', 'id')->all();
-        }
 
         if (! $user instanceof User) {
             return [];
         }
 
-        $visibleClientIds = Matter::query()->listableBy($user)->pluck('client_id')->unique();
-
-        return Client::query()
-            ->whereIn('id', $visibleClientIds)
+        return ClientVisibility::visibleClientQuery($user)
             ->orderBy('name')
             ->pluck('name', 'id')
             ->all();

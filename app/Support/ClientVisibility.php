@@ -2,10 +2,12 @@
 
 namespace App\Support;
 
+use App\Enums\Confidentiality;
 use App\Enums\Permission;
 use App\Models\Client;
 use App\Models\Matter;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 
 /**
  * Một khách hàng có ĐÚNG BẰNG này thấy được với MỘT actor cụ thể hay không (fix round 1, C1,
@@ -45,5 +47,63 @@ final class ClientVisibility
         }
 
         return Matter::query()->listableBy($user)->where('client_id', $clientId)->exists();
+    }
+
+    /**
+     * Fix round 2, E1 (M6.5 Task 6, re-review): tra ĐÚNG định danh (R4 a) có được ĐƯA RA hay
+     * không — nhẹ hơn `isVisibleTo()`. Trước bản sửa này, `FindClientByIdentifier` không lọc gì
+     * cả, nên một luật sư B gõ đúng CCCD của khách hàng C, mà vụ DUY NHẤT là `restricted` do luật
+     * sư A phụ trách, vẫn được tra ra tên và mã hồ sơ — đúng lỗ hổng C1 đã vá cho nhánh "tạo
+     * khách mới", nhưng bỏ sót nhánh "tra".
+     *
+     * **Luật (R4a tinh chỉnh):** từ chối, trung lập, CHỈ KHI mọi vụ việc CHƯA xoá mềm của khách
+     * hàng này đều `restricted` VÀ không vụ nào trong số đó `listableBy($user)`. Hai trường hợp
+     * còn lại vẫn tra được:
+     *  - khách hàng CHƯA có vụ việc nào (`intake-03` — khách trợ lý vừa tạo phải tra được);
+     *  - khách hàng có ÍT NHẤT một vụ việc THƯỜNG (không `restricted`), bất kể vụ đó có
+     *    `listableBy` actor này hay không — một vụ thường không phải bí mật, `confidentiality`
+     *    mới là ranh giới cần giữ, không phải "actor này có tham gia đội ngũ hay không" (đó là
+     *    ranh giới của `VisibleClientOptions`, một mối lo KHÁC — xem docblock lớp).
+     *
+     * **`resolveClientId()` gọi LẠI đúng hàm này lúc LƯU**, không chỉ lúc tra — một khoảng trống
+     * giữa hai lượt (vụ việc DUY NHẤT của khách hàng chuyển sang `restricted`, hoặc bị xoá mềm
+     * giữa chừng) không được để một kết quả tra CŨ còn hiệu lực.
+     */
+    public static function isOfferableByLookup(User $user, int $clientId): bool
+    {
+        if (! Client::query()->whereKey($clientId)->exists()) {
+            return false;
+        }
+
+        if (! Matter::query()->where('client_id', $clientId)->exists()) {
+            return true; // Chưa có vụ việc nào — intake-03.
+        }
+
+        if (Matter::query()->where('client_id', $clientId)->where('confidentiality', '!=', Confidentiality::Restricted->value)->exists()) {
+            return true; // Có ít nhất một vụ THƯỜNG.
+        }
+
+        // Mọi vụ đều restricted — offerable chỉ khi actor liệt kê được ÍT NHẤT một trong số đó
+        // (lead của chính vụ đó, hoặc admin — xem Matter::scopeListableBy()).
+        return Matter::query()->where('client_id', $clientId)->listableBy($user)->exists();
+    }
+
+    /**
+     * Fix round 2 (Minor): danh sách khách hàng cho ô CHỌN (`VisibleClientOptions::forCurrentUser()`)
+     * đi qua ĐÚNG MỘT truy vấn ở đây — client.manage thấy toàn bộ, còn lại chỉ thấy khách hàng của
+     * những vụ việc mình liệt kê được. Trước bản sửa này, `VisibleClientOptions` tự viết lại truy
+     * vấn này (đúng logic, nhưng là một BẢN SAO thứ hai của cùng một luật).
+     *
+     * @return Builder<Client>
+     */
+    public static function visibleClientQuery(User $user): Builder
+    {
+        if ($user->can(Permission::ClientManage->value)) {
+            return Client::query();
+        }
+
+        $visibleClientIds = Matter::query()->listableBy($user)->pluck('client_id')->unique();
+
+        return Client::query()->whereIn('id', $visibleClientIds);
     }
 }

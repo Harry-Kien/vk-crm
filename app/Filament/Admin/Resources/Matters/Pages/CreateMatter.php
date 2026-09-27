@@ -12,9 +12,11 @@ use App\Enums\Permission;
 use App\Exceptions\ClientLookupThrottled;
 use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
+use App\Exceptions\DuplicateClientNotVisible;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Filament\Admin\Support\VisibleClientOptions;
 use App\Models\User;
+use App\Support\ClientVisibility;
 use App\Support\ConflictCheckResult;
 use App\Support\ConflictMatch;
 use App\Support\ConflictOverride;
@@ -139,11 +141,22 @@ class CreateMatter extends CreateRecord
      * sang tạo khách mới không được để `resolvedClientId` của lần tra TRƯỚC còn sống sót và âm
      * thầm ghi đè khối "Tạo khách mới" họ sắp điền.
      *
-     * **`ClientLookupThrottled` (fix round 1, I1) bắt ở ĐÂY, không để lọt ra ngoài.** Hàm này là
-     * một Livewire action gọi từ `afterStateUpdated` khi rời ô — khác `mutateFormDataBeforeCreate()`
-     * (nơi Livewire tự bắt `ValidationException` thành lỗi form), một ngoại lệ ném ra từ đây sẽ
-     * lọt thẳng thành lỗi 500 chung chung. `Notification::make()->warning()` là cách đúng để báo
-     * một lỗi không gắn với ô nào cụ thể của form.
+     * **`ClientLookupThrottled`/`DuplicateClientNotVisible` bắt ở ĐÂY, không để lọt ra ngoài.**
+     * Hàm này là một Livewire action gọi từ `afterStateUpdated` khi rời ô — khác
+     * `mutateFormDataBeforeCreate()` (nơi Livewire tự bắt `ValidationException` thành lỗi form),
+     * một ngoại lệ ném ra từ đây sẽ lọt thẳng thành lỗi 500 chung chung. `Notification::make()->
+     * warning()` là cách đúng để báo một lỗi không gắn với ô nào cụ thể của form.
+     * `DuplicateClientNotVisible` (fix round 2, E1) dùng CHUNG câu trung lập với nhánh "tạo khách
+     * mới" — xem docblock `FindClientByIdentifier` và `ClientVisibility::isOfferableByLookup()`.
+     *
+     * **Fix round 2 (Minor) — cả hai nhánh `catch` đều XOÁ SẠCH kết quả cũ, không chỉ báo lỗi rồi
+     * dừng.** Bản round 1 chỉ `return` sau khi báo — nếu ô tra đang giữ một kết quả THÀNH CÔNG từ
+     * lần gõ TRƯỚC (`resolvedClientId` khác `null`) và lần gõ MỚI này bị chặn (quá tần suất, hay
+     * khớp một khách hàng không tra ra được), kết quả CŨ vẫn còn nguyên — form âm thầm dùng một
+     * hồ sơ khách hàng không phải hồ sơ ứng với số VỪA gõ. Xoá cả `resolvedClientId`,
+     * `resolvedClientLabel` lẫn bảng kết quả xung đột (`forgetConflictResult()`) trong CẢ hai
+     * nhánh lỗi, đúng nguyên tắc "một lần đổi khách hàng (dù thành hay không) đều làm mất hiệu
+     * lực bất kỳ kết quả cũ nào".
      */
     public function lookupClient(?string $identifier): void
     {
@@ -162,7 +175,11 @@ class CreateMatter extends CreateRecord
 
         try {
             $client = app(FindClientByIdentifier::class)->handle($actor, $identifier);
-        } catch (ClientLookupThrottled $exception) {
+        } catch (ClientLookupThrottled|DuplicateClientNotVisible $exception) {
+            $this->resolvedClientId = null;
+            $this->resolvedClientLabel = null;
+            $this->forgetConflictResult();
+
             Notification::make()->title($exception->getMessage())->warning()->send();
 
             return;
@@ -369,6 +386,20 @@ class CreateMatter extends CreateRecord
     private static function resolveClientId(self $livewire, array $data): int
     {
         if ($livewire->resolvedClientId !== null) {
+            $actor = Auth::user();
+            abort_unless($actor instanceof User, 403);
+
+            // Fix round 2, E1: hỏi LẠI đúng luật `isOfferableByLookup()` tại thời điểm LƯU, không
+            // chỉ tin kết quả của lần TRA (hay lần tạo/dùng lại) đã xảy ra trước đó — một khoảng
+            // trống giữa hai lượt (vụ DUY NHẤT của khách hàng chuyển sang `restricted`, hoặc bị
+            // xoá mềm) không được để một kết quả cũ còn hiệu lực. Cùng câu trung lập với
+            // `FindClientByIdentifier`/`CreateClient` — không nêu tên hay mã hồ sơ.
+            if (! ClientVisibility::isOfferableByLookup($actor, $livewire->resolvedClientId)) {
+                throw ValidationException::withMessages([
+                    $livewire->errorKey('client_lookup_identifier') => [DuplicateClientNotVisible::make()->getMessage()],
+                ]);
+            }
+
             return $livewire->resolvedClientId;
         }
 

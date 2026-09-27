@@ -137,7 +137,17 @@ class CreateClient
         }
 
         // SPEC §10.5/R4: hash, không phải số thô — cùng công thức với `FindClientByIdentifier`.
-        $digits = preg_replace('/\D+/', '', (string) ($attributes['phone'] ?? $attributes['id_number'] ?? '')) ?? '';
+        // Fix round 2 (Minor): `filled()`, không phải `??` — `??` chỉ rơi xuống `id_number` khi
+        // `phone` là `null` HOẶC vắng mặt hẳn trong `$attributes`; nếu một caller gửi `phone`
+        // dưới dạng CHUỖI RỖNG tường minh (`'' !== null`, nên `??` KHÔNG rơi xuống), dòng này băm
+        // nhầm một chuỗi rỗng thay vì số CCCD thật sự dùng để dò trùng. Hai màn hình Filament của
+        // dự án hôm nay không tạo ra tình huống đó (dehydrate bỏ hẳn khoá khi ô để trống, không
+        // gửi `''`), nhưng `$attributes` là tham số công khai của Action — một caller khác (lệnh
+        // console, job, hay một điểm vào API sau này) hoàn toàn có thể gửi `''` tường minh, và
+        // `filled()` là cách viết đúng bất kể ai gọi. Xem `CreateClientTest::` (test Action trực
+        // tiếp — dựng đúng tình huống Filament không tạo ra được) cho bằng chứng RED/GREEN.
+        $identifierRaw = filled($attributes['phone'] ?? null) ? $attributes['phone'] : ($attributes['id_number'] ?? '');
+        $digits = preg_replace('/\D+/', '', (string) $identifierRaw) ?? '';
 
         Audit::record('client_lookup_throttled', null, [
             'identifier_hash' => $digits !== '' ? hash('sha256', $digits) : null,
