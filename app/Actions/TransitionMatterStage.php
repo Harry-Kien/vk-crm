@@ -227,11 +227,18 @@ class TransitionMatterStage
                 // TRƯỚC đã terminal rồi thì vụ việc đã đóng rồi; chuyển tiếp sang một giai đoạn
                 // terminal khác không phải một lần đóng MỚI, nên không ghi gì cho `closed_at` —
                 // giữ nguyên giá trị đang có.
+                //
+                // Final review X9 (C-I3): hỏi `closed_at` ĐANG CÓ, không hỏi giai đoạn đang đứng
+                // có terminal không. Cờ `is_terminal` của giai đoạn đang đứng có thể đã được sửa
+                // SAU khi vụ vào đó (dữ liệu cũ, trước khi `MatterTypeStage` chặn bật/tắt cờ khi
+                // còn hồ sơ đứng ở đó) — hỏi cờ đó để lại `closed_at` mắc kẹt cả hai chiều. Giai
+                // đoạn ĐÍCH quyết định: terminal và chưa đóng → đóng hôm nay; terminal và đã đóng
+                // → giữ ngày đóng thật; không terminal → mở lại.
                 if ($targetStageConfig->is_terminal) {
-                    if (! ($currentStageConfig?->is_terminal ?? false)) {
+                    if ($matter->closed_at === null) {
                         $matterUpdates['closed_at'] = now();
                     }
-                } elseif ($currentStageConfig?->is_terminal) {
+                } elseif ($matter->closed_at !== null) {
                     $matterUpdates['closed_at'] = null;
                 }
             }

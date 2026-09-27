@@ -114,6 +114,19 @@ class StagesRelationManager extends RelationManager
                     ->required(),
                 Toggle::make('is_terminal')
                     ->label(__('matter_types.stage_fields.is_terminal'))
+                    // Final review X9: tầng form của chốt chặn `MatterTypeStage::booted()` — đổi
+                    // cờ này khi còn hồ sơ đứng ở giai đoạn đổi nghĩa `closed_at` của họ.
+                    ->rule(fn (?MatterTypeStage $record): Closure => function (string $attribute, mixed $value, Closure $fail) use ($record): void {
+                        if ($record === null || (bool) $value === (bool) $record->is_terminal) {
+                            return;
+                        }
+
+                        $standing = $record->mattersStandingHereCount();
+
+                        if ($standing > 0) {
+                            $fail(__('matter_types.stage_fields.is_terminal_locked', ['count' => $standing]));
+                        }
+                    })
                     ->default(false),
                 Select::make('allowed_next')
                     ->label(__('matter_types.stage_fields.allowed_next'))

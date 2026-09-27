@@ -48,21 +48,45 @@ class ChecklistTemplateSeeder extends Seeder
         ]);
     }
 
-    /** @param list<array{0: string, 1: bool, 2: string}> $items */
+    /**
+     * **Chỉ THÊM, không bao giờ sửa (final review X10, C-I5).** Một danh mục mẫu (kèm đầu mục) chỉ
+     * được tạo khi loại vụ việc đó CHƯA có danh mục nào mang đúng tên này, kể cả đã xoá mềm. Danh
+     * mục đã có thì bỏ qua hoàn toàn: đầu mục đã xoá không quay lại, mô tả/bắt buộc đã sửa giữ
+     * nguyên, danh mục đã tắt vẫn tắt. Loại vụ việc không còn (đã xoá mềm hay chưa từng có) thì
+     * không có gì để gắn danh mục vào.
+     *
+     * @param  list<array{0: string, 1: bool, 2: string}>  $items
+     */
     private function template(string $typeCode, string $name, array $items): void
     {
-        $type = MatterType::query()->where('code', $typeCode)->firstOrFail();
+        $type = MatterType::query()->where('code', $typeCode)->first();
 
-        $template = ChecklistTemplate::query()->updateOrCreate(
-            ['matter_type_id' => $type->id, 'name' => $name],
-            ['is_active' => true],
-        );
+        if ($type === null) {
+            return;
+        }
+
+        $exists = ChecklistTemplate::withTrashed()
+            ->where('matter_type_id', $type->id)
+            ->where('name', $name)
+            ->exists();
+
+        if ($exists) {
+            return;
+        }
+
+        $template = ChecklistTemplate::query()->create([
+            'matter_type_id' => $type->id,
+            'name' => $name,
+            'is_active' => true,
+        ]);
 
         foreach ($items as $index => [$itemName, $required, $description]) {
-            $template->items()->updateOrCreate(
-                ['name' => $itemName],
-                ['description' => $description, 'is_required' => $required, 'sort_order' => $index + 1],
-            );
+            $template->items()->create([
+                'name' => $itemName,
+                'description' => $description,
+                'is_required' => $required,
+                'sort_order' => $index + 1,
+            ]);
         }
     }
 }

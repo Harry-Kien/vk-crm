@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\Role;
+use App\Exceptions\StageTerminalFlagInUse;
 use App\Filament\Admin\Resources\MatterTypes\MatterTypeResource;
 use App\Filament\Admin\Resources\MatterTypes\Pages\CreateMatterType;
 use App\Filament\Admin\Resources\MatterTypes\Pages\EditMatterType;
@@ -511,4 +512,53 @@ it('rejects a negative sort order on a checklist template item', function () {
         ->assertHasTableActionErrors(['items.0.sort_order']);
 
     expect(ChecklistTemplate::query()->where('name', 'Danh mục thứ tự âm')->exists())->toBeFalse();
+});
+
+// --- Final review X9 (C-I3): không bật/tắt is_terminal khi còn hồ sơ đứng ở giai đoạn đó ------
+
+/**
+ * Bật hay tắt `is_terminal` đổi nghĩa của `closed_at` cho mọi hồ sơ ĐANG đứng ở giai đoạn đó —
+ * vụ đang chạy bỗng "đã đóng" hoặc vụ đã đóng bỗng "đang mở" mà không có lần chuyển giai đoạn nào.
+ * Chặn ở form (lỗi gắn vào ô, kèm số hồ sơ) và ở model (mọi đường ghi khác).
+ */
+it('refuses turning is_terminal on or off while matters stand in that stage', function (bool $from) {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $type = MatterType::factory()->withStages()->create();
+    $stage = $type->stage('intake');
+    $stage->forceFill(['is_terminal' => $from])->saveQuietly();
+    Matter::factory()->count(2)->for($type, 'matterType')->create(['stage' => 'intake']);
+
+    $this->actingAs($admin, 'web');
+    Filament::setCurrentPanel('admin');
+
+    $component = $this->livewire(StagesRelationManager::class, [
+        'ownerRecord' => $type,
+        'pageClass' => EditMatterType::class,
+    ])
+        ->callTableAction('edit', record: $stage->fresh(), data: ['is_terminal' => ! $from])
+        ->assertHasTableActionErrors(['is_terminal']);
+
+    expect($stage->fresh()->is_terminal)->toBe($from);
+
+    expect(fn () => $stage->fresh()->update(['is_terminal' => ! $from]))
+        ->toThrow(StageTerminalFlagInUse::class);
+})->with(['on' => false, 'off' => true]);
+
+it('still lets an admin toggle is_terminal on a stage no matter stands in', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $type = MatterType::factory()->withStages()->create();
+    $stage = $type->stage('intake');
+    Matter::factory()->for($type, 'matterType')->create(['stage' => $type->stages->firstWhere('key', '!=', 'intake')->key]);
+
+    $this->actingAs($admin, 'web');
+    Filament::setCurrentPanel('admin');
+
+    $this->livewire(StagesRelationManager::class, [
+        'ownerRecord' => $type,
+        'pageClass' => EditMatterType::class,
+    ])
+        ->callTableAction('edit', record: $stage, data: ['is_terminal' => ! $stage->is_terminal])
+        ->assertHasNoTableActionErrors();
+
+    expect($stage->fresh()->is_terminal)->toBe(! $stage->is_terminal);
 });

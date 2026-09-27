@@ -131,6 +131,19 @@ Chưa làm, thuộc phần bảo mật và vận hành. Bảy thứ bắt buộc
    php artisan db:seed --force
    ```
 
+   **Chạy lại `db:seed --force` sau mỗi lần cập nhật là an toàn** (rà soát cuối M6.5, X10). Ba
+   seeder nó gọi (`ReferenceDataSeeder`):
+
+   - `RolesAndPermissionsSeeder` — đồng bộ lại vai trò và quyền theo mã nguồn; chạy lại bao
+     nhiêu lần cũng được, và NÊN chạy lại khi bản cập nhật có quyền mới.
+   - `MatterTypeSeeder`, `ChecklistTemplateSeeder` — **chỉ thêm**: một loại vụ việc (kèm giai
+     đoạn) chỉ được tạo khi mã của nó chưa từng có, kể cả đã xoá; một danh mục hồ sơ mẫu (kèm đầu
+     mục) chỉ được tạo khi loại đó chưa có danh mục mang đúng tên ấy. Tên, "Đang dùng", nhãn và mô
+     tả giai đoạn, đầu mục đã sửa hay đã xoá — mọi thứ quản trị viên đã chỉnh — không bao giờ bị
+     ghi đè hay khôi phục. Muốn lấy lại cấu hình mặc định của một loại thì phải sửa tay.
+
+   `DemoDataSeeder` thì KHÔNG an toàn trên dữ liệu thật (xem cuối mục này).
+
    Rồi tạo tài khoản quản trị ĐẦU TIÊN bằng tay, với một mật khẩu thật:
 
    ```bash

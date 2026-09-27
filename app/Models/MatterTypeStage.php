@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Exceptions\DuplicateStageKey;
 use App\Exceptions\StageKeyInUse;
+use App\Exceptions\StageTerminalFlagInUse;
 use App\Policies\MatterTypeStagePolicy;
 use Database\Factories\MatterTypeStageFactory;
 use Illuminate\Database\Eloquent\Builder;
@@ -78,7 +79,36 @@ class MatterTypeStage extends Model
                     throw StageKeyInUse::make($type, $oldKey);
                 }
             }
+
+            // Final review X9 (C-I3): bật/tắt `is_terminal` khi còn hồ sơ đứng ở giai đoạn này.
+            // Chốt chặn thứ hai — tầng form (`StagesRelationManager`) gắn lỗi vào đúng ô.
+            if ($stage->exists && $stage->isDirty('is_terminal')) {
+                $standing = static::mattersStandingIn((int) $stage->matter_type_id, (string) $stage->getOriginal('key'));
+
+                if ($standing > 0) {
+                    throw StageTerminalFlagInUse::make((string) $stage->getOriginal('key'), $standing);
+                }
+            }
         });
+    }
+
+    /**
+     * Số hồ sơ (kể cả đã xoá mềm — khôi phục được, cùng lý do `MatterTypeStagePolicy::delete()`)
+     * đang đứng ở `key` của loại vụ việc này. Final review X9: cờ `is_terminal` quyết định nghĩa
+     * `closed_at` của đúng những hồ sơ này, nên không đổi được khi con số khác 0.
+     */
+    public static function mattersStandingIn(int $matterTypeId, string $key): int
+    {
+        return Matter::withTrashed()
+            ->where('matter_type_id', $matterTypeId)
+            ->where('stage', $key)
+            ->count();
+    }
+
+    /** Bản đọc công khai của {@see self::mattersStandingIn()} cho dòng này — dùng ở form. */
+    public function mattersStandingHereCount(): int
+    {
+        return static::mattersStandingIn((int) $this->matter_type_id, $this->key);
     }
 
     /**

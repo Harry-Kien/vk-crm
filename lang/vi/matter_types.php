@@ -32,6 +32,8 @@ return [
         'key_locked' => 'Không đổi được định danh: đang có hồ sơ hoặc dòng tiến độ dùng giai đoạn này. Tạo một giai đoạn mới nếu cần định danh khác.',
         // Task 19, vòng sửa 1 (Critical): nhánh riêng của key_locked, nêu tên giai đoạn đang trỏ tới qua allowed_next.
         'key_locked_allowed_next' => 'Không đổi được định danh: giai đoạn này còn nằm trong "Được chuyển tới" của: :labels. Bỏ nó khỏi danh sách đó trước khi đổi định danh.',
+        // Final review X9: bật/tắt "Giai đoạn kết thúc" đổi nghĩa closed_at của hồ sơ đang đứng ở đó.
+        'is_terminal_locked' => 'Không đổi được "Giai đoạn kết thúc": còn :count hồ sơ đang đứng ở giai đoạn này. Chuyển các hồ sơ đó sang giai đoạn khác trước.',
     ],
     // Danh mục hồ sơ mẫu — M6.5 Task 15 (finding intake-02/checklist-02/roles-06/spec-gap-04).
     'checklist_templates' => [

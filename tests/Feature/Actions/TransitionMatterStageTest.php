@@ -940,3 +940,44 @@ it('keeps the original closed_at when moving from one terminal stage to another'
     expect($fresh->stage)->toBe('archived')
         ->and($fresh->closed_at->toDateString())->toBe($originalClosedAt->toDateString());
 });
+
+// --- Final review X9 (C-I3): closed_at theo giai đoạn ĐÍCH, không theo giai đoạn đang đứng -----
+
+/**
+ * Vụ đã vào một giai đoạn lúc nó còn `is_terminal` (closed_at có giá trị), rồi cờ đó được sửa
+ * thành không-terminal. Bản cũ chỉ xoá closed_at khi RỜI một giai đoạn terminal — giai đoạn đang
+ * đứng giờ không còn terminal, nên closed_at mắc kẹt: vụ đang chạy mà bị coi là "đã đóng" ở mọi
+ * nơi dùng `Matter::scopeOpen()` (nhắc hạn, việc dở dang, widget).
+ */
+it('clears a stuck closed_at when the matter moves into a non-terminal stage', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = matterWithStages(['stage' => 'intake', 'closed_at' => now()->subDays(3)]);
+    $this->actingAs($admin, 'web');
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter, actor: $admin, toStage: 'collecting', occurredAt: now(),
+        internalNote: null, publicContent: null, nextStep: null, clientAction: null,
+        expectedNextUpdateAt: null, publish: false,
+    );
+
+    expect($matter->fresh()->closed_at)->toBeNull();
+});
+
+/**
+ * Chiều ngược lại: vụ vào một giai đoạn lúc nó CHƯA terminal (closed_at trống), cờ sau đó được bật.
+ * Chuyển tiếp sang một giai đoạn terminal khác phải đóng vụ — bản cũ bỏ qua vì "giai đoạn trước đã
+ * terminal", để lại một vụ ở giai đoạn kết thúc mà vẫn "đang mở".
+ */
+it('sets closed_at when the matter moves into a terminal stage while closed_at is still empty', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = matterWithTwoTerminalStages(['stage' => 'closed', 'closed_at' => null]);
+    $this->actingAs($admin, 'web');
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter, actor: $admin, toStage: 'archived', occurredAt: now(),
+        internalNote: null, publicContent: null, nextStep: null, clientAction: null,
+        expectedNextUpdateAt: null, publish: false,
+    );
+
+    expect($matter->fresh()->closed_at)->not->toBeNull();
+});

@@ -8,6 +8,7 @@ return [
     'duplicate_matter_type_code' => 'Đã có một loại vụ việc còn dùng mang mã ":code". Mã loại nằm trong mã hồ sơ (SPEC §6.1) nên không được trùng; đổi mã, hoặc mở lại loại vụ việc cũ nếu nó đã bị xoá.',
     'duplicate_stage_key' => 'Loại vụ việc ":name" đã có một giai đoạn còn dùng với định danh ":key". Xoá hoặc đổi định danh giai đoạn cũ trước khi tạo lại.',
     'stage_key_in_use' => 'Không thể đổi định danh ":key" của loại vụ việc ":name": còn hồ sơ, dòng tiến độ, hoặc một giai đoạn khác (mục "Được chuyển tới") đang dùng định danh này. Tạo một giai đoạn mới nếu cần một định danh khác.',
+    'stage_terminal_flag_in_use' => 'Không đổi được "Giai đoạn kết thúc" của giai đoạn ":key": còn :count hồ sơ đang đứng ở giai đoạn này.',
     'invalid_stage_transition' => 'Vụ việc :code không thể chuyển sang giai đoạn ":to": giai đoạn này không nằm trong danh sách giai đoạn kế tiếp được phép của ":from", hoặc không tồn tại trong cấu hình loại vụ việc.',
     'matter_stage_changed' => 'Giai đoạn của vụ việc :code đã đổi trong lúc anh/chị thao tác. Hãy tải lại trang để xem giai đoạn mới nhất rồi thử lại.',
     'conflict_blocked' => 'Không thể lưu vụ việc: phát hiện xung đột lợi ích mức đỏ với hồ sơ :codes. Chỉ trưởng phòng hoặc quản trị mới được ghi đè, và phải nhập lý do.',
