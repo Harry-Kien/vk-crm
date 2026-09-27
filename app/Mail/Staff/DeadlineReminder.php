@@ -4,6 +4,7 @@ namespace App\Mail\Staff;
 
 use App\Jobs\SendDeadlineReminderMail;
 use App\Mail\BrandedMailable;
+use App\Mail\OutboundHeaders;
 use App\Models\Deadline;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
@@ -50,6 +51,19 @@ class DeadlineReminder extends BrandedMailable
     protected function relatedRecord(): ?Model
     {
         return $this->deadline;
+    }
+
+    /**
+     * Vòng sửa 2 (I1): mang theo BẬC nhắc qua header nội bộ, để nhật ký chống gửi trùng theo
+     * ĐÚNG bậc (`payload['tier']`) chứ không theo tiêu đề (đổi mỗi ngày) — xem docblock
+     * `App\Mail\OutboundHeaders::LEDGER_TIER` và `App\Jobs\SendDeadlineReminderMail::
+     * alreadyDelivered()`.
+     *
+     * @return array<string, string>
+     */
+    protected function additionalLedgerHeaders(): array
+    {
+        return [OutboundHeaders::LEDGER_TIER => $this->tierKey];
     }
 
     public function envelope(): Envelope

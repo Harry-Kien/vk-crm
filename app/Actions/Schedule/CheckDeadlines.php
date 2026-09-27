@@ -273,6 +273,15 @@ class CheckDeadlines
      * qualifies()} NGAY TẠI ĐÂY, cho riêng "ô người phụ trách" — độc lập với phần còn lại của
      * `$preferred` — để phép thế chỗ này áp dụng bất kể bậc nào khác cộng thêm ai.
      *
+     * **Ô người phụ trách vẫn TRỐNG (cả hai đều không hợp lệ) thì cộng `supervisorsFor` ở MỌI
+     * bậc, không riêng d1/quá hạn (vòng sửa 2, minor).** Trước bản sửa này, bậc `d3` CHỈ cộng trợ
+     * lý trong đội ngũ — nếu ít nhất một trợ lý hợp lệ tồn tại, `$preferred` không rỗng, nên chuỗi
+     * dự phòng của `ResolveStaffRecipients::handle()` (chỉ chạy khi `$preferred` rỗng TOÀN BỘ)
+     * không bao giờ kích hoạt, và một mốc mà "người phụ trách" thật sự đã biến mất khỏi bức tranh
+     * (nghỉ việc, hay không còn xem được vụ) chỉ còn đúng MỘT trợ lý biết tới — không ai giám sát.
+     * `$responsibleSlotFilled` theo dõi riêng việc ô đó có được lấp hay không, độc lập với trợ lý
+     * đội ngũ; khi vẫn trống, `supervisorsFor` được cộng bất kể bậc nào.
+     *
      * @return Collection<int, User>
      */
     public function recipientsFor(Deadline $deadline, string $key): Collection
@@ -287,11 +296,14 @@ class CheckDeadlines
         $preferred = collect();
 
         $responsible = $deadline->responsible;
+        $responsibleSlotFilled = false;
 
         if ($responsible instanceof User && $resolver->qualifies($responsible, $matter)) {
             $preferred->push($responsible);
+            $responsibleSlotFilled = true;
         } elseif ($matter->leadLawyer !== null && $resolver->qualifies($matter->leadLawyer, $matter)) {
             $preferred->push($matter->leadLawyer);
+            $responsibleSlotFilled = true;
         }
 
         if ($key === 'd3') {
@@ -303,7 +315,7 @@ class CheckDeadlines
             );
         }
 
-        if ($key === 'd1' || $key === self::OVERDUE_KEY) {
+        if ($key === 'd1' || $key === self::OVERDUE_KEY || ! $responsibleSlotFilled) {
             $preferred = $preferred->merge($resolver->supervisorsFor($matter));
         }
 

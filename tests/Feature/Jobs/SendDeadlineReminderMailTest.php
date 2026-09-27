@@ -7,6 +7,7 @@ use App\Enums\OutboundChannel;
 use App\Enums\OutboundStatus;
 use App\Enums\Role;
 use App\Jobs\SendDeadlineReminderMail;
+use App\Mail\OutboundHeaders;
 use App\Mail\Staff\DeadlineReminder;
 use App\Models\Deadline;
 use App\Models\Matter;
@@ -185,13 +186,11 @@ it('does not mail a recipient twice when they already have a sent ledger row for
     Mail::fake();
     [$deadline, $lawyer] = deadlineWithLawyer();
 
-    $subject = (new DeadlineReminder($deadline, $lawyer, 'd3'))->envelope()->subject;
-
     OutboundMessage::factory()->create([
         'channel' => OutboundChannel::Email,
         'recipient' => $lawyer->email,
         'template' => 'staff.deadline_reminder',
-        'payload' => ['subject' => $subject],
+        'payload' => ['subject' => 'Bất kỳ, không quan trọng', 'tier' => 'd3'],
         'related_type' => $deadline->getMorphClass(),
         'related_id' => $deadline->getKey(),
         'status' => OutboundStatus::Sent,
@@ -205,36 +204,104 @@ it('does not mail a recipient twice when they already have a sent ledger row for
 
 /**
  * Phân biệt với `NotifyClientOfStageUpdate::alreadyDelivered()` (xem docblock lớp): một dòng
- * `sent` từ một bậc CŨ, KHÁC (tiêu đề khác, vì tiêu đề mang số ngày còn lại THẬT — M6.5 Task 12,
- * `deadlines/F3`) không được chặn bậc MỚI của HÔM NAY — nếu không, một mốc từng nhắc `d3` tuần
- * trước sẽ KHÔNG BAO GIỜ nhắc được `d1` tuần này, đúng "im lặng" mà cả tác vụ này chống.
+ * `sent` từ một bậc CŨ, KHÁC không được chặn bậc MỚI của HÔM NAY — nếu không, một mốc từng nhắc
+ * `d3` tuần trước sẽ KHÔNG BAO GIỜ nhắc được `d1` tuần này, đúng "im lặng" mà cả tác vụ này chống.
  *
- * Mutation probe: xem báo cáo — bỏ `->where('payload->subject', $subject)` khỏi
+ * Mutation probe: xem báo cáo — bỏ `->where('payload->tier', $this->tierKey)` khỏi
  * `alreadyDelivered()` làm chính test này đỏ (bị chặn nhầm bởi dòng `sent` của bậc cũ).
  */
 it('still mails a recipient whose only sent ledger row belongs to an earlier, different tier', function () {
     Mail::fake();
     [$deadline, $lawyer] = deadlineWithLawyer(); // due in 3 days => tier d3
 
-    $oldSubject = (new DeadlineReminder($deadline, $lawyer, 'd3'))->envelope()->subject;
-
     OutboundMessage::factory()->create([
         'channel' => OutboundChannel::Email,
         'recipient' => $lawyer->email,
         'template' => 'staff.deadline_reminder',
-        'payload' => ['subject' => $oldSubject],
+        'payload' => ['subject' => 'Còn 3 ngày: cũ', 'tier' => 'd3'],
         'related_type' => $deadline->getMorphClass(),
         'related_id' => $deadline->getKey(),
         'status' => OutboundStatus::Sent,
     ]);
 
-    // Thời gian trôi: mốc giờ chỉ còn 1 ngày — bậc MỚI, tiêu đề THẬT khác hẳn dòng đã gửi ở trên.
+    // Thời gian trôi: mốc giờ chỉ còn 1 ngày — bậc MỚI (d1), khác bậc của dòng đã gửi ở trên (d3).
     $deadline->update(['due_date' => today()->addDay()]);
 
     $job = new SendDeadlineReminderMail($deadline->id, 'd1');
     $job->handle();
 
     Mail::assertSent(DeadlineReminder::class, fn ($mail) => $mail->hasTo($lawyer->email));
+});
+
+/**
+ * Vòng sửa 2, I1 (Important) — ĐÚNG kịch bản của phán quyết: bậc `d1` áp dụng cho CẢ `daysLeft = 1`
+ * LẪN `daysLeft = 0` (`tierFor()`: `$daysLeft <= 1`), nên CÙNG một bậc `d1` có thể mang HAI tiêu đề
+ * THẬT khác nhau ("Còn 1 ngày" hôm qua, "Hết hạn hôm nay" hôm nay) tuỳ ngày job chạy. Khoá chống
+ * gửi trùng theo `payload->subject` (bản trước vòng sửa này) sẽ KHÔNG nhận ra đây là "đã gửi bậc
+ * này rồi" — người đã nhận "Còn 1 ngày" hôm qua sẽ nhận thêm "Hết hạn hôm nay" hôm nay, một lần
+ * gửi trùng thật sự cho CÙNG một bậc.
+ *
+ * Với bậc `overdue`, lỗi này lặp lại MỖI NGÀY MÃI MÃI: tiêu đề đổi theo số ngày quá hạn, không bao
+ * giờ trùng chính nó, nên chống gửi trùng theo subject không bao giờ nhận ra.
+ *
+ * Mutation probe: xem báo cáo — quay lại khoá theo `payload->subject` (bản trước) làm chính test
+ * này đỏ (lawyer bị gửi lại).
+ */
+it('does not mail a recipient twice for the same tier even when the real subject text has changed across a day boundary', function () {
+    Mail::fake();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+
+    $type = MatterType::factory()->withStages()->create();
+    $matter = Matter::factory()->create([
+        'lead_lawyer_id' => $lawyer->id,
+        'matter_type_id' => $type->id,
+        'stage' => $type->stages->reject(fn ($s) => $s->is_terminal)->first()->key,
+    ]);
+    $deadline = Deadline::factory()->create([
+        'matter_id' => $matter->id,
+        'responsible_user_id' => $lawyer->id,
+        'due_date' => today(), // daysLeft = 0 HÔM NAY — vẫn là bậc d1 (0 <= 1).
+        'is_completed' => false,
+    ]);
+
+    // Giả lập: lawyer đã nhận bậc d1 HÔM QUA, khi due_date còn cách 1 ngày ("Còn 1 ngày" — tiêu đề
+    // THẬT của lúc đó), khác hẳn tiêu đề THẬT của HÔM NAY ("Hết hạn hôm nay") — nhưng CÙNG bậc d1.
+    OutboundMessage::factory()->create([
+        'channel' => OutboundChannel::Email,
+        'recipient' => $lawyer->email,
+        'template' => 'staff.deadline_reminder',
+        'payload' => ['subject' => 'Còn 1 ngày: '.$deadline->name.' ('.$matter->code.')', 'tier' => 'd1'],
+        'related_type' => $deadline->getMorphClass(),
+        'related_id' => $deadline->getKey(),
+        'status' => OutboundStatus::Sent,
+    ]);
+
+    $job = new SendDeadlineReminderMail($deadline->id, 'd1');
+    $job->handle();
+
+    // Lawyer KHÔNG nhận lại — đã có dòng sent cho ĐÚNG bậc d1 này rồi, dù tiêu đề khác.
+    Mail::assertNotSent(fn (DeadlineReminder $mail) => $mail->hasTo($lawyer->email));
+    // Manager (từ supervisorsFor ở bậc d1) chưa từng nhận — vẫn phải được gửi như thường.
+    Mail::assertSent(DeadlineReminder::class, fn ($mail) => $mail->hasTo($manager->email));
+});
+
+/**
+ * Vòng sửa 2, I1: header nội bộ mang bậc (`X-VKCRM-Ledger-Tier`) không được lọt ra ngoài — cùng
+ * luật với Template/Related/Ledger-Id (`notify/notify-11`). Không `Mail::fake()`: cần thư đi qua
+ * transport thật (`array`, `phpunit.xml`) để đọc lại thông điệp đã "gửi".
+ */
+it('never lets the internal tier header reach the wire, but the ledger still records the tier', function () {
+    [$deadline, $lawyer] = deadlineWithLawyer();
+
+    Mail::to($lawyer->email)->send(new DeadlineReminder($deadline, $lawyer, 'd3'));
+
+    $sentEmail = Mail::mailer()->getSymfonyTransport()->innerTransport()->messages()->last()->getOriginalMessage();
+
+    expect($sentEmail->getHeaders()->has(OutboundHeaders::LEDGER_TIER))->toBeFalse();
+
+    $row = OutboundMessage::query()->withoutGlobalScopes()->sole();
+    expect($row->payload['tier'] ?? null)->toBe('d3');
 });
 
 /** Cặp dương: không có dòng `sent` nào từ trước thì vẫn gửi như thường — test trên đỏ đúng vì dòng đã có, không vì lý do khác. */

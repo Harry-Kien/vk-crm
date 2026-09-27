@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Actions\Notification\NotifyClientOfStageUpdate;
+use App\Actions\Notification\RecordOutboundMessage;
 use App\Actions\Notification\ResolveStaffRecipients;
 use App\Actions\Schedule\CheckDeadlines;
 use App\Enums\OutboundStatus;
@@ -86,7 +87,7 @@ use Throwable;
  * `NotifyClientOfStageUpdate::alreadyDelivered()` — trước khi gửi lại, nên người đã nhận không
  * nhận thêm bản thứ hai chỉ vì người khác trong cùng lượt từng hỏng.
  *
- * **Vì sao lọc thêm theo `payload->subject`, khác `NotifyClientOfStageUpdate::alreadyDelivered()`
+ * **Vì sao lọc thêm theo `payload->tier`, khác `NotifyClientOfStageUpdate::alreadyDelivered()`
  * (chỉ lọc theo `related`+`recipient`+`status`).** Thư tiến độ (`client.stage_update`) chỉ có ĐÚNG
  * MỘT lần gửi khả dĩ cho mỗi `StageLog` — không có khái niệm "bậc". Thư nhắc mốc thì CÓ: cùng một
  * `Deadline` (nên cùng `related_type`/`related_id`) được nhắc NHIỀU LẦN qua đời nó — `d14`, `d7`,
@@ -94,12 +95,28 @@ use Throwable;
  * `related`+`recipient`+`status = sent` (đúng hình dạng thư tiến độ) sẽ coi MỌI lần nhắc TRƯỚC ĐÓ
  * (một `d7` đã gửi thật, thành công, tuần trước) là "đã gửi", và bậc `d1` MỚI của TUẦN NÀY sẽ
  * KHÔNG BAO GIỜ tới tay — im lặng đúng cái mà cả tác vụ này sinh ra để chống, một hình dạng khác
- * của "không bao giờ im lặng" (R3) bị vi phạm. Không có cột `tier` riêng ở `outbound_messages`
- * (SPEC §4.15 không có cột đó), nhưng tiêu đề thư (M6.5 Task 12, `deadlines/F3`) đã mang ĐÚNG số
- * ngày còn lại THẬT — ổn định trong SUỐT một lượt job (kể cả các lần thử lại của `backoff()`, tối
- * đa ~1 giờ, `today()` không đổi), và khác NHAU giữa hai lượt job của hai bậc khác nhau (số ngày
- * còn lại luôn khác, vì `due_date` cố định còn "hôm nay" đã trôi). Tiêu đề vì vậy là khoá phân
- * biệt bậc DUY NHẤT không cần thêm cột nào.
+ * của "không bao giờ im lặng" (R3) bị vi phạm.
+ *
+ * # Vòng sửa 2 (I1, Important) — khoá theo BẬC (`payload->tier`), KHÔNG theo tiêu đề
+ *
+ * Bản vòng sửa 1 lọc theo `payload->subject`, với lý lẽ "tiêu đề mang số ngày còn lại thật, nên
+ * khác nhau giữa hai bậc". Đúng, nhưng CHƯA ĐỦ: SAI ở chỗ MỘT bậc có thể mang NHIỀU tiêu đề khác
+ * nhau theo NGÀY — `tierFor()` chọn bậc `d1` cho CẢ `daysLeft = 1` LẪN `daysLeft = 0` (`$daysLeft
+ * <= 1`), và bậc `overdue` cho MỌI `daysLeft < 0` (một con số luôn tăng theo từng ngày quá hạn).
+ * Kịch bản lỗi thật (đã tái hiện, xem báo cáo): (1) `failed()` rút một bậc khỏi `reminders_sent`
+ * sau khi MỘT người nhận trong lượt đó dội ngược hẳn; (2) `CheckDeadlines` của ngày HÔM SAU xếp
+ * lại ĐÚNG bậc đó (mốc vẫn còn nằm trong cùng khung ngày của bậc — ví dụ `d1` hôm qua ở
+ * `daysLeft=1`, hôm nay `daysLeft=0`, VẪN là bậc `d1`); (3) tiêu đề HÔM NAY khác tiêu đề HÔM QUA
+ * ("Hết hạn hôm nay" so với "Còn 1 ngày"), nên khoá theo subject KHÔNG nhận ra người đã nhận hôm
+ * qua là "đã gửi bậc này rồi" — họ nhận thêm một thư CHO CÙNG bậc. Với bậc `overdue`, lỗi này lặp
+ * lại MỖI NGÀY MÃI MÃI, vì tiêu đề không bao giờ trùng chính nó.
+ *
+ * Không có cột `tier` riêng ở `outbound_messages` (SPEC §4.15 không có cột đó), nên
+ * `App\Mail\Staff\DeadlineReminder` mang bậc qua một header nội bộ
+ * (`App\Mail\OutboundHeaders::LEDGER_TIER`) — {@see RecordOutboundMessage::
+ * sending()} chép vào `payload['tier']`, và {@see RecordOutboundMessage::
+ * detachInternalHeaders()} gỡ nó khỏi thông điệp trước khi thư rời máy chủ, CÙNG luật với
+ * `Template`/`Related`/`Ledger-Id` (`notify/notify-11`).
  */
 class SendDeadlineReminderMail implements ShouldQueue
 {
@@ -140,25 +157,22 @@ class SendDeadlineReminderMail implements ShouldQueue
         $recipients = app(CheckDeadlines::class)->recipientsFor($deadline, $this->tierKey);
 
         foreach ($recipients as $recipient) {
-            $mail = new DeadlineReminder($deadline, $recipient, $this->tierKey);
-
-            // "Không gửi trùng khi thử lại" — xem docblock lớp, mục "no duplicate reminders on
-            // retry". Bỏ qua NGƯỜI NÀY, không phải cả lượt: người khác trong cùng bậc có thể vẫn
-            // chưa nhận được.
-            if ($this->alreadyDelivered($deadline, $recipient, $mail->envelope()->subject)) {
+            // "Không gửi trùng khi thử lại" — xem docblock lớp, mục "Vòng sửa 2 (I1)". Bỏ qua
+            // NGƯỜI NÀY, không phải cả lượt: người khác trong cùng bậc có thể vẫn chưa nhận được.
+            if ($this->alreadyDelivered($deadline, $recipient)) {
                 continue;
             }
 
-            Mail::to($recipient->email)->send($mail);
+            Mail::to($recipient->email)->send(new DeadlineReminder($deadline, $recipient, $this->tierKey));
         }
     }
 
     /**
-     * Cùng hình dạng {@see NotifyClientOfStageUpdate::alreadyDelivered()},
-     * cộng một điều kiện lọc theo bậc (`payload->subject`) — xem docblock lớp cho lý do cần thêm
+     * Cùng hình dạng {@see NotifyClientOfStageUpdate::alreadyDelivered()}, cộng một điều kiện lọc
+     * theo BẬC (`payload->tier`) — xem docblock lớp, mục "Vòng sửa 2 (I1)", cho lý do cần thêm
      * điều kiện đó ở đây mà bên kia không cần.
      */
-    private function alreadyDelivered(Deadline $deadline, User $recipient, string $subject): bool
+    private function alreadyDelivered(Deadline $deadline, User $recipient): bool
     {
         return OutboundMessage::query()
             ->withoutGlobalScopes()
@@ -166,7 +180,7 @@ class SendDeadlineReminderMail implements ShouldQueue
             ->where('related_id', $deadline->getKey())
             ->where('recipient', $recipient->email)
             ->where('status', OutboundStatus::Sent)
-            ->where('payload->subject', $subject)
+            ->where('payload->tier', $this->tierKey)
             ->exists();
     }
 

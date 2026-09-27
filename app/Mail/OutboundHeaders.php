@@ -28,4 +28,20 @@ final class OutboundHeaders
      * kèm `MessageSending` (`spl_object_id` của hai bên khác nhau). Header thì theo bản sao.
      */
     public const LEDGER_ID = 'X-VKCRM-Ledger-Id';
+
+    /**
+     * Bậc nhắc (`d14`/`d7`/`d3`/`d1`/`overdue`) — CHỈ `App\Mail\Staff\DeadlineReminder` đặt (vòng
+     * sửa 2, `task-12-fix2-findings.md`, I1).
+     *
+     * **Vì sao cần header này mà không dùng lại `payload->subject` sẵn có.** Tiêu đề thư mang số
+     * NGÀY CÒN LẠI THẬT (M6.5 Task 12, `deadlines/F3`), không phải bậc — nhưng MỘT bậc có thể trải
+     * qua NHIỀU giá trị "số ngày thật" khác nhau (`tierFor()`: bậc `d1` áp dụng cho CẢ `daysLeft=1`
+     * lẫn `daysLeft=0`; bậc `overdue` áp dụng cho MỌI `daysLeft<0`, một số luôn tăng theo từng
+     * ngày). Khoá chống gửi trùng theo `payload->subject` (bản vòng sửa 1) vì vậy KHÔNG nhận ra
+     * hai lần gửi CÙNG một bậc, khác ngày, là "đã gửi bậc này rồi" — với bậc `overdue`, sai số này
+     * lặp lại MỖI NGÀY MÃI MÃI, vì tiêu đề không bao giờ trùng chính nó. Header này mang ĐÚNG bậc,
+     * ổn định bất kể ngày nào trong đời của bậc đó — xem `App\Jobs\SendDeadlineReminderMail::
+     * alreadyDelivered()`.
+     */
+    public const LEDGER_TIER = 'X-VKCRM-Ledger-Tier';
 }

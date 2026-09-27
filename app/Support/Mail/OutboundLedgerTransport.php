@@ -44,13 +44,22 @@ use Throwable;
  * vì để `App\Listeners\RecordOutboundMail` nghe `MessageSent` như trước Task 12 (bản đó đọc lại
  * header từ thông điệp đã bị clone và đã bị gỡ — luôn thất bại tra dòng, một chỗ chết lặng lẽ).
  *
- * **`markSent()` đứng NGOÀI `try` (vòng sửa 1, minor).** Bản trước gọi nó BÊN TRONG cùng `try` bọc
- * `$this->inner->send()` — nếu chính `markSent()` ném lỗi (CSDL bận đúng lúc đóng dòng, mất kết
+ * **`markSent()` đứng NGOÀI `try` bọc `$this->inner->send()` (vòng sửa 1, minor).** Bản trước gọi
+ * nó BÊN TRONG cùng `try` — nếu chính `markSent()` ném lỗi (CSDL bận đúng lúc đóng dòng, mất kết
  * nối tạm thời, ...), `catch` bên dưới bắt NHẦM nó, gọi `markFailed()` và biến một thư ĐÃ GỬI
  * THÀNH CÔNG thành một dòng `failed` — đúng tín hiệu mà hàng đợi (`SendDeadlineReminderMail`,
  * `SendStageUpdateNotification`) đọc để quyết định GỬI LẠI, tức gửi trùng cho một người đã nhận
  * rồi. Việc gửi thật (`$this->inner->send()`) và việc ĐÓNG SỔ (`markSent()`) là hai rủi ro khác
  * nhau, không được gộp chung một `catch`.
+ *
+ * **`markSent()` có `try/catch` RIÊNG của chính nó, chỉ `report()` (vòng sửa 2, minor,
+ * `task-12-fix2-findings.md`).** Đứng ngoài `catch` của `$this->inner->send()` là CHƯA ĐỦ: nếu
+ * `markSent()` tự ném và không ai bắt, ngoại lệ đó vẫn thoát ra khỏi `send()` — về phía gọi
+ * (`Illuminate\Mail\Mailer::sendSymfonyMessage()`), một `send()` NÉM LỖI có nghĩa "gửi thất bại",
+ * dù thư đã tới nơi thật. Hàng đợi thấy lỗi đó lại THỬ LẠI, tức gửi trùng — đúng thứ dòng `try`
+ * NGOÀI ở trên định tránh (tránh `Failed` sai), nhưng chưa tránh hết (chưa tránh việc ngoại lệ vẫn
+ * lan ra ngoài). Vì vậy ở đây bắt riêng, gọi `report($error)` để lỗi đóng sổ không biến mất câm
+ * lặng, rồi vẫn trả về `$sent` như một lượt gửi trót lọt bình thường.
  */
 class OutboundLedgerTransport implements TransportInterface
 {
@@ -78,10 +87,15 @@ class OutboundLedgerTransport implements TransportInterface
         }
 
         // NGOÀI try/catch ở trên có chủ ý (xem docblock lớp): việc gửi đã THÀNH CÔNG tại đây, nên
-        // một lỗi của CHÍNH markSent() không được lẫn với một lỗi gửi thư — nó tự ném ra, không bị
-        // gọi nhầm là markFailed().
+        // một lỗi của CHÍNH markSent() không được lẫn với một lỗi gửi thư — không bị gọi nhầm là
+        // markFailed(). Và (vòng sửa 2) tự nó cũng không được lan ra khỏi send(): report(), không
+        // throw — một thư đã gửi thật không được biến thành "gửi thất bại" trước người gọi.
         if ($ledgerId !== null) {
-            $this->ledger->markSent($ledgerId);
+            try {
+                $this->ledger->markSent($ledgerId);
+            } catch (Throwable $error) {
+                report($error);
+            }
         }
 
         return $sent;
