@@ -676,3 +676,27 @@ it('reads fresh matter_user membership through the production assign() call, aft
         // kế tiếp `migrate:fresh` (xem docblock, fix round 4 N1).
     }
 })->group('mariadb-locking');
+
+/**
+ * Final review A-M3: người giữ một yêu cầu khách đi qua CÙNG luật người giữ mốc
+ * (`ChecksDeadlineHolder`) — trong đội ngũ, còn đi làm, mở được hồ sơ. Một trưởng phòng ngoài đội
+ * ngũ vẫn `update` được vụ thường, nên cổng cũ cho qua.
+ */
+it('refuses an assignee outside the matter team even though they can write to the matter, and accepts them once on the team', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+
+    expect(Gate::forUser($manager)->allows('update', $this->matter))->toBeTrue();
+
+    try {
+        $this->action->assign($this->request, $this->lawyer, $manager);
+        $this->fail('Đáng lẽ phải ném ValidationException');
+    } catch (ValidationException $exception) {
+        expect($exception->errors()['assigned_to'][0])->toBe(__('requests.validation.assignee_cannot_open'));
+    }
+
+    $this->matter->addTeamMember($manager, MatterRole::Associate);
+
+    $this->action->assign(reloadThread($this->request), $this->lawyer, $manager);
+
+    expect(reloadThread($this->request)->assigned_to)->toBe($manager->id);
+});

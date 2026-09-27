@@ -6,9 +6,9 @@ use App\Enums\Permission;
 use App\Enums\Role;
 use App\Models\Client;
 use App\Models\ClientUser;
-use App\Models\Matter;
 use App\Models\User;
 use App\Policies\Concerns\ChecksPortalVisibility;
+use App\Support\ClientVisibility;
 use Illuminate\Auth\Access\Response;
 
 class ClientPolicy
@@ -29,8 +29,7 @@ class ClientPolicy
 
         // Không có quyền client.manage riêng vẫn đọc được hồ sơ khách của một vụ việc mà
         // họ xem được (M3 review): tách quyền xem khỏi quyền quản lý, không thêm quyền mới.
-        return $user->can(Permission::ClientManage->value)
-            || Matter::query()->listableBy($user)->where('client_id', $client->getKey())->exists();
+        return ClientVisibility::reaches($user, (int) $client->getKey());
     }
 
     public function create(User|ClientUser $user): bool

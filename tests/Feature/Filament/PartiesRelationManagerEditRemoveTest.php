@@ -252,3 +252,152 @@ it('shows a notification, not an exception, when removing a party that another t
     expect($notification)->not->toBeNull()
         ->and($notification->getTitle())->toBe(__('matters.parties.already_removed'));
 });
+
+// -------------------------------------------------------------------------------------------
+// Final review X2 (A-I1): bên của CHÍNH khách hàng vụ việc (is_our_client, client_id =
+// matters.client_id) không gỡ được (RemoveMatterParty) — nên cũng không được "gỡ vòng" bằng cách
+// SỬA nó: tắt công tắc "là khách hàng của văn phòng" hay trỏ sang một khách hàng khác. Vai trò,
+// địa chỉ, ghi chú vẫn sửa được. Kèm A-M2: chỉ kiểm tra tầm nhìn khách hàng khi client_id ĐỔI.
+// -------------------------------------------------------------------------------------------
+
+/** @return array{0: User, 1: Matter, 2: MatterParty} */
+function matterWithOwnClientParty(): array
+{
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $client = Client::factory()->create(['name' => 'Khách của vụ']);
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'client_id' => $client->id]);
+    $party = MatterParty::factory()->for($matter)->ourClient($client)->create();
+
+    return [$lawyer, $matter, $party];
+}
+
+function partiesManagerFor(Matter $matter)
+{
+    return test()->livewire(PartiesRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ]);
+}
+
+it('refuses switching the matter\'s own client party off "our client" through the edit screen', function () {
+    [$lawyer, $matter, $party] = matterWithOwnClientParty();
+    $this->actingAs($lawyer, 'web');
+
+    partiesManagerFor($matter)->callTableAction('editParty', $party, data: [
+        'role' => PartyRole::Plaintiff->value,
+        'is_our_client' => false,
+        'name' => 'Khách của vụ',
+    ])->assertHasTableActionErrors(['client_id']);
+
+    $fresh = $party->fresh();
+    expect($fresh->is_our_client)->toBeTrue()
+        ->and($fresh->client_id)->toBe($matter->client_id);
+});
+
+it('refuses re-pointing the matter\'s own client party at another client through the edit screen', function () {
+    [$lawyer, $matter, $party] = matterWithOwnClientParty();
+    $other = Client::factory()->create();
+    // Một khách khác mà luật sư thấy được — để lời từ chối là của luật mới, không phải của tầm nhìn.
+    Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'client_id' => $other->id]);
+    $this->actingAs($lawyer, 'web');
+
+    partiesManagerFor($matter)->callTableAction('editParty', $party, data: [
+        'role' => PartyRole::Plaintiff->value,
+        'is_our_client' => true,
+        'client_id' => $other->id,
+        'name' => 'Khách của vụ',
+    ])->assertHasTableActionErrors(['client_id']);
+
+    expect($party->fresh()->client_id)->toBe($matter->client_id);
+});
+
+it('still lets staff edit the role, address and note of the matter\'s own client party, with the two locked fields disabled', function () {
+    [$lawyer, $matter, $party] = matterWithOwnClientParty();
+    $this->actingAs($lawyer, 'web');
+
+    partiesManagerFor($matter)
+        ->mountTableAction('editParty', $party)
+        ->assertTableActionDataSet(['is_our_client' => true, 'client_id' => $matter->client_id])
+        ->assertFormFieldIsDisabled('is_our_client', 'mountedActionSchema0')
+        ->assertFormFieldIsDisabled('client_id', 'mountedActionSchema0')
+        ->setTableActionData([
+            'role' => PartyRole::Defendant->value,
+            'address' => 'Địa chỉ mới',
+            'note' => 'Ghi chú mới',
+        ])
+        ->callMountedTableAction()
+        ->assertHasNoTableActionErrors();
+
+    $fresh = $party->fresh();
+    expect($fresh->role)->toBe(PartyRole::Defendant)
+        ->and($fresh->address)->toBe('Địa chỉ mới')
+        ->and($fresh->note)->toBe('Ghi chú mới')
+        ->and($fresh->is_our_client)->toBeTrue()
+        ->and($fresh->client_id)->toBe($matter->client_id);
+});
+
+it('keeps the two fields editable on a co-client party that is not the matter\'s own client', function () {
+    [$lawyer, $matter] = matterWithOwnClientParty();
+    $coClient = Client::factory()->create();
+    Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'client_id' => $coClient->id]);
+    $coParty = MatterParty::factory()->for($matter)->ourClient($coClient)->create();
+    $this->actingAs($lawyer, 'web');
+
+    partiesManagerFor($matter)
+        ->mountTableAction('editParty', $coParty)
+        ->assertFormFieldIsEnabled('is_our_client', 'mountedActionSchema0')
+        ->assertFormFieldIsEnabled('client_id', 'mountedActionSchema0');
+});
+
+/** A-M2: một đồng-khách-hàng mà luật sư không thấy hồ sơ vẫn sửa được — client_id không đổi. */
+it('lets a lawyer edit a co-client party whose client they cannot see, when the client link does not change', function () {
+    [$lawyer, $matter] = matterWithOwnClientParty();
+    $hiddenClient = Client::factory()->create(['name' => 'Đồng khách ẩn']);
+    $coParty = MatterParty::factory()->for($matter)->ourClient($hiddenClient)->create();
+    $this->actingAs($lawyer, 'web');
+
+    partiesManagerFor($matter)->callTableAction('editParty', $coParty, data: [
+        'role' => PartyRole::Plaintiff->value,
+        'is_our_client' => true,
+        'client_id' => $hiddenClient->id,
+        'name' => 'Đồng khách ẩn',
+        'note' => 'Đã gọi điện',
+    ])->assertHasNoTableActionErrors();
+
+    expect($coParty->fresh()->note)->toBe('Đã gọi điện');
+});
+
+it('still refuses re-pointing a party at a client the lawyer cannot see', function () {
+    [$lawyer, $matter] = matterWithOwnClientParty();
+    $hiddenClient = Client::factory()->create();
+    $party = MatterParty::factory()->for($matter)->create(['role' => PartyRole::Related, 'name' => 'Bên thường']);
+    $this->actingAs($lawyer, 'web');
+
+    partiesManagerFor($matter)->callTableAction('editParty', $party, data: [
+        'role' => PartyRole::Related->value,
+        'is_our_client' => true,
+        'client_id' => $hiddenClient->id,
+        'name' => 'Bên thường',
+    ])->assertHasTableActionErrors(['client_id']);
+
+    expect($party->fresh()->client_id)->toBeNull();
+});
+
+/** A-M2: bên trỏ tới một khách hàng đã xoá mềm không còn 404 với người sửa được vụ việc. */
+it('lets staff edit a party linked to a soft-deleted client without a 404', function () {
+    [$lawyer, $matter] = matterWithOwnClientParty();
+    $gone = Client::factory()->create(['name' => 'Khách đã xoá']);
+    $coParty = MatterParty::factory()->for($matter)->ourClient($gone)->create();
+    $gone->delete();
+    $this->actingAs($lawyer, 'web');
+
+    partiesManagerFor($matter)->callTableAction('editParty', $coParty, data: [
+        'role' => PartyRole::Plaintiff->value,
+        'is_our_client' => true,
+        'client_id' => $gone->id,
+        'name' => 'Khách đã xoá',
+        'address' => 'Địa chỉ đã sửa',
+    ])->assertHasNoTableActionErrors();
+
+    expect($coParty->fresh()->address)->toBe('Địa chỉ đã sửa');
+});

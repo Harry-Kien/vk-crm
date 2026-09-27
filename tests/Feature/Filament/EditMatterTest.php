@@ -1,10 +1,13 @@
 <?php
 
+use App\Enums\ClientRequestStatus;
 use App\Enums\Confidentiality;
 use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Filament\Admin\Resources\Matters\Pages\EditMatter;
+use App\Models\ClientRequest;
+use App\Models\Deadline;
 use App\Models\Matter;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -329,4 +332,67 @@ it('shows the cancel-matter action to an admin', function () {
 
     $this->livewire(EditMatter::class, ['record' => $matter->getKey()])
         ->assertActionVisible('cancelMatter');
+});
+
+/**
+ * Final review A-M3: người GIỮ một mốc hạn chưa xong hay một yêu cầu khách chưa đóng cũng sẽ hết
+ * thấy vụ việc khi nó chuyển sang `restricted` — không riêng thành viên đội ngũ. Một người giữ
+ * việc ngoài đội ngũ (dữ liệu cũ, trước luật người giữ việc chung) phải chặn lần chuyển y như một
+ * thành viên, và câu từ chối nêu đúng tên họ.
+ */
+it('refuses switching to restricted while someone outside the team still holds an open deadline or client request', function (string $kind) {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $holder = User::factory()->withRole(Role::Manager)->create(['name' => 'Trưởng phòng Giữ Việc']);
+    $matter = Matter::factory()->create([
+        'lead_lawyer_id' => $lawyer->id,
+        'confidentiality' => Confidentiality::Normal,
+    ]);
+
+    if ($kind === 'deadline') {
+        Deadline::factory()->for($matter)->create(['responsible_user_id' => $holder->id, 'is_completed' => false]);
+    } else {
+        ClientRequest::factory()->for($matter)->create([
+            'assigned_to' => $holder->id,
+            'status' => ClientRequestStatus::InProgress,
+        ]);
+    }
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(EditMatter::class, ['record' => $matter->getKey()])
+        ->fillForm([
+            'title' => $matter->title,
+            'confidentiality' => Confidentiality::Restricted->value,
+        ])
+        ->call('save')
+        ->assertHasFormErrors(['confidentiality']);
+
+    expect($component->errors()->first('data.confidentiality'))->toContain('Trưởng phòng Giữ Việc')
+        ->and($matter->fresh()->confidentiality)->toBe(Confidentiality::Normal);
+})->with(['deadline', 'request']);
+
+it('does not count a completed deadline or a closed request against the switch to restricted', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $holder = User::factory()->withRole(Role::Manager)->create();
+    $matter = Matter::factory()->create([
+        'lead_lawyer_id' => $lawyer->id,
+        'confidentiality' => Confidentiality::Normal,
+    ]);
+    Deadline::factory()->for($matter)->create(['responsible_user_id' => $holder->id, 'is_completed' => true]);
+    ClientRequest::factory()->for($matter)->create([
+        'assigned_to' => $holder->id,
+        'status' => ClientRequestStatus::Closed,
+    ]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(EditMatter::class, ['record' => $matter->getKey()])
+        ->fillForm([
+            'title' => $matter->title,
+            'confidentiality' => Confidentiality::Restricted->value,
+        ])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($matter->fresh()->confidentiality)->toBe(Confidentiality::Restricted);
 });

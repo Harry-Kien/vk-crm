@@ -1205,3 +1205,93 @@ it('directly denies the unlockLogin ability for a client-user outside reach and 
     expect($lawyerA->can('unlockLogin', $accountB))->toBeFalse()
         ->and($lawyerB->can('unlockLogin', $accountB))->toBeTrue();
 });
+
+// -------------------------------------------------------------------------------------------
+// Final review X3 (A-I2): tra đúng định danh + mở một vụ cho khách C cho luật sư B "tầm với" tới
+// C — và trước bản sửa này, quyền quản lý MỌI tài khoản cổng của C (đặt lại mật khẩu, mở khoá),
+// tức đường vào các vụ `restricted` của C qua chính cổng khách hàng. Luật mới, một chỗ
+// (`ClientVisibility::canManagePortalAccountsOf()`): admin; hoặc với tới được khách hàng VÀ
+// `view` được MỌI vụ `restricted` chưa xoá của khách đó. Áp cả cho trợ lý/trưởng phòng
+// (`client.manage`).
+// -------------------------------------------------------------------------------------------
+
+/**
+ * Khách C: một vụ thường M1 (của người khác — để B tra ra được C), một vụ `restricted` M2 do A
+ * phụ trách, và vụ M3 B vừa mở cho C.
+ *
+ * @return array{lawyerA: User, lawyerB: User, account: ClientUser}
+ */
+function clientWithRestrictedMatterAndSecondLawyer(): array
+{
+    $lawyerA = User::factory()->withRole(Role::Lawyer)->create();
+    $lawyerB = User::factory()->withRole(Role::Lawyer)->create();
+    $client = Client::factory()->create(['name' => 'Khách C']);
+
+    Matter::factory()->create(['client_id' => $client->id]);
+    Matter::factory()->restricted()->create(['client_id' => $client->id, 'lead_lawyer_id' => $lawyerA->id]);
+    Matter::factory()->create(['client_id' => $client->id, 'lead_lawyer_id' => $lawyerB->id]);
+
+    $account = ClientUser::factory()->for($client)->create(['email' => 'tai-khoan-c@example.test']);
+
+    return ['lawyerA' => $lawyerA, 'lawyerB' => $lawyerB, 'account' => $account];
+}
+
+it('keeps a lawyer who reached the client through a normal matter away from the portal accounts of a client with a restricted matter they cannot see', function () {
+    ['lawyerB' => $lawyerB, 'account' => $account] = clientWithRestrictedMatterAndSecondLawyer();
+
+    $this->actingAs($lawyerB, 'web');
+
+    $this->livewire(ListClientUsers::class)
+        ->assertCanNotSeeTableRecords([$account])
+        ->assertDontSee('tai-khoan-c@example.test');
+
+    $this->get(ClientUserResource::getUrl('edit', ['record' => $account], panel: 'admin'))->assertNotFound();
+
+    expect($lawyerB->can('view', $account))->toBeFalse()
+        ->and($lawyerB->can('update', $account))->toBeFalse()
+        ->and($lawyerB->can('unlockLogin', $account))->toBeFalse()
+        ->and($lawyerB->can('create', [ClientUser::class, $account->client]))->toBeFalse();
+});
+
+it('keeps an assistant and a manager (client.manage) away from those portal accounts too', function (Role $role) {
+    ['account' => $account] = clientWithRestrictedMatterAndSecondLawyer();
+    $staff = User::factory()->withRole($role)->create();
+
+    $this->actingAs($staff, 'web');
+
+    $this->livewire(ListClientUsers::class)
+        ->assertCanNotSeeTableRecords([$account])
+        ->assertDontSee('tai-khoan-c@example.test');
+
+    expect($staff->can('update', $account))->toBeFalse()
+        ->and($staff->can('unlockLogin', $account))->toBeFalse()
+        ->and($staff->can('create', [ClientUser::class, $account->client]))->toBeFalse();
+})->with([Role::Assistant, Role::Manager]);
+
+it('lets the restricted matter\'s lead and an admin manage those portal accounts', function () {
+    ['lawyerA' => $lawyerA, 'account' => $account] = clientWithRestrictedMatterAndSecondLawyer();
+    $admin = User::factory()->withRole(Role::Admin)->create();
+
+    foreach ([$lawyerA, $admin] as $staff) {
+        $this->actingAs($staff, 'web');
+
+        $this->livewire(ListClientUsers::class)
+            ->assertCanSeeTableRecords([$account])
+            ->assertSee('tai-khoan-c@example.test');
+
+        $this->get(ClientUserResource::getUrl('edit', ['record' => $account], panel: 'admin'))->assertOk();
+
+        expect($staff->can('update', $account))->toBeTrue()
+            ->and($staff->can('unlockLogin', $account))->toBeTrue();
+    }
+});
+
+it('stops applying once the restricted matter is soft-deleted', function () {
+    ['lawyerB' => $lawyerB, 'account' => $account] = clientWithRestrictedMatterAndSecondLawyer();
+    Matter::query()->where('client_id', $account->client_id)->where('confidentiality', 'restricted')->first()->delete();
+
+    $this->actingAs($lawyerB, 'web');
+
+    $this->livewire(ListClientUsers::class)->assertCanSeeTableRecords([$account]);
+    expect($lawyerB->can('update', $account))->toBeTrue();
+});

@@ -4,6 +4,7 @@ namespace App\Actions\Portal;
 
 use App\Actions\Concerns\ChecksAccountActive;
 use App\Actions\Concerns\ReadsWithoutPortalScope;
+use App\Actions\Deadline\Concerns\ChecksDeadlineHolder;
 use App\Enums\ClientRequestStatus;
 use App\Models\ClientRequest;
 use App\Models\Matter;
@@ -68,6 +69,7 @@ use Illuminate\Validation\ValidationException;
 class TriageClientRequest
 {
     use ChecksAccountActive;
+    use ChecksDeadlineHolder;
     use ReadsWithoutPortalScope;
 
     /**
@@ -146,10 +148,17 @@ class TriageClientRequest
      * {@see ChecksAccountActive} là **cùng một câu hỏi** mà Action đã hỏi về người đang thao tác;
      * ở đây nó được hỏi về người sắp phải làm việc. Một định nghĩa, hai lần gọi — không chép lại
      * điều kiện nào.
+     *
+     * **Final review A-M3: một luật người giữ việc, không ba.** Câu hỏi giờ là đúng câu mọi đường
+     * ghi `deadlines.responsible_user_id` hỏi — {@see ChecksDeadlineHolder::canHoldDeadline()}:
+     * trong đội ngũ (hoặc là lead), còn đi làm, chưa xoá mềm, mở được hồ sơ. Hai điều kiện cũ (còn
+     * đi làm + `MatterPolicy::update`) nằm trọn trong đó cho mọi thành viên đội ngũ; cái khác là một
+     * trưởng phòng NGOÀI đội ngũ (update được mọi vụ thường) không còn nhận được một yêu cầu mà
+     * cổng gỡ thành viên (R6) không bao giờ thấy họ giữ.
      */
     private function canHoldTheThread(User $assignee, Matter $matter): bool
     {
-        return $this->accountIsActive($assignee) && Gate::forUser($assignee)->allows('update', $matter);
+        return $this->canHoldDeadline($assignee, $matter);
     }
 
     /**

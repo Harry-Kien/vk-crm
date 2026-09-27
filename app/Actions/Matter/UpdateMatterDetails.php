@@ -2,6 +2,7 @@
 
 namespace App\Actions\Matter;
 
+use App\Enums\ClientRequestStatus;
 use App\Enums\Confidentiality;
 use App\Enums\MatterRole;
 use App\Enums\Role;
@@ -160,14 +161,31 @@ class UpdateMatterDetails
      * (`hasRole`), nên MỌI thành viên khác — associate, assistant, observer, kể cả một manager —
      * đều rơi khỏi tầm nhìn ngay khi dòng này commit, trừ khi họ cũng là admin.
      *
+     * Final review A-M3: không riêng thành viên đội ngũ — người đang GIỮ một mốc hạn chưa xong hay
+     * một yêu cầu khách chưa đóng của vụ này cũng rơi khỏi tầm nhìn y như vậy, và trở thành một
+     * người giữ việc không mở được việc mình giữ. Tính cả hai nhóm (trừ lead và admin).
+     *
      * @return Collection<int, User>
      */
     private function ineligibleTeamMembers(Matter $matter): Collection
     {
-        return $matter->team()
+        $members = $matter->team()
             ->wherePivot('role_in_matter', '!=', MatterRole::Lead->value)
-            ->get()
-            ->reject(fn (User $member): bool => $member->hasRole(Role::Admin->value))
+            ->get();
+
+        $holders = User::query()
+            ->where(fn ($holds) => $holds
+                ->whereIn('id', $matter->deadlines()->where('is_completed', false)->select('responsible_user_id'))
+                ->orWhereIn('id', $matter->clientRequests()
+                    ->where('status', '!=', ClientRequestStatus::Closed->value)
+                    ->whereNotNull('assigned_to')
+                    ->select('assigned_to')))
+            ->get();
+
+        return $members->concat($holders)
+            ->unique(fn (User $user): int => (int) $user->getKey())
+            ->reject(fn (User $user): bool => (int) $user->getKey() === (int) $matter->lead_lawyer_id)
+            ->reject(fn (User $user): bool => $user->hasRole(Role::Admin->value))
             ->values();
     }
 }

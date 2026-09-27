@@ -6,9 +6,13 @@ use App\Actions\Deadline\ChangeDeadlineResponsible;
 use App\Actions\Matter\ReassignMatter;
 use App\Actions\Matter\RemoveTeamMember;
 use App\Actions\Portal\TriageClientRequest;
+use App\Enums\ClientRequestStatus;
+use App\Enums\Confidentiality;
 use App\Enums\Role;
+use App\Models\Matter;
 use App\Models\User;
 use App\Support\OpenWork;
+use Illuminate\Database\Eloquent\Builder;
 
 /**
  * Chặn nghỉ việc khi còn giữ việc dở dang, hoặc khi là quản trị viên đang hoạt động cuối cùng
@@ -176,5 +180,37 @@ trait GuardsStaffOffboarding
     protected function lastActiveAdminReason(): string
     {
         return __('users.offboarding.last_admin_blocked');
+    }
+
+    /**
+     * Final review X4 (A-I3): hạ một QUẢN TRỊ VIÊN xuống chức danh khác. Admin thấy mọi vụ
+     * `restricted` (`Matter::scopeListableBy`); chức danh mới chỉ thấy vụ `restricted` mình PHỤ
+     * TRÁCH. Nên mọi vụ `restricted` chưa xoá mà người này KHÔNG phụ trách nhưng vẫn còn ở đội ngũ,
+     * còn đứng tên một mốc hạn chưa xong, hay còn giữ một yêu cầu khách chưa đóng, sẽ có một thành
+     * viên/người giữ việc không mở được chính vụ đó. `null` khi không có vụ nào như vậy; ngược lại
+     * một câu tiếng Việt kèm số vụ.
+     *
+     * Chỉ gọi khi người này ĐANG là admin và chức danh mới không phải admin — caller quyết định.
+     */
+    protected function demotionFromAdminBlockedByRestrictedReason(User $user): ?string
+    {
+        $userId = $user->getKey();
+
+        $count = Matter::query()
+            ->where('confidentiality', Confidentiality::Restricted->value)
+            ->where('lead_lawyer_id', '!=', $userId)
+            ->where(fn (Builder $holds) => $holds
+                ->whereHas('team', fn (Builder $team) => $team->whereKey($userId))
+                ->orWhereHas('deadlines', fn (Builder $deadline) => $deadline
+                    ->where('responsible_user_id', $userId)
+                    ->where('is_completed', false))
+                ->orWhereHas('clientRequests', fn (Builder $request) => $request
+                    ->where('assigned_to', $userId)
+                    ->where('status', '!=', ClientRequestStatus::Closed->value)))
+            ->count();
+
+        return $count === 0
+            ? null
+            : __('users.offboarding.demotion_from_admin_restricted', ['name' => $user->name, 'count' => $count]);
     }
 }

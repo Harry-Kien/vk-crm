@@ -6,8 +6,8 @@ use App\Enums\Permission;
 use App\Enums\Role;
 use App\Models\Client;
 use App\Models\ClientUser;
-use App\Models\Matter;
 use App\Models\User;
+use App\Support\ClientVisibility;
 
 /** Quản lý tài khoản khách chỉ dành cho nhân sự — khách không bao giờ chạm tới. */
 class ClientUserPolicy
@@ -25,6 +25,11 @@ class ClientUserPolicy
      * ranh giới `ClientPolicy::view()` đã dùng cho chính hồ sơ `Client` — hai màn hình liền kề
      * (Khách hàng / Tài khoản cổng) giờ cùng một luật, không thể lệch nhau nữa. Ai không có
      * `client.manage` chỉ đọc được tài khoản của khách thuộc vụ việc mình liệt kê được.
+     *
+     * Final review X3 (A-I2): thêm một điều kiện cho MỌI vai trò trừ admin — `view` được mọi vụ
+     * `restricted` chưa xoá của khách đó (một tài khoản cổng mở được các vụ ấy). Luật nằm DUY NHẤT ở
+     * `ClientVisibility::canManagePortalAccountsOf()`; `create()`, `update()`, `unlockLogin()` và
+     * `ClientUserResource::getEloquentQuery()` đều đi qua nó.
      */
     public function view(User|ClientUser $user, ClientUser $clientUser): bool
     {
@@ -32,8 +37,7 @@ class ClientUserPolicy
             return false;
         }
 
-        return $user->can(Permission::ClientManage->value)
-            || Matter::query()->listableBy($user)->where('client_id', $clientUser->client_id)->exists();
+        return ClientVisibility::canManagePortalAccountsOf($user, (int) $clientUser->client_id);
     }
 
     /**
@@ -60,8 +64,7 @@ class ClientUserPolicy
             return true;
         }
 
-        return $user->can(Permission::ClientManage->value)
-            || Matter::query()->listableBy($user)->where('client_id', $client->getKey())->exists();
+        return ClientVisibility::canManagePortalAccountsOf($user, (int) $client->getKey());
     }
 
     /**

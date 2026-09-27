@@ -4,6 +4,7 @@ namespace App\Filament\Admin\Resources\Users\Pages;
 
 use App\Actions\User\Concerns\GuardsStaffOffboarding;
 use App\Actions\User\DeleteStaffMember;
+use App\Enums\Role;
 use App\Enums\UserPosition;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Resources\Users\UserResource;
@@ -165,6 +166,16 @@ class EditUser extends EditRecord
 
                     if ($reason !== null) {
                         throw ValidationException::withMessages([$this->errorKey('is_active') => [$reason]]);
+                    }
+                }
+
+                // Final review X4: rời chức danh Quản trị viên — `hasRole`, không `position`, vì chính
+                // vai trò admin là thứ mở mọi vụ `restricted` (xem `Matter::scopeListableBy`).
+                if ($locked->hasRole(Role::Admin->value) && $newPosition !== UserPosition::Admin) {
+                    $reason = $this->demotionFromAdminBlockedByRestrictedReason($locked);
+
+                    if ($reason !== null) {
+                        throw ValidationException::withMessages([$this->errorKey('position') => [$reason]]);
                     }
                 }
 

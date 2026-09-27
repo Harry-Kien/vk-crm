@@ -79,7 +79,7 @@ return [
         'confidentiality_denied' => 'Chỉ luật sư phụ trách của vụ việc này hoặc quản trị viên mới đổi được mức bảo mật.',
         // Fix round 1, finding I2: chuyển sang mức hạn chế trong khi đội ngũ còn thành viên khác
         // lead/admin — họ sẽ hết thấy được vụ việc ngay sau khi đổi.
-        'confidentiality_blocked_by_team' => 'Không thể chuyển sang mức hạn chế khi đội ngũ còn: :names. Hãy chuyển họ ra khỏi đội ngũ qua tab Đội ngũ trước.',
+        'confidentiality_blocked_by_team' => 'Không thể chuyển sang mức hạn chế khi còn người ở đội ngũ, hoặc còn giữ mốc hạn/yêu cầu khách chưa xong, mà sẽ không mở được vụ việc sau khi chuyển: :names. Hãy chuyển việc cho người khác và gỡ họ khỏi đội ngũ qua tab Đội ngũ trước.',
         // Fix round 1, finding I1: summary_for_client đòi quyền công bố cho khách (stageLog.publish).
         'summary_for_client_denied' => 'Chỉ ai có quyền công bố cho khách mới sửa được tóm tắt cho khách.',
     ],
@@ -256,6 +256,7 @@ return [
     // (`parties` ở trên). Hai khoá KHÔNG lặp lại ở đây (`saved_clear_with_confirmed`,
     // `conflict_check_title_clear`) không nhắc "thêm bên" nên dùng chung được với `notifySaved()`.
     'update_parties' => [
+        'own_client_locked' => 'Đây là khách hàng của chính vụ việc này — không đổi được "là khách hàng của văn phòng" hay khách hàng liên kết ở đây. Vai trò, địa chỉ và ghi chú vẫn sửa được.',
         'conflict_blocked_title' => 'Mức đỏ — chưa lưu thay đổi này',
         'saved_overridden' => 'ĐÃ GHI ĐÈ XUNG ĐỘT MỨC ĐỎ — thay đổi vẫn được lưu theo quyết định của anh/chị.',
         'saved_after_review' => 'Đã lưu thay đổi sau khi xem xét kết quả kiểm tra xung đột lợi ích.',

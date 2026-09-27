@@ -873,3 +873,98 @@ it('does not log a password-reset audit line when a staff record is saved withou
         Activity::query()->where('event', 'user_password_reset')->where('subject_id', $staff->id)->exists()
     )->toBeFalse();
 });
+
+// -------------------------------------------------------------------------------------------
+// Final review X4 (A-I3): một admin thấy MỌI vụ `restricted`; hạ chức danh khỏi Quản trị viên
+// làm người đó HẾT THẤY những vụ `restricted` mình không phụ trách — nếu họ còn ở đội ngũ, hay
+// còn giữ một mốc hạn/yêu cầu khách chưa xong ở đó, vụ việc có một thành viên/người giữ việc vô
+// hình. Chặn, kèm số vụ.
+// -------------------------------------------------------------------------------------------
+
+function adminToDemote(): User
+{
+    return User::factory()->position(UserPosition::Admin)->withRole(Role::Admin)->create();
+}
+
+it('refuses to demote an admin who sits on the team of a restricted matter they do not lead', function () {
+    $actingAdmin = User::factory()->position(UserPosition::Admin)->withRole(Role::Admin)->create();
+    $demoted = adminToDemote();
+    $matter = Matter::factory()->restricted()->create();
+    $matter->team()->attach($demoted, ['role_in_matter' => MatterRole::Associate->value]);
+
+    $this->actingAs($actingAdmin, 'web');
+
+    $component = $this->livewire(EditUser::class, ['record' => $demoted->getRouteKey()])
+        ->fillForm(['position' => UserPosition::Lawyer->value])
+        ->call('save')
+        ->assertHasFormErrors(['position']);
+
+    expect($component->errors()->first('data.position'))
+        ->toBe(__('users.offboarding.demotion_from_admin_restricted', ['name' => $demoted->name, 'count' => 1]))
+        ->and($demoted->fresh()->position)->toBe(UserPosition::Admin)
+        ->and($demoted->fresh()->hasRole(Role::Admin->value))->toBeTrue();
+});
+
+it('counts restricted matters where the admin holds an open deadline or an open client request', function () {
+    $actingAdmin = User::factory()->position(UserPosition::Admin)->withRole(Role::Admin)->create();
+    $demoted = adminToDemote();
+
+    $withDeadline = Matter::factory()->restricted()->create();
+    Deadline::factory()->for($withDeadline)->create(['responsible_user_id' => $demoted->id, 'is_completed' => false]);
+
+    $withRequest = Matter::factory()->restricted()->create();
+    ClientRequest::factory()->create([
+        'matter_id' => $withRequest->id,
+        'assigned_to' => $demoted->id,
+        'status' => ClientRequestStatus::InProgress,
+    ]);
+
+    // Không tính: vụ restricted do chính người này phụ trách; mốc đã xong; yêu cầu đã đóng.
+    Matter::factory()->restricted()->create(['lead_lawyer_id' => $demoted->id]);
+    Deadline::factory()->for(Matter::factory()->restricted()->create())->create(['responsible_user_id' => $demoted->id, 'is_completed' => true]);
+    ClientRequest::factory()->create([
+        'matter_id' => Matter::factory()->restricted()->create()->id,
+        'assigned_to' => $demoted->id,
+        'status' => ClientRequestStatus::Closed,
+    ]);
+
+    $this->actingAs($actingAdmin, 'web');
+
+    $component = $this->livewire(EditUser::class, ['record' => $demoted->getRouteKey()])
+        ->fillForm(['position' => UserPosition::Manager->value])
+        ->call('save')
+        ->assertHasFormErrors(['position']);
+
+    expect($component->errors()->first('data.position'))
+        ->toBe(__('users.offboarding.demotion_from_admin_restricted', ['name' => $demoted->name, 'count' => 2]));
+});
+
+it('still demotes an admin who is only on normal matters, or leads the restricted ones', function () {
+    $actingAdmin = User::factory()->position(UserPosition::Admin)->withRole(Role::Admin)->create();
+    $demoted = adminToDemote();
+    Matter::factory()->create()->team()->attach($demoted, ['role_in_matter' => MatterRole::Associate->value]);
+    Matter::factory()->restricted()->create(['lead_lawyer_id' => $demoted->id]);
+
+    $this->actingAs($actingAdmin, 'web');
+
+    $this->livewire(EditUser::class, ['record' => $demoted->getRouteKey()])
+        ->fillForm(['position' => UserPosition::Lawyer->value])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($demoted->fresh()->position)->toBe(UserPosition::Lawyer);
+});
+
+it('does not apply the restricted-matter rule to a staff member who was not an admin', function () {
+    $actingAdmin = User::factory()->position(UserPosition::Admin)->withRole(Role::Admin)->create();
+    $manager = User::factory()->position(UserPosition::Manager)->withRole(Role::Manager)->create();
+    $matter = Matter::factory()->restricted()->create();
+    $matter->team()->attach($manager, ['role_in_matter' => MatterRole::Associate->value]);
+
+    $this->actingAs($actingAdmin, 'web');
+
+    $this->livewire(EditUser::class, ['record' => $manager->getRouteKey()])
+        ->fillForm(['position' => UserPosition::Lawyer->value])
+        ->call('save')
+        ->assertHasNoFormErrors();
+});

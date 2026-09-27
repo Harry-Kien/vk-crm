@@ -8,7 +8,9 @@ use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
 use App\Exceptions\ConflictCheckBusy;
 use App\Exceptions\MatterPartyAlreadyRemoved;
+use App\Exceptions\OwnClientPartyLocked;
 use App\Jobs\RecheckClientIdentityConflicts;
+use App\Models\Client;
 use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Models\User;
@@ -74,7 +76,10 @@ use Illuminate\Support\Facades\Gate;
  *     `AddMatterParty`):**
  *     a. Khoá dòng `matters`, rồi khoá dòng `matter_parties` đang sửa (bước 4 — ném
  *        `MatterPartyAlreadyRemoved` nếu không còn).
- *     b. Quyền (bước 1).
+ *     b. Quyền (bước 1). Rồi (final review X2) bên của CHÍNH khách hàng vụ việc không được đổi
+ *        `is_our_client`/`client_id` — `OwnClientPartyLocked`, xem
+ *        `refuseUnlinkingOwnClientParty()`. Liên kết khách hàng GIỮ NGUYÊN thì hồ sơ đó được khoá
+ *        kể cả khi đã xoá mềm (`lockCurrentLinkIfKept()`, A-M2), ở cả bước này lẫn bước 7b.
  *     c. Chụp định danh CŨ (`name`, `id_number_hash`, `phone_normalized`, `client_id`), rồi gán dữ
  *        liệu MỚI của form lên CHÍNH bản ghi đã khoá qua `BuildsMatterParties::applyMatterPartyData()`
  *        (`$keepIdentityWhenBlank: true` — xem docblock hàm đó cho lý do SỬA không được xoá sạch
@@ -160,10 +165,19 @@ class UpdateMatterParty
                     // Bước 5b.
                     Gate::forUser($actor)->authorize('update', $locked);
 
+                    // Bước 5b' (final review X2): bên của CHÍNH khách hàng vụ việc giữ nguyên hai ô.
+                    $this->refuseUnlinkingOwnClientParty($locked, $matter, $partyData);
+
                     // Bước 5c.
                     $before = $this->identitySnapshot($locked);
+                    $currentClientId = $locked->client_id !== null ? (int) $locked->client_id : null;
 
-                    $this->applyMatterPartyData($locked, $partyData, keepIdentityWhenBlank: true);
+                    $this->applyMatterPartyData(
+                        $locked,
+                        $partyData,
+                        lockedClient: $this->lockCurrentLinkIfKept($currentClientId, $partyData),
+                        keepIdentityWhenBlank: true,
+                    );
 
                     // Bước 5d.
                     $identityChanged = $this->identitySnapshot($locked) !== $before;
@@ -177,10 +191,10 @@ class UpdateMatterParty
                         ignoreConfirmedForPartyIds: $identityChanged ? collect([$locked->getKey()]) : null,
                     );
 
-                    return [$result, $locked, $matter, $identityChanged];
+                    return [$result, $locked, $matter, $identityChanged, $currentClientId];
                 });
 
-                [$result, $party, , $identityChanged] = $checked;
+                [$result, $party, , $identityChanged, $originalClientId] = $checked;
 
                 $isOverridden = false;
 
@@ -200,7 +214,7 @@ class UpdateMatterParty
 
                 // Bước 7.
                 return DB::transaction(function () use (
-                    $matterId, $party, $result, $isOverridden, $overrideReason, $actor, $identityChanged,
+                    $matterId, $party, $result, $isOverridden, $overrideReason, $actor, $identityChanged, $originalClientId,
                 ): UpdateMatterPartyResult {
                     // Bước 3/7a: câu ĐẦU TIÊN của transaction là khoá dòng vụ việc.
                     $lockedMatter = Matter::query()->whereKey($matterId)->lockForUpdate()->firstOrFail();
@@ -209,7 +223,9 @@ class UpdateMatterParty
                     // khoá Client của giai đoạn kiểm tra (bước 3) release ngay khi transaction đó
                     // commit; đọc lại NGAY TRƯỚC khi lưu, không tin ảnh chụp đã dựng ở đó.
                     if ($party->is_our_client && $party->client_id !== null) {
-                        $freshClient = $this->lockClient($party->client_id);
+                        $freshClient = (int) $party->client_id === $originalClientId
+                            ? $this->lockClientIncludingTrashed((int) $party->client_id)
+                            : $this->lockClient($party->client_id);
 
                         if ($this->reapplyFreshClientIdentity($party, $freshClient)) {
                             RecheckClientIdentityConflicts::dispatch((int) $party->client_id)->afterCommit();
@@ -303,5 +319,55 @@ class UpdateMatterParty
             ->unique()
             ->values()
             ->all();
+    }
+
+    /**
+     * Final review X2 (A-I1): trên bên của CHÍNH khách hàng vụ việc — cùng ba điều kiện
+     * `RemoveMatterParty` dùng, đọc trên bản ghi ĐÃ KHOÁ — từ chối mọi lượt sửa đổi
+     * `is_our_client` hay `client_id`. Không có luật này, "tắt công tắc khách hàng" hoặc "trỏ sang
+     * khách khác" đạt đúng kết quả của một lần gỡ bị cấm. Vai trò/địa chỉ/ghi chú không bị chạm.
+     *
+     * @param  array<string, mixed>  $partyData
+     */
+    private function refuseUnlinkingOwnClientParty(MatterParty $locked, Matter $matter, array $partyData): void
+    {
+        $isOwnClientParty = $locked->is_our_client
+            && $locked->client_id !== null
+            && (int) $locked->client_id === (int) $matter->client_id;
+
+        if (! $isOwnClientParty) {
+            return;
+        }
+
+        $keepsOurClient = (bool) ($partyData['is_our_client'] ?? false);
+        $keepsClient = filled($partyData['client_id'] ?? null) && (int) $partyData['client_id'] === (int) $locked->client_id;
+
+        if (! $keepsOurClient || ! $keepsClient) {
+            throw OwnClientPartyLocked::make();
+        }
+    }
+
+    /**
+     * Final review A-M2: khi lượt sửa GIỮ NGUYÊN khách hàng bên này đang trỏ tới, khoá hồ sơ đó KỂ
+     * CẢ khi đã xoá mềm và đưa cho `applyMatterPartyData()` — `lockClient()` của trait lọc qua
+     * `SoftDeletes` (đúng cho thêm bên/mở vụ: không được TRỎ MỚI tới một khách đã xoá), nên thiếu
+     * bước này một bên trỏ tới khách đã xoá mềm không sửa được gì (404). Liên kết ĐỔI thì trả
+     * `null` — trait tự khoá theo luật thường.
+     *
+     * @param  array<string, mixed>  $partyData
+     */
+    private function lockCurrentLinkIfKept(?int $currentClientId, array $partyData): ?Client
+    {
+        $keepsLink = $currentClientId !== null
+            && (bool) ($partyData['is_our_client'] ?? false)
+            && filled($partyData['client_id'] ?? null)
+            && (int) $partyData['client_id'] === $currentClientId;
+
+        return $keepsLink ? $this->lockClientIncludingTrashed($currentClientId) : null;
+    }
+
+    private function lockClientIncludingTrashed(int $clientId): Client
+    {
+        return Client::query()->withTrashed()->whereKey($clientId)->lockForUpdate()->firstOrFail();
     }
 }

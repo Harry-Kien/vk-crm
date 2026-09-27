@@ -12,6 +12,7 @@ use App\Exceptions\ConflictBlocked;
 use App\Exceptions\MatterPartyAlreadyRemoved;
 use App\Filament\Admin\Concerns\ScopesToVisibleMatters;
 use App\Filament\Admin\Support\VisibleClientOptions;
+use App\Models\Client;
 use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Support\AddMatterPartyResult;
@@ -19,6 +20,7 @@ use App\Support\ConflictCheckResult;
 use App\Support\ConflictMatch;
 use App\Support\ConflictOverride;
 use App\Support\Normalizer;
+use App\Support\Scopes\ClientPortalScope;
 use App\Support\UpdateMatterPartyResult;
 use Closure;
 use DomainException;
@@ -232,6 +234,11 @@ class PartiesRelationManager extends RelationManager
                 ->label(__('matters.party_fields.is_our_client'))
                 ->live()
                 ->afterStateUpdated($this->forgetConflictResultOnChange())
+                // Final review X2: bên của CHÍNH khách hàng vụ việc không đổi được hai ô này (xem
+                // `UpdateMatterParty`, nơi luật thật sự nằm); `dehydrated()` để giá trị đang có vẫn
+                // tới Action — một ô tắt mà không dehydrate sẽ gửi "không phải khách hàng".
+                ->disabled(fn (?Model $record): bool => $isEdit && $this->isOwnClientParty($record))
+                ->dehydrated()
                 ->default(false),
             Select::make('client_id')
                 ->label(__('matters.party_fields.client'))
@@ -240,7 +247,15 @@ class PartiesRelationManager extends RelationManager
                 // hàng của những vụ việc họ đã liệt kê được (Matter::listableBy), đúng ranh
                 // giới ClientPolicy::view đã định nghĩa cho MỌI nơi khác đọc danh sách khách
                 // hàng. Chỉ ai có client.manage mới thấy toàn bộ.
-                ->options(fn (): array => VisibleClientOptions::forCurrentUser())
+                //
+                // Final review A-M2: ở form SỬA, khách hàng bên này ĐANG trỏ tới luôn có trong
+                // danh sách (kể cả khi người sửa không thấy hồ sơ đó, hoặc hồ sơ đã xoá mềm) —
+                // giữ nguyên liên kết không phải là "chọn" một khách hàng; chỉ ĐỔI mới cần thấy.
+                ->options(fn (?Model $record): array => $isEdit
+                    ? $this->clientOptionsKeepingCurrentLink($record)
+                    : VisibleClientOptions::forCurrentUser())
+                ->disabled(fn (?Model $record): bool => $isEdit && $this->isOwnClientParty($record))
+                ->dehydrated()
                 ->searchable()
                 // I-2: bắt buộc khi công tắc bật — `BuildsMatterParties` từ chối một bên tự
                 // nhận là khách hàng của văn phòng mà không có hồ sơ nào. Luật ở trait (đúng
@@ -430,6 +445,51 @@ class PartiesRelationManager extends RelationManager
                 $this->removePartyAction(),
             ])
             ->modifyQueryUsing(fn (Builder $query): Builder => static::scopeToVisibleMatters($query));
+    }
+
+    /**
+     * Bên của CHÍNH khách hàng vụ việc (final review X2) — cùng ba điều kiện
+     * `RemoveMatterParty`/`UpdateMatterParty` dùng dưới khoá. Ở đây chỉ để TẮT hai ô trên form;
+     * luật thật nằm ở Action.
+     */
+    private function isOwnClientParty(?Model $record): bool
+    {
+        if (! $record instanceof MatterParty) {
+            return false;
+        }
+
+        /** @var Matter $matter */
+        $matter = $this->getOwnerRecord();
+
+        return (bool) $record->is_our_client
+            && $record->client_id !== null
+            && (int) $record->client_id === (int) $matter->client_id;
+    }
+
+    /**
+     * Danh sách ô "Khách hàng" của form SỬA: khách hàng người sửa thấy được, CỘNG khách hàng bên
+     * này đang trỏ tới (final review A-M2) — kể cả khi hồ sơ đó ngoài tầm nhìn hay đã xoá mềm,
+     * để một lượt sửa vai trò/địa chỉ/ghi chú không bị ô chọn từ chối liên kết đang có. Tên đó đã
+     * hiện sẵn ở cột "Khách hàng" của bảng, nên không lộ thêm gì.
+     *
+     * @return array<int|string, string>
+     */
+    private function clientOptionsKeepingCurrentLink(?Model $record): array
+    {
+        $options = VisibleClientOptions::forCurrentUser();
+
+        if ($record instanceof MatterParty && $record->client_id !== null && ! isset($options[$record->client_id])) {
+            $current = Client::query()
+                ->withoutGlobalScope(ClientPortalScope::class)
+                ->withTrashed()
+                ->find($record->client_id);
+
+            if ($current !== null) {
+                $options[$current->getKey()] = $current->name;
+            }
+        }
+
+        return $options;
     }
 
     /**
@@ -647,8 +707,12 @@ class PartiesRelationManager extends RelationManager
         $isOurClient = (bool) ($data['is_our_client'] ?? false);
 
         // Cùng lý do `createParty()`: `VisibleClientOptions` chỉ giới hạn ô chọn HIỂN THỊ gì, còn
-        // payload thì phía client gửi gì cũng được.
-        if ($isOurClient && filled($data['client_id'] ?? null)) {
+        // payload thì phía client gửi gì cũng được. Final review A-M2: chỉ khi liên kết ĐỔI — giữ
+        // nguyên khách hàng đang trỏ tới (một đồng-khách-hàng người sửa không thấy hồ sơ, hay một
+        // hồ sơ đã xoá mềm) không phải là chọn một khách hàng mới.
+        $currentClientId = $record->client_id !== null ? (int) $record->client_id : null;
+
+        if ($isOurClient && filled($data['client_id'] ?? null) && (int) $data['client_id'] !== $currentClientId) {
             VisibleClientOptions::assertVisibleToCurrentUser($data['client_id']);
         }
 

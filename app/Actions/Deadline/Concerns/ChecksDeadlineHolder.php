@@ -2,10 +2,12 @@
 
 namespace App\Actions\Deadline\Concerns;
 
+use App\Actions\Deadline\AddMatterDeadline;
 use App\Actions\Deadline\ChangeDeadlineResponsible;
 use App\Actions\Deadline\SetDeadlineCompletion;
 use App\Actions\Deadline\UpdateDeadline;
 use App\Actions\Notification\ResolveStaffRecipients;
+use App\Actions\Portal\TriageClientRequest;
 use App\Models\Matter;
 use App\Models\User;
 
@@ -16,6 +18,10 @@ use App\Models\User;
  * ({@see UpdateDeadline}) và mở lại một mốc đã xong
  * ({@see SetDeadlineCompletion}). Ba Action cùng ghi một cột thì phải hỏi
  * cùng một câu — hai luật khác nhau cho một cột là hai luật sẽ lệch nhau lần đầu một bên được sửa.
+ *
+ * Final review A-M3: cũng là luật của lúc TẠO mốc ({@see AddMatterDeadline})
+ * và của người giữ một yêu cầu khách ({@see TriageClientRequest::assign()}) —
+ * một luật người giữ việc cho cả năm đường, không còn bản "còn đi làm + update" thứ hai.
  *
  * Ba điều kiện, cả ba bắt buộc:
  *

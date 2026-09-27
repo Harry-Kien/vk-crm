@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Enums\Confidentiality;
 use App\Enums\Permission;
+use App\Enums\Role;
 use App\Models\Client;
 use App\Models\Matter;
 use App\Models\User;
@@ -42,11 +43,74 @@ final class ClientVisibility
             return false;
         }
 
+        return self::reaches($user, $clientId);
+    }
+
+    /**
+     * "Người này với tới được khách hàng này" — luật GỐC, chỉ viết ở đây (final review X3, gộp
+     * mục "một luật viết ở bốn chỗ"): có `client.manage`, hoặc liệt kê được ít nhất một vụ việc
+     * của khách đó (`Matter::scopeListableBy`). KHÁC `isVisibleTo()` đúng một điều: không đòi hồ sơ
+     * `Client` chưa xoá mềm — `ClientPolicy::view` hỏi trên một bản ghi đã nạp (admin còn xem
+     * được hồ sơ đã xoá), còn `isVisibleTo()` trả lời "có được CHỌN id này không".
+     */
+    public static function reaches(User $user, int $clientId): bool
+    {
         if ($user->can(Permission::ClientManage->value)) {
             return true;
         }
 
         return Matter::query()->listableBy($user)->where('client_id', $clientId)->exists();
+    }
+
+    /**
+     * Final review X3 (A-I2): ai được quản lý TÀI KHOẢN CỔNG của một khách hàng (xem, sửa, đặt lại
+     * mật khẩu, mở khoá, tạo mới). Một tài khoản cổng mở được MỌI vụ đã công bố của khách — kể cả
+     * vụ `restricted` — nên "với tới được khách hàng" (`reaches()`) là chưa đủ: một luật sư tra
+     * đúng định danh rồi mở một vụ thường cho khách C sẽ với tới C, và qua tài khoản cổng của C đọc
+     * được vụ `restricted` mà chính `MatterPolicy::view` từ chối họ.
+     *
+     * Luật: admin; hoặc `reaches()` VÀ `view` được MỌI vụ `restricted` chưa xoá mềm của khách đó.
+     * Áp cho mọi vai trò, kể cả người có `client.manage` (trợ lý, trưởng phòng). Nói bằng truy vấn
+     * ở {@see self::portalManageableClientQuery()} — hàm này chỉ hỏi lại truy vấn đó cho một id.
+     */
+    public static function canManagePortalAccountsOf(User $user, int $clientId): bool
+    {
+        if (self::isAdmin($user)) {
+            return true;
+        }
+
+        return self::portalManageableClientQuery($user)->whereKey($clientId)->exists();
+    }
+
+    /**
+     * Cùng luật {@see self::canManagePortalAccountsOf()}, cho cả bảng tài khoản cổng. Tính cả
+     * khách hàng đã xoá mềm (bảng tài khoản cổng từ trước vẫn liệt kê tài khoản của họ cho người
+     * có `client.manage`).
+     *
+     * @return Builder<Client>
+     */
+    public static function portalManageableClientQuery(User $user): Builder
+    {
+        $query = Client::query()->withTrashed();
+
+        if (self::isAdmin($user)) {
+            return $query;
+        }
+
+        if (! $user->can(Permission::ClientManage->value)) {
+            $query->whereIn('id', Matter::query()->listableBy($user)->select('client_id'));
+        }
+
+        // `Matter::query()` mang `SoftDeletingScope`: vụ đã xoá mềm không còn chặn.
+        return $query->whereNotIn('id', Matter::query()
+            ->where('confidentiality', Confidentiality::Restricted->value)
+            ->whereNotIn('id', Matter::query()->listableBy($user)->select('matters.id'))
+            ->select('client_id'));
+    }
+
+    private static function isAdmin(User $user): bool
+    {
+        return $user->hasRole(Role::Admin->value);
     }
 
     /**
