@@ -98,7 +98,7 @@ cách một lỗ hổng đếm số lần đăng nhập sai sống sót qua hai 
 
 ## Khi đưa lên máy chủ thật
 
-Chưa làm, thuộc phần bảo mật và vận hành. Năm thứ bắt buộc phải xong trước:
+Chưa làm, thuộc phần bảo mật và vận hành. Sáu thứ bắt buộc phải xong trước:
 
 1. **`TRUSTED_PROXIES` phải điền địa chỉ proxy thật.** Để trống nghĩa là mọi khách hàng dùng
    chung một bộ đếm đăng nhập: năm lần gõ sai của bất kỳ ai khoá cả cổng trong 15 phút.
@@ -106,7 +106,9 @@ Chưa làm, thuộc phần bảo mật và vận hành. Năm thứ bắt buộc 
    `* * * * * cd /đường/dẫn && php artisan schedule:run >> /dev/null 2>&1`
 3. Sao lưu hằng ngày, và **đã thử khôi phục thật một lần**.
 4. Xác thực hai lớp cho toàn bộ tài khoản nội bộ.
-5. **Seed đúng lệnh — KHÔNG chạy `migrate:fresh --seed` như bước "Bốn bước" ở trên.** Lệnh đó
+5. **`MAIL_FROM_NAME` phải là tên văn phòng** (ví dụ `"Luật Vũ Khang"`), không phải `${APP_NAME}`
+   mặc định của bộ cài — nếu không, hộp thư của khách hiện tên kỹ thuật của dự án làm người gửi.
+6. **Seed đúng lệnh — KHÔNG chạy `migrate:fresh --seed` như bước "Bốn bước" ở trên.** Lệnh đó
    gọi `DatabaseSeeder`, và trên `APP_ENV=production` (`.env` của máy chủ thật phải đặt vậy)
    nó CHỈ tạo dữ liệu tham chiếu (vai trò, quyền, 6 loại vụ việc, giai đoạn, danh mục hồ sơ mẫu)
    — không có admin, không có tài khoản demo mật khẩu `password` nào (M6.5 Task 19; trước bản vá

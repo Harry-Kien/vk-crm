@@ -2,11 +2,15 @@
 
 namespace App\Jobs;
 
+use App\Actions\Notification\NotifyClientOfStageUpdate;
 use App\Actions\Notification\ResolveStaffRecipients;
+use App\Actions\Schedule\CheckDeadlines;
+use App\Enums\OutboundStatus;
 use App\Enums\Role;
 use App\Mail\Staff\DeadlineReminder;
 use App\Models\Deadline;
 use App\Models\Matter;
+use App\Models\OutboundMessage;
 use App\Models\User;
 use App\Support\Audit;
 use Filament\Notifications\Notification;
@@ -30,8 +34,6 @@ use Throwable;
  *
  * **Sau Task 11.** `CheckDeadlines` chỉ còn khoá mốc, tính bậc, ghi `reminders_sent` — TOÀN BỘ
  * bên trong transaction, không có gì gọi ra ngoài mạng — rồi dispatch job NÀY `afterCommit()`.
- * Job chỉ mang ID (SPEC §10.5: không mang định danh thô nào vào payload hàng đợi — `$recipientIds`
- * là khoá số, không phải tên hay số điện thoại), tự đọc lại mọi thứ từ CSDL lúc nó THẬT SỰ chạy.
  * Nhờ vậy: một transport hỏng chỉ làm HỎNG ĐÚNG MỘT lần gửi (dòng `outbound_messages` của nó ghi
  * `failed` — do `OutboundLedgerTransport`, một câu `update()` không nằm trong transaction nào của
  * job này, nên không có gì để rollback); các mốc khác không hề bị đụng tới, vì `CheckDeadlines` đã
@@ -58,16 +60,46 @@ use Throwable;
  *     `CheckDeadlines` KẾ TIẾP coi mốc này như CHƯA từng được xếp hàng ở bậc đó, và xếp lại.
  *  2. **Ghi một dòng audit** `deadline_reminder_failed` (chỉ mang `deadline_id` và `tier` — SPEC
  *     §10.6, không ghi gì khác), rồi **báo trong ứng dụng** cho người phụ trách mốc, luật sư phụ
- *     trách vụ việc, và MỌI admin đang hoạt động — qua {@see ResolveStaffRecipients} (R3: chỉ báo
- *     người đang xem được vụ việc đó, và "không bao giờ im lặng" — luôn có ít nhất admin nhận).
+ *     trách vụ việc, và {@see ResolveStaffRecipients::supervisorsFor()} (vòng sửa 1, M1 — không
+ *     còn "mọi admin đang hoạt động" không điều kiện, xem docblock của hàm đó).
  *
- * **Đọc lại tại thời điểm chạy, không tin payload đã cũ** (kỷ luật giống hệt
- * `RecheckClientIdentityConflicts`, cũng của M6.5): giữa lúc job được xếp hàng và lúc nó THẬT SỰ
- * chạy (có thể trễ vài phút vì `queue:work --stop-when-empty` chỉ rút mỗi phút, hoặc trễ hàng giờ
- * nếu job phải `backoff()` sau một lần hỏng), vụ việc có thể đã bị huỷ (Task 5, `CancelMatter`) và
- * người nhận có thể đã bị khoá/nghỉ việc (R7). `handle()` re-check cả hai TRƯỚC khi gửi và BỎ QUA
- * (không gửi, không ném lỗi) người/mốc không còn hợp lệ — im lặng đúng nghĩa "vốn không nên gửi",
- * không phải một lần gửi thất bại.
+ * # Vòng sửa 1 (ruling "re-derive the audience at send time") — bỏ hẳn `$recipientIds`
+ *
+ * Bản Task 12 gốc vẫn mang một danh sách "ưu tiên" (`$recipientIds`) từ lúc dispatch, và chỉ RE-
+ * CHECK danh sách đó qua `ResolveStaffRecipients` lúc chạy. Vẫn còn một lỗ: danh sách đó là một
+ * ẢNH CHỤP tại thời điểm `CheckDeadlines` chạy — nếu người phụ trách MỐC bị thay đổi, hay một
+ * người MỚI đủ điều kiện xuất hiện (ví dụ luật sư phụ trách vụ được đổi qua `ReassignMatter`)
+ * GIỮA lúc dispatch và lúc job chạy, ảnh chụp đó không hề biết. `handle()` giờ gọi THẲNG
+ * {@see CheckDeadlines::recipientsFor()} — ĐÚNG hàm mà `CheckDeadlines::processOne()` dùng để
+ * quyết định có dispatch hay không — để tính lại TOÀN BỘ đối tượng nhận thư từ đầu, đúng lúc thư
+ * sắp rời tay, không tin bất kỳ ảnh chụp nào. Payload giờ chỉ còn `deadlineId` + `tierKey` (SPEC
+ * §10.5), không còn gì khác để mà tin nhầm.
+ *
+ * # Vòng sửa 1 (ruling "no duplicate reminders on retry")
+ *
+ * `handle()` gửi TỪNG người một trong vòng `foreach`; nếu người thứ hai làm transport ném lỗi,
+ * ngoại lệ thoát khỏi `handle()` và Laravel THẢ LẠI (`release()`) toàn bộ job — lần thử tiếp theo
+ * chạy lại `handle()` TỪ ĐẦU, tính lại TOÀN BỘ danh sách người nhận (đúng ý ở trên) và LẶP LẠI
+ * vòng `foreach`, kể cả người ĐẦU TIÊN đã nhận thành công ở lượt trước. {@see self::
+ * alreadyDelivered()} hỏi thẳng nhật ký `outbound_messages` (SPEC §4.15) — nguồn sự thật duy nhất
+ * về "đã tới nơi chưa" theo TỪNG người nhận, CÙNG HÌNH DẠNG với
+ * `NotifyClientOfStageUpdate::alreadyDelivered()` — trước khi gửi lại, nên người đã nhận không
+ * nhận thêm bản thứ hai chỉ vì người khác trong cùng lượt từng hỏng.
+ *
+ * **Vì sao lọc thêm theo `payload->subject`, khác `NotifyClientOfStageUpdate::alreadyDelivered()`
+ * (chỉ lọc theo `related`+`recipient`+`status`).** Thư tiến độ (`client.stage_update`) chỉ có ĐÚNG
+ * MỘT lần gửi khả dĩ cho mỗi `StageLog` — không có khái niệm "bậc". Thư nhắc mốc thì CÓ: cùng một
+ * `Deadline` (nên cùng `related_type`/`related_id`) được nhắc NHIỀU LẦN qua đời nó — `d14`, `d7`,
+ * `d3`, `d1`, `overdue` — và một quản lý/luật sư có thể hợp lệ ở NHIỀU bậc. Lọc CHỈ theo
+ * `related`+`recipient`+`status = sent` (đúng hình dạng thư tiến độ) sẽ coi MỌI lần nhắc TRƯỚC ĐÓ
+ * (một `d7` đã gửi thật, thành công, tuần trước) là "đã gửi", và bậc `d1` MỚI của TUẦN NÀY sẽ
+ * KHÔNG BAO GIỜ tới tay — im lặng đúng cái mà cả tác vụ này sinh ra để chống, một hình dạng khác
+ * của "không bao giờ im lặng" (R3) bị vi phạm. Không có cột `tier` riêng ở `outbound_messages`
+ * (SPEC §4.15 không có cột đó), nhưng tiêu đề thư (M6.5 Task 12, `deadlines/F3`) đã mang ĐÚNG số
+ * ngày còn lại THẬT — ổn định trong SUỐT một lượt job (kể cả các lần thử lại của `backoff()`, tối
+ * đa ~1 giờ, `today()` không đổi), và khác NHAU giữa hai lượt job của hai bậc khác nhau (số ngày
+ * còn lại luôn khác, vì `due_date` cố định còn "hôm nay" đã trôi). Tiêu đề vì vậy là khoá phân
+ * biệt bậc DUY NHẤT không cần thêm cột nào.
  */
 class SendDeadlineReminderMail implements ShouldQueue
 {
@@ -76,12 +108,8 @@ class SendDeadlineReminderMail implements ShouldQueue
     /** Một lần hỏng thoáng qua (SMTP chết tạm) không cần báo động ngay; xem `backoff()`. */
     public int $tries = 5;
 
-    /**
-     * @param  array<int, int>  $recipientIds  Khoá `users.id` — KHÔNG mang email hay tên vào payload hàng đợi.
-     */
     public function __construct(
         public readonly int $deadlineId,
-        public readonly array $recipientIds,
         public readonly string $tierKey,
     ) {}
 
@@ -107,24 +135,46 @@ class SendDeadlineReminderMail implements ShouldQueue
             return;
         }
 
-        // Re-check người nhận: `is_active` có thể đã đổi (nghỉ việc, R7) từ lúc CheckDeadlines
-        // tính `recipientsFor()` tới lúc job này thật sự chạy. `SoftDeletes` mặc định của User đã
-        // tự loại người đã xoá mềm khỏi truy vấn dưới đây.
-        $recipients = User::query()
-            ->whereKey($this->recipientIds)
-            ->where('is_active', true)
-            ->get();
+        // Tính lại TOÀN BỘ đối tượng nhận thư TẠI THỜI ĐIỂM GỬI, đúng hàm mà CheckDeadlines dùng
+        // để quyết định dispatch — xem docblock lớp, mục "re-derive the audience at send time".
+        $recipients = app(CheckDeadlines::class)->recipientsFor($deadline, $this->tierKey);
 
         foreach ($recipients as $recipient) {
-            Mail::to($recipient->email)->send(new DeadlineReminder($deadline, $recipient, $this->tierKey));
+            $mail = new DeadlineReminder($deadline, $recipient, $this->tierKey);
+
+            // "Không gửi trùng khi thử lại" — xem docblock lớp, mục "no duplicate reminders on
+            // retry". Bỏ qua NGƯỜI NÀY, không phải cả lượt: người khác trong cùng bậc có thể vẫn
+            // chưa nhận được.
+            if ($this->alreadyDelivered($deadline, $recipient, $mail->envelope()->subject)) {
+                continue;
+            }
+
+            Mail::to($recipient->email)->send($mail);
         }
+    }
+
+    /**
+     * Cùng hình dạng {@see NotifyClientOfStageUpdate::alreadyDelivered()},
+     * cộng một điều kiện lọc theo bậc (`payload->subject`) — xem docblock lớp cho lý do cần thêm
+     * điều kiện đó ở đây mà bên kia không cần.
+     */
+    private function alreadyDelivered(Deadline $deadline, User $recipient, string $subject): bool
+    {
+        return OutboundMessage::query()
+            ->withoutGlobalScopes()
+            ->where('related_type', $deadline->getMorphClass())
+            ->where('related_id', $deadline->getKey())
+            ->where('recipient', $recipient->email)
+            ->where('status', OutboundStatus::Sent)
+            ->where('payload->subject', $subject)
+            ->exists();
     }
 
     /**
      * Chạy đúng MỘT lần, sau khi CẢ `$tries` lần đều thất bại — xem docblock lớp, mục "Vòng sửa 1,
      * C1". `?Throwable $exception` không dùng tới: SPEC §10.5 cấm nội suy văn bản lỗi tự do vào
      * dữ liệu ghi lại (một exception tương lai không đảm bảo không vô tình mang dữ liệu nhạy cảm);
-     * tên lớp/JSON của nó đã nằm trong `outbound_messages.error` do `RecordOutboundMessage::failed()`
+     * tên lớp/JSON của nó đã nằm trong `outbound_messages.error` do `RecordOutboundMessage::markFailed()`
      * ghi ở LẦN THỬ CUỐI, không cần lặp lại ở đây.
      */
     public function failed(?Throwable $exception): void
@@ -150,19 +200,22 @@ class SendDeadlineReminderMail implements ShouldQueue
             'tier' => $this->tierKey,
         ]);
 
-        $admins = User::query()->where('is_active', true)->role(Role::Admin->value)->get();
-
         // Mốc/vụ việc không còn tồn tại là một tình huống chưa từng xảy ra thật (Deadline dùng
         // SoftDeletes, matter_id là khoá ngoại bắt buộc) — nhưng nếu có, vẫn phải báo, chỉ là
-        // không còn Matter nào để hỏi Gate::view(), nên rơi thẳng về mọi admin đang hoạt động.
+        // không còn Matter nào để hỏi Gate::view()/supervisorsFor(), nên rơi thẳng về mọi admin
+        // đang hoạt động (lưới an toàn cuối cùng, không phải luật thường ngày).
         $matter = $deadline?->matter()->withTrashed()->first();
 
+        $resolver = app(ResolveStaffRecipients::class);
+
         $recipients = $matter !== null
-            ? app(ResolveStaffRecipients::class)->handle(
+            ? $resolver->handle(
                 $matter,
-                collect([$deadline->responsible, $matter->leadLawyer])->merge($admins)->all(),
+                collect([$deadline->responsible, $matter->leadLawyer])
+                    ->merge($resolver->supervisorsFor($matter))
+                    ->all(),
             )
-            : $admins;
+            : User::query()->where('is_active', true)->role(Role::Admin->value)->get();
 
         foreach ($recipients as $recipient) {
             Notification::make()

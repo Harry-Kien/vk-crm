@@ -5,6 +5,7 @@ namespace App\Mail\Client;
 use App\Mail\BrandedMailable;
 use App\Models\ClientUser;
 use App\Models\StageLog;
+use App\Support\PortalUrl;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
@@ -65,7 +66,11 @@ class StageUpdate extends BrandedMailable
                 'matterCode' => $this->stageLog->matter?->code,
                 'excerpt' => Str::limit((string) $this->stageLog->public_content, self::EXCERPT_LENGTH),
                 'clientAction' => $this->stageLog->client_action,
-                'portalUrl' => url('/portal'),
+                // M6.5 Task 12 (`notify/notify-10`, `spec-gap/spec-gap-09`): KHÔNG `url('/portal')`
+                // — thư này dựng SAU một request Livewire ở /admin (kể cả từ hàng đợi, Task 11),
+                // nên `url()` lấy nhầm host quản trị khi ADMIN_DOMAIN/PORTAL_DOMAIN tách riêng.
+                // Xem docblock `App\Support\PortalUrl`.
+                'portalUrl' => PortalUrl::base(),
                 'office' => config('vkcrm.brand.legal_name'),
                 'hotline' => config('vkcrm.brand.hotline'),
             ],

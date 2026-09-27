@@ -20,6 +20,7 @@ use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -622,4 +623,53 @@ it('skips silently, without error, when the matter is cancelled between queuing 
     expect($sent)->toBe(0)
         ->and($log->fresh()->notified_at)->toBeNull();
     Mail::assertNothingSent();
+});
+
+// ---------------------------------------------------------------------------------------------
+// M6.5 Task 12 (`notify/notify-10`, `spec-gap/spec-gap-09`) — liên kết cổng khách trong thư
+// KHÔNG được lấy theo host của request hiện tại (thư này được dựng SAU một request Livewire ở
+// /admin, dù giờ đã qua job hàng đợi kể từ Task 11 — xem docblock StageUpdate/BrandedMailable).
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Probe E của kiểm toán tái hiện lại: đặt ADMIN_DOMAIN/PORTAL_DOMAIN khác nhau, và GIẢ LẬP thư
+ * được dựng ngay sau một request tới host quản trị (đúng đường thật, dù nay thư nằm trong job).
+ * Liên kết trong thư phải trỏ PORTAL_DOMAIN, không phải host của request đó.
+ *
+ * Mutation probe: xem báo cáo — đổi `PortalUrl::base()` về lại `url('/portal')` cũ làm chính test
+ * này đỏ (liên kết quay về host quản trị).
+ */
+it('builds the portal link from PORTAL_DOMAIN, not the host of the current (admin) request', function () {
+    config([
+        'vkcrm.admin_domain' => 'quantri.luatvukhang.test',
+        'vkcrm.portal_domain' => 'khachhang.luatvukhang.test',
+    ]);
+
+    app()->instance('request', Request::create('https://quantri.luatvukhang.test/admin/matters/1'));
+
+    $stageLog = StageLog::factory()->create();
+    $recipient = ClientUser::factory()->create();
+
+    $html = (new StageUpdate($stageLog, $recipient))->render();
+
+    // Chỉ đối chiếu LIÊN KẾT CỔNG, không đối chiếu toàn bộ HTML: logo thư (`asset()` ở
+    // layout.blade.php) cũng đọc theo request hiện tại — một vấn đề cosmetic KHÁC, nằm ngoài
+    // phạm vi Task 12 (brief chỉ nêu `StageUpdate.php` cho liên kết cổng, không nêu asset()).
+    // Scheme lấy theo APP_URL của môi trường test (không hardcode https): xem PortalUrl::scheme().
+    $scheme = parse_url((string) config('app.url'), PHP_URL_SCHEME) ?? 'https';
+
+    expect($html)->toContain('href="'.$scheme.'://khachhang.luatvukhang.test/portal"')
+        ->and($html)->not->toContain('href="'.$scheme.'://quantri.luatvukhang.test/portal"');
+});
+
+/** Cặp dương: một tên miền (không tách ADMIN_DOMAIN/PORTAL_DOMAIN) thì liên kết vẫn dựng đúng. */
+it('still builds a working portal link when a single domain serves both panels', function () {
+    config(['vkcrm.admin_domain' => null, 'vkcrm.portal_domain' => null]);
+
+    $stageLog = StageLog::factory()->create();
+    $recipient = ClientUser::factory()->create();
+
+    $html = (new StageUpdate($stageLog, $recipient))->render();
+
+    expect($html)->toContain(rtrim(config('app.url'), '/').'/portal');
 });

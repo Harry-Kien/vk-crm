@@ -2,6 +2,7 @@
 
 namespace App\Actions\Schedule;
 
+use App\Actions\Notification\ResolveStaffRecipients;
 use App\Enums\DeadlineSeverity;
 use App\Enums\Role;
 use App\Jobs\SendDeadlineReminderMail;
@@ -180,10 +181,12 @@ class CheckDeadlines
             $reminded++;
 
             // `->afterCommit()`: Laravel hoãn việc đẩy job tới khi transaction NÀY thật sự
-            // commit. Payload chỉ mang ID (SPEC §10.5) — job tự đọc lại mốc và người nhận lúc
-            // nó chạy, xem docblock của job để biết vì sao.
-            SendDeadlineReminderMail::dispatch($deadline->getKey(), $recipients->pluck('id')->all(), $key)
-                ->afterCommit();
+            // commit. Payload chỉ mang ID + bậc (SPEC §10.5) — vòng sửa 1 (ruling "re-derive
+            // audience at send time") bỏ hẳn danh sách người nhận khỏi payload: job tự gọi lại
+            // CHÍNH `recipientsFor()` này lúc nó THẬT SỰ chạy, không tin bất kỳ ảnh chụp nào được
+            // dựng ở đây — xem docblock của job để biết vì sao. `$recipients` ở trên chỉ còn dùng
+            // để quyết định CÓ dispatch hay không (rỗng thì không đánh dấu, xem trên).
+            SendDeadlineReminderMail::dispatch($deadline->getKey(), $key)->afterCommit();
         });
     }
 
@@ -237,39 +240,73 @@ class CheckDeadlines
     }
 
     /**
-     * SPEC §6.8, cột "Người nhận". Người phụ trách luôn có mặt; càng gần hạn thì càng nhiều
-     * người biết, vì một lời nhắc chỉ gửi cho đúng người đang bận là một lời nhắc bị bỏ qua.
+     * SPEC §6.8, cột "Người nhận" — đọc lại theo R3 (M6.5 Task 12, `deadlines/F2`, `notify/notify-3`;
+     * `deadlines/F4`, `notify/notify-4`): "người nhận thư về một vụ việc là người được xem vụ đó."
+     *
+     * Trước bản sửa này, hàm tự lọc thủ công (`is_active`/`trashed`), không hỏi
+     * `Gate::view()` — một vụ `restricted` vẫn gửi mã hồ sơ và tiêu đề cho trưởng phòng và trợ lý
+     * trong đội ngũ, những người `Matter::isListableBy()` từ chối thẳng (`deadlines/F2`). Khi
+     * người phụ trách bị vô hiệu hoá và không ai khác lọt vào danh sách xây thủ công ở đây, mốc
+     * im lặng hoàn toàn tới bậc 1 ngày, không có chuỗi dự phòng nào (`deadlines/F4`).
+     *
+     * Bây giờ: hàm này chỉ dựng "danh sách ưu tiên" theo đúng ngữ cảnh mốc thời hạn biết rõ nhất
+     * (người phụ trách mốc; trợ lý trong đội ngũ ở bậc 3 ngày; quản lý/admin ở bậc 1 ngày và quá
+     * hạn), rồi giao TOÀN BỘ việc lọc is_active + Gate::view + chuỗi dự phòng "không bao giờ im
+     * lặng" cho {@see ResolveStaffRecipients} — R3, SỞ HỮU DUY NHẤT của luật đó (Task 8; Task 11
+     * đã dùng lại ở `SendDeadlineReminderMail::failed()`), không viết lại một bản nữa ở đây.
+     *
+     * **Bậc 1 ngày/quá hạn cộng {@see ResolveStaffRecipients::supervisorsFor()} (vòng sửa 1, M1) —
+     * KHÔNG cộng cả quản lý LẪN admin.** `supervisorsFor()` là NƠI DUY NHẤT quyết định "quản lý
+     * hay admin" cho một vụ việc (R3, câu thứ hai: "vụ restricted thì thay manager bằng admin") —
+     * xem docblock của nó cho lý do đầy đủ (đẩy cả hai vai trò không điều kiện làm mọi admin đang
+     * hoạt động nhận thêm thư của mọi vụ THƯỜNG, không riêng vụ `restricted`, vì `Gate::view()`
+     * của một vụ thường vốn đã cho admin đi qua).
+     *
+     * **Người phụ trách MỐC không hợp lệ (vô hiệu hoá, xoá mềm, hay không còn `Gate::view()` được
+     * — ví dụ một cộng sự cũ của một vụ vừa bị siết thành `restricted`) thì LUẬT SƯ PHỤ TRÁCH VỤ
+     * thế chỗ, ở MỌI bậc (vòng sửa 1, I1).** Trước bản sửa này, việc "người phụ trách vụ thế chỗ"
+     * chỉ xảy ra qua `ResolveStaffRecipients::fallbackChain()` — và chuỗi đó CHỈ chạy khi TOÀN BỘ
+     * `$preferred` rỗng. Ở bậc `d3`, một trợ lý hợp lệ khác trong đội ngũ (hay ở bậc `d1`/quá hạn,
+     * một quản lý/admin hợp lệ từ `supervisorsFor()`) giữ `$preferred` không rỗng, nên chuỗi dự
+     * phòng KHÔNG BAO GIỜ kích hoạt — luật sư phụ trách vụ biến mất khỏi bậc đó, dù người phụ
+     * trách MỐC đã nghỉ việc hay không còn xem được vụ. Kiểm qua {@see ResolveStaffRecipients::
+     * qualifies()} NGAY TẠI ĐÂY, cho riêng "ô người phụ trách" — độc lập với phần còn lại của
+     * `$preferred` — để phép thế chỗ này áp dụng bất kể bậc nào khác cộng thêm ai.
      *
      * @return Collection<int, User>
      */
     public function recipientsFor(Deadline $deadline, string $key): Collection
     {
-        $people = collect();
+        $matter = $deadline->matter;
+
+        if ($matter === null) {
+            return collect();
+        }
+
+        $resolver = app(ResolveStaffRecipients::class);
+        $preferred = collect();
 
         $responsible = $deadline->responsible;
 
-        if ($responsible instanceof User) {
-            $people->push($responsible);
+        if ($responsible instanceof User && $resolver->qualifies($responsible, $matter)) {
+            $preferred->push($responsible);
+        } elseif ($matter->leadLawyer !== null && $resolver->qualifies($matter->leadLawyer, $matter)) {
+            $preferred->push($matter->leadLawyer);
         }
 
         if ($key === 'd3') {
-            // Trợ lý trong đội ngũ của chính vụ việc này, không phải mọi trợ lý của văn phòng.
-            $people = $people->merge(
-                $deadline->matter?->team()->get()->filter(
-                    fn (User $u): bool => $u->hasRole(Role::Assistant->value)
-                ) ?? collect()
+            // Trợ lý trong đội ngũ của CHÍNH vụ việc này, không phải mọi trợ lý của văn phòng.
+            // Gate::view() ở ResolveStaffRecipients tự loại người không được xem vụ (restricted,
+            // hay đã bị vô hiệu hoá/xoá mềm) — không lọc trước ở đây.
+            $preferred = $preferred->merge(
+                $matter->team()->get()->filter(fn (User $u): bool => $u->hasRole(Role::Assistant->value))
             );
         }
 
         if ($key === 'd1' || $key === self::OVERDUE_KEY) {
-            $people = $people->merge(User::query()->role(Role::Manager->value)->get());
+            $preferred = $preferred->merge($resolver->supervisorsFor($matter));
         }
 
-        // Tài khoản đã khoá hoặc đã xoá không nhận thư: gửi cho một hộp thư không ai đọc là tự
-        // dựng một bằng chứng sai rằng văn phòng đã được nhắc.
-        return $people
-            ->filter(fn (User $u): bool => $u->is_active && ! $u->trashed())
-            ->unique(fn (User $u) => $u->getKey())
-            ->values();
+        return $resolver->handle($matter, $preferred->all());
     }
 }

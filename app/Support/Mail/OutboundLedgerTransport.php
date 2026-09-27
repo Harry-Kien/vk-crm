@@ -25,6 +25,32 @@ use Throwable;
  * tức đúng câu trả lời sai cho câu hỏi "tôi không nhận được thông báo".
  *
  * Ngoại lệ được NÉM TIẾP nguyên vẹn: nhật ký là chứng cứ, không phải một cái bẫy nuốt lỗi.
+ *
+ * # M6.5 Task 12 (`notify/notify-11`) — cũng là nơi gỡ header `X-VKCRM-*` trước khi thư rời máy chủ
+ *
+ * `BrandedMailable` gắn `X-VKCRM-Template`/`X-VKCRM-Related`, và `RecordOutboundMessage::sending()`
+ * (chạy ở `MessageSending`, TRƯỚC lớp này) gắn thêm `X-VKCRM-Ledger-Id`. Ba header ấy đi THEO thư
+ * tới tận hộp thư khách nếu không ai gỡ — lộ id tuần tự nội bộ (dòng nhật ký, và qua header
+ * `Related`, id của bản ghi thư nói về) cho bất kỳ ai xem "Show original".
+ *
+ * Đây là NƠI DUY NHẤT gỡ được: chỗ khác (ví dụ một listener nghe `MessageSent`) đọc thông điệp
+ * đã bị `Symfony\Component\Mailer\Transport\AbstractTransport::send()` CLONE — cùng cơ chế mà
+ * docblock `OutboundHeaders::LEDGER_ID` đã ghi — nên gỡ trên thông điệp gốc trước khi gọi
+ * `$this->inner->send()` là cách DUY NHẤT đảm bảo bản đi ra dây mạng không còn header nào, bất kể
+ * transport bên trong là gì (SMTP, `array`, `log`, ...).
+ *
+ * `RecordOutboundMessage::detachInternalHeaders()` trả về khoá dòng đã đọc TRƯỚC KHI gỡ (từ
+ * `Ledger-Id`) — lớp này giữ nó trong một biến cục bộ để đóng dòng ở CẢ HAI nhánh dưới đây, thay
+ * vì để `App\Listeners\RecordOutboundMail` nghe `MessageSent` như trước Task 12 (bản đó đọc lại
+ * header từ thông điệp đã bị clone và đã bị gỡ — luôn thất bại tra dòng, một chỗ chết lặng lẽ).
+ *
+ * **`markSent()` đứng NGOÀI `try` (vòng sửa 1, minor).** Bản trước gọi nó BÊN TRONG cùng `try` bọc
+ * `$this->inner->send()` — nếu chính `markSent()` ném lỗi (CSDL bận đúng lúc đóng dòng, mất kết
+ * nối tạm thời, ...), `catch` bên dưới bắt NHẦM nó, gọi `markFailed()` và biến một thư ĐÃ GỬI
+ * THÀNH CÔNG thành một dòng `failed` — đúng tín hiệu mà hàng đợi (`SendDeadlineReminderMail`,
+ * `SendStageUpdateNotification`) đọc để quyết định GỬI LẠI, tức gửi trùng cho một người đã nhận
+ * rồi. Việc gửi thật (`$this->inner->send()`) và việc ĐÓNG SỔ (`markSent()`) là hai rủi ro khác
+ * nhau, không được gộp chung một `catch`.
  */
 class OutboundLedgerTransport implements TransportInterface
 {
@@ -35,17 +61,30 @@ class OutboundLedgerTransport implements TransportInterface
 
     public function send(RawMessage $message, ?Envelope $envelope = null): ?SentMessage
     {
+        // `RawMessage` trần không có header nào để tra khoá dòng nhật ký (không có dòng nào để
+        // đóng/đánh dấu — `MessageSending` cũng chưa từng mở dòng nào cho nó).
+        $ledgerId = $message instanceof Message
+            ? $this->ledger->detachInternalHeaders($message)
+            : null;
+
         try {
-            return $this->inner->send($message, $envelope);
+            $sent = $this->inner->send($message, $envelope);
         } catch (Throwable $error) {
-            // `RawMessage` trần không có header nào để tra khoá dòng nhật ký, nên không có dòng
-            // nào để đánh dấu; `MessageSending` cũng chưa mở dòng nào cho nó.
-            if ($message instanceof Message) {
-                $this->ledger->failed($message, $error);
+            if ($ledgerId !== null) {
+                $this->ledger->markFailed($ledgerId, $error);
             }
 
             throw $error;
         }
+
+        // NGOÀI try/catch ở trên có chủ ý (xem docblock lớp): việc gửi đã THÀNH CÔNG tại đây, nên
+        // một lỗi của CHÍNH markSent() không được lẫn với một lỗi gửi thư — nó tự ném ra, không bị
+        // gọi nhầm là markFailed().
+        if ($ledgerId !== null) {
+            $this->ledger->markSent($ledgerId);
+        }
+
+        return $sent;
     }
 
     /** Transport thật bên trong — bộ test đọc thư đã gửi qua `ArrayTransport::messages()`. */
