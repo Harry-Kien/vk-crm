@@ -240,11 +240,11 @@ class Login extends BaseLogin
      * ghi trước khi ném lại) — để một đợt SMTP chết kéo dài ồn ào ở nơi vận hành đang xem, không
      * chỉ nằm im trong một bảng CSDL không ai chủ động tra.
      *
-     * **Chưa lấp: nút "Gửi lại mã"** (`PortalEmailAuthentication::getChallengeFormComponents()`,
-     * action `resend`) gọi lại `sendCode()` bằng MỘT lời gọi Livewire RIÊNG, không đi qua
-     * `authenticate()` — một transport hỏng đúng lúc khách bấm nút đó vẫn ném ra ngoài chưa bắt.
-     * Nằm ngoài phạm vi brief của task này (chỉ nêu "trang đăng nhập"); ghi lại để không ai tưởng
-     * đây là một lỗ hổng bị bỏ quên.
+     * Fix round 1 (C1, critical): lần gửi THỨ HAI có thể xảy ra — nút "Gửi lại mã" trên màn hình
+     * nhập mã — là một action Livewire RIÊNG, chạy SAU KHI `authenticate()` đã trả về từ lâu, nên
+     * cú bắt ở đây KHÔNG che được nó. Nhánh đó được bắt riêng, ngay tại chỗ gọi
+     * `sendCode()` thứ hai — xem docblock của action `resend` trong
+     * `PortalEmailAuthentication::getChallengeFormComponents()`.
      */
     public function authenticate(): ?LoginResponse
     {

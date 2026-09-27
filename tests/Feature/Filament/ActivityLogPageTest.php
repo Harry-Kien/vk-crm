@@ -168,3 +168,57 @@ it('shows the logged properties in a details modal, with sensitive keys redacted
         ->toContain(__('activity.page.properties.redacted'))
         ->not->toContain('079099999999');
 });
+
+/**
+ * Fix round 1 (I1, ruling): "the activity viewer must not show raw contact data" — dòng nhật ký
+ * này KHÔNG đi qua `Audit::record()` như test ở trên, mà là dòng "updated" mà
+ * `Spatie\LogsActivity` tự sinh khi sửa `Client` (xem `Client::getActivitylogOptions()` —
+ * `logOnly` giữ nguyên `phone`/`email`/`address`, không loại như `id_number`), nên `properties`
+ * mang đúng hình dạng thật `{"attributes": {...mới...}, "old": {...cũ...}}` mà phát hiện gốc mô
+ * tả, không phải một cấu trúc test tự dựng.
+ */
+it('masks a client edit\'s phone, email and address in the details modal, in both the new and old diff', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+
+    $this->actingAs($admin, 'web');
+
+    $client = Client::factory()->create([
+        'phone' => '0912345678',
+        'email' => 'nam@luatvukhang.com',
+        'address' => '123 Đường Láng, Đống Đa',
+    ]);
+
+    $client->update([
+        'phone' => '0987654321',
+        'email' => 'khac@luatvukhang.com',
+        'address' => '456 Đường Mới, Ba Đình',
+    ]);
+
+    $activity = Activity::query()
+        ->where('subject_type', $client->getMorphClass())
+        ->where('subject_id', $client->id)
+        ->latest('id')
+        ->first();
+
+    $component = $this->livewire(ActivityLogPage::class)
+        ->mountTableAction('viewProperties', $activity);
+
+    $modalContent = (string) $component->instance()->getMountedActions()[0]->getModalContent();
+
+    expect($modalContent)
+        // attributes (giá trị MỚI)
+        ->toContain('09•••321')
+        ->toContain('k•••@luatvukhang.com')
+        ->toContain('456…')
+        // old (giá trị CŨ)
+        ->toContain('09•••678')
+        ->toContain('n•••@luatvukhang.com')
+        ->toContain('123…')
+        // không còn số/địa chỉ thô nào, mới lẫn cũ
+        ->not->toContain('0987654321')
+        ->not->toContain('0912345678')
+        ->not->toContain('khac@luatvukhang.com')
+        ->not->toContain('nam@luatvukhang.com')
+        ->not->toContain('456 Đường Mới, Ba Đình')
+        ->not->toContain('123 Đường Láng, Đống Đa');
+});

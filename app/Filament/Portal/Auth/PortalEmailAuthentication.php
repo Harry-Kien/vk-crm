@@ -13,7 +13,9 @@ use Filament\Schemas\Components\Component;
 use Filament\Schemas\Components\Text;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Log;
 use SensitiveParameter;
+use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 
 /**
  * Ô nhập mã 6 số của cổng khách hàng (SPEC §8.1), dựng trên bộ MFA có sẵn của Filament 5.
@@ -122,11 +124,40 @@ class PortalEmailAuthentication extends EmailAuthentication
                 ->validationAttribute(__('portal.login.code.validation_attribute'))
                 ->belowContent([
                     Text::make(__('portal.login.code.hint')),
+                    /**
+                     * Fix round 1 (C1, critical, phát hiện "portal resend-code path can still 500
+                     * during a mail outage"). Đây là lời gọi `sendCode()` THỨ HAI của lớp này —
+                     * `beforeChallenge()` ở trên là lời gọi đầu, chạy BÊN TRONG
+                     * `Filament\Auth\Pages\Login::authenticate()` nên được
+                     * `App\Filament\Portal\Pages\Auth\Login::authenticate()` bắt hộ. Nút này thì
+                     * KHÔNG: nó là một action Livewire RIÊNG, khách bấm SAU KHI đã ở màn hình
+                     * nhập mã (`authenticate()` đã trả về từ lâu), nên một transport hỏng ở đây
+                     * ném thẳng ra ngoài, không ai bắt — đúng nhánh 500 mà bản sửa round 1 lấp.
+                     *
+                     * Không đập bộ đếm nào trong nhánh bắt được: đây là máy chủ thư hỏng, không
+                     * phải một lần thử gõ mã sai — cùng nguyên tắc đã áp cho
+                     * `Login::authenticate()`.
+                     */
                     Action::make('resend')
                         ->label(__('portal.login.code.resend'))
                         ->link()
                         ->action(function () use ($user): void {
-                            if (! $this->sendCode($user)) {
+                            try {
+                                $sent = $this->sendCode($user);
+                            } catch (TransportExceptionInterface $exception) {
+                                Log::error('Không gửi lại được mã OTP đăng nhập cổng khách hàng: máy chủ thư lỗi.', [
+                                    'exception' => $exception,
+                                ]);
+
+                                Notification::make()
+                                    ->title(__('portal.login.code.send_failed'))
+                                    ->danger()
+                                    ->send();
+
+                                return;
+                            }
+
+                            if (! $sent) {
                                 Notification::make()
                                     ->title(__('portal.login.code.resend_throttled'))
                                     ->danger()

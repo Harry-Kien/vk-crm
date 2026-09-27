@@ -3,6 +3,7 @@
 use App\Filament\Portal\Pages\Auth\Login;
 use App\Models\ClientUser;
 use App\Support\PortalLoginThrottle;
+use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
@@ -73,4 +74,36 @@ it('shows a Vietnamese notice instead of a 500 when the mail transport dies send
     foreach ($keys as $key) {
         expect(RateLimiter::attempts($key))->toBe(0);
     }
+});
+
+/**
+ * Fix round 1 (C1, critical): nút "Gửi lại mã" — `PortalEmailAuthentication::getChallengeFormComponents()`
+ * — gọi `sendCode()` bằng một action Livewire RIÊNG, không đi qua `Login::authenticate()`, nên
+ * cú bắt `TransportExceptionInterface` ở `Login::authenticate()` (test phía trên) không che được
+ * nhánh này. Trước bản sửa round 1, một transport hỏng đúng lúc khách đã ở màn hình nhập mã rồi
+ * bấm "Gửi lại mã" vẫn ném 500.
+ *
+ * Tới được màn hình nhập mã bằng mailer THẬT (mặc định `MAIL_MAILER=array` của `phpunit.xml`, xem
+ * `sendLoginCode` — gửi thành công, không qua hàng đợi), rồi mới hỏng transport và bấm lại.
+ */
+it('shows a Vietnamese notice instead of a 500 when clicking resend during a mail outage, and does not lock the account', function () {
+    $user = ClientUser::factory()->activated()->create();
+
+    $component = $this->livewire(Login::class)
+        ->set('data.email', $user->email)
+        ->set('data.password', 'password')
+        ->call('authenticate');
+
+    $component->assertHasNoErrors();
+
+    config()->set('mail.default', deadOtpMailer());
+
+    $component->callAction(TestAction::make('resend')->schemaComponent('email_code.code', 'multiFactorChallengeForm'))
+        ->assertHasNoErrors();
+
+    $component->assertNotified(__('portal.login.code.send_failed'));
+
+    // Bộ đếm bước MÃ (theo tài khoản) không tăng — một lần transport hỏng không phải một lần gõ
+    // sai mã, và không được bị chặn như thể nó là một lần thử.
+    expect(RateLimiter::attempts(PortalLoginThrottle::codeAccountKey($user)))->toBe(0);
 });
