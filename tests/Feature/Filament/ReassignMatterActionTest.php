@@ -17,6 +17,7 @@ use Filament\Facades\Filament;
 use Filament\Notifications\Livewire\Notifications;
 use Filament\Notifications\Notification;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification as NotificationFacade;
 use Illuminate\Validation\ValidationException;
@@ -334,9 +335,59 @@ it('refuses to keep the old lead as an associate on a restricted matter even whe
     expect($matter->lead_lawyer_id)->toBe($oldLead->id)
         ->and($matter->team()->whereKey($oldLead->id)->where('role_in_matter', MatterRole::Lead->value)->exists())->toBeTrue();
 
-    // M7 Task 1: toàn bộ transaction rollback (kể cả bước dispatch thư tổng hợp, đứng SAU trong
-    // cùng transaction) — không có thư nào được xếp hàng cho một lần bàn giao đã bị từ chối.
+    // M7 Task 1: `ValidationException` ném ở bước "giữ lại" (TRƯỚC Bước 5/dispatch — xem
+    // `ReassignMatter::handle()`) nên dòng `SendReassignmentDigest::dispatch()` KHÔNG BAO GIỜ
+    // chạy trong nhánh này. `Mail::assertNothingSent()` đúng ở ĐÂY bất kể `->afterCommit()` có mặt
+    // hay không — vế "gửi thư SAU KHI commit" (R2) được đo bởi một test KHÁC, ngay dưới đây, bọc
+    // một lần bàn giao THÀNH CÔNG (chạm cả dòng dispatch) trong một transaction ngoài rồi rollback
+    // (fix round 1, finding 1 — vế đó trước đây không có test nào phủ).
     Mail::assertNothingSent();
+});
+
+/**
+ * Fix round 1, finding 1 — test trên đo một nhánh KHÔNG BAO GIỜ chạm dòng dispatch thư tổng hợp
+ * (`ValidationException` ném TRƯỚC Bước 5); nó không chứng minh được gì về R2 ("mọi thư đi qua
+ * hàng đợi, sau khi commit, không bao giờ trong `DB::transaction`"). Test này bọc một lần bàn
+ * giao THÀNH CÔNG (chạm cả 5 bước, kể cả dòng dispatch) trong một transaction NGOÀI của chính
+ * test rồi CỐ Ý rollback — cùng thành ngữ `tests/Feature/Models/ClientIdentitySyncTest.php`
+ * ("does not dispatch the identity recheck job when the enclosing transaction rolls back").
+ *
+ * Hàng đợi `sync` của bộ test (`phpunit.xml`, `QUEUE_CONNECTION=sync`) THẬT SỰ tôn trọng
+ * `->afterCommit()` (`Illuminate\Queue\SyncQueue::push()` đi qua `enqueueUsing()` như mọi driver
+ * khác) — khác `Queue::fake()` (`ReassignMatterTest.php`), bỏ qua hoàn toàn ngữ nghĩa đó. Nếu ai
+ * xoá `->afterCommit()` khỏi `ReassignMatter::handle()`, job sẽ chạy NGAY bên trong transaction
+ * ngoài này — TRƯỚC khi nó rollback — và thư "được gửi thật" dù toàn bộ bàn giao vừa biến mất;
+ * test dưới đây bắt đúng khoảng hở đó (đã xác nhận đỏ bằng tay khi bỏ `->afterCommit()`, xem báo
+ * cáo fix round 1).
+ */
+it('does not send the reassignment digest when an outer transaction around a successful handover rolls back', function () {
+    $oldLead = User::factory()->withRole(Role::Lawyer)->create();
+    $newLead = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $oldLead->id]);
+    Deadline::factory()->for($matter)->create([
+        'responsible_user_id' => $oldLead->id,
+        'is_completed' => false,
+    ]);
+
+    $this->actingAs($oldLead, 'web');
+
+    try {
+        DB::transaction(function () use ($matter, $newLead): void {
+            $this->livewire(ViewMatter::class, ['record' => $matter->getKey()])
+                ->callAction('reassignMatter', data: [
+                    'new_lead_id' => $newLead->id,
+                    'keep_old_lead_as_associate' => false,
+                    'reason' => 'Bàn giao, transaction ngoài sẽ rollback.',
+                ])
+                ->assertHasNoActionErrors();
+
+            throw new RuntimeException('Huỷ có chủ đích — thư không được phép gửi sau việc này.');
+        });
+    } catch (RuntimeException) {
+        // Mong đợi — xem để lộ rõ ý định thay vì một catch im lặng không giải thích.
+    }
+
+    Mail::assertNotSent(MatterReassigned::class);
 });
 
 it('writes a matter_reassigned audit entry', function () {

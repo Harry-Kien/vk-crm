@@ -242,6 +242,12 @@ class ViewMatter extends ViewRecord
      * thể gọi thẳng qua `Closure::bind`, đo đúng lớp phòng thủ NẰM DƯỚI Filament, không phải một
      * chi tiết dehydrate của framework. `ReassignMatter::handle()` vẫn là nơi quyết định thật; hàm
      * này chỉ dịch `$data` của form sang tham số của Action — không tự thêm luật nào.
+     *
+     * Fix round 1 (finding 2): `handle()` giờ trả về `ReassignMatterResult` (không còn `StageLog`
+     * trần) để M7 Task 2 gộp được `$movedDeadlineIds`/`$movedRequestIds` của nhiều vụ thành một
+     * payload — CỐ Ý bỏ qua giá trị trả về ở đây: màn hình MỘT vụ này không cần gộp gì cả, và thư
+     * tổng hợp của chính vụ này đã tự xếp hàng bên trong `handle()` (`$sendDigest` mặc định
+     * `true`).
      */
     private function submitReassign(array $data): void
     {

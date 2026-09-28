@@ -45,9 +45,17 @@ use Illuminate\Validation\ValidationException;
  *
  * **`$sendDigest = false` dành cho M7 Task 2 (màn hình bàn giao HÀNG LOẠT, chưa tới lượt ở
  * milestone này).** Task 2 gọi Action này lặp lại cho nhiều vụ việc, mỗi vụ một transaction
- * riêng (không đổi ở đây), rồi tự dispatch MỘT `SendReassignmentDigest` duy nhất mang TOÀN BỘ
- * `$matters` của cả lô — người nhận chỉ nhận đúng MỘT thư cho cả đợt bàn giao, không phải một
- * thư trên mỗi vụ. Việc gộp payload nhiều vụ là việc của Task 2, không phải của Action này.
+ * riêng (không đổi ở đây) — và ĐỌC LẠI đúng {@see ReassignMatterResult::$movedDeadlineIds}/
+ * `$movedRequestIds` mà MỖI lần gọi trả về (fix round 1, finding 2 — bản trước chỉ trả về
+ * `StageLog` trần, không có cách nào khác để lấy đúng những id lần gọi ĐÓ vừa chuyển). Task 2
+ * KHÔNG được tự re-query `deadlines`/`client_requests` sau khi cả lô đã chạy xong: một câu hỏi
+ * "chưa hoàn thành và hiện do lead mới phụ trách" chạy SAU sẽ vô tình vét luôn cả những mốc lead
+ * mới ĐÃ giữ TỪ TRƯỚC lần bàn giao này (ví dụ vai `associate` trên một vụ khác trong cùng lô) —
+ * phá đúng câu "Nội dung = đúng những gì lần bàn giao NÀY chuyển" mà controller Task 1 đã ràng
+ * buộc (xem docblock {@see ReassignMatterResult}). Task 2 gộp các mảng id đó theo `matter_id` rồi
+ * tự dispatch MỘT `SendReassignmentDigest` duy nhất mang TOÀN BỘ `$matters` của cả lô — người
+ * nhận chỉ nhận đúng MỘT thư cho cả đợt bàn giao, không phải một thư trên mỗi vụ. Việc gộp
+ * payload nhiều vụ là việc của Task 2, không phải của Action này.
  *
  * # Gợi ý giới thiệu luật sư mới cho khách (SPEC §6.11 bước 4) — ĐÃ LÀM, KHÔNG nằm trong Action này
  *
@@ -131,6 +139,9 @@ class ReassignMatter
      *                            mới (SPEC §6.11 bước 3). `false` dành cho M7 Task 2 (bàn giao
      *                            hàng loạt) — xem docblock lớp, mục "Thư tổng hợp mốc hạn cho
      *                            lead mới".
+     * @return ReassignMatterResult Fix round 1, finding 2 — trước đó trả về `StageLog` trần; xem
+     *                              docblock {@see ReassignMatterResult} cho lý do và cách Task 2
+     *                              dùng lại `$movedDeadlineIds`/`$movedRequestIds`.
      *
      * @throws ValidationException
      */
@@ -141,7 +152,7 @@ class ReassignMatter
         string $reason,
         bool $keepOldLeadAsAssociate,
         bool $sendDigest = true,
-    ): StageLog {
+    ): ReassignMatterResult {
         Gate::forUser($actor)->authorize('manageTeam', $matter);
 
         if (trim($reason) === '') {
@@ -168,7 +179,7 @@ class ReassignMatter
             ]);
         }
 
-        return DB::transaction(function () use ($matter, $actor, $newLead, $reason, $keepOldLeadAsAssociate, $sendDigest): StageLog {
+        return DB::transaction(function () use ($matter, $actor, $newLead, $reason, $keepOldLeadAsAssociate, $sendDigest): ReassignMatterResult {
             $locked = Matter::query()->whereKey($matter->getKey())->lockForUpdate()->firstOrFail();
 
             // Final review A-M5: câu `manageTeam` ở đầu hàm hỏi trên đối tượng caller đưa vào —
@@ -330,7 +341,7 @@ class ReassignMatter
                 ])->afterCommit();
             }
 
-            return $stageLog;
+            return new ReassignMatterResult($stageLog, $movedDeadlineIds->all(), $movedRequestIds->all());
         });
     }
 }

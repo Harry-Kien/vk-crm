@@ -1399,3 +1399,30 @@ merge lúc đó. Task 1 dựng thư đó:
   đúng "không thư nào tới KHÁCH"; thêm test vụ `restricted` vẫn nhận thư, và rollback → không có
   thư).
 - Không việc nào bị hoãn tiếp ở task này.
+
+**Fix round 1** (review needs_fixes: 0 critical/2 important/7 minor — 2 important sửa ở đây):
+- **Finding 1 (R2 chưa có test).** Test "rollback" cũ (`ReassignMatterActionTest`, "refuses to keep
+  the old lead...") ném `ValidationException` TRƯỚC Bước 5/dispatch, nên `Mail::assertNothingSent()`
+  ở đó đúng bất kể `->afterCommit()` có mặt hay không — không đo được gì về R2. Thêm một test MỚI,
+  cùng tệp: bọc một lần bàn giao THÀNH CÔNG (chạm cả dòng dispatch) trong một `DB::transaction`
+  NGOÀI của chính test rồi CỐ Ý rollback, khẳng định `Mail::assertNotSent(MatterReassigned::class)`
+  — cùng thành ngữ `ClientIdentitySyncTest.php`. Xác nhận đỏ bằng tay khi bỏ `->afterCommit()` khỏi
+  `ReassignMatter::handle()` (cả test mới này lẫn test dispatch payload ở `ReassignMatterTest.php`
+  đều đỏ), rồi khôi phục lại. Cũng thêm `&& $job->afterCommit === true` vào closure
+  `Queue::assertPushed()` của test dispatch payload cũ (`ReassignMatterTest.php`) — trước đó tên
+  test nói "after commit" nhưng không hề đo cờ đó.
+- **Finding 2 (Task 2 không có cách lấy đúng id đã chuyển mà không re-query sai).** `handle()` giờ
+  trả về `App\Actions\Matter\ReassignMatterResult` (mới, `stageLog` + `movedDeadlineIds` +
+  `movedRequestIds`) thay vì `StageLog` trần — đúng lựa chọn mà phán quyết controller Task 1 đã cho
+  phép ("đổi giá trị trả về... nếu cập nhật MỌI nơi gọi và test"). Cập nhật
+  `ViewMatter::submitReassign()` (vẫn bỏ qua giá trị trả về — màn hình MỘT vụ không cần gộp gì) và
+  hai test ở tầng Action đang gán `$stageLog = handle(...)` sang `$result->stageLog`. Thêm một test
+  mới xác nhận `$result->movedDeadlineIds`/`movedRequestIds` chỉ mang đúng id LẦN GỌI NÀY chuyển,
+  không lẫn deadline/client request lead mới đã giữ TỪ TRƯỚC — đúng rủi ro mà một cách làm
+  "re-query sau khi cả lô chạy xong" sẽ mắc phải. Sửa lại docblock lớp `ReassignMatter` (đoạn nói
+  Task 2 "chỉ cần gọi lặp lại") cho đúng cơ chế mới.
+- Test: 2 test mới (`ReassignMatterActionTest.php`: rollback qua transaction ngoài;
+  `ReassignMatterTest.php`: `movedDeadlineIds`/`movedRequestIds` trên result object) + 2 test có
+  sẵn được sửa (`$job->afterCommit === true`; `$stageLog` → `$result->stageLog` × 2). Toàn bộ 27
+  test của hai tệp `ReassignMatterTest.php` + `ReassignMatterActionTest.php` xanh; `pint --test`
+  sạch (546 tệp).
