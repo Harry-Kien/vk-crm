@@ -45,12 +45,7 @@ class NotifyClientOfChecklistItemRejected
             return 0;
         }
 
-        $matter = Matter::query()
-            ->withoutGlobalScope(ClientPortalScope::class)
-            ->whereKey($fresh->matter_id)
-            ->open()
-            ->where('is_published_to_portal', true)
-            ->first(['id', 'client_id']);
+        $matter = $this->notifiableMatter($fresh->matter_id);
 
         if ($matter === null) {
             return 0;
@@ -115,20 +110,84 @@ class NotifyClientOfChecklistItemRejected
     }
 
     /**
-     * Fix round 1 (finding Important 2, `lang/vi/checklist.php`): "một email đã được gửi báo
-     * khách" là một lời hứa CÓ ĐIỀU KIỆN — đúng khi (VÀ CHỈ khi) luật này đúng
-     * (`is_published_to_portal` VÀ có tài khoản khách đủ điều kiện,
-     * {@see ResolveClientRecipients::hasEligibleRecipient()}), không
-     * phải luôn đúng. `ChecklistRelationManager::rejectAction()` gọi hàm này để chọn câu toast/
-     * helper text TRUNG THỰC, thay vì hứa suông — cùng cách
-     * `NotifyClientOfStageUpdate::hasEligibleRecipient()` đã làm cho form chuyển giai đoạn (Task
-     * 7). Dùng LẠI đúng điều kiện của `handle()` ở trên (không chép riêng), để cảnh báo trên màn
-     * hình không bao giờ lệch với chính Action gửi thư thật.
+     * Vụ việc của đầu mục, CHỈ KHI thư về nó còn được phép đi — `null` nếu không. MỘT định nghĩa
+     * cho cả `handle()` (lúc gửi) lẫn {@see self::hasEligibleRecipient()} (lúc màn hình chọn câu):
+     *
+     *  - `open()`: chưa đóng (`closed_at` null) VÀ chưa xoá mềm — cùng cách
+     *    `SendDeadlineReminderMail` hỏi (brief Task 3, "kiểm tra lại lúc gửi").
+     *  - `is_published_to_portal` (fix round 1, Critical 1): công tắc tổng của portal — xem docblock
+     *    lớp.
+     *
+     * Fix round 2 (finding 1): điều kiện này từng được viết HAI lần — trong `handle()`, và (thiếu
+     * `open()`) trong `hasEligibleRecipient()` — nên toast hứa email cho một lần từ chối trên vụ đã
+     * đóng mà `handle()` không bao giờ gửi. Tách ra đây để hai nơi không thể lệch nhau nữa.
      */
-    public function hasEligibleRecipient(Matter $matter): bool
+    private function notifiableMatter(int $matterId): ?Matter
     {
-        return $matter->is_published_to_portal
+        return Matter::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->whereKey($matterId)
+            ->open()
+            ->where('is_published_to_portal', true)
+            ->first(['id', 'client_id']);
+    }
+
+    /**
+     * Fix round 1 (finding Important 2, `lang/vi/checklist.php`): "một email sẽ được gửi báo
+     * khách" là một lời hứa CÓ ĐIỀU KIỆN. `ChecklistRelationManager::rejectionNoticeCopy()` gọi hàm
+     * này để chọn câu toast/helper text TRUNG THỰC — cùng cách
+     * `NotifyClientOfStageUpdate::hasEligibleRecipient()` làm cho form chuyển giai đoạn.
+     *
+     * Fix round 2 (finding 1): dùng LẠI đúng hai bước chọn người nhận của `handle()` —
+     * {@see self::notifiableMatter()} (vụ còn mở, còn bật công bố portal) rồi
+     * {@see ResolveClientRecipients::hasEligibleRecipient()} (R12) — không chép điều kiện nào. Bản
+     * fix round 1 chép tay `is_published_to_portal` và bỏ sót `open()`, nên từ chối trên vụ đã
+     * đóng (vẫn duyệt được: `MatterChecklistItemPolicy::review` không hỏi `closed_at`) hứa một
+     * email không bao giờ đi. Hai bước của `handle()` KHÔNG có ở đây —
+     * {@see self::stillRejected()} (khách nộp lại trong cửa sổ hàng đợi) và
+     * {@see self::alreadyDelivered()} (hàng đợi thử lại, không gửi hai lần) — canh việc gửi MUỘN và
+     * gửi LẠI, không phải câu "lần từ chối này có ai nhận thư không" mà màn hình hỏi.
+     */
+    public function hasEligibleRecipient(MatterChecklistItem $checklistItem): bool
+    {
+        $matter = $this->notifiableMatter($checklistItem->matter_id);
+
+        return $matter !== null
             && app(ResolveClientRecipients::class)->hasEligibleRecipient($matter->client_id);
+    }
+
+    /**
+     * Fix round 2 (finding 2): "lý do từ chối có HIỆN cho khách trên cổng khách hàng không" — câu
+     * hỏi thứ HAI của câu báo sau khi từ chối, khi {@see self::hasEligibleRecipient()} đã nói không
+     * có thư. Hai câu trả lời khác nhau đòi hai câu chữ khác nhau: vụ đã đóng hay khách chưa kích
+     * hoạt tài khoản thì lý do VẪN chờ trên cổng; vụ tắt công bố portal hay khách hàng đã xoá thì
+     * cổng giấu cả vụ lẫn lý do, và luật sư phải tự gọi khách.
+     *
+     * Hỏi CHÍNH định nghĩa của cổng, không chép lại nó: chạy truy vấn đầu mục dưới
+     * `ClientPortalScope::actingAs()` như thể một tài khoản của CHÍNH khách hàng sở hữu vụ đang mở
+     * cổng — `MatterChecklistItem::applyClientPortalConstraints()` (chưa xoá mềm, `whereHas
+     * ('matter')`) kéo theo `Matter::applyClientPortalConstraints()` (đúng khách, bật công bố
+     * portal, chưa xoá mềm, khách hàng chưa xoá mềm, và mọi điều kiện sau này — M7 thêm
+     * `client_access_until` ở đó). Tài khoản dùng để hỏi là một `ClientUser` KHÔNG lưu, chỉ mang
+     * `client_id`: điều kiện của cổng chỉ đọc đúng cột đó, và câu hỏi là "khách hàng này có thấy
+     * không" — kể cả khi họ chưa có tài khoản nào (khi đó lý do chờ sẵn cho tài khoản đầu tiên).
+     * `client_id` đọc bằng `withTrashed()`, không có nhánh "vụ đã xoá mềm" riêng ở đây: câu trả lời
+     * cho vụ đó cũng để chính cổng đưa ra (`whereNull('deleted_at')` của nó).
+     */
+    public function isShownOnPortal(MatterChecklistItem $checklistItem): bool
+    {
+        $ownClient = (new ClientUser)->forceFill([
+            'client_id' => Matter::query()
+                ->withoutGlobalScope(ClientPortalScope::class)
+                ->withTrashed()
+                ->whereKey($checklistItem->matter_id)
+                ->value('client_id'),
+        ]);
+
+        return ClientPortalScope::actingAs(
+            $ownClient,
+            fn (): bool => MatterChecklistItem::query()->whereKey($checklistItem->getKey())->exists(),
+        );
     }
 
     private function alreadyDelivered(MatterChecklistItem $checklistItem, ClientUser $recipient): bool

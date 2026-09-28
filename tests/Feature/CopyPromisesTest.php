@@ -50,11 +50,12 @@ it('only claims the client sees the new stage when the matter is on the portal',
 /**
  * Fix round 1 (finding Important 2): `reject_success`/`rejection_reason_help` hứa một email chỉ
  * đúng khi khách THẬT SỰ có ai đó để nhận (tài khoản portal đủ điều kiện, R12) VÀ vụ việc còn bật
- * công tắc portal (`is_published_to_portal`) —
- * `ChecklistRelationManager::hasEligibleClientRecipient()` chọn giữa cặp khoá này và cặp
- * "_no_notice" bên dưới. Trước bản sửa này, cặp "email đã được gửi" hiện VÔ ĐIỀU KIỆN — đúng lớp
- * lời hứa sai mà bài test này tồn tại để chặn (xem `it('no longer denies the rejection email…')`
- * ở trên, cho nửa NGƯỢC LẠI của cùng một lỗi).
+ * công tắc portal (`is_published_to_portal`) VÀ — fix round 2, finding 1 — vụ việc còn MỞ.
+ * `ChecklistRelationManager::rejectionNoticeCopy()` chọn giữa cặp khoá này và HAI cặp "không
+ * email" bên dưới ("_no_notice": lý do vẫn hiện trên cổng; "_portal_hidden": vụ ẩn khỏi cổng).
+ * Trước fix round 1, cặp "email đã được gửi" hiện VÔ ĐIỀU KIỆN — đúng lớp lời hứa sai mà bài test
+ * này tồn tại để chặn (xem `it('no longer denies the rejection email…')` ở trên, cho nửa NGƯỢC LẠI
+ * của cùng một lỗi).
  */
 it('does not promise an email when nobody is eligible to receive one', function (string $key) {
     expect(mb_strtolower(__($key)))
@@ -64,6 +65,37 @@ it('does not promise an email when nobody is eligible to receive one', function 
 })->with([
     'checklist.tab.actions.reject_success_no_notice',
     'checklist.tab.fields.rejection_reason_help_no_notice',
+    'checklist.tab.actions.reject_success_portal_hidden',
+    'checklist.tab.fields.rejection_reason_help_portal_hidden',
+]);
+
+/**
+ * Fix round 2 (finding 1): `NotifyClientOfChecklistItemRejected::handle()` không gửi thư cho một
+ * vụ ĐÃ ĐÓNG (`Matter::open()`), mà từ chối trên vụ đã đóng là đường có thật
+ * (`PendingChecklistReviewsWidget` cố ý liệt kê nó). Cặp "_no_notice" — câu hiện khi lý do CÒN trên
+ * cổng nhưng không có thư — phải gọi tên nguyên nhân đó, không chỉ "khách chưa có tài khoản".
+ */
+it('names a closed matter as one reason no rejection email goes out', function (string $key) {
+    expect(mb_strtolower(__($key)))->toContain('vụ việc đã đóng');
+})->with([
+    'checklist.tab.actions.reject_success_no_notice',
+    'checklist.tab.fields.rejection_reason_help_no_notice',
+]);
+
+/**
+ * Fix round 2 (finding 2): cặp "_portal_hidden" hiện ĐÚNG khi vụ việc ẩn khỏi cổng (tắt công bố
+ * portal, hoặc khách hàng đã xoá) — khi đó `MatterChecklistItem::applyClientPortalConstraints()`
+ * (qua `whereHas('matter')`) giấu luôn đầu mục lẫn lý do. Câu không được nói lý do hiện trên cổng
+ * (luật sư sẽ tin khách đã được báo và không gọi), và phải bảo người duyệt tự liên hệ khách.
+ */
+it('never claims the reason shows on the portal when the matter is hidden from it', function (string $key) {
+    expect(mb_strtolower(__($key)))
+        ->not->toContain('trên cổng khách hàng')
+        ->not->toContain('hiện nguyên văn')
+        ->toContain('liên hệ trực tiếp');
+})->with([
+    'checklist.tab.actions.reject_success_portal_hidden',
+    'checklist.tab.fields.rejection_reason_help_portal_hidden',
 ]);
 
 /**
@@ -83,6 +115,8 @@ it('checks keys that actually exist, so a typo cannot make these tests pass on t
     'checklist.tab.actions.reject_success_no_notice',
     'checklist.tab.fields.rejection_reason_help',
     'checklist.tab.fields.rejection_reason_help_no_notice',
+    'checklist.tab.actions.reject_success_portal_hidden',
+    'checklist.tab.fields.rejection_reason_help_portal_hidden',
     'documents.publish.trashed',
     'documents.publish.matter_unavailable',
     'documents.lifecycle.trashed',
