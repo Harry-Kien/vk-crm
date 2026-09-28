@@ -1,5 +1,7 @@
 <?php
 
+use App\Jobs\SendReassignmentDigest;
+
 /**
  * Bàn giao vụ việc (`App\Actions\Matter\ReassignMatter`, SPEC §6.11; M6.5 Task 4, R7) — header
  * action "Bàn giao" trên `ViewMatter`.
@@ -37,5 +39,35 @@ return [
         // Minor (fix round 1): lead_lawyer_id trỏ vào một hàng không còn tồn tại — một lý do KHÁC
         // hẳn "trùng lead", không được gộp chung một câu.
         'no_current_lead' => 'Không thể bàn giao: vụ việc này hiện không có luật sư phụ trách hợp lệ. Liên hệ quản trị viên để kiểm tra lại hồ sơ.',
+    ],
+
+    /*
+     * M7 Task 1 — mẫu thư `staff.matter_reassigned` (SPEC §6.11 bước 3, R10): thư tổng hợp mốc
+     * hạn cho lead mới, dựng để dùng lại được cho cả lô (App\Jobs\SendReassignmentDigest,
+     * App\Mail\Staff\MatterReassigned). Tiêu đề KHÔNG nêu mã hay tiêu đề vụ nào (phán quyết
+     * controller Task 1) — chỉ số lượng vụ việc.
+     */
+    'email' => [
+        'subject' => 'Anh/chị vừa được bàn giao :count vụ việc',
+        'greeting' => 'Kính gửi :name,',
+        'intro' => 'Anh/chị vừa được bàn giao :count vụ việc. Dưới đây là những gì đã chuyển sang cho anh/chị ở từng vụ.',
+        'matter' => 'Hồ sơ: :code — :title',
+        'client' => 'Khách hàng: :name',
+        'reason' => 'Lý do bàn giao: :reason',
+        'deadlines_heading' => 'Mốc thời hạn đã chuyển:',
+        'deadline_line' => ':name — hạn :date (:severity)',
+        'no_deadlines' => 'Không có mốc hạn nào được chuyển.',
+        'client_requests_moved' => 'Đã chuyển :count yêu cầu khách hàng chưa đóng.',
+        'action' => 'Anh/chị mở từng vụ việc trên hệ thống để xem đầy đủ chi tiết.',
+        'salutation' => ':office',
+    ],
+
+    /**
+     * Thông báo trong ứng dụng khi {@see SendReassignmentDigest} hỏng HẲN (hết mọi
+     * lượt thử) — cùng hình dạng `lang/vi/deadlines.php:reminder_failed_notification`.
+     */
+    'digest_failed_notification' => [
+        'title' => 'Không gửi được thư tổng hợp bàn giao vụ việc',
+        'body' => 'Đã thử lại nhiều lần nhưng không gửi được thư tổng hợp mốc hạn bàn giao cho anh/chị. Cần kiểm tra thủ công.',
     ],
 ];

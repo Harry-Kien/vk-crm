@@ -5,6 +5,8 @@ use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
+use App\Mail\Client\StageUpdate;
+use App\Mail\Staff\MatterReassigned;
 use App\Models\ClientRequest;
 use App\Models\Deadline;
 use App\Models\Matter;
@@ -35,6 +37,13 @@ beforeEach(function () {
     NotificationFacade::fake();
 });
 
+/**
+ * M7 Task 1: bàn giao qua màn hình giờ CŨNG xếp một thư tổng hợp mốc hạn cho lead mới (SPEC
+ * §6.11 bước 3, dựng trên `App\Jobs\SendReassignmentDigest` — xem tệp test riêng của job cho
+ * hành vi "dựng lại lúc gửi"). `Mail::assertNothingSent()` không còn đúng nữa; vế "không mail nào
+ * tới KHÁCH" của tên test này vẫn giữ nguyên — kiểm bằng cách phủ định đúng lớp thư gửi khách
+ * (`App\Mail\Client\StageUpdate`), không phải phủ định TOÀN BỘ facade `Mail`.
+ */
 it('reassigns the lead through the header action: lead changes, unfinished deadlines move, an unpublished internal stage log is written, and no mail goes to the client', function () {
     $oldLead = User::factory()->withRole(Role::Lawyer)->create(['name' => 'Luật sư Cũ']);
     $newLead = User::factory()->withRole(Role::Lawyer)->create(['name' => 'Luật sư Mới']);
@@ -75,15 +84,21 @@ it('reassigns the lead through the header action: lead changes, unfinished deadl
         ->and($internalLog->from_stage)->toBe($internalLog->to_stage)
         ->and($internalLog->internal_note)->toContain('Luật sư cũ chuyển công tác sang chi nhánh khác.');
 
-    Mail::assertNothingSent();
+    Mail::assertSent(MatterReassigned::class, function (MatterReassigned $mail) use ($newLead, $unfinished): bool {
+        return $mail->hasTo($newLead->email)
+            && collect($mail->blocks[0]['deadlines'])->pluck('id')->contains($unfinished->id);
+    });
+    Mail::assertNotSent(StageUpdate::class);
     NotificationFacade::assertNothingSent();
 });
 
 /**
  * Spec gap (fix round 1): SPEC §6.11 bước 4 — "gợi ý soạn một dòng cập nhật công bố giới thiệu
- * luật sư mới". Chỉ MỘT gợi ý trên giao diện (Filament Notification), KHÔNG BAO GIỜ tự gửi —
- * `Mail::assertNothingSent()` giữ nguyên vế đó. Chỉ hiện khi vụ việc ĐÃ công bố portal: gợi ý
- * "giới thiệu luật sư mới cho khách" không có nghĩa gì trên một vụ khách còn chưa thấy được.
+ * luật sư mới". Chỉ MỘT gợi ý trên giao diện (Filament Notification), KHÔNG BAO GIỜ tự gửi tới
+ * KHÁCH — vế đó giờ kiểm bằng `Mail::assertNotSent(StageUpdate::class)` (M7 Task 1: thư tổng hợp
+ * mốc hạn cho NHÂN SỰ giờ được gửi thật, nên `Mail::assertNothingSent()` không còn đúng nữa —
+ * xem test đầu tệp). Chỉ hiện khi vụ việc ĐÃ công bố portal: gợi ý "giới thiệu luật sư mới cho
+ * khách" không có nghĩa gì trên một vụ khách còn chưa thấy được.
  */
 it('suggests introducing the new lead to the client when the matter is published to the portal', function () {
     $oldLead = User::factory()->withRole(Role::Lawyer)->create();
@@ -101,7 +116,7 @@ it('suggests introducing the new lead to the client when the matter is published
         ->assertHasNoActionErrors();
 
     Notification::assertNotified(__('reassign.action.suggest_introduction_title'));
-    Mail::assertNothingSent();
+    Mail::assertNotSent(StageUpdate::class);
 });
 
 /** Vế âm bắt buộc: một vụ CHƯA công bố portal không hiện gợi ý này. */
@@ -233,6 +248,10 @@ it('reassigns a restricted matter to another lawyer: the new lead can see it, th
     $this->actingAs($oldLead, 'web')
         ->get(MatterResource::getUrl('view', ['record' => $matter], panel: 'admin'))
         ->assertNotFound();
+
+    // M7 Task 1: một vụ `restricted` vẫn xếp thư tổng hợp cho lead mới như thường — họ CHÍNH là
+    // người vừa được cấp quyền xem vụ này (lead_lawyer_id), nên qualifies() ở job không loại họ.
+    Mail::assertSent(MatterReassigned::class, fn (MatterReassigned $mail): bool => $mail->hasTo($newLead->email));
 });
 
 /**
@@ -314,6 +333,10 @@ it('refuses to keep the old lead as an associate on a restricted matter even whe
 
     expect($matter->lead_lawyer_id)->toBe($oldLead->id)
         ->and($matter->team()->whereKey($oldLead->id)->where('role_in_matter', MatterRole::Lead->value)->exists())->toBeTrue();
+
+    // M7 Task 1: toàn bộ transaction rollback (kể cả bước dispatch thư tổng hợp, đứng SAU trong
+    // cùng transaction) — không có thư nào được xếp hàng cho một lần bàn giao đã bị từ chối.
+    Mail::assertNothingSent();
 });
 
 it('writes a matter_reassigned audit entry', function () {

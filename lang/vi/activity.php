@@ -94,6 +94,9 @@ return [
         'deadline_reminder_failed' => 'Gửi thư nhắc mốc thời hạn thất bại hẳn',
         // Task 20: app/Filament/Admin/Resources/Users/Pages/EditUser.php.
         'user_password_reset' => 'Đặt lại mật khẩu nhân sự',
+        // M7 Task 1: app/Jobs/SendReassignmentDigest.php — thư tổng hợp mốc hạn cho lead mới
+        // (SPEC §6.11 bước 3) hỏng hẳn sau hết lượt thử lại.
+        'matter_reassignment_digest_failed' => 'Gửi thư tổng hợp bàn giao vụ việc thất bại hẳn',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

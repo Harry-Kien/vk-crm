@@ -126,7 +126,7 @@ Nếu gói là một chuỗi đường dẫn trong `matter_archives.handover_pac
 
 ## Tasks
 
-### - [ ] Task 1 — Phần còn lại của `ReassignMatter` (SPEC §6.11)
+### - [x] Task 1 — Phần còn lại của `ReassignMatter` (SPEC §6.11)
 
 **Đã làm ở M6.5 Task 4 (một vụ):** đổi `lead_lawyer_id` và `matter_user`, dòng `stage_logs` nội bộ, chuyển mốc hạn và yêu cầu khách chưa đóng, audit, và luật chặn vô hiệu hoá (R6). **Không viết lại.**
 

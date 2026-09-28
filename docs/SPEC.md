@@ -827,6 +827,16 @@ Khi luật sư nghỉ việc, nghỉ dài ngày, hoặc vụ việc đổi ngư�
    quyết định.
 5. Ghi activity log.
 
+**Đính chính 2026-09-28 (M7 Task 1, R10).** Bước 3 ở trên chỉ chuyển những
+`deadlines` **CHƯA HOÀN THÀNH** của người cũ, không phải "toàn bộ" như câu trên
+viết — một mốc đã xong là lịch sử của người đã hoàn thành nó, chuyển nó đi chỉ
+viết lại ai đã thật sự làm việc gì. Thư tổng hợp cũng chỉ liệt kê đúng những mốc
+CHƯA hoàn thành vừa chuyển (không phải mọi mốc lead mới đang giữ), cộng số yêu
+cầu khách hàng chưa đóng đã chuyển; một vụ không có mốc nào vẫn có mặt trong thư
+để lead mới biết mình vừa nhận vụ. Thư đi qua hàng đợi, sau khi commit
+(`App\Jobs\SendReassignmentDigest`), dựng để dùng lại được cho một lô nhiều vụ
+việc (màn hình hàng loạt bên dưới).
+
 Màn hình hàng loạt: chọn nhiều vụ việc của một luật sư và bàn giao cùng lúc.
 Khi vô hiệu hoá một tài khoản `users` mà người đó còn là lead lawyer của vụ việc
 đang mở, hệ thống **chặn** và yêu cầu bàn giao trước.
@@ -1119,8 +1129,10 @@ Dùng Pest. Các test sau là điều kiện nghiệm thu, không phải tuỳ c
 ### Bàn giao và lưu trữ
 - Vô hiệu hoá tài khoản luật sư còn là lead lawyer của vụ việc đang mở → bị
   chặn, thông điệp nêu rõ số vụ cần bàn giao.
-- Bàn giao vụ việc tự sinh dòng `stage_logs` nội bộ và chuyển toàn bộ deadline
-  sang người mới.
+- Bàn giao vụ việc tự sinh dòng `stage_logs` nội bộ và chuyển deadline **CHƯA
+  HOÀN THÀNH** sang người mới (Đính chính 2026-09-28, M7 Task 1, R10: không phải
+  "toàn bộ" — mốc đã xong ở lại với người đã hoàn thành nó), kèm một thư tổng
+  hợp qua hàng đợi liệt kê đúng những mốc đã chuyển.
 - Gói bàn giao không bao giờ chứa tài liệu nhóm D — test bằng cách giải nén và
   khẳng định.
 - Quá `client_access_until` thì vụ việc biến mất khỏi portal của khách nhưng vẫn

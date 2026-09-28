@@ -5,6 +5,7 @@ namespace App\Actions\Matter;
 use App\Enums\ClientRequestStatus;
 use App\Enums\MatterRole;
 use App\Enums\Role;
+use App\Jobs\SendReassignmentDigest;
 use App\Models\ClientRequest;
 use App\Models\Deadline;
 use App\Models\Matter;
@@ -32,12 +33,21 @@ use Illuminate\Validation\ValidationException;
  * "ai đã thật sự hoàn thành mốc này". Đây là phán quyết của brief Task 4, và M7 R10 ghi lại chính
  * xác sự lệch này vào SPEC — không phải một chỗ bỏ sót ở đây.
  *
- * # Deferred (M6.5 → M6/M7)
+ * # Thư tổng hợp mốc hạn cho lead mới (M7 Task 1 — trước đó bị hoãn ở M6.5 Task 4)
  *
- * - **Thư tổng hợp mốc hạn cho lead mới** (SPEC §6.11 bước 3, "gửi email tổng hợp danh sách mốc
- *   hạn cho người nhận") phải đi qua hàng đợi, sau khi commit (R2) — hạ tầng thư xếp hàng đó là
- *   việc của M6.5 Task 11, CHƯA merge lúc Task 4 chạy. Action này KHÔNG gửi thư nào. M7 Task 1
- *   dựng lại đúng bước này trên hạ tầng thư đã có (kế hoạch M7, R6 và Task 1 đã ghi rõ).
+ * SPEC §6.11 bước 3 ("gửi email tổng hợp danh sách mốc hạn cho người nhận") bị hoãn ở M6.5 Task 4
+ * vì hạ tầng thư xếp hàng (M6.5 Task 11) CHƯA merge lúc đó. Nay hạ tầng đã có: bước cuối của
+ * transaction dưới đây dispatch {@see SendReassignmentDigest} bằng `->afterCommit()`
+ * (R2 — không bao giờ gửi thư TRONG transaction), MẶC ĐỊNH bật (`$sendDigest = true`). Job đó tự
+ * dựng lại nội dung thư LÚC NÓ CHẠY — chỉ giữ mốc còn chưa hoàn thành và còn do lead mới phụ
+ * trách, bỏ vụ nào lead mới không còn xem được nữa — không tin ảnh chụp `$movedDeadlineIds`
+ * dưới đây đưa vào payload là còn đúng tới lúc thư rời tay (xem docblock của job).
+ *
+ * **`$sendDigest = false` dành cho M7 Task 2 (màn hình bàn giao HÀNG LOẠT, chưa tới lượt ở
+ * milestone này).** Task 2 gọi Action này lặp lại cho nhiều vụ việc, mỗi vụ một transaction
+ * riêng (không đổi ở đây), rồi tự dispatch MỘT `SendReassignmentDigest` duy nhất mang TOÀN BỘ
+ * `$matters` của cả lô — người nhận chỉ nhận đúng MỘT thư cho cả đợt bàn giao, không phải một
+ * thư trên mỗi vụ. Việc gộp payload nhiều vụ là việc của Task 2, không phải của Action này.
  *
  * # Gợi ý giới thiệu luật sư mới cho khách (SPEC §6.11 bước 4) — ĐÃ LÀM, KHÔNG nằm trong Action này
  *
@@ -117,6 +127,11 @@ use Illuminate\Validation\ValidationException;
 class ReassignMatter
 {
     /**
+     * @param  bool  $sendDigest  Mặc định `true`: bàn giao MỘT vụ tự xếp thư tổng hợp cho lead
+     *                            mới (SPEC §6.11 bước 3). `false` dành cho M7 Task 2 (bàn giao
+     *                            hàng loạt) — xem docblock lớp, mục "Thư tổng hợp mốc hạn cho
+     *                            lead mới".
+     *
      * @throws ValidationException
      */
     public function handle(
@@ -125,6 +140,7 @@ class ReassignMatter
         User $newLead,
         string $reason,
         bool $keepOldLeadAsAssociate,
+        bool $sendDigest = true,
     ): StageLog {
         Gate::forUser($actor)->authorize('manageTeam', $matter);
 
@@ -152,7 +168,7 @@ class ReassignMatter
             ]);
         }
 
-        return DB::transaction(function () use ($matter, $actor, $newLead, $reason, $keepOldLeadAsAssociate): StageLog {
+        return DB::transaction(function () use ($matter, $actor, $newLead, $reason, $keepOldLeadAsAssociate, $sendDigest): StageLog {
             $locked = Matter::query()->whereKey($matter->getKey())->lockForUpdate()->firstOrFail();
 
             // Final review A-M5: câu `manageTeam` ở đầu hàm hỏi trên đối tượng caller đưa vào —
@@ -299,6 +315,20 @@ class ReassignMatter
                 'client_requests_moved' => $movedRequestIds->count(),
                 'stage_log_id' => $stageLog->id,
             ], $actor);
+
+            // SPEC §6.11 bước 3 (M7 Task 1) — thư tổng hợp cho lead mới, chỉ những gì LẦN BÀN
+            // GIAO NÀY thực sự chuyển (không phải mọi mốc lead mới đang giữ). Payload chỉ mang
+            // ID — job tự dựng lại nội dung LÚC NÓ CHẠY, không tin đây còn đúng tới lúc đó (xem
+            // docblock lớp và của job). `$sendDigest = false`: M7 Task 2 tự gộp một thư cho cả lô.
+            if ($sendDigest) {
+                SendReassignmentDigest::dispatch($lockedNewLead->getKey(), [
+                    $locked->getKey() => [
+                        'deadline_ids' => $movedDeadlineIds->all(),
+                        'client_request_ids' => $movedRequestIds->all(),
+                        'reason' => $reason,
+                    ],
+                ])->afterCommit();
+            }
 
             return $stageLog;
         });

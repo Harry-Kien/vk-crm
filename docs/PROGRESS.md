@@ -1357,3 +1357,43 @@ ngoài bản đầu tiên, và **nhắc lại đúng danh sách này khi M12 xon
 5. Soạn văn bản tự động từ mẫu.
 6. Tích hợp email và Zalo, thư tự lưu vào hồ sơ.
 7. Báo cáo quản trị nâng cao.
+
+## Ghi chú M7
+
+Worktree `D:\vkwt\lane-m7`, nhánh `m7-handover`, cắt từ `origin/m6-5-lane-d` @ `d2de674` (M6.5 đã
+nghiệm thu + đợt sửa cuối). Kế hoạch: `docs/superpowers/plans/2026-09-21-m7-handover-and-archive.md`.
+Sổ làn: `.superpowers/sdd/m7/progress.md`.
+
+### Task 1 — Phần còn lại của `ReassignMatter` (SPEC §6.11 bước 3, R10)
+
+M6.5 Task 4 đã dựng `ReassignMatter` cho MỘT vụ việc (đổi lead, chuyển mốc hạn CHƯA hoàn thành,
+audit) nhưng hoãn thư tổng hợp mốc hạn cho lead mới, vì hạ tầng thư xếp hàng (M6.5 Task 11) chưa
+merge lúc đó. Task 1 dựng thư đó:
+
+- `App\Jobs\SendReassignmentDigest` (queue mặc định, `ShouldQueue`) — dispatch bằng
+  `->afterCommit()` từ `ReassignMatter::handle()` (R2). Mang `$newLeadId` + một mảng
+  `matter_id => {deadline_ids, client_request_ids, reason}` — CHỈ id, dựng để dùng lại được cho
+  M7 Task 2 (bàn giao hàng loạt): một lô nhiều vụ, một thư duy nhất cho lead mới.
+- Dựng lại TOÀN BỘ nội dung LÚC GỬI, không tin payload: mốc phải còn tồn tại, chưa hoàn thành, và
+  hiện do lead mới phụ trách; yêu cầu khách phải còn gán cho lead mới và chưa đóng; cả vụ việc bị
+  loại khỏi thư nếu lead mới không còn qua được `ResolveStaffRecipients::qualifies()` (vụ
+  `restricted` vừa bàn giao tiếp, tài khoản bị vô hiệu hoá giữa chừng, …). Không còn vụ nào qua
+  được lọc thì không gửi gì.
+  - Một vụ vẫn có mặt trong thư dù danh sách mốc rỗng ("không có mốc hạn nào được chuyển") — lead
+    mới cần biết mình vừa nhận vụ.
+- `App\Mail\Staff\MatterReassigned` (kế thừa `BrandedMailable`, mẫu `staff.matter_reassigned`) —
+  tiêu đề KHÔNG nêu mã/tiêu đề vụ nào, chỉ số lượng; `relatedRecord()` trỏ người nhận (không phải
+  một `Matter`) để dòng `outbound_messages` chỉ admin thấy.
+- `ReassignMatter::handle()` thêm tham số `bool $sendDigest = true` — `false` dành cho Task 2 tự
+  gộp một thư cho cả lô thay vì một thư trên mỗi vụ.
+- `failed()` (hết `$tries`): audit `matter_reassignment_digest_failed` (chỉ `new_lead_id` +
+  `matter_ids`) và thông báo trong hệ thống cho chính người nhận.
+- Đính chính SPEC §6.11 bước 3 và §11 ("Bàn giao và lưu trữ"): chỉ deadline CHƯA HOÀN THÀNH được
+  chuyển, không phải "toàn bộ" (R10, cùng cách đọc M6.5 Task 4 đã chọn).
+- Test: `tests/Feature/Jobs/SendReassignmentDigestTest.php` (job, 16 test — mọi điều kiện lọc có
+  mutation probe), `tests/Feature/Actions/Matter/ReassignMatterTest.php` (2 test mới: dispatch mặc
+  định + `sendDigest: false`), `tests/Feature/Filament/ReassignMatterActionTest.php` (cập nhật:
+  `Mail::assertNothingSent()` cũ thay bằng `Mail::assertSent(MatterReassigned::class, …)` +
+  `Mail::assertNotSent(StageUpdate::class)` cho đúng "không thư nào tới KHÁCH"; thêm test vụ
+  `restricted` vẫn nhận thư, và rollback → không có thư).
+- Không việc nào bị hoãn tiếp ở task này.

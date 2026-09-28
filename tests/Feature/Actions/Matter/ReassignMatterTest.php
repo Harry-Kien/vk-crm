@@ -2,10 +2,13 @@
 
 use App\Actions\Matter\ReassignMatter;
 use App\Enums\Role;
+use App\Jobs\SendReassignmentDigest;
+use App\Models\Deadline;
 use App\Models\Matter;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -236,4 +239,69 @@ it('re-checks manageTeam under the lock, so a stale matter object cannot let a f
     ))->toThrow(AuthorizationException::class);
 
     expect($this->matter->fresh()->lead_lawyer_id)->toBe($lawyerB->id);
+});
+
+// =========================================================================================
+// M7 Task 1 — thư tổng hợp mốc hạn cho lead mới (SPEC §6.11 bước 3, R10).
+// =========================================================================================
+
+/**
+ * Mặc định `$sendDigest = true`: bàn giao MỘT vụ (đường vào duy nhất hiện có, qua
+ * `ViewMatter::reassignAction()`) tự xếp một `SendReassignmentDigest` mang đúng mốc CHƯA hoàn
+ * thành vừa chuyển — payload chỉ mang id, job tự dựng lại nội dung lúc chạy (xem tệp test riêng
+ * của job). Dùng `Queue::fake()` ở đây, khác `Mail::fake()` của `ReassignMatterActionTest`, để đo
+ * ĐÚNG việc job có được dispatch với payload đúng hay không, tách khỏi nội dung thư (việc của job).
+ */
+it('dispatches a reassignment digest job after commit, by default, carrying the unfinished deadlines moved', function () {
+    Queue::fake();
+
+    $unfinished = Deadline::factory()->for($this->matter)->create([
+        'responsible_user_id' => $this->oldLead->id,
+        'is_completed' => false,
+    ]);
+    $finished = Deadline::factory()->for($this->matter)->create([
+        'responsible_user_id' => $this->oldLead->id,
+        'is_completed' => true,
+        'completed_at' => now(),
+    ]);
+    $newLead = User::factory()->withRole(Role::Lawyer)->create();
+
+    app(ReassignMatter::class)->handle(
+        matter: $this->matter,
+        actor: $this->oldLead,
+        newLead: $newLead,
+        reason: 'Bàn giao.',
+        keepOldLeadAsAssociate: false,
+    );
+
+    Queue::assertPushed(SendReassignmentDigest::class, function (SendReassignmentDigest $job) use ($newLead, $unfinished, $finished): bool {
+        $ids = $job->matters[$this->matter->id]['deadline_ids'] ?? null;
+
+        return $job->newLeadId === $newLead->id
+            && $ids !== null
+            && in_array($unfinished->id, $ids, true)
+            && ! in_array($finished->id, $ids, true);
+    });
+});
+
+/**
+ * Mutation probe (cặp âm/dương với test trên): `$sendDigest: false` — dành cho M7 Task 2 (bàn
+ * giao hàng loạt), nơi CALLER tự gộp một thư cho cả lô thay vì để Action này tự xếp một thư trên
+ * mỗi vụ. Xoá điều kiện `if ($sendDigest)` khỏi `ReassignMatter::handle()` làm chính test này đỏ
+ * (job vẫn bị dispatch dù đã tắt).
+ */
+it('does not dispatch a reassignment digest job when sendDigest is turned off', function () {
+    Queue::fake();
+    $newLead = User::factory()->withRole(Role::Lawyer)->create();
+
+    app(ReassignMatter::class)->handle(
+        matter: $this->matter,
+        actor: $this->oldLead,
+        newLead: $newLead,
+        reason: 'Bàn giao.',
+        keepOldLeadAsAssociate: false,
+        sendDigest: false,
+    );
+
+    Queue::assertNotPushed(SendReassignmentDigest::class);
 });
