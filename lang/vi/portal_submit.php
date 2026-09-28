@@ -87,6 +87,8 @@ return [
         'send' => [
             'heading' => 'Bước 4 — Gửi cho văn phòng',
             'button' => 'Gửi cho văn phòng',
+            // Hiện cạnh nút Gửi trong lúc nút tắt vì FilePond còn đang tải tệp lên.
+            'uploading' => 'Đang tải tệp lên… Anh/chị chờ tải xong rồi bấm Gửi.',
             /*
              * SPEC §10.9: tài khoản bị vô hiệu hoá. Người đang không dùng được tài khoản cần một
              * con đường KHÔNG đi qua tài khoản, nên câu này chỉ tới điện thoại văn phòng.
@@ -141,6 +143,15 @@ return [
         'file_type' => 'Tệp này không gửi lên được. Chỉ nhận ảnh (JPG, JPEG, PNG), tệp PDF, hoặc tệp Word/Excel (DOC, DOCX, XLS, XLSX). Nếu đây là ảnh chụp màn hình hoặc ảnh từ ứng dụng khác, anh/chị lưu lại thành JPG hoặc PNG rồi gửi lại.',
 
         'file_required' => 'Anh/chị chụp ảnh hoặc chọn một tệp ở bước 2 trước khi gửi.',
+
+        /*
+         * Bấm Gửi khi các tệp trong ô chưa tải lên xong hết (hoặc vừa bỏ một tệp mà lần gỡ chưa
+         * tới nơi) — `SubmitDocument::submit()` so số tệp khách thấy với số tệp đã tới và từ chối
+         * CẢ lô nếu lệch. Câu này phải nói rõ rằng CHƯA CÓ GÌ được gửi: lỗi mà nó chặn chính là
+         * một màn hình nói "đã nhận" trong khi một tệp bị bỏ rơi dọc đường. Không nêu con số vì
+         * lệch có hai chiều (đang tải thêm, hoặc đang gỡ bớt) và một câu đếm chỉ đúng ở một chiều.
+         */
+        'upload_incomplete' => 'Chưa gửi được: các tệp anh/chị chọn ở bước 2 chưa tải lên xong hết. Anh/chị chờ đến khi mọi tệp đều tải xong (tệp nào báo lỗi thì bấm dấu × để bỏ đi rồi chọn lại), sau đó bấm Gửi lần nữa. Lần này chưa có tệp nào được gửi.',
 
         /*
          * Lời từ chối đến từ ENDPOINT TẢI LÊN của Livewire — một chặng mà màn hình này không

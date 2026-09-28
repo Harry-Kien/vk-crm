@@ -26,7 +26,24 @@
 @endphp
 
 <x-filament-panels::page>
-    <div data-portal-page="submit-document" style="{{ $stack }}">
+    {{-- Gửi khi một tệp còn đang tải lên (sửa sau khi gộp M6.5): `uploadsInProgress` đếm tín hiệu
+         `form-processing-*` mà ô chọn tệp phát lên thẻ `<form>` bọc nó (khối 2) và tắt nút Gửi
+         (khối 4); `selectedFileCount()` đọc số tệp trong FilePond để nút Gửi mang theo cho máy
+         chủ đối chiếu — `null` khi không tìm thấy FilePond, và máy chủ hiểu `null` là "không biết".
+         Lý do đầy đủ ở `SubmitDocument::refuseIfUploadsUnfinished()`. --}}
+    <div data-portal-page="submit-document" style="{{ $stack }}"
+         x-data="{
+             uploadsInProgress: 0,
+             get uploading() {
+                 return this.uploadsInProgress > 0;
+             },
+             selectedFileCount() {
+                 const field = document.querySelector('[data-portal-page=submit-document] [data-portal-field=file] .fi-fo-file-upload');
+                 const pond = field ? Alpine.$data(field)?.pond : null;
+
+                 return pond ? pond.getFiles().length : null;
+             },
+         }">
 
         {{-- 1. CHỌN ĐẦU MỤC ------------------------------------------------------------- --}}
         <section data-portal-block="1" style="{{ $card }}">
@@ -78,9 +95,19 @@
             <h2 style="{{ $blockHeading }}">{{ __('portal_submit.steps.file.heading') }}</h2>
 
             @if ($chosen)
-                <div data-portal-field="file">
+                {{-- Thẻ `<form>` là bắt buộc, không phải trang trí: `FileUpload` của Filament phát
+                     tín hiệu "đang tải lên" lên `closest('form')` của nó, và không có thẻ này thì
+                     tín hiệu rơi vào khoảng không. Không `wire:submit`: nút Gửi ở khối 4, ngoài
+                     thẻ này; `x-on:submit.prevent` chỉ chặn một lần gửi form ngầm của trình duyệt.
+                     `x-init` đặt lại bộ đếm mỗi khi ô được dựng lại (đổi đầu mục), vì một ô bị gỡ
+                     giữa lúc đang tải không bao giờ phát tín hiệu "xong". --}}
+                <form data-portal-field="file" novalidate
+                      x-init="uploadsInProgress = 0"
+                      x-on:submit.prevent
+                      x-on:form-processing-started="uploadsInProgress++"
+                      x-on:form-processing-finished="uploadsInProgress = Math.max(0, uploadsInProgress - 1)">
                     {{ $this->form }}
-                </div>
+                </form>
             @else
                 <p style="{{ $muted }}">{{ __('portal_submit.steps.file.choose_item_first') }}</p>
             @endif
@@ -132,11 +159,16 @@
                     {{ __('portal_submit.steps.send.locked', ['hotline' => config('vkcrm.brand.hotline')]) }}
                 </p>
             @else
-                <button type="button" wire:click="submit" data-portal-action="send"
+                <button type="button" data-portal-action="send"
+                        x-on:click="$wire.submit(selectedFileCount())"
+                        x-bind:disabled="uploading"
                         wire:loading.attr="disabled" wire:target="submit"
                         style="{{ $tap }}width:100%;justify-content:center;font-size:1.0625rem;background-color:var(--primary-600);color:var(--primary-50);border:none;">
                     {{ __('portal_submit.steps.send.button') }}
                 </button>
+                <p x-show="uploading" style="display:none;margin-top:0.5rem;{{ $muted }}">
+                    {{ __('portal_submit.steps.send.uploading') }}
+                </p>
             @endif
         </section>
 

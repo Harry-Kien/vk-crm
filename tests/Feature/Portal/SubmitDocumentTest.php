@@ -303,6 +303,104 @@ it('accepts two files in one submission as the same version, and the preview sho
         ->and($this->item->refresh()->status)->toBe(ChecklistItemStatus::PendingReview);
 });
 
+// -----------------------------------------------------------------------------------------
+// BẤM GỬI KHI MỘT TỆP CÒN ĐANG TẢI LÊN (sau M6.5 Task 17)
+// -----------------------------------------------------------------------------------------
+//
+// Với `multiple()`, một tệp chỉ vào trạng thái ở máy chủ khi `_finishUpload` của Livewire chạy
+// xong. Bấm Gửi giữa chừng thì `submit()` chỉ thấy những tệp ĐÃ tới: tệp đang tải bị bỏ lặng lẽ,
+// còn màn hình nói "Chúng tôi đã nhận được". Hai lớp chặn:
+//
+//  - TRÌNH DUYỆT: nút Gửi tắt trong lúc FilePond còn tải (tín hiệu `form-processing-*` của
+//    Filament). Lớp này KHÔNG test được ở đây — `livewire()` không chạy JavaScript, và FilePond
+//    không lái được bằng công cụ trình duyệt (M4). Test ở cuối nhóm chỉ ghim được DÂY NỐI trong
+//    HTML (thẻ form nhận tín hiệu, nút đọc nó, nút gửi kèm số tệp), không ghim được hành vi.
+//  - MÁY CHỦ: nút Gửi mang theo SỐ TỆP khách đang thấy trong ô; `submit()` so với số tệp đã tới
+//    và từ chối CẢ lô nếu hai số lệch — không bản ghi, không byte vào kho, không tốn suất.
+
+it('refuses to send while a chosen file has not finished uploading, and stores nothing', function () {
+    $key = SubmitDocument::submissionLimiterKey($this->clientUser);
+
+    // Khách chọn BA tệp; tệp thứ ba còn đang tải lên, nên trạng thái ở máy chủ mới có HAI.
+    $component = submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->set('data.file', [submitPagePdf('trang-1.pdf'), submitPagePdf('trang-2.pdf')])
+        ->call('submit', 3);
+
+    $component->assertHasErrors('data.file');
+
+    expect($component->errors()->first('data.file'))->toBe(__('portal_submit.errors.upload_incomplete'))
+        ->and($component->get('submitted'))->toBeFalse()
+        ->and(submitRegion($component->html()))->not->toContain(__('portal_submit.done.heading'));
+
+    // Không lưu dở: không bản ghi, không byte nào vào kho, đầu mục vẫn chờ khách, không tốn suất.
+    expect(Document::query()->count())->toBe(0)
+        ->and(Storage::disk('private')->allFiles())->toBe([])
+        ->and($this->item->refresh()->status)->toBe(ChecklistItemStatus::Missing)
+        ->and(RateLimiter::attempts($key))->toBe(0);
+
+    // Hai tệp đã tới vẫn nằm trong ô: khách chờ tệp thứ ba rồi bấm Gửi lại, không phải chọn lại.
+    expect($component->instance()->pendingFiles())->toHaveCount(2);
+
+    // Vế dương, cùng component: khi số tệp khách thấy khớp số tệp đã tới, lô đi trọn.
+    $component->call('submit', 2)->assertHasNoErrors();
+
+    expect(Document::query()->count())->toBe(2)
+        ->and($component->get('submitted'))->toBeTrue();
+});
+
+/**
+ * Chiều ngược lại của cùng một lệch: khách vừa bấm dấu × bỏ một tệp nhưng lần gỡ chưa tới máy
+ * chủ — gửi lúc đó là gửi ĐÚNG tệp khách vừa bỏ đi. Cũng từ chối cả lô.
+ */
+it('refuses to send when the server holds a file the client has already taken off the list', function () {
+    $component = submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->set('data.file', [submitPagePdf('dung.pdf'), submitPagePdf('chup-nham.pdf')])
+        ->call('submit', 1);
+
+    $component->assertHasErrors('data.file');
+
+    expect($component->errors()->first('data.file'))->toBe(__('portal_submit.errors.upload_incomplete'))
+        ->and(Document::query()->count())->toBe(0);
+});
+
+/**
+ * Dây nối phía trình duyệt — chỉ phần ghim được bằng HTML (xem ghi chú đầu nhóm).
+ *
+ * `FileUpload` của Filament phát `form-processing-started`/`-finished` lên `closest('form')` của
+ * nó (`vendor/filament/forms/resources/js/components/file-upload.js`, `dispatchFormEvent`). Trang
+ * này trước đây vẽ ô chọn tệp KHÔNG trong thẻ `<form>` nào, nên tín hiệu ấy rơi vào khoảng không
+ * và nút Gửi không bao giờ biết có tệp đang tải. Test cũng ghim hai dấu hiệu của chính Filament
+ * (`fi-fo-file-upload`, `fileUploadFormComponent(`) mà đoạn JavaScript đếm tệp dựa vào — một lần
+ * nâng cấp đổi chúng sẽ đỏ ở đây thay vì làm nút Gửi mất số tệp trong im lặng.
+ */
+it('wires the send button to wait for uploads and to tell the server how many files the client sees', function () {
+    $html = submitRegion(submitPage()->call('chooseItem', $this->item->getKey())->html());
+
+    expect($html)->toMatch('/<form\b[^>]*data-portal-field="file"[^>]*>/')
+        ->toContain('x-on:form-processing-started="uploadsInProgress++"')
+        ->toContain('x-on:form-processing-finished=');
+
+    // Ô chọn tệp của Filament nằm TRONG thẻ form ấy, và vẫn mang đúng lớp mà `selectedFileCount()`
+    // tìm tới.
+    $formStart = strpos($html, '<form');
+    $fieldAt = strpos($html, 'fileUploadFormComponent(');
+    $formEnd = strpos($html, '</form>');
+
+    expect($fieldAt)->toBeGreaterThan($formStart)
+        ->and($formEnd)->toBeGreaterThan($fieldAt)
+        ->and($html)->toMatch('/class="[^"]*\bfi-fo-file-upload\b[^"]*"/')
+        ->and($html)->toContain("[data-portal-field=file] .fi-fo-file-upload'");
+
+    preg_match('/<button\b[^>]*data-portal-action="send"[^>]*>/', $html, $send);
+
+    expect($send)->not->toBeEmpty()
+        ->and($send[0])->toContain('x-bind:disabled="uploading"')
+        ->and($send[0])->toContain('$wire.submit(selectedFileCount())')
+        ->and($send[0])->not->toContain('wire:click=');
+});
+
 /**
  * Vòng sửa 1, S1: hai kịch bản R10 ở `SubmitClientDocumentTest` ("Nộp thêm trang 3 khi đang chờ
  * duyệt" và "Bị từ chối rồi nộp lại: version mới") trước đó chỉ được đo ở tầng Action, gọi thẳng

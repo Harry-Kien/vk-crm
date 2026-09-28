@@ -761,10 +761,17 @@ class SubmitDocument extends Page
      *    trạng thái chạy trước `Gate` nên một mã riêng sẽ phân biệt được "tồn tại nhưng sai trạng
      *    thái" với "không có bản ghi nào như vậy"; ở đây Action đã gộp cả ba tình huống vào một
      *    lời từ chối duy nhất, và 404 là hình dạng mà mọi lời từ chối khác của trang này đã dùng.
+     *
+     * **`$selectedFileCount` — số tệp khách đang thấy trong ô, do nút Gửi mang theo** (sửa sau khi
+     * gộp M6.5). Xem {@see self::refuseIfUploadsUnfinished()}.
      */
-    public function submit(): void
+    public function submit(?int $selectedFileCount = null): void
     {
         $item = $this->requireChosenItem();
+
+        // Trước MỌI cổng khác: một lô chưa tới đủ thì hỏi trần lô, bộ đếm hay luật của ô đều là
+        // hỏi về một lô SAI — và nó không được tốn suất nào.
+        $this->refuseIfUploadsUnfinished($selectedFileCount);
 
         // R10: đếm theo SỐ TỆP thật trong lô, không theo lượt bấm — xem docblock `guardRate()`.
         // Đọc trạng thái THÔ (`$this->data`, chưa qua `getState()`/validate) để HỎI trước xem cả
@@ -853,6 +860,40 @@ class SubmitDocument extends Page
         $this->resolvedChoices = null;
 
         $this->form->fill();
+    }
+
+    /**
+     * Không bao giờ nói "Chúng tôi đã nhận được" về một lô chưa tới đủ.
+     *
+     * Với `multiple()`, FilePond tải TỪNG tệp lên riêng (`$wire.upload('data.file.{uuid}', …)`), và
+     * một tệp chỉ vào `$this->data` khi `_finishUpload` của nó chạy xong. Bấm Gửi giữa chừng thì
+     * lô ở máy chủ thiếu đúng tệp đang tải: trước lần sửa này nó bị bỏ lặng lẽ, Action nhận phần
+     * còn lại, và khối 4 báo đã nhận.
+     *
+     * Lớp chặn thứ nhất ở trình duyệt: nút Gửi tắt trong lúc Filament báo `form-processing-*`
+     * (xem view). Lớp này là lớp thứ hai, cho mọi trường hợp lớp kia không bắt được — sự kiện
+     * đến trễ, một tệp tải lỗi vẫn nằm trong ô, hay một lần bấm dấu × mà lần gỡ chưa tới máy chủ:
+     * nút Gửi mang theo `pond.getFiles().length`, và nếu con số ấy lệch với số tệp đã tới thì cả
+     * lô bị từ chối — không bản ghi, không byte vào kho, không tốn suất — với một câu bảo khách
+     * chờ tải xong rồi gửi lại. Lệch theo CHIỀU NÀO cũng từ chối: nhiều hơn là còn tệp đang tải,
+     * ít hơn là máy chủ còn giữ một tệp khách vừa bỏ đi.
+     *
+     * **`null` nghĩa là "không biết", và không biết thì không chặn.** Con số đến từ trình duyệt,
+     * nên đây không phải một cổng an ninh (một client tự chế nói gì cũng được, và nó chỉ lừa
+     * được chính nó); nó bảo vệ một khách THẬT khỏi một cuộc đua thời gian. Khi đoạn JavaScript
+     * không tìm thấy FilePond (nó chưa nạp xong, hoặc một bản Filament mới đổi dấu hiệu), nó gửi
+     * `null` thay vì một số sai: chặn MỌI lần gửi vì chính mã keo của trang hỏng thì tệ hơn cái
+     * lỗi đang sửa. Test "wires the send button…" ghim các dấu hiệu ấy để lần hỏng đó đỏ ở CI.
+     */
+    private function refuseIfUploadsUnfinished(?int $selectedFileCount): void
+    {
+        if ($selectedFileCount === null) {
+            return;
+        }
+
+        if ($selectedFileCount !== count($this->pendingFiles())) {
+            $this->failOnFile(__('portal_submit.errors.upload_incomplete'));
+        }
     }
 
     // -------------------------------------------------------------------------------------
