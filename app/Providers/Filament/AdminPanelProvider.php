@@ -3,6 +3,7 @@
 namespace App\Providers\Filament;
 
 use App\Filament\Admin\Pages\Auth\EditProfile;
+use App\Filament\AvatarProviders\InitialsAvatarProvider;
 use App\Http\Middleware\AnswerDeniedPanelRequestsWithNotFound;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -67,6 +68,8 @@ class AdminPanelProvider extends PanelProvider
             ->brandLogoHeight('3rem')
             ->favicon(asset('brand/vk-mark-64.png'))
             ->font(config('vkcrm.brand.font'))
+            // Không gọi ui-avatars.com (SPEC §10.2, khảo sát CSP) — lý do ở docblock của lớp.
+            ->defaultAvatarProvider(InitialsAvatarProvider::class)
             ->colors([
                 'primary' => Color::Slate,
                 'gray' => Color::Zinc,

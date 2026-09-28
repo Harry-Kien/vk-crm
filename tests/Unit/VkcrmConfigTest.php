@@ -20,6 +20,15 @@ it('exposes project settings with safe defaults', function () {
         ->and(config('vkcrm.brand.reply_to'))->not->toBe(config('mail.from.address'));
 });
 
+it('§10.8 exposes rclone backup destination settings with safe defaults', function () {
+    expect(config('vkcrm.backup.rclone.remote'))->toBeNull()
+        ->and(config('vkcrm.backup.rclone.binary'))->toBe('rclone')
+        ->and(config('vkcrm.backup.rclone.config_path'))->toBeNull()
+        ->and(config('vkcrm.backup.rclone.timeout'))->toBe(1800)
+        ->and(config('vkcrm.backup.rclone.keep'))->toBe(30)
+        ->and(config('vkcrm.backup.local_keep'))->toBe(7);
+});
+
 it('treats blank domain env as null', function () {
     // Mirrors the transform in config/vkcrm.php
     $normalize = fn (?string $v) => filled($v) ? $v : null;

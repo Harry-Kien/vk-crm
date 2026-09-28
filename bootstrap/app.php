@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\SendSecurityHeaders;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -28,6 +29,10 @@ return Application::configure(basePath: dirname(__DIR__))
          * thời điểm xử lý request. Nên nơi cấu hình đúng là `config/trustedproxy.php` — đọc
          * docblock ở đó trước khi đổi bất cứ thứ gì, SPEC §10.3 phụ thuộc vào nó.
          */
+
+        // SPEC §10.2 — toàn cục, ĐẦU danh sách, để phủ cả hai panel, nhóm `web`, trang lỗi và cả
+        // phản hồi do middleware toàn cục khác dựng (400, 503 bảo trì, 413); lý do ở docblock.
+        $middleware->prepend(SendSecurityHeaders::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

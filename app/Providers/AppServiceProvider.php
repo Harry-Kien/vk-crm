@@ -2,6 +2,10 @@
 
 namespace App\Providers;
 
+use App\Actions\Backup\GuardBackupEncryption;
+use App\Actions\Backup\GuardOffServerBackupDestination;
+use App\Actions\Backup\GuardRcloneDestinationReachable;
+use App\Actions\Backup\PushBackupArchiveToRclone;
 use App\Http\Controllers\DocumentDownloadController;
 use App\Listeners\RecordOutboundMail;
 use App\Models\Client;
@@ -27,6 +31,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Spatie\Backup\Events\BackupManifestWasCreated;
+use Spatie\Backup\Events\BackupWasSuccessful;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -76,6 +82,41 @@ class AppServiceProvider extends ServiceProvider
          * đo vì sao (đăng ký cả hai đường thì mỗi thư sinh ra hai dòng nhật ký).
          */
         Event::subscribe(RecordOutboundMail::class);
+
+        /*
+         * Guard mã hoá sao lưu ở production (SPEC §10 mục 8, R3) chạy BÊN TRONG
+         * `Spatie\Backup\Tasks\Backup\BackupJob::run()`, lúc manifest vừa dựng xong và zip chưa
+         * được tạo — để lượt sao lưu bị từ chối đi đúng đường `BackupHasFailed` → thư báo lỗi,
+         * và để không đường gọi nào (lệnh, `--config=`, gọi thẳng `BackupJob`) bỏ qua được. Lý
+         * do đầy đủ ở docblock của `GuardBackupEncryption`. Listener đồng bộ: ngoại lệ phải nổi
+         * lên trong chính `run()`.
+         */
+        Event::listen(BackupManifestWasCreated::class, [GuardBackupEncryption::class, 'handle']);
+
+        /*
+         * Cấu hình "đẩy Google Drive sẽ không bao giờ chạy" (M8a Task 2, vòng rà soát 1, fix I2 —
+         * phần "consider" của brief) — CÙNG sự kiện với `GuardBackupEncryption` ngay trên, nhưng
+         * KHÔNG NÉM LỖI (đọc docblock của `GuardRcloneDestinationReachable`): một `BackupHasFailed`
+         * được phát thẳng, không chặn lượt sao lưu cục bộ đêm nay.
+         */
+        Event::listen(BackupManifestWasCreated::class, [GuardRcloneDestinationReachable::class, 'handle']);
+
+        /*
+         * Production không có bản sao NGOÀI máy chủ (không remote rclone, mọi đĩa đích là local) —
+         * fix I4, lượt rà soát cuối M8a, SPEC §10 mục 8. Cùng sự kiện, cùng thành ngữ "báo mà không
+         * chặn" với `GuardRcloneDestinationReachable` ngay trên; lý do ở docblock của
+         * `GuardOffServerBackupDestination`.
+         */
+        Event::listen(BackupManifestWasCreated::class, [GuardOffServerBackupDestination::class, 'handle']);
+
+        /*
+         * Đẩy archive vừa sao lưu xong lên Google Drive bằng `rclone` (M8a Task 2, Ruling 1 của
+         * brief). `BackupWasSuccessful` bắn NGAY SAU khi gói ghi xong archive vào một disk đích —
+         * đăng ký tường minh, cùng thành ngữ với `GuardBackupEncryption` ngay trên. Lý do đầy đủ,
+         * kể cả vì sao chỉ phản ứng với disk `local_backups`, ở docblock của
+         * `PushBackupArchiveToRclone`.
+         */
+        Event::listen(BackupWasSuccessful::class, [PushBackupArchiveToRclone::class, 'handle']);
 
         Relation::enforceMorphMap([
             'user' => User::class,

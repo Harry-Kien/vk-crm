@@ -5,6 +5,7 @@ use Filament\Support\Facades\FilamentColor;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -147,10 +148,132 @@ function forceClientFlags(Document $document): Document
 
 $storageRunToken = $_SERVER['TEST_TOKEN'] ?? ($_SERVER['TEST_TOKEN'] = (string) getmypid());
 
+/*
+|--------------------------------------------------------------------------
+| Thư mục tạm RIÊNG cho `backup:run` ở mỗi tiến trình test chạy `--parallel`
+|--------------------------------------------------------------------------
+|
+| M8a Task 1/2, quan sát thấy flake thật ở `--parallel --processes=2` (ghi lại trong SDD ledger
+| của làn, "backup-temp parallel race"): NHIỀU tệp chạy `backup:run`/`backup:clean` THẬT
+| (`BackupRunIntegrationTest`, `GuardBackupEncryptionTest`, `BackupCleanupTest`,
+| `BackupDatabaseDumpTest`, `GuardRcloneDestinationReachableTest`, và bất kỳ tệp Backup nào sau
+| này gọi `Artisan::call('backup:run', ...)` thật) đều dùng `Spatie\Backup\Tasks\Backup\BackupJob`,
+| và job đó tạo RỒI XOÁ `config('backup.backup.temporary_directory')` (mặc định
+| `storage_path('app/backup-temp')`, xem `config/backup.php`) ở mỗi lượt chạy — kể cả lượt bị
+| `GuardBackupEncryption` chặn giữa chừng. Với `--parallel`, hai worker là hai TIẾN TRÌNH PHP riêng
+| nhưng CÙNG đọc/ghi/xoá đúng một thư mục vật lý: worker A đang ghi dump CSDL vào
+| `backup-temp/db-dumps/` thì worker B, ở một test khác, xoá sạch cả thư mục đó khi lượt
+| `backup:run` của NÓ kết thúc — bài nào flake tuỳ thuộc worker nào xoá đúng lúc worker kia đang
+| đọc, nên lần đỏ không cố định vào một test.
+|
+| **Vòng sửa đầu (M8a Task 3, bản đầu) đặt lời gọi này trong `beforeEach` của TỪNG tệp trong bốn
+| tệp trên — SAI: `GuardRcloneDestinationReachableTest.php` (M8a Task 2) cũng gọi `backup:run`
+| thật ba lần và không nằm trong danh sách bốn tệp, nên nó vẫn đua trên
+| `storage_path('app/backup-temp')` sau vòng sửa đầu.** Một danh sách tệp liệt kê tay là một bất
+| biến giao cho trí nhớ người viết tệp test TIẾP THEO nhớ thêm dòng gọi — đúng lớp lỗi mà đĩa
+| `private` giả ở trên đã từng mắc và được sửa bằng cách chuyển sang một `beforeEach` TOÀN CỤC
+| (xem docblock ngay trên). Sửa đúng cách theo đúng bài học đó: một `beforeEach` áp cho CẢ THƯ MỤC
+| `Feature/Backup`, không phải liệt kê tệp.
+|
+| Đặt tên thư mục bằng CẢ `getmypid()` LẪN token `--parallel` (đọc qua `$_SERVER['TEST_TOKEN']` —
+| chính giá trị `ParallelTesting::token()` trả về khi không có resolver tuỳ biến nào được đặt,
+| xem `Illuminate\Testing\ParallelTesting::token()`; đọc thẳng superglobal ở ĐÂY, cùng lý do với
+| `$storageRunToken` ở trên, để không phụ thuộc thứ tự khởi động ứng dụng). CHỈ token thôi không
+| đủ: Laravel/Paratest đánh số worker theo CHỈ SỐ (`1`, `2`, ...) trong PHẠM VI một lần chạy
+| `--processes=N`, không phải một mã toàn cục — hai TIẾN TRÌNH chạy `--parallel --processes=2`
+| ĐỒNG THỜI trong CÙNG worktree này (ví dụ hai agent làm hai task khác nhau cùng lúc) đều có worker
+| mang token `1` và token `2`, và nếu thư mục chỉ đặt tên theo token, hai tiến trình đó xoá tệp của
+| nhau y hệt lỗi ban đầu — chỉ đổi từ "hai worker cùng tiến trình" thành "hai tiến trình khác
+| nhau". `getmypid()` phân biệt được hai tiến trình đó; token phân biệt được hai worker cùng tiến
+| trình. Cần cả hai.
+|
+| KHÔNG đổi `config/backup.php`: hành vi production (một máy chủ, một tiến trình `backup:run` mỗi
+| đêm) không đổi, `temporary_directory` production vẫn là `storage_path('app/backup-temp')` mặc
+| định.
+|
+| Nhân chứng để cái `beforeEach` toàn cục này không bị gỡ đi trong im lặng (cùng thành ngữ với
+| `PrivateDiskTest`): `tests/Feature/Backup/BackupTestTempDirectoryTest.php` — tệp đó KHÔNG tự đặt
+| `backup.backup.temporary_directory`, nên nó chỉ xanh khi hook Ở ĐÂY còn hoạt động.
+*/
+function backupTemporaryTestDirectory(): string
+{
+    $token = $_SERVER['TEST_TOKEN'] ?? '0';
+
+    return storage_path('app/backup-temp_test_'.getmypid().'_'.$token);
+}
+
+/*
+|--------------------------------------------------------------------------
+| Hai hàng rào nữa cho `Feature/Backup` (fix I2, lượt rà soát cuối M8a)
+|--------------------------------------------------------------------------
+|
+| 1. `Process::preventStrayProcesses()` + `Process::fake([])` — mọi lời gọi facade `Process` mà
+|    test không TỰ giả (bằng `Process::fake(...)` của chính nó, thứ thay bộ giả rỗng này) ném
+|    `RuntimeException` "without a matching fake" thay vì chạy tiến trình thật. `RcloneProcess`
+|    là nơi duy nhất trong mã gọi facade đó, nên không test nào ở thư mục này còn chạy được
+|    `rclone` thật: trước fix này, `GuardRcloneDestinationReachableTest` chạy `backup:run` trên
+|    `local_backups` với `BACKUP_RCLONE_REMOTE=gdrive:...` mà không giả gì — trên một máy có
+|    `rclone` và remote `gdrive`, test đẩy archive thật lên Google Drive thật; và vì test đó dùng
+|    `--disable-notifications`, lỗi của lượt đẩy cũng không lộ ra. `preventStrayProcesses()` MỘT
+|    MÌNH không làm gì cả: `PendingProcess::run()` chỉ chặn khi factory ĐANG GHI (`isRecording()`),
+|    tức sau một lời gọi `fake()` — vì vậy cần cả `fake([])` (ghi, không đăng ký lệnh giả nào).
+|
+|    Giới hạn, ghi rõ: `mariadb-dump` của `BackupDatabaseDumpTest` chạy qua
+|    `Symfony\Component\Process\Process` bên trong `spatie/db-dumper`, không qua facade — hàng
+|    rào này không chặn nó. Nó dump đúng CSDL test của lần chạy (`test:dump`), không phải một đích
+|    từ xa.
+| 2. `backup.backup.source.files.include` trỏ vào một thư mục NGUỒN TẠM riêng cho tiến trình (có
+|    một tệp nhỏ, để `backup:run --only-files` có gì để nén) — `backup:run` thật trong thư mục này
+|    không bao giờ nén `storage/app/private` thật của máy đang chạy test. Test cấu hình nguồn thật
+|    (`BackupConfigTest`) đọc thẳng `config/backup.php`, không đọc giá trị bị hook này đổi.
+|
+| Nhân chứng: `tests/Feature/Backup/BackupTestIsolationTest.php` (không tự giả gì).
+*/
+function backupSourceTestDirectory(): string
+{
+    $token = $_SERVER['TEST_TOKEN'] ?? '0';
+
+    return storage_path('app/backup-source_test_'.getmypid().'_'.$token);
+}
+
+pest()->in('Feature/Backup')->beforeEach(function (): void {
+    config(['backup.backup.temporary_directory' => backupTemporaryTestDirectory()]);
+
+    Process::preventStrayProcesses();
+    Process::fake([]);
+
+    $source = backupSourceTestDirectory();
+
+    if (! is_dir($source)) {
+        mkdir($source, 0777, true);
+    }
+
+    file_put_contents($source.'/tep-nguon-thu.txt', 'Tệp nguồn giả cho backup:run trong test — không phải hồ sơ thật.');
+
+    config(['backup.backup.source.files.include' => [$source]]);
+});
+
 register_shutdown_function(function () use ($storageRunToken): void {
     foreach ((array) glob(__DIR__.'/../storage/framework/testing/disks/*_test_'.$storageRunToken) as $path) {
         if (is_dir($path)) {
             (new Filesystem)->deleteDirectory($path);
         }
+    }
+
+    // Cùng cách đặt tên với `backupTemporaryTestDirectory()` (pid + token), tính lại trực tiếp ở
+    // đây thay vì gọi lại hàm đó: `storage_path()` cần `app()` đã dựng, và một shutdown handler
+    // chạy ở CUỐI tiến trình không đảm bảo container còn sống — `__DIR__` thì luôn có.
+    $backupTempToken = $_SERVER['TEST_TOKEN'] ?? '0';
+    $backupTempDirectory = __DIR__.'/../storage/app/backup-temp_test_'.getmypid().'_'.$backupTempToken;
+
+    if (is_dir($backupTempDirectory)) {
+        (new Filesystem)->deleteDirectory($backupTempDirectory);
+    }
+
+    // Thư mục nguồn tạm của `backupSourceTestDirectory()` — cùng cách đặt tên, cùng lý do tính lại.
+    $backupSourceDirectory = __DIR__.'/../storage/app/backup-source_test_'.getmypid().'_'.$backupTempToken;
+
+    if (is_dir($backupSourceDirectory)) {
+        (new Filesystem)->deleteDirectory($backupSourceDirectory);
     }
 });
