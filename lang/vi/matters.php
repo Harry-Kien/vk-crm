@@ -259,6 +259,16 @@ return [
         'title' => 'Chưa gửi được thư báo tiến độ cho khách hàng',
         'body' => 'Thư báo cập nhật tiến độ hồ sơ :code đã thử gửi nhiều lần nhưng không tới được khách hàng. Hãy báo cho khách qua kênh khác và kiểm tra email của tài khoản cổng.',
     ],
+    // M6 Task 3 — cùng hình dạng stage_update_failed_notification, cho hai listener mới
+    // (NotifyClientOfDocumentPublished::reportFailure(), NotifyClientOfChecklistItemRejected::reportFailure()).
+    'document_published_failed_notification' => [
+        'title' => 'Chưa gửi được thư báo văn bản mới cho khách hàng',
+        'body' => 'Thư báo có văn bản mới của hồ sơ :code đã thử gửi nhiều lần nhưng không tới được khách hàng. Hãy báo cho khách qua kênh khác và kiểm tra email của tài khoản cổng.',
+    ],
+    'document_rejected_failed_notification' => [
+        'title' => 'Chưa gửi được thư báo từ chối giấy tờ cho khách hàng',
+        'body' => 'Thư báo từ chối giấy tờ của hồ sơ :code đã thử gửi nhiều lần nhưng không tới được khách hàng. Hãy báo cho khách qua kênh khác và kiểm tra email của tài khoản cổng.',
+    ],
     // M6.5 Task 9 — ba tiêu đề/thông báo riêng của "sửa một bên" khác câu với "thêm một bên"
     // (`parties` ở trên). Hai khoá KHÔNG lặp lại ở đây (`saved_clear_with_confirmed`,
     // `conflict_check_title_clear`) không nhắc "thêm bên" nên dùng chung được với `notifySaved()`.

@@ -120,7 +120,11 @@ return [
             'accept_success' => 'Đã ghi nhận đầu mục này là đã nhận đủ.',
             'reject' => 'Cần nộp lại',
             'reject_heading' => 'Từ chối giấy tờ và ghi rõ khách cần làm gì',
-            'reject_success' => 'Đã từ chối — lý do hiện cho khách trên cổng khách hàng. Hệ thống chưa gửi email cho việc này; văn phòng sẽ liên hệ khách nếu cần gấp.',
+            // M6 Task 3: thư `client.document_rejected` giờ CÓ THẬT
+            // (`App\Mail\Client\DocumentRejected`) — câu cũ "Hệ thống chưa gửi email cho việc
+            // này" đúng lúc M6.5 hạ câu này xuống, sai từ hôm nay. `tests/Feature/
+            // CopyPromisesTest.php` ghim câu mới.
+            'reject_success' => 'Đã từ chối — lý do hiện cho khách trên cổng khách hàng, và một email đã được gửi báo khách về việc này.',
             'not_applicable' => 'Không cần nộp',
             'not_applicable_heading' => 'Đánh dấu đầu mục này là không cần nộp',
             'not_applicable_description' => 'Mục này sẽ không còn nằm trong danh sách giấy tờ khách phải nộp, và thanh tiến độ tính lại theo đó.',
@@ -130,7 +134,7 @@ return [
             'rejection_reason' => 'Lý do, viết cho khách đọc',
             // Nhắc thẳng rằng câu này ra khỏi văn phòng. SPEC §6.7 tồn tại vì trợ lý hay viết
             // "không hợp lệ", và một dòng nhắc ngay dưới ô nhập rẻ hơn một vòng nộp lại.
-            'rejection_reason_help' => 'Câu này hiện nguyên văn trên cổng khách hàng (hệ thống chưa gửi email cho việc này), nên hãy viết như đang nói chuyện với khách: chỗ nào chưa đạt, và cần làm gì để nộp lại cho đúng. Bấm một mẫu bên dưới rồi sửa lại cho đúng trường hợp.',
+            'rejection_reason_help' => 'Câu này hiện nguyên văn trên cổng khách hàng và trong một email gửi ngay cho khách, nên hãy viết như đang nói chuyện với khách: chỗ nào chưa đạt, và cần làm gì để nộp lại cho đúng. Bấm một mẫu bên dưới rồi sửa lại cho đúng trường hợp.',
             'templates' => 'Mẫu có sẵn — bấm một cái là điền',
             // Ba ô của modal "Thêm đầu mục" — M6.5 Task 15.
             'item_name' => 'Tên đầu mục',

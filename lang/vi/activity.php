@@ -94,6 +94,9 @@ return [
         'deadline_reminder_failed' => 'Gửi thư nhắc mốc thời hạn thất bại hẳn',
         // Task 20: app/Filament/Admin/Resources/Users/Pages/EditUser.php.
         'user_password_reset' => 'Đặt lại mật khẩu nhân sự',
+        // M6 Task 3: app/Actions/Client/IssuePortalAccess.php — cấp hoặc cấp lại quyền truy cập
+        // cổng khách hàng (mật khẩu tạm gửi qua thư `client.activation`).
+        'client_portal_access_issued' => 'Cấp quyền truy cập cổng khách hàng',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

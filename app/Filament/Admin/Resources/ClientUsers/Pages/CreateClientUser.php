@@ -2,11 +2,15 @@
 
 namespace App\Filament\Admin\Resources\ClientUsers\Pages;
 
+use App\Actions\Client\IssuePortalAccess;
 use App\Filament\Admin\Resources\ClientUsers\ClientUserResource;
 use App\Models\Client;
 use App\Models\ClientUser;
+use App\Models\User;
 use Filament\Resources\Pages\CreateRecord;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 
 class CreateClientUser extends CreateRecord
 {
@@ -36,6 +40,27 @@ class CreateClientUser extends CreateRecord
         // đủ để chặn qua UI, còn dòng này chặn cả một request đã "chỉnh sửa tay".
         $data['must_change_password'] = true;
 
+        // Task 3: ô mật khẩu đã gỡ khỏi form, nhưng cột `client_users.password` là `string`
+        // KHÔNG NULL. Chuỗi ngẫu nhiên này chỉ là một giá trị TẠM để thoả ràng buộc CSDL — không
+        // ai biết nó, không ai dùng nó để đăng nhập: `afterCreate()` ngay bên dưới gọi
+        // `IssuePortalAccess`, việc này sẽ GHI ĐÈ nó bằng một mật khẩu tạm THẬT (gửi qua thư
+        // `client.activation`) ngay khi job hàng đợi chạy.
+        $data['password'] = Str::password(32);
+
         return $data;
+    }
+
+    /**
+     * Cấp quyền truy cập cổng NGAY sau khi tài khoản được tạo — đúng lỗ hổng brief Task 3 nêu:
+     * "hôm nay tài khoản portal được tạo bằng cách một luật sư gõ tay mật khẩu ... không có thư
+     * kích hoạt nào cả". `afterCreate()` chạy sau khi bản ghi đã lưu, nên `$this->record` đã có
+     * khoá chính thật để `IssuePortalAccess` khoá dòng và dispatch job gửi thư.
+     */
+    protected function afterCreate(): void
+    {
+        $actor = Auth::user();
+        abort_unless($actor instanceof User, 403);
+
+        app(IssuePortalAccess::class)->handle($this->record, $actor);
     }
 }

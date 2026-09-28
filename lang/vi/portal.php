@@ -107,5 +107,50 @@ return [
             'help' => 'Có điều gì chưa rõ, anh/chị gọi giúp văn phòng theo số :phone.',
             'salutation' => 'Trân trọng, :office',
         ],
+
+        /*
+         * Mẫu `client.document_published` (SPEC §9, M6 Task 3). Tiêu đề KHÔNG mang tên tài liệu
+         * (sổ tay M6.5 Task 13 — dòng nhật ký thư hiện cho mọi người xem được vụ, kể cả trợ lý);
+         * tên tài liệu chỉ nằm ở `document_line`, trong THÂN thư.
+         */
+        'document_published' => [
+            'subject' => 'Hồ sơ :code có văn bản mới',
+            'greeting' => 'Kính gửi anh/chị :name,',
+            'line' => 'Văn phòng vừa gửi một văn bản mới cho hồ sơ :code của anh/chị.',
+            'document_line' => 'Văn bản: ":title" (:group).',
+            'open' => 'Mở hồ sơ để xem văn bản',
+            'help' => 'Có điều gì chưa rõ, anh/chị gọi giúp văn phòng theo số :phone.',
+            'salutation' => 'Trân trọng, :office',
+        ],
+
+        /*
+         * Mẫu `client.document_rejected` (SPEC §9, M6 Task 3). Cùng lý do tiêu đề không mang tên
+         * đầu mục hay lý do — chỉ mã hồ sơ.
+         */
+        'document_rejected' => [
+            'subject' => 'Hồ sơ :code cần bổ sung giấy tờ',
+            'greeting' => 'Kính gửi anh/chị :name,',
+            'line' => 'Văn phòng chưa thể nhận giấy tờ ":item" của hồ sơ :code. Lý do:',
+            'open' => 'Mở hồ sơ để nộp lại',
+            'help' => 'Có điều gì chưa rõ, anh/chị gọi giúp văn phòng theo số :phone.',
+            'salutation' => 'Trân trọng, :office',
+        ],
+
+        /*
+         * Mẫu `client.activation` (SPEC §9, M6 Task 3) — con đường DUY NHẤT một khách có mật khẩu
+         * cổng thông tin (xem docblock `App\Mail\Client\Activation`). Không hứa "đã gửi kèm email"
+         * ở đâu khác vì đây chính là thư đó.
+         */
+        'activation' => [
+            'subject' => 'Tài khoản cổng thông tin của anh/chị đã sẵn sàng',
+            'greeting' => 'Kính gửi anh/chị :name,',
+            'line' => 'Văn phòng đã tạo tài khoản cổng thông tin để anh/chị theo dõi hồ sơ của mình. Thông tin đăng nhập:',
+            'email_label' => 'Email đăng nhập:',
+            'must_change' => 'Đây là mật khẩu tạm thời — lần đăng nhập đầu tiên, hệ thống sẽ yêu cầu anh/chị đổi sang mật khẩu khác.',
+            'otp_note' => 'Cổng thông tin không có đường tự đặt lại mật khẩu, nên mỗi lần đăng nhập anh/chị cần nhập thêm một mã gửi về CHÍNH hộp thư này — xin giữ hộp thư này an toàn.',
+            'open' => 'Mở cổng thông tin',
+            'help' => 'Có điều gì chưa rõ, anh/chị gọi giúp văn phòng theo số :phone.',
+            'salutation' => 'Trân trọng, :office',
+        ],
     ],
 ];

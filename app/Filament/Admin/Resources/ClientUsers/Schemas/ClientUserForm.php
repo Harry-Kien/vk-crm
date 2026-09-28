@@ -7,7 +7,6 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Schema;
-use Illuminate\Validation\Rules\Password as PasswordRule;
 
 class ClientUserForm
 {
@@ -53,22 +52,12 @@ class ClientUserForm
                     ->label(__('client_users.fields.phone'))
                     ->tel()
                     ->maxLength(20),
-                // Task 7 (R12, phát hiện `intake/intake-05`): ô mật khẩu trước đây chỉ có
-                // required()/maxLength(255), không có luật độ mạnh nào — cùng một PasswordRule
-                // dùng ở cổng khách (App\Filament\Portal\Pages\Auth\ChangePassword), để mật khẩu
-                // tạm nhân sự đặt cũng phải đủ mạnh như mật khẩu khách tự chọn. `nullable` (mặc
-                // định khi `required()` trả `false` ở trang sửa) khiến Laravel bỏ qua mọi luật
-                // không-implicit (kể cả `min` của PasswordRule) khi ô để trống — xem
-                // `Illuminate\Validation\Validator::presentOrRuleIsImplicit()` — nên để trống ô
-                // này khi sửa (không đổi mật khẩu) không bao giờ báo lỗi độ mạnh.
-                TextInput::make('password')
-                    ->label(__('client_users.fields.password'))
-                    ->password()
-                    ->revealable()
-                    ->required(fn (string $operation): bool => $operation === 'create')
-                    ->dehydrated(fn (?string $state): bool => filled($state))
-                    ->rule(PasswordRule::default())
-                    ->maxLength(255),
+                // Task 3 (lỗ hổng nêu ở brief: "hôm nay tài khoản portal được tạo bằng cách một
+                // luật sư gõ tay mật khẩu vào form rồi đọc cho khách qua điện thoại"): ô mật khẩu
+                // BỎ HẲN khỏi form. `App\Actions\Client\IssuePortalAccess` (gọi từ
+                // `CreateClientUser::afterCreate()` và nút "Cấp lại mật khẩu" trên trang sửa) sinh
+                // một mật khẩu tạm và gửi qua thư `client.activation` — không ai gõ tay, không ai
+                // đọc mật khẩu qua điện thoại nữa.
                 Toggle::make('is_active')
                     ->label(__('client_users.fields.is_active'))
                     ->default(true),

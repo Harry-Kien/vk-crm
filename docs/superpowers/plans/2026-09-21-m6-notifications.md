@@ -68,7 +68,7 @@ Migration `system_health` (một dòng, `last_schedule_run_at`) và `notificatio
 
 Task có migration → bắt buộc vòng MariaDB thật, dán output.
 
-### - [ ] Task 3 — Bốn mẫu thư cho khách, kích hoạt bởi hành động
+### - [x] Task 3 — Bốn mẫu thư cho khách, kích hoạt bởi hành động
 
 `client.activation`, `client.stage_update`, `client.document_published`, `client.document_rejected`. Mỗi mẫu nối vào Action đã có (`TransitionMatterStage`, `PublishDocument`, `ReviewChecklistItem`). **Lỗ hổng phải lấp trong task này:** hôm nay tài khoản portal được tạo bằng cách một luật sư **gõ tay mật khẩu vào form** rồi đọc cho khách qua điện thoại — không có thư kích hoạt nào cả. Thêm Action `App\Actions\Client\IssuePortalAccess` sinh mật khẩu tạm, đặt `must_change_password`, gửi `client.activation`, và **bỏ ô mật khẩu khỏi form tạo** (giữ đường đặt lại cho luật sư, nhưng cũng đi qua Action và cũng gửi thư). Áp dụng R6 cho cả bốn mẫu.
 
