@@ -1,16 +1,24 @@
 <?php
 
+use App\Enums\InstalmentStatus;
+use App\Enums\MatterRole;
+use App\Enums\Permission;
 use App\Enums\Role;
 use App\Models\ClientRequest;
 use App\Models\ClientRequestReply;
+use App\Models\Contract;
+use App\Models\ContractAmendment;
+use App\Models\Instalment;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Models\MatterParty;
+use App\Models\Payment;
 use App\Models\StageLog;
 use App\Models\User;
 use App\Support\ActivityOwningMatter;
 use App\Support\Audit;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Spatie\Activitylog\Models\Activity;
 
@@ -112,4 +120,70 @@ it('lets a manager see a soft-deleted normal matter\'s rows, exactly like Matter
     $this->normal->delete();
 
     expectVerdict($this->manager, $row, true);
+});
+
+// -----------------------------------------------------------------------------------------
+// Gộp M9: dòng nhật ký của TIỀN
+// -----------------------------------------------------------------------------------------
+//
+// Các Action tiền của M9 ghi `Audit::record()` lên hợp đồng, đợt, khoản thu, phụ lục — bốn tên
+// morph không nằm trong `MATTER_OWNED` và phần lớn không ghi `properties.matter_id`. Trước bản sửa
+// này chúng rơi vào nhánh "dòng không thuộc vụ nào": một trưởng phòng đọc được `payment_recorded`
+// (kèm số tiền) của một vụ `restricted` — đúng tiền mà SPEC §5 (bổ sung M9) nói họ không thấy, kể
+// cả trong số liệu tổng hợp. Nay mỗi dòng tiền quy về vụ của hợp đồng, và chỉ người vừa thấy vụ
+// vừa có `billing.view` mới thấy nó (cùng hai điều kiện `ChecksBillingAccess::canSeeBilling()`).
+
+/** Một chủ thể tiền trên `$matter`, theo đúng tên morph của nó. */
+function moneySubjectOn(Matter $matter, string $type, User $lead): Model
+{
+    $contract = Contract::factory()->for($matter)->active()->create(['total_amount' => 10_000_000]);
+    $instalment = Instalment::factory()->for($contract)->create([
+        'amount' => 10_000_000,
+        'status' => InstalmentStatus::Pending,
+    ]);
+
+    return match ($type) {
+        'contract' => $contract,
+        'instalment' => $instalment,
+        'payment' => Payment::factory()->for($instalment)->create([
+            'amount' => 4_000_000,
+            'attributed_lawyer_id' => $lead->id,
+        ]),
+        'contract_amendment' => ContractAmendment::factory()->for($contract)->create(),
+    };
+}
+
+it('resolves each money subject to the matter of its contract, and keeps a restricted one from a manager', function (string $type) {
+    $subject = moneySubjectOn($this->restricted, $type, $this->lead);
+
+    expect($subject->getMorphClass())->toBe($type);
+
+    $row = Audit::record('payment_recorded', $subject, ['amount' => 4_000_000], $this->lead);
+
+    expect(ActivityOwningMatter::owningMatterId($row))->toBe($this->restricted->id);
+    expectVerdict($this->manager, $row, false);
+    expectVerdict($this->lead, $row, true);
+})->with(['contract', 'instalment', 'payment', 'contract_amendment']);
+
+/** Cặp dương: tiền của một vụ thường vẫn hiện cho trưởng phòng (có `billing.view`). */
+it('keeps the money rows of a normal matter visible to a manager', function (string $type) {
+    $row = Audit::record('payment_recorded', moneySubjectOn($this->normal, $type, $this->lead), [], $this->lead);
+
+    expectVerdict($this->manager, $row, true);
+})->with(['contract', 'instalment', 'payment', 'contract_amendment']);
+
+/**
+ * Thấy vụ việc chưa phải thấy tiền: một trợ lý trong đội ngũ được cấp thẳng `auditLog.view` đọc
+ * được dòng nhật ký của vụ, nhưng không có `billing.view` nên không đọc được dòng tiền của nó.
+ */
+it('keeps money rows from a viewer who may read the audit log and the matter but not its money', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $assistant->givePermissionTo(Permission::AuditLogView->value);
+    $this->normal->addTeamMember($assistant, MatterRole::Assistant);
+
+    $matterRow = Audit::record('matter_details_updated', $this->normal, [], $this->lead);
+    $moneyRow = Audit::record('payment_recorded', moneySubjectOn($this->normal, 'payment', $this->lead), [], $this->lead);
+
+    expectVerdict($assistant, $matterRow, true);
+    expectVerdict($assistant, $moneyRow, false);
 });

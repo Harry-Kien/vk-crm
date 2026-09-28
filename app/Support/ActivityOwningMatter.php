@@ -2,11 +2,13 @@
 
 namespace App\Support;
 
+use App\Enums\Permission;
 use App\Enums\Role;
 use App\Models\Matter;
 use App\Models\User;
 use App\Support\Scopes\ClientPortalScope;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Spatie\Activitylog\Models\Activity;
@@ -24,7 +26,9 @@ use Spatie\Activitylog\Models\Activity;
  *  1. chủ thể là một `Matter` → vụ đó;
  *  2. chủ thể là một model sống bên trong một vụ việc (`MATTER_OWNED` — bên đương sự, tài liệu,
  *     mốc thời hạn, nhật ký giai đoạn, yêu cầu của khách, đầu mục danh mục; trả lời của một yêu
- *     cầu đi qua yêu cầu đó) → vụ ghi ở cột `matter_id` của nó;
+ *     cầu đi qua yêu cầu đó) → vụ ghi ở cột `matter_id` của nó; chủ thể là một model TIỀN
+ *     (`MONEY_OWNED`, gộp M9 — hợp đồng, đợt, khoản thu, phụ lục) → vụ của hợp đồng, và dòng đó
+ *     còn đòi thêm `billing.view`;
  *  3. còn lại → `properties.matter_id` nếu dòng có ghi;
  *  4. không có gì ở trên → dòng không thuộc vụ nào (đăng nhập, người dùng, khách hàng, cấu hình).
  *
@@ -60,6 +64,23 @@ final class ActivityOwningMatter
         'stage_log' => 'stage_logs',
         'client_request' => 'client_requests',
         'matter_checklist_item' => 'matter_checklist_items',
+    ];
+
+    /**
+     * Gộp M9: tên morph của bốn model TIỀN => bảng của chúng. Không mang `matter_id` — vụ việc đọc
+     * qua hợp đồng ({@see self::moneyRowsWithMatter()}). Một dòng tiền chỉ hiện cho người vừa thấy
+     * vụ vừa có `billing.view` (cùng hai điều kiện `ChecksBillingAccess::canSeeBilling()`), vì SPEC
+     * §5 (bổ sung M9) tách "thấy vụ" khỏi "thấy tiền của vụ" — trưởng phòng không thấy tiền của vụ
+     * `restricted`, kể cả ở nhật ký. Trước khi gộp, các dòng này rơi vào nhánh "không thuộc vụ nào"
+     * (đa số không ghi `properties.matter_id`) và hiện cho mọi người có `auditLog.view`.
+     *
+     * @var array<string, string>
+     */
+    private const MONEY_OWNED = [
+        'contract' => 'contracts',
+        'instalment' => 'instalments',
+        'payment' => 'payments',
+        'contract_amendment' => 'contract_amendments',
     ];
 
     private const MATTER = 'matter';
@@ -108,7 +129,9 @@ final class ActivityOwningMatter
                 ->get()
                 ->mapWithKeys(fn (Matter $matter): array => [$matter->getKey() => $gate->allows('view', $matter)]);
 
-        return $activities->mapWithKeys(function (Activity $activity) use ($owning, $visibleByMatter): array {
+        $seesMoney = self::seesMoney($viewer);
+
+        return $activities->mapWithKeys(function (Activity $activity) use ($owning, $visibleByMatter, $seesMoney): array {
             $matterId = $owning[$activity->getKey()] ?? null;
 
             // Không quy được về vụ nào: chỉ thả khi dòng THẬT SỰ không thuộc vụ nào. Quy được
@@ -116,6 +139,11 @@ final class ActivityOwningMatter
             $allowed = $matterId === null
                 ? ! self::claimsAMatter($activity)
                 : (bool) ($visibleByMatter[$matterId] ?? false);
+
+            // Dòng TIỀN (gộp M9): thấy vụ chưa đủ, còn phải có `billing.view`.
+            if (isset(self::MONEY_OWNED[$activity->subject_type]) && ! $seesMoney) {
+                $allowed = false;
+            }
 
             return [$activity->getKey() => $allowed];
         })->all();
@@ -150,6 +178,17 @@ final class ActivityOwningMatter
             }
         }
 
+        foreach (self::MONEY_OWNED as $type => $table) {
+            $ids = $activities->where('subject_type', $type)->pluck('subject_id')->filter()->unique()->values();
+
+            if ($ids->isNotEmpty()) {
+                $childMatterIds[$type] = self::moneyRowsWithMatter($table)
+                    ->whereIn("{$table}.id", $ids->all())
+                    ->pluck('contracts.matter_id', "{$table}.id")
+                    ->all();
+            }
+        }
+
         $replyIds = $activities->where('subject_type', self::CLIENT_REQUEST_REPLY)->pluck('subject_id')->filter()->unique()->values();
 
         if ($replyIds->isNotEmpty()) {
@@ -170,7 +209,7 @@ final class ActivityOwningMatter
                 continue;
             }
 
-            if ((isset(self::MATTER_OWNED[$type]) || $type === self::CLIENT_REQUEST_REPLY) && $id !== null) {
+            if ((isset(self::MATTER_OWNED[$type]) || isset(self::MONEY_OWNED[$type]) || $type === self::CLIENT_REQUEST_REPLY) && $id !== null) {
                 $matterId = $childMatterIds[$type][$id] ?? null;
                 $result[$activity->getKey()] = $matterId === null ? null : (int) $matterId;
 
@@ -202,7 +241,9 @@ final class ActivityOwningMatter
             ->listableBy($viewer)
             ->select('matters.id');
 
-        $query->where(function (Builder $rows) use ($visibleMatters): void {
+        $seesMoney = self::seesMoney($viewer);
+
+        $query->where(function (Builder $rows) use ($visibleMatters, $seesMoney): void {
             $rows->where(fn (Builder $q) => $q
                 ->where('subject_type', self::MATTER)
                 ->whereIn('subject_id', $visibleMatters()));
@@ -211,6 +252,18 @@ final class ActivityOwningMatter
                 $rows->orWhere(fn (Builder $q) => $q
                     ->where('subject_type', $type)
                     ->whereIn('subject_id', DB::table($table)->select('id')->whereIn('matter_id', $visibleMatters())));
+            }
+
+            // Dòng TIỀN (gộp M9): chỉ khi người xem có `billing.view` — không có thì không nhánh
+            // nào ở đây thả chúng ra (chúng nằm trong `matterOwnedTypes()`, nên nhánh cuối cũng bỏ).
+            if ($seesMoney) {
+                foreach (self::MONEY_OWNED as $type => $table) {
+                    $rows->orWhere(fn (Builder $q) => $q
+                        ->where('subject_type', $type)
+                        ->whereIn('subject_id', self::moneyRowsWithMatter($table)
+                            ->select("{$table}.id")
+                            ->whereIn('contracts.matter_id', $visibleMatters())));
+                }
             }
 
             $rows->orWhere(fn (Builder $q) => $q
@@ -243,7 +296,32 @@ final class ActivityOwningMatter
     /** @return list<string> */
     private static function matterOwnedTypes(): array
     {
-        return [self::MATTER, self::CLIENT_REQUEST_REPLY, ...array_keys(self::MATTER_OWNED)];
+        return [self::MATTER, self::CLIENT_REQUEST_REPLY, ...array_keys(self::MATTER_OWNED), ...array_keys(self::MONEY_OWNED)];
+    }
+
+    /**
+     * Bảng tiền `$table` nối tới `contracts` — nơi DUY NHẤT một hàng tiền mang `matter_id`. Đọc
+     * thẳng `DB::table()`, cùng lý do với các bảng con khác (docblock lớp).
+     */
+    private static function moneyRowsWithMatter(string $table): QueryBuilder
+    {
+        $query = DB::table($table);
+
+        if ($table === 'payments') {
+            $query->join('instalments', 'instalments.id', '=', 'payments.instalment_id');
+        }
+
+        if ($table !== 'contracts') {
+            $query->join('contracts', 'contracts.id', '=', $table === 'payments' ? 'instalments.contract_id' : "{$table}.contract_id");
+        }
+
+        return $query;
+    }
+
+    /** Cùng quyền mà `ChecksBillingAccess::canSeeBilling()` đòi trước khi hỏi tầm nhìn vụ việc. */
+    private static function seesMoney(User $viewer): bool
+    {
+        return $viewer->can(Permission::BillingView->value);
     }
 
     private static function isAdmin(User $viewer): bool
