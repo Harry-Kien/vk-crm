@@ -114,13 +114,21 @@ app/
 | Đường dẫn | `/admin` | `/portal` |
 | Tên miền gợi ý | `crm.{tên-miền-công-ty}` | `portal.{tên-miền-công-ty}` |
 | Guard | `web` (bảng `users`) | `client` (bảng `client_users`) |
-| Xác thực | Email + mật khẩu + **2FA bắt buộc** (Fortify TOTP) | Email + mật khẩu + **OTP qua email** |
+| Xác thực | Email + mật khẩu + **2FA bắt buộc** (2FA ứng dụng của Filament) | Email + mật khẩu + **OTP qua email** |
 | Màu chủ đạo | Xám trung tính | Màu thương hiệu công ty |
 | Giới hạn IP | Có thể bật qua middleware, cấu hình `.env` | Không |
 
 Cấu hình tên miền qua `.env` (`ADMIN_DOMAIN`, `PORTAL_DOMAIN`). Nếu để trống
 thì cả hai panel chạy chung một tên miền theo đường dẫn — phải hoạt động được
 cả hai cách.
+
+**Đính chính 2026-09-28 (M8 Task 2, R2).** "Fortify TOTP" ở hàng Xác thực trên là sai — dự án
+chưa từng cài `laravel/fortify`. Filament 5.8.1 có sẵn một bộ 2FA ứng dụng (TOTP, kèm mã khôi
+phục) trong `filament/filament`, và đó là thứ panel `admin` dùng
+(`App\Filament\Admin\Auth\StaffAppAuthentication`, đăng ký ở `AdminPanelProvider`). "Bắt buộc"
+nghĩa đúng như đã ghi ở §10 mục 7: không màn hình, không hành động, không cột nào tắt được — kể
+cả admin không tự tắt được của chính mình. Mất điện thoại đi qua "Đặt lại 2FA"
+(`App\Actions\User\ResetStaffTwoFactor`), không phải một nút tắt.
 
 ### Bộ chữ web — quyết định ghi ngày 2026-09-16 (M3)
 
@@ -163,10 +171,17 @@ Các cột `created_by` / `updated_by` là FK tới `users`.
 | position | enum | `lawyer`, `assistant`, `accountant`, `manager`, `admin` |
 | bar_number | string(50) nullable | Số thẻ luật sư |
 | is_active | boolean default true | |
-| two_factor_secret, two_factor_recovery_codes | text nullable | Fortify |
+| two_factor_secret, two_factor_recovery_codes | text nullable, cast `encrypted`/`encrypted:array` | 2FA ứng dụng của Filament |
 | last_login_at | timestamp nullable | |
 
 Vai trò và quyền quản lý bằng `spatie/laravel-permission`, không tự viết.
+
+**Đính chính 2026-09-28 (M8 Task 2, R2).** "Fortify" ở hàng `two_factor_secret`/
+`two_factor_recovery_codes` là sai — cùng đính chính đã ghi ở §3. Hai cột này chưa từng đổi tên
+hay đổi kiểu (`text nullable` có từ M0); Task 2 chỉ thêm cast `encrypted`/`encrypted:array` (không
+migration — chưa đường nào từng GHI hai cột này trước Task 2) và implement hai interface
+`Filament\Auth\MultiFactor\App\Contracts\{HasAppAuthentication,HasAppAuthenticationRecovery}` trên
+`App\Models\User`, ánh xạ thẳng vào tên cột hiện có.
 
 ### 4.2 `clients` — khách hàng
 

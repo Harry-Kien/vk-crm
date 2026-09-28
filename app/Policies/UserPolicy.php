@@ -84,6 +84,19 @@ class UserPolicy
     }
 
     /**
+     * "Đặt lại 2FA" (R2, kế hoạch M8 Task 2) — nút trên `EditUser`, tên khớp
+     * `App\Actions\User\ResetStaffTwoFactor` ({@see EditUser}).
+     * Cùng cổng `settings.manage` với mọi thao tác quản trị nhân sự khác, CỘNG một điều kiện riêng:
+     * `$user->isNot($model)` — không tự đặt lại 2FA của chính mình (Action cũng tự chặn lại, phòng
+     * thủ hai lớp — cùng thành ngữ `EditProfile`/`EditClientUser::unlockLogin`). `HeaderActionsAreReachableTest`
+     * đòi TÊN action trùng tên một phương thức policy — đây là phương thức đó.
+     */
+    public function resetTwoFactor(User|ClientUser $user, User $model): bool
+    {
+        return $user instanceof User && $this->viewAny($user) && $user->isNot($model);
+    }
+
+    /**
      * Cổng THÔ của `DeleteBulkAction` trên `ListUsers` (carry-over từ rà soát Task 2, C1-class
      * hole): Filament tự hỏi `deleteAny` cho nút xoá hàng loạt, và một ability KHÔNG có phương
      * thức tương ứng trên policy được coi là CHO PHÉP khi không ở chế độ nghiêm ngặt (mặc định dự

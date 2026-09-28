@@ -1,9 +1,14 @@
 <?php
 
+use App\Actions\User\ResetStaffTwoFactor;
+
 /**
  * Nhãn tiếng Việt cho resource User (SPEC §7.4) — quản trị nhân sự nội bộ, gated bằng
- * settings.manage. Không có trường nào cho mật khẩu hiện tại hay hai lớp xác thực: mật khẩu chỉ
- * nhập mới (không hiện lại), hai lớp xác thực do người dùng tự quản lý ở hồ sơ của họ.
+ * settings.manage. Không có trường nào cho mật khẩu hiện tại: mật khẩu chỉ nhập mới (không hiện
+ * lại). Hai lớp xác thực (2FA) do chính người dùng tự quản lý ở trang hồ sơ của họ (cài đặt, tạo
+ * lại mã khôi phục) — **đính chính M8 Task 2 (R2)**: "tự quản lý" không còn đúng tuyệt đối, một
+ * admin KHÁC đặt lại được 2FA của họ khi mất điện thoại (`actions.reset_two_factor` dưới đây),
+ * nhưng không ai — kể cả chính người đó — TẮT được 2FA.
  */
 return [
     'label' => 'Nhân sự',
@@ -27,6 +32,22 @@ return [
      */
     'profile' => [
         'email_readonly_hint' => 'Liên hệ quản trị viên để đổi email đăng nhập.',
+    ],
+
+    /**
+     * "Đặt lại 2FA" (R2, kế hoạch M8 Task 2) — nút trên `EditUser` VÀ lệnh `vkcrm:reset-2fa`
+     * ({@see ResetStaffTwoFactor}). Không phải "tắt 2FA": người bị đặt lại vẫn
+     * bị buộc cài lại ở lần đăng nhập kế tiếp, chỉ mất secret CŨ.
+     */
+    'actions' => [
+        'reset_two_factor' => [
+            'label' => 'Đặt lại 2FA',
+            'modal_heading' => 'Đặt lại 2FA của :name?',
+            'modal_description' => 'Xoá xác thực ứng dụng hiện tại của :name và đăng xuất mọi phiên đang mở của họ. Lần đăng nhập kế tiếp, họ sẽ phải cài lại 2FA từ đầu. Dùng khi họ mất điện thoại và không còn mã khôi phục.',
+            'success' => 'Đã đặt lại 2FA của :name — họ sẽ phải cài lại ở lần đăng nhập kế tiếp.',
+            'console_not_found' => 'Không tìm thấy nhân sự với email :email.',
+            'console_done' => 'Đã đặt lại 2FA của :email — họ sẽ phải cài lại ở lần đăng nhập kế tiếp.',
+        ],
     ],
 
     // R7 (M6.5 Task 4, kéo lên từ M7 R6) — chặn nghỉ việc khi còn việc dở dang, hoặc khi là quản

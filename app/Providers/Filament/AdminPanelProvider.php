@@ -2,10 +2,12 @@
 
 namespace App\Providers\Filament;
 
+use App\Filament\Admin\Auth\StaffAppAuthentication;
 use App\Filament\Admin\Pages\Auth\EditProfile;
 use App\Filament\AvatarProviders\InitialsAvatarProvider;
 use App\Http\Middleware\AnswerDeniedPanelRequestsWithNotFound;
 use App\Http\Middleware\RestrictAdminIpAllowlist;
+use Filament\Auth\MultiFactor\Http\Middleware\EnsureMultiFactorAuthenticationIsEnabled;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -57,13 +59,31 @@ class AdminPanelProvider extends PanelProvider
              * email thành chỉ đọc. Đọc docblock của lớp đó cho lý do đầy đủ (bản mặc định của
              * Filament cho nhân sự tự đổi email đăng nhập mà không xác minh lại).
              *
-             * KHÔNG bật `->multiFactorAuthentication()` cho panel này (khác `PortalPanelProvider`),
-             * nên `EditProfile::getMultiFactorAuthenticationContentComponent()` trả về `null` —
-             * trang không vẽ khối 2FA nào, và vì vậy không có nút tắt 2FA nào để lo: M8 sẽ bật
-             * 2FA bắt buộc cho nhân sự, và quyết định của chủ nhiệm là không dựng gì giả định 2FA
-             * tắt được trước khi M8 tới.
+             * M8 Task 2 (R2, §10 mục 7): `->multiFactorAuthentication()` bên dưới bật khối 2FA
+             * trên đúng trang này (`EditProfile::getMultiFactorAuthenticationContentComponent()`
+             * của lớp cha giờ vẽ nó). Không có nút tắt: `App\Filament\Admin\Auth\StaffAppAuthentication`
+             * bỏ `DisableAppAuthenticationAction` — đọc docblock lớp đó cho lý do đầy đủ.
              */
             ->profile(EditProfile::class)
+            /*
+             * R2 — 2FA ứng dụng (TOTP), BẮT BUỘC, không tắt được. `recoverable()` bật mã khôi
+             * phục (in ra đúng một lần lúc cài, hành vi mặc định của Filament — không viết lại).
+             * `isRequired: true` gắn `EnsureMultiFactorAuthenticationIsEnabled` vào middleware
+             * CỦA TỪNG TRANG (`Filament\Pages\Concerns\HasRoutes::getRouteMiddleware()`), nên một
+             * người chưa cài (nhân sự mới, hay vừa bị "Đặt lại 2FA" — {@see
+             * \App\Actions\User\ResetStaffTwoFactor}) luôn bị chuyển sang trang cài đặt bắt buộc
+             * ở LẦN TẢI TRANG ĐẦY ĐỦ kế tiếp, trên MỌI trang của panel này.
+             *
+             * `->brandName()` = tên thương hiệu ngắn (không phải tên pháp lý đầy đủ) — chuỗi hiện
+             * trong app xác thực (Google Authenticator, Authy…) cạnh tên tài khoản
+             * (`getAppAuthenticationHolderName()` = email), nên một chuỗi dài như
+             * `panels.admin.brand` ("Vũ Khang · Hệ thống nội bộ") sẽ bị hầu hết app xác thực cắt
+             * bớt trên một dòng hẹp.
+             */
+            ->multiFactorAuthentication(
+                [StaffAppAuthentication::make()->recoverable()->brandName(config('vkcrm.brand.short_name'))],
+                isRequired: true,
+            )
             ->brandName(__('panels.admin.brand'))
             ->brandLogo(fn () => view('brand.logo'))
             ->brandLogoHeight('3rem')
@@ -100,6 +120,38 @@ class AdminPanelProvider extends PanelProvider
             // không cần đi xa hơn cổng mạng để nhận 404. Phủ đến đâu và cố ý KHÔNG phủ đến đâu
             // (từ chối bên trong vòng đời component vẫn là 403): xem docblock của từng middleware.
             ->middleware([RestrictAdminIpAllowlist::class, AnswerDeniedPanelRequestsWithNotFound::class], isPersistent: true)
+            /*
+             * R2, khoảng trống "sẽ cắn" (brief Task 2, mục 4d): `EnsureMultiFactorAuthenticationIsEnabled`
+             * (đăng ký ở TỪNG trang qua `isRequired: true` phía trên) chỉ chặn LẦN TẢI TRANG ĐẦY
+             * ĐỦ — nó KHÔNG phải middleware BỀN của Livewire theo mặc định của Filament
+             * (`Filament\FilamentServiceProvider::packageBooted()` liệt kê `Authenticate`,
+             * `AuthenticateSession`, … nhưng KHÔNG có middleware 2FA này). Đã đọc lại
+             * `Livewire\Mechanisms\PersistentMiddleware\PersistentMiddleware::applyPersistentMiddleware()`
+             * để xác nhận: một request cập nhật Livewire dựng lại route GỐC (nơi component được
+             * mount lần đầu, ví dụ `/admin/matters/5/edit`) từ `snapshot.memo.path`, gom middleware
+             * CỦA CHÍNH route đó, rồi LỌC xuống còn những middleware có mặt trong danh sách BỀN
+             * TOÀN CỤC — middleware của trang (đã có `EnsureMultiFactorAuthenticationIsEnabled` từ
+             * `isRequired: true`) bị lọc mất vì danh sách toàn cục không có tên nó.
+             *
+             * Hệ quả nếu không có dòng dưới đây, và đây KHÔNG phải chuyện lý thuyết: admin bị "Đặt
+             * lại 2FA" (secret bị xoá) trong khi một tab trình duyệt của họ đang mở sẵn một trang
+             * admin (snapshot còn hiệu lực) — trang đó vẫn cập nhật được qua Livewire bình thường,
+             * bỏ qua đúng cánh cổng `isRequired: true` vừa nói ở trên.
+             *
+             * `persistentMiddleware()` (KHÔNG phải `middleware(..., isPersistent: true)`) — chỉ
+             * ghi vào danh sách BỀN toàn cục của Livewire (`Livewire::addPersistentMiddleware()`),
+             * KHÔNG thêm vào `$this->middleware` của panel. Thêm vào `$this->middleware` (chạy ở
+             * ĐẦU đường ống, trước `Authenticate`) sẽ vỡ: `Filament::auth()->user()` là `null` cho
+             * khách vãng lai, và `MultiFactorChallenge::make()->hasEnabledProviders(null)` ném lỗi
+             * thay vì cho qua trang đăng nhập. Route "cài đặt bắt buộc" tự nó AN TOÀN với cách
+             * đăng ký này: nó được đăng ký RIÊNG (`vendor/filament/filament/routes/web.php`, không
+             * qua `HasRoutes::routes()`), nên middleware của TỪNG TRANG không áp vào route đó —
+             * không có vòng lặp chuyển hướng về chính nó. Có test hành vi thật (request cập nhật
+             * Livewire thật, không phải `Livewire::test()`) ở
+             * `tests/Feature/Filament/StaffTwoFactorEscapeRoutesTest.php`, cùng khuôn
+             * `AdminIpAllowlistTest`.
+             */
+            ->persistentMiddleware([EnsureMultiFactorAuthenticationIsEnabled::class])
             ->middleware([
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,

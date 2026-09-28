@@ -6,6 +6,12 @@ use App\Enums\UserPosition;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 
+/**
+ * M8 Task 2 (R2): panel `admin` bắt buộc 2FA — mọi nhân sự demo dưới đây dùng CHUNG secret cố định
+ * của {@see DemoAccountsSeeder::DEMO_TWO_FACTOR_SECRET} (cùng lý do "một secret thêm một lần vào
+ * app xác thực, dùng lại được cho mọi tài khoản demo"), CHỈ gán ở local/testing — xem docblock
+ * `DemoAccountsSeeder`.
+ */
 class StaffSeeder extends Seeder
 {
     /** @return list<array{email: string, name: string, position: UserPosition, bar_number?: string}> */
@@ -34,6 +40,9 @@ class StaffSeeder extends Seeder
                     'bar_number' => $person['bar_number'] ?? null,
                     'phone' => '09'.str_pad((string) (10000000 + $index), 8, '0', STR_PAD_LEFT),
                     'is_active' => true,
+                    ...(app()->environment(['local', 'testing'])
+                        ? ['two_factor_secret' => DemoAccountsSeeder::DEMO_TWO_FACTOR_SECRET]
+                        : []),
                 ],
             );
 

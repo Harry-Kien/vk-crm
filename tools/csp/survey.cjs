@@ -67,6 +67,71 @@ const images = {};
 const STAFF = { email: 'admin@luatvukhang.com', password: 'password' };
 const CLIENT = { email: 'khach1@example.com', password: 'password' };
 
+/**
+ * M8 Task 2 (R2, §10.7): panel `admin` giờ bắt buộc 2FA ứng dụng — `STAFF` không đăng nhập xong
+ * chỉ bằng mật khẩu nữa, cần một mã TOTP đúng ngay sau đó. `admin@luatvukhang.com` mang secret cố
+ * định của `Database\Seeders\DemoAccountsSeeder::DEMO_TWO_FACTOR_SECRET` (CHỈ gán ở
+ * `local`/`testing` — bản chạy của làn seed bằng `/d/vkwt/m8b-dev seed`, môi trường `local`, nên
+ * secret này có mặt). Hai chuỗi phải khớp NHAU — không tính lại tự động, vì script này không đọc
+ * được `.env`/CSDL của bản PHP đang chạy.
+ *
+ * `SETUP_STAFF` — một tài khoản demo KHÁC, dùng để khảo sát CSP của trang "Cài đặt 2FA bắt buộc"
+ * và modal QR (trang mà `STAFF` không bao giờ ghé, vì đã cài từ trước). **Trước lượt chạy chính,
+ * xoá secret của tài khoản này:**
+ *
+ *   docker exec vkcrm-lane-m8b-app php artisan vkcrm:reset-2fa luatsu1@luatvukhang.com
+ *
+ * Script không tự làm việc này (không có quyền `docker exec` từ trong Node, và một script khảo
+ * sát CSP không nên kiêm luôn việc sửa dữ liệu) — bỏ qua bước trên thì tour của `SETUP_STAFF` vẫn
+ * chạy nhưng KHÔNG tới trang cài đặt (đã cài từ trước, cùng secret demo), chỉ ghi một `note()`
+ * nói rõ điều đó thay vì báo lỗi.
+ */
+const DEMO_TWO_FACTOR_SECRET = 'JBSWY3DPEHPK3PXP';
+const SETUP_STAFF = { email: 'luatsu1@luatvukhang.com', password: 'password' };
+
+/**
+ * TOTP (RFC 6238) — HMAC-SHA1, bước 30 giây, 6 chữ số, cùng thuật toán `pragmarx/google2fa` phía
+ * PHP dùng. Cài lại bằng tay (không gọi thư viện ngoài) vì Playwright không mang theo gói TOTP
+ * nào, và đây là thuật toán chuẩn, ổn định, không đáng để thêm một phụ thuộc `npm`.
+ */
+function base32Decode(input) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = '';
+  for (const char of input.toUpperCase().replace(/[^A-Z2-7]/g, '')) {
+    const value = alphabet.indexOf(char);
+    if (value === -1) continue;
+    bits += value.toString(2).padStart(5, '0');
+  }
+  const bytes = [];
+  for (let i = 0; i + 8 <= bits.length; i += 8) bytes.push(parseInt(bits.slice(i, i + 8), 2));
+  return Buffer.from(bytes);
+}
+
+function totp(secretBase32, atMs = Date.now(), step = 30, digits = 6) {
+  const key = base32Decode(secretBase32);
+  const counter = Math.floor(atMs / 1000 / step);
+  const counterBuffer = Buffer.alloc(8);
+  counterBuffer.writeBigUInt64BE(BigInt(counter));
+  const hmac = crypto.createHmac('sha1', key).update(counterBuffer).digest();
+  const offset = hmac[hmac.length - 1] & 0x0f;
+  const code =
+    (((hmac[offset] & 0x7f) << 24) |
+      ((hmac[offset + 1] & 0xff) << 16) |
+      ((hmac[offset + 2] & 0xff) << 8) |
+      (hmac[offset + 3] & 0xff)) %
+    10 ** digits;
+  return String(code).padStart(digits, '0');
+}
+
+/**
+ * Mã TOTP có thể vừa đổi ngay lúc gõ xong (biên 30 giây) — Filament chấp nhận một cửa sổ 8 bước
+ * (`AppAuthentication::$codeWindow = 8`, ±4 phút) nên KHÔNG cần né biên, nhưng tính lại NGAY
+ * TRƯỚC KHI gõ (không tính trước rồi giữ biến) để mỗi lần gọi luôn dùng mã của "bây giờ".
+ */
+function currentTotp(secret) {
+  return totp(secret, Date.now());
+}
+
 /** Kết quả theo trang: { label, url, violations[], errors[], scripts[], notes[] }. */
 const pages = [];
 const actions = [];
@@ -200,14 +265,175 @@ async function staffTour(browser) {
   page.setDefaultTimeout(90000);
   page.setDefaultNavigationTimeout(120000);
 
-  await visit(page, 'admin: đăng nhập', '/admin/login', async (p) => {
+  await visit(page, 'admin: đăng nhập (mật khẩu + mã ứng dụng)', '/admin/login', async (p) => {
     await p.fill('input[type="email"]', STAFF.email);
     await p.fill('input[type="password"]', STAFF.password);
     await p.click('button[type="submit"]');
+
+    // Mật khẩu đúng chỉ MỞ bước nhập mã (R2) — chưa chuyển trang, cùng component Livewire.
+    let codeInput = p.locator('input[autocomplete="one-time-code"]').first();
+    await codeInput.waitFor({ state: 'visible' });
+    await settle(p);
+
+    // Ghé qua "Sử dụng mã khôi phục để thay thế" một lượt — CSP của ô nhập mã khôi phục trên
+    // chính bước đăng nhập (khác modal "Tạo lại mã khôi phục" ở trang hồ sơ, ghé riêng bên dưới).
+    // KHÔNG có đường bấm lại để TẮT (đọc mã nguồn: nút này chỉ `->visible(fn () => ! $get(
+    // 'useRecoveryCode'))`, tự biến mất sau khi bấm, không có action nào đặt lại `false`) — nạp
+    // lại hẳn trang đăng nhập rồi làm lại từ đầu bằng mã TOTP, sạch hơn là cố lần theo một nút
+    // không còn tồn tại.
+    const useRecoveryLink = p.getByRole('button', { name: 'Sử dụng mã khôi phục để thay thế', exact: true }).first();
+    if (await useRecoveryLink.count()) {
+      await useRecoveryLink.waitFor({ state: 'visible' });
+      await p.waitForFunction((el) => !el.disabled, await useRecoveryLink.elementHandle());
+      await useRecoveryLink.click();
+      await settle(p, 500);
+      const recoveryInput = p.locator('input[autocomplete="one-time-code"]').nth(1);
+      note('ô mã khôi phục lúc đăng nhập hiện ra: ' + (await recoveryInput.isVisible().catch(() => false)));
+
+      await p.goto(BASE + '/admin/login', { waitUntil: 'domcontentloaded' });
+      await settle(p);
+      await p.fill('input[type="email"]', STAFF.email);
+      await p.fill('input[type="password"]', STAFF.password);
+      await p.click('button[type="submit"]');
+      codeInput = p.locator('input[autocomplete="one-time-code"]').first();
+      await codeInput.waitFor({ state: 'visible' });
+      await settle(p);
+    }
+
+    await codeInput.click();
+    await p.keyboard.type(currentTotp(DEMO_TWO_FACTOR_SECRET), { delay: 30 });
+    await settle(p, 300);
+    const submit = p.locator('button[type="submit"]:visible').first();
+    if (!/\/admin\/?$/.test(new URL(p.url()).pathname)) await submit.click().catch(() => {});
     await p.waitForURL(/\/admin\/?$/);
+    action('admin đăng nhập đủ hai bước (mật khẩu + mã TOTP)', true, 'tới /admin');
   });
 
   if (FULL) await visit(page, 'admin: bảng điều khiển', '/admin');
+
+  /*
+   * Trang "Cài đặt 2FA bắt buộc" + modal QR (R2) — CHỈ ghé được bằng một tài khoản CHƯA cài. Xem
+   * docblock hằng số `SETUP_STAFF`: chạy `vkcrm:reset-2fa luatsu1@luatvukhang.com` trước lượt
+   * khảo sát chính, nếu không bước này tự bỏ qua có ghi chú (không báo lỗi cả lượt).
+   *
+   * **Context RIÊNG, không phải tab mới của cùng context** (đã tự đo lỗi này): `page` ở trên đã
+   * đăng nhập `STAFF` — một TAB MỚI của CÙNG context Playwright dùng chung cookie phiên, nên
+   * `/admin/login` chuyển hướng thẳng về `/admin` (`Login::mount()`: đã đăng nhập thì
+   * `redirect()->intended()`), `input[type="email"]` không bao giờ xuất hiện, và bước điền form
+   * treo tới hết 90 giây. Một `browser.newContext()` RIÊNG (cùng cách `staffTour`/`clientTour` đã
+   * tách nhau) có cookie jar trống, không dính phiên của `STAFF`.
+   */
+  if (FULL) {
+    const setupContext = await browser.newContext({ acceptDownloads: true });
+    await wire(setupContext);
+    const setupPage = await setupContext.newPage();
+    setupPage.setDefaultTimeout(90000);
+    setupPage.setDefaultNavigationTimeout(120000);
+
+    await visit(setupPage, 'admin: đăng nhập tài khoản chưa cài 2FA', '/admin/login', async (p) => {
+      // Chưa cài 2FA → KHÔNG có bước mã (`getFirstEnabledProvider()` không tìm thấy gì) —
+      // `Login::authenticate()` đăng nhập THẲNG, `LoginResponse` chuyển hướng tới `Filament::getUrl()`
+      // (= `/admin`), rồi request TẢI TRANG đó mới bị `EnsureMultiFactorAuthenticationIsEnabled`
+      // (per-trang, `isRequired: true`) chuyển hướng LẦN NỮA sang `.../multi-factor-authentication/set-up`.
+      // HAI lượt chuyển hướng nối nhau, một trong hai chạy qua Livewire (`window.location = ...`)
+      // rồi máy chủ đáp lại bằng một 302 thật — đã tự đo: Chromium THỈNH THOẢNG `ERR_ABORTED` lượt
+      // điều hướng thứ hai (đua giữa điều hướng gốc và cách Livewire tự theo dõi lịch sử), bỏ lại
+      // trang trên `/admin/login` dù đăng nhập đã đúng. Thử lại TOÀN BỘ bước đăng nhập một lần khi
+      // đó xảy ra, trước khi kết luận.
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        // Đăng nhập thật sự có thể đã THÀNH CÔNG ở phía máy chủ dù trình duyệt còn kẹt trên
+        // `/admin/login` (đúng cuộc đua ghi ở trên) — nạp lại `/admin/login` trước mỗi lượt thử
+        // để hỏi lại: có phiên rồi thì `Login::mount()` tự chuyển hướng đi, ô email không còn để
+        // điền, và code dưới phải NHẬN RA điều đó thay vì cố `fill()` vào một trang đã đổi khác.
+        if (attempt > 1) {
+          await p.goto(BASE + '/admin/login', { waitUntil: 'domcontentloaded' }).catch(() => {});
+          await settle(p, 500);
+
+          if (!/\/admin\/login\/?$/.test(new URL(p.url()).pathname)) break;
+        }
+
+        await p.fill('input[type="email"]', SETUP_STAFF.email);
+        await p.fill('input[type="password"]', SETUP_STAFF.password);
+        await p.click('button[type="submit"]');
+        await p.waitForURL((url) => !/\/admin\/login\/?$/.test(url.pathname), { timeout: 20000 }).catch(() => {});
+        await settle(p, 500);
+
+        if (!/\/admin\/login\/?$/.test(new URL(p.url()).pathname)) break;
+
+        note(`đăng nhập SETUP_STAFF lượt ${attempt} vẫn ở /admin/login — thử lại`);
+      }
+
+      const codeInput = p.locator('input[autocomplete="one-time-code"]').first();
+      if (await codeInput.isVisible().catch(() => false)) {
+        // Tài khoản NÀY cũng đã có secret (quên chạy vkcrm:reset-2fa trước lượt) — vẫn đăng nhập
+        // được bằng secret demo chung, chỉ không tới được trang cài đặt. Ghi rõ, không báo lỗi.
+        note('SETUP_STAFF đã có 2FA từ trước — bỏ qua trang cài đặt bắt buộc (chạy vkcrm:reset-2fa trước khi khảo sát để đo đúng trang này)');
+        await codeInput.click();
+        await p.keyboard.type(currentTotp(DEMO_TWO_FACTOR_SECRET), { delay: 30 });
+        await settle(p, 300);
+        const submit = p.locator('button[type="submit"]:visible').first();
+        if (!/\/admin\/?$/.test(new URL(p.url()).pathname)) await submit.click().catch(() => {});
+      }
+    });
+
+    const onSetupRequired = /multi-factor-authentication\/set-up/.test(setupPage.url());
+    if (onSetupRequired) {
+      await visit(setupPage, 'admin: trang cài đặt 2FA bắt buộc', setupPage.url().replace(BASE, ''), async (p) => {
+        const modal = await openModal(p, 'Cài đặt');
+        // Chuỗi base32 hiển thị dạng chữ, cạnh mã QR (Text::make(...)->copyable()) — cách duy
+        // nhất script lấy được secret RIÊNG của lần cài đặt này (sinh mới mỗi lần mở modal).
+        const modalText = await modal.innerText();
+        const secretMatch = modalText.match(/\b[A-Z2-7]{16,32}\b/);
+        note('modal cài đặt 2FA mở ra, tìm được secret dạng chữ: ' + Boolean(secretMatch));
+        if (secretMatch) {
+          const codeInput = modal.locator('input[autocomplete="one-time-code"]').first();
+          await codeInput.click();
+          await p.keyboard.type(totp(secretMatch[0]), { delay: 30 });
+          await settle(p, 300);
+
+          // Bước 1/2 của Wizard ("app") → "Tiếp theo" (nhãn mặc định của Filament Wizard, không
+          // phải nhãn submit cuối) — validate mã TOTP vừa gõ rồi mới cho qua bước "recovery".
+          // Bước này GIẢI MÃ tham số action, hỏi RateLimiter, rồi xác minh TOTP — chậm hơn một
+          // cập nhật Livewire thường (đã tự đo: có lần mất hơn 2 giây, dưới 8 giây luôn xong trên
+          // bản chạy `php artisan serve` qua bind mount này — xem ghi chú "chậm là bình thường"
+          // ở đầu tệp). `waitFor()` trên chính nút bước sau, KHÔNG `settle()` cố định.
+          const nextStep = modal.getByRole('button', { name: 'Tiếp theo', exact: true }).first();
+          if (await nextStep.count()) {
+            await nextStep.click();
+
+            const finish = modal.getByRole('button', { name: 'Bật ứng dụng xác thực', exact: true }).first();
+            await finish.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
+            const recoveryVisible = await modal.getByText('mã khôi phục', { exact: false }).first().isVisible().catch(() => false);
+            note('sang bước mã khôi phục: ' + recoveryVisible);
+
+            // Bước 2/2 ("recovery") → nút submit thật, nhãn tuỳ biến của action này.
+            if (await finish.count()) {
+              await finish.click();
+              await settle(p, 800);
+              note('đã bấm "Bật ứng dụng xác thực" — hoàn tất cài đặt cho SETUP_STAFF');
+            }
+          }
+        }
+        // KHÔNG closeModal() nếu còn mở: action này tắt hẳn đóng-bằng-Escape/click-ra-ngoài
+        // (`closeModalByClickingAway(false)`, `closeModalByEscaping(false)`) — điều hướng đi tiếp
+        // ở lượt `visit()` kế tiếp tự thay thế cả trang, không cần đóng modal trước.
+      });
+    } else {
+      note('SETUP_STAFF không được đưa tới trang cài đặt 2FA bắt buộc — bỏ qua tour này');
+    }
+
+    await setupContext.close();
+  }
+
+  /*
+   * Modal "Tạo lại mã khôi phục" trên trang hồ sơ — action còn lại của bộ 2FA mà lượt đăng nhập ở
+   * trên không chạm tới (SetUpAppAuthenticationAction chỉ chạy MỘT LẦN, chưa từng thấy lại sau đó).
+   */
+  if (FULL) await visit(page, 'admin: trang hồ sơ (modal Tạo lại mã khôi phục)', '/admin/profile', async (p) => {
+    const modal = await openModal(p, 'Tạo lại mã khôi phục');
+    note('modal Tạo lại mã khôi phục mở ra');
+    await closeModal(p);
+  });
   await visit(page, 'admin: danh sách vụ việc', '/admin/matters');
   const matterUrl = await firstHref(page, /\/admin\/matters\/\d+$/);
 

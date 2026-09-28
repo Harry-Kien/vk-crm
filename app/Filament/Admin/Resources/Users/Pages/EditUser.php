@@ -4,18 +4,23 @@ namespace App\Filament\Admin\Resources\Users\Pages;
 
 use App\Actions\User\Concerns\GuardsStaffOffboarding;
 use App\Actions\User\DeleteStaffMember;
+use App\Actions\User\ResetStaffTwoFactor;
 use App\Enums\Role;
 use App\Enums\UserPosition;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Resources\Users\UserResource;
 use App\Models\User;
 use App\Support\Audit;
+use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
+use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
+use Filament\Support\Icons\Heroicon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
 class EditUser extends EditRecord
@@ -44,8 +49,19 @@ class EditUser extends EditRecord
     protected ?bool $hasDatabaseTransactions = false;
 
     /**
-     * Chỉ `DeleteAction`. Khuôn mẫu `make:filament-resource` sinh thêm `ForceDeleteAction` và
-     * `RestoreAction`, nhưng `UserPolicy::restore()`/`forceDelete()` luôn từ chối (cùng luật
+     * Hai action: "Đặt lại 2FA" (M8 Task 2, R2) rồi `DeleteAction`.
+     *
+     * **`resetTwoFactor`** — cùng thành ngữ `unlockLogin` của `EditClientUser`: `->visible()` hỏi
+     * `Gate` cho HÌNH DẠNG nút (`UserPolicy::resetTwoFactor()` — tên action khớp tên phương thức
+     * policy, `HeaderActionsAreReachableTest` đòi), rồi `Gate::authorize()` hỏi LẠI bên trong
+     * `action()` — một request Livewire bị chỉnh tay gọi thẳng `callMountedAction()` vẫn phải qua
+     * đúng cổng đó dù nút không hiện ra. `ResetStaffTwoFactor` tự nó CŨNG chặn tự đặt lại
+     * (`LogicException`) — phòng thủ hai lớp, không tin riêng lớp nào. `->color('warning')`,
+     * không `danger`: đây không phải một xoá dữ liệu — nó buộc MỘT người cài lại 2FA, một thao
+     * tác khôi phục, không phải phá huỷ.
+     *
+     * **`DeleteAction`** — chỉ nó. Khuôn mẫu `make:filament-resource` sinh thêm `ForceDeleteAction`
+     * và `RestoreAction`, nhưng `UserPolicy::restore()`/`forceDelete()` luôn từ chối (cùng luật
      * `ClientPolicy`) — nên hai nút đó vẫn không hiện, giờ vì policy TỪ CHỐI thật (`false`), không
      * còn vì THIẾU phương thức tương ứng như trước Task 4. `HeaderActionsAreReachableTest` giữ
      * luật này cho mọi trang.
@@ -66,6 +82,27 @@ class EditUser extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('resetTwoFactor')
+                ->label(__('users.actions.reset_two_factor.label'))
+                ->icon(Heroicon::OutlinedShieldExclamation)
+                ->color('warning')
+                ->requiresConfirmation()
+                ->modalHeading(fn (): string => __('users.actions.reset_two_factor.modal_heading', ['name' => $this->getRecord()->name]))
+                ->modalDescription(fn (): string => __('users.actions.reset_two_factor.modal_description', ['name' => $this->getRecord()->name]))
+                ->visible(fn (): bool => Gate::allows('resetTwoFactor', $this->getRecord()))
+                ->action(function (Action $action): void {
+                    Gate::authorize('resetTwoFactor', $this->getRecord());
+
+                    /** @var User $target */
+                    $target = $this->getRecord();
+
+                    $this->runAction($action, fn () => app(ResetStaffTwoFactor::class)->handle(Auth::user(), $target));
+
+                    Notification::make()
+                        ->title(__('users.actions.reset_two_factor.success', ['name' => $target->name]))
+                        ->success()
+                        ->send();
+                }),
             DeleteAction::make()
                 ->authorizationNotification()
                 ->using(function (DeleteAction $action): bool {

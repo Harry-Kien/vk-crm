@@ -41,6 +41,13 @@ Xong. Mở `http://localhost/admin` và `http://localhost/portal`.
 Cột số định danh cá nhân của khách hàng (`clients.id_number`) được **mã hoá khi lưu**
 (SPEC §10.5). Khoá dùng để mã hoá chính là `APP_KEY`.
 
+**M8 Task 2 (R2): `APP_KEY` giờ còn mã hoá cả secret 2FA và mã khôi phục của MỌI nhân sự nội
+bộ** (`users.two_factor_secret`, `users.two_factor_recovery_codes` — panel `admin` bắt buộc 2FA,
+không tắt được). Sinh khoá mới không chỉ mất số định danh khách hàng — nó khoá NGOÀI cả văn
+phòng: không ai đăng nhập được `/admin` nữa (secret cũ không đọc được, và `EnsureMultiFactorAuthenticationIsEnabled`
+coi như chưa ai cài 2FA). `vkcrm:reset-2fa` không cứu được tình huống này — nó xoá secret của
+MỘT người đang có, không tạo lại được secret đã mất khoá.
+
 **Sinh khoá mới trên một cơ sở dữ liệu đã có dữ liệu thật nghĩa là mọi số định danh đã lưu
 trở thành không đọc được, vĩnh viễn.** Không có cách khôi phục.
 
@@ -68,6 +75,22 @@ Mật khẩu đều là `password`.
 
 Cổng khách gửi một mã sáu số qua email sau bước mật khẩu. Trên máy dev, thư bị bắt lại và
 đọc ở `http://localhost:8025`.
+
+**Panel `/admin` bắt buộc 2FA ứng dụng (M8 Task 2, R2), không có cách nào tắt.** Năm tài khoản
+nhân sự ở trên (`local`/`testing` thôi — không phải khi ép `db:seed --class=DemoDataSeeder` trên
+một máy chủ thật) đều dùng CHUNG một secret TOTP cố định:
+
+```
+JBSWY3DPEHPK3PXP
+```
+
+Thêm secret này vào một app xác thực (Google Authenticator, Authy, 1Password…) MỘT LẦN — theo
+kiểu "nhập mã thủ công" (manual entry key), tên tài khoản đặt tuỳ ý — và dùng lại được cho cả năm
+tài khoản, qua mọi lần `migrate:fresh --seed`. Không cần quét mã QR.
+
+Một máy chủ THẬT không bao giờ có secret này: seeder chỉ gán nó khi `APP_ENV` là `local` hoặc
+`testing`. Nhân sự thật cài 2FA của riêng mình ở lần đăng nhập đầu (trang "Cài đặt 2FA bắt buộc"
+hiện ra tự động).
 
 ## Chạy nhiều bản cùng lúc trên một máy
 

@@ -94,6 +94,8 @@ return [
         'deadline_reminder_failed' => 'Gửi thư nhắc mốc thời hạn thất bại hẳn',
         // Task 20: app/Filament/Admin/Resources/Users/Pages/EditUser.php.
         'user_password_reset' => 'Đặt lại mật khẩu nhân sự',
+        // M8 Task 2 (R2): app/Actions/User/ResetStaffTwoFactor.php.
+        'staff_two_factor_reset' => 'Đặt lại 2FA nhân sự',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

@@ -54,14 +54,22 @@ use SensitiveParameter;
  *   — không cần ghi đè để "áp dụng" nó, chỉ cần KHÔNG ghi đè hàm đó.
  * - "Mật khẩu hiện tại" bắt buộc khi đổi mật khẩu: `getCurrentPasswordFormComponent()` của lớp cha
  *   đã tự `->required()` và tự `->currentPassword(guard: ...)`.
- * - Không có khối 2FA nào để mà có nút tắt: panel `admin` không gọi `->multiFactorAuthentication()`
- *   (xem docblock `AdminPanelProvider::panel()`), nên `Filament::hasMultiFactorAuthentication()`
- *   trả `false` và `getMultiFactorAuthenticationContentComponent()` của lớp cha tự trả `null`.
+ * - **M8 Task 2 (R2, §10 mục 7) đính chính đoạn này**: panel `admin` GIỜ gọi
+ *   `->multiFactorAuthentication()` (xem docblock `AdminPanelProvider::panel()`), nên khối 2FA
+ *   CÓ vẽ ra ở đây — `getMultiFactorAuthenticationContentComponent()` của lớp cha không còn trả
+ *   `null`. "Không có nút tắt" vẫn đúng, nhưng vì một lý do khác hẳn: KHÔNG PHẢI vì khối 2FA vắng
+ *   mặt, mà vì `App\Filament\Admin\Auth\StaffAppAuthentication` (lớp con của
+ *   `Filament\Auth\MultiFactor\App\AppAuthentication` đăng ký ở panel) tự bỏ
+ *   `DisableAppAuthenticationAction` ra khỏi `getActions()` — đọc docblock lớp đó cho lý do đầy
+ *   đủ. Trang này không cần biết gì thêm về 2FA: nó chỉ kế thừa nguyên bản `getMultiFactorAuthenticationContentComponent()`
+ *   của lớp cha, đúng như hai mục mật khẩu ở trên.
  *
- * Ba điều trên có test đo lại QUA CHÍNH LỚP CON NÀY (không phải qua lớp cha) ở
+ * Hai mục mật khẩu có test đo lại QUA CHÍNH LỚP CON NÀY (không phải qua lớp cha) ở
  * `tests/Feature/Filament/StaffEditProfileTest.php`, để một lần ghi đè sau này lỡ tay xoá mất
  * `getPasswordFormComponent()`/`getCurrentPasswordFormComponent()` bị bắt ngay, không chỉ dựa vào
- * "lớp cha vẫn còn đúng" như một giả định không kiểm chứng.
+ * "lớp cha vẫn còn đúng" như một giả định không kiểm chứng. "Không có nút tắt 2FA" có test riêng
+ * ở `tests/Feature/Filament/StaffTwoFactorEscapeRoutesTest.php` — quét đường tắt kiểu M5, không
+ * phải một khẳng định "khối 2FA không tồn tại" như bản đính chính trước Task 2.
  */
 class EditProfile extends BaseEditProfile
 {
