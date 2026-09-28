@@ -76,6 +76,24 @@ class User extends Authenticatable implements FilamentUser
     }
 
     /**
+     * Doanh thu ghi cho người này (`payments.attributed_lawyer_id`) — chốt tại LÚC THU, không
+     * dời theo bàn giao vụ việc sau đó (P2, M9 sổ controller câu hỏi 3).
+     */
+    public function attributedPayments(): HasMany
+    {
+        return $this->hasMany(Payment::class, 'attributed_lawyer_id');
+    }
+
+    /**
+     * Khung cho tính phí theo giờ giai đoạn 2 (SPEC §15, M9 Task 12 — chỉ khung). Xem docblock
+     * {@see TimeEntry}.
+     */
+    public function timeEntries(): HasMany
+    {
+        return $this->hasMany(TimeEntry::class);
+    }
+
+    /**
      * Nhân sự chỉ vào được panel nội bộ, và chỉ khi tài khoản còn hoạt động.
      */
     public function canAccessPanel(Panel $panel): bool

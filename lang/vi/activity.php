@@ -80,6 +80,25 @@ return [
         // (R4: tra định danh khi mở vụ cho khách mới — trúng hay trượt, không ghi số thô)
         'client_lookup' => 'Tra cứu định danh khách hàng',
         'client_lookup_throttled' => 'Tra cứu định danh khách hàng bị khoá tạm (thử quá nhiều lần)',
+
+        // M9 — tiền (hợp đồng, đợt thu, khoản thu).
+        // App\Actions\Billing\{DraftContract,ActivateContract,AmendContract,CompleteContract,
+        // CancelContract} (M9 Task 4).
+        'contract_drafted' => 'Soạn hợp đồng dịch vụ',
+        'contract_activated' => 'Kích hoạt hợp đồng dịch vụ',
+        'contract_amended' => 'Ký phụ lục hợp đồng',
+        'contract_completed' => 'Hoàn tất hợp đồng dịch vụ',
+        'contract_cancelled' => 'Huỷ hợp đồng dịch vụ',
+        // Lượt rà soát cuối M9, I3: bốn sự kiện tiền còn thiếu nhãn —
+        // App\Actions\Billing\{UpdateDraftContract,RecordPayment,VoidPayment,WaiveInstalment}.
+        // tests/Feature/ActivityLogEventTranslationsTest.php (cùng nội dung với tệp của M6.5 Task 20)
+        // quét MỌI literal Audit::record('…') trong app/ và đòi có mặt ở đây.
+        'contract_draft_updated' => 'Sửa hợp đồng nháp',
+        'payment_recorded' => 'Ghi khoản thu',
+        'payment_voided' => 'Huỷ khoản thu',
+        'instalment_waived' => 'Miễn đợt thanh toán',
+        // Lượt rà soát cuối M9, M9: App\Actions\Billing\DeleteDraftContract.
+        'contract_draft_deleted' => 'Xoá hợp đồng nháp',
         // app/Actions/Portal/*.php
         'client_request_opened' => 'Mở yêu cầu của khách',
         'client_request_assigned' => 'Giao yêu cầu của khách',

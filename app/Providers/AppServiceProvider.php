@@ -12,12 +12,17 @@ use App\Models\Client;
 use App\Models\ClientRequest;
 use App\Models\ClientRequestReply;
 use App\Models\ClientUser;
+use App\Models\Contract;
+use App\Models\ContractAmendment;
 use App\Models\Deadline;
 use App\Models\Document;
+use App\Models\Instalment;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Models\MatterParty;
+use App\Models\Payment;
 use App\Models\StageLog;
+use App\Models\TimeEntry;
 use App\Models\User;
 use App\Support\Files\ClamAvScanner;
 use App\Support\Files\NullScanner;
@@ -138,6 +143,19 @@ class AppServiceProvider extends ServiceProvider
             // `ClassMorphViolationException` chứ không lặng lẽ lưu tên lớp đầy đủ — nên thiếu
             // dòng này, `Audit::record()` với chủ thể là một đầu mục danh mục là một lỗi 500.
             'matter_checklist_item' => MatterChecklistItem::class,
+            // M9 Task 2: bốn model tiền mới. Map NGHIÊM NGẶT — thiếu tên ở đây thì
+            // `Audit::record(..., $contract)` hay `outbound_messages.related` trỏ tới một trong
+            // bốn model này là một lỗi 500 (`ClassMorphViolationException`), không phải một dòng
+            // âm thầm lưu tên lớp đầy đủ.
+            'contract' => Contract::class,
+            'instalment' => Instalment::class,
+            'payment' => Payment::class,
+            'contract_amendment' => ContractAmendment::class,
+            // M9 Task 12: khung time_entries (SPEC §15, giai đoạn 2). Không Action/màn hình nào
+            // ghi Audit trên model này ở M9, nhưng map NGHIÊM NGẶT đòi mọi model có tên ở đây
+            // TRƯỚC KHI bất cứ đâu (kể cả một job tương lai) có thể trỏ `outbound_messages.related`
+            // hay `Audit::record()` vào nó mà không vấp `ClassMorphViolationException`.
+            'time_entry' => TimeEntry::class,
         ]);
 
         // Giới hạn lượt tải tệp (route `documents.download`). Con số và toàn bộ lý lẽ — kể cả vì

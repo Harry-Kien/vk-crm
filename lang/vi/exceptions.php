@@ -25,4 +25,11 @@ return [
     'duplicate_client_not_visible' => 'Có thể khách hàng này đã có hồ sơ ở văn phòng. Nhờ trưởng phòng hoặc quản trị viên mở vụ.',
     // M6.5 Task 6, fix round 1 (I1).
     'client_lookup_throttled' => 'Đã tra hoặc thử quá nhiều lần trong một giờ. Vui lòng thử lại sau, hoặc nhờ trưởng phòng/quản trị viên mở vụ giúp.',
+
+    'contract_not_destroyable_not_draft' => 'Chỉ xoá được hợp đồng khi còn ở trạng thái "Nháp". Hợp đồng đã ký hoặc đã kết thúc thì đóng lại bằng "Hoàn tất" hoặc "Huỷ", không xoá.',
+    'contract_not_destroyable_has_payments' => 'Không thể xoá hợp đồng: đã có khoản thu ghi nhận trên hợp đồng này.',
+    'instalment_not_destroyable' => 'Chỉ xoá được đợt thanh toán khi hợp đồng còn ở trạng thái "Nháp". Đợt của hợp đồng đã ký thì huỷ hoặc miễn, không xoá.',
+    'payment_not_destroyable' => 'Không thể xoá khoản thu đã ghi nhận. Ghi nhầm thì huỷ khoản thu kèm lý do, khoản thu vẫn được giữ lại.',
+    'contract_amendment_immutable' => 'Phụ lục hợp đồng chỉ được thêm mới, không được sửa hoặc xoá sau khi đã ghi.',
+    'matter_has_outstanding_balance' => 'Không thể xoá vụ việc :code: còn dư nợ :amount trên :count đợt thanh toán của hợp đồng đang có hiệu lực. Thu nốt hoặc miễn các đợt còn lại (kèm lý do) trước khi xoá.',
 ];

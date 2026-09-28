@@ -18,6 +18,9 @@ return [
         // để trống, để màu đỏ có một dòng chữ đi kèm (tài liệu bộ công cụ §4: màu không bao giờ
         // là kênh thông tin duy nhất).
         'never_updated' => 'Chưa cập nhật lần nào',
+
+        // M9 Task 7 — hiện cho ai có `billing.view`, ẩn hẳn với ai không có (xem MattersTable).
+        'outstanding_balance' => 'Còn phải thu',
     ],
     'filters' => [
         'stage' => 'Giai đoạn',

@@ -6,6 +6,7 @@ use App\Filament\Admin\Resources\Matters\Pages\CreateMatter;
 use App\Filament\Admin\Resources\Matters\Pages\EditMatter;
 use App\Filament\Admin\Resources\Matters\Pages\ListMatters;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
+use App\Filament\Admin\Resources\Matters\RelationManagers\BillingRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ChecklistRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ClientRequestsRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\DeadlinesRelationManager;
@@ -36,9 +37,10 @@ use Illuminate\Support\Facades\Auth;
  * sinh mã, dựng bên khách hàng, sao chép danh mục hồ sơ, nhật ký) chứ không phải một lần ghi
  * bảng. Trang sửa (`EditMatter`, M6.5 Task 5) cũng vậy — gọi `App\Actions\Matter\
  * UpdateMatterDetails`, chỉ sửa năm cột SPEC §4.6 cho phép, không đụng `client_id`/
- * `matter_type_id`/`lead_lawyer_id`. Trang chi tiết (`ViewMatter`) có bảy
- * tab — Tổng quan (infolist dưới đây), Tiến độ, Danh mục hồ sơ, Tài liệu, Các bên, Yêu cầu từ
- * khách và Mốc thời hạn (`getRelations()`); các tab Liên lạc và Nhật ký (M7) chưa xây.
+ * `matter_type_id`/`lead_lawyer_id`. Trang chi tiết (`ViewMatter`) có các tab — Tổng quan
+ * (infolist dưới đây), Đội ngũ, Tiến độ, Danh mục hồ sơ, Tài liệu, Các bên, Yêu cầu từ khách,
+ * Mốc thời hạn và Hợp đồng và thanh toán (M9, `getRelations()`); các tab Liên lạc và Nhật ký
+ * (M7) chưa xây.
  */
 class MatterResource extends Resource
 {
@@ -117,6 +119,14 @@ class MatterResource extends Resource
             // quyết định `CheckDeadlines` (Task 6) có dữ liệu ở văn phòng hay chỉ xanh trên máy
             // của lập trình viên.
             DeadlinesRelationManager::class,
+            // Tab "Hợp đồng và thanh toán" (SPEC §7.2 đính chính M9 Task 3), M9 Task 7 — đứng
+            // cuối vì nó là tab đầu tiên về TIỀN trên trang vụ việc, một trục khác hẳn nội dung hồ
+            // sơ mà các tab trên đọc. Cổng thật là `BillingRelationManager::canViewForRecord()`
+            // (hỏi `viewAny` CÓ NGỮ CẢNH vụ việc qua `ChecksBillingAccess`, không phải bản mặc
+            // định KHÔNG NGỮ CẢNH của `RelationManager` — xem docblock lớp đó), nên kế toán
+            // (không có `matter.view`) không bao giờ mở được tới đây: màn hình của họ là trang
+            // "Công nợ" (Task 8).
+            BillingRelationManager::class,
         ];
     }
 

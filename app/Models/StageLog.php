@@ -81,6 +81,12 @@ class StageLog extends Model
         return $this->hasMany(StageLogView::class);
     }
 
+    /** Đợt thanh toán mà dòng tiến độ này kích hoạt (`instalments.triggered_by_stage_log_id`) — bằng chứng "tại sao đợt này đến hạn". */
+    public function triggeredInstalments(): HasMany
+    {
+        return $this->hasMany(Instalment::class, 'triggered_by_stage_log_id');
+    }
+
     /** SPEC §4.8: internal_note chỉ dành cho nội bộ. */
     protected function internalAttributes(): array
     {

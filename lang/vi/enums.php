@@ -76,4 +76,42 @@ return [
         'letter' => 'Công văn, thư',
         'court_visit' => 'Làm việc tại toà',
     ],
+    'contract_status' => [
+        'draft' => 'Nháp',
+        'active' => 'Đang hiệu lực',
+        'completed' => 'Đã hoàn tất',
+        'cancelled' => 'Đã huỷ',
+    ],
+    'billing_model' => [
+        'fixed_fee' => 'Trọn gói',
+        'hourly' => 'Theo giờ',
+        'mixed' => 'Kết hợp',
+    ],
+    'instalment_trigger' => [
+        'on_signing' => 'Khi ký hợp đồng',
+        'due_date' => 'Theo ngày cụ thể',
+        'stage' => 'Theo giai đoạn vụ việc',
+    ],
+    'instalment_status' => [
+        'pending' => 'Đang chờ thu',
+        'paid' => 'Đã thu đủ',
+        'waived' => 'Đã miễn',
+        'cancelled' => 'Đã huỷ',
+    ],
+    'instalment_state' => [
+        'scheduled' => 'Chưa lên lịch',
+        'due' => 'Đến hạn',
+        'overdue' => 'Quá hạn',
+        'partially_paid' => 'Đã thu một phần',
+        'paid' => 'Đã thu đủ',
+        'waived' => 'Đã miễn',
+        'cancelled' => 'Đã huỷ',
+    ],
+    'payment_method' => [
+        'bank_transfer' => 'Chuyển khoản',
+        'cash' => 'Tiền mặt',
+        'card' => 'Thẻ',
+        'offset' => 'Cấn trừ',
+        'other' => 'Khác',
+    ],
 ];

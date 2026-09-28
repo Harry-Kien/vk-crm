@@ -6,11 +6,13 @@ use App\Enums\Confidentiality;
 use App\Enums\MatterRole;
 use App\Enums\Permission;
 use App\Enums\Role as StaffRole;
+use App\Exceptions\MatterHasOutstandingBalance;
 use App\Exceptions\MatterNotDestroyable;
 use App\Exceptions\StageNotConfigured;
 use App\Models\Concerns\HasBlameable;
 use App\Models\Concerns\HidesInternalAttributesFromPortal;
 use App\Models\Concerns\RestrictedToClientPortal;
+use App\Support\Billing\BillingSummary;
 use App\Support\CodeSequence;
 use Database\Factories\MatterFactory;
 use Illuminate\Database\Eloquent\Builder;
@@ -83,6 +85,28 @@ class Matter extends Model
 
         static::forceDeleting(function (): void {
             throw MatterNotDestroyable::make();
+        });
+
+        // M9 Task 5, "Tiền trên một vụ việc… đã xoá mềm → CHẶN": xoá mềm một vụ việc còn dư nợ
+        // làm khoản nợ đó BỐC HƠI khỏi mọi báo cáo doanh thu (chúng bỏ qua vụ đã xoá mềm), nên
+        // đây là chốt chặn khác với "đã ĐÓNG" (closed_at) — một vụ đã đóng còn nợ KHÔNG bị chặn ở
+        // đây (widget "Hồ sơ đã kết thúc còn công nợ" là câu trả lời cho trường hợp đó, không
+        // phải hook này), chỉ xoá MỀM mới bị. Chỉ hỏi hợp đồng active
+        // (BillingSummary::outstandingForMatter(), constraint (a) mang từ Task 4).
+        //
+        // Ném CÙNG một lớp với App\Actions\Matter\CancelMatter (M6.5 Task 5, chưa merge lúc task
+        // này viết — xem báo cáo Task 5): khi nó merge, nó phải gọi lại đúng
+        // BillingSummary::outstandingForMatter(), không viết một phép tính dư nợ thứ hai.
+        //
+        // Sau forceDeleting ở trên: xoá CỨNG luôn bị chặn vô điều kiện trước khi chạm tới đây
+        // (SoftDeletes::forceDelete() bắn forceDeleting rồi mới gọi delete() nội bộ), nên hook
+        // deleting này trong thực tế chỉ chạy trên đường xoá MỀM.
+        static::deleting(function (Matter $matter): void {
+            $balance = BillingSummary::outstandingForMatter($matter->getKey());
+
+            if ($balance['amount'] > 0) {
+                throw MatterHasOutstandingBalance::make($matter, $balance['amount'], $balance['count']);
+            }
         });
     }
 
@@ -374,6 +398,21 @@ class Matter extends Model
     public function archive(): HasOne
     {
         return $this->hasOne(MatterArchive::class);
+    }
+
+    /** Một hợp đồng cho một vụ việc — `contracts.matter_id` unique thật (M9 quyết định 1). */
+    public function contract(): HasOne
+    {
+        return $this->hasOne(Contract::class);
+    }
+
+    /**
+     * Khung cho tính phí theo giờ giai đoạn 2 (SPEC §15, M9 Task 12 — chỉ khung, không nghiệp vụ
+     * nào đọc quan hệ này ở M9). Xem docblock {@see TimeEntry}.
+     */
+    public function timeEntries(): HasMany
+    {
+        return $this->hasMany(TimeEntry::class);
     }
 
     /** SPEC §4.6: description_internal không bao giờ ra portal. */

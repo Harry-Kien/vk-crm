@@ -14,4 +14,8 @@ return [
     'clientUser.manage' => 'Quản lý tài khoản tra cứu của khách',
     'settings.manage' => 'Quản trị cấu hình hệ thống',
     'auditLog.view' => 'Xem nhật ký hệ thống',
+    'billing.view' => 'Xem hợp đồng, đợt thanh toán và khoản thu của vụ việc',
+    'contract.manage' => 'Soạn, kích hoạt, ký phụ lục và huỷ hợp đồng dịch vụ',
+    'payment.record' => 'Ghi nhận và huỷ khoản thu',
+    'revenue.viewAny' => 'Xem doanh thu toàn văn phòng và trang Công nợ',
 ];
