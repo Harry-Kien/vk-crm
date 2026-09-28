@@ -75,6 +75,27 @@
                         </h2>
                     </div>
 
+                    {{--
+                        M6 Task 4 (`requests/REQ-4`, đính chính SPEC §9 2026-09-27) — huy hiệu
+                        "có trả lời mới". Đứng NGAY dưới tiêu đề, trước cả tóm tắt: đây là tin cần
+                        khách hàng chú ý trước nhất trên thẻ, và nó không phải một trong ba màu
+                        tiến độ ở cuối thẻ (một hồ sơ "đã đủ giấy tờ" vẫn có thể vừa có trả lời
+                        mới). Màu không phải kênh thông tin duy nhất (tài liệu bộ công cụ §4): câu
+                        chữ đứng cạnh và mang toàn bộ nghĩa.
+                    --}}
+                    @if ($card['has_new_reply'])
+                        <p
+                            data-portal-card-new-reply
+                            style="display:flex;align-items:center;gap:0.5rem;font-size:0.875rem;font-weight:600;line-height:1.4;color:var(--primary-600);"
+                        >
+                            <span
+                                aria-hidden="true"
+                                style="flex:none;height:0.5rem;width:0.5rem;border-radius:999px;background-color:currentColor;"
+                            ></span>
+                            {{ __('portal_matters.card.new_reply') }}
+                        </p>
+                    @endif
+
                     {{-- `summary_for_client` (portal/portal-2, M6.5 Task 5). Chỉ vẽ khi có nội
                          dung — thẻ không có chỗ cho một dòng trống. --}}
                     @if ($card['summary'])

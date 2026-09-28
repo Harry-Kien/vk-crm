@@ -100,6 +100,13 @@ return [
              */
             'call_lead' => 'Hoặc anh/chị gọi thẳng cho văn phòng — số này dùng được cả trên Zalo:',
             'call' => 'Gọi :hotline',
+
+            /*
+             * M6 Task 4 (`requests/REQ-4`, đính chính SPEC §9 2026-09-27): huy hiệu "có trả lời
+             * mới" — App\Filament\Portal\Pages\MatterProgress::hasNewReply(). Đứng trước cái nút
+             * "Gửi yêu cầu cho văn phòng", cùng khối 7, vì đây là chính chỗ khách bấm vào để đọc.
+             */
+            'new_reply' => 'Văn phòng vừa trả lời một yêu cầu của anh/chị — bấm vào bên dưới để xem.',
         ],
 
     ],

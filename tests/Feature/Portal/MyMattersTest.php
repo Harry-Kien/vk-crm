@@ -1,12 +1,15 @@
 <?php
 
 use App\Enums\ChecklistItemStatus;
+use App\Enums\ClientRequestStatus;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Enums\Role;
 use App\Filament\Portal\Pages\MatterProgress;
 use App\Filament\Portal\Pages\MyMatters;
 use App\Models\Client;
+use App\Models\ClientRequest;
+use App\Models\ClientRequestReply;
 use App\Models\ClientUser;
 use App\Models\Document;
 use App\Models\Matter;
@@ -1145,6 +1148,98 @@ it('keeps the matter code on every card and makes the whole card the way in', fu
 });
 
 // =========================================================================================
+// M6 Task 4 (`requests/REQ-4`, đính chính SPEC §9 2026-09-27) — huy hiệu "có trả lời mới"
+// (App\Support\ClientRequestActivity). Dựng thẳng bằng factory, không qua
+// OpenClientRequest/ReplyToClientRequest: những Action đó có tác dụng phụ khác (thư, thông báo)
+// không liên quan tới huy hiệu này, và bộ test này không seed vai trò/quyền.
+// =========================================================================================
+
+/** Một dòng trả lời của NHÂN SỰ (`author_type = users`), không phải của khách. */
+function staffReplyOn(ClientRequest $request, ?User $author = null): ClientRequestReply
+{
+    $author ??= User::factory()->create();
+
+    return ClientRequestReply::factory()->for($request, 'request')->create([
+        'author_type' => $author->getMorphClass(),
+        'author_id' => $author->id,
+    ]);
+}
+
+it('raises the new-reply badge when staff has answered after the clients last entry', function () {
+    $matter = portalMatter();
+    $request = ClientRequest::factory()->for($matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'status' => ClientRequestStatus::Answered,
+    ]);
+    staffReplyOn($request);
+
+    $html = renderMyMatters();
+
+    expect($html)->toContain(__('portal_matters.card.new_reply'));
+});
+
+it('never raises the new-reply badge when nobody has written a request yet', function () {
+    portalMatter();
+
+    $html = renderMyMatters();
+
+    expect($html)->not->toContain(__('portal_matters.card.new_reply'));
+});
+
+/** Huy hiệu tắt khi khách viết tiếp — tự động từ chính định nghĩa, không một điều kiện riêng. */
+it('drops the new-reply badge once the client writes again after the staff answer', function () {
+    $matter = portalMatter();
+    $request = ClientRequest::factory()->for($matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'status' => ClientRequestStatus::InProgress,
+    ]);
+    staffReplyOn($request);
+    ClientRequestReply::factory()->for($request, 'request')->create([
+        'author_type' => $this->clientUser->getMorphClass(),
+        'author_id' => $this->clientUser->id,
+    ]);
+
+    $html = renderMyMatters();
+
+    expect($html)->not->toContain(__('portal_matters.card.new_reply'));
+});
+
+/**
+ * Huy hiệu tắt khi luồng đóng — mutation probe: bỏ `$request->status !== ClientRequestStatus::
+ * Closed` khỏi `ClientRequestActivity::hasUnseenStaffReply()` — test này ĐỎ.
+ */
+it('drops the new-reply badge once the thread is closed', function () {
+    $matter = portalMatter();
+    $request = ClientRequest::factory()->for($matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'status' => ClientRequestStatus::Closed,
+    ]);
+    staffReplyOn($request);
+
+    $html = renderMyMatters();
+
+    expect($html)->not->toContain(__('portal_matters.card.new_reply'));
+});
+
+/** Đứng độc lập với ba màu tiến độ: một hồ sơ "đủ giấy tờ" vẫn có thể có trả lời mới. */
+it('raises the new-reply badge alongside the settled progress tone, not instead of it', function () {
+    $matter = portalMatter();
+    MatterChecklistItem::factory()->for($matter)->create([
+        'is_required' => true, 'status' => ChecklistItemStatus::Accepted,
+    ]);
+    $request = ClientRequest::factory()->for($matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'status' => ClientRequestStatus::Answered,
+    ]);
+    staffReplyOn($request);
+
+    $html = renderMyMatters();
+
+    expect($html)->toContain(__('portal_matters.card.new_reply'))
+        ->and($html)->toContain(__('portal_matters.status.settled'));
+});
+
+// =========================================================================================
 // Hiệu năng: `MatterPolicy::view` chạy một EXISTS cho MỖI thẻ (mang sang từ rà soát M2)
 // =========================================================================================
 
@@ -1161,19 +1256,24 @@ it('keeps the matter code on every card and makes the whole card the way in', fu
  *     kèm bộ đếm tài liệu. Gộp nó vào truy vấn danh sách nghĩa là viết lại luật đếm lần thứ hai
  *     bên màn hình, đúng thứ M4 vừa dọn đi.
  *
- * Phần cố định là **năm**: danh sách hồ sơ, loại vụ việc, các giai đoạn của loại đó, các dòng
- * danh mục của cả trang, và — từ Task 2, vòng sửa 1 (Important #2) — quan hệ `client` của cả
- * trang. Truy vấn thứ tư (danh mục) là cái giá của vòng sửa I3 — huy hiệu và thanh tiến độ nay
- * đọc CÙNG một tập dòng, nên các dòng ấy về một lần cho cả trang thay vì được đếm lại bằng hai
- * `withCount` riêng. Truy vấn thứ năm (`client`) là cái giá của Task 2: `MatterPolicy::view` giờ
- * hỏi thêm "khách hàng chưa xoá mềm" (`releasedToPortal()`), và `MyMatters::buildCards()` nạp sẵn
- * `client` cho CẢ TRANG một lần để hàm đó đọc qua `relationLoaded()` — miễn phí cho từng thẻ —
- * thay vì một `EXISTS` mới trên MỖI thẻ (xem docblock của `releasedToPortal()`). Cả hai là truy
- * vấn CỐ ĐỊNH, không một truy vấn nào cho mỗi thẻ, và khẳng định độ dốc ở dưới là thứ chứng minh
- * điều đó. Vậy `2N + 5`, tức 45 cho 20 thẻ.
+ * Phần cố định là **sáu**: danh sách hồ sơ, loại vụ việc, các giai đoạn của loại đó, các dòng
+ * danh mục của cả trang, quan hệ `client` của cả trang (Task 2, vòng sửa 1, Important #2), và —
+ * từ M6 Task 4 (`requests/REQ-4`) — quan hệ `clientRequests` của cả trang (huy hiệu "có trả lời
+ * mới", xem docblock `App\Support\ClientRequestActivity`). Truy vấn thứ tư (danh mục) là cái giá
+ * của vòng sửa I3 — huy hiệu và thanh tiến độ nay đọc CÙNG một tập dòng, nên các dòng ấy về một
+ * lần cho cả trang thay vì được đếm lại bằng hai `withCount` riêng. Truy vấn thứ năm (`client`)
+ * là cái giá của Task 2: `MatterPolicy::view` giờ hỏi thêm "khách hàng chưa xoá mềm"
+ * (`releasedToPortal()`), và `MyMatters::buildCards()` nạp sẵn `client` cho CẢ TRANG một lần để
+ * hàm đó đọc qua `relationLoaded()` — miễn phí cho từng thẻ — thay vì một `EXISTS` mới trên MỖI
+ * thẻ (xem docblock của `releasedToPortal()`). Truy vấn thứ sáu (`clientRequests`) là cái giá của
+ * Task 4: không hồ sơ nào trong fixture của test này có một `ClientRequest`, nên nhánh nạp lồng
+ * `.replies` không hề chạy — Eloquent bỏ qua eager-load lồng khi tập model cha rỗng
+ * (`Builder::get()`: `if (count($models) > 0) { … eagerLoadRelations … }`) — chỉ MỘT truy vấn
+ * thêm, không hai. Tất cả là truy vấn CỐ ĐỊNH, không một truy vấn nào cho mỗi thẻ, và khẳng định
+ * độ dốc ở dưới là thứ chứng minh điều đó. Vậy `2N + 6`, tức 46 cho 20 thẻ.
  *
- * Ba khẳng định, vì mỗi cái bắt một hỏng khác nhau: **phần cố định đúng bằng 5** bắt việc có
- * người thêm một truy vấn cố định thứ sáu, và giữ cho con số trong docblock này là một con số
+ * Ba khẳng định, vì mỗi cái bắt một hỏng khác nhau: **phần cố định đúng bằng 6** bắt việc có
+ * người thêm một truy vấn cố định thứ bảy, và giữ cho con số trong docblock này là một con số
  * đo được chứ không một con số kể lại; **trần 50** để lại chỗ thở; **độ dốc đúng bằng 2** bắt thứ
  * đáng sợ hơn — một truy vấn mới mọc lên TRÊN TỪNG THẺ (một quan hệ chưa nạp sẵn, một `count()`
  * trong view). Chỉ có trần thì một hồi quy như vậy vẫn lọt ở 20 thẻ và nổ ở 200.
@@ -1211,5 +1311,5 @@ it('does not turn twenty cards into hundreds of queries', function () {
 
     expect($twenty)->toBeLessThanOrEqual(50)
         ->and($twenty - $five)->toBe(2 * 15)
-        ->and($five - (2 * 5))->toBe(5);
+        ->and($five - (2 * 5))->toBe(6);
 });

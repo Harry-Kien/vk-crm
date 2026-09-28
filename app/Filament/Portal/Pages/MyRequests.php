@@ -12,6 +12,7 @@ use App\Models\ClientRequestReply;
 use App\Models\ClientUser;
 use App\Models\Matter;
 use App\Models\User;
+use App\Support\ClientRequestActivity;
 use Closure;
 use DomainException;
 use Filament\Facades\Filament;
@@ -280,19 +281,17 @@ class MyRequests extends Page
         return __('requests.portal.status.'.$request->status->value);
     }
 
-    /** @see self::statusLine() */
+    /**
+     * @see self::statusLine()
+     *
+     * **M6 Task 4 (`requests/REQ-4`): định nghĩa chuyển sang {@see ClientRequestActivity}.** Chỗ
+     * dùng chung này phục vụ THÊM `MyMatters`/`MatterProgress` (huy hiệu "có trả lời mới") mà
+     * không gọi một trang Filament từ trang khác — phán quyết controller, task-4-brief.md. Hành
+     * vi không đổi: cùng một phép so sánh, chỉ đổi chỗ ở.
+     */
     private function hasStaffReplyAfterClientsLastEntry(ClientRequest $request): bool
     {
-        $staffMorph = (new User)->getMorphClass();
-
-        $lastClientEntryId = $request->replies
-            ->filter(fn (ClientRequestReply $reply): bool => $reply->author_type !== $staffMorph)
-            ->max('id') ?? 0;
-
-        return $request->replies->contains(
-            fn (ClientRequestReply $reply): bool => $reply->author_type === $staffMorph
-                && (int) $reply->getKey() > (int) $lastClientEntryId,
-        );
+        return ClientRequestActivity::hasStaffReplyAfterClientsLastEntry($request);
     }
 
     /**

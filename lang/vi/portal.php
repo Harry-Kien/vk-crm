@@ -152,5 +152,21 @@ return [
             'help' => 'Có điều gì chưa rõ, anh/chị gọi giúp văn phòng theo số :phone.',
             'salutation' => 'Trân trọng, :office',
         ],
+
+        /*
+         * Mẫu `client.request_answered` (SPEC §9, đính chính 2026-09-27, M6 Task 4,
+         * `requests/REQ-4`) — văn phòng vừa trả lời một luồng trao đổi. Cùng luật tiêu đề với
+         * `document_published`/`document_rejected`: chỉ mã hồ sơ, không mang tiêu đề yêu cầu do
+         * CHÍNH khách gõ. Thân thư KHÔNG trích nội dung câu trả lời (SPEC §9: "chi tiết mời bấm
+         * vào portal") — xem docblock `App\Mail\Client\RequestAnswered`.
+         */
+        'request_answered' => [
+            'subject' => 'Hồ sơ :code có phản hồi mới từ văn phòng',
+            'greeting' => 'Kính gửi anh/chị :name,',
+            'line' => 'Văn phòng vừa trả lời một yêu cầu anh/chị đã gửi cho hồ sơ :code.',
+            'open' => 'Mở hồ sơ để xem câu trả lời',
+            'help' => 'Có điều gì chưa rõ, anh/chị gọi giúp văn phòng theo số :phone.',
+            'salutation' => 'Trân trọng, :office',
+        ],
     ],
 ];

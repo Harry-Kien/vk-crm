@@ -6,12 +6,14 @@ use App\Actions\Document\ChecklistProgress;
 use App\Actions\Portal\RecordStageLogView;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
+use App\Models\ClientRequest;
 use App\Models\ClientUser;
 use App\Models\Deadline;
 use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Models\StageLog;
+use App\Support\ClientRequestActivity;
 use Filament\Facades\Filament;
 use Filament\Pages\Page;
 use Filament\Panel;
@@ -880,6 +882,28 @@ class MatterProgress extends Page
     // -------------------------------------------------------------------------------------
     // Khối 7 — Gửi yêu cầu
     // -------------------------------------------------------------------------------------
+
+    /**
+     * M6 Task 4 (`requests/REQ-4`, đính chính SPEC §9 2026-09-27) — huy hiệu "có trả lời mới"
+     * cho khối 7. Cùng định nghĩa với `MyMatters` — xem docblock `App\Support\
+     * ClientRequestActivity`.
+     *
+     * Lần lọc `Gate::allows('view', ...)` trên TỪNG luồng là tầng thứ hai, cùng thành ngữ
+     * {@see self::checklistItems()}/{@see self::documents()}: `$this->matter()->clientRequests()`
+     * đã giới hạn theo đúng hồ sơ (không một câu `where('client_id', ...)` nào ở đây), nhưng lớp
+     * `Gate` giữ đúng những điều kiện `ClientRequestPolicy::view()` phát biểu bằng THUỘC TÍNH
+     * trên bản ghi (`! $request->trashed()`) — thứ không chung một lệnh SQL nào với quan hệ.
+     */
+    public function hasNewReply(): bool
+    {
+        $viewer = $this->viewer();
+
+        $requests = $this->matter()->clientRequests()->with('replies')->get()
+            ->filter(fn (ClientRequest $request): bool => Gate::forUser($viewer)->allows('view', $request))
+            ->values();
+
+        return ClientRequestActivity::matterHasUnseenStaffReply($requests);
+    }
 
     /**
      * Lối vào màn hình gửi yêu cầu (SPEC §8.3 mục 7). **Seam của Task 4, đã được Task 6 lật.**

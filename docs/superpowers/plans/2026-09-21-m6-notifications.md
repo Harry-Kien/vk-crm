@@ -94,7 +94,7 @@ lúc gửi rằng vụ việc chưa bị xoá mềm (cùng cách `SendDeadlineRe
 `outbound_messages` của thư về tài liệu hiện ra cho mọi người xem được vụ việc, kể cả trợ lý, trên
 màn hình nhật ký thư của M6.5 Task 13. Áp cho cả Task 3 và Task 4.
 
-### - [ ] Task 4 — Hai mẫu thư cho nhân sự, kích hoạt bởi khách
+### - [x] Task 4 — Hai mẫu thư cho nhân sự, kích hoạt bởi khách
 
 `staff.new_client_document` (khách nộp tài liệu — `SubmitClientDocument`), `staff.new_client_request` (khách gửi yêu cầu — `OpenClientRequest` của M5 Task 6), kèm thông báo trong hệ thống cho lead lawyer và người phụ trách. Người nhận suy từ đội ngũ vụ việc, không hardcode vai trò.
 

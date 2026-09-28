@@ -255,4 +255,75 @@ return [
         ],
         'open' => 'Mở hồ sơ',
     ],
+
+    // =====================================================================================
+    // M6 Task 4 — SPEC §9: staff.new_client_request, staff.new_client_document
+    // =====================================================================================
+
+    /*
+     * Tiêu đề thư cho NHÂN SỰ. Cùng luật "tiêu đề không nêu chữ khách gõ" mang từ M6.5 Task 13/M6
+     * Task 3 sang task này — xem docblock `App\Mail\Staff\NewClientRequest`/`NewClientDocument`:
+     * chỉ mã hồ sơ và một câu chung; nội dung yêu cầu/tên đầu mục chỉ ở THÂN thư.
+     */
+    'email' => [
+        'new_request' => [
+            'subject' => 'Hồ sơ :code có yêu cầu mới từ khách',
+            'greeting' => 'Kính gửi :name,',
+            'line' => 'Khách hàng vừa gửi một yêu cầu mới cho hồ sơ :code (:title).',
+            'subject_line' => 'Nội dung khách hỏi:',
+            'action' => 'Anh/chị mở tab "Yêu cầu từ khách" trên hệ thống để xem đầy đủ và trả lời.',
+            'salutation' => ':office',
+        ],
+        'new_document' => [
+            'subject' => 'Hồ sơ :code có giấy tờ mới cần kiểm tra',
+            'greeting' => 'Kính gửi :name,',
+            'line' => 'Khách hàng vừa nộp :count tệp cho đầu mục ":item" của hồ sơ :code (:title).',
+            'action' => 'Anh/chị mở danh mục hồ sơ trên hệ thống để kiểm tra và duyệt.',
+            'salutation' => ':office',
+        ],
+    ],
+
+    /*
+     * Thông báo TRONG HỆ THỐNG khi khách mở một yêu cầu mới (`requests/REQ-1`) —
+     * App\Notifications\Staff\NewClientRequestAlert.
+     */
+    'new_request_notification' => [
+        'title' => 'Khách vừa gửi một yêu cầu mới',
+        'body' => 'Hồ sơ :code có một yêu cầu mới: ":subject". Mở tab "Yêu cầu từ khách" để xem và trả lời.',
+    ],
+
+    /*
+     * Thông báo TRONG HỆ THỐNG khi khách nộp tài liệu — App\Notifications\Staff\
+     * NewClientDocumentAlert.
+     */
+    'new_document_notification' => [
+        'title' => 'Khách vừa nộp tài liệu mới',
+        'body' => 'Hồ sơ :code vừa nhận :count tệp cho đầu mục ":item". Mở danh mục hồ sơ để kiểm tra.',
+    ],
+
+    /*
+     * `requests/REQ-2` (đính chính 2026-09-27): khách viết THÊM vào một luồng cũ mà không ai
+     * trong văn phòng được báo — App\Notifications\Staff\ClientRequestFollowUpAlert, gọi từ
+     * App\Actions\Portal\ReplyToClientRequest sau khi transaction commit. Không có thư đi kèm —
+     * quyết định của implementer, xem docblock lớp Notification đó cho lý do.
+     */
+    'followup_notification' => [
+        'title' => 'Khách vừa viết thêm vào một yêu cầu',
+        'body' => 'Hồ sơ :code có một câu hỏi tiếp trong tab "Yêu cầu từ khách". Mở lên để xem và trả lời.',
+    ],
+
+    /*
+     * Thư `staff.new_client_request`/`staff.new_client_document` hỏng HẲN (hết mọi lượt thử) —
+     * App\Notifications\Staff\NewClientRequestMailFailedAlert/NewClientDocumentMailFailedAlert.
+     * Cùng hình dạng `matters.document_published_failed_notification`.
+     */
+    'new_request_failed_notification' => [
+        'title' => 'Chưa gửi được thư báo yêu cầu mới của khách',
+        'body' => 'Thư báo yêu cầu mới của hồ sơ :code đã thử gửi nhiều lần nhưng không tới được. Thông báo trong hệ thống vẫn còn — hãy kiểm tra tab "Yêu cầu từ khách" và kiểm tra hộp thư của người phụ trách.',
+    ],
+
+    'new_document_failed_notification' => [
+        'title' => 'Chưa gửi được thư báo tài liệu mới của khách',
+        'body' => 'Thư báo tài liệu mới của hồ sơ :code đã thử gửi nhiều lần nhưng không tới được. Thông báo trong hệ thống vẫn còn — hãy kiểm tra danh mục hồ sơ và kiểm tra hộp thư của người phụ trách.',
+    ],
 ];
