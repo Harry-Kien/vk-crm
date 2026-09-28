@@ -156,12 +156,98 @@ it('never tells an account whose client has been soft deleted', function () {
     Mail::assertNothingSent();
 });
 
+/**
+ * Fix round 1 (finding Important 3, R6 ranh giới người nhận): một tài khoản đã kích hoạt của một
+ * khách hàng KHÁC (không sở hữu vụ việc này) không bao giờ được vào cùng lô người nhận, dù nó đủ
+ * điều kiện `is_active` + `activated_at` theo đúng luật R12 — ranh giới ở đây là CLIENT_ID, không
+ * chỉ "đã kích hoạt".
+ *
+ * Mutation probe: xoá `->where('client_id', $clientId)` khỏi
+ * `ResolveClientRecipients::eligibleQuery()` — test này ĐỎ (thư đi luôn tới tài khoản của khách
+ * khác).
+ */
+it('never tells an activated account belonging to a different client', function () {
+    Mail::fake();
+    [, $lawyer, $account, $document] = publishableMatterWithClientAccount();
+    $strangerClient = Client::factory()->create();
+    $strangerAccount = ClientUser::factory()->activated()->create(['client_id' => $strangerClient->id, 'is_active' => true]);
+
+    publishAsLawyer($document, $lawyer);
+
+    Mail::assertSent(DocumentPublishedMail::class, fn ($mail) => $mail->hasTo($account->email));
+    Mail::assertNotSent(DocumentPublishedMail::class, fn ($mail) => $mail->hasTo($strangerAccount->email));
+});
+
+/**
+ * R6, ranh giới nội dung: một cột NỘI BỘ của vụ việc (`matters.description_internal`, không có
+ * ranh giới công bố nào cho khách) không bao giờ được vào thư — đo bằng chuỗi đánh dấu duy nhất,
+ * không đọc bằng mắt, và soi cả ba nơi (tiêu đề, HTML, văn bản thuần), cùng lối
+ * `StageUpdateNotificationTest::'never carries the internal note into the client mailbox'`.
+ */
+it('never carries the matters internal note into the client mailbox', function () {
+    [$matter, , $account, $document] = publishableMatterWithClientAccount();
+    $marker = 'DAU-HIEU-NOI-BO-'.uniqid();
+    $matter->update(['description_internal' => $marker]);
+    $document->update(['title' => 'Quyet dinh thu ly vu an']);
+
+    $mail = new DocumentPublishedMail($document->fresh(), $account);
+    $subject = $mail->envelope()->subject;
+    $html = $mail->render();
+    $text = view($mail->content()->text, $mail->content()->with)->render();
+
+    expect($subject)->not->toContain($marker)
+        ->and($html)->not->toContain($marker)
+        ->and($text)->not->toContain($marker)
+        // Cặp dương: nội dung ĐÃ CÔNG BỐ (tên tài liệu) vẫn phải có mặt trong cả hai phần, nếu
+        // không test trên xanh vì thư rỗng.
+        ->and($html)->toContain('Quyet dinh thu ly vu an')
+        ->and($text)->toContain('Quyet dinh thu ly vu an');
+});
+
 it('never tells a never-activated account (R12)', function () {
     Mail::fake();
     [, $lawyer, $account, $document] = publishableMatterWithClientAccount();
     $account->update(['is_active' => false]);
 
     publishAsLawyer($document, $lawyer);
+
+    Mail::assertNothingSent();
+});
+
+/**
+ * Fix round 1 (finding Critical 1): công tắc tổng `matters.is_published_to_portal` (SPEC §4,
+ * mặc định `false`) phải chặn thư này, đi qua ĐÚNG đường sản phẩm (`PublishDocument` thật, không
+ * gọi thẳng `NotifyClientOfDocumentPublished::handle()` — cùng nguyên tắc mọi test khác trong tệp
+ * này). Trước bản sửa này, `$account->can('view', $matter)` là `false` (portal không hiện gì) mà
+ * thư vẫn đi kèm tên tài liệu — bỏ qua công tắc tổng và mang nội dung mà chính ranh giới portal
+ * đang giấu.
+ *
+ * Mutation probe: xoá `->where('is_published_to_portal', true)` khỏi
+ * `NotifyClientOfDocumentPublished::handle()` — test này ĐỎ.
+ */
+it('sends nothing when publishing a document on a matter with the portal switch off', function () {
+    Mail::fake();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $client = Client::factory()->create();
+    $account = ClientUser::factory()->activated()->create(['client_id' => $client->id, 'is_active' => true]);
+    $matter = Matter::factory()->create([
+        'client_id' => $client->id,
+        'lead_lawyer_id' => $lawyer->id,
+        'is_published_to_portal' => false,
+    ]);
+    $document = Document::factory()->create([
+        'matter_id' => $matter->id,
+        'group' => DocumentGroup::Issued,
+        'status' => DocumentStatus::SignedFiled,
+        'client_can_view' => false,
+        'client_can_download' => false,
+    ]);
+    $document->addMedia(UploadedFile::fake()->createWithContent('van-ban.pdf', '%PDF-1.4 test'))
+        ->toMediaCollection('file');
+
+    expect($account->can('view', $matter->fresh()))->toBeFalse();
+
+    publishAsLawyer($document->refresh(), $lawyer);
 
     Mail::assertNothingSent();
 });

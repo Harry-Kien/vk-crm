@@ -30,7 +30,10 @@ use Throwable;
  * **Kiểm tra lại lúc gửi:** đầu mục còn ĐÚNG lần từ chối này — `status` vẫn `rejected` VÀ
  * `reviewed_at` vẫn khớp ảnh chụp lúc sự kiện bắn (khách có thể đã nộp lại, đổi `status` về
  * `pending_review` VÀ đổi `reviewed_at`, trong cửa sổ hàng đợi) — cùng ý brief: "đầu mục còn
- * rejected và chưa bị nộp lại".
+ * rejected và chưa bị nộp lại". VÀ `matters.is_published_to_portal` (fix round 1, finding
+ * Critical 1) — xem docblock lớp anh em `NotifyClientOfDocumentPublished`: cờ này là công tắc
+ * tổng của portal, tắt thì vụ việc vô hình dù khách đúng quyền, và không nơi nào khác trên đường
+ * đi (`Matter::open()`, `ResolveClientRecipients`, `ReviewChecklistItem`) tự hỏi nó.
  */
 class NotifyClientOfChecklistItemRejected
 {
@@ -46,6 +49,7 @@ class NotifyClientOfChecklistItemRejected
             ->withoutGlobalScope(ClientPortalScope::class)
             ->whereKey($fresh->matter_id)
             ->open()
+            ->where('is_published_to_portal', true)
             ->first(['id', 'client_id']);
 
         if ($matter === null) {
@@ -108,6 +112,23 @@ class NotifyClientOfChecklistItemRejected
         }
 
         return $fresh;
+    }
+
+    /**
+     * Fix round 1 (finding Important 2, `lang/vi/checklist.php`): "một email đã được gửi báo
+     * khách" là một lời hứa CÓ ĐIỀU KIỆN — đúng khi (VÀ CHỈ khi) luật này đúng
+     * (`is_published_to_portal` VÀ có tài khoản khách đủ điều kiện,
+     * {@see ResolveClientRecipients::hasEligibleRecipient()}), không
+     * phải luôn đúng. `ChecklistRelationManager::rejectAction()` gọi hàm này để chọn câu toast/
+     * helper text TRUNG THỰC, thay vì hứa suông — cùng cách
+     * `NotifyClientOfStageUpdate::hasEligibleRecipient()` đã làm cho form chuyển giai đoạn (Task
+     * 7). Dùng LẠI đúng điều kiện của `handle()` ở trên (không chép riêng), để cảnh báo trên màn
+     * hình không bao giờ lệch với chính Action gửi thư thật.
+     */
+    public function hasEligibleRecipient(Matter $matter): bool
+    {
+        return $matter->is_published_to_portal
+            && app(ResolveClientRecipients::class)->hasEligibleRecipient($matter->client_id);
     }
 
     private function alreadyDelivered(MatterChecklistItem $checklistItem, ClientUser $recipient): bool

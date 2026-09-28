@@ -85,6 +85,77 @@ it('never tells an account whose client has been soft deleted', function () {
 });
 
 /**
+ * Fix round 1 (finding Important 3, R6 ranh giới người nhận) — cùng lý lẽ
+ * `DocumentPublishedNotificationTest`: một tài khoản đã kích hoạt của một khách hàng KHÁC không
+ * bao giờ vào cùng lô người nhận.
+ *
+ * Mutation probe: xoá `->where('client_id', $clientId)` khỏi
+ * `ResolveClientRecipients::eligibleQuery()` — test này ĐỎ.
+ */
+it('never tells an activated account belonging to a different client', function () {
+    Mail::fake();
+    [, $lawyer, $account, $item] = rejectableItemWithClientAccount();
+    $strangerClient = Client::factory()->create();
+    $strangerAccount = ClientUser::factory()->activated()->create(['client_id' => $strangerClient->id, 'is_active' => true]);
+
+    rejectAsLawyer($item, $lawyer, rejectionReasonText());
+
+    Mail::assertSent(DocumentRejected::class, fn ($mail) => $mail->hasTo($account->email));
+    Mail::assertNotSent(DocumentRejected::class, fn ($mail) => $mail->hasTo($strangerAccount->email));
+});
+
+/**
+ * R6, ranh giới nội dung — cùng lối `DocumentPublishedNotificationTest`: một cột nội bộ của vụ
+ * việc không bao giờ vào thư, soi ở cả ba nơi và bằng chuỗi đánh dấu, không bằng mắt.
+ */
+it('never carries the matters internal note into the client mailbox', function () {
+    [$matter, , $account, $item] = rejectableItemWithClientAccount();
+    $marker = 'DAU-HIEU-NOI-BO-'.uniqid();
+    $matter->update(['description_internal' => $marker]);
+    $item->update(['name' => 'Chung minh nhan dan', 'rejection_reason' => rejectionReasonText('MARKER-XYZ')]);
+
+    $mail = new DocumentRejected($item->fresh(), $account);
+    $subject = $mail->envelope()->subject;
+    $html = $mail->render();
+    $text = view($mail->content()->text, $mail->content()->with)->render();
+
+    expect($subject)->not->toContain($marker)
+        ->and($html)->not->toContain($marker)
+        ->and($text)->not->toContain($marker)
+        // Cặp dương: nội dung ĐÃ CÔNG BỐ (tên đầu mục + lý do) vẫn phải có mặt.
+        ->and($html)->toContain('Chung minh nhan dan')
+        ->and($html)->toContain('MARKER-XYZ')
+        ->and($text)->toContain('Chung minh nhan dan')
+        ->and($text)->toContain('MARKER-XYZ');
+});
+
+/**
+ * Fix round 1 (finding Critical 1) — cùng lý lẽ `DocumentPublishedNotificationTest`, đi qua ĐÚNG
+ * đường sản phẩm (`ReviewChecklistItem` thật).
+ *
+ * Mutation probe: xoá `->where('is_published_to_portal', true)` khỏi
+ * `NotifyClientOfChecklistItemRejected::handle()` — test này ĐỎ.
+ */
+it('sends nothing when rejecting an item on a matter with the portal switch off', function () {
+    Mail::fake();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $client = Client::factory()->create();
+    $account = ClientUser::factory()->activated()->create(['client_id' => $client->id, 'is_active' => true]);
+    $matter = Matter::factory()->create([
+        'client_id' => $client->id,
+        'lead_lawyer_id' => $lawyer->id,
+        'is_published_to_portal' => false,
+    ]);
+    $item = MatterChecklistItem::factory()->for($matter)->status(ChecklistItemStatus::PendingReview)->create();
+
+    expect($account->can('view', $matter->fresh()))->toBeFalse();
+
+    rejectAsLawyer($item, $lawyer, rejectionReasonText());
+
+    Mail::assertNothingSent();
+});
+
+/**
  * R6, ranh giới nội dung: tiêu đề KHÔNG bao giờ nêu tên đầu mục hay lý do từ chối.
  *
  * Mutation probe: nội suy `$this->checklistItem->name` vào `envelope()->subject` — test ĐỎ.

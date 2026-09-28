@@ -305,6 +305,41 @@ it('never carries the internal note into the client mailbox', function () {
         ->and($html)->toContain('hoàn tất bước chuẩn bị hồ sơ');
 });
 
+/**
+ * Fix round 1 (finding Important 3, R6 ranh giới người nhận) — cùng lý lẽ
+ * `DocumentPublishedNotificationTest`/`DocumentRejectedNotificationTest`: một tài khoản đã kích
+ * hoạt của một khách hàng KHÁC (đứng trên một vụ việc thứ hai, hoàn toàn đủ điều kiện R12) không
+ * bao giờ được vào cùng lô người nhận của `client.stage_update` — ranh giới ở đây là CLIENT_ID,
+ * không chỉ "đã kích hoạt". Đi qua ĐÚNG đường sản phẩm (`TransitionMatterStage` thật).
+ *
+ * Mutation probe: xoá `->where('client_id', $clientId)` khỏi
+ * `ResolveClientRecipients::eligibleQuery()` — test này ĐỎ (thư đi luôn tới tài khoản của khách
+ * khác, trên một vụ việc nó không hề liên quan).
+ */
+it('never tells an activated account belonging to a different client', function () {
+    Mail::fake();
+    [$matter, $lawyer, $account, $open] = publishedMatterWithClientAccount();
+    $strangerClient = Client::factory()->create();
+    $strangerAccount = ClientUser::factory()->activated()->create(['client_id' => $strangerClient->id, 'is_active' => true]);
+    Matter::factory()->create(['client_id' => $strangerClient->id, 'is_published_to_portal' => true]);
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter,
+        actor: $lawyer,
+        toStage: $open->skip(1)->first()->key,
+        occurredAt: today(),
+        internalNote: null,
+        publicContent: 'Toà án đã thụ lý vụ việc và sẽ tiến hành các bước tiếp theo trong thời gian tới.',
+        nextStep: null,
+        clientAction: null,
+        expectedNextUpdateAt: null,
+        publish: true,
+    );
+
+    Mail::assertSent(StageUpdate::class, fn ($mail) => $mail->hasTo($account->email));
+    Mail::assertNotSent(StageUpdate::class, fn ($mail) => $mail->hasTo($strangerAccount->email));
+});
+
 it('puts the matter code in the subject and nothing about the case itself', function () {
     [$matter, , $account] = publishedMatterWithClientAccount();
 

@@ -355,6 +355,89 @@ it('rejects an item through ReviewChecklistItem and stores the sentence the clie
         ->and($item->rejection_reason)->toBe(__('checklist.rejection_templates.blurred'));
 });
 
+// =========================================================================================
+// Fix round 1, finding Important 2: le toast de từ chối phải nói ĐÚNG có ai nhận được thư hay
+// không — không hứa vô điều kiện.
+// =========================================================================================
+
+/**
+ * Khách CÓ tài khoản portal đủ điều kiện, vụ việc CÓ bật công tắc portal: toast hứa một email,
+ * đúng sự thật (thư sẽ được gửi qua `NotifyClientOfChecklistItemRejected`).
+ *
+ * Mutation probe: đổi `ChecklistRelationManager::hasEligibleClientRecipient()` để luôn trả `false`
+ * — test này ĐỎ (toast trở thành `reject_success_no_notice`).
+ */
+it('toasts the "an email will go out" copy when the client can actually receive it', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $client = Client::factory()->create();
+    ClientUser::factory()->activated()->create(['client_id' => $client->id, 'is_active' => true]);
+    $matter = Matter::factory()->create([
+        'client_id' => $client->id,
+        'lead_lawyer_id' => $lawyer->id,
+        'is_published_to_portal' => true,
+    ]);
+    $item = MatterChecklistItem::factory()->for($matter)->status(ChecklistItemStatus::PendingReview)->create();
+
+    $this->actingAs($lawyer, 'web');
+
+    checklistManager($matter)
+        ->callAction(TestAction::make('reject')->table($item), data: [
+            'rejection_reason' => __('checklist.rejection_templates.blurred'),
+        ])
+        ->assertHasNoActionErrors();
+
+    Notification::assertNotified(__('checklist.tab.actions.reject_success'));
+});
+
+/**
+ * Khách KHÔNG có tài khoản portal đủ điều kiện (chưa từng tạo): toast phải nói THẬT rằng không ai
+ * nhận được gì, không phải toast "đã hứa gửi" cũ.
+ *
+ * Mutation probe: đổi điều kiện thành LUÔN `true` — test này ĐỎ.
+ */
+it('toasts the "nobody will receive this" copy when the client has no eligible account', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'is_published_to_portal' => true]);
+    $item = MatterChecklistItem::factory()->for($matter)->status(ChecklistItemStatus::PendingReview)->create();
+
+    $this->actingAs($lawyer, 'web');
+
+    checklistManager($matter)
+        ->callAction(TestAction::make('reject')->table($item), data: [
+            'rejection_reason' => __('checklist.rejection_templates.blurred'),
+        ])
+        ->assertHasNoActionErrors();
+
+    Notification::assertNotified(__('checklist.tab.actions.reject_success_no_notice'));
+});
+
+/**
+ * Cùng ranh giới, phía KHÁC: vụ việc tắt hẳn công tắc portal (`is_published_to_portal = false`) dù
+ * khách có tài khoản đủ điều kiện — vẫn phải là toast trung thực "không ai nhận" (finding Critical
+ * 1 + Important 2 cùng một chỗ: công tắc tổng tắt thì portal vô hình, nên thư cũng không đi).
+ */
+it('toasts the "nobody will receive this" copy when the matter has the portal switch off', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $client = Client::factory()->create();
+    ClientUser::factory()->activated()->create(['client_id' => $client->id, 'is_active' => true]);
+    $matter = Matter::factory()->create([
+        'client_id' => $client->id,
+        'lead_lawyer_id' => $lawyer->id,
+        'is_published_to_portal' => false,
+    ]);
+    $item = MatterChecklistItem::factory()->for($matter)->status(ChecklistItemStatus::PendingReview)->create();
+
+    $this->actingAs($lawyer, 'web');
+
+    checklistManager($matter)
+        ->callAction(TestAction::make('reject')->table($item), data: [
+            'rejection_reason' => __('checklist.rejection_templates.blurred'),
+        ])
+        ->assertHasNoActionErrors();
+
+    Notification::assertNotified(__('checklist.tab.actions.reject_success_no_notice'));
+});
+
 it('marks an item not applicable through MarkChecklistItemNotApplicable', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);

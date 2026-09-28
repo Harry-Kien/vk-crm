@@ -118,7 +118,13 @@ it('sends nothing when the owning client was soft deleted before the job ran', f
     Mail::assertNothingSent();
 });
 
-/** R6: mật khẩu tạm không bao giờ hiện ở tiêu đề — chỉ trong thân thư, nơi chỉ người nhận đọc. */
+/**
+ * R6: mật khẩu tạm không bao giờ hiện ở tiêu đề — chỉ trong thân thư, nơi chỉ người nhận đọc.
+ *
+ * Fix round 1 (finding Important 3): bản trước chỉ đo HTML, chưa từng đo phần VĂN BẢN THUẦN — một
+ * lần sửa thêm mật khẩu vào `document-text`/`activation-text` mà quên `activation` (HTML) sẽ lọt
+ * qua test cũ.
+ */
 it('never puts the temporary password in the subject, only in the body', function () {
     $client = Client::factory()->create();
     $account = ClientUser::factory()->create(['client_id' => $client->id]);
@@ -126,9 +132,53 @@ it('never puts the temporary password in the subject, only in the body', functio
     $mail = new Activation($account, 'MatKhauTamThoiBiMat123');
     $subject = $mail->envelope()->subject;
     $html = $mail->render();
+    $text = view($mail->content()->text, $mail->content()->with)->render();
 
     expect($subject)->not->toContain('MatKhauTamThoiBiMat123')
-        ->and($html)->toContain('MatKhauTamThoiBiMat123');
+        ->and($html)->toContain('MatKhauTamThoiBiMat123')
+        ->and($text)->toContain('MatKhauTamThoiBiMat123');
+});
+
+/**
+ * R6, ranh giới nội dung: thư này không nói gì về khách hàng chủ tài khoản (chỉ tên/email của
+ * CHÍNH tài khoản cổng và mật khẩu tạm) — một cột nội bộ của Client (`note`) không bao giờ được
+ * vào thư, đo bằng chuỗi đánh dấu ở cả ba nơi, không bằng mắt.
+ */
+it('never carries the owning clients internal note into the activation mail', function () {
+    $client = Client::factory()->create(['note' => 'DAU-HIEU-NOI-BO-'.uniqid()]);
+    $account = ClientUser::factory()->create(['client_id' => $client->id, 'name' => 'Nguyen Van A']);
+
+    $mail = new Activation($account, 'MatKhauTamThoiBiMat123');
+    $subject = $mail->envelope()->subject;
+    $html = $mail->render();
+    $text = view($mail->content()->text, $mail->content()->with)->render();
+
+    expect($subject)->not->toContain($client->note)
+        ->and($html)->not->toContain($client->note)
+        ->and($text)->not->toContain($client->note)
+        // Cặp dương: tên của chính người nhận vẫn phải có mặt.
+        ->and($html)->toContain('Nguyen Van A')
+        ->and($text)->toContain('Nguyen Van A');
+});
+
+/**
+ * Fix round 1 (finding Important 3, R6 ranh giới người nhận): dispatch cho MỘT tài khoản cụ thể
+ * (`clientUserId`) không bao giờ gửi cho một tài khoản khác đang tồn tại trong CSDL, kể cả một tài
+ * khoản của một khách hàng khác đang hoàn toàn đủ điều kiện theo R12 — job chỉ đọc đúng khoá chính
+ * đã nhận, không truy vấn một danh sách nào có thể mở rộng.
+ */
+it('only emails the exact account it was issued for, never another eligible account', function () {
+    Mail::fake();
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $client = Client::factory()->create();
+    $account = ClientUser::factory()->create(['client_id' => $client->id]);
+    $strangerClient = Client::factory()->create();
+    $strangerAccount = ClientUser::factory()->activated()->create(['client_id' => $strangerClient->id, 'is_active' => true]);
+
+    app(IssuePortalAccess::class)->handle($account, $admin);
+
+    Mail::assertSent(Activation::class, fn ($mail) => $mail->hasTo($account->email));
+    Mail::assertNotSent(Activation::class, fn ($mail) => $mail->hasTo($strangerAccount->email));
 });
 
 /**

@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Actions\Client\IssuePortalAccess;
 use App\Enums\Role;
 use App\Mail\Client\Activation;
 use App\Models\ClientUser;
@@ -102,13 +103,16 @@ class SendPortalActivationMail implements ShouldQueue
      * vì đây CHÍNH LÀ thư chứng minh hộp thư): xem docblock `App\Actions\Notification\
      * ResolveClientRecipients` và `App\Mail\Client\Activation`.
      *
-     * `$account->client()->exists()`, không `whereHas('client')` ở tầng truy vấn: `$account` đã
-     * được đọc (dưới khoá) ở `handle()`, nên đây chỉ là một câu hỏi thêm trên đúng bản ghi đó,
-     * không phải một truy vấn danh sách.
+     * Fix round 1 (finding Important 1): gọi lại {@see IssuePortalAccess::isEligible()} thay vì
+     * giữ một bản điều kiện riêng — `IssuePortalAccess::handle()` giờ hỏi ĐÚNG câu này TRƯỚC khi
+     * ghi audit/dispatch, nên job (đọc lại lúc THẬT SỰ chạy) và Action (đọc lúc CẤP quyền) phải
+     * dùng chung một định nghĩa, không phải hai bản có thể lệch nhau sau này. `$account` ở đây đã
+     * được đọc dưới khoá (`lockForUpdate()` ở `handle()`), nên đây chỉ là một câu hỏi thêm trên
+     * đúng bản ghi đó, không phải một truy vấn danh sách.
      */
     private function stillEligibleForActivation(ClientUser $account): bool
     {
-        return $account->is_active && $account->client()->exists();
+        return IssuePortalAccess::isEligible($account);
     }
 
     /**

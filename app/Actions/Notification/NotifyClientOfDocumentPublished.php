@@ -30,10 +30,23 @@ use Throwable;
  *    cần thêm khoá gì khác vào header, vì `DocumentPublished` chỉ bắn ĐÚNG MỘT LẦN cho một tài
  *    liệu (xem docblock sự kiện: "Chỉ lần công bố đầu tiên").
  *  - Kiểm tra lại lúc gửi hỏi `Document::isReleasedToPortal()` (còn `client_can_view`, còn
- *    `published`, còn ngoài nhóm D, chưa xoá mềm) VÀ `Matter::open()` của chính vụ việc (cùng cách
- *    `App\Jobs\SendDeadlineReminderMail` hỏi `Matter::open()` — brief Task 3 chỉ đích danh câu
- *    này) — một tài liệu có thể đã bị chuyển sang nhóm D hoặc gỡ cổng, và vụ việc có thể đã bị huỷ
- *    hoặc đóng, trong cửa sổ hàng đợi giữa lúc sự kiện bắn và lúc listener chạy.
+ *    `published`, còn ngoài nhóm D, chưa xoá mềm) VÀ `Matter::open()` của chính vụ việc, VÀ
+ *    `matters.is_published_to_portal` (cùng cách `App\Jobs\SendDeadlineReminderMail` hỏi
+ *    `Matter::open()` — brief Task 3 chỉ đích danh câu này) — một tài liệu có thể đã bị chuyển
+ *    sang nhóm D hoặc gỡ cổng, và vụ việc có thể đã bị huỷ, đóng, hoặc tắt công tắc portal, trong
+ *    cửa sổ hàng đợi giữa lúc sự kiện bắn và lúc listener chạy.
+ *
+ * **Fix round 1 (finding Critical 1).** Bản trước KHÔNG hỏi `matters.is_published_to_portal` ở
+ * đâu trong đường đi này — không ở đây, không ở `Document::isReleasedToPortal()` (chỉ soi các cột
+ * của chính `Document`), không ở `ResolveClientRecipients` (chỉ soi `ClientUser`), và
+ * `PublishDocument` không tự guard theo cờ đó (nó không CẦN — cờ này là chuyện của PORTAL, không
+ * phải chuyện công bố tài liệu). SPEC §4 gọi cột này là "Công tắc tổng. Tắt thì vụ việc vô hình
+ * trên portal dù khách đúng quyền" — mặc định `false`. Thiếu điều kiện này, một tài liệu nhóm B/C
+ * được công bố trên một vụ việc còn tắt công tắc portal vẫn gửi thư kèm tên tài liệu, dù
+ * `$account->can('view', $matter)` là `false` và portal không hiện gì cả — thư bỏ qua công tắc
+ * tổng và mang đúng nội dung mà ranh giới portal đang giấu (R6: "chỉ chứa nội dung đã công bố").
+ * Sửa: nạp `Matter` với `->where('is_published_to_portal', true)` ngay cạnh `->open()`, cùng cách
+ * `NotifyClientOfStageUpdate::stillReleasedToPortal()` đã làm cho `client.stage_update`.
  */
 class NotifyClientOfDocumentPublished
 {
@@ -49,6 +62,7 @@ class NotifyClientOfDocumentPublished
             ->withoutGlobalScope(ClientPortalScope::class)
             ->whereKey($fresh->matter_id)
             ->open()
+            ->where('is_published_to_portal', true)
             ->first(['id', 'client_id']);
 
         if ($matter === null) {

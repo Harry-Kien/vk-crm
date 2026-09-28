@@ -6,6 +6,7 @@ use App\Actions\Document\AddChecklistItem;
 use App\Actions\Document\ChecklistProgress;
 use App\Actions\Document\MarkChecklistItemNotApplicable;
 use App\Actions\Document\ReviewChecklistItem;
+use App\Actions\Notification\NotifyClientOfChecklistItemRejected;
 use App\Enums\ChecklistItemStatus;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Concerns\ScopesToVisibleMatters;
@@ -435,7 +436,13 @@ class ChecklistRelationManager extends RelationManager
                     ->label(__('checklist.tab.fields.templates')),
                 Textarea::make('rejection_reason')
                     ->label(__('checklist.tab.fields.rejection_reason'))
-                    ->helperText(__('checklist.tab.fields.rejection_reason_help'))
+                    // Fix round 1 (finding Important 2): câu này hứa một email mà hệ thống có thể
+                    // sẽ KHÔNG gửi (khách chưa có tài khoản portal đủ điều kiện, hoặc vụ việc chưa
+                    // bật công tắc portal — `is_published_to_portal`) — xem docblock
+                    // `self::rejectAction()->successNotificationTitle()` bên dưới cho cùng lý lẽ.
+                    ->helperText(fn (MatterChecklistItem $record): string => static::hasEligibleClientRecipient($record)
+                        ? __('checklist.tab.fields.rejection_reason_help')
+                        : __('checklist.tab.fields.rejection_reason_help_no_notice'))
                     ->rows(4)
                     ->columnSpanFull()
                     // Nửa "cho người dùng thấy" của luật SPEC §4.10 ("tối thiểu 20 ký tự"); nửa
@@ -448,7 +455,21 @@ class ChecklistRelationManager extends RelationManager
                 // R11 (M6.5 Task 17, checklist-04) — xem docblock `self::documentsSchema()`.
                 ...$this->documentsSchema(),
             ])
-            ->successNotificationTitle(__('checklist.tab.actions.reject_success'))
+            /**
+             * Fix round 1 (finding Important 2). Bản trước hứa VÔ ĐIỀU KIỆN "một email đã được
+             * gửi báo khách về việc này" — SAI khi khách không có tài khoản portal đủ điều kiện
+             * (chưa có tài khoản, chưa kích hoạt, hoặc bị khoá) HAY khi vụ việc đang tắt công tắc
+             * portal (`is_published_to_portal`, chính lỗ hổng Critical 1 vừa lấp ở
+             * `NotifyClientOfChecklistItemRejected`): `handle()` sẽ trả về `0`, không gửi gì,
+             * nhưng nhân sự đã tin lời hứa cũ và không tự liên hệ khách bằng kênh khác — đúng lớp
+             * lời hứa sai mà `CopyPromisesTest` tồn tại để chặn. Chọn câu TRUNG THỰC bằng
+             * {@see NotifyClientOfChecklistItemRejected::hasEligibleRecipient()} — MỘT nơi định
+             * nghĩa "khách có nhận được thư này không", dùng lại đúng điều kiện của chính Action
+             * gửi thư, không chép riêng ở đây.
+             */
+            ->successNotificationTitle(fn (MatterChecklistItem $record): string => static::hasEligibleClientRecipient($record)
+                ? __('checklist.tab.actions.reject_success')
+                : __('checklist.tab.actions.reject_success_no_notice'))
             ->action(fn (Action $action, MatterChecklistItem $record, array $data) => $this->runAction(
                 $action,
                 fn () => app(ReviewChecklistItem::class)->handle(
@@ -501,5 +522,19 @@ class ChecklistRelationManager extends RelationManager
             [ChecklistItemStatus::Missing, ChecklistItemStatus::NotApplicable],
             true,
         );
+    }
+
+    /**
+     * Fix round 1 (finding Important 2) — "khách có nhận được thư `client.document_rejected` cho
+     * lần từ chối này không". Gọi thẳng
+     * {@see NotifyClientOfChecklistItemRejected::hasEligibleRecipient()} với `$item->matter` —
+     * KHÔNG chép điều kiện (`is_published_to_portal` + `ResolveClientRecipients`) ra đây, cùng lý
+     * do `BuildsStageUpdateSchema::noActivatedAccountWarning()` dùng lại
+     * `NotifyClientOfStageUpdate::hasEligibleRecipient()`: cảnh báo trên màn hình không bao giờ
+     * được phép lệch với chính Action gửi thư thật.
+     */
+    private static function hasEligibleClientRecipient(MatterChecklistItem $item): bool
+    {
+        return app(NotifyClientOfChecklistItemRejected::class)->hasEligibleRecipient($item->matter);
     }
 }

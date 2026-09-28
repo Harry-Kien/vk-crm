@@ -47,12 +47,42 @@ it('only claims the client sees the new stage when the matter is on the portal',
         ->toContain('Nếu vụ việc đang bật công bố portal');
 });
 
+/**
+ * Fix round 1 (finding Important 2): `reject_success`/`rejection_reason_help` hứa một email chỉ
+ * đúng khi khách THẬT SỰ có ai đó để nhận (tài khoản portal đủ điều kiện, R12) VÀ vụ việc còn bật
+ * công tắc portal (`is_published_to_portal`) —
+ * `ChecklistRelationManager::hasEligibleClientRecipient()` chọn giữa cặp khoá này và cặp
+ * "_no_notice" bên dưới. Trước bản sửa này, cặp "email đã được gửi" hiện VÔ ĐIỀU KIỆN — đúng lớp
+ * lời hứa sai mà bài test này tồn tại để chặn (xem `it('no longer denies the rejection email…')`
+ * ở trên, cho nửa NGƯỢC LẠI của cùng một lỗi).
+ */
+it('does not promise an email when nobody is eligible to receive one', function (string $key) {
+    expect(mb_strtolower(__($key)))
+        ->toContain('không')
+        ->not->toContain('sẽ được gửi báo khách')
+        ->not->toContain('email gửi cho khách,');
+})->with([
+    'checklist.tab.actions.reject_success_no_notice',
+    'checklist.tab.fields.rejection_reason_help_no_notice',
+]);
+
+/**
+ * Fix round 1 (finding Important 2): "gửi ngay cho khách" hứa một tốc độ hệ thống không có — thư
+ * đi qua hàng đợi (R2), chạy khi cron gọi `queue:work --stop-when-empty`, không rời máy chủ ngay
+ * lúc bấm "Từ chối".
+ */
+it('never claims the rejection email leaves the server instantly', function () {
+    expect(mb_strtolower(__('checklist.tab.fields.rejection_reason_help')))->not->toContain('gửi ngay');
+});
+
 it('checks keys that actually exist, so a typo cannot make these tests pass on the raw key', function (string $key) {
     expect(Lang::has($key))->toBeTrue();
 })->with([
     'checklist.tab.actions.reject_heading',
     'checklist.tab.actions.reject_success',
+    'checklist.tab.actions.reject_success_no_notice',
     'checklist.tab.fields.rejection_reason_help',
+    'checklist.tab.fields.rejection_reason_help_no_notice',
     'documents.publish.trashed',
     'documents.publish.matter_unavailable',
     'documents.lifecycle.trashed',
