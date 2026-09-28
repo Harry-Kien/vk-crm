@@ -10,6 +10,7 @@ use DomainException;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
  * Bàn giao HÀNG LOẠT nhiều vụ việc đang do MỘT luật sư phụ trách sang MỘT lead mới (SPEC §6.11;
@@ -27,20 +28,29 @@ use Illuminate\Validation\ValidationException;
  * Để mỗi lời gọi `handle()` tự đóng transaction của nó (commit ngay khi xong) là điều kiện DUY
  * NHẤT cho phép vụ thứ ba thất bại mà không kéo theo hai vụ đầu.
  *
- * # Bốn họ lỗi, dịch thành MỘT dòng kết quả tiếng Việt — không phá vỡ vòng lặp
+ * # Năm họ lỗi, dịch thành MỘT dòng kết quả tiếng Việt — không phá vỡ vòng lặp
  *
- * `ValidationException` (lý do bị từ chối, ví dụ "đã là lead"), `AuthorizationException`
- * (`manageTeam` từ chối — vụ `restricted` một manager ép được vào payload), `DomainException`
- * (không dùng tới ở `ReassignMatter::handle()` hôm nay, nhưng bắt cho phòng xa) và
- * `ModelNotFoundException` đều bị bắt RIÊNG, KHÔNG để thoát ra khỏi vòng lặp — một exception thoát
- * ra sẽ dừng cả lô ở đúng vụ gây lỗi, bỏ hẳn những vụ đứng SAU trong danh sách (cùng bài học
- * `UsersTable`'s `DeleteBulkAction::using()`, fix round 3: "bắt rộng hơn... không phá vỡ toàn bộ
- * lượt xoá hàng loạt").
+ * `ValidationException` (lý do bị từ chối, ví dụ "đã là lead", hoặc "đã trôi lead"/"đã đóng" —
+ * fix round 1, finding 1), `AuthorizationException` (`manageTeam` từ chối — vụ `restricted` một
+ * manager ép được vào payload), `DomainException` (không dùng tới ở `ReassignMatter::handle()` hôm
+ * nay, nhưng bắt cho phòng xa), `ModelNotFoundException`, và — fix round 1, finding 3 — MỌI
+ * `Throwable` khác (một `QueryException` từ lock-wait timeout/deadlock, một kết nối rớt giữa
+ * chừng) đều bị bắt RIÊNG, KHÔNG để thoát ra khỏi vòng lặp — một exception thoát ra sẽ dừng cả lô ở
+ * đúng vụ gây lỗi, bỏ hẳn những vụ đứng SAU trong danh sách (cùng bài học `UsersTable`'s
+ * `DeleteBulkAction::using()`, fix round 3: "bắt rộng hơn... không phá vỡ toàn bộ lượt xoá hàng
+ * loạt"). `catch (Throwable)` LUÔN đứng SAU CÙNG (PHP bắt theo đúng thứ tự khai báo, khớp đầu
+ * tiên thắng) — bốn `catch` cụ thể hơn ở trên vẫn giữ nguyên thông điệp tiếng Việt đúng lý do của
+ * chúng; chỉ những gì KHÔNG nằm trong bốn họ đó mới rơi xuống nhánh `Throwable`, được `report()`
+ * (cùng lỗi vẫn lên Sentry/log như một request bình thường bị 500) rồi dịch thành một dòng thất
+ * bại chung chung — không đoán được lý do thật để nói tiếng Việt cụ thể hơn.
  *
  * **`AuthorizationException` không gắn mã/tiêu đề vụ việc vào kết quả — xem docblock
- * {@see BulkReassignMatterResult} cho lý do đầy đủ.** Ba họ lỗi còn lại đều ném ra SAU KHI
+ * {@see BulkReassignMatterResult} cho lý do đầy đủ.** Bốn họ lỗi còn lại đều ném ra SAU KHI
  * `manageTeam` đã cho qua (đó là câu ĐẦU TIÊN `ReassignMatter::handle()` hỏi), nên actor chắc chắn
- * đã hợp lệ để thấy vụ việc — an toàn để gắn mã/tiêu đề vào kết quả của chúng.
+ * đã hợp lệ để thấy vụ việc — an toàn để gắn mã/tiêu đề vào kết quả của chúng. Nhánh `Throwable`
+ * cũng gắn mã/tiêu đề CÙNG điều kiện đó (chỉ khi `$matter` đã tra được — xem thân hàm), TRỪ khi
+ * chính câu `Matter::query()->find($matterId)` là nơi ném lỗi (kết nối rớt ngay lúc đọc), lúc đó
+ * `$matter` chưa hề gán được giá trị nên không có gì để gắn.
  *
  * # Vụ `restricted` LUÔN gỡ lead cũ, bất kể công tắc "giữ lại" của cả lô
  *
@@ -65,6 +75,21 @@ use Illuminate\Validation\ValidationException;
  * Không vụ nào thành công thì không dispatch gì — cùng "không còn gì thì không gửi" của
  * `SendReassignmentDigest` (Task 1), áp dụng ở tầng gọi thay vì dispatch một job rồi để job đó tự
  * phát hiện payload rỗng.
+ *
+ * # Dispatch nằm trong `finally` bọc CẢ vòng lặp (fix round 1, finding 3)
+ *
+ * Bản trước dispatch digest SAU vòng lặp — đọc được nhưng SAI khi có một exception thoát khỏi
+ * chính vòng lặp: `catch (Throwable)` ở mục trên đã đóng gần hết đường thoát đó, nhưng không phải
+ * TOÀN BỘ — câu `Matter::query()->find($matterId)` ở ĐẦU mỗi vòng lặp nằm NGOÀI khối `try` của
+ * vụ đó (nó chạy trước khi biết `$matterId` có tra ra `$matter` hay không), nên một `QueryException`
+ * ngay tại câu đọc đó (kết nối rớt, không phải lock-wait trong `ReassignMatter::handle()`) vẫn
+ * thoát thẳng ra khỏi `foreach`. Nếu dispatch nằm SAU vòng lặp (một câu lệnh riêng, không trong
+ * `finally`), một exception thoát ra như vậy sẽ nhảy thẳng qua câu dispatch — các vụ ĐÃ commit
+ * thành công trước đó (vụ 1-3 trong kịch bản finding 3) không bao giờ được báo cho lead mới, dù dữ
+ * liệu của chúng đã đổi chủ thật. Bọc dispatch trong `finally` quanh TOÀN BỘ `foreach` đảm bảo nó
+ * luôn chạy — kể cả khi lối thoát đó (hiếm, nhưng không phải không thể) xảy ra — đúng lưới an toàn
+ * finding 3 đòi: "không rơi mất mốc hạn nào" áp dụng cho MỌI vụ đã thật sự commit, không chỉ những
+ * vụ mà lỗi tình cờ nằm gọn trong `try` của chính chúng.
  */
 class ReassignMatters
 {
@@ -72,82 +97,113 @@ class ReassignMatters
      * @param  array<int, int>  $matterIds  Id các vụ việc đã chọn, ĐÚNG thứ tự caller truyền vào —
      *                                      mảng kết quả trả về giữ nguyên thứ tự này, một phần tử
      *                                      cho mỗi id (kể cả id không còn tồn tại).
+     * @param  int  $expectedLeadId  Fix round 1, finding 1 — "luật sư đang phụ trách" đã chọn ở
+     *                               đầu màn hình hàng loạt (`BulkReassign`). Truyền thẳng xuống
+     *                               {@see ReassignMatter::handle()} làm `$expectedLeadId` cho MỖI
+     *                               vụ — xem docblock của nó, mục "$expectedLeadId", cho lý do đầy
+     *                               đủ. Không có khái niệm "hàng loạt không có lead đang chọn":
+     *                               màn hình `BulkReassign` bắt buộc chọn trường này trước khi
+     *                               liệt kê vụ việc để tick, nên tham số này KHÔNG có mặc định —
+     *                               quên truyền nó phải là một lỗi biên dịch, không phải một khe
+     *                               hở âm thầm quay lại hành vi trước fix round 1.
      * @return array<int, BulkReassignMatterResult>
      */
-    public function handle(array $matterIds, User $actor, User $newLead, string $reason, bool $keepOldLeadAsAssociate): array
+    public function handle(array $matterIds, User $actor, User $newLead, string $reason, bool $keepOldLeadAsAssociate, int $expectedLeadId): array
     {
         $results = [];
         $digestMatters = [];
 
-        foreach ($matterIds as $matterId) {
-            $matter = Matter::query()->find($matterId);
+        try {
+            foreach ($matterIds as $matterId) {
+                $matter = null;
 
-            if ($matter === null) {
-                $results[] = new BulkReassignMatterResult(
-                    matterId: $matterId,
-                    success: false,
-                    message: __('reassign.bulk.results.not_found'),
-                );
+                try {
+                    $matter = Matter::query()->find($matterId);
 
-                continue;
+                    if ($matter === null) {
+                        $results[] = new BulkReassignMatterResult(
+                            matterId: $matterId,
+                            success: false,
+                            message: __('reassign.bulk.results.not_found'),
+                        );
+
+                        continue;
+                    }
+
+                    // Vụ `restricted` luôn gỡ lead cũ — xem docblock lớp, mục tương ứng.
+                    $keepAssociate = $keepOldLeadAsAssociate && $matter->confidentiality !== Confidentiality::Restricted;
+
+                    $result = app(ReassignMatter::class)->handle(
+                        matter: $matter,
+                        actor: $actor,
+                        newLead: $newLead,
+                        reason: $reason,
+                        keepOldLeadAsAssociate: $keepAssociate,
+                        sendDigest: false,
+                        expectedLeadId: $expectedLeadId,
+                    );
+
+                    $digestMatters[$matter->getKey()] = [
+                        'deadline_ids' => $result->movedDeadlineIds,
+                        'client_request_ids' => $result->movedRequestIds,
+                        'reason' => $reason,
+                    ];
+
+                    $results[] = new BulkReassignMatterResult(
+                        matterId: $matter->getKey(),
+                        success: true,
+                        message: __('reassign.bulk.results.success'),
+                        matterCode: $matter->code,
+                        matterTitle: $matter->title,
+                        suggestIntroduction: (bool) $matter->is_published_to_portal,
+                    );
+                } catch (AuthorizationException) {
+                    // Không gắn mã/tiêu đề — actor chưa qua manageTeam trên vụ này (xem docblock
+                    // BulkReassignMatterResult).
+                    $results[] = new BulkReassignMatterResult(
+                        matterId: $matterId,
+                        success: false,
+                        message: __('reassign.bulk.results.unauthorized'),
+                    );
+                } catch (ValidationException $exception) {
+                    $results[] = new BulkReassignMatterResult(
+                        matterId: $matterId,
+                        success: false,
+                        message: collect($exception->errors())->flatten()->implode(' '),
+                        matterCode: $matter?->code,
+                        matterTitle: $matter?->title,
+                    );
+                } catch (DomainException|ModelNotFoundException $exception) {
+                    $results[] = new BulkReassignMatterResult(
+                        matterId: $matterId,
+                        success: false,
+                        message: $exception->getMessage(),
+                        matterCode: $matter?->code,
+                        matterTitle: $matter?->title,
+                    );
+                } catch (Throwable $exception) {
+                    // Fix round 1, finding 3 — cùng lưới an toàn của UsersTable's
+                    // DeleteBulkAction::using(): report() giữ log/Sentry như một lỗi thật, KHÔNG
+                    // ném tiếp (mới là điểm mấu chốt — ném tiếp sẽ lại thoát khỏi vòng lặp, đúng
+                    // thứ finding này sửa). $matter có thể vẫn null nếu chính câu
+                    // Matter::query()->find($matterId) là nơi ném lỗi.
+                    report($exception);
+
+                    $results[] = new BulkReassignMatterResult(
+                        matterId: $matterId,
+                        success: false,
+                        message: __('reassign.bulk.results.unexpected_error'),
+                        matterCode: $matter?->code,
+                        matterTitle: $matter?->title,
+                    );
+                }
             }
-
-            try {
-                // Vụ `restricted` luôn gỡ lead cũ — xem docblock lớp, mục tương ứng.
-                $keepAssociate = $keepOldLeadAsAssociate && $matter->confidentiality !== Confidentiality::Restricted;
-
-                $result = app(ReassignMatter::class)->handle(
-                    matter: $matter,
-                    actor: $actor,
-                    newLead: $newLead,
-                    reason: $reason,
-                    keepOldLeadAsAssociate: $keepAssociate,
-                    sendDigest: false,
-                );
-
-                $digestMatters[$matter->getKey()] = [
-                    'deadline_ids' => $result->movedDeadlineIds,
-                    'client_request_ids' => $result->movedRequestIds,
-                    'reason' => $reason,
-                ];
-
-                $results[] = new BulkReassignMatterResult(
-                    matterId: $matter->getKey(),
-                    success: true,
-                    message: __('reassign.bulk.results.success'),
-                    matterCode: $matter->code,
-                    matterTitle: $matter->title,
-                    suggestIntroduction: (bool) $matter->is_published_to_portal,
-                );
-            } catch (AuthorizationException) {
-                // Không gắn mã/tiêu đề — actor chưa qua manageTeam trên vụ này (xem docblock
-                // BulkReassignMatterResult).
-                $results[] = new BulkReassignMatterResult(
-                    matterId: $matter->getKey(),
-                    success: false,
-                    message: __('reassign.bulk.results.unauthorized'),
-                );
-            } catch (ValidationException $exception) {
-                $results[] = new BulkReassignMatterResult(
-                    matterId: $matter->getKey(),
-                    success: false,
-                    message: collect($exception->errors())->flatten()->implode(' '),
-                    matterCode: $matter->code,
-                    matterTitle: $matter->title,
-                );
-            } catch (DomainException|ModelNotFoundException $exception) {
-                $results[] = new BulkReassignMatterResult(
-                    matterId: $matter->getKey(),
-                    success: false,
-                    message: $exception->getMessage(),
-                    matterCode: $matter->code,
-                    matterTitle: $matter->title,
-                );
+        } finally {
+            // Xem docblock lớp, mục "Dispatch nằm trong finally" — chạy dù foreach có thoát bằng
+            // một exception không được catch() nào ở trên bắt kịp hay không.
+            if ($digestMatters !== []) {
+                SendReassignmentDigest::dispatch($newLead->getKey(), $digestMatters)->afterCommit();
             }
-        }
-
-        if ($digestMatters !== []) {
-            SendReassignmentDigest::dispatch($newLead->getKey(), $digestMatters)->afterCommit();
         }
 
         return $results;

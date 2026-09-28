@@ -1495,3 +1495,55 @@ thấy trang này).
   MariaDB (chạy tuần tự từng tệp); full suite `/d/vkwt/m7-dev test --parallel --processes=4`:
   **2258 passed / 5 skipped / 0 failed** (9665 assertions, 452.91s — so với baseline 2216/5/0);
   `pint --test` sạch (551 tệp).
+
+**Fix round 1** (review needs_fixes: 1 critical/3 important/8 minor — bốn phát hiện sửa ở đây,
+theo đúng thứ tự findings 1–4 của review):
+- **Finding 1 (Critical — id trôi lead/đã đóng không bị chặn dưới khoá).** `ReassignMatters`
+  không hề so `matter_ids` với "luật sư đang phụ trách" đã chọn ở đầu trang, cũng không hỏi
+  `closed_at`; `ReassignMatter::handle()` chỉ hỏi `manageTeam` và tự tra `lead_lawyer_id` DƯỚI
+  KHOÁ làm "lead cũ", không so nó với người actor NGHĨ đang phụ trách. Một vụ bị một tab khác bàn
+  giao sang lead THỨ BA (khác lead mới N của lượt hàng loạt này) bị bàn giao LẦN NỮA, đè mất bàn
+  giao của tab kia, báo "Đã bàn giao thành công."; cùng lỗ hổng cho một id giả của vụ thuộc lead
+  khác, hoặc một vụ đã đóng. Sửa: `ReassignMatter::handle()` nhận thêm `?int $expectedLeadId`
+  (mặc định `null`, không đổi nút một vụ của `ViewMatter`); `ReassignMatters::handle()` nhận
+  `int $expectedLeadId` (KHÔNG có mặc định — luôn là "luật sư đang phụ trách" đã chọn trên
+  `BulkReassign`) và truyền xuống MỖI lời gọi. Dưới khoá, ngay sau khi hỏi lại `manageTeam`: khác
+  lead hoặc `closed_at` khác `null` thì `ValidationException` tiếng Việt mới
+  (`reassign.validation.stale_or_closed`). Test: 3 test Livewire mới ở
+  `BulkReassignTest.php` (lead thứ ba, id giả của lead khác, vụ đã đóng — mỗi test mutation-probe
+  bằng tay: bỏ điều kiện, xác nhận đỏ, khôi phục); cập nhật docblock của test cũ "keeps a matter
+  that already succeeded..." (bản trước đỏ đúng nhờ "same_lead" — một sự trùng hợp findings đã chỉ
+  ra, giờ đỏ đúng lý do `stale_or_closed`).
+- **Finding 2 (Important — `currentLeadOptions()` lộ tên lead của vụ `restricted`).** Ô "Luật sư
+  đang phụ trách" liệt kê MỌI lead của vụ đang mở, không lọc `manageTeam` như `matterOptions()` —
+  một trưởng phòng không quản lý được một vụ `restricted` vẫn thấy TÊN lead của vụ đó, một kênh rò
+  rỉ mới (trang quản lý nhân sự vốn chỉ admin xem được). Sửa: lọc bằng CÙNG
+  `Gate::allows('manageTeam', ...)` mà `matterOptions()` dùng, trước khi rút `lead_lawyer_id`.
+  Test Livewire mới: một trưởng phòng không thấy tên một lead chỉ dẫn vụ `restricted`, admin vẫn
+  thấy (mutation probe: bỏ `->filter(...)`, xác nhận đỏ, khôi phục).
+- **Finding 3 (Important — một exception lạ giữa lô làm mất digest của các vụ đã commit).** Chỉ
+  bốn họ lỗi được bắt; một `QueryException` (lock-wait/deadlock) hay bất kỳ `Throwable` nào khác
+  thoát thẳng khỏi `ReassignMatters::handle()`, và dispatch digest (đứng SAU vòng lặp) không bao
+  giờ chạy — các vụ ĐÃ commit trước đó không bao giờ được báo cho lead mới. Sửa: thêm
+  `catch (Throwable)` cuối cùng (cùng lưới an toàn `UsersTable`'s `DeleteBulkAction::using()`) —
+  `report()` rồi ghi một dòng thất bại chung chung (`reassign.bulk.results.unexpected_error`),
+  KHÔNG ném tiếp; và bọc dispatch trong `finally` quanh TOÀN BỘ vòng lặp (không chỉ SAU nó) — câu
+  `Matter::query()->find($matterId)` nằm ngoài `try` của từng vụ nên một lỗi đọc ngay đó vẫn có
+  thể thoát khỏi `catch (Throwable)` của chính vụ đó. Test mới ở `ReassignMattersTest.php`: một
+  `ReassignMatter` giả (`ThrowsUnlistedExceptionOnSecondCall`, cùng thành ngữ
+  `ThrowingOnMarkSentLedger`) ném `RuntimeException` ở vụ thứ hai — xác nhận vụ đầu vẫn có trong
+  digest đã dispatch VÀ `Exceptions::assertReported(RuntimeException::class)` (mutation probe: bỏ
+  `try{}finally{}` + `catch (Throwable)`, xác nhận đỏ — exception thoát thẳng khỏi `handle()`,
+  không job nào được dispatch — rồi khôi phục).
+- **Finding 4 (Minor — toast luôn xanh "Đã bàn giao vụ việc." kể cả khi cả lô thất bại).** Tiêu đề
+  cố định `reassign.action.success` (câu của nút MỘT vụ) + `->success()` bất kể kết quả thật. Sửa:
+  ba khoá mới `reassign.bulk.notification_titles.{success,partial,failure}`, chọn tiêu đề VÀ màu
+  (`success`/`warning`/`danger`) theo `$successCount`/`$failureCount`. Test Livewire mới: cả lô
+  thất bại (id giả vụ `restricted`) → `assertNotified('...notification_titles.failure')` +
+  `Notification::assertNotNotified('reassign.action.success')` (mutation probe: khôi phục bản cứ
+  định cũ, xác nhận đỏ, khôi phục lại bản sửa).
+- Test mới: 3 (Livewire, finding 1) + 1 (Livewire, finding 2) + 1 (Action, finding 3) + 1
+  (Livewire, finding 4) = 6 test mới, cộng cập nhật 7 lời gọi `ReassignMatters::handle()` hiện có
+  (`ReassignMattersTest.php`) để truyền `expectedLeadId`. `pint --test` sạch (551 tệp); full suite
+  `/d/vkwt/m7-dev test --parallel --processes=4` và `test:mariadb` (ba tệp đã đụng, tuần tự) — xem
+  báo cáo `.superpowers/sdd/m7/task-2-report.md`, mục "Fix round 1" cho số liệu đầy đủ.

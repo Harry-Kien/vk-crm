@@ -121,6 +121,32 @@ use Illuminate\Validation\ValidationException;
  * vào, có thể cũ) — `withTrashed()` vì một lead cũ đã bị xoá mềm (qua một đường khác, trước khi
  * luật này tồn tại) vẫn cần tên thật cho dòng `stage_logs`/audit, không phải `null`.
  *
+ * # `$expectedLeadId` — vụ đã trôi lead hoặc đã đóng, dưới khoá (fix round 1, finding 1)
+ *
+ * M7 Task 2 (`App\Actions\Matter\ReassignMatters`, bàn giao hàng loạt) chọn TRƯỚC "luật sư đang
+ * phụ trách" trên màn hình, rồi mới liệt kê vụ việc của người đó để tick chọn — nhưng thời gian
+ * giữa lúc màn hình dựng danh sách đó và lúc actor bấm gửi có thể dài (đọc lý do, tick nhiều vụ).
+ * Nếu MỘT vụ trong lô đã bị bàn giao sang một lead THỨ BA ở một tab khác trong lúc đó, không câu
+ * hỏi nào ở trên (`manageTeam`, `is_active`/`trashed()` của lead mới, vai của lead mới) phát hiện
+ * ra chuyện đó — `manageTeam` chỉ hỏi actor có quản lý được vụ việc không, không hỏi "vụ này còn
+ * đúng do người mà màn hình ĐANG hiển thị phụ trách hay không". Kết quả (trước bản sửa này): vụ đó
+ * bị bàn giao LẦN NỮA, lần này từ lead thứ ba sang lead mới trên màn hình — đè mất bàn giao của tab
+ * kia mà không ai được báo, và báo "Đã bàn giao thành công." cho một vụ mà actor chưa từng thấy
+ * đúng lead hiện tại của nó.
+ *
+ * `$expectedLeadId` (từ `ReassignMatters`, chính là `lead_lawyer_id` đã chọn ở đầu màn hình hàng
+ * loạt) đóng khe hở đó: SAU khi khoá `$locked` và hỏi lại `manageTeam` trên bản ghi đã khoá, so
+ * `$locked->lead_lawyer_id` với `$expectedLeadId` — khác nhau thì vụ đã trôi sang tay người khác,
+ * từ chối. Cùng câu đó khoá luôn vụ đã ĐÓNG (`closed_at` khác `null`) — một vụ đóng giữa lúc màn
+ * hình đang mở không còn "việc" nào để bàn giao. Câu hỏi này CHẠY DƯỚI KHOÁ, không phải một câu đọc
+ * trước transaction: đọc trước sẽ vẫn có đúng cửa sổ đua với một tab khác giành khoá ngay sau lần
+ * đọc đó, y hệt lý do `manageTeam` phải hỏi lại trên `$locked` thay vì trên `$matter` caller đưa
+ * vào.
+ *
+ * `null` (mặc định) tắt hẳn câu hỏi này — nút "Bàn giao" MỘT vụ của `ViewMatter` không có khái
+ * niệm "lead đang chọn trên màn hình" để so sánh (actor bàn giao đúng vụ việc họ đang xem, không
+ * qua danh sách trung gian nào), nên không truyền `$expectedLeadId`.
+ *
  * **I3 residual (fix round 2) — vai cũng được hỏi lại trên `$lockedNewLead`, không chỉ
  * `is_active`/`trashed()`.** Bản round 1 chỉ khoá lại is_active/trashed; nếu đối tượng `$newLead`
  * caller đưa vào đã CACHE quan hệ `roles` từ một lần chạm trước đó (ví dụ
@@ -139,6 +165,9 @@ class ReassignMatter
      *                            mới (SPEC §6.11 bước 3). `false` dành cho M7 Task 2 (bàn giao
      *                            hàng loạt) — xem docblock lớp, mục "Thư tổng hợp mốc hạn cho
      *                            lead mới".
+     * @param  int|null  $expectedLeadId  Fix round 1, finding 1. Mặc định `null` (không hỏi).
+     *                                    M7 Task 2 truyền lead đang được chọn trên màn hình hàng
+     *                                    loạt — xem docblock lớp, mục "$expectedLeadId".
      * @return ReassignMatterResult Fix round 1, finding 2 — trước đó trả về `StageLog` trần; xem
      *                              docblock {@see ReassignMatterResult} cho lý do và cách Task 2
      *                              dùng lại `$movedDeadlineIds`/`$movedRequestIds`.
@@ -152,6 +181,7 @@ class ReassignMatter
         string $reason,
         bool $keepOldLeadAsAssociate,
         bool $sendDigest = true,
+        ?int $expectedLeadId = null,
     ): ReassignMatterResult {
         Gate::forUser($actor)->authorize('manageTeam', $matter);
 
@@ -179,13 +209,23 @@ class ReassignMatter
             ]);
         }
 
-        return DB::transaction(function () use ($matter, $actor, $newLead, $reason, $keepOldLeadAsAssociate, $sendDigest): ReassignMatterResult {
+        return DB::transaction(function () use ($matter, $actor, $newLead, $reason, $keepOldLeadAsAssociate, $sendDigest, $expectedLeadId): ReassignMatterResult {
             $locked = Matter::query()->whereKey($matter->getKey())->lockForUpdate()->firstOrFail();
 
             // Final review A-M5: câu `manageTeam` ở đầu hàm hỏi trên đối tượng caller đưa vào —
             // có thể đã cũ (một lượt bàn giao khác vừa đổi `lead_lawyer_id`). Hỏi lại trên bản
             // ghi ĐÃ KHOÁ; M7 sẽ gọi Action này hàng loạt, cổng phải đúng dưới khoá.
             Gate::forUser($actor)->authorize('manageTeam', $locked);
+
+            // Fix round 1, finding 1 — xem docblock lớp, mục "$expectedLeadId". Dưới khoá, ngay
+            // sau khi hỏi lại manageTeam: vụ đã trôi sang lead khác (tab kia bàn giao trước) hoặc
+            // đã đóng (closed_at khác null) giữa lúc màn hình hàng loạt đang mở thì từ chối NGAY,
+            // trước khi chạm tới bất kỳ bước ghi nào.
+            if ($expectedLeadId !== null && ($locked->lead_lawyer_id !== $expectedLeadId || $locked->closed_at !== null)) {
+                throw ValidationException::withMessages([
+                    'matter_ids' => [__('reassign.validation.stale_or_closed')],
+                ]);
+            }
 
             // I2 (fix round 1): khoá dòng lead mới NGAY SAU dòng vụ việc — cùng thứ tự toàn cục
             // "vụ việc trước, bảng con sau" — rồi đọc lại `is_active`/`trashed()` DƯỚI KHOÁ. Câu

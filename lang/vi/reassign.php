@@ -39,6 +39,9 @@ return [
         // Minor (fix round 1): lead_lawyer_id trỏ vào một hàng không còn tồn tại — một lý do KHÁC
         // hẳn "trùng lead", không được gộp chung một câu.
         'no_current_lead' => 'Không thể bàn giao: vụ việc này hiện không có luật sư phụ trách hợp lệ. Liên hệ quản trị viên để kiểm tra lại hồ sơ.',
+        // Fix round 1, finding 1 (M7 Task 2): $expectedLeadId khác lead hiện tại dưới khoá, hoặc
+        // vụ việc đã đóng, giữa lúc màn hình bàn giao hàng loạt đang mở.
+        'stale_or_closed' => 'Vụ việc đã được bàn giao cho người khác hoặc đã đóng.',
     ],
 
     /*
@@ -92,6 +95,16 @@ return [
         'validation' => [
             'no_matters_selected' => 'Phải chọn ít nhất một vụ việc để bàn giao.',
         ],
+        // Fix round 1, finding 4: tiêu đề/màu thông báo tổng kết PHẢI khớp kết quả thật —
+        // reassignSelected() chọn đúng một trong ba khoá này theo $successCount/$failureCount,
+        // không bao giờ dùng cứng 'reassign.action.success' (câu đó đúng cho nút MỘT vụ, luôn
+        // thành công khi chạy tới đó — sai khi dùng cho cả lô có thể thất bại một phần hoặc toàn
+        // bộ, vì nó luôn hứa "Đã bàn giao vụ việc." dù không vụ nào thật sự chuyển).
+        'notification_titles' => [
+            'success' => 'Đã bàn giao thành công cả lô.',
+            'partial' => 'Bàn giao một phần: có vụ thất bại.',
+            'failure' => 'Bàn giao thất bại: không vụ nào được chuyển.',
+        ],
         // Thông báo tổng kết SAU vòng lặp (khác lời văn từng dòng ở 'results' bên dưới) —
         // ':failure' có thể bằng 0, câu vẫn đọc được bình thường ("0 vụ thất bại").
         'notification_body' => 'Thành công :success vụ, thất bại :failure vụ. Xem chi tiết từng vụ bên dưới.',
@@ -102,6 +115,9 @@ return [
             'not_found' => 'Vụ việc không còn tồn tại.',
             'unauthorized' => 'Bạn không có quyền bàn giao vụ việc này.',
             'success' => 'Đã bàn giao thành công.',
+            // Fix round 1, finding 3 — mọi lỗi không thuộc bốn họ đã liệt kê ở trên (ví dụ CSDL
+            // bận đúng lúc, kết nối rớt giữa lô).
+            'unexpected_error' => 'Có lỗi không xác định khi bàn giao vụ việc này. Vui lòng thử lại; nếu còn lỗi, báo quản trị viên.',
         ],
         // SPEC §6.11 bước 4 — chỉ GỢI Ý, không tự soạn/gửi (cùng lời văn với
         // `reassign.action.suggest_introduction_body`, nói riêng cho MỘT dòng kết quả của lô).

@@ -204,6 +204,12 @@ class BulkReassign extends Page
      * `matter_ids` KHÔNG được lọc lại theo {@see self::matterOptions()} trước khi gọi Action — xem
      * docblock lớp, mục "Payload bị ép... KHÔNG được tin": việc hỏi lại `manageTeam` cho TỪNG vụ
      * là việc của Action, không phải của trang.
+     *
+     * `$leadLawyerId` (đã hỏi lại {@see self::newLeadOptions()} bên trên cho `new_lead_id`) được
+     * truyền TIẾP xuống {@see ReassignMatters::handle()} làm `$expectedLeadId` — fix round 1,
+     * finding 1: mỗi vụ trong lô phải ĐÚNG còn do người này phụ trách (hoặc bị từ chối) tại thời
+     * điểm bàn giao, không chỉ tại thời điểm màn hình dựng danh sách. Xem docblock
+     * {@see ReassignMatter}, mục "$expectedLeadId", cho toàn bộ lý lẽ.
      */
     public function reassignSelected(): void
     {
@@ -224,6 +230,17 @@ class BulkReassign extends Page
 
         abort_unless(array_key_exists($newLeadId, self::newLeadOptions($leadLawyerId)), 404);
 
+        // Fix round 1, finding 1: `lead_lawyer_id` là bắt buộc trên form (`Select::required()`),
+        // nên `$this->form->getState()` ngay trên đã tự ném ValidationException nếu ô này trống
+        // — tới đây `$leadLawyerId` luôn khác `null`. Giữ một khẳng định tường minh (thay vì ép
+        // kiểu âm thầm) để một thay đổi tương lai bỏ `required()` khỏi form không lặng lẽ truyền
+        // `expectedLeadId` sai xuống Action.
+        if ($leadLawyerId === null) {
+            throw ValidationException::withMessages([
+                $this->errorKey('lead_lawyer_id') => [__('validation.required', ['attribute' => __('reassign.bulk.fields.lead_lawyer_id')])],
+            ]);
+        }
+
         /** @var User $actor */
         $actor = Auth::user();
 
@@ -233,6 +250,7 @@ class BulkReassign extends Page
             newLead: User::query()->findOrFail($newLeadId),
             reason: (string) ($data['reason'] ?? ''),
             keepOldLeadAsAssociate: (bool) ($data['keep_old_lead_as_associate'] ?? false),
+            expectedLeadId: $leadLawyerId,
         );
 
         $this->results = array_map(self::toResultRow(...), $actionResults);
@@ -240,11 +258,24 @@ class BulkReassign extends Page
         $successCount = collect($this->results)->where('success', true)->count();
         $failureCount = count($this->results) - $successCount;
 
-        Notification::make()
-            ->title(__('reassign.action.success'))
-            ->body(__('reassign.bulk.notification_body', ['success' => $successCount, 'failure' => $failureCount]))
-            ->success()
-            ->send();
+        // Fix round 1, finding 4 — tiêu đề VÀ màu phải khớp kết quả thật, không cứng
+        // 'reassign.action.success' + ->success() cho mọi trường hợp (câu đó hứa một điều chưa
+        // chắc đã xảy ra khi $failureCount > 0, và nói dối hoàn toàn khi $successCount === 0).
+        $notification = Notification::make()
+            ->title(__(match (true) {
+                $failureCount === 0 => 'reassign.bulk.notification_titles.success',
+                $successCount === 0 => 'reassign.bulk.notification_titles.failure',
+                default => 'reassign.bulk.notification_titles.partial',
+            }))
+            ->body(__('reassign.bulk.notification_body', ['success' => $successCount, 'failure' => $failureCount]));
+
+        match (true) {
+            $failureCount === 0 => $notification->success(),
+            $successCount === 0 => $notification->danger(),
+            default => $notification->warning(),
+        };
+
+        $notification->send();
 
         // Chọn lại từ đầu cho vụ vừa xử lý xong — giữ nguyên lead_lawyer_id/new_lead_id để dễ mở
         // tiếp một lô khác của cùng người, cùng người nhận.
@@ -275,23 +306,54 @@ class BulkReassign extends Page
 
     /**
      * Người "đang phụ trách" để chọn ở đầu trang — bất kỳ nhân sự nào hiện đứng tên
-     * `lead_lawyer_id` trên ít nhất một vụ việc ĐANG MỞ (`Matter::scopeOpen()`), kể cả một tài
-     * khoản đã bị vô hiệu hoá/xoá mềm qua một đường khác (`withTrashed()`) — R7 (M6.5 Task 4)
-     * chặn vô hiệu hoá/xoá MỘT người còn dẫn vụ mở, nên trong luồng bình thường người này luôn
-     * còn hoạt động; giữ `withTrashed()` chỉ để phòng một trạng thái không nhất quán đã có từ
-     * trước luật đó, để trang này vẫn còn cách bàn giao nốt việc của họ.
+     * `lead_lawyer_id` trên ít nhất một vụ việc ĐANG MỞ mà ACTOR HIỆN TẠI `manageTeam` được (fix
+     * round 1, finding 2 — CÙNG bộ lọc {@see self::matterOptions()} dùng, không phải một luật
+     * riêng), kể cả một tài khoản đã bị vô hiệu hoá/xoá mềm qua một đường khác (`withTrashed()`)
+     * — R7 (M6.5 Task 4) chặn vô hiệu hoá/xoá MỘT người còn dẫn vụ mở, nên trong luồng bình
+     * thường người này luôn còn hoạt động; giữ `withTrashed()` chỉ để phòng một trạng thái không
+     * nhất quán đã có từ trước luật đó, để trang này vẫn còn cách bàn giao nốt việc của họ.
+     *
+     * **Vì sao cần lọc — bản trước KHÔNG lọc (finding 2).** Danh sách dựng từ MỌI vụ đang mở, kể
+     * cả vụ `restricted` mà actor không xem được. Một trưởng phòng không phải admin/lead của một
+     * vụ `restricted` sẽ vẫn thấy TÊN của lead vụ đó xuất hiện ở ô chọn này, dù chọn xong danh
+     * sách vụ việc lại rỗng (`matterOptions()` đã lọc đúng) — bản thân sự có mặt của cái tên đó
+     * đã LỘ "người này đang phụ trách ít nhất một vụ hạn chế", một kênh rò rỉ MỚI: trang quản lý
+     * nhân sự vốn chỉ admin xem được, nên trước bản sửa này trưởng phòng không có cách nào biết
+     * chuyện đó qua đường quản lý nhân sự — cùng luật "vụ restricted không bao giờ lộ mã/tiêu
+     * đề/khách/SỐ LƯỢNG" (ràng buộc toàn cục của làn) mở rộng thêm một kênh nữa là "có mặt trong
+     * danh sách". Lọc bằng `Gate::allows('manageTeam', ...)` — CÙNG câu `matterOptions()` hỏi cho
+     * TỪNG vụ — đóng đúng kênh đó: một lead chỉ dẫn vụ `restricted` mà actor không quản lý được
+     * hoàn toàn KHÔNG xuất hiện trong mảng trả về, dù họ có đang dẫn vụ mở nào khác hay không.
      *
      * KHÔNG lọc theo vai trò: một vụ việc có thể còn đứng tên `lead_lawyer_id` của một người đã
      * đổi chức danh sang Trợ lý/Kế toán (cột đó không tự đổi theo — xem docblock
      * `MatterPolicy::manageTeam()`), và người đó vẫn cần bàn giao được vụ việc cũ của mình.
      *
+     * `->with('team')` — cùng lý do {@see self::matterOptions()} nạp trước: nhánh trong-bộ-nhớ
+     * của `MatterPolicy::view()`.
+     *
      * @return array<int, string>
      */
     private static function currentLeadOptions(): array
     {
+        $actor = Auth::user();
+
+        if (! ($actor instanceof User)) {
+            return [];
+        }
+
+        $leadIds = Matter::query()
+            ->open()
+            ->whereNotNull('lead_lawyer_id')
+            ->with('team')
+            ->get()
+            ->filter(fn (Matter $matter): bool => Gate::forUser($actor)->allows('manageTeam', $matter))
+            ->pluck('lead_lawyer_id')
+            ->unique();
+
         return User::query()
             ->withTrashed()
-            ->whereIn('id', Matter::query()->open()->whereNotNull('lead_lawyer_id')->distinct()->pluck('lead_lawyer_id'))
+            ->whereIn('id', $leadIds)
             ->orderBy('name')
             ->pluck('name', 'id')
             ->all();
