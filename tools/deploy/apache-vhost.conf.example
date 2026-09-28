@@ -33,6 +33,14 @@
     # (.env) — ĐỔI nếu UPLOAD_MAX_MB khác 20.
     LimitRequestBody 26214400
 
+    # Apache ở đây là máy chủ web DUY NHẤT đứng trước PHP (mod_php hoặc php-fpm qua mod_proxy_fcgi
+    # cùng máy) — không phải một reverse-proxy tách rời mà Laravel cần "tin" theo nghĩa
+    # `TRUSTED_PROXIES` (SPEC §10.3, `config/trustedproxy.php`); `REMOTE_ADDR` mà PHP thấy đã là
+    # địa chỉ thật của client. `.env` điền `TRUSTED_PROXIES=127.0.0.1` — KHÔNG dùng
+    # `*`/`**`/`0.0.0.0/0`/`::/0`: bốn giá trị đó tin bất kỳ ai tự khai `X-Forwarded-For`, xuyên
+    # thủng `ADMIN_IP_ALLOWLIST` (R7) và bộ đếm đăng nhập theo IP — `vkcrm:preflight` (R1) chặn đỏ
+    # cả bốn. Có CDN/reverse-proxy thật đứng trước tầng Apache này thì điền địa chỉ/dải IP THẬT.
+
     <Directory /var/www/vk-crm/public>
         Options -Indexes +FollowSymLinks
         AllowOverride All

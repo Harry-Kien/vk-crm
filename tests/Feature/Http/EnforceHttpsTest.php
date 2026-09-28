@@ -1,5 +1,6 @@
 <?php
 
+use App\Providers\AppServiceProvider;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\URL;
 
@@ -154,4 +155,57 @@ it('§10.1 URL::forceHttps() bật khi FORCE_HTTPS bật: chữ ký của một 
     $this->withHeaders(['X-Forwarded-Proto' => 'http'])
         ->get($viaHttpTampered)
         ->assertForbidden();
+});
+
+/**
+ * Fix round 1, finding 3 — hai dòng ở `AppServiceProvider::boot()` trước đây KHÔNG có test nào
+ * gọi thẳng `boot()`: test §10.1 phía trên chỉ đo hành vi của `EnforceHttps`/`HttpsDefaults::
+ * boolFromRaw()` qua middleware, còn test `URL::forceHttps()` ngay trên tự nó GỌI
+ * `URL::forceHttps()` thay vì đi qua provider — xoá một trong hai dòng đó ở `boot()` (một khi
+ * dời/xoá nhầm lúc refactor) không làm bộ test đỏ. Hai test dưới đây gọi THẲNG
+ * `AppServiceProvider::boot()` (đúng lời gọi Laravel tự làm lúc khởi động một tiến trình
+ * production) và đo TỪNG hệ quả bằng hành vi thật, tách riêng — KHÔNG gộp một test, vì hai hệ quả
+ * đó tự nhiễu nhau qua đúng CÙNG một cơ chế:
+ * `Symfony\Component\HttpFoundation\Response::prepare()` tự đặt `secureDefault=true` cho MỌI
+ * cookie của response khi chính request hiện tại `isSecure()` — mà một khi
+ * `URL::forceHttps()` đã chạy, `url()`/`$this->get('/portal/login')` (đường dẫn TƯƠNG ĐỐI, đi qua
+ * `UrlGenerator::to()`) tự sinh ra request HTTPS, khiến cookie phiên trông "Secure" dù dòng
+ * `config(['session.secure' => ...])` có bị xoá hay không — đo được điều này khi viết test (xem
+ * `git log` cho ghi chú vòng sửa). Test A vì vậy tắt hẳn `FORCE_HTTPS` (không để trống) để cô lập
+ * đúng MỘT dòng.
+ */
+it('§10.1 AppServiceProvider::boot() ghi đè session.secure: SESSION_SECURE_COOKIE để trống thành true dưới production, cookie phiên có Secure', function () {
+    app()->detectEnvironment(fn () => 'production');
+    // FORCE_HTTPS tắt HẲN (không để trống) — cô lập dòng session.secure khỏi dòng URL::forceHttps()
+    // (nếu bật, request http bị EnforceHttps chuyển hướng 301 trước khi StartSession kịp chạy, và
+    // nếu request tự nhận là https thì Response::prepare() tự đặt Secure cho MỌI cookie bất kể
+    // config('session.secure') nói gì — xem docblock ngay trên).
+    config(['session.secure' => null, 'vkcrm.security.force_https' => false]);
+
+    (new AppServiceProvider(app()))->boot();
+
+    // URL tuyệt đối, http rõ ràng — `UrlGenerator::isValidUrl()` trả nguyên văn, không đi qua
+    // `formatScheme()`/`forceScheme`, nên request ở đây LUÔN thật sự không an toàn.
+    $response = $this->get('http://vk-crm.test/portal/login');
+    $response->assertOk();
+
+    $sessionCookie = collect($response->headers->getCookies())
+        ->first(fn ($cookie) => $cookie->getName() === config('session.cookie'));
+
+    expect($sessionCookie)->not->toBeNull()
+        ->and($sessionCookie->isSecure())->toBeTrue();
+});
+
+it('§10.1 AppServiceProvider::boot() bật URL::forceHttps() khi FORCE_HTTPS để trống dưới production: URL ký sẵn bắt đầu bằng https', function () {
+    app()->detectEnvironment(fn () => 'production');
+    config(['vkcrm.security.force_https' => null]);
+
+    (new AppServiceProvider(app()))->boot();
+
+    Route::get('/vk-crm-test-boot-signed', fn () => 'ok')->middleware(['web', 'signed'])->name('vk-crm-test-boot-signed');
+    Route::getRoutes()->refreshNameLookups();
+
+    $url = URL::temporarySignedRoute('vk-crm-test-boot-signed', now()->addMinutes(5));
+
+    expect($url)->toStartWith('https://');
 });

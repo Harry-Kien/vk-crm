@@ -77,6 +77,25 @@ server {
         deny all;
     }
 
+    # Livewire 4 phục vụ script/asset của chính nó qua một ROUTE PHP mang tiền tố băm theo
+    # APP_KEY — `/livewire-<hash>/livewire.min.js`, `.../livewire.min.js.map`, và
+    # `.../preview-file/<tên>.png|jpg|...` (ảnh xem trước sau khi khách/nhân sự tải tệp lên) —
+    # KHÔNG phải tệp tĩnh dưới `public/` (không có `public/vendor/livewire`; `filament:upgrade`
+    # chỉ publish asset của Filament, không của Livewire — xem
+    # `vendor/livewire/livewire/src/Mechanisms/HandleRequests/EndpointResolver.php`). Những
+    # đường dẫn này TRÙNG đuôi tên tệp với location regex tệp tĩnh ngay bên dưới (khớp theo ĐUÔI,
+    # không phân biệt "tệp thật nằm trên đĩa" hay "route PHP tình cờ có tên trông giống tệp").
+    # Thiếu chặn này: mọi trang có Livewire (đăng nhập admin, đăng nhập portal, mọi form) tải HTML
+    # bình thường nhưng `livewire.min.js` nhận 404 THẲNG từ nginx — không component Livewire nào
+    # chạy được, hệ thống coi như chết ở khâu ra mắt dù mọi trang khác vẫn "lên" được. `^~` dừng
+    # nginx dò location REGEX ngay khi đây là tiền tố khớp DÀI NHẤT (thuật toán nginx: tìm tiền tố
+    # khớp dài nhất trước, `^~` trên tiền tố đó cắt hẳn bước dò regex) — không phụ thuộc thứ tự
+    # khai báo với location regex bên dưới. Xác nhận thật bằng curl qua nginx+php-fpm, xem
+    # `docs/PROGRESS.md` mục "Ghi chú M8".
+    location ^~ /livewire- {
+        try_files $uri /index.php?$query_string;
+    }
+
     # Ba header SPEC §10 mục 2 cho tệp tĩnh — PHP không chạm tới các request này.
     location ~* \.(?:css|js|mjs|map|png|jpg|jpeg|gif|svg|webp|ico|woff2?|ttf|eot)$ {
         add_header X-Frame-Options "DENY" always;
@@ -91,6 +110,17 @@ server {
         try_files $uri $uri/ /index.php?$query_string;
     }
 
+    # `include fastcgi_params;` chuyển TOÀN BỘ header của client sang PHP dưới dạng biến môi
+    # trường `HTTP_*` (kể cả một `X-Forwarded-For` do client tự gắn) — nhưng `REMOTE_ADDR` ở đây
+    # LUÔN là địa chỉ thật của client (nginx tự đặt `fastcgi_param REMOTE_ADDR $remote_addr;`
+    # trong chính `fastcgi_params`, không phải địa chỉ của một proxy trung gian nào khác). Nginx ở
+    # đây là máy chủ web DUY NHẤT đứng trước php-fpm — không phải một reverse-proxy tách rời mà
+    # Laravel cần "tin" theo nghĩa `TRUSTED_PROXIES` (SPEC §10.3, `config/trustedproxy.php`).
+    # Với cấu hình này, `.env` điền `TRUSTED_PROXIES=127.0.0.1` (không có proxy nào để tin,
+    # `REMOTE_ADDR` đã là địa chỉ thật) — KHÔNG dùng `*`/`**`/`0.0.0.0/0`/`::/0`: bốn giá trị đó
+    # tin bất kỳ ai tự khai `X-Forwarded-For`, xuyên thủng `ADMIN_IP_ALLOWLIST` (R7) và bộ đếm
+    # đăng nhập theo IP — `vkcrm:preflight` (R1) chặn đỏ cả bốn. Có CDN/reverse-proxy thật đứng
+    # trước tầng nginx này (ví dụ Cloudflare) thì điền địa chỉ/dải IP THẬT của nó thay vào đây.
     location ~ \.php$ {
         include fastcgi_params;
         fastcgi_pass unix:/run/php/php8.3-fpm.sock;

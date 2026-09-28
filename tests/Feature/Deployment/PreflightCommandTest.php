@@ -127,6 +127,38 @@ it('§preflight R1 production thiếu TRUSTED_PROXIES là ĐỎ', function () {
         ->and($output)->toContain(__('preflight.trusted_proxies_missing'));
 });
 
+/**
+ * Fix round 1, finding 4 — `config/trustedproxy.php` gợi ý dùng `*` "khi không có cách nào biết
+ * địa chỉ đó", và mẫu nginx/apache của CHÍNH task này (`tools/deploy/`) tả một cấu hình KHÔNG có
+ * proxy tách rời (nginx/apache nói thẳng với php-fpm). Một người vận hành theo đúng mẫu, không có
+ * proxy nào để điền, làm theo gợi ý đó thì preflight xanh — nhưng `*`/`**` (Laravel
+ * `TrustProxies::setTrustedProxyIpAddressesToTheCallingIp()`) và các dải bao trọn `0.0.0.0/0`/
+ * `::/0` đều tin MỌI IP tự khai `X-Forwarded-For`, xoá luôn ranh giới mà `ADMIN_IP_ALLOWLIST`
+ * (R7) và bộ đếm đăng nhập theo IP (§10.3) dựa vào — một IP bất kỳ giả `X-Forwarded-For` là ai
+ * cũng qua được hai lớp đó, và cột bằng chứng `stage_log_views.ip` mất luôn ý nghĩa. Bốn giá trị
+ * dưới đây (không phân biệt hoa/thường, phần tử NẰM TRONG danh sách nhiều proxy cũng tính) phải
+ * đỏ giống hệt để trống — không có "gần đúng" nào khác biệt.
+ */
+it('§preflight R1 production TRUSTED_PROXIES tin TOÀN BỘ IP là ĐỎ, không phải XANH', function (string $value) {
+    config(preflightGreenProductionConfig());
+    config(['trustedproxy.proxies' => $value]);
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($exitCode)->not->toBe(0)
+        ->and($output)->toContain(__('preflight.trusted_proxies_trust_all'))
+        ->and($output)->not->toContain(__('preflight.trusted_proxies_ok'));
+})->with([
+    '*' => ['*'],
+    '**' => ['**'],
+    '0.0.0.0/0' => ['0.0.0.0/0'],
+    '::/0' => ['::/0'],
+    'chữ hoa lẫn với một IP thật' => ['10.0.0.1,0.0.0.0/0'],
+]);
+
 it('§preflight R1 production thiếu HEARTBEAT_URL là ĐỎ', function () {
     config(preflightGreenProductionConfig());
     config(['vkcrm.heartbeat_url' => null]);

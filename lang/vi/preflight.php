@@ -28,6 +28,12 @@ return [
         .'bất kỳ ai khoá cả cổng 15 phút), và last_login_ip/stage_log_views.ip ghi địa chỉ của '
         .'proxy chứ không của khách. Điền địa chỉ proxy thật vào TRUSTED_PROXIES.',
     'trusted_proxies_ok' => 'TRUSTED_PROXIES đã khai báo.',
+    'trusted_proxies_trust_all' => 'TRUSTED_PROXIES đang tin TOÀN BỘ IP (*, **, 0.0.0.0/0 hay '
+        .'::/0) — bất kỳ ai cũng tự khai được X-Forwarded-For, xuyên thủng giới hạn IP admin '
+        .'(ADMIN_IP_ALLOWLIST) và bộ đếm đăng nhập theo IP, và cột bằng chứng IP trong nhật ký '
+        .'mất ý nghĩa. Nếu máy chủ web nói thẳng với php-fpm, không qua proxy tách rời (đúng mẫu '
+        .'tools/deploy/), điền TRUSTED_PROXIES=127.0.0.1 — không có proxy nào để tin, REMOTE_ADDR '
+        .'đã là địa chỉ thật.',
 
     'heartbeat_url_missing' => 'HEARTBEAT_URL đang để trống — không có giám sát khi cron lặng lẽ '
         .'ngừng chạy (SPEC §2). Đăng ký một dịch vụ giám sát cron miễn phí và điền URL vào đây.',

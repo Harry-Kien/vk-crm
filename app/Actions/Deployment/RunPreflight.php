@@ -84,11 +84,37 @@ class RunPreflight
         ];
     }
 
+    /**
+     * Fix round 1, finding 4 — bốn giá trị "tin TOÀN BỘ IP", đỏ giống hệt để trống. `*`/`**` là
+     * hai chuỗi đặc biệt của chính `Illuminate\Http\Middleware\TrustProxies::
+     * setTrustedProxyIpAddresses()` (gọi `setTrustedProxyIpAddressesToTheCallingIp()`, đặt dải
+     * tin thành CHÍNH HAI dải bao trọn `0.0.0.0/0`/`::/0`) — và một người tự gõ thẳng hai dải CIDR
+     * đó vào `TRUSTED_PROXIES` (không qua `*`) tạo ra ĐÚNG cùng hệ quả bằng đường khác. `config/
+     * trustedproxy.php` từng gợi ý `*` "khi không có cách nào biết địa chỉ đó" — đúng tình huống
+     * của mẫu `tools/deploy/nginx.conf.example`/`apache-vhost.conf.example` (nginx/apache nói
+     * thẳng với php-fpm, không proxy tách rời) — mà tin toàn bộ IP nghĩa là ai cũng tự khai được
+     * `X-Forwarded-For`, xuyên thủng `ADMIN_IP_ALLOWLIST` (R7) và bộ đếm đăng nhập theo IP
+     * (§10.3), và cột bằng chứng `stage_log_views.ip` mất ý nghĩa. `docs/CAI-DAT.md` và cả hai mẫu
+     * `tools/deploy/` giờ nói rõ giá trị đúng cho cấu hình không-proxy đó là `TRUSTED_PROXIES=
+     * 127.0.0.1`, không phải `*`.
+     */
+    private const TRUST_ALL_PROXIES = ['*', '**', '0.0.0.0/0', '::/0'];
+
     private function trustedProxiesRow(): array
     {
-        return filled(config('trustedproxy.proxies'))
-            ? $this->row('trusted_proxies', PreflightLevel::Green, __('preflight.trusted_proxies_ok'))
-            : $this->row('trusted_proxies', PreflightLevel::Red, __('preflight.trusted_proxies_missing'));
+        $raw = (string) config('trustedproxy.proxies');
+
+        if ($raw === '') {
+            return $this->row('trusted_proxies', PreflightLevel::Red, __('preflight.trusted_proxies_missing'));
+        }
+
+        $entries = array_map(fn (string $entry): string => strtolower(trim($entry)), explode(',', $raw));
+
+        if (array_intersect($entries, self::TRUST_ALL_PROXIES) !== []) {
+            return $this->row('trusted_proxies', PreflightLevel::Red, __('preflight.trusted_proxies_trust_all'));
+        }
+
+        return $this->row('trusted_proxies', PreflightLevel::Green, __('preflight.trusted_proxies_ok'));
     }
 
     private function heartbeatUrlRow(): array
