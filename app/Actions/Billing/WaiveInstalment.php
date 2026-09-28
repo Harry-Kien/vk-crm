@@ -8,12 +8,13 @@ use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\ContractStatus;
 use App\Enums\InstalmentStatus;
 use App\Exceptions\InstalmentNotPayable;
+use App\Models\Contract;
 use App\Models\Instalment;
+use App\Models\Matter;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\Billing\BillingSummary;
 use App\Support\Billing\ScheduleTotal;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
 /**
@@ -27,9 +28,9 @@ use Illuminate\Support\Facades\Gate;
  * Lý do ≥ 20 ký tự `mb_strlen` (`ValidatesBillingInput::validatedReason()`), nội bộ, không bao giờ
  * ra portal (`HidesInternalAttributesFromPortal` trên `Instalment`).
  *
- * Các bước, trong MỘT transaction:
- *  1. Khoá theo thứ tự DUY NHẤT của mọi Action tiền ({@see LocksBillingRows}): `matters` TRƯỚC,
- *     rồi `contracts`, rồi đúng hàng `instalments` này.
+ * Các bước, trong MỘT transaction (lần thăm dò id vụ việc/hợp đồng chạy TRƯỚC khi nó mở):
+ *  1. Khoá theo thứ tự DUY NHẤT của mọi Action tiền ({@see LocksBillingRows}): `matters` TRƯỚC
+ *     (câu đầu tiên của transaction), rồi `contracts`, rồi đúng hàng `instalments` này.
  *  2. **Quyền:** `InstalmentPolicy::waive` qua `Gate::forUser($actor)` — đi theo `contract.manage`
  *     (quyết định thương mại), KHÔNG theo `payment.record` (xem docblock policy).
  *  3. Hợp đồng phải `active` ({@see InstalmentNotPayable::contractNotActive()}) và đợt phải
@@ -46,9 +47,7 @@ class WaiveInstalment
 
     public function handle(User $actor, Instalment $instalment, string $reason): Instalment
     {
-        return DB::transaction(function () use ($actor, $instalment, $reason): Instalment {
-            [, $lockedContract, $lockedInstalment] = $this->lockInstalmentChain((int) $instalment->getKey());
-
+        return $this->inInstalmentTransaction((int) $instalment->getKey(), function (Matter $lockedMatter, Contract $lockedContract, Instalment $lockedInstalment) use ($actor, $reason): Instalment {
             Gate::forUser($actor)->authorize('waive', $lockedInstalment);
 
             if ($lockedContract->status !== ContractStatus::Active) {

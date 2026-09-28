@@ -22,7 +22,10 @@ use App\Models\Matter;
 use App\Models\Payment;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 
 /**
  * Thứ tự khoá hàng của MỌI Action tiền — phán quyết toàn dự án (controller M6.5, 2026-09-27):
@@ -37,6 +40,14 @@ use Illuminate\Support\Facades\DB;
  * mà docblock của nó tuyên bố, ĐÚNG THỨ TỰ bảng. Một `lockForUpdate()` bị xoá thì dòng `for update`
  * tương ứng biến mất khỏi log; hai khoá bị đảo thì danh sách đổi thứ tự — RED ngay cả khi không
  * một race nào chạy.
+ *
+ * **Và câu ĐẦU TIÊN bên trong transaction là khoá `matters`** (lượt sửa thứ hai sau rà soát cuối
+ * M9, N1): một lần đọc thường nào đứng trước khoá đầu tiên sẽ đóng băng ảnh chụp REPEATABLE READ
+ * ở thời điểm TRƯỚC lúc đợi khoá, và mọi con số đọc thường sau đó là số cũ (docblock
+ * `LocksBillingRows`). {@see lockOrderOf()} khẳng định điều đó cho MỌI Action ở đây: câu SQL ngay
+ * sau `BEGIN`/`SAVEPOINT` của Action là `select … from matters … for update`, và trước đó chỉ có
+ * các lần thăm dò `select` không khoá. Kịch bản hai kết nối thật của cùng lỗi ở
+ * `RecordPaymentConcurrencyTest`.
  *
  * **Chỉ chứng minh được trên MariaDB thật.** `MySqlGrammar::compileLock()` trả `'for update'`;
  * `SQLiteGrammar::compileLock()` (bộ test mặc định chạy trên đó) trả CHUỖI RỖNG — cú pháp khoá
@@ -59,16 +70,15 @@ function requireLockingMariadb(): void
 }
 
 /**
- * Tên bảng của mỗi truy vấn có khoá `for update` trong query log hiện tại, ĐÚNG THỨ TỰ đã chạy.
- * Chỉ đọc từ `FROM <bảng>` đầu tiên của mỗi câu — mọi truy vấn khoá của các Action tiền đều là
- * `whereKey(...)`/`where(...)->lockForUpdate()` trên MỘT bảng, không JOIN.
+ * Tên bảng của mỗi câu có khoá `for update`, ĐÚNG THỨ TỰ đã chạy. Chỉ đọc từ `FROM <bảng>` đầu
+ * tiên của mỗi câu — mọi truy vấn khoá của các Action tiền đều trên MỘT bảng, không JOIN.
  *
+ * @param  list<string>  $statements
  * @return list<string>
  */
-function lockedTableOrder(): array
+function lockedTableOrder(array $statements): array
 {
-    return collect(DB::getQueryLog())
-        ->pluck('query')
+    return collect($statements)
         ->filter(fn (string $sql): bool => str_contains(strtolower($sql), 'for update'))
         ->map(function (string $sql): ?string {
             preg_match('/from\s+`?(\w+)`?/i', $sql, $matches);
@@ -80,21 +90,41 @@ function lockedTableOrder(): array
 }
 
 /**
- * Chạy `$action` với query log bật, trả thứ tự bảng bị khoá.
+ * Chạy `$action`, trả thứ tự bảng bị khoá — và khẳng định luật N1 trên chính lần chạy đó: câu
+ * ĐẦU TIÊN sau khi transaction của Action mở (`TransactionBeginning` — dưới `RefreshDatabase` là
+ * một SAVEPOINT, cùng sự kiện) là lần đọc CÓ KHOÁ hàng `matters`, và mọi câu TRƯỚC nó chỉ là
+ * thăm dò `select` không khoá (không ghi gì ngoài transaction).
  *
  * @return list<string>
  */
 function lockOrderOf(callable $action): array
 {
-    DB::flushQueryLog();
-    DB::enableQueryLog();
+    /** @var list<string|null> $log `null` đánh dấu một lần mở transaction */
+    $log = [];
+
+    Event::listen(TransactionBeginning::class, function () use (&$log): void {
+        $log[] = null;
+    });
+    Event::listen(QueryExecuted::class, function (QueryExecuted $query) use (&$log): void {
+        $log[] = $query->sql;
+    });
 
     $action();
 
-    $order = lockedTableOrder();
-    DB::disableQueryLog();
+    $begin = array_search(null, $log, true);
 
-    return $order;
+    expect($begin)->not->toBeFalse();
+
+    $before = array_slice($log, 0, $begin);
+    $inside = array_values(array_filter(array_slice($log, $begin + 1), fn (?string $sql): bool => $sql !== null));
+
+    expect($inside[0] ?? '')->toMatch('/^select \* from `matters` where .+ for update$/');
+
+    foreach ($before as $probe) {
+        expect(strtolower($probe))->toStartWith('select ')->not->toContain('for update');
+    }
+
+    return lockedTableOrder($inside);
 }
 
 beforeEach(function () {
@@ -109,7 +139,7 @@ beforeEach(function () {
     $this->contract = Contract::factory()->for($this->matter)->active()->create(['total_amount' => 10_000_000]);
 });
 
-it('locks matters first, then contracts, then instalments, when recording a payment', function () {
+it('locks matters first, then contracts, then instalments, then the payments it sums, when recording a payment', function () {
     $instalment = Instalment::factory()->for($this->contract)->create([
         'amount' => 10_000_000,
         'status' => InstalmentStatus::Pending,
@@ -126,10 +156,10 @@ it('locks matters first, then contracts, then instalments, when recording a paym
         null,
     ));
 
-    expect($order)->toBe(['matters', 'contracts', 'instalments']);
+    expect($order)->toBe(['matters', 'contracts', 'instalments', 'payments']);
 });
 
-it('locks matters first, then contracts, then instalments, then payments, when voiding a payment', function () {
+it('locks matters first, then contracts, then instalments, then the payment, then the payments it sums, when voiding a payment', function () {
     $instalment = Instalment::factory()->for($this->contract)->create([
         'amount' => 10_000_000,
         'status' => InstalmentStatus::Paid,
@@ -141,7 +171,7 @@ it('locks matters first, then contracts, then instalments, then payments, when v
 
     $order = lockOrderOf(fn () => app(VoidPayment::class)->handle($this->accountant, $payment, str_repeat('a', 20)));
 
-    expect($order)->toBe(['matters', 'contracts', 'instalments', 'payments']);
+    expect($order)->toBe(['matters', 'contracts', 'instalments', 'payments', 'payments']);
 });
 
 it('locks matters first, then contracts, then instalments, when waiving an instalment', function () {
@@ -155,7 +185,7 @@ it('locks matters first, then contracts, then instalments, when waiving an insta
     expect($order)->toBe(['matters', 'contracts', 'instalments']);
 });
 
-it('locks matters first, then contracts, then instalments, when completing a contract', function () {
+it('locks matters first, then contracts, then instalments, then the payments it sums, when completing a contract', function () {
     Instalment::factory()->for($this->contract)->create([
         'amount' => 10_000_000,
         'status' => InstalmentStatus::Paid,
@@ -163,7 +193,7 @@ it('locks matters first, then contracts, then instalments, when completing a con
 
     $order = lockOrderOf(fn () => app(CompleteContract::class)->handle($this->lead, $this->contract));
 
-    expect($order)->toBe(['matters', 'contracts', 'instalments']);
+    expect($order)->toBe(['matters', 'contracts', 'instalments', 'payments']);
 });
 
 it('locks matters first, then contracts, when cancelling a contract', function () {
@@ -174,14 +204,14 @@ it('locks matters first, then contracts, when cancelling a contract', function (
     expect($order)->toBe(['matters', 'contracts']);
 });
 
-it('locks matters first, then contracts, when activating a draft', function () {
+it('locks matters first, then contracts, then the instalments it sums, when activating a draft', function () {
     $draft = Contract::factory()->for(Matter::factory()->create(['lead_lawyer_id' => $this->lead->id]))
         ->create(['status' => ContractStatus::Draft, 'total_amount' => 10_000_000]);
     Instalment::factory()->for($draft)->create(['amount' => 10_000_000]);
 
     $order = lockOrderOf(fn () => app(ActivateContract::class)->handle($this->lead, $draft, today()->toDateString()));
 
-    expect($order)->toBe(['matters', 'contracts']);
+    expect($order)->toBe(['matters', 'contracts', 'instalments']);
 });
 
 it('locks matters first, then contracts, when updating a draft', function () {
@@ -215,7 +245,14 @@ it('locks matters first, then the code sequence, when drafting a contract', func
     expect($order)->toBe(['matters', 'code_sequences']);
 });
 
-it('locks matters first, then contracts, then instalments, and the amendment scan last, when amending', function () {
+/**
+ * Chuỗi tiền trọn vẹn (`matters` → `contracts` → `instalments` → `payments` của chúng) khoá TRƯỚC
+ * bản scan. Hai khoá sau bản scan không phải hàng MỚI của chuỗi tiền: `instalments` thứ hai là
+ * lần kiểm lại tầng 3 (`ScheduleTotal::lockedOf()`) trên đúng các đợt đã khoá ở trên cộng đợt
+ * vừa thêm của chính transaction này, `contract_amendments` là số thứ tự phụ lục — cả hai chỉ
+ * `AmendContract` chạm tới, dưới khoá `contracts` của nó.
+ */
+it('locks matters first, then contracts, instalments and their payments, and the amendment scan after that chain, when amending', function () {
     $instalment = Instalment::factory()->for($this->contract)->create([
         'amount' => 10_000_000,
         'status' => InstalmentStatus::Pending,
@@ -232,5 +269,5 @@ it('locks matters first, then contracts, then instalments, and the amendment sca
         $scan,
     ));
 
-    expect($order)->toBe(['matters', 'contracts', 'instalments', 'documents']);
+    expect($order)->toBe(['matters', 'contracts', 'instalments', 'payments', 'documents', 'instalments', 'contract_amendments']);
 });

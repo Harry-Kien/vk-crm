@@ -8,9 +8,9 @@ use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\ContractStatus;
 use App\Exceptions\ContractStatusConflict;
 use App\Models\Contract;
+use App\Models\Matter;
 use App\Models\User;
 use App\Support\Audit;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
 /**
@@ -26,8 +26,9 @@ use Illuminate\Support\Facades\Gate;
  * không, các đợt còn `pending` của một hợp đồng đã huỷ sẽ hiện thành nợ quá hạn. Bất biến tổng chỉ
  * giữ trên hợp đồng `active`.
  *
- * Khoá theo thứ tự DUY NHẤT của mọi Action tiền ({@see LocksBillingRows}): `matters` TRƯỚC, rồi
- * `contracts`; đọc lại từ hàng đã khoá; `ContractPolicy::update` qua `Gate::forUser($actor)`;
+ * Khoá theo thứ tự DUY NHẤT của mọi Action tiền ({@see LocksBillingRows}): `matters` TRƯỚC (câu
+ * đầu tiên của transaction — lần thăm dò id vụ việc chạy trước khi nó mở), rồi `contracts`; đọc
+ * lại từ hàng đã khoá; `ContractPolicy::update` qua `Gate::forUser($actor)`;
  * `Audit::record(..., $actor)` bên trong transaction.
  */
 class CancelContract
@@ -38,9 +39,7 @@ class CancelContract
 
     public function handle(User $actor, Contract $contract, string $reason): Contract
     {
-        return DB::transaction(function () use ($actor, $contract, $reason): Contract {
-            [, $locked] = $this->lockContractChain((int) $contract->getKey());
-
+        return $this->inContractTransaction((int) $contract->getKey(), function (Matter $lockedMatter, Contract $locked) use ($actor, $reason): Contract {
             Gate::forUser($actor)->authorize('update', $locked);
 
             if ($locked->status !== ContractStatus::Active) {

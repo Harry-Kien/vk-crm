@@ -37,6 +37,9 @@ return [
         'document_not_eligible' => 'Bản scan phụ lục phải là một tài liệu nội bộ (nhóm D) của chính vụ việc này.',
         'receipt_not_eligible' => 'Bản scan biên lai phải là một tài liệu nội bộ (nhóm D) của chính vụ việc này.',
         'reference_too_long' => 'Mã giao dịch / số biên lai không được dài quá :max ký tự.',
+        // Lượt sửa thứ hai sau rà soát cuối M9, N1 — MariaDB báo 1020 (hàng vừa đổi) hoặc 1213
+        // (deadlock) giữa một Action tiền; không gì được ghi. Câu do controller chốt.
+        'concurrent_change' => 'Có người vừa thay đổi khoản này, anh/chị thử lại.',
     ],
 
     'errors' => [

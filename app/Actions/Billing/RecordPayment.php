@@ -11,13 +11,14 @@ use App\Enums\InstalmentStatus;
 use App\Enums\PaymentMethod;
 use App\Exceptions\InstalmentNotPayable;
 use App\Exceptions\PaymentExceedsInstalment;
+use App\Models\Contract;
 use App\Models\Document;
 use App\Models\Instalment;
+use App\Models\Matter;
 use App\Models\Payment;
 use App\Models\User;
 use App\Support\Audit;
 use DateTimeInterface;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
@@ -29,10 +30,12 @@ use Illuminate\Validation\ValidationException;
  * *Không* tự rải phần dư sang đợt sau: đó là một quyết định thương mại (đường đi đúng là phụ lục,
  * `AmendContract`), không phải việc của một Action ghi tiền đã về.
  *
- * Các bước, tất cả trong MỘT transaction:
+ * Các bước, tất cả trong MỘT transaction (chỉ lần thăm dò id vụ việc/hợp đồng chạy TRƯỚC khi
+ * transaction mở — luật "không đọc thường trước khoá đầu tiên" của {@see LocksBillingRows}):
  *  1. Khoá theo thứ tự DUY NHẤT của mọi Action tiền ({@see LocksBillingRows}): hàng `matters`
- *     TRƯỚC, rồi `contracts`, rồi đúng hàng `instalments` này — không phải các hàng người gọi cầm
- *     trong tay. Bản scan biên lai (nếu có, bước 6) khoá SAU chuỗi đó.
+ *     TRƯỚC (câu đầu tiên của transaction), rồi `contracts`, rồi đúng hàng `instalments` này —
+ *     không phải các hàng người gọi cầm trong tay. Tổng đã thu (bước 5) khoá `payments` sau đó;
+ *     bản scan biên lai (nếu có, bước 6) khoá SAU cả chuỗi.
  *  2. **Quyền:** `PaymentPolicy::create` qua `Gate::forUser($actor)`, với NGỮ CẢNH VỤ VIỆC (hàng
  *     `matters` VỪA khoá ở bước 1) — không dùng `$matter` người gọi đưa vào, đúng lý do
  *     `ChecksBillingAccess::matterForBillingGate()` (I1): một vụ khách gọi đưa vào có thể đã đổi
@@ -44,15 +47,18 @@ use Illuminate\Validation\ValidationException;
  *  4. `amount` từ 1 tới `Money::MAX`. `paid_on` là một ngày hợp lệ, KHÔNG ở tương lai — so theo
  *     NGÀY ở múi giờ ứng dụng, cùng cách `TransitionMatterStage` bước 3 (`validatedPastDate()`).
  *  5. Thu vượt thì từ chối ({@see PaymentExceedsInstalment}), tính trên tổng khoản thu CHƯA HUỶ
- *     đọc lại dưới khoá của bước 1 — không tin một con số người gọi đã tính trước.
+ *     đọc bằng một lần đọc CÓ KHOÁ (`LocksBillingRows::lockedCollectedAmount()`, bản commit mới
+ *     nhất, không phải ảnh chụp của transaction) dưới khoá của bước 1 — không tin một con số
+ *     người gọi đã tính trước. Hai lần ghi đồng thời 6 triệu trên một đợt 10 triệu: lần thứ hai
+ *     bị từ chối (`RecordPaymentConcurrencyTest`, MariaDB, hai kết nối).
  *  6. Bản scan biên lai (nếu có) được ĐỌC LẠI và KHOÁ bằng khoá của nó (cùng lý do bước 4 của
  *     `AmendContract`: đối tượng người gọi đưa vào có thể đã đổi `matter_id`/`group` từ lúc màn
  *     hình nạp nó), rồi mới hỏi có phải tài liệu nhóm D của ĐÚNG vụ việc này không.
  *  7. `attributed_lawyer_id` (P2) = `lead_lawyer_id` đọc từ hàng `matters` ĐÃ KHOÁ ở bước 1 —
  *     KHÔNG từ đối tượng `Matter` người gọi đưa vào, và KHÔNG BAO GIỜ đổi sau đó kể cả khi vụ việc
  *     được bàn giao (`ReassignMatter` không dời tiền đã thu).
- *  8. Ghi dòng `payments`. Tổng khoản thu chưa huỷ (đã cộng dòng vừa ghi) ≥ `amount` của đợt thì
- *     `status = paid`, tính lại TRONG CÙNG transaction, dưới khoá đợt của bước 1.
+ *  8. Ghi dòng `payments`. Tổng khoản thu chưa huỷ (tổng đọc có khoá ở bước 5 cộng dòng vừa ghi)
+ *     ≥ `amount` của đợt thì `status = paid`, TRONG CÙNG transaction, dưới khoá đợt của bước 1.
  *  9. `Audit::record('payment_recorded', …, $actor)` bên trong transaction.
  */
 class RecordPayment
@@ -74,9 +80,7 @@ class RecordPayment
         ?Document $receipt,
         ?string $note,
     ): Payment {
-        return DB::transaction(function () use ($actor, $instalment, $amount, $paidOn, $method, $reference, $receipt, $note): Payment {
-            [$lockedMatter, $lockedContract, $lockedInstalment] = $this->lockInstalmentChain((int) $instalment->getKey());
-
+        return $this->inInstalmentTransaction((int) $instalment->getKey(), function (Matter $lockedMatter, Contract $lockedContract, Instalment $lockedInstalment) use ($actor, $amount, $paidOn, $method, $reference, $receipt, $note): Payment {
             Gate::forUser($actor)->authorize('create', [Payment::class, $lockedMatter]);
 
             if ($lockedContract->status !== ContractStatus::Active) {
@@ -90,10 +94,7 @@ class RecordPayment
             $amount = $this->validatedAmount($amount, 'amount');
             $paidOn = $this->validatedPastDate($paidOn, 'paid_on');
 
-            $collected = (int) $this->scopelessly(Payment::query())
-                ->where('instalment_id', $lockedInstalment->id)
-                ->whereNull('voided_at')
-                ->sum('amount');
+            $collected = $this->lockedCollectedAmount($lockedInstalment->id);
 
             if ($collected + $amount > $lockedInstalment->amount) {
                 throw PaymentExceedsInstalment::make($lockedInstalment, $amount, $collected);

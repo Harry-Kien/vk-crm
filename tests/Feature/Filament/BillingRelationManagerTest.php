@@ -22,6 +22,8 @@ use Filament\Facades\Filament;
 use Filament\Forms\Components\Repeater;
 use Filament\Notifications\Notification;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Tab "Hợp đồng và thanh toán" trên trang vụ việc (M9 Task 7).
@@ -447,6 +449,42 @@ it('turns PaymentExceedsInstalment into a notification when the amount overshoot
     expect(Payment::query()->where('instalment_id', $instalment->id)->count())->toBe(0);
 });
 
+/**
+ * Lượt sửa thứ hai sau rà soát cuối M9, N1: MariaDB báo `1020` (hàng vừa đổi) giữa lúc ghi khoản
+ * thu → người dùng đọc câu "thử lại" tiếng Việt trong một thông báo, không phải trang 500. Lỗi giả
+ * đúng hình dạng PDO thật, cùng cách `MoneyTransactionConflictTest`.
+ */
+it('turns a record-changed database error into the Vietnamese retry notification instead of a 500', function () {
+    [, $instalment] = activeContractOneInstalment($this->restricted, 10_000_000);
+
+    DB::beforeExecuting(function (string $sql): void {
+        if (preg_match('/^insert\W+into\W+payments/i', $sql) === 1) {
+            $pdo = new PDOException("SQLSTATE[HY000]: General error: 1020 Record has changed since last read in table 'payments'");
+            $pdo->errorInfo = ['HY000', 1020, "Record has changed since last read in table 'payments'"];
+
+            throw new QueryException('mariadb', $sql, [], $pdo);
+        }
+    });
+
+    $this->actingAs($this->lead, 'web');
+
+    billingTab($this->restricted)->callAction(TestAction::make('recordPayment')->table($instalment), data: [
+        'amount' => '4.000.000',
+        'paid_on' => today()->toDateString(),
+        'method' => PaymentMethod::Cash->value,
+    ]);
+
+    // Khớp CẢ thông báo (tiêu đề, thân, màu, không tự tắt) — đúng cái `ReportsActionFailures` dựng.
+    Notification::assertNotified(
+        Notification::make()
+            ->title(__('actions.failed_title'))
+            ->body('Có người vừa thay đổi khoản này, anh/chị thử lại.')
+            ->danger()
+            ->persistent(),
+    );
+    expect(Payment::query()->where('instalment_id', $instalment->id)->count())->toBe(0);
+});
+
 it('turns InstalmentNotPayable::toWaive into a notification when waiving an instalment that is not pending', function () {
     [$contract, $instalment] = activeContractOneInstalment($this->matter);
     $instalment->fill(['status' => InstalmentStatus::Paid])->save();
@@ -670,6 +708,64 @@ it('locks the amount field of an instalment whose percent is filled in, and leav
         ])
         ->assertFormFieldDisabled('instalments.0.amount')
         ->assertFormFieldEnabled('instalments.1.amount');
+
+    $undoRepeaterFake();
+});
+
+/**
+ * Lượt sửa thứ hai sau rà soát cuối M9, minor: ô số tiền bị khoá của một dòng theo phần trăm không
+ * bao giờ được hiện một con số khác số sẽ lưu. Gõ số tiền rồi mới điền phần trăm thì số đã gõ bị
+ * xoá — ô khoá chỉ còn dòng gợi ý "tự tính từ phần trăm", con số thật nằm ở khung xem trước.
+ */
+it('clears the amount typed on a row as soon as a percent is filled in on that row', function () {
+    $undoRepeaterFake = Repeater::fake();
+    $this->actingAs($this->lead, 'web');
+
+    billingTab($this->matter)
+        ->mountAction(TestAction::make('draftContract')->table())
+        ->setActionData([
+            'total_amount' => '10.000.000',
+            'instalments' => [
+                ['name' => 'Tạm ứng', 'amount' => '1.000.000', 'trigger_type' => 'on_signing'],
+            ],
+        ])
+        ->assertActionDataSet(['instalments.0.amount' => '1.000.000'])
+        ->setActionData(['instalments' => [['percent_basis' => '40']]])
+        ->assertActionDataSet(['instalments.0.amount' => null])
+        ->assertFormFieldDisabled('instalments.0.amount')
+        ->assertMountedActionModalSee(Money::format(4_000_000));
+
+    $undoRepeaterFake();
+});
+
+/**
+ * Cùng minor, form "Sửa hợp đồng": dòng đã lưu theo phần trăm mở ra với ô số tiền TRỐNG, không
+ * phải số đã lưu — đổi giá trị hợp đồng thì số đã lưu thành số cũ, trong khi khung xem trước và
+ * lần lưu dùng số tính lại từ phần trăm của giá trị mới.
+ */
+it('opens the update-draft form with the locked amount box of a percent row empty, never the stored figure a new total makes stale', function () {
+    $contract = Contract::factory()->for($this->matter)->create(['status' => ContractStatus::Draft, 'total_amount' => 10_000_000]);
+    foreach (['Nửa đầu', 'Nửa sau'] as $index => $name) {
+        Instalment::factory()->for($contract)->create([
+            'name' => $name, 'sequence' => $index + 1, 'amount' => 5_000_000, 'percent_basis' => '50',
+            'trigger_type' => InstalmentTrigger::OnSigning, 'due_date' => null,
+        ]);
+    }
+
+    $undoRepeaterFake = Repeater::fake();
+    $this->actingAs($this->lead, 'web');
+
+    billingTab($this->matter)
+        ->mountAction(TestAction::make('updateDraftContract')->table())
+        ->assertActionDataSet(['instalments.0.amount' => null, 'instalments.1.amount' => null])
+        ->assertFormFieldDisabled('instalments.0.amount')
+        ->setActionData(['total_amount' => '20.000.000'])
+        ->assertActionDataSet(['instalments.0.amount' => null, 'instalments.1.amount' => null])
+        ->assertMountedActionModalSee(Money::format(10_000_000))
+        ->callMountedAction()
+        ->assertHasNoActionErrors();
+
+    expect($contract->instalments()->orderBy('sequence')->pluck('amount')->all())->toBe([10_000_000, 10_000_000]);
 
     $undoRepeaterFake();
 });

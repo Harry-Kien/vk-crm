@@ -42,6 +42,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
@@ -143,8 +144,8 @@ use Illuminate\Validation\ValidationException;
  * # Chia theo phần trăm và ba con số VAT — xem trước NGAY trong form (lượt rà soát cuối M9, I5)
  *
  * Mỗi dòng lịch thu (soạn/sửa bản nháp, và dòng thêm/sửa của phụ lục) nhập HOẶC phần trăm của tổng
- * giá trị HOẶC số tiền, không bao giờ cả hai: điền phần trăm thì ô số tiền bị khoá (và không gửi
- * lên), số tiền TÍNH từ phần trăm bằng {@see SplitByPercent::amountsForRows()} — mọi dòng theo
+ * giá trị HOẶC số tiền, không bao giờ cả hai: điền phần trăm thì ô số tiền bị khoá, để trống (và
+ * không gửi lên — {@see self::percentOrAmountFields()}), số tiền TÍNH từ phần trăm bằng {@see SplitByPercent::amountsForRows()} — mọi dòng theo
  * phần trăm cộng đủ 100% thì đợt cuối nhận phần dư làm tròn, tổng các đợt bằng đúng giá trị; gõ số
  * tiền thì `percent_basis` để trống. Cùng MỘT hàm tính cho khung xem trước lúc gõ
  * ({@see self::schedulePreview()}, {@see self::amendmentPreview()}) và cho lúc lưu
@@ -528,13 +529,15 @@ class BillingRelationManager extends RelationManager
 
                 // `Money::formatForInput()`, không `Money::format()`: ô nhập nhận đúng dạng
                 // `Money::parse()` đọc được ("50.000.000"), không kèm "₫" — nếu không, mở form rồi
-                // bấm lưu ngay mà không sửa gì cũng ra lỗi định dạng số tiền.
+                // bấm lưu ngay mà không sửa gì cũng ra lỗi định dạng số tiền. Dòng theo phần trăm
+                // KHÔNG điền sẵn số tiền: ô đó bị khoá, và số đã lưu thành số cũ ngay khi giá trị
+                // hợp đồng đổi (xem `percentOrAmountFields()`).
                 return [
                     'total_amount' => $contract === null ? null : Money::formatForInput($contract->total_amount),
                     'vat_rate_percent' => $contract?->vat_rate_percent,
                     'instalments' => $contract === null ? [] : $contract->instalments->map(fn (Instalment $i): array => [
                         'name' => $i->name,
-                        'amount' => Money::formatForInput($i->amount),
+                        'amount' => $i->percent_basis === null ? Money::formatForInput($i->amount) : null,
                         'percent_basis' => $i->percent_basis,
                         'trigger_type' => $i->trigger_type->value,
                         'trigger_stage_key' => $i->trigger_stage_key,
@@ -1012,6 +1015,12 @@ class BillingRelationManager extends RelationManager
      * thì ô số tiền bị khoá, không bắt buộc và KHÔNG gửi lên (số tiền tính lại từ phần trăm lúc
      * lưu); để trống phần trăm thì số tiền bắt buộc.
      *
+     * **Ô số tiền bị khoá luôn TRỐNG** (lượt sửa thứ hai sau rà soát cuối M9, minor): điền phần
+     * trăm thì số đã gõ trước đó bị xoá, và form "Sửa hợp đồng" không điền sẵn số tiền của dòng
+     * theo phần trăm ({@see self::updateDraftContractAction()}). Ô khoá chỉ còn dòng gợi ý "tự tính
+     * từ phần trăm"; con số thật — tính lại mỗi lần giá trị hay phần trăm đổi — nằm ở khung xem
+     * trước, đúng số sẽ lưu. Một con số cũ trong ô khoá sẽ nói ngược với cả hai.
+     *
      * @param  (Closure(Get): bool)|null  $visible  điều kiện hiện của CẢ HAI ô (dòng phụ lục chỉ hiện chúng khi thêm/sửa)
      * @return array<int, TextInput>
      */
@@ -1026,6 +1035,11 @@ class BillingRelationManager extends RelationManager
                 ->helperText($percentHelp)
                 ->maxLength(6)
                 ->live(onBlur: true)
+                ->afterStateUpdated(function (Set $set, mixed $state): void {
+                    if (filled($state)) {
+                        $set('amount', null);
+                    }
+                })
                 ->visible($isVisible),
             TextInput::make('amount')
                 ->label(__('billing.tab.fields.instalment_amount'))

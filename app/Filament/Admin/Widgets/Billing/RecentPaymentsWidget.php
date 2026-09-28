@@ -50,8 +50,15 @@ use Illuminate\Support\Facades\Gate;
  *   không ghi chú nội bộ của khoản thu, không lý do huỷ, không luật sư được ghi doanh thu.
  *
  * **Quản lý chỉ xem:** nút huỷ hỏi `PaymentPolicy::void` (`payment.record`, quản lý không có) trên
- * đúng khoản thu của dòng. `VoidPayment` hỏi lại trên hàng ĐÃ KHOÁ, và tự từ chối khoản thu trên
- * hợp đồng đã hoàn tất (C1) — lời từ chối đi ra thành thông báo qua {@see ReportsActionFailures}.
+ * đúng khoản thu của dòng. `VoidPayment` hỏi lại trên hàng ĐÃ KHOÁ; mọi lời từ chối của nó đi ra
+ * thành thông báo qua {@see ReportsActionFailures}.
+ *
+ * **Không có nút huỷ trên khoản thu của hợp đồng đã hoàn tất** (lượt sửa thứ hai sau rà soát cuối
+ * M9, minor): `VoidPayment` LUÔN từ chối ở đó (C1), nên nút ẩn theo đúng định nghĩa đó,
+ * `ContractStatus::allowsPaymentVoid()`, đọc từ hợp đồng đã nạp sẵn (không thêm truy vấn mỗi dòng).
+ * Filament hỏi lại `->visible()` ngay lúc bấm: một hợp đồng được hoàn tất ở tab khác giữa lúc
+ * trang vẽ và lúc bấm thì nút tắt đi lúc bấm, không huỷ gì — an toàn, và im lặng (cùng hình dạng
+ * nút "Xoá bản nháp" của tab tiền).
  *
  * **Số truy vấn không tăng theo số dòng:** `instalment.contract.matter.client` nạp sẵn và ĐẦY ĐỦ
  * (vụ việc mang `confidentiality`/`lead_lawyer_id`/`deleted_at`, nên cổng tiền không nạp lại
@@ -185,9 +192,9 @@ class RecentPaymentsWidget extends TableWidget
     }
 
     /**
-     * "Huỷ khoản thu" trên ĐÚNG khoản thu của dòng. `->authorize()` hỏi `PaymentPolicy::void` trên
-     * chính bản ghi (vụ việc đã nạp đầy đủ ở {@see self::rowsQuery()}); `VoidPayment` hỏi lại trên
-     * hàng đã khoá.
+     * "Huỷ khoản thu" trên ĐÚNG khoản thu của dòng. Ẩn trên hợp đồng đã hoàn tất (docblock lớp).
+     * `->authorize()` hỏi `PaymentPolicy::void` trên chính bản ghi (vụ việc đã nạp đầy đủ ở
+     * {@see self::rowsQuery()}); `VoidPayment` hỏi lại trên hàng đã khoá.
      */
     private function voidPaymentAction(): Action
     {
@@ -196,6 +203,7 @@ class RecentPaymentsWidget extends TableWidget
             ->icon(Heroicon::OutlinedNoSymbol)
             ->color('danger')
             ->modalHeading(__('billing.receivables.actions.void_payment_heading'))
+            ->visible(fn (Payment $record): bool => $record->instalment->contract->status->allowsPaymentVoid())
             ->authorize(fn (Payment $record): bool => Gate::allows('void', $record))
             ->schema([
                 Textarea::make('reason')

@@ -2,6 +2,7 @@
 
 namespace App\Actions\Billing;
 
+use App\Actions\Billing\Concerns\LocksBillingRows;
 use App\Actions\Billing\Concerns\ValidatesBillingInput;
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\BillingModel;
@@ -14,14 +15,15 @@ use App\Models\Matter;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\CodeSequence;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
 /**
  * Soạn một hợp đồng dịch vụ pháp lý ở trạng thái `draft`, kèm lịch thu (M9 Task 4).
  *
- *  1. **Khoá hàng `matters`** và đọc lại vụ từ hàng đã khoá, không qua `ClientPortalScope`
+ *  1. **Khoá hàng `matters`** — câu ĐẦU TIÊN của transaction, không lần đọc thường nào trước nó
+ *     (luật ở docblock `LocksBillingRows`; id vụ việc người gọi đã cầm sẵn nên không cần thăm dò)
+ *     — và đọc lại vụ từ hàng đã khoá, không qua `ClientPortalScope`
  *     (`ReadsWithoutPortalScope`: một phiên cổng khách mở song song không được làm vụ hay hợp đồng
  *     đang có thành "không có").
  *  2. **Quyền:** `ContractPolicy::create` với ngữ cảnh là vụ ĐÃ KHOÁ, hỏi qua
@@ -42,12 +44,14 @@ use Illuminate\Validation\ValidationException;
  * **Tổng các đợt KHÔNG phải khớp giá trị ở bản nháp.** Bản nháp là nơi văn phòng còn đang sửa;
  * bất biến tổng bắt đầu giữ từ lúc kích hoạt (`ActivateContract`, tầng 1).
  *
- * Mọi thứ trong một transaction; `blameOn($actor)` trước mọi `save()`; `Audit::record(...,
+ * Mọi thứ trong một transaction (`LocksBillingRows::moneyTransaction()` — lỗi 1020/1213 thành câu
+ * "thử lại" tiếng Việt); `blameOn($actor)` trước mọi `save()`; `Audit::record(...,
  * $actor)` bên trong transaction (không mutation probe nào phân biệt được vị trí đó với vị trí
  * ngay sau commit — nói thẳng như kế hoạch yêu cầu). Không một dòng `Auth::` nào.
  */
 class DraftContract
 {
+    use LocksBillingRows;
     use ReadsWithoutPortalScope;
     use ValidatesBillingInput;
 
@@ -57,7 +61,7 @@ class DraftContract
      */
     public function handle(User $actor, Matter $matter, array $attributes, array $instalments): Contract
     {
-        return DB::transaction(function () use ($actor, $matter, $attributes, $instalments): Contract {
+        return $this->moneyTransaction(function () use ($actor, $matter, $attributes, $instalments): Contract {
             $lockedMatter = $this->scopelessly(Matter::query())->whereKey($matter->getKey())->lockForUpdate()->firstOrFail();
 
             Gate::forUser($actor)->authorize('create', [Contract::class, $lockedMatter]);

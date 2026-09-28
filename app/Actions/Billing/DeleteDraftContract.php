@@ -7,9 +7,9 @@ use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Exceptions\ContractNotDestroyable;
 use App\Models\Contract;
 use App\Models\Instalment;
+use App\Models\Matter;
 use App\Models\User;
 use App\Support\Audit;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
 /**
@@ -20,7 +20,8 @@ use Illuminate\Support\Facades\Gate;
  *
  * Các bước, tất cả trong MỘT transaction:
  *  1. Khoá theo thứ tự DUY NHẤT của mọi Action tiền ({@see LocksBillingRows}): hàng `matters`
- *     TRƯỚC, rồi `contracts`; đọc lại từ hàng đã khoá.
+ *     TRƯỚC (câu đầu tiên của transaction — lần thăm dò id vụ việc chạy trước khi nó mở), rồi
+ *     `contracts`; đọc lại từ hàng đã khoá.
  *  2. **Quyền:** `ContractPolicy::delete` qua `Gate::forUser($actor)` (`contract.manage` trên một vụ
  *     người đó thấy được tiền — cùng cổng với sửa bản nháp).
  *  3. "Xoá được không" là {@see Contract::assertDestroyable()} — ĐÚNG hàm hook `deleting` gọi, không
@@ -37,9 +38,7 @@ class DeleteDraftContract
 
     public function handle(User $actor, Contract $contract): void
     {
-        DB::transaction(function () use ($actor, $contract): void {
-            [$lockedMatter, $locked] = $this->lockContractChain((int) $contract->getKey());
-
+        $this->inContractTransaction((int) $contract->getKey(), function (Matter $lockedMatter, Contract $locked) use ($actor): void {
             Gate::forUser($actor)->authorize('delete', $locked);
 
             $locked->assertDestroyable();

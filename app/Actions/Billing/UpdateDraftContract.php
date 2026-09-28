@@ -10,9 +10,9 @@ use App\Enums\InstalmentStatus;
 use App\Exceptions\ContractStatusConflict;
 use App\Models\Contract;
 use App\Models\Instalment;
+use App\Models\Matter;
 use App\Models\User;
 use App\Support\Audit;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
 /**
@@ -38,8 +38,9 @@ use Illuminate\Support\Facades\Gate;
  *
  * Các bước, tất cả trong MỘT transaction:
  *  1. Khoá theo thứ tự DUY NHẤT của mọi Action tiền ({@see LocksBillingRows}): hàng `matters`
- *     TRƯỚC, rồi `contracts`; đọc lại cả hai từ hàng đã khoá (vụ việc đã khoá là ngữ cảnh kiểm giai
- *     đoạn kích hoạt ở bước 5).
+ *     TRƯỚC (câu đầu tiên của transaction — lần thăm dò id vụ việc chạy trước khi nó mở), rồi
+ *     `contracts`; đọc lại cả hai từ hàng đã khoá (vụ việc đã khoá là ngữ cảnh kiểm giai đoạn kích
+ *     hoạt ở bước 5).
  *  2. **Quyền:** `ContractPolicy::update` qua `Gate::forUser($actor)` (SPEC §5: `contract.manage`
  *     là cổng của MỌI thay đổi trên một hợp đồng đã có, kể cả sửa bản nháp — xem docblock
  *     `ContractPolicy`).
@@ -65,9 +66,7 @@ class UpdateDraftContract
      */
     public function handle(User $actor, Contract $contract, array $attributes, array $instalments): Contract
     {
-        return DB::transaction(function () use ($actor, $contract, $attributes, $instalments): Contract {
-            [$lockedMatter, $locked] = $this->lockContractChain((int) $contract->getKey());
-
+        return $this->inContractTransaction((int) $contract->getKey(), function (Matter $lockedMatter, Contract $locked) use ($actor, $attributes, $instalments): Contract {
             Gate::forUser($actor)->authorize('update', $locked);
 
             if ($locked->status !== ContractStatus::Draft) {

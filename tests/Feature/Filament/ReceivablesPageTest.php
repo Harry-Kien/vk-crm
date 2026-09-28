@@ -683,19 +683,41 @@ it('runs the same number of queries for the recent-payments section whether it h
     expect($queriesFor3N)->toBe($queriesForN);
 });
 
-/** C1 qua đúng màn hình kế toán dùng: huỷ trên hợp đồng đã hoàn tất là một lời từ chối đọc được, không phải 500. */
-it('turns a void refused on a completed contract into a notification, and voids nothing', function () {
+/**
+ * C1 qua đúng màn hình kế toán dùng (lượt sửa thứ hai sau rà soát cuối M9, minor): `VoidPayment`
+ * LUÔN từ chối khoản thu của hợp đồng đã hoàn tất, nên nút "Huỷ khoản thu" không hiện trên dòng
+ * đó — một nút chỉ để nhận lời từ chối là một nút nói dối. Hợp đồng đang hiệu lực và đã huỷ vẫn
+ * có nút (C1: hai trạng thái đó huỷ được).
+ */
+it('hides the void button on a payment whose contract is completed, and keeps it on active and cancelled contracts', function () {
+    [$completedInstalment, $onCompleted] = paidInstalmentOn($this->matter);
+    $completedInstalment->contract->forceFill(['status' => ContractStatus::Completed, 'ended_at' => today()->toDateString()])->save();
+
+    [$cancelledInstalment, $onCancelled] = paidInstalmentOn(Matter::factory()->create());
+    $cancelledInstalment->contract->forceFill(['status' => ContractStatus::Cancelled, 'ended_at' => today()->toDateString(), 'ended_reason' => str_repeat('c', 20)])->save();
+
+    [, $onActive] = paidInstalmentOn(Matter::factory()->create());
+
+    $this->actingAs($this->accountant, 'web');
+
+    $this->livewire(RecentPaymentsWidget::class)
+        ->assertCanSeeTableRecords([$onCompleted, $onCancelled, $onActive])
+        ->assertActionHidden(TestAction::make('voidPayment')->table($onCompleted))
+        ->assertActionVisible(TestAction::make('voidPayment')->table($onCancelled))
+        ->assertActionVisible(TestAction::make('voidPayment')->table($onActive));
+});
+
+/** Gọi thẳng `mountAction()` (bỏ qua nút bị ẩn) trên khoản thu của hợp đồng đã hoàn tất: không mount, không huỷ gì. */
+it('voids nothing when the hidden void action of a completed contract is mounted directly through Livewire', function () {
     [$instalment, $payment] = paidInstalmentOn($this->matter);
     $instalment->contract->forceFill(['status' => ContractStatus::Completed, 'ended_at' => today()->toDateString()])->save();
 
     $this->actingAs($this->accountant, 'web');
 
     $this->livewire(RecentPaymentsWidget::class)
-        ->callAction(TestAction::make('voidPayment')->table($payment), data: [
-            'reason' => 'Ghi nhầm khoản thu, khách chưa chuyển khoản.',
-        ]);
+        ->call('mountAction', 'voidPayment', [], ['table' => true, 'recordKey' => (string) $payment->id])
+        ->assertActionNotMounted();
 
-    Notification::assertNotified(__('actions.failed_title'));
     expect($payment->fresh()->voided_at)->toBeNull();
 });
 

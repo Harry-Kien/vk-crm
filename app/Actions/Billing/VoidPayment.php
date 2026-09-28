@@ -5,14 +5,15 @@ namespace App\Actions\Billing;
 use App\Actions\Billing\Concerns\LocksBillingRows;
 use App\Actions\Billing\Concerns\ValidatesBillingInput;
 use App\Actions\Concerns\ReadsWithoutPortalScope;
-use App\Enums\ContractStatus;
 use App\Enums\InstalmentStatus;
 use App\Exceptions\ContractStatusConflict;
 use App\Exceptions\PaymentAlreadyVoided;
+use App\Models\Contract;
+use App\Models\Instalment;
+use App\Models\Matter;
 use App\Models\Payment;
 use App\Models\User;
 use App\Support\Audit;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
 /**
@@ -43,14 +44,17 @@ use Illuminate\Support\Facades\Gate;
  *
  * Các bước:
  *  1. Khoá `matters`, `contracts`, `instalments`, rồi `payments` — đúng hàng, đọc lại từ hàng đã
- *     khoá (thăm dò không khoá trước đó, xem trait).
+ *     khoá. Lần thăm dò không khoá (đi ngược lên để biết vụ việc nào) chạy TRƯỚC khi transaction
+ *     mở; câu đầu tiên của transaction là khoá `matters` (luật ở docblock trait).
  *  2. **Quyền:** `PaymentPolicy::void` qua `Gate::forUser($actor)`, trên khoản thu ĐÃ KHOÁ.
- *  3. Hợp đồng `completed` thì từ chối (xem trên).
+ *  3. Hợp đồng `completed` thì từ chối (xem trên) — `ContractStatus::allowsPaymentVoid()`, cùng
+ *     định nghĩa nút "Huỷ khoản thu" của mục "Khoản thu gần đây" dùng để ẩn mình.
  *  4. Đã huỷ từ trước thì từ chối ({@see PaymentAlreadyVoided}) — `PaymentPolicy::void()` cố ý
  *     không hỏi câu này (docblock `ContractPolicy`), nên đây là chốt chặn DUY NHẤT.
  *  5. Lý do ≥ 20 ký tự `mb_strlen`.
  *  6. Ghi `voided_at`/`voided_by`/`void_reason`. Tính lại tổng khoản thu CHƯA HUỶ (đã loại dòng vừa
- *     huỷ) dưới khoá của bước 1; tụt dưới `amount` VÀ đợt đang `paid` thì hạ về `pending`.
+ *     huỷ) bằng một lần đọc CÓ KHOÁ (`LocksBillingRows::lockedCollectedAmount()`) dưới khoá của
+ *     bước 1; tụt dưới `amount` VÀ đợt đang `paid` thì hạ về `pending`.
  *  7. `Audit::record('payment_voided', …, $actor)` bên trong transaction.
  */
 class VoidPayment
@@ -61,12 +65,10 @@ class VoidPayment
 
     public function handle(User $actor, Payment $payment, string $reason): Payment
     {
-        return DB::transaction(function () use ($actor, $payment, $reason): Payment {
-            [, $lockedContract, $lockedInstalment, $lockedPayment] = $this->lockPaymentChain((int) $payment->getKey());
-
+        return $this->inPaymentTransaction((int) $payment->getKey(), function (Matter $lockedMatter, Contract $lockedContract, Instalment $lockedInstalment, Payment $lockedPayment) use ($actor, $reason): Payment {
             Gate::forUser($actor)->authorize('void', $lockedPayment);
 
-            if ($lockedContract->status === ContractStatus::Completed) {
+            if (! $lockedContract->status->allowsPaymentVoid()) {
                 throw ContractStatusConflict::voidOnCompleted();
             }
 
@@ -83,10 +85,7 @@ class VoidPayment
             ]);
             $lockedPayment->blameOn($actor)->save();
 
-            $collected = (int) $this->scopelessly(Payment::query())
-                ->where('instalment_id', $lockedInstalment->id)
-                ->whereNull('voided_at')
-                ->sum('amount');
+            $collected = $this->lockedCollectedAmount($lockedInstalment->id);
 
             if ($collected < $lockedInstalment->amount && $lockedInstalment->status === InstalmentStatus::Paid) {
                 $lockedInstalment->fill(['status' => InstalmentStatus::Pending]);

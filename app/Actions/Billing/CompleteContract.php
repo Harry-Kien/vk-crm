@@ -9,9 +9,9 @@ use App\Enums\InstalmentState;
 use App\Exceptions\ContractStatusConflict;
 use App\Models\Contract;
 use App\Models\Instalment;
+use App\Models\Matter;
 use App\Models\User;
 use App\Support\Audit;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
 /**
@@ -23,10 +23,18 @@ use Illuminate\Support\Facades\Gate;
  * biến khỏi mọi màn hình mà không ai quyết định miễn nó. Đường đi qua là thu nốt, hoặc miễn tường
  * minh kèm lý do (`WaiveInstalment`, Task 5).
  *
- * Khoá theo thứ tự DUY NHẤT của mọi Action tiền ({@see LocksBillingRows}): `matters` TRƯỚC, rồi
- * `contracts`, rồi mọi hàng `instalments` của hợp đồng; đọc lại từ hàng đã khoá;
+ * Khoá theo thứ tự DUY NHẤT của mọi Action tiền ({@see LocksBillingRows}): `matters` TRƯỚC (câu
+ * đầu tiên của transaction — lần thăm dò id vụ việc chạy trước khi nó mở), rồi `contracts`, rồi
+ * mọi hàng `instalments` của hợp đồng, rồi các khoản thu của chúng; đọc lại từ hàng đã khoá;
  * `ContractPolicy::update` qua `Gate::forUser($actor)`; `Audit::record(..., $actor)` bên trong
  * transaction.
+ *
+ * **Tổng đã thu mà `state()` dùng để nói "đã thu đủ" đọc bằng MỘT lần đọc CÓ KHOÁ**
+ * (`LocksBillingRows::lockedCollectedAmounts()`), rồi đưa cho `state()` qua thuộc tính
+ * `collected_amount` — đúng lối vào mà `Instalment::collectedForState()` để sẵn cho nơi gọi đã tính
+ * trước. Không có nó, `state()` tự chạy một SUM() đọc thường trên ảnh chụp của transaction (lượt
+ * sửa thứ hai sau rà soát cuối M9, N1). Các đợt này KHÔNG được lưu lại sau đó: `collected_amount`
+ * không phải một cột.
  */
 class CompleteContract
 {
@@ -35,19 +43,22 @@ class CompleteContract
 
     public function handle(User $actor, Contract $contract): Contract
     {
-        return DB::transaction(function () use ($actor, $contract): Contract {
-            [, $locked] = $this->lockContractChain((int) $contract->getKey());
-
+        return $this->inContractTransaction((int) $contract->getKey(), function (Matter $lockedMatter, Contract $locked) use ($actor): Contract {
             Gate::forUser($actor)->authorize('update', $locked);
 
             if ($locked->status !== ContractStatus::Active) {
                 throw ContractStatusConflict::notActive($locked);
             }
 
-            $unsettled = $this->scopelessly(Instalment::query())
+            $instalments = $this->scopelessly(Instalment::query())
                 ->where('contract_id', $locked->id)
                 ->lockForUpdate()
-                ->get()
+                ->get();
+
+            $collected = $this->lockedCollectedAmounts($instalments->modelKeys());
+
+            $unsettled = $instalments
+                ->each(fn (Instalment $instalment) => $instalment->setAttribute('collected_amount', $collected[$instalment->id] ?? 0))
                 ->reject(fn (Instalment $instalment) => in_array($instalment->state(), [
                     InstalmentState::Paid, InstalmentState::Waived, InstalmentState::Cancelled,
                 ], true));

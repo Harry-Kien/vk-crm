@@ -80,6 +80,22 @@ final class ScheduleTotal
     }
 
     /**
+     * {@see self::of()}, đọc bằng một lần đọc CÓ KHOÁ (`… for update` trên `instalments`) — cho
+     * Action tiền dùng khi con số này QUYẾT ĐỊNH (tầng 1 `ActivateContract`, tầng 3
+     * `AmendContract`). Lần đọc có khoá luôn thấy bản commit mới nhất, không phải ảnh chụp
+     * REPEATABLE READ của transaction (luật ở docblock `App\Actions\Billing\Concerns\LocksBillingRows`).
+     * Chỉ gọi bên trong một transaction đã khoá `matters` → `contracts` của hợp đồng này: `instalments`
+     * đứng sau hai bảng đó trong thứ tự khoá.
+     *
+     * Hook tầng 2 dùng {@see self::of()} (không khoá): nó chạy cả ngoài Action, và docblock lớp đã
+     * nói thẳng hook không khoá.
+     */
+    public static function lockedOf(int $contractId): int
+    {
+        return (int) self::counted()->where('contract_id', $contractId)->lockForUpdate()->sum('amount');
+    }
+
+    /**
      * Chạy `$callback` với tầng 2 tạm tắt cho ĐÚNG hợp đồng này, và chỉ trong lúc callback chạy.
      * Chỉ `AmendContract` dùng: một phụ lục đổi giá trị và nhiều đợt, và giữa các lần ghi đó tổng
      * lệch là chuyện tất yếu. Người gọi PHẢI tự kiểm lại tổng sau callback, trước khi commit — tầng

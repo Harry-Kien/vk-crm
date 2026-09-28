@@ -11,11 +11,11 @@ use App\Exceptions\ContractStatusConflict;
 use App\Exceptions\ContractTotalMismatch;
 use App\Models\Contract;
 use App\Models\Instalment;
+use App\Models\Matter;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\Billing\ScheduleTotal;
 use DateTimeInterface;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
 /**
@@ -23,13 +23,15 @@ use Illuminate\Support\Facades\Gate;
  * lịch thu lệch khỏi giá trị hợp đồng dù một đồng thì hợp đồng không rời được `draft`.
  *
  *  1. Khoá theo thứ tự DUY NHẤT của mọi Action tiền ({@see LocksBillingRows}): hàng `matters`
- *     TRƯỚC, rồi `contracts`; đọc lại trạng thái và giá trị từ hàng đã khoá — không tin đối tượng
- *     người gọi cầm trong tay.
+ *     TRƯỚC (câu đầu tiên của transaction — lần thăm dò id vụ việc chạy trước khi nó mở), rồi
+ *     `contracts`; đọc lại trạng thái và giá trị từ hàng đã khoá — không tin đối tượng người gọi
+ *     cầm trong tay.
  *  2. **Quyền:** `ContractPolicy::update` qua `Gate::forUser($actor)`.
  *  3. Chỉ từ `draft` (`ContractStatusConflict::notDraft`).
  *  4. `signed_at` là một ngày hợp lệ, không ở tương lai (so theo ngày, múi giờ ứng dụng).
- *  5. **Bất biến:** `ScheduleTotal::of()` (tổng các đợt chưa huỷ, đọc từ DB) === `total_amount`,
- *     nếu không thì `ContractTotalMismatch::onActivation`, nêu cả hai con số và phần lệch.
+ *  5. **Bất biến:** `ScheduleTotal::lockedOf()` (tổng các đợt chưa huỷ, đọc từ DB bằng một lần
+ *     đọc CÓ KHOÁ — `instalments` sau `contracts`) === `total_amount`, nếu không thì
+ *     `ContractTotalMismatch::onActivation`, nêu cả hai con số và phần lệch.
  *  6. Ghi `status = active`, `signed_at`, `activated_by = $actor` (người ở văn phòng ghi nhận việc
  *     ký — không phải chữ ký số).
  *  7. Mọi đợt `on_signing`: `due_date = signed_at + due_days_after_trigger`, `triggered_at =
@@ -48,9 +50,7 @@ class ActivateContract
 
     public function handle(User $actor, Contract $contract, DateTimeInterface|string $signedAt): Contract
     {
-        return DB::transaction(function () use ($actor, $contract, $signedAt): Contract {
-            [, $locked] = $this->lockContractChain((int) $contract->getKey());
-
+        return $this->inContractTransaction((int) $contract->getKey(), function (Matter $lockedMatter, Contract $locked) use ($actor, $signedAt): Contract {
             Gate::forUser($actor)->authorize('update', $locked);
 
             if ($locked->status !== ContractStatus::Draft) {
@@ -59,7 +59,7 @@ class ActivateContract
 
             $signedOn = $this->validatedPastDate($signedAt, 'signed_at');
 
-            $scheduleTotal = ScheduleTotal::of($locked->id);
+            $scheduleTotal = ScheduleTotal::lockedOf($locked->id);
 
             if ($scheduleTotal !== $locked->total_amount) {
                 throw ContractTotalMismatch::onActivation($locked, $scheduleTotal);

@@ -15,14 +15,13 @@ use App\Models\Contract;
 use App\Models\ContractAmendment;
 use App\Models\Document;
 use App\Models\Instalment;
-use App\Models\Payment;
+use App\Models\Matter;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\Billing\Money;
 use App\Support\Billing\ScheduleTotal;
 use DateTimeInterface;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
@@ -46,16 +45,21 @@ use Illuminate\Validation\ValidationException;
  * - `['action' => 'cancel', 'instalment_id' => …]` — huỷ một đợt đang `pending` chưa có khoản thu
  *   nào (chưa huỷ). Đợt vẫn nằm đó với `status = cancelled`, ra khỏi tổng.
  *
- * Các bước, tất cả trong một transaction:
+ * Các bước, tất cả trong một transaction (chỉ lần thăm dò id vụ việc chạy TRƯỚC khi nó mở — luật
+ * "không đọc thường trước khoá đầu tiên" của {@see LocksBillingRows}):
  *  1. Khoá theo thứ tự DUY NHẤT của mọi Action tiền ({@see LocksBillingRows}): hàng `matters`
- *     TRƯỚC, rồi `contracts`; mọi con số cũ — kể cả `previous_total_amount` — đọc từ hàng ĐÃ KHOÁ,
- *     không từ đối tượng người gọi đưa vào (có thể cũ hơn một phụ lục vừa ký ở tab khác).
+ *     TRƯỚC (câu đầu tiên của transaction), rồi `contracts`; mọi con số cũ — kể cả
+ *     `previous_total_amount` — đọc từ hàng ĐÃ KHOÁ, không từ đối tượng người gọi đưa vào (có thể
+ *     cũ hơn một phụ lục vừa ký ở tab khác).
  *  2. **Quyền:** `ContractPolicy::update` qua `Gate::forUser($actor)` (SPEC §5 gom phụ lục vào
  *     `contract.manage`; `ContractAmendmentPolicy` vì thế không có `create`).
  *  3. Chỉ trên `active` (`ContractNotAmendable`).
  *  4. Lý do ≥ 20 ký tự `mb_strlen`; ngày ký là ngày hợp lệ, không ở tương lai, không trước ngày ký
  *     hợp đồng; giá trị mới từ 1 tới `Money::MAX`.
- *  5. Khoá MỌI đợt của hợp đồng (tiếp chuỗi khoá của bước 1: `instalments` sau `contracts`).
+ *  5. Khoá MỌI đợt của hợp đồng (tiếp chuỗi khoá của bước 1: `instalments` sau `contracts`), rồi
+ *     đọc tổng khoản thu chưa huỷ của từng đợt bằng MỘT lần đọc CÓ KHOÁ trên `payments`
+ *     (`LocksBillingRows::lockedCollectedAmounts()`) — con số quyết định "huỷ được đợt không" và
+ *     "sửa xuống được tới đâu" ở bước 7.
  *  6. Bản scan (nếu có) được **đọc lại và khoá bằng khoá của nó** — SAU chuỗi khoá tiền, không xen
  *     giữa (`lockForUpdate`, cùng lý do với bước 1 — đối tượng người gọi đưa vào có thể đã đổi
  *     `matter_id`/`group` từ lúc màn hình nạp nó), rồi mới hỏi có phải tài liệu nhóm D của chính
@@ -65,9 +69,11 @@ use Illuminate\Validation\ValidationException;
  *     `ScheduleTotal::whileAmending()` — hook tầng 2 tạm tắt cho ĐÚNG hợp đồng này, vì giữa các
  *     lần ghi tổng lệch là tất yếu. Một đợt sửa về ĐÚNG số đã thu (và số đó > 0) chuyển luôn sang
  *     `paid` — xem {@see self::plan()}.
- *  6. **Kiểm lại bất biến từ DB** sau khi ghi (`ScheduleTotal::of()` === giá trị mới). Đây là kiểm
- *     tra DUY NHẤT của tầng này — không có bản tính trước trong bộ nhớ, để không có hai định nghĩa.
- *  7. Ghi dòng `contract_amendments` (chỉ thêm) và `Audit::record('contract_amended', …, $actor)`.
+ *  8. **Kiểm lại bất biến từ DB** sau khi ghi (`ScheduleTotal::lockedOf()` === giá trị mới — đọc CÓ
+ *     KHOÁ, lại chính các đợt đã khoá ở bước 5 cộng các đợt vừa thêm). Đây là kiểm tra DUY NHẤT của
+ *     tầng này — không có bản tính trước trong bộ nhớ, để không có hai định nghĩa.
+ *  9. Ghi dòng `contract_amendments` (chỉ thêm; `sequence` = số lớn nhất hiện có + 1, đọc CÓ KHOÁ)
+ *     và `Audit::record('contract_amended', …, $actor)`.
  */
 class AmendContract
 {
@@ -91,9 +97,7 @@ class AmendContract
         DateTimeInterface|string $signedAt,
         ?Document $document = null,
     ): ContractAmendment {
-        return DB::transaction(function () use ($actor, $contract, $newTotalAmount, $instalmentChanges, $reason, $signedAt, $document): ContractAmendment {
-            [, $locked] = $this->lockContractChain((int) $contract->getKey());
-
+        return $this->inContractTransaction((int) $contract->getKey(), function (Matter $lockedMatter, Contract $locked) use ($actor, $newTotalAmount, $instalmentChanges, $reason, $signedAt, $document): ContractAmendment {
             Gate::forUser($actor)->authorize('update', $locked);
 
             if ($locked->status !== ContractStatus::Active) {
@@ -111,13 +115,17 @@ class AmendContract
 
             $newTotal = $this->validatedAmount($newTotalAmount, 'new_total_amount');
 
-            // Đợt khoá TRƯỚC bản scan: `instalments` thuộc chuỗi khoá tiền, `documents` khoá SAU
-            // chuỗi đó (LocksBillingRows).
+            // Đợt và khoản thu của chúng khoá TRƯỚC bản scan: `instalments` → `payments` thuộc chuỗi
+            // khoá tiền, `documents` khoá SAU chuỗi đó (LocksBillingRows). Tổng đã thu của mọi đợt
+            // đọc MỘT lần, CÓ KHOÁ — con số quyết định "huỷ được không"/"sửa xuống được tới đâu"
+            // không bao giờ đọc từ ảnh chụp của transaction (lượt sửa thứ hai, N1).
             $instalments = $this->scopelessly(Instalment::query())
                 ->where('contract_id', $locked->id)
                 ->lockForUpdate()
                 ->get()
                 ->keyBy('id');
+
+            $collected = $this->lockedCollectedAmounts($instalments->keys()->all());
 
             $lockedDocument = null;
 
@@ -136,7 +144,7 @@ class AmendContract
                 throw ValidationException::withMessages(['instalment_changes' => [__('billing.validation.amendment_changes_nothing')]]);
             }
 
-            $plan = $this->plan($locked, $instalments, $instalmentChanges);
+            $plan = $this->plan($locked, $instalments, $collected, $instalmentChanges);
             $previousTotal = $locked->total_amount;
 
             ScheduleTotal::whileAmending($locked, function () use ($actor, $locked, $instalments, $plan, $signedOn, $newTotal): void {
@@ -170,7 +178,7 @@ class AmendContract
                 $locked->blameOn($actor)->save();
             });
 
-            $scheduleTotal = ScheduleTotal::of($locked->id);
+            $scheduleTotal = ScheduleTotal::lockedOf($locked->id);
 
             if ($scheduleTotal !== $newTotal) {
                 throw ContractTotalMismatch::onAmendment($locked, $newTotal, $scheduleTotal);
@@ -178,7 +186,7 @@ class AmendContract
 
             $amendment = new ContractAmendment([
                 'contract_id' => $locked->id,
-                'sequence' => (int) $this->scopelessly(ContractAmendment::query())->where('contract_id', $locked->id)->max('sequence') + 1,
+                'sequence' => (int) $this->scopelessly(ContractAmendment::query())->where('contract_id', $locked->id)->lockForUpdate()->max('sequence') + 1,
                 'previous_total_amount' => $previousTotal,
                 'new_total_amount' => $newTotal,
                 'reason' => $reason,
@@ -203,13 +211,17 @@ class AmendContract
     }
 
     /**
-     * Kiểm từng thay đổi trên các đợt ĐÃ KHOÁ, trả về kế hoạch ghi. Chưa ghi gì ở đây.
+     * Kiểm từng thay đổi trên các đợt ĐÃ KHOÁ, trả về kế hoạch ghi. Chưa ghi gì ở đây, và không
+     * đọc gì thêm từ DB: `$collectedByInstalment` là tổng khoản thu chưa huỷ của từng đợt, đã đọc
+     * CÓ KHOÁ ở `handle()` (`LocksBillingRows::lockedCollectedAmounts()`; đợt chưa có khoản thu nào
+     * vắng mặt).
      *
      * @param  Collection<int, Instalment>  $instalments
+     * @param  array<int, int>  $collectedByInstalment
      * @param  list<array<string, mixed>>  $changes
      * @return array{add: list<array<string, mixed>>, update: array<int, array<string, mixed>>, cancel: list<int>}
      */
-    private function plan(Contract $contract, Collection $instalments, array $changes): array
+    private function plan(Contract $contract, Collection $instalments, array $collectedByInstalment, array $changes): array
     {
         $plan = ['add' => [], 'update' => [], 'cancel' => []];
         $touched = [];
@@ -247,10 +259,7 @@ class AmendContract
                 ]);
             }
 
-            $collected = (int) $this->scopelessly(Payment::query())
-                ->where('instalment_id', $instalment->id)
-                ->whereNull('voided_at')
-                ->sum('amount');
+            $collected = $collectedByInstalment[$instalment->id] ?? 0;
 
             if ($action === self::CANCEL) {
                 if ($collected > 0) {
