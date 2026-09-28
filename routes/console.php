@@ -93,9 +93,11 @@ Schedule::command('queue:work --stop-when-empty --max-time=50')
  * Final review X6 (B-I2), hai thay đổi:
  *  - chạy LẶP mỗi 30 phút trong giờ làm việc (07:00–19:30): trên shared hosting một phút cron
  *    bị bỏ qua (máy bận, cron của nhà cung cấp trễ) từng làm mất CẢ NGÀY nhắc hạn. Chạy lại là
- *    vô hại — mỗi mốc
- *    bị khoá dòng, bậc đã đánh dấu ở `reminders_sent`, và sổ thư chặn gửi trùng theo bậc@ngày —
- *    nên lần 07:30 chỉ làm việc lần 07:00 chưa làm được. Lần đầu trong ngày vẫn là 07:00.
+ *    vô hại — mỗi mốc bị khoá dòng, bậc đã đánh dấu ở `reminders_sent`, và sổ thư chặn gửi trùng
+ *    theo bậc@ngày — nên lần 07:30 chỉ làm việc lần 07:00 chưa làm được. Lần đầu trong ngày vẫn là
+ *    07:00.
+ *    Một bậc đã hỏng HẲN (hết lượt thử) thì không xếp lại trong ngày — chỉ lượt đầu của ngày
+ *    hôm sau thử lại (wave 2, I-2: `SendDeadlineReminderMail::failedForGoodToday()`).
  *  - khoá chống chồng lấn hết hạn sau 60 phút, không phải 1440 mặc định: một lần chạy bị giết
  *    giữa chừng không còn khoá luôn mọi lần chạy tới cùng giờ ngày hôm sau.
  */

@@ -66,8 +66,11 @@ class DeadlineOverdueAlert extends Notification
             'status' => 'danger',
             'title' => __('deadlines.overdue_notification.title'),
             'view' => null,
-            // Final review B-M1: khoá chống lặp của CheckDeadlines::alreadyAlerted() — (người, mốc).
-            'viewData' => ['deadline_id' => $this->deadline->getKey()],
+            // Khoá chống lặp của CheckDeadlines::alreadyAlerted(): (người, mốc, ngày đến hạn) — B-M1, I-1.
+            'viewData' => [
+                'deadline_id' => $this->deadline->getKey(),
+                'due_date' => $this->deadline->due_date?->toDateString(),
+            ],
             'format' => 'filament',
         ];
     }

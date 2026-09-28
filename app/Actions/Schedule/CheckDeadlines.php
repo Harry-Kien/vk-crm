@@ -175,6 +175,13 @@ class CheckDeadlines
                 return;
             }
 
+            // Final review wave 2, I-2: bậc này đã hỏng HẲN hôm nay (`failed()` đã rút nó khỏi
+            // `reminders_sent` để thư được thử lại) — chờ lượt đầu của ngày mai, không xếp lại
+            // mỗi 30 phút. Không đánh dấu gì: ngày mai bậc vẫn còn nguyên để thử lại đúng một lần.
+            if (SendDeadlineReminderMail::failedForGoodToday($deadline->getKey(), $key, $deadline->due_date->toDateString())) {
+                return;
+            }
+
             $recipients = $this->recipientsFor($deadline, $key);
 
             if ($recipients->isEmpty()) {
@@ -239,14 +246,17 @@ class CheckDeadlines
     }
 
     /**
-     * Người này đã có cảnh báo quá hạn (trong hệ thống) cho ĐÚNG mốc này chưa — final review B-M1.
-     * Khoá là `viewData.deadline_id` mà {@see DeadlineOverdueAlert::toDatabase()} ghi.
+     * Người này đã có cảnh báo quá hạn (trong hệ thống) cho ĐÚNG mốc này, ở ĐÚNG ngày đến hạn này
+     * chưa — final review B-M1, cộng wave 2 I-1: một mốc được hoãn rồi lại quá hạn là một lần quá
+     * hạn mới, cần một cảnh báo mới. Khoá là `viewData.deadline_id` + `viewData.due_date` mà
+     * {@see DeadlineOverdueAlert::toDatabase()} ghi — cùng hình dạng bậc@ngày của sổ thư.
      */
     private function alreadyAlerted(User $recipient, Deadline $deadline): bool
     {
         return $recipient->notifications()
             ->where('type', DeadlineOverdueAlert::class)
             ->where('data->viewData->deadline_id', $deadline->getKey())
+            ->where('data->viewData->due_date', $deadline->due_date->toDateString())
             ->exists();
     }
 

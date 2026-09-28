@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Deadline\UpdateDeadline;
 use App\Actions\Matter\CancelMatter;
 use App\Actions\Schedule\CheckDeadlines;
 use App\Enums\Confidentiality;
@@ -515,7 +516,7 @@ it('keeps mailing the other deadlines when the first one fails once, without tre
  * failed()` (mới, vòng sửa 1) rút bậc đó ra khỏi `reminders_sent`, nên lượt kế tiếp coi mốc này
  * như CHƯA từng được xếp hàng ở bậc đó, và xếp lại.
  */
-it('dispatches the tier again on the next CheckDeadlines run after the job for it permanently failed', function () {
+it('dispatches the tier again on the first CheckDeadlines run of the next day after the job for it permanently failed', function () {
     Mail::fake();
     $deadline = deadlineDueIn(3); // tier d3
 
@@ -528,6 +529,13 @@ it('dispatches the tier again on the next CheckDeadlines run after the job for i
 
     expect($deadline->fresh()->reminders_sent)->not->toContain('d3');
 
+    // Final review wave 2, I-2: KHÔNG xếp lại trong cùng ngày (lượt 30 phút kế tiếp)…
+    (new CheckDeadlines)->handle();
+    Mail::assertSent(DeadlineReminder::class, 1);
+    expect($deadline->fresh()->reminders_sent)->not->toContain('d3');
+
+    // …mà ở lượt đầu của ngày hôm sau.
+    $this->travel(1)->days();
     (new CheckDeadlines)->handle();
 
     Mail::assertSent(DeadlineReminder::class, 2);
@@ -1076,6 +1084,8 @@ it('does not create a second overdue alert when the overdue tier is retried afte
 
     expect($deadline->fresh()->reminders_sent)->not->toContain(CheckDeadlines::OVERDUE_KEY);
 
+    // Wave 2, I-2: bậc hỏng hẳn chỉ được xếp lại ở lượt đầu của ngày hôm sau.
+    $this->travel(1)->days();
     (new CheckDeadlines)->handle();
 
     expect($deadline->fresh()->reminders_sent)->toContain(CheckDeadlines::OVERDUE_KEY)
@@ -1096,4 +1106,35 @@ it('still gives one overdue alert per deadline to the same person, not one per p
     // Khoá chống lặp là (người, mốc): cảnh báo của mốc kia không chặn mốc này.
     expect(DatabaseNotification::query()->where('type', DeadlineOverdueAlert::class)
         ->where('notifiable_id', $lawyer->id)->count())->toBe(2);
+});
+
+/**
+ * Final review wave 2, I-1: khoá chống lặp của cảnh báo quá hạn là (người, mốc, NGÀY ĐẾN HẠN) —
+ * cùng hình dạng khoá của sổ thư (bậc@ngày). Chỉ (người, mốc) thì một mốc được HOÃN rồi lại quá
+ * hạn lần nữa nhận thư quá hạn mới nhưng KHÔNG có cảnh báo trong hệ thống mà SPEC §6.8 đòi.
+ */
+it('gives a second overdue alert when a postponed deadline becomes overdue again', function () {
+    Mail::fake();
+    $deadline = deadlineDueIn(-3);
+
+    (new CheckDeadlines)->handle();
+
+    app(UpdateDeadline::class)->handle(
+        deadline: $deadline->fresh(),
+        actor: $deadline->responsible,
+        name: $deadline->name,
+        dueDate: today()->addDays(5)->toDateString(),
+        severity: $deadline->severity,
+    );
+
+    expect($deadline->fresh()->reminders_sent)->not->toContain(CheckDeadlines::OVERDUE_KEY);
+
+    $this->travel(8)->days();
+
+    (new CheckDeadlines)->handle();
+
+    expect(DatabaseNotification::query()
+        ->where('notifiable_id', $deadline->responsible_user_id)
+        ->where('type', DeadlineOverdueAlert::class)
+        ->count())->toBe(2);
 });

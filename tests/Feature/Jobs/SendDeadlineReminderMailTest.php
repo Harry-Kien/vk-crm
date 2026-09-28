@@ -16,6 +16,7 @@ use App\Models\MatterType;
 use App\Models\OutboundMessage;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Spatie\Activitylog\Models\Activity;
@@ -757,4 +758,86 @@ it('still mails the manager when the first recipient\'s transport fails, and sti
         ->where('recipient', $manager->email)->where('status', OutboundStatus::Sent)->count();
 
     expect($managerRows)->toBe(1);
+});
+
+/**
+ * Final review wave 2, I-2: `deadlines.check` chạy mỗi 30 phút (X6). `failed()` rút bậc để thư được
+ * thử lại — và lượt 30 phút kế tiếp xếp lại ngay, nên MỘT địa chỉ hỏng sinh 7–8 vòng hỏng mỗi ngày,
+ * mỗi vòng một chuông cho người phụ trách, lead và giám sát. Phán quyết: sau một lần hỏng HẲN, bậc
+ * đó chỉ được xếp lại tối đa MỘT lần mỗi ngày (lượt đầu của ngày hôm sau), và chuông "không gửi
+ * được thư nhắc" chống lặp theo (mốc, bậc, ngày đến hạn, ngày).
+ *
+ * Hàng đợi `sync` của bộ test chạy job NGAY tại chỗ xếp, và job hỏng gọi `failed()` ngay — nên mỗi
+ * lượt `CheckDeadlines` là trọn một vòng "xếp → hỏng → rút bậc".
+ */
+it('lets a permanently failing tier cost one failure cycle and one bell per day, not one per 30-minute run', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create(['email' => 'luatsu-hong-han@vidu.test']);
+
+    $type = MatterType::factory()->withStages()->create();
+    $matter = Matter::factory()->create([
+        'lead_lawyer_id' => $lawyer->id,
+        'matter_type_id' => $type->id,
+        'stage' => $type->stages->reject(fn ($s) => $s->is_terminal)->first()->key,
+    ]);
+    $deadline = Deadline::factory()->create([
+        'matter_id' => $matter->id,
+        'responsible_user_id' => $lawyer->id,
+        'due_date' => today()->addDays(7),
+        'is_completed' => false,
+        'reminders_sent' => [],
+    ]);
+
+    config(['mail.default' => deadlineJobSelectiveFailMailer('luatsu-hong-han@vidu.test')]);
+
+    $bells = fn (): int => DatabaseNotification::query()
+        ->where('notifiable_id', $lawyer->id)
+        ->where('data->title', __('deadlines.reminder_failed_notification.title'))
+        ->count();
+    $failures = fn (): int => Activity::query()->where('event', 'deadline_reminder_failed')->count();
+
+    $this->travelTo(today()->setTime(7, 0));
+    (new CheckDeadlines)->handle();
+
+    expect($failures())->toBe(1)
+        ->and($bells())->toBe(1)
+        ->and($deadline->fresh()->reminders_sent)->not->toContain('d7');
+
+    foreach (['07:30', '08:00', '12:30', '19:30'] as $time) {
+        [$h, $m] = explode(':', $time);
+        $this->travelTo(today()->setTime((int) $h, (int) $m));
+        (new CheckDeadlines)->handle();
+    }
+
+    expect($failures())->toBe(1)
+        ->and($bells())->toBe(1);
+
+    // Ngày hôm sau, lượt đầu tiên: thử lại đúng một lần nữa.
+    $this->travelTo(today()->addDay()->setTime(7, 0));
+    (new CheckDeadlines)->handle();
+    $this->travelTo(today()->setTime(7, 30));
+    (new CheckDeadlines)->handle();
+
+    expect($failures())->toBe(2)
+        ->and($bells())->toBe(2);
+});
+
+/**
+ * Chuông "không gửi được thư nhắc" chống lặp theo (mốc, bậc, ngày đến hạn, ngày) — kể cả khi hai
+ * job cho cùng bậc cùng hỏng hẳn trong một ngày (ví dụ một job xếp từ trước khi luật "một lần mỗi
+ * ngày" tồn tại).
+ */
+it('sends the reminder-failed bell once per deadline, tier, due date and day', function () {
+    [$deadline, $responsible] = deadlineWithDistinctResponsibleAndLead();
+
+    $job = new SendDeadlineReminderMail($deadline->id, 'd7', $deadline->due_date->toDateString());
+    $job->failed(new RuntimeException('SMTP'));
+    $job->failed(new RuntimeException('SMTP'));
+
+    $bells = DatabaseNotification::query()
+        ->where('notifiable_id', $responsible->id)
+        ->where('data->title', __('deadlines.reminder_failed_notification.title'))
+        ->count();
+
+    expect($bells)->toBe(1)
+        ->and(Activity::query()->where('event', 'deadline_reminder_failed')->count())->toBe(2);
 });

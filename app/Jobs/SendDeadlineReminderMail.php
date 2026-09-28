@@ -19,6 +19,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use Spatie\Activitylog\Models\Activity;
 use Throwable;
 
 /**
@@ -277,10 +278,24 @@ class SendDeadlineReminderMail implements ShouldQueue
         /** @var Deadline|null $deadline */
         $deadline = Deadline::query()->withTrashed()->find($this->deadlineId);
 
+        // Final review wave 2, I-2: ngày đến hạn mà lời nhắc này nói tới — cùng khoá bậc@ngày của
+        // sổ thư. Hỏi "hôm nay đã báo hỏng cho đúng (mốc, bậc, ngày đến hạn) chưa" TRƯỚC khi ghi
+        // dòng của lần này.
+        $aboutDueDate = $this->dueDateSnapshot() ?? $deadline?->due_date?->toDateString();
+        $alreadyReportedToday = $aboutDueDate !== null
+            && self::failedForGoodToday($this->deadlineId, $this->tierKey, $aboutDueDate);
+
         Audit::record('deadline_reminder_failed', $deadline, [
             'deadline_id' => $this->deadlineId,
             'tier' => $this->tierKey,
+            'due_date' => $aboutDueDate,
         ]);
+
+        // Dòng nhật ký vẫn ghi cho MỖI lần hỏng; chuông thì một lần mỗi (mốc, bậc, ngày đến hạn,
+        // ngày) — xem docblock `failedForGoodToday()`.
+        if ($alreadyReportedToday) {
+            return;
+        }
 
         // Mốc/vụ việc không còn tồn tại là một tình huống chưa từng xảy ra thật (Deadline dùng
         // SoftDeletes, matter_id là khoá ngoại bắt buộc) — nhưng nếu có, vẫn phải báo, chỉ là
@@ -310,5 +325,26 @@ class SendDeadlineReminderMail implements ShouldQueue
                 ->color('danger')
                 ->sendToDatabase($recipient);
         }
+    }
+
+    /**
+     * Bậc `$tier` của mốc này, cho ngày đến hạn `$dueDate`, đã hỏng HẲN trong NGÀY HÔM NAY chưa —
+     * final review wave 2, I-2. Đọc dòng `deadline_reminder_failed` mà {@see self::failed()} ghi.
+     *
+     * Hai nơi hỏi, một định nghĩa: `CheckDeadlines` không xếp lại bậc đó trong ngày (từ khi
+     * `deadlines.check` chạy mỗi 30 phút, rút bậc rồi xếp lại ngay là 7–8 vòng hỏng mỗi ngày, mỗi
+     * vòng năm lần thử SMTP và một chuông cho mọi người nhận), và `failed()` không rung chuông lần
+     * hai trong ngày. Lượt đầu của ngày hôm sau thử lại đúng một lần.
+     */
+    public static function failedForGoodToday(int $deadlineId, string $tier, string $dueDate): bool
+    {
+        return Activity::query()
+            ->where('event', 'deadline_reminder_failed')
+            ->where('subject_type', (new Deadline)->getMorphClass())
+            ->where('subject_id', $deadlineId)
+            ->where('properties->tier', $tier)
+            ->where('properties->due_date', $dueDate)
+            ->where('created_at', '>=', today()->startOfDay())
+            ->exists();
     }
 }
