@@ -13,27 +13,32 @@
 # Tham số là thư mục được mở ra thành các tệp *Test.php bên trong (thứ tự byte, như PHPUnit).
 # Không có đường dẫn nào (và không có --testsuite) thì chạy tests/Unit + tests/Feature, đúng
 # hai testsuite của phpunit.xml. Các tham số khác (--filter, --list-tests, ...) giữ nguyên.
+#
+# Với --parallel, paratest chỉ nhận MỘT đường dẫn, nên danh sách tệp đi qua một cấu hình
+# PHPUnit tạm (mỗi tệp một thẻ <file>, khối <php> chép từ phpunit.xml). Collision luôn truyền
+# --configuration=phpunit.xml trước; --configuration truyền sau thắng.
 set -eu
 
 count=$#
-has_path=0
 has_suite=0
+parallel=0
+list=$(mktemp)
+trap 'rm -f "$list" "${config:-}"' EXIT
 
 for arg in "$@"; do
   case "$arg" in
     --testsuite | --testsuite=*) has_suite=1 ;;
+    --parallel | -p) parallel=1 ;;
   esac
 
   case "$arg" in
     -*) set -- "$@" "$arg" ;;
     *)
       if [ -d "$arg" ]; then
-        has_path=1
-        for file in $(find "$arg" -type f -name '*Test.php' | LC_ALL=C sort); do
-          set -- "$@" "$file"
-        done
+        find "$arg" -type f -name '*Test.php' | LC_ALL=C sort >> "$list"
+      elif [ -f "$arg" ]; then
+        printf '%s\n' "$arg" >> "$list"
       else
-        if [ -f "$arg" ]; then has_path=1; fi
         set -- "$@" "$arg"
       fi
       ;;
@@ -42,10 +47,29 @@ done
 
 shift "$count"
 
-if [ "$has_path" -eq 0 ] && [ "$has_suite" -eq 0 ]; then
-  for file in $(find tests/Unit tests/Feature -type f -name '*Test.php' | LC_ALL=C sort); do
-    set -- "$@" "$file"
-  done
+if [ ! -s "$list" ] && [ "$has_suite" -eq 0 ]; then
+  find tests/Unit tests/Feature -type f -name '*Test.php' | LC_ALL=C sort >> "$list"
 fi
 
-exec php artisan test "$@"
+if [ "$parallel" -eq 1 ] && [ -s "$list" ]; then
+  config="/tmp/vk-container-test-$$.xml"
+  {
+    printf '<?xml version="1.0" encoding="UTF-8"?>\n'
+    printf '<phpunit bootstrap="%s/vendor/autoload.php" colors="true">\n' "$PWD"
+    printf '<testsuites>\n<testsuite name="Explicit">\n'
+    while IFS= read -r file; do
+      printf '<file>%s/%s</file>\n' "$PWD" "$file"
+    done < "$list"
+    printf '</testsuite>\n</testsuites>\n'
+    printf '<source>\n<include>\n<directory>%s/app</directory>\n</include>\n</source>\n' "$PWD"
+    sed -n '/<php>/,/<\/php>/p' phpunit.xml
+    printf '</phpunit>\n'
+  } > "$config"
+  set -- "$@" "--configuration=$config"
+else
+  while IFS= read -r file; do
+    set -- "$@" "$file"
+  done < "$list"
+fi
+
+php artisan test "$@"
