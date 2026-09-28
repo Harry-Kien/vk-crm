@@ -4,7 +4,7 @@
 #   bin/dev up|down|build|ps|logs [...]     -> docker compose <args>
 #   bin/dev artisan <args>                  -> php artisan inside app container
 #   bin/dev composer <args>                 -> composer inside app container
-#   bin/dev test [<args>]                   -> php artisan test <args> (SQLite in-memory)
+#   bin/dev test [<args>]                   -> php artisan test <args> (SQLite in-memory, qua bin/container-test)
 #   bin/dev test:mariadb [<args>]           -> php artisan test <args> on real MariaDB
 #   bin/dev pint [<args>]                   -> vendor/bin/pint <args>
 #   bin/dev php <args>                      -> php inside app container
@@ -31,7 +31,10 @@ case "$cmd" in
     docker compose "$cmd" "$@" ;;
   artisan)  exec_in php artisan "$@" ;;
   composer) exec_in composer "$@" ;;
-  test)     exec_in php artisan test "$@" ;;
+  test)
+    # Qua bin/container-test, không gọi thẳng `php artisan test`: trên ổ chia sẻ Docker/Windows,
+    # PHPUnit tự duyệt thư mục sẽ bỏ sót tệp test mà không báo gì (xem đầu tệp đó).
+    exec_in sh bin/container-test "$@" ;;
   test:mariadb|test-mariadb)
     # Vài test chỉ nói được sự thật trên MariaDB: cách collation utf8mb4_unicode_ci gấp chuỗi,
     # và các ràng buộc chỉ mục/khoá ngoại của InnoDB. Trên SQLite chúng TỰ BỎ QUA kèm lý do,
@@ -55,7 +58,7 @@ case "$cmd" in
       -e DB_DATABASE="$db_test" \
       -e DB_USERNAME="${DB_USERNAME:-sail}" \
       -e DB_PASSWORD="${DB_PASSWORD:-password}" \
-      "$SERVICE" php artisan test "$@" ;;
+      "$SERVICE" sh bin/container-test "$@" ;;
   pint)     exec_in vendor/bin/pint "$@" ;;
   pest)     exec_in vendor/bin/pest "$@" ;;
   php)      exec_in php "$@" ;;

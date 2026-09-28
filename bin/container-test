@@ -1,0 +1,51 @@
+#!/bin/sh
+# Chạy `php artisan test` BÊN TRONG container với danh sách tệp test tường minh, thay vì để
+# PHPUnit tự duyệt thư mục. `bin/dev test` và `bin/dev test:mariadb` gọi tệp này; đừng chạy nó
+# trên máy host.
+#
+# Vì sao: Docker Desktop trên Windows gắn mã nguồn vào container qua ổ chia sẻ 9p, và ở đó
+# rewinddir() hỏng với thư mục có khoảng 40 mục trở lên — DirectoryIterator của PHP (thứ
+# PHPUnit dùng để tìm tệp test) chỉ trả về vài mục CUỐI của thư mục, phần còn lại bị bỏ qua
+# IM LẶNG. Ngày 2026-09-28 cả tests/Feature/Filament (39 tệp, 750 test) biến mất khỏi
+# `bin/dev test` mà suite vẫn báo xanh. `find` đọc thư mục không qua rewinddir nên thấy đủ.
+# CI chạy trên Linux thật, không bị lỗi này, nên vẫn gọi `php artisan test` trực tiếp.
+#
+# Tham số là thư mục được mở ra thành các tệp *Test.php bên trong (thứ tự byte, như PHPUnit).
+# Không có đường dẫn nào (và không có --testsuite) thì chạy tests/Unit + tests/Feature, đúng
+# hai testsuite của phpunit.xml. Các tham số khác (--filter, --list-tests, ...) giữ nguyên.
+set -eu
+
+count=$#
+has_path=0
+has_suite=0
+
+for arg in "$@"; do
+  case "$arg" in
+    --testsuite | --testsuite=*) has_suite=1 ;;
+  esac
+
+  case "$arg" in
+    -*) set -- "$@" "$arg" ;;
+    *)
+      if [ -d "$arg" ]; then
+        has_path=1
+        for file in $(find "$arg" -type f -name '*Test.php' | LC_ALL=C sort); do
+          set -- "$@" "$file"
+        done
+      else
+        if [ -f "$arg" ]; then has_path=1; fi
+        set -- "$@" "$arg"
+      fi
+      ;;
+  esac
+done
+
+shift "$count"
+
+if [ "$has_path" -eq 0 ] && [ "$has_suite" -eq 0 ]; then
+  for file in $(find tests/Unit tests/Feature -type f -name '*Test.php' | LC_ALL=C sort); do
+    set -- "$@" "$file"
+  done
+fi
+
+exec php artisan test "$@"

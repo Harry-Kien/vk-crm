@@ -99,6 +99,13 @@ nào của cơ sở dữ liệu thật; dự án đã vỡ vì chuyện này hai
 sự thật trên cơ sở dữ liệu thật thì trên bản nhẹ **tự bỏ qua trong im lặng** — đó chính là
 cách một lỗ hổng đếm số lần đăng nhập sai sống sót qua hai vòng sửa.
 
+**Trên Windows, đừng gọi thẳng `php artisan test` trong container.** Docker Desktop gắn mã
+nguồn qua một ổ chia sẻ mà ở đó thư mục có khoảng 40 mục trở lên bị PHP đọc thiếu, nên PHPUnit
+bỏ qua cả loạt tệp test mà vẫn báo xanh (2026-09-28: 750 test của `tests/Feature/Filament` biến
+mất). `bin/dev test` đi qua `bin/container-test`, liệt kê tệp bằng `find` rồi truyền tường minh.
+Nghi ngờ số test thì so các lớp trong `bin/dev test --list-tests` với
+`find tests -name '*Test.php'`. CI chạy trên Linux nên không bị.
+
 ## Khi đưa lên máy chủ thật
 
 Chưa làm, thuộc phần bảo mật và vận hành. Những thứ bắt buộc phải xong trước:
