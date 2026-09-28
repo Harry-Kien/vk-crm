@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\EnforceHttps;
 use App\Http\Middleware\SendSecurityHeaders;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -33,6 +34,12 @@ return Application::configure(basePath: dirname(__DIR__))
         // SPEC §10.2 — toàn cục, ĐẦU danh sách, để phủ cả hai panel, nhóm `web`, trang lỗi và cả
         // phản hồi do middleware toàn cục khác dựng (400, 503 bảo trì, 413); lý do ở docblock.
         $middleware->prepend(SendSecurityHeaders::class);
+
+        // SPEC §10 mục 1 (kế hoạch M8 Task 1) — toàn cục, CUỐI danh sách mặc định: `append()`
+        // đặt nó SAU `TrustProxies`, bắt buộc vì `$request->secure()` chỉ đọc đúng
+        // `X-Forwarded-Proto` sau khi proxy đã được xác nhận là đáng tin — lý do đầy đủ ở
+        // docblock của middleware.
+        $middleware->append(EnforceHttps::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

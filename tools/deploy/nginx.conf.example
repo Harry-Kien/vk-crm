@@ -1,0 +1,101 @@
+# VK-CRM — mẫu cấu hình nginx cho máy chủ thật (SPEC §10 mục 1, kế hoạch M8 Task 1).
+#
+# ĐÂY LÀ MẪU, không phải tệp chạy thẳng được — sửa domain, đường dẫn chứng chỉ TLS và đường dẫn
+# dự án (/var/www/vk-crm) cho đúng máy chủ thật rồi mới dùng. Đã CHẠY THỬ (không phải chỉ viết ra
+# rồi đoán) bằng `nginx -t` trong container `nginx:stable-alpine` chính thức ngày 2026-09-28 (xem
+# `docs/PROGRESS.md`, mục "Ghi chú M8", để đọc nguyên văn lệnh và kết quả).
+#
+# Ba lớp mà tầng máy chủ web này đảm nhận, KHÔNG lặp lại ở tầng app (nhưng app CÓ một lớp dự phòng
+# cho HSTS — xem `App\Http\Middleware\EnforceHttps` — khi hosting không cho sửa tệp này):
+#
+#   1. Chuyển http sang https (301) TRƯỚC KHI PHP chạy — rẻ hơn và không tốn một worker PHP nào
+#      cho một request chắc chắn sẽ bị chuyển hướng.
+#   2. Strict-Transport-Security — trình duyệt chỉ tôn trọng header này khi đọc được QUA HTTPS,
+#      nên chỉ đặt ở server block 443.
+#   3. Ba header SPEC §10 mục 2 (X-Frame-Options, X-Content-Type-Options, Referrer-Policy) cho
+#      TỆP TĨNH dưới public/ — `App\Http\Middleware\SendSecurityHeaders` chỉ chạy khi request đi
+#      qua PHP; ảnh/CSS/JS do chính nginx trả thẳng không bao giờ qua middleware đó (M8a, minor
+#      hoãn "public/ static files never see any header" — Task 1 đóng nốt phần này).
+#
+# `client_max_body_size` PHẢI >= UPLOAD_MAX_MB (.env, mặc định 20) CỘNG phần dư cho multipart
+# overhead và các trường form khác đi kèm — dưới ngưỡng này nginx tự trả 413 TRƯỚC KHI PHP kịp
+# thấy request, và `ValidatePostSize` (413, có ba header §10.2 — xem `SecurityHeadersTest`) không
+# bao giờ chạy tới. Ví dụ dưới đây dùng 25m cho UPLOAD_MAX_MB=20 mặc định — ĐỔI THEO
+# `UPLOAD_MAX_MB` thật của `.env` khi khác 20.
+
+# --- Chuyển toàn bộ http sang https ---
+server {
+    listen 80;
+    listen [::]:80;
+    server_name khachhang.luatvukhang.com;
+
+    # Cho phép ACME http-01 (Let's Encrypt / Certbot) xin chứng chỉ mà không bị chuyển hướng.
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/vk-crm/public;
+        default_type "text/plain";
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name khachhang.luatvukhang.com;
+
+    root /var/www/vk-crm/public;
+    index index.php;
+
+    ssl_certificate /etc/letsencrypt/live/khachhang.luatvukhang.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/khachhang.luatvukhang.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    # SPEC §10 mục 1 — HSTS chỉ có nghĩa trên một response ĐÃ qua https. KHÔNG includeSubDomains
+    # hay preload ở đây (các tên miền con khác của luatvukhang.com nằm ngoài ứng dụng này, đúng
+    # phán quyết cùng ở `App\Http\Middleware\EnforceHttps`) — bật thêm hai tuỳ chọn đó là quyết
+    # định của chủ văn phòng, không phải một giá trị mặc định an toàn.
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # SPEC §10 mục 8 (điều kiện máy chủ cho sao lưu) — kích thước tối đa MỘT request, phải đủ cho
+    # tệp khách nộp qua form nhiều phần. ĐỔI 25m nếu UPLOAD_MAX_MB trong .env khác 20.
+    client_max_body_size 25m;
+
+    # Chặn dotfile (.env, .git, .htaccess…) — không route nào của Laravel có tiền tố dấu chấm,
+    # nên đây chỉ có thể là một tệp không nên lộ ra.
+    location ~ /\. {
+        deny all;
+    }
+
+    # Dự án KHÔNG dùng `storage:link` (SPEC §2: "tệp phục vụ qua controller") — không có
+    # `public/storage` hợp lệ nào trỏ vào `storage/app/private`. Một symlink như vậy chỉ có thể là
+    # cấu hình sai (đúng điều `vkcrm:preflight` dò — xem `App\Actions\Deployment\RunPreflight`), và
+    # tầng máy chủ web chặn nốt ở đây làm lớp phòng thủ thứ hai.
+    location ^~ /storage/ {
+        deny all;
+    }
+
+    # Ba header SPEC §10 mục 2 cho tệp tĩnh — PHP không chạm tới các request này.
+    location ~* \.(?:css|js|mjs|map|png|jpg|jpeg|gif|svg|webp|ico|woff2?|ttf|eot)$ {
+        add_header X-Frame-Options "DENY" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        access_log off;
+        try_files $uri =404;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        include fastcgi_params;
+        fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        fastcgi_hide_header X-Powered-By;
+    }
+}

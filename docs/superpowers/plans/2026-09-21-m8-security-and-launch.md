@@ -126,7 +126,7 @@ Mỗi gói kiểm `composer require --dry-run` trên sàn PHP 8.3 trước, như
 
 ## Tasks
 
-### - [ ] Task 1 — Proxy, HTTPS, header, CSP, giới hạn IP admin (§10 mục 1, 2; R1, R4, R7)
+### - [x] Task 1 — Proxy, HTTPS, header, CSP, giới hạn IP admin (§10 mục 1, 2; R1, R4, R7)
 
 - `vkcrm:preflight` theo R1.
 - Ép HTTPS bằng middleware. Đặt `SESSION_SECURE_COOKIE=true`, và thêm biến này vào `.env.example`.

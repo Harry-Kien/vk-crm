@@ -113,24 +113,38 @@ Chưa làm, thuộc phần bảo mật và vận hành. Những thứ bắt bu�
    - sao lưu: `BACKUP_DISKS`, `BACKUP_NAME`, `BACKUP_ARCHIVE_PASSWORD` (bắt buộc ở production),
      `BACKUP_NOTIFY_EMAIL`, `BACKUP_RCLONE_REMOTE`, `BACKUP_RCLONE_BINARY`, `BACKUP_RCLONE_CONFIG`,
      `BACKUP_LOCAL_KEEP`, `BACKUP_RCLONE_TIMEOUT`, `BACKUP_MAX_STORAGE_MB`;
-   - Content-Security-Policy: `CSP_MODE` (để trống ở production là `enforce`).
+   - Content-Security-Policy: `CSP_MODE` (để trống ở production là `enforce`);
+   - HTTPS/HSTS/phiên (M8 Task 1): `SESSION_SECURE_COOKIE`, `FORCE_HTTPS`, `HSTS_MAX_AGE`,
+     `HSTS_INCLUDE_SUBDOMAINS`, `HSTS_PRELOAD` — để trống cả năm biến này là chặt nhất (bật hết,
+     hạn một năm) ở mọi môi trường trừ `local`/`testing`, không cần điền gì trên máy chủ thật;
+   - giới hạn IP admin (R7): `ADMIN_IP_ALLOWLIST` — để trống là TẮT (mặc định); hỏi chủ văn phòng
+     trước khi bật (danh sách IP/dải nào), xem `docs/PROGRESS.md` mục "Ghi chú M8".
 
    Biến cũ `BACKUP_DISK` (số ít) không còn được đọc — dùng `BACKUP_DISKS`.
 4. Xác thực hai lớp cho toàn bộ tài khoản nội bộ.
-5. **Máy chủ có đủ những thứ mà sao lưu cần** (M8; lệnh kiểm tự động `vkcrm:preflight` là M8 Task 8,
-   chưa có — hiện kiểm tay):
-   - PHP extension `zip` dựng với libzip có mã hoá AES — `php -r 'var_dump(defined("ZipArchive::EM_AES_256"));'`
-     phải in `bool(true)`. Thiếu nó, mọi lượt sao lưu ở production bị từ chối (không tạo bản sao
-     lưu không mã hoá) và có email báo lỗi;
-   - hàm `proc_open` không bị tắt — `php -r 'var_dump(function_exists("proc_open"));'` phải in
-     `bool(true)` (nhiều shared hosting tắt nó trong `disable_functions`; thiếu nó thì không dump
-     được CSDL và không gọi được `rclone`);
-   - lệnh `mariadb-dump` (gói `mariadb-client`, ví dụ `apt install mariadb-client`) —
-     `mariadb-dump --version` phải in ra một số phiên bản;
-   - cộng tệp chạy `rclone` cho đích Google Drive (Bước 1 của `docs/SAO-LUU-KHOI-PHUC.md`).
-6. **`MAIL_FROM_NAME` phải là tên văn phòng** (ví dụ `"Luật Vũ Khang"`), không phải `${APP_NAME}`
+5. **`php artisan vkcrm:preflight` xanh hết (M8 Task 1) — chạy TRƯỚC khi mở cổng, sau mỗi lần nâng
+   cấp, và TRƯỚC `php artisan config:cache`** (một vài điều kiện đọc `.env` trực tiếp, không còn
+   thấy giá trị thật sau khi cấu hình đã cache). Lệnh tự kiểm
+   `TRUSTED_PROXIES`/`HEARTBEAT_URL`/`SESSION_SECURE_COOKIE`/`APP_DEBUG`, PHP extension bắt buộc,
+   `storage/app/private` có phục vụ công khai được không, và ba điều kiện máy chủ cho sao lưu:
+   - PHP extension `zip` dựng với libzip có mã hoá AES (`ZipArchive::EM_AES_256`) — thiếu nó, mọi
+     lượt sao lưu ở production bị từ chối (không tạo bản sao lưu không mã hoá) và có email báo lỗi;
+   - hàm `proc_open` không bị tắt (nhiều shared hosting tắt nó trong `disable_functions`; thiếu nó
+     thì không dump được CSDL và không gọi được `rclone`);
+   - lệnh `mariadb-dump` (gói `mariadb-client`, ví dụ `apt install mariadb-client`) có trong PATH;
+   - cộng tệp chạy `rclone` cho đích Google Drive (Bước 1 của `docs/SAO-LUU-KHOI-PHUC.md` —
+     `vkcrm:preflight` không kiểm riêng `rclone`, dùng `vkcrm:backup-check` cho việc đó).
+
+   Dòng ĐỎ chặn mở cổng; dòng VÀNG (ví dụ bốn thông tin pháp lý `BRAND_*` chưa điền — xem M7
+   Task 10) không chặn nhưng nên xử lý sớm.
+6. **HTTPS/HSTS ở tầng máy chủ web** (M8 Task 1) — dùng mẫu ĐÃ CHẠY THỬ:
+   `tools/deploy/nginx.conf.example` (nginx) hoặc `tools/deploy/apache-vhost.conf.example`
+   (Apache), sửa domain/đường dẫn chứng chỉ/đường dẫn dự án rồi dùng. `App\Http\Middleware\
+   EnforceHttps` là lớp DỰ PHÒNG khi hosting không cho tự cấu hình máy chủ web (chuyển hướng http
+   → https + gửi `Strict-Transport-Security`), không thay thế tầng máy chủ web.
+7. **`MAIL_FROM_NAME` phải là tên văn phòng** (ví dụ `"Luật Vũ Khang"`), không phải `${APP_NAME}`
    mặc định của bộ cài — nếu không, hộp thư của khách hiện tên kỹ thuật của dự án làm người gửi.
-7. **Văn phòng xác nhận địa chỉ "Trả lời" của thư, `BRAND_REPLY_TO_ADDRESS`** (M6.5 Task 12).
+8. **Văn phòng xác nhận địa chỉ "Trả lời" của thư, `BRAND_REPLY_TO_ADDRESS`** (M6.5 Task 12).
    Mọi thư của hệ thống gắn `Reply-To` lấy từ `config('vkcrm.brand.reply_to')`, để khách bấm "Trả
    lời" thì thư tới một hộp có người đọc, không tới `MAIL_FROM_ADDRESS` (`no-reply@`). Ba trường hợp:
    - **không có dòng** `BRAND_REPLY_TO_ADDRESS` trong `.env`: dùng mặc định
@@ -141,7 +155,7 @@ Chưa làm, thuộc phần bảo mật và vận hành. Những thứ bắt bu�
 
    Biến này chưa có dòng mẫu trong `.env.example` lúc viết. Chủ văn phòng cần xác nhận địa chỉ mặc
    định có đúng không (sổ tay M6.5 ghi việc này đang chờ trả lời).
-8. **Seed đúng lệnh — KHÔNG chạy `migrate:fresh --seed` như bước "Bốn bước" ở trên.** Lệnh đó
+9. **Seed đúng lệnh — KHÔNG chạy `migrate:fresh --seed` như bước "Bốn bước" ở trên.** Lệnh đó
    gọi `DatabaseSeeder`, và trên `APP_ENV=production` (`.env` của máy chủ thật phải đặt vậy)
    nó CHỈ tạo dữ liệu tham chiếu (vai trò, quyền, 6 loại vụ việc, giai đoạn, danh mục hồ sơ mẫu)
    — không có admin, không có tài khoản demo mật khẩu `password` nào (M6.5 Task 19; trước bản vá

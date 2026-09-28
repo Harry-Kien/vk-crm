@@ -363,9 +363,9 @@ quý một lần, ghi kết quả vào `docs/PROGRESS.md`):
    mariadb -u<user> -p<mật khẩu CSDL> <tên-csdl> < duong-dan/db-dumps/ten-tep.sql
    ```
    Máy chủ đích PHẢI có sẵn gói mang lệnh `mariadb`/`mariadb-dump` (ví dụ `apt install
-   mariadb-client` trên Ubuntu/Debian) — đây là điều kiện cần đã nêu ở SPEC §10 mục 8 (lệnh kiểm
-   tự động `vkcrm:preflight` thuộc M8 Task 8, **chưa có** — hiện phải kiểm tay bằng
-   `mariadb-dump --version`; xem `docs/CAI-DAT.md`, mục "Khi đưa lên máy chủ thật").
+   mariadb-client` trên Ubuntu/Debian) — đây là điều kiện cần đã nêu ở SPEC §10 mục 8, kiểm tự
+   động bằng `php artisan vkcrm:preflight` (M8 Task 1, `App\Actions\Deployment\RunPreflight`; xem
+   `docs/CAI-DAT.md`, mục "Khi đưa lên máy chủ thật").
 6. **Chép tệp hồ sơ** — mọi mục trong archive có tiền tố `storage/app/private/` (đường TƯƠNG ĐỐI
    tính từ gốc ứng dụng — xem đoạn giải thích `relative_path` ở docblock
    `config/backup.php`) chép về ĐÚNG thư mục `storage/app/private/` của máy chủ mới, giữ nguyên

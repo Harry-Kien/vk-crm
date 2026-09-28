@@ -1357,3 +1357,88 @@ ngoài bản đầu tiên, và **nhắc lại đúng danh sách này khi M12 xon
 5. Soạn văn bản tự động từ mẫu.
 6. Tích hợp email và Zalo, thư tự lưu vào hồ sơ.
 7. Báo cáo quản trị nâng cao.
+
+## Ghi chú M8
+
+Làn `m8b-security` (nhánh `m8b-security`, worktree `D:\vkwt\lane-m8b`), cắt từ `m8-backup-csp` gộp
+`m6-5-lane-d`. Chi tiết đầy đủ ở sổ SDD của làn:
+`D:\vkwt\lane-m8b\.superpowers\sdd\m8b\progress.md`.
+
+### Task 1 — Proxy, HTTPS, header, CSP, giới hạn IP admin (R1, R4, R7)
+
+- **`vkcrm:preflight` (R1)** — `App\Actions\Deployment\RunPreflight`, `App\Console\Commands\
+  PreflightCommand`. Kiểm `TRUSTED_PROXIES`, `HEARTBEAT_URL`, `SESSION_SECURE_COOKIE` (giá trị ĐÃ
+  GIẢI), `APP_DEBUG`, PHP extension bắt buộc, `storage/app/private` phục vụ công khai được không,
+  ba điều kiện máy chủ cho sao lưu (`ZipArchive::EM_AES_256`, `proc_open`, `mariadb-dump`/
+  `mysqldump`), bốn thông tin `BRAND_*` (vàng), và ba biến số sao lưu có giá trị không phải số
+  (đỏ, mọi môi trường). `APP_ENV` để trống là đỏ ở mọi nơi; khác `production` chỉ in một dòng vàng,
+  không kiểm các điều kiện trên. **Chạy lệnh này TRƯỚC `php artisan config:cache`** — ba điều kiện
+  đọc `env()` trực tiếp (không qua `config()`) để bắt đúng giá trị RAW (phát hiện lỗi gõ như
+  `BACKUP_RCLONE_TIMEOUT=30m`), và sau khi cấu hình đã cache, `env()` ngoài một tệp cấu hình luôn
+  trả `null` (`LoadEnvironmentVariables::bootstrap()` bỏ qua việc nạp `.env` khi có cache) — ghi rõ
+  trong docblock và `docs/CAI-DAT.md`.
+  - **`gd` không nằm trong danh sách extension bắt buộc, là một dòng VÀNG riêng.** SPEC §2 liệt kê
+    `gd`, và `config/media-library.php` chọn nó làm `image_driver` mặc định, nhưng soát ngày
+    2026-09-28 (`grep -rn "registerMediaConversions\|addMediaConversion" app/`) không thấy dự án
+    đăng ký chuyển đổi ảnh nào — thiếu `gd` hôm nay không làm vỡ tính năng đang chạy thật. Đỏ hoá
+    dòng này khi có Task nào đăng ký `addMediaConversion()` đầu tiên.
+  - Danh sách extension đọc qua `config('vkcrm.deployment.required_extensions')` (không phải một
+    `const` cứng) để test gài được một tên giả, dựng cả hai chiều đỏ/xanh mà không cần gỡ thật một
+    extension của container.
+  - Đã sửa hai chỗ tài liệu nói sai chủ của lệnh này: `docs/CAI-DAT.md` mục "Khi đưa lên máy chủ
+    thật" (mục 5) và `docs/SAO-LUU-KHOI-PHUC.md` Bước 5 — cả hai từng ghi "M8 Task 8, chưa có".
+- **Ép HTTPS + HSTS** — `App\Http\Middleware\EnforceHttps` (toàn cục, `append()` ở
+  `bootstrap/app.php` — SAU `TrustProxies`, bắt buộc để `$request->secure()` đọc đúng
+  `X-Forwarded-Proto` của proxy ĐÃ được tin). `FORCE_HTTPS`/`SESSION_SECURE_COOKIE`/`HSTS_MAX_AGE`
+  để trống là chặt nhất (bật/hạn một năm) ở mọi môi trường trừ `local`/`testing`
+  (`App\Support\Security\HttpsDefaults`, cùng thành ngữ với `CSP_MODE`). GET/HEAD chuyển hướng
+  301; phương thức khác 308 (không mất thân request). `SESSION_SECURE_COOKIE` giải xong được ghi
+  đè vào `config('session.secure')` ở `AppServiceProvider::boot()` (không sửa được ngay trong
+  `config/session.php` — gọi `app()->environment()` ở đó ném `BindingResolutionException`, vì
+  `LoadConfiguration` nạp tệp cấu hình TRƯỚC dòng `detectEnvironment()`; đọc docblock của
+  `HttpsDefaults` và `AppServiceProvider::boot()`). `URL::forceHttps()` cũng gọi ở `boot()` (không
+  ở middleware) để link trong thư/PDF do queue worker sinh ra luôn là `https`.
+  - HSTS không kèm `includeSubDomains`/`preload` mặc định — các tên miền con khác của
+    luatvukhang.com nằm ngoài ứng dụng này.
+  - Lớp CHÍNH cho HSTS là máy chủ web: `tools/deploy/nginx.conf.example` và
+    `tools/deploy/apache-vhost.conf.example`, **đã chạy thử** ngày 2026-09-28:
+    - `docker run --rm nginx:stable-alpine` (mount cấu hình + chứng chỉ giả) → `nginx: the
+      configuration file /etc/nginx/nginx.conf syntax is ok` / `test is successful`.
+    - `docker run httpd:2.4-alpine` (bật `mod_ssl`/`mod_rewrite`/`mod_headers`/
+      `mod_socache_shmcb`, chứng chỉ tự ký giả) → `Syntax OK`.
+    - Cả hai mẫu cộng thêm ba header SPEC §10 mục 2 cho tệp tĩnh dưới `public/` (đóng nốt minor
+      hoãn của M8a: "public/ static files never see any header"), chặn dotfile, và chặn
+      `/storage/` (dự án không dùng `storage:link`, SPEC §2 — một symlink như vậy chỉ có thể là
+      cấu hình sai, đúng thứ `vkcrm:preflight` cũng dò).
+- **Giới hạn IP admin (R7)** — `App\Http\Middleware\RestrictAdminIpAllowlist`, đọc
+  `ADMIN_IP_ALLOWLIST` (`config('vkcrm.security.admin_ip_allowlist')`, phân tách dấu phẩy, IPv4/
+  IPv6/CIDR). Rỗng = TẮT (mặc định). Đăng ký trên panel `admin`, `isPersistent: true`, TRƯỚC
+  `AnswerDeniedPanelRequestsWithNotFound` — IP ngoài danh sách nhận 404 (SPEC §10.10), kể cả trên
+  request cập nhật Livewire. KHÔNG phủ `documents.download`/`/livewire/upload-file` (quyết định có
+  chủ đích, xem docblock middleware).
+  - **CẦN HỎI CHỦ VĂN PHÒNG** (kế hoạch M8, dòng 49): có bật `ADMIN_IP_ALLOWLIST` không, và nếu
+    bật thì những dải IP nào (văn phòng, VPN nếu có). Để trống cho tới khi có câu trả lời.
+  - **Lưu ý cho M12** (đã ghi trong brief Task 1): bật allowlist thì app admin trên điện thoại
+    dùng mạng 4G (không qua VPN/IP văn phòng) sẽ nhận 404.
+- **Soát `unsafe-eval` (M8a minor hoãn "→ owner + M8 audit").** Liệt kê MỌI chỗ vẽ HTML thô trong
+  `app/` và `resources/views/` ngày 2026-09-28: `->html()` (6 chỗ, `ChecklistRelationManager`,
+  `ClientRequestsRelationManager`, `DeadlinesRelationManager`, `DocumentsRelationManager`
+  (`internalRowStyle()` — CSS tĩnh, không có dữ liệu người dùng), `StageLogsRelationManager` ×2,
+  `UpcomingDeadlinesWidget` ×2), `HtmlString` (cùng danh sách), không `Str::markdown()` nào, không
+  `{!! !!}` nào ngoài các view thư `text/plain` (đã có docblock giải thích lý do an toàn — thư văn
+  bản thuần không có trình duyệt nào diễn giải HTML), và KHÔNG có thuộc tính Alpine
+  (`x-data`/`x-init`/`x-on`/`x-bind`) nào do dự án tự viết trong `resources/views/` (Alpine chỉ
+  đến từ nội bộ Filament, đã qua khảo sát CSP của M8a). **Kết luận: mọi chỗ vẽ HTML thô của dự án
+  đều `e()` từng biến trước khi đưa vào `sprintf()`** — không chỗ nào vẽ chữ người dùng gõ mà
+  không escape hôm nay. Đây là ảnh chụp ngày 2026-09-28, không phải một bảo đảm tĩnh mãi mãi — một
+  cột `->html()` mới quên `e()` sẽ tái mở lỗ hổng này. **Quyết định giữ hay bỏ `unsafe-eval` vẫn
+  là của chủ văn phòng** (kế hoạch M8, phán quyết R4 phần audit): giữ nó vì Alpine của Livewire cần
+  nó để chạy (mất nó thì trang đăng nhập nhân sự không dùng được, đo ở M8a); bỏ nó chỉ an toàn hơn
+  về lý thuyết chừng nào không ai thêm một sink chưa escape — không có động tác kỹ thuật nào khác
+  đổi được kết luận này ngoài việc chờ Filament tự chuyển toàn bộ Alpine sang chế độ CSP-safe.
+- **Việc mang sang M7** (Task 10, hồ sơ pháp lý văn phòng qua `OfficeProfile`): khi Task đó xong,
+  đổi nguồn đọc bốn trường `tax_code`/`bar_association`/`licence_number`/`office_address` trong
+  `RunPreflight::brandFieldsRow()` từ `config('vkcrm.brand.*')` sang `OfficeProfile`, giữ nguyên
+  bốn tên biến `.env` hiển thị trong thông điệp vàng.
+- **`.env.example`**: khối mới ở cuối tệp — `SESSION_SECURE_COOKIE`, `FORCE_HTTPS`, `HSTS_MAX_AGE`,
+  `HSTS_INCLUDE_SUBDOMAINS`, `HSTS_PRELOAD`, `ADMIN_IP_ALLOWLIST`.

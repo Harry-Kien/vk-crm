@@ -5,6 +5,7 @@ namespace App\Providers\Filament;
 use App\Filament\Admin\Pages\Auth\EditProfile;
 use App\Filament\AvatarProviders\InitialsAvatarProvider;
 use App\Http\Middleware\AnswerDeniedPanelRequestsWithNotFound;
+use App\Http\Middleware\RestrictAdminIpAllowlist;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -91,13 +92,14 @@ class AdminPanelProvider extends PanelProvider
              * khẳng định panel `portal` không bật thứ này.
              */
             ->databaseNotifications()
-            // Đầu danh sách middleware của panel — tức THỨ HAI trong đường ống, vì
+            // Đầu danh sách middleware của panel — tức THỨ HAI/BA trong đường ống, vì
             // `Panel::getMiddleware()` tự chèn `panel:{id}` lên trước để dựng panel hiện
-            // hành. `isPersistent: true` để nó theo sang cả request cập nhật Livewire, nơi
-            // nó đứng trước `Filament\Http\Middleware\Authenticate`. Phủ đến đâu và cố ý
-            // KHÔNG phủ đến đâu (từ chối bên trong vòng đời component vẫn là 403): xem
-            // docblock của middleware.
-            ->middleware([AnswerDeniedPanelRequestsWithNotFound::class], isPersistent: true)
+            // hành. `isPersistent: true` để cả hai theo sang cả request cập nhật Livewire, nơi
+            // chúng đứng trước `Filament\Http\Middleware\Authenticate`. `RestrictAdminIpAllowlist`
+            // (R7) đứng TRƯỚC `AnswerDeniedPanelRequestsWithNotFound`: một IP ngoài danh sách
+            // không cần đi xa hơn cổng mạng để nhận 404. Phủ đến đâu và cố ý KHÔNG phủ đến đâu
+            // (từ chối bên trong vòng đời component vẫn là 403): xem docblock của từng middleware.
+            ->middleware([RestrictAdminIpAllowlist::class, AnswerDeniedPanelRequestsWithNotFound::class], isPersistent: true)
             ->middleware([
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,
