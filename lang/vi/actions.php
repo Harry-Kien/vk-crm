@@ -54,5 +54,7 @@ return [
     'cancel_matter' => [
         'reason_required' => 'Phải nhập lý do huỷ hồ sơ.',
         'already_cancelled' => 'Vụ việc này đã bị huỷ trước đó.',
+        // Gộp M9: cùng định nghĩa dư nợ với hook `Matter::deleting` (BillingSummary::outstandingForMatter()).
+        'outstanding_balance' => 'Không thể huỷ hồ sơ :code: còn dư nợ :amount trên :count đợt thanh toán của hợp đồng đang có hiệu lực. Ở tab "Hợp đồng và thanh toán", thu nốt, miễn các đợt còn lại (kèm lý do) hoặc huỷ hợp đồng, rồi mới huỷ hồ sơ.',
     ],
 ];

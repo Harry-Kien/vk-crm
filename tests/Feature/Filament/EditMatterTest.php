@@ -2,12 +2,15 @@
 
 use App\Enums\ClientRequestStatus;
 use App\Enums\Confidentiality;
+use App\Enums\InstalmentStatus;
 use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Filament\Admin\Resources\Matters\Pages\EditMatter;
 use App\Models\ClientRequest;
+use App\Models\Contract;
 use App\Models\Deadline;
+use App\Models\Instalment;
 use App\Models\Matter;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -311,6 +314,26 @@ it('refuses to cancel a matter without a reason through the edit screen', functi
 
     expect($matter->fresh())->not->toBeNull()
         ->and($matter->fresh()->trashed())->toBeFalse();
+});
+
+/**
+ * Gộp M9 (xung đột 1): huỷ một hồ sơ còn dư nợ trên hợp đồng active là một câu dưới ô "Lý do" của
+ * chính hộp thoại, không phải một lỗi 500 (hook `Matter::deleting` ném DomainException mà hộp
+ * thoại không bắt). Câu chữ và điều kiện đo ở `CancelMatterTest`; ở đây đo ĐÍCH của lời từ chối.
+ */
+it('shows an outstanding balance as a reason error on the cancel dialog, not a 500', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = Matter::factory()->create();
+    $contract = Contract::factory()->for($matter)->active()->create(['total_amount' => 10_000_000]);
+    Instalment::factory()->for($contract)->create(['amount' => 10_000_000, 'status' => InstalmentStatus::Pending]);
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(EditMatter::class, ['record' => $matter->getKey()])
+        ->callAction('cancelMatter', data: ['reason' => 'Mở nhầm khách hàng, mở lại vụ việc đúng.'])
+        ->assertHasActionErrors(['reason']);
+
+    expect($matter->fresh()->trashed())->toBeFalse();
 });
 
 /** Cổng hiển thị: một trưởng phòng, không phải admin, không thấy nút huỷ. */

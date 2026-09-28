@@ -10,6 +10,9 @@ use App\Actions\Billing\RecordPayment;
 use App\Actions\Billing\UpdateDraftContract;
 use App\Actions\Billing\VoidPayment;
 use App\Actions\Billing\WaiveInstalment;
+use App\Actions\Matter\CancelMatter;
+use App\Actions\Matter\ReassignMatter;
+use App\Actions\Matter\UpdateMatterDetails;
 use App\Enums\ContractStatus;
 use App\Enums\DocumentGroup;
 use App\Enums\InstalmentStatus;
@@ -271,3 +274,31 @@ it('locks matters first, then contracts, instalments and their payments, and the
 
     expect($order)->toBe(['matters', 'contracts', 'instalments', 'payments', 'documents', 'instalments', 'contract_amendments']);
 });
+
+/**
+ * Gộp M6.5 + M9 (xung đột 4): ba Action của VỤ VIỆC mở transaction riêng. Luật thứ tự khoá toàn dự
+ * án đòi chúng khoá `matters` TRƯỚC — cùng câu đầu tiên với mọi Action tiền, nên hai bên chờ nhau
+ * trên đúng một hàng thay vì khoá chéo — và không khoá một hàng tiền nào (chúng không gọi Action tiền
+ * nào; `CancelMatter` chỉ ĐỌC dư nợ, dưới khoá vụ việc). Hợp đồng active của `beforeEach` không có
+ * đợt nào, tức dư nợ 0: `CancelMatter` đi trọn tới xoá mềm, và hook `Matter::deleting` của M9 cũng
+ * chạy trong cùng lần đo.
+ */
+it('locks matters first and never a money row when cancelling, editing or reassigning a matter', function (string $action) {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $newLead = User::factory()->withRole(Role::Lawyer)->create();
+
+    $order = lockOrderOf(match ($action) {
+        'cancel' => fn () => app(CancelMatter::class)->handle($this->matter, $admin, 'Mở nhầm khách hàng.'),
+        'update' => fn () => app(UpdateMatterDetails::class)->handle($this->matter, $admin, ['title' => 'Tiêu đề mới sau khi sửa']),
+        'reassign' => fn () => app(ReassignMatter::class)->handle(
+            matter: $this->matter,
+            actor: $admin,
+            newLead: $newLead,
+            reason: 'Luật sư phụ trách cũ nghỉ dài ngày.',
+            keepOldLeadAsAssociate: false,
+        ),
+    });
+
+    expect($order[0] ?? null)->toBe('matters')
+        ->and(array_values(array_intersect($order, ['contracts', 'instalments', 'payments', 'contract_amendments'])))->toBe([]);
+})->with(['cancel', 'update', 'reassign']);

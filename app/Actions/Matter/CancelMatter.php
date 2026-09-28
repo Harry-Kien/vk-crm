@@ -5,6 +5,8 @@ namespace App\Actions\Matter;
 use App\Models\Matter;
 use App\Models\User;
 use App\Support\Audit;
+use App\Support\Billing\BillingSummary;
+use App\Support\Billing\Money;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -82,6 +84,8 @@ class CancelMatter
                 ]);
             }
 
+            $this->refuseIfBalanceOutstanding($locked);
+
             Audit::record('matter_cancelled', $locked, [
                 'reason' => $reason,
             ], $actor);
@@ -90,5 +94,36 @@ class CancelMatter
 
             return $locked;
         });
+    }
+
+    /**
+     * Hồ sơ còn dư nợ trên hợp đồng `active` thì không huỷ được (gộp M9, xung đột 1).
+     *
+     * Hook `Matter::deleting` của M9 đã chặn lệnh `delete()` bên dưới — nhưng bằng
+     * `MatterHasOutstandingBalance`, một `DomainException`, mà hộp thoại "Huỷ hồ sơ" của
+     * `EditMatter` không bắt: một lỗi 500 đúng lúc admin cần biết phải làm gì. Nên Action tự hỏi
+     * TRƯỚC, bằng đúng MỘT định nghĩa dư nợ mà hook dùng ({@see BillingSummary::outstandingForMatter()}
+     * — không phép tính thứ hai), và trả lời trên ô `reason` mà hộp thoại đã hiện lỗi. Hook vẫn ở
+     * nguyên làm chốt chặn cho mọi đường xoá mềm khác.
+     *
+     * **Đọc thường sau khi khoá là đủ.** Mọi Action tiền khoá hàng `matters` TRƯỚC (luật thứ tự khoá
+     * toàn dự án, `LocksBillingRows`), nên khi Action này đang giữ khoá đó thì không Action tiền nào
+     * của vụ này đang chạy dở hay chen vào được; và ảnh chụp REPEATABLE READ của transaction này chỉ
+     * được dựng ở lần đọc thường đầu tiên — sau câu `lockForUpdate()` ở trên. Không gọi một Action
+     * tiền nào ở đây (xem `BillingLockOrderTest`).
+     */
+    private function refuseIfBalanceOutstanding(Matter $locked): void
+    {
+        $balance = BillingSummary::outstandingForMatter((int) $locked->getKey());
+
+        if ($balance['amount'] > 0) {
+            throw ValidationException::withMessages([
+                'reason' => [__('actions.cancel_matter.outstanding_balance', [
+                    'code' => $locked->code,
+                    'amount' => Money::format($balance['amount']),
+                    'count' => $balance['count'],
+                ])],
+            ]);
+        }
     }
 }
