@@ -115,6 +115,10 @@ class OpenClientRequest
             'status' => ClientRequestStatus::New,
             'assigned_to' => null,
             'answered_at' => null,
+            // Một yêu cầu mới ra đời LÀ một lần hoạt động — xem docblock migration
+            // `add_last_activity_at_to_client_requests_table`. Không đặt cột này thì một luồng
+            // vừa mở ra nằm ở đáy hộp thư cho tới lần trao đổi tiếp theo.
+            'last_activity_at' => now(),
         ]);
 
         // `client_id` chép thẳng vào đây chứ không để người đọc suy ra qua `matter`:

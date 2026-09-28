@@ -592,8 +592,8 @@ function staffUploadClientSubmission(MatterChecklistItem $item, ClientUser $clie
     return app(SubmitClientDocument::class)->handle(
         checklistItem: $item,
         actor: $clientUser,
-        file: staffUploadPdf($name),
-    );
+        files: [staffUploadPdf($name)],
+    )->first();
 }
 
 it('nhân viên nộp thay ở nhóm A nối tiếp chuỗi version của khách chứ không cấp lại số 1', function () {
@@ -606,6 +606,18 @@ it('nhân viên nộp thay ở nhóm A nối tiếp chuỗi version của khách
     $item = MatterChecklistItem::factory()->create(['matter_id' => $matter->id]);
 
     staffUploadClientSubmission($item, $clientUser, 'lan-1.pdf');
+
+    // Từ chối bản đầu trước khi khách nộp lại — R10 (M6.5 Task 17): nộp thêm khi đầu mục còn
+    // `pending_review` là BỔ SUNG vào version đang chờ, không mở version mới (xem
+    // `SubmitClientDocumentTest`, nhóm test R10). Muốn "lan-2.pdf" là version 2 THẬT thì phiên
+    // nộp trước phải đã kết thúc.
+    app(ReviewChecklistItem::class)->handle(
+        $item->fresh(),
+        $lawyer,
+        ChecklistItemStatus::Rejected,
+        'Ảnh bị mờ ở góc trên nên không đọc được số thửa, anh/chị chụp lại giúp em.',
+    );
+
     $second = staffUploadClientSubmission($item->fresh(), $clientUser, 'lan-2.pdf');
 
     // Văn phòng mở bản thứ hai ra xem và từ chối nó — bắt buộc, vì một lần nộp thay ở nhóm A

@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Matter\RemoveTeamMember;
 use App\Actions\Portal\TriageClientRequest;
 use App\Enums\ClientRequestStatus;
 use App\Enums\Confidentiality;
@@ -13,6 +14,8 @@ use App\Models\User;
 use App\Support\Scopes\ClientPortalScope;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Foundation\Testing\RefreshDatabaseState;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Spatie\Activitylog\Models\Activity;
@@ -57,6 +60,36 @@ it('assigns the request and lifts it out of new in one move', function () {
 
     expect(reloadThread($this->request)->assigned_to)->toBe($assistant->id)
         ->and(reloadThread($this->request)->status)->toBe(ClientRequestStatus::InProgress);
+});
+
+/**
+ * **Fix round 1, ruling — `last_activity_at` chỉ nhảy khi giao việc CŨNG đổi trạng thái.** Vế
+ * dương: giao một luồng `new` (đẩy sang `in_progress`) đóng dấu hoạt động. Vế âm, TRONG CÙNG
+ * test: giao LẠI một luồng đã `in_progress` cho người khác (không đổi trạng thái) — cột giữ
+ * nguyên, dù việc giao vẫn thành công.
+ */
+it('stamps last_activity_at only when assigning also changes the status', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $this->matter->addTeamMember($assistant, MatterRole::Assistant);
+    $secondAssistant = User::factory()->withRole(Role::Assistant)->create();
+    $this->matter->addTeamMember($secondAssistant, MatterRole::Assistant);
+
+    $this->travelTo('2026-09-21 09:00:00');
+    $this->request->update(['last_activity_at' => '2026-09-20 00:00:00']);
+
+    $this->travelTo('2026-09-21 10:00:00');
+    $this->action->assign(reloadThread($this->request), $this->lawyer, $assistant);
+
+    expect(reloadThread($this->request)->status)->toBe(ClientRequestStatus::InProgress)
+        ->and(reloadThread($this->request)->last_activity_at->toDateTimeString())->toBe('2026-09-21 10:00:00');
+
+    $this->travelTo('2026-09-25 12:00:00');
+    $this->action->assign(reloadThread($this->request), $this->lawyer, $secondAssistant);
+
+    expect(reloadThread($this->request)->assigned_to)->toBe($secondAssistant->id)
+        // Không đổi trạng thái ở lần giao thứ hai — cột GIỮ mốc của lần trước, không nhảy tới
+        // '2026-09-25 12:00:00'.
+        ->and(reloadThread($this->request)->last_activity_at->toDateTimeString())->toBe('2026-09-21 10:00:00');
 });
 
 /**
@@ -222,6 +255,37 @@ it('lets a closed thread be reopened, because there is no transition matrix here
     expect(reloadThread($this->request)->status)->toBe(ClientRequestStatus::InProgress);
 });
 
+/**
+ * **Fix round 1, minor — hợp đồng của `SetClientRequestStatusResult`, đo Ở TẦNG ACTION.** Test
+ * qua màn hình (`ClientRequestsRelationManagerTest`, "unassigns a teammate...") đo câu thông báo
+ * tiếng Việt; test này đo trực tiếp `setStatus()` TRẢ VỀ CÁI GÌ — không suy từ so sánh hai lần
+ * đọc bên ngoài Action.
+ */
+it('reports exactly who it unassigned when reopening a closed thread they can no longer hold', function () {
+    $holder = User::factory()->withRole(Role::Assistant)->create(['name' => 'Trợ lý Rời Đội']);
+    $this->matter->addTeamMember($holder, MatterRole::Assistant);
+    $this->request->update(['assigned_to' => $holder->id, 'status' => ClientRequestStatus::Closed]);
+    // Chỉ dựng fixture — luồng đã ĐÓNG nên `OpenWork` không chặn lần gỡ này (đúng luật Task 3).
+    app(RemoveTeamMember::class)->handle($this->matter, $this->lawyer, $holder);
+
+    $result = $this->action->setStatus(reloadThread($this->request), $this->lawyer, ClientRequestStatus::InProgress);
+
+    expect($result->thread->assigned_to)->toBeNull()
+        ->and($result->unassignedAssignee)->not->toBeNull()
+        ->and($result->unassignedAssignee->getKey())->toBe($holder->id)
+        ->and($result->unassignedAssignee->name)->toBe('Trợ lý Rời Đội');
+
+    // Vế dương: khi KHÔNG có ai bị gỡ, kết quả nói rõ điều đó bằng `null` — không một giá trị giả
+    // nào khác cho màn hình lỡ đọc nhầm thành "có gỡ".
+    $untouched = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'status' => ClientRequestStatus::New,
+    ]);
+
+    expect($this->action->setStatus($untouched, $this->lawyer, ClientRequestStatus::InProgress)->unassignedAssignee)
+        ->toBeNull();
+});
+
 // =========================================================================================
 // CỔNG QUYỀN
 // =========================================================================================
@@ -301,6 +365,34 @@ it('reads the thread back instead of trusting the object it was handed', functio
         ->toThrow(AuthorizationException::class);
 });
 
+/**
+ * Fix round 3, finding I3 residual — hàng rào cuối cùng của `open()`: đối chiếu `$matterId` (tính
+ * SẴN, trước transaction, qua {@see TriageClientRequest::realMatterId()}) với `$thread->matter_id`
+ * đọc dưới khoá. Hôm nay KHÔNG có đường công khai nào (`assign()`/`setStatus()`) làm hai giá trị
+ * này lệch nhau — cả hai đều tính từ CÙNG một khoá chính `$request->getKey()`, và
+ * `client_requests.matter_id` bất biến sau khi tạo — nên hàng rào này không đỏ được qua một kịch
+ * bản người dùng thật. Gọi thẳng `open()` (private) qua `ReflectionMethod` với một `$matterId`
+ * SAI CỐ Ý để đo đúng DÒNG MÃ đó, thay vì chỉ tin docblock.
+ */
+it('refuses when the pre-computed matter id disagrees with the freshly locked row, as a last-resort guard', function () {
+    // Vụ SAI phải là một vụ việc THẬT, actor MỞ ĐƯỢC — nếu không, nhánh `$matter === null`
+    // (hồ sơ không tồn tại) sẽ chặn trước và mutation probe không đo được ĐÚNG dòng đang cần đo:
+    // đã tự bắt lỗi này khi viết test (id bịa `+999999` khớp `$matter === null`, không khớp
+    // hàng rào đối chiếu).
+    $otherMatter = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
+
+    $method = new ReflectionMethod(TriageClientRequest::class, 'open');
+    $method->setAccessible(true);
+
+    expect(fn () => $method->invoke($this->action, $this->request, $this->lawyer, $otherMatter->id))
+        ->toThrow(AuthorizationException::class);
+
+    // Đối chứng: đúng matter_id thật thì không bị chặn ở hàng rào này (thất bại ở đây sẽ đổ lỗi
+    // sai cho test trên nếu ai đó sau này phá vỡ luồng chính chứ không phải hàng rào cuối).
+    expect($method->invoke($this->action, $this->request, $this->lawyer, $this->request->matter_id))
+        ->toBeArray();
+});
+
 // =========================================================================================
 // NHẬT KÝ — causer là NHÂN SỰ, đo với phiên khách đang mở
 // =========================================================================================
@@ -344,4 +436,267 @@ it('writes no log line at all when it refuses', function () {
             'client_request_status_changed',
             'client_request_assigned',
         ])->count())->toBe(0);
+});
+
+// =========================================================================================
+// KHOÁ THẬT TRÊN MariaDB — fix round 3, finding I3 residual
+// =========================================================================================
+
+/**
+ * Bắt buộc phải là MariaDB thật (không phải một kết nối phụ nào khác) — thứ đang đo là hành vi
+ * READ VIEW của REPEATABLE READ, một khái niệm InnoDB không tồn tại trên SQLite (bộ test chạy
+ * trên đó theo mặc định, không có khái niệm transaction isolation kiểu MVCC).
+ */
+function requireMariadbForLocking(): void
+{
+    $driver = DB::connection()->getDriverName();
+
+    if (in_array($driver, ['mysql', 'mariadb'], true)) {
+        return;
+    }
+
+    test()->markTestSkipped(
+        'Cần chạy trên chính MariaDB (bin/dev test:mariadb): test này đo READ VIEW của '
+        .'REPEATABLE READ InnoDB, một hành vi SQLite (mặc định bộ test) không có. Đang chạy '
+        ."trên: [{$driver}]."
+    );
+}
+
+/**
+ * Fix round 3, finding I3 residual — người rà soát tái hiện được trên container MariaDB 11.8 của
+ * dự án: `TriageClientRequest::open()` (bản round 2) đọc `matter_id` bằng một câu KHÔNG khoá làm
+ * câu ĐẦU TIÊN bên trong transaction, TRƯỚC câu `lockForUpdate()` trên `matters`. Trên MariaDB,
+ * mức cô lập REPEATABLE READ (mặc định InnoDB) cố định READ VIEW của một transaction tại LẦN ĐỌC
+ * KHÔNG KHOÁ ĐẦU TIÊN — không phải tại `BEGIN`, và KHÔNG phải tại một câu đọc CÓ khoá
+ * (`FOR UPDATE` luôn đọc dữ liệu MỚI NHẤT, không dùng READ VIEW). Hệ quả round 2: nếu
+ * `RemoveTeamMember` gỡ và commit đúng lúc `assign()` đang ĐỢI khoá `matters` (bị chặn bởi chính
+ * `RemoveTeamMember` đang giữ khoá đó), `assign()` được cấp khoá NGAY SAU khi `RemoveTeamMember`
+ * commit — nhưng câu `matter_user` EXISTS phía sau (qua `Gate::forUser($assignee)->allows(
+ * 'update', $matter)`) vẫn đọc theo READ VIEW CŨ (cố định TRƯỚC khi `RemoveTeamMember` commit,
+ * bởi chính câu `value('matter_id')` không khoá kia) — nên nó vẫn "thấy" người vừa bị gỡ còn
+ * trong đội ngũ, và phép gán đi qua.
+ *
+ * **Vì sao test này CẦN khoá THẬT (chặn thật), không chỉ một kịch bản tuần tự.** Nếu
+ * `RemoveTeamMember` chạy và commit XONG HẲN trước khi `assign()` được gọi, MỌI câu đọc của
+ * `assign()` — dù có mutation hay không — đều tự nhiên xảy ra SAU khi đã commit, và test sẽ
+ * xanh trong CẢ HAI trường hợp (không phân biệt được lỗi cũ với bản đã sửa — đã tự đo bằng tay,
+ * xem báo cáo). Cái bug này CHỈ hiện ra khi `assign()` PHẢI ĐỢI khoá đang bị `RemoveTeamMember`
+ * giữ, rồi chạy tiếp NGAY SAU khi khoá đó được nhả — đúng nhịp một cuộc đua thật. Vì PHP một
+ * luồng không "tạm dừng" được nửa chừng một lời gọi hàm, test này `pcntl_fork()` một tiến trình
+ * CON thật: con giữ khoá `matters` (BEGIN + FOR UPDATE, CHƯA commit), báo hiệu bằng một tệp,
+ * ĐỢI CHO TỚI KHI THẤY tiến trình CHA (đang chạy `TriageClientRequest::assign()` THẬT trên một
+ * kết nối riêng) đang đứng ở câu `FOR UPDATE` trên `matters`, rồi mới gỡ trợ lý khỏi
+ * `matter_user` và COMMIT — nhả khoá đúng lúc tiến trình cha đang bị khoá đó chặn.
+ *
+ * **Chờ được XÁC MINH, không đoán bằng thời gian (fix round 4, N2).** Con không `usleep()` một
+ * khoảng cố định rồi hy vọng cha đã kịp tới chỗ khoá: trên một container chậm, khoảng đó có thể
+ * hết trước khi cha kịp chạy tới, con commit sớm, và test xanh cả trên mã lỗi. Con hỏi
+ * `information_schema.PROCESSLIST` cho tới khi phiên CSDL của cha (biết trước bằng
+ * `CONNECTION_ID()`) đang thực thi một câu `... from `matters` ... for update` — câu đó không thể
+ * xong khi con còn giữ khoá, nên thấy nó đang chạy nghĩa là cha ĐANG bị chặn (và mọi câu đọc
+ * trước nó, gồm câu đọc sớm của lỗi round 2, đã chạy xong). Không dùng
+ * `information_schema.INNODB_LOCK_WAITS`/`INNODB_TRX` (chính xác hơn) vì chúng đòi quyền toàn cục
+ * `PROCESS`, người dùng `sail` không có và không nên có; `PROCESSLIST` thì một người dùng luôn
+ * xem được các phiên của chính mình (MariaDB 11 không có `performance_schema.data_lock_waits`).
+ * Hết 10 giây vẫn không thấy thì con NHẢ khoá mà KHÔNG gỡ ai, ghi "timeout" vào tệp kết quả, và
+ * cha `fail()` test thành tiếng — không bao giờ xanh im lặng.
+ *
+ * Tiến trình CON mở một kết nối MỚI tên riêng (`mariadb_child`) và KHÔNG đụng tới các kết nối
+ * thừa hưởng từ cha: sau `fork()`, cha và con CHIA SẺ cùng các socket TCP bên dưới; dùng hay
+ * đóng (`DB::purge()` gửi `COM_QUIT`) một socket chung ở phía con sẽ làm hỏng phiên của CHA. Con
+ * kết thúc bằng `SIGKILL` nên không destructor nào chạy trên các socket thừa hưởng. Tiến trình CHA
+ * đổi kết nối MẶC ĐỊNH sang một kết nối THỨ HAI (`mariadb_b`, cùng cấu hình, một phiên CSDL độc
+ * lập) trước khi gọi `assign()` — vì Eloquent dùng kết nối MẶC ĐỊNH hiện hành cho mọi model không
+ * tự khai `$connection`, đây là cách gọi ĐÚNG mã sản phẩm không sửa đổi ("chạy `open()`/`assign()`
+ * trên một kết nối chỉ định" — phán quyết cho phép cách này khi không tách được đường sản phẩm).
+ *
+ * **Dọn CSDL: bắt bài test KẾ TIẾP migrate lại (fix round 4, N1).** Con và cha ở hai phiên khác
+ * nhau chỉ thấy dữ liệu của nhau khi nó được COMMIT THẬT, nên test phải `DB::commit()` cái
+ * transaction `RefreshDatabase` bọc quanh nó — và từ lúc đó mọi thứ `beforeEach()`, factory,
+ * seeder, observer ghi ra (vai trò, quyền, `model_has_roles`, loại vụ việc + các giai đoạn của
+ * nó, `activity_log`...) nằm lại THẬT trong CSDL test, không rollback nào gỡ được. Dọn tay từng
+ * bảng là một danh sách phải nhớ cập nhật mỗi khi một factory/observer ghi thêm một bảng mới —
+ * round 3 đã quên đúng như vậy (còn lại một loại vụ việc thứ bảy làm "seeds six matter types" đỏ).
+ * Nên test đặt `RefreshDatabaseState::$migrated = false` NGAY TRƯỚC lần commit đầu tiên: bài test
+ * `RefreshDatabase` kế tiếp sẽ `migrate:fresh`, xoá SẠCH mọi bảng bất kể ai đã ghi gì — kể cả
+ * khi test này hỏng giữa chừng. (Hook `tearDown()` của `RefreshDatabase` chỉ đặt cờ này về
+ * `false`, không bao giờ về `true`, nên không gì ghi đè nó.)
+ */
+it('reads fresh matter_user membership through the production assign() call, after waiting on a lock RemoveTeamMember holds (MariaDB, two connections)', function () {
+    requireMariadbForLocking();
+
+    if (! function_exists('pcntl_fork') || ! function_exists('posix_kill')) {
+        test()->markTestSkipped('Cần pcntl và posix để giả lập hai phiên CSDL thật đồng thời.');
+    }
+
+    config([
+        'database.connections.mariadb_b' => config('database.connections.mariadb'),
+        'database.connections.mariadb_child' => config('database.connections.mariadb'),
+    ]);
+
+    // Từ đây CSDL test bị coi là bẩn: bài test RefreshDatabase kế tiếp sẽ `migrate:fresh` (xem
+    // docblock, fix round 4 N1). Đặt TRƯỚC lần commit đầu tiên, không đợi tới `finally`, để cả
+    // một lỗi xảy ra giữa commit và khối `try` bên dưới cũng không để lại dữ liệu cho test sau.
+    RefreshDatabaseState::$migrated = false;
+
+    // RefreshDatabase bọc kết nối MẶC ĐỊNH trong một transaction CHƯA COMMIT suốt bài test — một
+    // tiến trình/kết nối KHÁC sẽ không thấy được dữ liệu dựng ở beforeEach() (matter/client/
+    // lawyer/request) cho tới khi transaction đó COMMIT THẬT.
+    DB::commit();
+
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $this->matter->addTeamMember($assistant, MatterRole::Assistant);
+    DB::commit(); // addTeamMember() không tự mở transaction, nhưng gọi lại cho chắc nếu Eloquent lỡ mở.
+
+    $matterId = $this->matter->id;
+    $assistantId = $assistant->id;
+
+    // Phiên CSDL mà `assign()` sẽ chạy trên đó — mở TRƯỚC khi fork để con biết trước id phiên cần
+    // theo dõi. Con thừa hưởng socket này nhưng không bao giờ dùng hay đóng nó (xem docblock).
+    $parentConnectionId = (int) DB::connection('mariadb_b')->selectOne('select connection_id() as id')->id;
+
+    $filePrefix = sys_get_temp_dir().'/vkcrm_mariadb_lock_test_'.getmypid();
+    $lockHeldSignal = $filePrefix.'.signal';
+    $childOutcomeFile = $filePrefix.'.outcome';
+    @unlink($lockHeldSignal);
+    @unlink($childOutcomeFile);
+
+    $pid = pcntl_fork();
+
+    if ($pid === -1) {
+        test()->fail('pcntl_fork() thất bại — không giả lập được hai phiên CSDL đồng thời.');
+    }
+
+    if ($pid === 0) {
+        // ---- TIẾN TRÌNH CON — đóng vai RemoveTeamMember đang giữ khoá `matters`. ----
+        $outcome = 'error: tiến trình con dừng trước khi ghi kết quả';
+
+        try {
+            $child = DB::connection('mariadb_child'); // kết nối MỚI, không dùng socket thừa hưởng.
+            $child->beginTransaction();
+            $child->table('matters')->where('id', $matterId)->lockForUpdate()->first();
+
+            touch($lockHeldSignal); // báo cho tiến trình cha: khoá đã được giữ, có thể thử xin khoá.
+
+            // Chờ XÁC MINH (N2): phiên của cha đang thực thi câu FOR UPDATE trên `matters` — câu
+            // đó không xong được khi con còn giữ khoá, nên thấy nó nghĩa là cha đang bị chặn.
+            $deadline = microtime(true) + 10.0;
+            $parentIsBlocked = false;
+
+            while (! $parentIsBlocked && microtime(true) < $deadline) {
+                $parentIsBlocked = $child->table('information_schema.PROCESSLIST')
+                    ->where('ID', $parentConnectionId)
+                    ->whereIn('COMMAND', ['Query', 'Execute']) // Execute: câu prepared phía máy chủ (PDO).
+                    ->whereRaw("LOWER(INFO) LIKE '%from `matters`%for update%'")
+                    ->exists();
+
+                if (! $parentIsBlocked) {
+                    usleep(10_000);
+                }
+            }
+
+            if ($parentIsBlocked) {
+                $child->table('matter_user')
+                    ->where('matter_id', $matterId)
+                    ->where('user_id', $assistantId)
+                    ->delete();
+
+                $child->commit(); // nhả khoá matters NGAY ĐÂY, trong lúc cha đang đợi nó.
+                $outcome = 'removed-while-parent-blocked';
+            } else {
+                $lastSeen = $child->table('information_schema.PROCESSLIST')
+                    ->where('ID', $parentConnectionId)
+                    ->first(['COMMAND', 'STATE', 'INFO']);
+
+                $child->rollBack(); // nhả khoá mà KHÔNG gỡ ai — cha sẽ fail() thành tiếng.
+                $outcome = 'timeout: sau 10 giây không thấy phiên #'.$parentConnectionId
+                    .' đợi khoá matters; phiên đó đang: '.json_encode($lastSeen, JSON_UNESCAPED_UNICODE);
+            }
+        } catch (Throwable $exception) {
+            $outcome = 'error: '.$exception->getMessage();
+        } finally {
+            file_put_contents($childOutcomeFile, $outcome);
+
+            // Dừng tiến trình con NGAY LẬP TỨC, không đi qua bất kỳ shutdown handler/destructor
+            // nào của PHPUnit/Pest/PDO — tiếp tục chạy sẽ khiến tiến trình con cũng cố "chạy nốt"
+            // phần còn lại của bộ test, và destructor PDO sẽ đóng các socket chung với cha.
+            posix_kill(posix_getpid(), SIGKILL);
+        }
+    }
+
+    // ---- TIẾN TRÌNH CHA — đóng vai request thật gọi TriageClientRequest::assign(). ----
+    $childReaped = false;
+
+    try {
+        $deadline = microtime(true) + 5.0;
+
+        while (! file_exists($lockHeldSignal)) {
+            if (microtime(true) > $deadline) {
+                test()->fail('Tiến trình con không báo hiệu đã giữ khoá trong 5 giây — bỏ test, không đoán kết quả.');
+            }
+
+            usleep(10_000);
+        }
+
+        DB::setDefaultConnection('mariadb_b');
+
+        $stillAssignable = null;
+
+        try {
+            // Gọi THẲNG production code, không sửa gì — câu `lockForUpdate()` đầu tiên bên trong
+            // `open()` sẽ BỊ CHẶN THẬT ở đây cho tới khi tiến trình con commit (nhả khoá).
+            $this->action->assign($this->request, $this->lawyer, $assistant);
+            $stillAssignable = true; // không ném gì — đúng lỗi round 2: gán được cho người đã bị gỡ.
+        } catch (ValidationException $exception) {
+            $stillAssignable = false; // đúng: bị từ chối vì $assistant không còn mở được vụ việc.
+        }
+
+        pcntl_waitpid($pid, $status);
+        $childReaped = true;
+
+        $childOutcome = (string) @file_get_contents($childOutcomeFile);
+
+        if ($childOutcome !== 'removed-while-parent-blocked') {
+            test()->fail('Không dựng được cuộc đua cần đo — tiến trình con báo: ['.$childOutcome.'].');
+        }
+
+        expect($stillAssignable)->toBeFalse();
+    } finally {
+        if (! $childReaped) {
+            pcntl_waitpid($pid, $status); // con luôn tự dừng trong ~10 giây (xem vòng chờ của nó).
+        }
+
+        DB::connection('mariadb_b')->rollBack();
+        DB::purge('mariadb_b');
+        DB::setDefaultConnection('mariadb');
+        @unlink($lockHeldSignal);
+        @unlink($childOutcomeFile);
+
+        // Không dọn tay bảng nào: `RefreshDatabaseState::$migrated = false` ở trên khiến bài test
+        // kế tiếp `migrate:fresh` (xem docblock, fix round 4 N1).
+    }
+})->group('mariadb-locking');
+
+/**
+ * Final review A-M3: người giữ một yêu cầu khách đi qua CÙNG luật người giữ mốc
+ * (`ChecksDeadlineHolder`) — trong đội ngũ, còn đi làm, mở được hồ sơ. Một trưởng phòng ngoài đội
+ * ngũ vẫn `update` được vụ thường, nên cổng cũ cho qua.
+ */
+it('refuses an assignee outside the matter team even though they can write to the matter, and accepts them once on the team', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+
+    expect(Gate::forUser($manager)->allows('update', $this->matter))->toBeTrue();
+
+    try {
+        $this->action->assign($this->request, $this->lawyer, $manager);
+        $this->fail('Đáng lẽ phải ném ValidationException');
+    } catch (ValidationException $exception) {
+        expect($exception->errors()['assigned_to'][0])->toBe(__('requests.validation.assignee_cannot_open'));
+    }
+
+    $this->matter->addTeamMember($manager, MatterRole::Associate);
+
+    $this->action->assign(reloadThread($this->request), $this->lawyer, $manager);
+
+    expect(reloadThread($this->request)->assigned_to)->toBe($manager->id);
 });

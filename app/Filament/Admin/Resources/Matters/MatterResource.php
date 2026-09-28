@@ -3,6 +3,7 @@
 namespace App\Filament\Admin\Resources\Matters;
 
 use App\Filament\Admin\Resources\Matters\Pages\CreateMatter;
+use App\Filament\Admin\Resources\Matters\Pages\EditMatter;
 use App\Filament\Admin\Resources\Matters\Pages\ListMatters;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ChecklistRelationManager;
@@ -11,6 +12,7 @@ use App\Filament\Admin\Resources\Matters\RelationManagers\DeadlinesRelationManag
 use App\Filament\Admin\Resources\Matters\RelationManagers\DocumentsRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\PartiesRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\StageLogsRelationManager;
+use App\Filament\Admin\Resources\Matters\RelationManagers\TeamRelationManager;
 use App\Filament\Admin\Resources\Matters\Schemas\MatterForm;
 use App\Filament\Admin\Resources\Matters\Schemas\MatterInfolist;
 use App\Filament\Admin\Resources\Matters\Tables\MattersTable;
@@ -29,10 +31,12 @@ use Illuminate\Support\Facades\Auth;
  * getRecordRouteBindingEloquentQuery() (mở thẳng URL) đều phải áp `listableBy`, nếu không một
  * luật sư ngoài đội ngũ gõ đúng URL vẫn mở được vụ việc dù không thấy nó trong danh sách.
  *
- * Không có trang edit: sửa vụ việc chưa thuộc phạm vi M3. Trang create (`CreateMatter`) KHÔNG
- * dùng luồng `Model::create()` mặc định của Filament — nó gọi Action `OpenMatter`, vì mở một vụ
- * việc là bảy bước nghiệp vụ (kiểm tra xung đột lợi ích, sinh mã, dựng bên khách hàng, sao chép
- * danh mục hồ sơ, nhật ký) chứ không phải một lần ghi bảng. Trang chi tiết (`ViewMatter`) có bảy
+ * Trang create (`CreateMatter`) KHÔNG dùng luồng `Model::create()` mặc định của Filament — nó
+ * gọi Action `OpenMatter`, vì mở một vụ việc là bảy bước nghiệp vụ (kiểm tra xung đột lợi ích,
+ * sinh mã, dựng bên khách hàng, sao chép danh mục hồ sơ, nhật ký) chứ không phải một lần ghi
+ * bảng. Trang sửa (`EditMatter`, M6.5 Task 5) cũng vậy — gọi `App\Actions\Matter\
+ * UpdateMatterDetails`, chỉ sửa năm cột SPEC §4.6 cho phép, không đụng `client_id`/
+ * `matter_type_id`/`lead_lawyer_id`. Trang chi tiết (`ViewMatter`) có bảy
  * tab — Tổng quan (infolist dưới đây), Tiến độ, Danh mục hồ sơ, Tài liệu, Các bên, Yêu cầu từ
  * khách và Mốc thời hạn (`getRelations()`); các tab Liên lạc và Nhật ký (M7) chưa xây.
  */
@@ -77,6 +81,7 @@ class MatterResource extends Resource
             'index' => ListMatters::route('/'),
             'create' => CreateMatter::route('/create'),
             'view' => ViewMatter::route('/{record}'),
+            'edit' => EditMatter::route('/{record}/edit'),
         ];
     }
 
@@ -96,6 +101,10 @@ class MatterResource extends Resource
     public static function getRelations(): array
     {
         return [
+            // Tab "Đội ngũ" (M6.5 Task 3, R6) — đứng ngay sau Tổng quan vì đội ngũ là thứ quyết
+            // định ai còn THẤY được các tab bên dưới (SPEC §4.7 `matter_user`): trước tab này
+            // không có màn hình nào ghi vào đó ngoài lead do `Matter::created()` tự thêm.
+            TeamRelationManager::class,
             StageLogsRelationManager::class,
             ChecklistRelationManager::class,
             DocumentsRelationManager::class,

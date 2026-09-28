@@ -311,11 +311,11 @@ class MatterSeeder extends Seeder
                     $index === 0 => app(SubmitClientDocument::class)->handle(
                         $item,
                         $clientUser,
-                        DemoPdf::upload(
+                        [DemoPdf::upload(
                             Str::slug($item->name).'.pdf',
                             $item->name,
                             $matter->code.' - khach gui len qua trang khach hang',
-                        ),
+                        )],
                     ),
                     // Khách đã gửi và văn phòng TRẢ LẠI kèm lý do — đường "nộp lại" của SPEC
                     // §8.3 mục 4, thứ không có một dòng dữ liệu mẫu nào trước vòng này.
@@ -361,11 +361,11 @@ class MatterSeeder extends Seeder
                 app(SubmitClientDocument::class)->handle(
                     $item,
                     $clientUser,
-                    DemoPdf::upload(
+                    [DemoPdf::upload(
                         Str::slug($item->name).'.pdf',
                         $item->name,
                         $matter->code.' - khach gui len qua trang khach hang',
-                    ),
+                    )],
                 );
 
                 continue;
@@ -387,11 +387,11 @@ class MatterSeeder extends Seeder
         app(SubmitClientDocument::class)->handle(
             $item,
             $clientUser,
-            DemoPdf::upload(
+            [DemoPdf::upload(
                 Str::slug($item->name).'-lan-1.pdf',
                 $item->name,
                 $item->matter->code.' - ban chup lan dau, bi mo',
-            ),
+            )],
         );
 
         app(ReviewChecklistItem::class)->handle(

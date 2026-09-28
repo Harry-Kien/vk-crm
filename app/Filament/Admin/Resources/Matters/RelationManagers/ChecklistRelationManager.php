@@ -2,18 +2,26 @@
 
 namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 
+use App\Actions\Document\AddChecklistItem;
 use App\Actions\Document\ChecklistProgress;
 use App\Actions\Document\MarkChecklistItemNotApplicable;
 use App\Actions\Document\ReviewChecklistItem;
 use App\Enums\ChecklistItemStatus;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Concerns\ScopesToVisibleMatters;
+use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
+use App\Support\Scopes\ClientPortalScope;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Components\Actions as SchemaActions;
+use Filament\Schemas\Components\Component;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\IconColumn;
@@ -27,14 +35,22 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\HtmlString;
 
 /**
- * Tab "Danh mục hồ sơ" (SPEC §7.2): bảng `matter_checklist_items` kèm thanh tiến độ `X/Y` và ba
+ * Tab "Danh mục hồ sơ" (SPEC §7.2): bảng `matter_checklist_items` kèm thanh tiến độ `X/Y`, ba
  * thao tác ngay trên dòng — duyệt, từ chối (có ba mẫu lý do bấm một cái là điền, SPEC §6.7), và
- * đánh dấu không cần nộp (SPEC §4.10).
+ * đánh dấu không cần nộp (SPEC §4.10) — và một nút đầu bảng, "Thêm đầu mục" (M6.5 Task 15, SPEC
+ * §4.10/§7.4), để thêm một giấy tờ riêng cho ĐÚNG vụ việc này.
  *
- * **Lớp này không có một dòng nghiệp vụ nào.** Mọi lần ghi đi qua `ReviewChecklistItem` hoặc
- * `MarkChecklistItemNotApplicable` (CLAUDE.md: nghiệp vụ chỉ ở `app/Actions/`). Những gì ở đây
- * là: cột nào hiện, nút nào hiện cho ai, và một lời từ chối của Action đến được mắt người dùng
- * bằng tiếng Việt thay vì thành trang 500 — xem `ReportsActionFailures`.
+ * **"Thêm đầu mục" tồn tại vì trước Task 15 không có đường nào khác ghi một dòng MỚI vào
+ * `matter_checklist_items`.** Xem docblock {@see AddChecklistItem} cho hậu
+ * quả đầy đủ (finding `intake-02`/`checklist-02`/`roles-06`/`spec-gap-04`, critical): ba loại vụ
+ * việc không có mẫu mở ra với 0 đầu mục vĩnh viễn, và khách của các vụ đó không nộp được gì qua
+ * cổng.
+ *
+ * **Lớp này không có một dòng nghiệp vụ nào.** Mọi lần ghi đi qua `ReviewChecklistItem`,
+ * `MarkChecklistItemNotApplicable`, hoặc `AddChecklistItem` (CLAUDE.md: nghiệp vụ chỉ ở
+ * `app/Actions/`). Những gì ở đây là: cột nào hiện, nút nào hiện cho ai, và một lời từ chối của
+ * Action đến được mắt người dùng bằng tiếng Việt thay vì thành trang 500 — xem
+ * `ReportsActionFailures`.
  *
  * **Hai cổng khác nhau trên mỗi nút, cố ý tách rời.** `->authorize()` hỏi `Gate` về QUYỀN
  * (`MatterChecklistItemPolicy::review`, tức `checklist.review` cộng khả năng thấy hồ sơ);
@@ -56,10 +72,17 @@ use Illuminate\Support\HtmlString;
  * chép theo, kèm một câu docblock nói rằng mặc định `true` "từ chối MỌI thao tác bất kể policy".
  * Câu đó SAI. `RelationManager::getDefaultActionAuthorizationResponse()` chỉ hỏi `isReadOnly()`
  * cho các lớp action dựng sẵn của Filament (`CreateAction`, `EditAction`, `DeleteAction`,
- * `AttachAction`, …); mọi thứ khác rơi vào `default => null`. Cả ba thao tác ở đây là
- * `Filament\Actions\Action` thuần, nên phương thức đó không đổi được gì — một mutation probe
- * đặt nó thành `true` đã để cả bộ test xanh. Nếu một ngày có ai thêm `DeleteAction` vào bảng này
- * thì mới cần tắt nó, và lúc đó nó sẽ có test đi kèm.
+ * `AttachAction`, …); mọi thứ khác rơi vào `default => null`. Cả bốn thao tác ở đây (ba trên
+ * dòng, cộng "Thêm đầu mục" đầu bảng) đều là `Filament\Actions\Action` thuần, nên phương thức đó
+ * không đổi được gì — một mutation probe đặt nó thành `true` đã để cả bộ test xanh. Nếu một ngày
+ * có ai thêm `DeleteAction` vào bảng này thì mới cần tắt nó, và lúc đó nó sẽ có test đi kèm.
+ *
+ * Đúng vì `isReadOnly()` không chạm tới, "Thêm đầu mục" PHẢI tự khai `->authorize()` — nguyên tắc
+ * của task này: mặc định trang/Action tự viết luôn CHO PHÉP, mỗi Action phải tự hỏi policy. Cổng
+ * đó hỏi thẳng `MatterChecklistItemPolicy::create()` (uỷ cho `MatterPolicy::update()`), KHÔNG
+ * phải `checklist.review` như ba nút kia — thêm một giấy tờ vào danh mục là một việc khác với
+ * duyệt một giấy tờ khách đã nộp (xem docblock `AddChecklistItem`), và trợ lý thêm được vì họ có
+ * sẵn `matter.update` (`Role::Assistant->permissions()`), không phải vì họ có `checklist.review`.
  */
 class ChecklistRelationManager extends RelationManager
 {
@@ -180,7 +203,7 @@ class ChecklistRelationManager extends RelationManager
                     ->badge()
                     ->formatStateUsing(fn (ChecklistItemStatus $state): string => $state->label())
                     ->color(fn (ChecklistItemStatus $state): string => static::statusColor($state)),
-                TextColumn::make(ChecklistProgress::DOCUMENT_COUNT_ALIAS)
+                TextColumn::make(ChecklistProgress::CLIENT_SUBMITTED_DOCUMENT_COUNT_ALIAS)
                     ->label(__('checklist.tab.columns.documents_count')),
                 // Câu này khách đang đọc trên portal của họ, nên nó hiện đầy đủ ở đây — người
                 // duyệt phải đọc lại được chính xác thứ văn phòng đã nói, không phải một bản rút
@@ -200,6 +223,9 @@ class ChecklistRelationManager extends RelationManager
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->defaultSort('sort_order')
+            ->headerActions([
+                $this->addItemAction(),
+            ])
             ->recordActions([
                 $this->acceptAction(),
                 $this->rejectAction(),
@@ -209,9 +235,135 @@ class ChecklistRelationManager extends RelationManager
             // `ChecklistProgress` chứ không viết lại: một `withCount` thứ hai ở đây là cách để
             // cột "Số tài liệu" và con số `X/Y` ngay trên đầu bảng nói hai chuyện khác nhau về
             // cùng một dòng.
-            ->modifyQueryUsing(fn (Builder $query): Builder => ChecklistProgress::countClientFacingDocuments(
+            ->modifyQueryUsing(fn (Builder $query): Builder => ChecklistProgress::countClientSubmittedDocuments(
                 static::scopeToVisibleMatters($query)
             )->with('reviewer'));
+    }
+
+    /**
+     * "Thêm đầu mục" (M6.5 Task 15) — đầu bảng, không gắn với một dòng nào. Ba ô đủ cho việc xin
+     * thêm MỘT giấy tờ riêng cho vụ việc này: tên, mô tả cho khách (câu này khách đọc trên portal
+     * — xem `MatterProgress::checklistItems()`), và có bắt buộc hay không. Không có ô "thứ tự":
+     * `AddChecklistItem` tự nối đầu mục mới vào CUỐI danh mục hiện có, người thêm không cần biết
+     * số thứ tự hiện tại của những dòng khác.
+     *
+     * `->maxLength(200)` khớp đúng cột `matter_checklist_items.name` (migration
+     * `2026_09_14_000011`) — MariaDB strict mode biến việc vượt quá thành lỗi 500, SQLite của bộ
+     * test thì không thấy (CLAUDE.md, bài học `intake/intake-08`).
+     */
+    private function addItemAction(): Action
+    {
+        $matter = $this->getOwnerRecord();
+
+        return Action::make('addItem')
+            ->label(__('checklist.tab.actions.add_item'))
+            ->icon(Heroicon::OutlinedPlus)
+            ->modalHeading(__('checklist.tab.actions.add_item_heading'))
+            ->modalSubmitActionLabel(__('checklist.tab.actions.add_item_submit'))
+            // Cổng THẬT — không có nó, một `Filament\Actions\Action` thuần mặc định CHO PHÉP mọi
+            // người (xem docblock lớp). Hỏi `MatterChecklistItemPolicy::create()`, KHÔNG phải
+            // `checklist.review`: đây là "xin thêm giấy tờ", không phải "duyệt giấy tờ đã nộp".
+            ->authorize(fn (): bool => Gate::allows('create', [MatterChecklistItem::class, $matter]))
+            ->schema([
+                TextInput::make('name')
+                    ->label(__('checklist.tab.fields.item_name'))
+                    ->required()
+                    ->maxLength(200),
+                Textarea::make('description')
+                    ->label(__('checklist.tab.fields.item_description'))
+                    ->columnSpanFull(),
+                Toggle::make('is_required')
+                    ->label(__('checklist.tab.fields.item_is_required'))
+                    ->default(false),
+            ])
+            ->successNotificationTitle(__('checklist.tab.actions.add_item_success'))
+            ->action(fn (Action $action, array $data) => $this->runAction(
+                $action,
+                fn () => app(AddChecklistItem::class)->handle(
+                    matter: $matter,
+                    actor: Auth::user(),
+                    name: $data['name'],
+                    description: $data['description'] ?? null,
+                    isRequired: (bool) ($data['is_required'] ?? false),
+                ),
+            ));
+    }
+
+    /**
+     * R11 (M6.5 Task 17, checklist-04) — hai thành phần dùng chung cho CẢ HAI hộp duyệt (đã nhận,
+     * cần nộp lại), vì cả hai đều là "một quyết định duyệt" theo đúng nghĩa
+     * `ReviewChecklistItem::handle()` dùng chữ đó:
+     *
+     *  1. **Danh sách tệp** ({@see self::documentsList()}) — để người duyệt THẤY đúng cái mình
+     *     sắp quyết định, kèm liên kết mở TỪNG tệp (`Document::downloadUrlFor()`, route đã ký,
+     *     SPEC §10.4), thay vì phải rời tab này sang tab "Tài liệu" rồi quay lại.
+     *  2. **Ô ẩn `document_ids`** — chụp lại đúng tập id mà danh sách trên vừa vẽ ra, TẠI THỜI
+     *     ĐIỂM MỞ HỘP (`default()` chạy lúc mount action, không chạy lại khi submit). Gửi kèm lên
+     *     `ReviewChecklistItem::handle()`, nơi nó được so lại với tập HIỆN TẠI dưới khoá — khác
+     *     nhau thì bị chặn. Đây là CƠ CHẾ; luật thuộc về Action, không thuộc về màn hình.
+     *
+     * Cùng một nguồn — {@see ReviewChecklistItem::currentDocumentIds()} — dựng cả hai, nên danh
+     * sách người duyệt THẤY và tập id gửi lên LUÔN khớp nhau; viết lại truy vấn đó lần thứ hai ở
+     * đây là cách chắc chắn nhất để một ngày chúng lệch nhau.
+     *
+     * @return array<int, Component>
+     */
+    private function documentsSchema(): array
+    {
+        return [
+            Placeholder::make('documents')
+                ->label(__('checklist.tab.fields.documents_label'))
+                ->content(fn (MatterChecklistItem $record): Htmlable => static::documentsList($record)),
+            Hidden::make('document_ids')
+                ->default(fn (MatterChecklistItem $record): array => ReviewChecklistItem::currentDocumentIds($record)),
+        ];
+    }
+
+    /**
+     * Vẽ danh sách tệp của {@see self::documentsSchema()} — tách riêng để test được mà không
+     * dựng cả action, cùng thành ngữ `progressBar()`.
+     *
+     * `withoutGlobalScope(ClientPortalScope::class)`, tường minh: cùng lý do với
+     * `ReviewChecklistItem::currentDocumentIds()` — một nhân sự đang mở cả hai panel trong cùng
+     * trình duyệt không được nhận một danh sách rỗng chỉ vì guard `client` cũng đang xác thực.
+     *
+     * `downloadUrlFor(Auth::user())` — route đã ký, hết hạn sau 5 phút (SPEC §10.4), ký cho ĐÚNG
+     * người đang mở hộp này. Cùng thành ngữ `DocumentsRelationManager::downloadAction()`.
+     *
+     * Tên hiện ra là tên TỆP KHÁCH ĐÃ ĐẶT (`Media::name`, qua `FileGuard::safeName()`), không
+     * phải `Document::title` — hai (hoặc nhiều) tệp của cùng một lần nộp (R10) đều mang chung một
+     * `title` (tên đầu mục), nên chỉ tên tệp mới phân biệt được "mặt trước" với "mặt sau".
+     *
+     * `public static`, cùng thành ngữ `progressBar()`: test được trực tiếp mà không phải dựng cả
+     * action/modal — bài học từ chính vòng sửa này, nơi `->html()` của một action đã MOUNT không
+     * chắc mang theo nội dung modal trong bộ test hiện có của dự án.
+     */
+    public static function documentsList(MatterChecklistItem $item): Htmlable
+    {
+        $ids = ReviewChecklistItem::currentDocumentIds($item);
+
+        if ($ids === []) {
+            return new HtmlString(sprintf(
+                '<p style="opacity:0.7">%s</p>',
+                e(__('checklist.tab.fields.documents_empty')),
+            ));
+        }
+
+        $viewer = Auth::user();
+
+        $rows = Document::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->whereKey($ids)
+            ->get()
+            ->sortBy(fn (Document $document): int => array_search($document->getKey(), $ids, true))
+            ->map(fn (Document $document): string => sprintf(
+                '<li><a href="%s" target="_blank" rel="noopener" style="color:var(--primary-600);text-decoration:underline;">%s</a></li>',
+                e($document->downloadUrlFor($viewer)),
+                e($document->getFirstMedia('file')?->name ?? $document->title),
+            ))
+            ->implode('');
+
+        return new HtmlString(sprintf('<ul style="margin:0;padding-left:1.25rem;">%s</ul>', $rows));
     }
 
     private function acceptAction(): Action
@@ -224,13 +376,15 @@ class ChecklistRelationManager extends RelationManager
             ->modalHeading(__('checklist.tab.actions.accept_heading'))
             ->modalDescription(__('checklist.tab.actions.accept_description'))
             ->authorize(fn (MatterChecklistItem $record): bool => Gate::allows('review', $record))
+            ->schema($this->documentsSchema())
             ->successNotificationTitle(__('checklist.tab.actions.accept_success'))
-            ->action(fn (Action $action, MatterChecklistItem $record) => $this->runAction(
+            ->action(fn (Action $action, MatterChecklistItem $record, array $data) => $this->runAction(
                 $action,
                 fn () => app(ReviewChecklistItem::class)->handle(
                     checklistItem: $record,
                     actor: Auth::user(),
                     decision: ChecklistItemStatus::Accepted,
+                    documentIds: $data['document_ids'] ?? [],
                 ),
             ));
     }
@@ -252,11 +406,29 @@ class ChecklistRelationManager extends RelationManager
                 // (state của một action đang mounted nằm ở `mountedActions.N.data`, không ở
                 // `$this->data`) — cùng cái bẫy `PartiesRelationManager::forgetConflictResult()`
                 // phải tự đi vòng.
+                //
+                // **checklist-06 — mẫu `wrong_document` tự điền `[tên đầu mục]`.** Tên đầu mục đã
+                // nằm sẵn trên chính dòng đang mở (`$record->name`), nên màn hình không có lý do
+                // gì bắt người duyệt gõ lại một chuỗi nó đã biết. `[tên tài liệu đã nộp]` thì
+                // KHÔNG được tự điền theo cùng cách: màn hình không biết khách đã gửi ĐÚNG tệp
+                // gì, chỉ người duyệt — sau khi mở hộp và xem danh sách tệp bên dưới — mới biết,
+                // nên nó vẫn là một chỗ trống phải điền tay. Bấm mẫu rồi gửi luôn mà quên sửa vẫn
+                // bị `ReviewChecklistItem::resolveRejectionReason()` chặn lại vì còn `[tên` —
+                // hai lớp cùng canh một luật, không phải luật nói hai lần: lớp NÀY tránh một lần
+                // gõ tay không cần thiết, lớp KIA là cổng thật không tin màn hình đã điền đúng.
                 SchemaActions::make(collect(static::rejectionTemplates())
                     ->map(fn (string $label, string $key): Action => Action::make('fill_'.$key)
                         ->label($label)
                         ->link()
-                        ->action(fn (Set $set) => $set('rejection_reason', __('checklist.rejection_templates.'.$key))))
+                        ->action(function (Set $set, MatterChecklistItem $record) use ($key): void {
+                            $template = __('checklist.rejection_templates.'.$key);
+
+                            if ($key === 'wrong_document') {
+                                $template = str_replace('[tên đầu mục]', $record->name, $template);
+                            }
+
+                            $set('rejection_reason', $template);
+                        }))
                     ->values()
                     ->all())
                     ->key('rejection_templates')
@@ -273,6 +445,8 @@ class ChecklistRelationManager extends RelationManager
                     // vẫn tới được người dùng qua `runAction()` nếu một ngày chúng lệch.
                     ->required()
                     ->minLength(20),
+                // R11 (M6.5 Task 17, checklist-04) — xem docblock `self::documentsSchema()`.
+                ...$this->documentsSchema(),
             ])
             ->successNotificationTitle(__('checklist.tab.actions.reject_success'))
             ->action(fn (Action $action, MatterChecklistItem $record, array $data) => $this->runAction(
@@ -282,6 +456,7 @@ class ChecklistRelationManager extends RelationManager
                     actor: Auth::user(),
                     decision: ChecklistItemStatus::Rejected,
                     rejectionReason: $data['rejection_reason'] ?? null,
+                    documentIds: $data['document_ids'] ?? [],
                 ),
                 'rejection_reason',
             ));

@@ -3,15 +3,21 @@
 
 @php
     $colors = config('vkcrm.brand.colors');
+    // M6.5 Task 12 (`deadlines/F3`): $headlineKey đọc theo SỐ NGÀY THẬT ('upcoming'/'due_today'/
+    // 'overdue'), không theo bậc nhắc — xem docblock App\Mail\Staff\DeadlineReminder.
+    $isUrgent = $headlineKey !== 'upcoming';
+    $headline = match ($headlineKey) {
+        'due_today' => __('deadlines.email.headline.due_today'),
+        'overdue' => __('deadlines.email.headline.overdue', ['days' => abs($daysLeft)]),
+        default => __('deadlines.email.headline.upcoming', ['days' => $daysLeft]),
+    };
 @endphp
 
 @section('content')
     <p style="margin:0 0 16px;">{{ __('deadlines.email.greeting', ['name' => $recipientName]) }}</p>
 
-    <p style="margin:0 0 12px; font-weight:700; color:{{ $isOverdue ? $colors['red'] : $colors['navy'] }};">
-        {{ $isOverdue
-            ? __('deadlines.email.headline.overdue', ['days' => abs($daysLeft)])
-            : __('deadlines.email.headline.upcoming', ['days' => $daysLeft]) }}
+    <p style="margin:0 0 12px; font-weight:700; color:{{ $isUrgent ? $colors['red'] : $colors['navy'] }};">
+        {{ $headline }}
     </p>
 
     <p style="margin:0 0 4px;">{{ $deadlineName }}</p>

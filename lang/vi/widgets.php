@@ -19,6 +19,22 @@ return [
         ],
         'empty_state' => 'Không có hồ sơ nào quá hạn cập nhật.',
     ],
+    // M6.5 Task 14 (`deadlines/F5`, `spec-gap-05`): mục 2 của SPEC §7.1, rơi mất giữa các
+    // milestone cho tới đây — xem docblock `App\Filament\Admin\Widgets\UpcomingDeadlinesWidget`.
+    'upcoming_deadlines' => [
+        'heading' => 'Mốc thời hạn 7 ngày tới',
+        'description' => '7 ngày tới, cộng mốc quá hạn chưa xong.',
+        'empty_state' => 'Không có mốc thời hạn nào sắp tới hoặc quá hạn.',
+        'columns' => [
+            'due_date' => 'Ngày đến hạn',
+            'code' => 'Mã hồ sơ',
+            'client' => 'Khách hàng',
+            'name' => 'Nội dung',
+            'severity' => 'Mức độ',
+            'responsible' => 'Người phụ trách',
+        ],
+        'open' => 'Mở hồ sơ',
+    ],
     'pending_checklist_reviews' => [
         'heading' => 'Tài liệu chờ duyệt',
         'description' => 'Khách đã nộp, chưa ai xem.',

@@ -6,6 +6,7 @@ use App\Enums\Role;
 use App\Events\StageLogPublished;
 use App\Exceptions\InvalidStageTransition;
 use App\Exceptions\MatterNotPublishedToPortal;
+use App\Exceptions\MatterStageChanged;
 use App\Models\Matter;
 use App\Models\MatterType;
 use App\Models\StageLog;
@@ -132,6 +133,92 @@ it('does not let a non-admin bypass the allowed_next check even with matter.tran
         expectedNextUpdateAt: null,
         publish: false,
     ))->toThrow(InvalidStageTransition::class);
+});
+
+/*
+|--------------------------------------------------------------------------
+| `stage/stage-05` (M6.5 Task 10) — khoá dòng vụ việc khi chuyển giai đoạn.
+|--------------------------------------------------------------------------
+|
+| `handle()` giờ khoá dòng `matters` NGAY LẦN CHẠM ĐẦU TIÊN vào CSDL trong transaction
+| (`lockForUpdate()`), rồi so giai đoạn ĐỌC LẠI DƯỚI KHOÁ với giai đoạn mà `$matter` truyền vào
+| đang cầm TRƯỚC transaction. Test này chạy được trên SQLite (không cần khoá thật — SQLite khoá cả
+| CSDL, không phải một dòng) vì nó không đo TÁC DỤNG của khoá, mà đo ĐÚNG PHÉP SO SÁNH: gọi
+| `handle()` hai lần TRONG CÙNG một tiến trình, với HAI instance `Matter` tách biệt của CÙNG một
+| dòng — instance thứ hai vẫn mang giai đoạn CŨ trong bộ nhớ dù dòng CSDL đã đổi ở lần gọi đầu. Đây
+| chính là "Probe 1" của phát hiện gốc (`docs/audits/2026-09-24-quy-trinh.md`, mục `stage-05`),
+| viết lại thành một test thường trực. Bài test THẬT có khoá, hai tiến trình HĐH, hai kết nối DB
+| riêng trên MariaDB nằm ở `TransitionMatterStageConcurrencyTest.php`.
+*/
+
+/**
+ * Đối chứng DƯƠNG trước: khi KHÔNG có race (chỉ một instance, gọi một lần), một transition bình
+ * thường vẫn đi qua — test này tồn tại để cặp với test ÂM ngay dưới không "chỉ toàn âm".
+ */
+it('still lets a normal, single transition through unaffected by the stage-change guard', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = matterWithLawyer($lawyer);
+    $this->actingAs($lawyer, 'web');
+
+    $stageLog = app(TransitionMatterStage::class)->handle(
+        matter: $matter,
+        actor: $lawyer,
+        toStage: 'collecting',
+        occurredAt: now(),
+        internalNote: null,
+        publicContent: null,
+        nextStep: null,
+        clientAction: null,
+        expectedNextUpdateAt: null,
+        publish: false,
+    );
+
+    expect($stageLog->to_stage)->toBe('collecting')
+        ->and($matter->fresh()->stage)->toBe('collecting');
+});
+
+it('rejects a transition built from a stale snapshot of the matter, even though to_stage was valid when read', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = matterWithLawyer($lawyer);
+    $this->actingAs($lawyer, 'web');
+
+    // Hai instance TÁCH BIỆT của CÙNG một dòng — mô phỏng hai request đọc $matter trước khi vào
+    // transaction của handle(), đúng như hai tiến trình thật của bài test MariaDB.
+    $staleMatter = Matter::find($matter->id);
+
+    // Request "thắng": chuyển thật, commit — dòng CSDL giờ ở 'collecting'.
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter,
+        actor: $lawyer,
+        toStage: 'collecting',
+        occurredAt: now(),
+        internalNote: null,
+        publicContent: null,
+        nextStep: null,
+        clientAction: null,
+        expectedNextUpdateAt: null,
+        publish: false,
+    );
+
+    // Request "thua": $staleMatter->stage vẫn là 'intake' trong bộ nhớ (snapshot cũ) — 'collecting'
+    // ĐÚNG là một allowed_next hợp lệ của 'intake', nên nếu không có khoá+so sánh, request này sẽ
+    // âm thầm ghi một dòng StageLog thứ hai với from_stage sai (Probe 1 gốc). Với bản sửa, nó phải
+    // bị từ chối NGAY, không tạo StageLog nào.
+    expect(fn () => app(TransitionMatterStage::class)->handle(
+        matter: $staleMatter,
+        actor: $lawyer,
+        toStage: 'collecting',
+        occurredAt: now(),
+        internalNote: null,
+        publicContent: null,
+        nextStep: null,
+        clientAction: null,
+        expectedNextUpdateAt: null,
+        publish: false,
+    ))->toThrow(MatterStageChanged::class);
+
+    expect($matter->fresh()->stage)->toBe('collecting')
+        ->and(StageLog::query()->where('matter_id', $matter->id)->count())->toBe(1);
 });
 
 it('throws a validation error when publish is true and public_content is 29 characters', function () {
@@ -693,4 +780,204 @@ it('keeps matters.updated_by on the actor even when the column already holds the
     );
 
     expect($matter->fresh()->updated_by)->toBe($lawyer->id);
+});
+
+// --- R8 (M6.5 Task 5, findings stage-03/spec-gap-03): closed_at, một định nghĩa "đang mở" -----
+
+/**
+ * Vụ việc có một giai đoạn `is_terminal` (`closed`), tới được từ `intake`. Tách khỏi
+ * `matterWithStages()` ở trên vì ba stage sẵn có ('intake'/'collecting'/'filed') không đánh dấu
+ * `is_terminal`, và việc thêm cờ đó vào chúng sẽ đổi hành vi của mọi test khác trong tệp này.
+ */
+function matterWithTerminalStage(array $attributes = []): Matter
+{
+    $type = MatterType::factory()->create();
+
+    $type->stages()->create([
+        'key' => 'intake', 'label' => 'Tiếp nhận', 'client_label' => 'Tiếp nhận',
+        'client_description' => 'Đã tiếp nhận', 'sort_order' => 1,
+        'allowed_next' => ['closed'], 'default_next_update_days' => 14,
+    ]);
+    $type->stages()->create([
+        'key' => 'closed', 'label' => 'Kết thúc', 'client_label' => 'Đã kết thúc',
+        'client_description' => 'Đã kết thúc', 'sort_order' => 2, 'is_terminal' => true,
+        'allowed_next' => [], 'default_next_update_days' => 30,
+    ]);
+    $type->unsetRelation('stages');
+
+    return Matter::factory()->for($type, 'matterType')->create($attributes);
+}
+
+/** R8: vào một giai đoạn is_terminal ghi closed_at = now(). */
+it('sets closed_at to now when transitioning into a terminal stage', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = matterWithTerminalStage();
+    $this->actingAs($admin, 'web');
+
+    expect($matter->closed_at)->toBeNull();
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter,
+        actor: $admin,
+        toStage: 'closed',
+        occurredAt: now(),
+        internalNote: null,
+        publicContent: null,
+        nextStep: null,
+        clientAction: null,
+        expectedNextUpdateAt: null,
+        publish: false,
+    );
+
+    $fresh = $matter->fresh();
+
+    expect($fresh->stage)->toBe('closed')
+        ->and($fresh->closed_at)->not->toBeNull()
+        ->and($fresh->closed_at->isToday())->toBeTrue();
+});
+
+/**
+ * R8: rời một giai đoạn is_terminal (đường bỏ qua của admin, vì "closed" ở trên không khai báo
+ * allowed_next quay lại "intake") xoá closed_at về null.
+ */
+it('clears closed_at when an admin bypasses the way out of a terminal stage', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = matterWithTerminalStage();
+    $this->actingAs($admin, 'web');
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter, actor: $admin, toStage: 'closed', occurredAt: now(),
+        internalNote: null, publicContent: null, nextStep: null, clientAction: null,
+        expectedNextUpdateAt: null, publish: false,
+    );
+
+    expect($matter->fresh()->closed_at)->not->toBeNull();
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter->fresh(), actor: $admin, toStage: 'intake', occurredAt: now(),
+        internalNote: 'Mở lại vụ việc theo yêu cầu', publicContent: null, nextStep: null,
+        clientAction: null, expectedNextUpdateAt: null, publish: false,
+    );
+
+    expect($matter->fresh()->stage)->toBe('intake')
+        ->and($matter->fresh()->closed_at)->toBeNull();
+});
+
+/**
+ * §6.3: một dòng cập nhật KHÔNG đổi giai đoạn (`toStage` bằng giai đoạn hiện tại) không được
+ * tính lại `closed_at` — cùng luật với `stage_entered_at` ngay phía trên nó trong Action.
+ */
+it('does not touch closed_at on a same-stage update while already in a terminal stage', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = matterWithTerminalStage();
+    $this->actingAs($admin, 'web');
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter, actor: $admin, toStage: 'closed', occurredAt: now(),
+        internalNote: null, publicContent: null, nextStep: null, clientAction: null,
+        expectedNextUpdateAt: null, publish: false,
+    );
+
+    $closedAt = $matter->fresh()->closed_at;
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter->fresh(), actor: $admin, toStage: 'closed', occurredAt: now(),
+        internalNote: 'Một dòng cập nhật không đổi giai đoạn', publicContent: null,
+        nextStep: null, clientAction: null, expectedNextUpdateAt: null, publish: false,
+    );
+
+    expect($matter->fresh()->closed_at->toDateString())->toBe($closedAt->toDateString());
+});
+
+/**
+ * Vụ việc có HAI giai đoạn `is_terminal`, ví dụ "Kết thúc" và "Lưu trữ" — một vụ đã kết thúc có
+ * thể cần chuyển sang một giai đoạn kết thúc KHÁC (đường bỏ qua của admin) mà không phải "mở lại
+ * rồi đóng lại". Tách khỏi `matterWithTerminalStage()` vì bản đó chỉ có một giai đoạn terminal.
+ */
+function matterWithTwoTerminalStages(array $attributes = []): Matter
+{
+    $type = MatterType::factory()->create();
+
+    $type->stages()->create([
+        'key' => 'closed', 'label' => 'Kết thúc', 'client_label' => 'Đã kết thúc',
+        'client_description' => 'Đã kết thúc', 'sort_order' => 1, 'is_terminal' => true,
+        'allowed_next' => ['archived'], 'default_next_update_days' => 30,
+    ]);
+    $type->stages()->create([
+        'key' => 'archived', 'label' => 'Lưu trữ', 'client_label' => 'Đã lưu trữ',
+        'client_description' => 'Đã lưu trữ', 'sort_order' => 2, 'is_terminal' => true,
+        'allowed_next' => [], 'default_next_update_days' => 30,
+    ]);
+    $type->unsetRelation('stages');
+
+    return Matter::factory()->for($type, 'matterType')->create($attributes);
+}
+
+/**
+ * Fix round 1, R8 minor: chuyển từ một giai đoạn `is_terminal` SANG một giai đoạn `is_terminal`
+ * KHÁC phải GIỮ NGUYÊN `closed_at` gốc — không phải reset về hôm nay. Bản đầu chỉ hỏi "giai đoạn
+ * ĐÍCH có terminal không", nên mọi lần vào một giai đoạn terminal (kể cả từ một giai đoạn terminal
+ * khác) đều ghi đè `closed_at` bằng `now()`, xoá mất ngày vụ việc THẬT SỰ đã đóng.
+ *
+ * Cặp dương của luật "vào lần đầu thì ghi `now()`" đã có sẵn ở test
+ * "sets closed_at to now when transitioning into a terminal stage" phía trên — không lặp lại ở
+ * đây, chỉ thêm đúng ca mới: terminal → terminal khác.
+ */
+it('keeps the original closed_at when moving from one terminal stage to another', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = matterWithTwoTerminalStages(['stage' => 'closed', 'closed_at' => now()->subDays(30)]);
+    $originalClosedAt = $matter->closed_at;
+    $this->actingAs($admin, 'web');
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter, actor: $admin, toStage: 'archived', occurredAt: now(),
+        internalNote: 'Chuyển sang lưu trữ', publicContent: null, nextStep: null,
+        clientAction: null, expectedNextUpdateAt: null, publish: false,
+    );
+
+    $fresh = $matter->fresh();
+
+    expect($fresh->stage)->toBe('archived')
+        ->and($fresh->closed_at->toDateString())->toBe($originalClosedAt->toDateString());
+});
+
+// --- Final review X9 (C-I3): closed_at theo giai đoạn ĐÍCH, không theo giai đoạn đang đứng -----
+
+/**
+ * Vụ đã vào một giai đoạn lúc nó còn `is_terminal` (closed_at có giá trị), rồi cờ đó được sửa
+ * thành không-terminal. Bản cũ chỉ xoá closed_at khi RỜI một giai đoạn terminal — giai đoạn đang
+ * đứng giờ không còn terminal, nên closed_at mắc kẹt: vụ đang chạy mà bị coi là "đã đóng" ở mọi
+ * nơi dùng `Matter::scopeOpen()` (nhắc hạn, việc dở dang, widget).
+ */
+it('clears a stuck closed_at when the matter moves into a non-terminal stage', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = matterWithStages(['stage' => 'intake', 'closed_at' => now()->subDays(3)]);
+    $this->actingAs($admin, 'web');
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter, actor: $admin, toStage: 'collecting', occurredAt: now(),
+        internalNote: null, publicContent: null, nextStep: null, clientAction: null,
+        expectedNextUpdateAt: null, publish: false,
+    );
+
+    expect($matter->fresh()->closed_at)->toBeNull();
+});
+
+/**
+ * Chiều ngược lại: vụ vào một giai đoạn lúc nó CHƯA terminal (closed_at trống), cờ sau đó được bật.
+ * Chuyển tiếp sang một giai đoạn terminal khác phải đóng vụ — bản cũ bỏ qua vì "giai đoạn trước đã
+ * terminal", để lại một vụ ở giai đoạn kết thúc mà vẫn "đang mở".
+ */
+it('sets closed_at when the matter moves into a terminal stage while closed_at is still empty', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = matterWithTwoTerminalStages(['stage' => 'closed', 'closed_at' => null]);
+    $this->actingAs($admin, 'web');
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter, actor: $admin, toStage: 'archived', occurredAt: now(),
+        internalNote: null, publicContent: null, nextStep: null, clientAction: null,
+        expectedNextUpdateAt: null, publish: false,
+    );
+
+    expect($matter->fresh()->closed_at)->not->toBeNull();
 });

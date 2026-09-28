@@ -41,15 +41,35 @@ use Illuminate\Support\Facades\Auth;
  * phiên mới, không có nó thì form đăng nhập ngay sau đó nhận 419. Thông báo được đẩy vào phiên
  * **sau** `invalidate()`, vì `invalidate()` xoá sạch những gì đã đẩy trước đó.
  *
- * # Vì sao KHÔNG có `trashed()` ở đây
+ * # Vì sao KHÔNG có `$user->trashed()` ở đây (KHÁC với `$user->client` bên dưới)
  *
- * Câu hỏi "tài khoản này đã bị xoá mềm chưa" cố ý không được hỏi, và nó được nói ra vì người đọc
- * tiếp theo sẽ đi tìm nó: `Auth::guard('client')->user()` tra qua `EloquentUserProvider::newModelQuery()`,
- * thứ dựng truy vấn từ `$model->newQuery()` và vì vậy MANG THEO `SoftDeletingScope`. Một
- * `ClientUser` đã xoá mềm không bao giờ được trả về, nên `$user` ở đây đã là `null` và request
- * đi tiếp tới `Authenticate` như một người chưa đăng nhập. Thêm một `trashed()` ở đây là thêm
- * một điều kiện không bao giờ đúng — và một điều kiện không bao giờ đúng trông y hệt một lớp
- * bảo vệ, nên nó tệ hơn là không có.
+ * Câu hỏi "tài khoản CỔNG này đã bị xoá mềm chưa" cố ý không được hỏi, và nó được nói ra vì người
+ * đọc tiếp theo sẽ đi tìm nó: `Auth::guard('client')->user()` tra qua
+ * `EloquentUserProvider::newModelQuery()`, thứ dựng truy vấn từ `$model->newQuery()` và vì vậy
+ * MANG THEO `SoftDeletingScope`. Một `ClientUser` đã xoá mềm không bao giờ được trả về, nên
+ * `$user` ở đây đã là `null` và request đi tiếp tới `Authenticate` như một người chưa đăng nhập.
+ * Thêm một `trashed()` ở đây là thêm một điều kiện không bao giờ đúng — và một điều kiện không
+ * bao giờ đúng trông y hệt một lớp bảo vệ, nên nó tệ hơn là không có.
+ *
+ * # Task 2, vòng sửa 1 (Important #4, phán quyết chủ nhiệm) — KHÁCH HÀNG (Client, bản ghi cha)
+ * đã xoá mềm, không phải tài khoản cổng
+ *
+ * Đây là một bản ghi KHÁC hẳn đoạn trên: `clients.deleted_at`, không phải `client_users.deleted_at`.
+ * `SoftDeletingScope` của `Client` không giúp gì ở đây — `$user->client` (quan hệ `BelongsTo`
+ * thường) mới là chỗ nó phát huy, và nó trả `null` đúng lúc khách hàng đã bị xoá mềm, y hệt cách
+ * `ClientUser::canAccessPanel()` đọc (Task 2, `portal/portal-3`, vòng đầu).
+ *
+ * Trước phán quyết này, một khách hàng bị xoá mềm GIỮA PHIÊN kẹt lại ở một trạng thái không có
+ * lối ra tử tế: `canAccessPanel()` (vẫn là cổng thật — middleware này KHÔNG thay nó) trả `false`,
+ * `Authenticate` `abort(403)`, và `AnswerDeniedPanelRequestsWithNotFound` đổi thành 404 — một
+ * trang lỗi tiếng Anh chung chung của Laravel, không phải màn hình đăng nhập tiếng Việt. Tệ hơn:
+ * phiên KHÔNG bị đăng xuất, nên `/portal/login` tự chuyển hướng về `/portal` (đã đăng nhập rồi
+ * còn gì) — tức một vòng lặp không lối ra, người dùng không đăng xuất được bằng UI.
+ *
+ * Xử theo ĐÚNG khuôn của nhánh `is_active` ở trên — cùng ba bước, cùng điệp khúc `portal.inactive`
+ * (câu đó vốn đã không nói lý do, nên dùng lại đúng cho cả hai nguyên nhân, không cần khoá dịch
+ * mới) — vì đây là CÙNG MỘT LOẠI sự kiện xét từ phía khách: "tài khoản của tôi không dùng được
+ * nữa, và tôi cần biết ngay, bằng tiếng Việt, không phải một trang lỗi".
  *
  * # Phủ cả request cập nhật Livewire
  *
@@ -71,7 +91,14 @@ class EnsurePortalAccountIsActive
         // thuộc vào thứ tự dựng panel.
         $user = Auth::guard('client')->user();
 
-        if (! ($user instanceof ClientUser) || $user->is_active) {
+        if (! ($user instanceof ClientUser)) {
+            return $next($request);
+        }
+
+        // Hai điều kiện ĐỘC LẬP, cả hai cùng dẫn tới cùng một xử lý (Task 2, vòng sửa 1, Important
+        // #4): tài khoản cổng bị vô hiệu (is_active = false), HOẶC khách hàng cha đã bị xoá mềm
+        // (`$user->client === null` — xem đoạn docblock lớp phân biệt với `$user->trashed()`).
+        if ($user->is_active && $user->client !== null) {
             return $next($request);
         }
 

@@ -168,6 +168,46 @@ it('toggles portal publication only for someone with matter.update, and the swit
 });
 
 /**
+ * R5 (roles-05, M6.5 Task 10): trợ lý có `matter.update` nhưng không có `stageLog.publish` — BẬT
+ * công tắc công bố cả vụ việc là "quyết định đưa gì ra cho khách" (xem
+ * MatterPolicy::setPortalPublication()), nên nút này ẩn với trợ lý khi vụ việc CHƯA công bố (bấm
+ * vào sẽ BẬT).
+ *
+ * Fix round 1 (ruling task-10-fix1-findings.md): chiều NGƯỢC LẠI — vụ việc ĐÃ công bố, bấm nút sẽ
+ * TẮT (chỉ thu hẹp những gì khách thấy) — chỉ cần `matter.update`, nên trợ lý VẪN thấy nút. Cặp
+ * test dưới đây thay cho test "ẩn cả hai chiều" của commit trước, vì ruling này đổi đúng nửa đó.
+ */
+it('hides the toggle-portal-publication button from an assistant when the matter is not yet published (would turn it ON)', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'is_published_to_portal' => false]);
+
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    $this->actingAs($assistant, 'web');
+
+    $this->livewire(ViewMatter::class, ['record' => $matter->getKey()])
+        ->assertActionHidden('togglePortalPublication');
+});
+
+/** Cặp dương: vụ việc ĐÃ công bố, bấm nút sẽ TẮT — trợ lý vẫn thấy và bấm được. */
+it('shows the toggle-portal-publication button to an assistant when the matter is already published (would turn it OFF)', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'is_published_to_portal' => true]);
+
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    $this->actingAs($assistant, 'web');
+
+    $this->livewire(ViewMatter::class, ['record' => $matter->getKey()])
+        ->assertActionVisible('togglePortalPublication')
+        ->callAction('togglePortalPublication');
+
+    expect($matter->refresh()->is_published_to_portal)->toBeFalse();
+});
+
+/**
  * SPEC §6.10: "mỗi lần thêm một bên mới vào vụ việc đang chạy" phải chạy kiểm tra xung đột lợi
  * ích NGAY và mức đỏ phải chặn lưu (fix round 1, finding 1 — trước đó bên vẫn được lưu bất kể
  * mức, đúng lỗ hổng review chỉ ra). Kịch bản: một bị đơn mới trùng số căn cước với khách hàng
@@ -833,4 +873,55 @@ it('names the matched party in the parties-tab conflict notification', function 
         ->and($blocked->getBody())->toContain($otherMatter->code)
         // Tên của bên trùng ở hồ sơ kia — thứ duy nhất cho người đọc biết họ đang bị chặn vì AI.
         ->and($blocked->getBody())->toContain('Người trùng căn cước');
+});
+
+/**
+ * Final review C-M1: nút "công bố/thôi công bố" tính chiều từ trạng thái LÚC BẤM XÁC NHẬN, nên một
+ * hộp xác nhận mở ra lúc vụ còn chưa công bố — rồi một người khác công bố trong lúc đó — sẽ THÔI
+ * công bố, đúng chiều ngược với câu người dùng vừa đọc. Chiều giờ được chụp lúc mở hộp; nếu trạng
+ * thái đã đổi, Action từ chối và không đổi gì.
+ */
+it('refuses to flip the portal switch the other way when someone else changed it while the confirmation was open', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'is_published_to_portal' => false]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(ViewMatter::class, ['record' => $matter->getKey()])
+        ->mountAction('togglePortalPublication');
+
+    // Người khác công bố vụ việc trong lúc hộp xác nhận còn mở.
+    Matter::query()->whereKey($matter->id)->update(['is_published_to_portal' => true]);
+
+    $component->callMountedAction();
+
+    Notification::assertNotified(
+        Notification::make()
+            ->title(__('actions.failed_title'))
+            ->body(__('matters.actions.portal_publication_changed'))
+            ->danger()
+            ->persistent()
+    );
+
+    expect($matter->refresh()->is_published_to_portal)->toBeTrue()
+        ->and(Activity::query()->where('event', 'matter_portal_publication_set')->exists())->toBeFalse();
+});
+
+/**
+ * Final review wave 2, M-1: Action lưu trên một bản ghi ĐÃ KHOÁ (không phải `$this->record` của
+ * trang), nên sau khi bấm, nhãn/biểu tượng/màu của nút và tab Tổng quan vẫn nói trạng thái CŨ cho
+ * tới lần tải lại. Trang làm mới bản ghi ngay sau khi Action thành công.
+ */
+it('shows the new portal state on the button right after toggling', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'is_published_to_portal' => false]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(ViewMatter::class, ['record' => $matter->getKey()])
+        ->assertActionHasLabel('togglePortalPublication', __('matters.actions.publish_to_portal'))
+        ->callAction('togglePortalPublication')
+        ->assertActionHasLabel('togglePortalPublication', __('matters.actions.unpublish_from_portal'));
+
+    expect($matter->refresh()->is_published_to_portal)->toBeTrue();
 });

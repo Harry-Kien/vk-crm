@@ -9,6 +9,7 @@ use App\Models\Deadline;
 use App\Models\User;
 use App\Support\Audit;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 
 /**
  * Công tắc "công bố cho khách" của một mốc thời hạn — cột `deadlines.is_published`.
@@ -48,6 +49,13 @@ class SetDeadlinePublication
     {
         return DB::transaction(function () use ($deadline, $publish, $actor): Deadline {
             [$fresh, $matter] = $this->openDeadline($deadline, $actor);
+
+            // R5 (roles-05, M6.5 Task 10): `openDeadline()` chỉ hỏi `update` (thao tác thường
+            // ngày trên mốc) — CÔNG BỐ (bật) cho khách đòi thêm `stageLog.publish`, xem docblock
+            // DeadlinePolicy::publish(). Hỏi trên $fresh (đọc lại dưới khoá), không trên $deadline
+            // caller đưa vào, cùng lý do với mọi lần hỏi Gate khác trong trait này. Fix round 1
+            // (ruling): $publish truyền kèm — chỉ chiều BẬT đòi stageLog.publish.
+            Gate::forUser($actor)->authorize('publish', [$fresh, $publish]);
 
             if ($publish && ! $matter->is_published_to_portal) {
                 throw MatterNotPublishedToPortal::forDeadline($matter);

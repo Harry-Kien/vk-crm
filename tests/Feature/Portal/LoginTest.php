@@ -10,7 +10,9 @@ use App\Notifications\Client\SendLoginCode;
 use App\Support\PortalLoginThrottle;
 use Filament\Facades\Filament;
 use Illuminate\Auth\Events\Attempting;
+use Illuminate\Auth\SessionGuard;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Hash;
@@ -547,6 +549,50 @@ it('locks the code step by account and by address, as two independent conditions
 
 /*
 |--------------------------------------------------------------------------
+| Task 7 (phát hiện `portal/portal-1`, critical): không "Ghi nhớ đăng nhập" trên cổng khách hàng
+|--------------------------------------------------------------------------
+|
+| Lớp cha (Filament\Auth\Pages\Login) nạp form() với ba trường (email, password, remember) —
+| checkbox đó đặt cookie recaller sống 400 ngày (rememberDuration mặc định của SessionGuard),
+| ngoài luồng "email + mật khẩu → mã OTP → nhập mã" mà SPEC §8.1 mô tả không có ngoại lệ nào. Một
+| máy/điện thoại dùng chung trong gia đình (SPEC §4.3 nêu đúng ví dụ vợ chồng) mở lại được hồ sơ
+| pháp lý của người khác không cần mật khẩu lẫn mã, và lần vào đó không qua
+| Login::recordSuccessfulLogin() nên không để lại dòng login_success nào (SPEC §10.6).
+*/
+
+it('has no remember-me checkbox on the portal login form', function () {
+    $this->livewire(Login::class)
+        ->assertFormFieldDoesNotExist('remember');
+});
+
+/**
+ * `set('data.remember', true)` đi THẲNG vào state thô của Livewire, bỏ qua toàn bộ UI — đúng hình
+ * dạng "một request đã chỉnh sửa tay" mà phát hiện portal-1 tái hiện được (xem audit). Đo bằng
+ * cookie recaller THẬT được xếp hàng (Cookie::queued()), không chỉ đọc lại $data, vì đó mới là
+ * hậu quả quan sát được từ bên ngoài.
+ *
+ * Mutation probe: khôi phục lại form() mặc định của lớp cha (bỏ override bên dưới) thì test này
+ * đỏ — cookie recaller được xếp hàng, sống 400 ngày (xem báo cáo).
+ */
+it('never queues a remember-me cookie, even when a tampered request sends remember=1', function () {
+    $user = portalUser();
+
+    submitPortalPassword($user)
+        ->set('data.remember', true)
+        ->set(portalCodeStatePath(), portalCodesSentTo($user)[0])
+        ->call('authenticate')
+        ->assertHasNoErrors();
+
+    expect(auth('client')->check())->toBeTrue();
+
+    /** @var SessionGuard $guard */
+    $guard = auth('client');
+
+    expect(Cookie::queued($guard->getRecallerName()))->toBeNull();
+});
+
+/*
+|--------------------------------------------------------------------------
 | SPEC §10.10 — trước khi mật khẩu đúng, không câu nào tiết lộ tài khoản có tồn tại
 |--------------------------------------------------------------------------
 */
@@ -848,6 +894,106 @@ it('lets an active client keep working', function () {
 
     $this->get('/portal')->assertOk();
     expect(auth('client')->check())->toBeTrue();
+});
+
+/*
+|--------------------------------------------------------------------------
+| Task 2 (`portal/portal-3`): khách hàng đã xoá mềm mất quyền vào cổng
+|--------------------------------------------------------------------------
+| Trước bản sửa này, `ClientUser::canAccessPanel()` chỉ hỏi `is_active` — xoá mềm hồ sơ `Client`
+| (EditClient → DeleteAction, admin bấm ở panel nội bộ) không đụng gì tới cột đó, nên tài khoản
+| cổng của một khách đã xoá vẫn đăng nhập, đọc hồ sơ đã công bố và ghi phiếu "đã xem" như thường.
+| Layer thứ hai, độc lập (Matter::query() rỗng dưới ngữ cảnh cổng), có bằng chứng riêng ở
+| tests/Feature/Portal/MyMattersTest.php — nơi đã có sẵn "ba tầng" (query/policy/serialize) cho
+| đúng loại điều kiện này.
+|
+| `canAccessPanel()` (đo trực tiếp ngay dưới) VẪN là cổng thật, không đổi. Nhưng vòng sửa 1 (Task
+| 2, Important #4, phán quyết chủ nhiệm) đổi HÌNH DẠNG câu trả lời ở tầng HTTP: một phiên đã đăng
+| nhập, mà khách hàng bị xoá mềm giữa chừng, giờ được `EnsurePortalAccountIsActive` đăng xuất và
+| đưa về màn hình đăng nhập — đúng khuôn nhánh `is_active = false` đã có — thay vì 404 (khẳng định
+| 404 độc lập với `canAccessPanel()` từng đứng ở đây tới vòng sửa 1; xem
+| `app/Http/Middleware/EnsurePortalAccountIsActive.php` cho toàn bộ lý lẽ).
+*/
+
+/**
+ * Đo trực tiếp đúng điều kiện mới, độc lập với toàn bộ đường ống HTTP/middleware bên dưới —
+ * mutation probe nhắm thẳng vào đây (bỏ `&& $this->client !== null` thì test này đỏ).
+ */
+it('reports canAccessPanel false for a client user whose client has been soft deleted', function () {
+    $user = portalUser();
+    $user->client->delete();
+
+    expect($user->fresh()->canAccessPanel(Filament::getPanel('portal')))->toBeFalse();
+});
+
+/** Vế dương: cùng điều kiện, khách hàng CHƯA xoá thì tài khoản vẫn vào được như trước. */
+it('reports canAccessPanel true for a client user whose client has not been deleted', function () {
+    $user = portalUser();
+
+    expect($user->canAccessPanel(Filament::getPanel('portal')))->toBeTrue();
+});
+
+/**
+ * Task 2, vòng sửa 1 (Important #4, phán quyết chủ nhiệm — thay cho "nhận 403" của brief gốc):
+ * hệ quả thật trên màn hình đổi hẳn so với vòng sửa đầu. Một phiên ĐÃ đăng nhập, mà khách hàng bị
+ * xoá mềm GIỮA CHỪNG, giờ được `EnsurePortalAccountIsActive` xử ĐÚNG khuôn nhánh `is_active`:
+ * đăng xuất, huỷ phiên, đưa về màn hình đăng nhập kèm câu `portal.inactive` — không còn là một
+ * trang 404 chung chung. `canAccessPanel()` vẫn là cổng thật ở tầng dưới (không đổi); middleware
+ * chỉ đứng trước để đổi HÌNH DẠNG câu trả lời, đúng như nó đã làm cho `is_active = false`.
+ *
+ * `SessionGuard::user()` giữ một bộ nhớ đệm trong-tiến-trình cho suốt vòng đời của chính guard
+ * instance đó; trong một request thật (một tiến trình PHP riêng), guard luôn được dựng lại và tự
+ * đọc `EloquentUserProvider::retrieveById()` MỚI — nên bộ nhớ đệm đó chỉ lộ ra khi HAI request
+ * nằm trong CÙNG MỘT bài test (cùng application instance), như ở đây. `actingAs($user->fresh(),
+ * 'client')` mô phỏng đúng cái mà một request thật sự thứ hai làm: đọc lại `ClientUser` mới
+ * toanh từ DB, không có quan hệ `client` nào bị đệm sẵn từ trước khi xoá.
+ */
+it('logs a client out and sends them to the login screen once their client is soft deleted mid session', function () {
+    $user = portalUser();
+
+    $this->actingAs($user, 'client');
+    $this->get('/portal')->assertOk();
+
+    $user->client->delete();
+    $this->actingAs($user->fresh(), 'client');
+
+    $response = $this->get('/portal');
+
+    $response->assertRedirect('/portal/login');
+    expect($response->getStatusCode())->not->toBe(404)
+        ->and($response->getStatusCode())->not->toBe(403)
+        ->and(auth('client')->check())->toBeFalse();
+
+    $titles = collect(session('filament.notifications', []))->pluck('title');
+
+    expect($titles)->toContain(__('portal.inactive', ['phone' => config('vkcrm.brand.hotline')]));
+});
+
+/**
+ * Và phủ đúng đường cập nhật Livewire mà docblock của middleware nêu tên — cùng thành ngữ test
+ * "ends the session of a client deactivated mid-visit" đã dùng cho nhánh `is_active`, giờ lặp lại
+ * cho nhánh khách hàng đã xoá mềm.
+ */
+it('ends the session of a client whose parent client is deleted mid-visit, on their very next livewire update', function () {
+    $user = portalUser();
+
+    $this->actingAs($user, 'client');
+
+    $snapshot = portalSnapshot(
+        $this->get(MyMatters::getUrl(panel: 'portal'))->assertOk()->getContent(),
+        MyMatters::class,
+    );
+
+    $user->client->delete();
+    $this->actingAs($user->fresh(), 'client');
+
+    $this->withHeaders(['X-Livewire' => '1'])
+        ->postJson(Livewire::getUpdateUri(), [
+            'components' => [['snapshot' => $snapshot, 'updates' => [], 'calls' => []]],
+        ])
+        ->assertRedirect('/portal/login');
+
+    expect(auth('client')->check())->toBeFalse();
 });
 
 /*
@@ -1387,6 +1533,55 @@ it('keeps the client signed in after they set their very first password', functi
 |--------------------------------------------------------------------------
 */
 
+/**
+ * Task 7 (R12, phát hiện `intake/intake-04`, `intake/intake-05`): activated_at chỉ hệ thống ghi,
+ * đúng lúc khách đổi mật khẩu lần đầu thành công — bằng chứng duy nhất người này làm chủ hộp thư
+ * đã gõ. Trước bản sửa này không đường nào ghi cột này, nên NotifyClientOfStageUpdate không có gì
+ * để lọc (xem StageUpdateNotificationTest.php).
+ */
+it('stamps activated_at the moment a client sets their first password, proof they own the mailbox', function () {
+    $user = ClientUser::factory()->create(['must_change_password' => true]);
+    expect($user->activated_at)->toBeNull();
+
+    $this->actingAs($user, 'client');
+
+    $this->livewire(ChangePassword::class)
+        ->set('data.password', 'mat-khau-dau-tien-cua-toi-2026')
+        ->set('data.passwordConfirmation', 'mat-khau-dau-tien-cua-toi-2026')
+        ->call('changePassword')
+        ->assertHasNoErrors();
+
+    expect($user->fresh()->activated_at)->not->toBeNull();
+});
+
+/**
+ * "Chỉ hệ thống ghi" cũng nghĩa là chỉ ghi MỘT LẦN: nhân sự đặt lại mật khẩu (EditClientUser) bật
+ * must_change_password lên lại và đưa khách quay lại màn hình này lần hai, nhưng đó không phải
+ * một lần "kích hoạt" mới — ngày kích hoạt vẫn phải là lần đầu tiên khách chứng minh làm chủ hộp
+ * thư, không phải ngày lần đặt lại gần nhất.
+ *
+ * Mutation probe: đổi `$user->activated_at ?? now()` thành luôn `now()` ở
+ * ChangePassword::changePassword() thì test này đỏ (xem báo cáo).
+ */
+it('keeps the original activation timestamp across a later forced reset, not the second change', function () {
+    $user = portalUser();
+    $firstActivatedAt = $user->activated_at;
+    expect($firstActivatedAt)->not->toBeNull();
+
+    $this->travel(3)->days();
+
+    $user->forceFill(['must_change_password' => true])->save();
+    $this->actingAs($user->fresh(), 'client');
+
+    $this->livewire(ChangePassword::class)
+        ->set('data.password', 'mat-khau-thu-hai-cua-toi-2026')
+        ->set('data.passwordConfirmation', 'mat-khau-thu-hai-cua-toi-2026')
+        ->call('changePassword')
+        ->assertHasNoErrors();
+
+    expect($user->fresh()->activated_at->equalTo($firstActivatedAt))->toBeTrue();
+});
+
 it('keeps the change-password screen shut for a client who already chose one', function () {
     $user = portalUser();
 
@@ -1535,20 +1730,48 @@ it('drives the trusted proxy list from one environment variable', function () {
         'Thiếu config/trustedproxy.php — biến TRUSTED_PROXIES không còn nối với middleware nào.'
     );
 
+    // Đặt CẢ BA nơi mà `Illuminate\Support\Env::getRepository()` có thể đọc — không chỉ $_ENV và
+    // putenv(). Readers mặc định của phpdotenv được thử theo thứ tự $_SERVER, $_ENV, rồi putenv()
+    // (RepositoryBuilder::DEFAULT_ADAPTERS + PutenvAdapter được Laravel gắn thêm sau cùng); một
+    // $_SERVER còn sót từ trước (đúng như CI, xem `e2e/F1`) sẽ che mất hai nơi kia, nên chỉ đặt
+    // $_ENV/putenv() như bản cũ của test này là không tái hiện đúng CI.
     putenv('TRUSTED_PROXIES=203.0.113.1,203.0.113.2');
     $_ENV['TRUSTED_PROXIES'] = '203.0.113.1,203.0.113.2';
+    $_SERVER['TRUSTED_PROXIES'] = '203.0.113.1,203.0.113.2';
 
     try {
         expect((require config_path('trustedproxy.php'))['proxies'] ?? null)
             ->toBe('203.0.113.1,203.0.113.2');
     } finally {
         putenv('TRUSTED_PROXIES');
-        unset($_ENV['TRUSTED_PROXIES']);
+        unset($_ENV['TRUSTED_PROXIES'], $_SERVER['TRUSTED_PROXIES']);
     }
 
     // Twin âm, và nó là mặc định phải giữ: không khai báo gì thì KHÔNG TIN AI. Một mặc định
     // `*` sẽ trả lại quyền tự khai địa chỉ cho bất kỳ ai gửi một header.
     expect((require config_path('trustedproxy.php'))['proxies'] ?? null)->toBeNull();
+});
+
+/**
+ * `e2e/F1` (docs/audits/2026-09-24-quy-trinh.md, critical): CI làm `cp .env.example .env`, và
+ * dòng RỖNG `TRUSTED_PROXIES=` (bản cũ của tệp đó) khiến biến này tồn tại trong môi trường của
+ * tiến trình PHP với giá trị CHUỖI RỖNG — khác hẳn "biến không tồn tại". `env('TRUSTED_PROXIES')`
+ * khi đó trả `''`, và `'proxies' => env('TRUSTED_PROXIES')` (không có `?: null`) giữ nguyên chuỗi
+ * rỗng đó thay vì `null`. Tái hiện CI đúng cách bằng cách đặt CẢ BA nơi `Env::getRepository()` có
+ * thể đọc ($_SERVER, $_ENV, putenv()) cùng giá trị rỗng — không chỉ hai nơi sau, xem docblock của
+ * test phía trên.
+ */
+it('treats an empty TRUSTED_PROXIES as trusting nobody', function () {
+    $_SERVER['TRUSTED_PROXIES'] = '';
+    $_ENV['TRUSTED_PROXIES'] = '';
+    putenv('TRUSTED_PROXIES=');
+
+    try {
+        expect((require config_path('trustedproxy.php'))['proxies'] ?? null)->toBeNull();
+    } finally {
+        unset($_SERVER['TRUSTED_PROXIES'], $_ENV['TRUSTED_PROXIES']);
+        putenv('TRUSTED_PROXIES');
+    }
 });
 
 it('reads the real client address through a proxy once that proxy is named', function () {

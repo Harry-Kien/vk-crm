@@ -32,8 +32,13 @@ return [
     |
     | Nhiều proxy thì ngăn cách bằng dấu phẩy: `TRUSTED_PROXIES=10.0.0.1,10.0.0.2`.
     |
+    | CI đỏ từ 2026-09-22 (`e2e/F1` — xem `docs/audits/2026-09-24-quy-trinh.md`): `cp
+    | .env.example .env` từng đưa dòng RỖNG `TRUSTED_PROXIES=` vào $_SERVER (khác với "biến
+    | không tồn tại"), nên `env('TRUSTED_PROXIES')` trả CHUỖI RỖNG '' chứ không `null`. `?: null`
+    | gộp cả hai trường hợp "không đặt" và "đặt rỗng" về đúng MỘT nghĩa: không tin ai.
+    |
     */
 
-    'proxies' => env('TRUSTED_PROXIES'),
+    'proxies' => env('TRUSTED_PROXIES') ?: null,
 
 ];

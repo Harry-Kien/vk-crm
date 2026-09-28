@@ -61,9 +61,17 @@ class ClientUsersTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
-                    ForceDeleteBulkAction::make(),
-                    RestoreBulkAction::make(),
+                    // Task 2, vòng sửa 1 (Important #3): cùng lý do ClientsTable — không có
+                    // `authorizeIndividualRecords()`, `ClientUserPolicy::deleteAny()` (cổng thô, mới
+                    // thêm) chỉ quyết định nút có bấm được không; Filament vẫn xoá mọi dòng đã chọn
+                    // mà không hỏi lại `ClientUserPolicy::delete()` cho từng dòng — nên một luật sư
+                    // (không admin) xoá hàng loạt trót lọt tài khoản cổng của khách bất kỳ.
+                    DeleteBulkAction::make()
+                        ->authorizeIndividualRecords('delete'),
+                    ForceDeleteBulkAction::make()
+                        ->authorizeIndividualRecords('forceDelete'),
+                    RestoreBulkAction::make()
+                        ->authorizeIndividualRecords('restore'),
                 ]),
             ]);
     }

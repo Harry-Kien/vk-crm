@@ -3,9 +3,8 @@
 namespace App\Filament\Admin\Support;
 
 use App\Enums\Permission;
-use App\Models\Client;
-use App\Models\Matter;
 use App\Models\User;
+use App\Support\ClientVisibility;
 use Illuminate\Support\Facades\Auth;
 
 /**
@@ -41,29 +40,73 @@ final class VisibleClientOptions
      *
      * @param  mixed  $clientId  Giá trị thô từ form; `null`/rỗng cũng bị từ chối — một id bắt buộc
      *                           mà không gửi lên thì không có gì để cho phép.
+     *
+     * **Fix round 1 (C1, M6.5 Task 6): đi qua `App\Support\ClientVisibility::isVisibleTo()`**,
+     * không còn tự tính bằng `array_key_exists(..., self::forCurrentUser())`. Cùng MỘT luật giờ
+     * phục vụ hai nơi: ô CHỌN hiển thị gì (`forCurrentUser()`, dưới) và `App\Actions\Client\
+     * CreateClient` quyết định có được DÙNG LẠI một hồ sơ trùng hay không — xem docblock
+     * `ClientVisibility` cho lý do luật phải sống ở `App\Support`, không phải ở đây.
      */
     public static function assertVisibleToCurrentUser(mixed $clientId): void
     {
-        abort_unless(array_key_exists((int) $clientId, self::forCurrentUser()), 404);
+        $user = Auth::user();
+
+        abort_unless($user instanceof User && ClientVisibility::isVisibleTo($user, (int) $clientId), 404);
     }
 
-    /** @return array<int, string> */
-    public static function forCurrentUser(): array
+    /**
+     * "Chọn từ danh sách" (Select có sẵn của `VisibleClientOptions::forCurrentUser()`) hay "tra
+     * theo định danh / tạo mới" (M6.5 Task 6, R4)? MỘT nơi quyết định luật này, để `MatterForm`
+     * (hiện khối nào) và `CreateMatter::mutateFormDataBeforeCreate()` (nhánh nào xử lý `client_id`)
+     * không thể lệch nhau — đúng triết lý "dùng chung" của cả lớp này.
+     */
+    public static function currentUserCanChooseFromList(): bool
     {
         $user = Auth::user();
 
-        if ($user instanceof User && $user->can(Permission::ClientManage->value)) {
-            return Client::query()->orderBy('name')->pluck('name', 'id')->all();
-        }
+        return $user instanceof User && $user->can(Permission::ClientManage->value);
+    }
+
+    /**
+     * Fix round 2 (Minor): truy vấn đi qua `ClientVisibility::visibleClientQuery()` — MỘT nơi
+     * quyết định "ai thấy khách hàng nào", không còn một bản sao thứ hai của cùng luật viết tay
+     * ở đây (bản trước tự lặp lại đúng nhánh `client.manage`/`listableBy()` mà `ClientVisibility`
+     * đã có).
+     *
+     * @return array<int, string>
+     */
+    public static function forCurrentUser(): array
+    {
+        $user = Auth::user();
 
         if (! $user instanceof User) {
             return [];
         }
 
-        $visibleClientIds = Matter::query()->listableBy($user)->pluck('client_id')->unique();
+        return ClientVisibility::visibleClientQuery($user)
+            ->orderBy('name')
+            ->pluck('name', 'id')
+            ->all();
+    }
 
-        return Client::query()
-            ->whereIn('id', $visibleClientIds)
+    /**
+     * Final review wave 2, M-3: danh sách cho ô "Khách hàng" của form TẠO tài khoản cổng — chỉ
+     * những khách hàng (chưa xoá mềm) mà người đang đăng nhập được QUẢN LÝ tài khoản cổng
+     * (`ClientVisibility::portalManageableClientQuery()`, luật X3), không phải mọi khách họ với
+     * tới. Không có nó, ô chọn mời một khách mà `ClientUserPolicy::create` sẽ từ chối bằng 403.
+     *
+     * @return array<int, string>
+     */
+    public static function portalManageableForCurrentUser(): array
+    {
+        $user = Auth::user();
+
+        if (! $user instanceof User) {
+            return [];
+        }
+
+        return ClientVisibility::portalManageableClientQuery($user)
+            ->withoutTrashed()
             ->orderBy('name')
             ->pluck('name', 'id')
             ->all();

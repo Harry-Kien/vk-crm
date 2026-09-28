@@ -3,6 +3,7 @@
 namespace App\Filament\Admin\Resources\ClientUsers;
 
 use App\Enums\Permission;
+use App\Enums\Role;
 use App\Filament\Admin\Resources\ClientUsers\Pages\CreateClientUser;
 use App\Filament\Admin\Resources\ClientUsers\Pages\EditClientUser;
 use App\Filament\Admin\Resources\ClientUsers\Pages\ListClientUsers;
@@ -10,6 +11,7 @@ use App\Filament\Admin\Resources\ClientUsers\Schemas\ClientUserForm;
 use App\Filament\Admin\Resources\ClientUsers\Tables\ClientUsersTable;
 use App\Models\ClientUser;
 use App\Models\User;
+use App\Support\ClientVisibility;
 use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
@@ -22,8 +24,19 @@ use Illuminate\Support\Facades\Auth;
 /**
  * Cùng lý do như ClientResource: ClientUserPolicy::view chạy exists() cho mỗi bản ghi, nên
  * getEloquentQuery() diễn đạt luật đó một lần ở tầng truy vấn thay vì gọi can('view') theo dòng
- * (carry-forward review M2/M3, task 10) — ai có clientUser.manage thấy tất cả, còn lại chỉ thấy
- * tài khoản của khách thuộc vụ việc họ xem được.
+ * (carry-forward review M2/M3, task 10) — ai có client.manage thấy tất cả, còn lại chỉ thấy tài
+ * khoản của khách thuộc vụ việc họ xem được.
+ *
+ * Task 2 (`roles/roles-02`): mốc "thấy tất cả" trước đây là `clientUser.manage` — quyền Lawyer
+ * cũng có mà không kèm biên giới đội ngũ, nên bảng này từng lộ tên/email/điện thoại của MỌI tài
+ * khoản cổng trong văn phòng cho một luật sư, kể cả khách của vụ hạn chế họ không được xem. Đổi
+ * sang `client.manage`, đúng mốc `ClientResource::getEloquentQuery()` đã dùng, và đúng mốc
+ * `ClientUserPolicy::view()` giờ cũng dùng — ba chỗ đọc "ai thấy tài khoản cổng của khách nào"
+ * không còn lệch nhau.
+ *
+ * Final review X3 (A-I2): luật đó giờ nằm DUY NHẤT ở `ClientVisibility` — ngoài admin, người xem
+ * phải với tới được khách hàng VÀ `view` được mọi vụ `restricted` chưa xoá của khách, kể cả khi có
+ * `client.manage` (xem `ClientVisibility::canManagePortalAccountsOf()`).
  *
  * Cùng lý do canAccess() của ClientResource: ClientUserPolicy::viewAny() cố ý chỉ đúng bằng
  * clientUser.manage (ChildPolicyTest ghim ở M2), nhưng Filament tự gate cả trang danh sách bằng
@@ -71,11 +84,13 @@ class ClientUserResource extends Resource
             return $query->whereRaw('1 = 0');
         }
 
-        if ($user->can(Permission::ClientUserManage->value)) {
+        // Final review X3: cùng MỘT luật với ClientUserPolicy::view/update/unlockLogin/create —
+        // ClientVisibility::canManagePortalAccountsOf(), nói bằng truy vấn.
+        if ($user->hasRole(Role::Admin->value)) {
             return $query;
         }
 
-        return $query->whereHas('client.matters', fn (Builder $matterQuery) => $matterQuery->listableBy($user));
+        return $query->whereIn($query->qualifyColumn('client_id'), ClientVisibility::portalManageableClientQuery($user)->select('clients.id'));
     }
 
     public static function form(Schema $schema): Schema

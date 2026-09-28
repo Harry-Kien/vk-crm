@@ -1,17 +1,24 @@
 <?php
 
+use App\Actions\Schedule\CheckDeadlines;
 use App\Enums\Confidentiality;
 use App\Enums\DeadlineSeverity;
 use App\Enums\MatterRole;
+use App\Enums\OutboundStatus;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\DeadlinesRelationManager;
+use App\Filament\Admin\Widgets\UpcomingDeadlinesWidget;
+use App\Mail\Staff\DeadlineReminder;
 use App\Models\Deadline;
 use App\Models\Matter;
+use App\Models\OutboundMessage;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Filament\Notifications\Notification;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Mail;
 use Spatie\Activitylog\Models\Activity;
 
 /**
@@ -274,6 +281,567 @@ it('hides the add button from someone who cannot write to the matter', function 
 });
 
 // =========================================================================================
+// ĐỔI NGƯỜI PHỤ TRÁCH (fix round 1, CRITICAL) — trước bản sửa này không màn hình nào đổi được
+// `responsible_user_id` sau khi tạo, nên một người KHÔNG phải lead còn đứng tên một mốc chưa
+// xong không bao giờ nghỉ việc được: `ReassignMatter` chỉ chuyển việc của LEAD, và cột này không
+// có đường ghi nào khác ngoài lúc tạo mốc. `App\Actions\Deadline\ChangeDeadlineResponsible` là
+// đường ghi thứ hai; test Action-tier riêng (`tests/Feature/Actions/Deadline/
+// ChangeDeadlineResponsibleTest.php`) đo luật của chính Action.
+// =========================================================================================
+
+it('changes the responsible person through the changeResponsible action, and writes an audit entry', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create(['name' => 'Trợ lý Mai']);
+    $this->matter->addTeamMember($assistant, MatterRole::Assistant);
+    $deadline = makeDeadline($this->matter, ['name' => 'Nộp đơn kháng cáo', 'responsible_user_id' => $assistant->id]);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('changeResponsible', $deadline, data: [
+        'responsible_user_id' => $this->lawyer->id,
+    ])->assertHasNoTableActionErrors();
+
+    expect($deadline->fresh()->responsible_user_id)->toBe($this->lawyer->id)
+        ->and(Activity::query()->where('event', 'deadline_responsible_changed')
+            ->where('properties->from', $assistant->id)
+            ->where('properties->to', $this->lawyer->id)
+            ->exists())->toBeTrue();
+});
+
+it('hides the change-responsible button from someone who cannot write to the matter', function () {
+    $deadline = makeDeadline($this->matter);
+
+    $this->actingAs($this->lawyer, 'web');
+    deadlinesTab($this->matter)->assertTableActionVisible('changeResponsible', $deadline);
+
+    $this->actingAs(User::factory()->withRole(Role::Accountant)->create(), 'web');
+    deadlinesTab($this->matter)->assertTableActionHidden('changeResponsible', $deadline);
+});
+
+/**
+ * Minor (fix round 2): một mốc ĐÃ HOÀN THÀNH không còn "việc" nào để đổi người phụ trách nữa —
+ * ẩn hẳn nút, cùng chỗ `ChangeDeadlineResponsible::handle()` tự chặn ở tầng Action (test Action-tier
+ * riêng đo lớp bên dưới này, cùng thành ngữ mọi cặp UI-ẩn/Action-tự-chặn khác trong dự án).
+ */
+it('hides the change-responsible button on a completed deadline', function () {
+    $deadline = makeDeadline($this->matter, ['is_completed' => true, 'completed_at' => now()]);
+
+    $this->actingAs($this->lawyer, 'web');
+    deadlinesTab($this->matter)->assertTableActionHidden('changeResponsible', $deadline);
+});
+
+// =========================================================================================
+// SỬA (M6.5 Task 14, `deadlines/F7`) — trước bản sửa này không màn hình nào sửa được tên, ngày
+// hay mức độ của một mốc đã tạo; cách lách duy nhất là đánh dấu "hoàn thành" sai sự thật rồi thêm
+// mốc mới.
+// =========================================================================================
+
+it('edits the name, due date and severity of a deadline, and writes an audit entry', function () {
+    $deadline = makeDeadline($this->matter, [
+        'name' => 'Phiên toà sơ thẩm',
+        'due_date' => today()->addDays(2),
+        'severity' => DeadlineSeverity::Normal,
+    ]);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('edit', $deadline, data: [
+        'name' => 'Phiên toà sơ thẩm (hoãn)',
+        'due_date' => today()->addDays(20)->toDateString(),
+        'severity' => DeadlineSeverity::Critical->value,
+    ])->assertHasNoTableActionErrors();
+
+    $fresh = $deadline->fresh();
+
+    expect($fresh->name)->toBe('Phiên toà sơ thẩm (hoãn)')
+        ->and($fresh->due_date->toDateString())->toBe(today()->addDays(20)->toDateString())
+        ->and($fresh->severity)->toBe(DeadlineSeverity::Critical)
+        ->and(Activity::query()->where('event', 'deadline_updated')->count())->toBe(1);
+});
+
+/**
+ * Hoãn phiên toà: sửa ngày từ còn 2 ngày (đã gửi bậc d7 và d3 — xem `CheckDeadlines::passedTiers()`)
+ * sang còn 20 ngày. Ngày mới CHƯA TỚI cả ba bậc cũ (`d3`, `d7`, `d14` — mốc `critical`), nên cả ba
+ * đều bị dọn; `CheckDeadlines` chạy lại đúng lúc còn 14 ngày sẽ nhắc bậc đó như một mốc mới, không
+ * bị khoá chống trùng của ngày CŨ chặn lại.
+ */
+it('clears every reminder tier the new due date has not reached yet, so CheckDeadlines reminds again when it comes due', function () {
+    $deadline = makeDeadline($this->matter, [
+        'name' => 'Phiên toà sơ thẩm',
+        'due_date' => today()->addDays(2),
+        'severity' => DeadlineSeverity::Critical,
+        'reminders_sent' => [],
+    ]);
+
+    Mail::fake();
+    (new CheckDeadlines)->handle();
+    // Mốc critical: bậc hiện tại là d3 (2 ≤ 3), và các bậc XA HƠN (d7, d14) đã trôi qua chưa gửi
+    // nên bị đánh dấu "đã gửi" cùng lượt — xem `CheckDeadlines::passedTiers()`.
+    expect($deadline->fresh()->reminders_sent)->toEqualCanonicalizing(['d7', 'd3', 'd14']);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('edit', $deadline, data: [
+        'name' => $deadline->name,
+        'due_date' => today()->addDays(20)->toDateString(),
+        'severity' => DeadlineSeverity::Critical->value,
+    ])->assertHasNoTableActionErrors();
+
+    expect($deadline->fresh()->reminders_sent)->toBe([]);
+
+    // Mail::fake() lại: đếm lại từ 0, để lần gửi TRƯỚC lần sửa (bậc d3) không lẫn vào phép đếm
+    // của lần gửi SAU đây.
+    Mail::fake();
+    $this->travelTo(today()->addDays(6));
+    (new CheckDeadlines)->handle();
+
+    Mail::assertSent(DeadlineReminder::class, 1);
+    expect($deadline->fresh()->reminders_sent)->toContain('d14');
+});
+
+/**
+ * Cặp dương/âm dựng trên MỘT lượt sửa: dời hạn từ còn 2 ngày (đã gửi d7+d3) sang còn 5 ngày.
+ * `d7` VẪN "đã tới" (5 ≤ 7) nên GIỮ NGUYÊN; `d3` "chưa tới" (5 > 3) nên bị XOÁ. Một điều kiện
+ * "xoá tất cả không phân biệt" sẽ làm vế GIỮ đỏ; một điều kiện "không xoá gì cả" sẽ làm vế XOÁ đỏ
+ * — cùng test bắt được cả hai hướng hỏng.
+ *
+ * Mutation probe (đã chạy tay, khôi phục sau khi dán bằng chứng vào báo cáo):
+ *  - Xoá tất cả không điều kiện (`clearedReminders()` luôn trả `[]`): vế "GIỮ d7" đỏ.
+ *  - Không xoá gì (`clearedReminders()` luôn trả nguyên `$sent`): vế "XOÁ d3" đỏ.
+ */
+it('keeps a tier the new due date has already reached, while clearing one it has not', function () {
+    $deadline = makeDeadline($this->matter, [
+        'name' => 'Phiên hoà giải',
+        'due_date' => today()->addDays(2),
+        'severity' => DeadlineSeverity::Normal,
+        'reminders_sent' => [],
+    ]);
+
+    Mail::fake();
+    (new CheckDeadlines)->handle();
+    expect($deadline->fresh()->reminders_sent)->toEqualCanonicalizing(['d7', 'd3']);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('edit', $deadline, data: [
+        'name' => $deadline->name,
+        'due_date' => today()->addDays(5)->toDateString(),
+        'severity' => DeadlineSeverity::Normal->value,
+    ])->assertHasNoTableActionErrors();
+
+    expect($deadline->fresh()->reminders_sent)->toBe(['d7'])
+        ->and($deadline->fresh()->reminders_sent)->not->toContain('d3');
+});
+
+/**
+ * Khoá `overdue` có luật riêng: giữ khi ngày mới VẪN đã qua, xoá khi ngày mới về lại tương lai —
+ * nếu không, một mốc quá hạn được dời ra sau sẽ không bao giờ cảnh báo quá hạn lần nữa khi nó trễ
+ * lần hai. Hai vế trên cùng một mốc, hai lần sửa.
+ */
+it('keeps the overdue mark while the new date is still past, and clears it once the date moves to the future', function () {
+    $deadline = makeDeadline($this->matter, [
+        'name' => 'Nộp tạm ứng án phí',
+        'due_date' => today()->subDays(3),
+        'reminders_sent' => [],
+    ]);
+
+    Mail::fake();
+    (new CheckDeadlines)->handle();
+    expect($deadline->fresh()->reminders_sent)->toContain('overdue');
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('edit', $deadline, data: [
+        'due_date' => today()->subDay()->toDateString(),
+    ])->assertHasNoTableActionErrors();
+
+    expect($deadline->fresh()->reminders_sent)->toContain('overdue');
+
+    deadlinesTab($this->matter)->callTableAction('edit', $deadline, data: [
+        'due_date' => today()->addDays(10)->toDateString(),
+    ])->assertHasNoTableActionErrors();
+
+    expect($deadline->fresh()->reminders_sent)->toBe([]);
+});
+
+/**
+ * Sửa chỉ tên (ngày gửi lại y hệt cũ): `reminders_sent` không bị đụng tới.
+ *
+ * `reminders_sent` mang `d1` dù ngày còn 10 — một trạng thái không tự nhiên phát sinh qua luồng
+ * thật, dựng riêng để lộ đúng điều kiện đang test: nếu Action tính lại `clearedReminders()` bất kể
+ * ngày có đổi hay không, `d1` sẽ bị dọn (10 > 1, "chưa tới") NGAY CẢ KHI `due_date` gửi lên y hệt
+ * cũ. Một mutation probe xoá điều kiện `$dueDateChanged` (luôn tính lại) làm đúng khẳng định dưới
+ * đây đỏ — xem báo cáo.
+ */
+it('leaves reminders_sent alone when the due date is resubmitted unchanged', function () {
+    $deadline = makeDeadline($this->matter, [
+        'name' => 'Phiên hoà giải',
+        'due_date' => today()->addDays(10),
+        'reminders_sent' => ['d1'],
+    ]);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('edit', $deadline, data: [
+        'name' => 'Phiên hoà giải (đổi tên)',
+        'due_date' => today()->addDays(10)->toDateString(),
+        'severity' => DeadlineSeverity::Normal->value,
+    ])->assertHasNoTableActionErrors();
+
+    expect($deadline->fresh()->reminders_sent)->toBe(['d1'])
+        ->and($deadline->fresh()->name)->toBe('Phiên hoà giải (đổi tên)');
+});
+
+/**
+ * Fix round 1, C1 (Critical). Dọn `reminders_sent` mới là NỬA đầu của "nhắc lại đúng sau khi hoãn":
+ * `SendDeadlineReminderMail::alreadyDelivered()` còn một khoá chống gửi trùng THỨ HAI, trên nhật
+ * ký thư (`outbound_messages`). Khoá đó từng chỉ theo BẬC, nên một `d1` đã THẬT SỰ gửi cho phiên
+ * toà cũ chặn mất `d1` của phiên toà mới — CheckDeadlines đánh dấu "đã gửi", không ai nhận thư.
+ *
+ * Không `Mail::fake()`: transport `array` của `phpunit.xml` đi qua `OutboundLedgerTransport`, nên
+ * dòng `outbound_messages` được ghi thật — `Mail::fake()` không ghi dòng nào và đã giấu lỗi này ở
+ * vòng đầu. Hàng đợi `sync` chạy job ngay khi CheckDeadlines commit.
+ *
+ * @return Collection<int, OutboundMessage>
+ */
+function sentReminderRows(User $recipient, string $tier)
+{
+    return OutboundMessage::query()
+        ->withoutGlobalScopes()
+        ->where('template', 'staff.deadline_reminder')
+        ->where('recipient', $recipient->email)
+        ->where('status', OutboundStatus::Sent)
+        ->get()
+        ->filter(fn ($row): bool => str_starts_with((string) ($row->payload['tier'] ?? ''), $tier.'@'))
+        ->values();
+}
+
+it('reminds again at the one-day tier of a postponed hearing, even though that tier was really mailed for the old date', function () {
+    $deadline = makeDeadline($this->matter, [
+        'name' => 'Phiên toà sơ thẩm',
+        'due_date' => today()->addDay(),
+        'reminders_sent' => [],
+    ]);
+
+    (new CheckDeadlines)->handle();
+    expect(sentReminderRows($this->lawyer, 'd1'))->toHaveCount(1);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('edit', $deadline, data: [
+        'due_date' => today()->addDays(31)->toDateString(),
+    ])->assertHasNoTableActionErrors();
+
+    $this->travelTo(today()->addDays(30));
+    (new CheckDeadlines)->handle();
+
+    expect(sentReminderRows($this->lawyer, 'd1'))->toHaveCount(2)
+        ->and($deadline->fresh()->reminders_sent)->toContain('d1');
+});
+
+it('warns about an overdue deadline again after it was re-dated into the future and then slipped past again', function () {
+    $deadline = makeDeadline($this->matter, [
+        'name' => 'Nộp tạm ứng án phí',
+        'due_date' => today()->subDays(2),
+        'reminders_sent' => [],
+    ]);
+
+    (new CheckDeadlines)->handle();
+    expect(sentReminderRows($this->lawyer, 'overdue'))->toHaveCount(1);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('edit', $deadline, data: [
+        'due_date' => today()->addDays(10)->toDateString(),
+    ])->assertHasNoTableActionErrors();
+
+    $this->travelTo(today()->addDays(12));
+    (new CheckDeadlines)->handle();
+
+    expect(sentReminderRows($this->lawyer, 'overdue'))->toHaveCount(2);
+});
+
+/**
+ * Lời từ chối của form cũ đến được mắt người dùng với ĐÚNG câu `stale_form`, không chỉ một tiêu đề
+ * "không thực hiện được" chung chung (fix round 2). `Filament\Notifications\Notification::send()`
+ * đẩy mảng thông báo vào session `filament.notifications`; khi một request Livewire kết thúc,
+ * Filament chuyển chúng sang `filament.claimed_notifications` — đọc cả hai.
+ */
+function assertStaleFormRefusalShown(): void
+{
+    $bodies = collect([
+        ...session()->get('filament.notifications', []),
+        ...session()->get('filament.claimed_notifications', []),
+    ])->pluck('body')->all();
+
+    expect($bodies)->toContain(__('deadlines.validation.stale_form'));
+
+    Notification::assertNotified(__('actions.failed_title'));
+}
+
+/**
+ * Fix round 1, I1. Form "Sửa" gửi lại MỌI ô, nên một tab mở từ trước (hay một đồng nghiệp đang
+ * mở cùng mốc) ghi đè ngược lại lần sửa vừa lưu — trả về ngày cũ, hoặc huỷ một lần giao việc — và
+ * nhật ký đổ cho người thứ hai. Form mang ảnh chụp lúc mở; `UpdateDeadline` từ chối khi dòng đã đổi
+ * từ lúc đó. Tab B được MỞ trước khi tab A lưu.
+ */
+it('refuses an edit made from a form that was opened before someone else saved the deadline', function () {
+    $deadline = makeDeadline($this->matter, ['name' => 'Phiên toà sơ thẩm', 'due_date' => today()->addDays(5)]);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    $tabB = deadlinesTab($this->matter)->mountTableAction('edit', $deadline);
+
+    $this->travel(2)->seconds();
+
+    deadlinesTab($this->matter)->callTableAction('edit', $deadline, data: [
+        'due_date' => today()->addDays(10)->toDateString(),
+    ])->assertHasNoTableActionErrors();
+
+    $tabB->setTableActionData(['name' => 'Phiên toà sơ thẩm (tab B)'])
+        ->callMountedTableAction();
+
+    assertStaleFormRefusalShown();
+
+    expect($deadline->fresh()->due_date->toDateString())->toBe(today()->addDays(10)->toDateString())
+        ->and($deadline->fresh()->name)->toBe('Phiên toà sơ thẩm')
+        ->and(Activity::query()->where('event', 'deadline_updated')->count())->toBe(1);
+});
+
+/**
+ * Vế `updated_at` của ảnh chụp: dòng đổi ở một cột mà form "Sửa" không có (ở đây: công bố cho
+ * khách) — bốn ô của form vẫn khớp, chỉ `updated_at` nói rằng người đang sửa đã nhìn một bản cũ.
+ */
+it('refuses an edit from a form opened before the deadline changed in a column the form does not show', function () {
+    $deadline = makeDeadline($this->matter, ['name' => 'Phiên toà sơ thẩm', 'is_published' => false]);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    $tabB = deadlinesTab($this->matter)->mountTableAction('edit', $deadline);
+
+    $this->travel(2)->seconds();
+    $deadline->fresh()->update(['is_published' => true]);
+
+    $tabB->setTableActionData(['name' => 'Phiên toà sơ thẩm (tab B)'])
+        ->callMountedTableAction();
+
+    assertStaleFormRefusalShown();
+
+    expect($deadline->fresh()->name)->toBe('Phiên toà sơ thẩm');
+});
+
+/** Cặp dương: cùng hai bước, nhưng tab B được mở SAU khi tab A lưu — lưu bình thường. */
+it('accepts an edit from a form opened after the last save', function () {
+    $deadline = makeDeadline($this->matter, ['name' => 'Phiên toà sơ thẩm', 'due_date' => today()->addDays(5)]);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('edit', $deadline, data: [
+        'due_date' => today()->addDays(10)->toDateString(),
+    ])->assertHasNoTableActionErrors();
+
+    $this->travel(2)->seconds();
+
+    deadlinesTab($this->matter)->mountTableAction('edit', $deadline)
+        ->setTableActionData(['name' => 'Phiên toà sơ thẩm (tab B)'])
+        ->callMountedTableAction()
+        ->assertHasNoTableActionErrors();
+
+    expect($deadline->fresh()->due_date->toDateString())->toBe(today()->addDays(10)->toDateString())
+        ->and($deadline->fresh()->name)->toBe('Phiên toà sơ thẩm (tab B)')
+        ->and(Activity::query()->where('event', 'deadline_updated')->count())->toBe(2);
+});
+
+it('refuses an empty name on edit with an error on the field', function () {
+    $deadline = makeDeadline($this->matter, ['name' => 'Tên gốc']);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('edit', $deadline, data: [
+        'name' => '',
+        'due_date' => today()->addDays(3)->toDateString(),
+        'severity' => DeadlineSeverity::Normal->value,
+    ])->assertHasTableActionErrors(['name']);
+
+    expect($deadline->fresh()->name)->toBe('Tên gốc');
+});
+
+/**
+ * `deadlines/F7` nêu cả "người phụ trách" trong những thứ không sửa được. Ô chọn trong form "Sửa"
+ * bày ra đúng `responsibleOptions()` (cùng danh sách form "thêm nhanh" và nút "Đổi người phụ
+ * trách"); cổng thật là `ChecksDeadlineHolder::canHoldDeadline()` trong `UpdateDeadline` — xem
+ * `UpdateDeadlineTest`.
+ */
+it('hands a deadline to another team member through the edit form', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $this->matter->addTeamMember($assistant, MatterRole::Assistant);
+    $deadline = makeDeadline($this->matter, ['name' => 'Nộp bản tự khai']);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('edit', $deadline, data: [
+        'responsible_user_id' => $assistant->id,
+    ])->assertHasNoTableActionErrors();
+
+    expect($deadline->fresh()->responsible_user_id)->toBe($assistant->id)
+        ->and($deadline->fresh()->name)->toBe('Nộp bản tự khai');
+});
+
+/** Trưởng phòng xem được vụ nhưng không ở trong đội ngũ, nên không có trong danh sách — form không nhận id đó. */
+it('refuses, on the edit form, a responsible person the form does not offer', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $deadline = makeDeadline($this->matter);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('edit', $deadline, data: [
+        'responsible_user_id' => $manager->id,
+    ])->assertHasTableActionErrors(['responsible_user_id']);
+
+    expect($deadline->fresh()->responsible_user_id)->toBe($this->lawyer->id);
+});
+
+/**
+ * Người giữ mốc đã bị vô hiệu hoá: ô chọn KHÔNG điền sẵn tên họ (một giá trị ngoài danh sách sẽ
+ * bị luật `in:` chặn với một câu lỗi về thứ người dùng chưa từng chọn — cùng cái bẫy mà ô mặc định
+ * của form "thêm nhanh" đã ghi lại), và bắt người sửa chọn một người còn giữ được mốc.
+ */
+it('asks for a new holder when editing a deadline whose holder no longer qualifies', function () {
+    $former = User::factory()->withRole(Role::Lawyer)->create();
+    $this->matter->addTeamMember($former, MatterRole::Associate);
+    $deadline = makeDeadline($this->matter, ['responsible_user_id' => $former->id]);
+    $former->update(['is_active' => false]);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)
+        ->mountTableAction('edit', $deadline)
+        ->assertTableActionDataSet(['responsible_user_id' => null]);
+
+    deadlinesTab($this->matter)->callTableAction('edit', $deadline, data: [
+        'due_date' => today()->addDays(30)->toDateString(),
+    ])->assertHasTableActionErrors(['responsible_user_id']);
+
+    deadlinesTab($this->matter)->callTableAction('edit', $deadline, data: [
+        'due_date' => today()->addDays(30)->toDateString(),
+        'responsible_user_id' => $this->lawyer->id,
+    ])->assertHasNoTableActionErrors();
+
+    expect($deadline->fresh()->responsible_user_id)->toBe($this->lawyer->id)
+        ->and($deadline->fresh()->due_date->toDateString())->toBe(today()->addDays(30)->toDateString());
+});
+
+/** Mốc đã xong không còn việc gì để giao (cùng luật nút "Đổi người phụ trách"): ô người phụ trách không có mặt, các ô khác vẫn sửa được. */
+it('edits a completed deadline without touching who holds it', function () {
+    $deadline = makeDeadline($this->matter, [
+        'name' => 'Tên gõ nhầm',
+        'is_completed' => true,
+        'completed_at' => now(),
+    ]);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)
+        ->mountTableAction('edit', $deadline)
+        ->assertTableActionDataSet(['name' => 'Tên gõ nhầm'])
+        ->assertFormFieldHidden('responsible_user_id')
+        ->setTableActionData(['name' => 'Tên đã sửa'])
+        ->callMountedTableAction()
+        ->assertHasNoTableActionErrors();
+
+    expect($deadline->fresh()->name)->toBe('Tên đã sửa')
+        ->and($deadline->fresh()->responsible_user_id)->toBe($this->lawyer->id);
+});
+
+it('hides the edit button from someone who cannot write to the matter', function () {
+    $deadline = makeDeadline($this->matter);
+
+    $this->actingAs($this->lawyer, 'web');
+    deadlinesTab($this->matter)->assertTableActionVisible('edit', $deadline);
+
+    $this->actingAs(User::factory()->withRole(Role::Accountant)->create(), 'web');
+    deadlinesTab($this->matter)->assertTableActionHidden('edit', $deadline);
+});
+
+// =========================================================================================
+// XOÁ (M6.5 Task 14, `deadlines/F7`; R14) — xoá mềm kèm lý do bắt buộc.
+// =========================================================================================
+
+it('deletes a deadline with a reason, and writes an audit entry', function () {
+    $deadline = makeDeadline($this->matter, ['name' => 'Mốc gõ nhầm']);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('delete', $deadline, data: [
+        'reason' => 'Ghi nhầm sang vụ khác, chưa từng là mốc của hồ sơ này.',
+    ])->assertHasNoTableActionErrors();
+
+    expect(Deadline::query()->whereKey($deadline->id)->exists())->toBeFalse()
+        ->and(Deadline::withTrashed()->whereKey($deadline->id)->exists())->toBeTrue()
+        ->and(Activity::query()->where('event', 'deadline_deleted')
+            ->where('properties->reason', 'Ghi nhầm sang vụ khác, chưa từng là mốc của hồ sơ này.')
+            ->exists())->toBeTrue();
+});
+
+it('requires a reason to delete a deadline, and deletes nothing without one', function () {
+    $deadline = makeDeadline($this->matter);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('delete', $deadline, data: [
+        'reason' => '',
+    ])->assertHasTableActionErrors(['reason']);
+
+    expect(Deadline::query()->whereKey($deadline->id)->exists())->toBeTrue();
+});
+
+/** Một mốc đã gỡ không còn hiện ở bảng của chính vụ việc — cùng `SoftDeletingScope` mọi nơi khác dùng. */
+it('removes a deleted deadline from the table', function () {
+    $deadline = makeDeadline($this->matter, ['name' => 'Mốc sẽ bị gỡ']);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('delete', $deadline, data: ['reason' => 'Nhập trùng.']);
+
+    deadlinesTab($this->matter)->assertDontSee('Mốc sẽ bị gỡ');
+});
+
+/**
+ * Brief Task 14: "mốc đã xoá không hiện ở widget và không được nhắc" — cả chuỗi, bắt đầu từ nút
+ * "Xoá" thật. Mốc thứ hai của cùng vụ, cùng bậc nhắc, không bị gỡ: vế dương trong cùng lượt, để
+ * "không thư nào" không thể đến từ một lý do khác (vụ việc, người nhận).
+ */
+it('keeps a deadline deleted through the tab out of the dashboard widget and out of the reminders', function () {
+    $deleted = makeDeadline($this->matter, ['name' => 'Mốc gõ nhầm', 'due_date' => today()->addDay()]);
+    $kept = makeDeadline($this->matter, ['name' => 'Mốc thật', 'due_date' => today()->addDay()]);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('delete', $deleted, data: [
+        'reason' => 'Nhập trùng với mốc thật.',
+    ])->assertHasNoTableActionErrors();
+
+    test()->livewire(UpcomingDeadlinesWidget::class)
+        ->assertCanSeeTableRecords([$kept])
+        ->assertCanNotSeeTableRecords([$deleted]);
+
+    Mail::fake();
+    (new CheckDeadlines)->handle();
+
+    expect($kept->fresh()->reminders_sent)->toContain('d1')
+        ->and($deleted->fresh()->reminders_sent)->toBe([]);
+});
+
+it('hides the delete button from someone who cannot write to the matter', function () {
+    $deadline = makeDeadline($this->matter);
+
+    $this->actingAs($this->lawyer, 'web');
+    deadlinesTab($this->matter)->assertTableActionVisible('delete', $deadline);
+
+    $this->actingAs(User::factory()->withRole(Role::Accountant)->create(), 'web');
+    deadlinesTab($this->matter)->assertTableActionHidden('delete', $deadline);
+});
+
+// =========================================================================================
 // ĐÁNH DẤU HOÀN THÀNH, VÀ ĐƯỜNG LÙI
 // =========================================================================================
 
@@ -311,6 +879,147 @@ it('reopens a deadline through the action', function () {
 
     expect($deadline->fresh()->is_completed)->toBeFalse()
         ->and($deadline->fresh()->completed_at)->toBeNull();
+});
+
+/**
+ * Carried từ rà soát Task 3 (quyết định của controller, M6.5 Task 14): `SetDeadlineCompletion` mở
+ * lại một mốc mà KHÔNG hỏi lại người đứng tên còn giữ được nó không — người đó có thể đã bị vô hiệu
+ * hoá, xoá, gỡ khỏi đội ngũ, hoặc vụ việc đã bị siết thành `restricted` từ sau khi mốc được đánh
+ * dấu xong. Quyết định: mở lại VẪN chạy, người phụ trách chuyển sang luật sư phụ trách hồ sơ, có
+ * ghi nhật ký, và màn hình nói ra điều đó bằng tiếng Việt.
+ */
+function reopenedHandOverTitle(User $lead): string
+{
+    return __('deadlines.tab.actions.reopen_reassigned_title', ['name' => $lead->name]);
+}
+
+function completedDeadlineHeldBy(Matter $matter, User $holder): Deadline
+{
+    return makeDeadline($matter, [
+        'responsible_user_id' => $holder->id,
+        'is_completed' => true,
+        'completed_at' => now(),
+    ]);
+}
+
+it('hands a reopened deadline to the lead lawyer when its holder has since been deactivated, and says so', function () {
+    $former = User::factory()->withRole(Role::Lawyer)->create();
+    $this->matter->addTeamMember($former, MatterRole::Associate);
+    $deadline = completedDeadlineHeldBy($this->matter, $former);
+    $former->update(['is_active' => false]);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('reopen', $deadline)->assertHasNoTableActionErrors();
+
+    Notification::assertNotified(reopenedHandOverTitle($this->lawyer));
+
+    $activity = Activity::query()->where('event', 'deadline_responsible_changed')->sole();
+
+    expect($deadline->fresh()->is_completed)->toBeFalse()
+        ->and($deadline->fresh()->responsible_user_id)->toBe($this->lawyer->id)
+        ->and($activity->causer?->is($this->lawyer))->toBeTrue()
+        ->and($activity->properties->get('from'))->toBe($former->id)
+        ->and($activity->properties->get('to'))->toBe($this->lawyer->id)
+        ->and($activity->properties->get('reason'))->toBe('reopened_holder_no_longer_qualifies');
+});
+
+it('hands a reopened deadline to the lead lawyer when its holder has since been deleted', function () {
+    $former = User::factory()->withRole(Role::Lawyer)->create();
+    $this->matter->addTeamMember($former, MatterRole::Associate);
+    $deadline = completedDeadlineHeldBy($this->matter, $former);
+    $former->delete();
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('reopen', $deadline)->assertHasNoTableActionErrors();
+
+    Notification::assertNotified(reopenedHandOverTitle($this->lawyer));
+
+    expect($deadline->fresh()->is_completed)->toBeFalse()
+        ->and($deadline->fresh()->responsible_user_id)->toBe($this->lawyer->id);
+});
+
+/**
+ * Cùng luật, đường vào khác: người phụ trách còn `is_active` nhưng vụ việc bị siết thành
+ * `restricted` sau khi mốc hoàn thành, và người đó không phải lead/admin — không còn
+ * `Gate::view()` được nữa.
+ */
+it('hands a reopened deadline to the lead lawyer when its holder can no longer view a matter that turned restricted', function () {
+    $formerlyOk = User::factory()->withRole(Role::Lawyer)->create();
+    $this->matter->addTeamMember($formerlyOk, MatterRole::Associate);
+    $deadline = completedDeadlineHeldBy($this->matter, $formerlyOk);
+
+    $this->matter->update(['confidentiality' => Confidentiality::Restricted]);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('reopen', $deadline)->assertHasNoTableActionErrors();
+
+    Notification::assertNotified(reopenedHandOverTitle($this->lawyer));
+
+    expect($deadline->fresh()->is_completed)->toBeFalse()
+        ->and($deadline->fresh()->responsible_user_id)->toBe($this->lawyer->id);
+});
+
+/**
+ * "Còn trong đội ngũ" là một điều kiện RIÊNG, không suy ra được từ `Gate::view()`: một trưởng
+ * phòng có `matter.viewAny` nên vẫn XEM được vụ thường sau khi bị gỡ khỏi đội ngũ. R6 chỉ cho gỡ
+ * người đó vì mốc của họ đã xong lúc ấy — mở lại mốc thì mốc phải về tay một người còn trong đội
+ * ngũ, đúng bất biến "mốc chưa xong nằm trong tay đội ngũ" mà R6 giữ.
+ */
+it('hands a reopened deadline to the lead lawyer when its holder has since left the team, even though they can still view the matter', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $this->matter->addTeamMember($manager, MatterRole::Associate);
+    $deadline = completedDeadlineHeldBy($this->matter, $manager);
+
+    $this->matter->team()->detach($manager->id);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('reopen', $deadline)->assertHasNoTableActionErrors();
+
+    expect($deadline->fresh()->is_completed)->toBeFalse()
+        ->and($deadline->fresh()->responsible_user_id)->toBe($this->lawyer->id);
+});
+
+/** Cặp dương: người giữ mốc vẫn còn hợp lệ thì mở lại mà KHÔNG đổi người, không ghi nhật ký đổi người, không có câu nào về việc giao lại. */
+it('reopens a deadline for a holder who still qualifies without handing it over', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $this->matter->addTeamMember($assistant, MatterRole::Assistant);
+    $deadline = completedDeadlineHeldBy($this->matter, $assistant);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('reopen', $deadline)->assertHasNoTableActionErrors();
+
+    Notification::assertNotNotified(reopenedHandOverTitle($this->lawyer));
+
+    expect($deadline->fresh()->is_completed)->toBeFalse()
+        ->and($deadline->fresh()->responsible_user_id)->toBe($assistant->id)
+        ->and(Activity::query()->where('event', 'deadline_responsible_changed')->count())->toBe(0);
+});
+
+/**
+ * Luật sư phụ trách hồ sơ cũng không còn giữ được mốc (R7 chặn vô hiệu hoá họ khi còn dẫn vụ
+ * đang mở, nhưng dữ liệu cũ vẫn có thể mang trạng thái đó): không có ai để giao — mốc Ở LẠI
+ * "đã xong" và màn hình nói việc cần làm là bàn giao hồ sơ trước. Không bao giờ mở lại một mốc
+ * rồi để nó trong tay một người không ai còn nhắc tới.
+ */
+it('refuses to reopen when neither the holder nor the lead lawyer still qualifies', function () {
+    $admin = User::factory()->admin()->create();
+    $former = User::factory()->withRole(Role::Lawyer)->create(['is_active' => false]);
+    $deadline = completedDeadlineHeldBy($this->matter, $former);
+    $this->lawyer->update(['is_active' => false]);
+
+    $this->actingAs($admin, 'web');
+
+    deadlinesTab($this->matter)->callTableAction('reopen', $deadline);
+
+    Notification::assertNotified(__('actions.failed_title'));
+
+    expect($deadline->fresh()->is_completed)->toBeTrue()
+        ->and($deadline->fresh()->responsible_user_id)->toBe($former->id);
 });
 
 // =========================================================================================
@@ -352,6 +1061,34 @@ it('hides every write button from someone who cannot write to the matter', funct
         ->assertTableActionHidden('reopen', $deadline)
         ->assertTableActionHidden('publish', $deadline)
         ->assertTableActionHidden('unpublish', $deadline);
+});
+
+/**
+ * R5 (roles-05, M6.5 Task 10): trợ lý có `matter.update` (đổi tên, ngày, người phụ trách…) nhưng
+ * không có `stageLog.publish` — công bố (BẬT) một mốc hạn cho khách là "quyết định đưa gì ra cho
+ * khách", cùng loại quyết định với SetMatterPortalPublication (xem DeadlinePolicy::publish()).
+ * Nút "changeResponsible"/"complete" vẫn hiện (không đổi bởi task này) — chỉ nút "publish" ẩn.
+ *
+ * Fix round 1 (ruling task-10-fix1-findings.md): nút "unpublish" (GỠ, chỉ thu hẹp những gì khách
+ * thấy) chỉ cần `matter.update` — trợ lý VẪN thấy và bấm được, khác bản trước ẩn cả hai nút.
+ */
+it('hides only the publish button from an assistant, keeping unpublish and the other write buttons', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $this->matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    $private = makeDeadline($this->matter, ['name' => 'Chỉ nội bộ']);
+    $shared = makeDeadline($this->matter, ['name' => 'Đã gửi khách', 'is_published' => true]);
+
+    $this->actingAs($assistant, 'web');
+
+    deadlinesTab($this->matter)
+        ->assertTableActionHidden('publish', $private)
+        ->assertTableActionVisible('complete', $private)
+        ->assertTableActionVisible('changeResponsible', $private)
+        ->assertTableActionVisible('unpublish', $shared)
+        ->callTableAction('unpublish', $shared);
+
+    expect($shared->fresh()->is_published)->toBeFalse();
 });
 
 /**

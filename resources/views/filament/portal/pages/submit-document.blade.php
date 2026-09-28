@@ -87,15 +87,19 @@
         </section>
 
         {{-- 3. XEM TRƯỚC — SPEC §8.4 đặt bước này TRƯỚC bước gửi ------------------------- --}}
-        @php($pending = $this->pendingFile())
+        {{-- R10 (M6.5 Task 17): danh sách, không còn một dòng — một lần nộp có thể gồm nhiều
+             tệp, và khách cần thấy CẢ lô trước khi gửi, không chỉ một tệp. --}}
+        @php($pendingFiles = $this->pendingFiles())
         <section data-portal-block="3" style="{{ $card }}">
             <h2 style="{{ $blockHeading }}">{{ __('portal_submit.steps.preview.heading') }}</h2>
 
-            @if ($pending)
+            @if (count($pendingFiles))
                 <p>{{ __('portal_submit.steps.preview.lead') }}</p>
-                <p style="margin-top:0.5rem;font-weight:600;word-break:break-all;">
-                    {{ __('portal_submit.steps.preview.file', ['name' => $pending['name'], 'size' => $pending['size']]) }}
-                </p>
+                @foreach ($pendingFiles as $file)
+                    <p style="margin-top:0.5rem;font-weight:600;word-break:break-all;">
+                        {{ __('portal_submit.steps.preview.file', ['name' => $file['name'], 'size' => $file['size']]) }}
+                    </p>
+                @endforeach
             @else
                 <p style="{{ $muted }}">{{ __('portal_submit.steps.preview.none') }}</p>
             @endif

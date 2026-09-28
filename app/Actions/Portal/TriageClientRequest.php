@@ -4,6 +4,7 @@ namespace App\Actions\Portal;
 
 use App\Actions\Concerns\ChecksAccountActive;
 use App\Actions\Concerns\ReadsWithoutPortalScope;
+use App\Actions\Deadline\Concerns\ChecksDeadlineHolder;
 use App\Enums\ClientRequestStatus;
 use App\Models\ClientRequest;
 use App\Models\Matter;
@@ -68,15 +69,31 @@ use Illuminate\Validation\ValidationException;
 class TriageClientRequest
 {
     use ChecksAccountActive;
+    use ChecksDeadlineHolder;
     use ReadsWithoutPortalScope;
 
     /**
      * Giao một yêu cầu cho một người, hoặc gỡ người đang giữ ra (`$assignee === null`).
+     *
+     * `$matterId` được đọc ở ĐÂY, TRƯỚC KHI `DB::transaction()` mở — xem "Đọc `matter_id` TRƯỚC
+     * transaction, không phải bên trong" ở docblock {@see self::open()} cho lý do bắt buộc
+     * (fix round 3, finding I3 residual — snapshot REPEATABLE READ).
+     *
+     * **`last_activity_at` chỉ nhảy khi lần giao việc này CŨNG đổi trạng thái (fix round 1,
+     * ruling).** "Giao việc" tự nó là một việc QUẢN TRỊ — chọn ai đứng tên — không phải một lượt
+     * trao đổi, nên nó không tự động là "hoạt động" của hộp thư (xem docblock migration
+     * `add_last_activity_at_to_client_requests_table`). Nhưng khi giao việc ĐẨY luồng ra khỏi
+     * `new` (nhánh `new → in_progress` ngay dưới), đó là thời điểm "chưa ai xem" chuyển thành "đã
+     * có người xem" — một sự kiện thật về cuộc trao đổi, không chỉ về sổ phân công — nên khi đó
+     * (và chỉ khi đó) cột được đóng dấu lại. Gán lại một luồng ĐANG `in_progress` cho một người
+     * khác (đổi tay, không đổi trạng thái) thì KHÔNG đóng dấu.
      */
     public function assign(ClientRequest $request, User $actor, ?User $assignee): ClientRequest
     {
-        return DB::transaction(function () use ($request, $actor, $assignee): ClientRequest {
-            [$thread, $matter] = $this->open($request, $actor);
+        $matterId = $this->realMatterId($request);
+
+        return DB::transaction(function () use ($request, $actor, $assignee, $matterId): ClientRequest {
+            [$thread, $matter] = $this->open($request, $actor, $matterId);
 
             if ($assignee !== null && ! $this->canHoldTheThread($assignee, $matter)) {
                 // `ValidationException` chứ không `AuthorizationException`: câu này nói về Ô CHỌN —
@@ -89,12 +106,18 @@ class TriageClientRequest
             }
 
             $previous = $thread->assigned_to;
+            $previousStatus = $thread->status;
 
             $thread->assigned_to = $assignee?->getKey();
 
             // "Giao việc" cũng là "nhận" — xem docblock lớp. Một chiều, không có chiều ngược lại.
             if ($assignee !== null && $thread->status === ClientRequestStatus::New) {
                 $thread->status = ClientRequestStatus::InProgress;
+            }
+
+            // Chỉ đóng dấu hoạt động khi trạng thái THẬT SỰ đổi — xem docblock hàm ngay ở trên.
+            if ($thread->status !== $previousStatus) {
+                $thread->last_activity_at = now();
             }
 
             $thread->save();
@@ -125,10 +148,17 @@ class TriageClientRequest
      * {@see ChecksAccountActive} là **cùng một câu hỏi** mà Action đã hỏi về người đang thao tác;
      * ở đây nó được hỏi về người sắp phải làm việc. Một định nghĩa, hai lần gọi — không chép lại
      * điều kiện nào.
+     *
+     * **Final review A-M3: một luật người giữ việc, không ba.** Câu hỏi giờ là đúng câu mọi đường
+     * ghi `deadlines.responsible_user_id` hỏi — {@see ChecksDeadlineHolder::canHoldDeadline()}:
+     * trong đội ngũ (hoặc là lead), còn đi làm, chưa xoá mềm, mở được hồ sơ. Hai điều kiện cũ (còn
+     * đi làm + `MatterPolicy::update`) nằm trọn trong đó cho mọi thành viên đội ngũ; cái khác là một
+     * trưởng phòng NGOÀI đội ngũ (update được mọi vụ thường) không còn nhận được một yêu cầu mà
+     * cổng gỡ thành viên (R6) không bao giờ thấy họ giữ.
      */
     private function canHoldTheThread(User $assignee, Matter $matter): bool
     {
-        return $this->accountIsActive($assignee) && Gate::forUser($assignee)->allows('update', $matter);
+        return $this->canHoldDeadline($assignee, $matter);
     }
 
     /**
@@ -160,11 +190,49 @@ class TriageClientRequest
      * không bao giờ dịch đi (phán quyết 21/09/2026, lý lẽ đầy đủ ở docblock lớp của Action kia).
      * Rời khỏi `answered` **không** xoá cột: một sự kiện đã xảy ra thì không viết lại được cho
      * khớp một cái nhãn.
+     *
+     * `last_activity_at` luôn được đóng dấu lại: đổi trạng thái tay là một trong bốn đường hoạt
+     * động mà hộp thư sắp theo (Task 18, REQ-2 — xem docblock migration
+     * `add_last_activity_at_to_client_requests_table`), kể cả khi giá trị `$status` trùng với
+     * trạng thái hiện tại (ô chọn được đổ sẵn giá trị cũ và người dùng bấm Lưu mà không đổi gì
+     * vẫn là một lần nhân sự vừa động vào luồng này).
+     *
+     * **Mở lại một luồng đã đóng thì hỏi lại người đang đứng tên (vòng rà soát Task 3, mang sang
+     * đây).** `assign()` chỉ hỏi `canHoldTheThread()` một LẦN, lúc giao việc. Một luồng `closed`
+     * có thể đã bị bỏ quên nhiều ngày, và trong lúc đó người đang giữ (`assigned_to`) có thể đã
+     * rời khỏi đội ngũ vụ việc, bị vô hiệu hoá, bị xoá mềm, hoặc không còn `MatterPolicy::update`
+     * vì một lý do khác — không đường nào khác hỏi lại câu đó cho một luồng đã đóng, vì nó không
+     * đi qua `assign()` nữa. Mở nó ra lại mà không hỏi lại là tái tạo đúng lỗ hổng mà REQ-3 nêu
+     * tên: cột "Người xử lý" nói một cái tên, còn người đó không mở nổi hồ sơ để làm gì với nó.
+     *
+     * Nên khi `$previous === Closed` và `$status` mới KHÔNG phải `Closed` (tức đang MỞ LẠI), nếu
+     * luồng còn người đứng tên thì hỏi lại đúng luật `assign()` dùng — {@see self::
+     * canHoldTheThread()} — và gỡ người đó ra nếu không còn giữ được, thay vì âm thầm mở lại một
+     * luồng "đang xử lý" mà không ai xử lý được.
+     *
+     * **Trả về một {@see SetClientRequestStatusResult}, không phải `ClientRequest` trần (fix
+     * round 1, minor).** Bản trước chỉ trả luồng, và màn hình gọi hàm này
+     * ({@see ClientRequestsRelationManager}) tự SUY ra việc gỡ người có xảy ra không bằng cách so
+     * `assigned_to` của bản ghi TRƯỚC lời gọi với `assigned_to` của luồng SAU lời gọi — một phép
+     * trừ hai ảnh chụp màn hình dựa trên tiền đề "không đường nào khác đụng `assigned_to` giữa
+     * hai lần đọc". Tiền đề đó KHÔNG còn đúng tuyệt đối một khi có Action khác (ví dụ
+     * `ReassignMatter`, bàn giao hàng loạt) cũng ghi cột này, và một khác biệt bị đọc sai thành
+     * "vừa gỡ người" đẻ ra đúng câu bị cấm: thông báo lấy TÊN từ một chỗ không phải người vừa bị
+     * gỡ (nếu bản ghi trước lời gọi không có `assignee` nạp sẵn, phần dự phòng từng ghép nhãn
+     * "Chưa ai nhận" — nguyên văn placeholder của ô trống — vào chỗ một cái TÊN, ra một câu vô
+     * nghĩa "Chưa ai nhận không còn mở được vụ việc này..."). Nay Action tự báo: nó biết chính xác
+     * nó vừa gỡ AI (chính đối tượng `User` đã hỏi `canHoldTheThread()`, không phải một id đọc lại
+     * hụt), và trả thẳng ra — màn hình chỉ đọc kết quả, không suy đoán, không cần một câu dự phòng
+     * nào cho tên.
+     *
+     * `$matterId` đọc TRƯỚC `DB::transaction()`, cùng lý do ở {@see self::assign()}.
      */
-    public function setStatus(ClientRequest $request, User $actor, ClientRequestStatus $status): ClientRequest
+    public function setStatus(ClientRequest $request, User $actor, ClientRequestStatus $status): SetClientRequestStatusResult
     {
-        return DB::transaction(function () use ($request, $actor, $status): ClientRequest {
-            [$thread, $matter] = $this->open($request, $actor);
+        $matterId = $this->realMatterId($request);
+
+        return DB::transaction(function () use ($request, $actor, $status, $matterId): SetClientRequestStatusResult {
+            [$thread, $matter] = $this->open($request, $actor, $matterId);
 
             $previous = $thread->status;
 
@@ -178,9 +246,35 @@ class TriageClientRequest
             }
 
             $thread->status = $status;
+            $thread->last_activity_at = now();
 
             if ($status === ClientRequestStatus::Answered && $thread->answered_at === null) {
                 $thread->answered_at = now();
+            }
+
+            // Mở lại một luồng đã đóng — xem docblock ở trên cho lý do và cho giới hạn cố ý của
+            // nhánh này (chỉ hỏi lại lúc MỞ LẠI, không hỏi lại ở mọi lần đổi trạng thái khác).
+            //
+            // Hai biến, không một: `$unassignedAssignee` (cho MÀN HÌNH, qua kết quả trả về — có
+            // thể `null` nếu chính hàng `users` không còn tồn tại, một ca không thể xảy ra qua
+            // ứng dụng vì FK + xoá mềm, nhưng kiểu vẫn khai `?User` để không giả định điều đó) và
+            // `$unassignedPreviousAssigneeId` (cho NHẬT KÝ, luôn có giá trị khi có gỡ, vì nó đọc
+            // TRƯỚC khi `$assignee` được tìm — một hàng nhật ký không được phép rỗng `from` chỉ vì
+            // `User::find()` tình cờ trả về `null`).
+            $unassignedAssignee = null;
+            $unassignedPreviousAssigneeId = null;
+
+            if ($previous === ClientRequestStatus::Closed
+                && $status !== ClientRequestStatus::Closed
+                && $thread->assigned_to !== null) {
+                $previousAssigneeId = $thread->assigned_to;
+                $assignee = User::withTrashed()->find($previousAssigneeId);
+
+                if ($assignee === null || ! $this->canHoldTheThread($assignee, $matter)) {
+                    $unassignedAssignee = $assignee;
+                    $unassignedPreviousAssigneeId = $previousAssigneeId;
+                    $thread->assigned_to = null;
+                }
             }
 
             $thread->save();
@@ -192,18 +286,85 @@ class TriageClientRequest
                 'to' => $status->value,
             ], causer: $actor);
 
-            return $thread;
+            if ($unassignedPreviousAssigneeId !== null) {
+                // Tên sự kiện GIỐNG {@see self::assign()}: một lần rà soát "ai từng giữ luồng
+                // này" đọc được bằng một truy vấn trên cột `event`, không cần biết trước lần gỡ
+                // nào đến từ giao việc tay và lần nào đến từ đây.
+                Audit::record('client_request_assigned', $thread, [
+                    'matter_id' => $thread->matter_id,
+                    'client_id' => $matter->client_id,
+                    'from' => $unassignedPreviousAssigneeId,
+                    'to' => null,
+                ], causer: $actor);
+            }
+
+            return new SetClientRequestStatusResult($thread, $unassignedAssignee);
         });
+    }
+
+    /**
+     * `matter_id` THẬT của một `client_requests`, đọc thẳng từ CSDL — KHÔNG bao giờ đọc từ thuộc
+     * tính trên đối tượng `$request` mà caller đưa vào (có thể bị sửa trong bộ nhớ: test "reads
+     * the thread back instead of trusting the object it was handed" dựng đúng ca một `$request`
+     * bị sửa `matter_id` trỏ sang một vụ việc actor CÓ quyền, trong khi dòng thật thuộc một vụ
+     * việc actor KHÔNG có quyền).
+     *
+     * **Phải gọi TRƯỚC KHI `DB::transaction()` mở, không phải bên trong (fix round 3, finding
+     * I3 residual).** Đây KHÔNG chỉ là một câu `SELECT` "để biết khoá dòng nào" như round 2 tưởng
+     * — nó còn là một CÂU ĐỌC KHÔNG KHOÁ (`value()`, không `lockForUpdate()`). Trên MariaDB, mức
+     * cô lập REPEATABLE READ (mặc định InnoDB) cố định READ VIEW của một transaction tại LẦN ĐỌC
+     * NHẤT QUÁN (không khoá) ĐẦU TIÊN của nó — các lần đọc khoá (`FOR UPDATE`) không cố định gì,
+     * chúng luôn đọc dữ liệu MỚI NHẤT đã commit. Ở bản round 2, câu `value('matter_id')` là câu
+     * đọc ĐẦU TIÊN bên trong `DB::transaction()`, tức nó KHOÁ SỚM cả READ VIEW của transaction đó
+     * lại — TRƯỚC KHI `lockForUpdate()` trên `matters` kịp đợi/giành khoá. Hệ quả: nếu một
+     * `RemoveTeamMember` khác đang giữ khoá `matters`, `assign()` phải đợi; khi được cấp khoá và
+     * chạy tiếp, câu `Gate::forUser($assignee)->allows('update', $matter)` (một EXISTS không khoá
+     * trên `matter_user`) vẫn đọc theo READ VIEW CŨ — cũ hơn cả lúc `RemoveTeamMember` COMMIT —
+     * nên nó vẫn "thấy" người vừa bị gỡ còn trong đội ngũ và cho gán. Người rà soát đã tái hiện
+     * đúng ca này trên container MariaDB 11.8 của dự án: còn câu đọc sớm này, `still_member=1`
+     * sau khi gỡ xong; bỏ nó ra khỏi transaction, `still_member=0`.
+     *
+     * Gọi hàm này TRƯỚC `DB::transaction()` khiến nó chạy trong một câu lệnh auto-commit RIÊNG,
+     * không thuộc transaction của `assign()`/`setStatus()` — nên nó không cố định gì cho READ
+     * VIEW của transaction đó. An toàn để đọc SỚM: `client_requests.matter_id` không bao giờ đổi
+     * sau khi tạo (không Action nào trong app/ sửa cột này), nên một giá trị đọc trước khi khoá
+     * vẫn đúng khi khoá thật sự chạy — {@see self::open()} còn tự đối chiếu lại giá trị này với
+     * `$thread->matter_id` (đọc dưới khoá) một lần nữa, phòng trường hợp không thể xảy ra hôm nay
+     * nhưng có thể xảy ra nếu một Action tương lai lại sửa cột này.
+     */
+    private function realMatterId(ClientRequest $request): ?int
+    {
+        $matterId = $this->scopelessly(ClientRequest::query())->whereKey($request->getKey())->value('matter_id');
+
+        return $matterId !== null ? (int) $matterId : null;
     }
 
     /**
      * Đọc lại hàng thật, nạp sẵn vụ việc bằng một truy vấn đã gỡ scope, rồi gác cổng.
      *
-     * **Chỉ gọi được từ bên trong một transaction**, vì nó khoá hàng: cả hai phương thức công
-     * khai ở trên là đọc-sửa-ghi, và không có khoá thì hai người bấm cùng lúc ở hai tab ghi đè
-     * lên nhau — trường hợp cụ thể đã ghi ở {@see ReplyToClientRequest::handle()}. Cùng thành
-     * ngữ `RegroupDocument` dùng. Trên SQLite (bộ test) `lockForUpdate()` biên dịch thành không
-     * gì cả, nên phần khoá là một lập luận về MariaDB chứ không phải một điều kiện test đỏ được.
+     * **Chỉ gọi được từ bên trong một transaction, và câu ĐẦU TIÊN bên trong nó phải là khoá
+     * `matters`** — cùng thành ngữ `AddMatterDeadline`/`OpensDeadline::openMatterForDeadline()`
+     * (khoá vụ việc là dòng đầu tiên của thân closure `DB::transaction`) và
+     * `RemoveTeamMember`/`AddTeamMember` (đã rà lại ở fix round 3: cả hai Action đó KHÔNG có câu
+     * đọc trần nào trước khoá `matters` bên trong transaction của chúng — mọi thứ đứng trước,
+     * như `Gate::authorize('manageTeam', ...)`, chạy TRƯỚC `DB::transaction()` mở). Không câu đọc
+     * trần nào (không `lockForUpdate()`) được đứng trước khoá này bên trong transaction — xem
+     * {@see self::realMatterId()} cho lý do đầy đủ (fix round 3, finding I3 residual: một câu đọc
+     * trần đứng trước sẽ cố định READ VIEW REPEATABLE READ của transaction TRƯỚC khi khoá kịp
+     * đợi/giành, khiến các câu đọc trần SAU khoá — ví dụ `Gate::allows('update', $matter)` — vẫn
+     * thấy dữ liệu CŨ dù vừa đợi xong một transaction khác vừa commit).
+     *
+     * `$matterId` do {@see self::realMatterId()} tính SẴN, TRƯỚC transaction — xem docblock hàm
+     * đó. Đối chiếu lại với `$thread->matter_id` (đọc dưới khoá) ngay dưới: không tin
+     * `$matterId` mù quáng dù nó đến từ một hàm "đáng tin" hơn `$request->matter_id` — cột này
+     * hôm nay bất biến nên hai giá trị luôn khớp, nhưng đối chiếu là một câu `if` gần như miễn phí
+     * và là hàng rào cuối cùng nếu bất biến đó đổi.
+     *
+     * **Khoá `matters` TRƯỚC `client_requests`, thứ tự CỐ Ý (fix round 2, finding I3 residual).**
+     * Cùng THỨ TỰ TOÀN CỤC mà `RemoveTeamMember`/`AddTeamMember`/`OpensDeadline::
+     * openMatterForDeadline()` dùng (vụ việc trước, bảng con sau) — khoá theo hai chiều khác nhau
+     * ở hai Action tranh chấp là công thức deadlock kinh điển, xem lý lẽ `OpenMatter::
+     * lockClients()` đã ghi cho đúng vấn đề này giữa các dòng `clients`.
      *
      * `setRelation('matter', ...)` TRƯỚC khi `Gate` chạm vào đối tượng, cùng lý do đã đo ở M4:
      * một quan hệ nạp lười chạy dưới guard NÀO ĐANG MỞ, nên với một phiên portal đang mở trong
@@ -212,13 +373,20 @@ class TriageClientRequest
      *
      * @return array{0: ClientRequest, 1: Matter}
      */
-    private function open(ClientRequest $request, User $actor): array
+    private function open(ClientRequest $request, User $actor, ?int $matterId): array
     {
+        $matter = $matterId !== null
+            ? $this->scopelessly(Matter::query())->lockForUpdate()->find($matterId)
+            : null;
+
         $thread = $this->scopelessly(ClientRequest::query())
             ->lockForUpdate()
             ->find($request->getKey()) ?? $this->refuse();
 
-        $matter = $this->scopelessly(Matter::query())->find($thread->matter_id);
+        if ((int) $thread->matter_id !== $matterId) {
+            $this->refuse();
+        }
+
         $thread->setRelation('matter', $matter);
 
         if (! $this->accountIsActive($actor)) {

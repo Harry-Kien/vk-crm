@@ -11,6 +11,9 @@ use App\Enums\Role;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\DocumentsRelationManager;
+use App\Filament\Portal\Pages\MatterProgress;
+use App\Models\Client;
+use App\Models\ClientUser;
 use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
@@ -23,11 +26,13 @@ use Filament\Forms\Components\FileUpload;
 use Filament\Notifications\Livewire\Notifications;
 use Filament\Notifications\Notification;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Http\Testing\File;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Spatie\Activitylog\Models\Activity;
+use Symfony\Component\Mime\MimeTypes;
 
 /**
  * Tab "Tài liệu" (SPEC §7.2): nhóm A/B/C/D, nhãn nhóm D, và bốn thao tác.
@@ -109,15 +114,22 @@ function sentNotificationTitles(): array
  */
 class RefusingPublishDocument extends PublishDocument
 {
-    public function handle(Document $document, User $actor, bool $clientCanView, bool $clientCanDownload): Document
-    {
+    public function handle(
+        Document $document,
+        User $actor,
+        bool $clientCanView,
+        bool $clientCanDownload,
+        bool $expectedClientCanView,
+        bool $expectedClientCanDownload,
+        bool $expectedIsReleased,
+    ): Document {
         throw new AuthorizationException;
     }
 }
 
 class RefusingRegroupDocument extends RegroupDocument
 {
-    public function handle(Document $document, User $actor, DocumentGroup $group): Document
+    public function handle(Document $document, User $actor, DocumentGroup $group, ?string $reason = null): Document
     {
         throw new AuthorizationException;
     }
@@ -446,21 +458,52 @@ it('offers every group including D to a lawyer, who may both publish and read in
         ->toBe(['A', 'B', 'C', 'D']);
 });
 
-it('never offers group D to someone without document.viewInternal', function () {
+/**
+ * **Sửa lại ở vòng sửa 2 (Minor 4).** Tên và điều kiện cũ ("never offers D to someone without
+ * document.viewInternal") không còn đúng: phán quyết (a) mở rộng nói D được mời cho bất kỳ ai có
+ * `document.update`, BẤT KỂ nguồn — bản vòng sửa 1 chỉ áp dụng ngoại lệ đó cho nguồn B.
+ * `regroupOptions()` giờ hỏi `document.update`, không còn hỏi "nguồn có phải B không", nên phép
+ * đo đúng cho lằn ranh CÒN LẠI phải chọn một actor thiếu CẢ HAI quyền (`document.update` VÀ
+ * `document.viewInternal`) — một trợ lý NGOÀI đội ngũ (không có `document.update` trên vụ việc
+ * này), không phải một trợ lý trong đội ngũ như bản cũ (thứ giờ ĐÚNG là phải thấy D, xem test
+ * riêng ngay bên dưới).
+ */
+it('never offers group D to someone without document.update or document.viewInternal', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $document = Document::factory()->for($matter)->group(DocumentGroup::Authority)->create();
+
+    // Trợ lý NGOÀI đội ngũ: không `document.update` trên vụ việc này (chưa từng thêm vào), và
+    // không vai trò Assistant nào có `document.viewInternal` — thiếu cả hai lối vào D.
+    $outsiderAssistant = User::factory()->withRole(Role::Assistant)->create();
+
+    $this->actingAs($outsiderAssistant, 'web');
+
+    expect(array_keys(DocumentsRelationManager::groupOptions($matter)))->not->toContain('D')
+        ->and(array_keys(DocumentsRelationManager::regroupOptions($document)))->not->toContain('D');
+
+    $this->actingAs($lawyer, 'web');
+
+    expect(array_keys(DocumentsRelationManager::regroupOptions($document)))->toContain('D');
+});
+
+/**
+ * Cặp bổ sung (vòng sửa 2, Minor 4): một trợ lý TRONG đội ngũ — có `document.update` trên chính
+ * vụ việc này — giờ thấy được nhóm D dù không có `document.viewInternal`, BẤT KỂ nguồn (ở đây là
+ * nhóm C, không phải B, đúng phạm vi mà bản vòng sửa 1 còn bỏ sót). Mutation probe cho điều kiện
+ * này nằm ở test màn hình đầy đủ ("trợ lý rút được một tài liệu nhóm A...") phía trên.
+ */
+it('trợ lý trong đội ngũ (có document.update) vẫn thấy nhóm D dù không có document.viewInternal, bất kể nguồn', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $document = Document::factory()->for($matter)->group(DocumentGroup::Authority)->create();
 
     $assistant = User::factory()->withRole(Role::Assistant)->create();
     $matter->addTeamMember($assistant, MatterRole::Assistant);
 
     $this->actingAs($assistant, 'web');
 
-    expect(array_keys(DocumentsRelationManager::groupOptions($matter)))->not->toContain('D')
-        ->and(array_keys(DocumentsRelationManager::regroupOptions()))->not->toContain('D');
-
-    $this->actingAs($lawyer, 'web');
-
-    expect(array_keys(DocumentsRelationManager::regroupOptions()))->toContain('D');
+    expect(array_keys(DocumentsRelationManager::regroupOptions($document)))->toContain('D');
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -605,30 +648,159 @@ it('publishes a group C document through PublishDocument with the two independen
 });
 
 /**
- * Họ `DomainException`: vòng đời nhóm B (SPEC §4.11) từ chối một cú nhảy thẳng vào `published`.
- * Lời từ chối là một câu tiếng Việt nói ra việc cần làm tiếp theo — nó phải tới được màn hình,
- * không thành lỗi 500 và không thành một mã HTTP riêng (SPEC §10.10, xem docblock
- * `ReportsActionFailures`).
- *
- * Cặp sinh đôi dương: cùng tài liệu, cùng người, sau khi nó đã ở `signed_filed` thì công bố được.
+ * `docs/docs-4`: mở lại hộp "Công bố cho khách" của một tài liệu ĐÃ công bố "chỉ xem, không tải"
+ * phải hiện ĐÚNG hai cờ hiện có trên bản ghi, không phải bộ mặc định "bật cả hai" cũ. Bấm xác
+ * nhận trên một form gợi ý sai sẽ lặng lẽ MỞ LẠI quyền tải mà không ai chủ ý — đúng hậu quả
+ * `docs/docs-4` ghi lại.
  */
-it('turns a refused group B publication into a Vietnamese notification, then lets it through once signed and filed', function () {
+it('reopens the publish dialog of a view-only document with "cho tải" already off', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
-    $document = documentWithFile($matter, DocumentGroup::Issued, ['status' => DocumentStatus::PendingApproval]);
+    $document = documentWithFile($matter, DocumentGroup::Authority, [
+        'status' => DocumentStatus::Published,
+        'client_can_view' => true,
+        'client_can_download' => false,
+    ]);
 
     $this->actingAs($lawyer, 'web');
 
-    documentsManager($matter)->callAction(TestAction::make('publish')->table($document), data: [
+    documentsManager($matter)
+        ->mountAction(TestAction::make('publish')->table($document))
+        ->assertActionDataSet([
+            'client_can_view' => true,
+            'client_can_download' => false,
+        ]);
+});
+
+/**
+ * Cặp sinh đôi của test trên: một tài liệu CHƯA từng ra tới khách vẫn gợi ý bộ mặc định tiện lợi
+ * cũ (cả hai cờ bật) — `PublishDocument` từ chối công bố với `client_can_view` tắt, nên gợi ý
+ * tắt sẵn cho một lần công bố ĐẦU TIÊN không phải một thao tác, nó là một lời từ chối đã biết
+ * trước. Không có test này, một cài đặt luôn đọc từ bản ghi (bỏ nhánh `isReleasedToPortal()`)
+ * cũng làm test trên xanh trong khi bắt mọi lần công bố đầu tiên phải tự bật lại cả hai ô.
+ */
+it('still offers the convenient defaults for a document that has never been released before', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $document = documentWithFile($matter, DocumentGroup::Authority);
+
+    expect($document->isReleasedToPortal())->toBeFalse();
+
+    $this->actingAs($lawyer, 'web');
+
+    documentsManager($matter)
+        ->mountAction(TestAction::make('publish')->table($document))
+        ->assertActionDataSet([
+            'client_can_view' => true,
+            'client_can_download' => true,
+        ]);
+});
+
+/**
+ * "Hai tab" qua Livewire (vòng sửa 1, "Also fix — Stale publish form"). Tab 1 mở hộp thoại công
+ * bố của một tài liệu ĐÃ công bố (view=true/download=true) — `fillForm()` chụp đúng hai cờ đó
+ * vào các ô ẩn `mounted_*`. Trong lúc tab 1 còn mở, tài liệu được công bố lại (mô phỏng tab 2)
+ * với download=false. Tab 1 xác nhận KHÔNG SỬA GÌ (gửi lại đúng dữ liệu nó đã thấy lúc mount) —
+ * phải bị từ chối, và cờ tải phải GIỮ NGUYÊN false (không bị tab 1 ghi đè ngược lại).
+ */
+it('hai tab công bố cùng lúc: tab thứ hai (đã lỗi thời) bị từ chối qua màn hình, và quyền tải giữ nguyên đã tắt', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $document = documentWithFile($matter, DocumentGroup::Authority, [
+        'status' => DocumentStatus::Published,
         'client_can_view' => true,
         'client_can_download' => true,
     ]);
 
-    Notification::assertNotified(__('actions.failed_title'));
+    $this->actingAs($lawyer, 'web');
+
+    // "Tab 1": mở hộp thoại, đọc đúng ảnh chụp lúc mount qua chính dữ liệu đã điền sẵn.
+    $tab1 = documentsManager($matter)->mountAction(TestAction::make('publish')->table($document));
+    $tab1->assertActionDataSet([
+        'client_can_view' => true,
+        'client_can_download' => true,
+        'mounted_client_can_view' => true,
+        'mounted_client_can_download' => true,
+        'mounted_is_released' => true,
+    ]);
+
+    // "Tab 2": công bố lại trước, tắt quyền tải — một request/Livewire component khác.
+    documentsManager($matter)
+        ->callAction(TestAction::make('publish')->table($document), data: [
+            'client_can_view' => true,
+            'client_can_download' => false,
+        ])
+        ->assertHasNoActionErrors();
+
+    expect($document->fresh()->client_can_download)->toBeFalse();
+
+    // "Tab 1" xác nhận với đúng dữ liệu nó đã mount (không đổi gì) — phải bị từ chối.
+    $tab1->callMountedAction();
+
+    expect(sentNotificationTitles())->toContain(__('actions.failed_title'))
+        ->and($document->fresh()->client_can_download)->toBeFalse();
+});
+
+/**
+ * **Vòng đầy đủ qua Livewire — Task 16, sửa `docs/docs-1` (critical).** Trước Task 16 không có
+ * Action, nút hay ô nào ghi được `pending_approval`/`signed_filed`: mọi tài liệu nhóm B mãi kẹt ở
+ * `internal_draft`, và mọi test phủ nhánh "công bố được sau khi signed_filed" dựng trạng thái
+ * bằng `forceFill()`/factory — đường KHÔNG tồn tại ngoài đời — nên cả bộ test vẫn xanh dù nút
+ * "Công bố cho khách" không có đường nào tới. Test này đi đúng con đường một luật sư thật đi,
+ * từng bước, không gọi thẳng Action nào: tải tệp lên qua nút "Đưa tài liệu vào hồ sơ" → "Trình
+ * duyệt" → "Đánh dấu đã ký, đã nộp" → "Công bố cho khách" → rồi đọc lại dưới guard `client` để
+ * xác nhận khách thật sự thấy được.
+ */
+it('walks a group B document through Livewire from internal_draft to published, and the client sees it', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $client = Client::factory()->create();
+    $clientUser = ClientUser::factory()->activated()->create(['client_id' => $client->id]);
+    $matter = Matter::factory()->for($client)->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $this->actingAs($lawyer, 'web');
+
+    documentsManager($matter)
+        ->callAction(TestAction::make('upload')->table(), data: [
+            'file' => validPdf('don-khoi-kien.pdf'),
+            'title' => 'Đơn khởi kiện',
+            'group' => DocumentGroup::Issued->value,
+        ])
+        ->assertHasNoActionErrors();
+
+    $document = $matter->documents()->firstOrFail();
+
+    expect($document->status)->toBe(DocumentStatus::InternalDraft);
+
+    // "Khách CHƯA thấy" — cặp sinh đôi ÂM của khẳng định cuối test, đo TRƯỚC khi công bố. Log
+    // out guard `web` trước khi vào guard `client`: hai panel dùng chung cookie phiên
+    // (`ClientPortalScope::isActive()`), nên nếu KHÔNG log out, guard `web` của luật sư vẫn còn
+    // xác thực và `isActive()` trả `false` ở NGOÀI ngữ cảnh panel portal — vòng sửa 1 sửa đúng
+    // lỗi này: một bản trước gọi `Document::find()` trong khi guard `web` vẫn mở, nên phép đo
+    // "khách thấy" không hề chạm tới global scope portal thật, và sẽ xanh dù chưa công bố gì.
+    auth('web')->logout();
+    $this->actingAs($clientUser, 'client')
+        ->get(MatterProgress::getUrl(['record' => $matter->getKey()], panel: 'portal'))
+        ->assertOk()
+        ->assertDontSee('Đơn khởi kiện');
+    auth('client')->logout();
+
+    // Request portal vừa rồi đổi panel HIỆN TẠI của Filament sang `portal` — đặt lại `admin`
+    // trước khi tiếp tục gọi `documentsManager()` (Livewire component của panel admin), nếu
+    // không `Filament::getCurrentPanel()` trỏ sai panel và component không mount được.
+    Filament::setCurrentPanel('admin');
+    $this->actingAs($lawyer, 'web');
+
+    documentsManager($matter)
+        ->callAction(TestAction::make('submitForApproval')->table($document))
+        ->assertHasNoActionErrors();
 
     expect($document->refresh()->status)->toBe(DocumentStatus::PendingApproval);
 
-    $document->forceFill(['status' => DocumentStatus::SignedFiled])->save();
+    documentsManager($matter)
+        ->callAction(TestAction::make('markSignedFiled')->table($document))
+        ->assertHasNoActionErrors();
+
+    expect($document->refresh()->status)->toBe(DocumentStatus::SignedFiled);
 
     documentsManager($matter)
         ->callAction(TestAction::make('publish')->table($document), data: [
@@ -638,6 +810,338 @@ it('turns a refused group B publication into a Vietnamese notification, then let
         ->assertHasNoActionErrors();
 
     expect($document->refresh()->status)->toBe(DocumentStatus::Published);
+
+    // "Khách thấy" — ĐI QUA HTTP thật, đúng trang portal (`MatterProgress`) và đúng route tải
+    // có chữ ký, dưới guard `client` THẬT SỰ (guard `web` đã log out ở trên, và log out lại ở
+    // đây phòng một request khác trong cùng test rơi lại vào nhánh "nhân sự thắng"). Đây là
+    // phép đo THẬT: nếu `ClientPortalScope` hay `DocumentPolicy` không mở đúng, request này
+    // trả 404/không thấy tiêu đề, không phải một `Gate::allows()` gọi trong tiến trình PHP.
+    auth('web')->logout();
+    $this->actingAs($clientUser, 'client');
+
+    $portalHtml = $this->get(MatterProgress::getUrl(['record' => $matter->getKey()], panel: 'portal'))
+        ->assertOk()
+        ->getContent();
+
+    expect($portalHtml)->toContain('Đơn khởi kiện');
+
+    $this->get($document->downloadUrlFor($clientUser))->assertOk();
+});
+
+/**
+ * SPEC §5: trợ lý không có `document.publish`. Cặp sinh đôi dương ngay trong cùng test: cùng
+ * người, "Trình duyệt" (đòi `document.update`) VẪN hiện và bấm được — ranh giới nằm đúng giữa
+ * hai bước, không phải trước cả hai.
+ */
+it('hides "Đánh dấu đã ký, đã nộp" from an assistant while letting them submit the same draft for approval', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $document = documentWithFile($matter, DocumentGroup::Issued, ['status' => DocumentStatus::InternalDraft]);
+
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    $this->actingAs($assistant, 'web');
+
+    documentsManager($matter)
+        ->assertActionVisible(TestAction::make('submitForApproval')->table($document))
+        ->assertActionHidden(TestAction::make('markSignedFiled')->table($document))
+        ->callAction(TestAction::make('submitForApproval')->table($document))
+        ->assertHasNoActionErrors();
+
+    expect($document->refresh()->status)->toBe(DocumentStatus::PendingApproval);
+
+    // Nút vẫn ẩn sau khi tài liệu đã sang `pending_approval` — trợ lý không có `document.publish`
+    // ở BẤT KỲ trạng thái nào của tài liệu. `MarkDocumentSignedFiledTest` ghim thêm rằng gọi
+    // THẲNG Action (bỏ qua màn hình) cũng bị từ chối, cùng lý do các test Gate khác của tệp này
+    // (`RefusingPublishDocument`/`RefusingRegroupDocument`) không gọi được action ẩn qua Livewire:
+    // Filament không cho một action `isAuthorized() === false` chạy tới `action()` — nó dừng ở
+    // `isDisabled()`/`isHidden()`, IM LẶNG, trước khi kịp mở modal hay gửi bất kỳ thông báo nào.
+    documentsManager($matter)->assertActionHidden(TestAction::make('markSignedFiled')->table($document));
+
+    expect($document->refresh()->status)->toBe(DocumentStatus::PendingApproval);
+
+    // Và cặp sinh đôi dương: luật sư có `document.publish` thì thấy nút VÀ bấm được, trên cùng
+    // dòng, cùng tài liệu.
+    $this->actingAs($lawyer, 'web');
+
+    documentsManager($matter)
+        ->assertActionVisible(TestAction::make('markSignedFiled')->table($document))
+        ->callAction(TestAction::make('markSignedFiled')->table($document))
+        ->assertHasNoActionErrors();
+
+    expect($document->refresh()->status)->toBe(DocumentStatus::SignedFiled);
+});
+
+/**
+ * `docs/docs-2`, phán quyết R9: chuyển nhóm RA KHỎI B trước khi nó `signed_filed` là đúng đường
+ * "giặt" một bản nháp đơn thành nhóm C rồi công bố thẳng — và trước Task 16, một trợ lý làm được
+ * bước chuyển đó. Test này khẳng định NGAY CẢ một luật sư có đủ `document.publish` cũng không đi
+ * vòng được, và tài liệu ở nguyên nhóm B.
+ *
+ * **Đổi kiểu lỗi ở vòng sửa 1 (R9 mở rộng).** Trước vòng sửa 1, cổng B→C/A không có đường lý do
+ * nên MỌI lần gọi thiếu điều kiện đều rơi xuống `DomainException` của Action → một `Notification`
+ * trôi nổi. Nay ô "Lý do chuyển nhóm" tự bật `->required()` đúng tình huống này (xem
+ * `regroupReasonNeeded()`), nên một lần gọi không kèm `reason` bị CHÍNH FORM chặn trước khi tới
+ * Action — một lỗi gắn vào ô `reason`, không còn là thông báo trôi nổi nữa. Cặp test đầy đủ hơn
+ * (kèm/không kèm lý do) nằm ngay bên dưới; test này giữ lại vì nó ghim thêm rằng không tài liệu
+ * nào lọt được sang nhóm C dù có `document.publish`.
+ */
+it('refuses to regroup a group B document out of B while it is still internal_draft, even for a lawyer', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $document = documentWithFile($matter, DocumentGroup::Issued, ['status' => DocumentStatus::InternalDraft]);
+
+    $this->actingAs($lawyer, 'web');
+
+    documentsManager($matter)
+        ->callAction(TestAction::make('regroup')->table($document), data: [
+            'group' => DocumentGroup::Authority->value,
+        ])
+        ->assertHasActionErrors(['reason']);
+
+    expect($document->refresh()->group)->toBe(DocumentGroup::Issued);
+
+    // Đường công bố vòng qua (docs-2 mô tả): nếu cổng trên bị gỡ, bước này sẽ thành công và tài
+    // liệu (giờ mang nhãn nhóm C) sẽ công bố thẳng được từ một bản nháp chưa ai ký — chính hậu
+    // quả mà cổng mới ngăn.
+    expect($matter->documents()->where('group', DocumentGroup::Authority)->count())->toBe(0);
+});
+
+// ---------------------------------------------------------------------------------------------
+// I1 (vòng sửa 1): màn hình "Chuyển nhóm" phải phản ánh đúng ba cổng của Action — bốn kịch bản
+// finding I1 nêu đích danh, đi qua ĐÚNG màn hình (`callAction('regroup', ...)`), không gọi thẳng
+// `RegroupDocument` (đã có test riêng, chi tiết hơn, ở `RegroupDocumentTest`).
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * **"Biến mất khỏi cổng khách" đo bằng HTTP thật — vòng sửa 2, mục nhỏ.** Bản vòng sửa 1 chỉ gọi
+ * `isReleasedToPortal()` sau khi chuyển nhóm — hàm đó đọc lại đúng những cột mà CHÍNH test này vừa
+ * ghi, không đi qua `ClientPortalScope`/`DocumentPolicy`/route tải có chữ ký nào cả, nên nó không
+ * đo được gì hơn "cột đã đổi giá trị". Test này lấy đường dẫn tải có chữ ký TRƯỚC khi thu hồi
+ * (đúng thứ một khách đã mở trang trước đó có thể còn giữ), rồi đo lại CẢ trang portal LẪN đường
+ * dẫn đó SAU khi thu hồi, dưới guard `client` thật — cùng kỹ thuật với walk test S2.
+ */
+it('trợ lý chuyển được một tài liệu nhóm B ĐÃ CÔNG BỐ vào nhóm D qua màn hình, không cần document.publish, và nó biến mất khỏi cổng khách', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $client = Client::factory()->create();
+    $clientUser = ClientUser::factory()->activated()->create(['client_id' => $client->id]);
+    $matter = Matter::factory()->for($client)->create(['lead_lawyer_id' => $lawyer->id]);
+    $document = documentWithFile($matter, DocumentGroup::Issued, [
+        'status' => DocumentStatus::Published,
+        'client_can_view' => true,
+        'client_can_download' => true,
+    ]);
+
+    // Khách thấy TRƯỚC khi thu hồi — cả trang portal lẫn đường dẫn tải có chữ ký, đo qua HTTP
+    // thật dưới guard `client`. Giữ lại đường dẫn ký: nó phải hết tác dụng SAU khi thu hồi, dù
+    // chữ ký (còn hạn 5 phút) vẫn hợp lệ — cổng phải nằm ở policy, không phải ở chữ ký.
+    $this->actingAs($clientUser, 'client');
+    $this->get(MatterProgress::getUrl(['record' => $matter->getKey()], panel: 'portal'))
+        ->assertOk()
+        ->assertSee($document->title);
+    $signedDownloadUrl = $document->downloadUrlFor($clientUser);
+    $this->get($signedDownloadUrl)->assertOk();
+    auth('client')->logout();
+
+    // Request portal vừa rồi đổi panel HIỆN TẠI sang `portal` — đặt lại `admin` trước khi gọi
+    // `documentsManager()` (Livewire component của panel admin), cùng lý do với walk test S2.
+    Filament::setCurrentPanel('admin');
+
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    $this->actingAs($assistant, 'web');
+
+    // Ô chọn nhóm chỉ được offer B (giữ nguyên) và D — không phải A/C, thứ Action luôn từ chối
+    // trợ lý — xem docblock `regroupOptions()`.
+    expect(array_keys(DocumentsRelationManager::regroupOptions($document)))->toBe(['B', 'D']);
+
+    documentsManager($matter)
+        ->callAction(TestAction::make('regroup')->table($document), data: [
+            'group' => DocumentGroup::Internal->value,
+        ])
+        ->assertHasNoActionErrors();
+
+    expect($document->refresh()->group)->toBe(DocumentGroup::Internal)
+        ->and($document->isReleasedToPortal())->toBeFalse();
+
+    // Và khách THẬT SỰ không còn thấy nó — cùng trang, cùng đường dẫn ký, đo lại SAU khi thu hồi.
+    auth('web')->logout();
+    $this->actingAs($clientUser, 'client');
+    $this->get(MatterProgress::getUrl(['record' => $matter->getKey()], panel: 'portal'))
+        ->assertOk()
+        ->assertDontSee($document->title);
+    $this->get($signedDownloadUrl)->assertNotFound();
+});
+
+/**
+ * Vòng sửa 2, mục nhỏ: phán quyết (a) nói "vào D luôn được phép với `document.update`, BẤT KỂ
+ * nhóm NGUỒN" — nhưng `regroupOptions()` (vòng sửa 1) chỉ mời D cho ai không có
+ * `document.viewInternal` khi nguồn LÀ B. Một tài liệu nhóm A (`ClientProvided`) công bố nhầm
+ * cũng cần rút được, và một trợ lý cũng phải làm được việc đó — cùng lý lẽ với nhóm B.
+ */
+it('trợ lý rút được một tài liệu nhóm A ĐÃ CÔNG BỐ vào nhóm D qua màn hình, không cần document.viewInternal', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $document = documentWithFile($matter, DocumentGroup::ClientProvided, [
+        'status' => DocumentStatus::Published,
+        'client_can_view' => true,
+        'client_can_download' => true,
+    ]);
+
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    $this->actingAs($assistant, 'web');
+
+    expect(array_keys(DocumentsRelationManager::regroupOptions($document)))->toContain('D');
+
+    documentsManager($matter)
+        ->callAction(TestAction::make('regroup')->table($document), data: [
+            'group' => DocumentGroup::Internal->value,
+        ])
+        ->assertHasNoActionErrors();
+
+    expect($document->refresh()->group)->toBe(DocumentGroup::Internal)
+        ->and($document->isReleasedToPortal())->toBeFalse();
+});
+
+it('luật sư chuyển một bản nháp B chưa ký sang C mà KHÔNG nhập lý do thì bị từ chối qua màn hình', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $document = documentWithFile($matter, DocumentGroup::Issued, ['status' => DocumentStatus::InternalDraft]);
+
+    $this->actingAs($lawyer, 'web');
+
+    // Ô "Lý do chuyển nhóm" tự đặt `->required()` khi tình huống này cần nó (xem
+    // `regroupReasonNeeded()`), nên một lần gửi lý do rỗng bị CHÍNH form chặn — một lỗi gắn vào
+    // ô, không phải một thông báo trôi nổi. Đây là lớp phòng thủ ĐẦU (UX); lớp phòng thủ THỨ HAI
+    // (Action tự kiểm tra lại) được ghim riêng ở `RegroupDocumentTest`, gọi thẳng Action với một
+    // lý do rỗng để không bị lớp UX này che mất.
+    documentsManager($matter)
+        ->callAction(TestAction::make('regroup')->table($document), data: [
+            'group' => DocumentGroup::Authority->value,
+            'reason' => '',
+        ])
+        ->assertHasActionErrors(['reason']);
+
+    expect($document->refresh()->group)->toBe(DocumentGroup::Issued);
+});
+
+/** Cặp dương của test trên: cùng tài liệu, cùng người, kèm một lý do hợp lệ thì thành công. */
+it('luật sư chuyển một bản nháp B chưa ký sang C kèm lý do hợp lệ thì thành công, và lý do được ghi vào nhật ký', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $document = documentWithFile($matter, DocumentGroup::Issued, ['status' => DocumentStatus::InternalDraft]);
+
+    $this->actingAs($lawyer, 'web');
+
+    documentsManager($matter)
+        ->callAction(TestAction::make('regroup')->table($document), data: [
+            'group' => DocumentGroup::Authority->value,
+            'reason' => 'Nộp nhầm nhóm — đây là bản ghi chú nội bộ, không phải văn bản phát hành.',
+        ])
+        ->assertHasNoActionErrors();
+
+    expect($document->refresh()->group)->toBe(DocumentGroup::Authority);
+
+    $activity = Activity::query()->where('event', 'document_regrouped')->latest('id')->first();
+
+    expect($activity->properties->get('misfiling_reason'))
+        ->toBe('Nộp nhầm nhóm — đây là bản ghi chú nội bộ, không phải văn bản phát hành.');
+});
+
+it('trợ lý không chuyển được một tài liệu B sang C qua màn hình, và ô chọn nhóm còn không mời A/C', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $document = documentWithFile($matter, DocumentGroup::Issued, ['status' => DocumentStatus::SignedFiled]);
+
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    $this->actingAs($assistant, 'web');
+
+    // Cái bẫy `I1` mô tả: trước vòng sửa 1, ô này mời cả A và C cho một trợ lý đứng trên một
+    // dòng nhóm B — hai lựa chọn Action luôn từ chối họ.
+    expect(array_keys(DocumentsRelationManager::regroupOptions($document)))
+        ->not->toContain('A')->not->toContain('C');
+
+    // `setActionData()` VẪN đi qua luật `in:` mà chính ô chọn tự cài từ `regroupOptions()` (khác
+    // `binds a checklist item from another matter` phía trên, nơi ô đó KHÔNG có luật `in:` nào —
+    // `matter_checklist_item_id` chỉ giới hạn ĐỘNG DANH SÁCH, không tự sinh luật xác thực). Nên
+    // 'C' bị chặn ngay ở CHÍNH Ô — bằng chứng trực tiếp rằng việc lọc `regroupOptions()` không chỉ
+    // là một gợi ý giao diện, nó là một luật `in:` thật ở tầng máy chủ.
+    documentsManager($matter)
+        ->mountAction(TestAction::make('regroup')->table($document))
+        ->setActionData(['group' => DocumentGroup::Authority->value])
+        ->callMountedAction()
+        ->assertHasActionErrors(['group']);
+
+    expect($document->refresh()->group)->toBe(DocumentGroup::Issued);
+});
+
+/**
+ * Hai nút mới chỉ hiện đúng MỘT ô của bảng nhóm×trạng thái: "Trình duyệt" chỉ ở B/`internal_
+ * draft`, "Đánh dấu đã ký, đã nộp" chỉ ở B/`pending_approval`. Bốn dòng dữ liệu, một luật sư có
+ * đủ mọi quyền — nên bất kỳ ô nào hiện sai đều lộ ra ở đây, không lẫn được với một lời từ chối
+ * quyền (đã ghim riêng ở `MarkDocumentSignedFiledTest`/`SubmitDocumentForApprovalTest`).
+ */
+it('offers "Trình duyệt" and "Đánh dấu đã ký, đã nộp" on exactly the group/status cell each belongs to', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $draft = documentWithFile($matter, DocumentGroup::Issued, ['status' => DocumentStatus::InternalDraft]);
+    $pending = documentWithFile($matter, DocumentGroup::Issued, ['status' => DocumentStatus::PendingApproval]);
+    $signed = documentWithFile($matter, DocumentGroup::Issued, ['status' => DocumentStatus::SignedFiled]);
+    $authorityDraft = documentWithFile($matter, DocumentGroup::Authority, ['status' => DocumentStatus::InternalDraft]);
+
+    $this->actingAs($lawyer, 'web');
+
+    documentsManager($matter)
+        ->assertActionVisible(TestAction::make('submitForApproval')->table($draft))
+        ->assertActionHidden(TestAction::make('submitForApproval')->table($pending))
+        ->assertActionHidden(TestAction::make('submitForApproval')->table($signed))
+        ->assertActionHidden(TestAction::make('submitForApproval')->table($authorityDraft))
+        ->assertActionHidden(TestAction::make('markSignedFiled')->table($draft))
+        ->assertActionVisible(TestAction::make('markSignedFiled')->table($pending))
+        ->assertActionHidden(TestAction::make('markSignedFiled')->table($signed))
+        ->assertActionHidden(TestAction::make('markSignedFiled')->table($authorityDraft))
+        // "Trả về bản nháp" (vòng sửa 1, ruling): cùng ô nhóm×trạng thái với "Đánh dấu đã ký, đã
+        // nộp" (B/`pending_approval`), vì đó chính là bước nó đi NGƯỢC lại.
+        ->assertActionHidden(TestAction::make('returnToDraft')->table($draft))
+        ->assertActionVisible(TestAction::make('returnToDraft')->table($pending))
+        ->assertActionHidden(TestAction::make('returnToDraft')->table($signed))
+        ->assertActionHidden(TestAction::make('returnToDraft')->table($authorityDraft));
+});
+
+/** "Trả về bản nháp" qua Livewire (ruling, vòng sửa 1): đi đúng đường màn hình, không gọi Action. */
+it('trả một văn bản đang chờ duyệt về bản nháp qua màn hình', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $document = documentWithFile($matter, DocumentGroup::Issued, ['status' => DocumentStatus::PendingApproval]);
+
+    $this->actingAs($lawyer, 'web');
+
+    documentsManager($matter)
+        ->callAction(TestAction::make('returnToDraft')->table($document))
+        ->assertHasNoActionErrors();
+
+    expect($document->refresh()->status)->toBe(DocumentStatus::InternalDraft);
+});
+
+/** Trợ lý có `document.update` (đủ để "Trình duyệt") nhưng không thấy nút "Trả về bản nháp". */
+it('ẩn "Trả về bản nháp" khỏi trợ lý dù họ đọc và sửa được tài liệu', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $document = documentWithFile($matter, DocumentGroup::Issued, ['status' => DocumentStatus::PendingApproval]);
+
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    $this->actingAs($assistant, 'web');
+
+    documentsManager($matter)->assertActionHidden(TestAction::make('returnToDraft')->table($document));
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -958,3 +1462,317 @@ it('turns a Gate refusal from PublishDocument or RegroupDocument into the same V
     'publish' => ['publish', PublishDocument::class, RefusingPublishDocument::class],
     'regroup' => ['regroup', RegroupDocument::class, RefusingRegroupDocument::class],
 ]);
+
+// ---------------------------------------------------------------------------------------------
+// `docs/docs-7`: ô tệp và `FileGuard` phải đồng ý về docx bị libmagic nhận là `application/zip`.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Một gói ZIP thật, đúng cấu trúc OOXML tối thiểu của Word (`[Content_Types].xml`,
+ * `_rels/.rels`, `word/document.xml` — cùng ba mục `FileGuard::OFFICE_PACKAGE_ENTRIES` đòi cho
+ * `docx`). **KHÁC thứ tự của `FileGuardTest::docxPackageBytes()`, có chủ đích** (xem chú thích
+ * ngay trong thân hàm dưới đây cho thứ tự chính xác và bằng chứng đo được): trên bản libmagic của
+ * container này, thứ tự của `docxPackageBytes()` (`[Content_Types].xml` đứng ĐẦU) cho MIME OOXML
+ * cụ thể, còn thứ tự ở đây (`[Content_Types].xml` đứng CUỐI) mới cho `application/zip` — đúng thứ
+ * test này cần để đo lỗi `docs/docs-7`. Hai bản libmagic khác nhau cho hai kết quả khác nhau trên
+ * CÙNG một cấu trúc gói, đúng điều `FileGuard::verifyOfficePackage()` đã cảnh báo — nên con số
+ * "thứ tự nào cho MIME nào" không phải một hằng số của định dạng, nó là một hằng số của MÁY ĐANG
+ * CHẠY, và test bên dưới tự khẳng định lại tiền đề đó bằng `finfo` thật trước khi dùng nó. Không
+ * đặt tên hàm trùng `docxPackageBytes()`/`zipBytes()` của `FileGuardTest.php`: Pest nạp mọi tệp
+ * test vào CHUNG một tiến trình PHP, nên hai hàm toàn cục trùng tên ở hai tệp khác nhau là một
+ * lỗi khai báo lại.
+ */
+function adminDocxRecognizedAsZipBytes(): string
+{
+    $path = tempnam(sys_get_temp_dir(), 'zip');
+    $zip = new ZipArchive;
+    $zip->open($path, ZipArchive::OVERWRITE);
+    // Thứ tự mục THẬT SỰ khiến libmagic của container này đọc ra `application/zip` thay vì MIME
+    // OOXML cụ thể — ĐO ĐƯỢC bằng một probe chạy trên chính `bin/dev` (không phải suy đoán, xem
+    // báo cáo Task 16): `[Content_Types].xml` PHẢI đứng CUỐI. Đảo thứ tự (mục đó đứng đầu, như ở
+    // `FileGuardTest::docxPackageBytes()`) khiến finfo đọc đúng MIME OOXML trên bản libmagic này
+    // — hai bản libmagic khác nhau cho hai kết quả khác nhau trên CÙNG một cấu trúc gói, đúng
+    // điều `FileGuard::verifyOfficePackage()` đã cảnh báo.
+    $zip->addFromString('_rels/.rels', '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>');
+    $zip->addFromString('word/document.xml', '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body/></w:document>');
+    $zip->addFromString('[Content_Types].xml', '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"></Types>');
+    $zip->close();
+
+    $bytes = (string) file_get_contents($path);
+    unlink($path);
+
+    return $bytes;
+}
+
+/**
+ * **`UploadedFile::fake()` KHÔNG dùng được cho test này, và đây là lý do (`docs/docs-7`).**
+ * `Illuminate\Http\Testing\File::getMimeType()` không đọc nội dung tệp: nó trả
+ * `MimeType::from($this->name)` — MIME suy THẲNG từ đuôi tên tệp. Vòng thử nghiệm meta của
+ * Livewire (`Testable::upload()` → `FileUploadConfiguration::storeTemporaryFile()`) ghi đúng giá
+ * trị `getMimeType()` đó vào tệp `.json` đi kèm, nên một `UploadedFile::fake()->createWithContent
+ * ('a.docx', <byte ZIP thật>)` VẪN báo MIME là MIME OOXML (suy từ đuôi `.docx`) — chưa từng chạm
+ * tới nội dung tệp, và vì vậy chưa từng đo được lỗi mà `docs/docs-7` ghi lại.
+ *
+ * Một `Illuminate\Http\UploadedFile` TRẦN (không phải lớp con `Testing\File`) thì khác:
+ * `getMimeType()` của nó không bị ghi đè, nên nó rơi xuống `Symfony\Component\HttpFoundation\
+ * File\File::getMimeType()` — `MimeTypes::getDefault()->guessMimeType()`, đọc THẬT nội dung tệp
+ * bằng bộ đoán MIME của hệ thống (cùng cơ chế `finfo` mà `FileGuard::realMimeType()` dùng, và
+ * cùng cơ chế production dùng qua `TemporaryUploadedFile::detectMimeTypeFromContents()`).
+ *
+ * Nói cho đúng với chính thân hàm dưới đây: nó KHÔNG dùng `tempnam()` (một đường dẫn) mà dùng
+ * `tmpfile()` (một RESOURCE, tự xoá khi đóng) — cùng nguyên liệu mà chính `Testing\File` gốc của
+ * Laravel dùng cho `createWithContent()`, nên lớp con nặc danh bên dưới thừa hưởng đúng vòng đời
+ * tệp tạm đó thay vì tự quản lý một đường dẫn riêng. Điểm chung với `UploadedFile::fake()` chỉ có
+ * MỘT: `$test = true` để bỏ qua kiểm `is_uploaded_file()` — cờ đó là lý do chính đáng để không cần
+ * một request HTTP multipart thật, không phải lý do để dùng `Testing\File` nguyên bản (thứ đoán
+ * MIME từ đuôi, xem đoạn trên).
+ */
+function realDocxRecognizedAsZipUpload(string $name = 'hop-dong-that.docx'): UploadedFile
+{
+    // Lớp con nặc danh của CHÍNH `Testing\File` — giữ nguyên mọi thứ Livewire cần từ nó
+    // (thuộc tính `$name` công khai mà `Testable::upload()` đọc trực tiếp, `tempFilePath()`),
+    // và ghi đè đúng MỘT hàm: `getMimeType()`. Bản gốc của `Testing\File::getMimeType()` trả
+    // `MimeType::from($this->name)` — suy MIME từ ĐUÔI tên tệp, không đọc nội dung — nên nó
+    // không đo được lỗi `docs/docs-7`. Bản ghi đè ở đây gọi thẳng bộ đoán MIME thật của Symfony
+    // (`MimeTypes::guessMimeType()`, cùng cơ chế `finfo`/`FileGuard::realMimeType()` dùng, và
+    // cùng cơ chế production `TemporaryUploadedFile::detectMimeTypeFromContents()` dùng) trên
+    // ĐƯỜNG DẪN TẠM THẬT, không suy từ tên.
+    $tmp = tmpfile();
+    fwrite($tmp, adminDocxRecognizedAsZipBytes());
+
+    return new class($name, $tmp) extends File
+    {
+        public function getMimeType(): string
+        {
+            return MimeTypes::getDefault()->guessMimeType($this->tempFilePath());
+        }
+    };
+}
+
+/**
+ * Trước bản sửa này, `DocumentsRelationManager::acceptedMimeTypes()` không có `application/zip`,
+ * nên luật `mimetypes:` của CHÍNH Ô CHỌN TỆP từ chối gói docx thật ở trên TRƯỚC KHI
+ * `UploadStaffDocument`/`FileGuard` kịp chạy — một docx hợp lệ bị chặn oan ngay tại ô. Test này đi
+ * đúng đường Livewire thật (`callAction('upload', ...)`), không gọi thẳng `FileGuard::check()`
+ * (đã có test riêng ở `FileGuardTest`), vì lỗi nằm ở TẦNG Ô CHỌN TỆP, không ở `FileGuard`.
+ */
+it('tải lên được một docx thật mà libmagic nhận là application/zip, qua ô admin', function () {
+    // Tiền đề của cả test: bằng chứng rằng libmagic của MÁY ĐANG CHẠY thật sự đọc gói này ra
+    // `application/zip`, không phải một giả định. Nếu một bản libmagic khác đọc ra MIME OOXML
+    // cụ thể, test này phải đỏ Ở ĐÂY trước, chỉ thẳng ra rằng fixture cần dựng lại — không lặng
+    // lẽ xanh vì một lý do khác (nhóm B vẫn nhận MIME OOXML sẵn có trong danh sách).
+    expect((new finfo(FILEINFO_MIME_TYPE))->buffer(adminDocxRecognizedAsZipBytes()))->toBe('application/zip');
+
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $this->actingAs($lawyer, 'web');
+
+    documentsManager($matter)
+        ->callAction(TestAction::make('upload')->table(), data: [
+            'file' => realDocxRecognizedAsZipUpload(),
+            'title' => 'Hợp đồng dịch vụ pháp lý',
+            'group' => DocumentGroup::Issued->value,
+        ])
+        ->assertHasNoActionErrors();
+
+    $document = $matter->documents()->firstOrFail();
+
+    expect($document->title)->toBe('Hợp đồng dịch vụ pháp lý')
+        ->and($document->getMedia('file'))->toHaveCount(1);
+});
+
+/**
+ * Một ZIP thật, KHÔNG mang cấu trúc gói Office Open XML nào — chỉ một tệp text bên trong. Dùng
+ * cho ba test I2 (vòng sửa 1) bên dưới: `docs/docs-7` đòi cả hai chiều được đo tại đúng tầng
+ * admin thật (Livewire), không chỉ ở tầng đơn vị `FileGuard` (đã có ở `FileGuardTest`) — chiều
+ * "docx thật bị nhận nhầm application/zip vẫn tải lên được" đã có ở trên, chiều "một ZIP tuỳ ý
+ * đội tên .docx/.zip vẫn bị chặn" thì chưa, và đó là lỗ hổng review vòng 1 chỉ ra.
+ */
+function nonOfficeZipBytesForAdminUpload(): string
+{
+    $path = tempnam(sys_get_temp_dir(), 'zip');
+    $zip = new ZipArchive;
+    $zip->open($path, ZipArchive::OVERWRITE);
+    $zip->addFromString('readme.txt', 'khong phai tai lieu Word');
+    $zip->close();
+
+    $bytes = (string) file_get_contents($path);
+    unlink($path);
+
+    return $bytes;
+}
+
+/**
+ * Bản tổng quát của `realDocxRecognizedAsZipUpload()` phía trên — cùng kỹ thuật (`tmpfile()` +
+ * ghi đè `getMimeType()` bằng bộ đoán MIME thật của Symfony), cho một cặp tên/nội dung bất kỳ.
+ * Ba test I2 bên dưới cộng test MIME kế thừa đều cần MIME đọc từ NỘI DUNG thật, không suy từ
+ * đuôi tên tệp — xem docblock `realDocxRecognizedAsZipUpload()` cho lý do đầy đủ vì sao
+ * `UploadedFile::fake()` không dùng được ở đây.
+ */
+function realUploadWithBytes(string $name, string $bytes): UploadedFile
+{
+    $tmp = tmpfile();
+    fwrite($tmp, $bytes);
+
+    return new class($name, $tmp) extends File
+    {
+        public function getMimeType(): string
+        {
+            return MimeTypes::getDefault()->guessMimeType($this->tempFilePath());
+        }
+    };
+}
+
+/**
+ * `docs/docs-7` (I2, vòng sửa 1): một ZIP bất kỳ — không mang cấu trúc OOXML nào — đặt tên
+ * `.docx` phải bị chặn ở đúng tầng admin thật (Livewire, đường `callAction('upload', ...)`,
+ * không gọi thẳng `FileGuard::check()`). Byte thật đọc ra `application/zip`, nên nó ĐI LỌT
+ * được luật `mimetypes:` của ô (bắt buộc phải chấp nhận `application/zip` cho `docx`/`xlsx`, xem
+ * test phía trên) — cấu trúc bên trong (`FileGuard::verifyOfficePackage()`) mới là cổng chặn nó.
+ */
+it('rejects một ZIP bất kỳ đặt tên .docx qua ô admin, dù MIME thật là application/zip', function () {
+    $bytes = nonOfficeZipBytesForAdminUpload();
+    // Tiền đề: byte thật của fixture này phải đọc ra application/zip trên máy đang chạy, cùng lý
+    // do với `adminDocxRecognizedAsZipBytes()` phía trên — nếu không, test phải đỏ Ở ĐÂY.
+    expect((new finfo(FILEINFO_MIME_TYPE))->buffer($bytes))->toBe('application/zip');
+
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $this->actingAs($lawyer, 'web');
+
+    documentsManager($matter)
+        ->callAction(TestAction::make('upload')->table(), data: [
+            'file' => realUploadWithBytes('gia-mao.docx', $bytes),
+            'title' => 'Giả mạo văn bản Word',
+            'group' => DocumentGroup::Issued->value,
+        ])
+        ->assertHasActionErrors([
+            // Chuỗi mong đợi có DẤU HAI CHẤM ("...thật: bên trong thiếu..."), và
+            // `Livewire\Features\SupportValidation\TestsValidation::assertErrorMatchesRuleOrMessage()`
+            // coi mọi ':' trong giá trị so sánh là ranh giới tham số kiểu "same:field" rồi CẮT
+            // NGẮN chuỗi tại đó trước khi so — dùng chuỗi thẳng ở đây làm assertion luôn xanh SAI
+            // (so một chuỗi bị cắt cụt với chính nó). Một Closure nhận `$messages` thật, tự so
+            // bằng `in_array(..., true)`, đi vòng qua đúng chỗ cắt đó.
+            'file' => fn (array $rules, array $messages): bool => in_array(
+                __('documents.file_guard.not_office_package', ['extension' => 'docx']),
+                $messages,
+                true,
+            ),
+        ]);
+
+    expect($matter->documents()->count())->toBe(0);
+});
+
+/**
+ * `docs/docs-7` (I2, vòng sửa 1): một `.zip` TRẦN (không đội tên `docx`/`xlsx`) vẫn phải bị chặn
+ * dù `application/zip` đã buộc phải có trong `acceptedMimeTypes()` cho hai đuôi kia — chặn ở
+ * tầng ĐUÔI TỆP của `FileGuard::ALLOWED` (`zip` không phải một khoá trong đó), không phải tầng
+ * MIME của ô. Thêm `application/zip` vào danh sách MIME của ô không mở cửa cho ZIP trần.
+ */
+it('rejects một tệp .zip trần qua ô admin dù application/zip đã có trong danh sách MIME cho phép', function () {
+    $bytes = nonOfficeZipBytesForAdminUpload();
+
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $this->actingAs($lawyer, 'web');
+
+    documentsManager($matter)
+        ->callAction(TestAction::make('upload')->table(), data: [
+            'file' => realUploadWithBytes('du-lieu.zip', $bytes),
+            'title' => 'Dữ liệu nén',
+            'group' => DocumentGroup::Issued->value,
+        ])
+        ->assertHasActionErrors(['file' => __('documents.file_guard.extension_not_allowed', ['extension' => 'zip'])]);
+
+    expect($matter->documents()->count())->toBe(0);
+});
+
+/**
+ * `docs/docs-7` (I2, vòng sửa 1): một tệp có ĐUÔI khai báo không khớp NỘI DUNG thật, đo bằng kỹ
+ * thuật nội dung thật (`realUploadWithBytes()`), không phải `UploadedFile::fake()`. Khác test
+ * "binds a rejected file to the file field and creates nothing" phía trên (dùng
+ * `fake()->createWithContent()` với byte DOS-exe — vẫn hợp lệ vì `Testing\File::getMimeType()`
+ * suy MIME từ đuôi `.pdf`, còn byte THẬT ghi xuống đĩa mới là DOS-exe, và `FileGuard` đọc byte
+ * thật nên vẫn bắt được): ở đây dùng ảnh PNG thật đội tên `.pdf`, cùng lớp lỗi `content_mismatch`
+ * nhưng qua đúng con đường I2 đòi — MIME của `Testing\File` KHÔNG can thiệp được nữa vì lớp con
+ * ở đây ghi đè `getMimeType()` bằng bộ đoán nội dung thật ngay từ vòng kiểm của Ô, không chỉ ở
+ * FileGuard.
+ */
+it('rejects một tệp .pdf mà nội dung thật là ảnh PNG, qua ô admin (nội dung thật, không dùng fake())', function () {
+    $bytes = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=');
+    expect((new finfo(FILEINFO_MIME_TYPE))->buffer($bytes))->toBe('image/png');
+
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $this->actingAs($lawyer, 'web');
+
+    documentsManager($matter)
+        ->callAction(TestAction::make('upload')->table(), data: [
+            'file' => realUploadWithBytes('bao-cao.pdf', $bytes),
+            'title' => 'Báo cáo giả dạng PDF',
+            'group' => DocumentGroup::Issued->value,
+        ])
+        ->assertHasActionErrors(['file' => __('documents.file_guard.content_mismatch', ['extension' => 'pdf'])]);
+
+    expect($matter->documents()->count())->toBe(0);
+});
+
+/**
+ * Vòng sửa 1 thêm ba MIME kế thừa (`application/x-ole-storage`, `application/x-cfb`,
+ * `application/CDFV2`) cho `doc`/`xls` — nhưng CỔNG ĐẦU của luồng thật là ô admin
+ * (`acceptedMimeTypes()`), không phải `FileGuard`. Nếu ô chưa thêm ba MIME đó, một `.doc` OLE2
+ * thật bị chặn TẠI Ô trước khi `FileGuard` kịp chạy — y hệt hình dạng lỗi `docs/docs-7` đã ghi
+ * cho `application/zip`. Byte OLE2 dưới đây đọc ra `application/x-ole-storage` trên container
+ * này (đo trực tiếp, xem `expect()` đầu tiên).
+ */
+it('tải lên được một .doc OLE2 thật mà libmagic nhận là application/x-ole-storage, qua ô admin', function () {
+    $bytes = "\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1".str_repeat("\x00", 504);
+    expect((new finfo(FILEINFO_MIME_TYPE))->buffer($bytes))->toBe('application/x-ole-storage');
+
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $this->actingAs($lawyer, 'web');
+
+    documentsManager($matter)
+        ->callAction(TestAction::make('upload')->table(), data: [
+            'file' => realUploadWithBytes('hop-dong-cu.doc', $bytes),
+            'title' => 'Hợp đồng định dạng cũ',
+            'group' => DocumentGroup::Issued->value,
+        ])
+        ->assertHasNoActionErrors();
+
+    $document = $matter->documents()->firstOrFail();
+
+    expect($document->title)->toBe('Hợp đồng định dạng cũ')
+        ->and($document->getMedia('file'))->toHaveCount(1);
+});
+
+/**
+ * Final review X7 (C-I2), màn hình: ô "Lý do chuyển nhóm" cũng hiện (và bắt buộc) cho một bản nháp
+ * đã đi B → D, khi nó rời D sang C — cùng luật `RegroupDocument` áp dưới khoá.
+ */
+it('requires the misfiling reason on screen for a draft that went B → D and now leaves D for C', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $document = documentWithFile($matter, DocumentGroup::Issued, ['status' => DocumentStatus::InternalDraft]);
+
+    $this->actingAs($lawyer, 'web');
+
+    documentsManager($matter)
+        ->callAction(TestAction::make('regroup')->table($document), data: ['group' => DocumentGroup::Internal->value])
+        ->assertHasNoActionErrors();
+
+    documentsManager($matter)
+        ->callAction(TestAction::make('regroup')->table($document->fresh()), data: [
+            'group' => DocumentGroup::Authority->value,
+            'reason' => '',
+        ])
+        ->assertHasActionErrors(['reason' => 'required']);
+
+    expect($document->fresh()->group)->toBe(DocumentGroup::Internal);
+});

@@ -21,7 +21,10 @@ class ClientRequest extends Model
     use RestrictedToClientPortal;
     use SoftDeletes;
 
-    protected $fillable = ['matter_id', 'client_user_id', 'subject', 'content', 'status', 'assigned_to', 'answered_at'];
+    protected $fillable = [
+        'matter_id', 'client_user_id', 'subject', 'content', 'status', 'assigned_to', 'answered_at',
+        'last_activity_at',
+    ];
 
     protected $attributes = ['status' => 'new'];
 
@@ -30,6 +33,7 @@ class ClientRequest extends Model
         return [
             'status' => ClientRequestStatus::class,
             'answered_at' => 'datetime',
+            'last_activity_at' => 'datetime',
         ];
     }
 

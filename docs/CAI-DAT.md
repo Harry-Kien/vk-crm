@@ -98,7 +98,7 @@ cách một lỗ hổng đếm số lần đăng nhập sai sống sót qua hai 
 
 ## Khi đưa lên máy chủ thật
 
-Chưa làm, thuộc phần bảo mật và vận hành. Bốn thứ bắt buộc phải xong trước:
+Chưa làm, thuộc phần bảo mật và vận hành. Bảy thứ bắt buộc phải xong trước:
 
 1. **`TRUSTED_PROXIES` phải điền địa chỉ proxy thật.** Để trống nghĩa là mọi khách hàng dùng
    chung một bộ đếm đăng nhập: năm lần gõ sai của bất kỳ ai khoá cả cổng trong 15 phút.
@@ -106,3 +106,57 @@ Chưa làm, thuộc phần bảo mật và vận hành. Bốn thứ bắt buộc
    `* * * * * cd /đường/dẫn && php artisan schedule:run >> /dev/null 2>&1`
 3. Sao lưu hằng ngày, và **đã thử khôi phục thật một lần**.
 4. Xác thực hai lớp cho toàn bộ tài khoản nội bộ.
+5. **`MAIL_FROM_NAME` phải là tên văn phòng** (ví dụ `"Luật Vũ Khang"`), không phải `${APP_NAME}`
+   mặc định của bộ cài — nếu không, hộp thư của khách hiện tên kỹ thuật của dự án làm người gửi.
+6. **Văn phòng xác nhận địa chỉ "Trả lời" của thư, `BRAND_REPLY_TO_ADDRESS`** (M6.5 Task 12).
+   Mọi thư của hệ thống gắn `Reply-To` lấy từ `config('vkcrm.brand.reply_to')`, để khách bấm "Trả
+   lời" thì thư tới một hộp có người đọc, không tới `MAIL_FROM_ADDRESS` (`no-reply@`). Ba trường hợp:
+   - **không có dòng** `BRAND_REPLY_TO_ADDRESS` trong `.env`: dùng mặc định
+     `lienhe@luatvukhang.com` (trong `config/vkcrm.php`);
+   - **có dòng nhưng để trống** (`BRAND_REPLY_TO_ADDRESS=`): thư **không có** `Reply-To`, và khách
+     trả lời sẽ rơi vào hộp `no-reply@`;
+   - điền một địa chỉ: dùng địa chỉ đó.
+
+   Biến này chưa có dòng mẫu trong `.env.example` lúc viết. Chủ văn phòng cần xác nhận địa chỉ mặc
+   định có đúng không (sổ tay M6.5 ghi việc này đang chờ trả lời).
+7. **Seed đúng lệnh — KHÔNG chạy `migrate:fresh --seed` như bước "Bốn bước" ở trên.** Lệnh đó
+   gọi `DatabaseSeeder`, và trên `APP_ENV=production` (`.env` của máy chủ thật phải đặt vậy)
+   nó CHỈ tạo dữ liệu tham chiếu (vai trò, quyền, 6 loại vụ việc, giai đoạn, danh mục hồ sơ mẫu)
+   — không có admin, không có tài khoản demo mật khẩu `password` nào (M6.5 Task 19; trước bản vá
+   này, `migrate:fresh --seed` tạo thẳng `admin@luatvukhang.com`/`password` trên đúng tên miền
+   thật). Sau khi migrate xong:
+
+   ```bash
+   php artisan migrate --force
+   php artisan db:seed --force
+   ```
+
+   **Chạy lại `db:seed --force` sau mỗi lần cập nhật là an toàn** (rà soát cuối M6.5, X10). Ba
+   seeder nó gọi (`ReferenceDataSeeder`):
+
+   - `RolesAndPermissionsSeeder` — đồng bộ lại vai trò và quyền theo mã nguồn; chạy lại bao
+     nhiêu lần cũng được, và NÊN chạy lại khi bản cập nhật có quyền mới.
+   - `MatterTypeSeeder`, `ChecklistTemplateSeeder` — **chỉ thêm**: một loại vụ việc (kèm giai
+     đoạn) chỉ được tạo khi mã của nó chưa từng có, kể cả đã xoá; một danh mục hồ sơ mẫu (kèm đầu
+     mục) chỉ được tạo khi loại đó chưa có danh mục mang đúng tên ấy. Tên, "Đang dùng", nhãn và mô
+     tả giai đoạn, đầu mục đã sửa hay đã xoá — mọi thứ quản trị viên đã chỉnh — không bao giờ bị
+     ghi đè hay khôi phục. Muốn lấy lại cấu hình mặc định của một loại thì phải sửa tay.
+
+   `DemoDataSeeder` thì KHÔNG an toàn trên dữ liệu thật (xem cuối mục này).
+
+   Rồi tạo tài khoản quản trị ĐẦU TIÊN bằng tay, với một mật khẩu thật:
+
+   ```bash
+   php artisan tinker
+   >>> \App\Models\User::create(['name' => 'Tên quản trị viên', 'email' => 'ten@luatvukhang.com', 'password' => 'một-mật-khẩu-thật', 'position' => \App\Enums\UserPosition::Admin, 'is_active' => true])->assignRoleFromPosition();
+   ```
+
+   **Muốn dữ liệu mẫu để demo cho khách trước khi dùng thật** (không phải dữ liệu thật): gọi
+   thẳng seeder demo bằng `--class`, cờ này đi thẳng vào lớp được đặt tên, không qua kiểm tra môi
+   trường của `DatabaseSeeder`:
+
+   ```bash
+   php artisan db:seed --class=DemoDataSeeder --force
+   ```
+
+   Đừng chạy lệnh này trên dữ liệu thật: nó tạo tài khoản mật khẩu `password` trên tên miền thật.

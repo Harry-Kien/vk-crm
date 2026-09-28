@@ -92,8 +92,13 @@ it('pulls an optional item into the denominator once it has a client-facing docu
 
     expect(checklistProgress($matter))->toBe(['submitted' => 0, 'total' => 0]);
 
+    // `status: Published` + `client_can_view: true` — đúng bộ mặc định thật của nhóm A
+    // (`StoresDocumentFile::defaultsFor()`), không phải mặc định TRẦN của factory (vốn là
+    // `internal_draft`/`false`, đúng hình dạng một tài liệu KHÔNG hiện cho khách).
     $document = Document::factory()->for($matter)->group(DocumentGroup::ClientProvided)->create([
         'matter_checklist_item_id' => $optional->id,
+        'status' => DocumentStatus::Published,
+        'client_can_view' => true,
     ]);
 
     expect(checklistProgress($matter))->toBe(['submitted' => 1, 'total' => 1]);
@@ -159,15 +164,17 @@ it('never counts a settled item that is not in the denominator', function () {
  * `client`.** Và đó chính là guard mà SPEC §4.10 nói tới — `X/Y` là "trường tính toán hiển thị
  * trên portal".
  *
- * `withCount` áp global scope của `Document`, nên dưới guard khách `ClientPortalScope` thu tập
- * đếm được về "đã công bố VÀ khách được xem", trong khi §4.10 định nghĩa `Y` bằng "có tài liệu
- * KHÔNG thuộc nhóm D". Đo được trên dữ liệu mẫu trước bản sửa này: nhân sự đọc `3/4`, khách đọc
- * `2/3` — cùng hồ sơ, cùng thời điểm, hai con số.
- *
- * Nhân chứng là một tài liệu nhóm B còn `internal_draft`: nó KHÔNG ra tới khách (đúng vòng đời
- * SPEC §4.11), nhưng nó là bằng chứng rằng đầu mục ấy không còn là một việc của khách. Đây là
- * hình dạng duy nhất phân biệt được hai cách đọc; một tài liệu nhóm A đã công bố thì cả hai
- * cách đọc đều đếm.
+ * **Vòng sửa 2 — đoạn dưới đây bị đánh dấu lạc hậu và đã viết lại.** Bản trước lập luận "sau
+ * bản sửa checklist-05, luật đếm (ba điều kiện: `client_can_view` + `published` + khác nhóm D)
+ * trùng khớp gần như nguyên vẹn với `ClientPortalScope`" — câu đó nói về BA điều kiện mà C1 đã bỏ.
+ * Từ C1, luật đếm chỉ còn MỘT điều kiện (`group = ClientProvided`), và điều kiện đó không có
+ * liên hệ nào với những gì `ClientPortalScope` lọc theo (phiên đăng nhập, cờ công bố của hồ sơ) —
+ * nên "hai cách đọc trùng nhau" không còn là lý do đúng nữa. Lý do ĐÚNG, và cũng là lý do luôn
+ * đúng bất kể luật `Y` là gì: `countClientSubmittedDocuments()` tự bỏ `ClientPortalScope` một
+ * cách tường minh (`withoutGlobalScope`, xem docblock lớp mục "Phép đếm bỏ `ClientPortalScope`"),
+ * nên guard nào đang mở lúc gọi `handle()` không chạm được vào câu SQL của phép đếm — hai con số
+ * giống nhau vì CÙNG MỘT câu truy vấn chạy, không phải vì hai luật tình cờ cho cùng kết quả. Test
+ * này giữ lại tính chất "hai guard, một con số" như một hồi quy cho đúng cơ chế đó.
  */
 it('reads the same X/Y under the client guard as under the staff guard', function () {
     $client = Client::factory()->create();
@@ -184,10 +191,10 @@ it('reads the same X/Y under the client guard as under the staff guard', functio
         'status' => ChecklistItemStatus::Missing,
     ]);
 
-    Document::factory()->for($matter)->group(DocumentGroup::Issued)->create([
+    Document::factory()->for($matter)->group(DocumentGroup::ClientProvided)->create([
         'matter_checklist_item_id' => $optional->id,
-        'status' => DocumentStatus::InternalDraft,
-        'client_can_view' => false,
+        'status' => DocumentStatus::Published,
+        'client_can_view' => true,
     ]);
 
     $staff = checklistProgress($matter);
@@ -198,31 +205,114 @@ it('reads the same X/Y under the client guard as under the staff guard', functio
 });
 
 /**
- * Cặp dương của test trên, và nó nói một điều test kia không nói: bỏ `ClientPortalScope` ra khỏi
- * phép đếm KHÔNG làm scope ấy mất tác dụng ở nơi nó có việc. Cùng `$clientUser`, cùng lúc, danh
- * sách tài liệu mà khách đọc được vẫn RỖNG — bản nháp nhóm B không ra tới khách.
+ * `withCount` áp global scope của `Document`, và phép đếm tự bỏ nó ra một cách tường minh
+ * (`withoutGlobalScope(ClientPortalScope::class)`) để con số không phụ thuộc guard nào TÌNH CỜ
+ * đang mở khi `handle()` được gọi — kể cả khi hồ sơ CHƯA lên portal, thứ mà `Y` của SPEC §4.10
+ * không hề nói tới ("và hồ sơ đã công bố"). Không có lần bỏ scope này, gọi `handle()` trong lúc
+ * một phiên khách khác đang mở (`ClientPortalScope::actingAs()` lồng nhau, hoặc job chạy dưới
+ * guard client) sẽ cho một con số phụ thuộc NGỮ CẢNH thay vì phụ thuộc DỮ LIỆU.
  *
- * Không có khẳng định này, một bản sửa gỡ `RestrictedToClientPortal` khỏi `Document` cũng làm
- * test trên xanh.
+ * Nhân chứng: một hồ sơ CHƯA công bố lên portal (`is_published_to_portal = false`) mang một tài
+ * liệu nhóm A đã `published`/`client_can_view`. Đọc dưới guard NỘI BỘ (không `actingAs` nào),
+ * đầu mục tuỳ chọn vẫn được kéo vào `Y` — đúng luật, vì luật không nói gì về cờ công bố của hồ
+ * sơ. Xoá `withoutGlobalScope()` thì `whereHas('matter')` của `ClientPortalScope` lặng lẽ chặn
+ * chính EXISTS đó (`Matter::applyClientPortalConstraints()` đòi `is_published_to_portal = true`)
+ * — không phải vì `ClientPortalScope::isActive()` báo `true` (nó vẫn `false`, không ai đăng nhập
+ * guard `client`), mà vì global scope của `Document` là một class LUÔN được ĐĂNG KÝ trên
+ * builder; `withoutGlobalScope()` gỡ chính điều kiện đó khỏi câu SQL, không gỡ một lần "đang bật
+ * hay tắt".
  */
-it('drops the portal scope inside the count without loosening what the client can read', function () {
-    $client = Client::factory()->create();
-    $clientUser = ClientUser::factory()->create(['client_id' => $client->id]);
-    $matter = Matter::factory()->for($client)->create();
+it('drops the portal scope inside the count even when nobody is on the client guard', function () {
+    $matter = Matter::factory()->unpublished()->create();
+
+    MatterChecklistItem::factory()->count(3)->for($matter)->create([
+        'is_required' => true,
+        'status' => ChecklistItemStatus::Accepted,
+    ]);
 
     $optional = MatterChecklistItem::factory()->for($matter)->create([
         'is_required' => false,
         'status' => ChecklistItemStatus::Missing,
     ]);
 
-    $draft = Document::factory()->for($matter)->group(DocumentGroup::Issued)->create([
+    Document::factory()->for($matter)->group(DocumentGroup::ClientProvided)->create([
+        'matter_checklist_item_id' => $optional->id,
+        'status' => DocumentStatus::Published,
+        'client_can_view' => true,
+    ]);
+
+    expect(checklistProgress($matter))->toBe(['submitted' => 3, 'total' => 4]);
+});
+
+/**
+ * **checklist-05.** Văn phòng gắn một quyết định nhóm C (`internal_draft`, `client_can_view =
+ * false`) vào một đầu mục tuỳ chọn: đầu mục đó KHÔNG được kéo vào `Y`. Trước bản sửa này, luật
+ * đếm chỉ hỏi "khác nhóm D", nên tài liệu này (nhóm C, không phải D) VẪN kéo đầu mục vào mẫu số
+ * — tăng mẫu số từ 3 lên 4 — trong khi trạng thái đầu mục vẫn `missing`: khách bị đòi đúng thứ
+ * văn phòng đã có trong tay mà họ lại không nhìn thấy.
+ *
+ * **Vòng sửa 2 — đoạn dưới đây bị đánh dấu lạc hậu và đã viết lại: nó nói ngược với chính test kế
+ * tiếp.** Bản trước viết "một quyết định nhóm B đã đi hết vòng đời và được công bố CŨNG qua được"
+ * — đúng dưới luật BA điều kiện của bản sửa checklist-05 lần đầu, nhưng SAI dưới phán quyết C1
+ * (vòng sửa 1): một quyết định nhóm B/C, dù đã `published`/`client_can_view`, KHÔNG BAO GIỜ kéo
+ * được đầu mục vào `Y` — xem test kế tiếp (`'does not pull an optional item into the denominator
+ * even once a published group B document reaches the client'`), test đó ghim đúng vế NGƯỢC với
+ * câu bản trước viết ở đây.
+ *
+ * Cặp sinh đôi dương thật của test này nằm trong `'pulls an optional item into the denominator
+ * once it has a client-facing document'` phía trên: một tài liệu NHÓM A (bất kể trạng thái công
+ * bố) kéo được đầu mục vào `Y`. Luật ở đây, từ C1, là "chỉ tính tài liệu NHÓM A" — không phải
+ * "khác nhóm D" (đính chính SPEC 2026-09-16, sai) và cũng không phải "khách đọc được" (bản sửa
+ * checklist-05 lần đầu, sai theo cách khác — xem docblock lớp `ChecklistProgress`, mục "Sửa lại
+ * checklist-05, lần hai").
+ */
+it('does not pull an optional item into the denominator for an internal_draft group C decision', function () {
+    $matter = Matter::factory()->create();
+
+    MatterChecklistItem::factory()->count(3)->for($matter)->create([
+        'is_required' => true,
+        'status' => ChecklistItemStatus::Missing,
+    ]);
+
+    $optional = MatterChecklistItem::factory()->for($matter)->create([
+        'is_required' => false,
+        'status' => ChecklistItemStatus::Missing,
+    ]);
+
+    Document::factory()->for($matter)->group(DocumentGroup::Authority)->create([
         'matter_checklist_item_id' => $optional->id,
         'status' => DocumentStatus::InternalDraft,
         'client_can_view' => false,
     ]);
 
-    ClientPortalScope::actingAs($clientUser, function () use ($matter, $draft): void {
-        expect(checklistProgress($matter))->toBe(['submitted' => 0, 'total' => 1])
-            ->and(Document::query()->whereKey($draft->getKey())->exists())->toBeFalse();
-    });
+    expect(checklistProgress($matter))->toBe(['submitted' => 0, 'total' => 3]);
+});
+
+/**
+ * Fix round 1 (C1, critical): một quyết định nhóm B/C đã đi hết vòng đời (`published`,
+ * `client_can_view = true`) VẪN KHÔNG kéo đầu mục vào `Y`. Phán quyết của chủ nhiệm sau lượt rà
+ * soát đầu: `Y` đếm CHỈ nhóm A — không phải "tài liệu khách đọc được" như bản sửa trước đó đọc.
+ * Một quyết định nhóm B/C, dù đã công bố, vẫn là tài liệu VĂN PHÒNG đưa ra, không phải tài liệu
+ * KHÁCH nộp; đếm nó vào mẫu số tái lập đúng lỗi mà finding checklist-05 gốc mô tả — khách bị đòi
+ * một thứ họ không hề tạo ra, chỉ khác là lần này đã công bố nên `client_can_view = true` không
+ * còn phân biệt được với một tài liệu nhóm A thật.
+ *
+ * Đây là test bị lật so với vòng sửa trước (từng khẳng định `total => 1`) — chính hình dạng mà
+ * review vòng 1 chỉ ra là sai.
+ */
+it('does not pull an optional item into the denominator even once a published group B document reaches the client', function () {
+    $matter = Matter::factory()->create();
+
+    $optional = MatterChecklistItem::factory()->for($matter)->create([
+        'is_required' => false,
+        'status' => ChecklistItemStatus::Missing,
+    ]);
+
+    Document::factory()->for($matter)->group(DocumentGroup::Issued)->create([
+        'matter_checklist_item_id' => $optional->id,
+        'status' => DocumentStatus::Published,
+        'client_can_view' => true,
+    ]);
+
+    expect(checklistProgress($matter))->toBe(['submitted' => 0, 'total' => 0]);
 });

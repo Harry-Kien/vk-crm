@@ -13,6 +13,11 @@ return [
         'lead_lawyer' => 'Luật sư phụ trách',
         'last_client_update_at' => 'Cập nhật gần nhất cho khách',
         'is_published_to_portal' => 'Công bố portal',
+        // Fix round 1, finding S2: Filament không tô màu lên một ô trống — một vụ quá hạn nhưng
+        // CHƯA TỪNG cập nhật cho khách (last_client_update_at null) phải hiện chữ này, không phải
+        // để trống, để màu đỏ có một dòng chữ đi kèm (tài liệu bộ công cụ §4: màu không bao giờ
+        // là kênh thông tin duy nhất).
+        'never_updated' => 'Chưa cập nhật lần nào',
     ],
     'filters' => [
         'stage' => 'Giai đoạn',
@@ -56,13 +61,40 @@ return [
         'publish_to_portal' => 'Bật công bố portal',
         'unpublish_from_portal' => 'Tắt công bố portal',
         'portal_publication_toggled' => 'Đã cập nhật trạng thái công bố portal.',
+        'portal_publication_changed' => 'Trạng thái công bố của vụ việc vừa được người khác đổi trong lúc anh/chị xác nhận — chưa thay đổi gì. Hãy xem lại trạng thái hiện tại rồi thử lại nếu vẫn cần.',
         'add_party' => 'Thêm một bên',
         'add_party_heading' => 'Thêm một bên vào vụ việc',
+        // M6.5 Task 9 (`conflict-05`, brief R14).
+        'edit_party' => 'Sửa',
+        'edit_party_heading' => 'Sửa thông tin bên',
+        'remove_party' => 'Gỡ',
+        'remove_party_heading' => 'Gỡ bên khỏi vụ việc',
         'transition_stage' => 'Chuyển giai đoạn',
         'add_update' => 'Thêm cập nhật',
+        'cancel_matter' => 'Huỷ hồ sơ mở nhầm',
+    ],
+    // M6.5 Task 5 — trang "Sửa vụ việc" (findings intake-06, spec-gap-06).
+    'edit_form' => [
+        'section' => 'Sửa thông tin vụ việc',
+        // Fix round 1, finding I2: chỉ lead hoặc admin, không còn "không phải trợ lý".
+        'confidentiality_denied' => 'Chỉ luật sư phụ trách của vụ việc này hoặc quản trị viên mới đổi được mức bảo mật.',
+        // Fix round 1, finding I2: chuyển sang mức hạn chế trong khi đội ngũ còn thành viên khác
+        // lead/admin — họ sẽ hết thấy được vụ việc ngay sau khi đổi.
+        'confidentiality_blocked_by_team' => 'Không thể chuyển sang mức hạn chế khi còn người ở đội ngũ, hoặc còn giữ mốc hạn/yêu cầu khách chưa xong, mà sẽ không mở được vụ việc sau khi chuyển: :names. Hãy chuyển việc cho người khác và gỡ họ khỏi đội ngũ qua tab Đội ngũ trước.',
+        // Fix round 1, finding I1: summary_for_client đòi quyền công bố cho khách (stageLog.publish).
+        'summary_for_client_denied' => 'Chỉ ai có quyền công bố cho khách mới sửa được tóm tắt cho khách.',
+    ],
+    // M6.5 Task 5 — hộp thoại "Huỷ hồ sơ mở nhầm" trên trang Sửa vụ việc.
+    'cancel_form' => [
+        'reason' => 'Lý do huỷ',
+        'reason_help' => 'Bắt buộc. Vụ gắn nhầm khách hàng hoặc nhầm loại vụ việc thì huỷ và mở lại đúng, thay vì sửa — lý do được ghi vĩnh viễn vào nhật ký.',
+        'success' => 'Đã huỷ hồ sơ mở nhầm.',
     ],
     'transition_form' => [
         'to_stage' => 'Giai đoạn mới',
+        // `stage/stage-04` (M6.5 Task 10): nhãn gắn thêm vào các giai đoạn NGOÀI allowed_next mà
+        // chỉ admin thấy trong ô chọn — TransitionStageAction::stageOptions().
+        'outside_allowed_next_suffix' => '(ngoài luồng thông thường)',
         'occurred_at' => 'Ngày xảy ra',
         'internal_note' => 'Ghi chú nội bộ',
         'internal_note_hint' => 'Chỉ nội bộ, khách không đọc được',
@@ -73,13 +105,22 @@ return [
         'expected_next_update_at' => 'Dự kiến có tin tiếp theo trước ngày',
         'publish' => 'Công bố cho khách ngay',
         'public_content_publish_hint' => 'Công bố cho khách yêu cầu tối thiểu 30 ký tự.',
-        'publish_disabled_hint' => 'Vụ việc chưa bật công bố portal nên chưa công bố được ngay — vào tab Tổng quan để bật trước.',
+        'publish_disabled_hint' => 'Vụ việc chưa bật công bố portal nên dòng này chưa công bố được ngay — bật bằng nút "Bật công bố portal" ở đầu trang vụ việc (cần quyền công bố), rồi thêm cập nhật.',
+        // Task 7 (R12, phát hiện `stage/stage-06`): vụ đã bật cổng nhưng khách không có tài khoản
+        // cổng nào đang hoạt động VÀ đã kích hoạt (activated_at không null) — đúng điều kiện
+        // NotifyClientOfStageUpdate::eligibleRecipientsQuery() dùng để chọn người nhận thư thật.
+        'no_activated_account_warning' => 'Khách chưa có tài khoản cổng đang dùng — sẽ không ai nhận thư.',
         'transition_heading' => 'Chuyển giai đoạn vụ việc',
         'add_update_heading' => 'Thêm cập nhật (không đổi giai đoạn)',
         'transition_success' => 'Đã chuyển giai đoạn.',
         'add_update_success' => 'Đã thêm cập nhật.',
         'preview_heading' => 'Bản xem trước — đúng như khách sẽ thấy',
         'preview_not_publishing' => 'Sẽ KHÔNG công bố cho khách với lựa chọn hiện tại.',
+        // `stage/stage-02` (M6.5 Task 10): dòng CẬP NHẬT không công bố, nhưng `matters.stage` vẫn
+        // ghi vô điều kiện (SPEC §6.2 bước 5) — khách vẫn thấy NHÃN GIAI ĐOẠN mới ngay, dù dòng
+        // tiến độ nói về nó thì không lên timeline. Chỉ dùng khi bản xem trước đang thật sự đổi
+        // giai đoạn (TransitionStageAction, không phải AddUpdateAction — xem client-preview.blade.php).
+        'preview_not_publishing_with_stage_change' => 'Dòng này không công bố. Nếu vụ việc đang bật công bố portal, khách vẫn thấy giai đoạn mới: :stage.',
         'preview_no_stage' => 'Chưa chọn giai đoạn',
         'preview_empty_public_content' => '(Chưa có nội dung công bố)',
         'preview_next_step' => 'Tiếp theo',
@@ -110,6 +151,13 @@ return [
         'phone' => 'Số điện thoại',
         'address' => 'Địa chỉ',
         'note' => 'Ghi chú',
+        // M6.5 Task 9: chỉ hiện trên form SỬA — hai ô id_number/phone luôn bắt đầu trống ở đó
+        // (số gốc không bao giờ được lưu, SPEC §10.5), khác form thêm bên.
+        'id_number_edit_help' => 'Để trống nếu không đổi số căn cước đã lưu — hệ thống không lưu số gốc nên không hiện lại được ở đây.',
+        'phone_edit_help' => 'Để trống nếu không đổi số điện thoại đã lưu.',
+        // `conflict-10`: thay cho thông điệp "Định dạng số điện thoại không hợp lệ." mặc định của
+        // ->tel(), giờ chỉ nổ khi Normalizer::phone() không tìm được chữ số nào trong ô.
+        'phone_invalid' => 'Định dạng số điện thoại không hợp lệ.',
         'acknowledge_conflict' => 'Tôi đã xem xét kết quả kiểm tra xung đột lợi ích và xác nhận vẫn muốn thêm bên này',
         'acknowledge_conflict_help' => 'Chỉ cần tích khi thông báo kết quả kiểm tra yêu cầu xem xét trước khi lưu.',
         'override_reason' => 'Lý do ghi đè mức đỏ',
@@ -131,6 +179,13 @@ return [
         'phone_help' => 'Nên nhập. Đây là tiêu chí đối chiếu mạnh thứ hai, sau số căn cước.',
         'identity_missing_warning' => 'Bên này chưa có số căn cước lẫn số điện thoại nên chỉ đối chiếu được theo tên — mức tin cậy thấp nhất. Kết quả xanh với bên như vậy không có nghĩa là đã kiểm tra kỹ, và hệ thống sẽ bắt xác nhận trước khi lưu.',
         'create_heading' => 'Mở vụ việc mới',
+        // M6.5 Task 6 (R4, findings `intake-03`/`roles-04`): luật sư không có client.manage nên
+        // không thấy danh sách khách hàng của văn phòng — hai đường thay thế dưới đây.
+        'client_lookup_intro' => 'Anh/chị không có quyền xem danh sách khách hàng của văn phòng. Tra đúng số điện thoại hoặc số CCCD nếu khách đã có hồ sơ, hoặc tạo khách hàng mới ngay bên dưới nếu chưa có.',
+        'client_lookup_identifier' => 'Số điện thoại hoặc số CCCD của khách hàng (nếu đã có hồ sơ)',
+        'client_lookup_identifier_help' => 'Phải khớp ĐÚNG số đã đăng ký. Hệ thống không gợi ý theo tên và không liệt kê hồ sơ gần đúng.',
+        'client_lookup_found' => 'Đã tìm thấy hồ sơ khách hàng: :code — :name',
+        'new_client_intro' => 'Không tìm thấy hồ sơ khớp — điền thông tin bên dưới để tạo khách hàng mới.',
     ],
     'conflict' => [
         'section' => 'Kiểm tra xung đột lợi ích',
@@ -148,6 +203,9 @@ return [
         'column_party_name' => 'Tên bên trùng',
         'column_tier' => 'Trùng theo',
         'column_level' => 'Mức',
+        'column_our_party' => 'Bên phía mình',
+        'same_matter_marker' => 'Vụ việc đang mở này',
+        'already_confirmed' => 'Đã xem xét ở lần trước',
         'acknowledge' => 'Tôi đã xem xét kết quả kiểm tra xung đột lợi ích ở trên và xác nhận vẫn mở vụ việc này',
         'acknowledge_help' => 'Chỉ cần tích khi bảng kết quả ở trên yêu cầu xem xét.',
         'override_reason' => 'Lý do ghi đè mức đỏ',
@@ -157,6 +215,10 @@ return [
         'blocked_retry_denied' => 'Mức đỏ: không lưu được vụ việc này. Vai trò hiện tại không ghi đè được — hãy đề nghị trưởng phòng mở vụ việc, hoặc sửa lại thông tin các bên.',
         'ack_retry' => 'Đọc kỹ bảng kết quả kiểm tra xung đột lợi ích ở trên, sau đó tích "Tôi đã xem xét…" rồi bấm lưu lại.',
         'saved_clear' => 'Đã kiểm tra xung đột lợi ích trước khi lưu: không tìm thấy bản ghi trùng nào.',
+        // Fix round 1, C3 (`conflict-01`): không có khớp MỚI, nhưng có khớp đã xác nhận/ghi đè
+        // trước đó (R13c) — KHÔNG được dùng saved_clear/màu success, vì thân thông báo vẫn liệt
+        // kê những khớp đó (có thể ở mức Đỏ).
+        'saved_clear_with_confirmed' => 'Không có xung đột MỚI; :count xung đột đã được xem xét/ghi đè trước đó.',
         'saved_after_review' => 'Đã mở vụ việc sau khi xem xét kết quả kiểm tra xung đột lợi ích.',
         'saved_overridden' => 'ĐÃ GHI ĐÈ XUNG ĐỘT MỨC ĐỎ — vụ việc vẫn được mở theo quyết định của anh/chị.',
         'saved_overridden_reason' => 'Lý do ghi đè đã ghi vĩnh viễn vào nhật ký: :reason',
@@ -169,11 +231,43 @@ return [
         // Ba tiêu đề của giai đoạn ĐÃ LƯU.
         'saved_overridden' => 'ĐÃ GHI ĐÈ XUNG ĐỘT MỨC ĐỎ — bên này vẫn được thêm theo quyết định của anh/chị.',
         'saved_after_review' => 'Đã thêm bên sau khi xem xét kết quả kiểm tra xung đột lợi ích.',
+        // Fix round 1, C3 (`conflict-01`): không có khớp MỚI, nhưng có khớp đã xác nhận/ghi đè
+        // trước đó (R13c) — KHÔNG được dùng conflict_check_title_clear/màu success, vì thân
+        // thông báo vẫn liệt kê những khớp đó (có thể ở mức Đỏ).
+        'saved_clear_with_confirmed' => 'Không có xung đột MỚI; :count xung đột đã được xem xét/ghi đè trước đó.',
         'conflict_check_title_clear' => 'Không tìm thấy xung đột lợi ích',
         'conflict_check_clear' => 'Không tìm thấy bản ghi trùng.',
         'conflict_check_incomplete' => 'Các bên sau chưa có số căn cước/điện thoại để đối chiếu: :names',
         'conflict_blocked_retry' => 'Mức đỏ: chưa thêm bên này. Chỉ trưởng phòng hoặc quản trị mới ghi đè được, và bắt buộc nhập lý do vào ô này.',
         'conflict_blocked_retry_denied' => 'Mức đỏ: chưa thêm bên này. Vai trò hiện tại không ghi đè được — hãy đề nghị trưởng phòng thêm bên này, hoặc sửa lại thông tin bên vừa nhập.',
         'conflict_ack_retry' => 'Đọc kỹ thông báo kết quả kiểm tra xung đột lợi ích ở trên, sau đó tích "Tôi đã xem xét…" rồi gửi lại.',
+        // M6.5 Task 9, fix round 1, C1: dùng chung cho CẢ sửa LẪN gỡ — hai tab cùng nhìn một bên,
+        // một tab gỡ nó trước, tab kia gửi lại một modal đã mở từ trước đó.
+        'already_removed' => 'Bên này đã được gỡ khỏi vụ việc. Anh/chị tải lại trang.',
+    ],
+    // M6.5 Task 9 — hộp thoại "Gỡ bên khỏi vụ việc" trên tab "Các bên" (brief R14).
+    'remove_party_form' => [
+        'reason' => 'Lý do gỡ',
+        'reason_help' => 'Bắt buộc. Bên đã gỡ được xem là "nhập nhầm, chưa từng là bên" và không còn tham gia đối chiếu xung đột lợi ích — lý do được ghi vĩnh viễn vào nhật ký.',
+        'reason_required' => 'Bắt buộc nhập lý do gỡ.',
+        'success' => 'Đã gỡ bên khỏi vụ việc.',
+        'own_client_denied' => 'Đây là khách hàng của chính vụ việc này — sửa qua hồ sơ khách hàng, không gỡ được ở đây.',
+    ],
+    // Final review B-M3: thư báo tiến độ cho khách đã hỏng hẳn
+    // (NotifyClientOfStageUpdate::reportFailure()).
+    'stage_update_failed_notification' => [
+        'title' => 'Chưa gửi được thư báo tiến độ cho khách hàng',
+        'body' => 'Thư báo cập nhật tiến độ hồ sơ :code đã thử gửi nhiều lần nhưng không tới được khách hàng. Hãy báo cho khách qua kênh khác và kiểm tra email của tài khoản cổng.',
+    ],
+    // M6.5 Task 9 — ba tiêu đề/thông báo riêng của "sửa một bên" khác câu với "thêm một bên"
+    // (`parties` ở trên). Hai khoá KHÔNG lặp lại ở đây (`saved_clear_with_confirmed`,
+    // `conflict_check_title_clear`) không nhắc "thêm bên" nên dùng chung được với `notifySaved()`.
+    'update_parties' => [
+        'own_client_locked' => 'Đây là khách hàng của chính vụ việc này — không đổi được "là khách hàng của văn phòng" hay khách hàng liên kết ở đây. Vai trò, địa chỉ và ghi chú vẫn sửa được.',
+        'conflict_blocked_title' => 'Mức đỏ — chưa lưu thay đổi này',
+        'saved_overridden' => 'ĐÃ GHI ĐÈ XUNG ĐỘT MỨC ĐỎ — thay đổi vẫn được lưu theo quyết định của anh/chị.',
+        'saved_after_review' => 'Đã lưu thay đổi sau khi xem xét kết quả kiểm tra xung đột lợi ích.',
+        'conflict_blocked_retry' => 'Mức đỏ: chưa lưu thay đổi này. Chỉ trưởng phòng hoặc quản trị mới ghi đè được, và bắt buộc nhập lý do vào ô này.',
+        'conflict_blocked_retry_denied' => 'Mức đỏ: chưa lưu thay đổi này. Vai trò hiện tại không ghi đè được — hãy đề nghị trưởng phòng sửa bên này, hoặc sửa lại thông tin vừa nhập.',
     ],
 ];

@@ -104,7 +104,7 @@ return [
     'done' => [
         'heading' => 'Chúng tôi đã nhận được',
         'status' => 'Đang chờ văn phòng kiểm tra',
-        'body' => 'Chúng tôi đã nhận ":name" và sẽ kiểm tra trong thời gian sớm nhất. Nếu có gì chưa ổn, chúng tôi sẽ ghi rõ lý do vào hồ sơ và báo anh/chị gửi lại.',
+        'body' => 'Chúng tôi đã nhận ":name" và sẽ kiểm tra trong thời gian sớm nhất. Nếu có gì chưa ổn, lý do sẽ hiện trên trang tiến độ hồ sơ để anh/chị gửi lại, và văn phòng sẽ liên hệ khi cần.',
         'another' => 'Gửi thêm giấy tờ khác',
     ],
 
@@ -121,6 +121,15 @@ return [
     'errors' => [
 
         'no_item' => 'Anh/chị chọn giấy tờ muốn gửi ở bước 1 trước đã.',
+
+        /*
+         * Vòng sửa 1 (Minor): một LÔ (một lần bấm Gửi) không được vượt quá đúng mức 20 tệp/giờ
+         * mà SPEC §10.3 đã đặt — một lô lớn hơn thế không bao giờ gửi trót lọt dù có chờ bao
+         * lâu, nên chặn ngay ở `SubmitDocument::submit()`, trước khi đọc/ghi tệp nào, thay vì để
+         * khách chờ rồi mới nghe "đã dùng hết mức 20 tệp/giờ" — câu đó đúng nhưng trả lời sai
+         * câu hỏi: khách chưa dùng suất nào cả, họ chỉ chọn quá nhiều tệp trong MỘT lần.
+         */
+        'too_many_files_per_submission' => 'Một lần gửi chỉ nhận tối đa :limit tệp. Anh/chị bớt bớt tệp trong lần này, và gửi phần còn lại ở một lần khác.',
 
         /*
          * Lời từ chối của luật `mimetypes` ở ô chọn tệp, tức TRƯỚC khi `FileGuard` được hỏi.

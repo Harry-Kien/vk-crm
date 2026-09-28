@@ -3,11 +3,11 @@
 namespace App\Filament\Admin\Resources\ClientUsers\Schemas;
 
 use App\Filament\Admin\Support\VisibleClientOptions;
-use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Schema;
+use Illuminate\Validation\Rules\Password as PasswordRule;
 
 class ClientUserForm
 {
@@ -20,11 +20,30 @@ class ClientUserForm
                 // khách hàng của những vụ việc họ liệt kê được, cùng ranh giới
                 // ClientPolicy::view (và PartiesRelationManager ở nơi khác dùng chung đúng một
                 // App\Filament\Admin\Support\VisibleClientOptions này, không tự lặp lại luật).
+                //
+                // Task 2 (`roles/roles-01`, critical): client_id không đổi được sau khi tạo, với
+                // BẤT KỲ ai — đổi khách nghĩa là tạo tài khoản mới. Ô này vì thế chỉ để ĐỌC trên
+                // trang sửa (`disabled()` khi $operation === 'edit'). `dehydrated()` ép giữ field
+                // này trong $data dù bị disabled — mặc định Filament NGỪNG dehydrate một field bị
+                // disabled (`HasState::isDehydrated()` rơi về `isSaved()`, và `disabled()` đặt
+                // `isSaved()` thành false) — để lớp phòng thủ THẬT nằm ở
+                // `EditClientUser::mutateFormDataBeforeSave()` (độc lập với UI, không tin
+                // `disabled()` — xem chú thích bảo mật ngay trong `CanBeDisabled::disabled()` của
+                // Filament: "skilled users can manipulate Livewire's JavaScript to bypass the
+                // disabled state") luôn nhận được client_id để ghi đè lại, thay vì im lặng không
+                // có gì để ghi đè.
                 Select::make('client_id')
                     ->label(__('client_users.fields.client'))
-                    ->options(fn (): array => VisibleClientOptions::forCurrentUser())
+                    // Final review wave 2, M-3: form TẠO chỉ mời khách người tạo được quản lý tài
+                    // khoản cổng (luật X3), nên không ai chọn được một khách rồi nhận 403. Form SỬA
+                    // giữ danh sách cũ — ô đã khoá, chỉ để hiện tên khách đang gắn.
+                    ->options(fn (string $operation): array => $operation === 'create'
+                        ? VisibleClientOptions::portalManageableForCurrentUser()
+                        : VisibleClientOptions::forCurrentUser())
                     ->searchable()
-                    ->required(),
+                    ->required()
+                    ->disabled(fn (string $operation): bool => $operation === 'edit')
+                    ->dehydrated(),
                 TextInput::make('name')
                     ->label(__('client_users.fields.name'))
                     ->required()
@@ -39,21 +58,35 @@ class ClientUserForm
                     ->label(__('client_users.fields.phone'))
                     ->tel()
                     ->maxLength(20),
+                // Task 7 (R12, phát hiện `intake/intake-05`): ô mật khẩu trước đây chỉ có
+                // required()/maxLength(255), không có luật độ mạnh nào — cùng một PasswordRule
+                // dùng ở cổng khách (App\Filament\Portal\Pages\Auth\ChangePassword), để mật khẩu
+                // tạm nhân sự đặt cũng phải đủ mạnh như mật khẩu khách tự chọn. `nullable` (mặc
+                // định khi `required()` trả `false` ở trang sửa) khiến Laravel bỏ qua mọi luật
+                // không-implicit (kể cả `min` của PasswordRule) khi ô để trống — xem
+                // `Illuminate\Validation\Validator::presentOrRuleIsImplicit()` — nên để trống ô
+                // này khi sửa (không đổi mật khẩu) không bao giờ báo lỗi độ mạnh.
                 TextInput::make('password')
                     ->label(__('client_users.fields.password'))
                     ->password()
                     ->revealable()
                     ->required(fn (string $operation): bool => $operation === 'create')
                     ->dehydrated(fn (?string $state): bool => filled($state))
+                    ->rule(PasswordRule::default())
                     ->maxLength(255),
                 Toggle::make('is_active')
                     ->label(__('client_users.fields.is_active'))
                     ->default(true),
-                Toggle::make('must_change_password')
-                    ->label(__('client_users.fields.must_change_password'))
-                    ->default(true),
-                DateTimePicker::make('activated_at')
-                    ->label(__('client_users.fields.activated_at')),
+                // Task 7 (R12, phát hiện `intake/intake-05`, `intake/intake-04`): bỏ hẳn công tắc
+                // must_change_password và ô activated_at khỏi form — trước bản sửa này nhân sự tắt
+                // được must_change_password ngay lúc tạo (khách dùng mãi mật khẩu nhân sự chọn,
+                // vượt qua cánh cổng SPEC §8.1), và activated_at là một ô ngày giờ gõ tay không nói
+                // lên được gì (nhân sự có thể gõ bất kỳ ngày nào, kể cả khi khách chưa từng đăng
+                // nhập). must_change_password giờ LUÔN true khi tạo
+                // (CreateClientUser::mutateFormDataBeforeCreate()) và bật lại khi nhân sự đặt lại
+                // mật khẩu (EditClientUser::mutateFormDataBeforeSave()); activated_at chỉ hệ thống
+                // ghi, đúng lúc khách tự tay đổi mật khẩu lần đầu thành công
+                // (App\Filament\Portal\Pages\Auth\ChangePassword::changePassword()).
             ]);
     }
 }

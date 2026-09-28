@@ -13,7 +13,11 @@ it('exposes project settings with safe defaults', function () {
         // `.env.example` vẫn quảng cáo nó — một nút bấm không nối vào đâu cả là lời hứa sai với
         // người vận hành. Màu thương hiệu thật giờ nằm ở một chỗ duy nhất.
         ->and(config('vkcrm'))->not->toHaveKey('brand_color')
-        ->and(config('vkcrm.brand.colors.navy'))->toMatch('/^#[0-9a-fA-F]{6}$/');
+        ->and(config('vkcrm.brand.colors.navy'))->toMatch('/^#[0-9a-fA-F]{6}$/')
+        // M6.5 Task 12 (`notify/notify-14`): Reply-To dùng chung của mọi thư văn phòng — một địa
+        // chỉ THẬT, khác no-reply@ (MAIL_FROM_ADDRESS, chỉ dùng cho SPF/DKIM).
+        ->and(config('vkcrm.brand.reply_to'))->toBeString()
+        ->and(config('vkcrm.brand.reply_to'))->not->toBe(config('mail.from.address'));
 });
 
 it('treats blank domain env as null', function () {

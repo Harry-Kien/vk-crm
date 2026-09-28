@@ -262,11 +262,17 @@ it('uses the same five day threshold as the unseen updates widget', function () 
 /**
  * Một dòng nháp chưa bao giờ ra tới khách, nên "Khách chưa xem" trên nó là một lời trách vô nghĩa
  * — và trên một bảng bằng chứng, một nhãn sai chỗ là một nhãn đọc sai được.
+ *
+ * `renderPublicContent()` trả `HtmlString('')` chứ không `null` cho vế âm (fix `e2e/F1`, xem
+ * docblock của hàm đó) — cột này khai `->html()`, và một `null` lọt tới
+ * `Illuminate\Support\Str::sanitizeHtml(string $html)` của Filament gây `TypeError`. `(string)`
+ * ép kiểu ra chuỗi rỗng nên vẫn khẳng định đúng "không có nhãn/khung nào", chỉ đổi kiểu so với
+ * `toBeNull()` trước đây.
  */
 it('never puts a read receipt label on an unpublished entry', function () {
     $draft = StageLog::factory()->for($this->matter)->internalOnly()->make();
 
-    expect(StageLogsRelationManager::renderPublicContent($draft->public_content, $draft))->toBeNull();
+    expect((string) StageLogsRelationManager::renderPublicContent($draft->public_content, $draft))->toBe('');
 
     // Vế dương trên cùng một dữ liệu: đúng dòng đó, đã công bố, thì có nhãn.
     $draft->is_published = true;

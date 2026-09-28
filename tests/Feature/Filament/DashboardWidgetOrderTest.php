@@ -5,6 +5,7 @@ use App\Filament\Admin\Widgets\MattersMissingDocumentsWidget;
 use App\Filament\Admin\Widgets\PendingChecklistReviewsWidget;
 use App\Filament\Admin\Widgets\StaleMattersWidget;
 use App\Filament\Admin\Widgets\UnseenUpdatesWidget;
+use App\Filament\Admin\Widgets\UpcomingDeadlinesWidget;
 use Filament\Widgets\AccountWidget;
 
 /**
@@ -19,12 +20,18 @@ use Filament\Widgets\AccountWidget;
  * Mục 5 ra đời ở M5 Task 6 (`UnseenUpdatesWidget`) — `stage_log_views` tới M5 mới có dữ liệu
  * thật. Để nó có chỗ thì mục 6 phải dời từ `0` lên `1`: `$sort` của Filament là `?int`, nên giữa
  * `-1` và `0` không còn số nguyên nào. Đó là một lần ĐÁNH SỐ LẠI, không phải một thay đổi thứ tự,
- * và test này so sánh theo THỨ TỰ TƯƠNG ĐỐI nên nó đo đúng điều đó. Các mục 2 và 7 vẫn chưa tồn
- * tại (cần mốc thời hạn và heartbeat — M6/M7).
+ * và test này so sánh theo THỨ TỰ TƯƠNG ĐỐI nên nó đo đúng điều đó.
+ *
+ * Mục 2 ra đời ở M6.5 Task 14 (`UpcomingDeadlinesWidget`, `deadlines/F5`/`spec-gap-05`) — nó nằm
+ * ĐÚNG giữa mục 1 và mục 3 (`$sort = -3`, theo con số brief giao), dù trùng với
+ * `Filament\Widgets\AccountWidget` (cũng `-3`, không có mặt trong `$sorts` bên dưới nên không đụng
+ * `array_unique`). Mục 7 vẫn chưa tồn tại (cần heartbeat — M7, và bản thân nó là một DẢI cảnh
+ * báo chứ không phải một widget trong danh sách này — xem docblock `SystemHealthWidget`).
  */
 it('orders the dashboard widgets the way SPEC 7.1 numbers them', function () {
     $sorts = [
         StaleMattersWidget::class => StaleMattersWidget::getSort(),
+        UpcomingDeadlinesWidget::class => UpcomingDeadlinesWidget::getSort(),
         PendingChecklistReviewsWidget::class => PendingChecklistReviewsWidget::getSort(),
         MattersMissingDocumentsWidget::class => MattersMissingDocumentsWidget::getSort(),
         UnseenUpdatesWidget::class => UnseenUpdatesWidget::getSort(),

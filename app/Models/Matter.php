@@ -103,6 +103,44 @@ class Matter extends Model
     }
 
     /**
+     * Định nghĩa DUY NHẤT của "vụ việc đang mở" trong toàn hệ thống (SPEC §6.4 "vụ việc chưa
+     * đóng", §6.9 "matter đang mở"; M6.5 Task 5, R8).
+     *
+     * Hai điều kiện, cả hai cùng cần dù `SoftDeletingScope` thường đã lo vế thứ hai:
+     *
+     *  - `closed_at` null — `TransitionMatterStage` ghi cột này khi vụ việc VÀO một giai đoạn
+     *    `is_terminal` và xoá nó khi RỜI giai đoạn đó (đường bỏ qua của admin). Trước Task 5
+     *    không có nơi nào ghi cột này (`stage/stage-03`, `spec-gap/spec-gap-03`) nên scope này
+     *    không có tác dụng gì cho tới khi Action đó tồn tại.
+     *  - `deleted_at` null — nói ra TƯỜNG MINH thay vì chỉ tin `SoftDeletingScope` mặc định: một
+     *    lời gọi `withTrashed()`/`withoutGlobalScope(SoftDeletingScope::class)` ở TRÊN scope này
+     *    (ví dụ `MatterPolicy::view()` cho nhánh nhân sự, đọc §7.2) không được để "đang mở" âm
+     *    thầm bao gồm cả những vụ đã huỷ.
+     *
+     * **Chỗ DUY NHẤT trong `app/` được viết `whereNull('closed_at')`/`whereNotNull('closed_at')`
+     * làm điều kiện lọc.** Mọi nơi khác gọi `->open()` — xem các widget trang chủ,
+     * `ClientPolicy::delete()`, `App\Support\OpenWork`, `App\Support\MatterStaleness`. Hai chỗ
+     * còn lại được PHÉP nhắc tên cột này: chính `TransitionMatterStage` (nơi ghi), và các cast/
+     * nhãn hiển thị đơn thuần (`MatterInfolist`, `getActivitylogOptions()`).
+     */
+    public function scopeOpen(Builder $query): Builder
+    {
+        return $query
+            ->whereNull($this->qualifyColumn('closed_at'))
+            ->whereNull($this->qualifyColumn('deleted_at'));
+    }
+
+    /**
+     * Bản kiểm tra TRONG BỘ NHỚ của {@see self::scopeOpen()}, cho một bản ghi ĐÃ tải sẵn — dùng
+     * ở `App\Support\MatterStaleness::color()`, nơi tô màu từng dòng của `MattersTable` chứ
+     * không lọc một truy vấn. Cùng hai điều kiện, một chỗ định nghĩa duy nhất.
+     */
+    public function isOpen(): bool
+    {
+        return $this->closed_at === null && ! $this->trashed();
+    }
+
+    /**
      * Định nghĩa duy nhất của "nhân sự này được thấy vụ việc nào" (SPEC §5).
      * Dùng cho danh sách ở panel admin và cho MatterPolicy::view, để hai nơi không lệch nhau.
      *
@@ -149,10 +187,53 @@ class Matter extends Model
      * sẽ khiến `relationLoaded('team')` vẫn trả true nhưng tập hợp thiếu người — im lặng đổi kết
      * quả `MatterPolicy::view` sang từ chối, không có test nào bắt được. Nạp `team` có điều kiện
      * ở bất cứ đâu thì phải `unsetRelation('team')` trước khi gọi hàm này.
+     *
+     * **Rà soát mang sang từ một lane khác (M6.5 Task 5) — fail-open tiềm ẩn.** Bản trước so
+     * `$this->confidentiality === Confidentiality::Restricted`. Trên một bản ghi nạp qua một
+     * select rút gọn (ví dụ `with('matter:id,code,lead_lawyer_id')`), cột này không nằm trong
+     * SELECT, và Eloquent trả về `null` cho một thuộc tính có cast mà không được chọn — `null !==
+     * Restricted` đi thẳng vào nhánh THƯỜNG, tức mở một vụ việc hạn chế cho MỌI người có
+     * `matter.viewAny` (kế toán, trưởng phòng). "Không rõ" giờ đi vào ĐÚNG nhánh restricted —
+     * `!== Confidentiality::Normal`, không phải `=== Restricted` — nên `null` và bất kỳ giá trị lạ
+     * nào khác đều bị coi là "chưa chắc thường", không phải "chưa chắc hạn chế". Không cần một
+     * điều kiện `array_key_exists('confidentiality', ...)` riêng: một cột không được SELECT luôn
+     * đọc ra `null` qua cast, và `null !== Normal` đã tự bắt đúng ca đó — một điều kiện riêng ở
+     * đây sẽ không có mutation probe nào chứng minh được nó đang chặn gì (đã thử: xoá thì không
+     * test nào đỏ).
+     *
+     * `deleted_at` được canh RIÊNG, và phải riêng: không đi qua được đường trên vì cột này
+     * KHÔNG có cast (không nằm trong `casts()`), nên `array_key_exists('deleted_at', ...)` trên
+     * `getAttributes()` là cách DUY NHẤT phân biệt "cột không được SELECT" (mất khỏi mảng) với
+     * "cột được chọn và mang giá trị `null`" — chính thuộc tính `$this->deleted_at` không đưa ra
+     * được phân biệt đó, vì cả hai trường hợp nó đều trả về `null`. Một select mang `confidentiality`
+     * (nên nhánh trên không tự bắt được) nhưng cố ý bỏ `deleted_at` ra là ca riêng điều kiện này
+     * chặn — có test ghim (`MatterResourceTest`, "fails closed when confidentiality is
+     * known-normal but deleted_at was left out of the select") và mutation probe xoá điều kiện
+     * này làm đúng test đó đỏ, không test nào khác.
+     *
+     * Một Matter ĐÃ QUA MỘT LẦN TRUY VẤN THẬT (tức "đủ mặt" theo đúng nghĩa của docblock ở trên —
+     * mọi nơi gọi hợp lệ của hàm này đều là một bản ghi đã tồn tại trong CSDL, được nạp qua
+     * `Eloquent`, không phải một instance vừa dựng trong bộ nhớ chưa từng chạm CSDL) luôn có khoá
+     * `deleted_at` trong mảng thuộc tính, dù giá trị có là `null` hay không — SELECT mặc định
+     * (`*`) hay bất kỳ SELECT tường minh nào bao gồm nó đều để lại khoá. Chỉ một SELECT rút gọn
+     * CỐ Ý bỏ nó ra mới làm khoá biến mất, và đó đúng là trường hợp cần chặn.
+     *
+     * **Fix round 1, finding minor: `wasRecentlyCreated` CŨNG đếm là "biết `deleted_at`, và biết
+     * nó là `null`".** Câu khẳng định ngay trên ("mọi nơi gọi hợp lệ đều đã qua một lần truy vấn
+     * thật") sai ở đúng MỘT trường hợp: `Matter::factory()->create()` rồi `->load('team')` NGAY
+     * trên instance đó (không `->fresh()`/reload) — INSERT không refetch các cột nullable chưa
+     * từng được set, nên `deleted_at` vắng mặt khỏi `getAttributes()` y hệt một select rút gọn.
+     * Trước bản sửa này, một Matter như vậy — VỪA mở, chắc chắn chưa xoá mềm — vẫn rơi vào nhánh
+     * restricted một cách SAI. `wasRecentlyCreated` (cờ chuẩn của Eloquent, bật ngay sau
+     * `save()`/`create()` thành công, tắt lại ở lần `save()` kế tiếp) phân biệt được đúng ca này
+     * với một select rút gọn thật sự: một bản ghi vừa tạo trong CHÍNH request này chắc chắn chưa
+     * ai xoá mềm được, dù `getAttributes()` chưa có khoá đó.
      */
     public function isListableBy(User $user): bool
     {
-        if ($this->confidentiality === Confidentiality::Restricted) {
+        $deletedAtKnown = array_key_exists('deleted_at', $this->getAttributes()) || $this->wasRecentlyCreated;
+
+        if (! $deletedAtKnown || $this->confidentiality !== Confidentiality::Normal) {
             return $user->hasRole(StaffRole::Admin->value)
                 || ($user->can(Permission::MatterView->value) && $this->lead_lawyer_id === $user->getKey());
         }
@@ -203,7 +284,16 @@ class Matter extends Model
             // bộ `withTrashed()` là một công cụ đúng đắn (quản trị viên còn phải khôi phục được
             // hồ sơ); ở phía khách nó là một cái nút mở lại thứ văn phòng vừa rút đi. Một điều
             // kiện chỉ do một scope khác giữ là một điều kiện người khác tắt được.
-            ->whereNull($this->qualifyColumn('deleted_at'));
+            ->whereNull($this->qualifyColumn('deleted_at'))
+            // Task 2 (`portal/portal-3`): khách hàng (Client) đã xoá mềm không được để vụ việc
+            // của họ ra portal, ĐỘC LẬP với điều kiện tương tự ở ClientUser::canAccessPanel() —
+            // xem docblock ở đó cho lý do hai tầng tách rời. Trước bản sửa này, các điều kiện ở
+            // trên chỉ hỏi bảng `matters`; `clients.deleted_at` không được hỏi ở đâu cả, nên xoá
+            // mềm một khách hàng không rút được vụ việc của họ khỏi cổng. `whereHas` kéo theo
+            // đúng `SoftDeletingScope` (global scope thường trực của `Client`) vào truy vấn con,
+            // nên "còn một dòng `clients` chưa xoá mềm" là toàn bộ ý nghĩa của điều kiện này —
+            // không cần lặp lại `whereNull('clients.deleted_at')` bằng tay.
+            ->whereHas('client');
 
         // M7 bổ sung điều kiện client_access_until ở đây (SPEC §11 "Bàn giao và lưu trữ").
     }

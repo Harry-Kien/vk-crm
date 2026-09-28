@@ -75,6 +75,14 @@
                         </h2>
                     </div>
 
+                    {{-- `summary_for_client` (portal/portal-2, M6.5 Task 5). Chỉ vẽ khi có nội
+                         dung — thẻ không có chỗ cho một dòng trống. --}}
+                    @if ($card['summary'])
+                        <p data-portal-card-summary style="font-size:0.9375rem;line-height:1.5;opacity:0.85;">
+                            {{ $card['summary'] }}
+                        </p>
+                    @endif
+
                     {{-- SPEC §8.2: nhãn giai đoạn DỄ HIỂU, tức `client_label`, không bao giờ `label`. --}}
                     <p style="font-size:1rem;line-height:1.5;">
                         {{ $card['stage_label'] ?? __('portal_matters.card.stage_unknown') }}

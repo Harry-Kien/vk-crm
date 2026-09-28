@@ -143,6 +143,27 @@ it('lists the matters of the signed in client and never those of another client'
         ->and($html)->not->toContain('HO-SO-CUA-KHACH-KHAC-9X7M');
 });
 
+/**
+ * `portal/portal-2` (M6.5 Task 5): `summary_for_client` chỉ hiện được ở tab Tổng quan phía nội
+ * bộ trước bản sửa này. §8.2 liệt kê thẻ hồ sơ như một trong hai nơi đặt trường này.
+ */
+it('shows summary_for_client on the matter card when it has content', function () {
+    portalMatter(['summary_for_client' => 'TOM-TAT-THE-HO-SO-3F9L']);
+
+    $html = renderMyMatters();
+
+    expect($html)->toContain('TOM-TAT-THE-HO-SO-3F9L');
+});
+
+/** Cặp âm bắt buộc: rỗng thì thẻ không vẽ một dòng trống cho trường này. */
+it('does not render a summary line on the card when summary_for_client is empty', function () {
+    portalMatter(['summary_for_client' => null]);
+
+    $html = renderMyMatters();
+
+    expect($html)->not->toContain('data-portal-card-summary');
+});
+
 it('never lists a matter of the right client that is not published to the portal', function () {
     $published = portalMatter(['title' => 'Hồ sơ đang mở cho khách']);
     $unpublished = portalMatter([
@@ -167,6 +188,52 @@ it('drops a matter from the list the moment the office withdraws it', function (
     expect($html)->toContain($mine->code)
         ->and($html)->not->toContain($withdrawn->code)
         ->and($html)->not->toContain('HO-SO-DA-RUT-7V2K');
+});
+
+// =========================================================================================
+// Task 2 (`portal/portal-3`): khách hàng đã xoá mềm — Matter::applyClientPortalConstraints()
+// =========================================================================================
+
+/**
+ * Trước bản sửa này, `applyClientPortalConstraints()` chỉ hỏi bảng `matters` (client_id,
+ * is_published_to_portal, `deleted_at` CỦA CHÍNH VỤ VIỆC) — `clients.deleted_at` không được hỏi
+ * ở đâu cả, nên xoá mềm khách hàng (EditClient → DeleteAction) không rút được vụ việc của họ
+ * khỏi cổng: khách vẫn đăng nhập (điều kiện độc lập, xem `tests/Feature/Portal/LoginTest.php`) và
+ * vẫn đọc được hồ sơ đã công bố của chính mình.
+ *
+ * Đo trực tiếp `Matter::query()` dưới ngữ cảnh cổng (`ClientPortalScope::actingAs()`), độc lập
+ * với bất kỳ màn hình nào — mutation probe nhắm thẳng vào `whereHas('client')` của
+ * `Matter::applyClientPortalConstraints()` (bỏ nó thì test này đỏ).
+ */
+it('empties Matter::query() under the portal scope once the parent client is soft deleted', function () {
+    portalMatter(['title' => 'Hồ sơ của khách đã bị xoá']);
+
+    $this->client->delete();
+
+    $matters = ClientPortalScope::actingAs($this->clientUser, fn () => Matter::query()->get());
+
+    expect($matters)->toBeEmpty();
+});
+
+/** Vế dương: cùng thiết lập đó, khách hàng CHƯA xoá thì vụ việc vẫn ra tới cổng như trước. */
+it('still returns the matter under the portal scope when the client has not been deleted', function () {
+    $matter = portalMatter(['title' => 'Hồ sơ của khách còn nguyên']);
+
+    $matters = ClientPortalScope::actingAs($this->clientUser, fn () => Matter::query()->get());
+
+    expect($matters->pluck('id'))->toContain($matter->id);
+});
+
+/** Và hệ quả trên chính màn hình này: danh sách rỗng ngay khi văn phòng xoá mềm khách hàng. */
+it('drops every matter from the screen the moment the office soft deletes the client itself', function () {
+    $matter = portalMatter(['title' => 'HO-SO-CUA-KHACH-DA-XOA-6M3P']);
+
+    $this->client->delete();
+
+    $html = renderMyMatters();
+
+    expect($html)->not->toContain($matter->code)
+        ->and($html)->not->toContain('HO-SO-CUA-KHACH-DA-XOA-6M3P');
 });
 
 /**
@@ -561,15 +628,17 @@ it('does not nag about an optional item nobody ever asked the client for', funct
 });
 
 /**
- * Và vế còn lại của cùng điều kiện, ở bên TRONG mẫu số lần này: một đầu mục không bắt buộc mà
- * văn phòng đã tự gắn một tài liệu vào (nhóm B — bản do văn phòng phát hành) nằm trong `Y`, vì
- * `Y` được định nghĩa bằng chữ "đã có tài liệu". Nhưng nó vẫn đang `missing` và vẫn KHÔNG phải
- * một việc của khách: không ai đòi họ tờ giấy ấy.
+ * checklist-05, fix round 1 (C1): Y đếm CHỈ nhóm A. Một đầu mục không bắt buộc mà văn phòng tự
+ * gắn một tài liệu nhóm B vào — dù bản đó đã đi hết vòng đời (`published`, `client_can_view =
+ * true`) — KHÔNG được kéo vào `Y`: nó không phải một tài liệu KHÁCH nộp, nên nó không phải bằng
+ * chứng "khách đã làm xong việc gì đó" theo nghĩa mẫu số này đếm.
  *
- * Nếu thiếu test này thì vế `&& $item->is_required` trong bộ đếm huy hiệu không còn gì ghim —
- * đo được: xoá nó đi mà mọi test khác vẫn xanh.
+ * Trước phán quyết vòng sửa 1, test này khẳng định điều NGƯỢC LẠI (một tài liệu nhóm B đã công
+ * bố kéo được đầu mục vào Y) — chính hình dạng mà finding C1 chỉ ra là sai: đầu mục vẫn `missing`
+ * nên nó rơi vào "Giấy tờ chúng tôi còn chờ ở anh/chị" trong khi khách chỉ thấy một quyết định
+ * nhóm B nằm ở khối "Tài liệu", không phải một việc phải làm.
  */
-it('does not nag about an optional item the office itself has already put a paper against', function () {
+it('does not nag about an optional item even when the office has published a group B document for it', function () {
     $matter = portalMatter();
 
     $optional = MatterChecklistItem::factory()->for($matter)->create([
@@ -584,7 +653,37 @@ it('does not nag about an optional item the office itself has already put a pape
 
     $html = ClientPortalScope::actingAs($this->clientUser, fn () => renderMyMatters());
 
-    // Vế dương: đầu mục ấy CÓ nằm trong mẫu số — nếu không, test này xanh vì một lý do khác hẳn.
+    // Vế âm: đầu mục ấy KHÔNG nằm trong mẫu số — nếu Y vẫn đếm nhóm B, test này đỏ ở đúng dòng
+    // dưới, không xanh vì một lý do khác.
+    expect($html)->toContain(__('portal_matters.card.progress_empty'))
+        ->and($html)->not->toContain(__('portal_matters.status.outstanding', ['count' => 1]));
+});
+
+/**
+ * Người thừa kế của bài học cũ mà test trên từng ghim (`&& $item->is_required` trong bộ đếm huy
+ * hiệu): giờ Y CHỈ đếm nhóm A, nên nhân chứng phải là một tài liệu nhóm A để đầu mục còn ở trong
+ * Y — rồi mới đo được việc nó KHÔNG bị tính vào huy hiệu "còn X giấy tờ cần nộp" vì nó không bắt
+ * buộc. Không có test này, vế `&& $item->is_required` không còn gì ghim (đo được: xoá nó đi mà
+ * mọi test khác vẫn xanh, kể cả test C1 ở trên — item ấy đã rời Y từ trước khi tới bước đếm huy
+ * hiệu).
+ */
+it('does not count an optional missing item toward the outstanding badge even while it stays in Y', function () {
+    $matter = portalMatter();
+
+    $optional = MatterChecklistItem::factory()->for($matter)->create([
+        'is_required' => false, 'status' => ChecklistItemStatus::Missing,
+    ]);
+
+    Document::factory()->for($matter)->group(DocumentGroup::ClientProvided)->create([
+        'matter_checklist_item_id' => $optional->id,
+        'status' => DocumentStatus::Published,
+        'client_can_view' => true,
+    ]);
+
+    $html = ClientPortalScope::actingAs($this->clientUser, fn () => renderMyMatters());
+
+    // Vế dương: đầu mục CÓ nằm trong Y (mẫu số = 1, tử số vẫn 0 vì trạng thái còn `missing`) —
+    // nếu không, test này xanh vì một lý do khác.
     expect($html)->toContain(__('portal_matters.card.progress', ['submitted' => 0, 'total' => 1]))
         ->and($html)->not->toContain(__('portal_matters.status.outstanding', ['count' => 1]));
 });
@@ -1062,14 +1161,19 @@ it('keeps the matter code on every card and makes the whole card the way in', fu
  *     kèm bộ đếm tài liệu. Gộp nó vào truy vấn danh sách nghĩa là viết lại luật đếm lần thứ hai
  *     bên màn hình, đúng thứ M4 vừa dọn đi.
  *
- * Phần cố định là **bốn**: danh sách hồ sơ, loại vụ việc, các giai đoạn của loại đó, và các dòng
- * danh mục của cả trang. Truy vấn thứ tư là cái giá của vòng sửa I3 — huy hiệu và thanh tiến độ
- * nay đọc CÙNG một tập dòng, nên các dòng ấy về một lần cho cả trang thay vì được đếm lại bằng
- * hai `withCount` riêng. Nó là một truy vấn CỐ ĐỊNH, không một truy vấn cho mỗi thẻ, và khẳng
- * định độ dốc ở dưới là thứ chứng minh điều đó. Vậy `2N + 4`, tức 44 cho 20 thẻ.
+ * Phần cố định là **năm**: danh sách hồ sơ, loại vụ việc, các giai đoạn của loại đó, các dòng
+ * danh mục của cả trang, và — từ Task 2, vòng sửa 1 (Important #2) — quan hệ `client` của cả
+ * trang. Truy vấn thứ tư (danh mục) là cái giá của vòng sửa I3 — huy hiệu và thanh tiến độ nay
+ * đọc CÙNG một tập dòng, nên các dòng ấy về một lần cho cả trang thay vì được đếm lại bằng hai
+ * `withCount` riêng. Truy vấn thứ năm (`client`) là cái giá của Task 2: `MatterPolicy::view` giờ
+ * hỏi thêm "khách hàng chưa xoá mềm" (`releasedToPortal()`), và `MyMatters::buildCards()` nạp sẵn
+ * `client` cho CẢ TRANG một lần để hàm đó đọc qua `relationLoaded()` — miễn phí cho từng thẻ —
+ * thay vì một `EXISTS` mới trên MỖI thẻ (xem docblock của `releasedToPortal()`). Cả hai là truy
+ * vấn CỐ ĐỊNH, không một truy vấn nào cho mỗi thẻ, và khẳng định độ dốc ở dưới là thứ chứng minh
+ * điều đó. Vậy `2N + 5`, tức 45 cho 20 thẻ.
  *
- * Ba khẳng định, vì mỗi cái bắt một hỏng khác nhau: **phần cố định đúng bằng 4** bắt việc có
- * người thêm một truy vấn cố định thứ năm, và giữ cho con số trong docblock này là một con số
+ * Ba khẳng định, vì mỗi cái bắt một hỏng khác nhau: **phần cố định đúng bằng 5** bắt việc có
+ * người thêm một truy vấn cố định thứ sáu, và giữ cho con số trong docblock này là một con số
  * đo được chứ không một con số kể lại; **trần 50** để lại chỗ thở; **độ dốc đúng bằng 2** bắt thứ
  * đáng sợ hơn — một truy vấn mới mọc lên TRÊN TỪNG THẺ (một quan hệ chưa nạp sẵn, một `count()`
  * trong view). Chỉ có trần thì một hồi quy như vậy vẫn lọt ở 20 thẻ và nổ ở 200.
@@ -1107,5 +1211,5 @@ it('does not turn twenty cards into hundreds of queries', function () {
 
     expect($twenty)->toBeLessThanOrEqual(50)
         ->and($twenty - $five)->toBe(2 * 15)
-        ->and($five - (2 * 5))->toBe(4);
+        ->and($five - (2 * 5))->toBe(5);
 });

@@ -2,8 +2,11 @@
 
 namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 
+use App\Actions\Document\MarkDocumentSignedFiled;
 use App\Actions\Document\PublishDocument;
 use App\Actions\Document\RegroupDocument;
+use App\Actions\Document\ReturnDocumentToDraft;
+use App\Actions\Document\SubmitDocumentForApproval;
 use App\Actions\Document\UploadStaffDocument;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
@@ -16,10 +19,13 @@ use App\Models\MatterChecklistItem;
 use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Resources\RelationManagers\RelationManager;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Grouping\Group;
@@ -32,10 +38,15 @@ use Illuminate\Support\HtmlString;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Tab "Tài liệu" (SPEC §7.2): danh sách `documents` của vụ việc, nhóm theo A/B/C/D, với bốn thao
- * tác — đưa tệp vào hồ sơ, công bố cho khách, chuyển nhóm, và tải tệp về.
+ * Tab "Tài liệu" (SPEC §7.2): danh sách `documents` của vụ việc, nhóm theo A/B/C/D, với bảy thao
+ * tác — đưa tệp vào hồ sơ, trình duyệt, đánh dấu đã ký và đã nộp, trả về bản nháp, công bố cho
+ * khách, chuyển nhóm, và tải tệp về. Ba thao tác giữa (Task 16, phán quyết R9, mở rộng ở vòng
+ * sửa 1) là toàn bộ vòng đời văn bản nhóm B (SPEC §4.11), gồm cả đường ĐI NGƯỢC, mà tới trước đó
+ * không có Action, nút hay ô nào ghi được — xem docblock `SubmitDocumentForApproval`,
+ * `MarkDocumentSignedFiled` và `ReturnDocumentToDraft` cho lý do đầy đủ.
  *
- * **Lớp này không có một dòng nghiệp vụ nào.** Bốn thao tác gọi `UploadStaffDocument`,
+ * **Lớp này không có một dòng nghiệp vụ nào.** Bảy thao tác gọi `UploadStaffDocument`,
+ * `SubmitDocumentForApproval`, `MarkDocumentSignedFiled`, `ReturnDocumentToDraft`,
  * `PublishDocument`, `RegroupDocument` và route tải tệp có chữ ký của Task 5. Lời từ chối của các
  * Action đi ra qua `ReportsActionFailures` (xem docblock trait đó cho bốn họ exception và vì sao
  * không họ nào được ánh xạ sang một mã HTTP riêng).
@@ -213,17 +224,55 @@ class DocumentsRelationManager extends RelationManager
     }
 
     /**
-     * Các nhóm cho ô chọn của lần CHUYỂN NHÓM. Khác `groupOptions()` ở đúng một điểm và có chủ
-     * đích: KHÔNG lọc theo `document.publish`. `RegroupDocument` đòi quyền đó để RỜI nhóm D,
-     * không để vào một nhóm nào — "siết thêm không phải nới ra", và bắt một trợ lý đi tìm luật sư
-     * để dời một tài liệu xếp nhầm sẽ để nó nằm ở chỗ rộng hơn trong lúc chờ. Điều kiện rời nhóm
-     * D nằm ở `->authorize()` của chính thao tác, không ở danh sách này.
+     * Các nhóm cho ô chọn của lần CHUYỂN NHÓM — lọc theo CHÍNH bản ghi (vòng sửa 1, `I1`).
+     *
+     * **Nhóm D là ĐÍCH cho MỌI nhóm nguồn: luôn mời, kể cả cho ai không có
+     * `document.viewInternal` — ngoại lệ có chủ đích với `visibleGroups()` (vòng sửa 1, MỞ RỘNG
+     * ở vòng sửa 2 — phán quyết (a) nói "bất kể nhóm nguồn", bản vòng sửa 1 chỉ áp cho nguồn B).**
+     * Rút một tài liệu lỡ công bố vào D là đường DUY NHẤT thu hồi nó trước khi `RetractDocument`
+     * (M7) tồn tại, và nó chỉ đòi `document.update` — MỘT trợ lý phát hiện một tài liệu NHÓM A
+     * (`ClientProvided`, khách tự nộp) công bố nhầm cũng phải rút được nó ngay, cùng lý lẽ với
+     * nhóm B, không chỉ nhóm B. Điều kiện ở đây vì vậy là "actor có `document.update`" — không
+     * còn gắn với nhóm NGUỒN cụ thể nào — mà bất kỳ ai mở được màn hình này đều có, nên D được
+     * mời cho MỌI nguồn. Vẫn giữ `$canSeeInternal` làm lối vào THAY THẾ (không phải điều kiện
+     * CỘNG THÊM): ai đã có `document.viewInternal` thấy D bất kể có `document.update` hay không,
+     * đúng lý lẽ cũ. `document.update` bên dưới hỏi lại đúng CÂU HỎI mà `->authorize()` của Action
+     * cũng hỏi — không lệch nhau.
+     *
+     * **Rời nhóm D (nguồn là D): không lọc.** Giữ đúng lý lẽ cũ — "siết thêm không phải nới ra",
+     * và bắt một trợ lý đi tìm luật sư để dời một tài liệu xếp nhầm sẽ để nó nằm ở chỗ rộng hơn
+     * trong lúc chờ. Điều kiện rời nhóm D vẫn nằm ở `->authorize()` của chính thao tác.
+     *
+     * **Rời nhóm B (SANG A hoặc C — không phải D): lọc theo `document.publish`.** Trước vòng sửa
+     * này, danh sách không lọc gì cho nhóm B cả, nên một trợ lý (không có `document.publish`) mở
+     * ô chọn của một tài liệu B THẤY được A và C — hai lựa chọn `RegroupDocument` LUÔN từ chối họ,
+     * bất kể có nhập lý do hay không (cổng đòi `document.publish`, không có đường vòng bằng lý do).
+     * Bày ra hai lựa chọn luôn thất bại là bày một cái bẫy, cùng lý lẽ `groupOptions()` đã áp cho
+     * lần TẠO tài liệu. Nhóm B (giữ nguyên) thì KHÔNG bị lọc.
+     *
+     * Không lọc theo TRẠNG THÁI (`signed_filed`/`published`/lý do): một actor có `document.publish`
+     * vẫn cần thấy A/C để CÓ THỂ nhập lý do sửa nhầm nhóm — ẩn chúng đi vì tài liệu chưa ký sẽ che
+     * mất đúng con đường hợp lệ đó.
      *
      * @return array<string, string>
      */
-    public static function regroupOptions(): array
+    public static function regroupOptions(Document $record): array
     {
-        return collect(static::visibleGroups())
+        $canSeeInternal = Auth::user()?->can(Permission::DocumentViewInternal->value) ?? false;
+        $canUpdate = Gate::allows('update', $record);
+        $canPublish = Gate::allows('publish', $record);
+        $isFromGroupB = $record->group === DocumentGroup::Issued;
+
+        return collect(DocumentGroup::cases())
+            ->reject(function (DocumentGroup $group) use ($canSeeInternal, $canUpdate, $canPublish, $isFromGroupB): bool {
+                if ($group->isInternal()) {
+                    return ! $canSeeInternal && ! $canUpdate;
+                }
+
+                return $isFromGroupB
+                    && ! in_array($group, [DocumentGroup::Issued, DocumentGroup::Internal], true)
+                    && ! $canPublish;
+            })
             ->mapWithKeys(fn (DocumentGroup $group): array => [$group->value => $group->label()])
             ->all();
     }
@@ -319,6 +368,9 @@ class DocumentsRelationManager extends RelationManager
             ])
             ->recordActions([
                 $this->downloadAction(),
+                $this->submitForApprovalAction(),
+                $this->markSignedFiledAction(),
+                $this->returnToDraftAction(),
                 $this->publishAction(),
                 $this->regroupAction(),
             ])
@@ -373,13 +425,41 @@ class DocumentsRelationManager extends RelationManager
                     // `private` hay không. Đây là điều kiện để Action còn là cổng duy nhất: một ô
                     // tự lưu sẽ đặt tệp lên đĩa trước khi có ai kiểm tra nó.
                     ->storeFiles(false)
-                    // Hai luật dưới đây chỉ là tiện lợi phía trình duyệt (chặn sớm, báo ngay tại
-                    // ô) và chúng đọc `Content-Type` do client gửi — thứ SPEC §6.6 bước 3 nói
-                    // thẳng là không được tin. Cổng thật là `FileGuard`, và nó đọc MIME bằng
-                    // `finfo` trên nội dung tệp.
+                    // **Chú thích trước ĐÂY sai, và `docs/docs-7` ghi lại đúng chỗ sai.** Nó nói
+                    // hai luật dưới đây "đọc Content-Type do client gửi". Không đúng: bản thân
+                    // `acceptedFileTypes()` chỉ cài luật `mimetypes:...` của Laravel
+                    // (`BaseFileUpload::acceptedFileTypes()`), và luật đó gọi
+                    // `TemporaryUploadedFile::getMimeType()`. Ở PRODUCTION, hàm đó đi thẳng tới
+                    // `detectMimeTypeFromContents()` — tức `finfo` chạy trên 64 KB đầu của NỘI
+                    // DUNG tệp đã lưu trên đĩa tạm, không đọc header `Content-Type` nào của
+                    // request. Chỉ khi `app()->runningUnitTests()` (bộ test) thì hàm đó mới trả
+                    // `metaFileData['type']` — MIME suy từ ĐUÔI tệp của `UploadedFile::fake()` —
+                    // nên một test tải lên một `.pdf` giả nội dung không phải PDF vẫn "qua" được
+                    // ô này, và `FileGuard` (chạy production thật) mới là nơi chặn nó. `maxSize()`
+                    // thì không liên quan gì tới `Content-Type` cả — nó so kích thước tệp thật
+                    // (`TemporaryUploadedFile::getSize()`) với một con số, ở CẢ hai tầng (trình
+                    // duyệt qua FilePond, và máy chủ qua luật `max:`).
+                    //
+                    // Cổng an ninh THẬT vẫn là `FileGuard`: nó đọc MIME bằng `finfo` trên nội dung
+                    // tệp ở mọi môi trường, kể cả bộ test (không có nhánh `runningUnitTests()` nào
+                    // trong `FileGuard`). Ô này chỉ chặn SỚM, tiện cho người dùng — và với `docx`/
+                    // `xlsx`, nó phải đồng ý với `FileGuard` về việc `application/zip` là hợp lệ,
+                    // xem {@see self::acceptedMimeTypes()}.
                     ->acceptedFileTypes(static::acceptedMimeTypes())
                     ->maxSize(static::maxUploadMegabytes() * 1024)
-                    ->required(),
+                    ->required()
+                    // `docs/docs-7`: không có mảng này, một lần bị chặn ở CHÍNH Ô (trước khi
+                    // `FileGuard` kịp chạy) hiện câu mặc định của Laravel liệt kê nguyên văn chuỗi
+                    // MIME kỹ thuật ("The file field must be a file of type: ..."), không phải
+                    // tiếng Việt và không nói việc cần làm tiếp theo (SPEC §8.4). `max` mượn đúng
+                    // câu `documents.file_guard.too_large` mà `FileRejected::tooLarge()` cũng
+                    // dùng, để người dùng đọc CÙNG một câu dù lời từ chối đến từ cửa nào — cùng
+                    // thành ngữ `SubmitDocument::form()` (portal) đã dùng.
+                    ->validationMessages([
+                        'required' => __('documents.upload.file_required'),
+                        'mimetypes' => __('documents.upload.file_type'),
+                        'max' => __('documents.file_guard.too_large', ['max' => static::maxUploadMegabytes()]),
+                    ]),
                 TextInput::make('title')
                     ->label(__('documents.tab.fields.title'))
                     ->helperText(__('documents.tab.fields.title_help'))
@@ -419,7 +499,110 @@ class DocumentsRelationManager extends RelationManager
             ));
     }
 
-    /** SPEC §6.5. Nhóm D không bao giờ có nút này — xem docblock lớp. */
+    /**
+     * "Trình duyệt" — bước ĐẦU của vòng đời văn bản nhóm B (SPEC §4.11, phán quyết R9): chỉ hiện
+     * trên một dòng nhóm B đang `internal_draft`, và đòi đúng quyền `SubmitDocumentForApproval`
+     * đòi (`document.update`, qua `DocumentPolicy::update`) — trợ lý bấm được nút này.
+     */
+    private function submitForApprovalAction(): Action
+    {
+        return Action::make('submitForApproval')
+            ->label(__('documents.tab.actions.submit_for_approval'))
+            ->icon(Heroicon::OutlinedPaperAirplane)
+            ->color('gray')
+            ->requiresConfirmation()
+            ->modalHeading(__('documents.tab.actions.submit_for_approval_heading'))
+            ->modalDescription(__('documents.tab.actions.submit_for_approval_description'))
+            ->authorize(fn (Document $record): bool => Gate::allows('update', $record))
+            ->visible(fn (Document $record): bool => $record->group === DocumentGroup::Issued
+                && $record->status === DocumentStatus::InternalDraft)
+            ->successNotificationTitle(__('documents.tab.actions.submit_for_approval_success'))
+            ->action(fn (Action $action, Document $record) => $this->runAction(
+                $action,
+                fn () => app(SubmitDocumentForApproval::class)->handle(document: $record, actor: Auth::user()),
+            ));
+    }
+
+    /**
+     * "Đánh dấu đã ký, đã nộp" — bước THỨ HAI của vòng đời văn bản nhóm B, và bước cuối trước khi
+     * nó công bố được (SPEC §4.11, §6.5 bước 2, phán quyết R9). Chỉ hiện trên một dòng nhóm B đang
+     * `pending_approval`, và đòi `document.publish` — trợ lý KHÔNG có quyền này, khác nút "Trình
+     * duyệt" ngay phía trên.
+     */
+    private function markSignedFiledAction(): Action
+    {
+        return Action::make('markSignedFiled')
+            ->label(__('documents.tab.actions.mark_signed_filed'))
+            ->icon(Heroicon::OutlinedCheckBadge)
+            ->color('gray')
+            ->requiresConfirmation()
+            ->modalHeading(__('documents.tab.actions.mark_signed_filed_heading'))
+            ->modalDescription(__('documents.tab.actions.mark_signed_filed_description'))
+            ->authorize(fn (Document $record): bool => Gate::allows('publish', $record))
+            ->visible(fn (Document $record): bool => $record->group === DocumentGroup::Issued
+                && $record->status === DocumentStatus::PendingApproval)
+            ->successNotificationTitle(__('documents.tab.actions.mark_signed_filed_success'))
+            ->action(fn (Action $action, Document $record) => $this->runAction(
+                $action,
+                fn () => app(MarkDocumentSignedFiled::class)->handle(document: $record, actor: Auth::user()),
+            ));
+    }
+
+    /**
+     * "Trả về bản nháp" — ruling vòng sửa 1: đi ngược một bước, `pending_approval` →
+     * `internal_draft`. Chỉ hiện trên một dòng nhóm B đang `pending_approval`, và đòi
+     * `document.publish` — cùng cổng với "Đánh dấu đã ký, đã nộp", không phải "Trình duyệt". Xem
+     * docblock `ReturnDocumentToDraft` cho lý do quyền này nặng hơn "Trình duyệt".
+     */
+    private function returnToDraftAction(): Action
+    {
+        return Action::make('returnToDraft')
+            ->label(__('documents.tab.actions.return_to_draft'))
+            ->icon(Heroicon::OutlinedArrowUturnLeft)
+            ->color('gray')
+            ->requiresConfirmation()
+            ->modalHeading(__('documents.tab.actions.return_to_draft_heading'))
+            ->modalDescription(__('documents.tab.actions.return_to_draft_description'))
+            ->authorize(fn (Document $record): bool => Gate::allows('publish', $record))
+            ->visible(fn (Document $record): bool => $record->group === DocumentGroup::Issued
+                && $record->status === DocumentStatus::PendingApproval)
+            ->successNotificationTitle(__('documents.tab.actions.return_to_draft_success'))
+            ->action(fn (Action $action, Document $record) => $this->runAction(
+                $action,
+                fn () => app(ReturnDocumentToDraft::class)->handle(document: $record, actor: Auth::user()),
+            ));
+    }
+
+    /**
+     * SPEC §6.5. Nhóm D không bao giờ có nút này — xem docblock lớp.
+     *
+     * **`fillForm` đọc từ CHÍNH bản ghi, không phải hai cờ cố định (`docs/docs-4`).** Bản trước
+     * `->default(true)` trên cả hai ô, không đọc trạng thái hiện tại: mở lại hộp thoại của một
+     * tài liệu đã công bố "chỉ xem, không tải" (`client_can_download = false`) vẫn thấy ô "Cho
+     * khách tải về" đang BẬT, và bấm xác nhận là lặng lẽ mở lại quyền tải mà không ai chủ ý.
+     *
+     * Vẫn giữ đúng lý do `client_can_view` mặc định bật cho một tài liệu CHƯA từng ra tới khách —
+     * `PublishDocument` từ chối công bố với cờ đó tắt, nên một lần công bố ĐẦU TIÊN với ô này tắt
+     * sẵn không phải một thao tác, nó là một lời từ chối đã biết trước. `isReleasedToPortal()` là
+     * đúng lằn ranh: tài liệu ĐÃ ra tới khách thì form phải trung thực với hai cờ hiện có (kể cả
+     * khi đó là một lần công bố lại), còn CHƯA thì form vẫn gợi ý bộ mặc định thuận tiện cũ.
+     *
+     * **Ba ô ẩn `mounted_*` — kiểm tra optimistic, vòng sửa 1, MỞ RỘNG vòng sửa 2 (N1).**
+     * `PublishDocument` không tự biết hộp thoại này đã mở TỪ LÚC NÀO — nó chỉ thấy dữ liệu gửi lên
+     * khi bấm xác nhận. Ba ô ẩn này mang đúng ẢNH CHỤP trạng thái công bố mà `fillForm()` ở trên
+     * đã đọc LÚC MỞ hộp thoại, đi kèm (không thay thế) hai `Toggle` — người dùng có thể đổi
+     * `Toggle`, nhưng ba ô ẩn giữ nguyên giá trị lúc mount.
+     *
+     * **Luôn gửi giá trị THẬT — không còn `null` làm dấu hiệu "lần đầu" (vòng sửa 2 sửa đúng lỗ
+     * hổng N1).** Bản vòng sửa 1 gửi `mounted_client_can_view`/`mounted_client_can_download` là
+     * `null` cho một tài liệu chưa release, và `PublishDocument` đọc `null` đó thành "đừng so gì
+     * cả" — bỏ lọt đúng lúc TRẠNG THÁI CÔNG BỐ đổi giữa lúc mount và lúc xác nhận (hai tab cùng
+     * công bố lần đầu; hoặc một vòng thu hồi-rồi-trả-lại xảy ra giữa chừng). Nay ba ô LUÔN mang
+     * giá trị hiện có của chính bản ghi (`$record->client_can_view`/`client_can_download`, và
+     * `$record->wasPublishedToClient()` cho `mounted_is_released`) — kể cả khi tài liệu chưa từng
+     * release (khi đó cả ba đều `false`, KHÔNG phải bộ mặc định tiện lợi `true`/`true` mà hai
+     * `Toggle` hiển thị). `PublishDocument` so sánh LUÔN chạy, xem docblock lớp đó.
+     */
     private function publishAction(): Action
     {
         return Action::make('publish')
@@ -429,19 +612,28 @@ class DocumentsRelationManager extends RelationManager
             ->modalHeading(__('documents.tab.actions.publish_heading'))
             ->authorize(fn (Document $record): bool => Gate::allows('publish', $record))
             ->visible(fn (Document $record): bool => ! $record->group->isInternal())
+            ->fillForm(fn (Document $record): array => [
+                'client_can_view' => $record->isReleasedToPortal() ? $record->client_can_view : true,
+                'client_can_download' => $record->isReleasedToPortal() ? $record->client_can_download : true,
+                'mounted_client_can_view' => $record->client_can_view,
+                'mounted_client_can_download' => $record->client_can_download,
+                'mounted_is_released' => $record->wasPublishedToClient(),
+            ])
             ->schema([
                 // Hai cờ ĐỘC LẬP (SPEC §6.5 bước 3): cho khách biết đã có tài liệu mà chưa cho
-                // giữ bản sao là một trường hợp hợp lệ. `client_can_view` mặc định bật vì
-                // `PublishDocument` từ chối công bố mà không cho xem — một lần công bố với ô đó
-                // tắt không phải một thao tác, nó là một lời từ chối đã biết trước.
+                // giữ bản sao là một trường hợp hợp lệ. Giá trị BAN ĐẦU của ô do `fillForm()` ở
+                // trên quyết định — xem docblock ngay phía trên hàm này.
                 Toggle::make('client_can_view')
                     ->label(__('documents.tab.fields.client_can_view'))
-                    ->helperText(__('documents.tab.fields.client_can_view_help'))
-                    ->default(true),
+                    ->helperText(__('documents.tab.fields.client_can_view_help')),
                 Toggle::make('client_can_download')
                     ->label(__('documents.tab.fields.client_can_download'))
-                    ->helperText(__('documents.tab.fields.client_can_download_help'))
-                    ->default(true),
+                    ->helperText(__('documents.tab.fields.client_can_download_help')),
+                // Ảnh chụp lúc mount — xem docblock hàm này. Không hiện trên màn hình, chỉ đi
+                // theo request để `PublishDocument` so sánh.
+                Hidden::make('mounted_client_can_view'),
+                Hidden::make('mounted_client_can_download'),
+                Hidden::make('mounted_is_released'),
             ])
             ->successNotificationTitle(__('documents.tab.actions.publish_success'))
             ->action(fn (Action $action, Document $record, array $data) => $this->runAction(
@@ -451,6 +643,9 @@ class DocumentsRelationManager extends RelationManager
                     actor: Auth::user(),
                     clientCanView: (bool) ($data['client_can_view'] ?? false),
                     clientCanDownload: (bool) ($data['client_can_download'] ?? false),
+                    expectedClientCanView: (bool) ($data['mounted_client_can_view'] ?? false),
+                    expectedClientCanDownload: (bool) ($data['mounted_client_can_download'] ?? false),
+                    expectedIsReleased: (bool) ($data['mounted_is_released'] ?? false),
                 ),
             ));
     }
@@ -459,12 +654,17 @@ class DocumentsRelationManager extends RelationManager
      * Cửa DUY NHẤT để một tài liệu rời nhóm D (`RegroupDocument`, và hàng rào `saving` của
      * `Document` là thứ làm cho nó là duy nhất).
      *
-     * Điều kiện hiển thị chép đúng hai cổng của Action: `update` luôn, cộng `publish` khi tài
-     * liệu ĐANG ở nhóm D. Nói thẳng một điều đã đo được ở vòng rà soát Task 3: với bảng vai trò
-     * SPEC §5 hôm nay, vế thứ hai không loại thêm được ai — không vai trò nào có
-     * `document.viewInternal` mà thiếu `document.publish`, và thiếu `viewInternal` thì
-     * `DocumentPolicy::view` (và qua đó `update`) đã từ chối từ trước. Nó ở đây để màn hình và
-     * Action không lệch nhau nếu bảng quyền đổi, không phải vì nó đang chặn ai.
+     * **Điều kiện hiển thị chép đúng HAI cổng của Action — không phải BA, và đó là chủ đích, không
+     * phải một chỗ sót (vòng sửa 1 sửa lại câu cũ, thứ khẳng định sai điều này).** Hai cổng được
+     * chép: `update` luôn, cộng `publish` khi tài liệu ĐANG ở nhóm D. Cổng THỨ BA — rời nhóm B
+     * sang A/C đòi `publish` CỘNG (đã ký/nộp/công bố HOẶC một lý do hợp lệ) — KHÔNG chép vào đây,
+     * vì nó không phải một câu hỏi "có/không" cho cả nút: nó phụ thuộc nhóm ĐÍCH người dùng SẼ
+     * chọn, thứ chưa ai chọn tại thời điểm nút hiện ra. Chép nó vào `->authorize()` sẽ ẨN CẢ NÚT
+     * khỏi một trợ lý đang đứng trên một dòng nhóm B — trong khi trợ lý đó CÓ MỘT lựa chọn hợp lệ
+     * (rời vào nhóm D, phán quyết R9 mở rộng: luôn được phép với `document.update`). Cách đúng là
+     * để nút hiện, và lọc NGAY TRONG Ô CHỌN NHÓM ĐÍCH — xem {@see self::regroupOptions()}, thứ
+     * trước vòng sửa này không lọc gì cho nhóm B, nên một trợ lý mở ô chọn của một tài liệu B THẤY
+     * được A và C, hai lựa chọn Action luôn từ chối họ.
      */
     private function regroupAction(): Action
     {
@@ -483,9 +683,21 @@ class DocumentsRelationManager extends RelationManager
                     // xem và quyền tải của khách, và đi ra không trả lại. Xem hook `saving` của
                     // `Document`.
                     ->helperText(__('documents.tab.fields.target_group_help'))
-                    ->options(fn (): array => static::regroupOptions())
+                    ->options(fn (Document $record): array => static::regroupOptions($record))
                     ->default(fn (Document $record): string => $record->group->value)
+                    ->live()
                     ->required(),
+                // R9 mở rộng (vòng sửa 1): chỉ hiện khi lựa chọn HIỆN TẠI trong ô trên thật sự
+                // cần nó — tài liệu đang nhóm B, nhóm ĐÍCH là A hoặc C, và tài liệu CHƯA đi hết
+                // vòng đời (chưa `signed_filed`/`published`). Với một tài liệu đã ký/nộp/công bố,
+                // ô này không hiện — không có gì để "giải thích", chuyển nhóm đơn giản là hợp lệ.
+                Textarea::make('reason')
+                    ->label(__('documents.tab.fields.regroup_reason'))
+                    ->helperText(__('documents.tab.fields.regroup_reason_help'))
+                    ->visible(fn (Get $get, Document $record): bool => static::regroupReasonNeeded($record, $get('group')))
+                    ->required(fn (Get $get, Document $record): bool => static::regroupReasonNeeded($record, $get('group')))
+                    ->minLength(10)
+                    ->maxLength(1000),
             ])
             ->successNotificationTitle(__('documents.tab.actions.regroup_success'))
             ->action(fn (Action $action, Document $record, array $data) => $this->runAction(
@@ -494,8 +706,27 @@ class DocumentsRelationManager extends RelationManager
                     document: $record,
                     actor: Auth::user(),
                     group: DocumentGroup::from($data['group']),
+                    reason: ($data['reason'] ?? null) ?: null,
                 ),
             ));
+    }
+
+    /**
+     * "Ô lý do chuyển nhóm có cần hiện cho lựa chọn hiện tại không" — tách static để hai closure
+     * `->visible()`/`->required()` của {@see self::regroupAction()} hỏi đúng MỘT câu hỏi, không
+     * lệch nhau nếu một trong hai bị sửa riêng. Không gọi `Gate` ở đây: đây là một gợi ý GIAO
+     * DIỆN, cổng THẬT nằm trong chính Action (một actor không có `document.publish` gõ đủ 10 ký tự
+     * vào ô này vẫn bị Action từ chối ở bước `Gate::authorize('publish')`).
+     *
+     * Final review X7: hỏi thẳng `RegroupDocument::needsMisfilingReason()` — cùng câu Action hỏi
+     * dưới khoá (kể cả một bản nháp B đã đi qua D, và `published` tính là đã hết vòng đời), không
+     * chép lại điều kiện ở đây.
+     */
+    private static function regroupReasonNeeded(Document $record, mixed $selectedGroup): bool
+    {
+        $target = is_string($selectedGroup) ? DocumentGroup::tryFrom($selectedGroup) : null;
+
+        return $target !== null && RegroupDocument::needsMisfilingReason($record, $target);
     }
 
     /**
@@ -585,8 +816,42 @@ class DocumentsRelationManager extends RelationManager
     }
 
     /**
-     * Gợi ý cho hộp thoại chọn tệp của trình duyệt, theo danh sách trắng SPEC §6.6 bước 2. KHÔNG
-     * phải một cổng an ninh — xem bình luận ở `FileUpload::acceptedFileTypes()`.
+     * Danh sách MIME cho luật `mimetypes:` mà `acceptedFileTypes()` cài (SPEC §6.6 bước 2).
+     *
+     * **`docs/docs-7` ĐÃ chứng minh câu "KHÔNG phải một cổng an ninh" — ở dạng cũ của tài liệu
+     * này — là sai, và vòng sửa 1 sửa lại câu đó.** Ô này KHÔNG phải ranh giới an ninh DUY NHẤT
+     * hay CUỐI CÙNG (`FileGuard::ALLOWED` vẫn là ranh giới thật, chạy sau và không tin danh sách
+     * này), nhưng bản thân nó VẪN LÀ MỘT CỔNG thật sự chặn được tệp: luật `mimetypes:` chạy TRƯỚC
+     * `FileGuard`, trên MIME đọc bằng `finfo` (production) hoặc suy từ đuôi (bộ test, xem docblock
+     * `->acceptedFileTypes()` tại `uploadAction()`), và một tệp không khớp danh sách này KHÔNG BAO
+     * GIỜ tới được `UploadStaffDocument`/`FileGuard` — bị chặn hẳn ở đây, với câu tiếng Việt của
+     * `validationMessages()`. Hai test minh chứng ngược nhau đang giữ cho câu này đúng:
+     * `DocumentsRelationManagerTest` có cả "một tệp mà nội dung thật KHÔNG khớp danh sách này bị
+     * từ chối NGAY TẠI Ô" (chưa từng chạm `FileGuard`) LẪN "một docx thật mà libmagic đọc ra
+     * `application/zip` (đã có trong danh sách) đi lọt qua ô, chạm được `FileGuard`". Gọi nó
+     * "không phải cổng an ninh" chỉ đúng cho MỘT ý hẹp: nó không phải ranh giới CUỐI CÙNG, vì
+     * không kiểm cấu trúc gói OOXML hay quét virus — những việc `FileGuard`/`VirusScanner` làm.
+     *
+     * **`application/zip` có mặt vì một docx/xlsx THẬT (`docs/docs-7`).** Office Open XML là một
+     * gói ZIP: `finfo` đôi khi chỉ đọc ra `application/zip` cho một `.docx`/`.xlsx` hợp lệ
+     * (libmagic chỉ nhận ra MIME OOXML cụ thể khi thứ tự các mục trong gói hợp với heuristic của
+     * nó, và heuristic đó khác nhau giữa các bản libmagic — xem `FileGuard::verifyOfficePackage()`,
+     * nơi ĐÃ có logic chấp nhận trường hợp này bằng cách mở gói ra và đòi đúng mục bắt buộc, chứ
+     * không tin riêng MIME). Không có nó, một docx thật, hợp lệ, bị chặn oan ngay tại ô — hai cổng
+     * bất đồng, và cổng sớm hơn thắng.
+     *
+     * `application/zip` KHÔNG nới ranh giới thật: một tệp `.zip` trần (đuôi `zip`) vẫn bị
+     * `FileGuard::check()` từ chối ở bước ĐUÔI (`extensionNotAllowed()`), trước khi MIME được xét
+     * tới — nó chỉ nới cho hai ĐUÔI `docx`/`xlsx` đã có trong danh sách trắng, đúng những đuôi mà
+     * `FileGuard::OFFICE_PACKAGE_ENTRIES` đòi mở gói ra kiểm tra thêm.
+     *
+     * **Ba MIME OLE2 cũ (`x-ole-storage`, `x-cfb`, `CDFV2`) — vòng sửa 1.** `.doc`/`.xls` thật
+     * (định dạng nhị phân cũ, không phải OOXML) đôi khi được `finfo` nhận diện bằng một trong ba
+     * chuỗi MIME chung này thay vì `application/msword`/`application/vnd.ms-excel` cụ thể — cùng
+     * lý do libmagic-theo-heuristic với `application/zip` phía trên, và `FileGuard::ALLOWED` đã
+     * chấp nhận cả ba cho `doc`/`xls` từ trước. Câu gợi ý của ô (`documents.upload.file_type`) đã
+     * nói "chấp nhận DOC, XLS"; thiếu ba MIME này, câu đó nói dối cho đúng loại tệp `.doc`/`.xls`
+     * mà `finfo` đọc ra một trong ba chuỗi đó.
      *
      * @return array<int, string>
      */
@@ -600,6 +865,10 @@ class DocumentsRelationManager extends RelationManager
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             'application/vnd.ms-excel',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/zip',
+            'application/x-ole-storage',
+            'application/x-cfb',
+            'application/CDFV2',
         ];
     }
 }

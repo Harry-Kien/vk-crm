@@ -76,6 +76,27 @@ it('is idempotent', function () {
     expect(Spatie\Permission\Models\Permission::count())->toBe(count(Permission::cases()));
 });
 
+/**
+ * Minor (fix round 1, M6.5 Task 4): ghim đúng tiền đề mà
+ * `App\Policies\UserPolicy::delete()` dựa vào để KHÔNG hỏi lại
+ * `GuardsStaffOffboarding::wouldLeaveNoActiveAdmin()` — "chỉ ai có `settings.manage` (tức LÀ
+ * admin) mới qua được cổng `viewAny()`". Lý lẽ đó (nhánh "admin cuối cùng" của `delete()` là mã
+ * chết) SỤP ĐỔ ngay nếu một vai trò KHÁC Admin từng có `settings.manage` — test
+ * "matches the spec permission table for every role" ở trên đã ghim điều này gián tiếp (mảng đầy
+ * đủ của từng vai); test này ghim TRỰC TIẾP, đúng câu mà docblock kia viện dẫn, để một lần đổi
+ * BẢNG QUYỀN không âm thầm biến một lập luận đã đóng thành một lỗ hổng.
+ */
+it('grants settings.manage to admin only, pinning the premise UserPolicy::delete() relies on', function () {
+    foreach (Role::cases() as $role) {
+        $hasSettingsManage = in_array(Permission::SettingsManage, $role->permissions(), true);
+
+        expect($hasSettingsManage)->toBe(
+            $role === Role::Admin,
+            "vai trò {$role->value} ".($role === Role::Admin ? 'phải' : 'không được').' có settings.manage',
+        );
+    }
+});
+
 it('creates a missing role row rather than throwing', function () {
     Spatie\Permission\Models\Role::query()->delete();
 

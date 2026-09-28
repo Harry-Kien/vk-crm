@@ -41,6 +41,27 @@ it('links our client as a party with client_id', function () {
         ->and($matter->parties)->toHaveCount(1);
 });
 
+/**
+ * M6.5 Task 9 (`conflict-05`): `identifyKeepingWhenBlank()` là đường ghi định danh của form SỬA —
+ * KHÁC `identify()` (đường của form TẠO), giữ nguyên hash/số cũ ở ô nào bị bỏ trống thay vì xoá.
+ */
+it('identifyKeepingWhenBlank keeps the old hash/phone when the new value is blank, unlike identify()', function () {
+    $party = MatterParty::factory()->for(Matter::factory()->create())
+        ->create(['name' => 'Bên đã có định danh'])
+        ->identify('079090001234', '0901234567');
+    $party->save();
+
+    $party->identifyKeepingWhenBlank(null, null);
+
+    expect($party->id_number_hash)->toBe(Normalizer::idNumberHash('079090001234'))
+        ->and($party->phone_normalized)->toBe(Normalizer::phone('0901234567'));
+
+    $party->identifyKeepingWhenBlank('079090009999', null);
+
+    expect($party->id_number_hash)->toBe(Normalizer::idNumberHash('079090009999'))
+        ->and($party->phone_normalized)->toBe(Normalizer::phone('0901234567'));
+});
+
 it('cannot receive a raw identity through mass assignment and identify() is the only write path', function () {
     $party = MatterParty::factory()->for(Matter::factory()->create())->make(['id_number_hash' => '079090001234', 'phone_normalized' => '0901234567']);
 

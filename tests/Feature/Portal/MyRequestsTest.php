@@ -2,6 +2,7 @@
 
 use App\Enums\ClientRequestStatus;
 use App\Enums\Role;
+use App\Filament\Admin\Resources\Matters\RelationManagers\ClientRequestsRelationManager;
 use App\Filament\Portal\Pages\MatterProgress;
 use App\Filament\Portal\Pages\MyRequests;
 use App\Models\Client;
@@ -163,14 +164,25 @@ it('prints the staff name and never their email, phone or bar number', function 
 /**
  * SPEC §8: không thuật ngữ. Bốn trạng thái hiện ra bằng CÂU, không bằng tên enum — và không bằng
  * nhãn ngắn của panel nội bộ, thứ nói một điều khác cho một người đọc khác.
+ *
+ * `answered` ở đây đi KÈM một câu trả lời viết ra (REQ-5): không có nó, câu là câu "trả lời qua
+ * điện thoại" ({@see self::statusLineFor()} — test riêng ngay ở section REQ-5) chứ không phải
+ * câu chung `requests.portal.status.answered` mà vòng lặp này đang đo.
  */
 it('says the status in whole sentences and never in the enum name', function () {
     foreach (ClientRequestStatus::cases() as $status) {
         $matter = Matter::factory()->for($this->client)->create(['is_published_to_portal' => true]);
-        ClientRequest::factory()->for($matter)->create([
+        $request = ClientRequest::factory()->for($matter)->create([
             'client_user_id' => $this->clientUser->id,
             'status' => $status,
         ]);
+
+        if ($status === ClientRequestStatus::Answered) {
+            ClientRequestReply::factory()->for($request, 'request')->create([
+                'author_type' => $this->lawyer->getMorphClass(),
+                'author_id' => $this->lawyer->id,
+            ]);
+        }
 
         $page = requestsRegion(
             $this->actingAs($this->clientUser, 'client')->get(requestsUrl($matter))->assertOk()->getContent()
@@ -526,4 +538,307 @@ it('lays the page out in one column with no table and 44px tap targets', functio
     foreach ($controls[1] as $style) {
         expect($style)->toContain('min-height:44px');
     }
+});
+
+// =========================================================================================
+// "ĐÃ TRẢ LỜI" MÀ KHÔNG CÓ CÂU TRẢ LỜI VIẾT RA — REQ-5
+// =========================================================================================
+
+/** Câu status của MỘT luồng cụ thể, cắt ra khỏi trang bằng chính thuộc tính đo được của nó. */
+function statusLineFor(string $html, int|string $requestId): string
+{
+    preg_match('/data-portal-status="'.preg_quote((string) $requestId, '/').'"[^>]*>(.*?)<\/p>/s', $html, $matches);
+
+    return trim($matches[1] ?? '');
+}
+
+/**
+ * `TriageClientRequest::setStatus()` cho phép đặt thẳng `answered` mà không cần viết câu trả lời
+ * nào — ca có chủ đích ("luật sư trả lời qua điện thoại rồi đánh dấu thẳng Đã trả lời"). Câu mặc
+ * định (`requests.portal.status.answered`) mời khách "xem bên dưới", nhưng bên dưới khi đó
+ * TRỐNG. Vế dương đứng cạnh, TRONG CÙNG trang: một luồng `answered` CÓ câu trả lời viết ra vẫn
+ * dùng câu gốc — nếu không, một mutation biến MỌI luồng `answered` thành câu điện thoại vẫn xanh.
+ */
+it('tells the client the office answered by phone when nothing was written, and the normal line otherwise', function () {
+    $silent = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'status' => ClientRequestStatus::Answered,
+    ]);
+    $written = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'status' => ClientRequestStatus::Answered,
+    ]);
+    ClientRequestReply::factory()->for($written, 'request')->create([
+        'author_type' => $this->lawyer->getMorphClass(),
+        'author_id' => $this->lawyer->id,
+        'content' => 'Đã nộp đơn xong.',
+    ]);
+
+    $page = requestsRegion(
+        $this->actingAs($this->clientUser, 'client')->get(requestsUrl($this->matter))->assertOk()->getContent()
+    );
+
+    // **Chữ tiếng Việt VIẾT THẲNG, không qua `__()`.** Fix round 1, C1: bản trước so
+    // `__('requests.portal.status.answered_by_phone')` với chính nó — khoá đó không tồn tại (nó
+    // nằm ở `portal.answered_by_phone`, NGOÀI mảng `status`), nên Laravel trả về NGUYÊN VĂN khoá
+    // khi không tìm thấy bản dịch, và một khẳng định so khoá-với-chính-nó XANH bất kể trang có in
+    // ra khoá thô hay câu thật. Viết thẳng câu tiếng Việt ở đây là cách DUY NHẤT một lần đổi tên
+    // khoá làm test này đỏ thật.
+    expect(statusLineFor($page, $silent->id))->toBe('Văn phòng đã trả lời anh/chị qua điện thoại hoặc trực tiếp.')
+        ->and(statusLineFor($page, $silent->id))->not->toContain('requests.portal')
+        ->and(statusLineFor($page, $written->id))->toBe('Văn phòng đã trả lời, anh/chị xem bên dưới');
+});
+
+/**
+ * **Bảo vệ (fix round 1, C1): mọi khoá `requests.*` mà Task 18 thêm phải giải quyết được.**
+ * `__($key)` trả về nguyên văn `$key` khi không tìm thấy bản dịch — im lặng, không lỗi, không
+ * cảnh báo — nên một khoá gõ sai hoặc đặt sai chỗ (đúng lỗi vừa xảy ra ở trên) không tự lộ ra
+ * bằng bất cứ cách nào khác ngoài việc có người đọc thấy khoá thô trên màn hình. Test này quét
+ * đúng những khoá Task 18 đã thêm/dùng và hỏi thẳng `__()`.
+ */
+it('resolves every requests.* key this task added or touched', function () {
+    $keys = [
+        'requests.portal.shared_accounts_notice',
+        'requests.portal.status.answered_by_phone',
+        'requests.portal.history.heading',
+        'requests.portal.history.unknown_client_author',
+        'requests.tab.assignee_deactivated',
+        'requests.tab.actions.reply_success_hidden',
+        'requests.tab.actions.change_status_unassigned',
+    ];
+
+    foreach ($keys as $key) {
+        // Không truyền tham số (`:name`, …) — vẫn đủ để đo đúng thứ cần đo (khoá có tồn tại hay
+        // không), một khoá thiếu tham số chỉ để lại nguyên văn `:name` chứ không đổi kết quả này.
+        expect(__($key))->not->toBe($key, "khoá không giải quyết được: {$key}");
+    }
+});
+
+// =========================================================================================
+// HOẠT ĐỘNG GẦN NHẤT TRÊN CỔNG — fix round 1, ruling + I1
+// =========================================================================================
+
+/**
+ * Fix round 1, I1 — đường ghi thứ nhất: `OpenClientRequest::handle()`, qua đúng màn hình khách
+ * dùng (`submitRequest`). Một luồng VỪA MỞ phải nổi lên trên MỌI luồng cũ, kể cả những luồng đã
+ * có `last_activity_at` GẦN với hiện tại (`$newer`) — nếu cột này không được ghi lúc tạo, giá trị
+ * `null` của nó sẽ xếp CUỐI trong `ORDER BY ... DESC` (SQLite: `NULL` luôn nhỏ hơn mọi giá trị),
+ * và luồng mới nhất sẽ rơi xuống ĐÁY danh sách thay vì lên đầu.
+ */
+it('a freshly submitted request sorts above older but silent threads on the portal page', function () {
+    $older = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'created_at' => now()->subDays(3),
+        'last_activity_at' => now()->subDays(3),
+    ]);
+    $newer = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'created_at' => now()->subHour(),
+        'last_activity_at' => now()->subHour(),
+    ]);
+
+    requestsPage($this->clientUser, $this->matter)
+        ->set('subject', 'Câu hỏi mới nhất')
+        ->set('content', 'Nội dung mới nhất, vừa gửi.')
+        ->call('submitRequest')
+        ->assertHasNoErrors();
+
+    $page = requestsRegion(
+        $this->actingAs($this->clientUser, 'client')->get(requestsUrl($this->matter))->assertOk()->getContent()
+    );
+
+    $freshId = ClientRequest::query()->withoutGlobalScope(ClientPortalScope::class)
+        ->where('subject', 'Câu hỏi mới nhất')->value('id');
+
+    $posFresh = strpos($page, 'data-portal-thread="'.$freshId.'"');
+    $posNewer = strpos($page, 'data-portal-thread="'.$newer->id.'"');
+    $posOlder = strpos($page, 'data-portal-thread="'.$older->id.'"');
+
+    expect($posFresh)->not->toBeFalse()->and($posNewer)->not->toBeFalse()->and($posOlder)->not->toBeFalse()
+        ->and($posFresh)->toBeLessThan($posNewer)
+        ->and($posNewer)->toBeLessThan($posOlder);
+});
+
+/**
+ * Fix round 1, ruling — trang cổng phải sắp CÙNG cột với hộp thư nội bộ
+ * ({@see ClientRequestsRelationManager}).
+ * Cùng kịch bản với test admin "sorts the inbox by latest activity...", đo trên chính trang
+ * khách: một luồng CŨ hơn, sau khi khách viết tiếp vào nó, phải nổi lên trên một luồng MỚI hơn
+ * nhưng im lặng. Sắp theo `created_at` (bản trước `MyRequests::threads()`) sẽ không đảo được thứ
+ * tự này, vì `created_at` của luồng cũ không đổi.
+ */
+it('sorts the portal list by latest activity, not by when the client first wrote in', function () {
+    $older = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'created_at' => now()->subDays(3),
+        'last_activity_at' => now()->subDays(3),
+    ]);
+    $newer = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'created_at' => now()->subHour(),
+        'last_activity_at' => now()->subHour(),
+    ]);
+
+    $page = requestsRegion(
+        $this->actingAs($this->clientUser, 'client')->get(requestsUrl($this->matter))->assertOk()->getContent()
+    );
+
+    expect(strpos($page, 'data-portal-thread="'.$newer->id.'"'))
+        ->toBeLessThan(strpos($page, 'data-portal-thread="'.$older->id.'"'));
+
+    requestsPage($this->clientUser, $this->matter)
+        ->set('replies.'.$older->id, 'Tôi hỏi thêm.')
+        ->call('submitReply', $older->id)
+        ->assertHasNoErrors();
+
+    $page = requestsRegion(
+        $this->actingAs($this->clientUser, 'client')->get(requestsUrl($this->matter))->assertOk()->getContent()
+    );
+
+    expect(strpos($page, 'data-portal-thread="'.$older->id.'"'))
+        ->toBeLessThan(strpos($page, 'data-portal-thread="'.$newer->id.'"'));
+});
+
+// =========================================================================================
+// TÀI KHOẢN NGƯỜI NHÀ — REQ-8
+// =========================================================================================
+
+it('tells the client that other accounts of the same customer can read this too', function () {
+    $page = requestsRegion(
+        $this->actingAs($this->clientUser, 'client')->get(requestsUrl($this->matter))->assertOk()->getContent()
+    );
+
+    expect($page)->toContain(__('requests.portal.shared_accounts_notice'));
+});
+
+/** Dòng tác giả của MỘT mục cụ thể, cắt bằng `data-portal-entry-author` — xem docblock blade. */
+function entryAuthorLine(string $html, int $index): string
+{
+    preg_match('/data-portal-entry-author="'.$index.'"[^>]*>(.*?)<\/p>/s', $html, $matches);
+
+    // Blade biên dịch `@if`/`@elseif`/`@else` thành các chú thích HTML `<!--[if BLOCK]>-->` bao
+    // quanh nhánh được vẽ, cộng khoảng trắng thụt dòng của chính template — cả hai không phải một
+    // phần của CÂU CHỮ đang được đo, nên bỏ đi trước khi so sánh.
+    $line = preg_replace('/<!--.*?-->/s', '', $matches[1] ?? '');
+    $line = preg_replace('/\s+/', ' ', (string) $line);
+
+    return trim($line);
+}
+
+/**
+ * **Nhãn "Anh/chị viết" chỉ dành cho CHÍNH người đang xem — câu của người NHÀ KHÁC mang tên
+ * người đó.** Trước bản sửa này mọi dòng do một `ClientUser` viết đều mang nhãn "Anh/chị viết",
+ * kể cả dòng của người kia — người đang xem sẽ tưởng câu của người nhà là câu của chính mình.
+ * Test đổi VAI người xem giữa hai nửa, trên CÙNG một cuộc trao đổi, để đo đúng "theo người đang
+ * xem" chứ không phải "theo người viết câu đầu tiên".
+ *
+ * **Fix round 1, I2 — nội dung KHÔNG được nhắc tên ai.** Bản trước dùng nội dung câu trả lời
+ * chính là "Câu trả lời thêm của Trần Thị Bình", nên `toContain('Trần Thị Bình')` xanh vì CHÍNH
+ * VĂN BẢN đó chứa tên — không đo được nhãn tác giả có đúng hay không. Ở đây nội dung trung lập,
+ * và khẳng định cắt đúng dòng tác giả của TỪNG mục bằng {@see entryAuthorLine()} — mục 0 là câu
+ * hỏi gốc (của Nguyễn Văn An), mục 1 là câu trả lời thêm (của Trần Thị Bình) — thay vì hỏi cả
+ * trang có chứa một chuỗi hay không.
+ */
+it('labels each entry by who the viewer is, not by who wrote it', function () {
+    $request = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'content' => 'Câu hỏi ban đầu, không nhắc tên ai.',
+    ]);
+    ClientRequestReply::factory()->for($request, 'request')->create([
+        'author_type' => $this->sibling->getMorphClass(),
+        'author_id' => $this->sibling->id,
+        'content' => 'Con xin bổ sung thêm một ý, không nhắc tên ai.',
+    ]);
+
+    $ownerPage = requestsRegion(
+        $this->actingAs($this->clientUser, 'client')->get(requestsUrl($this->matter))->assertOk()->getContent()
+    );
+
+    // Nguyễn Văn An xem: mục 0 (câu hỏi của chính mình) mang "Anh/chị viết"; mục 1 (của người
+    // nhà) mang tên người đó, KHÔNG mang nhãn "Anh/chị viết".
+    expect(entryAuthorLine($ownerPage, 0))->toBe(__('requests.portal.history.from_client').' — Nguyễn Văn An')
+        ->and(entryAuthorLine($ownerPage, 1))->toBe('Trần Thị Bình');
+
+    $siblingPage = requestsRegion(
+        $this->actingAs($this->sibling, 'client')->get(requestsUrl($this->matter))->assertOk()->getContent()
+    );
+
+    // Đổi vai: Trần Thị Bình xem CÙNG luồng đó — mục 0 (của người nhà) giờ mang tên An, còn mục 1
+    // (câu của CHÍNH Bình) mới mang "Anh/chị viết". Nhãn theo NGƯỜI ĐANG XEM, không theo thứ tự
+    // viết.
+    expect(entryAuthorLine($siblingPage, 0))->toBe('Nguyễn Văn An')
+        ->and(entryAuthorLine($siblingPage, 1))->toBe(__('requests.portal.history.from_client').' — Trần Thị Bình');
+});
+
+/**
+ * **Fix round 1, minor.** Một `author_id` không giải quyết được qua {@see MyRequests::
+ * authorNames()} (id trỏ ra ngoài phạm vi `client_id` của người đang xem — dữ liệu hỏng, vì
+ * scope portal đáng lẽ không cho phép, nhưng hàm không tin điều đó và tự giới hạn lại) phải rơi
+ * về một nhãn TRUNG LẬP — không phải "Anh/chị viết", câu chỉ dành cho chính người xem.
+ */
+it('shows a neutral label instead of anh/chi viet when a co-accounts name cannot be resolved', function () {
+    $outsider = ClientUser::factory()->activated()->create(['name' => 'Người Ngoài Phạm Vi']);
+
+    $request = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'content' => 'Câu hỏi ban đầu.',
+    ]);
+    // Dữ liệu hỏng cố ý: `author_id` trỏ sang một `ClientUser` KHÁC `client_id`, thứ
+    // `authorNames()` không đọc tên (giới hạn `where('client_id', $this->viewer()->client_id)`).
+    ClientRequestReply::factory()->for($request, 'request')->create([
+        'author_type' => $outsider->getMorphClass(),
+        'author_id' => $outsider->id,
+        'content' => 'Một dòng dữ liệu hỏng.',
+    ]);
+
+    $page = requestsRegion(
+        $this->actingAs($this->clientUser, 'client')->get(requestsUrl($this->matter))->assertOk()->getContent()
+    );
+
+    expect(entryAuthorLine($page, 1))->toBe(__('requests.portal.history.unknown_client_author'))
+        ->and(entryAuthorLine($page, 1))->not->toContain(__('requests.portal.history.from_client'));
+});
+
+/**
+ * Final review C-M5: một câu trả lời viết ra có TRƯỚC lần khách viết tiếp cuối cùng không phải là
+ * câu trả lời cho điều khách vừa hỏi — "xem bên dưới" khi đó chỉ khách tới một câu cũ. Chỉ nói
+ * "xem bên dưới" khi có ít nhất một câu của văn phòng SAU lần viết cuối cùng của khách.
+ */
+it('only says "see below" when a staff reply comes after the client\'s last entry', function () {
+    $stale = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'status' => ClientRequestStatus::Answered,
+    ]);
+    ClientRequestReply::factory()->for($stale, 'request')->create([
+        'author_type' => $this->lawyer->getMorphClass(),
+        'author_id' => $this->lawyer->id,
+        'content' => 'Trả lời câu hỏi đầu.',
+    ]);
+    ClientRequestReply::factory()->for($stale, 'request')->create([
+        'author_type' => $this->clientUser->getMorphClass(),
+        'author_id' => $this->clientUser->id,
+        'content' => 'Tôi hỏi thêm một điều nữa.',
+    ]);
+
+    $fresh = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'status' => ClientRequestStatus::Answered,
+    ]);
+    ClientRequestReply::factory()->for($fresh, 'request')->create([
+        'author_type' => $this->clientUser->getMorphClass(),
+        'author_id' => $this->clientUser->id,
+        'content' => 'Tôi hỏi thêm.',
+    ]);
+    ClientRequestReply::factory()->for($fresh, 'request')->create([
+        'author_type' => $this->lawyer->getMorphClass(),
+        'author_id' => $this->lawyer->id,
+        'content' => 'Trả lời câu hỏi thêm.',
+    ]);
+
+    $page = requestsRegion(
+        $this->actingAs($this->clientUser, 'client')->get(requestsUrl($this->matter))->assertOk()->getContent()
+    );
+
+    expect(statusLineFor($page, $stale->id))->not->toBe('Văn phòng đã trả lời, anh/chị xem bên dưới')
+        ->and(statusLineFor($page, $fresh->id))->toBe('Văn phòng đã trả lời, anh/chị xem bên dưới');
 });
