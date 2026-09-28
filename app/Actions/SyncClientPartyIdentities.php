@@ -9,6 +9,7 @@ use App\Models\Client;
 use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Support\Audit;
+use App\Support\ConcurrentChange;
 use App\Support\Scopes\ClientPortalScope;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Collection;
@@ -152,11 +153,19 @@ class SyncClientPartyIdentities
     /** @return int Số dòng `matter_parties` đã được đồng bộ lại. */
     public function handle(Client $client): int
     {
-        $parties = DB::transaction(function () use ($client): Collection {
+        $parties = ConcurrentChange::guard('client', fn (): Collection => DB::transaction(function () use ($client): Collection {
+            // Final review wave 2 (phụ lục, mẫu lỗi làn M9): câu ĐẦU TIÊN là một lần đọc CÓ KHOÁ.
+            // Một lần đọc thường ở đây đóng băng READ VIEW; nếu một phiên khác (ví dụ
+            // `UpdateMatterParty`) đang giữ và sửa một trong các dòng này, câu UPDATE bên dưới đợi
+            // khoá rồi ném ERROR 1020 dưới `innodb_snapshot_isolation` của MariaDB 11.8 — một
+            // trang lỗi cho người vừa sửa hồ sơ khách. Đo bằng hai phiên thật:
+            // `SyncClientPartyIdentitiesLockingTest`.
             $parties = MatterParty::query()
                 ->withoutGlobalScope(ClientPortalScope::class)
                 ->withTrashed()
                 ->where('client_id', $client->getKey())
+                ->orderBy('id')
+                ->lockForUpdate()
                 ->get();
 
             if ($parties->isEmpty()) {
@@ -180,7 +189,7 @@ class SyncClientPartyIdentities
             ]);
 
             return $parties;
-        });
+        }));
 
         // Fix round 3, N1: lần rà giờ là một job hàng đợi, dispatch SAU KHI transaction đồng bộ
         // định danh ở trên THẬT SỰ commit — `afterCommit()`, không phải "gọi tuần tự sau khi

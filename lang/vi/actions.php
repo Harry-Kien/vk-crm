@@ -18,6 +18,8 @@ return [
     // ghi, và một câu riêng cho từng nguyên nhân chính là một máy dò. Xem
     // `App\Filament\Admin\Concerns\ReportsActionFailures`.
     'unauthorized' => 'Màn hình bạn đang mở không còn khớp với dữ liệu và quyền hiện tại, nên thao tác đã dừng lại và không có gì được lưu. Hãy tải lại trang rồi thử lại; nếu vẫn không được, nhờ người phụ trách hồ sơ hoặc quản trị viên.',
+    // Final review wave 2 (phụ lục): ERROR 1020/1213 của InnoDB — xem App\Support\ConcurrentChange.
+    'concurrent_change_retry' => 'Vừa có người thay đổi dữ liệu này cùng lúc với anh/chị, nên thao tác chưa được lưu. Anh/chị thử lại.',
 
     'transition_matter_stage' => [
         'public_content_too_short' => 'Nội dung công khai cho khách phải có ít nhất 30 ký tự khi công bố tiến độ.',
