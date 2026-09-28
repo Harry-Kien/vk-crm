@@ -50,7 +50,10 @@ use Illuminate\Validation\ValidationException;
  *     đọc bằng một lần đọc CÓ KHOÁ (`LocksBillingRows::lockedCollectedAmount()`, bản commit mới
  *     nhất, không phải ảnh chụp của transaction) dưới khoá của bước 1 — không tin một con số
  *     người gọi đã tính trước. Hai lần ghi đồng thời 6 triệu trên một đợt 10 triệu: lần thứ hai
- *     bị từ chối (`RecordPaymentConcurrencyTest`, MariaDB, hai kết nối).
+ *     bị từ chối (`RecordPaymentConcurrencyTest`, MariaDB, hai kết nối). Lần đọc có khoá này
+ *     khoá cả KHE chỉ mục khi đợt chưa có khoản thu nào, nên hai lần ghi trên hai vụ việc KHÁC
+ *     nhau có thể deadlock ở `insert` — bên thua được chạy lại trọn transaction và thành công
+ *     (`MoneyTransactionConcurrencyTest`; docblock trait).
  *  6. Bản scan biên lai (nếu có) được ĐỌC LẠI và KHOÁ bằng khoá của nó (cùng lý do bước 4 của
  *     `AmendContract`: đối tượng người gọi đưa vào có thể đã đổi `matter_id`/`group` từ lúc màn
  *     hình nạp nó), rồi mới hỏi có phải tài liệu nhóm D của ĐÚNG vụ việc này không.

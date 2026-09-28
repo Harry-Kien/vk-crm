@@ -11,6 +11,7 @@ use Closure;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use LogicException;
 use PDOException;
 use Throwable;
 
@@ -43,8 +44,11 @@ use Throwable;
  *     thu); để khoá `matters` trước, phải biết nó là vụ nào — nên đi NGƯỢC lên bằng những lần đọc
  *     thường (`payments.instalment_id` → `instalments.contract_id` → `contracts.matter_id`) TRƯỚC
  *     KHI `DB::transaction` mở, rồi khoá XUÔI từ trên xuống. An toàn vì ba cột khoá ngoại đó không
- *     Action nào đổi sau khi tạo hàng. Câu đầu tiên bên trong mọi transaction tiền vì thế là lần
- *     đọc CÓ KHOÁ hàng `matters` — `BillingLockOrderTest` đo điều đó cho cả mười Action. Chỉ dùng
+ *     Action nào đổi sau khi tạo hàng — và không TIN điều đó mù quáng: mỗi hàng con vừa khoá phải
+ *     còn trỏ đúng hàng cha đã thăm dò, không thì ném ({@see self::assertStillUnder()}, fail-closed
+ *     — không bao giờ lặng lẽ chạy dưới khoá của một vụ việc khác). Câu đầu tiên bên trong mọi
+ *     transaction tiền vì thế là lần đọc CÓ KHOÁ hàng `matters` — `BillingLockOrderTest` đo điều
+ *     đó cho cả mười Action. Chỉ dùng
  *     ba cửa {@see self::inContractTransaction()}, {@see self::inInstalmentTransaction()},
  *     {@see self::inPaymentTransaction()}; không tự viết `DB::transaction` rồi thăm dò bên trong.
  *     Ảnh chụp của transaction vì thế chỉ mở SAU khi khoá `matters` đã về tay, và mọi Action tiền
@@ -55,12 +59,35 @@ use Throwable;
  *     (`ScheduleTotal::lockedOf()`), và trạng thái đợt khi hoàn tất hợp đồng. Lần đọc có khoá luôn
  *     đọc bản commit mới nhất, không đọc ảnh chụp — lớp thứ hai, phòng khi lớp 1 bị một thay đổi
  *     sau này làm hỏng.
- *  3. **`1020` (hàng vừa đổi) và `1213` (deadlock) thành một câu tiếng Việt "thử lại"** —
- *     {@see self::moneyTransaction()} — không thành trang 500.
+ *  3. **Chạy lại, rồi mới nói "thử lại"** — {@see self::moneyTransaction()}: một lần thua `1213`
+ *     (deadlock), `1020` (hàng vừa đổi) hay `1205` (hết giờ đợi khoá) được chạy lại tới
+ *     {@see self::TRANSACTION_ATTEMPTS} lần; hết lượt thì thành câu tiếng Việt "thử lại", không
+ *     bao giờ thành trang 500.
+ *
+ * **Vì sao phải chạy lại — lớp 2 có giá** (lượt sửa thứ ba, I-1/M-1). Một lần đọc có khoá trên
+ * một dải KHÔNG có hàng nào (đợt chưa có khoản thu, hợp đồng chưa có phụ lục) khoá cả KHE của chỉ
+ * mục dưới REPEATABLE READ. Hai `RecordPayment` trên HAI vụ việc khác nhau mà hai đợt mới cùng rơi
+ * vào một khe của `payments.instalment_id` cùng giữ khoá khe đó, rồi `insert` của mỗi bên đợi khoá
+ * khe của bên kia — MariaDB phá vòng bằng 1213 cho một bên, dù không ai chạm vào vụ việc của người
+ * kia (cùng hình dạng: `max(sequence) … for update` rồi `insert` ở `AmendContract`). Hàng dùng
+ * chung `code_sequences` (`contract:{năm}`) của `DraftContract` cũng vậy (1213 hoặc 1020: nó khoá
+ * sau khi ảnh chụp đã mở, và không khoá `matters` nào bảo vệ được một hàng dùng chung cho mọi vụ).
+ * Phán quyết: GIỮ các lần đọc có khoá (chúng là chốt chặn tiền), và chạy lại transaction thua.
+ * `MoneyTransactionConcurrencyTest` (MariaDB, hai tiến trình) đo cả hai: hai bên cùng thành công.
+ *
+ * **Vì sao chạy lại là AN TOÀN.** Laravel chỉ chạy lại sau khi đã rollback TRỌN transaction (ở
+ * tầng ngoài cùng), và mỗi lần chạy là `$work` từ đầu: khoá lại `matters` → … và ĐỌC LẠI mọi thứ
+ * từ hàng đã khoá (không mang gì từ lần trước — biến `use` của closure được chép lại mỗi lần gọi,
+ * model đều nạp mới). Tác dụng phụ duy nhất của một Action tiền là các lần ghi DB trong chính
+ * transaction đó (kể cả dòng `Audit::record()`), nên lần thua không để lại gì; không gửi thư,
+ * không xếp job, không ghi tệp bên trong. Trạng thái trong bộ nhớ duy nhất,
+ * `ScheduleTotal::whileAmending()`, trả lại bộ đếm trong `finally`. Lần thăm dò id nằm NGOÀI và
+ * không chạy lại — đúng, vì ba cột khoá ngoại không đổi, và {@see self::assertStillUnder()} chặn
+ * nếu có.
  *
  * Luật này đúng khi Action tiền mở transaction NGOÀI CÙNG (mọi màn hình gọi chúng như vậy). Gọi
  * một Action tiền bên trong transaction của người khác thì lần thăm dò chạy bên trong transaction
- * bao ngoài và luật không còn đứng — đừng làm vậy.
+ * bao ngoài, luật không còn đứng, và Laravel không chạy lại một transaction lồng — đừng làm vậy.
  *
  * **Vụ việc khoá kèm `withTrashed()`.** Một vụ đã xoá mềm vẫn khoá được — để POLICY (cổng
  * `ChecksBillingAccess::canSeeBilling()`, vốn đóng đúng trên `trashed()`) là nơi từ chối, bằng một
@@ -78,10 +105,19 @@ use Throwable;
 trait LocksBillingRows
 {
     /**
-     * Mã lỗi của MariaDB/MySQL nghĩa là "có người vừa thay đổi hàng này — làm lại": `1020`
-     * (ER_CHECKREAD, `Record has changed since last read`) và `1213` (ER_LOCK_DEADLOCK).
+     * Mã lỗi của MariaDB/MySQL nghĩa là "có người vừa chạm vào hàng này — làm lại": `1020`
+     * (ER_CHECKREAD, `Record has changed since last read`), `1213` (ER_LOCK_DEADLOCK) và `1205`
+     * (ER_LOCK_WAIT_TIMEOUT). Laravel tự chạy lại transaction trên cả ba (thông điệp của chúng
+     * nằm trong `ConcurrencyErrorDetector`); hết lượt thì chúng thành câu "thử lại" tiếng Việt.
      */
-    private const RETRYABLE_DRIVER_CODES = [1020, 1213];
+    private const RETRYABLE_DRIVER_CODES = [1020, 1205, 1213];
+
+    /**
+     * Số lần chạy MỘT transaction tiền, kể cả lần đầu (phán quyết lượt sửa thứ ba, I-1): lần thua
+     * một deadlock/1020/1205 được chạy lại từ đầu sau một lần rollback trọn vẹn — xem docblock
+     * trait cho lý do việc đó an toàn.
+     */
+    private const TRANSACTION_ATTEMPTS = 3;
 
     /**
      * Thăm dò vụ việc NGOÀI transaction, rồi trong MỘT transaction khoá `matters` → `contracts`
@@ -144,6 +180,9 @@ trait LocksBillingRows
             [$matter, $contract, $instalment] = $this->lockThroughInstalment($matterId, $contractId, $instalmentId);
 
             $payment = $this->scopelessly(Payment::query())->whereKey($paymentId)->lockForUpdate()->firstOrFail();
+
+            self::assertStillUnder('payments', $paymentId, 'instalments', $instalmentId, (int) $payment->instalment_id);
+
             $payment->setRelation('instalment', $instalment);
 
             return $work($matter, $contract, $instalment, $payment);
@@ -151,11 +190,14 @@ trait LocksBillingRows
     }
 
     /**
-     * `DB::transaction($work)`, và một lỗi `1020`/`1213` bên trong nó thành MỘT câu tiếng Việt
-     * "có người vừa thay đổi khoản này, thử lại" (`ValidationException`, khoá `concurrency` — không
-     * ô nào của form mang tên đó, nên `ReportsActionFailures` đưa nó lên bằng một thông báo) thay
-     * cho một trang 500. Transaction đã được rollback khi câu này tới tay người dùng: không gì được
-     * ghi, và thử lại là an toàn.
+     * `DB::transaction($work, self::TRANSACTION_ATTEMPTS)`: một lần thua deadlock (`1213`), hàng
+     * vừa đổi (`1020`) hay hết giờ đợi khoá (`1205`) được Laravel rollback trọn vẹn rồi chạy lại
+     * `$work` từ đầu — ở transaction NGOÀI CÙNG; lồng trong một transaction khác thì Laravel không
+     * chạy lại (nó ném `DeadlockException` lên tầng ngoài). Hết lượt, lỗi đó thành MỘT câu tiếng
+     * Việt "có người vừa thay đổi khoản này, thử lại" (`ValidationException`, khoá `concurrency` —
+     * không ô nào của form mang tên đó, nên `ReportsActionFailures` đưa nó lên bằng một thông báo)
+     * thay cho một trang 500. Transaction đã được rollback khi câu này tới tay người dùng: không gì
+     * được ghi, và bấm lại là an toàn.
      *
      * `$work` phải mở đầu bằng một lần đọc CÓ KHOÁ (xem luật ở docblock trait). Ba cửa
      * `in…Transaction` làm đúng điều đó; `DraftContract` gọi thẳng hàm này vì nó đã cầm sẵn id vụ
@@ -169,7 +211,7 @@ trait LocksBillingRows
     protected function moneyTransaction(Closure $work): mixed
     {
         try {
-            return DB::transaction($work);
+            return DB::transaction($work, self::TRANSACTION_ATTEMPTS);
         } catch (Throwable $exception) {
             if (self::isRetryableConflict($exception)) {
                 throw ValidationException::withMessages([
@@ -223,6 +265,8 @@ trait LocksBillingRows
         $matter = $this->scopelessly(Matter::query())->withTrashed()->whereKey($matterId)->lockForUpdate()->firstOrFail();
         $contract = $this->scopelessly(Contract::query())->whereKey($contractId)->lockForUpdate()->firstOrFail();
 
+        self::assertStillUnder('contracts', $contractId, 'matters', $matterId, (int) $contract->matter_id);
+
         $contract->setRelation('matter', $matter);
 
         return [$matter, $contract];
@@ -238,9 +282,30 @@ trait LocksBillingRows
         [$matter, $contract] = $this->lockMatterAndContract($matterId, $contractId);
 
         $instalment = $this->scopelessly(Instalment::query())->whereKey($instalmentId)->lockForUpdate()->firstOrFail();
+
+        self::assertStillUnder('instalments', $instalmentId, 'contracts', $contractId, (int) $instalment->contract_id);
+
         $instalment->setRelation('contract', $contract);
 
         return [$matter, $contract, $instalment];
+    }
+
+    /**
+     * Chốt đóng (fail-closed) của lần thăm dò NGOÀI transaction: hàng con VỪA KHOÁ phải còn trỏ
+     * đúng hàng cha đã thăm dò và đã khoá trước nó. Ba cột khoá ngoại này không Action nào đổi, nên
+     * câu này không bao giờ ném trong đời thật — nhưng nếu một đường ghi nào đó (SQL tay, một
+     * migration, một Action tương lai) có đổi chúng giữa lúc thăm dò và lúc khoá, Action KHÔNG được
+     * lặng lẽ chạy tiếp dưới khoá của một vụ việc khác (cổng quyền, thứ tự khoá, `attributed_lawyer_id`
+     * đều đọc từ hàng cha đã khoá). Ném, transaction rollback, không gì được ghi.
+     */
+    private static function assertStillUnder(string $childTable, int $childId, string $parentTable, int $probedParentId, int $lockedParentId): void
+    {
+        if ($lockedParentId !== $probedParentId) {
+            throw new LogicException(
+                "Hàng {$childTable} #{$childId} đã khoá nhưng trỏ tới {$parentTable} #{$lockedParentId}, "
+                ."không phải {$parentTable} #{$probedParentId} đã thăm dò và khoá trước nó — dừng, không chạy tiếp dưới khoá của hàng cha khác.",
+            );
+        }
     }
 
     /** Thăm dò không khoá — chỉ gọi NGOÀI transaction (xem luật ở docblock trait). */
@@ -280,7 +345,7 @@ trait LocksBillingRows
     }
 
     /**
-     * Lỗi `1020`/`1213` ở đâu đó trong chuỗi exception. Đi cả chuỗi `getPrevious()`: khi transaction
+     * Lỗi `1020`/`1205`/`1213` ở đâu đó trong chuỗi exception. Đi cả chuỗi `getPrevious()`: khi transaction
      * này lồng trong một transaction khác (bộ test, `RefreshDatabase`), Laravel bọc lỗi của driver
      * trong một `DeadlockException` không mang `errorInfo`; `QueryException` gốc nằm ở `previous`.
      */

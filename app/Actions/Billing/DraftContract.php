@@ -44,8 +44,11 @@ use Illuminate\Validation\ValidationException;
  * **Tổng các đợt KHÔNG phải khớp giá trị ở bản nháp.** Bản nháp là nơi văn phòng còn đang sửa;
  * bất biến tổng bắt đầu giữ từ lúc kích hoạt (`ActivateContract`, tầng 1).
  *
- * Mọi thứ trong một transaction (`LocksBillingRows::moneyTransaction()` — lỗi 1020/1213 thành câu
- * "thử lại" tiếng Việt); `blameOn($actor)` trước mọi `save()`; `Audit::record(...,
+ * Mọi thứ trong một transaction (`LocksBillingRows::moneyTransaction()`). Hàng `code_sequences`
+ * (`contract:{năm}`) DÙNG CHUNG cho mọi vụ việc, khoá sau khi transaction đã đọc thường — hai bản
+ * soạn đồng thời trên hai vụ khác nhau đụng nhau ở đó (1213 hoặc 1020, lượt sửa thứ ba M-1), và
+ * bên thua được chạy lại trọn transaction (tới 3 lần), lấy mã kế tiếp; hết lượt mới là câu "thử
+ * lại" tiếng Việt (`MoneyTransactionConcurrencyTest`). `blameOn($actor)` trước mọi `save()`; `Audit::record(...,
  * $actor)` bên trong transaction (không mutation probe nào phân biệt được vị trí đó với vị trí
  * ngay sau commit — nói thẳng như kế hoạch yêu cầu). Không một dòng `Auth::` nào.
  */

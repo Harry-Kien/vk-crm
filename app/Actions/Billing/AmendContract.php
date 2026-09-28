@@ -72,8 +72,10 @@ use Illuminate\Validation\ValidationException;
  *  8. **Kiểm lại bất biến từ DB** sau khi ghi (`ScheduleTotal::lockedOf()` === giá trị mới — đọc CÓ
  *     KHOÁ, lại chính các đợt đã khoá ở bước 5 cộng các đợt vừa thêm). Đây là kiểm tra DUY NHẤT của
  *     tầng này — không có bản tính trước trong bộ nhớ, để không có hai định nghĩa.
- *  9. Ghi dòng `contract_amendments` (chỉ thêm; `sequence` = số lớn nhất hiện có + 1, đọc CÓ KHOÁ)
- *     và `Audit::record('contract_amended', …, $actor)`.
+ *  9. Ghi dòng `contract_amendments` (chỉ thêm; `sequence` = số lớn nhất hiện có + 1, đọc CÓ KHOÁ
+ *     — khoá cả khe chỉ mục, nên phụ lục đồng thời của hợp đồng khác có thể deadlock ở `insert`;
+ *     bên thua được chạy lại trọn transaction, docblock trait) và
+ *     `Audit::record('contract_amended', …, $actor)`.
  */
 class AmendContract
 {
