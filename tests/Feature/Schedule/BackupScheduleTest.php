@@ -53,11 +53,32 @@ it('§10.8 backup.nightly chạy backup:clean lúc 02:00, không chồng lấn, 
         ->and($event->expiresAt)->toBe(360);
 });
 
-it('§10.8 backup.monitor chạy backup:monitor lúc 08:00, không chồng lấn', function () {
+it('§10.8 backup.monitor chạy backup:monitor lúc 08:00, không chồng lấn, khoá tự hết hạn sau 60 phút', function () {
     $event = backupScheduleEvent('backup.monitor', 'backup:monitor');
 
+    // `expiresAt` 60 phút (sau khi gộp M6.5 + M8a): `withoutOverlapping()` trần giữ khoá 1440 phút,
+    // nên MỘT lượt 08:00 bị giết giữa chừng (máy chủ khởi động lại, rclone treo rồi bị kill) để lại
+    // khoá chặn luôn lượt giám sát 08:00 của NGÀY SAU — hai ngày liền không ai được báo rằng bản sao
+    // lưu đã cũ, đúng thứ tác vụ này sinh ra để báo. Một lượt giám sát chỉ đọc danh sách bản sao và
+    // hỏi đích rclone, nên 60 phút là thừa rộng.
     expect($event->getExpression())->toBe('0 8 * * *')
-        ->and($event->withoutOverlapping)->toBeTrue();
+        ->and($event->withoutOverlapping)->toBeTrue()
+        ->and($event->expiresAt)->toBe(60);
+});
+
+/*
+ * Lưới chung cho MỌI tác vụ lịch: M6.5 X6 đã chặn khoá 1440 phút ở từng tác vụ một, và
+ * `backup.monitor` (M8a) vẫn lọt vì nó ra đời sau lượt X6. Test này đọc CẢ lịch, nên một tác vụ
+ * mới thêm vào với `withoutOverlapping()` trần sẽ đỏ ngay ở đây chứ không đợi một lượt rà soát.
+ */
+it('không tác vụ lịch nào giữ khoá chống chồng lấn mặc định 1440 phút', function () {
+    $unbounded = collect(Schedule::events())
+        ->filter(fn (Event $event) => $event->withoutOverlapping && $event->expiresAt >= 1440)
+        ->map(fn (Event $event) => $event->description)
+        ->values()
+        ->all();
+
+    expect($unbounded)->toBe([]);
 });
 
 it('§10.8 backup.monitor kiểm luôn độ tươi của bản trên đích rclone (fix I4), dù backup:monitor thất bại', function () {
