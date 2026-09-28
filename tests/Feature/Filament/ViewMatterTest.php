@@ -906,3 +906,22 @@ it('refuses to flip the portal switch the other way when someone else changed it
     expect($matter->refresh()->is_published_to_portal)->toBeTrue()
         ->and(Activity::query()->where('event', 'matter_portal_publication_set')->exists())->toBeFalse();
 });
+
+/**
+ * Final review wave 2, M-1: Action lưu trên một bản ghi ĐÃ KHOÁ (không phải `$this->record` của
+ * trang), nên sau khi bấm, nhãn/biểu tượng/màu của nút và tab Tổng quan vẫn nói trạng thái CŨ cho
+ * tới lần tải lại. Trang làm mới bản ghi ngay sau khi Action thành công.
+ */
+it('shows the new portal state on the button right after toggling', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'is_published_to_portal' => false]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(ViewMatter::class, ['record' => $matter->getKey()])
+        ->assertActionHasLabel('togglePortalPublication', __('matters.actions.publish_to_portal'))
+        ->callAction('togglePortalPublication')
+        ->assertActionHasLabel('togglePortalPublication', __('matters.actions.unpublish_from_portal'));
+
+    expect($matter->refresh()->is_published_to_portal)->toBeTrue();
+});

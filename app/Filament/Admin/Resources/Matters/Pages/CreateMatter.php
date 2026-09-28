@@ -143,6 +143,16 @@ class CreateMatter extends CreateRecord
     private ?Client $pendingNewClient = null;
 
     /**
+     * Final review wave 2, M-5: dấu vân tay của khối "Tạo khách mới" mà `CreateClient::resolve()`
+     * đã xét và trả về MỘT HỒ SƠ MỚI chưa lưu ở một lượt gửi trước. Lượt gửi lại (sau lời nhắc
+     * xung đột) với CÙNG dữ liệu dựng lại hồ sơ đó qua `CreateClient::unsaved()` — không dò trùng
+     * lại, không tốn thêm suất tra cứu. Dữ liệu đổi (người dùng sửa khối) thì vân tay đổi và lần dò
+     * chạy lại, đúng như phải thế. `#[Locked]`: chỉ máy chủ ghi được.
+     */
+    #[Locked]
+    public ?string $resolvedNewClientFingerprint = null;
+
+    /**
      * Tra ĐÚNG một hồ sơ `Client` theo định danh vừa gõ (M6.5 Task 6, R4a) — gọi từ
      * `afterStateUpdated` của `client_lookup_identifier` (`MatterForm::lawyerClientLookupFields()`).
      *
@@ -421,6 +431,16 @@ class CreateMatter extends CreateRecord
             // `try/catch` ở đây, bất kỳ luật nào trong số đó thoát ra thành lỗi 500: hàm này chạy
             // TRONG `mutateFormDataBeforeCreate()`, TRƯỚC `handleRecordCreation()` — lưới an toàn
             // `catch (DomainException)` ở đó không với tới được đây.
+            // Final review wave 2, M-5: cùng dữ liệu với lần dò trước đã cho ra một hồ sơ MỚI → dựng
+            // lại hồ sơ đó, không dò lại (không tốn thêm suất tra cứu).
+            $fingerprint = static::newClientFingerprint($data['new_client']);
+
+            if ($livewire->resolvedNewClientFingerprint === $fingerprint) {
+                $livewire->pendingNewClient = app(CreateClient::class)->unsaved($data['new_client']);
+
+                return null;
+            }
+
             try {
                 $client = app(CreateClient::class)->resolve($actor, $data['new_client']);
             } catch (DomainException $exception) {
@@ -435,6 +455,7 @@ class CreateMatter extends CreateRecord
             // dùng đúng dữ liệu người dùng vừa sửa.
             if (! $client->exists) {
                 $livewire->pendingNewClient = $client;
+                $livewire->resolvedNewClientFingerprint = $fingerprint;
 
                 return null;
             }
@@ -455,6 +476,22 @@ class CreateMatter extends CreateRecord
         VisibleClientOptions::assertVisibleToCurrentUser($data['client_id'] ?? null);
 
         return (int) $data['client_id'];
+    }
+
+    /**
+     * Final review wave 2, M-5: vân tay của khối "Tạo khách mới" — các ô `CreateClient` đọc, đã
+     * cắt khoảng trắng, theo thứ tự cố định.
+     *
+     * @param  array<string, mixed>  $newClient
+     */
+    private static function newClientFingerprint(array $newClient): string
+    {
+        $fields = ['type', 'name', 'id_number', 'phone', 'email', 'representative_name', 'address', 'note'];
+
+        return hash('sha256', json_encode(array_map(
+            fn (string $field): string => trim((string) ($newClient[$field] ?? '')),
+            array_combine($fields, $fields),
+        ), JSON_THROW_ON_ERROR));
     }
 
     protected function handleRecordCreation(array $data): Model
@@ -526,6 +563,10 @@ class CreateMatter extends CreateRecord
         // "Tạo & tạo thêm" giữ nguyên component và dựng lại form trống — nếu `conflictResult` còn
         // lại, form MỚI sẽ mở ra với bảng kết quả của vụ việc TRƯỚC, nói về những bên chưa ai nhập.
         $this->forgetConflictResult();
+
+        // Wave 2, M-5: hồ sơ khách mới đã được lưu — một khối "Tạo khách mới" giống hệt ở lượt
+        // "Tạo & tạo thêm" kế tiếp phải được dò trùng lại (và khớp đúng hồ sơ vừa lưu).
+        $this->resolvedNewClientFingerprint = null;
 
         return $opening->matter;
     }

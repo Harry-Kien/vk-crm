@@ -123,6 +123,19 @@ class CreateClient
             // Đã xác nhận: tạo một hồ sơ MỚI dù trùng định danh — rơi xuống dưới, không return.
         }
 
+        return $this->unsaved($attributes);
+    }
+
+    /**
+     * Một `Client` MỚI, CHƯA LƯU, dựng từ `$attributes` — KHÔNG dò trùng, KHÔNG tính suất tra cứu.
+     * Chỉ dùng cho dữ liệu mà {@see self::resolve()} đã xét và trả về đúng một hồ sơ mới chưa lưu
+     * (final review wave 2, M-5: lượt gửi lại của form mở vụ sau một lời nhắc xung đột, với CÙNG dữ
+     * liệu, không dò lại lần nữa). Một chỗ dựng duy nhất, để hai đường ra cùng một hồ sơ.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    public function unsaved(array $attributes): Client
+    {
         return new Client([
             'type' => $attributes['type'] ?? null,
             'name' => $attributes['name'] ?? null,

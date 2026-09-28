@@ -88,4 +88,27 @@ final class VisibleClientOptions
             ->pluck('name', 'id')
             ->all();
     }
+
+    /**
+     * Final review wave 2, M-3: danh sách cho ô "Khách hàng" của form TẠO tài khoản cổng — chỉ
+     * những khách hàng (chưa xoá mềm) mà người đang đăng nhập được QUẢN LÝ tài khoản cổng
+     * (`ClientVisibility::portalManageableClientQuery()`, luật X3), không phải mọi khách họ với
+     * tới. Không có nó, ô chọn mời một khách mà `ClientUserPolicy::create` sẽ từ chối bằng 403.
+     *
+     * @return array<int, string>
+     */
+    public static function portalManageableForCurrentUser(): array
+    {
+        $user = Auth::user();
+
+        if (! $user instanceof User) {
+            return [];
+        }
+
+        return ClientVisibility::portalManageableClientQuery($user)
+            ->withoutTrashed()
+            ->orderBy('name')
+            ->pluck('name', 'id')
+            ->all();
+    }
 }

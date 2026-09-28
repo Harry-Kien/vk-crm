@@ -44,8 +44,10 @@ use Throwable;
  */
 class SendStageUpdateNotification implements ShouldQueue
 {
+    /** Một lần hỏng thoáng qua (SMTP chết tạm) không cần báo động ngay: 5 lần thử, backoff tăng dần. */
     public int $tries = 5;
 
+    /** @var array<int, int> */
     public array $backoff = [60, 300, 900, 3600];
 
     public function __construct(private NotifyClientOfStageUpdate $notify) {}

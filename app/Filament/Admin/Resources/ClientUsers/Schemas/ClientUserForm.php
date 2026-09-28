@@ -34,7 +34,12 @@ class ClientUserForm
                 // có gì để ghi đè.
                 Select::make('client_id')
                     ->label(__('client_users.fields.client'))
-                    ->options(fn (): array => VisibleClientOptions::forCurrentUser())
+                    // Final review wave 2, M-3: form TẠO chỉ mời khách người tạo được quản lý tài
+                    // khoản cổng (luật X3), nên không ai chọn được một khách rồi nhận 403. Form SỬA
+                    // giữ danh sách cũ — ô đã khoá, chỉ để hiện tên khách đang gắn.
+                    ->options(fn (string $operation): array => $operation === 'create'
+                        ? VisibleClientOptions::portalManageableForCurrentUser()
+                        : VisibleClientOptions::forCurrentUser())
                     ->searchable()
                     ->required()
                     ->disabled(fn (string $operation): bool => $operation === 'edit')

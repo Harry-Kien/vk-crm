@@ -151,14 +151,6 @@ class NotifyClientOfStageUpdate
     }
 
     /**
-     * Task 7 (R12, phát hiện `stage/stage-06` nửa "luật sư không biết khách không được báo"):
-     * form "Chuyển giai đoạn"/"Thêm cập nhật" gọi hàm này TRƯỚC khi gửi, để cảnh báo luật sư ngay
-     * trên form khi sẽ không ai nhận được thư — xem
-     * `App\Filament\Admin\Resources\Matters\Actions\Concerns\BuildsStageUpdateSchema::noActivatedAccountWarning()`.
-     * Đi qua `eligibleRecipientsQuery()` — CÙNG một điều kiện với `recipientsFor()` — để cảnh báo
-     * này không bao giờ lệch với chính Action gửi thư thật.
-     */
-    /**
      * Final review B-M2: đọc TƯƠI từ CSDL (không tin bản trong bộ nhớ của `$stageLog`, có thể đã
      * cũ từ lúc xếp hàng) rằng dòng tiến độ còn `is_published` VÀ vụ việc còn
      * `is_published_to_portal`. Vụ đã xoá mềm do `recipientsFor()` lo (quan hệ `matter` mang
@@ -213,6 +205,14 @@ class NotifyClientOfStageUpdate
         }
     }
 
+    /**
+     * Task 7 (R12, phát hiện `stage/stage-06` nửa "luật sư không biết khách không được báo"):
+     * form "Chuyển giai đoạn"/"Thêm cập nhật" gọi hàm này TRƯỚC khi gửi, để cảnh báo luật sư ngay
+     * trên form khi sẽ không ai nhận được thư — xem
+     * `App\Filament\Admin\Resources\Matters\Actions\Concerns\BuildsStageUpdateSchema::noActivatedAccountWarning()`.
+     * Đi qua `eligibleRecipientsQuery()` — CÙNG một điều kiện với `recipientsFor()` — để cảnh báo
+     * này không bao giờ lệch với chính Action gửi thư thật.
+     */
     public function hasEligibleRecipient(Matter $matter): bool
     {
         return $this->eligibleRecipientsQuery($matter->client_id)->exists();

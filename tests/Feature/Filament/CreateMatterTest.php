@@ -15,12 +15,14 @@ use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Models\MatterType;
 use App\Models\User;
+use App\Support\ClientLookupThrottle;
 use App\Support\Normalizer;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Filament\Notifications\Livewire\Notifications;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\RateLimiter;
 use Spatie\Activitylog\Models\Activity;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -1663,4 +1665,77 @@ it('uses the corrected new-client details on the second submit after a yellow bl
 
     expect($client->address)->toBe('Địa chỉ đã sửa')
         ->and(Matter::query()->where('title', 'Vụ việc sửa dữ liệu khách giữa hai lượt')->first()?->client_id)->toBe($client->id);
+});
+
+/**
+ * Final review wave 2, M-5: lượt gửi lại sau một lời nhắc xung đột (vàng/đỏ) với CÙNG dữ liệu khách
+ * mới không dò trùng lại lần nữa — mỗi lần dò tốn một suất của bộ đếm tra cứu 20 lần/giờ (dùng
+ * chung với ô tra định danh). Ba lượt bấm cho cùng một khách mới tốn đúng MỘT lần dò.
+ */
+it('does not re-run the new-client duplicate scan when resubmitting after a conflict prompt', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $type = createFormMatterType();
+
+    $twinMatter = Matter::factory()->create();
+    MatterParty::factory()->for($twinMatter)->create(['name' => 'Trùng tên lần ba', 'is_our_client' => false]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(CreateMatter::class)
+        ->fillForm([
+            'client_role' => PartyRole::Plaintiff->value,
+            'matter_type_id' => $type->id,
+            'title' => 'Vụ việc gửi lại nhiều lần',
+            'lead_lawyer_id' => $lawyer->id,
+            'other_parties' => [],
+            'new_client' => [
+                'type' => ClientType::Individual->value,
+                'name' => 'Trùng tên lần ba',
+                'phone' => '0912000333',
+            ],
+        ]);
+
+    $component->call('create')->assertHasFormErrors(['acknowledge_conflict']);
+    $component->call('create')->assertHasFormErrors(['acknowledge_conflict']);
+    $component->fillForm(['acknowledge_conflict' => true])->call('create')->assertHasNoFormErrors();
+
+    expect(RateLimiter::attempts(ClientLookupThrottle::keyFor($lawyer)))->toBe(1)
+        ->and(Client::query()->where('name', 'Trùng tên lần ba')->count())->toBe(1);
+});
+
+/** Cặp của test trên: dữ liệu khách mới ĐỔI giữa hai lượt gửi thì lần dò trùng chạy lại. */
+it('re-runs the new-client duplicate scan when the new-client details changed between submits', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $type = createFormMatterType();
+
+    $twinMatter = Matter::factory()->create();
+    MatterParty::factory()->for($twinMatter)->create(['name' => 'Trùng tên lần bốn', 'is_our_client' => false]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(CreateMatter::class)
+        ->fillForm([
+            'client_role' => PartyRole::Plaintiff->value,
+            'matter_type_id' => $type->id,
+            'title' => 'Vụ việc đổi số điện thoại giữa hai lượt',
+            'lead_lawyer_id' => $lawyer->id,
+            'other_parties' => [],
+            'new_client' => [
+                'type' => ClientType::Individual->value,
+                'name' => 'Trùng tên lần bốn',
+                'phone' => '0912000444',
+            ],
+        ]);
+
+    $component->call('create')->assertHasFormErrors(['acknowledge_conflict']);
+
+    $component->fillForm([
+        'new_client' => [
+            'type' => ClientType::Individual->value,
+            'name' => 'Trùng tên lần bốn',
+            'phone' => '0912000445',
+        ],
+    ])->call('create');
+
+    expect(RateLimiter::attempts(ClientLookupThrottle::keyFor($lawyer)))->toBe(2);
 });

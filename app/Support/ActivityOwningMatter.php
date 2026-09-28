@@ -33,6 +33,9 @@ use Spatie\Activitylog\Models\Activity;
  * Hai cách nói đọc thẳng các bảng con qua `DB::table()` — không qua model — để `SoftDeletes` và
  * `ClientPortalScope` không làm một dòng con đã xoá mềm "mất chủ".
  *
+ * Nửa PHP chạy THEO LÔ (`owningMatterIds()`/`canViewMany()`, final review wave 2 M-2): một trang
+ * nhật ký hỏi luật này cho mọi dòng để vẽ nút, và hỏi riêng từng dòng là vài truy vấn mỗi dòng.
+ *
  * # Ai thấy dòng nào
  *
  * Admin: mọi dòng, kể cả dòng không quy được về vụ nào. Người khác:
@@ -65,27 +68,57 @@ final class ActivityOwningMatter
 
     public static function canView(?User $viewer, Activity $activity): bool
     {
-        if ($viewer === null) {
-            return false;
+        return self::canViewMany($viewer, [$activity])[$activity->getKey()] ?? false;
+    }
+
+    /**
+     * {@see self::canView()} cho NHIỀU dòng một lúc — final review wave 2, M-2. Trang nhật ký hỏi
+     * luật này cho từng dòng để vẽ nút "Xem chi tiết"; hỏi riêng từng dòng là vài truy vấn mỗi
+     * dòng (dòng con → vụ việc → Gate). Ở đây: một truy vấn cho mỗi LOẠI dòng con, một truy vấn
+     * nạp mọi vụ việc (kèm `team`, để `MatterPolicy::view` đi đường trong bộ nhớ
+     * `Matter::isListableBy()` — cùng câu trả lời với đường EXISTS, xem docblock hàm đó), rồi Gate
+     * một lần cho mỗi VỤ VIỆC, không phải mỗi dòng.
+     *
+     * @param  iterable<Activity>  $activities
+     * @return array<int|string, bool> Khoá theo id của dòng nhật ký.
+     */
+    public static function canViewMany(?User $viewer, iterable $activities): array
+    {
+        $activities = collect($activities);
+
+        if ($viewer === null || self::isAdmin($viewer)) {
+            $verdict = $viewer !== null;
+
+            return $activities->mapWithKeys(fn (Activity $activity): array => [$activity->getKey() => $verdict])->all();
         }
 
-        if (self::isAdmin($viewer)) {
-            return true;
-        }
+        $owning = self::owningMatterIds($activities);
 
-        $matterId = self::owningMatterId($activity);
+        $matterIds = array_values(array_unique(array_filter($owning, fn (?int $id): bool => $id !== null)));
 
-        if ($matterId === null) {
-            // Không quy được về vụ nào: chỉ thả khi dòng THẬT SỰ không thuộc vụ nào.
-            return ! self::claimsAMatter($activity);
-        }
+        $gate = Gate::forUser($viewer);
 
-        $matter = Matter::query()
-            ->withoutGlobalScope(ClientPortalScope::class)
-            ->withTrashed()
-            ->find($matterId);
+        $visibleByMatter = $matterIds === []
+            ? collect()
+            : Matter::query()
+                ->withoutGlobalScope(ClientPortalScope::class)
+                ->withTrashed()
+                ->with('team')
+                ->whereIn('id', $matterIds)
+                ->get()
+                ->mapWithKeys(fn (Matter $matter): array => [$matter->getKey() => $gate->allows('view', $matter)]);
 
-        return $matter !== null && Gate::forUser($viewer)->allows('view', $matter);
+        return $activities->mapWithKeys(function (Activity $activity) use ($owning, $visibleByMatter): array {
+            $matterId = $owning[$activity->getKey()] ?? null;
+
+            // Không quy được về vụ nào: chỉ thả khi dòng THẬT SỰ không thuộc vụ nào. Quy được
+            // nhưng vụ không còn (xoá cứng) → không có `view` nào để cho.
+            $allowed = $matterId === null
+                ? ! self::claimsAMatter($activity)
+                : (bool) ($visibleByMatter[$matterId] ?? false);
+
+            return [$activity->getKey() => $allowed];
+        })->all();
     }
 
     /**
@@ -93,31 +126,63 @@ final class ActivityOwningMatter
      */
     public static function owningMatterId(Activity $activity): ?int
     {
-        $type = $activity->subject_type;
-        $id = $activity->subject_id;
+        return self::owningMatterIds([$activity])[$activity->getKey()] ?? null;
+    }
 
-        if ($type === self::MATTER && $id !== null) {
-            return (int) $id;
+    /**
+     * {@see self::owningMatterId()} theo lô: một truy vấn cho mỗi loại dòng con có mặt.
+     *
+     * @param  iterable<Activity>  $activities
+     * @return array<int|string, int|null> Khoá theo id của dòng nhật ký.
+     */
+    public static function owningMatterIds(iterable $activities): array
+    {
+        $activities = collect($activities);
+        $result = [];
+
+        $childMatterIds = [];
+
+        foreach (self::MATTER_OWNED as $type => $table) {
+            $ids = $activities->where('subject_type', $type)->pluck('subject_id')->filter()->unique()->values();
+
+            if ($ids->isNotEmpty()) {
+                $childMatterIds[$type] = DB::table($table)->whereIn('id', $ids->all())->pluck('matter_id', 'id')->all();
+            }
         }
 
-        if (isset(self::MATTER_OWNED[$type]) && $id !== null) {
-            $matterId = DB::table(self::MATTER_OWNED[$type])->where('id', $id)->value('matter_id');
+        $replyIds = $activities->where('subject_type', self::CLIENT_REQUEST_REPLY)->pluck('subject_id')->filter()->unique()->values();
 
-            return $matterId === null ? null : (int) $matterId;
-        }
-
-        if ($type === self::CLIENT_REQUEST_REPLY && $id !== null) {
-            $matterId = DB::table('client_request_replies')
+        if ($replyIds->isNotEmpty()) {
+            $childMatterIds[self::CLIENT_REQUEST_REPLY] = DB::table('client_request_replies')
                 ->join('client_requests', 'client_requests.id', '=', 'client_request_replies.request_id')
-                ->where('client_request_replies.id', $id)
-                ->value('client_requests.matter_id');
-
-            return $matterId === null ? null : (int) $matterId;
+                ->whereIn('client_request_replies.id', $replyIds->all())
+                ->pluck('client_requests.matter_id', 'client_request_replies.id')
+                ->all();
         }
 
-        $fromProperties = $activity->properties?->get('matter_id');
+        foreach ($activities as $activity) {
+            $type = $activity->subject_type;
+            $id = $activity->subject_id;
 
-        return is_numeric($fromProperties) ? (int) $fromProperties : null;
+            if ($type === self::MATTER && $id !== null) {
+                $result[$activity->getKey()] = (int) $id;
+
+                continue;
+            }
+
+            if ((isset(self::MATTER_OWNED[$type]) || $type === self::CLIENT_REQUEST_REPLY) && $id !== null) {
+                $matterId = $childMatterIds[$type][$id] ?? null;
+                $result[$activity->getKey()] = $matterId === null ? null : (int) $matterId;
+
+                continue;
+            }
+
+            $fromProperties = $activity->properties?->get('matter_id');
+
+            $result[$activity->getKey()] = is_numeric($fromProperties) ? (int) $fromProperties : null;
+        }
+
+        return $result;
     }
 
     /**

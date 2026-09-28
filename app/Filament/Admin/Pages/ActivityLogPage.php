@@ -24,6 +24,7 @@ use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Contracts\Pagination\Paginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
@@ -57,6 +58,13 @@ class ActivityLogPage extends Page implements HasTable
     use InteractsWithTable;
 
     protected string $view = 'filament.admin.pages.activity-log-page';
+
+    /**
+     * Câu trả lời theo lô của `canViewProperties()` cho trang đang hiện — nhớ trong MỘT request.
+     *
+     * @var array<int|string, bool>|null
+     */
+    private ?array $propertiesAccess = null;
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedClipboardDocumentList;
 
@@ -107,7 +115,7 @@ class ActivityLogPage extends Page implements HasTable
                 TextColumn::make('subject_type')
                     ->label(__('activity.page.columns.subject'))
                     ->formatStateUsing(fn (?string $state): ?string => $state ? class_basename($state) : null)
-                    ->url(fn (Activity $record): ?string => static::subjectUrl($record)),
+                    ->url(fn (Activity $record): ?string => $this->subjectUrl($record)),
                 TextColumn::make('description')
                     ->label(__('activity.page.columns.description'))
                     // Final review C-M2: `Audit::record()` và `LogsActivity` đều ghi MÃ sự kiện làm
@@ -131,7 +139,7 @@ class ActivityLogPage extends Page implements HasTable
                     ->color('gray')
                     ->modal()
                     ->modalHeading(__('activity.page.properties.modal_heading'))
-                    ->authorize(fn (Activity $record): bool => ActivityOwningMatter::canView(Auth::user(), $record))
+                    ->authorize(fn (Activity $record): bool => $this->canViewProperties($record))
                     ->modalContent(function (Activity $record) {
                         // Hỏi lại ngay lúc dựng nội dung, không tin riêng vào `authorize()` hay
                         // vào việc dòng này đã lọt qua truy vấn bảng (final review X1).
@@ -160,7 +168,7 @@ class ActivityLogPage extends Page implements HasTable
      * riêng — dẫn thẳng người xem sang đúng tab đó là việc của M7 (tab "Nhật ký" của vụ việc,
      * theo kế hoạch), không phải của trang này. Không liên kết vẫn tốt hơn một liên kết sai.
      */
-    private static function subjectUrl(Activity $record): ?string
+    private function subjectUrl(Activity $record): ?string
     {
         $subject = $record->subject;
 
@@ -170,7 +178,23 @@ class ActivityLogPage extends Page implements HasTable
 
         $viewer = Auth::user();
 
-        if ($viewer === null || Gate::forUser($viewer)->denies('view', $subject)) {
+        if ($viewer === null) {
+            return null;
+        }
+
+        // Final review wave 2, M-2: chỉ hỏi Gate cho năm loại có trang riêng (loại khác không có
+        // liên kết nào để cho, nên không đáng một truy vấn mỗi dòng); với chủ thể `Matter`, câu
+        // `view` chính là câu `canViewProperties()` đã trả lời cho cả trang theo lô.
+        $allowed = match (true) {
+            $subject instanceof Matter => $this->canViewProperties($record),
+            $subject instanceof Client,
+            $subject instanceof ClientUser,
+            $subject instanceof User,
+            $subject instanceof MatterType => Gate::forUser($viewer)->allows('view', $subject),
+            default => false,
+        };
+
+        if (! $allowed) {
             return null;
         }
 
@@ -182,5 +206,33 @@ class ActivityLogPage extends Page implements HasTable
             $subject instanceof MatterType => EditMatterType::getUrl(['record' => $subject], panel: 'admin'),
             default => null,
         };
+    }
+
+    /**
+     * Luật X1 cho MỘT dòng, trả lời từ câu trả lời THEO LÔ của cả trang đang hiện (final review
+     * wave 2, M-2): lần hỏi đầu trong request giải quyết mọi dòng của trang một lần
+     * (`ActivityOwningMatter::canViewMany()`), các lần sau đọc lại. `private` — không tuần tự hoá,
+     * nên mỗi request tính lại từ dữ liệu thật. Một dòng không nằm trên trang (mount thẳng bằng id)
+     * rơi về lần hỏi riêng.
+     */
+    private function canViewProperties(Activity $record): bool
+    {
+        $viewer = Auth::user();
+
+        if (! $viewer instanceof User) {
+            return false;
+        }
+
+        if ($this->propertiesAccess === null) {
+            $records = $this->getTableRecords();
+
+            $this->propertiesAccess = ActivityOwningMatter::canViewMany(
+                $viewer,
+                $records instanceof Paginator ? $records->items() : $records,
+            );
+        }
+
+        return $this->propertiesAccess[$record->getKey()]
+            ?? ActivityOwningMatter::canView($viewer, $record);
     }
 }

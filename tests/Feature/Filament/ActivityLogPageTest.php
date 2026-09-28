@@ -426,3 +426,37 @@ it('shows the translated label in the description column, not the raw event code
         ->assertTableColumnFormattedStateSet('description', __('activity.events.matter_details_updated'), $activity)
         ->assertTableColumnFormattedStateNotSet('description', 'matter_details_updated', $activity);
 });
+
+/**
+ * Final review wave 2, M-2: `authorize()` của nút "Xem chi tiết" hỏi luật X1 cho TỪNG dòng — mỗi
+ * dòng vài truy vấn (dòng con → vụ việc → Gate). Một trang 25 dòng là ~75 truy vấn chỉ để vẽ
+ * nút. Trang giải quyết vụ việc sở hữu của CẢ trang một lần (theo lô), nhớ trong request.
+ */
+it('keeps the query count of a 25-row page flat for a manager, not three queries per row', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+
+    $count = function (int $rows) use ($manager): int {
+        Activity::query()->delete();
+
+        foreach (range(1, $rows) as $i) {
+            $party = MatterParty::factory()->create();
+            Audit::record('matter_party_updated', $party, ['matter_id' => $party->matter_id], $manager);
+        }
+
+        $this->actingAs($manager, 'web');
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $this->livewire(ActivityLogPage::class)->assertOk();
+        $queries = count(DB::getQueryLog());
+        DB::disableQueryLog();
+
+        return $queries;
+    };
+
+    $few = $count(2);
+    $many = $count(20);
+
+    // 18 dòng nữa không được kéo theo mấy chục truy vấn nữa.
+    expect($many - $few)->toBeLessThan(10);
+});

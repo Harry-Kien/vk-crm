@@ -1295,3 +1295,44 @@ it('stops applying once the restricted matter is soft-deleted', function () {
     $this->livewire(ListClientUsers::class)->assertCanSeeTableRecords([$account]);
     expect($lawyerB->can('update', $account))->toBeTrue();
 });
+
+/**
+ * Final review wave 2, M-3: ô "Khách hàng" của form TẠO tài khoản cổng chỉ mời những khách mà
+ * người tạo được quản lý tài khoản cổng (X3) — không phải mọi khách họ "với tới". Trước bản sửa
+ * này luật sư B thấy khách C trong ô chọn, chọn, bấm lưu, rồi nhận một lỗi 403 trần từ
+ * `mutateFormDataBeforeCreate()`.
+ */
+it('offers on the create form only the clients the actor may manage portal accounts for, so nobody hits a raw 403', function () {
+    ['lawyerA' => $lawyerA, 'lawyerB' => $lawyerB, 'account' => $account] = clientWithRestrictedMatterAndSecondLawyer();
+    $clientC = $account->client;
+
+    Filament::setCurrentPanel('admin');
+    $this->actingAs($lawyerB, 'web');
+
+    $this->livewire(CreateClientUser::class)
+        ->fillForm([
+            'client_id' => $clientC->id,
+            'name' => 'Tài khoản thứ hai của C',
+            'email' => 'c-thu-hai@example.test',
+            'password' => 'Mat-khau-that-manh-2026!',
+        ])
+        ->call('create')
+        ->assertHasFormErrors(['client_id']);
+
+    expect(ClientUser::where('email', 'c-thu-hai@example.test')->exists())->toBeFalse();
+
+    // Vế dương: luật sư phụ trách vụ restricted của C vẫn chọn được C.
+    $this->actingAs($lawyerA, 'web');
+
+    $this->livewire(CreateClientUser::class)
+        ->fillForm([
+            'client_id' => $clientC->id,
+            'name' => 'Tài khoản thứ hai của C',
+            'email' => 'c-thu-hai@example.test',
+            'password' => 'Mat-khau-that-manh-2026!',
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    expect(ClientUser::where('email', 'c-thu-hai@example.test')->exists())->toBeTrue();
+});

@@ -109,6 +109,11 @@ class ViewMatter extends ViewRecord
                         actor: Auth::user(),
                     ));
 
+                    // Final review wave 2, M-1: Action lưu trên bản ghi ĐÃ KHOÁ của chính nó —
+                    // làm mới `$this->record` để nhãn/biểu tượng/màu của nút và tab Tổng quan nói
+                    // trạng thái MỚI ngay, không đợi lần tải lại.
+                    $this->getRecord()->refresh();
+
                     Notification::make()
                         ->title(__('matters.actions.portal_publication_toggled'))
                         ->success()
