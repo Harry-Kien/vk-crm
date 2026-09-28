@@ -70,4 +70,41 @@ return [
         'title' => 'Không gửi được thư tổng hợp bàn giao vụ việc',
         'body' => 'Đã thử lại nhiều lần nhưng không gửi được thư tổng hợp mốc hạn bàn giao cho anh/chị. Cần kiểm tra thủ công.',
     ],
+
+    /*
+     * M7 Task 2 — trang `App\Filament\Admin\Pages\BulkReassign` (admin/manager) và Action
+     * `App\Actions\Matter\ReassignMatters`.
+     */
+    'bulk' => [
+        'page_title' => 'Bàn giao hàng loạt',
+        'navigation_label' => 'Bàn giao hàng loạt',
+        'action_label' => 'Mở màn hình Bàn giao hàng loạt',
+        'fields' => [
+            'lead_lawyer_id' => 'Luật sư đang phụ trách',
+            'matter_ids' => 'Chọn vụ việc cần bàn giao',
+            'no_matters' => 'Người này hiện không có vụ việc đang mở nào mà anh/chị có quyền bàn giao.',
+            'new_lead_id' => 'Luật sư phụ trách mới',
+            'reason' => 'Lý do bàn giao',
+            'keep_old_lead_as_associate' => 'Giữ luật sư cũ trong đội ngũ với vai luật sư cộng sự',
+            'keep_old_lead_as_associate_hint' => 'Áp dụng cho vụ việc thường. Vụ việc hạn chế luôn gỡ luật sư cũ khỏi đội ngũ, bất kể công tắc này.',
+        ],
+        'submit' => 'Bàn giao các vụ đã chọn',
+        'validation' => [
+            'no_matters_selected' => 'Phải chọn ít nhất một vụ việc để bàn giao.',
+        ],
+        // Thông báo tổng kết SAU vòng lặp (khác lời văn từng dòng ở 'results' bên dưới) —
+        // ':failure' có thể bằng 0, câu vẫn đọc được bình thường ("0 vụ thất bại").
+        'notification_body' => 'Thành công :success vụ, thất bại :failure vụ. Xem chi tiết từng vụ bên dưới.',
+        'results_heading' => 'Kết quả bàn giao',
+        // Kết quả từng vụ (App\Actions\Matter\BulkReassignMatterResult) — báo riêng từng vụ, kể
+        // cả vụ thất bại (phán quyết controller Task 2), không một thông điệp chung cho cả lô.
+        'results' => [
+            'not_found' => 'Vụ việc không còn tồn tại.',
+            'unauthorized' => 'Bạn không có quyền bàn giao vụ việc này.',
+            'success' => 'Đã bàn giao thành công.',
+        ],
+        // SPEC §6.11 bước 4 — chỉ GỢI Ý, không tự soạn/gửi (cùng lời văn với
+        // `reassign.action.suggest_introduction_body`, nói riêng cho MỘT dòng kết quả của lô).
+        'suggest_introduction' => 'Vụ việc này đã công bố trên cổng khách hàng — nên giới thiệu luật sư mới cho khách ở tab Tiến độ.',
+    ],
 ];

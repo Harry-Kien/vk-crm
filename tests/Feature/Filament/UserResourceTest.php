@@ -4,6 +4,7 @@ use App\Enums\ClientRequestStatus;
 use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Enums\UserPosition;
+use App\Filament\Admin\Pages\BulkReassign;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\DeadlinesRelationManager;
 use App\Filament\Admin\Resources\Users\Pages\CreateUser;
@@ -288,6 +289,117 @@ it('refuses to deactivate a staff member still assigned an open client request',
         ->assertHasFormErrors(['is_active']);
 
     expect($assistant->fresh()->is_active)->toBeTrue();
+});
+
+// =========================================================================================
+// R6 (M7 Task 2, brief: "Thêm liên kết tới màn hình này vào thông điệp chặn vô hiệu hoá của
+// M6.5") — EditUser::attachBulkReassignLink() / BulkReassign::offboardingLinkAction().
+// =========================================================================================
+
+/**
+ * Thông báo chặn XOÁ (`authorizationNotification()`/`unauthorizedNotification()` của
+ * `DeleteAction`) mang thêm MỘT action-button trỏ tới "Bàn giao hàng loạt" mở sẵn đúng người bị
+ * chặn (`?from=<id>`), khi người đó CÒN dẫn ít nhất một vụ mở — cùng kịch bản chặn xoá đã có ở
+ * "refuses to delete a lawyer who still leads an open matter..." trên.
+ */
+it('adds a bulk-reassign link to the delete-blocked notification for a lawyer who still leads an open matter', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'closed_at' => null]);
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(EditUser::class, ['record' => $lawyer->getRouteKey()])
+        ->callAction('delete');
+
+    $component = new Notifications;
+    $component->mount();
+
+    $notification = $component->notifications->first(
+        fn ($mounted): bool => $mounted->getTitle() === staffOffboardingMessage($lawyer->name, matters: 1, deadlines: 0, requests: 0)
+    );
+
+    expect($notification)->not->toBeNull();
+
+    $actions = $notification->getActions();
+
+    expect($actions)->toHaveCount(1)
+        ->and($actions[0]->getUrl())->toBe(BulkReassign::getUrl(['from' => $lawyer->id], panel: 'admin'));
+});
+
+/**
+ * Tắt `is_active` bị chặn (lỗi form giữ NGUYÊN $reason, đo bởi test "refuses to deactivate..."
+ * trên — KHÔNG đổi) gửi THÊM một `Notification` RIÊNG (chuỗi lỗi form không mang được URL) mang
+ * cùng liên kết, khi người bị chặn còn dẫn vụ mở.
+ */
+it('sends a separate notification with the bulk-reassign link when deactivation is blocked by an open lead matter', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'closed_at' => null]);
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(EditUser::class, ['record' => $lawyer->getRouteKey()])
+        ->fillForm(['is_active' => false])
+        ->call('save')
+        ->assertHasFormErrors(['is_active']);
+
+    expect($lawyer->fresh()->is_active)->toBeTrue();
+
+    $component = new Notifications;
+    $component->mount();
+
+    $notification = $component->notifications->first(
+        fn ($mounted): bool => $mounted->getTitle() === __('users.offboarding.bulk_reassign_notice', ['name' => $lawyer->name])
+    );
+
+    expect($notification)->not->toBeNull();
+
+    $actions = $notification->getActions();
+
+    expect($actions)->toHaveCount(1)
+        ->and($actions[0]->getUrl())->toBe(BulkReassign::getUrl(['from' => $lawyer->id], panel: 'admin'));
+});
+
+/**
+ * Mutation probe cặp với hai test trên: một người bị chặn KHÔNG vì vụ mở (chỉ vì mốc hạn/yêu cầu
+ * khách chưa xong — `$assistant` không đứng tên `lead_lawyer_id` bất kỳ vụ nào) không nhận link
+ * nào — `BulkReassign::offboardingLinkAction()` trả `null` khi `OpenWork::forUser()->leadMatters`
+ * rỗng (docblock: "liên kết tới một màn hình rỗng không giúp gì"). Cả thông báo chặn xoá lẫn
+ * thông báo is_active riêng đều KHÔNG mang action nào.
+ */
+it('adds no bulk-reassign link when the person blocked from offboarding leads no open matter', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $matter = Matter::factory()->create();
+    Deadline::factory()->for($matter)->create([
+        'responsible_user_id' => $assistant->id,
+        'is_completed' => false,
+    ]);
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(EditUser::class, ['record' => $assistant->getRouteKey()])
+        ->callAction('delete');
+
+    $this->livewire(EditUser::class, ['record' => $assistant->getRouteKey()])
+        ->fillForm(['is_active' => false])
+        ->call('save')
+        ->assertHasFormErrors(['is_active']);
+
+    $component = new Notifications;
+    $component->mount();
+
+    expect($component->notifications->contains(
+        fn ($mounted): bool => __('users.offboarding.bulk_reassign_notice', ['name' => $assistant->name]) === $mounted->getTitle()
+    ))->toBeFalse();
+
+    $deleteBlocked = $component->notifications->first(
+        fn ($mounted): bool => $mounted->getTitle() === staffOffboardingMessage($assistant->name, matters: 0, deadlines: 1, requests: 0)
+    );
+
+    expect($deleteBlocked)->not->toBeNull()
+        ->and($deleteBlocked->getActions())->toBe([]);
 });
 
 // =========================================================================================

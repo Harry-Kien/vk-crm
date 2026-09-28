@@ -53,5 +53,9 @@ return [
         'last_admin_blocked' => 'Không thể thực hiện: đây là quản trị viên đang hoạt động cuối cùng của hệ thống. Hãy chỉ định thêm ít nhất một quản trị viên khác trước khi đổi chức danh, vô hiệu hoá hoặc xoá tài khoản này.',
         'is_active_hint' => 'Sẽ bị chặn nếu nhân sự này còn là luật sư phụ trách một vụ việc đang mở, còn đứng tên mốc hạn hoặc yêu cầu khách chưa xong, hoặc là quản trị viên đang hoạt động cuối cùng của hệ thống.',
         'position_hint' => 'Đổi chức danh sang Trợ lý hoặc Kế toán sẽ bị chặn nếu người này còn việc dở dang (cùng luật vô hiệu hoá). Đổi chức danh khỏi Quản trị viên sẽ bị chặn nếu đây là quản trị viên đang hoạt động cuối cùng của hệ thống.',
+        // M7 Task 2: liên kết tới màn hình "Bàn giao hàng loạt" đi kèm lời chặn, khi người bị chặn
+        // còn dẫn ít nhất một vụ việc (mảnh 'open_work_lead_matters' ở trên) — App\Filament\Admin\
+        // Pages\BulkReassign::offboardingLinkAction(), gọi từ EditUser/DeleteStaffMember.
+        'bulk_reassign_notice' => 'Có thể dùng màn hình "Bàn giao hàng loạt" để chuyển hết các vụ việc :name đang dẫn cho một luật sư khác cùng lúc.',
     ],
 ];

@@ -134,7 +134,7 @@ Còn lại:
 - Nếu M6.5 Task 4 ghi rằng thư tổng hợp mốc hạn cho người nhận bị hoãn, vì hạ tầng thư của M6.5 Task 11 chưa có lúc đó, thì làm thư đó ở đây. Thư đi qua hàng đợi, người nhận theo R3.
 - Ghi đính chính SPEC §6.11 bước 3 và §11 theo R10.
 
-### - [ ] Task 2 — Màn hình bàn giao hàng loạt
+### - [x] Task 2 — Màn hình bàn giao hàng loạt
 
 - Chọn nhiều vụ việc của một luật sư và bàn giao cùng lúc, qua **đúng `ReassignMatter`**. Một vòng lặp gọi Action, không phải một truy vấn `update()` hàng loạt: mỗi vụ phải có dòng `stage_logs` và mốc hạn của nó.
 - Báo cáo kết quả từng vụ, kể cả vụ thất bại, thay vì một thông điệp chung.

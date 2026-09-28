@@ -1426,3 +1426,72 @@ merge lúc đó. Task 1 dựng thư đó:
   sẵn được sửa (`$job->afterCommit === true`; `$stageLog` → `$result->stageLog` × 2). Toàn bộ 27
   test của hai tệp `ReassignMatterTest.php` + `ReassignMatterActionTest.php` xanh; `pint --test`
   sạch (546 tệp).
+
+### Task 2 — Màn hình bàn giao hàng loạt (SPEC §6.11; admin/trưởng phòng)
+
+Trang tự viết cho phép chọn nhiều vụ ĐANG MỞ của một luật sư/trưởng phòng và bàn giao cả lô sang
+một lead mới cùng lúc — luật sư vẫn dùng nút "Bàn giao" từng vụ trên `ViewMatter` như trước (không
+thấy trang này).
+
+- `App\Actions\Matter\ReassignMatters` — vòng lặp gọi `ReassignMatter::handle()` cho TỪNG vụ (mỗi
+  vụ tự mở/đóng transaction riêng của chính nó, KHÔNG có transaction ngoài bọc cả vòng lặp — một
+  vụ lỗi không rollback các vụ đã xong trước đó). Bắt riêng bốn họ lỗi
+  (`AuthorizationException`, `ValidationException`, `DomainException`, `ModelNotFoundException`)
+  thành một dòng `App\Actions\Matter\BulkReassignMatterResult` tiếng Việt cho từng vụ — không phá
+  vỡ vòng lặp. Vụ `restricted` LUÔN bị ép `keepOldLeadAsAssociate = false`, bất kể công tắc "giữ
+  lại" của cả lô (cùng luật nút một vụ). Sau vòng lặp, gộp `movedDeadlineIds`/`movedRequestIds` của
+  MỌI vụ THÀNH CÔNG theo `matter_id` rồi dispatch ĐÚNG MỘT `SendReassignmentDigest` (hạ tầng Task
+  1), `->afterCommit()` — không vụ nào thành công thì không dispatch gì.
+  - `BulkReassignMatterResult::$matterCode`/`$matterTitle` là `null` khi và chỉ khi actor không
+    qua được `manageTeam` trên vụ đó (`AuthorizationException`) — actor không hợp lệ để THẤY vụ
+    việc thì không được biết mã/tiêu đề của nó, kể cả trong một dòng kết quả thất bại.
+- `App\Filament\Admin\Pages\BulkReassign` (tiêu đề "Bàn giao hàng loạt") — `canAccess()` hỏi
+  `Gate::define('bulkReassign')` mới (`AppServiceProvider::boot()`, admin hoặc trưởng phòng; không
+  phải quyền thứ 14 trong `App\Enums\Permission`, xem docblock nơi khai báo), hỏi lại ở CẢ
+  `mount()` LẪN hành động thật `reassignSelected()` (`abort_unless(..., 404)` độc lập, cùng gotcha
+  Livewire "middleware 404 của panel không phủ được request cập nhật Livewire" đã ghi từ
+  `SubmitDocument`/`MyRequests`). Luồng bốn bước: chọn luật sư đang phụ trách → danh sách vụ đang
+  mở CHỈ những vụ actor `manageTeam` được (vụ `restricted` không bao giờ vào tới mảng trả về cho
+  một trưởng phòng không phải admin/lead — không phải ẩn UI, mà là chưa từng được tính) → chọn
+  nhiều vụ + lead mới (hỏi lại `newLeadOptions()` lúc submit, không chỉ tin Select) + lý do (bắt
+  buộc, `maxLength(5000)`) + công tắc "giữ lead cũ" → bấm. Tham số `?from=<user_id>` mở sẵn với một
+  luật sư (R6). Mọi phương thức trả danh sách/tuỳ chọn là `private`/`protected` (gotcha Livewire
+  M6.5 Task 3). `matter_ids` KHÔNG được lọc lại theo `matterOptions()` trước khi gọi Action — việc
+  hỏi lại `manageTeam` cho TỪNG vụ là việc của Action.
+  - **Cắn thật, đã sửa:** `CheckboxList` mặc định tự suy luật validate `in:` từ CHÍNH
+    `options()` đã render — một id KHÔNG còn trong `matterOptions()` LÚC SUBMIT (vụ vừa bị bàn
+    giao ở tab khác, hoặc một vụ `restricted` bị ép vào payload) bị Livewire chặn NGAY Ở TẦNG
+    VALIDATE-FORM (lỗi "đã chọn không hợp lệ"), chặn CẢ LÔ và không bao giờ chạm tới
+    `ReassignMatters` — đúng thứ docblock lớp cấm ("không được lọc theo matterOptions() trước
+    khi gọi Action"), chỉ là Filament tự làm việc đó thay vì trang. Sửa bằng `->in(fn(): array
+    => Matter::query()->pluck('id')->all())` trên `CheckboxList::make('matter_ids')` — luật
+    "in:" chỉ còn giữ vai trò vệ sinh cơ bản (một id phải là một vụ việc còn tồn tại), quyết định
+    AI được bàn giao VỤ NÀO vẫn hoàn toàn thuộc `manageTeam` bên trong Action.
+  - **Báo cáo kết quả từng vụ** sau khi bấm (thành công/thất bại, lý do tiếng Việt thật), với mỗi
+    vụ THÀNH CÔNG đã công bố portal (`is_published_to_portal`) một dòng gợi ý soạn cập nhật giới
+    thiệu luật sư mới (chỉ gợi ý, có liên kết tới trang vụ, không tự soạn/gửi — SPEC §6.11 bước
+    4). `$results` là mảng THUẦN (không phải đối tượng `BulkReassignMatterResult`) vì Livewire
+    không serialize được một `final readonly class` không có synth đăng ký sẵn.
+- R6: `EditUser::attachBulkReassignLink()` thêm một action-button "Mở màn hình Bàn giao hàng loạt"
+  vào ĐÚNG thông báo mà `authorizationNotification()`/`unauthorizedNotification()` của
+  `DeleteAction` tự dựng khi `UserPolicy::delete()` từ chối (tiêu đề = nguyên văn lý do policy,
+  KHÔNG đổi); và một `Notification` RIÊNG (chuỗi lỗi form không mang được URL) khi tắt `is_active`
+  bị chặn. Cả hai chỉ thêm liên kết khi người bị chặn CÒN dẫn ít nhất một vụ mở
+  (`BulkReassign::offboardingLinkAction()`, đọc qua `OpenWork`) VÀ actor hiện tại
+  `BulkReassign::canAccess()` được — `null` (không thêm gì) trong hai trường hợp còn lại.
+- Chuỗi mới: `lang/vi/reassign.php` khối `bulk` (M7 Task 2); `lang/vi/users.php` khoá
+  `offboarding.bulk_reassign_notice` (thêm cuối khối `offboarding`, chú thích `// M7 Task 2`).
+- Test: `tests/Feature/Actions/Matter/ReassignMattersTest.php` (7 test tầng Action — vòng lặp
+  không rollback chéo, id thiếu không vỡ vòng lặp, redact mã/tiêu đề khi `AuthorizationException`,
+  ép gỡ lead cũ trên vụ `restricted`, một thư duy nhất chỉ liệt vụ thành công, không thư khi mọi vụ
+  thất bại); `tests/Feature/Filament/BulkReassignTest.php` (11 test màn hình — 404 cho luật
+  sư/trợ lý/kế toán kể cả bypass route, che vụ `restricted` khỏi trưởng phòng, từ chối payload ép
+  vụ `restricted` không lộ mã/tiêu đề, một vụ thất bại không chặn các vụ khác, gợi ý giới thiệu chỉ
+  cho vụ đã công bố — đếm đúng 1 lần, `?from=` mở sẵn, mutation probe cho `->in()`);
+  `tests/Feature/Filament/UserResourceTest.php` (+3 test cho R6: liên kết ở thông báo chặn xoá,
+  thông báo riêng ở đường tắt `is_active`, không liên kết nào khi người bị chặn không dẫn vụ mở —
+  cả ba có mutation probe bằng tay, xác nhận đỏ khi bỏ dòng gắn liên kết rồi khôi phục).
+- Không việc nào bị hoãn tiếp ở task này. Toàn bộ 59 test của ba tệp trên xanh trên SQLite và trên
+  MariaDB (chạy tuần tự từng tệp); full suite `/d/vkwt/m7-dev test --parallel --processes=4`:
+  **2258 passed / 5 skipped / 0 failed** (9665 assertions, 452.91s — so với baseline 2216/5/0);
+  `pint --test` sạch (551 tệp).

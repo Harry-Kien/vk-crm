@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Enums\Role;
 use App\Http\Controllers\DocumentDownloadController;
 use App\Listeners\RecordOutboundMail;
 use App\Models\Client;
@@ -25,6 +26,7 @@ use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Foundation\Console\AboutCommand;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
@@ -76,6 +78,18 @@ class AppServiceProvider extends ServiceProvider
          * đo vì sao (đăng ký cả hai đường thì mỗi thư sinh ra hai dòng nhật ký).
          */
         Event::subscribe(RecordOutboundMail::class);
+
+        /*
+         * M7 Task 2: trang tự viết `App\Filament\Admin\Pages\BulkReassign` (bàn giao hàng loạt) —
+         * admin hoặc trưởng phòng, cùng phán quyết controller ("luật sư dùng nút 'Bàn giao' từng
+         * vụ như hiện nay"). `Gate::define()` thay vì thêm một quyền thứ 14 vào
+         * `App\Enums\Permission` — enum đó ghim đúng "13 quyền ở SPEC §5", một danh sách đóng mà
+         * SPEC liệt kê tường minh; ability này không nằm trong danh sách đó và không cần một cột
+         * `permissions` mới cho một cổng chỉ mở MỘT trang. Từng vụ việc bên trong trang này vẫn tự
+         * hỏi lại `MatterPolicy::manageTeam()` qua `ReassignMatter`/`ReassignMatters` — cổng này
+         * chỉ quyết định ai MỞ ĐƯỢC trang, không quyết định vụ việc nào bàn giao được.
+         */
+        Gate::define('bulkReassign', fn (User $user): bool => $user->hasRole(Role::Admin->value) || $user->hasRole(Role::Manager->value));
 
         Relation::enforceMorphMap([
             'user' => User::class,
