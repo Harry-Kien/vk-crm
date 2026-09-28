@@ -33,6 +33,9 @@ return [
     // Tên dự phòng khi tên tệp client gửi lên không còn ký tự nào dùng được (xem FileGuard::safeName).
     'fallback_file_name' => 'tep-tai-len',
 
+    // Gộp M6.5 + M9 (xung đột 5): DocumentPolicy::delete và hook Document::deleting — cùng một câu.
+    'delete_blocked_billing_reference' => 'Không thể xoá tài liệu này: nó là bản scan phụ lục hợp đồng hoặc biên lai của một khoản thu. Phụ lục và khoản thu không sửa, không xoá được, nên bằng chứng của chúng cũng phải được giữ lại.',
+
     /*
      * `UploadStaffDocument` — nhân sự nộp tệp thay hoặc đưa văn bản vào hồ sơ.
      */

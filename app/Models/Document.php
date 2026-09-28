@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Exceptions\DocumentGroupNotChangeable;
+use App\Exceptions\DocumentReferencedByBillingRecord;
 use App\Models\Concerns\RestrictedToClientPortal;
 use App\Support\Audit;
 use Database\Factories\DocumentFactory;
@@ -194,6 +195,17 @@ class Document extends Model implements HasMedia
                 throw DocumentGroupNotChangeable::leavingInternalGroup();
             }
         });
+
+        // Gộp M6.5 + M9 (xung đột 5): tệp đang được một bản ghi tiền trỏ tới không xoá được — mềm
+        // lẫn cứng (`forceDelete()` cũng đi qua `deleting`). Hai khoá ngoại ấy là `nullOnDelete`,
+        // nên không có hook này một lần xoá cứng sẽ lặng lẽ cắt bằng chứng khỏi một phụ lục/khoản
+        // thu bất biến. `DocumentPolicy::delete` trả lời cùng câu cho nút xoá; đây là chốt chặn cho
+        // mọi đường không hỏi policy.
+        static::deleting(function (Document $document): void {
+            if ($document->isReferencedByBillingRecord()) {
+                throw DocumentReferencedByBillingRecord::make();
+            }
+        });
     }
 
     /**
@@ -340,9 +352,8 @@ class Document extends Model implements HasMedia
     }
 
     /**
-     * Bản scan uỷ nhiệm chi / phiếu thu trỏ tới tệp này (`payments.receipt_document_id`). Dùng
-     * bởi `RetractDocument` (M7 Task 7) và `DocumentPolicy::delete` (task khác trong M9) để từ
-     * chối rút/xoá một tệp đang được một khoản thu trỏ tới.
+     * Bản scan uỷ nhiệm chi / phiếu thu trỏ tới tệp này (`payments.receipt_document_id`). Đọc qua
+     * {@see self::isReferencedByBillingRecord()} — không hỏi quan hệ này trực tiếp ở nơi khác.
      */
     public function paymentReceipts(): HasMany
     {
@@ -353,6 +364,21 @@ class Document extends Model implements HasMedia
     public function contractAmendments(): HasMany
     {
         return $this->hasMany(ContractAmendment::class, 'document_id');
+    }
+
+    /**
+     * Có bản ghi tiền nào trỏ tới tệp này không — định nghĩa DUY NHẤT (gộp M6.5 + M9, xung đột 5),
+     * đọc bởi `DocumentPolicy::delete`, hook `deleting` ở {@see self::booted()}, và — khi M7 Task 7
+     * dựng nó — `RetractDocument`.
+     *
+     * `withoutGlobalScopes()`: một khoản thu ĐÃ HUỶ vẫn là bản ghi được giữ lại và vẫn cần biên lai
+     * của nó, và câu hỏi này không được đổi đáp án theo guard đang đăng nhập (`ClientPortalScope`
+     * trả `1 = 0` cho mọi model tiền dưới guard khách) — "không thấy" không phải "không có".
+     */
+    public function isReferencedByBillingRecord(): bool
+    {
+        return $this->paymentReceipts()->withoutGlobalScopes()->exists()
+            || $this->contractAmendments()->withoutGlobalScopes()->exists();
     }
 
     public function newerVersions(): HasMany

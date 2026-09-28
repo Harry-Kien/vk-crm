@@ -10,6 +10,7 @@ use App\Models\MatterChecklistItem;
 use App\Models\User;
 use App\Policies\Concerns\ChecksMatterAccess;
 use App\Policies\Concerns\ChecksPortalVisibility;
+use Illuminate\Auth\Access\Response;
 
 /**
  * Policy này trả lời cho HAI guard theo hai luật khác nhau. Nhân sự (`web`) đi qua quyền spatie
@@ -149,10 +150,21 @@ class DocumentPolicy
      *
      * Đi qua `update()` nên cũng thừa hưởng điều kiện đọc được: không ai xoá được một tài liệu
      * nhóm D mà chính họ không có quyền nhìn.
+     *
+     * **Gộp M6.5 + M9 (xung đột 5):** tệp đang được một bản ghi tiền trỏ tới (bản scan phụ lục,
+     * biên lai) thì không ai xoá được, kể cả người đủ quyền — trả `Response::deny()` kèm lý do để
+     * nút xoá nói ra vì sao. Hỏi SAU cổng quyền: người không được xoá tài liệu này nói chung không
+     * cần biết nó có đang làm bằng chứng cho một khoản tiền hay không. Hook `Document::deleting`
+     * chặn cùng điều kiện trên mọi đường không hỏi policy.
      */
-    public function delete(User|ClientUser $user, Document $document): bool
+    public function delete(User|ClientUser $user, Document $document): bool|Response
     {
-        return $this->update($user, $document)
-            && $user->can(Permission::DocumentPublish->value);
+        if (! ($this->update($user, $document) && $user->can(Permission::DocumentPublish->value))) {
+            return false;
+        }
+
+        return $document->isReferencedByBillingRecord()
+            ? Response::deny(__('documents.delete_blocked_billing_reference'))
+            : true;
     }
 }
