@@ -65,3 +65,24 @@ it('still refuses anyone without settings.manage, even for an unused type', func
 
     expect($this->lawyer->can('delete', $unused))->toBeFalse();
 });
+
+/**
+ * Task 19 (rà soát cuối, C1-class bulk-action hole): trước bản vá này, KHÔNG policy nào định
+ * nghĩa `deleteAny`/`restoreAny`/`forceDeleteAny` — Filament (không nghiêm ngặt) coi một ability
+ * thiếu phương thức là CHO PHÉP, nên `MatterTypesTable`'s bulk actions mở cho MỌI người, kể cả
+ * luật sư không có `settings.manage`.
+ */
+it('opens the bulk delete and restore gates to settings.manage and closes them to everyone else', function () {
+    expect($this->admin->can('deleteAny', MatterType::class))->toBeTrue()
+        ->and($this->admin->can('restoreAny', MatterType::class))->toBeTrue()
+        ->and($this->lawyer->can('deleteAny', MatterType::class))->toBeFalse()
+        ->and($this->lawyer->can('restoreAny', MatterType::class))->toBeFalse();
+});
+
+/** Không ai xoá vĩnh viễn một loại vụ việc được, kể cả admin: hồ sơ cũ có thể vẫn trỏ vào nó. */
+it('never allows permanent deletion of a matter type, even for the admin', function () {
+    $type = MatterType::factory()->withStages()->create();
+
+    expect($this->admin->can('forceDelete', $type))->toBeFalse()
+        ->and($this->admin->can('forceDeleteAny', MatterType::class))->toBeFalse();
+});

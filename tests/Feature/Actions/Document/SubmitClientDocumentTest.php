@@ -18,7 +18,11 @@ use App\Models\User;
 use App\Support\Files\VirusScanner;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\QueryException;
+use Illuminate\Foundation\Testing\RefreshDatabaseState;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
 use Spatie\Activitylog\Models\Activity;
@@ -53,15 +57,35 @@ function clientSubmitPdf(string $name = 'so-do.pdf'): UploadedFile
     return UploadedFile::fake()->createWithContent($name, clientSubmitPdfBytes());
 }
 
+/**
+ * Helper một-tệp: gói `$file` (hoặc PDF mặc định) thành mảng MỘT phần tử rồi trả về tài liệu DUY
+ * NHẤT — giữ nguyên hình dạng cho hơn 30 test một-tệp đã có trong tệp này. R10 (M6.5 Task 17)
+ * đổi chữ ký thật của Action thành `files: array` (một lần nộp có thể gồm nhiều tệp, cùng
+ * version — xem `submitClientDocuments()` bên dưới cho helper nhiều tệp).
+ */
 function submitClientDocument(
     MatterChecklistItem $checklistItem,
     ClientUser $actor,
     ?UploadedFile $file = null,
 ): Document {
+    return submitClientDocuments($checklistItem, $actor, [$file ?? clientSubmitPdf()])->first();
+}
+
+/**
+ * Helper nhiều-tệp thật của R10: một lần nộp gồm N tệp, tất cả cùng một version.
+ *
+ * @param  list<UploadedFile>  $files
+ * @return Collection<int, Document>
+ */
+function submitClientDocuments(
+    MatterChecklistItem $checklistItem,
+    ClientUser $actor,
+    array $files,
+): Collection {
     return app(SubmitClientDocument::class)->handle(
         checklistItem: $checklistItem,
         actor: $actor,
-        file: $file ?? clientSubmitPdf(),
+        files: $files,
     );
 }
 
@@ -168,6 +192,94 @@ it('nộp lại xoá luôn dấu vết của lần duyệt trước', function (
 });
 
 // ---------------------------------------------------------------------------------------------
+// R10 (M6.5 Task 17, checklist-03/checklist-07): một lần nộp gồm NHIỀU tệp, cùng một version.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * checklist-03: CCCD hai mặt nộp trong MỘT lần phải là hai tài liệu CÙNG version — không phải
+ * "mặt sau thay thế mặt trước" (bug gốc: trang 2 thành version 2, trỏ parent về trang 1, và cổng
+ * chỉ còn vẽ bản mới nhất mỗi chuỗi nên mặt trước biến mất).
+ */
+it('nộp CCCD hai mặt trong một lần tạo hai tài liệu cùng version, không bản nào là cha của bản kia', function () {
+    $documents = submitClientDocuments($this->item, $this->clientUser, [
+        clientSubmitPdf('cccd-mat-truoc.pdf'),
+        clientSubmitPdf('cccd-mat-sau.pdf'),
+    ]);
+
+    expect($documents)->toHaveCount(2);
+
+    [$front, $back] = $documents->all();
+
+    expect($front->version)->toBe(1)
+        ->and($back->version)->toBe(1)
+        ->and($front->parent_document_id)->toBeNull()
+        ->and($back->parent_document_id)->toBeNull()
+        ->and($front->getFirstMedia('file')->name)->toBe('cccd-mat-truoc.pdf')
+        ->and($back->getFirstMedia('file')->name)->toBe('cccd-mat-sau.pdf')
+        ->and(Document::query()->count())->toBe(2);
+});
+
+/**
+ * "Nộp thêm trang 3 khi đang chờ duyệt" (R10): đầu mục đã `pending_review` từ lần nộp trước, và
+ * một lần nộp MỚI trong lúc đó là BỔ SUNG vào version đang chờ, không phải một lần nộp lại mới —
+ * khác hẳn "nộp lại sau khi bị từ chối" (test ở dưới), nơi mỗi lần nộp LÀ một version mới.
+ */
+it('nộp thêm trang khi đầu mục đang chờ duyệt là bổ sung vào version đang chờ, không phải version mới', function () {
+    $first = submitClientDocuments($this->item, $this->clientUser, [
+        clientSubmitPdf('trang-1.pdf'),
+        clientSubmitPdf('trang-2.pdf'),
+    ]);
+
+    expect($this->item->fresh()->status)->toBe(ChecklistItemStatus::PendingReview);
+
+    $third = submitClientDocument($this->item->fresh(), $this->clientUser, clientSubmitPdf('trang-3.pdf'));
+
+    expect($third->version)->toBe(1)
+        ->and(Document::query()->count())->toBe(3)
+        ->and(Document::query()->pluck('version')->unique()->all())->toBe([1]);
+});
+
+/**
+ * Cặp sinh đôi âm: một khi đầu mục ĐÃ bị từ chối (không còn `pending_review`), lần nộp tiếp theo
+ * KHÔNG bổ sung vào version cũ — nó là một lần nộp lại thật, mang version mới, đúng luật đã có từ
+ * M4 (test "nộp lại tạo bản version 2..." bên dưới). Không có test này, một cài đặt luôn "bổ
+ * sung vào version mới nhất" (bỏ qua trạng thái đầu mục) cũng làm test "nộp thêm trang" ở trên
+ * xanh.
+ */
+it('nộp lại sau khi bị từ chối là version mới, không bổ sung vào version đã bị từ chối', function () {
+    $first = submitClientDocument($this->item, $this->clientUser, clientSubmitPdf('lan-1.pdf'));
+
+    $this->item->update([
+        'status' => ChecklistItemStatus::Rejected,
+        'rejection_reason' => 'Ảnh bị mờ ở góc trên nên không đọc được số thửa.',
+    ]);
+
+    $second = submitClientDocument($this->item->fresh(), $this->clientUser, clientSubmitPdf('lan-2.pdf'));
+
+    expect($second->version)->toBe(2)
+        ->and($second->parent_document_id)->toBe($first->id);
+});
+
+/**
+ * Bổ sung trang khi đang chờ duyệt vẫn phải qua đúng chuỗi bước 2-6 của SPEC §6.6 cho TỪNG tệp —
+ * mọi tệp trong một lần nộp nhiều tệp đều bị `FileGuard` soi riêng, không phải chỉ tệp đầu tiên.
+ * Không có test này, một cài đặt chỉ quét tệp đầu của mảng cũng làm các test "nhiều tệp" ở trên
+ * xanh.
+ */
+it('mỗi tệp trong một lần nộp nhiều tệp đều đi qua FileGuard, không chỉ tệp đầu', function () {
+    $bad = UploadedFile::fake()->createWithContent('chu-ky.svg', '<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+
+    expect(fn () => app(SubmitClientDocument::class)->handle(
+        checklistItem: $this->item,
+        actor: $this->clientUser,
+        files: [clientSubmitPdf('trang-1.pdf'), $bad],
+    ))->toThrow(FileRejected::class);
+
+    expect(Document::query()->count())->toBe(0)
+        ->and($this->item->refresh()->status)->toBe(ChecklistItemStatus::Missing);
+});
+
+// ---------------------------------------------------------------------------------------------
 // SPEC §6.6 bước 7 và SPEC §11 "Nghiệp vụ": nộp lại tạo version 2, bản version 1 vẫn còn.
 // ---------------------------------------------------------------------------------------------
 
@@ -180,7 +292,17 @@ it('nộp lần đầu là version 1 và không có bản cha', function () {
 
 it('nộp lại tạo bản version 2 trỏ về bản cũ, và bản cũ còn nguyên cả tệp', function () {
     $first = submitClientDocument($this->item, $this->clientUser, clientSubmitPdf('lan-1.pdf'));
-    $second = submitClientDocument($this->item, $this->clientUser, clientSubmitPdf('lan-2.pdf'));
+
+    // R10 (M6.5 Task 17): nộp thêm khi đầu mục còn `pending_review` là BỔ SUNG vào version đang
+    // chờ (xem test riêng ở nhóm R10), không phải một lần "nộp lại". Muốn version 2 thật thì
+    // phiên nộp trước phải đã KẾT THÚC — ở đây bằng một lần từ chối, cùng hình dạng SPEC §6.6
+    // bước 8 mô tả cho "nộp lại sau khi bị từ chối".
+    $this->item->update([
+        'status' => ChecklistItemStatus::Rejected,
+        'rejection_reason' => 'Ảnh bị mờ ở góc trên nên không đọc được số thửa.',
+    ]);
+
+    $second = submitClientDocument($this->item->fresh(), $this->clientUser, clientSubmitPdf('lan-2.pdf'));
 
     $first->refresh();
 
@@ -214,10 +336,26 @@ it('nộp lại được trên một đầu mục ĐÃ ĐƯỢC DUYỆT ĐẠT �
         ->and($this->item->reviewed_by)->toBeNull();
 });
 
+/** Đẩy đầu mục ra khỏi `pending_review` giữa hai lần nộp — xem test "nộp lại tạo bản version 2". */
+function rejectItemBetweenSubmissions(MatterChecklistItem $item): void
+{
+    $item->update([
+        'status' => ChecklistItemStatus::Rejected,
+        'rejection_reason' => 'Ảnh bị mờ ở góc trên nên không đọc được số thửa.',
+    ]);
+}
+
 it('nộp lần thứ ba nối tiếp chuỗi version chứ không quay lại 2', function () {
     $first = submitClientDocument($this->item, $this->clientUser);
-    $second = submitClientDocument($this->item, $this->clientUser);
-    $third = submitClientDocument($this->item, $this->clientUser);
+    rejectItemBetweenSubmissions($this->item->fresh());
+    $second = submitClientDocument($this->item->fresh(), $this->clientUser);
+    // `->fresh()` TRƯỚC lần `update()` thứ hai, không phải chép lại `$this->item` cũ: giữa hai
+    // lần `rejectItemBetweenSubmissions()` có một lần nộp đổi `status` ở CSDL qua một đối tượng
+    // KHÁC ($locked` bên trong Action). `$this->item` trong bộ nhớ vẫn còn `Rejected` từ lần gọi
+    // trước, nên `update()` với cùng giá trị đó không có gì THAY ĐỔI để ghi — Eloquent bỏ qua
+    // câu UPDATE khi không có thuộc tính "dirty", và lần từ chối thứ hai lặng lẽ không xảy ra.
+    rejectItemBetweenSubmissions($this->item->fresh());
+    $third = submitClientDocument($this->item->fresh(), $this->clientUser);
 
     expect([$first->version, $second->version, $third->version])->toBe([1, 2, 3])
         ->and($third->parent_document_id)->toBe($second->id);
@@ -226,8 +364,9 @@ it('nộp lần thứ ba nối tiếp chuỗi version chứ không quay lại 2'
 it('một bản đã xoá mềm vẫn tính vào chuỗi version: số version không bao giờ dùng lại', function () {
     $first = submitClientDocument($this->item, $this->clientUser);
     $first->delete();
+    rejectItemBetweenSubmissions($this->item);
 
-    $second = submitClientDocument($this->item, $this->clientUser);
+    $second = submitClientDocument($this->item->fresh(), $this->clientUser);
 
     // `document_published`/`document_submitted` mang theo `version` (SPEC §10.6). Cấp lại số 1
     // cho một tệp khác biến mọi dòng nhật ký cũ thành câu không còn chỉ đúng bản nào.
@@ -285,10 +424,11 @@ it('bản cũ mà khách không còn xem được vẫn tính vào chuỗi versi
     // phạm vi đó thì bản mới lại mang số 1 lần nữa.
     $first = submitClientDocument($this->item, $this->clientUser);
     $first->update(['client_can_view' => false]);
+    rejectItemBetweenSubmissions($this->item);
 
     $this->actingAs($this->clientUser, 'client');
 
-    expect(submitClientDocument($this->item, $this->clientUser)->version)->toBe(2);
+    expect(submitClientDocument($this->item->fresh(), $this->clientUser)->version)->toBe(2);
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -575,6 +715,231 @@ it('dispatch sự kiện báo cho đội ngũ biết có tệp mới cần kiể
 
     Event::assertDispatched(
         ClientDocumentSubmitted::class,
-        fn (ClientDocumentSubmitted $event) => $event->document->is($document),
+        fn (ClientDocumentSubmitted $event) => $event->documents->pluck('id')->all() === [$document->id],
     );
+});
+
+/**
+ * Vòng sửa 1, finding I4: bản đầu dispatch `ClientDocumentSubmitted` BÊN TRONG vòng lặp tạo
+ * `Document` của R10 — một lần nộp bốn tệp (ví dụ hợp đồng nhiều trang) tạo ra BỐN sự kiện, bốn
+ * thông báo cho đúng MỘT lần khách bấm Gửi. Test này ghim luật đã sửa: đúng MỘT sự kiện cho CẢ
+ * LÔ, và sự kiện đó mang đủ cả bốn `Document` — không phải chỉ tài liệu đầu tiên hay cuối cùng.
+ */
+it('dispatch đúng MỘT sự kiện cho một lần nộp bốn tệp, mang đủ cả bốn tài liệu', function () {
+    Event::fake([ClientDocumentSubmitted::class]);
+
+    $documents = submitClientDocuments($this->item, $this->clientUser, [
+        clientSubmitPdf('trang-1.pdf'),
+        clientSubmitPdf('trang-2.pdf'),
+        clientSubmitPdf('trang-3.pdf'),
+        clientSubmitPdf('trang-4.pdf'),
+    ]);
+
+    expect($documents)->toHaveCount(4);
+
+    Event::assertDispatchedTimes(ClientDocumentSubmitted::class, 1);
+    Event::assertDispatched(
+        ClientDocumentSubmitted::class,
+        fn (ClientDocumentSubmitted $event) => $event->documents->pluck('id')->sort()->values()->all()
+            === $documents->pluck('id')->sort()->values()->all(),
+    );
+});
+
+/**
+ * Vòng sửa 2, finding 4: `$documents` của sự kiện phải là một
+ * `Illuminate\Database\Eloquent\Collection` — không phải một `Illuminate\Support\Collection` bình
+ * thường (dù bản thân `handle()` của Action trả về đúng kiểu Support Collection). Lý do:
+ * `SerializesModels` (dùng bởi sự kiện này) chỉ nén một `QueueableCollection` (giao diện Eloquent
+ * Collection cài) thành tên lớp + mảng id; một Support Collection lọt qua bị PHP `serialize()`
+ * y nguyên, chép cả state của từng `Document` vào payload — vô hại HÔM NAY (sự kiện dispatch đồng
+ * bộ, không job nào serialize nó), nhưng phình to và có thể cũ ngay khi một listener tương lai
+ * (R2) implement `ShouldQueue`.
+ */
+it('mang $documents dưới dạng Eloquent Collection, không phải Support Collection thường', function () {
+    Event::fake([ClientDocumentSubmitted::class]);
+
+    submitClientDocuments($this->item, $this->clientUser, [
+        clientSubmitPdf('trang-1.pdf'),
+        clientSubmitPdf('trang-2.pdf'),
+    ]);
+
+    Event::assertDispatched(
+        ClientDocumentSubmitted::class,
+        fn (ClientDocumentSubmitted $event) => $event->documents instanceof Illuminate\Database\Eloquent\Collection,
+    );
+});
+
+it('từ chối một lô rỗng ngay trong Action, không tự tin caller đã kiểm tra thay mình', function () {
+    expect(fn () => app(SubmitClientDocument::class)->handle(
+        checklistItem: $this->item,
+        actor: $this->clientUser,
+        files: [],
+    ))->toThrow(InvalidArgumentException::class);
+
+    expect(Document::query()->count())->toBe(0)
+        ->and($this->item->refresh()->status)->toBe(ChecklistItemStatus::Missing);
+});
+
+// ---------------------------------------------------------------------------------------------
+// checklist-07 — khoá thật, chỉ đo được trên MariaDB. `bin/dev test` (SQLite) không sinh khoá nào
+// nên bỏ qua có lý do, cùng thành ngữ `requirePortalMariadb()` của `LoginTest`.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Bắt buộc phải là CHÍNH cơ sở dữ liệu của ứng dụng: `nextInSubmissionChain()` khoá hàng
+ * `matter_checklist_items` qua kết nối MẶC ĐỊNH mà `SubmitClientDocument` dùng, nên phép đo dưới
+ * đây phải chạy trên đúng kết nối đó, không phải một kết nối phụ chỉ để hỏi driver.
+ */
+function requireSubmitMariadb(): void
+{
+    $driver = DB::connection()->getDriverName();
+
+    if (in_array($driver, ['mysql', 'mariadb'], true)) {
+        return;
+    }
+
+    test()->markTestSkipped(
+        'Cần chạy trên chính MariaDB: lockForUpdate() không sinh khoá nào trên SQLite trong bộ '
+        .'nhớ, nơi bộ test mặc định chạy. Chạy lại với `wt-dev <lane> test:mariadb`. Đang chạy '
+        ."trên: [{$driver}]."
+    );
+}
+
+/**
+ * checklist-07: `nextInSubmissionChain()` khoá HÀNG đầu mục (`lockForUpdate()` trong
+ * `findChecklistItem(..., lock: true)`) trước khi đọc chuỗi version — docblock của nó thừa nhận
+ * thẳng "không test nào trong dự án chứng minh được phần khoá của câu này", vì SQLite của bộ test
+ * không sinh khoá. Test này đo đúng phần đó, TRÊN MariaDB thật, bằng một kết nối THỨ HAI giữ khoá
+ * hàng trong khi kết nối mặc định (đường mà `SubmitClientDocument` đi qua) cố lấy cùng khoá đó.
+ *
+ * **Không dùng `pcntl_fork` hay hai tiến trình thật** — bộ test của dự án không có hạ tầng đó.
+ * Thay vào đó: kết nối B mở một transaction RIÊNG, khoá đúng hàng đó bằng chính câu SQL mà
+ * `findChecklistItem(lock: true)` chạy, rồi CỐ Ý không commit ngay. Kết nối mặc định (một luồng
+ * PHP đơn, như mọi test khác) gọi `SubmitClientDocument::handle()` thật — vì MariaDB thấy hai
+ * PHIÊN riêng đang tranh cùng một hàng, InnoDB chặn phiên đến sau đúng như nó sẽ chặn hai REQUEST
+ * THẬT chạy song song. Đặt `innodb_lock_wait_timeout` ngắn để phép chặn đó lộ ra thành một
+ * `QueryException` "Lock wait timeout exceeded" thay vì treo bộ test mãi mãi — CHÍNH exception đó
+ * là bằng chứng khoá có tác dụng: nếu `lockForUpdate()` không sinh khoá (bug), lần gọi sẽ THÀNH
+ * CÔNG ngay lập tức, và test dưới đây đỏ ở đúng chỗ khẳng định "bị chặn".
+ *
+ * Đầu mục bắt đầu ở `rejected` sẵn một bản version 1, không phải `missing`: tránh nhánh "bổ sung
+ * vào version đang chờ" của R10 (chạy khi đầu mục `pending_review`), thứ không liên quan gì tới
+ * cái đang được đo ở đây — hai tài khoản cùng tranh SỐ VERSION TIẾP THEO của một chuỗi đã có sẵn
+ * ít nhất một bản, đúng hình dạng "cấp lại số 1" mà chính docblock `nextInSubmissionChain()` mô
+ * tả cho trường hợp chuỗi RỖNG (ở đây là "chuỗi đã có 1, cả hai cùng tranh số 2" — cùng một lớp
+ * lỗi, gap lock hay hàng đã có đều cần cùng một khoá để nối tiếp).
+ */
+it('hai tài khoản cùng khách nộp song song vào cùng đầu mục thì version và parent đúng, không trùng số', function () {
+    requireSubmitMariadb();
+
+    $sibling = ClientUser::factory()->create(['client_id' => $this->client->id]);
+
+    $first = submitClientDocument($this->item, $this->clientUser, clientSubmitPdf('lan-1.pdf'));
+
+    $this->item->update([
+        'status' => ChecklistItemStatus::Rejected,
+        'rejection_reason' => 'Ảnh bị mờ ở góc trên nên không đọc được số thửa.',
+    ]);
+
+    $itemId = $this->item->getKey();
+
+    // **`RefreshDatabase` bọc CẢ TEST này trong một transaction trên kết nối mặc định** — nên
+    // khoá hàng mà chính `SubmitClientDocument` sắp lấy hôm nay đã bị GIỮ SẴN bởi chính phiên
+    // đang chạy test này (từ lúc tạo `$this->item`/`$first`), và một kết nối THỨ HAI xin cùng
+    // khoá đó sẽ luôn phải CHỜ TRANSACTION CỦA TEST kết thúc — chờ tới hết test, không phải chờ
+    // một lần nộp khác. `COMMIT` tường minh ở đây kết thúc SỚM transaction đó, đúng thời điểm để
+    // phép đo bên dưới đo được cái nó cần đo: một phiên KHÁC thật sự tranh chấp với phiên đang
+    // chạy `SubmitClientDocument`, không tranh chấp với việc dựng fixture của chính test này.
+    //
+    // **Vòng sửa 1, finding I2: cái giá của việc này KHÔNG còn là "dọn tay theo đúng thứ tự khoá
+    // ngoại" — nó là bắt cả bộ test MIGRATE LẠI.** Bản trước (`forceDelete()` năm dòng: Document,
+    // MatterChecklistItem, Matter, ClientUser, Client) chỉ xoá đúng những gì CHÍNH TEST NÀY tạo
+    // ra một cách tường minh, và bỏ sót mọi thứ side-effect kéo theo: `$this->lawyer` (một
+    // `User` — `beforeEach` của tệp này tạo), vai trò/quyền mà `RolesAndPermissionsSeeder`
+    // (cũng `beforeEach`) gieo (`roles`, `permissions`, `role_has_permissions`,
+    // `model_has_roles`), và mọi dòng `activity_log` mà `LogsActivity` ghi khi tạo `Document`/
+    // `Matter`. Tất cả những dòng đó CŨNG bị `DB::commit()` ở trên biến thành VĨNH VIỄN (chúng
+    // nằm TRONG cùng transaction bị commit sớm, không riêng năm bảng được liệt tay), và không gì
+    // dọn chúng — `DemoDataSeederTest` chạy sau trong cùng tiến trình sẽ đếm ra một
+    // `MatterType`/`role`/... thừa mà không dòng test nào ở ĐÂY nói cho biết vì sao.
+    //
+    // Sửa: `RefreshDatabaseState::$migrated = false` — cờ mà `Illuminate\Foundation\Testing
+    // \RefreshDatabase::refreshTestDatabase()` đọc TRƯỚC KHI mở transaction cho MỖI test. Đặt nó
+    // về `false` ở ĐÂY bắt phép gọi đó, ở test KẾ TIẾP, chạy `migrate:fresh` lại — dựng lại TOÀN
+    // BỘ schema từ đầu — trước khi mở transaction của test đó. Không còn "xoá đúng những gì tôi
+    // nhớ đã tạo"; toàn bộ cơ sở dữ liệu bị thay bằng một bản MỚI, nên không bảng nào, có tên hay
+    // không, còn mang theo bất cứ gì của test này. Cái giá đổi từ "một danh sách xoá dễ thiếu"
+    // thành "một lần `migrate:fresh` chậm hơn ở ĐÚNG MỘT test kế tiếp" — chấp nhận được, vì test
+    // này vốn đã hiếm (chỉ chạy dưới `test:mariadb`) và không nằm trên đường mặc định `bin/dev
+    // test`.
+    RefreshDatabaseState::$migrated = false;
+
+    DB::commit();
+
+    $race = null;
+
+    try {
+        // Kết nối THỨ HAI, trỏ về ĐÚNG cơ sở dữ liệu MariaDB đang chạy — nhân bản cấu hình của
+        // kết nối mặc định, không hardcode host/port/tên CSDL (những giá trị đó đổi theo lane,
+        // xem `wt-dev test:mariadb`).
+        config(['database.connections.submit_race' => config('database.connections.'.config('database.default'))]);
+        $race = DB::connection('submit_race');
+
+        // Kết nối B vào TRƯỚC, khoá đúng hàng đầu mục — mô phỏng "tài khoản kia đã bắt đầu nộp
+        // và đang giữ khoá đọc chuỗi version", đúng bước đầu của `findChecklistItem(lock: true)`.
+        $race->beginTransaction();
+        $race->select('select * from matter_checklist_items where id = ? for update', [$itemId]);
+
+        // Trần chờ NGẮN trên kết nối MẶC ĐỊNH — không phải trên `$race` — vì đây là kết nối mà
+        // lần nộp thật sắp chạy qua.
+        DB::statement('set session innodb_lock_wait_timeout = 2');
+
+        $blocked = false;
+
+        try {
+            submitClientDocument($this->item->fresh(), $sibling, clientSubmitPdf('lan-2.pdf'));
+        } catch (QueryException $exception) {
+            $blocked = str_contains($exception->getMessage(), 'Lock wait timeout exceeded');
+        }
+
+        expect($blocked)->toBeTrue(
+            'Lần nộp của tài khoản thứ hai phải BỊ CHẶN bởi khoá hàng của kết nối kia trong khi '
+            .'nó còn giữ — nếu nó chạy xong ngay lập tức, lockForUpdate() không thật sự khoá gì '
+            .'cả và hai lần nộp đồng thời có thể cùng đọc chuỗi RỖNG rồi cùng ghi cùng một số '
+            .'version.'
+        );
+
+        // Lần thử bị chặn không để lại gì: `QueryException` huỷ transaction của Action giữa
+        // chừng, `DB::transaction()` tự rollback.
+        expect(Document::query()->where('matter_checklist_item_id', $itemId)->count())->toBe(1);
+
+        // Kết nối kia giải phóng khoá — không ghi gì vào `documents` (nó chỉ giữ khoá để mô
+        // phỏng), nên chuỗi vẫn đúng y như trước khi cuộc đua bắt đầu: một bản version 1. Cần
+        // GIẢI PHÓNG THẬT ở đây (không chỉ ở `finally`): lần nộp thứ hai ngay dưới đây còn cần
+        // dùng tới khoá hàng này trong CHÍNH test, không phải chỉ lúc dọn dẹp.
+        $race->rollBack();
+
+        // Giờ hết tranh chấp, tài khoản thứ hai nộp lại — đi tiếp đúng chuỗi, không cấp lại số 1.
+        $second = submitClientDocument($this->item->fresh(), $sibling, clientSubmitPdf('lan-2.pdf'));
+
+        expect($second->version)->toBe(2)
+            ->and($second->parent_document_id)->toBe($first->id)
+            ->and(Document::query()->where('matter_checklist_item_id', $itemId)->pluck('version')->sort()->values()->all())
+            ->toBe([1, 2]);
+    } finally {
+        // Vòng sửa 1, finding I2: giải phóng `$race` VÔ ĐIỀU KIỆN ở đây, không chỉ trên đường
+        // thành công phía trên. Bất kỳ `expect()` nào ở trên ném ra TRƯỚC dòng `$race->rollBack()`
+        // trong `try` (ví dụ khẳng định "phải bị chặn" thất bại) sẽ nhảy thẳng vào `finally` mà
+        // còn giữ nguyên khoá hàng — và khoá đó nằm trên một CONNECTION THẬT, riêng với connection
+        // mặc định mà `RefreshDatabase::tearDown()` biết dọn; không ai khác đóng nó lại. Gọi
+        // `rollBack()` lần thứ hai (khi đường thành công đã gọi nó rồi) là an toàn — Laravel bỏ
+        // qua một lời gọi `rollBack()` khi không còn transaction nào đang mở, không ném gì cả.
+        $race?->rollBack();
+        $race?->disconnect();
+
+        // Mở lại một transaction trên kết nối mặc định để `RefreshDatabase::tearDown()` có đúng
+        // thứ nó mong đợi khi gọi `rollBack()` — không có dòng này, tearDown gặp một kết nối
+        // KHÔNG có transaction nào đang mở.
+        DB::beginTransaction();
+    }
 });

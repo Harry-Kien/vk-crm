@@ -10,6 +10,7 @@ use App\Models\Matter;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Spatie\Activitylog\Models\Activity;
 
@@ -221,4 +222,36 @@ it('refuses to add a deadline to a soft deleted matter', function () {
         name: 'Hạn nộp án phí',
         dueDate: today()->addDays(2)->toDateString(),
     ))->toThrow(AuthorizationException::class);
+});
+
+/**
+ * Final review A-M3: MỘT luật người giữ mốc (`ChecksDeadlineHolder`) cho mọi đường ghi
+ * `responsible_user_id`, kể cả lúc tạo. Một trưởng phòng ngoài đội ngũ vẫn `update` được một vụ
+ * thường (matter.viewAny + matter.update) — cổng cũ cho qua; luật chung đòi người giữ mốc ở trong
+ * đội ngũ (bất biến R6 "mốc chưa xong nằm trong tay đội ngũ").
+ */
+it('refuses a responsible person outside the matter team even though they can write to the matter', function () {
+    $manager = User::factory()->withRole(Role::Manager)->create();
+
+    expect(Gate::forUser($manager)->allows('update', $this->matter))->toBeTrue();
+
+    expect(fn () => app(AddMatterDeadline::class)->handle(
+        matter: $this->matter,
+        actor: $this->lawyer,
+        name: 'Hạn kháng cáo',
+        dueDate: today()->addDays(2)->toDateString(),
+        responsible: $manager,
+    ))->toThrow(ValidationException::class);
+
+    $this->matter->addTeamMember($manager, MatterRole::Associate);
+
+    $deadline = app(AddMatterDeadline::class)->handle(
+        matter: $this->matter,
+        actor: $this->lawyer,
+        name: 'Hạn kháng cáo',
+        dueDate: today()->addDays(2)->toDateString(),
+        responsible: $manager,
+    );
+
+    expect($deadline->responsible_user_id)->toBe($manager->id);
 });

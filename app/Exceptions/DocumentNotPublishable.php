@@ -96,4 +96,14 @@ class DocumentNotPublishable extends DomainException
     {
         return new self(__('documents.publish.missing'));
     }
+
+    /**
+     * Kiểm tra optimistic (vòng sửa 1 Task 16). Ai đó đã công bố lại tài liệu này (đổi ít nhất
+     * một trong hai cờ khách hàng) SAU khi hộp thoại này đã mở, và người đang bấm xác nhận không
+     * hề thấy giá trị mới đó. Xem docblock `PublishDocument` cho tình huống "hai tab" đầy đủ.
+     */
+    public static function staleForm(Document $document): self
+    {
+        return new self(__('documents.publish.stale_form'), $document);
+    }
 }

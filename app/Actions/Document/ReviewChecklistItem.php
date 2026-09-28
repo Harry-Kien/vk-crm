@@ -4,11 +4,15 @@ namespace App\Actions\Document;
 
 use App\Actions\Document\Concerns\OpensChecklistItem;
 use App\Enums\ChecklistItemStatus;
+use App\Enums\DocumentGroup;
 use App\Events\ChecklistItemRejected;
 use App\Exceptions\ChecklistItemNotReviewable;
+use App\Filament\Portal\Pages\MatterProgress;
+use App\Models\Document;
 use App\Models\MatterChecklistItem;
 use App\Models\User;
 use App\Support\Audit;
+use App\Support\Scopes\ClientPortalScope;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -57,6 +61,24 @@ use Illuminate\Validation\ValidationException;
  * Giá phải trả, nói thẳng: mọi caller của Action này BẮT BUỘC phải bắt `DomainException` (ràng
  * buộc toàn cục của kế hoạch M4), vì một `DomainException` không được bắt là một lỗi 500, không
  * phải một trang 403.
+ *
+ * **R11 (M6.5 Task 17, checklist-04) — duyệt gắn với đúng những tệp người duyệt đã THẤY.**
+ * `$documentIds` là tập id tài liệu mà hộp xác nhận đã hiện ra lúc người duyệt MỞ nó
+ * ({@see self::currentDocumentIds()}, gọi từ `ChecklistRelationManager` để dựng cả danh sách lẫn
+ * ô ẩn mang tập id đó). Giữa lúc mở hộp và lúc bấm lưu, khách hoàn toàn có thể gửi thêm một tệp
+ * (checklist-03 làm chuyện đó dễ hơn hẳn: một CCCD hai mặt giờ đi trong một lần, nhưng trang 3
+ * riêng vẫn là một lần nộp riêng) hoặc gửi lại sau khi văn phòng vừa từ chối xong ở một tab khác
+ * — cả hai đều đổi tập tài liệu "mới nhất" của đầu mục mà không đổi trạng thái `pending_review`
+ * đủ để cổng trạng thái ở trên bắt được. `handle()` đọc lại tập đó DƯỚI KHOÁ, ngay cạnh lần đọc
+ * lại đầu mục, và so với `$documentIds` — khác nhau thì từ chối bằng
+ * {@see ChecklistItemNotReviewable::documentsChanged()} trước khi ghi bất cứ gì.
+ *
+ * `$documentIds === null` nghĩa là "caller không quan sát tập tài liệu nào" — bỏ qua lần so sánh
+ * này, không phải mặc định coi là khớp. Đây là đường lùi có chủ đích cho những caller không phải
+ * màn hình (job, lệnh console, hoặc test ở tầng Action không dựng cả màn hình), nơi không có "hộp
+ * đã mở" nào để so — chứ KHÔNG phải một cách để màn hình bỏ qua luật này. `ChecklistRelationManager`
+ * — lối vào DUY NHẤT của việc duyệt trong hệ thống — luôn truyền tập id thật, kể cả tập rỗng (một
+ * đầu mục `missing` được duyệt "đã nhận" vì khách mang giấy ra tận nơi không có tài liệu nào cả).
  */
 class ReviewChecklistItem
 {
@@ -68,13 +90,18 @@ class ReviewChecklistItem
      */
     private const MIN_REJECTION_REASON_LENGTH = 20;
 
+    /**
+     * @param  array<int, int|string>|null  $documentIds  Tập id tài liệu hộp xác nhận đã hiện —
+     *                                                    xem docblock lớp, mục R11.
+     */
     public function handle(
         MatterChecklistItem $checklistItem,
         User $actor,
         ChecklistItemStatus $decision,
         ?string $rejectionReason = null,
+        ?array $documentIds = null,
     ): MatterChecklistItem {
-        return DB::transaction(function () use ($checklistItem, $actor, $decision, $rejectionReason): MatterChecklistItem {
+        return DB::transaction(function () use ($checklistItem, $actor, $decision, $rejectionReason, $documentIds): MatterChecklistItem {
             // Đọc lại bản ghi, giải hồ sơ, hỏi quyền — bốn bước, một chỗ, dùng chung với
             // `MarkChecklistItemNotApplicable`: xem `OpensChecklistItem`, nơi SPEC §10.10 cho
             // danh mục hồ sơ được phát biểu. (Bốn BƯỚC, năm điều kiện từ chối: bước 3 hỏi cả tài
@@ -84,6 +111,18 @@ class ReviewChecklistItem
             [$fresh, $matter] = $this->openChecklistItem($checklistItem, $actor);
 
             $this->guardDecisionAgainstState($fresh, $decision);
+
+            // R11 — xem docblock lớp. Đọc lại tập tài liệu HIỆN TẠI dưới cùng một khoá hàng mà
+            // `openChecklistItem()` vừa giữ trên `matter_checklist_items` (đầu mục KHÔNG đổi
+            // hàng khi có tài liệu mới, nên khoá đó không nối tiếp được một lần ghi vào
+            // `documents` — nhưng nó nối tiếp được với chính Action này: hai lần duyệt song song
+            // trên cùng đầu mục không thể cùng đọc "tập tài liệu hiện tại" rồi cùng qua cổng này
+            // nữa, vì lần thứ hai chỉ chạy sau khi lần thứ nhất đã COMMIT và đổi `reviewed_at`).
+            $currentDocumentIds = self::currentDocumentIds($fresh);
+
+            if ($documentIds !== null && self::sortedIds($documentIds) !== self::sortedIds($currentDocumentIds)) {
+                throw ChecklistItemNotReviewable::documentsChanged();
+            }
 
             $reason = $this->resolveRejectionReason($decision, $rejectionReason);
 
@@ -114,15 +153,78 @@ class ReviewChecklistItem
             // `LogsActivity`, nên đây là dấu vết DUY NHẤT của câu văn phòng đã nói với khách, và
             // một lần sửa lý do về sau ghi đè cột chứ không ghi đè dòng này. Chép nó vào đây
             // không làm lộ gì thêm: chính khách đã đọc câu đó.
+            // `document_ids` — R11: id các tài liệu đã duyệt, đúng tập mà lần hỏi ở trên vừa
+            // xác nhận là tập HIỆN TẠI (khớp `$documentIds` khi caller có truyền, hoặc chính
+            // `$currentDocumentIds` khi không — dòng nhật ký vẫn nêu đích danh tệp nào, kể cả
+            // với một caller không tự so sánh).
             Audit::record('checklist_item_reviewed', $fresh, [
                 'matter_id' => $fresh->matter_id,
                 'client_id' => $matter->client_id,
                 'status' => $decision->value,
                 'rejection_reason' => $reason,
+                'document_ids' => $currentDocumentIds,
             ], $actor);
 
             return $fresh;
         });
+    }
+
+    /**
+     * Tập id tài liệu "hiện tại" của một đầu mục — mọi tài liệu nhóm A (khách cung cấp, SPEC
+     * §4.11) mang đúng số `version` LỚN NHẤT trong chuỗi nộp lại của đầu mục đó. Cùng định nghĩa
+     * "bản mới nhất" mà {@see MatterProgress::documents()} dùng để vẽ
+     * khối "Tài liệu" của khách — R10 cho một version nhiều tài liệu (CCCD hai mặt), nên "hiện
+     * tại" là một TẬP, không phải một id.
+     *
+     * `withoutGlobalScope(ClientPortalScope::class)`, tường minh: đây là câu hỏi của VĂN PHÒNG
+     * ("tệp nào đang chờ tôi duyệt"), không phải câu hỏi của khách, và một nhân sự đang mở cả hai
+     * panel trong cùng trình duyệt (cookie phiên dùng chung — xem docblock `ClientPortalScope`)
+     * không được phép nhận một tập rỗng chỉ vì guard `client` cũng đang xác thực.
+     *
+     * Công khai và `static` vì `ChecklistRelationManager` gọi đúng hàm này để dựng cả danh sách
+     * tệp trong hộp duyệt lẫn ô ẩn mang tập id gửi ngược vào {@see self::handle()} — một nguồn sự
+     * thật duy nhất cho "hộp đang hiện gì", không phải luật viết lại lần thứ hai bên màn hình.
+     *
+     * @return array<int, int>
+     */
+    public static function currentDocumentIds(MatterChecklistItem $checklistItem): array
+    {
+        $latestVersion = Document::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->where('matter_id', $checklistItem->matter_id)
+            ->where('matter_checklist_item_id', $checklistItem->getKey())
+            ->where('group', DocumentGroup::ClientProvided->value)
+            ->max('version');
+
+        if ($latestVersion === null) {
+            return [];
+        }
+
+        return Document::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->where('matter_id', $checklistItem->matter_id)
+            ->where('matter_checklist_item_id', $checklistItem->getKey())
+            ->where('group', DocumentGroup::ClientProvided->value)
+            ->where('version', $latestVersion)
+            ->orderBy('id')
+            ->pluck('id')
+            ->all();
+    }
+
+    /**
+     * So hai tập id KHÔNG PHÂN BIỆT thứ tự — `$documentIds` mà `ChecklistRelationManager` gửi lên
+     * đi qua một ô ẩn của form (chuỗi JSON qua Livewire), còn `currentDocumentIds()` đọc thẳng từ
+     * cột `id` tăng dần; hai nguồn không có lý do gì phải cùng thứ tự, chỉ cần cùng TẬP.
+     *
+     * @param  array<int, int|string>  $ids
+     * @return list<int>
+     */
+    private static function sortedIds(array $ids): array
+    {
+        $normalized = array_map(fn (int|string $id): int => (int) $id, $ids);
+        sort($normalized);
+
+        return $normalized;
     }
 
     /**
@@ -211,6 +313,33 @@ class ReviewChecklistItem
                     'length' => $length,
                     'min' => self::MIN_REJECTION_REASON_LENGTH,
                 ])],
+            ]);
+        }
+
+        // checklist-06 (M6.5 Task 17). SPEC §6.7 in ba mẫu lý do NGUYÊN VĂN, và mẫu thứ ba
+        // ("Nộp nhầm tài liệu") mang cặp ngoặc vuông `[tên tài liệu đã nộp]`/`[tên đầu mục]` làm
+        // CHỖ TRỐNG cho người duyệt tự điền tay — không phải tham số của `__()` (xem docblock
+        // `lang/vi/checklist.php`, mục `rejection_templates`). `ChecklistRelationManager` tự
+        // điền `[tên đầu mục]` bằng tên thật của dòng đang mở, nhưng `[tên tài liệu đã nộp]` thì
+        // KHÔNG — màn hình không biết chắc khách đã gửi đúng tệp gì mà chỉ người duyệt vừa mở tệp
+        // ra mới biết, nên nó vẫn là một chỗ trống phải điền tay. Bấm mẫu rồi gửi ngay mà quên
+        // sửa (hoặc gõ tay để sót một cặp ngoặc) sẽ đưa nguyên văn `[tên …]` tới khách — đúng bug
+        // gốc mà finding checklist-06 tả. Chặn ở đây, sau ngưỡng độ dài: một câu đủ dài nhưng còn
+        // để sót chỗ trống vẫn là một câu không nói được gì với khách.
+        //
+        // Vòng sửa 1: chuẩn hoá về NFC TRƯỚC khi so — chuỗi nguồn `'[tên'` trong tệp PHP này là
+        // NFC (chữ `ê` một điểm mã `U+00EA`), nhưng một bàn phím/hệ điều hành khác có thể gõ ra
+        // NFD (`e` + dấu mũ tổ hợp `U+0302`, hai điểm mã) — hai chuỗi ĐỌC giống hệt nhau nhưng
+        // `str_contains()` so BYTE nên không khớp, và một câu còn nguyên chỗ trống `[tên đầu
+        // mục]` lọt qua cổng này tới thẳng khách. `\Normalizer` viết đủ tên — cùng lý do đã ghi ở
+        // `PortalLoginThrottle::foldEmail()`: `App\Support\Normalizer` là một lớp khác của dự án.
+        // Chuỗi vào không phải UTF-8 hợp lệ thì `normalize()` trả `false`; giữ nguyên `$reason` ở
+        // đó thay vì biến nó thành rỗng, cùng kỷ luật với `foldEmail()`.
+        $normalizedReason = \Normalizer::normalize($reason, \Normalizer::FORM_C);
+
+        if (str_contains(is_string($normalizedReason) ? $normalizedReason : $reason, '[tên')) {
+            throw ValidationException::withMessages([
+                'rejection_reason' => [__('checklist.review.reason_placeholder')],
             ]);
         }
 

@@ -11,6 +11,12 @@
     Chân thư dựng từ `App\Support\BrandFooter::legalLines()`: bốn thông tin pháp lý ở
     `config/vkcrm.php` CỐ Ý còn trống (chủ văn phòng chưa cung cấp), và chúng phải biến mất khỏi
     thư chứ không được để lại nhãn cụt đuôi hay dòng rỗng. Đọc docblock của lớp đó trước khi sửa.
+
+    Logo dựng từ `App\Support\PortalUrl::asset()`, KHÔNG phải `asset()` của Laravel (vòng sửa 1,
+    minor): `asset()` dựng URL theo request hiện tại, hay theo `APP_URL` khi không có request nào
+    (đúng ngữ cảnh `queue:work` — mọi thư của M6.5 Task 11 trở đi đều gửi từ một job hàng đợi).
+    Một thư CHO KHÁCH dựng ngay sau một request `/admin` có thể mang logo trỏ vào tên miền QUẢN
+    TRỊ nếu `APP_URL` trỏ về đó — cùng hình dạng lỗi mà `PortalUrl` đã sửa cho liên kết cổng.
 --}}
 @php
     /** @var array<string, mixed> $brand */
@@ -35,7 +41,7 @@
                         <table role="presentation" cellpadding="0" cellspacing="0" border="0">
                             <tr>
                                 <td style="padding-right:12px;" valign="middle">
-                                    <img src="{{ asset('brand/vk-mark-96.png') }}" width="48" height="48" alt="{{ __('emails.logo_alt') }}" style="display:block; width:48px; height:48px; border:0;">
+                                    <img src="{{ App\Support\PortalUrl::asset('brand/vk-mark-96.png') }}" width="48" height="48" alt="{{ __('emails.logo_alt') }}" style="display:block; width:48px; height:48px; border:0;">
                                 </td>
                                 <td valign="middle">
                                     <div style="color:#ffffff; font-family:'{{ $brand['font'] }}', Arial, sans-serif; font-size:16px; font-weight:700; line-height:20px;">{{ $brand['lockup']['entity'] }} {{ $brand['lockup']['name'] }}</div>

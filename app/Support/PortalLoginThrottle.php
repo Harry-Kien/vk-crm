@@ -55,6 +55,13 @@ use Illuminate\Support\Facades\RateLimiter;
  * một cửa sổ 5 lần mới cho mỗi email khác, không giới hạn số lần — tức chiều IP của SPEC §10.3
  * biến mất hoàn toàn.
  *
+ * **Ngoại lệ duy nhất, và nó không phải một lần đăng nhập:** `App\Actions\Portal\UnlockPortalLogin`
+ * (Task 7, phát hiện `portal/portal-4`) cho phép NHÂN SỰ xoá cả chiều địa chỉ mạng, nhưng chỉ khi
+ * đã tự tra lại nhật ký `login_failed` và xác nhận MỌI lần hỏng ghi nhận ở đúng địa chỉ đó, trong
+ * đúng cửa sổ còn hiệu lực, đều thuộc về CHÍNH tài khoản đang mở khoá — tức khi biết chắc địa chỉ
+ * đó không phải một NAT dùng chung. `clearKey()` bên dưới là chỗ duy nhất lớp này cho phép xoá một
+ * khoá IP tuỳ ý, và chỉ Action đó gọi tới.
+ *
  * # Cái giá của chiều IP, ghi ra vì nó có thật
  *
  * Khoá theo IP nghĩa là nhiều người sau cùng một đường truyền (văn phòng, wifi quán, mạng di
@@ -243,7 +250,20 @@ final class PortalLoginThrottle
     /** Chiều ĐỊA CHỈ MẠNG của bước nhập email + mật khẩu. */
     public static function passwordIpKey(): string
     {
-        return 'portal-login-ip:'.sha1(self::ip());
+        return self::passwordIpKeyFor(self::ip());
+    }
+
+    /**
+     * Task 7 (`App\Actions\Portal\UnlockPortalLogin`): biến thể nhận thẳng một địa chỉ mạng thay
+     * vì đọc `request()->ip()` của request hiện tại — nhân sự bấm "Mở khoá đăng nhập" không có
+     * request nào của khách để đọc, nhưng cần TRA lại xem chiều IP của địa chỉ đã gây ra lần khoá
+     * gần nhất (đọc từ chính dòng nhật ký `login_failed`) có còn khoá hay không, để câu trả lời
+     * không hứa suông. Cùng công thức khoá với `passwordIpKey()`, tách riêng để hai nơi gọi không
+     * lặp lại `'portal-login-ip:'.sha1(...)`.
+     */
+    public static function passwordIpKeyFor(string $ip): string
+    {
+        return 'portal-login-ip:'.sha1($ip);
     }
 
     /**
@@ -268,7 +288,13 @@ final class PortalLoginThrottle
     /** Chiều ĐỊA CHỈ MẠNG của bước nhập mã. */
     public static function codeIpKey(): string
     {
-        return 'portal-login-code-ip:'.sha1(self::ip());
+        return self::codeIpKeyFor(self::ip());
+    }
+
+    /** Biến thể nhận thẳng một địa chỉ mạng — cùng lý do với {@see self::passwordIpKeyFor()}. */
+    public static function codeIpKeyFor(string $ip): string
+    {
+        return 'portal-login-code-ip:'.sha1($ip);
     }
 
     /**
@@ -334,6 +360,34 @@ final class PortalLoginThrottle
     public static function clearCodeAccount(Authenticatable $user): void
     {
         RateLimiter::clear(self::codeAccountKey($user));
+    }
+
+    /**
+     * Task 7 (phát hiện `portal/portal-4`): "Mở khoá đăng nhập" nhân sự bấm thay mặt khách —
+     * xoá CẢ HAI chiều tài khoản (bước mật khẩu và bước mã) trong một lần gọi, khác với
+     * `clearPasswordAccount()`/`clearCodeAccount()` ở trên vốn chỉ chạy trên đường đăng nhập
+     * THÀNH CÔNG của chính khách. Chiều ĐỊA CHỈ MẠNG cố ý không đụng tới — cùng lý do đã ghi ở
+     * `clearPasswordAccount()`: một lần "đăng nhập lại được" do nhân sự thay mặt khách bấm không
+     * chứng minh gì về những lần hỏng của người khác trên cùng đường truyền. Xem
+     * `App\Actions\Portal\UnlockPortalLogin`, nơi gọi hàm này.
+     */
+    public static function clearAccountLocks(ClientUser $account): void
+    {
+        self::clearPasswordAccount($account->email);
+        self::clearCodeAccount($account);
+    }
+
+    /**
+     * Fix round 1 (I2): xoá MỘT khoá IP cụ thể (bước mật khẩu hoặc bước mã) — chỗ duy nhất lớp
+     * này cho một khoá địa chỉ mạng bị xoá theo yêu cầu, khác hẳn mọi hàm `clear*Account()` ở
+     * trên vốn chỉ đụng chiều tài khoản. Chỉ `UnlockPortalLogin::clearSafeIpDimensions()` gọi
+     * hàm này, và chỉ SAU KHI đã tự xác nhận mọi lần hỏng ghi nhận ở đúng địa chỉ đó đều thuộc về
+     * chính tài khoản đang mở khoá (không phải một NAT dùng chung) — xem docblock lớp ở trên và
+     * docblock của Action đó.
+     */
+    public static function clearKey(string $key): void
+    {
+        RateLimiter::clear($key);
     }
 
     /**

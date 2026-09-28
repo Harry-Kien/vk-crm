@@ -62,6 +62,11 @@ class UserPolicy
      * {@see EditUser::handleRecordUpdate()}, nơi TỰ SỬA
      * (khác tự XOÁ) vẫn được phép — admin duy nhất tự đổi chức danh hay tự tắt `is_active` không
      * bị chặn ở tầng nào khác, nên chỗ đó thật sự cần hỏi lại.
+     *
+     * **Tiền đề "chỉ admin có settings.manage" được ghim bằng test** (fix round 1, minor) —
+     * `RolesAndPermissionsTest.php`, "grants settings.manage to admin only, pinning the premise
+     * UserPolicy::delete() relies on". Nếu bảng quyền SPEC §5 từng đổi để một vai trò khác có
+     * `settings.manage`, test đó đỏ TRƯỚC KHI lập luận ở trên kịp âm thầm sai.
      */
     public function delete(User|ClientUser $user, User $model): bool|Response
     {

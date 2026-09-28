@@ -46,6 +46,8 @@ return [
             'is_published' => 'Hiện mốc này cho khách',
             'is_published_help' => 'Tắt thì mốc chỉ nằm trong văn phòng. Bật thì khách thấy trên cổng.',
             'is_published_disabled_hint' => 'Hồ sơ này chưa được công bố lên cổng khách hàng, nên chưa gửi mốc nào cho khách được.',
+            // M6.5 Task 14 (R14): xoá một mốc là xoá mềm kèm lý do bắt buộc.
+            'delete_reason' => 'Vì sao xoá mốc này',
         ],
 
         'actions' => [
@@ -63,6 +65,10 @@ return [
             'reopen_heading' => 'Mở lại mốc này?',
             'reopen_description' => 'Hệ thống nhắc lại mốc này như trước. Những lần nhắc đã gửi thì không gửi lại.',
             'reopen_success' => 'Đã mở lại mốc thời hạn.',
+            // M6.5 Task 14: người giữ mốc không còn hợp lệ nên lần mở lại giao mốc cho luật sư
+            // phụ trách hồ sơ — xem docblock App\Actions\Deadline\SetDeadlineCompletion.
+            'reopen_reassigned_title' => 'Mốc đã được giao cho :name',
+            'reopen_reassigned_body' => 'Người phụ trách trước không còn giữ được mốc này (đã nghỉ việc, bị vô hiệu hoá, không còn trong đội ngũ hoặc không còn xem được hồ sơ), nên mốc chuyển cho luật sư phụ trách hồ sơ. Muốn giao cho người khác, dùng nút "Đổi người phụ trách".',
 
             'publish' => 'Gửi cho khách',
             'publish_heading' => 'Hiện mốc này trên cổng khách hàng?',
@@ -73,6 +79,26 @@ return [
             'unpublish_heading' => 'Gỡ mốc này khỏi cổng khách hàng?',
             'unpublish_description' => 'Khách sẽ không còn thấy mốc này. Mốc vẫn nằm trong hồ sơ của văn phòng.',
             'unpublish_success' => 'Đã gỡ mốc khỏi cổng khách hàng.',
+
+            // Fix round 1, CRITICAL — App\Actions\Deadline\ChangeDeadlineResponsible: đường ghi
+            // thứ hai vào responsible_user_id, sau khi mốc đã tạo. Không có nút này thì một
+            // người không phải lead còn đứng tên mốc chưa xong không bao giờ nghỉ việc được.
+            'change_responsible' => 'Đổi người phụ trách',
+            'change_responsible_heading' => 'Chuyển mốc này cho ai?',
+            'change_responsible_submit' => 'Lưu',
+            'change_responsible_success' => 'Đã đổi người phụ trách.',
+
+            // M6.5 Task 14 (`deadlines/F7`) — trước bản sửa này, phiên toà hoãn không sửa được
+            // ngày: cách duy nhất là đánh dấu "hoàn thành" sai sự thật rồi thêm mốc mới.
+            'edit' => 'Sửa',
+            'edit_heading' => 'Sửa mốc thời hạn',
+            'edit_submit' => 'Lưu',
+            'edit_success' => 'Đã lưu thay đổi.',
+
+            'delete' => 'Xoá',
+            'delete_heading' => 'Xoá mốc thời hạn này?',
+            'delete_description' => 'Mốc sẽ không còn hiện ở đâu và không được nhắc nữa. Ghi rõ lý do bên dưới.',
+            'delete_success' => 'Đã xoá mốc thời hạn.',
         ],
 
         /*
@@ -93,6 +119,15 @@ return [
         'name_too_long' => 'Nội dung mốc thời hạn tối đa :max ký tự.',
         'due_date_required' => 'Hãy chọn ngày đến hạn.',
         'responsible_cannot_open' => 'Người này không mở được hồ sơ, hoặc tài khoản đã ngừng hoạt động. Hãy chọn một người trong đội ngũ vụ việc.',
+        // Minor (fix round 2): mốc đã hoàn thành không còn "việc" nào để đổi người phụ trách nữa.
+        'already_completed' => 'Mốc này đã hoàn thành, không đổi người phụ trách được nữa. Hãy mở lại mốc (nút "Mở lại") trước, nếu thật sự cần đổi.',
+        // M6.5 Task 14 (carried từ rà soát Task 3): mở lại một mốc mà cả người giữ mốc lẫn luật
+        // sư phụ trách hồ sơ đều không còn giữ được — SetDeadlineCompletion không có ai để giao.
+        'reopen_without_holder' => 'Chưa mở lại được: người phụ trách mốc này và luật sư phụ trách hồ sơ đều không còn giữ được mốc (đã nghỉ việc, bị vô hiệu hoá, không còn trong đội ngũ hoặc không còn xem được hồ sơ). Hãy bàn giao hồ sơ cho một luật sư khác trước, rồi mở lại mốc.',
+        // M6.5 Task 14 fix round 1 (I1): form "Sửa" mở từ trước lần ghi gần nhất của người khác.
+        'stale_form' => 'Mốc này vừa được người khác sửa. Anh/chị mở lại để xem bản mới.',
+        // R14: gỡ một mốc là xoá mềm kèm lý do bắt buộc.
+        'delete_reason_required' => 'Hãy ghi vì sao xoá mốc này.',
     ],
 
     /*
@@ -104,25 +139,55 @@ return [
 
     /*
      * Mẫu thư `staff.deadline_reminder` (SPEC §9). Thư gửi NHÂN SỰ nên được phép mang mã hồ sơ và
-     * nói bằng ngôn ngữ nghề nghiệp — khác hẳn thư gửi khách. Tiêu đề đổi theo bậc, để người mở
-     * hộp thư lúc 7 giờ sáng phân biệt được "còn bảy ngày" với "đã quá hạn" mà không cần mở thư.
+     * nói bằng ngôn ngữ nghề nghiệp — khác hẳn thư gửi khách.
+     *
+     * M6.5 Task 12 (`deadlines/F3`): tiêu đề (và câu đầu thân thư) đọc theo SỐ NGÀY THẬT CÒN LẠI
+     * (`today()->diffInDays($deadline->due_date, false)`), KHÔNG theo con số của bậc nhắc
+     * (`$tierKey`). Trước bản sửa này, khoá tra là `subject.d14`/`d7`/`d3` — CHUỖI CỐ ĐỊNH không
+     * có tham số `:days` — nên một mốc `critical` xen giữa hai bậc (rất thường: luật sư ghi hạn
+     * vào một ngày bất kỳ, không đúng lúc còn 14/7/3 ngày tròn) nhận tiêu đề ghi NHIỀU thời gian
+     * hơn thực tế (còn 10 ngày mà tiêu đề "Còn 14 ngày"). Ba khoá dưới đây thay thế NĂM khoá cũ
+     * (`d14`/`d7`/`d3`/`d1`/`overdue`), phân biệt theo DẤU của số ngày còn lại — không theo bậc —
+     * nên áp dụng cho MỌI bậc như nhau: `upcoming` (còn > 0 ngày), `due_today` (đúng 0 ngày — câu
+     * riêng "Hết hạn hôm nay", KHÔNG viết "Còn 0 ngày": không ai nói "còn 0 ngày nữa"), `overdue`
+     * (< 0 ngày, mang trị tuyệt đối của số ngày đã trôi qua hạn).
      */
     'email' => [
         'subject' => [
-            'd14' => 'Còn 14 ngày: :name (:code)',
-            'd7' => 'Còn 7 ngày: :name (:code)',
-            'd3' => 'Còn 3 ngày: :name (:code)',
-            'd1' => 'Sắp hết hạn: :name (:code)',
-            'overdue' => 'ĐÃ QUÁ HẠN: :name (:code)',
+            'upcoming' => 'Còn :days ngày: :name (:code)',
+            'due_today' => 'Hết hạn hôm nay: :name (:code)',
+            'overdue' => 'Đã quá hạn :days ngày: :name (:code)',
         ],
         'greeting' => 'Kính gửi :name,',
         'headline' => [
             'upcoming' => 'Còn :days ngày nữa là tới hạn.',
+            'due_today' => 'Hết hạn hôm nay.',
             'overdue' => 'Mốc này đã quá hạn :days ngày.',
         ],
         'due' => 'Hạn: :date',
         'matter' => 'Hồ sơ: :code — :title',
         'action' => 'Anh/chị mở hồ sơ trên hệ thống để xem chi tiết và đánh dấu đã xong khi hoàn tất.',
         'salutation' => ':office',
+    ],
+
+    /*
+     * M6.5 Task 11, vòng sửa 1 (C1): thông báo trong ứng dụng khi job gửi thư nhắc mốc thất bại
+     * HẲN (hết mọi lượt thử) — xem docblock `App\Jobs\SendDeadlineReminderMail::failed()`.
+     */
+    'reminder_failed_notification' => [
+        'title' => 'Không gửi được thư nhắc mốc thời hạn',
+        'body' => 'Đã thử lại nhiều lần nhưng không gửi được thư nhắc bậc :tier cho mốc ":name" (hồ sơ :code). Cần kiểm tra thủ công.',
+    ],
+
+    /*
+     * M6.5 Task 14 (`deadlines/F6`, `spec-gap-05`): SPEC §6.8 phân biệt bậc 7/3/1 là "Email" và
+     * bậc quá hạn là "Đánh dấu quá hạn, TẠO THÔNG BÁO CẢNH BÁO" — trước bản sửa này chỉ có email.
+     * Xem docblock `App\Actions\Schedule\CheckDeadlines` và
+     * `App\Notifications\Staff\DeadlineOverdueAlert` cho lý do thông báo này KHÔNG dựng bằng
+     * `Filament\Notifications\Notification` (App\Actions không được phụ thuộc Filament).
+     */
+    'overdue_notification' => [
+        'title' => 'Mốc thời hạn đã quá hạn',
+        'body' => 'Mốc ":name" (hồ sơ :code) đã quá hạn. Cần xử lý ngay.',
     ],
 ];

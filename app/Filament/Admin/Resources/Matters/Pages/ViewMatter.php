@@ -8,9 +8,13 @@ use App\Enums\Confidentiality;
 use App\Enums\Role as StaffRole;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Resources\Matters\MatterResource;
+use App\Filament\Admin\Resources\OutboundMessages\OutboundMessageResource;
 use App\Models\Matter;
+use App\Models\OutboundMessage;
 use App\Models\User;
 use Filament\Actions\Action;
+use Filament\Actions\EditAction;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
@@ -67,6 +71,13 @@ class ViewMatter extends ViewRecord
     {
         return [
             $this->reassignAction(),
+            $this->outboundMessagesAction(),
+            // Lối vào "Sửa vụ việc" (M6.5 Task 5, EditMatter). Cổng mặc định của EditAction là
+            // ability `update` trên model — đúng MatterPolicy::update() đã có, không cần khai báo
+            // lại. Đứng NGOÀI dataset của HeaderActionsAreReachableTest (chỉ xét trang List/Edit,
+            // xem docblock test đó) nên tên `edit` không phải khớp một phương thức policy tên
+            // `edit` — nó vẫn đi qua đúng ability `update`.
+            EditAction::make(),
             Action::make('togglePortalPublication')
                 ->label(fn (): string => $this->getRecord()->is_published_to_portal
                     ? __('matters.actions.unpublish_from_portal')
@@ -76,15 +87,27 @@ class ViewMatter extends ViewRecord
                     : Heroicon::OutlinedEye)
                 ->color(fn (): string => $this->getRecord()->is_published_to_portal ? 'gray' : 'success')
                 ->requiresConfirmation()
-                ->visible(fn (): bool => Gate::allows('update', $this->getRecord()))
-                ->action(function (): void {
-                    $record = $this->getRecord();
-
-                    app(SetMatterPortalPublication::class)->handle(
-                        matter: $record,
-                        publish: ! $record->is_published_to_portal,
+                // R5 (roles-05, M6.5 Task 10): 'setPortalPublication', không phải 'update' — xem
+                // MatterPolicy::setPortalPublication(). Action vẫn tự kiểm tra lại (không đổi ở
+                // đây), đây chỉ là ẩn nút đúng cho người không có quyền. Fix round 1 (ruling): nút
+                // này BẤM MỘT LẦN LÀ ĐẢO CHIỀU, nên chiều phải hỏi Gate là chiều NGƯỢC với trạng
+                // thái hiện tại (`! is_published_to_portal`) — đúng chiều mà `->action()` bên dưới
+                // sẽ thật sự gọi.
+                ->visible(fn (): bool => Gate::allows('setPortalPublication', [
+                    $this->getRecord(),
+                    ! $this->getRecord()->is_published_to_portal,
+                ]))
+                // Final review C-M1: chiều được CHỤP lúc mở hộp xác nhận — đúng câu người dùng đang
+                // đọc — chứ không tính lại lúc bấm "Xác nhận". Nếu trong lúc đó người khác đã đổi,
+                // Action từ chối (`MatterPortalPublicationChanged`) thay vì lật ngược lại.
+                ->schema([Hidden::make('publish')])
+                ->fillForm(fn (): array => ['publish' => ! $this->getRecord()->is_published_to_portal])
+                ->action(function (Action $action, array $data): void {
+                    $this->runAction($action, fn () => app(SetMatterPortalPublication::class)->handle(
+                        matter: $this->getRecord(),
+                        publish: (bool) ($data['publish'] ?? false),
                         actor: Auth::user(),
-                    );
+                    ));
 
                     Notification::make()
                         ->title(__('matters.actions.portal_publication_toggled'))
@@ -92,6 +115,40 @@ class ViewMatter extends ViewRecord
                         ->send();
                 }),
         ];
+    }
+
+    /**
+     * Liên kết "Thư đã gửi" (M6.5 Task 13, findings `notify-8`/`spec-gap-07`): mở
+     * `OutboundMessageResource` đã LỌC SẴN theo vụ việc này, qua bộ lọc `matter` mà
+     * `OutboundMessagesTable` đăng ký (`SelectFilter::make('matter')`).
+     *
+     * `->authorize()` tự hỏi lại `OutboundMessagePolicy::viewAny()` — đúng yêu cầu "Custom pages
+     * and actions check the policy themselves" của brief: một trợ lý không có `matter.view`
+     * (không có ở SPEC §5, nhưng phòng khi chức danh đổi) sẽ không thấy nút này. `matter` được
+     * gán tay trong bộ lọc bảng KHÔNG mở rộng những gì `OutboundMessageResource::
+     * getEloquentQuery()` đã cho `visibleTo()` lọc — `OutboundMessage::scopeForMatter()` chỉ thu
+     * hẹp THÊM bên trong tập đã lọc đó (xem docblock của scope này), nên nút này không phải một
+     * đường vòng qua quyền hiển thị.
+     *
+     * Khoá query string là `filters`, KHÔNG phải `tableFilters`: `ListRecords` (Filament) khai
+     * `#[Url(as: 'filters')] public ?array $tableFilters` — tên property Livewire và tên tham số
+     * trên URL lệch nhau, và một liên kết dùng nhầm tên thuộc tính sẽ lặng lẽ không lọc gì (không
+     * lỗi, chỉ mở ra một danh sách KHÔNG lọc — mà không lọc tức là mọi vụ việc `$user` xem được,
+     * không phải mất bảo mật vì `getEloquentQuery()` vẫn còn `visibleTo()`, nhưng làm sai đúng
+     * hành vi "lọc sẵn theo vụ" brief đòi).
+     */
+    private function outboundMessagesAction(): Action
+    {
+        return Action::make('outboundMessages')
+            ->label(__('outbound.matter_tab.label'))
+            ->icon(Heroicon::OutlinedPaperAirplane)
+            ->color('gray')
+            ->authorize(fn (): bool => Gate::allows('viewAny', OutboundMessage::class))
+            ->url(fn (): string => OutboundMessageResource::getUrl('index', [
+                'filters' => [
+                    'matter' => ['value' => $this->getRecord()->getKey()],
+                ],
+            ], panel: 'admin'));
     }
 
     /**
@@ -134,15 +191,46 @@ class ViewMatter extends ViewRecord
                     ->label(__('reassign.fields.reason'))
                     ->rows(3)
                     ->required()
+                    // Fix round 1 (minor): stage_logs.internal_note là cột TEXT (tối đa 65,535
+                    // byte), không phải không giới hạn — reason.stage_log.internal_note còn ghép
+                    // thêm tên hai người và câu khung quanh $reason (xem lang/vi/reassign.php).
+                    // 5.000 ký tự là mức trần CHỦ ĐỘNG, không phải mức tối đa kỹ thuật của cột:
+                    // đủ dài cho một lý do bàn giao thật, và chừa hẳn khoảng trống cho phần khung
+                    // câu lẫn tiếng Việt nhiều byte (utf8mb4).
+                    ->maxLength(5000)
                     ->columnSpanFull(),
             ])
             ->action(function (Action $action, array $data): void {
+                $matter = $this->getRecord();
+                $wasPublishedToPortal = $matter->is_published_to_portal;
+
                 $this->runAction($action, fn () => $this->submitReassign($data));
 
                 Notification::make()
                     ->title(__('reassign.action.success'))
                     ->success()
                     ->send();
+
+                // Spec gap (fix round 1) — SPEC §6.11 bước 4: một GỢI Ý trên giao diện, KHÔNG BAO
+                // GIỜ tự soạn hay tự gửi (xem docblock lớp `ReassignMatter`, mục "Deferred"). Chỉ
+                // có nghĩa khi khách ĐÃ thấy được vụ việc này trên cổng.
+                if ($wasPublishedToPortal) {
+                    Notification::make()
+                        ->title(__('reassign.action.suggest_introduction_title'))
+                        ->body(__('reassign.action.suggest_introduction_body'))
+                        ->info()
+                        ->persistent()
+                        ->send();
+                }
+
+                // Minor (fix round 1): một vụ `restricted` mà lead cũ TỰ bàn giao và không được
+                // giữ lại làm associate (công tắc đó bị ẩn trên vụ hạn chế) khiến chính người đang
+                // đứng trên trang này mất quyền xem nó ngay lập tức. Ở lại là một trang 404 chờ
+                // sẵn ở lần re-render kế tiếp; điều hướng về danh sách vụ việc thay vì để họ tự
+                // khám phá ra điều đó.
+                if (Gate::forUser(Auth::user())->denies('view', $matter->fresh())) {
+                    $this->redirect(MatterResource::getUrl('index', panel: 'admin'));
+                }
             });
     }
 

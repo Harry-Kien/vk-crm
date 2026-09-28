@@ -2,6 +2,7 @@
 
 namespace App\Filament\Portal\Auth;
 
+use App\Support\Audit;
 use Closure;
 use Filament\Actions\Action;
 use Filament\Auth\MultiFactor\Email\Contracts\HasEmailAuthentication;
@@ -12,7 +13,9 @@ use Filament\Schemas\Components\Component;
 use Filament\Schemas\Components\Text;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Log;
 use SensitiveParameter;
+use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 
 /**
  * Ô nhập mã 6 số của cổng khách hàng (SPEC §8.1), dựng trên bộ MFA có sẵn của Filament 5.
@@ -53,6 +56,20 @@ use SensitiveParameter;
  * dựng cho một `$user` mà `Login::authenticate()` đã xác thực xong. Bước nhập email + mật khẩu
  * giữ nguyên câu chung chung của Filament, nên không câu nào ở đây tiết lộ một tài khoản có tồn
  * tại hay không.
+ *
+ * # Nhật ký của bước mã (Fix round 1, I2)
+ *
+ * `Login::isMultiFactorChallengeRateLimited()` đập bộ đếm CỦA BƯỚC MÃ ở MỌI lần gửi mã (kể cả lần
+ * đúng — xem `PortalMultiFactorChallenge`), nhưng trước bản sửa này không dòng nhật ký
+ * `login_failed` nào được ghi cho một lần gõ sai mã. Hệ quả: `App\Actions\Portal\UnlockPortalLogin`
+ * không có gì để đọc khi tra "địa chỉ nào gây ra lần khoá bước mã", nên nó im lặng coi như không
+ * ai gõ sai — nhân sự bấm "Mở khoá đăng nhập" nhận được câu "đăng nhập lại được ngay" trong khi
+ * chiều IP của bước mã vẫn còn khoá.
+ *
+ * `auditCodeFailure()` bên dưới ghi đúng một dòng cho MỖI lần rule này gọi `$fail()` — cả hai
+ * nhánh (mã hết hạn/đã dùng, và mã gõ sai) — với `step = 'code'`, để phân biệt với dòng
+ * `step = 'password'` mà `Login::auditFailedLogin()` ghi. Đúng một dòng cho mỗi lần `$fail()`,
+ * khớp 1-1 với đúng một lần `hitRateLimiter()` đã đập bộ đếm cho lần gửi đó.
  */
 class PortalEmailAuthentication extends EmailAuthentication
 {
@@ -107,11 +124,40 @@ class PortalEmailAuthentication extends EmailAuthentication
                 ->validationAttribute(__('portal.login.code.validation_attribute'))
                 ->belowContent([
                     Text::make(__('portal.login.code.hint')),
+                    /**
+                     * Fix round 1 (C1, critical, phát hiện "portal resend-code path can still 500
+                     * during a mail outage"). Đây là lời gọi `sendCode()` THỨ HAI của lớp này —
+                     * `beforeChallenge()` ở trên là lời gọi đầu, chạy BÊN TRONG
+                     * `Filament\Auth\Pages\Login::authenticate()` nên được
+                     * `App\Filament\Portal\Pages\Auth\Login::authenticate()` bắt hộ. Nút này thì
+                     * KHÔNG: nó là một action Livewire RIÊNG, khách bấm SAU KHI đã ở màn hình
+                     * nhập mã (`authenticate()` đã trả về từ lâu), nên một transport hỏng ở đây
+                     * ném thẳng ra ngoài, không ai bắt — đúng nhánh 500 mà bản sửa round 1 lấp.
+                     *
+                     * Không đập bộ đếm nào trong nhánh bắt được: đây là máy chủ thư hỏng, không
+                     * phải một lần thử gõ mã sai — cùng nguyên tắc đã áp cho
+                     * `Login::authenticate()`.
+                     */
                     Action::make('resend')
                         ->label(__('portal.login.code.resend'))
                         ->link()
                         ->action(function () use ($user): void {
-                            if (! $this->sendCode($user)) {
+                            try {
+                                $sent = $this->sendCode($user);
+                            } catch (TransportExceptionInterface $exception) {
+                                Log::error('Không gửi lại được mã OTP đăng nhập cổng khách hàng: máy chủ thư lỗi.', [
+                                    'exception' => $exception,
+                                ]);
+
+                                Notification::make()
+                                    ->title(__('portal.login.code.send_failed'))
+                                    ->danger()
+                                    ->send();
+
+                                return;
+                            }
+
+                            if (! $sent) {
                                 Notification::make()
                                     ->title(__('portal.login.code.resend_throttled'))
                                     ->danger()
@@ -129,15 +175,36 @@ class PortalEmailAuthentication extends EmailAuthentication
                 ->required()
                 ->rule(fn (): Closure => function (string $attribute, #[SensitiveParameter] $value, Closure $fail) use ($user): void {
                     if ($this->isCodeUnusable($user)) {
+                        $this->auditCodeFailure($user);
                         $fail(__('portal.login.code.expired'));
 
                         return;
                     }
 
                     if (! (is_string($value) && $this->verifyCode($value, $user))) {
+                        $this->auditCodeFailure($user);
                         $fail(__('portal.login.code.invalid'));
                     }
                 }),
         ];
+    }
+
+    /**
+     * Fix round 1 (I2) — xem docblock lớp. `$user` khai kiểu `Authenticatable` ở chữ ký của
+     * `getChallengeFormComponents()`; canh lại `instanceof Model` ở đây vì `Audit::record()` đòi
+     * `?Model` cho cả `$subject` lẫn `$causer` — `App\Models\ClientUser` luôn thoả cả hai, nhánh
+     * `else` chỉ là lưới an toàn cho một `Authenticatable` không phải Eloquent trong tương lai.
+     */
+    private function auditCodeFailure(Authenticatable $user): void
+    {
+        if (! $user instanceof Model) {
+            return;
+        }
+
+        Audit::record('login_failed', $user, [
+            'guard' => 'client',
+            'step' => 'code',
+            'ip' => request()->ip(),
+        ], $user);
     }
 }

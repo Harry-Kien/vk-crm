@@ -6,6 +6,7 @@ use App\Enums\Permission;
 use App\Models\ClientUser;
 use App\Models\MatterType;
 use App\Models\User;
+use Illuminate\Auth\Access\Response;
 
 /**
  * Nhãn giai đoạn/loại vụ việc: ai cũng đọc được (portal cần hiển thị), chỉ `settings.manage`
@@ -54,10 +55,64 @@ class MatterTypePolicy
      * vỡ mà luật này đóng. Giá phải trả được nói thẳng: một loại đã từng có hồ sơ thì không xoá
      * được nữa, chỉ tắt `is_active` — với một văn phòng luật thì đó là hành vi đúng, vì cấu hình
      * mà một hồ sơ cũ trỏ vào là một phần của hồ sơ ấy.
+     *
+     * **Trả `Response::deny()` kèm số hồ sơ (Task 19), không `bool` trần** — cùng kỹ thuật
+     * `ClientPolicy::delete()`: `authorizeIndividualRecords('delete')` của `MatterTypesTable` đọc
+     * đúng thông điệp này để hiện lý do khi bulk-delete bỏ qua một dòng, thay vì một notification
+     * chung chung "một số bản ghi không xoá được".
      */
-    public function delete(User|ClientUser $user, MatterType $matterType): bool
+    public function delete(User|ClientUser $user, MatterType $matterType): bool|Response
     {
-        return $this->create($user)
-            && ! $matterType->matters()->withTrashed()->exists();
+        if (! $this->create($user)) {
+            return false;
+        }
+
+        $matterCount = $matterType->matters()->withTrashed()->count();
+
+        if ($matterCount > 0) {
+            return Response::deny(__('matter_types.delete_blocked_in_use', ['count' => $matterCount]));
+        }
+
+        return true;
+    }
+
+    /**
+     * Task 19 (rà soát cuối, "Cấu hình không phá dữ liệu đang chạy" — C1-class bulk-action hole):
+     * `MatterTypesTable` không có `authorizeIndividualRecords()` gắn với các nút xoá/khôi phục/xoá
+     * vĩnh viễn hàng loạt, và KHÔNG policy nào của model này định nghĩa `deleteAny`/`restoreAny`/
+     * `forceDeleteAny` — Filament (không ở chế độ nghiêm ngặt) coi một ability không có phương
+     * thức tương ứng là CHO PHÉP, nên trước bản vá này bất kỳ ai mở được trang danh sách đều bấm
+     * xoá hàng loạt trót lọt, bỏ qua cả luật `settings.manage` lẫn luật "không còn hồ sơ nào dùng"
+     * của {@see self::delete()}. Bốn phương thức dưới đây chỉ là CỔNG THÔ (nút có bấm được không);
+     * luật thật cho TỪNG bản ghi vẫn ở {@see self::delete()}, và `MatterTypesTable` phải gọi
+     * `->authorizeIndividualRecords('delete')` để mỗi dòng đi qua đúng đó trước khi bị xoá.
+     */
+    public function deleteAny(User|ClientUser $user): bool
+    {
+        return $this->create($user);
+    }
+
+    /** Không có luật riêng cho khôi phục (chiều ngược của {@see self::delete()}): còn settings.manage là khôi phục được. */
+    public function restore(User|ClientUser $user, MatterType $matterType): bool
+    {
+        return $this->create($user);
+    }
+
+    /** Cổng thô của `RestoreBulkAction` — cùng lý do {@see self::deleteAny()}. */
+    public function restoreAny(User|ClientUser $user): bool
+    {
+        return $this->create($user);
+    }
+
+    /** Không ai xoá vĩnh viễn một loại vụ việc được: đó là cấu hình mà hồ sơ cũ có thể vẫn trỏ vào. */
+    public function forceDelete(User|ClientUser $user, MatterType $matterType): bool
+    {
+        return false;
+    }
+
+    /** Cổng thô của `ForceDeleteBulkAction` — cùng lý do {@see self::deleteAny()}, luôn từ chối. */
+    public function forceDeleteAny(User|ClientUser $user): bool
+    {
+        return false;
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Providers\Filament;
 
+use App\Filament\Admin\Pages\Auth\EditProfile;
 use App\Filament\AvatarProviders\InitialsAvatarProvider;
 use App\Http\Middleware\AnswerDeniedPanelRequestsWithNotFound;
 use Filament\Http\Middleware\Authenticate;
@@ -43,6 +44,25 @@ class AdminPanelProvider extends PanelProvider
             ->authGuard('web')
             ->authPasswordBroker('users')
             ->login()
+            /*
+             * Task 20 (SPEC §10.6, phát hiện "nhân sự không có chỗ nào tự đổi mật khẩu"): trang hồ
+             * sơ cá nhân, kế thừa gần như nguyên bản của Filament — tên, mật khẩu mới + xác nhận,
+             * và một ô "mật khẩu hiện tại" chỉ hiện/bắt buộc khi mật khẩu hoặc email đổi
+             * (`EditProfile::getCurrentPasswordFormComponent()` — `->currentPassword()` tự xác
+             * thực bằng `Hash::check()` trên guard hiện hành).
+             *
+             * Fix round 1 (ruling "the staff profile page"): `App\Filament\Admin\Pages\Auth\EditProfile`
+             * — MỘT lớp con nhỏ, không còn dùng thẳng `Filament\Auth\Pages\EditProfile` — khoá ô
+             * email thành chỉ đọc. Đọc docblock của lớp đó cho lý do đầy đủ (bản mặc định của
+             * Filament cho nhân sự tự đổi email đăng nhập mà không xác minh lại).
+             *
+             * KHÔNG bật `->multiFactorAuthentication()` cho panel này (khác `PortalPanelProvider`),
+             * nên `EditProfile::getMultiFactorAuthenticationContentComponent()` trả về `null` —
+             * trang không vẽ khối 2FA nào, và vì vậy không có nút tắt 2FA nào để lo: M8 sẽ bật
+             * 2FA bắt buộc cho nhân sự, và quyết định của chủ nhiệm là không dựng gì giả định 2FA
+             * tắt được trước khi M8 tới.
+             */
+            ->profile(EditProfile::class)
             ->brandName(__('panels.admin.brand'))
             ->brandLogo(fn () => view('brand.logo'))
             ->brandLogoHeight('3rem')

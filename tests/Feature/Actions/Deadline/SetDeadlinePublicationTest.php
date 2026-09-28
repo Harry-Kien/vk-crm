@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Deadline\SetDeadlinePublication;
+use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Exceptions\MatterNotPublishedToPortal;
 use App\Models\ClientUser;
@@ -108,6 +109,37 @@ it('refuses an actor who cannot write to the matter', function () {
 
     expect(fn () => app(SetDeadlinePublication::class)->handle($this->deadline, true, $accountant))
         ->toThrow(AuthorizationException::class);
+
+    expect($this->deadline->fresh()->is_published)->toBeFalse();
+});
+
+/**
+ * R5 (roles-05, M6.5 Task 10): công bố một mốc hạn cho khách là cùng LOẠI quyết định với công bố
+ * cả vụ việc (SetMatterPortalPublication) — trợ lý có `matter.update` nhưng không có
+ * `stageLog.publish` nên không tự ý BẬT. Xem DeadlinePolicy::publish().
+ *
+ * Fix round 1 (ruling task-10-fix1-findings.md): CHỈ CHIỀU BẬT đòi `stageLog.publish` — GỠ (rút
+ * một mốc KHỎI cổng, chỉ THU HẸP những gì khách thấy) chỉ cần `matter.update`, cùng luật với
+ * `MatterPolicy::setPortalPublication()`.
+ */
+it('refuses an assistant without stageLog.publish from publishing a deadline', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $this->matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    expect(fn () => app(SetDeadlinePublication::class)->handle($this->deadline, true, $assistant))
+        ->toThrow(AuthorizationException::class);
+
+    expect($this->deadline->fresh()->is_published)->toBeFalse();
+});
+
+/** Cặp dương của test trên: GỠ chỉ cần `matter.update` — trợ lý làm được. */
+it('lets an assistant without stageLog.publish unpublish a deadline', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $this->matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    $this->deadline->update(['is_published' => true]);
+
+    app(SetDeadlinePublication::class)->handle($this->deadline->fresh(), false, $assistant);
 
     expect($this->deadline->fresh()->is_published)->toBeFalse();
 });

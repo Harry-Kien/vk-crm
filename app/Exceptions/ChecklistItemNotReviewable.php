@@ -104,4 +104,21 @@ class ChecklistItemNotReviewable extends DomainException
     {
         return new self(__('checklist.review.matter_unavailable'), $checklistItem);
     }
+
+    /**
+     * R11 (M6.5 Task 17, checklist-04): tập tài liệu mà hộp duyệt đã hiện khi mở ra KHÁC tập hiện
+     * tại — khách vừa gửi thêm (hoặc gửi lại) trong lúc người duyệt đang mở hộp, và quyết định
+     * sắp lưu (đã nhận / cần nộp lại) đang gắn vào một tệp không còn là tệp mới nhất.
+     *
+     * Đứng SAU `Gate` và SAU cổng trạng thái, cùng hạng với `nothingToReject()`: một câu về DỮ
+     * LIỆU đã đổi giữa lúc mở hộp và lúc bấm lưu, chỉ người đã có quyền trên hồ sơ mới được nghe.
+     *
+     * Không liệt kê tên tệp hay id trong câu — người đọc là nhân sự đang nhìn thẳng vào hộp vừa
+     * cũ đi, và việc CẦN LÀM là mở lại, không phải đọc một danh sách id vô nghĩa với họ. Id đầy
+     * đủ nằm trong dòng audit, cho một lần rà soát sau này cần tới nó.
+     */
+    public static function documentsChanged(): self
+    {
+        return new self(__('checklist.review.documents_changed'));
+    }
 }

@@ -264,6 +264,61 @@ class Document extends Model implements HasMedia
             && ! $this->trashed();
     }
 
+    /**
+     * "Tài liệu này đã từng được CÔNG BỐ cho khách chưa" — MỘT chỗ định nghĩa duy nhất cho đúng
+     * hai cột mà `PublishDocument` dùng để phân biệt "lần công bố đầu" với "công bố lại"
+     * (`status = published` CỘNG `client_can_view = true`). Trước vòng sửa 1 của Task 16,
+     * `PublishDocument` tính thẳng biểu thức này, còn `RegroupDocument` tính một biểu thức
+     * KHÁC (`status` thuộc `[signed_filed, published]`, thiếu điều kiện `client_can_view`) cho
+     * cùng một câu hỏi "tài liệu nhóm B này đã đi hết vòng đời chưa" — hai định nghĩa lệch nhau
+     * cho đúng một trường hợp có thật: một tài liệu `published` mà `client_can_view = false` (ví
+     * dụ vừa đi qua vòng D → B, xem hook `saving` phía trên — vào D hạ cờ, ra khỏi D không trả
+     * lại). `RegroupDocument` cũ sẽ coi tài liệu đó "đã đi hết vòng đời" dù nó KHÔNG còn hiện với
+     * khách, tức cho rời nhóm B mà không đòi chữ ký thật hay một lý do — đúng lỗ hổng vòng sửa 1
+     * chỉ ra. Nay cả hai Action gọi đúng một hàm này.
+     *
+     * **Final review X7 (C-I1) — câu "vòng đời" đã tách ra khỏi hàm này.** Phán quyết lượt rà soát
+     * cuối: một văn bản B `published` mà cờ xem đã tắt (vừa đi B → D → B) ĐÃ đi hết vòng đời — nó
+     * phải công bố lại được, và rời B không cần lý do sửa nhầm nhóm. Câu "đã đi hết vòng đời chưa"
+     * giờ là {@see self::hasClearedIssuedLifecycle()}; hàm này chỉ còn trả lời "đang/đã ra tới
+     * khách" cho kiểm tra optimistic và nhánh "công bố lại" của `PublishDocument`.
+     *
+     * KHÔNG trùng `isReleasedToPortal()`: hàm đó CÒN kèm `! group->isInternal()` và `! trashed()`
+     * — hai điều kiện mà cả hai caller của hàm này đều đã tự kiểm riêng (nhóm D chặn tuyệt đối ở
+     * `PublishDocument`; xoá mềm chặn ở cổng đầu của cả hai Action), nên lặp lại chúng ở đây sẽ
+     * làm một lời gọi trông như thừa.
+     */
+    public function wasPublishedToClient(): bool
+    {
+        return $this->status === DocumentStatus::Published && $this->client_can_view;
+    }
+
+    /**
+     * "Văn bản nhóm B này đã đi hết vòng đời chưa" (SPEC §4.11) — final review X7 (C-I1), MỘT định
+     * nghĩa cho cả `PublishDocument` (cổng vào `published` của nhóm B) lẫn `RegroupDocument` (cổng
+     * rời nhóm B sang A/C) và ô lý do của màn hình chuyển nhóm.
+     *
+     * `signed_filed`; HOẶC đang trong tầm mắt khách (`wasPublishedToClient()`); HOẶC `published` mà
+     * ĐÃ THẬT SỰ ra tới khách một lần (`published_at` có giá trị) dù cờ xem nay đã tắt. Vế cuối là
+     * cái mới, và khác `wasPublishedToClient()` có chủ ý: một văn bản B đã
+     * ký, đã công bố, rồi bị rút vào D (hook `saving` hạ `client_can_view`, giữ nguyên
+     * `published_at`) và đưa về B mang `status = published` với cờ xem tắt. Nó đã đi hết vòng đời —
+     * chữ ký và lần nộp không mất đi vì một lần rút — nên phải công bố lại được và rời B được mà
+     * không phải khai "sửa nhầm nhóm".
+     *
+     * Vế `published_at`: mọi đường thật đưa tài liệu ra tới khách (`PublishDocument`,
+     * `UploadStaffDocument`, `SubmitClientDocument`) đều ghi cột đó cùng lúc với `status`. Một lần
+     * ghi tay chỉ cột `status` (sửa CSDL, một màn hình quên đi qua Action) để lại `published_at`
+     * trống — và KHÔNG được thành lối tắt qua vòng đời nhóm B (`PublishDocumentTest`, "nhóm B bị
+     * ghi thẳng status=published…").
+     */
+    public function hasClearedIssuedLifecycle(): bool
+    {
+        return $this->status === DocumentStatus::SignedFiled
+            || $this->wasPublishedToClient()
+            || ($this->status === DocumentStatus::Published && $this->published_at !== null);
+    }
+
     public function matter(): BelongsTo
     {
         return $this->belongsTo(Matter::class);

@@ -293,6 +293,22 @@ class MatterProgress extends Page
         ];
     }
 
+    /**
+     * `summary_for_client` (SPEC §4.6 "Mô tả ngắn hiện trên portal") — finding `portal/portal-2`
+     * (M6.5 Task 5): nhân sự điền cột này ở form nội bộ với nhãn "Tóm tắt cho khách" và hiểu biết
+     * rằng khách đọc được, nhưng trước bản sửa này không màn hình cổng nào đọc nó. §8.3 không gọi
+     * tên cột này trong bảy khối, nên đặt ở khối 1 "Tình trạng hiện tại" — cạnh nhãn giai đoạn,
+     * đúng nơi văn phòng viết nó để mô tả TÌNH TRẠNG hiện tại bằng lời của chính mình, không phải
+     * bằng nhãn cấu hình sẵn của giai đoạn.
+     *
+     * `null` khi rỗng: view chỉ vẽ dòng này khi có nội dung (SPEC §8 — không vẽ một dòng trống ở
+     * khối nổi bật nhất màn hình).
+     */
+    public function summaryForClient(): ?string
+    {
+        return filled($this->matter()->summary_for_client) ? $this->matter()->summary_for_client : null;
+    }
+
     // -------------------------------------------------------------------------------------
     // Khối 2 — Việc anh/chị cần làm (CHỈ hiện khi có)
     // -------------------------------------------------------------------------------------
@@ -572,12 +588,18 @@ class MatterProgress extends Page
     /**
      * Nhãn dễ hiểu của giai đoạn một dòng chuyển tới.
      *
-     * `null` ở ba trường hợp, và view xử một cách như nhau: dòng không ghi giai đoạn đích, loại
-     * vụ việc không còn khai báo giai đoạn ấy, và **cả loại vụ việc đã bị xoá mềm** — trường hợp
-     * thứ ba là lý do `?->` sau `matterType`, không phải một thói quen. Một quản trị viên xoá một
-     * loại vụ việc làm quan hệ này trả `null` cho mọi hồ sơ đang đứng trong loại đó, và trước lần
-     * vá này thì đó là một trang 500 cho từng khách hàng liên quan. Chốt chặn phía ghi nằm ở
-     * `MatterTypePolicy::delete()`.
+     * `null` ở hai trường hợp, và view xử một cách như nhau: dòng không ghi giai đoạn đích, và
+     * **cả loại vụ việc đã bị xoá mềm** — trường hợp thứ hai là lý do `?->` sau `matterType`,
+     * không phải một thói quen. Một quản trị viên xoá một loại vụ việc làm quan hệ này trả `null`
+     * cho mọi hồ sơ đang đứng trong loại đó, và trước lần vá này thì đó là một trang 500 cho từng
+     * khách hàng liên quan. Chốt chặn phía ghi nằm ở `MatterTypePolicy::delete()`.
+     *
+     * **KHÔNG còn `null` khi chỉ MỘT GIAI ĐOẠN đã bị xoá mềm** (Task 19, vòng sửa 1 — Important):
+     * xoá mềm một giai đoạn mà chỉ LỊCH SỬ (`stage_logs`) còn dùng là hành vi ĐƯỢC PHÉP
+     * (`MatterTypeStagePolicy::delete()` không chặn lịch sử), nên trước đây khách đọc một dòng
+     * tiến độ CÓ THẬT nhưng không có nhãn nào — `stageIncludingTrashed()` (MatterType) tra thêm
+     * các dòng đã xoá mềm, dùng chung với `StageLogsRelationManager` (tab "Tiến độ" của admin) để
+     * hai màn hình không lệch nhau.
      */
     private function stageLabel(?string $key): ?string
     {
@@ -585,7 +607,7 @@ class MatterProgress extends Page
             return null;
         }
 
-        return $this->matter()->matterType?->stage($key)?->client_label;
+        return $this->matter()->matterType?->stageIncludingTrashed($key)?->client_label;
     }
 
     // -------------------------------------------------------------------------------------
@@ -622,7 +644,7 @@ class MatterProgress extends Page
     {
         $viewer = $this->viewer();
 
-        return $this->resolvedChecklist ??= ChecklistProgress::countClientFacingDocuments(
+        return $this->resolvedChecklist ??= ChecklistProgress::countClientSubmittedDocuments(
             $this->matter()->checklistItems()->getQuery()
         )->get()
             ->filter(fn (MatterChecklistItem $item): bool => Gate::forUser($viewer)->allows('view', $item))
@@ -703,9 +725,13 @@ class MatterProgress extends Page
      * `DocumentPolicy::view()` hỏi `Document::isReleasedToPortal()`, thứ đọc `group` trên chính
      * bản ghi. Xoá dòng lọc này thì `MatterProgressTest` đỏ.
      *
-     * **Chỉ bản mới nhất của mỗi chuỗi nộp lại** — xem bình luận trong thân hàm. Điều kiện này
-     * thêm ở Task 5 cùng lúc với màn hình nộp tệp, vì trước đó cổng không có đường nào sinh ra
-     * bản thứ hai; test đứng sau nó ở `SubmitDocumentTest`.
+     * **Mọi tệp của bản MỚI NHẤT mỗi chuỗi nộp lại** — xem bình luận trong thân hàm. Điều kiện
+     * này thêm ở Task 5 cùng lúc với màn hình nộp tệp, vì trước đó cổng không có đường nào sinh
+     * ra bản thứ hai; test đứng sau nó ở `SubmitDocumentTest`. R10 (M6.5 Task 17, checklist-03)
+     * đổi "giữ MỘT tài liệu" thành "giữ mọi tài liệu CÙNG version lớn nhất": một lần nộp giờ có
+     * thể gồm nhiều tệp (CCCD hai mặt) cùng một version, và luật cũ chỉ vẽ MỘT trong số chúng —
+     * đúng bug gốc, nơi mặt sau "che" mặt trước dù cả hai đứng CÙNG version, không phải hai
+     * version khác nhau.
      *
      * `id` được giữ lại trong hình chiếu: nó đã nằm sẵn trong đường tải trên chính trang, nên nó
      * không nói thêm điều gì — và nó là thứ `SubmitDocumentTest` đọc để phân biệt hai bản của một
@@ -724,51 +750,52 @@ class MatterProgress extends Page
         $visible = $this->matter()->documents()->get()
             ->filter(fn (Document $document): bool => Gate::forUser($viewer)->allows('view', $document));
 
-        // Chỉ bản MỚI NHẤT của mỗi chuỗi nộp lại (SPEC §6.6 bước 7) — thêm ở Task 5, vì trước
-        // Task 5 chưa có đường nào trên cổng sinh ra bản thứ hai. Một lần nộp lại tạo một
-        // `Document` MỚI và giữ nguyên bản cũ ("không ghi đè"), nên nếu không lọc thì khối này
-        // vẽ hai dòng cùng tên đầu mục, cùng ngày, và khách không có cách nào biết dòng nào là
-        // bản đang có hiệu lực — cái cũ lại chính là cái vừa bị văn phòng từ chối.
+        // Mọi tệp của bản MỚI NHẤT mỗi chuỗi nộp lại (SPEC §6.6 bước 7, R10) — thêm ở Task 5,
+        // đổi ở Task 17. Một lần nộp lại tạo (các) `Document` MỚI và giữ nguyên bản cũ ("không
+        // ghi đè"), nên nếu không lọc thì khối này vẽ nhiều dòng cùng tên đầu mục, cùng ngày, và
+        // khách không có cách nào biết dòng nào là bản đang có hiệu lực — cái cũ lại chính là
+        // cái vừa bị văn phòng từ chối.
         //
-        // **Luật: trong mỗi chuỗi, giữ bản có `version` LỚN NHẤT trong số những bản khách được
-        // xem.** Bản cũ của Task 5 nhận biết bản bị thay bằng `parent_document_id` của một bản
-        // ĐANG HIỂN THỊ, và bình luận cũ ở đây khẳng định cách ấy đứng vững khi chuỗi bị đứt.
-        // Nó không đứng vững, và rà soát Task 5 đã đo: bản 1 bị từ chối, bản 2 thay nó, bản 2
-        // bị xoá mềm, bản 3 nộp tiếp — `parent_document_id` của bản 3 trỏ vào bản 2 (chuỗi tra
-        // bằng `withTrashed()`), bản 2 không hiển thị, nên không ai trỏ vào bản 1 và trang vẽ ra
-        // bản 3 CÙNG bản 1. Đúng cái ca mà bình luận cũ nói nó xử được.
+        // **Luật: trong mỗi chuỗi, giữ MỌI bản mang `version` LỚN NHẤT trong số những bản khách
+        // được xem** — không còn "một bản duy nhất". Bản cũ của Task 5 nhận biết bản bị thay
+        // bằng `parent_document_id` của một bản ĐANG HIỂN THỊ, và bình luận cũ ở đây khẳng định
+        // cách ấy đứng vững khi chuỗi bị đứt. Nó không đứng vững, và rà soát Task 5 đã đo: bản 1
+        // bị từ chối, bản 2 thay nó, bản 2 bị xoá mềm, bản 3 nộp tiếp — `parent_document_id` của
+        // bản 3 trỏ vào bản 2 (chuỗi tra bằng `withTrashed()`), bản 2 không hiển thị, nên không
+        // ai trỏ vào bản 1 và trang vẽ ra bản 3 CÙNG bản 1. Đúng cái ca mà bình luận cũ nói nó
+        // xử được.
         //
         // Số `version` trả lời đúng ca đó vì nó là một con số ĐƠN ĐIỆU trong chuỗi và không bao
         // giờ được cấp lại: `latestInSubmissionChain()` tra bằng `withTrashed()` nên một bản đã
         // xoá mềm vẫn giữ số của mình. "Lớn nhất trong số bản khách được xem" vì thế đọc đúng cả
         // khi bản mới nhất KHÔNG lên cổng (nó ở nhóm khác): khi ấy bản mới nhất khách được xem
-        // chính là câu trả lời đúng cho "cái nào đang có hiệu lực với anh/chị".
+        // chính là câu trả lời đúng cho "cái nào đang có hiệu lực với anh/chị". Và vì R10 cho
+        // MỘT version nhiều tài liệu, "lớn nhất" giờ là một con số dùng để LỌC (giữ mọi bản có
+        // đúng version đó), không còn là một khoá để CHỌN một bản duy nhất.
         //
         // Chuỗi nhận biết bằng đầu mục danh mục + nhóm A, đúng định nghĩa mà
         // `StoresDocumentFile::latestInSubmissionChain()` dùng khi đánh số — tài liệu ngoài
         // chuỗi (nhóm B, C, hoặc không gắn đầu mục nào) không bao giờ bị lọc, vì chúng không bao
         // giờ mang `version` thứ hai. Không truy vấn thêm: mọi vế đọc từ cùng tập hợp đã gác
         // quyền ở trên.
-        //
-        // Tiêu chí phụ `id` cho hai bản cùng số `version`: trạng thái đó xuất hiện được (ai đó
-        // ghi thẳng vào cột, hoặc hai lần nộp song song trên một cơ sở dữ liệu mà
-        // `lockForUpdate()` không có tác dụng — `latestInSubmissionChain()` ghi lại đúng hai
-        // trường hợp ấy), và khi nó xuất hiện thì khối này vẫn phải vẽ đúng MỘT dòng.
-        // Nó SỐNG SÓT một lần đột biến (bỏ `id` ra khỏi khoá sắp xếp: không test nào đỏ) vì
-        // không fixture nào dựng hai bản cùng số — ghi lại ở đây để người sau không đo lại nó
-        // như một khoảng trống.
-        $current = $visible
+        $latestVersionByChain = $visible
             ->filter(fn (Document $document): bool => $this->belongsToASubmissionChain($document))
             ->groupBy('matter_checklist_item_id')
-            ->map(fn (Collection $chain): int => $chain
-                ->sortBy(fn (Document $document): array => [$document->version, $document->getKey()])
-                ->last()
-                ->getKey())
+            ->map(fn (Collection $chain): int => $chain->max('version'))
             ->all();
 
         return $this->resolvedDocuments = $visible
             ->reject(fn (Document $document): bool => $this->belongsToASubmissionChain($document)
-                && ! in_array($document->getKey(), $current, true))
+                && $document->version !== ($latestVersionByChain[$document->matter_checklist_item_id] ?? null))
+            // Sắp theo `id` TĂNG dần trước — tiêu chí PHỤ, để hai (hoặc nhiều) tài liệu cùng
+            // version của cùng một lần nộp (R10) giữ đúng thứ tự "mặt trước rồi mặt sau", theo
+            // đúng thứ tự chúng được TẠO ra. `published_at` của cả lô bằng nhau (cùng một
+            // transaction), nên một mình nó không phân định được gì giữa chúng.
+            ->sortBy(fn (Document $document): int => $document->getKey())
+            // Rồi sắp theo `published_at` GIẢM dần — tiêu chí CHÍNH. `sortByDesc` của Laravel là
+            // một sắp xếp ỔN ĐỊNH (PHP `uasort` từ 8.0), nên thứ tự phụ vừa đặt ở trên được GIỮ
+            // NGUYÊN giữa các phần tử có cùng `published_at`/`created_at` — đây là lý do hai lần
+            // sắp phải đứng ĐÚNG thứ tự này, không phải ngược lại.
             ->sortByDesc(fn (Document $document) => $document->published_at ?? $document->created_at)
             ->map(fn (Document $document): array => [
                 'id' => $document->getKey(),

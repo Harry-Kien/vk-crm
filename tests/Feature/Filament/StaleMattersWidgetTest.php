@@ -1,6 +1,9 @@
 <?php
 
 use App\Enums\Role;
+use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
+use App\Filament\Admin\Resources\Matters\RelationManagers\StageLogsRelationManager;
+use App\Filament\Admin\Widgets\MatterCountsWidget;
 use App\Filament\Admin\Widgets\StaleMattersWidget;
 use App\Models\Matter;
 use App\Models\User;
@@ -123,4 +126,53 @@ it('does not list a matter that was updated for the client recently', function (
 
     $this->livewire(StaleMattersWidget::class)
         ->assertCanNotSeeTableRecords([$recentlyUpdated]);
+});
+
+/**
+ * R8 end-to-end (M6.5 Task 5, findings stage-03/spec-gap-03): đi qua đúng đường luật sư dùng —
+ * bấm "Chuyển giai đoạn" (StageLogsRelationManager, action transitionStage) sang một giai đoạn
+ * `is_terminal` ('closed', tới được từ 'enforcement' theo StagePresets::civil()) — chứ không tự
+ * gán `closed_at` bằng tay. Trước bản sửa này, closed_at không bao giờ được ghi nên vụ này ở lại
+ * vĩnh viễn trong widget sau 14 ngày và ô "Đã kết thúc" luôn bằng 0; giờ vụ biến mất khỏi widget
+ * và ô đó tăng lên đúng một.
+ */
+it('drops a matter from the widget after it is transitioned into a terminal stage through the real screen', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+
+    $matter = Matter::factory()->atStage('enforcement')->create([
+        'lead_lawyer_id' => $lawyer->id,
+        'last_client_update_at' => now()->subDays(20),
+    ]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(StageLogsRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('transitionStage', data: [
+        'to_stage' => 'closed',
+        'occurred_at' => today()->toDateString(),
+        'internal_note' => 'Đã hoàn tất, đóng hồ sơ.',
+        'public_content' => null,
+        'next_step' => null,
+        'client_action' => null,
+        'expected_next_update_at' => null,
+        'publish' => false,
+    ]);
+
+    expect($matter->fresh()->closed_at)->not->toBeNull();
+
+    $this->travel(15)->days();
+
+    $this->livewire(StaleMattersWidget::class)
+        ->assertCanNotSeeTableRecords([$matter]);
+
+    $method = new ReflectionMethod(MatterCountsWidget::class, 'getStats');
+    $method->setAccessible(true);
+    $stats = [];
+    foreach ($method->invoke(new MatterCountsWidget) as $stat) {
+        $stats[(string) $stat->getLabel()] = (string) $stat->getValue();
+    }
+
+    expect($stats[__('widgets.matter_counts.closed')])->toBe('1');
 });

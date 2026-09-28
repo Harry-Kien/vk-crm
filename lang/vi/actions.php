@@ -25,6 +25,7 @@ return [
     ],
     'open_matter' => [
         'client_role_required' => 'Phải chọn vai của khách hàng (nguyên đơn/bị đơn/...) trong vụ việc này trước khi mở vụ việc — không có mặc định, vì mặc định sai sẽ khiến kiểm tra xung đột lợi ích bỏ sót mức đỏ.',
+        'client_role_opposing_counsel' => 'Khách hàng của văn phòng không thể mang vai "Luật sư đối phương" trong chính vụ việc mình đang là khách hàng.',
     ],
     'add_team_member' => [
         'lead_role_denied' => 'Không thể thêm ai vào đội ngũ với vai "Luật sư phụ trách" qua màn hình này — vai đó chỉ đổi được qua bàn giao vụ việc.',
@@ -44,6 +45,12 @@ return [
     // M6.5 Task 15 — cùng luật `ApplyChecklistTemplate` dùng để không tạo trùng khi áp lại một
     // mẫu: tên đầu mục là duy nhất trong một vụ việc, kể cả với đầu mục đã gỡ (xoá mềm).
     'add_checklist_item' => [
-        'duplicate_name' => 'Vụ việc này đã có một đầu mục tên như vậy, kể cả đầu mục đã gỡ khỏi danh mục. Anh/chị đặt tên khác cho rõ, hoặc mở lại đầu mục cũ nếu nó vẫn còn trong danh mục.',
+        'duplicate_name' => 'Vụ việc này đã có một đầu mục tên như vậy, kể cả đầu mục đã gỡ khỏi danh mục. Anh/chị đặt tên khác cho rõ, hoặc dùng lại đầu mục cũ nếu nó vẫn còn trong danh mục.',
+        'name_required' => 'Phải nhập tên đầu mục.',
+    ],
+    // M6.5 Task 5.
+    'cancel_matter' => [
+        'reason_required' => 'Phải nhập lý do huỷ hồ sơ.',
+        'already_cancelled' => 'Vụ việc này đã bị huỷ trước đó.',
     ],
 ];

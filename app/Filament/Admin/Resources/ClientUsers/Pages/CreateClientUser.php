@@ -29,6 +29,13 @@ class CreateClientUser extends CreateRecord
 
         Gate::authorize('create', [ClientUser::class, $client]);
 
+        // Task 7 (R12, phát hiện `intake/intake-05`): must_change_password LUÔN true khi tạo —
+        // không còn công tắc trên form (ClientUserForm đã gỡ Toggle này) để nhân sự tắt nó ngay
+        // lúc tạo. Ép lại ở đây, KHÔNG ĐỌC bất kỳ gì $data mang cho khoá này (kể cả khi có), cùng
+        // thành ngữ phòng thủ hai lớp đã dùng cho client_id ở trên: field không còn tồn tại thì
+        // đủ để chặn qua UI, còn dòng này chặn cả một request đã "chỉnh sửa tay".
+        $data['must_change_password'] = true;
+
         return $data;
     }
 }

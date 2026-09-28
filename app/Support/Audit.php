@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use Illuminate\Database\Eloquent\Model;
+use Spatie\Activitylog\Models\Activity;
 
 /**
  * Đầu mối ghi nhật ký có cấu trúc cho các sự kiện không phải là thay đổi thuộc tính model
@@ -42,10 +43,17 @@ use Illuminate\Database\Eloquent\Model;
  * `auth()` ambient — ví dụ actor được truyền từ một lệnh console, một job chạy lại, hay một
  * caller quên `actingAs` trong test), truyền actor đó vào đây để dòng nhật ký được gán đúng
  * người, thay vì suy luận (có thể sai, hoặc rỗng) từ phiên đăng nhập hiện tại.
+ *
+ * Return value (M6.5 Task 8, R13g / conflict-06): record() now returns the logged Activity (or
+ * null) instead of void. RunConflictCheck needs it — the conflict_check_run row it writes during
+ * OpenMatter's check phase is logged before the Matter exists, so its subject starts out empty;
+ * OpenMatter later re-points that exact row at the freshly-saved Matter, which requires holding
+ * on to the row's id. Every existing caller already discards the return value, so this is a
+ * behaviour-preserving widening, not a breaking change.
  */
 final class Audit
 {
-    public static function record(string $event, ?Model $subject = null, array $properties = [], ?Model $causer = null): void
+    public static function record(string $event, ?Model $subject = null, array $properties = [], ?Model $causer = null): ?Activity
     {
         $log = activity()->event($event)->withProperties($properties);
 
@@ -59,6 +67,21 @@ final class Audit
             $log->causedBy($causer);
         }
 
-        $log->log($event);
+        return $log->log($event);
+    }
+
+    /**
+     * Băm MỘT định danh (số CCCD, số điện thoại — đã bỏ ký tự không phải chữ số) để ghi vào
+     * `properties` của một dòng nhật ký (final review X8, C-I4). HMAC-SHA256 với `APP_KEY`, không
+     * phải `sha256` trần: định danh chỉ có 10–12 chữ số, nên một sha256 trần dò ngược được bằng
+     * vét cạn bởi bất kỳ ai đọc được bảng nhật ký. Cùng một số vẫn cho cùng một hash (đối chiếu
+     * được giữa các dòng) trong khi còn cùng `APP_KEY`.
+     *
+     * Chỉ dùng cho NHẬT KÝ. `matter_parties.id_number_hash` (so trùng xung đột, `Normalizer`) là
+     * một mối lo khác và không đổi ở đây.
+     */
+    public static function identifierHash(string $value): string
+    {
+        return hash_hmac('sha256', $value, (string) config('app.key'));
     }
 }

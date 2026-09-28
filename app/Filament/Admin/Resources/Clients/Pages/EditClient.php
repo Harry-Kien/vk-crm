@@ -6,9 +6,25 @@ use App\Filament\Admin\Resources\Clients\ClientResource;
 use Filament\Actions\DeleteAction;
 use Filament\Resources\Pages\EditRecord;
 
+/**
+ * **`hasDatabaseTransactions()` khoá cứng `false` (fix round 3, minor).** Panel admin không bật
+ * `databaseTransactions()` hôm nay, cùng hình dạng `CreateMatter` — nhưng lưu hồ sơ khách hàng ở
+ * đây gọi `$record->update()`, và `Client::updated()` gắn `SyncClientPartyIdentities::handle()`
+ * (M6.5 Task 8). Từ fix round 3, `handle()` đó dispatch một job `afterCommit()` — nếu
+ * `EditRecord::save()` một ngày nào đó chạy trong một transaction NGOÀI (panel bật
+ * `databaseTransactions()`), transaction của CHÍNH `handle()` trở thành một savepoint, và việc
+ * job có thật sự chạy hay không phụ thuộc vào transaction NGOÀI đó có commit hay không — một
+ * ràng buộc `SyncClientPartyIdentities` không kiểm soát được. Khoá cứng `false` ở đây để một thay
+ * đổi cấu hình panel sau này không âm thầm phá vỡ tính đúng đắn của việc dispatch sau commit.
+ */
 class EditClient extends EditRecord
 {
     protected static string $resource = ClientResource::class;
+
+    public function hasDatabaseTransactions(): bool
+    {
+        return false;
+    }
 
     /**
      * Chỉ `DeleteAction`. Khuôn mẫu `make:filament-resource` sinh thêm `ForceDeleteAction` và

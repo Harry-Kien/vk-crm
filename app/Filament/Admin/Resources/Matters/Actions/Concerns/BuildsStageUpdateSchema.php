@@ -2,19 +2,22 @@
 
 namespace App\Filament\Admin\Resources\Matters\Actions\Concerns;
 
+use App\Actions\Notification\NotifyClientOfStageUpdate;
 use App\Actions\TransitionMatterStage;
-use App\Exceptions\MatterNotPublishedToPortal;
 use App\Models\Matter;
 use Closure;
+use DomainException;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
+use Filament\Schemas\Components\Text;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\View;
 use Filament\Support\Enums\Size;
 use Filament\Support\Enums\Width;
+use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 
@@ -58,11 +61,33 @@ trait BuildsStageUpdateSchema
                         expectedNextUpdateAt: $data['expected_next_update_at'] ?: null,
                         publish: (bool) ($data['publish'] ?? false),
                     );
-                } catch (MatterNotPublishedToPortal $exception) {
-                    // Lớp phòng thủ thứ hai (fix round 1, finding 2): tắt/disable công tắc "publish"
-                    // khi vụ chưa bật portal (publishToggleField()) đã chặn đường chính, nên đây là
-                    // lưới an toàn cho một đường vào tương lai nào đó chưa lường trước — không để một
-                    // DomainException thoát ra khỏi modal thành lỗi 500 không thân thiện.
+                } catch (DomainException $exception) {
+                    // M6.5 Task 10, fix round 1 (C1, Critical): bắt CHUNG mọi `DomainException` mà
+                    // `TransitionMatterStage::handle()` có thể ném, không chỉ
+                    // `MatterNotPublishedToPortal` như bản trước. `MatterStageChanged` (stage-05:
+                    // giai đoạn đã đổi dưới chân người dùng — hai tab, bấm hai lần, hai người cùng
+                    // sửa một vụ việc) trước đây thoát thẳng ra ngoài `try/catch` này thành một
+                    // trang 500 không ai bắt (SPEC §10.10 cấm điều này) — đúng lỗ hổng "double-submit"
+                    // Review Focus 4 nói tới, chỉ khác là nó xảy ra ở màn hình, không phải ở Action
+                    // (Action đã tự đúng từ commit trước: nó NÉM lỗi thay vì âm thầm ghi sai).
+                    //
+                    // Bắt theo LỚP CHA thay vì liệt kê từng lớp con: đây chính là "lớp phòng thủ thứ
+                    // hai" `MatterNotPublishedToPortal` đã có từ trước (tắt/disable công tắc publish
+                    // đã chặn đường chính, đây là lưới an toàn) — cùng nguyên tắc, mở rộng cho MỌI
+                    // đường TransitionMatterStage từ chối bằng một DomainException, kể cả những
+                    // đường chưa lường trước sau này (ví dụ InvalidStageTransition lọt qua được nếu
+                    // ai đó forge request bỏ qua ràng buộc `in:` của Select `to_stage`).
+                    //
+                    // Thông điệp lấy THẲNG từ exception (không đổi thành một câu chung như
+                    // `actions.unauthorized`): mỗi lớp DomainException ở đây tự viết câu của mình
+                    // bằng lang/vi (xem MatterNotPublishedToPortal::make(), MatterStageChanged::make(),
+                    // InvalidStageTransition::make()), và với MatterStageChanged câu đó ĐÃ nói rõ việc
+                    // cần làm tiếp theo ("Hãy tải lại trang..." — đúng yêu cầu review "nếu không giữ
+                    // được nội dung đã gõ thì phải nói rõ cần tải lại trang").
+                    //
+                    // `halt()` (không đổi): giữ modal MỞ thay vì đóng lại, nên nội dung luật sư đã gõ
+                    // (ghi chú nội bộ, nội dung công bố…) không mất — chỉ `to_stage`/kết quả submit
+                    // là không áp dụng được nữa.
                     Notification::make()
                         ->title($exception->getMessage())
                         ->danger()
@@ -193,6 +218,34 @@ trait BuildsStageUpdateSchema
             ->helperText($matter->is_published_to_portal
                 ? null
                 : __('matters.transition_form.publish_disabled_hint'));
+    }
+
+    /**
+     * Task 7 (R12, phát hiện `stage/stage-06` — nửa "luật sư không biết khách không được báo"):
+     * `NotifyClientOfStageUpdate::handle()` âm thầm bỏ qua một dòng công bố khi khách chưa có tài
+     * khoản cổng đủ điều kiện nhận thư (`recipientsFor()` rỗng) — không lỗi, không cảnh báo, chỉ
+     * để `notified_at` trống. Luật sư bấm "Chuyển giai đoạn"/"Thêm cập nhật", thấy thông báo
+     * thành công CỐ ĐỊNH (`setUpStageUpdateAction()` ở trên), và tin rằng khách đã được báo.
+     *
+     * Dùng LẠI đúng `NotifyClientOfStageUpdate::hasEligibleRecipient()` — một nơi duy nhất đọc
+     * "ai đủ điều kiện nhận thư" (R12: `is_active` + `activated_at` không null + khách chưa xoá
+     * mềm) — để cảnh báo này không bao giờ lệch với chính Action gửi thư thật.
+     *
+     * Dùng `Filament\Schemas\Components\Text` với `->color('warning')` thay vì một Blade view tự
+     * viết: dự án không có bước dựng CSS (CLAUDE.md), và một lớp Tailwind tự viết sẽ không có tác
+     * dụng gì trên `theme.css` biên dịch sẵn (xem `StageLogsRelationManager::renderInternalNote()`
+     * và phát hiện `stage/stage-07`). Component CÓ SẴN của Filament thì khác: nó render qua view
+     * nội bộ của chính gói, dùng các lớp `fi-*` đã có trong `theme.css` phục vụ, nên không cần
+     * style nội tuyến ở đây.
+     */
+    protected function noActivatedAccountWarning(Matter $matter): Text
+    {
+        return Text::make(__('matters.transition_form.no_activated_account_warning'))
+            ->icon(Heroicon::OutlinedExclamationTriangle)
+            ->color('warning')
+            ->columnSpanFull()
+            ->visible(fn (): bool => $matter->is_published_to_portal
+                && ! app(NotifyClientOfStageUpdate::class)->hasEligibleRecipient($matter));
     }
 
     /**

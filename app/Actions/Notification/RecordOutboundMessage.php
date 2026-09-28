@@ -15,15 +15,24 @@ use Throwable;
  * Mở, đóng và đánh dấu hỏng một dòng nhật ký thư đi ra (SPEC §4.15).
  *
  * Đây là NƠI DUY NHẤT biết luật của nhật ký ấy: thư không khai báo mẫu thì ghi mẫu gì, người
- * nhận của một thư nhiều địa chỉ được gộp ra sao, một header viết sai thì bỏ qua thế nào. Ba lời
- * gọi tới nó đến từ hai lớp — `App\Listeners\RecordOutboundMail` cho hai sự kiện thư của
- * Laravel, và `App\Support\Mail\OutboundLedgerTransport` cho lúc việc gửi ném lỗi — và cả hai
- * lớp ấy không giữ luật nào, đúng quy ước "nghiệp vụ nằm trong app/Actions/" của CLAUDE.md.
+ * nhận của một thư nhiều địa chỉ được gộp ra sao, một header viết sai thì bỏ qua thế nào. Cả hai
+ * lớp gọi tới nó không giữ luật nào, đúng quy ước "nghiệp vụ nằm trong app/Actions/" của
+ * CLAUDE.md.
  *
  * **Vì sao không ai phải nhớ gọi nó** (Phán quyết R1 của kế hoạch M6): cột nhật ký này tồn tại
  * để trả lời câu "tôi không nhận được thông báo", tức một câu hỏi về những thư mà không ai nhớ
  * là mình đã gửi. Nên nó được móc vào sự kiện của chính framework, không vào từng nơi gửi thư:
  * một `Mail::raw()` trần ở một controller viết vội ba năm nữa cũng để lại dấu vết.
+ *
+ * **M6.5 Task 12 (`notify/notify-11`) đổi ai đóng dòng lại, không đổi ai MỞ nó.**
+ * `App\Listeners\RecordOutboundMail` chỉ còn nghe MỘT sự kiện (`MessageSending` →
+ * {@see self::sending()}) — mở dòng, đọc `template`/`related` từ header của `BrandedMailable`.
+ * `App\Support\Mail\OutboundLedgerTransport` giờ đóng dòng ở CẢ HAI NHÁNH (thành công lẫn thất
+ * bại), qua {@see self::detachInternalHeaders()} rồi {@see self::markSent()}/
+ * {@see self::markFailed()}: nó PHẢI là nơi gỡ header (xem docblock `detachInternalHeaders()`
+ * cho lý do kỹ thuật — Symfony CLONE thông điệp trước khi gửi), nên tiện thể cũng là nơi đóng
+ * dòng, thay vì tách thành hai cơ chế (gỡ header ở một chỗ, đóng dòng thành công ở một sự kiện
+ * KHÁC mà đến lúc đó header đã mất, không tra lại được).
  *
  * **Hệ quả cho M6 Task 8 (Phán quyết R3), nói ra ở đây vì đây là nơi trạng thái được đặt:** một
  * thư THẤT BẠI vẫn là một dòng. Truy vấn chống gửi trùng vì vậy phải lọc `status = sent`; đếm cả
@@ -43,11 +52,22 @@ class RecordOutboundMessage
     {
         [$relatedType, $relatedId] = $this->related($message);
 
+        $payload = ['subject' => $message->getSubject()];
+
+        // Vòng sửa 2 (I1): chỉ `App\Mail\Staff\DeadlineReminder` đặt header này — mọi mẫu thư
+        // khác (thư tiến độ, OTP, ...) không có khái niệm "bậc" nên `tier()` trả `null` và khoá
+        // này vắng mặt khỏi `payload`, đúng như trước bản sửa này.
+        $tier = $this->tier($message);
+
+        if ($tier !== null) {
+            $payload['tier'] = $tier;
+        }
+
         $row = OutboundMessage::query()->create([
             'channel' => OutboundChannel::Email,
             'recipient' => $this->recipients($message),
             'template' => $this->template($message),
-            'payload' => ['subject' => $message->getSubject()],
+            'payload' => $payload,
             'related_type' => $relatedType,
             'related_id' => $relatedId,
             'status' => OutboundStatus::Queued,
@@ -64,10 +84,59 @@ class RecordOutboundMessage
         return $row;
     }
 
-    /** Thư đã rời khỏi máy chủ: đóng dòng lại. */
-    public function sent(Message $message): void
+    /**
+     * Gỡ CẢ BA header `X-VKCRM-*` khỏi thông điệp TRƯỚC KHI nó rời máy chủ (M6.5 Task 12,
+     * `notify/notify-11`): chúng lộ id tuần tự nội bộ (id dòng nhật ký, và qua header `Related`,
+     * id của bản ghi mà thư nói về) cho bất kỳ ai xem "Show original" trên hộp thư khách. Nhật ký
+     * đã đọc xong `template`/`related` ở {@see self::sending()} (`MessageSending`, chạy TRƯỚC khi
+     * `Mailer` gọi transport), nên gỡ ở đây không làm mất ngữ cảnh — chỉ mất thứ không ai cần đọc
+     * ngoài chính hệ thống.
+     *
+     * **Vì sao TRẢ VỀ khoá dòng thay vì gỡ luôn cả `Ledger-Id` mà không nói gì.** Không giống
+     * Template/Related (chỉ đọc một lần ở `sending()`), khoá dòng còn cần cho HAI bước SAU khi
+     * thư đã rời tay: đóng dòng thành `sent`, hay đánh dấu `failed` nếu transport ném lỗi (xem
+     * `OutboundLedgerTransport::send()`, nơi DUY NHẤT gọi hàm này). Gỡ khỏi thông điệp rồi trả
+     * lại cho gọi bên ngoài giữ tạm — không phải mất, chỉ là chuyển chỗ giữ, từ "header đi theo
+     * thư" sang "biến cục bộ của lệnh gửi này" — đúng lúc, đúng chỗ, không rời khỏi máy chủ.
+     *
+     * Không dùng lại được `sent()`/`failed()` kiểu cũ (dựa vào header còn nguyên trên thông điệp
+     * ở `MessageSent`): `AbstractTransport::send()` của Symfony CLONE thông điệp trước khi giao
+     * cho `doSend()`, và `SentMessage` của sự kiện `MessageSent` bọc đúng bản CLONE ấy — tức bản
+     * ĐÃ bị gỡ header nếu gỡ trước khi gọi `inner->send()` (bắt buộc, để header không lọt ra
+     * ngoài). Vì vậy `markSent()`/`markFailed()` dưới đây nhận THẲNG khoá dòng (không đọc lại
+     * header từ thông điệp) — {@see self::markSent()}.
+     */
+    public function detachInternalHeaders(Message $message): ?int
     {
-        $this->find($message)?->update([
+        $headers = $message->getHeaders();
+        $raw = (string) $headers->get(OutboundHeaders::LEDGER_ID)?->getBodyAsString();
+        $ledgerId = ctype_digit($raw) ? (int) $raw : null;
+
+        foreach ([
+            OutboundHeaders::TEMPLATE,
+            OutboundHeaders::RELATED,
+            OutboundHeaders::LEDGER_TIER,
+            OutboundHeaders::LEDGER_ID,
+        ] as $name) {
+            $headers->remove($name);
+        }
+
+        return $ledgerId;
+    }
+
+    /**
+     * Thư đã rời khỏi máy chủ: đóng dòng lại.
+     *
+     * `$ledgerId` do {@see OutboundLedgerTransport::send()} truyền vào — id đã đọc TRƯỚC KHI gỡ
+     * header (xem docblock `detachInternalHeaders()`), không đọc lại từ thông điệp: sau khi gỡ,
+     * không còn header nào để đọc, dù việc gửi có thành công hay không.
+     *
+     * `withoutGlobalScopes()`: cùng lý do `find()` cũ từng cần — bảng này bị
+     * `RestrictedToClientPortal` chặn sạch khi có khách đang mở cổng.
+     */
+    public function markSent(int $ledgerId): void
+    {
+        OutboundMessage::query()->withoutGlobalScopes()->whereKey($ledgerId)->first()?->update([
             'status' => OutboundStatus::Sent,
             'sent_at' => now(),
         ]);
@@ -79,36 +148,36 @@ class RecordOutboundMessage
      * Lý do gồm cả TÊN LỚP ngoại lệ, vì phần lời của transport một mình thường không đủ để biết
      * phải làm gì — "Connection could not be established" đọc y hệt nhau khi máy chủ SMTP tắt,
      * khi mật khẩu sai và khi tường lửa chặn cổng.
+     *
+     * M6.5 Task 11 (R2) — vì sao dòng này KHÔNG BAO GIỜ mất, kể cả khi job hết sạch lượt thử.
+     * `update()` ở đây là một câu lệnh SQL ĐƠN, tự commit ngay (autocommit), KHÔNG nằm trong bất
+     * kỳ `DB::transaction()` nghiệp vụ nào — cả `CheckDeadlines` (từ Task 11) lẫn listener thư
+     * tiến độ đều gọi Action gửi thư của mình từ BÊN NGOÀI mọi transaction nghiệp vụ (job hàng
+     * đợi chạy sau khi transaction đã commit). Vì vậy: (1) một mốc/dòng tiến độ khác trong CÙNG
+     * transaction rollback vì lý do khác không kéo dòng `failed` này theo; (2) hàng đợi tự thử
+     * lại job (`$tries`/`backoff()`) và cuối cùng chuyển nó sang `failed_jobs` không xoá hay sửa
+     * dòng này — đó là một bảng hoàn toàn khác, do Laravel tự quản lý.
+     *
+     * `$ledgerId`: cùng lý do `markSent()` — xem docblock `detachInternalHeaders()`.
      */
-    public function failed(Message $message, Throwable $error): void
+    public function markFailed(int $ledgerId, Throwable $error): void
     {
-        $this->find($message)?->update([
+        OutboundMessage::query()->withoutGlobalScopes()->whereKey($ledgerId)->first()?->update([
             'status' => OutboundStatus::Failed,
             'error' => $error::class.': '.$error->getMessage(),
         ]);
     }
 
     /**
-     * Tìm lại dòng đã mở ở `sending()`.
-     *
-     * `withoutGlobalScopes()` là bắt buộc chứ không phải phòng xa: `OutboundMessage` dùng
-     * `RestrictedToClientPortal` và chặn SẠCH (`whereRaw('1 = 0')`) khi có khách đang mở cổng.
-     * Rất nhiều thư của M6 được kích hoạt bởi chính khách đang đăng nhập (khách nộp tài liệu,
-     * khách gửi yêu cầu → thư cho nhân sự), nên thiếu dòng này thì những dòng ấy đứng lại mãi ở
-     * `queued` — nhật ký nói dối đúng vào những lần nó được hỏi nhiều nhất.
+     * Bậc nhắc (vòng sửa 2, I1) — `null` khi thư không khai báo header đó (mọi mẫu thư TRỪ
+     * `App\Mail\Staff\DeadlineReminder`). Không ghi khoá `tier` vào `payload` khi `null`, để hình
+     * dạng `payload` của các mẫu thư khác không đổi.
      */
-    private function find(Message $message): ?OutboundMessage
+    private function tier(Email $message): ?string
     {
-        // Ép về chuỗi để `ctype_digit()` không nhận `null` (đã bị phế từ PHP 8.1). Không có
-        // header thì `''`, và `ctype_digit('')` là false — tức "chưa có dòng nào mở cho thư
-        // này", đúng tình huống một `Email` đi thẳng vào transport mà không qua `Mailer`.
-        $id = (string) $message->getHeaders()->get(OutboundHeaders::LEDGER_ID)?->getBodyAsString();
+        $tier = trim((string) $message->getHeaders()->get(OutboundHeaders::LEDGER_TIER)?->getBodyAsString());
 
-        if (! ctype_digit($id)) {
-            return null;
-        }
-
-        return OutboundMessage::query()->withoutGlobalScopes()->find((int) $id);
+        return $tier === '' ? null : $tier;
     }
 
     /**

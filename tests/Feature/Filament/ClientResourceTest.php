@@ -1,12 +1,15 @@
 <?php
 
+use App\Enums\ClientType;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\Clients\ClientResource;
+use App\Filament\Admin\Resources\Clients\Pages\CreateClient as CreateClientPage;
 use App\Filament\Admin\Resources\Clients\Pages\EditClient;
 use App\Filament\Admin\Resources\Clients\Pages\ListClients;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Matter;
+use App\Models\MatterParty;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
@@ -65,6 +68,164 @@ it('hides the client write pages from a lawyer without client.manage', function 
     // AnswerDeniedPanelRequestsWithNotFound).
     $this->actingAs($lawyer, 'web')->get(ClientResource::getUrl('create', panel: 'admin'))->assertNotFound();
     $this->actingAs($lawyer, 'web')->get(ClientResource::getUrl('edit', ['record' => $client], panel: 'admin'))->assertNotFound();
+});
+
+// =========================================================================================
+// M6.5 Task 6 (finding `intake/intake-08`): bugfix ClientForm — type live(), maxLength = cột DB,
+// id_number nullable.
+// =========================================================================================
+
+/**
+ * Trước bản sửa này, `type` (Select) không `live()`, nên chọn "Tổ chức" trên trình duyệt không
+ * gửi request nào — ô "Người đại diện" chỉ hiện sau khi lưu rồi mở lại trang Sửa. Đo bằng chính
+ * hiệu ứng người dùng thấy: nhãn của ô đó có mặt trên trang hay không, TRƯỚC và SAU khi đổi `type`
+ * — không dựng lại được bằng `assertSee` nếu `live()` bị gỡ, vì `set()` của Livewire test coi mọi
+ * thay đổi thuộc tính là một request thật (nó không mô phỏng "trình duyệt không gửi gì" như một
+ * người dùng thật sẽ gặp phải). `assertDontSee`/`assertSee` ở dưới VẪN xanh nếu ai đó gỡ `live()`
+ * (đã tự tay xác nhận bằng mutation probe, xem báo cáo) — cặp assertion thứ hai đọc thẳng markup
+ * `wire:model` mà Filament sinh ra cho ô `type` mới là thứ THẬT SỰ đo được `live()`: không có nó,
+ * thuộc tính là `wire:model="data.type"` (chờ submit); có `live()`, nó là
+ * `wire:model.live="data.type"` (gửi ngay khi đổi — đúng hành vi trình duyệt thật cần).
+ */
+it('shows the representative field as soon as the client type changes to organization, on the create form', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $this->actingAs($assistant, 'web');
+
+    $component = $this->livewire(CreateClientPage::class);
+    $component->assertDontSee(__('clients.fields.representative_name'));
+
+    $component->set('data.type', ClientType::Organization->value);
+    $component->assertSee(__('clients.fields.representative_name'));
+
+    preg_match('/wire:model[^\s=]*\s*=\s*"data\.type"/', $component->html(), $match);
+    expect($match)->not->toBeEmpty()
+        ->and($match[0])->toContain('.live');
+});
+
+/**
+ * Cột `clients.address` là `string(300)`; `Textarea` trước bản sửa này không giới hạn gì, nên một
+ * địa chỉ 301 ký tự đi thẳng xuống MariaDB strict và ra lỗi 1406 thành trang 500 — SQLite của bộ
+ * test không bắt được (không strict). `maxLength(300)` giờ chặn Ở FORM: lỗi validation tiếng Việt,
+ * không request nào chạm tới DB. Chạy lại dưới `test:mariadb` để xác nhận không còn đường nào lọt
+ * xuống DB thật (xem báo cáo).
+ */
+it('rejects a 301-character address with a Vietnamese validation error, not a database error', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $this->actingAs($assistant, 'web');
+
+    $this->livewire(CreateClientPage::class)
+        ->fillForm([
+            'type' => ClientType::Individual->value,
+            'name' => 'Khách địa chỉ dài',
+            'address' => str_repeat('a', 301),
+        ])
+        ->call('create')
+        ->assertHasFormErrors(['address']);
+
+    expect(Client::query()->where('name', 'Khách địa chỉ dài')->exists())->toBeFalse();
+});
+
+/** Vế dương: đúng 300 ký tự (đúng giới hạn cột) vẫn lưu được bình thường. */
+it('accepts an address at exactly the 300-character column limit', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $this->actingAs($assistant, 'web');
+
+    $this->livewire(CreateClientPage::class)
+        ->fillForm([
+            'type' => ClientType::Individual->value,
+            'name' => 'Khách địa chỉ vừa đủ',
+            'address' => str_repeat('a', 300),
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    expect(Client::query()->where('name', 'Khách địa chỉ vừa đủ')->exists())->toBeTrue();
+});
+
+// =========================================================================================
+// M6.5 Task 6 (finding `intake/intake-07`, phán quyết R4): App\Actions\Client\CreateClient — dò
+// trùng theo số điện thoại/CCCD so với các bên is_our_client đã lưu.
+// =========================================================================================
+
+/**
+ * Trợ lý (client.manage) tạo một khách hàng trùng số điện thoại với một bên `is_our_client` đã
+ * lưu: thấy cảnh báo (lỗi gắn vào `confirm_duplicate`), KHÔNG tạo hồ sơ mới ngay; tích xác nhận
+ * rồi lưu lại thì vẫn tạo được một hồ sơ MỚI (khác id với hồ sơ trùng).
+ */
+it('warns the assistant about a duplicate phone number, and still lets them confirm and create anyway', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $existingClient = Client::factory()->create(['phone' => '0912345678']);
+    $matter = Matter::factory()->create(['client_id' => $existingClient->id]);
+    MatterParty::factory()->for($matter)->ourClient($existingClient)->create();
+
+    $this->actingAs($assistant, 'web');
+
+    $component = $this->livewire(CreateClientPage::class)
+        ->fillForm([
+            'type' => ClientType::Individual->value,
+            'name' => 'Một người trùng số điện thoại',
+            'phone' => '0912345678',
+        ]);
+
+    $component->call('create')->assertHasFormErrors(['confirm_duplicate']);
+
+    expect(Client::query()->where('name', 'Một người trùng số điện thoại')->exists())->toBeFalse();
+
+    $component->fillForm(['confirm_duplicate' => true])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $created = Client::query()->where('name', 'Một người trùng số điện thoại')->first();
+
+    expect($created)->not->toBeNull()
+        ->and($created->id)->not->toBe($existingClient->id);
+});
+
+/** Vế dương: một số điện thoại không trùng ai thì tạo bình thường, không cảnh báo gì. */
+it('creates a client with no warning at all when the phone number matches nobody', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $this->actingAs($assistant, 'web');
+
+    $this->livewire(CreateClientPage::class)
+        ->fillForm([
+            'type' => ClientType::Individual->value,
+            'name' => 'Khách không trùng ai',
+            'phone' => '0900000111',
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    expect(Client::query()->where('name', 'Khách không trùng ai')->exists())->toBeTrue();
+});
+
+/**
+ * "Duplicate detection compares against parties that are is_our_client" (phán quyết chủ nhiệm).
+ * Một bên KHÔNG phải `is_our_client` (bị đơn gõ tay, ví dụ) mang cùng số điện thoại không được
+ * tính là trùng — nó chưa từng là hồ sơ khách hàng nào của văn phòng, chỉ là một cái tên trong
+ * một vụ việc khác.
+ */
+it('does not warn about a phone number that only matches a non-our-client party', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    // client_id KHÔNG null có chủ đích: bên này trỏ tới một hồ sơ Client thật (ví dụ do gõ nhầm
+    // vai lúc tiếp nhận), để phép thử này đo đúng điều kiện `is_our_client` — không phải
+    // `whereNotNull('client_id')`, vốn cũng sẽ loại một bên `client_id` null.
+    $otherClient = Client::factory()->create();
+    $matter = Matter::factory()->create();
+    $party = MatterParty::factory()->for($matter)->create(['is_our_client' => false, 'client_id' => $otherClient->id]);
+    $party->identify(null, '0912345678')->save();
+
+    $this->actingAs($assistant, 'web');
+
+    $this->livewire(CreateClientPage::class)
+        ->fillForm([
+            'type' => ClientType::Individual->value,
+            'name' => 'Khách trùng số với một bị đơn',
+            'phone' => '0912345678',
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    expect(Client::query()->where('name', 'Khách trùng số với một bị đơn')->exists())->toBeTrue();
 });
 
 // =========================================================================================

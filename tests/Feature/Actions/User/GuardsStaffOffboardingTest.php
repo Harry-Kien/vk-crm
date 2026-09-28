@@ -43,6 +43,33 @@ function offboardingGuard(): object
     };
 }
 
+/**
+ * Câu ghép của `offboardingOpenWorkReason()` (fix round 1, finding CRITICAL) — mỗi mảnh CHỈ góp
+ * mặt khi đúng loại việc đó còn ( > 0), và mỗi mảnh nêu đúng màn hình xử lý được loại việc đó:
+ * "Bàn giao" cho vụ việc lead, "Đổi người phụ trách" cho mốc hạn, "Giao việc" cho yêu cầu khách.
+ * Dùng chung ở mọi tệp test đọc thông điệp này, để không có hai bản sao của cùng một phép ghép.
+ */
+function offboardingMessage(string $name, int $matters, int $deadlines, int $requests): string
+{
+    $parts = [];
+
+    if ($matters > 0) {
+        $parts[] = __('users.offboarding.open_work_lead_matters', ['count' => $matters]);
+    }
+
+    if ($deadlines > 0) {
+        $parts[] = __('users.offboarding.open_work_deadlines', ['count' => $deadlines]);
+    }
+
+    if ($requests > 0) {
+        $parts[] = __('users.offboarding.open_work_client_requests', ['count' => $requests]);
+    }
+
+    return __('users.offboarding.open_work_intro', ['name' => $name])
+        .' '.implode('; ', $parts).'. '
+        .__('users.offboarding.open_work_outro');
+}
+
 beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);
 });
@@ -62,12 +89,25 @@ it('names the exact counts of matters, deadlines, and client requests still open
 
     $reason = offboardingGuard()->openWorkReason($staff);
 
-    expect($reason)->toBe(__('users.offboarding.open_work_blocked', [
-        'name' => 'Luật sư Kiểm Tra',
-        'matters' => 1,
-        'deadlines' => 1,
-        'requests' => 1,
-    ]));
+    expect($reason)->toBe(offboardingMessage('Luật sư Kiểm Tra', matters: 1, deadlines: 1, requests: 1));
+});
+
+/**
+ * CRITICAL (fix round 1): một người CHỈ còn đứng tên mốc hạn (không lead vụ nào, không được giao
+ * yêu cầu khách nào) phải đọc đúng đường ra của LOẠI VIỆC đó — "Đổi người phụ trách" — và KHÔNG
+ * thấy nhắc tới "Bàn giao" (nút đó không đổi được `responsible_user_id` của họ, xem docblock
+ * `ChangeDeadlineResponsible`). Đây là chính kịch bản mà bản thông điệp trước fix round 1 nói sai.
+ */
+it('names only the deadline path for someone who holds no lead matter at all', function () {
+    $staff = User::factory()->withRole(Role::Assistant)->create(['name' => 'Trợ lý Chỉ Có Mốc']);
+    $matter = Matter::factory()->create(['closed_at' => null]);
+    Deadline::factory()->for($matter)->create(['responsible_user_id' => $staff->id, 'is_completed' => false]);
+
+    $reason = offboardingGuard()->openWorkReason($staff);
+
+    expect($reason)->toBe(offboardingMessage('Trợ lý Chỉ Có Mốc', matters: 0, deadlines: 1, requests: 0))
+        ->and($reason)->toContain(__('deadlines.tab.actions.change_responsible'))
+        ->and($reason)->not->toContain('"Bàn giao"');
 });
 
 /**

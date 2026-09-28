@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Notification\RecordOutboundMessage;
 use App\Enums\OutboundChannel;
 use App\Enums\OutboundStatus;
 use App\Mail\BrandedMailable;
@@ -11,17 +12,17 @@ use App\Notifications\Client\SendLoginCode;
 use App\Support\Mail\OutboundLedgerTransport;
 use App\Support\Scopes\ClientPortalScope;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Mail\Events\MessageSent;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
-use Illuminate\Mail\SentMessage;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Mail;
 use Symfony\Component\Mailer\Envelope as SymfonyEnvelope;
 use Symfony\Component\Mailer\Exception\TransportException;
 use Symfony\Component\Mailer\SentMessage as SymfonySentMessage;
 use Symfony\Component\Mailer\Transport\TransportInterface;
-use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
+use Symfony\Component\Mime\Message;
 use Symfony\Component\Mime\RawMessage;
 
 /**
@@ -171,15 +172,29 @@ it('không để một mẫu thư tự trỏ dòng nhật ký của mình sang c
         ->and($row->sent_at)->not->toBeNull();
 });
 
-it('không ngã khi sự kiện MessageSent mang một thư thô không có header nào', function () {
-    $sent = new SentMessage(new SymfonySentMessage(
-        new RawMessage('Thư thô, không phải Message.'),
-        new SymfonyEnvelope(new Address('gui@vidu.test'), [new Address('nhan@vidu.test')]),
-    ));
+/**
+ * M6.5 Task 12 (`notify/notify-11`): trước bản sửa này, chặng "gửi xong" nằm ở
+ * `RecordOutboundMail::recordSent()` (nghe `MessageSent`) — test này khi đó bắn thẳng sự kiện đó
+ * với một `RawMessage` không có header để chứng minh listener không sập. Từ Task 12, chặng đó
+ * chuyển hẳn sang `OutboundLedgerTransport::send()` (xem docblock lớp và của
+ * `App\Listeners\RecordOutboundMail`), nên phép đo tương đương là gọi THẲNG transport thật với
+ * một `RawMessage` trần và xác nhận nó gửi THÀNH CÔNG mà không dựng/sửa dòng nào — không có
+ * header nào để tra khoá, nên không có gì để `markSent()`.
+ */
+it('không ngã khi một thư thô không có header đi thẳng vào transport và gửi thành công', function () {
+    $transport = Mail::mailer()->getSymfonyTransport();
+    expect($transport)->toBeInstanceOf(OutboundLedgerTransport::class);
 
-    event(new MessageSent($sent));
+    $email = (new Email)
+        ->from('gui@vidu.test')
+        ->to('nhan@vidu.test')
+        ->subject('Đi tắt, không qua Mailer')
+        ->text('Không có MessageSending nào mở dòng cho thư này.');
 
-    expect(OutboundMessage::query()->count())->toBe(0);
+    $sent = $transport->send($email);
+
+    expect($sent)->not->toBeNull()
+        ->and(OutboundMessage::query()->count())->toBe(0);
 });
 
 it('không ngã khi transport hỏng trên một thư thô không có header nào', function () {
@@ -280,4 +295,125 @@ it('bỏ qua header related viết sai thay vì dựng một liên kết rỗng'
         expect($row->related_type)->toBeNull("[{$value}] không được dựng thành related_type")
             ->and($row->related_id)->toBeNull("[{$value}] không được dựng thành related_id");
     }
+});
+
+// ---------------------------------------------------------------------------------------------
+// M6.5 Task 12 (`notify/notify-11`) — gỡ header X-VKCRM-* khỏi thư TRƯỚC KHI nó rời máy chủ.
+// Nhật ký đã đọc xong template/related ở MessageSending (RecordOutboundMessage::sending()), nên
+// không mất ngữ cảnh khi gỡ — chỉ mất thứ lộ id tuần tự nội bộ ra hộp thư khách.
+// ---------------------------------------------------------------------------------------------
+
+/** @return Collection<int, string> Tên MỌI header của thông điệp thật đã "gửi". */
+function headerNamesOf(Message $message): Collection
+{
+    return collect(iterator_to_array($message->getHeaders()->all()))
+        ->map(fn ($header) => $header->getName());
+}
+
+it('gỡ cả ba header X-VKCRM-* khỏi thư thật trước khi nó rời máy chủ, nhưng dòng nhật ký vẫn còn template và related', function () {
+    $stageLog = StageLog::factory()->create();
+
+    Mail::to('khach@vidu.test')->send(new LedgerProbeMail($stageLog));
+
+    $sent = Mail::mailer()->getSymfonyTransport()->innerTransport()->messages()->last()->getOriginalMessage();
+    $names = headerNamesOf($sent);
+
+    expect($names->contains(fn (string $name) => str_starts_with($name, 'X-VKCRM-')))->toBeFalse();
+
+    $row = OutboundMessage::query()->sole();
+    expect($row->template)->toBe('test.probe')
+        ->and($row->related_type)->toBe($stageLog->getMorphClass())
+        ->and($row->related_id)->toBe($stageLog->getKey())
+        ->and($row->status)->toBe(OutboundStatus::Sent);
+});
+
+/** Cặp dương: một thư KHÔNG khai báo mẫu/bản ghi liên quan thì cũng không còn header nào, dòng nhật ký vẫn ghi "undeclared". */
+it('vẫn ghi undeclared khi thư không khai báo gì, sau khi đã gỡ header', function () {
+    Mail::raw('Xin chào.', fn ($message) => $message->to('khach@vidu.test')->subject('Không khai báo gì'));
+
+    $sent = Mail::mailer()->getSymfonyTransport()->innerTransport()->messages()->last()->getOriginalMessage();
+
+    expect(headerNamesOf($sent)->contains(fn (string $name) => str_starts_with($name, 'X-VKCRM-')))->toBeFalse();
+
+    $row = OutboundMessage::query()->sole();
+    expect($row->template)->toBe(OutboundMessage::TEMPLATE_UNDECLARED);
+});
+
+/**
+ * Đối chứng "gửi hỏng": header bị gỡ TRƯỚC KHI transport thật chạy (không phải sau), nên ngay cả
+ * khi việc gửi ném lỗi, dòng nhật ký vẫn phải còn template/related — chúng được đọc ở
+ * MessageSending, không phụ thuộc gì vào việc gỡ header có xảy ra hay không.
+ *
+ * Mutation probe: xem báo cáo — đổi thứ tự gỡ/gửi trong `OutboundLedgerTransport::send()` (gỡ
+ * SAU khi gửi thành công thay vì TRƯỚC) làm chính test "gỡ cả ba header..." ở trên đỏ, vì
+ * `ArrayTransport` lưu lại đúng thông điệp đã đi qua `doSend()` — tức đã có header.
+ */
+it('vẫn ghi status failed kèm template/related khi việc gửi hỏng, dù header đã bị gỡ trước khi transport thật chạy', function () {
+    $stageLog = StageLog::factory()->create();
+    $mailer = closedDoorMailer();
+
+    expect(fn () => Mail::mailer($mailer)->to('khach@vidu.test')->send(new LedgerProbeMail($stageLog)))
+        ->toThrow(TransportException::class);
+
+    $row = OutboundMessage::query()->sole();
+
+    expect($row->status)->toBe(OutboundStatus::Failed)
+        ->and($row->template)->toBe('test.probe')
+        ->and($row->related_type)->toBe($stageLog->getMorphClass())
+        ->and($row->related_id)->toBe($stageLog->getKey());
+});
+
+// ---------------------------------------------------------------------------------------------
+// Vòng sửa 1 (minor) — `markSent()` phải nằm NGOÀI `try`: một lỗi khi ĐÓNG dòng nhật ký (ví dụ
+// CSDL bận đúng lúc đó) không được biến một thư ĐÃ GỬI THÀNH CÔNG thành một dòng `failed` — dòng
+// `failed` là tín hiệu cho hàng đợi (`SendDeadlineReminderMail`, `SendStageUpdateNotification`)
+// THỬ LẠI, và thử lại một thư đã thật sự tới nơi là GỬI TRÙNG cho người nhận.
+// ---------------------------------------------------------------------------------------------
+
+/** Ledger giả: `markSent()` luôn ném lỗi, mọi lời gọi khác giữ nguyên hành vi thật. */
+class ThrowingOnMarkSentLedger extends RecordOutboundMessage
+{
+    public function markSent(int $ledgerId): void
+    {
+        throw new RuntimeException('CSDL bận đúng lúc đóng dòng nhật ký.');
+    }
+}
+
+/**
+ * Vòng sửa 2 (minor, `task-12-fix2-findings.md`): trước bản sửa này, một `markSent()` hỏng ĐI
+ * XUYÊN QUA `send()` — thư đã tới nơi thật, nhưng lời gọi ném ngoại lệ ra tới `Mail::send()`, và
+ * job đứng sau (`SendDeadlineReminderMail`, `SendStageUpdateNotification`) đọc đó là "gửi thất
+ * bại" rồi THỬ LẠI, tức gửi trùng cho một người đã nhận rồi — đúng thứ mà nhánh `markSent()` NGOÀI
+ * `try` gửi/nhận (vòng sửa 1) định tránh, nhưng chưa tránh hết: nó chỉ tránh nhầm `Failed`, không
+ * tránh việc ngoại lệ vẫn thoát ra khỏi `send()`.
+ *
+ * Ruling: `markSent()` giờ nằm trong `try/catch` RIÊNG của chính nó — lỗi được `report()`, KHÔNG
+ * ném tiếp — và `send()` vẫn trả về `$sent` bình thường, để hàng đợi không thấy gì khác một lượt
+ * gửi trót lọt.
+ *
+ * Mutation probe: xem báo cáo — bỏ try/catch riêng của `markSent()` (đưa lại `throw` xuyên qua)
+ * làm chính test này đỏ, vì `Mail::to(...)->send(...)` ném `RuntimeException` thay vì trả về êm.
+ */
+it('does not mark a delivered mail as failed when closing the ledger row itself throws', function () {
+    Exceptions::fake();
+
+    app()->instance(RecordOutboundMessage::class, new ThrowingOnMarkSentLedger);
+
+    Mail::to('khach@vidu.test')->send(new LedgerProbeMail);
+
+    $row = OutboundMessage::query()->sole();
+
+    expect($row->status)->not->toBe(OutboundStatus::Failed);
+
+    Exceptions::assertReported(RuntimeException::class);
+});
+
+/** Cặp dương: khi markSent() không ném gì, dòng đóng thành `Sent` bình thường — ghim rằng test trên đỏ đúng vì markSent ném lỗi, không vì lý do khác. */
+it('still marks the row sent when closing the ledger row does not throw', function () {
+    $row = null;
+    Mail::to('khach@vidu.test')->send(new LedgerProbeMail);
+
+    $row = OutboundMessage::query()->sole();
+
+    expect($row->status)->toBe(OutboundStatus::Sent);
 });

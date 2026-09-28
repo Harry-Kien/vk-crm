@@ -294,7 +294,7 @@ class MyMatters extends Page
      * Task 3 đo được đúng kết xuất ấy.
      *
      * Nên danh mục được nạp sẵn **một lần, kèm đúng bộ đếm tài liệu của Action**
-     * ({@see ChecklistProgress::countClientFacingDocuments()}, một seam công khai có sẵn vì bảng
+     * ({@see ChecklistProgress::countClientSubmittedDocuments()}, một seam công khai có sẵn vì bảng
      * ở tab "Danh mục hồ sơ" cần cùng con số), và huy hiệu đếm bên TRONG `Y`
      * ({@see self::countedByProgress()}). Một tập dòng, hai câu chữ, không mâu thuẫn nào dựng
      * được nữa.
@@ -322,7 +322,7 @@ class MyMatters extends Page
      * bản ghi ở {@see self::buildCards()} chạy y hệt trên đường đó — và từng giá trị trong đó đã
      * có mặt trên màn hình họ vừa xem. Không có gì đọc thêm được ở đây so với việc mở trang.
      *
-     * @return array<int, array{id: int|string, url: string, code: string, title: string, stage_label: ?string, updated_at: ?string, submitted: int, total: int, percent: int, outstanding: int, tone: ?string, status: ?string}>
+     * @return array<int, array{id: int|string, url: string, code: string, title: string, summary: ?string, stage_label: ?string, updated_at: ?string, submitted: int, total: int, percent: int, outstanding: int, tone: ?string, status: ?string}>
      */
     public function getCards(): array
     {
@@ -346,7 +346,7 @@ class MyMatters extends Page
                 // Một truy vấn cố định, không một truy vấn nào thêm cho mỗi thẻ: các dòng danh
                 // mục của cả trang về cùng lúc, mang sẵn bí danh đếm tài liệu mà `Y` được định
                 // nghĩa bằng. Không có `withCount` thứ hai nào viết lại luật đếm ở đây.
-                'checklistItems' => fn (Relation $items) => ChecklistProgress::countClientFacingDocuments($items->getQuery()),
+                'checklistItems' => fn (Relation $items) => ChecklistProgress::countClientSubmittedDocuments($items->getQuery()),
                 // Task 2, vòng sửa 1 (Important #2): nạp sẵn để `MatterPolicy::releasedToPortal()`
                 // đọc miễn phí qua `relationLoaded('client')` thay vì một EXISTS cho mỗi thẻ — xem
                 // docblock của hàm đó. Một truy vấn CỐ ĐỊNH nữa cho cả trang, không một truy vấn
@@ -397,7 +397,7 @@ class MyMatters extends Page
      * `matter_type_stages.label` không được đọc ở tệp này lẫn ở view, và
      * `MyMattersTest` ghim điều đó bằng một giai đoạn có hai nhãn khác hẳn nhau.
      *
-     * @return array{id: int|string, url: string, code: string, title: string, stage_label: ?string, updated_at: ?string, submitted: int, total: int, percent: int, outstanding: int, tone: ?string, status: ?string}
+     * @return array{id: int|string, url: string, code: string, title: string, summary: ?string, stage_label: ?string, updated_at: ?string, submitted: int, total: int, percent: int, outstanding: int, tone: ?string, status: ?string}
      */
     private function toCard(Matter $matter, ChecklistProgress $progress): array
     {
@@ -429,6 +429,9 @@ class MyMatters extends Page
             'url' => MatterProgress::getUrl(['record' => $matter->getKey()]),
             'code' => (string) $matter->code,
             'title' => (string) $matter->title,
+            // `portal/portal-2` (M6.5 Task 5): `null` khi rỗng, để view chỉ vẽ dòng này khi có
+            // nội dung — xem docblock lớp cho lý do trường này từng vắng mặt khỏi cả cổng.
+            'summary' => filled($matter->summary_for_client) ? $matter->summary_for_client : null,
             'stage_label' => $matter->matterType?->stage((string) $matter->stage)?->client_label,
             'updated_at' => $matter->last_client_update_at?->format('d/m/Y'),
             'submitted' => $submitted,

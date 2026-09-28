@@ -6,9 +6,9 @@ use App\Enums\Permission;
 use App\Enums\Role;
 use App\Models\Client;
 use App\Models\ClientUser;
-use App\Models\Matter;
 use App\Models\User;
 use App\Policies\Concerns\ChecksPortalVisibility;
+use App\Support\ClientVisibility;
 use Illuminate\Auth\Access\Response;
 
 class ClientPolicy
@@ -29,8 +29,7 @@ class ClientPolicy
 
         // Không có quyền client.manage riêng vẫn đọc được hồ sơ khách của một vụ việc mà
         // họ xem được (M3 review): tách quyền xem khỏi quyền quản lý, không thêm quyền mới.
-        return $user->can(Permission::ClientManage->value)
-            || Matter::query()->listableBy($user)->where('client_id', $client->getKey())->exists();
+        return ClientVisibility::reaches($user, (int) $client->getKey());
     }
 
     public function create(User|ClientUser $user): bool
@@ -52,10 +51,9 @@ class ClientPolicy
      * hàng cho tới khi có người nhớ ra và khôi phục (`RestoreBulkAction` vẫn xoá mềm chứ không
      * mất dữ liệu, nhưng không ai được nhắc phải làm vậy).
      *
-     * "Vụ đang mở" CHƯA có định nghĩa dùng chung — `Matter::scopeOpen()` là việc của Task 5. Dùng
-     * thẳng `whereNull('closed_at')` trên các vụ CHƯA xoá mềm (quan hệ `matters()` đã tự loại vụ
-     * xoá mềm qua `SoftDeletingScope` của chính `Matter`); thay bằng `Matter::open()` khi Task 5
-     * merge.
+     * "Vụ đang mở" dùng `Matter::scopeOpen()` (M6.5 Task 5, R8) — đúng MỘT định nghĩa cho toàn hệ
+     * thống, để chỗ này và mọi widget trang chủ không lệch nhau khi TransitionMatterStage ghi
+     * `closed_at`.
      *
      * Trả `Response::deny()` kèm số vụ thay vì `bool`: `EditClient::getHeaderActions()` bật
      * `authorizationNotification()` cho đúng `DeleteAction` này, nên thông điệp ở đây là thứ admin
@@ -68,7 +66,7 @@ class ClientPolicy
             return false;
         }
 
-        $openMattersCount = $client->matters()->whereNull('closed_at')->count();
+        $openMattersCount = $client->matters()->open()->count();
 
         if ($openMattersCount > 0) {
             return Response::deny(__('clients.delete_blocked_open_matters', ['count' => $openMattersCount]));

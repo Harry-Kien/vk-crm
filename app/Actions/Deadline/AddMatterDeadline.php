@@ -2,6 +2,7 @@
 
 namespace App\Actions\Deadline;
 
+use App\Actions\Deadline\Concerns\ChecksDeadlineHolder;
 use App\Actions\Deadline\Concerns\OpensDeadline;
 use App\Actions\Portal\TriageClientRequest;
 use App\Actions\TransitionMatterStage;
@@ -16,7 +17,6 @@ use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 use Throwable;
@@ -73,6 +73,7 @@ use Throwable;
  */
 class AddMatterDeadline
 {
+    use ChecksDeadlineHolder;
     use OpensDeadline;
 
     /** `deadlines.name` là `string(200)` (SPEC §4.13). */
@@ -142,15 +143,15 @@ class AddMatterDeadline
     }
 
     /**
-     * **HAI câu hỏi, không một** — cùng cặp {@see TriageClientRequest::canHoldTheThread()}
-     * hỏi. `MatterPolicy::update` trả lời câu thứ nhất (quyền) và nó **không đọc `users.is_active`**:
-     * chỗ duy nhất trong dự án đọc cột đó là `User::canAccessPanel()`, và hàm ấy chỉ chạy cho
-     * người đang đăng nhập, không bao giờ cho một người thứ ba được nhắc tên trong một ô chọn.
+     * Final review A-M3: người giữ mốc lúc TẠO hỏi đúng luật của mọi đường ghi
+     * `responsible_user_id` sau đó — {@see ChecksDeadlineHolder::canHoldDeadline()} (trong đội ngũ
+     * hoặc là lead, còn đi làm, chưa xoá, mở được hồ sơ). Bản trước hỏi riêng "còn đi làm +
+     * `MatterPolicy::update`", nên một trưởng phòng ngoài đội ngũ (update được mọi vụ thường) nhận
+     * được một mốc mà `ChangeDeadlineResponsible`/`UpdateDeadline` sẽ không bao giờ giao cho họ.
      */
     private function canHoldTheDeadline(User $responsible, Matter $matter): bool
     {
-        return $this->accountIsActive($responsible)
-            && Gate::forUser($responsible)->allows('update', $matter);
+        return $this->canHoldDeadline($responsible, $matter);
     }
 
     /**

@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Actions\Matter\UpdateMatterDetails;
 use App\Enums\Permission;
 use App\Enums\Role;
 use App\Models\ClientUser;
@@ -188,6 +189,91 @@ class MatterPolicy
                 || $user->hasRole(Role::Admin->value)
                 || $user->hasRole(Role::Manager->value)
             );
+    }
+
+    /**
+     * Fix round 1, finding I2 (chốt lại R5): đổi `confidentiality`, MỘT TRONG HAI CHIỀU, chỉ
+     * dành cho LUẬT SƯ PHỤ TRÁCH của chính vụ việc này hoặc ADMIN — không còn "matter.update VÀ
+     * không phải trợ lý" của bản đầu. Bản đầu đọc R5 theo nghĩa rộng nhất có thể ("mọi việc trừ
+     * quyết định đưa gì ra cho khách và cấu trúc vụ việc"), nên để lọt một luật sư cộng sự
+     * (associate) — có `matter.update`, không phải trợ lý — đổi được mức bảo mật của một vụ việc
+     * họ không phụ trách. Quyết định ai được xem một vụ `restricted` (chỉ lead + admin,
+     * `Matter::isListableBy()`) và quyết định AI ĐƯỢC CHUYỂN một vụ vào/ra khỏi trạng thái đó
+     * phải là CÙNG một tập người — một trưởng phòng hay một cộng sự đổi được mức bảo mật của một
+     * vụ họ không phụ trách, trong khi chính họ (nếu không phải admin) có thể không còn xem được
+     * vụ đó SAU lần đổi, là một quyết định không ai chịu trách nhiệm được.
+     *
+     * `$this->update()` đã gồm `view()` (không cho vụ đã xoá mềm, xem docblock `update()`), nên
+     * không cần lặp lại `! $matter->trashed()` ở đây.
+     *
+     * Luật "chuyển sang restricted khi còn thành viên khác lead/admin thì bị từ chối, kèm danh
+     * sách" KHÔNG nằm ở đây — một ability policy chỉ nhận `(User, Matter)`, không nhận GIÁ TRỊ
+     * MỚI đang định gán, nên không thể tự phân biệt "giữ nguyên"/"chuyển sang normal" (luôn được)
+     * với "chuyển sang restricted" (cần thêm điều kiện đội ngũ). Luật đó nằm trong
+     * {@see UpdateMatterDetails}, nơi giá trị MỚI đã có sẵn trong `$data`.
+     */
+    public function updateConfidentiality(User|ClientUser $user, Matter $matter): bool
+    {
+        return $user instanceof User
+            && $this->update($user, $matter)
+            && ($matter->lead_lawyer_id === $user->getKey() || $user->hasRole(Role::Admin->value));
+    }
+
+    /**
+     * Fix round 1, finding I1: `summary_for_client` là lời văn phòng ĐƯA RA CHO KHÁCH đọc (SPEC
+     * §4.6, và SPEC §8.3 khối 1 vẽ nó ra ngay cạnh nhãn giai đoạn) — cùng LOẠI quyết định với công
+     * bố một dòng tiến độ cho khách, nên đòi CÙNG quyền `stageLog.publish`, không phải chỉ
+     * `matter.update`. Trợ lý có `matter.update` (`Role::Assistant->permissions()`) nhưng không có
+     * `stageLog.publish`, nên không đổi được trường này — dù vẫn sửa được bốn trường còn lại của
+     * `UpdateMatterDetails`.
+     */
+    public function updateSummaryForClient(User|ClientUser $user, Matter $matter): bool
+    {
+        return $user instanceof User
+            && $this->update($user, $matter)
+            && $user->can(Permission::StageLogPublish->value);
+    }
+
+    /**
+     * Bật/tắt công tắc "công bố cho khách" của TOÀN vụ việc (SPEC §7.2) — R5 (roles-05, M6.5
+     * Task 10): "Các công tắc công bố (cổng của vụ việc, công bố mốc hạn) đòi `stageLog.publish`."
+     * Trước bản sửa này, `SetMatterPortalPublication` chỉ hỏi `matter.update`, và trợ lý CÓ quyền
+     * đó (`Role::Assistant->permissions()`) nhưng KHÔNG có `stageLog.publish` — nên trợ lý bật
+     * được công tắc tổng, đưa CẢ vụ việc (và mọi dòng `stage_logs.is_published = true` đã tích
+     * luỹ trong lúc tắt — carry-forward M6, xem docblock `SetMatterPortalPublication`) ra trước
+     * mắt khách hàng, hoặc giấu nó đi. Cùng LOẠI quyết định với `updateSummaryForClient()` ở trên:
+     * "đưa gì ra cho khách" luôn đòi `stageLog.publish`, dù đối tượng là một dòng tiến độ, cả vụ
+     * việc, hay một mốc hạn (xem `DeadlinePolicy::publish()`, cùng luật).
+     *
+     * **Fix round 1 — ruling (task-10-fix1-findings.md): chỉ CHIỀU BẬT đòi `stageLog.publish`.**
+     * Bản đầu đòi quyền đó cho CẢ HAI chiều. Chủ nhiệm chốt lại: BẬT là quyết định ĐƯA MỘT VỤ VIỆC
+     * ra trước mắt khách (đúng loại quyết định `stageLog.publish` canh) — nhưng TẮT chỉ RÚT một vụ
+     * việc khỏi cổng, tức THU HẸP những gì khách thấy, không phải một quyết định "đưa gì ra cho
+     * khách" mới. Một trợ lý phát hiện vụ việc lỡ công bố nhầm (ví dụ do một luật sư khác thao tác
+     * sai) phải tự rút được ngay, không phải chờ đúng người có `stageLog.publish` rảnh tay — cùng
+     * tinh thần bất đối xứng mà `SetDeadlinePublication`/`DeadlinePolicy::publish()` đã áp dụng cho
+     * điều kiện "vụ việc đã bật portal" (chỉ chặn chiều bật, không chặn chiều gỡ).
+     *
+     * `$publish` là tham số THỨ HAI của ability — truyền qua mảng khi hỏi Gate:
+     * `Gate::allows('setPortalPublication', [$matter, $publish])`. KHÔNG có giá trị mặc định: mọi
+     * nơi gọi phải tự quyết định rõ chiều đang hỏi là gì, không được suy luận ngầm.
+     */
+    public function setPortalPublication(User|ClientUser $user, Matter $matter, bool $publish): bool
+    {
+        return $user instanceof User
+            && $this->update($user, $matter)
+            && (! $publish || $user->can(Permission::StageLogPublish->value));
+    }
+
+    /**
+     * "Huỷ hồ sơ mở nhầm" (M6.5 Task 5) — xoá mềm kèm lý do bắt buộc, qua {@see
+     * \App\Actions\Matter\CancelMatter}. Cùng luật với {@see self::delete()} (chỉ quản trị), vì
+     * đây đúng là hành động đó — cổng riêng chỉ để tên ability khớp đúng tên header action trên
+     * `EditMatter` (`HeaderActionsAreReachableTest` đòi tên action trùng tên phương thức policy).
+     */
+    public function cancelMatter(User|ClientUser $user, Matter $matter): bool
+    {
+        return $this->delete($user, $matter);
     }
 
     /** Xoá mềm vụ việc là việc hệ trọng: chỉ quản trị. */

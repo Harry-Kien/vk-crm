@@ -46,9 +46,17 @@ class MatterTypesTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
-                    ForceDeleteBulkAction::make(),
-                    RestoreBulkAction::make(),
+                    // Task 19 (controller decision, C1-class bulk-action hole): không có
+                    // authorizeIndividualRecords(), MatterTypePolicy::deleteAny() (cổng thô, mới
+                    // thêm) chỉ quyết định nút có bấm được không — Filament vẫn xoá MỌI dòng đã
+                    // chọn mà không hỏi lại delete() cho từng dòng, bỏ qua thẳng luật "không còn
+                    // hồ sơ nào dùng" per-record (cùng lý do ClientsTable).
+                    DeleteBulkAction::make()
+                        ->authorizeIndividualRecords('delete'),
+                    ForceDeleteBulkAction::make()
+                        ->authorizeIndividualRecords('forceDelete'),
+                    RestoreBulkAction::make()
+                        ->authorizeIndividualRecords('restore'),
                 ]),
             ]);
     }

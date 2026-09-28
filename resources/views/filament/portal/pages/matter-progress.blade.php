@@ -50,6 +50,13 @@
             @else
                 <p style="font-size:1rem;{{ $muted }}">{{ __('portal_progress.blocks.status.unknown') }}</p>
             @endif
+
+            {{-- `summary_for_client` (portal/portal-2, M6.5 Task 5): tóm tắt viết riêng cho
+                 khách, KHÁC nhãn cấu hình sẵn của giai đoạn ở trên. Chỉ vẽ khi có nội dung — một
+                 dòng trống ở khối nổi bật nhất màn hình là điều SPEC §8 không chấp nhận. --}}
+            @if (filled($this->summaryForClient()))
+                <p data-portal-summary style="margin-top:0.75rem;font-size:1rem;">{{ $this->summaryForClient() }}</p>
+            @endif
         </section>
 
         {{-- 2. VIỆC ANH/CHỊ CẦN LÀM — chỉ hiện khi có (SPEC §8.3 mục 2) ------------------- --}}

@@ -20,14 +20,38 @@ return [
     ],
     'password_hint' => 'Để trống khi sửa nếu không muốn đổi mật khẩu.',
 
+    /**
+     * Fix round 1 (ruling "the staff profile page"): trang hồ sơ cá nhân
+     * (App\Filament\Admin\Pages\Auth\EditProfile) khoá ô email — đổi email đăng nhập của một nhân
+     * sự là việc của admin khác, qua trang Nhân sự (EditUser), không phải việc tự làm ở đây.
+     */
+    'profile' => [
+        'email_readonly_hint' => 'Liên hệ quản trị viên để đổi email đăng nhập.',
+    ],
+
     // R7 (M6.5 Task 4, kéo lên từ M7 R6) — chặn nghỉ việc khi còn việc dở dang, hoặc khi là quản
     // trị viên đang hoạt động cuối cùng. Dùng bởi UserPolicy::delete() và
     // EditUser::handleRecordUpdate() (App\Actions\User\Concerns\GuardsStaffOffboarding), và làm
     // câu giải thích tĩnh trên form (UserForm).
+    //
+    // Fix round 1 (finding CRITICAL): bốn khoá `open_work_*` GHÉP LẠI thành một câu, mỗi loại việc
+    // một mảnh CHỈ khi loại đó còn > 0 (GuardsStaffOffboarding::offboardingOpenWorkReason() build),
+    // và mỗi mảnh nêu đúng MÀN HÌNH thật xử lý được loại việc đó — không còn chỉ nói "Bàn giao" cho
+    // cả ba loại như bản trước, thứ không có đường ra cho mốc hạn/yêu cầu khách của một người
+    // không phải lead.
     'offboarding' => [
-        'open_work_blocked' => 'Không thể vô hiệu hoá hoặc xoá :name: người này còn là luật sư phụ trách :matters vụ việc đang mở, còn đứng tên :deadlines mốc hạn chưa xong, và còn được giao :requests yêu cầu khách chưa đóng. Hãy bàn giao qua nút "Bàn giao" trên từng vụ việc trước.',
+        'open_work_intro' => 'Không thể vô hiệu hoá hoặc xoá :name: người này còn',
+        // Fix round 3, finding 4: đổi chức danh KHÔNG phải vô hiệu hoá/xoá — câu mở đầu riêng, dùng
+        // bởi `demotionBlockedByLeadMattersReason()` (đích Trợ lý) VÀ
+        // `demotionBlockedByAnyOpenWorkReason()` (đích Kế toán, ruling round 3 mục 5).
+        'demotion_intro' => 'Không thể đổi chức danh :name sang chức danh này: người này còn',
+        'open_work_lead_matters' => ':count vụ việc đang mở với vai luật sư phụ trách — dùng "Bàn giao" trên từng vụ việc',
+        'open_work_deadlines' => ':count mốc hạn chưa xong — dùng "Đổi người phụ trách" trên tab Mốc thời hạn của từng vụ việc',
+        'open_work_client_requests' => ':count yêu cầu khách chưa đóng — dùng "Giao việc" trên tab Yêu cầu từ khách của từng vụ việc',
+        'open_work_outro' => 'Hãy xử lý xong rồi thử lại.',
+        'demotion_from_admin_restricted' => 'Không thể đổi :name khỏi chức danh Quản trị viên: người này còn ở đội ngũ, hoặc còn giữ mốc hạn/yêu cầu khách chưa xong, trong :count vụ việc hạn chế mà người này không phụ trách — sau khi đổi, họ sẽ không mở được các vụ đó nữa. Hãy gỡ họ khỏi đội ngũ và chuyển việc cho người khác trước.',
         'last_admin_blocked' => 'Không thể thực hiện: đây là quản trị viên đang hoạt động cuối cùng của hệ thống. Hãy chỉ định thêm ít nhất một quản trị viên khác trước khi đổi chức danh, vô hiệu hoá hoặc xoá tài khoản này.',
         'is_active_hint' => 'Sẽ bị chặn nếu nhân sự này còn là luật sư phụ trách một vụ việc đang mở, còn đứng tên mốc hạn hoặc yêu cầu khách chưa xong, hoặc là quản trị viên đang hoạt động cuối cùng của hệ thống.',
-        'position_hint' => 'Đổi chức danh khỏi Quản trị viên sẽ bị chặn nếu đây là quản trị viên đang hoạt động cuối cùng của hệ thống.',
+        'position_hint' => 'Đổi chức danh sang Trợ lý hoặc Kế toán sẽ bị chặn nếu người này còn việc dở dang (cùng luật vô hiệu hoá). Đổi chức danh khỏi Quản trị viên sẽ bị chặn nếu đây là quản trị viên đang hoạt động cuối cùng của hệ thống.',
     ],
 ];

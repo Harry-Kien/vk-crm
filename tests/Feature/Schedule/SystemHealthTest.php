@@ -207,6 +207,15 @@ it('runs the schedule on Vietnam time, so an 0700 job is 0700 at the office', fu
     expect(config('app.timezone'))->toBe('Asia/Ho_Chi_Minh');
 });
 
+/**
+ * Vòng sửa 1, I1: `->name()` chỉ là bí danh của `->description()` trong Laravel 13 (cả hai ghi
+ * cùng một property `$description`) — một lời gọi cả hai chỉ còn giữ giá trị của lời gọi SAU
+ * CÙNG, và bản routes/console.php trước bản sửa này gọi `->name($id)` RỒI `->description($text)`,
+ * nên định danh ổn định `$id` bị mất hẳn, chỉ còn lại chuỗi tiếng Việt. Bản sửa giữ ĐÚNG MỘT giá
+ * trị ổn định cho mỗi tác vụ (chuỗi định danh, ví dụ `queue.drain`) bằng cách chỉ gọi `->name()`,
+ * bỏ hẳn `->description()` — nên các test dưới đây tra theo ĐÚNG chuỗi định danh đó, không phải
+ * câu tiếng Việt (câu tiếng Việt vẫn còn, nhưng nay chỉ nằm trong docblock phía trên mỗi khai báo).
+ */
 it('registers the heartbeat, the health touch and the queue drain', function () {
     $names = collect(Schedule::events())
         ->map(fn ($event) => $event->description)
@@ -214,16 +223,87 @@ it('registers the heartbeat, the health touch and the queue drain', function () 
         ->values()
         ->all();
 
-    expect($names)->toContain('Ghi nhận scheduler còn sống')
-        ->and($names)->toContain('Ping dịch vụ giám sát cron bên ngoài')
-        ->and($names)->toContain('Rút hàng đợi, thay cho worker thường trực');
+    expect($names)->toContain('system-health.touch')
+        ->and($names)->toContain('system-health.heartbeat')
+        ->and($names)->toContain('queue.drain');
 });
 
 it('never lets the queue drain overlap itself', function () {
     $drain = collect(Schedule::events())
-        ->first(fn ($event) => $event->description === 'Rút hàng đợi, thay cho worker thường trực');
+        ->first(fn ($event) => $event->description === 'queue.drain');
 
     // Cron gọi mỗi phút. Không có khoá này, một hàng đợi bận sẽ chồng tiến trình lên nhau cho
     // tới khi máy chủ hết bộ nhớ.
     expect($drain->withoutOverlapping)->toBeTrue();
+});
+
+it('lets a killed queue drain hold its overlap lock for ten minutes at most, not a whole day', function () {
+    $drain = collect(Schedule::events())
+        ->first(fn ($event) => $event->description === 'queue.drain');
+
+    // `withoutOverlapping()` trần giữ khoá 1440 phút. Trên shared hosting tiến trình rút hàng đợi
+    // hay bị giết giữa chừng (giới hạn CPU/thời gian của nhà cung cấp) — khi đó khoá không được
+    // nhả, và mọi lần cron sau bị bỏ qua suốt 24 giờ: thư, lần rà xung đột lợi ích, tất cả nằm im
+    // trong bảng `jobs`, trong khi đồng hồ sức khoẻ (một tác vụ KHÁC) vẫn báo xanh. Mỗi lần rút
+    // tự dừng sau `--max-time=50` giây, nên 10 phút vẫn rộng gấp mười hai lần một lần chạy thật.
+    expect($drain->expiresAt)->toBe(10);
+});
+
+/** Vòng sửa 1, I1: mốc nhắc hạn cũng phải tra được theo đúng định danh ổn định của nó. */
+it('registers the deadline check under its stable id', function () {
+    $names = collect(Schedule::events())
+        ->map(fn ($event) => $event->description)
+        ->filter()
+        ->values()
+        ->all();
+
+    expect($names)->toContain('deadlines.check');
+});
+
+/**
+ * Final review X6 (B-I2): `deadlines.check` chạy lần đầu lúc 07:00 giờ Việt Nam, rồi mỗi 30 phút
+ * tới 19:30 (trong khung 07:00–20:00) — lần chạy lặp lại vô hại (khoá dòng + `reminders_sent` +
+ * sổ thư bậc@ngày), và một phút cron bị bỏ lỡ trên shared hosting không còn làm mất cả một ngày
+ * nhắc hạn. Cron thuần `*\/30 7-19`, không `->between()`: `between()` chụp `now()` lúc lịch được
+ * dựng, nên `isDue()` sau `travelTo()` sẽ trả lời theo giờ khởi động của bộ test.
+ *
+ * Giờ Việt Nam, không phải UTC: 07:00 Việt Nam là 00:00 UTC (ngoài khung nếu sự kiện rơi về
+ * UTC), còn 21:00 Việt Nam là 14:00 UTC (trong khung nếu rơi về UTC) — hai phép `isDue()` đó bắt
+ * đúng lỗi múi giờ mà test cũ ở vị trí này bắt.
+ */
+it('says the deadline check is due at 07:00 Vietnam time and every 30 minutes until 19:30, and only then', function () {
+    $event = collect(Schedule::events())->first(fn ($e) => $e->description === 'deadlines.check');
+
+    expect($event)->not->toBeNull();
+
+    $today = today()->startOfDay();
+
+    foreach (['07:00', '07:30', '12:00', '19:30'] as $due) {
+        [$h, $m] = explode(':', $due);
+        $this->travelTo($today->copy()->setTime((int) $h, (int) $m));
+        expect($event->isDue(app()))->toBeTrue("phải tới hạn lúc {$due}");
+    }
+
+    foreach (['00:00', '06:30', '07:10', '20:00', '20:30', '21:00'] as $notDue) {
+        [$h, $m] = explode(':', $notDue);
+        $this->travelTo($today->copy()->setTime((int) $h, (int) $m));
+        expect($event->isDue(app()))->toBeFalse("không được tới hạn lúc {$notDue}");
+    }
+});
+
+/**
+ * Final review X6 (B-I2): `withoutOverlapping()` trần giữ khoá 1440 phút — một lần 07:00 bị giết
+ * giữa chừng (giới hạn CPU của shared hosting) khoá luôn lần chạy của ngày hôm sau. Cùng lý lẽ đã
+ * áp cho `queue.drain`: khoá phải hết hạn trong thời gian một lần chạy thật còn có thể kéo dài.
+ */
+it('lets a killed deadline check hold its overlap lock for an hour at most, and the heartbeat for ten minutes', function () {
+    $events = collect(Schedule::events());
+
+    $check = $events->first(fn ($e) => $e->description === 'deadlines.check');
+    $heartbeat = $events->first(fn ($e) => $e->description === 'system-health.heartbeat');
+
+    expect($check->withoutOverlapping)->toBeTrue()
+        ->and($check->expiresAt)->toBe(60)
+        ->and($heartbeat->withoutOverlapping)->toBeTrue()
+        ->and($heartbeat->expiresAt)->toBeLessThanOrEqual(10);
 });

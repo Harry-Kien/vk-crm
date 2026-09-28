@@ -3,6 +3,7 @@
 namespace App\Filament\Admin\Resources\MatterTypes\RelationManagers;
 
 use App\Models\MatterTypeStage;
+use Closure;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
@@ -57,7 +58,39 @@ class StagesRelationManager extends RelationManager
                         modifyQueryUsing: fn (Builder $query, RelationManager $livewire): Builder => $query
                             ->where('matter_type_id', $livewire->getOwnerRecord()->getKey())
                             ->whereNull('deleted_at'),
-                    ),
+                    )
+                    // Task 19: tầng form của MatterTypeStage::isKeyInUse() — bắt đúng lúc admin
+                    // BẤM nút sửa (không chỉ ẩn/khoá ô), gắn lỗi vào đúng ô `key` thay vì một
+                    // notification trôi nổi. `$record?->key` là giá trị CŨ (form chưa lưu gì),
+                    // nên so sánh $value === $record->key loại đúng trường hợp lưu lại không đổi
+                    // (không trip guard), khớp cặp dương "lets a stage save again without
+                    // changing its key". Model::booted() (static::saving) là chốt chặn thứ hai,
+                    // phủ mọi đường ghi không qua form này (Action, artisan, seeder, factory).
+                    //
+                    // Task 19, vòng sửa 1 (Critical): kiểm `referencingStageLabels()` TRƯỚC —
+                    // đây là nhánh của `isKeyInUse()` cần một câu NÊU TÊN giai đoạn đang trỏ tới,
+                    // không phải câu chung chung `key_locked`. Không tách nhánh này thì
+                    // `isKeyInUse()` vẫn từ chối đúng (nó đã gộp cả ba điều kiện), nhưng người
+                    // bấm chỉ đọc được "đang có hồ sơ hoặc dòng tiến độ dùng" — sai lý do thật.
+                    ->rule(fn (?MatterTypeStage $record): Closure => function (string $attribute, mixed $value, Closure $fail) use ($record): void {
+                        if ($record === null || $value === $record->key) {
+                            return;
+                        }
+
+                        $referencingLabels = $record->referencingStageLabels();
+
+                        if ($referencingLabels->isNotEmpty()) {
+                            $fail(__('matter_types.stage_fields.key_locked_allowed_next', [
+                                'labels' => $referencingLabels->implode(', '),
+                            ]));
+
+                            return;
+                        }
+
+                        if ($record->isKeyInUse()) {
+                            $fail(__('matter_types.stage_fields.key_locked'));
+                        }
+                    }),
                 TextInput::make('label')
                     ->label(__('matter_types.stage_fields.label'))
                     ->required()
@@ -73,10 +106,27 @@ class StagesRelationManager extends RelationManager
                     ->label(__('matter_types.stage_fields.sort_order'))
                     ->numeric()
                     ->integer()
+                    // Task 19: cột DB là unsignedInteger (migration 2026_09_14_000004) — một giá
+                    // trị âm qua thẳng form là một lỗi 500 trên MariaDB strict, SQLite của bộ test
+                    // không thấy (xem intake/intake-08, cùng bài học).
+                    ->minValue(0)
                     ->default(0)
                     ->required(),
                 Toggle::make('is_terminal')
                     ->label(__('matter_types.stage_fields.is_terminal'))
+                    // Final review X9: tầng form của chốt chặn `MatterTypeStage::booted()` — đổi
+                    // cờ này khi còn hồ sơ đứng ở giai đoạn đổi nghĩa `closed_at` của họ.
+                    ->rule(fn (?MatterTypeStage $record): Closure => function (string $attribute, mixed $value, Closure $fail) use ($record): void {
+                        if ($record === null || (bool) $value === (bool) $record->is_terminal) {
+                            return;
+                        }
+
+                        $standing = $record->mattersStandingHereCount();
+
+                        if ($standing > 0) {
+                            $fail(__('matter_types.stage_fields.is_terminal_locked', ['count' => $standing]));
+                        }
+                    })
                     ->default(false),
                 Select::make('allowed_next')
                     ->label(__('matter_types.stage_fields.allowed_next'))
@@ -124,15 +174,27 @@ class StagesRelationManager extends RelationManager
             ])
             ->recordActions([
                 EditAction::make(),
-                DeleteAction::make(),
+                // Task 19: authorizationNotification() giữ nút hiển thị khi MatterTypeStagePolicy::delete()
+                // từ chối kèm lý do (Response::deny()) — không có nó, CanBeHidden mặc định ẩn hẳn
+                // nút và admin không hiểu vì sao (cùng kỹ thuật EditClient::getHeaderActions()).
+                DeleteAction::make()
+                    ->authorizationNotification(),
                 ForceDeleteAction::make(),
                 RestoreAction::make(),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make(),
-                    ForceDeleteBulkAction::make(),
-                    RestoreBulkAction::make(),
+                    // Task 19 (controller decision, C1-class bulk-action hole): không có
+                    // authorizeIndividualRecords(), MatterTypeStagePolicy::deleteAny() (cổng thô)
+                    // chỉ quyết định nút có bấm được không — Filament vẫn xoá MỌI dòng đã chọn mà
+                    // không hỏi lại delete() cho từng dòng, bỏ qua thẳng luật "còn hồ sơ đứng ở
+                    // giai đoạn" / "còn nằm trong allowed_next" per-record.
+                    DeleteBulkAction::make()
+                        ->authorizeIndividualRecords('delete'),
+                    ForceDeleteBulkAction::make()
+                        ->authorizeIndividualRecords('forceDelete'),
+                    RestoreBulkAction::make()
+                        ->authorizeIndividualRecords('restore'),
                 ]),
             ])
             ->modifyQueryUsing(fn (Builder $query) => $query
