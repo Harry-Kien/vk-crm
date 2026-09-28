@@ -310,7 +310,7 @@ class BillingRelationManager extends RelationManager
         $lines[] = static::amountsLine($contract);
         $lines[] = static::totalsLine($matter, $contract);
 
-        if ($matter->closed_at !== null && BillingSummary::hasOutstandingBalance($matter->id)) {
+        if ($matter->isClosed() && BillingSummary::hasOutstandingBalance($matter->id)) {
             $lines[] = sprintf(
                 '<p style="color:var(--danger-600);font-weight:600">%s</p>',
                 e(__('billing.tab.closed_with_balance_warning')),

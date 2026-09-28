@@ -9,6 +9,8 @@ use App\Models\MatterType;
 use App\Models\StageLog;
 use App\Models\User;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\File;
+use Symfony\Component\Finder\SplFileInfo;
 
 it('generates a code per year and type and starts at the first stage', function () {
     $dd = MatterType::factory()->withStages()->create(['code' => 'DD']);
@@ -131,4 +133,57 @@ it('scopeOpen keeps only matters with no closed_at and not soft deleted', functi
     expect($ids)->toContain($open->id)
         ->and($ids)->not->toContain($closed->id)
         ->and($ids)->not->toContain($cancelled->id);
+});
+
+/**
+ * Gộp M9 (xung đột 2): nửa kia của CÙNG một định nghĩa. M9 cần "vụ đã kết thúc" (widget "Hồ sơ
+ * đã kết thúc còn công nợ", bộ lọc cùng tên ở trang Công nợ, dòng cảnh báo ở tab tiền) và từng tự
+ * viết `whereNotNull('closed_at')` ở bốn chỗ. `scopeClosed()` là phần bù của `scopeOpen()` TRONG
+ * các vụ chưa huỷ: đã kết thúc = `closed_at` có giá trị VÀ chưa xoá mềm — một vụ đã huỷ không
+ * "đang mở" mà cũng không "đã kết thúc", nó đã huỷ. `isClosed()` là bản trong bộ nhớ, cùng hai
+ * điều kiện, và phải trả cùng câu trả lời với scope cho cả ba vụ.
+ */
+it('scopeClosed keeps only closed matters that were not cancelled, and isClosed agrees with it', function () {
+    $open = Matter::factory()->create();
+    $closed = Matter::factory()->create(['closed_at' => now()->subDay()]);
+    $closedThenCancelled = Matter::factory()->create(['closed_at' => now()->subDays(2)]);
+    $closedThenCancelled->delete();
+
+    $ids = Matter::query()->withTrashed()->closed()->pluck('id');
+
+    expect($ids->all())->toBe([$closed->id]);
+
+    foreach ([$open, $closed, $closedThenCancelled] as $matter) {
+        $fresh = Matter::withTrashed()->find($matter->id);
+
+        expect($fresh->isClosed())->toBe($ids->contains($matter->id))
+            ->and($fresh->isOpen() && $fresh->isClosed())->toBeFalse();
+    }
+});
+
+/**
+ * Một định nghĩa, và nó phải CÒN là một (gộp M9, xung đột 2): ngoài `Matter.php` (nơi định nghĩa
+ * `scopeOpen`/`scopeClosed`/`isOpen`/`isClosed`) và `TransitionMatterStage` (nơi DUY NHẤT ghi cột
+ * này), không tệp nào trong app/ được dùng `closed_at` làm điều kiện — lọc SQL hay so trong bộ nhớ.
+ * Hiển thị cột (`TextEntry::make('closed_at')`, cast, nhãn) thì được. Bốn chỗ M9 viết trước khi
+ * M6.5 có scope là đúng thứ test này bắt.
+ */
+it('uses closed_at as a condition nowhere in app/ except the matter model and the stage transition', function () {
+    $allowed = ['Models/Matter.php', 'Actions/TransitionMatterStage.php'];
+
+    $pattern = '/where(Null|NotNull)?\(\s*[\'"](\w+\.)?closed_at[\'"]'
+        .'|->closed_at\s*(===|!==|==|!=)|(===|!==|==|!=)\s*\$\w+->closed_at\b/';
+
+    $offenders = collect(File::allFiles(app_path()))
+        ->map(fn (SplFileInfo $file): string => $file->getRelativePathname())
+        ->reject(fn (string $path): bool => in_array($path, $allowed, true))
+        // Chỉ đọc MÃ: docblock/chú thích kể lại lịch sử `whereNull('closed_at')` thì không tính.
+        ->filter(fn (string $path): bool => preg_match($pattern, collect(token_get_all((string) file_get_contents(app_path($path))))
+            ->reject(fn (mixed $token): bool => is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true))
+            ->map(fn (mixed $token): string => is_array($token) ? $token[1] : $token)
+            ->implode('')) === 1)
+        ->values()
+        ->all();
+
+    expect($offenders)->toBe([]);
 });

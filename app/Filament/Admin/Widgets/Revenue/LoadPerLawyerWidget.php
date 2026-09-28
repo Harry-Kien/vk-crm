@@ -123,7 +123,7 @@ class LoadPerLawyerWidget extends ChartWidget
 
         $rows = Matter::query()
             ->listableBy($user)
-            ->whereNull('closed_at')
+            ->open()
             ->when($filters->practiceAreaId, fn (Builder $q, int $v) => $q->where('matter_type_id', $v))
             ->when($filters->lawyerId, fn (Builder $q, int $v) => $q->where('lead_lawyer_id', $v))
             ->join('users', 'users.id', '=', 'matters.lead_lawyer_id')

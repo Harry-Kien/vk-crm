@@ -76,7 +76,7 @@ class ClosedWithBalanceWidget extends TableWidget
 
         return Matter::query()
             ->listableBy($user)
-            ->whereNotNull('closed_at')
+            ->closed()
             ->when($filters->practiceAreaId, fn (Builder $q, int $v) => $q->where('matter_type_id', $v))
             ->when($filters->lawyerId, fn (Builder $q, int $v) => $q->where('lead_lawyer_id', $v))
             // `whereRaw`, không `havingRaw` trên bí danh: HAVING không GROUP BY tham chiếu một

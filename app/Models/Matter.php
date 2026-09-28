@@ -142,10 +142,12 @@ class Matter extends Model
      *    thầm bao gồm cả những vụ đã huỷ.
      *
      * **Chỗ DUY NHẤT trong `app/` được viết `whereNull('closed_at')`/`whereNotNull('closed_at')`
-     * làm điều kiện lọc.** Mọi nơi khác gọi `->open()` — xem các widget trang chủ,
-     * `ClientPolicy::delete()`, `App\Support\OpenWork`, `App\Support\MatterStaleness`. Hai chỗ
-     * còn lại được PHÉP nhắc tên cột này: chính `TransitionMatterStage` (nơi ghi), và các cast/
-     * nhãn hiển thị đơn thuần (`MatterInfolist`, `getActivitylogOptions()`).
+     * làm điều kiện lọc** (cùng {@see self::scopeClosed()} ngay dưới). Mọi nơi khác gọi `->open()`
+     * hoặc `->closed()` — xem các widget trang chủ, `ClientPolicy::delete()`, `App\Support\OpenWork`,
+     * `App\Support\MatterStaleness`, và các màn hình tiền của M9. Hai chỗ còn lại được PHÉP nhắc
+     * tên cột này: chính `TransitionMatterStage` (nơi ghi), và các cast/nhãn hiển thị đơn thuần
+     * (`MatterInfolist`, `getActivitylogOptions()`). Luật này có test cấu trúc
+     * (`MatterTest`, "uses closed_at as a condition nowhere in app/…").
      */
     public function scopeOpen(Builder $query): Builder
     {
@@ -162,6 +164,27 @@ class Matter extends Model
     public function isOpen(): bool
     {
         return $this->closed_at === null && ! $this->trashed();
+    }
+
+    /**
+     * Nửa kia của {@see self::scopeOpen()} (gộp M9, xung đột 2): "vụ đã kết thúc" — `closed_at` có
+     * giá trị VÀ chưa xoá mềm. Một vụ đã huỷ không "đang mở" mà cũng không "đã kết thúc": nó đã
+     * huỷ, và `withTrashed()` phía trên không được kéo nó vào đây. Dùng ở widget "Hồ sơ đã kết thúc
+     * còn công nợ", bộ lọc cùng tên của trang Công nợ; trước khi gộp, M9 tự viết
+     * `whereNotNull('closed_at')` ở những chỗ đó. `tests/Feature/Models/MatterTest.php` cấm dùng cột
+     * này làm điều kiện ở bất kỳ đâu khác trong app/.
+     */
+    public function scopeClosed(Builder $query): Builder
+    {
+        return $query
+            ->whereNotNull($this->qualifyColumn('closed_at'))
+            ->whereNull($this->qualifyColumn('deleted_at'));
+    }
+
+    /** Bản trong bộ nhớ của {@see self::scopeClosed()} — cùng hai điều kiện. */
+    public function isClosed(): bool
+    {
+        return $this->closed_at !== null && ! $this->trashed();
     }
 
     /**

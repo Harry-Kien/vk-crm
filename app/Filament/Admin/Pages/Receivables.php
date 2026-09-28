@@ -223,7 +223,7 @@ class Receivables extends Page implements HasTable
                     ->label(__('billing.receivables.filters.closed_with_balance'))
                     ->query(fn (Builder $query): Builder => $query->whereHas(
                         'contract.matter',
-                        fn (Builder $matter) => $matter->whereNotNull('closed_at'),
+                        fn (Builder $matter) => $matter->closed(),
                     )),
                 SelectFilter::make('client_id')
                     ->label(__('billing.receivables.filters.client'))
