@@ -68,7 +68,7 @@ it('never restores what an admin edited, deactivated or deleted when the referen
         ->and(ChecklistTemplate::withTrashed()->where('matter_type_id', $type->id)->count())->toBe(1)
         ->and($firstItem->fresh()->description)->toBe('Mô tả đã sửa')
         ->and($firstItem->fresh()->is_required)->toBeFalse()
-        ->and(ChecklistTemplateItem::query()->where('checklist_template_id', $template->id)->where('name', $lastItem->name)->exists())->toBeFalse();
+        ->and(ChecklistTemplateItem::query()->where('template_id', $template->id)->where('name', $lastItem->name)->exists())->toBeFalse();
 
     expect(MatterType::query()->where('code', 'LD')->exists())->toBeFalse()
         ->and(MatterType::withTrashed()->where('code', 'LD')->count())->toBe(1);
