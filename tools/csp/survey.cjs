@@ -40,6 +40,11 @@
  * lỗi, ≥ 1 canvas xem trước — thiếu một điều là bước đó hỏng, nên một lượt "0 vi phạm" không thể
  * đến từ một bước không bao giờ đi tới Worker.
  *
+ * Lượt đầy đủ đi cả các màn hình M6.5: widget "Mốc thời hạn 7 ngày tới" ở bảng điều khiển, modal
+ * "Xem chi tiết" của nhật ký hệ thống, sổ "Thư đã gửi" (danh sách + một thư), trang sửa vụ việc,
+ * tab "Đội ngũ" + modal "Thêm thành viên", modal "Bàn giao", hồ sơ cá nhân, và một lần nộp NHIỀU
+ * tệp cùng lúc ở cổng khách (JPEG + PNG + PDF trong một lượt chọn).
+ *
  * Mã thoát: 0 khi không có vi phạm CSP, lỗi JavaScript hay hành động hỏng nào; 1 nếu có.
  *
  * Giới hạn đăng nhập cổng khách (5 lần / 15 phút theo địa chỉ mạng, `PortalLoginThrottle`) KHÔNG
@@ -207,7 +212,12 @@ async function staffTour(browser) {
     await p.waitForURL(/\/admin\/?$/);
   });
 
-  if (FULL) await visit(page, 'admin: bảng điều khiển', '/admin');
+  if (FULL) await visit(page, 'admin: bảng điều khiển', '/admin', async (p) => {
+    // M6.5: widget "Mốc thời hạn 7 ngày tới" (UpcomingDeadlinesWidget) nạp lười qua Livewire —
+    // chờ nó vẽ xong, để "0 vi phạm" của trang này tính cả phần widget.
+    await p.getByText('Mốc thời hạn 7 ngày tới').first().waitFor({ timeout: 60000 });
+    note('widget "Mốc thời hạn 7 ngày tới" đã vẽ');
+  });
   await visit(page, 'admin: danh sách vụ việc', '/admin/matters');
   const matterUrl = await firstHref(page, /\/admin\/matters\/\d+$/);
 
@@ -254,6 +264,36 @@ async function staffTour(browser) {
     if (typeEdit) await visit(page, 'admin: sửa loại vụ việc', typeEdit);
     await visit(page, 'admin: tạo loại vụ việc', '/admin/matter-types/create');
     await visit(page, 'admin: nhật ký hệ thống', '/admin/activity-log-page');
+
+    // Màn hình M6.5 (khảo sát lại khi gộp M8a vào main): modal chi tiết của nhật ký, sổ thư đã
+    // gửi, trang sửa vụ việc, tab "Đội ngũ" và modal của nó, modal "Bàn giao", hồ sơ cá nhân.
+    await visit(page, 'admin: nhật ký hệ thống — modal "Xem chi tiết"', '/admin/activity-log-page', async (p) => {
+      await openModal(p, 'Xem chi tiết');
+      await closeModal(p);
+    });
+    await visit(page, 'admin: thư đã gửi', '/admin/outbound-messages');
+    const outboundView = await firstHref(page, /\/admin\/outbound-messages\/\d+$/);
+    if (outboundView) {
+      await visit(page, 'admin: xem một thư đã gửi', outboundView);
+    } else {
+      begin('admin: xem một thư đã gửi');
+      current.errors.push('bước hỏng: danh sách "Thư đã gửi" không có dòng nào để mở');
+    }
+    await visit(page, 'admin: sửa vụ việc', matterUrl + '/edit');
+    await visit(page, 'admin: tab "Đội ngũ" — modal "Thêm thành viên"', matterUrl, async (p) => {
+      const tab = p.locator('.fi-tabs-item', { hasText: 'Đội ngũ' }).first();
+      await p.waitForFunction((el) => !el.disabled, await tab.elementHandle());
+      await tab.click();
+      await settle(p, 300);
+      await openModal(p, 'Thêm thành viên');
+      await closeModal(p);
+    });
+    await visit(page, 'admin: modal "Bàn giao"', matterUrl, async (p) => {
+      await openModal(p, 'Bàn giao');
+      await closeModal(p);
+    });
+    await visit(page, 'admin: hồ sơ cá nhân', '/admin/profile');
+
     await visit(page, 'web: trang 404', '/khong-ton-tai-' + Date.now());
     await visit(page, 'web: /up (kiểm tra sống)', '/up');
     // Trang /up của Laravel nạp Tailwind từ cdn.jsdelivr.net để tô chữ "Application up". CSP chặn
@@ -448,6 +488,54 @@ async function clientTour(browser) {
         }
       });
     }
+
+    // M6.5 Task 17 (R10): một lần nộp gồm NHIỀU tệp (`FileUpload::multiple()`). Chọn cả ba tệp
+    // trong CÙNG một lượt chọn — hai ảnh (đi qua Worker `blob:` dựng bản xem trước) và một PDF —
+    // rồi, ở lượt ACTIONS, gửi cả lô.
+    const multi = [uploads[0].file, uploads[1].file, uploads[2].file];
+    const multiUrl = await freshSubmitUrl();
+    await visit(page, `portal: nộp giấy tờ — chọn ${multi.length} tệp cùng lúc${ACTIONS ? ' rồi gửi' : ''}`, multiUrl, async (p, entry) => {
+      const choice = p.locator('[data-portal-block="1"] button[wire\\:click^="chooseItem"]').first();
+      if (await choice.count()) {
+        await choice.click();
+        await settle(p);
+      }
+      const input = p.locator('input[type="file"]').first();
+      await input.waitFor({ state: 'attached', timeout: 15000 });
+      await input.setInputFiles(multi);
+      // Đếm theo TRẠNG THÁI từng mục FilePond, không theo chữ "Tải lên thành công": vùng
+      // aria-live `.filepond--assistant` cũng in đúng chữ đó, nên đếm chữ thì ra đủ 3 trong khi
+      // tệp thứ ba còn "Đang tải lên" — lượt đầu gửi đi một lô 2 tệp vì thế. Rồi chờ khối 3
+      // ("xem trước", do máy chủ vẽ từ `pendingFiles()`) liệt kê đủ cả lô.
+      const deadline = Date.now() + 120000;
+      let done = 0;
+      let listed = 0;
+      while (Date.now() < deadline) {
+        done = await p.locator('.filepond--item[data-filepond-item-state="processing-complete"]').count();
+        listed = 0;
+        for (const f of multi) {
+          if (await p.locator('[data-portal-block="3"]', { hasText: f.name }).count()) listed++;
+        }
+        if (done >= multi.length && listed >= multi.length) break;
+        await p.waitForTimeout(500);
+      }
+      if (done < multi.length || listed < multi.length) {
+        throw new Error(`chỉ ${done}/${multi.length} tệp tải lên tạm xong, ${listed}/${multi.length} tệp hiện ở khối xem trước`);
+      }
+      note(`đã chọn ${multi.length} tệp cùng lúc, cả ${done} tải lên tạm xong và hiện ở khối xem trước`);
+      await requireImagePreview(p, p, entry);
+
+      if (ACTIONS) {
+        const name = `portal nộp một lô ${multi.length} tệp trong một lần gửi`;
+        try {
+          await p.locator('[data-portal-action="send"]').click();
+          await p.getByText('Chúng tôi đã nhận được').first().waitFor({ timeout: 60000 });
+          action(name, true, `thấy "Chúng tôi đã nhận được" ở ${p.url().replace(BASE, '')}`);
+        } catch (e) {
+          action(name, false, e.message.split('\n')[0]);
+        }
+      }
+    });
   } else {
     begin('portal: nộp giấy tờ');
     note('BỎ QUA: không hồ sơ nào của khach1 có đường nộp giấy tờ');
