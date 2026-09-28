@@ -18,6 +18,7 @@ use App\Models\User;
 use App\Notifications\Staff\NewClientRequestAlert;
 use App\Notifications\Staff\NewClientRequestMailFailedAlert;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Filament\Notifications\Notification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
@@ -68,6 +69,36 @@ it('notifies the lead lawyer in-app when a client opens a new request', function
     openRequestAsClient($matter);
 
     expect($lawyer->fresh()->notifications()->where('type', NewClientRequestAlert::class)->count())->toBe(1);
+});
+
+/**
+ * Fix round 1 (finding Critical 1): `ClientRequest::subject` do CHÍNH khách gõ, chưa qua kiểm
+ * duyệt nào — Filament render body của thông báo trong hệ thống bằng `str($body)->sanitizeHtml()`,
+ * mà cấu hình sanitizer của nó (`SupportServiceProvider`) GIỮ LẠI `<a href>`, `<img>` và thuộc
+ * tính `style` trên mọi thẻ. Một khách gõ một thẻ `<a>` toàn màn hình (`position:fixed;inset:0`)
+ * làm tiêu đề yêu cầu biến chuông thông báo `/admin` của luật sư phụ trách/trợ lý thành một lớp
+ * phủ lừa đảo có thể bấm được, viết bởi một bên ngoài văn phòng.
+ *
+ * Mutation probe: bỏ `e()` quanh `subject` ở `NewClientRequestAlert::toDatabase()` — test này ĐỎ
+ * (`href` sống sót qua `toEmbeddedHtml()`).
+ */
+it('never lets client-typed HTML in the request subject survive as live markup in the staff alert', function () {
+    Mail::fake();
+    [$matter, $lawyer] = requestableMatter();
+    $payload = '<a href="https://evil.example/login" style="position:fixed;inset:0;background:#fff">Phiên đăng nhập hết hạn</a>';
+
+    openRequestAsClient($matter, $payload);
+
+    $row = $lawyer->fresh()->notifications()->where('type', NewClientRequestAlert::class)->first();
+    $html = Notification::fromDatabase($row)->toEmbeddedHtml();
+
+    expect($html)->not->toContain('href="https://evil.example/login"')
+        ->and($html)->not->toContain('style="position:fixed')
+        ->and($html)->not->toContain('<a ')
+        // Cặp dương: câu chữ khách gõ (nay chỉ còn là VĂN BẢN, không còn là thẻ/khoá) vẫn đọc
+        // được — Filament tự escape thêm một lớp khi render Blade, nên không so trực tiếp với
+        // `e($payload)`.
+        ->and($html)->toContain('Phiên đăng nhập hết hạn');
 });
 
 /** SPEC §6.6 bước 9 "lead lawyer và trợ lý": mọi trợ lý trong ĐỘI NGŨ của vụ việc, không riêng lead. */

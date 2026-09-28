@@ -28,9 +28,14 @@ class NewClientDocumentAlert extends Notification
     {
         return [
             'actions' => [],
+            // `e()` `code`/`item` — vòng sửa 1, finding Critical 1 (cùng lý lẽ
+            // `NewClientRequestAlert`, đọc docblock lớp đó): `item` (`MatterChecklistItem::name`)
+            // do văn phòng gõ khi tạo danh mục hồ sơ, không phải khách, nhưng Filament vẫn render
+            // body của thông báo trong hệ thống qua `str($body)->sanitizeHtml()` — cùng kênh hở.
+            // `count` là `int`, không cần escape.
             'body' => __('requests.new_document_notification.body', [
-                'code' => $this->firstDocument->matter?->code ?? '',
-                'item' => $this->firstDocument->checklistItem?->name ?? '',
+                'code' => e($this->firstDocument->matter?->code ?? ''),
+                'item' => e($this->firstDocument->checklistItem?->name ?? ''),
                 'count' => $this->count,
             ]),
             'color' => 'info',

@@ -36,8 +36,9 @@ class ClientRequestFollowUpAlert extends Notification
     {
         return [
             'actions' => [],
+            // `e()` `code` — vòng sửa 1, finding Critical 1 (cùng lý lẽ `NewClientRequestAlert`).
             'body' => __('requests.followup_notification.body', [
-                'code' => $this->reply->request?->matter?->code ?? '',
+                'code' => e($this->reply->request?->matter?->code ?? ''),
             ]),
             'color' => 'warning',
             'duration' => 'persistent',

@@ -38,9 +38,15 @@ class NewClientRequestAlert extends Notification
     {
         return [
             'actions' => [],
+            // `e()` MỌI giá trị nội suy — vòng sửa 1, finding Critical 1: `subject` do CHÍNH
+            // khách gõ, và Filament render body của thông báo trong hệ thống bằng
+            // `str($body)->sanitizeHtml()`, mà cấu hình sanitizer của nó vẫn GIỮ LẠI `<a href>`,
+            // `<img>` và thuộc tính `style` — một khách gõ một thẻ `<a>` toàn màn hình biến chuông
+            // thông báo `/admin` thành một lớp phủ lừa đảo có thể bấm được. Thư `staff.
+            // new_client_request` (Blade, `{{ }}`) đã escape đúng từ đầu; đây là kênh còn hở.
             'body' => __('requests.new_request_notification.body', [
-                'code' => $this->request->matter?->code ?? '',
-                'subject' => $this->request->subject,
+                'code' => e($this->request->matter?->code ?? ''),
+                'subject' => e($this->request->subject),
             ]),
             'color' => 'info',
             'duration' => 'persistent',

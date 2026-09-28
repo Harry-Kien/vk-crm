@@ -146,6 +146,40 @@ it('never puts the clients own request subject in the email subject, only the ma
 });
 
 /**
+ * Fix round 1 (finding Important 2), R6 ranh giới nội dung: các cột NỘI BỘ
+ * (`matters.description_internal`, `clients.note`) không có ranh giới công bố nào cho khách,
+ * không bao giờ được vào thư — đo bằng chuỗi đánh dấu ở CẢ BA nơi (tiêu đề, HTML, văn bản thuần),
+ * cùng lối `DocumentPublishedNotificationTest::'never carries the matters internal note into the
+ * client mailbox'`. Marker trước đây chỉ đặt trong NỘI DUNG CÂU TRẢ LỜI (client-visible, không
+ * phải nội bộ) và không soi tiêu đề — một mẫu sau này lỡ thêm mô tả vụ việc hoặc ghi chú khách
+ * hàng vào thư sẽ không có test nào chuyển đỏ.
+ */
+it('never carries the matters internal note or the clients internal note into the answered mail', function () {
+    [$matter, $lawyer, $account, $request] = answerableThread();
+    $matterMarker = 'DAU-HIEU-NOI-BO-VU-VIEC-'.uniqid();
+    $clientMarker = 'DAU-HIEU-NOI-BO-KHACH-HANG-'.uniqid();
+    $matter->update(['description_internal' => $matterMarker]);
+    $account->client()->update(['note' => $clientMarker]);
+
+    $reply = app(ReplyToClientRequest::class)->handle($request->fresh(), $lawyer, 'Trả lời cho khách.');
+
+    $mail = new RequestAnsweredMail($reply->fresh(), $account->fresh());
+    $subject = $mail->envelope()->subject;
+    $html = $mail->render();
+    $text = view($mail->content()->text, $mail->content()->with)->render();
+
+    expect($subject)->not->toContain($matterMarker)
+        ->and($subject)->not->toContain($clientMarker)
+        ->and($html)->not->toContain($matterMarker)
+        ->and($html)->not->toContain($clientMarker)
+        ->and($text)->not->toContain($matterMarker)
+        ->and($text)->not->toContain($clientMarker)
+        // Cặp dương: mã hồ sơ (nội dung ĐÃ công bố qua tiêu đề/thân thư) vẫn phải có mặt.
+        ->and($html)->toContain($matter->code)
+        ->and($text)->toContain($matter->code);
+});
+
+/**
  * R6/R7 — thân thư KHÔNG trích nội dung câu trả lời (SPEC §9: "chi tiết mời bấm vào portal").
  */
 it('never puts the reply content in the email body, only an invitation to the portal', function () {

@@ -51,7 +51,7 @@ class NotifyStaffOfNewClientDocument
             return 0;
         }
 
-        $count = $this->freshCount($fresh, $documents->count());
+        $count = $this->freshCount($documents);
         $recipients = app(ResolveStaffRecipients::class)->handle($matter, $this->preferred($matter));
 
         foreach ($recipients as $recipient) {
@@ -123,21 +123,23 @@ class NotifyStaffOfNewClientDocument
 
     /**
      * Số tệp thật của lô lúc GỬI, không lúc sự kiện bắn: một trong số các tệp CÓ THỂ đã bị xoá
-     * mềm giữa hai thời điểm đó. Đếm lại theo `matter_checklist_item_id` + `version` của tài liệu
-     * đại diện — cùng chuỗi mà `MatterProgress::documents()` nhận diện một lô (nhóm A, cùng đầu
-     * mục, cùng version). `$fallback` (số lúc dispatch) chỉ dùng khi lô đã hoàn toàn không còn
-     * đếm lại được (đại diện tự nó vừa bị xoá — đã trả `0` từ nhánh `stillExists()` ở trên nên
-     * không thể xảy ra thật, nhưng chữ ký hàm không hứa điều đó).
+     * mềm giữa hai thời điểm đó. Đếm lại BÊN TRONG chính `$documents` của sự kiện
+     * (`whereKey($documents->modelKeys())`), KHÔNG truy vấn lại theo `matter_checklist_item_id` +
+     * `version` (vòng sửa 1, finding Important 1): một câu truy vấn theo cặp đó không có điều
+     * kiện lọc nhóm, nên đếm luôn CẢ tài liệu nội bộ (nhóm D, văn phòng tự gắn, không phải khách
+     * nộp) và tài liệu của MỘT LẦN NỘP KHÁC (R10: một lần nộp bổ sung tái dùng cùng version, nên
+     * hai sự kiện `ClientDocumentSubmitted` liên tiếp trên cùng đầu mục có cùng version nhưng
+     * khác `$documents`) gắn cùng đầu mục/version — vi phạm đúng ruling "đọc thẳng collection
+     * này, không tự truy vấn lại". Đếm theo khoá chính của `$documents` giữ nguyên phạm vi ĐÚNG
+     * MỘT LẦN NỘP mà sự kiện mang theo, và vẫn loại tệp bị xoá mềm SAU khi sự kiện bắn (mặc định
+     * `Document::query()` không thấy hàng đã xoá mềm).
      */
-    private function freshCount(Document $representative, int $fallback): int
+    private function freshCount(Collection $documents): int
     {
-        $count = Document::query()
+        return Document::query()
             ->withoutGlobalScope(ClientPortalScope::class)
-            ->where('matter_checklist_item_id', $representative->matter_checklist_item_id)
-            ->where('version', $representative->version)
+            ->whereKey($documents->modelKeys())
             ->count();
-
-        return $count > 0 ? $count : $fallback;
     }
 
     private function alreadyAlerted(User $recipient, Document $representative): bool

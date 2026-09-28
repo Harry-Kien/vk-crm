@@ -3,6 +3,7 @@
 use App\Actions\Document\SubmitClientDocument;
 use App\Actions\Notification\NotifyStaffOfNewClientDocument;
 use App\Enums\Confidentiality;
+use App\Enums\DocumentGroup;
 use App\Enums\MatterRole;
 use App\Enums\OutboundStatus;
 use App\Enums\Role;
@@ -19,6 +20,7 @@ use App\Models\User;
 use App\Notifications\Staff\NewClientDocumentAlert;
 use App\Notifications\Staff\NewClientDocumentMailFailedAlert;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Filament\Notifications\Notification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\UploadedFile;
@@ -87,6 +89,31 @@ it('notifies the lead lawyer in-app when a client submits a document', function 
     expect($lawyer->fresh()->notifications()->where('type', NewClientDocumentAlert::class)->count())->toBe(1);
 });
 
+/**
+ * Fix round 1 (finding Critical 1), cùng lỗ hổng ở `NewClientDocumentAlert::toDatabase()`: tên
+ * đầu mục danh mục hồ sơ (`item`) không escape trước khi nội suy vào body, và Filament render
+ * body của thông báo trong hệ thống bằng `str($body)->sanitizeHtml()` — sanitizer của nó giữ lại
+ * `<a href>`/style. Tên đầu mục do VĂN PHÒNG gõ (không phải khách), nhưng vẫn là dữ liệu tự do —
+ * cùng kênh hở, cùng cách vá.
+ *
+ * Mutation probe: bỏ `e()` quanh `item` ở `NewClientDocumentAlert::toDatabase()` — test này ĐỎ.
+ */
+it('never lets HTML in the checklist item name survive as live markup in the staff alert', function () {
+    Mail::fake();
+    [$matter, $lawyer, $item, $clientUser] = documentSubmissionFixture();
+    $item->update(['name' => '<a href="https://evil.example/login" style="position:fixed;inset:0;background:#fff">Phiên đăng nhập hết hạn</a>']);
+
+    submitDocuments($item->fresh(), $clientUser);
+
+    $row = $lawyer->fresh()->notifications()->where('type', NewClientDocumentAlert::class)->first();
+    $html = Notification::fromDatabase($row)->toEmbeddedHtml();
+
+    expect($html)->not->toContain('href="https://evil.example/login"')
+        ->and($html)->not->toContain('style="position:fixed')
+        ->and($html)->not->toContain('<a ')
+        ->and($html)->toContain('Phiên đăng nhập hết hạn');
+});
+
 it('also emails every team assistant of the matter', function () {
     Mail::fake();
     [$matter, $lawyer, $item, $clientUser] = documentSubmissionFixture();
@@ -126,6 +153,48 @@ it('recounts the batch at send time instead of trusting the count captured at di
     $documents->last()->delete();
 
     app(NotifyStaffOfNewClientDocument::class)->handle($documents);
+
+    Mail::assertSent(NewClientDocumentMail::class, fn ($mail) => $mail->count === 1);
+});
+
+/**
+ * Fix round 1 (finding Important 1): `freshCount()` không còn đếm lại theo
+ * `matter_checklist_item_id` + `version` (không lọc nhóm, vi phạm ruling "đọc thẳng collection
+ * này, không tự truy vấn lại"), mà đếm THẲNG trong `$documents` của chính sự kiện — một tài liệu
+ * NỘI BỘ (nhóm D) mà văn phòng tự gắn vào cùng đầu mục, cùng version KHÔNG có mặt trong lô sự
+ * kiện đó nên không được tính là "khách vừa nộp".
+ *
+ * Mutation probe: đổi `freshCount()` lại thành đếm theo `matter_checklist_item_id` + `version`
+ * (bỏ `whereKey($documents->modelKeys())`) — test này ĐỎ (thư nói "2 tệp" thay vì "1 tệp").
+ */
+it('never counts an office-internal document on the same item as part of the clients submission', function () {
+    Mail::fake();
+    [$matter, $lawyer, $item, $clientUser] = documentSubmissionFixture();
+    Document::factory()->create([
+        'matter_id' => $matter->id,
+        'matter_checklist_item_id' => $item->id,
+        'group' => DocumentGroup::Internal,
+        'version' => 1,
+    ]);
+
+    submitDocuments($item, $clientUser, 1);
+
+    Mail::assertSent(NewClientDocumentMail::class, fn ($mail) => $mail->count === 1);
+});
+
+/**
+ * Fix round 1 (finding Important 1), phần R10: một lần nộp BỔ SUNG (một tệp thêm khi đầu mục còn
+ * `pending_review`) tái dùng CÙNG version — nhưng sự kiện thứ hai chỉ mang tài liệu của LẦN NỘP
+ * THỨ HAI, nên thư báo đúng "1 tệp", không cộng dồn tệp của lần nộp trước.
+ *
+ * Mutation probe: cùng đổi ở trên — test này ĐỎ (thư thứ hai nói "2 tệp").
+ */
+it('does not recount an earlier submissions files when reporting a supplement made while pending review', function () {
+    [$matter, $lawyer, $item, $clientUser] = documentSubmissionFixture();
+    submitDocuments($item, $clientUser, 1);
+
+    Mail::fake();
+    submitDocuments($item->fresh(), $clientUser, 1);
 
     Mail::assertSent(NewClientDocumentMail::class, fn ($mail) => $mail->count === 1);
 });

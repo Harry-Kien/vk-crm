@@ -27,7 +27,8 @@ class NewClientDocumentMailFailedAlert extends Notification
     {
         return [
             'actions' => [],
-            'body' => __('requests.new_document_failed_notification.body', ['code' => $this->matter->code]),
+            // `e()` `code` — vòng sửa 1, finding Critical 1 (cùng lý lẽ `NewClientRequestAlert`).
+            'body' => __('requests.new_document_failed_notification.body', ['code' => e($this->matter->code)]),
             'color' => 'danger',
             'duration' => 'persistent',
             'icon' => null,
