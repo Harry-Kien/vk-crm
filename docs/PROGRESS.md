@@ -1390,10 +1390,12 @@ merge lúc đó. Task 1 dựng thư đó:
   `matter_ids`) và thông báo trong hệ thống cho chính người nhận.
 - Đính chính SPEC §6.11 bước 3 và §11 ("Bàn giao và lưu trữ"): chỉ deadline CHƯA HOÀN THÀNH được
   chuyển, không phải "toàn bộ" (R10, cùng cách đọc M6.5 Task 4 đã chọn).
-- Test: `tests/Feature/Jobs/SendReassignmentDigestTest.php` (job, 16 test — mọi điều kiện lọc có
-  mutation probe), `tests/Feature/Actions/Matter/ReassignMatterTest.php` (2 test mới: dispatch mặc
-  định + `sendDigest: false`), `tests/Feature/Filament/ReassignMatterActionTest.php` (cập nhật:
-  `Mail::assertNothingSent()` cũ thay bằng `Mail::assertSent(MatterReassigned::class, …)` +
-  `Mail::assertNotSent(StageUpdate::class)` cho đúng "không thư nào tới KHÁCH"; thêm test vụ
-  `restricted` vẫn nhận thư, và rollback → không có thư).
+- Test: `tests/Feature/Jobs/SendReassignmentDigestTest.php` (job, 17 test — mọi điều kiện lọc có
+  mutation probe, cộng một test KHÔNG `Mail::fake()` xác nhận view Blade thật biên dịch và nhật
+  ký `outbound_messages` mở đúng dòng), `tests/Feature/Actions/Matter/ReassignMatterTest.php`
+  (2 test mới: dispatch mặc định + `sendDigest: false`), `tests/Feature/Filament/
+  ReassignMatterActionTest.php` (cập nhật: `Mail::assertNothingSent()` cũ thay bằng
+  `Mail::assertSent(MatterReassigned::class, …)` + `Mail::assertNotSent(StageUpdate::class)` cho
+  đúng "không thư nào tới KHÁCH"; thêm test vụ `restricted` vẫn nhận thư, và rollback → không có
+  thư).
 - Không việc nào bị hoãn tiếp ở task này.
