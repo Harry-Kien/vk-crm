@@ -234,7 +234,7 @@ class MatterSeeder extends Seeder
      * nhóm B còn `internal_draft`, và một tài liệu đã xoá mềm — TỆP THẬT, để Task 4/11 sinh và
      * giải nén được một gói bàn giao thật từ đúng dữ liệu này (ctl-3 brief).
      *
-     * **`closed_at` đặt THẲNG lúc tạo, không qua `TransitionMatterStage`.** Ctl-3 cho phép cả hai
+     * **`closed_at` ghi THẲNG ở CUỐI hàm, không qua `TransitionMatterStage`.** Ctl-3 cho phép cả hai
      * cách ("đi qua TransitionMatterStage thật hoặc dựng đúng closed_at + bản ghi archive như
      * Action sẽ ghi"); đi qua Action thật đòi vụ việc leo hết chuỗi `allowed_next` của loại DD
      * (`StagePresets::civil()`, bảy giai đoạn) trước khi tới `closed`, một chuỗi dài không có giá
@@ -299,6 +299,15 @@ class MatterSeeder extends Seeder
         if ($firstItem !== null) {
             $clientUser = $client->clientUsers()->first();
 
+            // Version 1 bị TRẢ LẠI (nộp rồi từ chối kèm lý do) — để gói bàn giao có một tệp nhóm
+            // A mà R8 phải BỎ QUA ("bỏ version bị từ chối"), cạnh version mới nhất được nhận.
+            $this->rejectAfterSubmission($firstItem, $clientUser, $lead);
+
+            // Version 2 — bản khách nộp lại đúng đường thật, rồi văn phòng DUYỆT. Duyệt là bắt
+            // buộc chứ không trang trí: R8 chỉ đưa vào gói nhóm A "mọi tệp của version mới nhất
+            // đã được chấp nhận", và danh mục của vụ đã đóng là chỉ đọc (`MatterChecklistReadOnly`)
+            // nên sau khi đóng không ai còn duyệt được — một đầu mục `pending_review` ở đây sẽ
+            // treo mãi và gói sinh từ vụ mẫu này sẽ không có mục nhóm A nào.
             app(SubmitClientDocument::class)->handle(
                 $firstItem,
                 $clientUser,
@@ -308,6 +317,8 @@ class MatterSeeder extends Seeder
                     $matter->code.' - khach gui len qua trang khach hang',
                 )],
             );
+
+            app(ReviewChecklistItem::class)->handle($firstItem, $lead, ChecklistItemStatus::Accepted);
         }
 
         // Nhóm B — vòng đời đủ ba bước (SPEC §4.11): internal_draft → pending_approval

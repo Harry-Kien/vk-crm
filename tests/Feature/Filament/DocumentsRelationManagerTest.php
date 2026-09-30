@@ -1776,3 +1776,54 @@ it('requires the misfiling reason on screen for a draft that went B → D and no
 
     expect($document->fresh()->group)->toBe(DocumentGroup::Internal);
 });
+
+/**
+ * M7 Task 3, vòng sửa 1 — danh mục của vụ đã kết thúc là CHỈ ĐỌC, kể cả khi luật sư bấm "Tải lên"
+ * ở tab Tài liệu, chọn nhóm A và một đầu mục bị từ chối. Trước bản sửa, đầu mục sang `accepted`.
+ *
+ * `MatterChecklistReadOnly` là một `DomainException`: màn hình phải đổi nó thành thông báo tiếng
+ * Việt, không phải lỗi 500, và câu "đã lưu xong" không được xuất hiện cạnh nó.
+ */
+it('turns the closed-matter refusal of a group A staff upload into a Vietnamese notification', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'closed_at' => now()->subDay()]);
+    $item = MatterChecklistItem::factory()->for($matter)->status(ChecklistItemStatus::Rejected)->create([
+        'rejection_reason' => 'Ảnh chụp bị mờ, anh/chị chụp lại giúp chúng tôi.',
+    ]);
+
+    $this->actingAs($lawyer, 'web');
+
+    documentsManager($matter)->callAction(TestAction::make('upload')->table(), data: [
+        'file' => validPdf(),
+        'title' => 'Bản sao hộ khẩu nộp thay khách',
+        'group' => DocumentGroup::ClientProvided->value,
+        'matter_checklist_item_id' => $item->id,
+    ]);
+
+    $titles = sentNotificationTitles();
+
+    expect($titles)->toContain(__('actions.failed_title'))
+        ->and($titles)->not->toContain(__('documents.tab.actions.upload_success'))
+        ->and($matter->documents()->count())->toBe(0)
+        ->and($item->refresh()->status)->toBe(ChecklistItemStatus::Rejected)
+        ->and($item->reviewed_by)->toBeNull();
+});
+
+/** Cặp dương: cùng người, cùng vụ đã đóng, nhóm A — chỉ khác là không chọn đầu mục nào. */
+it('still lets a group A staff upload without a checklist item through on a closed matter', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'closed_at' => now()->subDay()]);
+
+    $this->actingAs($lawyer, 'web');
+
+    documentsManager($matter)
+        ->callAction(TestAction::make('upload')->table(), data: [
+            'file' => validPdf(),
+            'title' => 'Bản sao hộ khẩu nộp thay khách',
+            'group' => DocumentGroup::ClientProvided->value,
+        ])
+        ->assertHasNoActionErrors();
+
+    expect($matter->documents()->count())->toBe(1)
+        ->and(sentNotificationTitles())->toContain(__('documents.tab.actions.upload_success'));
+});
