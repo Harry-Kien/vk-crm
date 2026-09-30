@@ -786,6 +786,203 @@ view và route, đồng thời báo nhầm vài lời gọi hợp lệ; và mộ
 throttle đứng sau chữ ký trong khi thứ tự thật là ngược lại, nên người dùng bắn nhiều id sai sẽ
 tự khoá đường tải hợp lệ của chính mình trong một phút.
 
+## Ghi chú M6
+
+Phần còn lại của M6 (Task 3 phần còn lại, Task 4, 7, 8, 9, 10) làm trên làn `m6-rest` (worktree
+`D:\vkwt\lane-m6`), cắt từ `origin/m6-5-lane-d` @ `d2de674` — tức SAU toàn bộ M6.5, không phải từ
+`main` như dòng "Nhánh" của kế hoạch (`docs/superpowers/plans/2026-09-21-m6-notifications.md`).
+Task 1, 2, 5, 6 và thư `client.stage_update` của Task 3 đã có trên nền từ trước. Sổ tay làn (mọi
+vòng rà soát, mọi phán quyết): `.superpowers/sdd/m6/progress.md`; báo cáo từng task:
+`.superpowers/sdd/m6/task-<n>-report.md`. Làn KHÔNG tự merge: thứ tự đã chốt là M6.5 → M8a → M9 →
+`m6-rest` → M8b → M7 → M11 → M10 → M12.
+
+### Trạng thái lúc viết (2026-10-01)
+
+- **Xong:** Task 3, 4, 7, 8, 9 (mỗi task qua rà soát độc lập "giả định có một Critical": Task 3 và
+  Task 4 mỗi task hai vòng sửa, Task 7 một vòng; Task 8 và 9 duyệt thẳng, mỗi task 4 minor ghi ở sổ
+  tay) và Task 10 (nút "Gửi lại" + nghiệm thu này), chờ lượt rà soát cuối làn.
+- **Số đo cuối làn** (commit `dff1ccc`): bộ test đầy đủ **2570 xanh / 6 bỏ qua / 0 đỏ** (10605
+  khẳng định; SQLite, `--parallel --processes=2`, 955 giây); `test:mariadb` tuần tự trên 27 tệp —
+  mọi tệp test làn đã chạm, cộng `OutboundMessageResourceTest` và `ActivityLogEventTranslationsTest`
+  — **660 xanh / 0 đỏ** (2229 khẳng định, 421 giây), kể cả một test khoá THẬT hai phiên CSDL;
+  `pint --test` sạch 606 tệp. Ba sửa nhỏ sau lượt chạy đầy đủ (bỏ một hằng không dùng, dời một chú
+  thích Blade, siết một khẳng định) đã chạy lại trên các tệp chịu ảnh hưởng: 117 xanh + 1 bỏ qua
+  (SQLite), 118 xanh (MariaDB). Làn không thêm migration nào.
+- Đường cơ sở trước làn (`d2de674`): 2216 xanh + 5 bỏ qua. Làn thêm 355 test; test bỏ qua thứ
+  sáu là test khoá thật, chỉ chạy trên MariaDB.
+
+### Làn đã giao gì
+
+- **Task 3 — thư cho khách, kích hoạt bởi hành động.** `client.document_published` (công bố tài
+  liệu → sự kiện → listener hàng đợi), `client.document_rejected` (MỖI lần từ chối là một thư: khoá
+  chống trùng `rejected@<reviewed_at>`), `client.activation` (`IssuePortalAccess` →
+  `SendPortalActivationMail`, mật khẩu tạm sinh LÚC GỬI, không bao giờ nằm trong hàng đợi). Luật
+  người nhận R12 tách ra MỘT chỗ: `App\Actions\Notification\ResolveClientRecipients`. Câu báo sau
+  khi từ chối nói đúng thư có đi hay không, ba nhánh: có thư / không thư nhưng lý do vẫn chờ trên
+  cổng / cổng giấu hẳn, phải gọi khách.
+- **Task 4 — thư cho nhân sự, kích hoạt bởi khách.** `staff.new_client_request`,
+  `staff.new_client_document` (một thư cho một LÔ tệp của một lần nộp), thông báo khi khách viết
+  tiếp vào một yêu cầu (REQ-2), `client.request_answered` + huy hiệu "có trả lời mới" (REQ-4). Vụ
+  đã đóng mà còn công bố cổng vẫn báo văn phòng (vòng sửa 2).
+- **Task 7 — `stale-matters.check`, 07:30 hằng ngày.** Mốc 14 ngày: thông báo trong hệ thống một
+  lần mỗi đợt đình trệ; mốc 21 ngày: thư `staff.stale_matter` tối đa một lần mỗi 7 ngày LỊCH (vòng
+  sửa 1: cửa sổ theo ngày, không trôi thành 8 ngày vì `sent_at` đóng dấu sau 07:30). Định nghĩa
+  "quá hạn" ở `App\Support\MatterStaleness`, dùng chung với widget và danh sách.
+- **Task 8 — `missing-documents.remind`, 08:00 thứ Hai/Tư/Sáu.** Thư `client.missing_documents`
+  liệt kê ĐÚNG đầu mục bắt buộc còn thiếu bằng tên người đọc được; thiếu quá 14 ngày thì báo luật
+  sư. "Còn thiếu" và đồng hồ "thiếu từ" nằm ở `ChecklistProgress`, widget dùng chung. Chống trùng
+  3 ngày lịch cộng lịch T2/T4/T6 ⇒ thực tế khách nhận thứ Hai và thứ Sáu.
+- **Task 9 — `unseen-updates.remind`, 08:30 hằng ngày.** Báo luật sư phụ trách gọi khách khi một
+  dòng tiến độ đã công bố quá 5 ngày mà khách chưa xem; chỉ trong hệ thống, không thư. Định nghĩa
+  "chưa xem" ở `App\Support\UnseenStageLogs`, dùng chung với widget.
+- **Task 10 — nút "Gửi lại" ở Nhật ký thư** (sửa đổi Task 21 của kế hoạch; M6.5 Task 13 để lại).
+  Trên một dòng `failed`, bảng và trang xem cùng một nút
+  (`app/Filament/Admin/Resources/OutboundMessages/Actions/ResendOutboundMessageAction.php`) gọi
+  `App\Actions\Notification\ResendOutboundMessage`:
+  - **Ai bấm:** ability riêng `OutboundMessagePolicy::resend()` — CHỈ admin, và vẫn qua `view()`
+    của đúng dòng đó. Manager và luật sư phụ trách XEM được dòng nhưng không có nút; một lời gọi
+    Livewire giả mạo vào nút đã ẩn không làm gì; gọi thẳng Action bị Gate từ chối.
+  - **Mẫu nào:** tám mẫu dựng lại được từ `related` (`client.stage_update`,
+    `client.document_published`, `client.document_rejected`, `client.request_answered`,
+    `client.missing_documents`, `staff.new_client_request`, `staff.new_client_document`,
+    `staff.stale_matter`), khai MỘT chỗ ở `App\Actions\Notification\ResendTargets`. Không gửi lại:
+    `client.otp` (mã 5 phút đã chết), `staff.deadline_reminder` (đường thử lại riêng của
+    `CheckDeadlines`, gửi tay là gửi hai lần), `client.activation` (gửi lại = cấp mật khẩu tạm
+    mới, dùng nút ở màn hình tài khoản cổng), `undeclared`. Dòng `queued`/`sent` không có nút.
+  - **Không luật thứ hai:** mỗi mẫu gọi đúng `eligibleRecipients()`/`alreadyDelivered()`/`handle()`
+    của Action/Job gốc (sáu Action `Notify*` và hai job `Send*Mail` được tách hàm, hành vi cũ giữ
+    nguyên). Người nhận suy lại lúc gửi (R3 nhân sự qua `ResolveStaffRecipients`, R12 khách), cột
+    `recipient` cũ không bao giờ dùng lại; không còn ai đủ điều kiện thì từ chối rõ ràng, không gửi.
+  - **Dòng cũ không đổi:** nó là bằng chứng; thư gửi lại là một dòng MỚI do `OutboundLedgerTransport`
+    ghi. Hàng đợi sau commit (`ResendOutboundMessageJob`, cùng ngân sách 5 lượt 60/300/900/3600 giây
+    của listener gốc); hỏng hẳn thì báo người bấm trong hệ thống (người bấm đã nghỉ thì chuỗi dự
+    phòng R3 nhận thay), câu báo không nêu mã hay tên vụ.
+  - **Bấm hai lần:** khoá dòng `matters` rồi dòng nhật ký thư, dấu chặn là dòng audit
+    `outbound_message_resent` ghi trong cùng transaction — mỗi dòng hỏng gửi lại được MỘT lần. Có
+    test khoá THẬT trên MariaDB với hai phiên đồng thời
+    (`tests/Feature/Actions/Notification/ResendOutboundMessageLockingTest.php`), đo được: đọc dấu
+    TRƯỚC khi giành khoá thì lần bấm thứ hai lọt qua (mutation probe đỏ).
+  - **Đúng sự việc:** dòng hỏng của một lần từ chối CŨ không gửi lại được khi đầu mục đã bị từ chối
+    LẦN MỚI (so khoá `payload.tier`), cả lúc bấm lẫn lúc job chạy.
+  - `.env.example` nối thêm các biến `BRAND_*` mà `config/vkcrm.php` đọc (kể cả
+    `BRAND_REPLY_TO_ADDRESS`); bốn thông tin pháp lý của chân thư để dạng chú thích — giá trị thật
+    là việc của M8.
+
+### Nghiệm thu thật trên dữ liệu seed (SPEC §13: "`schedule:test` sinh đúng email vào log")
+
+CSDL MariaDB riêng của làn `vk_crm_seed_lane_m6`, `migrate:fresh --seed --force` sạch,
+`MAIL_MAILER=log`, `QUEUE_CONNECTION=database`, giờ `Asia/Ho_Chi_Minh`, đêm 30/09 → 01/10/2026.
+
+```
+$ php artisan schedule:list
+  *    *    * * *      system-health.touch ............. Next Due: 27 giây tới
+  */5  *    * * *      system-health.heartbeat .......... Next Due: 4 phút tới
+  *    *    * * *      php artisan queue:work --stop-when-empty --max-time=50  Next Due: 27 giây tới
+  */30 7-19 * * *      deadlines.check ................... Next Due: 6 giờ tới
+  30   7    * * *      stale-matters.check ............... Next Due: 6 giờ tới
+  0    8    * * 1,3,5  missing-documents.remind ......... Next Due: 1 ngày tới
+  30   8    * * *      unseen-updates.remind ............. Next Due: 7 giờ tới
+
+$ php artisan schedule:test --name=<từng tác vụ>
+  Running [system-health.touch] ................................. 68.46ms DONE
+  Running [system-health.heartbeat] ............................. 37.54ms DONE
+  Running [deadlines.check] .................................... 803.52ms DONE
+  Running [stale-matters.check] ................................ 766.89ms DONE
+  Running [missing-documents.remind] ........................... 632.34ms DONE
+  Running [unseen-updates.remind] .............................. 854.94ms DONE
+  Running ['artisan' queue:work --stop-when-empty --max-time=50]  12 giây DONE   (queue.drain)
+```
+
+Kết quả đo trên CSDL và trong `storage/logs/laravel.log`:
+
+- `system-health.touch` ghi `system_health.last_schedule_run_at`; `system-health.heartbeat` không
+  làm gì vì `HEARTBEAT_URL` trống (đúng thiết kế; URL thật là việc của M8).
+- `deadlines.check`: 2 job → 4 thư `staff.deadline_reminder` ("Còn 2 ngày: Hết thời hạn kháng cáo
+  (VK-2026-LD-0001)", tới luật sư phụ trách và trợ lý của từng vụ). Chạy lại: không job mới.
+- `stale-matters.check`: dữ liệu seed có ba vụ ở mốc 20 ngày → 3 thông báo 14 ngày, không thư. Đẩy
+  đồng hồ của `VK-2026-DD-0001` lùi thêm 2 ngày (22 ngày) rồi chạy lại HAI lần: 2 job, nhưng chỉ **2 thư**
+  `staff.stale_matter` ("Hồ sơ VK-2026-DD-0001 chưa cập nhật cho khách hàng", tới luật sư phụ
+  trách và quản lý) — job thứ hai tự bỏ qua người đã nhận (R4).
+- `missing-documents.remind` chạy HAI lần: 10 job, **6 thư** `client.missing_documents`, mỗi
+  (người nhận, hồ sơ) đúng một thư — kể cả hồ sơ `VK-2026-HN-0002` có hai tài khoản khách.
+- `unseen-updates.remind`: 10 thông báo "khách chưa xem"; chạy lại: không thêm thông báo nào.
+- Rút hàng đợi cũng gửi 8 job listener mà bước seed để lại: 14 thư `staff.new_client_document`, 1
+  thư `client.document_rejected`. Tổng 27 thư ở bước này (28 kể cả thư gửi lại bên dưới),
+  `failed_jobs` = 0, không thư trùng (ở mọi mẫu, số dòng `sent` bằng số cặp người nhận × bản ghi
+  khác nhau), không còn header `X-VKCRM-*` nào trong thư đi ra, mọi thư có
+  `Reply-To: lienhe@luatvukhang.com`.
+
+Một thư thật trong log (bản văn bản thuần):
+
+```
+To: khach8b@example.com
+Subject: Hồ sơ VK-2026-HN-0002 còn thiếu giấy tờ cần anh/chị gửi
+
+Kính gửi anh/chị Người thân của Công ty Cổ phần Thương mại Sao Việt,
+
+Để văn phòng tiếp tục xử lý hồ sơ VK-2026-HN-0002, anh/chị vui lòng gửi giúp những giấy tờ sau:
+
+- Giấy chứng nhận kết hôn
+- Hợp đồng dịch vụ pháp lý và giấy uỷ quyền
+
+Mở hồ sơ để gửi giấy tờ http://localhost/portal
+```
+
+(Lượt nghiệm thu đầu tiên thấy liên kết dính ngay dưới đầu mục cuối và một dấu cách thừa cuối mỗi
+dòng: `@endif` nuốt dòng mới. Đã sửa `missing-documents-text.blade.php`, có test ghim; bản trên là
+hình dạng sau khi sửa.)
+
+Nút "Gửi lại" trên cùng CSDL: một cập nhật tiến độ THẬT (`TransitionMatterStage`, hồ sơ
+`VK-2026-LD-0001`), worker chạy listener với SMTP chết (`127.0.0.1:1`) → dòng #90 `failed`
+("Connection could not be established…"); giả lập listener đã hết lượt thử (bỏ job còn lại khỏi
+hàng đợi); admin bấm hai lần liền đúng Action của nút:
+
+```
+canResend: true — Gate resend (admin): true — Gate resend (quản lý): false
+Lần bấm 1: xếp hàng cho 1 người nhận
+Lần bấm 2: Thư này đã được yêu cầu gửi lại lúc 01/10/2026 00:37. Hãy xem dòng mới nhất …
+audit #215 causer=user#1 subject=matter#4 properties={"outbound_message_id":90,"template":"client.stage_update","recipients":1}
+```
+
+Rút hàng đợi (`queue.drain`, log): dòng #91 `sent` tới đúng `khach4@example.com`, dòng #90 giữ
+nguyên `failed` với lý do cũ, `stage_logs.notified_at` được ghi, không job nào hỏng.
+
+**Môi trường nghiệm thu, không phải lỗi mã:** thư trong log mang `From: VK-CRM` vì `.env` của làn
+chép từ trước M6.5 Task 12 (`MAIL_FROM_NAME="${APP_NAME}"`); `.env.example` đã là "Luật Vũ Khang".
+Liên kết là `http://localhost/portal` vì `PORTAL_DOMAIN` trống. Cả hai là cấu hình của M8.
+
+### Phán quyết của làn (bản đầy đủ ở sổ tay)
+
+- Luật làn ghi đè kế hoạch: nhánh `m6-rest`, công cụ `/d/vkwt/wt-dev` thay `bin/dev`.
+- Thư cho khách chỉ tới tài khoản `is_active` VÀ `activated_at` không null (R12), một định nghĩa
+  duy nhất; `client.activation` là ngoại lệ có chủ ý (gửi tới chính tài khoản chưa kích hoạt).
+- Tiêu đề thư không bao giờ nêu tên tài liệu (chỉ mã hồ sơ + cụm chung): dòng nhật ký thư mà trợ lý
+  đọc được không được lộ tài liệu nội bộ nhóm D.
+- Hai lần từ chối khác nhau của cùng một đầu mục là hai thư.
+- Mốc 14 ngày "một lần mỗi đợt", mốc 21 ngày "tối đa 7 ngày lịch một lần" (R5); trí nhớ chống trùng
+  là nhật ký thư (R3) và bảng `notifications`, không thêm cột.
+- Nút "Gửi lại": chỉ admin; một dòng hỏng gửi lại một lần; người nhận suy lại; tám mẫu gửi lại được,
+  bốn mẫu không (lý do ở trên); job gửi lại có cùng ngân sách thử lại với listener gốc (R2).
+
+### Việc hoãn, mang sang
+
+- **Tuỳ chọn chưa mở phạm vi:** M6.5 Task 14 minor M5 — xoá hoặc đổi ngày một mốc `critical`
+  không báo ai; rà soát cuối M6.5 B-M5 — `OutboundMessagesTable` còn N+1 ở `relatedLabel`/
+  `relatedUrl` (nút mới chỉ thêm truy vấn cho dòng `failed` gửi lại được, và chỉ với admin); B-M4 —
+  dispatch trong transaction.
+- **Task 7:** hồ sơ được tính là "đã nhắc" 7 ngày theo VỤ, không theo người: luật sư đã nhận mà
+  quản lý hỏng hẳn thì quản lý chỉ nhận thông báo hỏng, không được gửi lại tự động (nay admin có
+  thể bấm "Gửi lại" trên dòng hỏng đó). Xoá chuông thông báo thì hôm sau có lại (trí nhớ là bảng
+  `notifications`).
+- **Task 8, 9:** mỗi task 4 minor (sổ tay làn); Task 9 cùng kiểu "xoá chuông thì có lại".
+- **Task 10:** gửi lại một cập nhật tiến độ CŨ vẫn đi nguyên văn cập nhật đó dù khách đã nhận các
+  cập nhật mới hơn — người bấm quyết định, modal nói rõ người nhận được tính lại; gửi lại
+  `staff.new_client_request` cho một yêu cầu đã trả lời vẫn đi (luồng gốc không hỏi trạng thái
+  yêu cầu lúc gửi). Số tệp trong thư `staff.new_client_document` gửi lại là bản dựng lại từ tệp đại
+  diện (cùng người nộp, đầu mục, version, trong 60 giây), vì sự kiện gốc không được lưu.
+- M7 thêm `client_access_until` vào ranh giới cổng thì phải thêm vào cổng lúc-gửi của các thư cho
+  khách (ghi chú của vòng rà soát Task 3).
+
 ## Ghi chú M6.5
 
 Nhánh `m6-5-flow-fixes`, cắt từ `main` tại `46ccd8d`. Đầu vào là đợt rà soát quy trình
