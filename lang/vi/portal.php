@@ -168,5 +168,23 @@ return [
             'help' => 'Có điều gì chưa rõ, anh/chị gọi giúp văn phòng theo số :phone.',
             'salutation' => 'Trân trọng, :office',
         ],
+
+        /*
+         * Mẫu `client.missing_documents` (SPEC §6.9, §9, M6 Task 8) — nhắc khách những giấy tờ BẮT
+         * BUỘC còn thiếu. Cùng luật tiêu đề với các mẫu trên: chỉ mã hồ sơ (một người có thể đại diện
+         * hai khách hàng, hai tài khoản — tiêu đề phải nói HỒ SƠ NÀO) và một câu chung, không tên
+         * giấy tờ; tên giấy tờ và lý do từ chối chỉ nằm trong THÂN thư. `rejected`/`rejected_reason`
+         * là đúng chữ khách đọc trên cổng ("cần nộp lại", lý do văn phòng đã viết để khách đọc).
+         */
+        'missing_documents' => [
+            'subject' => 'Hồ sơ :code còn thiếu giấy tờ cần anh/chị gửi',
+            'greeting' => 'Kính gửi anh/chị :name,',
+            'line' => 'Để văn phòng tiếp tục xử lý hồ sơ :code, anh/chị vui lòng gửi giúp những giấy tờ sau:',
+            'rejected' => 'cần nộp lại',
+            'rejected_reason' => 'Lý do: :reason',
+            'open' => 'Mở hồ sơ để gửi giấy tờ',
+            'help' => 'Nếu anh/chị đã gửi rồi hoặc có điều gì chưa rõ, xin gọi giúp văn phòng theo số :phone.',
+            'salutation' => 'Trân trọng, :office',
+        ],
     ],
 ];

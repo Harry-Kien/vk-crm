@@ -157,7 +157,7 @@ Bậc 7/3/1/quá hạn, thêm bậc 14 khi `severity = critical`; `reminders_sen
   `App\Actions\Notification\ResolveStaffRecipients::supervisorsFor()` (M6.5 Task 12), thay manager
   bằng admin ở vụ `restricted` — không lấy toàn bộ user có vai trò manager của văn phòng.
 
-### - [ ] Task 8 — `RemindMissingDocuments` (SPEC §6.9)
+### - [x] Task 8 — `RemindMissingDocuments` (SPEC §6.9)
 
 Thứ Hai/Tư/Sáu 08:00. Chỉ matter đang mở, đã công bố portal, còn item **bắt buộc** ở `missing`/`rejected`. Liệt kê đúng những gì thiếu (R7). Không quá một thư mỗi 3 ngày cho cùng một matter (R3). Thiếu kéo dài quá 14 ngày → báo lead lawyer để gọi điện. Dùng đúng một nguồn sự thật về "còn thiếu": `App\Actions\Document\ChecklistProgress`.
 

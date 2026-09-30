@@ -316,3 +316,137 @@ it('does not pull an optional item into the denominator even once a published gr
 
     expect(checklistProgress($matter))->toBe(['submitted' => 0, 'total' => 0]);
 });
+
+// ---------------------------------------------------------------------------------------------
+// M6 Task 8 — "đầu mục bắt buộc còn thiếu" + đồng hồ "thiếu từ" (SPEC §6.9): MỘT định nghĩa, dùng
+// bởi MattersMissingDocumentsWidget lẫn RemindMissingDocuments.
+// ---------------------------------------------------------------------------------------------
+
+/** Dựng một đầu mục với `created_at` lùi `$days` ngày (cột do Eloquent tự quản nên ghi đè sau khi tạo). */
+function outstandingProbeItem(Matter $matter, ChecklistItemStatus $status, bool $required = true, int $createdDaysAgo = 10, ?int $reviewedDaysAgo = null): MatterChecklistItem
+{
+    $item = MatterChecklistItem::factory()->for($matter)->status($status)->create([
+        'is_required' => $required,
+        'reviewed_at' => $reviewedDaysAgo !== null ? now()->subDays($reviewedDaysAgo) : null,
+    ]);
+    $item->forceFill(['created_at' => now()->subDays($createdDaysAgo)])->saveQuietly();
+
+    return $item->refresh();
+}
+
+/**
+ * §6.9: "còn thiếu" = `is_required` VÀ `status` thuộc {missing, rejected}. Bốn trạng thái còn lại
+ * và một đầu mục không bắt buộc đều nằm NGOÀI — `pending_review` nói riêng vì khách đã nộp.
+ *
+ * Mutation probe: xoá `->where('is_required', true)` — hàng "optional" ĐỎ; thêm `PendingReview`
+ * vào `OUTSTANDING_STATUSES` — hàng "pending_review" ĐỎ.
+ */
+it('counts only required missing/rejected items as outstanding', function (ChecklistItemStatus $status, bool $required, bool $expected) {
+    $matter = Matter::factory()->create();
+    $item = outstandingProbeItem($matter, $status, $required);
+
+    $ids = ChecklistProgress::outstandingRequired($matter->checklistItems()->getQuery())->pluck('id')->all();
+
+    expect(in_array($item->id, $ids, true))->toBe($expected);
+})->with([
+    'required missing' => [ChecklistItemStatus::Missing, true, true],
+    'required rejected' => [ChecklistItemStatus::Rejected, true, true],
+    'required pending_review' => [ChecklistItemStatus::PendingReview, true, false],
+    'required accepted' => [ChecklistItemStatus::Accepted, true, false],
+    'required not_applicable' => [ChecklistItemStatus::NotApplicable, true, false],
+    'optional missing' => [ChecklistItemStatus::Missing, false, false],
+    'optional rejected' => [ChecklistItemStatus::Rejected, false, false],
+]);
+
+/**
+ * Đồng hồ `COALESCE(reviewed_at, created_at)`: một đầu mục bị từ chối tính từ lúc từ chối, không
+ * từ lúc tạo; một đầu mục chưa từng duyệt tính từ lúc tạo. Cả hai hình dạng (PHP và SQL) phải
+ * ra CÙNG một câu trả lời.
+ *
+ * Mutation probe: đổi `created_at` thành `updated_at` ở `missingSince()` — test này ĐỎ.
+ */
+it('clocks a rejected item from its rejection and a missing one from its creation, in PHP and in SQL alike', function () {
+    $matter = Matter::factory()->create();
+    $rejected = outstandingProbeItem($matter, ChecklistItemStatus::Rejected, createdDaysAgo: 60, reviewedDaysAgo: 2);
+    $missing = outstandingProbeItem($matter, ChecklistItemStatus::Missing, createdDaysAgo: 30);
+
+    expect(ChecklistProgress::missingSince($rejected)->isSameDay(now()->subDays(2)))->toBeTrue()
+        ->and(ChecklistProgress::missingSince($missing)->isSameDay(now()->subDays(30)))->toBeTrue();
+
+    $sql = MatterChecklistItem::query()
+        ->whereKey($rejected->id)
+        ->selectRaw(ChecklistProgress::missingSinceSql().' as clock')
+        ->value('clock');
+
+    expect(Carbon\Carbon::parse($sql)->isSameDay(now()->subDays(2)))->toBeTrue();
+});
+
+/** Không dùng `updated_at`: sửa tên một đầu mục không được đặt lại đồng hồ (xem docblock widget). */
+it('does not reset the clock when an unrelated column of the item changes', function () {
+    $matter = Matter::factory()->create();
+    $item = outstandingProbeItem($matter, ChecklistItemStatus::Missing, createdDaysAgo: 40);
+
+    $item->update(['name' => 'Tên mới của giấy tờ']);
+
+    expect(ChecklistProgress::missingSince($item->refresh())->isSameDay(now()->subDays(40)))->toBeTrue();
+});
+
+it('returns the outstanding required items of a matter in checklist order, with the earliest clock', function () {
+    $matter = Matter::factory()->create();
+    $b = outstandingProbeItem($matter, ChecklistItemStatus::Missing, createdDaysAgo: 5);
+    $b->update(['sort_order' => 2]);
+    $a = outstandingProbeItem($matter, ChecklistItemStatus::Rejected, createdDaysAgo: 50, reviewedDaysAgo: 20);
+    $a->update(['sort_order' => 1]);
+    outstandingProbeItem($matter, ChecklistItemStatus::Accepted);
+    outstandingProbeItem($matter, ChecklistItemStatus::Missing, required: false);
+    $gone = outstandingProbeItem($matter, ChecklistItemStatus::Missing, createdDaysAgo: 90);
+    $gone->delete();
+
+    $items = ChecklistProgress::outstandingRequiredItems($matter);
+
+    expect($items->pluck('id')->all())->toBe([$a->id, $b->id])
+        ->and(ChecklistProgress::earliestMissingSince($items)->isSameDay(now()->subDays(20)))->toBeTrue()
+        ->and(ChecklistProgress::earliestMissingSince(collect()))->toBeNull();
+});
+
+/**
+ * Tập hồ sơ §6.9: đang mở + đã công bố portal + có đầu mục bắt buộc còn thiếu. Hai điều kiện đầu
+ * là `Matter::scopeOpen()` (R8) và `is_published_to_portal` — gỡ một trong hai là test tương ứng đỏ.
+ */
+it('selects only open, published matters that still lack a required item', function () {
+    $good = Matter::factory()->create();
+    outstandingProbeItem($good, ChecklistItemStatus::Missing);
+
+    $closed = Matter::factory()->create(['closed_at' => now()->subDay()]);
+    outstandingProbeItem($closed, ChecklistItemStatus::Missing);
+
+    $unpublished = Matter::factory()->unpublished()->create();
+    outstandingProbeItem($unpublished, ChecklistItemStatus::Missing);
+
+    $complete = Matter::factory()->create();
+    outstandingProbeItem($complete, ChecklistItemStatus::Accepted);
+    outstandingProbeItem($complete, ChecklistItemStatus::PendingReview);
+
+    $trashed = Matter::factory()->create();
+    outstandingProbeItem($trashed, ChecklistItemStatus::Missing);
+    $trashed->delete();
+
+    $ids = ChecklistProgress::mattersAwaitingClient(Matter::query())->pluck('matters.id')->all();
+
+    expect($ids)->toBe([$good->id]);
+});
+
+it('narrows the awaiting set to matters stuck for longer than the given number of days', function () {
+    $stuck = Matter::factory()->create();
+    outstandingProbeItem($stuck, ChecklistItemStatus::Missing, createdDaysAgo: 15);
+    $fresh = Matter::factory()->create();
+    outstandingProbeItem($fresh, ChecklistItemStatus::Missing, createdDaysAgo: 13);
+    $boundary = Matter::factory()->create();
+    outstandingProbeItem($boundary, ChecklistItemStatus::Missing, createdDaysAgo: 14)
+        ->forceFill(['created_at' => now()->subDays(14)->addMinute()])->saveQuietly();
+
+    $ids = ChecklistProgress::mattersAwaitingClient(Matter::query(), ChecklistProgress::STUCK_AFTER_DAYS)
+        ->pluck('matters.id')->all();
+
+    expect($ids)->toBe([$stuck->id]);
+});

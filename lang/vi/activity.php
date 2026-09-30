@@ -100,6 +100,9 @@ return [
         // M6 Task 7: app/Jobs/SendStaleMatterMail.php::failed() — job nhắc hồ sơ quá hạn cập nhật
         // (staff.stale_matter) hỏng hẳn sau hết lượt thử lại.
         'stale_matter_reminder_failed' => 'Gửi thư nhắc hồ sơ quá hạn cập nhật thất bại hẳn',
+        // M6 Task 8: app/Jobs/SendMissingDocumentsMail.php::failed() — job nhắc khách nộp giấy tờ
+        // còn thiếu (client.missing_documents) hỏng hẳn sau hết lượt thử lại.
+        'missing_documents_reminder_failed' => 'Gửi thư nhắc khách nộp giấy tờ thất bại hẳn',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

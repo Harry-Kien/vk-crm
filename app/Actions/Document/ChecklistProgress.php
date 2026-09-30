@@ -8,6 +8,8 @@ use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Support\Scopes\ClientPortalScope;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 
 /**
  * Thanh tiến độ `Đã nộp X / Y` của SPEC §4.10 — luật đếm, ở một chỗ duy nhất.
@@ -92,6 +94,26 @@ use Illuminate\Database\Eloquent\Builder;
  *
  * Scope `SoftDeletingScope` thì được GIỮ: một tài liệu đã xoá mềm không còn trong hồ sơ, nên nó
  * không còn là "đã có tài liệu".
+ *
+ * # M6 Task 8 — "còn thiếu" (SPEC §6.9) và đồng hồ "thiếu từ", cùng một chỗ với `X/Y`
+ *
+ * Định nghĩa "đầu mục BẮT BUỘC còn thiếu" (`is_required` và `status` thuộc {missing, rejected})
+ * cùng đồng hồ "thiếu từ" từng sống PRIVATE trong `MattersMissingDocumentsWidget`. Task 8
+ * (`RemindMissingDocuments`, thư nhắc khách) cần đúng định nghĩa đó, và một Action không được
+ * `use` một lớp của Filament — chép lại là cách để widget "hồ sơ tắc quá 14 ngày" nói một chuyện
+ * còn thư nhắc nói chuyện khác trên cùng một hồ sơ. Nên chúng chuyển vào đây, cạnh `X/Y`, và cả
+ * widget lẫn Action gọi lại:
+ *
+ *  - {@see self::outstandingRequired()} — điều kiện lọc (SQL);
+ *  - {@see self::missingSinceSql()} / {@see self::missingSince()} — đồng hồ, hai hình dạng của
+ *    CÙNG một biểu thức `COALESCE(reviewed_at, created_at)`;
+ *  - {@see self::mattersAwaitingClient()} — tập hồ sơ §6.9 (đang mở + đã công bố portal + còn
+ *    đầu mục thiếu, tuỳ chọn "quá N ngày");
+ *  - {@see self::outstandingRequiredItems()} — danh sách đầu mục của MỘT hồ sơ, để thư liệt kê.
+ *
+ * Không đụng vào `handle()`/`countedInTotal()`: `X/Y` và "còn thiếu" trả lời hai câu khác nhau
+ * (mọi đầu mục bắt buộc đều nằm trong `Y`, nên mỗi dòng "còn thiếu" là một phần tử của `Y` chưa
+ * vào `X` — nhưng `pending_review` cũng chưa vào `X` mà KHÔNG "còn thiếu": khách đã nộp).
  */
 class ChecklistProgress
 {
@@ -111,6 +133,17 @@ class ChecklistProgress
      */
     public const CLIENT_SUBMITTED_DOCUMENT_COUNT_ALIAS = 'client_submitted_documents_count';
 
+    /** SPEC §6.9 bullet cuối: thiếu kéo dài quá số ngày này thì hồ sơ "đình trệ vì thiếu giấy tờ". */
+    public const STUCK_AFTER_DAYS = 14;
+
+    /**
+     * Các trạng thái §6.9 gọi là "còn thiếu": khách chưa nộp, hoặc đã nộp và bị trả lại.
+     * `pending_review` cố ý KHÔNG có mặt — khách đã nộp, quả bóng ở sân văn phòng.
+     *
+     * @var list<ChecklistItemStatus>
+     */
+    private const OUTSTANDING_STATUSES = [ChecklistItemStatus::Missing, ChecklistItemStatus::Rejected];
+
     /**
      * Hai trạng thái được tính là "đã xong" ở tử số `X`. `not_applicable` nằm cùng hạng với
      * `accepted` vì cả hai đều trả lời "văn phòng không còn chờ gì ở đầu mục này" — thứ duy nhất
@@ -119,6 +152,106 @@ class ChecklistProgress
      * @var list<ChecklistItemStatus>
      */
     private const SETTLED_STATUSES = [ChecklistItemStatus::Accepted, ChecklistItemStatus::NotApplicable];
+
+    /**
+     * Một định nghĩa duy nhất của "đầu mục bắt buộc còn thiếu" (SPEC §6.9): điều kiện chọn hồ sơ,
+     * bộ đếm ở widget, mốc "thiếu từ" và danh sách trong thư nhắc đều đi qua đây.
+     *
+     * @param  Builder<MatterChecklistItem>  $items
+     * @return Builder<MatterChecklistItem>
+     */
+    public static function outstandingRequired(Builder $items): Builder
+    {
+        return $items
+            ->where($items->qualifyColumn('is_required'), true)
+            ->whereIn(
+                $items->qualifyColumn('status'),
+                array_map(static fn (ChecklistItemStatus $status): string => $status->value, self::OUTSTANDING_STATUSES),
+            );
+    }
+
+    /**
+     * Đồng hồ "thiếu từ" phía SQL: `COALESCE(reviewed_at, created_at)` của CHÍNH đầu mục.
+     *
+     * SPEC không đặt tên cho mốc bắt đầu của "tình trạng thiếu", và hai trạng thái có hai câu trả
+     * lời tự nhiên khác nhau. Với `rejected`, `reviewed_at` là lúc văn phòng báo khách phải nộp
+     * lại — đồng hồ chạy lại từ đó, vì một giấy tờ vừa bị từ chối hôm qua thì khách chưa kịp
+     * thiếu. Với `missing`, chưa ai duyệt nên `reviewed_at` null và mốc còn lại đúng nghĩa là
+     * `created_at`: đầu mục được sao từ mẫu lúc mở vụ việc (§4.10), tức lúc văn phòng bắt đầu chờ.
+     * `updated_at` KHÔNG được dùng: nó nhích vì những lý do chẳng liên quan tới việc khách đã nộp
+     * hay chưa (sửa tên đầu mục chẳng hạn), và mỗi lần nhích là một hồ sơ tắc 60 ngày tự đặt lại
+     * về 0 — đúng lúc widget và thư nhắc phải lên tiếng.
+     */
+    public static function missingSinceSql(): string
+    {
+        return 'COALESCE(matter_checklist_items.reviewed_at, matter_checklist_items.created_at)';
+    }
+
+    /** Bản PHP của {@see self::missingSinceSql()} cho một đầu mục đã tải — cùng biểu thức, không phải định nghĩa thứ hai. */
+    public static function missingSince(MatterChecklistItem $item): ?Carbon
+    {
+        return $item->reviewed_at ?? $item->created_at;
+    }
+
+    /**
+     * Mốc "thiếu từ" SỚM NHẤT của một tập đầu mục — mốc của cả hồ sơ ("hồ sơ này chờ khách từ
+     * lúc nào"). `null` khi tập rỗng.
+     *
+     * @param  Collection<int, MatterChecklistItem>  $items
+     */
+    public static function earliestMissingSince(Collection $items): ?Carbon
+    {
+        return $items
+            ->map(fn (MatterChecklistItem $item): ?Carbon => self::missingSince($item))
+            ->filter()
+            ->min();
+    }
+
+    /**
+     * Những đầu mục bắt buộc còn thiếu của MỘT hồ sơ, theo thứ tự danh mục — thứ thư nhắc liệt kê.
+     * Bỏ `ClientPortalScope` tường minh như {@see self::countClientSubmittedDocuments()}: câu trả
+     * lời không được phụ thuộc vào việc lúc này có phiên khách nào đang mở hay không.
+     *
+     * @return Collection<int, MatterChecklistItem>
+     */
+    public static function outstandingRequiredItems(Matter $matter): Collection
+    {
+        return self::outstandingRequired(
+            MatterChecklistItem::query()
+                ->withoutGlobalScope(ClientPortalScope::class)
+                ->where('matter_id', $matter->getKey())
+        )
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get();
+    }
+
+    /**
+     * Tập hồ sơ của SPEC §6.9: "matter đang mở, đã công bố portal, còn item BẮT BUỘC ở `missing`
+     * hoặc `rejected`". `$stuckForDays` (tuỳ chọn) thu hẹp thành các hồ sơ có một đầu mục thiếu từ
+     * quá ngần ấy ngày — ngưỡng "đình trệ" của §6.9 bullet cuối ({@see self::STUCK_AFTER_DAYS}).
+     *
+     * `Matter::scopeOpen()` (R8) là định nghĩa "đang mở" duy nhất của hệ thống;
+     * `is_published_to_portal` vì chưa công bố thì khách không có đường nào để nộp, nên hồ sơ có
+     * thiếu cũng không phải thiếu vì khách. Người gọi tự cộng điều kiện quyền xem của mình
+     * (`listableBy()` ở widget) TRƯỚC khi truyền vào.
+     *
+     * @param  Builder<Matter>  $matters
+     * @return Builder<Matter>
+     */
+    public static function mattersAwaitingClient(Builder $matters, ?int $stuckForDays = null): Builder
+    {
+        return $matters
+            ->open()
+            ->where('matters.is_published_to_portal', true)
+            ->whereHas('checklistItems', function (Builder $items) use ($stuckForDays): void {
+                self::outstandingRequired($items);
+
+                if ($stuckForDays !== null) {
+                    $items->whereRaw(self::missingSinceSql().' < ?', [now()->subDays($stuckForDays)]);
+                }
+            });
+    }
 
     /** @return array{submitted: int, total: int} */
     public function handle(Matter $matter): array

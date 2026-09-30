@@ -295,6 +295,17 @@ return [
         'title' => 'Không gửi được thư nhắc hồ sơ quá hạn cập nhật',
         'body' => 'Đã thử lại nhiều lần nhưng không gửi được thư nhắc hồ sơ :code chưa cập nhật cho khách hàng. Cần kiểm tra thủ công.',
     ],
+    // M6 Task 8 — SPEC §6.9: giấy tờ bắt buộc thiếu quá 14 ngày, thông báo TRONG HỆ THỐNG cho luật
+    // sư phụ trách để gọi điện cho khách (App\Notifications\Staff\MissingDocumentsStuckAlert).
+    'missing_documents_notification' => [
+        'title' => 'Hồ sơ đình trệ vì khách chưa nộp giấy tờ',
+        'body' => 'Hồ sơ :code (:title) còn giấy tờ bắt buộc khách chưa nộp quá 14 ngày. Nên gọi điện nhắc khách.',
+    ],
+    // Job gửi thư client.missing_documents hỏng HẲN — App\Jobs\SendMissingDocumentsMail::failed().
+    'missing_documents_failed_notification' => [
+        'title' => 'Không gửi được thư nhắc khách nộp giấy tờ',
+        'body' => 'Đã thử lại nhiều lần nhưng không gửi được thư nhắc khách nộp giấy tờ còn thiếu của hồ sơ :code. Nên gọi điện cho khách.',
+    ],
     // M6.5 Task 9 — ba tiêu đề/thông báo riêng của "sửa một bên" khác câu với "thêm một bên"
     // (`parties` ở trên). Hai khoá KHÔNG lặp lại ở đây (`saved_clear_with_confirmed`,
     // `conflict_check_title_clear`) không nhắc "thêm bên" nên dùng chung được với `notifySaved()`.
