@@ -166,11 +166,33 @@ class BulkReassign extends Page
                     // cùng lần submit, và KHÔNG BAO GIỜ chạm tới `ReassignMatters`. Đây chính là
                     // "lọc theo matterOptions() TRƯỚC KHI gọi Action" mà docblock lớp cấm — chỉ
                     // Filament tự làm việc đó thay vì trang. Ghi đè `in()` bằng danh sách RỘNG HƠN
-                    // (mọi vụ việc còn tồn tại, không qua policy) để luật "in:" chỉ còn giữ vai trò
-                    // vệ sinh cơ bản (chặn một id không phải số/không tồn tại) — quyết định AI được
-                    // bàn giao VỤ NÀO vẫn hoàn toàn thuộc về `manageTeam` bên trong Action, đúng ý
-                    // đồ ban đầu.
-                    ->in(fn (): array => Matter::query()->pluck('id')->all()),
+                    // để luật "in:" chỉ còn giữ vai trò vệ sinh cơ bản — quyết định AI được bàn
+                    // giao VỤ NÀO vẫn hoàn toàn thuộc về `manageTeam` bên trong Action, đúng ý đồ
+                    // ban đầu.
+                    //
+                    // Fix round 2 (I2 — review needs_fixes 2026-09-28): danh sách RỘNG HƠN đó KHÔNG
+                    // còn được dò từ `Matter::query()->pluck('id')` (id của những vụ THẬT SỰ còn
+                    // tồn tại) — làm vậy biến chính luật "in:" thành một oracle tồn tại. Một id
+                    // CHƯA TỪNG được cấp cho vụ nào (hoặc đã xoá mềm) bị luật đó chặn NGAY tại đây,
+                    // thành một LỖI FORM trên `matter_ids.0`; còn id của một vụ `restricted` CÓ
+                    // THẬT (một trưởng phòng không `manageTeam` được) lại QUA được luật này, chạm
+                    // tới tận `ReassignMatters` và hiện một DÒNG KẾT QUẢ. Hai HÌNH DẠNG phản hồi
+                    // khác nhau (lỗi form ≠ dòng kết quả) đã đủ để một trưởng phòng dò lần lượt
+                    // nhiều id liên tiếp và đếm ra chính xác bao nhiêu vụ `restricted` đang tồn tại
+                    // — đúng thứ "vụ không hiện thì không lộ... số lượng" (brief Task 2) cấm, dù
+                    // không một mã/tiêu đề nào rời khỏi response ở CẢ HAI hình dạng đó riêng lẻ.
+                    // Thay bằng một DẢI LIÊN TỤC [1, id lớn nhất TỪNG được cấp phát, kể cả cho một
+                    // vụ đã xoá mềm] (`withTrashed()->max('id')`) — không còn hỏi CSDL "id này có
+                    // ĐANG là một vụ việc không", chỉ hỏi "id này có nằm trong khoảng TỪNG được cấp
+                    // không". Mọi vụ `restricted` đang tồn tại chắc chắn nằm trong dải này (không
+                    // vụ nào có id vượt quá kim chỉ auto-increment hiện tại), nên KHÔNG còn id thật
+                    // nào của một vụ restricted bị luật này chặn riêng biệt so với một id chưa từng
+                    // cấp phát NẰM TRONG cùng dải — cả hai đều qua được lớp này, và ở lớp
+                    // `ReassignMatters` (xem docblock của nó) giờ nhận CHUNG một câu trả lời trung
+                    // lập. Một id NGOÀI dải (lớn hơn kim chỉ hiện tại) vẫn bị chặn ở đây, nhưng
+                    // không còn gì để dò theo id cụ thể nữa — CHƯA có vụ `restricted` nào (hay vụ
+                    // nào khác) có thể mang một id như vậy.
+                    ->in(fn (): array => range(1, max((int) (Matter::withTrashed()->max('id') ?? 0), 1))),
                 Select::make('new_lead_id')
                     ->label(__('reassign.bulk.fields.new_lead_id'))
                     ->options(fn (Get $get): array => self::newLeadOptions(filled($get('lead_lawyer_id')) ? (int) $get('lead_lawyer_id') : null))

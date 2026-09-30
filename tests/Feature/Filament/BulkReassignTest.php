@@ -10,6 +10,7 @@ use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\Queue;
+use Livewire\Livewire;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 beforeEach(function () {
@@ -140,10 +141,21 @@ it('shows a restricted matter to an admin but never to a manager when picking th
  * Payload Livewire ép một id KHÔNG nằm trong `matterOptions()` đã render cho trưởng phòng (vụ
  * `restricted`, không phải lead/admin) — bị từ chối, và không mã/tiêu đề nào của nó rời khỏi
  * response (kể cả trong danh sách kết quả).
+ *
+ * Fix round 2 (I1 — review needs_fixes 2026-09-28): `$oldLead` giờ CŨNG dẫn một vụ THƯỜNG (bản
+ * trước chỉ dẫn đúng `$restricted`). Không có vụ thường này, `currentLeadOptions()` (fix round 1,
+ * finding 2) lọc `$oldLead` khỏi ô "Luật sư đang phụ trách" của CHÍNH `$manager` — chỉ dẫn đúng một
+ * vụ restricted mà manager không `manageTeam` được — nên luật `in:` của ô đó tự chặn
+ * `data.lead_lawyer_id` NGAY TỪ `$this->form->getState()`, TRƯỚC KHI `matter_ids` được xét tới:
+ * test khi đó không hề chạm tới `ReassignMatters`, `assertDontSee` qua trót lọt KHÔNG PHẢI vì bản
+ * sửa đang đo hoạt động, mà vì response chỉ là một lỗi form rỗng, không mã/tiêu đề nào để mà thấy.
+ * Cùng thành ngữ test finding 4 bên dưới (:407). `->assertHasNoErrors()` + đọc thẳng
+ * `$component->get('results')[0]` xác nhận lần này response THẬT SỰ đi qua `ReassignMatters`.
  */
 it('refuses a forged restricted matter id in the payload without leaking its code or title', function () {
     $oldLead = User::factory()->withRole(Role::Lawyer)->create();
     $newLead = User::factory()->withRole(Role::Lawyer)->create();
+    Matter::factory()->create(['lead_lawyer_id' => $oldLead->id]);
     $restricted = Matter::factory()->restricted()->create(['lead_lawyer_id' => $oldLead->id]);
 
     $manager = User::factory()->withRole(Role::Manager)->create();
@@ -155,12 +167,16 @@ it('refuses a forged restricted matter id in the payload without leaking its cod
         ->set('data.new_lead_id', $newLead->id)
         ->set('data.reason', 'Ép bàn giao vụ hạn chế.')
         ->set('data.keep_old_lead_as_associate', false)
-        ->call('reassignSelected');
+        ->call('reassignSelected')
+        ->assertHasNoErrors();
 
     $component->assertDontSee($restricted->code)
         ->assertDontSee($restricted->title);
 
-    expect($restricted->fresh()->lead_lawyer_id)->toBe($oldLead->id);
+    expect($component->get('results'))->toHaveCount(1)
+        ->and($component->get('results')[0]['matterCode'])->toBeNull()
+        ->and($component->get('results')[0]['matterTitle'])->toBeNull()
+        ->and($restricted->fresh()->lead_lawyer_id)->toBe($oldLead->id);
 });
 
 /**
@@ -230,6 +246,34 @@ it('preselects the current lead from the ?from= mount parameter', function () {
 
     $this->livewire(BulkReassign::class, ['from' => $oldLead->id])
         ->assertSet('data.lead_lawyer_id', $oldLead->id);
+});
+
+/**
+ * Đường `?from=` thật của liên kết R6 (`request()->query('from')` trong `mount()`), khác đường
+ * tham số mount ở test ngay trên — HTTP GET tới URL do `offboardingLinkAction()` dựng, không qua
+ * tham số của `livewire()`. Review round 2 ghi nhận đường này chưa có test.
+ *
+ * Mutation probe: bỏ dòng `$from ??= request()->query('from')` khỏi `mount()` — trang HTTP không
+ * còn chọn sẵn ai, `assertSet(...lead_lawyer_id...)` đỏ (state là null).
+ */
+it('preselects the current lead from the real ?from= query string of the R6 link', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $oldLead = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $oldLead->id]);
+
+    $this->actingAs($admin, 'web');
+
+    $link = BulkReassign::offboardingLinkAction($oldLead);
+
+    expect($link)->not->toBeNull()
+        ->and($link->getUrl())->toContain('from='.$oldLead->id);
+
+    $this->get($link->getUrl())->assertOk();
+
+    Livewire::withQueryParams(['from' => $oldLead->id])
+        ->test(BulkReassign::class)
+        ->assertSet('data.lead_lawyer_id', $oldLead->id)
+        ->assertSee($matter->code);
 });
 
 // -------------------------------------------------------------------------------------------
@@ -456,4 +500,79 @@ it('accepts a matter id that fell out of the rendered options because another ta
         ->assertHasNoErrors();
 
     expect($matterA->fresh()->lead_lawyer_id)->toBe($newLead->id);
+});
+
+// -------------------------------------------------------------------------------------------
+// Fix round 2 (task-2-fix2-findings.md)
+// -------------------------------------------------------------------------------------------
+
+/**
+ * Finding 2 (I2 — review needs_fixes 2026-09-28) — một id KHÔNG CÒN tồn tại (xoá mềm) và một id
+ * của một vụ `restricted` CÓ THẬT (actor không `manageTeam` được) phải cho ĐÚNG MỘT phản hồi,
+ * không phân biệt được. Trước bản sửa này, `BulkReassign::form()`'s luật `in:` chỉ chấp nhận id
+ * của những vụ THẬT SỰ còn tồn tại (`Matter::query()->pluck('id')`): id đã xoá mềm bị luật đó chặn
+ * NGAY TẠI FORM (một lỗi validate trên `data.matter_ids.0`, không có dòng kết quả nào), còn id vụ
+ * `restricted` qua được `in:` (vẫn còn tồn tại), chạm tới `ReassignMatters` và có một dòng kết quả
+ * riêng ("Bạn không có quyền..."). Hai HÌNH DẠNG phản hồi khác nhau (lỗi form ≠ dòng kết quả) đã đủ
+ * để một trưởng phòng dò lần lượt nhiều id liên tiếp và đếm ra chính xác bao nhiêu vụ `restricted`
+ * đang tồn tại — đúng thứ "vụ không hiện thì không lộ... số lượng" (brief Task 2) cấm.
+ *
+ * `$deleted` (xoá mềm) đóng vai "không còn tồn tại": id của nó vẫn nhỏ hơn kim chỉ auto-increment
+ * hiện tại (qua được `in:` mới — dải liên tục, xem docblock `BulkReassign::form()`), nhưng
+ * `Matter::query()->find()` mặc định loại trừ bản ghi đã xoá mềm — đúng nhánh "không tìm ra
+ * $matter" của `ReassignMatters::handle()`, đúng điều finding 2 mô tả ("nonexistent or
+ * soft-deleted" dùng chung một oracle).
+ *
+ * `$oldLead` CŨNG dẫn một vụ THƯỜNG (`Matter::factory()->create()` đầu tiên) — cùng lý do test
+ * finding 1 ở trên: để `$oldLead` còn nằm trong `currentLeadOptions()` của `$manager` sau fix round
+ * 1, finding 2 (nếu không, `data.lead_lawyer_id` tự chặn ở `$this->form->getState()`, che mất thứ
+ * finding 2 đang đo).
+ *
+ * Mutation probe (dán vào báo cáo): khôi phục `->in(fn(): array =>
+ * Matter::query()->pluck('id')->all())` ở `BulkReassign::form()` — component của `$deleted` đi từ
+ * `assertHasNoErrors()` sang CÓ lỗi trên `data.matter_ids.0` (chính test này đỏ ở nhánh đó), trong
+ * khi component của `$restricted` vẫn xanh — hai hình dạng lại khác nhau, đúng lỗ rò cũ.
+ */
+it('gives the identical response to a forged nonexistent matter id and a forged restricted matter id', function () {
+    $oldLead = User::factory()->withRole(Role::Lawyer)->create();
+    $newLead = User::factory()->withRole(Role::Lawyer)->create();
+    Matter::factory()->create(['lead_lawyer_id' => $oldLead->id]);
+    $restricted = Matter::factory()->restricted()->create(['lead_lawyer_id' => $oldLead->id]);
+
+    $deleted = Matter::factory()->create(['lead_lawyer_id' => $oldLead->id]);
+    $deleted->delete();
+
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $this->actingAs($manager, 'web');
+
+    $forRestricted = $this->livewire(BulkReassign::class)
+        ->set('data.lead_lawyer_id', $oldLead->id)
+        ->set('data.matter_ids', [$restricted->id])
+        ->set('data.new_lead_id', $newLead->id)
+        ->set('data.reason', 'Ép bàn giao vụ hạn chế.')
+        ->set('data.keep_old_lead_as_associate', false)
+        ->call('reassignSelected')
+        ->assertHasNoErrors();
+
+    $forDeleted = $this->livewire(BulkReassign::class)
+        ->set('data.lead_lawyer_id', $oldLead->id)
+        ->set('data.matter_ids', [$deleted->id])
+        ->set('data.new_lead_id', $newLead->id)
+        ->set('data.reason', 'Ép bàn giao vụ đã xoá.')
+        ->set('data.keep_old_lead_as_associate', false)
+        ->call('reassignSelected')
+        ->assertHasNoErrors();
+
+    $restrictedResult = $forRestricted->get('results')[0];
+    $deletedResult = $forDeleted->get('results')[0];
+
+    expect($restrictedResult['success'])->toBeFalse()
+        ->and($deletedResult['success'])->toBeFalse()
+        ->and($restrictedResult['message'])->toBe($deletedResult['message'])
+        ->and($restrictedResult['matterCode'])->toBeNull()
+        ->and($deletedResult['matterCode'])->toBeNull()
+        ->and($restrictedResult['matterTitle'])->toBeNull()
+        ->and($deletedResult['matterTitle'])->toBeNull();
+
+    expect($restricted->fresh()->lead_lawyer_id)->toBe($oldLead->id);
 });

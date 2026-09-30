@@ -1527,9 +1527,9 @@ theo đúng thứ tự findings 1–4 của review):
   giờ chạy — các vụ ĐÃ commit trước đó không bao giờ được báo cho lead mới. Sửa: thêm
   `catch (Throwable)` cuối cùng (cùng lưới an toàn `UsersTable`'s `DeleteBulkAction::using()`) —
   `report()` rồi ghi một dòng thất bại chung chung (`reassign.bulk.results.unexpected_error`),
-  KHÔNG ném tiếp; và bọc dispatch trong `finally` quanh TOÀN BỘ vòng lặp (không chỉ SAU nó) — câu
-  `Matter::query()->find($matterId)` nằm ngoài `try` của từng vụ nên một lỗi đọc ngay đó vẫn có
-  thể thoát khỏi `catch (Throwable)` của chính vụ đó. Test mới ở `ReassignMattersTest.php`: một
+  KHÔNG ném tiếp; và bọc dispatch trong `finally` quanh TOÀN BỘ vòng lặp (không chỉ SAU nó) làm
+  lưới thứ hai phòng xa (đính chính fix round 2: câu `Matter::query()->find($matterId)` NẰM TRONG
+  `try` của từng vụ, không ngoài nó như bản này từng ghi; `finally` không có test riêng). Test mới ở `ReassignMattersTest.php`: một
   `ReassignMatter` giả (`ThrowsUnlistedExceptionOnSecondCall`, cùng thành ngữ
   `ThrowingOnMarkSentLedger`) ném `RuntimeException` ở vụ thứ hai — xác nhận vụ đầu vẫn có trong
   digest đã dispatch VÀ `Exceptions::assertReported(RuntimeException::class)` (mutation probe: bỏ
@@ -1547,3 +1547,27 @@ theo đúng thứ tự findings 1–4 của review):
   (`ReassignMattersTest.php`) để truyền `expectedLeadId`. `pint --test` sạch (551 tệp); full suite
   `/d/vkwt/m7-dev test --parallel --processes=4` và `test:mariadb` (ba tệp đã đụng, tuần tự) — xem
   báo cáo `.superpowers/sdd/m7/task-2-report.md`, mục "Fix round 1" cho số liệu đầy đủ.
+
+**Fix round 2** (review needs_fixes 0 critical/2 important/10 minor — hai phát hiện Important và các
+minor rẻ được sửa ở đây):
+- **I1 — test "ép id vụ restricted" rỗng.** Sau fix round 1 finding 2, `$oldLead` chỉ dẫn đúng vụ
+  `restricted` nên bị lọc khỏi ô "Luật sư đang phụ trách" của trưởng phòng; form tự chặn
+  `data.lead_lawyer_id` và test không bao giờ chạm tới `ReassignMatters`. Sửa: `$oldLead` còn dẫn
+  một vụ thường; test thêm `assertHasNoErrors()` và đọc `results[0]` (mã/tiêu đề `null`). Probe: bỏ
+  vụ thường → đỏ.
+- **I2 — oracle tồn tại vụ `restricted`.** Luật `in:` của `CheckboxList` dựa trên `pluck('id')` làm
+  id đã xoá/không tồn tại thành lỗi form, còn id vụ `restricted` thật thành một dòng kết quả với
+  câu khác ("không có quyền") — đếm được số vụ `restricted`. Sửa: `in:` là dải `1..max(id, kể cả
+  xoá mềm)`; nhánh "không tìm thấy" và `AuthorizationException` dùng CHUNG một câu
+  `reassign.bulk.results.unavailable` (bỏ `not_found`/`unauthorized`). Test mới "gives the identical
+  response to a forged nonexistent matter id and a forged restricted matter id". Probe: khôi phục
+  `pluck('id')` → đỏ; tách lại hai câu → đỏ. Giới hạn còn lại đã biết: id LỚN HƠN mọi id từng cấp
+  vẫn là lỗi form (chỉ lộ "id lớn nhất", không lộ vụ `restricted` nào).
+- Minor đã sửa: nhánh `Throwable` không còn gắn mã/tiêu đề (lỗi có thể nổ trước `manageTeam`; probe
+  → đỏ); docblock sai "find() nằm ngoài try" đã đính chính (ở lớp và ở mục fix round 1), và nêu
+  thẳng `finally` không có probe riêng (đã chạy: bỏ riêng `finally` thì test vẫn xanh); bỏ khoá
+  `reassign.bulk.fields.no_matters` không dùng; thêm test đường HTTP/`?from=` thật của liên kết R6
+  (probe: bỏ `request()->query('from')` → đỏ).
+- Minor để lại (không đụng luật nghiệp vụ, ghi cho reviewer): không chọn-tất-cả; không `wire:loading`
+  trên nút gửi; công tắc "giữ luật sư cũ" mặc định bật cả với liên kết từ màn hình nghỉ việc; liên
+  kết R6 chưa gắn ở nhánh hạ vai trò/xoá hàng loạt (cố ý — xem ghi chú Task 2 ở trên).

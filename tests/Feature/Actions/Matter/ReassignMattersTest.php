@@ -256,7 +256,11 @@ it('still dispatches the digest for the matter that already committed when a lat
         ->and($results[0]->matterId)->toBe($matterA->id)
         ->and($results[1]->success)->toBeFalse()
         ->and($results[1]->matterId)->toBe($matterB->id)
-        ->and($results[1]->message)->toBe(__('reassign.bulk.results.unexpected_error'));
+        ->and($results[1]->message)->toBe(__('reassign.bulk.results.unexpected_error'))
+        // Fix round 2: lỗi lạ có thể nổ trước cả câu hỏi manageTeam, nên dòng thất bại không mang
+        // mã/tiêu đề (probe: khôi phục matterCode/matterTitle ở nhánh Throwable → đỏ).
+        ->and($results[1]->matterCode)->toBeNull()
+        ->and($results[1]->matterTitle)->toBeNull();
 
     Queue::assertPushed(SendReassignmentDigest::class, function (SendReassignmentDigest $job) use ($matterA, $matterB): bool {
         return array_key_exists($matterA->id, $job->matters)

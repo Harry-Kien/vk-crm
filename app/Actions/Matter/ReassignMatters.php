@@ -44,13 +44,25 @@ use Throwable;
  * (cùng lỗi vẫn lên Sentry/log như một request bình thường bị 500) rồi dịch thành một dòng thất
  * bại chung chung — không đoán được lý do thật để nói tiếng Việt cụ thể hơn.
  *
+ * **`AuthorizationException` và nhánh "không tìm ra `$matter`" dùng CHUNG một câu trung lập
+ * (`reassign.bulk.results.unavailable`) — fix round 2, finding I2.** Trước bản sửa này hai nhánh
+ * này có hai câu khác nhau ("không còn tồn tại" / "không có quyền"), và `BulkReassign::form()`'s
+ * luật `in:` khi đó cũng chỉ chấp nhận id của những vụ THẬT SỰ còn tồn tại — cộng lại, một id của
+ * vụ `restricted` (tồn tại thật) QUA được `in:` và hiện một dòng kết quả, còn một id chưa từng
+ * thuộc vụ nào bị CHÍNH `in:` chặn thành lỗi form, KHÔNG BAO GIỜ chạm tới đây — hai hình dạng phản
+ * hồi khác nhau đủ để đếm ra chính xác bao nhiêu vụ `restricted` đang tồn tại (brief Task 2 cấm lộ
+ * cả SỐ LƯỢNG, không chỉ mã/tiêu đề). `BulkReassign::form()`'s `in:` giờ chấp nhận CẢ dải id chưa
+ * từng cấp phát (xem docblock ở đó) NÊN cả hai nhánh này giờ đều tới được đây — gộp chung câu trả
+ * lời đóng nốt phần còn lại của oracle đó.
+ *
  * **`AuthorizationException` không gắn mã/tiêu đề vụ việc vào kết quả — xem docblock
- * {@see BulkReassignMatterResult} cho lý do đầy đủ.** Bốn họ lỗi còn lại đều ném ra SAU KHI
- * `manageTeam` đã cho qua (đó là câu ĐẦU TIÊN `ReassignMatter::handle()` hỏi), nên actor chắc chắn
- * đã hợp lệ để thấy vụ việc — an toàn để gắn mã/tiêu đề vào kết quả của chúng. Nhánh `Throwable`
- * cũng gắn mã/tiêu đề CÙNG điều kiện đó (chỉ khi `$matter` đã tra được — xem thân hàm), TRỪ khi
- * chính câu `Matter::query()->find($matterId)` là nơi ném lỗi (kết nối rớt ngay lúc đọc), lúc đó
- * `$matter` chưa hề gán được giá trị nên không có gì để gắn.
+ * {@see BulkReassignMatterResult} cho lý do đầy đủ.** `ValidationException`, `DomainException` và
+ * `ModelNotFoundException` đều ném ra SAU KHI `manageTeam` đã cho qua (đó là câu ĐẦU TIÊN
+ * `ReassignMatter::handle()` hỏi), nên actor chắc chắn đã hợp lệ để thấy vụ việc — an toàn để gắn
+ * mã/tiêu đề vào kết quả của chúng. Nhánh `Throwable` thì KHÔNG gắn mã/tiêu đề (fix round 2): một
+ * lỗi lạ (kết nối rớt, lock-wait) có thể nổ TRƯỚC câu hỏi `manageTeam` đó — ví dụ ngay lúc
+ * `ReassignMatter::handle()` mở transaction hay lấy khoá — nên không có gì bảo đảm actor được xem
+ * vụ; dòng kết quả chỉ mang `matterId` (chính id actor vừa gửi lên) và câu chung chung.
  *
  * # Vụ `restricted` LUÔN gỡ lead cũ, bất kể công tắc "giữ lại" của cả lô
  *
@@ -78,18 +90,17 @@ use Throwable;
  *
  * # Dispatch nằm trong `finally` bọc CẢ vòng lặp (fix round 1, finding 3)
  *
- * Bản trước dispatch digest SAU vòng lặp — đọc được nhưng SAI khi có một exception thoát khỏi
- * chính vòng lặp: `catch (Throwable)` ở mục trên đã đóng gần hết đường thoát đó, nhưng không phải
- * TOÀN BỘ — câu `Matter::query()->find($matterId)` ở ĐẦU mỗi vòng lặp nằm NGOÀI khối `try` của
- * vụ đó (nó chạy trước khi biết `$matterId` có tra ra `$matter` hay không), nên một `QueryException`
- * ngay tại câu đọc đó (kết nối rớt, không phải lock-wait trong `ReassignMatter::handle()`) vẫn
- * thoát thẳng ra khỏi `foreach`. Nếu dispatch nằm SAU vòng lặp (một câu lệnh riêng, không trong
- * `finally`), một exception thoát ra như vậy sẽ nhảy thẳng qua câu dispatch — các vụ ĐÃ commit
- * thành công trước đó (vụ 1-3 trong kịch bản finding 3) không bao giờ được báo cho lead mới, dù dữ
- * liệu của chúng đã đổi chủ thật. Bọc dispatch trong `finally` quanh TOÀN BỘ `foreach` đảm bảo nó
- * luôn chạy — kể cả khi lối thoát đó (hiếm, nhưng không phải không thể) xảy ra — đúng lưới an toàn
- * finding 3 đòi: "không rơi mất mốc hạn nào" áp dụng cho MỌI vụ đã thật sự commit, không chỉ những
- * vụ mà lỗi tình cờ nằm gọn trong `try` của chính chúng.
+ * Bản trước dispatch digest SAU vòng lặp — chỉ đúng chừng nào không có exception nào thoát khỏi
+ * `foreach`. `catch (Throwable)` ở mục trên đã đóng đường thoát đó cho mọi thứ nổ bên trong `try`
+ * của từng vụ (kể cả câu `Matter::query()->find($matterId)`, cũng nằm trong `try` đó); `finally`
+ * bọc CẢ vòng lặp là lưới thứ hai cho phần còn lại — một lỗi ném ra bởi chính một khối `catch`
+ * (ví dụ `report()` hay `__()` hỏng), hoặc bởi một sửa đổi sau này đặt mã ra ngoài `try` của vụ.
+ * Nếu dispatch nằm SAU vòng lặp (một câu lệnh riêng, không trong `finally`), một exception thoát
+ * ra như vậy sẽ nhảy thẳng qua nó — các vụ ĐÃ commit trước đó không bao giờ được báo cho lead
+ * mới, dù dữ liệu của chúng đã đổi chủ thật. "Không rơi mất mốc hạn nào" áp dụng cho MỌI vụ đã
+ * thật sự commit. Lưu ý trung thực: `finally` KHÔNG có test riêng phân biệt được với
+ * `catch (Throwable)` (test `ThrowsUnlistedExceptionOnSecondCall` đỏ khi bỏ CẢ HAI, vẫn xanh khi
+ * chỉ bỏ `finally`) — nó là lưới phòng xa, không phải một điều kiện đã được đo.
  */
 class ReassignMatters
 {
@@ -121,10 +132,14 @@ class ReassignMatters
                     $matter = Matter::query()->find($matterId);
 
                     if ($matter === null) {
+                        // Fix round 2, finding I2 — CÙNG câu với nhánh AuthorizationException bên
+                        // dưới (xem docblock lớp) — không còn 'not_found' riêng, để một id không
+                        // còn tồn tại và một id của một vụ restricted actor không manageTeam được
+                        // không thể phân biệt qua thông điệp trả về.
                         $results[] = new BulkReassignMatterResult(
                             matterId: $matterId,
                             success: false,
-                            message: __('reassign.bulk.results.not_found'),
+                            message: __('reassign.bulk.results.unavailable'),
                         );
 
                         continue;
@@ -159,11 +174,12 @@ class ReassignMatters
                     );
                 } catch (AuthorizationException) {
                     // Không gắn mã/tiêu đề — actor chưa qua manageTeam trên vụ này (xem docblock
-                    // BulkReassignMatterResult).
+                    // BulkReassignMatterResult). Fix round 2, finding I2 — CÙNG câu với nhánh
+                    // "không tìm thấy" ở trên, không còn 'unauthorized' riêng (xem docblock lớp).
                     $results[] = new BulkReassignMatterResult(
                         matterId: $matterId,
                         success: false,
-                        message: __('reassign.bulk.results.unauthorized'),
+                        message: __('reassign.bulk.results.unavailable'),
                     );
                 } catch (ValidationException $exception) {
                     $results[] = new BulkReassignMatterResult(
@@ -185,16 +201,14 @@ class ReassignMatters
                     // Fix round 1, finding 3 — cùng lưới an toàn của UsersTable's
                     // DeleteBulkAction::using(): report() giữ log/Sentry như một lỗi thật, KHÔNG
                     // ném tiếp (mới là điểm mấu chốt — ném tiếp sẽ lại thoát khỏi vòng lặp, đúng
-                    // thứ finding này sửa). $matter có thể vẫn null nếu chính câu
-                    // Matter::query()->find($matterId) là nơi ném lỗi.
+                    // thứ finding này sửa). Fix round 2: KHÔNG gắn mã/tiêu đề — lỗi có thể nổ
+                    // trước cả câu hỏi manageTeam (xem docblock lớp).
                     report($exception);
 
                     $results[] = new BulkReassignMatterResult(
                         matterId: $matterId,
                         success: false,
                         message: __('reassign.bulk.results.unexpected_error'),
-                        matterCode: $matter?->code,
-                        matterTitle: $matter?->title,
                     );
                 }
             }

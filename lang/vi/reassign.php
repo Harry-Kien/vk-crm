@@ -85,7 +85,6 @@ return [
         'fields' => [
             'lead_lawyer_id' => 'Luật sư đang phụ trách',
             'matter_ids' => 'Chọn vụ việc cần bàn giao',
-            'no_matters' => 'Người này hiện không có vụ việc đang mở nào mà anh/chị có quyền bàn giao.',
             'new_lead_id' => 'Luật sư phụ trách mới',
             'reason' => 'Lý do bàn giao',
             'keep_old_lead_as_associate' => 'Giữ luật sư cũ trong đội ngũ với vai luật sư cộng sự',
@@ -112,8 +111,15 @@ return [
         // Kết quả từng vụ (App\Actions\Matter\BulkReassignMatterResult) — báo riêng từng vụ, kể
         // cả vụ thất bại (phán quyết controller Task 2), không một thông điệp chung cho cả lô.
         'results' => [
-            'not_found' => 'Vụ việc không còn tồn tại.',
-            'unauthorized' => 'Bạn không có quyền bàn giao vụ việc này.',
+            // Fix round 2 (I2 — review needs_fixes 2026-09-28): trước bản sửa này 'not_found' ("Vụ
+            // việc không còn tồn tại.") và 'unauthorized' ("Bạn không có quyền bàn giao vụ việc
+            // này.") là hai câu KHÁC NHAU — cùng với luật in: cũ (xem docblock
+            // BulkReassign::form()), câu nào khác câu kia LỘ RA một vụ restricted CÓ THẬT, đếm
+            // được đúng bao nhiêu vụ đang tồn tại. Gộp CHUNG một câu trung lập cho cả "id chưa
+            // từng thuộc vụ nào/đã xoá mềm" (App\Actions\Matter\ReassignMatters, nhánh
+            // Matter::query()->find() trả null) LẪN "vụ có thật nhưng actor không manageTeam được"
+            // (nhánh AuthorizationException) — không nói vụ này CÓ hay KHÔNG tồn tại.
+            'unavailable' => 'Vụ việc này hiện không có sẵn để bàn giao.',
             'success' => 'Đã bàn giao thành công.',
             // Fix round 1, finding 3 — mọi lỗi không thuộc bốn họ đã liệt kê ở trên (ví dụ CSDL
             // bận đúng lúc, kết nối rớt giữa lô).
