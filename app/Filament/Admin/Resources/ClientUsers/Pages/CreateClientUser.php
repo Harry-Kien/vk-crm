@@ -2,10 +2,14 @@
 
 namespace App\Filament\Admin\Resources\ClientUsers\Pages;
 
+use App\Actions\Portal\CreatePortalAccount;
 use App\Filament\Admin\Resources\ClientUsers\ClientUserResource;
 use App\Models\Client;
 use App\Models\ClientUser;
+use App\Models\User;
 use Filament\Resources\Pages\CreateRecord;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 
 class CreateClientUser extends CreateRecord
@@ -37,5 +41,17 @@ class CreateClientUser extends CreateRecord
         $data['must_change_password'] = true;
 
         return $data;
+    }
+
+    /**
+     * M8 Task 3 (SPEC §10.6, `portal_account_created`): tạo qua Action để có dòng nhật ký tường
+     * minh cạnh dòng `created` của `LogsActivity` — xem {@see CreatePortalAccount}.
+     */
+    protected function handleRecordCreation(array $data): Model
+    {
+        $actor = Auth::user();
+        abort_unless($actor instanceof User, 403);
+
+        return app(CreatePortalAccount::class)->handle($data, $actor);
     }
 }

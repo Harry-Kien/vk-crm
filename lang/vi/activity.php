@@ -96,6 +96,8 @@ return [
         'user_password_reset' => 'Đặt lại mật khẩu nhân sự',
         // M8 Task 2 (R2): app/Actions/User/ResetStaffTwoFactor.php.
         'staff_two_factor_reset' => 'Đặt lại 2FA nhân sự',
+        // M8 Task 3 (SPEC §10.3): app/Actions/User/UnlockStaffLogin.php.
+        'staff_login_unlocked' => 'Mở khoá đăng nhập nhân sự',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

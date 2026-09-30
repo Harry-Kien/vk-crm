@@ -48,6 +48,25 @@ return [
             'console_not_found' => 'Không tìm thấy nhân sự với email :email.',
             'console_done' => 'Đã đặt lại 2FA của :email — họ sẽ phải cài lại ở lần đăng nhập kế tiếp.',
         ],
+        // M8 Task 3 (SPEC §10.3): `UnlockStaffLogin` — nút trên `EditUser`.
+        'unlock_login' => [
+            'label' => 'Mở khoá đăng nhập',
+            'modal_heading' => 'Mở khoá đăng nhập của :name?',
+            'modal_description' => 'Xoá bộ đếm lần đăng nhập sai (cả bước mật khẩu lẫn bước mã) của :name để họ thử lại ngay. Chỉ dùng khi chắc chắn chính họ bị khoá, không phải một người lạ đang dò mật khẩu.',
+            'success' => 'Đã xoá khoá đếm của :name. Họ đăng nhập lại được ngay.',
+            'success_ip_still_locked' => 'Đã xoá khoá đếm của :name. Nhưng địa chỉ mạng liên quan tới lần khoá này vẫn còn bị khoá tạm — xin đợi thêm :minutes phút, hoặc thử từ một mạng khác (ví dụ 4G) để vào ngay.',
+        ],
+    ],
+
+    /*
+     * M8 Task 3 (SPEC §10.3): câu hiện ngay dưới ô đang nhập ở trang đăng nhập nội bộ khi chạm
+     * trần 5 lần / 15 phút (theo email hoặc theo IP; cả bước mật khẩu lẫn bước mã). Nhân sự không
+     * có "số điện thoại văn phòng" để gọi — con đường nhanh là nhờ MỘT quản trị viên KHÁC mở khoá
+     * (nút "Mở khoá đăng nhập" ở trang sửa nhân sự). Câu nói thẳng rằng nếu đang dùng chung mạng
+     * với lần gõ sai thì mở khoá tài khoản chưa chắc đủ: chiều IP có thể còn khoá.
+     */
+    'login' => [
+        'throttled' => 'Đã thử đăng nhập quá nhiều lần. Xin đợi :minutes phút rồi thử lại, hoặc nhờ một quản trị viên khác mở khoá tài khoản này (trang Nhân sự, nút "Mở khoá đăng nhập") — nếu vẫn đang dùng chung mạng với lần gõ sai, có thể phải đợi hết :minutes phút dù tài khoản đã được mở khoá.',
     ],
 
     // R7 (M6.5 Task 4, kéo lên từ M7 R6) — chặn nghỉ việc khi còn việc dở dang, hoặc khi là quản

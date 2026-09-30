@@ -1050,6 +1050,14 @@ thẻ hồ sơ ở cổng; M6.5 không viết mẫu thư này (R1).
    không cho `unsafe-inline` script.
 3. Rate limit: đăng nhập 5 lần / 15 phút theo email và theo IP; nộp tài liệu 20
    tệp / giờ / tài khoản; API 60 request / phút.
+
+   **Đính chính 2026-09-30 (§10.3, M8 Task 3).** (a) "Đăng nhập" gồm cả hai cổng và cả hai bước
+   của mỗi cổng (mật khẩu, rồi mã — TOTP/mã khôi phục của nhân sự, mã email của khách): mỗi bước
+   một bộ đếm riêng, mỗi bộ đếm hai chiều (tài khoản + IP), `App\Support\LoginThrottle`. (b) "20
+   tệp / giờ" đếm TỆP (một request mang nhiều tệp tốn nhiều suất; cả request bị từ chối nếu vượt),
+   không đếm request, và là luật nộp tài liệu của KHÁCH; nhân sự có trần riêng 200 tệp / giờ /
+   tài khoản trên cùng endpoint (`App\Support\UploadThrottle`). (c) "API 60 request / phút": hôm
+   nay chưa có route `api/*` (có test khẳng định); giới hạn thuộc M11.
 4. Tệp lưu ở `storage/app/private/`, có `.htaccess` chặn và cấu hình nginx tương
    ứng. Phục vụ qua route có `signed` URL hết hạn sau 5 phút, và vẫn kiểm tra
    policy trong controller — chữ ký URL không thay thế kiểm tra quyền.
@@ -1076,6 +1084,17 @@ thẻ hồ sơ ở cổng; M6.5 không viết mẫu thư này (R1).
    Task 14 (sửa và xoá mốc hạn) còn đang làm lúc ghi đính chính này và có thể thêm sự kiện. Trước
    khi merge, chạy lại phép so trên và `ActivityLogEventTranslationsTest` (mọi sự kiện phải có
    nhãn trong `lang/vi/activity.php`).
+
+   **Đính chính 2026-09-30 (§10.6, M8 Task 3).** Ba loại trước đây chỉ có GIÁN TIẾP (một diff
+   `updated` của `LogsActivity`, hoặc một cờ trong properties của sự kiện khác) nay là sự kiện
+   tường minh: `stage_log_published` (`TransitionMatterStage`, cả chuyển giai đoạn lẫn "Thêm cập
+   nhật"), `permission_changed` (`RecordStaffPermissionChange`, kèm chức danh/vai trò cũ → mới),
+   `portal_account_created` / `portal_account_deactivated` (`CreatePortalAccount`,
+   `UpdatePortalAccount`). Thêm `staff_login_unlocked` (`UnlockStaffLogin`). "Xuất dữ liệu" hôm
+   nay chỉ có MỘT đường — tải một tài liệu (`documents.download`, đã ghi `document_downloaded`);
+   test `ActivityLogSpec106Test` đóng băng tập đường xuất đó, và gói bàn giao hồ sơ (M7 Task 4)
+   phải ghi `data_exported` khi ra đời. Nhật ký không bị xoá theo lịch (không có tác vụ
+   `activitylog:clean`; con số của gói ≥ `RETENTION_YEARS`).
 7. 2FA bắt buộc cho toàn bộ tài khoản nội bộ. Không có tuỳ chọn tắt.
 8. `spatie/laravel-backup` cấu hình sao lưu hằng ngày cả CSDL lẫn thư mục tệp,
    đẩy ra một disk ngoài máy chủ (S3 hoặc tương đương), giữ 30 bản.

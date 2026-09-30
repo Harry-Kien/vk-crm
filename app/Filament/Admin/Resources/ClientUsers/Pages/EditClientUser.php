@@ -4,6 +4,7 @@ namespace App\Filament\Admin\Resources\ClientUsers\Pages;
 
 use App\Actions\Portal\UnlockPortalLogin;
 use App\Actions\Portal\UnlockPortalLoginResult;
+use App\Actions\Portal\UpdatePortalAccount;
 use App\Filament\Admin\Resources\ClientUsers\ClientUserResource;
 use App\Models\ClientUser;
 use App\Models\User;
@@ -12,6 +13,7 @@ use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Support\Icons\Heroicon;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 
@@ -141,5 +143,18 @@ class EditClientUser extends EditRecord
         }
 
         return $data;
+    }
+
+    /**
+     * M8 Task 3 (SPEC §10.6, `portal_account_deactivated`): lưu qua Action để việc tắt `is_active`
+     * có dòng nhật ký tường minh — xem {@see UpdatePortalAccount}.
+     */
+    protected function handleRecordUpdate(Model $record, array $data): Model
+    {
+        $actor = Auth::user();
+        abort_unless($actor instanceof User, 403);
+
+        /** @var ClientUser $record */
+        return app(UpdatePortalAccount::class)->handle($record, $data, $actor);
     }
 }

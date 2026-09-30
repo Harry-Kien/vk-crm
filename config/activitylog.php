@@ -12,8 +12,17 @@ return [
     /*
      * When the clean-command is executed, all recording activities older than
      * the number of days specified here will be deleted.
+     *
+     * M8 Task 3 (SPEC §10.6, đóng minor M-8 của M6.5): KHÔNG có tác vụ lịch nào chạy
+     * `activitylog:clean` và không nên có — nhật ký hoạt động là chứng cứ, và `RegroupDocument`
+     * đọc lại các dòng `document_regrouped` cũ để quyết định (xoá dòng cũ đổi kết quả nghiệp vụ).
+     * Con số mặc định của gói (365 ngày) sẽ xoá nhật ký sau MỘT năm nếu ai đó chạy lệnh bằng tay,
+     * ít hơn nhiều so với thời hạn lưu hồ sơ (`RETENTION_YEARS`, 10 năm). Nên con số này nay là
+     * `RETENTION_YEARS × 366` ngày: một lần chạy `activitylog:clean` thủ công cũng không xoá
+     * được gì trong thời hạn lưu. Một test ghim cả hai điều (không lịch, không dưới thời hạn lưu).
+     * Giá nếu sai: bảng `activity_log` lớn dần (cỡ MB mỗi năm).
      */
-    'delete_records_older_than_days' => 365,
+    'delete_records_older_than_days' => ((int) env('RETENTION_YEARS', 10)) * 366,
 
     /*
      * If no log name is passed to the activity() helper

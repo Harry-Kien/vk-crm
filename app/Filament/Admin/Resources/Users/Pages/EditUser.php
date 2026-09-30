@@ -4,7 +4,9 @@ namespace App\Filament\Admin\Resources\Users\Pages;
 
 use App\Actions\User\Concerns\GuardsStaffOffboarding;
 use App\Actions\User\DeleteStaffMember;
+use App\Actions\User\RecordStaffPermissionChange;
 use App\Actions\User\ResetStaffTwoFactor;
+use App\Actions\User\UnlockStaffLogin;
 use App\Enums\Role;
 use App\Enums\UserPosition;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
@@ -100,6 +102,43 @@ class EditUser extends EditRecord
 
                     Notification::make()
                         ->title(__('users.actions.reset_two_factor.success', ['name' => $target->name]))
+                        ->success()
+                        ->send();
+                }),
+            /*
+             * M8 Task 3 (SPEC §10.3): xoá khoá đếm đăng nhập của nhân sự này. Cùng khuôn `unlockLogin`
+             * của `EditClientUser`: `visible()` hỏi Gate (một ability RIÊNG `unlockLogin` trên
+             * `UserPolicy`, vì `HeaderActionsAreReachableTest` đòi tên action trùng tên một phương
+             * thức policy), và `Gate::authorize()` LẶP LẠI trong `action()` vì `visible()` chỉ quyết
+             * định có VẼ nút hay không — một request Livewire chỉnh tay vẫn gọi được action. Action
+             * `UnlockStaffLogin` hỏi Gate lần thứ ba, bên trong.
+             */
+            Action::make('unlockLogin')
+                ->label(__('users.actions.unlock_login.label'))
+                ->icon(Heroicon::OutlinedLockOpen)
+                ->color('gray')
+                ->requiresConfirmation()
+                ->modalHeading(fn (): string => __('users.actions.unlock_login.modal_heading', ['name' => $this->getRecord()->name]))
+                ->modalDescription(fn (): string => __('users.actions.unlock_login.modal_description', ['name' => $this->getRecord()->name]))
+                ->visible(fn (): bool => Gate::allows('unlockLogin', $this->getRecord()))
+                ->action(function (): void {
+                    /** @var User $target */
+                    $target = $this->getRecord();
+
+                    Gate::authorize('unlockLogin', $target);
+
+                    $actor = Auth::user();
+                    abort_unless($actor instanceof User, 403);
+
+                    $result = app(UnlockStaffLogin::class)->handle($target, $actor);
+
+                    Notification::make()
+                        ->title($result->ipStillLocked
+                            ? __('users.actions.unlock_login.success_ip_still_locked', [
+                                'name' => $target->name,
+                                'minutes' => $result->minutesRemaining,
+                            ])
+                            : __('users.actions.unlock_login.success', ['name' => $target->name]))
                         ->success()
                         ->send();
                 }),
@@ -237,9 +276,25 @@ class EditUser extends EditRecord
                     throw ValidationException::withMessages([$this->errorKey($field) => [$this->lastActiveAdminReason()]]);
                 }
 
+                // M8 Task 3 (§10.6, `permission_changed`): chụp chức danh + vai trò TRƯỚC khi ghi,
+                // đọc từ `$locked` (dưới khoá) chứ không từ `$record`. Vai trò hỏi thẳng bảng
+                // (`roles()->pluck()`), không qua quan hệ đã nạp — `syncRoles()` không chắc làm
+                // mới quan hệ được cache.
+                $positionBefore = $locked->position;
+                $rolesBefore = $locked->roles()->pluck('name')->all();
+
                 $updated = parent::handleRecordUpdate($record, $data);
 
                 $updated->assignRoleFromPosition();
+
+                app(RecordStaffPermissionChange::class)->handle(
+                    $updated,
+                    $positionBefore,
+                    $updated->position,
+                    $rolesBefore,
+                    $updated->roles()->pluck('name')->all(),
+                    Auth::user() instanceof User ? Auth::user() : null,
+                );
 
                 // Task 20 (phát hiện "admin đặt được mật khẩu 1 cho luật sư mà không có nhật ký
                 // nào"): CÙNG điều kiện dehydrate của ô mật khẩu ở UserForm (`filled($state)`) —

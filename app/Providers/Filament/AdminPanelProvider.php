@@ -4,6 +4,7 @@ namespace App\Providers\Filament;
 
 use App\Filament\Admin\Auth\StaffAppAuthentication;
 use App\Filament\Admin\Pages\Auth\EditProfile;
+use App\Filament\Admin\Pages\Auth\Login;
 use App\Filament\AvatarProviders\InitialsAvatarProvider;
 use App\Http\Middleware\AnswerDeniedPanelRequestsWithNotFound;
 use App\Http\Middleware\RejectStaffSessionsFromBeforeReset;
@@ -47,7 +48,12 @@ class AdminPanelProvider extends PanelProvider
             ->domains(array_filter([config('vkcrm.admin_domain')]))
             ->authGuard('web')
             ->authPasswordBroker('users')
-            ->login()
+            /*
+             * M8 Task 3 (SPEC §10.3): trang đăng nhập riêng — 5 lần / 15 phút theo email VÀ IP, cho
+             * cả bước mật khẩu lẫn bước mã. `->login()` trần của Filament chỉ giới hạn 5 lần / 60
+             * giây theo IP. Xem docblock `App\Filament\Admin\Pages\Auth\Login`.
+             */
+            ->login(Login::class)
             /*
              * Task 20 (SPEC §10.6, phát hiện "nhân sự không có chỗ nào tự đổi mật khẩu"): trang hồ
              * sơ cá nhân, kế thừa gần như nguyên bản của Filament — tên, mật khẩu mới + xác nhận,

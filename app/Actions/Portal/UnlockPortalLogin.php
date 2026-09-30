@@ -2,12 +2,11 @@
 
 namespace App\Actions\Portal;
 
+use App\Actions\Concerns\ClearsNatSafeIpLocks;
 use App\Models\ClientUser;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\PortalLoginThrottle;
-use Illuminate\Support\Collection;
-use Spatie\Activitylog\Models\Activity;
 
 /**
  * "Mở khoá đăng nhập" (SPEC §10.3, phát hiện `portal/portal-4`, phán quyết R12): nhân sự xoá
@@ -26,93 +25,26 @@ use Spatie\Activitylog\Models\Activity;
  * `login_failed` nào (`PortalEmailAuthentication` trước bản sửa), nên hàm tra "địa chỉ nào gây ra
  * khoá" không thấy gì và luôn báo "đăng nhập lại được ngay" dù chiều IP của bước mã còn khoá.
  *
- * # Luật mới: xoá chiều IP, nhưng chỉ khi NAT-an toàn
+ * # Luật xoá chiều IP: chỉ khi NAT-an toàn
  *
- * `clearSafeIpDimensions()` tự tra lại nhật ký `login_failed` (cả bước mật khẩu lẫn bước mã, phân
- * biệt bằng `step` — xem `Login::auditFailedLogin()` và
- * `PortalEmailAuthentication::auditCodeFailure()`) trong TOÀN BỘ cửa sổ còn hiệu lực
- * (`PortalLoginThrottle::DECAY_SECONDS`, không giới hạn ở 5 dòng gần nhất — một địa chỉ dùng
- * chung có thể tích luỹ nhiều hơn 5 dòng từ nhiều tài khoản khác nhau trong cùng cửa sổ). Với mỗi
- * cặp (bước, địa chỉ) mà CHÍNH tài khoản đang mở khoá từng gõ sai:
- *
- *  - nếu MỌI dòng `login_failed` ghi nhận ở đúng địa chỉ đó, trong đúng cửa sổ đó, đều thuộc về
- *    CHÍNH tài khoản này (không có dòng nào của người khác, không có dòng nào không rõ ai) — địa
- *    chỉ đó không phải một NAT dùng chung, nên xoá luôn khoá IP của cặp (bước, địa chỉ) đó
- *    (`PortalLoginThrottle::clearKey()`);
- *  - ngược lại — có ít nhất một dòng của người khác cùng địa chỉ, trong cùng cửa sổ — giữ nguyên
- *    khoá đó (không đụng tới, đúng nguyên tắc NAT-an toàn đã có từ đầu) và báo cho nhân sự biết,
- *    kèm số phút còn lại thật (`PortalLoginThrottle::availableInMinutes()`), để câu trả lời không
- *    hứa suông một cánh cổng chỉ mở một nửa.
+ * M8 Task 3: phần này được rút ra thành {@see ClearsNatSafeIpLocks}, dùng chung với
+ * `App\Actions\User\UnlockStaffLogin` (cổng nhân sự) — luật, lý lẽ và số phút còn lại nằm ở trait
+ * đó, kèm lọc theo guard `client`.
  */
 class UnlockPortalLogin
 {
+    use ClearsNatSafeIpLocks;
+
     public function handle(ClientUser $account, User $actor): UnlockPortalLoginResult
     {
         PortalLoginThrottle::clearAccountLocks($account);
 
-        $result = $this->clearSafeIpDimensions($account);
+        [$ipStillLocked, $minutes] = $this->clearSafeIpDimensions($account, PortalLoginThrottle::class, 'client');
 
         Audit::record('portal_login_unlocked', $account, [
             'guard' => 'client',
-            'ip_still_locked' => $result->ipStillLocked,
+            'ip_still_locked' => $ipStillLocked,
         ], $actor);
-
-        return $result;
-    }
-
-    private function clearSafeIpDimensions(ClientUser $account): UnlockPortalLoginResult
-    {
-        $windowStart = now()->subSeconds(PortalLoginThrottle::DECAY_SECONDS);
-
-        /** @var Collection<int, Activity> $recentFailures Mọi lần hỏng, của MỌI tài khoản, trong cửa sổ còn hiệu lực — cần cả tập này để xét NAT-an toàn cho từng địa chỉ, không chỉ tập của riêng $account. */
-        $recentFailures = Activity::query()
-            ->where('event', 'login_failed')
-            ->where('created_at', '>=', $windowStart)
-            ->get();
-
-        $isThisAccount = fn (Activity $activity): bool => $activity->causer_type === $account->getMorphClass()
-            && $activity->causer_id !== null
-            && (string) $activity->causer_id === (string) $account->getKey();
-
-        /** @var Collection<int, array{step: string, ip: string}> $dimensions Các cặp (bước, địa chỉ) mà CHÍNH tài khoản này từng gõ sai. */
-        $dimensions = $recentFailures
-            ->filter($isThisAccount)
-            ->map(fn (Activity $activity): array => [
-                'step' => (string) $activity->properties->get('step'),
-                'ip' => (string) $activity->properties->get('ip'),
-            ])
-            ->filter(fn (array $d): bool => $d['step'] !== '' && $d['ip'] !== '')
-            ->unique(fn (array $d): string => $d['step'].'|'.$d['ip']);
-
-        $ipStillLocked = false;
-        $minutes = null;
-
-        foreach ($dimensions as $dimension) {
-            $ipKey = $dimension['step'] === 'code'
-                ? PortalLoginThrottle::codeIpKeyFor($dimension['ip'])
-                : PortalLoginThrottle::passwordIpKeyFor($dimension['ip']);
-
-            if (! PortalLoginThrottle::tooManyAttempts([$ipKey])) {
-                // Chiều IP của cặp này không (còn) khoá — không có gì để xoá hay để báo.
-                continue;
-            }
-
-            $sameDimension = $recentFailures->filter(
-                fn (Activity $activity): bool => $activity->properties->get('step') === $dimension['step']
-                    && $activity->properties->get('ip') === $dimension['ip'],
-            );
-
-            $isNatSafe = $sameDimension->isNotEmpty() && $sameDimension->every($isThisAccount);
-
-            if ($isNatSafe) {
-                PortalLoginThrottle::clearKey($ipKey);
-
-                continue;
-            }
-
-            $ipStillLocked = true;
-            $minutes = max($minutes ?? 0, PortalLoginThrottle::availableInMinutes([$ipKey]));
-        }
 
         return new UnlockPortalLoginResult($ipStillLocked, $minutes);
     }

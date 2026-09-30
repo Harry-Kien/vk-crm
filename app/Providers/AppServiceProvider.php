@@ -24,7 +24,6 @@ use App\Support\Files\NullScanner;
 use App\Support\Files\VirusScanner;
 use App\Support\Mail\OutboundLedgerMailManager;
 use App\Support\Security\HttpsDefaults;
-use App\Support\UploadThrottle;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Foundation\Console\AboutCommand;
@@ -175,20 +174,10 @@ class AppServiceProvider extends ServiceProvider
             DocumentDownloadController::DOWNLOADS_PER_MINUTE,
         )->by(DocumentDownloadController::rateLimitKey($request)));
 
-        /*
-         * Giới hạn lượt TẢI TỆP LÊN của endpoint `livewire.upload-file` (SPEC §10.3). Cùng thành
-         * ngữ với bộ đếm ngay trên, và cố ý cùng thành ngữ: con số, cách khoá và toàn bộ lý lẽ
-         * nằm ở `App\Support\UploadThrottle`; ở đây chỉ có chỗ cắm vào framework. Chỗ cắm phía
-         * route nằm ở `config/livewire.php` (`throttle:livewire-upload`).
-         *
-         * Một bộ đếm CÓ TÊN chứ không phải `throttle:20,60` trần, vì chỉ bộ đếm có tên mới tự
-         * quyết định được khoá: `ThrottleRequests` mặc định hỏi guard MẶC ĐỊNH, thứ luôn rỗng
-         * trên cổng khách hàng, nên bản trần khoá cả hai vợ chồng vào một rổ theo địa chỉ.
-         */
-        RateLimiter::for(UploadThrottle::NAME, fn (Request $request) => Limit::perMinutes(
-            UploadThrottle::WINDOW_MINUTES,
-            UploadThrottle::FILES_PER_HOUR,
-        )->by(UploadThrottle::keyFor($request)));
+        // Giới hạn TẢI TỆP LÊN của endpoint `livewire.upload-file` (SPEC §10.3) KHÔNG còn đăng ký ở
+        // đây: từ M8 Task 3 nó là middleware `App\Http\Middleware\ThrottleUploadedFiles` (cắm ở
+        // `config/livewire.php`), vì một bộ đếm có tên của `ThrottleRequests` đếm REQUEST còn SPEC
+        // đòi đếm TỆP — xem docblock `App\Support\UploadThrottle`.
 
         // Câu trả lời cho "virus scanning có thật sự bật không" phải lấy được từ chính hệ thống,
         // không phải từ việc đọc `.env` hay mã nguồn — `php artisan about` là chỗ một người vận

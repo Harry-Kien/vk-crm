@@ -97,6 +97,19 @@ class UserPolicy
     }
 
     /**
+     * M8 Task 3 (SPEC §10.3): "Mở khoá đăng nhập" của nhân sự
+     * (`App\Actions\User\UnlockStaffLogin`, nút `unlockLogin` ở {@see EditUser}). CHỈ quản trị
+     * viên — cùng cổng `settings.manage` (`viewAny()`) với mọi thao tác quản trị nhân sự khác. Không
+     * có điều kiện `isNot($model)` như `resetTwoFactor()`: mở khoá KHÔNG nới một quyền nào, và một
+     * admin đang bị khoá không tự bấm được (họ không vào được panel) nên không có đường tự-mở-khoá.
+     * `HeaderActionsAreReachableTest` đòi TÊN action trùng tên một phương thức policy.
+     */
+    public function unlockLogin(User|ClientUser $user, User $model): bool
+    {
+        return $user instanceof User && $this->viewAny($user);
+    }
+
+    /**
      * Cổng THÔ của `DeleteBulkAction` trên `ListUsers` (carry-over từ rà soát Task 2, C1-class
      * hole): Filament tự hỏi `deleteAny` cho nút xoá hàng loạt, và một ability KHÔNG có phương
      * thức tương ứng trên policy được coi là CHO PHÉP khi không ở chế độ nghiêm ngặt (mặc định dự

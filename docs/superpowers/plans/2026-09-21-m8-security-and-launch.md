@@ -145,7 +145,7 @@ Mỗi gói kiểm `composer require --dry-run` trên sàn PHP 8.3 trước, như
 - Test quét mọi đường tắt, gồm trang hồ sơ của M6.5 Task 20.
 - Ghi đính chính SPEC §3 và §4.1.
 
-### - [ ] Task 3 — Rate limit và nhật ký hoạt động (§10 mục 3, 6)
+### - [x] Task 3 — Rate limit và nhật ký hoạt động (§10 mục 3, 6)
 
 - **Đăng nhập admin:** chưa có luật 5 lần/15 phút theo email **và** IP. `AdminPanelProvider` dùng `->login()` mặc định của Filament, chỉ giới hạn theo IP từng phút. Dựng theo khuôn `PortalLoginThrottle` của M5, kèm đường mở khoá.
 - **Đăng nhập portal:** M5 đã làm. Đọc lại sau hai thay đổi: M6.5 Task 7 (mở khoá) và Task 20 (lỗi gửi OTP không tính là một lần sai). Chạy lại toàn bộ test rate limit **sau** khi R1 đổi nguồn IP, và đọc lại kết luận của chúng, đừng chỉ xem màu xanh.

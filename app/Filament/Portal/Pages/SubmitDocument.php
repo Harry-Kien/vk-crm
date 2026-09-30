@@ -130,10 +130,12 @@ use Livewire\Features\SupportFileUploads\WithFileUploads;
  * tệp/giờ: gấp 180 lần mức SPEC §10.3 cho phép.
  *
  * Nên cửa thứ ba đứng ở chính endpoint, bằng `temporary_file_upload.middleware` trong
- * `config/livewire.php` (`throttle:20,60`). Hai cửa của trang KHÔNG vì thế mà thừa: cửa endpoint
- * khoá theo `$request->user()` của guard mặc định (`web`), thứ trống rỗng trên cổng khách — tức
- * nó khoá theo ĐỊA CHỈ với khách, còn SPEC §10.3 đòi khoá theo TÀI KHOẢN. Ba cửa, ba thứ được
- * bảo vệ: byte không rời khỏi điện thoại, byte không rơi xuống đĩa, bản ghi không sinh ra.
+ * `config/livewire.php`. Bản đầu là `throttle:20,60`, khoá theo `$request->user()` của guard mặc
+ * định (`web`), thứ trống rỗng trên cổng khách — tức khoá theo ĐỊA CHỈ với khách, còn SPEC §10.3
+ * đòi khoá theo TÀI KHOẢN; M8 Task 3 thay nó bằng `App\Http\Middleware\ThrottleUploadedFiles`, khoá
+ * theo TÀI KHOẢN và đếm TỆP chứ không đếm request (xem `App\Support\UploadThrottle`). Hai cửa của
+ * trang KHÔNG vì thế mà thừa. Ba cửa, ba thứ được bảo vệ: byte không rời khỏi điện thoại, byte
+ * không rơi xuống đĩa, bản ghi không sinh ra.
  *
  * # Trần dung lượng: MỘT con số, ba chỗ đọc nó
  *
@@ -975,9 +977,19 @@ class SubmitDocument extends Page
     {
         $this->dispatch('upload:errored', name: $name)->self();
 
-        $endpointKey = UploadThrottle::cacheKeyFor(UploadThrottle::keyFor(request()));
+        $throttleKey = UploadThrottle::keyFor(request());
+        $endpointKey = UploadThrottle::cacheKeyFor($throttleKey);
 
-        if (RateLimiter::tooManyAttempts($endpointKey, UploadThrottle::FILES_PER_HOUR)) {
+        // M8 Task 3: hai dấu hiệu, vì endpoint nay đếm TỆP và từ chối CẢ lô nếu lô làm vượt trần mà
+        // KHÔNG tăng bộ đếm — bộ đếm mới ở 19/20 trong khi một lô 2 tệp bị từ chối. "Đã đầy"
+        // (`tooManyAttempts`) vẫn đúng cho trường hợp cũ; "vừa bị từ chối"
+        // (`ThrottleUploadedFiles` đánh dấu, sống 60 giây) đúng cho lô. Dấu này có thể sống dai
+        // hơn lần từ chối của nó tới 60 giây: một lỗi tệp KHÁC trong khoảng đó bị đọc là hết suất —
+        // cái giá chấp nhận được, vì câu `rate_limited_upload` nói cả số phút phải chờ thật.
+        if (
+            RateLimiter::tooManyAttempts($endpointKey, UploadThrottle::FILES_PER_HOUR)
+            || UploadThrottle::wasRecentlyRefused($throttleKey)
+        ) {
             $this->failOnFile(__('portal_submit.errors.rate_limited_upload', [
                 'limit' => UploadThrottle::FILES_PER_HOUR,
                 'minutes' => max(1, (int) ceil(RateLimiter::availableIn($endpointKey) / 60)),
