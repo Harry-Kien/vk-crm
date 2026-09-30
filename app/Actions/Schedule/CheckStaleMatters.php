@@ -216,7 +216,9 @@ class CheckStaleMatters
     }
 
     /**
-     * "Không quá một thư mỗi 7 ngày trong lúc còn đình trệ" (R5) — tra `outbound_messages`, KHÔNG
+     * "Không quá một thư mỗi 7 ngày trong lúc còn đình trệ" (R5), đo theo NGÀY LỊCH
+     * ({@see MatterStaleness::mailWindowStart()}: thư ngày D chặn D..D+6, không chặn D+7, dù worker
+     * đóng dấu `sent_at` vài chục giây SAU lượt 07:30 đã xếp job) — tra `outbound_messages`, KHÔNG
      * thêm cột (R3). `status = sent`: một thư `failed` vẫn là một dòng (R1) nhưng KHÔNG được tính
      * là "đã nhắc" — đếm cả nó biến một lần gửi hỏng thành một lần im lặng không gửi lại
      * ({@see RecordOutboundMessage} docblock, "Hệ quả cho M6 Task 8").
@@ -235,7 +237,7 @@ class CheckStaleMatters
             ->where('related_id', $matter->getKey())
             ->where('template', 'staff.stale_matter')
             ->where('status', OutboundStatus::Sent)
-            ->where('sent_at', '>=', now()->subDays(7))
+            ->where('sent_at', '>=', MatterStaleness::mailWindowStart())
             ->exists();
     }
 }

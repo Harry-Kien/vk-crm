@@ -15,6 +15,7 @@ use App\Models\User;
 use App\Notifications\Staff\StaleMatterAlert;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
@@ -301,6 +302,92 @@ it('mails again once 7 days have passed since the last successful send, while st
     (new CheckStaleMatters)->handle();
 
     Mail::assertSent(StaleMatterReminder::class, fn ($mail) => $mail->hasTo($lawyer->email));
+});
+
+/**
+ * R5 "7 ngày một lần" với lịch THẬT: `stale-matters.check` chạy đúng 07:30 mỗi ngày, còn `sent_at`
+ * được đóng dấu lúc worker `queue:work --stop-when-empty` thật sự gửi — LUÔN muộn hơn lượt chạy đã
+ * xếp job đó vài chục giây. Với `sent_at >= now()->subDays(7)` một thư gửi 07:30:40 ngày D vẫn nằm
+ * TRONG cửa sổ ở lượt 07:30:02 ngày D+7 → thư trôi sang D+8 (chu kỳ 8 ngày). So theo NGÀY LỊCH
+ * (MatterStaleness::mailWindowStart()) thì thư ngày D không còn tính từ D+7.
+ *
+ * Mutation probe: đổi `MatterStaleness::mailWindowStart()` về `now()->subDays(7)` — test này ĐỎ
+ * (không gửi vì dòng sổ 07:30:40 còn trong cửa sổ).
+ */
+it('mails again on the 7th day even though the previous send was stamped seconds after that morning run', function () {
+    Mail::fake();
+    $this->travelTo(Carbon::parse('2026-10-14 07:30:02'));
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = staleMatter(40, ['lead_lawyer_id' => $lawyer->id]);
+
+    OutboundMessage::factory()->create([
+        'channel' => OutboundChannel::Email,
+        'recipient' => $lawyer->email,
+        'template' => 'staff.stale_matter',
+        'payload' => [],
+        'related_type' => $matter->getMorphClass(),
+        'related_id' => $matter->getKey(),
+        'status' => OutboundStatus::Sent,
+        // Lượt chạy D = 2026-10-07 07:30:02, worker gửi lúc 07:30:40.
+        'sent_at' => now()->subDays(7)->addSeconds(38),
+    ]);
+
+    $result = (new CheckStaleMatters)->handle();
+
+    expect($result['mailed'])->toBe(1);
+    Mail::assertSent(StaleMatterReminder::class, fn ($mail) => $mail->hasTo($lawyer->email));
+});
+
+it('mails again when the previous send was 7 days ago plus one minute', function () {
+    Mail::fake();
+    $this->travelTo(Carbon::parse('2026-10-14 09:00:00'));
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = staleMatter(40, ['lead_lawyer_id' => $lawyer->id]);
+
+    OutboundMessage::factory()->create([
+        'channel' => OutboundChannel::Email,
+        'recipient' => $lawyer->email,
+        'template' => 'staff.stale_matter',
+        'payload' => [],
+        'related_type' => $matter->getMorphClass(),
+        'related_id' => $matter->getKey(),
+        'status' => OutboundStatus::Sent,
+        'sent_at' => now()->subDays(7)->addMinute(),
+    ]);
+
+    $result = (new CheckStaleMatters)->handle();
+
+    expect($result['mailed'])->toBe(1);
+});
+
+/**
+ * Cặp âm của hai test trên: một thư gửi ngày lịch D+1 (6 ngày trước) vẫn CHẶN — cửa sổ theo ngày
+ * lịch không được nới quá một ngày.
+ *
+ * Mutation probe: thu hẹp `mailWindowStart()` còn `today()->subDays(5)` — test này ĐỎ (gửi lại sau 6
+ * ngày); nới ra `today()->subDays(7)` thì hai test trên ĐỎ.
+ */
+it('still holds back when the previous send was on the calendar day 6 days ago', function () {
+    Mail::fake();
+    $this->travelTo(Carbon::parse('2026-10-14 07:30:02'));
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = staleMatter(40, ['lead_lawyer_id' => $lawyer->id]);
+
+    OutboundMessage::factory()->create([
+        'channel' => OutboundChannel::Email,
+        'recipient' => $lawyer->email,
+        'template' => 'staff.stale_matter',
+        'payload' => [],
+        'related_type' => $matter->getMorphClass(),
+        'related_id' => $matter->getKey(),
+        'status' => OutboundStatus::Sent,
+        'sent_at' => Carbon::parse('2026-10-08 00:00:05'),
+    ]);
+
+    $result = (new CheckStaleMatters)->handle();
+
+    expect($result['mailed'])->toBe(0);
+    Mail::assertNothingSent();
 });
 
 /**

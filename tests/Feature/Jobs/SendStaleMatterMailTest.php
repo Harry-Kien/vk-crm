@@ -10,6 +10,7 @@ use App\Models\Matter;
 use App\Models\OutboundMessage;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Mail;
 use Spatie\Activitylog\Models\Activity;
 use Symfony\Component\Mailer\Envelope;
@@ -178,6 +179,33 @@ it('still mails a recipient whose only sent ledger row is more than 7 days old',
         'related_id' => $matter->getKey(),
         'status' => OutboundStatus::Sent,
         'sent_at' => now()->subDays(9),
+    ]);
+
+    (new SendStaleMatterMail($matter->id))->handle();
+
+    Mail::assertSent(StaleMatterReminder::class, fn ($mail) => $mail->hasTo($lawyer->email));
+});
+
+/**
+ * Lớp phòng thủ thứ hai phải dùng CÙNG cửa sổ ngày lịch với `CheckStaleMatters` (mailWindowStart()):
+ * dòng sổ đóng dấu 07:30:40 ngày D không được nuốt job của lượt 07:30:02 ngày D+7.
+ *
+ * Mutation probe: đổi `alreadyDelivered()` về `sent_at >= now()->subDays(7)` — test này ĐỎ.
+ */
+it('mails a recipient whose last send was stamped seconds after the morning run 7 days ago', function () {
+    Mail::fake();
+    $this->travelTo(Carbon::parse('2026-10-14 07:30:05'));
+    [$matter, $lawyer] = staleMatterWithLawyer(40);
+
+    OutboundMessage::factory()->create([
+        'channel' => OutboundChannel::Email,
+        'recipient' => $lawyer->email,
+        'template' => 'staff.stale_matter',
+        'payload' => [],
+        'related_type' => $matter->getMorphClass(),
+        'related_id' => $matter->getKey(),
+        'status' => OutboundStatus::Sent,
+        'sent_at' => now()->subDays(7)->addSeconds(35),
     ]);
 
     (new SendStaleMatterMail($matter->id))->handle();

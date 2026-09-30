@@ -111,8 +111,9 @@ class SendStaleMatterMail implements ShouldQueue
      * "bậc" (mẫu này chỉ có MỘT hình dạng) nhưng CÓ điều kiện `template`: chỉ một thư
      * `staff.stale_matter` đã gửi mới tính là "đã nhắc" — thư mẫu khác về cùng vụ việc tới cùng
      * người không được nuốt lời nhắc này. `CheckStaleMatters` đã tự chặn việc dispatch trong 7 ngày
-     * kể từ lần gửi thành công gần nhất (R5); kiểm tra ở đây là lớp phòng thủ THỨ HAI, theo TỪNG
-     * người nhận, cho lúc thử lại và cho hai lần chạy Action xếp job trước khi ai rút hàng đợi
+     * kể từ lần gửi thành công gần nhất (R5, cùng cửa sổ NGÀY LỊCH
+     * {@see MatterStaleness::mailWindowStart()}); kiểm tra ở đây là lớp phòng thủ THỨ HAI, theo
+     * TỪNG người nhận, cho lúc thử lại và cho hai lần chạy Action xếp job trước khi ai rút hàng đợi
      * (các job chạy nối nhau, sổ thư được transport ghi đồng bộ).
      */
     private function alreadyDelivered(Matter $matter, User $recipient): bool
@@ -124,7 +125,7 @@ class SendStaleMatterMail implements ShouldQueue
             ->where('template', 'staff.stale_matter')
             ->where('recipient', $recipient->email)
             ->where('status', OutboundStatus::Sent)
-            ->where('sent_at', '>=', now()->subDays(7))
+            ->where('sent_at', '>=', MatterStaleness::mailWindowStart())
             ->exists();
     }
 

@@ -58,6 +58,9 @@ final class MatterStaleness
     /** SPEC §6.4 — mốc gửi thư `staff.stale_matter` (luật sư phụ trách + supervisorsFor()). */
     public const EMAIL_AFTER_DAYS = 21;
 
+    /** R5 của kế hoạch M6 — "không quá một thư staff.stale_matter mỗi 7 ngày". */
+    public const EMAIL_REPEAT_DAYS = 7;
+
     /**
      * @param  Builder<Matter>  $query
      * @return Builder<Matter>
@@ -139,6 +142,23 @@ final class MatterStaleness
     public static function episodeStart(Matter $matter): ?Carbon
     {
         return self::clock($matter);
+    }
+
+    /**
+     * Cận dưới (gồm cả nó) của cửa sổ "đã gửi thư staff.stale_matter trong {@see self::EMAIL_REPEAT_DAYS}
+     * ngày qua", tính theo NGÀY LỊCH trong múi giờ ứng dụng: 00:00 của ngày (hôm nay - 6). Một thư
+     * gửi ngày lịch D chặn các lượt chạy ngày D..D+6 và KHÔNG chặn lượt ngày D+7.
+     *
+     * Không dùng `now()->subDays(7)`: `stale-matters.check` chạy đúng một lần mỗi ngày lúc 07:30, còn
+     * `outbound_messages.sent_at` được đóng dấu khi worker `queue:work --stop-when-empty` thật sự gửi —
+     * luôn muộn hơn lượt chạy đã xếp job đó vài chục giây. Thư gửi 07:30:40 ngày D vẫn nằm trong
+     * `now()->subDays(7)` = D 07:30:02 của lượt ngày D+7, nên chu kỳ 7 ngày sẽ thành 8 ngày. Dùng chung
+     * cho `CheckStaleMatters::recentlyMailed()` và `SendStaleMatterMail::alreadyDelivered()` để hai lớp
+     * chống trùng không lệch nhau.
+     */
+    public static function mailWindowStart(): Carbon
+    {
+        return today()->subDays(self::EMAIL_REPEAT_DAYS - 1);
     }
 
     /**
