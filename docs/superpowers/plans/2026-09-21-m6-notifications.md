@@ -161,7 +161,7 @@ Bậc 7/3/1/quá hạn, thêm bậc 14 khi `severity = critical`; `reminders_sen
 
 Thứ Hai/Tư/Sáu 08:00. Chỉ matter đang mở, đã công bố portal, còn item **bắt buộc** ở `missing`/`rejected`. Liệt kê đúng những gì thiếu (R7). Không quá một thư mỗi 3 ngày cho cùng một matter (R3). Thiếu kéo dài quá 14 ngày → báo lead lawyer để gọi điện. Dùng đúng một nguồn sự thật về "còn thiếu": `App\Actions\Document\ChecklistProgress`.
 
-### - [ ] Task 9 — Nhắc dòng tiến độ khách chưa xem (SPEC §4.18, §7.1 mục 5)
+### - [x] Task 9 — Nhắc dòng tiến độ khách chưa xem (SPEC §4.18, §7.1 mục 5)
 
 Dòng đã công bố quá 5 ngày mà `stage_log_views` chưa có dòng nào → nhắc luật sư phụ trách **gọi điện**, không gửi thêm thư cho khách. Lý do đã nằm trong SPEC: khách không xem thường là khách không dùng được portal, và thứ cần là một cuộc gọi. Widget "Khách chưa xem cập nhật" của M5 dùng chung định nghĩa này.
 

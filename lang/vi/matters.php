@@ -301,6 +301,12 @@ return [
         'title' => 'Hồ sơ đình trệ vì khách chưa nộp giấy tờ',
         'body' => 'Hồ sơ :code (:title) còn giấy tờ bắt buộc khách chưa nộp quá 14 ngày. Nên gọi điện nhắc khách.',
     ],
+    // M6 Task 9 — SPEC §4.18, §7.1 mục 5: cập nhật đã công bố quá 5 ngày mà khách chưa mở, thông báo
+    // TRONG HỆ THỐNG cho luật sư phụ trách để gọi điện (App\Notifications\Staff\UnseenUpdatesAlert).
+    'unseen_notification' => [
+        'title' => 'Khách chưa xem cập nhật tiến độ',
+        'body' => 'Hồ sơ :code (:title) có :count cập nhật đã công bố quá :days ngày mà khách chưa mở xem (cũ nhất công bố ngày :since). Nên gọi điện cho khách để biết họ có nhận được thông báo và vào được cổng khách hàng không.',
+    ],
     // Job gửi thư client.missing_documents hỏng HẲN — App\Jobs\SendMissingDocumentsMail::failed().
     'missing_documents_failed_notification' => [
         'title' => 'Không gửi được thư nhắc khách nộp giấy tờ',

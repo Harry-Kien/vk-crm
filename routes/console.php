@@ -4,6 +4,7 @@ use App\Actions\Schedule\CheckDeadlines;
 use App\Actions\Schedule\CheckStaleMatters;
 use App\Actions\Schedule\RecordScheduleRun;
 use App\Actions\Schedule\RemindMissingDocuments;
+use App\Actions\Schedule\RemindUnseenUpdates;
 use App\Actions\Schedule\SendHeartbeat;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -142,4 +143,21 @@ Schedule::call(new CheckStaleMatters)
 Schedule::call(new RemindMissingDocuments)
     ->cron('0 8 * * 1,3,5')
     ->name('missing-documents.remind')
+    ->withoutOverlapping(60);
+
+/**
+ * Nhắc luật sư phụ trách gọi điện cho khách chưa xem cập nhật (SPEC §4.18, §7.1 mục 5): 08:30 hằng
+ * ngày giờ Việt Nam, sau `missing-documents.remind` (08:00). MỘT lần một ngày — không thư nào tới
+ * khách, chỉ một thông báo trong hệ thống, và thông báo chống lặp theo dòng chưa xem mới nhất
+ * (`RemindUnseenUpdates`), nên một lượt cron bị bỏ lỡ chỉ dời lời nhắc sang hôm sau.
+ *
+ * `withoutOverlapping()` vì nó ghi thông báo: hai tiến trình chồng nhau có thể cùng thấy "chưa nhắc"
+ * và ghi hai dòng cho một người; khoá hết hạn sau 60 phút, không phải mặc định 1440 — cùng lý lẽ
+ * `deadlines.check`: một lần chạy bị giết giữa chừng không được khoá luôn lần chạy của NGÀY HÔM SAU.
+ *
+ * Nhắc luật sư gọi điện cho khách chưa xem cập nhật.
+ */
+Schedule::call(new RemindUnseenUpdates)
+    ->dailyAt('08:30')
+    ->name('unseen-updates.remind')
     ->withoutOverlapping(60);
