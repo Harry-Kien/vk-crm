@@ -337,6 +337,28 @@ it('tài khoản nhân sự bị vô hiệu không tải được', function () 
     $this->actingAs($this->lawyer->fresh(), 'web')->get($url)->assertNotFound();
 });
 
+/**
+ * §10.7 (R2) — cổng 2FA của Filament chỉ đứng trước route của TRANG panel, còn route này nằm
+ * ngoài panel và chỉ đòi guard `web` + chữ ký. Kịch bản: nhân sự bấm tải (đường dẫn ký sống 5
+ * phút, gắn đúng tên họ), rồi ngay trong 5 phút đó admin bấm "Đặt lại 2FA" cho họ — phiên chết,
+ * nhưng đăng nhập lại bằng mật khẩu là có phiên MỚI mà chưa có 2FA, và đường dẫn cũ còn hạn. Thiếu
+ * điều kiện này, đó là một đường lấy tệp hồ sơ không qua 2FA.
+ */
+it('§10.7 nhân sự chưa cài 2FA (vừa bị đặt lại) không tải được bằng đường dẫn ký trước lúc bị đặt lại', function () {
+    $document = downloadableDocument($this->matter, DocumentGroup::Authority);
+    $url = $document->downloadUrlFor($this->lawyer);
+
+    $this->lawyer->forceFill(['two_factor_secret' => null, 'two_factor_recovery_codes' => null])->save();
+
+    $this->actingAs($this->lawyer->fresh(), 'web')->get($url)->assertNotFound();
+});
+
+it('§10.7 cặp sinh đôi — cùng đường dẫn đó tải được khi nhân sự còn 2FA', function () {
+    $document = downloadableDocument($this->matter, DocumentGroup::Authority);
+
+    $this->actingAs($this->lawyer, 'web')->get($document->downloadUrlFor($this->lawyer))->assertOk();
+});
+
 it('tài liệu đã xoá mềm không tải được dù đường dẫn ký trước lúc xoá', function () {
     $document = downloadableDocument($this->matter, DocumentGroup::Authority);
     $url = $document->downloadUrlFor($this->lawyer);

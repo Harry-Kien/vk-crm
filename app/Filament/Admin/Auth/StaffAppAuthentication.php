@@ -31,10 +31,11 @@ use Filament\Facades\Filament;
  * còn mã khôi phục) đi qua {@see ResetStaffTwoFactor} — một admin KHÁC bấm, có
  * audit, xoá phiên và remember_token — không phải tự tắt trên chính hồ sơ của mình.
  *
- * `tests/Feature/Filament/StaffTwoFactorEscapeRoutesTest.php` quét: (a) trang hồ sơ không có nút
- * này; (b) ép gọi thẳng action `disableAppAuthentication` qua Livewire bị từ chối (action không
- * tồn tại trong schema); (c) grep `app/` — không lời gọi `saveAppAuthenticationSecret(null)` nào
- * ngoài `ResetStaffTwoFactor`.
+ * Hai test giữ lời hứa đó: `tests/Feature/Filament/StaffEditProfileTest.php` — (a) trang hồ sơ
+ * không có nút này, (b) ép gọi thẳng action `disableAppAuthentication` qua Livewire bị từ chối
+ * (action không tồn tại trong schema); và `tests/Feature/Filament/StaffTwoFactorEscapeRoutesTest.php`
+ * — (c) quét `app/`: không lời gọi `saveAppAuthenticationSecret(null)` nào ngoài
+ * `ResetStaffTwoFactor`.
  */
 class StaffAppAuthentication extends AppAuthentication
 {

@@ -5,8 +5,13 @@ use App\Enums\Role;
 use App\Filament\Admin\Resources\Users\Pages\EditUser;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Filament\Auth\Pages\Login;
 use Filament\Facades\Filament;
+use Illuminate\Contracts\Encryption\DecryptException;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Encryption\Encrypter;
 use Illuminate\Support\Facades\DB;
+use Livewire\Livewire;
 use Spatie\Activitylog\Models\Activity;
 
 /**
@@ -205,4 +210,53 @@ it('vkcrm:reset-2fa báo lỗi và không làm gì với một email không tồ
         ->assertFailed();
 
     expect(Activity::query()->where('event', 'staff_two_factor_reset')->exists())->toBeFalse();
+});
+
+/*
+|--------------------------------------------------------------------------
+| APP_KEY đã mất (docs/CAI-DAT.md, mục cảnh báo APP_KEY) — hành vi THẬT, không phải lời hứa
+|--------------------------------------------------------------------------
+| Cột `two_factor_secret` mang cast `encrypted`. Đổi khoá mã hoá (`Model::encryptUsing`) mô phỏng
+| đúng một máy dựng lại với `APP_KEY` khác, trên cùng một CSDL. Bản đầu của docs/CAI-DAT.md khẳng
+| định ở đây "coi như chưa ai cài 2FA" và "`vkcrm:reset-2fa` không cứu được" — cả hai SAI; hai test
+| dưới đo điều thật.
+*/
+
+it('sau khi mất APP_KEY, đăng nhập bằng mật khẩu ném DecryptException ở bước 2FA (không phải trang cài đặt)', function () {
+    $staff = User::factory()->withRole(Role::Lawyer)->create(['password' => 'mat-khau-dung']);
+
+    Model::encryptUsing(new Encrypter(random_bytes(32), 'AES-256-CBC'));
+
+    try {
+        expect(fn () => Livewire::test(Login::class)
+            ->set('data.email', $staff->email)
+            ->set('data.password', 'mat-khau-dung')
+            ->call('authenticate'))->toThrow(DecryptException::class);
+    } finally {
+        Model::encryptUsing(null);
+    }
+});
+
+it('sau khi mất APP_KEY, vkcrm:reset-2fa vẫn xoá được secret của từng người và người đó đăng nhập lại để cài mới', function () {
+    $staff = User::factory()->withRole(Role::Lawyer)->create(['password' => 'mat-khau-dung']);
+    $staff->forceFill(['two_factor_recovery_codes' => ['a', 'b']])->save();
+
+    Model::encryptUsing(new Encrypter(random_bytes(32), 'AES-256-CBC'));
+
+    try {
+        $this->artisan('vkcrm:reset-2fa', ['email' => $staff->email])->assertSuccessful();
+
+        expect(DB::table('users')->where('id', $staff->id)->value('two_factor_secret'))->toBeNull()
+            ->and(DB::table('users')->where('id', $staff->id)->value('two_factor_recovery_codes'))->toBeNull();
+
+        Livewire::test(Login::class)
+            ->set('data.email', $staff->email)
+            ->set('data.password', 'mat-khau-dung')
+            ->call('authenticate')
+            ->assertHasNoFormErrors();
+
+        expect(auth('web')->id())->toBe($staff->id);
+    } finally {
+        Model::encryptUsing(null);
+    }
 });

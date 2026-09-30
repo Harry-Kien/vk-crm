@@ -44,9 +44,12 @@ Cột số định danh cá nhân của khách hàng (`clients.id_number`) đư�
 **M8 Task 2 (R2): `APP_KEY` giờ còn mã hoá cả secret 2FA và mã khôi phục của MỌI nhân sự nội
 bộ** (`users.two_factor_secret`, `users.two_factor_recovery_codes` — panel `admin` bắt buộc 2FA,
 không tắt được). Sinh khoá mới không chỉ mất số định danh khách hàng — nó khoá NGOÀI cả văn
-phòng: không ai đăng nhập được `/admin` nữa (secret cũ không đọc được, và `EnsureMultiFactorAuthenticationIsEnabled`
-coi như chưa ai cài 2FA). `vkcrm:reset-2fa` không cứu được tình huống này — nó xoá secret của
-MỘT người đang có, không tạo lại được secret đã mất khoá.
+phòng: với mỗi nhân sự đã cài 2FA, bước nhập mã sau mật khẩu ném `DecryptException` (trang lỗi
+500, không phải trang cài đặt lại), nên không ai đăng nhập được `/admin` nữa. Có một lối thoát,
+từng người một, và chỉ dùng được khi có quyền vào máy chủ: `php artisan vkcrm:reset-2fa <email>`
+xoá secret (không cần giải mã nó), người đó đăng nhập bằng mật khẩu như cũ rồi cài lại 2FA. Lệnh
+này KHÔNG cứu được số định danh khách hàng đã mã hoá — chúng vẫn mất vĩnh viễn (đoạn dưới). Cả
+hai điều trên có test đo hành vi: `tests/Feature/Actions/User/ResetStaffTwoFactorTest.php`.
 
 **Sinh khoá mới trên một cơ sở dữ liệu đã có dữ liệu thật nghĩa là mọi số định danh đã lưu
 trở thành không đọc được, vĩnh viễn.** Không có cách khôi phục.

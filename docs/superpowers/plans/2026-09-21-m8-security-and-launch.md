@@ -136,7 +136,7 @@ Mỗi gói kiểm `composer require --dry-run` trên sàn PHP 8.3 trước, như
 - Giới hạn IP admin theo R7.
 - Mỗi header và mỗi điều kiện có một test nêu tên mục §10.
 
-### - [ ] Task 2 — 2FA cho toàn bộ tài khoản nội bộ (§10 mục 7, R2)
+### - [x] Task 2 — 2FA cho toàn bộ tài khoản nội bộ (§10 mục 7, R2)
 
 - Bắt buộc, không tắt được, có mã khôi phục, dùng chuỗi tiếng Việt đã dịch sẵn từ M5.
 - Migration cast `encrypted` cho hai cột secret, kèm vòng MariaDB thật.

@@ -6,8 +6,10 @@ use App\Filament\Admin\Resources\Users\UserResource;
 use App\Http\Controllers\DocumentDownloadController;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Filament\Auth\MultiFactor\Http\Middleware\EnsureMultiFactorAuthenticationIsEnabled;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use Livewire\Livewire;
 
@@ -175,47 +177,157 @@ it('§10.7 người còn 2FA vẫn cập nhật Livewire bình thường (isPers
 
 /*
 |--------------------------------------------------------------------------
-| (e) — route NGOÀI hai panel mà guard `web` dùng được
+| (e) — route NGOÀI panel admin mà một phiên `web` chưa cài 2FA dùng được
 |--------------------------------------------------------------------------
-| Router thật chỉ có BỐN route như vậy (đo dưới, không phải liệt kê bằng trí nhớ):
-| `documents.download`, `livewire.upload-file`, `livewire.preview-file`,
-| `default-livewire.update` (route cập nhật Livewire — đã đo riêng ở mục (d) trên, liệt kê lại ở
-| đây cho đủ danh sách). Filament middleware của TỪNG TRANG (bao gồm
-| `EnsureMultiFactorAuthenticationIsEnabled`) không với tới route ngoài panel — ba route đầu PHẢI
-| tự đứng vững bằng lý lẽ riêng, không phải bằng middleware 2FA.
+| Bản đầu của phép quét này lọc bỏ mọi tên `filament.*` và mọi route không tên — nên nó không
+| thấy `filament.exports.download`, `filament.imports.failed-rows.download` (cả hai chỉ có
+| middleware `filament.actions`, tức `web`, và KHÔNG có cổng 2FA) và các route Livewire không tên.
+| Bản này duyệt TOÀN BỘ router, không lọc theo tên, và đòi mỗi route thuộc đúng một nhóm:
+|
+|   1. route của panel `admin`  → mang `EnsureMultiFactorAuthenticationIsEnabled`, trừ ba route
+|                                   không thể mang nó (đăng nhập, đăng xuất, chính trang cài đặt);
+|   2. route của panel `portal` → guard `client`, không phải `web` — một phiên nhân sự không
+|                                   đứng được ở đó;
+|   3. route còn lại            → PHẢI có mặt trong danh sách dưới đây kèm lý lẽ, và mỗi lý lẽ có
+|                                   một test hành vi/cấu hình riêng phía sau.
+|
+| Thêm một route mới ngoài panel làm test này đỏ và buộc người thêm tới đây viết lý lẽ.
 */
 
-it('§10.7 danh sách đầy đủ route ngoài hai panel mà guard web/không guard nào dùng được', function () {
-    $names = collect(Route::getRoutes())
-        ->map(fn ($route) => $route->getName())
-        ->filter()
-        ->filter(fn (string $name): bool => ! str_starts_with($name, 'filament.'))
-        ->reject(fn (string $name): bool => str_starts_with($name, 'livewire.') && str_ends_with($name, '.js'))
-        ->reject(fn (string $name): bool => in_array($name, ['generated::assets.', 'storage.local'], true))
-        ->values()
-        ->all();
+/** Đưa tiền tố băm ngẫu nhiên của Livewire (`livewire-ba5adf96`) về một dạng cố định. */
+function normalizedRouteKey(Illuminate\Routing\Route $route): string
+{
+    $uri = (string) preg_replace('/^livewire-[0-9a-f]+/', 'livewire-{hash}', $route->uri());
 
-    // Tên bất ổn định của bộ nhớ đệm asset (`generated::assets.{hash}`) và các tên khác không
-    // phải route thật bị loại ở trên. Còn lại đúng bốn cái — nếu ai thêm một route mới ngoài
-    // panel, test này đỏ và buộc phải tới đây thêm lý lẽ, không lặng lẽ trôi qua.
-    expect($names)->toEqualCanonicalizing([
-        'documents.download',
-        'livewire.upload-file',
-        'livewire.preview-file',
-        'default-livewire.update',
-    ]);
+    return implode('|', array_diff($route->methods(), ['HEAD'])).' '.$uri;
+}
+
+/**
+ * Mọi route ngoài hai panel, theo khoá `METHOD uri`, kèm lý do vì sao một phiên `web` chưa cài
+ * 2FA không lấy được gì ở đó.
+ *
+ * @return array<string, string>
+ */
+function outsidePanelRouteReasons(): array
+{
+    $static = 'tài nguyên tĩnh của Livewire — không có dữ liệu người dùng nào để lấy';
+
+    return [
+        'GET|POST|PUT|PATCH|DELETE|OPTIONS /' => 'chuyển hướng cố định sang /portal, không dữ liệu',
+        'GET up' => 'kiểm tra sống của máy chủ, không dữ liệu',
+        'GET documents/{document}/download' => 'chữ ký gắn người nhận + `DocumentDownloadController::actor()` đòi 2FA (DocumentDownloadTest §10.7)',
+        'GET filament/exports/{export}/download' => 'không có Exporter trong `app/` và không có bảng `exports` nên không có gì để tải (test bên dưới)',
+        'GET filament/imports/{import}/failed-rows/download' => 'không có Importer trong `app/` và không có bảng `imports` nên không có gì để tải (test bên dưới)',
+        'GET livewire-{hash}/preview-file/{filename}' => 'đòi chữ ký tương đối hợp lệ, không sinh được từ trang panel bị chặn (test bên dưới)',
+        'POST livewire-{hash}/upload-file' => 'không đòi xác thực nào: khách vãng lai gọi được y hệt, chỉ ghi một tệp tạm chưa gắn vào bản ghi nào (test bên dưới)',
+        'POST livewire-{hash}/update' => 'cổng 2FA bền riêng (`persistentMiddleware`) — hai test §10.7 ở trên',
+        'GET livewire-{hash}/livewire.js' => $static,
+        'GET livewire-{hash}/livewire.min.js.map' => $static,
+        'GET livewire-{hash}/livewire.csp.min.js.map' => $static,
+        'GET livewire-{hash}/js/{component}.js' => $static,
+        'GET livewire-{hash}/css/{component}.css' => $static,
+        'GET livewire-{hash}/css/{component}.global.css' => $static,
+    ];
+}
+
+it('§10.7 mọi route của router thuộc đúng một nhóm: panel admin có cổng 2FA, panel portal (guard `client`), hoặc có lý lẽ', function () {
+    $exemptAdmin = [
+        'filament.admin.auth.login',
+        'filament.admin.auth.logout',
+        'filament.admin.auth.multi-factor-authentication.set-up-required',
+    ];
+
+    $unaccounted = [];
+
+    foreach (Route::getRoutes() as $route) {
+        $name = (string) $route->getName();
+        $key = normalizedRouteKey($route);
+
+        if (str_starts_with($name, 'filament.admin.')) {
+            $hasGate = in_array(EnsureMultiFactorAuthenticationIsEnabled::class, $route->gatherMiddleware(), true);
+
+            if (! $hasGate && ! in_array($name, $exemptAdmin, true)) {
+                $unaccounted[] = "{$name}: route panel admin thiếu EnsureMultiFactorAuthenticationIsEnabled";
+            }
+
+            continue;
+        }
+
+        if (str_starts_with($name, 'filament.portal.')) {
+            continue;
+        }
+
+        if (! array_key_exists($key, outsidePanelRouteReasons())) {
+            $unaccounted[] = "{$key} ({$name}): route ngoài panel chưa có lý lẽ 2FA";
+        }
+    }
+
+    expect($unaccounted)->toBe([]);
+
+    // Chiều ngược: danh sách lý lẽ không được chứa route đã biến mất (một dòng chết là một lý lẽ
+    // không còn ai đọc lại).
+    $present = collect(Route::getRoutes())->map(fn ($route) => normalizedRouteKey($route))->all();
+
+    expect(array_diff(array_keys(outsidePanelRouteReasons()), $present))->toBe([]);
+});
+
+it('§10.7 route panel portal chạy bằng guard `client`, một phiên nhân sự không đứng được ở đó', function () {
+    expect(Filament::getPanel('portal')->getAuthGuard())->toBe('client')
+        ->and(Filament::getPanel('admin')->getAuthGuard())->toBe('web');
+
+    $this->seed(RolesAndPermissionsSeeder::class);
+    $staff = User::factory()->withRole(Role::Admin)->create();
+
+    // Một phiên `web` (nhân sự) không mở được cổng khách: bị chuyển tới trang đăng nhập của nó.
+    $this->actingAs($staff, 'web')->get('/portal')->assertRedirect();
+
+    expect(auth('client')->check())->toBeFalse();
+});
+
+it('§10.7 route tải bản xuất/nhập của Filament không phục vụ được gì: app/ không có Exporter/Importer và CSDL không có bảng exports/imports', function () {
+    $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(app_path(), RecursiveDirectoryIterator::SKIP_DOTS));
+
+    foreach ($files as $file) {
+        if ($file->isFile() && $file->getExtension() === 'php') {
+            $code = (string) file_get_contents($file->getPathname());
+
+            $definesExporterOrImporter = preg_match('/extends\s+(Exporter|Importer)\b/', $code) === 1
+                || str_contains($code, 'Filament\Actions\Exports\Exporter')
+                || str_contains($code, 'Filament\Actions\Imports\Importer');
+
+            expect($definesExporterOrImporter)->toBeFalse($file->getPathname().' định nghĩa một Exporter/Importer');
+        }
+    }
+
+    // Hai route đó đọc `exports`/`imports` theo id; không có migration nào tạo hai bảng ấy nên
+    // không có dòng nào để một phiên chưa cài 2FA tải. Thêm tính năng xuất/nhập sau này (kèm
+    // migration) làm test này đỏ và buộc phải thêm cổng 2FA cho hai route.
+    expect(Schema::hasTable('exports'))->toBeFalse()
+        ->and(Schema::hasTable('imports'))->toBeFalse()
+        ->and(Schema::hasTable('failed_import_rows'))->toBeFalse();
+});
+
+it('§10.7 livewire.preview-file đòi chữ ký: người chưa cài 2FA không có chữ ký nào để dùng', function () {
+    $this->seed(RolesAndPermissionsSeeder::class);
+    $staff = User::factory()->withRole(Role::Admin)->withoutTwoFactor()->create();
+
+    $this->actingAs($staff, 'web')
+        ->get(route('livewire.preview-file', ['filename' => 'bat-ky.pdf']))
+        ->assertUnauthorized();
 });
 
 /**
- * `documents.download` — CÙNG lý lẽ Task 1 đã ghi cho `RestrictAdminIpAllowlist` (không phủ route
- * này): URL sống 5 phút, ký bởi `Document::downloadUrlFor()`, và chữ ký khoá cứng người nhận
- * (`recipient`) — controller đòi khớp người đang đăng nhập. Một admin CHƯA cài 2FA không tự sinh
- * được một chữ ký cho chính mình (mọi trang panel sinh liên kết tải đều bị chặn trước — xem test
- * "chặn request cập nhật Livewire" ở trên), nên không có chữ ký hợp lệ nào để mà dùng. Ghim CẤU
- * HÌNH (middleware của route), không dựng cả một lượt tải tài liệu thật — cùng cách
- * `AdminIpAllowlistTest` đã làm cho đúng route này.
+ * `documents.download` — route này nằm NGOÀI panel, nên cổng 2FA của Filament không đứng trước
+ * nó (`RestrictAdminIpAllowlist` cũng không phủ nó — cùng lý lẽ, Task 1). URL sống 5 phút, ký bởi
+ * `Document::downloadUrlFor()` và khoá cứng người nhận. Bản đầu của test này viết rằng một admin
+ * chưa cài 2FA "không tự sinh được chữ ký" — đúng cho một chữ ký MỚI, nhưng bỏ sót đường thật:
+ * chữ ký sinh TRƯỚC khi bị "Đặt lại 2FA" còn hạn tới 5 phút, và đăng nhập lại bằng mật khẩu cho
+ * một phiên `web` mới. Đường đó được đóng bởi `DocumentDownloadController::actor()` (nhân sự
+ * không có secret 2FA → 404) và ghim bằng hành vi ở `tests/Feature/Http/DocumentDownloadTest.php`
+ * ("§10.7 nhân sự chưa cài 2FA … không tải được"). Test dưới đây chỉ ghim phần CẤU HÌNH của route
+ * (đòi chữ ký), cùng cách `AdminIpAllowlistTest` đã làm.
  */
-it('§10.7 documents.download đòi chữ ký gắn với người nhận, không đòi 2FA', function () {
+it('§10.7 documents.download đòi chữ ký ở middleware của route (cổng 2FA nằm trong controller, không ở đây)', function () {
     $middleware = Route::getRoutes()->getByName('documents.download')?->gatherMiddleware() ?? [];
 
     expect($middleware)->toContain('signed')

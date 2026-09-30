@@ -287,7 +287,12 @@ async function staffTour(browser) {
       await p.waitForFunction((el) => !el.disabled, await useRecoveryLink.elementHandle());
       await useRecoveryLink.click();
       await settle(p, 500);
-      const recoveryInput = p.locator('input[autocomplete="one-time-code"]').nth(1);
+      // `recoveryCode` của Filament là ô kiểu `password` + `autocomplete="one-time-code"`
+      // (`AppAuthentication::getChallengeFormComponents()`); `OneTimeCodeInput` của ô mã thường
+      // KHÔNG phải `type="password"` — nên bộ chọn này chỉ khớp đúng ô mã khôi phục, không khớp ô
+      // mã thường (bản trước dùng `.nth(1)` của bộ chọn rộng và luôn báo "false").
+      const recoveryInput = p.locator('input[type="password"][autocomplete="one-time-code"]').first();
+      await recoveryInput.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
       note('ô mã khôi phục lúc đăng nhập hiện ra: ' + (await recoveryInput.isVisible().catch(() => false)));
 
       await p.goto(BASE + '/admin/login', { waitUntil: 'domcontentloaded' });
@@ -382,8 +387,14 @@ async function staffTour(browser) {
         const modal = await openModal(p, 'Cài đặt');
         // Chuỗi base32 hiển thị dạng chữ, cạnh mã QR (Text::make(...)->copyable()) — cách duy
         // nhất script lấy được secret RIÊNG của lần cài đặt này (sinh mới mỗi lần mở modal).
-        const modalText = await modal.innerText();
-        const secretMatch = modalText.match(/\b[A-Z2-7]{16,32}\b/);
+        // Secret hiện ra SAU khi modal mở (Livewire dựng nội dung modal ở một request riêng, chậm
+        // trên bản chạy `php artisan serve` qua bind mount) — chờ tới 20 giây thay vì đọc một lần
+        // (bản trước đọc một lần và có lượt báo "không tìm thấy" dù modal đúng).
+        let secretMatch = null;
+        for (let i = 0; i < 40 && !secretMatch; i++) {
+          secretMatch = (await modal.innerText()).match(/\b[A-Z2-7]{16,32}\b/);
+          if (!secretMatch) await p.waitForTimeout(500);
+        }
         note('modal cài đặt 2FA mở ra, tìm được secret dạng chữ: ' + Boolean(secretMatch));
         if (secretMatch) {
           const codeInput = modal.locator('input[autocomplete="one-time-code"]').first();
