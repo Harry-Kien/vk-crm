@@ -28,7 +28,7 @@ beforeEach(function () {
 it('creates every reference type, stage and default checklist on an empty database', function () {
     expect(MatterType::query()->count())->toBe(count(MatterTypeSeeder::types()))
         ->and(MatterType::query()->where('code', 'DD')->first()->stages()->count())->toBeGreaterThan(0)
-        ->and(ChecklistTemplate::query()->count())->toBe(3)
+        ->and(ChecklistTemplate::query()->count())->toBe(12)
         ->and(ChecklistTemplate::query()->where('name', 'Danh mục hồ sơ tranh chấp đất đai')->first()->items()->count())
         ->toBe(count(ChecklistTemplateSeeder::landDisputeItems()));
 });

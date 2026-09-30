@@ -44,12 +44,12 @@ it('never seeds the demo admin account with the password "password" on productio
     expect(User::count())->toBe(0)
         ->and(ClientUser::count())->toBe(0)
         ->and(User::where('email', 'admin@luatvukhang.com')->exists())->toBeFalse()
-        // Dữ liệu THAM CHIẾU vẫn đủ: vai trò, quyền, 6 loại vụ việc kèm giai đoạn, danh mục mẫu.
+        // Dữ liệu THAM CHIẾU vẫn đủ: vai trò, quyền, 12 loại vụ việc kèm giai đoạn, danh mục mẫu.
         ->and(Role::count())->toBeGreaterThan(0)
         ->and(Permission::count())->toBeGreaterThan(0)
-        ->and(MatterType::count())->toBe(6)
+        ->and(MatterType::count())->toBe(12)
         ->and(MatterType::query()->get()->every(fn (MatterType $t) => $t->stages()->count() >= 5))->toBeTrue()
-        ->and(ChecklistTemplate::count())->toBe(3);
+        ->and(ChecklistTemplate::count())->toBe(12);
 });
 
 /** Vế dương: `local`/`testing` (bộ test, máy dev) vẫn seed đủ dữ liệu mẫu như trước bản vá này. */

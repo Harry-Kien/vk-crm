@@ -219,6 +219,11 @@ nhập, **không phải** theo `client_user_id`.
 | is_active | boolean default true | |
 | sort_order | integer | |
 
+**Đính chính 2026-09-30 (M9 Task 1).** Ví dụ mã ở dòng `code` còn thiếu sáu lĩnh vực
+thêm ở M9: `HC` hành chính và giấy phép, `TM` hợp đồng và thương mại, `NH` ngân hàng và
+tín dụng, `SH` sở hữu trí tuệ và công nghệ, `TC` thuế và tài chính, `XD` xây dựng và hạ
+tầng — tổng cộng 12 loại, xem §12.
+
 ### 4.5 `matter_type_stages` — giai đoạn theo từng loại vụ việc
 
 Giai đoạn **không** hardcode trong code. Mỗi loại vụ việc có bộ giai đoạn riêng,
@@ -1206,8 +1211,8 @@ Mục tiêu độ phủ: tối thiểu 80% cho `app/Actions/` và `app/Policies/
 Seeder phải tạo được một môi trường demo dùng thật được ngay:
 
 - 1 admin, 1 manager, 3 luật sư, 2 trợ lý, 1 kế toán.
-- 6 `matter_types` với bộ giai đoạn đầy đủ cho ít nhất 3 loại.
-- Checklist template 12 đầu mục cho tranh chấp đất đai, và 2 template khác.
+- 12 `matter_types` với bộ giai đoạn đầy đủ cho ít nhất 3 loại.
+- Checklist template 12 đầu mục cho tranh chấp đất đai, và 11 template khác (mỗi loại còn lại một).
 - 12 khách hàng, mỗi khách 1–2 tài khoản portal.
 - 20 vụ việc rải đều các giai đoạn, trong đó cố ý tạo: 3 vụ quá hạn cập nhật
   trên 14 ngày, 2 vụ có mốc thời hạn trong 3 ngày tới, 4 vụ đang thiếu giấy tờ,
@@ -1221,6 +1226,22 @@ Seeder phải tạo được một môi trường demo dùng thật được nga
 - Tệp mẫu dùng PDF giả sinh bằng code, không commit tệp thật vào repo.
 
 Tài khoản demo ghi rõ trong `README.md`.
+
+**Đính chính 2026-09-30 (M9 Task 1).** Bản đầu ghi "6 `matter_types`" và "2 template
+khác". Văn phòng hành nghề **mười hai** lĩnh vực (theo luatvukhang.com), và biểu đồ cơ
+cấu vụ việc theo lĩnh vực của trang doanh thu chạy trên mọi loại đang hoạt động: một bộ
+seed chỉ có sáu loại kể cho chủ văn phòng một câu chuyện sai. Nay có 12 loại — bốn loại
+cũ đổi **tên** (`DD` "Đất đai và bất động sản", `DN` "Đầu tư và doanh nghiệp", `DS`
+"Giải quyết tranh chấp", `LD` "Lao động và nhân sự"; `code` không đổi vì `matters.code`
+nhúng mã loại), sáu loại mới `HC` hành chính và giấy phép, `TM` hợp đồng và thương mại,
+`NH` ngân hàng và tín dụng, `SH` sở hữu trí tuệ và công nghệ, `TC` thuế và tài chính,
+`XD` xây dựng và hạ tầng. Sáu loại mới dùng **bộ năm giai đoạn TẠM chung** (tiếp nhận,
+thu thập hồ sơ, soạn hồ sơ, đang thực hiện, kết thúc), ghi rõ "TẠM" ở `description`,
+không loại nào bật `is_published_to_portal` trong dữ liệu mẫu, cho tới khi chủ văn phòng
+mô tả quy trình thật. Mỗi loại có ít nhất một danh mục hồ sơ mẫu tối thiểu (giấy tờ
+tuỳ thân, tài liệu của vụ, hợp đồng dịch vụ), nên "2 template khác" thành 11.
+Seeder tham chiếu vẫn **chỉ thêm**; máy chủ đã có dữ liệu đổi tên bốn loại cũ bằng một
+migration dữ liệu chỉ đổi khi tên hiện tại đúng bằng tên seed cũ.
 
 ---
 

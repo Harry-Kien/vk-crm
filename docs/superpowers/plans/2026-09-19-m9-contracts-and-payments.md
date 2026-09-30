@@ -469,7 +469,7 @@ Seeder hiện có **sáu** loại vụ việc; văn phòng hành nghề **mườ
 
 **Test bắt buộc:** đúng 12 loại hoạt động sau `db:seed`; `code` của bốn loại đổi tên giữ nguyên; chạy seeder lần hai sau khi admin đổi tên một loại: tên admin **còn nguyên**; migration đổi tên không đụng một loại đã bị admin đổi tên; sáu loại mới nhận bộ **năm** giai đoạn tạm, không phải bộ dân sự (mutation probe: xoá nhánh tường minh phải làm test đỏ); mỗi loại có ≥ 1 giai đoạn và đúng một giai đoạn `is_terminal`; mỗi loại có ≥ 1 checklist template; `MattersByStageWidget` không gộp hai loại có nhãn trùng.
 
-- [ ] Test đỏ, cài đặt, test xanh, pint, **vòng MariaDB** (có migration dữ liệu), commit `feat: mười hai lĩnh vực hành nghề của văn phòng, không phải sáu`.
+- [x] Test đỏ, cài đặt, test xanh, pint, **vòng MariaDB** (có migration dữ liệu), commit `feat: mười hai lĩnh vực hành nghề của văn phòng, không phải sáu`.
 
 ---
 
