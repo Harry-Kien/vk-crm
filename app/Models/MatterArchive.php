@@ -18,9 +18,17 @@ class MatterArchive extends Model
     use RestrictedToClientPortal;
     use SoftDeletes;
 
+    /**
+     * M7 Task 3 (R1, đính chính SPEC §4.19): `handover_package_path` KHÔNG còn trong danh sách
+     * này — gói bàn giao là một bản ghi `Document` (xem {@see self::handoverDocument()}), không
+     * phải một chuỗi đường dẫn. Cột vẫn còn trên bảng (migration Task 3 không xoá nó) vì xoá một
+     * cột đã NULL ở mọi dòng hiện có là một thao tác phá huỷ không cần thiết; bỏ nó khỏi đây là
+     * đủ để không còn đường ghi nào chạm tới nó nữa.
+     */
     protected $fillable = [
-        'matter_id', 'archived_at', 'archived_by', 'handover_package_path', 'handover_generated_at',
+        'matter_id', 'archived_at', 'archived_by', 'handover_document_id', 'handover_generated_at',
         'client_access_until', 'retention_until', 'destroyed_at',
+        'destruction_reason', 'destruction_record_no', 'destroyed_by',
     ];
 
     protected function casts(): array
@@ -51,5 +59,17 @@ class MatterArchive extends Model
     public function archiver(): BelongsTo
     {
         return $this->belongsTo(User::class, 'archived_by');
+    }
+
+    /** M7 Task 3 (R1): gói bàn giao là một `Document` nhóm B, không phải một đường dẫn. */
+    public function handoverDocument(): BelongsTo
+    {
+        return $this->belongsTo(Document::class, 'handover_document_id');
+    }
+
+    /** M7 Task 3 (chuẩn bị cho Task 6): người ra quyết định tiêu huỷ hồ sơ. */
+    public function destroyer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'destroyed_by');
     }
 }

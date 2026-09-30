@@ -25,4 +25,6 @@ return [
     'duplicate_client_not_visible' => 'Có thể khách hàng này đã có hồ sơ ở văn phòng. Nhờ trưởng phòng hoặc quản trị viên mở vụ.',
     // M6.5 Task 6, fix round 1 (I1).
     'client_lookup_throttled' => 'Đã tra hoặc thử quá nhiều lần trong một giờ. Vui lòng thử lại sau, hoặc nhờ trưởng phòng/quản trị viên mở vụ giúp.',
+    // M7 Task 3
+    'matter_checklist_read_only' => 'Vụ việc đã kết thúc nên danh mục hồ sơ chỉ xem được, không thêm hay sửa được nữa. Quản trị viên mở lại vụ bằng "Chuyển giai đoạn" nếu cần thao tác tiếp.',
 ];

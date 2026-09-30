@@ -4,6 +4,7 @@ namespace App\Actions\Document\Concerns;
 
 use App\Actions\Concerns\ChecksAccountActive;
 use App\Exceptions\ChecklistItemNotReviewable;
+use App\Exceptions\MatterChecklistReadOnly;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Models\User;
@@ -29,11 +30,21 @@ use Illuminate\Support\Facades\Gate;
  *  1. đọc lại đầu mục dưới khoá — không có thì {@see ChecklistItemNotReviewable::unavailable()};
  *  2. đọc hồ sơ KÈM cả bản đã xoá mềm, gắn sẵn vào bản ghi;
  *  3. tài khoản còn hiệu lực và `Gate` — từ chối thì ra ĐÚNG câu ở bước 1;
- *  4. hồ sơ đã xoá mềm — câu riêng, vì tới được đây nghĩa là đã có quyền trên hồ sơ đó.
+ *  4. hồ sơ đã xoá mềm — câu riêng, vì tới được đây nghĩa là đã có quyền trên hồ sơ đó;
+ *  5. (M7 Task 3) hồ sơ đã kết thúc (`closed_at` khác null) — {@see MatterChecklistReadOnly},
+ *     cũng câu riêng và cũng đứng SAU Gate, cùng lý lẽ với bước 4.
  *
  * Bước 2 phải `withTrashed()` để bước 3 còn trả lời được cho một hồ sơ đã xoá mềm:
  * `MatterPolicy::view` CỐ Ý cho quản trị viên nhìn thấy hồ sơ đã xoá (để còn khôi phục), và chính
  * họ là người cần đọc câu "khôi phục hồ sơ trước đã".
+ *
+ * **M7 Task 3 — thứ tự khoá: `matters` TRƯỚC, đầu mục sau** (ràng buộc toàn cục của làn). Bước 1
+ * vì vậy gồm ba lần đọc: một lần đọc KHÔNG khoá để lấy `matter_id` do CSDL trả về (không phải
+ * `matter_id` trên đối tượng caller đưa vào — thứ ai cũng gán được, xem `ReviewChecklistItem`
+ * class docblock, mục "Bản ghi được ĐỌC LẠI trong transaction"); khoá dòng `matters` đó; rồi mới
+ * khoá và đọc lại chính đầu mục. Cột `matter_checklist_items.matter_id` không Action nào ghi lại
+ * sau khi dòng sinh ra, nên hai lần đọc đầu mục luôn cho cùng một `matter_id`; nếu có một ngày
+ * chúng khác nhau thì trả lời như đầu mục không còn nữa, không đi tiếp trên một khoá sai dòng.
  */
 trait OpensChecklistItem
 {
@@ -43,6 +54,7 @@ trait OpensChecklistItem
      * @return array{0: MatterChecklistItem, 1: Matter} bản ghi đã đọc lại, và hồ sơ của nó
      *
      * @throws ChecklistItemNotReviewable
+     * @throws MatterChecklistReadOnly
      */
     protected function openChecklistItem(MatterChecklistItem $checklistItem, User $actor): array
     {
@@ -61,19 +73,31 @@ trait OpensChecklistItem
         // `lockForUpdate()` nối tiếp hai thao tác song song trên cùng một đầu mục trên MariaDB.
         // Bộ test chạy SQLite, nơi nó không sinh ra khoá nào, nên phần KHOÁ của câu này không có
         // test chứng minh; phần ĐỌC LẠI thì có.
-        $fresh = MatterChecklistItem::query()
+        //
+        // M7 Task 3 — thứ tự khoá `matters` trước (xem docblock lớp): đọc KHÔNG khoá để biết dòng
+        // `matters` nào cần khoá, khoá nó, rồi mới khoá đầu mục.
+        $unlocked = MatterChecklistItem::query()
             ->withoutGlobalScope(ClientPortalScope::class)
-            ->lockForUpdate()
             ->find($checklistItem->getKey());
 
-        if ($fresh === null) {
+        if ($unlocked === null) {
             throw ChecklistItemNotReviewable::unavailable();
         }
 
         $matter = Matter::query()
             ->withoutGlobalScope(ClientPortalScope::class)
             ->withTrashed()
-            ->find($fresh->matter_id);
+            ->lockForUpdate()
+            ->find($unlocked->matter_id);
+
+        $fresh = MatterChecklistItem::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->lockForUpdate()
+            ->find($checklistItem->getKey());
+
+        if ($fresh === null || $fresh->matter_id !== $unlocked->matter_id) {
+            throw ChecklistItemNotReviewable::unavailable();
+        }
 
         $fresh->setRelation('matter', $matter);
 
@@ -103,6 +127,15 @@ trait OpensChecklistItem
         // chắn khác `null`.
         if ($matter === null || $matter->trashed()) {
             throw ChecklistItemNotReviewable::matterUnavailable($fresh);
+        }
+
+        // M7 Task 3: danh mục hồ sơ của một vụ đã kết thúc là chỉ đọc — kiểm DƯỚI khoá `matters`
+        // vừa xin ở trên, SAU cả Gate lẫn cổng "hồ sơ đã xoá mềm" ngay phía trên. `$fresh` (đầu
+        // mục) không đổi ở đây: `ReviewChecklistItem`/`MarkChecklistItemNotApplicable` vẫn được
+        // phép ĐỌC nó (ví dụ để vẽ lại màn hình sau một lần bấm bị chặn) — thứ bị chặn là GHI,
+        // và cả hai Action đều ghi ngay sau khi gọi hàm này trả về.
+        if ($matter->closed_at !== null) {
+            throw MatterChecklistReadOnly::make();
         }
 
         return [$fresh, $matter];

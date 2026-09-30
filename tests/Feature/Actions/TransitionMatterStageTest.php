@@ -8,6 +8,7 @@ use App\Exceptions\InvalidStageTransition;
 use App\Exceptions\MatterNotPublishedToPortal;
 use App\Exceptions\MatterStageChanged;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\MatterType;
 use App\Models\StageLog;
 use App\Models\User;
@@ -941,6 +942,38 @@ it('keeps the original closed_at when moving from one terminal stage to another'
         ->and($fresh->closed_at->toDateString())->toBe($originalClosedAt->toDateString());
 });
 
+/**
+ * M7 Task 3: terminal -> terminal đi qua đúng listener thật và KHÔNG dời các ngày của bản ghi lưu
+ * trữ — `closed_at` giữ ngày đóng thật (test ngay trên), nên `client_access_until` và
+ * `retention_until` tính từ nó cũng phải đứng nguyên, không chạy lại theo `now()`.
+ */
+it('keeps the archive dates when moving from one terminal stage to another', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $closedAt = now()->subDays(30)->startOfDay();
+    $matter = matterWithTwoTerminalStages(['stage' => 'closed', 'closed_at' => $closedAt]);
+    $this->actingAs($admin, 'web');
+
+    $archive = MatterArchive::factory()->create([
+        'matter_id' => $matter->id,
+        'client_access_until' => $closedAt->copy()->addDays((int) config('vkcrm.client_access_days'))->toDateString(),
+        'retention_until' => $closedAt->copy()->addYears((int) config('vkcrm.retention_years'))->toDateString(),
+    ]);
+    $accessUntil = $archive->client_access_until->toDateString();
+    $retentionUntil = $archive->retention_until->toDateString();
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter, actor: $admin, toStage: 'archived', occurredAt: now(),
+        internalNote: 'Chuyển sang lưu trữ', publicContent: null, nextStep: null,
+        clientAction: null, expectedNextUpdateAt: null, publish: false,
+    );
+
+    $fresh = $archive->fresh();
+
+    expect($fresh->client_access_until->toDateString())->toBe($accessUntil)
+        ->and($fresh->retention_until->toDateString())->toBe($retentionUntil)
+        ->and(MatterArchive::query()->where('matter_id', $matter->id)->count())->toBe(1);
+});
+
 // --- Final review X9 (C-I3): closed_at theo giai đoạn ĐÍCH, không theo giai đoạn đang đứng -----
 
 /**
@@ -980,4 +1013,144 @@ it('sets closed_at when the matter moves into a terminal stage while closed_at i
     );
 
     expect($matter->fresh()->closed_at)->not->toBeNull();
+});
+
+// --- M7 Task 3: App\Events\MatterStageChanged + SyncMatterArchive, qua đúng listener thật ------
+
+/**
+ * Sự kiện phát khi VÀ CHỈ KHI giai đoạn thật sự đổi — độc lập với `publish`/`is_published_to_portal`
+ * (khác `StageLogPublished`). Một lần chuyển giai đoạn NỘI BỘ vẫn có thể là lần vụ việc đóng.
+ */
+it('dispatches MatterStageChanged when the stage actually changes, regardless of publish', function () {
+    Event::fake([App\Events\MatterStageChanged::class]);
+
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = matterWithStages(['stage' => 'intake']);
+    $this->actingAs($admin, 'web');
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter, actor: $admin, toStage: 'collecting', occurredAt: now(),
+        internalNote: null, publicContent: null, nextStep: null, clientAction: null,
+        expectedNextUpdateAt: null, publish: false,
+    );
+
+    Event::assertDispatched(App\Events\MatterStageChanged::class);
+});
+
+/**
+ * §6.3: một dòng cập nhật KHÔNG đổi giai đoạn không "chuyển" gì cả — phát sự kiện cho nó sẽ chạy
+ * lại `SyncMatterArchive` một cách vô ích trên mỗi lần luật sư chỉ thêm một dòng ghi chú.
+ */
+it('does not dispatch MatterStageChanged on a same-stage update', function () {
+    Event::fake([App\Events\MatterStageChanged::class]);
+
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = matterWithLawyer($lawyer);
+    $this->actingAs($lawyer, 'web');
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter, actor: $lawyer, toStage: 'intake', occurredAt: now(),
+        internalNote: 'Một dòng cập nhật không đổi giai đoạn', publicContent: null,
+        nextStep: null, clientAction: null, expectedNextUpdateAt: null, publish: false,
+    );
+
+    Event::assertNotDispatched(App\Events\MatterStageChanged::class);
+});
+
+/**
+ * Cùng thành ngữ với test cùng tên cho `StageLogPublished` ngay phía trên (Critical finding 2):
+ * `MatterStageChanged` cũng là `ShouldDispatchAfterCommit`, nên một transaction NGOÀI của caller
+ * rollback sau khi Action đã "xong" phải huỷ luôn lần dispatch hoãn lại — không có nó,
+ * `SyncMatterArchiveOnStageChange` sẽ tạo một bản ghi lưu trữ cho một `StageLog`/`closed_at` đã
+ * bị rollback.
+ */
+it('does not dispatch MatterStageChanged when a failure happens in an outer transaction after the Action returns', function () {
+    Event::fake([App\Events\MatterStageChanged::class]);
+
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = matterWithTerminalStage();
+    $this->actingAs($admin, 'web');
+
+    try {
+        DB::transaction(function () use ($matter, $admin) {
+            app(TransitionMatterStage::class)->handle(
+                matter: $matter, actor: $admin, toStage: 'closed', occurredAt: now(),
+                internalNote: null, publicContent: null, nextStep: null, clientAction: null,
+                expectedNextUpdateAt: null, publish: false,
+            );
+
+            throw new RuntimeException('forced failure after the Action committed its own inner transaction');
+        });
+    } catch (RuntimeException) {
+        // expected — the assertions below are the actual test.
+    }
+
+    expect($matter->fresh()->closed_at)->toBeNull();
+    Event::assertNotDispatched(App\Events\MatterStageChanged::class);
+});
+
+/**
+ * Tích hợp THẬT — không `Event::fake()` — qua đúng listener tự dò
+ * (`App\Listeners\SyncMatterArchiveOnStageChange`) và đúng Action (`SyncMatterArchive`). Đóng cấu
+ * hình cụ thể để chứng minh không số cứng, cùng lý lẽ `SyncMatterArchiveTest`.
+ */
+it('syncs a matter_archives row when closing a matter through the real event and listener chain', function () {
+    config(['vkcrm.client_access_days' => 60, 'vkcrm.retention_years' => 8]);
+
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = matterWithTerminalStage();
+    $this->actingAs($admin, 'web');
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter, actor: $admin, toStage: 'closed', occurredAt: now(),
+        internalNote: null, publicContent: null, nextStep: null, clientAction: null,
+        expectedNextUpdateAt: null, publish: false,
+    );
+
+    $fresh = $matter->fresh();
+    $archive = MatterArchive::query()->where('matter_id', $fresh->id)->first();
+
+    expect($archive)->not->toBeNull()
+        ->and($archive->archived_by)->toBe($admin->id)
+        ->and($archive->client_access_until->toDateString())
+        ->toBe($fresh->closed_at->copy()->addDays(60)->toDateString())
+        ->and($archive->retention_until->toDateString())
+        ->toBe($fresh->closed_at->copy()->addYears(8)->toDateString());
+});
+
+/**
+ * Chuỗi đóng → mở lại → đóng lại của brief, đi qua đúng `TransitionMatterStage` (không gọi thẳng
+ * `SyncMatterArchive`) — chứng minh cả sự kiện lẫn Action phối hợp đúng qua toàn bộ vòng đời.
+ */
+it('clears client_access_until through the real listener when reopened, and re-closing updates the same row', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = matterWithTerminalStage();
+    $this->actingAs($admin, 'web');
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter, actor: $admin, toStage: 'closed', occurredAt: now(),
+        internalNote: null, publicContent: null, nextStep: null, clientAction: null,
+        expectedNextUpdateAt: null, publish: false,
+    );
+
+    $archiveId = MatterArchive::query()->where('matter_id', $matter->id)->value('id');
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter->fresh(), actor: $admin, toStage: 'intake', occurredAt: now(),
+        internalNote: 'Mở lại vụ việc theo yêu cầu', publicContent: null, nextStep: null,
+        clientAction: null, expectedNextUpdateAt: null, publish: false,
+    );
+
+    $reopenedArchive = MatterArchive::query()->find($archiveId);
+    expect($reopenedArchive->client_access_until)->toBeNull();
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter->fresh(), actor: $admin, toStage: 'closed', occurredAt: now(),
+        internalNote: null, publicContent: null, nextStep: null, clientAction: null,
+        expectedNextUpdateAt: null, publish: false,
+    );
+
+    $reclosedArchive = MatterArchive::query()->find($archiveId);
+    expect($reclosedArchive->client_access_until)->not->toBeNull()
+        ->and(MatterArchive::query()->where('matter_id', $matter->id)->count())->toBe(1);
 });

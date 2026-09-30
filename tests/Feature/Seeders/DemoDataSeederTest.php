@@ -2,6 +2,7 @@
 
 use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
+use App\Enums\DocumentStatus;
 use App\Enums\UserPosition;
 use App\Filament\Portal\Pages\MatterProgress;
 use App\Filament\Portal\Pages\SubmitDocument;
@@ -12,6 +13,7 @@ use App\Models\Deadline;
 use App\Models\Document;
 use App\Models\DocumentDownload;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\MatterChecklistItem;
 use App\Models\MatterParty;
 use App\Models\MatterType;
@@ -129,12 +131,14 @@ it('lets the documented first demo client walk the whole paperwork journey', fun
 });
 
 /**
- * 21 = 20 vụ theo kịch bản SPEC §12 + 1 vụ `restricted` (mang sang từ rà soát M2, task 10):
- * MatterSeeder::restrictedMatter() thêm đúng một vụ mật ngoài 20 vụ đánh số, để nhánh
- * `restricted` của Matter::scopeListableBy() có dữ liệu thật thay vì chỉ có trong test.
+ * 22 = 20 vụ theo kịch bản SPEC §12 + 1 vụ `restricted` (mang sang từ rà soát M2, task 10) + 1
+ * vụ ĐÃ KẾT THÚC (M7 Task 3): `MatterSeeder::restrictedMatter()` thêm đúng một vụ mật ngoài 20 vụ
+ * đánh số, để nhánh `restricted` của `Matter::scopeListableBy()` có dữ liệu thật thay vì chỉ có
+ * trong test; `MatterSeeder::closedMatter()` thêm đúng một vụ đã đóng, để Task 4/11 sinh và giải
+ * nén được một gói bàn giao thật từ dữ liệu mẫu.
  */
-it('seeds twenty matters with the deliberate situations from the spec, plus one restricted matter', function () {
-    expect(Matter::count())->toBe(21)
+it('seeds twenty matters with the deliberate situations from the spec, plus one restricted matter and one closed matter', function () {
+    expect(Matter::count())->toBe(22)
         ->and(Matter::where('last_client_update_at', '<', now()->subDays(14))->count())->toBeGreaterThanOrEqual(3)
         ->and(Deadline::query()->upcoming(3)->distinct('matter_id')->count('matter_id'))->toBeGreaterThanOrEqual(2)
         ->and(MatterChecklistItem::where('status', ChecklistItemStatus::Missing)->distinct('matter_id')->count('matter_id'))->toBeGreaterThanOrEqual(4)
@@ -278,4 +282,87 @@ it('writes PDFs whose xref offsets really point at their objects', function () {
     foreach ($entries[1] as $index => $offset) {
         expect(substr($pdf, (int) $offset, strlen(($index + 1).' 0 obj')))->toBe(($index + 1).' 0 obj');
     }
+});
+
+// ---------------------------------------------------------------------------------------------
+// M7 Task 3 — vụ việc đã kết thúc: đủ hình dạng để Task 4/11 sinh và giải nén một gói bàn giao
+// thật (ctl-3 brief). Ghim đúng số lượng mà MatterSeeder::closedMatter() dựng ra.
+// ---------------------------------------------------------------------------------------------
+
+it('seeds one closed matter with a matching archive row and the four document groups', function () {
+    $matter = Matter::where('case_number', '99/2026/TLST-DS')->firstOrFail();
+
+    expect($matter->closed_at)->not->toBeNull()
+        ->and($matter->stage)->toBe('closed');
+
+    $archive = MatterArchive::query()->where('matter_id', $matter->id)->first();
+
+    expect($archive)->not->toBeNull()
+        ->and($archive->client_access_until->toDateString())
+        ->toBe($matter->closed_at->copy()->addDays((int) config('vkcrm.client_access_days'))->toDateString())
+        ->and($archive->retention_until->toDateString())
+        ->toBe($matter->closed_at->copy()->addYears((int) config('vkcrm.retention_years'))->toDateString());
+
+    $documents = Document::withoutGlobalScopes()->where('matter_id', $matter->id)->get();
+
+    expect($documents->groupBy(fn (Document $d) => $d->group->value)->keys()->sort()->values()->all())
+        ->toBe(['A', 'B', 'C', 'D']);
+});
+
+/**
+ * R8 — nhóm nào ĐỦ điều kiện vào gói bàn giao (Task 4/11 sẽ đọc đúng luật này):
+ *  - nhóm A: mọi tài liệu (mặc định Published);
+ *  - nhóm B/C: chỉ `signed_filed`/`published`, không `internal_draft`;
+ *  - một tài liệu đã xoá mềm dù đủ điều kiện trạng thái.
+ */
+it('gives the closed matter a group B draft that never qualifies, and a soft-deleted document', function () {
+    $matter = Matter::where('case_number', '99/2026/TLST-DS')->firstOrFail();
+
+    $draftB = Document::withoutGlobalScopes()->where('matter_id', $matter->id)
+        ->where('group', DocumentGroup::Issued)
+        ->where('status', DocumentStatus::InternalDraft)
+        ->get();
+
+    expect($draftB)->toHaveCount(1);
+
+    $trashed = Document::withoutGlobalScopes()->onlyTrashed()->where('matter_id', $matter->id)->get();
+
+    expect($trashed)->toHaveCount(1)
+        ->and($trashed->first()->status)->toBe(DocumentStatus::SignedFiled);
+});
+
+/**
+ * R8 — tên đầu vào cho luật đánh số `NN` của zip entry (Task 4/11): hai tài liệu TRÙNG tiêu đề
+ * trong CÙNG một nhóm, cả hai đủ điều kiện vào gói.
+ */
+it('gives the closed matter two group B documents with the same title, both eligible for the package', function () {
+    $matter = Matter::where('case_number', '99/2026/TLST-DS')->firstOrFail();
+
+    $sameTitle = Document::withoutGlobalScopes()->where('matter_id', $matter->id)
+        ->where('group', DocumentGroup::Issued)
+        ->where('title', 'Thông báo xử lý vụ án')
+        ->get();
+
+    // Sắp theo GIÁ TRỊ chuỗi của enum (`->value`), không `sort()` thẳng trên các case enum: PHP
+    // so sánh object bằng thứ tự thuộc tính nội bộ, không phải theo `value`, nên thứ tự đó không
+    // ổn định giữa các lần chạy — đã thấy đỏ ngẫu nhiên khi chạy `--parallel`.
+    expect($sameTitle)->toHaveCount(2)
+        ->and($sameTitle->pluck('status.value')->sort()->values()->all())
+        ->toBe(['published', 'signed_filed']);
+});
+
+/**
+ * R8/"những chỗ đã biết trước là sẽ cắn" — một tiêu đề chứa `../`, để Task 4/11 chứng minh
+ * `FileGuard::safeName()` cắt được đường dẫn cha khi đặt tên entry trong zip.
+ */
+it('gives the closed matter a group C document whose title contains a path traversal attempt', function () {
+    $matter = Matter::where('case_number', '99/2026/TLST-DS')->firstOrFail();
+
+    $document = Document::withoutGlobalScopes()->where('matter_id', $matter->id)
+        ->where('group', DocumentGroup::Authority)
+        ->first();
+
+    expect($document)->not->toBeNull()
+        ->and($document->title)->toContain('../')
+        ->and($document->status)->toBe(DocumentStatus::Published);
 });

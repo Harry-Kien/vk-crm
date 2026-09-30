@@ -4,6 +4,7 @@ namespace App\Actions;
 
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\Role;
+use App\Events\MatterStageChanged as MatterStageChangedEvent;
 use App\Events\StageLogPublished;
 use App\Exceptions\InvalidStageTransition;
 use App\Exceptions\MatterNotPublishedToPortal;
@@ -254,6 +255,15 @@ class TransitionMatterStage
 
             if ($publishedToPortal) {
                 event(new StageLogPublished($stageLog));
+            }
+
+            // M7 Task 3. CHỈ khi giai đoạn THẬT SỰ đổi — một dòng cập nhật không đổi giai đoạn
+            // (§6.3) không "chuyển" gì để một listener lưu trữ phải chạy lại. Độc lập với
+            // `$publishedToPortal`/`$publish`: một lần chuyển giai đoạn NỘI BỘ (không công bố)
+            // vẫn có thể là lần vụ việc đóng hay mở lại — `SyncMatterArchiveOnStageChange` phải
+            // chạy cho cả hai, không chỉ cho những lần công bố ra portal.
+            if (! $isSameStage) {
+                event(new MatterStageChangedEvent($stageLog));
             }
 
             // Bước 8.

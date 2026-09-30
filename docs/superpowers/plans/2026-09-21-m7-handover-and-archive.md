@@ -144,7 +144,7 @@ Còn lại:
 - Thêm liên kết tới màn hình này vào thông điệp chặn vô hiệu hoá của M6.5 (R6).
 - Test Livewire cho các điểm trên.
 
-### - [ ] Task 3 — Lưu trữ khi vụ việc kết thúc
+### - [x] Task 3 — Lưu trữ khi vụ việc kết thúc
 
 **Bảng `matter_archives` đã có từ M1** (migration `2026_09_14_000020`), cùng model, policy (portal `1 = 0`) và factory. Không tạo lại bảng.
 

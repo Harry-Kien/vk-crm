@@ -1571,3 +1571,65 @@ minor rẻ được sửa ở đây):
 - Minor để lại (không đụng luật nghiệp vụ, ghi cho reviewer): không chọn-tất-cả; không `wire:loading`
   trên nút gửi; công tắc "giữ luật sư cũ" mặc định bật cả với liên kết từ màn hình nghỉ việc; liên
   kết R6 chưa gắn ở nhánh hạ vai trò/xoá hàng loạt (cố ý — xem ghi chú Task 2 ở trên).
+
+### Task 3 — Lưu trữ khi vụ việc kết thúc (sự kiện `MatterStageChanged`, `SyncMatterArchive`)
+
+Bảng `matter_archives` đã có từ M1; task này dựng vòng đời của nó trên `matters.closed_at` (M6.5 R8).
+
+- **Sự kiện + listener + Action.** `App\Events\MatterStageChanged` (`ShouldDispatchAfterCommit`, mang
+  `StageLog`) phát ở `TransitionMatterStage` CHỈ khi giai đoạn thật sự đổi, độc lập với việc công bố
+  ra portal. Hình dạng khớp kế hoạch M9 (M9 thêm listener của nó vào đúng sự kiện này). Trùng tên
+  ngắn với `App\Exceptions\MatterStageChanged` nên `TransitionMatterStage` import sự kiện bằng bí danh
+  `MatterStageChangedEvent`. Listener `SyncMatterArchiveOnStageChange` chỉ gọi
+  `App\Actions\Matter\SyncMatterArchive::handle(int $matterId, ?User $actor)`.
+- **Chạy đồng bộ, không xếp hàng (đã chọn, lý do ở docblock listener).** Một archive sai là lỗ hổng
+  âm thầm (`client_access_until` quyết ngày khách mất quyền xem), nên lỗi phải hiện cho người bấm
+  "Chuyển giai đoạn" thay vì nằm trong `failed_jobs`. Vì sự kiện là after-commit, `StageLog` đã commit
+  trước khi listener chạy — lỗi archive không làm mất lần chuyển giai đoạn, và Action idempotent nên
+  lần chuyển giai đoạn kế tiếp tự đồng bộ lại.
+- **`SyncMatterArchive`.** Khoá `matters` trước, rồi `matter_archives`; đọc `closed_at` DƯỚI khoá
+  (không tin sự kiện). `closed_at` khác null: tạo/cập nhật (`archived_at = now()`, `archived_by`,
+  `client_access_until = closed_at + config('vkcrm.client_access_days')`,
+  `retention_until = closed_at + config('vkcrm.retention_years')`, không số cứng). `closed_at` null
+  (admin mở lại): CHỈ `client_access_until = null`, giữ nguyên dòng, không xoá mềm (unique
+  `matter_id` trên MariaDB tính cả dòng xoá mềm); nếu gặp dòng đã xoá mềm thì khôi phục. Không đụng
+  `destroyed_at`/cột tiêu huỷ/`handover_document_id`. Nhận `int $matterId` vì `ClientPortalScope` có
+  thể làm quan hệ `$stageLog->matter` trả `null` khi một nhân sự mở cả hai panel.
+- **Migration** `2026_09_28_070001_add_lifecycle_columns_to_matter_archives_table`:
+  `handover_document_id` (FK `documents`, `nullOnDelete`), `destruction_reason` (text),
+  `destruction_record_no` (**string(50)** — form Task 6 dùng `maxLength(50)`), `destroyed_by` (FK
+  `users`, `nullOnDelete`). `handover_package_path` giữ cột nhưng bỏ khỏi `$fillable`. Đính chính SPEC
+  §4.19. Vòng MariaDB thật (seed → `migrate:reset` → `migrate`) sạch, `down()` chạy được.
+- **Danh mục hồ sơ của vụ đã đóng là chỉ đọc, chặn ở Action** (việc M6.5 Task 15 hoãn sang đây):
+  `AddChecklistItem`, `ReviewChecklistItem`, `MarkChecklistItemNotApplicable` (qua
+  `OpensChecklistItem`) ném `MatterChecklistReadOnly` khi `closed_at` khác null, kiểm dưới khoá
+  `matters`, SAU Gate (không thành máy dò "vụ đã đóng chưa"). Ba nút của `ChecklistRelationManager`
+  ẩn trên vụ đã đóng. `OpensChecklistItem` đổi sang thứ tự khoá `matters` trước, đầu mục sau (đọc
+  không khoá để lấy `matter_id`, khoá `matters`, rồi khoá đầu mục); `SubmitClientDocument` cũng khoá
+  `matters` ở đầu transaction.
+- **Khách nộp tài liệu vào vụ đã đóng** (`SubmitClientDocument`) bị từ chối bằng
+  `MatterClosedForSubmission` — một `DomainException` riêng, KHÔNG `AuthorizationException` (trang
+  portal đổi mọi `AuthorizationException` thành 404 trống, còn khách cần đọc câu mời gọi hotline).
+  Hai lần kiểm: một lần rẻ trước khi quét virus (test đếm số lượt quét = 0), một lần dưới khoá
+  trong transaction (test "vụ bị đóng trong lúc quét virus").
+- **Đổi `is_terminal` khi giai đoạn đang có vụ.** Không dựng cơ chế đồng bộ thứ hai: M6.5 final fix
+  wave X9 đã CHẶN đổi cờ khi giai đoạn còn vụ đứng đó (`MatterTypeStage::booted()` →
+  `StageTerminalFlagInUse`). Lý do chọn chặn thay vì đồng bộ: một đồng bộ hàng loạt `closed_at` +
+  archive trong một lần lưu cấu hình sẽ đóng/mở hàng chục vụ mà không ai bấm "Chuyển giai đoạn" (không
+  StageLog, không người chịu trách nhiệm); giá nếu sai (ruling M6.5): admin phải chuyển các vụ đi trước khi
+  đổi cờ. Hệ quả cho task này: archive không cần đường đồng bộ theo
+  cờ, vì cờ không đổi được khi còn vụ.
+- **Seeder** (`MatterSeeder::closedMatter()`, chỉ phần demo): vụ `99/2026/TLST-DS` đã kết thúc, dựng
+  `closed_at` trực tiếp rồi gọi `SyncMatterArchive` (không viết tay cột archive); bảy tài liệu THẬT
+  trên đĩa `private`: nhóm A (khách nộp), B `signed_filed` + B `published` trùng tiêu đề, B còn
+  `internal_draft`, B đã xoá mềm, C với tiêu đề chứa `../`, D. Chọn client `get(5)` và lead
+  `$lawyers->last()` để không đổi số ghim của luatsu1/khach1. Test seeder và
+  `DemoDataAuthorizationTest` cập nhật (21 → 22 vụ, kế toán 20 → 21).
+- **Quyết định cho chủ văn phòng (chưa quyết): vụ bị huỷ vì mở nhầm.** `CancelMatter` (xoá mềm) không
+  bao giờ có bản ghi archive nên không có `retention_until`; dữ liệu cá nhân trong vụ đó cần một hạn
+  xoá. Cần chủ văn phòng quyết cùng chính sách lưu trữ của M10.
+- **Không có test/probe cho:** khoá thật `lockForUpdate()` (SQLite không sinh khoá), so khớp
+  `matter_id` giữa hai lần đọc đầu mục ở `OpensChecklistItem` (nhánh phòng thủ, cột bất biến).
+- Test: `tests/Feature/Actions/Matter/SyncMatterArchiveTest.php` (14),
+  `TransitionMatterStageTest` (+6), `TransitionStageActionTest` (+3, Livewire: đóng/mở lại/đóng lại
+  qua form thật), các test Action + Livewire của danh mục/nộp portal, `DemoDataSeederTest` (+4).

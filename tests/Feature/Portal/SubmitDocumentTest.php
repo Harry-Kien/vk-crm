@@ -855,6 +855,33 @@ it('answers with 404 when the office pulls the matter off the portal between two
     expect(Document::query()->count())->toBe(0);
 });
 
+/**
+ * M7 Task 3 — vế THỨ BA, cố ý tách khỏi hai test 404 ngay trên (gộp lại thì cái này che cái kia,
+ * cùng lý lẽ ngay phía trên). "Vụ đã đóng" đi ra bằng một câu HIỆN TRÊN Ô TỆP, không phải 404:
+ * `SubmitClientDocument` ném `MatterClosedForSubmission` — một `DomainException` riêng, KHÔNG
+ * `AuthorizationException` — chính xác để trang này KHÔNG đổi nó thành `abort(404)` (xem
+ * docblock `SubmitClientDocument`, mục "M7 Task 3", và docblock lớp exception đó). Khách đã có
+ * quyền hợp lệ trên đúng đầu mục này; câu cần đọc là lời mời gọi hotline, không phải một trang
+ * trống.
+ */
+it('shows a sentence inviting the client to call the office when the matter has closed, not a 404', function () {
+    $component = submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->set('data.file', submitPagePdf());
+
+    $this->matter->update(['closed_at' => now()->subDay()]);
+
+    $component->call('submit');
+
+    $component->assertHasErrors('data.file');
+
+    expect($component->errors()->first('data.file'))
+        ->toBe(__('checklist.submit.matter_closed', ['hotline' => config('vkcrm.brand.hotline')]));
+
+    expect(Document::query()->count())->toBe(0)
+        ->and($this->item->fresh()->status)->toBe(ChecklistItemStatus::Missing);
+});
+
 // =========================================================================================
 // NỘP LẠI SAU KHI BỊ TỪ CHỐI — SPEC §6.6 bước 7, §11 "Nghiệp vụ"
 // =========================================================================================

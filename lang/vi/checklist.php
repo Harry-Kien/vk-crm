@@ -30,6 +30,11 @@ return [
         // không có quyền phải trả lời giống hệt nhau, nếu không thì chính cặp thông điệp khác
         // nhau đó là cách dò xem một đầu mục có thật hay không.
         'item_unavailable' => 'Mục giấy tờ này không còn trong danh mục hồ sơ của anh/chị nên chưa gửi tệp lên được. Anh/chị tải lại trang hồ sơ rồi chọn lại mục cần nộp; nếu vẫn không thấy, gọi cho văn phòng để được hướng dẫn.',
+        // M7 Task 3: vụ việc đã kết thúc — danh mục hồ sơ chỉ đọc (xem
+        // App\Exceptions\MatterChecklistReadOnly, dùng ở phía văn phòng). Khách không đọc được
+        // câu đó (không nhắc "Chuyển giai đoạn" — một khái niệm nội bộ), nên đây là một câu
+        // RIÊNG mời gọi hotline thay vì chỉ đường thao tác mà khách không làm được.
+        'matter_closed' => 'Vụ việc này đã kết thúc nên cổng khách hàng không nhận thêm giấy tờ mới cho hồ sơ này nữa. Nếu anh/chị cần gửi thêm giấy tờ, vui lòng gọi cho văn phòng theo số :hotline.',
     ],
 
     /*

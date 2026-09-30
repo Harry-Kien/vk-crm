@@ -10,6 +10,7 @@ use App\Filament\Admin\Resources\Matters\RelationManagers\StageLogsRelationManag
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\StageLog;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -639,4 +640,79 @@ it('shows a Vietnamese notification instead of a 500 when the matter changed sta
 
     expect(StageLog::query()->count())->toBe(0)
         ->and($component->get('mountedActions'))->not->toBeEmpty();
+});
+
+// ---------------------------------------------------------------------------------------------
+// M7 Task 3 — lưu trữ khi vụ việc kết thúc, đi qua ĐÚNG form "Chuyển giai đoạn" (không gọi thẳng
+// Action): sự kiện `MatterStageChanged` -> listener `SyncMatterArchiveOnStageChange` ->
+// `SyncMatterArchive`. Tầng Action có test riêng ở `TransitionMatterStageTest` và
+// `SyncMatterArchiveTest`; ở đây chứng minh màn hình thật nối đủ cả chuỗi.
+// ---------------------------------------------------------------------------------------------
+
+/** Gửi form "Chuyển giai đoạn" của một vụ việc tới `$toStage` (người đăng nhập hiện tại). */
+function submitTransitionForm(Matter $matter, string $toStage): Testable
+{
+    return test()->livewire(StageLogsRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('transitionStage', data: [
+        'to_stage' => $toStage,
+        'occurred_at' => today()->toDateString(),
+        'internal_note' => 'Chuyển giai đoạn qua form — kiểm tra lưu trữ M7 Task 3.',
+        'public_content' => null,
+        'publish' => false,
+    ]);
+}
+
+it('archives the matter with dates from config when the transition-stage form closes it', function () {
+    config(['vkcrm.client_access_days' => 33, 'vkcrm.retention_years' => 6]);
+
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = Matter::factory()->atStage('intake')->create();
+    $this->actingAs($admin, 'web');
+
+    submitTransitionForm($matter, 'closed')->assertHasNoTableActionErrors();
+
+    $fresh = $matter->refresh();
+    $archive = MatterArchive::query()->where('matter_id', $matter->id)->first();
+
+    expect($fresh->closed_at)->not->toBeNull()
+        ->and($archive)->not->toBeNull()
+        ->and($archive->archived_by)->toBe($admin->id)
+        ->and($archive->client_access_until->toDateString())
+        ->toBe($fresh->closed_at->copy()->addDays(33)->toDateString())
+        ->and($archive->retention_until->toDateString())
+        ->toBe($fresh->closed_at->copy()->addYears(6)->toDateString());
+});
+
+it('clears client_access_until when an admin reopens through the form, and updates the same row on re-close', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = Matter::factory()->atStage('intake')->create();
+    $this->actingAs($admin, 'web');
+
+    submitTransitionForm($matter, 'closed')->assertHasNoTableActionErrors();
+    $archiveId = MatterArchive::query()->where('matter_id', $matter->id)->value('id');
+    expect($archiveId)->not->toBeNull();
+
+    submitTransitionForm($matter->refresh(), 'mediation')->assertHasNoTableActionErrors();
+
+    $reopened = MatterArchive::query()->find($archiveId);
+    expect($matter->refresh()->closed_at)->toBeNull()
+        ->and($reopened)->not->toBeNull()
+        ->and($reopened->client_access_until)->toBeNull();
+
+    submitTransitionForm($matter->refresh(), 'closed')->assertHasNoTableActionErrors();
+
+    expect(MatterArchive::query()->where('matter_id', $matter->id)->count())->toBe(1)
+        ->and(MatterArchive::query()->find($archiveId)->client_access_until)->not->toBeNull();
+});
+
+it('creates no archive when the form only moves between two non-terminal stages', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = Matter::factory()->atStage('intake')->create();
+    $this->actingAs($admin, 'web');
+
+    submitTransitionForm($matter, 'collecting_documents')->assertHasNoTableActionErrors();
+
+    expect(MatterArchive::query()->where('matter_id', $matter->id)->exists())->toBeFalse();
 });

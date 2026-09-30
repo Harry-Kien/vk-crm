@@ -8,6 +8,7 @@ use App\Enums\Permission;
 use App\Enums\Role;
 use App\Events\ChecklistItemRejected;
 use App\Exceptions\ChecklistItemNotReviewable;
+use App\Exceptions\MatterChecklistReadOnly;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Document;
@@ -346,6 +347,34 @@ it('không duyệt được đầu mục của một hồ sơ đã xoá mềm', 
     expect(fn () => reviewChecklistItem($this->item->fresh(), $admin, ChecklistItemStatus::Accepted))
         ->toThrow(fn (ChecklistItemNotReviewable $exception) => expect($exception->getMessage())
             ->toBe(__('checklist.review.matter_unavailable')));
+});
+
+// --- M7 Task 3: danh mục hồ sơ của vụ đã đóng là chỉ đọc -------------------------------------
+
+/**
+ * Cổng chung của `OpensChecklistItem` — dùng chung với `MarkChecklistItemNotApplicable`, có test
+ * riêng ở `MarkChecklistItemNotApplicableTest`. SAU `Gate` và SAU cổng "hồ sơ đã xoá mềm" ngay
+ * trên — actor ở đây (lead lawyer, `checklist.review`) đủ quyền để chạm đúng cổng đang đo, chứ
+ * không dừng ở một trong hai cổng phía trước.
+ */
+it('không duyệt được đầu mục của một vụ đã đóng', function () {
+    $this->matter->update(['closed_at' => now()->subDay()]);
+
+    expect(fn () => reviewChecklistItem($this->item, $this->lawyer, ChecklistItemStatus::Accepted))
+        ->toThrow(MatterChecklistReadOnly::class);
+
+    expect($this->item->fresh()->status)->toBe(ChecklistItemStatus::PendingReview);
+});
+
+/** Vế từ chối của cùng cổng — cả hai quyết định đi qua `openChecklistItem()`. */
+it('không từ chối được đầu mục của một vụ đã đóng', function () {
+    $this->matter->update(['closed_at' => now()->subDay()]);
+
+    expect(fn () => reviewChecklistItem(
+        $this->item, $this->lawyer, ChecklistItemStatus::Rejected, 'Giấy tờ không đọc được, nộp lại.',
+    ))->toThrow(MatterChecklistReadOnly::class);
+
+    expect($this->item->fresh()->status)->toBe(ChecklistItemStatus::PendingReview);
 });
 
 it('quản trị viên duyệt được đầu mục của một hồ sơ còn sống — cặp dương', function () {

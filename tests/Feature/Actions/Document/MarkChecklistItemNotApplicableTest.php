@@ -6,6 +6,7 @@ use App\Enums\MatterRole;
 use App\Enums\Permission;
 use App\Enums\Role;
 use App\Exceptions\ChecklistItemNotReviewable;
+use App\Exceptions\MatterChecklistReadOnly;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Matter;
@@ -143,6 +144,20 @@ it('không đánh dấu được đầu mục của một hồ sơ đã xoá m�
     expect(fn () => markNotApplicable($this->item->fresh(), $admin))
         ->toThrow(fn (ChecklistItemNotReviewable $exception) => expect($exception->getMessage())
             ->toBe(__('checklist.review.matter_unavailable')));
+});
+
+/**
+ * M7 Task 3 — cùng cổng chung ở `OpensChecklistItem` mà `ReviewChecklistItemTest` đã đo (xem test
+ * cùng tên ở đó cho docblock đầy đủ). `$this->item` ở `Missing` (không `pending_review`), nên lời
+ * gọi chạm tới đúng cổng "vụ đã đóng" thay vì bị chặn sớm hơn ở `refuseWhileAwaitingReview()`.
+ */
+it('không đánh dấu được đầu mục của một vụ đã đóng', function () {
+    $this->matter->update(['closed_at' => now()->subDay()]);
+
+    expect(fn () => markNotApplicable($this->item, $this->lawyer))
+        ->toThrow(MatterChecklistReadOnly::class);
+
+    expect($this->item->fresh()->status)->toBe(ChecklistItemStatus::Missing);
 });
 
 it('tin dòng dữ liệu thật chứ không tin đối tượng caller cầm trong tay', function () {

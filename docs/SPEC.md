@@ -540,11 +540,28 @@ chưa xem quá 5 ngày thì nhắc luật sư gọi điện.
 | matter_id | FK unique | |
 | archived_at | timestamp | |
 | archived_by | FK users | |
-| handover_package_path | string nullable | Đường dẫn tệp zip bàn giao đã sinh |
+| handover_package_path | string nullable | **Ngừng dùng** — xem đính chính M7 Task 3 dưới đây |
+| handover_document_id | FK documents nullable | Gói bàn giao — xem đính chính M7 Task 3 |
 | handover_generated_at | timestamp nullable | |
 | client_access_until | date nullable | Ngày vô hiệu quyền tra cứu của khách |
 | retention_until | date | Ngày được phép tiêu huỷ dữ liệu theo chính sách lưu trữ |
 | destroyed_at | timestamp nullable | |
+| destruction_reason | text nullable | Lý do tiêu huỷ — xem đính chính M7 Task 3 |
+| destruction_record_no | string(50) nullable | Số biên bản tiêu huỷ — xem đính chính M7 Task 3 |
+| destroyed_by | FK users nullable | Người quyết định tiêu huỷ — xem đính chính M7 Task 3 |
+
+**Đính chính 2026-09-28 (M7 Task 3, R1 — phán quyết của chủ nhiệm kế hoạch M7).** Gói bàn giao là
+một bản ghi `Document` (nhóm B, đĩa `private`, qua đúng `PublishDocument`), không phải một chuỗi
+đường dẫn: đường tải duy nhất của hệ thống (`documents.download`) nhận id của một `Document`, và
+`document_downloads.document_id` là khoá ngoại tới `documents` — một đường dẫn trần sẽ cần dựng
+thêm một cửa tải và một bảng nhật ký tải thứ hai, điều SPEC §4.12 ("ghi log **mọi** lượt tải") và
+kiến trúc M4 không cho phép. `handover_document_id` (FK `documents`, nullable, `nullOnDelete`) thay
+thế `handover_package_path`; cột cũ được GIỮ LẠI trên bảng (không `dropColumn`, tránh một thao tác
+phá huỷ không cần thiết trên dữ liệu đã seed) nhưng không còn nằm trong `MatterArchive::$fillable`
+— không còn đường ghi nào chạm tới nó. Sinh lại gói là một version mới của CÙNG tài liệu
+(`parent_document_id`), không phải một tài liệu thứ hai. Ba cột `destruction_reason`/
+`destruction_record_no`/`destroyed_by` chuẩn bị cho Task 6 (ghi quyết định tiêu huỷ — R5: không
+bao giờ `forceDelete()` dữ liệu hồ sơ).
 
 ---
 

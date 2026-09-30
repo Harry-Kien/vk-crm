@@ -248,6 +248,30 @@ it('gates the three review buttons on checklist.review and nothing else', functi
 });
 
 /**
+ * M7 Task 3: cả ba nút ẩn trên một vụ đã đóng — cổng HIỂN THỊ, độc lập với `checklist.review`
+ * (nhân chứng ở đây CÓ đủ quyền, để không lẫn với test ngay trên). Action thật vẫn tự hỏi lại
+ * `closed_at` (xem `OpensChecklistItem`, có test riêng ở `ReviewChecklistItemTest`/
+ * `MarkChecklistItemNotApplicableTest`) — cổng ở đây chỉ là để người dùng không bấm vào một thao
+ * tác chắc chắn bị từ chối.
+ */
+it('hides the three review buttons on a closed matter', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create([
+        'lead_lawyer_id' => $lawyer->id,
+        'closed_at' => now()->subDay(),
+    ]);
+    $waiting = MatterChecklistItem::factory()->for($matter)->status(ChecklistItemStatus::PendingReview)->create();
+    $missing = MatterChecklistItem::factory()->for($matter)->status(ChecklistItemStatus::Missing)->create();
+
+    $this->actingAs($lawyer, 'web');
+
+    checklistManager($matter)
+        ->assertActionHidden(TestAction::make('accept')->table($waiting))
+        ->assertActionHidden(TestAction::make('reject')->table($waiting))
+        ->assertActionHidden(TestAction::make('markNotApplicable')->table($missing));
+});
+
+/**
  * Và cặp sinh đôi dương cho chính vai trò mà M4 cần chứng minh: một TRỢ LÝ trong đội ngũ duyệt
  * được. SPEC §5 cho trợ lý `checklist.review`, và nếu màn hình này chỉ mở cho luật sư thì cái tab
  * mất đúng người dùng thường xuyên nhất của nó.
