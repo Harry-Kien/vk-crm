@@ -3,6 +3,7 @@
 namespace App\Filament\Admin\Resources\Matters\Pages;
 
 use App\Actions\Matter\ReassignMatter;
+use App\Actions\Matter\RequestHandoverPackage;
 use App\Actions\SetMatterPortalPublication;
 use App\Enums\Confidentiality;
 use App\Enums\Role as StaffRole;
@@ -10,6 +11,7 @@ use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Filament\Admin\Resources\OutboundMessages\OutboundMessageResource;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\OutboundMessage;
 use App\Models\User;
 use Filament\Actions\Action;
@@ -71,6 +73,7 @@ class ViewMatter extends ViewRecord
     {
         return [
             $this->reassignAction(),
+            $this->generateHandoverAction(),
             $this->outboundMessagesAction(),
             // Lối vào "Sửa vụ việc" (M6.5 Task 5, EditMatter). Cổng mặc định của EditAction là
             // ability `update` trên model — đúng MatterPolicy::update() đã có, không cần khai báo
@@ -115,6 +118,54 @@ class ViewMatter extends ViewRecord
                         ->send();
                 }),
         ];
+    }
+
+    /**
+     * M7 Task 4 (R9): "Sinh gói bàn giao" / "Sinh lại gói bàn giao". Chỉ hiện với vụ ĐANG kết thúc
+     * (`closed_at` có giá trị) đã có bản ghi lưu trữ, VÀ người xem có
+     * `MatterArchivePolicy::generateHandover` (`document.publish` + xem được vụ). Bản ghi lưu trữ còn
+     * nguyên khi admin mở lại vụ (chỉ `client_access_until` bị xoá), nên chỉ riêng "có bản ghi" sẽ
+     * mời bấm một nút luôn hỏng với "chưa kết thúc". Khoá (`disabled`) khi một lần sinh đang chạy —
+     * cùng định nghĩa "đang chạy" với chính Action ({@see RequestHandoverPackage::isRunning()}), nên
+     * một lần sinh kẹt quá lâu tự mở nút. Action tự kiểm tra lại quyền và trạng thái dưới khoá; nút
+     * chỉ là lối vào.
+     */
+    private function generateHandoverAction(): Action
+    {
+        return Action::make('generateHandoverPackage')
+            ->label(fn (): string => $this->handoverArchive()?->handover_status === null
+                ? __('handover.action.generate')
+                : __('handover.action.regenerate'))
+            ->icon(Heroicon::OutlinedArchiveBox)
+            ->color('gray')
+            ->requiresConfirmation()
+            ->modalHeading(__('handover.action.modal_heading'))
+            ->modalDescription(__('handover.action.modal_description'))
+            ->modalSubmitActionLabel(__('handover.action.submit'))
+            ->visible(fn (): bool => $this->getRecord()->closed_at !== null
+                && ($archive = $this->handoverArchive()) !== null
+                && Gate::allows('generateHandover', $archive))
+            ->disabled(fn (): bool => ($archive = $this->handoverArchive()) !== null
+                && RequestHandoverPackage::isRunning($archive))
+            ->action(function (Action $action): void {
+                $this->runAction($action, fn () => app(RequestHandoverPackage::class)->handle(
+                    matterId: $this->getRecord()->getKey(),
+                    actor: Auth::user(),
+                ));
+
+                // Đọc lại bản ghi lưu trữ để khối "Gói bàn giao" hiện ngay trạng thái mới.
+                $this->getRecord()->unsetRelation('archive');
+
+                Notification::make()
+                    ->title(__('handover.action.queued'))
+                    ->success()
+                    ->send();
+            });
+    }
+
+    private function handoverArchive(): ?MatterArchive
+    {
+        return $this->getRecord()->archive;
     }
 
     /**

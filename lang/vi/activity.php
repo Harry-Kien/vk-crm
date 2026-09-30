@@ -97,6 +97,11 @@ return [
         // M7 Task 1: app/Jobs/SendReassignmentDigest.php — thư tổng hợp mốc hạn cho lead mới
         // (SPEC §6.11 bước 3) hỏng hẳn sau hết lượt thử lại.
         'matter_reassignment_digest_failed' => 'Gửi thư tổng hợp bàn giao vụ việc thất bại hẳn',
+        // M7 Task 4: gói bàn giao hồ sơ (app/Actions/Matter/RequestHandoverPackage.php,
+        // app/Jobs/GenerateHandoverPackage.php). `data_exported` (khoá có sẵn ở trên) được ghi khi
+        // gói sinh xong và mỗi lần gói được tải.
+        'handover_package_requested' => 'Yêu cầu sinh gói bàn giao hồ sơ',
+        'handover_package_failed' => 'Sinh gói bàn giao hồ sơ thất bại hẳn',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

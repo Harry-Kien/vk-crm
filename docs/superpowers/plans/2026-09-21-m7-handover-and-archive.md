@@ -167,7 +167,7 @@ Còn lại:
   - **Danh mục hồ sơ của vụ đã đóng.** Thêm đầu mục, duyệt, từ chối và "không áp dụng" trên một vụ có `closed_at` hiện không bị chặn ở đâu (có từ trước M6.5; SPEC im lặng; R8 chỉ định nghĩa `closed_at`). Phán quyết Task 15 của M6.5 hoãn sang M7. Task này quyết vụ đã đóng là chỉ đọc với danh mục (đề xuất), chặn ở Action, và thông điệp tiếng Việt chỉ đường mở lại vụ.
   - **Đổi `is_terminal` của một giai đoạn** trên màn hình cấu hình không cập nhật các vụ đang đứng ở giai đoạn đó (việc nhỏ hoãn lại của M6.5 Task 5): vụ đang ở giai đoạn vừa thành "kết thúc" không có `closed_at`, và ngược lại. Hoặc chặn đổi cờ khi giai đoạn đang có vụ, hoặc đồng bộ `closed_at` và bản ghi archive trong cùng Action; chọn một và ghi lý do.
 
-### - [ ] Task 4 — `GenerateHandoverPackage` (SPEC §6.12, R1, R8, R9)
+### - [x] Task 4 — `GenerateHandoverPackage` (SPEC §6.12, R1, R8, R9)
 
 Job trên hàng đợi `handover` (R9) dựng zip theo R8, kèm `MUC-LUC.pdf` sinh tự động (R3). `MUC-LUC.pdf` gồm:
 - thông tin vụ việc;

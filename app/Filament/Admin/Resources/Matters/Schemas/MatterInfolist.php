@@ -2,13 +2,17 @@
 
 namespace App\Filament\Admin\Resources\Matters\Schemas;
 
+use App\Actions\Matter\RequestHandoverPackage;
+use App\Enums\HandoverPackageStatus;
 use App\Enums\MatterRole;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use Filament\Infolists\Components\IconEntry;
 use Filament\Infolists\Components\RepeatableEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
+use Illuminate\Support\Facades\Gate;
 
 /**
  * Tab "Tổng quan" (SPEC §7.2): thông tin vụ việc và đội ngũ. Công tắc công bố portal KHÔNG nằm
@@ -59,6 +63,66 @@ class MatterInfolist
                             ->label(__('matters.fields.last_client_update_at'))
                             ->since()
                             ->placeholder('—'),
+                    ]),
+                // M7 Task 4: gói bàn giao hồ sơ. Chỉ hiện với vụ ĐÃ CÓ bản ghi lưu trữ (tức đã kết thúc)
+                // và chỉ khi người xem xem được bản ghi đó (`MatterArchivePolicy::view` — vụ
+                // `restricted` không lộ trạng thái gói cho ai không xem được vụ). Nút sinh/sinh lại
+                // nằm ở header của trang (`ViewMatter::generateHandoverAction()`).
+                Section::make(__('handover.section.heading'))
+                    ->description(__('handover.section.description'))
+                    ->columns(2)
+                    ->visible(fn (Matter $record): bool => $record->archive !== null
+                        && Gate::allows('view', $record->archive))
+                    ->schema([
+                        TextEntry::make('archive.handover_status')
+                            ->label(__('handover.section.fields.status'))
+                            ->badge()
+                            ->placeholder(__('handover.section.not_requested'))
+                            ->formatStateUsing(fn (?HandoverPackageStatus $state): string => $state?->label()
+                                ?? __('handover.section.not_requested'))
+                            ->color(fn (?HandoverPackageStatus $state): string => match ($state) {
+                                HandoverPackageStatus::Generating => 'warning',
+                                HandoverPackageStatus::Ready => 'success',
+                                HandoverPackageStatus::Failed => 'danger',
+                                default => 'gray',
+                            }),
+                        TextEntry::make('archive.handover_requested_at')
+                            ->label(__('handover.section.fields.requested_at'))
+                            ->dateTime('d/m/Y H:i')
+                            ->placeholder('—'),
+                        TextEntry::make('archive.handoverRequester.name')
+                            ->label(__('handover.section.fields.requested_by'))
+                            // "Tự động" CHỈ khi lần yêu cầu thật sự không có người bấm
+                            // (`handover_requested_by` NULL). Quan hệ rỗng vì người bấm đã bị xoá
+                            // mềm thì là "—", không phải "tự động".
+                            ->placeholder(fn (Matter $record): string => $record->archive?->handover_requested_at !== null
+                                && $record->archive->handover_requested_by === null
+                                ? __('handover.section.automatic')
+                                : '—'),
+                        TextEntry::make('archive.handover_generated_at')
+                            ->label(__('handover.section.fields.generated_at'))
+                            ->dateTime('d/m/Y H:i')
+                            ->placeholder('—'),
+                        TextEntry::make('archive.handoverDocument.title')
+                            ->label(__('handover.section.fields.document'))
+                            ->formatStateUsing(fn (Matter $record): string => __('handover.section.document_value', [
+                                'title' => $record->archive?->handoverDocument?->title,
+                                'version' => $record->archive?->handoverDocument?->version,
+                            ]))
+                            ->placeholder('—')
+                            ->columnSpanFull(),
+                        TextEntry::make('archive.handover_error')
+                            ->label(__('handover.section.fields.error'))
+                            ->color('danger')
+                            ->visible(fn (Matter $record): bool => $record->archive?->handover_status === HandoverPackageStatus::Failed)
+                            ->columnSpanFull(),
+                        TextEntry::make('archive.handover_stuck_hint')
+                            ->label('')
+                            ->state(fn (): string => __('handover.section.stuck_hint'))
+                            ->color('warning')
+                            ->visible(fn (Matter $record): bool => $record->archive instanceof MatterArchive
+                                && RequestHandoverPackage::isStuck($record->archive))
+                            ->columnSpanFull(),
                     ]),
                 Section::make(__('matters.overview_sections.team'))
                     ->schema([

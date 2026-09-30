@@ -2,8 +2,10 @@
 
 namespace App\Listeners;
 
+use App\Actions\Matter\RequestHandoverPackage;
 use App\Actions\Matter\SyncMatterArchive;
 use App\Events\MatterStageChanged;
+use Throwable;
 
 /**
  * Nối `MatterStageChanged` (M7 Task 3) với {@see SyncMatterArchive}. Mỏng có chủ đích, cùng lý lẽ
@@ -34,10 +36,21 @@ use App\Events\MatterStageChanged;
  *     kẹt sai vĩnh viễn, và không cần một cơ chế chống gọi trùng hay một lệnh bảo trì riêng.
  *
  * Không `failed()`: không `ShouldQueue` thì không có hàng đợi nào để job "thất bại hẳn" trên đó.
+ *
+ * **M7 Task 4 — sau khi bản ghi lưu trữ đã có, xếp hàng gói bàn giao** ({@see RequestHandoverPackage},
+ * chế độ tự động: đúng MỘT lần cho một vụ, chỉ khi vụ đang đóng). Bước này KHÁC bước đồng bộ ở trên
+ * về hậu quả khi hỏng: bản ghi lưu trữ sai là một lỗ hổng âm thầm (nên để lỗi nổi lên), còn gói
+ * không xếp được hàng chỉ là gói chưa có — luật sư vẫn bấm "Sinh gói bàn giao" thủ công được, và
+ * trạng thái `generating` kẹt tự mở khoá sau `RequestHandoverPackage::STALE_AFTER_MINUTES`. Nên lỗi
+ * ở bước này được báo cáo (`report()`) rồi nuốt: một lần đóng vụ đã commit không được hiện ra như
+ * thất bại vì một hàng đợi trục trặc.
  */
 class SyncMatterArchiveOnStageChange
 {
-    public function __construct(private SyncMatterArchive $sync) {}
+    public function __construct(
+        private SyncMatterArchive $sync,
+        private RequestHandoverPackage $requestPackage,
+    ) {}
 
     public function handle(MatterStageChanged $event): void
     {
@@ -47,5 +60,12 @@ class SyncMatterArchiveOnStageChange
         // "Nhận int $matterId": tải quan hệ ở ĐÂY có thể rơi vào đúng cái bẫy `ClientPortalScope`
         // mà Action kia được viết ra để không phụ thuộc vào.
         $this->sync->handle($stageLog->matter_id, $stageLog->author);
+
+        // Vụ vừa được mở lại (hoặc chưa từng đóng) thì Action tự trả về mà không làm gì.
+        try {
+            $this->requestPackage->handle($stageLog->matter_id, null, automatic: true);
+        } catch (Throwable $exception) {
+            report($exception);
+        }
     }
 }

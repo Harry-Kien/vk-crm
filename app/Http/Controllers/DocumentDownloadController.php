@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\ClientUser;
 use App\Models\Document;
 use App\Models\DocumentDownload;
+use App\Models\MatterArchive;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\Files\FileGuard;
@@ -329,6 +330,20 @@ final class DocumentDownloadController extends Controller
             'group' => $document->group->value,
             'version' => $document->version,
         ], $actor);
+
+        // M7 Task 4 (SPEC §10.6 "xuất dữ liệu"): gói bàn giao là tính năng xuất dữ liệu đầu tiên của
+        // hệ thống, nên mỗi lượt tải nó ghi THÊM một dòng `data_exported` — cạnh
+        // `document_downloaded` ở trên chứ không thay nó (sổ `document_downloads` và dòng nhật ký
+        // tải tệp áp cho mọi tài liệu, kể cả gói).
+        if (MatterArchive::isHandoverDocument($document)) {
+            Audit::record('data_exported', $document, [
+                'matter_id' => $document->matter_id,
+                'client_id' => $document->matter?->client_id,
+                'kind' => 'handover_package',
+                'action' => 'downloaded',
+                'version' => $document->version,
+            ], $actor);
+        }
     }
 
     /**

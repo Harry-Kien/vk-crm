@@ -119,4 +119,17 @@ return [
             950 => 'oklch(0.233 0.050 261.7)',
         ],
     ],
+
+    /*
+     * M7 Task 4 — thư mục TẠM để dựng gói bàn giao (zip + MUC-LUC.pdf) trước khi gắn vào kho hồ sơ.
+     * Mỗi lần yêu cầu có một thư mục con riêng (`<id vụ>-<dấu yêu cầu>`, xem
+     * `BuildHandoverPackage::workDirectory()`), xoá khi xong, khi lỗi, và — với một tiến trình bị
+     * giết giữa chừng — ở lần chạy lại hoặc khi job thất bại hẳn. Đặt riêng ở đây
+     * vì gói có thể vài trăm MB: trên shared hosting nơi `storage/` nằm trên phần đĩa nhỏ, chỉ tới
+     * một ổ rộng hơn bằng `HANDOVER_WORK_DIR`. Không bao giờ đặt nó bên trong đĩa `private` (thư
+     * mục tạm ở đó sẽ bị lẫn với tệp hồ sơ thật).
+     */
+    'handover' => [
+        'work_dir' => env('HANDOVER_WORK_DIR', storage_path('app/handover-tmp')),
+    ],
 ];

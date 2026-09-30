@@ -542,7 +542,11 @@ chưa xem quá 5 ngày thì nhắc luật sư gọi điện.
 | archived_by | FK users | |
 | handover_package_path | string nullable | **Ngừng dùng** — xem đính chính M7 Task 3 dưới đây |
 | handover_document_id | FK documents nullable | Gói bàn giao — xem đính chính M7 Task 3 |
-| handover_generated_at | timestamp nullable | |
+| handover_generated_at | timestamp nullable | Thời điểm sinh gói XONG |
+| handover_status | string(20) nullable | `generating` / `ready` / `failed`; NULL = chưa ai yêu cầu — xem đính chính M7 Task 4 |
+| handover_requested_at | timestamp nullable | Lúc bấm (hoặc lúc vụ đóng, với lần tự sinh); cũng là dấu của lần yêu cầu |
+| handover_requested_by | FK users nullable | Người bấm; NULL với lần tự sinh khi vụ đóng |
+| handover_error | string(500) nullable | Câu tiếng Việt cho người vận hành khi `failed` |
 | client_access_until | date nullable | Ngày vô hiệu quyền tra cứu của khách |
 | retention_until | date | Ngày được phép tiêu huỷ dữ liệu theo chính sách lưu trữ |
 | destroyed_at | timestamp nullable | |
@@ -562,6 +566,13 @@ phá huỷ không cần thiết trên dữ liệu đã seed) nhưng không còn 
 (`parent_document_id`), không phải một tài liệu thứ hai. Ba cột `destruction_reason`/
 `destruction_record_no`/`destroyed_by` chuẩn bị cho Task 6 (ghi quyết định tiêu huỷ — R5: không
 bao giờ `forceDelete()` dữ liệu hồ sơ).
+
+**Đính chính 2026-09-28 (M7 Task 4, R9).** Bốn cột `handover_status`, `handover_requested_at`,
+`handover_requested_by`, `handover_error` ghi trạng thái của MỘT lần yêu cầu sinh gói, để màn hình
+hiện "đang sinh / sẵn sàng / lỗi" kèm thời điểm bấm và thời điểm xong (`handover_generated_at`) và
+khoá nút khi gói đang được dựng. `handover_requested_at` còn là dấu của lần yêu cầu: job mang theo
+giá trị đó và chỉ được ghi kết quả khi nó còn khớp, nên một job cũ không ghi đè lần yêu cầu mới hơn.
+Một lần `generating` cũ hơn 60 phút được coi là kẹt và cho yêu cầu lại.
 
 ---
 
@@ -873,6 +884,27 @@ Khi vụ việc chuyển sang giai đoạn kết thúc, hệ thống sinh một 
 5. Ghi `matter_archives`, đặt `client_access_until` mặc định 90 ngày sau ngày
    kết thúc, và `retention_until` theo chính sách lưu trữ cấu hình trong `.env`
    (mặc định 10 năm).
+
+**Đính chính 2026-09-28 (M7 Task 4, R1, R3, R8, R9).** Bước 1–4 đọc theo các phán quyết sau:
+
+- *Nội dung gói (R8).* "Toàn bộ tài liệu nhóm A, B, C" là quá rộng so với §4.11 (khách không bao
+  giờ thấy "một bản đơn mà toà chưa hề nhận được"). Gói chứa: **nhóm A** — mọi tệp của version mới
+  nhất đã được chấp nhận của mỗi đầu mục danh mục (một lần nộp có thể nhiều tệp), bỏ version bị từ
+  chối và version đã bị thay; tài liệu nhóm A nhân sự nộp thay không gắn đầu mục nào cũng vào gói;
+  **nhóm B và C** — chỉ tài liệu ở `signed_filed` hoặc `published`. Luật trạng thái đó áp cho cả
+  nhóm A (một tài liệu đổi nhóm sang A giữ nguyên trạng thái cũ, và một bản còn `internal_draft`
+  thì khách chưa từng được thấy). **Không bao giờ**: nhóm D, tài
+  liệu đã xoá mềm, tài liệu đã rút, và chính tài liệu gói của lần trước (mọi version).
+- *Tên entry.* `<nhóm>/<NN>-<tên an toàn của tiêu đề>.<đuôi>`, `NN` là số thứ tự trong mục lục.
+  Tiêu đề không duy nhất và có thể chứa `/` hay `..`; số thứ tự loại cả hai rủi ro, và cho mục lục
+  với zip cùng một cách đánh số. Tên entry được đánh dấu UTF-8 (bit 11) để dấu tiếng Việt không hỏng.
+- *Gói là một `Document` (R1).* Nhóm B, `signed_filed`, tệp trên đĩa `private`; sinh lại là version
+  mới của cùng tài liệu và chỉ tệp của version mới nhất được giữ. Bước 4 đi qua đúng `PublishDocument`.
+- *Chạy nền (R9).* Job chạy trên kết nối/hàng `handover` riêng với mục lịch `queue.handover` riêng
+  (không dùng chung lượt của `queue.drain`, để một gói lớn không giữ thư nhắc mốc thời hạn), có
+  `$timeout` và `$tries` tường minh; thất bại hẳn thì báo luật sư phụ trách và màn hình hiện trạng
+  thái lỗi. Tự sinh MỘT lần khi vụ vào giai đoạn kết thúc; sinh lại là nút bấm.
+- *Xuất dữ liệu (SPEC §10.6).* Ghi `data_exported` khi gói sinh xong và mỗi lần gói được tải.
 
 Job `ExpireClientAccess` chạy hằng ngày: khi quá `client_access_until`, vụ việc
 biến mất khỏi portal của khách. Tài khoản `client_users` không còn vụ việc nào

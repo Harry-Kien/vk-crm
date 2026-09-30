@@ -76,4 +76,10 @@ return [
         'letter' => 'Công văn, thư',
         'court_visit' => 'Làm việc tại toà',
     ],
+    // M7 Task 4: App\Enums\HandoverPackageStatus.
+    'handover_package_status' => [
+        'generating' => 'Đang sinh',
+        'ready' => 'Sẵn sàng',
+        'failed' => 'Lỗi',
+    ],
 ];

@@ -39,6 +39,8 @@ return [
         'client.stage_update' => 'Cập nhật tiến độ cho khách',
         'staff.deadline_reminder' => 'Nhắc mốc thời hạn cho nhân sự',
         'undeclared' => 'Chưa khai báo mẫu',
+        // M7 Task 4
+        'staff.handover_ready' => 'Báo gói bàn giao hồ sơ đã sẵn sàng',
     ],
 
     'matter_tab' => [

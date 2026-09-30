@@ -1633,3 +1633,123 @@ Bảng `matter_archives` đã có từ M1; task này dựng vòng đời của n
 - Test: `tests/Feature/Actions/Matter/SyncMatterArchiveTest.php` (14),
   `TransitionMatterStageTest` (+6), `TransitionStageActionTest` (+3, Livewire: đóng/mở lại/đóng lại
   qua form thật), các test Action + Livewire của danh mục/nộp portal, `DemoDataSeederTest` (+4).
+
+### Task 4 — `GenerateHandoverPackage` (SPEC §6.12, R1, R3, R8, R9)
+
+Job sinh gói bàn giao trên hàng đợi RIÊNG, dựng zip + `MUC-LUC.pdf`, lưu thành một `Document`.
+
+- **Cấu trúc.** Nghiệp vụ nằm trong Action, job chỉ gọi Action:
+  - `RequestHandoverPackage` — cửa DUY NHẤT xếp hàng (tự động khi vụ đóng, đúng MỘT lần, chỉ khi
+    `handover_status` còn NULL; thủ công qua nút, cần `MatterArchivePolicy::generateHandover` =
+    `document.publish` + xem được vụ). Khoá `matters` trước `matter_archives`; đặt `generating`, ghi
+    dấu yêu cầu (`handover_requested_at`) rồi `GenerateHandoverPackage::dispatch()->afterCommit()`.
+    Một lần `generating` cũ hơn 60 phút được coi là kẹt (worker chết không gọi `failed()`) và cho
+    yêu cầu lại; nút bị khoá khi đang chạy và chưa kẹt.
+  - `CollectHandoverEntries` (R8 — chọn tài liệu và đặt tên entry), `RenderHandoverIndex` (R3 — PDF
+    bằng dompdf), `BuildHandoverPackage` (dựng trong thư mục tạm, kiểm zip đọc lại được với đúng số
+    entry, rồi một transaction ngắn tạo `Document` + gắn tệp + cập nhật lưu trữ + audit),
+    `RecordHandoverPackageFailure` (lỗi thất bại hẳn), job `SendHandoverPackageReady` (báo kết quả).
+  - Tự sinh nối vào `SyncMatterArchiveOnStageChange` (sau khi bản ghi lưu trữ đã đồng bộ). Lỗi xếp
+    hàng ở bước này được `report()` rồi nuốt: một lần đóng vụ đã commit không hiện ra như thất bại
+    vì hàng đợi trục trặc; luật sư vẫn bấm nút thủ công được.
+- **Hàng đợi (R9).** Kết nối `handover` MỚI trong `config/queue.php` (driver LUÔN `database`,
+  không theo `QUEUE_CONNECTION`; `retry_after` 900 giây > `$timeout` 600 giây của job — kết nối
+  `database` chung chỉ 90 giây, một gói lâu hơn sẽ bị nhặt lại và chạy song song). Mục lịch riêng
+  `queue.handover` (`queue:work handover --queue=handover --stop-when-empty --max-time=50
+  --timeout=600`, mỗi phút, `withoutOverlapping(15)`, `runInBackground()`) ở cuối `routes/console.php`;
+  `queue.drain` không đổi. Chạy NỀN vì `schedule:run` chạy các mục của một phút lần lượt: một gói
+  600 giây ở tiền cảnh sẽ bắt mọi mục đăng ký SAU nó (các tác vụ hằng ngày của Task 5/6, thêm vào
+  cuối tệp) đứng chờ; khoá `withoutOverlapping` vẫn giữ tới khi lệnh nền xong. Job: `$timeout`
+  600, `$tries` 2, `$failOnTimeout` true, backoff 120 giây; lỗi CÓ TÊN (`HandoverPackageFailed`:
+  thiếu tệp, không nén được, không dựng được mục lục) là tất định nên ghi thất bại ngay, không thử
+  lại. Test ghim `retry_after > $timeout`, khoá hết hạn 15 phút, tên/tần
+  suất mục lịch, và việc kết nối không đổi theo `QUEUE_CONNECTION`.
+- **Dấu của lần yêu cầu.** Job mang `handover_requested_at` (giây UNIX); cả lúc dựng lẫn lúc ghi lỗi
+  chỉ ghi khi dấu còn khớp dòng lưu trữ và trạng thái còn `generating` — job cũ nhặt lại muộn không
+  đè kết quả của lần yêu cầu mới hơn.
+- **Thư mục tạm khi tiến trình bị GIẾT.** Hết `$timeout` thì worker gọi `failed()` rồi tự giết tiến
+  trình (`Worker::registerTimeoutHandler`); hết bộ nhớ hay bị máy chủ cắt thì không gì chạy cả — cả
+  hai đều không tới `finally` của lần dựng, và zip dở (vài trăm MB, trên đĩa có hạn mức) sẽ nằm lại.
+  Vì vậy thư mục tạm có tên CỐ ĐỊNH theo lần yêu cầu, `<work_dir>/<id vụ>-<dấu yêu cầu>`
+  (`BuildHandoverPackage::workDirectory()`): lần chạy lại của cùng job dùng lại rồi xoá nó (kể cả khi
+  nó thoát sớm vì yêu cầu đã bị thay), và `RecordHandoverPackageFailure` xoá nó khi job thất bại hẳn
+  (hết giờ, hoặc hết lượt thử sau `retry_after` với một tiến trình chết). Còn một khe: dòng job bị xoá
+  tay khỏi bảng `jobs` thì không ai dọn — thư mục vẫn nằm dưới `HANDOVER_WORK_DIR`, tìm theo tên.
+  Lưu ý vận hành: `--timeout` của worker chỉ có hiệu lực khi PHP có `ext-pcntl`; không có nó, một job
+  quá giờ chạy tiếp, và sau 900 giây (`retry_after`, cũng là hết khoá 15 phút) một worker khác có
+  thể nhặt lại cùng job — ghi vào danh sách extension của M8 Task 7.
+- **Gói là `Document` (R1).** Nhóm B, `signed_filed`, hai cờ khách tắt, đĩa `private`; sinh lại =
+  version mới của cùng tài liệu, chỉ tệp version mới nhất được giữ (dòng `documents` và
+  `document_downloads` của version cũ giữ nguyên). **Quyết định của task:** nếu version cũ đang mở
+  cho khách thì bị gỡ khỏi cổng khách (`signed_filed`, hai cờ tắt) cùng lúc tệp bị xoá — nếu không,
+  khách bấm một liên kết tải trỏ vào tệp đã xoá. Gói mới phải được công bố lại qua `PublishDocument`.
+- **Nội dung gói (R8), đối chiếu mã.** A: mọi tệp của version mới nhất của đầu mục `accepted` (đầu
+  mục chưa duyệt/bị từ chối/không áp dụng/đã xoá → không có gì); **quyết định của task:** tài liệu
+  nhóm A nhân sự nộp thay KHÔNG gắn đầu mục nào cũng vào gói (không có luồng duyệt để "chưa chấp
+  nhận"). Danh sách TRẮNG trạng thái `signed_filed`/`published` áp cho MỌI nhóm vào gói (A, B, C) —
+  một trạng thái mới thêm sau (Task 7 "đã rút") tự nằm ngoài gói ở mọi nhóm cho tới khi có người cố
+  ý thêm. Với nhóm A, luật này không bớt gì của đường thường (A luôn `published`), nhưng bắt một tài
+  liệu ĐỔI NHÓM sang A: `RegroupDocument` chỉ đổi `group`, giữ `status`, nên một bản D → A vẫn
+  `internal_draft` — khách chưa từng được thấy nó, và nó không vào gói. Version mới nhất của đầu mục
+  tính trên mọi version rồi mới lọc: version mới nhất chưa phát hành/bị rút thì đầu mục không có gì
+  trong gói, không lùi về bản đã bị thay. **Cho Task 7:** chỉ cần thêm case `retracted` vào enum,
+  `CollectHandoverEntries::RELEASED_STATUSES` đã loại nó. Không bao giờ: D, đã xoá mềm,
+  chính gói ở mọi version (đi ngược `parent_document_id` từ `handover_document_id`), không có tệp.
+  Tên entry `<nhóm>/<NN>-<tên>.<đuôi>`; `/` và `\` trong tiêu đề đổi thành `-` TRƯỚC
+  `FileGuard::safeName()` (tiêu đề văn bản pháp lý đầy `/`; `basename()` của `safeName` sẽ cắt còn
+  "DS-ST"), ký tự Windows cấm đổi thành `-`, NFC, cắt 100 ký tự; đuôi lấy từ tệp thật.
+- **MUC-LUC.pdf (R3).** dompdf qua `barryvdh/laravel-dompdf` 3.1.2 (gói mới DUY NHẤT, kèm dompdf
+  3.1.6, php-font-lib, php-svg-lib, sabberworm/php-css-parser). Font DejaVu Sans đi kèm dompdf,
+  nhúng nguyên (cắt font tốn ~2,5 giây CPU mỗi lần dựng, đo trong container); cache font ở
+  `storage/app/dompdf-fonts` (ngoài git). Thư mục tạm dựng gói cấu hình được (`HANDOVER_WORK_DIR`,
+  mặc định `storage/app/handover-tmp`) để trỏ tới ổ rộng hơn trên shared hosting. Nội dung: thông tin vụ, danh sách đánh số khớp entry,
+  toàn bộ dòng tiến độ ĐÃ CÔNG BỐ với đúng các trường cổng khách hiện (giai đoạn, ngày, nội dung
+  công khai, bước tiếp theo, việc khách cần làm), chân trang bốn thông tin pháp lý qua
+  `BrandFooter` (bỏ hẳn dòng trống). Truy vấn dòng tiến độ chọn cột TƯỜNG MINH — `internal_note`
+  không được nạp vào bộ nhớ (test bắt SQL). Test trích chữ từ PDF bằng một bộ trích nhỏ phía test
+  (`tests/Support/PdfText.php`: giải nén FlateDecode, đọc CMap ToUnicode, giải mã `Tj`/`TJ`) — không
+  thêm gói thứ hai. **Cho M9 Task 10 (bảng kê thanh toán trong MUC-LUC.pdf):** mỗi khối của PDF là
+  một partial trong `resources/views/handover/partials/` (`matter-info`, `documents`, `timeline`,
+  `footer`); thêm một khối = một partial dùng lại CSS chung của `handover/index.blade.php` + một
+  `@include` + một khoá dữ liệu mới trong `RenderHandoverIndex::handle()`. Bảng kê tiền của một vụ
+  `restricted` chỉ đi vào gói của chính vụ đó, và gói chỉ tới tay khách qua `PublishDocument`.
+- **Audit `data_exported`.** Khi gói sinh xong (subject = tài liệu gói) và mỗi lần tải gói ở
+  `DocumentDownloadController::recordDownload()` (nhận biết qua `MatterArchive::isHandoverDocument()`,
+  bất kỳ version nào), THÊM vào `document_downloaded`, không thay. Thêm nhãn `handover_package_requested`
+  và `handover_package_failed` vào `lang/vi/activity.php`.
+- **Báo kết quả.** Xong: `SendHandoverPackageReady` (hàng `default`, sau commit) → thông báo trong hệ
+  thống + MỘT thư xếp hàng (`Mail::queue`, mẫu mới `staff.handover_ready`) cho mỗi người nhận;
+  người nhận = luật sư phụ trách và người bấm qua `ResolveStaffRecipients`, tính lại lúc gửi. Thất
+  bại hẳn: `handover_status = failed` + câu tiếng Việt (KHÔNG thông điệp thô của exception lạ — chỉ ở
+  log máy chủ), audit, thông báo trong hệ thống.
+- **UI.** Khối "Gói bàn giao hồ sơ" ở tab Tổng quan (trạng thái, lúc bấm, người bấm hoặc "Tự động khi
+  vụ kết thúc", lúc xong, tài liệu + phiên bản, câu lỗi, lời nhắc khi kẹt) và header action "Sinh
+  (lại) gói bàn giao" trên `ViewMatter`. Test qua Livewire. Nút chỉ hiện khi vụ ĐANG kết thúc
+  (`closed_at` có giá trị): bản ghi lưu trữ còn nguyên khi admin mở lại vụ, và nút ở đó chỉ dẫn tới
+  lỗi "chưa kết thúc" — khối trạng thái gói cũ vẫn hiện. Người bấm đã bị xoá mềm thì cột "Người
+  yêu cầu" là "—", không phải "Tự động" ("Tự động" chỉ khi `handover_requested_by` NULL). Chống bấm
+  trùng có HAI lớp: nút `disabled` khi đang chạy, và `RequestHandoverPackage` kiểm lại dưới khoá
+  (`HandoverPackageBusy`); test Livewire "trang mở từ trước khi người khác bấm" chỉ đỏ khi bỏ CẢ
+  hai (bỏ một lớp thì lớp kia giữ — lớp Action có probe riêng ở `RequestHandoverPackageTest`).
+- **Dữ liệu mẫu (cho Task 11).** `MatterSeeder::closedMatter()` (Task 3) đóng vụ bằng cách ghi thẳng
+  `closed_at` rồi gọi `SyncMatterArchive`, không qua `TransitionMatterStage` — nên listener không chạy
+  và seed KHÔNG xếp job gói nào: vụ mẫu đã kết thúc hiện "Chưa sinh" kèm nút "Sinh gói bàn giao".
+  Sinh gói thật từ seed: bấm nút (hoặc `RequestHandoverPackage`), rồi chạy `queue:work handover
+  --queue=handover --stop-when-empty` trên CSDL của làn.
+- **M9 (hook `deleting` từ chối xoá mềm vụ còn công nợ).** Task này không xoá hay lưu trữ vụ việc
+  nào: nó chỉ đọc vụ (kể cả `withTrashed()` để báo "vụ không còn") và ghi `matter_archives`/`documents`.
+  Không có đường nào ở đây cần đi qua hook đó.
+- **Thư `client.document_published` KHÔNG có trong làn này** (là của làn M6 Task 3, chưa có trên
+  base). Test chỉ khẳng định công bố gói đi qua đúng `PublishDocument` và phát `DocumentPublished`;
+  sau khi làn M6 merge, thư tự đi.
+- **Cho làn M8b (Task 5/7).** dompdf đòi `ext-dom` (và `ext-mbstring`); việc nén gói dùng
+  `ext-zip` (`ZipArchive`); `--timeout` của worker hàng `handover` cần `ext-pcntl` — cả bốn vào danh
+  sách extension của M8 Task 7. **Quyết định còn mở cho M8 Task 5:** tài liệu gói bàn giao (nhóm B, `signed_filed`) là BẢN SAO THỨ HAI của mọi tệp A/B/C, và
+  M8 sao lưu thêm một bản nữa — quyết có loại tài liệu gói khỏi sao lưu hay không (gói sinh lại được
+  từ dữ liệu gốc, nên loại nó là hợp lý; nhận biết qua `MatterArchive::handoverDocumentIds()`).
+  Hạn mức đĩa của shared hosting sẽ chạm trần ở vụ lớn nhất trước tiên.
+- **Không có probe/test cho:** `Gate::allows('view', $record->archive)` trong `visible()` của khối
+  (tương đương với quyền vào trang: `MatterArchivePolicy::view` = xem được vụ, cùng điều kiện vào
+  `ViewMatter`); hai `whereNotIn('id', $excluded)` của truy vấn nhóm A (gói luôn là nhóm B nên không
+  bao giờ nằm trong truy vấn A — phòng thủ); cờ `FL_ENC_UTF_8` bị bỏ thì libzip tự đoán ra UTF-8
+  với tên hợp lệ (probe thay bằng `FL_ENC_CP437` mới đỏ — cờ giữ lại để ghi rõ ý định).
