@@ -114,4 +114,23 @@ return [
         'offset' => 'Cấn trừ',
         'other' => 'Khác',
     ],
+    // M10: tiếp nhận khách tiềm năng.
+    'intake_status' => [
+        'new' => 'Mới, chưa ai gọi lại',
+        'contacted' => 'Đã liên hệ lại',
+        'consulting' => 'Đang tư vấn',
+        'quoted' => 'Đã báo phí',
+        'won' => 'Đã nhận việc',
+        'declined' => 'Văn phòng từ chối',
+        'lost' => 'Khách không theo tiếp',
+        'merged' => 'Đã gộp vào bản ghi khác',
+    ],
+    'intake_source' => [
+        'phone' => 'Điện thoại',
+        'zalo' => 'Zalo',
+        'walk_in' => 'Đến văn phòng',
+        'referral' => 'Người quen giới thiệu',
+        'website_form' => 'Form website',
+        'other' => 'Khác',
+    ],
 ];

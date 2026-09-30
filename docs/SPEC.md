@@ -36,6 +36,15 @@ và trang doanh thu — nên chúng không còn ngoài phạm vi. Quyền mới:
 ở bảng dưới vẫn đúng về **nội dung hồ sơ**; từ M9 kế toán còn xem và ghi **tiền**
 của các vụ thường, trong ranh giới viết ở §5.
 
+**Đính chính 2026-09-24 (M10 — tiếp nhận và thẩm định đầu vào).** Cụm "dashboard phân
+tích nguồn khách" **không còn ngoài phạm vi**: M10 dựng nó (trang báo cáo đầu vào —
+nguồn khách, tỷ lệ chuyển đổi, thời gian phản hồi lần đầu; kế hoạch M10 Task 6).
+"Tích hợp form website" **vẫn ngoài phạm vi**: M10 chỉ làm màn hình nhập tay trong
+`/admin`, không có đường công khai nào (kế hoạch M10, R6); cột `source` có giá trị
+`website_form` để nhân sự nhập tay một lead gửi từ website. Form trên luatvukhang.com
+gửi thẳng vào hệ thống là một milestone riêng sau M10, chưa đánh số. Quyền mới: §5,
+"Bổ sung 2026-09-24 (M10)".
+
 ### Người dùng
 
 | Vai trò | Guard | Mô tả |
@@ -620,6 +629,31 @@ presenter nào dưới `app/Mcp` / `app/Support/Mcp` tham chiếu `Contract`,
 lúc ấy thư mục MCP chưa tồn tại; việc chép dòng này vào bảng R4 ghi ở PROGRESS
 (M9 Task 13).
 
+> **Bổ sung 2026-09-24 (M10 — tiếp nhận và thẩm định đầu vào).** Bảng 13 quyền gốc và bốn quyền tiền của M9 không có dòng nào cho một người **chưa phải khách hàng**: một lần có người gọi điện, nhắn Zalo hay bước vào văn phòng. M10 thêm bản ghi tiếp nhận (`intake_requests`) và ba quyền, nâng bảng từ 17 lên **20**:
+>
+> | Quyền | admin | manager | lawyer | assistant | accountant |
+> |---|---|---|---|---|---|
+> | `intake.create` (ghi một lần liên hệ; đổi trạng thái bản ghi mình ghi hoặc được giao) | ✓ | ✓ | ✓ | ✓ | — |
+> | `intake.viewAny` (mọi bản ghi, kể cả câu chuyện và lý do từ chối vì xung đột; xử lý Đỏ; báo cáo đầu vào) | ✓ | ✓ | — | — | — |
+> | `intake.convert` (chuyển thành vụ việc; **cần thêm** `matter.create`) | ✓ | ✓ | ✓ | — | — |
+>
+> **Ai thấy bản ghi nào: một định nghĩa** (`IntakeRequest::scopeVisibleTo`). Có `intake.viewAny` thì thấy mọi bản ghi; chỉ có `intake.create` thì thấy bản ghi **mình ghi hoặc được giao**, kể cả câu chuyện của chúng — trợ lý A không thấy bản ghi của trợ lý B. Cặp `intake.create` / `intake.viewAny` lặp lại đúng cặp `matter.view` / `matter.viewAny`. Luật sư chỉ chuyển đổi được bản ghi mình thấy; trợ lý không có `matter.create` nên không chuyển đổi.
+>
+> **Kế toán không thấy gì của tiếp nhận**, vì SPEC §1 tách kế toán khỏi nội dung hồ sơ và người liên hệ không có khoản tiền nào để thu.
+>
+> **Xử lý xung đột Đỏ lúc tiếp nhận** (mở ô câu chuyện, từ chối vì xung đột) là **một** định nghĩa cho cả hệ thống: `ConflictOverride::allowedFor()` — vai `manager` hoặc `admin`, cùng cổng ghi đè Đỏ của `OpenMatter` (§6.10) — cộng với việc xem được bản ghi. Hôm nay nó trùng người với `intake.viewAny`, nhưng đọc theo **vai**, không theo quyền, để hai nơi không thể lệch nhau. **Lý do từ chối vì xung đột** chỉ người có `intake.viewAny` thấy; người khác thấy "Đã từ chối". **Xoá dữ liệu theo yêu cầu** của chủ thể chỉ admin.
+>
+> **Không ai xoá một bản ghi tiếp nhận.** Xoá là **ẩn danh** (các trường cá nhân về null, dòng ở lại để thống kê). Cổng khách đóng kín: người liên hệ chưa có tài khoản.
+
+**Mang sang M11, ghi 2026-09-24 (M10 Task 1).** Câu chuyện và danh tính của người
+**chưa thành khách** là dữ liệu nhạy cảm và bên thứ ba không thể đồng ý; Luật Luật
+sư giữ bí mật cả với người chưa thành khách. Bảng R4 của kế hoạch M11 thêm một
+dòng: **tiếp nhận, kể cả câu chuyện — không bao giờ** (`intake_requests`,
+`intake_parties`). Test cấu trúc `tests/Feature/Intake/IntakeMcpBoundaryTest.php`
+(M10 Task 1) quét `app/Mcp`, `app/Support/Mcp`, `app/Actions/Mcp` và đỏ nếu một
+tệp nào tham chiếu `IntakeRequest` hay `IntakeParty`; nó xanh từ hôm nay dù các thư
+mục chưa tồn tại, và canh từ lúc M11 thêm tệp đầu tiên.
+
 Cài bằng Policy cho từng model. `MatterPolicy::view()` kiểm tra: người dùng có
 `matter.viewAny`, **hoặc** có bản ghi trong `matter_user`. Vụ việc
 `confidentiality = restricted` thì chỉ `lead_lawyer_id` và vai trò `admin`.
@@ -865,6 +899,27 @@ Vẫn tuyệt đối không hiện: tiêu đề vụ việc, tóm tắt, nội d
 hồ sơ. Ranh giới này được cài bằng DTO `ConflictMatch` (readonly, đúng sáu trường)
 chứ không bằng quy ước, và có test khẳng định tiêu đề không lọt ra.
 
+**Đính chính 2026-09-24 (M10 — tiếp nhận và thẩm định đầu vào).** Câu "chạy bắt buộc ở
+hai thời điểm" ở đầu mục này đổi thành **ba**, và thuật toán bước 2 có **hai nguồn** thay vì một:
+
+- **Thời điểm thứ ba: lúc tiếp nhận.** Kiểm tra chạy ngay khi nhập xong phần **danh
+  tính** của một lần có người liên hệ (người gọi, SĐT, CCCD nếu có, vai dự kiến, các
+  bên đối lập nếu biết) — **trước** lúc nghe câu chuyện, vì thông tin đã nghe rồi thì
+  không rút lại được. Ô câu chuyện (`summary`) mở theo kết quả: Xanh đủ định danh thì
+  mở; Vàng, hoặc Xanh nhưng thiếu định danh, thì đòi đúng cổng xác nhận của `OpenMatter`;
+  Đỏ thì khoá, chỉ `manager` hoặc `admin` mở được (từ chối, hoặc ghi đè kèm lý do). Mỗi
+  lần chạy vẫn ghi `conflict_check_run`, chủ thể là bản ghi tiếp nhận.
+- **Nguồn dò thứ hai: bản ghi tiếp nhận.** Ngoài `matter_parties`, thuật toán dò cả
+  người liên hệ và bên đối lập của các bản ghi tiếp nhận **chưa chuyển đổi, chưa gộp,
+  chưa ẩn danh** (trừ chính bản ghi đang kiểm tra) — vì một người văn phòng đã nghe
+  chuyện nhưng không nhận việc không được vô hình với lần kiểm tra sau. Khớp từ nguồn
+  này **tối đa là Vàng**: người đó chưa là khách hàng, nên không đạt định nghĩa Đỏ ở
+  bảng trên. Nhãn ghi "đã liên hệ văn phòng ngày …" kèm mã bản ghi, **không kèm câu
+  chuyện**. Nguồn này áp cho cả `OpenMatter` lẫn `AddMatterParty`; hệ quả: một vụ
+  mới có thể ra Vàng vì một cuộc gọi cũ.
+
+Cài đặt: kế hoạch M10, Task 2. Task 1 chỉ dựng bảng, model, quyền và policy.
+
 ### 6.11 Bàn giao vụ việc — `ReassignMatter`
 
 Khi luật sư nghỉ việc, nghỉ dài ngày, hoặc vụ việc đổi người phụ trách:
@@ -944,6 +999,15 @@ không phá luật "widget quan trọng nhất đặt trên cùng": luật đó 
 đầu, vì danh sách là thứ người ta phải hành động theo. Một hàng cao một dòng là phần tóm tắt,
 không đẩy danh sách quá hạn xuống khỏi màn hình đầu. Nếu hàng này dài thành nhiều dòng thì
 đính chính này hết đúng.
+
+**Đính chính 2026-09-24 (M10 — tiếp nhận).** Thêm một widget **"Liên hệ chưa ai gọi lại"**:
+danh sách các bản ghi tiếp nhận còn ở trạng thái `new` quá ngưỡng phản hồi (mặc định 4 giờ
+làm việc, `INTAKE_RESPONSE_HOURS`), mỗi dòng hiện mã bản ghi, nguồn và thời gian đã chờ —
+**không** tên hay số điện thoại của người liên hệ. Mỗi người chỉ thấy các bản ghi trong phạm
+vi `IntakeRequest::scopeVisibleTo` của mình (§5, bổ sung M10); người không có quyền `intake.*`
+nào không thấy widget. Widget này là một danh sách phải hành động theo như mục 1 và 3, đặt
+ngay dưới mục 3 ("Tài liệu chờ duyệt"), không đẩy "Hồ sơ quá hạn cập nhật" xuống. Cài đặt: kế
+hoạch M10, Task 5.
 
 ### 7.2 Resource `Matter`
 
@@ -1089,6 +1153,15 @@ của chính SPEC. Chủ văn phòng giao "làm cho tốt nhất". Mẫu gửi k
 mọi thư cho khách: `is_active` **và** `activated_at` không null (M6.5 R12). Cài đặt thuộc M6 Task 4
 (`docs/superpowers/plans/2026-09-21-m6-notifications.md`), cùng với huy hiệu "có trả lời mới" trên
 thẻ hồ sơ ở cổng; M6.5 không viết mẫu thư này (R1).
+
+**Đính chính 2026-09-24 (M10 — tiếp nhận).** Thêm mẫu `staff.intake_unanswered` vào bảng
+trên: thư **nội bộ** nhắc rằng một lần có người liên hệ văn phòng quá ngưỡng phản hồi (mặc
+định 4 giờ làm việc) mà chưa ai gọi lại. Người nhận: người được giao nếu còn hoạt động và còn
+xem được bản ghi; nếu không thì những người có `intake.viewAny` đang hoạt động; cuối cùng là
+admin — không bao giờ im lặng, và qua đúng một chỗ chọn người nhận nhân sự
+(`ResolveStaffRecipients`). Thư chỉ mang mã bản ghi, nguồn, thời gian đã chờ và liên kết;
+**không** tên, số điện thoại hay câu chuyện của người liên hệ, vì hộp thư là nơi dữ liệu nằm
+lâu nhất và ít ai kiểm soát nhất. Cài đặt: kế hoạch M10, Task 5.
 
 ---
 
@@ -1246,6 +1319,14 @@ Làm đúng thứ tự. Kết thúc mỗi milestone: test xanh, chạy Pint, c�
 không phải thứ tự dòng trong bảng: xem `docs/PROGRESS.md` (M9 chạy sau M11, trên
 cơ sở dữ liệu production đã có dữ liệu thật).
 
+**Đính chính 2026-09-24 (M10).** Thêm dòng **M10** cho bảng trên (viết ở đây, không sửa
+dòng cũ của bảng). Thứ tự dựng hiện hành: M6.5 → phần còn lại của M6 → M7 → M8 → M11 → M9 →
+**M10** → M12 (xem `docs/PROGRESS.md`).
+
+| | Nội dung | Xong khi |
+|---|---|---|
+| **M10** | Tiếp nhận và thẩm định đầu vào: bản ghi tiếp nhận `intake_requests` và bên đối lập `intake_parties`; ba quyền `intake.*` (§5 bổ sung M10); kiểm tra xung đột lợi ích ở lần chạm đầu tiên, trước khi nghe câu chuyện (§6.10 đính chính M10); dò trùng lúc nhập; đo thời gian phản hồi lần đầu và nhắc quá ngưỡng (§7.1, §9 đính chính M10); chuyển thành vụ việc không gõ lại; từ chối kèm lý do; hạn lưu, ẩn danh và xoá theo yêu cầu cho người chưa thành khách; báo cáo đầu vào | Mọi lần liên hệ để lại một bản ghi; Đỏ khoá ô câu chuyện; chuyển đổi đi qua `FindClientByIdentifier`/`CreateClient`/`OpenMatter`, không tạo `Client` trùng; câu chuyện của người chưa thành khách không bao giờ qua MCP; test phân quyền và cách ly cổng khách xanh |
+
 ---
 
 ## 14. Tiêu chí nghiệm thu
@@ -1290,3 +1371,14 @@ M9: bảng `contracts` và `instalments` gắn vào `matters` như trên, cùng 
 **dạng khung** — bảng, model, quan hệ với `matters` và `users`, policy đóng kín —
 không Action, không màn hình, không con số nào đọc bảng này; tính phí theo giờ
 vẫn là việc của giai đoạn sau.
+
+**Đính chính 2026-09-24 (M10).** Dòng "nhận lead từ form website qua API (bảng
+`leads`)" ở trên: bảng dành cho lời hứa đó đã được dựng ở M10 với tên
+**`intake_requests`** (kèm bảng con `intake_parties`), không phải `leads` — vì một lần có
+người liên hệ qua điện thoại, Zalo hay gặp trực tiếp cũng cần một bản ghi, không riêng
+lead từ website (cột `source`, giá trị `website_form`). **API nhận lead vẫn để sau**: M10
+chỉ có màn hình nhập tay trong `/admin`, không có đường công khai nào. Form trên
+luatvukhang.com gửi thẳng vào hệ thống là một milestone riêng sau M10, chưa đánh số, và
+khi làm phải có route `POST` công khai riêng ngoài cả hai panel, honeypot, rate limit
+60 request/phút (§10.3), ô đồng ý xử lý dữ liệu **không đánh dấu sẵn**, và nội dung người
+gửi tự gõ được lưu vào vùng khoá, chỉ mở theo đúng §6.10 đính chính M10.
