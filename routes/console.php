@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Schedule\CheckDeadlines;
+use App\Actions\Schedule\CheckStaleMatters;
 use App\Actions\Schedule\RecordScheduleRun;
 use App\Actions\Schedule\SendHeartbeat;
 use Illuminate\Foundation\Inspiring;
@@ -103,4 +104,21 @@ Schedule::call(new CheckDeadlines)
     // Cron thuần, không `->between()`: `between()` chụp `now()` lúc lịch được DỰNG, không lúc hỏi.
     ->cron('*/30 7-19 * * *')
     ->name('deadlines.check')
+    ->withoutOverlapping(60);
+
+/**
+ * Hồ sơ quá hạn cập nhật cho khách (SPEC §6.4): 07:30 hằng ngày, MỘT lần — không cần lặp lại nhiều
+ * lần trong ngày như `deadlines.check` (rủi ro nghề nghiệp thấp hơn hẳn một mốc tố tụng bị lỡ; R5
+ * của kế hoạch M6 đã tự cho phép "một thư mỗi 7 ngày", nên một lần cron bị bỏ lỡ trong ngày không
+ * làm mất lời nhắc — lần chạy 07:30 hôm sau vẫn thấy vụ việc còn đình trệ).
+ *
+ * `withoutOverlapping()` vì nó gửi thư và ghi thông báo; khoá hết hạn sau 60 phút, không phải mặc
+ * định 1440 — cùng lý lẽ `deadlines.check`: một lần chạy bị giết giữa chừng (giới hạn CPU của
+ * shared hosting) không được khoá luôn lần chạy của NGÀY HÔM SAU.
+ *
+ * Nhắc hồ sơ quá hạn cập nhật cho khách.
+ */
+Schedule::call(new CheckStaleMatters)
+    ->dailyAt('07:30')
+    ->name('stale-matters.check')
     ->withoutOverlapping(60);

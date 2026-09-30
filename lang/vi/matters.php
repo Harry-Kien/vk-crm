@@ -274,6 +274,27 @@ return [
         'title' => 'Chưa gửi được thư báo phản hồi yêu cầu cho khách hàng',
         'body' => 'Thư báo phản hồi yêu cầu của hồ sơ :code đã thử gửi nhiều lần nhưng không tới được khách hàng. Hãy báo cho khách qua kênh khác và kiểm tra email của tài khoản cổng.',
     ],
+    // M6 Task 7 — mẫu `staff.stale_matter` (SPEC §6.4, §9): hồ sơ quá 21 ngày chưa cập nhật cho
+    // khách hàng, gửi luật sư phụ trách + mọi manager xem được vụ (App\Jobs\SendStaleMatterMail).
+    // Thư gửi NHÂN SỰ nên được phép mang mã hồ sơ và tiêu đề, cùng lý lẽ deadlines.email.
+    'stale_reminder_email' => [
+        'subject' => 'Hồ sơ :code chưa cập nhật cho khách hàng',
+        'greeting' => 'Kính gửi :name,',
+        'line' => 'Hồ sơ :code — :title đã :days ngày chưa có cập nhật mới cho khách hàng.',
+        'action' => 'Anh/chị mở hồ sơ trên hệ thống để cập nhật tiến độ hoặc liên hệ khách hàng.',
+        'salutation' => ':office',
+    ],
+    // 14 ngày (SPEC §6.4): thông báo trong hệ thống cho luật sư phụ trách —
+    // App\Notifications\Staff\StaleMatterAlert, App\Actions\Schedule\CheckStaleMatters.
+    'stale_notification' => [
+        'title' => 'Hồ sơ quá hạn cập nhật cho khách',
+        'body' => 'Hồ sơ :code (:title) đã quá 14 ngày chưa cập nhật cho khách hàng. Cần liên hệ khách hoặc cập nhật tiến độ.',
+    ],
+    // Job gửi thư staff.stale_matter hỏng HẲN (hết mọi lượt thử) — App\Jobs\SendStaleMatterMail::failed().
+    'stale_reminder_failed_notification' => [
+        'title' => 'Không gửi được thư nhắc hồ sơ quá hạn cập nhật',
+        'body' => 'Đã thử lại nhiều lần nhưng không gửi được thư nhắc hồ sơ :code chưa cập nhật cho khách hàng. Cần kiểm tra thủ công.',
+    ],
     // M6.5 Task 9 — ba tiêu đề/thông báo riêng của "sửa một bên" khác câu với "thêm một bên"
     // (`parties` ở trên). Hai khoá KHÔNG lặp lại ở đây (`saved_clear_with_confirmed`,
     // `conflict_check_title_clear`) không nhắc "thêm bên" nên dùng chung được với `notifySaved()`.

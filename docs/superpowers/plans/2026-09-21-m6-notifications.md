@@ -142,7 +142,7 @@ Relation manager "Mốc thời hạn" trên trang chi tiết vụ việc: danh s
 
 Bậc 7/3/1/quá hạn, thêm bậc 14 khi `severity = critical`; `reminders_sent` chống trùng; quá hạn thì đánh dấu và sinh cảnh báo. Mẫu `staff.deadline_reminder`. Test theo R4 và bằng `travelTo()` qua từng mốc, gồm **mốc bị nhảy qua** (cron chết 3 ngày rồi chạy lại: hệ thống phải nhắc mốc gần nhất còn ý nghĩa, không im lặng bỏ qua). Lịch 07:00 hằng ngày.
 
-### - [ ] Task 7 — `CheckStaleMatters` (SPEC §6.4)
+### - [x] Task 7 — `CheckStaleMatters` (SPEC §6.4)
 
 14 ngày → thông báo trong hệ thống cho lead lawyer; 21 ngày → email cho lead lawyer, đồng gửi mọi `manager`; theo R5 về tần suất. `StaleMattersWidget` đã có từ M3 — **kiểm chứng nó dùng chung đúng một định nghĩa "quá hạn cập nhật"** với job này, không hai định nghĩa (M4 đã tìm ra đúng hình dạng lỗi đó ở thanh X/Y). Lịch 07:30 hằng ngày.
 

@@ -97,6 +97,9 @@ return [
         // M6 Task 3: app/Actions/Client/IssuePortalAccess.php — cấp hoặc cấp lại quyền truy cập
         // cổng khách hàng (mật khẩu tạm gửi qua thư `client.activation`).
         'client_portal_access_issued' => 'Cấp quyền truy cập cổng khách hàng',
+        // M6 Task 7: app/Jobs/SendStaleMatterMail.php::failed() — job nhắc hồ sơ quá hạn cập nhật
+        // (staff.stale_matter) hỏng hẳn sau hết lượt thử lại.
+        'stale_matter_reminder_failed' => 'Gửi thư nhắc hồ sơ quá hạn cập nhật thất bại hẳn',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */
