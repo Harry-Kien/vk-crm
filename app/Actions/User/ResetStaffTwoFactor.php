@@ -26,11 +26,14 @@ use LogicException;
  *    lời gọi DUY NHẤT trong `app/` được phép gọi `saveAppAuthenticationSecret(null)` —
  *    `tests/Feature/Filament/StaffTwoFactorEscapeRoutesTest.php` quét `app/` bằng token để giữ
  *    đúng lời hứa đó.
- * 2. **Xoá mọi phiên đang mở của người đó** (`sessions.user_id`) — **đóng đúng lỗ hổng "điện thoại
- *    mất kèm trình duyệt đang đăng nhập"**: nếu không xoá, kẻ đang cầm trình duyệt đó (đã đăng
- *    nhập từ trước, chưa hề cần 2FA của TỐI NAY vì phiên `web` không tự hỏi lại) sẽ tự CÀI 2FA
- *    MỚI trên chính máy của họ ở request Livewire kế tiếp — chiếm tài khoản vĩnh viễn, không phải
- *    lý do admin bấm nút này để giúp.
+ * 2. **Tăng `users.session_epoch`** — kết thúc MỌI phiên `web` đang mở của người đó, ở request kế
+ *    tiếp của chúng (`RejectStaffSessionsFromBeforeReset`: phiên mang epoch cũ bị đăng xuất, trước
+ *    cả cổng 2FA). Đóng đúng lỗ hổng "điện thoại mất kèm trình duyệt đang đăng nhập": nếu không,
+ *    kẻ đang cầm trình duyệt đó (đã đăng nhập từ trước, phiên `web` không tự hỏi 2FA lại) sẽ tự CÀI
+ *    2FA MỚI trên chính máy của họ — chiếm tài khoản vĩnh viễn. KHÔNG xoá theo `sessions.user_id`
+ *    (bản đầu): cột đó do guard mặc định lúc ghi điền, nên một trình duyệt vừa chạm `/portal` để
+ *    lại `user_id` của khách, dòng phiên nhân sự sống sót, và phiên của một khách trùng số bị xoá
+ *    nhầm — đọc docblock của middleware.
  * 3. **Đổi `remember_token`** — phiên "ghi nhớ đăng nhập" (cookie sống nhiều ngày, không đi qua
  *    bảng `sessions`) mở lại được một phiên `web` mới chỉ từ cookie đó; đổi token vô hiệu hoá nó
  *    cùng lúc với bước 2.
@@ -58,9 +61,10 @@ final class ResetStaffTwoFactor
             $locked->saveAppAuthenticationSecret(null);
             $locked->saveAppAuthenticationRecoveryCodes(null);
 
-            DB::table('sessions')->where('user_id', $locked->getKey())->delete();
-
-            $locked->forceFill(['remember_token' => Str::random(60)])->save();
+            $locked->forceFill([
+                'session_epoch' => (int) $locked->session_epoch + 1,
+                'remember_token' => Str::random(60),
+            ])->save();
 
             Audit::record('staff_two_factor_reset', $locked, [
                 'via' => $actor === null ? 'console' : 'admin',

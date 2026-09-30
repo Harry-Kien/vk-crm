@@ -62,25 +62,6 @@ it('actor null (đường console) không ném lỗi tự đặt lại', functio
     expect($target->fresh()->two_factor_secret)->toBeNull();
 });
 
-it('xoá mọi phiên đang mở của người bị đặt lại, không đụng phiên của người khác', function () {
-    config(['session.driver' => 'database']);
-
-    $admin = User::factory()->withRole(Role::Admin)->create();
-    $target = User::factory()->withRole(Role::Lawyer)->create();
-    $bystander = User::factory()->withRole(Role::Lawyer)->create();
-
-    DB::table('sessions')->insert([
-        ['id' => 'sess-target-1', 'user_id' => $target->id, 'ip_address' => '127.0.0.1', 'user_agent' => 'x', 'payload' => 'x', 'last_activity' => now()->timestamp],
-        ['id' => 'sess-target-2', 'user_id' => $target->id, 'ip_address' => '127.0.0.1', 'user_agent' => 'x', 'payload' => 'x', 'last_activity' => now()->timestamp],
-        ['id' => 'sess-bystander', 'user_id' => $bystander->id, 'ip_address' => '127.0.0.1', 'user_agent' => 'x', 'payload' => 'x', 'last_activity' => now()->timestamp],
-    ]);
-
-    app(ResetStaffTwoFactor::class)->handle($admin, $target);
-
-    expect(DB::table('sessions')->where('user_id', $target->id)->count())->toBe(0)
-        ->and(DB::table('sessions')->where('user_id', $bystander->id)->count())->toBe(1);
-});
-
 it('đổi remember_token của người bị đặt lại — cookie ghi nhớ đăng nhập cũ không mở lại được phiên', function () {
     $admin = User::factory()->withRole(Role::Admin)->create();
     $target = User::factory()->withRole(Role::Lawyer)->create(['remember_token' => 'token-cu']);

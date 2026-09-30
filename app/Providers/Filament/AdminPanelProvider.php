@@ -6,6 +6,7 @@ use App\Filament\Admin\Auth\StaffAppAuthentication;
 use App\Filament\Admin\Pages\Auth\EditProfile;
 use App\Filament\AvatarProviders\InitialsAvatarProvider;
 use App\Http\Middleware\AnswerDeniedPanelRequestsWithNotFound;
+use App\Http\Middleware\RejectStaffSessionsFromBeforeReset;
 use App\Http\Middleware\RestrictAdminIpAllowlist;
 use Filament\Auth\MultiFactor\Http\Middleware\EnsureMultiFactorAuthenticationIsEnabled;
 use Filament\Http\Middleware\Authenticate;
@@ -156,6 +157,9 @@ class AdminPanelProvider extends PanelProvider
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,
                 StartSession::class,
+                // R2, vòng sửa 1: route trang panel không dùng nhóm `web`, nên đăng ký riêng ở đây —
+                // SAU StartSession, TRƯỚC Authenticate (đăng xuất trước khi cổng 2FA kịp chạy).
+                RejectStaffSessionsFromBeforeReset::class,
                 AuthenticateSession::class,
                 ShareErrorsFromSession::class,
                 PreventRequestForgery::class,

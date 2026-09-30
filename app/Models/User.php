@@ -70,6 +70,7 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
             'password' => 'hashed',
             'position' => UserPosition::class,
             'is_active' => 'boolean',
+            'session_epoch' => 'integer',
             'last_login_at' => 'datetime',
             'two_factor_confirmed_at' => 'datetime',
             // R2: APP_KEY giờ mã hoá cả secret 2FA của mọi nhân sự — mất APP_KEY là mọi nhân sự bị
