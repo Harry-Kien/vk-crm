@@ -269,19 +269,42 @@ it('sends nothing when the matter was cancelled before the job ran', function ()
 });
 
 /**
- * Mutation probe: bỏ `->open()` khỏi `NotifyStaffOfNewClientDocument::openMatterFor()` — test
- * này ĐỎ.
+ * Fix round 1 (finding Critical 1, review Task 4 toàn dải): `DocumentPolicy::create` cho khách
+ * nộp tệp vào đầu mục của vụ ĐÃ ĐÓNG còn công bố trên cổng. Trước vòng sửa `openMatterFor()` đòi
+ * `->open()` nên `staff.new_client_document` bị bỏ lặng lẽ — tệp nằm đó, không ai được báo. Thư
+ * nội bộ không phải ranh giới cổng; chỉ vụ đã XOÁ MỀM (huỷ) mới hết thứ để báo.
+ *
+ * Mutation probe: thêm lại `->open()` vào `NotifyStaffOfNewClientDocument::openMatterFor()` — cả
+ * hai test dưới đây ĐỎ.
  */
-it('sends nothing when the matter was closed (not soft-deleted) before the job ran', function () {
-    [$matter, , $item, $clientUser] = documentSubmissionFixture();
+it('still reaches the lead lawyer (mail and in-app) when the client submits a file on a CLOSED matter that stays on the portal', function () {
+    Mail::fake();
+    [$matter, $lawyer, $item, $clientUser] = documentSubmissionFixture();
+    $matter->update(['closed_at' => now(), 'is_published_to_portal' => true]);
+
+    submitDocuments($item->fresh(), $clientUser);
+
+    Mail::assertSent(NewClientDocumentMail::class, fn ($mail) => $mail->hasTo($lawyer->email));
+    expect($lawyer->fresh()->notifications()->where('type', NewClientDocumentAlert::class)->count())->toBe(1);
+});
+
+/**
+ * Sự kiện bị `Event::fake()` chặn để listener KHÔNG chạy lúc nộp (nếu không, lần gọi tay dưới
+ * đây bị `alreadyDelivered()`/`alreadyAlerted()` chặn vì một lý do KHÁC) — mô phỏng đúng "vụ
+ * đóng giữa lúc sự kiện bắn và lúc job hàng đợi chạy".
+ */
+it('still reaches the lead lawyer when the matter was closed between the event and the queued job', function () {
+    Event::fake([ClientDocumentSubmitted::class]);
+    [$matter, $lawyer, $item, $clientUser] = documentSubmissionFixture();
     $document = submitDocuments($item, $clientUser)->first();
     $matter->update(['closed_at' => now()]);
 
     Mail::fake();
-    $sent = app(NotifyStaffOfNewClientDocument::class)->handle(new EloquentCollection([$document]));
+    $sent = app(NotifyStaffOfNewClientDocument::class)->handle(new EloquentCollection([$document->fresh()]));
 
-    expect($sent)->toBe(0);
-    Mail::assertNothingSent();
+    expect($sent)->toBe(1);
+    Mail::assertSent(NewClientDocumentMail::class, fn ($mail) => $mail->hasTo($lawyer->email));
+    expect($lawyer->fresh()->notifications()->where('type', NewClientDocumentAlert::class)->count())->toBe(1);
 });
 
 /**

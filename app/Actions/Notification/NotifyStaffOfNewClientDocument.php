@@ -45,7 +45,7 @@ class NotifyStaffOfNewClientDocument
             return 0;
         }
 
-        $matter = $this->openMatterFor($fresh);
+        $matter = $this->existingMatterFor($fresh);
 
         if ($matter === null) {
             return 0;
@@ -112,12 +112,16 @@ class NotifyStaffOfNewClientDocument
             ->find($document->getKey());
     }
 
-    private function openMatterFor(Document $document): ?Matter
+    /**
+     * Chỉ loại vụ đã XOÁ MỀM (huỷ) — mặc định của `Matter::query()`. KHÔNG `->open()`: khách nộp được
+     * tệp vào vụ ĐÃ ĐÓNG còn công bố trên cổng (`DocumentPolicy::create`), nên văn phòng vẫn phải nhận báo
+     * (vòng sửa 1). Thư nội bộ không phải ranh giới cổng.
+     */
+    private function existingMatterFor(Document $document): ?Matter
     {
         return Matter::query()
             ->withoutGlobalScope(ClientPortalScope::class)
             ->whereKey($document->matter_id)
-            ->open()
             ->first(['id', 'client_id', 'code', 'title', 'lead_lawyer_id', 'confidentiality']);
     }
 

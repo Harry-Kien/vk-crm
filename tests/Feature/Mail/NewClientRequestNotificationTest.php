@@ -202,19 +202,45 @@ it('sends nothing when the matter was cancelled before the job ran', function ()
 });
 
 /**
- * Mutation probe: bỏ `->open()` khỏi `NotifyStaffOfNewClientRequest::openMatterFor()` — test
- * này ĐỎ (vụ đóng nhưng KHÔNG xoá mềm, nên `SoftDeletingScope` mặc định không tự bắt vế này).
+ * Fix round 1 (finding Critical 1, review Task 4 toàn dải): khách KHÔNG bị chặn gửi yêu cầu trên
+ * vụ việc ĐÃ ĐÓNG mà vẫn công bố lên cổng (`ClientRequestPolicy::create` -> `canSeeMatter` ->
+ * `MatterPolicy::releasedToPortal` không hỏi `closed_at`; cổng vẫn hiện ô "Gửi yêu cầu" và báo
+ * "Văn phòng đã nhận được yêu cầu của anh/chị"). Trước vòng sửa, `openMatterFor()` đòi `->open()`
+ * nên mail + chuông của luật sư phụ trách bị bỏ lặng lẽ: khách được hứa "đã nhận", văn phòng
+ * không ai biết, và không có danh sách yêu cầu toàn văn phòng để bắt lại (REQ-1/e2e-F5). Thư nội
+ * bộ của nhân sự không phải ranh giới cổng — chỉ vụ đã XOÁ MỀM (huỷ) mới hết thứ để báo.
+ *
+ * Mutation probe: thêm lại `->open()` vào `NotifyStaffOfNewClientRequest::openMatterFor()` — cả
+ * hai test dưới đây ĐỎ.
  */
-it('sends nothing when the matter was closed (not soft-deleted) before the job ran', function () {
-    [$matter] = requestableMatter();
+it('still reaches the lead lawyer (mail and in-app) when the client writes on a CLOSED matter that stays on the portal', function () {
+    Mail::fake();
+    [$matter, $lawyer] = requestableMatter();
+    $matter->update(['closed_at' => now()]);
+
+    openRequestAsClient($matter->fresh());
+
+    Mail::assertSent(NewClientRequestMail::class, fn ($mail) => $mail->hasTo($lawyer->email));
+    expect($lawyer->fresh()->notifications()->where('type', NewClientRequestAlert::class)->count())->toBe(1);
+});
+
+/**
+ * Sự kiện bị `Event::fake()` chặn để listener KHÔNG chạy lúc mở yêu cầu (nếu không, lần gọi tay
+ * dưới đây bị `alreadyDelivered()`/`alreadyAlerted()` chặn vì một lý do KHÁC) — mô phỏng đúng
+ * "vụ đóng giữa lúc sự kiện bắn và lúc job hàng đợi chạy".
+ */
+it('still reaches the lead lawyer when the matter was closed between the event and the queued job', function () {
+    Event::fake([ClientRequestOpened::class]);
+    [$matter, $lawyer] = requestableMatter();
     $request = openRequestAsClient($matter);
     $matter->update(['closed_at' => now()]);
 
     Mail::fake();
     $sent = app(NotifyStaffOfNewClientRequest::class)->handle($request->fresh());
 
-    expect($sent)->toBe(0);
-    Mail::assertNothingSent();
+    expect($sent)->toBe(1);
+    Mail::assertSent(NewClientRequestMail::class, fn ($mail) => $mail->hasTo($lawyer->email));
+    expect($lawyer->fresh()->notifications()->where('type', NewClientRequestAlert::class)->count())->toBe(1);
 });
 
 /**

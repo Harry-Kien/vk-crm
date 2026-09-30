@@ -36,9 +36,9 @@ use Throwable;
  * bảng `notifications` (cùng thiết bị {@see CheckDeadlines::alreadyAlerted()}),
  * thư qua nhật ký `outbound_messages` (R3) — cùng khuôn `NotifyClientOfDocumentPublished`.
  *
- * **Kiểm tra lại lúc gửi:** yêu cầu chưa xoá mềm, vụ việc còn `open()` (chưa huỷ, chưa đóng) —
+ * **Kiểm tra lại lúc gửi:** yêu cầu chưa xoá mềm, vụ việc chưa bị huỷ (xoá mềm); KHÔNG hỏi `closed_at` (vòng sửa 1) —
  * giữa lúc sự kiện bắn (đồng bộ, cùng request HTTP) và lúc job hàng đợi thật sự chạy, vụ việc có
- * thể đã bị huỷ hoặc đóng. Không hỏi `is_published_to_portal`: đó là ranh giới PORTAL của khách
+ * thể đã bị huỷ. Khách vẫn gửi được trên vụ ĐÃ ĐÓNG còn công bố trên cổng (`ClientRequestPolicy::create`), nên vụ đóng vẫn được báo. Không hỏi `is_published_to_portal`: đó là ranh giới PORTAL của khách
  * hàng (R12), không áp cho thư nội bộ của nhân sự — nhân sự vẫn cần biết có yêu cầu mới dù cổng
  * đang tắt.
  */
@@ -52,7 +52,7 @@ class NotifyStaffOfNewClientRequest
             return 0;
         }
 
-        $matter = $this->openMatterFor($fresh);
+        $matter = $this->existingMatterFor($fresh);
 
         if ($matter === null) {
             return 0;
@@ -125,12 +125,16 @@ class NotifyStaffOfNewClientRequest
             ->find($request->getKey());
     }
 
-    private function openMatterFor(ClientRequest $request): ?Matter
+    /**
+     * Chỉ loại vụ đã XOÁ MỀM (huỷ) — mặc định của `Matter::query()`. KHÔNG `->open()`: khách gửi được
+     * yêu cầu trên vụ ĐÃ ĐÓNG còn công bố trên cổng (`ClientRequestPolicy::create`), nên văn phòng vẫn
+     * phải nhận báo (vòng sửa 1). Thư nội bộ không phải ranh giới cổng.
+     */
+    private function existingMatterFor(ClientRequest $request): ?Matter
     {
         return Matter::query()
             ->withoutGlobalScope(ClientPortalScope::class)
             ->whereKey($request->matter_id)
-            ->open()
             ->first(['id', 'client_id', 'code', 'title', 'lead_lawyer_id', 'confidentiality']);
     }
 
