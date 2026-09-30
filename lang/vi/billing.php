@@ -263,4 +263,25 @@ return [
             ],
         ],
     ],
+
+    /*
+     * Thư nhắc đợt thanh toán quá hạn (`staff.instalment_overdue`, M9 Task 11). Chuỗi của mẫu thư
+     * nằm ở tệp ngôn ngữ của NGHIỆP VỤ (như `lang/vi/deadlines.php` `email.*`), không ở
+     * `lang/vi/emails.php`. Thư chỉ mang các trường của `AccountantBillingRow` + số ngày quá hạn:
+     * đừng thêm khoá nói về tiêu đề vụ việc hay ghi chú nội bộ.
+     */
+    'overdue_email' => [
+        'subject' => 'Đợt thanh toán quá hạn :days ngày: :instalment (:code)',
+        'greeting' => 'Kính gửi :name,',
+        'headline' => 'Có một đợt thanh toán đã quá hạn :days ngày.',
+        'matter' => 'Hồ sơ: :code (:type)',
+        'client' => 'Khách hàng: :client',
+        'instalment' => 'Đợt thanh toán: :name',
+        'outstanding' => 'Còn phải thu: :amount',
+        'due' => 'Đến hạn: :date',
+        'open_receivables' => 'Mở trang Công nợ',
+        'open_matter' => 'Mở tab Hợp đồng và thanh toán của hồ sơ',
+        'action' => 'Anh/chị ghi khoản thu khi đã nhận được tiền; nếu khách hàng đã thoả thuận lại lịch thu, cập nhật phụ lục hợp đồng. Thư này nhắc lại sau bảy ngày nếu đợt vẫn chưa được thu đủ.',
+        'salutation' => ':office',
+    ],
 ];

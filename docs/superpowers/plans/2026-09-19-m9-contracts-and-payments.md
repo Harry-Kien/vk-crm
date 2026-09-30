@@ -734,7 +734,7 @@ Toàn bộ thiết kế ở mục "Trang doanh thu" — **đọc lại nguyên v
 
 **Test bắt buộc:** chạy hai lần liên tiếp không sinh thư thứ hai (M6 R4); `travelTo()` qua ngày 1, 7, 8, 14 của quá hạn; vụ thường: kế toán và lead nhận, quản lý không; vụ `restricted`: lead và admin nhận, kế toán không; kế toán bị vô hiệu hoá không nhận; lead nghỉ việc (không `is_active`) thì thư đi theo dự phòng; chuỗi đánh dấu trong tiêu đề vụ việc không có trong thư; máy chủ thư hỏng → dòng `failed`, không lỗi 500, và lần chạy sau gửi lại; đợt được thu đủ giữa hai lần chạy → không nhắc nữa.
 
-- [ ] Test đỏ, cài đặt, test xanh, pint, mutation probe, commit `feat: nhắc nội bộ khi đợt thanh toán quá hạn`.
+- [x] Test đỏ, cài đặt, test xanh, pint, mutation probe, commit `feat: nhắc nội bộ khi đợt thanh toán quá hạn`.
 
 ---
 

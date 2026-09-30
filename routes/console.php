@@ -2,6 +2,7 @@
 
 use App\Actions\Schedule\CheckDeadlines;
 use App\Actions\Schedule\RecordScheduleRun;
+use App\Actions\Schedule\RemindOverdueInstalments;
 use App\Actions\Schedule\SendHeartbeat;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -160,3 +161,23 @@ Schedule::command('backup:monitor')
     ->name('backup.monitor')
     ->withoutOverlapping(60)
     ->then(fn () => app()->call('App\Actions\Backup\CheckRcloneRemoteFreshness@handle'));
+
+/**
+ * Nhắc nội bộ đợt thanh toán quá hạn, 08:00 hằng ngày (SPEC §6.8, đính chính M9 Task 11).
+ *
+ * Chạy MỘT lần mỗi ngày, không lặp trong ngày như `deadlines.check`: một mốc kháng cáo bị lỡ là
+ * trách nhiệm nghề nghiệp, một lời nhắc công nợ trễ một ngày thì không — và nhịp nhắc là "ngày
+ * đầu tiên quá hạn, rồi bảy ngày một lần" nên lượt 08:00 bị lỡ vẫn được lượt hôm sau bù (đợt vẫn
+ * quá hạn, chưa nhắc trong bảy ngày). Chống trùng nằm ở sổ thư (`outbound_messages`), nên chạy
+ * lại tay trong ngày là vô hại. Giờ Việt Nam: `dailyAt()` đọc múi giờ ứng dụng.
+ *
+ * `withoutOverlapping(60)` vì nó xếp thư — hai tiến trình chồng nhau là hai lượt cùng đọc sổ thư
+ * trước khi bên nào ghi `sent` — và 60 phút, không phải 1440 mặc định (cùng lý lẽ M6.5 X6 áp cho
+ * mọi tác vụ lịch: một lượt bị giết giữa chừng không được khoá luôn lượt hôm sau;
+ * `tests/Feature/Schedule/BackupScheduleTest.php` ghim "không tác vụ nào giữ khoá ≥ 1440 phút").
+ * CHỈ `->name()`, không `->description()` (bí danh của nhau trong Laravel 13, xem `backup.nightly`).
+ */
+Schedule::call(new RemindOverdueInstalments)
+    ->dailyAt('08:00')
+    ->name('instalments.remind')
+    ->withoutOverlapping(60);

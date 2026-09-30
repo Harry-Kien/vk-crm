@@ -801,6 +801,34 @@ gửi luật sư phụ trách và admin. Người nhận lấy qua cùng lớp t
 nội bộ, với cổng "được xem tiền của vụ" — không một định nghĩa thứ hai. Chống gửi
 trùng qua `outbound_messages`; bảng `instalments` không có cột `reminders_sent`.
 
+**Đính chính 2026-09-30 (M9 Task 11, đối chiếu với mã đã cài).** `RemindOverdueInstalments`
+chạy 08:00 hằng ngày (một lần mỗi ngày, không lặp trong ngày như nhắc hạn). Hành vi thật:
+
+- **Chọn đợt:** đúng định nghĩa "quá hạn" của `Instalment::overdue()` (đợt `pending`, hạn
+  trước hôm nay, hợp đồng `active`, còn phải thu > 0 — đợt thu một phần đã quá ngày vẫn
+  quá hạn) cộng vụ chưa xoá mềm. **Vụ đã kết thúc (`closed_at`) vẫn được nhắc**: nợ không
+  biến mất khi đóng hồ sơ (khác nhắc hạn, vốn bỏ qua vụ đã đóng).
+- **Người nhận:** `ResolveStaffRecipients::forBilling()` với
+  `billingAudienceFor()` (quyết định vai trò nằm trong lớp): vụ thường = luật sư phụ trách
+  + mọi kế toán đang hoạt động; vụ `restricted` = luật sư phụ trách + mọi admin đang hoạt
+  động. Quản lý không nhận ở vụ thường (họ xem trang "Công nợ" khi cần). **Chuỗi dự phòng
+  R3 chỉ chạy khi cả danh sách trên không còn ai hợp lệ**: luật sư phụ trách → một quản lý
+  → một admin, mỗi tầng qua cùng cổng tiền (nên vụ `restricted` tự rơi xuống admin).
+- **Nhịp:** ngày đầu tiên quá hạn, rồi bảy ngày lịch một lần (mốc 1, 8, 15, …), cho tới khi
+  thu đủ, miễn hoặc huỷ. Chống trùng theo **từng người nhận**: một dòng `sent` của
+  (`staff.instalment_overdue`, đợt, người nhận, ngày đến hạn) trong bảy ngày lịch gần nhất
+  chặn thư mới; dòng `failed`/`queued` không chặn, nên thư hỏng được gửi lại ở lượt sau.
+  Khoá mang **ngày đến hạn**: phụ lục dời hạn sang ngày khác là một "đợt quá hạn mới" và
+  được nhắc ngay ngày đầu, không bị nuốt bởi lời nhắc của ngày cũ. Kiểm cả lúc xếp job lẫn
+  lúc job gửi; job đọc lại đợt, hợp đồng, vụ việc và người nhận lúc chạy.
+- **Liên kết trong thư:** người mở được trang "Công nợ" (`billing.view` + `revenue.viewAny`
+  — admin, quản lý, kế toán) nhận liên kết tới trang đó; người còn lại (luật sư phụ trách)
+  nhận liên kết tới tab "Hợp đồng và thanh toán" của vụ. Đây là thư nội bộ đầu tiên có
+  liên kết.
+- Thư hỏng để lại dòng `failed` trong `outbound_messages`, không chặn người nhận khác, không
+  gây lỗi 500; không có thông báo trong ứng dụng khi hỏng hẳn (khác nhắc hạn) vì tác vụ chạy
+  lại mỗi ngày.
+
 ### 6.9 Nhắc khách bổ sung giấy tờ — `RemindMissingDocuments`
 
 Chạy 08:00 các ngày thứ Hai, Tư, Sáu. Với mỗi matter đang mở, đã công bố
@@ -1082,6 +1110,13 @@ logo và chân trang công ty. Gửi qua SMTP tên miền riêng, cấu hình tr
 nội dung đi qua cùng ranh giới với màn hình tiền của kế toán (§5 bổ sung M9): mã
 hồ sơ, loại vụ việc, tên khách, tên đợt, các con số và ngày — không tiêu đề vụ
 việc. M9 **không** gửi thư nhắc nợ nào cho khách.
+
+**Đính chính 2026-09-30 (M9 Task 11).** Nội dung thật của mẫu: tiêu đề "Đợt thanh toán
+quá hạn N ngày: <tên đợt> (<mã hồ sơ>)"; thân thư gồm mã hồ sơ kèm loại vụ việc, tên khách
+hàng, tên đợt, số tiền **còn phải thu** (không phải giá trị mặt của đợt), ngày đến hạn, số
+ngày quá hạn, và một nút liên kết (§6.8 đính chính 2026-09-30 nói liên kết đi đâu). Dòng
+`outbound_messages` của thư gắn vào đợt (`related` = `instalment`); vì bảng `instalments`
+không có `matter_id`, dòng đó chỉ admin thấy ở màn hình nhật ký thư (không nới điều này).
 
 Email gửi cho khách **chỉ chứa nội dung đã công bố**, tuyệt đối không nhúng
 `internal_note`. Nội dung tóm tắt ngắn, chi tiết mời bấm vào portal.
