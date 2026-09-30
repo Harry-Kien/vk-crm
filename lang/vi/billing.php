@@ -281,7 +281,16 @@ return [
         'due' => 'Đến hạn: :date',
         'open_receivables' => 'Mở trang Công nợ',
         'open_matter' => 'Mở tab Hợp đồng và thanh toán của hồ sơ',
-        'action' => 'Anh/chị ghi khoản thu khi đã nhận được tiền; nếu khách hàng đã thoả thuận lại lịch thu, cập nhật phụ lục hợp đồng. Thư này nhắc lại sau bảy ngày nếu đợt vẫn chưa được thu đủ.',
+        // Câu "việc cần làm" ghép từ ba phần, chọn theo cái NGƯỜI NHẬN làm được (xem
+        // `InstalmentOverdue::actionLine()`): ai không ghi được khoản thu / không sửa được hợp đồng
+        // thì được chỉ tới đúng vai làm việc đó, không bị bảo tự làm.
+        'action' => [
+            'record_self' => 'Anh/chị ghi khoản thu khi đã nhận được tiền.',
+            'record_other' => 'Kế toán ghi khoản thu khi đã nhận được tiền.',
+            'amend_self' => 'Nếu khách hàng đã thoả thuận lại lịch thu, anh/chị cập nhật phụ lục hợp đồng.',
+            'amend_other' => 'Nếu khách hàng đã thoả thuận lại lịch thu, luật sư phụ trách cập nhật phụ lục hợp đồng.',
+            'repeat' => 'Thư này nhắc lại sau bảy ngày nếu đợt vẫn chưa được thu đủ.',
+        ],
         'salutation' => ':office',
     ],
 ];

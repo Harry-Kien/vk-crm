@@ -28,6 +28,6 @@
         <a href="{{ $linkUrl }}" style="display:inline-block; padding:10px 18px; background-color:{{ $colors['navy'] }}; color:#ffffff; text-decoration:none; border-radius:4px; font-weight:700;">{{ $linkLabel }}</a>
     </p>
 
-    <p style="margin:0 0 16px;">{{ __('billing.overdue_email.action') }}</p>
+    <p style="margin:0 0 16px;">{{ $actionLine }}</p>
     <p style="margin:0;">{{ __('billing.overdue_email.salutation', ['office' => $office]) }}</p>
 @endsection

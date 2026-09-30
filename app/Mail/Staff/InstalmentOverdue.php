@@ -9,12 +9,14 @@ use App\Jobs\SendInstalmentOverdueMail;
 use App\Mail\BrandedMailable;
 use App\Mail\OutboundHeaders;
 use App\Models\Instalment;
+use App\Models\Payment;
 use App\Models\User;
 use App\Support\Billing\AccountantBillingRow;
 use App\Support\Billing\Money;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
+use Illuminate\Support\Facades\Gate;
 
 /**
  * Mẫu `staff.instalment_overdue` của SPEC §9 — thư nội bộ về một đợt thanh toán quá hạn.
@@ -108,9 +110,37 @@ class InstalmentOverdue extends BrandedMailable
                 'dueDate' => $this->row->dueDate?->format('d/m/Y'),
                 'linkUrl' => $linkUrl,
                 'linkLabel' => $linkLabel,
+                'actionLine' => $this->actionLine(),
                 'office' => config('vkcrm.brand.legal_name'),
             ],
         );
+    }
+
+    /**
+     * Câu "việc cần làm" cuối thư, chọn theo cái NGƯỜI NHẬN này thật sự làm được — hỏi đúng hai
+     * policy đang canh các nút đó, không suy từ vai:
+     *
+     *  - ghi khoản thu: `PaymentPolicy::create` theo ĐỢT (kế toán, admin; luật sư phụ trách chỉ trên
+     *    vụ `restricted`; quản lý và luật sư trên vụ thường thì không);
+     *  - cập nhật phụ lục: `ContractPolicy::update` (admin, quản lý, luật sư; kế toán thì không).
+     *
+     * Ai không làm được thì câu chỉ tới vai làm được ("Kế toán ghi khoản thu…", "luật sư phụ trách
+     * cập nhật phụ lục…") thay vì bảo họ tự làm một việc mà giao diện không cho. Câu về thư nhắc lại
+     * sau bảy ngày là câu chung, luôn có.
+     */
+    private function actionLine(): string
+    {
+        $gate = Gate::forUser($this->recipient);
+
+        return implode(' ', [
+            __($gate->allows('create', [Payment::class, $this->instalment])
+                ? 'billing.overdue_email.action.record_self'
+                : 'billing.overdue_email.action.record_other'),
+            __($gate->allows('update', $this->instalment->contract)
+                ? 'billing.overdue_email.action.amend_self'
+                : 'billing.overdue_email.action.amend_other'),
+            __('billing.overdue_email.action.repeat'),
+        ]);
     }
 
     /** Số ngày ĐÃ trôi qua kể từ ngày đến hạn (đến hạn hôm qua = 1). */

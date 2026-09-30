@@ -14,7 +14,7 @@
 
 {!! $linkLabel !!}: {!! $linkUrl !!}
 
-{!! __('billing.overdue_email.action') !!}
+{!! $actionLine !!}
 
 {!! __('billing.overdue_email.salutation', ['office' => $office]) !!}
 @endsection
