@@ -8,12 +8,14 @@ use App\Actions\Notification\ResolveStaffRecipients;
 use App\Actions\Schedule\RemindMissingDocuments;
 use App\Enums\Role;
 use App\Mail\Client\MissingDocuments;
+use App\Models\ClientUser;
 use App\Models\Matter;
 use App\Models\User;
 use App\Support\Audit;
 use Filament\Notifications\Notification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
 use Throwable;
 
@@ -65,21 +67,17 @@ class SendMissingDocumentsMail implements ShouldQueue
 
     public function handle(): void
     {
-        $matter = ChecklistProgress::mattersAwaitingClient(Matter::query()->whereKey($this->matterId))->first();
+        $context = $this->context();
 
-        if ($matter === null) {
+        if ($context === null) {
             return;
         }
 
-        $items = ChecklistProgress::outstandingRequiredItems($matter);
-
-        if ($items->isEmpty()) {
-            return;
-        }
+        [$matter, $items, $recipients] = $context;
 
         $failure = null;
 
-        foreach (app(ResolveClientRecipients::class)->recipientsFor($matter->client_id) as $recipient) {
+        foreach ($recipients as $recipient) {
             if (RemindMissingDocuments::alreadyDelivered($matter, $recipient)) {
                 continue;
             }
@@ -94,6 +92,42 @@ class SendMissingDocumentsMail implements ShouldQueue
         if ($failure !== null) {
             throw $failure;
         }
+    }
+
+    /**
+     * Những tài khoản ĐỦ ĐIỀU KIỆN nhận thư NGAY BÂY GIỜ — đúng ba bước tính lại của
+     * {@see self::handle()} (còn thuộc tập §6.9, còn đầu mục bắt buộc thiếu, người nhận R12), dùng
+     * chung qua {@see self::context()}. Rỗng là "không gửi cho ai". Public để nút "Gửi lại" của
+     * nhật ký thư ({@see ResendOutboundMessage}) hỏi đúng câu này thay vì viết luật thứ hai.
+     *
+     * @return Collection<int, ClientUser>
+     */
+    public function eligibleRecipients(): Collection
+    {
+        return $this->context()[2] ?? collect();
+    }
+
+    /**
+     * Ba bước tính lại của `handle()`, một chỗ: hồ sơ (kèm cổng §6.9), danh sách đầu mục còn thiếu,
+     * người nhận. `null` khi hồ sơ không còn trong tập hoặc không còn gì thiếu.
+     *
+     * @return array{0: Matter, 1: Collection, 2: Collection<int, ClientUser>}|null
+     */
+    private function context(): ?array
+    {
+        $matter = ChecklistProgress::mattersAwaitingClient(Matter::query()->whereKey($this->matterId))->first();
+
+        if ($matter === null) {
+            return null;
+        }
+
+        $items = ChecklistProgress::outstandingRequiredItems($matter);
+
+        if ($items->isEmpty()) {
+            return null;
+        }
+
+        return [$matter, $items, app(ResolveClientRecipients::class)->recipientsFor($matter->client_id)];
     }
 
     /**

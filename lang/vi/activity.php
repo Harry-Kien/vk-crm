@@ -103,6 +103,9 @@ return [
         // M6 Task 8: app/Jobs/SendMissingDocumentsMail.php::failed() — job nhắc khách nộp giấy tờ
         // còn thiếu (client.missing_documents) hỏng hẳn sau hết lượt thử lại.
         'missing_documents_reminder_failed' => 'Gửi thư nhắc khách nộp giấy tờ thất bại hẳn',
+        // M6 Task 10: app/Actions/Notification/ResendOutboundMessage.php — admin bấm "Gửi lại" trên
+        // một dòng nhật ký thư `failed` (ghi ai bấm, dòng nào, mẫu nào; không ghi địa chỉ/nội dung).
+        'outbound_message_resent' => 'Gửi lại một thư đã gửi lỗi',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

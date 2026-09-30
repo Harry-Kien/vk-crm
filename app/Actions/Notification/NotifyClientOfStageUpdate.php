@@ -78,17 +78,7 @@ class NotifyClientOfStageUpdate
 {
     public function handle(StageLog $stageLog): int
     {
-        if ($stageLog->notified_at !== null) {
-            return 0;
-        }
-
-        // Final review B-M2: hỏi lại NGAY LÚC GỬI — trong cửa sổ hàng đợi dòng tiến độ có thể đã bị
-        // rút khỏi cổng, hoặc vụ việc đã tắt công bố. Không gửi, không đánh dấu `notified_at`.
-        if (! $this->stillReleasedToPortal($stageLog)) {
-            return 0;
-        }
-
-        $recipients = $this->recipientsFor($stageLog);
+        $recipients = $this->eligibleRecipients($stageLog);
 
         if ($recipients->isEmpty()) {
             // Không đánh dấu đã báo — nhưng không có gì tự gửi lại sau này (xem docblock lớp:
@@ -127,6 +117,33 @@ class NotifyClientOfStageUpdate
     }
 
     /**
+     * Những tài khoản ĐỦ ĐIỀU KIỆN nhận thư về dòng tiến độ này NGAY BÂY GIỜ — mọi cổng kiểm tra
+     * lúc gửi của {@see self::handle()} gộp lại một chỗ: dòng chưa đánh dấu `notified_at`, và
+     * (final review B-M2: hỏi lại NGAY LÚC GỬI, đọc TƯƠI từ CSDL vì trong cửa sổ hàng đợi dòng
+     * tiến độ có thể đã bị rút khỏi cổng hay vụ việc đã tắt công bố) dòng còn `is_published` +
+     * vụ việc còn `is_published_to_portal`, rồi mới tới người nhận R12
+     * ({@see self::recipientsFor()}). Rỗng là "không gửi cho ai, không đánh dấu `notified_at`".
+     *
+     * Public vì nút "Gửi lại" của nhật ký thư ({@see ResendOutboundMessage}) phải hỏi ĐÚNG câu
+     * này trước khi xếp hàng, không viết lại luật thứ hai: hai nơi cùng gọi một hàm thì không thể
+     * lệch nhau.
+     *
+     * @return Collection<int, ClientUser>
+     */
+    public function eligibleRecipients(StageLog $stageLog): Collection
+    {
+        if ($stageLog->notified_at !== null) {
+            return collect();
+        }
+
+        if (! $this->stillReleasedToPortal($stageLog)) {
+            return collect();
+        }
+
+        return $this->recipientsFor($stageLog);
+    }
+
+    /**
      * Đã có một dòng `sent` trong nhật ký thư (SPEC §4.15) cho ĐÚNG dòng tiến độ này và ĐÚNG địa
      * chỉ này chưa — dùng để một lượt thử lại (retry của hàng đợi) không gửi thêm một bản cho
      * người đã nhận, xem docblock lớp.
@@ -135,7 +152,7 @@ class NotifyClientOfStageUpdate
      * `RestrictedToClientPortal` chặn sạch khi có khách đang mở cổng, và listener/job của Task 11
      * có thể chạy trong một tiến trình worker mà ngữ cảnh đó vẫn còn treo.
      */
-    private function alreadyDelivered(StageLog $stageLog, ClientUser $recipient): bool
+    public function alreadyDelivered(StageLog $stageLog, ClientUser $recipient): bool
     {
         return OutboundMessage::query()
             ->withoutGlobalScopes()

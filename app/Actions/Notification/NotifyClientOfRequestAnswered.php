@@ -11,6 +11,7 @@ use App\Models\Matter;
 use App\Models\OutboundMessage;
 use App\Notifications\Staff\RequestAnsweredMailFailedAlert;
 use App\Support\Scopes\ClientPortalScope;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
 use Throwable;
 
@@ -46,19 +47,7 @@ class NotifyClientOfRequestAnswered
             return 0;
         }
 
-        $thread = $this->stillExistingThread($freshReply);
-
-        if ($thread === null) {
-            return 0;
-        }
-
-        $matter = $this->publishedMatterFor($thread);
-
-        if ($matter === null) {
-            return 0;
-        }
-
-        $recipients = app(ResolveClientRecipients::class)->recipientsFor($matter->client_id);
+        $recipients = $this->recipientsForExisting($freshReply);
 
         if ($recipients->isEmpty()) {
             return 0;
@@ -113,7 +102,45 @@ class NotifyClientOfRequestAnswered
             ->first(['id', 'client_id']);
     }
 
-    private function alreadyDelivered(ClientRequestReply $reply, ClientUser $recipient): bool
+    /**
+     * Những tài khoản ĐỦ ĐIỀU KIỆN nhận thư về câu trả lời này NGAY BÂY GIỜ — mọi cổng kiểm tra
+     * lúc gửi của {@see self::handle()} gộp lại (câu trả lời và cuộc trao đổi còn tồn tại, vụ việc
+     * còn công bố portal, tài khoản R12). Rỗng là "không gửi cho ai". Public để nút "Gửi lại" của
+     * nhật ký thư ({@see ResendOutboundMessage}) hỏi đúng câu này thay vì viết luật thứ hai.
+     *
+     * @return Collection<int, ClientUser>
+     */
+    public function eligibleRecipients(ClientRequestReply $reply): Collection
+    {
+        $fresh = $this->stillExists($reply);
+
+        return $fresh === null ? collect() : $this->recipientsForExisting($fresh);
+    }
+
+    /**
+     * Phần sau cổng "câu trả lời còn tồn tại": cuộc trao đổi còn, vụ việc còn công bố portal, rồi
+     * tài khoản R12.
+     *
+     * @return Collection<int, ClientUser>
+     */
+    private function recipientsForExisting(ClientRequestReply $freshReply): Collection
+    {
+        $thread = $this->stillExistingThread($freshReply);
+
+        if ($thread === null) {
+            return collect();
+        }
+
+        $matter = $this->publishedMatterFor($thread);
+
+        if ($matter === null) {
+            return collect();
+        }
+
+        return app(ResolveClientRecipients::class)->recipientsFor($matter->client_id);
+    }
+
+    public function alreadyDelivered(ClientRequestReply $reply, ClientUser $recipient): bool
     {
         return OutboundMessage::query()
             ->withoutGlobalScopes()

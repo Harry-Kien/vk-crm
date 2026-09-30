@@ -11,6 +11,7 @@ use App\Models\MatterChecklistItem;
 use App\Models\OutboundMessage;
 use App\Notifications\Staff\ChecklistItemRejectedMailFailedAlert;
 use App\Support\Scopes\ClientPortalScope;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
 use Throwable;
 
@@ -45,13 +46,7 @@ class NotifyClientOfChecklistItemRejected
             return 0;
         }
 
-        $matter = $this->notifiableMatter($fresh->matter_id);
-
-        if ($matter === null) {
-            return 0;
-        }
-
-        $recipients = app(ResolveClientRecipients::class)->recipientsFor($matter->client_id);
+        $recipients = $this->recipientsForRejected($fresh);
 
         if ($recipients->isEmpty()) {
             return 0;
@@ -157,6 +152,42 @@ class NotifyClientOfChecklistItemRejected
     }
 
     /**
+     * Những tài khoản ĐỦ ĐIỀU KIỆN nhận thư về lần từ chối HIỆN TẠI của đầu mục này NGAY BÂY GIỜ —
+     * mọi cổng kiểm tra lúc gửi của {@see self::handle()} gộp lại (đầu mục còn bị từ chối đúng
+     * lần `reviewed_at` mà `$checklistItem` mang, vụ việc còn mở + còn công bố portal, tài khoản
+     * R12). Rỗng là "không gửi cho ai". Khác {@see self::hasEligibleRecipient()} ở đúng cổng
+     * {@see self::stillRejected()}, thứ màn hình duyệt không hỏi (nó hỏi TRƯỚC khi từ chối).
+     *
+     * Public để nút "Gửi lại" của nhật ký thư ({@see ResendOutboundMessage}) hỏi đúng câu này
+     * thay vì viết luật thứ hai.
+     *
+     * @return Collection<int, ClientUser>
+     */
+    public function eligibleRecipients(MatterChecklistItem $checklistItem): Collection
+    {
+        $fresh = $this->stillRejected($checklistItem);
+
+        return $fresh === null ? collect() : $this->recipientsForRejected($fresh);
+    }
+
+    /**
+     * Phần sau cổng "còn bị từ chối đúng lần này": vụ việc còn mở + còn công bố portal
+     * ({@see self::notifiableMatter()}), rồi tài khoản R12.
+     *
+     * @return Collection<int, ClientUser>
+     */
+    private function recipientsForRejected(MatterChecklistItem $fresh): Collection
+    {
+        $matter = $this->notifiableMatter($fresh->matter_id);
+
+        if ($matter === null) {
+            return collect();
+        }
+
+        return app(ResolveClientRecipients::class)->recipientsFor($matter->client_id);
+    }
+
+    /**
      * Fix round 2 (finding 2): "lý do từ chối có HIỆN cho khách trên cổng khách hàng không" — câu
      * hỏi thứ HAI của câu báo sau khi từ chối, khi {@see self::hasEligibleRecipient()} đã nói không
      * có thư. Hai câu trả lời khác nhau đòi hai câu chữ khác nhau: vụ đã đóng hay khách chưa kích
@@ -190,7 +221,7 @@ class NotifyClientOfChecklistItemRejected
         );
     }
 
-    private function alreadyDelivered(MatterChecklistItem $checklistItem, ClientUser $recipient): bool
+    public function alreadyDelivered(MatterChecklistItem $checklistItem, ClientUser $recipient): bool
     {
         return OutboundMessage::query()
             ->withoutGlobalScopes()

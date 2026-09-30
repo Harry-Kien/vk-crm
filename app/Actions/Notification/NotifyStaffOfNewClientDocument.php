@@ -13,6 +13,7 @@ use App\Notifications\Staff\NewClientDocumentAlert;
 use App\Notifications\Staff\NewClientDocumentMailFailedAlert;
 use App\Support\Scopes\ClientPortalScope;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Collection as SupportCollection;
 use Illuminate\Support\Facades\Mail;
 use Throwable;
 
@@ -45,14 +46,8 @@ class NotifyStaffOfNewClientDocument
             return 0;
         }
 
-        $matter = $this->existingMatterFor($fresh);
-
-        if ($matter === null) {
-            return 0;
-        }
-
         $count = $this->freshCount($documents);
-        $recipients = app(ResolveStaffRecipients::class)->handle($matter, $this->preferred($matter));
+        $recipients = $this->recipientsForExisting($fresh);
 
         foreach ($recipients as $recipient) {
             if (! $this->alreadyAlerted($recipient, $fresh)) {
@@ -83,6 +78,39 @@ class NotifyStaffOfNewClientDocument
         }
 
         return $sent;
+    }
+
+    /**
+     * Những nhân sự ĐỦ ĐIỀU KIỆN nhận thư về lô tệp có `$representative` là tệp đại diện NGAY BÂY
+     * GIỜ — mọi cổng kiểm tra lúc gửi của {@see self::handle()} gộp lại (tệp và vụ việc còn tồn
+     * tại, rồi {@see ResolveStaffRecipients::handle()} với danh sách ưu tiên của
+     * {@see self::preferred()}: R3, còn đi làm và xem được vụ). Public để nút "Gửi lại" của nhật
+     * ký thư ({@see ResendOutboundMessage}) hỏi đúng câu này thay vì viết luật thứ hai.
+     *
+     * @return SupportCollection<int, User>
+     */
+    public function eligibleRecipients(Document $representative): SupportCollection
+    {
+        $fresh = $this->stillExists($representative);
+
+        return $fresh === null ? collect() : $this->recipientsForExisting($fresh);
+    }
+
+    /**
+     * Phần sau cổng "tệp đại diện còn tồn tại": vụ việc còn (kể cả đã đóng — xem
+     * {@see self::existingMatterFor()}), rồi người nhận R3.
+     *
+     * @return SupportCollection<int, User>
+     */
+    private function recipientsForExisting(Document $fresh): SupportCollection
+    {
+        $matter = $this->existingMatterFor($fresh);
+
+        if ($matter === null) {
+            return collect();
+        }
+
+        return app(ResolveStaffRecipients::class)->handle($matter, $this->preferred($matter));
     }
 
     /**
@@ -154,7 +182,7 @@ class NotifyStaffOfNewClientDocument
             ->exists();
     }
 
-    private function alreadyDelivered(Document $representative, User $recipient): bool
+    public function alreadyDelivered(Document $representative, User $recipient): bool
     {
         return OutboundMessage::query()
             ->withoutGlobalScopes()

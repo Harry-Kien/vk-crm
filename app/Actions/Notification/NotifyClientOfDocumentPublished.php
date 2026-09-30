@@ -10,6 +10,7 @@ use App\Models\Matter;
 use App\Models\OutboundMessage;
 use App\Notifications\Staff\DocumentPublishedMailFailedAlert;
 use App\Support\Scopes\ClientPortalScope;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
 use Throwable;
 
@@ -58,18 +59,7 @@ class NotifyClientOfDocumentPublished
             return 0;
         }
 
-        $matter = Matter::query()
-            ->withoutGlobalScope(ClientPortalScope::class)
-            ->whereKey($fresh->matter_id)
-            ->open()
-            ->where('is_published_to_portal', true)
-            ->first(['id', 'client_id']);
-
-        if ($matter === null) {
-            return 0;
-        }
-
-        $recipients = app(ResolveClientRecipients::class)->recipientsFor($matter->client_id);
+        $recipients = $this->recipientsForReleased($fresh);
 
         if ($recipients->isEmpty()) {
             return 0;
@@ -101,6 +91,43 @@ class NotifyClientOfDocumentPublished
     }
 
     /**
+     * Những tài khoản ĐỦ ĐIỀU KIỆN nhận thư về tài liệu này NGAY BÂY GIỜ — mọi cổng kiểm tra lúc
+     * gửi của {@see self::handle()} gộp lại (tài liệu còn ra tới khách, vụ việc còn mở và còn
+     * công bố portal, tài khoản R12). Rỗng là "không gửi cho ai". Public để nút "Gửi lại" của nhật
+     * ký thư ({@see ResendOutboundMessage}) hỏi đúng câu này thay vì viết luật thứ hai.
+     *
+     * @return Collection<int, ClientUser>
+     */
+    public function eligibleRecipients(Document $document): Collection
+    {
+        $fresh = $this->stillReleasedToPortal($document);
+
+        return $fresh === null ? collect() : $this->recipientsForReleased($fresh);
+    }
+
+    /**
+     * Phần sau cổng "tài liệu còn ra tới khách": vụ việc còn mở VÀ còn công bố portal (fix round
+     * 1, Critical 1), rồi tài khoản R12.
+     *
+     * @return Collection<int, ClientUser>
+     */
+    private function recipientsForReleased(Document $fresh): Collection
+    {
+        $matter = Matter::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->whereKey($fresh->matter_id)
+            ->open()
+            ->where('is_published_to_portal', true)
+            ->first(['id', 'client_id']);
+
+        if ($matter === null) {
+            return collect();
+        }
+
+        return app(ResolveClientRecipients::class)->recipientsFor($matter->client_id);
+    }
+
+    /**
      * Đọc lại TƯƠI từ CSDL rằng tài liệu còn đúng nghĩa "đã ra tới khách" — xem docblock lớp.
      * `withoutGlobalScope(ClientPortalScope::class)`: cùng lý do `NotifyClientOfStageUpdate::
      * stillReleasedToPortal()`, một job hàng đợi có thể chạy trong tiến trình còn treo ngữ cảnh
@@ -124,7 +151,7 @@ class NotifyClientOfDocumentPublished
      * Cùng hình dạng `NotifyClientOfStageUpdate::alreadyDelivered()` — không cần khoá bổ sung
      * (xem docblock lớp).
      */
-    private function alreadyDelivered(Document $document, ClientUser $recipient): bool
+    public function alreadyDelivered(Document $document, ClientUser $recipient): bool
     {
         return OutboundMessage::query()
             ->withoutGlobalScopes()

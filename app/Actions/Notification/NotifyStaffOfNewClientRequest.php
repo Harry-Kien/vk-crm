@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Notifications\Staff\NewClientRequestAlert;
 use App\Notifications\Staff\NewClientRequestMailFailedAlert;
 use App\Support\Scopes\ClientPortalScope;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
 use Throwable;
 
@@ -52,13 +53,7 @@ class NotifyStaffOfNewClientRequest
             return 0;
         }
 
-        $matter = $this->existingMatterFor($fresh);
-
-        if ($matter === null) {
-            return 0;
-        }
-
-        $recipients = app(ResolveStaffRecipients::class)->handle($matter, $this->preferred($fresh, $matter));
+        $recipients = $this->recipientsForExisting($fresh);
 
         // Thông báo trong hệ thống trước, KHÔNG phụ thuộc vào việc gửi thư có thành công hay
         // không — xem docblock lớp.
@@ -91,6 +86,39 @@ class NotifyStaffOfNewClientRequest
         }
 
         return $sent;
+    }
+
+    /**
+     * Những nhân sự ĐỦ ĐIỀU KIỆN nhận thư về yêu cầu này NGAY BÂY GIỜ — mọi cổng kiểm tra lúc gửi
+     * của {@see self::handle()} gộp lại (yêu cầu và vụ việc còn tồn tại, rồi
+     * {@see ResolveStaffRecipients::handle()} với danh sách ưu tiên của {@see self::preferred()}:
+     * R3, còn đi làm và xem được vụ). Public để nút "Gửi lại" của nhật ký thư
+     * ({@see ResendOutboundMessage}) hỏi đúng câu này thay vì viết luật thứ hai.
+     *
+     * @return Collection<int, User>
+     */
+    public function eligibleRecipients(ClientRequest $request): Collection
+    {
+        $fresh = $this->stillOpenRequest($request);
+
+        return $fresh === null ? collect() : $this->recipientsForExisting($fresh);
+    }
+
+    /**
+     * Phần sau cổng "yêu cầu còn tồn tại": vụ việc còn (kể cả đã đóng — xem
+     * {@see self::existingMatterFor()}), rồi người nhận R3.
+     *
+     * @return Collection<int, User>
+     */
+    private function recipientsForExisting(ClientRequest $fresh): Collection
+    {
+        $matter = $this->existingMatterFor($fresh);
+
+        if ($matter === null) {
+            return collect();
+        }
+
+        return app(ResolveStaffRecipients::class)->handle($matter, $this->preferred($fresh, $matter));
     }
 
     /**
@@ -146,7 +174,7 @@ class NotifyStaffOfNewClientRequest
             ->exists();
     }
 
-    private function alreadyDelivered(ClientRequest $request, User $recipient): bool
+    public function alreadyDelivered(ClientRequest $request, User $recipient): bool
     {
         return OutboundMessage::query()
             ->withoutGlobalScopes()

@@ -15,6 +15,7 @@ use App\Support\MatterStaleness;
 use Filament\Notifications\Notification;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
 use Throwable;
 
@@ -66,26 +67,13 @@ class SendStaleMatterMail implements ShouldQueue
 
     public function handle(): void
     {
-        /** @var Matter|null $matter */
-        $matter = Matter::query()->find($this->matterId);
+        $context = $this->context();
 
-        if ($matter === null) {
+        if ($context === null) {
             return;
         }
 
-        // Vụ việc đã đóng/xoá mềm/tắt cổng, hay vừa được cập nhật cho khách, giữa lúc job xếp hàng
-        // và lúc nó chạy — cùng định nghĩa DUY NHẤT `MatterStaleness::scopeStale()` mà
-        // `CheckStaleMatters` đã dùng để dựng danh sách ứng viên, không viết lại nó lần nữa ở đây.
-        if (! MatterStaleness::scopeStale(Matter::query()->whereKey($matter->getKey()))->exists()) {
-            return;
-        }
-
-        if (! MatterStaleness::olderThan($matter, MatterStaleness::EMAIL_AFTER_DAYS)) {
-            return;
-        }
-
-        // Tính lại TOÀN BỘ đối tượng nhận thư TẠI THỜI ĐIỂM GỬI — xem docblock lớp.
-        $recipients = app(CheckStaleMatters::class)->recipientsFor($matter, 'mail');
+        [$matter, $recipients] = $context;
 
         $failure = null;
 
@@ -107,6 +95,50 @@ class SendStaleMatterMail implements ShouldQueue
     }
 
     /**
+     * Những nhân sự ĐỦ ĐIỀU KIỆN nhận thư NGAY BÂY GIỜ — đúng các bước tính lại của
+     * {@see self::handle()}, dùng chung qua {@see self::context()}. Rỗng là "không gửi cho ai".
+     * Public để nút "Gửi lại" của nhật ký thư ({@see ResendOutboundMessage}) hỏi đúng câu này thay
+     * vì viết luật thứ hai.
+     *
+     * @return Collection<int, User>
+     */
+    public function eligibleRecipients(): Collection
+    {
+        return $this->context()[1] ?? collect();
+    }
+
+    /**
+     * Các bước tính lại của `handle()`, một chỗ: hồ sơ còn tồn tại, còn nằm trong tập đình trệ
+     * (`MatterStaleness::scopeStale()`), còn quá ngưỡng thư, rồi người nhận. `null` khi một bước
+     * nào đó không còn đúng.
+     *
+     * @return array{0: Matter, 1: Collection<int, User>}|null
+     */
+    private function context(): ?array
+    {
+        /** @var Matter|null $matter */
+        $matter = Matter::query()->find($this->matterId);
+
+        if ($matter === null) {
+            return null;
+        }
+
+        // Vụ việc đã đóng/xoá mềm/tắt cổng, hay vừa được cập nhật cho khách, giữa lúc job xếp hàng
+        // và lúc nó chạy — cùng định nghĩa DUY NHẤT `MatterStaleness::scopeStale()` mà
+        // `CheckStaleMatters` đã dùng để dựng danh sách ứng viên, không viết lại nó lần nữa ở đây.
+        if (! MatterStaleness::scopeStale(Matter::query()->whereKey($matter->getKey()))->exists()) {
+            return null;
+        }
+
+        if (! MatterStaleness::olderThan($matter, MatterStaleness::EMAIL_AFTER_DAYS)) {
+            return null;
+        }
+
+        // Tính lại TOÀN BỘ đối tượng nhận thư TẠI THỜI ĐIỂM GỬI — xem docblock lớp.
+        return [$matter, app(CheckStaleMatters::class)->recipientsFor($matter, 'mail')];
+    }
+
+    /**
      * Cùng hình dạng {@see SendDeadlineReminderMail::alreadyDelivered()}, không có điều kiện
      * "bậc" (mẫu này chỉ có MỘT hình dạng) nhưng CÓ điều kiện `template`: chỉ một thư
      * `staff.stale_matter` đã gửi mới tính là "đã nhắc" — thư mẫu khác về cùng vụ việc tới cùng
@@ -116,7 +148,7 @@ class SendStaleMatterMail implements ShouldQueue
      * TỪNG người nhận, cho lúc thử lại và cho hai lần chạy Action xếp job trước khi ai rút hàng đợi
      * (các job chạy nối nhau, sổ thư được transport ghi đồng bộ).
      */
-    private function alreadyDelivered(Matter $matter, User $recipient): bool
+    public function alreadyDelivered(Matter $matter, User $recipient): bool
     {
         return OutboundMessage::query()
             ->withoutGlobalScopes()

@@ -72,6 +72,29 @@ it('lists exactly the items that are missing, with a portal link, in both bodies
         ->toContain(PortalUrl::base());
 });
 
+/**
+ * Bản văn bản thuần đọc được như một danh sách (nghiệm thu M6 Task 10, thư thật trong log trên dữ
+ * liệu seed): mỗi đầu mục một dòng, KHÔNG có dấu cách thừa cuối dòng, và một dòng trống trước liên
+ * kết vào cổng. Trước bản sửa, `@endif` cuối vòng lặp nuốt mất dòng trống nên liên kết dính ngay
+ * dưới đầu mục cuối, và dấu cách giữa hai khối `@if` để lại một khoảng trắng cuối mỗi dòng.
+ *
+ * Mutation probe: bỏ dòng trống sau `@endforeach` trong `missing-documents-text.blade.php` → ĐỎ.
+ */
+it('keeps the plain-text list readable: one item per line, no trailing space, a blank line before the portal link', function () {
+    [$matter, $account] = missingDocsMailFixture();
+    $one = outstandingItem($matter, 'Chứng minh nhân dân');
+    $two = outstandingItem($matter, 'Sổ hộ khẩu', ChecklistItemStatus::Rejected, [
+        'rejection_reason' => 'Ảnh mờ.',
+        'reviewed_at' => now(),
+    ]);
+
+    $text = renderMissingDocuments($matter, $account, collect([$one, $two]))['text'];
+
+    expect($text)->toContain(__('portal.email.missing_documents.line', ['code' => $matter->code])."\n\n- Chứng minh nhân dân\n- Sổ hộ khẩu — ")
+        ->toContain('Ảnh mờ.')
+        ->toContain(")\n\n".__('portal.email.missing_documents.open').' '.PortalUrl::base());
+});
+
 /** Đúng những gì được TRUYỀN vào: một đầu mục không có trong danh sách thì không có trong thư. */
 it('does not mention an item that is not in the list it was given', function () {
     [$matter, $account] = missingDocsMailFixture();
