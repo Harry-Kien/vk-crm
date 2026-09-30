@@ -29,6 +29,14 @@ use LogicException;
  * Bước mật khẩu và bước mã có bộ đếm riêng, mỗi bộ hai chiều (tài khoản + IP); đăng nhập thành
  * công chỉ xoá chiều tài khoản.
  *
+ * Nguyên tắc ấy đúng NGUYÊN VĂN ở bước mật khẩu (chỉ lần sai mới đập). Ở bước mã, bộ đếm bị đập
+ * TRƯỚC khi chấm mã (khe đọc-rồi-ghi giữa request song song không kéo dài qua lần chấm), nên
+ * lần đúng cũng tiêu một suất; chiều tài khoản của lần đúng được xoá, còn chiều địa chỉ thì được
+ * HOÀN đúng suất đó
+ * ({@see LoginThrottle::refundCodeIp()}) — nếu không, 2FA bắt buộc cộng với một địa chỉ NAT dùng
+ * chung khoá cả văn phòng chỉ bằng những lần gõ ĐÚNG. (Chiều địa chỉ vẫn không bị XOÁ bởi đăng
+ * nhập: hoàn một suất của chính request này khác với xoá những lần hỏng của người khác.)
+ *
  * # Nhật ký
  *
  * Lỗi ở BƯỚC MẬT KHẨU được ghi bởi {@see RecordStaffLoginFailure} (nghe sự kiện
@@ -47,6 +55,14 @@ class Login extends BaseLogin
      * lần gõ sai mã và ghi nhật ký `login_failed` cho một lần thử không hề được chấm.
      */
     private bool $codeStepThrottled = false;
+
+    /**
+     * Request này đã đập khoá ĐỊA CHỈ của bước mã (`hitRateLimiter()`). Chỉ khi cờ này bật thì
+     * {@see self::authenticate()} mới hoàn suất sau một lần nhập mã đúng: một đăng nhập KHÔNG qua
+     * bước mã (nhân sự chưa cài 2FA — mật khẩu đúng là vào, rồi bị đẩy sang trang cài đặt) chưa
+     * tiêu suất nào, và hoàn cho nó là ăn mất lần hỏng của đồng nghiệp cùng địa chỉ.
+     */
+    private bool $codeIpHit = false;
 
     /**
      * Ghi đè bộ đếm 60 giây / theo IP của `WithRateLimiting` bằng bộ đếm SPEC §10.3. Chỉ KIỂM TRA,
@@ -83,7 +99,8 @@ class Login extends BaseLogin
     /**
      * Cổng của bước nhập mã. Lớp cha trả `true` để dựng lại màn hình kèm một toast; ở đây ném lỗi
      * xác thực gắn vào ô đang hiện. Chưa chạm trần thì đập bộ đếm như lớp cha — mỗi lần gửi mã là
-     * một lần thử, kể cả lần đúng; chiều tài khoản của lần đúng được xoá ở {@see self::authenticate()}.
+     * một lần thử, kể cả lần đúng; lần đúng được dọn ở {@see self::authenticate()} (xoá chiều tài
+     * khoản, hoàn suất của chiều địa chỉ).
      */
     protected function isMultiFactorChallengeRateLimited(Authenticatable $user): bool
     {
@@ -100,6 +117,7 @@ class Login extends BaseLogin
         }
 
         $challenge->hitRateLimiter($user);
+        $this->codeIpHit = true;
 
         return false;
     }
@@ -112,6 +130,7 @@ class Login extends BaseLogin
     public function authenticate(): ?LoginResponse
     {
         $this->codeStepThrottled = false;
+        $this->codeIpHit = false;
 
         try {
             $response = parent::authenticate();
@@ -123,6 +142,12 @@ class Login extends BaseLogin
 
         if ($response !== null) {
             $this->clearAccountThrottles();
+
+            if ($this->codeIpHit) {
+                // Mã đúng: lần thử này không phải một lần HỎNG nên không được tiêu chiều địa chỉ
+                // dùng chung — lý do đầy đủ ở docblock của refundCodeIp().
+                StaffLoginThrottle::refundCodeIp();
+            }
         }
 
         return $response;

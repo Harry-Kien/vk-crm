@@ -51,12 +51,15 @@ function staffLoginSnapshot(): string
     throw new RuntimeException('Không có snapshot Livewire của trang đăng nhập nhân sự trong HTML đã render.');
 }
 
-/** @param  array<string, mixed>  $updates */
-function postStaffLogin(string $snapshot, array $updates, string $ip): TestResponse
+/**
+ * @param  array<string, mixed>  $updates
+ * @param  array<string, string>  $headers
+ */
+function postStaffLogin(string $snapshot, array $updates, string $ip, array $headers = []): TestResponse
 {
     return test()
         ->withServerVariables(['REMOTE_ADDR' => $ip])
-        ->withHeaders(['X-Livewire' => '1'])
+        ->withHeaders(['X-Livewire' => '1'] + $headers)
         ->postJson(Livewire::getUpdateUri(), [
             'components' => [[
                 'snapshot' => $snapshot,
@@ -98,6 +101,19 @@ function submitStaffPassword(User $user, string $password = 'password'): Testabl
 function staffTotp(User $user): string
 {
     return app(Google2FA::class)->getCurrentOtp($user->two_factor_secret);
+}
+
+/**
+ * Một nhân sự có secret 2FA RIÊNG. Factory dùng chung một secret cho mọi người (tiện cho test một
+ * người), nhưng Filament chống dùng lại mã theo secret (`verifyKeyNewer`, khoá cache theo secret):
+ * hai "đồng nghiệp" cùng secret gõ cùng mã TOTP trong cùng 30 giây thì người thứ hai bị từ chối
+ * vì lý do không liên quan tới bộ đếm — thứ mà các test nhiều người ở dưới không được đo nhầm.
+ */
+function staffWithOwnSecret(): User
+{
+    return User::factory()
+        ->withRole(Role::Lawyer)
+        ->create(['two_factor_secret' => app(Google2FA::class)->generateSecretKey()]);
 }
 
 /** Một mã 6 số chắc chắn SAI: không nằm trong cửa sổ ±8 bước mà Filament chấp nhận. */
@@ -389,8 +405,128 @@ it('§10.3 clears only the account side of the admin code lock when the code is 
 
     expect(auth('web')->check())->toBeTrue()
         ->and(RateLimiter::attempts($accountKey))->toBe(0)
-        // Bước mã đập bộ đếm ở MỌI lần gửi, kể cả lần đúng: 3 sai + 1 đúng = 4 ở chiều địa chỉ.
-        ->and(RateLimiter::attempts($ipKey))->toBe(4);
+        // Chiều địa chỉ đếm lần HỎNG, không đếm lần thử: 3 sai + 1 đúng = 3 (lần đúng tự hoàn lại
+        // suất nó vừa tiêu). Bản trước ghim 4 — chính con số đó khoá cả văn phòng mỗi sáng.
+        ->and(RateLimiter::attempts($ipKey))->toBe(3);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Fix round 1 (F1) — một mã ĐÚNG không được tiêu chiều địa chỉ dùng chung
+|--------------------------------------------------------------------------
+|
+| 2FA bắt buộc cho MỌI nhân sự (Task 2) và cả văn phòng ra Internet qua MỘT địa chỉ NAT. Bản trước
+| đập chiều IP của bước mã ở mọi lần gửi, kể cả lần đúng: người thứ sáu gõ ĐÚNG mã lúc 8 giờ sáng
+| bị "thử quá nhiều lần" dù không ai gõ sai. `Livewire::test()` dựng mọi request với REMOTE_ADDR
+| 127.0.0.1, tức đúng một địa chỉ dùng chung — đủ để dựng tình huống này.
+*/
+it('§10.3 lets six colleagues behind one shared address pass the code step, none of them having typed a wrong code', function () {
+    $colleagues = collect(range(1, 6))->map(fn () => staffWithOwnSecret());
+
+    foreach ($colleagues as $index => $colleague) {
+        // Người trước đã đăng nhập xong trong cùng process test; đăng xuất để trang đăng nhập hiện lại.
+        auth('web')->logout();
+
+        $component = submitStaffPassword($colleague)->assertHasNoErrors();
+
+        $component->set('data.multiFactor.app.code', staffTotp($colleague))
+            ->call('authenticate')
+            ->assertHasNoErrors();
+
+        expect(auth('web')->check())->toBeTrue(
+            'Nhân sự thứ '.($index + 1).' gõ đúng mã mà vẫn không vào được.'
+        );
+    }
+
+    expect(RateLimiter::attempts(StaffLoginThrottle::codeIpKey()))->toBe(0);
+});
+
+it('§10.3 still counts every WRONG code against the shared address, and only those', function () {
+    $typo = staffWithOwnSecret();
+    $others = collect(range(1, 5))->map(fn () => staffWithOwnSecret());
+
+    // Một người gõ sai hai mã rồi gõ đúng: hai lần hỏng ở lại trên khoá địa chỉ.
+    $component = submitStaffPassword($typo)->assertHasNoErrors();
+
+    foreach (range(1, 2) as $ignored) {
+        $component->set('data.multiFactor.app.code', staffWrongTotp($typo))->call('authenticate');
+    }
+
+    $component->set('data.multiFactor.app.code', staffTotp($typo))->call('authenticate')->assertHasNoErrors();
+
+    expect(RateLimiter::attempts(StaffLoginThrottle::codeIpKey()))->toBe(2);
+
+    // Năm người khác gõ đúng: không ai tiêu thêm suất nào, khoá địa chỉ vẫn ở 2.
+    foreach ($others as $other) {
+        auth('web')->logout();
+
+        submitStaffPassword($other)
+            ->set('data.multiFactor.app.code', staffTotp($other))
+            ->call('authenticate')
+            ->assertHasNoErrors();
+
+        expect(auth('web')->check())->toBeTrue();
+    }
+
+    expect(RateLimiter::attempts(StaffLoginThrottle::codeIpKey()))->toBe(2);
+
+    // Ba mã sai nữa của người thứ bảy vẫn chạm đúng trần 5 (2 + 3): chiều IP không bị nới.
+    $seventh = staffWithOwnSecret();
+    auth('web')->logout();
+
+    $component = submitStaffPassword($seventh)->assertHasNoErrors();
+
+    foreach (range(1, 3) as $ignored) {
+        $component->set('data.multiFactor.app.code', staffWrongTotp($seventh))->call('authenticate');
+    }
+
+    expect(StaffLoginThrottle::tooManyAttempts([StaffLoginThrottle::codeIpKey()]))->toBeTrue();
+});
+
+it('§10.3 refunds nothing when a sign-in never reached the code step, so it cannot eat a colleague\'s failures', function () {
+    $typo = staffWithOwnSecret();
+    $newcomer = User::factory()->withoutTwoFactor()->withRole(Role::Lawyer)->create();
+
+    $component = submitStaffPassword($typo)->assertHasNoErrors();
+    $component->set('data.multiFactor.app.code', staffWrongTotp($typo))->call('authenticate');
+
+    expect(RateLimiter::attempts(StaffLoginThrottle::codeIpKey()))->toBe(1);
+
+    // Chưa cài 2FA: mật khẩu đúng là vào (rồi bị đẩy sang trang cài đặt) — không qua bước mã nào,
+    // nên không có suất nào để hoàn. Hoàn vô điều kiện sẽ xoá mất lần hỏng của người trước.
+    auth('web')->logout();
+    submitStaffPassword($newcomer)->assertHasNoErrors();
+
+    expect(auth('web')->check())->toBeTrue()
+        ->and(RateLimiter::attempts(StaffLoginThrottle::codeIpKey()))->toBe(1);
+});
+
+it('§10.3 refunds the shared address too when the code step is passed with a recovery code', function () {
+    $staff = User::factory()->withRole(Role::Lawyer)->create();
+    $staff->saveAppAuthenticationRecoveryCodes([Hash::make('ma-khoi-phuc-that-1')]);
+
+    $component = submitStaffPassword($staff)->assertHasNoErrors();
+    $component->set('data.multiFactor.app.useRecoveryCode', true)
+        ->set('data.multiFactor.app.recoveryCode', 'ma-khoi-phuc-that-1')
+        ->call('authenticate')
+        ->assertHasNoErrors();
+
+    expect(auth('web')->check())->toBeTrue()
+        ->and(RateLimiter::attempts(StaffLoginThrottle::codeIpKey()))->toBe(0);
+});
+
+it('§10.3 never lets a refund push the shared address counter below zero, e.g. when its window ran out mid-request', function () {
+    // Khoá hết hạn giữa lúc chấm mã: `decrement()` trên khoá trống ghi -1 và tặng địa chỉ đó một
+    // suất thừa (5 lần sai + 1 = 6 mới chạm trần). Hoàn phải dừng ở 0.
+    StaffLoginThrottle::refundCodeIp();
+
+    expect(RateLimiter::attempts(StaffLoginThrottle::codeIpKey()))->toBe(0);
+
+    foreach (range(1, 5) as $ignored) {
+        RateLimiter::hit(StaffLoginThrottle::codeIpKey(), StaffLoginThrottle::DECAY_SECONDS);
+    }
+
+    expect(StaffLoginThrottle::tooManyAttempts([StaffLoginThrottle::codeIpKey()]))->toBeTrue();
 });
 
 it('§10.3 gives the staff counters and the portal counters different baskets', function () {
@@ -664,4 +800,114 @@ it('§10.3 still finds the SPEC number at the Filament call site the admin login
     $source = file_get_contents(base_path('vendor/filament/filament/src/Auth/Pages/Login.php'));
 
     expect($source)->toContain('$this->rateLimit('.StaffLoginThrottle::MAX_ATTEMPTS.')');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Fix round 1 (F3) — địa chỉ nào được đếm khi có proxy đứng trước /admin/login
+|--------------------------------------------------------------------------
+|
+| Mọi test ở trên chỉ đổi REMOTE_ADDR. Thực tế /admin đứng sau nginx/CDN: nếu `TRUSTED_PROXIES`
+| hỏng hay vắng thì mọi nhân sự chung MỘT địa chỉ (của proxy) và năm lần hỏng của bất kỳ ai khoá
+| cả cổng; nếu đúng thì bộ đếm phải theo địa chỉ khách ở `X-Forwarded-For`. Cùng khuôn với
+| `tests/Feature/Portal/LoginTest.php` ("địa chỉ nào được đếm và được ghi khi có proxy").
+*/
+const STAFF_PROXY = '10.0.0.1';
+const STAFF_CLIENT_A = '203.0.113.10';
+const STAFF_CLIENT_B = '203.0.113.20';
+
+/** @return array<string, string> */
+function forwardedFor(string $client): array
+{
+    return ['X-Forwarded-For' => $client];
+}
+
+/** Snapshot của thành phần đăng nhập sau một response Livewire — để đi tiếp sang bước mã. */
+function staffSnapshotFrom(TestResponse $response): string
+{
+    $response->assertOk();
+
+    return json_decode($response->getContent(), true)['components'][0]['snapshot'];
+}
+
+it('§10.3 keys the admin password counters on the forwarded client address behind a trusted proxy', function () {
+    config(['trustedproxy.proxies' => STAFF_PROXY]);
+
+    $snapshot = staffLoginSnapshot();
+
+    foreach (range(1, 5) as $i) {
+        postStaffLogin($snapshot, ['data.email' => "khong-co-{$i}@example.test", 'data.password' => 'sai'], STAFF_PROXY, forwardedFor(STAFF_CLIENT_A));
+    }
+
+    // Năm lần hỏng nằm trên địa chỉ KHÁCH (A), không phải trên địa chỉ của proxy, không lan sang B.
+    expect(RateLimiter::attempts(StaffLoginThrottle::passwordIpKeyFor(STAFF_CLIENT_A)))->toBe(5)
+        ->and(RateLimiter::attempts(StaffLoginThrottle::passwordIpKeyFor(STAFF_PROXY)))->toBe(0)
+        ->and(RateLimiter::attempts(StaffLoginThrottle::passwordIpKeyFor(STAFF_CLIENT_B)))->toBe(0);
+
+    // A bị khoá kể cả với một email hoàn toàn mới; B đi sau CÙNG proxy vẫn thấy câu "sai mật khẩu".
+    $fromA = postStaffLogin($snapshot, ['data.email' => 'moi@example.test', 'data.password' => 'sai'], STAFF_PROXY, forwardedFor(STAFF_CLIENT_A));
+    $fromB = postStaffLogin($snapshot, ['data.email' => 'moi-2@example.test', 'data.password' => 'sai'], STAFF_PROXY, forwardedFor(STAFF_CLIENT_B));
+
+    expect(staffLoginErrors($fromA)['data.email'][0] ?? null)->toBe(staffThrottleMessage(15))
+        ->and(staffLoginErrors($fromB)['data.email'][0] ?? null)->toBe(staffLoginFailedMessage());
+});
+
+it('§10.3 keys the admin code counters on the forwarded client address behind a trusted proxy', function () {
+    config(['trustedproxy.proxies' => STAFF_PROXY]);
+
+    $staff = User::factory()->withRole(Role::Lawyer)->create(['password' => 'mat-khau-dung']);
+
+    $step1 = postStaffLogin(staffLoginSnapshot(), ['data.email' => $staff->email, 'data.password' => 'mat-khau-dung'], STAFF_PROXY, forwardedFor(STAFF_CLIENT_A));
+    $snapshot = staffSnapshotFrom($step1);
+
+    foreach (range(1, 2) as $ignored) {
+        $step = postStaffLogin($snapshot, ['data.multiFactor.app.code' => staffWrongTotp($staff)], STAFF_PROXY, forwardedFor(STAFF_CLIENT_A));
+        $snapshot = staffSnapshotFrom($step);
+    }
+
+    expect(RateLimiter::attempts(StaffLoginThrottle::codeIpKeyFor(STAFF_CLIENT_A)))->toBe(2)
+        ->and(RateLimiter::attempts(StaffLoginThrottle::codeIpKeyFor(STAFF_PROXY)))->toBe(0)
+        ->and(RateLimiter::attempts(StaffLoginThrottle::codeIpKeyFor(STAFF_CLIENT_B)))->toBe(0);
+
+    // Và dòng nhật ký `login_failed` của bước mã ghi đúng địa chỉ khách — dữ liệu mà nút mở khoá đọc.
+    expect(staffFailedRows($staff, 'code')->pluck('properties.ip')->unique()->all())->toBe([STAFF_CLIENT_A]);
+});
+
+it('§10.3 ignores X-Forwarded-For from an address that is not a trusted proxy', function () {
+    config(['trustedproxy.proxies' => STAFF_PROXY]);
+
+    $snapshot = staffLoginSnapshot();
+
+    // REMOTE_ADDR KHÔNG phải proxy được tin: header do kẻ gọi tự đặt, bị bỏ qua.
+    postStaffLogin($snapshot, ['data.email' => 'gia-mao@example.test', 'data.password' => 'sai'], '198.51.100.7', forwardedFor(STAFF_CLIENT_A));
+
+    expect(RateLimiter::attempts(StaffLoginThrottle::passwordIpKeyFor('198.51.100.7')))->toBe(1)
+        ->and(RateLimiter::attempts(StaffLoginThrottle::passwordIpKeyFor(STAFF_CLIENT_A)))->toBe(0);
+});
+
+it('§10.3 collapses every staff member onto the proxy address while no proxy is trusted — the failure mode the preflight guards', function () {
+    expect(config('trustedproxy.proxies'))->toBeNull();
+
+    $snapshot = staffLoginSnapshot();
+
+    postStaffLogin($snapshot, ['data.email' => 'a@example.test', 'data.password' => 'sai'], STAFF_PROXY, forwardedFor(STAFF_CLIENT_A));
+    postStaffLogin($snapshot, ['data.email' => 'b@example.test', 'data.password' => 'sai'], STAFF_PROXY, forwardedFor(STAFF_CLIENT_B));
+
+    // Hai khách khác nhau, MỘT khoá — đó là lý do `vkcrm:preflight` đòi `TRUSTED_PROXIES` đúng.
+    expect(RateLimiter::attempts(StaffLoginThrottle::passwordIpKeyFor(STAFF_PROXY)))->toBe(2)
+        ->and(RateLimiter::attempts(StaffLoginThrottle::passwordIpKeyFor(STAFF_CLIENT_A)))->toBe(0);
+});
+
+it('§10.3 lets the admin IP allowlist and the login counter read the same forwarded address', function () {
+    config([
+        'trustedproxy.proxies' => STAFF_PROXY,
+        'vkcrm.security.admin_ip_allowlist' => STAFF_CLIENT_A,
+    ]);
+
+    // Địa chỉ khách A (qua proxy được tin) vào được trang; B thì 404 — cùng địa chỉ mà bộ đếm dùng.
+    $this->withServerVariables(['REMOTE_ADDR' => STAFF_PROXY])->withHeaders(forwardedFor(STAFF_CLIENT_A))->get('/admin/login')->assertOk();
+    $this->withServerVariables(['REMOTE_ADDR' => STAFF_PROXY])->withHeaders(forwardedFor(STAFF_CLIENT_B))->get('/admin/login')->assertNotFound();
+
+    // Giả mạo header từ một địa chỉ không phải proxy: vẫn 404, dù header nêu địa chỉ được phép.
+    $this->withServerVariables(['REMOTE_ADDR' => '198.51.100.7'])->withHeaders(forwardedFor(STAFF_CLIENT_A))->get('/admin/login')->assertNotFound();
 });

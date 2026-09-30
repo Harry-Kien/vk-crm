@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Filament\Admin\Concerns\ExplainsStaffUploadRefusal;
 use App\Filament\Portal\Pages\SubmitDocument;
 use App\Http\Controllers\DocumentDownloadController;
 use App\Http\Middleware\ThrottleUploadedFiles;
@@ -10,6 +11,7 @@ use App\Models\Document;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\RateLimiter;
 
 /**
  * Bộ đếm của endpoint tải tệp Livewire (`livewire.upload-file`) — SPEC §10.3, 20 tệp / giờ /
@@ -57,7 +59,10 @@ use Illuminate\Support\Facades\Cache;
  * sư tải bộ hồ sơ toà 30 trang là chạm giới hạn của khách. Không bỏ trần cho nhân sự, vì mỗi POST
  * vẫn ghi đĩa và một phiên nhân sự bị chiếm sẽ ghi không giới hạn. **Giá nếu sai:** một phiên nhân
  * sự bị chiếm ghi được 200 thay vì 20 tệp/giờ; một luật sư tải hơn 200 trang trong một giờ gặp lời
- * từ chối (câu riêng cho nhân sự, không nhắc số điện thoại văn phòng).
+ * từ chối. Lời từ chối ấy đi ra bằng câu riêng cho nhân sự, không nhắc số điện thoại văn phòng
+ * (`documents.errors.staff_upload_rate_limited`), qua
+ * {@see ExplainsStaffUploadRefusal} — JS của Livewire chỉ báo "tải lên
+ * không thành công" cho mọi mã khác 422, nên không có câu đó thì luật sư không biết vì sao và thử lại mãi.
  *
  * # Khoá cache mà màn hình nộp hỏi lại
  *
@@ -166,5 +171,26 @@ final class UploadThrottle
     public static function wasRecentlyRefused(string $key): bool
     {
         return Cache::has(self::cacheKeyFor($key).':refused');
+    }
+
+    /**
+     * Fix round 1 (F2): người đang tải vừa bị chặn bởi TRẦN GIỜ của chính họ không, và nếu có thì
+     * phải chờ bao nhiêu phút (tối thiểu 1). `null` = không phải lời từ chối của trần giờ.
+     *
+     * Hai dấu hiệu như {@see SubmitDocument::_uploadErrored()}: bộ đếm đã đầy ở trần của người này
+     * ({@see self::limitFor()}), hoặc middleware vừa đánh dấu một lô bị từ chối
+     * ({@see self::wasRecentlyRefused()}) — bộ đếm có thể chưa đầy khi một lô làm vượt trần. Dùng
+     * bởi {@see ExplainsStaffUploadRefusal}.
+     */
+    public static function refusalWaitMinutes(Request $request): ?int
+    {
+        $key = self::keyFor($request);
+        $cacheKey = self::cacheKeyFor($key);
+
+        if (! RateLimiter::tooManyAttempts($cacheKey, self::limitFor($request)) && ! self::wasRecentlyRefused($key)) {
+            return null;
+        }
+
+        return max(1, (int) ceil(RateLimiter::availableIn($cacheKey) / 60));
     }
 }

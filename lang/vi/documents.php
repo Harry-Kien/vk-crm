@@ -110,6 +110,15 @@ return [
     ],
 
     /*
+     * Lời từ chối của CHÍNH endpoint tải tệp (không phải của `FileGuard`) đối với nhân sự — xem
+     * `App\Filament\Admin\Concerns\ExplainsStaffUploadRefusal`. Không có số điện thoại văn phòng:
+     * nhân sự chờ hoặc nhờ quản trị hệ thống, không gọi văn phòng để được tải tiếp.
+     */
+    'errors' => [
+        'staff_upload_rate_limited' => 'Tài khoản của anh/chị đã chạm mức tối đa :limit tệp tải lên trong một giờ (hoặc lô tệp vừa chọn sẽ làm vượt mức đó), nên hệ thống chưa nhận thêm. Anh/chị chờ khoảng :minutes phút rồi tải tiếp; nếu cần tải gấp một bộ hồ sơ lớn hơn, hãy báo cho quản trị hệ thống.',
+    ],
+
+    /*
      * Tab "Tài liệu" trên trang chi tiết vụ việc (SPEC §7.2). Người đọc là nhân sự nội bộ.
      *
      * `internal_marker` chép NGUYÊN VĂN câu SPEC §7.2 in đậm ("Chỉ nội bộ — không bao giờ hiện

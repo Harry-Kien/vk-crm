@@ -1,17 +1,24 @@
 <?php
 
 use App\Enums\Role;
+use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
+use App\Filament\Admin\Resources\Matters\RelationManagers\DocumentsRelationManager;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Document;
+use App\Models\Matter;
 use App\Models\User;
 use App\Support\UploadThrottle;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Filament\Actions\Testing\TestAction;
+use Filament\Facades\Filament;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Testing\TestResponse;
 use Livewire\Features\SupportFileUploads\FileUploadConfiguration;
 use Livewire\Features\SupportFileUploads\GenerateSignedUploadUrl;
+use Livewire\Features\SupportTesting\Testable;
 
 /**
  * SPEC §10.3 (M8 Task 3) — "nộp tài liệu 20 TỆP / giờ / tài khoản": endpoint tải lên đếm TỆP,
@@ -166,4 +173,153 @@ it('§10.3 still refuses a visitor with nobody signed in, keyed by address', fun
 
     expect($post(20)->status())->toBe(200)
         ->and($post(1)->status())->toBe(429);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Fix round 1 (F2) — lời từ chối 429 của nhân sự phải bằng tiếng Việt và nói rõ lý do
+|--------------------------------------------------------------------------
+|
+| JS của Livewire gọi `_uploadErrored` với `errors = null` cho MỌI mã khác 422, nên với một 429 thì
+| component không có gì để đọc; bản gốc chỉ ném "The … failed to upload" — không lý do, không thời
+| gian chờ — và luật sư bấm thử lại mãi. Bản của khách (`SubmitDocument`) đã có câu riêng; nhân sự
+| (tab "Tài liệu" của hồ sơ, ô tải tệp duy nhất của panel /admin) thì chưa. Test lái bằng một 429
+| THẬT từ endpoint rồi gọi `_uploadErrored` với `null`, đúng như trình duyệt làm.
+*/
+function staffUploadModal(User $staff): Testable
+{
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $staff->id]);
+    Filament::setCurrentPanel('admin');
+
+    test()->actingAs($staff, 'web');
+
+    return test()->livewire(DocumentsRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->mountAction(TestAction::make('upload')->table());
+}
+
+function staffUploadStatePath(): string
+{
+    return 'mountedActions.0.data.file';
+}
+
+/** Đẩy nhân sự tới đúng trần 200 tệp/giờ rồi lấy một lời từ chối 429 thật. */
+function staffUploadRefused(User $staff): TestResponse
+{
+    $url = uploadEndpointUrl();
+
+    for ($request = 0; $request < 10; $request++) {
+        expect(uploadFilesAs($staff, 20, $url)->status())->toBe(200);
+    }
+
+    $refusal = uploadFilesAs($staff, 1, $url);
+
+    expect($refusal->status())->toBe(429);
+
+    return $refusal;
+}
+
+it('§10.3 tells a lawyer in Vietnamese that the hourly file ceiling was hit, with the number and the wait, instead of a bare upload failure', function () {
+    staffUploadRefused($this->staff);
+
+    $message = staffUploadModal($this->staff)
+        // TRUYỀN `null`, ĐÚNG NHƯ TRÌNH DUYỆT LÀM cho mọi mã khác 422.
+        ->call('_uploadErrored', staffUploadStatePath(), null, false)
+        ->errors()->first(staffUploadStatePath());
+
+    expect($message)
+        ->toBe(__('documents.errors.staff_upload_rate_limited', [
+            'limit' => UploadThrottle::STAFF_FILES_PER_HOUR,
+            'minutes' => 60,
+        ]))
+        ->toContain((string) UploadThrottle::STAFF_FILES_PER_HOUR)
+        ->toContain('phút')
+        // Không mượn câu của khách: không số điện thoại văn phòng, không "sóng"/"HDR".
+        ->not->toContain((string) config('vkcrm.brand.hotline'))
+        ->not->toContain('failed to upload')
+        ->not->toContain('sóng');
+});
+
+it('§10.3 also names the ceiling when a batch that would cross it was refused although the counter is not full', function () {
+    $url = uploadEndpointUrl();
+
+    // 195/200: còn 5 suất, đủ để một tệp qua nhưng một lô 6 tệp thì bị từ chối cả lô (429) mà bộ đếm
+    // KHÔNG đầy — chỉ dấu "vừa từ chối" cho biết.
+    foreach ([20, 20, 20, 20, 20, 20, 20, 20, 20, 15] as $files) {
+        expect(uploadFilesAs($this->staff, $files, $url)->status())->toBe(200);
+    }
+
+    expect(uploadFilesAs($this->staff, 6, $url)->status())->toBe(429)
+        ->and(uploadCounter($this->staff))->toBe(195);
+
+    $message = staffUploadModal($this->staff)
+        ->call('_uploadErrored', staffUploadStatePath(), null, false)
+        ->errors()->first(staffUploadStatePath());
+
+    expect($message)->toContain((string) UploadThrottle::STAFF_FILES_PER_HOUR)->toContain('phút');
+});
+
+it('§10.3 leaves the framework message alone when the upload failed for some other reason and no ceiling was hit', function () {
+    $message = staffUploadModal($this->staff)
+        ->call('_uploadErrored', staffUploadStatePath(), null, false)
+        ->errors()->first(staffUploadStatePath());
+
+    expect($message)->not->toBeNull()
+        ->and($message)->not->toContain('phút')
+        ->and($message)->not->toBe(__('documents.errors.staff_upload_rate_limited', [
+            'limit' => UploadThrottle::STAFF_FILES_PER_HOUR,
+            'minutes' => 60,
+        ]));
+});
+
+it('§10.3 keeps a real validation failure (422) as the validation message even right after a ceiling refusal', function () {
+    staffUploadRefused($this->staff);
+
+    $errors = json_encode(['errors' => ['files.0' => ['Tệp này quá lớn.']]]);
+
+    $message = staffUploadModal($this->staff)
+        ->call('_uploadErrored', staffUploadStatePath(), $errors, false)
+        ->errors()->first(staffUploadStatePath());
+
+    expect($message)->toBe('Tệp này quá lớn.');
+});
+
+it('§10.3 does not tell one staff member about a ceiling that a colleague hit', function () {
+    $colleague = User::factory()->withRole(Role::Lawyer)->create();
+
+    staffUploadRefused($colleague);
+
+    $message = staffUploadModal($this->staff)
+        ->call('_uploadErrored', staffUploadStatePath(), null, false)
+        ->errors()->first(staffUploadStatePath());
+
+    expect($message)->not->toContain('phút');
+});
+
+it('§10.3 still names the ceiling after the "just refused" mark has expired, as long as the counter itself is full', function () {
+    staffUploadRefused($this->staff);
+
+    // Dấu "vừa từ chối" chỉ sống 60 giây; bộ đếm thì sống cả giờ.
+    Cache::forget(UploadThrottle::cacheKeyFor(Document::recipientToken($this->staff)).':refused');
+
+    expect(UploadThrottle::wasRecentlyRefused(Document::recipientToken($this->staff)))->toBeFalse();
+
+    $message = staffUploadModal($this->staff)
+        ->call('_uploadErrored', staffUploadStatePath(), null, false)
+        ->errors()->first(staffUploadStatePath());
+
+    expect($message)->toContain((string) UploadThrottle::STAFF_FILES_PER_HOUR)->toContain('phút');
+});
+
+it('§10.3 judges a staff member against the staff ceiling, not the client one, so 30 files an hour is no refusal', function () {
+    expect(uploadFilesAs($this->staff, 30)->status())->toBe(200)
+        ->and(uploadCounter($this->staff))->toBe(30);
+
+    // 30 > 20 (trần của khách) nhưng < 200 (trần của nhân sự): một lỗi tệp khác không được đọc là hết suất.
+    $message = staffUploadModal($this->staff)
+        ->call('_uploadErrored', staffUploadStatePath(), null, false)
+        ->errors()->first(staffUploadStatePath());
+
+    expect($message)->not->toContain('phút');
 });

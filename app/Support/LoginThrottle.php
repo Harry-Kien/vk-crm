@@ -77,6 +77,16 @@ use Illuminate\Support\Facades\RateLimiter;
  * một cửa sổ 5 lần mới cho mỗi email khác, không giới hạn số lần — tức chiều IP của SPEC §10.3
  * biến mất hoàn toàn.
  *
+ * **Hoàn một suất khác với xoá.** Ở bước MÃ bộ đếm bị đập trước khi chấm mã (để khe hở
+ * đọc-rồi-ghi giữa hai request song song không kéo dài qua cả lần chấm), nên lần nhập ĐÚNG cũng đã
+ * tiêu một suất ở chiều địa chỉ. `refundCodeIp()` trả đúng MỘT suất đó — của chính request này,
+ * chỉ sau khi mã đúng — chứ không xoá lần hỏng nào của người khác. Không hoàn thì 2FA bắt buộc
+ * cộng một địa chỉ NAT dùng chung khoá cả văn phòng chỉ bằng những lần gõ ĐÚNG (M8 Task 3, fix
+ * round 1). Bước mật khẩu không cần: nó chỉ đập khi sai. Chỉ trang đăng nhập NHÂN SỰ gọi hàm này;
+ * cổng khách (`App\Filament\Portal\Pages\Auth\Login`) cố ý giữ hành vi M5 — lần mã đúng vẫn tiêu
+ * một suất ở chiều địa chỉ, ghim bởi test `LoginTest` "clears only the account dimension of the
+ * code lock when the code is finally right".
+ *
  * **Ngoại lệ duy nhất, và nó không phải một lần đăng nhập:** `App\Actions\Portal\UnlockPortalLogin`
  * (Task 7, phát hiện `portal/portal-4`) cho phép NHÂN SỰ xoá cả chiều địa chỉ mạng, nhưng chỉ khi
  * đã tự tra lại nhật ký `login_failed` và xác nhận MỌI lần hỏng ghi nhận ở đúng địa chỉ đó, trong
@@ -393,6 +403,38 @@ abstract class LoginThrottle
     public static function clearCodeAccount(Authenticatable $user): void
     {
         RateLimiter::clear(static::codeAccountKey($user));
+    }
+
+    /**
+     * Fix round 1 (F1, M8 Task 3): hoàn lại MỘT suất của chiều ĐỊA CHỈ ở bước mã — suất mà chính
+     * request này vừa tiêu ở `hitRateLimiter()` trước khi chấm mã. Chỉ gọi sau một lần nhập mã
+     * ĐÚNG (đã đăng nhập được).
+     *
+     * **Vì sao phải hoàn, và vì sao hoàn ở đây thay vì "đừng đập trước".** Bước mã đập bộ đếm
+     * TRƯỚC khi chấm mã (thứ tự của Filament): khe hở đọc-rồi-ghi giữa hai request song song chỉ
+     * còn là quãng giữa lần kiểm trần và phép tăng ngay sau nó. Chỉ đập khi SAI sẽ kéo khe đó dài
+     * qua cả lần chấm mã và lần kiểm lại mật khẩu (bcrypt) — đủ để một loạt request song song cùng
+     * thấy 4/5 rồi cùng được chấm. Nên thứ tự ấy được giữ, và cái giá là lần ĐÚNG cũng tiêu một suất. Ở chiều tài khoản không sao (đăng nhập xong thì xoá cả
+     * chiều đó), nhưng chiều địa chỉ KHÔNG BAO GIỜ bị xoá bởi một lần đăng nhập — nên với 2FA bắt
+     * buộc cho mọi nhân sự và cả văn phòng sau MỘT địa chỉ NAT, năm đồng nghiệp gõ đúng mã lúc 8
+     * giờ sáng là người thứ sáu bị "thử quá nhiều lần" dù chưa ai gõ sai. Hoàn suất của lần đúng
+     * làm chiều địa chỉ thật sự đếm lần HỎNG, đúng nguyên tắc ở docblock của trang đăng nhập nhân
+     * sự (`App\Filament\Admin\Pages\Auth\Login`).
+     *
+     * **Vì sao không mở được lỗ.** Hoàn đúng MỘT suất, chỉ suất của request này, chỉ khi mã đúng:
+     * mọi lần gõ SAI vẫn ở lại đủ trên khoá địa chỉ (test "still counts every WRONG code"), nên
+     * kẻ dò mã vẫn chạm trần 5 lần / 15 phút như cũ; còn lần đúng không dò được gì. Người gọi phải
+     * tự chứng minh request này đã đập khoá địa chỉ (cờ ở `Login`) — hoàn khi chưa đập sẽ ăn mất
+     * lần hỏng của người khác. `attempts() > 0` chặn thêm một khe: khoá hết hạn giữa chừng thì
+     * `decrement()` sẽ ghi -1 và tặng chính địa chỉ đó một suất thừa.
+     */
+    public static function refundCodeIp(): void
+    {
+        $key = static::codeIpKey();
+
+        if (RateLimiter::attempts($key) > 0) {
+            RateLimiter::decrement($key, static::DECAY_SECONDS);
+        }
     }
 
     /**
