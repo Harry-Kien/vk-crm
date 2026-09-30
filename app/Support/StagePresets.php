@@ -83,9 +83,11 @@ final class StagePresets
      * Bộ năm giai đoạn TẠM, dùng chung cho sáu lĩnh vực mới (M9 Task 1): hành chính và giấy phép,
      * hợp đồng và thương mại, ngân hàng và tín dụng, sở hữu trí tuệ và công nghệ, thuế và tài
      * chính, xây dựng và hạ tầng. Quy trình thật của từng lĩnh vực là kiến thức hành nghề mà mã
-     * không có; chủ văn phòng sẽ mô tả sau (câu hỏi còn mở của kế hoạch M9), và tới lúc đó quản
-     * trị viên sửa bộ này trong màn hình loại vụ việc như mọi bộ khác. Một chuỗi thẳng, không
-     * `on_hold`, đúng một giai đoạn kết thúc (`closed`). @return list<Stage>
+     * không có; chủ văn phòng sẽ mô tả sau (câu hỏi còn mở của kế hoạch M9). Tới lúc đó quản trị
+     * viên sửa các giai đoạn ĐÃ seed của từng loại ở tab "Giai đoạn" của loại vụ việc
+     * (`StagesRelationManager`, các dòng `matter_type_stages`), không phải bộ PHP này: `MatterTypeSeeder`
+     * chỉ thêm, nên đổi bộ này chỉ tới được một bản cài mới, không tới máy chủ đã seed. Một chuỗi
+     * thẳng, không `on_hold`, đúng một giai đoạn kết thúc (`closed`). @return list<Stage>
      */
     public static function provisional(): array
     {

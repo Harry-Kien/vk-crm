@@ -286,10 +286,10 @@ return [
         // thì được chỉ tới đúng vai làm việc đó, không bị bảo tự làm.
         'action' => [
             'record_self' => 'Anh/chị ghi khoản thu khi đã nhận được tiền.',
-            'record_other' => 'Kế toán ghi khoản thu khi đã nhận được tiền.',
+            'record_other' => 'Kế toán hoặc quản trị viên ghi khoản thu khi đã nhận được tiền.',
             'amend_self' => 'Nếu khách hàng đã thoả thuận lại lịch thu, anh/chị cập nhật phụ lục hợp đồng.',
             'amend_other' => 'Nếu khách hàng đã thoả thuận lại lịch thu, luật sư phụ trách cập nhật phụ lục hợp đồng.',
-            'repeat' => 'Thư này nhắc lại sau bảy ngày nếu đợt vẫn chưa được thu đủ.',
+            'repeat' => 'Thư này nhắc lại sau :days ngày nếu đợt vẫn chưa được thu đủ.',
         ],
         'salutation' => ':office',
     ],

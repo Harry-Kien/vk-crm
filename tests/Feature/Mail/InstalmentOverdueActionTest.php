@@ -2,6 +2,7 @@
 
 use App\Actions\Schedule\RemindOverdueInstalments;
 use App\Enums\Role;
+use App\Jobs\SendInstalmentOverdueMail;
 use App\Mail\Staff\InstalmentOverdue;
 use App\Models\Contract;
 use App\Models\Instalment;
@@ -48,10 +49,12 @@ function overdueParts(Matter $matter): array
 }
 
 const OVERDUE_RECORD_SELF = 'Anh/chị ghi khoản thu khi đã nhận được tiền.';
-const OVERDUE_RECORD_OTHER = 'Kế toán ghi khoản thu khi đã nhận được tiền.';
+const OVERDUE_RECORD_OTHER = 'Kế toán hoặc quản trị viên ghi khoản thu khi đã nhận được tiền.';
 const OVERDUE_AMEND_SELF = 'anh/chị cập nhật phụ lục hợp đồng';
 const OVERDUE_AMEND_OTHER = 'luật sư phụ trách cập nhật phụ lục hợp đồng';
-const OVERDUE_REPEAT = 'Thư này nhắc lại sau bảy ngày';
+// Nhịp nhắc lại đọc từ đúng hằng số job dùng để chống trùng (rà soát cuối làn, minor): câu trong thư
+// không được chép cứng "bảy ngày" cạnh một hằng số có thể đổi.
+const OVERDUE_REPEAT = 'Thư này nhắc lại sau '.SendInstalmentOverdueMail::REPEAT_EVERY_DAYS.' ngày';
 
 function overdueMailFor(Matter $matter, User $recipient): InstalmentOverdue
 {
@@ -99,7 +102,7 @@ it('tells the lead lawyer of a restricted matter to record the payment and amend
         [OVERDUE_RECORD_OTHER, OVERDUE_AMEND_OTHER]);
 });
 
-it('tells a manager that the accountant records the payment, and that they amend the contract', function () {
+it('tells a manager that the accountant or an admin records the payment, and that they amend the contract', function () {
     $manager = User::factory()->withRole(Role::Manager)->create();
     $matter = Matter::factory()->create(['lead_lawyer_id' => $this->lead->id]);
 
@@ -115,4 +118,21 @@ it('tells an admin to record the payment and to amend the contract', function ()
     expectActionSentences(overdueMailFor($matter, $admin),
         [OVERDUE_RECORD_SELF, OVERDUE_AMEND_SELF, OVERDUE_REPEAT],
         [OVERDUE_RECORD_OTHER, OVERDUE_AMEND_OTHER]);
+});
+
+/**
+ * Rà soát Task 11 (minor, phân loại "sửa trước merge" ở vòng sửa cuối làn): docblock lớp hứa nội
+ * dung thư CHỈ gồm các trường của `AccountantBillingRow`. Laravel đưa MỌI thuộc tính public của một
+ * Mailable vào dữ liệu view, nên một `public Instalment $instalment` (nạp sẵn `contract.matter`, có
+ * tiêu đề vụ) mở đường cho `{{ $instalment->contract->matter->title }}` ở view. Đợt và người nhận
+ * phải không nằm trong dữ liệu view; dòng công nợ thì có (đó là ranh giới được phép).
+ */
+it('hands the mail views the billing row but never the instalment model or the recipient model', function () {
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $this->lead->id]);
+
+    $viewData = overdueMailFor($matter, $this->lead)->buildViewData();
+
+    expect($viewData)->not->toHaveKey('instalment')
+        ->and($viewData)->not->toHaveKey('recipient')
+        ->and($viewData)->toHaveKey('row');
 });

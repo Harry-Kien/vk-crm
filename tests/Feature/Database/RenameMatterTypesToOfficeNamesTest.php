@@ -33,7 +33,7 @@ function seedOldTypeRow(string $code, string $name, bool $trashed = false): int
     ]);
 }
 
-function typeName(int $id): string
+function renameTestTypeName(int $id): string
 {
     return DB::table('matter_types')->where('id', $id)->value('name');
 }
@@ -52,10 +52,10 @@ it('renames the four old seed names to the office names and never touches a code
 
     renameMigration()->up();
 
-    expect(typeName($ids['DD']))->toBe('Đất đai và bất động sản')
-        ->and(typeName($ids['DN']))->toBe('Đầu tư và doanh nghiệp')
-        ->and(typeName($ids['DS']))->toBe('Giải quyết tranh chấp')
-        ->and(typeName($ids['LD']))->toBe('Lao động và nhân sự')
+    expect(renameTestTypeName($ids['DD']))->toBe('Đất đai và bất động sản')
+        ->and(renameTestTypeName($ids['DN']))->toBe('Đầu tư và doanh nghiệp')
+        ->and(renameTestTypeName($ids['DS']))->toBe('Giải quyết tranh chấp')
+        ->and(renameTestTypeName($ids['LD']))->toBe('Lao động và nhân sự')
         ->and(DB::table('matter_types')->orderBy('code')->pluck('code')->all())->toBe(['DD', 'DN', 'DS', 'LD']);
 });
 
@@ -66,9 +66,9 @@ it('leaves HS and HN and every other code alone', function () {
 
     renameMigration()->up();
 
-    expect(typeName($hs))->toBe('Hình sự')
-        ->and(typeName($hn))->toBe('Hôn nhân và gia đình')
-        ->and(typeName($xx))->toBe('Doanh nghiệp');
+    expect(renameTestTypeName($hs))->toBe('Hình sự')
+        ->and(renameTestTypeName($hn))->toBe('Hôn nhân và gia đình')
+        ->and(renameTestTypeName($xx))->toBe('Doanh nghiệp');
 });
 
 it('does not touch a type the admin already renamed to something else', function () {
@@ -76,7 +76,7 @@ it('does not touch a type the admin already renamed to something else', function
 
     renameMigration()->up();
 
-    expect(typeName($id))->toBe('Đất đai (tên văn phòng tự đặt)');
+    expect(renameTestTypeName($id))->toBe('Đất đai (tên văn phòng tự đặt)');
 });
 
 /**
@@ -90,8 +90,8 @@ it('does not touch a name that differs from the old seed name only by letter cas
 
     renameMigration()->up();
 
-    expect(typeName($upper))->toBe('LAO ĐỘNG')
-        ->and(typeName($title))->toBe('doanh nghiệp');
+    expect(renameTestTypeName($upper))->toBe('LAO ĐỘNG')
+        ->and(renameTestTypeName($title))->toBe('doanh nghiệp');
 });
 
 it('does not touch a name that differs from the old seed name only by diacritics', function () {
@@ -100,8 +100,8 @@ it('does not touch a name that differs from the old seed name only by diacritics
 
     renameMigration()->up();
 
-    expect(typeName($plain))->toBe('Lao dong')
-        ->and(typeName($noTone))->toBe('Tranh chap dan su');
+    expect(renameTestTypeName($plain))->toBe('Lao dong')
+        ->and(renameTestTypeName($noTone))->toBe('Tranh chap dan su');
 });
 
 it('does not touch a name with surrounding whitespace, which is not the old seed name', function () {
@@ -109,7 +109,7 @@ it('does not touch a name with surrounding whitespace, which is not the old seed
 
     renameMigration()->up();
 
-    expect(typeName($id))->toBe('Lao động ');
+    expect(renameTestTypeName($id))->toBe('Lao động ');
 });
 
 it('renames a soft-deleted type too, by the same exact-name rule, and keeps it soft-deleted', function () {
@@ -118,9 +118,9 @@ it('renames a soft-deleted type too, by the same exact-name rule, and keeps it s
 
     renameMigration()->up();
 
-    expect(typeName($id))->toBe('Đất đai và bất động sản')
+    expect(renameTestTypeName($id))->toBe('Đất đai và bất động sản')
         ->and(DB::table('matter_types')->where('id', $id)->value('deleted_at'))->not->toBeNull()
-        ->and(typeName($other))->toBe('Tên khác');
+        ->and(renameTestTypeName($other))->toBe('Tên khác');
 });
 
 it('renames every row that carries the old code and name, live or soft-deleted, not only the first', function () {
@@ -129,8 +129,8 @@ it('renames every row that carries the old code and name, live or soft-deleted, 
 
     renameMigration()->up();
 
-    expect(typeName($live))->toBe('Đất đai và bất động sản')
-        ->and(typeName($trashed))->toBe('Đất đai và bất động sản');
+    expect(renameTestTypeName($live))->toBe('Đất đai và bất động sản')
+        ->and(renameTestTypeName($trashed))->toBe('Đất đai và bất động sản');
 });
 
 it('leaves updated_at alone so a rename does not look like an admin edit', function () {
@@ -147,7 +147,7 @@ it('is idempotent when it runs a second time', function () {
     renameMigration()->up();
     renameMigration()->up();
 
-    expect(typeName($id))->toBe('Lao động và nhân sự');
+    expect(renameTestTypeName($id))->toBe('Lao động và nhân sự');
 });
 
 it('does nothing on an empty table', function () {
@@ -163,9 +163,9 @@ it('reverses only names that still equal the new office name', function () {
 
     renameMigration()->down();
 
-    expect(typeName($renamed))->toBe('Tranh chấp đất đai')
-        ->and(typeName($custom))->toBe('Lao động (tự đặt)')
-        ->and(typeName($upper))->toBe('ĐẦU TƯ VÀ DOANH NGHIỆP');
+    expect(renameTestTypeName($renamed))->toBe('Tranh chấp đất đai')
+        ->and(renameTestTypeName($custom))->toBe('Lao động (tự đặt)')
+        ->and(renameTestTypeName($upper))->toBe('ĐẦU TƯ VÀ DOANH NGHIỆP');
 });
 
 it('round-trips up then down back to the old names', function () {
@@ -179,5 +179,5 @@ it('round-trips up then down back to the old names', function () {
     renameMigration()->up();
     renameMigration()->down();
 
-    expect(array_map('typeName', $ids))->toBe(['Tranh chấp đất đai', 'Doanh nghiệp', 'Tranh chấp dân sự', 'Lao động']);
+    expect(array_map('renameTestTypeName', $ids))->toBe(['Tranh chấp đất đai', 'Doanh nghiệp', 'Tranh chấp dân sự', 'Lao động']);
 });

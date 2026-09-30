@@ -668,11 +668,20 @@ it('opens the billing tab of the matter when the lead lawyer follows the link in
     parse_str((string) parse_url($found[0], PHP_URL_QUERY), $query);
     $tab = array_search(BillingRelationManager::class, MatterResource::getRelations(), true);
 
+    // Rà soát Task 11 (minor): nhãn tab hiện ở mọi tab nên không chứng minh được gì. Trang chỉ gắn
+    // component của MỘT tab — tab đang mở (Filament nạp nó lười, nên nội dung bảng không có trong
+    // lần vẽ này; có mặt component là đủ). Cặp âm: cùng trang, không có tham số của thư, không có
+    // component tab Thanh toán — nên vế dương không xanh nhờ một chỗ khác của trang.
     $this->actingAs($this->lead, 'web');
     Livewire\Livewire::withQueryParams($query)
         ->test(ViewMatter::class, ['record' => $matter->getKey()])
         ->assertSet('activeRelationManager', (string) $tab)
-        ->assertSee(__('billing.tab.title'));
+        ->assertSeeLivewire(BillingRelationManager::class);
+
+    Livewire\Livewire::withQueryParams([])
+        ->test(ViewMatter::class, ['record' => $matter->getKey()])
+        ->assertNotSet('activeRelationManager', (string) $tab)
+        ->assertDontSeeLivewire(BillingRelationManager::class);
 });
 
 it('lets the accountant open the page the mail links to', function () {

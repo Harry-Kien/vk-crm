@@ -25,9 +25,12 @@ use Illuminate\Support\Facades\Gate;
  * hàng, tên đợt, số tiền còn lại, ngày đến hạn) cộng số ngày quá hạn suy từ ngày đến hạn — đúng
  * ranh giới lộ thông tin mà màn hình "Công nợ" của kế toán mang, vì kế toán là một người nhận và
  * kế toán không có `matter.view`. **Không** tiêu đề vụ việc, tóm tắt, ghi chú nội bộ, tên các bên;
- * khác {@see DeadlineReminder} (đó là thư về một mốc thời hạn tố tụng và mang tiêu đề vụ việc). Lớp
- * này nhận dòng {@see AccountantBillingRow} đã dựng sẵn thay vì tự đọc `Matter`, nên không có đường
- * nào cho một trường khác lọt vào chỉ vì ai đó viết thêm một dòng ở view.
+ * khác {@see DeadlineReminder} (đó là thư về một mốc thời hạn tố tụng và mang tiêu đề vụ việc). Chữ
+ * của thư lấy từ dòng {@see AccountantBillingRow} đã dựng sẵn, không từ `Matter`. Laravel đưa MỌI
+ * thuộc tính PUBLIC của một Mailable vào dữ liệu view, nên đợt (nạp sẵn `contract.matter`, có tiêu
+ * đề vụ) và người nhận là thuộc tính `private`: view chỉ có dòng công nợ và các biến
+ * {@see self::content()} truyền tường minh, không có đường nào tới tiêu đề vụ chỉ vì ai đó viết thêm
+ * một dòng ở view (đo ở `InstalmentOverdueActionTest`, dữ liệu view).
  *
  * **Liên kết (thư nội bộ đầu tiên có liên kết):** người vào được trang "Công nợ"
  * ({@see Receivables::canBeOpenedBy()}: admin, quản lý, kế toán) nhận liên kết tới trang đó — trang
@@ -50,9 +53,9 @@ class InstalmentOverdue extends BrandedMailable
     public const TEMPLATE = 'staff.instalment_overdue';
 
     public function __construct(
-        public Instalment $instalment,
+        private Instalment $instalment,
         public AccountantBillingRow $row,
-        public User $recipient,
+        private User $recipient,
     ) {}
 
     /**
@@ -124,9 +127,11 @@ class InstalmentOverdue extends BrandedMailable
      *    vụ `restricted`; quản lý và luật sư trên vụ thường thì không);
      *  - cập nhật phụ lục: `ContractPolicy::update` (admin, quản lý, luật sư; kế toán thì không).
      *
-     * Ai không làm được thì câu chỉ tới vai làm được ("Kế toán ghi khoản thu…", "luật sư phụ trách
-     * cập nhật phụ lục…") thay vì bảo họ tự làm một việc mà giao diện không cho. Câu về thư nhắc lại
-     * sau bảy ngày là câu chung, luôn có.
+     * Ai không làm được thì câu chỉ tới vai làm được ("Kế toán hoặc quản trị viên ghi khoản thu…" —
+     * cả hai đều có quyền ghi trên vụ thường, nên câu vẫn đúng khi chuỗi dự phòng R3 tới quản lý vì
+     * không còn kế toán nào; "luật sư phụ trách cập nhật phụ lục…") thay vì bảo họ tự làm một việc mà
+     * giao diện không cho. Câu về thư nhắc lại là câu chung, luôn có; số ngày đọc từ
+     * {@see SendInstalmentOverdueMail::REPEAT_EVERY_DAYS}, đúng hằng số job dùng để chống trùng.
      */
     private function actionLine(): string
     {
@@ -139,7 +144,7 @@ class InstalmentOverdue extends BrandedMailable
             __($gate->allows('update', $this->instalment->contract)
                 ? 'billing.overdue_email.action.amend_self'
                 : 'billing.overdue_email.action.amend_other'),
-            __('billing.overdue_email.action.repeat'),
+            __('billing.overdue_email.action.repeat', ['days' => SendInstalmentOverdueMail::REPEAT_EVERY_DAYS]),
         ]);
     }
 

@@ -11,6 +11,8 @@ use App\Models\Client;
 use App\Models\Matter;
 use App\Models\MatterType;
 use App\Models\User;
+use Database\Seeders\MatterTypeSeeder;
+use Database\Seeders\ReferenceDataSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 
@@ -107,6 +109,61 @@ it('lets an admin create a checklist template through the relation manager, and 
     expect($matter->checklistItems()->count())->toBe(2)
         ->and($matter->checklistItems()->pluck('name')->sort()->values()->all())
         ->toBe(['CMND/CCCD của bị can', 'Đơn tố giác']);
+});
+
+/**
+ * Rà soát cuối làn M9 (C1): máy chủ đang chạy có loại Hình sự nhưng seeder cũ không có mẫu cho nó,
+ * nên văn phòng tự soạn mẫu qua tab này. Bản cập nhật M9 thêm mẫu seed "Danh mục hồ sơ hình sự";
+ * CAI-DAT bảo chạy `db:seed --force` sau mỗi lần cập nhật. `OpenMatter` áp mẫu đang dùng MỚI NHẤT,
+ * nên nếu seeder chèn mẫu của nó (id lớn hơn) thì mọi vụ Hình sự mở sau đó lặng lẽ nhận khung tối
+ * thiểu của seeder thay cho danh mục văn phòng đã soạn. Luật X10: seeder chỉ tạo mẫu cho loại CHƯA
+ * có mẫu nào. Đi đúng đường thật cả hai đầu: admin soạn mẫu qua Livewire, luật sư mở vụ qua
+ * `CreateMatter`.
+ */
+it('keeps the office template in force when the reference seeders run after an admin authored one', function () {
+    // Trạng thái máy chủ TRƯỚC bản cập nhật: loại HS có (MatterTypeSeeder chỉ tạo loại và giai
+    // đoạn), chưa có mẫu danh mục nào.
+    $this->seed(MatterTypeSeeder::class);
+    $type = MatterType::query()->where('code', 'HS')->firstOrFail();
+
+    expect(ChecklistTemplate::withTrashed()->where('matter_type_id', $type->id)->count())->toBe(0);
+
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $this->actingAs($admin, 'web');
+
+    checklistTemplatesTab($type)
+        ->callTableAction('create', data: [
+            'name' => 'Danh mục hình sự của văn phòng',
+            'is_active' => true,
+            'items' => [
+                ['name' => 'Lệnh bắt, quyết định tạm giam', 'description' => null, 'is_required' => true, 'sort_order' => 1],
+                ['name' => 'Lời khai đã ký của thân chủ', 'description' => null, 'is_required' => false, 'sort_order' => 2],
+            ],
+        ])
+        ->assertHasNoTableActionErrors();
+
+    $this->seed(ReferenceDataSeeder::class);
+
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $client = checklistTemplateTestClientVisibleTo($lawyer);
+
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(CreateMatter::class)
+        ->fillForm(checklistTemplateTestMatterFormData($client, $lawyer, $type, 'Vụ hình sự sau khi cập nhật'))
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $matter = Matter::query()->where('title', 'Vụ hình sự sau khi cập nhật')->sole();
+
+    expect($matter->checklistItems()->orderBy('sort_order')->pluck('name')->all())
+        ->toBe(['Lệnh bắt, quyết định tạm giam', 'Lời khai đã ký của thân chủ']);
+
+    // Cặp dương: seeder VẪN chạy và vẫn seed loại chưa có mẫu nào (DN), nên vế HS không xanh vì
+    // seeder im lặng.
+    expect(ChecklistTemplate::withTrashed()->where('matter_type_id', $type->id)->pluck('name')->all())
+        ->toBe(['Danh mục hình sự của văn phòng'])
+        ->and(MatterType::query()->where('code', 'DN')->firstOrFail()->checklistTemplates()->count())->toBe(1);
 });
 
 /**

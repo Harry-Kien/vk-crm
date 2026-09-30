@@ -1,5 +1,6 @@
 <?php
 
+use App\Filament\Admin\Resources\Matters\RelationManagers\BillingRelationManager;
 use App\Models\ChecklistTemplate;
 use App\Models\MatterType;
 use App\Support\StagePresets;
@@ -17,9 +18,8 @@ use Illuminate\Support\Facades\DB;
  * có sáu loại kể cho chủ văn phòng một câu chuyện sai. Bốn loại cũ đổi TÊN (không bao giờ đổi
  * `code`, vì `matters.code` nhúng mã loại), sáu loại mới có bộ giai đoạn TẠM chung.
  */
-const NEW_TYPE_CODES = ['HC', 'TM', 'NH', 'SH', 'TC', 'XD'];
-const ALL_TYPE_CODES = ['DD', 'DN', 'DS', 'HC', 'HN', 'HS', 'LD', 'NH', 'SH', 'TC', 'TM', 'XD'];
-const CONTRACT_ITEM_NAME = 'Hợp đồng dịch vụ pháp lý và giấy uỷ quyền';
+const M9R_NEW_TYPE_CODES = ['HC', 'TM', 'NH', 'SH', 'TC', 'XD'];
+const M9R_ALL_TYPE_CODES = ['DD', 'DN', 'DS', 'HC', 'HN', 'HS', 'LD', 'NH', 'SH', 'TC', 'TM', 'XD'];
 
 it('seeds exactly twelve active matter types after the reference seeders run', function () {
     $this->seed(ReferenceDataSeeder::class);
@@ -27,7 +27,7 @@ it('seeds exactly twelve active matter types after the reference seeders run', f
     $active = MatterType::query()->where('is_active', true)->pluck('code')->sort()->values()->all();
 
     expect(MatterType::query()->count())->toBe(12)
-        ->and($active)->toBe(ALL_TYPE_CODES)
+        ->and($active)->toBe(M9R_ALL_TYPE_CODES)
         ->and(array_column(MatterTypeSeeder::types(), 'code'))->toHaveCount(12);
 });
 
@@ -63,18 +63,19 @@ it('appends the six new types after the six old ones without renumbering sort_or
 it('gives the six new types the five-stage provisional set, not the civil litigation one', function () {
     $this->seed(ReferenceDataSeeder::class);
 
-    foreach (NEW_TYPE_CODES as $code) {
+    foreach (M9R_NEW_TYPE_CODES as $code) {
         $keys = MatterType::query()->where('code', $code)->firstOrFail()->stages()->pluck('key')->all();
 
         expect($keys)->toBe(['intake', 'collecting_documents', 'drafting', 'in_progress', 'closed'], "Loại {$code}");
-        expect($keys)->not->toContain('filed', 'court_accepted', 'appeal');
+        // `not->toContain(a, b, c)` của Pest chỉ đỏ khi có ĐỦ cả ba — so giao thì đỏ khi có bất kỳ cái nào.
+        expect(array_values(array_intersect($keys, ['filed', 'court_accepted', 'appeal'])))->toBe([]);
     }
 });
 
 it('marks the provisional stage set as provisional in the description of each new type', function () {
     $this->seed(ReferenceDataSeeder::class);
 
-    foreach (NEW_TYPE_CODES as $code) {
+    foreach (M9R_NEW_TYPE_CODES as $code) {
         expect(MatterType::query()->where('code', $code)->firstOrFail()->description)
             ->toContain('TẠM');
     }
@@ -85,7 +86,7 @@ it('marks the provisional stage set as provisional in the description of each ne
 });
 
 it('maps HC TM NH SH TC XD to the provisional preset explicitly and keeps the civil default for unknown codes', function () {
-    foreach (NEW_TYPE_CODES as $code) {
+    foreach (M9R_NEW_TYPE_CODES as $code) {
         expect(StagePresets::for($code))->toBe(StagePresets::provisional(), "Loại {$code}")
             ->and(StagePresets::for($code))->not->toBe(StagePresets::civil());
     }
@@ -137,7 +138,7 @@ it('gives every seeded type at least one checklist template with the mandatory s
         expect($templates->count())->toBeGreaterThanOrEqual(1, "Loại {$type->code} không có danh mục hồ sơ mẫu.");
 
         foreach ($templates as $template) {
-            $contract = $template->items->firstWhere('name', CONTRACT_ITEM_NAME);
+            $contract = $template->items->firstWhere('name', BillingRelationManager::REQUIRED_CHECKLIST_ITEM_NAME);
 
             expect(mb_strlen($template->name))->toBeLessThanOrEqual(150)
                 ->and($template->is_active)->toBeTrue()
@@ -150,6 +151,41 @@ it('gives every seeded type at least one checklist template with the mandatory s
             }
         }
     }
+});
+
+/**
+ * Rà soát Task 1 + rà soát cuối làn (minor, phân loại "sửa trước merge"): mô tả của đầu mục là chữ
+ * khách hàng đọc trên cổng. Một đầu mục BẮT BUỘC mà mô tả bảo khách "bỏ qua" thì khách làm theo,
+ * đầu mục ở lại "còn thiếu" và bị đếm vào số giấy tờ bắt buộc còn thiếu mãi, vì khách không tự bỏ
+ * qua được đầu mục bắt buộc — chỉ văn phòng đánh dấu "Không cần nộp" được.
+ */
+it('never tells the client to skip a required item of a seeded checklist', function () {
+    $this->seed(ReferenceDataSeeder::class);
+
+    $required = ChecklistTemplate::query()->with('items')->get()
+        ->flatMap(fn (ChecklistTemplate $template) => $template->items->where('is_required', true));
+
+    $tellsClientToSkip = $required
+        ->filter(fn ($item): bool => str_contains(mb_strtolower((string) $item->description), 'bỏ qua'))
+        ->pluck('name')
+        ->all();
+
+    expect($required)->not->toBeEmpty()
+        ->and($tellsClientToSkip)->toBe([]);
+});
+
+/**
+ * Rà soát cuối làn M9 (Important): tên đầu mục hợp đồng dịch vụ là hợp đồng NGẦM giữa seeder và
+ * lời nhắc của tab Thanh toán (M9 Task 7 nhận diện đầu mục CHỈ bằng tên,
+ * `BillingRelationManager::REQUIRED_CHECKLIST_ITEM_NAME`). Một bản sao thứ hai của chuỗi đó trong
+ * seeder thì đổi một chỗ là lời nhắc lặng lẽ tắt với mọi mẫu seed mới — test giá trị ở trên vẫn
+ * xanh cho tới đúng ngày ai đó đổi tên. Seeder phải đọc đúng hằng số đó, không giữ bản chép nào.
+ */
+it('makes the checklist seeder read the service-contract item name from the one constant Task 7 reads', function () {
+    $source = file_get_contents((new ReflectionClass(ChecklistTemplateSeeder::class))->getFileName());
+
+    expect($source)->not->toContain(BillingRelationManager::REQUIRED_CHECKLIST_ITEM_NAME)
+        ->and($source)->toContain('BillingRelationManager::REQUIRED_CHECKLIST_ITEM_NAME');
 });
 
 it('never restores a matter type name an admin changed when the seeder runs again', function () {
@@ -168,7 +204,7 @@ it('never restores a matter type name an admin changed when the seeder runs agai
 
 it('adds only the missing new types on a database that already holds the six old ones', function () {
     $this->seed(ReferenceDataSeeder::class);
-    MatterType::query()->whereIn('code', NEW_TYPE_CODES)->get()->each->forceDelete();
+    MatterType::query()->whereIn('code', M9R_NEW_TYPE_CODES)->get()->each->forceDelete();
     MatterType::query()->where('code', 'DS')->firstOrFail()->update(['name' => 'Tranh chấp dân sự']);
 
     expect(MatterType::query()->count())->toBe(6);
@@ -180,10 +216,54 @@ it('adds only the missing new types on a database that already holds the six old
         ->and(MatterType::query()->where('code', 'XD')->firstOrFail()->stages()->count())->toBe(5);
 });
 
+/**
+ * Rà soát cuối làn M9 (C1), vế "loại do văn phòng tự tạo": văn phòng có thể đã tự tạo một loại
+ * mang đúng mã HC/TM/NH/SH/TC/XD trước bản cập nhật M9. `MatterTypeSeeder` bỏ qua loại đó (mã đã
+ * có), nhưng `ChecklistTemplateSeeder` gắn mẫu theo MÃ, nên nếu nó chỉ so tên mẫu thì nó chèn một
+ * mẫu đang dùng mới hơn vào loại của văn phòng, và `OpenMatter` áp mẫu mới nhất. Cặp dương: loại
+ * TM (chưa có mẫu nào) vẫn nhận mẫu seed.
+ */
+it('never adds a seed checklist to a type the office created itself with a template of its own', function () {
+    $type = MatterType::factory()->withStages()->create(['code' => 'HC', 'name' => 'Hành chính (văn phòng tự tạo)']);
+    ChecklistTemplate::factory()->withItems(2)->create([
+        'matter_type_id' => $type->id,
+        'name' => 'Danh mục hành chính của văn phòng',
+    ]);
+
+    $this->seed(ReferenceDataSeeder::class);
+
+    expect(ChecklistTemplate::withTrashed()->where('matter_type_id', $type->id)->pluck('name')->all())
+        ->toBe(['Danh mục hành chính của văn phòng'])
+        ->and($type->fresh()->name)->toBe('Hành chính (văn phòng tự tạo)')
+        ->and(MatterType::query()->where('code', 'TM')->firstOrFail()->checklistTemplates()->pluck('name')->all())
+        ->toBe(['Danh mục hồ sơ hợp đồng và thương mại']);
+});
+
+/**
+ * Luật X10 tính cả mẫu đã xoá mềm: văn phòng xoá mẫu duy nhất của loại là quyết định của văn
+ * phòng, lần seed sau không được "trả lại" một mẫu seed thay chỗ nó. Cặp dương: DN (chưa từng có
+ * mẫu) vẫn nhận mẫu seed ở cùng lần chạy.
+ */
+it('never adds a seed checklist to a type whose only template the office deleted', function () {
+    $this->seed(MatterTypeSeeder::class);
+    $type = MatterType::query()->where('code', 'HS')->firstOrFail();
+    ChecklistTemplate::factory()->withItems(1)->create([
+        'matter_type_id' => $type->id,
+        'name' => 'Danh mục hình sự cũ của văn phòng',
+    ])->delete();
+
+    $this->seed(ChecklistTemplateSeeder::class);
+
+    expect(ChecklistTemplate::query()->where('matter_type_id', $type->id)->count())->toBe(0)
+        ->and(ChecklistTemplate::withTrashed()->where('matter_type_id', $type->id)->pluck('name')->all())
+        ->toBe(['Danh mục hình sự cũ của văn phòng'])
+        ->and(MatterType::query()->where('code', 'DN')->firstOrFail()->checklistTemplates()->count())->toBe(1);
+});
+
 it('publishes no matter of a new type to the client portal in the demo data', function () {
     $this->seed(DatabaseSeeder::class);
 
-    $newIds = MatterType::query()->whereIn('code', NEW_TYPE_CODES)->pluck('id');
+    $newIds = MatterType::query()->whereIn('code', M9R_NEW_TYPE_CODES)->pluck('id');
 
     expect($newIds)->toHaveCount(6)
         ->and(DB::table('matters')->whereIn('matter_type_id', $newIds)->where('is_published_to_portal', true)->count())->toBe(0)

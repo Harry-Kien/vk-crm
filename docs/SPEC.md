@@ -1272,11 +1272,13 @@ nhúng mã loại), sáu loại mới `HC` hành chính và giấy phép, `TM` h
 `NH` ngân hàng và tín dụng, `SH` sở hữu trí tuệ và công nghệ, `TC` thuế và tài chính,
 `XD` xây dựng và hạ tầng. Sáu loại mới dùng **bộ năm giai đoạn TẠM chung** (tiếp nhận,
 thu thập hồ sơ, soạn hồ sơ, đang thực hiện, kết thúc), ghi rõ "TẠM" ở `description`,
-không loại nào bật `is_published_to_portal` trong dữ liệu mẫu, cho tới khi chủ văn phòng
-mô tả quy trình thật. Mỗi loại có ít nhất một danh mục hồ sơ mẫu tối thiểu (giấy tờ
+và trong dữ liệu mẫu không vụ nào thuộc loại mới được công bố ra cổng (`matters.is_published_to_portal`),
+cho tới khi chủ văn phòng mô tả quy trình thật. Mỗi loại có ít nhất một danh mục hồ sơ mẫu tối thiểu (giấy tờ
 tuỳ thân, tài liệu của vụ, hợp đồng dịch vụ), nên "2 template khác" thành 11.
-Seeder tham chiếu vẫn **chỉ thêm**; máy chủ đã có dữ liệu đổi tên bốn loại cũ bằng một
-migration dữ liệu chỉ đổi khi tên hiện tại đúng bằng tên seed cũ.
+Seeder tham chiếu vẫn **chỉ thêm**; danh mục mẫu chỉ được seed cho loại CHƯA có danh mục
+mẫu nào (kể cả đã xoá), nên máy chủ mà văn phòng đã tự soạn danh mục cho một loại thì giữ
+nguyên danh mục đó. Máy chủ đã có dữ liệu đổi tên bốn loại cũ bằng một migration dữ liệu
+chỉ đổi khi tên hiện tại đúng bằng tên seed cũ.
 
 ---
 
