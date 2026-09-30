@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\DB;
  * sửa ở đây sửa luôn dữ liệu seed — test lặp qua CẢ HAI: bộ preset tĩnh, và dữ liệu đã seed thật.
  */
 it('gives every stage of every matter type a client_description of at least 30 characters', function () {
-    foreach (['DD', 'DS', 'HS', 'DN', 'LD', 'HN'] as $code) {
+    foreach (array_column(MatterTypeSeeder::types(), 'code') as $code) {
         foreach (StagePresets::for($code) as $stage) {
             expect(mb_strlen($stage['client_description'] ?? ''))
                 ->toBeGreaterThanOrEqual(30, "Loại {$code}, giai đoạn {$stage['key']} có client_description dưới 30 ký tự.");

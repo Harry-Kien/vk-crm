@@ -219,6 +219,11 @@ nhập, **không phải** theo `client_user_id`.
 | is_active | boolean default true | |
 | sort_order | integer | |
 
+**Đính chính 2026-09-30 (M9 Task 1).** Ví dụ mã ở dòng `code` còn thiếu sáu lĩnh vực
+thêm ở M9: `HC` hành chính và giấy phép, `TM` hợp đồng và thương mại, `NH` ngân hàng và
+tín dụng, `SH` sở hữu trí tuệ và công nghệ, `TC` thuế và tài chính, `XD` xây dựng và hạ
+tầng — tổng cộng 12 loại, xem §12.
+
 ### 4.5 `matter_type_stages` — giai đoạn theo từng loại vụ việc
 
 Giai đoạn **không** hardcode trong code. Mỗi loại vụ việc có bộ giai đoạn riêng,
@@ -796,6 +801,34 @@ gửi luật sư phụ trách và admin. Người nhận lấy qua cùng lớp t
 nội bộ, với cổng "được xem tiền của vụ" — không một định nghĩa thứ hai. Chống gửi
 trùng qua `outbound_messages`; bảng `instalments` không có cột `reminders_sent`.
 
+**Đính chính 2026-09-30 (M9 Task 11, đối chiếu với mã đã cài).** `RemindOverdueInstalments`
+chạy 08:00 hằng ngày (một lần mỗi ngày, không lặp trong ngày như nhắc hạn). Hành vi thật:
+
+- **Chọn đợt:** đúng định nghĩa "quá hạn" của `Instalment::overdue()` (đợt `pending`, hạn
+  trước hôm nay, hợp đồng `active`, còn phải thu > 0 — đợt thu một phần đã quá ngày vẫn
+  quá hạn) cộng vụ chưa xoá mềm. **Vụ đã kết thúc (`closed_at`) vẫn được nhắc**: nợ không
+  biến mất khi đóng hồ sơ (khác nhắc hạn, vốn bỏ qua vụ đã đóng).
+- **Người nhận:** `ResolveStaffRecipients::forBilling()` với
+  `billingAudienceFor()` (quyết định vai trò nằm trong lớp): vụ thường = luật sư phụ trách
+  + mọi kế toán đang hoạt động; vụ `restricted` = luật sư phụ trách + mọi admin đang hoạt
+  động. Quản lý không nhận ở vụ thường (họ xem trang "Công nợ" khi cần). **Chuỗi dự phòng
+  R3 chỉ chạy khi cả danh sách trên không còn ai hợp lệ**: luật sư phụ trách → một quản lý
+  → một admin, mỗi tầng qua cùng cổng tiền (nên vụ `restricted` tự rơi xuống admin).
+- **Nhịp:** ngày đầu tiên quá hạn, rồi bảy ngày lịch một lần (mốc 1, 8, 15, …), cho tới khi
+  thu đủ, miễn hoặc huỷ. Chống trùng theo **từng người nhận**: một dòng `sent` của
+  (`staff.instalment_overdue`, đợt, người nhận, ngày đến hạn) trong bảy ngày lịch gần nhất
+  chặn thư mới; dòng `failed`/`queued` không chặn, nên thư hỏng được gửi lại ở lượt sau.
+  Khoá mang **ngày đến hạn**: phụ lục dời hạn sang ngày khác là một "đợt quá hạn mới" và
+  được nhắc ngay ngày đầu, không bị nuốt bởi lời nhắc của ngày cũ. Kiểm cả lúc xếp job lẫn
+  lúc job gửi; job đọc lại đợt, hợp đồng, vụ việc và người nhận lúc chạy.
+- **Liên kết trong thư:** người mở được trang "Công nợ" (`billing.view` + `revenue.viewAny`
+  — admin, quản lý, kế toán) nhận liên kết tới trang đó; người còn lại (luật sư phụ trách)
+  nhận liên kết tới tab "Hợp đồng và thanh toán" của vụ. Đây là thư nội bộ đầu tiên có
+  liên kết.
+- Thư hỏng để lại dòng `failed` trong `outbound_messages`, không chặn người nhận khác, không
+  gây lỗi 500; không có thông báo trong ứng dụng khi hỏng hẳn (khác nhắc hạn) vì tác vụ chạy
+  lại mỗi ngày.
+
 ### 6.9 Nhắc khách bổ sung giấy tờ — `RemindMissingDocuments`
 
 Chạy 08:00 các ngày thứ Hai, Tư, Sáu. Với mỗi matter đang mở, đã công bố
@@ -1078,6 +1111,13 @@ nội dung đi qua cùng ranh giới với màn hình tiền của kế toán (�
 hồ sơ, loại vụ việc, tên khách, tên đợt, các con số và ngày — không tiêu đề vụ
 việc. M9 **không** gửi thư nhắc nợ nào cho khách.
 
+**Đính chính 2026-09-30 (M9 Task 11).** Nội dung thật của mẫu: tiêu đề "Đợt thanh toán
+quá hạn N ngày: <tên đợt> (<mã hồ sơ>)"; thân thư gồm mã hồ sơ kèm loại vụ việc, tên khách
+hàng, tên đợt, số tiền **còn phải thu** (không phải giá trị mặt của đợt), ngày đến hạn, số
+ngày quá hạn, và một nút liên kết (§6.8 đính chính 2026-09-30 nói liên kết đi đâu). Dòng
+`outbound_messages` của thư gắn vào đợt (`related` = `instalment`); vì bảng `instalments`
+không có `matter_id`, dòng đó chỉ admin thấy ở màn hình nhật ký thư (không nới điều này).
+
 Email gửi cho khách **chỉ chứa nội dung đã công bố**, tuyệt đối không nhúng
 `internal_note`. Nội dung tóm tắt ngắn, chi tiết mời bấm vào portal.
 
@@ -1206,8 +1246,8 @@ Mục tiêu độ phủ: tối thiểu 80% cho `app/Actions/` và `app/Policies/
 Seeder phải tạo được một môi trường demo dùng thật được ngay:
 
 - 1 admin, 1 manager, 3 luật sư, 2 trợ lý, 1 kế toán.
-- 6 `matter_types` với bộ giai đoạn đầy đủ cho ít nhất 3 loại.
-- Checklist template 12 đầu mục cho tranh chấp đất đai, và 2 template khác.
+- 12 `matter_types` với bộ giai đoạn đầy đủ cho ít nhất 3 loại.
+- Checklist template 12 đầu mục cho tranh chấp đất đai, và 11 template khác (mỗi loại còn lại một).
 - 12 khách hàng, mỗi khách 1–2 tài khoản portal.
 - 20 vụ việc rải đều các giai đoạn, trong đó cố ý tạo: 3 vụ quá hạn cập nhật
   trên 14 ngày, 2 vụ có mốc thời hạn trong 3 ngày tới, 4 vụ đang thiếu giấy tờ,
@@ -1221,6 +1261,24 @@ Seeder phải tạo được một môi trường demo dùng thật được nga
 - Tệp mẫu dùng PDF giả sinh bằng code, không commit tệp thật vào repo.
 
 Tài khoản demo ghi rõ trong `README.md`.
+
+**Đính chính 2026-09-30 (M9 Task 1).** Bản đầu ghi "6 `matter_types`" và "2 template
+khác". Văn phòng hành nghề **mười hai** lĩnh vực (theo luatvukhang.com), và biểu đồ cơ
+cấu vụ việc theo lĩnh vực của trang doanh thu chạy trên mọi loại đang hoạt động: một bộ
+seed chỉ có sáu loại kể cho chủ văn phòng một câu chuyện sai. Nay có 12 loại — bốn loại
+cũ đổi **tên** (`DD` "Đất đai và bất động sản", `DN` "Đầu tư và doanh nghiệp", `DS`
+"Giải quyết tranh chấp", `LD` "Lao động và nhân sự"; `code` không đổi vì `matters.code`
+nhúng mã loại), sáu loại mới `HC` hành chính và giấy phép, `TM` hợp đồng và thương mại,
+`NH` ngân hàng và tín dụng, `SH` sở hữu trí tuệ và công nghệ, `TC` thuế và tài chính,
+`XD` xây dựng và hạ tầng. Sáu loại mới dùng **bộ năm giai đoạn TẠM chung** (tiếp nhận,
+thu thập hồ sơ, soạn hồ sơ, đang thực hiện, kết thúc), ghi rõ "TẠM" ở `description`,
+và trong dữ liệu mẫu không vụ nào thuộc loại mới được công bố ra cổng (`matters.is_published_to_portal`),
+cho tới khi chủ văn phòng mô tả quy trình thật. Mỗi loại có ít nhất một danh mục hồ sơ mẫu tối thiểu (giấy tờ
+tuỳ thân, tài liệu của vụ, hợp đồng dịch vụ), nên "2 template khác" thành 11.
+Seeder tham chiếu vẫn **chỉ thêm**; danh mục mẫu chỉ được seed cho loại CHƯA có danh mục
+mẫu nào (kể cả đã xoá), nên máy chủ mà văn phòng đã tự soạn danh mục cho một loại thì giữ
+nguyên danh mục đó. Máy chủ đã có dữ liệu đổi tên bốn loại cũ bằng một migration dữ liệu
+chỉ đổi khi tên hiện tại đúng bằng tên seed cũ.
 
 ---
 

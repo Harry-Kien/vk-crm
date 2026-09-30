@@ -44,17 +44,17 @@ it('seeds the staff roster', function () {
         ->and(User::where('email', 'admin@luatvukhang.com')->exists())->toBeTrue();
 });
 
-it('seeds six matter types each with a stage set', function () {
-    expect(MatterType::count())->toBe(6)
-        ->and(MatterType::pluck('code')->sort()->values()->all())->toBe(['DD', 'DN', 'DS', 'HN', 'HS', 'LD'])
+it('seeds twelve matter types each with a stage set', function () {
+    expect(MatterType::count())->toBe(12)
+        ->and(MatterType::pluck('code')->sort()->values()->all())->toBe(['DD', 'DN', 'DS', 'HC', 'HN', 'HS', 'LD', 'NH', 'SH', 'TC', 'TM', 'XD'])
         ->and(MatterType::all()->every(fn ($t) => $t->stages()->count() >= 5))->toBeTrue()
         ->and(MatterType::where('code', 'DS')->first()->stages()->count())->toBe(11);
 });
 
-it('seeds the land dispute checklist with twelve items and two more templates', function () {
+it('seeds the land dispute checklist with twelve items and eleven more templates', function () {
     $land = ChecklistTemplate::whereHas('matterType', fn ($q) => $q->where('code', 'DD'))->firstOrFail();
 
-    expect(ChecklistTemplate::count())->toBe(3)
+    expect(ChecklistTemplate::count())->toBe(12)
         ->and($land->items)->toHaveCount(12)
         ->and($land->items->where('is_required', true))->toHaveCount(4)
         ->and($land->items->first()->name)->toContain('Giấy tờ tuỳ thân');

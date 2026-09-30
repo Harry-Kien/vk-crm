@@ -27,6 +27,10 @@ final class StagePresets
         return match ($typeCode) {
             'HS' => self::criminal(),
             'DN' => self::corporate(),
+            // Sáu lĩnh vực thêm ở M9 Task 1: PHẢI có nhánh tường minh. `default` bên dưới là bộ tố
+            // tụng dân sự đầy đủ (nộp đơn, toà thụ lý, phúc thẩm…); thiếu nhánh này thì sáu mã mới
+            // lặng lẽ nhận bộ đó, và một vụ thuế hay ngân hàng có "Toà thụ lý" trong danh sách giai đoạn.
+            'HC', 'TM', 'NH', 'SH', 'TC', 'XD' => self::provisional(),
             default => self::civil(),
         };
     }
@@ -72,6 +76,27 @@ final class StagePresets
             self::stage('drafting', 'Soạn hồ sơ', 'Đang soạn hồ sơ', 'Luật sư soạn hồ sơ nộp cơ quan đăng ký.', ['submitted']),
             self::stage('submitted', 'Đã nộp', 'Đã nộp cơ quan nhà nước', 'Hồ sơ đã nộp, đang chờ kết quả.', ['completed', 'collecting_documents'], 7),
             self::stage('completed', 'Hoàn tất', 'Đã có kết quả', 'Đã nhận kết quả từ cơ quan nhà nước.', [], 14, true),
+        ];
+    }
+
+    /**
+     * Bộ năm giai đoạn TẠM, dùng chung cho sáu lĩnh vực mới (M9 Task 1): hành chính và giấy phép,
+     * hợp đồng và thương mại, ngân hàng và tín dụng, sở hữu trí tuệ và công nghệ, thuế và tài
+     * chính, xây dựng và hạ tầng. Quy trình thật của từng lĩnh vực là kiến thức hành nghề mà mã
+     * không có; chủ văn phòng sẽ mô tả sau (câu hỏi còn mở của kế hoạch M9). Tới lúc đó quản trị
+     * viên sửa các giai đoạn ĐÃ seed của từng loại ở tab "Giai đoạn" của loại vụ việc
+     * (`StagesRelationManager`, các dòng `matter_type_stages`), không phải bộ PHP này: `MatterTypeSeeder`
+     * chỉ thêm, nên đổi bộ này chỉ tới được một bản cài mới, không tới máy chủ đã seed. Một chuỗi
+     * thẳng, không `on_hold`, đúng một giai đoạn kết thúc (`closed`). @return list<Stage>
+     */
+    public static function provisional(): array
+    {
+        return [
+            self::stage('intake', 'Tiếp nhận', 'Đã tiếp nhận yêu cầu', 'Văn phòng đã nhận yêu cầu và đang đánh giá vụ việc.', ['collecting_documents']),
+            self::stage('collecting_documents', 'Thu thập hồ sơ', 'Đang thu thập giấy tờ', 'Văn phòng cùng anh/chị chuẩn bị đầy đủ giấy tờ cần thiết.', ['drafting']),
+            self::stage('drafting', 'Soạn hồ sơ', 'Đang soạn hồ sơ', 'Luật sư đang soạn hồ sơ và các văn bản cần thiết cho vụ việc.', ['in_progress']),
+            self::stage('in_progress', 'Đang thực hiện', 'Đang thực hiện công việc', 'Văn phòng đang thực hiện các bước công việc đã thống nhất với anh/chị.', ['closed']),
+            self::stage('closed', 'Kết thúc', 'Đã kết thúc', 'Vụ việc đã hoàn tất, không còn bước xử lý nào tiếp theo.', [], 14, true),
         ];
     }
 

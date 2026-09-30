@@ -143,8 +143,18 @@ class Receivables extends Page implements HasTable
     {
         $user = Auth::user();
 
-        return $user instanceof User
-            && $user->can(Permission::BillingView->value)
+        return $user instanceof User && static::canBeOpenedBy($user);
+    }
+
+    /**
+     * Cùng cổng của {@see self::canAccess()}, hỏi về MỘT người cụ thể thay vì người đang đăng nhập —
+     * cho nơi cần biết "người này có mở được trang Công nợ không" khi không có phiên nào (thư nhắc
+     * đợt quá hạn, M9 Task 11, chọn liên kết theo từng người nhận). MỘT định nghĩa: `canAccess()`
+     * gọi thẳng hàm này, không có bản thứ hai để lệch.
+     */
+    public static function canBeOpenedBy(User $user): bool
+    {
+        return $user->can(Permission::BillingView->value)
             && Gate::forUser($user)->allows(Permission::RevenueViewAny->value);
     }
 

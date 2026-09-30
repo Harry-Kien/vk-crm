@@ -150,7 +150,7 @@ Chưa làm, thuộc phần bảo mật và vận hành. Những thứ bắt bu�
    định có đúng không (sổ tay M6.5 ghi việc này đang chờ trả lời).
 8. **Seed đúng lệnh — KHÔNG chạy `migrate:fresh --seed` như bước "Bốn bước" ở trên.** Lệnh đó
    gọi `DatabaseSeeder`, và trên `APP_ENV=production` (`.env` của máy chủ thật phải đặt vậy)
-   nó CHỈ tạo dữ liệu tham chiếu (vai trò, quyền, 6 loại vụ việc, giai đoạn, danh mục hồ sơ mẫu)
+   nó CHỈ tạo dữ liệu tham chiếu (vai trò, quyền, 12 loại vụ việc, giai đoạn, danh mục hồ sơ mẫu)
    — không có admin, không có tài khoản demo mật khẩu `password` nào (M6.5 Task 19; trước bản vá
    này, `migrate:fresh --seed` tạo thẳng `admin@luatvukhang.com`/`password` trên đúng tên miền
    thật). Sau khi migrate xong:
@@ -167,9 +167,26 @@ Chưa làm, thuộc phần bảo mật và vận hành. Những thứ bắt bu�
      nhiêu lần cũng được, và NÊN chạy lại khi bản cập nhật có quyền mới.
    - `MatterTypeSeeder`, `ChecklistTemplateSeeder` — **chỉ thêm**: một loại vụ việc (kèm giai
      đoạn) chỉ được tạo khi mã của nó chưa từng có, kể cả đã xoá; một danh mục hồ sơ mẫu (kèm đầu
-     mục) chỉ được tạo khi loại đó chưa có danh mục mang đúng tên ấy. Tên, "Đang dùng", nhãn và mô
-     tả giai đoạn, đầu mục đã sửa hay đã xoá — mọi thứ quản trị viên đã chỉnh — không bao giờ bị
-     ghi đè hay khôi phục. Muốn lấy lại cấu hình mặc định của một loại thì phải sửa tay.
+     mục) chỉ được tạo khi loại đó CHƯA có danh mục mẫu nào, bất kể tên, kể cả đã xoá (rà soát cuối
+     làn M9, C1: vụ mới nhận mẫu đang dùng mới nhất của loại, nên một mẫu seed chèn cạnh mẫu văn
+     phòng tự soạn sẽ thay chỗ nó). Tên, "Đang dùng", nhãn và mô tả giai đoạn, danh mục và đầu mục
+     đã soạn, sửa hay xoá — mọi thứ quản trị viên đã chỉnh — không bao giờ bị ghi đè, khôi phục
+     hay thay bằng mẫu seed. Muốn lấy lại cấu hình mặc định của một loại thì phải sửa tay.
+
+   **Bản cập nhật M9 (mười hai lĩnh vực) làm gì trên máy chủ đã có dữ liệu** — để quản trị viên
+   biết trước ô chọn loại vụ việc sẽ hiện gì:
+
+   - `migrate --force` chạy một lần migration dữ liệu
+     `2026_09_30_000001_rename_matter_types_to_office_names`: đổi tên bốn loại `DD`, `DN`, `DS`,
+     `LD` sang tên lĩnh vực của văn phòng, **chỉ khi** tên hiện tại còn đúng từng ký tự bằng tên seed
+     cũ; loại đã được đổi tên tay thì giữ nguyên. Mã loại không đổi.
+   - `db:seed --force` thêm sáu loại mới `HC`, `TM`, `NH`, `SH`, `TC`, `XD`, đang dùng, với bộ năm
+     giai đoạn **TẠM** (ghi "TẠM" ở mô tả loại) chờ chủ văn phòng mô tả quy trình thật; mã nào văn
+     phòng đã tự tạo thì bỏ qua. Loại nào chưa có danh mục hồ sơ mẫu nào thì nhận một danh mục tối
+     thiểu.
+   - Văn phòng đã tự tạo một loại cùng lĩnh vực nhưng **mã khác** (ví dụ "Thuế" mã `TH`) thì sau
+     bản cập nhật ô chọn có hai mục gần giống nhau. Quản trị viên tắt "Đang dùng" ở một trong hai
+     trong màn hình loại vụ việc; seeder không tự gộp hay xoá loại nào.
 
    `DemoDataSeeder` thì KHÔNG an toàn trên dữ liệu thật (xem cuối mục này).
 
