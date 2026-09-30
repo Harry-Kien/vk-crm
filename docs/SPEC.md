@@ -639,6 +639,8 @@ lúc ấy thư mục MCP chưa tồn tại; việc chép dòng này vào bảng 
 >
 > **Ai thấy bản ghi nào: một định nghĩa** (`IntakeRequest::scopeVisibleTo`). Có `intake.viewAny` thì thấy mọi bản ghi; chỉ có `intake.create` thì thấy bản ghi **mình ghi hoặc được giao**, kể cả câu chuyện của chúng — trợ lý A không thấy bản ghi của trợ lý B. Cặp `intake.create` / `intake.viewAny` lặp lại đúng cặp `matter.view` / `matter.viewAny`. Luật sư chỉ chuyển đổi được bản ghi mình thấy; trợ lý không có `matter.create` nên không chuyển đổi.
 >
+> **Bản ghi đã chuyển thành vụ `restricted` (bổ sung 2026-09-30, vòng sửa 1 của Task 1)** chỉ thấy được với người xem được vụ đó (admin, luật sư phụ trách còn `matter.view`): bản ghi mang tên khách, câu chuyện và liên kết `client_id`/`matter_id`, nên `intake.viewAny` — hay việc đã ghi/được giao bản ghi — không được là cửa vào vụ hạn chế. Cùng định nghĩa `scopeVisibleTo`/`isVisibleTo`; vụ thường không đòi thêm gì. Mọi màn hình đọc bản ghi (danh sách, widget, báo cáo) phải đi qua định nghĩa này, không tự lọc lại.
+>
 > **Kế toán không thấy gì của tiếp nhận**, vì SPEC §1 tách kế toán khỏi nội dung hồ sơ và người liên hệ không có khoản tiền nào để thu.
 >
 > **Xử lý xung đột Đỏ lúc tiếp nhận** (mở ô câu chuyện, từ chối vì xung đột) là **một** định nghĩa cho cả hệ thống: `ConflictOverride::allowedFor()` — vai `manager` hoặc `admin`, cùng cổng ghi đè Đỏ của `OpenMatter` (§6.10) — cộng với việc xem được bản ghi. Hôm nay nó trùng người với `intake.viewAny`, nhưng đọc theo **vai**, không theo quyền, để hai nơi không thể lệch nhau. **Lý do từ chối vì xung đột** chỉ người có `intake.viewAny` thấy; người khác thấy "Đã từ chối". **Xoá dữ liệu theo yêu cầu** của chủ thể chỉ admin.

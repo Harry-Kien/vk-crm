@@ -1,11 +1,13 @@
 <?php
 
+use App\Enums\IntakeStatus;
 use App\Enums\Permission;
 use App\Enums\Role;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\IntakeParty;
 use App\Models\IntakeRequest;
+use App\Models\Matter;
 use App\Models\User;
 use App\Policies\IntakePartyPolicy;
 use App\Policies\IntakeRequestPolicy;
@@ -294,4 +296,129 @@ it('lets whoever sees the request see its parties, and no one else', function ()
     // Xoá một bên nhập nhầm theo đúng quyền sửa bản ghi cha.
     expect($this->assistantA->can('delete', $party))->toBeTrue()
         ->and($this->assistantB->can('delete', $party))->toBeFalse();
+});
+
+/**
+ * Fix vòng 1, phát hiện 1 — bản ghi tiếp nhận ĐÃ CHUYỂN THÀNH vụ `restricted` mang tên khách
+ * (`contact_name`), câu chuyện (`summary`) và liên kết `client_id`/`matter_id` của vụ đó. "Thấy được"
+ * phải hỏi cả vụ: người không xem được vụ restricted (`MatterPolicy::view` false — ở đây là quản lý
+ * không phải luật sư phụ trách) không được thấy bản ghi, kể cả khi có `intake.viewAny` hay là người
+ * đã ghi/được giao bản ghi. Vụ thường: giữ nguyên R9 (không đòi thêm quyền xem vụ).
+ */
+function convertedIntake(Matter $matter, array $attributes = []): IntakeRequest
+{
+    return IntakeRequest::factory()->create([
+        'client_id' => $matter->client_id,
+        'matter_id' => $matter->id,
+        'status' => IntakeStatus::Won,
+        ...$attributes,
+    ]);
+}
+
+it('hides an intake converted into a restricted matter from everyone who cannot view that matter', function () {
+    $restricted = Matter::factory()->restricted()->create(['lead_lawyer_id' => $this->lawyer->id]);
+    $intake = convertedIntake($restricted, ['created_by' => $this->assistantA->id, 'assigned_to' => $this->lawyer->id]);
+
+    // Không thấy: quản lý (intake.viewAny nhưng không phụ trách), trợ lý đã ghi bản ghi, luật sư khác.
+    foreach ([$this->manager, $this->assistantA, $this->otherLawyer, $this->accountant] as $blind) {
+        expect($blind->can('view', $intake))->toBeFalse("{$blind->position->value} không được thấy")
+            ->and($blind->can('update', $intake))->toBeFalse()
+            ->and($intake->isVisibleTo($blind))->toBeFalse()
+            ->and(IntakeRequest::query()->visibleTo($blind)->whereKey($intake->id)->exists())->toBeFalse();
+    }
+
+    // Thấy: admin, và luật sư phụ trách vụ đồng thời được giao bản ghi.
+    foreach ([$this->admin, $this->lawyer] as $seer) {
+        expect($seer->can('view', $intake))->toBeTrue()
+            ->and($intake->isVisibleTo($seer))->toBeTrue()
+            ->and(IntakeRequest::query()->visibleTo($seer)->whereKey($intake->id)->exists())->toBeTrue();
+    }
+});
+
+it('takes every ability that hangs on visibility away with it, parties and conflict reason included', function () {
+    $restricted = Matter::factory()->restricted()->create(['lead_lawyer_id' => $this->lawyer->id]);
+    $intake = convertedIntake($restricted);
+    $party = IntakeParty::factory()->for($intake, 'intakeRequest')->create();
+
+    expect($this->manager->can('viewConflictReason', $intake))->toBeFalse()
+        ->and($this->manager->can('resolveConflict', $intake))->toBeFalse()
+        ->and($this->manager->can('convert', $intake))->toBeFalse()
+        ->and($this->manager->can('view', $party))->toBeFalse()
+        ->and($this->manager->can('update', $party))->toBeFalse()
+        ->and($this->manager->can('delete', $party))->toBeFalse()
+        ->and(intakeWitness(Permission::IntakeViewAny->value)->can('viewConflictReason', $intake))->toBeFalse()
+        ->and($this->admin->can('viewConflictReason', $intake))->toBeTrue()
+        ->and($this->admin->can('view', $party))->toBeTrue();
+});
+
+it('keeps an intake converted into a normal matter visible under the R9 rules, whoever leads the matter', function () {
+    $normal = Matter::factory()->create(['lead_lawyer_id' => $this->otherLawyer->id]);
+    $intake = convertedIntake($normal, ['created_by' => $this->assistantA->id, 'assigned_to' => $this->lawyer->id]);
+
+    // Người tiếp nhận (trợ lý A) và người được giao (luật sư) không nằm trong nhóm vụ, vẫn thấy.
+    foreach ([$this->admin, $this->manager, $this->assistantA, $this->lawyer] as $seer) {
+        expect($seer->can('view', $intake))->toBeTrue("{$seer->position->value} thấy vụ thường")
+            ->and($intake->isVisibleTo($seer))->toBeTrue()
+            ->and(IntakeRequest::query()->visibleTo($seer)->whereKey($intake->id)->exists())->toBeTrue();
+    }
+
+    expect($this->assistantB->can('view', $intake))->toBeFalse()
+        ->and($this->accountant->can('view', $intake))->toBeFalse();
+});
+
+it('still hides the restricted conversion when the matter is soft deleted or the lead lawyer lost matter.view', function () {
+    $restricted = Matter::factory()->restricted()->create(['lead_lawyer_id' => $this->lawyer->id]);
+    $intake = convertedIntake($restricted, ['assigned_to' => $this->lawyer->id]);
+
+    $restricted->delete();
+
+    expect($this->manager->can('view', $intake->fresh()))->toBeFalse()
+        ->and(IntakeRequest::query()->visibleTo($this->manager)->whereKey($intake->id)->exists())->toBeFalse()
+        ->and($this->lawyer->can('view', $intake->fresh()))->toBeTrue()
+        ->and(IntakeRequest::query()->visibleTo($this->lawyer)->whereKey($intake->id)->exists())->toBeTrue()
+        ->and(IntakeRequest::query()->visibleTo($this->admin)->whereKey($intake->id)->exists())->toBeTrue();
+
+    // Người phụ trách bị đổi chức danh (mất matter.view) thì không xem được vụ restricted → mất luôn bản ghi.
+    $demoted = intakeWitness(Permission::IntakeCreate->value);
+    $theirs = Matter::factory()->restricted()->create(['lead_lawyer_id' => $demoted->id]);
+    $demotedIntake = convertedIntake($theirs, ['assigned_to' => $demoted->id]);
+
+    expect($demoted->can('view', $demotedIntake))->toBeFalse()
+        ->and(IntakeRequest::query()->visibleTo($demoted)->whereKey($demotedIntake->id)->exists())->toBeFalse();
+});
+
+it('answers the same in memory and in SQL for conversions, and a client portal session does not change it', function () {
+    $restricted = Matter::factory()->restricted()->create(['lead_lawyer_id' => $this->lawyer->id]);
+    $normal = Matter::factory()->create();
+    $a = convertedIntake($restricted, ['created_by' => $this->assistantA->id, 'assigned_to' => $this->lawyer->id]);
+    $b = convertedIntake($normal, ['created_by' => $this->assistantA->id, 'assigned_to' => $this->lawyer->id]);
+
+    $users = [$this->admin, $this->manager, $this->lawyer, $this->otherLawyer, $this->assistantA, $this->accountant];
+
+    $expected = [];
+    foreach ($users as $user) {
+        $expected[$user->id] = IntakeRequest::query()->visibleTo($user)->pluck('id')->sort()->values()->all();
+    }
+
+    // Một phiên cổng khách đang mở (Action/job gọi Gate::forUser($staff) trong request cổng) không được
+    // đổi câu trả lời trong bộ nhớ: truy vấn vụ phải bỏ ClientPortalScope, như MatterPolicy::view.
+    $this->actingAs($this->clientUser, 'client');
+
+    foreach ($users as $user) {
+        expect(collect([$a, $b])->filter(fn (IntakeRequest $r) => $r->isVisibleTo($user))->pluck('id')->sort()->values()->all())
+            ->toBe(collect($expected[$user->id])->intersect([$a->id, $b->id])->sort()->values()->all(), "{$user->position->value}");
+
+        // Truy vấn SQL cũng vậy: lớp cổng của CHÍNH bảng tiếp nhận (chặn `1 = 0`) được bỏ ở đây để chỉ đo
+        // truy vấn vụ bên trong — nó phải tự bỏ ClientPortalScope, nếu không vụ của khách khác biến mất.
+        expect(IntakeRequest::query()->withoutGlobalScopes()->visibleTo($user)->whereKey([$a->id, $b->id])->pluck('id')->sort()->values()->all())
+            ->toBe(collect($expected[$user->id])->intersect([$a->id, $b->id])->sort()->values()->all(), "SQL {$user->position->value}");
+    }
+});
+
+it('refuses (in memory) an intake whose matter id points at nothing', function () {
+    $intake = IntakeRequest::factory()->create(['created_by' => $this->assistantA->id]);
+    $intake->matter_id = 987654;
+
+    expect($intake->isVisibleTo($this->admin))->toBeFalse()
+        ->and($intake->isVisibleTo($this->assistantA))->toBeFalse();
 });

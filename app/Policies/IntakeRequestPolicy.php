@@ -17,6 +17,11 @@ use App\Support\ConflictOverride;
  * giao; kế toán không thấy gì. `view`, `update`, `convert`, `viewConflictReason`, `resolveConflict`
  * đều đi qua đó, để resource, widget và báo cáo (Task 3, 5, 6) dùng đúng một luật.
  *
+ * **Bản ghi đã chuyển thành vụ `restricted` chỉ thấy được với người xem được vụ đó** (admin, luật
+ * sư phụ trách còn `matter.view`) — bản ghi mang tên khách, câu chuyện và liên kết vụ, nên nếu không
+ * thì `intake.viewAny` (hay việc đã ghi/được giao bản ghi) là cửa hậu vào vụ hạn chế. Luật đó nằm
+ * trong `isVisibleTo()`/`scopeVisibleTo()`, không lặp ở đây: mọi ability đọc "thấy được" thừa hưởng.
+ *
  * **Ba ability KHÔNG đọc cùng một thứ, và có chủ đích:**
  *  - `viewConflictReason` (R8 — lý do từ chối vì xung đột là loại nhạy cảm: nói lý do là tiết lộ có
  *    tồn tại một khách hàng khác) đọc QUYỀN `intake.viewAny`, đúng bảng R9.
@@ -72,10 +77,16 @@ class IntakeRequestPolicy
             && $intake->isVisibleTo($user);
     }
 
-    /** R8: lý do từ chối vì xung đột chỉ người có `intake.viewAny` thấy; người khác thấy "Đã từ chối". */
+    /**
+     * R8: lý do từ chối vì xung đột chỉ người có `intake.viewAny` thấy; người khác thấy "Đã từ chối".
+     * Và chỉ trên bản ghi mình thấy được: bản ghi đã chuyển thành vụ `restricted` mà người này không
+     * xem được thì lý do (tiết lộ có khách hàng khác) cũng không hiện.
+     */
     public function viewConflictReason(User|ClientUser $user, IntakeRequest $intake): bool
     {
-        return $user instanceof User && $user->can(Permission::IntakeViewAny->value);
+        return $user instanceof User
+            && $user->can(Permission::IntakeViewAny->value)
+            && $intake->isVisibleTo($user);
     }
 
     /** Xử lý Đỏ / từ chối vì xung đột — xem docblock lớp về lý do đọc VAI. */

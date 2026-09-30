@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\Confidentiality;
 use App\Enums\ConflictLevel;
 use App\Enums\IntakeSource;
 use App\Enums\IntakeStatus;
@@ -12,6 +13,7 @@ use App\Models\Concerns\RestrictedToClientPortal;
 use App\Policies\IntakeRequestPolicy;
 use App\Support\CodeSequence;
 use App\Support\Normalizer;
+use App\Support\Scopes\ClientPortalScope;
 use Database\Factories\IntakeRequestFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -138,33 +140,69 @@ class IntakeRequest extends Model
      * (R9): quyền `intake.viewAny` thấy mọi bản ghi; người chỉ có `intake.create` thấy bản ghi MÌNH
      * ghi hoặc được giao cho mình; người không có cả hai (kế toán) không thấy gì. Đọc QUYỀN, không
      * đọc vai. {@see self::isVisibleTo()} là bản trong bộ nhớ của đúng luật này.
+     *
+     * **Cộng thêm một vế cho bản ghi ĐÃ CHUYỂN ĐỔI (fix vòng 1 của Task 1):** bản ghi mang tên khách,
+     * câu chuyện và liên kết `client_id`/`matter_id` của vụ nó đã thành. Nếu vụ đó `restricted` mà
+     * người hỏi không xem được vụ (`MatterPolicy::view` false: không phải admin, không phải luật sư
+     * phụ trách còn `matter.view`) thì bản ghi biến mất với họ — kể cả khi họ có `intake.viewAny` hay
+     * chính là người ghi/được giao. Vụ thường KHÔNG đòi thêm gì (R9 giữ nguyên: trợ lý đã ghi bản ghi
+     * vẫn thấy dù không nằm trong nhóm vụ). Bản ghi chưa chuyển đổi (`matter_id` null) không đổi.
+     * Vụ đã xoá mềm vẫn tính (cùng `MatterPolicy::view`), và truy vấn vụ bỏ `ClientPortalScope`.
      */
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
-        if ($user->can(Permission::IntakeViewAny->value)) {
-            return $query;
-        }
+        if (! $user->can(Permission::IntakeViewAny->value)) {
+            if (! $user->can(Permission::IntakeCreate->value)) {
+                return $query->whereRaw('1 = 0');
+            }
 
-        if (! $user->can(Permission::IntakeCreate->value)) {
-            return $query->whereRaw('1 = 0');
+            $model = $query->getModel();
+
+            $query->where(fn (Builder $q) => $q
+                ->where($model->qualifyColumn('created_by'), $user->getKey())
+                ->orWhere($model->qualifyColumn('assigned_to'), $user->getKey()));
         }
 
         $model = $query->getModel();
 
         return $query->where(fn (Builder $q) => $q
-            ->where($model->qualifyColumn('created_by'), $user->getKey())
-            ->orWhere($model->qualifyColumn('assigned_to'), $user->getKey()));
+            ->whereNull($model->qualifyColumn('matter_id'))
+            ->orWhereIn($model->qualifyColumn('matter_id'), Matter::query()
+                ->withoutGlobalScope(ClientPortalScope::class)
+                ->withTrashed()
+                ->where(fn (Builder $m) => $m
+                    ->where('confidentiality', '!=', Confidentiality::Restricted->value)
+                    ->orWhere(fn (Builder $restricted) => $restricted->listableBy($user)))
+                ->select('matters.id')));
     }
 
     /** Bản trong bộ nhớ của {@see self::scopeVisibleTo()} — test khẳng định hai bản trả lời giống nhau. */
     public function isVisibleTo(User $user): bool
     {
-        if ($user->can(Permission::IntakeViewAny->value)) {
-            return true;
+        if (! $user->can(Permission::IntakeViewAny->value)
+            && ! ($user->can(Permission::IntakeCreate->value)
+                && ($this->created_by === $user->getKey() || $this->assigned_to === $user->getKey()))) {
+            return false;
         }
 
-        return $user->can(Permission::IntakeCreate->value)
-            && ($this->created_by === $user->getKey() || $this->assigned_to === $user->getKey());
+        return $this->matter_id === null || $this->canSeeConvertedMatter($user);
+    }
+
+    /**
+     * Vế "vụ đã chuyển đổi" của {@see self::isVisibleTo()}: vụ không `restricted` thì qua; vụ
+     * `restricted` thì phải là vụ người này xem được ({@see Matter::isListableBy()}, cùng luật
+     * `MatterPolicy::view`). Không tìm thấy vụ (khoá ngoại đã đặt null mà `matter_id` còn giữ
+     * trong bộ nhớ) → từ chối, đúng như truy vấn SQL.
+     */
+    private function canSeeConvertedMatter(User $user): bool
+    {
+        $matter = Matter::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->withTrashed()
+            ->find($this->matter_id, ['id', 'confidentiality', 'lead_lawyer_id', 'deleted_at']);
+
+        return $matter !== null
+            && ($matter->confidentiality !== Confidentiality::Restricted || $matter->isListableBy($user));
     }
 
     /** Portal không bao giờ đọc bảng này: người liên hệ chưa là khách hàng, chưa có tài khoản. */
