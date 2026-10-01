@@ -17,9 +17,12 @@ use Spatie\Backup\Events\BackupHasFailed;
  * rclone tồn tại. Nếu lượt đẩy lên Google Drive hỏng lặng lẽ nhiều đêm liền (thư báo lỗi bị bỏ
  * qua, tiến trình bị giết trước khi kịp báo), Google Drive dừng ở một bản cũ mà không ai biết. Lớp
  * này đòi bản MỚI NHẤT trong thư mục của môi trường ({@see RcloneArchives::folder()}) dưới
- * `vkcrm.backup.rclone.max_age_hours` giờ tuổi (36 — lượt 02:00 của đêm qua cộng một biên), tính
- * theo mốc thời gian trong TÊN tệp, không theo `ModTime` (một bản cũ tải lên lại không được coi là
- * tươi — cùng lý lẽ với {@see PruneRcloneRemoteBackups}).
+ * `vkcrm.backup.rclone.max_age_hours` giờ tuổi, tính theo mốc thời gian trong TÊN tệp, không theo
+ * `ModTime` (một bản cũ tải lên lại không được coi là tươi — cùng lý lẽ với
+ * {@see PruneRcloneRemoteBackups}). Ngưỡng 36 giờ: lúc 08:00 bản của đêm qua ~6 giờ tuổi, bản của
+ * đêm TRƯỚC đó ~30 giờ — nên lớp này chỉ báo khi HAI đêm liền không lên được (sáng sau đêm thứ
+ * hai). Một đêm hỏng đơn lẻ đã có thư lỗi của chính lượt đẩy đêm đó; chủ văn phòng giữ 36 giờ
+ * (sổ M8a, minor hoãn — muốn bắt cả một đêm hỏng lặng lẽ thì ngưỡng phải nằm giữa 6 và 30).
  *
  * Mọi trục trặc — không liệt kê được remote, thư mục không có archive nào của môi trường này, bản
  * mới nhất quá cũ — đi CÙNG ĐƯỜNG báo lỗi với mọi lỗi rclone khác: `BackupHasFailed` nêu

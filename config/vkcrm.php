@@ -108,8 +108,9 @@ return [
              * Tuổi tối đa (giờ) của bản MỚI NHẤT trên remote trước khi giám sát 08:00 báo lỗi
              * (`App\Actions\Backup\CheckRcloneRemoteFreshness`, fix I4 lượt rà soát cuối M8a).
              * Lượt đẩy chạy mỗi đêm lúc 02:00, nên lúc 08:00 bản mới nhất bình thường chỉ ~6 giờ
-             * tuổi; 36 giờ nghĩa là đã lỡ ít nhất MỘT đêm, cộng biên cho một lượt sao lưu chạy
-             * chậm. Hằng số, cùng lý lẽ với `keep`.
+             * tuổi, và bản của đêm TRƯỚC đó ~30 giờ: vượt 36 giờ nghĩa là HAI đêm liền không lên
+             * được (một đêm hỏng đơn lẻ đã có thư lỗi của chính lượt đẩy). Chủ văn phòng giữ 36 giờ.
+             * Hằng số, cùng lý lẽ với `keep`.
              */
             'max_age_hours' => 36,
         ],

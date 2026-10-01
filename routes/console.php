@@ -147,9 +147,14 @@ Schedule::command('backup:clean')
  * lượt rà soát cuối M8a; `App\Actions\Backup\CheckRcloneRemoteFreshness`). Lớp được gọi bằng
  * chuỗi `Lớp@handle` thay vì `use` + `::class`: luật làn song song cho tệp này là CHỈ NỐI THÊM
  * dòng ở cuối, và Pint tự chèn một dòng `use` lên đầu tệp cho mọi tên lớp viết đầy đủ.
+ *
+ * `withoutOverlapping(60)` — không để khoá mặc định 1440 phút (cùng lý lẽ M6.5 X6 đã áp cho các
+ * tác vụ trên): một lượt 08:00 bị giết giữa chừng không được chặn luôn lượt giám sát của NGÀY SAU.
+ * `tests/Feature/Schedule/BackupScheduleTest.php` ghim con số này, và ghim luôn rằng không tác vụ
+ * lịch nào còn giữ khoá 1440 phút.
  */
 Schedule::command('backup:monitor')
     ->dailyAt('08:00')
     ->name('backup.monitor')
-    ->withoutOverlapping()
+    ->withoutOverlapping(60)
     ->then(fn () => app()->call('App\Actions\Backup\CheckRcloneRemoteFreshness@handle'));
