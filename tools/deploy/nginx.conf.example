@@ -107,8 +107,12 @@ server {
         try_files $uri /index.php?$query_string;
     }
 
-    # Ba header SPEC §10 mục 2 cho tệp tĩnh — PHP không chạm tới các request này.
+    # Ba header SPEC §10 mục 2 cho tệp tĩnh — PHP không chạm tới các request này. HSTS lặp lại ở
+    # đây vì nginx KHÔNG cộng dồn `add_header`: một location có `add_header` riêng thì bỏ hết
+    # `add_header` của server block (đo bằng request thật ngày 2026-10-01, M8 Task 7 — trước dòng
+    # này /favicon.ico qua mẫu không có Strict-Transport-Security).
     location ~* \.(?:css|js|mjs|map|png|jpg|jpeg|gif|svg|webp|ico|woff2?|ttf|eot)$ {
+        add_header Strict-Transport-Security "max-age=31536000" always;
         add_header X-Frame-Options "DENY" always;
         add_header X-Content-Type-Options "nosniff" always;
         add_header Referrer-Policy "strict-origin-when-cross-origin" always;
