@@ -232,6 +232,10 @@ của mã nguồn thì không cần:
 chown -R www-data:www-data storage bootstrap/cache
 ```
 
+Chạy dòng này SAU `composer install`, và chạy lại sau MỖI lần `composer install` (kể cả khi nâng
+cấp): các lệnh `php artisan` mà composer tự gọi tạo tệp trong `bootstrap/cache/` và `storage/`
+mang chủ là người chạy composer, và PHP-FPM không ghi đè được tệp của người khác.
+
 **Không chạy `php artisan storage:link`** — tệp hồ sơ không bao giờ có đường dẫn tĩnh (xem mục
 "Tệp hồ sơ" trong `README.md`).
 
@@ -505,6 +509,7 @@ cd /var/www/vk-crm
 php artisan down
 git pull
 composer install --no-dev --optimize-autoloader
+chown -R www-data:www-data storage bootstrap/cache
 php artisan migrate --force
 php artisan db:seed --force
 php artisan optimize:clear

@@ -145,6 +145,7 @@ Tóm tắt những điều không được bỏ qua:
   nhân sự, và là khoá của cột so trùng CCCD. Cất nó (cùng `BACKUP_ARCHIVE_PASSWORD`) ở hai nơi
   ngoài máy chủ, không cùng chỗ bản sao lưu; không bao giờ `key:generate` trên dữ liệu thật.
 - **Nâng cấp:** `php artisan down` → `git pull` → `composer install --no-dev --optimize-autoloader`
-  → `php artisan migrate --force` → `php artisan db:seed --force` → `php artisan optimize:clear` →
-  `php artisan vkcrm:preflight` → `php artisan optimize` → `php artisan up`, rồi theo dõi thư báo
-  lỗi của lượt sao lưu đêm đầu. Chi tiết: `docs/CAI-DAT.md`, "Nâng cấp lên bản mới".
+  → `chown -R www-data:www-data storage bootstrap/cache` → `php artisan migrate --force` →
+  `php artisan db:seed --force` → `php artisan optimize:clear` → `php artisan vkcrm:preflight` →
+  `php artisan optimize` → `php artisan up`, rồi theo dõi thư báo lỗi của lượt sao lưu đêm đầu.
+  Chi tiết: `docs/CAI-DAT.md`, "Nâng cấp lên bản mới".
