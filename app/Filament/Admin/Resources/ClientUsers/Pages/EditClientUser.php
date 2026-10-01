@@ -6,6 +6,7 @@ use App\Actions\Client\IssuePortalAccess;
 use App\Actions\Portal\UnlockPortalLogin;
 use App\Actions\Portal\UnlockPortalLoginResult;
 use App\Filament\Admin\Resources\ClientUsers\ClientUserResource;
+use App\Filament\Admin\Resources\ClientUsers\Pages\Concerns\ConfirmsPortalAccessIssue;
 use App\Models\ClientUser;
 use App\Models\User;
 use Filament\Actions\Action;
@@ -18,6 +19,8 @@ use Illuminate\Support\Facades\Gate;
 
 class EditClientUser extends EditRecord
 {
+    use ConfirmsPortalAccessIssue;
+
     protected static string $resource = ClientUserResource::class;
 
     /**
@@ -27,6 +30,29 @@ class EditClientUser extends EditRecord
      * Cờ này mang quyết định đó sang `afterSave()`, nơi `$this->record` đã là bản ghi MỚI.
      */
     private bool $reissueAccessAfterSave = false;
+
+    /**
+     * Việc sau gộp M6 (làn fu, mục 6): một lần lưu SẼ gửi mật khẩu tạm mới (đổi email, hay bật lại
+     * một tài khoản chưa từng kích hoạt — {@see self::saveIssuesAccess()}, CÙNG luật mà
+     * `mutateFormDataBeforeSave()` dùng) thì nút "Lưu" hỏi xác nhận nêu rõ địa chỉ đích và câu
+     * "mật khẩu cũ sẽ không dùng được nữa"; huỷ thì không gì đổi. Lần lưu khác (sửa tên, số điện
+     * thoại) chạy thẳng như cũ. Xem {@see ConfirmsPortalAccessIssue}.
+     */
+    protected function getSaveFormAction(): Action
+    {
+        return $this->confirmPortalAccessIssue(
+            parent::getSaveFormAction(),
+            'edit',
+            fn (): bool => $this->saveIssuesAccess($this->data ?? []),
+            fn () => $this->save(),
+        );
+    }
+
+    /** Enter trong một ô của form đi qua nút "Lưu" (và hộp xác nhận của nó), không gọi thẳng `save()`. */
+    protected function getSubmitFormLivewireMethodName(): string
+    {
+        return $this->formActionMountHandler('save');
+    }
 
     /**
      * `unlockLogin` (Task 7, R12, phát hiện `portal/portal-4`): giống mọi action tự viết trong dự
@@ -129,7 +155,8 @@ class EditClientUser extends EditRecord
                 $actor = Auth::user();
                 abort_unless($actor instanceof User, 403);
 
-                $result = app(IssuePortalAccess::class)->handle($account, $actor);
+                // Việc sau gộp M6 (làn fu, N1): lần CẤP LẠI — thư nói mật khẩu trước hết hiệu lực.
+                $result = app(IssuePortalAccess::class)->handle($account, $actor, reissue: true);
 
                 Notification::make()
                     ->title($result->issued
@@ -179,11 +206,12 @@ class EditClientUser extends EditRecord
      * chứng minh, giống một tài khoản vừa tạo. `activated_at` (R12) là bằng chứng người TỰ TAY đổi
      * mật khẩu lần đầu qua đúng hộp thư đó — đổi sang một địa chỉ khác (gõ đúng hoặc gõ NHẦM lúc
      * nghe điện thoại) làm bằng chứng đó không còn nói lên gì về hộp thư MỚI, nhưng trước bản sửa
-     * này `activated_at` vẫn giữ nguyên, nên `NotifyClientOfStageUpdate::eligibleRecipientsQuery()`
-     * tiếp tục coi địa chỉ mới là "đã kích hoạt" và gửi `client.stage_update` (tên khách, mã hồ
-     * sơ, nội dung công bố) tới một hộp thư chưa ai xác minh — đúng lỗ hổng `intake/intake-04` đã
-     * lấp cho lúc TẠO, còn hở ở lúc SỬA. So với `$this->record->email`, KHÔNG với giá trị cũ của
-     * `$data` (chưa có gì để so trước dòng này).
+     * này `activated_at` vẫn giữ nguyên, nên luật người nhận R12 (nay ở
+     * `ResolveClientRecipients::eligibleQuery()`, khi đó còn là `NotifyClientOfStageUpdate::
+     * eligibleRecipientsQuery()`) tiếp tục coi địa chỉ mới là "đã kích hoạt" và gửi
+     * `client.stage_update` (tên khách, mã hồ sơ, nội dung công bố) tới một hộp thư chưa ai xác
+     * minh — đúng lỗ hổng `intake/intake-04` đã lấp cho lúc TẠO, còn hở ở lúc SỬA. So với
+     * `$this->record->email`, KHÔNG với giá trị cũ của `$data` (chưa có gì để so trước dòng này).
      *
      * **Rà soát Task 7 (M6.5 Task 5): so sánh CASE-FOLD (`mb_strtolower`), không phải `!==` trên
      * chuỗi thô.** Một lần sửa chỉ đổi HOA/THƯỜNG (`Nam@x.vn` → `nam@x.vn`, gõ lại vì quen tay lúc
@@ -207,29 +235,65 @@ class EditClientUser extends EditRecord
      * — khách mới không bao giờ có mật khẩu để đăng nhập trừ khi ai đó nhớ bấm "Cấp lại mật khẩu"
      * thủ công. Chỉ áp dụng khi `activated_at` CÒN NULL (chưa từng tự đổi mật khẩu lần đầu): một
      * tài khoản đã từng kích hoạt rồi bị khoá rồi mở lại vẫn còn mật khẩu cũ, không cần thư mới.
+     *
+     * Việc sau gộp M6 (làn fu, mục 6): hai điều kiện trên tách thành {@see self::emailChangesIn()}
+     * và {@see self::reactivatesNeverActivated()} để hộp xác nhận của nút "Lưu" hỏi ĐÚNG luật này
+     * ({@see self::saveIssuesAccess()}) trên dữ liệu form TRƯỚC khi lưu — không có bản thứ hai.
      */
     protected function mutateFormDataBeforeSave(array $data): array
     {
         $data['client_id'] = $this->record->client_id;
 
-        $emailChanged = array_key_exists('email', $data)
-            && mb_strtolower($data['email']) !== mb_strtolower($this->record->email);
+        $emailChanged = $this->emailChangesIn($data);
 
         if ($emailChanged) {
             $data['activated_at'] = null;
             $data['must_change_password'] = true;
         }
 
-        $reactivatedNeverActivated = array_key_exists('is_active', $data)
+        // Xem docblock thuộc tính `$reissueAccessAfterSave` cho lý do hoãn việc gọi
+        // `IssuePortalAccess` sang `afterSave()`.
+        $this->reissueAccessAfterSave = $emailChanged || $this->reactivatesNeverActivated($data);
+
+        return $data;
+    }
+
+    /**
+     * Lần lưu với dữ liệu form `$data` có cấp lại quyền truy cập (gửi mật khẩu tạm mới) không —
+     * đúng điều kiện mà `mutateFormDataBeforeSave()` đặt cờ `$reissueAccessAfterSave`. Hộp xác
+     * nhận của nút "Lưu" hỏi hàm này trên `$this->data` (dữ liệu đang gõ, `$this->record` còn là
+     * bản ghi CŨ lúc đó).
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function saveIssuesAccess(array $data): bool
+    {
+        return $this->emailChangesIn($data) || $this->reactivatesNeverActivated($data);
+    }
+
+    /**
+     * Email đổi THẬT (gấp hoa/thường, không tách dấu — xem docblock `mutateFormDataBeforeSave()`)
+     * so với bản ghi đang lưu.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function emailChangesIn(array $data): bool
+    {
+        return array_key_exists('email', $data)
+            && mb_strtolower((string) $data['email']) !== mb_strtolower($this->record->email);
+    }
+
+    /**
+     * `is_active` từ tắt sang bật cho một tài khoản CHƯA TỪNG kích hoạt (`activated_at` null).
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function reactivatesNeverActivated(array $data): bool
+    {
+        return array_key_exists('is_active', $data)
             && (bool) $data['is_active']
             && ! $this->record->is_active
             && $this->record->activated_at === null;
-
-        // Xem docblock thuộc tính `$reissueAccessAfterSave` cho lý do hoãn việc gọi
-        // `IssuePortalAccess` sang `afterSave()`.
-        $this->reissueAccessAfterSave = $emailChanged || $reactivatedNeverActivated;
-
-        return $data;
     }
 
     /**
@@ -239,17 +303,21 @@ class EditClientUser extends EditRecord
      * việc này, tài khoản đó có `must_change_password = true` NHƯNG không có mật khẩu tạm nào
      * được gửi, tức không có cách nào để khách đăng nhập và tự đổi mật khẩu.
      *
-     * Bỏ qua kết quả trả về ở đây (không có toast riêng cho lần lưu form). `issued` KHÔNG luôn
-     * true: `mutateFormDataBeforeSave()` không hỏi `IssuePortalAccess::isEligible()` — chỉ
-     * `IssuePortalAccess::handle()` tự hỏi, dưới khoá dòng. Kết quả tuỳ tài khoản SAU lần lưu:
+     * `issued` KHÔNG luôn true: `mutateFormDataBeforeSave()` không hỏi
+     * `IssuePortalAccess::isEligible()` — chỉ `IssuePortalAccess::handle()` tự hỏi, dưới khoá dòng.
+     * Kết quả tuỳ tài khoản SAU lần lưu:
      *  - đang bật (đổi email trên tài khoản đang bật, hoặc vừa bật lại `is_active`): `issued` là
      *    true trừ khi khách hàng đã bị xoá mềm;
      *  - đổi email trên một tài khoản đang TẮT (`is_active = false`): `issued` là false, KHÔNG thư
-     *    nào đi lúc lưu, và màn hình không báo gì. Thư không mất hẳn: đổi email đã đặt
-     *    `activated_at = null`, nên lần bật `is_active` lại sau đó rơi vào nhánh "chưa từng kích
-     *    hoạt" ở trên và gửi thư kích hoạt tới địa chỉ MỚI — ghim bằng test "sends no activation
-     *    mail for an email change on an inactive account until staff turns it back on"
-     *    (`ClientUserResourceTest`).
+     *    nào đi lúc lưu. Thư không mất hẳn: đổi email đã đặt `activated_at = null`, nên lần bật
+     *    `is_active` lại sau đó rơi vào nhánh "chưa từng kích hoạt" ở trên và gửi thư kích hoạt
+     *    tới địa chỉ MỚI — ghim bằng test "sends no activation mail for an email change on an
+     *    inactive account until staff turns it back on" (`ClientUserResourceTest`).
+     *
+     * Việc sau gộp M6 (làn fu, mục 6): kết quả đó không còn bị bỏ qua — một thông báo nói thư đi
+     * tới địa chỉ nào, hoặc vì sao chưa đi ({@see ConfirmsPortalAccessIssue::notifyPortalAccessIssue()});
+     * và `reissue: true`, vì mọi lần cấp ở trang sửa thay một mật khẩu (nếu có) mà khách đã nhận
+     * — thư nói rõ mật khẩu trước không còn dùng được.
      */
     protected function afterSave(): void
     {
@@ -262,6 +330,8 @@ class EditClientUser extends EditRecord
         $actor = Auth::user();
         abort_unless($actor instanceof User, 403);
 
-        app(IssuePortalAccess::class)->handle($this->record, $actor);
+        $this->notifyPortalAccessIssue(
+            app(IssuePortalAccess::class)->handle($this->record, $actor, reissue: true),
+        );
     }
 }

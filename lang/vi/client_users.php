@@ -52,6 +52,32 @@ return [
         //     UnlockPortalLoginResult::$minutesRemaining, cùng thành ngữ portal.login.throttled.
         'unlock_login_success_ip_still_locked' => 'Đã xoá khoá đếm của tài khoản này. Nhưng địa chỉ mạng liên quan tới lần khoá này vẫn còn bị khoá tạm — xin đợi thêm :minutes phút, hoặc thử từ một mạng khác (ví dụ 4G) để vào ngay.',
     ],
+    // Việc sau gộp M6 (làn fu, mục 6 — N2 của rà soát cuối làn m6): hộp xác nhận trước mọi lần lưu
+    // SẼ gửi mật khẩu tạm (tạo tài khoản; đổi email hay bật lại tài khoản chưa từng kích hoạt ở
+    // trang sửa) — thư đó mang mật khẩu, và mọi mã đăng nhập sau đó cũng về đúng địa chỉ ấy.
+    // :email được trang in đậm (App\Filament\Admin\Resources\ClientUsers\Pages\Concerns\
+    // ConfirmsPortalAccessIssue); câu chữ không chứa HTML nào khác. `*_inactive`: tài khoản sẽ ở
+    // trạng thái TẮT sau lần lưu, nên lúc đó chưa thư nào đi.
+    'issue_confirmation' => [
+        'create_heading' => 'Tạo tài khoản và gửi mật khẩu tạm tới địa chỉ này?',
+        'create_heading_inactive' => 'Tạo tài khoản đang tắt với địa chỉ này?',
+        'create_description' => 'Thư kích hoạt kèm mật khẩu tạm sẽ gửi tới :email. Ai đọc được hộp thư này sẽ vào được cổng thông tin của khách (mã đăng nhập cũng gửi về đó), nên hãy kiểm tra lại từng ký tự của địa chỉ.',
+        'create_description_inactive' => 'Tài khoản đang tắt nên lúc này chưa có thư nào được gửi. Khi tài khoản được bật, thư kích hoạt kèm mật khẩu tạm sẽ gửi tới :email — hãy kiểm tra lại từng ký tự của địa chỉ.',
+        'create_submit' => 'Tạo tài khoản',
+        'edit_heading' => 'Gửi mật khẩu tạm mới tới địa chỉ này?',
+        'edit_heading_inactive' => 'Lưu địa chỉ mới cho tài khoản đang tắt?',
+        'edit_description' => 'Lưu thay đổi này sẽ gửi thư kích hoạt kèm mật khẩu tạm mới tới :email, và mật khẩu cũ sẽ không dùng được nữa. Ai đọc được hộp thư này sẽ vào được cổng thông tin của khách (mã đăng nhập cũng gửi về đó), nên hãy kiểm tra lại từng ký tự của địa chỉ.',
+        'edit_description_inactive' => 'Tài khoản đang tắt nên lúc lưu chưa có thư nào được gửi. Khi tài khoản được bật lại, thư kích hoạt kèm mật khẩu tạm mới sẽ gửi tới :email, và mật khẩu cũ sẽ không dùng được nữa — hãy kiểm tra lại từng ký tự của địa chỉ.',
+        'edit_submit' => 'Lưu thay đổi',
+    ],
+    // Thông báo SAU lần lưu đã gọi App\Actions\Client\IssuePortalAccess — đọc kết quả thật
+    // (IssuePortalAccessResult), không đoán. "Sẽ được gửi": thư đi qua hàng đợi (R2), cùng lý do
+    // với `actions.reissue_access_success`.
+    'issue_notice' => [
+        'queued' => 'Thư kích hoạt kèm mật khẩu tạm sẽ được gửi tới :email trong ít phút.',
+        'not_sent_inactive' => 'Chưa gửi thư kích hoạt: tài khoản đang tắt. Khi tài khoản được bật, thư sẽ gửi tới :email.',
+        'not_sent_client_deleted' => 'Chưa gửi thư kích hoạt tới :email: khách hàng sở hữu tài khoản này đã bị xoá. Khôi phục khách hàng rồi bấm "Cấp lại mật khẩu".',
+    ],
     // App\Jobs\SendPortalActivationMail::failed() — job cấp quyền truy cập hỏng hẳn sau hết lượt
     // thử; không ai có mật khẩu để đăng nhập, và không ai biết trừ khi báo ở đây.
     'activation_failed_notification' => [

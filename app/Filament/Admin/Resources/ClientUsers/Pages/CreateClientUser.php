@@ -4,9 +4,11 @@ namespace App\Filament\Admin\Resources\ClientUsers\Pages;
 
 use App\Actions\Client\IssuePortalAccess;
 use App\Filament\Admin\Resources\ClientUsers\ClientUserResource;
+use App\Filament\Admin\Resources\ClientUsers\Pages\Concerns\ConfirmsPortalAccessIssue;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\User;
+use Filament\Actions\Action;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -14,7 +16,31 @@ use Illuminate\Support\Str;
 
 class CreateClientUser extends CreateRecord
 {
+    use ConfirmsPortalAccessIssue;
+
     protected static string $resource = ClientUserResource::class;
+
+    /**
+     * Việc sau gộp M6 (làn fu, mục 6): mọi lần tạo đều gửi (hoặc, với tài khoản tắt, hẹn gửi) mật
+     * khẩu tạm tới địa chỉ vừa gõ, nên "Tạo" luôn hỏi xác nhận nêu rõ địa chỉ — xem
+     * {@see ConfirmsPortalAccessIssue}.
+     */
+    protected function getCreateFormAction(): Action
+    {
+        return $this->confirmPortalAccessIssue(parent::getCreateFormAction(), 'create', fn (): bool => true, fn () => $this->create());
+    }
+
+    /** "Tạo và tạo thêm" là đường thứ hai tới cùng một lần tạo — cùng hộp xác nhận. */
+    protected function getCreateAnotherFormAction(): Action
+    {
+        return $this->confirmPortalAccessIssue(parent::getCreateAnotherFormAction(), 'create', fn (): bool => true, fn () => $this->createAnother());
+    }
+
+    /** Enter trong một ô của form mở hộp xác nhận của nút "Tạo", không gọi thẳng `create()`. */
+    protected function getSubmitFormLivewireMethodName(): string
+    {
+        return $this->formActionMountHandler('create');
+    }
 
     /**
      * Review fix round 1, Important #2: VisibleClientOptions chỉ hạn chế những gì Ô CHỌN hiển
@@ -55,12 +81,17 @@ class CreateClientUser extends CreateRecord
      * "hôm nay tài khoản portal được tạo bằng cách một luật sư gõ tay mật khẩu ... không có thư
      * kích hoạt nào cả". `afterCreate()` chạy sau khi bản ghi đã lưu, nên `$this->record` đã có
      * khoá chính thật để `IssuePortalAccess` khoá dòng và dispatch job gửi thư.
+     *
+     * Việc sau gộp M6 (làn fu, mục 6): `reissue: false` — thư nói "đã tạo tài khoản"; và một thông
+     * báo nói thư đi tới địa chỉ nào, hoặc vì sao chưa đi (tài khoản tạo ở trạng thái tắt).
      */
     protected function afterCreate(): void
     {
         $actor = Auth::user();
         abort_unless($actor instanceof User, 403);
 
-        app(IssuePortalAccess::class)->handle($this->record, $actor);
+        $this->notifyPortalAccessIssue(
+            app(IssuePortalAccess::class)->handle($this->record, $actor, reissue: false),
+        );
     }
 }

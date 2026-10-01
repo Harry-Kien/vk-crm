@@ -41,9 +41,17 @@ use Illuminate\Support\Facades\DB;
  */
 class IssuePortalAccess
 {
-    public function handle(ClientUser $account, User $actor): IssuePortalAccessResult
+    /**
+     * @param  bool  $reissue  Việc sau gộp M6 (làn fu, N1): `true` khi đây là lần CẤP LẠI — nút "Cấp
+     *                         lại mật khẩu", đổi email, bật lại một tài khoản chưa từng kích hoạt
+     *                         (`EditClientUser`); `false` cho lần tạo tài khoản
+     *                         (`CreateClientUser`). Chỉ đổi câu chữ của thư `client.activation`
+     *                         (tiêu đề, câu mở, câu "mật khẩu trước không còn dùng được"); không đổi
+     *                         điều kiện cấp, audit hay cách sinh mật khẩu.
+     */
+    public function handle(ClientUser $account, User $actor, bool $reissue = false): IssuePortalAccessResult
     {
-        return DB::transaction(function () use ($account, $actor): IssuePortalAccessResult {
+        return DB::transaction(function () use ($account, $actor, $reissue): IssuePortalAccessResult {
             $fresh = ClientUser::query()->lockForUpdate()->findOrFail($account->getKey());
 
             if (! self::isEligible($fresh)) {
@@ -54,7 +62,7 @@ class IssuePortalAccess
                 'client_id' => $fresh->client_id,
             ], $actor);
 
-            SendPortalActivationMail::dispatch($fresh->getKey(), $actor->getKey())->afterCommit();
+            SendPortalActivationMail::dispatch($fresh->getKey(), $actor->getKey(), $reissue)->afterCommit();
 
             return new IssuePortalAccessResult($fresh, issued: true);
         });

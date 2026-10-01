@@ -211,3 +211,75 @@ it('falls back to every active admin when the actor is no longer active', functi
     expect($admin->fresh()->notifications()->count())->toBe(1)
         ->and($inactiveActor->fresh()->notifications()->count())->toBe(0);
 });
+
+// =========================================================================================
+// Việc sau gộp M6 (làn fu, mục 6 — N1 của rà soát cuối làn m6): thư kích hoạt từng hiện mật khẩu
+// tạm không nhãn, và dùng CÙNG một câu "Văn phòng đã tạo tài khoản" cho cả lần cấp lại, đổi email
+// và bật lại — không nói mật khẩu trước không còn dùng được.
+// =========================================================================================
+
+/** Mutation probe: bỏ dòng nhãn khỏi `activation-text.blade.php` → ĐỎ. */
+it('labels the temporary password in both the HTML and the plain-text body', function () {
+    $client = Client::factory()->create();
+    $account = ClientUser::factory()->create(['client_id' => $client->id]);
+
+    $mail = new Activation($account, 'MatKhauTamThoiBiMat123');
+    $html = $mail->render();
+    $text = view($mail->content()->text, $mail->content()->with)->render();
+    $label = __('portal.email.activation.password_label');
+
+    expect($label)->not->toBe('portal.email.activation.password_label')
+        ->and($html)->toContain($label)
+        ->and(strpos($html, $label))->toBeLessThan(strpos($html, 'MatKhauTamThoiBiMat123'))
+        ->and($text)->toContain($label.' MatKhauTamThoiBiMat123');
+});
+
+/**
+ * Lần CẤP LẠI (nút "Cấp lại mật khẩu", đổi email, bật lại tài khoản) nói rõ mật khẩu trước không
+ * còn dùng được và không nói "đã tạo tài khoản"; lần tạo đầu tiên thì ngược lại.
+ *
+ * Mutation probe: bỏ nhánh `$reissue` khỏi `Activation::content()` → ĐỎ.
+ */
+it('says the earlier password no longer works only when access is re-issued', function () {
+    $client = Client::factory()->create();
+    $account = ClientUser::factory()->create(['client_id' => $client->id]);
+    $previous = __('portal.email.activation.previous_invalid');
+    $created = __('portal.email.activation.line');
+
+    $first = new Activation($account, 'MatKhauTamThoiBiMat123');
+    $reissued = new Activation($account, 'MatKhauTamThoiBiMat123', reissue: true);
+
+    $render = fn (Activation $mail): array => [
+        $mail->render(),
+        view($mail->content()->text, $mail->content()->with)->render(),
+    ];
+
+    [$firstHtml, $firstText] = $render($first);
+    [$reissuedHtml, $reissuedText] = $render($reissued);
+
+    expect($previous)->not->toBe('portal.email.activation.previous_invalid')
+        ->and($firstHtml)->not->toContain($previous)
+        ->and($firstText)->not->toContain($previous)
+        ->and($firstHtml)->toContain($created)
+        ->and($reissuedHtml)->toContain($previous)
+        ->and($reissuedText)->toContain($previous)
+        ->and($reissuedHtml)->not->toContain($created)
+        ->and($reissuedText)->not->toContain($created)
+        ->and($reissued->envelope()->subject)->toBe(__('portal.email.activation.subject_reissued'))
+        ->and($first->envelope()->subject)->toBe(__('portal.email.activation.subject'));
+});
+
+/** Cờ "cấp lại" đi từ Action qua job hàng đợi tới thư — không đoán lại ở giữa. */
+it('carries the re-issue flag from IssuePortalAccess through the queued job to the mail', function (bool $reissue) {
+    Mail::fake();
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $client = Client::factory()->create();
+    $account = ClientUser::factory()->create(['client_id' => $client->id]);
+
+    app(IssuePortalAccess::class)->handle($account, $admin, reissue: $reissue);
+
+    Mail::assertSent(Activation::class, fn (Activation $mail): bool => $mail->hasTo($account->email) && $mail->reissue === $reissue);
+})->with([
+    'first issue' => [false],
+    're-issue' => [true],
+]);
