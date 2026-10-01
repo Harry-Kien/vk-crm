@@ -16,12 +16,15 @@ use App\Models\User;
 use App\Support\Audit;
 use App\Support\Files\FileGuard;
 use App\Support\Handover\HandoverEntry;
+use ErrorException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Spatie\MediaLibrary\MediaCollections\Exceptions\FileCannotBeAdded;
+use Spatie\MediaLibrary\MediaCollections\Exceptions\FileIsTooBig;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Throwable;
 use ZipArchive;
@@ -51,8 +54,17 @@ use ZipArchive;
  *  1. Mọi thứ nặng (dựng PDF, nén zip, kiểm zip đọc lại được với đúng số entry) diễn ra trong
  *     thư mục tạm của lần yêu cầu ({@see self::workDirectory()}, dưới `vkcrm.handover.work_dir`,
  *     mặc định `storage/app/handover-tmp/`) và chưa chạm DB hay medialibrary.
- *  2. Chỉ khi zip xong và kiểm xong, một transaction ngắn (khoá `matters` rồi `matter_archives`)
- *     tạo `Document`, gắn tệp vào medialibrary, cập nhật dòng lưu trữ, ghi nhật ký.
+ *  2. Chỉ khi zip xong và kiểm xong, MỘT transaction (khoá `matters` rồi `matter_archives`) tạo
+ *     `Document`, gắn tệp vào medialibrary, cập nhật dòng lưu trữ, ghi nhật ký. Transaction này
+ *     KHÔNG ngắn với gói lớn: medialibrary không đổi tên tệp mà CHÉP nó (`fopen()` rồi `put()`
+ *     cả luồng, rồi xoá nguồn — `Spatie\MediaLibrary\MediaCollections\Filesystem::
+ *     copyToMediaLibrary()`), kể cả khi thư mục tạm và đĩa `private` cùng một ổ. Trong lúc chép,
+ *     dòng `matters` của ĐÚNG vụ này bị khoá: một thao tác khác khoá vụ đó (chuyển giai đoạn, ghi
+ *     tiền sau M9) đứng chờ, lâu nhất bằng thời gian chép gói lớn nhất (trần cỡ gói
+ *     `media-library.max_file_size` chia tốc độ ghi đĩa). Chờ quá `innodb_lock_wait_timeout` (mặc
+ *     định 50 giây) thì thao tác ĐANG CHỜ hỏng với lỗi hết chờ khoá; gói vẫn xong. Đưa việc chép ra
+ *     ngoài khoá thì mất bảo đảm "không tệp mồ côi" của bước 3 — giới hạn này được ghi lại, không
+ *     được gỡ.
  *  3. Thư mục tạm luôn bị xoá (`finally`). Nếu transaction hỏng SAU khi tệp đã được medialibrary
  *     copy vào đĩa `private` (dòng `media` bị rollback), thư mục `{media.id}/` mồ côi đó bị xoá
  *     trước khi ném lỗi tiếp — không để lại tệp dở dang. Một tiến trình bị GIẾT (hết `$timeout`
@@ -61,6 +73,18 @@ use ZipArchive;
  *     yêu cầu đã bị thay), và {@see RecordHandoverPackageFailure} xoá nó khi job thất bại hẳn.
  *  4. Xoá tệp version cũ chỉ sau khi transaction commit (nếu commit hỏng, tệp cũ còn nguyên); lỗi
  *     xoá không làm hỏng gói mới (ghi log).
+ *
+ * # Lỗi đĩa và cỡ gói là lỗi CÓ TÊN (vòng sửa 1)
+ *
+ * Thử lại những lỗi này chỉ nén lại toàn bộ gói rồi hỏng y hệt, và lỗi lạ thì chỉ để lại câu chung
+ * "lỗi hệ thống" — nên chúng thành {@see HandoverPackageFailed}, job ghi ngay, câu nói người vận
+ * hành phải làm gì:
+ *  - cảnh báo hệ thống tệp ở thư mục tạm (`ErrorException`: đĩa đầy, mất quyền ghi) →
+ *    `workDirectoryFailed()`;
+ *  - zip lớn hơn trần MỘT tệp của kho (`FileIsTooBig`; trần là `MEDIA_MAX_FILE_SIZE_MB`, mặc định
+ *    2048 MB — `config/media-library.php`) → `tooLarge()`;
+ *  - medialibrary không lưu được zip (mọi `FileCannotBeAdded` khác, thường là
+ *    `DiskCannotBeAccessed` khi đĩa từ chối ghi) → `storeFailed()`.
  *
  * # Dấu của lần yêu cầu
  *
@@ -116,14 +140,16 @@ class BuildHandoverPackage
                 throw HandoverPackageFailed::notClosed();
             }
 
-            // Lần chạy trước của CÙNG yêu cầu (bị giết, không tới được `finally`) có thể đã để lại
-            // tệp dở ở đây: `MUC-LUC.pdf` bị `File::put()` ghi đè, zip được mở với `OVERWRITE`, và
-            // `finally` dưới đây xoá cả thư mục.
-            File::ensureDirectoryExists($workDirectory);
-
             $entries = $this->collect->handle($matter, $archive);
 
-            $zipPath = $this->buildZip($workDirectory, $matter, $entries);
+            try {
+                $zipPath = $this->buildZip($workDirectory, $matter, $entries);
+            } catch (ErrorException $exception) {
+                // PHP báo lỗi hệ thống tệp (đĩa đầy, không có quyền ghi, đường dẫn hỏng) bằng cảnh
+                // báo, Laravel đổi thành `ErrorException`. Thử lại sau 120 giây chỉ nén lại rồi
+                // hỏng y hệt: ghi thành lỗi có tên, chỉ đúng thư mục cần kiểm.
+                throw HandoverPackageFailed::workDirectoryFailed($exception);
+            }
 
             $document = $this->store($matterId, $requestedAt, $zipPath, $entries->count());
         } finally {
@@ -167,6 +193,11 @@ class BuildHandoverPackage
      */
     private function buildZip(string $workDirectory, Matter $matter, Collection $entries): string
     {
+        // Lần chạy trước của CÙNG yêu cầu (bị giết, không tới được `finally`) có thể đã để lại
+        // tệp dở ở đây: `MUC-LUC.pdf` bị `File::put()` ghi đè, zip được mở với `OVERWRITE`, và
+        // `finally` của `handle()` xoá cả thư mục.
+        File::ensureDirectoryExists($workDirectory);
+
         $indexPath = $workDirectory.DIRECTORY_SEPARATOR.self::INDEX_ENTRY;
 
         if (File::put($indexPath, $this->render->handle($matter, $entries)) === false) {
@@ -287,10 +318,23 @@ class BuildHandoverPackage
 
                 $fileName = __('handover.package.file_name', ['code' => $matter->code]);
 
-                $storedMedia = $document->addMedia($zipPath)
-                    ->usingName(FileGuard::safeName($fileName))
-                    ->usingFileName(Str::lower((string) Str::ulid()).'.zip')
-                    ->toMediaCollection('file');
+                try {
+                    $storedMedia = $document->addMedia($zipPath)
+                        ->usingName(FileGuard::safeName($fileName))
+                        ->usingFileName(Str::lower((string) Str::ulid()).'.zip')
+                        ->toMediaCollection('file');
+                } catch (FileIsTooBig $exception) {
+                    // Medialibrary kiểm cỡ TRƯỚC khi chép gì: chưa có tệp nào để dọn.
+                    throw HandoverPackageFailed::tooLarge(
+                        (int) filesize($zipPath),
+                        (int) config('media-library.max_file_size'),
+                        $exception,
+                    );
+                } catch (FileCannotBeAdded $exception) {
+                    // Đĩa từ chối ghi giữa chừng (`DiskCannotBeAccessed`): medialibrary đã tự xoá
+                    // dòng `media` và thư mục `{media.id}/` dở của nó trước khi ném.
+                    throw HandoverPackageFailed::storeFailed($exception);
+                }
 
                 if ($previous !== null) {
                     $previousMedia = $previous->getMedia('file')->all();

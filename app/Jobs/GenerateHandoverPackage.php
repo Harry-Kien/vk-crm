@@ -29,9 +29,11 @@ use Throwable;
  *  - `retry_after` của kết nối `handover` = 900 giây > `$timeout`: một job đang chạy không bị worker
  *    khác nhặt lại và chạy song song (kết nối `database` chung chỉ có 90 giây — lý do có kết nối
  *    riêng). `tests/Feature/Schedule/QueueHandoverScheduleTest.php` ghim quan hệ này.
- *  - `$tries` = 2: một lần thử lại cho lỗi nhất thời (đĩa đầy tạm thời, khoá DB). Lỗi CÓ TÊN
- *    ({@see HandoverPackageFailed} — thiếu tệp, không nén được, không dựng được mục lục) là lỗi
- *    tất định: thử lại chỉ phí thêm một lượt nén, nên bị bắt ngay ở `handle()` và ghi luôn.
+ *  - `$tries` = 2: một lần thử lại cho lỗi nhất thời (khoá DB, mất kết nối DB). Lỗi CÓ TÊN
+ *    ({@see HandoverPackageFailed} — thiếu tệp, không nén được, không dựng được mục lục, thư mục
+ *    tạm không ghi được, gói vượt trần một tệp của kho, kho không lưu được gói) là lỗi tất định
+ *    hoặc cần người sửa trước: thử lại chỉ phí thêm một lượt nén, nên bị bắt ngay ở `handle()` và
+ *    ghi luôn, với câu nói người vận hành phải làm gì.
  *
  * # `$requestedAt` — dấu của lần yêu cầu
  *

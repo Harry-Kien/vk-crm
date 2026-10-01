@@ -142,6 +142,38 @@ it('lỗi có tên: ghi failed kèm câu tiếng Việt, ghi nhật ký, báo lu
         ->toBe(HandoverPackageStatus::Generating);
 });
 
+it('gói vượt trần MỘT tệp của kho hồ sơ: ghi failed với câu chỉ cách nâng trần, báo luật sư, job KHÔNG ném lỗi (không thử lại)', function () {
+    Queue::fake(SendHandoverPackageReady::class);
+
+    $scan = Document::factory()->create([
+        'matter_id' => $this->matter->id, 'group' => DocumentGroup::Issued, 'status' => DocumentStatus::SignedFiled,
+        'title' => 'Bản scan hồ sơ',
+    ]);
+    $scan->addMediaFromString(random_bytes(1536 * 1024))->usingFileName('scan.pdf')->toMediaCollection('file');
+
+    // Trần 1 MB, hạ SAU khi tài liệu nguồn (1,5 MB) đã vào kho. Trước vòng sửa 1, `FileIsTooBig`
+    // của medialibrary lọt khỏi `handle()`: job thử lại sau 120 giây (nén lại tất cả), hỏng y hệt,
+    // rồi `failed()` ghi câu chung "lỗi hệ thống".
+    config(['media-library.max_file_size' => 1024 * 1024]);
+
+    ghpRun(ghpJob($this));
+
+    $archive = $this->archive->fresh();
+
+    expect($archive->handover_status)->toBe(HandoverPackageStatus::Failed)
+        ->and($archive->handover_error)->toContain('vượt trần 1 MB')
+        ->and($archive->handover_error)->toContain('MEDIA_MAX_FILE_SIZE_MB')
+        ->and($archive->handover_error)->not->toContain('lỗi hệ thống')
+        ->and($archive->handover_document_id)->toBeNull();
+
+    $notes = ghpNotifications($this->lawyer);
+
+    expect($notes)->toHaveCount(1)
+        ->and($notes[0]['body'])->toContain('MEDIA_MAX_FILE_SIZE_MB');
+
+    Queue::assertNotPushed(SendHandoverPackageReady::class);
+});
+
 // ---------------------------------------------------------------------------------------------
 // failed(): lỗi lạ sau khi hết lượt thử.
 // ---------------------------------------------------------------------------------------------

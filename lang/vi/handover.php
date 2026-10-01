@@ -32,6 +32,11 @@ return [
         'index_failed' => 'Hệ thống không dựng được tệp mục lục MUC-LUC.pdf. Bấm sinh lại; nếu vẫn lỗi, báo quản trị hệ thống.',
         'no_uploader' => 'Không xác định được người đứng tên tài liệu gói (vụ chưa có luật sư phụ trách và không có ai bấm yêu cầu). Gán luật sư phụ trách cho vụ rồi bấm sinh lại.',
         'matter_gone' => 'Vụ việc không còn nữa nên gói bàn giao không sinh được.',
+        // Vòng sửa 1: ba lỗi đĩa/kích thước — lỗi CÓ TÊN, job không thử lại; câu nói người vận hành
+        // cần làm gì trước khi bấm sinh lại.
+        'work_dir_failed' => 'Hệ thống không ghi được vào thư mục tạm dựng gói trên máy chủ (đầy đĩa hoặc không có quyền ghi). Báo quản trị hệ thống kiểm tra dung lượng trống và quyền ghi của thư mục này (biến HANDOVER_WORK_DIR) rồi bấm sinh lại.',
+        'too_large' => 'Gói bàn giao nặng :size MB, vượt trần :limit MB cho một tệp của kho hồ sơ nên chưa lưu được. Báo quản trị hệ thống nâng trần này (biến MEDIA_MAX_FILE_SIZE_MB trong tệp .env) rồi bấm sinh lại.',
+        'store_failed' => 'Gói đã dựng xong nhưng hệ thống không lưu được vào kho hồ sơ (đĩa lưu trữ không ghi được). Báo quản trị hệ thống kiểm tra dung lượng trống và quyền ghi của kho hồ sơ trên máy chủ rồi bấm sinh lại.',
         // Lỗi không thuộc loại nào ở trên: chi tiết kỹ thuật chỉ ở nhật ký máy chủ.
         'unknown' => 'Gói bàn giao chưa sinh được vì một lỗi hệ thống. Bấm sinh lại; nếu vẫn lỗi, báo quản trị hệ thống (chi tiết ở nhật ký máy chủ).',
     ],

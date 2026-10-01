@@ -1647,7 +1647,8 @@ Job sinh gói bàn giao trên hàng đợi RIÊNG, dựng zip + `MUC-LUC.pdf`, l
     yêu cầu lại; nút bị khoá khi đang chạy và chưa kẹt.
   - `CollectHandoverEntries` (R8 — chọn tài liệu và đặt tên entry), `RenderHandoverIndex` (R3 — PDF
     bằng dompdf), `BuildHandoverPackage` (dựng trong thư mục tạm, kiểm zip đọc lại được với đúng số
-    entry, rồi một transaction ngắn tạo `Document` + gắn tệp + cập nhật lưu trữ + audit),
+    entry, rồi MỘT transaction tạo `Document` + gắn tệp + cập nhật lưu trữ + audit — xem "Khoá
+    trong lúc chép gói" dưới đây: transaction này không ngắn với gói lớn),
     `RecordHandoverPackageFailure` (lỗi thất bại hẳn), job `SendHandoverPackageReady` (báo kết quả).
   - Tự sinh nối vào `SyncMatterArchiveOnStageChange` (sau khi bản ghi lưu trữ đã đồng bộ). Lỗi xếp
     hàng ở bước này được `report()` rồi nuốt: một lần đóng vụ đã commit không hiện ra như thất bại
@@ -1661,8 +1662,9 @@ Job sinh gói bàn giao trên hàng đợi RIÊNG, dựng zip + `MUC-LUC.pdf`, l
   600 giây ở tiền cảnh sẽ bắt mọi mục đăng ký SAU nó (các tác vụ hằng ngày của Task 5/6, thêm vào
   cuối tệp) đứng chờ; khoá `withoutOverlapping` vẫn giữ tới khi lệnh nền xong. Job: `$timeout`
   600, `$tries` 2, `$failOnTimeout` true, backoff 120 giây; lỗi CÓ TÊN (`HandoverPackageFailed`:
-  thiếu tệp, không nén được, không dựng được mục lục) là tất định nên ghi thất bại ngay, không thử
-  lại. Test ghim `retry_after > $timeout`, khoá hết hạn 15 phút, tên/tần
+  thiếu tệp, không nén được, không dựng được mục lục, và từ vòng sửa 1: thư mục tạm không ghi được,
+  gói vượt trần một tệp của kho, kho không lưu được gói) là tất định hoặc cần người sửa trước nên
+  ghi thất bại ngay, không thử lại, với câu chỉ người vận hành phải làm gì. Test ghim `retry_after > $timeout`, khoá hết hạn 15 phút, tên/tần
   suất mục lịch, và việc kết nối không đổi theo `QUEUE_CONNECTION`.
 - **Dấu của lần yêu cầu.** Job mang `handover_requested_at` (giây UNIX); cả lúc dựng lẫn lúc ghi lỗi
   chỉ ghi khi dấu còn khớp dòng lưu trữ và trạng thái còn `generating` — job cũ nhặt lại muộn không
@@ -1695,9 +1697,30 @@ Job sinh gói bàn giao trên hàng đợi RIÊNG, dựng zip + `MUC-LUC.pdf`, l
   trong gói, không lùi về bản đã bị thay. **Cho Task 7:** chỉ cần thêm case `retracted` vào enum,
   `CollectHandoverEntries::RELEASED_STATUSES` đã loại nó. Không bao giờ: D, đã xoá mềm,
   chính gói ở mọi version (đi ngược `parent_document_id` từ `handover_document_id`), không có tệp.
-  Tên entry `<nhóm>/<NN>-<tên>.<đuôi>`; `/` và `\` trong tiêu đề đổi thành `-` TRƯỚC
-  `FileGuard::safeName()` (tiêu đề văn bản pháp lý đầy `/`; `basename()` của `safeName` sẽ cắt còn
-  "DS-ST"), ký tự Windows cấm đổi thành `-`, NFC, cắt 100 ký tự; đuôi lấy từ tệp thật.
+  Tên entry `<nhóm>/<NN>-<tên>.<đuôi>`, đuôi lấy từ tệp thật
+  (`CollectHandoverEntries::entryName()`, theo thứ tự): UTF-8 hợp lệ (`mb_scrub`), `/` và `\` đổi
+  thành `-` (tiêu đề văn bản pháp lý đầy `/`; `basename()` của `safeName` sẽ cắt còn "DS-ST"), NFC;
+  rồi `FileGuard::safeName(<tiêu đề>.<đuôi thật>)` — **không** `safeName(<tiêu đề>)`, vì
+  `safeName()` coi phần sau dấu chấm CUỐI là đuôi tệp và cắt nó còn 20 byte (vòng sửa 1: "… ngày
+  05.3.2026 với Toà án nhân dân quận Hải Châu" thành "… với Toà án", "Đơn. Yêu cầu bồi thường…"
+  bị cắt giữa chữ "ư" thành "?"); bỏ lại đuôi; cắt 100 ký tự; ký tự Windows cấm đổi thành `-` SAU
+  mọi bước cắt.
+- **Trần một tệp của kho, `MEDIA_MAX_FILE_SIZE_MB` (vòng sửa 1).** `config/media-library.php`
+  giữ mặc định 10 MB của gói medialibrary, nên không gói bàn giao nào quá 10 MB lưu được (job thử
+  lại, hỏng y hệt, rồi ghi "lỗi hệ thống"), và tệp tải lên 10–20 MB qua `FileGuard`
+  (`UPLOAD_MAX_MB`) rồi hỏng ở medialibrary. Nay `max_file_size` = `MEDIA_MAX_FILE_SIZE_MB` (mặc
+  định 2048; trống/không hợp lệ → 2048; không bao giờ thấp hơn `UPLOAD_MAX_MB`, để `FileGuard` là
+  cổng tải lên duy nhất). Gói vượt trần → lỗi có tên `too_large` chỉ đúng biến này; đĩa từ chối
+  ghi → `store_failed`; thư mục tạm không ghi được → `work_dir_failed`; cả ba không thử lại.
+  **Cho làn M8b (Task 7, triển khai):** thêm `MEDIA_MAX_FILE_SIZE_MB` vào `.env` của máy chủ (đã
+  có ở `.env.example`).
+- **Khoá trong lúc chép gói.** Medialibrary không đổi tên zip vào đĩa `private` mà CHÉP nó
+  (`fopen()` + `put()` cả luồng, rồi xoá nguồn), kể cả khi cùng ổ; việc chép nằm trong transaction
+  giữ khoá dòng `matters` (rồi `matter_archives`) của đúng vụ đó. Một thao tác khác khoá vụ đó
+  (chuyển giai đoạn; ghi tiền sau khi M9 merge) chờ tối đa bằng thời gian chép gói lớn nhất (trần
+  cỡ gói chia tốc độ ghi đĩa); quá `innodb_lock_wait_timeout` (50 giây) thì thao tác ĐANG CHỜ hỏng,
+  gói vẫn xong. Đưa việc chép ra ngoài khoá thì mất bảo đảm "không tệp mồ côi" — giới hạn được ghi
+  lại, chưa gỡ (rà soát Task 4, m1).
 - **MUC-LUC.pdf (R3).** dompdf qua `barryvdh/laravel-dompdf` 3.1.2 (gói mới DUY NHẤT, kèm dompdf
   3.1.6, php-font-lib, php-svg-lib, sabberworm/php-css-parser). Font DejaVu Sans đi kèm dompdf,
   nhúng nguyên (cắt font tốn ~2,5 giây CPU mỗi lần dựng, đo trong container); cache font ở

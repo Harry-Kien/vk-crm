@@ -21,6 +21,7 @@ use App\Models\MatterChecklistItem;
 use App\Models\StageLog;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Contracts\Filesystem\Factory as FilesystemFactory;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -29,6 +30,8 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Spatie\Activitylog\Models\Activity;
+use Spatie\MediaLibrary\MediaCollections\Exceptions\DiskCannotBeAccessed;
+use Spatie\MediaLibrary\MediaCollections\Filesystem as MediaFilesystem;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Tests\Support\PdfText;
 
@@ -490,6 +493,64 @@ it('bật cờ UTF-8 cho tên entry và tên tiếng Việt có dấu còn nguy�
         ->and(hpZipNames($document))->toContain('B/01-Đơn khởi kiện ly hôn — Nguyễn Thị Hương.pdf');
 });
 
+/**
+ * Vòng sửa 1 (I1). `FileGuard::safeName()` đọc phần sau dấu chấm CUỐI của tên như một ĐUÔI tệp và
+ * cắt nó còn 20 byte — đưa thẳng một TIÊU ĐỀ vào đó thì tên entry mất phần đuôi của tiêu đề, và có
+ * thể dừng giữa một ký tự nhiều byte (rồi thành "?"). Tiêu đề văn bản pháp lý đầy dấu chấm: ngày
+ * "05.3.2026", "TP.", "v.v.". Khẳng định trên bytes thô của zip và trên chữ trích từ mục lục.
+ */
+it('tiêu đề có dấu chấm còn nguyên trong tên entry và trong mục lục, kể cả khi phần sau dấu chấm cuối bị cắt giữa một ký tự', function () {
+    $titles = [
+        'Biên bản làm việc ngày 05.3.2026 với Toà án nhân dân quận Hải Châu',
+        // Phần sau dấu chấm cuối dài hơn 20 byte, và byte thứ 20 rơi giữa chữ "ư" (2 byte).
+        'Đơn. Yêu cầu bồi thường thiệt hại',
+        'Công văn của UBND TP. Đà Nẵng về giấy tờ nhà đất, v.v.',
+    ];
+
+    foreach ($titles as $i => $title) {
+        hpDocument($this->matter, DocumentGroup::Issued, DocumentStatus::SignedFiled, $title, 'N'.$i, attributes: ['issued_at' => '2026-01-0'.($i + 1)]);
+    }
+
+    $expected = [
+        'B/01-Biên bản làm việc ngày 05.3.2026 với Toà án nhân dân quận Hải Châu.pdf',
+        'B/02-Đơn. Yêu cầu bồi thường thiệt hại.pdf',
+        'B/03-Công văn của UBND TP. Đà Nẵng về giấy tờ nhà đất, v.v.pdf',
+    ];
+
+    $document = hpBuild($this);
+
+    expect(hpZipNames($document))->toBe([...$expected, 'MUC-LUC.pdf'])
+        ->and(hpZipEntry($document, $expected[1]))->toBe('N1');
+
+    // Bytes thô của central directory: UTF-8 hợp lệ, không ký tự nào Windows cấm trong tên tệp.
+    foreach (array_keys(hpUtf8Flags(hpZipPath($document))) as $raw) {
+        expect(mb_check_encoding((string) $raw, 'UTF-8'))->toBeTrue()
+            ->and((string) $raw)->not->toMatch('/[<>:"\\\\|?*]/');
+    }
+
+    $text = PdfText::squash(hpIndexText($document));
+
+    foreach ($expected as $name) {
+        expect($text)->toContain(PdfText::squash($name));
+    }
+});
+
+it('tiêu đề dài có dấu chấm bị cắt ở ranh giới ký tự: tên entry là phần ĐẦU của tiêu đề, tối đa 100 ký tự, UTF-8 hợp lệ', function () {
+    $title = rtrim(str_repeat('Biên bản hoà giải ngày 05.3.2026 tại TP. Đà Nẵng, ', 4), ', ');
+    hpDocument($this->matter, DocumentGroup::Issued, DocumentStatus::SignedFiled, $title, 'DAI');
+
+    $names = hpZipNames(hpBuild($this));
+    $name = collect($names)->first(fn (string $name): bool => str_starts_with($name, 'B/'));
+    $stem = substr($name, strlen('B/01-'), -strlen('.pdf'));
+
+    expect($names)->toHaveCount(2)
+        ->and($name)->toStartWith('B/01-Biên bản hoà giải ngày 05.3.2026 tại TP. Đà Nẵng, Biên bản')
+        ->and($name)->toEndWith('.pdf')
+        ->and(mb_check_encoding($name, 'UTF-8'))->toBeTrue()
+        ->and(mb_strlen($stem))->toBeLessThanOrEqual(100)
+        ->and(str_starts_with($title, $stem))->toBeTrue();
+});
+
 // ---------------------------------------------------------------------------------------------
 // R3: MUC-LUC.pdf — chữ có dấu, nội dung, chân trang, không lộ ghi chú nội bộ.
 // ---------------------------------------------------------------------------------------------
@@ -796,6 +857,107 @@ it('vụ bị mở lại TRONG LÚC đang dựng gói: kiểm tra lại dưới 
         ->and(Storage::disk('private')->allFiles())->toBe($filesBefore)
         ->and($this->archive->fresh()->handover_document_id)->toBeNull()
         ->and(hpWorkDirectoryIsEmpty())->toBeTrue();
+});
+
+// ---------------------------------------------------------------------------------------------
+// Vòng sửa 1 (C1): cỡ gói, và lỗi đĩa khi lưu gói — lỗi CÓ TÊN, không bao giờ thử lại vô ích.
+// ---------------------------------------------------------------------------------------------
+
+it('gói lớn hơn trần tải lên MỘT tệp vẫn lưu được, với cấu hình thật', function () {
+    // Cấu hình THẬT: test này không đổi `media-library.max_file_size`. Ba bản scan 7 MB, mỗi bản
+    // dưới trần tải lên (UPLOAD_MAX_MB); byte ngẫu nhiên không nén được, nên zip ~21 MB — lớn hơn
+    // trần tải lên MỘT tệp, và lớn hơn trần 10 MB mặc định của medialibrary.
+    $uploadLimit = (int) config('vkcrm.upload_max_mb') * 1024 * 1024;
+
+    foreach ([1, 2, 3] as $i) {
+        hpDocument($this->matter, DocumentGroup::Issued, DocumentStatus::SignedFiled, 'Bản scan '.$i, random_bytes(7 * 1024 * 1024), attributes: ['issued_at' => '2026-01-0'.$i]);
+    }
+
+    try {
+        $document = hpBuild($this);
+        $media = $document->getFirstMedia('file');
+
+        expect($media->size)->toBeGreaterThan($uploadLimit)
+            ->and($media->size)->toBeGreaterThan(10 * 1024 * 1024)
+            ->and(filesize($media->getPath()))->toBe($media->size)
+            ->and(hpZipNames($document))->toBe(['B/01-Bản scan 1.pdf', 'B/02-Bản scan 2.pdf', 'B/03-Bản scan 3.pdf', 'MUC-LUC.pdf'])
+            ->and($this->archive->fresh()->handover_status)->toBe(HandoverPackageStatus::Ready);
+    } finally {
+        // ~45 MB trên đĩa giả: dọn ngay, không đợi lần `Storage::fake()` sau.
+        Storage::disk('private')->deleteDirectory((string) config('media-library.prefix'));
+    }
+});
+
+it('gói vượt trần MỘT tệp của kho hồ sơ: lỗi CÓ TÊN nói trần và cách nâng, không tạo tài liệu, không để lại tệp', function () {
+    hpDocument($this->matter, DocumentGroup::Issued, DocumentStatus::SignedFiled, 'Bản scan', random_bytes(1536 * 1024));
+
+    $filesBefore = Storage::disk('private')->allFiles();
+    $mediaBefore = Media::query()->count();
+
+    // Trần 1 MB, hạ SAU khi tài liệu nguồn (1,5 MB) đã vào kho.
+    config(['media-library.max_file_size' => 1024 * 1024]);
+
+    $thrown = null;
+
+    try {
+        hpBuild($this);
+    } catch (HandoverPackageFailed $exception) {
+        $thrown = $exception;
+    }
+
+    expect($thrown)->toBeInstanceOf(HandoverPackageFailed::class)
+        ->and($thrown->getMessage())->toContain('vượt trần 1 MB')
+        ->and($thrown->getMessage())->toContain('MEDIA_MAX_FILE_SIZE_MB')
+        ->and(Storage::disk('private')->allFiles())->toBe($filesBefore)
+        ->and(Media::query()->count())->toBe($mediaBefore)
+        ->and(Document::query()->where('title', 'like', 'Gói bàn giao%')->count())->toBe(0)
+        ->and($this->archive->fresh()->handover_document_id)->toBeNull()
+        ->and($this->archive->fresh()->handover_status)->toBe(HandoverPackageStatus::Generating)
+        ->and(hpWorkDirectoryIsEmpty())->toBeTrue();
+});
+
+it('đĩa private không ghi được tệp gói (đầy giữa chừng): lỗi CÓ TÊN, không tạo tài liệu, tệp dở bị xoá', function () {
+    hpDocument($this->matter, DocumentGroup::Issued, DocumentStatus::SignedFiled, 'Đơn khởi kiện');
+
+    $filesBefore = Storage::disk('private')->allFiles();
+    $mediaBefore = Media::query()->count();
+
+    // Đĩa đầy giữa chừng: một phần tệp đã nằm trên đĩa rồi lần ghi thất bại. Đĩa `local` với
+    // `throw => false` trả `false` từ `put()`, và medialibrary khi đó ném `DiskCannotBeAccessed`.
+    $this->app->bind(MediaFilesystem::class, fn ($app) => new class($app->make(FilesystemFactory::class)) extends MediaFilesystem
+    {
+        public function copyToMediaLibrary(string $pathToFile, Media $media, ?string $type = null, ?string $targetFileName = null): void
+        {
+            Storage::disk($media->disk)->put($this->getMediaDirectory($media, $type).($targetFileName ?: basename($pathToFile)), 'TEP-DO-DANG');
+
+            throw DiskCannotBeAccessed::create($media->disk);
+        }
+    });
+
+    expect(fn () => hpBuild($this))->toThrow(HandoverPackageFailed::class, __('handover.exceptions.store_failed'))
+        ->and(Storage::disk('private')->allFiles())->toBe($filesBefore)
+        ->and(Media::query()->count())->toBe($mediaBefore)
+        ->and(Document::query()->where('title', 'like', 'Gói bàn giao%')->count())->toBe(0)
+        ->and($this->archive->fresh()->handover_document_id)->toBeNull()
+        ->and($this->archive->fresh()->handover_status)->toBe(HandoverPackageStatus::Generating)
+        ->and(hpWorkDirectoryIsEmpty())->toBeTrue();
+});
+
+it('thư mục tạm không ghi được (lỗi đĩa của máy chủ): lỗi CÓ TÊN chỉ tới HANDOVER_WORK_DIR, không tạo tài liệu', function () {
+    hpDocument($this->matter, DocumentGroup::Issued, DocumentStatus::SignedFiled, 'Đơn khởi kiện');
+
+    // `HANDOVER_WORK_DIR` trỏ vào một TỆP thường: không tạo được thư mục con nào bên dưới nó.
+    File::ensureDirectoryExists($this->workRoot);
+    $notADirectory = $this->workRoot.DIRECTORY_SEPARATOR.'khong-phai-thu-muc';
+    File::put($notADirectory, 'x');
+    config(['vkcrm.handover.work_dir' => $notADirectory]);
+
+    $filesBefore = Storage::disk('private')->allFiles();
+
+    expect(fn () => hpBuild($this))->toThrow(HandoverPackageFailed::class, __('handover.exceptions.work_dir_failed'))
+        ->and(Storage::disk('private')->allFiles())->toBe($filesBefore)
+        ->and(Document::query()->where('title', 'like', 'Gói bàn giao%')->count())->toBe(0)
+        ->and($this->archive->fresh()->handover_status)->toBe(HandoverPackageStatus::Generating);
 });
 
 // ---------------------------------------------------------------------------------------------

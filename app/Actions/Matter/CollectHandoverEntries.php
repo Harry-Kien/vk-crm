@@ -56,12 +56,23 @@ use Normalizer;
  * thoát khỏi thư mục nhóm. Đuôi lấy từ TỆP THẬT trên đĩa (`media.file_name`, đã qua `FileGuard`
  * lúc nhận), không từ tiêu đề.
  *
- * Tiêu đề đi qua {@see FileGuard::safeName()} — nhưng `/` và `\` được đổi thành `-` TRƯỚC đó:
- * `safeName()` lấy `basename()`, mà tiêu đề văn bản pháp lý đầy `/` ("Bản án số 12/2024/DS-ST"),
- * nên bỏ qua bước này thì entry chỉ còn "DS-ST" và mất gần hết nghĩa. Thêm vào đó: ký tự Windows
- * không cho phép trong tên tệp (`< > : | ? *`) đổi thành `-` (một bản zip mà khách giải nén trên
- * Windows không được lỗi vì tên), chuẩn hoá NFC (dấu tiếng Việt dựng sẵn, một số máy Mac ghi NFD),
- * cắt phần tên còn 100 ký tự.
+ * Tiêu đề đi qua {@see FileGuard::safeName()} (R8), theo thứ tự ({@see self::entryName()}):
+ *  1. `mb_scrub()` — UTF-8 hợp lệ trước mọi bước theo ký tự (byte lạc thành `?`); `/` và `\` đổi
+ *     thành `-` (`safeName()` lấy `basename()`, mà tiêu đề văn bản pháp lý đầy `/` — "Bản án số
+ *     12/2024/DS-ST" sẽ chỉ còn "DS-ST"); chuẩn hoá NFC (dấu tiếng Việt dựng sẵn, một số máy Mac
+ *     ghi NFD).
+ *  2. `safeName(<tiêu đề>.<đuôi thật>)` — KHÔNG `safeName(<tiêu đề>)`: `safeName()` coi phần sau
+ *     dấu chấm CUỐI là đuôi tệp và cắt nó còn 20 byte, mà tiêu đề đầy dấu chấm (ngày "05.3.2026",
+ *     "TP.", "v.v."). Đưa tiêu đề trơn vào thì "Biên bản … ngày 05.3.2026 với Toà án nhân dân quận
+ *     Hải Châu" thành "… với Toà án", và "Đơn. Yêu cầu bồi thường…" bị cắt giữa chữ "ư" (vòng sửa
+ *     1). Nối đuôi thật vào thì phần nó tách ra đúng là đuôi thật; phần tên chỉ mất ký tự điều
+ *     khiển, `"`, `;` và dấu chấm/khoảng trắng ở hai đầu, và nếu dài quá 200 byte thì bị cắt ở
+ *     ranh giới ký tự (`mb_strcut`).
+ *  3. Bỏ lại đuôi vừa nối, và bỏ thêm một lần nếu chính tiêu đề kết thúc bằng đuôi thật.
+ *  4. Cắt còn 100 ký tự (`mb_substr` trên chuỗi đã hợp lệ ở bước 1).
+ *  5. Ký tự Windows không cho phép trong tên tệp (`< > : " / \ | ? *`) đổi thành `-`, SAU mọi bước
+ *     cắt — một bản zip khách giải nén trên Windows không được lỗi vì tên; bỏ dấu chấm và khoảng
+ *     trắng cuối (Windows cũng tự bỏ chúng).
  */
 class CollectHandoverEntries
 {
@@ -114,7 +125,7 @@ class CollectHandoverEntries
                 group: $document->group,
                 title: $document->title,
                 zipPath: $document->group->value.'/'.str_pad((string) $number, $width, '0', STR_PAD_LEFT).'-'
-                    .$this->entryName($document->title, (string) $media->file_name),
+                    .self::entryName($document->title, (string) $media->file_name),
                 sourcePath: $disk->path($relative),
                 documentId: $document->getKey(),
                 date: $document->issued_at ?? $document->published_at ?? $document->created_at,
@@ -196,34 +207,51 @@ class CollectHandoverEntries
     }
 
     /**
-     * Phần `<tên an toàn>.<đuôi>` của entry — xem docblock lớp.
+     * Phần `<tên an toàn>.<đuôi>` của entry — luật và THỨ TỰ các bước ở docblock lớp, mục "Tên
+     * entry". Hàm thuần (không đọc DB, không đọc đĩa); `public` để test phủ được cả những đầu vào
+     * không đi qua cột `title` của MariaDB (UTF-8 hỏng).
      */
-    private function entryName(string $title, string $storedFileName): string
+    public static function entryName(string $title, string $storedFileName): string
     {
         $extension = strtolower((string) pathinfo($storedFileName, PATHINFO_EXTENSION));
         $extension = (string) preg_replace('/[^a-z0-9]/', '', $extension);
+        $suffix = $extension === '' ? '' : '.'.$extension;
 
-        $clean = str_replace(['/', '\\'], '-', $title);
-        $clean = (string) preg_replace('/[<>:|?*]/', '-', $clean);
-        $clean = FileGuard::safeName($clean);
+        // 1. UTF-8 hợp lệ trước mọi bước theo ký tự: byte lạc thành "?" (bước 5 đổi nó thành "-").
+        $clean = mb_scrub($title, 'UTF-8');
+        $clean = str_replace(['/', '\\'], '-', $clean);
 
         if (class_exists(Normalizer::class)) {
             $normalized = Normalizer::normalize($clean, Normalizer::FORM_C);
             $clean = $normalized === false ? $clean : $normalized;
         }
 
-        // Tiêu đề đã kết thúc bằng chính đuôi thật ("Đơn khởi kiện.pdf") thì không nối thêm lần nữa.
-        if ($extension !== '' && str_ends_with(strtolower($clean), '.'.$extension)) {
-            $clean = substr($clean, 0, -(strlen($extension) + 1));
+        // 2. `safeName()` với ĐUÔI THẬT nối vào: phần sau dấu chấm cuối mà nó tách ra làm đuôi là
+        //    đuôi thật, không phải một mẩu tiêu đề. Không có đuôi thật thì nối một dấu chấm trơn —
+        //    `pathinfo("x.y.")` cho đuôi rỗng, nên dấu chấm trong tiêu đề vẫn không bị đọc là đuôi.
+        $clean = FileGuard::safeName($clean.'.'.$extension);
+
+        // 3. Bỏ lại đuôi vừa nối; rồi một lần nữa nếu chính tiêu đề kết thúc bằng đuôi thật
+        //    ("Đơn khởi kiện.pdf") — không lặp đuôi.
+        if ($suffix !== '' && str_ends_with($clean, $suffix)) {
+            $clean = substr($clean, 0, -strlen($suffix));
         }
 
+        if ($suffix !== '' && str_ends_with(strtolower($clean), $suffix)) {
+            $clean = substr($clean, 0, -strlen($suffix));
+        }
+
+        // 4. Cắt theo KÝ TỰ trên chuỗi UTF-8 hợp lệ (bước 1): không bao giờ dừng giữa một ký tự.
         $clean = mb_substr($clean, 0, self::MAX_TITLE_CHARS);
+
+        // 5. Ký tự Windows cấm trong tên tệp → "-", SAU mọi bước cắt; bỏ dấu chấm và khoảng trắng cuối.
+        $clean = (string) preg_replace('/[<>:"\/\\\\|?*]/', '-', $clean);
         $clean = rtrim($clean, " .\t");
 
         if ($clean === '') {
             $clean = __('documents.fallback_file_name');
         }
 
-        return $extension === '' ? $clean : $clean.'.'.$extension;
+        return $clean.$suffix;
     }
 }
