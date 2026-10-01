@@ -37,11 +37,11 @@ class MatterPolicy
      * `ChecksMatterAccess::canSeeMatter()`, nên hai câu dưới đây bảo vệ cả bảy khối của SPEC
      * §8.3 chứ không riêng trang hồ sơ. Có test ở `PortalIsolationSweepTest`.
      *
-     * Bốn điều kiện ở {@see self::releasedToPortal()} (Task 2 vòng sửa 1 thêm điều kiện thứ tư —
-     * khách hàng chưa xoá mềm) là đúng bốn điều kiện của `Matter::applyClientPortalConstraints()`,
-     * phát biểu lại bằng thuộc tính thay vì bằng `where`. Chúng KHÔNG chung một câu lệnh nào với
-     * chuỗi `where` kia: đó là toàn bộ giá trị của việc viết lại, và cũng là lý do không được rút
-     * gọn thành một lần gọi lẫn nhau.
+     * Năm điều kiện ở {@see self::releasedToPortal()} (M6.5 Task 2 vòng sửa 1 thêm điều kiện thứ tư
+     * — khách hàng chưa xoá mềm; M7 Task 5 thêm điều kiện thứ năm — khách chưa hết hạn tra cứu) là
+     * đúng năm điều kiện của `Matter::applyClientPortalConstraints()`, phát biểu lại bằng thuộc tính
+     * thay vì bằng `where`. Chúng KHÔNG chung một câu lệnh nào với chuỗi `where` kia: đó là toàn bộ
+     * giá trị của việc viết lại, và cũng là lý do không được rút gọn thành một lần gọi lẫn nhau.
      */
     public function view(User|ClientUser $user, Matter $matter): bool
     {
@@ -88,9 +88,9 @@ class MatterPolicy
      * chưa đi qua cơ sở dữ liệu có thể còn giữ chuỗi từ request — và `===` giữa `'7'` và `7` sẽ
      * âm thầm từ chối một khách hàng hợp lệ. So lỏng (`==`) thì đi quá xa theo chiều ngược lại.
      *
-     * Bốn điều kiện ở đây, KHÔNG còn ba: Task 2, vòng sửa 1 (Important #2) thêm "khách hàng
-     * (`Client`) chưa xoá mềm", đúng điều kiện thứ tư mà `Matter::applyClientPortalConstraints()`
-     * mang từ Task 2 vòng đầu (`portal/portal-3`). Trước bản sửa này, hàm chỉ lặp lại BA điều
+     * Điều kiện thứ tư: M6.5 Task 2, vòng sửa 1 (Important #2) thêm "khách hàng (`Client`) chưa
+     * xoá mềm", đúng điều kiện thứ tư mà `Matter::applyClientPortalConstraints()` mang từ Task 2
+     * vòng đầu (`portal/portal-3`). Trước bản sửa đó, hàm chỉ lặp lại BA điều
      * kiện của `applyClientPortalConstraints()`, nên lời hứa ở đoạn docblock của `view()` ("Ba
      * điều kiện ở đây là đúng ba điều kiện của `applyClientPortalConstraints()`") đã SAI kể từ
      * khi vòng đầu thêm `whereHas('client')` — một khách hàng đã xoá mềm vẫn `view($matter)` =
@@ -121,6 +121,13 @@ class MatterPolicy
      * được: ba test viết cho đúng tình huống này ("còn phiên khác đang mở") đỏ ngay khi thiếu
      * dòng `withoutGlobalScope` — xem `ReplyToClientRequestTest`, `SubmitClientDocumentTest`,
      * `RecordStageLogViewTest`.
+     *
+     * **Năm điều kiện, KHÔNG còn bốn — M7 Task 5 (R4) thêm "khách chưa hết hạn tra cứu"**, đúng
+     * điều kiện thứ năm của `Matter::applyClientPortalConstraints()` (`whereDoesntHave('archive', …
+     * clientAccessExpired())`). Ở đây nó được nói lại bằng NGÀY trên thuộc tính
+     * (`MatterArchive::isClientAccessExpired()`), không gọi lại scope — xem {@see
+     * self::clientAccessExpired()}. Hai tầng có hai test riêng, mỗi test làm thủng tầng kia
+     * (`ClientAccessExpiryTest`).
      */
     private function releasedToPortal(Matter $matter, ClientUser $clientUser): bool
     {
@@ -129,7 +136,35 @@ class MatterPolicy
             && ! $matter->trashed()
             && ($matter->relationLoaded('client')
                 ? $matter->client !== null
-                : $matter->client()->withoutGlobalScope(ClientPortalScope::class)->exists());
+                : $matter->client()->withoutGlobalScope(ClientPortalScope::class)->exists())
+            && ! $this->clientAccessExpired($matter);
+    }
+
+    /**
+     * Điều kiện thứ năm của {@see self::releasedToPortal()} (M7 Task 5, R4): vụ có một dòng lưu trữ
+     * chưa xoá mềm mà `client_access_until` đã qua — khách còn xem được HẾT ngày đó.
+     *
+     * **Đường trong bộ nhớ khi `clientAccessArchive` đã nạp — cùng hình dạng và cùng lý do với
+     * nhánh `client` ngay trên.** `MyMatters::buildCards()` (mỗi thẻ một lần hỏi `Gate`) và
+     * `SubmitDocument::resolveMatter()` (mỗi đầu mục một lần hỏi `Gate` trên CÙNG một `$matter`)
+     * nạp sẵn quan hệ này một lần cho cả trang; không có nhánh này thì mỗi thẻ/đầu mục thêm một truy
+     * vấn, đúng thứ `MyMattersTest`/`SubmitDocumentTest` đo.
+     *
+     * **`clientAccessArchive`, không phải `archive`.** `MatterArchive` mang `ClientPortalScope` chặn
+     * sạch (`1 = 0`), nên `archive` nạp dưới phiên khách luôn là `null` — và đọc `null` ở đây là đọc
+     * "không hết hạn": tầng policy thủng đúng ở hai màn hình dùng đường trong bộ nhớ. Quan hệ
+     * `clientAccessArchive` gỡ scope đó ngay trong định nghĩa (xem docblock ở `Matter`), nên cả
+     * đường nạp sẵn lẫn đường dự phòng dưới đây đều đọc đúng bất kể phiên nào đang mở. Một nơi gọi
+     * nạp `archive` thay vì `clientAccessArchive` không làm sai câu trả lời — nó chỉ không được
+     * đường nhanh, vì nhánh này chỉ tin `clientAccessArchive`.
+     */
+    private function clientAccessExpired(Matter $matter): bool
+    {
+        $archive = $matter->relationLoaded('clientAccessArchive')
+            ? $matter->clientAccessArchive
+            : $matter->clientAccessArchive()->first();
+
+        return $archive?->isClientAccessExpired() ?? false;
     }
 
     public function create(User|ClientUser $user): bool

@@ -1161,19 +1161,22 @@ it('keeps the matter code on every card and makes the whole card the way in', fu
  *     kèm bộ đếm tài liệu. Gộp nó vào truy vấn danh sách nghĩa là viết lại luật đếm lần thứ hai
  *     bên màn hình, đúng thứ M4 vừa dọn đi.
  *
- * Phần cố định là **năm**: danh sách hồ sơ, loại vụ việc, các giai đoạn của loại đó, các dòng
- * danh mục của cả trang, và — từ Task 2, vòng sửa 1 (Important #2) — quan hệ `client` của cả
- * trang. Truy vấn thứ tư (danh mục) là cái giá của vòng sửa I3 — huy hiệu và thanh tiến độ nay
- * đọc CÙNG một tập dòng, nên các dòng ấy về một lần cho cả trang thay vì được đếm lại bằng hai
+ * Phần cố định là **sáu**: danh sách hồ sơ, loại vụ việc, các giai đoạn của loại đó, các dòng
+ * danh mục của cả trang, quan hệ `client` của cả trang (từ Task 2, vòng sửa 1 — Important #2),
+ * và dòng lưu trữ `clientAccessArchive` của cả trang (từ M7 Task 5). Truy vấn thứ tư (danh mục)
+ * là cái giá của vòng sửa I3 — huy hiệu và thanh tiến độ nay đọc CÙNG một tập dòng, nên các dòng ấy về một lần cho cả trang thay vì được đếm lại bằng hai
  * `withCount` riêng. Truy vấn thứ năm (`client`) là cái giá của Task 2: `MatterPolicy::view` giờ
  * hỏi thêm "khách hàng chưa xoá mềm" (`releasedToPortal()`), và `MyMatters::buildCards()` nạp sẵn
  * `client` cho CẢ TRANG một lần để hàm đó đọc qua `relationLoaded()` — miễn phí cho từng thẻ —
- * thay vì một `EXISTS` mới trên MỖI thẻ (xem docblock của `releasedToPortal()`). Cả hai là truy
- * vấn CỐ ĐỊNH, không một truy vấn nào cho mỗi thẻ, và khẳng định độ dốc ở dưới là thứ chứng minh
- * điều đó. Vậy `2N + 5`, tức 45 cho 20 thẻ.
+ * thay vì một `EXISTS` mới trên MỖI thẻ (xem docblock của `releasedToPortal()`). Truy vấn thứ
+ * sáu (`clientAccessArchive`) là cái giá của M7 Task 5, cùng hình dạng: điều kiện thứ năm của
+ * `releasedToPortal()` ("khách chưa hết hạn tra cứu") đọc dòng lưu trữ đã nạp sẵn cho cả trang,
+ * không một truy vấn nào cho mỗi thẻ (xem docblock `MatterPolicy::clientAccessExpired()`). Cả ba
+ * là truy vấn CỐ ĐỊNH, không một truy vấn nào cho mỗi thẻ, và khẳng định độ dốc ở dưới là thứ
+ * chứng minh điều đó. Vậy `2N + 6`, tức 46 cho 20 thẻ.
  *
- * Ba khẳng định, vì mỗi cái bắt một hỏng khác nhau: **phần cố định đúng bằng 5** bắt việc có
- * người thêm một truy vấn cố định thứ sáu, và giữ cho con số trong docblock này là một con số
+ * Ba khẳng định, vì mỗi cái bắt một hỏng khác nhau: **phần cố định đúng bằng 6** bắt việc có
+ * người thêm một truy vấn cố định thứ bảy, và giữ cho con số trong docblock này là một con số
  * đo được chứ không một con số kể lại; **trần 50** để lại chỗ thở; **độ dốc đúng bằng 2** bắt thứ
  * đáng sợ hơn — một truy vấn mới mọc lên TRÊN TỪNG THẺ (một quan hệ chưa nạp sẵn, một `count()`
  * trong view). Chỉ có trần thì một hồi quy như vậy vẫn lọt ở 20 thẻ và nổ ở 200.
@@ -1211,5 +1214,5 @@ it('does not turn twenty cards into hundreds of queries', function () {
 
     expect($twenty)->toBeLessThanOrEqual(50)
         ->and($twenty - $five)->toBe(2 * 15)
-        ->and($five - (2 * 5))->toBe(5);
+        ->and($five - (2 * 5))->toBe(6);
 });

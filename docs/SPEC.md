@@ -910,6 +910,22 @@ Job `ExpireClientAccess` chạy hằng ngày: khi quá `client_access_until`, v�
 biến mất khỏi portal của khách. Tài khoản `client_users` không còn vụ việc nào
 thì tự đặt `is_active = false`. Dữ liệu vẫn nguyên trong hệ thống nội bộ.
 
+**Đính chính 2026-09-28 (M7 Task 5, R4).** Đoạn trên đọc như sau:
+- *Hết hạn là gì.* Vụ việc hết hạn tra cứu khi có dòng `matter_archives` (chưa xoá mềm) với
+  `client_access_until` khác null và `client_access_until` < hôm nay theo giờ ứng dụng. Khách còn
+  xem được HẾT ngày `client_access_until`, và mất quyền từ 00:00 ngày hôm sau. Vụ chưa đóng hoặc đã
+  mở lại (`client_access_until` null) không bao giờ hết hạn.
+- *Ai làm vụ việc biến mất.* Không phải job: hai tầng ranh giới của cổng
+  (`Matter::applyClientPortalConstraints()` và `MatterPolicy::releasedToPortal()`, điều kiện thứ
+  năm) tự loại vụ đã hết hạn, đúng từ 00:00, dù job đã chạy hay chưa. Không cột nào của vụ việc
+  bị sửa (`is_published_to_portal` giữ nguyên). Mở lại vụ việc đưa vụ về lại cổng.
+- *Ai bị vô hiệu hoá.* "Không còn vụ việc nào" đọc là: khách có ÍT NHẤT MỘT vụ đã hết hạn tra cứu
+  VÀ không còn vụ nào hiển thị trên cổng. Một khách mới có vụ đầu tiên chưa công bố không bao giờ bị
+  vô hiệu hoá. Mỗi tài khoản được lưu riêng để nhật ký ghi lại, kèm một dòng nhật ký
+  `portal_account_deactivated`. Tài khoản bị vô hiệu không tự bật lại khi vụ được mở lại; nhân sự
+  bật tay.
+- *Giờ chạy.* 00:30 hằng ngày (mục lịch `client-access.expire`).
+
 Job `FlagRetentionExpiry` cảnh báo quản trị khi có hồ sơ quá `retention_until`,
 nhưng **không bao giờ tự xoá**. Việc tiêu huỷ hồ sơ pháp lý phải do người quyết
 định và ghi biên bản.

@@ -12,6 +12,7 @@ use App\Models\Concerns\HasBlameable;
 use App\Models\Concerns\HidesInternalAttributesFromPortal;
 use App\Models\Concerns\RestrictedToClientPortal;
 use App\Support\CodeSequence;
+use App\Support\Scopes\ClientPortalScope;
 use Database\Factories\MatterFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -273,6 +274,11 @@ class Matter extends Model
 
     /**
      * Khách chỉ thấy vụ việc của chính mình và chỉ khi đã bật công tắc công bố (SPEC §5).
+     *
+     * Năm điều kiện, theo thứ tự dưới đây: đúng khách hàng; đã bật công tắc công bố; vụ chưa xoá
+     * mềm; khách hàng chưa xoá mềm (M6.5 Task 2); và — M7 Task 5 — khách chưa hết hạn tra cứu.
+     * `MatterPolicy::releasedToPortal()` nói lại ĐÚNG năm điều kiện này bằng thuộc tính, không gọi
+     * lại hàm này.
      */
     public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
     {
@@ -293,9 +299,45 @@ class Matter extends Model
             // đúng `SoftDeletingScope` (global scope thường trực của `Client`) vào truy vấn con,
             // nên "còn một dòng `clients` chưa xoá mềm" là toàn bộ ý nghĩa của điều kiện này —
             // không cần lặp lại `whereNull('clients.deleted_at')` bằng tay.
-            ->whereHas('client');
+            ->whereHas('client')
+            // M7 Task 5 (R4, SPEC §11 "Bàn giao và lưu trữ"): quá `client_access_until` thì vụ việc
+            // rời cổng — định nghĩa ở `MatterArchive::scopeClientAccessExpired()`. Không sửa dữ
+            // liệu nào của vụ việc: điều kiện này là toàn bộ việc "ẩn", và nó đúng từ 00:00 ngày SAU
+            // `client_access_until` dù job `ExpireClientAccess` đã chạy hay chưa.
+            //
+            // `withoutGlobalScope(ClientPortalScope::class)` trong truy vấn con là BẮT BUỘC, không
+            // phải trang trí: `MatterArchive` mang `ClientPortalScope` chặn sạch (`1 = 0`), và
+            // truy vấn con này chạy đúng lúc scope đó đang hoạt động (ta đang ở bên trong
+            // `ClientPortalScope::apply()` của chính `Matter`). Không gỡ nó thì truy vấn con không
+            // bao giờ tìm thấy dòng lưu trữ nào, `whereDoesntHave` luôn đúng, và điều kiện thành vô
+            // hiệu ở đúng nơi nó tồn tại để chặn. `SoftDeletingScope` của `MatterArchive` thì giữ
+            // nguyên: một dòng lưu trữ đã xoá mềm không tính (cùng luật với tầng policy, có test
+            // ghim hai tầng đồng ý — `ClientAccessExpiryTest`).
+            ->whereDoesntHave('archive', fn (Builder $archive) => $archive
+                ->withoutGlobalScope(ClientPortalScope::class)
+                ->clientAccessExpired());
+    }
 
-        // M7 bổ sung điều kiện client_access_until ở đây (SPEC §11 "Bàn giao và lưu trữ").
+    /**
+     * M7 Task 5: dòng lưu trữ, đọc cho RIÊNG câu hỏi "khách còn được tra cứu vụ này không"
+     * (`MatterPolicy::releasedToPortal()`, điều kiện thứ năm) — không bao giờ bị `ClientPortalScope`
+     * cắt.
+     *
+     * Vì sao không dùng {@see self::archive()}: `MatterArchive` mang `ClientPortalScope` chặn sạch
+     * (`1 = 0`), nên `with('archive')` dưới phiên khách (đúng chỗ `MyMatters::buildCards()` và
+     * `SubmitDocument::resolveMatter()` nạp sẵn) trả `null` cho MỌI vụ — và đường trong bộ nhớ của
+     * policy sẽ đọc `null` thành "không có dòng lưu trữ, không hết hạn": thủng tầng policy đúng lúc
+     * nó được dùng. Quan hệ này gỡ scope ngay trong định nghĩa, nên mọi lần nạp sẵn nó đều đúng bất
+     * kể phiên nào đang mở. `archive()` giữ nguyên scope của nó cho mọi nơi khác.
+     *
+     * `SoftDeletingScope` được giữ: một dòng lưu trữ đã xoá mềm không tính, cùng luật với tầng truy
+     * vấn ở {@see self::applyClientPortalConstraints()}.
+     *
+     * Không bao giờ in ra cổng: thứ duy nhất đọc nó là policy.
+     */
+    public function clientAccessArchive(): HasOne
+    {
+        return $this->hasOne(MatterArchive::class)->withoutGlobalScope(ClientPortalScope::class);
     }
 
     public function matterType(): BelongsTo

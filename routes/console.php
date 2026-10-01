@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Schedule\CheckDeadlines;
+use App\Actions\Schedule\ExpireClientAccess;
 use App\Actions\Schedule\RecordScheduleRun;
 use App\Actions\Schedule\SendHeartbeat;
 use Illuminate\Foundation\Inspiring;
@@ -131,3 +132,23 @@ Schedule::command('queue:work handover --queue=handover --stop-when-empty --max-
     ->name('queue.handover')
     ->withoutOverlapping(15)
     ->runInBackground();
+
+/**
+ * M7 Task 5 (R4, SPEC §6.12): vô hiệu hoá tài khoản cổng của khách có vụ đã hết hạn tra cứu và không
+ * còn vụ nào trên cổng — 00:30 hằng ngày, giờ Việt Nam. Xem docblock `ExpireClientAccess` cho đúng
+ * điều kiện (R4).
+ *
+ * Vụ việc rời cổng ĐÚNG 00:00 ngày sau `client_access_until` nhờ hai tầng ranh giới
+ * (`Matter::applyClientPortalConstraints()`, `MatterPolicy::releasedToPortal()`), không nhờ tác vụ
+ * này — nên một đêm cron lỡ (shared hosting) chỉ hoãn việc khoá tài khoản một ngày, không để lộ hồ
+ * sơ nào. 00:30 chứ không `daily()` (00:00): tránh phút nửa đêm, nơi mọi mục `daily()` dồn vào cùng
+ * một lượt `schedule:run` và chạy lần lượt.
+ *
+ * Khoá chống chồng lấn hết hạn sau 60 phút, không 1440 mặc định — cùng lý lẽ với `deadlines.check`:
+ * một lần chạy bị giết giữa chừng không được khoá luôn lần chạy của đêm sau. Tác vụ idempotent (chỉ
+ * đụng tài khoản đang hoạt động), nên hai lần chạy chồng nhau cũng không ghi trùng.
+ */
+Schedule::call(new ExpireClientAccess)
+    ->dailyAt('00:30')
+    ->name('client-access.expire')
+    ->withoutOverlapping(60);

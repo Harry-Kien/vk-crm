@@ -352,6 +352,11 @@ class MyMatters extends Page
                 // docblock của hàm đó. Một truy vấn CỐ ĐỊNH nữa cho cả trang, không một truy vấn
                 // nào thêm cho mỗi thẻ; `MyMattersTest` đo đúng độ dốc này.
                 'client',
+                // M7 Task 5: cùng lý do với `client` ngay trên, cho điều kiện thứ năm của
+                // `MatterPolicy::releasedToPortal()` (hết hạn tra cứu). `clientAccessArchive`,
+                // KHÔNG phải `archive`: nạp dưới phiên khách, `archive` luôn về `null` vì scope
+                // portal của `MatterArchive` — xem docblock `Matter::clientAccessArchive()`.
+                'clientAccessArchive',
             ])
             ->orderByDesc('last_client_update_at')
             ->orderByDesc('id')

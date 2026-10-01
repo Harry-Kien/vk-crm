@@ -1063,7 +1063,9 @@ class SubmitDocument extends Page
         // lần ở đây cho `MatterPolicy::releasedToPortal()` đọc miễn phí qua `relationLoaded()` ở
         // MỌI lần hỏi `Gate` của từng đầu mục, thay vì một EXISTS mới cho mỗi đầu mục — đúng chỗ
         // "đường trong bộ nhớ" mà docblock của `choosableItems()` báo là thiếu, nay đã có.
-        $matter = Matter::query()->with('client')->whereKey($this->record)->first();
+        // M7 Task 5: `clientAccessArchive` cùng lý do, cho điều kiện thứ năm (hết hạn tra cứu) —
+        // không phải `archive`, xem docblock `Matter::clientAccessArchive()`.
+        $matter = Matter::query()->with(['client', 'clientAccessArchive'])->whereKey($this->record)->first();
 
         abort_if($matter === null, 404);
         abort_unless(Gate::forUser($viewer)->allows('view', $matter), 404);
@@ -1101,8 +1103,10 @@ class SubmitDocument extends Page
      *
      * Nên hai điều kiện này không phải một thứ nói hai lần: điều kiện 2 giữ PHẠM VI, `Gate` giữ
      * QUYỀN, và mỗi cái đỡ được lần quên của cái kia. Xoá `Gate` vì "không test nào đỏ" là gỡ
-     * đúng cái lưới sẽ đỡ lần sửa sau — và M7 (`client_access_until`) là lần sửa đó: khi
-     * `MatterChecklistItem` có điều kiện portal của riêng nó, `Gate` thành tầng duy nhất đọc nó.
+     * đúng cái lưới sẽ đỡ lần sửa sau. (M7 Task 5 đặt điều kiện `client_access_until` ở `Matter`
+     * chứ không ở `MatterChecklistItem`, nên ở đây nó tới qua CẢ `whereHas('matter')` của scope
+     * đầu mục LẪN `MatterPolicy` phía sau `Gate` — đầu mục vẫn chưa có điều kiện portal của riêng
+     * nó.)
      */
     private function resolveItem(int|string $key): MatterChecklistItem
     {

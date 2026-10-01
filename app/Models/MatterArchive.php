@@ -58,6 +58,42 @@ class MatterArchive extends Model
         $query->whereRaw('1 = 0');
     }
 
+    /**
+     * M7 Task 5 (R4): định nghĩa "hết hạn tra cứu", nói bằng `where` — dùng ở tầng truy vấn của
+     * cổng ({@see Matter::applyClientPortalConstraints()}) và ở tập ứng viên của
+     * `App\Actions\Schedule\ExpireClientAccess`.
+     *
+     * Hết hạn khi `client_access_until < hôm nay` theo múi giờ ứng dụng: khách còn xem được HẾT
+     * ngày `client_access_until`, và mất quyền từ 00:00 ngày hôm sau. `null` (vụ chưa đóng, hoặc đã
+     * được mở lại — `SyncMatterArchive` xoá cột về `null`) không bao giờ hết hạn: `NULL < x` trong
+     * SQL là `NULL`, tức không thoả, nên không cần một `whereNotNull` thứ hai.
+     *
+     * `whereDate()` chứ không `where()`: cột là `date` trên MariaDB, nhưng trên SQLite cast `date`
+     * của Eloquent ghi cả phần giờ (`2026-10-20 00:00:00`), và một phép so chuỗi trần với
+     * `'2026-10-20'` chỉ đúng nhờ tình cờ về độ dài chuỗi. `whereDate()` cắt về ngày ở cả hai hệ.
+     *
+     * Đây là MỘT trong hai cách nói của cùng một luật; cách kia là
+     * {@see self::isClientAccessExpired()} (trên thuộc tính, cho tầng policy). Hai câu lệnh không
+     * gọi nhau — đó là toàn bộ giá trị của việc nói hai lần, xem docblock
+     * `MatterPolicy::releasedToPortal()`.
+     */
+    public function scopeClientAccessExpired(Builder $query): Builder
+    {
+        return $query->whereDate($this->qualifyColumn('client_access_until'), '<', today()->toDateString());
+    }
+
+    /**
+     * M7 Task 5 (R4): cùng định nghĩa với {@see self::scopeClientAccessExpired()}, nói bằng thuộc
+     * tính trên một bản ghi đã tải — cho `MatterPolicy::releasedToPortal()`. So hai chuỗi ngày
+     * `Y-m-d` theo múi giờ ứng dụng, không so hai mốc thời gian: phần giờ của một giá trị đọc từ
+     * CSDL không được phép làm lệch ngày biên.
+     */
+    public function isClientAccessExpired(): bool
+    {
+        return $this->client_access_until !== null
+            && $this->client_access_until->toDateString() < today()->toDateString();
+    }
+
     public function matter(): BelongsTo
     {
         return $this->belongsTo(Matter::class);

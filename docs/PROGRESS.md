@@ -1776,3 +1776,86 @@ Job sinh gói bàn giao trên hàng đợi RIÊNG, dựng zip + `MUC-LUC.pdf`, l
   `ViewMatter`); hai `whereNotIn('id', $excluded)` của truy vấn nhóm A (gói luôn là nhóm B nên không
   bao giờ nằm trong truy vấn A — phòng thủ); cờ `FL_ENC_UTF_8` bị bỏ thì libzip tự đoán ra UTF-8
   với tên hợp lệ (probe thay bằng `FL_ENC_CP437` mới đỏ — cờ giữ lại để ghi rõ ý định).
+
+### Task 5 — `ExpireClientAccess` (R4, SPEC §6.12)
+
+Quá `client_access_until` thì vụ việc rời cổng khách ở cả hai tầng; một tác vụ hằng ngày vô hiệu
+hoá tài khoản cổng theo đúng điều kiện R4. Đính chính SPEC §6.12 ghi ngay dưới đoạn `ExpireClientAccess`.
+
+- **Định nghĩa hết hạn (một luật, hai cách nói).** Dòng `matter_archives` chưa xoá mềm, với
+  `client_access_until` khác null và < hôm nay theo giờ ứng dụng: khách xem được HẾT ngày
+  `client_access_until`, mất quyền từ 00:00 hôm sau. Nói bằng `where` ở
+  `MatterArchive::scopeClientAccessExpired()` (`whereDate`, vì cast `date` trên SQLite ghi cả phần
+  giờ) và bằng thuộc tính ở `MatterArchive::isClientAccessExpired()` (so chuỗi `Y-m-d`). Hai câu
+  không gọi nhau.
+- **Tầng truy vấn.** Điều kiện thứ năm của `Matter::applyClientPortalConstraints()`:
+  `whereDoesntHave('archive', … ->withoutGlobalScope(ClientPortalScope::class)->clientAccessExpired())`.
+  Gỡ `ClientPortalScope` trong truy vấn con là bắt buộc: `MatterArchive` chặn sạch (`1 = 0`) dưới
+  phiên khách, và không gỡ thì `whereDoesntHave` luôn đúng — test "tầng truy vấn một mình … dưới
+  phiên khách đang mở" đỏ khi bỏ nó. Mọi model con (tài liệu, dòng tiến độ, mốc hạn, đầu mục, yêu
+  cầu, biên bản đã xem) nhận điều kiện qua `whereHas('matter')` sẵn có — không sửa model con nào.
+- **Tầng policy.** Điều kiện thứ năm của `MatterPolicy::releasedToPortal()` (docblock "bốn" → "năm"
+  ở `view()` và `releasedToPortal()`), có đường trong bộ nhớ như nhánh `client`. **Quyết định của
+  task: quan hệ mới `Matter::clientAccessArchive()`** (gỡ `ClientPortalScope` ngay trong định nghĩa),
+  không nạp sẵn `archive`: `archive` nạp dưới phiên khách luôn là `null` (scope `1 = 0` của
+  `MatterArchive`), và đường trong bộ nhớ sẽ đọc `null` thành "không hết hạn" — thủng tầng policy
+  đúng ở hai màn hình dùng đường nhanh. `MyMatters::buildCards()` và `SubmitDocument::resolveMatter()`
+  nạp sẵn `clientAccessArchive`; ngân sách `MyMattersTest` đổi phần cố định 5 → 6 (độ dốc vẫn 2
+  truy vấn mỗi thẻ), `SubmitDocumentTest` không đổi (độ dốc ≤ 2 mỗi đầu mục). `MatterProgress`,
+  `MyRequests` không nạp sẵn (một truy vấn dự phòng cho mỗi lần hỏi `Gate` trên vụ — cùng giá của
+  nhánh `client` dự phòng ở đó).
+- **Không sửa dữ liệu vụ việc.** Không cột nào của `matters`/`matter_archives`/`documents` bị đổi
+  (test so ảnh chụp dòng trước/sau, cả khi chỉ qua ngày lẫn khi job chạy). Admin mở trang vụ như cũ;
+  luật sư phụ trách vẫn tải được tệp. URL tải có chữ ký phát lúc 23:58 ngày cuối, dùng lúc 00:01 hôm
+  sau (chữ ký còn hợp lệ) → 404 từ policy. Mở lại vụ (`client_access_until` về null qua
+  `TransitionMatterStage` thật) đưa vụ về lại cổng.
+- **Tác vụ `App\Actions\Schedule\ExpireClientAccess`.** Mục lịch `client-access.expire`, 00:30 giờ
+  Việt Nam hằng ngày, `withoutOverlapping(60)`, ở cuối `routes/console.php`, cộng một dòng `use` MỚI
+  ở đầu tệp (không sửa dòng nào có sẵn; Pint — `fully_qualified_strict_types` — không nhận tên lớp
+  đầy đủ ở đó; một làn khác thêm `use` ngay cạnh khi merge là xung đột hai dòng liền kề, gỡ tay
+  ngay). Việc của nó CHỈ là vô hiệu hoá tài khoản; vụ rời cổng nhờ hai tầng, đúng từ 00:00 ngày sau
+  `client_access_until` dù tác vụ chưa chạy — một đêm cron lỡ chỉ hoãn việc khoá tài khoản.
+  - Ai: mọi tài khoản đang hoạt động (chưa xoá mềm) của khách có ÍT NHẤT MỘT vụ (chưa xoá mềm) đã
+    hết hạn VÀ không còn vụ nào hiển thị trên cổng — vế 2 hỏi bằng chính định nghĩa cổng
+    (`ClientPortalScope::actingAs()` + `Matter::query()->exists()`). Khách mới có vụ đầu tiên chưa
+    công bố không bao giờ bị đụng. Một vụ đã hết hạn rồi bị xoá mềm không còn tính cho vế 1 (có
+    test ghim; khoá tài khoản không dựa trên một hồ sơ văn phòng đã rút lại).
+  - Lưu từng model (`save()`, `LogsActivity` ghi `is_active` cũ/mới) + một dòng
+    `portal_account_deactivated` (thuộc tính chỉ `reason`, không mã/tiêu đề vụ; người thực hiện
+    trống = "Hệ thống" khi chạy từ scheduler). Idempotent: tập ứng viên chỉ gồm khách còn tài khoản
+    đang hoạt động, nên lần chạy sau không mở transaction nào cho khách đã xử lý (test đếm
+    `TransactionBeginning`), và số transaction mỗi đêm không lớn dần theo năm tháng.
+  - Một khách một transaction: câu lệnh đầu tiên khoá mọi dòng `matters` của khách (thứ tự khoá toàn
+    cục), rồi ĐỌC LẠI cả hai vế dưới khoá (test: một vụ vừa công bố / vừa mở lại giữa lúc tác vụ xử
+    lý khách khác giữ tài khoản của khách đó). Lỗi ở một khách: `report()`, rollback trọn khách đó,
+    các khách sau vẫn chạy (`['deactivated' => n, 'failed' => m]`). Không thư nào.
+  - Mọi truy vấn của tác vụ gỡ `ClientPortalScope` tường minh (test chạy tác vụ trong lúc một phiên
+    cổng đang mở trong cùng tiến trình; phiên đó mất ở request kế tiếp qua
+    `EnsurePortalAccountIsActive`).
+- **Cần chủ văn phòng/nhân sự biết.** (1) Tài khoản bị vô hiệu KHÔNG tự bật lại khi vụ được mở lại
+  — nhân sự bật tay ở trang tài khoản cổng. (2) R4 theo đúng chữ: một khách CŨ có vụ đã hết hạn và
+  vừa có vụ MỚI chưa công bố thoả cả hai vế nên bị vô hiệu hoá (có test ghim); nếu nhân sự bật lại
+  tài khoản TRƯỚC khi công bố vụ mới thì đêm sau tác vụ lại khoá — công bố vụ mới trước (hoặc cùng
+  lúc) rồi mới bật tài khoản. Nếu muốn "khách còn vụ đang mở thì không khoá", đó là một thay đổi
+  của R4, cần phán quyết.
+- **M9 (hook `deleting` từ chối xoá mềm vụ còn công nợ).** Task này không xoá, không lưu trữ vụ việc
+  nào — chỉ đọc vụ và ghi `client_users`. Không đường nào ở đây cần đi qua hook đó.
+- **Việc cho lần gộp `main` (M6 phần còn lại) ở Task 11.** Các Action thư cho khách về MỘT vụ việc
+  hỏi "vụ còn trên cổng" bằng `where('is_published_to_portal', true)`, không bằng định nghĩa cổng:
+  trong làn này `NotifyClientOfStageUpdate::stillReleasedToPortal()`; trên `main` thêm
+  `NotifyClientOfRequestAnswered`, `NotifyClientOfChecklistItemRejected` (M6 cố ý gửi cả cho vụ
+  đã đóng "còn trên cổng") và `NotifyClientOfDocumentPublished` (cái này còn hỏi `open()`, nên vụ
+  đã đóng không nhận). Khách còn một vụ khác trên cổng thì tài khoản vẫn hoạt động, nên một thư về
+  vụ ĐÃ hết hạn tra cứu vẫn đi, kèm liên kết tới một trang trả 404. Không lộ vụ cho người ngoài
+  (người nhận là chính khách của vụ), nhưng trái với "vụ rời cổng". Khi gộp, cho các chỗ đó hỏi
+  bằng định nghĩa cổng (`ClientPortalScope::actingAs($account, …)` hoặc
+  `Gate::forUser($account)->allows('view', $matter)`), không thêm một định nghĩa thứ ba.
+- **Không có probe hành vi cho:** câu khoá `lockForUpdate()` các dòng `matters` đầu transaction
+  (SQLite bỏ qua `FOR UPDATE`; câu lệnh chạy thật trên MariaDB khi chạy `test:mariadb` tệp này) và
+  `orderBy`/`distinct` của tập ứng viên (thứ tự xử lý, không phải điều kiện).
+- **Nguyên nhân của họ test chập chờn "thiếu giai đoạn" (có từ trước, không sửa ở task này).**
+  `MatterTypeFactory` bốc `code` ngẫu nhiên hai chữ (`lexify('??')`) và `withStages()` dựng giai
+  đoạn theo `StagePresets::for($type->code)`. Khi mã bốc trúng `HS` hoặc `DN` (2/676), loại vụ nhận
+  bộ hình sự/doanh nghiệp: không có `on_hold`, không có `enforcement → closed`. Đó là chỗ
+  `TransitionStageActionTest` "thiếu `on_hold`" (Ghi chú M6.5) và `StaleMattersWidgetTest`
+  (`closed_at` null) đỏ lẻ tẻ khi chạy cả bộ. Sửa: loại hai mã preset khỏi lần bốc ngẫu nhiên.

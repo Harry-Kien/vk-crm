@@ -187,7 +187,7 @@ Kết quả là một `Document` nhóm B ở `signed_filed` (R1). Xong thì báo
 - Hai tài liệu cùng tiêu đề, và một tiêu đề chứa `../`: entry đúng, không đè nhau, không thoát khỏi thư mục nhóm.
 - Job lỗi giữa chừng: không để lại tệp dở dang, luật sư được báo, bấm sinh lại được.
 
-### - [ ] Task 5 — `ExpireClientAccess` (R4)
+### - [x] Task 5 — `ExpireClientAccess` (R4)
 
 - Tác vụ hằng ngày. Đăng ký lịch, kèm test ghim giờ chạy như M6.5 Task 14 đã làm cho `CheckDeadlines`.
 - Quá `client_access_until` thì vụ việc rời portal ở **cả hai tầng**. Mỗi tầng một điều kiện độc lập, mỗi tầng một mutation probe. Sửa docblock `MatterPolicy` từ "bốn điều kiện" thành năm (M6.5 Task 2 đã thêm điều kiện thứ tư: khách chưa bị xoá mềm).
