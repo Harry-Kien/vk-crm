@@ -1364,6 +1364,104 @@ Worktree `D:\vkwt\lane-m7`, nhánh `m7-handover`, cắt từ `origin/m6-5-lane-d
 nghiệm thu + đợt sửa cuối). Kế hoạch: `docs/superpowers/plans/2026-09-21-m7-handover-and-archive.md`.
 Sổ làn: `.superpowers/sdd/m7/progress.md`.
 
+### Làn m7b (Task 10, 8, 9 — chạy song song với làn m7)
+
+Worktree `D:\vkwt\lane-m7b`, nhánh `m7-extras`, cắt từ `m7-handover` @ `985a5c4` (Task 1–5 xong), để
+M11 có sớm bảng `settings` và nhật ký liên lạc. Sổ làn: `.superpowers/sdd/m7b/progress.md`. Controller
+gộp nhánh này vào `m7-handover` trước Task 11. Mục này đặt ở ĐẦU "Ghi chú M7" (không ở cuối) để lần
+gộp không đụng các ghi chú Task 6, 7 mà làn m7 viết thêm ở cuối.
+
+#### Task 10 — Thông tin văn phòng sửa được trong app
+
+Chủ văn phòng quyết ngày 2026-09-24 sẽ tự nhập bốn thông tin pháp lý trong app. Trước task này mọi
+thông tin thương hiệu chỉ đổi được qua `.env`.
+
+- **Tên giữ cho M11** (kế hoạch M11 dòng 50, 97):
+  - bảng `settings` (migration `2026_09_28_071000_create_settings_table`): `key` `string(100)`
+    unique, `value` `text` NULL (NULL = chưa đặt), `updated_by` FK `users` NULL, timestamps. Bảng
+    khoá–giá trị CHUNG; khoá văn phòng có tiền tố `office.`;
+  - model `App\Models\Setting` — không `LogsActivity` (Action của tính năng ghi audit có cấu trúc),
+    miễn trừ ranh giới cổng có lý do ở `PortalCoverageTest` (cổng phải đọc được hotline);
+  - **bước ghi chung** `App\Actions\Settings\WriteSettings::handle(array<string, ?string> $values,
+    ?User $actor): list<string>` — câu đầu là `lockForUpdate()` mọi khoá của lần ghi; khoá chưa có
+    dòng thì `insertOrIgnore` một dòng NULL rồi khoá-đọc lại; so cũ/mới dưới khoá, `save()` từng dòng đổi (kèm
+    `updated_by`), trả khoá đã đổi. Không hỏi quyền, không audit. Chuỗi rỗng/khoảng trắng = NULL;
+    `'0'` là một giá trị; giá trị không phải chuỗi bị từ chối (`(string) false` là `''`); khoá rỗng
+    hay dài hơn 100 ký tự bị từ chối trước khi chạm DB;
+  - **Cho M11:** Action công tắc MCP của M11 gọi `WriteSettings` với
+    `['mcp.enabled' => '1'|'0', 'mcp.write_enabled' => '1'|'0']`, tự hỏi `settings.manage`, tự ghi
+    `ai_access_changed` khi danh sách trả về không rỗng. Middleware `EnsureMcpAccess` đọc
+    `Setting::query()->where('key', 'mcp.enabled')->value('value') === '1'` ở MỖI request (không
+    cache; dòng vắng mặt hay NULL = tắt, đúng "mặc định tắt");
+  - service đọc `App\Support\OfficeProfile`; Action lưu `App\Actions\Settings\UpdateOfficeProfile`;
+    trang `App\Filament\Admin\Pages\OfficeProfilePage` (slug `office-profile`).
+- **Chín trường** = bốn thông tin pháp lý (`tax_code`, `bar_association`, `licence_number`,
+  `office_address`) + `legal_name`, `hotline`, `zalo`, `website`, `reply_to` ("email liên hệ" =
+  Reply-To của mọi thư). Giới hạn ký tự ở MỘT chỗ, `OfficeProfile::FIELDS` (255; `tax_code` 14;
+  `licence_number` 100; `office_address` 500; `hotline` 20 cho ô nhập; `reply_to` 254), dùng cho cả
+  `maxLength()` của form lẫn luật `max:` của Action. Cột `text` chứa xa hơn mọi giới hạn đó.
+- **Thứ tự đọc:** `settings` (giá trị không rỗng) → `config('vkcrm.brand.*')`. **Trống = dùng cấu
+  hình**: form mở với giá trị ĐÃ LƯU (ô chưa lưu để trống, placeholder nói giá trị `.env` đang dùng)
+  — điền sẵn giá trị cấu hình sẽ khiến lần Lưu đầu chép `.env` vào bảng. Muốn một trường TRỐNG hẳn:
+  đặt biến RỖNG trong `.env` (`BRAND_HOTLINE=`; xoá cả dòng thì mặc định của `config/vkcrm.php` quay
+  lại) rồi để trống ô (ghi ở docblock `OfficeProfile`).
+- **Không cache vượt một lần render:** mỗi `OfficeProfile::current()` là một đối tượng mới, đọc bảng
+  MỘT lần (một truy vấn cho cả chín trường) khi được hỏi lần đầu. Không `static`, không
+  `singleton`/`scoped`. Thư đang nằm trong hàng đợi dùng giá trị ở LÚC RENDER: mẫu thư đọc service
+  trong `content()`/`toMail()`/layout, không chụp vào thuộc tính (test: một `StageUpdate` tuần tự
+  hoá trước lần lưu, gửi sau, mang giá trị mới).
+- **Kiểm tra đầu vào (Action, lần nữa sau form):** mã số thuế bỏ khoảng trắng, 13 chữ số liền viết
+  lại thành `0123456789-001`, rồi phải là `^\d{10}(-\d{3})?$`; hotline qua `Normalizer::phone()`
+  phải ra `84` + 8…10 chữ số, LƯU theo cách viết trong nước (`0` + phần thuê bao — cùng dạng mặc định
+  `0832270898`, vì số này in nguyên văn cho khách đọc và nằm trong `tel:`); Zalo/website
+  `url:http,https`; email liên hệ `email`. Lỗi của Action gắn vào đúng ô trên form (`data.<trường>`).
+  Khoá vắng mặt trong đầu vào thì giữ nguyên; khoá ngoài chín trường bị bỏ qua.
+- **Audit:** `office_profile_updated` (nhãn trong `lang/vi/activity.php`), `changed_fields` = tên
+  các trường đã đổi, không giá trị, không chủ thể; không ghi khi không có gì đổi.
+- **Cổng 404:** `canAccess()` = `Gate::forUser($user)->allows('settings.manage')`. `boot()` của trang
+  `abort(404)` — Livewire gọi `boot()` ở đầu cả mount lẫn mọi request cập nhật, TRƯỚC
+  `hydrateCanAuthorizeAccess()` của Filament (hook đó trả 403). `save()` hỏi lại; Action hỏi lần nữa.
+- **Nơi đọc đã chuyển sang `OfficeProfile`:** layout thư HTML + văn bản, `BrandFooter` (nhận đối
+  tượng của người gọi để cả chân thư từ một lần đọc), `BrandedMailable::replyToAddress()`,
+  `StageUpdate`, `DeadlineReminder`, `MatterReassigned`, `HandoverPackageReady`, `SendLoginCode`,
+  `RenderHandoverIndex` (`MUC-LUC.pdf`), chân trang đăng nhập, trang lỗi 403/404, `MatterProgress`,
+  `MyMatters` (CHỈ trong nhánh "chưa có hồ sơ" — ngân sách truy vấn "phần cố định đúng bằng 6" của
+  `MyMattersTest` không đổi), `SubmitDocument` (trang + view), `MatterClosedForSubmission`, `Login`,
+  `EnsurePortalAccountIsActive`. Test cấu trúc (`tests/Feature/Support/OfficeProfileTest.php`) quét
+  `app/`, `resources/views/`, `routes/` bằng `scandir()` (ổ 9p) và đỏ ở bất kỳ
+  `vkcrm.brand.<một trong chín trường>`, `'vkcrm.brand'` hay `'vkcrm'` nguyên khối nào ngoài
+  `OfficeProfile`; thêm một test: không màn hình cổng nào đọc thẳng `Setting`.
+- **`alt` của logo** (`brand/logo.blade.php`) là ba dòng lockup ghép lại, không phải tên pháp lý:
+  `alt` mô tả hình (không sửa được trong app), trùng từng chữ với tên pháp lý mặc định, và đọc tên
+  pháp lý ở đó sẽ thêm một truy vấn vào MỌI trang của hai panel.
+- **Để trống:** chân thư HTML/văn bản bỏ hẳn dòng tên pháp lý, hotline, website khi trống ở cả hai
+  nơi (trước đây in nhãn treo nếu `.env` đặt rỗng); bốn thông tin pháp lý vẫn qua `BrandFooter`;
+  `MUC-LUC.pdf` bỏ dòng tên văn phòng ở đầu trang và chân trang khi trống.
+- **Việc cho lần gộp `main` (M6 phần còn lại):** các mẫu thư `main` thêm sau `985a5c4` vẫn đọc
+  `config('vkcrm.brand.legal_name')`/`hotline`: `Mail/Client/{Activation, DocumentPublished,
+  DocumentRejected, MissingDocuments, RequestAnswered}`, `Mail/Staff/{BackupAlert,
+  InstalmentOverdue, NewClientDocument, NewClientRequest, StaleMatterReminder}`. Test cấu trúc sẽ
+  đỏ và nêu đích danh từng dòng; sửa mỗi `content()` thành `$office = OfficeProfile::current();` rồi
+  `$office->legalName()`/`$office->hotline()`, như `StageUpdate`.
+- **M8 Task 7 (làn M8b):** cảnh báo "bốn thông tin pháp lý còn trống" của `vkcrm:preflight` đọc
+  `OfficeProfile::current()->taxCode()` (…), không đọc `config('vkcrm.brand.*')` — sau khi gộp, test
+  cấu trúc bắt chỗ đọc cấu hình trực tiếp.
+- **Giới hạn đã biết:** đầu số dịch vụ `1900 xxxx`/`1800 xxxx` (8 chữ số) bị `Normalizer::phone()`
+  đọc như số thuê bao mất số 0 và lưu thành `019001234` — kế hoạch đòi chuẩn hoá qua đúng hàm đó.
+  Nếu văn phòng dùng đầu số dịch vụ làm hotline, cần một nhánh riêng (chưa làm). Màn hình cổng
+  (chân trang đăng nhập, trang lỗi 403/404, `MatterProgress`, `MyMatters`) chưa bỏ nút/liên kết
+  `tel:` khi hotline trống ở CẢ hai nơi — như trước Task 10; chỉ xảy ra khi `.env` đặt
+  `BRAND_HOTLINE=` rỗng VÀ trang để trống ô, vì mặc định của `config/vkcrm.php` có số.
+- Test: `tests/Feature/Support/OfficeProfileTest.php` (service + cấu trúc),
+  `tests/Feature/Actions/Settings/{UpdateOfficeProfileTest, WriteSettingsTest}.php`,
+  `tests/Feature/Filament/OfficeProfilePageTest.php` (màn hình qua Livewire/HTTP: 404 cả request
+  cập nhật Livewire thật; lưu xong thì thư khách, ba thư nhân sự (`DeadlineReminder`,
+  `MatterReassigned`, `HandoverPackageReady` — khẳng định cả tên CŨ không còn, vì chân thư một mình
+  đã đủ làm "có tên mới" xanh), thư OTP, `MUC-LUC.pdf`, chân trang đăng nhập,
+  trang 404, trạng thái trống của cổng mang giá trị mới; để trống thì bỏ dòng); `PortalCoverageTest`
+  thêm `Setting` vào danh sách miễn trừ; `SenderIdentityTest` sửa docblock (chuỗi rỗng bị lọc ở hai
+  tầng, câu "bỏ `filled()` làm test này đỏ" của bản trước sai với ca đó).
+
 ### Task 1 — Phần còn lại của `ReassignMatter` (SPEC §6.11 bước 3, R10)
 
 M6.5 Task 4 đã dựng `ReassignMatter` cho MỘT vụ việc (đổi lead, chuyển mốc hạn CHƯA hoàn thành,

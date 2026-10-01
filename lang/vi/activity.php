@@ -102,6 +102,9 @@ return [
         // gói sinh xong và mỗi lần gói được tải.
         'handover_package_requested' => 'Yêu cầu sinh gói bàn giao hồ sơ',
         'handover_package_failed' => 'Sinh gói bàn giao hồ sơ thất bại hẳn',
+        // M7 Task 10: app/Actions/Settings/UpdateOfficeProfile.php — `changed_fields` nêu TÊN các
+        // trường đã đổi trên trang "Thông tin văn phòng", không nêu giá trị.
+        'office_profile_updated' => 'Sửa thông tin văn phòng',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

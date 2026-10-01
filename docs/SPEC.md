@@ -1020,6 +1020,22 @@ công bố.
 checklist template), `User`, `Role`, và trang xem `ActivityLog`,
 `OutboundMessage`.
 
+**Đính chính 2026-09-28 (M7 Task 10).** Thêm trang **"Thông tin văn phòng"**, chỉ người có
+`settings.manage` (admin) mở được; người khác nhận 404, kể cả ở request cập nhật Livewire. Chủ văn
+phòng quyết ngày 2026-09-24 sẽ tự nhập bốn thông tin pháp lý trong app thay vì sửa `.env` trên máy
+chủ. Trang sửa chín trường: mã số thuế (10 chữ số, hoặc 13 chữ số dạng `0123456789-001`), Đoàn Luật
+sư, số Giấy đăng ký hoạt động, địa chỉ trụ sở, tên pháp lý, hotline (chuẩn hoá qua
+`Normalizer::phone()`, lưu theo cách viết trong nước), Zalo và website (URL `http`/`https`), email
+liên hệ (Reply-To của mọi thư). Màu, logo, font **không** sửa được trong app.
+- Lưu trong bảng mới `settings` (`key` `string(100)` unique, `value` `text` NULL, `updated_by` FK
+  `users` NULL, timestamps), một bảng khoá–giá trị **chung**: khoá văn phòng có tiền tố `office.`;
+  M11 lưu công tắc MCP vào cùng bảng. Mọi lần ghi qua `App\Actions\Settings\WriteSettings`; lần lưu
+  của trang qua `UpdateOfficeProfile`, ghi audit `office_profile_updated` nêu tên các trường đã đổi.
+- Đọc qua MỘT nơi, `App\Support\OfficeProfile`: bảng `settings` (giá trị không rỗng) →
+  `config('vkcrm.brand.*')`. Ô để trống nghĩa là dùng giá trị `.env`/mặc định. Chân thư (§9), chân
+  `MUC-LUC.pdf` (§6.12) và cổng khách hàng đọc qua service này, **lúc render**: thư đang nằm trong
+  hàng đợi mang giá trị mới. Thông tin còn trống thì dòng của nó biến mất, không để lại nhãn treo.
+
 ---
 
 ## 8. Giao diện panel `portal`

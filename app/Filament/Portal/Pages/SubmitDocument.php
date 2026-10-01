@@ -8,6 +8,7 @@ use App\Models\ClientUser;
 use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
+use App\Support\OfficeProfile;
 use App\Support\UploadThrottle;
 use DomainException;
 use Filament\Facades\Filament;
@@ -981,13 +982,13 @@ class SubmitDocument extends Page
             $this->failOnFile(__('portal_submit.errors.rate_limited_upload', [
                 'limit' => UploadThrottle::FILES_PER_HOUR,
                 'minutes' => max(1, (int) ceil(RateLimiter::availableIn($endpointKey) / 60)),
-                'hotline' => config('vkcrm.brand.hotline'),
+                'hotline' => OfficeProfile::current()->hotline(),
             ]), $name);
         }
 
         $this->failOnFile(__('portal_submit.errors.upload_failed', [
             'max' => static::maxMegabytes(),
-            'hotline' => config('vkcrm.brand.hotline'),
+            'hotline' => OfficeProfile::current()->hotline(),
         ]), $name);
     }
 
@@ -1033,7 +1034,7 @@ class SubmitDocument extends Page
             $this->failOnFile(__($message, [
                 'limit' => self::FILES_PER_HOUR,
                 'minutes' => max(1, (int) ceil(RateLimiter::availableIn($key) / 60)),
-                'hotline' => config('vkcrm.brand.hotline'),
+                'hotline' => OfficeProfile::current()->hotline(),
             ]), $field);
         }
     }

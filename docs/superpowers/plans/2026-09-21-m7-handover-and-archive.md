@@ -255,7 +255,7 @@ Phán quyết kèm theo:
   - vụ `restricted` không lộ với người ngoài đội ngũ.
 - Chạy cả dưới `test:mariadb`: `utf8mb4_unicode_ci` bỏ qua dấu nhưng coi "đ" khác "d", còn SQLite so theo byte.
 
-### - [ ] Task 10 — Thông tin văn phòng sửa được trong app
+### - [x] Task 10 — Thông tin văn phòng sửa được trong app
 
 Chủ văn phòng quyết ngày 2026-09-24 sẽ nhập thông tin pháp lý sau, **trong app**. Hôm nay mọi thông tin thương hiệu nằm ở `config/vkcrm.php` và chỉ đổi được qua `.env`, tức là phải có người sửa máy chủ.
 

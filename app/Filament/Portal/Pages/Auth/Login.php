@@ -5,6 +5,7 @@ namespace App\Filament\Portal\Pages\Auth;
 use App\Filament\Portal\Auth\PortalMultiFactorChallenge;
 use App\Models\ClientUser;
 use App\Support\Audit;
+use App\Support\OfficeProfile;
 use App\Support\PortalLoginThrottle;
 use Filament\Auth\Http\Responses\Contracts\LoginResponse;
 use Filament\Auth\MultiFactor\MultiFactorChallenge;
@@ -395,7 +396,7 @@ class Login extends BaseLogin
     {
         return __('portal.login.throttled', [
             'minutes' => $minutes,
-            'phone' => config('vkcrm.brand.hotline'),
+            'phone' => OfficeProfile::current()->hotline(),
         ]);
     }
 }

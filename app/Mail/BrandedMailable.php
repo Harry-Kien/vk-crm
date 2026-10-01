@@ -2,6 +2,7 @@
 
 namespace App\Mail;
 
+use App\Support\OfficeProfile;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Headers;
@@ -34,25 +35,27 @@ abstract class BrandedMailable extends Mailable
      * Reply-To dùng chung cho MỌI thư của văn phòng (M6.5 Task 12, `notify/notify-14`): trước bản
      * sửa này không mẫu nào đặt Reply-To, nên khách/nhân sự bấm "Trả lời" rơi vào
      * `MAIL_FROM_ADDRESS` — một hộp `no-reply@` không ai đọc, dùng cho SPF/DKIM chứ không phải
-     * cho người trả lời. `config('vkcrm.brand.reply_to')` là địa chỉ liên hệ THẬT của văn phòng.
+     * cho người trả lời. "Email liên hệ" của {@see OfficeProfile} là địa chỉ liên hệ THẬT của văn
+     * phòng — sửa được ở trang "Thông tin văn phòng" (M7 Task 10), mặc định
+     * `BRAND_REPLY_TO_ADDRESS` của `.env` — đọc LÚC GỬI, nên một thư đã xếp hàng mang địa chỉ mới.
      *
      * **Blank-safe (vòng sửa 1, minor).** `BRAND_REPLY_TO_ADDRESS=` (rỗng, có chủ ý đặt vậy trong
      * `.env`) nghĩa là "chưa cấu hình", KHÔNG được dựng thành một `Address('')` — trả `null` để
      * {@see self::prepareMailableForDelivery()} bỏ qua hẳn, không gọi `$this->replyTo()` chút nào.
      *
-     * `filled()` (trim rồi so `''`), không `empty()`: một chuỗi CHỈ CÓ KHOẢNG TRẮNG (gõ nhầm
-     * `BRAND_REPLY_TO_ADDRESS=" "`) làm `empty(' ')` trả `false` (PHP chỉ coi chuỗi RỖNG là
-     * empty, không tính khoảng trắng) — thiếu điều kiện này, giá trị đó lọt qua và Symfony ném
+     * Từ M7 Task 10, phép thử "trống" là `filled()` BÊN TRONG {@see OfficeProfile} — ở `stored()`
+     * và `configured()`, hai nửa của `value()` (trim rồi so `''`, không `empty()`): một chuỗi CHỈ
+     * CÓ KHOẢNG TRẮNG (gõ nhầm `BRAND_REPLY_TO_ADDRESS=" "`) làm `empty(' ')` trả `false` — lọt
+     * qua thì Symfony ném
      * `RfcComplianceException` ngay khi gửi thư thật (`Email " " does not comply with addr-spec of
      * RFC 2822`), một lỗi 500 cho MỌI thư của văn phòng chỉ vì một khoảng trắng gõ nhầm trong
      * `.env`. Đo được: `tests/Feature/Mail/SenderIdentityTest.php`, "treats a whitespace-only
-     * reply-to address as blank too".
+     * reply-to address as blank too". Giá trị lưu từ trang thì đã qua luật `email` của
+     * `UpdateOfficeProfile`.
      */
     protected function replyToAddress(): ?string
     {
-        $address = config('vkcrm.brand.reply_to');
-
-        return filled($address) ? $address : null;
+        return OfficeProfile::current()->replyTo();
     }
 
     /**

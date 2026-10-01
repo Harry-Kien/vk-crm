@@ -3,6 +3,7 @@
 namespace App\Notifications\Client;
 
 use App\Mail\OutboundHeaders;
+use App\Support\OfficeProfile;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 use SensitiveParameter;
@@ -81,16 +82,19 @@ class SendLoginCode extends Notification
         return ['mail'];
     }
 
+    /** Đọc thông tin văn phòng lúc dựng thư — xem docblock `OfficeProfile`. */
     public function toMail(object $notifiable): MailMessage
     {
+        $office = OfficeProfile::current();
+
         return (new MailMessage)
             ->subject(__('portal.email.otp.subject'))
             ->view(['emails.client.otp', 'emails.client.otp-text'], [
                 'name' => $notifiable->name ?? '',
                 'code' => $this->code,
                 'codeExpiryMinutes' => $this->codeExpiryMinutes,
-                'hotline' => config('vkcrm.brand.hotline'),
-                'office' => config('vkcrm.brand.legal_name'),
+                'hotline' => $office->hotline(),
+                'office' => $office->legalName(),
             ])
             ->withSymfonyMessage(fn (Email $message) => $message->getHeaders()
                 ->addTextHeader(OutboundHeaders::TEMPLATE, 'client.otp'));

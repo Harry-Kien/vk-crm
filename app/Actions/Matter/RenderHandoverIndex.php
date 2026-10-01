@@ -8,6 +8,7 @@ use App\Models\Matter;
 use App\Models\StageLog;
 use App\Support\BrandFooter;
 use App\Support\Handover\HandoverEntry;
+use App\Support\OfficeProfile;
 use Barryvdh\DomPDF\PDF;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\File;
@@ -31,7 +32,9 @@ use Throwable;
  *     cột tường minh, nên chuỗi trong `internal_note` không có trong bộ nhớ khi Blade chạy chứ
  *     không chỉ "không được in".
  *  4. Chân trang: tên văn phòng và bốn thông tin pháp lý khi đã có ({@see BrandFooter}, bỏ hẳn
- *     dòng trống).
+ *     dòng trống). Cả hai đọc qua {@see OfficeProfile} (M7 Task 10: trang "Thông tin văn phòng" →
+ *     bảng `settings` → cấu hình) LÚC DỰNG, từ cùng một đối tượng — gói sinh sau một lần sửa mang
+ *     giá trị mới.
  *
  * Mỗi khối là một partial trong `resources/views/handover/partials/`; thêm một khối về sau (bảng
  * kê thanh toán của M9 Task 10) là một partial + một `@include` trong `handover/index.blade.php`
@@ -61,6 +64,8 @@ class RenderHandoverIndex
 
             $matter->loadMissing(['client', 'matterType', 'leadLawyer']);
 
+            $office = OfficeProfile::current();
+
             // `dompdf.wrapper` được gói đăng ký bằng `bind()` (không `singleton()`): mỗi lần gọi là
             // một wrapper MỚI với một `Dompdf` mới, nên tuỳ chọn đặt dưới đây không lọt sang lần dựng
             // sau trong cùng một worker. (Facade `Pdf` của gói cũng tự resolve mới ở mỗi lời gọi
@@ -83,8 +88,8 @@ class RenderHandoverIndex
                 'enable_php' => false,
             ], true)
                 ->loadView('handover.index', [
-                    'officeName' => (string) config('vkcrm.brand.legal_name'),
-                    'legalLines' => BrandFooter::legalLines(),
+                    'officeName' => (string) $office->legalName(),
+                    'legalLines' => BrandFooter::legalLines($office),
                     'generatedAt' => now()->format('d/m/Y'),
                     'matterInfo' => $this->matterInfo($matter),
                     'entries' => $entries,
