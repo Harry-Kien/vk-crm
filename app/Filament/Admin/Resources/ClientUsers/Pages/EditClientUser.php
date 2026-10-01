@@ -63,12 +63,18 @@ class EditClientUser extends EditRecord
                     /** @var UnlockPortalLoginResult $result */
                     $result = app(UnlockPortalLogin::class)->handle($account, $actor);
 
+                    // Final review I2: "đăng nhập lại được ngay" chỉ khi không còn khoá địa chỉ
+                    // nào — khách có thể bị khoá chỉ vì người khác cùng mạng.
                     Notification::make()
-                        ->title($result->ipStillLocked
-                            ? __('client_users.actions.unlock_login_success_ip_still_locked', [
+                        ->title(match (true) {
+                            $result->ipStillLocked => __('client_users.actions.unlock_login_success_ip_still_locked', [
                                 'minutes' => $result->minutesRemaining,
-                            ])
-                            : __('client_users.actions.unlock_login_success'))
+                            ]),
+                            $result->anyAddressLockedMinutes !== null => __('client_users.actions.unlock_login_success_other_address_locked', [
+                                'minutes' => $result->anyAddressLockedMinutes,
+                            ]),
+                            default => __('client_users.actions.unlock_login_success'),
+                        })
                         ->success()
                         ->send();
                 }),

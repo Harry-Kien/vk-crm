@@ -132,13 +132,20 @@ class EditUser extends EditRecord
 
                     $result = app(UnlockStaffLogin::class)->handle($target, $actor);
 
+                    // Final review I2: "đăng nhập lại được ngay" chỉ khi không còn khoá địa chỉ
+                    // nào — nhân sự có thể bị khoá chỉ vì đồng nghiệp cùng NAT văn phòng.
                     Notification::make()
-                        ->title($result->ipStillLocked
-                            ? __('users.actions.unlock_login.success_ip_still_locked', [
+                        ->title(match (true) {
+                            $result->ipStillLocked => __('users.actions.unlock_login.success_ip_still_locked', [
                                 'name' => $target->name,
                                 'minutes' => $result->minutesRemaining,
-                            ])
-                            : __('users.actions.unlock_login.success', ['name' => $target->name]))
+                            ]),
+                            $result->anyAddressLockedMinutes !== null => __('users.actions.unlock_login.success_other_address_locked', [
+                                'name' => $target->name,
+                                'minutes' => $result->anyAddressLockedMinutes,
+                            ]),
+                            default => __('users.actions.unlock_login.success', ['name' => $target->name]),
+                        })
                         ->success()
                         ->send();
                 }),

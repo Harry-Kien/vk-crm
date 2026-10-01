@@ -39,13 +39,40 @@ use Spatie\Activitylog\Models\Activity;
  * **Lọc theo guard** (M8 Task 3, thêm khi nhân sự vào cùng luật): hai guard có rổ đếm khác nhau
  * (`portal-login-ip:` vs `staff-login-ip:`), nên một dòng của guard KIA ở cùng địa chỉ không phải
  * bằng chứng rằng rổ của guard NÀY đang dùng chung — nó không tiêu lượt nào trong rổ này.
+ *
+ * # Tài khoản bị khoá CHỈ vì người khác (final review I2)
+ *
+ * Lần thử bị cổng chặn (đã chạm trần) không được chấm nên KHÔNG ghi dòng `login_failed` nào. Một
+ * tài khoản bị khoá chỉ vì lần hỏng của đồng nghiệp cùng NAT văn phòng vì vậy không có dòng nào của
+ * riêng mình, và tập (bước, địa chỉ) ở trên rỗng — hệ thống không biết họ đang ở địa chỉ nào. Trước
+ * bản sửa, nhánh đó trả "không còn gì khoá" và nút mở khoá hứa "đăng nhập lại được ngay" trong khi
+ * họ vẫn bị chặn tới 15 phút.
+ *
+ * Vì vậy, SAU khi đã xoá những khoá NAT-an toàn, hàm này hỏi thêm: còn khoá địa chỉ nào (cả hai
+ * bước) của MỌI địa chỉ xuất hiện trong nhật ký `login_failed` của guard này, trong cửa sổ còn hiệu
+ * lực, đang chạm trần không — và trả số phút lâu nhất. Đủ để không sót: mọi lần ĐẬP khoá địa chỉ
+ * đều nằm trong cửa sổ đó (khoá của `RateLimiter` sống `DECAY_SECONDS` kể từ lần đập ĐẦU, không gia
+ * hạn), và gần như mọi lần đập đi kèm một dòng `login_failed` ở CÙNG địa chỉ — bước mật khẩu chỉ
+ * đập khi hỏng (dòng của listener `Failed`/`Login::auditFailedLogin()`), bước mã đập rồi HOÀN khi
+ * vào được (`LoginThrottle::refundCodeIp()`) và ghi dòng `step = code` khi mã sai; lần "mã đúng
+ * nhưng kiểm lại mật khẩu hỏng" để lại dòng `step = password` ở cùng địa chỉ, nên mỗi địa chỉ được
+ * hỏi CẢ HAI khoá. Ngoại lệ đã biết, ghi ra vì nó có thật: ô mã của cổng KHÁCH gửi TRỐNG (luật
+ * `required` hỏng trước luật ghi nhật ký của `PortalEmailAuthentication`) đập khoá địa chỉ mà không
+ * ghi dòng nào — ô đó mang thuộc tính HTML `required` (`OneTimeCodeInput`) nên trình duyệt chặn
+ * lần gửi trống, chỉ một request Livewire sửa tay làm được. Không lọc
+ * theo tài khoản: câu trả lời là "có thể vẫn bị chặn nếu đang ở mạng đó", không phải một khẳng
+ * định về người này.
  */
 trait ClearsNatSafeIpLocks
 {
     /**
      * @param  class-string<LoginThrottle>  $throttle  Bộ đếm của guard (PortalLoginThrottle / StaffLoginThrottle).
      * @param  string  $guard  Giá trị `properties.guard` của dòng `login_failed` (`client` / `web`).
-     * @return array{0: bool, 1: int|null} [chiều IP còn khoá không, số phút còn lại nếu còn]
+     * @return array{0: bool, 1: int|null, 2: int|null} [chiều IP của chính tài khoản còn khoá không,
+     *                                                  số phút còn lại của chiều đó nếu còn, số phút
+     *                                                  còn lại lâu nhất của BẤT KỲ khoá địa chỉ nào
+     *                                                  của guard này còn chạm trần sau khi đã xoá
+     *                                                  (null nếu không còn khoá nào)]
      */
     private function clearSafeIpDimensions(Model $account, string $throttle, string $guard): array
     {
@@ -102,6 +129,35 @@ trait ClearsNatSafeIpLocks
             $minutes = max($minutes ?? 0, $throttle::availableInMinutes([$ipKey]));
         }
 
-        return [$ipStillLocked, $minutes];
+        return [$ipStillLocked, $minutes, $this->longestRemainingAddressLock($recentFailures, $throttle)];
+    }
+
+    /**
+     * Final review I2 — xem mục "Tài khoản bị khoá CHỈ vì người khác" ở docblock của trait. Chạy SAU
+     * vòng xoá ở trên, nên một khoá NAT-an toàn vừa xoá không còn được đếm.
+     *
+     * @param  Collection<int, Activity>  $recentFailures  Mọi dòng `login_failed` của guard này trong cửa sổ.
+     * @param  class-string<LoginThrottle>  $throttle
+     * @return int|null số phút còn lại lâu nhất, null nếu không địa chỉ nào còn chạm trần
+     */
+    private function longestRemainingAddressLock(Collection $recentFailures, string $throttle): ?int
+    {
+        $minutes = null;
+
+        $addresses = $recentFailures
+            ->map(fn (Activity $activity): string => (string) $activity->properties->get('ip'))
+            ->unique();
+
+        foreach ($addresses as $ip) {
+            foreach ([$throttle::passwordIpKeyFor($ip), $throttle::codeIpKeyFor($ip)] as $ipKey) {
+                if (! $throttle::tooManyAttempts([$ipKey])) {
+                    continue;
+                }
+
+                $minutes = max($minutes ?? 0, $throttle::availableInMinutes([$ipKey]));
+            }
+        }
+
+        return $minutes;
     }
 }

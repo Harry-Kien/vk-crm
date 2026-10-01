@@ -55,6 +55,11 @@ return [
             'modal_description' => 'Xoá bộ đếm lần đăng nhập sai (cả bước mật khẩu lẫn bước mã) của :name để họ thử lại ngay. Chỉ dùng khi chắc chắn chính họ bị khoá, không phải một người lạ đang dò mật khẩu.',
             'success' => 'Đã xoá khoá đếm của :name. Họ đăng nhập lại được ngay.',
             'success_ip_still_locked' => 'Đã xoá khoá đếm của :name. Nhưng địa chỉ mạng liên quan tới lần khoá này vẫn còn bị khoá tạm — xin đợi thêm :minutes phút, hoặc thử từ một mạng khác (ví dụ 4G) để vào ngay.',
+            // Final review I2: :name có thể bị khoá CHỈ vì lần hỏng của đồng nghiệp cùng NAT văn
+            // phòng — lần thử bị chặn không ghi dòng nào, nên hệ thống không biết họ đang ở địa chỉ
+            // nào. Còn một địa chỉ như vậy bị khoá thì "đăng nhập lại được ngay" là hứa suông. Xem
+            // App\Actions\Concerns\ClearsNatSafeIpLocks.
+            'success_other_address_locked' => 'Đã xoá khoá đếm của :name. Nhưng đang có địa chỉ mạng bị khoá tạm vì người khác gõ sai nhiều lần (ví dụ wifi văn phòng dùng chung) — nếu :name đang dùng mạng đó thì vẫn bị chặn thêm tối đa :minutes phút, hoặc thử từ một mạng khác (ví dụ 4G) để vào ngay.',
         ],
     ],
 

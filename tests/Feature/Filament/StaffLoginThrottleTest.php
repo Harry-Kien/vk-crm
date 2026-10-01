@@ -703,6 +703,76 @@ it('§10.3 keeps a shared address lock when someone else also failed there, and 
         ->and(StaffLoginThrottle::tooManyAttempts([$ipKey]))->toBeTrue();
 });
 
+/*
+| Final review I2: một tài khoản bị khoá CHỈ vì lần hỏng của đồng nghiệp cùng NAT. Lần thử bị cổng
+| chặn không ghi dòng nào (không chấm mã thì không phải một lần hỏng), nên tài khoản ấy không có
+| dòng `login_failed` của riêng mình — và trước bản sửa, nút mở khoá báo "Họ đăng nhập lại được
+| ngay" trong khi họ vẫn bị chặn tới 15 phút.
+*/
+it('§10.3 does not promise an immediate sign-in when only colleagues\' failures at the shared address lock the account out', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $colleagueA = staffWithOwnSecret();
+    $colleagueB = staffWithOwnSecret();
+    $staff = staffWithOwnSecret();
+
+    // A và B gõ sai mã ở wifi văn phòng (127.0.0.1): 3 + 2 = 5, chiều IP của bước mã chạm trần.
+    $component = submitStaffPassword($colleagueA)->assertHasNoErrors();
+    foreach (range(1, 3) as $ignored) {
+        $component->set('data.multiFactor.app.code', staffWrongTotp($colleagueA))->call('authenticate');
+    }
+
+    $component = submitStaffPassword($colleagueB)->assertHasNoErrors();
+    foreach (range(1, 2) as $ignored) {
+        $component->set('data.multiFactor.app.code', staffWrongTotp($colleagueB))->call('authenticate');
+    }
+
+    // C gõ ĐÚNG mã mà vẫn bị chặn — và lần bị chặn ấy không để lại dòng nào của C.
+    submitStaffPassword($staff)->assertHasNoErrors()
+        ->set('data.multiFactor.app.code', staffTotp($staff))
+        ->call('authenticate')
+        ->assertHasErrors(['data.multiFactor.app.code']);
+
+    expect(auth('web')->check())->toBeFalse()
+        ->and(staffFailedRows($staff))->toHaveCount(0);
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(EditUser::class, ['record' => $staff->getKey()])
+        ->callAction('unlockLogin')
+        ->assertNotified(__('users.actions.unlock_login.success_other_address_locked', ['name' => $staff->name, 'minutes' => 15]));
+
+    // Câu trên nói thật: mở khoá xong, C vẫn bị chặn ở đúng địa chỉ đó (lần hỏng của A, B là thật,
+    // và không phải của C để xoá).
+    auth('web')->logout();
+
+    submitStaffPassword($staff)->assertHasNoErrors()
+        ->set('data.multiFactor.app.code', staffTotp($staff))
+        ->call('authenticate')
+        ->assertHasErrors(['data.multiFactor.app.code']);
+
+    expect(auth('web')->check())->toBeFalse();
+});
+
+it('§10.3 still gives the plain unlock message when colleagues failed at an address that is not (yet) locked', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $colleague = staffWithOwnSecret();
+    $staff = User::factory()->withRole(Role::Lawyer)->create(['password' => 'mat-khau-dung']);
+
+    // Hai mã sai của đồng nghiệp: có dòng nhật ký ở địa chỉ này, nhưng khoá địa chỉ chưa chạm trần.
+    $component = submitStaffPassword($colleague)->assertHasNoErrors();
+    foreach (range(1, 2) as $ignored) {
+        $component->set('data.multiFactor.app.code', staffWrongTotp($colleague))->call('authenticate');
+    }
+
+    staffLockedOut($staff);
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(EditUser::class, ['record' => $staff->getKey()])
+        ->callAction('unlockLogin')
+        ->assertNotified(__('users.actions.unlock_login.success', ['name' => $staff->name]));
+});
+
 it('§10.3 does not let a portal failure at the same address make a staff address lock look shared', function () {
     $admin = User::factory()->withRole(Role::Admin)->create();
     $staff = User::factory()->withRole(Role::Lawyer)->create(['password' => 'mat-khau-dung']);

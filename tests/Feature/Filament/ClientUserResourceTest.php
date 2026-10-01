@@ -1149,6 +1149,63 @@ it('leaves the shared IP lock in place when another account also failed from the
         ->and(PortalLoginThrottle::tooManyAttempts([$ipKey]))->toBeTrue();
 });
 
+/**
+ * Final review I2: khách C bị khoá CHỈ vì lần hỏng của NGƯỜI KHÁC cùng địa chỉ (A và B gõ sai mật
+ * khẩu trên cùng một wifi). Lần thử của C bị chặn ngay ở cổng nên không để lại dòng `login_failed`
+ * nào của C — trước bản sửa, nhân sự bấm mở khoá nhận câu "Khách đăng nhập lại được ngay" trong khi
+ * C vẫn bị chặn tới 15 phút.
+ */
+it('does not promise an immediate sign-in when only other people\'s failures at the shared address lock the client out', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $ownClient = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $ownClient->id, 'lead_lawyer_id' => $lawyer->id]);
+    $accountA = ClientUser::factory()->activated()->create();
+    $accountB = ClientUser::factory()->activated()->create();
+    $accountC = ClientUser::factory()->for($ownClient)->activated()->create();
+
+    Filament::setCurrentPanel('portal');
+
+    $wrongPassword = fn (ClientUser $account) => $this->livewire(Login::class)
+        ->set('data.email', $account->email)
+        ->set('data.password', 'sai-mat-khau')
+        ->call('authenticate');
+
+    foreach (range(1, 2) as $ignored) {
+        $wrongPassword($accountB);
+    }
+
+    foreach (range(1, 3) as $ignored) {
+        $wrongPassword($accountA);
+    }
+
+    $rightPassword = fn () => $this->livewire(Login::class)
+        ->set('data.email', $accountC->email)
+        ->set('data.password', 'password')
+        ->call('authenticate');
+
+    $rightPassword()->assertHasErrors(['data.email']);
+
+    expect(Activity::query()
+        ->where('event', 'login_failed')
+        ->where('causer_type', $accountC->getMorphClass())
+        ->where('causer_id', $accountC->getKey())
+        ->count())->toBe(0);
+
+    Filament::setCurrentPanel('admin');
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(EditClientUser::class, ['record' => $accountC->getKey()])
+        ->callAction('unlockLogin')
+        ->assertNotified(__('client_users.actions.unlock_login_success_other_address_locked', ['minutes' => 15]));
+
+    // Câu trên nói thật: C vẫn bị chặn ở đúng địa chỉ đó.
+    Filament::setCurrentPanel('portal');
+
+    $rightPassword()->assertHasErrors(['data.email']);
+
+    expect(auth('client')->check())->toBeFalse();
+});
+
 /** Vế dương của ba test trên: không có khoá IP nào để báo thì câu trả lời là câu đơn giản. */
 it('tells staff the plain unlock message when there is no IP lock to report', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();

@@ -30,6 +30,13 @@ use App\Support\PortalLoginThrottle;
  * M8 Task 3: phần này được rút ra thành {@see ClearsNatSafeIpLocks}, dùng chung với
  * `App\Actions\User\UnlockStaffLogin` (cổng nhân sự) — luật, lý lẽ và số phút còn lại nằm ở trait
  * đó, kèm lọc theo guard `client`.
+ *
+ * # Final review I2 — khách bị khoá chỉ vì người khác
+ *
+ * Kết quả mang thêm `anyAddressLockedMinutes`: còn khoá địa chỉ nào của guard `client` chạm trần
+ * sau lần mở khoá không. Khách bị khoá chỉ vì lần hỏng của người khác cùng mạng không có dòng
+ * `login_failed` nào của mình, nên trước bản sửa câu trả lời là "đăng nhập lại được ngay" trong khi
+ * khách vẫn bị chặn tới 15 phút.
  */
 class UnlockPortalLogin
 {
@@ -39,13 +46,13 @@ class UnlockPortalLogin
     {
         PortalLoginThrottle::clearAccountLocks($account);
 
-        [$ipStillLocked, $minutes] = $this->clearSafeIpDimensions($account, PortalLoginThrottle::class, 'client');
+        [$ipStillLocked, $minutes, $anyAddressLockedMinutes] = $this->clearSafeIpDimensions($account, PortalLoginThrottle::class, 'client');
 
         Audit::record('portal_login_unlocked', $account, [
             'guard' => 'client',
             'ip_still_locked' => $ipStillLocked,
         ], $actor);
 
-        return new UnlockPortalLoginResult($ipStillLocked, $minutes);
+        return new UnlockPortalLoginResult($ipStillLocked, $minutes, $anyAddressLockedMinutes);
     }
 }
