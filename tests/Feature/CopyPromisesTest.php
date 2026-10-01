@@ -37,6 +37,10 @@ it('no longer denies the rejection email that now exists, and says it plainly', 
  * M6 Task 3: khi khách nộp giấy tờ mà văn phòng từ chối, khách giờ nhận được một email nêu lý do —
  * câu "cảm ơn đã gửi" (SPEC §8.4, hiện ngay sau khi nộp) nên nói đúng điều đó, thay vì chỉ hứa một
  * cách chung chung "văn phòng sẽ liên hệ khi cần" (câu cũ, không nói rõ bằng cách nào).
+ *
+ * Câu này hiện VÔ ĐIỀU KIỆN sau mỗi lần nộp, kể cả trên vụ đã đóng còn công bố trên cổng (rà soát
+ * cuối làn, I1). Test này chỉ ghim câu chữ; lời hứa được đo bằng đường đi thật — nộp trên trang
+ * nộp, từ chối trên màn hình duyệt, thư tới khách — ở `tests/Feature/Portal/SubmitDocumentTest.php`.
  */
 it('tells the client an email will explain if something is wrong with what they submitted', function () {
     expect(mb_strtolower(__('portal_submit.done.body', ['name' => 'x'])))->toContain('email');
@@ -50,7 +54,8 @@ it('only claims the client sees the new stage when the matter is on the portal',
 /**
  * Fix round 1 (finding Important 2): `reject_success`/`rejection_reason_help` hứa một email chỉ
  * đúng khi khách THẬT SỰ có ai đó để nhận (tài khoản portal đủ điều kiện, R12) VÀ vụ việc còn bật
- * công tắc portal (`is_published_to_portal`) VÀ — fix round 2, finding 1 — vụ việc còn MỞ.
+ * công tắc portal (`is_published_to_portal`). Vụ ĐÃ ĐÓNG còn công bố trên cổng KHÔNG nằm ngoài lời
+ * hứa đó (rà soát cuối làn, I1 — xem test kế tiếp).
  * `ChecklistRelationManager::rejectionNoticeCopy()` chọn giữa cặp khoá này và HAI cặp "không
  * email" bên dưới ("_no_notice": lý do vẫn hiện trên cổng; "_portal_hidden": vụ ẩn khỏi cổng).
  * Trước fix round 1, cặp "email đã được gửi" hiện VÔ ĐIỀU KIỆN — đúng lớp lời hứa sai mà bài test
@@ -70,13 +75,15 @@ it('does not promise an email when nobody is eligible to receive one', function 
 ]);
 
 /**
- * Fix round 2 (finding 1): `NotifyClientOfChecklistItemRejected::handle()` không gửi thư cho một
- * vụ ĐÃ ĐÓNG (`Matter::open()`), mà từ chối trên vụ đã đóng là đường có thật
- * (`PendingChecklistReviewsWidget` cố ý liệt kê nó). Cặp "_no_notice" — câu hiện khi lý do CÒN trên
- * cổng nhưng không có thư — phải gọi tên nguyên nhân đó, không chỉ "khách chưa có tài khoản".
+ * Rà soát cuối làn (I1). Fix round 2 của Task 3 cho cặp "_no_notice" nói "vụ việc đã đóng" là một
+ * lý do không có thư, vì `NotifyClientOfChecklistItemRejected` khi đó đòi `Matter::open()`. Nhưng
+ * khách VẪN nộp được trên vụ đã đóng còn công bố trên cổng (`DocumentPolicy::create` không hỏi
+ * `closed_at` — b0f98aa đo đúng điều đó cho thư nội bộ), và trang nộp hứa với họ
+ * (`portal_submit.done.body`) rằng có gì chưa ổn sẽ có email. Thư từ chối giờ đi cho vụ đã đóng
+ * còn trên cổng, nên câu "không email" không được đổ cho việc vụ đã đóng nữa.
  */
-it('names a closed matter as one reason no rejection email goes out', function (string $key) {
-    expect(mb_strtolower(__($key)))->toContain('vụ việc đã đóng');
+it('never blames a closed matter for a rejection email that does not go out', function (string $key) {
+    expect(mb_strtolower(__($key)))->not->toContain('đã đóng');
 })->with([
     'checklist.tab.actions.reject_success_no_notice',
     'checklist.tab.fields.rejection_reason_help_no_notice',

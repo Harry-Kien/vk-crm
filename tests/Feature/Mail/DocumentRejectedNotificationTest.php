@@ -134,7 +134,8 @@ it('never carries the matters internal note into the client mailbox', function (
  * đường sản phẩm (`ReviewChecklistItem` thật).
  *
  * Mutation probe: xoá `->where('is_published_to_portal', true)` khỏi
- * `NotifyClientOfChecklistItemRejected::handle()` — test này ĐỎ.
+ * `NotifyClientOfChecklistItemRejected::notifiableMatter()` (fix round 2 dời điều kiện từ `handle()`
+ * về đó) — test này ĐỎ.
  */
 it('sends nothing when rejecting an item on a matter with the portal switch off', function () {
     Mail::fake();
@@ -214,6 +215,13 @@ it('sends nothing when the client already resubmitted before the job ran', funct
     Mail::assertNothingSent();
 });
 
+/**
+ * Vụ việc bị HUỶ (xoá mềm) giữa lúc sự kiện bắn và lúc job chạy. Từ khi `notifiableMatter()` bỏ
+ * `->open()` (rà soát cuối làn, I1), vế "chưa xoá mềm" chỉ còn do `SoftDeletingScope` mặc định canh.
+ *
+ * Mutation probe: thêm `->withTrashed()` vào `NotifyClientOfChecklistItemRejected::notifiableMatter()`
+ * — test này ĐỎ (`handle()` trả 1 thay vì 0).
+ */
 it('sends nothing when the matter was cancelled before the job ran', function () {
     $admin = User::factory()->withRole(Role::Admin)->create();
     [$matter, $lawyer, , $item] = rejectableItemWithClientAccount();
@@ -226,6 +234,49 @@ it('sends nothing when the matter was cancelled before the job ran', function ()
 
     expect($sent)->toBe(0);
     Mail::assertNothingSent();
+});
+
+/**
+ * Rà soát cuối làn (I1): vụ ĐÃ ĐÓNG (`closed_at` khác null, KHÔNG xoá mềm) mà văn phòng còn để
+ * trên cổng. Khách vẫn thấy vụ, vẫn nộp được (`DocumentPolicy::create` không hỏi `closed_at`), và
+ * trang nộp đã hứa với họ một email nếu có gì chưa ổn (`portal_submit.done.body`) — nên thư từ chối
+ * phải đi, cùng quyết định với `client.request_answered` và hai thư nội bộ của b0f98aa. Đường đi
+ * qua màn hình được đo ở `SubmitDocumentTest` và `ChecklistRelationManagerTest`; ở đây đo đúng
+ * câu hỏi của listener.
+ *
+ * Mutation probe: thêm lại `->open()` vào `NotifyClientOfChecklistItemRejected::notifiableMatter()`
+ * — test này và test kế tiếp ĐỎ.
+ */
+it('emails the client when rejecting on a CLOSED matter the office left on the portal', function () {
+    Mail::fake();
+    [$matter, $lawyer, $account, $item] = rejectableItemWithClientAccount();
+    $matter->update(['closed_at' => now()->subDay(), 'is_published_to_portal' => true]);
+
+    expect($account->can('view', $matter->fresh()))->toBeTrue();
+
+    rejectAsLawyer($item, $lawyer, rejectionReasonText());
+
+    Mail::assertSent(DocumentRejected::class, 1);
+    Mail::assertSent(DocumentRejected::class, fn ($mail) => $mail->hasTo($account->email));
+});
+
+/**
+ * Cùng quyết định, ở cửa sổ hàng đợi: vụ bị ĐÓNG giữa lúc sự kiện bắn và lúc job chạy. Sự kiện bị
+ * `Event::fake()` chặn để listener không chạy lúc từ chối (nếu không, lần gọi tay dưới đây bị
+ * `alreadyDelivered()` đếm là "đã gửi" vì một lý do KHÁC) — cùng khuôn
+ * `NewClientDocumentNotificationTest`.
+ */
+it('still emails the client when the matter was closed between the event and the queued job', function () {
+    Event::fake([ChecklistItemRejected::class]);
+    [$matter, $lawyer, $account, $item] = rejectableItemWithClientAccount();
+    $rejected = rejectAsLawyer($item, $lawyer, rejectionReasonText());
+    $matter->update(['closed_at' => now()]);
+
+    Mail::fake();
+    $sent = app(NotifyClientOfChecklistItemRejected::class)->handle($rejected->fresh());
+
+    expect($sent)->toBe(1);
+    Mail::assertSent(DocumentRejected::class, fn ($mail) => $mail->hasTo($account->email));
 });
 
 /**

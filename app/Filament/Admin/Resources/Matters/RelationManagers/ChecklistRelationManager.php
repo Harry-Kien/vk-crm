@@ -466,10 +466,11 @@ class ChecklistRelationManager extends RelationManager
              * nhưng nhân sự đã tin lời hứa cũ và không tự liên hệ khách bằng kênh khác — đúng lớp
              * lời hứa sai mà `CopyPromisesTest` tồn tại để chặn.
              *
-             * Fix round 2: cùng lớp lỗi, hai chỗ fix round 1 còn sót — vụ việc ĐÃ ĐÓNG (finding 1:
-             * `handle()` dừng ở `open()`, toast vẫn hứa email), và câu "không email" nói lý do
-             * hiện trên cổng cả khi vụ ẩn khỏi cổng (finding 2). Giờ ba câu, chọn ở
-             * {@see self::rejectionNoticeCopy()}.
+             * Fix round 2: cùng lớp lỗi, hai chỗ fix round 1 còn sót — toast và `handle()` lệch
+             * nhau (finding 1: giờ cùng hỏi `NotifyClientOfChecklistItemRejected`), và câu "không
+             * email" nói lý do hiện trên cổng cả khi vụ ẩn khỏi cổng (finding 2). Giờ ba câu, chọn
+             * ở {@see self::rejectionNoticeCopy()}. Rà soát cuối làn (I1): vụ ĐÃ ĐÓNG còn trên cổng
+             * thuộc nhánh "có email" — thư từ chối đi cho vụ đó.
              */
             ->successNotificationTitle(fn (MatterChecklistItem $record): string => static::rejectionNoticeCopy(
                 $record,
@@ -535,10 +536,10 @@ class ChecklistRelationManager extends RelationManager
      * "Khách sẽ biết về lần từ chối này bằng đường nào" — chọn MỘT trong ba khoá câu chữ cho toast
      * và helper text của nút "Cần nộp lại":
      *
-     *  - `$emailed`: thư `client.document_rejected` sẽ đi (vụ còn mở, bật công bố portal, khách có
-     *    tài khoản đã kích hoạt) — và lý do hiện trên cổng.
-     *  - `$portalOnly`: không thư (vụ đã đóng, hoặc khách chưa có tài khoản đã kích hoạt), nhưng lý
-     *    do VẪN hiện trên cổng khách hàng.
+     *  - `$emailed`: thư `client.document_rejected` sẽ đi (vụ chưa huỷ — đang mở HAY đã đóng —, bật
+     *    công bố portal, khách có tài khoản đã kích hoạt) — và lý do hiện trên cổng.
+     *  - `$portalOnly`: không thư (khách chưa có tài khoản đã kích hoạt, hay tài khoản bị khoá),
+     *    nhưng lý do VẪN hiện trên cổng khách hàng.
      *  - `$hidden`: không thư, VÀ cổng giấu cả vụ lẫn lý do (tắt công bố portal, khách hàng đã
      *    xoá) — luật sư phải tự liên hệ khách.
      *

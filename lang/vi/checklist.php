@@ -131,12 +131,13 @@ return [
             // này, `reject_success_no_notice` và `reject_success_portal_hidden` — trước fix round
             // 1 nó hiện vô điều kiện.
             'reject_success' => 'Đã từ chối — lý do hiện cho khách trên cổng khách hàng, và một email sẽ được gửi báo khách về việc này.',
-            // Không thư, nhưng lý do VẪN hiện trên cổng: vụ việc đã đóng (fix round 2, finding 1 —
-            // `NotifyClientOfChecklistItemRejected::handle()` chỉ gửi cho vụ đang mở, còn cổng
-            // không giấu vụ đã đóng), hoặc khách chưa có tài khoản portal đã kích hoạt (R12). Cùng
-            // lý do `matters.transition_form.no_activated_account_warning`: không hứa một email
-            // sẽ không bao giờ tới.
-            'reject_success_no_notice' => 'Đã từ chối — lý do hiện cho khách trên cổng khách hàng, nhưng sẽ không có email nào được gửi về việc này: vụ việc đã đóng, hoặc khách chưa có tài khoản portal đã kích hoạt (hay tài khoản đang bị khoá). Nếu cần khách nộp lại sớm, hãy liên hệ trực tiếp.',
+            // Không thư, nhưng lý do VẪN hiện trên cổng: khách chưa có tài khoản portal đã kích hoạt,
+            // hoặc tài khoản đang bị khoá (R12). Cùng lý do
+            // `matters.transition_form.no_activated_account_warning`: không hứa một email sẽ không
+            // bao giờ tới. Vụ việc ĐÃ ĐÓNG không còn là một lý do ở đây (rà soát cuối làn, I1):
+            // vụ đóng mà còn trên cổng thì khách vẫn nộp được, nên thư từ chối vẫn đi
+            // (`NotifyClientOfChecklistItemRejected::notifiableMatter()`).
+            'reject_success_no_notice' => 'Đã từ chối — lý do hiện cho khách trên cổng khách hàng, nhưng sẽ không có email nào được gửi về việc này: khách chưa có tài khoản portal đã kích hoạt (hay tài khoản đang bị khoá). Nếu cần khách nộp lại sớm, hãy liên hệ trực tiếp.',
             // Fix round 2 (finding 2): không thư VÀ không cổng — vụ việc tắt công bố portal, hoặc
             // khách hàng đã bị xoá: `MatterChecklistItem::applyClientPortalConstraints()` (qua
             // `whereHas('matter')`) giấu cả đầu mục lẫn lý do. Câu "không email" cũ nói lý do
@@ -158,7 +159,7 @@ return [
             // cron (`queue:work --stop-when-empty`), không rời máy chủ ngay lúc bấm "Từ chối".
             'rejection_reason_help' => 'Câu này hiện nguyên văn trên cổng khách hàng và trong một email gửi cho khách, nên hãy viết như đang nói chuyện với khách: chỗ nào chưa đạt, và cần làm gì để nộp lại cho đúng. Bấm một mẫu bên dưới rồi sửa lại cho đúng trường hợp.',
             // Cặp "không thư, vẫn hiện trên cổng" — xem chú thích `reject_success_no_notice`.
-            'rejection_reason_help_no_notice' => 'Câu này hiện nguyên văn trên cổng khách hàng, nhưng sẽ KHÔNG có email nào gửi câu này: vụ việc đã đóng, hoặc khách chưa có tài khoản portal đã kích hoạt (hay tài khoản đang bị khoá). Vẫn hãy viết như đang nói chuyện với khách: chỗ nào chưa đạt, và cần làm gì để nộp lại cho đúng. Bấm một mẫu bên dưới rồi sửa lại cho đúng trường hợp.',
+            'rejection_reason_help_no_notice' => 'Câu này hiện nguyên văn trên cổng khách hàng, nhưng sẽ KHÔNG có email nào gửi câu này: khách chưa có tài khoản portal đã kích hoạt (hay tài khoản đang bị khoá). Vẫn hãy viết như đang nói chuyện với khách: chỗ nào chưa đạt, và cần làm gì để nộp lại cho đúng. Bấm một mẫu bên dưới rồi sửa lại cho đúng trường hợp.',
             // Cặp "không thư, không cổng" — xem chú thích `reject_success_portal_hidden`. Câu lý
             // do vẫn được lưu cùng đầu mục và hiện ra nếu vụ việc trở lại cổng, nên lời nhắc "viết
             // cho khách đọc" vẫn đúng.

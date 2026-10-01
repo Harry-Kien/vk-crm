@@ -4,8 +4,11 @@ use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Enums\Role;
+use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
+use App\Filament\Admin\Resources\Matters\RelationManagers\ChecklistRelationManager;
 use App\Filament\Portal\Pages\MatterProgress;
 use App\Filament\Portal\Pages\SubmitDocument;
+use App\Mail\Client\DocumentRejected;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Document;
@@ -16,13 +19,16 @@ use App\Models\User;
 use App\Support\Scopes\ClientPortalScope;
 use App\Support\UploadThrottle;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
+use Filament\Notifications\Notification;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -377,6 +383,54 @@ it('says the office is now checking the file, in those words', function () {
         ->call('submit');
 
     expect(submitRegion($component->html()))->toContain('Đang chờ văn phòng kiểm tra');
+});
+
+/**
+ * Rà soát cuối làn M6 (I1): câu cảm ơn sau khi nộp (`portal_submit.done.body`) hứa "Nếu có gì chưa
+ * ổn, chúng tôi sẽ gửi email nêu rõ lý do" — VÔ ĐIỀU KIỆN, kể cả trên một vụ ĐÃ ĐÓNG mà văn phòng
+ * còn để trên cổng. Khách nộp được ở đó (`DocumentPolicy::create` → `MatterPolicy::releasedToPortal`
+ * không hỏi `closed_at`), nên lần từ chối trên màn hình duyệt của văn phòng phải thật sự gửi thư
+ * `client.document_rejected`. Trước bản sửa, `NotifyClientOfChecklistItemRejected::notifiableMatter()`
+ * đòi `Matter::open()`: câu hứa hiện ra, thư không bao giờ đi, và toast của người duyệt nói "vụ
+ * việc đã đóng" như thể đó là lý do chính đáng.
+ *
+ * Đi hết đường thật ở cả hai phía: nộp qua trang nộp của cổng, từ chối qua nút "Cần nộp lại" của
+ * `ChecklistRelationManager` — không gọi Action nào trực tiếp.
+ *
+ * Mutation probe: thêm lại `->open()` vào `notifiableMatter()` — test này ĐỎ.
+ */
+it('keeps the email promise of the thank-you sentence on a closed matter the office left on the portal', function () {
+    Mail::fake();
+    $this->matter->update(['closed_at' => now()->subDay()]);
+
+    $component = submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->set('data.file', submitPagePdf())
+        ->call('submit')
+        ->assertHasNoErrors();
+
+    expect(submitRegion($component->html()))
+        ->toContain(e(__('portal_submit.done.body', ['name' => $this->item->name])))
+        ->and($this->item->refresh()->status)->toBe(ChecklistItemStatus::PendingReview);
+
+    Filament::setCurrentPanel('admin');
+    $this->actingAs($this->lawyer, 'web');
+
+    $this->livewire(ChecklistRelationManager::class, [
+        'ownerRecord' => $this->matter->fresh(),
+        'pageClass' => ViewMatter::class,
+    ])
+        ->callAction(TestAction::make('reject')->table($this->item), data: [
+            'rejection_reason' => __('checklist.rejection_templates.blurred'),
+        ])
+        ->assertHasNoActionErrors();
+
+    expect($this->item->refresh()->status)->toBe(ChecklistItemStatus::Rejected);
+    Notification::assertNotified(__('checklist.tab.actions.reject_success'));
+    Mail::assertSent(
+        DocumentRejected::class,
+        fn (DocumentRejected $mail): bool => $mail->hasTo($this->clientUser->email),
+    );
 });
 
 /**

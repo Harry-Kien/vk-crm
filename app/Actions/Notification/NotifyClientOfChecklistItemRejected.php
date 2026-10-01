@@ -34,7 +34,8 @@ use Throwable;
  * rejected và chưa bị nộp lại". VÀ `matters.is_published_to_portal` (fix round 1, finding
  * Critical 1) — xem docblock lớp anh em `NotifyClientOfDocumentPublished`: cờ này là công tắc
  * tổng của portal, tắt thì vụ việc vô hình dù khách đúng quyền, và không nơi nào khác trên đường
- * đi (`Matter::open()`, `ResolveClientRecipients`, `ReviewChecklistItem`) tự hỏi nó.
+ * đi (`ResolveClientRecipients`, `ReviewChecklistItem`) tự hỏi nó. VÀ vụ việc chưa huỷ (xoá mềm)
+ * — nhưng KHÔNG đòi vụ còn mở: xem {@see self::notifiableMatter()} (rà soát cuối làn, I1).
  */
 class NotifyClientOfChecklistItemRejected
 {
@@ -108,21 +109,31 @@ class NotifyClientOfChecklistItemRejected
      * Vụ việc của đầu mục, CHỈ KHI thư về nó còn được phép đi — `null` nếu không. MỘT định nghĩa
      * cho cả `handle()` (lúc gửi) lẫn {@see self::hasEligibleRecipient()} (lúc màn hình chọn câu):
      *
-     *  - `open()`: chưa đóng (`closed_at` null) VÀ chưa xoá mềm — cùng cách
-     *    `SendDeadlineReminderMail` hỏi (brief Task 3, "kiểm tra lại lúc gửi").
+     *  - chưa xoá mềm (huỷ) — `SoftDeletingScope` mặc định của `Matter::query()`;
+     *    `withoutGlobalScope(ClientPortalScope::class)` chỉ gỡ scope cổng, để nguyên scope này
+     *    (brief Task 3, "kiểm tra lại lúc gửi": "vụ việc chưa xoá mềm"). Test "cancelled before
+     *    the job ran" canh vế này.
      *  - `is_published_to_portal` (fix round 1, Critical 1): công tắc tổng của portal — xem docblock
      *    lớp.
      *
-     * Fix round 2 (finding 1): điều kiện này từng được viết HAI lần — trong `handle()`, và (thiếu
-     * `open()`) trong `hasEligibleRecipient()` — nên toast hứa email cho một lần từ chối trên vụ đã
-     * đóng mà `handle()` không bao giờ gửi. Tách ra đây để hai nơi không thể lệch nhau nữa.
+     * **KHÔNG `->open()`** (rà soát cuối làn, I1). Một vụ ĐÃ ĐÓNG mà văn phòng còn để trên cổng vẫn
+     * hiện cho khách, khách vẫn nộp được giấy tờ ở đó (`DocumentPolicy::create` →
+     * `MatterPolicy::releasedToPortal` không hỏi `closed_at`), và câu cảm ơn sau khi nộp
+     * (`portal_submit.done.body`) hứa VÔ ĐIỀU KIỆN một email nếu có gì chưa ổn. Bản trước đòi
+     * `open()` nên lần từ chối trên vụ đó không gửi gì — đúng lời hứa không giữ được. Cùng quyết định
+     * với `NotifyClientOfRequestAnswered` và hai thư nội bộ của b0f98aa
+     * (`NotifyStaffOfNewClientDocument`, `NotifyStaffOfNewClientRequest`): một phản hồi của văn phòng
+     * cho thứ khách gửi qua cổng đi theo ranh giới cổng, không theo việc vụ đã khép lại.
+     *
+     * Fix round 2 (finding 1): điều kiện này từng được viết HAI lần — trong `handle()`, và trong
+     * `hasEligibleRecipient()` — nên toast và `handle()` lệch nhau. Tách ra đây để hai nơi không thể
+     * lệch nhau nữa.
      */
     private function notifiableMatter(int $matterId): ?Matter
     {
         return Matter::query()
             ->withoutGlobalScope(ClientPortalScope::class)
             ->whereKey($matterId)
-            ->open()
             ->where('is_published_to_portal', true)
             ->first(['id', 'client_id']);
     }
@@ -134,11 +145,9 @@ class NotifyClientOfChecklistItemRejected
      * `NotifyClientOfStageUpdate::hasEligibleRecipient()` làm cho form chuyển giai đoạn.
      *
      * Fix round 2 (finding 1): dùng LẠI đúng hai bước chọn người nhận của `handle()` —
-     * {@see self::notifiableMatter()} (vụ còn mở, còn bật công bố portal) rồi
-     * {@see ResolveClientRecipients::hasEligibleRecipient()} (R12) — không chép điều kiện nào. Bản
-     * fix round 1 chép tay `is_published_to_portal` và bỏ sót `open()`, nên từ chối trên vụ đã
-     * đóng (vẫn duyệt được: `MatterChecklistItemPolicy::review` không hỏi `closed_at`) hứa một
-     * email không bao giờ đi. Hai bước của `handle()` KHÔNG có ở đây —
+     * {@see self::notifiableMatter()} (vụ chưa huỷ, còn bật công bố portal) rồi
+     * {@see ResolveClientRecipients::hasEligibleRecipient()} (R12) — không chép điều kiện nào, để
+     * câu trên màn hình và việc gửi thật không thể lệch nhau. Hai bước của `handle()` KHÔNG có ở đây —
      * {@see self::stillRejected()} (khách nộp lại trong cửa sổ hàng đợi) và
      * {@see self::alreadyDelivered()} (hàng đợi thử lại, không gửi hai lần) — canh việc gửi MUỘN và
      * gửi LẠI, không phải câu "lần từ chối này có ai nhận thư không" mà màn hình hỏi.
@@ -154,7 +163,7 @@ class NotifyClientOfChecklistItemRejected
     /**
      * Những tài khoản ĐỦ ĐIỀU KIỆN nhận thư về lần từ chối HIỆN TẠI của đầu mục này NGAY BÂY GIỜ —
      * mọi cổng kiểm tra lúc gửi của {@see self::handle()} gộp lại (đầu mục còn bị từ chối đúng
-     * lần `reviewed_at` mà `$checklistItem` mang, vụ việc còn mở + còn công bố portal, tài khoản
+     * lần `reviewed_at` mà `$checklistItem` mang, vụ việc chưa huỷ + còn công bố portal, tài khoản
      * R12). Rỗng là "không gửi cho ai". Khác {@see self::hasEligibleRecipient()} ở đúng cổng
      * {@see self::stillRejected()}, thứ màn hình duyệt không hỏi (nó hỏi TRƯỚC khi từ chối).
      *
@@ -171,7 +180,7 @@ class NotifyClientOfChecklistItemRejected
     }
 
     /**
-     * Phần sau cổng "còn bị từ chối đúng lần này": vụ việc còn mở + còn công bố portal
+     * Phần sau cổng "còn bị từ chối đúng lần này": vụ việc chưa huỷ + còn công bố portal
      * ({@see self::notifiableMatter()}), rồi tài khoản R12.
      *
      * @return Collection<int, ClientUser>
@@ -190,9 +199,9 @@ class NotifyClientOfChecklistItemRejected
     /**
      * Fix round 2 (finding 2): "lý do từ chối có HIỆN cho khách trên cổng khách hàng không" — câu
      * hỏi thứ HAI của câu báo sau khi từ chối, khi {@see self::hasEligibleRecipient()} đã nói không
-     * có thư. Hai câu trả lời khác nhau đòi hai câu chữ khác nhau: vụ đã đóng hay khách chưa kích
-     * hoạt tài khoản thì lý do VẪN chờ trên cổng; vụ tắt công bố portal hay khách hàng đã xoá thì
-     * cổng giấu cả vụ lẫn lý do, và luật sư phải tự gọi khách.
+     * có thư. Hai câu trả lời khác nhau đòi hai câu chữ khác nhau: khách chưa có tài khoản đã kích
+     * hoạt (hay tài khoản bị khoá) thì lý do VẪN chờ trên cổng; vụ tắt công bố portal hay khách hàng
+     * đã xoá thì cổng giấu cả vụ lẫn lý do, và luật sư phải tự gọi khách.
      *
      * Hỏi CHÍNH định nghĩa của cổng, không chép lại nó: chạy truy vấn đầu mục dưới
      * `ClientPortalScope::actingAs()` như thể một tài khoản của CHÍNH khách hàng sở hữu vụ đang mở

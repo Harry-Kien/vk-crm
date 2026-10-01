@@ -363,9 +363,10 @@ it('rejects an item through ReviewChecklistItem and stores the sentence the clie
 // =========================================================================================
 // Câu báo sau khi từ chối (toast) và câu nhắc dưới ô lý do (helper text) phải nói ĐÚNG khách sẽ
 // biết về lần từ chối này bằng đường nào: email VÀ cổng khách hàng, CHỈ cổng khách hàng, hay
-// KHÔNG đường nào. Fix round 1 (Important 2) tách "có email"/"không email"; fix round 2 thêm vụ
-// việc ĐÃ ĐÓNG vào nhánh "không email" (finding 1) và tách nhánh "không email" theo NGUYÊN NHÂN,
-// vì một vụ ẩn khỏi cổng thì lý do cũng ẩn theo (finding 2).
+// KHÔNG đường nào. Fix round 1 (Important 2) tách "có email"/"không email"; fix round 2 tách nhánh
+// "không email" theo NGUYÊN NHÂN, vì một vụ ẩn khỏi cổng thì lý do cũng ẩn theo (finding 2). Rà
+// soát cuối làn (I1): vụ ĐÃ ĐÓNG còn công bố trên cổng quay về nhánh "có email" — khách vẫn nộp
+// được ở đó và trang nộp đã hứa email (`portal_submit.done.body`).
 // =========================================================================================
 
 /**
@@ -376,9 +377,10 @@ it('rejects an item through ReviewChecklistItem and stores the sentence the clie
  *  - `email`: vụ đang mở, bật công bố portal, tài khoản đã kích hoạt → thư đi, lý do hiện trên cổng.
  *  - `not_activated`: tài khoản CHƯA kích hoạt (R12 không gửi thư cho nó) → không thư, nhưng lý do
  *    vẫn chờ sẵn trên cổng cho lần đăng nhập đầu.
- *  - `closed`: vụ ĐÃ ĐÓNG — vẫn duyệt được (`MatterChecklistItemPolicy::review` không hỏi
- *    `closed_at`, `PendingChecklistReviewsWidget` cố ý liệt kê) → `handle()` dừng ở `open()`,
- *    không thư; cổng KHÔNG lọc vụ đã đóng nên lý do vẫn hiện.
+ *  - `closed`: vụ ĐÃ ĐÓNG nhưng còn công bố trên cổng — vẫn duyệt được
+ *    (`MatterChecklistItemPolicy::review` không hỏi `closed_at`, `PendingChecklistReviewsWidget`
+ *    cố ý liệt kê), khách vẫn nộp được (`DocumentPolicy::create` không hỏi `closed_at`) và cổng
+ *    KHÔNG lọc vụ đã đóng → thư đi, lý do hiện trên cổng, y như `email` (rà soát cuối làn, I1).
  *  - `portal_off`: vụ tắt công bố portal → không thư, và cổng ẩn cả vụ lẫn lý do.
  *  - `client_deleted`: vụ đã đóng của một khách hàng đã xoá mềm (`ClientPolicy::delete` chỉ cho
  *    xoá khi không còn vụ đang mở, nên đây là đường THẬT tới trạng thái này) → cổng ẩn vụ
@@ -430,10 +432,10 @@ function mountedRejectionReasonHelperText(Testable $component): string
  * toast hứa email, và chính cổng khách hàng (`MatterChecklistItemPolicy::view` của tài khoản khách)
  * thấy đầu mục đúng khi toast nói lý do hiện trên cổng.
  *
- * Mutation probe (fix round 2): gỡ `->open()` khỏi `NotifyClientOfChecklistItemRejected::
- * notifiableMatter()` → dòng `closed` ĐỎ (thư đi cho vụ đã đóng, toast hứa email); thay
- * `isShownOnPortal()` bằng `is_published_to_portal` trần → dòng `client_deleted` ĐỎ (toast nói lý
- * do hiện trên cổng của một khách đã xoá).
+ * Mutation probe (rà soát cuối làn, I1): thêm lại `->open()` vào `NotifyClientOfChecklistItemRejected::
+ * notifiableMatter()` → dòng `closed` ĐỎ (không thư cho vụ đã đóng còn trên cổng, toast nói "không
+ * email"). Fix round 2: thay `isShownOnPortal()` bằng `is_published_to_portal` trần → dòng
+ * `client_deleted` ĐỎ (toast nói lý do hiện trên cổng của một khách đã xoá).
  */
 it('tells the reviewer after rejecting exactly how the client will learn of it', function (string $scenario, string $toastKey, bool $mailed, bool $onPortal) {
     Mail::fake();
@@ -461,7 +463,7 @@ it('tells the reviewer after rejecting exactly how the client will learn of it',
 })->with([
     'open, on the portal, activated account' => ['email', 'checklist.tab.actions.reject_success', true, true],
     'account not activated yet' => ['not_activated', 'checklist.tab.actions.reject_success_no_notice', false, true],
-    'matter already closed' => ['closed', 'checklist.tab.actions.reject_success_no_notice', false, true],
+    'closed matter still on the portal' => ['closed', 'checklist.tab.actions.reject_success', true, true],
     'portal switch off' => ['portal_off', 'checklist.tab.actions.reject_success_portal_hidden', false, false],
     'closed matter of a soft-deleted client' => ['client_deleted', 'checklist.tab.actions.reject_success_portal_hidden', false, false],
 ]);
@@ -482,7 +484,7 @@ it('tells the reviewer under the reason box how the client will learn of it', fu
 })->with([
     'open, on the portal, activated account' => ['email', 'checklist.tab.fields.rejection_reason_help'],
     'account not activated yet' => ['not_activated', 'checklist.tab.fields.rejection_reason_help_no_notice'],
-    'matter already closed' => ['closed', 'checklist.tab.fields.rejection_reason_help_no_notice'],
+    'closed matter still on the portal' => ['closed', 'checklist.tab.fields.rejection_reason_help'],
     'portal switch off' => ['portal_off', 'checklist.tab.fields.rejection_reason_help_portal_hidden'],
     'closed matter of a soft-deleted client' => ['client_deleted', 'checklist.tab.fields.rejection_reason_help_portal_hidden'],
 ]);
