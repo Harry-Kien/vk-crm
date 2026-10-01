@@ -82,17 +82,20 @@ use Illuminate\Support\Facades\RateLimiter;
  * tiêu một suất ở chiều địa chỉ. `refundCodeIp()` trả đúng MỘT suất đó — của chính request này,
  * chỉ sau khi mã đúng — chứ không xoá lần hỏng nào của người khác. Không hoàn thì 2FA bắt buộc
  * cộng một địa chỉ NAT dùng chung khoá cả văn phòng chỉ bằng những lần gõ ĐÚNG (M8 Task 3, fix
- * round 1). Bước mật khẩu không cần: nó chỉ đập khi sai. Chỉ trang đăng nhập NHÂN SỰ gọi hàm này;
- * cổng khách (`App\Filament\Portal\Pages\Auth\Login`) cố ý giữ hành vi M5 — lần mã đúng vẫn tiêu
- * một suất ở chiều địa chỉ, ghim bởi test `LoginTest` "clears only the account dimension of the
- * code lock when the code is finally right".
+ * round 1). Bước mật khẩu không cần: nó chỉ đập khi sai. CẢ HAI trang đăng nhập gọi hàm này, cùng
+ * một cờ "request này đã đập khoá địa chỉ của bước mã" (`$codeIpHit`): trang nhân sự từ M8 Task 3,
+ * cổng khách (`App\Filament\Portal\Pages\Auth\Login`) từ final review I1 — trước đó cổng khách giữ
+ * hành vi M5 (lần mã đúng vẫn tiêu một suất), nên năm khách gõ ĐÚNG OTP trên cùng wifi văn phòng
+ * khoá khách thứ sáu. Nhân chứng: `LoginTest` "lets six clients behind one shared address pass
+ * the code step…" và `StaffLoginThrottleTest` "§10.3 lets six colleagues…".
  *
  * **Ngoại lệ duy nhất, và nó không phải một lần đăng nhập:** `App\Actions\Portal\UnlockPortalLogin`
- * (Task 7, phát hiện `portal/portal-4`) cho phép NHÂN SỰ xoá cả chiều địa chỉ mạng, nhưng chỉ khi
- * đã tự tra lại nhật ký `login_failed` và xác nhận MỌI lần hỏng ghi nhận ở đúng địa chỉ đó, trong
- * đúng cửa sổ còn hiệu lực, đều thuộc về CHÍNH tài khoản đang mở khoá — tức khi biết chắc địa chỉ
- * đó không phải một NAT dùng chung. `clearKey()` bên dưới là chỗ duy nhất lớp này cho phép xoá một
- * khoá IP tuỳ ý, và chỉ Action đó gọi tới.
+ * (Task 7, phát hiện `portal/portal-4`) và `App\Actions\User\UnlockStaffLogin` (M8 Task 3) cho phép
+ * NHÂN SỰ xoá cả chiều địa chỉ mạng, nhưng chỉ khi đã tự tra lại nhật ký `login_failed` và xác nhận
+ * MỌI lần hỏng ghi nhận ở đúng địa chỉ đó, trong đúng cửa sổ còn hiệu lực, đều thuộc về CHÍNH tài
+ * khoản đang mở khoá — tức khi biết chắc địa chỉ đó không phải một NAT dùng chung. `clearKey()` bên
+ * dưới là chỗ duy nhất lớp này cho phép xoá một khoá IP tuỳ ý, và chỉ trait
+ * `App\Actions\Concerns\ClearsNatSafeIpLocks` của hai Action đó gọi tới.
  *
  * # Cái giá của chiều IP, ghi ra vì nó có thật
  *
