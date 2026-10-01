@@ -2499,3 +2499,108 @@ test mới của bốn điểm trên: 5+1+2). `pint --test` sạch 599 tệp. Ba
     **2613 passed, 7 skipped, 0 failed** (11489 assertions, 1094 s; mốc trước 2604 — chênh +9 khớp
     số test mới 2+3+3+1); `test:mariadb` năm tệp đụng tới → 191 passed; `pint --test` sạch 639 tệp.
     Chi tiết ở `.superpowers/sdd/m8b/final-fix-report.md`, mục "## Fix round 1".
+
+## Ghi chú M11
+
+Làn `m11-mcp-server` (worktree `D:\vkwt\lane-m11`), cắt từ `main` @ `47ee8e3`. Kế hoạch
+`docs/superpowers/plans/2026-09-24-m11-mcp.md`. Mọi lệnh `bin/dev` của kế hoạch chạy bằng công cụ
+riêng của làn (`/d/vkwt/m11-dev`, vendor riêng trong worktree) trên container PHP 8.3.33.
+
+### Tiền kiểm (Task 0, 2026-10-01)
+
+Task 0 không đổi mã. Đầu ra thô ở `.superpowers/sdd/m11/probe/task0-*.txt` (gitignored).
+
+**Cài được trên PHP 8.3, không cần dừng.**
+- `composer require --dry-run --no-interaction 'laravel/mcp:^1.0' 'laravel/passport:^13.8'` →
+  EXIT 0, "Lock file operations: 13 installs, 0 updates, 0 removals". `composer.json` và
+  `composer.lock` không đổi sau lệnh. Mười ba gói: `laravel/mcp v1.0.1`, `laravel/passport v13.8.0`,
+  `league/oauth2-server 9.4.1`, `lcobucci/jwt 5.6.0`, `league/event 3.0.3`, `phpseclib/phpseclib
+  4.0.1`, `defuse/php-encryption v2.4.0`, `paragonie/random_compat v9.99.100`, `firebase/php-jwt
+  v7.2.1`, `symfony/psr-http-message-bridge v7.4.8`, `php-http/discovery 1.20.0`,
+  `psr/http-server-handler 1.0.2`, `psr/http-server-middleware 1.0.2`.
+- **Đính chính phiên bản (D4).** Kế hoạch và tra cứu viết trên `laravel/mcp v1.0.0`; Composer giải
+  ra **v1.0.1**. Mọi khẳng định về khoảng hở dưới đây đọc lại trên mã nguồn v1.0.1 (cùng
+  `laravel/passport v13.8.0`, `league/oauth2-server 9.4.1`, `lcobucci/jwt 5.6.0`) lấy bằng
+  `composer archive`. Passport 13.8.0 đã có bản sửa phiên JSON của 13.7.3: yêu cầu gói ghi
+  `^13.8`, không ghi `^13.0`.
+- `symfony/process` giữ `v7.4.18` đã có trong lock (`laravel/mcp` đòi `^7.4.5|^8.0.5`). Đạt [PL:257].
+- Không gói nào đòi PHP 8.4. Ràng buộc PHP: `laravel/mcp`, `laravel/passport` `^8.2`;
+  `league/oauth2-server`, `lcobucci/jwt` `~8.2.0 || ~8.3.0 || ~8.4.0 || ~8.5.0`;
+  `symfony/psr-http-message-bridge` `>=8.2`; `phpseclib` `>=8.1`; các gói còn lại thấp hơn.
+- `composer check-platform-reqs` → EXIT 0, mọi dòng `success`. Lệnh này đọc vendor hiện tại, tức
+  lock của main, nên chưa thấy mười ba gói mới. Task 1 chạy lại ngay sau `composer require` thật.
+- `psr/http-factory-implementation: *` mà Passport đòi do `guzzlehttp/psr7 3.1.0` cung cấp. Gói
+  này đã có sẵn trong lock.
+- **Cảnh báo lỗ hổng (D6).** `composer audit` báo hai advisory trên `league/commonmark` ≤ 2.10.1:
+  `PKSA-m2dq-1fhr-29b1` (medium) và `PKSA-m4t9-vsgq-8khn` (high, công bố 2026-09-30). Gói này có sẵn
+  trong lock của main, không do hai gói mới kéo vào. Câu "không có cảnh báo lỗ hổng" của Task 0 vì
+  thế không đạt theo nghĩa đen. Làn không tự nâng `league/commonmark`, vì việc đó đổi lock ngoài
+  hai gói được phép. Đã báo controller.
+
+**Phán quyết extension (D5): thêm `sodium`.** Extension của các gói mới: `laravel/mcp` → `json`,
+`mbstring`; `laravel/passport` → `json`, `openssl`; `league/oauth2-server` → `openssl`, `json`;
+`defuse/php-encryption` → `openssl`; `lcobucci/jwt` → `openssl`, **`sodium`**. Chỉ `sodium` là mới
+so với `deployment.required_extensions` và với danh sách đính chính SPEC §2 ngày 2026-10-01. Gói
+vẫn cài được, vì container PHP 8.3.33 có `sodium`, nên theo phán quyết C4 của controller làn không
+dừng. Cách xử lý:
+- Task 1, trong cùng commit cài gói: thêm `sodium` vào `config/vkcrm.php` →
+  `deployment.required_extensions`, để preflight báo ĐỎ khi thiếu (có test).
+- Task 16/17: ghi đính chính SPEC §2 và `docs/CAI-DAT.md`.
+
+Shared hosting thiếu `sodium` thì `/oauth/token` hỏng, và chỉ hỏng trên máy chủ thật.
+
+**Bảy khoảng hở tra cứu nêu, đọc lại trên tag đã cài. Cả bảy còn nguyên, R7 giữ nguyên.**
+
+| Khoảng hở | Còn? | Chỗ trong mã |
+|---|---|---|
+| AS metadata thiếu `token_endpoint_auth_methods_supported` [PL:28] | Còn. Metadata gốc chỉ có `issuer`, `authorization_endpoint`, `token_endpoint`, `registration_endpoint`, `response_types_supported`, `code_challenge_methods_supported`, `scopes_supported`, `grant_types_supported`. Không có `authorization_response_iss_parameter_supported`, không có `client_id_metadata_document_supported` | `laravel/mcp` `src/Server/Registrar.php:158-170` |
+| Không có CIMD phía server [PL:27] | Còn. v1.0.1 chỉ có CIMD phía **client**, tức khi app là client MCP (`Client/OAuth/OAuthRouteRegistrar.php:76`, `Client/OAuth/AuthServerMetadata.php:43`). Passport tìm client theo id, và id là UUID (`Passport::$clientUuids = true`, `Passport.php:128`) | không có mã phía server |
+| Không có `aud` cho MCP [PL:29] | Còn. Claim `aud` chỉ chứa id client (`AccessTokenTrait.php:68`). Bộ kiểm token chỉ kiểm `LooseValidAt` và `SignedWith`, không kiểm `aud` (`BearerTokenValidator.php:84-90`). Cả hai gói không có RFC 8707 / `invalid_target` | `league/oauth2-server` |
+| `redirect_domains ['*']` [PL:30] | Còn: `'*'` là mặc định. Ngoài ra, phép kiểm DCR khi bỏ `*` cũng chỉ so **tiền tố** (`Str::startsWith`), không so chính xác, và cho mọi URL localhost nếu danh sách có localhost | `laravel/mcp` `config/mcp.php:18-22`; `OAuthRegisterController.php:42`, `:46`, `:50` |
+| Không kiểm Origin [DC:779] | Còn. Không có chỗ nào trong `src/Server` đọc `Origin`. `ValidateMcpHeaders` chỉ so ba header MCP với thân request | `src/Server/Middleware/ValidateMcpHeaders.php` |
+| Không xuất `annotations.title` [DC:777] | Còn. `Tool::toArray()` xuất `title` ở cấp tool. `annotations` chỉ gồm bốn khoá của bốn lớp `IsReadOnly`, `IsDestructive`, `IsIdempotent`, `IsOpenWorld`. `toArray()` là public nên lớp tool cơ sở ghi đè được | `src/Server/Tool.php:72-78` |
+| `/oauth/register` không có throttle [PL:54] | Còn. Route không gắn middleware nào: `routes/ai.php` được nạp bằng `Route::group([], …)`, không qua nhóm `web` hay `api` | `Registrar.php:152`; `McpServiceProvider.php:96` |
+
+**Phát hiện thêm khi đọc mã: các task sau phải tính.**
+1. **`localhost` không phải loopback với league 9.4.1.** Chỉ `127.0.0.1` và `[::1]` được bỏ qua
+   cổng (`RedirectUriValidator.php:61-70`). `http://localhost:<cổng>/callback` phải khớp chính xác
+   cả cổng. Điều này trả lời câu "chưa kiểm được" ở mục "sẽ cắn". Task 3 test cả hai dạng và tự bỏ
+   cổng cho `localhost` nếu giữ nó trong allowlist.
+2. **Có điểm mở rộng cho `aud`.** Passport có `Passport::useAccessTokenEntity()` (`Passport.php:447`)
+   để dùng một entity access token riêng. `convertToJWT()` là `private` trong trait, nên entity riêng
+   phải ghi đè `toString()` và tự dựng JWT. Bộ kiểm token đặt `oauth_client_id` bằng `aud[0]`
+   (`BearerTokenValidator.php:138`). Vì vậy id client phải giữ **vị trí đầu**, URL MCP đứng sau.
+   Middleware tự kiểm `aud`, vì bộ kiểm của league không kiểm. Điều này trả lời câu "chưa kiểm
+   được" của R7. Task 2 chọn đường "ưu tiên".
+3. **Không có `iss` trong phản hồi uỷ quyền (RFC 9207).** League và Passport đều không có. Nếu Task 2
+   không tự thêm được `iss` thì metadata không quảng bá `authorization_response_iss_parameter_supported`.
+4. **Grant ngoài R1 đang bật mặc định.** `ClientCredentialsGrant` luôn được đăng ký
+   (`PassportServiceProvider.php:161-163`). Device code grant bật mặc định
+   (`Passport::$deviceCodeGrantEnabled = true`, `Passport.php:36`) kèm các route `/oauth/device*`
+   (`routes/web.php:18-30`, `:50-65`). DCR tạo client công khai, chỉ `authorization_code` +
+   `refresh_token`, `enableDeviceFlow: false`. Việc cho Task 1 và Task 2:
+   - tắt device grant;
+   - không tạo client nào có grant `client_credentials`;
+   - `EnsureMcpAccess` đòi token có người dùng và client mang cờ `mcp`.
+5. **Hạn token mặc định là 1 năm** cho cả access lẫn refresh (`Passport.php:296`, `:310`). Đúng như
+   R7 nói, phải siết.
+6. **`/oauth/token` có `throttle` chung của Laravel** (`routes/web.php:9`: 60/phút theo người dùng
+   hoặc IP). `/oauth/register` không có gì. Throttle riêng của R7 vẫn cần cho cả hai.
+7. **`TokenGuard` còn nhận cookie `laravel_token`** (`src/Guards/TokenGuard.php:72`, `:114`).
+   Cookie đó được mã hoá bằng `APP_KEY`, kèm kiểm CSRF, và chỉ middleware `CreateFreshApiToken`
+   phát ra; app không dùng middleware này. Token không bao giờ đọc từ query string: bộ kiểm chỉ đọc
+   header `Authorization` (`BearerTokenValidator.php:97-103`). Task 1 thêm một test cho thấy cookie
+   đơn lẻ không xác thực được `/mcp`.
+8. **PRM và metadata gốc.**
+   - PRM ở gốc trả `resource = url('/')`, tức origin, không phải URL MCP (`Registrar.php:131`,
+     `:175-182`).
+   - Registrar chỉ nhường hai route **chính xác** `/.well-known/oauth-protected-resource` và
+     `/.well-known/oauth-authorization-server` nếu app đã khai (`:127-138`).
+   - Hai route lồng `/{path}` **luôn** được đăng ký (`:140-150`). Nếu route của app không đăng ký
+     trước, thư viện trả lời `/.well-known/oauth-authorization-server/mcp` bằng metadata thiếu của
+     nó.
+   - Việc cho Task 2: tự khai cả bốn route, đăng ký **trước** `Mcp::oauthRoutes()`, có test.
+9. **`/oauth/authorize` khi chưa đăng nhập ném `AuthenticationException`**
+   (`AuthorizationController.php:168`). App không có route `login` và không có `redirectGuestsTo`
+   trong `bootstrap/app.php`. Đúng như [PL:79] nói. Task 4 xử lý.
+10. **Không có endpoint thu hồi token (RFC 7009).** R7 không đòi, ghi để biết.
