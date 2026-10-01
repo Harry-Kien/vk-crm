@@ -173,3 +173,18 @@ it('không biến BRAND_* có mặc định nào bị khai trống (chuỗi rỗ
 
     expect($blank[1])->each->toBeIn(['BRAND_TAX_CODE', 'BRAND_BAR_ASSOCIATION', 'BRAND_LICENCE_NUMBER', 'BRAND_OFFICE_ADDRESS']);
 });
+
+/**
+ * Final review I3 (lúc gộp với `main`): mỗi biến chỉ có MỘT dòng mẫu, tính cả dòng chú thích
+ * `# KEY=…`. `main` (M6 Task 10) đã có một khối "Nhận diện thương hiệu" khai `BRAND_*` theo kiểu
+ * ngược lại (mặc định bỏ chú thích, bốn thông tin pháp lý chú thích) ở đúng chỗ cuối tệp mà làn này
+ * thêm khối của mình. Giữ cả hai khi gộp thì mỗi `BRAND_*` có hai dòng: phpdotenv lấy dòng ĐẦU, nên
+ * người vận hành sửa dòng thứ hai và không có gì đổi. Test này đỏ ngay khi điều đó xảy ra.
+ */
+it('mỗi biến chỉ có đúng một dòng mẫu trong .env.example, kể cả dòng chú thích (gộp hai khối BRAND_* là đỏ)', function () {
+    preg_match_all('/^#?[ \t]*([A-Z][A-Z0-9_]*)=/m', (string) file_get_contents(base_path('.env.example')), $matches);
+
+    $duplicates = array_keys(array_filter(array_count_values($matches[1]), fn (int $count): bool => $count > 1));
+
+    expect($duplicates)->toBe([], 'Biến có hơn một dòng mẫu: '.implode(', ', $duplicates));
+});
