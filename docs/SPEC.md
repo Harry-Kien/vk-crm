@@ -65,6 +65,18 @@ buộc thiết kế cứng, không phải mong muốn. Cụ thể:
   `mbstring`, `openssl`, `pdo`, `tokenizer`, `xml`, `gd`, `zip`).
 - Không dùng symlink `storage:link` cho tệp hồ sơ. Tệp phục vụ qua controller.
 
+**Đính chính 2026-10-01 (M8 Task 7).** Danh sách extension ở trên thiếu, và thiếu đúng những cái
+hay vắng trên shared hosting. Danh sách đầy đủ (`composer check-platform-reqs --no-dev` cộng driver
+cơ sở dữ liệu), cũng là danh sách `vkcrm:preflight` kiểm ĐỎ (`config/vkcrm.php`, khoá
+`deployment.required_extensions`): `ctype`, `dom`, `exif`, `fileinfo`, `filter`, `hash`, `iconv`,
+`intl`, `json`, `libxml`, `mbstring`, `openssl`, `pcre`, `session`, `tokenizer`, `xmlreader`,
+`zip`, `zlib`, `pdo_mysql`. `intl` do Filament bắt buộc; `dom` do gói làm sạch HTML, gói ghép CSS
+vào thư và gói đọc/ghi xlsx cần. `gd` không còn là bắt buộc (dự án chưa đăng ký chuyển đổi ảnh nào
+— preflight báo VÀNG khi thiếu); `bcmath` không gói nào bắt buộc. Ngoài extension, máy chủ còn cần:
+`zip` dựng với libzip có AES (`ZipArchive::EM_AES_256` — sao lưu mã hoá), hàm `proc_open` không bị
+tắt, lệnh `mariadb-dump` (gói `mariadb-client`) và `rclone` cho sao lưu (§10 mục 8). Hướng dẫn cài:
+`docs/CAI-DAT.md`, phần "Cài lên máy chủ thật".
+
 ### Giám sát cron
 
 Trên shared hosting cron rất hay lặng lẽ ngừng chạy sau khi gia hạn gói hoặc đổi

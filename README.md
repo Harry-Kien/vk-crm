@@ -38,6 +38,14 @@ Trên Windows dùng Git Bash (lệnh `bin/dev` là script bash).
 | Khách hàng | http://localhost/portal | `khach1@example.com` … `khach12@example.com` (thêm `khach2b@`, `khach5b@`, `khach8b@`, `khach11b@`) | — | `password` |
 | Mailpit | http://localhost:8025 | — | — | — |
 
+**Panel `/admin` bắt buộc xác thực hai lớp (2FA), không tắt được.** Mọi tài khoản nhân sự demo
+dùng CHUNG một secret TOTP cố định, `JBSWY3DPEHPK3PXP`: thêm nó MỘT LẦN vào một app xác thực
+(Google Authenticator, Authy, 1Password… — kiểu "nhập mã thủ công") là đăng nhập được mọi tài khoản
+nhân sự ở trên, qua mọi lần `migrate:fresh --seed`. Cổng khách `/portal` gửi mã sáu số qua email
+sau bước mật khẩu — đọc ở Mailpit. Tài khoản demo và secret này **chỉ có trên máy dev**
+(`APP_ENV=local`): seed của máy chủ thật không tạo tài khoản nào. Chi tiết: `docs/CAI-DAT.md`,
+"Tài khoản dùng thử".
+
 Dữ liệu mẫu có 20 vụ việc với các tình huống cố ý: vụ 1–3 quá hạn cập nhật, vụ 4–5 có hạn trong 3 ngày,
 vụ 6–9 thiếu giấy tờ, vụ 10–14 có tài liệu chờ duyệt, vụ 20 xung đột lợi ích với khách hàng số 2.
 Từ M4, seeder tạo TỆP THẬT trên đĩa `private` (qua đúng hai Action nộp tệp, không ghi thẳng), nên
@@ -100,9 +108,43 @@ app/
 ├── Providers/Filament/     AdminPanelProvider, PortalPanelProvider
 ├── Support/Files/          FileGuard và seam VirusScanner (từ M4)
 └── Support/Scopes/         Global scope giới hạn dữ liệu theo khách (từ M2)
+app/Console/Commands/       vkcrm:preflight, vkcrm:create-admin, vkcrm:reset-2fa, vkcrm:backup-check
 config/vkcrm.php            Cấu hình riêng của hệ thống (tên miền, tiền tố mã hồ sơ, ...)
+tools/deploy/               Mẫu nginx/Apache đã chạy thử + kịch bản kiểm máy chủ web chặn storage/
 lang/vi/                    Toàn bộ chuỗi giao diện tiếng Việt
 docs/                       Đặc tả, kiến trúc, kế hoạch, tiến độ
 ```
 
-Hướng dẫn triển khai production (VPS và shared hosting) sẽ được bổ sung ở M8.
+## Triển khai lên máy chủ thật
+
+Hướng dẫn đầy đủ, từng bước, cho VPS và shared hosting: **`docs/CAI-DAT.md`, phần "Cài lên máy
+chủ thật (production)"**. Sao lưu và khôi phục: **`docs/SAO-LUU-KHOI-PHUC.md`** (dành cho chủ văn
+phòng, kèm bảng số đo thật của một lần khôi phục thử — khoảng 2 phút 14 giây trên dữ liệu mẫu).
+Tóm tắt những điều không được bỏ qua:
+
+- **PHP 8.3 với đủ extension**: `ctype` `dom` `exif` `fileinfo` `filter` `hash` `iconv` `intl`
+  `json` `libxml` `mbstring` `openssl` `pcre` `session` `tokenizer` `xmlreader` `zip` `zlib`
+  `pdo_mysql` (nên có thêm `gd`, `curl`). MariaDB 11, gói `mariadb-client` (`mariadb-dump`), và
+  `rclone` cho sao lưu Google Drive. Không cần Redis, Supervisor hay Node.js.
+- **Thứ tự cài:** `cp .env.example .env` → `composer install --no-dev --optimize-autoloader` →
+  `php artisan key:generate` (chỉ lần cài đầu, trên cơ sở dữ liệu rỗng) và điền `.env`
+  (`APP_ENV=production`, `APP_DEBUG=false`, `TRUSTED_PROXIES`, `BRAND_*`…) → cấu hình máy chủ web
+  từ mẫu đã chạy thử
+  `tools/deploy/nginx.conf.example` hoặc `tools/deploy/apache-vhost.conf.example` (HTTPS, HSTS,
+  header cho tệp tĩnh, chặn `storage/`) → `php artisan migrate --force` →
+  `php artisan db:seed --force` (chỉ dữ liệu tham chiếu) → **`php artisan vkcrm:create-admin`**
+  (quản trị viên đầu tiên, hỏi tương tác, mật khẩu nhập ẩn; 2FA bắt buộc ở lần đăng nhập đầu) →
+  **`php artisan vkcrm:preflight`** → `php artisan optimize`.
+- **`php artisan vkcrm:preflight` phải xanh TRƯỚC khi mở cổng và sau MỖI lần nâng cấp**, và chạy
+  TRƯỚC `php artisan optimize` (một vài điều kiện đọc `.env` trực tiếp). Nó kiểm
+  `TRUSTED_PROXIES`, `HEARTBEAT_URL`, cookie phiên chỉ qua https, `APP_DEBUG`, extension PHP,
+  `storage/app/private` có lộ ra web không, và điều kiện máy chủ cho sao lưu.
+- **Đúng một dòng cron**, cộng giám sát cron qua `HEARTBEAT_URL`:
+  `* * * * * cd /var/www/vk-crm && php artisan schedule:run >> /dev/null 2>&1`
+- **`APP_KEY` là một nửa của bản sao lưu**: nó mã hoá số định danh khách hàng và secret 2FA của
+  nhân sự, và là khoá của cột so trùng CCCD. Cất nó (cùng `BACKUP_ARCHIVE_PASSWORD`) ở hai nơi
+  ngoài máy chủ, không cùng chỗ bản sao lưu; không bao giờ `key:generate` trên dữ liệu thật.
+- **Nâng cấp:** `php artisan down` → `git pull` → `composer install --no-dev --optimize-autoloader`
+  → `php artisan migrate --force` → `php artisan db:seed --force` → `php artisan optimize:clear` →
+  `php artisan vkcrm:preflight` → `php artisan optimize` → `php artisan up`, rồi theo dõi thư báo
+  lỗi của lượt sao lưu đêm đầu. Chi tiết: `docs/CAI-DAT.md`, "Nâng cấp lên bản mới".
