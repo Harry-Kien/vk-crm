@@ -930,6 +930,28 @@ Job `FlagRetentionExpiry` cảnh báo quản trị khi có hồ sơ quá `retent
 nhưng **không bao giờ tự xoá**. Việc tiêu huỷ hồ sơ pháp lý phải do người quyết
 định và ghi biên bản.
 
+**Đính chính 2026-09-28 (M7 Task 6, R5).** Đoạn trên đọc như sau:
+- *Hồ sơ nào bị cảnh báo.* Có dòng `matter_archives` chưa xoá mềm, `retention_until` < hôm nay theo
+  giờ ứng dụng (hồ sơ còn trong hạn HẾT ngày `retention_until`), `destroyed_at` rỗng, và vụ việc
+  chưa xoá mềm, đang đóng (`closed_at` có giá trị). Vụ đã được mở lại không bị cảnh báo, dù bản ghi
+  lưu trữ còn giữ `retention_until` của lần đóng trước.
+- *Cảnh báo là gì, tới ai.* Một thông báo trong hệ thống (chuông của panel admin), không thư, tới
+  mọi admin đang hoạt động — chọn qua `ResolveStaffRecipients::activeAdminsFor()`. Mỗi người nhận
+  nhận MỘT lần cho mỗi hạn lưu trữ của một hồ sơ, không lặp mỗi ngày. Admin được thêm sau vẫn nhận
+  một lần. Hồ sơ được đóng lại với hạn mới rồi quá hạn lần nữa thì được cảnh báo lần nữa.
+- *Giờ chạy.* 01:00 hằng ngày (mục lịch `retention.flag`).
+- *Ghi quyết định tiêu huỷ.* Action `RecordMatterDestruction`, nút "Ghi quyết định tiêu huỷ" trên
+  trang vụ việc. Chỉ admin. Chỉ khi vụ đang đóng, đã quá `retention_until` và chưa có quyết định.
+  Bắt buộc số biên bản (tối đa 50 ký tự, bằng độ dài cột) và lý do (20–5000 ký tự). Action ghi
+  `destroyed_at`, `destroyed_by`, `destruction_reason`, `destruction_record_no` cộng một dòng nhật
+  ký `matter_destruction_recorded`. Một quyết định chỉ ghi một lần và không sửa được.
+- *Ghi quyết định không xoá gì.* Vụ việc, tài liệu, tệp trên đĩa và bản ghi lưu trữ còn nguyên.
+  Việc huỷ hồ sơ giấy và tệp là thao tác có biên bản, làm ngoài hệ thống. Sau khi ghi, job không
+  cảnh báo hồ sơ đó nữa. Một test cấu trúc cấm mọi lời gọi `forceDelete()` (cùng `forceDeleteQuietly()`,
+  `forceDestroy()`) trong `app/`, `routes/` và `database/seeders/`.
+- *`destroyed_by` (§4.19)* là admin đã GHI quyết định vào hệ thống, tức người chịu trách nhiệm về
+  bản ghi đó. Người phê duyệt có tên trên biên bản được nêu trong lý do.
+
 ### 6.13 Tìm kiếm
 
 Một ô tìm kiếm trên admin panel, tìm đồng thời trong: mã hồ sơ, tiêu đề vụ việc,

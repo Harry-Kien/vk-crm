@@ -102,6 +102,8 @@ return [
         // gói sinh xong và mỗi lần gói được tải.
         'handover_package_requested' => 'Yêu cầu sinh gói bàn giao hồ sơ',
         'handover_package_failed' => 'Sinh gói bàn giao hồ sơ thất bại hẳn',
+        // M7 Task 6: app/Actions/Matter/RecordMatterDestruction.php — chỉ GHI quyết định, không xoá gì.
+        'matter_destruction_recorded' => 'Ghi quyết định tiêu huỷ hồ sơ',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

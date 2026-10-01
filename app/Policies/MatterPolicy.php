@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Actions\Matter\RecordMatterDestruction;
 use App\Actions\Matter\UpdateMatterDetails;
 use App\Enums\Permission;
 use App\Enums\Role;
@@ -320,6 +321,18 @@ class MatterPolicy
     public function restore(User|ClientUser $user, Matter $matter): bool
     {
         return $this->delete($user, $matter);
+    }
+
+    /**
+     * M7 Task 6 (R5): GHI quyết định tiêu huỷ hồ sơ ({@see RecordMatterDestruction})
+     * — chỉ quản trị, cùng luật {@see self::delete()}. Không có quyền thứ 14 trong
+     * `App\Enums\Permission` (SPEC §5 có đúng 13): vai trò admin là đủ, như xoá mềm vụ việc.
+     * Không hỏi thêm `view()`: admin xem được mọi vụ, kể cả `restricted`, nên vế đó không bao giờ
+     * đổi kết quả. Ghi quyết định không xoá gì — đây KHÔNG phải {@see self::forceDelete()}.
+     */
+    public function recordDestruction(User|ClientUser $user, Matter $matter): bool
+    {
+        return $user instanceof User && $user->hasRole(Role::Admin->value);
     }
 
     /** Không ai xoá vĩnh viễn được: model cũng chặn (MatterNotDestroyable). */

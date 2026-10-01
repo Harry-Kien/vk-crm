@@ -198,7 +198,7 @@ Kết quả là một `Document` nhóm B ở `signed_filed` (R1). Xong thì báo
   - một URL tải có chữ ký phát ra trước ngày hết hạn trả 404 sau ngày hết hạn;
   - việc vô hiệu hoá có dòng trong activity log.
 
-### - [ ] Task 6 — `FlagRetentionExpiry` và ghi quyết định tiêu huỷ (R5)
+### - [x] Task 6 — `FlagRetentionExpiry` và ghi quyết định tiêu huỷ (R5)
 
 - **`FlagRetentionExpiry`:** cảnh báo quản trị khi có hồ sơ quá `retention_until` mà `destroyed_at` còn null. Không xoá.
 - **Action `RecordMatterDestruction`**, chỉ admin: ghi `destroyed_at`, người quyết định, lý do và số biên bản, cùng một dòng audit. Action này **không xoá gì**. Việc huỷ vật lý hồ sơ giấy và tệp là thao tác có biên bản ngoài hệ thống. Sau khi đã ghi quyết định, `FlagRetentionExpiry` bỏ qua vụ đó, để cảnh báo không lặp mãi.

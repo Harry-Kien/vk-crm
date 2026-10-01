@@ -1859,3 +1859,75 @@ hoá tài khoản cổng theo đúng điều kiện R4. Đính chính SPEC §6.1
   bộ hình sự/doanh nghiệp: không có `on_hold`, không có `enforcement → closed`. Đó là chỗ
   `TransitionStageActionTest` "thiếu `on_hold`" (Ghi chú M6.5) và `StaleMattersWidgetTest`
   (`closed_at` null) đỏ lẻ tẻ khi chạy cả bộ. Sửa: loại hai mã preset khỏi lần bốc ngẫu nhiên.
+
+### Task 6 — `FlagRetentionExpiry` và ghi quyết định tiêu huỷ (R5, SPEC §6.12)
+
+Hệ thống không bao giờ tự xoá hồ sơ. Một tác vụ hằng ngày CẢNH BÁO quản trị khi hồ sơ quá hạn lưu
+trữ; một Action GHI LẠI quyết định tiêu huỷ đã lập biên bản ngoài hệ thống. Đính chính SPEC §6.12
+ghi ngay dưới đoạn `FlagRetentionExpiry`.
+
+- **Định nghĩa quá hạn lưu trữ (một luật, hai cách nói).** Cùng biên với hạn tra cứu của Task 5:
+  hồ sơ còn trong hạn HẾT ngày `retention_until`, quá hạn từ 00:00 hôm sau.
+  `MatterArchive::scopeRetentionExpired()` (`whereDate`) và `MatterArchive::isRetentionExpired()`
+  (so chuỗi `Y-m-d`; chưa có ngày thì không bao giờ quá hạn).
+- **Tác vụ `App\Actions\Schedule\FlagRetentionExpiry`.** Mục lịch `retention.flag`, 01:00 giờ Việt
+  Nam hằng ngày (không dồn vào lượt 00:30 của `client-access.expire`), `withoutOverlapping(60)`,
+  thêm ở cuối `routes/console.php` cùng một dòng `use` mới. Không transaction, không khoá: nó không
+  sửa dòng nào, chỉ ghi thông báo.
+  - Hồ sơ nào: archive chưa xoá mềm, quá hạn, `destroyed_at` rỗng, vụ chưa xoá mềm và đang đóng.
+    Vụ đã mở lại giữ `retention_until` của lần đóng trước trên archive (`SyncMatterArchive` chỉ xoá
+    `client_access_until`), nhưng không bị cảnh báo. Vụ đã xoá mềm cũng không: trang vụ việc không
+    mở được nó, và Action từ chối nó.
+  - Ai nhận: mọi admin đang hoạt động — hàm mới `ResolveStaffRecipients::activeAdminsFor()`, lọc
+    qua đúng `qualify()` (`is_active`, chưa xoá mềm, `Gate::view()`), không chuỗi dự phòng. Vụ
+    `restricted` vì vậy chỉ tới admin. Không phải `supervisorsFor()`: quyết định tiêu huỷ là việc
+    của quản trị, không của trưởng phòng.
+  - Cảnh báo: `App\Notifications\Staff\RetentionExpiryAlert`, kênh `database` (chuông của panel
+    admin), cùng hình dạng `DeadlineOverdueAlert`, nút "Mở vụ việc". Thân thông báo có mã hồ sơ và
+    ngày hết hạn, không tiêu đề vụ. Không thư nào.
+  - Không lặp (mẫu B-M1): khoá chống lặp là (loại thông báo, `viewData.matter_id`,
+    `viewData.retention_until`). Admin thêm sau nhận một lần; hồ sơ đóng lại với hạn mới rồi quá hạn
+    lần nữa thì là một lần mới.
+  - Lỗi ở một người nhận hay cả một hồ sơ: `report()`, các hồ sơ sau vẫn chạy
+    (`['flagged', 'notified', 'failed']`). Mọi truy vấn gỡ `ClientPortalScope` tường minh (test chạy
+    tác vụ dưới một phiên cổng đang mở trong cùng tiến trình).
+- **Action `App\Actions\Matter\RecordMatterDestruction`** (nút "Ghi quyết định tiêu huỷ" ở header
+  trang vụ việc, cộng khối "Lưu trữ hồ sơ" trên tab Tổng quan).
+  - Chỉ admin: ability mới `MatterPolicy::recordDestruction` (vai trò admin, cùng luật `delete()`;
+    không thêm quyền thứ 14 vào `App\Enums\Permission`). Action hỏi `Gate` TƯỜNG MINH trên người
+    thực hiện ĐỌC LẠI từ CSDL (admin vừa bị gỡ vai, vô hiệu hoá hay xoá trong lúc hộp thoại mở bị
+    từ chối). Vụ không tồn tại cũng là `AuthorizationException`.
+  - Một transaction; câu đầu tiên khoá dòng `matters` (kể cả đã xoá mềm), rồi khoá `matter_archives`
+    — có test thứ tự khoá chạy trên MariaDB.
+  - Từ chối (câu tiếng Việt, `MatterDestructionNotAllowed`): vụ đã xoá mềm, không có archive (hoặc
+    archive đã xoá mềm), vụ đang mở, chưa quá hạn (kể cả đúng ngày cuối), đã ghi rồi.
+  - Lý do bắt buộc 20–5000 ký tự (`mb_strlen` sau `trim`), số biên bản bắt buộc, tối đa 50 ký tự
+    (= `varchar(50)`); form có cùng `minLength`/`maxLength`.
+  - Ghi bốn cột + audit `matter_destruction_recorded` (thuộc tính: id vụ, id archive, số biên bản,
+    ngày hết hạn — không lý do, không mã/tiêu đề vụ; nhãn ở `lang/vi/activity.php`). **Không xoá
+    gì**: không `delete()`, không `forceDelete()`, không xoá media.
+  - `destroyed_by` là admin đã GHI quyết định; người phê duyệt trên biên bản nêu trong lý do (ghi ở
+    đính chính SPEC). Quan hệ `MatterArchive::destroyer()` có `withTrashed()`: tài khoản người ghi bị
+    xoá mềm sau này (nghỉ việc) không làm tên họ biến khỏi khối "Lưu trữ hồ sơ".
+- **Test cấu trúc `RecordsAreNeverForceDeletedTest`.** Tách token bằng `token_get_all()` và chỉ bắt
+  LỜI GỌI (`->`/`?->`/`::` + `forceDelete`/`forceDeleteQuietly`/`forceDestroy` + `(`) trong `app/`,
+  `routes/`, `database/seeders/`. Phương thức policy `forceDelete()`, `ForceDeleteBulkAction`, chuỗi
+  và chú thích không khớp. Kiểu của vế trái không đọc được bằng phân tích tĩnh, nên MỌI lời gọi đều
+  bị coi là xoá hồ sơ; ngoại lệ hợp lệ một ngày nào đó phải vào `$allowed` kèm lý do. Xanh trên mã
+  nền, đỏ khi cài một lời gọi thử ở cả ba thư mục.
+- **M9 (hook `deleting` từ chối xoá mềm vụ còn công nợ).** Task này không xoá, không lưu trữ vụ việc
+  nào, nên không đường nào ở đây chạm hook đó.
+- **Cần chủ văn phòng biết.** Hạn lưu trữ lấy từ cấu hình (`retention_until` ghi khi đóng vụ, Task 3).
+  Cảnh báo chỉ là lời nhắc; nếu văn phòng quyết định GIỮ hồ sơ lâu hơn, hôm nay không có nút "gia
+  hạn lưu trữ" — cảnh báo đã đọc thì nằm trong chuông, không lặp lại. Nếu cần gia hạn, đó là một
+  tính năng mới (M10, cùng chính sách lưu trữ).
+- **Mutation probe (64).** 61 đỏ. Ba xanh là mutant tương đương, không phải lỗ hổng test:
+  - bỏ `archive !== null` ở khối "Lưu trữ hồ sơ": vế `Gate::allows('view', null)` còn lại cũng từ
+    chối (không có policy cho `null`), nên khối vẫn ẩn;
+  - bỏ `Gate::allows('view', $record->archive)`: `MatterArchivePolicy::view` là "xem được vụ cha",
+    đúng điều kiện để mở trang vụ việc, nên không ai tới được khối mà lại không qua vế này;
+  - bỏ `instanceof MatterArchive` ở dòng nhắc quá hạn: chỉ là chốt `null`, dòng đó nằm trong khối
+    vốn chỉ hiện khi có bản ghi lưu trữ.
+- **Vụ đã xoá mềm mà có bản ghi lưu trữ** không bị cảnh báo. Hôm nay không đường nào tạo ra trường
+  hợp đó: admin không có nút xoá vụ việc, và `CancelMatter` chỉ huỷ vụ mở nhầm, vốn không bao giờ có
+  bản ghi lưu trữ.

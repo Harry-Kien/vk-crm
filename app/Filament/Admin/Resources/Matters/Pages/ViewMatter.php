@@ -3,6 +3,7 @@
 namespace App\Filament\Admin\Resources\Matters\Pages;
 
 use App\Actions\Matter\ReassignMatter;
+use App\Actions\Matter\RecordMatterDestruction;
 use App\Actions\Matter\RequestHandoverPackage;
 use App\Actions\SetMatterPortalPublication;
 use App\Enums\Confidentiality;
@@ -19,6 +20,7 @@ use Filament\Actions\EditAction;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
@@ -74,6 +76,7 @@ class ViewMatter extends ViewRecord
         return [
             $this->reassignAction(),
             $this->generateHandoverAction(),
+            $this->recordDestructionAction(),
             $this->outboundMessagesAction(),
             // Lối vào "Sửa vụ việc" (M6.5 Task 5, EditMatter). Cổng mặc định của EditAction là
             // ability `update` trên model — đúng MatterPolicy::update() đã có, không cần khai báo
@@ -158,6 +161,69 @@ class ViewMatter extends ViewRecord
 
                 Notification::make()
                     ->title(__('handover.action.queued'))
+                    ->success()
+                    ->send();
+            });
+    }
+
+    /**
+     * M7 Task 6 (R5): "Ghi quyết định tiêu huỷ" — GHI LẠI một quyết định đã lập biên bản ngoài hệ
+     * thống qua {@see RecordMatterDestruction}; không xoá gì. Chỉ hiện khi CẢ NĂM điều kiện: vụ
+     * đang đóng (`closed_at`), có bản ghi lưu trữ, bản ghi đó đã quá `retention_until`
+     * (`MatterArchive::isRetentionExpired()`, cùng định nghĩa với Action), chưa ghi quyết định
+     * (`destroyed_at` rỗng), và người xem qua `MatterPolicy::recordDestruction` (chỉ admin). Ẩn nút
+     * chỉ là lối vào: Action tự hỏi lại quyền trên người thực hiện ĐỌC LẠI từ CSDL và kiểm lại mọi
+     * điều kiện dưới khoá. Admin bị gỡ vai, hay người khác đã ghi, trong lúc hộp thoại còn mở: request
+     * bấm nút nạp lại người dùng và bản ghi lưu trữ, nên nút thường đã ẩn và Filament không chạy
+     * action. Nếu vẫn tới được Action (người dùng trong bộ nhớ còn giữ vai cũ — đúng trường hợp test
+     * Livewire dựng), Action từ chối và `runAction()` hiện câu tiếng Việt. Bản ghi lưu trữ đọc qua
+     * `handoverArchive()` (tên của Task 4 — nó trả quan hệ `archive` của vụ, không riêng gói).
+     *
+     * `maxLength` của số biên bản bằng độ dài cột (`varchar(50)`, MariaDB strict); lý do là cột
+     * `text`, trần chủ động {@see RecordMatterDestruction::REASON_MAX} như các lý do khác của dự án.
+     */
+    private function recordDestructionAction(): Action
+    {
+        return Action::make('recordDestruction')
+            ->label(__('archive.destruction.action.label'))
+            ->icon(Heroicon::OutlinedDocumentCheck)
+            ->color('danger')
+            ->modalHeading(__('archive.destruction.action.modal_heading'))
+            ->modalDescription(__('archive.destruction.action.modal_description'))
+            ->modalSubmitActionLabel(__('archive.destruction.action.submit'))
+            ->visible(fn (): bool => $this->getRecord()->closed_at !== null
+                && ($archive = $this->handoverArchive()) !== null
+                && $archive->destroyed_at === null
+                && $archive->isRetentionExpired()
+                && Gate::allows('recordDestruction', $this->getRecord()))
+            ->schema([
+                TextInput::make('destruction_record_no')
+                    ->label(__('archive.destruction.fields.destruction_record_no'))
+                    ->placeholder(__('archive.destruction.fields.destruction_record_no_hint'))
+                    ->required()
+                    ->maxLength(RecordMatterDestruction::RECORD_NO_MAX),
+                Textarea::make('destruction_reason')
+                    ->label(__('archive.destruction.fields.destruction_reason'))
+                    ->helperText(__('archive.destruction.fields.destruction_reason_hint'))
+                    ->rows(4)
+                    ->required()
+                    ->minLength(RecordMatterDestruction::REASON_MIN)
+                    ->maxLength(RecordMatterDestruction::REASON_MAX)
+                    ->columnSpanFull(),
+            ])
+            ->action(function (Action $action, array $data): void {
+                $this->runAction($action, fn () => app(RecordMatterDestruction::class)->handle(
+                    matterId: $this->getRecord()->getKey(),
+                    actor: Auth::user(),
+                    reason: (string) ($data['destruction_reason'] ?? ''),
+                    recordNo: (string) ($data['destruction_record_no'] ?? ''),
+                ));
+
+                // Đọc lại bản ghi lưu trữ để khối "Lưu trữ hồ sơ" hiện ngay quyết định vừa ghi.
+                $this->getRecord()->unsetRelation('archive');
+
+                Notification::make()
+                    ->title(__('archive.destruction.action.success'))
                     ->success()
                     ->send();
             });

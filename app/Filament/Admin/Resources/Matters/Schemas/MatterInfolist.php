@@ -124,6 +124,44 @@ class MatterInfolist
                                 && RequestHandoverPackage::isStuck($record->archive))
                             ->columnSpanFull(),
                     ]),
+                // M7 Task 6 (R5): hạn lưu trữ và quyết định tiêu huỷ (nếu đã ghi). Cùng điều kiện
+                // hiển thị với khối gói bàn giao ở trên (có bản ghi lưu trữ, người xem xem được nó).
+                // Nút "Ghi quyết định tiêu huỷ" nằm ở header của trang
+                // (`ViewMatter::recordDestructionAction()`), chỉ admin thấy.
+                Section::make(__('archive.section.heading'))
+                    ->description(__('archive.section.description'))
+                    ->columns(2)
+                    ->visible(fn (Matter $record): bool => $record->archive !== null
+                        && Gate::allows('view', $record->archive))
+                    ->schema([
+                        TextEntry::make('archive.retention_until')
+                            ->label(__('archive.section.fields.retention_until'))
+                            ->date('d/m/Y')
+                            ->placeholder('—'),
+                        TextEntry::make('archive.destroyed_at')
+                            ->label(__('archive.section.fields.destroyed_at'))
+                            ->dateTime('d/m/Y H:i')
+                            ->placeholder(__('archive.section.not_destroyed')),
+                        TextEntry::make('archive.retention_expired_hint')
+                            ->label('')
+                            ->state(fn (): string => __('archive.section.retention_expired_hint'))
+                            ->color('warning')
+                            ->visible(fn (Matter $record): bool => $record->archive instanceof MatterArchive
+                                && $record->archive->destroyed_at === null
+                                && $record->archive->isRetentionExpired())
+                            ->columnSpanFull(),
+                        TextEntry::make('archive.destroyer.name')
+                            ->label(__('archive.section.fields.destroyed_by'))
+                            ->placeholder('—')
+                            ->visible(fn (Matter $record): bool => $record->archive?->destroyed_at !== null),
+                        TextEntry::make('archive.destruction_record_no')
+                            ->label(__('archive.section.fields.destruction_record_no'))
+                            ->visible(fn (Matter $record): bool => $record->archive?->destroyed_at !== null),
+                        TextEntry::make('archive.destruction_reason')
+                            ->label(__('archive.section.fields.destruction_reason'))
+                            ->visible(fn (Matter $record): bool => $record->archive?->destroyed_at !== null)
+                            ->columnSpanFull(),
+                    ]),
                 Section::make(__('matters.overview_sections.team'))
                     ->schema([
                         // `hiddenLabel()` chỉ GIẤU nhãn khỏi mắt, không xoá nó: Filament 5 vẫn in

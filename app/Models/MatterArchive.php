@@ -94,6 +94,31 @@ class MatterArchive extends Model
             && $this->client_access_until->toDateString() < today()->toDateString();
     }
 
+    /**
+     * M7 Task 6 (R5): định nghĩa "đã quá hạn lưu trữ", nói bằng `where` — tập ứng viên của
+     * `App\Actions\Schedule\FlagRetentionExpiry`. Cùng biên với
+     * {@see self::scopeClientAccessExpired()}: hồ sơ còn trong hạn HẾT ngày `retention_until`, và
+     * quá hạn từ 00:00 ngày hôm sau (múi giờ ứng dụng). `null` không bao giờ quá hạn (`NULL < x`
+     * không thoả). `whereDate()` cùng lý do đã ghi ở scope kia (cast `date` trên SQLite ghi cả giờ).
+     *
+     * Cách nói thứ hai của cùng luật là {@see self::isRetentionExpired()} — dùng ở
+     * `RecordMatterDestruction` và nút trên trang vụ việc.
+     */
+    public function scopeRetentionExpired(Builder $query): Builder
+    {
+        return $query->whereDate($this->qualifyColumn('retention_until'), '<', today()->toDateString());
+    }
+
+    /**
+     * M7 Task 6 (R5): cùng định nghĩa với {@see self::scopeRetentionExpired()}, trên một bản ghi
+     * đã tải — so hai chuỗi ngày `Y-m-d`, không so hai mốc thời gian.
+     */
+    public function isRetentionExpired(): bool
+    {
+        return $this->retention_until !== null
+            && $this->retention_until->toDateString() < today()->toDateString();
+    }
+
     public function matter(): BelongsTo
     {
         return $this->belongsTo(Matter::class);
@@ -157,9 +182,16 @@ class MatterArchive extends Model
         return $archive?->handoverDocumentIds()->contains((int) $document->getKey()) ?? false;
     }
 
-    /** M7 Task 3 (chuẩn bị cho Task 6): người ra quyết định tiêu huỷ hồ sơ. */
+    /**
+     * M7 Task 3/6: người GHI quyết định tiêu huỷ hồ sơ (`RecordMatterDestruction`, chỉ admin).
+     * Ghi quyết định không xoá gì — xem docblock Action đó.
+     *
+     * `withTrashed()`: người ghi là người chịu trách nhiệm về bản ghi đó. Tài khoản của họ bị xoá
+     * mềm sau này (nghỉ việc) không được làm tên họ biến khỏi khối "Lưu trữ hồ sơ" của trang vụ
+     * việc — quan hệ chỉ để HIỂN THỊ ai đã ghi, không để hỏi quyền của người đó.
+     */
     public function destroyer(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'destroyed_by');
+        return $this->belongsTo(User::class, 'destroyed_by')->withTrashed();
     }
 }

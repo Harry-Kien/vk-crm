@@ -2,6 +2,7 @@
 
 use App\Actions\Schedule\CheckDeadlines;
 use App\Actions\Schedule\ExpireClientAccess;
+use App\Actions\Schedule\FlagRetentionExpiry;
 use App\Actions\Schedule\RecordScheduleRun;
 use App\Actions\Schedule\SendHeartbeat;
 use Illuminate\Foundation\Inspiring;
@@ -151,4 +152,19 @@ Schedule::command('queue:work handover --queue=handover --stop-when-empty --max-
 Schedule::call(new ExpireClientAccess)
     ->dailyAt('00:30')
     ->name('client-access.expire')
+    ->withoutOverlapping(60);
+
+/**
+ * M7 Task 6 (R5, SPEC §6.12): cảnh báo quản trị khi hồ sơ quá hạn lưu trữ mà chưa ghi quyết định
+ * tiêu huỷ — 01:00 hằng ngày, giờ Việt Nam. Chỉ ghi thông báo trong hệ thống; KHÔNG BAO GIỜ xoá
+ * hay sửa hồ sơ (xem docblock `FlagRetentionExpiry`). Quyết định tiêu huỷ được ghi tay bằng
+ * `RecordMatterDestruction` trên trang vụ việc.
+ *
+ * 01:00 chứ không `daily()` (00:00) hay 00:30: tránh dồn vào cùng lượt `schedule:run` với
+ * `client-access.expire`. Khoá chống chồng lấn hết hạn sau 60 phút, không 1440 mặc định — cùng lý lẽ
+ * với `deadlines.check` và `client-access.expire`. Tác vụ không gửi thư nên không đụng hàng đợi.
+ */
+Schedule::call(new FlagRetentionExpiry)
+    ->dailyAt('01:00')
+    ->name('retention.flag')
     ->withoutOverlapping(60);
