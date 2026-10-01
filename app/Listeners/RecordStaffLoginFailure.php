@@ -10,7 +10,9 @@ use Illuminate\Auth\Events\Failed;
 /**
  * Dấu vết đăng nhập THẤT BẠI của nhân sự trên guard `web` — SPEC §10.6, Task 20. Xem docblock
  * {@see RecordStaffLogin} cho lý do nghe sự kiện chuẩn của framework thay vì viết lại trang
- * đăng nhập của panel `admin`.
+ * đăng nhập của panel `admin`. (M8 Task 3 sau đó thêm `App\Filament\Admin\Pages\Auth\Login` cho
+ * bộ đếm SPEC §10.3, nhưng nó KẾ THỪA trang của Filament và không đổi hai nhánh bắn `Failed` dưới
+ * đây — listener này vẫn là nơi ghi lỗi ở bước mật khẩu.)
  *
  * `Filament\Auth\Pages\Login` bắn `Illuminate\Auth\Events\Failed` ở HAI nhánh khác nhau, cả hai
  * đều tới được đây:
@@ -47,6 +49,11 @@ class RecordStaffLoginFailure
 
         Audit::record('login_failed', $user, [
             'guard' => 'web',
+            // M8 Task 3: cùng khoá `step` mà cổng khách ghi (`Login::auditFailedLogin()`), để
+            // `UnlockStaffLogin` biết tra khoá IP của bước mật khẩu hay bước mã. Sự kiện `Failed`
+            // chỉ bắn ở bước mật khẩu (kể cả lần kiểm lại credentials sau khi mã đã đúng, cũng đập
+            // bộ đếm mật khẩu); lỗi ở bước mã do `Admin\Pages\Auth\Login` ghi với `step = code`.
+            'step' => 'password',
             'email' => is_string($typed) && filter_var(trim($typed), FILTER_VALIDATE_EMAIL) !== false ? trim($typed) : null,
             'ip' => request()->ip(),
         ], $user);

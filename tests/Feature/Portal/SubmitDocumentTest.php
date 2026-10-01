@@ -1548,8 +1548,8 @@ it('empties the file field after a successful send', function () {
  * Dải 13–20 MB là dải mà SPEC §14 mục 4 sống hay chết: một khách chụp sổ đỏ bằng điện thoại đời
  * nay ra khoảng 15 MB.
  *
- * **Bảy lần POST, và con số bảy phụ thuộc vào `throttle:20,60` ở cùng tệp cấu hình** — đo được
- * bằng đột biến: hạ throttle xuống `5,60` thì test này đỏ ở 200/429 chứ không ở kích thước, tức
+ * **Bảy lần POST (mỗi lần một tệp), và con số bảy phụ thuộc vào `UploadThrottle::FILES_PER_HOUR`
+ * ở cùng tệp cấu hình** — đo được bằng đột biến: hạ trần xuống 5 thì test này đỏ ở 200/429 chứ không ở kích thước, tức
  * nó tố cáo đúng lỗi nhưng bằng sai câu. Không tách ra được mà vẫn giữ lời hứa "endpoint THẬT":
  * cả hai luật sống trên cùng một route. Nên nó được ghi lại ở đây, và ai hạ mức throttle xuống
  * dưới 8 phải đọc dòng này trước khi đi tìm lỗi ở luật `max`.
@@ -1708,6 +1708,48 @@ it('names the hourly limit when the endpoint refuses with 429, instead of blamin
         // Và KHÔNG phải câu chung đổ cho dung lượng với sóng.
         ->not->toContain('sóng')
         ->not->toContain('HDR')
+        ->not->toContain('kilobyte');
+});
+
+/**
+ * M8 Task 3: endpoint đếm TỆP và từ chối CẢ lô nếu lô làm vượt trần — mà KHÔNG tăng bộ đếm. Nên
+ * bộ đếm có thể mới ở 19/20 trong khi một lô 2 tệp bị từ chối bằng 429; câu cũ "bộ đếm đã đầy"
+ * (`tooManyAttempts`) khi đó trả `false` và khách đọc câu chung đổ cho dung lượng và sóng — đúng
+ * lỗi mà test ngay trên sinh ra để đóng, ở một đường mới. `_uploadErrored()` phải nhận ra lần từ
+ * chối gần nhất qua dấu mà middleware đánh (`UploadThrottle::markRefused()`).
+ */
+it('names the hourly limit when the endpoint refused a whole batch although the counter is not full', function () {
+    $url = submitUploadUrl();
+
+    for ($attempt = 1; $attempt <= 19; $attempt++) {
+        expect(submitPostBytes(1, $url)->status())->toBe(200, 'lần '.$attempt);
+    }
+
+    $key = UploadThrottle::cacheKeyFor(Document::recipientToken($this->clientUser));
+
+    // Lô hai tệp: 19 + 2 = 21 > 20 → từ chối cả lô, bộ đếm đứng nguyên ở 19.
+    $refusal = $this->post(
+        $url,
+        ['files' => [
+            UploadedFile::fake()->create('mat-truoc.jpg', 1024, 'image/jpeg'),
+            UploadedFile::fake()->create('mat-sau.jpg', 1024, 'image/jpeg'),
+        ]],
+        ['Accept' => 'application/json'],
+    );
+
+    expect($refusal->status())->toBe(429)
+        ->and(RateLimiter::attempts($key))->toBe(19)
+        ->and(RateLimiter::tooManyAttempts($key, UploadThrottle::FILES_PER_HOUR))->toBeFalse();
+
+    $message = submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->call('_uploadErrored', 'data.file', null, false)
+        ->errors()->first('data.file');
+
+    expect($message)
+        ->toContain((string) UploadThrottle::FILES_PER_HOUR)
+        ->toContain('phút')
+        ->not->toContain('sóng')
         ->not->toContain('kilobyte');
 });
 

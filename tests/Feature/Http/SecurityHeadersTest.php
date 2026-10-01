@@ -328,6 +328,13 @@ it('§10.2 CSP_MODE để trống trên production: phản hồi thật mang hea
     config(['vkcrm.security.csp_mode' => null]);
     app()->detectEnvironment(fn () => 'production');
 
+    // M8 Task 1 (`App\Http\Middleware\EnforceHttps`): để trống, `FORCE_HTTPS` cũng bật mặc định
+    // ngoài `local`/`testing` — TẮT riêng ở đây, vì test này hỏi về CSP, không về HTTPS, và request
+    // http thô của `$this->get()` sẽ nhận 301 (không phải 200) nếu để mặc định BẬT dưới môi trường
+    // `production` giả lập. Hành vi ép HTTPS tự nó có bộ test riêng
+    // (`tests/Feature/Http/EnforceHttpsTest.php`).
+    config(['vkcrm.security.force_https' => false]);
+
     $response = $this->get('/portal/login')->assertOk();
 
     expect($response->headers->get('Content-Security-Policy'))->toBeString()->not->toBeEmpty()

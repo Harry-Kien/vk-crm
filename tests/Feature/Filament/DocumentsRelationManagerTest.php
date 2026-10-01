@@ -510,7 +510,12 @@ it('trợ lý trong đội ngũ (có document.update) vẫn thấy nhóm D dù k
 // Đưa tài liệu vào hồ sơ — mọi lần ghi đi qua UploadStaffDocument.
 // ---------------------------------------------------------------------------------------------
 
-it('uploads a staff document through UploadStaffDocument, with the file on the private disk', function () {
+/**
+ * §10.4 (M8 Task 4): tệp đi qua ô tải lên của màn hình rơi vào đĩa `private`, và đĩa `private` là
+ * `storage/app/private` — ngoài document root. Tên tệp trên đĩa không phải tên gốc người dùng đặt.
+ * Hai khẳng định cuối đo đĩa THẬT (cấu hình), không đĩa giả mà `tests/Pest.php` thay vào.
+ */
+it('§10.4 uploads a staff document through UploadStaffDocument, with the file on the private disk (storage/app/private)', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
     $item = MatterChecklistItem::factory()->for($matter)->create();
@@ -538,7 +543,14 @@ it('uploads a staff document through UploadStaffDocument, with the file on the p
         ->and($document->issued_at->toDateString())->toBe('2026-03-01')
         ->and($document->getMedia('file'))->toHaveCount(1);
 
-    Storage::disk('private')->assertExists($document->getFirstMedia('file')->getPathRelativeToRoot());
+    $media = $document->getFirstMedia('file');
+
+    Storage::disk('private')->assertExists($media->getPathRelativeToRoot());
+
+    expect($media->disk)->toBe('private')
+        ->and($media->file_name)->not->toContain('thong-bao-thu-ly')
+        ->and(config('filesystems.disks.private.root'))->toBe(storage_path('app/private'))
+        ->and(str_starts_with((string) config('filesystems.disks.private.root'), public_path()))->toBeFalse();
 });
 
 /**

@@ -16,10 +16,11 @@
     Deny from all
 </IfModule>
 
-# nginx KHÔNG đọc tệp này. Cấu hình tương ứng trong server block:
-#
-#     location ^~ /storage/ { deny all; return 404; }
-#     location ~ /\.ht      { deny all; }
+# nginx KHÔNG đọc tệp này. Cấu hình tương ứng nằm trong mẫu `tools/deploy/nginx.conf.example`
+# (`location ^~ /storage/ { return 404; }` và `location ~ /\. { return 404; }`); mẫu Apache ở
+# `tools/deploy/apache-vhost.conf.example` chặn cùng hai thứ ở tầng VirtualHost, trước tệp này.
+# Tệp này (403 khi `AllowOverride` cho phép) và cả hai mẫu (404) đã chạy THẬT với document root
+# cố ý đặt nhầm vào gốc dự án: `tools/deploy/verify-storage-blocked.sh` (M8 Task 4).
 #
 # Đường tải tệp hợp lệ duy nhất là route có chữ ký của `DocumentDownloadController`, và route đó
 # vẫn kiểm tra policy sau khi xác minh chữ ký — chữ ký không thay thế quyền (SPEC §10.4).

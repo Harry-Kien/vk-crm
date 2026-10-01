@@ -73,6 +73,18 @@ buộc thiết kế cứng, không phải mong muốn. Cụ thể:
   `mbstring`, `openssl`, `pdo`, `tokenizer`, `xml`, `gd`, `zip`).
 - Không dùng symlink `storage:link` cho tệp hồ sơ. Tệp phục vụ qua controller.
 
+**Đính chính 2026-10-01 (M8 Task 7).** Danh sách extension ở trên thiếu, và thiếu đúng những cái
+hay vắng trên shared hosting. Danh sách đầy đủ (`composer check-platform-reqs --no-dev` cộng driver
+cơ sở dữ liệu), cũng là danh sách `vkcrm:preflight` kiểm ĐỎ (`config/vkcrm.php`, khoá
+`deployment.required_extensions`): `ctype`, `dom`, `exif`, `fileinfo`, `filter`, `hash`, `iconv`,
+`intl`, `json`, `libxml`, `mbstring`, `openssl`, `pcre`, `session`, `tokenizer`, `xmlreader`,
+`zip`, `zlib`, `pdo_mysql`. `intl` do Filament bắt buộc; `dom` do gói làm sạch HTML, gói ghép CSS
+vào thư và gói đọc/ghi xlsx cần. `gd` không còn là bắt buộc (dự án chưa đăng ký chuyển đổi ảnh nào
+— preflight báo VÀNG khi thiếu); `bcmath` không gói nào bắt buộc. Ngoài extension, máy chủ còn cần:
+`zip` dựng với libzip có AES (`ZipArchive::EM_AES_256` — sao lưu mã hoá), hàm `proc_open` không bị
+tắt, lệnh `mariadb-dump` (gói `mariadb-client`) và `rclone` cho sao lưu (§10 mục 8). Hướng dẫn cài:
+`docs/CAI-DAT.md`, phần "Cài lên máy chủ thật".
+
 ### Giám sát cron
 
 Trên shared hosting cron rất hay lặng lẽ ngừng chạy sau khi gia hạn gói hoặc đổi
@@ -122,13 +134,21 @@ app/
 | Đường dẫn | `/admin` | `/portal` |
 | Tên miền gợi ý | `crm.{tên-miền-công-ty}` | `portal.{tên-miền-công-ty}` |
 | Guard | `web` (bảng `users`) | `client` (bảng `client_users`) |
-| Xác thực | Email + mật khẩu + **2FA bắt buộc** (Fortify TOTP) | Email + mật khẩu + **OTP qua email** |
+| Xác thực | Email + mật khẩu + **2FA bắt buộc** (2FA ứng dụng của Filament) | Email + mật khẩu + **OTP qua email** |
 | Màu chủ đạo | Xám trung tính | Màu thương hiệu công ty |
 | Giới hạn IP | Có thể bật qua middleware, cấu hình `.env` | Không |
 
 Cấu hình tên miền qua `.env` (`ADMIN_DOMAIN`, `PORTAL_DOMAIN`). Nếu để trống
 thì cả hai panel chạy chung một tên miền theo đường dẫn — phải hoạt động được
 cả hai cách.
+
+**Đính chính 2026-09-28 (M8 Task 2, R2).** "Fortify TOTP" ở hàng Xác thực trên là sai — dự án
+chưa từng cài `laravel/fortify`. Filament 5.8.1 có sẵn một bộ 2FA ứng dụng (TOTP, kèm mã khôi
+phục) trong `filament/filament`, và đó là thứ panel `admin` dùng
+(`App\Filament\Admin\Auth\StaffAppAuthentication`, đăng ký ở `AdminPanelProvider`). "Bắt buộc"
+nghĩa đúng như đã ghi ở §10 mục 7: không màn hình, không hành động, không cột nào tắt được — kể
+cả admin không tự tắt được của chính mình. Mất điện thoại đi qua "Đặt lại 2FA"
+(`App\Actions\User\ResetStaffTwoFactor`), không phải một nút tắt.
 
 ### Bộ chữ web — quyết định ghi ngày 2026-09-16 (M3)
 
@@ -171,10 +191,17 @@ Các cột `created_by` / `updated_by` là FK tới `users`.
 | position | enum | `lawyer`, `assistant`, `accountant`, `manager`, `admin` |
 | bar_number | string(50) nullable | Số thẻ luật sư |
 | is_active | boolean default true | |
-| two_factor_secret, two_factor_recovery_codes | text nullable | Fortify |
+| two_factor_secret, two_factor_recovery_codes | text nullable, cast `encrypted`/`encrypted:array` | 2FA ứng dụng của Filament |
 | last_login_at | timestamp nullable | |
 
 Vai trò và quyền quản lý bằng `spatie/laravel-permission`, không tự viết.
+
+**Đính chính 2026-09-28 (M8 Task 2, R2).** "Fortify" ở hàng `two_factor_secret`/
+`two_factor_recovery_codes` là sai — cùng đính chính đã ghi ở §3. Hai cột này chưa từng đổi tên
+hay đổi kiểu (`text nullable` có từ M0); Task 2 chỉ thêm cast `encrypted`/`encrypted:array` (không
+migration — chưa đường nào từng GHI hai cột này trước Task 2) và implement hai interface
+`Filament\Auth\MultiFactor\App\Contracts\{HasAppAuthentication,HasAppAuthenticationRecovery}` trên
+`App\Models\User`, ánh xạ thẳng vào tên cột hiện có.
 
 ### 4.2 `clients` — khách hàng
 
@@ -1140,6 +1167,14 @@ thẻ hồ sơ ở cổng; M6.5 không viết mẫu thư này (R1).
    không cho `unsafe-inline` script.
 3. Rate limit: đăng nhập 5 lần / 15 phút theo email và theo IP; nộp tài liệu 20
    tệp / giờ / tài khoản; API 60 request / phút.
+
+   **Đính chính 2026-09-30 (§10.3, M8 Task 3).** (a) "Đăng nhập" gồm cả hai cổng và cả hai bước
+   của mỗi cổng (mật khẩu, rồi mã — TOTP/mã khôi phục của nhân sự, mã email của khách): mỗi bước
+   một bộ đếm riêng, mỗi bộ đếm hai chiều (tài khoản + IP), `App\Support\LoginThrottle`. (b) "20
+   tệp / giờ" đếm TỆP (một request mang nhiều tệp tốn nhiều suất; cả request bị từ chối nếu vượt),
+   không đếm request, và là luật nộp tài liệu của KHÁCH; nhân sự có trần riêng 200 tệp / giờ /
+   tài khoản trên cùng endpoint (`App\Support\UploadThrottle`). (c) "API 60 request / phút": hôm
+   nay chưa có route `api/*` (có test khẳng định); giới hạn thuộc M11.
 4. Tệp lưu ở `storage/app/private/`, có `.htaccess` chặn và cấu hình nginx tương
    ứng. Phục vụ qua route có `signed` URL hết hạn sau 5 phút, và vẫn kiểm tra
    policy trong controller — chữ ký URL không thay thế kiểm tra quyền.
@@ -1166,6 +1201,17 @@ thẻ hồ sơ ở cổng; M6.5 không viết mẫu thư này (R1).
    Task 14 (sửa và xoá mốc hạn) còn đang làm lúc ghi đính chính này và có thể thêm sự kiện. Trước
    khi merge, chạy lại phép so trên và `ActivityLogEventTranslationsTest` (mọi sự kiện phải có
    nhãn trong `lang/vi/activity.php`).
+
+   **Đính chính 2026-09-30 (§10.6, M8 Task 3).** Ba loại trước đây chỉ có GIÁN TIẾP (một diff
+   `updated` của `LogsActivity`, hoặc một cờ trong properties của sự kiện khác) nay là sự kiện
+   tường minh: `stage_log_published` (`TransitionMatterStage`, cả chuyển giai đoạn lẫn "Thêm cập
+   nhật"), `permission_changed` (`RecordStaffPermissionChange`, kèm chức danh/vai trò cũ → mới),
+   `portal_account_created` / `portal_account_deactivated` (`CreatePortalAccount`,
+   `UpdatePortalAccount`). Thêm `staff_login_unlocked` (`UnlockStaffLogin`). "Xuất dữ liệu" hôm
+   nay chỉ có MỘT đường — tải một tài liệu (`documents.download`, đã ghi `document_downloaded`);
+   test `ActivityLogSpec106Test` đóng băng tập đường xuất đó, và gói bàn giao hồ sơ (M7 Task 4)
+   phải ghi `data_exported` khi ra đời. Nhật ký không bị xoá theo lịch (không có tác vụ
+   `activitylog:clean`; con số của gói ≥ `RETENTION_YEARS`).
 7. 2FA bắt buộc cho toàn bộ tài khoản nội bộ. Không có tuỳ chọn tắt.
 8. `spatie/laravel-backup` cấu hình sao lưu hằng ngày cả CSDL lẫn thư mục tệp,
    đẩy ra một disk ngoài máy chủ (S3 hoặc tương đương), giữ 30 bản.

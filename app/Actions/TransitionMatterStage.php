@@ -254,6 +254,21 @@ class TransitionMatterStage
 
             if ($publishedToPortal) {
                 event(new StageLogPublished($stageLog));
+
+                // M8 Task 3 (SPEC §10.6, "công bố tiến độ"): sự kiện TƯỜNG MINH mỗi khi một dòng
+                // tiến độ tới tay khách — cả chuyển giai đoạn lẫn "Thêm cập nhật" (cùng đi qua
+                // Action này). Trước đây chỉ có cờ `published_to_portal` bên trong dòng
+                // `matter_stage_transitioned` ngay dưới, nên câu "văn phòng đã công bố những gì
+                // cho khách" phải đọc từng properties. Chủ thể là dòng tiến độ (thuộc vụ việc
+                // qua `ActivityOwningMatter::MATTER_OWNED`, nên trang nhật ký lọc nó theo quyền
+                // xem vụ — vụ `restricted` không lộ ra người không xem được); properties chỉ mang
+                // id và mã giai đoạn, không mã/tên vụ, không nội dung công bố.
+                Audit::record('stage_log_published', $stageLog, [
+                    'matter_id' => $matter->id,
+                    'stage_log_id' => $stageLog->id,
+                    'to_stage' => $toStage,
+                    'same_stage' => $isSameStage,
+                ], $actor);
             }
 
             // Bước 8.

@@ -193,6 +193,9 @@ final class DocumentDownloadController extends Controller
      * từ trước, dù `MatterPolicy::releasedToPortal()` (đã sửa cùng vòng này) đã đóng đường đó lại
      * ở TẦNG POLICY — hai tầng độc lập, đúng cấu trúc "Ba tầng trả lời khác đi" mà class này nói
      * ngay ở đầu tệp, giờ thành bốn cho riêng khách hàng đã xoá mềm.
+     *
+     * **Và Task 2 của M8b (§10.7) thêm điều kiện "nhân sự đã cài 2FA"** — xem chú thích ở nhánh đó
+     * trong thân hàm.
      */
     private function actor(): User|ClientUser|null
     {
@@ -203,6 +206,14 @@ final class DocumentDownloadController extends Controller
         }
 
         if ($actor instanceof ClientUser && $actor->client === null) {
+            return null;
+        }
+
+        // §10.7 (M8 Task 2, R2): nhân sự CHƯA có 2FA (vừa bị "Đặt lại 2FA", hay chưa cài lần đầu)
+        // không tải được tệp. Cổng `EnsureMultiFactorAuthenticationIsEnabled` của Filament chỉ đứng
+        // trước route của trang panel — route này nằm ngoài chúng, nên một đường dẫn ký còn hạn
+        // (5 phút) cộng một phiên đăng nhập mới bằng mật khẩu sẽ đi vòng qua 2FA nếu thiếu dòng này.
+        if ($actor instanceof User && blank($actor->getAppAuthenticationSecret())) {
             return null;
         }
 

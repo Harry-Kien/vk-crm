@@ -108,8 +108,9 @@ return [
              * Tuổi tối đa (giờ) của bản MỚI NHẤT trên remote trước khi giám sát 08:00 báo lỗi
              * (`App\Actions\Backup\CheckRcloneRemoteFreshness`, fix I4 lượt rà soát cuối M8a).
              * Lượt đẩy chạy mỗi đêm lúc 02:00, nên lúc 08:00 bản mới nhất bình thường chỉ ~6 giờ
-             * tuổi; 36 giờ nghĩa là đã lỡ ít nhất MỘT đêm, cộng biên cho một lượt sao lưu chạy
-             * chậm. Hằng số, cùng lý lẽ với `keep`.
+             * tuổi, và bản của đêm TRƯỚC đó ~30 giờ: vượt 36 giờ nghĩa là HAI đêm liền không lên
+             * được (một đêm hỏng đơn lẻ đã có thư lỗi của chính lượt đẩy). Chủ văn phòng giữ 36 giờ.
+             * Hằng số, cùng lý lẽ với `keep`.
              */
             'max_age_hours' => 36,
         ],
@@ -125,6 +126,62 @@ return [
          * nguồn với mọi chỗ khác của ứng dụng hỏi "đây là môi trường nào".
          */
         'csp_mode' => env('CSP_MODE'),
+
+        /*
+         * Ép HTTPS (SPEC §10 mục 1, kế hoạch M8 Task 1). Giá trị THÔ ở đây — CHƯA giải "để trống
+         * nghĩa là gì": đọc qua {@see \App\Support\Security\HttpsDefaults::boolFromRaw()} ở
+         * {@see \App\Http\Middleware\EnforceHttps}, KHÔNG đọc trực tiếp khoá này, cùng lý do
+         * `csp_mode` ở trên (hỏi `app()->environment()` lúc xử lý request, không bị đông cứng nếu
+         * `config:cache` chạy ở một môi trường rồi copy sang môi trường khác).
+         */
+        'force_https' => env('FORCE_HTTPS'),
+
+        /*
+         * HSTS `max-age` (giây) cho lớp dự phòng ở tầng app khi hosting không cho cấu hình máy chủ
+         * web (SPEC §10 mục 1). Giá trị THÔ; giải qua
+         * {@see \App\Support\Security\HttpsDefaults::secondsFromRaw()} ở
+         * {@see \App\Http\Middleware\EnforceHttps} — để trống là 31536000 (một năm) ở mọi môi trường
+         * trừ `local`/`testing` (0, tức tắt).
+         */
+        'hsts_max_age' => env('HSTS_MAX_AGE'),
+
+        /*
+         * `includeSubDomains`/`preload` của header Strict-Transport-Security — KHÔNG bật mặc định
+         * dù để trống hay có giá trị khác rỗng: website luatvukhang.com và các tên miền con khác
+         * của văn phòng nằm NGOÀI ứng dụng này, và bật nhầm khoá luôn chúng vào https một năm.
+         * Chỉ bật khi `.env` ghi rõ `true` (bất kể môi trường).
+         */
+        'hsts_include_subdomains' => filter_var(env('HSTS_INCLUDE_SUBDOMAINS', false), FILTER_VALIDATE_BOOLEAN),
+        'hsts_preload' => filter_var(env('HSTS_PRELOAD', false), FILTER_VALIDATE_BOOLEAN),
+
+        /*
+         * Danh sách IP/CIDR được vào `/admin` (R7, SPEC §3 và §10 mục 10), phân tách dấu phẩy.
+         * Rỗng = tắt hẳn (mặc định) — {@see \App\Http\Middleware\RestrictAdminIpAllowlist} đọc
+         * qua đây, không đọc `env()` trực tiếp.
+         */
+        'admin_ip_allowlist' => (string) env('ADMIN_IP_ALLOWLIST', ''),
+    ],
+
+    /*
+     * `vkcrm:preflight` (R1, kế hoạch M8 Task 1) — {@see \App\Actions\Deployment\RunPreflight}.
+     */
+    'deployment' => [
+        /*
+         * PHP extension bắt buộc ở production, HẰNG SỐ chứ không đoán theo máy đang chạy lệnh:
+         * `composer check-platform-reqs --no-dev` ngày 2026-09-28 cộng `pdo_mysql` (MariaDB, SPEC
+         * §2). KHÔNG có `gd` — xem {@see \App\Actions\Deployment\RunPreflight} vì sao đó là một
+         * dòng VÀNG riêng, không phải một extension bắt buộc.
+         *
+         * Cấu hình được (không phải một `const` cứng trong Action) để test gài một tên giả vào
+         * đây mà không cần gỡ thật một extension của container —
+         * `tests/Feature/Deployment/PreflightCommandTest.php` dùng đúng cách này để dựng cả hai
+         * chiều đỏ/xanh của điều kiện "thiếu extension".
+         */
+        'required_extensions' => [
+            'ctype', 'dom', 'exif', 'fileinfo', 'filter', 'hash', 'iconv', 'intl', 'json',
+            'libxml', 'mbstring', 'openssl', 'pcre', 'session', 'tokenizer', 'xmlreader', 'zip',
+            'zlib', 'pdo_mysql',
+        ],
     ],
 
     /*

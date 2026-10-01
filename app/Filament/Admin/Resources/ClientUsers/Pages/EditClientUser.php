@@ -5,6 +5,7 @@ namespace App\Filament\Admin\Resources\ClientUsers\Pages;
 use App\Actions\Client\IssuePortalAccess;
 use App\Actions\Portal\UnlockPortalLogin;
 use App\Actions\Portal\UnlockPortalLoginResult;
+use App\Actions\Portal\UpdatePortalAccount;
 use App\Filament\Admin\Resources\ClientUsers\ClientUserResource;
 use App\Filament\Admin\Resources\ClientUsers\Pages\Concerns\ConfirmsPortalAccessIssue;
 use App\Models\ClientUser;
@@ -14,6 +15,7 @@ use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Support\Icons\Heroicon;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 
@@ -96,12 +98,18 @@ class EditClientUser extends EditRecord
                     /** @var UnlockPortalLoginResult $result */
                     $result = app(UnlockPortalLogin::class)->handle($account, $actor);
 
+                    // Final review I2: "đăng nhập lại được ngay" chỉ khi không còn khoá địa chỉ
+                    // nào — khách có thể bị khoá chỉ vì người khác cùng mạng.
                     Notification::make()
-                        ->title($result->ipStillLocked
-                            ? __('client_users.actions.unlock_login_success_ip_still_locked', [
+                        ->title(match (true) {
+                            $result->ipStillLocked => __('client_users.actions.unlock_login_success_ip_still_locked', [
                                 'minutes' => $result->minutesRemaining,
-                            ])
-                            : __('client_users.actions.unlock_login_success'))
+                            ]),
+                            $result->anyAddressLockedMinutes !== null => __('client_users.actions.unlock_login_success_other_address_locked', [
+                                'minutes' => $result->anyAddressLockedMinutes,
+                            ]),
+                            default => __('client_users.actions.unlock_login_success'),
+                        })
                         ->success()
                         ->send();
                 }),
@@ -345,5 +353,22 @@ class EditClientUser extends EditRecord
         $this->notifyPortalAccessIssue(
             app(IssuePortalAccess::class)->handle($this->record, $actor, reissue: $reissue),
         );
+    }
+
+    /**
+     * M8 Task 3 (SPEC §10.6, `portal_account_deactivated`): lưu qua Action để việc tắt `is_active`
+     * có dòng nhật ký tường minh — xem {@see UpdatePortalAccount}.
+     *
+     * Lúc gộp M8b vào `main`: chạy GIỮA `mutateFormDataBeforeSave()` (đặt cờ
+     * `$reissueAccessAfterSave` trên bản ghi CŨ) và `afterSave()` (gọi `IssuePortalAccess` trên bản
+     * ghi MỚI) — việc cấp quyền truy cập KHÔNG lồng vào trong Action này.
+     */
+    protected function handleRecordUpdate(Model $record, array $data): Model
+    {
+        $actor = Auth::user();
+        abort_unless($actor instanceof User, 403);
+
+        /** @var ClientUser $record */
+        return app(UpdatePortalAccount::class)->handle($record, $data, $actor);
     }
 }

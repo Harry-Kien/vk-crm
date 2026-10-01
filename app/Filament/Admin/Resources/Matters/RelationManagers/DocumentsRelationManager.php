@@ -11,6 +11,7 @@ use App\Actions\Document\UploadStaffDocument;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Enums\Permission;
+use App\Filament\Admin\Concerns\ExplainsStaffUploadRefusal;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Concerns\ScopesToVisibleMatters;
 use App\Models\Document;
@@ -99,6 +100,7 @@ use Illuminate\Validation\ValidationException;
  */
 class DocumentsRelationManager extends RelationManager
 {
+    use ExplainsStaffUploadRefusal;
     use ReportsActionFailures;
     use ScopesToVisibleMatters;
 

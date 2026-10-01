@@ -1473,13 +1473,73 @@ it('clears only the account dimension of the code lock when the code is finally 
         // Twin dương: bộ đếm theo tài khoản của Alice được xoá, nếu không lần đăng nhập kế tiếp
         // của chính cô ấy trong 15 phút sẽ bị chặn ngay từ mã đầu tiên.
         ->and(RateLimiter::attempts($aliceKey))->toBe(0)
-        // Điều đang được đo: chiều địa chỉ mạng giữ đủ năm lượt (bốn lần sai + chính lần đúng,
-        // vì cổng đập bộ đếm ở MỌI lần gửi mã).
-        ->and(RateLimiter::attempts($ipKey))->toBe(5)
-        // Hệ quả nhìn thấy được, và là cái giá SPEC §10.3 đã chọn: Bob sau cùng đường truyền vẫn
-        // đang bị chặn ở bước mã. Nếu lần đăng nhập của Alice xoá chiều IP thì dòng này xanh với
-        // `false`, và cùng cơ chế ấy cho bất kỳ ai mua một cửa sổ mới bằng một tài khoản của mình.
-        ->and(PortalLoginThrottle::tooManyAttempts(PortalLoginThrottle::codeKeys($bob)))->toBeTrue();
+        // Điều đang được đo: chiều địa chỉ mạng KHÔNG bị xoá — bốn lần SAI ở lại đủ. Chỉ suất của
+        // chính lần ĐÚNG được hoàn (final review I1: cùng luật với trang đăng nhập nhân sự, xem
+        // LoginThrottle::refundCodeIp()). Trước bản sửa này dòng này là 5 (M5 giữ cả lần đúng).
+        ->and(RateLimiter::attempts($ipKey))->toBe(4)
+        // Bob sau cùng đường truyền còn đúng MỘT suất. Nếu lần đăng nhập của Alice XOÁ chiều IP
+        // thì Bob còn năm suất, và cùng cơ chế ấy cho bất kỳ ai mua một cửa sổ mới bằng một tài
+        // khoản của mình.
+        ->and(PortalLoginThrottle::tooManyAttempts(PortalLoginThrottle::codeKeys($bob)))->toBeFalse();
+
+    // Một mã sai nữa của bất kỳ ai sau cùng địa chỉ là chạm trần — chiều IP vẫn sống.
+    RateLimiter::hit($ipKey, PortalLoginThrottle::DECAY_SECONDS);
+
+    expect(PortalLoginThrottle::tooManyAttempts(PortalLoginThrottle::codeKeys($bob)))->toBeTrue();
+});
+
+/*
+|--------------------------------------------------------------------------
+| Final review I1 — một mã OTP ĐÚNG không được tiêu chiều địa chỉ dùng chung (như cổng nhân sự)
+|--------------------------------------------------------------------------
+|
+| Văn phòng hướng dẫn khách đăng nhập lần đầu ngay tại quầy, trên wifi văn phòng (một địa chỉ NAT),
+| hay cả một công ty khách hàng sau một mạng chung. Bản M5 đập chiều IP của bước mã ở MỌI lần gửi,
+| kể cả lần đúng, và đăng nhập không xoá chiều đó: khách thứ sáu gõ ĐÚNG mã trong 15 phút bị "thử
+| quá nhiều lần", và nút "Mở khoá đăng nhập" không gỡ được vì chính khách ấy không có dòng
+| `login_failed` nào. `livewire()` luôn chạy ở 127.0.0.1 — đúng một địa chỉ dùng chung.
+*/
+
+it('lets six clients behind one shared address pass the code step, none of them having typed a wrong code', function () {
+    $clients = collect(range(1, 6))->map(fn () => portalUser());
+
+    foreach ($clients as $index => $client) {
+        auth('client')->logout();
+
+        $component = submitPortalPassword($client)->assertHasNoErrors();
+
+        $component->set(portalCodeStatePath(), portalCodesSentTo($client)[0])
+            ->call('authenticate')
+            ->assertHasNoErrors();
+
+        expect(auth('client')->check())->toBeTrue(
+            'Khách thứ '.($index + 1).' gõ đúng mã mà vẫn không vào được.'
+        );
+    }
+
+    expect(RateLimiter::attempts(PortalLoginThrottle::codeIpKey()))->toBe(0);
+});
+
+it('refunds nothing when a client sign-in never reached the code step, so it cannot eat someone else\'s failure', function () {
+    $typo = portalUser();
+    $other = portalUser();
+
+    $component = submitPortalPassword($typo)->assertHasNoErrors();
+    $component->set(portalCodeStatePath(), '000000')->call('authenticate');
+
+    expect(RateLimiter::attempts(PortalLoginThrottle::codeIpKey()))->toBe(1);
+
+    // Cổng khách bắt buộc OTP (ClientUser::hasEmailAuthentication() luôn true), nên ngày nay MỌI
+    // lần đăng nhập thành công đều đi qua bước mã. Tắt bước mã của panel ngay trong test này là
+    // cách duy nhất dựng được một lần vào KHÔNG đập khoá địa chỉ — để ghim rằng việc hoàn suất
+    // hỏi chính request này đã đập hay chưa, không suy ra từ "đăng nhập được".
+    Filament::getPanel('portal')->multiFactorAuthentication([]);
+
+    auth('client')->logout();
+    submitPortalPassword($other)->assertHasNoErrors();
+
+    expect(auth('client')->check())->toBeTrue()
+        ->and(RateLimiter::attempts(PortalLoginThrottle::codeIpKey()))->toBe(1);
 });
 
 /*

@@ -3,6 +3,7 @@
 namespace App\Filament\Admin\Resources\ClientUsers\Pages;
 
 use App\Actions\Client\IssuePortalAccess;
+use App\Actions\Portal\CreatePortalAccount;
 use App\Filament\Admin\Resources\ClientUsers\ClientUserResource;
 use App\Filament\Admin\Resources\ClientUsers\Pages\Concerns\ConfirmsPortalAccessIssue;
 use App\Models\Client;
@@ -10,6 +11,7 @@ use App\Models\ClientUser;
 use App\Models\User;
 use Filament\Actions\Action;
 use Filament\Resources\Pages\CreateRecord;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
@@ -77,6 +79,22 @@ class CreateClientUser extends CreateRecord
     }
 
     /**
+     * M8 Task 3 (SPEC §10.6, `portal_account_created`): tạo qua Action để có dòng nhật ký tường
+     * minh cạnh dòng `created` của `LogsActivity` — xem {@see CreatePortalAccount}.
+     *
+     * Lúc gộp M8b vào `main`: `$data['password']` ở đây là chuỗi ngẫu nhiên TẠM của
+     * `mutateFormDataBeforeCreate()` (M6 Task 3), không phải mật khẩu nhân sự gõ — mật khẩu tạm
+     * THẬT do `IssuePortalAccess` đặt ở `afterCreate()` bên dưới, SAU khi Action này đã trả về.
+     */
+    protected function handleRecordCreation(array $data): Model
+    {
+        $actor = Auth::user();
+        abort_unless($actor instanceof User, 403);
+
+        return app(CreatePortalAccount::class)->handle($data, $actor);
+    }
+
+    /**
      * Cấp quyền truy cập cổng NGAY sau khi tài khoản được tạo — đúng lỗ hổng brief Task 3 nêu:
      * "hôm nay tài khoản portal được tạo bằng cách một luật sư gõ tay mật khẩu ... không có thư
      * kích hoạt nào cả". `afterCreate()` chạy sau khi bản ghi đã lưu, nên `$this->record` đã có
@@ -84,6 +102,10 @@ class CreateClientUser extends CreateRecord
      *
      * Việc sau gộp M6 (làn fu, mục 6): `reissue: false` — thư nói "đã tạo tài khoản"; và một thông
      * báo nói thư đi tới địa chỉ nào, hoặc vì sao chưa đi (tài khoản tạo ở trạng thái tắt).
+     *
+     * Lúc gộp M8b vào `main`: bản ghi tới đây qua `handleRecordCreation()` ở trên (dòng nhật ký
+     * `portal_account_created` của M8 Task 3) — việc cấp quyền KHÔNG lồng vào trong Action đó mà
+     * vẫn chạy ở đây, sau khi `handleRecordCreation()` đã trả về.
      */
     protected function afterCreate(): void
     {

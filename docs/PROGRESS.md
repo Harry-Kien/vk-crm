@@ -1949,3 +1949,553 @@ ngoài bản đầu tiên, và **nhắc lại đúng danh sách này khi M12 xon
   - `tests/Feature/Mail/InstalmentOverdueActionTest.php` dựng thư trực tiếp (`overdueMailFor()`) thay vì đi qua job — hoãn: đường job đã có `tests/Feature/Jobs/SendInstalmentOverdueMailTest.php`.
   - Hàm/hằng Pest ở phạm vi toàn cục của làn (`overdue*`, `OVERDUE_*`, `jobFor`, `jobSentTo`, `jobEmails`, `billingIds`, `billingIdList`, `instalmentReminderEvent`, `activateOverdueContract`, `useInstalmentSelectiveFailMailer`, `expectActionSentences`, `seedOldTypeRow`, `renameMigration`, `renameTestTypeName`, `M9R_*`) — hoãn: ngày 2026-10-01 đã grep `tests/` của mọi làn và của main, không trùng; các tên chung chung nhất đã đổi. Tên trùng lúc gộp lộ ngay thành lỗi "Cannot redeclare".
   - Ngoài làn: `tests/Feature/Filament/RevenueDashboardTest.php` đỏ 21 test khi chạy ngày 2026-09-30 (ngày cuối tháng), xanh lại ngày 2026-10-01 — lỗi phụ thuộc ngày có sẵn trên main, chưa chẩn đoán; nhiều khả năng lặp lại vào ngày cuối tháng kế tiếp.
+
+## Ghi chú M8
+
+Làn `m8b-security` (nhánh `m8b-security`, worktree `D:\vkwt\lane-m8b`), cắt từ `m8-backup-csp` gộp
+`m6-5-lane-d`. Chi tiết đầy đủ ở sổ SDD của làn:
+`D:\vkwt\lane-m8b\.superpowers\sdd\m8b\progress.md`.
+
+### Task 1 — Proxy, HTTPS, header, CSP, giới hạn IP admin (R1, R4, R7)
+
+- **`vkcrm:preflight` (R1)** — `App\Actions\Deployment\RunPreflight`, `App\Console\Commands\
+  PreflightCommand`. Kiểm `TRUSTED_PROXIES`, `HEARTBEAT_URL`, `SESSION_SECURE_COOKIE` (giá trị ĐÃ
+  GIẢI), `APP_DEBUG`, PHP extension bắt buộc, `storage/app/private` phục vụ công khai được không,
+  ba điều kiện máy chủ cho sao lưu (`ZipArchive::EM_AES_256`, `proc_open`, `mariadb-dump`/
+  `mysqldump`), bốn thông tin `BRAND_*` (vàng), và ba biến số sao lưu có giá trị không phải số
+  (đỏ, mọi môi trường). `APP_ENV` để trống là đỏ ở mọi nơi; khác `production` chỉ in một dòng vàng,
+  không kiểm các điều kiện trên. **Chạy lệnh này TRƯỚC `php artisan config:cache`** — ba điều kiện
+  đọc `env()` trực tiếp (không qua `config()`) để bắt đúng giá trị RAW (phát hiện lỗi gõ như
+  `BACKUP_RCLONE_TIMEOUT=30m`), và sau khi cấu hình đã cache, `env()` ngoài một tệp cấu hình luôn
+  trả `null` (`LoadEnvironmentVariables::bootstrap()` bỏ qua việc nạp `.env` khi có cache) — ghi rõ
+  trong docblock và `docs/CAI-DAT.md`.
+  - **`gd` không nằm trong danh sách extension bắt buộc, là một dòng VÀNG riêng.** SPEC §2 liệt kê
+    `gd`, và `config/media-library.php` chọn nó làm `image_driver` mặc định, nhưng soát ngày
+    2026-09-28 (`grep -rn "registerMediaConversions\|addMediaConversion" app/`) không thấy dự án
+    đăng ký chuyển đổi ảnh nào — thiếu `gd` hôm nay không làm vỡ tính năng đang chạy thật. Đỏ hoá
+    dòng này khi có Task nào đăng ký `addMediaConversion()` đầu tiên.
+  - Danh sách extension đọc qua `config('vkcrm.deployment.required_extensions')` (không phải một
+    `const` cứng) để test gài được một tên giả, dựng cả hai chiều đỏ/xanh mà không cần gỡ thật một
+    extension của container.
+  - Đã sửa hai chỗ tài liệu nói sai chủ của lệnh này: `docs/CAI-DAT.md` mục "Khi đưa lên máy chủ
+    thật" (mục 5) và `docs/SAO-LUU-KHOI-PHUC.md` Bước 5 — cả hai từng ghi "M8 Task 8, chưa có".
+- **Ép HTTPS + HSTS** — `App\Http\Middleware\EnforceHttps` (toàn cục, `append()` ở
+  `bootstrap/app.php` — SAU `TrustProxies`, bắt buộc để `$request->secure()` đọc đúng
+  `X-Forwarded-Proto` của proxy ĐÃ được tin). `FORCE_HTTPS`/`SESSION_SECURE_COOKIE`/`HSTS_MAX_AGE`
+  để trống là chặt nhất (bật/hạn một năm) ở mọi môi trường trừ `local`/`testing`
+  (`App\Support\Security\HttpsDefaults`, cùng thành ngữ với `CSP_MODE`). GET/HEAD chuyển hướng
+  301; phương thức khác 308 (không mất thân request). `SESSION_SECURE_COOKIE` giải xong được ghi
+  đè vào `config('session.secure')` ở `AppServiceProvider::boot()` (không sửa được ngay trong
+  `config/session.php` — gọi `app()->environment()` ở đó ném `BindingResolutionException`, vì
+  `LoadConfiguration` nạp tệp cấu hình TRƯỚC dòng `detectEnvironment()`; đọc docblock của
+  `HttpsDefaults` và `AppServiceProvider::boot()`). `URL::forceHttps()` cũng gọi ở `boot()` (không
+  ở middleware) để link trong thư/PDF do queue worker sinh ra luôn là `https`.
+  - HSTS không kèm `includeSubDomains`/`preload` mặc định — các tên miền con khác của
+    luatvukhang.com nằm ngoài ứng dụng này.
+  - Lớp CHÍNH cho HSTS là máy chủ web: `tools/deploy/nginx.conf.example` và
+    `tools/deploy/apache-vhost.conf.example`, **đã chạy thử** ngày 2026-09-28:
+    - `docker run --rm nginx:stable-alpine` (mount cấu hình + chứng chỉ giả) → `nginx: the
+      configuration file /etc/nginx/nginx.conf syntax is ok` / `test is successful`.
+    - `docker run httpd:2.4-alpine` (bật `mod_ssl`/`mod_rewrite`/`mod_headers`/
+      `mod_socache_shmcb`, chứng chỉ tự ký giả) → `Syntax OK`.
+    - Cả hai mẫu cộng thêm ba header SPEC §10 mục 2 cho tệp tĩnh dưới `public/` (đóng nốt minor
+      hoãn của M8a: "public/ static files never see any header"), chặn dotfile, và chặn
+      `/storage/` (dự án không dùng `storage:link`, SPEC §2 — một symlink như vậy chỉ có thể là
+      cấu hình sai, đúng thứ `vkcrm:preflight` cũng dò).
+- **Giới hạn IP admin (R7)** — `App\Http\Middleware\RestrictAdminIpAllowlist`, đọc
+  `ADMIN_IP_ALLOWLIST` (`config('vkcrm.security.admin_ip_allowlist')`, phân tách dấu phẩy, IPv4/
+  IPv6/CIDR). Rỗng = TẮT (mặc định). Đăng ký trên panel `admin`, `isPersistent: true`, TRƯỚC
+  `AnswerDeniedPanelRequestsWithNotFound` — IP ngoài danh sách nhận 404 (SPEC §10.10), kể cả trên
+  request cập nhật Livewire. KHÔNG phủ `documents.download`/`/livewire/upload-file` (quyết định có
+  chủ đích, xem docblock middleware).
+  - **CẦN HỎI CHỦ VĂN PHÒNG** (kế hoạch M8, dòng 49): có bật `ADMIN_IP_ALLOWLIST` không, và nếu
+    bật thì những dải IP nào (văn phòng, VPN nếu có). Để trống cho tới khi có câu trả lời.
+  - **Lưu ý cho M12** (đã ghi trong brief Task 1): bật allowlist thì app admin trên điện thoại
+    dùng mạng 4G (không qua VPN/IP văn phòng) sẽ nhận 404.
+- **Soát `unsafe-eval` (M8a minor hoãn "→ owner + M8 audit").** Liệt kê MỌI chỗ vẽ HTML thô trong
+  `app/` và `resources/views/` ngày 2026-09-28: `->html()` (6 chỗ, `ChecklistRelationManager`,
+  `ClientRequestsRelationManager`, `DeadlinesRelationManager`, `DocumentsRelationManager`
+  (`internalRowStyle()` — CSS tĩnh, không có dữ liệu người dùng), `StageLogsRelationManager` ×2,
+  `UpcomingDeadlinesWidget` ×2), `HtmlString` (cùng danh sách), không `Str::markdown()` nào, không
+  `{!! !!}` nào ngoài các view thư `text/plain` (đã có docblock giải thích lý do an toàn — thư văn
+  bản thuần không có trình duyệt nào diễn giải HTML), và KHÔNG có thuộc tính Alpine
+  (`x-data`/`x-init`/`x-on`/`x-bind`) nào do dự án tự viết trong `resources/views/` (Alpine chỉ
+  đến từ nội bộ Filament, đã qua khảo sát CSP của M8a). **Kết luận: mọi chỗ vẽ HTML thô của dự án
+  đều `e()` từng biến trước khi đưa vào `sprintf()`** — không chỗ nào vẽ chữ người dùng gõ mà
+  không escape hôm nay. Đây là ảnh chụp ngày 2026-09-28, không phải một bảo đảm tĩnh mãi mãi — một
+  cột `->html()` mới quên `e()` sẽ tái mở lỗ hổng này. **Quyết định giữ hay bỏ `unsafe-eval` vẫn
+  là của chủ văn phòng** (kế hoạch M8, phán quyết R4 phần audit): giữ nó vì Alpine của Livewire cần
+  nó để chạy (mất nó thì trang đăng nhập nhân sự không dùng được, đo ở M8a); bỏ nó chỉ an toàn hơn
+  về lý thuyết chừng nào không ai thêm một sink chưa escape — không có động tác kỹ thuật nào khác
+  đổi được kết luận này ngoài việc chờ Filament tự chuyển toàn bộ Alpine sang chế độ CSP-safe.
+- **Việc mang sang M7** (Task 10, hồ sơ pháp lý văn phòng qua `OfficeProfile`): khi Task đó xong,
+  đổi nguồn đọc bốn trường `tax_code`/`bar_association`/`licence_number`/`office_address` trong
+  `RunPreflight::brandFieldsRow()` từ `config('vkcrm.brand.*')` sang `OfficeProfile`, giữ nguyên
+  bốn tên biến `.env` hiển thị trong thông điệp vàng.
+- **`.env.example`**: khối mới ở cuối tệp — `SESSION_SECURE_COOKIE`, `FORCE_HTTPS`, `HSTS_MAX_AGE`,
+  `HSTS_INCLUDE_SUBDOMAINS`, `HSTS_PRELOAD`, `ADMIN_IP_ALLOWLIST`.
+
+### Task 1, fix round 1 (2026-09-28) — bốn điểm rà soát
+
+1. **`tools/deploy/nginx.conf.example` — Livewire 4 bị chính location regex tệp tĩnh 404 hoá.**
+   Script `livewire.min.js` phục vụ qua một ROUTE PHP mang tiền tố băm
+   (`/livewire-<hash>/livewire.min.js`), không phải tệp thật dưới `public/`, nhưng đuôi tên trùng
+   với `location ~* \.(?:css|js|...)$ { try_files $uri =404; }` — nginx chọn location regex khớp
+   trước khi PHP kịp thấy request, nên MỌI trang có Livewire (đăng nhập admin, đăng nhập portal,
+   mọi form) tải HTML bình thường nhưng không component nào chạy được. Sửa bằng một location tiền
+   tố `^~ /livewire-` đứng trước, `try_files $uri /index.php?$query_string;` — `^~` cắt hẳn bước dò
+   regex của nginx khi đây là tiền tố khớp dài nhất.
+
+   **Xác nhận THẬT bằng curl qua nginx + php-fpm** (không chỉ `nginx -t`), container
+   `nginx:stable-alpine` + `webdevops/php:8.3-alpine` (worktree mount `ro`), ngày 2026-09-28:
+   - **TRƯỚC khi sửa** (`location` chặn còn thiếu):
+     `curl -sk https://.../livewire-ba5adf96/livewire.min.js?id=b7ac2fb1` → `HTTP/2 404`, thân
+     trang lỗi mặc định của chính nginx (`<center>404 Not Found</center><hr><center>nginx/1.30.5
+     </center>`) — script không tới được PHP.
+   - **SAU khi sửa** (đúng nội dung `tools/deploy/nginx.conf.example` hiện tại): cùng URL →
+     `HTTP/2 200`, `content-type: application/javascript; charset=utf-8`,
+     `content-length: 257998` (đúng kích thước `livewire.min.js` thật). `/admin/login` và
+     `/portal/login` qua cùng cấu hình đều `200`.
+   - Mẫu `apache-vhost.conf.example` KHÔNG cần sửa tương ứng: `<FilesMatch>` của Apache chỉ gắn
+     header vào tệp Apache THẬT SỰ phục vụ; đường dẫn Livewire không khớp tệp nào trên đĩa nên
+     `.htaccess`/`AllowOverride All` của Laravel rewrite thẳng nó sang `index.php` như mọi route
+     khác — không đi qua `<FilesMatch>` — xác nhận lại bằng `httpd -t` (Syntax OK) trên bản có
+     bình luận mới, không đổi khối rewrite.
+2. **`tests/Feature/Panels/AdminIpAllowlistTest.php` — test "isPersistent" cũ không đo được gì.**
+   POST `['components' => []]` (rỗng) bị chính Livewire `abort(404)` NGAY ở bước phân giải
+   component, trước khi middleware bền kịp chạy — test xanh bất kể allowlist bật/tắt hay
+   `isPersistent` có mặt hay không. Sửa theo đúng khuôn `DenialCodeTest.php`: lấy `wire:snapshot`
+   THẬT từ một trang admin render thật (`ClientResource` edit, dưới một IP qua được allowlist), rồi
+   POST snapshot đó tới `Livewire::getUpdateUri()` — một request cập nhật không rỗng, đi hết tới
+   bước middleware bền. Hai `it()` riêng (bắt buộc — `PersistentMiddleware` nhớ theo
+   `"{method}|{path}"` trong cùng một request thật, gộp hai POST cùng đường dẫn vào một test làm
+   POST thứ hai không chạy middleware bền nào): một IP bị chặn (404) và một IP được phép (200,
+   cùng snapshot, cùng tài khoản) — cặp âm/dương chứng minh middleware phân biệt theo IP thật, chứ
+   không phải luôn luôn 404. Mutation probe: đổi `isPersistent: true` → `false` ở
+   `AdminPanelProvider` → test "IP bị chặn" đỏ đúng chỗ (`Expected 404 but received 200`); khôi
+   phục lại xanh.
+3. **`AppServiceProvider::boot()` — hai dòng HTTPS/session chưa có test gọi thẳng.** Test cũ chỉ đo
+   hành vi CỦA `EnforceHttps`/`HttpsDefaults` qua middleware, hoặc tự gọi `URL::forceHttps()` thay
+   vì đi qua provider — xoá một trong hai dòng ở `boot()` không làm bộ test đỏ. Thêm hai `it()`
+   TÁCH RIÊNG (không gộp một test — đo được lúc viết: `Symfony\Component\HttpFoundation\Response::
+   prepare()` tự đặt `secureDefault=true` cho MỌI cookie khi CHÍNH request hiện tại `isSecure()`,
+   và một khi `URL::forceHttps()` đã chạy thì `$this->get('/portal/login')` [đường dẫn tương đối]
+   tự sinh request https qua `url()` — gộp chung khiến phép đo dòng `session.secure` xanh giả nhờ
+   đúng dòng `URL::forceHttps()` kia, không nhờ chính nó):
+   - Dòng `config(['session.secure' => HttpsDefaults::boolFromRaw(...)])`: tắt hẳn `FORCE_HTTPS`
+     (không để trống) để cô lập, gọi `boot()` thật, GET một URL TUYỆT ĐỐI `http://` (bỏ qua
+     `forceScheme` vì `UrlGenerator::isValidUrl()` trả nguyên văn URL đã đủ scheme), rồi hỏi cookie
+     phiên thật có `Secure`.
+   - Dòng `URL::forceHttps()`: để `FORCE_HTTPS` trống (bật mặc định production), gọi `boot()`
+     thật, sinh chữ ký `temporarySignedRoute()` và hỏi nó có bắt đầu `https://`.
+   Mutation probe từng dòng (comment tạm + `&& false`): mỗi lần đỏ đúng test tương ứng
+   (`Failed asserting that false is true` / URL sinh ra bắt đầu `http://`); khôi phục lại xanh cả
+   hai.
+4. **`RunPreflight::trustedProxiesRow()` — `TRUSTED_PROXIES` tin toàn bộ IP báo XANH.** Mẫu
+   `tools/deploy/` tả một cấu hình KHÔNG proxy tách rời (nginx/apache nói thẳng với php-fpm), và
+   `config/trustedproxy.php` từng gợi ý `*` cho đúng tình huống "không biết địa chỉ đó" — một
+   người theo đúng mẫu, không có proxy nào để điền, làm theo gợi ý đó được preflight XANH trong khi
+   `*`/`**`/`0.0.0.0/0`/`::/0` tin bất kỳ IP nào tự khai `X-Forwarded-For`, xuyên thủng
+   `ADMIN_IP_ALLOWLIST` (R7, Ghi chú M8 mục Task 1) và bộ đếm đăng nhập theo IP (§10.3). Sửa: bốn
+   giá trị đó (không phân biệt hoa/thường, kể cả đứng cạnh một IP thật trong danh sách) nay ĐỎ,
+   dòng thông điệp mới `preflight.trusted_proxies_trust_all`. Test dataset 5 trường hợp
+   (`*`, `**`, `0.0.0.0/0`, `::/0`, `10.0.0.1,0.0.0.0/0`) — mutation probe (`if (false)` tạm thay
+   điều kiện thật) làm cả 5 đỏ đúng chỗ, khôi phục lại cả 19 test của tệp xanh. Cập nhật
+   `docs/CAI-DAT.md` mục 1, `.env.example`, `config/trustedproxy.php`, và cả hai mẫu
+   `tools/deploy/` — chốt giá trị đúng cho cấu hình không-proxy này là
+   `TRUSTED_PROXIES=127.0.0.1` ("không có proxy nào để tin, REMOTE_ADDR đã là địa chỉ thật" —
+   nginx tự đặt `fastcgi_param REMOTE_ADDR $remote_addr;` bằng địa chỉ client thật bất kể
+   TCP/unix-socket nối tới php-fpm), không phải `*`.
+
+Bằng chứng chạy: cả bộ `/d/vkwt/m8b-dev test --parallel --processes=4` → **2429 passed, 6 skipped, 0
+failed** (10099 assertions), 475.44s (mốc trước fix round 1: 2421 passed — chênh +8 khớp đúng số
+test mới của bốn điểm trên: 5+1+2). `pint --test` sạch 599 tệp. Ba tệp test đụng tới
+(`PreflightCommandTest`, `EnforceHttpsTest`, `AdminIpAllowlistTest`) chạy lại tuần tự trên
+`test:mariadb` → 42 passed, 0 failed. Chi tiết mã nguồn/dòng, lệnh và log đầy đủ ở
+`.superpowers/sdd/m8b/task-1-report.md`, mục "## Fix round 1".
+
+### Task 2 — 2FA bắt buộc cho toàn bộ tài khoản nội bộ (R2, §10 mục 7)
+
+- **Bật ở panel `admin`**: `->multiFactorAuthentication([StaffAppAuthentication::make()->recoverable()
+  ->brandName(...)], isRequired: true)` cộng `->persistentMiddleware([EnsureMultiFactorAuthentication
+  IsEnabled::class])` (cổng của Filament chỉ đứng trước route của TRANG; request `/livewire/update`
+  của người vừa bị "Đặt lại 2FA" đi vòng qua nó nếu thiếu dòng này — có test dùng `wire:snapshot`
+  thật). Filament 5.8.1 có sẵn 2FA ứng dụng + mã khôi phục, không cài gói TOTP. `users.two_factor_secret`
+  / `two_factor_recovery_codes` cast `encrypted` / `encrypted:array`, **không migration** (chưa
+  đường nào từng ghi hai cột; text đủ chứa bản mã). SPEC §3 và §4.1 đã đính chính ("Fortify" →
+  "2FA ứng dụng của Filament").
+- **Không đường tắt**: `StaffAppAuthentication` bỏ `DisableAppAuthenticationAction` (trang hồ sơ
+  giữ "Tạo lại mã khôi phục"). Test quét: trang hồ sơ (a), ép gọi hành động tắt (b), quét `app/`
+  tìm lời gọi `saveAppAuthenticationSecret(null)` (c), request Livewire của người chưa có 2FA (d),
+  và (e) **toàn bộ router** — mỗi route thuộc đúng một nhóm (panel admin mang cổng 2FA / panel
+  portal guard `client` / danh sách lý lẽ tường minh, có chiều ngược để dòng chết không tồn tại).
+- **Vòng sửa 1 tìm thấy một đường thật ở (e)**: `documents.download` nằm ngoài panel; một đường
+  dẫn ký (sống 5 phút) sinh trước lúc "Đặt lại 2FA" + phiên mới bằng mật khẩu tải được tệp mà chưa
+  có 2FA. Đã RED (200) rồi đóng ở `DocumentDownloadController::actor()` (nhân sự không có secret →
+  404). `filament.exports.download` / `filament.imports.failed-rows.download` (chỉ middleware
+  `filament.actions`, không cổng 2FA) không phục vụ được gì: `app/` không có Exporter/Importer
+  và CSDL không có bảng `exports`/`imports` — test đỏ khi ai thêm tính năng đó.
+- **"Đặt lại 2FA"**: `App\Actions\User\ResetStaffTwoFactor` (M11 móc thu hồi token vào đây) — khoá
+  dòng `users`, xoá secret + mã khôi phục, tăng `users.session_epoch`, đổi `remember_token`, audit
+  `staff_two_factor_reset`; từ chối tự đặt lại cho chính mình. Hai đường vào: nút trên `EditUser`
+  (chỉ admin) và `php artisan vkcrm:reset-2fa {email}` (causer null, `via = console`).
+- **Phiên cũ của người bị đặt lại chết bằng "epoch", không bằng `sessions.user_id`** (vòng sửa 1,
+  lượt 2): `DatabaseSessionHandler` điền `sessions.user_id` từ guard MẶC ĐỊNH lúc ghi, và
+  `Filament\Http\Middleware\Authenticate` đổi guard mặc định sang `client` trên `/portal` — một trình
+  duyệt nhân sự đồng thời đăng nhập cổng khách để lại `user_id` của khách, dòng phiên sống sót qua
+  "xoá theo user_id", và phiên cũ tự cài TOTP của kẻ tấn công ở trang cài đặt bắt buộc. Nay
+  `users.session_epoch` (migration `2026_09_30_000001`) tăng mỗi lần đặt lại; `StampStaffSessionEpoch`
+  ghi nó vào phiên lúc đăng nhập guard `web`; `RejectStaffSessionsFromBeforeReset` (nhóm `web` +
+  middleware panel `admin`, sau `StartSession`, trước cổng 2FA) đăng xuất phiên lệch epoch. Test
+  HTTP thật với `session.driver=database`: `StaffTwoFactorResetSessionTest`.
+- **Mất `APP_KEY`** (đã đo, sửa `docs/CAI-DAT.md` cho đúng): mỗi nhân sự đã cài 2FA gặp
+  `DecryptException` (500) ở bước nhập mã; `vkcrm:reset-2fa <email>` vẫn xoá được secret từng người
+  (không cần giải mã) và họ cài lại — hai test trong `ResetStaffTwoFactorTest`. Số định danh khách
+  hàng đã mã hoá thì mất vĩnh viễn, như cũ.
+- **Demo**: `UserFactory` mặc định có secret (state `withoutTwoFactor()`); seeder gán một secret
+  cố định (ghi ở `docs/CAI-DAT.md`) cho nhân sự demo CHỈ khi `APP_ENV` là `local`/`testing`.
+- **Khảo sát CSP `enforce` qua 2FA (0 vi phạm)**: `tools/csp/survey.cjs` đăng nhập hai bước (TOTP
+  RFC 6238 bằng `crypto` của Node), ghé ô mã khôi phục lúc đăng nhập, đi hết trang "Cài đặt 2FA bắt
+  buộc" + modal QR + bước mã khôi phục + bấm "Bật ứng dụng xác thực" (một tài khoản vừa
+  `vkcrm:reset-2fa`), modal "Tạo lại mã khôi phục", rồi toàn bộ trang admin/portal của M6.5 và các
+  ô tải ảnh. Bản chạy thật `/d/vkwt/m8b-dev seed` (MariaDB `vk_crm_lane_m8b`, secret trong CSDL là
+  bản mã `eyJpdiI6…`) + `serve -e CSP_MODE=enforce`: **Tổng vi phạm 0, lỗi JS 0, Worker blob 3/3 chạy
+  0 lỗi**, 34 trang/bước, hành động chính đủ ba dòng `[OK]`. Đầu ra đầy đủ:
+  `.superpowers/sdd/m8b/probe/csp-enforce-run7.log`. (Sáu lượt trước bị Chromium "Page crashed"
+  giữa chừng hoặc chạy đè nhau trên cùng một máy chủ một luồng — chỉ lượt sạch cuối được tính.)
+- **Chưa làm / để lại**: luật 5 lần/15 phút cho bước nhập mã là Task 3 (bước này dùng luật mặc định
+  5 lần/60 giây theo tài khoản của Filament). `redirect()->intended()` sau bước 2FA có test ở
+  `AdminTwoFactorRequiredTest` (M11 dựa vào).
+
+### Task 3 — Rate limit đăng nhập admin + tải tệp, API, nhật ký hoạt động (§10 mục 3, 6)
+
+- **Đăng nhập nhân sự 5 lần / 15 phút theo email VÀ IP, cả hai bước.** Luật của cổng khách được
+  tổng quát hoá theo guard chứ không chép bản thứ hai: `App\Support\LoginThrottle` (abstract, toàn
+  bộ luật + docblock dài của M5) với hai lớp con `final` — `PortalLoginThrottle` (guard `client`,
+  tiền tố khoá `portal-login`, **chuỗi khoá giữ nguyên từ M5**) và `StaffLoginThrottle` (guard `web`,
+  `staff-login`, hai guard không bao giờ chung rổ). Trang `App\Filament\Admin\Pages\Auth\Login` +
+  `StaffMultiFactorChallenge` theo đúng khuôn portal; bước mã dùng CHUNG một bộ đếm cho TOTP và mã
+  khôi phục. Lỗi ở bước mã ghi `login_failed` kèm `step = code` và IP (cùng phán quyết T7 của
+  portal; lỗi bước mật khẩu do `RecordStaffLoginFailure` ghi, nay kèm `step = password`); lần bị
+  chặn không ghi dòng nào (không ai chấm mã). Test portal (`LoginTest`, `LoginOtpTransportFailure
+  Test`, `ClientUserResourceTest` — 119 test) xanh không đổi một khẳng định nào sau refactor.
+- **Mở khoá nhân sự**: `App\Actions\User\UnlockStaffLogin` + nút `unlockLogin` trên `EditUser`
+  (chỉ admin — `UserPolicy::unlockLogin()`, Gate hỏi ba lần: `visible()`, `action()`, Action), audit
+  `staff_login_unlocked`. Luật "xoá chiều IP chỉ khi NAT-an toàn" rút ra thành trait
+  `App\Actions\Concerns\ClearsNatSafeIpLocks`, dùng chung với `UnlockPortalLogin`, và **thêm lọc theo
+  `properties.guard`**: một dòng `login_failed` của guard kia ở cùng địa chỉ không tiêu lượt nào
+  trong rổ này nên không được làm khoá IP trông như dùng chung.
+- **Tải tệp: đếm TỆP, không đếm request.** `throttle:livewire-upload` (bộ đếm có tên của framework,
+  một đơn vị mỗi request) thay bằng `App\Http\Middleware\ThrottleUploadedFiles` (cắm ở
+  `config/livewire.php`): tăng nguyên tử `RateLimiter::increment($key, …, $soTệp)`, vượt trần thì
+  HOÀN LẠI và từ chối CẢ request bằng 429 + `Retry-After` — không nhận một phần. Trước đó một request
+  `files[]` 20 tệp chỉ tốn 1 suất (20 request × 20 tệp = 400 tệp/giờ lọt trần 20). Khoá cache vẫn
+  `md5('livewire-upload'.$khoá)` nên `SubmitDocument::_uploadErrored()` hỏi lại được; vì lô bị từ
+  chối không tăng bộ đếm, middleware còn đánh dấu lần từ chối (`UploadThrottle::markRefused()`, 60
+  giây) để màn hình nộp không đọc nhầm 429 của lô thành "tệp lỗi/sóng yếu".
+- **Phán quyết "có áp cho nhân sự không": 20 tệp/giờ là luật nộp tài liệu của KHÁCH; nhân sự có trần
+  riêng 200 tệp/giờ/tài khoản** (`UploadThrottle::STAFF_FILES_PER_HOUR`) trên cùng endpoint — không bỏ
+  trần vì mỗi POST ghi đĩa. Giá nếu sai: một phiên nhân sự bị chiếm ghi được 200 thay vì 20 tệp/giờ;
+  luật sư tải > 200 trang trong một giờ gặp lời từ chối. SPEC §10.3 đã đính chính.
+- **API 60/phút**: hôm nay không có route `api/*` (không `routes/api.php`, `bootstrap/app.php` không
+  khai routing api) — `RateLimitSpec103Test` khẳng định, và đỏ ngay khi có route đầu tiên. **M11 R8
+  đã nhận giới hạn 60 request/phút cho máy chủ MCP** (`docs/superpowers/plans/2026-09-24-m11-mcp.md`
+  dòng 39, 219; không sửa kế hoạch M11).
+- **§10.6 — tám loại, mỗi loại một test tên `§10.6 …`** (`tests/Feature/Security/ActivityLogSpec106
+  Test.php`, đi qua Livewire/HTTP thật, khẳng định khoá sự kiện, subject, causer, IP): đăng nhập
+  thành công/thất bại của CẢ hai guard; tải tài liệu (route ký thật); công bố tài liệu (nút trên tab
+  Tài liệu). Ba loại trước chỉ gián tiếp nay là **sự kiện tường minh**: `stage_log_published`
+  (`TransitionMatterStage`, cả chuyển giai đoạn lẫn "Thêm cập nhật"; chủ thể là dòng tiến độ nên
+  `ActivityOwningMatter` lọc theo quyền xem vụ — test vụ `restricted` không lộ ra manager; properties
+  chỉ id, không mã/tên vụ); `permission_changed` (`RecordStaffPermissionChange`, gọi trong transaction
+  của `EditUser`, kèm chức danh + vai trò cũ → mới, không ghi khi chỉ đổi tên);
+  `portal_account_created` / `portal_account_deactivated` (`CreatePortalAccount`,
+  `UpdatePortalAccount` — nghiệp vụ trong Action, hai trang ClientUser chỉ gọi; mật khẩu không bao
+  giờ vào properties; dòng vô hiệu hoá chỉ sinh khi `is_active` thật sự đổi true → false, đọc dưới
+  khoá dòng). Dòng `updated` của `LogsActivity` vẫn đứng cạnh (chấp nhận được). Nhãn mới:
+  `staff_login_unlocked` (bốn nhãn còn lại đã khai sẵn).
+- **"Xuất dữ liệu"**: hôm nay chỉ MỘT đường — `documents.download` (đã ghi `document_downloaded`).
+  Hai test đóng băng tập đó từ hai phía độc lập: router (mọi route tên/uri có `download|export|backup|
+  archive|handover` trừ hai route Filament không phục vụ được gì vì app không có Exporter/Importer)
+  và mã nguồn `app/` (chỉ `DocumentDownloadController` được gọi `->download(`/`streamDownload(`/…).
+  **Mang sang M7 Task 4**: sinh/tải gói bàn giao hồ sơ phải ghi `data_exported` và mở rộng đúng hai
+  test này (M7 merge SAU M8b nên chỗ nối là ở đây).
+- **Giữ nhật ký (đóng minor M-8 của M6.5)**: không lên lịch `activitylog:clean` (test quét lịch), và
+  `activitylog.delete_records_older_than_days` từ 365 → `RETENTION_YEARS × 366` để một lần chạy tay
+  cũng không xoá được gì trong thời hạn lưu. Giá nếu sai: bảng `activity_log` lớn dần (cỡ MB mỗi năm).
+- **Đo bằng mutation** (24 probe, `.superpowers/sdd/m8b/probe/t3-probes.log`): mỗi điều kiện mới bỏ đi
+  đều đỏ đúng test nêu tên nó.
+- **Còn lại / để lại**: giới hạn 60/phút của API là M11. Khe đua giữa quét virus và bộ đếm (M-6 của
+  M6.5) giữ hoãn — nhưng bộ đếm endpoint nay là phép tăng nguyên tử nên không còn khe "đọc rồi ghi".
+  Chiều IP của luật đăng nhập dựa vào `request()->ip()` nên phụ thuộc `TRUSTED_PROXIES` (Task 1,
+  `vkcrm:preflight`); test đổi IP đi bằng request HTTP thật (`REMOTE_ADDR`), không phải `livewire()`.
+- **Task 3, fix round 1 (review vòng 1)**:
+  - *Mã ĐÚNG không tiêu chiều IP dùng chung.* Bước mã đập bộ đếm trước khi chấm (an toàn với request
+    song song) nên lần đúng cũng tiêu một suất ở chiều địa chỉ, và đăng nhập không xoá chiều đó; với
+    2FA bắt buộc + một địa chỉ NAT của văn phòng, người thứ sáu gõ ĐÚNG mã bị "thử quá nhiều lần" mỗi
+    sáng, và nút "Mở khoá đăng nhập" không gỡ được (không có dòng `login_failed` nào để đọc). Sửa:
+    `LoginThrottle::refundCodeIp()` — sau mã đúng, request tự HOÀN đúng suất nó vừa tiêu (cờ
+    `codeIpHit`: đăng nhập không qua bước mã, ví dụ nhân sự chưa cài 2FA, không hoàn; `attempts > 0`
+    chặn ghi -1 khi khoá hết hạn giữa chừng). Lần SAI vẫn ở lại đủ. **Cổng khách KHÔNG đổi**: test
+    `LoginTest` "clears only the account dimension of the code lock…" ghim có chủ ý (M5) rằng lần
+    đúng vẫn giữ suất trên chiều IP; cùng lỗi ở cổng khách nhẹ hơn (OTP qua thư, ít khi nhiều khách
+    chung NAT) và thuộc phán quyết M5 — ghi lại đây để bộ điều khiển quyết. *(Đã quyết ở rà soát
+    cuối, vòng sửa 1 — I1: cổng khách nay hoàn suất y như nhân sự, pin `LoginTest` đã lật; xem mục
+    "Rà soát cuối M8b, vòng sửa 1" ở cuối Ghi chú này.)*
+  - *Câu từ chối riêng cho nhân sự.* `App\Filament\Admin\Concerns\ExplainsStaffUploadRefusal` (gắn
+    vào `DocumentsRelationManager`, ô tải tệp duy nhất của /admin) đổi 429 của trần 200 tệp/giờ thành
+    `documents.errors.staff_upload_rate_limited` (số tệp + số phút chờ, không số điện thoại văn phòng);
+    422 và lỗi tệp khác vẫn qua `parent::_uploadErrored()`. Trước đó Livewire chỉ báo "Tải lên
+    mountedActions.0.data.file không thành công".
+  - *Proxy tin cậy cho /admin/login.* Test mới: bộ đếm mật khẩu và mã đếm theo địa chỉ ở
+    `X-Forwarded-For` phía sau proxy được tin; header từ địa chỉ không phải proxy bị bỏ qua; không tin
+    ai thì mọi người chung khoá của proxy (chế độ hỏng mà preflight chặn); allowlist IP và bộ đếm đọc
+    cùng một địa chỉ.
+
+### Task 4 — Dữ liệu cá nhân và tệp (§10 mục 4, 5)
+
+- **§10.5 — quét dữ liệu thật, không đọc mã bằng mắt.** `tests/Support/SensitiveDataFlows` cho các
+  giá trị lính canh đi qua MÀN HÌNH thật (Livewire/HTTP/Artisan, không gọi thẳng Action): tạo khách
+  hàng có CCCD gõ dấu cách; tra định danh khi mở vụ (gõ dấu chấm) rồi mở vụ có bên đối lập mang CCCD
+  riêng; tải lên + tải về một tài liệu qua route ký; tạo tài khoản cổng; sửa CCCD khách (dấu gạch —
+  đồng bộ `matter_parties`); thư tiến độ chạy thật qua hàng đợi `database` tới mailer `log`; một thư
+  tiến độ hỏng hẳn sau 5 lượt (`failed_jobs`); cài 2FA qua trang bắt buộc, đăng nhập bằng mã TOTP và
+  bằng mã khôi phục; gõ mật khẩu vào ô email (admin + cổng); "Mở khoá đăng nhập" và "Đặt lại 2FA" (màn
+  hình + `vkcrm:reset-2fa`); `vkcrm:preflight` giả lập production; hai request HTTP thật đẩy phiên
+  xuống bảng `sessions`. Cache/hàng đợi/phiên chạy trên `database` như máy thật (không `array`/`sync`
+  như bộ test), log + thư vào MỘT tệp tạm riêng của lượt chạy.
+  `tests/Support/SensitiveTraceScanner` rồi quét **mọi cột của mọi bảng** (liệt kê bằng `Schema`,
+  không danh sách tay, kể cả `clients.id_number` — chỉ được chứa bản mã), tệp log của lượt chạy, và
+  **một bản sao lưu THẬT** (`backup:run` có `mariadb-dump`, archive mở bằng mật khẩu, quét từng mục —
+  `tests/Feature/Backup/BackupPersonalDataScanTest.php`, chạy bằng `test:dump`). Dạng tìm: chữ số
+  với mọi dấu chen giữa (kể cả `%20`), `sha256`/`sha1`/`md5` trần của chữ số và của từng cách gõ,
+  mật khẩu nguyên văn/mã hoá URL/băm trần, secret 2FA, mã khôi phục, `APP_KEY` — ở bốn dạng của mỗi
+  văn bản (nguyên bản, quoted-printable, base64 từng dải, base64 sau khi nối dòng 76 ký tự). Máy quét
+  có test đối chứng riêng: cài từng dạng vào một bảng khác nhau, đòi nó báo đủ, và đòi nó KHÔNG báo
+  một HMAC có khoá.
+- **RED trên nền `42dba80`**: phép quét bắt `matter_parties.id_number_hash` — `sha256` TRẦN của CCCD
+  khách hàng (bản sao gần như rõ của `clients.id_number`, nằm ngoài cột đã mã hoá) và của bên đối lập
+  (dạng lưu duy nhất của số của họ); cùng hai phát hiện trong bản dump của archive sao lưu. Đó là
+  đúng lỗ hổng C-I4/X8 của rà soát cuối M6.5, mà X8 chỉ đóng cho nhật ký.
+- **Sửa (phán quyết controller):** `Normalizer::idNumberHash()` gọi thẳng `Audit::identifierHash()`
+  — HMAC-SHA256 khoá `APP_KEY`, MỘT định nghĩa cho cột so trùng lẫn `properties` của nhật ký; docblock
+  hai nơi viết lại. Migration `2026_10_01_000001_rehash_matter_party_id_number_hashes`: dòng có
+  `client_id` (kể cả xoá mềm) tính lại từ `clients.id_number` giải mã; dòng không có nguồn số thô
+  (bên đối lập, dòng cũ tự nhận `is_our_client` không trỏ hồ sơ) thành `NULL`; một
+  `clients.id_number` không giải mã được → `RuntimeException` nêu `APP_KEY`, cả lượt trong MỘT
+  transaction nên không dòng nào bị đổi; `down()` trả bên khách hàng về `sha256` trần (thứ mã cũ so).
+  Công thức HMAC viết thẳng trong migration (một migration là ảnh chụp lịch sử), test ghim nó bằng
+  `Normalizer` hôm nay. Mọi test xung đột lợi ích (bậc `ConflictMatchTier::Hash`, R13) xanh.
+- **Hệ quả phải biết: đổi `APP_KEY` giờ làm hỏng cả so trùng CCCD.** Mọi hash đã lưu thôi khớp — tầng
+  số CCCD của kiểm tra xung đột lợi ích mù IM LẶNG với mọi bên nhập trước đó (test "a new key silently
+  blinds the id-number tier", `RunConflictCheckTest`); bên đối lập không tính lại được. Thêm một lý do
+  cho luật "không bao giờ sinh khoá mới trên dữ liệu thật"; `docs/CAI-DAT.md` (cảnh báo `APP_KEY`) đã
+  ghi. Giá nếu phán quyết `NULL` sai: một bản cài trước ra mắt mất so trùng CCCD của bên đối lập đã
+  nhập trước migration — nhập lại số của bên đó.
+- **Vòng MariaDB thật trên CSDL làn `vk_crm_lane_m8b`** (bộ đếm: `.superpowers/sdd/m8b/probe/
+  t4-check-hashes.php`, so từng dòng `matter_parties` có `client_id` với `clients.id_number` giải mã):
+  `migrate:fresh --seed` → 21/21 dòng khách hàng mang HMAC đúng, 21/33 dòng bên khác có hash;
+  `migrate:rollback --step=1` → 21/21 về `sha256` trần, dòng bên khác `NULL`; `migrate` → 21/21 HMAC
+  đúng; `migrate:reset` (mọi `down()`) → `migrate` → `db:seed` → 21/21 HMAC đúng, 21/33 bên khác có
+  hash.
+- **§10.4 — mỗi điều một test tên `§10.4 …`** (đổi tên test sẵn có, không viết trùng): tệp qua ô tải
+  lên của màn hình rơi vào đĩa `private` = `storage/app/private`, ngoài `public/`, tên tệp trên đĩa
+  không phải tên gốc (`DocumentsRelationManagerTest`); không `storage:link` nào và không symlink nào
+  dưới `public/` trỏ vào kho tệp, đo trên cây thư mục thật (`PrivateDiskTest`); **không route GET nào
+  khác phát tệp** — mọi route GET có tham số + mọi route ngoài hai panel, với id tài liệu/id/uuid
+  media/tên tệp/đường dẫn tương đối, dưới tài khoản mạnh nhất của đúng panel, không phản hồi nào mang
+  nội dung tệp (`tests/Feature/Security/PrivateFilesSpec104Test.php`); URL ký còn tải được ở giây thứ
+  300 và bị từ chối ở giây 301 (du hành thời gian); chữ ký hợp lệ + không có quyền → 404; chữ ký
+  sai/thiếu/hết hạn → 403 — **ngoại lệ có chủ đích** của §10.10 (middleware `signed` trả lời trước khi
+  bất kỳ bản ghi nào được đọc, nên 403 không lộ gì; test "chữ ký hết hạn trả 403 kể cả khi tài liệu
+  không tồn tại" ghim điều đó); URL ký cho người A không dùng được bởi người B đang đăng nhập, kể cả
+  khi B cũng có quyền (`DocumentDownloadTest`).
+- **Máy chủ web — chạy THẬT, không chỉ chú thích.** `tools/deploy/verify-storage-blocked.sh` dựng
+  container `nginx:stable-alpine` và `httpd:2.4-alpine` chính thức từ đúng khối 443 của hai mẫu,
+  document root CỐ Ý đặt vào gốc dự án, tệp lính canh trong `storage/app/private` và `storage/logs`,
+  request thật bằng `curlimages/curl` từ container thứ hai (mạng docker riêng, không map cổng, xoá hết
+  khi xong). Kết quả ngày 2026-10-01 (đầu ra nguyên văn:
+  `.superpowers/sdd/m8b/probe/t4-verify-storage-green.txt`):
+  - nginx, mẫu nguyên vẹn: `/storage/app/private/<lính canh>` cùng các dạng `//`, `%73torage`,
+    `/public/../`, `/storage/app/private/.htaccess`, `/storage/logs/<lính canh>`, `/.env`,
+    `/.github/workflows/ci.yml` → 404 cả tám; **đối chứng** bỏ khối `location ^~ /storage/` → 200 KÈM
+    nội dung lính canh (tệp hồ sơ lẫn log).
+  - Apache, mẫu nguyên vẹn: cùng tám URL → 404; bỏ luật `/storage/` của mẫu, `AllowOverride All` →
+    `.htaccess` của `storage/app/private` trả 403; **đối chứng** thêm `AllowOverride None` → 200 KÈM
+    nội dung lính canh.
+  - **Lỗ thật tìm được ở mẫu Apache**: luật dotfile cũ `<FilesMatch "^\.">` chỉ so TÊN TỆP cuối, nên
+    với `DocumentRoot` đặt nhầm nó phát `/.github/workflows/ci.yml` (200, đo được). Đổi sang
+    `RedirectMatch 404 "/\."` (so cả đường dẫn, chạy trước kiểm tra quyền và `.htaccess`); `/storage/`
+    đổi từ `<LocationMatch> Require all denied` (403) sang `RedirectMatch 404 "^/storage/"`; mẫu nginx
+    đổi `deny all` (403) sang `return 404` ở cả hai khối — một 403 báo cho người dò rằng ở đó có thứ
+    được canh giữ; 404 là cùng mã ứng dụng trả cho mọi thứ không được phép (§10.10). Chạy lại kịch bản
+    trên hai mẫu CŨ: 17 dòng FAIL (`.superpowers/sdd/m8b/probe/t4-verify-storage-red-old-templates.txt`).
+- **Phạm vi của các task trước trong làn** (preflight, 2FA, mở khoá đăng nhập, đặt lại 2FA) nằm trong
+  cùng phép quét: không secret 2FA, mã khôi phục, mật khẩu hay chuỗi gõ nhầm vào ô email nào ở bất kỳ
+  cột, log hay mục archive nào.
+- **Chưa làm / để lại**: `README.md` dẫn tới hai mẫu `tools/deploy/` và kịch bản kiểm là Task 7. Một
+  mật khẩu gõ nhầm vào ô email mà TÌNH CỜ có dạng email hợp lệ vẫn được ghi nguyên văn làm "email đã
+  gõ" của dòng `login_failed` (thiết kế §10.6 có từ trước: dòng thất bại kèm email đã gõ khi nó là một
+  email) — các chuỗi lính canh của phép quét không có dạng email nên bị form từ chối trước khi tới bộ
+  đếm hay nhật ký; trường hợp kia không được đo và không đổi ở đây.
+
+### Task 7 — `README.md`, hướng dẫn triển khai, `vkcrm:create-admin` (§14 mục 8, R6)
+
+- **`php artisan vkcrm:create-admin`** (`App\Console\Commands\CreateAdminCommand` →
+  `App\Actions\User\CreateAdminFromConsole`) thay khối `tinker` + `User::create` của
+  `docs/CAI-DAT.md`: hỏi họ tên (≤ 100), email (≤ 150, đúng dạng, chưa thuộc ai kể cả nhân sự đã
+  xoá mềm — câu tiếng Việt riêng, không lỗi unique 500), mật khẩu nhập ẩn hai lần theo
+  `PasswordRule::default()` (cùng luật form Nhân sự). Tạo chức danh Admin + vai trò `admin`, đang
+  hoạt động, KHÔNG secret 2FA → lần đăng nhập đầu bị dẫn tới trang cài 2FA bắt buộc. Từ chối khi đã
+  có admin chưa xoá mềm (kể cả bị vô hiệu hoá), nêu số lượng, trừ `--additional`. Chỉ tương tác:
+  không tham số nào nhận mật khẩu, `--no-interaction` bị từ chối (phán quyết controller T7). Nhật ký
+  `admin_created_via_console` (causer `null`, `via=console`, `additional`, `admins_before`). 26 test
+  qua `$this->artisan(...)->expectsQuestion(...)`, kể cả đăng nhập Livewire tới trang cài 2FA; 19
+  mutation probe đỏ.
+- **`.env.example`**: thêm đủ mười lăm biến `BRAND_*` — bốn thông tin pháp lý là dòng trống kèm nơi
+  lấy giá trị; mười một biến có mặc định là dòng CHÚ THÍCH mang đúng mặc định (một dòng `BRAND_…=`
+  trống là chuỗi rỗng, không phải "dùng mặc định"). Xoá `BACKUP_DISK=s3` + khối `AWS_*` (không ai
+  đọc). `tests/Feature/Deployment/EnvExampleTest.php` quét hai chiều: mọi `env()` của `config/`,
+  `app/` có dòng mẫu (trừ danh sách biến framework không dùng, nhóm theo lý do), và mọi dòng mẫu được
+  đọc ở đâu đó. Ba dòng Sail cũ (`WWWUSER`, `WWWGROUP`, `VITE_APP_NAME`) không ai đọc — để lại vì luật
+  làn chỉ cho sửa dòng task nêu đích danh, ghi trong test là "chưa dọn"; **dọn ở M8 Task 8**.
+- **Tài liệu**: `docs/CAI-DAT.md` phần "Khi đưa lên máy chủ thật" (mở đầu "Chưa làm…") thành "Cài
+  lên máy chủ thật (production)" mười hai bước có thứ tự (Bước 0 hỏi chủ văn phòng → … → Bước 6
+  `vkcrm:create-admin` ngay sau seed → Bước 7 `vkcrm:preflight` TRƯỚC `php artisan optimize` → …
+  → Bước 11 mở cổng), cộng "Vận hành hằng ngày", "Nâng cấp lên bản mới" (M9 nối tiếp mục này),
+  "Thao tác tiền và `innodb_lock_wait_timeout`", "Giới hạn đã biết", "Kiểm tra tay trước mỗi bản
+  phát hành". `README.md` có mục "Triển khai lên máy chủ thật" (tóm tắt + dẫn tới CAI-DAT/SAO-LUU) và
+  bảng tài khoản demo kèm secret 2FA demo. SPEC §2: đính chính danh sách extension (19 cái, đúng
+  danh sách `vkcrm:preflight`; `gd` VÀNG). `docs/SAO-LUU-KHOI-PHUC.md`: câu 36 giờ, `rclone lsf |
+  sort`, `APP_KEY` còn là khoá cột so trùng CCCD. Cảnh báo `APP_KEY` thêm: `APP_PREVIOUS_KEYS`
+  không cứu cột so trùng CCCD (minor (4) của rà soát Task 4).
+- **Minor hoãn của M8a đã đóng**: `backup.monitor` giữ khoá chống chồng lấn 60 phút — áp NGUYÊN VĂN
+  `ecc1342` của `main` (routes + test) để lúc gộp hai bên giống hệt; câu "36 giờ" (docblock
+  `CheckRcloneRemoteFreshness`, `config/vkcrm.php`, SAO-LUU) nói đúng là chỉ bắt được HAI đêm hỏng
+  liên tiếp — chủ văn phòng giữ 36 giờ; `rclone lsf | sort`; Safari < 15.5 `worker-src` ghi ở
+  "Giới hạn đã biết". Minor (7) của Task 4 (quét bản sao lưu thật chỉ chạy khi có `mariadb-dump`)
+  thành mục "Kiểm tra tay trước mỗi bản phát hành".
+- **`innodb_lock_wait_timeout`** (mang từ sổ M7/M9): thao tác tiền chạy lại cả transaction tối đa 3
+  lần khi gặp 1020/1205/1213; mỗi lượt chờ khoá dòng tối đa `innodb_lock_wait_timeout` (MariaDB mặc
+  định 50 giây) nên có thể ~150 giây, trong khi nginx chỉ chờ PHP-FPM 60 giây — người dùng thấy 504
+  trong khi PHP vẫn chạy và có thể vẫn ghi. Khuyến nghị VPS `innodb_lock_wait_timeout = 15` (3 × 15 <
+  60); shared hosting: dặn kế toán kiểm danh sách khoản thu trước khi nhập lại sau một 504. Mục này
+  nhắc thao tác tiền của M9 — chúng có trên `main`, chưa có trong nền làn này.
+- **Một lượt cài thật theo đúng chữ của tài liệu** (brief mục 5; kịch bản
+  `.superpowers/sdd/m8b/probe/t7-walkthrough.sh`, đầu ra `t7-walkthrough-final.txt`): clone mới từ
+  GitHub (nhánh `m8b-security`), `mariadb:11` + `webdevops/php:8.3-alpine` (PHP-FPM) + nginx dựng từ
+  chính `tools/deploy/nginx.conf.example` với chứng chỉ tự ký ở đúng đường dẫn Let's Encrypt của
+  mẫu, mạng Docker riêng, không map cổng. Kết quả: `composer install --no-dev` chép tài sản Filament
+  vào `public/`; `migrate --force` + `db:seed --force` → 0 người dùng, 5 vai trò, 6 loại vụ việc;
+  `vkcrm:create-admin` tạo đúng một admin chưa có 2FA, chạy lần hai bị từ chối ("đã có 1 quản trị
+  viên"), `--no-interaction` bị từ chối; `vkcrm:preflight` ĐỎ đúng một dòng `HEARTBEAT_URL` (để trống
+  có chủ đích), VÀNG bốn `BRAND_*` pháp lý, XANH mọi dòng khác — kể cả "storage/app/private không
+  phục vụ công khai được" đo bằng request thật qua nginx; điền `HEARTBEAT_URL` → không còn ĐỎ;
+  `php artisan optimize` cache config/route/view/sự kiện/Filament không lỗi; `schedule:run` ghi
+  `last_schedule_run_at`; qua nginx: http → 301 https, `/storage/app/private/`, `/storage/logs/…`,
+  `/.env`, `/.git/config`, `/composer.json` → 404, script Livewire 200; **đăng nhập HTTP thật** (CSRF
+  + snapshot Livewire + POST cập nhật) → `GET /admin` 302 tới
+  `/admin/multi-factor-authentication/set-up` → 200 "Cài đặt Bảo mật 2 bước (2FA)", có HSTS + CSP;
+  khối lệnh nâng cấp: `down` → 503, … → `up` → 200. Bốn chỗ môi trường container buộc khác tài liệu
+  (MariaDB và PHP-FPM ở container riêng: `'vk_crm'@'%'`, `DB_HOST`, `fastcgi_pass` TCP; chown cả mã
+  nguồn vì `docker cp` chép vào với chủ `root`) in rõ `[KHÁC TÀI LIỆU]` trong đầu ra.
+  **Hai lỗi tài liệu/mẫu tìm được và đã sửa**: (1) mẫu nginx — location tệp tĩnh có `add_header`
+  riêng nên bỏ mất HSTS của server block (`/favicon.ico` không có `Strict-Transport-Security`); lặp
+  lại dòng HSTS trong location đó, `tools/deploy/verify-storage-blocked.sh` chạy lại: mọi dòng PASS;
+  (2) `chown storage bootstrap/cache` phải chạy SAU mỗi `composer install` (cả khi nâng cấp), vì lệnh
+  artisan composer tự gọi tạo tệp mang chủ là người chạy composer.
+- **Kiểm chứng**: cả bộ `test --parallel --processes=2` → 2602 passed, 7 skipped, 0 failed (1020 s;
+  Task 4 là 2569/7); bốn tệp test chạm tới trên MariaDB thật (`test:mariadb`) → 41 passed; `pint
+  --test` sạch 638 tệp.
+- **Vòng sửa 1 (rà soát Task 7, Important I1) — dữ liệu mẫu trên máy chủ thật.** Bước 5 cũ cho chạy
+  `db:seed --class=DemoDataSeeder --force` trên production mà không nói đó là trust-on-first-use:
+  tám tài khoản nhân sự demo (`admin@luatvukhang.com` + bảy tài khoản `StaffSeeder`) mật khẩu
+  `password`, chưa có 2FA, nên ai đăng nhập trước là người gắn app xác thực của mình — trên tên miền
+  mở là chiếm trọn quyền quản trị; và không có đường sang dùng thật (Bước 6 từ chối vì "đã có 1 quản
+  trị viên"). Nay Bước 5 nêu đích danh tám tài khoản và rủi ro, BẮT BUỘC `ADMIN_IP_ALLOWLIST` (kiểm
+  `/admin/login` = `404` từ mạng ngoài) trước lệnh seed demo, khuyên bản cài riêng (vẫn allowlist),
+  và cho chuỗi "Hết demo, chuyển sang dùng thật" chạy TRƯỚC Bước 6: `migrate:fresh --force` →
+  `db:seed --force` → `rm -rf storage/app/private/[0-9]*` (tệp tài liệu demo — `migrate:fresh` không
+  xoá tệp, và id media bắt đầu lại từ 1) → `vkcrm:create-admin`; Bước 6 dặn đừng dùng
+  `--additional` trên CSDL demo. Test `tests/Feature/Deployment/InstallGuideDemoDataTest.php` (2):
+  đọc danh sách email từ chính `DemoDataSeeder` chạy ở `production` và đòi tài liệu nêu từng cái;
+  trích khối lệnh của tài liệu và CHẠY đúng như viết trên một CSDL demo, so số dòng MỌI bảng với một
+  máy chủ chưa từng demo, cộng tệp còn lại trên đĩa. RED 2 failed; 11 mutation probe đỏ (6 trên tài
+  liệu, 5 "oracle" mà chỉ phần chạy thật bắt được); cả bộ 2604 passed, 7 skipped, 0 failed (1123 s);
+  `test:mariadb` hai tệp Deployment → 28 passed; `pint --test` sạch 639 tệp. Tài liệu là chốt chặn
+  duy nhất — chưa có gì trong mã ngăn seed demo ở production khi allowlist trống (đề xuất một dòng
+  `vkcrm:preflight` ĐỎ cho Task 8).
+- **Chưa làm / mang sang M8 Task 8**: nghiệm thu R6 bằng một agent CHƯA đọc repo (làn này không
+  dispatch agent — phán quyết controller T7); dọn ba dòng Sail cũ của `.env.example`. Lúc gộp với
+  `main`: giữ phần M9 của `docs/CAI-DAT.md` (12 loại vụ việc, luật mới của `ChecklistTemplateSeeder`,
+  khối "Bản cập nhật M9 làm gì trên máy chủ đã có dữ liệu", đoạn "Trên Windows, đừng gọi thẳng
+  `php artisan test`") — chúng nằm ở mục seed mà bản này đã chuyển thành "Bước 5" của phần
+  production. Quan sát ngoài phạm vi: `config/database.php` không đặt `dump.useSingleTransaction`,
+  nên `mariadb-dump` của sao lưu 02:00 chạy với khoá bảng mặc định thay vì một transaction nhất quán
+  không khoá (sổ M8a là chủ của sao lưu).
+- **Rà soát cuối M8b, vòng sửa 1** (bốn Important của lượt rà soát toàn làn, `2bb3626` → vòng này):
+  - *I1 — cổng khách hoàn suất địa chỉ của lần OTP ĐÚNG, y như nhân sự.* Hai trang đăng nhập dùng
+    chung `LoginThrottle` nhưng chỉ trang nhân sự hoàn suất (`refundCodeIp()`, T3 C1); cổng khách
+    giữ hành vi M5, nên năm khách gõ ĐÚNG OTP trên wifi văn phòng trong 15 phút khoá khách thứ sáu,
+    và nút mở khoá báo "đăng nhập lại được ngay" vì khách ấy không có dòng `login_failed` nào. Sửa:
+    `App\Filament\Portal\Pages\Auth\Login` thêm cờ `$codeIpHit` + hoàn sau lần vào được, cùng khuôn
+    trang nhân sự. Pin `LoginTest` "clears only the account dimension of the code lock…" đã lật (chiều
+    IP còn 4 lần SAI, không phải 5); test mới "lets six clients behind one shared address…" và
+    "refunds nothing when a client sign-in never reached the code step…" (tắt bước mã của panel ngay
+    trong test để dựng một lần vào không đập khoá — ngày nay OTP bắt buộc nên mọi lần vào đều qua
+    bước mã). Không có Ruling nào cấm: Ruling (T3) "tests must stay green unchanged" nói về phép
+    tổng quát hoá, không phải về đổi hành vi sau đó.
+  - *I2 — nút "Mở khoá đăng nhập" không hứa suông.* Lần thử bị cổng chặn không ghi dòng nào, nên
+    người bị khoá CHỈ vì lần hỏng của đồng nghiệp/người khác cùng NAT không có dòng của riêng mình và
+    `ClearsNatSafeIpLocks` trả "không còn gì khoá". Nay trait hỏi thêm, SAU khi đã xoá khoá NAT-an
+    toàn: còn khoá địa chỉ nào (cả hai bước) của MỌI địa chỉ có trong nhật ký `login_failed` của guard
+    đó trong cửa sổ 15 phút đang chạm trần không; kết quả mang `anyAddressLockedMinutes`, và hai
+    trang chỉ hứa "đăng nhập lại được ngay" khi không còn khoá nào — ngược lại câu mới
+    `users.actions.unlock_login.success_other_address_locked` /
+    `client_users.actions.unlock_login_success_other_address_locked` (có số phút, gợi ý 4G). Không
+    ghi thêm dòng nhật ký cho lần bị chặn (một kẻ dò sẽ thổi phồng `activity_log` theo từng request).
+    Ngoại lệ còn lại, ghi trong docblock trait: ô mã cổng khách gửi TRỐNG bằng request sửa tay đập
+    khoá địa chỉ mà không ghi dòng nào (trình duyệt chặn vì ô mang `required`).
+  - *I4 — `vkcrm:preflight` chặn trust-on-first-use của dữ liệu demo.* Dòng mới `demo_accounts`: ĐỎ
+    khi một tài khoản trong `DemoDataSeeder::staffEmails()` (quản trị demo + `StaffSeeder::roster()`,
+    tám email) còn mật khẩu mẫu (`Hash::check`) mà `ADMIN_IP_ALLOWLIST` trống; VÀNG khi có allowlist;
+    XANH khi không còn. Hỏi mật khẩu chứ không chỉ email vì văn phòng có quyền tạo quản trị viên thật
+    bằng đúng `admin@luatvukhang.com` (test riêng: `vkcrm:create-admin` với địa chỉ đó → XANH).
+    Hằng mới `DemoAccountsSeeder::ADMIN_EMAIL`, `DEMO_PASSWORD`. `docs/CAI-DAT.md` Bước 5 và Bước 7
+    nói dòng này. Test chạy CHÍNH hai lệnh seed của tài liệu ở `production`.
+  - *I3 — Lúc gộp với `main` (đo bằng `git merge-tree` HEAD↔`origin/main` `257291b`, 74 commit
+    trước làn)*: chín tệp xung đột — `.env.example`, `CreateClientUser.php`, `EditClientUser.php`,
+    `AdminPanelProvider.php`, `docs/CAI-DAT.md`, `docs/PROGRESS.md`, `lang/vi/activity.php`,
+    `routes/console.php`, `tools/csp/survey.cjs`.
+    - `.env.example`: một hunk duy nhất ở cuối tệp — khối HTTPS/HSTS/allowlist + khối `BRAND_*` của
+      làn đối đầu khối "Nhận diện thương hiệu…" của `main` (mặc định BỎ chú thích, bốn thông tin pháp
+      lý chú thích). **Giữ ĐÚNG MỘT khối `BRAND_*` — của làn** (đủ 15 biến, mỗi biến có giải thích,
+      `CAI-DAT` Bước 3 trỏ vào nó); phpdotenv lấy dòng ĐẦU khi trùng, nên giữ cả hai thì người vận
+      hành sửa dòng thứ hai mà không có gì đổi. Test mới của `EnvExampleTest` ("mỗi biến chỉ có đúng
+      một dòng mẫu…") đỏ đúng 15 biến `BRAND_*` nếu giữ cả hai (probe: nối khối của `main` vào cuối).
+      Giữ việc làn đã XOÁ `BACKUP_DISK` và khối `AWS_*` (`main` còn) — test "không biến chết" và
+      "ngoại lệ thừa" đỏ nếu chúng quay lại. Lưu ý chú thích của `main`: CI chạy `cp .env.example
+      .env`, nên bốn dòng pháp lý để TRỐNG của làn tồn tại dưới dạng chuỗi rỗng (BrandFooter và
+      preflight coi trống = thiếu, nên giống nhau) — chạy cả bộ sau khi gộp đúng như CI làm. Đo ở
+      `257291b`: mọi `env()` mà `config/`/`app/` của `main` đọc đều đã có dòng mẫu trong
+      `.env.example` của làn (không thiếu biến nào); merge sau có `env()` mới thì `EnvExampleTest`
+      đỏ cho tới khi thêm dòng mẫu.
+    - `EditClientUser.php`/`CreateClientUser.php`: `main` (M6-rest) thêm nút "Gửi lại thư kích
+      hoạt" (`reissueAccessAction`) và `afterSave()`/`afterCreate()` gọi `IssuePortalAccess`; làn
+      thêm nút "Mở khoá đăng nhập" (nay với nhánh `anyAddressLockedMinutes`) và
+      `handleRecordUpdate()`/`handleRecordCreation()` gọi Action của làn (`UpdatePortalAccount`…).
+      Giữ CẢ HAI phía: hai nút trong `getHeaderActions()`, `handleRecord*()` của làn, và
+      `IssuePortalAccess` vẫn ở `after*()` — tức sau khi `handleRecord*()` đã trả về, không lồng vào
+      bên trong nó (thư sau commit, R2).
+    - **Lúc gộp M10 (`origin/m10-intake`)**: `tests/Unit/Support/NormalizerTest.php:110` của nhánh
+      đó ghim `hash('sha256', …)` trần. Bỏ pin đó, giữ bản HMAC của làn (`Normalizer::idNumberHash()`
+      = `Audit::identifierHash()`, khoá `APP_KEY`) — TUYỆT ĐỐI không "sửa" bằng cách đưa
+      `idNumberHash` về `sha256` trần (dò ngược được CCCD 12 số bằng vét cạn). Và thêm một lượt nộp
+      phiếu tiếp nhận (`intake_requests.contact_id_number_hash`, `intake_parties.id_number_hash`)
+      vào `tests/Support/SensitiveDataFlows::run()` để phép quét §10.5 có dữ liệu ở bảng tiếp nhận.
+  - *Bằng chứng chạy vòng này*: RED trước mỗi sửa (I1 2 failed, I2 2 failed, I4 4 failed, I3 1
+    failed — `probe/final-fix1-red-*.txt`); 13 mutation probe đỏ đúng test (I1 2, I2 4, I4 5, I3 1,
+    cộng pin lật của I1 — `probe/final-fix1-probe*.txt`); cả bộ `test --parallel --processes=2` →
+    **2613 passed, 7 skipped, 0 failed** (11489 assertions, 1094 s; mốc trước 2604 — chênh +9 khớp
+    số test mới 2+3+3+1); `test:mariadb` năm tệp đụng tới → 191 passed; `pint --test` sạch 639 tệp.
+    Chi tiết ở `.superpowers/sdd/m8b/final-fix-report.md`, mục "## Fix round 1".

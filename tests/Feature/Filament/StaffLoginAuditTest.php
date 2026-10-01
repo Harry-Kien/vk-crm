@@ -6,6 +6,7 @@ use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Auth\Pages\Login;
 use Filament\Facades\Filament;
 use Illuminate\Auth\Events\Failed;
+use PragmaRX\Google2FAQRCode\Google2FA;
 use Spatie\Activitylog\Models\Activity;
 
 /**
@@ -15,11 +16,28 @@ use Spatie\Activitylog\Models\Activity;
  * `App\Filament\Portal\Pages\Auth\Login` và docblock `App\Listeners\RecordStaffLogin`), nên test
  * ở đây lái thẳng trang đăng nhập MẶC ĐỊNH của Filament qua Livewire, đúng đường một nhân sự thật
  * đi qua.
+ *
+ * **M8 Task 2 (R2): 2FA bắt buộc đổi hình dạng "đăng nhập đúng mật khẩu".** Trước Task 2, một
+ * `authenticate()` với mật khẩu đúng đăng nhập xong ngay — `Illuminate\Auth\Events\Login` bắn ra,
+ * `RecordStaffLogin` ghi `login_success`. Từ Task 2, `UserFactory` mặc định có secret 2FA
+ * (`Login::authenticate()` thấy `getFirstEnabledProvider($user)` khác `null`), nên lần gọi ĐẦU chỉ
+ * MỞ bước nhập mã (`$needsMultiFactorChallenge = true`, trả `null`, KHÔNG đăng nhập) — phải gọi
+ * `authenticate()` LẦN HAI với mã TOTP đúng (`staffTotpCode()`) mới thật sự đăng nhập. Test "sai
+ * mật khẩu"/"tài khoản đã vô hiệu" KHÔNG cần đổi: `isUserAllowedToAccessPanel()` (đọc
+ * `is_active`) và câu hỏi mật khẩu đều chạy TRƯỚC bước 2FA trong `Timebox` — sai một trong hai thì
+ * dừng lại ở đó, chưa từng tới bước mã. `data.multiFactor.app.code` — statePath của
+ * `multiFactorChallengeForm` (`Login::defaultMultiFactorChallengeForm()`), không phải `data.code`.
  */
 beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);
     Filament::setCurrentPanel('admin');
 });
+
+/** Mã TOTP hợp lệ TẠI THỜI ĐIỂM GỌI, tính từ đúng secret (đã giải mã qua cast `encrypted`) của `$user`. */
+function staffTotpCode(User $user): string
+{
+    return app(Google2FA::class)->getCurrentOtp($user->two_factor_secret);
+}
 
 it('logs a login_failed row and does not touch last_login_at on a wrong password', function () {
     $staff = User::factory()->withRole(Role::Lawyer)->create();
@@ -60,9 +78,16 @@ it('logs a login_failed row with no causer for an email that matches no staff ac
 it('logs a login_success row and stamps last_login_at on a correct password', function () {
     $staff = User::factory()->withRole(Role::Lawyer)->create(['password' => 'mat-khau-dung']);
 
-    $this->livewire(Login::class)
+    $component = $this->livewire(Login::class)
         ->set('data.email', $staff->email)
         ->set('data.password', 'mat-khau-dung')
+        ->call('authenticate')
+        ->assertHasNoFormErrors();
+
+    // Mật khẩu đúng chỉ MỞ bước nhập mã (2FA bắt buộc, R2) — chưa đăng nhập, chưa có
+    // login_success nào ở đây. Cùng component (giữ state phiên MFA đang dở), nhập mã đúng.
+    $component
+        ->set('data.multiFactor.app.code', staffTotpCode($staff))
         ->call('authenticate')
         ->assertHasNoFormErrors();
 
@@ -88,6 +113,11 @@ it('logs both a failed and a successful attempt when a staff member mistypes the
     $this->livewire(Login::class)
         ->set('data.email', $staff->email)
         ->set('data.password', 'mat-khau-dung')
+        ->call('authenticate')
+        ->assertHasNoFormErrors()
+        // Cùng lý do test trên: mật khẩu đúng chỉ mở bước mã — hoàn tất nốt bước đó, cùng
+        // component, để lần thử "đúng" này thật sự thành login_success.
+        ->set('data.multiFactor.app.code', staffTotpCode($staff))
         ->call('authenticate')
         ->assertHasNoFormErrors();
 

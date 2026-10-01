@@ -29,7 +29,7 @@ use Illuminate\Support\Str;
  * và không thấy bản giả. Thư mục thử được xoá trong `finally`, nên test này không để lại tệp
  * nào trong kho hồ sơ thật.
  */
-it('ghi qua disk private thì disk local không đọc lại được — hai gốc thư mục thật sự rời nhau', function () {
+it('§10.4 ghi qua disk private thì disk local không đọc lại được — hai gốc thư mục thật sự rời nhau', function () {
     $relativePath = 'kiem-tra-tach-disk/'.Str::random(16).'.txt';
 
     $private = Storage::build(config('filesystems.disks.private'));
@@ -63,7 +63,7 @@ it('đĩa private trong test luôn là đĩa giả, kể cả ở tệp test kh�
         ->not->toStartWith(storage_path('framework/testing/disks'));
 });
 
-it('gốc của disk local không nằm trong gốc của disk private và ngược lại', function () {
+it('§10.4 gốc của disk local không nằm trong gốc của disk private và ngược lại', function () {
     // Lồng nhau cũng là chung: nếu gốc của `local` là thư mục CHA của `private` thì
     // `Storage::disk('local')->get('documents/x.pdf')` vẫn chạm tới tệp.
     $private = rtrim(str_replace('\\', '/', (string) config('filesystems.disks.private.root')), '/');
@@ -73,14 +73,14 @@ it('gốc của disk local không nằm trong gốc của disk private và ngư�
         ->and(str_starts_with($local.'/', $private.'/'))->toBeFalse();
 });
 
-it('không disk local nào tự đăng ký route /storage/{path} phục vụ tệp hồ sơ', function () {
+it('§10.4 không disk local nào tự đăng ký route /storage/{path} phục vụ tệp hồ sơ', function () {
     expect(config('filesystems.disks.local.serve'))->not->toBeTrue()
         ->and(config('filesystems.disks.private.serve'))->not->toBeTrue()
         ->and(Route::has('storage.local'))->toBeFalse()
         ->and(Route::has('storage.private'))->toBeFalse();
 });
 
-it('không disk nào phát ra được một URL tạm thời tới tệp hồ sơ', function () {
+it('§10.4 không disk nào phát ra được một URL tạm thời tới tệp hồ sơ', function () {
     // `temporaryUrl()` trên một local disk chỉ hoạt động khi `serve => true`; nếu nó ký được một
     // URL thì nghĩa là route tự động kia đang sống lại.
     //
@@ -96,9 +96,55 @@ it('không disk nào phát ra được một URL tạm thời tới tệp hồ s
     }
 });
 
-it('thư mục tệp hồ sơ có .htaccess chặn máy chủ web phục vụ trực tiếp (SPEC §10.4)', function () {
+it('§10.4 thư mục tệp hồ sơ có .htaccess chặn máy chủ web phục vụ trực tiếp', function () {
     $htaccess = storage_path('app/private/.htaccess');
 
     expect(file_exists($htaccess))->toBeTrue()
         ->and(strtolower((string) file_get_contents($htaccess)))->toContain('deny');
+});
+
+/**
+ * M8 Task 4 — "không có symlink nào khác phát tệp đó". Hai đường một symlink có thể mở kho tệp hồ
+ * sơ ra document root: một liên kết khai ở `filesystems.links` (thứ `php artisan storage:link` tạo
+ * ra) trỏ vào — hay trỏ vào thư mục CHA của — `storage/app/private`; hoặc một symlink ai đó tạo tay
+ * dưới `public/`. Test đo cả hai trên cây thư mục thật (mọi thư mục của `public/` đều dưới 40 mục,
+ * nên phép duyệt không vướng lỗi `rewinddir` của ổ 9p mà `bin/container-test` ghi lại).
+ *
+ * Tầng máy chủ web nằm ngoài tầm với của test: `vkcrm:preflight` dò `/storage/app/private/<tệp>`
+ * và `/storage/<tệp>` qua `APP_URL` trên máy thật, và mẫu `tools/deploy/` chặn `/storage/` — đã chạy
+ * thật trong container `nginx`/`httpd` chính thức (`tools/deploy/verify-storage-blocked.sh`, Ghi chú
+ * M8, Task 4).
+ */
+it('§10.4 không liên kết storage:link nào và không symlink nào dưới public/ trỏ vào kho tệp hồ sơ', function () {
+    $private = rtrim(str_replace('\\', '/', (string) realpath(storage_path('app/private'))), '/').'/';
+
+    foreach ((array) config('filesystems.links') as $target) {
+        $target = rtrim(str_replace('\\', '/', (string) $target), '/').'/';
+
+        expect(str_starts_with($target, $private))->toBeFalse("storage:link trỏ vào kho tệp hồ sơ: {$target}")
+            ->and(str_starts_with($private, $target))->toBeFalse("storage:link trỏ vào thư mục cha của kho tệp hồ sơ: {$target}");
+    }
+
+    $intoPrivate = [];
+    $entries = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator(public_path(), FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST,
+    );
+
+    foreach ($entries as $entry) {
+        $real = $entry->isLink() ? realpath($entry->getPathname()) : false;
+
+        // Không phải symlink, hoặc symlink gãy (không trỏ tới đâu, nên không phát được gì).
+        if ($real === false) {
+            continue;
+        }
+
+        $resolved = rtrim(str_replace('\\', '/', $real), '/').'/';
+
+        if (str_starts_with($resolved, $private) || str_starts_with($private, $resolved)) {
+            $intoPrivate[] = $entry->getPathname().' -> '.$resolved;
+        }
+    }
+
+    expect($intoPrivate)->toBe([]);
 });

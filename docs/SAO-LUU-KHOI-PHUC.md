@@ -47,7 +47,10 @@ cần mua, tính cho khoảng **60 bản** (30 bản đang giữ + khoảng 30 b
 **Nếu một lượt sao lưu, dọn dẹp, hay đẩy lên Google Drive thất bại**, hệ thống gửi email báo lỗi
 tới địa chỉ khai ở `BACKUP_NOTIFY_EMAIL` (hoặc mọi Admin đang hoạt động, nếu chưa khai địa chỉ đó).
 Ngoài ra, **mỗi sáng lúc 08:00** hệ thống tự kiểm: bản mới nhất trên Google Drive phải dưới 36 giờ
-tuổi — nếu các lượt đẩy đêm gần đây lặng lẽ không lên được, sáng hôm đó có email báo lỗi.
+tuổi. Lúc 08:00, bản của đêm qua mới khoảng 6 giờ tuổi và bản của đêm hôm trước khoảng 30 giờ — nên
+lượt kiểm này chỉ báo khi **HAI đêm liền** không lên được (kể cả khi chúng hỏng lặng lẽ, không có
+email nào), vào sáng sau đêm thứ hai. Một đêm hỏng đơn lẻ được báo bằng email lỗi của chính lượt
+đẩy đêm đó, không phải bởi lượt kiểm 08:00 — chủ văn phòng đã chọn giữ ngưỡng 36 giờ.
 **Một email báo lỗi sao lưu không phải chuyện có thể để đó "xem sau"** — vụ việc mất một ngày sao
 lưu vào đúng ngày máy chủ hỏng là vụ việc không lấy lại được.
 
@@ -245,8 +248,10 @@ Google Drive đi qua đúng bước ghi vào đĩa `local_backups` trên máy ch
 gửi thư báo lỗi khi phát hiện — nhưng cách chắc nhất vẫn là không đụng vào `BACKUP_DISKS` sau khi
 đã cấu hình xong, trừ khi THÊM một disk mới.
 
-Sau khi sửa `.env`, khởi động lại tiến trình chạy nền của ứng dụng (nếu có) để giá trị mới có hiệu
-lực — hỏi người quản trị máy chủ cách làm đúng trên máy chủ cụ thể của văn phòng.
+Sau khi sửa `.env`, giá trị mới chỉ có hiệu lực khi cấu hình được nạp lại: trên máy chủ đã cache
+cấu hình (`php artisan optimize`, `docs/CAI-DAT.md` Bước 7), chạy lần lượt `php artisan
+optimize:clear`, `php artisan vkcrm:preflight`, `php artisan optimize` — hỏi người quản trị máy chủ
+nếu chưa quen.
 
 ---
 
@@ -286,8 +291,9 @@ Bản sao lưu chứa dữ liệu **đã được mã hoá hai lớp**:
 1. Toàn bộ archive được nén và khoá bằng `BACKUP_ARCHIVE_PASSWORD` — không có mật khẩu này thì
    không mở được tệp `.zip` ra để xem gì cả.
 2. Bên trong cơ sở dữ liệu, một số cột nhạy cảm (ví dụ số CCCD/CMND của khách hàng, và bí mật xác
-   thực hai lớp của nhân sự) lại được mã hoá RIÊNG bằng `APP_KEY` của ứng dụng. `APP_KEY` **KHÔNG
-   nằm trong bản sao lưu** (`laravel-backup` không sao lưu tệp `.env`).
+   thực hai lớp của nhân sự) lại được mã hoá RIÊNG bằng `APP_KEY` của ứng dụng — và cột so trùng số
+   CCCD của kiểm tra xung đột lợi ích được băm bằng chính `APP_KEY` đó (M8 Task 4). `APP_KEY`
+   **KHÔNG nằm trong bản sao lưu** (`laravel-backup` không sao lưu tệp `.env`).
 
 **Hệ quả: nếu chỉ có bản sao lưu mà KHÔNG có cả hai chìa khoá này, KHÔNG khôi phục được gì có
 nghĩa.** Mất `APP_KEY` là mất vĩnh viễn mọi số CCCD và mọi bí mật 2FA của nhân sự trong bản sao lưu
@@ -336,13 +342,16 @@ quý một lần, ghi kết quả vào `docs/PROGRESS.md`):
 2. **Lấy bản sao lưu** — tải tệp `.zip` mới nhất (hoặc bản ở đúng ngày cần khôi phục) từ Google
    Drive, hoặc từ đĩa `local_backups` trên máy chủ văn phòng nếu còn. Bản trên Google Drive nằm
    trong thư mục của môi trường (`gdrive:VK-CRM-backups/<tên theo BACKUP_NAME>`, xem Bước 4); tên
-   tệp mang ngày giờ tạo, nên bản mới nhất là dòng CUỐI của danh sách. Trên máy khôi phục đã cài
-   `rclone` và nối remote `gdrive` (Bước 1 và 3):
+   tệp mang ngày giờ tạo (năm-tháng-ngày-giờ-phút-giây), nên SẮP XẾP theo tên thì bản mới nhất là
+   dòng cuối. `rclone lsf` KHÔNG hứa in theo thứ tự nào, nên luôn nối thêm `| sort`. Trên máy khôi
+   phục đã cài `rclone` và nối remote `gdrive` (Bước 1 và 3):
    ```
-   rclone lsf gdrive:VK-CRM-backups/vk-crm-production/
+   rclone lsf gdrive:VK-CRM-backups/vk-crm-production/ | sort
+   rclone lsf gdrive:VK-CRM-backups/vk-crm-production/ | sort | tail -1
    rclone copy gdrive:VK-CRM-backups/vk-crm-production/vk-crm-production-2026-09-27-02-00-12.zip ./khoi-phuc/
    ```
-   Lệnh thứ hai tải đúng một tệp (thay tên tệp bằng tên thấy ở lệnh thứ nhất) vào thư mục
+   Lệnh thứ nhất liệt kê mọi bản, cũ trước mới sau; lệnh thứ hai chỉ in tên bản mới nhất. Lệnh thứ
+   ba tải đúng một tệp (thay tên tệp bằng tên thấy ở hai lệnh trên) vào thư mục
    `./khoi-phuc/`. Không có `rclone` thì tải bằng trình duyệt từ giao diện Google Drive — cùng
    một tệp.
 3. **Dựng một môi trường SẠCH** — máy chủ mới hoặc máy chủ đã cài lại từ đầu theo `README.md`/
@@ -363,9 +372,9 @@ quý một lần, ghi kết quả vào `docs/PROGRESS.md`):
    mariadb -u<user> -p<mật khẩu CSDL> <tên-csdl> < duong-dan/db-dumps/ten-tep.sql
    ```
    Máy chủ đích PHẢI có sẵn gói mang lệnh `mariadb`/`mariadb-dump` (ví dụ `apt install
-   mariadb-client` trên Ubuntu/Debian) — đây là điều kiện cần đã nêu ở SPEC §10 mục 8 (lệnh kiểm
-   tự động `vkcrm:preflight` thuộc M8 Task 8, **chưa có** — hiện phải kiểm tay bằng
-   `mariadb-dump --version`; xem `docs/CAI-DAT.md`, mục "Khi đưa lên máy chủ thật").
+   mariadb-client` trên Ubuntu/Debian) — đây là điều kiện cần đã nêu ở SPEC §10 mục 8, kiểm tự
+   động bằng `php artisan vkcrm:preflight` (M8 Task 1, `App\Actions\Deployment\RunPreflight`; xem
+   `docs/CAI-DAT.md`, mục "Khi đưa lên máy chủ thật").
 6. **Chép tệp hồ sơ** — mọi mục trong archive có tiền tố `storage/app/private/` (đường TƯƠNG ĐỐI
    tính từ gốc ứng dụng — xem đoạn giải thích `relative_path` ở docblock
    `config/backup.php`) chép về ĐÚNG thư mục `storage/app/private/` của máy chủ mới, giữ nguyên

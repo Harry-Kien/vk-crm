@@ -28,13 +28,14 @@ use App\Support\Files\ClamAvScanner;
 use App\Support\Files\NullScanner;
 use App\Support\Files\VirusScanner;
 use App\Support\Mail\OutboundLedgerMailManager;
-use App\Support\UploadThrottle;
+use App\Support\Security\HttpsDefaults;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Foundation\Console\AboutCommand;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Spatie\Backup\Events\BackupManifestWasCreated;
 use Spatie\Backup\Events\BackupWasSuccessful;
@@ -76,6 +77,31 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        /*
+         * SPEC §10 mục 1 (kế hoạch M8 Task 1) — `SESSION_SECURE_COOKIE` để trống giải thành
+         * `true` ở mọi môi trường trừ `local`/`testing` (thành ngữ chung, xem
+         * `App\Support\Security\HttpsDefaults`). `config/session.php` VẪN đọc thẳng
+         * `env('SESSION_SECURE_COOKIE')` (không đổi), nên giá trị đọc ra ở ĐÂY còn là giá trị THÔ
+         * — ghi đè lại đúng khoá đó SAU KHI môi trường đã biết. `boot()` LÀ nơi AN TOÀN DUY NHẤT
+         * để làm việc này: nó chạy sau `LoadConfiguration` (nên `app()->environment()` đã có câu
+         * trả lời) và chạy TRƯỚC bất kỳ middleware nào — `Illuminate\Foundation\Http\Kernel`
+         * chạy bootstrapper `BootProviders` (gọi `boot()` của mọi provider) làm bước CUỐI của
+         * `bootstrap()`, trước khi router gửi request vào pipeline middleware, nên
+         * `StartSession` không bao giờ đọc được giá trị thô còn sót lại. Đọc thêm lý do "vì sao
+         * không đặt logic này thẳng trong `config/session.php`" ở docblock của `HttpsDefaults`.
+         */
+        config(['session.secure' => HttpsDefaults::boolFromRaw(config('session.secure'))]);
+
+        /*
+         * `URL::forceHttps()` không đặt trong middleware `EnforceHttps`: một job hàng đợi (thư có
+         * link tải tệp ký sẵn, PDF xuất ra) không đi qua middleware nào, nhưng NÓ VẪN chạy qua
+         * provider này — mọi tiến trình (web, `queue:work`, lệnh artisan) đều gọi `boot()`. Đặt ở
+         * đây để link luôn là `https` bất kể ai sinh ra nó, không riêng request HTTP.
+         */
+        if (HttpsDefaults::boolFromRaw(config('vkcrm.security.force_https'))) {
+            URL::forceHttps();
+        }
+
         /*
          * Cánh cửa thư đi ra (SPEC §4.15, Phán quyết R1 của M6): nhật ký được ghi bởi một
          * listener nghe sự kiện thư của Laravel, không bởi từng nơi gửi thư — nên một thư mà
@@ -166,20 +192,10 @@ class AppServiceProvider extends ServiceProvider
             DocumentDownloadController::DOWNLOADS_PER_MINUTE,
         )->by(DocumentDownloadController::rateLimitKey($request)));
 
-        /*
-         * Giới hạn lượt TẢI TỆP LÊN của endpoint `livewire.upload-file` (SPEC §10.3). Cùng thành
-         * ngữ với bộ đếm ngay trên, và cố ý cùng thành ngữ: con số, cách khoá và toàn bộ lý lẽ
-         * nằm ở `App\Support\UploadThrottle`; ở đây chỉ có chỗ cắm vào framework. Chỗ cắm phía
-         * route nằm ở `config/livewire.php` (`throttle:livewire-upload`).
-         *
-         * Một bộ đếm CÓ TÊN chứ không phải `throttle:20,60` trần, vì chỉ bộ đếm có tên mới tự
-         * quyết định được khoá: `ThrottleRequests` mặc định hỏi guard MẶC ĐỊNH, thứ luôn rỗng
-         * trên cổng khách hàng, nên bản trần khoá cả hai vợ chồng vào một rổ theo địa chỉ.
-         */
-        RateLimiter::for(UploadThrottle::NAME, fn (Request $request) => Limit::perMinutes(
-            UploadThrottle::WINDOW_MINUTES,
-            UploadThrottle::FILES_PER_HOUR,
-        )->by(UploadThrottle::keyFor($request)));
+        // Giới hạn TẢI TỆP LÊN của endpoint `livewire.upload-file` (SPEC §10.3) KHÔNG còn đăng ký ở
+        // đây: từ M8 Task 3 nó là middleware `App\Http\Middleware\ThrottleUploadedFiles` (cắm ở
+        // `config/livewire.php`), vì một bộ đếm có tên của `ThrottleRequests` đếm REQUEST còn SPEC
+        // đòi đếm TỆP — xem docblock `App\Support\UploadThrottle`.
 
         // Câu trả lời cho "virus scanning có thật sự bật không" phải lấy được từ chính hệ thống,
         // không phải từ việc đọc `.env` hay mã nguồn — `php artisan about` là chỗ một người vận
