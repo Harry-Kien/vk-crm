@@ -2499,3 +2499,44 @@ test mới của bốn điểm trên: 5+1+2). `pint --test` sạch 599 tệp. Ba
     **2613 passed, 7 skipped, 0 failed** (11489 assertions, 1094 s; mốc trước 2604 — chênh +9 khớp
     số test mới 2+3+3+1); `test:mariadb` năm tệp đụng tới → 191 passed; `pint --test` sạch 639 tệp.
     Chi tiết ở `.superpowers/sdd/m8b/final-fix-report.md`, mục "## Fix round 1".
+
+## Ghi chú M12
+
+Làn `m12-pwa-push` (`D:\vkwt\lane-m12`), kế hoạch `docs/superpowers/plans/2026-09-24-m12-pwa.md`. Cắt
+từ `main` = `47ee8e3` trước khi M10 merge (controller duyệt: kế hoạch nói M12 không phụ thuộc M9/M10).
+Phần thử trên máy thật do chủ văn phòng chạy theo danh sách kiểm tra; agent không điều khiển được
+điện thoại và không mở đường hầm HTTPS công khai tới máy dev.
+
+### Task 1 — khảo sát trước khi viết mã (2026-10-01): ba phán quyết, cả ba PENDING OWNER
+
+Tra cứu + khảo sát MÔ PHỎNG bằng Playwright (Chromium 153, WebKit 26.6, bản chạy local ở chế độ CSP
+enforce; manifest và service worker viết tay không commit): `docs/research/2026-10-01-pwa-khao-sat.md`.
+Danh sách kiểm tra tiếng Việt cho iPhone + Android (cũng là phần máy thật của Task 10):
+`docs/research/2026-10-01-pwa-kiem-tra-may-that.md`. Ba câu dưới giữ trạng thái **PENDING OWNER** cho
+tới khi chủ văn phòng gửi lại bảng kết quả; phán quyết tạm do controller duyệt để Task 2–9 đi tiếp.
+
+1. **iPhone, app đã cài, tải tài liệu ngoài scope** — PENDING OWNER (mục A của danh sách). Tài liệu
+   không đủ chắc về cookie của trình duyệt trong app; mô phỏng chỉ đo được cái giá: cùng URL tải có
+   chữ ký trả 200 khi có cookie phiên, 404 khi không. **Tạm: Task 3 làm route tải bí danh TRONG scope**
+   (`/portal/documents/{document}/download`, `/admin/documents/{document}/download`, cùng controller,
+   cùng middleware; nơi ký URL chọn tên route theo panel hiện hành).
+2. **Đăng nhập cổng có OTP trong app đã cài** — PENDING OWNER (mục B). Ô mã đã có
+   `autocomplete="one-time-code"` (`OneTimeCodeInput`, đo trên trang thật). Mô phỏng: nạp lại trang
+   giữa bước mã thì quay về bước mật khẩu, và Filament chỉ gửi 2 mã / 60 giây / tài khoản
+   (`EmailAuthentication::sendCode()`). Deep link sống qua bước OTP (về đúng trang hồ sơ). **Tạm:
+   không sửa luồng OTP**; nếu máy thật mất bước mã, Task 10 ghi thành phát hiện.
+3. **Chrome Android, hai app cùng origin** — PENDING OWNER (mục C, D). Mô phỏng: hai manifest
+   (`id` `/admin` + `scope` `/admin`; `id` `/portal` + `scope` `/portal`) phân tích sạch, không lỗi cài
+   đặt; `scope: "/admin/"` có dấu `/` bị Chromium **bỏ** ("Start url should be within scope") và rơi về
+   cả origin `/`; đăng ký service worker `scope: '/admin'` thiếu `Service-Worker-Allowed` → `SecurityError`.
+   **Tạm: làm đúng R2 — hai `id`, hai `scope` không dấu `/`, header `Service-Worker-Allowed`.**
+
+Sự thật đo được mà task sau phải dùng (chi tiết ở tệp khảo sát, mục 2):
+- Không lượt Playwright nào có được `PushSubscription` thật (Chromium headless: `AbortError:
+  Registration failed - permission denied`; WebKit của Playwright không có `PushManager`). Kiểm trình
+  duyệt của Task 3/5 dừng ở bước gọi `subscribe` hoặc giả nó; Task 7 giả transport.
+- Service worker nhận `fetch` cho cả `POST /livewire-…/update` và font của `fonts.bunny.net` → luật R4
+  "chỉ GET cùng origin" ở dòng đầu trình xử lý `fetch` là cần thật.
+- Mẫu nginx: `location ~* \.(?:css|js|…)$` (`tools/deploy/nginx.conf.example:114-122`) sẽ trả 404 cho
+  `/admin/sw.js` do Laravel phục vụ, và giữ `public/pwa/register.js` một năm `immutable` → cần khối
+  `location =` cho hai `sw.js`, và thẻ `<script>` của `register.js` phải mang tham số phiên bản.
