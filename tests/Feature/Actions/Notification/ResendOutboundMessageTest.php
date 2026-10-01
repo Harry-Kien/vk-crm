@@ -87,6 +87,34 @@ it('refuses a forced call on a template that must not be resent, naming the reas
 })->with(['client.otp', 'staff.deadline_reminder', 'client.activation', 'undeclared']);
 
 /**
+ * Việc sau gộp M6 (làn fu, mục 2): hai họ thư của main từng rơi vào `default => null` của
+ * `ResendTargets::for()` — bị chặn tình cờ, và lời từ chối là câu chung "hệ thống không biết dựng
+ * lại thư này", sai với `staff.instalment_overdue` (dòng nhật ký mang đủ đợt và khoá ngày đến hạn).
+ * Nay mỗi họ là một mục tường minh của `ResendTargets::NOT_RESENDABLE`, kèm câu RIÊNG; họ
+ * `staff.backup_alert.*` có hậu tố động (loại sự cố) nên tra theo họ, không theo tên đầy đủ.
+ *
+ * Mutation probe: bỏ `staff.instalment_overdue` (hoặc `staff.backup_alert.*`) khỏi
+ * `ResendTargets::NOT_RESENDABLE` → ĐỎ (lời từ chối rơi về câu `default`).
+ */
+it('refuses a forced resend of the instalment and backup mail families with their own reason, not the generic one', function (string $template, string $reasonKey) {
+    $row = forcedFailedStageRow(['template' => $template, 'related_type' => null, 'related_id' => null]);
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $reasons = __('outbound.resend.refused.template_reasons');
+
+    expect($reasons)->toHaveKey($reasonKey)
+        ->and($reasons[$reasonKey])->not->toBe($reasons['default'])
+        ->and(fn () => app(ResendOutboundMessage::class)->handle($admin, $row))
+        ->toThrow(OutboundMessageNotResendable::class, __('outbound.resend.refused.template', ['reason' => $reasons[$reasonKey]]));
+
+    Queue::assertNothingPushed();
+})->with([
+    'staff.instalment_overdue' => ['staff.instalment_overdue', 'staff.instalment_overdue'],
+    'staff.backup_alert.backup_failed' => ['staff.backup_alert.backup_failed', 'staff.backup_alert.*'],
+    'staff.backup_alert.cleanup_failed' => ['staff.backup_alert.cleanup_failed', 'staff.backup_alert.*'],
+    'staff.backup_alert.unhealthy' => ['staff.backup_alert.unhealthy', 'staff.backup_alert.*'],
+]);
+
+/**
  * `status` chỉ được hỏi MỘT chỗ trong `handle()`: trên bản đọc có khoá bên trong transaction (nhánh
  * hỏi trước transaction trên bản trong bộ nhớ đã bị bỏ — xem chú thích trong `handle()`).
  *

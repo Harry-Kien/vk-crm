@@ -28,15 +28,26 @@ use Illuminate\Database\Eloquent\Relations\Relation;
  * `client.request_answered`, `client.missing_documents`, `staff.new_client_request`,
  * `staff.new_client_document`, `staff.stale_matter`.
  *
- * # KHÔNG gửi lại — mỗi mẫu một lý do, và đó là quyết định, không phải sót
+ * # KHÔNG gửi lại — {@see self::NOT_RESENDABLE}, mỗi mục một lý do, và đó là quyết định, không phải sót
  *
  *  - `client.otp`: mã 5 phút gửi ĐỒNG BỘ (phán quyết M5); gửi lại từ nhật ký là gửi một mã đã chết.
- *  - `staff.deadline_reminder`: đã có đường thử lại riêng — `SendDeadlineReminderMail::failed()`
- *    trả bậc về `reminders_sent` để `CheckDeadlines` gửi lại lần chạy sau (khoá chống trùng
- *    bậc@ngày). Một nút gửi tay ở đây là gửi HAI lần.
+ *  - `staff.deadline_reminder`: bậc nhắc hỏng HẲN (hết lượt thử) thì `SendDeadlineReminderMail::
+ *    failed()` rút bậc khỏi `reminders_sent`, ghi dòng `deadline_reminder_failed` và rung chuông
+ *    (một lần mỗi ngày) cho người phụ trách mốc, luật sư phụ trách và cấp trên; `CheckDeadlines`
+ *    KHÔNG xếp lại bậc đó trong ngày (`SendDeadlineReminderMail::failedForGoodToday()`, final review
+ *    wave 2, I-2) — lượt `deadlines.check` ĐẦU TIÊN của ngày hôm sau (07:00) mới nhắc lại mốc này.
+ *    Chặn trùng của job (`tier@due_date`, theo từng người nhận, chỉ dòng `sent`) đủ để một lần gửi
+ *    tay ở đây không thành hai thư, nên thêm mẫu này vào nút là AN TOÀN về chống trùng — nhưng đó là
+ *    quyết định của chủ văn phòng, chưa làm (Ghi chú M6, việc sau gộp).
  *  - `client.activation`: gửi lại thư kích hoạt là CẤP mật khẩu tạm mới — việc đó có nút riêng ở
  *    màn hình tài khoản cổng khách hàng (Task 3), có ghi nhật ký và ép đổi mật khẩu.
- *  - `undeclared` và mọi mẫu lạ: không biết dựng lại từ đâu.
+ *  - `staff.instalment_overdue` (M9): `instalments.remind` chạy 08:00 mỗi ngày và chỉ dòng `sent`
+ *    chặn lời nhắc mới (`SendInstalmentOverdueMail::alreadyReminded()`), nên đợt còn quá hạn tự
+ *    được nhắc lại ở lượt 08:00 kế tiếp. Không có gì để gửi tay.
+ *  - `staff.backup_alert.*` (M8a; hậu tố là loại sự cố: `backup_failed`, `cleanup_failed`,
+ *    `unhealthy`): thư mang trạng thái của MỘT lượt sao lưu đã qua — gửi lại là báo một sự kiện
+ *    cũ. Sự cố còn thì lượt sao lưu 02:00 hoặc lượt kiểm tra 08:00 kế tiếp tự báo lại.
+ *  - `undeclared` và mọi mẫu lạ: không biết dựng lại từ đâu (mẫu lạ nhận câu từ chối chung).
  *
  * # Nguyên tắc: KHÔNG viết luật thứ hai
  *
@@ -47,8 +58,44 @@ use Illuminate\Database\Eloquent\Relations\Relation;
  */
 final class ResendTargets
 {
+    /**
+     * Mẫu thư KHÔNG gửi lại được, ghi TƯỜNG MINH (lý do từng mục ở docblock lớp). Mỗi mục cũng là
+     * khoá câu từ chối riêng ở `outbound.resend.refused.template_reasons`. Mục kết thúc bằng `.*` là
+     * một HỌ mẫu có hậu tố động — {@see self::exclusionOf()}. Một mẫu không có ở đây và không có ở
+     * {@see self::for()} vẫn bị chặn (nhánh `default`), nhưng nhận câu chung; test
+     * `MailTemplateRegistryTest` đòi mọi mẫu của `app/Mail` nằm ở MỘT trong hai nơi.
+     */
+    public const NOT_RESENDABLE = [
+        'client.otp',
+        'staff.deadline_reminder',
+        'client.activation',
+        'staff.instalment_overdue',
+        'staff.backup_alert.*',
+        'undeclared',
+    ];
+
     /** Tệp thuộc CÙNG một lần nộp nằm trong khoảng này kể từ tệp đại diện — xem {@see self::batchOf()}. */
     private const BATCH_WINDOW_SECONDS = 60;
+
+    /**
+     * Mục của {@see self::NOT_RESENDABLE} khớp `$template` — tên đầy đủ, hoặc họ `xxx.*` khi tên mẫu
+     * bắt đầu bằng `xxx.` (`staff.backup_alert.unhealthy` → `staff.backup_alert.*`). `null` khi mẫu
+     * không bị loại tường minh (gửi lại được, hoặc là một mẫu lạ chưa ai khai).
+     */
+    public static function exclusionOf(string $template): ?string
+    {
+        foreach (self::NOT_RESENDABLE as $entry) {
+            $matches = str_ends_with($entry, '.*')
+                ? str_starts_with($template, substr($entry, 0, -1))
+                : $template === $entry;
+
+            if ($matches) {
+                return $entry;
+            }
+        }
+
+        return null;
+    }
 
     public static function for(string $template): ?ResendTarget
     {

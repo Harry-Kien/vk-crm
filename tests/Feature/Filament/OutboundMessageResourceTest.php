@@ -418,3 +418,53 @@ it('denies Gate view for a manager on a trashed-matter row, directly (not throug
     expect(Gate::forUser($manager)->allows('view', $message))->toBeFalse()
         ->and(Gate::forUser($admin)->allows('view', $message))->toBeTrue();
 });
+
+// -------------------------------------------------------------------------------------------
+// Việc sau gộp M6 (làn fu, mục 3): nhãn tiếng Việt của mẫu thư
+// -------------------------------------------------------------------------------------------
+
+/**
+ * Tên mẫu có dấu chấm (`client.stage_update`): `Lang::has("outbound.templates.$template")` tách nó
+ * thành khoá lồng `templates` → `client` → `stage_update` và không bao giờ khớp khoá phẳng, nên cột
+ * "Mẫu thư", trang xem và ô lọc từng hiện khoá thô cho MỌI mẫu. Đo ở cả ba nơi dùng
+ * `OutboundMessagesTable::templateLabel()`, qua màn hình thật.
+ *
+ * Mutation probe: trả `templateLabel()` về bản `Lang::has(...)` → ĐỎ.
+ */
+it('shows the Vietnamese label of a dotted template name in the column, on the view page and in the template filter', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = Matter::factory()->create();
+    $log = StageLog::factory()->create(['matter_id' => $matter->id]);
+    $message = OutboundMessage::factory()->create([
+        'template' => 'client.stage_update',
+        'related_type' => 'stage_log',
+        'related_id' => $log->id,
+    ]);
+
+    $this->actingAs($admin, 'web');
+
+    $list = $this->livewire(ListOutboundMessages::class)
+        ->assertTableColumnFormattedStateSet('template', 'Cập nhật tiến độ cho khách', $message);
+
+    expect($list->instance()->getTable()->getFilter('template')->getOptions())
+        ->toBe(['client.stage_update' => 'Cập nhật tiến độ cho khách']);
+
+    $this->get(OutboundMessageResource::getUrl('view', ['record' => $message], panel: 'admin'))
+        ->assertOk()
+        ->assertSee('Cập nhật tiến độ cho khách');
+});
+
+/** Cặp của test trên: một mẫu CHƯA có nhãn vẫn hiện nguyên tên mẫu, không trống, không lỗi. */
+it('still shows the raw template name for a template that has no label yet', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $message = OutboundMessage::factory()->create([
+        'template' => 'staff.future_template',
+        'related_type' => null,
+        'related_id' => null,
+    ]);
+
+    $this->actingAs($admin, 'web');
+
+    $this->livewire(ListOutboundMessages::class)
+        ->assertTableColumnFormattedStateSet('template', 'staff.future_template', $message);
+});
