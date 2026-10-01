@@ -122,8 +122,8 @@ class OfficeProfilePage extends Page
     /**
      * Hành động THẬT: hỏi lại cổng, gọi {@see UpdateOfficeProfile}, đổi khoá lỗi của Action
      * (`tax_code`) sang đường dẫn trạng thái của form (`data.tax_code`) để lỗi hiện đúng dưới ô của
-     * nó, rồi điền lại form bằng giá trị vừa lưu (đã chuẩn hoá: hotline theo cách viết trong nước,
-     * mã số thuế 13 chữ số có gạch).
+     * nó, rồi điền lại form bằng giá trị vừa lưu (đã chuẩn hoá: hotline theo cách viết trong nước
+     * hoặc đầu số dịch vụ chỉ còn chữ số, mã số thuế 13 chữ số có gạch).
      */
     public function save(): void
     {

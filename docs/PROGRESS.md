@@ -1411,9 +1411,13 @@ thông tin thương hiệu chỉ đổi được qua `.env`.
   trong `content()`/`toMail()`/layout, không chụp vào thuộc tính (test: một `StageUpdate` tuần tự
   hoá trước lần lưu, gửi sau, mang giá trị mới).
 - **Kiểm tra đầu vào (Action, lần nữa sau form):** mã số thuế bỏ khoảng trắng, 13 chữ số liền viết
-  lại thành `0123456789-001`, rồi phải là `^\d{10}(-\d{3})?$`; hotline qua `Normalizer::phone()`
-  phải ra `84` + 8…10 chữ số, LƯU theo cách viết trong nước (`0` + phần thuê bao — cùng dạng mặc định
-  `0832270898`, vì số này in nguyên văn cho khách đọc và nằm trong `tel:`); Zalo/website
+  lại thành `0123456789-001`, rồi phải là `^\d{10}(-\d{3})?$`; hotline: đầu số dịch vụ
+  `1900`/`1800` được nhận ra TRƯỚC `Normalizer::phone()` (sau khi bỏ khoảng trắng, chấm, gạch,
+  ngoặc), phải đủ 8 hoặc 10 chữ số và LƯU nguyên các chữ số (`1900 6557` → `19006557`); số khác
+  qua `Normalizer::phone()` phải ra `84` + phần quốc gia 9…10 chữ số bắt đầu bằng 2…9 (không số
+  thuê bao nào còn phần quốc gia 8 chữ số hay đầu 1), LƯU theo cách viết trong nước (`0` + phần
+  quốc gia — cùng dạng mặc định `0832270898`, vì số này in nguyên văn cho khách đọc và nằm trong
+  `tel:`) (vòng sửa 1: trước đó `1900 6557` bị lưu thành số không tồn tại `019006557`); Zalo/website
   `url:http,https`; email liên hệ `email`. Lỗi của Action gắn vào đúng ô trên form (`data.<trường>`).
   Khoá vắng mặt trong đầu vào thì giữ nguyên; khoá ngoài chín trường bị bỏ qua.
 - **Audit:** `office_profile_updated` (nhãn trong `lang/vi/activity.php`), `changed_fields` = tên
@@ -1446,12 +1450,10 @@ thông tin thương hiệu chỉ đổi được qua `.env`.
 - **M8 Task 7 (làn M8b):** cảnh báo "bốn thông tin pháp lý còn trống" của `vkcrm:preflight` đọc
   `OfficeProfile::current()->taxCode()` (…), không đọc `config('vkcrm.brand.*')` — sau khi gộp, test
   cấu trúc bắt chỗ đọc cấu hình trực tiếp.
-- **Giới hạn đã biết:** đầu số dịch vụ `1900 xxxx`/`1800 xxxx` (8 chữ số) bị `Normalizer::phone()`
-  đọc như số thuê bao mất số 0 và lưu thành `019001234` — kế hoạch đòi chuẩn hoá qua đúng hàm đó.
-  Nếu văn phòng dùng đầu số dịch vụ làm hotline, cần một nhánh riêng (chưa làm). Màn hình cổng
-  (chân trang đăng nhập, trang lỗi 403/404, `MatterProgress`, `MyMatters`) chưa bỏ nút/liên kết
-  `tel:` khi hotline trống ở CẢ hai nơi — như trước Task 10; chỉ xảy ra khi `.env` đặt
-  `BRAND_HOTLINE=` rỗng VÀ trang để trống ô, vì mặc định của `config/vkcrm.php` có số.
+- **Giới hạn đã biết:** màn hình cổng (chân trang đăng nhập, trang lỗi 403/404, `MatterProgress`,
+  `MyMatters`) chưa bỏ nút/liên kết `tel:` khi hotline trống ở CẢ hai nơi — như trước Task 10;
+  chỉ xảy ra khi `.env` đặt `BRAND_HOTLINE=` rỗng VÀ trang để trống ô, vì mặc định của
+  `config/vkcrm.php` có số.
 - Test: `tests/Feature/Support/OfficeProfileTest.php` (service + cấu trúc),
   `tests/Feature/Actions/Settings/{UpdateOfficeProfileTest, WriteSettingsTest}.php`,
   `tests/Feature/Filament/OfficeProfilePageTest.php` (màn hình qua Livewire/HTTP: 404 cả request

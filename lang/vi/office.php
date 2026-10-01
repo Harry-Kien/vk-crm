@@ -36,7 +36,7 @@ return [
         ],
         'hotline' => [
             'label' => 'Hotline',
-            'hint' => 'Số điện thoại Việt Nam. Hệ thống tự bỏ khoảng trắng, dấu chấm và +84.',
+            'hint' => 'Số điện thoại Việt Nam, hoặc đầu số dịch vụ 1900/1800. Hệ thống tự bỏ khoảng trắng, dấu chấm và +84.',
         ],
         'zalo' => [
             'label' => 'Zalo',
@@ -57,7 +57,7 @@ return [
 
     'validation' => [
         'tax_code' => 'Mã số thuế gồm 10 chữ số, hoặc 13 chữ số dạng 0123456789-001.',
-        'hotline' => 'Hotline phải là một số điện thoại Việt Nam (8–10 chữ số sau số 0 đầu).',
+        'hotline' => 'Hotline phải là một số điện thoại Việt Nam (số 0 rồi 9 hoặc 10 chữ số, ví dụ 0832 270 898), hoặc đầu số dịch vụ 1900/1800 gồm 8 hoặc 10 chữ số (ví dụ 1900 6557).',
     ],
 
     'submit' => 'Lưu',

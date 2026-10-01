@@ -34,10 +34,15 @@ use Illuminate\Validation\ValidationException;
  *  - mọi trường: chuỗi, dài tối đa {@see OfficeProfile::FIELDS} ký tự (đúng `maxLength()` của form);
  *  - `tax_code`: bỏ mọi khoảng trắng; 13 chữ số liền được viết lại thành `0123456789-001`; rồi phải
  *    đúng 10 chữ số hoặc 10 chữ số, gạch, 3 chữ số;
- *  - `hotline`: chuẩn hoá qua {@see Normalizer::phone()} (bỏ khoảng trắng, dấu chấm, `+84`/`0084`,
- *    đoán lại số 0 bị Excel ăn) — kết quả phải là `84` + 8…10 chữ số, rồi được LƯU theo cách viết
- *    trong nước (`0` + phần thuê bao), cùng dạng với giá trị mặc định `0832270898`: số này in
- *    nguyên văn trên chân thư cho khách đọc và nằm trong `tel:`;
+ *  - `hotline`: đầu số dịch vụ `1900`/`1800` (sau khi bỏ khoảng trắng, chấm, gạch, ngoặc) được
+ *    nhận ra TRƯỚC khi chuẩn hoá: phải đủ 8 hoặc 10 chữ số và được lưu nguyên các chữ số đó
+ *    (`1900 6557` → `19006557`) — `Normalizer::phone()` đọc nó như một số thuê bao mất số 0 và
+ *    viết lại thành một số không tồn tại (`019006557`). Mọi số khác qua {@see Normalizer::phone()}
+ *    (bỏ khoảng trắng, dấu chấm, `+84`/`0084`, đoán lại số 0 bị Excel ăn) — kết quả phải là `84` +
+ *    phần quốc gia 9…10 chữ số không bắt đầu bằng 0 hay 1 (từ 2017–2018 không số thuê bao Việt Nam
+ *    nào có phần quốc gia 8 chữ số hay bắt đầu bằng 1), rồi được LƯU theo cách viết trong nước
+ *    (`0` + phần quốc gia), cùng dạng với giá trị mặc định `0832270898`. Cả hai dạng đều chỉ có
+ *    chữ số: số này in nguyên văn trên chân thư cho khách đọc và nằm trong `tel:`;
  *  - `zalo`, `website`: URL `http`/`https` — giá trị đi thẳng vào `<a href>`, nên `javascript:` hay
  *    một chữ không có giao thức đều bị từ chối;
  *  - `reply_to`: địa chỉ thư hợp lệ — một Reply-To hỏng làm Symfony ném lỗi ở MỌI thư.
@@ -84,7 +89,7 @@ class UpdateOfficeProfile
         $this->validate($values);
 
         if (array_key_exists('hotline', $values)) {
-            $values['hotline'] = $this->domesticHotline($values['hotline']);
+            $values['hotline'] = $this->storedHotline($values['hotline']);
         }
 
         $settings = [];
@@ -167,20 +172,34 @@ class UpdateOfficeProfile
             ),
         )->validate();
 
-        if (filled($values['hotline'] ?? null) && $this->domesticHotline($values['hotline']) === null) {
+        if (filled($values['hotline'] ?? null) && $this->storedHotline($values['hotline']) === null) {
             throw ValidationException::withMessages(['hotline' => [__('office.validation.hotline')]]);
         }
     }
 
     /**
-     * `Normalizer::phone()` → `84` + 8…10 chữ số (phần thuê bao không bắt đầu bằng 0) → cách viết
-     * trong nước. `null` khi đầu vào trống hoặc không ra một số Việt Nam.
+     * Giá trị hotline sẽ lưu, `null` khi đầu vào trống hoặc không phải một hotline gọi được:
+     *  - đầu số dịch vụ: bỏ khoảng trắng, chấm, gạch, ngoặc; bắt đầu bằng `1900`/`1800` thì phải
+     *    đủ 8 hoặc 10 chữ số và được trả nguyên các chữ số — KHÔNG đi tiếp sang `Normalizer::phone()`,
+     *    kể cả khi sai độ dài (để không bị đoán thành một số thuê bao mất số 0);
+     *  - số thuê bao: `Normalizer::phone()` → `84` + 9…10 chữ số bắt đầu bằng 2…9 → cách viết trong
+     *    nước (`0` + phần quốc gia).
      */
-    private function domesticHotline(?string $value): ?string
+    private function storedHotline(?string $value): ?string
     {
+        if ($value === null) {
+            return null;
+        }
+
+        $compact = (string) preg_replace('/[\s.\-()]+/u', '', $value);
+
+        if (preg_match('/^1[89]00/', $compact) === 1) {
+            return preg_match('/^1[89]00(\d{4}|\d{6})$/', $compact) === 1 ? $compact : null;
+        }
+
         $normalized = Normalizer::phone($value);
 
-        if ($normalized === null || preg_match('/^84([1-9]\d{7,9})$/', $normalized, $match) !== 1) {
+        if ($normalized === null || preg_match('/^84([2-9]\d{8,9})$/', $normalized, $match) !== 1) {
             return null;
         }
 

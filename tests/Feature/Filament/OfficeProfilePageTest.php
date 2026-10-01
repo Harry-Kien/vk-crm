@@ -215,6 +215,7 @@ it('hiện lỗi đúng ô khi mã số thuế hay hotline sai dạng, và khôn
     'mã số thuế 9 chữ số' => ['tax_code', '010987654'],
     'mã số thuế đuôi 2 chữ số' => ['tax_code', '0109876543-02'],
     'hotline quá ngắn' => ['hotline', '12345'],
+    'hotline đầu số dịch vụ 9 chữ số' => ['hotline', '1900 12345'],
     'zalo không phải URL' => ['zalo', 'zalo.me/0905111222'],
     'email hỏng' => ['reply_to', 'hoidap-phaplymoi.vn'],
 ]);
@@ -246,6 +247,29 @@ it('lưu chín trường, chuẩn hoá hotline và mã số thuế, rồi hiện
         ->and($office->taxCode())->toBe('0109876543-002')
         ->and($office->hotline())->toBe('02363888999')
         ->and($office->replyTo())->toBe('hoidap@phaplymoi.vn');
+});
+
+/**
+ * Đầu số dịch vụ làm hotline: lưu nguyên các chữ số, không thành `019006557` (số không tồn tại) —
+ * form hiện lại đúng số, và chân trang đăng nhập của cổng mang `tel:19006557`.
+ */
+it('lưu hotline đầu số dịch vụ 1900 nguyên các chữ số, và cổng gọi đúng số đó', function () {
+    $this->actingAs($this->admin, 'web');
+
+    Livewire::test(OfficeProfilePage::class)
+        ->fillForm([...newOfficeValues(), 'hotline' => '1900 6557'])
+        ->call('save')
+        ->assertHasNoFormErrors()
+        ->assertFormSet(['hotline' => '19006557']);
+
+    expect(OfficeProfile::current()->hotline())->toBe('19006557');
+
+    auth('web')->logout();
+
+    $this->get('/portal/login')
+        ->assertOk()
+        ->assertSee('tel:19006557', false)
+        ->assertDontSee('019006557');
 });
 
 /** Ô trống là "dùng giá trị của `.env`", nên form không điền sẵn giá trị cấu hình vào ô — chỉ gợi ý. */

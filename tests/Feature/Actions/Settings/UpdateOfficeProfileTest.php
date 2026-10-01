@@ -232,6 +232,53 @@ it('từ chối hotline không phải một số điện thoại Việt Nam', fu
     'quá dài' => ['0790123456789'],
 ]);
 
+/**
+ * Đầu số dịch vụ 1900/1800 (8 hoặc 10 chữ số) không phải số thuê bao: `Normalizer::phone()` đọc
+ * `1900 6557` như một số thuê bao mất số 0 và trả `8419006557` — lưu thành `019006557`, một số không
+ * tồn tại in lên chân mọi thư khách, thư OTP và mọi `tel:` của cổng. Đầu số dịch vụ được nhận ra
+ * TRƯỚC khi chuẩn hoá và lưu nguyên các chữ số (bỏ khoảng trắng, chấm, gạch).
+ *
+ * Mutation probe: bỏ nhánh đầu số dịch vụ trong `UpdateOfficeProfile::storedHotline()` làm test đỏ
+ * (`1900 6557` bị lưu thành `019006557`, `1900 123 456` thành `01900123456`).
+ */
+it('nhận đầu số dịch vụ 1900/1800 và lưu nguyên các chữ số, không viết lại thành số thuê bao', function (string $input, string $stored) {
+    updateOfficeProfile($this->admin, ['hotline' => $input]);
+
+    expect(storedOfficeValue('hotline'))->toBe($stored);
+})->with([
+    '1900 8 chữ số' => ['1900 6557', '19006557'],
+    '1800 8 chữ số' => ['1800 1234', '18001234'],
+    '1900 10 chữ số' => ['1900 123 456', '1900123456'],
+    '1800 10 chữ số, chấm' => ['1800.588.888', '1800588888'],
+    '1900 gạch' => ['1900-6557', '19006557'],
+]);
+
+/**
+ * Không còn số Việt Nam nào có phần quốc gia 8 chữ số (từ 2017) hay bắt đầu bằng 1 (đầu 01x của di
+ * động đổi xong năm 2018) — hai dạng đó chỉ là một đầu số dịch vụ bị viết sai, hoặc một số cũ đã
+ * không còn gọi được. Đầu số dịch vụ sai độ dài cũng bị từ chối, không lọt sang nhánh số thuê bao.
+ *
+ * Mutation probes: nới phần quốc gia về `[1-9]\d{7,9}` (regex cũ) làm đỏ `019006557`,
+ * `01900123456`, `+84 1900 6557`, `0123 456 7890` và `0 2838 2212`; chỉ nới chữ số đầu về
+ * `[1-9]` làm đỏ `01900123456` và `0123 456 7890`; chỉ nới độ dài về `{7,9}` làm đỏ
+ * `0 2838 2212`; bỏ kiểm độ dài của nhánh đầu số dịch vụ làm đỏ `1900 12345`.
+ */
+it('từ chối đầu số dịch vụ sai dạng và số có phần quốc gia 8 chữ số hay bắt đầu bằng 1', function (string $input) {
+    $errors = officeValidationErrors(fn () => updateOfficeProfile($this->admin, ['hotline' => $input]));
+
+    expect($errors)->toHaveKey('hotline')
+        ->and($errors['hotline'])->toBe([__('office.validation.hotline')])
+        ->and(Setting::query()->count())->toBe(0);
+})->with([
+    '1900 có số 0 phía trước' => ['019006557'],
+    '1900 10 chữ số có số 0 phía trước' => ['01900123456'],
+    '1900 sau +84' => ['+84 1900 6557'],
+    '1900 9 chữ số' => ['1900 12345'],
+    '1800 7 chữ số' => ['1800 123'],
+    'di động 11 số cũ (đầu 012)' => ['0123 456 7890'],
+    'phần quốc gia 8 chữ số' => ['0 2838 2212'],
+]);
+
 // ---------------------------------------------------------------------------------------------
 // Zalo, website: URL http(s). Email liên hệ: địa chỉ thư hợp lệ.
 // ---------------------------------------------------------------------------------------------
