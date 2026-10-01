@@ -237,10 +237,19 @@ class EditClientUser extends EditRecord
      * fix round 1, `is_active` bật lại cho một tài khoản chưa từng kích hoạt) thì cần một thư
      * kích hoạt để chứng minh/mở đường vào hộp thư, cùng lý lẽ một tài khoản vừa tạo — không làm
      * việc này, tài khoản đó có `must_change_password = true` NHƯNG không có mật khẩu tạm nào
-     * được gửi, tức không có cách nào để khách đăng nhập và tự đổi mật khẩu. Bỏ qua kết quả trả
-     * về ở đây (không có toast riêng cho lần lưu form — `IssuePortalAccess::isEligible()` vừa
-     * được `mutateFormDataBeforeSave()` xác nhận đúng ngay trước khi lưu, nên `issued` luôn true
-     * ở nhánh này, trừ khi khách bị xoá mềm đúng trong khoảnh khắc giữa hai bước).
+     * được gửi, tức không có cách nào để khách đăng nhập và tự đổi mật khẩu.
+     *
+     * Bỏ qua kết quả trả về ở đây (không có toast riêng cho lần lưu form). `issued` KHÔNG luôn
+     * true: `mutateFormDataBeforeSave()` không hỏi `IssuePortalAccess::isEligible()` — chỉ
+     * `IssuePortalAccess::handle()` tự hỏi, dưới khoá dòng. Kết quả tuỳ tài khoản SAU lần lưu:
+     *  - đang bật (đổi email trên tài khoản đang bật, hoặc vừa bật lại `is_active`): `issued` là
+     *    true trừ khi khách hàng đã bị xoá mềm;
+     *  - đổi email trên một tài khoản đang TẮT (`is_active = false`): `issued` là false, KHÔNG thư
+     *    nào đi lúc lưu, và màn hình không báo gì. Thư không mất hẳn: đổi email đã đặt
+     *    `activated_at = null`, nên lần bật `is_active` lại sau đó rơi vào nhánh "chưa từng kích
+     *    hoạt" ở trên và gửi thư kích hoạt tới địa chỉ MỚI — ghim bằng test "sends no activation
+     *    mail for an email change on an inactive account until staff turns it back on"
+     *    (`ClientUserResourceTest`).
      */
     protected function afterSave(): void
     {

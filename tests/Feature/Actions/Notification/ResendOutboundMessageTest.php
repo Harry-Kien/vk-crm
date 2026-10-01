@@ -86,7 +86,12 @@ it('refuses a forced call on a template that must not be resent, naming the reas
     Queue::assertNothingPushed();
 })->with(['client.otp', 'staff.deadline_reminder', 'client.activation', 'undeclared']);
 
-/** Mutation probe: bỏ nhánh `status !== Failed` (trước transaction) VÀ bản khoá trong transaction → ĐỎ. */
+/**
+ * `status` chỉ được hỏi MỘT chỗ trong `handle()`: trên bản đọc có khoá bên trong transaction (nhánh
+ * hỏi trước transaction trên bản trong bộ nhớ đã bị bỏ — xem chú thích trong `handle()`).
+ *
+ * Mutation probe: bỏ điều kiện `$locked->status !== OutboundStatus::Failed` → ĐỎ.
+ */
 it('refuses a forced call on a row that is not failed', function (OutboundStatus $status) {
     $row = forcedFailedStageRow(['status' => $status]);
     $admin = User::factory()->withRole(Role::Admin)->create();

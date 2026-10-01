@@ -7,8 +7,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 
 /**
- * Ba lời gọi vào MỘT mẫu thư gửi lại được — xem {@see ResendTargets}. Không chứa luật nào:
- * mỗi closure chỉ chuyển sang hàm CÓ SẴN của Action/Job gốc của mẫu đó.
+ * Bốn lời gọi vào MỘT mẫu thư gửi lại được (ba bắt buộc, `instanceKey` tuỳ chọn) — xem
+ * {@see ResendTargets}. Không chứa luật nào: mỗi closure chỉ chuyển sang hàm CÓ SẴN của
+ * Action/Job gốc của mẫu đó.
  *
  *  - `eligible`: những người đủ điều kiện nhận NGAY BÂY GIỜ (mọi cổng lúc-gửi của mẫu);
  *  - `delivered`: người đó đã có một dòng `sent` cho đúng thư này chưa (chống trùng của mẫu);

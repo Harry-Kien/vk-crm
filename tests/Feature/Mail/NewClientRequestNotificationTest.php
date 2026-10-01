@@ -205,13 +205,14 @@ it('sends nothing when the matter was cancelled before the job ran', function ()
  * Fix round 1 (finding Critical 1, review Task 4 toàn dải): khách KHÔNG bị chặn gửi yêu cầu trên
  * vụ việc ĐÃ ĐÓNG mà vẫn công bố lên cổng (`ClientRequestPolicy::create` -> `canSeeMatter` ->
  * `MatterPolicy::releasedToPortal` không hỏi `closed_at`; cổng vẫn hiện ô "Gửi yêu cầu" và báo
- * "Văn phòng đã nhận được yêu cầu của anh/chị"). Trước vòng sửa, `openMatterFor()` đòi `->open()`
- * nên mail + chuông của luật sư phụ trách bị bỏ lặng lẽ: khách được hứa "đã nhận", văn phòng
- * không ai biết, và không có danh sách yêu cầu toàn văn phòng để bắt lại (REQ-1/e2e-F5). Thư nội
- * bộ của nhân sự không phải ranh giới cổng — chỉ vụ đã XOÁ MỀM (huỷ) mới hết thứ để báo.
+ * "Văn phòng đã nhận được yêu cầu của anh/chị"). Trước vòng sửa, hàm nạp vụ việc (khi đó tên
+ * `openMatterFor()`, nay `existingMatterFor()`) đòi `->open()` nên mail + chuông của luật sư phụ
+ * trách bị bỏ lặng lẽ: khách được hứa "đã nhận", văn phòng không ai biết, và không có danh sách
+ * yêu cầu toàn văn phòng để bắt lại (REQ-1/e2e-F5). Thư nội bộ của nhân sự không phải ranh giới
+ * cổng — chỉ vụ đã XOÁ MỀM (huỷ) mới hết thứ để báo.
  *
- * Mutation probe: thêm lại `->open()` vào `NotifyStaffOfNewClientRequest::openMatterFor()` — cả
- * hai test dưới đây ĐỎ.
+ * Mutation probe: thêm lại `->open()` vào `NotifyStaffOfNewClientRequest::existingMatterFor()` —
+ * cả hai test dưới đây ĐỎ.
  */
 it('still reaches the lead lawyer (mail and in-app) when the client writes on a CLOSED matter that stays on the portal', function () {
     Mail::fake();

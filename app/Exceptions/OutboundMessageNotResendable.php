@@ -16,8 +16,10 @@ use Illuminate\Support\Carbon;
  * Câu chữ nằm ở `lang/vi/outbound.php` (mục `resend.refused`); không câu nào nêu mã vụ việc, tiêu
  * đề hay tên khách (Review Focus 1: vụ `restricted`) — người bấm đã thấy dòng đó trong bảng.
  *
- * `DomainException` để `App\Filament\Admin\Concerns\ReportsActionFailures` và nút "Gửi lại" vẽ
- * đúng câu này lên một thông báo đỏ.
+ * `DomainException` để nút "Gửi lại" (`ResendOutboundMessageAction`, ở
+ * `app/Filament/Admin/Resources/OutboundMessages/Actions/`) tự bắt nó trong `action()` và vẽ đúng
+ * câu này lên một thông báo đỏ `persistent()` rồi `halt()` — nút đó KHÔNG đi qua
+ * `App\Filament\Admin\Concerns\ReportsActionFailures`.
  */
 class OutboundMessageNotResendable extends DomainException
 {

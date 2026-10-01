@@ -144,7 +144,8 @@ it('sends exactly one mail for a two-file submission, naming the real count', fu
  * Một trong hai tệp của lô bị gỡ (xoá mềm) GIỮA lúc sự kiện bắn và lúc job chạy — thư phải nói số
  * THẬT lúc gửi, không phải ảnh chụp lúc dispatch.
  *
- * Mutation probe: đổi `freshCount()` để LUÔN trả `$fallback` (bỏ câu đếm lại) — test này ĐỎ.
+ * Mutation probe: đổi `freshCount()` để trả `$documents->count()` (số tệp lúc dispatch, bỏ câu đếm
+ * lại trên CSDL) — test này ĐỎ.
  */
 it('recounts the batch at send time instead of trusting the count captured at dispatch', function () {
     Mail::fake();
@@ -270,12 +271,13 @@ it('sends nothing when the matter was cancelled before the job ran', function ()
 
 /**
  * Fix round 1 (finding Critical 1, review Task 4 toàn dải): `DocumentPolicy::create` cho khách
- * nộp tệp vào đầu mục của vụ ĐÃ ĐÓNG còn công bố trên cổng. Trước vòng sửa `openMatterFor()` đòi
- * `->open()` nên `staff.new_client_document` bị bỏ lặng lẽ — tệp nằm đó, không ai được báo. Thư
- * nội bộ không phải ranh giới cổng; chỉ vụ đã XOÁ MỀM (huỷ) mới hết thứ để báo.
+ * nộp tệp vào đầu mục của vụ ĐÃ ĐÓNG còn công bố trên cổng. Trước vòng sửa, hàm nạp vụ việc (khi
+ * đó tên `openMatterFor()`, nay `existingMatterFor()`) đòi `->open()` nên thư
+ * `staff.new_client_document` bị bỏ lặng lẽ — tệp nằm đó, không ai được báo. Thư nội bộ không
+ * phải ranh giới cổng; chỉ vụ đã XOÁ MỀM (huỷ) mới hết thứ để báo.
  *
- * Mutation probe: thêm lại `->open()` vào `NotifyStaffOfNewClientDocument::openMatterFor()` — cả
- * hai test dưới đây ĐỎ.
+ * Mutation probe: thêm lại `->open()` vào `NotifyStaffOfNewClientDocument::existingMatterFor()` —
+ * cả hai test dưới đây ĐỎ.
  */
 it('still reaches the lead lawyer (mail and in-app) when the client submits a file on a CLOSED matter that stays on the portal', function () {
     Mail::fake();

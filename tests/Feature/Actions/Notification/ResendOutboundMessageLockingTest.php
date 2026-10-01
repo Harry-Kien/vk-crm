@@ -36,8 +36,9 @@ use Illuminate\Support\Facades\Queue;
  * không cố định READ VIEW; câu đọc KHÔNG khoá đầu tiên (tra `activity_log`) chạy sau khi đã giành
  * khoá, tức sau khi con commit, nên READ VIEW của nó chứa dấu của con.
  *
- * Mutation probe (dán ở báo cáo Task 10): đưa câu tra `activity_log` ra TRƯỚC `DB::transaction()` →
- * test này ĐỎ (cha đọc "chưa ai bấm" trước khi con commit, rồi xếp hàng một job thứ hai).
+ * Mutation probe (chạy trên MariaDB lúc viết test ở Task 10, và chạy lại ở vòng sửa sau rà soát
+ * cuối làn): đưa câu tra `activity_log` ra TRƯỚC `DB::transaction()` → test này ĐỎ (cha đọc "chưa
+ * ai bấm" trước khi con commit, rồi xếp hàng một job thứ hai).
  *
  * Dọn CSDL: cùng lý do docblock test gốc (fix round 4, N1) — `RefreshDatabaseState::$migrated =
  * false` TRƯỚC lần commit đầu tiên, để bài test `RefreshDatabase` kế tiếp `migrate:fresh`.

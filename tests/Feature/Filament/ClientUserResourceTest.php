@@ -777,6 +777,56 @@ it('does not re-issue activation when staff turns is_active back on for an alrea
     Mail::assertNothingSent();
 });
 
+/**
+ * Rà soát cuối làn (I2): docblock `EditClientUser::afterSave()` từng nói `issued` "luôn true" vì
+ * `mutateFormDataBeforeSave()` đã hỏi `IssuePortalAccess::isEligible()` — nó không hỏi. Test này
+ * ghim hành vi THẬT mà docblock giờ mô tả: đổi email trên một tài khoản đang TẮT không gửi thư
+ * kích hoạt nào lúc lưu (`IssuePortalAccess` từ chối tài khoản tắt), và thư đó tới địa chỉ MỚI
+ * đúng lúc nhân sự bật tài khoản lên lại — vì đổi email đã xoá `activated_at`.
+ *
+ * Mutation probe: bỏ `$data['activated_at'] = null;` khỏi nhánh đổi email của
+ * `mutateFormDataBeforeSave()` — test này ĐỎ (`activated_at` không về null sau lần lưu thứ nhất,
+ * nên lần bật lại cũng không rơi vào nhánh "chưa từng kích hoạt").
+ */
+it('sends no activation mail for an email change on an inactive account until staff turns it back on', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $ownClient = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $ownClient->id, 'lead_lawyer_id' => $lawyer->id]);
+    $account = ClientUser::factory()->for($ownClient)->activated()->create(['is_active' => false]);
+
+    $this->actingAs($lawyer, 'web');
+    Filament::setCurrentPanel('admin');
+
+    Mail::fake();
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'name' => $account->name,
+            'email' => 'dia-chi-moi@example.com',
+            'is_active' => false,
+        ])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    $account->refresh();
+    expect($account->email)->toBe('dia-chi-moi@example.com')
+        ->and($account->activated_at)->toBeNull()
+        ->and($account->is_active)->toBeFalse();
+    Mail::assertNothingSent();
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'name' => $account->name,
+            'email' => $account->email,
+            'is_active' => true,
+        ])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    Mail::assertSent(Activation::class, 1);
+    Mail::assertSent(Activation::class, fn ($mail) => $mail->hasTo('dia-chi-moi@example.com'));
+});
+
 // =========================================================================================
 // Fix round 1, I1: đổi email đặt lại activated_at (và must_change_password) — email tài khoản
 // cổng do nhân sự gõ tay lúc nghe điện thoại, không qua bước xác minh nào (cùng lỗ hổng
