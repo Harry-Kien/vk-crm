@@ -98,6 +98,8 @@ return [
         'staff_two_factor_reset' => 'Đặt lại 2FA nhân sự',
         // M8 Task 3 (SPEC §10.3): app/Actions/User/UnlockStaffLogin.php.
         'staff_login_unlocked' => 'Mở khoá đăng nhập nhân sự',
+        // M8 Task 7: app/Actions/User/CreateAdminFromConsole.php (lệnh vkcrm:create-admin).
+        'admin_created_via_console' => 'Tạo quản trị viên từ dòng lệnh máy chủ',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

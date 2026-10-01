@@ -94,4 +94,26 @@ return [
         'is_active_hint' => 'Sẽ bị chặn nếu nhân sự này còn là luật sư phụ trách một vụ việc đang mở, còn đứng tên mốc hạn hoặc yêu cầu khách chưa xong, hoặc là quản trị viên đang hoạt động cuối cùng của hệ thống.',
         'position_hint' => 'Đổi chức danh sang Trợ lý hoặc Kế toán sẽ bị chặn nếu người này còn việc dở dang (cùng luật vô hiệu hoá). Đổi chức danh khỏi Quản trị viên sẽ bị chặn nếu đây là quản trị viên đang hoạt động cuối cùng của hệ thống.',
     ],
+
+    // M8 Task 7: lệnh `vkcrm:create-admin` (App\Console\Commands\CreateAdminCommand,
+    // App\Actions\User\CreateAdminFromConsole) — người đọc là người vận hành máy chủ, qua SSH.
+    'create_admin' => [
+        'non_interactive' => 'Lệnh này chỉ chạy tương tác: nó hỏi họ tên, email và mật khẩu (nhập ẩn). Không có cách truyền mật khẩu qua tham số dòng lệnh — tham số nằm lại trong lịch sử shell và hiện trong danh sách tiến trình của máy chủ. Chạy lại lệnh không kèm --no-interaction, trong một phiên SSH.',
+        'admins_exist' => 'Hệ thống đã có :count quản trị viên (tính cả người đang bị vô hiệu hoá). Tạo thêm nhân sự trong /admin, màn hình Nhân sự. Chỉ khi không còn quản trị viên nào đăng nhập được, chạy lại lệnh với --additional.',
+        'additional_notice' => 'Hệ thống đã có :count quản trị viên — tạo thêm một người vì có --additional. Việc này được ghi vào Nhật ký hệ thống.',
+        'ask_name' => 'Họ tên quản trị viên',
+        'ask_email' => 'Email đăng nhập',
+        'ask_password' => 'Mật khẩu (nhập ẩn — không hiện ký tự nào khi gõ)',
+        'ask_password_confirmation' => 'Nhập lại mật khẩu',
+        'attributes' => [
+            'name' => 'Họ tên',
+            'email' => 'Email',
+            'password' => 'Mật khẩu',
+        ],
+        'email_taken' => 'Email :email đã thuộc về một nhân sự trong hệ thống. Dùng một email khác.',
+        'email_taken_trashed' => 'Email :email thuộc về một nhân sự đã bị xoá (tài khoản đó vẫn được giữ lại để tra lịch sử, nên email không dùng lại được). Dùng một email khác.',
+        'password_mismatch' => 'Hai lần nhập mật khẩu không khớp.',
+        'nothing_created' => 'Chưa tạo tài khoản nào — sửa lại rồi chạy lại lệnh.',
+        'created' => 'Đã tạo quản trị viên :name (:email). Đăng nhập tại :url — ở lần đăng nhập đầu tiên hệ thống buộc cài xác thực hai lớp (2FA) bằng một app xác thực trên điện thoại, rồi hiện mã khôi phục ĐÚNG MỘT LẦN: cất các mã đó ngay, ở nơi khác điện thoại.',
+    ],
 ];
