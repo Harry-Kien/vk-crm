@@ -35,7 +35,7 @@ class StaffSeeder extends Seeder
                 ['email' => $person['email']],
                 [
                     'name' => $person['name'],
-                    'password' => 'password',
+                    'password' => DemoAccountsSeeder::DEMO_PASSWORD,
                     'position' => $person['position'],
                     'bar_number' => $person['bar_number'] ?? null,
                     'phone' => '09'.str_pad((string) (10000000 + $index), 8, '0', STR_PAD_LEFT),

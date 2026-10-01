@@ -27,13 +27,19 @@ class DemoAccountsSeeder extends Seeder
     /** Base32 hợp lệ (`pragmarx/google2fa` decode được) — KHÔNG phải bí mật thật, chỉ dùng ở local/testing. */
     public const DEMO_TWO_FACTOR_SECRET = 'JBSWY3DPEHPK3PXP';
 
+    /** Email của quản trị viên demo — `vkcrm:preflight` (final review I4) tra theo hằng này. */
+    public const ADMIN_EMAIL = 'admin@luatvukhang.com';
+
+    /** Mật khẩu mẫu CÔNG KHAI của mọi tài khoản demo (ghi trong docs/CAI-DAT.md). */
+    public const DEMO_PASSWORD = 'password';
+
     public function run(): void
     {
         $admin = User::query()->updateOrCreate(
-            ['email' => 'admin@luatvukhang.com'],
+            ['email' => self::ADMIN_EMAIL],
             [
                 'name' => 'Quản trị hệ thống',
-                'password' => 'password',
+                'password' => self::DEMO_PASSWORD,
                 'position' => UserPosition::Admin,
                 'is_active' => true,
                 ...(app()->environment(['local', 'testing'])

@@ -3,8 +3,13 @@
 namespace App\Actions\Deployment;
 
 use App\Enums\PreflightLevel;
+use App\Http\Middleware\RestrictAdminIpAllowlist;
+use App\Models\User;
 use App\Support\Backup\RcloneProcess;
+use Database\Seeders\DemoAccountsSeeder;
+use Database\Seeders\DemoDataSeeder;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
@@ -74,6 +79,7 @@ class RunPreflight
             $this->heartbeatUrlRow(),
             $this->sessionSecureCookieRow(),
             $this->appDebugRow(),
+            $this->demoAccountsRow(),
             $this->extensionsRow(),
             $this->gdRow(),
             $this->brandFieldsRow(),
@@ -145,6 +151,43 @@ class RunPreflight
         return config('app.debug') === true
             ? $this->row('app_debug', PreflightLevel::Red, __('preflight.app_debug_on'))
             : $this->row('app_debug', PreflightLevel::Green, __('preflight.app_debug_ok'));
+    }
+
+    /**
+     * Final review I4 — tài khoản nhân sự demo trên máy chủ thật. `db:seed --class=DemoDataSeeder`
+     * ngoài local/testing tạo tám tài khoản /admin mật khẩu mẫu CÔNG KHAI và KHÔNG secret 2FA: ai
+     * đăng nhập trước thì tự cài 2FA của mình (trust-on-first-use) và chiếm tài khoản đó, kể cả quản
+     * trị viên — mọi vụ việc, kể cả vụ hạn chế. `docs/CAI-DAT.md` Bước 5 chỉ cho làm vậy sau khi đặt
+     * `ADMIN_IP_ALLOWLIST`; dòng này là chốt chặn trong mã cho đúng câu đó.
+     *
+     *  - ĐỎ: còn tài khoản demo dùng mật khẩu mẫu VÀ allowlist trống (cùng cách đọc với middleware
+     *    {@see RestrictAdminIpAllowlist::entries()} — trống nghĩa là /admin mở cho cả Internet).
+     *  - VÀNG: còn tài khoản demo nhưng /admin chỉ mở trong allowlist — được, nhưng phải chạy chuỗi
+     *    "Hết demo, chuyển sang dùng thật" trước khi dùng thật.
+     *  - XANH: không tài khoản nào trong {@see DemoDataSeeder::staffEmails()} còn mật khẩu mẫu.
+     *
+     * Hỏi MẬT KHẨU chứ không chỉ email: văn phòng có quyền tạo quản trị viên thật bằng đúng
+     * `admin@luatvukhang.com` (`vkcrm:create-admin`), và một dòng đỏ cho máy chủ đó chặn ra mắt một
+     * máy chủ không có lỗi gì. Giá: tối đa tám lần `Hash::check()` (bcrypt) mỗi lần chạy lệnh.
+     */
+    private function demoAccountsRow(): array
+    {
+        $emails = User::query()
+            ->whereIn('email', DemoDataSeeder::staffEmails())
+            ->orderBy('id')
+            ->get(['id', 'email', 'password'])
+            ->filter(fn (User $user): bool => Hash::check(DemoAccountsSeeder::DEMO_PASSWORD, $user->password))
+            ->pluck('email');
+
+        if ($emails->isEmpty()) {
+            return $this->row('demo_accounts', PreflightLevel::Green, __('preflight.demo_accounts_ok'));
+        }
+
+        $parameters = ['count' => $emails->count(), 'emails' => $emails->implode(', ')];
+
+        return RestrictAdminIpAllowlist::entries() === []
+            ? $this->row('demo_accounts', PreflightLevel::Red, __('preflight.demo_accounts_exposed', $parameters))
+            : $this->row('demo_accounts', PreflightLevel::Yellow, __('preflight.demo_accounts_allowlisted', $parameters));
     }
 
     private function extensionsRow(): array

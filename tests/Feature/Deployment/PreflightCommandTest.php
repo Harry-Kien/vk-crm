@@ -1,5 +1,8 @@
 <?php
 
+use App\Models\User;
+use Database\Seeders\DemoDataSeeder;
+use Database\Seeders\ReferenceDataSeeder;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
@@ -106,6 +109,7 @@ it('§preflight R1 production đủ điều kiện: mọi dòng XANH/VÀNG hợp
         ->and($output)->toContain(__('preflight.heartbeat_url_ok'))
         ->and($output)->toContain(__('preflight.session_secure_cookie_ok'))
         ->and($output)->toContain(__('preflight.app_debug_ok'))
+        ->and($output)->toContain(__('preflight.demo_accounts_ok'))
         ->and($output)->toContain(__('preflight.extensions_ok'))
         ->and($output)->toContain(__('preflight.brand_fields_ok'))
         ->and($output)->toContain(__('preflight.storage_private_ok', ['count' => 2]))
@@ -268,6 +272,87 @@ it('§preflight R1 production không tìm thấy mariadb-dump/mysqldump là Đ�
 
     expect($exitCode)->not->toBe(0)
         ->and($output)->toContain(__('preflight.mariadb_dump_missing'));
+});
+
+/*
+| Final review I4: `docs/CAI-DAT.md` Bước 5 cho chạy `db:seed --class=DemoDataSeeder --force` trên
+| máy chủ thật. Ngoài local/testing tám tài khoản nhân sự demo ra đời với mật khẩu `password` và
+| KHÔNG secret 2FA — ai đăng nhập trước thì tự cài 2FA của mình (trust-on-first-use) và chiếm tài
+| khoản, kể cả `admin@luatvukhang.com`. Trước bản sửa chỉ có câu chữ trong tài liệu chặn việc đó.
+| Danh sách email KHÔNG chép tay ở đây: chạy chính seeder ở `production` rồi đọc lại bảng `users`.
+*/
+
+/** Chạy đúng hai lệnh seed của tài liệu ở `production`, trả email nhân sự demo theo thứ tự tạo. */
+function preflightSeedDemoAsProduction(): array
+{
+    app()->detectEnvironment(fn () => 'production');
+
+    test()->artisan('db:seed', ['--class' => ReferenceDataSeeder::class, '--force' => true])->assertSuccessful()->run();
+    test()->artisan('db:seed', ['--class' => DemoDataSeeder::class, '--force' => true])->assertSuccessful()->run();
+
+    return User::query()->orderBy('id')->pluck('email')->all();
+}
+
+it('§preflight I4 production còn tài khoản nhân sự demo mật khẩu mẫu mà ADMIN_IP_ALLOWLIST trống là ĐỎ, nêu đích danh từng email', function () {
+    $emails = preflightSeedDemoAsProduction();
+
+    config(preflightGreenProductionConfig());
+    config(['vkcrm.security.admin_ip_allowlist' => '']);
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($emails)->toHaveCount(8)
+        ->and($exitCode)->not->toBe(0)
+        ->and($output)->toContain(__('preflight.demo_accounts_exposed', [
+            'count' => 8,
+            'emails' => implode(', ', $emails),
+        ]))
+        ->and($output)->toContain(__('preflight.summary_red'));
+});
+
+it('§preflight I4 tài khoản demo chỉ mở trong ADMIN_IP_ALLOWLIST là VÀNG, không ĐỎ', function () {
+    $emails = preflightSeedDemoAsProduction();
+
+    config(preflightGreenProductionConfig());
+    config(['vkcrm.security.admin_ip_allowlist' => '203.0.113.10']);
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($exitCode)->toBe(0)
+        ->and($output)->toContain(__('preflight.demo_accounts_allowlisted', [
+            'count' => 8,
+            'emails' => implode(', ', $emails),
+        ]))
+        ->and($output)->toContain(__('preflight.summary_yellow'));
+});
+
+it('§preflight I4 một quản trị viên THẬT dùng lại địa chỉ admin@luatvukhang.com với mật khẩu riêng là XANH', function () {
+    // Máy chủ chưa từng demo: `vkcrm:create-admin` tạo quản trị viên thật đúng bằng địa chỉ mà seeder
+    // demo cũng dùng — văn phòng có quyền dùng hộp thư đó. Mật khẩu của họ không phải mật khẩu mẫu,
+    // nên không được ĐỎ (một dòng đỏ ở đây chặn ra mắt một máy chủ không có lỗi gì).
+    $this->artisan('vkcrm:create-admin')
+        ->expectsQuestion(__('users.create_admin.ask_name'), 'Trần Quản Trị')
+        ->expectsQuestion(__('users.create_admin.ask_email'), 'admin@luatvukhang.com')
+        ->expectsQuestion(__('users.create_admin.ask_password'), 'Mat-khau-that-12')
+        ->expectsQuestion(__('users.create_admin.ask_password_confirmation'), 'Mat-khau-that-12')
+        ->assertSuccessful()
+        ->run();
+
+    config(preflightGreenProductionConfig());
+    config(['vkcrm.security.admin_ip_allowlist' => '']);
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+
+    expect($exitCode)->toBe(0)
+        ->and(Artisan::output())->toContain(__('preflight.demo_accounts_ok'));
 });
 
 it('§preflight R1 BACKUP_RCLONE_TIMEOUT có giá trị nhưng không phải số là ĐỎ, bất kể APP_ENV', function () {

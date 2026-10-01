@@ -49,6 +49,19 @@ return [
         .'và có thể cả bí mật cấu hình cho bất kỳ ai kích hoạt được một lỗi. Đặt APP_DEBUG=false.',
     'app_debug_ok' => 'APP_DEBUG=false.',
 
+    // Final review I4: tài khoản nhân sự demo (DemoDataSeeder) còn mật khẩu mẫu trên máy chủ thật —
+    // xem App\Actions\Deployment\RunPreflight::demoAccountsRow().
+    'demo_accounts_exposed' => 'Còn :count tài khoản nhân sự demo dùng mật khẩu mẫu "password" '
+        .'(:emails) trong khi ADMIN_IP_ALLOWLIST để trống — /admin mở cho cả Internet, ai đăng '
+        .'nhập trước thì tự cài 2FA của mình và chiếm tài khoản đó (kể cả quản trị viên, thấy mọi '
+        .'vụ việc). Đặt ADMIN_IP_ALLOWLIST ngay, hoặc chạy chuỗi "Hết demo, chuyển sang dùng thật" '
+        .'ở docs/CAI-DAT.md, Bước 5.',
+    'demo_accounts_allowlisted' => 'Còn :count tài khoản nhân sự demo dùng mật khẩu mẫu '
+        .'(:emails) — /admin chỉ mở trong ADMIN_IP_ALLOWLIST nên người ngoài mạng đó chưa đăng nhập '
+        .'được. Trước khi dùng thật, chạy chuỗi "Hết demo, chuyển sang dùng thật" ở '
+        .'docs/CAI-DAT.md, Bước 5.',
+    'demo_accounts_ok' => 'Không còn tài khoản nhân sự demo nào dùng mật khẩu mẫu.',
+
     'extensions_missing' => 'Thiếu PHP extension bắt buộc: :extensions. Cài đủ trước khi mở cổng '
         .'— thiếu một extension trong danh sách này thường không lộ ra ở màn hình đăng nhập mà '
         .'chỉ vỡ ở đúng màn hình dùng tới nó.',

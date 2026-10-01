@@ -384,7 +384,11 @@ quản trị** — tạo nhân sự, đọc mọi vụ việc, gửi thư cho kh
 phòng — còn văn phòng thì bị khoá ngoài chính tài khoản đó, vì mã 2FA nằm trong điện thoại của
 người kia. Bảy tài khoản còn lại cũng vậy, mỗi cái một vai.
 
-Vì vậy dữ liệu mẫu chỉ được nạp khi người ngoài văn phòng không mở được `/admin`:
+Vì vậy dữ liệu mẫu chỉ được nạp khi người ngoài văn phòng không mở được `/admin`. Lệnh
+`php artisan vkcrm:preflight` (Bước 7) giữ đúng luật này trong mã: còn tài khoản nào ở trên dùng
+mật khẩu `password` mà `ADMIN_IP_ALLOWLIST` trống thì dòng "tài khoản nhân sự demo" ĐỎ (nêu đích
+danh từng email), có allowlist thì VÀNG cho tới khi chạy chuỗi "Hết demo, chuyển sang dùng thật"
+bên dưới.
 
 1. **Bắt buộc: `ADMIN_IP_ALLOWLIST` đã đặt IP văn phòng** (bảng biến ở Bước 3; đã chạy Bước 7
    thì sửa `.env` xong chạy lại `php artisan optimize`). Kiểm từ một mạng NGOÀI văn phòng (4G
@@ -467,8 +471,9 @@ php artisan optimize
 **`php artisan vkcrm:preflight` phải xanh hết (R1) — chạy TRƯỚC khi mở cổng, sau MỖI lần nâng
 cấp, và TRƯỚC `php artisan optimize`/`config:cache`** (vài điều kiện đọc `.env` trực tiếp, không
 còn thấy giá trị thật sau khi cấu hình đã cache). Lệnh tự kiểm
-`TRUSTED_PROXIES`/`HEARTBEAT_URL`/`SESSION_SECURE_COOKIE`/`APP_DEBUG`, PHP extension bắt buộc,
-`storage/app/private` có phục vụ công khai được không (nó tự gửi một request tới `APP_URL` — chạy
+`TRUSTED_PROXIES`/`HEARTBEAT_URL`/`SESSION_SECURE_COOKIE`/`APP_DEBUG`, tài khoản nhân sự demo
+còn mật khẩu `password` (ĐỎ khi `ADMIN_IP_ALLOWLIST` trống, VÀNG khi có — Bước 5), PHP extension
+bắt buộc, `storage/app/private` có phục vụ công khai được không (nó tự gửi một request tới `APP_URL` — chạy
 khi máy chủ web và HTTPS ở Bước 4 đã lên), và ba điều kiện máy chủ cho sao lưu:
 
 - PHP extension `zip` dựng với libzip có mã hoá AES (`ZipArchive::EM_AES_256`) — thiếu nó, mọi
