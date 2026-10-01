@@ -183,7 +183,7 @@ Mỗi gói kiểm `composer require --dry-run` trên sàn PHP 8.3 trước, như
   - Danh sách màn hình dựng từ router, không từ trí nhớ.
   - Ghi rõ ngoại lệ có chủ đích: chữ ký URL sai trả 403 (`routes/web.php`).
 
-### - [ ] Task 7 — `README.md` và hướng dẫn triển khai (§14 mục 8, R6)
+### - [x] Task 7 — `README.md` và hướng dẫn triển khai (§14 mục 8, R6)
 
 Mở rộng `README.md` và `docs/CAI-DAT.md`. Nội dung:
 - **Cài từ máy chủ trống.**
