@@ -235,8 +235,9 @@ class NotifyClientOfStageUpdate
      * form "Chuyển giai đoạn"/"Thêm cập nhật" gọi hàm này TRƯỚC khi gửi, để cảnh báo luật sư ngay
      * trên form khi sẽ không ai nhận được thư — xem
      * `App\Filament\Admin\Resources\Matters\Actions\Concerns\BuildsStageUpdateSchema::noActivatedAccountWarning()`.
-     * Đi qua `eligibleRecipientsQuery()` — CÙNG một điều kiện với `recipientsFor()` — để cảnh báo
-     * này không bao giờ lệch với chính Action gửi thư thật.
+     * Đi qua {@see ResolveClientRecipients} (`hasEligibleRecipient()` trên `eligibleQuery()`) —
+     * CÙNG một điều kiện với `recipientsFor()` — để cảnh báo này không bao giờ lệch với chính Action
+     * gửi thư thật.
      */
     public function hasEligibleRecipient(Matter $matter): bool
     {

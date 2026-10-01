@@ -175,7 +175,8 @@ it('tells every active account of the client, because a client may have two', fu
  * Twin dương/âm trong CÙNG một test: hai tài khoản của cùng một khách, chỉ khác activated_at.
  *
  * Mutation probe: bỏ `->whereNotNull('activated_at')` khỏi
- * NotifyClientOfStageUpdate::eligibleRecipientsQuery() thì test này đỏ (xem báo cáo).
+ * ResolveClientRecipients::eligibleQuery() (trước M6 Task 3 là
+ * NotifyClientOfStageUpdate::eligibleRecipientsQuery()) thì test này đỏ (xem báo cáo).
  */
 it('tells only the activated account when the client has two, one activated and one never signed in', function () {
     Mail::fake();
@@ -209,7 +210,8 @@ it('tells only the activated account when the client has two, one activated and 
  * helper, khách CHƯA xoá — thư vẫn đi.
  *
  * Mutation probe: bỏ `->whereHas('client')` khỏi
- * NotifyClientOfStageUpdate::eligibleRecipientsQuery() thì test này đỏ (xem báo cáo).
+ * ResolveClientRecipients::eligibleQuery() (trước M6 Task 3 là
+ * NotifyClientOfStageUpdate::eligibleRecipientsQuery()) thì test này đỏ (xem báo cáo).
  */
 it('never tells an account whose client has been soft deleted, even while the account itself is still active', function () {
     Mail::fake();
