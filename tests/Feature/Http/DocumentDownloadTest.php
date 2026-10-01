@@ -91,7 +91,7 @@ function downloadableDocument(
 // Hình dạng route: một đường duy nhất, và tiền đề mà cả milestone dựa lên.
 // ---------------------------------------------------------------------------------------------
 
-it('đăng ký đúng một route tải tệp, có middleware signed', function () {
+it('§10.4 đăng ký đúng một route tải tệp, có middleware signed', function () {
     $route = Route::getRoutes()->getByName('documents.download');
 
     expect($route)->not->toBeNull()
@@ -108,13 +108,13 @@ it('đăng ký đúng một route tải tệp, có middleware signed', function 
  * tài liệu và không ghi một dòng `document_downloads` nào. Đặt `FILESYSTEM_DISK=private` là mở
  * lại đúng lỗ hổng mà vòng sửa Task 1 vừa đóng.
  */
-it('disk mặc định của ứng dụng không phải disk private', function () {
+it('§10.4 disk mặc định của ứng dụng không phải disk private', function () {
     expect(config('filesystems.default'))->not->toBe('private')
         ->and(config('livewire.temporary_file_upload.disk') ?? config('filesystems.default'))->not->toBe('private')
         ->and(config('filament.default_filesystem_disk') ?? config('filesystems.default'))->not->toBe('private');
 });
 
-it('đường dẫn ký hết hạn sau đúng 5 phút và mang mã người nhận (SPEC §10.4)', function () {
+it('§10.4 đường dẫn ký mang hạn đúng 5 phút và mã người nhận', function () {
     $document = downloadableDocument($this->matter);
 
     parse_str((string) parse_url($document->downloadUrlFor($this->lawyer), PHP_URL_QUERY), $query);
@@ -122,6 +122,24 @@ it('đường dẫn ký hết hạn sau đúng 5 phút và mang mã người nh�
     expect((int) $query['expires'])->toBe(now()->addMinutes(5)->getTimestamp())
         ->and($query['recipient'])->toBe('user:'.$this->lawyer->id)
         ->and($query)->toHaveKey('signature');
+});
+
+/**
+ * M8 Task 4 — "hết hạn sau đúng 5 phút" đo bằng du hành thời gian, không bằng đọc tham số
+ * `expires` (test ngay trên): cùng một đường dẫn còn tải được ở giây thứ 300 và bị middleware
+ * `signed` từ chối ở giây thứ 301 (`URL::signatureHasNotExpired()` so `now > expires`).
+ */
+it('§10.4 đường dẫn ký còn tải được ở giây cuối của phút thứ 5 và bị từ chối (403) ngay giây sau', function () {
+    $document = downloadableDocument($this->matter);
+
+    $this->freezeTime();
+    $url = $document->downloadUrlFor($this->lawyer);
+
+    $this->travel(Document::DOWNLOAD_LINK_MINUTES * 60)->seconds();
+    $this->actingAs($this->lawyer, 'web')->get($url)->assertOk();
+
+    $this->travel(1)->seconds();
+    $this->actingAs($this->lawyer, 'web')->get($url)->assertForbidden();
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -150,7 +168,7 @@ it('khách tải được tài liệu đã công bố của chính mình', funct
 // của SPEC §10.10: chưa có bản ghi nào được đọc lúc nó trả lời.
 // ---------------------------------------------------------------------------------------------
 
-it('đường dẫn hết hạn trả 403 chứ không phải 404', function () {
+it('§10.4 đường dẫn hết hạn trả 403 chứ không phải 404', function () {
     $document = downloadableDocument($this->matter);
     $url = $document->downloadUrlFor($this->lawyer);
 
@@ -212,7 +230,7 @@ it('trang 403 giống hệt nhau cho một tài liệu có thật và cho một 
     expect($realBody)->toBe($fakeBody);
 });
 
-it('đường dẫn không có chữ ký trả 403', function () {
+it('§10.4 đường dẫn không có chữ ký trả 403', function () {
     $document = downloadableDocument($this->matter);
 
     $this->actingAs($this->lawyer, 'web')
@@ -220,7 +238,7 @@ it('đường dẫn không có chữ ký trả 403', function () {
         ->assertForbidden();
 });
 
-it('đổi id tài liệu trong đường dẫn đã ký làm hỏng chữ ký, trả 403', function () {
+it('§10.4 đổi id tài liệu trong đường dẫn đã ký làm hỏng chữ ký, trả 403', function () {
     $mine = downloadableDocument($this->matter);
     $other = downloadableDocument($this->matter);
 
@@ -229,7 +247,7 @@ it('đổi id tài liệu trong đường dẫn đã ký làm hỏng chữ ký, 
     $this->actingAs($this->lawyer, 'web')->get($url)->assertForbidden();
 });
 
-it('chữ ký hết hạn trả 403 kể cả khi tài liệu không tồn tại — không phân biệt được hai trường hợp', function () {
+it('§10.4 chữ ký hết hạn trả 403 kể cả khi tài liệu không tồn tại — không phân biệt được hai trường hợp', function () {
     $url = URL::temporarySignedRoute('documents.download', now()->addMinutes(5), [
         'document' => 999999,
         'recipient' => Document::recipientToken($this->lawyer),
@@ -244,7 +262,7 @@ it('chữ ký hết hạn trả 403 kể cả khi tài liệu không tồn tại
 // Chữ ký KHÔNG thay thế quyền: mọi từ chối ở tầng controller là 404 (SPEC §10.10).
 // ---------------------------------------------------------------------------------------------
 
-it('chữ ký hợp lệ nhưng người dùng không có quyền trả 404, không phải 403', function () {
+it('§10.4 chữ ký hợp lệ nhưng người dùng không có quyền trả 404, không phải 403', function () {
     $document = downloadableDocument($this->matter, DocumentGroup::Authority);
     $outsider = User::factory()->withRole(Role::Lawyer)->create();
 
@@ -253,7 +271,7 @@ it('chữ ký hợp lệ nhưng người dùng không có quyền trả 404, kh�
         ->assertNotFound();
 });
 
-it('tài liệu không tồn tại trả 404 — cùng mã với không có quyền', function () {
+it('§10.4 tài liệu không tồn tại trả 404 — cùng mã với không có quyền', function () {
     $url = URL::temporarySignedRoute('documents.download', now()->addMinutes(5), [
         'document' => 999999,
         'recipient' => Document::recipientToken($this->lawyer),
@@ -262,7 +280,7 @@ it('tài liệu không tồn tại trả 404 — cùng mã với không có quy�
     $this->actingAs($this->lawyer, 'web')->get($url)->assertNotFound();
 });
 
-it('không đăng nhập thì trả 404 chứ không chuyển hướng về trang đăng nhập', function () {
+it('§10.4 không đăng nhập thì trả 404 chứ không chuyển hướng về trang đăng nhập', function () {
     $document = downloadableDocument($this->matter);
 
     $this->get($document->downloadUrlFor($this->lawyer))->assertNotFound();
@@ -424,7 +442,7 @@ it('cặp sinh đôi — khách của chính hồ sơ đó tải được tài l
 // Người nhận được ký kèm: một URL đã ký không phải một tấm vé vô danh.
 // ---------------------------------------------------------------------------------------------
 
-it('đường dẫn ký cho người này mà người khác mở thì trả 404, dù người kia cũng có quyền', function () {
+it('§10.4 đường dẫn ký cho người này mà người khác mở thì trả 404, dù người kia cũng có quyền', function () {
     $colleague = User::factory()->withRole(Role::Lawyer)->create();
     $this->matter->team()->attach($colleague, ['role_in_matter' => MatterRole::Associate->value]);
     $document = downloadableDocument($this->matter, DocumentGroup::Authority);
@@ -434,7 +452,7 @@ it('đường dẫn ký cho người này mà người khác mở thì trả 404
         ->assertNotFound();
 });
 
-it('cặp sinh đôi — chính đồng nghiệp đó tải được bằng đường dẫn ký cho chính họ', function () {
+it('§10.4 cặp sinh đôi — chính đồng nghiệp đó tải được bằng đường dẫn ký cho chính họ', function () {
     $colleague = User::factory()->withRole(Role::Lawyer)->create();
     $this->matter->team()->attach($colleague, ['role_in_matter' => MatterRole::Associate->value]);
     $document = downloadableDocument($this->matter, DocumentGroup::Authority);
@@ -444,7 +462,7 @@ it('cặp sinh đôi — chính đồng nghiệp đó tải được bằng đư
         ->assertOk();
 });
 
-it('mã người nhận không lẫn giữa hai guard dù trùng id', function () {
+it('§10.4 mã người nhận không lẫn giữa hai guard dù trùng id', function () {
     expect(Document::recipientToken($this->lawyer))->toBe('user:'.$this->lawyer->id)
         ->and(Document::recipientToken($this->clientUser))->toBe('client_user:'.$this->clientUser->id)
         ->and(Document::recipientToken($this->lawyer))->not->toBe(Document::recipientToken($this->clientUser));
@@ -964,7 +982,7 @@ it('nhật ký tải về không bao giờ hiện ra dưới guard khách', func
 // Đường dẫn ký THIẾU mã người nhận.
 // ---------------------------------------------------------------------------------------------
 
-it('đường dẫn ký mà thiếu mã người nhận thì không ai dùng được, kể cả chủ nhân tài liệu', function () {
+it('§10.4 đường dẫn ký mà thiếu mã người nhận thì không ai dùng được, kể cả chủ nhân tài liệu', function () {
     // `Document::downloadUrlFor()` luôn ký kèm mã người nhận, nhưng `URL::temporarySignedRoute()`
     // là một hàm công khai của framework: một chỗ gọi nào đó quên tham số sẽ phát ra một đường
     // dẫn có chữ ký HỢP LỆ mà không ai mở được, mãi mãi, không một dòng lỗi nào. Test này ghim

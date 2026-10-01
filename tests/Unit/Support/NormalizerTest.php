@@ -1,5 +1,6 @@
 <?php
 
+use App\Support\Audit;
 use App\Support\Normalizer;
 
 it('normalizes vietnamese names to lowercase ascii with single spaces', function () {
@@ -106,14 +107,40 @@ it('leaves a national-format run too short to be a subscriber number untouched',
         ->and(Normalizer::phone('0 0 0 0'))->toBeNull();
 });
 
-it('hashes id numbers after stripping non digits', function () {
-    $expected = hash('sha256', '079090001234');
+/**
+ * M8 Task 4 (SPEC §10.5): băm CÓ KHOÁ — HMAC-SHA256 với `APP_KEY` — không bao giờ `sha256` trần.
+ * Một CCCD chỉ có 12 chữ số (sáu chữ số đầu còn là mã tỉnh, thế kỷ/giới tính, năm sinh), nên một
+ * `sha256` trần trong `matter_parties.id_number_hash` dò ngược được bằng vét cạn: với bên là khách
+ * hàng, nó là `clients.id_number` gần như ở dạng rõ nằm ngoài cột đã mã hoá; với bên đối lập, nó là
+ * dạng lưu DUY NHẤT của số của họ. `PersonalDataSpec105Test` bắt đúng cột đó trước bản sửa này.
+ */
+it('hashes id numbers after stripping non digits, with APP_KEY as the key — never a bare sha256', function () {
+    $expected = hash_hmac('sha256', '079090001234', (string) config('app.key'));
 
     expect(Normalizer::idNumberHash('079 090 001 234'))->toBe($expected)
         ->and(Normalizer::idNumberHash('079090001234'))->toBe($expected)
+        ->and(Normalizer::idNumberHash('079090001234'))->not->toBe(hash('sha256', '079090001234'))
         ->and(strlen((string) Normalizer::idNumberHash('1')))->toBe(64)
         ->and(Normalizer::idNumberHash('---'))->toBeNull()
         ->and(Normalizer::idNumberHash(null))->toBeNull();
+});
+
+/** Một định nghĩa, không hai (phán quyết Task 4): cột so trùng và nhật ký băm cùng một cách. */
+it('hashes an id number exactly as the audit log hashes an identifier', function () {
+    expect(Normalizer::idNumberHash('079-090-001-234'))->toBe(Audit::identifierHash('079090001234'));
+});
+
+/**
+ * Hệ quả phải biết trước (Ghi chú M8, Task 4): khoá là `APP_KEY`, nên sinh khoá mới làm MỌI hash
+ * đã lưu thôi khớp — so trùng CCCD của kiểm tra xung đột lợi ích mù với mọi bên nhập trước đó.
+ */
+it('changes with APP_KEY, so a new key also stops every stored id number hash from matching', function () {
+    $before = Normalizer::idNumberHash('079090001234');
+
+    config(['app.key' => 'base64:'.base64_encode(random_bytes(32))]);
+
+    expect(Normalizer::idNumberHash('079090001234'))->not->toBe($before)
+        ->and(Normalizer::idNumberHash('079090001234'))->toBe(Audit::identifierHash('079090001234'));
 });
 
 /**

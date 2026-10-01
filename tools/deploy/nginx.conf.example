@@ -63,18 +63,29 @@ server {
     # tệp khách nộp qua form nhiều phần. ĐỔI 25m nếu UPLOAD_MAX_MB trong .env khác 20.
     client_max_body_size 25m;
 
-    # Chặn dotfile (.env, .git, .htaccess…) — không route nào của Laravel có tiền tố dấu chấm,
-    # nên đây chỉ có thể là một tệp không nên lộ ra.
+    # Chặn dotfile và thư mục dấu chấm (.env, .git, .github/…, .htaccess…) ở BẤT KỲ đoạn nào của
+    # đường dẫn — không route nào của Laravel có một đoạn bắt đầu bằng dấu chấm, nên đây chỉ có thể
+    # là một tệp không nên lộ ra. 404 chứ không 403, cùng lý do với `/storage/` ngay dưới.
     location ~ /\. {
-        deny all;
+        return 404;
     }
 
-    # Dự án KHÔNG dùng `storage:link` (SPEC §2: "tệp phục vụ qua controller") — không có
-    # `public/storage` hợp lệ nào trỏ vào `storage/app/private`. Một symlink như vậy chỉ có thể là
-    # cấu hình sai (đúng điều `vkcrm:preflight` dò — xem `App\Actions\Deployment\RunPreflight`), và
-    # tầng máy chủ web chặn nốt ở đây làm lớp phòng thủ thứ hai.
+    # SPEC §10.4 — `/storage/` KHÔNG BAO GIỜ do máy chủ web phục vụ, và trả 404 (không 403: một 403
+    # báo cho người dò rằng ở đó có thứ được canh giữ, 404 thì trông như không có gì — cùng mã mà
+    # ứng dụng trả cho mọi thứ không được phép, SPEC §10.10). Hai cấu hình sai mà khối này chặn:
+    #   1. `public/storage` là một symlink trỏ nhầm vào `storage/app/private` (dự án KHÔNG dùng
+    #      `storage:link` — SPEC §2, "tệp phục vụ qua controller"): URL `/storage/<tệp>`;
+    #   2. `root` trỏ nhầm vào GỐC dự án thay vì `public/`: URL `/storage/app/private/<tệp>` — và
+    #      cả `/storage/logs/laravel.log`.
+    # `vkcrm:preflight` dò đúng hai URL đó trên máy thật (`App\Actions\Deployment\RunPreflight`);
+    # đây là lớp phòng thủ thứ hai. `return` chạy ở pha rewrite, trước pha truy cập và pha nội dung,
+    # nên không phụ thuộc tệp có tồn tại hay không; `^~` cắt bước dò location regex (kể cả location
+    # tệp tĩnh bên dưới). Đã CHẠY THẬT (M8 Task 4, `tools/deploy/verify-storage-blocked.sh`):
+    # container `nginx:stable-alpine` dựng từ chính tệp này, `root` cố ý đặt vào gốc dự án —
+    # `/storage/app/private/<tệp thật>` (cả dạng `//`, `%73`, `/public/../`) và `/storage/logs/<tệp>`
+    # trả 404; bỏ khối này thì cùng URL trả 200 kèm nội dung tệp.
     location ^~ /storage/ {
-        deny all;
+        return 404;
     }
 
     # Livewire 4 phục vụ script/asset của chính nó qua một ROUTE PHP mang tiền tố băm theo

@@ -58,6 +58,30 @@ it('blocks at red level when a party shares an id number with an existing client
         ->and($match->tier)->toBe(ConflictMatchTier::Hash);
 });
 
+/**
+ * M8 Task 4 (SPEC §10.5): tầng số CCCD so bằng HMAC-SHA256 khoá `APP_KEY`
+ * (`Normalizer::idNumberHash()`), nên một `APP_KEY` mới làm tầng đó mù — im lặng, không một lỗi
+ * nào — với mọi bên đã lưu dưới khoá cũ. `docs/CAI-DAT.md` (cảnh báo `APP_KEY`) nói điều này; test
+ * này là số đo của câu đó. Tên bên đối lập cố ý khác hẳn để tầng tên không che mất kết quả.
+ */
+it('stops finding a party stored under a previous APP_KEY by its id number — a new key silently blinds the id-number tier', function () {
+    $existingClient = Client::factory()->create(['id_number' => '079012345678', 'name' => 'Nguyễn Văn Hùng']);
+    MatterParty::factory()->for(Matter::factory()->create())->ourClient($existingClient)->create();
+
+    $check = fn () => app(RunConflictCheck::class)->handle(collect([
+        proposedParty(PartyRole::Plaintiff, 'Trần Thị Lan', isOurClient: true),
+        proposedParty(PartyRole::Defendant, 'Bị đơn mang tên khác hẳn', idNumber: '079 012 345 678'),
+    ]));
+
+    expect($check()->level)->toBe(ConflictLevel::Red)
+        ->and($check()->matches->pluck('tier')->all())->toBe([ConflictMatchTier::Hash]);
+
+    config(['app.key' => 'base64:'.base64_encode(random_bytes(32))]);
+
+    expect($check()->level)->toBe(ConflictLevel::Green)
+        ->and($check()->matches)->toBeEmpty();
+});
+
 it('logs the check to the activity log even when the result is green', function () {
     $lawyer = User::factory()->create();
     $this->actingAs($lawyer);

@@ -1657,3 +1657,90 @@ test mới của bốn điểm trên: 5+1+2). `pint --test` sạch 599 tệp. Ba
     `X-Forwarded-For` phía sau proxy được tin; header từ địa chỉ không phải proxy bị bỏ qua; không tin
     ai thì mọi người chung khoá của proxy (chế độ hỏng mà preflight chặn); allowlist IP và bộ đếm đọc
     cùng một địa chỉ.
+
+### Task 4 — Dữ liệu cá nhân và tệp (§10 mục 4, 5)
+
+- **§10.5 — quét dữ liệu thật, không đọc mã bằng mắt.** `tests/Support/SensitiveDataFlows` cho các
+  giá trị lính canh đi qua MÀN HÌNH thật (Livewire/HTTP/Artisan, không gọi thẳng Action): tạo khách
+  hàng có CCCD gõ dấu cách; tra định danh khi mở vụ (gõ dấu chấm) rồi mở vụ có bên đối lập mang CCCD
+  riêng; tải lên + tải về một tài liệu qua route ký; tạo tài khoản cổng; sửa CCCD khách (dấu gạch —
+  đồng bộ `matter_parties`); thư tiến độ chạy thật qua hàng đợi `database` tới mailer `log`; một thư
+  tiến độ hỏng hẳn sau 5 lượt (`failed_jobs`); cài 2FA qua trang bắt buộc, đăng nhập bằng mã TOTP và
+  bằng mã khôi phục; gõ mật khẩu vào ô email (admin + cổng); "Mở khoá đăng nhập" và "Đặt lại 2FA" (màn
+  hình + `vkcrm:reset-2fa`); `vkcrm:preflight` giả lập production; hai request HTTP thật đẩy phiên
+  xuống bảng `sessions`. Cache/hàng đợi/phiên chạy trên `database` như máy thật (không `array`/`sync`
+  như bộ test), log + thư vào MỘT tệp tạm riêng của lượt chạy.
+  `tests/Support/SensitiveTraceScanner` rồi quét **mọi cột của mọi bảng** (liệt kê bằng `Schema`,
+  không danh sách tay, kể cả `clients.id_number` — chỉ được chứa bản mã), tệp log của lượt chạy, và
+  **một bản sao lưu THẬT** (`backup:run` có `mariadb-dump`, archive mở bằng mật khẩu, quét từng mục —
+  `tests/Feature/Backup/BackupPersonalDataScanTest.php`, chạy bằng `test:dump`). Dạng tìm: chữ số
+  với mọi dấu chen giữa (kể cả `%20`), `sha256`/`sha1`/`md5` trần của chữ số và của từng cách gõ,
+  mật khẩu nguyên văn/mã hoá URL/băm trần, secret 2FA, mã khôi phục, `APP_KEY` — ở bốn dạng của mỗi
+  văn bản (nguyên bản, quoted-printable, base64 từng dải, base64 sau khi nối dòng 76 ký tự). Máy quét
+  có test đối chứng riêng: cài từng dạng vào một bảng khác nhau, đòi nó báo đủ, và đòi nó KHÔNG báo
+  một HMAC có khoá.
+- **RED trên nền `42dba80`**: phép quét bắt `matter_parties.id_number_hash` — `sha256` TRẦN của CCCD
+  khách hàng (bản sao gần như rõ của `clients.id_number`, nằm ngoài cột đã mã hoá) và của bên đối lập
+  (dạng lưu duy nhất của số của họ); cùng hai phát hiện trong bản dump của archive sao lưu. Đó là
+  đúng lỗ hổng C-I4/X8 của rà soát cuối M6.5, mà X8 chỉ đóng cho nhật ký.
+- **Sửa (phán quyết controller):** `Normalizer::idNumberHash()` gọi thẳng `Audit::identifierHash()`
+  — HMAC-SHA256 khoá `APP_KEY`, MỘT định nghĩa cho cột so trùng lẫn `properties` của nhật ký; docblock
+  hai nơi viết lại. Migration `2026_10_01_000001_rehash_matter_party_id_number_hashes`: dòng có
+  `client_id` (kể cả xoá mềm) tính lại từ `clients.id_number` giải mã; dòng không có nguồn số thô
+  (bên đối lập, dòng cũ tự nhận `is_our_client` không trỏ hồ sơ) thành `NULL`; một
+  `clients.id_number` không giải mã được → `RuntimeException` nêu `APP_KEY`, cả lượt trong MỘT
+  transaction nên không dòng nào bị đổi; `down()` trả bên khách hàng về `sha256` trần (thứ mã cũ so).
+  Công thức HMAC viết thẳng trong migration (một migration là ảnh chụp lịch sử), test ghim nó bằng
+  `Normalizer` hôm nay. Mọi test xung đột lợi ích (bậc `ConflictMatchTier::Hash`, R13) xanh.
+- **Hệ quả phải biết: đổi `APP_KEY` giờ làm hỏng cả so trùng CCCD.** Mọi hash đã lưu thôi khớp — tầng
+  số CCCD của kiểm tra xung đột lợi ích mù IM LẶNG với mọi bên nhập trước đó (test "a new key silently
+  blinds the id-number tier", `RunConflictCheckTest`); bên đối lập không tính lại được. Thêm một lý do
+  cho luật "không bao giờ sinh khoá mới trên dữ liệu thật"; `docs/CAI-DAT.md` (cảnh báo `APP_KEY`) đã
+  ghi. Giá nếu phán quyết `NULL` sai: một bản cài trước ra mắt mất so trùng CCCD của bên đối lập đã
+  nhập trước migration — nhập lại số của bên đó.
+- **Vòng MariaDB thật trên CSDL làn `vk_crm_lane_m8b`** (bộ đếm: `.superpowers/sdd/m8b/probe/
+  t4-check-hashes.php`, so từng dòng `matter_parties` có `client_id` với `clients.id_number` giải mã):
+  `migrate:fresh --seed` → 21/21 dòng khách hàng mang HMAC đúng, 21/33 dòng bên khác có hash;
+  `migrate:rollback --step=1` → 21/21 về `sha256` trần, dòng bên khác `NULL`; `migrate` → 21/21 HMAC
+  đúng; `migrate:reset` (mọi `down()`) → `migrate` → `db:seed` → 21/21 HMAC đúng, 21/33 bên khác có
+  hash.
+- **§10.4 — mỗi điều một test tên `§10.4 …`** (đổi tên test sẵn có, không viết trùng): tệp qua ô tải
+  lên của màn hình rơi vào đĩa `private` = `storage/app/private`, ngoài `public/`, tên tệp trên đĩa
+  không phải tên gốc (`DocumentsRelationManagerTest`); không `storage:link` nào và không symlink nào
+  dưới `public/` trỏ vào kho tệp, đo trên cây thư mục thật (`PrivateDiskTest`); **không route GET nào
+  khác phát tệp** — mọi route GET có tham số + mọi route ngoài hai panel, với id tài liệu/id/uuid
+  media/tên tệp/đường dẫn tương đối, dưới tài khoản mạnh nhất của đúng panel, không phản hồi nào mang
+  nội dung tệp (`tests/Feature/Security/PrivateFilesSpec104Test.php`); URL ký còn tải được ở giây thứ
+  300 và bị từ chối ở giây 301 (du hành thời gian); chữ ký hợp lệ + không có quyền → 404; chữ ký
+  sai/thiếu/hết hạn → 403 — **ngoại lệ có chủ đích** của §10.10 (middleware `signed` trả lời trước khi
+  bất kỳ bản ghi nào được đọc, nên 403 không lộ gì; test "chữ ký hết hạn trả 403 kể cả khi tài liệu
+  không tồn tại" ghim điều đó); URL ký cho người A không dùng được bởi người B đang đăng nhập, kể cả
+  khi B cũng có quyền (`DocumentDownloadTest`).
+- **Máy chủ web — chạy THẬT, không chỉ chú thích.** `tools/deploy/verify-storage-blocked.sh` dựng
+  container `nginx:stable-alpine` và `httpd:2.4-alpine` chính thức từ đúng khối 443 của hai mẫu,
+  document root CỐ Ý đặt vào gốc dự án, tệp lính canh trong `storage/app/private` và `storage/logs`,
+  request thật bằng `curlimages/curl` từ container thứ hai (mạng docker riêng, không map cổng, xoá hết
+  khi xong). Kết quả ngày 2026-10-01 (đầu ra nguyên văn:
+  `.superpowers/sdd/m8b/probe/t4-verify-storage-green.txt`):
+  - nginx, mẫu nguyên vẹn: `/storage/app/private/<lính canh>` cùng các dạng `//`, `%73torage`,
+    `/public/../`, `/storage/app/private/.htaccess`, `/storage/logs/<lính canh>`, `/.env`,
+    `/.github/workflows/ci.yml` → 404 cả tám; **đối chứng** bỏ khối `location ^~ /storage/` → 200 KÈM
+    nội dung lính canh (tệp hồ sơ lẫn log).
+  - Apache, mẫu nguyên vẹn: cùng tám URL → 404; bỏ luật `/storage/` của mẫu, `AllowOverride All` →
+    `.htaccess` của `storage/app/private` trả 403; **đối chứng** thêm `AllowOverride None` → 200 KÈM
+    nội dung lính canh.
+  - **Lỗ thật tìm được ở mẫu Apache**: luật dotfile cũ `<FilesMatch "^\.">` chỉ so TÊN TỆP cuối, nên
+    với `DocumentRoot` đặt nhầm nó phát `/.github/workflows/ci.yml` (200, đo được). Đổi sang
+    `RedirectMatch 404 "/\."` (so cả đường dẫn, chạy trước kiểm tra quyền và `.htaccess`); `/storage/`
+    đổi từ `<LocationMatch> Require all denied` (403) sang `RedirectMatch 404 "^/storage/"`; mẫu nginx
+    đổi `deny all` (403) sang `return 404` ở cả hai khối — một 403 báo cho người dò rằng ở đó có thứ
+    được canh giữ; 404 là cùng mã ứng dụng trả cho mọi thứ không được phép (§10.10). Chạy lại kịch bản
+    trên hai mẫu CŨ: 17 dòng FAIL (`.superpowers/sdd/m8b/probe/t4-verify-storage-red-old-templates.txt`).
+- **Phạm vi của các task trước trong làn** (preflight, 2FA, mở khoá đăng nhập, đặt lại 2FA) nằm trong
+  cùng phép quét: không secret 2FA, mã khôi phục, mật khẩu hay chuỗi gõ nhầm vào ô email nào ở bất kỳ
+  cột, log hay mục archive nào.
+- **Chưa làm / để lại**: `README.md` dẫn tới hai mẫu `tools/deploy/` và kịch bản kiểm là Task 7. Một
+  mật khẩu gõ nhầm vào ô email mà TÌNH CỜ có dạng email hợp lệ vẫn được ghi nguyên văn làm "email đã
+  gõ" của dòng `login_failed` (thiết kế §10.6 có từ trước: dòng thất bại kèm email đã gõ khi nó là một
+  email) — các chuỗi lính canh của phép quét không có dạng email nên bị form từ chối trước khi tới bộ
+  đếm hay nhật ký; trường hợp kia không được đo và không đổi ở đây.

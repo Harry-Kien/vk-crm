@@ -71,14 +71,21 @@ final class Audit
     }
 
     /**
-     * Băm MỘT định danh (số CCCD, số điện thoại — đã bỏ ký tự không phải chữ số) để ghi vào
-     * `properties` của một dòng nhật ký (final review X8, C-I4). HMAC-SHA256 với `APP_KEY`, không
-     * phải `sha256` trần: định danh chỉ có 10–12 chữ số, nên một sha256 trần dò ngược được bằng
-     * vét cạn bởi bất kỳ ai đọc được bảng nhật ký. Cùng một số vẫn cho cùng một hash (đối chiếu
-     * được giữa các dòng) trong khi còn cùng `APP_KEY`.
+     * Băm MỘT định danh (số CCCD, số điện thoại — đã bỏ ký tự không phải chữ số). HMAC-SHA256 với
+     * `APP_KEY`, không phải `sha256` trần: định danh chỉ có 10–12 chữ số, nên một sha256 trần dò
+     * ngược được bằng vét cạn bởi bất kỳ ai đọc được bảng chứa nó. Cùng một số vẫn cho cùng một
+     * hash (đối chiếu được giữa các dòng) trong khi còn cùng `APP_KEY`.
      *
-     * Chỉ dùng cho NHẬT KÝ. `matter_parties.id_number_hash` (so trùng xung đột, `Normalizer`) là
-     * một mối lo khác và không đổi ở đây.
+     * ĐỊNH NGHĨA DUY NHẤT cho hai chỗ lưu (M8 Task 4, SPEC §10.5):
+     *  - `properties` của một dòng nhật ký (final review X8, C-I4) — `client_lookup`,
+     *    `client_lookup_throttled`, …;
+     *  - `matter_parties.id_number_hash`, cột so trùng CCCD của kiểm tra xung đột lợi ích —
+     *    {@see Normalizer::idNumberHash()} gọi thẳng hàm này (trước Task 4 cột đó là `sha256` trần,
+     *    đúng lỗ hổng X8 đã đóng cho nhật ký nhưng để lại ở cột so trùng).
+     *
+     * Vì hai chỗ dùng chung một cách băm, cùng một CCCD cho cùng một giá trị ở cả hai — một lần tra
+     * trong nhật ký đối chiếu được với bên mà nó khớp. Và vì khoá là `APP_KEY`, đổi khoá làm cả hai
+     * thôi khớp với mọi giá trị đã lưu (xem docblock `Normalizer::idNumberHash()`).
      */
     public static function identifierHash(string $value): string
     {

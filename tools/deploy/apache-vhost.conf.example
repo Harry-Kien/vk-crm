@@ -1,9 +1,11 @@
 # VK-CRM — mẫu VirtualHost Apache cho máy chủ thật (SPEC §10 mục 1, kế hoạch M8 Task 1).
 #
 # ĐÂY LÀ MẪU — sửa domain, đường dẫn chứng chỉ TLS và đường dẫn dự án (/var/www/vk-crm) cho đúng
-# máy chủ thật. Cần `mod_ssl`, `mod_rewrite`, `mod_headers` (`a2enmod ssl rewrite headers`). Đã
-# CHẠY THỬ bằng `httpd -t` trong container `httpd:2.4-alpine` chính thức ngày 2026-09-28 (kết quả
-# ở `docs/PROGRESS.md`, mục "Ghi chú M8"). Cùng ba lớp và cùng lý do với
+# máy chủ thật. Cần `mod_ssl`, `mod_rewrite`, `mod_headers`, `mod_alias`
+# (`a2enmod ssl rewrite headers alias`). Đã CHẠY THỬ bằng `httpd -t` trong container
+# `httpd:2.4-alpine` chính thức ngày 2026-09-28 (kết quả ở `docs/PROGRESS.md`, mục "Ghi chú M8"),
+# và phần chặn `/storage/` + dotfile chạy THẬT với request thật ngày 2026-10-01
+# (`tools/deploy/verify-storage-blocked.sh`, M8 Task 4). Cùng ba lớp và cùng lý do với
 # `tools/deploy/nginx.conf.example` — đọc docblock ở đó trước, không lặp lại ở đây.
 
 <VirtualHost *:80>
@@ -47,17 +49,20 @@
         Require all granted
     </Directory>
 
-    # Chặn dotfile (.env, .git, .htaccess nguồn…) — không route nào của Laravel có tiền tố dấu
-    # chấm.
-    <FilesMatch "^\.">
-        Require all denied
-    </FilesMatch>
+    # Chặn dotfile VÀ thư mục dấu chấm (.env, .git, .github/…, .htaccess…) — không route nào của
+    # Laravel có một đoạn đường dẫn bắt đầu bằng dấu chấm. `RedirectMatch` (mod_alias, chạy ở pha
+    # dịch URL, trước mọi kiểm tra quyền và trước `.htaccess`) so trên CẢ đường dẫn URL; bản
+    # `<FilesMatch "^\.">` trước M8 Task 4 chỉ so TÊN TỆP cuối, nên khi `DocumentRoot` đặt nhầm vào
+    # gốc dự án nó vẫn phát `/.github/workflows/<tệp>` — đo được, xem
+    # `tools/deploy/verify-storage-blocked.sh`. 404, cùng mã với bản nginx.
+    RedirectMatch 404 "/\."
 
-    # Dự án KHÔNG dùng `storage:link` (SPEC §2) — không có `public/storage` hợp lệ nào trỏ vào
-    # `storage/app/private`. Chặn ở tầng máy chủ web làm lớp phòng thủ thứ hai, cùng cách nginx.
-    <LocationMatch "^/storage/">
-        Require all denied
-    </LocationMatch>
+    # SPEC §10.4 — `/storage/` KHÔNG BAO GIỜ do máy chủ web phục vụ, và trả 404 như bản nginx (đọc
+    # docblock khối `location ^~ /storage/` ở đó: hai cấu hình sai mà khối này chặn). Dự án KHÔNG
+    # dùng `storage:link` (SPEC §2). `storage/app/private/.htaccess` (`Require all denied`, 403) là
+    # lớp thứ ba, chỉ có tác dụng khi `AllowOverride` cho phép. Cả ba lớp đã CHẠY THẬT trong
+    # container `httpd:2.4-alpine` chính thức: `tools/deploy/verify-storage-blocked.sh`.
+    RedirectMatch 404 "^/storage/"
 
     # Ba header SPEC §10 mục 2 cho tệp tĩnh — PHP không chạm tới các request này.
     <FilesMatch "\.(?:css|js|mjs|map|png|jpg|jpeg|gif|svg|webp|ico|woff2?|ttf|eot)$">

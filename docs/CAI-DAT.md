@@ -51,6 +51,14 @@ xoá secret (không cần giải mã nó), người đó đăng nhập bằng m�
 này KHÔNG cứu được số định danh khách hàng đã mã hoá — chúng vẫn mất vĩnh viễn (đoạn dưới). Cả
 hai điều trên có test đo hành vi: `tests/Feature/Actions/User/ResetStaffTwoFactorTest.php`.
 
+**M8 Task 4 (SPEC §10.5): `APP_KEY` còn là khoá của cột so trùng số CCCD** của kiểm tra xung đột
+lợi ích (`matter_parties.id_number_hash` — HMAC-SHA256 với `APP_KEY`, không phải `sha256` trần,
+để ai cầm một bản dump cơ sở dữ liệu cũng không dò ngược ra được số CCCD). Sinh khoá mới làm mọi
+giá trị đã lưu thôi khớp: kiểm tra xung đột lợi ích **im lặng** không còn thấy trùng số CCCD với
+bất kỳ bên nào nhập trước đó — không báo lỗi, chỉ còn so được bằng số điện thoại và tên. Với bên
+đối lập không có cách tính lại: số CCCD thô của họ chưa bao giờ được lưu. Test đo hành vi:
+`tests/Feature/Actions/RunConflictCheckTest.php` ("a new key silently blinds the id-number tier").
+
 **Sinh khoá mới trên một cơ sở dữ liệu đã có dữ liệu thật nghĩa là mọi số định danh đã lưu
 trở thành không đọc được, vĩnh viễn.** Không có cách khôi phục.
 

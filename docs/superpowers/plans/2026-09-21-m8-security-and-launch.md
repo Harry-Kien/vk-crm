@@ -155,7 +155,7 @@ Mỗi gói kiểm `composer require --dry-run` trên sàn PHP 8.3 trước, như
 - **API 60 request/phút:** chưa có route API nào. Test khẳng định không tồn tại route `api/*`. Ghi vào kế hoạch M11 rằng máy chủ MCP phải áp giới hạn này.
 - **Activity log đủ tám loại sự kiện §10 mục 6**, mỗi loại một test. "Xuất dữ liệu" là sinh và tải gói bàn giao (M7 Task 4) và tải bản sao lưu (Task 5). Đăng nhập guard `web` đã ghi từ M6.5 Task 20.
 
-### - [ ] Task 4 — Dữ liệu cá nhân và tệp (§10 mục 4, 5)
+### - [x] Task 4 — Dữ liệu cá nhân và tệp (§10 mục 4, 5)
 
 - Kiểm chứng `clients.id_number` mang cast `encrypted` và **không xuất hiện trong bất kỳ log nào**. Quét dữ liệu thật sau khi chạy luồng tạo khách hàng và luồng gửi thư, không đọc mã bằng mắt. Chỗ quét:
   - `storage/logs`;
