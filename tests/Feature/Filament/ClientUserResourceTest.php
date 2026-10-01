@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Client\IssuePortalAccess;
 use App\Actions\Notification\NotifyClientOfStageUpdate;
 use App\Enums\Permission;
 use App\Enums\Role;
@@ -1816,10 +1817,19 @@ it('asks to confirm the new address before an email change replaces the password
     Mail::assertNothingSent();
 });
 
+/**
+ * Rà soát cuối làn fu, fix round 1: tài khoản ở đây ĐÃ từng được cấp quyền (dòng audit
+ * `client_portal_access_issued` thật, qua `IssuePortalAccess`) rồi khách tự đổi mật khẩu lần đầu —
+ * đúng hình dạng mọi tài khoản đã kích hoạt có trên hệ thống thật. Thư đi tới địa chỉ mới vì vậy là
+ * bản "cấp lại" (`reissue`). Một factory `activated()` trần, không dòng audit nào, là tài khoản
+ * chưa từng được cấp — trang sửa giờ gửi bản "đã tạo tài khoản" cho nó.
+ */
 it('changes the email and mails a new temporary password to the new address once confirmed, telling staff where it went', function () {
-    Mail::fake();
     [$lawyer, $client] = portalAccountActorAndClient();
-    $account = ClientUser::factory()->for($client)->activated()->create(['is_active' => true]);
+    $account = ClientUser::factory()->for($client)->create(['is_active' => true]);
+    app(IssuePortalAccess::class)->handle($account, $lawyer);
+    $account->refresh()->forceFill(['must_change_password' => false, 'activated_at' => now()])->save();
+    Mail::fake();
     $this->actingAs($lawyer, 'web');
 
     $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
@@ -1891,11 +1901,25 @@ it('confirms an email change on an inactive account and says the mail waits unti
     Mail::assertNothingSent();
 });
 
-/** Bật lại một tài khoản chưa từng kích hoạt cũng gửi mật khẩu tạm mới — cùng hộp xác nhận. */
+/**
+ * Bật lại một tài khoản chưa từng kích hoạt cũng gửi mật khẩu tạm mới — cùng hộp xác nhận.
+ *
+ * Rà soát cuối làn fu, fix round 1: tài khoản này TẠO ở trạng thái tắt, chưa từng nhận thư nào
+ * (không có dòng audit `client_portal_access_issued`), nên thư đi lúc bật lên là thư ĐẦU TIÊN
+ * khách nhận về cổng — phải là bản "đã tạo tài khoản" (`reissue` false), không phải "thông tin
+ * đăng nhập mới… mật khẩu trước không còn dùng được". Bản trước test này ghim đúng câu sai đó.
+ * Một tài khoản KHÁC của cùng khách đã được cấp từ trước — dòng audit của nó không được tính cho
+ * tài khoản này.
+ *
+ * Mutation probe: đổi `reissue:` trong `EditClientUser::afterSave()` lại thành `true` → ĐỎ; bỏ
+ * `->forSubject($account)` khỏi `IssuePortalAccess::hasBeenIssued()` → ĐỎ (dòng audit của tài khoản
+ * kia bị tính); bỏ `->forEvent(...)` → ĐỎ (dòng `created` của LogsActivity bị tính).
+ */
 it('confirms before turning a never-activated account back on, since that save mails a new temporary password', function () {
-    Mail::fake();
     [$lawyer, $client] = portalAccountActorAndClient();
+    app(IssuePortalAccess::class)->handle(ClientUser::factory()->for($client)->create(['is_active' => true]), $lawyer);
     $account = ClientUser::factory()->for($client)->create(['is_active' => false]);
+    Mail::fake();
     $this->actingAs($lawyer, 'web');
 
     $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
@@ -1910,7 +1934,120 @@ it('confirms before turning a never-activated account back on, since that save m
         ->callMountedAction()
         ->assertNotified(__('client_users.issue_notice.queued', ['email' => $account->email]));
 
-    Mail::assertSent(Activation::class, fn (Activation $mail) => $mail->hasTo($account->email) && $mail->reissue);
+    Mail::assertSent(Activation::class, 1);
+    Mail::assertSent(Activation::class, fn (Activation $mail) => $mail->hasTo($account->email)
+        && ! $mail->reissue
+        && $mail->envelope()->subject === __('portal.email.activation.subject'));
+});
+
+/**
+ * Cùng luật, đường thứ hai mà finding nêu: tài khoản TẠO tắt (trên trang tạo thật — không thư,
+ * không audit), đổi email khi còn tắt (không thư), rồi bật lên. Thư đầu tiên khách nhận, tới địa
+ * chỉ MỚI, là bản "đã tạo tài khoản".
+ *
+ * Mutation probe: đổi `reissue:` trong `EditClientUser::afterSave()` lại thành `true` → ĐỎ.
+ */
+it('mails the first-time copy when an account created inactive has its email changed and is then turned on', function () {
+    Mail::fake();
+    [$lawyer, $client] = portalAccountActorAndClient();
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(CreateClientUser::class)
+        ->fillForm([
+            'client_id' => $client->id,
+            'name' => 'Khách tạo tắt',
+            'email' => 'tao-tat@example.com',
+            'is_active' => false,
+        ])
+        ->mountAction(clientUserFormAction('create'))
+        ->callMountedAction()
+        ->assertHasNoFormErrors();
+
+    $account = ClientUser::where('email', 'tao-tat@example.com')->firstOrFail();
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'name' => $account->name,
+            'email' => 'tao-tat-moi@example.com',
+            'is_active' => false,
+        ])
+        ->mountAction(clientUserFormAction('save'))
+        ->callMountedAction()
+        ->assertHasNoFormErrors();
+
+    Mail::assertNothingSent();
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'name' => $account->name,
+            'email' => 'tao-tat-moi@example.com',
+            'is_active' => true,
+        ])
+        ->mountAction(clientUserFormAction('save'))
+        ->callMountedAction()
+        ->assertHasNoFormErrors();
+
+    Mail::assertSent(Activation::class, 1);
+    Mail::assertSent(Activation::class, fn (Activation $mail) => $mail->hasTo('tao-tat-moi@example.com') && ! $mail->reissue);
+});
+
+/**
+ * Twin dương: tài khoản ĐÃ từng được cấp (tạo bật trên trang tạo thật → thư "đã tạo tài khoản",
+ * dòng audit), khách chưa kịp kích hoạt thì bị tắt, rồi bật lại. Lần bật này thay mật khẩu tạm
+ * khách ĐÃ nhận — thư phải nói "thông tin đăng nhập mới… mật khẩu trước không còn dùng được".
+ *
+ * Mutation probe: đổi `reissue:` trong `EditClientUser::afterSave()` thành `false` → ĐỎ.
+ */
+it('mails the replacement copy when staff turns back on an account that was issued access before but never activated', function () {
+    Mail::fake();
+    [$lawyer, $client] = portalAccountActorAndClient();
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(CreateClientUser::class)
+        ->fillForm([
+            'client_id' => $client->id,
+            'name' => 'Khách đã từng nhận thư',
+            'email' => 'da-tung-nhan@example.com',
+            'is_active' => true,
+        ])
+        ->mountAction(clientUserFormAction('create'))
+        ->callMountedAction()
+        ->assertHasNoFormErrors();
+
+    $account = ClientUser::where('email', 'da-tung-nhan@example.com')->firstOrFail();
+    Mail::assertSent(Activation::class, 1);
+    Mail::assertSent(Activation::class, fn (Activation $mail) => ! $mail->reissue);
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'name' => $account->name,
+            'email' => $account->email,
+            'is_active' => false,
+        ])
+        ->mountAction(clientUserFormAction('save'))
+        ->assertHasNoFormErrors();
+
+    expect($account->fresh())
+        ->is_active->toBeFalse()
+        ->activated_at->toBeNull();
+    Mail::assertSent(Activation::class, 1);
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'name' => $account->name,
+            'email' => $account->email,
+            'is_active' => true,
+        ])
+        ->mountAction(clientUserFormAction('save'))
+        ->assertActionMounted(clientUserFormAction('save'))
+        ->callMountedAction()
+        ->assertHasNoFormErrors();
+
+    Mail::assertSent(Activation::class, 2);
+    $last = Mail::sent(Activation::class)->last();
+    expect($last->hasTo('da-tung-nhan@example.com'))->toBeTrue()
+        ->and($last->reissue)->toBeTrue()
+        ->and($last->envelope()->subject)->toBe(__('portal.email.activation.subject_reissued'));
 });
 
 /**

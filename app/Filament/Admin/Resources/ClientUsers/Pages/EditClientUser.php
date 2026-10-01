@@ -315,9 +315,19 @@ class EditClientUser extends EditRecord
      *    inactive account until staff turns it back on" (`ClientUserResourceTest`).
      *
      * Việc sau gộp M6 (làn fu, mục 6): kết quả đó không còn bị bỏ qua — một thông báo nói thư đi
-     * tới địa chỉ nào, hoặc vì sao chưa đi ({@see ConfirmsPortalAccessIssue::notifyPortalAccessIssue()});
-     * và `reissue: true`, vì mọi lần cấp ở trang sửa thay một mật khẩu (nếu có) mà khách đã nhận
-     * — thư nói rõ mật khẩu trước không còn dùng được.
+     * tới địa chỉ nào, hoặc vì sao chưa đi ({@see ConfirmsPortalAccessIssue::notifyPortalAccessIssue()}).
+     *
+     * Rà soát cuối làn fu, fix round 1: `reissue` KHÔNG còn luôn `true`. Một tài khoản TẠO ở
+     * trạng thái tắt (hay đổi email khi còn tắt) chưa từng nhận thư nào — lần bật lên gửi thư ĐẦU
+     * TIÊN khách nhận về cổng, nên phải là bản "đã tạo tài khoản", không phải "thông tin đăng nhập
+     * mới… mật khẩu trước không còn dùng được". `reissue` = tài khoản đã có dòng audit
+     * `client_portal_access_issued` từ TRƯỚC lần cấp này ({@see IssuePortalAccess::hasBeenIssued()}),
+     * hỏi TRƯỚC khi gọi `handle()` vì chính lần gọi đó ghi thêm một dòng. Nút "Cấp lại mật khẩu"
+     * ({@see self::reissueAccessAction()}) giữ `reissue: true`: nút chỉ bấm được trên tài khoản
+     * đang bật, mà một tài khoản đang bật thường đã đi qua một lần cấp (lúc tạo bật, hay lúc bật lên
+     * ở đây khi chưa kích hoạt) hoặc đã kích hoạt (khách từng có mật khẩu). Ngoại lệ đáng kể duy
+     * nhất là tài khoản có từ trước Task 3 — mật khẩu khi đó được gõ tay và đọc cho khách, nên với
+     * chúng "mật khẩu trước không còn dùng được" vẫn đúng.
      */
     protected function afterSave(): void
     {
@@ -330,8 +340,10 @@ class EditClientUser extends EditRecord
         $actor = Auth::user();
         abort_unless($actor instanceof User, 403);
 
+        $reissue = IssuePortalAccess::hasBeenIssued($this->record);
+
         $this->notifyPortalAccessIssue(
-            app(IssuePortalAccess::class)->handle($this->record, $actor, reissue: true),
+            app(IssuePortalAccess::class)->handle($this->record, $actor, reissue: $reissue),
         );
     }
 }

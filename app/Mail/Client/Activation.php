@@ -38,10 +38,12 @@ class Activation extends BrandedMailable
 {
     /**
      * @param  bool  $reissue  Việc sau gộp M6 (làn fu, mục 6 — N1): `true` khi đây là lần CẤP LẠI
-     *                         (nút "Cấp lại mật khẩu", đổi email, bật lại một tài khoản chưa từng
-     *                         kích hoạt) — thư không nói "đã tạo tài khoản" và nói rõ mật khẩu trước
-     *                         không còn dùng được. Nơi gọi `App\Actions\Client\IssuePortalAccess`
-     *                         quyết định, job chỉ chuyển tiếp; thư không tự đoán.
+     *                         (nút "Cấp lại mật khẩu"; đổi email hay bật lại tài khoản trên trang
+     *                         sửa CHỈ khi tài khoản đã từng được cấp —
+     *                         `IssuePortalAccess::hasBeenIssued()`) — thư không nói "đã tạo tài
+     *                         khoản" và nói rõ mật khẩu trước không còn dùng được. Nơi gọi
+     *                         `App\Actions\Client\IssuePortalAccess` quyết định, job chỉ chuyển
+     *                         tiếp; thư không tự đoán.
      */
     public function __construct(
         public ClientUser $recipient,
