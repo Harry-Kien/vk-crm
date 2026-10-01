@@ -132,3 +132,21 @@ it('checks keys that actually exist, so a typo cannot make these tests pass on t
     'portal_submit.done.body',
     'matters.transition_form.preview_not_publishing_with_stage_change',
 ]);
+
+/**
+ * Việc sau gộp M6 (làn fu, mục 1): câu từ chối gửi lại `staff.deadline_reminder` từng hứa "tự được
+ * thử lại ở lần kiểm tra hạn kế tiếp, gửi tay sẽ khiến thư đi hai lần" — sai từ final review wave 2,
+ * I-2: bậc hỏng hẳn KHÔNG được xếp lại trong ngày, chỉ lượt kiểm tra hạn đầu tiên của ngày hôm sau
+ * (đo bằng đường đi thật ở `tests/Feature/Schedule/CheckDeadlinesTest.php`, "dispatches the tier
+ * again on the first CheckDeadlines run of the next day…"), và chuông báo lỗi đã tới người phụ
+ * trách. Tên mẫu có dấu chấm nên đọc cả mảng lý do rồi tra theo tên — khoá dạng chấm sẽ trượt.
+ */
+it('tells the admin a failed deadline reminder comes back at the next day\'s first check, not at the next check', function () {
+    $reason = mb_strtolower(((array) __('outbound.resend.refused.template_reasons'))['staff.deadline_reminder']);
+
+    expect($reason)
+        ->toContain('ngày hôm sau')
+        ->toContain('chuông')
+        ->not->toContain('kế tiếp')
+        ->not->toContain('hai lần');
+});

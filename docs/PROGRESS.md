@@ -857,7 +857,8 @@ vòng rà soát, mọi phán quyết): `.superpowers/sdd/m6/progress.md`; báo c
     `client.missing_documents`, `staff.new_client_request`, `staff.new_client_document`,
     `staff.stale_matter`), khai MỘT chỗ ở `App\Actions\Notification\ResendTargets`. Không gửi lại:
     `client.otp` (mã 5 phút đã chết), `staff.deadline_reminder` (đường thử lại riêng của
-    `CheckDeadlines`, gửi tay là gửi hai lần), `client.activation` (gửi lại = cấp mật khẩu tạm
+    `CheckDeadlines`, gửi tay là gửi hai lần — lý do này sai sau khi gộp với I-2 của main; lý do
+    đúng ở "Việc sau gộp vào main" bên dưới), `client.activation` (gửi lại = cấp mật khẩu tạm
     mới, dùng nút ở màn hình tài khoản cổng), `undeclared`. Dòng `queued`/`sent` không có nút.
   - **Không luật thứ hai:** mỗi mẫu gọi đúng `eligibleRecipients()`/`alreadyDelivered()`/`handle()`
     của Action/Job gốc (sáu Action `Notify*` và hai job `Send*Mail` được tách hàm, hành vi cũ giữ
@@ -1254,7 +1255,8 @@ Liên kết là `http://localhost/portal` vì `PORTAL_DOMAIN` trống. Cả hai 
 - Mốc 14 ngày "một lần mỗi đợt", mốc 21 ngày "tối đa 7 ngày lịch một lần" (R5); trí nhớ chống trùng
   là nhật ký thư (R3) và bảng `notifications`, không thêm cột.
 - Nút "Gửi lại": chỉ admin; một dòng hỏng gửi lại một lần; người nhận suy lại; tám mẫu gửi lại được,
-  bốn mẫu không (lý do ở trên); job gửi lại có cùng ngân sách thử lại với listener gốc (R2).
+  bốn mẫu không (lý do ở trên); job gửi lại có cùng ngân sách thử lại với listener gốc (R2). Sau gộp
+  vào main: sáu mục không gửi lại (thêm hai họ thư của main) — xem "Việc sau gộp vào main" bên dưới.
 
 ### Việc hoãn, mang sang
 
@@ -1297,6 +1299,50 @@ Liên kết là `http://localhost/portal` vì `PORTAL_DOMAIN` trống. Cả hai 
   diện (cùng người nộp, đầu mục, version, trong 60 giây), vì sự kiện gốc không được lưu.
 - M7 thêm `client_access_until` vào ranh giới cổng thì phải thêm vào cổng lúc-gửi của các thư cho
   khách (ghi chú của vòng rà soát Task 3).
+
+### Việc sau gộp vào main (làn `fu`, nhánh `m6-merge-followups`, 2026-10-01)
+
+Bảy việc rẻ từ lượt rà soát gộp `m6-rest` → `main` (`f491a2a`); quyết định của điều phối ghi ở brief
+làn (`.superpowers/sdd/fu/task-1-brief.md`), báo cáo ở `.superpowers/sdd/fu/task-1-report.md`.
+
+- **`staff.deadline_reminder` vẫn không có nút "Gửi lại" — thêm vào là quyết định của chủ văn
+  phòng, chưa làm.** Lý do cũ ("`CheckDeadlines` tự thử lại ở lần kiểm tra kế tiếp, gửi tay là gửi
+  hai lần") sai từ final review wave 2, I-2 (`e0d7f39`): bậc nhắc hỏng hẳn không được xếp lại trong
+  ngày, chỉ lượt `deadlines.check` 07:00 hôm sau nhắc lại mốc đó; chuông báo lỗi đã tới người phụ
+  trách mốc, luật sư phụ trách và cấp trên. Làn giữ loại trừ và viết lại lý do cho đúng (câu từ chối
+  ở `lang/vi/outbound.php`, docblock `ResendTargets`, `ResendOutboundMessageAction`,
+  `OutboundMessageNotResendable`; câu từ chối ghim ở `CopyPromisesTest`). Nếu chủ văn phòng muốn gửi
+  tay cùng ngày: an toàn về chống trùng nhờ khoá `tier@due_date` theo từng người nhận của
+  `SendDeadlineReminderMail` (chỉ dòng `sent`).
+- **Hai họ thư của main khai tường minh là KHÔNG gửi lại:** `staff.instalment_overdue` (lượt
+  `instalments.remind` 08:00 kế tiếp tự nhắc lại, vì chỉ dòng `sent` chặn) và `staff.backup_alert.*`
+  (thư nói về một lượt sao lưu đã qua; sự cố còn thì lượt 02:00/08:00 kế tiếp tự báo lại). Danh sách
+  loại trừ giờ là hằng `ResendTargets::NOT_RESENDABLE` (họ mẫu có hậu tố động ghi `xxx.*`), mỗi mục
+  một câu từ chối riêng; `MailTemplateRegistryTest` đòi mọi mẫu của `app/Mail` có nhãn ở
+  `outbound.templates` và nằm ở ĐÚNG một trong hai danh sách (gửi lại được / không), để mẫu của
+  milestone sau không rơi vào nhánh `default` mà không ai biết. Nút "Gửi lại": tám mẫu gửi lại được,
+  sáu mục không.
+- **Nhãn mẫu thư:** `OutboundMessagesTable::templateLabel()` dùng `Lang::has("outbound.templates.$template")`
+  — tên mẫu có dấu chấm nên luôn trượt, cột/trang xem/ô lọc hiện khoá thô cho MỌI mẫu. Nay tra theo
+  mảng; thêm nhãn cho hai họ thư của main.
+- **Tài khoản cổng (N1, N2 của rà soát cuối làn m6):** trước khi tạo tài khoản, và trước mọi lần lưu
+  ở trang sửa SẼ gửi mật khẩu tạm (đổi email, bật lại tài khoản chưa từng kích hoạt), trang hỏi xác
+  nhận nêu rõ địa chỉ đích (và "mật khẩu cũ sẽ không dùng được nữa" ở trang sửa); huỷ thì không gì
+  đổi. Nút lưu và phím Enter đều đi qua hộp đó. Sau khi lưu, một thông báo nói thư đi tới địa chỉ
+  nào, hoặc vì sao chưa đi (tài khoản tắt; khách bị xoá giữa chừng). Thư kích hoạt có nhãn "Mật khẩu
+  tạm thời:", và lần CẤP LẠI (nút "Cấp lại mật khẩu", đổi email, bật lại) có tiêu đề/câu mở riêng và
+  nói mật khẩu trước không còn dùng được. Một lời gọi Livewire thẳng vào `create()`/`save()` vẫn
+  chạy không hỏi — hộp xác nhận chặn lỗi gõ nhầm, không phải cổng quyền.
+- **Lịch 08:00 — chỉ cần biết khi đọc log, không đổi giờ (test ghim giờ):** bốn tác vụ cùng đến hạn
+  lúc 08:00 — `deadlines.check` (lượt */30), `backup.monitor` (kèm kiểm `rclone` ở `->then()`),
+  `instalments.remind`, và thứ Hai/Tư/Sáu `missing-documents.remind`. `schedule:run` chạy chúng tuần
+  tự theo thứ tự đăng ký trong `routes/console.php`, nên không đụng nhau về khoá; hai tác vụ xếp thư
+  sau cùng có thể chạy trễ sau lượt kiểm sao lưu (mỗi lệnh `rclone` tới `BACKUP_RCLONE_TIMEOUT`, mặc
+  định 1800 giây).
+- Việc nhỏ khác: docblock `NotifyClientOfStageUpdate::hasEligibleRecipient()` và bốn chú thích còn
+  trỏ `eligibleRecipientsQuery()` (đã gỡ) nay trỏ `ResolveClientRecipients`; test M-3 của main thôi
+  điền ô `password` không còn trên form, vế dương đo job `SendPortalActivationMail` được xếp; câu từ
+  chối gửi lại `client.activation` gọi đúng tên nút "Cấp lại mật khẩu".
 
 ## Ghi chú M6.5
 

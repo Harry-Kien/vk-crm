@@ -47,6 +47,13 @@ return [
         'staff.new_client_request' => 'Báo nhân sự khách gửi yêu cầu mới',
         'staff.new_client_document' => 'Báo nhân sự khách nộp tệp mới',
         'staff.stale_matter' => 'Nhắc nhân sự hồ sơ quá hạn cập nhật',
+        // Việc sau gộp M6 (làn fu): hai họ thư của main — M9 và M8a (hậu tố = loại sự cố, mỗi
+        // loại một nhãn vì nhật ký ghi tên mẫu đầy đủ). MailTemplateRegistryTest đòi mọi mẫu của
+        // app/Mail có nhãn ở đây.
+        'staff.instalment_overdue' => 'Nhắc nhân sự đợt thanh toán quá hạn',
+        'staff.backup_alert.backup_failed' => 'Báo nhân sự sao lưu thất bại',
+        'staff.backup_alert.cleanup_failed' => 'Báo nhân sự dọn bản sao lưu cũ thất bại',
+        'staff.backup_alert.unhealthy' => 'Báo nhân sự bản sao lưu không lành mạnh',
         'undeclared' => 'Chưa khai báo mẫu',
     ],
 
@@ -68,11 +75,16 @@ return [
         // Không câu nào nêu mã vụ việc, tiêu đề hay tên khách.
         'refused' => [
             'template' => 'Loại thư này không gửi lại được từ nhật ký: :reason',
-            // Lý do MỖI mẫu bị loại — ResendTargets ghi vì sao; mẫu lạ nhận 'default'.
+            // Lý do MỖI mục của ResendTargets::NOT_RESENDABLE (khoá = đúng mục đó, kể cả họ
+            // `staff.backup_alert.*`); docblock ResendTargets ghi vì sao. Mẫu lạ nhận 'default'.
             'template_reasons' => [
                 'client.otp' => 'mã đăng nhập chỉ có hiệu lực 5 phút nên mã cũ đã hết hạn; khách hãy tự bấm gửi mã mới ở cổng.',
-                'staff.deadline_reminder' => 'thư nhắc mốc thời hạn tự được thử lại ở lần kiểm tra hạn kế tiếp, gửi tay sẽ khiến thư đi hai lần.',
-                'client.activation' => 'gửi lại thư kích hoạt là cấp mật khẩu tạm mới; hãy dùng nút cấp lại quyền truy cập ở màn hình tài khoản cổng khách hàng.',
+                // Việc sau gộp M6 (làn fu, mục 1): câu cũ hứa "thử lại ở lần kiểm tra hạn kế tiếp"
+                // — sai từ final review wave 2, I-2 (bậc hỏng hẳn chờ tới lượt đầu ngày hôm sau).
+                'staff.deadline_reminder' => 'thư nhắc mốc thời hạn đã hỏng hẳn thì không được xếp lại trong ngày; lượt kiểm tra hạn đầu tiên của ngày hôm sau (07:00) sẽ nhắc lại mốc này, và chuông báo lỗi đã tới người phụ trách mốc, luật sư phụ trách và cấp trên. Mốc gấp thì hãy báo trực tiếp cho người phụ trách.',
+                'client.activation' => 'gửi lại thư kích hoạt là cấp mật khẩu tạm mới; hãy dùng nút "Cấp lại mật khẩu" ở màn hình tài khoản cổng khách hàng.',
+                'staff.instalment_overdue' => 'lời nhắc đợt thanh toán quá hạn tự được gửi lại ở lượt nhắc công nợ 08:00 kế tiếp nếu đợt vẫn quá hạn, vì chỉ thư đã gửi thành công mới chặn lời nhắc mới.',
+                'staff.backup_alert.*' => 'thư báo lỗi sao lưu nói về một lượt sao lưu đã qua, gửi lại là báo một sự kiện cũ; nếu sự cố còn, lượt sao lưu 02:00 hoặc lượt kiểm tra sao lưu 08:00 kế tiếp sẽ tự báo lại.',
                 'undeclared' => 'thư này không khai báo mẫu nên không dựng lại được nội dung.',
                 'default' => 'hệ thống không biết dựng lại thư này từ nhật ký.',
             ],

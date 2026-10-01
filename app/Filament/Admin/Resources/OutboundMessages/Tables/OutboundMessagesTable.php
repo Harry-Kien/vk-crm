@@ -15,7 +15,6 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Lang;
 
 /**
  * Bảng nhật ký thư (SPEC §4.15 "phải tra được ngay"). Chỉ ĐỌC dữ liệu — không sửa/xoá dòng nào; hai
@@ -79,7 +78,7 @@ class OutboundMessagesTable
                 // Fix round 1, minor: bỏ ->searchable() — nó tìm trên KHOÁ thô
                 // (`client.stage_update`) chứ không phải nhãn tiếng Việt hiện trên màn hình, nên
                 // gõ đúng chữ đang thấy ("Cập nhật tiến độ cho khách") lại không tìm ra gì. Chỉ
-                // bốn mẫu đã khai (`lang/vi/outbound.php`), một select thường đủ dùng.
+                // vài chục mẫu đã khai (`lang/vi/outbound.php`), một select thường đủ dùng.
                 SelectFilter::make('template')
                     ->label(__('outbound.filters.template'))
                     ->options(fn (): array => OutboundMessage::query()
@@ -120,10 +119,20 @@ class OutboundMessagesTable
             ->defaultSort('created_at', 'desc');
     }
 
-    /** Nhãn tiếng Việt khi đã khai báo (SPEC §9); mẫu chưa khai báo hiện nguyên khoá thô. */
+    /**
+     * Nhãn tiếng Việt khi đã khai báo (SPEC §9); mẫu chưa khai báo hiện nguyên khoá thô.
+     *
+     * Tên mẫu CÓ dấu chấm (`client.stage_update`), nên không ghép được vào một khoá dịch dạng chấm:
+     * `outbound.templates.client.stage_update` bị hiểu là mảng lồng `client` → `stage_update` và
+     * không bao giờ khớp khoá phẳng — trước bản sửa này cột, trang xem và ô lọc hiện khoá thô cho
+     * MỌI mẫu. Đọc cả mảng nhãn rồi tra theo đúng tên mẫu, cùng cách
+     * `OutboundMessageNotResendable::template()` tra lý do từ chối.
+     */
     public static function templateLabel(string $template): string
     {
-        return Lang::has("outbound.templates.$template") ? __("outbound.templates.$template") : $template;
+        $labels = (array) __('outbound.templates');
+
+        return $labels[$template] ?? $template;
     }
 
     public static function statusColor(OutboundStatus $status): string

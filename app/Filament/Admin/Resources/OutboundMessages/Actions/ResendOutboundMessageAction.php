@@ -20,8 +20,10 @@ use Illuminate\Support\Facades\Gate;
  * # Hai cổng hiển thị, và cổng thứ ba nằm trong Action
  *
  *  - `->visible()`: dòng có gửi lại được KHÔNG ({@see ResendOutboundMessage::canResend()} — mẫu gửi
- *    lại được và đang `failed`); dòng `sent`/`queued`, `client.otp`, `staff.deadline_reminder`,
- *    `client.activation`, `undeclared` không có nút.
+ *    lại được và đang `failed`); dòng `sent`/`queued` và dòng của mọi mục trong
+ *    `ResendTargets::NOT_RESENDABLE` (`client.otp`, `staff.deadline_reminder`, `client.activation`,
+ *    `staff.instalment_overdue`, họ `staff.backup_alert.*`, `undeclared` — lý do từng mục ở
+ *    docblock `ResendTargets`) không có nút, mẫu lạ chưa ai khai cũng không.
  *  - `->authorize()`: AI được bấm (`OutboundMessagePolicy::resend()` — admin, và xem được đúng dòng
  *    đó). Filament ẩn nút VÀ từ chối lời gọi trực tiếp khi không qua cổng này.
  *  - `ResendOutboundMessage::handle()` tự hỏi lại cả Gate lẫn trạng thái, nên một lời gọi ép vào nút

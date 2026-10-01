@@ -7,6 +7,7 @@ use App\Models\ClientUser;
 use App\Models\User;
 use App\Support\Audit;
 use Illuminate\Support\Facades\DB;
+use Spatie\Activitylog\Models\Activity;
 
 /**
  * Cấp (hoặc cấp LẠI) quyền truy cập cổng khách hàng — SPEC §9 mẫu `client.activation`, task 3.
@@ -41,9 +42,18 @@ use Illuminate\Support\Facades\DB;
  */
 class IssuePortalAccess
 {
-    public function handle(ClientUser $account, User $actor): IssuePortalAccessResult
+    /**
+     * @param  bool  $reissue  Việc sau gộp M6 (làn fu, N1): `true` khi đây là lần CẤP LẠI — nút "Cấp
+     *                         lại mật khẩu" luôn `true`; lần lưu trên `EditClientUser` (đổi email,
+     *                         bật lại tài khoản chưa từng kích hoạt) `true` chỉ khi
+     *                         {@see self::hasBeenIssued()} (rà soát cuối, fix round 1); `false`
+     *                         cho lần tạo tài khoản (`CreateClientUser`). Chỉ đổi câu chữ của thư `client.activation`
+     *                         (tiêu đề, câu mở, câu "mật khẩu trước không còn dùng được"); không đổi
+     *                         điều kiện cấp, audit hay cách sinh mật khẩu.
+     */
+    public function handle(ClientUser $account, User $actor, bool $reissue = false): IssuePortalAccessResult
     {
-        return DB::transaction(function () use ($account, $actor): IssuePortalAccessResult {
+        return DB::transaction(function () use ($account, $actor, $reissue): IssuePortalAccessResult {
             $fresh = ClientUser::query()->lockForUpdate()->findOrFail($account->getKey());
 
             if (! self::isEligible($fresh)) {
@@ -54,7 +64,7 @@ class IssuePortalAccess
                 'client_id' => $fresh->client_id,
             ], $actor);
 
-            SendPortalActivationMail::dispatch($fresh->getKey(), $actor->getKey())->afterCommit();
+            SendPortalActivationMail::dispatch($fresh->getKey(), $actor->getKey(), $reissue)->afterCommit();
 
             return new IssuePortalAccessResult($fresh, issued: true);
         });
@@ -70,5 +80,24 @@ class IssuePortalAccess
     public static function isEligible(ClientUser $account): bool
     {
         return $account->is_active && $account->client()->exists();
+    }
+
+    /**
+     * Rà soát cuối làn fu, fix round 1: tài khoản này đã từng THẬT SỰ được cấp quyền (khách đã
+     * được gửi một mật khẩu tạm) chưa — đọc đúng dòng audit `client_portal_access_issued` mà
+     * {@see self::handle()} chỉ ghi khi tài khoản đủ điều kiện và một thư được xếp hàng. Một tài
+     * khoản TẠO ở trạng thái tắt (hay đổi email khi còn tắt) không có dòng nào, vì `handle()` trả
+     * về trước dòng audit khi tài khoản không đủ điều kiện.
+     *
+     * Nơi gọi hỏi hàm này TRƯỚC khi gọi `handle()` (lần gọi đó sẽ tự ghi thêm một dòng) để chọn
+     * `$reissue`: chưa có dòng nào thì thư sắp đi là thư ĐẦU TIÊN khách nhận về cổng — bản "đã tạo
+     * tài khoản", không phải "thông tin đăng nhập mới… mật khẩu trước không còn dùng được".
+     */
+    public static function hasBeenIssued(ClientUser $account): bool
+    {
+        return Activity::query()
+            ->forSubject($account)
+            ->forEvent('client_portal_access_issued')
+            ->exists();
     }
 }

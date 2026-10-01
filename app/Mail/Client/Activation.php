@@ -36,10 +36,20 @@ use SensitiveParameter;
  */
 class Activation extends BrandedMailable
 {
+    /**
+     * @param  bool  $reissue  Việc sau gộp M6 (làn fu, mục 6 — N1): `true` khi đây là lần CẤP LẠI
+     *                         (nút "Cấp lại mật khẩu"; đổi email hay bật lại tài khoản trên trang
+     *                         sửa CHỈ khi tài khoản đã từng được cấp —
+     *                         `IssuePortalAccess::hasBeenIssued()`) — thư không nói "đã tạo tài
+     *                         khoản" và nói rõ mật khẩu trước không còn dùng được. Nơi gọi
+     *                         `App\Actions\Client\IssuePortalAccess` quyết định, job chỉ chuyển
+     *                         tiếp; thư không tự đoán.
+     */
     public function __construct(
         public ClientUser $recipient,
         #[SensitiveParameter]
         public string $temporaryPassword,
+        public bool $reissue = false,
     ) {}
 
     protected function template(): string
@@ -61,10 +71,14 @@ class Activation extends BrandedMailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: __('portal.email.activation.subject'),
+            subject: __($this->reissue ? 'portal.email.activation.subject_reissued' : 'portal.email.activation.subject'),
         );
     }
 
+    /**
+     * `line` và `previousInvalid` chọn ở ĐÂY (không ở view), để bản HTML và bản văn bản thuần không
+     * thể nói hai điều khác nhau về lần cấp này.
+     */
     public function content(): Content
     {
         return new Content(
@@ -73,6 +87,8 @@ class Activation extends BrandedMailable
             with: [
                 'name' => $this->recipient->name,
                 'email' => $this->recipient->email,
+                'line' => __($this->reissue ? 'portal.email.activation.line_reissued' : 'portal.email.activation.line'),
+                'previousInvalid' => $this->reissue ? __('portal.email.activation.previous_invalid') : null,
                 'temporaryPassword' => $this->temporaryPassword,
                 'portalUrl' => PortalUrl::base(),
                 'office' => config('vkcrm.brand.legal_name'),

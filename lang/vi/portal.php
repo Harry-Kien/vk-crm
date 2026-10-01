@@ -140,13 +140,22 @@ return [
          * Mẫu `client.activation` (SPEC §9, M6 Task 3) — con đường DUY NHẤT một khách có mật khẩu
          * cổng thông tin (xem docblock `App\Mail\Client\Activation`). Không hứa "đã gửi kèm email"
          * ở đâu khác vì đây chính là thư đó.
+         *
+         * Việc sau gộp M6 (làn fu, mục 6 — N1): mật khẩu tạm có nhãn riêng; lần CẤP LẠI (nút "Cấp
+         * lại mật khẩu", đổi email, bật lại tài khoản chưa từng kích hoạt) dùng tiêu đề và câu mở
+         * riêng (`*_reissued`), không nói "đã tạo tài khoản", và thêm `previous_invalid`.
          */
         'activation' => [
             'subject' => 'Tài khoản cổng thông tin của anh/chị đã sẵn sàng',
+            'subject_reissued' => 'Thông tin đăng nhập mới cho cổng thông tin của anh/chị',
             'greeting' => 'Kính gửi anh/chị :name,',
             'line' => 'Văn phòng đã tạo tài khoản cổng thông tin để anh/chị theo dõi hồ sơ của mình. Thông tin đăng nhập:',
+            'line_reissued' => 'Văn phòng vừa cấp thông tin đăng nhập mới cho tài khoản cổng thông tin của anh/chị. Thông tin đăng nhập:',
             'email_label' => 'Email đăng nhập:',
-            'must_change' => 'Đây là mật khẩu tạm thời — lần đăng nhập đầu tiên, hệ thống sẽ yêu cầu anh/chị đổi sang mật khẩu khác.',
+            'password_label' => 'Mật khẩu tạm thời:',
+            // Đúng ngay khi thư tới: SendPortalActivationMail ghi hash mật khẩu mới TRƯỚC khi gửi.
+            'previous_invalid' => 'Mật khẩu tạm này thay cho mọi mật khẩu trước đó của tài khoản: nếu anh/chị từng có mật khẩu (kể cả một mật khẩu tạm gửi trước đây), mật khẩu đó không còn dùng được nữa.',
+            'must_change' => 'Đây là mật khẩu tạm thời — lần đầu đăng nhập bằng mật khẩu này, hệ thống sẽ yêu cầu anh/chị đổi sang mật khẩu khác.',
             'otp_note' => 'Cổng thông tin không có đường tự đặt lại mật khẩu, nên mỗi lần đăng nhập anh/chị cần nhập thêm một mã gửi về CHÍNH hộp thư này — xin giữ hộp thư này an toàn.',
             'open' => 'Mở cổng thông tin',
             'help' => 'Có điều gì chưa rõ, anh/chị gọi giúp văn phòng theo số :phone.',

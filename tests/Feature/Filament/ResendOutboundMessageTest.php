@@ -17,8 +17,10 @@ use App\Models\Client;
 use App\Models\ClientRequest;
 use App\Models\ClientRequestReply;
 use App\Models\ClientUser;
+use App\Models\Contract;
 use App\Models\Deadline;
 use App\Models\Document;
+use App\Models\Instalment;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Models\OutboundMessage;
@@ -363,9 +365,12 @@ it('shows no resend button on a queued or a sent row', function (OutboundStatus 
 ]);
 
 /**
- * Bốn mẫu KHÔNG gửi lại được — mỗi mẫu một lý do (docblock `ResendTargets`): OTP (mã chết),
- * nhắc mốc hạn (đường thử lại riêng của `CheckDeadlines`, gửi tay = hai lần), kích hoạt (cấp mật
- * khẩu tạm mới — nút riêng ở màn hình tài khoản cổng), `undeclared` (không dựng lại được).
+ * Các mẫu KHÔNG gửi lại được — mỗi mẫu một lý do (`ResendTargets::NOT_RESENDABLE`): OTP (mã
+ * chết), nhắc mốc hạn (lượt kiểm tra hạn đầu tiên của ngày hôm sau tự nhắc lại, chuông đã báo),
+ * kích hoạt (cấp mật khẩu tạm mới — nút riêng ở màn hình tài khoản cổng), nhắc đợt quá hạn (lượt
+ * 08:00 kế tiếp tự gửi lại), báo lỗi sao lưu (nói về một lượt sao lưu đã qua), `undeclared`
+ * (không dựng lại được). Hai họ thư của main — `staff.instalment_overdue` (M9) và
+ * `staff.backup_alert.*` (M8a) — thêm ở việc sau gộp M6 (làn fu, mục 2).
  *
  * Mutation probe: bỏ nhánh `default => null` (hoặc thêm một mẫu vào `ResendTargets::for()`) → ĐỎ.
  */
@@ -375,6 +380,7 @@ it('shows no resend button on a failed row of a template that must not be resent
     $related = match ($relatedType) {
         'client_user' => $account,
         'deadline' => Deadline::factory()->create(['matter_id' => $matter->id]),
+        'instalment' => Instalment::factory()->for(Contract::factory()->for($matter))->create(),
         'none' => null,
     };
     $failed = OutboundMessage::factory()->create([
@@ -399,6 +405,10 @@ it('shows no resend button on a failed row of a template that must not be resent
     'client.otp' => ['client.otp', 'client_user'],
     'staff.deadline_reminder' => ['staff.deadline_reminder', 'deadline'],
     'client.activation' => ['client.activation', 'client_user'],
+    'staff.instalment_overdue' => ['staff.instalment_overdue', 'instalment'],
+    'staff.backup_alert.backup_failed' => ['staff.backup_alert.backup_failed', 'none'],
+    'staff.backup_alert.cleanup_failed' => ['staff.backup_alert.cleanup_failed', 'none'],
+    'staff.backup_alert.unhealthy' => ['staff.backup_alert.unhealthy', 'none'],
     'undeclared' => ['undeclared', 'none'],
 ]);
 

@@ -28,10 +28,11 @@ use Throwable;
  * `failed_jobs` nếu job hỏng hẳn) — bất kỳ ai đọc được bảng đó (một quản trị viên CSDL, một bản
  * backup rò rỉ) đọc được mật khẩu của MỌI tài khoản khách đang chờ kích hoạt.
  *
- * Job này vì vậy chỉ nhận `$clientUserId`/`$actorId` (hai số nguyên, vô hại khi lộ) — mật khẩu
- * được sinh MỚI, ngay bên trong `handle()`, mỗi lần job CHẠY (không phải mỗi lần job được TẠO),
- * sống trong một biến cục bộ, dùng để (1) ghi hash và (2) dựng `Activation` mailable rồi gửi
- * NGAY — và biến đó biến mất khi `handle()` trả về. Không gì serialize nó.
+ * Job này vì vậy chỉ nhận `$clientUserId`/`$actorId` (hai số nguyên) và cờ `$reissue` (một
+ * boolean) — cả ba vô hại khi lộ. Mật khẩu được sinh MỚI, ngay bên trong `handle()`, mỗi lần job
+ * CHẠY (không phải mỗi lần job được TẠO), sống trong một biến cục bộ, dùng để (1) ghi hash và (2)
+ * dựng `Activation` mailable rồi gửi NGAY — và biến đó biến mất khi `handle()` trả về. Không gì
+ * serialize nó.
  *
  * **"Thử lại thì sinh mật khẩu mới" (đề xuất của setup agent).** Nếu `Mail::to()->send()` ném lỗi
  * (transport chết), job này thất bại và hàng đợi thử lại theo `$tries`/`backoff()` — lần thử SAU
@@ -54,10 +55,14 @@ class SendPortalActivationMail implements ShouldQueue
      * @param  int|null  $actorId  Người vừa bấm "Cấp quyền truy cập" — chỉ dùng để BÁO nếu job
      *                             này hỏng hẳn (xem {@see self::failed()}); `null` khi không xác
      *                             định được người thực hiện (không nên xảy ra qua UI thật).
+     * @param  bool  $reissue  Lần CẤP LẠI hay lần tạo đầu tiên — nơi gọi `IssuePortalAccess` quyết
+     *                         định, job chỉ chuyển nguyên vào `Activation` (việc sau gộp M6, làn fu,
+     *                         N1: thư cấp lại nói mật khẩu trước không còn dùng được).
      */
     public function __construct(
         public readonly int $clientUserId,
         public readonly ?int $actorId = null,
+        public readonly bool $reissue = false,
     ) {}
 
     /** @return array<int, int> */
@@ -95,7 +100,7 @@ class SendPortalActivationMail implements ShouldQueue
 
         [$account, $temporaryPassword] = $issued;
 
-        Mail::to($account->email)->send(new Activation($account, $temporaryPassword));
+        Mail::to($account->email)->send(new Activation($account, $temporaryPassword, $this->reissue));
     }
 
     /**

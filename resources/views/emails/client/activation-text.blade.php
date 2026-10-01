@@ -4,10 +4,14 @@
 @section('content')
 {!! __('portal.email.activation.greeting', ['name' => $name]) !!}
 
-{!! __('portal.email.activation.line') !!}
+{!! $line !!}
 
 {!! __('portal.email.activation.email_label') !!} {!! $email !!}
-{!! $temporaryPassword !!}
+{!! __('portal.email.activation.password_label') !!} {!! $temporaryPassword !!}
+@if ($previousInvalid !== null)
+
+{!! $previousInvalid !!}
+@endif
 
 {!! __('portal.email.activation.must_change') !!}
 

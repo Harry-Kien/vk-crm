@@ -167,8 +167,8 @@ class ChangePassword extends Page
              * Task 7 (R12, phát hiện `intake/intake-04`, `intake/intake-05`): activated_at CHỈ hệ
              * thống ghi, ở đúng chỗ này — bằng chứng DUY NHẤT người vừa đổi mật khẩu làm chủ hộp
              * thư đã gõ, vì lần đổi này đi kèm bước xác thực mã OTP qua đúng email đó (SPEC §8.1).
-             * Trước bản sửa này không có đường nào ghi cột này, nên
-             * NotifyClientOfStageUpdate::eligibleRecipientsQuery() không có gì để lọc và thư
+             * Trước bản sửa này không có đường nào ghi cột này, nên luật người nhận R12 (nay ở
+             * ResolveClientRecipients::eligibleQuery()) không có gì để lọc và thư
              * client.stage_update đi tới cả những địa chỉ nhân sự gõ nhầm, chưa từng đăng nhập.
              *
              * `?? now()` — CHỈ ghi khi CHƯA từng có giá trị, không phải luôn now(): nhân sự đặt

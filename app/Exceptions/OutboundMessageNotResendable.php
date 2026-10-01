@@ -3,6 +3,7 @@
 namespace App\Exceptions;
 
 use App\Actions\Notification\ResendOutboundMessage;
+use App\Actions\Notification\ResendTargets;
 use DomainException;
 use Illuminate\Support\Carbon;
 
@@ -29,19 +30,23 @@ class OutboundMessageNotResendable extends DomainException
     }
 
     /**
-     * Mẫu thư không nằm trong danh sách gửi lại được — `client.otp`, `staff.deadline_reminder`,
-     * `client.activation`, `undeclared`, hoặc một mẫu tương lai chưa ai khai. Mỗi mẫu bị loại có
-     * MỘT lý do riêng (việc khác mới đúng đường), mẫu lạ nhận câu chung.
+     * Mẫu thư không nằm trong danh sách gửi lại được — một mục tường minh của
+     * {@see ResendTargets::NOT_RESENDABLE} (`client.otp`, `staff.deadline_reminder`,
+     * `client.activation`, `staff.instalment_overdue`, họ `staff.backup_alert.*`, `undeclared`),
+     * hoặc một mẫu tương lai chưa ai khai. Mỗi mục bị loại có MỘT lý do riêng (việc đó có đường
+     * khác, hoặc lịch tự gửi lại), mẫu lạ nhận câu chung.
      */
     public static function template(string $template): self
     {
         // Tên mẫu CÓ dấu chấm (`client.otp`), nên không ghép được vào một khoá dịch dạng chấm
         // (`...template_reasons.client.otp` bị hiểu là mảng lồng `client` → `otp` và không bao giờ
-        // khớp): đọc cả mảng lý do rồi tra theo đúng tên mẫu.
+        // khớp): đọc cả mảng lý do rồi tra theo đúng MỤC loại trừ — tên đầy đủ, hoặc họ
+        // `staff.backup_alert.*` cho tên mẫu có hậu tố động ({@see ResendTargets::exclusionOf()}).
         $reasons = (array) __('outbound.resend.refused.template_reasons');
+        $exclusion = ResendTargets::exclusionOf($template);
 
         return new self(__('outbound.resend.refused.template', [
-            'reason' => $reasons[$template] ?? $reasons['default'],
+            'reason' => $reasons[$exclusion ?? 'default'] ?? $reasons['default'],
         ]));
     }
 
