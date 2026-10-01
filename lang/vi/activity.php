@@ -113,6 +113,18 @@ return [
         'deadline_reminder_failed' => 'Gửi thư nhắc mốc thời hạn thất bại hẳn',
         // Task 20: app/Filament/Admin/Resources/Users/Pages/EditUser.php.
         'user_password_reset' => 'Đặt lại mật khẩu nhân sự',
+        // M6 Task 3: app/Actions/Client/IssuePortalAccess.php — cấp hoặc cấp lại quyền truy cập
+        // cổng khách hàng (mật khẩu tạm gửi qua thư `client.activation`).
+        'client_portal_access_issued' => 'Cấp quyền truy cập cổng khách hàng',
+        // M6 Task 7: app/Jobs/SendStaleMatterMail.php::failed() — job nhắc hồ sơ quá hạn cập nhật
+        // (staff.stale_matter) hỏng hẳn sau hết lượt thử lại.
+        'stale_matter_reminder_failed' => 'Gửi thư nhắc hồ sơ quá hạn cập nhật thất bại hẳn',
+        // M6 Task 8: app/Jobs/SendMissingDocumentsMail.php::failed() — job nhắc khách nộp giấy tờ
+        // còn thiếu (client.missing_documents) hỏng hẳn sau hết lượt thử lại.
+        'missing_documents_reminder_failed' => 'Gửi thư nhắc khách nộp giấy tờ thất bại hẳn',
+        // M6 Task 10: app/Actions/Notification/ResendOutboundMessage.php — admin bấm "Gửi lại" trên
+        // một dòng nhật ký thư `failed` (ghi ai bấm, dòng nào, mẫu nào; không ghi địa chỉ/nội dung).
+        'outbound_message_resent' => 'Gửi lại một thư đã gửi lỗi',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

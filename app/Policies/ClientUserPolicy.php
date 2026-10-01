@@ -106,6 +106,16 @@ class ClientUserPolicy
     }
 
     /**
+     * Task 3: "Cấp lại mật khẩu" trên trang sửa (Action `reissueAccess`, gọi
+     * `App\Actions\Client\IssuePortalAccess`) — cùng lý lẽ `unlockLogin()` (ability riêng vì
+     * `HeaderActionsAreReachableTest`), cùng biên giới `update()`.
+     */
+    public function reissueAccess(User|ClientUser $user, ClientUser $clientUser): bool
+    {
+        return $this->update($user, $clientUser);
+    }
+
+    /**
      * Task 2, vòng sửa 1 (Important #3): cổng THÔ của `DeleteBulkAction`/`ForceDeleteBulkAction`/
      * `RestoreBulkAction` trên `ListClientUsers` — cùng lý do hệt `ClientPolicy::deleteAny()`
      * (đọc docblock ở đó): thiếu bốn phương thức này, Filament coi bốn ability tương ứng là CHO

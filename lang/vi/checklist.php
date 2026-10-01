@@ -120,7 +120,31 @@ return [
             'accept_success' => 'Đã ghi nhận đầu mục này là đã nhận đủ.',
             'reject' => 'Cần nộp lại',
             'reject_heading' => 'Từ chối giấy tờ và ghi rõ khách cần làm gì',
-            'reject_success' => 'Đã từ chối — lý do hiện cho khách trên cổng khách hàng. Hệ thống chưa gửi email cho việc này; văn phòng sẽ liên hệ khách nếu cần gấp.',
+            // M6 Task 3: thư `client.document_rejected` giờ CÓ THẬT
+            // (`App\Mail\Client\DocumentRejected`) — câu cũ "Hệ thống chưa gửi email cho việc
+            // này" đúng lúc M6.5 hạ câu này xuống, sai từ hôm nay. `tests/Feature/
+            // CopyPromisesTest.php` ghim câu mới.
+            //
+            // Fix round 1 (finding Important 2): "đã được gửi" đổi thành "sẽ được gửi" — thư đi
+            // qua hàng đợi (R2), chưa rời máy chủ ngay lúc toast này hiện ra. Và câu này giờ CÓ
+            // ĐIỀU KIỆN thật: `ChecklistRelationManager::rejectionNoticeCopy()` chọn giữa khoá
+            // này, `reject_success_no_notice` và `reject_success_portal_hidden` — trước fix round
+            // 1 nó hiện vô điều kiện.
+            'reject_success' => 'Đã từ chối — lý do hiện cho khách trên cổng khách hàng, và một email sẽ được gửi báo khách về việc này.',
+            // Không thư, nhưng lý do VẪN hiện trên cổng: khách chưa có tài khoản portal đã kích hoạt,
+            // hoặc tài khoản đang bị khoá (R12). Cùng lý do
+            // `matters.transition_form.no_activated_account_warning`: không hứa một email sẽ không
+            // bao giờ tới. Vụ việc ĐÃ ĐÓNG không còn là một lý do ở đây (rà soát cuối làn, I1):
+            // vụ đóng mà còn trên cổng thì khách vẫn nộp được, nên thư từ chối vẫn đi
+            // (`NotifyClientOfChecklistItemRejected::notifiableMatter()`).
+            'reject_success_no_notice' => 'Đã từ chối — lý do hiện cho khách trên cổng khách hàng, nhưng sẽ không có email nào được gửi về việc này: khách chưa có tài khoản portal đã kích hoạt (hay tài khoản đang bị khoá). Nếu cần khách nộp lại sớm, hãy liên hệ trực tiếp.',
+            // Fix round 2 (finding 2): không thư VÀ không cổng — vụ việc tắt công bố portal, hoặc
+            // khách hàng đã bị xoá: `MatterChecklistItem::applyClientPortalConstraints()` (qua
+            // `whereHas('matter')`) giấu cả đầu mục lẫn lý do. Câu "không email" cũ nói lý do
+            // "hiện cho khách trên cổng khách hàng" ở CẢ nhánh này — đúng lời nói dối "luật sư
+            // tưởng khách đã được báo" mà M6.5 C-M3/C-M4 và fix round 1 sửa. `CopyPromisesTest`
+            // ghim: không "trên cổng khách hàng", phải "liên hệ trực tiếp".
+            'reject_success_portal_hidden' => 'Đã từ chối — nhưng vụ việc đang ẩn khỏi cổng khách hàng (chưa bật công bố portal, hoặc khách hàng đã bị xoá), nên khách sẽ không thấy lý do này và cũng không nhận được email nào. Hãy liên hệ trực tiếp để báo khách cần nộp lại.',
             'not_applicable' => 'Không cần nộp',
             'not_applicable_heading' => 'Đánh dấu đầu mục này là không cần nộp',
             'not_applicable_description' => 'Mục này sẽ không còn nằm trong danh sách giấy tờ khách phải nộp, và thanh tiến độ tính lại theo đó.',
@@ -130,7 +154,16 @@ return [
             'rejection_reason' => 'Lý do, viết cho khách đọc',
             // Nhắc thẳng rằng câu này ra khỏi văn phòng. SPEC §6.7 tồn tại vì trợ lý hay viết
             // "không hợp lệ", và một dòng nhắc ngay dưới ô nhập rẻ hơn một vòng nộp lại.
-            'rejection_reason_help' => 'Câu này hiện nguyên văn trên cổng khách hàng (hệ thống chưa gửi email cho việc này), nên hãy viết như đang nói chuyện với khách: chỗ nào chưa đạt, và cần làm gì để nộp lại cho đúng. Bấm một mẫu bên dưới rồi sửa lại cho đúng trường hợp.',
+            //
+            // Fix round 1 (finding Important 2): bỏ "ngay" — thư đi qua hàng đợi (R2), chạy từ
+            // cron (`queue:work --stop-when-empty`), không rời máy chủ ngay lúc bấm "Từ chối".
+            'rejection_reason_help' => 'Câu này hiện nguyên văn trên cổng khách hàng và trong một email gửi cho khách, nên hãy viết như đang nói chuyện với khách: chỗ nào chưa đạt, và cần làm gì để nộp lại cho đúng. Bấm một mẫu bên dưới rồi sửa lại cho đúng trường hợp.',
+            // Cặp "không thư, vẫn hiện trên cổng" — xem chú thích `reject_success_no_notice`.
+            'rejection_reason_help_no_notice' => 'Câu này hiện nguyên văn trên cổng khách hàng, nhưng sẽ KHÔNG có email nào gửi câu này: khách chưa có tài khoản portal đã kích hoạt (hay tài khoản đang bị khoá). Vẫn hãy viết như đang nói chuyện với khách: chỗ nào chưa đạt, và cần làm gì để nộp lại cho đúng. Bấm một mẫu bên dưới rồi sửa lại cho đúng trường hợp.',
+            // Cặp "không thư, không cổng" — xem chú thích `reject_success_portal_hidden`. Câu lý
+            // do vẫn được lưu cùng đầu mục và hiện ra nếu vụ việc trở lại cổng, nên lời nhắc "viết
+            // cho khách đọc" vẫn đúng.
+            'rejection_reason_help_portal_hidden' => 'Vụ việc đang ẩn khỏi cổng khách hàng (chưa bật công bố portal, hoặc khách hàng đã bị xoá), nên khách sẽ KHÔNG thấy câu này và cũng không nhận email nào — hãy liên hệ trực tiếp để báo khách. Câu này vẫn được lưu và sẽ hiện cho khách nếu vụ việc trở lại cổng, nên vẫn hãy viết như đang nói chuyện với khách: chỗ nào chưa đạt, và cần làm gì để nộp lại cho đúng. Bấm một mẫu bên dưới rồi sửa lại cho đúng trường hợp.',
             'templates' => 'Mẫu có sẵn — bấm một cái là điền',
             // Ba ô của modal "Thêm đầu mục" — M6.5 Task 15.
             'item_name' => 'Tên đầu mục',

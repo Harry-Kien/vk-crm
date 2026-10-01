@@ -3,11 +3,9 @@
 namespace App\Filament\Admin\Widgets;
 
 use App\Actions\Document\ChecklistProgress;
-use App\Enums\ChecklistItemStatus;
 use App\Enums\Permission;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Models\Matter;
-use App\Models\MatterChecklistItem;
 use App\Models\User;
 use Filament\Actions\Action;
 use Filament\Tables\Columns\TextColumn;
@@ -45,16 +43,15 @@ use Illuminate\Support\Facades\DB;
  * này mà chưa nộp ở nơi kia. Mọi đầu mục bắt buộc đều nằm trong `Y`, nên mỗi dòng đếm ở đây
  * cũng đúng là một phần tử của `Y` chưa vào `X`.
  *
- * **Đồng hồ: `COALESCE(reviewed_at, created_at)` của chính đầu mục.** SPEC không đặt tên cho mốc
- * bắt đầu của "tình trạng thiếu", và hai trạng thái có hai câu trả lời tự nhiên khác nhau. Với
- * `rejected`, `reviewed_at` là lúc văn phòng báo cho khách phải nộp lại — đúng lúc đồng hồ phải
- * chạy lại từ đầu, vì một giấy tờ vừa bị từ chối hôm qua thì khách chưa kịp thiếu. Với `missing`,
- * chưa ai duyệt lần nào nên `reviewed_at` là null, và mốc còn lại đúng nghĩa là `created_at`:
- * đầu mục được sao từ template lúc mở vụ việc (§4.10), tức là lúc văn phòng bắt đầu chờ giấy tờ
- * đó. `updated_at` KHÔNG được dùng, và câu này là chỗ duy nhất nói ra lý do: nó nhích vì những lý do chẳng liên quan gì tới việc khách
- * đã nộp hay chưa — sửa tên đầu mục chẳng hạn — và mỗi lần nhích là một hồ sơ tắc 60 ngày tự
- * đặt lại về 0, tức là widget im lặng ở đúng hồ sơ nó tồn tại để la lên. Cùng thành ngữ
- * `COALESCE` mà {@see StaleMattersWidget} dùng cho `last_client_update_at`.
+ * **Đồng hồ: `COALESCE(reviewed_at, created_at)` của chính đầu mục** — định nghĩa và lý do (vì sao
+ * không phải `updated_at`) nằm ở {@see ChecklistProgress::missingSinceSql()} kể từ M6 Task 8, vì
+ * thư nhắc khách `RemindMissingDocuments` phải dùng đúng cùng mốc này. Cùng thành ngữ `COALESCE`
+ * mà {@see StaleMattersWidget} dùng cho `last_client_update_at`.
+ *
+ * **Toàn bộ định nghĩa "còn thiếu" (điều kiện 1–3 ở trên, bộ đếm, đồng hồ) cũng đã chuyển sang
+ * {@see ChecklistProgress}** (`mattersAwaitingClient()`, `outstandingRequired()`); widget chỉ còn
+ * cộng thêm quyền xem (`listableBy()`), cột hiển thị và ngưỡng 14 ngày
+ * ({@see ChecklistProgress::STUCK_AFTER_DAYS}).
  *
  * Ngưỡng 14 ngày chỉ dùng để chọn HỒ SƠ. Cột "Giấy tờ còn thiếu" đếm MỌI đầu mục bắt buộc chưa
  * nộp, kể cả cái mới thiếu hôm qua, vì người gọi điện cho khách cần biết phải xin bao nhiêu thứ
@@ -65,22 +62,9 @@ class MattersMissingDocumentsWidget extends TableWidget
     // Thứ tự SPEC §7.1: ngay sau "Tài liệu chờ duyệt" (-2).
     protected static ?int $sort = -1;
 
-    /** Số ngày theo SPEC §6.9 bullet cuối. */
-    private const STUCK_AFTER_DAYS = 14;
-
     private const OUTSTANDING_COUNT_ALIAS = 'outstanding_required_count';
 
     private const MISSING_SINCE_ALIAS = 'missing_since';
-
-    /**
-     * Các trạng thái §6.9 gọi là "còn thiếu": khách chưa nộp, hoặc đã nộp và bị trả lại.
-     *
-     * @var list<string>
-     */
-    private const OUTSTANDING_STATUSES = [
-        ChecklistItemStatus::Missing->value,
-        ChecklistItemStatus::Rejected->value,
-    ];
 
     /** Gác như {@see StaleMattersWidget}: đây là danh sách hồ sơ, không phải con số thống kê. */
     public static function canView(): bool
@@ -89,43 +73,26 @@ class MattersMissingDocumentsWidget extends TableWidget
     }
 
     /**
-     * Một định nghĩa duy nhất của "đầu mục bắt buộc còn thiếu", dùng ở cả ba chỗ: điều kiện chọn
-     * hồ sơ, bộ đếm, và mốc "thiếu từ". Viết ba lần là ba lần có thể lệch nhau.
-     *
-     * @param  Builder<MatterChecklistItem>  $query
-     * @return Builder<MatterChecklistItem>
-     */
-    private static function outstandingItems(Builder $query): Builder
-    {
-        return $query
-            ->where('is_required', true)
-            ->whereIn('status', self::OUTSTANDING_STATUSES);
-    }
-
-    /**
      * Truy vấn của widget, tách static để test được mà không dựng cả bảng Livewire.
+     *
+     * Ba điều kiện §6.9 (đang mở, đã công bố portal, còn đầu mục bắt buộc thiếu quá 14 ngày), bộ
+     * đếm và mốc "thiếu từ" đều lấy từ {@see ChecklistProgress} — cùng định nghĩa với thư nhắc
+     * khách của `RemindMissingDocuments`, không viết lại ở đây.
      *
      * @return Builder<Matter>
      */
     public static function rowsFor(User $user): Builder
     {
-        $clock = 'COALESCE(matter_checklist_items.reviewed_at, matter_checklist_items.created_at)';
-
-        return Matter::query()
-            ->listableBy($user)
-            ->open()
-            ->where('matters.is_published_to_portal', true)
-            ->whereHas(
-                'checklistItems',
-                fn (Builder $items): Builder => static::outstandingItems($items)
-                    ->whereRaw($clock.' < ?', [now()->subDays(self::STUCK_AFTER_DAYS)]),
-            )
+        return ChecklistProgress::mattersAwaitingClient(
+            Matter::query()->listableBy($user),
+            ChecklistProgress::STUCK_AFTER_DAYS,
+        )
             ->withCount([
-                'checklistItems as '.self::OUTSTANDING_COUNT_ALIAS => fn (Builder $items): Builder => static::outstandingItems($items),
+                'checklistItems as '.self::OUTSTANDING_COUNT_ALIAS => fn (Builder $items): Builder => ChecklistProgress::outstandingRequired($items),
             ])
             ->withMin(
-                ['checklistItems as '.self::MISSING_SINCE_ALIAS => fn (Builder $items): Builder => static::outstandingItems($items)],
-                DB::raw($clock),
+                ['checklistItems as '.self::MISSING_SINCE_ALIAS => fn (Builder $items): Builder => ChecklistProgress::outstandingRequired($items)],
+                DB::raw(ChecklistProgress::missingSinceSql()),
             )
             ->with(['client', 'leadLawyer']);
     }

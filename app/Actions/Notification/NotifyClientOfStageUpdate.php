@@ -10,7 +10,6 @@ use App\Models\OutboundMessage;
 use App\Models\StageLog;
 use App\Support\Scopes\ClientPortalScope;
 use Filament\Notifications\Notification;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
 use Throwable;
@@ -63,24 +62,23 @@ use Throwable;
  * nào đủ điều kiện tại thời điểm công bố, dòng đó sẽ không bao giờ tự được báo sau này. Điều thay
  * thế nó không phải một cơ chế gửi lại, mà là một CẢNH BÁO TRƯỚC (Task 7): form "Chuyển giai
  * đoạn"/"Thêm cập nhật" gọi {@see self::hasEligibleRecipient()} — CÙNG điều kiện với
- * {@see self::eligibleRecipientsQuery()} bên dưới — để luật sư thấy cảnh báo NGAY TRÊN FORM trước
- * khi bấm gửi, thay vì tin rằng khách đã được báo.
+ * {@see self::recipientsFor()} (cả hai đi qua {@see ResolveClientRecipients}) — để luật sư thấy
+ * cảnh báo NGAY TRÊN FORM trước khi bấm gửi, thay vì tin rằng khách đã được báo.
+ *
+ * # Task 3 — luật người nhận tách ra dùng chung
+ *
+ * `eligibleRecipientsQuery()` (ba điều kiện R12: `is_active`, `activated_at` không null,
+ * `whereHas('client')`) đã chuyển ra {@see ResolveClientRecipients}, MỘT chỗ định nghĩa duy nhất
+ * — Task 3 cần đúng luật này cho ba mẫu thư mới (`client.document_published`,
+ * `client.document_rejected`, và phần "nhân sự đặt lại quyền truy cập" của `client.activation`),
+ * và chép luật này thêm ba lần là chép một luật bảo mật thêm ba lần. Lớp này giờ chỉ còn GỌI LẠI
+ * class đó, không giữ điều kiện nào của riêng mình nữa.
  */
 class NotifyClientOfStageUpdate
 {
     public function handle(StageLog $stageLog): int
     {
-        if ($stageLog->notified_at !== null) {
-            return 0;
-        }
-
-        // Final review B-M2: hỏi lại NGAY LÚC GỬI — trong cửa sổ hàng đợi dòng tiến độ có thể đã bị
-        // rút khỏi cổng, hoặc vụ việc đã tắt công bố. Không gửi, không đánh dấu `notified_at`.
-        if (! $this->stillReleasedToPortal($stageLog)) {
-            return 0;
-        }
-
-        $recipients = $this->recipientsFor($stageLog);
+        $recipients = $this->eligibleRecipients($stageLog);
 
         if ($recipients->isEmpty()) {
             // Không đánh dấu đã báo — nhưng không có gì tự gửi lại sau này (xem docblock lớp:
@@ -119,6 +117,33 @@ class NotifyClientOfStageUpdate
     }
 
     /**
+     * Những tài khoản ĐỦ ĐIỀU KIỆN nhận thư về dòng tiến độ này NGAY BÂY GIỜ — mọi cổng kiểm tra
+     * lúc gửi của {@see self::handle()} gộp lại một chỗ: dòng chưa đánh dấu `notified_at`, và
+     * (final review B-M2: hỏi lại NGAY LÚC GỬI, đọc TƯƠI từ CSDL vì trong cửa sổ hàng đợi dòng
+     * tiến độ có thể đã bị rút khỏi cổng hay vụ việc đã tắt công bố) dòng còn `is_published` +
+     * vụ việc còn `is_published_to_portal`, rồi mới tới người nhận R12
+     * ({@see self::recipientsFor()}). Rỗng là "không gửi cho ai, không đánh dấu `notified_at`".
+     *
+     * Public vì nút "Gửi lại" của nhật ký thư ({@see ResendOutboundMessage}) phải hỏi ĐÚNG câu
+     * này trước khi xếp hàng, không viết lại luật thứ hai: hai nơi cùng gọi một hàm thì không thể
+     * lệch nhau.
+     *
+     * @return Collection<int, ClientUser>
+     */
+    public function eligibleRecipients(StageLog $stageLog): Collection
+    {
+        if ($stageLog->notified_at !== null) {
+            return collect();
+        }
+
+        if (! $this->stillReleasedToPortal($stageLog)) {
+            return collect();
+        }
+
+        return $this->recipientsFor($stageLog);
+    }
+
+    /**
      * Đã có một dòng `sent` trong nhật ký thư (SPEC §4.15) cho ĐÚNG dòng tiến độ này và ĐÚNG địa
      * chỉ này chưa — dùng để một lượt thử lại (retry của hàng đợi) không gửi thêm một bản cho
      * người đã nhận, xem docblock lớp.
@@ -127,7 +152,7 @@ class NotifyClientOfStageUpdate
      * `RestrictedToClientPortal` chặn sạch khi có khách đang mở cổng, và listener/job của Task 11
      * có thể chạy trong một tiến trình worker mà ngữ cảnh đó vẫn còn treo.
      */
-    private function alreadyDelivered(StageLog $stageLog, ClientUser $recipient): bool
+    public function alreadyDelivered(StageLog $stageLog, ClientUser $recipient): bool
     {
         return OutboundMessage::query()
             ->withoutGlobalScopes()
@@ -147,7 +172,7 @@ class NotifyClientOfStageUpdate
             return collect();
         }
 
-        return $this->eligibleRecipientsQuery($clientId)->get();
+        return app(ResolveClientRecipients::class)->recipientsFor($clientId);
     }
 
     /**
@@ -215,40 +240,6 @@ class NotifyClientOfStageUpdate
      */
     public function hasEligibleRecipient(Matter $matter): bool
     {
-        return $this->eligibleRecipientsQuery($matter->client_id)->exists();
-    }
-
-    /**
-     * Một nơi DUY NHẤT đọc "tài khoản cổng nào của một khách hàng đủ điều kiện nhận thư về vụ
-     * việc" — `recipientsFor()` (gửi thư thật) và `hasEligibleRecipient()` (cảnh báo trên form,
-     * Task 7) đều gọi qua đây, để Task 11 (đưa Action này lên hàng đợi — xem brief Task 7, mục
-     * "Controller context") chỉ phải giữ một chỗ khi mang luật này sang, không phải chép lại ba
-     * điều kiện dưới đây ở hai nơi rồi để chúng trôi lệch nhau.
-     *
-     * `is_active` (giữ nguyên từ trước): tài khoản văn phòng đã chủ động khoá thì không nhận —
-     * gửi vào đó mâu thuẫn với chính quyết định khoá.
-     *
-     * `whereNotNull('activated_at')` (R12, phát hiện `intake/intake-04`, `intake/intake-05`):
-     * activated_at chỉ được hệ thống ghi khi khách TỰ TAY đổi mật khẩu lần đầu thành công
-     * (`App\Filament\Portal\Pages\Auth\ChangePassword::changePassword()`) — bằng chứng DUY NHẤT
-     * người nhận làm chủ hộp thư đã gõ. Email tài khoản cổng do nhân sự gõ tay lúc nghe điện
-     * thoại, không qua bước xác minh nào; thiếu điều kiện này thì một địa chỉ gõ nhầm nhận được
-     * tên khách, mã hồ sơ và nội dung công bố ở MỌI lần cập nhật sau đó, và văn phòng không có
-     * tín hiệu nào để biết (đây là toàn bộ nội dung hai phát hiện trên).
-     *
-     * `whereHas('client')` (rà soát Task 2): `Client::delete()`
-     * (`App\Filament\Admin\Resources\Clients\Pages\EditClient` → `DeleteAction`) không tự tắt các
-     * `client_users` của khách đó — `is_active` MỘT MÌNH không đủ để loại một tài khoản của khách
-     * hàng văn phòng đã xoá mềm. `ClientUser::client()` là `BelongsTo` thường nên mang theo
-     * `SoftDeletingScope` của `Client` (cùng lý lẽ đã dùng ở `ClientUser::canAccessPanel()`), nên
-     * `whereHas('client')` tự loại đúng những tài khoản mà quan hệ đó rơi về `null`.
-     */
-    private function eligibleRecipientsQuery(int $clientId): Builder
-    {
-        return ClientUser::query()
-            ->where('client_id', $clientId)
-            ->where('is_active', true)
-            ->whereNotNull('activated_at')
-            ->whereHas('client');
+        return app(ResolveClientRecipients::class)->hasEligibleRecipient($matter->client_id);
     }
 }

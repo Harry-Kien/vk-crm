@@ -4,18 +4,22 @@ namespace App\Actions\Portal;
 
 use App\Actions\Concerns\ChecksAccountActive;
 use App\Actions\Concerns\ReadsWithoutPortalScope;
+use App\Actions\Notification\ResolveStaffRecipients;
 use App\Enums\ClientRequestStatus;
+use App\Events\ClientRequestAnswered;
 use App\Exceptions\ClientRequestNotOpen;
 use App\Models\ClientRequest;
 use App\Models\ClientRequestReply;
 use App\Models\ClientUser;
 use App\Models\Matter;
 use App\Models\User;
+use App\Notifications\Staff\ClientRequestFollowUpAlert;
 use App\Support\Audit;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Validator;
+use Throwable;
 
 /**
  * Viết thêm một dòng vào một cuộc trao đổi đang mở — SPEC §4.14 (`client_request_replies`),
@@ -106,6 +110,20 @@ class ReplyToClientRequest
     /** Cùng trần với nội dung yêu cầu, cùng lý do — xem {@see OpenClientRequest::CONTENT_MAX}. */
     public const CONTENT_MAX = 5000;
 
+    /**
+     * **M6 Task 4 (`requests/REQ-2`): thông báo trong hệ thống khi KHÁCH viết thêm.** Sau khi
+     * transaction commit — không bao giờ bên trong nó, xem docblock {@see self::
+     * notifyHolderOfFollowUp()} cho lý do bắt buộc (luật kiến trúc cấm `->notify(` bên trong
+     * `DB::transaction()` ở `app/Actions`) — một lần khách viết thêm vào MỘT LUỒNG BẤT KỲ (không
+     * riêng ca `answered → in_progress` mà SPEC nêu làm ví dụ điển hình) báo cho người đang giữ
+     * luồng đó, hoặc luật sư phụ trách nếu chưa ai giữ. Quyết định của implementer: brief chỉ nêu
+     * đích danh ca `answered → in_progress` (văn phòng tưởng đã xong), nhưng thu hẹp điều kiện lại
+     * đúng ca đó sẽ để lọt đúng lỗ hổng ấy ở hai trạng thái còn lại (`new`, `in_progress`) — một
+     * câu hỏi tiếp mà chưa ai xử lý cũng cần được biết, không riêng câu hỏi tiếp vào một việc
+     * tưởng đã xong. Bọc `try/catch` để một notification hỏng không biến câu trả lời ĐÃ LƯU THÀNH
+     * CÔNG của khách thành một lỗi 500 — cùng tinh thần R2 ("luật sư bấm nút không bao giờ thấy
+     * lỗi máy chủ chỉ vì máy chủ thư chết", áp dụng cho notification chứ không riêng thư).
+     */
     public function handle(ClientRequest $request, User|ClientUser $actor, string $content): ClientRequestReply
     {
         // **Cả lần đọc lẫn lần ghi trong MỘT transaction, và hàng được khoá.** Bản đầu đọc cuộc
@@ -119,7 +137,7 @@ class ReplyToClientRequest
         // Bộ test chạy SQLite, nơi `lockForUpdate()` được biên dịch thành không gì cả — nên
         // không test nào ĐỎ được vì thiếu nó, y như `PublishDocument` đã ghi. Thứ test giữ được
         // là kết quả của một lần chạy tuần tự; phần khoá là một lập luận về MariaDB.
-        return DB::transaction(function () use ($request, $actor, $content): ClientRequestReply {
+        $reply = DB::transaction(function () use ($request, $actor, $content): ClientRequestReply {
             $thread = $this->scopelessly(ClientRequest::query())
                 ->lockForUpdate()
                 ->find($request->getKey()) ?? $this->refuse();
@@ -157,7 +175,7 @@ class ReplyToClientRequest
                 'content' => $content,
             ]);
 
-            $this->advanceStatus($thread, $actor);
+            $this->advanceStatus($thread, $actor, $reply);
 
             Audit::record(
                 $actor instanceof ClientUser
@@ -177,6 +195,15 @@ class ReplyToClientRequest
 
             return $reply;
         });
+
+        // REQ-2 — NGOÀI transaction, chỉ khi KHÁCH vừa viết. Xem docblock {@see self::handle()}
+        // ngay trên cho phạm vi (mọi trạng thái, không riêng `answered → in_progress`) và
+        // {@see self::notifyHolderOfFollowUp()} cho lý do bắt buộc phải đứng ngoài đây.
+        if ($actor instanceof ClientUser) {
+            $this->notifyHolderOfFollowUp($reply);
+        }
+
+        return $reply;
     }
 
     /**
@@ -214,8 +241,17 @@ class ReplyToClientRequest
      * là một trong bốn dù trạng thái có đổi hay không. Không có dòng `save()` này, một luồng
      * `in_progress` nhận thêm câu hỏi vẫn nằm nguyên chỗ cũ trong hộp thư sắp theo hoạt động gần
      * nhất — đúng cái lỗ mà `ClientRequestsRelationManager` tồn tại để lấp.
+     *
+     * **M6 Task 4 (`requests/REQ-4`): bắn `ClientRequestAnswered` khi trạng thái THẬT SỰ chuyển
+     * vào `answered`.** `$previousStatus` được chụp TRƯỚC khi cột bị ghi đè — một câu trả lời thứ
+     * hai vào một luồng ĐÃ `answered` không bắn lại sự kiện (đúng chữ SPEC "đổi luồng SANG
+     * answered", và `answered_at` cũng không dịch đi ở nhánh này — hai điều cùng nói một sự
+     * thật: lần trả lời ĐẦU TIÊN mới là sự kiện). Dispatch BÊN TRONG transaction là đúng, không
+     * phải một ngoại lệ của luật kiến trúc: sự kiện `ShouldDispatchAfterCommit` (không phải
+     * `Mail::`/`->notify(` trực tiếp) — Laravel tự hoãn nó tới lúc commit, cùng cách
+     * `SubmitClientDocument`/`PublishDocument` đã làm.
      */
-    private function advanceStatus(ClientRequest $thread, User|ClientUser $actor): void
+    private function advanceStatus(ClientRequest $thread, User|ClientUser $actor, ClientRequestReply $reply): void
     {
         $thread->last_activity_at = now();
 
@@ -224,9 +260,15 @@ class ReplyToClientRequest
         // thái `answered` (khách có thể đã kéo nó về `in_progress` bằng một câu hỏi tiếp) nhưng
         // không chạm vào mốc đó.
         if ($actor instanceof User) {
+            $previousStatus = $thread->status;
+
             $thread->status = ClientRequestStatus::Answered;
             $thread->answered_at ??= now();
             $thread->save();
+
+            if ($previousStatus !== ClientRequestStatus::Answered) {
+                ClientRequestAnswered::dispatch($reply);
+            }
 
             return;
         }
@@ -240,6 +282,50 @@ class ReplyToClientRequest
         }
 
         $thread->save();
+    }
+
+    /**
+     * `requests/REQ-2`: khách vừa viết thêm — báo cho người ĐANG GIỮ luồng (`assigned_to`), hoặc
+     * luật sư phụ trách vụ việc nếu chưa ai giữ. `$preferred = [assigned_to ?? luật sư phụ
+     * trách]` (phán quyết controller, task-4-brief.md) — MỘT ứng viên, khác danh sách ba phần tử
+     * dùng cho `staff.new_client_request`/`staff.new_client_document`: một câu hỏi tiếp không cần
+     * báo lại CẢ đội ngũ trợ lý đã được báo lúc luồng mới mở, chỉ người đang thật sự xử lý nó.
+     *
+     * **KHÔNG có mặt bên trong transaction của {@see self::handle()}.** Đọc lại `$thread`/
+     * `$matter` TƯƠI, sau khi commit: `ResolveStaffRecipients` cần `Gate::view()` chạy trên dữ
+     * liệu ĐÃ commit (đội ngũ vụ việc có thể vừa đổi ở một transaction khác), và quan trọng hơn,
+     * `->notify(` là lời gọi bị `tests/Feature/ArchitectureTest.php` cấm chạy bên trong
+     * `DB::transaction()` ở `app/Actions` — gọi nó bên trong sẽ là một luật kiến trúc bị phá.
+     *
+     * `try/catch(Throwable)`: xem docblock {@see self::handle()}. Notification chỉ là một câu
+     * INSERT (kênh `database`, không `ShouldQueue` — không chạm mạng), nhưng nếu nó hỏng vì một
+     * lý do bất kỳ (ví dụ một Notification channel khác được bật thêm trong tương lai), khách vừa
+     * gửi câu hỏi thành công không được phép thấy trang lỗi.
+     */
+    private function notifyHolderOfFollowUp(ClientRequestReply $reply): void
+    {
+        try {
+            $thread = $this->scopelessly(ClientRequest::query())->find($reply->request_id);
+
+            if ($thread === null) {
+                return;
+            }
+
+            $matter = $this->scopelessly(Matter::query())->find($thread->matter_id);
+
+            if ($matter === null) {
+                return;
+            }
+
+            $holder = $thread->assignee ?? $matter->leadLawyer;
+            $recipients = app(ResolveStaffRecipients::class)->handle($matter, [$holder]);
+
+            foreach ($recipients as $recipient) {
+                $recipient->notify(new ClientRequestFollowUpAlert($reply));
+            }
+        } catch (Throwable $e) {
+            report($e);
+        }
     }
 
     /**

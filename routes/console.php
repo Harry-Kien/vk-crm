@@ -1,8 +1,11 @@
 <?php
 
 use App\Actions\Schedule\CheckDeadlines;
+use App\Actions\Schedule\CheckStaleMatters;
 use App\Actions\Schedule\RecordScheduleRun;
+use App\Actions\Schedule\RemindMissingDocuments;
 use App\Actions\Schedule\RemindOverdueInstalments;
+use App\Actions\Schedule\RemindUnseenUpdates;
 use App\Actions\Schedule\SendHeartbeat;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -180,4 +183,58 @@ Schedule::command('backup:monitor')
 Schedule::call(new RemindOverdueInstalments)
     ->dailyAt('08:00')
     ->name('instalments.remind')
+    ->withoutOverlapping(60);
+
+/**
+ * Hồ sơ quá hạn cập nhật cho khách (SPEC §6.4): 07:30 hằng ngày, MỘT lần — không cần lặp lại nhiều
+ * lần trong ngày như `deadlines.check` (rủi ro nghề nghiệp thấp hơn hẳn một mốc tố tụng bị lỡ; R5
+ * của kế hoạch M6 đã tự cho phép "một thư mỗi 7 ngày", nên một lần cron bị bỏ lỡ trong ngày không
+ * làm mất lời nhắc — lần chạy 07:30 hôm sau vẫn thấy vụ việc còn đình trệ).
+ *
+ * `withoutOverlapping()` vì nó gửi thư và ghi thông báo; khoá hết hạn sau 60 phút, không phải mặc
+ * định 1440 — cùng lý lẽ `deadlines.check`: một lần chạy bị giết giữa chừng (giới hạn CPU của
+ * shared hosting) không được khoá luôn lần chạy của NGÀY HÔM SAU.
+ *
+ * Nhắc hồ sơ quá hạn cập nhật cho khách.
+ */
+Schedule::call(new CheckStaleMatters)
+    ->dailyAt('07:30')
+    ->name('stale-matters.check')
+    ->withoutOverlapping(60);
+
+/**
+ * Nhắc khách nộp giấy tờ còn thiếu (SPEC §6.9): thứ Hai, Tư, Sáu lúc 08:00 giờ Việt Nam. Cron thuần
+ * `0 8 * * 1,3,5` (1 = Hai, 3 = Tư, 5 = Sáu), cùng lý do `deadlines.check` không dùng `between()`.
+ *
+ * Khoảng cách giữa các lượt là 2, 2 và 3 ngày, còn luật chống trùng là "không quá một thư mỗi 3
+ * ngày cho cùng một hồ sơ" (R3 của kế hoạch M6, `RemindMissingDocuments::mailWindowStart()`), nên
+ * trên một hồ sơ thiếu giấy tờ liên tục thư thực tế đi thứ Hai và thứ Sáu; thứ Tư chỉ gửi cho hồ
+ * sơ mới bắt đầu thiếu, hoặc lượt trước đã hỏng. Đó là hệ quả của HAI con số cùng nằm trong SPEC,
+ * không phải một lỗi lịch.
+ *
+ * `withoutOverlapping()` vì nó gửi thư và ghi thông báo; khoá hết hạn sau 60 phút, không phải mặc
+ * định 1440 — cùng lý lẽ `deadlines.check`.
+ *
+ * Nhắc khách nộp giấy tờ còn thiếu.
+ */
+Schedule::call(new RemindMissingDocuments)
+    ->cron('0 8 * * 1,3,5')
+    ->name('missing-documents.remind')
+    ->withoutOverlapping(60);
+
+/**
+ * Nhắc luật sư phụ trách gọi điện cho khách chưa xem cập nhật (SPEC §4.18, §7.1 mục 5): 08:30 hằng
+ * ngày giờ Việt Nam, sau `missing-documents.remind` (08:00). MỘT lần một ngày — không thư nào tới
+ * khách, chỉ một thông báo trong hệ thống, và thông báo chống lặp theo dòng chưa xem mới nhất
+ * (`RemindUnseenUpdates`), nên một lượt cron bị bỏ lỡ chỉ dời lời nhắc sang hôm sau.
+ *
+ * `withoutOverlapping()` vì nó ghi thông báo: hai tiến trình chồng nhau có thể cùng thấy "chưa nhắc"
+ * và ghi hai dòng cho một người; khoá hết hạn sau 60 phút, không phải mặc định 1440 — cùng lý lẽ
+ * `deadlines.check`: một lần chạy bị giết giữa chừng không được khoá luôn lần chạy của NGÀY HÔM SAU.
+ *
+ * Nhắc luật sư gọi điện cho khách chưa xem cập nhật.
+ */
+Schedule::call(new RemindUnseenUpdates)
+    ->dailyAt('08:30')
+    ->name('unseen-updates.remind')
     ->withoutOverlapping(60);

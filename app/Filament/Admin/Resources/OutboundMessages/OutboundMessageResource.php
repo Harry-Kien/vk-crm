@@ -17,8 +17,9 @@ use Illuminate\Support\Facades\Auth;
 
 /**
  * Nhật ký thư đi ra, CHỈ ĐỌC (SPEC §4.15, §7.4; M6.5 Task 13, findings `notify-8`/`spec-gap-07`).
- * Không có trang tạo/sửa/xoá, và không có nút "gửi lại" — gửi lại thủ công là M6 Task 10 (chưa
- * xây), việc riêng.
+ * Không có trang tạo/sửa/xoá. Nút "Gửi lại" trên dòng `failed` (M6 Task 10) không sửa dòng nào: nó
+ * xếp hàng một lần gửi mới qua `App\Actions\Notification\ResendOutboundMessage`, chỉ admin bấm được
+ * (`OutboundMessagePolicy::resend()`), và dòng hỏng được giữ nguyên làm bằng chứng.
  *
  * Cả hai truy vấn nền của resource này ({@see self::getEloquentQuery()} cho danh sách,
  * {@see self::getRecordRouteBindingEloquentQuery()} cho việc mở thẳng URL trang xem) đều áp

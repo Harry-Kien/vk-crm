@@ -38,10 +38,57 @@ return [
         'client.otp' => 'Mã OTP đăng nhập cổng',
         'client.stage_update' => 'Cập nhật tiến độ cho khách',
         'staff.deadline_reminder' => 'Nhắc mốc thời hạn cho nhân sự',
+        // M6 Task 10: các mẫu M6 đã có thật (Task 3, 4, 7, 8) — trước đây cột hiện khoá thô.
+        'client.activation' => 'Kích hoạt tài khoản cổng cho khách',
+        'client.document_published' => 'Báo khách có tài liệu mới',
+        'client.document_rejected' => 'Báo khách giấy tờ chưa đạt',
+        'client.request_answered' => 'Báo khách văn phòng đã trả lời',
+        'client.missing_documents' => 'Nhắc khách nộp giấy tờ còn thiếu',
+        'staff.new_client_request' => 'Báo nhân sự khách gửi yêu cầu mới',
+        'staff.new_client_document' => 'Báo nhân sự khách nộp tệp mới',
+        'staff.stale_matter' => 'Nhắc nhân sự hồ sơ quá hạn cập nhật',
         'undeclared' => 'Chưa khai báo mẫu',
     ],
 
     'matter_tab' => [
         'label' => 'Thư đã gửi',
+    ],
+
+    // M6 Task 10 — nút "Gửi lại" trên dòng `failed` (App\Actions\Notification\ResendOutboundMessage).
+    'resend' => [
+        'label' => 'Gửi lại',
+        'modal_heading' => 'Gửi lại thư này?',
+        'modal_description' => 'Hệ thống tính lại người nhận vào lúc gửi (có thể khác người nhận cũ: người đã nghỉ việc hoặc bị khoá sẽ không nhận). Dòng lỗi này được giữ nguyên làm bằng chứng; thư gửi lại là một dòng mới trong nhật ký.',
+        'submit' => 'Gửi lại',
+        'success_title' => 'Đã xếp hàng gửi lại',
+        // :count = số người nhận đủ điều kiện và chưa nhận được thư này.
+        'success' => 'Đã xếp hàng gửi lại thư cho :count người nhận. Kết quả nằm ở dòng mới nhất của nhật ký thư.',
+
+        // Câu từ chối của ResendOutboundMessage (App\Exceptions\OutboundMessageNotResendable).
+        // Không câu nào nêu mã vụ việc, tiêu đề hay tên khách.
+        'refused' => [
+            'template' => 'Loại thư này không gửi lại được từ nhật ký: :reason',
+            // Lý do MỖI mẫu bị loại — ResendTargets ghi vì sao; mẫu lạ nhận 'default'.
+            'template_reasons' => [
+                'client.otp' => 'mã đăng nhập chỉ có hiệu lực 5 phút nên mã cũ đã hết hạn; khách hãy tự bấm gửi mã mới ở cổng.',
+                'staff.deadline_reminder' => 'thư nhắc mốc thời hạn tự được thử lại ở lần kiểm tra hạn kế tiếp, gửi tay sẽ khiến thư đi hai lần.',
+                'client.activation' => 'gửi lại thư kích hoạt là cấp mật khẩu tạm mới; hãy dùng nút cấp lại quyền truy cập ở màn hình tài khoản cổng khách hàng.',
+                'undeclared' => 'thư này không khai báo mẫu nên không dựng lại được nội dung.',
+                'default' => 'hệ thống không biết dựng lại thư này từ nhật ký.',
+            ],
+            'not_failed' => 'Chỉ dòng thư gửi lỗi mới gửi lại được.',
+            'related_gone' => 'Bản ghi mà thư này nói về không còn nữa nên không dựng lại được thư.',
+            'superseded' => 'Việc mà thư này báo đã được thay bằng một lần mới hơn (ví dụ giấy tờ đã bị từ chối lại với lý do khác), nên thư cũ không còn đúng. Hãy xem dòng thư của lần mới trong nhật ký.',
+            'already_requested' => 'Thư này đã được yêu cầu gửi lại lúc :time. Hãy xem dòng mới nhất của cùng mẫu thư trong nhật ký; nếu lần đó cũng lỗi thì dòng lỗi mới có nút gửi lại riêng.',
+            'no_eligible_recipient' => 'Hiện không còn ai đủ điều kiện nhận thư này (vụ việc đã đóng hoặc tắt công bố trên cổng, tài khoản đã khoá hoặc chưa kích hoạt, hay nhân sự không còn xem được vụ việc). Không có thư nào được gửi.',
+            'already_delivered' => 'Mọi người đủ điều kiện nhận thư này đều đã nhận được ở một lần gửi khác. Không có thư nào được gửi.',
+        ],
+
+        // Job gửi lại hỏng hẳn (App\Notifications\Staff\OutboundResendFailedAlert) — gửi người đã
+        // bấm, hoặc người thay theo chuỗi dự phòng R3 nếu người bấm đã nghỉ; nên câu không nói "bạn".
+        'failed_notification' => [
+            'title' => 'Gửi lại thư không thành công',
+            'body' => 'Một lượt gửi lại thư đã hỏng sau mọi lần thử. Lý do nằm ở các dòng lỗi mới nhất trong Nhật ký thư; quản trị viên bấm "Gửi lại" ở dòng lỗi mới sau khi xử lý nguyên nhân.',
+        ],
     ],
 ];

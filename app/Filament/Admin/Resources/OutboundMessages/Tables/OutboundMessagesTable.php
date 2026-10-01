@@ -4,6 +4,7 @@ namespace App\Filament\Admin\Resources\OutboundMessages\Tables;
 
 use App\Enums\OutboundStatus;
 use App\Filament\Admin\Resources\Matters\MatterResource;
+use App\Filament\Admin\Resources\OutboundMessages\Actions\ResendOutboundMessageAction;
 use App\Models\Matter;
 use App\Models\OutboundMessage;
 use Filament\Actions\ViewAction;
@@ -17,8 +18,10 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Lang;
 
 /**
- * Bảng nhật ký thư (SPEC §4.15 "phải tra được ngay"), chỉ đọc — không có `->recordActions()`
- * nào ngoài `ViewAction` (không sửa/xoá/gửi lại).
+ * Bảng nhật ký thư (SPEC §4.15 "phải tra được ngay"). Chỉ ĐỌC dữ liệu — không sửa/xoá dòng nào; hai
+ * `recordActions` là `ViewAction` và nút "Gửi lại" ({@see ResendOutboundMessageAction}, M6 Task 10:
+ * chỉ hiện trên dòng `failed` gửi lại được, chỉ admin bấm được) — nút đó KHÔNG sửa dòng hỏng, nó
+ * xếp hàng một lần gửi mới và dòng mới nằm trong chính bảng này.
  *
  * Không có cột/nội dung nào hiện thân thư hay số CCCD (Review Focus 1, ràng buộc riêng của Task
  * 13): `payload` chỉ từng được ghi với khoá `subject` ({@see \App\Actions\Notification\
@@ -112,6 +115,7 @@ class OutboundMessagesTable
             ])
             ->recordActions([
                 ViewAction::make(),
+                ResendOutboundMessageAction::make(),
             ])
             ->defaultSort('created_at', 'desc');
     }

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Resources\ClientUsers\Pages;
 
+use App\Actions\Client\IssuePortalAccess;
 use App\Actions\Portal\UnlockPortalLogin;
 use App\Actions\Portal\UnlockPortalLoginResult;
 use App\Filament\Admin\Resources\ClientUsers\ClientUserResource;
@@ -18,6 +19,14 @@ use Illuminate\Support\Facades\Gate;
 class EditClientUser extends EditRecord
 {
     protected static string $resource = ClientUserResource::class;
+
+    /**
+     * Task 3: `mutateFormDataBeforeSave()` biết email có đổi hay không (đã đọc `$this->record`
+     * TRƯỚC khi ghi đè), nhưng lúc đó bản ghi CHƯA lưu — gọi `IssuePortalAccess` ở đó sẽ khoá
+     * dòng NGAY TRONG transaction lưu form của Filament, một transaction lồng không cần thiết.
+     * Cờ này mang quyết định đó sang `afterSave()`, nơi `$this->record` đã là bản ghi MỚI.
+     */
+    private bool $reissueAccessAfterSave = false;
 
     /**
      * `unlockLogin` (Task 7, R12, phát hiện `portal/portal-4`): giống mọi action tự viết trong dự
@@ -70,8 +79,75 @@ class EditClientUser extends EditRecord
                         ->success()
                         ->send();
                 }),
+            $this->reissueAccessAction(),
             DeleteAction::make(),
         ];
+    }
+
+    /**
+     * `reissueAccess` (Task 3): con đường DUY NHẤT nhân sự cấp lại quyền truy cập từ trang sửa,
+     * từ khi ô mật khẩu bị gỡ khỏi form. Ability RIÊNG trên `ClientUserPolicy` (cùng
+     * `unlockLogin`), cùng biên giới với `update()` — không mở rộng ai làm được việc này so với
+     * ai sửa được thông tin tài khoản.
+     *
+     * **Fix round 1 (finding Important 1).** Bản trước hiện toast thành công VÔ ĐIỀU KIỆN dù bấm
+     * trên một tài khoản `is_active = false` (hoặc khách đã xoá mềm) — `IssuePortalAccess` âm
+     * thầm không gửi gì (đúng {@see IssuePortalAccess::isEligible()}), nhưng người bấm không biết.
+     * Hai lớp, không chỉ một:
+     *  1. `->disabled()` + `->tooltip()`: nút vẫn HIỆN (vẫn hữu ích để thấy nó tồn tại) nhưng
+     *     không bấm được khi tài khoản chưa đủ điều kiện, kèm một câu giải thích tại sao — thay vì
+     *     ẩn hẳn, khiến người dùng không hiểu vì sao đường "cấp lại mật khẩu" biến mất. Filament tự
+     *     chặn `callMountedAction()` cho một action `isDisabled()` (đã đo bằng test:
+     *     `ClientUserResourceTest.php`, "disables reissue access…"), nên đây là lớp chặn THẬT, không
+     *     chỉ trang trí.
+     *  2. `action()` vẫn tự hỏi LẠI cùng điều kiện qua `$result->issued` (trường của
+     *     `\App\Actions\Client\IssuePortalAccessResult` mà `IssuePortalAccess::handle()` trả về)
+     *     trước khi chọn câu toast, thay vì tin biến `$this->canReissueAccess()` đã dùng để vẽ nút —
+     *     cùng thành ngữ "mọi admin action tự kiểm tra lại, không tin trạng thái đã vẽ" của dự án.
+     *     Lớp 1 đã chặn hết đường vào bình thường, nhưng nếu một bản sửa sau này gỡ `->disabled()`
+     *     mà quên gỡ luôn nhánh này, toast vẫn nói thật thay vì im lặng quay lại lời hứa giả.
+     */
+    private function reissueAccessAction(): Action
+    {
+        return Action::make('reissueAccess')
+            ->label(__('client_users.actions.reissue_access'))
+            ->icon(Heroicon::OutlinedKey)
+            ->color('gray')
+            ->requiresConfirmation()
+            ->modalHeading(__('client_users.actions.reissue_access_heading'))
+            ->visible(fn (): bool => Gate::allows('reissueAccess', $this->record))
+            ->disabled(fn (): bool => ! $this->canReissueAccess($this->record))
+            ->tooltip(fn (): ?string => $this->canReissueAccess($this->record)
+                ? null
+                : __('client_users.actions.reissue_access_disabled_hint'))
+            ->action(function (): void {
+                /** @var ClientUser $account */
+                $account = $this->record;
+
+                Gate::authorize('reissueAccess', $account);
+
+                $actor = Auth::user();
+                abort_unless($actor instanceof User, 403);
+
+                $result = app(IssuePortalAccess::class)->handle($account, $actor);
+
+                Notification::make()
+                    ->title($result->issued
+                        ? __('client_users.actions.reissue_access_success')
+                        : __('client_users.actions.reissue_access_not_eligible'))
+                    ->color($result->issued ? 'success' : 'danger')
+                    ->send();
+            });
+    }
+
+    /**
+     * CÙNG câu hỏi mà `IssuePortalAccess::isEligible()` tự hỏi lại dưới khoá lúc `handle()` chạy —
+     * đọc trên bản ghi CHƯA khoá ở đây chỉ để quyết định VẼ nút, không phải để thay cho lần đọc
+     * thật (đó là lý do `action()` bên trên vẫn đọc `$result->issued` thay vì tin biến này).
+     */
+    private function canReissueAccess(ClientUser $account): bool
+    {
+        return IssuePortalAccess::isEligible($account);
     }
 
     /**
@@ -93,16 +169,14 @@ class EditClientUser extends EditRecord
      * gửi được `client_id` khác. Hàm này là lớp chặn THẬT, không phụ thuộc trạng thái `disabled()`
      * của field.
      *
-     * Task 7 (R12, phát hiện `intake/intake-05`): đặt lại mật khẩu bật lại `must_change_password`
-     * — trước bản sửa này, đặt lại mật khẩu qua trang sửa không tự bật lại cờ, nên một khách bị
-     * lộ mật khẩu (nhân sự đặt lại, đọc cho khách qua điện thoại) tiếp tục dùng mãi mật khẩu đó
-     * mà không bị bắt đổi lại. Chỉ chạm cột này khi `$data` THẬT SỰ mang một mật khẩu mới —
-     * `filled()` khớp đúng điều kiện `dehydrated()` của ô password ở `ClientUserForm` (chỉ
-     * dehydrate khi có gõ gì), nên "không đổi mật khẩu" không bao giờ vô tình bật lại cờ này khi
-     * nhân sự chỉ sửa tên/điện thoại/is_active.
+     * **Task 3 — ô mật khẩu không còn nữa.** "Đặt lại mật khẩu bật must_change_password" (Task 7
+     * cũ) giờ là việc của nút "Cấp lại mật khẩu" ({@see self::reissueAccessAction()}), không phải
+     * của form sửa này — không còn `$data['password']` nào để mà đọc.
      *
-     * Fix round 1 (I1): đổi EMAIL cũng đặt lại `activated_at = null` VÀ `must_change_password =
-     * true`, cùng lý lẽ như đặt lại mật khẩu. `activated_at` (R12) là bằng chứng người TỰ TAY đổi
+     * Fix round 1 (I1), vẫn còn hiệu lực: đổi EMAIL cũng đặt lại `activated_at = null` VÀ
+     * `must_change_password = true`, VÀ (Task 3, đề xuất setup agent) cấp một mật khẩu tạm MỚI
+     * qua `IssuePortalAccess` — địa chỉ MỚI chưa ai xác minh, nên nó cần chính thư kích hoạt để
+     * chứng minh, giống một tài khoản vừa tạo. `activated_at` (R12) là bằng chứng người TỰ TAY đổi
      * mật khẩu lần đầu qua đúng hộp thư đó — đổi sang một địa chỉ khác (gõ đúng hoặc gõ NHẦM lúc
      * nghe điện thoại) làm bằng chứng đó không còn nói lên gì về hộp thư MỚI, nhưng trước bản sửa
      * này `activated_at` vẫn giữ nguyên, nên `NotifyClientOfStageUpdate::eligibleRecipientsQuery()`
@@ -124,6 +198,15 @@ class EditClientUser extends EditRecord
      * chỉ THẬT SỰ khác nhau, không chỉ khác hoa/thường — là "cùng một email", giữ nguyên
      * `activated_at` một cách SAI cho một hộp thư khác hẳn. So sánh đúng ở đây chỉ cần gấp CASE,
      * không tách dấu — `mb_strtolower()`.
+     *
+     * **Fix round 1 (finding Important 1) — bật lại `is_active` cho một tài khoản chưa từng kích
+     * hoạt.** Trước bản sửa này, tài khoản tạo với `is_active` tắt (hoặc bị tắt sau đó) không bao
+     * giờ nhận được thư `client.activation` — `CreateClientUser::afterCreate()` gọi
+     * `IssuePortalAccess` khi tài khoản còn `is_active = false` thì bị bỏ qua (đúng, sau fix round
+     * 1 finding Important 1), nhưng KHÔNG có gì gọi lại nó khi nhân sự bật `is_active` lên SAU đó
+     * — khách mới không bao giờ có mật khẩu để đăng nhập trừ khi ai đó nhớ bấm "Cấp lại mật khẩu"
+     * thủ công. Chỉ áp dụng khi `activated_at` CÒN NULL (chưa từng tự đổi mật khẩu lần đầu): một
+     * tài khoản đã từng kích hoạt rồi bị khoá rồi mở lại vẫn còn mật khẩu cũ, không cần thư mới.
      */
     protected function mutateFormDataBeforeSave(array $data): array
     {
@@ -134,12 +217,51 @@ class EditClientUser extends EditRecord
 
         if ($emailChanged) {
             $data['activated_at'] = null;
-        }
-
-        if ($emailChanged || filled($data['password'] ?? null)) {
             $data['must_change_password'] = true;
         }
 
+        $reactivatedNeverActivated = array_key_exists('is_active', $data)
+            && (bool) $data['is_active']
+            && ! $this->record->is_active
+            && $this->record->activated_at === null;
+
+        // Xem docblock thuộc tính `$reissueAccessAfterSave` cho lý do hoãn việc gọi
+        // `IssuePortalAccess` sang `afterSave()`.
+        $this->reissueAccessAfterSave = $emailChanged || $reactivatedNeverActivated;
+
         return $data;
+    }
+
+    /**
+     * Task 3 (đề xuất setup agent, xem docblock `mutateFormDataBeforeSave()`): email đổi (hoặc,
+     * fix round 1, `is_active` bật lại cho một tài khoản chưa từng kích hoạt) thì cần một thư
+     * kích hoạt để chứng minh/mở đường vào hộp thư, cùng lý lẽ một tài khoản vừa tạo — không làm
+     * việc này, tài khoản đó có `must_change_password = true` NHƯNG không có mật khẩu tạm nào
+     * được gửi, tức không có cách nào để khách đăng nhập và tự đổi mật khẩu.
+     *
+     * Bỏ qua kết quả trả về ở đây (không có toast riêng cho lần lưu form). `issued` KHÔNG luôn
+     * true: `mutateFormDataBeforeSave()` không hỏi `IssuePortalAccess::isEligible()` — chỉ
+     * `IssuePortalAccess::handle()` tự hỏi, dưới khoá dòng. Kết quả tuỳ tài khoản SAU lần lưu:
+     *  - đang bật (đổi email trên tài khoản đang bật, hoặc vừa bật lại `is_active`): `issued` là
+     *    true trừ khi khách hàng đã bị xoá mềm;
+     *  - đổi email trên một tài khoản đang TẮT (`is_active = false`): `issued` là false, KHÔNG thư
+     *    nào đi lúc lưu, và màn hình không báo gì. Thư không mất hẳn: đổi email đã đặt
+     *    `activated_at = null`, nên lần bật `is_active` lại sau đó rơi vào nhánh "chưa từng kích
+     *    hoạt" ở trên và gửi thư kích hoạt tới địa chỉ MỚI — ghim bằng test "sends no activation
+     *    mail for an email change on an inactive account until staff turns it back on"
+     *    (`ClientUserResourceTest`).
+     */
+    protected function afterSave(): void
+    {
+        if (! $this->reissueAccessAfterSave) {
+            return;
+        }
+
+        $this->reissueAccessAfterSave = false;
+
+        $actor = Auth::user();
+        abort_unless($actor instanceof User, 403);
+
+        app(IssuePortalAccess::class)->handle($this->record, $actor);
     }
 }

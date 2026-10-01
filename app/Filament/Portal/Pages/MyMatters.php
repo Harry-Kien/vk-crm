@@ -7,6 +7,7 @@ use App\Enums\ChecklistItemStatus;
 use App\Models\ClientUser;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
+use App\Support\ClientRequestActivity;
 use BackedEnum;
 use Filament\Pages\Page;
 use Filament\Panel;
@@ -322,7 +323,7 @@ class MyMatters extends Page
      * bản ghi ở {@see self::buildCards()} chạy y hệt trên đường đó — và từng giá trị trong đó đã
      * có mặt trên màn hình họ vừa xem. Không có gì đọc thêm được ở đây so với việc mở trang.
      *
-     * @return array<int, array{id: int|string, url: string, code: string, title: string, summary: ?string, stage_label: ?string, updated_at: ?string, submitted: int, total: int, percent: int, outstanding: int, tone: ?string, status: ?string}>
+     * @return array<int, array{id: int|string, url: string, code: string, title: string, summary: ?string, stage_label: ?string, updated_at: ?string, submitted: int, total: int, percent: int, outstanding: int, tone: ?string, has_new_reply: bool, status: ?string}>
      */
     public function getCards(): array
     {
@@ -352,6 +353,10 @@ class MyMatters extends Page
                 // docblock của hàm đó. Một truy vấn CỐ ĐỊNH nữa cho cả trang, không một truy vấn
                 // nào thêm cho mỗi thẻ; `MyMattersTest` đo đúng độ dốc này.
                 'client',
+                // M6 Task 4 (`requests/REQ-4`): huy hiệu "có trả lời mới" — xem docblock
+                // `App\Support\ClientRequestActivity`. Cùng một truy vấn CỐ ĐỊNH cho cả trang,
+                // không một truy vấn thêm cho mỗi thẻ, cùng ràng buộc với hai quan hệ trên.
+                'clientRequests.replies',
             ])
             ->orderByDesc('last_client_update_at')
             ->orderByDesc('id')
@@ -397,7 +402,7 @@ class MyMatters extends Page
      * `matter_type_stages.label` không được đọc ở tệp này lẫn ở view, và
      * `MyMattersTest` ghim điều đó bằng một giai đoạn có hai nhãn khác hẳn nhau.
      *
-     * @return array{id: int|string, url: string, code: string, title: string, summary: ?string, stage_label: ?string, updated_at: ?string, submitted: int, total: int, percent: int, outstanding: int, tone: ?string, status: ?string}
+     * @return array{id: int|string, url: string, code: string, title: string, summary: ?string, stage_label: ?string, updated_at: ?string, submitted: int, total: int, percent: int, outstanding: int, tone: ?string, has_new_reply: bool, status: ?string}
      */
     private function toCard(Matter $matter, ChecklistProgress $progress): array
     {
@@ -439,6 +444,9 @@ class MyMatters extends Page
             'percent' => $total > 0 ? (int) round($submitted / $total * 100) : 0,
             'outstanding' => $outstanding,
             'tone' => $tone,
+            // M6 Task 4 (`requests/REQ-4`): xem docblock `App\Support\ClientRequestActivity`.
+            // `$matter->clientRequests` đã nạp sẵn kèm `replies` ở `buildCards()`.
+            'has_new_reply' => ClientRequestActivity::matterHasUnseenStaffReply($matter->clientRequests),
             'status' => match ($tone) {
                 self::TONE_OUTSTANDING => __('portal_matters.status.outstanding', ['count' => $outstanding]),
                 self::TONE_WAITING => __('portal_matters.status.waiting_office'),

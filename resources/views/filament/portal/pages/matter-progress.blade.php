@@ -262,6 +262,25 @@
              chúng cùng hiện, và cái nút đứng trước vì nó là cách để lại dấu vết trong hồ sơ. --}}
         <section data-portal-block="7" style="{{ $card }}">
             <h2 style="{{ $blockHeading }}">{{ __('portal_progress.blocks.requests.heading') }}</h2>
+
+            {{--
+                M6 Task 4 (`requests/REQ-4`, đính chính SPEC §9 2026-09-27) — huy hiệu "có trả
+                lời mới". Cùng câu chữ và cùng chấm màu với thẻ hồ sơ ở MyMatters (App\Support\
+                ClientRequestActivity là định nghĩa dùng chung của cả hai màn hình).
+            --}}
+            @if ($this->hasNewReply())
+                <p
+                    data-portal-progress-new-reply
+                    style="display:flex;align-items:center;gap:0.5rem;font-weight:600;color:var(--primary-600);margin-bottom:0.5rem;"
+                >
+                    <span
+                        aria-hidden="true"
+                        style="flex:none;height:0.5rem;width:0.5rem;border-radius:999px;background-color:currentColor;"
+                    ></span>
+                    {{ __('portal_progress.blocks.requests.new_reply') }}
+                </p>
+            @endif
+
             <p>{{ __('portal_progress.blocks.requests.lead') }}</p>
 
             <a href="{{ $this->requestEntryPoint() }}" style="{{ $primaryTap }}margin-top:0.5rem;">
