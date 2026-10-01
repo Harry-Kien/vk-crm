@@ -922,6 +922,22 @@ hai thời điểm" ở đầu mục này đổi thành **ba**, và thuật toá
 
 Cài đặt: kế hoạch M10, Task 2. Task 1 chỉ dựng bảng, model, quyền và policy.
 
+**Ghi chú cài đặt 2026-09-30 (M10 Task 2).** Những điều mà đính chính trên để ngỏ, nay đã chọn:
+- **Người gọi lại không phải xung đột với chính mình.** Khi kiểm tra một lần tiếp nhận, người
+  liên hệ khớp **SĐT hoặc CCCD** (không phải chỉ tên) với người liên hệ của một lần tiếp nhận
+  khác **cùng vai** được coi là cùng một người gọi lại: không thành khớp, để gợi ý trùng (R4)
+  xử lý. Hai vai khác nhau, hoặc lần gọi trước chưa khai vai, vẫn là Vàng — vợ và chồng chung
+  một số máy bàn không phải cùng một người. Khớp chỉ theo tên không bao giờ được coi là cùng
+  một người. Quy tắc này chỉ áp cho kiểm tra của chính một lần tiếp nhận; khi mở vụ hay thêm
+  bên, một cuộc gọi cũ chưa chuyển đổi luôn hiện.
+- **Vai người liên hệ chưa khai.** Để Đỏ không tắt lặng lẽ, vai dùng cho lần kiểm tra được suy
+  ra từ bên đối lập (đối của nguyên đơn là bị đơn và ngược lại), còn không thì `related`. Vai
+  suy ra chỉ dùng cho lần kiểm tra, không ghi vào bản ghi.
+- **Kết quả kiểm tra gắn với danh tính đã chạy.** Bản ghi lưu dấu vân tay danh tính cùng kết
+  quả; ai sửa danh tính mà chưa chạy lại kiểm tra thì ô câu chuyện đóng lại (kết quả cũ, kể cả
+  Xanh, không còn là bằng chứng), và xác nhận/ghi đè cũ bị xoá khi có khớp mới hoặc danh tính
+  đã đổi.
+
 ### 6.11 Bàn giao vụ việc — `ReassignMatter`
 
 Khi luật sư nghỉ việc, nghỉ dài ngày, hoặc vụ việc đổi người phụ trách:

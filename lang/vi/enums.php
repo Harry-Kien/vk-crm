@@ -133,4 +133,11 @@ return [
         'website_form' => 'Form website',
         'other' => 'Khác',
     ],
+    // M10 Task 2: điều đang khoá ô câu chuyện của một lần tiếp nhận (App\Actions\Intake\IntakeSummaryGate).
+    'intake_summary_blocker' => [
+        'privacy_notice' => 'chưa ghi nhận người liên hệ đã nghe thông báo và đồng ý',
+        'conflict_unchecked' => 'chưa kiểm tra xung đột lợi ích cho danh tính hiện tại',
+        'conflict_acknowledgement' => 'cần xác nhận đã xem các khớp xung đột đang hiện',
+        'conflict_red' => 'xung đột mức đỏ, cần trưởng phòng hoặc quản trị xử lý',
+    ],
 ];

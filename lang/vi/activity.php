@@ -29,6 +29,12 @@ return [
         'matter_stage_transitioned' => 'Chuyển giai đoạn vụ việc',
         'matter_party_added' => 'Thêm bên trong vụ việc',
         'conflict_check_run' => 'Kiểm tra xung đột lợi ích',
+        // Các Action tiếp nhận ở app/Actions/Intake (M10 Task 2). Không dòng nào mang tên, SĐT, câu chuyện hay lý do ghi đè.
+        'intake_recorded' => 'Ghi nhận một lần liên hệ văn phòng',
+        'intake_conflict_acknowledged' => 'Xác nhận khớp xung đột lúc tiếp nhận',
+        'intake_conflict_overridden' => 'Ghi đè xung đột mức đỏ lúc tiếp nhận',
+        'intake_privacy_notice_recorded' => 'Ghi nhận thông báo xử lý dữ liệu cá nhân',
+        'intake_summary_updated' => 'Ghi nội dung câu chuyện của người liên hệ',
         // Ghi qua Audit::record() ở app/Actions/SyncClientPartyIdentities.php khi hồ sơ khách
         // hàng đổi số căn cước/điện thoại và ảnh chụp định danh của các bên được đồng bộ lại.
         'client_identity_resynced' => 'Đồng bộ lại định danh các bên',

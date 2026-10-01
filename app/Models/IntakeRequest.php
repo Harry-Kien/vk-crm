@@ -11,6 +11,7 @@ use App\Enums\Permission;
 use App\Models\Concerns\HasBlameable;
 use App\Models\Concerns\RestrictedToClientPortal;
 use App\Policies\IntakeRequestPolicy;
+use App\Support\Audit;
 use App\Support\CodeSequence;
 use App\Support\Normalizer;
 use App\Support\Scopes\ClientPortalScope;
@@ -203,6 +204,61 @@ class IntakeRequest extends Model
 
         return $matter !== null
             && ($matter->confidentiality !== Confidentiality::Restricted || $matter->isListableBy($user));
+    }
+
+    /**
+     * Bản ghi còn là một "người văn phòng đã nghe chuyện mà chưa nhận việc" — tức đủ điều kiện làm
+     * NGUỒN DÒ THỨ HAI của `RunConflictCheck` (M10 R1): chưa chuyển đổi (không `matter_id`, không
+     * `won`), chưa gộp vào bản khác (không `merged_into_id`, không `merged`), chưa ẩn danh
+     * (`anonymised_at` null). Bản đã xoá mềm bị loại bởi `SoftDeletes`. Cũng là định nghĩa của cờ
+     * "còn bản khác bạn không xem được" ở gợi ý trùng (`FindIntakeDuplicates`), để hai nơi không lệch
+     * nhau (Task 7 đặt `anonymised_at`).
+     */
+    public function scopeOpenForConflictCheck(Builder $query): Builder
+    {
+        $model = $query->getModel();
+
+        return $query
+            ->whereNull($model->qualifyColumn('matter_id'))
+            ->whereNull($model->qualifyColumn('merged_into_id'))
+            ->whereNull($model->qualifyColumn('anonymised_at'))
+            ->whereNotIn($model->qualifyColumn('status'), [IntakeStatus::Won->value, IntakeStatus::Merged->value]);
+    }
+
+    /**
+     * Bản ghi đã ẩn danh hoặc đã gộp vào bản khác: không còn nhận thêm nội dung hay kiểm tra nào
+     * (M10, các Action `app/Actions/Intake` từ chối). Ẩn danh xoá dữ liệu cá nhân; bản đã gộp đã
+     * chuyển phần việc sang bản đích.
+     */
+    public function isClosedToWrites(): bool
+    {
+        return $this->anonymised_at !== null || $this->status === IntakeStatus::Merged;
+    }
+
+    /**
+     * Dấu vân tay của phần danh tính mà một lần kiểm tra xung đột đã chạy trên đó (vai dự kiến, tên
+     * chuẩn hoá, SĐT chuẩn hoá, dấu băm CCCD của người liên hệ, cùng vai + tên + SĐT + dấu băm của
+     * từng bên đối lập). Lưu kèm `conflict_result`; cổng ô câu chuyện so nó với danh tính HIỆN TẠI:
+     * ai sửa danh tính mà chưa chạy lại kiểm tra thì kết quả cũ không còn là bằng chứng. HMAC với
+     * `APP_KEY` chứ không phải sha256 trần — số điện thoại và CCCD có không gian nhỏ, dò ngược được.
+     */
+    public function identityFingerprint(): string
+    {
+        $parties = $this->parties()->get()
+            ->map(fn (IntakeParty $party): string => implode('|', [
+                $party->role?->value, $party->name_normalized, $party->phone_normalized, $party->id_number_hash,
+            ]))
+            ->sort()
+            ->values()
+            ->all();
+
+        return Audit::identifierHash((string) json_encode([
+            $this->contact_role?->value,
+            $this->contact_name_normalized,
+            $this->contact_phone_normalized,
+            $this->contact_id_number_hash,
+            $parties,
+        ]));
     }
 
     /** Portal không bao giờ đọc bảng này: người liên hệ chưa là khách hàng, chưa có tài khoản. */

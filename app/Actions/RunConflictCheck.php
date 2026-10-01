@@ -5,6 +5,8 @@ namespace App\Actions;
 use App\Enums\ConflictLevel;
 use App\Enums\ConflictMatchTier;
 use App\Enums\PartyRole;
+use App\Models\IntakeParty;
+use App\Models\IntakeRequest;
 use App\Models\Matter;
 use App\Models\MatterParty;
 use App\Models\User;
@@ -13,6 +15,8 @@ use App\Support\ConflictCheckResult;
 use App\Support\ConflictMatch;
 use App\Support\Normalizer;
 use App\Support\Scopes\ClientPortalScope;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Spatie\Activitylog\Models\Activity;
 
@@ -200,6 +204,49 @@ use Spatie\Activitylog\Models\Activity;
  * phải bên tìm thấy. Trước bản sửa này bảng kết quả chỉ mô tả bản ghi TÌM THẤY, không nói bên nào
  * của form (hay bên nào đã có của vụ) gây ra khớp; khi vụ việc có nhiều bên, người xem xét phải
  * đoán, và `conflict-01` cho thấy đoán sai thì thông báo đổ lỗi nhầm cho bên vô can.
+ *
+ * ---
+ *
+ * # M10 Task 2 — nguồn dò thứ hai và chủ thể tuỳ chọn (R1)
+ *
+ * **Nguồn dò thứ hai: người văn phòng đã nghe chuyện mà chưa nhận việc.** Trước M10 Action này chỉ
+ * dò `matter_parties`, nên một người đã gọi tới, kể chuyện rồi không thành khách là VÔ HÌNH với mọi
+ * lần kiểm tra sau. `matchesFor()` giờ dò thêm người liên hệ (`intake_requests`) và bên đối lập
+ * (`intake_parties`) của các lần tiếp nhận còn "mở" (`IntakeRequest::scopeOpenForConflictCheck()`:
+ * chưa chuyển đổi, chưa gộp, chưa ẩn danh, chưa xoá mềm), trừ chính bản ghi đang kiểm tra và
+ * `$excludeIntakeId`. Áp cho MỌI người gọi — `OpenMatter`, `AddMatterParty`, `UpdateMatterParty`,
+ * kiểm tra lại R13(e) và chính bước tiếp nhận — vì "một định nghĩa xung đột" là cả điểm của R1.
+ *  - **Tối đa VÀNG**, không bao giờ Đỏ: người đó chưa là khách hàng của văn phòng, nên không đạt
+ *    định nghĩa Đỏ của SPEC §6.10 (bên tìm thấy phải `is_our_client`).
+ *  - Nhãn ghi ngày văn phòng nhận lần liên hệ, kèm mã `TN-…` của bản ghi (đặt ở cột "loại vụ việc"
+ *    của `ConflictMatch`, nên mọi màn hình đang hiện khớp đều hiện đúng nhãn mà không sửa gì). KHÔNG
+ *    kèm câu chuyện, lĩnh vực dự kiến hay bất kỳ trường nào khác ngoài các trường của `ConflictMatch`.
+ *  - **Người gọi lại cùng một việc không phải xung đột với chính mình.** Ở chế độ tiếp nhận, người
+ *    liên hệ khớp SĐT hoặc CCCD (không phải chỉ tên) với người liên hệ của một lần tiếp nhận khác
+ *    CÙNG VAI được coi là cùng một người gọi lại: không thành khớp, để cơ chế gợi ý trùng/gộp (R4,
+ *    `FindIntakeDuplicates`) xử lý. Hai vai khác nhau, hoặc một trong hai chưa biết vai, vẫn là
+ *    Vàng — vợ và chồng chung một số máy bàn là ví dụ vì sao không được coi là cùng một người. Khớp
+ *    chỉ theo tên không bao giờ được dedupe (tên người Việt trùng nhau rất phổ biến).
+ *
+ * **Chủ thể của dòng `conflict_check_run` (`$subject`).** Trước M10 dòng này chỉ gắn được với
+ * `Matter` (hoặc rỗng). `$subject` là tham số tuỳ chọn Ở CUỐI: khi truyền một `IntakeRequest`, dòng
+ * nhật ký gắn với bản ghi đó (alias `intake_request`), lần chạy ở "chế độ tiếp nhận" (dưới đây), và
+ * `confirmedPairLevels()` đọc lại các xác nhận của CHÍNH bản ghi đó. Bốn người gọi cũ không truyền
+ * gì nên không đổi hành vi (`$subject ??= $matter`).
+ *
+ * **Chế độ tiếp nhận và R13(c).** Các `MatterParty` dựng cho một lần tiếp nhận không bao giờ được
+ * lưu, nên `pairKey()` theo id thật của bên phía mình không dùng được (luôn null → mọi khớp đã xác
+ * nhận sẽ chặn lại ở lần kiểm tra sau). Ở chế độ này mỗi bên phía mình mang một chữ ký (`i:` + HMAC
+ * của vai, dấu băm CCCD, SĐT chuẩn hoá, tên chuẩn hoá) làm vế trái của `pairKey()`. Bất biến C1
+ * giữ nguyên: chữ ký có VAI nên hai vai khác nhau của cùng một người là hai cặp khác nhau;
+ * `confirmed_pairs` vẫn lưu MỨC đã chấp nhận và một cặp chỉ được coi là đã xử lý khi mức mới không
+ * cao hơn; và sửa định danh của người liên hệ đổi chữ ký, tức các xác nhận cũ tự hết hiệu lực (cùng
+ * ý R14). Các xác nhận đọc từ hai sự kiện của tiếp nhận: `intake_conflict_acknowledged` và
+ * `intake_conflict_overridden`.
+ *
+ * **`$excludeIntakeId`.** Loại thêm một lần tiếp nhận khỏi nguồn thứ hai ngoài chính chủ thể. Dành
+ * cho `ConvertIntakeToMatter` (Task 4): `OpenMatter` tự chạy lại kiểm tra lúc chuyển đổi, và bản ghi
+ * đang được chuyển đổi sẽ khớp chính nó qua nguồn này nếu không loại nó ra.
  */
 class RunConflictCheck
 {
@@ -245,6 +292,11 @@ class RunConflictCheck
      *                                                                 được sửa để đại diện cho một NGƯỜI hoàn toàn khác — nếu
      *                                                                 không bị bỏ qua ở đây, xác nhận cũ đó sẽ ÂM THẦM che một
      *                                                                 xung đột mới của một người khác đứng sau cùng cặp id đó.
+     * @param  Model|null  $subject  (M10 Task 2) Chủ thể của dòng `conflict_check_run` và nơi đọc lại
+     *                               các xác nhận R13(c). `null` = `$matter` (hành vi cũ). Truyền một `IntakeRequest` để chạy ở
+     *                               chế độ tiếp nhận — xem docblock lớp, mục "M10 Task 2".
+     * @param  int|null  $excludeIntakeId  (M10 Task 2) Một lần tiếp nhận nữa cần loại khỏi nguồn dò
+     *                                     thứ hai; `ConvertIntakeToMatter` truyền id bản ghi đang được chuyển đổi.
      */
     public function handle(
         Collection $parties,
@@ -252,7 +304,19 @@ class RunConflictCheck
         ?User $actor = null,
         ?int $excludePartyId = null,
         ?Collection $ignoreConfirmedForPartyIds = null,
+        ?Model $subject = null,
+        ?int $excludeIntakeId = null,
     ): ConflictCheckResult {
+        $subject ??= $matter;
+        $intakeMode = $subject instanceof IntakeRequest;
+
+        // CẢ HAI cùng bị loại khi cùng có mặt: chính bản ghi đang kiểm tra (chế độ tiếp nhận) VÀ bản
+        // `$excludeIntakeId` người gọi nêu thêm — không phải cái này thay cái kia.
+        $excludedIntakeIds = array_values(array_filter(
+            [$intakeMode ? $subject->getKey() : null, $excludeIntakeId],
+            fn (mixed $id): bool => $id !== null,
+        ));
+
         // Mảng thuần, không phải Collection::merge() — xem docblock lớp "Gộp không được dùng
         // Eloquent Collection::merge()". Tập hợp CHUNG này nuôi CẢ việc xác định vai LẪN việc tìm
         // bản ghi trùng bên dưới — xem docblock lớp "Tìm kiếm phải chạy trên CÙNG tập hợp với
@@ -265,7 +329,7 @@ class RunConflictCheck
         // "Thô" — CHƯA gộp hiển thị (xem "Fix round 2, NB1" bên dưới cho lý do phải tách hai bước
         // này ra làm hai biến khác nhau, không còn gộp NGAY tại đây như round 1).
         $rawMatches = $allParties
-            ->flatMap(fn (MatterParty $party) => $this->matchesFor($party, $ourClientRoles, $matter))
+            ->flatMap(fn (MatterParty $party) => $this->matchesFor($party, $ourClientRoles, $matter, $intakeMode, $excludedIntakeIds))
             // R13(b): mâu thuẫn NGAY TRONG vụ việc đang xét, không phải một khớp với lịch sử — xem
             // docblock lớp và docblock hàm bên dưới.
             ->concat($this->sameMatterOppositionMatches($ourClientParties))
@@ -281,7 +345,7 @@ class RunConflictCheck
         // thấy) THẬT được xét độc lập — hai cặp thật khác nhau nhưng hiện giống hệt nhau không
         // được phép "dùng chung" một quyết định đã xác nhận/ghi đè chỉ vì gộp hiển thị làm chúng
         // trông như một.
-        $confirmedPairLevels = $this->confirmedPairLevels($matter);
+        $confirmedPairLevels = $this->confirmedPairLevels($subject);
 
         // M6.5 Task 9, R14: một lượt SỬA đổi định danh của bên $excludePartyId phải coi MỌI xác
         // nhận/ghi đè trước đó của cặp mà nó đứng vế trái là chưa hề xảy ra — xem docblock tham số
@@ -349,7 +413,7 @@ class RunConflictCheck
 
         // `actor_explicit` đi cùng kết quả chứ không thay thế nó: nó nói dòng này được gán cho ai
         // theo KHẲNG ĐỊNH của caller (true) hay chỉ theo phiên đăng nhập tình cờ đang mở (false).
-        $activity = Audit::record('conflict_check_run', $matter, [
+        $activity = Audit::record('conflict_check_run', $subject, [
             ...$result->toArray(),
             'actor_explicit' => $actor !== null,
         ], $actor);
@@ -408,10 +472,17 @@ class RunConflictCheck
     /**
      * @param  Collection<int, PartyRole>  $ourClientRoles  Vai của (các) bên là khách hàng mới
      *                                                      trong vụ đang kiểm tra — dùng để xác định "đối lập" cho $party.
+     * @param  list<int>  $excludedIntakeIds  (M10 Task 2) Các lần tiếp nhận bị loại khỏi nguồn thứ hai:
+     *                                        chính chủ thể (chế độ tiếp nhận) và `$excludeIntakeId` của `handle()`.
      * @return Collection<int, ConflictMatch>
      */
-    private function matchesFor(MatterParty $party, Collection $ourClientRoles, ?Matter $matter): Collection
-    {
+    private function matchesFor(
+        MatterParty $party,
+        Collection $ourClientRoles,
+        ?Matter $matter,
+        bool $intakeMode = false,
+        array $excludedIntakeIds = [],
+    ): Collection {
         $idNumberHash = $party->id_number_hash;
         $phoneNormalized = $party->phone_normalized;
         // name_normalized chỉ được model tính ở sự kiện `saving` (xem MatterParty::booted()); một
@@ -425,7 +496,15 @@ class RunConflictCheck
 
         $isOpposing = $this->isOpposing($party->role, $ourClientRoles);
 
-        return MatterParty::query()
+        // Chế độ tiếp nhận: bên phía mình không bao giờ được lưu, nên nó mang một chữ ký thay cho id
+        // — xem docblock lớp "Chế độ tiếp nhận và R13(c)". Có VAI trong chữ ký (bất biến C1).
+        $ourPartyKey = $intakeMode && ! $party->exists
+            ? 'i:'.Audit::identifierHash(implode('|', [
+                $party->role->value, $idNumberHash, $phoneNormalized, $nameNormalized,
+            ]))
+            : null;
+
+        $matterMatches = MatterParty::query()
             // Fix round 2, I1/R14 (bản round 1 chỉ sửa nửa `existingParties()`, để sót chỗ này):
             // KHÔNG `withTrashed()` ở CHÍNH `MatterParty` — một bên đã GỠ (xoá mềm) khỏi vụ việc
             // của nó không còn là dữ liệu đối chiếu xung đột Ở BẤT KỲ ĐÂU (phán quyết R14: "gỡ
@@ -458,7 +537,7 @@ class RunConflictCheck
                     ->orWhere('client_id', '!=', $party->client_id);
             }))
             ->get()
-            ->map(function (MatterParty $found) use ($idNumberHash, $phoneNormalized, $isOpposing, $party): ConflictMatch {
+            ->map(function (MatterParty $found) use ($idNumberHash, $phoneNormalized, $isOpposing, $party, $ourPartyKey): ConflictMatch {
                 // Ưu tiên khớp SPEC §6.10 bước 2: hash "chắc chắn" > điện thoại "rất khả nghi" >
                 // tên "cần xem xét". Chỉ hai mức đầu đủ tin cậy để lên đỏ (xem docblock lớp).
                 $tier = match (true) {
@@ -482,8 +561,105 @@ class RunConflictCheck
                     ourPartyName: $party->name,
                     ourPartyRecord: $party,
                     foundPartyRecord: $found,
+                    ourPartyKey: $ourPartyKey,
                 );
             });
+
+        return $matterMatches->concat($this->intakeMatchesFor($party, $intakeMode, $excludedIntakeIds, $ourPartyKey));
+    }
+
+    /**
+     * NGUỒN DÒ THỨ HAI (M10 Task 2, R1) — xem docblock lớp, mục "M10 Task 2": người liên hệ và bên
+     * đối lập của các lần tiếp nhận còn mở. Mọi khớp là VÀNG (bên tìm thấy chưa là khách hàng, nên
+     * không bao giờ đạt định nghĩa Đỏ), và mang đúng những trường của `ConflictMatch`: mã `TN-…`,
+     * ngày liên hệ, vai và tên — không câu chuyện.
+     *
+     * Bỏ `ClientPortalScope` cùng lý do với truy vấn `matter_parties` ở trên (Action này có thể chạy
+     * trong một phiên guard `client`); `SoftDeletes` thì GIỮ: một lần tiếp nhận đã xoá mềm không còn
+     * là dữ liệu đối chiếu.
+     *
+     * @param  list<int>  $excludedIntakeIds  Xem `matchesFor()`.
+     * @return Collection<int, ConflictMatch>
+     */
+    private function intakeMatchesFor(MatterParty $party, bool $intakeMode, array $excludedIntakeIds, ?string $ourPartyKey): Collection
+    {
+        $idNumberHash = $party->id_number_hash;
+        $phoneNormalized = $party->phone_normalized;
+        $nameNormalized = Normalizer::name($party->name);
+
+        $identity = function (Builder $query, string $hashColumn, string $phoneColumn, string $nameColumn) use ($idNumberHash, $phoneNormalized, $nameNormalized): void {
+            $query->where(function (Builder $q) use ($hashColumn, $phoneColumn, $nameColumn, $idNumberHash, $phoneNormalized, $nameNormalized): void {
+                $q->when($idNumberHash, fn ($w) => $w->orWhere($hashColumn, $idNumberHash))
+                    ->when($phoneNormalized, fn ($w) => $w->orWhere($phoneColumn, $phoneNormalized))
+                    ->when($nameNormalized, fn ($w) => $w->orWhere($nameColumn, $nameNormalized));
+            });
+        };
+
+        $live = fn (Builder $query): Builder => $query
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->openForConflictCheck()
+            ->when($excludedIntakeIds !== [], fn (Builder $q) => $q->whereNotIn('intake_requests.id', $excludedIntakeIds));
+
+        $tierOf = fn (?string $foundHash, ?string $foundPhone): ConflictMatchTier => match (true) {
+            $idNumberHash !== null && $foundHash === $idNumberHash => ConflictMatchTier::Hash,
+            $phoneNormalized !== null && $foundPhone === $phoneNormalized => ConflictMatchTier::Phone,
+            default => ConflictMatchTier::Name,
+        };
+
+        $build = fn (IntakeRequest $request, PartyRole $role, ?string $name, ConflictMatchTier $tier, IntakeRequest|IntakeParty $found): ConflictMatch => new ConflictMatch(
+            matterCode: $request->code,
+            matterTypeName: __('conflicts.intake_contacted', ['date' => $request->received_at->format('d/m/Y')]),
+            partyRole: $role,
+            partyName: (string) $name,
+            level: ConflictLevel::Yellow,
+            tier: $tier,
+            ourPartyRole: $party->role,
+            ourPartyName: $party->name,
+            ourPartyRecord: $party,
+            foundPartyRecord: $found,
+            ourPartyKey: $ourPartyKey,
+            contactedOn: $request->received_at->format('Y-m-d'),
+        );
+
+        $fromContacts = $live(IntakeRequest::query())
+            ->tap(fn (Builder $q) => $identity($q, 'contact_id_number_hash', 'contact_phone_normalized', 'contact_name_normalized'))
+            ->get()
+            ->map(fn (IntakeRequest $request): ?ConflictMatch => $this->contactMatch($request, $party, $intakeMode, $tierOf, $build))
+            ->filter();
+
+        $fromParties = IntakeParty::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->with(['intakeRequest' => fn ($q) => $q->withoutGlobalScope(ClientPortalScope::class)])
+            ->whereHas('intakeRequest', fn ($q) => $live($q))
+            ->tap(fn (Builder $q) => $identity($q, 'id_number_hash', 'phone_normalized', 'name_normalized'))
+            ->get()
+            ->map(fn (IntakeParty $found): ConflictMatch => $build(
+                $found->intakeRequest, $found->role, $found->name, $tierOf($found->id_number_hash, $found->phone_normalized), $found,
+            ));
+
+        return $fromContacts->concat($fromParties)->values();
+    }
+
+    /**
+     * Một người liên hệ của lần tiếp nhận khác khớp `$party`. Trả `null` khi đó là CHÍNH người này
+     * gọi lại (xem docblock lớp): chế độ tiếp nhận, `$party` là người liên hệ (`is_our_client`), khớp
+     * bằng SĐT hoặc CCCD chứ không chỉ tên, và cả hai vai đều biết và bằng nhau.
+     *
+     * @param  callable(?string, ?string): ConflictMatchTier  $tierOf
+     * @param  callable(IntakeRequest, PartyRole, ?string, ConflictMatchTier, IntakeRequest|IntakeParty): ConflictMatch  $build
+     */
+    private function contactMatch(IntakeRequest $request, MatterParty $party, bool $intakeMode, callable $tierOf, callable $build): ?ConflictMatch
+    {
+        $tier = $tierOf($request->contact_id_number_hash, $request->contact_phone_normalized);
+
+        $sameCallerAgain = $intakeMode
+            && $party->is_our_client
+            && $tier !== ConflictMatchTier::Name
+            && $request->contact_role === $party->role;
+
+        return $sameCallerAgain
+            ? null
+            : $build($request, $request->contact_role ?? PartyRole::Related, $request->contact_name, $tier, $request);
     }
 
     /**
@@ -592,16 +768,21 @@ class RunConflictCheck
      *
      * @return Collection<string, ConflictLevel>
      */
-    private function confirmedPairLevels(?Matter $matter): Collection
+    private function confirmedPairLevels(?Model $subject): Collection
     {
-        if ($matter === null || ! $matter->exists) {
+        if ($subject === null || ! $subject->exists) {
             return collect();
         }
 
         return Activity::query()
-            ->where('subject_type', $matter->getMorphClass())
-            ->where('subject_id', $matter->getKey())
-            ->whereIn('event', ['matter_opened', 'matter_party_added', 'matter_party_updated'])
+            ->where('subject_type', $subject->getMorphClass())
+            ->where('subject_id', $subject->getKey())
+            ->whereIn('event', [
+                'matter_opened', 'matter_party_added', 'matter_party_updated',
+                // M10 Task 2: hai lối chấp nhận một khớp của một lần tiếp nhận (Vàng đã xác nhận,
+                // Đỏ đã được quản lý/admin ghi đè), cùng hình dạng `confirmed_pairs`.
+                'intake_conflict_acknowledged', 'intake_conflict_overridden',
+            ])
             ->get()
             ->flatMap(fn (Activity $activity): array => (array) $activity->properties->get('confirmed_pairs', []))
             ->reduce(function (Collection $levels, mixed $pair): Collection {

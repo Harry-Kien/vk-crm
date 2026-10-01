@@ -24,4 +24,7 @@ return [
         'title' => 'Không thể rà lại xung đột lợi ích sau khi sửa hồ sơ khách hàng',
         'body' => 'Đã thử lại nhiều lần nhưng không thể rà lại xung đột lợi ích cho khách hàng #:client_id sau khi hồ sơ được sửa. Cần kiểm tra thủ công.',
     ],
+    // M10 Task 2 (R1): nhãn của khớp từ NGUỒN THỨ HAI — một lần tiếp nhận chưa chuyển đổi. Đặt ở cột
+    // "loại vụ việc" của bảng kết quả, cạnh mã `TN-…`; không kèm câu chuyện hay lĩnh vực dự kiến.
+    'intake_contacted' => 'Đã liên hệ văn phòng ngày :date',
 ];

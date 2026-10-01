@@ -5,6 +5,8 @@ namespace App\Support;
 use App\Enums\ConflictLevel;
 use App\Enums\ConflictMatchTier;
 use App\Enums\PartyRole;
+use App\Models\IntakeParty;
+use App\Models\IntakeRequest;
 use App\Models\MatterParty;
 use Illuminate\Contracts\Support\Arrayable;
 
@@ -54,6 +56,17 @@ use Illuminate\Contracts\Support\Arrayable;
  */
 final readonly class ConflictMatch implements Arrayable
 {
+    /**
+     * @param  MatterParty|IntakeRequest|IntakeParty  $foundPartyRecord  Nguồn thứ nhất là một dòng
+     *                                                                   `matter_parties`; nguồn thứ hai (M10 Task 2, R1) là người liên hệ (`IntakeRequest`) hoặc
+     *                                                                   một bên đối lập (`IntakeParty`) của một lần tiếp nhận chưa chuyển đổi.
+     * @param  string|null  $ourPartyKey  Chữ ký của bên phía mình khi nó CHƯA CÓ id thật và sẽ không
+     *                                    bao giờ có — chỉ `RunConflictCheck` đặt, và chỉ khi chủ thể lần chạy là một
+     *                                    `IntakeRequest` (các `MatterParty` dựng cho tiếp nhận không được lưu). `null` ở mọi
+     *                                    lời gọi khác: `pairKey()` vẫn theo id thật như trước.
+     * @param  string|null  $contactedOn  `Y-m-d` — chỉ có với khớp của NGUỒN THỨ HAI (ngày văn phòng
+     *                                    nhận lần liên hệ đó); `null` với khớp từ `matter_parties`. Cũng là dấu phân biệt nguồn.
+     */
     public function __construct(
         public string $matterCode,
         public string $matterTypeName,
@@ -64,7 +77,9 @@ final readonly class ConflictMatch implements Arrayable
         public PartyRole $ourPartyRole,
         public string $ourPartyName,
         public MatterParty $ourPartyRecord,
-        public MatterParty $foundPartyRecord,
+        public MatterParty|IntakeRequest|IntakeParty $foundPartyRecord,
+        public ?string $ourPartyKey = null,
+        public ?string $contactedOn = null,
     ) {}
 
     /**
@@ -72,13 +87,28 @@ final readonly class ConflictMatch implements Arrayable
      * — xem docblock lớp cho lý do không dùng định danh nữa. `null` khi `ourPartyRecord` CHƯA LƯU
      * (giai đoạn kiểm tra, trước khi giai đoạn lưu chạy) — một dòng chưa có id không thể là "đã
      * từng được xác nhận" ở một lần chạy trước, vì nó chưa từng tồn tại để mà xác nhận.
+     *
+     * **Nguồn thứ hai (M10 Task 2).** Bản ghi tìm thấy có thể là `IntakeRequest`/`IntakeParty`, nên
+     * id của nó mang tiền tố (`ir12`, `ip7`) — không đụng id số của một `matter_parties`, và
+     * `strstr($pairKey, '::', true)` (R14) vẫn cắt đúng vế trái. Khi chủ thể lần chạy là một lần
+     * tiếp nhận, bên phía mình KHÔNG BAO GIỜ được lưu, nên vế trái là `ourPartyKey` (chữ ký gồm vai
+     * và định danh, xem `RunConflictCheck`): sửa định danh của người liên hệ đổi chữ ký, tức các
+     * xác nhận cũ không còn che khớp của người khác.
      */
     public function pairKey(): ?string
     {
-        $ourId = $this->ourPartyRecord->getKey();
-        $foundId = $this->foundPartyRecord->getKey();
+        $ourId = $this->ourPartyRecord->getKey() ?? $this->ourPartyKey;
+        $foundKey = $this->foundPartyRecord->getKey();
 
-        return ($ourId !== null && $foundId !== null) ? "{$ourId}::{$foundId}" : null;
+        if ($foundKey !== null) {
+            $foundKey = match (true) {
+                $this->foundPartyRecord instanceof IntakeRequest => 'ir'.$foundKey,
+                $this->foundPartyRecord instanceof IntakeParty => 'ip'.$foundKey,
+                default => $foundKey,
+            };
+        }
+
+        return ($ourId !== null && $foundKey !== null) ? "{$ourId}::{$foundKey}" : null;
     }
 
     public function toArray(): array
@@ -92,6 +122,9 @@ final readonly class ConflictMatch implements Arrayable
             'tier' => $this->tier->value,
             'our_party_role' => $this->ourPartyRole->value,
             'our_party_name' => $this->ourPartyName,
+            // Chỉ khớp của nguồn thứ hai mang khoá này: hình dạng cũ của khớp `matter_parties` giữ
+            // nguyên từng byte (nhật ký cũ, test cũ, hai màn hình đọc đúng tám khoá).
+            ...($this->contactedOn !== null ? ['contacted_on' => $this->contactedOn] : []),
         ];
     }
 }
