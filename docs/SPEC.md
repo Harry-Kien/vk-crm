@@ -923,13 +923,27 @@ hai thời điểm" ở đầu mục này đổi thành **ba**, và thuật toá
 Cài đặt: kế hoạch M10, Task 2. Task 1 chỉ dựng bảng, model, quyền và policy.
 
 **Ghi chú cài đặt 2026-09-30 (M10 Task 2).** Những điều mà đính chính trên để ngỏ, nay đã chọn:
-- **Người gọi lại không phải xung đột với chính mình.** Khi kiểm tra một lần tiếp nhận, người
-  liên hệ khớp **SĐT hoặc CCCD** (không phải chỉ tên) với người liên hệ của một lần tiếp nhận
-  khác **cùng vai** được coi là cùng một người gọi lại: không thành khớp, để gợi ý trùng (R4)
-  xử lý. Hai vai khác nhau, hoặc lần gọi trước chưa khai vai, vẫn là Vàng — vợ và chồng chung
-  một số máy bàn không phải cùng một người. Khớp chỉ theo tên không bao giờ được coi là cùng
-  một người. Quy tắc này chỉ áp cho kiểm tra của chính một lần tiếp nhận; khi mở vụ hay thêm
-  bên, một cuộc gọi cũ chưa chuyển đổi luôn hiện.
+- **Người gọi lại.** Khi kiểm tra một lần tiếp nhận, người liên hệ khớp **SĐT hoặc CCCD**
+  (không phải chỉ tên) với người liên hệ của một lần tiếp nhận khác còn mở, mà lần đó đã khai
+  **đúng vai** lần kiểm tra này dùng cho người liên hệ (vai đã khai, hoặc vai suy ra ở mục dưới),
+  là cùng một người gọi lại về cùng một việc. Hai vai khác nhau, hoặc lần gọi trước chưa khai
+  vai, thì không — vợ và chồng chung một số máy bàn không phải cùng một người; khớp chỉ theo tên
+  không bao giờ. Với người gọi lại (đính chính 2026-10-01, fix vòng 1 của Task 2):
+  - các bên đối lập khai ở lần gọi trước được **mang vào** lần kiểm tra của lần gọi lại, nên
+    khớp với khách hàng hiện hữu bật lại (Đỏ đến từ khách hàng, không từ nguồn thứ hai — nguồn
+    đó vẫn tối đa Vàng);
+  - khớp với lần gọi trước không hiện, **trừ khi** lần đó còn Đỏ chưa xử lý hoặc đã bị từ chối
+    vì xung đột: khi đó mã của nó hiện ra **và** lần gọi lại bị khoá như Đỏ (chỉ `manager`/`admin`
+    mở, bằng ghi đè kèm lý do) — nếu không, một người nhận khác sẽ nghe hết câu chuyện mà không
+    quản lý nào biết;
+  - bên đối lập được gõ lại ở lần gọi lại không thành khớp với chính nó ở lần gọi trước.
+  Quy tắc này chỉ áp cho kiểm tra của chính một lần tiếp nhận; khi mở vụ hay thêm bên, một cuộc
+  gọi cũ chưa chuyển đổi luôn hiện.
+- **Đỏ dính** (đính chính 2026-10-01). Một lần tiếp nhận từng ra Đỏ thì ô câu chuyện khoá cho tới
+  khi `manager`/`admin` xử lý — **không** theo mức của lần chạy gần nhất: sửa hay gỡ bên đối lập
+  rồi chạy lại ra Xanh, kể cả quản lý tự chạy lại, không mở ô. Lý do ghi đè được ghi vào activity
+  log ở mỗi lần ghi đè (như `OpenMatter`), nên một ghi đè đã hết hiệu lực vì có khớp mới vẫn còn
+  lý do của nó.
 - **Vai người liên hệ chưa khai.** Để Đỏ không tắt lặng lẽ, vai dùng cho lần kiểm tra được suy
   ra từ bên đối lập (đối của nguyên đơn là bị đơn và ngược lại), còn không thì `related`. Vai
   suy ra chỉ dùng cho lần kiểm tra, không ghi vào bản ghi.

@@ -214,19 +214,39 @@ it('refuses to override a result that is not red', function () {
     expect($intake->fresh()->conflict_overridden_by)->toBeNull();
 });
 
-it('keeps the override reason out of the activity log, and writes the override row against the manager', function () {
+it('writes the override reason into the override row, against the manager, as OpenMatter does (SPEC §6.10)', function () {
     gateExistingClient();
     $manager = gateStaff(Role::Manager);
     $intake = gateRecord($manager, [], gateRedParties());
 
-    app(ResolveIntakeRedConflict::class)->handle($manager, $intake, 'Lý do nhạy cảm về khách hàng khác');
+    app(ResolveIntakeRedConflict::class)->handle($manager, $intake, '  Lý do nhạy cảm về khách hàng khác  ');
 
     $row = Activity::query()->where('event', 'intake_conflict_overridden')->sole();
 
     expect($row->causer->is($manager))->toBeTrue()
-        ->and(json_encode($row->properties, JSON_UNESCAPED_UNICODE))->not->toContain('nhạy cảm')
+        ->and($row->properties->get('override_reason'))->toBe('Lý do nhạy cảm về khách hàng khác')
         ->and($row->properties->get('level'))->toBe('red')
         ->and($row->properties->get('confirmed_pairs'))->not->toBeEmpty();
+});
+
+it('keeps the reason of every override in the log, even after a later re-run clears the column', function () {
+    gateExistingClient(phone: '0912000111', idNumber: '079012345678');
+    $manager = gateStaff(Role::Manager);
+    $intake = gateRecord($manager, [], gateRedParties('0912000111'));
+    app(ResolveIntakeRedConflict::class)->handle($manager, $intake, 'Ghi đè lần đầu');
+
+    // Một khách hiện hữu THỨ HAI cũng mang số đó: khớp Đỏ mới, ghi đè cũ hết hiệu lực và cột về null.
+    gateExistingClient(phone: '0912000111', idNumber: '079099999999', name: 'Khách thứ hai');
+    app(RerunIntakeConflictCheck::class)->handle($manager, $intake->fresh());
+
+    expect($intake->fresh()->conflict_override_reason)->toBeNull();
+
+    app(ResolveIntakeRedConflict::class)->handle($manager, $intake->fresh(), 'Ghi đè lần hai');
+
+    // Lịch sử chỉ thêm, không sửa: lý do của MỌI lần ghi đè còn trong nhật ký.
+    expect(Activity::query()->where('event', 'intake_conflict_overridden')->orderBy('id')->get()
+        ->map(fn (Activity $row) => $row->properties->get('override_reason'))->all())
+        ->toBe(['Ghi đè lần đầu', 'Ghi đè lần hai']);
 });
 
 it('refuses to acknowledge red: only an override resolves it', function () {
@@ -762,4 +782,112 @@ it('answers ConflictCheckBusy from the acknowledgement, the override and the re-
     expect(Activity::query()->where('event', 'conflict_check_run')->count())->toBe($runsBefore)
         ->and($yellow->fresh()->conflict_acknowledged_by)->toBeNull()
         ->and($red->fresh()->conflict_overridden_by)->toBeNull();
+});
+
+/**
+ * Fix vòng 1 (I2): Đỏ DÍNH. R1: "Đỏ … chỉ quản lý hoặc admin mở được, bằng một trong hai: từ chối (R8),
+ * hoặc ghi đè kèm lý do bắt buộc". Một lần chạy lại ra Xanh sau khi sửa danh tính — gỡ bên đối lập,
+ * sửa số — không phải một trong hai cách đó, kể cả khi quản lý tự chạy lại: chỉ ghi đè có lý do.
+ */
+it('keeps red locked after the identity is edited and the re-run comes out green, until a manager overrides it with a reason', function (string $edit) {
+    gateExistingClient();
+    $assistant = gateStaff();
+    $manager = gateStaff(Role::Manager);
+    $intake = gateRecord($assistant, [], gateRedParties());
+    app(RecordPrivacyNotice::class)->handle($assistant, $intake, true);
+
+    $party = $intake->parties()->first();
+    $edit === 'removed' ? $party->delete() : $party->identify(null, '0955000999')->save();
+
+    $rerun = app(RerunIntakeConflictCheck::class)->handle($assistant, $intake->fresh());
+
+    expect($rerun->level)->toBe(ConflictLevel::Green)
+        ->and(IntakeSummaryGate::blockers($intake->fresh()))->toBe([IntakeSummaryBlocker::ConflictRed])
+        ->and(fn () => app(UpdateIntakeSummary::class)->handle($assistant, $intake->fresh(), 'Câu chuyện'))
+        ->toThrow(ValidationException::class)
+        ->and(fn () => app(ResolveIntakeRedConflict::class)->handle($assistant, $intake->fresh(), 'Tôi đã sửa số'))
+        ->toThrow(AuthorizationException::class);
+
+    // Quản lý chạy lại cũng không mở: chỉ ghi đè có lý do (hoặc từ chối, Task 3).
+    app(RerunIntakeConflictCheck::class)->handle($manager, $intake->fresh());
+    expect(IntakeSummaryGate::blockers($intake->fresh()))->toBe([IntakeSummaryBlocker::ConflictRed]);
+
+    app(ResolveIntakeRedConflict::class)->handle($manager, $intake->fresh(), 'Trợ lý nhập nhầm số bên đối lập, đã gọi lại xác minh');
+
+    $fresh = $intake->fresh();
+    $row = Activity::query()->where('event', 'intake_conflict_overridden')->sole();
+
+    expect($fresh->conflict_red_pending_since)->toBeNull()
+        ->and(IntakeSummaryGate::isOpen($fresh))->toBeTrue()
+        ->and($row->properties->get('level'))->toBe('green')
+        ->and($row->properties->get('override_reason'))->toBe('Trợ lý nhập nhầm số bên đối lập, đã gọi lại xác minh');
+
+    app(UpdateIntakeSummary::class)->handle($assistant, $intake, 'Câu chuyện sau khi quản lý xử lý');
+    expect($intake->fresh()->summary)->toBe('Câu chuyện sau khi quản lý xử lý');
+})->with(['opposing party removed' => 'removed', 'opposing phone corrected' => 'corrected']);
+
+it('records since when a red is pending, and keeps that first time across later red re-runs', function () {
+    gateExistingClient();
+    $assistant = gateStaff();
+    $intake = gateRecord($assistant, [], gateRedParties());
+    $since = $intake->conflict_red_pending_since;
+
+    expect($since)->not->toBeNull();
+
+    $this->travel(2)->hours();
+    $again = app(RerunIntakeConflictCheck::class)->handle($assistant, $intake->fresh());
+
+    expect($again->level)->toBe(ConflictLevel::Red)
+        ->and($intake->fresh()->conflict_red_pending_since->equalTo($since))->toBeTrue();
+});
+
+it('keeps a red result locked when the pending marker is missing, unless a manager override with a reason stands', function () {
+    gateExistingClient();
+    $manager = gateStaff(Role::Manager);
+    $intake = gateRecord($manager, [], gateRedParties());
+    app(RecordPrivacyNotice::class)->handle($manager, $intake, true);
+
+    // Một dòng Đỏ không mang dấu "đang chờ" (ghi trước khi có cột, hoặc sửa tay): mức Đỏ đã lưu vẫn khoá
+    // — trừ khi có một ghi đè còn hiệu lực, tức có CẢ người ghi đè LẪN lý do.
+    $intake->fresh()->forceFill(['conflict_red_pending_since' => null])->save();
+    expect(IntakeSummaryGate::blockers($intake->fresh()))->toBe([IntakeSummaryBlocker::ConflictRed]);
+
+    $intake->fresh()->forceFill(['conflict_overridden_by' => $manager->id, 'conflict_override_reason' => '  '])->save();
+    expect(IntakeSummaryGate::blockers($intake->fresh()))->toBe([IntakeSummaryBlocker::ConflictRed]);
+
+    $intake->fresh()->forceFill(['conflict_overridden_by' => null, 'conflict_override_reason' => 'Lý do không người'])->save();
+    expect(IntakeSummaryGate::blockers($intake->fresh()))->toBe([IntakeSummaryBlocker::ConflictRed]);
+
+    $intake->fresh()->forceFill(['conflict_overridden_by' => $manager->id, 'conflict_override_reason' => 'Đủ người và lý do'])->save();
+    expect(IntakeSummaryGate::isOpen($intake->fresh()))->toBeTrue();
+});
+
+it('does not let a mass assignment clear the pending red marker', function () {
+    gateExistingClient();
+    $assistant = gateStaff();
+    $intake = gateRecord($assistant, [], gateRedParties());
+
+    $intake->fresh()->fill(['conflict_red_pending_since' => null])->save();
+
+    expect($intake->fresh()->conflict_red_pending_since)->not->toBeNull();
+});
+
+it('lets only an override that stands, with a person and a reason, cover the acknowledgement gate', function () {
+    $matter = Matter::factory()->create();
+    MatterParty::factory()->for($matter)->create(['role' => PartyRole::Plaintiff, 'is_our_client' => true, 'name' => 'Lê Thị Hoa']);
+
+    $actor = gateStaff();
+    $manager = gateStaff(Role::Manager);
+    $intake = gateRecord($actor, [], [['name' => 'lê thị hoa', 'role' => PartyRole::Defendant, 'phone' => '0977000111']]);
+    app(RecordPrivacyNotice::class)->handle($actor, $intake, true);
+
+    expect($intake->conflict_level)->toBe(ConflictLevel::Yellow);
+
+    // Một "ghi đè" thiếu lý do (sửa tay) không phải ghi đè (`IntakeRequest::hasConflictOverride()`): nó
+    // không che được bước xác nhận Vàng.
+    $intake->fresh()->forceFill(['conflict_overridden_by' => $manager->id, 'conflict_override_reason' => '  '])->save();
+    expect(IntakeSummaryGate::blockers($intake->fresh()))->toBe([IntakeSummaryBlocker::ConflictAcknowledgement]);
+
+    $intake->fresh()->forceFill(['conflict_override_reason' => 'Đã xem cả hai bên'])->save();
+    expect(IntakeSummaryGate::isOpen($intake->fresh()))->toBeTrue();
 });

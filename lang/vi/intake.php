@@ -46,7 +46,7 @@ return [
         'quoted_amount_invalid' => 'Phí đã báo không hợp lệ.',
         'privacy_notice_not_agreed' => 'Chỉ ghi nhận thông báo khi người liên hệ đã nghe và đồng ý.',
         'acknowledgement_not_needed' => 'Lần kiểm tra hiện tại không có gì cần xác nhận.',
-        'override_not_red' => 'Lần kiểm tra hiện tại không có xung đột mức đỏ để xử lý.',
+        'override_not_red' => 'Bản ghi này không có xung đột mức đỏ nào đang chờ xử lý.',
         'override_reason_required' => 'Phải nhập lý do khi ghi đè xung đột mức đỏ.',
         'override_reason_too_long' => 'Lý do quá dài.',
         'summary_too_long' => 'Nội dung câu chuyện quá dài.',

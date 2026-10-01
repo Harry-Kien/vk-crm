@@ -61,6 +61,22 @@ class IntakeParty extends Model
         return $this;
     }
 
+    /**
+     * Bên này dưới dạng một `MatterParty` CHƯA LƯU, `is_our_client = false`, mang đúng dấu băm và SĐT
+     * chuẩn hoá đã lưu — đầu vào của `RunConflictCheck`. MỘT cách dựng cho cả hai nơi: các bên của
+     * chính lần tiếp nhận (`CheckIntakeConflict`) và các bên mang sang từ lần gọi trước của cùng người
+     * (`RunConflictCheck`, người gọi lại) — hai cách dựng là hai định nghĩa "cùng một bên" sẽ lệch nhau.
+     * `MatterParty::fill()` chặn hai cột định danh, nên gán thẳng.
+     */
+    public function toConflictParty(): MatterParty
+    {
+        $party = new MatterParty(['role' => $this->role, 'name' => $this->name, 'is_our_client' => false]);
+        $party->id_number_hash = $this->id_number_hash;
+        $party->phone_normalized = $this->phone_normalized;
+
+        return $party;
+    }
+
     /** Portal không bao giờ đọc bảng này. */
     public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
     {

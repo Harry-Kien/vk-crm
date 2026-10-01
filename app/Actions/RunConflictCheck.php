@@ -16,6 +16,7 @@ use App\Support\ConflictMatch;
 use App\Support\Normalizer;
 use App\Support\Scopes\ClientPortalScope;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Spatie\Activitylog\Models\Activity;
@@ -221,12 +222,26 @@ use Spatie\Activitylog\Models\Activity;
  *  - Nhãn ghi ngày văn phòng nhận lần liên hệ, kèm mã `TN-…` của bản ghi (đặt ở cột "loại vụ việc"
  *    của `ConflictMatch`, nên mọi màn hình đang hiện khớp đều hiện đúng nhãn mà không sửa gì). KHÔNG
  *    kèm câu chuyện, lĩnh vực dự kiến hay bất kỳ trường nào khác ngoài các trường của `ConflictMatch`.
- *  - **Người gọi lại cùng một việc không phải xung đột với chính mình.** Ở chế độ tiếp nhận, người
- *    liên hệ khớp SĐT hoặc CCCD (không phải chỉ tên) với người liên hệ của một lần tiếp nhận khác
- *    CÙNG VAI được coi là cùng một người gọi lại: không thành khớp, để cơ chế gợi ý trùng/gộp (R4,
- *    `FindIntakeDuplicates`) xử lý. Hai vai khác nhau, hoặc một trong hai chưa biết vai, vẫn là
- *    Vàng — vợ và chồng chung một số máy bàn là ví dụ vì sao không được coi là cùng một người. Khớp
- *    chỉ theo tên không bao giờ được dedupe (tên người Việt trùng nhau rất phổ biến).
+ *  - **Người gọi lại** (định nghĩa: {@see IntakeRequest::sameCallerIntakes()}). Ở chế độ tiếp nhận,
+ *    người liên hệ khớp SĐT hoặc CCCD (không phải chỉ tên) với người liên hệ của một lần tiếp nhận
+ *    khác còn mở, mà lần đó đã khai ĐÚNG vai lần kiểm tra này dùng cho người liên hệ (vai đã khai,
+ *    hoặc vai suy từ bên đối lập khi chưa khai — `CheckIntakeConflict`), là CÙNG một người gọi lại về
+ *    CÙNG một việc. Khác vai, hoặc lần gọi trước chưa khai vai, thì không — vợ và chồng chung một số
+ *    máy bàn là ví dụ; khớp chỉ theo tên không bao giờ (tên người Việt trùng nhau rất phổ biến).
+ *    **Fix vòng 1 (C1):** bản đầu chỉ bỏ khớp với lần gọi trước — nên một lần gọi trước còn Đỏ chưa
+ *    xử lý bị "rửa" thành Xanh ở lần gọi lại (trợ lý khác ghi, không nhắc lại bên đối lập, nghe hết
+ *    câu chuyện mà không quản lý nào biết). Giờ:
+ *     1. Các bên đối lập của lần gọi trước được MANG vào lần kiểm tra này (cùng người, cùng việc), như
+ *        bên đã có của vụ: khớp với khách hàng hiện hữu bật lại — Đỏ đến từ `matter_parties`, không
+ *        từ nguồn thứ hai, nên nguồn thứ hai vẫn tối đa Vàng như SPEC §6.10. Chúng KHÔNG vào
+ *        `incompleteParties` (người nhập không gõ chúng) và không bị dò lại trong chính lần gọi
+ *        trước.
+ *     2. Khớp với lần gọi trước chỉ bị bỏ khi lần đó không khoá cuộc gọi lại
+ *        ({@see IntakeRequest::locksRepeatCalls()}: Đỏ chưa xử lý, hoặc từ chối vì xung đột): mã
+ *        `TN-…` của nó hiện ra. Bản thân việc khoá (ô câu chuyện chờ quản lý/admin) đặt ở
+ *        `CheckIntakeConflict`, vì Action này không ghi gì lên bản ghi.
+ *     3. Với mọi bên trừ người liên hệ, lần gọi trước bị loại khỏi nguồn thứ hai: bên đối lập được gõ
+ *        lại ở lần gọi lại là cùng bên của cùng việc, không phải "người văn phòng đã nghe".
  *
  * **Chủ thể của dòng `conflict_check_run` (`$subject`).** Trước M10 dòng này chỉ gắn được với
  * `Matter` (hoặc rỗng). `$subject` là tham số tuỳ chọn Ở CUỐI: khi truyền một `IntakeRequest`, dòng
@@ -317,19 +332,41 @@ class RunConflictCheck
             fn (mixed $id): bool => $id !== null,
         ));
 
+        // Người gọi lại (fix vòng 1 của Task 2, C1) — xem docblock lớp, mục "Người gọi lại". Chỉ ở
+        // chế độ tiếp nhận; các bên mang sang là `MatterParty` chưa lưu, `is_our_client = false`.
+        $sameCallerIntakes = $intakeMode ? $this->sameCallerIntakes($subject, $parties, $excludedIntakeIds) : new EloquentCollection;
+        $sameCallerIds = $sameCallerIntakes->modelKeys();
+        $carriedParties = $sameCallerIntakes
+            ->flatMap(fn (IntakeRequest $request) => $request->parties->map(fn (IntakeParty $party): MatterParty => $party->toConflictParty()))
+            ->all();
+
         // Mảng thuần, không phải Collection::merge() — xem docblock lớp "Gộp không được dùng
         // Eloquent Collection::merge()". Tập hợp CHUNG này nuôi CẢ việc xác định vai LẪN việc tìm
         // bản ghi trùng bên dưới — xem docblock lớp "Tìm kiếm phải chạy trên CÙNG tập hợp với
-        // việc xác định vai (fix round 3)".
-        $allParties = collect([...$parties->all(), ...$this->existingParties($matter, $excludePartyId)]);
+        // việc xác định vai (fix round 3)". Các bên mang sang của người gọi lại cũng vào đây (không
+        // vào `$parties`: chúng không phải bên người nhập vừa gõ, nên không bị đòi xác nhận "thiếu
+        // định danh" lần nữa — xem `$incompleteParties` bên dưới).
+        $allParties = collect([...$parties->all(), ...$this->existingParties($matter, $excludePartyId), ...$carriedParties]);
 
         $ourClientParties = $allParties->filter(fn (MatterParty $party) => $party->is_our_client);
         $ourClientRoles = $ourClientParties->pluck('role');
 
         // "Thô" — CHƯA gộp hiển thị (xem "Fix round 2, NB1" bên dưới cho lý do phải tách hai bước
         // này ra làm hai biến khác nhau, không còn gộp NGAY tại đây như round 1).
+        //
+        // Người gọi lại: các lần gọi trước của CÙNG người là cùng một việc, không phải "người khác văn
+        // phòng đã nghe" — nên với mọi bên trừ chính người liên hệ, chúng bị loại khỏi nguồn thứ hai
+        // (bên mang sang không khớp lại chính dòng nó được chép ra; bên đối lập gõ lại không khớp chính
+        // nó ở lần gọi trước). Người liên hệ vẫn thấy chúng, để `contactMatch()` quyết định.
         $rawMatches = $allParties
-            ->flatMap(fn (MatterParty $party) => $this->matchesFor($party, $ourClientRoles, $matter, $intakeMode, $excludedIntakeIds))
+            ->flatMap(fn (MatterParty $party) => $this->matchesFor(
+                $party,
+                $ourClientRoles,
+                $matter,
+                $intakeMode,
+                $party->is_our_client ? $excludedIntakeIds : [...$excludedIntakeIds, ...$sameCallerIds],
+                $sameCallerIntakes,
+            ))
             // R13(b): mâu thuẫn NGAY TRONG vụ việc đang xét, không phải một khớp với lịch sử — xem
             // docblock lớp và docblock hàm bên dưới.
             ->concat($this->sameMatterOppositionMatches($ourClientParties))
@@ -470,10 +507,36 @@ class RunConflictCheck
     }
 
     /**
+     * Các lần tiếp nhận khác của CÙNG người gọi lại ({@see IntakeRequest::sameCallerIntakes()}), với
+     * vai mà lần kiểm tra này dùng cho người liên hệ (bên `is_our_client` của `$parties` — ở chế độ
+     * tiếp nhận `CheckIntakeConflict` dựng đúng một), trừ các bản đã bị loại khỏi nguồn thứ hai. Nạp kèm
+     * các bên đối lập của chúng (bỏ `ClientPortalScope`) để mang sang.
+     *
+     * @param  Collection<int, MatterParty>  $parties
+     * @param  list<int>  $excludedIntakeIds
+     * @return EloquentCollection<int, IntakeRequest>
+     */
+    private function sameCallerIntakes(IntakeRequest $subject, Collection $parties, array $excludedIntakeIds): EloquentCollection
+    {
+        $contact = $parties->first(fn (MatterParty $party): bool => (bool) $party->is_our_client);
+
+        if ($contact === null) {
+            return new EloquentCollection;
+        }
+
+        return $subject->sameCallerIntakes($contact->role)
+            ->reject(fn (IntakeRequest $request): bool => in_array($request->getKey(), $excludedIntakeIds, true))
+            ->load(['parties' => fn ($query) => $query->withoutGlobalScope(ClientPortalScope::class)]);
+    }
+
+    /**
      * @param  Collection<int, PartyRole>  $ourClientRoles  Vai của (các) bên là khách hàng mới
      *                                                      trong vụ đang kiểm tra — dùng để xác định "đối lập" cho $party.
-     * @param  list<int>  $excludedIntakeIds  (M10 Task 2) Các lần tiếp nhận bị loại khỏi nguồn thứ hai:
-     *                                        chính chủ thể (chế độ tiếp nhận) và `$excludeIntakeId` của `handle()`.
+     * @param  list<int>  $excludedIntakeIds  (M10 Task 2) Các lần tiếp nhận bị loại khỏi nguồn thứ hai
+     *                                        cho RIÊNG bên này: chính chủ thể (chế độ tiếp nhận), `$excludeIntakeId` của `handle()`, và —
+     *                                        với mọi bên trừ người liên hệ — các lần gọi trước của cùng người gọi lại.
+     * @param  EloquentCollection<int, IntakeRequest>|null  $sameCallerIntakes  (fix vòng 1) Các lần gọi
+     *                                                                          trước của cùng người gọi lại — xem `contactMatch()`.
      * @return Collection<int, ConflictMatch>
      */
     private function matchesFor(
@@ -482,6 +545,7 @@ class RunConflictCheck
         ?Matter $matter,
         bool $intakeMode = false,
         array $excludedIntakeIds = [],
+        ?Collection $sameCallerIntakes = null,
     ): Collection {
         $idNumberHash = $party->id_number_hash;
         $phoneNormalized = $party->phone_normalized;
@@ -565,7 +629,7 @@ class RunConflictCheck
                 );
             });
 
-        return $matterMatches->concat($this->intakeMatchesFor($party, $intakeMode, $excludedIntakeIds, $ourPartyKey));
+        return $matterMatches->concat($this->intakeMatchesFor($party, $excludedIntakeIds, $ourPartyKey, $sameCallerIntakes ?? collect()));
     }
 
     /**
@@ -579,9 +643,10 @@ class RunConflictCheck
      * là dữ liệu đối chiếu.
      *
      * @param  list<int>  $excludedIntakeIds  Xem `matchesFor()`.
+     * @param  Collection<int, IntakeRequest>  $sameCallerIntakes  Xem `contactMatch()`.
      * @return Collection<int, ConflictMatch>
      */
-    private function intakeMatchesFor(MatterParty $party, bool $intakeMode, array $excludedIntakeIds, ?string $ourPartyKey): Collection
+    private function intakeMatchesFor(MatterParty $party, array $excludedIntakeIds, ?string $ourPartyKey, Collection $sameCallerIntakes): Collection
     {
         $idNumberHash = $party->id_number_hash;
         $phoneNormalized = $party->phone_normalized;
@@ -624,7 +689,7 @@ class RunConflictCheck
         $fromContacts = $live(IntakeRequest::query())
             ->tap(fn (Builder $q) => $identity($q, 'contact_id_number_hash', 'contact_phone_normalized', 'contact_name_normalized'))
             ->get()
-            ->map(fn (IntakeRequest $request): ?ConflictMatch => $this->contactMatch($request, $party, $intakeMode, $tierOf, $build))
+            ->map(fn (IntakeRequest $request): ?ConflictMatch => $this->contactMatch($request, $sameCallerIntakes, $tierOf, $build))
             ->filter();
 
         $fromParties = IntakeParty::query()
@@ -641,25 +706,33 @@ class RunConflictCheck
     }
 
     /**
-     * Một người liên hệ của lần tiếp nhận khác khớp `$party`. Trả `null` khi đó là CHÍNH người này
-     * gọi lại (xem docblock lớp): chế độ tiếp nhận, `$party` là người liên hệ (`is_our_client`), khớp
-     * bằng SĐT hoặc CCCD chứ không chỉ tên, và cả hai vai đều biết và bằng nhau.
+     * Một người liên hệ của lần tiếp nhận khác khớp bên đang xét. Trả `null` khi đó là một lần gọi
+     * trước của CHÍNH người này gọi lại (`$sameCallerIntakes`, xem docblock lớp) VÀ lần gọi đó không
+     * khoá cuộc gọi lại ({@see IntakeRequest::locksRepeatCalls()}). Lần gọi trước còn Đỏ chưa xử lý,
+     * hoặc đã bị từ chối vì xung đột, thì khớp vẫn hiện — mã `TN-…` của nó là thứ duy nhất cho người
+     * nhập (và quản lý) biết vì sao lần gọi lại bị khoá.
      *
+     * Chỉ người liên hệ mới gặp các lần gọi trước ở đây: với mọi bên khác, `handle()` đã loại chúng khỏi
+     * nguồn thứ hai. Ngoài chế độ tiếp nhận `$sameCallerIntakes` rỗng: mở vụ hay thêm bên luôn thấy
+     * một cuộc gọi cũ chưa chuyển đổi.
+     *
+     * @param  Collection<int, IntakeRequest>  $sameCallerIntakes
      * @param  callable(?string, ?string): ConflictMatchTier  $tierOf
      * @param  callable(IntakeRequest, PartyRole, ?string, ConflictMatchTier, IntakeRequest|IntakeParty): ConflictMatch  $build
      */
-    private function contactMatch(IntakeRequest $request, MatterParty $party, bool $intakeMode, callable $tierOf, callable $build): ?ConflictMatch
+    private function contactMatch(IntakeRequest $request, Collection $sameCallerIntakes, callable $tierOf, callable $build): ?ConflictMatch
     {
-        $tier = $tierOf($request->contact_id_number_hash, $request->contact_phone_normalized);
+        if ($sameCallerIntakes->contains(fn (IntakeRequest $earlier): bool => $earlier->is($request)) && ! $request->locksRepeatCalls()) {
+            return null;
+        }
 
-        $sameCallerAgain = $intakeMode
-            && $party->is_our_client
-            && $tier !== ConflictMatchTier::Name
-            && $request->contact_role === $party->role;
-
-        return $sameCallerAgain
-            ? null
-            : $build($request, $request->contact_role ?? PartyRole::Related, $request->contact_name, $tier, $request);
+        return $build(
+            $request,
+            $request->contact_role ?? PartyRole::Related,
+            $request->contact_name,
+            $tierOf($request->contact_id_number_hash, $request->contact_phone_normalized),
+            $request,
+        );
     }
 
     /**

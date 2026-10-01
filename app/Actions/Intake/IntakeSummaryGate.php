@@ -17,12 +17,16 @@ use App\Models\IntakeRequest;
  *  2. **Đã kiểm tra, và kiểm tra còn khớp danh tính:** có `conflict_checked_at`, và dấu vân tay danh
  *     tính lưu kèm `conflict_result` bằng dấu vân tay HIỆN TẠI ({@see IntakeRequest::identityFingerprint()}).
  *     Ai sửa danh tính mà chưa chạy lại kiểm tra thì kết quả cũ (kể cả Xanh) không còn là bằng chứng.
- *  3. **Theo mức của các khớp MỚI (`conflict_level`):**
- *     - Đỏ: phải có ghi đè (`conflict_overridden_by` và lý do). Ghi đè che cả bước xác nhận, như
- *       `OpenMatter`.
- *     - Vàng, hoặc "thiếu định danh" (`incomplete_parties` không rỗng): phải có xác nhận
- *       (`conflict_acknowledged_by`) — cùng cổng `OpenMatter` dùng.
- *     - Xanh đủ định danh: mở.
+ *  3. **Đỏ chưa xử lý ({@see IntakeRequest::hasUnresolvedRed()}):** khoá cho tới khi quản lý/admin
+ *     ghi đè kèm lý do. Đỏ DÍNH (fix vòng 1, I2): nó không theo `conflict_level` của lần chạy gần
+ *     nhất, nên sửa hay gỡ bên đối lập rồi chạy lại ra Xanh — kể cả quản lý tự chạy — KHÔNG mở ô; một
+ *     lần gọi lại của người có lần gọi trước còn Đỏ hay đã bị từ chối vì xung đột cũng bị khoá như thế
+ *     (C1, `CheckIntakeConflict`).
+ *  4. **Vàng, hoặc "thiếu định danh"** (`incomplete_parties` không rỗng): phải có xác nhận
+ *     (`conflict_acknowledged_by`) — cùng cổng `OpenMatter` dùng. Một ghi đè còn hiệu lực
+ *     ({@see IntakeRequest::hasConflictOverride()}: có người VÀ có lý do) che luôn bước này, như
+ *     `OpenMatter`.
+ *  5. Xanh đủ định danh: mở.
  *
  * Bản ghi đã ẩn danh hoặc đã gộp không phải chuyện của cổng này: `UpdateIntakeSummary` từ chối riêng.
  */
@@ -47,10 +51,8 @@ final class IntakeSummaryGate
             return $blockers;
         }
 
-        if ($intake->conflict_level === ConflictLevel::Red) {
-            if ($intake->conflict_overridden_by === null || blank($intake->conflict_override_reason)) {
-                $blockers[] = IntakeSummaryBlocker::ConflictRed;
-            }
+        if ($intake->hasUnresolvedRed()) {
+            $blockers[] = IntakeSummaryBlocker::ConflictRed;
 
             return $blockers;
         }
@@ -59,8 +61,9 @@ final class IntakeSummaryGate
             || ($result['incomplete_parties'] ?? []) !== [];
 
         // Một ghi đè Đỏ còn hiệu lực cũng che cổng xác nhận (như OpenMatter): người ghi đè đã xem hết,
-        // và một lần chạy lại không có gì mới không được làm cổng đóng lại sau khi vừa mở.
-        if ($needsAcknowledgement && $intake->conflict_acknowledged_by === null && $intake->conflict_overridden_by === null) {
+        // và một lần chạy lại không có gì mới không được làm cổng đóng lại sau khi vừa mở. "Còn hiệu
+        // lực" = CÙNG định nghĩa với bước Đỏ ở trên (người VÀ lý do, `hasConflictOverride()`).
+        if ($needsAcknowledgement && $intake->conflict_acknowledged_by === null && ! $intake->hasConflictOverride()) {
             $blockers[] = IntakeSummaryBlocker::ConflictAcknowledgement;
         }
 

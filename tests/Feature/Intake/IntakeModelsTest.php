@@ -41,6 +41,7 @@ it('stores the exact column kinds and lengths the data model lists, so form maxL
     foreach (['contact_name', 'contact_phone', 'contact_email', 'contact_id_number_hash', 'contact_role', 'referred_by',
         'matter_type_id', 'summary', 'quoted_amount', 'conflict_level', 'conflict_checked_at', 'conflict_result',
         'conflict_acknowledged_by', 'conflict_acknowledged_at', 'conflict_overridden_by', 'conflict_override_reason',
+        'conflict_red_pending_since',
         'privacy_notice_version', 'privacy_notice_acknowledged_at', 'privacy_notice_recorded_by', 'assigned_to',
         'first_response_at', 'decline_reason', 'client_id', 'matter_id', 'merged_into_id', 'retention_until',
         'anonymised_at', 'anonymised_by', 'anonymised_reason', 'deleted_at'] as $nullable) {

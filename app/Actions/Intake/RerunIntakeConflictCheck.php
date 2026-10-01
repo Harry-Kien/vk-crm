@@ -15,7 +15,10 @@ use Illuminate\Support\Facades\Gate;
  * `conflict_result` và một dòng `conflict_check_run` mang chủ thể là bản ghi.
  *
  * Xác nhận và ghi đè cũ chỉ bị xoá khi lần chạy này có khớp MỚI hoặc danh tính đã đổi
- * ({@see CheckIntakeConflict}); chạy lại mà không có gì mới thì cổng ô câu chuyện giữ nguyên.
+ * ({@see CheckIntakeConflict}); chạy lại mà không có gì mới thì cổng ô câu chuyện giữ nguyên. Chạy lại
+ * KHÔNG BAO GIỜ xử lý được một Đỏ (fix vòng 1, I2 — Đỏ dính): sửa danh tính rồi chạy lại ra Xanh, kể
+ * cả khi quản lý chạy, ô vẫn khoá cho tới khi quản lý/admin ghi đè kèm lý do
+ * ({@see ResolveIntakeRedConflict}) — R1 chỉ có hai cách: từ chối hoặc ghi đè.
  *
  * Quyền: người nhìn thấy được bản ghi (`IntakeRequestPolicy::update`); bản đã ẩn danh hoặc đã gộp
  * bị từ chối.

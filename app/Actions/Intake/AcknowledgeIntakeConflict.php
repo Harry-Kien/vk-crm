@@ -26,8 +26,13 @@ use Illuminate\Validation\ValidationException;
  * trước) nên bằng chứng "đã kiểm tra" không mất dù xác nhận bị từ chối. Sau đó:
  *  - Đỏ: từ chối bằng `ConflictBlocked` — Đỏ không xác nhận được, chỉ quản lý/admin xử lý
  *    ({@see ResolveIntakeRedConflict});
- *  - không có gì cần xác nhận (Xanh đủ định danh): từ chối, không ghi gì;
+ *  - không có gì cần xác nhận (Xanh đủ định danh): từ chối, không ghi xác nhận (lần kiểm tra vừa
+ *    chạy thì đã được ghi, như mọi trường hợp ở đây);
  *  - `$acknowledged` khác mức vừa chạy: `ConflictAcknowledgementRequired` mang kết quả mới.
+ *
+ * Xác nhận một Vàng KHÔNG mở một Đỏ dính (fix vòng 1, I2/C1): nếu bản ghi còn một Đỏ chưa xử lý mà
+ * lần chạy vừa rồi không còn thấy (danh tính đã sửa), hoặc mang khoá của một lần gọi lại, xác nhận vẫn
+ * được ghi nhưng ô câu chuyện vẫn khoá cho tới khi quản lý/admin ghi đè ({@see IntakeSummaryGate}).
  *
  * Xác nhận lưu người và thời điểm (`conflict_acknowledged_by/_at`), và dòng `intake_conflict_acknowledged`
  * mang `confirmed_pairs` (chữ ký + MỨC của từng khớp vừa được chấp nhận, R13c/C1): lần kiểm tra sau

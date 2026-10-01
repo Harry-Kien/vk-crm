@@ -17,6 +17,7 @@ use App\Support\Normalizer;
 use App\Support\Scopes\ClientPortalScope;
 use Database\Factories\IntakeRequestFactory;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -57,7 +58,9 @@ class IntakeRequest extends Model
 
     /**
      * KHÔNG có `code` (sinh khi tạo), `contact_phone_normalized` và `contact_id_number_hash` (chỉ
-     * `identify()` ghi được, xem {@see self::fill()}), `created_by`/`updated_by` (`HasBlameable`).
+     * `identify()` ghi được, xem {@see self::fill()}), `created_by`/`updated_by` (`HasBlameable`), và
+     * `conflict_red_pending_since` (Đỏ đang chờ quản lý/admin — chỉ `CheckIntakeConflict` đặt, chỉ
+     * `ResolveIntakeRedConflict` xoá; một form gán hàng loạt không được xoá khoá đó).
      */
     protected $fillable = [
         'contact_name', 'contact_phone', 'contact_email', 'contact_role',
@@ -82,6 +85,7 @@ class IntakeRequest extends Model
             'conflict_result' => 'array',
             'conflict_checked_at' => 'datetime',
             'conflict_acknowledged_at' => 'datetime',
+            'conflict_red_pending_since' => 'datetime',
             'privacy_notice_acknowledged_at' => 'datetime',
             'received_at' => 'datetime',
             'first_response_at' => 'datetime',
@@ -236,6 +240,79 @@ class IntakeRequest extends Model
     }
 
     /**
+     * Một ghi đè Đỏ còn hiệu lực: có người ghi đè VÀ có lý do (R1 — lý do bắt buộc). Thiếu một trong
+     * hai thì không phải ghi đè.
+     */
+    public function hasConflictOverride(): bool
+    {
+        return $this->conflict_overridden_by !== null && filled($this->conflict_override_reason);
+    }
+
+    /**
+     * Bản ghi đang có một Đỏ CHƯA được quản lý/admin xử lý (M10 R1; fix vòng 1 của Task 2, I2 — Đỏ
+     * DÍNH). Đúng khi:
+     *  - `conflict_red_pending_since` đã đặt: một lần kiểm tra từng ra Đỏ (hoặc khoá của người gọi lại,
+     *    {@see self::locksRepeatCalls()}) và chưa ai ghi đè. Một lần chạy lại ra Xanh — sau khi sửa
+     *    hay gỡ bên đối lập, kể cả do quản lý tự chạy — KHÔNG xoá nó: R1 chỉ có hai cách xử lý Đỏ, từ
+     *    chối (R8) hoặc ghi đè kèm lý do; hoặc
+     *  - mức đã lưu là Đỏ mà không có ghi đè còn hiệu lực (lưới an toàn cho một dòng Đỏ thiếu dấu "đang
+     *    chờ" — ghi trước khi có cột, hoặc sửa tay).
+     * `IntakeSummaryGate` khoá ô câu chuyện theo đúng hàm này; `ResolveIntakeRedConflict` chỉ ghi đè
+     * khi hàm này đúng.
+     */
+    public function hasUnresolvedRed(): bool
+    {
+        return $this->conflict_red_pending_since !== null
+            || ($this->conflict_level === ConflictLevel::Red && ! $this->hasConflictOverride());
+    }
+
+    /**
+     * Một cuộc gọi LẠI của cùng người (xem {@see self::sameCallerIntakes()}) phải chờ quản lý/admin
+     * như Đỏ (fix vòng 1 của Task 2, C1): bản này còn một Đỏ chưa xử lý, hoặc văn phòng đã từ chối vì
+     * xung đột (R8, `decline_reason_is_conflict`). Không thì một trợ lý khác ghi lần gọi lại sẽ nghe
+     * hết câu chuyện mà không quản lý nào biết — đúng điều R1 tồn tại để chặn.
+     */
+    public function locksRepeatCalls(): bool
+    {
+        return $this->hasUnresolvedRed() || $this->decline_reason_is_conflict;
+    }
+
+    /**
+     * Các lần tiếp nhận KHÁC còn mở ({@see self::scopeOpenForConflictCheck()}) mà người liên hệ là
+     * CÙNG người gọi lại với bản này, về cùng một việc: khớp dấu băm CCCD hoặc SĐT chuẩn hoá (không bao
+     * giờ chỉ tên — tên người Việt trùng nhau rất phổ biến) VÀ đã khai đúng vai `$role`. `$role` là vai
+     * mà lần kiểm tra của bản này dùng cho người liên hệ (đã khai, hoặc suy từ bên đối lập khi chưa
+     * khai — `App\Actions\Intake\CheckIntakeConflict`); lần gọi kia phải ĐÃ KHAI vai (cột `contact_role`). Khác vai
+     * thì không phải cùng một người gọi lại: vợ và chồng chung một số máy bàn.
+     *
+     * MỘT định nghĩa cho cả hai nơi dùng: `RunConflictCheck` (bỏ khớp với lần gọi lành, mang bên đối
+     * lập của lần gọi trước vào lần kiểm tra) và `CheckIntakeConflict` (khoá lần gọi lại khi một lần
+     * gọi trước {@see self::locksRepeatCalls()}). Không có định danh mạnh nào thì rỗng. Bỏ
+     * `ClientPortalScope` như mọi truy vấn của kiểm tra xung đột.
+     *
+     * @return EloquentCollection<int, IntakeRequest>
+     */
+    public function sameCallerIntakes(PartyRole $role): EloquentCollection
+    {
+        $hash = $this->contact_id_number_hash;
+        $phone = $this->contact_phone_normalized;
+
+        if ($hash === null && $phone === null) {
+            return new EloquentCollection;
+        }
+
+        return static::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->openForConflictCheck()
+            ->whereKeyNot($this->getKey())
+            ->where('contact_role', $role->value)
+            ->where(fn (Builder $q) => $q
+                ->when($hash, fn (Builder $w) => $w->orWhere('contact_id_number_hash', $hash))
+                ->when($phone, fn (Builder $w) => $w->orWhere('contact_phone_normalized', $phone)))
+            ->get();
+    }
+
+    /**
      * Dấu vân tay của phần danh tính mà một lần kiểm tra xung đột đã chạy trên đó (vai dự kiến, tên
      * chuẩn hoá, SĐT chuẩn hoá, dấu băm CCCD của người liên hệ, cùng vai + tên + SĐT + dấu băm của
      * từng bên đối lập). Lưu kèm `conflict_result`; cổng ô câu chuyện so nó với danh tính HIỆN TẠI:
@@ -308,7 +385,10 @@ class IntakeRequest extends Model
      * CHỈ cột không cá nhân, không nhạy cảm: nguồn, trạng thái, người được giao, lĩnh vực, và các
      * liên kết sau chuyển đổi/gộp. Tuyệt đối không tên, SĐT, email, người giới thiệu, `summary`,
      * `decline_reason`, `conflict_override_reason`, `decline_reason_is_conflict` (R7, R8) — và
-     * `conflict_level`/`conflict_result` (đã có dòng `conflict_check_run` riêng). Bẫy đã biết: dòng
+     * `conflict_level`/`conflict_result` (đã có dòng `conflict_check_run` riêng). Lý do ghi đè Đỏ
+     * KHÔNG đi qua đây mà vào dòng `intake_conflict_overridden` một cách tường minh (SPEC §6.10 "ghi
+     * vào activity log", như `OpenMatter`; fix vòng 1 của Task 2) — một bản sao tự động nữa ở diff của
+     * model chỉ thêm một chỗ Task 7 phải dọn. Bẫy đã biết: dòng
      * `conflict_check_run` của tiếp nhận mang `matches` (mã hồ sơ, tên bên của vụ khác, kể cả vụ
      * `restricted`) — đúng lỗ mang sang M8 Task 6; M10 không làm rộng thêm.
      */

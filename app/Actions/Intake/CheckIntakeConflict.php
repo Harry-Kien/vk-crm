@@ -3,6 +3,7 @@
 namespace App\Actions\Intake;
 
 use App\Actions\RunConflictCheck;
+use App\Enums\ConflictLevel;
 use App\Enums\PartyRole;
 use App\Models\IntakeParty;
 use App\Models\IntakeRequest;
@@ -29,7 +30,7 @@ use Illuminate\Support\Collection;
  *    khai thì suy ra từ bên đối lập (đối của nguyên đơn là bị đơn và ngược lại), còn không thì
  *    `related` — để Đỏ không lặng lẽ tắt chỉ vì người gọi chưa nói mình là nguyên đơn hay bị đơn.
  *    Vai suy ra chỉ dùng cho lần kiểm tra, KHÔNG ghi lại vào `contact_role`.
- *  - Bên đối lập = `MatterParty` `is_our_client = false`, với dấu băm và SĐT chuẩn hoá đã lưu.
+ *  - Bên đối lập = {@see IntakeParty::toConflictParty()}.
  *
  * **Ghi lên bản ghi:** `conflict_level` (mức của các khớp MỚI, như `OpenMatter`), `conflict_checked_at`,
  * `conflict_result` (hình dạng `properties` của dòng audit, kèm `fingerprint` — dấu vân tay danh
@@ -38,16 +39,29 @@ use Illuminate\Support\Collection;
  * **Khi nào xác nhận/ghi đè cũ bị xoá:** khi lần chạy này có khớp MỚI (chưa từng được chấp nhận) hoặc
  * danh tính đã đổi so với lần chạy trước. Xác nhận Vàng và ghi đè Đỏ chỉ che những khớp người ta đã
  * thấy; một khớp mới thì phải được nhìn lại. Ngược lại, một lần chạy lại không có gì mới KHÔNG xoá
- * chúng — đúng R13(c): cổng không được luôn bật.
+ * chúng — đúng R13(c): cổng không được luôn bật. Lý do của một ghi đè bị xoá khỏi cột vẫn còn trong
+ * dòng `intake_conflict_overridden` của nó (fix vòng 1, I1): cột chỉ là "ghi đè đang có hiệu lực".
+ *
+ * **Đỏ DÍNH (fix vòng 1 của Task 2, I2): `conflict_red_pending_since`.** Đặt (giữ thời điểm ĐẦU) khi:
+ *  - lần chạy này ra Đỏ; hoặc
+ *  - (C1, người gọi lại) bản ghi chưa có ghi đè còn hiệu lực và một lần gọi khác của CÙNG người
+ *    ({@see IntakeRequest::sameCallerIntakes()}, cùng vai mà lần kiểm tra này dùng) đang khoá cuộc gọi
+ *    lại ({@see IntakeRequest::locksRepeatCalls()}: Đỏ chưa xử lý, hoặc từ chối vì xung đột). Điều kiện
+ *    "chưa có ghi đè" là để một quyết định của quản lý trên CHÍNH bản này không bị lần chạy lại kế tiếp
+ *    lật lại khi lần gọi kia vẫn còn khoá; sửa danh tính làm ghi đè hết hiệu lực (bước trên), nên
+ *    khoá trở lại.
+ * KHÔNG BAO GIỜ xoá ở đây — một lần chạy ra Xanh, kể cả do quản lý chạy, không xử lý được Đỏ (R1: chỉ
+ * từ chối hoặc ghi đè kèm lý do). Chỉ `ResolveIntakeRedConflict` xoá nó.
  */
 class CheckIntakeConflict
 {
     public function handle(?User $actor, IntakeRequest $intake): ConflictCheckResult
     {
         $parties = $intake->parties()->get();
+        $contactRole = $intake->contact_role ?? $this->impliedContactRole($parties);
 
         $result = app(RunConflictCheck::class)->handle(
-            $this->buildParties($intake, $parties),
+            $this->buildParties($intake, $contactRole, $parties),
             null,
             $actor,
             null,
@@ -73,6 +87,12 @@ class CheckIntakeConflict
             ]);
         }
 
+        // Sau bước xoá ở trên: "chưa có ghi đè còn hiệu lực" phải là trạng thái SAU lần chạy này.
+        if ($result->level === ConflictLevel::Red
+            || (! $intake->hasConflictOverride() && $this->sameCallerLocks($intake, $contactRole))) {
+            $intake->conflict_red_pending_since ??= now();
+        }
+
         if ($actor !== null) {
             $intake->blameOn($actor);
         }
@@ -82,14 +102,19 @@ class CheckIntakeConflict
         return $result;
     }
 
+    private function sameCallerLocks(IntakeRequest $intake, PartyRole $contactRole): bool
+    {
+        return $intake->sameCallerIntakes($contactRole)->contains(fn (IntakeRequest $other): bool => $other->locksRepeatCalls());
+    }
+
     /**
      * @param  Collection<int, IntakeParty>  $intakeParties
      * @return Collection<int, MatterParty>
      */
-    private function buildParties(IntakeRequest $intake, Collection $intakeParties): Collection
+    private function buildParties(IntakeRequest $intake, PartyRole $contactRole, Collection $intakeParties): Collection
     {
         $contact = (new MatterParty([
-            'role' => $intake->contact_role ?? $this->impliedContactRole($intakeParties),
+            'role' => $contactRole,
             'name' => $intake->contact_name,
             'is_our_client' => true,
         ]));
@@ -98,13 +123,7 @@ class CheckIntakeConflict
 
         return collect([
             $contact,
-            ...$intakeParties->map(function (IntakeParty $party): MatterParty {
-                $built = new MatterParty(['role' => $party->role, 'name' => $party->name, 'is_our_client' => false]);
-                $built->id_number_hash = $party->id_number_hash;
-                $built->phone_normalized = $party->phone_normalized;
-
-                return $built;
-            })->all(),
+            ...$intakeParties->map(fn (IntakeParty $party): MatterParty => $party->toConflictParty())->all(),
         ]);
     }
 
