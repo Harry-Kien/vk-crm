@@ -370,17 +370,66 @@ seeder nó gọi (`ReferenceDataSeeder`):
   tả giai đoạn, đầu mục đã sửa hay đã xoá — mọi thứ quản trị viên đã chỉnh — không bao giờ bị
   ghi đè hay khôi phục. Muốn lấy lại cấu hình mặc định của một loại thì phải sửa tay.
 
-**Muốn dữ liệu mẫu để demo cho khách trước khi dùng thật** (không phải dữ liệu thật): gọi thẳng
-seeder demo bằng `--class`, cờ này đi thẳng vào lớp được đặt tên, không qua kiểm tra môi trường
-của `DatabaseSeeder`:
+**Muốn dữ liệu mẫu để demo cho khách trước khi dùng thật** (không phải dữ liệu thật) — đọc hết
+đoạn này TRƯỚC khi chạy lệnh. Dữ liệu mẫu có tám tài khoản nhân sự, cùng mật khẩu `password`,
+và CHƯA tài khoản nào có 2FA: `admin@luatvukhang.com` (Quản trị viên), `quanly@luatvukhang.com`,
+`luatsu1@luatvukhang.com`, `luatsu2@luatvukhang.com`, `luatsu3@luatvukhang.com`,
+`troly1@luatvukhang.com`, `troly2@luatvukhang.com`, `ketoan@luatvukhang.com`. Secret 2FA demo
+chỉ được gán ở `local`/`testing`, nên ở đây `/admin` bắt mỗi tài khoản tự cài 2FA ở lần đăng
+nhập đầu — và **ai đăng nhập TRƯỚC thì app xác thực của CHÍNH NGƯỜI ĐÓ được gắn vào tài khoản**
+(trust-on-first-use: hệ thống tin người đầu tiên tới, không hỏi người đó là ai). Email và mật
+khẩu này nằm công khai trong mã nguồn và trong chính tài liệu này. Trên một tên miền mở ra
+Internet, một người lạ đăng nhập `admin@luatvukhang.com` trước văn phòng là **chiếm trọn quyền
+quản trị** — tạo nhân sự, đọc mọi vụ việc, gửi thư cho khách bằng hộp thư và chân thư của văn
+phòng — còn văn phòng thì bị khoá ngoài chính tài khoản đó, vì mã 2FA nằm trong điện thoại của
+người kia. Bảy tài khoản còn lại cũng vậy, mỗi cái một vai.
+
+Vì vậy dữ liệu mẫu chỉ được nạp khi người ngoài văn phòng không mở được `/admin`:
+
+1. **Bắt buộc: `ADMIN_IP_ALLOWLIST` đã đặt IP văn phòng** (bảng biến ở Bước 3; đã chạy Bước 7
+   thì sửa `.env` xong chạy lại `php artisan optimize`). Kiểm từ một mạng NGOÀI văn phòng (4G
+   của điện thoại): `https://<tên miền>/admin/login` phải là `404`. Chưa thấy `404` thì chưa
+   chạy lệnh dưới.
+2. **Nên: demo trên một bản cài RIÊNG** — tên miền con (ví dụ `demo.<tên miền>`) hoặc máy chủ
+   khác, CSDL riêng, `.env` riêng, vẫn đặt `ADMIN_IP_ALLOWLIST` như mục 1 — để CSDL của bản thật
+   không bao giờ chứa tài khoản demo.
+
+Đủ điều kiện thì gọi thẳng seeder demo bằng `--class` (cờ này đi thẳng vào lớp được đặt tên,
+không qua kiểm tra môi trường của `DatabaseSeeder`):
 
 ```bash
 php artisan db:seed --class=DemoDataSeeder --force
 ```
 
-Đừng chạy lệnh này trên dữ liệu thật: nó tạo tài khoản mật khẩu `password` trên tên miền thật
-(không kèm secret 2FA demo — secret đó chỉ gán ở `local`/`testing`, nên mỗi tài khoản demo vẫn
-phải tự cài 2FA ở lần đăng nhập đầu).
+Tài khoản cổng khách demo (`khach…@example.com`) cũng mật khẩu `password`, nhưng cổng khách luôn
+đòi thêm mã sáu số gửi qua email, và hộp thư `example.com` không có ai nhận.
+
+**Hết demo, chuyển sang dùng thật — chạy chuỗi này TRƯỚC Bước 6** (dòng cuối của nó CHÍNH LÀ
+Bước 6). Nó xoá SẠCH mọi thứ demo đã tạo:
+
+```bash
+php artisan migrate:fresh --force && \
+  php artisan db:seed --force && \
+  rm -rf storage/app/private/[0-9]* && \
+  php artisan vkcrm:create-admin
+```
+
+- `migrate:fresh --force` xoá MỌI bảng trong CSDL `DB_DATABASE` rồi tạo lại — tám tài khoản demo,
+  khách, vụ việc, nhật ký, phiên đăng nhập (ai đang đăng nhập đều bị đẩy ra), thư còn chờ gửi.
+  `db:seed --force` nạp lại dữ liệu tham chiếu, như lần cài đầu ở trên.
+- `rm -rf storage/app/private/[0-9]*` xoá tệp của tài liệu mẫu: mỗi tài liệu nằm trong một thư
+  mục mang số của nó (`storage/app/private/1/`, `2/`…). Bỏ qua dòng này thì tệp demo nằm lại
+  không thuộc bản ghi nào, và tài liệu thật đầu tiên rơi vào đúng thư mục `1/` cũ của một tệp
+  demo. Hai tệp `.gitignore` và `.htaccess` của thư mục đó được giữ nguyên.
+- `vkcrm:create-admin` là Bước 6 — đọc Bước 6 trước khi trả lời câu hỏi của nó. Sau đó đặt lại
+  `ADMIN_IP_ALLOWLIST` theo quyết định ở Bước 0.
+- Đây là chỗ DUY NHẤT `migrate:fresh` được chạy trên máy chủ thật, và chỉ khi CSDL CHƯA có gì
+  thật: dữ liệu nào lỡ nhập thật trong lúc demo cũng mất theo, không lấy lại được. Lỡ nhập thật
+  rồi thì dừng lại, đừng chạy.
+- Không có đường tắt nào khác. Trên CSDL demo, Bước 6 từ chối ("Hệ thống đã có 1 quản trị viên"
+  — người đó chính là `admin@luatvukhang.com`); `--additional` chỉ thêm một quản trị viên mới bên
+  cạnh tám tài khoản demo vẫn mật khẩu `password`, vẫn chưa ai cài 2FA. Xoá tay từng tài khoản
+  cũng không đủ: khách, vụ việc, tài liệu và nhật ký mẫu vẫn còn.
 
 ### Bước 6 — Tạo quản trị viên đầu tiên: `vkcrm:create-admin`
 
@@ -401,7 +450,9 @@ lệnh máy chủ" vào Nhật ký hệ thống.
 - **Đã có quản trị viên thì lệnh từ chối**, nêu số lượng (tính cả người đang bị vô hiệu hoá). Nhân
   sự tiếp theo — kể cả quản trị viên thứ hai — tạo trong `/admin`, màn hình Nhân sự. Chỉ khi không
   còn quản trị viên nào đăng nhập được mới chạy `php artisan vkcrm:create-admin --additional`
-  (việc này cũng vào nhật ký, ghi rõ cờ).
+  (việc này cũng vào nhật ký, ghi rõ cờ). Đã nạp dữ liệu mẫu ở Bước 5 thì con số đó tính cả
+  `admin@luatvukhang.com`: chạy chuỗi "Hết demo, chuyển sang dùng thật" ở cuối Bước 5, ĐỪNG dùng
+  `--additional`.
 - Email đã thuộc một nhân sự — kể cả nhân sự đã xoá — bị từ chối: dùng email khác.
 - **Không dùng `php artisan make:filament-user`** (lệnh có sẵn của Filament): nó tạo người dùng
   không có chức danh, không vai trò, không ghi nhật ký.
