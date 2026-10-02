@@ -127,7 +127,7 @@ it('gates client and settings management by permission', function () {
 
 it('answers the create ability the way Laravel actually calls it', function () {
     expect($this->lead->can('create', Deadline::class))->toBeTrue()
-        ->and($this->lead->can('create', CommunicationLog::class))->toBeTrue()
+        ->and($this->lead->can('create', [CommunicationLog::class, $this->matter]))->toBeTrue()
         ->and($this->accountant->can('create', Deadline::class))->toBeFalse()
         ->and($this->clientUser->can('create', Deadline::class))->toBeFalse()
         ->and($this->clientUser->can('create', CommunicationLog::class))->toBeFalse();

@@ -105,6 +105,10 @@ return [
         // M7 Task 10: app/Actions/Settings/UpdateOfficeProfile.php — `changed_fields` nêu TÊN các
         // trường đã đổi trên trang "Thông tin văn phòng", không nêu giá trị.
         'office_profile_updated' => 'Sửa thông tin văn phòng',
+        // M7 Task 8: app/Actions/Communication/{LogCommunication,DeleteCommunicationLog}.php —
+        // chủ thể là dòng `communication_logs`; không ghi nội dung cuộc liên lạc vào nhật ký.
+        'communication_logged' => 'Ghi nhật ký liên lạc',
+        'communication_log_deleted' => 'Xoá một dòng nhật ký liên lạc',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

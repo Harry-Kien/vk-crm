@@ -327,4 +327,22 @@ class MatterPolicy
     {
         return false;
     }
+
+    /**
+     * Tab "Nhật ký" của riêng vụ việc (SPEC §7.2, M7 Task 8): admin, trưởng phòng — tức đúng
+     * những người có `auditLog.view` (SPEC §5), hai người đã đọc được các dòng này ở trang Nhật
+     * ký hệ thống — và luật sư phụ trách CỦA VỤ NÀY. Không trợ lý, không cộng sự, không kế toán.
+     *
+     * **Nền là `view()`**, nên một trưởng phòng không lead một vụ `restricted` rớt ở đó, cùng lý
+     * lẽ với {@see self::manageTeam()}; vụ đã xoá mềm vẫn đọc được với người `view()` cho qua
+     * (tab chỉ đọc). Luật sư phụ trách so bằng `lead_lawyer_id` ĐANG có trong bản ghi — sau một
+     * lần bàn giao, người cũ mất tab ở request kế tiếp dù vẫn còn trong đội ngũ.
+     */
+    public function viewActivityLog(User|ClientUser $user, Matter $matter): bool
+    {
+        return $user instanceof User
+            && $this->view($user, $matter)
+            && ($user->can(Permission::AuditLogView->value)
+                || (int) $matter->lead_lawyer_id === (int) $user->getKey());
+    }
 }

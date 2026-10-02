@@ -9,6 +9,7 @@ use App\Models\Client;
 use App\Models\ClientRequest;
 use App\Models\ClientRequestReply;
 use App\Models\ClientUser;
+use App\Models\CommunicationLog;
 use App\Models\Deadline;
 use App\Models\Document;
 use App\Models\Matter;
@@ -111,6 +112,10 @@ class AppServiceProvider extends ServiceProvider
             // `ClassMorphViolationException` chứ không lặng lẽ lưu tên lớp đầy đủ — nên thiếu
             // dòng này, `Audit::record()` với chủ thể là một đầu mục danh mục là một lỗi 500.
             'matter_checklist_item' => MatterChecklistItem::class,
+            // M7 Task 8: chủ thể của `communication_logged` / `communication_log_deleted`. Cũng
+            // có tên trong `ActivityOwningMatter::MATTER_OWNED`, để dòng nhật ký của một vụ
+            // `restricted` không lọt ra trang Nhật ký hệ thống.
+            'communication_log' => CommunicationLog::class,
         ]);
 
         // Giới hạn lượt tải tệp (route `documents.download`). Con số và toàn bộ lý lẽ — kể cả vì

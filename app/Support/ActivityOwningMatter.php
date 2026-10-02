@@ -6,6 +6,7 @@ use App\Enums\Role;
 use App\Models\Matter;
 use App\Models\User;
 use App\Support\Scopes\ClientPortalScope;
+use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -30,6 +31,8 @@ use Spatie\Activitylog\Models\Activity;
  *
  * {@see self::owningMatterId()} nói luật đó bằng PHP cho MỘT dòng (modal); {@see self::scopeVisibleTo()}
  * nói lại bằng SQL cho cả bảng (Filament phân trang trên truy vấn, không lọc được sau khi nạp).
+ * {@see self::scopeOwnedBy()} (M7 Task 8, tab "Nhật ký" của một vụ) dùng chung đúng câu SQL đó
+ * qua {@see self::whereOwnedByAny()}, chỉ với một vụ thay cho tập vụ người xem thấy được.
  * Hai cách nói đọc thẳng các bảng con qua `DB::table()` — không qua model — để `SoftDeletes` và
  * `ClientPortalScope` không làm một dòng con đã xoá mềm "mất chủ".
  *
@@ -57,6 +60,8 @@ final class ActivityOwningMatter
         'stage_log' => 'stage_logs',
         'client_request' => 'client_requests',
         'matter_checklist_item' => 'matter_checklist_items',
+        // M7 Task 8: dòng `communication_logged` / `communication_log_deleted`.
+        'communication_log' => 'communication_logs',
     ];
 
     private const MATTER = 'matter';
@@ -123,6 +128,9 @@ final class ActivityOwningMatter
     /**
      * Lọc truy vấn bảng nhật ký cho `$viewer` — cùng luật với {@see self::canView()}.
      *
+     * Hai phần: các dòng quy được về một vụ `$viewer` xem được ({@see self::whereOwnedByAny()},
+     * cùng câu mà tab "Nhật ký" của một vụ dùng), cộng các dòng không thuộc vụ nào (bước 4).
+     *
      * @param  Builder<Activity>  $query
      */
     public static function scopeVisibleTo(Builder $query, User $viewer): void
@@ -138,31 +146,72 @@ final class ActivityOwningMatter
             ->select('matters.id');
 
         $query->where(function (Builder $rows) use ($visibleMatters): void {
-            $rows->where(fn (Builder $q) => $q
-                ->where('subject_type', self::MATTER)
-                ->whereIn('subject_id', $visibleMatters()));
+            self::whereOwnedByAny($rows, $visibleMatters);
 
-            foreach (self::MATTER_OWNED as $type => $table) {
-                $rows->orWhere(fn (Builder $q) => $q
-                    ->where('subject_type', $type)
-                    ->whereIn('subject_id', DB::table($table)->select('id')->whereIn('matter_id', $visibleMatters())));
-            }
-
-            $rows->orWhere(fn (Builder $q) => $q
-                ->where('subject_type', self::CLIENT_REQUEST_REPLY)
-                ->whereIn('subject_id', DB::table('client_request_replies')
-                    ->join('client_requests', 'client_requests.id', '=', 'client_request_replies.request_id')
-                    ->select('client_request_replies.id')
-                    ->whereIn('client_requests.matter_id', $visibleMatters())));
-
+            // Bước 4: dòng không thuộc vụ nào — chủ thể không phải model của vụ việc VÀ không có
+            // `properties.matter_id`.
             $rows->orWhere(fn (Builder $q) => $q
                 ->where(fn (Builder $type) => $type
                     ->whereNull('subject_type')
                     ->orWhereNotIn('subject_type', self::matterOwnedTypes()))
-                ->where(fn (Builder $property) => $property
-                    ->whereNull('properties->matter_id')
-                    ->orWhereIn('properties->matter_id', $visibleMatters())));
+                ->whereNull('properties->matter_id'));
         });
+    }
+
+    /**
+     * Chỉ các dòng mà {@see self::owningMatterId()} quy về đúng `$matter` (M7 Task 8, tab "Nhật
+     * ký" của riêng vụ việc). Cùng MỘT câu SQL với nửa "thuộc vụ xem được" của
+     * {@see self::scopeVisibleTo()}, chỉ khác tập vụ việc: ở đây là một vụ. Quyền ĐỌC tab không hỏi
+     * ở đây — đó là việc của `MatterPolicy::viewActivityLog`.
+     *
+     * @param  Builder<Activity>  $query
+     */
+    public static function scopeOwnedBy(Builder $query, Matter $matter): void
+    {
+        $matterId = (int) $matter->getKey();
+
+        $query->where(fn (Builder $rows) => self::whereOwnedByAny(
+            $rows,
+            fn () => Matter::query()
+                ->withoutGlobalScope(ClientPortalScope::class)
+                ->withTrashed()
+                ->whereKey($matterId)
+                ->select('matters.id'),
+        ));
+    }
+
+    /**
+     * Ba bước đầu của luật (docblock lớp) bằng SQL, nối bằng `OR`, cho một TẬP vụ việc cho trước
+     * (`$matterIds` trả về một truy vấn `select matters.id`): chủ thể là vụ đó; chủ thể là model
+     * con của vụ đó; hoặc chủ thể không phải model của vụ việc và `properties.matter_id` là vụ đó.
+     *
+     * @param  Builder<Activity>  $rows
+     * @param  Closure(): Builder<Matter>  $matterIds
+     */
+    private static function whereOwnedByAny(Builder $rows, Closure $matterIds): void
+    {
+        $rows->where(fn (Builder $q) => $q
+            ->where('subject_type', self::MATTER)
+            ->whereIn('subject_id', $matterIds()));
+
+        foreach (self::MATTER_OWNED as $type => $table) {
+            $rows->orWhere(fn (Builder $q) => $q
+                ->where('subject_type', $type)
+                ->whereIn('subject_id', DB::table($table)->select('id')->whereIn('matter_id', $matterIds())));
+        }
+
+        $rows->orWhere(fn (Builder $q) => $q
+            ->where('subject_type', self::CLIENT_REQUEST_REPLY)
+            ->whereIn('subject_id', DB::table('client_request_replies')
+                ->join('client_requests', 'client_requests.id', '=', 'client_request_replies.request_id')
+                ->select('client_request_replies.id')
+                ->whereIn('client_requests.matter_id', $matterIds())));
+
+        $rows->orWhere(fn (Builder $q) => $q
+            ->where(fn (Builder $type) => $type
+                ->whereNull('subject_type')
+                ->orWhereNotIn('subject_type', self::matterOwnedTypes()))
+            ->whereIn('properties->matter_id', $matterIds()));
     }
 
     /**

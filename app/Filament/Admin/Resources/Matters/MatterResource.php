@@ -8,8 +8,10 @@ use App\Filament\Admin\Resources\Matters\Pages\ListMatters;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ChecklistRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ClientRequestsRelationManager;
+use App\Filament\Admin\Resources\Matters\RelationManagers\CommunicationLogsRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\DeadlinesRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\DocumentsRelationManager;
+use App\Filament\Admin\Resources\Matters\RelationManagers\MatterActivityRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\PartiesRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\StageLogsRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\TeamRelationManager;
@@ -36,9 +38,8 @@ use Illuminate\Support\Facades\Auth;
  * sinh mã, dựng bên khách hàng, sao chép danh mục hồ sơ, nhật ký) chứ không phải một lần ghi
  * bảng. Trang sửa (`EditMatter`, M6.5 Task 5) cũng vậy — gọi `App\Actions\Matter\
  * UpdateMatterDetails`, chỉ sửa năm cột SPEC §4.6 cho phép, không đụng `client_id`/
- * `matter_type_id`/`lead_lawyer_id`. Trang chi tiết (`ViewMatter`) có bảy
- * tab — Tổng quan (infolist dưới đây), Tiến độ, Danh mục hồ sơ, Tài liệu, Các bên, Yêu cầu từ
- * khách và Mốc thời hạn (`getRelations()`); các tab Liên lạc và Nhật ký (M7) chưa xây.
+ * `matter_type_id`/`lead_lawyer_id`. Trang chi tiết (`ViewMatter`) có tab
+ * Tổng quan (infolist dưới đây) và các tab của `getRelations()` — gồm Liên lạc và Nhật ký (M7 Task 8).
  */
 class MatterResource extends Resource
 {
@@ -86,13 +87,13 @@ class MatterResource extends Resource
     }
 
     /**
-     * Thứ tự tab sau "Tổng quan", ĐÚNG thứ tự SPEC §7.2 liệt kê chúng: Tiến độ, Danh mục hồ sơ,
-     * Tài liệu, Các bên, Yêu cầu từ khách. Hai tab giữa là của M4, tab cuối là của M5 Task 6;
-     * Mốc thời hạn, Liên lạc và Nhật ký chưa xây.
+     * Thứ tự tab sau "Tổng quan" theo SPEC §7.2: Tiến độ, Danh mục hồ sơ, Tài liệu, Các bên, rồi
+     * Yêu cầu từ khách (M5 Task 6), Mốc thời hạn (M6 Task 5), Liên lạc và Nhật ký (M7 Task 8).
      *
-     * "Yêu cầu từ khách" nhảy qua Mốc thời hạn và Liên lạc — hai tab SPEC đặt trước nó — vì hai
-     * tab kia thuộc M7 và một chỗ trống không giữ được thứ tự. Khi chúng được dựng, chúng chèn
-     * vào TRƯỚC dòng cuối cùng ở đây.
+     * Một chỗ lệch có biết: SPEC đặt Mốc thời hạn và Liên lạc TRƯỚC "Yêu cầu từ khách". Tab Mốc
+     * thời hạn được dựng sau và nối vào cuối; M7 Task 8 không đảo lại hai dòng của milestone khác
+     * (để lần gộp các làn song song không đụng nhau) mà nối Liên lạc ngay sau Mốc thời hạn. "Nhật
+     * ký" đứng cuối cùng, đúng như SPEC.
      *
      * Thứ tự không phải chuyện thẩm mỹ: "Danh mục hồ sơ" (còn thiếu gì) đứng trước "Tài liệu"
      * (đã có gì) vì câu hỏi hằng ngày của trợ lý là câu thứ nhất, và SPEC viết chúng theo đúng
@@ -117,6 +118,11 @@ class MatterResource extends Resource
             // quyết định `CheckDeadlines` (Task 6) có dữ liệu ở văn phòng hay chỉ xanh trên máy
             // của lập trình viên.
             DeadlinesRelationManager::class,
+            // Tab "Liên lạc" (SPEC §7.2), M7 Task 8 — ghi một cuộc gọi trong dưới 15 giây.
+            CommunicationLogsRelationManager::class,
+            // Tab "Nhật ký" (SPEC §7.2), M7 Task 8 — luôn cuối cùng, như SPEC liệt kê; chỉ admin,
+            // trưởng phòng và luật sư phụ trách của vụ thấy (`MatterPolicy::viewActivityLog`).
+            MatterActivityRelationManager::class,
         ];
     }
 

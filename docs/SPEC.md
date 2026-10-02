@@ -517,6 +517,14 @@ báo cho tôi không", sẽ trả lời được bằng bằng chứng.
 | is_visible_to_client | boolean default false | Mặc định nội bộ |
 | created_by | FK users | |
 
+**Đính chính 2026-09-28 (M7 Task 8).** Cột `is_visible_to_client` giữ nguyên, mặc định `false`,
+nhưng **không có công tắc nào trên form** ghi nhật ký liên lạc và Action ghi
+(`App\Actions\Communication\LogCommunication`) luôn ép `false`: không màn hình portal nào đọc bảng
+này (§8.3, phán quyết 3 của M5), nên một công tắc chỉ khiến luật sư tin rằng khách đã thấy. Nhật ký
+liên lạc là bằng chứng: không sửa được trên màn hình; xoá là xoá mềm kèm lý do bắt buộc và một dòng
+audit (`communication_log_deleted`), không bao giờ xoá cứng. Ghi vào một vụ việc đòi đúng
+`MatterPolicy::update` trên vụ đó (`CommunicationLogPolicy::create($user, $matter)`).
+
 ### 4.18 `stage_log_views` — xác nhận khách đã đọc
 
 | Cột | Kiểu |

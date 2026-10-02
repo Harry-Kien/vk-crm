@@ -1464,6 +1464,62 @@ thông tin thương hiệu chỉ đổi được qua `.env`.
   thêm `Setting` vào danh sách miễn trừ; `SenderIdentityTest` sửa docblock (chuỗi rỗng bị lọc ở hai
   tầng, câu "bỏ `filled()` làm test này đỏ" của bản trước sai với ca đó).
 
+#### Task 8 — Nhật ký liên lạc và nhật ký riêng của vụ việc
+
+- **Tên giữ cho M11** (kế hoạch M11 dòng 49, 318):
+  - `CommunicationLogPolicy::create(User|ClientUser $user, ?Matter $matter = null)` — khách luôn
+    `false`; nhân sự không nêu vụ việc: `false`; nêu vụ: đúng `MatterPolicy::update` (chưa xoá
+    mềm + `matter.update` + xem được vụ) qua `ChecksMatterAccess::canUpdateMatter()`. Gọi bằng
+    `Gate::forUser($actor)->…('create', [CommunicationLog::class, $matter])`;
+  - **Action ghi** `App\Actions\Communication\LogCommunication::handle(Matter $matter, User $actor,
+    CommunicationType $type, string $summary, ?string $counterpart = null, string|CarbonInterface|null
+    $occurredAt = null, ?int $durationMinutes = null): CommunicationLog`. Câu đầu khoá dòng `matters`;
+    hỏi cổng trên vụ ĐỌC LẠI dưới khoá; mọi lý do từ chối ra một câu (`communications.unavailable`,
+    `AuthorizationException`); kiểm tra đầu vào chạy SAU cổng (`ValidationException` gắn khoá
+    `summary`/`counterpart`/`occurred_at`/`duration_minutes`). M11 thêm cột `created_via` và truyền
+    nó vào Action này;
+  - Action xoá `App\Actions\Communication\DeleteCommunicationLog::handle(CommunicationLog $log, User
+    $actor, string $reason)` — khoá `matters` rồi `communication_logs`, lý do bắt buộc (≤ 1000 ký tự),
+    audit TRƯỚC lệnh xoá mềm trong cùng transaction. Không `forceDelete()` ở đâu cả.
+- **Luật đầu vào (Action):** `summary` bắt buộc sau `trim`, ≤ 16.383 ký tự (`TEXT` 65.535 byte ÷ 4
+  byte utf8mb4 — trần bảo đảm vừa trên MariaDB strict); `counterpart` trống = tên khách của vụ, ≤ 200;
+  `occurred_at` trống = bây giờ, không được ở tương lai quá 60 giây (nhật ký ghi điều đã xảy ra);
+  `duration_minutes` 0…65.535 hoặc trống; `is_visible_to_client` luôn `false` — không phải tham số.
+- **Policy siết:** `update()`/`delete()` = dòng chưa xoá mềm VÀ điều kiện của `create()` trên vụ của
+  dòng (bản trước mở cho bất kỳ ai xem được vụ); `forceDelete()` luôn `false`. `view()` không đổi
+  (d069424). `ChildPolicyTest` đổi một dòng: `can('create', [CommunicationLog::class, $matter])`.
+- **Tab "Liên lạc"** (`CommunicationLogsRelationManager`, quan hệ `communicationLogs`): một hàng nút
+  chọn kênh (`ToggleButtons` inline, không mặc định — một lần chạm) + một ô nội dung; khối thu gọn
+  "Thời điểm, người liên lạc, thời lượng" đã điền sẵn bây giờ và tên khách; người ghi là người đăng
+  nhập (không có ô); không có ô `is_visible_to_client`; không nút "Sửa"; "Xoá" có ô lý do. Cổng tab =
+  `MatterPolicy::view`; nút ghi = `create` với vụ; nút xoá = `delete`. Bảng mới nhất trước, hiện
+  người ghi kể cả tài khoản đã xoá mềm.
+- **Tab "Nhật ký"** (`MatterActivityRelationManager`): ability mới `MatterPolicy::viewActivityLog` =
+  `view()` VÀ (`auditLog.view` — admin, trưởng phòng — HOẶC `lead_lawyer_id` của chính vụ). Ẩn tab
+  (`canViewForRecord`), 404 ở mount (`booted()`) và ở mọi request cập nhật Livewire (`hydrate()` —
+  chạy TRƯỚC `hydrateCanAuthorizeAccess()` 403 của Filament), modal hỏi lại. Dòng = luật
+  `ActivityOwningMatter` qua `scopeOwnedBy($query, $matter)`; `scopeVisibleTo()` nay dùng chung câu
+  SQL `whereOwnedByAny()` với nó (một định nghĩa). Modal qua `SensitivePropertyFilter`; nhãn sự kiện
+  qua `lang/vi/activity.php`.
+- **Morph map** thêm `communication_log`; `ActivityOwningMatter::MATTER_OWNED` thêm
+  `communication_log => communication_logs` (test: dòng audit nhật ký liên lạc của vụ `restricted`
+  không lên trang Nhật ký hệ thống của trưởng phòng ngoài vụ). Hai khoá audit mới
+  `communication_logged` (kênh, thời điểm — KHÔNG nội dung, KHÔNG tên người liên lạc) và
+  `communication_log_deleted` (thêm lý do). Chuỗi mới ở `lang/vi/communications.php`.
+- **Thứ tự tab:** Liên lạc nối sau Mốc thời hạn, Nhật ký cuối cùng. SPEC đặt Mốc thời hạn và Liên lạc
+  trước "Yêu cầu từ khách"; không đảo dòng của M5/M6 để lần gộp các làn không đụng nhau (ghi ở
+  docblock `MatterResource::getRelations()`).
+- **Giới hạn đã biết:** trên một vụ đã xoá mềm, tab Liên lạc (như mọi tab con dùng
+  `ScopesToVisibleMatters`) hiện rỗng với admin — `whereHas('matter')` loại vụ đã xoá; dữ liệu còn
+  nguyên. Dòng `conflict_check_run` trong tab Nhật ký mang mã hồ sơ trùng — đúng ranh giới
+  `ConflictMatch` mà SPEC §6.10 cho người chạy kiểm tra thấy; tab mở ranh giới đó thêm cho luật sư
+  phụ trách của vụ (trước chỉ admin/trưởng phòng ở trang hệ thống).
+- Đính chính SPEC §4.17 (không công tắc, bằng chứng, cổng ghi).
+- Test: `tests/Feature/Filament/{CommunicationLogsRelationManagerTest, MatterActivityRelationManagerTest}.php`
+  (Livewire/HTTP), `tests/Feature/Actions/Communication/{LogCommunicationTest, DeleteCommunicationLogTest}.php`,
+  `tests/Feature/Authorization/CommunicationLogPolicyTest.php`. Test M5 về cổng khách
+  (`PortalIsolationSweepTest`, `PortalVisibilityTest`) xanh nguyên.
+
 ### Task 1 — Phần còn lại của `ReassignMatter` (SPEC §6.11 bước 3, R10)
 
 M6.5 Task 4 đã dựng `ReassignMatter` cho MỘT vụ việc (đổi lead, chuyển mốc hạn CHƯA hoàn thành,

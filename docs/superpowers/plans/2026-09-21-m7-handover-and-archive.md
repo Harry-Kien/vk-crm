@@ -222,7 +222,7 @@ Món nợ mang từ M4 sang (`docs/docs-6`): hôm nay một tài liệu công b�
 - **Một đường rút duy nhất.** Với tài liệu đã công bố, "chuyển sang nhóm D" và "xoá" hoặc đi qua `RetractDocument`, hoặc bị chặn kèm thông điệp chỉ tới nút Rút. Đây là hai "đường rút tạm thời" mà PROGRESS ghi ở M4. M6.5 Task 21 sửa câu tương ứng trong PROGRESS.
 - **Trước hết, sửa khoá ngoại `document_downloads.document_id` khỏi `cascadeOnDelete`.** Nếu không, xoá một tài liệu sẽ xoá luôn bằng chứng tải của nó. Đây là migration, nên áp dụng luật MariaDB thật.
 
-### - [ ] Task 8 — Nhật ký liên lạc và nhật ký riêng của vụ việc (SPEC §7.2, §13 dòng M7)
+### - [x] Task 8 — Nhật ký liên lạc và nhật ký riêng của vụ việc (SPEC §7.2, §13 dòng M7)
 
 SPEC §13 liệt kê "nhật ký liên lạc" trên dòng M7, và §7.2 đặc tả hẳn một tab. Bảng `communication_logs` có từ M1, policy có từ M2, nhưng **không có màn hình nào để ghi một cuộc gọi**. M5 đã phán quyết bảng này không lên cổng khách.
 
