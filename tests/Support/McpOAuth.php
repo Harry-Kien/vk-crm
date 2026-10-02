@@ -7,6 +7,7 @@ use DateTimeImmutable;
 use GuzzleHttp\Psr7\Response as Psr7Response;
 use GuzzleHttp\Psr7\ServerRequest;
 use Illuminate\Foundation\Testing\TestCase;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use Laravel\Passport\Bridge\AccessToken as AccessTokenEntity;
 use Laravel\Passport\Bridge\Client as ClientEntity;
@@ -149,6 +150,22 @@ final class McpOAuth
         $entity->setPrivateKey(new CryptKey((string) config('passport.private_key'), null, false));
 
         return $entity->toString();
+    }
+
+    /**
+     * Route thăm dò `POST /_probe/mcp-guard`, đứng sau ĐÚNG `auth:mcp`, KHÔNG có
+     * `RequireBearerToken`; trả `users.id` mà guard `mcp` nhận ra.
+     *
+     * Đây là vế đối chứng của các test cookie `laravel_token`: cùng cookie và cùng mã CSRF mà `/mcp`
+     * từ chối thì ở route này phải được nhận. Thiếu vế này, một cookie hỏng (mã hoá sai, CSRF lệch)
+     * cũng cho ra 401 ở `/mcp`, và test xanh vì một lý do không liên quan.
+     */
+    public static function registerGuardProbe(): string
+    {
+        Route::post('/_probe/mcp-guard', fn () => ['user_id' => request()->user()?->getKey()])
+            ->middleware('auth:mcp');
+
+        return '/_probe/mcp-guard';
     }
 
     /** `jti` của một access token JWT (không kiểm chữ ký — chỉ để tra dòng trong CSDL). */

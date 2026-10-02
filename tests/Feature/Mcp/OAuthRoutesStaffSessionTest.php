@@ -100,25 +100,40 @@ it('§10.7 POST oauth/token: phiên web không đổi được gì thành token 
 /**
  * `POST oauth/token/refresh` phát cookie `laravel_token` (JWT ký bằng `APP_KEY`, mọi scope) cho bất
  * kỳ phiên `web` nào. Chuỗi đầy đủ: lấy cookie bằng phiên chưa cài 2FA, rồi đem cookie đó cùng mã
- * CSRF của chính phiên ấy gọi `/mcp`. Phải là 401: `RequireBearerToken` đòi header bearer.
+ * CSRF của chính phiên ấy gọi `/mcp`. Phải là 401 ở mọi dòng: `RequireBearerToken` xoá cookie đó
+ * khỏi request trước `auth:mcp` và chặn bearer rỗng.
+ *
+ * Các dòng `Bearer 0` / `Bearer ,`: `TokenGuard::user()` của Passport chỉ thử bearer khi
+ * `bearerToken()` ĐÚNG theo PHP; `"0"` và `""` là sai, nên guard rơi xuống cookie và gắn một
+ * `TransientToken` có mọi scope (cả `mcp:use`). Vế đối chứng: đúng cookie và mã CSRF ấy mở được route
+ * thăm dò chỉ có `auth:mcp`, nên 401 ở `/mcp` không phải do cookie hỏng.
  */
-it('§10.7 POST oauth/token/refresh: cookie laravel_token nó phát không mở được /mcp', function () {
+it('§10.7 POST oauth/token/refresh: cookie laravel_token nó phát không mở được /mcp, kể cả khi kèm bearer rỗng hoặc "0"', function (?string $authorization) {
     $response = $this->actingAs($this->staff, 'web')->post('/oauth/token/refresh');
     $cookie = collect($response->headers->getCookies())->first(fn ($cookie) => $cookie->getName() === Passport::cookie());
 
     expect($cookie)->not->toBeNull();
+
+    $probe = McpOAuth::registerGuardProbe();
 
     // Giá trị cookie trong phản hồi đã được `EncryptCookies` (nhóm `web`) mã hoá, đúng như trình
     // duyệt nhận và gửi lại, nên gửi nguyên văn, không mã hoá thêm lần nữa.
     // `withCredentials()`: `postJson()` không gửi cookie nếu thiếu nó.
     $this->withCredentials()
         ->withUnencryptedCookie(Passport::cookie(), $cookie->getValue())
-        ->withHeader('X-CSRF-TOKEN', session()->token())
-        ->postJson('/mcp', [
-            'jsonrpc' => '2.0',
-            'id' => 1,
-            'method' => 'initialize',
-            'params' => ['protocolVersion' => '2025-11-25', 'capabilities' => (object) [], 'clientInfo' => ['name' => 'x', 'version' => '1']],
-        ])
-        ->assertUnauthorized();
-});
+        ->withHeader('X-CSRF-TOKEN', session()->token());
+
+    $this->postJson('/mcp', [
+        'jsonrpc' => '2.0',
+        'id' => 1,
+        'method' => 'initialize',
+        'params' => ['protocolVersion' => '2025-11-25', 'capabilities' => (object) [], 'clientInfo' => ['name' => 'x', 'version' => '1']],
+    ], $authorization === null ? [] : ['Authorization' => $authorization])->assertUnauthorized();
+
+    $this->postJson($probe)->assertOk()->assertJsonPath('user_id', $this->staff->getKey());
+})->with([
+    'không có header Authorization' => [null],
+    'Bearer 0' => ['Bearer 0'],
+    'Bearer ,' => ['Bearer ,'],
+    'Bearer và hai khoảng trắng' => ['Bearer  '],
+]);

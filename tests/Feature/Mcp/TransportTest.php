@@ -6,6 +6,7 @@ use App\Http\Middleware\Mcp\RequireBearerToken;
 use App\Models\ClientUser;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
 use Laravel\Passport\ApiTokenCookieFactory;
@@ -169,16 +170,44 @@ it('R1 phiên /admin và phiên cổng khách, kèm cookie, nhưng không bearer
     expectMcpChallenge($response);
 });
 
-it('R1 cookie laravel_token hợp lệ của Passport (kèm X-CSRF-TOKEN đúng) không xác thực được /mcp', function () {
-    $cookie = app(ApiTokenCookieFactory::class)->make(mcpLawyer()->getKey(), 'csrf-thu');
+/**
+ * `TokenGuard::user()` của Passport rẽ nhánh theo giá trị ĐÚNG/SAI của `bearerToken()`, không theo
+ * `null`: `Bearer 0` cho ra `"0"`, `Bearer ,` cho ra `""`, cả hai là "sai" trong PHP, nên guard bỏ
+ * qua bearer và đọc cookie `laravel_token`. Mỗi dòng gửi kèm một cookie hợp lệ và mã CSRF đúng.
+ * Vế đối chứng: đúng cookie và mã CSRF ấy mở được route thăm dò chỉ có `auth:mcp`.
+ */
+it('R1 cookie laravel_token hợp lệ (kèm X-CSRF-TOKEN đúng) không xác thực được /mcp, kể cả khi kèm bearer rỗng hoặc "0"', function (?string $authorization) {
+    $lawyer = mcpLawyer();
+    $cookie = app(ApiTokenCookieFactory::class)->make($lawyer->getKey(), 'csrf-thu');
+    $probe = McpOAuth::registerGuardProbe();
 
-    $response = $this->withCredentials()
+    $this->withCredentials()
         ->withCookie(Passport::cookie(), $cookie->getValue())
-        ->withHeader('X-CSRF-TOKEN', 'csrf-thu')
-        ->postJson('/mcp', mcpInitializeBody());
+        ->withHeader('X-CSRF-TOKEN', 'csrf-thu');
 
-    expectMcpChallenge($response);
-});
+    $headers = $authorization === null ? [] : ['Authorization' => $authorization];
+
+    expectMcpChallenge($this->postJson('/mcp', mcpInitializeBody(), $headers));
+
+    $this->postJson($probe)->assertOk()->assertJsonPath('user_id', $lawyer->getKey());
+})->with([
+    'không có header Authorization' => [null],
+    'Bearer 0' => ['Bearer 0'],
+    'Bearer ,' => ['Bearer ,'],
+    'Bearer và hai khoảng trắng' => ['Bearer  '],
+]);
+
+it('R1 bearer rỗng hoặc chỉ có khoảng trắng bị chặn ngay ở RequireBearerToken: 401, không tới bộ kiểm token nên không ghi lỗi nào', function (string $authorization) {
+    Exceptions::fake();
+
+    expectMcpChallenge(postMcp(mcpInitializeBody(), ['Authorization' => $authorization]));
+
+    Exceptions::assertNothingReported();
+})->with([
+    'Bearer' => ['Bearer '],
+    'Bearer ,' => ['Bearer ,'],
+    'Bearer và hai khoảng trắng' => ['Bearer  '],
+]);
 
 it('R7 token sai và không có header Accept: vẫn 401 JSON, không chuyển hướng (không có route login)', function () {
     $response = test()->call(

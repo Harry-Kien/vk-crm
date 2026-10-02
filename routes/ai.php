@@ -21,13 +21,15 @@ use Laravel\Passport\Http\Middleware\CheckToken;
 | Bốn middleware thêm ở đây chỉ đứng trước `POST`, theo thứ tự:
 |
 |   1. CheckOrigin         — Origin ngoài allowlist: 403, TRƯỚC mọi bước xác thực (R7);
-|   2. RequireBearerToken  — chỉ header `Authorization: Bearer`, đóng đường cookie `laravel_token`
-|                            của `TokenGuard` (R1);
+|   2. RequireBearerToken  — chỉ header `Authorization: Bearer`: xoá cookie `laravel_token` khỏi
+|                            request để `TokenGuard` không đi được đường cookie, và chặn bearer
+|                            trống (R1);
 |   3. auth:mcp            — token Passport hợp lệ của một `users.id` (guard `mcp`, R1);
 |   4. CheckToken mcp:use  — token phải mang scope `mcp:use` (R7, phương án ràng buộc bằng cấu trúc).
 |
-| Thiếu bước nào trong 2–4 thì request nhận 401 JSON kèm `WWW-Authenticate` trỏ tới PRM
-| (`App\Http\Middleware\Mcp\AddWwwAuthenticateHeader`, render JSON ở `bootstrap/app.php`).
+| Không qua bước 2 hoặc 3 thì request nhận 401 JSON kèm `WWW-Authenticate` trỏ tới PRM
+| (`App\Http\Middleware\Mcp\AddWwwAuthenticateHeader`, render JSON ở `bootstrap/app.php`). Token
+| hợp lệ nhưng thiếu `mcp:use` dừng ở bước 4 với 403, không kèm header đó (TransportTest).
 | `EnsureMcpAccess` (is_active, ai_access, công tắc toàn hệ thống, cam kết R12, client mang cờ mcp)
 | đến ở Task 6.
 |

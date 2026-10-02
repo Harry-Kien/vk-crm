@@ -2642,7 +2642,8 @@ vì device code bị tắt.
     `laravel_token`, mang MỌI scope, và route `POST /oauth/token/refresh` của Passport phát cookie đó
     cho BẤT KỲ phiên `web` nào, kể cả phiên chưa cài 2FA. Đo được: bỏ lớp này thì một phiên `/admin`
     chưa cài 2FA lấy cookie ở `/oauth/token/refresh` rồi gọi `/mcp` nhận 200
-    (`OAuthRoutesStaffSessionTest`, mutation M2').
+    (`OAuthRoutesStaffSessionTest`, mutation M2'). Bản đầu chỉ đòi "có header bearer" và vẫn hở với
+    `Bearer 0` / `Bearer ,`; vòng sửa 1 bên dưới xoá hẳn cookie khỏi request.
 - **`client_credentials` tắt bằng middleware**, không bằng cờ. `PassportServiceProvider` luôn đăng
   ký grant này và Passport 13 không có cờ tắt. Middleware `RestrictOAuthGrantTypes` đặt ở
   `config/passport.php` (`middleware`) và chỉ cho `authorization_code`, `refresh_token` qua
@@ -2683,3 +2684,57 @@ vì device code bị tắt.
 (tuần tự): 98 passed. Vòng migration thật (`migrate:fresh --seed` → `migrate:reset` → `migrate`):
 EXIT 0, bốn bảng `oauth_*` lên và xuống sạch. `pint --test`: PASS, 850 tệp. Risky duy nhất là test
 có sẵn trên main (`EnvExampleTest`, "không biến BRAND_* có mặc định nào bị khai trống").
+
+### Task 1, vòng sửa 1 (2026-10-02) — cookie `laravel_token` lọt qua bằng bearer "sai"
+
+**Lỗi (rà soát Task 1, critical).** `RequireBearerToken` chỉ chặn khi `bearerToken() === null`.
+`TokenGuard::user()` của Passport (`src/Guards/TokenGuard.php:68`) lại rẽ nhánh theo giá trị đúng/sai:
+`if ($this->request->bearerToken())`. `Authorization: Bearer 0` cho ra `"0"`, `Authorization: Bearer ,`
+cho ra `""` (Laravel cắt ở dấu phẩy). Cả hai qua được `RequireBearerToken`, rồi guard bỏ qua bearer,
+đọc cookie `laravel_token` và gắn `TransientToken` có mọi scope, nên `CheckToken mcp:use` cũng qua.
+Chuỗi thật: một phiên `/admin` chưa cài 2FA (chỉ cần mật khẩu) gọi `POST /oauth/token/refresh`, nhận
+cookie, rồi gọi `/mcp` với cookie đó, mã CSRF của chính phiên ấy và `Bearer 0`: 200, vào máy chủ MCP
+mà không qua 2FA, không qua màn hình đồng ý, không client OAuth nào (R8 không có `oauth_client_id` để
+ghi), và thu hồi kết nối không cắt được. Trái R1 ("chỉ bearer") và R7 ("401 cho mọi request chưa có
+token hợp lệ").
+
+**Sửa** (`app/Http/Middleware/Mcp/RequireBearerToken.php`):
+- Xoá cookie `Passport::cookie()` khỏi `$request->cookies` trước khi chuyển tiếp. `TokenGuard` đọc
+  chính đối tượng request đó, nên không còn đường cookie, dù `bearerToken()` trả gì. Đây là phần đóng
+  lỗ hổng.
+- Chặn bearer trống theo `blank()` (không có, `""`, chỉ khoảng trắng) ngay tại lớp này. `"0"` không
+  trống theo `blank()`; nó đi tiếp và `auth:mcp` trả 401 vì không còn cookie. Bearer chỉ khoảng trắng
+  (`" "`) là "đúng" trong PHP: trước bản sửa nó tới bộ kiểm token và `report()` một
+  `OAuthServerException` vào log; giờ bị chặn trước đó.
+- Sửa docblock của lớp, chú thích ở `routes/ai.php`, và hai lý lẽ §10.7 `POST mcp`,
+  `POST oauth/token/refresh` (`StaffTwoFactorEscapeRoutesTest`). Cùng khối chú thích của
+  `routes/ai.php` có một câu cũ nói "thiếu bước nào trong 2–4 thì 401"; bước 4 (token thiếu
+  `mcp:use`) thực ra trả 403 không kèm `WWW-Authenticate` (`TransportTest`), nên câu đó cũng được sửa.
+- Lớp này chỉ bảo vệ những route có nó. Hôm nay `auth:mcp` chỉ đứng sau `/mcp`; route nào sau này
+  dùng guard `mcp` (hoặc một guard `passport` khác) cũng phải đặt `RequireBearerToken` trước nó.
+
+**Test HTTP** (đỏ trước khi sửa, xanh sau):
+- `TransportTest`: cookie `laravel_token` hợp lệ kèm `X-CSRF-TOKEN` đúng, bốn dòng (không
+  `Authorization`, `Bearer 0`, `Bearer ,`, `Bearer` + hai khoảng trắng) → 401. Vế đối chứng trong
+  cùng test: đúng cookie và mã CSRF ấy mở được route thăm dò chỉ có `auth:mcp` (200, đúng `user_id`),
+  nên 401 không phải do cookie hỏng. Trước khi sửa: `Bearer 0` và `Bearer ,` nhận 200.
+- `OAuthRoutesStaffSessionTest`: cùng bốn dòng qua chuỗi thật `POST /oauth/token/refresh` của phiên
+  chưa cài 2FA → 401, kèm cùng vế đối chứng. Trước khi sửa: `Bearer 0` và `Bearer ,` nhận 200.
+- `TransportTest`: bearer trống (`Bearer `, `Bearer ,`, `Bearer` + hai khoảng trắng) → 401 và
+  `Exceptions::assertNothingReported()`. Trước khi sửa: dòng khoảng trắng báo `OAuthServerException`.
+- Mutation: bỏ dòng xoá cookie → 2 đỏ (hai dòng `Bearer 0`); đưa `blank()` về `=== null` → 1 đỏ
+  (dòng khoảng trắng, `OAuthServerException` bị báo). Cả hai đã khôi phục.
+
+**Kiểm chứng (2026-10-03).** Đỏ trên middleware của `68a5a06`: 5 đỏ, 45 xanh (bốn lần "nhận 200",
+một `OAuthServerException` bị báo). Bốn tệp `tests/Feature/Mcp/*` cùng
+`StaffTwoFactorEscapeRoutesTest`: 72 passed. Cả bộ (`test --parallel --processes=2`): EXIT 0, 3764
+passed (3755 + 9 dòng dataset mới), 1 risky, 1 todo, 25 skipped, như trước. MariaDB (tuần tự,
+`TransportTest`, `OAuthRoutesStaffSessionTest`, `StaffTwoFactorEscapeRoutesTest`): 60 passed.
+`pint --test`: PASS, 850 tệp. Không đổi migration nào nên không chạy lại vòng migration thật.
+
+**Không thuộc vòng này.** Bảy minor của cùng lượt rà soát chờ phân loại cuối làn. Người rà soát đề
+xuất: `error="invalid_token"` / `insufficient_scope` trong `WWW-Authenticate`, `/mcp` khi tách
+`ADMIN_DOMAIN`/`PORTAL_DOMAIN` (Task 2); ghi log mỗi bearer sai và throttle theo IP trước
+`RequireBearerToken` (Task 8); câu chú thích khoá riêng trong `.env.example` và hệ quả xoay `APP_KEY`
+(Task 16); câu 401/403 tiếng Anh của `/mcp`; tên hai test của `TransportTest` nói nhiều hơn điều chúng
+chứng minh (Origin rỗng, phiên thật).
