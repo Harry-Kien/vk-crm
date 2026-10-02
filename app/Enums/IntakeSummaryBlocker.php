@@ -21,6 +21,13 @@ enum IntakeSummaryBlocker: string
     /** Đỏ: khoá cho tới khi quản lý/admin ghi đè kèm lý do. */
     case ConflictRed = 'conflict_red';
 
+    /**
+     * Văn phòng đã từ chối bản ghi (R8, M10 Task 3), vì bất kỳ lý do nào: câu chuyện không ghi thêm
+     * được. Nhãn TRUNG TÍNH — không nói có phải vì xung đột không (người không có `intake.viewAny`
+     * cũng đọc nhãn này).
+     */
+    case Declined = 'declined';
+
     public function label(): string
     {
         return __('enums.intake_summary_blocker.'.$this->value);

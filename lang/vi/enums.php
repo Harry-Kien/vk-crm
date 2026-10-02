@@ -139,5 +139,6 @@ return [
         'conflict_unchecked' => 'chưa kiểm tra xung đột lợi ích cho danh tính hiện tại',
         'conflict_acknowledgement' => 'cần xác nhận đã xem các khớp xung đột đang hiện',
         'conflict_red' => 'xung đột mức đỏ, cần trưởng phòng hoặc quản trị xử lý',
+        'declined' => 'văn phòng đã từ chối bản ghi này',
     ],
 ];

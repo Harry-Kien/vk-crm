@@ -3,6 +3,7 @@
 namespace App\Actions\Intake;
 
 use App\Enums\ConflictLevel;
+use App\Enums\IntakeStatus;
 use App\Enums\IntakeSummaryBlocker;
 use App\Models\IntakeRequest;
 
@@ -12,6 +13,9 @@ use App\Models\IntakeRequest;
  * người nhập phải làm gì tiếp) cùng hỏi hàm này, nên hai nơi không thể lệch nhau.
  *
  * Ô mở khi KHÔNG còn điều nào trong {@see IntakeSummaryBlocker}:
+ *  0. **Đã từ chối (R8, M10 Task 3):** bản ghi `declined`, vì bất kỳ lý do nào, đóng câu chuyện cho
+ *     hẳn và chỉ trả MỘT lý do (`Declined`) — các bước dưới không còn gì để làm. Từ chối vì xung
+ *     đột không xoá Đỏ dính; nhãn trung tính để người không được biết lý do không đọc ra xung đột.
  *  1. **Thông báo (R7a):** đã ghi nhận người liên hệ nghe thông báo và đồng ý
  *     (`privacy_notice_acknowledged_at`). Áp cho MỌI kết quả, kể cả Xanh.
  *  2. **Đã kiểm tra, và kiểm tra còn khớp danh tính:** có `conflict_checked_at`, và dấu vân tay danh
@@ -35,6 +39,11 @@ final class IntakeSummaryGate
     /** @return list<IntakeSummaryBlocker> */
     public static function blockers(IntakeRequest $intake): array
     {
+        // Từ chối (R8, M10 Task 3) đóng câu chuyện cho hẳn — không còn bước nào khác để làm.
+        if ($intake->status === IntakeStatus::Declined) {
+            return [IntakeSummaryBlocker::Declined];
+        }
+
         $blockers = [];
 
         if ($intake->privacy_notice_acknowledged_at === null) {

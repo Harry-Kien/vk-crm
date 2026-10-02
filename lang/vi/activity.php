@@ -35,6 +35,12 @@ return [
         'intake_conflict_overridden' => 'Ghi đè xung đột mức đỏ lúc tiếp nhận',
         'intake_privacy_notice_recorded' => 'Ghi nhận thông báo xử lý dữ liệu cá nhân',
         'intake_summary_updated' => 'Ghi nội dung câu chuyện của người liên hệ',
+        // M10 Task 3 (màn hình tiếp nhận). Cùng luật: không tên, SĐT, câu chuyện, lý do từ chối.
+        'intake_identity_updated' => 'Sửa phần danh tính của một lần liên hệ',
+        'intake_status_changed' => 'Đổi trạng thái một lần liên hệ',
+        'intake_declined' => 'Từ chối một lần liên hệ',
+        'intake_merged' => 'Gộp một lần liên hệ vào bản ghi khác',
+        'intake_merge_received' => 'Nhận một lần liên hệ được gộp vào',
         // Ghi qua Audit::record() ở app/Actions/SyncClientPartyIdentities.php khi hồ sơ khách
         // hàng đổi số căn cước/điện thoại và ảnh chụp định danh của các bên được đồng bộ lại.
         'client_identity_resynced' => 'Đồng bộ lại định danh các bên',

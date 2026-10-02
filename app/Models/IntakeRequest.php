@@ -57,6 +57,33 @@ class IntakeRequest extends Model
     use SoftDeletes;
 
     /**
+     * Trần số bên đối lập của MỘT bản ghi (M10 Task 3) — một con số cho lần ghi đầu và lần sửa
+     * (`ValidatesIntakeIdentity`), cho form (`IntakeRequestForm`, `maxItems`) và cho gộp
+     * (`MergeIntake` từ chối một lần gộp làm bản đích vượt trần). Không có nó, gộp tạo ra một bản
+     * ghi mà form không lưu lại được nữa trừ khi gỡ bớt bên đối lập — tức bỏ dữ kiện của kiểm tra
+     * xung đột chỉ để qua được một luật nhập liệu.
+     */
+    public const MAX_OPPOSING_PARTIES = 10;
+
+    /**
+     * Độ dài cột của mọi SĐT CHUẨN HOÁ của tiếp nhận: `intake_requests.contact_phone_normalized` và
+     * `intake_parties.phone_normalized` (cả hai `string(20)`).
+     */
+    public const NORMALIZED_PHONE_LENGTH = 20;
+
+    /**
+     * Dạng chuẩn hoá của một SĐT gõ vào có vừa cột không (M10 Task 3; rà soát Task 2, m2). Dạng chuẩn
+     * hoá có thể DÀI hơn dạng gõ: số 0 đầu thành `84` (`09123456780987654321`, 20 ký tự → 21), nên luật
+     * `max:20` của dạng gõ không giữ được cột — vượt là lỗi 1406 trên MariaDB strict (SQLite không
+     * thấy). Số mà `Normalizer::phone()` không đọc được (ra null) thì "vừa": không có gì vào cột. Cổng
+     * thật ở `ValidatesIntakeIdentity` (lần ghi đầu và lần sửa); form hỏi cùng hàm này để báo lỗi ở đúng ô.
+     */
+    public static function normalizedPhoneFits(?string $phone): bool
+    {
+        return strlen(Normalizer::phone($phone) ?? '') <= self::NORMALIZED_PHONE_LENGTH;
+    }
+
+    /**
      * KHÔNG có `code` (sinh khi tạo), `contact_phone_normalized` và `contact_id_number_hash` (chỉ
      * `identify()` ghi được, xem {@see self::fill()}), `created_by`/`updated_by` (`HasBlameable`), và
      * `conflict_red_pending_since` (Đỏ đang chờ quản lý/admin — chỉ `CheckIntakeConflict` đặt, chỉ
@@ -237,6 +264,18 @@ class IntakeRequest extends Model
     public function isClosedToWrites(): bool
     {
         return $this->anonymised_at !== null || $this->status === IntakeStatus::Merged;
+    }
+
+    /**
+     * Bản ghi đã xong việc với màn hình tiếp nhận (M10 Task 3): đã ẩn danh hoặc đã gộp
+     * ({@see self::isClosedToWrites()}), HOẶC đã chuyển thành vụ việc (`won`, hay đã có `matter_id`
+     * — R3: "khoá bản ghi tiếp nhận"). Không sửa danh tính, không đổi trạng thái, không từ chối, không
+     * gộp vào hay gộp đi; màn hình hiện nó ở dạng chỉ đọc. Hẹp hơn có chủ đích, `isClosedToWrites()`
+     * vẫn là cổng của các Action Task 2 (câu chuyện, thông báo, kiểm tra lại).
+     */
+    public function isClosedToChanges(): bool
+    {
+        return $this->isClosedToWrites() || $this->status === IntakeStatus::Won || $this->matter_id !== null;
     }
 
     /**
