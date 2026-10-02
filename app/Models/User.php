@@ -16,6 +16,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Laravel\Passport\Contracts\OAuthenticatable;
+use Laravel\Passport\HasApiTokens;
 use SensitiveParameter;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
@@ -34,9 +36,15 @@ use Spatie\Permission\Traits\HasRoles;
  * cột này là `two_factor_secret`/`two_factor_recovery_codes`. Bốn phương thức dưới đây tự ánh xạ
  * sang đúng tên cột đó thay vì đổi tên cột — đổi tên cột đòi một migration đổi tên chạy trên dữ
  * liệu production, trong khi bốn phương thức nhỏ này làm xong đúng việc migration đó sẽ làm.
+ *
+ * M11 Task 1 (R1): `HasApiTokens` + `OAuthenticatable` để guard `mcp` (driver `passport`) nhận
+ * người dùng này từ một token Passport. CHỈ `User` (nhân sự); `ClientUser` không bao giờ có hai thứ
+ * đó.
  */
-class User extends Authenticatable implements FilamentUser, HasAppAuthentication, HasAppAuthenticationRecovery
+class User extends Authenticatable implements FilamentUser, HasAppAuthentication, HasAppAuthenticationRecovery, OAuthenticatable
 {
+    use HasApiTokens;
+
     /** @use HasFactory<UserFactory> */
     use HasFactory;
 
@@ -44,6 +52,20 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
     use LogsActivity;
     use Notifiable;
     use SoftDeletes;
+
+    /**
+     * Guard của spatie/permission cho model này: luôn `web`, guard mà `RolesAndPermissionsSeeder`
+     * và `assignRoleFromPosition()` seed mọi quyền và vai (M11, mục "sẽ cắn").
+     *
+     * Không khai thuộc tính này, spatie đoán guard từ những guard có provider trỏ tới `User`, tức
+     * `web` và `mcp`. Nó chọn guard mặc định của request nếu guard đó nằm trong danh sách
+     * (`Spatie\Permission\Guard::getDefaultName()`). Trong request MCP, `auth:mcp` gọi
+     * `Auth::shouldUse('mcp')`, nên spatie đi tìm quyền ở guard `mcp`, nơi không có quyền nào được
+     * seed, và `can('matter.view')` trả `false` cho mọi người. Mọi tool khi đó trả "Không tìm thấy":
+     * một thất bại trông giống bảo mật tốt. `tests/Feature/Mcp/TransportTest.php` (§5) canh điều này
+     * qua một request thật sau `auth:mcp`.
+     */
+    protected string $guard_name = 'web';
 
     protected $fillable = [
         'name',

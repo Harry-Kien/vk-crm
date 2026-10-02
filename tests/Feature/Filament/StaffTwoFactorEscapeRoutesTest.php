@@ -227,6 +227,19 @@ function outsidePanelRouteReasons(): array
         'GET livewire-{hash}/js/{component}.js' => $static,
         'GET livewire-{hash}/css/{component}.css' => $static,
         'GET livewire-{hash}/css/{component}.global.css' => $static,
+
+        // M11 Task 1 — máy chủ MCP (`routes/ai.php`, ngoài nhóm `web`). Người sở hữu token đã qua
+        // 2FA lúc đồng ý (Task 4); bản thân `/mcp` không đọc phiên.
+        'POST mcp' => 'chỉ bearer Passport (`RequireBearerToken` + `auth:mcp`), không phiên, không cookie: phiên /admin, phiên cổng khách và cookie laravel_token đều 401 (TransportTest, OAuthRoutesStaffSessionTest)',
+        'GET mcp' => '405 cố định, `Allow: POST`, không dữ liệu (TransportTest)',
+        'DELETE mcp' => '405 cố định, `Allow: POST`, không dữ liệu (TransportTest)',
+        // M11 Task 1 — route của Passport. Device code và route JSON quản lý client/token TẮT
+        // (OAuthServerHardeningTest), nên không có ở đây.
+        'POST oauth/token' => 'không đọc phiên: chỉ đổi mã uỷ quyền/refresh token (`RestrictOAuthGrantTypes`), cả hai không sinh được từ một phiên chưa cài 2FA (OAuthRoutesStaffSessionTest, OAuthServerHardeningTest)',
+        'GET oauth/authorize' => 'Task 1: chưa có màn hình đồng ý nên không cấp được mã nào, kể cả khi đã có token còn hạn (OAuthRoutesStaffSessionTest). Task 4 thay lý lẽ này bằng cổng 2FA của màn hình đồng ý',
+        'POST oauth/authorize' => 'Task 1: chỉ duyệt yêu cầu mà GET oauth/authorize đã lưu vào phiên, thứ chưa lưu được gì (OAuthRoutesStaffSessionTest). Task 4 thay lý lẽ này',
+        'DELETE oauth/authorize' => 'từ chối một yêu cầu uỷ quyền: không bao giờ cấp mã (OAuthRoutesStaffSessionTest)',
+        'POST oauth/token/refresh' => 'phát cookie laravel_token, và không route nào nhận cookie đó: /mcp đòi header bearer (OAuthRoutesStaffSessionTest)',
     ];
 }
 

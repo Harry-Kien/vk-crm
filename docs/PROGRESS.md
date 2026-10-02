@@ -2604,3 +2604,82 @@ Shared hosting thiếu `sodium` thì `/oauth/token` hỏng, và chỉ hỏng tr�
    (`AuthorizationController.php:168`). App không có route `login` và không có `redirectGuestsTo`
    trong `bootstrap/app.php`. Đúng như [PL:79] nói. Task 4 xử lý.
 10. **Không có endpoint thu hồi token (RFC 7009).** R7 không đòi, ghi để biết.
+
+### Task 1 — cài gói, guard `mcp`, endpoint 401, Origin (2026-10-01)
+
+**Đã cài.** `laravel/mcp v1.0.1`, `laravel/passport v13.8.0` (`composer.json` ghi `^13.8`, không
+`^13.0`); lock thêm đúng mười ba gói của tiền kiểm, không gói cũ nào đổi phiên bản.
+`composer check-platform-reqs` sau khi cài: EXIT 0, mọi dòng `success`, có `ext-sodium 8.3.33`.
+Bốn migration `oauth_*` của Passport phát hành nguyên văn; bảng `oauth_device_codes` KHÔNG phát hành
+vì device code bị tắt.
+
+**Hành vi đã có, kèm test HTTP** (`tests/Feature/Mcp/TransportTest.php`,
+`OAuthServerHardeningTest.php`, `OAuthRoutesStaffSessionTest.php`, `CrmToolBaseTest.php`,
+`tests/Feature/Config/McpPackageConfigTest.php`):
+- `POST /mcp` (`routes/ai.php`, ngoài nhóm `web`) → `CrmServer` (instructions tiếng Việt, chưa có
+  tool). `GET`/`DELETE /mcp` → 405 `Allow: POST`.
+- Mọi request chưa có token hợp lệ (`initialize`, `server/discover`, `tools/list`, token sai, token
+  trong query string, token quá hạn, token không gắn người dùng) → 401 JSON kèm
+  `WWW-Authenticate: Bearer realm="mcp", resource_metadata="…/.well-known/oauth-protected-resource/mcp", scope="mcp:use"`.
+  Token thiếu scope `mcp:use` → 403.
+- Origin ngoài allowlist → 403; `https://claude.ai`, `https://chatgpt.com`, origin của `APP_URL`,
+  `MCP_EXTRA_ALLOWED_ORIGINS` → qua; không có Origin → qua.
+- Hai thế hệ giao thức (2025-11-25 `initialize`, 2026-07-28 `server/discover`) trả hợp lệ; header
+  lệch thân request → 400 `-32020`.
+- `can('matter.view')` sau `auth:mcp` trả đúng như dưới `web` (`User::$guard_name = 'web'`).
+- Access token 1 giờ, refresh token 30 ngày, xoay vòng (mặc định của Passport).
+- Chỉ `authorization_code` (+ `refresh_token`): `client_credentials` và `password` → 400
+  `unsupported_grant_type`; device code tắt (không route `/oauth/device*`); `createToken()` ném lỗi.
+- Thêm `sodium` vào `deployment.required_extensions` (D5); test mới đối chiếu danh sách đó với mọi
+  `ext-*` của gói production trong `composer.lock`.
+
+**Lệch so với chữ của kế hoạch, và lý do.**
+- **Thứ tự middleware của `/mcp`.** Kế hoạch viết `['auth:mcp', CheckToken::using('mcp:use'), CheckOrigin::class]`.
+  Đã cài `[CheckOrigin, RequireBearerToken, 'auth:mcp', CheckToken::using('mcp:use')]`:
+  - `CheckOrigin` đứng ĐẦU để một Origin lạ nhận 403 trước khi token được đọc. Tra cứu nói
+    "không có Origin thì cho đi tiếp tới bước kiểm OAuth" [DC:627], tức kiểm Origin trước.
+  - `RequireBearerToken` là lớp mới. Ngoài bearer, `TokenGuard` của Passport còn nhận cookie
+    `laravel_token`, mang MỌI scope, và route `POST /oauth/token/refresh` của Passport phát cookie đó
+    cho BẤT KỲ phiên `web` nào, kể cả phiên chưa cài 2FA. Đo được: bỏ lớp này thì một phiên `/admin`
+    chưa cài 2FA lấy cookie ở `/oauth/token/refresh` rồi gọi `/mcp` nhận 200
+    (`OAuthRoutesStaffSessionTest`, mutation M2').
+- **`client_credentials` tắt bằng middleware**, không bằng cờ. `PassportServiceProvider` luôn đăng
+  ký grant này và Passport 13 không có cờ tắt. Middleware `RestrictOAuthGrantTypes` đặt ở
+  `config/passport.php` (`middleware`) và chỉ cho `authorization_code`, `refresh_token` qua
+  `/oauth/token`.
+- **"Du hành thời gian" không làm token hết hạn.** league/oauth2-server cấp và kiểm `exp` theo đồng hồ
+  hệ thống (`SystemClock`, `new DateTimeImmutable()`), không theo `Carbon::setTestNow()`. Test thay
+  bằng hai vế: token do `/oauth/token` cấp có `expires_in = 3600` và `exp − iat = 3600`; cùng token
+  (cùng `jti`, chưa thu hồi) ký lại với `exp` trong quá khứ → 401, với `exp` còn hạn → 200.
+- **`redirectGuestsTo` cho `/mcp` trả `null`.** Thêm ở `bootstrap/app.php`, cạnh vế `is('mcp')` của
+  `shouldRenderJsonWhen`. Không có nó, `Authenticate` gọi `route('login')` ngay lúc ném lỗi với
+  request không `expectsJson()`. App không có route đó, nên một client gửi token sai mà không kèm
+  `Accept` nhận lỗi 500 thay cho 401. Các đường khác giữ nguyên mặc định. Task 4 đặt đích cho
+  `/oauth/authorize` ở cùng closure này.
+- **`WWW-Authenticate` không phụ thuộc route của Task 2.** Lớp `AddWwwAuthenticateHeader` của gói chỉ
+  ghi `resource_metadata` khi route `mcp.oauth.protected-resource.nested` tồn tại, tức sau
+  `Mcp::oauthRoutes()`. App bind lớp riêng thay cho lớp của gói, vì gói đẩy lớp đó vào cả middleware
+  toàn cục lẫn middleware của route, nên một middleware thêm vào sẽ bị ghi đè. URL trong header chưa
+  trả lời được cho tới Task 2.
+- **`config/mcp.php` → `redirect_domains = []`** (mặc định của gói là `['*']`). DCR của gói chưa được
+  nạp ở Task 1, nhưng nếu ai nạp sớm thì nó từ chối mọi redirect. `custom_schemes` ghim rỗng (rà soát
+  Task 0, M4a). Task 3 dựng allowlist so khớp chính xác.
+
+**Việc để lại cho các task sau.**
+- **Task 4:** `GET /oauth/authorize` hiện trả lỗi 500, vì `AuthorizationViewResponse` chưa bind, nên
+  không cấp được mã nào, kể cả nhánh tự duyệt `hasGrantedScopes()` của Passport khi người dùng đã có
+  token còn hạn. Hai dòng `oauth/authorize` trong `outsidePanelRouteReasons()` ghi lý lẽ tạm này, và
+  Task 4 phải viết lại khi dựng màn hình đồng ý cùng cổng 2FA. Mô tả scope `mcp:use` của gói là
+  tiếng Anh ("Use MCP server", `Registrar::ensureMcpScope()`); màn hình đồng ý cần chuỗi tiếng Việt.
+- **Task 6 (sau khi merge m7b T10):** móc `TODO(m11-task6-mcp-enabled-switch)` ở `routes/ai.php`.
+  Task 1 không đọc công tắc `mcp.enabled` / `mcp.write_enabled`.
+- **Task 3/6:** token thuộc client không mang cờ `mcp` vẫn qua `/mcp` cho tới khi có cột `is_mcp` và
+  `EnsureMcpAccess`. Hôm nay chỉ `passport:client` trên máy chủ tạo được client, vì DCR chưa nạp.
+- **Task 16:** `php artisan passport:keys` vào hướng dẫn cài đặt (khoá ở `storage/oauth-*.key`, hoặc
+  `PASSPORT_PRIVATE_KEY`/`PASSPORT_PUBLIC_KEY` trong `.env.example`), cùng đính chính `sodium` ở SPEC §2.
+
+**Kiểm chứng (2026-10-02).** Cả bộ `--parallel --processes=2`: EXIT 0 — 1 risky, 1 todo, 25 skipped,
+3755 passed (baseline 3695 + 60 test mới của Task 1), không lỗi. Các tệp test chạm tới trên MariaDB
+(tuần tự): 98 passed. Vòng migration thật (`migrate:fresh --seed` → `migrate:reset` → `migrate`):
+EXIT 0, bốn bảng `oauth_*` lên và xuống sạch. `pint --test`: PASS, 850 tệp. Risky duy nhất là test
+có sẵn trên main (`EnvExampleTest`, "không biến BRAND_* có mặc định nào bị khai trống").

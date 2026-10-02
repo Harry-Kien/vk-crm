@@ -396,3 +396,46 @@ it('§preflight R1 các biến số sao lưu số nguyên hợp lệ hoặc đ�
         putenv('BACKUP_LOCAL_KEEP');
     }
 });
+
+/**
+ * M11 Task 1 (D5): danh sách `deployment.required_extensions` là HẰNG SỐ chép tay (đọc docblock của
+ * nó), nên một gói mới đòi một extension mới làm danh sách lỗi thời mà không ai hay — đúng điều đã
+ * xảy ra với `ext-sodium`, thứ `lcobucci/jwt` (Passport → league/oauth2-server kéo vào) khai. Thiếu
+ * `sodium` trên máy chủ thì `/oauth/token` hỏng, và chỉ hỏng trên máy chủ thật. Test này đọc
+ * `composer.lock` (gói production, không gói dev) để danh sách không lỗi thời được lần nữa.
+ */
+it('§preflight M11 mọi ext-* mà một gói production trong composer.lock đòi đều có trong required_extensions', function () {
+    $lock = json_decode((string) file_get_contents(base_path('composer.lock')), true);
+    $required = [];
+
+    foreach ($lock['packages'] as $package) {
+        foreach (array_keys($package['require'] ?? []) as $requirement) {
+            if (str_starts_with($requirement, 'ext-')) {
+                $required[] = substr($requirement, 4);
+            }
+        }
+    }
+
+    $required = array_values(array_unique($required));
+
+    expect($required)->toContain('sodium')
+        ->and(array_values(array_diff($required, config('vkcrm.deployment.required_extensions'))))->toBe([]);
+});
+
+it('§preflight M11 production thiếu sodium là ĐỎ, nêu đích danh tên', function () {
+    config(preflightGreenProductionConfig());
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    // Cùng cách test "thiếu một PHP extension" ở trên: không gỡ được extension thật của container,
+    // nên gài một tên chắc chắn vắng vào CHỖ của sodium trong danh sách thật, rồi đọc dòng đỏ.
+    config(['vkcrm.deployment.required_extensions' => array_map(
+        fn (string $extension) => $extension === 'sodium' ? 'sodium-vang-mat' : $extension,
+        config('vkcrm.deployment.required_extensions'),
+    )]);
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+
+    expect($exitCode)->not->toBe(0)
+        ->and(Artisan::output())->toContain('sodium-vang-mat');
+});

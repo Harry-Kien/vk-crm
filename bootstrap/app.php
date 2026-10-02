@@ -3,6 +3,7 @@
 use App\Http\Middleware\EnforceHttps;
 use App\Http\Middleware\RejectStaffSessionsFromBeforeReset;
 use App\Http\Middleware\SendSecurityHeaders;
+use App\Mcp\Servers\CrmServer;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -47,9 +48,23 @@ return Application::configure(basePath: dirname(__DIR__))
         // các route ngoài panel; route trang của panel `admin` (không dùng nhóm `web`) đăng ký
         // riêng ở `AdminPanelProvider`. Lý do tồn tại: docblock của middleware.
         $middleware->web(append: [RejectStaffSessionsFromBeforeReset::class]);
+
+        // M11 R7 — một request `/mcp` chưa xác thực KHÔNG BAO GIỜ được chuyển hướng: nó nhận 401
+        // JSON kèm `WWW-Authenticate` (render ở `withExceptions` bên dưới). Mặc định của Laravel
+        // (`ApplicationBuilder::withMiddleware()`) là `route('login')`, và `Authenticate` gọi nó
+        // NGAY lúc ném lỗi với mọi request không `expectsJson()`, TRƯỚC khi exception handler kịp
+        // chọn JSON. App không có route `login`, nên một client MCP gửi token sai mà không kèm
+        // `Accept: application/json` nhận lỗi 500 thay cho 401. Các đường khác giữ nguyên mặc định.
+        $middleware->redirectGuestsTo(
+            fn (Request $request) => $request->is(CrmServer::PATH) ? null : route('login'),
+        );
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        // `/mcp` (M11 R7): luôn JSON, kể cả request không có `Accept: application/json`. Không có
+        // vế này, một client MCP chưa xác thực mà không gửi `Accept` bị chuyển hướng tới route
+        // `login` (không tồn tại, nên thành lỗi 500) thay vì nhận 401 kèm `WWW-Authenticate`. Claude
+        // chỉ hiện nút Connect khi nhận đúng 401 [DC:628].
         $exceptions->shouldRenderJsonWhen(
-            fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
+            fn (Request $request) => $request->is('api/*') || $request->is(CrmServer::PATH) || $request->expectsJson(),
         );
     })->create();

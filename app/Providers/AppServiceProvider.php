@@ -7,6 +7,7 @@ use App\Actions\Backup\GuardOffServerBackupDestination;
 use App\Actions\Backup\GuardRcloneDestinationReachable;
 use App\Actions\Backup\PushBackupArchiveToRclone;
 use App\Http\Controllers\DocumentDownloadController;
+use App\Http\Middleware\Mcp\AddWwwAuthenticateHeader;
 use App\Listeners\RecordOutboundMail;
 use App\Models\Client;
 use App\Models\ClientRequest;
@@ -29,6 +30,7 @@ use App\Support\Files\NullScanner;
 use App\Support\Files\VirusScanner;
 use App\Support\Mail\OutboundLedgerMailManager;
 use App\Support\Security\HttpsDefaults;
+use DateInterval;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Foundation\Console\AboutCommand;
@@ -37,6 +39,10 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Mcp\Server\Middleware\AddWwwAuthenticateHeader as PackageAddWwwAuthenticateHeader;
+use Laravel\Passport\Passport;
+use Laravel\Passport\PersonalAccessTokenFactory;
+use LogicException;
 use Spatie\Backup\Events\BackupManifestWasCreated;
 use Spatie\Backup\Events\BackupWasSuccessful;
 
@@ -70,6 +76,30 @@ class AppServiceProvider extends ServiceProvider
          * thái nào lúc dựng ngoài chính `$app`, và không có nơi nào khác trong dự án thay nó.
          */
         $this->app->extend('mail.manager', fn ($manager, $app) => new OutboundLedgerMailManager($app));
+
+        /*
+         * M11 R1 — Passport chỉ cấp token theo `authorization_code` (+ `refresh_token`).
+         *
+         * Device code: cờ của Passport được đọc lúc `PassportServiceProvider::boot()` đăng ký route
+         * `/oauth/device*` và lúc `AuthorizationServer` được dựng. Provider của gói boot TRƯỚC
+         * provider của app, nên cờ phải đặt ở `register()`; đặt ở `boot()` thì route đã có rồi.
+         *
+         * Personal access token: route JSON của Passport (`Passport::$registersJsonApiRoutes`) tắt
+         * sẵn, nên `HasApiTokens::createToken()` là đường còn lại tới grant này, và nó phân giải
+         * `PersonalAccessTokenFactory` qua container. Bind lớp đó thành một lỗi để không
+         * một dòng mã, lệnh tinker hay seeder nào cấp được token bỏ qua màn hình đồng ý.
+         *
+         * `client_credentials`: không có cờ, xem `App\Http\Middleware\Mcp\RestrictOAuthGrantTypes`.
+         */
+        Passport::$deviceCodeGrantEnabled = false;
+
+        $this->app->bind(PersonalAccessTokenFactory::class, fn () => throw new LogicException(
+            'Personal access token bị tắt (kế hoạch M11, R1): token MCP chỉ cấp qua luồng authorization_code có màn hình đồng ý.',
+        ));
+
+        // M11 R7 — header `WWW-Authenticate` của 401 từ `/mcp` luôn trỏ tới PRM. Lý do phải BIND thay
+        // cho lớp của gói (chứ không thêm một middleware riêng) ở docblock của lớp app.
+        $this->app->bind(PackageAddWwwAuthenticateHeader::class, AddWwwAuthenticateHeader::class);
     }
 
     /**
@@ -183,6 +213,16 @@ class AppServiceProvider extends ServiceProvider
             // hay `Audit::record()` vào nó mà không vấp `ClassMorphViolationException`.
             'time_entry' => TimeEntry::class,
         ]);
+
+        /*
+         * M11 R7 — hạn token MCP: access token 1 giờ (như Asana), refresh token 30 ngày, xoay vòng
+         * (`Passport::$revokeRefreshTokenAfterUse`, mặc định `true`, giữ nguyên) [DC:137], [DC:633].
+         * Mặc định của Passport là MỘT NĂM cho cả hai (rà soát Task 0 mục 5). Hai giá trị được đọc
+         * lúc `AuthorizationServer` (singleton) được dựng, tức ở request `/oauth/token` đầu tiên, sau
+         * `boot()`.
+         */
+        Passport::tokensExpireIn(new DateInterval('PT1H'));
+        Passport::refreshTokensExpireIn(new DateInterval('P30D'));
 
         // Giới hạn lượt tải tệp (route `documents.download`). Con số và toàn bộ lý lẽ — kể cả vì
         // sao KHÔNG dùng mã dùng một lần — nằm ở `DocumentDownloadController::DOWNLOADS_PER_MINUTE`;

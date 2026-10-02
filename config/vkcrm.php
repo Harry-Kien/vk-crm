@@ -176,12 +176,35 @@ return [
          * đây mà không cần gỡ thật một extension của container —
          * `tests/Feature/Deployment/PreflightCommandTest.php` dùng đúng cách này để dựng cả hai
          * chiều đỏ/xanh của điều kiện "thiếu extension".
+         *
+         * `sodium` thêm ở M11 Task 1 (D5): `lcobucci/jwt` (Passport → league/oauth2-server kéo vào)
+         * khai `ext-sodium`. Thiếu nó thì `/oauth/token` hỏng, và chỉ hỏng trên máy chủ thật.
+         * `PreflightCommandTest` đối chiếu danh sách này với mọi `ext-*` của gói production trong
+         * `composer.lock`, nên lần sau một gói mới đòi extension mới thì test đỏ.
          */
         'required_extensions' => [
             'ctype', 'dom', 'exif', 'fileinfo', 'filter', 'hash', 'iconv', 'intl', 'json',
-            'libxml', 'mbstring', 'openssl', 'pcre', 'session', 'tokenizer', 'xmlreader', 'zip',
-            'zlib', 'pdo_mysql',
+            'libxml', 'mbstring', 'openssl', 'pcre', 'session', 'sodium', 'tokenizer', 'xmlreader',
+            'zip', 'zlib', 'pdo_mysql',
         ],
+    ],
+
+    /*
+     * Máy chủ MCP cho nhân sự (kế hoạch M11).
+     */
+    'mcp' => [
+        /*
+         * R7: Origin được gọi `/mcp` từ trình duyệt, so khớp CHÍNH XÁC
+         * ({@see \App\Http\Middleware\Mcp\CheckOrigin}, cộng thêm origin của `APP_URL`). Request không
+         * có Origin (Claude, ChatGPT gọi từ máy chủ của họ) không bị danh sách này chặn.
+         * `MCP_EXTRA_ALLOWED_ORIGINS`: thêm origin khác mà không sửa mã, dạng `scheme://host[:port]`,
+         * phân tách dấu phẩy. Không nhận ký tự đại diện.
+         */
+        'allowed_origins' => array_values(array_filter(array_map('trim', [
+            'https://claude.ai',
+            'https://chatgpt.com',
+            ...explode(',', (string) env('MCP_EXTRA_ALLOWED_ORIGINS', '')),
+        ]))),
     ],
 
     /*

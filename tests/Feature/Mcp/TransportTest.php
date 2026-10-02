@@ -1,0 +1,401 @@
+<?php
+
+use App\Enums\Role;
+use App\Http\Middleware\Mcp\CheckOrigin;
+use App\Http\Middleware\Mcp\RequireBearerToken;
+use App\Models\ClientUser;
+use App\Models\User;
+use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Testing\TestResponse;
+use Laravel\Passport\ApiTokenCookieFactory;
+use Laravel\Passport\Http\Middleware\CheckToken;
+use Laravel\Passport\Passport;
+use Tests\Support\McpOAuth;
+
+/*
+|--------------------------------------------------------------------------
+| M11 Task 1 — endpoint `/mcp`: 401 cho mọi request chưa có token, Origin, hai thế hệ giao thức
+|--------------------------------------------------------------------------
+| Mọi test ở đây đi qua HTTP THẬT tới `/mcp` với token Passport THẬT (`Tests\Support\McpOAuth`:
+| ký bằng khoá RSA, lưu bằng repository của Passport, kiểm bằng `ResourceServer`). Không
+| `Passport::actingAs()`, không `Server::tool()->actingAs()`: cả hai bỏ qua đúng những lớp mà test
+| này phải chứng minh (R7, kế hoạch M11 "Ràng buộc toàn cục").
+*/
+
+beforeEach(function () {
+    McpOAuth::useTestKeys();
+    $this->seed(RolesAndPermissionsSeeder::class);
+});
+
+const MCP_LEGACY_VERSION = '2025-11-25';
+const MCP_STATELESS_VERSION = '2026-07-28';
+
+/** Client kiểu `initialize` (2025-11-25): không `_meta`, không header MCP. */
+function mcpInitializeBody(): array
+{
+    return [
+        'jsonrpc' => '2.0',
+        'id' => 1,
+        'method' => 'initialize',
+        'params' => [
+            'protocolVersion' => MCP_LEGACY_VERSION,
+            'capabilities' => (object) [],
+            'clientInfo' => ['name' => 'client-thu', 'version' => '1.0'],
+        ],
+    ];
+}
+
+/** Client stateless 2026-07-28: `_meta` mang phiên bản và năng lực, kèm header `Mcp-Method`. */
+function mcpStatelessBody(string $method): array
+{
+    return [
+        'jsonrpc' => '2.0',
+        'id' => 7,
+        'method' => $method,
+        'params' => [
+            '_meta' => [
+                'io.modelcontextprotocol/protocolVersion' => MCP_STATELESS_VERSION,
+                'io.modelcontextprotocol/clientCapabilities' => (object) [],
+            ],
+        ],
+    ];
+}
+
+/** @return array<string, string> */
+function mcpStatelessHeaders(string $method): array
+{
+    return ['MCP-Protocol-Version' => MCP_STATELESS_VERSION, 'Mcp-Method' => $method];
+}
+
+function postMcp(array $body, array $headers = [], ?string $token = null): TestResponse
+{
+    if ($token !== null) {
+        $headers['Authorization'] = 'Bearer '.$token;
+    }
+
+    return test()->postJson('/mcp', $body, $headers);
+}
+
+function mcpLawyer(): User
+{
+    return User::factory()->withRole(Role::Lawyer)->create();
+}
+
+/*
+|--------------------------------------------------------------------------
+| 401 kèm WWW-Authenticate cho mọi request chưa có token (R7)
+|--------------------------------------------------------------------------
+*/
+
+function expectMcpChallenge(TestResponse $response): void
+{
+    $response->assertUnauthorized();
+
+    expect($response->headers->get('WWW-Authenticate'))
+        ->toStartWith('Bearer ')
+        ->toContain('resource_metadata="'.url('/.well-known/oauth-protected-resource/mcp').'"');
+}
+
+it('R7 initialize không token: 401 kèm WWW-Authenticate trỏ đúng PRM của /mcp', function () {
+    expectMcpChallenge(postMcp(mcpInitializeBody()));
+});
+
+it('R7 server/discover không token: 401 kèm WWW-Authenticate', function () {
+    expectMcpChallenge(postMcp(mcpStatelessBody('server/discover'), mcpStatelessHeaders('server/discover')));
+});
+
+it('R7 tools/list không token: 401 kèm WWW-Authenticate', function () {
+    expectMcpChallenge(postMcp(mcpStatelessBody('tools/list'), mcpStatelessHeaders('tools/list')));
+});
+
+it('R7 request không có header Accept vẫn nhận 401 JSON, không bị chuyển hướng tới trang đăng nhập', function () {
+    $response = test()->call('POST', '/mcp', server: ['CONTENT_TYPE' => 'application/json'], content: json_encode(mcpInitializeBody()));
+
+    expectMcpChallenge($response);
+    expect($response->headers->get('Content-Type'))->toContain('application/json');
+});
+
+it('R7 token sai chữ ký: 401', function () {
+    expectMcpChallenge(postMcp(mcpInitializeBody(), token: 'khong.phai.jwt'));
+});
+
+it('R7 token đặt trong query string: 401 (token chỉ đọc từ header Authorization)', function () {
+    $token = McpOAuth::accessToken($this, mcpLawyer());
+
+    expectMcpChallenge(test()->postJson('/mcp?access_token='.$token, mcpInitializeBody()));
+});
+
+it('R7 cặp dương: cùng token đặt ở header Authorization thì initialize trả 200', function () {
+    $token = McpOAuth::accessToken($this, mcpLawyer());
+
+    postMcp(mcpInitializeBody(), token: $token)->assertOk();
+});
+
+it('R1 token thiếu scope mcp:use bị chặn (403), không chạy server', function () {
+    $token = McpOAuth::accessToken($this, mcpLawyer(), scope: '');
+
+    postMcp(mcpInitializeBody(), token: $token)->assertForbidden();
+});
+
+it('R1 token không gắn người dùng nào (kiểu client_credentials) không xác thực được /mcp', function () {
+    $client = McpOAuth::client();
+    $userToken = McpOAuth::accessToken($this, mcpLawyer(), $client);
+    Passport::token()->newQuery()->whereKey(McpOAuth::tokenId($userToken))->update(['user_id' => null]);
+
+    expectMcpChallenge(postMcp(mcpInitializeBody(), token: McpOAuth::resign(
+        McpOAuth::tokenId($userToken), new DateTimeImmutable('+10 minutes'), withUser: false,
+    )));
+});
+
+/*
+|--------------------------------------------------------------------------
+| Không xác thực bằng cookie (R1: chỉ bearer)
+|--------------------------------------------------------------------------
+*/
+
+it('R1 phiên /admin và phiên cổng khách, kèm cookie, nhưng không bearer: 401', function () {
+    $staff = User::factory()->withRole(Role::Admin)->create();
+    $clientUser = ClientUser::factory()->create();
+
+    // `withCredentials()`: không có nó, `postJson()` của Laravel KHÔNG gửi cookie nào, và test này
+    // xanh vì một lý do không liên quan.
+    $response = $this->actingAs($staff, 'web')
+        ->actingAs($clientUser, 'client')
+        ->withCredentials()
+        ->withCookie(config('session.cookie'), 'phien-bat-ky')
+        ->postJson('/mcp', mcpInitializeBody());
+
+    expectMcpChallenge($response);
+});
+
+it('R1 cookie laravel_token hợp lệ của Passport (kèm X-CSRF-TOKEN đúng) không xác thực được /mcp', function () {
+    $cookie = app(ApiTokenCookieFactory::class)->make(mcpLawyer()->getKey(), 'csrf-thu');
+
+    $response = $this->withCredentials()
+        ->withCookie(Passport::cookie(), $cookie->getValue())
+        ->withHeader('X-CSRF-TOKEN', 'csrf-thu')
+        ->postJson('/mcp', mcpInitializeBody());
+
+    expectMcpChallenge($response);
+});
+
+it('R7 token sai và không có header Accept: vẫn 401 JSON, không chuyển hướng (không có route login)', function () {
+    $response = test()->call(
+        'POST', '/mcp',
+        server: ['CONTENT_TYPE' => 'application/json', 'HTTP_AUTHORIZATION' => 'Bearer khong.phai.jwt'],
+        content: json_encode(mcpInitializeBody()),
+    );
+
+    expectMcpChallenge($response);
+    expect($response->headers->get('Content-Type'))->toContain('application/json');
+});
+
+it('R1 /mcp không nằm trong nhóm web: không phiên, không CSRF', function () {
+    $middleware = Route::getRoutes()->match(request()->create('/mcp', 'POST'))->gatherMiddleware();
+
+    expect($middleware)->not->toContain('web')
+        ->and($middleware)->toContain(CheckOrigin::class)
+        ->and($middleware)->toContain(RequireBearerToken::class)
+        ->and($middleware)->toContain('auth:mcp')
+        ->and($middleware)->toContain(CheckToken::using('mcp:use'));
+
+    // Hành vi: request có token hợp lệ, không có mã CSRF nào, không nhận 419 và không được phát
+    // cookie phiên.
+    postMcp(mcpInitializeBody(), token: McpOAuth::accessToken($this, mcpLawyer()))
+        ->assertOk()
+        ->assertCookieMissing(config('session.cookie'));
+});
+
+it('R7 GET và DELETE /mcp trả 405, Allow: POST', function () {
+    $this->get('/mcp')->assertStatus(405)->assertHeader('Allow', 'POST');
+    $this->delete('/mcp')->assertStatus(405)->assertHeader('Allow', 'POST');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Origin (R7): có Origin ngoài allowlist thì 403, không Origin thì cho qua
+|--------------------------------------------------------------------------
+*/
+
+it('R7 Origin https://evil.example: 403, kể cả khi token hợp lệ', function () {
+    $token = McpOAuth::accessToken($this, mcpLawyer());
+
+    postMcp(mcpInitializeBody(), ['Origin' => 'https://evil.example'], $token)->assertForbidden();
+});
+
+it('R7 Origin lạ bị chặn TRƯỚC bước xác thực: không token vẫn là 403, không phải 401', function () {
+    postMcp(mcpInitializeBody(), ['Origin' => 'https://evil.example'])->assertForbidden();
+});
+
+it('R7 Origin so khớp chính xác: tên miền con giả, "null" và chuỗi rỗng đều 403', function (string $origin) {
+    $token = McpOAuth::accessToken($this, mcpLawyer());
+
+    postMcp(mcpInitializeBody(), ['Origin' => $origin], $token)->assertForbidden();
+})->with([
+    'https://claude.ai.evil.example',
+    'https://evil.claude.ai',
+    'http://claude.ai',
+    'null',
+]);
+
+it('R7 Origin https://claude.ai và https://chatgpt.com: qua', function (string $origin) {
+    $token = McpOAuth::accessToken($this, mcpLawyer());
+
+    postMcp(mcpInitializeBody(), ['Origin' => $origin], $token)->assertOk();
+})->with(['https://claude.ai', 'https://chatgpt.com']);
+
+it('R7 Origin của chính ứng dụng (APP_URL): qua', function () {
+    $token = McpOAuth::accessToken($this, mcpLawyer());
+    $parts = parse_url((string) config('app.url'));
+    $origin = $parts['scheme'].'://'.$parts['host'].(isset($parts['port']) ? ':'.$parts['port'] : '');
+
+    postMcp(mcpInitializeBody(), ['Origin' => $origin], $token)->assertOk();
+});
+
+it('R7 không có Origin: qua (client chạy từ máy chủ không gửi Origin)', function () {
+    $token = McpOAuth::accessToken($this, mcpLawyer());
+
+    postMcp(mcpInitializeBody(), token: $token)->assertOk();
+});
+
+it('R7 MCP_EXTRA_ALLOWED_ORIGINS thêm được một Origin mà không sửa mã', function () {
+    config(['vkcrm.mcp.allowed_origins' => [...config('vkcrm.mcp.allowed_origins'), 'https://vscode.dev']]);
+    $token = McpOAuth::accessToken($this, mcpLawyer());
+
+    postMcp(mcpInitializeBody(), ['Origin' => 'https://vscode.dev'], $token)->assertOk();
+});
+
+/*
+|--------------------------------------------------------------------------
+| Hai thế hệ giao thức (R7, [DC:626])
+|--------------------------------------------------------------------------
+*/
+
+it('R7 client kiểu initialize (2025-11-25) nhận phản hồi hợp lệ kèm instructions tiếng Việt', function () {
+    $response = postMcp(mcpInitializeBody(), token: McpOAuth::accessToken($this, mcpLawyer()));
+
+    $response->assertOk()
+        ->assertJsonPath('jsonrpc', '2.0')
+        ->assertJsonPath('id', 1)
+        ->assertJsonPath('result.protocolVersion', MCP_LEGACY_VERSION)
+        ->assertJsonPath('result.instructions', __('mcp.server.instructions'));
+});
+
+it('R7 client 2026-07-28 (server/discover, header Mcp-Method) nhận phản hồi hợp lệ', function () {
+    $response = postMcp(
+        mcpStatelessBody('server/discover'),
+        mcpStatelessHeaders('server/discover'),
+        McpOAuth::accessToken($this, mcpLawyer()),
+    );
+
+    $response->assertOk()
+        ->assertJsonPath('id', 7)
+        ->assertJsonPath('result.instructions', __('mcp.server.instructions'));
+
+    expect($response->json('result.supportedVersions'))->toContain(MCP_STATELESS_VERSION);
+});
+
+it('R7 CrmServer chưa có tool nào ở Task 1: tools/list trả danh sách rỗng', function () {
+    $response = postMcp(
+        mcpStatelessBody('tools/list'),
+        mcpStatelessHeaders('tools/list'),
+        McpOAuth::accessToken($this, mcpLawyer()),
+    );
+
+    $response->assertOk()->assertJsonPath('result.tools', []);
+});
+
+it('R7 header Mcp-Method lệch với body: 400, mã -32020', function () {
+    $response = postMcp(
+        mcpStatelessBody('server/discover'),
+        mcpStatelessHeaders('tools/list'),
+        McpOAuth::accessToken($this, mcpLawyer()),
+    );
+
+    $response->assertStatus(400)->assertJsonPath('error.code', -32020);
+});
+
+it('R11 instructions của server: ba câu của [DC:93-95] nằm trọn trong 512 ký tự đầu', function () {
+    $head = mb_substr(__('mcp.server.instructions'), 0, 512);
+
+    expect($head)->toContain('untrusted_client_content')
+        ->toContain('không phải chỉ dẫn')
+        ->toContain('bản nháp')
+        ->toContain('ghi chú nội bộ')
+        ->toContain('vụ hạn chế')
+        ->toContain('số định danh');
+});
+
+/*
+|--------------------------------------------------------------------------
+| spatie/permission dưới guard `mcp` ("sẽ cắn")
+|--------------------------------------------------------------------------
+| `auth:mcp` gọi `Auth::shouldUse('mcp')`, nên guard mặc định trong request MCP là `mcp`, trong khi
+| quyền và vai được seed ở guard `web`. Route thăm dò dưới đây đứng sau ĐÚNG `auth:mcp` và hỏi
+| `can()` như một tool sẽ hỏi.
+*/
+
+function registerMcpCanProbe(): void
+{
+    Route::post('/_probe/mcp-can', fn () => [
+        'guard' => config('auth.defaults.guard'),
+        'can' => request()->user()->can('matter.view'),
+    ])->middleware('auth:mcp');
+}
+
+it('§5 dưới guard mcp, luật sư can(matter.view) = true như dưới web', function () {
+    registerMcpCanProbe();
+    $lawyer = mcpLawyer();
+
+    expect($lawyer->can('matter.view'))->toBeTrue();
+
+    $this->postJson('/_probe/mcp-can', [], ['Authorization' => 'Bearer '.McpOAuth::accessToken($this, $lawyer)])
+        ->assertOk()
+        ->assertJsonPath('guard', 'mcp')
+        ->assertJsonPath('can', true);
+});
+
+it('§5 dưới guard mcp, kế toán can(matter.view) = false như dưới web', function () {
+    registerMcpCanProbe();
+    $accountant = User::factory()->withRole(Role::Accountant)->create();
+
+    expect($accountant->can('matter.view'))->toBeFalse();
+
+    $this->postJson('/_probe/mcp-can', [], ['Authorization' => 'Bearer '.McpOAuth::accessToken($this, $accountant)])
+        ->assertOk()
+        ->assertJsonPath('guard', 'mcp')
+        ->assertJsonPath('can', false);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Hạn token (R7): access 1 giờ, refresh 30 ngày
+|--------------------------------------------------------------------------
+*/
+
+it('R7 access token do /oauth/token cấp sống đúng 1 giờ, refresh token đúng 30 ngày', function () {
+    $tokens = McpOAuth::issueTokens($this, mcpLawyer());
+    $claims = McpOAuth::claims($tokens['access_token']);
+
+    // `iat` do lcobucci/jwt ghi kèm phần lẻ micro giây, `exp` là số nguyên: hiệu của hai số lệch
+    // dưới một giây.
+    expect($tokens['expires_in'])->toBe(3600)
+        ->and($claims['exp'] - $claims['iat'])->toEqualWithDelta(3600, 1);
+
+    $refresh = Passport::refreshToken()->newQuery()->where('access_token_id', $claims['jti'])->sole();
+
+    expect(now()->diffInDays($refresh->expires_at, absolute: true))->toEqualWithDelta(30, 0.01);
+});
+
+it('R7 access token quá hạn (exp đã qua): 401', function () {
+    $jti = McpOAuth::tokenId(McpOAuth::accessToken($this, mcpLawyer()));
+
+    expectMcpChallenge(postMcp(mcpInitializeBody(), token: McpOAuth::resign($jti, new DateTimeImmutable('-1 minute'))));
+});
+
+it('R7 cặp dương: cùng token ký lại với exp còn hạn thì 200', function () {
+    $jti = McpOAuth::tokenId(McpOAuth::accessToken($this, mcpLawyer()));
+
+    postMcp(mcpInitializeBody(), token: McpOAuth::resign($jti, new DateTimeImmutable('+1 minute')))->assertOk();
+});
