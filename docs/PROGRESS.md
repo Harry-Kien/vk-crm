@@ -2507,19 +2507,27 @@ từ `main` = `47ee8e3` trước khi M10 merge (controller duyệt: kế hoạch
 Phần thử trên máy thật do chủ văn phòng chạy theo danh sách kiểm tra; agent không điều khiển được
 điện thoại và không mở đường hầm HTTPS công khai tới máy dev.
 
-### Task 1 — khảo sát trước khi viết mã (2026-10-01): ba phán quyết, cả ba PENDING OWNER
+### Task 1 — khảo sát trước khi viết mã (2026-10-01): ba phán quyết tạm, câu 2–3 PENDING OWNER
 
 Tra cứu + khảo sát MÔ PHỎNG bằng Playwright (Chromium 153, WebKit 26.6, bản chạy local ở chế độ CSP
 enforce; manifest và service worker viết tay không commit): `docs/research/2026-10-01-pwa-khao-sat.md`.
 Danh sách kiểm tra tiếng Việt cho iPhone + Android (cũng là phần máy thật của Task 10):
-`docs/research/2026-10-01-pwa-kiem-tra-may-that.md`. Ba câu dưới giữ trạng thái **PENDING OWNER** cho
-tới khi chủ văn phòng gửi lại bảng kết quả; phán quyết tạm do controller duyệt để Task 2–9 đi tiếp.
+`docs/research/2026-10-01-pwa-kiem-tra-may-that.md`. Câu 2 và 3 giữ trạng thái **PENDING OWNER** cho
+tới khi chủ văn phòng gửi lại bảng kết quả; câu 1 gốc không đo được nữa và được thay bằng phán quyết
+tạm (xem dưới). Phán quyết tạm do controller duyệt để Task 2–9 đi tiếp.
 
-1. **iPhone, app đã cài, tải tài liệu ngoài scope** — PENDING OWNER (mục A của danh sách). Tài liệu
-   không đủ chắc về cookie của trình duyệt trong app; mô phỏng chỉ đo được cái giá: cùng URL tải có
-   chữ ký trả 200 khi có cookie phiên, 404 khi không. **Tạm: Task 3 làm route tải bí danh TRONG scope**
-   (`/portal/documents/{document}/download`, `/admin/documents/{document}/download`, cùng controller,
-   cùng middleware; nơi ký URL chọn tên route theo panel hiện hành).
+1. **iPhone, app đã cài, tải tài liệu ngoài scope** — **không đo, thay bằng phán quyết tạm.** Tài
+   liệu không đủ chắc về cookie của trình duyệt trong app; mô phỏng chỉ đo được cái giá: cùng URL tải
+   có chữ ký trả 200 khi có cookie phiên, 404 khi không. **Tạm: Task 3 làm route tải bí danh TRONG
+   scope** (`/portal/documents/{document}/download`, `/admin/documents/{document}/download`, cùng
+   controller, cùng middleware; nơi ký URL chọn tên route theo panel hiện hành), **và liên kết tải
+   của admin mở trong cùng cửa sổ**: hôm nay nút "Tải tệp" gọi `openUrlInNewTab()`
+   (`DocumentsRelationManager.php:767`) và danh sách tệp của hộp duyệt có `target="_blank"`
+   (`ChecklistRelationManager.php:361`); trong app nội bộ đã cài trên iPhone, tab mới đi ra ngoài cửa
+   sổ app dù URL trong scope, nên thiếu vế này thì route bí danh không giúp nhân sự (khảo sát mục 2.10).
+   Danh sách kiểm tra chạy sau Task 3, khi mọi liên kết tải đã trong scope, nên **không trả lời được
+   câu cookie gốc**; phần còn PENDING OWNER là "tải trong scope chạy trên iPhone thật, trong cửa sổ
+   app": mục A, bước A5–A6 (app khách) và A7–A9 (app nội bộ), kèm ảnh chụp và phiên bản iOS.
 2. **Đăng nhập cổng có OTP trong app đã cài** — PENDING OWNER (mục B). Ô mã đã có
    `autocomplete="one-time-code"` (`OneTimeCodeInput`, đo trên trang thật). Mô phỏng: nạp lại trang
    giữa bước mã thì quay về bước mật khẩu, và Filament chỉ gửi 2 mã / 60 giây / tài khoản
@@ -2532,6 +2540,10 @@ tới khi chủ văn phòng gửi lại bảng kết quả; phán quyết tạm 
    **Tạm: làm đúng R2 — hai `id`, hai `scope` không dấu `/`, header `Service-Worker-Allowed`.**
 
 Sự thật đo được mà task sau phải dùng (chi tiết ở tệp khảo sát, mục 2):
+- Cho Task 3: liên kết tải của admin phải mở trong cùng cửa sổ — bỏ `openUrlInNewTab()` ở
+  `DocumentsRelationManager.php:767` và `target="_blank"` ở `ChecklistRelationManager.php:361` khi URL
+  là route bí danh; response tải là `attachment` nên trên máy tính trang vẫn đứng yên. Liên kết của
+  cổng (`matter-progress.blade.php:218`) vốn đã mở cùng cửa sổ (khảo sát mục 2.10).
 - Không lượt Playwright nào có được `PushSubscription` thật (Chromium headless: `AbortError:
   Registration failed - permission denied`; WebKit của Playwright không có `PushManager`). Kiểm trình
   duyệt của Task 3/5 dừng ở bước gọi `subscribe` hoặc giả nó; Task 7 giả transport.

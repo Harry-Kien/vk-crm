@@ -7,8 +7,9 @@ thoại Android** thật. Máy tính không thay được bước này: cách iP
 Kết quả ghi vào bảng ở cuối tài liệu rồi gửi lại cho kỹ thuật, kèm ảnh chụp màn hình.
 Bối cảnh kỹ thuật và lý do của từng câu: `docs/research/2026-10-01-pwa-khao-sat.md`.
 
-- Mục **A, B, C** trả lời ba câu hỏi của Task 1. Chạy được ngay khi bản có Task 2 và 3 (biểu tượng,
-  manifest, service worker) đã lên máy chủ HTTPS.
+- Mục **A, B, C** ứng với ba câu hỏi của Task 1. Chạy được ngay khi bản có Task 2 và 3 (biểu tượng,
+  manifest, service worker, liên kết tải trong phạm vi app) đã lên máy chủ HTTPS. Mục A kiểm việc
+  **tải tài liệu ngay trong app đã cài** trên iPhone, cho cả app khách lẫn app nội bộ.
 - Mục **D, E, F** là phần máy thật của nghiệm thu Task 10. Chạy khi bản đầy đủ của M12 đã lên máy chủ.
 
 Mỗi bước có ba phần: **Làm**, **ĐẠT khi**, **Chụp**. Bước nào không ĐẠT thì ghi lại đúng những gì
@@ -27,7 +28,10 @@ thấy trên màn hình (chữ báo lỗi, trang trắng, trang "404") và chụ
 2. **Một tài khoản khách hàng để thử**, đã kích hoạt, có ít nhất **một hồ sơ** và **một tài liệu đã
    công bố** trong hồ sơ đó. Email của tài khoản này phải **mở được trên chính chiếc điện thoại đang
    thử** (ứng dụng Mail trên iPhone, Gmail trên Android), vì mã đăng nhập đi qua email.
-3. **Một tài khoản nhân sự** (có ứng dụng xác thực 2 bước như khi đăng nhập trên máy tính).
+3. **Một tài khoản nhân sự** (có ứng dụng xác thực 2 bước như khi đăng nhập trên máy tính), là
+   **luật sư phụ trách hoặc người trong đội ngũ của chính hồ sơ ở mục 2** — người ngoài đội ngũ không
+   thấy hồ sơ đó (A7–A9). Hồ sơ đó cần có ít nhất một tài liệu có tệp ở tab **Tài liệu**, và một đầu
+   mục ở trạng thái **Chờ kiểm tra** (khách đã nộp tệp) ở tab **Danh mục hồ sơ**.
 4. Ghi phiên bản máy:
    - iPhone: **Cài đặt → Cài đặt chung → Giới thiệu → Phiên bản iOS**. Cần **16.4 trở lên**.
    - Android: mở **Chrome → ⋮ (ba chấm) → Cài đặt → Giới thiệu về Chrome**. Ghi cả phiên bản Android
@@ -36,7 +40,7 @@ thấy trên màn hình (chữ báo lỗi, trang trắng, trang "404") và chụ
 
 ---
 
-## A. iPhone — cài app khách hàng và tải tài liệu (câu hỏi 1)
+## A. iPhone — tải tài liệu ngay trong app đã cài: app khách (A1–A6) và app nội bộ (A7–A9)
 
 | # | Làm | ĐẠT khi | Chụp |
 |---|---|---|---|
@@ -46,11 +50,27 @@ thấy trên màn hình (chữ báo lỗi, trang trắng, trang "404") và chụ
 | A4 | Đăng nhập trong app: email + mật khẩu của tài khoản khách thử, rồi mã 6 số trong email (xem mục B — có thể ghi kết quả B cùng lúc). | Vào được danh sách hồ sơ. Lưu ý: dù đã đăng nhập trong Safari trước đó, app **vẫn bắt đăng nhập lại** — đó là bình thường trên iPhone. | — |
 | A5 | Mở hồ sơ có tài liệu đã công bố, chạm vào **tên một tài liệu** để tải. | Tệp mở ra (xem trước PDF/ảnh) hoặc hỏi nơi lưu. **Không** hiện trang "404" hay "Không tìm thấy". | Màn hình ngay sau khi chạm (tệp đã mở, hoặc trang lỗi nếu có). |
 | A6 | Nếu tệp mở trong một khung có nút **Xong** ở góc: chạm **Xong**. | Quay lại đúng trang hồ sơ trong app, **vẫn đăng nhập** (không bị đưa về trang đăng nhập). | Màn hình sau khi chạm Xong. |
+| A7 | Trong **Safari**, vào `https://<địa chỉ>/admin`, rồi **Chia sẻ → Thêm vào Màn hình chính** như A2 (iOS 26: bật "Mở như ứng dụng web"). Mở app nội bộ vừa thêm từ màn hình chính, đăng nhập nhân sự (mật khẩu + mã ứng dụng xác thực). | App mở **không có thanh địa chỉ**; vào được trang tổng quan nội bộ. Trên màn hình chính có biểu tượng nội bộ **tách riêng** biểu tượng app khách của A2. | Màn hình chính có cả hai biểu tượng. |
+| A8 | Trong app nội bộ: mở hồ sơ của khách thử → tab **Tài liệu** → ở một tài liệu có tệp, chạm **Tải tệp**. | Tệp mở ra (xem trước) hoặc hỏi nơi lưu **ngay trong cửa sổ app**; chạm **Xong** (nếu có) thì về đúng tab Tài liệu, vẫn đăng nhập. **KHÔNG ĐẠT** nếu Safari bật lên, hoặc hiện một khung có **dòng địa chỉ** ở trên — kể cả khi tệp vẫn tải được: khi đó liên kết đã rời cửa sổ app. Ghi lại địa chỉ trong khung và tệp có tải được không. | Màn hình ngay sau khi chạm Tải tệp. |
+| A9 | Trong app nội bộ, cùng hồ sơ: tab **Danh mục hồ sơ** → ở đầu mục **Chờ kiểm tra**, chạm **Đã nhận** để mở hộp duyệt (chưa xác nhận gì) → trong phần **Tệp khách đã gửi**, chạm tên một tệp. Xong thì chạm **Huỷ thao tác** để đóng hộp, không duyệt. | Như A8: tệp mở **ngay trong cửa sổ app**, không có Safari, không có khung có dòng địa chỉ; quay lại vẫn thấy hộp duyệt hoặc trang hồ sơ, vẫn đăng nhập. | Màn hình ngay sau khi chạm tên tệp. |
 
-Ghi chú cho kỹ thuật: từ Task 3, liên kết tải trong app trỏ tới đường dẫn **trong** phạm vi app
-(`/portal/documents/…/download`). A5 ĐẠT nghĩa là cách làm đó chạy trên iPhone thật. Nếu A5 hiện 404,
-ghi lại địa chỉ hiện ở đầu khung (nếu có) — đó là bằng chứng iPhone không mang cookie đăng nhập ra
-ngoài phạm vi app.
+Ghi chú cho kỹ thuật: từ Task 3, liên kết tải trong cả hai app trỏ tới đường dẫn **trong** phạm vi
+app (`/portal/documents/…/download`, `/admin/documents/…/download`) và mở trong **cùng cửa sổ**. Mục
+A vì vậy **không đo câu hỏi cookie** gốc của Task 1 (trình duyệt trong app có mang cookie ra ngoài
+phạm vi app không): câu đó đã được thay bằng phán quyết tạm (khảo sát, mục 3 dòng 1). A5–A9 ĐẠT
+nghĩa là lượt tải trong phạm vi app chạy trên iPhone thật. Một trang lỗi ở A5, A8 hoặc A9 đọc như sau
+— chụp lại cả mã lỗi lẫn giờ chạm:
+
+- **403**: liên kết tải đã hết hạn. Liên kết chỉ sống 5 phút kể từ lúc trang vẽ ra nó (mở hoặc làm
+  mới trang). Mở lại trang (kéo xuống để tải lại, hoặc vào lại hồ sơ) rồi chạm lại ngay; vẫn 403 mới
+  là lỗi.
+- **429**: quá 60 lượt tải trong một phút của cùng tài khoản. Chờ một phút rồi thử lại.
+- **404**: máy chủ không thấy phiên đăng nhập đi kèm lượt tải, hoặc tài khoản đó không được tải tài
+  liệu này (không thuộc đội ngũ, tài liệu chưa công bố cho khách, tệp không còn). Nếu 404 hiện
+  **trong cửa sổ app** (không có dòng địa chỉ), đó **không** phải chuyện cookie của iPhone: kiểm lại
+  điều kiện ở mục 0 (tài khoản thuộc đội ngũ hồ sơ, tài liệu đã công bố), rồi báo kỹ thuật kèm ảnh.
+  Nếu 404 hiện trong một khung **có dòng địa chỉ** hoặc trong Safari, liên kết đã rời cửa sổ app
+  (Task 3 chưa đúng) — ghi lại địa chỉ đó.
 
 ---
 
@@ -131,6 +151,7 @@ Phiên bản iPhone (iOS): ______ Mẫu máy: ______ · Phiên bản Android: __
 | Bước | iPhone (ĐẠT / KHÔNG / không làm) | Android (ĐẠT / KHÔNG / không làm) | Ghi chú (thấy gì) |
 |---|---|---|---|
 | A1–A6 | | (không áp dụng) | |
+| A7–A9 | | (không áp dụng) | |
 | B1–B5 | | | |
 | C1–C6 | (không áp dụng) | | |
 | D1–D8 | | | |

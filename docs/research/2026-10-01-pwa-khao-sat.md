@@ -11,9 +11,11 @@ này gồm ba phần:
 - **Mục 2 — khảo sát MÔ PHỎNG** bằng Playwright trên bản chạy local của làn. *Mô phỏng — không thay
   máy thật.* Mọi con số ở mục này là của Chromium/WebKit chạy headless trên Windows, không phải của
   iOS hay Android.
-- **Mục 3 — phán quyết TẠM** cho ba câu hỏi, để Task 2–9 không bị chặn. Cả ba đều **PENDING OWNER**:
+- **Mục 3 — phán quyết TẠM** cho ba câu hỏi, để Task 2–9 không bị chặn. Câu 2 và 3 **PENDING OWNER**:
   chủ văn phòng chạy danh sách kiểm tra `docs/research/2026-10-01-pwa-kiem-tra-may-that.md` trên
-  một Android và một iPhone thật. Danh sách đó cũng là phần máy thật của Task 10.
+  một Android và một iPhone thật. Danh sách đó cũng là phần máy thật của Task 10. Câu 1 gốc (cookie
+  ngoài scope) **không đo**: nó được thay bằng phán quyết tạm, và phần còn PENDING OWNER của nó là
+  "tải TRONG scope chạy trên iPhone thật, cho cả hai app" (mục 3, dòng 1).
 
 Không mở đường hầm HTTPS công khai nào tới máy dev (dữ liệu demo không ra Internet).
 
@@ -36,7 +38,8 @@ Không mở đường hầm HTTPS công khai nào tới máy dev (dữ liệu de
 duyệt trong app (Firtman, 2019) nói nó dùng chung bộ nhớ với "các phiên bản PWA khác" — đọc theo
 nghĩa đó thì cookie phiên của app *có thể* đi theo. Nhưng nguồn đã cũ 7 năm, không phải của Apple,
 và các báo cáo "mất đăng nhập" ở trên cho thấy hành vi đã từng khác nhau giữa các bản iOS. Không đủ
-để dựa vào: phải đo trên iPhone thật (mục A của danh sách kiểm tra).
+để dựa vào — nên phán quyết tạm (mục 3, dòng 1) đưa mọi liên kết tải VÀO scope, thay vì đo câu này.
+Danh sách kiểm tra chạy sau Task 3 không đo được nó nữa (mọi liên kết tải khi đó đã trong scope).
 
 ### 1.2 Chrome Android
 
@@ -148,7 +151,10 @@ kết tải tài liệu trên trang hồ sơ:
   service worker của `/portal`).
 - Cùng URL có chữ ký: **200 khi có cookie phiên, 404 khi không có cookie**. Đây chính là cái giá nếu
   trình duyệt trong app của iOS (mục 1.1) không mang cookie: khách thấy 404 cho mọi tài liệu.
-- Phần iPhone thật (trình duyệt trong app có mang cookie không) là PENDING OWNER (mục A).
+- Câu iPhone thật "trình duyệt trong app có mang cookie không" **không được đo**: mục A của danh
+  sách kiểm tra chạy sau Task 3, khi liên kết tải đã nằm TRONG scope, nên nó chỉ kiểm được "tải
+  trong scope có chạy không". Câu cookie được thay bằng phán quyết tạm (mục 3, dòng 1), và phán
+  quyết đó chỉ đứng được nếu liên kết mở trong cùng cửa sổ app (mục 2.10).
 
 ### 2.6 Đăng nhập cổng có OTP — câu hỏi 2, phần đo được
 
@@ -204,10 +210,36 @@ cần đi tiếp tới máy chủ); Task 7 giả transport như kế hoạch đ�
   `public/pwa/register.js` sẽ bị trình duyệt giữ một năm **không hỏi lại**: thẻ `<script>` của Task 2
   phải mang một tham số phiên bản (`?v=` băm nội dung) thì bản sửa mới tới được điện thoại.
 
+### 2.10 Nút tải của app nội bộ mở TAB MỚI — sự thật cho Task 3 (đọc mã, chưa đo trên iPhone)
+
+Đọc mã ngày 2026-10-01, sau rà soát Task 1:
+
+- Nút "Tải tệp" của tab **Tài liệu** (admin) gọi `->openUrlInNewTab()`
+  (`app/Filament/Admin/Resources/Matters/RelationManagers/DocumentsRelationManager.php:767`).
+- Danh sách "Tệp khách đã gửi" trong hộp duyệt của tab **Danh mục hồ sơ** (nút "Đã nhận" / "Cần nộp
+  lại") vẽ từng tệp thành `<a … target="_blank">`
+  (`app/Filament/Admin/Resources/Matters/RelationManagers/ChecklistRelationManager.php:361`).
+- Liên kết tải của cổng khách (`resources/views/filament/portal/pages/matter-progress.blade.php:218`)
+  **không** có `target` — nó mở trong cùng cửa sổ.
+
+Hệ quả: trong app nội bộ đã cài trên iPhone, một tab mới **không mở trong cửa sổ app** — web app
+standalone không có tab, nên iOS đưa nó ra trình duyệt trong app hoặc Safari (kết luận của rà soát
+Task 1, chưa đo trên máy thật; bước A8–A9 sẽ thấy) — **dù URL đã nằm trong scope** `/admin`. Khi đó
+chuyện tải được hay không lại rơi về đúng câu hỏi 1 chưa đo (cookie của trình duyệt ngoài cửa sổ
+app) — tức route bí danh `/admin/documents/{document}/download` một mình **không** cứu được nhân sự.
+
+**Sự thật cho Task 3:** cùng lúc với route bí danh, liên kết tải của admin phải mở trong **cùng cửa
+sổ**: bỏ `openUrlInNewTab()` ở `DocumentsRelationManager.php:767` và `target="_blank"` ở
+`ChecklistRelationManager.php:361` khi URL là route bí danh trong scope. Bỏ được mà không mất gì
+trên máy tính: response tải là `Content-Disposition: attachment` (`DocumentDownloadController`), nên
+trình duyệt tải tệp về và **giữ nguyên trang** (cả hộp duyệt đang mở) chứ không rời trang. Task 3
+ghim điều này bằng test Livewire (liên kết tải của hai chỗ không mang `target="_blank"` và trỏ route
+bí danh). Danh sách kiểm tra có bước A7–A9 cho việc này trên iPhone thật.
+
 ## 3. Phán quyết TẠM (PENDING OWNER) — controller đã duyệt ngày 2026-10-01
 
 | # | Câu hỏi | Tình trạng | Phán quyết tạm, để Task 2–9 đi tiếp |
 |---|---|---|---|
-| 1 | iPhone, app đã cài: trình duyệt trong app (mở khi tải tài liệu ở `/documents/{id}/download`, ngoài scope) có mang cookie phiên không? | **PENDING OWNER** (mục A). Tài liệu không đủ chắc (1.1); mô phỏng chỉ xác nhận cái giá: thiếu cookie = 404 (2.5). | **Task 3 làm route tải bí danh TRONG scope**: `/portal/documents/{document}/download` và `/admin/documents/{document}/download`, cùng controller, cùng middleware (`signed`, `throttle:document-download`); nơi ký URL chọn tên route theo panel hiện hành. Sai thì thừa hai route vô hại; không làm mà iOS không mang cookie thì khách iPhone không tải được tài liệu nào. |
+| 1 | iPhone, app đã cài: trình duyệt trong app (mở khi tải tài liệu ở `/documents/{id}/download`, ngoài scope) có mang cookie phiên không? | **Không đo — thay bằng phán quyết tạm.** Tài liệu không đủ chắc (1.1); mô phỏng chỉ xác nhận cái giá: thiếu cookie = 404 (2.5). Danh sách kiểm tra chạy sau Task 3, khi mọi liên kết tải đã trong scope, nên không trả lời được câu này. **Còn PENDING OWNER:** tải TRONG scope chạy trên iPhone thật, trong cửa sổ app, cho cả hai app — mục A, bước A5–A6 (khách) và A7–A9 (nội bộ), kèm ảnh chụp và phiên bản iOS. | **Task 3 làm route tải bí danh TRONG scope**: `/portal/documents/{document}/download` và `/admin/documents/{document}/download`, cùng controller, cùng middleware (`signed`, `throttle:document-download`); nơi ký URL chọn tên route theo panel hiện hành. **Và liên kết tải của admin mở trong cùng cửa sổ** (bỏ `openUrlInNewTab()` ở `DocumentsRelationManager.php:767` và `target="_blank"` ở `ChecklistRelationManager.php:361` — mục 2.10); thiếu vế này thì route bí danh không giúp gì app nội bộ trên iPhone. Sai thì thừa hai route vô hại; không làm mà iOS không mang cookie thì khách iPhone không tải được tài liệu nào. |
 | 2 | Đăng nhập cổng có OTP trong app đã cài: app có bị nạp lại khi sang Mail không; ô mã có gợi ý tự điền không? | **PENDING OWNER** (mục B). Đã có `autocomplete="one-time-code"`; nạp lại thì mất bước mã, và mã mới vướng giới hạn 2 lần/60 giây (2.6). | **Không sửa luồng OTP.** Nếu máy thật cho thấy mất bước mã, Task 10 ghi thành phát hiện và đề xuất trong phạm vi kế hoạch cho phép (giữ trạng thái bước mã); không tự sửa luồng OTP ngoài phạm vi đó. |
 | 3 | Chrome Android: cài cả `/admin` lẫn `/portal` cùng origin — hai biểu tượng, hai cửa sổ, push mở đúng app? | **PENDING OWNER** (mục C, D). Mô phỏng: hai manifest phân tích sạch với hai scope tách rời; scope có dấu `/` bị bỏ và rơi về cả origin (2.3). | **Làm đúng R2: hai `id` (`/admin`, `/portal`) và hai `scope` không dấu `/`.** Task 2 thêm test ghim `id` và `scope` của cả hai manifest khác nhau và không có dấu `/` cuối. |
