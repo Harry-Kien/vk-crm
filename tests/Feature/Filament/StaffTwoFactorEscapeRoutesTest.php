@@ -215,6 +215,8 @@ function outsidePanelRouteReasons(): array
     return [
         'GET|POST|PUT|PATCH|DELETE|OPTIONS /' => 'chuyển hướng cố định sang /portal, không dữ liệu',
         'GET up' => 'kiểm tra sống của máy chủ, không dữ liệu',
+        'GET admin/manifest.webmanifest' => 'manifest công khai của app trên điện thoại (M12 R2): ngoài nhóm `web`, không phiên, không dữ liệu người dùng (tests/Feature/Pwa/ManifestTest.php)',
+        'GET portal/manifest.webmanifest' => 'manifest công khai của app trên điện thoại (M12 R2): ngoài nhóm `web`, không phiên, không dữ liệu người dùng (tests/Feature/Pwa/ManifestTest.php)',
         'GET documents/{document}/download' => 'chữ ký gắn người nhận + `DocumentDownloadController::actor()` đòi 2FA (DocumentDownloadTest §10.7)',
         'GET filament/exports/{export}/download' => 'không có Exporter trong `app/` và không có bảng `exports` nên không có gì để tải (test bên dưới)',
         'GET filament/imports/{import}/failed-rows/download' => 'không có Importer trong `app/` và không có bảng `imports` nên không có gì để tải (test bên dưới)',

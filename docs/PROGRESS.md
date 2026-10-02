@@ -2552,3 +2552,27 @@ Sự thật đo được mà task sau phải dùng (chi tiết ở tệp khảo 
 - Mẫu nginx: `location ~* \.(?:css|js|…)$` (`tools/deploy/nginx.conf.example:114-122`) sẽ trả 404 cho
   `/admin/sw.js` do Laravel phục vụ, và giữ `public/pwa/register.js` một năm `immutable` → cần khối
   `location =` cho hai `sw.js`, và thẻ `<script>` của `register.js` phải mang tham số phiên bản.
+
+### Task 2 — biểu tượng, manifest, thẻ `<head>` (2026-10-03)
+
+`GET /{admin,portal}/manifest.webmanifest` (`routes/pwa.php`, nạp ở `bootstrap/app.php` `then:`, ngoài
+nhóm `web`: không cookie, không dòng `sessions`), Action `App\Actions\Pwa\BuildManifest`, thẻ `<head>`
+`resources/views/pwa/head.blade.php` (hook `HEAD_END` thứ hai ở hai provider), `lang/vi/pwa.php`, khối
+`pwa` trong `config/vkcrm.php`, CSP thêm `manifest-src 'self'`. Biểu tượng sinh bằng
+`tools/brand/make-logo.php`, commit PNG tĩnh. Sự thật mà task sau phải dùng:
+- Thẻ `<head>` đọc panel HIỆN HÀNH (`filament()->getId()`), không nhận tên panel từ closure của provider:
+  `FilamentManager::bootCurrentPanel()` chỉ khởi động panel (đăng ký render hook) MỘT lần mỗi ứng dụng,
+  nên trong test hai request liên tiếp `/admin/login` rồi `/portal/login` dùng hook của admin cho cả
+  portal (đo: closure mang `'admin'` in manifest nội bộ lên trang cổng). Task 3 in thẻ `register.js` với
+  `data-*` trong CÙNG view này, cùng cách đọc panel.
+- Tên tệp biểu tượng lệch kế hoạch (kế hoạch chỉ nêu `app-180.png`): `apple-touch-icon` và maskable
+  RIÊNG từng panel (`App\Support\Pwa\AppIcons`: `brand/app-{admin,portal}-180.png`,
+  `brand/app-{admin,portal}-maskable-512.png`; nền paper / navy theo `config('vkcrm.pwa.icon_background')`)
+  — iOS không dùng maskable, nên trên iPhone `apple-touch-icon` là cách duy nhất phân biệt hai app.
+  Thêm `brand/vk-mark-192.png` (nền trong suốt, mục đích `any`). Đổi hình về sau phải đổi TÊN tệp
+  (mẫu nginx/Apache gửi `immutable` một năm cho `.png`).
+- Manifest nằm ngoài middleware của panel nên `ADMIN_IP_ALLOWLIST` (M8 R7) không chặn manifest nội bộ —
+  có chủ đích và có test; các trang của panel vẫn 404 với máy ngoài danh sách.
+- Tên route luôn là `pwa.{panel}.manifest` (provider chỉ cho một tên miền mỗi panel). Task 3 thêm `sw.js`
+  và trang ngoại tuyến vào cùng nhóm route, cùng khuôn tên. Thẻ `<script>` của `register.js` CHƯA in
+  (tránh 404 trên mọi trang) — Task 3 in cùng lúc với tệp; test "không `<script>` nào thiếu `src`" đã có.

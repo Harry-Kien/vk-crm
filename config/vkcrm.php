@@ -270,4 +270,24 @@ return [
             950 => 'oklch(0.233 0.050 261.7)',
         ],
     ],
+
+    /*
+     * M12 — app trên điện thoại (PWA). Kế hoạch `docs/superpowers/plans/2026-09-24-m12-pwa.md`.
+     *
+     * `theme_color`/`background_color` của manifest KHÔNG nằm ở đây: chúng đọc thẳng
+     * `brand.colors.navy`/`brand.colors.paper` (phán quyết R2 — không viết mã màu lần thứ hai).
+     */
+    'pwa' => [
+        /*
+         * R3 — nền đặc của biểu tượng maskable và `apple-touch-icon` theo từng app, là KHOÁ trong
+         * `brand.colors` chứ không phải mã màu. Hai nền khác nhau để một nhân sự cài cả hai app
+         * phân biệt được bằng mắt: cổng khách navy, nội bộ paper. `tools/brand/make-logo.php` đọc
+         * đúng khoá này khi sinh PNG; đổi ở đây thì phải chạy lại công cụ đó (và đổi tên tệp —
+         * docblock của công cụ nói vì sao).
+         */
+        'icon_background' => [
+            'admin' => 'paper',
+            'portal' => 'navy',
+        ],
+    ],
 ];

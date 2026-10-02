@@ -1,5 +1,32 @@
 <?php
 
+/*
+ * Sinh mọi biểu tượng PNG của văn phòng từ ảnh nguồn `tools/brand/vk-logo-source.jpg`, rồi commit
+ * PNG dưới `public/brand/`. Không ảnh nào sinh lúc chạy ứng dụng. Chạy từ gốc dự án:
+ *
+ *     /d/vkwt/m12-dev php tools/brand/make-logo.php     (máy dev chính: bin/dev php tools/brand/make-logo.php)
+ *
+ * Hai họ ảnh:
+ *  - `brand/vk-mark-{512,256,192,96,64,32}.png`: con dấu, nền TRONG SUỐT (logo, favicon, biểu tượng
+ *    `any` của manifest — 192 thêm ở M12 cho tiêu chí cài đặt của Chrome);
+ *  - M12 R3, theo từng app (`App\Support\Pwa\AppIcons`): bản maskable 512 (con dấu trong vùng an
+ *    toàn 80% trên nền đặc) và `apple-touch-icon` 180 (đục hoàn toàn — iOS tô đen phần trong suốt).
+ *    Màu nền đọc từ `config('vkcrm.pwa.icon_background')` → `config('vkcrm.brand.colors')`, nên
+ *    công cụ khởi động Laravel thay vì chép mã màu lần thứ hai.
+ *
+ * **Đổi hình về sau thì đổi TÊN tệp, không ghi đè.** Mẫu nginx (`tools/deploy/nginx.conf.example`)
+ * và Apache (`tools/deploy/apache-vhost.conf.example`) gửi `Cache-Control: public, max-age=31536000,
+ * immutable` cho mọi `.png`: một tệp cùng tên bị ghi đè sẽ không tới điện thoại nào đã tải bản cũ
+ * trong một năm. Đổi tên ở `AppIcons` (và vòng kích thước dưới đây), rồi chạy lại công cụ.
+ */
+
+use App\Support\Pwa\AppIcons;
+use App\Support\Pwa\PwaPanels;
+use Illuminate\Contracts\Console\Kernel;
+
+require __DIR__.'/../../vendor/autoload.php';
+(require __DIR__.'/../../bootstrap/app.php')->make(Kernel::class)->bootstrap();
+
 $src = imagecreatefromjpeg('tools/brand/vk-logo-source.jpg');
 $w = imagesx($src);
 $h = imagesy($src);
@@ -62,7 +89,7 @@ for ($y = 0; $y < $side; $y++) {
     }
 }
 
-foreach ([512, 256, 96, 64, 32] as $size) {
+foreach ([512, 256, 192, 96, 64, 32] as $size) {
     $dst = imagecreatetruecolor($size, $size);
     imagealphablending($dst, false);
     imagesavealpha($dst, true);
@@ -73,4 +100,43 @@ foreach ([512, 256, 96, 64, 32] as $size) {
     imagepng($dst, "public/brand/vk-mark-{$size}.png", 9);
     imagedestroy($dst);
     echo "wrote public/brand/vk-mark-{$size}.png\n";
+}
+
+/*
+ * M12 R3 — biểu tượng của từng app: con dấu đặt GIỮA một nền đặc, rồi lưu KHÔNG kênh alpha.
+ *
+ * `$seal` là tỉ lệ đường kính con dấu trên cạnh ảnh:
+ *  - maskable: vùng an toàn là hình tròn bán kính 40% cạnh (đường kính 80%); 0.72 chừa một vành
+ *    nền để con dấu không chạm mép vùng an toàn trên launcher cắt sát nhất;
+ *  - `apple-touch-icon`: iOS bo góc ô vuông, không cắt tròn; 0.80 giữ con dấu xa góc bo.
+ */
+$solidIcon = function (int $size, float $seal, string $hex) use ($out, $side): GdImage {
+    [$r, $g, $b] = sscanf(ltrim($hex, '#'), '%02x%02x%02x');
+
+    $dst = imagecreatetruecolor($size, $size);
+    imagealphablending($dst, true);
+    imagefill($dst, 0, 0, imagecolorallocate($dst, $r, $g, $b));
+
+    $diameter = (int) round($size * $seal);
+    $offset = intdiv($size - $diameter, 2);
+    imagecopyresampled($dst, $out, $offset, $offset, 0, 0, $diameter, $diameter, $side, $side);
+
+    // Đục hoàn toàn: không lưu kênh alpha, mép con dấu đã hoà vào nền khi chép ở trên.
+    imagesavealpha($dst, false);
+
+    return $dst;
+};
+
+foreach (PwaPanels::IDS as $panel) {
+    $background = config('vkcrm.brand.colors.'.config("vkcrm.pwa.icon_background.{$panel}"));
+
+    foreach ([
+        AppIcons::maskable($panel) => [AppIcons::MASKABLE_SIZE, 0.72],
+        AppIcons::appleTouch($panel) => [AppIcons::APPLE_TOUCH_SIZE, 0.80],
+    ] as $path => [$size, $seal]) {
+        $dst = $solidIcon($size, $seal, $background);
+        imagepng($dst, "public/{$path}", 9);
+        imagedestroy($dst);
+        echo "wrote public/{$path} ({$background})\n";
+    }
 }

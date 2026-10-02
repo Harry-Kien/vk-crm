@@ -177,6 +177,9 @@ class PortalPanelProvider extends PanelProvider
                 RequirePortalPasswordChange::class,
             ], isPersistent: true)
             ->renderHook(PanelsRenderHook::HEAD_END, fn () => view('brand.theme'))
+            // M12 R2 — manifest, theme-color, apple-touch-icon: hook THỨ HAI cùng tên, không gộp vào
+            // `brand.theme`. Nội dung và lý do: `resources/views/pwa/head.blade.php`.
+            ->renderHook(PanelsRenderHook::HEAD_END, fn () => view('pwa.head'))
             ->renderHook(PanelsRenderHook::AUTH_LOGIN_FORM_BEFORE, fn () => view('brand.login-tagline'))
             ->renderHook(PanelsRenderHook::AUTH_LOGIN_FORM_AFTER, fn () => view('brand.login-footer'));
     }

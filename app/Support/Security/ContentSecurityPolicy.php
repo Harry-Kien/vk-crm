@@ -83,6 +83,12 @@ final class ContentSecurityPolicy
      * khách (SPEC §8.4) hỏng ở cả Chromium lẫn WebKit. `blob:` CHỈ mở cho Worker: `script-src`
      * không có nó, nên một `<script src="blob:…">` vẫn bị chặn.
      *
+     * `manifest-src 'self'` — M12 R5: manifest của hai app trên điện thoại (`routes/pwa.php`)
+     * cùng origin với trang. Trước M12 nó rơi về `default-src 'self'` (0 vi phạm, đo ở
+     * `docs/research/2026-10-01-pwa-khao-sat.md` mục 2.4); ghi tường minh để một lần siết
+     * `default-src` không chặn manifest. Máy chủ push (Apple, Google, Mozilla) do TRÌNH DUYỆT gọi,
+     * không phải script của trang, nên KHÔNG thuộc `connect-src` — đừng "sửa" bằng cách mở rộng nó.
+     *
      * `style-src` CÓ `'unsafe-inline'` — luật style nội tuyến của dự án (không có bước build CSS)
      * và Filament in `style=""` khắp nơi; SPEC chỉ cấm với script. Vì thế cũng KHÔNG được thêm
      * nonce vào `style-src`: có nonce thì trình duyệt bỏ qua `'unsafe-inline'` và mọi `style=""`
@@ -97,6 +103,7 @@ final class ContentSecurityPolicy
             'default-src' => ["'self'"],
             'script-src' => ["'self'", "'nonce-{$nonce}'", "'unsafe-eval'"],
             'worker-src' => ["'self'", 'blob:'],
+            'manifest-src' => ["'self'"],
             'style-src' => ["'self'", "'unsafe-inline'", 'https://fonts.bunny.net'],
             'font-src' => ["'self'", 'https://fonts.bunny.net', 'data:'],
             'img-src' => ["'self'", 'data:', 'blob:'],
