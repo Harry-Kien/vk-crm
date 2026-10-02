@@ -230,11 +230,15 @@ return [
          * KHÔNG đăng bốn thông tin này, nên không có cách nào lấy tự động cho chính xác. Để trống
          * có chủ đích thay vì điền phỏng đoán — một mã số thuế sai trên văn bản gửi khách còn tệ
          * hơn một chỗ trống. Chủ văn phòng điền vào .env là xong, không phải sửa mã.
+         *
+         * Địa chỉ trụ sở do chính chủ văn phòng cung cấp ngày 2026-10-02 nên là giá trị mặc định;
+         * ba thông tin còn lại vẫn để trống tới khi chủ văn phòng đưa. `BRAND_OFFICE_ADDRESS`
+         * trong .env (hoặc trang "Thông tin văn phòng" của M7) vẫn ghi đè được.
          */
         'tax_code' => env('BRAND_TAX_CODE'),
         'bar_association' => env('BRAND_BAR_ASSOCIATION'),
         'licence_number' => env('BRAND_LICENCE_NUMBER'),
-        'office_address' => env('BRAND_OFFICE_ADDRESS'),
+        'office_address' => env('BRAND_OFFICE_ADDRESS', '1808 đường Nguyễn Ái Quốc, phường Trấn Biên, thành phố Đồng Nai'),
 
         'colors' => [
             'navy' => '#101d35',

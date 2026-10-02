@@ -71,11 +71,27 @@ it('in bốn thông tin pháp lý khi chủ văn phòng đã điền vào .env',
     }
 });
 
-it('không in nhãn cụt đuôi nào khi bốn thông tin pháp lý còn trống', function () {
+/**
+ * Chủ văn phòng cung cấp địa chỉ trụ sở ngày 2026-10-02, nên địa chỉ là giá trị MẶC ĐỊNH của
+ * `config/vkcrm.php` — chân mọi thư mang nó ngay cả khi máy chủ không khai `BRAND_OFFICE_ADDRESS`.
+ * Chép cứng chuỗi ở đây là cố ý: đây là một sự thật do chủ văn phòng đưa, không phải câu chữ của
+ * giao diện, và một lần sửa nhầm config phải làm bài này đỏ.
+ */
+it('in địa chỉ trụ sở văn phòng lên mọi thư khi chưa khai BRAND_OFFICE_ADDRESS', function () {
+    expect(config('vkcrm.brand.office_address'))
+        ->toBe('1808 đường Nguyễn Ái Quốc, phường Trấn Biên, thành phố Đồng Nai');
+
+    [$html, $text] = renderedOtpParts();
+
+    foreach ([$html, $text] as $body) {
+        expect($body)->toContain('1808 đường Nguyễn Ái Quốc, phường Trấn Biên, thành phố Đồng Nai');
+    }
+});
+
+it('không in nhãn cụt đuôi nào khi ba thông tin pháp lý còn lại còn trống', function () {
     expect(config('vkcrm.brand.tax_code'))->toBeNull()
         ->and(config('vkcrm.brand.bar_association'))->toBeNull()
-        ->and(config('vkcrm.brand.licence_number'))->toBeNull()
-        ->and(config('vkcrm.brand.office_address'))->toBeNull();
+        ->and(config('vkcrm.brand.licence_number'))->toBeNull();
 
     [$html, $text] = renderedOtpParts();
 
@@ -122,7 +138,8 @@ it('không để lại dòng trắng thừa nào trong bản văn bản thuần'
 });
 
 it('dựng chân thư chỉ từ những thông tin pháp lý đã có', function () {
-    expect(BrandFooter::legalLines())->toBe([]);
+    // Chưa khai gì trong .env: chỉ còn địa chỉ trụ sở (mặc định từ 2026-10-02), không dòng nào khác.
+    expect(BrandFooter::legalLines())->toBe(['1808 đường Nguyễn Ái Quốc, phường Trấn Biên, thành phố Đồng Nai']);
 
     filledLegalDetails();
 

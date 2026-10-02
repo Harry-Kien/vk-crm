@@ -172,7 +172,7 @@ Mọi lệnh `php artisan …` chạy trong thư mục `/var/www/vk-crm`, bằng
 | Cần gì | Dùng ở đâu |
 |---|---|
 | Có giới hạn IP được vào `/admin` không; có thì những IP/dải nào | `ADMIN_IP_ALLOWLIST` (để trống = tắt, mặc định) |
-| Bốn thông tin pháp lý: mã số thuế, Đoàn Luật sư, số Giấy đăng ký hoạt động, địa chỉ văn phòng | `BRAND_TAX_CODE`, `BRAND_BAR_ASSOCIATION`, `BRAND_LICENCE_NUMBER`, `BRAND_OFFICE_ADDRESS` — in ở chân mọi thư gửi khách |
+| Bốn thông tin pháp lý: mã số thuế, Đoàn Luật sư, số Giấy đăng ký hoạt động, địa chỉ văn phòng | `BRAND_TAX_CODE`, `BRAND_BAR_ASSOCIATION`, `BRAND_LICENCE_NUMBER`, `BRAND_OFFICE_ADDRESS` — in ở chân mọi thư gửi khách. Địa chỉ trụ sở đã có sẵn (1808 đường Nguyễn Ái Quốc, phường Trấn Biên, thành phố Đồng Nai — chủ văn phòng cung cấp ngày 2026-10-02); ba thông tin còn lại chờ chủ văn phòng |
 | Hộp thư có người đọc, nhận thư khi khách bấm "Trả lời" | `BRAND_REPLY_TO_ADDRESS` |
 | Họ tên và email của quản trị viên đầu tiên | Bước 6 |
 | Một tài khoản Google RIÊNG cho sao lưu | `docs/SAO-LUU-KHOI-PHUC.md`, Bước 2 |
@@ -273,7 +273,7 @@ mới mà quên dòng mẫu là test đỏ). Những dòng PHẢI sửa so với
 | `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | `no-reply@luatvukhang.com`, `"Luật Vũ Khang"` | `MAIL_FROM_NAME` là tên văn phòng khách nhìn thấy, không phải `${APP_NAME}` |
 | `TRUSTED_PROXIES` | `127.0.0.1` (bỏ dấu `#` đầu dòng) | đọc mục 1 ngay dưới bảng — KHÔNG dùng `*` |
 | `HEARTBEAT_URL` | URL ping của dịch vụ giám sát cron | Bước 8 |
-| `BRAND_TAX_CODE`, `BRAND_BAR_ASSOCIATION`, `BRAND_LICENCE_NUMBER`, `BRAND_OFFICE_ADDRESS` | bốn thông tin pháp lý (bỏ dấu `#` đầu dòng rồi điền) | chủ văn phòng (Bước 0) |
+| `BRAND_TAX_CODE`, `BRAND_BAR_ASSOCIATION`, `BRAND_LICENCE_NUMBER`, `BRAND_OFFICE_ADDRESS` | bốn thông tin pháp lý (bỏ dấu `#` đầu dòng rồi điền); `BRAND_OFFICE_ADDRESS` đã có mặc định đúng địa chỉ trụ sở, chỉ điền khi đổi | chủ văn phòng (Bước 0) |
 | `BRAND_REPLY_TO_ADDRESS` | hộp thư có người đọc | chủ văn phòng — đọc mục 3 ngay dưới bảng |
 | `BACKUP_*` | | `docs/SAO-LUU-KHOI-PHUC.md`, Bước 4 |
 | `ADMIN_IP_ALLOWLIST` | để trống, hoặc danh sách IP/CIDR | chủ văn phòng (Bước 0) |
