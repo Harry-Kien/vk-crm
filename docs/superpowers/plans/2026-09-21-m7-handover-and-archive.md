@@ -208,7 +208,7 @@ Kết quả là một `Document` nhóm B ở `signed_filed` (R1). Xong thì báo
   - người không phải admin không gọi được Action;
   - một test cấu trúc quét **lời gọi** `->forceDelete(` trên các model hồ sơ. Không quét chuỗi `forceDelete`: `ForceDeleteBulkAction` bị policy chặn vẫn hợp lệ trong bảng.
 
-### - [ ] Task 7 — Rút lại tài liệu đã công bố (`RetractDocument`)
+### - [x] Task 7 — Rút lại tài liệu đã công bố (`RetractDocument`)
 
 Món nợ mang từ M4 sang (`docs/docs-6`): hôm nay một tài liệu công bố nhầm cho khách **không có đường rút lại đúng nghiệp vụ**.
 

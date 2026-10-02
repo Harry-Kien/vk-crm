@@ -40,6 +40,8 @@ return [
         'pending_approval' => 'Chờ duyệt',
         'signed_filed' => 'Đã ký, đã nộp',
         'published' => 'Đã công bố',
+        // M7 Task 7: RetractDocument — trạng thái thứ năm, tài liệu đã rút khỏi cổng khách.
+        'retracted' => 'Đã rút lại',
     ],
     'deadline_severity' => [
         'normal' => 'Thông thường',

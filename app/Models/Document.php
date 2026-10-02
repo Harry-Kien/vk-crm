@@ -7,6 +7,7 @@ use App\Enums\DocumentStatus;
 use App\Exceptions\DocumentGroupNotChangeable;
 use App\Models\Concerns\RestrictedToClientPortal;
 use App\Support\Audit;
+use App\Support\Scopes\ClientPortalScope;
 use Database\Factories\DocumentFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -44,6 +45,8 @@ class Document extends Model implements HasMedia
         'matter_id', 'matter_checklist_item_id', 'group', 'title', 'status', 'version',
         'parent_document_id', 'uploader_type', 'uploader_id', 'client_can_view', 'client_can_download',
         'published_at', 'published_by', 'issued_at',
+        // M7 Task 7 — hôm nay chỉ `RetractDocument` ghi ba cột này.
+        'retracted_at', 'retracted_by', 'retraction_reason',
     ];
 
     protected function casts(): array
@@ -56,6 +59,7 @@ class Document extends Model implements HasMedia
             'client_can_download' => 'boolean',
             'published_at' => 'datetime',
             'issued_at' => 'date',
+            'retracted_at' => 'datetime',
         ];
     }
 
@@ -352,6 +356,49 @@ class Document extends Model implements HasMedia
     public function downloads(): HasMany
     {
         return $this->hasMany(DocumentDownload::class);
+    }
+
+    /** M7 Task 7: người đã rút tài liệu khỏi cổng khách (`RetractDocument`). */
+    public function retractedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'retracted_by');
+    }
+
+    /**
+     * M7 Task 7 — đường đọc HẸP, riêng, cho dòng "Văn phòng đã rút lại tài liệu này" trên cổng
+     * khách (`MatterProgress::retractionNotices()`). Tầng TRUY VẤN của nghi thức ba tầng; tầng
+     * quyền là `DocumentPolicy::viewRetractionNotice()`, tầng serialize là hình chiếu hẹp của trang.
+     *
+     * **Scope portal của `Document` KHÔNG nới ra cho `retracted`** — {@see self::applyClientPortalConstraints()}
+     * vẫn đòi `status = published`, nên mọi truy vấn khác dưới guard `client` (danh sách tài liệu,
+     * route tải, tìm kiếm) không bao giờ thấy một tài liệu đã rút. Đường này gỡ đúng scope đó
+     * (`withoutGlobalScope(ClientPortalScope::class)`, KHÔNG `withoutGlobalScopes()` — giữ
+     * `SoftDeletingScope`) rồi tự phát biểu lại một tập điều kiện HẸP HƠN:
+     *
+     *  - đúng vụ việc được truyền vào;
+     *  - chỉ `status = retracted` — không một trạng thái nào khác đi qua đường này;
+     *  - không bao giờ nhóm D (một dòng nhóm D không bao giờ ra tới khách nên không bao giờ "rút"
+     *    được, nhưng luật nhóm D là tuyệt đối và được nói lại ở đây chứ không suy ra);
+     *  - chưa xoá mềm, nói bằng `whereNull` chứ không chỉ trông vào `SoftDeletingScope` (một
+     *    `withTrashed()` gỡ được scope kia);
+     *  - vụ việc qua ĐÚNG ranh giới portal của chính khách đó, áp TƯỜNG MINH bằng
+     *    `Matter::applyClientPortalConstraints($q, $viewer)` — cùng khách, đã công bố lên portal,
+     *    chưa xoá mềm, khách hàng chưa xoá mềm, chưa quá hạn tra cứu (Task 5). Tường minh để điều
+     *    kiện không phụ thuộc vào việc guard nào đang mở lúc truy vấn chạy.
+     */
+    public static function retractionNoticesFor(Matter $matter, ClientUser $viewer): Builder
+    {
+        $query = static::query()->withoutGlobalScope(ClientPortalScope::class);
+        $model = $query->getModel();
+
+        return $query
+            ->where($model->qualifyColumn('matter_id'), $matter->getKey())
+            ->where($model->qualifyColumn('status'), DocumentStatus::Retracted->value)
+            ->where($model->qualifyColumn('group'), '!=', DocumentGroup::Internal->value)
+            ->whereNull($model->qualifyColumn('deleted_at'))
+            ->whereHas('matter', fn (Builder $matters) => $matters->getModel()->applyClientPortalConstraints($matters, $viewer))
+            ->orderByDesc($model->qualifyColumn('retracted_at'))
+            ->orderByDesc($model->getQualifiedKeyName());
     }
 
     /**

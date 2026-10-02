@@ -4,6 +4,8 @@ namespace App\Actions\Document;
 
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\DocumentGroup;
+use App\Enums\DocumentStatus;
+use App\Exceptions\DocumentGroupNotChangeable;
 use App\Exceptions\DocumentLifecycleNotAllowed;
 use App\Models\Document;
 use App\Models\User;
@@ -42,11 +44,21 @@ use Spatie\Activitylog\Models\Activity;
  *
  * **Vòng sửa 1 sửa lại phạm vi: cổng KHÔNG áp dụng khi nhóm ĐÍCH là D.** Bản đầu (Task 16) chặn
  * "bất kể nhóm đích là gì, kể cả D", với lý do D có thể thành trạm trung chuyển. Phán quyết vòng
- * sửa 1 lật lại phần đó: chuyển VÀO nhóm D luôn được phép với `document.update` — nó chỉ SIẾT lại
- * (khách mất quyền xem NGAY LẬP TỨC, xem hook `saving` của `Document`), và đây là đường DUY NHẤT
- * để rút một tài liệu nhóm B đã lỡ công bố ra khỏi tầm mắt khách, cho tới khi `M7` có
- * `RetractDocument` thật. Một trợ lý phát hiện một văn bản B bị công bố nhầm phải rút được nó
- * NGAY, không phải đi tìm ai đó có `document.publish` trước.
+ * sửa 1 lật lại phần đó: chuyển VÀO nhóm D được phép với `document.update` — nó chỉ SIẾT lại
+ * (khách mất quyền xem NGAY LẬP TỨC, xem hook `saving` của `Document`).
+ *
+ * **M7 Task 7 — một đường rút duy nhất: tài liệu ĐANG ra tới khách không vào nhóm D được nữa.**
+ * Tới M7, vào nhóm D là "đường rút tạm" duy nhất cho một tài liệu công bố nhầm. Nay có
+ * `RetractDocument` thật (lý do khách đọc được, giữ bằng chứng tải, dòng rút trên cổng), nên với
+ * tài liệu mà `Document::isReleasedToPortal()` đúng — cùng MỘT vị từ `RetractDocument` dùng — lần
+ * chuyển vào D bị từ chối bằng câu chỉ tới nút "Rút lại"
+ * (`DocumentGroupNotChangeable::releasedToClientUseRetract()`). Phán quyết "vào D luôn được" của
+ * M6.5 Task 16 chỉ còn đúng cho tài liệu CHƯA (hoặc không còn) ra tới khách; chúng vẫn vào D tự do
+ * với `document.update`. Giá: một trợ lý phát hiện văn bản công bố nhầm phải nhờ người có
+ * `document.publish` bấm "Rút lại". Tài liệu ĐÃ RÚT cũng không vào D
+ * (`DocumentGroupNotChangeable::retractedStaysVisibleToClient()`): dòng giải thích "đã rút lại"
+ * của khách đọc từ chính bản ghi đó và không bao giờ trả nhóm D — cùng lý lẽ
+ * `DocumentPolicy::delete()` từ chối tài liệu đã rút. Đổi giữa A/B/C thì dòng đó còn nguyên.
  *
  * **Hai đường rời B sang A/C (R9 mở rộng phần b):** (1) tài liệu đã `wasPublishedToClient()` hoặc
  * `signed_filed` — không có gì để "giặt" nữa, nó đã thật sự ký/nộp/ra tới khách; hoặc (2) người
@@ -95,6 +107,15 @@ class RegroupDocument
             }
 
             Gate::forUser($actor)->authorize('update', $fresh);
+
+            // M7 Task 7 — một đường rút duy nhất, xem docblock lớp. Đọc trên bản đã khoá.
+            if ($group === DocumentGroup::Internal && $fresh->isReleasedToPortal()) {
+                throw DocumentGroupNotChangeable::releasedToClientUseRetract();
+            }
+
+            if ($group === DocumentGroup::Internal && $fresh->status === DocumentStatus::Retracted) {
+                throw DocumentGroupNotChangeable::retractedStaysVisibleToClient();
+            }
 
             if ($from === DocumentGroup::Internal) {
                 Gate::forUser($actor)->authorize('publish', $fresh);

@@ -104,6 +104,9 @@ return [
         'handover_package_failed' => 'Sinh gói bàn giao hồ sơ thất bại hẳn',
         // M7 Task 6: app/Actions/Matter/RecordMatterDestruction.php — chỉ GHI quyết định, không xoá gì.
         'matter_destruction_recorded' => 'Ghi quyết định tiêu huỷ hồ sơ',
+        // M7 Task 7: app/Actions/Document/RetractDocument.php — rút tài liệu đã công bố khỏi cổng
+        // khách; tệp và nhật ký tải giữ nguyên.
+        'document_retracted' => 'Rút lại tài liệu đã công bố cho khách',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

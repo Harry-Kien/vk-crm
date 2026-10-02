@@ -1931,3 +1931,74 @@ ghi ngay dưới đoạn `FlagRetentionExpiry`.
 - **Vụ đã xoá mềm mà có bản ghi lưu trữ** không bị cảnh báo. Hôm nay không đường nào tạo ra trường
   hợp đó: admin không có nút xoá vụ việc, và `CancelMatter` chỉ huỷ vụ mở nhầm, vốn không bao giờ có
   bản ghi lưu trữ.
+
+### Task 7 — Rút lại tài liệu đã công bố (`RetractDocument`)
+
+Món nợ từ M4 (`docs/docs-6`): tài liệu công bố nhầm nay có một đường rút đúng nghiệp vụ. Đính chính
+SPEC §4.11 (trạng thái thứ năm) và §4.12 (khoá ngoại) ghi ngay dưới mục tương ứng.
+
+- **Bước 1 (commit riêng, trước Action).** `document_downloads.document_id` thôi `cascadeOnDelete`,
+  thành `restrictOnDelete` (migration `2026_09_28_070701_…`): xoá cứng một tài liệu đã có lượt tải
+  bị CSDL từ chối, dòng tải còn nguyên. `DocumentDownloadsForeignKeyTest` (cả SQLite lẫn MariaDB).
+- **Bước 2.** Migration `2026_09_28_070702_…` thêm `documents.retracted_at`, `retracted_by` (FK
+  users, `nullOnDelete`), `retraction_reason` (text). Case `DocumentStatus::Retracted` (nhãn "Đã rút
+  lại"). Chuỗi mới ở tệp lang riêng `lang/vi/retraction.php`; `enums.php`/`activity.php` chỉ thêm
+  khối `// M7 Task 7`.
+- **Action `App\Actions\Document\RetractDocument`.** Một transaction; câu đầu tiên khoá dòng
+  `matters` (tìm bằng truy vấn con trên `documents.matter_id`, không tin caller), rồi khoá
+  `documents`; người thực hiện đọc lại từ CSDL; quyền `DocumentPolicy::publish` hỏi lại dưới khoá
+  (trợ lý không rút được). Từ chối bằng câu trạng thái (`DocumentNotRetractable`): không còn tồn tại,
+  đã xoá mềm, vụ đã xoá mềm, đã rút rồi (quyết định đầu giữ nguyên), không đang ra tới khách. Lý do
+  bắt buộc, gỡ khoảng trắng Unicode hai đầu, `mb_strlen` 20–5000. Ghi `status = retracted`, tắt hai
+  cờ khách, ghi người/lúc/lý do; giữ tệp, `document_downloads`, `published_at/by`. Audit
+  `document_retracted` mang `client_downloads` (số lượt tải CỦA KHÁCH trước lúc rút), không mang lý
+  do hay tiêu đề. Không thư, không thông báo.
+- **Vị từ "đang ra tới khách" chọn `Document::isReleasedToPortal()`**, một vị từ dùng chung cho
+  Action, lời từ chối của "Chuyển nhóm", `DocumentPolicy::delete()` và điều kiện hiện nút. Không
+  chọn `wasPublishedToClient()` vì nó thiếu vế nhóm D và xoá mềm. Vị từ không hỏi vụ việc: tài liệu
+  đã công bố trên một vụ đang ẩn khỏi portal vẫn rút được (nó trở lại tầm mắt khách khi vụ lên lại).
+- **Một đường rút duy nhất.**
+  - `RegroupDocument` từ chối đưa vào nhóm D một tài liệu đang ra tới khách, câu chỉ tới nút "Rút
+    lại" và nói ai bấm được. Phán quyết "vào D luôn được" của M6.5 Task 16 nay chỉ đúng cho tài liệu
+    không đang ra tới khách và chưa bị rút. Câu tương ứng ở mục M4 "Việc hoãn lại" và ở ghi chú M6.5
+    (hai "đường rút tạm") không sửa ở đây (luật làn: chỉ viết trong Ghi chú M7) — đọc chúng với đính
+    chính này.
+  - Thêm ngoài brief, cùng lý lẽ với quyền xoá: tài liệu ĐÃ RÚT cũng không vào nhóm D
+    (`DocumentGroupNotChangeable::retractedStaysVisibleToClient()`), vì dòng giải thích của khách đọc
+    từ chính bản ghi đó và không bao giờ trả nhóm D. Đổi giữa A/B/C vẫn được (dòng rút còn nguyên;
+    tài liệu đã rút rời nhóm B sang A/C cần lý do sửa nhầm nhóm, vì `hasClearedIssuedLifecycle()` sai
+    với trạng thái `retracted`).
+  - `DocumentPolicy::delete()` trả `false` cho tài liệu đang ra tới khách hoặc đã rút, kể cả admin.
+  - `PublishDocument` từ chối tài liệu đã rút (`DocumentNotPublishable::retracted`): muốn đưa lại
+    cho khách thì tải lên một bản mới. Các bước vòng đời B (trình duyệt, đã ký, trả về nháp) vốn chỉ
+    nhận đúng một trạng thái nguồn nên không chạm được `retracted`.
+  - Test cũ dựng "rút bằng cách vào D" (dữ liệu có từ trước M7) nay ghi thẳng model, hook `saving` vẫn
+    hạ cờ; `RegroupDocumentTest`, `PublishDocumentTest`, `DocumentDownloadTest`,
+    `DocumentsRelationManagerTest`, `DocumentAccessTest` cập nhật theo.
+- **Cổng khách.** Ở khối Tài liệu của `MatterProgress`, sau các tài liệu còn hiệu lực: tiêu đề (gạch
+  ngang), "Văn phòng đã rút lại tài liệu này. Lý do: …", ngày rút; không liên kết tải, không người
+  rút. Vụ chỉ còn tài liệu đã rút không hiện "chưa có tài liệu". Scope portal của `Document` KHÔNG
+  nới: dòng rút đi qua đường hẹp `Document::retractionNoticesFor()` (gỡ đúng `ClientPortalScope`,
+  chỉ `retracted`, không nhóm D, chưa xoá mềm, đúng vụ, vụ qua `Matter::applyClientPortalConstraints`
+  của chính khách — gồm hạn tra cứu Task 5) cộng ability `DocumentPolicy::viewRetractionNotice` (chỉ
+  khách, phát biểu bằng thuộc tính) cộng hình chiếu hẹp (tiêu đề, lý do, ngày). Đường dẫn tải ký trước
+  lúc rút trả 404; nhân sự vẫn tải được (tệp là bằng chứng, lượt tải vẫn ghi).
+- **Màn hình nội bộ.** Nút "Rút lại" trên tab Tài liệu (`authorize` = `publish`, `visible` =
+  `isReleasedToPortal()`), ô lý do `maxLength(5000)` = trần của Action cho cột `text`, KHÔNG
+  `minLength` (ngưỡng ở một chỗ, Action, lời từ chối về đúng ô). Nhãn trạng thái "Đã rút lại" màu đỏ,
+  chú thích có lúc rút, người rút (hoặc "tài khoản đã xoá") và lý do; cột "Khách thấy" ghi "Đã rút
+  khỏi cổng khách"; nút "Công bố" ẩn trên dòng đã rút.
+- **Gói bàn giao (Task 4).** Danh sách trắng trạng thái của `CollectHandoverEntries` đã loại
+  `retracted`; thêm test giải nén ghim điều đó ở cả ba nhóm A/B/C.
+  - Chỗ hai task chạm nhau, KHÔNG sửa ở Task 7 (ghi cho rà soát cuối M7): sinh lại gói vẫn theo
+    luật Task 4 "chỉ giữ version mới nhất". (1) Version cũ ĐÃ RÚT giữ nguyên `retracted` và dòng
+    giải thích của khách (`wasPublishedToClient()` sai với nó), nhưng TỆP của nó bị xoá sau commit
+    như mọi version cũ của gói — dòng `documents` và `document_downloads` còn nguyên. (2) Version cũ
+    ĐANG công bố bị Task 4 hạ về `signed_filed` và tắt cờ khách, không lý do, không dòng rút: đó là
+    thay bằng bản mới chứ không phải rút, nhưng khách thấy gói biến mất cho tới khi luật sư công bố
+    bản mới. Nếu chủ nhiệm muốn "một đường rút duy nhất" phủ cả trường hợp này, sửa ở Task 4.
+- **Chỗ gắn cho M9.** Làn M9 yêu cầu `RetractDocument` và `DocumentPolicy::delete()` từ chối tài liệu
+  đang được `payments.receipt_document_id` / `contract_amendments.document_id` trỏ tới. Hai bảng đó
+  chưa có trên làn này; M9 thêm phần chặn lúc merge, ở bước 6 của Action (ngay sau `notReleased`,
+  dưới khoá `documents`; khoá bảng tiền tệ nếu cần đi sau `matters`). Ghi trong docblock Action. Task
+  này không xoá hay lưu trữ vụ việc nào, nên không chạm hook `deleting` của M9.

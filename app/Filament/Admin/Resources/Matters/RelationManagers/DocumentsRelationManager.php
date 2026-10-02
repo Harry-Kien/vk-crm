@@ -5,6 +5,7 @@ namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 use App\Actions\Document\MarkDocumentSignedFiled;
 use App\Actions\Document\PublishDocument;
 use App\Actions\Document\RegroupDocument;
+use App\Actions\Document\RetractDocument;
 use App\Actions\Document\ReturnDocumentToDraft;
 use App\Actions\Document\SubmitDocumentForApproval;
 use App\Actions\Document\UploadStaffDocument;
@@ -38,16 +39,16 @@ use Illuminate\Support\HtmlString;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Tab "Tài liệu" (SPEC §7.2): danh sách `documents` của vụ việc, nhóm theo A/B/C/D, với bảy thao
+ * Tab "Tài liệu" (SPEC §7.2): danh sách `documents` của vụ việc, nhóm theo A/B/C/D, với tám thao
  * tác — đưa tệp vào hồ sơ, trình duyệt, đánh dấu đã ký và đã nộp, trả về bản nháp, công bố cho
- * khách, chuyển nhóm, và tải tệp về. Ba thao tác giữa (Task 16, phán quyết R9, mở rộng ở vòng
+ * khách, rút lại khỏi cổng khách (M7 Task 7, `RetractDocument`), chuyển nhóm, và tải tệp về. Ba thao tác giữa (Task 16, phán quyết R9, mở rộng ở vòng
  * sửa 1) là toàn bộ vòng đời văn bản nhóm B (SPEC §4.11), gồm cả đường ĐI NGƯỢC, mà tới trước đó
  * không có Action, nút hay ô nào ghi được — xem docblock `SubmitDocumentForApproval`,
  * `MarkDocumentSignedFiled` và `ReturnDocumentToDraft` cho lý do đầy đủ.
  *
- * **Lớp này không có một dòng nghiệp vụ nào.** Bảy thao tác gọi `UploadStaffDocument`,
+ * **Lớp này không có một dòng nghiệp vụ nào.** Tám thao tác gọi `UploadStaffDocument`,
  * `SubmitDocumentForApproval`, `MarkDocumentSignedFiled`, `ReturnDocumentToDraft`,
- * `PublishDocument`, `RegroupDocument` và route tải tệp có chữ ký của Task 5. Lời từ chối của các
+ * `PublishDocument`, `RetractDocument`, `RegroupDocument` và route tải tệp có chữ ký của Task 5. Lời từ chối của các
  * Action đi ra qua `ReportsActionFailures` (xem docblock trait đó cho bốn họ exception và vì sao
  * không họ nào được ánh xạ sang một mã HTTP riêng).
  *
@@ -170,6 +171,8 @@ class DocumentsRelationManager extends RelationManager
     {
         return match (true) {
             $document->group->isInternal() => __('documents.tab.client_access.never'),
+            // M7 Task 7: "Khách chưa thấy" sai với một tài liệu khách ĐÃ thấy rồi bị rút lại.
+            $document->status === DocumentStatus::Retracted => __('retraction.tab.client_access'),
             ! $document->isReleasedToPortal() => __('documents.tab.client_access.none'),
             $document->client_can_download => __('documents.tab.client_access.view_and_download'),
             default => __('documents.tab.client_access.view_only'),
@@ -229,10 +232,15 @@ class DocumentsRelationManager extends RelationManager
      * **Nhóm D là ĐÍCH cho MỌI nhóm nguồn: luôn mời, kể cả cho ai không có
      * `document.viewInternal` — ngoại lệ có chủ đích với `visibleGroups()` (vòng sửa 1, MỞ RỘNG
      * ở vòng sửa 2 — phán quyết (a) nói "bất kể nhóm nguồn", bản vòng sửa 1 chỉ áp cho nguồn B).**
-     * Rút một tài liệu lỡ công bố vào D là đường DUY NHẤT thu hồi nó trước khi `RetractDocument`
-     * (M7) tồn tại, và nó chỉ đòi `document.update` — MỘT trợ lý phát hiện một tài liệu NHÓM A
-     * (`ClientProvided`, khách tự nộp) công bố nhầm cũng phải rút được nó ngay, cùng lý lẽ với
-     * nhóm B, không chỉ nhóm B. Điều kiện ở đây vì vậy là "actor có `document.update`" — không
+     * Lý lẽ gốc (M6.5): rút một tài liệu lỡ công bố vào D là đường DUY NHẤT thu hồi nó trước khi
+     * `RetractDocument` tồn tại, và nó chỉ đòi `document.update`.
+     *
+     * **M7 Task 7 đổi lý lẽ đó, không đổi danh sách.** Tài liệu ĐANG ra tới khách
+     * (`isReleasedToPortal()`) không vào D được nữa — `RegroupDocument` từ chối bằng câu chỉ tới
+     * nút "Rút lại". D VẪN được mời trên dòng đó, có chủ đích: ẩn D đi thì lựa chọn đó biến mất
+     * không lời giải thích, còn để D lại thì người chọn nó nhận đúng câu chỉ đường (kể cả trợ lý,
+     * người phải nhờ luật sư bấm "Rút lại"). Với tài liệu chưa/không còn ra tới khách, D vẫn là một
+     * đích hợp lệ cho mọi nguồn. Điều kiện ở đây vì vậy là "actor có `document.update`" — không
      * còn gắn với nhóm NGUỒN cụ thể nào — mà bất kỳ ai mở được màn hình này đều có, nên D được
      * mời cho MỌI nguồn. Vẫn giữ `$canSeeInternal` làm lối vào THAY THẾ (không phải điều kiện
      * CỘNG THÊM): ai đã có `document.viewInternal` thấy D bất kể có `document.update` hay không,
@@ -326,7 +334,13 @@ class DocumentsRelationManager extends RelationManager
                     ->label(__('documents.tab.columns.status'))
                     ->badge()
                     ->formatStateUsing(fn (DocumentStatus $state): string => $state->label())
-                    ->color(fn (DocumentStatus $state): string => $state === DocumentStatus::Published ? 'success' : 'gray'),
+                    ->color(fn (DocumentStatus $state): string => match ($state) {
+                        DocumentStatus::Published => 'success',
+                        // M7 Task 7: trạng thái cuối, khách đã thấy một dòng "đã rút lại".
+                        DocumentStatus::Retracted => 'danger',
+                        default => 'gray',
+                    })
+                    ->tooltip(fn (Document $record): ?string => static::retractionTooltip($record)),
                 TextColumn::make('client_access')
                     ->label(__('documents.tab.columns.client_access'))
                     ->state(fn (Document $record): string => static::clientAccessLabel($record)),
@@ -372,6 +386,7 @@ class DocumentsRelationManager extends RelationManager
                 $this->markSignedFiledAction(),
                 $this->returnToDraftAction(),
                 $this->publishAction(),
+                $this->retractAction(),
                 $this->regroupAction(),
             ])
             ->modifyQueryUsing(fn (Builder $query): Builder => static::scopeToVisibleMatters($query)
@@ -394,10 +409,10 @@ class DocumentsRelationManager extends RelationManager
                         DocumentGroup::Internal->value,
                     ),
                 )
-                // `media` cho nút tải (nó hỏi tài liệu có tệp không trên từng dòng) và
-                // `checklistItem` cho cột đầu mục — không có hai lần nạp sẵn này thì mỗi dòng của
-                // bảng là hai truy vấn nữa.
-                ->with(['media', 'checklistItem']));
+                // `media` cho nút tải (nó hỏi tài liệu có tệp không trên từng dòng),
+                // `checklistItem` cho cột đầu mục và `retractedBy` cho chú thích trạng thái đã rút
+                // — không có ba lần nạp sẵn này thì mỗi dòng của bảng là thêm truy vấn.
+                ->with(['media', 'checklistItem', 'retractedBy']));
     }
 
     /**
@@ -574,7 +589,8 @@ class DocumentsRelationManager extends RelationManager
     }
 
     /**
-     * SPEC §6.5. Nhóm D không bao giờ có nút này — xem docblock lớp.
+     * SPEC §6.5. Nhóm D không bao giờ có nút này — xem docblock lớp. Tài liệu đã rút cũng không (M7
+     * Task 7).
      *
      * **`fillForm` đọc từ CHÍNH bản ghi, không phải hai cờ cố định (`docs/docs-4`).** Bản trước
      * `->default(true)` trên cả hai ô, không đọc trạng thái hiện tại: mở lại hộp thoại của một
@@ -611,7 +627,10 @@ class DocumentsRelationManager extends RelationManager
             ->color('success')
             ->modalHeading(__('documents.tab.actions.publish_heading'))
             ->authorize(fn (Document $record): bool => Gate::allows('publish', $record))
-            ->visible(fn (Document $record): bool => ! $record->group->isInternal())
+            // M7 Task 7: tài liệu đã rút không công bố lại được (`PublishDocument` từ chối) — nút
+            // ở đó chỉ dẫn tới một lời từ chối.
+            ->visible(fn (Document $record): bool => ! $record->group->isInternal()
+                && $record->status !== DocumentStatus::Retracted)
             ->fillForm(fn (Document $record): array => [
                 'client_can_view' => $record->isReleasedToPortal() ? $record->client_can_view : true,
                 'client_can_download' => $record->isReleasedToPortal() ? $record->client_can_download : true,
@@ -648,6 +667,69 @@ class DocumentsRelationManager extends RelationManager
                     expectedIsReleased: (bool) ($data['mounted_is_released'] ?? false),
                 ),
             ));
+    }
+
+    /**
+     * M7 Task 7 — "Rút lại": đường DUY NHẤT đưa một tài liệu đang ra tới khách ra khỏi tầm mắt
+     * khách (`RetractDocument`). Chuyển vào nhóm D và xoá không còn là đường rút (xem docblock
+     * `RegroupDocument`, `DocumentPolicy::delete()`).
+     *
+     * Hai điều kiện, cùng câu Action hỏi: `->authorize()` là `DocumentPolicy::publish` (trợ lý không
+     * có `document.publish` nên không thấy nút), `->visible()` là `Document::isReleasedToPortal()` —
+     * MỘT vị từ, dùng chung với Action và lời từ chối của "Chuyển nhóm". Action vẫn tự hỏi lại cả hai
+     * dưới khoá.
+     *
+     * Ô lý do KHÔNG đặt `minLength()`: ngưỡng 20 ký tự (`mb_strlen`, sau khi gỡ khoảng trắng Unicode
+     * ở hai đầu) chỉ có MỘT chỗ — Action — và lời từ chối của nó về đúng ô này qua
+     * `ReportsActionFailures` (khoá `retraction_reason`). Một `minLength()` ở form đếm KHÁC (không gỡ
+     * NBSP) và sẽ che cổng thật khỏi test màn hình. `maxLength()` bằng trần chủ động của Action cho
+     * cột `text`, như `RecordMatterDestruction`.
+     */
+    private function retractAction(): Action
+    {
+        return Action::make('retract')
+            ->label(__('retraction.action.label'))
+            ->icon(Heroicon::OutlinedNoSymbol)
+            ->color('danger')
+            ->modalHeading(__('retraction.action.modal_heading'))
+            ->modalDescription(__('retraction.action.modal_description'))
+            ->modalSubmitActionLabel(__('retraction.action.submit'))
+            ->authorize(fn (Document $record): bool => Gate::allows('publish', $record))
+            ->visible(fn (Document $record): bool => $record->isReleasedToPortal())
+            ->schema([
+                Textarea::make('retraction_reason')
+                    ->label(__('retraction.fields.retraction_reason'))
+                    ->helperText(__('retraction.fields.retraction_reason_help', ['min' => RetractDocument::REASON_MIN]))
+                    ->rows(3)
+                    ->required()
+                    ->maxLength(RetractDocument::REASON_MAX),
+            ])
+            ->successNotificationTitle(__('retraction.action.success'))
+            ->action(fn (Action $action, Document $record, array $data) => $this->runAction(
+                $action,
+                fn () => app(RetractDocument::class)->handle(
+                    document: $record,
+                    actor: Auth::user(),
+                    reason: (string) ($data['retraction_reason'] ?? ''),
+                ),
+            ));
+    }
+
+    /**
+     * Chú thích của nhãn trạng thái trên một dòng ĐÃ RÚT: lúc rút, người rút, lý do (khách đọc
+     * được). `null` với mọi trạng thái khác. Người rút là tài khoản đã xoá thì nói thẳng như vậy.
+     */
+    public static function retractionTooltip(Document $record): ?string
+    {
+        if ($record->status !== DocumentStatus::Retracted) {
+            return null;
+        }
+
+        return __('retraction.tab.status_tooltip', [
+            'date' => $record->retracted_at?->format('H:i d/m/Y') ?? '—',
+            'by' => $record->retractedBy?->name ?? __('retraction.tab.unknown_actor'),
+            'reason' => (string) $record->retraction_reason,
+        ]);
     }
 
     /**
@@ -747,8 +829,9 @@ class DocumentsRelationManager extends RelationManager
      *    Một dòng đã hiện ra trong bảng thì đã qua `view()` rồi, nên vế này luôn đúng ở đây. Xoá
      *    nó đi bộ test vẫn xanh, và không có nhân chứng nào dựng được bằng cách cấp quyền khác
      *    đi, vì nhánh nhân sự của policy không đọc cột nào. Giữ lại như một lưới hồi quy: ngày
-     *    policy siết thêm (ví dụ M6 thêm trạng thái `retracted`), cái nút này siết theo mà không
-     *    ai phải nhớ tới nó. Ghi ra đây để không ai đọc nó như một bằng chứng.
+     *    policy siết thêm, cái nút này siết theo mà không ai phải nhớ tới nó. Ghi ra đây để không
+     *    ai đọc nó như một bằng chứng. (Trạng thái `retracted` của M7 Task 7 KHÔNG siết nhánh nhân
+     *    sự: tài liệu đã rút vẫn tải được trong nội bộ — tệp là bằng chứng — chỉ khách mất quyền.)
      *  - **"tài liệu này có tệp không" thì KHÔNG vô nghĩa**, và nó có test: `UploadStaffDocument`
      *    tạo bản ghi rồi mới gắn tệp, nên một `Document` không tệp tồn tại được, và
      *    `DocumentDownloadController` trả 404 cho nó — tức một cái nút dẫn tới một trang lỗi.

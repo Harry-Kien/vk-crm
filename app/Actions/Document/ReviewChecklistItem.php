@@ -86,7 +86,7 @@ class ReviewChecklistItem
 
     /**
      * SPEC §6.7 và SPEC §4.10 ("`status = rejected` thì `rejection_reason` bắt buộc, tối thiểu
-     * 20 ký tự"). Cùng ngưỡng mà đặc tả `RetractDocument` ở M6 sẽ dùng lại.
+     * 20 ký tự"). Cùng ngưỡng `RetractDocument` (M7 Task 7) dùng.
      */
     private const MIN_REJECTION_REASON_LENGTH = 20;
 

@@ -440,12 +440,40 @@ việc ai được đi từng bước, và trước M6.5 giao diện không có 
 Audit mới cho ba bước đầu: `document_submitted_for_approval`, `document_signed_filed`,
 `document_returned_to_draft` (xem §10.6).
 
+**Đính chính 2026-09-28 (M7 Task 7 — `RetractDocument`).** `status` có trạng thái thứ năm,
+`retracted` ("Đã rút lại"), cùng ba cột `retracted_at` (timestamp nullable), `retracted_by` (FK users
+nullable, `nullOnDelete`) và `retraction_reason` (text nullable).
+
+- **Rút lại là gì.** Văn phòng đưa một tài liệu ĐANG ra tới khách (`published`, `client_can_view`,
+  không nhóm D, chưa xoá mềm) ra khỏi tầm mắt khách: `status = retracted`, hai cờ khách tắt, ghi
+  người rút, lúc rút và lý do. Tệp và mọi dòng `document_downloads` giữ nguyên; `published_at`/
+  `published_by` giữ nguyên. Audit `document_retracted` mang số lượt tải của khách trước lúc rút.
+- **Ai rút.** Người có `document.publish` trên tài liệu (cùng cổng với công bố): luật sư phụ trách,
+  trưởng phòng, quản trị. Trợ lý không rút được; họ nhờ người có quyền bấm "Rút lại".
+- **Lý do** bắt buộc, tối thiểu 20 ký tự (`mb_strlen`, sau khi bỏ khoảng trắng hai đầu), tối đa 5000.
+  Lý do **khách đọc được**.
+- **Khách thấy gì.** Ở khối Tài liệu của trang hồ sơ, chỗ tài liệu từng hiện: tiêu đề, câu "Văn
+  phòng đã rút lại tài liệu này. Lý do: …" và ngày rút. Không có đường tải; một đường dẫn tải ký
+  trước lúc rút trả 404. Dòng này chỉ hiện trên vụ khách đang xem được (cùng khách, đã lên portal,
+  chưa hết hạn tra cứu), không bao giờ cho tài liệu nhóm D.
+- **Trạng thái cuối.** Tài liệu đã rút không công bố lại được; muốn đưa lại cho khách thì tải lên
+  một bản mới. Tài liệu đã rút không vào gói bàn giao (§6.12).
+- **Một đường rút duy nhất.** Với tài liệu đang ra tới khách, chuyển vào nhóm D bị từ chối (câu chỉ
+  tới nút "Rút lại") và xoá không được phép; tài liệu đã rút cũng không xoá được và không vào nhóm D
+  (dòng giải thích của khách đọc từ chính bản ghi đó). Thay cho gạch đầu dòng "chuyển vào nhóm D
+  luôn được" của đính chính M6.5 ở trên: câu đó nay chỉ đúng cho tài liệu KHÔNG đang ra tới khách
+  và chưa bị rút.
+
 ### 4.12 `document_downloads` — nhật ký tải về
 
 `document_id`, `downloader_type`, `downloader_id`, `ip` string(45),
 `user_agent` string(500), `downloaded_at`.
 
 Ghi log **mọi** lượt tải, cả nội bộ lẫn khách hàng.
+
+**Đính chính 2026-09-28 (M7 Task 7).** Khoá ngoại `document_id` là `restrictOnDelete` (trước đó
+`cascadeOnDelete`): xoá cứng một tài liệu đã có lượt tải bị CSDL từ chối, để bằng chứng khách đã
+nhận tài liệu không bao giờ biến mất cùng tài liệu.
 
 ### 4.13 `deadlines` — mốc thời hạn
 

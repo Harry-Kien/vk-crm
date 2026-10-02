@@ -46,9 +46,9 @@ use Illuminate\Support\Facades\Gate;
  * phòng tin là đã lấy lại được. Và ở tầng dữ liệu, `status = published` cộng `client_can_view =
  * false` là hai nguồn sự thật nói ngược nhau — đúng loại trạng thái mà vòng đời nhóm B ở SPEC
  * §4.11 sinh ra để ngăn. Rút quyền TẢI thì được (`clientCanDownload = false`, khách vẫn thấy tài
- * liệu tồn tại), vì đó là một lựa chọn SPEC §6.5 bước 3 nói thẳng là hợp lệ. Thu hồi thật sự — nếu
- * văn phòng cần — là một thao tác riêng, có lý do bắt buộc và có dấu vết cho khách, và nó chưa
- * được đặc tả.
+ * liệu tồn tại), vì đó là một lựa chọn SPEC §6.5 bước 3 nói thẳng là hợp lệ. Thu hồi thật sự là
+ * một thao tác riêng, có lý do bắt buộc và có dấu vết cho khách: `RetractDocument` (M7 Task 7). Tài
+ * liệu đã rút thì Action này từ chối công bố lại.
  *
  * **Công bố lại không tua lại lịch sử.** `published_at`/`published_by` chỉ ghi ở LẦN ĐẦU. Hai cột
  * đó trả lời "tài liệu này tới tay khách lúc nào, do ai đưa ra" — một sự kiện đã xảy ra. Một lần
@@ -144,6 +144,14 @@ class PublishDocument
 
             if ($matter === null || $matter->trashed()) {
                 throw DocumentNotPublishable::matterUnavailable($fresh);
+            }
+
+            // M7 Task 7: tài liệu đã RÚT LẠI không công bố lại được — cổng trạng thái, cùng hạng
+            // ba cổng trên (câu trả lời không phụ thuộc người hỏi). Khách đã thấy dòng "Văn phòng
+            // đã rút lại tài liệu này"; công bố lại trên cùng bản ghi xoá nghĩa của dòng đó. Muốn
+            // đưa lại cho khách thì tải lên một bản mới. Xem `RetractDocument`.
+            if ($fresh->status === DocumentStatus::Retracted) {
+                throw DocumentNotPublishable::retracted($fresh);
             }
 
             // Cổng trạng thái thứ tư, cùng hạng với ba cổng trên và cùng lý do đứng trước

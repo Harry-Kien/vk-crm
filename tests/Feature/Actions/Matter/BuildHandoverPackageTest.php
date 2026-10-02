@@ -423,6 +423,34 @@ it('nhóm A cũng qua danh sách trắng trạng thái: bản đổi nhóm còn 
         ->and(hpZipEntry($document, 'A/01-Ảnh hiện trạng.pdf'))->toBe('A-CONG-BO-KHONG-DAU-MUC');
 });
 
+/**
+ * M7 Task 7: tài liệu đã RÚT LẠI (`DocumentStatus::Retracted`) không vào gói, ở cả ba nhóm A/B/C —
+ * khách đã được báo "văn phòng đã rút lại tài liệu này", và gói không được trả nó về tay khách.
+ * Danh sách trắng trạng thái của `CollectHandoverEntries` loại nó sẵn; test này ghim điều đó bằng
+ * cách giải nén thật (R2), kèm vế dương cùng nhóm. Trạng thái dựng thẳng — Action rút không phải
+ * thứ đang test (`RetractDocumentTest`).
+ */
+it('giải nén: tài liệu đã rút lại vắng mặt ở mọi nhóm, kể cả trong mục lục', function () {
+    hpDocument($this->matter, DocumentGroup::ClientProvided, DocumentStatus::Retracted, 'Ảnh khách đã rút', 'A-DA-RUT', attributes: ['retracted_at' => now()]);
+    hpDocument($this->matter, DocumentGroup::Issued, DocumentStatus::Retracted, 'Đơn công bố nhầm đã rút', 'B-DA-RUT', attributes: ['retracted_at' => now()]);
+    hpDocument($this->matter, DocumentGroup::Authority, DocumentStatus::Retracted, 'Quyết định của vụ khác đã rút', 'C-DA-RUT', attributes: ['retracted_at' => now()]);
+    hpDocument($this->matter, DocumentGroup::Authority, DocumentStatus::Published, 'Bản án phúc thẩm', 'C-CONG-BO');
+
+    $document = hpBuild($this);
+    $names = hpZipNames($document);
+
+    expect($names)->toBe(['C/01-Bản án phúc thẩm.pdf', 'MUC-LUC.pdf']);
+
+    $all = implode('|', array_map(fn (string $name): string => hpZipEntry($document, $name), $names));
+
+    foreach (['A-DA-RUT', 'B-DA-RUT', 'C-DA-RUT'] as $absent) {
+        expect($all)->not->toContain($absent);
+    }
+
+    expect(PdfText::squash(hpIndexText($document)))->not->toContain(PdfText::squash('Đơn công bố nhầm đã rút'))
+        ->and(PdfText::squash(hpIndexText($document)))->toContain(PdfText::squash('Bản án phúc thẩm'));
+});
+
 it('không đưa chính gói vào gói sau, ở bất kỳ version nào', function () {
     hpDocument($this->matter, DocumentGroup::Issued, DocumentStatus::SignedFiled, 'Đơn khởi kiện');
 
