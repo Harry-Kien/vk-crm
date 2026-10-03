@@ -13,6 +13,7 @@ use App\Mail\Client\StageUpdate;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\MatterType;
 use App\Models\OutboundMessage;
 use App\Models\StageLog;
@@ -21,6 +22,7 @@ use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -762,3 +764,54 @@ it('does not tell a lead lawyer who has been deactivated about the failed update
 
     expect($lawyer->fresh()->notifications()->count())->toBe(0);
 });
+
+/**
+ * M7 Task 11 (rà soát Task 5, m2; PROGRESS "Ghi chú M7", Task 5 "Việc cho lần gộp main"): "vụ còn
+ * trên cổng" lúc gửi được hỏi bằng ĐỊNH NGHĨA cổng của chính người nhận (`MatterPolicy::view` nhánh
+ * khách — năm điều kiện, kể cả hết hạn tra cứu), không chỉ bằng cờ `is_published_to_portal`.
+ *
+ * Đường sản phẩm thật: vụ đã kết thúc, khách tra cứu được tới hết hôm qua; luật sư vẫn thêm được
+ * một dòng cùng giai đoạn có công bố trên vụ đã đóng (`TransitionMatterStage` không cấm). Tài khoản
+ * của khách còn hoạt động vì khách còn MỘT vụ khác trên cổng. Trước bản sửa, thư vẫn đi, kèm liên
+ * kết tới một trang trả 404 — trái với "vụ rời cổng". Vế dương: hạn tra cứu là HÔM NAY (khách còn
+ * xem được hết ngày) thì thư vẫn đi, nên vế âm không xanh nhờ một lý do khác.
+ */
+it('mails nothing about a closed matter whose client access has expired, but still mails on its last day', function (string $accessUntil, int $expectedMails) {
+    Mail::fake();
+    $this->travelTo(Carbon::parse('2026-10-21 09:00:00'));
+
+    [$matter, $lawyer, $account] = publishedMatterWithClientAccount();
+
+    $terminal = $matter->matterType->stages()->where('is_terminal', true)->firstOrFail();
+    DB::table('matters')->where('id', $matter->id)->update([
+        'stage' => $terminal->key,
+        'closed_at' => '2026-07-22 10:00:00',
+    ]);
+    MatterArchive::factory()->create([
+        'matter_id' => $matter->id,
+        'client_access_until' => $accessUntil === 'yesterday' ? '2026-10-20' : '2026-10-21',
+    ]);
+
+    // Vụ thứ hai của cùng khách, còn trên cổng: lý do tài khoản vẫn hoạt động.
+    Matter::factory()->create(['client_id' => $account->client_id, 'is_published_to_portal' => true]);
+
+    $log = app(TransitionMatterStage::class)->handle(
+        matter: $matter->fresh(),
+        actor: $lawyer,
+        toStage: $terminal->key,
+        occurredAt: today(),
+        internalNote: null,
+        publicContent: 'Văn phòng gửi lại bản sao biên bản bàn giao hồ sơ để anh chị lưu giữ.',
+        nextStep: null,
+        clientAction: null,
+        expectedNextUpdateAt: null,
+        publish: true,
+    );
+
+    Mail::assertSent(StageUpdate::class, $expectedMails);
+
+    expect($log->fresh()->notified_at === null)->toBe($expectedMails === 0);
+})->with([
+    'đã hết hạn tra cứu từ hôm nay' => ['yesterday', 0],
+    'hôm nay là ngày tra cứu cuối' => ['today', 1],
+]);

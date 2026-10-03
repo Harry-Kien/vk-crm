@@ -223,6 +223,34 @@ it('refuses to deactivate a staff member still holding an unfinished deadline, w
     expect($assistant->fresh()->is_active)->toBeTrue();
 });
 
+/**
+ * SPEC §11 "Bàn giao và lưu trữ", test thứ nhất, đúng chữ (M7 Task 11): "Vô hiệu hoá tài khoản luật
+ * sư còn là lead lawyer của vụ việc đang mở → bị chặn, thông điệp nêu rõ số vụ cần bàn giao."
+ * Trước test này, chặn VÔ HIỆU HOÁ một lead chỉ được khẳng định là "có lỗi form" (test "offboards a
+ * lead lawyer…" và "sends a separate notification…"), còn câu NÊU SỐ VỤ chỉ được đo ở đường XOÁ
+ * ("refuses to delete a lawyer…") và ở mức Action (`GuardsStaffOffboardingTest`). Hai vụ đang mở
+ * cộng một vụ đã đóng: câu phải nói "2", không phải "1" hay "3" — vụ đã đóng không cần bàn giao.
+ */
+it('refuses to deactivate a lawyer who still leads open matters, with a reason naming how many to hand off', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    Matter::factory()->count(2)->create(['lead_lawyer_id' => $lawyer->id, 'closed_at' => null]);
+    Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'closed_at' => now()]);
+
+    $this->actingAs($admin, 'web');
+
+    $component = $this->livewire(EditUser::class, ['record' => $lawyer->getRouteKey()])
+        ->fillForm(['is_active' => false])
+        ->call('save')
+        ->assertHasFormErrors(['is_active']);
+
+    expect($component->errors()->first('data.is_active'))
+        ->toBe(staffOffboardingMessage($lawyer->name, matters: 2, deadlines: 0, requests: 0))
+        ->toContain(__('users.offboarding.open_work_lead_matters', ['count' => 2]));
+
+    expect($lawyer->fresh()->is_active)->toBeTrue();
+});
+
 /** Vế dương: sau khi bàn giao hết, tắt is_active thành công như trước. */
 it('deactivates a staff member once all open work has been handed off', function () {
     $admin = User::factory()->withRole(Role::Admin)->create();

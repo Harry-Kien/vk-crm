@@ -18,6 +18,7 @@ use App\Models\DocumentDownload;
 use App\Models\Matter;
 use App\Models\MatterArchive;
 use App\Models\MatterChecklistItem;
+use App\Models\MatterTypeStage;
 use App\Models\StageLog;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -655,6 +656,49 @@ it('mục lục gồm TOÀN BỘ dòng tiến độ đã công bố và không g
     foreach (['CHUA-CONG-BO-KHONG-DUOC-IN', 'GHI-CHU-NOI-BO-MOT', 'GHI-CHU-NOI-BO-HAI', 'GHI-CHU-NOI-BO-BA'] as $absent) {
         expect($text)->not->toContain($absent);
     }
+});
+
+/**
+ * M7 Task 11 — tìm ra khi sinh gói THẬT từ vụ mẫu đã kết thúc (`MatterSeeder::closedMatter()`):
+ * `stage_logs.to_stage` cho phép NULL (SPEC §4.8; dữ liệu mẫu và `StageLogFactory` mặc định đều có
+ * dòng công bố không ghi giai đoạn đích), và `MatterType::stageIncludingTrashed(string $key)` nhận
+ * NULL thì ném TypeError — mục lục hỏng, gói của vụ mẫu thất bại với "không dựng được tệp mục lục".
+ * Dòng đó vẫn là một dòng đã công bố, nên vẫn vào mục lục, chỉ không có nhãn giai đoạn.
+ *
+ * Cùng chỗ: MUC-LUC.pdf là thứ GIAO CHO KHÁCH, nên nhãn giai đoạn là `client_label` (SPEC §4.5
+ * "Nhãn hiển thị cho khách"), như cổng khách hàng (`MatterProgress::stageLabel()`), không phải
+ * `label` nội bộ — ở cả dòng tiến độ lẫn "giai đoạn cuối" của khối thông tin vụ việc.
+ */
+it('dòng tiến độ đã công bố không ghi giai đoạn đích vẫn vào mục lục, và nhãn giai đoạn là nhãn cho khách', function () {
+    $stage = MatterTypeStage::factory()->create([
+        'matter_type_id' => $this->matter->matter_type_id,
+        'key' => 'court_accepted_t11',
+        'label' => 'NHAN-NOI-BO-T11',
+        'client_label' => 'Toà án đã nhận hồ sơ của anh Ưu',
+    ]);
+    DB::table('matters')->where('id', $this->matter->id)->update(['stage' => $stage->key]);
+
+    StageLog::factory()->create([
+        'matter_id' => $this->matter->id, 'occurred_at' => '2026-01-10 09:00:00',
+        'from_stage' => null, 'to_stage' => null, 'is_published' => true,
+        'public_content' => 'Văn phòng đã gửi bản tự khai tới toà án theo đúng hạn.',
+    ]);
+    StageLog::factory()->create([
+        'matter_id' => $this->matter->id, 'occurred_at' => '2026-02-10 09:00:00',
+        'from_stage' => 'filed', 'to_stage' => $stage->key, 'is_published' => true,
+        'public_content' => 'Toà án đã thụ lý vụ việc của anh Ưu.',
+    ]);
+
+    $document = hpBuild($this);
+    $text = PdfText::squash(hpIndexText($document));
+
+    expect($text)->toContain(PdfText::squash('Văn phòng đã gửi bản tự khai tới toà án theo đúng hạn.'))
+        ->and($text)->toContain(PdfText::squash('Toà án đã thụ lý vụ việc của anh Ưu.'))
+        ->and(substr_count($text, PdfText::squash('Toà án đã nhận hồ sơ của anh Ưu')))->toBe(2)
+        ->and($text)->not->toContain('NHAN-NOI-BO-T11')
+        // Dòng không ghi giai đoạn chỉ in ngày (không gạch nối treo); dòng có giai đoạn in "ngày — nhãn".
+        ->and($text)->toContain('10/01/2026'.PdfText::squash('Văn phòng đã gửi bản tự khai'))
+        ->and($text)->toContain('10/02/2026—'.PdfText::squash('Toà án đã nhận hồ sơ của anh Ưu'));
 });
 
 it('chuỗi đánh dấu trong internal_note và trong dòng bàn giao nội bộ của ReassignMatter không lọt vào PDF lẫn zip', function () {

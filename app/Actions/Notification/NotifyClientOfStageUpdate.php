@@ -12,6 +12,7 @@ use App\Support\Scopes\ClientPortalScope;
 use Filament\Notifications\Notification;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Mail;
 use Throwable;
 
@@ -65,6 +66,14 @@ use Throwable;
  * đoạn"/"Thêm cập nhật" gọi {@see self::hasEligibleRecipient()} — CÙNG điều kiện với
  * {@see self::eligibleRecipientsQuery()} bên dưới — để luật sư thấy cảnh báo NGAY TRÊN FORM trước
  * khi bấm gửi, thay vì tin rằng khách đã được báo.
+ *
+ * # M7 Task 11 — vụ đã rời cổng vì hết hạn tra cứu
+ *
+ * Đoạn "KHÔNG tự kiểm tra `is_published`…" ở trên đã cũ từ final review B-M2
+ * ({@see self::stillReleasedToPortal()} hỏi lại hai cờ lúc gửi). Từ M7 Task 11, mỗi người nhận còn
+ * phải thấy được vụ việc trên cổng của chính họ ({@see self::matterStillOnPortalOf()}, qua
+ * `MatterPolicy::view`): một vụ đã quá `client_access_until` giữ nguyên cờ công bố nhưng không còn
+ * trên cổng, nên thư về nó không đi và `notified_at` để trống.
  */
 class NotifyClientOfStageUpdate
 {
@@ -80,7 +89,9 @@ class NotifyClientOfStageUpdate
             return 0;
         }
 
-        $recipients = $this->recipientsFor($stageLog);
+        $recipients = $this->recipientsFor($stageLog)
+            ->filter(fn (ClientUser $recipient): bool => $this->matterStillOnPortalOf($stageLog, $recipient))
+            ->values();
 
         if ($recipients->isEmpty()) {
             // Không đánh dấu đã báo — nhưng không có gì tự gửi lại sau này (xem docblock lớp:
@@ -180,6 +191,27 @@ class NotifyClientOfStageUpdate
             ->whereKey($fresh->matter_id)
             ->where('is_published_to_portal', true)
             ->exists();
+    }
+
+    /**
+     * M7 Task 11 (rà soát M7 Task 5, m2): vụ việc còn nằm trên cổng của CHÍNH người nhận này không,
+     * hỏi bằng định nghĩa cổng — `MatterPolicy::view` nhánh khách, tức năm điều kiện của
+     * `releasedToPortal()` cộng tầng truy vấn `visibleToPortal()` — chứ không thêm một định nghĩa
+     * thứ ba. {@see self::stillReleasedToPortal()} chỉ hỏi cờ `is_published_to_portal`, nên một vụ
+     * đã kết thúc và đã quá `client_access_until` (M7 Task 5, R4: vụ rời cổng, cờ giữ nguyên) vẫn
+     * lọt: luật sư thêm một dòng cùng giai đoạn có công bố trên vụ đã đóng, tài khoản khách còn hoạt
+     * động nhờ một vụ khác, và thư đi kèm liên kết tới một trang trả 404.
+     *
+     * Đọc vụ TƯƠI (không tin `$stageLog->matter` đã nạp từ lúc xếp hàng), gỡ `ClientPortalScope`
+     * vì chính `Gate` mới là câu hỏi cổng; vụ đã xoá mềm không tìm thấy thì không ai nhận.
+     */
+    private function matterStillOnPortalOf(StageLog $stageLog, ClientUser $recipient): bool
+    {
+        $matter = Matter::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->find($stageLog->matter_id);
+
+        return $matter !== null && Gate::forUser($recipient)->allows('view', $matter);
     }
 
     /**

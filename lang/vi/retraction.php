@@ -52,7 +52,7 @@ return [
 
     // Hai đường rút tạm của M4 nay chỉ tới nút "Rút lại" (một đường rút duy nhất).
     'blocked' => [
-        'regroup_to_internal' => 'Tài liệu này đang hiển thị cho khách nên không chuyển vào nhóm D được. Để đưa nó ra khỏi cổng khách hàng, dùng nút "Rút lại" trên dòng tài liệu (cần quyền công bố tài liệu — luật sư phụ trách hoặc trưởng phòng).',
+        'regroup_to_internal' => 'Tài liệu này đang hiển thị cho khách nên không chuyển vào nhóm D được. Để đưa nó ra khỏi cổng khách hàng, dùng nút "Rút lại" trên dòng tài liệu (cần quyền công bố tài liệu — luật sư trong vụ việc, trưởng phòng hoặc quản trị).',
         'republish' => 'Tài liệu này đã được rút lại khỏi cổng khách hàng và không công bố lại được. Nếu cần đưa lại cho khách, hãy tải lên một bản mới.',
         'regroup_retracted_to_internal' => 'Tài liệu này đã được rút lại và khách đang thấy dòng giải thích lý do rút ở chỗ tài liệu từng hiện. Chuyển vào nhóm D sẽ xoá dòng đó khỏi cổng khách hàng, nên không được phép.',
     ],

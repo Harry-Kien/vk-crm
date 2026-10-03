@@ -107,7 +107,7 @@ class RenderHandoverIndex
      */
     private function matterInfo(Matter $matter): array
     {
-        $stage = $matter->matterType?->stageIncludingTrashed($matter->stage)?->label ?? $matter->stage;
+        $stage = $this->stageLabel($matter, $matter->stage);
 
         $info = [
             __('handover.pdf.matter.code') => (string) $matter->code,
@@ -139,10 +139,31 @@ class RenderHandoverIndex
             ->get(['id', 'matter_id', 'to_stage', 'occurred_at', 'public_content', 'next_step', 'client_action'])
             ->map(fn (StageLog $log): array => [
                 'date' => $log->occurred_at->format('d/m/Y'),
-                'stage' => $matter->matterType?->stageIncludingTrashed($log->to_stage)?->label ?? $log->to_stage,
+                'stage' => $this->stageLabel($matter, $log->to_stage),
                 'public_content' => $log->public_content,
                 'next_step' => $log->next_step,
                 'client_action' => $log->client_action,
             ]);
+    }
+
+    /**
+     * Nhãn giai đoạn in trong mục lục — mục lục là thứ GIAO CHO KHÁCH, nên đó là `client_label`
+     * (SPEC §4.5 "Nhãn hiển thị cho khách"), cùng nhãn cổng khách hàng hiện
+     * (`MatterProgress::stageLabel()`), không phải `label` nội bộ. Giai đoạn đã xoá mềm vẫn có nhãn
+     * (`stageIncludingTrashed()`); khoá không còn khai báo ở loại vụ việc thì in nguyên khoá, như
+     * trước.
+     *
+     * M7 Task 11: `stage_logs.to_stage` cho phép NULL (SPEC §4.8 — dòng cập nhật không ghi giai
+     * đoạn đích; dữ liệu mẫu có những dòng như vậy), và `stageIncludingTrashed(string $key)` nhận
+     * NULL thì ném TypeError: mục lục hỏng và gói của vụ thất bại. Khoá rỗng nghĩa là không có nhãn
+     * (chuỗi rỗng — view chỉ in ngày, khối thông tin bỏ hẳn dòng "giai đoạn").
+     */
+    private function stageLabel(Matter $matter, ?string $key): string
+    {
+        if (blank($key)) {
+            return '';
+        }
+
+        return (string) ($matter->matterType?->stageIncludingTrashed($key)?->client_label ?? $key);
     }
 }

@@ -8,7 +8,12 @@
 @else
     @foreach ($timeline as $row)
         <div class="entry">
-            <div class="entry-head">{{ $row['date'] }} — {{ $row['stage'] }}</div>
+            {{-- Dòng không ghi giai đoạn đích (to_stage NULL) chỉ in ngày — M7 Task 11. --}}
+            @if (filled($row['stage']))
+                <div class="entry-head">{{ $row['date'] }} — {{ $row['stage'] }}</div>
+            @else
+                <div class="entry-head">{{ $row['date'] }}</div>
+            @endif
             @if (filled($row['public_content']))
                 <div class="entry-body">{{ $row['public_content'] }}</div>
             @endif
