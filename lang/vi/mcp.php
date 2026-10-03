@@ -20,6 +20,8 @@ return [
     'http' => [
         'origin_forbidden' => 'Nguồn gọi (Origin) không được phép kết nối tới máy chủ MCP này.',
         'unsupported_grant_type' => 'Máy chủ chỉ cấp token theo luồng authorization_code (PKCE) và refresh_token.',
+        'pkce_s256_required' => 'Yêu cầu uỷ quyền phải dùng PKCE với code_challenge_method=S256.',
+        'invalid_target' => 'Tham số resource phải là đúng địa chỉ của máy chủ MCP này.',
     ],
 
     'tools' => [

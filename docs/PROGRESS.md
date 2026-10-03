@@ -2738,3 +2738,111 @@ xuất: `error="invalid_token"` / `insufficient_scope` trong `WWW-Authenticate`,
 `RequireBearerToken` (Task 8); câu chú thích khoá riêng trong `.env.example` và hệ quả xoay `APP_KEY`
 (Task 16); câu 401/403 tiếng Anh của `/mcp`; tên hai test của `TransportTest` nói nhiều hơn điều chúng
 chứng minh (Origin rỗng, phiên thật).
+
+### Task 2 — metadata OAuth, `iss`, resource và audience (2026-10-03)
+
+**Đã có, kèm test HTTP** (`tests/Feature/Mcp/OAuthMetadataTest.php`; luồng authorize dùng một màn
+hình đồng ý thay tạm trong test, `McpOAuth::useConsentStandIn()`, vì màn hình thật là Task 4):
+- **PRM** (RFC 9728) ở `/.well-known/oauth-protected-resource` và `/.well-known/oauth-protected-resource/mcp`
+  (`ProtectedResourceMetadataController`): `resource` = URL MCP chuẩn, không `/` cuối;
+  `authorization_servers` = `[issuer]`; `scopes_supported: ["mcp:use"]`;
+  `bearer_methods_supported: ["header"]`.
+- **AS metadata tự khai** (RFC 8414) ở `/.well-known/oauth-authorization-server` và `…/mcp`
+  (`AuthorizationServerMetadataController`): `issuer`, ba điểm cuối tuyệt đối, `response_types ["code"]`,
+  `response_modes ["query"]`, `grant_types` đọc từ `RestrictOAuthGrantTypes::ALLOWED_GRANT_TYPES`,
+  `token_endpoint_auth_methods_supported: ["none"]`, `code_challenge_methods_supported: ["S256"]`,
+  `scopes_supported: ["mcp:use"]` (không `offline_access`),
+  `authorization_response_iss_parameter_supported: true`. Không có `client_id_metadata_document_supported`.
+- **`iss` (RFC 9207)** trong mọi phản hồi uỷ quyền chuyển hướng về client, thành công lẫn lỗi
+  (`AddIssuerToAuthorizationResponse`): duyệt (POST), từ chối (DELETE, `access_denied`), Passport tự
+  duyệt ngay ở GET khi người dùng đã có token còn hạn, lỗi Passport tự chuyển hướng (`invalid_scope`),
+  và lỗi `invalid_request` / `invalid_target` của lớp kế tiếp.
+- **PKCE chỉ S256, bắt buộc với mọi client** (`ValidateOAuthParameters`): `plain` và `code_challenge`
+  không kèm method (RFC 7636 mặc định `plain`) → chuyển hướng `error=invalid_request`; client
+  confidential không gửi `code_challenge` cũng bị từ chối. Đổi mã thiếu `code_verifier` → 400
+  `invalid_request` (league).
+- **`resource` (RFC 8707)** ở `/oauth/authorize` và `/oauth/token` (cả `authorization_code` lẫn
+  `refresh_token`): giá trị khác URL MCP chuẩn → `invalid_target` (chuyển hướng ở authorize, 400 JSON ở
+  token). Không gửi `resource` thì được.
+- **`aud`**: mọi access token mang `aud = [id client, URL MCP]` (`App\Support\Mcp\McpAccessToken`);
+  `/mcp` từ chối 401 `error="invalid_token"` token không có URL MCP trong `aud`
+  (`EnsureTokenAudience`, sau `auth:mcp`).
+- `/oauth/token` nhận `application/x-www-form-urlencoded`; refresh xoay vòng: refresh token cũ dùng lại
+  → 400 `invalid_grant`, access token cũ hết hiệu lực.
+- **`WWW-Authenticate`** (rà soát Task 1, m1 và m6): 401 có gửi bearer → thêm `error="invalid_token"`;
+  không gửi gì → không mã lỗi; 403 vì thiếu `mcp:use` → `Bearer error="insufficient_scope",
+  scope="mcp:use", resource_metadata=…`; 403 vì Origin lạ → không có header này. `resource_metadata`
+  dựng từ URL chuẩn, không từ host của request.
+- Bất biến mới (rà soát Task 1, mr1): mọi route sau một guard driver `passport` phải có
+  `RequireBearerToken` đứng trước guard đó (`TransportTest`). Thứ tự năm middleware của `/mcp` được
+  ghim.
+
+**Phán quyết.**
+- **`aud`: làm được, theo phương án "ưu tiên" của R7, không sửa lõi.** Passport có điểm mở rộng chính
+  thức `Passport::useAccessTokenEntity()` (`Passport.php:447`), đọc ở mỗi lần cấp token
+  (`Bridge\AccessTokenRepository::getNewToken()`, mọi grant). Không bind lại `AuthorizationServer`,
+  `ResourceServer` hay repository nào. `convertToJWT()` của trait league là `private` và khoá riêng là
+  thuộc tính `private` của lớp cha, nên `McpAccessToken` dùng lại `AccessTokenTrait` và định nghĩa lại
+  đúng `convertToJWT()` (thân y hệt league 9.4.1, chỉ khác `permittedFor()`); một test so tập claim với
+  token gốc của Passport để bản league sau này không lệch âm thầm. Id client đứng ĐẦU `aud`, vì
+  `BearerTokenValidator` lấy `oauth_client_id` từ `aud[0]` (đo bằng mutation: đảo thứ tự thì `/mcp`
+  từ chối mọi token mới cấp).
+  Phương án dự phòng (ràng buộc bằng cấu trúc: client cờ `mcp` + scope `mcp:use`) không cần thay, chỉ
+  còn là lớp thêm (Task 3/6).
+- **URL chuẩn: một nguồn, `App\Support\Mcp\McpEndpoint`, gốc là tên miền QUẢN TRỊ.** `ADMIN_DOMAIN` khi
+  có, còn không thì host (kèm cổng) của `APP_URL`; scheme từ `APP_URL`. Màn hình đồng ý hỏi phiên nhân
+  sự (`web`), nên máy chủ uỷ quyền phải ở tên miền có phiên đó, và `/mcp` đứng cùng gốc. Không thêm biến
+  `.env`. `/mcp` và `/.well-known/*` không ràng `domain()`: gọi qua tên miền cổng khách vẫn trả lời,
+  nhưng mọi URL khai ra (PRM, AS metadata, `WWW-Authenticate`, `iss`, `aud`) là URL chuẩn (test với hai
+  tên miền tách). `config('mcp.authorization_server')` của gói không được đọc.
+- **`resource`**: khớp khi bằng URL MCP chuẩn sau khi đưa scheme/host về chữ thường và bỏ ĐÚNG MỘT `/`
+  cuối (Laravel định tuyến `/mcp/` vào `/mcp`, nên người gõ URL kèm `/` vẫn là máy chủ này). Khác
+  scheme, host, cổng (cổng mặc định không chuẩn hoá), đường dẫn, có query, fragment hay thông tin người
+  dùng → `invalid_target`. Gửi nhiều giá trị thì mọi giá trị phải khớp. Không gửi thì cho qua: chỉ có
+  một máy chủ tài nguyên và token luôn mang `aud` của nó.
+- **Lỗi ở `/oauth/authorize` chỉ chuyển hướng về redirect URI đã kiểm** (RFC 6749 §4.1.2.1): khi có vi
+  phạm PKCE/`resource`, `ValidateOAuthParameters` cho `AuthorizationServer` của Passport kiểm client,
+  redirect URI và scope trước; league từ chối thì Passport trả lỗi của nó (ví dụ 401 `invalid_client`),
+  không chuyển hướng tới URI lạ (test "redirect_uri chưa đăng ký").
+- **Cờ `authorization_response_iss_parameter_supported`** gắn với chính middleware: chỉ quảng bá khi
+  `AddIssuerToAuthorizationResponse` đứng trong `config('passport.middleware')`. Thứ tự trong khoá đó
+  được ghim: `RestrictOAuthGrantTypes`, `AddIssuerToAuthorizationResponse`, `ValidateOAuthParameters`
+  (lớp gắn `iss` bọc ngoài, để lỗi của lớp kiểm cũng mang `iss`).
+- **CIMD**: cờ `vkcrm.mcp.client_id_metadata_documents` = `false`, không có biến `.env` (bật cờ khi chưa
+  có mã CIMD thì mọi kết nối mới hỏng). Task 5 bật nó cùng commit với mã.
+- **`registration_endpoint`** = `<gốc>/oauth/register` (`McpEndpoint::REGISTRATION_PATH`) được quảng bá
+  ngay; route DCR do Task 3 đăng ký ở đúng đường dẫn đó. Trước Task 3 đường này chưa trả lời.
+- **Bốn route metadata khai URI cụ thể**, không mẫu `{path}` (rà soát Task 0, M4b): `Mcp::oauthRoutes()`
+  gọi sau vẫn không đè được (test gọi nó rồi kiểm cả bốn đường).
+
+**Lệch và khoảng hở, ghi để biết.**
+- Đổi `APP_URL` hoặc `ADMIN_DOMAIN` làm mọi access token đang sống nhận 401 (`aud` cũ) cho tới khi
+  client làm mới; refresh token không gắn `aud` nên vẫn làm mới được. Task 16 ghi vào `docs/CAI-DAT.md`.
+- `/.well-known/oauth-authorization-server/mcp` trả `issuer` gốc. Đọc chặt RFC 8414 §3.3 thì URL đó
+  thuộc issuer `…/mcp`; route này chỉ tồn tại để client cũ đoán URL metadata từ URL MCP không nhận bản
+  thiếu của gói. Tương tự, PRM ở đường gốc trả `resource` = URL MCP (R7, [DC:629]) thay vì origin
+  (RFC 9728 §3.3).
+- **CSP `form-action 'self'` và chuyển hướng sau khi bấm duyệt**: chưa đo được ở Task 2, vì chưa có
+  form đồng ý nào (Task 4). Theo phán quyết của controller, Task 4 nới `form-action` đúng origin của
+  redirect URI đã đăng ký của client đó, cho riêng phản hồi đó. Các chuyển hướng của Task 2 ở GET
+  (tự duyệt, lỗi) không đi qua form.
+- Máy chủ web production không được chặn `/.well-known/` (nhiều cấu hình nginx chặn mọi đường bắt đầu
+  bằng dấu chấm). Task 16 ghi vào hướng dẫn triển khai và kiểm ở Task 17.
+- Không thêm CORS cho metadata và `/mcp`: Claude và ChatGPT gọi từ máy chủ. Client chạy trong trình
+  duyệt (ví dụ MCP Inspector bản web) sẽ không đọc được.
+- Thân 401/403 của `/mcp` vẫn là câu tiếng Anh của framework/Passport (rà soát Task 1, m7), chưa sửa.
+
+**Kiểm chứng (2026-10-03).** Đỏ trước khi cài: 41 đỏ, 63 xanh (bốn tệp: `OAuthMetadataTest` mới,
+`TransportTest`, `McpPackageConfigTest`, `StaffTwoFactorEscapeRoutesTest`).
+Xanh: chín tệp chạm tới hoặc dùng chung `McpOAuth` (thêm `CrmToolBaseTest`, `PrivateFilesSpec104Test`,
+`PreflightCommandTest`): 150 passed. Hai mươi phép mutation, mỗi phép bỏ hay đảo một điều kiện mới
+(tên miền quản trị, `resource_metadata` dựng từ URL chuẩn, kiểm `aud`, entity của app, thứ tự `aud`,
+mặt và thứ tự hai middleware Passport, `code`/`error`, PKCE S256 và PKCE bắt buộc, `resource` ở
+authorize và ở token, không chuyển hướng tới URI chưa kiểm, chuẩn hoá `resource`, cờ CIMD, cờ `iss`,
+`invalid_token`, `insufficient_scope`, URI cụ thể thay mẫu `{path}`, `RequireBearerToken` trước
+`auth:mcp`): mỗi phép cho ít nhất một test đỏ, rồi khôi phục. Cả bộ (`test --parallel --processes=2`):
+EXIT 0, 3812 passed (3764 + 46 dòng của `OAuthMetadataTest` + 2 test mới của `TransportTest`), 1 risky,
+1 todo, 25 skipped, như trước. MariaDB (tuần tự; `OAuthMetadataTest`, `TransportTest`,
+`OAuthRoutesStaffSessionTest`, `OAuthServerHardeningTest`, `McpPackageConfigTest`,
+`StaffTwoFactorEscapeRoutesTest`): 120 passed. `pint --test`: PASS, 858 tệp. Không đổi migration nào nên
+không chạy lại vòng migration thật.

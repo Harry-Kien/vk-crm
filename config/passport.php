@@ -1,10 +1,12 @@
 <?php
 
+use App\Http\Middleware\Mcp\AddIssuerToAuthorizationResponse;
 use App\Http\Middleware\Mcp\RestrictOAuthGrantTypes;
+use App\Http\Middleware\Mcp\ValidateOAuthParameters;
 
 /*
 |-------------------------------------------------------------------------------------------
-| BẢN PUBLISH CỦA laravel/passport — ĐÃ SỬA ĐÚNG MỘT KHOÁ (M11 Task 1)
+| BẢN PUBLISH CỦA laravel/passport — ĐÃ SỬA ĐÚNG MỘT KHOÁ (M11 Task 1, Task 2)
 |-------------------------------------------------------------------------------------------
 |
 | Sinh bằng `artisan vendor:publish --tag=passport-config`, rồi đổi đúng `middleware`. Mọi khoá
@@ -34,10 +36,19 @@ return [
     // phiên khách (`client`). Giữ nguyên mặc định, nhưng có test ghim (McpPackageConfigTest).
     'guard' => 'web',
 
-    // M11 R1: `/oauth/token` chỉ nhận `authorization_code` và `refresh_token`. Middleware nhóm này
-    // đứng trước MỌI route của Passport nhưng chỉ hành động ở `passport.token`; lý do (vì sao không
-    // tắt được `client_credentials` bằng cờ của gói) ở docblock của nó.
-    'middleware' => [RestrictOAuthGrantTypes::class],
+    // Middleware của nhóm route Passport: đứng trước MỌI route của gói, mỗi lớp chỉ hành động ở route
+    // của nó (lý do ở docblock từng lớp). Thứ tự có nghĩa (McpPackageConfigTest ghim):
+    // - M11 R1: `/oauth/token` chỉ nhận `authorization_code` và `refresh_token` (vì sao không tắt được
+    //   `client_credentials` bằng cờ của gói);
+    // - M11 R7 (Task 2): gắn `iss` (RFC 9207) vào mọi phản hồi uỷ quyền; đứng NGOÀI lớp kế tiếp để cả
+    //   lỗi mà lớp đó chuyển hướng về client cũng mang `iss`;
+    // - M11 R7 (Task 2): PKCE chỉ S256, bắt buộc với mọi client; `resource` (RFC 8707) chỉ được là URL
+    //   MCP chuẩn, ở `/oauth/authorize` và `/oauth/token`.
+    'middleware' => [
+        RestrictOAuthGrantTypes::class,
+        AddIssuerToAuthorizationResponse::class,
+        ValidateOAuthParameters::class,
+    ],
 
     /*
     |--------------------------------------------------------------------------

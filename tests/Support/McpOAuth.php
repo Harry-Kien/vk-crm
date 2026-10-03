@@ -81,8 +81,7 @@ final class McpOAuth
     public static function issueTokens(TestCase $test, User $user, ?Client $client = null, string $scope = 'mcp:use'): array
     {
         $client ??= self::client();
-        $verifier = Str::random(64);
-        $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+        ['verifier' => $verifier, 'challenge' => $challenge] = self::pkce();
         $redirectUri = $client->redirect_uris[0];
 
         $server = app(AuthorizationServer::class);
@@ -124,6 +123,38 @@ final class McpOAuth
     }
 
     /**
+     * Một cặp PKCE S256 (RFC 7636 §4.1–4.2): `verifier` 64 ký tự, `challenge` =
+     * BASE64URL(SHA256(verifier)) không dấu `=`.
+     *
+     * @return array{verifier: string, challenge: string}
+     */
+    public static function pkce(): array
+    {
+        $verifier = Str::random(64);
+
+        return [
+            'verifier' => $verifier,
+            'challenge' => rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '='),
+        ];
+    }
+
+    /**
+     * Màn hình đồng ý THAY TẠM cho test, tới khi Task 4 dựng màn hình thật: bind
+     * `AuthorizationViewResponse` của Passport thành một JSON mang `auth_token` mà
+     * `GET /oauth/authorize` vừa lưu vào phiên. Test đọc mã đó rồi tự gửi `POST /oauth/authorize`
+     * (duyệt) hay `DELETE /oauth/authorize` (từ chối), như hai nút của màn hình thật sẽ gửi. Mọi thứ
+     * khác của luồng là mã thật: controller của Passport, phiên, middleware của nhóm route,
+     * `/oauth/token`.
+     */
+    public static function useConsentStandIn(): void
+    {
+        Passport::authorizationView(fn (array $parameters) => response()->json([
+            'auth_token' => $parameters['authToken'],
+            'client_id' => $parameters['client']->getKey(),
+        ]));
+    }
+
+    /**
      * Ký lại một token ĐÃ CÓ trong `oauth_access_tokens` (cùng `jti`, cùng người, cùng client, cùng
      * scope, chưa thu hồi) với một hạn khác, bằng chính khoá riêng của server.
      *
@@ -135,12 +166,21 @@ final class McpOAuth
      *
      * `$withUser = false` dựng token không có `sub` người dùng (hình dạng của một token
      * `client_credentials`) để hỏi "token không gắn người nào có qua được `/mcp` không".
+     *
+     * `$entity` là lớp entity dùng để ký. Mặc định là lớp Passport đang dùng để cấp token
+     * (`Passport::$accessTokenEntity`; từ Task 2 là `App\Support\Mcp\McpAccessToken`, `aud` = id
+     * client + URL MCP). Truyền `Laravel\Passport\Bridge\AccessToken` để dựng một token Passport GỐC
+     * (`aud` chỉ có id client), cho câu hỏi "token không mang URL MCP trong `aud` có qua được `/mcp`
+     * không".
+     *
+     * @param  class-string<AccessTokenEntity>|null  $entity
      */
-    public static function resign(string $tokenId, DateTimeImmutable $expiresAt, bool $withUser = true): string
+    public static function resign(string $tokenId, DateTimeImmutable $expiresAt, bool $withUser = true, ?string $entity = null): string
     {
         $row = Passport::token()->newQuery()->findOrFail($tokenId);
+        $entity ??= Passport::$accessTokenEntity;
 
-        $entity = new AccessTokenEntity(
+        $entity = new $entity(
             $withUser ? (string) $row->user_id : null,
             array_map(fn (string $scope) => new Scope($scope), $row->scopes),
             new ClientEntity((string) $row->client_id, 'Client thử', [self::REDIRECT_URI]),

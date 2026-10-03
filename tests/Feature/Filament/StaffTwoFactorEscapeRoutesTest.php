@@ -240,6 +240,11 @@ function outsidePanelRouteReasons(): array
         'POST oauth/authorize' => 'Task 1: chỉ duyệt yêu cầu mà GET oauth/authorize đã lưu vào phiên, thứ chưa lưu được gì (OAuthRoutesStaffSessionTest). Task 4 thay lý lẽ này',
         'DELETE oauth/authorize' => 'từ chối một yêu cầu uỷ quyền: không bao giờ cấp mã (OAuthRoutesStaffSessionTest)',
         'POST oauth/token/refresh' => 'phát cookie laravel_token, và không route nào nhận cookie đó: guard passport duy nhất là `mcp`, chỉ đứng sau /mcp, nơi `RequireBearerToken` xoá cookie trước `auth:mcp`; cookie này kèm CSRF của chính phiên, có hay không kèm `Bearer 0` / `Bearer ,` / bearer chỉ khoảng trắng, vẫn 401 (OAuthRoutesStaffSessionTest)',
+        // M11 Task 2 — metadata OAuth công khai (RFC 9728, RFC 8414), `routes/ai.php`, ngoài nhóm `web`.
+        'GET .well-known/oauth-protected-resource' => 'metadata công khai cố định dựng từ cấu hình (URL MCP, issuer, scope), không đọc phiên, không dữ liệu người dùng (OAuthMetadataTest)',
+        'GET .well-known/oauth-protected-resource/mcp' => 'metadata công khai cố định dựng từ cấu hình (URL MCP, issuer, scope), không đọc phiên, không dữ liệu người dùng (OAuthMetadataTest)',
+        'GET .well-known/oauth-authorization-server' => 'metadata công khai cố định của máy chủ uỷ quyền (điểm cuối, grant, PKCE), không đọc phiên, không dữ liệu người dùng (OAuthMetadataTest)',
+        'GET .well-known/oauth-authorization-server/mcp' => 'metadata công khai cố định của máy chủ uỷ quyền (điểm cuối, grant, PKCE), không đọc phiên, không dữ liệu người dùng (OAuthMetadataTest)',
     ];
 }
 

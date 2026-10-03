@@ -2,6 +2,7 @@
 
 use App\Enums\Role;
 use App\Http\Middleware\Mcp\CheckOrigin;
+use App\Http\Middleware\Mcp\EnsureTokenAudience;
 use App\Http\Middleware\Mcp\RequireBearerToken;
 use App\Models\ClientUser;
 use App\Models\User;
@@ -234,6 +235,74 @@ it('R1 /mcp không nằm trong nhóm web: không phiên, không CSRF', function 
     postMcp(mcpInitializeBody(), token: McpOAuth::accessToken($this, mcpLawyer()))
         ->assertOk()
         ->assertCookieMissing(config('session.cookie'));
+});
+
+/*
+ * Thứ tự năm middleware của app trước `POST /mcp` (sau ba middleware của gói): Origin trước mọi bước
+ * xác thực; xoá cookie `laravel_token` trước guard; `aud` chỉ đọc sau khi guard đã kiểm chữ ký của
+ * chính token đó (Task 2); scope cuối cùng.
+ */
+it('R1/R7 năm middleware của app trước /mcp đứng đúng thứ tự: Origin, chỉ bearer, auth:mcp, aud, scope', function () {
+    $middleware = Route::getRoutes()->match(request()->create('/mcp', 'POST'))->gatherMiddleware();
+
+    $ours = array_values(array_filter($middleware, fn ($entry) => in_array($entry, [
+        CheckOrigin::class,
+        RequireBearerToken::class,
+        'auth:mcp',
+        EnsureTokenAudience::class,
+        CheckToken::using('mcp:use'),
+    ], true)));
+
+    expect($ours)->toBe([
+        CheckOrigin::class,
+        RequireBearerToken::class,
+        'auth:mcp',
+        EnsureTokenAudience::class,
+        CheckToken::using('mcp:use'),
+    ]);
+});
+
+/*
+ * Bất biến (rà soát Task 1, mr1): `RequireBearerToken` xoá cookie `laravel_token` chỉ ở route có nó.
+ * Mọi route đứng sau một guard driver `passport` (`auth:mcp`, hay một guard passport thêm sau này)
+ * phải có `RequireBearerToken` ĐỨNG TRƯỚC guard đó, nếu không cookie `laravel_token` (mọi scope,
+ * phát cho bất kỳ phiên web nào ở `POST /oauth/token/refresh`) mở được route ấy. Route thăm dò của
+ * test (`McpOAuth::registerGuardProbe()`) chỉ được đăng ký trong chính test cần nó, nên không có ở đây.
+ */
+it('R1 bất biến: mọi route sau một guard driver passport đều có RequireBearerToken đứng trước guard đó', function () {
+    $passportGuards = collect(config('auth.guards'))
+        ->filter(fn (array $guard) => ($guard['driver'] ?? null) === 'passport')
+        ->keys()
+        ->all();
+
+    expect($passportGuards)->toContain('mcp');
+
+    $checked = 0;
+    $violations = [];
+
+    foreach (Route::getRoutes() as $route) {
+        $middleware = $route->gatherMiddleware();
+
+        foreach ($middleware as $position => $entry) {
+            if (! is_string($entry) || ! str_starts_with($entry, 'auth:')) {
+                continue;
+            }
+
+            if (array_intersect(explode(',', substr($entry, 5)), $passportGuards) === []) {
+                continue;
+            }
+
+            $checked++;
+            $bearerAt = array_search(RequireBearerToken::class, $middleware, true);
+
+            if ($bearerAt === false || $bearerAt > $position) {
+                $violations[] = implode('|', $route->methods()).' '.$route->uri();
+            }
+        }
+    }
+
+    expect($checked)->toBeGreaterThan(0)
+        ->and($violations)->toBe([]);
 });
 
 it('R7 GET và DELETE /mcp trả 405, Allow: POST', function () {

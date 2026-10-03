@@ -205,6 +205,16 @@ return [
             'https://chatgpt.com',
             ...explode(',', (string) env('MCP_EXTRA_ALLOWED_ORIGINS', '')),
         ]))),
+
+        /*
+         * R7: AS metadata chỉ quảng bá `client_id_metadata_document_supported: true` khi cờ này bật
+         * ({@see \App\Http\Controllers\Mcp\AuthorizationServerMetadataController}). Bật nó là việc
+         * của Task 5 (CIMD phía máy chủ, có cổng dừng), CÙNG commit với mã nhận `client_id` dạng URL.
+         * Không có biến `.env`: bật cờ khi chưa có mã đó thì Claude và ChatGPT chọn CIMD, gửi một
+         * `client_id` là URL mà Passport không tìm thấy, và mọi kết nối mới hỏng. Tắt thì hai nền
+         * tảng tự lùi về DCR [DC:715], [PL:179].
+         */
+        'client_id_metadata_documents' => false,
     ],
 
     /*

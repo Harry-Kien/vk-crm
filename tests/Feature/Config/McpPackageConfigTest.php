@@ -1,6 +1,8 @@
 <?php
 
+use App\Http\Middleware\Mcp\AddIssuerToAuthorizationResponse;
 use App\Http\Middleware\Mcp\RestrictOAuthGrantTypes;
+use App\Http\Middleware\Mcp\ValidateOAuthParameters;
 
 /**
  * `config/mcp.php` và `config/passport.php` — hai tệp cấu hình M11 Task 1 phát hành từ gói.
@@ -42,9 +44,18 @@ it('R7 laravel/mcp: redirect_domains không có "*", custom_schemes rỗng', fun
         ->and(config('mcp.custom_schemes'))->toBe([]);
 });
 
-it('R1 laravel/passport: guard đăng nhập là web (nhân sự), middleware chặn grant ngoài authorization_code/refresh_token', function () {
+/*
+ * Thứ tự là một phần của luật: `AddIssuerToAuthorizationResponse` (Task 2) phải bọc NGOÀI
+ * `ValidateOAuthParameters`, để chính phản hồi lỗi `invalid_target` / `invalid_request` mà lớp sau
+ * chuyển hướng về client cũng mang `iss` (RFC 9207 đòi `iss` ở cả phản hồi lỗi).
+ */
+it('R1/R7 laravel/passport: guard đăng nhập là web (nhân sự); middleware của nhóm route: chặn grant, gắn iss, kiểm PKCE và resource, đúng thứ tự', function () {
     expect(config('passport.guard'))->toBe('web')
-        ->and(config('passport.middleware'))->toBe([RestrictOAuthGrantTypes::class]);
+        ->and(config('passport.middleware'))->toBe([
+            RestrictOAuthGrantTypes::class,
+            AddIssuerToAuthorizationResponse::class,
+            ValidateOAuthParameters::class,
+        ]);
 });
 
 it('R1 guard mcp: driver passport, provider users — không bao giờ client_users', function () {

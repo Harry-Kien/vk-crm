@@ -29,6 +29,7 @@ use App\Support\Files\ClamAvScanner;
 use App\Support\Files\NullScanner;
 use App\Support\Files\VirusScanner;
 use App\Support\Mail\OutboundLedgerMailManager;
+use App\Support\Mcp\McpAccessToken;
 use App\Support\Security\HttpsDefaults;
 use DateInterval;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -223,6 +224,14 @@ class AppServiceProvider extends ServiceProvider
          */
         Passport::tokensExpireIn(new DateInterval('PT1H'));
         Passport::refreshTokensExpireIn(new DateInterval('P30D'));
+
+        /*
+         * M11 R7 (Task 2) — mọi access token mang `aud` = [id client, URL MCP chuẩn], để `/mcp` từ
+         * chối token không được cấp cho nó (`EnsureTokenAudience`). Điểm mở rộng chính thức của
+         * Passport, đọc ở mỗi lần cấp token (`Bridge\AccessTokenRepository::getNewToken()`); lý do và
+         * thứ tự của `aud` ở docblock của `McpAccessToken`.
+         */
+        Passport::useAccessTokenEntity(McpAccessToken::class);
 
         // Giới hạn lượt tải tệp (route `documents.download`). Con số và toàn bộ lý lẽ — kể cả vì
         // sao KHÔNG dùng mã dùng một lần — nằm ở `DocumentDownloadController::DOWNLOADS_PER_MINUTE`;
