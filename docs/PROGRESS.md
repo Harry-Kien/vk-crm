@@ -1557,6 +1557,124 @@ thông tin thương hiệu chỉ đổi được qua `.env`.
     `88b6044` đã viết lại trên main; làn không đụng tệp đó nên lần gộp nhận bản của main, và bản đó
     (10 bài) xanh trên mã của làn cộng mặc định ấy.
 
+#### Task 9 — Tìm kiếm (SPEC §6.13, R7)
+
+- **Tên giữ cho M11** (kế hoạch M11 dòng 307, 632 — `search_matters` "tìm giống M7 Task 9"):
+  - Action đọc `App\Actions\Search\SearchMatters`:
+    - `handle(User $actor, string $term, ?array $sources = null, int $limit = 25): MatterSearchResults`
+      — mới nhất trước (`matters.id` giảm dần), `limit` kẹp [1, `MAX_LIMIT` = 50], cờ `truncated`
+      (lấy `limit + 1` dòng) thay cho tổng số;
+    - `matching(User $actor, string $term, ?array $sources = null): Builder<Matter>` — truy vấn ĐÃ
+      mang luật hiển thị, để M11 tự lắp bộ lọc (loại vụ, giai đoạn, "vụ tôi phụ trách", đang mở),
+      `McpMatterScope` và phân trang cursor. M11 truyền `[SearchSource::Code, Title, ClientName,
+      CaseNumber]` (kế hoạch M11: không tìm theo tên các bên hay tiêu đề tài liệu). Tham số nguồn
+      chỉ thu hẹp, không nới;
+    - `sourcesFor(User): list<SearchSource>`, `normalizeTerm(string): ?string` (NFC, gộp khoảng
+      trắng, 2…100 ký tự sau chuẩn hoá; ô tìm mang `maxlength` = `MAX_TERM_LENGTH`).
+  - DTO readonly `MatterSearchResults` (`matters`, `truncated`), `MatterSearchResult` (`matterId`,
+    `code`, `title`, `clientName`, `matterTypeName`, `hits`), `MatterSearchHit` (`source`, `text`);
+    enum `App\Enums\SearchSource` (sáu case, nhãn ở `lang/vi/search.php`).
+- **Luật hiển thị trong câu SQL, trước `limit`:** `Matter::scopeListableBy($actor)` VÀ "khớp ít nhất
+  một nguồn" trong cùng truy vấn. Không tổng số, không "có kết quả bị ẩn"; "không khớp" và "khớp mà
+  không được xem" là một câu. Test: khối kết quả của trưởng phòng giống từng byte dù hai vụ
+  `restricted` cùng khớp có tồn tại hay không; câu "chỉ hiện 25 hồ sơ mới nhất" chỉ bật trên tập
+  người đó thấy. Vụ `restricted` không lộ với trưởng phòng hay thành viên đội ngũ không phải lead,
+  qua cả sáu nguồn. Kiểm tra xung đột lợi ích không là cửa sau: vụ không xem được không bao giờ ra,
+  kể cả khi tên một bên khớp đúng.
+- **Ai tìm theo nguồn nào:** cần `MatterPolicy::viewAny`. Mã và tên khách: mọi người liệt kê được vụ.
+  Tiêu đề vụ, số thụ lý, tên các bên, tiêu đề tài liệu: chỉ `matter.view`. Tài liệu nhóm D: chỉ
+  `document.viewInternal` (`group != 'D'` trong SQL, cùng điều kiện nhóm của `DocumentPolicy::view`),
+  áp CHUNG cho điều kiện lọc lẫn dòng "Khớp" — một vụ ra nhờ nguồn khác không kèm tiêu đề nhóm D.
+  Tài liệu, các bên, vụ đã xoá mềm không ra. Dòng kết quả chỉ mang id/tiêu đề (tức liên kết vào
+  trang vụ việc) khi `Gate::forUser($actor)->allows('view', $matter)` (đội ngũ đã nạp, trả lời trong
+  bộ nhớ). Dòng "Khớp" của tên các bên/tiêu đề tài liệu có hai lớp chặn độc lập (chỉ truy vấn khi
+  nguồn được phép; `present()` chỉ dựng cho nguồn được phép).
+- **Lệch khỏi phán quyết controller — cần controller xác nhận.** Phán quyết ghi "kế toán: chỉ bốn
+  nguồn đầu" (mã, tiêu đề, tên khách, số thụ lý). Làn cài **hai** (mã, tên khách), vì:
+  `MattersTable` ẩn cột tiêu đề với kế toán (và Filament không tìm trên cột ẩn —
+  `CanSearchRecords::applyGlobalSearchToTableQuery()` bỏ cột `isHidden()`); số thụ lý chỉ hiện trên
+  trang vụ việc, nơi kế toán không mở được; SPEC §5 trên `main` ("Ranh giới của kế toán", M9) nói màn
+  hình của kế toán mang mã, loại vụ, tên khách — **không** tiêu đề. Tìm theo một trường là đọc được
+  trường đó (gõ "ly hôn" rồi xem vụ nào ra). Muốn mở thêm hai nguồn: bỏ `Title`/`CaseNumber` khỏi
+  `SearchMatters::CONTENT_SOURCES` — dòng kết quả của kế toán vẫn không mang tiêu đề (`matterId`,
+  `title` theo `MatterPolicy::view`), nhưng việc khớp thì vẫn lộ nội dung. Đính chính SPEC §6.13 ghi
+  cách đọc của làn.
+- **Trang** `App\Filament\Admin\Pages\Search` (slug `search`, "Tìm kiếm" trên thanh điều hướng):
+  `canAccess()` = `Gate::forUser()->allows('viewAny', Matter::class)`; `boot()` `abort(404)` ở mount
+  và mọi request cập nhật (TRƯỚC `hydrateCanAuthorizeAccess()` 403); `search()` hỏi lại; Action hỏi
+  lần nữa. "Đang hoạt động" do `Authenticate` của panel lo — Livewire giữ nó làm middleware bền, nên
+  một tài khoản vừa bị vô hiệu hoá nhận 404 cả ở request cập nhật (đo bằng request thật); bản đầu có
+  thêm `is_active` trong `canAccess()`, mutation probe cho thấy không đường nào tới được nó, nên đã
+  gỡ. Thuộc tính công khai duy nhất là `$term` (`wire:model.live.debounce.500ms`); kết quả tính
+  trong `getViewData()` (protected). Chuỗi tìm KHÔNG lên query string: thường là tên người, và URL
+  vào lịch sử trình duyệt và nhật ký máy chủ. Trang nói "Tìm trong: …" đúng các nguồn của người đó.
+  Blade không lớp CSS, chỉ biến màu đã đăng ký (test).
+- **Cách tìm và index** (migration `2026_09_28_070900_add_search_indexes`: `matters_case_number_index`,
+  `matters_title_index`, `clients_name_index`, `documents_title_index`). `LIKE 'x%'` dùng được index,
+  `LIKE '%x%'` thì không. Số thụ lý: tiền tố, vì độ chính xác (phần ký hiệu cuối chung cho cả loạt
+  vụ). Mã: chứa (người ta nhớ "0147"; ô tìm của `MattersTable` cũng chứa). Tiêu đề, tên khách, tên
+  các bên, tiêu đề tài liệu: chứa. **Câu tìm sáu nguồn không dùng index nào** — một `OR` có vế chứa;
+  `EXPLAIN` bên dưới. Bốn index vẫn thêm theo kế hoạch: chúng phục vụ câu tiền tố đứng riêng và lúc
+  quy mô vượt "vài nghìn hồ sơ"; docblock migration nói thẳng như vậy. `%`, `_` trong chuỗi gõ là
+  chữ thường (`ESCAPE '!'` — SQLite không có ký tự thoát mặc định, `'\\'` đọc khác nhau giữa hai CSDL).
+- **Số đo** (`tests/Benchmark/SearchMattersBenchmarkTest.php`, ngoài mọi testsuite của
+  `phpunit.xml` — CI và `container-test` không tham số đều bỏ qua; chạy tay
+  `/d/vkwt/m7b-dev test:mariadb tests/Benchmark/SearchMattersBenchmarkTest.php`). MariaDB trong Docker
+  trên máy dev Windows, 6.000 vụ (5% restricted, 60% có số thụ lý), 3.000 khách, 18.000 bên, 30.000
+  tài liệu, đội ngũ 2 người mỗi vụ; trung vị 5 lần của `SearchMatters::handle()`:
+
+  | Chuỗi | admin | luật sư (≈400 vụ) | kế toán |
+  |---|---|---|---|
+  | `0147` (mảnh mã) | 15,1 ms | 13,3 ms | 5,3 ms |
+  | `VK-2026` (25+ dòng) | 11,9 ms | 13,8 ms | 7,4 ms |
+  | `Nguyễn Văn` | 20,1 ms | 22,5 ms | 10,2 ms |
+  | `nguyen van an` | 20,8 ms | 14,1 ms | 5,9 ms |
+  | `4711/2026` (số thụ lý) | 15,2 ms | 13,0 ms | 3,5 ms |
+  | `khởi kiện 512` (tài liệu) | 18,6 ms | 14,7 ms | 4,1 ms |
+  | `Ánh` | 20,1 ms | 23,5 ms | 9,5 ms |
+  | `zzqqxx` (không khớp) | 12,6 ms | 13,0 ms | 4,3 ms |
+
+  `EXPLAIN`: câu sáu nguồn — `matters`, `clients`, `documents`, `matter_parties` đều `type=ALL`
+  (luật sư thêm `matter_user` `ref`); `case_number LIKE '4711/2026%'` đứng riêng — `range` trên
+  `matters_case_number_index`; `title LIKE '%khởi%'` đứng riêng — `type=index` (duyệt cả index phủ).
+- **Tiếng Việt — hành vi thật, đo trên cả hai CSDL** (`SearchPageTest`, "tìm tiếng Việt", chạy cả
+  `test:mariadb`; đã xác nhận lần chạy MariaDB dùng driver `mariadb`): tên các bên so trên
+  `name_normalized` với chuỗi chuẩn hoá cùng `Normalizer::name()` — có dấu/không dấu, hoa/thường,
+  `đ`/`d` đều ra, mọi CSDL. Tiêu đề, tên khách: MariaDB `utf8mb4_unicode_ci` bỏ qua dấu ("thue nha"
+  ra "thuê nhà") và hoa/thường ngoài ASCII ("ĐỖ VĂN" ra "Đỗ Văn"), nhưng `đ` khác `d` ("duong lam"
+  không ra "Đường Lâm"); SQLite so theo byte, chỉ gộp hoa/thường ASCII. Chuỗi gõ ở dạng NFD được đưa
+  về NFC trước khi so (mọi CSDL).
+- **Giới hạn đã biết:** (1) khách hàng đã xoá mềm thì tên không còn tìm được (vụ vẫn ra theo mã) —
+  cùng cách `MattersTable` đọc quan hệ `client`; (2) tiêu đề/tên LƯU ở dạng NFD (dán từ macOS) không
+  khớp chuỗi NFC trên SQLite; (3) `đ` ≠ `d` ở tiêu đề và tên khách trên MariaDB — phải gõ đúng chữ
+  đ; (4) tìm kiếm không ghi audit (không mở hồ sơ nào; chuỗi tìm thường là tên người, ghi lại là
+  thêm một chỗ lưu dữ liệu cá nhân); (5) vụ đã xoá mềm không ra, kể cả với admin (như danh sách vụ
+  việc).
+- Test: `tests/Feature/Filament/SearchPageTest.php` (màn hình qua Livewire/HTTP: sáu nguồn × thấy/
+  không thấy — mỗi "không thấy" kèm đối chứng admin thấy đúng vụ đó bằng đúng chuỗi đó —; vụ
+  `restricted` × sáu nguồn; số lượng không rò rỉ; nhóm D với trợ lý; kế toán × năm nguồn bị chặn;
+  kế toán không liên kết, không tiêu đề, không dòng khớp tên bên/tài liệu; xoá mềm; ký tự đại diện;
+  tiếng Việt; NFD; 404 kể cả request cập nhật Livewire thật; không lớp CSS),
+  `tests/Feature/Actions/Search/SearchMattersTest.php` (bề mặt M11: thu hẹp nguồn, không nới nguồn,
+  `limit`, tài khoản vô hiệu hoá/xoá mềm, `matching()`, chuẩn hoá, gộp/cắt dòng khớp, chuỗi chuẩn hoá
+  rỗng), `tests/Feature/Database/SearchIndexesTest.php`.
+- **Bằng chứng TDD.** RED: ba tệp test viết trước mã — 58/58 đỏ (lớp `Search`/`SearchMatters` chưa
+  có, bốn index chưa có). GREEN 58/58 ở lần chạy đầu, cả SQLite lẫn MariaDB. Sau đó thêm ba test
+  Action (nguồn rỗng cho nhân sự không quyền, chuỗi chuẩn hoá rỗng, trần `MAX_LIMIT`), siết test kế
+  toán (dòng khớp tên bên/tài liệu) và test số thụ lý (cờ khớp tiền tố) để ghim những điều kiện mà
+  lần lập kế hoạch probe thấy chưa có test nào đỏ. **47 mutation probe:** 43 đỏ; 4 xanh — ba là đột
+  biến tương đương của hai lớp chặn dòng khớp (bỏ riêng lớp "chỉ truy vấn khi nguồn được phép" cho
+  tên bên, cho tài liệu, hoặc bỏ riêng lớp "`present()` chỉ dựng cho nguồn được phép"; bỏ CẢ HAI lớp
+  thì đỏ, hai probe), một là `is_active` thừa trong `canAccess()` (đã gỡ, xem mục Trang).
+- **Ghi chú lúc gộp** (đo bằng `git merge-tree` ngày 2026-10-03 trên một commit tạm chứa Task 9, so
+  với cùng phép đo từ `572f3be`): Task 9 không thêm tệp xung đột nào — với `origin/m7-handover` vẫn
+  đúng một tệp như trước (`lang/vi/activity.php`), với `origin/main` vẫn đúng 13 tệp như trước. Mọi
+  tệp mã của Task 9 là tệp mới; đính chính SPEC §6.13 tự gộp với cả hai nhánh (làn m7 thêm đoạn
+  §6.12 ngay TRÊN tiêu đề §6.13, Task 9 viết DƯỚI đoạn cuối của §6.13). Sau khi gộp main: M9 cho kế
+  toán `billing.view` — `sourcesFor()` đọc `matter.view`, không đọc vai trò, nên không đổi; M8 (2FA
+  bắt buộc): `UserFactory` của main mặc định có `two_factor_secret`, `SearchPageTest` dùng factory
+  như mọi test trang khác; M11 gọi `matching()`/`handle()` với bốn nguồn của vụ.
+
 ### Task 1 — Phần còn lại của `ReassignMatter` (SPEC §6.11 bước 3, R10)
 
 M6.5 Task 4 đã dựng `ReassignMatter` cho MỘT vụ việc (đổi lead, chuyển mốc hạn CHƯA hoàn thành,

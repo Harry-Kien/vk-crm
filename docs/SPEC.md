@@ -951,6 +951,26 @@ Dùng `LIKE` với index phù hợp là đủ ở quy mô vài nghìn hồ sơ. 
 Elasticsearch hay Meilisearch** — vi phạm ràng buộc chạy được trên shared
 hosting.
 
+**Đính chính 2026-09-28 (M7 Task 9, R7).** "Luôn đi qua policy" đọc theo từng nguồn, cài ở
+`App\Actions\Search\SearchMatters` (trang `App\Filament\Admin\Pages\Search` chỉ gọi nó; M11
+`search_matters` dùng lại `matching()` với bốn nguồn của vụ):
+- Tập vụ là `Matter::scopeListableBy()` của người tìm, áp **trong cùng câu SQL, trước giới hạn số
+  dòng**. Không tổng số, không "có kết quả bị ẩn"; "không có gì khớp" và "có khớp nhưng không được
+  xem" là cùng một câu. Vụ `restricted` chỉ ra cho luật sư phụ trách và admin.
+- Mã hồ sơ và tên khách hàng: mọi người liệt kê được vụ. Tiêu đề vụ việc, số thụ lý, tên các bên,
+  tiêu đề tài liệu: chỉ người có `matter.view`. **Kế toán vì vậy chỉ tìm theo mã và tên khách** —
+  đúng hai cột họ thấy trên danh sách vụ việc và đúng "Ranh giới của kế toán" ở §5 (không tiêu đề,
+  không tài liệu, không các bên); dòng kết quả của kế toán không có tiêu đề và không liên kết vào
+  trang vụ việc. Tài liệu nhóm D chỉ với `document.viewInternal`; tài liệu, các bên và vụ đã xoá
+  mềm không bao giờ ra.
+- Số thụ lý tìm theo tiền tố (`LIKE 'x%'`, vì độ chính xác); mã, tiêu đề, tên khách, tên các bên,
+  tiêu đề tài liệu theo kiểu chứa (`LIKE '%x%'`). Sáu nguồn nằm trong một `OR`, nên câu tìm duyệt
+  bảng, không dùng index nào — đo trên 6.000 hồ sơ: 3,5–23,5 ms (PROGRESS, "Ghi chú M7"). Index của bốn
+  cột (`matters.case_number`, `matters.title`, `clients.name`, `documents.title`) vẫn được thêm,
+  cho câu tiền tố đứng riêng và cho lúc quy mô vượt "vài nghìn hồ sơ". Tên các bên so trên
+  `name_normalized` (không dấu, `đ` → `d`); các cột còn lại theo collation (MariaDB
+  `utf8mb4_unicode_ci` bỏ qua dấu và hoa/thường, nhưng `đ` khác `d`).
+
 ---
 
 ## 7. Giao diện panel `admin`

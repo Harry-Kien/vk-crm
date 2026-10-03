@@ -241,7 +241,7 @@ Phán quyết kèm theo:
   - `delete` hiện mở cho bất kỳ ai xem được vụ: đổi thành xoá mềm kèm lý do bắt buộc và một dòng audit, như `stage_logs`.
 - `CommunicationLogPolicy::view` **đã đúng** từ d069424. Không sửa lại.
 
-### - [ ] Task 9 — Tìm kiếm (SPEC §6.13, R7)
+### - [x] Task 9 — Tìm kiếm (SPEC §6.13, R7)
 
 - Một ô tìm kiếm trên admin, là một trang tự viết (luật `canAccess()` của M6.5). Nó tìm đồng thời trong: mã hồ sơ, tiêu đề vụ việc, tên khách hàng, số thụ lý của toà, tên các bên, tiêu đề tài liệu.
 - Dựng trên phần đã có: ô tìm của `MattersTable` đã tìm được mã, tên khách, tiêu đề và luật sư. `matter_parties.name_normalized` đã có index.
