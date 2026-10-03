@@ -4,8 +4,12 @@ namespace App\Actions\Matter;
 
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Exceptions\HandoverPackageFailed;
+use App\Models\Contract;
+use App\Models\Instalment;
 use App\Models\Matter;
+use App\Models\Payment;
 use App\Models\StageLog;
+use App\Support\Billing\ClientBillingStatement;
 use App\Support\BrandFooter;
 use App\Support\Handover\HandoverEntry;
 use App\Support\OfficeProfile;
@@ -19,10 +23,11 @@ use Throwable;
  * ràng buộc shared hosting). Trả về NỘI DUNG PDF dạng chuỗi nhị phân; ghi ra tệp là việc của
  * {@see BuildHandoverPackage}.
  *
- * # Nội dung — đúng bốn khối, không hơn
+ * # Nội dung — đúng năm khối, không hơn
  *
  *  1. Thông tin vụ việc: mã, tên, khách hàng, loại, luật sư phụ trách, ngày mở, ngày kết thúc,
- *     giai đoạn cuối. KHÔNG mức độ bảo mật, phí, ghi chú nội bộ hay đội ngũ.
+ *     giai đoạn cuối. KHÔNG mức độ bảo mật, phí, ghi chú nội bộ hay đội ngũ (tiền của vụ chỉ đi
+ *     qua khối 5, đúng những gì khách thấy trên cổng).
  *  2. Danh sách tài liệu đánh số — CÙNG danh sách và số thứ tự với tên entry trong zip
  *     ({@see HandoverEntry}), vì cả hai nhận đúng một danh sách do {@see CollectHandoverEntries}.
  *  3. TOÀN BỘ dòng tiến độ ĐÃ CÔNG BỐ (`is_published`), cũ trước mới sau, với đúng những trường mà
@@ -35,10 +40,13 @@ use Throwable;
  *     dòng trống). Cả hai đọc qua {@see OfficeProfile} (M7 Task 10: trang "Thông tin văn phòng" →
  *     bảng `settings` → cấu hình) LÚC DỰNG, từ cùng một đối tượng — gói sinh sau một lần sửa mang
  *     giá trị mới.
+ *  5. "Bảng kê thanh toán" (M9 Task 10, P1) — hợp đồng đã ký, các đợt chưa huỷ, các khoản đã nhận
+ *     chưa huỷ, với ĐÚNG những trường khối tiền của cổng khách vẽ; vắng hẳn khi vụ không có hợp
+ *     đồng khách được thấy. Xem {@see self::billingStatement()}.
  *
- * Mỗi khối là một partial trong `resources/views/handover/partials/`; thêm một khối về sau (bảng
- * kê thanh toán của M9 Task 10) là một partial + một `@include` trong `handover/index.blade.php`
- * + một khoá dữ liệu mới trong mảng `loadView()` dưới đây — xem mục "Mở rộng" của view đó.
+ * Mỗi khối là một partial trong `resources/views/handover/partials/`; thêm một khối là một partial +
+ * một `@include` trong `handover/index.blade.php` + một khoá dữ liệu mới trong mảng `loadView()`
+ * dưới đây — xem mục "Mở rộng" của view đó. Khối 5 được thêm đúng theo cách ấy.
  *
  * # Tiếng Việt trong PDF (R3)
  *
@@ -94,6 +102,7 @@ class RenderHandoverIndex
                     'matterInfo' => $this->matterInfo($matter),
                     'entries' => $entries,
                     'timeline' => $this->timeline($matter),
+                    'billing' => $this->billingStatement($matter),
                 ])
                 ->setPaper('a4')
                 ->output();
@@ -144,6 +153,62 @@ class RenderHandoverIndex
                 'next_step' => $log->next_step,
                 'client_action' => $log->client_action,
             ]);
+    }
+
+    /**
+     * Khối 5 — "Bảng kê thanh toán" (M9 Task 10, P1): ĐÚNG hình chiếu khối "Hợp đồng và thanh
+     * toán" của cổng khách vẽ ({@see ClientBillingStatement::present()}), cùng chữ, cùng dòng.
+     * `null` khi vụ không có hợp đồng khách được thấy — khi đó mục lục không có mục này.
+     *
+     * **Tự lọc, vì không có phiên cổng.** Gói dựng trong một job, nên `ClientPortalScope` không chạy
+     * và mọi truy vấn ở đây gỡ nó tường minh (`scopelessly()`). Luật "bản ghi nào khách được thấy"
+     * đến từ đúng các scope mà tầng truy vấn của cổng dùng — `Contract::scopeShownToClient()` (đã
+     * ký), `Instalment::scopeShownToClient()` (chưa huỷ), `Payment::scopeShownToClient()` (chưa huỷ)
+     * — nên cổng và gói không lệch nhau về TẬP DÒNG (có test so `toBe` hai bên trên cùng dữ liệu).
+     * Ranh giới VỤ VIỆC của cổng (đã công bố, chưa hết hạn tra cứu…) cố ý KHÔNG áp ở đây: gói bàn
+     * giao là thứ văn phòng giao cho khách của vụ đã kết thúc, độc lập với cổng — cùng luật với
+     * mọi khối khác của mục lục.
+     *
+     * **Chọn cột tường minh** (tiền lệ {@see self::timeline()}): `note`, `ended_reason`,
+     * `waived_reason`, `void_reason`, `reference`, `receipt_document_id`, `attributed_lawyer_id`…
+     * không bao giờ được nạp, nên chúng không có trong bộ nhớ khi Blade chạy. Bản scan biên lai và
+     * phụ lục là nhóm D, không vào zip ({@see CollectHandoverEntries}).
+     *
+     * **Ai trong văn phòng đọc được khối này** (rà soát Task 10 vòng 1, C1): gói là một tài liệu
+     * nhóm B của vụ, nên tải gói là đọc khối này. `DocumentPolicy::download` vì vậy đòi nhân sự tải
+     * gói của vụ có hợp đồng đã từng ký phải thấy được tiền của vụ (`ContractPolicy::view`, P3) —
+     * trợ lý trong đội thấy dòng gói nhưng không tải được.
+     *
+     * `public` để test so được hình chiếu của gói với hình chiếu của cổng trên cùng dữ liệu; nó chỉ
+     * đọc.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function billingStatement(Matter $matter): ?array
+    {
+        $contract = $this->scopelessly(Contract::query())
+            ->shownToClient()
+            ->where('matter_id', $matter->getKey())
+            ->first(['id', 'matter_id', 'code', 'status', 'total_amount', 'vat_rate_percent', 'signed_at', 'ended_at']);
+
+        if ($contract === null) {
+            return null;
+        }
+
+        $instalments = $this->scopelessly(Instalment::query())
+            ->shownToClient()
+            ->where('contract_id', $contract->getKey())
+            ->orderBy('sequence')
+            ->get(['id', 'contract_id', 'sequence', 'name', 'amount', 'trigger_type', 'trigger_stage_key', 'due_days_after_trigger', 'due_date', 'status']);
+
+        $payments = $this->scopelessly(Payment::query())
+            ->shownToClient()
+            ->whereIn('instalment_id', $instalments->modelKeys())
+            ->orderBy('paid_on')
+            ->orderBy('id')
+            ->get(['id', 'instalment_id', 'amount', 'paid_on', 'method']);
+
+        return ClientBillingStatement::present($matter, $contract, $instalments, $payments);
     }
 
     /**

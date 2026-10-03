@@ -822,19 +822,19 @@ class DocumentsRelationManager extends RelationManager
      * (`downloadUrlFor(Auth::user())`), nên dòng `document_downloads` ghi đúng tên người được
      * trao tệp chứ không phải tên người bấm chuột.
      *
-     * Điều kiện hiển thị có hai vế, và chúng KHÔNG cùng sức nặng — nói thẳng vì một mutation
-     * probe đã chỉ ra điều đó:
+     * Điều kiện hiển thị có hai vế:
      *
-     *  - **`Gate::allows('download', ...)` hôm nay không loại được nhân sự nào.**
-     *    `DocumentPolicy::download()` trả `view($user, $document)` cho mọi `User` và chỉ đòi
-     *    thêm `client_can_download` cho `ClientUser` — mà khách không bao giờ mở màn hình này.
-     *    Một dòng đã hiện ra trong bảng thì đã qua `view()` rồi, nên vế này luôn đúng ở đây. Xoá
-     *    nó đi bộ test vẫn xanh, và không có nhân chứng nào dựng được bằng cách cấp quyền khác
-     *    đi, vì nhánh nhân sự của policy không đọc cột nào. Giữ lại như một lưới hồi quy: ngày
-     *    policy siết thêm, cái nút này siết theo mà không ai phải nhớ tới nó. Ghi ra đây để không
-     *    ai đọc nó như một bằng chứng. (Trạng thái `retracted` của M7 Task 7 KHÔNG siết nhánh nhân
-     *    sự: tài liệu đã rút vẫn tải được trong nội bộ — tệp là bằng chứng — chỉ khách mất quyền.)
-     *  - **"tài liệu này có tệp không" thì KHÔNG vô nghĩa**, và nó có test: `UploadStaffDocument`
+     *  - **`Gate::allows('download', ...)` loại đúng một trường hợp nhân sự** (từ M9 Task 10, rà
+     *    soát vòng 1, C1): gói bàn giao của vụ có hợp đồng đã từng ký, với người không được xem
+     *    tiền của vụ — `MUC-LUC.pdf` trong gói in bảng kê thanh toán. Ví dụ: trợ lý trong đội
+     *    thấy dòng gói nhưng không có nút "Tải" ở dòng đó, và vẫn có nút ở mọi tài liệu khác (test
+     *    "hides the download button of the package…" ở
+     *    `tests/Feature/Http/HandoverPackageMoneyAccessTest.php`, đỏ khi gỡ vế này). Ngoài trường
+     *    hợp đó, `DocumentPolicy::download()` của nhân sự chính là `view()`, mà một dòng đã hiện
+     *    ra trong bảng thì đã qua `view()` rồi. Khách không bao giờ mở màn hình này. (Trạng thái
+     *    `retracted` của M7 Task 7 KHÔNG siết nhánh nhân sự: tài liệu đã rút vẫn tải được trong
+     *    nội bộ — tệp là bằng chứng — chỉ khách mất quyền.)
+     *  - **"tài liệu này có tệp không"** cũng có test: `UploadStaffDocument`
      *    tạo bản ghi rồi mới gắn tệp, nên một `Document` không tệp tồn tại được, và
      *    `DocumentDownloadController` trả 404 cho nó — tức một cái nút dẫn tới một trang lỗi.
      */

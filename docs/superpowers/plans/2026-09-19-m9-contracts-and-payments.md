@@ -712,7 +712,7 @@ Toàn bộ thiết kế ở mục "Trang doanh thu" — **đọc lại nguyên v
 
 **Test bắt buộc (mỗi tầng một mutation probe):** khách thấy hợp đồng và lịch thu của vụ mình; khách B không thấy của khách A (scope, policy, URL/Livewire — mỗi đường một `it()`); hợp đồng `draft`, `cancelled` không hiện; đợt `cancelled` và khoản thu đã huỷ không hiện; chuỗi đánh dấu trong từng cột nội bộ không có trong HTML của cổng; vụ chưa công bố cổng hoặc đã hết `client_access_until` → không có khối tiền; khách bị xoá mềm → không thấy gì; `TimeEntry` vẫn đóng; `PortalCoverageTest` xanh không miễn trừ.
 
-- [ ] Test đỏ, cài đặt, test xanh, pint, **mutation probe từng tầng**, commit `feat: khách xem hợp đồng và lịch thu của chính mình trên cổng`.
+- [x] Test đỏ, cài đặt, test xanh, pint, **mutation probe từng tầng**, commit `feat: khách xem hợp đồng và lịch thu của chính mình trên cổng`.
 
 ---
 

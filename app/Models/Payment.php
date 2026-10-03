@@ -80,20 +80,39 @@ class Payment extends Model
         return $this->belongsTo(User::class, 'voided_by');
     }
 
-    /** Cổng khách đóng kín ở Task 2 (P1: mở có chủ đích ở Task 10, và ngay cả khi mở — khoản thu đã huỷ vẫn không hiện). */
+    /**
+     * Tầng TRUY VẤN của cổng khách (M9 Task 10, P1): khoản thu chưa huỷ —
+     * {@see self::scopeShownToClient()} — của một đợt khách thấy được. `whereHas('instalment')` trần
+     * kế thừa scope cổng của {@see Instalment}, và qua nó của `Contract` và `Matter`. Khoản thu đã
+     * huỷ không bao giờ hiện, kể cả khi đợt của nó hiện. Tầng QUYỀN: `PaymentPolicy::view()`.
+     */
     public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
     {
-        $query->whereRaw('1 = 0');
+        $this->scopeShownToClient($query);
+
+        $query->whereHas('instalment');
     }
 
     /**
-     * `note` là nội bộ. `void_reason` là nội bộ (P1: khách không thấy lý do huỷ). `receipt_document_id`
-     * trỏ bản scan biên lai — LUÔN nhóm D (SPEC §4.11: không vào gói bàn giao M7 R8, không lên
-     * cổng) — nên ẩn cột trỏ tới nó cũng là một lớp phòng thủ nữa, dù bản thân Document nhóm D đã
-     * tự chặn ở tầng riêng của nó.
+     * Khoản thu nào khách được thấy, xét trên CHÍNH dòng khoản thu: chưa huỷ (`voided_at` null, P1).
+     * Một định nghĩa SQL cho cổng và cho bảng kê trong gói bàn giao — cùng lý do với
+     * `Contract::scopeShownToClient()`.
+     */
+    public function scopeShownToClient(Builder $query): Builder
+    {
+        return $query->whereNull($this->qualifyColumn('voided_at'));
+    }
+
+    /**
+     * Tầng SERIALIZE (P1, kế hoạch Task 10 điểm 3). `note` là nội bộ. `void_reason`, `voided_by` là
+     * nội bộ (khách không thấy lý do huỷ, người huỷ). `receipt_document_id` trỏ bản scan biên lai —
+     * LUÔN nhóm D (SPEC §4.11: không vào gói bàn giao M7 R8, không lên cổng) — nên ẩn cột trỏ tới nó
+     * cũng là một lớp phòng thủ nữa, dù bản thân Document nhóm D đã tự chặn ở tầng riêng của nó.
+     * `attributed_lawyer_id` (doanh thu tính cho ai, P2), `created_by`, `updated_by` là chuyện nội bộ
+     * của văn phòng.
      */
     protected function internalAttributes(): array
     {
-        return ['note', 'void_reason', 'receipt_document_id'];
+        return ['note', 'void_reason', 'voided_by', 'receipt_document_id', 'attributed_lawyer_id', 'created_by', 'updated_by'];
     }
 }

@@ -133,18 +133,55 @@ class Contract extends Model
     }
 
     /**
-     * Cổng khách đóng kín ở Task 2 (P1: mở có chủ đích ở Task 10). `1 = 0` chặn sạch thay vì
-     * trông vào việc chưa có màn hình nào đọc bảng này — cùng thiết bị với
-     * `MatterArchive::applyClientPortalConstraints()`.
+     * Tầng TRUY VẤN của cổng khách (M9 Task 10, P1 — Task 2 đóng kín bằng `1 = 0`, Task 10 mở có
+     * chủ đích): khách thấy hợp đồng khi (a) nó đã ký — {@see self::scopeShownToClient()} — và (b) vụ
+     * việc của nó hiển thị trên cổng với đúng khách đó.
+     *
+     * (b) là `whereHas('matter')` TRẦN, không một điều kiện vụ việc nào viết lại ở đây: truy vấn con
+     * chạy khi `ClientPortalScope` đang hoạt động, nên nó mang nguyên năm điều kiện của
+     * {@see Matter::applyClientPortalConstraints()} — đúng khách, đã công bố, vụ chưa xoá mềm, khách
+     * hàng chưa xoá mềm, chưa hết `client_access_until` (phán quyết controller: ranh giới cổng của
+     * tiền PHẢI là ranh giới của vụ việc). Một ngày ranh giới vụ việc thêm điều kiện thứ sáu thì tiền
+     * theo luôn, không ai phải nhớ sửa chỗ này.
+     *
+     * Tầng QUYỀN nói lại (a) bằng thuộc tính và hỏi `MatterPolicy::view` cho (b) — xem
+     * `ContractPolicy::view()`; hai tầng không chung một câu lệnh nào.
+     *
+     * Hết hạn tra cứu hay lưu trữ vụ việc làm khối tiền biến khỏi cổng, nhưng KHÔNG đổi sổ tiền: đây
+     * chỉ là một điều kiện đọc của phiên cổng, không có gì được ghi.
      */
     public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
     {
-        $query->whereRaw('1 = 0');
+        $this->scopeShownToClient($query);
+
+        $query->whereHas('matter');
     }
 
-    /** `ended_reason` (lý do huỷ) và `note` là nội bộ (P1: khách không thấy lý do huỷ/ghi chú). */
+    /**
+     * Hợp đồng nào khách được thấy, xét trên CHÍNH dòng hợp đồng: `active` hoặc `completed` (P1).
+     * Bản nháp chưa ai ký, bản đã huỷ không còn là cam kết — cả hai không bao giờ lên cổng hay vào
+     * bảng kê của gói bàn giao.
+     *
+     * Một định nghĩa SQL cho HAI nơi: tầng truy vấn của cổng ({@see self::applyClientPortalConstraints()})
+     * và bảng kê thanh toán trong `MUC-LUC.pdf` (`RenderHandoverIndex::billingStatement()`), nơi
+     * không có phiên cổng nào nên scope cổng không chạy. Không nói gì về vụ việc — nơi gọi tự giới
+     * hạn theo vụ.
+     */
+    public function scopeShownToClient(Builder $query): Builder
+    {
+        return $query->whereIn($this->qualifyColumn('status'), [
+            ContractStatus::Active->value,
+            ContractStatus::Completed->value,
+        ]);
+    }
+
+    /**
+     * Tầng SERIALIZE (P1, kế hoạch Task 10 điểm 3): `ended_reason` (lý do huỷ) và `note` là nội bộ;
+     * `activated_by`, `created_by`, `updated_by` là nhân sự của văn phòng — khách biết hợp đồng đã
+     * ký ngày nào, không cần biết ai bấm nút.
+     */
     protected function internalAttributes(): array
     {
-        return ['ended_reason', 'note'];
+        return ['ended_reason', 'note', 'activated_by', 'created_by', 'updated_by'];
     }
 }
