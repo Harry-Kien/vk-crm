@@ -724,6 +724,8 @@ Dùng `spatie/laravel-permission`. Quyền đặt tên dạng `<resource>.<actio
 > **Ranh giới của kế toán, viết ra vì đây là một sự nới rộng.** `billing.view` **không** làm câu "kế toán chỉ xem danh sách vụ việc, không thấy nội dung hồ sơ" sai đi: màn hình tiền của kế toán mang mã hồ sơ, loại vụ việc, tên khách hàng, tên đợt, các con số và các ngày — **không** mang tiêu đề vụ việc, tóm tắt, mô tả nội bộ, tài liệu, tiến độ hay các bên. Ranh giới này cài bằng một DTO readonly như `ConflictMatch` ở §6.10, có test. Điểm **mới thật sự** là **tên khách hàng**: không có tên thì không lập được phiếu thu — một sự nới rộng có chủ đích, cũng là một mục đích xử lý dữ liệu mới cần ghi vào PROGRESS.
 >
 > **`contract.manage` cũng là quyền đổi số tiền của từng đợt** qua phụ lục, kèm lý do, có dấu vết.
+>
+> **Đính chính 2026-10-03 (M9 Task 10, rà soát vòng 1) — tải gói bàn giao là đọc tiền.** Từ M9, `MUC-LUC.pdf` trong gói bàn giao in "Bảng kê thanh toán" (§6.12). Gói là một tài liệu nhóm B của vụ, nên trước bản sửa mọi nhân sự có `matter.view` trên vụ — kể cả **trợ lý** trong đội, vai trò không có `billing.view` — tải được gói và đọc được toàn bộ tiền của vụ. Nay `DocumentPolicy::download` của nhân sự đòi thêm, **chỉ cho các version của gói bàn giao** và **chỉ khi vụ có hợp đồng đã từng ký** (khác `draft` — kể cả `cancelled`, vì gói dựng trước lần huỷ vẫn in bảng kê): người tải phải thấy được tiền của vụ theo đúng định nghĩa trên (`ContractPolicy::view`). Không có định nghĩa thứ hai. Người không tải được gói vẫn thấy dòng gói (tên, version) trên tab Tài liệu, chỉ mất nút "Tải"; mọi tài liệu khác của vụ, và gói của vụ chưa từng có hợp đồng đã ký, không đổi luật. Khách không chịu điều kiện này (bảng kê là thứ §5 phần Portal cho khách xem về vụ của chính họ).
 
 **Mang sang M11, ghi 2026-09-24 (M9 Task 3).** Dữ liệu tiền là dữ liệu nhạy cảm
 ("tài chính", Nghị định 356/2025). Bảng R4 của kế hoạch M11
@@ -1120,6 +1122,17 @@ các scope `shownToClient()`), vì gói dựng trong job, không có phiên cổ
 đồng như vậy thì không có mục này. Cột nội bộ của bốn bảng tiền không được nạp (chọn cột tường
 minh). Biên lai (`payments.receipt_document_id`) và bản scan phụ lục (`contract_amendments.document_id`)
 là nhóm D, nên không vào zip.
+
+**Đính chính 2026-10-03 (M9 Task 10, rà soát vòng 1) — ai trong văn phòng tải được gói mang bảng
+kê.** Vì mục lục mang tiền, tải một version của gói bàn giao của vụ có hợp đồng đã từng ký (khác
+`draft`) là đọc tiền: nhân sự phải thấy được tiền của vụ theo định nghĩa duy nhất của §5 (`billing.view`
+cộng `Matter::listableBy()`, hỏi qua `ContractPolicy::view`), không chỉ `matter.view`. Trợ lý trong đội
+(không `billing.view`), và một luật sư phụ trách vụ `restricted` đã bị đổi sang vai trò trợ lý, thấy
+dòng gói nhưng route tải trả 404 và tab Tài liệu không có nút "Tải" ở dòng đó. Hợp đồng `cancelled`
+vẫn tính, vì gói dựng trước lần huỷ vẫn in bảng kê; cái giá phía đóng: gói dựng khi hợp đồng còn là
+bản nháp rồi hợp đồng được ký sau đó cũng bị giữ lại với người không thấy tiền. Gói của vụ chưa từng
+có hợp đồng đã ký, và mọi tài liệu khác của vụ, không đổi luật. Khách tải gói đã công bố như trước.
+Xem §5, đính chính cùng ngày.
 
 Job `ExpireClientAccess` chạy hằng ngày: khi quá `client_access_until`, vụ việc
 biến mất khỏi portal của khách. Tài khoản `client_users` không còn vụ việc nào

@@ -174,6 +174,11 @@ class RenderHandoverIndex
      * không bao giờ được nạp, nên chúng không có trong bộ nhớ khi Blade chạy. Bản scan biên lai và
      * phụ lục là nhóm D, không vào zip ({@see CollectHandoverEntries}).
      *
+     * **Ai trong văn phòng đọc được khối này** (rà soát Task 10 vòng 1, C1): gói là một tài liệu
+     * nhóm B của vụ, nên tải gói là đọc khối này. `DocumentPolicy::download` vì vậy đòi nhân sự tải
+     * gói của vụ có hợp đồng đã từng ký phải thấy được tiền của vụ (`ContractPolicy::view`, P3) —
+     * trợ lý trong đội thấy dòng gói nhưng không tải được.
+     *
      * `public` để test so được hình chiếu của gói với hình chiếu của cổng trên cùng dữ liệu; nó chỉ
      * đọc.
      *
