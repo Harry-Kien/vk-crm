@@ -53,7 +53,9 @@ class ResolveClientRecipients
      * `$matter` phải là bản ghi ĐẦY ĐỦ đọc tươi (policy đọc `client_id`, `is_published_to_portal`,
      * `deleted_at` và dòng lưu trữ) — không phải một bản chọn vài cột. Dùng bởi
      * `NotifyClientOfStageUpdate`, `NotifyClientOfDocumentPublished`,
-     * `NotifyClientOfChecklistItemRejected` và `NotifyClientOfRequestAnswered`, nên lời gửi thật,
+     * `NotifyClientOfChecklistItemRejected`, `NotifyClientOfRequestAnswered` và (việc sau gộp M7,
+     * làn fu2) `App\Jobs\SendMissingDocumentsMail` cùng Action xếp nó,
+     * `App\Actions\Schedule\RemindMissingDocuments` — đủ năm thư khách về một vụ — nên lời gửi thật,
      * nút "Gửi lại" của nhật ký thư và câu trên màn hình hỏi cùng một câu.
      *
      * @param  Collection<int, ClientUser>  $accounts

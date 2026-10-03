@@ -38,8 +38,10 @@ use Throwable;
  *
  * # Người nhận khách: R12 + chống trùng 3 ngày theo TỪNG người (R3 của kế hoạch M6)
  *
- * {@see ResolveClientRecipients} là chỗ DUY NHẤT nói tài khoản nào nhận thư về một hồ sơ. Chống
- * trùng: {@see self::alreadyDelivered()} hỏi `outbound_messages` (`template =
+ * {@see ResolveClientRecipients} là chỗ DUY NHẤT nói tài khoản nào nhận thư về một hồ sơ: R12, rồi
+ * `onPortal()` (vụ còn trên cổng của chính người nhận — việc sau gộp M7, làn fu2, cùng câu hỏi
+ * `SendMissingDocumentsMail::context()` hỏi lúc gửi, nên Action không xếp một job mà job sẽ bỏ).
+ * Chống trùng: {@see self::alreadyDelivered()} hỏi `outbound_messages` (`template =
  * client.missing_documents`, `related` = hồ sơ, `recipient`, `status = sent`, `sent_at` trong cửa sổ
  * {@see self::mailWindowStart()}) — KHÔNG thêm cột "đã nhắc lúc nào" (R3). `status = sent`: một thư
  * `failed` vẫn là một dòng (R1) nhưng không phải "đã nhắc", nếu không một lần gửi hỏng biến thành
@@ -171,7 +173,8 @@ class RemindMissingDocuments
                 }
             }
 
-            $accounts = app(ResolveClientRecipients::class)->recipientsFor($matter->client_id);
+            $resolver = app(ResolveClientRecipients::class);
+            $accounts = $resolver->onPortal($matter, $resolver->recipientsFor($matter->client_id));
 
             if ($accounts->contains(fn (ClientUser $account): bool => ! self::alreadyDelivered($matter, $account))) {
                 // `->afterCommit()`: Laravel hoãn việc đẩy job tới khi transaction NÀY thật sự commit.

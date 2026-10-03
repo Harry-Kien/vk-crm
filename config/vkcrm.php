@@ -182,6 +182,30 @@ return [
             'libxml', 'mbstring', 'openssl', 'pcre', 'session', 'tokenizer', 'xmlreader', 'zip',
             'zlib', 'pdo_mysql',
         ],
+
+        /*
+         * Việc sau gộp M7 (làn fu2): extension mà giờ chết của worker cần — `GenerateHandoverPackage::
+         * $timeout`/`$failOnTimeout` và `--timeout=600` của mục lịch `queue.handover` chỉ có tác dụng
+         * khi PHP DÒNG LỆNH có ext-pcntl (thiếu nó, `Worker::registerTimeoutHandler()` bỏ qua lặng
+         * lẽ). KHÔNG nằm trong `required_extensions` ở trên: danh sách đó đúng bằng
+         * `composer check-platform-reqs` + `pdo_mysql` (`docs/CAI-DAT.md`, Bước 1), và thiếu pcntl
+         * không làm vỡ màn hình nào — `vkcrm:preflight` báo VÀNG ({@see
+         * \App\Actions\Deployment\RunPreflight}). Cấu hình được chỉ vì cùng lý do với
+         * `required_extensions`: test gài một tên giả để dựng chiều VÀNG.
+         */
+        'worker_timeout_extension' => 'pcntl',
+
+        /*
+         * Rà soát cuối làn fu2 (I1): các hàm pcntl mà `Illuminate\Queue\Worker::daemon()` GỌI khi
+         * extension ở trên đã nạp — `pcntl_async_signals()`/`pcntl_signal()` ở `listenForSignals()`,
+         * `pcntl_signal()`/`pcntl_alarm()` ở `registerTimeoutHandler()`. `Worker::
+         * supportsAsyncSignals()` chỉ hỏi `extension_loaded('pcntl')`, nên khi một hàm ở đây nằm
+         * trong `disable_functions` (PHP 8: hàm bị chặn là hàm không tồn tại) mọi lượt `queue:work`
+         * chết ở vòng đầu — `vkcrm:preflight` báo ĐỎ. Danh sách phải đúng bằng các hàm `pcntl_*` mà
+         * Worker gọi: `PreflightCommandTest` đọc mã nguồn Worker để chặn trôi khi nâng Laravel.
+         * Cấu hình được chỉ để test gài một tên hàm giả mà dựng chiều ĐỎ.
+         */
+        'worker_signal_functions' => ['pcntl_async_signals', 'pcntl_signal', 'pcntl_alarm'],
     ],
 
     /*
