@@ -38,6 +38,9 @@ return [
         'client.otp' => 'Mã OTP đăng nhập cổng',
         'client.stage_update' => 'Cập nhật tiến độ cho khách',
         'staff.deadline_reminder' => 'Nhắc mốc thời hạn cho nhân sự',
+        // M10 Task 5 (R5): bản ghi liên quan là một lần tiếp nhận (`intake_request`), không thuộc vụ
+        // việc nào — dòng này chỉ admin thấy trên màn hình nhật ký thư (`OutboundMessage::scopeVisibleTo`).
+        'staff.intake_unanswered' => 'Nhắc liên hệ chưa ai gọi lại',
         'undeclared' => 'Chưa khai báo mẫu',
     ],
 

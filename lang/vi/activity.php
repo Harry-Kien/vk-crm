@@ -43,6 +43,8 @@ return [
         'intake_merge_received' => 'Nhận một lần liên hệ được gộp vào',
         // M10 Task 4 (`ConvertIntakeToMatter`): chỉ id vụ việc/khách hàng, không mã, không tên.
         'intake_converted' => 'Chuyển một lần liên hệ thành vụ việc',
+        // M10 Task 5: app/Jobs/SendUnansweredIntakeReminderMail.php — thư nhắc hỏng hẳn; chỉ mang tên mẫu thư.
+        'intake_reminder_failed' => 'Gửi thư nhắc liên hệ chưa ai gọi lại thất bại hẳn',
         // Ghi qua Audit::record() ở app/Actions/SyncClientPartyIdentities.php khi hồ sơ khách
         // hàng đổi số căn cước/điện thoại và ảnh chụp định danh của các bên được đồng bộ lại.
         'client_identity_resynced' => 'Đồng bộ lại định danh các bên',

@@ -62,8 +62,9 @@ use Illuminate\Support\Facades\DB;
  */
 class MattersMissingDocumentsWidget extends TableWidget
 {
-    // Thứ tự SPEC §7.1: ngay sau "Tài liệu chờ duyệt" (-2).
-    protected static ?int $sort = -1;
+    // Thứ tự SPEC §7.1: sau "Tài liệu chờ duyệt" (-2) và "Liên hệ chưa ai gọi lại" (M10, -1) — dời
+    // -1 → 0 ở M10 Task 5, một lần ĐÁNH SỐ LẠI (xem DashboardWidgetOrderTest).
+    protected static ?int $sort = 0;
 
     /** Số ngày theo SPEC §6.9 bullet cuối. */
     private const STUCK_AFTER_DAYS = 14;

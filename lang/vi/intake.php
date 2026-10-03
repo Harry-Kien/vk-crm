@@ -44,6 +44,8 @@ return [
         'contact_role_opposing_counsel' => 'Người liên hệ không thể mang vai luật sư đối phương.',
         'assignee_cannot_see' => 'Người được giao phải là nhân sự đang hoạt động và có quyền ghi nhận tiếp nhận.',
         'quoted_amount_invalid' => 'Phí đã báo không hợp lệ.',
+        // Task 5 (R5): đồng hồ phản hồi lần đầu tính từ lúc nhận — một lúc nhận ở tương lai làm nó chạy ngược.
+        'received_at_in_future' => 'Thời điểm nhận không được ở tương lai.',
         'privacy_notice_not_agreed' => 'Chỉ ghi nhận thông báo khi người liên hệ đã nghe và đồng ý.',
         'acknowledgement_not_needed' => 'Lần kiểm tra hiện tại không có gì cần xác nhận.',
         'override_not_red' => 'Bản ghi này không có xung đột mức đỏ nào đang chờ xử lý.',
@@ -256,5 +258,36 @@ return [
         'done' => 'Đã chuyển :intake thành vụ việc :matter.',
         'done_existing_client' => 'Người liên hệ được gắn vào khách hàng đã có của văn phòng.',
         'done_new_client' => 'Đã tạo hồ sơ khách hàng mới cho người liên hệ.',
+    ],
+
+    /*
+     * M10 Task 5 (R5) — nhắc một lần liên hệ chưa ai gọi lại quá ngưỡng phản hồi: thư
+     * `staff.intake_unanswered`, thông báo trong hệ thống, và cách nói một khoảng chờ (thư, chuông,
+     * widget "Liên hệ chưa ai gọi lại"). Thư và chuông CHỈ mang mã bản ghi, nguồn, lúc nhận, thời gian
+     * chờ và liên kết — không gì của người liên hệ (xem docblock `App\Mail\Staff\IntakeUnanswered`).
+     * ":hours giờ làm việc" là ngưỡng `INTAKE_RESPONSE_HOURS`.
+     */
+    'reminder' => [
+        'email' => [
+            'subject' => 'Liên hệ :code chưa ai gọi lại sau :hours giờ làm việc',
+            'greeting' => 'Kính gửi :name,',
+            'headline' => 'Có một lần liên hệ văn phòng chưa ai gọi lại sau :hours giờ làm việc.',
+            'code' => 'Mã bản ghi: :code',
+            'source' => 'Nguồn: :source',
+            'received' => 'Nhận lúc: :at',
+            'waited' => 'Đã chờ: :duration (chỉ tính giờ làm việc)',
+            'open' => 'Mở bản ghi trên hệ thống',
+            'privacy' => 'Thư này cố ý không ghi tên, số điện thoại hay nội dung của người liên hệ. Anh/chị xem trên hệ thống, rồi đổi trạng thái bản ghi khi đã gọi lại.',
+            'salutation' => ':office',
+        ],
+        'alert' => [
+            'title' => 'Liên hệ chưa ai gọi lại',
+            'body' => 'Bản ghi :code (:source), nhận lúc :at, đã quá :hours giờ làm việc mà chưa ai gọi lại.',
+        ],
+        'duration' => [
+            'hours_minutes' => ':hours giờ :minutes phút',
+            'hours' => ':hours giờ',
+            'minutes' => ':minutes phút',
+        ],
     ],
 ];

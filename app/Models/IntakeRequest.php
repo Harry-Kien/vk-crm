@@ -258,6 +258,32 @@ class IntakeRequest extends Model
     }
 
     /**
+     * Bản ghi còn CHỜ PHẢN HỒI LẦN ĐẦU (M10 R5, Task 5): còn ở `new` và chưa ẩn danh. `new` là trạng thái
+     * duy nhất chưa có phản hồi, và không có đường quay về nó (`ChangeIntakeStatus`), nên rời `new` là
+     * dừng đồng hồ. Bản đã ẩn danh mà còn `new` (xoá theo yêu cầu trên một bản chưa ai gọi lại, R7c)
+     * bị loại: nó không đổi trạng thái được nữa (`isClosedToChanges()`), nên một lời nhắc về nó là lời
+     * nhắc không ai làm theo được, mãi mãi. Bản đã xoá mềm bị loại bởi `SoftDeletes`.
+     *
+     * MỘT định nghĩa cho tác vụ nhắc, job gửi thư và widget "Liên hệ chưa ai gọi lại" — qua
+     * `App\Support\Intake\FirstResponseClock`. {@see self::isAwaitingFirstResponse()} là bản trong bộ
+     * nhớ của đúng luật này.
+     */
+    public function scopeAwaitingFirstResponse(Builder $query): Builder
+    {
+        $model = $query->getModel();
+
+        return $query
+            ->where($model->qualifyColumn('status'), IntakeStatus::New->value)
+            ->whereNull($model->qualifyColumn('anonymised_at'));
+    }
+
+    /** Bản trong bộ nhớ của {@see self::scopeAwaitingFirstResponse()}. */
+    public function isAwaitingFirstResponse(): bool
+    {
+        return $this->status === IntakeStatus::New && $this->anonymised_at === null && ! $this->trashed();
+    }
+
+    /**
      * Bản ghi đã ẩn danh hoặc đã gộp vào bản khác. Ẩn danh xoá dữ liệu cá nhân; bản đã gộp đã chuyển
      * phần việc sang bản đích. Là MỘT vế của {@see self::isClosedToChanges()} — cổng thật của các
      * Action ghi; tự nó chỉ còn dùng để chọn câu từ chối (`ConvertIntakeToMatter::refusal()`).

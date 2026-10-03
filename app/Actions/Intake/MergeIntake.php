@@ -62,6 +62,10 @@ use Illuminate\Validation\ValidationException;
  * khoá CẢ HAI dòng, theo thứ tự id tăng dần (hai lần gộp ngược chiều nhau không khoá chéo). Nhật ký:
  * `intake_merged` trên bản nguồn (mã bản đích, số bên đã chuyển) và `intake_merge_received` trên bản
  * đích (mã bản nguồn, số bên) — không tên, không SĐT. Bản ghi tự động của model tắt cho hai lần lưu.
+ *
+ * **Gộp không phải một lần phản hồi** (R5, Task 5): `first_response_at` của cả hai bản không đổi. Bản
+ * nguồn rời `new` mà không có mốc phản hồi; đồng hồ của người gọi chạy tiếp ở bản đích, tính từ
+ * `received_at` của chính bản đích.
  */
 class MergeIntake
 {

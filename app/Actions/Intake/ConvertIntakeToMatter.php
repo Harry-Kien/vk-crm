@@ -73,8 +73,9 @@ use Illuminate\Validation\ValidationException;
  *     hai (`$excludeIntakeId`) để không tự khớp chính nó.
  *  6. **Liên kết hai chiều + `won` + khoá — TRONG transaction lưu của `OpenMatter`** (`$beforeCommit`):
  *     khoá lại dòng bản ghi (sau dòng `matters` — thứ tự khoá của dự án), hỏi lại
- *     {@see self::refusal()}, rồi đặt `status = won`, `matter_id`, `client_id`. Vì sao ở đó chứ không
- *     sau khi `OpenMatter` trả về: khoá dòng ở bước 2 đã nhả trước khi `OpenMatter` chạy (nó commit
+ *     {@see self::refusal()}, rồi đặt `status = won`, `matter_id`, `client_id` (và `first_response_at`
+ *     khi bản ghi còn `new` — R5). Vì sao ở đó chứ không sau khi `OpenMatter` trả về: khoá dòng ở
+ *     bước 2 đã nhả trước khi `OpenMatter` chạy (nó commit
  *     riêng), nên hai người bấm chuyển đổi cùng lúc đều qua bước 2. Hỏi lại trong CÙNG transaction
  *     với vụ việc nghĩa là lần thứ hai thấy `matter_id` của lần thứ nhất và ném — cả bước lưu của nó
  *     rollback: không vụ thứ hai, không khách mồ côi. Cùng lý do cho mọi thay đổi xen giữa (bản ghi
@@ -86,8 +87,8 @@ use Illuminate\Validation\ValidationException;
  * và rời nguồn dò thứ hai (`scopeOpenForConflictCheck()`). `quoted_amount` không đi vào vụ việc: form
  * soạn hợp đồng M9 đọc nó làm gợi ý (`IntakeRequest::quotedAmountFor()`). Câu chuyện (`summary`) đi
  * vào `description_internal` chỉ khi màn hình điền sẵn nó và người bấm giữ nguyên — Action nhận ô đó
- * như mọi ô khác. `first_response_at` (R5) là việc của Task 5: chuyển đổi từ `new` cũng là lần rời
- * `new`, nên Task 5 gắn phép đo vào cả Action này.
+ * như mọi ô khác. `first_response_at` (R5, Task 5): chuyển đổi một bản còn `new` là lần phản hồi đầu
+ * — bước 6 đặt nó bằng `now()` (cùng luật `ChangeIntakeStatus`); từ một bước sau `new` thì giữ mốc đã có.
  */
 class ConvertIntakeToMatter
 {
@@ -322,6 +323,11 @@ class ConvertIntakeToMatter
         $locked = IntakeRequest::query()->whereKey($intakeId)->lockForUpdate()->firstOrFail();
 
         $this->refuseUnlessConvertible($locked);
+
+        // R5 (Task 5): chuyển đổi một bản còn `new` là lần phản hồi đầu — trạng thái đọc từ dòng vừa khoá.
+        if ($locked->status === IntakeStatus::New) {
+            $locked->first_response_at = now();
+        }
 
         $locked->status = IntakeStatus::Won;
         $locked->matter_id = $matter->getKey();

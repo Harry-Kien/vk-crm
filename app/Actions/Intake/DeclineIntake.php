@@ -40,6 +40,10 @@ use Illuminate\Validation\ValidationException;
  * khoá dòng bản ghi. Nhật ký `intake_declined` chỉ mang trạng thái trước đó — KHÔNG lý do, KHÔNG cờ
  * xung đột (R8: `ActivityOwningMatter` cho mọi người có `auditLog.view` đọc dòng này; cột của bản ghi
  * mới là nơi giữ quyết định, sau `viewConflictReason`). `retention_until` (R7b) là việc của Task 7.
+ *
+ * **Từ chối một bản còn `new` là lần phản hồi đầu** (R5, Task 5): câu trả lời "văn phòng xin phép
+ * không nhận" là một lần văn phòng trả lời người liên hệ — `first_response_at = now()`, cùng luật
+ * `ChangeIntakeStatus`. Từ một bước sau `new` thì giữ mốc đã có.
  */
 class DeclineIntake
 {
@@ -76,6 +80,11 @@ class DeclineIntake
                 'decline_reason' => $reason,
                 'decline_reason_is_conflict' => $forConflict,
             ]);
+
+            if ($from === IntakeStatus::New) {
+                $locked->first_response_at = now();
+            }
+
             $locked->blameOn($actor);
             $locked->disableLogging()->save();
             $locked->enableLogging();

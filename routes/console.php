@@ -2,6 +2,7 @@
 
 use App\Actions\Schedule\CheckDeadlines;
 use App\Actions\Schedule\RecordScheduleRun;
+use App\Actions\Schedule\RemindUnansweredIntakes;
 use App\Actions\Schedule\SendHeartbeat;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -160,3 +161,23 @@ Schedule::command('backup:monitor')
     ->name('backup.monitor')
     ->withoutOverlapping(60)
     ->then(fn () => app()->call('App\Actions\Backup\CheckRcloneRemoteFreshness@handle'));
+
+/**
+ * Nhắc những lần có người liên hệ văn phòng mà chưa ai gọi lại quá ngưỡng phản hồi (M10 R5, mặc định 4
+ * giờ làm việc, `INTAKE_RESPONSE_HOURS`): thư `staff.intake_unanswered` + thông báo trong hệ thống.
+ *
+ * Mỗi 15 phút, CẢ NGÀY — "chỉ trong giờ làm việc" là câu đầu tiên của chính Action
+ * (`BusinessHours::isOpen()`), không phải của cron: giờ làm việc có MỘT định nghĩa
+ * (`config('vkcrm.business_hours')`, theo `APP_TIMEZONE`), và một cron gõ tay `8-17 * * 1-5` là định
+ * nghĩa thứ hai, sẽ lệch khi văn phòng làm thêm Thứ Bảy hay đổi giờ đóng cửa (17:30 cũng không biểu
+ * diễn được bằng một khoảng giờ của cron). Ngoài giờ, mỗi lượt chỉ là một phép so giờ.
+ *
+ * Chạy lại là vô hại: nhật ký thư chặn thư thứ hai cho cùng (người nhận, bản ghi), thông báo trong hệ
+ * thống tự chống lặp, và job thư là `ShouldBeUnique` theo bản ghi. `withoutOverlapping(15)`: một lượt
+ * bị giết giữa chừng chỉ chặn tối đa lượt kế tiếp, không chặn cả ngày (không để khoá 1440 phút mặc
+ * định — `BackupScheduleTest` ghim luật đó cho mọi tác vụ).
+ */
+Schedule::call(new RemindUnansweredIntakes)
+    ->cron('*/15 * * * *')
+    ->name('intakes.remind-unanswered')
+    ->withoutOverlapping(15);

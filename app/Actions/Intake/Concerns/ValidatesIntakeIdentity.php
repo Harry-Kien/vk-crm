@@ -27,7 +27,7 @@ use Illuminate\Validation\ValidationException;
  *
  * Khác nhau giữa hai lần, có chủ đích:
  *  - `received_at` chỉ có ở lần ghi đầu (`$forUpdate = false`): sửa nó sau đó là sửa con số đo thời
- *    gian phản hồi (R5).
+ *    gian phản hồi (R5). Nó không được ở tương lai (Task 5).
  *  - Ở lần sửa, mỗi bên đối lập mang thêm `id` (dòng `intake_parties` đã có) — Action sửa tự kiểm
  *    dòng đó có thuộc đúng bản ghi không.
  */
@@ -65,14 +65,16 @@ trait ValidatesIntakeIdentity
             'referred_by' => ['nullable', 'string', 'max:200'],
             'matter_type_id' => ['nullable', 'integer', Rule::exists(MatterType::class, 'id')->whereNull('deleted_at')],
             'assigned_to' => ['nullable', 'integer', Rule::exists(User::class, 'id')->where('is_active', true)],
-            'received_at' => ['nullable', 'date'],
+            // R5 (Task 5): không ở tương lai — đồng hồ phản hồi lần đầu không được chạy ngược. Form chặn
+            // bằng `maxDate`; luật ở đây cho mọi lối vào khác (rà soát Task 2, minor m4).
+            'received_at' => ['nullable', 'date', 'before_or_equal:now'],
             'parties' => ['array', 'max:'.IntakeRequest::MAX_OPPOSING_PARTIES],
             'parties.*.id' => ['nullable', 'integer'],
             'parties.*.name' => ['required', 'string', 'max:200'],
             'parties.*.role' => ['required', Rule::enum(PartyRole::class)],
             'parties.*.phone' => ['nullable', 'string', 'max:20'],
             'parties.*.id_number' => ['nullable', 'string', 'max:30'],
-        ], [], __('intake.attributes'));
+        ], ['received_at.before_or_equal' => __('intake.errors.received_at_in_future')], __('intake.attributes'));
 
         $validator->validate();
 

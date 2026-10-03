@@ -1168,6 +1168,7 @@ logo và chân trang công ty. Gửi qua SMTP tên miền riêng, cấu hình tr
 | `staff.new_client_request` | Khách gửi yêu cầu |
 | `client.request_answered` | Văn phòng trả lời một yêu cầu của khách |
 | `staff.instalment_overdue` | Job nhắc đợt thanh toán quá hạn — thêm 2026-09-24 (M9), người nhận theo §6.8 đính chính M9 |
+| `staff.intake_unanswered` | Job nhắc một lần liên hệ chưa ai gọi lại quá ngưỡng phản hồi — thêm 2026-09-24 (M10), người nhận và nội dung theo đính chính M10 dưới đây |
 
 **Đính chính 2026-09-24 (M9).** Mẫu `staff.instalment_overdue` là thư **nội bộ**;
 nội dung đi qua cùng ranh giới với màn hình tiền của kế toán (§5 bổ sung M9): mã
