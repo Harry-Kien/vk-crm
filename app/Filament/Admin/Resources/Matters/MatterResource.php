@@ -87,8 +87,9 @@ class MatterResource extends Resource
     }
 
     /**
-     * Thứ tự tab sau "Tổng quan" theo SPEC §7.2: Tiến độ, Danh mục hồ sơ, Tài liệu, Các bên, rồi
-     * Yêu cầu từ khách (M5 Task 6), Mốc thời hạn (M6 Task 5), Liên lạc và Nhật ký (M7 Task 8).
+     * Thứ tự tab sau "Tổng quan" (và "Đội ngũ" của M6.5, xem chú thích tại dòng của nó) theo SPEC
+     * §7.2: Tiến độ, Danh mục hồ sơ, Tài liệu, Các bên, rồi Yêu cầu từ khách (M5 Task 6), Mốc thời
+     * hạn (M6 Task 5), Liên lạc và Nhật ký (M7 Task 8).
      *
      * Một chỗ lệch có biết: SPEC đặt Mốc thời hạn và Liên lạc TRƯỚC "Yêu cầu từ khách". Tab Mốc
      * thời hạn được dựng sau và nối vào cuối; M7 Task 8 không đảo lại hai dòng của milestone khác

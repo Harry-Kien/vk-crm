@@ -1519,6 +1519,43 @@ thông tin thương hiệu chỉ đổi được qua `.env`.
   (Livewire/HTTP), `tests/Feature/Actions/Communication/{LogCommunicationTest, DeleteCommunicationLogTest}.php`,
   `tests/Feature/Authorization/CommunicationLogPolicyTest.php`. Test M5 về cổng khách
   (`PortalIsolationSweepTest`, `PortalVisibilityTest`) xanh nguyên.
+- **Bằng chứng TDD.** Phiên đầu bị dừng sau commit `de05774` mà không để lại nhật ký RED; phiên tiếp
+  dựng lại RED bằng cách đưa mã `app/` và `lang/` của Task 8 về base `579aaa8` (giữ nguyên test):
+  44 bài đỏ, 3 bài của `CommunicationLogPolicyTest` xanh ngay trên base vì chúng đo điều kiện đã có
+  (`matter.update`, khách bị từ chối). 58 mutation probe: 51 đỏ, 7 xanh và là đột biến tương đương —
+  `create()` bỏ `instanceof User` (`MatterPolicy::update` đã từ chối khách); `LogCommunication` bỏ
+  `$fresh === null` hoặc đọc vụ bằng `withTrashed()` (cổng `create($user, null)` và
+  `MatterPolicy::update` đều trả `false`); modal "Xem chi tiết" bỏ `abort_unless` hoặc `authorize`
+  (mọi request chạm tới modal đã qua `hydrate()` cùng câu hỏi); bảng Liên lạc bỏ
+  `scopeToVisibleMatters()` (quan hệ đã khoá vào vụ chủ, và tab chỉ có cho người xem được vụ — chỉ
+  khác ở vụ đã xoá mềm, tức giới hạn đã biết ở trên); `using()` bỏ nhánh `type` rỗng (`->required()`
+  của form chặn trước). Phiên tiếp thêm hai ca: người ghi đã bị xoá mềm vẫn hiện tên (bảo vệ
+  `author` `withTrashed()`), và ép khoá một dòng nhật ký của vụ `restricted` khác vào "Xem chi tiết"
+  không mở được modal (kèm vế dương), cộng ba chỗ docblock cũ (danh sách `MATTER_OWNED`, tab "Đội
+  ngũ" trong thứ tự tab, `booted()` cũng chạy ở request cập nhật).
+- **Ghi chú lúc gộp main** (đo bằng `git merge-tree origin/main m7-extras` ngày 2026-10-03, main @
+  `88b6044`; làn không gộp gì):
+  - `ActivityOwningMatter`: main (gộp M9) thêm `MONEY_OWNED` và cổng `seesMoney($viewer)` vào
+    `scopeVisibleTo()`; Task 8 tách ba bước đầu của nó thành `whereOwnedByAny()`, dùng chung với
+    `scopeOwnedBy()` của tab "Nhật ký". `scopeOwnedBy()` KHÔNG nhận người xem, nên khi gộp **không
+    được** đưa nhánh `MONEY_OWNED` vào `whereOwnedByAny()` vô điều kiện: luật sư phụ trách không có
+    `billing.view` sẽ thấy dòng hợp đồng/khoản thu trong tab. Hoặc thêm `User $viewer` cho
+    `scopeOwnedBy()` và áp đúng `seesMoney()`, hoặc để dòng tiền ngoài tab (chúng nằm trong
+    `matterOwnedTypes()`, nên nhánh `properties.matter_id` cũng không thả chúng ra) — kèm một test
+    cho luật sư phụ trách không có `billing.view`.
+  - `MatterResource::getRelations()`: main thêm `BillingRelationManager` (M9) vào cuối; "Nhật ký"
+    phải vẫn đứng cuối cùng (SPEC §7.2). `AppServiceProvider`: xung đột ở `use` và khối listener —
+    giữ cả hai bên; morph map giữ `communication_log` cạnh các khoá của M9.
+  - Địa chỉ trụ sở: main `88b6044` đặt mặc định `vkcrm.brand.office_address` = "1808 đường Nguyễn
+    Ái Quốc, phường Trấn Biên, thành phố Đồng Nai" (chủ văn phòng đưa ngày 2026-10-02).
+    `config/vkcrm.php` và `.env.example` xung đột với Task 10 (cả hai sửa cùng docblock/khối
+    `BRAND_*`): giữ dòng mặc định của main VÀ câu "giá trị nhập trong app thắng" của Task 10. Đo
+    ngày 2026-10-03 (sửa tạm `config/vkcrm.php` của làn rồi trả lại): với mặc định đó, tám tệp test
+    chạm chân thư/`OfficeProfile` (`BuildHandoverPackageTest`, `UpdateOfficeProfileTest`,
+    `WriteSettingsTest`, `PortalCoverageTest`, `OfficeProfilePageTest`, `EmailLayoutTest`,
+    `SenderIdentityTest`, `OfficeProfileTest`) chỉ đỏ đúng hai bài của `EmailLayoutTest` mà
+    `88b6044` đã viết lại trên main; làn không đụng tệp đó nên lần gộp nhận bản của main, và bản đó
+    (10 bài) xanh trên mã của làn cộng mặc định ấy.
 
 ### Task 1 — Phần còn lại của `ReassignMatter` (SPEC §6.11 bước 3, R10)
 

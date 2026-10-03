@@ -166,6 +166,37 @@ it('lists the rows of this matter and of its children, and none of another matte
         ->assertCanNotSeeTableRecords($own);
 });
 
+/**
+ * Nút "Xem chi tiết" phân giải bản ghi trên CHÍNH truy vấn của tab: một khoá dòng của vụ khác —
+ * ở đây một vụ `restricted` mà luật sư này không ở trong — ép vào lời gọi không mở được modal,
+ * nên không giá trị nào của dòng đó được dựng ra.
+ *
+ * Nội dung modal không nằm trong HTML mà bộ test Livewire trả về, nên đo trên danh sách action
+ * đang mở và trên chính `getModalContent()` (như ca che số điện thoại ở dưới), không bằng
+ * `assertDontSee` — thứ sẽ xanh cả khi modal đã mở.
+ */
+it('cannot open the details of a row of another matter by forcing its key', function () {
+    $other = Matter::factory()->create(['confidentiality' => Confidentiality::Restricted]);
+    $foreign = Audit::record('matter_details_updated', $other, ['note' => 'Bí mật của vụ khác'], $this->lead);
+
+    $this->actingAs($this->lead, 'web');
+
+    $component = matterActivityTab($this->matter)->mountTableAction('viewProperties', $foreign);
+
+    expect($component->instance()->mountedActions)->toBe([])
+        ->and($component->instance()->getMountedActions())->toBe([]);
+
+    // Vế dương: cùng lời gọi trên một dòng của chính vụ này mở được modal và dựng giá trị của nó —
+    // nên vế âm ở trên không xanh vì lời gọi hỏng, mà vì khoá kia không có trong truy vấn của tab.
+    $own = Audit::record('matter_details_updated', $this->matter, ['note' => 'Ghi chú của vụ này'], $this->lead);
+
+    $component = matterActivityTab($this->matter)->mountTableAction('viewProperties', $own);
+    $mounted = $component->instance()->getMountedActions();
+
+    expect($mounted)->toHaveCount(1)
+        ->and((string) $mounted[0]->getModalContent())->toContain('Ghi chú của vụ này');
+});
+
 it('labels each row with the Vietnamese name of its event and who did it', function () {
     $log = CommunicationLog::factory()->for($this->matter)->create(['type' => CommunicationType::CallIn]);
     Audit::record('communication_logged', $log, ['matter_id' => $this->matter->id], $this->lead);

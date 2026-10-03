@@ -24,8 +24,8 @@ use Spatie\Activitylog\Models\Activity;
  *
  *  1. chủ thể là một `Matter` → vụ đó;
  *  2. chủ thể là một model sống bên trong một vụ việc (`MATTER_OWNED` — bên đương sự, tài liệu,
- *     mốc thời hạn, nhật ký giai đoạn, yêu cầu của khách, đầu mục danh mục; trả lời của một yêu
- *     cầu đi qua yêu cầu đó) → vụ ghi ở cột `matter_id` của nó;
+ *     mốc thời hạn, nhật ký giai đoạn, yêu cầu của khách, đầu mục danh mục, nhật ký liên lạc; trả
+ *     lời của một yêu cầu đi qua yêu cầu đó) → vụ ghi ở cột `matter_id` của nó;
  *  3. còn lại → `properties.matter_id` nếu dòng có ghi;
  *  4. không có gì ở trên → dòng không thuộc vụ nào (đăng nhập, người dùng, khách hàng, cấu hình).
  *

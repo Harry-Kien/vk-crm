@@ -226,6 +226,20 @@ it('lists the logs of this matter only, newest first, with who wrote them', func
         ->assertDontSee('Cuộc gọi của hồ sơ khác');
 });
 
+/**
+ * Nhật ký là bằng chứng về AI đã nói với khách: người ghi đã nghỉ việc (tài khoản xoá mềm) vẫn
+ * phải hiện tên, không thành một ô trống.
+ */
+it('still names the author of an entry after their account has been soft-deleted', function () {
+    $former = User::factory()->withRole(Role::Lawyer)->create(['name' => 'Luật sư Đã Nghỉ']);
+    CommunicationLog::factory()->for($this->matter)->create(['created_by' => $former->id]);
+    $former->delete();
+
+    $this->actingAs($this->lawyer, 'web');
+
+    communicationsTab($this->matter)->assertSee('Luật sư Đã Nghỉ');
+});
+
 /** Nhật ký là bằng chứng: không có nút "Sửa" nào trên tab. */
 it('offers no edit button on a logged entry', function () {
     $log = CommunicationLog::factory()->for($this->matter)->create();

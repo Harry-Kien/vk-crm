@@ -68,7 +68,12 @@ class MatterActivityRelationManager extends RelationManager
         $this->abortUnlessAllowed();
     }
 
-    /** Lần mount đầu: `booted()` chạy sau `mount()`, khi `ownerRecord` đã có. */
+    /**
+     * Lần mount đầu: `booted()` chạy sau `mount()`, khi `ownerRecord` đã có — và `mount()` của
+     * `RelationManager` không tự hỏi `canViewForRecord()` (Filament chỉ hỏi ở hook `hydrate`).
+     * `booted()` cũng chạy ở mọi request cập nhật, nhưng SAU `hydrate()` ở trên, nên ở đó nó chỉ
+     * hỏi lại cùng câu.
+     */
     public function booted(): void
     {
         $this->abortUnlessAllowed();
