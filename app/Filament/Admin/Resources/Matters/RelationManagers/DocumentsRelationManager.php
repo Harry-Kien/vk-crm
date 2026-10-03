@@ -742,8 +742,17 @@ class DocumentsRelationManager extends RelationManager
      * **Mở trong CÙNG cửa sổ, không `->openUrlInNewTab()`** (M12 Task 3; khảo sát Task 1 mục 2.10):
      * app nội bộ cài trên iPhone là một cửa sổ standalone không có tab — một tab mới đi ra trình
      * duyệt trong app hoặc Safari dù URL (route bí danh `/admin/documents/{id}/download`) nằm trong
-     * scope, và chuyện cookie có đi theo hay không lại thành câu hỏi chưa đo. Trên máy tính không mất
-     * gì: response là `Content-Disposition: attachment`, trình duyệt tải tệp về và giữ nguyên trang.
+     * scope, và chuyện cookie có đi theo hay không lại thành câu hỏi chưa đo. Một lượt tải THÀNH CÔNG
+     * không làm mất gì trên máy tính: response là `Content-Disposition: attachment`, trình duyệt tải
+     * tệp về và giữ nguyên trang.
+     *
+     * **Cái giá, chấp nhận theo phán quyết tạm 1 của Task 1:** href được ký lúc bảng được vẽ, nên
+     * khi bảng đã đứng yên quá 5 phút kể từ lần vẽ đó (cách dùng bình thường) — hoặc lượt tải bị từ
+     * chối — trang lỗi 403/404 THAY trang đang mở, ngay trong cửa sổ này; trước Task 3 nó mở ở tab
+     * mới. Trên máy tính, một hộp thoại đang mở và chữ đã gõ trong đó mất theo. Trang lỗi vì thế dẫn
+     * về `start_url` của chính app nội bộ (`/admin`, `App\Support\Pwa\PwaPanels::startUrlFor()`,
+     * M12 Task 3 vòng sửa 1), không về `/` (đăng nhập của khách, ngoài scope — trên iPhone là một
+     * tấm Safari ngoài app không có đường về).
      *
      * Điều kiện hiển thị có hai vế, và chúng KHÔNG cùng sức nặng — nói thẳng vì một mutation
      * probe đã chỉ ra điều đó:

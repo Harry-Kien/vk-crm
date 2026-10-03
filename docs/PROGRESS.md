@@ -2653,3 +2653,20 @@ Sự thật cho task sau:
   máy thật đo lượt cập nhật `sw.js` ngoài allowlist (chưa đo được ở máy dev).
 - Mục `/pwa/register.js?v=<cũ>` ở lại CacheStorage tới lần `VERSION` kế tiếp (tài nguyên công khai, vài
   KB) — không băm `register.js` vào `VERSION` để một lần sửa script không bắt mọi máy cài lại worker.
+
+Vòng sửa 1 (rà soát Task 3, Important I1 — trang lỗi của liên kết tải là ngõ cụt trong app đã cài):
+- Liên kết tải mở CÙNG cửa sổ nên liên kết đã hết hạn (> 5 phút) hay bị từ chối mở trang lỗi 403/404
+  ngay trong cửa sổ app; lối ra cũ `url('/')` → `/portal` (đăng nhập của KHÁCH, ngoài scope `/admin`;
+  `/` cũng ngoài scope `/portal`), còn câu chữ bảo "quay lại, tải lại trang" — cửa sổ standalone của
+  iPhone không có hai nút đó. Nay nút "Về trang chính" của `errors/403` và `errors/404` trỏ
+  `App\Support\Pwa\PwaPanels::startUrlFor()`: `/admin` khi path dưới `/admin` (khớp theo đoạn) hoặc
+  khi request Livewire thuộc một trang admin (panel hiện hành do `SetUpPanel` đặt), `/portal` cho mọi
+  thứ khác; IP ngoài `ADMIN_IP_ALLOWLIST` luôn nhận `/portal` (trang 404 của nó dưới `/admin` giống
+  từng byte trang của một path lạ — M8 R7). Câu `link_expired.retry` bảo bấm chính nút đó.
+- Cái giá còn lại, ghi ở docblock `DocumentsRelationManager::downloadAction()` và
+  `ChecklistRelationManager::documentsList()`: trên máy tính, liên kết đã hết hạn thay cả trang admin
+  đang mở — hộp duyệt và lý do đã gõ mất (trước Task 3 là tab mới). Tuỳ chọn để controller quyết: một
+  route trong panel ký URL lúc bấm để liên kết admin không hết hạn khi trang còn mở (không làm ở vòng
+  này — thêm một bước chuyển hướng chưa đo trên iPhone, A8–A9).
+- Danh sách kiểm tra máy thật thêm A10 (để trang yên hơn 5 phút rồi tải, chạm "Về trang chính" ở cả
+  hai app: phải về đầu của chính app, trong cửa sổ app) — PENDING OWNER.

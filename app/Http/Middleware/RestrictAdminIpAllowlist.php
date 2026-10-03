@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\Pwa\PwaPanels;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\IpUtils;
@@ -52,17 +53,24 @@ class RestrictAdminIpAllowlist
 {
     public function handle(Request $request, Closure $next): mixed
     {
-        $allowlist = self::entries();
-
-        if ($allowlist === []) {
-            return $next($request);
-        }
-
-        if (! IpUtils::checkIp($request->ip(), $allowlist)) {
+        if (! self::admits($request)) {
             throw new NotFoundHttpException;
         }
 
         return $next($request);
+    }
+
+    /**
+     * "IP của request này có được vào `/admin` không" — danh sách rỗng là tắt (mọi IP được vào).
+     * Đây là câu DUY NHẤT {@see self::handle()} hỏi; tách ra để trang lỗi 403/404 hỏi lại đúng câu
+     * đó ({@see PwaPanels::startUrlFor()}): một IP ngoài danh sách không được thấy nút "Về trang
+     * chính" trỏ `/admin`, kẻo trang 404 của nó dưới `/admin` khác trang 404 của một path lạ bất kỳ.
+     */
+    public static function admits(Request $request): bool
+    {
+        $allowlist = self::entries();
+
+        return $allowlist === [] || IpUtils::checkIp($request->ip(), $allowlist);
     }
 
     /**

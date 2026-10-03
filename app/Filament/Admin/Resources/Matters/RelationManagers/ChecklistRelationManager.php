@@ -330,8 +330,11 @@ class ChecklistRelationManager extends RelationManager
      *
      * `downloadUrlFor(Auth::user())` — route đã ký, hết hạn sau 5 phút (SPEC §10.4), ký cho ĐÚNG
      * người đang mở hộp này. Cùng thành ngữ `DocumentsRelationManager::downloadAction()`, và cùng
-     * luật mở trong CÙNG cửa sổ (không `target="_blank"`, M12 Task 3 — lý do ở docblock đó): tệp
-     * tải về, hộp duyệt đang mở vẫn đứng nguyên.
+     * luật mở trong CÙNG cửa sổ (không `target="_blank"`, M12 Task 3 — lý do ở docblock đó): tải
+     * THÀNH CÔNG thì tệp về và hộp duyệt đang mở vẫn đứng nguyên. Cùng cái giá ghi ở docblock đó:
+     * href được ký lúc hộp được vẽ, nên hộp đã đứng yên quá 5 phút (hay một lượt tải bị từ chối) thì
+     * trang lỗi 403/404 thay cả trang — hộp duyệt và lý do đã gõ mất theo; nút về của trang lỗi dẫn
+     * về `/admin` (`App\Support\Pwa\PwaPanels::startUrlFor()`).
      *
      * Tên hiện ra là tên TỆP KHÁCH ĐÃ ĐẶT (`Media::name`, qua `FileGuard::safeName()`), không
      * phải `Document::title` — hai (hoặc nhiều) tệp của cùng một lần nộp (R10) đều mang chung một

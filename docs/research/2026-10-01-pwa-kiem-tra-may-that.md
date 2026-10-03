@@ -42,7 +42,7 @@ thấy trên màn hình (chữ báo lỗi, trang trắng, trang "404") và chụ
 
 ---
 
-## A. iPhone — tải tài liệu ngay trong app đã cài: app khách (A1–A6) và app nội bộ (A7–A9)
+## A. iPhone — tải tài liệu ngay trong app đã cài: app khách (A1–A6), app nội bộ (A7–A9), liên kết hết hạn (A10)
 
 | # | Làm | ĐẠT khi | Chụp |
 |---|---|---|---|
@@ -55,6 +55,7 @@ thấy trên màn hình (chữ báo lỗi, trang trắng, trang "404") và chụ
 | A7 | Trong **Safari**, vào `https://<địa chỉ>/admin`, rồi **Chia sẻ → Thêm vào Màn hình chính** như A2 (iOS 26: bật "Mở như ứng dụng web"). Mở app nội bộ vừa thêm từ màn hình chính, đăng nhập nhân sự (mật khẩu + mã ứng dụng xác thực). | App mở **không có thanh địa chỉ**; vào được trang tổng quan nội bộ. Trên màn hình chính có biểu tượng nội bộ **tách riêng** biểu tượng app khách của A2: tên "VK Nội bộ", con dấu trên nền **sáng** (app khách nền navy). | Màn hình chính có cả hai biểu tượng. |
 | A8 | Trong app nội bộ: mở hồ sơ của khách thử → tab **Tài liệu** → ở một tài liệu có tệp, chạm **Tải tệp**. | Tệp mở ra (xem trước) hoặc hỏi nơi lưu **ngay trong cửa sổ app**; chạm **Xong** (nếu có) thì về đúng tab Tài liệu, vẫn đăng nhập. **KHÔNG ĐẠT** nếu Safari bật lên, hoặc hiện một khung có **dòng địa chỉ** ở trên — kể cả khi tệp vẫn tải được: khi đó liên kết đã rời cửa sổ app. Ghi lại địa chỉ trong khung và tệp có tải được không. | Màn hình ngay sau khi chạm Tải tệp. |
 | A9 | Trong app nội bộ, cùng hồ sơ: tab **Danh mục hồ sơ** → ở đầu mục **Chờ kiểm tra**, chạm **Đã nhận** để mở hộp duyệt (chưa xác nhận gì) → trong phần **Tệp khách đã gửi**, chạm tên một tệp. Xong thì chạm **Huỷ thao tác** để đóng hộp, không duyệt. | Như A8: tệp mở **ngay trong cửa sổ app**, không có Safari, không có khung có dòng địa chỉ; quay lại vẫn thấy hộp duyệt hoặc trang hồ sơ, vẫn đăng nhập. | Màn hình ngay sau khi chạm tên tệp. |
+| A10 | Làm ở **cả hai app** (app khách: hồ sơ của A5; app nội bộ: tab **Tài liệu** của A8). Mở hồ sơ rồi **để yên hơn 5 phút** (xem đồng hồ, không chạm gì), sau đó chạm vào một tệp để tải. Trên trang **Liên kết tải tệp đã hết hạn**, chạm nút **Về trang chính**. | Trang **Liên kết tải tệp đã hết hạn** hiện **ngay trong cửa sổ app**. Chạm **Về trang chính** thì về trang đầu của **chính app đó** (app khách: danh sách hồ sơ; app nội bộ: trang tổng quan nội bộ), **vẫn trong cửa sổ app**, vẫn đăng nhập; mở lại hồ sơ, chạm tệp thì tải được. **KHÔNG ĐẠT** nếu nút đó mở trang đăng nhập của app kia, bật Safari, hoặc hiện một khung có **dòng địa chỉ**. | Trang hết hạn, và màn hình ngay sau khi chạm Về trang chính — mỗi app một cặp. |
 
 Ghi chú cho kỹ thuật: từ Task 3, liên kết tải trong cả hai app trỏ tới đường dẫn **trong** phạm vi
 app (`/portal/documents/…/download`, `/admin/documents/…/download`) và mở trong **cùng cửa sổ**. Mục
@@ -64,8 +65,8 @@ nghĩa là lượt tải trong phạm vi app chạy trên iPhone thật. Một t
 — chụp lại cả mã lỗi lẫn giờ chạm:
 
 - **403**: liên kết tải đã hết hạn. Liên kết chỉ sống 5 phút kể từ lúc trang vẽ ra nó (mở hoặc làm
-  mới trang). Mở lại trang (kéo xuống để tải lại, hoặc vào lại hồ sơ) rồi chạm lại ngay; vẫn 403 mới
-  là lỗi.
+  mới trang). Chạm nút **Về trang chính** trên trang lỗi (về đầu của chính app — xem A10), vào lại
+  hồ sơ rồi chạm lại ngay; vẫn 403 mới là lỗi.
 - **429**: quá 60 lượt tải trong một phút của cùng tài khoản. Chờ một phút rồi thử lại.
 - **404**: máy chủ không thấy phiên đăng nhập đi kèm lượt tải, hoặc tài khoản đó không được tải tài
   liệu này (không thuộc đội ngũ, tài liệu chưa công bố cho khách, tệp không còn). Nếu 404 hiện
@@ -156,6 +157,7 @@ Phiên bản iPhone (iOS): ______ Mẫu máy: ______ · Phiên bản Android: __
 |---|---|---|---|
 | A1–A6 | | (không áp dụng) | |
 | A7–A9 | | (không áp dụng) | |
+| A10 | | (không áp dụng) | |
 | B1–B5 | | | |
 | C1–C6 | (không áp dụng) | | |
 | D1–D8 | | | |

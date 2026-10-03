@@ -26,9 +26,11 @@ use Illuminate\Http\UploadedFile;
 | Web app standalone không có tab: trên iPhone, một liên kết `target="_blank"` (hay
 | `openUrlInNewTab()`) của app nội bộ đã cài đi RA NGOÀI cửa sổ app — trình duyệt trong app hoặc
 | Safari — dù URL nằm trong scope `/admin`. Khi đó route bí danh `/admin/documents/{id}/download`
-| một mình không cứu được nhân sự (câu hỏi cookie chưa đo của Task 1 quay lại nguyên vẹn). Bỏ tab
-| mới không mất gì trên máy tính: response tải là `Content-Disposition: attachment`, trình duyệt
-| tải tệp về và giữ nguyên trang (cả hộp duyệt đang mở).
+| một mình không cứu được nhân sự (câu hỏi cookie chưa đo của Task 1 quay lại nguyên vẹn). Trên máy
+| tính, một lượt tải THÀNH CÔNG không mất gì: response tải là `Content-Disposition: attachment`,
+| trình duyệt tải tệp về và giữ nguyên trang (cả hộp duyệt đang mở). Cái giá: liên kết đã quá 5
+| phút hay bị từ chối thì trang lỗi THAY trang đang mở (hộp duyệt và chữ đã gõ mất theo) — vì vậy
+| nút về của trang lỗi dẫn về `/admin`, ghim ở `ErrorPageHomeLinkTest.php` (Task 3 vòng sửa 1).
 |
 | Hai chỗ, cả hai đi qua MÀN HÌNH THẬT (Livewire): nút "Tải tệp" của tab Tài liệu và danh sách
 | "Tệp khách đã gửi" trong hộp duyệt "Đã nhận" của tab Danh mục hồ sơ.

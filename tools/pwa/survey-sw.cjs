@@ -24,6 +24,9 @@
  *      context CHẶN service worker (`serviceWorkers: 'block'`) phải cho đúng cùng kết quả (trang
  *      đích, câu `portal.inactive` có hay không). Đường (b) phải hiện câu đó ở cả hai bên. Tài
  *      khoản được bật lại sau mỗi lượt, kể cả khi lỗi.
+ *   7. (Task 3 vòng sửa 1) Liên kết tải HẾT HẠN bấm trong cửa sổ đang dùng, ở cả hai app: trang 403
+ *      tiếng Việt hiện ra qua worker; nút "Về trang chính" trỏ `start_url` của CHÍNH app (`/portal`,
+ *      `/admin` — không `/`); bấm nó thì về đó, vẫn đăng nhập, worker vẫn điều khiển trang.
  *   Mọi vi phạm CSP (sự kiện `securitypolicyviolation`) và lỗi console/JS trên mọi trang được ghi;
  *   có một cái là HỎNG — lượt này chạy với `CSP_MODE=enforce`.
  *
@@ -237,6 +240,41 @@ async function offlineRoundTrip(context, page, panel, target) {
   check(`${panel}: trực tuyến lại, "Thử lại" về start_url /${panel}`, landed === `/${panel}`, `tới ${landed}`);
 }
 
+/**
+ * Liên kết tải HẾT HẠN bấm ngay trong cửa sổ đang dùng (Task 3 vòng sửa 1). Liên kết dựng từ href
+ * thật bằng cách lùi `expires` về quá khứ: `signed` từ chối hạn đã qua và chữ ký sai bằng CÙNG một
+ * 403 (`InvalidSignatureException`), nên đây đúng là trang mà một liên kết để quá 5 phút nhận. Bấm
+ * bằng một thẻ `<a>` trong trang (điều hướng cấp cao như một cú chạm thật, đi qua nhánh `navigate`
+ * của worker), không bằng `page.goto`.
+ */
+async function expiredLinkRoundTrip(page, panel, href) {
+  step = `${panel}: liên kết tải hết hạn`;
+  const url = new URL(href, BASE);
+  url.searchParams.set('expires', String(Math.floor(Date.now() / 1000) - 60));
+  const responses = [];
+  const onResponse = (r) => { if (r.url() === url.toString()) responses.push({ status: r.status(), sw: r.fromServiceWorker() }); };
+  page.on('response', onResponse);
+  await page.evaluate((u) => { const a = document.createElement('a'); a.href = u; document.body.appendChild(a); a.click(); }, url.toString());
+  await page.waitForURL((u) => u.toString() === url.toString());
+  await page.waitForLoadState('domcontentloaded');
+  page.off('response', onResponse);
+  const heading = await page.locator('h1').first().innerText().catch(() => '');
+  const homeLink = page.getByRole('link', { name: 'Về trang chính' });
+  const home = await homeLink.getAttribute('href').catch(() => null);
+  await shot(page, `${panel}-link-expired`);
+  check(`${panel}: liên kết tải hết hạn mở trang 403 tiếng Việt trong cửa sổ đang dùng, qua worker`,
+    heading.includes('Liên kết tải tệp đã hết hạn') && responses.some((r) => r.status === 403 && r.sw), `h1="${heading}", ${JSON.stringify(responses)}`);
+  check(`${panel}: nút "Về trang chính" của trang 403 trỏ start_url ${BASE}/${panel} (không /)`, home === `${BASE}/${panel}`, `href=${home}`);
+  await homeLink.click();
+  await page.waitForLoadState('domcontentloaded');
+  await settle(page);
+  await shot(page, `${panel}-link-expired-home`);
+  const landed = new URL(page.url()).pathname;
+  const sw = await controlled(page);
+  check(`${panel}: bấm "Về trang chính" về đầu app, vẫn đăng nhập, worker vẫn điều khiển trang`,
+    landed === `/${panel}` && sw === `${BASE}/${panel}/sw.js`, `tới ${landed}; controller=${sw}`);
+}
+
 async function portalLogin(page) {
   await page.goto(BASE + '/portal/login', { waitUntil: 'domcontentloaded' });
   await settle(page);
@@ -373,6 +411,7 @@ async function clientTour(browser) {
     const size = fs.statSync(await download.path()).size;
     check('portal: tải một tài liệu khi worker điều khiển trang (tệp về đủ, trang đứng nguyên)', size > 0 && sw !== null,
       `${download.suggestedFilename()} ${size} byte; controller=${sw}; response qua worker: ${JSON.stringify(fromSw)}; trang: ${page.url().replace(BASE, '')}`);
+    await expiredLinkRoundTrip(page, 'portal', link.href);
   } catch (e) {
     check('portal: tải một tài liệu khi worker điều khiển trang', false, e.message.split('\n')[0]);
   }
@@ -524,6 +563,7 @@ async function staffTour(browser) {
     const size = fs.statSync(await file.path()).size;
     check('admin: tải một tệp khi worker điều khiển trang (tệp về đủ, trang đứng nguyên)', size > 0 && sw !== null,
       `${file.suggestedFilename()} ${size} byte; trang: ${page.url().replace(BASE, '')}`);
+    await expiredLinkRoundTrip(page, 'admin', href);
   } catch (e) {
     check(`${step}: hỏng`, false, e.message.split('\n')[0]);
   }

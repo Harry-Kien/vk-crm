@@ -231,10 +231,22 @@ app) — tức route bí danh `/admin/documents/{document}/download` một mình
 **Sự thật cho Task 3:** cùng lúc với route bí danh, liên kết tải của admin phải mở trong **cùng cửa
 sổ**: bỏ `openUrlInNewTab()` ở `DocumentsRelationManager.php:767` và `target="_blank"` ở
 `ChecklistRelationManager.php:361` khi URL là route bí danh trong scope. Bỏ được mà không mất gì
-trên máy tính: response tải là `Content-Disposition: attachment` (`DocumentDownloadController`), nên
-trình duyệt tải tệp về và **giữ nguyên trang** (cả hộp duyệt đang mở) chứ không rời trang. Task 3
-ghim điều này bằng test Livewire (liên kết tải của hai chỗ không mang `target="_blank"` và trỏ route
-bí danh). Danh sách kiểm tra có bước A7–A9 cho việc này trên iPhone thật.
+trên máy tính **khi lượt tải thành công**: response tải là `Content-Disposition: attachment`
+(`DocumentDownloadController`), nên trình duyệt tải tệp về và **giữ nguyên trang** (cả hộp duyệt
+đang mở) chứ không rời trang. Task 3 ghim điều này bằng test Livewire (liên kết tải của hai chỗ không
+mang `target="_blank"` và trỏ route bí danh). Danh sách kiểm tra có bước A7–A9 cho việc này trên
+iPhone thật.
+
+**Đính chính (rà soát Task 3, vòng sửa 1):** câu "không mất gì" ở trên chỉ đúng cho lượt tải thành
+công. Href được ký lúc trang (hay hộp duyệt) render và hết hạn sau 5 phút; một liên kết hết hạn hay
+bị từ chối mở trang lỗi 403/404 **thay** trang đang mở, ngay trong cửa sổ đó — trên máy tính, hộp
+duyệt đang mở và chữ đã gõ mất theo (trước Task 3 trang lỗi mở ở tab mới); trong app đã cài, trang
+lỗi hiện trong cửa sổ app. Lối ra cũ của trang lỗi là `url('/')` → `/portal` — đăng nhập của khách,
+ngoài scope `/admin` (và `/` ngoài scope `/portal`): trên iPhone là một tấm Safari ngoài app, cửa sổ
+standalone lại không có nút quay lại hay tải lại. Vòng sửa 1 cho nút về trỏ `start_url` của chính app
+(`/admin` cho request dưới `/admin`, `/portal` cho mọi thứ khác — `PwaPanels::startUrlFor()`), câu
+chữ bảo bấm nút đó thay vì "quay lại, tải lại trang", và danh sách kiểm tra có bước A10 cho lối ra
+này trên iPhone thật. Cái giá trên máy tính (mất hộp thoại đang mở khi liên kết đã hết hạn) vẫn còn.
 
 **Task 3 đã làm và đo (2026-10-03, Chromium, mô phỏng):** hai liên kết trên mở cùng cửa sổ và trỏ
 `/admin/documents/{id}/download`; liên kết cổng trỏ `/portal/documents/{id}/download`. Với service
