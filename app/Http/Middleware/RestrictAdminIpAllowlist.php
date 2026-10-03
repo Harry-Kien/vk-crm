@@ -27,6 +27,11 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  * sách middleware BỀN của Livewire, nên nó cũng chặn request cập nhật (`/livewire/update`) của
  * một component admin, không chỉ trang HTML đầu tiên.
  *
+ * **Cũng phủ route PWA của `/admin`** (`routes/pwa.php`, M12: manifest, rồi `sw.js` và trang ngoại
+ * tuyến). Các route đó đứng ngoài chồng middleware có phiên của panel, nên nhóm của chúng gắn
+ * middleware này trực tiếp — khi và chỉ khi panel mang nó trong `getMiddleware()`. Middleware này
+ * không đụng phiên, nên gắn ở đó không đẻ cookie hay dòng `sessions` nào.
+ *
  * **KHÔNG phủ `documents.download` và `/livewire/upload-file`.** URL tải tệp có chữ ký sống 5
  * phút và chỉ được SINH RA bên trong panel (một nhân sự đã qua allowlist mới bấm được nút tải) —
  * phủ luôn route đó nghĩa là một link vừa mở trong văn phòng không mở được ở nơi khác trong 5

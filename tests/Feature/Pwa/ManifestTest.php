@@ -157,17 +157,48 @@ it('sets no cookie and starts no session row when the browser fetches the manife
 })->with(['admin', 'portal']);
 
 /**
- * Docblock `routes/pwa.php`: manifest nằm NGOÀI middleware của panel, nên giới hạn IP của admin
- * (M8 R7) không chặn nó — có chủ đích, manifest không chứa gì riêng tư. Còn các TRANG của panel thì
- * vẫn 404 với máy ngoài danh sách: manifest không mở cửa sau nào vào app nội bộ.
+ * M8 R7 — kế hoạch M8: mọi request vào `/admin` từ IP ngoài `ADMIN_IP_ALLOWLIST` nhận 404; docblock
+ * `RestrictAdminIpAllowlist`: một IP ngoài danh sách không được biết là panel `/admin` có tồn tại.
+ * Manifest nội bộ mang tên "… — Nội bộ" và `scope` `/admin`: trả nó cho một máy lạ là chỉ đường vào
+ * app nội bộ. Route PWA đứng ngoài nhóm `web` vì PHIÊN (phán quyết R2), không phải để né allowlist —
+ * middleware đó không đụng phiên, nên gắn nó vào vẫn không cookie, không dòng `sessions`; test đo cả
+ * hai chiều (404 ngoài danh sách, 200 trong danh sách) và đếm dòng như test "sets no cookie" ở trên.
  */
-it('leaves the public internal-app manifest outside the admin IP allowlist, while the panel pages stay closed', function () {
+it('answers 404 to an IP outside the admin allowlist for the internal-app manifest and 200 inside it, still without a session', function () {
+    config(['vkcrm.security.admin_ip_allowlist' => '10.0.0.1', 'session.driver' => 'database']);
+
+    $before = DB::table('sessions')->count();
+
+    $outside = $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.50'])->get('/admin/manifest.webmanifest');
+
+    $outside->assertNotFound();
+    expect($outside->getContent())
+        ->not->toContain(__('pwa.admin.name', ['firm' => config('vkcrm.brand.short_name')]))
+        ->not->toContain('"scope"')
+        ->and($outside->headers->has('Set-Cookie'))->toBeFalse();
+
+    $inside = $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.1'])->get('/admin/manifest.webmanifest');
+
+    $inside->assertOk()->assertJsonPath('scope', '/admin');
+    expect($inside->headers->getCookies())->toBe([])
+        ->and($inside->headers->has('Set-Cookie'))->toBeFalse()
+        ->and(DB::table('sessions')->count())->toBe($before);
+
+    // Đối chứng: cùng máy lạ, trang của panel cũng 404 — manifest trả lời đúng như phần còn lại của `/admin`.
+    $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.50'])->get('/admin/login')->assertNotFound();
+});
+
+/**
+ * Allowlist là của `/admin` (M8 R7, kế hoạch M8: không đăng ký trên panel `portal`). Khách cài app
+ * cổng từ 4G ở nhà — manifest của cổng phải tới mọi IP như chính các trang cổng.
+ */
+it('keeps the client-app manifest open to an IP outside the admin allowlist, like the portal pages', function () {
     config(['vkcrm.security.admin_ip_allowlist' => '10.0.0.1']);
 
-    $outsider = $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.50']);
-
-    $outsider->get('/admin/manifest.webmanifest')->assertOk()->assertJsonPath('scope', '/admin');
-    $outsider->get('/admin/login')->assertNotFound();
+    $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.50'])
+        ->get('/portal/manifest.webmanifest')->assertOk()->assertJsonPath('scope', '/portal');
+    $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.50'])
+        ->get('/portal/login')->assertOk();
 });
 
 it('refuses a panel that has no app on the phone instead of building a path for it', function () {

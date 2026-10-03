@@ -11,8 +11,9 @@ use Illuminate\Http\JsonResponse;
  * dung do {@see BuildManifest} dựng từ path của panel ({@see PwaPanels::path()}); ở đây chỉ có kiểu
  * nội dung `application/manifest+json`.
  *
- * Route nằm ở `routes/pwa.php`, NGOÀI nhóm `web` và ngoài middleware của panel — lý do ở docblock
- * tệp đó. Tên panel đến từ `->defaults('panel', …)` của route, không từ URL người dùng gõ.
+ * Route nằm ở `routes/pwa.php`, NGOÀI nhóm `web` và ngoài chồng middleware có phiên của panel; route
+ * của `/admin` vẫn mang giới hạn IP (M8 R7) — lý do ở docblock tệp đó. Tên panel đến từ
+ * `->defaults('panel', …)` của route, không từ URL người dùng gõ.
  */
 final class ManifestController
 {
