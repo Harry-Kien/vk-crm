@@ -26,7 +26,7 @@ return [
 
     // Lệnh `vkcrm:mcp-prune-clients` (Task 3), người vận hành đọc.
     'prune' => [
-        'done' => 'Đã xoá :count client OAuth tạo qua đăng ký động (quá 30 ngày, không còn token nào sống).',
+        'done' => 'Đã xoá :count client OAuth tạo qua đăng ký động (quá 30 ngày tuổi, không còn access token, refresh token hay mã uỷ quyền nào sống).',
     ],
 
     'tools' => [

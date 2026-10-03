@@ -2876,11 +2876,13 @@ không chạy lại vòng migration thật.
   thứ 11 → 429 JSON `too_many_requests` kèm `Retry-After`, `X-RateLimit-Limit`, `X-RateLimit-Remaining`.
 - **Dọn client**: `vkcrm:mcp-prune-clients` (`App\Console\Commands\PruneMcpClients` →
   `App\Actions\Mcp\PruneStaleMcpClients`) xoá client `is_mcp` quá 30 ngày tuổi không còn access token,
-  refresh token hay mã uỷ quyền nào sống (chưa thu hồi, `expires_at` rỗng hoặc chưa tới), cùng mọi dòng
-  token chết của nó. Điều kiện được kiểm lại trong chính câu DELETE (test chạy đua bằng listener truy vấn).
-  Client không mang cờ không bao giờ bị dọn.
-- **Lịch** (`routes/console.php`, nối ở cuối): `passport:purge` 03:00 (`mcp.tokens.purge`), dọn client 03:15
-  (`mcp.clients.prune`), ghim giờ như M6.5 Task 14.
+  refresh token hay mã uỷ quyền nào sống (chưa thu hồi, `expires_at` rỗng hoặc chưa tới), cùng dòng token
+  chết của nó (refresh token nối qua dòng access token cấp cùng nó). Điều kiện được kiểm lại trong chính
+  câu DELETE (test chạy đua bằng listener truy vấn). Client không mang cờ không bao giờ bị dọn. Một kết nối
+  có refresh token còn sống giữ client của nó qua cặp lịch thật (purge rồi dọn), vì purge giữ dòng access
+  token chừng nào refresh token cấp cùng nó còn sống (xem phán quyết `--hours=888`).
+- **Lịch** (`routes/console.php`, nối ở cuối): `passport:purge --hours=888` 03:00 (`mcp.tokens.purge`), dọn
+  client 03:15 (`mcp.clients.prune`), ghim giờ và lệnh như M6.5 Task 14.
 - `.env.example`: `MCP_EXTRA_REDIRECT_URIS=`; lý lẽ §10.7 cho `POST oauth/register`
   (`StaffTwoFactorEscapeRoutesTest`).
 
@@ -2904,9 +2906,19 @@ không chạy lại vòng migration thật.
   `localhost` bỏ qua cổng.
 - **DCR không ghi nhật ký**: lời gọi vô danh (chưa có nhân sự), throttle theo IP, và một client mới không mở
   được gì khi chưa có nhân sự đồng ý. Kết nối được ghi ở màn hình đồng ý (Task 4).
-- **`passport:purge` chạy với mặc định**: xoá token và mã ĐÃ THU HỒI ngay, và cái hết hạn quá 7 ngày. Dòng
-  biến mất vẫn được Passport coi là đã thu hồi (`isRefreshTokenRevoked()` hỏi "có dòng chưa thu hồi
-  không"), nên refresh token cũ dùng lại vẫn nhận `invalid_grant`.
+- **`passport:purge` chạy với `--hours=888`, KHÔNG với mặc định 168** (vòng sửa 1, rà soát Task 3 I1): xoá
+  token và mã ĐÃ THU HỒI ngay, và cái hết hạn quá 888 giờ = hạn refresh token 30 ngày + 7 ngày giữ mặc định
+  của Passport (`PruneStaleMcpClients::tokenPurgeHours()`, đọc `Passport::refreshTokensExpireIn()`, làm tròn
+  lên). Lý do: refresh token chỉ nối về client qua dòng access token cấp cùng nó (`oauth_refresh_tokens`
+  không có `client_id`). Với mặc định, purge xoá dòng access token (hạn 1 giờ) của một kết nối mà nhân sự
+  nghỉ hơn 7 ngày (Tết); lượt dọn 03:15 không còn thấy refresh token đang sống, xoá client quá 30 ngày
+  tuổi, và lần làm mới kế tiếp của Claude nhận 401 `invalid_client` — nhân sự phải kết nối lại. Nay dòng
+  access token còn tới 169 giờ sau khi refresh token cấp cùng nó chết. Dòng biến mất vẫn được Passport coi
+  là đã thu hồi (`isRefreshTokenRevoked()` hỏi "có dòng chưa thu hồi không"), nên refresh token cũ dùng lại
+  vẫn nhận `invalid_grant`. Hai giả định, ghi ở docblock của `PruneStaleMcpClients`: dòng access token chỉ
+  bị thu hồi CÙNG refresh token của nó (league khi làm mới, `AuthorizedAccessTokenController::destroy()` của
+  Passport; màn hình ngắt kết nối của Task 15 phải làm như vậy), và hạn refresh token không bị rút ngắn sau
+  khi đã cấp. *Giá nếu sai:* nhân sự nghỉ 7–30 ngày phải kết nối lại AI; dòng `oauth_refresh_tokens` mồ côi.
 - Khoá nền tảng trong `mcp.redirect_uris` (`claude`, `chatgpt`, `loopback`, `vscode`, `cursor`,
   `antigravity`) chỉ để đọc; Task 8 có thể dùng chúng để suy nền tảng cho nhật ký (loopback dùng chung cho
   Claude Code, Cursor desktop và CLI nên không suy được tên duy nhất).
@@ -2921,7 +2933,8 @@ không chạy lại vòng migration thật.
   khoảng trắng đầu/cuối được lưu đã cắt, và client đó sau này authorize bằng URI chưa cắt thì league từ
   chối. Vô hại.
 - Cột `oauth_access_tokens.client_id` của Passport không có chỉ mục; truy vấn dọn quét bảng. Ổn ở quy mô một
-  văn phòng (token chết bị `passport:purge` xoá mỗi đêm).
+  văn phòng (token đã thu hồi — mọi cặp cũ sau mỗi lần làm mới — bị `passport:purge` xoá mỗi đêm; token hết
+  hạn còn tới 37 ngày sau hạn, thường chỉ một cặp cho mỗi kết nối).
 - Bẫy của bộ test (không phải của máy chủ thật): trong một test, `TokenGuard` (người dùng, client) và
   `Laravel\Passport\ClientRepository::find()` (`once()`, singleton) nhớ kết quả của request trước. Test gọi
   `/mcp` nhiều lần phải `Auth::forgetGuards()` và `Once::flush()` giữa hai request (`dcrInitialize()` của
@@ -2948,3 +2961,15 @@ skipped, như trước. MariaDB (tuần tự; ba tệp mới, `TransportTest`, `
 passed. Vòng migration thật trên `vk_crm_lane_m11` (`migrate:fresh --seed`, `migrate:reset`, `migrate`): EXIT
 0, cột `is_mcp tinyint(1) NOT NULL DEFAULT 0`; `vkcrm:mcp-prune-clients` chạy thật trên MariaDB và
 `schedule:list` hiện hai dòng 03:00 / 03:15. `pint --test`: PASS, 869 tệp.
+
+**Vòng sửa 1 (2026-10-03, rà soát Task 3 I1).** `passport:purge` theo lịch nay chạy `--hours=888`
+(`PruneStaleMcpClients::tokenPurgeHours()`), xem phán quyết ở trên. Đỏ trước khi sửa: 12 đỏ, 11 xanh (hai tệp:
+`PruneMcpClientsTest` thêm `pruneScheduledCommand()` đọc lệnh ĐÚNG NHƯ lịch, test "nghỉ 8 / 10 / 29 ngày":
+purge rồi dọn giữ client và Claude làm mới được 200, test "31 ngày": client bị xoá cùng access token và refresh
+token, không dòng mồ côi; `McpOAuthCleanupScheduleTest` ghim `passport:purge --hours=888` và sáu dòng cách tính
+giờ). Xanh: 23 passed. Mười phép mutation (bỏ `--hours`, tính theo hạn access token, bỏ 168 giờ, bỏ ngày,
+tháng 30 ngày, năm 365 ngày, `floor`, bỏ giờ, bỏ giây, bỏ phút): mỗi phép cho ít nhất một test đỏ, rồi khôi
+phục; bỏ `--hours` cùng phép kiểm dòng access token ở giữa thì ba test "nghỉ" đỏ ở chỗ client đã bị xoá. Cả bộ:
+EXIT 0, 3914 passed (3904 + 10), 1 risky, 1 todo, 25 skipped. MariaDB (tuần tự, hai tệp): 23 passed.
+`schedule:list` hiện `0 3 * * * php artisan passport:purge --hours=888`; chạy thật `passport:purge
+--hours=888` và `vkcrm:mcp-prune-clients` trên `vk_crm_lane_m11`. `pint --test`: PASS, 869 tệp.

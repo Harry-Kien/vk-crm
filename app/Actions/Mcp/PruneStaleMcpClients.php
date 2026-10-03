@@ -16,14 +16,28 @@ use Laravel\Passport\Passport;
  * Một client bị xoá khi đủ CẢ BA:
  * - mang cờ `is_mcp` — client tạo bằng `passport:client` (hay đường nào khác) không bao giờ bị đụng;
  * - tạo cách đây hơn {@see self::DAYS_WITHOUT_LIVE_TOKEN} ngày;
- * - không còn access token, refresh token (qua access token của nó) hay mã uỷ quyền nào CÒN SỐNG.
- *   "Còn sống" = chưa thu hồi (`revoked = false`) và chưa hết hạn (`expires_at` rỗng hoặc sau lúc
- *   chạy). Refresh token sống 30 ngày, lâu hơn access token 1 giờ, nên một kết nối đang dùng (Claude
- *   làm mới trước hạn) luôn giữ client của nó; mã uỷ quyền còn sống nghĩa là có người đang ở giữa
- *   màn hình đồng ý.
+ * - không còn access token, refresh token hay mã uỷ quyền nào CÒN SỐNG. "Còn sống" = chưa thu hồi
+ *   (`revoked = false`) và chưa hết hạn (`expires_at` rỗng hoặc sau lúc chạy). Mã uỷ quyền còn sống
+ *   nghĩa là có người đang ở giữa màn hình đồng ý.
  *
- * Cùng lần đó, mọi dòng token chết của client bị xoá (access token, refresh token của chúng, mã uỷ
- * quyền) — các bảng của Passport không có khoá ngoại nên không gì tự dọn chúng.
+ * Refresh token chỉ nối được về client QUA dòng access token cấp cùng nó (`oauth_refresh_tokens` không
+ * có `client_id`). Vì vậy lịch `passport:purge` (03:00, `routes/console.php`) chạy với `--hours=`
+ * {@see self::tokenPurgeHours()} (hạn refresh token + 7 ngày), KHÔNG với mặc định 168 giờ của Passport:
+ * dòng access token hết hạn chỉ bị purge xoá khi refresh token cấp cùng nó đã chết từ 169 giờ trước.
+ * Với mặc định, purge xoá dòng access token của một kết nối mà nhân sự chỉ nghỉ hơn 7 ngày, lượt dọn
+ * này không còn thấy refresh token đang sống, xoá client, và lần làm mới kế tiếp của Claude nhận
+ * `invalid_client` (rà soát Task 3, I1). Nhờ đó một kết nối có refresh token còn sống (nhân sự quay
+ * lại trong 30 ngày) luôn giữ client của nó, với hai giả định:
+ * - dòng access token chỉ bị THU HỒI cùng refresh token của nó (league thu hồi cả hai khi làm mới,
+ *   `AuthorizedAccessTokenController::destroy()` của Passport cũng vậy) — purge xoá dòng đã thu hồi
+ *   ngay, không chờ hạn; màn hình ngắt kết nối sau này (Task 15) phải thu hồi cả refresh token;
+ * - hạn refresh token không bị RÚT NGẮN sau khi token đã cấp (purge tính giờ giữ theo hạn hiện tại).
+ *
+ * Cùng lần đó, dòng token chết của client bị xoá: access token, refresh token nối qua chúng, mã uỷ
+ * quyền — các bảng của Passport không có khoá ngoại nên không gì tự dọn chúng. Một refresh token đã
+ * chết mà purge xoá mất dòng access token trước (client còn được token khác giữ lại, hay lượt dọn này
+ * không chạy, quá 169 giờ sau khi nó chết) không còn nối về client nào; purge xoá nó khi chính nó hết
+ * hạn quá {@see self::tokenPurgeHours()} giờ.
  *
  * Điều kiện được kiểm LẠI ngay trong câu `DELETE` (không chỉ lúc chọn): một token cấp cho client
  * giữa lúc chọn và lúc xoá giữ client lại. Token chỉ bị xoá theo client đã thật sự biến mất.
@@ -35,7 +49,29 @@ class PruneStaleMcpClients
 {
     public const DAYS_WITHOUT_LIVE_TOKEN = 30;
 
+    /** Giờ `passport:purge` giữ token đã hết hạn theo mặc định của Passport (`--hours=168`). */
+    public const PURGE_GRACE_HOURS = 168;
+
     private const CHUNK = 100;
+
+    /**
+     * Giá trị `--hours` của lịch `passport:purge` (`mcp.tokens.purge`): số giờ purge còn giữ token và
+     * mã ĐÃ HẾT HẠN. Bằng hạn refresh token (`Passport::refreshTokensExpireIn()`, 30 ngày = 720 giờ)
+     * cộng {@see self::PURGE_GRACE_HOURS} = 888. Hạn được làm tròn LÊN để không bao giờ ngắn hơn hạn
+     * thật: tháng tính 31 ngày, năm 366 ngày, phần dưới một giờ thành một giờ. Access token hết hạn 1
+     * giờ sau khi cấp, nên dòng của nó còn tới 169 giờ sau khi refresh token cấp cùng nó hết hạn.
+     */
+    public static function tokenPurgeHours(): int
+    {
+        $refreshTtl = Passport::refreshTokensExpireIn();
+
+        return $refreshTtl->y * 366 * 24
+            + $refreshTtl->m * 31 * 24
+            + $refreshTtl->d * 24
+            + $refreshTtl->h
+            + (int) ceil(($refreshTtl->i * 60 + $refreshTtl->s + $refreshTtl->f) / 3600)
+            + self::PURGE_GRACE_HOURS;
+    }
 
     /** @return int số client đã xoá */
     public function handle(): int

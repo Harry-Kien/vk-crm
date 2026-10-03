@@ -5,9 +5,13 @@ use App\Actions\Mcp\RegisterMcpClient;
 use App\Enums\Role;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Console\Scheduling\Event;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schedule;
+use Illuminate\Support\Once;
 use Illuminate\Support\Str;
 use Laravel\Passport\Client;
 use Laravel\Passport\Passport;
@@ -94,6 +98,23 @@ function pruneAuthCode(Client $client, array $attributes = []): string
 function pruneClientExists(Client $client): bool
 {
     return Passport::client()->newQuery()->whereKey($client->getKey())->exists();
+}
+
+/**
+ * Lệnh artisan ĐÚNG NHƯ lịch chạy nó — tác vụ tên `$name` ở `routes/console.php`, kèm mọi tham số —
+ * để test đi qua cặp lịch thật `mcp.tokens.purge` (03:00) rồi `mcp.clients.prune` (03:15), không phải
+ * `passport:purge` với mặc định của Passport.
+ */
+function pruneScheduledCommand(string $name): string
+{
+    $events = collect(Schedule::events())
+        ->filter(fn (Event $event) => $event->description === $name)
+        ->values();
+
+    expect($events)->toHaveCount(1, "phải có đúng một tác vụ lịch tên {$name}")
+        ->and(preg_match("/artisan'? (.+)$/", (string) $events->first()->command, $matches))->toBe(1);
+
+    return $matches[1];
 }
 
 it('R7 xoá client DCR quá 30 ngày (thêm 15 phút) không còn token nào; giữ client DCR thiếu 15 phút nữa mới đủ 30 ngày', function () {
@@ -256,4 +277,76 @@ it('R7 đường thật: client vừa đăng ký qua /oauth/register và cấp t
 
     expect(pruneClientExists($client))->toBeFalse()
         ->and(Passport::token()->newQuery()->where('client_id', $client->getKey())->exists())->toBeFalse();
+});
+
+/*
+ * Rà soát Task 3, I1 — cặp lịch thật `passport:purge` (03:00) rồi `vkcrm:mcp-prune-clients` (03:15).
+ * Refresh token chỉ nối được về client QUA dòng access token của nó (`oauth_refresh_tokens` không có
+ * `client_id`). Với mặc định của Passport (`--hours=168`), purge xoá dòng access token hết hạn quá 7
+ * ngày dù refresh token (30 ngày) của nó còn sống; lượt dọn 15 phút sau không còn thấy refresh token
+ * đó, xoá client, và lần làm mới kế tiếp của Claude nhận 401 `invalid_client` — nhân sự phải kết nối
+ * lại. Lệnh purge được lấy từ CHÍNH tác vụ lịch (kèm tham số), nên lịch đổi thì test này đổi theo.
+ *
+ * Hạn token do league tính theo đồng hồ HỆ THỐNG; `travel()` chỉ dời `now()` của Carbon (purge, dọn).
+ * Với refresh token, league so `expire_time` trong chính chuỗi token với `time()` thật, nên sau khi
+ * nhảy 29 ngày nó vẫn còn hạn như ngoài đời.
+ */
+it('R7 lịch thật: client DCR quá 30 ngày tuổi, nhân sự nghỉ vài ngày mà refresh token còn sống — purge 03:00 rồi dọn 03:15 giữ client và access token của nó, Claude quay lại làm mới được (200)', function (int $idleDays) {
+    $user = User::factory()->withRole(Role::Lawyer)->create();
+    $registered = $this->postJson('/oauth/register', ['client_name' => 'Claude', 'redirect_uris' => [McpOAuth::REDIRECT_URI]])->assertCreated();
+    $client = Passport::client()->newQuery()->findOrFail($registered->json('client_id'));
+    // Kết nối lập từ 40 ngày trước (client DCR tuổi đó); cặp token cuối vừa được cấp.
+    $client->forceFill(['created_at' => now()->subDays(40)])->save();
+
+    $tokens = McpOAuth::issueTokens($this, $user, $client);
+
+    $this->travel($idleDays)->days();
+
+    $this->artisan(pruneScheduledCommand('mcp.tokens.purge'))->assertSuccessful();
+
+    expect(Passport::token()->newQuery()->where('client_id', $client->getKey())->where('revoked', false)->exists())
+        ->toBeTrue('purge không được xoá dòng access token khi refresh token của nó còn sống');
+
+    $this->artisan(pruneScheduledCommand('mcp.clients.prune'))->assertSuccessful();
+
+    expect(pruneClientExists($client))->toBeTrue();
+
+    // Nhân sự quay lại: Claude làm mới ở một request mới (PHP-FPM không nhớ client của request trước).
+    Auth::forgetGuards();
+    Once::flush();
+
+    $this->post('/oauth/token', [
+        'grant_type' => 'refresh_token',
+        'client_id' => $client->getKey(),
+        'refresh_token' => $tokens['refresh_token'],
+    ])->assertOk()->assertJsonStructure(['access_token', 'refresh_token']);
+})->with([
+    'nghỉ 8 ngày (vừa quá 7 ngày purge giữ mặc định)' => [8],
+    'nghỉ 10 ngày (Tết)' => [10],
+    'nghỉ 29 ngày (refresh token còn 1 ngày)' => [29],
+]);
+
+it('R7 lịch thật: refresh token đã chết (31 ngày không dùng) — purge 03:00 rồi dọn 03:15 xoá client cùng access token VÀ refresh token của nó, không để dòng refresh token mồ côi', function () {
+    $user = User::factory()->withRole(Role::Lawyer)->create();
+    $registered = $this->postJson('/oauth/register', ['client_name' => 'Claude', 'redirect_uris' => [McpOAuth::REDIRECT_URI]])->assertCreated();
+    $client = Passport::client()->newQuery()->findOrFail($registered->json('client_id'));
+
+    McpOAuth::issueTokens($this, $user, $client);
+
+    $accessIds = Passport::token()->newQuery()->where('client_id', $client->getKey())->pluck('id')->all();
+    $refreshIds = Passport::refreshToken()->newQuery()->whereIn('access_token_id', $accessIds)->pluck('id')->all();
+
+    expect($accessIds)->toHaveCount(1)
+        ->and($refreshIds)->toHaveCount(1);
+
+    $this->travel(31)->days();
+
+    $this->artisan(pruneScheduledCommand('mcp.tokens.purge'))->assertSuccessful();
+    $this->artisan(pruneScheduledCommand('mcp.clients.prune'))
+        ->expectsOutputToContain(__('mcp.prune.done', ['count' => 1]))
+        ->assertSuccessful();
+
+    expect(pruneClientExists($client))->toBeFalse()
+        ->and(Passport::token()->newQuery()->whereKey($accessIds)->exists())->toBeFalse()
+        ->and(Passport::refreshToken()->newQuery()->whereKey($refreshIds)->exists())->toBeFalse();
 });
