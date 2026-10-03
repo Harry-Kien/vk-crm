@@ -27,5 +27,10 @@ class DemoDataSeeder extends Seeder
             ClientSeeder::class,
             MatterSeeder::class,
         ]);
+
+        // M10 Task 8 — tiếp nhận: SAU ba seeder trên (Đỏ trỏ vào khách hiện hữu, bản chuyển đổi gắn vào
+        // một khách đã có và thêm một vụ việc). Gọi riêng để làn khác thêm seeder vào danh sách trên mà
+        // không chạm dòng này.
+        $this->call(IntakeSeeder::class);
     }
 }

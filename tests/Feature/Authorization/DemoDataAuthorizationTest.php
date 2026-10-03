@@ -41,10 +41,13 @@ it('gives each role the reach the spec describes on the seeded office', function
      * scopeListableBy() họ bị loại — kế toán dừng lại ở 20 (tất cả vụ THƯỜNG), không còn bằng
      * $all nữa kể từ khi có vụ mật. Numbers xác nhận bằng
      * `bin/dev artisan tinker` trên chính bộ seeder này (xem task-10-report.md).
+     *
+     * M10 Task 8 thêm MỘT vụ THƯỜNG mở từ một lần tiếp nhận (`IntakeSeeder`, lead luatsu2 — không phải
+     * luatsu1, và luatsu1 không ở đội ngũ vụ đó): tổng lên 22, kế toán 21 (vụ thường), luatsu1 vẫn 9.
      */
-    expect($all)->toBe(21)
+    expect($all)->toBe(22)
         ->and(Matter::query()->listableBy($admin)->count())->toBe($all)
-        ->and(Matter::query()->listableBy($accountant)->count())->toBe(20)
+        ->and(Matter::query()->listableBy($accountant)->count())->toBe(21)
         ->and($lawyerMatters)->toBe(9)
         ->and($accountant->can('view', Matter::first()))->toBeFalse();
 

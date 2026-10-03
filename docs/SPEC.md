@@ -1328,6 +1328,18 @@ Seeder phải tạo được một môi trường demo dùng thật được nga
 
 Tài khoản demo ghi rõ trong `README.md`.
 
+**Đính chính 2026-10-03 (M10 Task 8 — tiếp nhận).** Thêm dữ liệu mẫu tiếp nhận (`IntakeSeeder`, gọi
+cuối `DemoDataSeeder`, nên không bao giờ chạy production qua `DatabaseSeeder`): 12 lần có người liên
+hệ, mỗi lần đi qua đúng các Action của mã sản phẩm, ở thời điểm "thật" của từng bước — bản ghi ở
+**mọi** trạng thái của `IntakeStatus`, **một cặp tiếp nhận đối nhau** (lần gọi sau ra Vàng vì lần gọi
+trước, nguồn dò thứ hai của §6.10), **một bản Đỏ** chờ trưởng phòng (bên đối lập là khách hiện hữu)
+và một bản đã bị từ chối vì xung đột, **một bản quá hạn phản hồi** lần đầu, **một bản đã ẩn danh** vì
+quá hạn lưu, và một bản đã chuyển thành vụ việc. Bản chuyển đổi gắn người liên hệ (một khách hiện hữu
+gọi về việc mới) vào hồ sơ khách ĐÃ CÓ, nên vẫn là 12 khách hàng, nhưng thêm **một vụ việc thứ 22**
+(sau 20 vụ của danh sách trên và vụ `restricted` của M2): một vụ vừa mở qua `OpenMatter`, có lead
+trong đội ngũ và 2 bên, **chưa có dòng `stage_logs` nào** — luật "3–8 dòng" ở trên là của các vụ
+`MatterSeeder` dựng, không phải của vụ này.
+
 ---
 
 ## 13. Milestone
