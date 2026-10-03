@@ -82,6 +82,11 @@ use Livewire\Attributes\Locked;
  * **Bản ghi đã xong việc** (`isClosedToChanges()`: đã gộp, đã ẩn danh, đã chuyển thành vụ): cả form chỉ
  * đọc, không nút Lưu, không hành động nào.
  *
+ * **Bản ghi đã từ chối** (`isClosedToIdentityEdits()`, fix vòng 1 — rà soát Task 3, C1): phần danh tính
+ * và phần bên đối lập chỉ đọc, không nút Lưu (nút đó chỉ lưu danh tính) — với mọi người, vì mọi lý do
+ * từ chối (R8). `UpdateIntakeIdentity` là cổng thật; ở đây chỉ để không ai gõ rồi mới bị từ chối. Các
+ * khối khác và các hành động trên đầu trang (gộp đi, theo luật của `MergeIntake`) giữ nguyên.
+ *
  * Không transaction ngoài (`hasDatabaseTransactions()` false): các Action tự quản transaction dưới khoá
  * `conflict-check`.
  */
@@ -123,8 +128,15 @@ class EditIntakeRequest extends EditRecord
                     ->columnSpanFull()
                     ->visible(fn (): bool => in_array($this->intake()->status, [IntakeStatus::Declined, IntakeStatus::Merged], true))
                     ->schema([View::make('filament.intake.decision')->viewData(fn (): array => $this->decisionViewData())]),
-                IntakeRequestForm::identitySection(editing: true),
-                IntakeRequestForm::partiesSection(editing: true),
+                // `dehydrated()`: khối khoá vẫn gửi giá trị đang có, để một lần lưu lọt tới (request sửa
+                // tay, hay bản ghi vừa bị gộp/từ chối ở tab khác) nhận đúng lời từ chối của Action, không
+                // phải lỗi "thiếu tên" vì các ô bị bỏ khỏi dữ liệu.
+                IntakeRequestForm::identitySection(editing: true)
+                    ->disabled(fn (): bool => $this->intake()->isClosedToIdentityEdits())
+                    ->dehydrated(),
+                IntakeRequestForm::partiesSection(editing: true)
+                    ->disabled(fn (): bool => $this->intake()->isClosedToIdentityEdits())
+                    ->dehydrated(),
                 Section::make(__('intake.sections.privacy'))
                     ->columnSpanFull()
                     ->schema([
@@ -218,7 +230,7 @@ class EditIntakeRequest extends EditRecord
     /** @return array<int, Action> */
     protected function getFormActions(): array
     {
-        return $this->intake()->isClosedToChanges() ? [] : parent::getFormActions();
+        return $this->intake()->isClosedToIdentityEdits() ? [] : parent::getFormActions();
     }
 
     protected function getHeaderActions(): array

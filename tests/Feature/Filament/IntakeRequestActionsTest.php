@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Intake\DeclineIntake;
 use App\Actions\Intake\RecordIntake;
 use App\Actions\Intake\RecordPrivacyNotice;
 use App\Actions\Intake\RerunIntakeConflictCheck;
@@ -8,6 +9,7 @@ use App\Enums\IntakeSource;
 use App\Enums\IntakeStatus;
 use App\Enums\PartyRole;
 use App\Enums\Role;
+use App\Filament\Admin\Resources\IntakeRequests\Pages\CreateIntakeRequest;
 use App\Filament\Admin\Resources\IntakeRequests\Pages\EditIntakeRequest;
 use App\Models\Client;
 use App\Models\IntakeParty;
@@ -408,9 +410,13 @@ it('asks for a reason before declining', function () {
 
 it('does not let an assistant launder a red by merging it into a green record of the same person', function () {
     $assistant = iraStaff();
-    $red = iraRedIntake($assistant);
-    $green = iraRecord($assistant, ['contact_phone' => '0901777888']);
+    // Cùng người = cùng số, cùng vai (fix vòng 1: trợ lý chỉ gộp một bản đang khoá cuộc gọi lại vào
+    // một bản bắt được đúng các cuộc gọi lại đó). Bản Xanh ghi TRƯỚC, nên nó không bị khoá theo bản Đỏ.
+    $green = iraRecord($assistant, ['contact_phone' => '0832 270 898']);
     app(RecordPrivacyNotice::class)->handle($assistant, $green, true);
+    $red = iraRedIntake($assistant);
+
+    expect($green->fresh()->hasUnresolvedRed())->toBeFalse();
 
     $this->actingAs($assistant, 'web');
     iraEdit($red)
@@ -632,3 +638,271 @@ function iraFormActionNames(IntakeRequest $intake): array
 
     return array_map(fn ($action): string => $action->getName(), (fn (): array => $this->getFormActions())->call($page));
 }
+
+// ---------------------------------------------------------------- fix vòng 1 (rà soát Task 3, C1)
+//
+// Khoá người gọi lại (fix vòng 1 của Task 2, C1) đọc hai điều của lần gọi TRƯỚC: nó còn mở, và nó còn
+// SĐT/CCCD + vai của người gọi. Gộp (bản nguồn rời `openForConflictCheck()`) và sửa danh tính (đổi
+// SĐT/CCCD/vai) là hai đường bỏ một trong hai điều đó. Các test dưới đây kết thúc bằng cùng một câu
+// hỏi, qua màn hình: trợ lý B ghi cuộc gọi lại của người đó — ô câu chuyện có còn khoá như Đỏ không?
+
+/** Lần gọi đầu: Đỏ (bên đối lập là khách hiện hữu), quản lý đã từ chối VÌ XUNG ĐỘT. */
+function iraDeclinedForConflict(User $creator): IntakeRequest
+{
+    $intake = iraRedIntake($creator);
+    app(DeclineIntake::class)->handle(iraStaff(Role::Manager), $intake, 'Bên kia là khách hiện hữu', true);
+
+    return $intake->fresh();
+}
+
+/**
+ * Cuộc gọi lại của cùng người, ghi QUA TRANG TẠO: cùng số (dạng gõ khác), cùng vai, không nhắc lại
+ * bên đối lập — đúng kịch bản C1 của Task 2.
+ */
+function iraCallbackThroughScreen(User $actor): IntakeRequest
+{
+    test()->actingAs($actor, 'web');
+    test()->livewire(CreateIntakeRequest::class)
+        ->fillForm([
+            'contact_name' => 'Người Gọi Lần Sau',
+            'contact_phone' => '+84 832 270 898',
+            'contact_role' => PartyRole::Plaintiff->value,
+            'source' => IntakeSource::Phone->value,
+            'privacy_notice' => true,
+            'parties' => [],
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    return IntakeRequest::query()->where('contact_name', 'Người Gọi Lần Sau')->sole();
+}
+
+/** Ô câu chuyện của cuộc gọi lại khoá như Đỏ, chờ quản lý — nhìn từ trang của người ghi nó. */
+function iraAssertCallbackLocked(User $actor, IntakeRequest $callback): void
+{
+    test()->actingAs($actor, 'web');
+    iraEdit($callback)
+        ->assertSee(__('enums.intake_summary_blocker.conflict_red'))
+        ->assertFormFieldIsDisabled('summary');
+
+    expect($callback->fresh()->hasUnresolvedRed())->toBeTrue();
+}
+
+it('refuses an assistant the merge of a record declined for a conflict into a record with another number, so the callback stays locked', function () {
+    $assistantA = iraStaff();
+    $first = iraDeclinedForConflict($assistantA);
+    $other = iraRecord($assistantA, ['contact_phone' => '0901777888']);
+
+    $this->actingAs($assistantA, 'web');
+    iraEdit($first)
+        ->callAction('merge', data: ['merge_target' => $other->id])
+        ->assertHasActionErrors(['merge_target']);
+
+    expect($first->fresh()->status)->toBe(IntakeStatus::Declined)
+        ->and($first->fresh()->merged_into_id)->toBeNull()
+        ->and($other->parties()->count())->toBe(0);
+
+    $assistantB = iraStaff();
+    iraAssertCallbackLocked($assistantB, iraCallbackThroughScreen($assistantB));
+});
+
+it('refuses an assistant the merge of a pending red into a record with another number', function () {
+    $assistant = iraStaff();
+    $red = iraRedIntake($assistant);
+    $other = iraRecord($assistant, ['contact_phone' => '0901777888']);
+
+    $this->actingAs($assistant, 'web');
+    iraEdit($red)
+        ->callAction('merge', data: ['merge_target' => $other->id])
+        ->assertHasActionErrors(['merge_target' => __('intake.errors.merge_drops_caller')]);
+
+    expect($red->fresh()->status)->toBe(IntakeStatus::New)
+        ->and($other->fresh()->conflict_red_pending_since)->toBeNull();
+});
+
+it('answers the merge of a declined record the same way whatever the reason, so the refusal does not tell an assistant it was a conflict', function () {
+    $assistant = iraStaff();
+    $ordinary = iraRecord($assistant, ['contact_phone' => '0901000001']);
+    app(DeclineIntake::class)->handle($assistant, $ordinary, 'Ngoài lĩnh vực', false);
+    $conflict = iraRecord($assistant, ['contact_phone' => '0901000002']);
+    app(DeclineIntake::class)->handle(iraStaff(Role::Manager), $conflict, 'Bên kia là khách hiện hữu', true);
+    $target = iraRecord($assistant, ['contact_phone' => '0901000009']);
+
+    $this->actingAs($assistant, 'web');
+    $errorOf = fn (IntakeRequest $source): array => iraEdit($source->fresh())
+        ->callAction('merge', data: ['merge_target' => $target->id])
+        ->assertHasActionErrors(['merge_target'])
+        ->errors()->get('mountedActions.0.data.merge_target');
+
+    expect($errorOf($ordinary))->toBe($errorOf($conflict))
+        ->and($errorOf($ordinary))->toBe([__('intake.errors.merge_drops_caller')])
+        ->and($ordinary->fresh()->status)->toBe(IntakeStatus::Declined)
+        ->and($conflict->fresh()->status)->toBe(IntakeStatus::Declined);
+});
+
+it('lets an assistant merge a record declined for a conflict into a record of the same caller, and the callback stays locked through it', function () {
+    $assistantA = iraStaff();
+    // Bản đích ghi TRƯỚC (cùng số, cùng vai, Xanh), rồi lần gọi Đỏ bị từ chối vì xung đột.
+    $sameCaller = iraRecord($assistantA, ['contact_phone' => '0832 270 898']);
+    $first = iraDeclinedForConflict($assistantA);
+
+    $this->actingAs($assistantA, 'web');
+    iraEdit($first)
+        ->callAction('merge', data: ['merge_target' => $sameCaller->id])
+        ->assertHasNoErrors();
+
+    expect($first->fresh()->status)->toBe(IntakeStatus::Merged)
+        ->and($sameCaller->fresh()->hasUnresolvedRed())->toBeTrue();
+
+    $assistantB = iraStaff();
+    iraAssertCallbackLocked($assistantB, iraCallbackThroughScreen($assistantB));
+});
+
+it('lets a manager merge a record declined for a conflict into a record with another number', function () {
+    $assistant = iraStaff();
+    $first = iraDeclinedForConflict($assistant);
+    $other = iraRecord($assistant, ['contact_phone' => '0901777888']);
+
+    $this->actingAs(iraStaff(Role::Manager), 'web');
+    iraEdit($first)
+        ->callAction('merge', data: ['merge_target' => $other->id])
+        ->assertHasNoErrors();
+
+    expect($first->fresh()->status)->toBe(IntakeStatus::Merged)
+        ->and($other->fresh()->hasUnresolvedRed())->toBeTrue();
+});
+
+it('shows the identity of a declined record read-only, saves nothing from a forged save, and the callback stays locked', function () {
+    $assistantA = iraStaff();
+    $first = iraDeclinedForConflict($assistantA);
+
+    $this->actingAs($assistantA, 'web');
+    iraEdit($first)
+        ->assertFormFieldIsDisabled('contact_phone')
+        ->assertFormFieldIsDisabled('contact_name')
+        ->assertFormFieldIsDisabled('contact_role')
+        ->assertFormFieldIsDisabled('parties');
+
+    expect(iraFormActionNames($first))->toBe([]);
+
+    iraEdit($first)
+        ->fillForm(['contact_phone' => '0901777888'])
+        ->call('save')
+        ->assertNotified(__('actions.failed_title'));
+
+    expect($first->fresh()->contact_phone_normalized)->toBe('84832270898');
+
+    $assistantB = iraStaff();
+    iraAssertCallbackLocked($assistantB, iraCallbackThroughScreen($assistantB));
+});
+
+it('shows the identity of a record declined for an ordinary reason read-only too, the same as one declined for a conflict', function () {
+    $assistant = iraStaff();
+    $intake = iraRecord($assistant, ['contact_phone' => '0901000001']);
+    app(DeclineIntake::class)->handle($assistant, $intake, 'Ngoài lĩnh vực', false);
+
+    $this->actingAs($assistant, 'web');
+    iraEdit($intake->fresh())
+        ->assertFormFieldIsDisabled('contact_phone')
+        ->assertFormFieldIsDisabled('contact_name')
+        ->assertFormFieldIsDisabled('parties')
+        ->assertDontSee(__('intake.fields.caller_keys_locked_help'))
+        ->fillForm(['contact_name' => 'Đổi Sau Khi Từ Chối'])
+        ->call('save')
+        ->assertNotified(__('actions.failed_title'));
+
+    expect(iraFormActionNames($intake->fresh()))->toBe([])
+        ->and($intake->fresh()->contact_name)->toBe('Người Gọi Mẫu');
+});
+
+it('keeps the phone, ID number and role of a record with a pending red out of an assistant\'s reach, not the name, and the callback stays locked', function () {
+    $assistantA = iraStaff();
+    $red = iraRedIntake($assistantA, ['contact_id_number' => '079123456789']);
+
+    $this->actingAs($assistantA, 'web');
+    iraEdit($red)
+        ->assertFormFieldIsDisabled('contact_phone')
+        ->assertFormFieldIsDisabled('contact_id_number')
+        ->assertFormFieldIsDisabled('contact_role')
+        ->assertFormFieldIsEnabled('contact_name')
+        ->assertSee(__('intake.fields.caller_keys_locked_help'));
+
+    iraEdit($red)
+        ->fillForm(['contact_phone' => '0901777888'])
+        ->call('save')
+        ->assertHasFormErrors(['contact_phone']);
+
+    iraEdit($red)
+        ->fillForm(['contact_role' => PartyRole::Related->value])
+        ->call('save')
+        ->assertHasFormErrors(['contact_role']);
+
+    expect($red->fresh()->contact_phone_normalized)->toBe('84832270898')
+        ->and($red->fresh()->contact_role)->toBe(PartyRole::Plaintiff);
+
+    iraEdit($red)
+        ->fillForm(['contact_name' => 'Người Gọi Đã Sửa Tên'])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($red->fresh()->contact_name)->toBe('Người Gọi Đã Sửa Tên');
+
+    $assistantB = iraStaff();
+    iraAssertCallbackLocked($assistantB, iraCallbackThroughScreen($assistantB));
+});
+
+it('leaves an empty phone or ID number of a record with a pending red open to the assistant, who can fill it in', function (array $recorded, string $open, string $locked, string $typed, string $column, string $stored) {
+    $assistant = iraStaff();
+    $red = iraRedIntake($assistant, $recorded);
+
+    $this->actingAs($assistant, 'web');
+    $page = iraEdit($red)
+        ->assertFormFieldIsEnabled($open)
+        ->assertFormFieldIsDisabled($locked)
+        ->assertFormFieldIsDisabled('contact_role');
+
+    // Câu "chỉ trưởng phòng… đổi được ô này" dưới đúng hai ô khoá (ô còn lại và vai), không dưới ô mở.
+    expect(substr_count($page->html(), __('intake.fields.caller_keys_locked_help')))->toBe(2);
+
+    $page->fillForm([$open => $typed])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    $stored = $column === 'contact_id_number_hash' ? Normalizer::idNumberHash($stored) : $stored;
+
+    expect($red->fresh()->{$column})->toBe($stored)
+        ->and($red->fresh()->hasUnresolvedRed())->toBeTrue();
+})->with([
+    'no ID number yet' => [[], 'contact_id_number', 'contact_phone', '079123456789', 'contact_id_number_hash', '079123456789'],
+    'no phone yet' => [['contact_phone' => null, 'contact_email' => 'goi@example.com', 'contact_id_number' => '079123456789'], 'contact_phone', 'contact_id_number', '0832270898', 'contact_phone_normalized', '84832270898'],
+]);
+
+it('lets a manager change the phone of a record with a pending red', function () {
+    $red = iraRedIntake(iraStaff());
+
+    $this->actingAs(iraStaff(Role::Manager), 'web');
+    iraEdit($red)
+        ->assertFormFieldIsEnabled('contact_phone')
+        ->assertDontSee(__('intake.fields.caller_keys_locked_help'))
+        ->fillForm(['contact_phone' => '0901777888'])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($red->fresh()->contact_phone_normalized)->toBe('84901777888');
+});
+
+it('leaves the phone and role of a record with no pending red to the assistant who recorded it', function () {
+    $assistant = iraStaff();
+    $intake = iraRecord($assistant);
+
+    $this->actingAs($assistant, 'web');
+    iraEdit($intake)
+        ->assertFormFieldIsEnabled('contact_phone')
+        ->assertFormFieldIsEnabled('contact_role')
+        ->assertDontSee(__('intake.fields.caller_keys_locked_help'))
+        ->fillForm(['contact_phone' => '0901777888'])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($intake->fresh()->contact_phone_normalized)->toBe('84901777888');
+});

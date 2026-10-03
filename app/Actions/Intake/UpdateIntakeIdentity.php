@@ -4,6 +4,7 @@ namespace App\Actions\Intake;
 
 use App\Actions\Intake\Concerns\HoldsConflictCheckLock;
 use App\Actions\Intake\Concerns\ValidatesIntakeIdentity;
+use App\Enums\PartyRole;
 use App\Models\IntakeParty;
 use App\Models\IntakeRequest;
 use App\Models\User;
@@ -39,6 +40,17 @@ use Illuminate\Validation\ValidationException;
  * đã gộp, đã ẩn danh, đã chuyển thành vụ) bị từ chối. Câu đầu tiên của transaction là lần đọc có khoá
  * dòng bản ghi (luật dự án).
  *
+ * **Sửa danh tính không được là đường rửa khoá người gọi lại (fix vòng 1 của Task 3, rà soát C1).**
+ * Khoá đó ({@see IntakeRequest::sameCallerIntakes()}) nhận ra một cuộc gọi lại theo SĐT chuẩn hoá/dấu
+ * băm CCCD và vai ĐÃ KHAI của lần gọi trước — đổi ba thứ đó trên lần gọi trước là thả mọi cuộc gọi lại.
+ *  - Bản đã bị từ chối ({@see IntakeRequest::isClosedToIdentityEdits()}): không sửa gì ở phần danh
+ *    tính, với bất kỳ ai, vì bất kỳ lý do từ chối nào (một câu cho mọi lý do, R8).
+ *  - Bản đang khoá cuộc gọi lại (Đỏ chưa xử lý): người không xử lý được Đỏ không đổi hay xoá được SĐT,
+ *    CCCD, vai ĐÃ CÓ ({@see self::guardsCallerKeys()}); thêm cái còn trống, gõ lại cùng số, và mọi ô
+ *    khác (tên, email, bên đối lập…) vẫn sửa được — phán quyết fix vòng 1 của Task 2 "người không phải
+ *    quản lý VẪN sửa được danh tính và bên đối lập của một bản Đỏ" chỉ hẹp lại ở đúng ba ô này. Quản
+ *    lý/admin đổi được (họ là người xử lý Đỏ).
+ *
  * Nhật ký: bản ghi tự động của model tắt (nó lấy causer theo phiên); dòng `intake_identity_updated`
  * mang causer = actor và CHỈ TÊN các ô đã đổi (`contact_id_number` thay cho cột dấu băm), số bên đối
  * lập, và lần này có kiểm tra lại hay không — không bao giờ giá trị (R7: ẩn danh phải phủ được nhật
@@ -68,6 +80,10 @@ class UpdateIntakeIdentity
                 throw ValidationException::withMessages(['intake' => [__('intake.errors.record_final')]]);
             }
 
+            if ($locked->isClosedToIdentityEdits()) {
+                throw ValidationException::withMessages(['intake' => [__('intake.errors.identity_declined')]]);
+            }
+
             $existing = $locked->parties()->get()->keyBy('id');
 
             foreach ($data['parties'] as $party) {
@@ -76,6 +92,7 @@ class UpdateIntakeIdentity
                 }
             }
 
+            $guardedKeys = static::guardsCallerKeys($actor, $locked) ? static::callerKeys($locked) : null;
             $previousHash = $locked->contact_id_number_hash;
 
             $locked->fill([
@@ -93,6 +110,10 @@ class UpdateIntakeIdentity
 
             if ($data['contact_id_number'] === null) {
                 $locked->contact_id_number_hash = $previousHash;
+            }
+
+            if ($guardedKeys !== null) {
+                $this->refuseDroppedCallerKeys($guardedKeys, $locked);
             }
 
             $changed = $this->changedFields($locked);
@@ -121,6 +142,64 @@ class UpdateIntakeIdentity
 
             return $result;
         }));
+    }
+
+    /**
+     * Người này có bị giữ ngoài SĐT, CCCD và vai của người liên hệ trên bản ghi này không (fix vòng 1 —
+     * rà soát Task 3, C1): bản ghi đang khoá các lần gọi lại của cùng người
+     * ({@see IntakeRequest::locksRepeatCalls()}) và người này không xử lý được Đỏ
+     * (`IntakeRequestPolicy::resolveConflict`). MỘT định nghĩa cho lời từ chối của Action và, qua
+     * {@see self::guardsCallerKey()}, cho các ô bị khoá trên form sửa (`IntakeRequestForm`).
+     */
+    public static function guardsCallerKeys(User $actor, IntakeRequest $intake): bool
+    {
+        return $intake->locksRepeatCalls() && Gate::forUser($actor)->denies('resolveConflict', $intake);
+    }
+
+    /**
+     * Một ô cụ thể (`contact_phone`, `contact_id_number` hoặc `contact_role`) có bị giữ khỏi người này
+     * không: {@see self::guardsCallerKeys()} VÀ ô đó ĐÃ CÓ giá trị đã lưu — đúng điều kiện mà
+     * {@see self::refuseDroppedCallerKeys()} từ chối một thay đổi (ô còn trống thì thêm được). Form
+     * trang sửa (`IntakeRequestForm`) khoá từng ô theo hàm này, để ô nó mở là ô Action nhận.
+     */
+    public static function guardsCallerKey(User $actor, IntakeRequest $intake, string $field): bool
+    {
+        return static::callerKeys($intake)[$field] !== null && static::guardsCallerKeys($actor, $intake);
+    }
+
+    /**
+     * Ba thông tin mà khoá người gọi lại đọc ở lần gọi trước ({@see IntakeRequest::sameCallerIntakes()}),
+     * theo tên Ô trên form.
+     *
+     * @return array{contact_phone: ?string, contact_id_number: ?string, contact_role: ?PartyRole}
+     */
+    private static function callerKeys(IntakeRequest $intake): array
+    {
+        return [
+            'contact_phone' => $intake->contact_phone_normalized,
+            'contact_id_number' => $intake->contact_id_number_hash,
+            'contact_role' => $intake->contact_role,
+        ];
+    }
+
+    /**
+     * Từ chối khi một thông tin ĐÃ CÓ bị đổi hoặc xoá — tức các lần gọi lại theo giá trị cũ không còn
+     * ghép được với bản này. Thêm một thông tin còn trống, hay gõ lại cùng một số theo dạng khác (cùng
+     * dạng chuẩn hoá), thì không: bản này chỉ bắt được NHIỀU lần gọi lại hơn. Lỗi gắn vào đúng ô.
+     *
+     * @param  array<string, mixed>  $before
+     */
+    private function refuseDroppedCallerKeys(array $before, IntakeRequest $intake): void
+    {
+        $dropped = array_keys(array_filter(
+            static::callerKeys($intake),
+            fn (mixed $now, string $field): bool => $before[$field] !== null && $now !== $before[$field],
+            ARRAY_FILTER_USE_BOTH,
+        ));
+
+        if ($dropped !== []) {
+            throw ValidationException::withMessages(array_fill_keys($dropped, [__('intake.errors.caller_keys_locked')]));
+        }
     }
 
     /**

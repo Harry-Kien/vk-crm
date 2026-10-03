@@ -64,6 +64,11 @@ return [
         'merge_too_many_parties' => 'Gộp sẽ làm bản ghi được chọn có hơn :max bên đối lập. Gỡ các bên trùng hoặc không cần ở một trong hai bản ghi rồi gộp lại.',
         'phone_invalid' => 'Số điện thoại không hợp lệ.',
         'phone_too_long' => 'Số điện thoại quá dài: tính cả mã nước 84 thì vượt 20 chữ số.',
+        // M10 Task 3, fix vòng 1: khoá người gọi lại không được rửa bằng gộp hay sửa danh tính. Câu
+        // về bản đã từ chối giống nhau cho mọi lý do từ chối (R8).
+        'identity_declined' => 'Bản ghi này đã bị từ chối nên phần danh tính không sửa được nữa.',
+        'caller_keys_locked' => 'Bản ghi này còn xung đột mức đỏ chờ trưởng phòng hoặc quản trị xử lý: chỉ họ đổi hoặc xoá được số điện thoại, số căn cước và vai đã ghi của người liên hệ, vì văn phòng nhận ra người này gọi lại theo đúng ba thông tin đó.',
+        'merge_drops_caller' => 'Bản ghi này chỉ gộp được vào một bản ghi cùng vai, cùng số điện thoại và số căn cước của người liên hệ, để văn phòng vẫn nhận ra khi người này gọi lại. Muốn gộp vào bản ghi khác, nhờ trưởng phòng hoặc quản trị.',
     ],
 
     /*
@@ -87,6 +92,7 @@ return [
         'contact_id_number_help_edit' => 'Để trống để giữ dạng mã hoá đã lưu (nếu có). Nhập số mới để thay.',
         'contact_role' => 'Vai dự kiến của người liên hệ',
         'contact_role_help' => 'Người liên hệ định là nguyên đơn, bị đơn hay người liên quan. Vai quyết định bên nào là bên đối lập.',
+        'caller_keys_locked_help' => 'Bản ghi còn xung đột mức đỏ chờ xử lý: chỉ trưởng phòng hoặc quản trị đổi được ô này.',
         'source' => 'Nguồn liên hệ',
         'referred_by' => 'Người giới thiệu',
         'matter_type_id' => 'Lĩnh vực dự kiến',

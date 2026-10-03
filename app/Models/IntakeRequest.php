@@ -279,6 +279,20 @@ class IntakeRequest extends Model
     }
 
     /**
+     * PHẦN DANH TÍNH không sửa được nữa (M10 Task 3, fix vòng 1 — rà soát Task 3, C1): bản ghi đã xong
+     * việc ({@see self::isClosedToChanges()}) HOẶC đã bị từ chối, vì bất kỳ lý do nào, với bất kỳ ai.
+     * Từ chối là một quyết định trên đúng danh tính đó; với từ chối vì xung đột, SĐT/CCCD + vai của nó
+     * là thứ khoá các lần gọi lại của cùng người ({@see self::locksRepeatCalls()}) — đổi chúng là rửa
+     * khoá. "Mọi lý do" để một câu từ chối không cho người không có `intake.viewAny` biết đó là xung đột
+     * (R8). Bản đã từ chối vẫn gộp đi được theo luật của `MergeIntake`, và vẫn nhận gộp vào (chỉ THÊM
+     * bên đối lập và dấu Đỏ); `UpdateIntakeIdentity` và form trang sửa đọc hàm này.
+     */
+    public function isClosedToIdentityEdits(): bool
+    {
+        return $this->isClosedToChanges() || $this->status === IntakeStatus::Declined;
+    }
+
+    /**
      * Một ghi đè Đỏ còn hiệu lực: có người ghi đè VÀ có lý do (R1 — lý do bắt buộc). Thiếu một trong
      * hai thì không phải ghi đè.
      */
@@ -349,6 +363,29 @@ class IntakeRequest extends Model
                 ->when($hash, fn (Builder $w) => $w->orWhere('contact_id_number_hash', $hash))
                 ->when($phone, fn (Builder $w) => $w->orWhere('contact_phone_normalized', $phone)))
             ->get();
+    }
+
+    /**
+     * Mọi cuộc gọi lại mà {@see self::sameCallerIntakes()} ghép với `$earlier` thì cũng ghép với bản
+     * này (M10 Task 3, fix vòng 1 — rà soát Task 3, C1: gộp không được là đường rửa Đỏ thứ hai). Phép
+     * ghép đọc ở lần gọi trước: vai ĐÃ KHAI, và SĐT chuẩn hoá HOẶC dấu băm CCCD. Nên đúng khi:
+     *  - `$earlier` chưa khai vai, hoặc không có SĐT lẫn CCCD — không cuộc gọi lại nào ghép được với nó,
+     *    nên không có gì để mất; hoặc
+     *  - bản này cùng vai đã khai, VÀ mang đúng từng định danh `$earlier` có: SĐT chuẩn hoá nếu
+     *    `$earlier` có SĐT, dấu băm CCCD nếu `$earlier` có CCCD (bản này có thêm định danh khác thì
+     *    không sao — nó chỉ bắt được NHIỀU cuộc gọi lại hơn).
+     * Không xét việc bản này còn mở hay không: `MergeIntake` đã từ chối một bản đích đã xong việc.
+     */
+    public function catchesRepeatCallsOf(IntakeRequest $earlier): bool
+    {
+        if ($earlier->contact_role === null
+            || ($earlier->contact_phone_normalized === null && $earlier->contact_id_number_hash === null)) {
+            return true;
+        }
+
+        return $this->contact_role === $earlier->contact_role
+            && ($earlier->contact_phone_normalized === null || $earlier->contact_phone_normalized === $this->contact_phone_normalized)
+            && ($earlier->contact_id_number_hash === null || $earlier->contact_id_number_hash === $this->contact_id_number_hash);
     }
 
     /**

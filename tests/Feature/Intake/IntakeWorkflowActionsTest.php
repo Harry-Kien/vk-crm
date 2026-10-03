@@ -449,7 +449,8 @@ it('carries a pending red of the merged record onto the target, keeping the earl
     $this->travelBack();
     $target = iwaRecord($assistant, ['contact_phone' => '0901000002']);
 
-    app(MergeIntake::class)->handle($assistant, $red, $target);
+    // Khác số: chỉ quản lý/admin gộp được một bản đang khoá cuộc gọi lại vào đây (fix vòng 1).
+    app(MergeIntake::class)->handle(iwaStaff(Role::Manager), $red, $target);
 
     expect($target->fresh()->conflict_red_pending_since?->toDateTimeString())
         ->toBe($red->conflict_red_pending_since->toDateTimeString());
@@ -463,7 +464,7 @@ it('keeps the earlier pending time of the target when the target was red first',
     $source = iwaRecord($assistant, ['contact_phone' => '0901000001']);
     $source->forceFill(['decline_reason_is_conflict' => true])->save();
 
-    app(MergeIntake::class)->handle($assistant, $source->fresh(), $target);
+    app(MergeIntake::class)->handle(iwaStaff(Role::Manager), $source->fresh(), $target);
 
     expect($target->fresh()->conflict_red_pending_since?->toDateTimeString())
         ->toBe($target->conflict_red_pending_since->toDateTimeString());
@@ -475,7 +476,7 @@ it('marks the target red pending when the merged record was declined for a confl
     $source->forceFill(['decline_reason_is_conflict' => true])->save();
     $target = iwaRecord($assistant, ['contact_phone' => '0901000002']);
 
-    app(MergeIntake::class)->handle($assistant, $source->fresh(), $target);
+    app(MergeIntake::class)->handle(iwaStaff(Role::Manager), $source->fresh(), $target);
 
     expect($target->fresh()->hasUnresolvedRed())->toBeTrue();
 });
@@ -484,11 +485,14 @@ it('does not mark the target when the merged record holds no red and was not dec
     $assistant = iwaStaff();
     $source = iwaRecord($assistant, ['contact_phone' => '0901000001']);
     $source->forceFill(['status' => IntakeStatus::Declined, 'decline_reason' => 'Khác', 'decline_reason_is_conflict' => false])->save();
-    $target = iwaRecord($assistant, ['contact_phone' => '0901000002']);
+    // Cùng số, cùng vai: trợ lý gộp được một bản đã từ chối chỉ vào bản bắt được cùng các cuộc gọi lại
+    // (fix vòng 1).
+    $target = iwaRecord($assistant, ['contact_phone' => '0901000001']);
 
     app(MergeIntake::class)->handle($assistant, $source->fresh(), $target);
 
-    expect($target->fresh()->conflict_red_pending_since)->toBeNull();
+    expect($source->fresh()->status)->toBe(IntakeStatus::Merged)
+        ->and($target->fresh()->conflict_red_pending_since)->toBeNull();
 });
 
 it('refuses to merge a record into itself, into a closed target, or a closed source', function (string $case) {
@@ -716,3 +720,162 @@ it('refuses to decline an anonymised record even while its status is still open'
 
     expect($intake->fresh()->status)->toBe(IntakeStatus::New);
 });
+
+// ---------------------------------------------------------------- fix vòng 1 (rà soát Task 3, C1)
+//
+// Khoá người gọi lại (`IntakeRequest::sameCallerIntakes()`) đọc ở lần gọi TRƯỚC: còn mở, cùng vai đã
+// khai, cùng SĐT chuẩn hoá hoặc dấu băm CCCD. Gộp bản đó đi (nó rời `openForConflictCheck()`) hoặc đổi
+// ba thông tin đó là bỏ khoá — trừ khi người làm là người xử lý Đỏ (`resolveConflict`).
+
+/** Bản nguồn theo `$state`: Đỏ chưa xử lý; từ chối vì xung đột; từ chối vì lý do thường. */
+function iwaSource(User $assistant, string $state, array $overrides = []): IntakeRequest
+{
+    if ($state === 'pending red') {
+        return iwaRed($assistant, $overrides)->fresh();
+    }
+
+    $intake = iwaRecord($assistant, $overrides);
+
+    $state === 'declined for a conflict'
+        ? app(DeclineIntake::class)->handle(iwaStaff(Role::Manager), $intake, 'Xung đột', true)
+        : app(DeclineIntake::class)->handle($assistant, $intake, 'Ngoài lĩnh vực', false);
+
+    return $intake->fresh();
+}
+
+it('refuses an assistant the merge of a record that locks repeat calls, or of a declined one, into a record that would not catch the same callbacks', function (string $state, array $source, array $target) {
+    $assistant = iwaStaff();
+    // Bản đích ghi TRƯỚC: nó không bị khoá theo bản nguồn ở lần ghi của nó.
+    $target = iwaRecord($assistant, $target);
+    $source = iwaSource($assistant, $state, $source);
+    $statusBefore = $source->status;
+
+    expect(fn () => app(MergeIntake::class)->handle($assistant, $source, $target->fresh()))
+        ->toThrow(ValidationException::class, __('intake.errors.merge_drops_caller'));
+
+    expect($source->fresh()->status)->toBe($statusBefore)
+        ->and($source->fresh()->merged_into_id)->toBeNull()
+        ->and(Activity::query()->where('event', 'intake_merged')->exists())->toBeFalse();
+})->with([
+    'pending red → another phone' => ['pending red', [], ['contact_phone' => '0901000002']],
+    'pending red → same phone, another role' => ['pending red', [], ['contact_role' => PartyRole::Related]],
+    'pending red → same phone, no id number' => ['pending red', ['contact_id_number' => '079123456789'], []],
+    'pending red → same phone, another id number' => ['pending red', ['contact_id_number' => '079123456789'], ['contact_id_number' => '079000000001']],
+    'pending red → same id number, another phone' => ['pending red', ['contact_id_number' => '079123456789'], ['contact_phone' => '0901000002', 'contact_id_number' => '079123456789']],
+    'declined for a conflict → another phone' => ['declined for a conflict', [], ['contact_phone' => '0901000002']],
+    'declined, ordinary → another phone' => ['declined, ordinary', [], ['contact_phone' => '0901000002']],
+]);
+
+it('lets an assistant merge such a record into a record that catches the same callbacks', function (string $state, array $source, array $target) {
+    $assistant = iwaStaff();
+    $target = iwaRecord($assistant, $target);
+    $source = iwaSource($assistant, $state, $source);
+
+    app(MergeIntake::class)->handle($assistant, $source, $target->fresh());
+
+    expect($source->fresh()->status)->toBe(IntakeStatus::Merged)
+        ->and($source->fresh()->merged_into_id)->toBe($target->id);
+})->with([
+    'pending red → same phone (typed otherwise) and role' => ['pending red', [], ['contact_phone' => '+84 832 270 898']],
+    'pending red → same phone, role and id number' => ['pending red', ['contact_id_number' => '079123456789'], ['contact_id_number' => '079123456789']],
+    'pending red with phone only → same phone, target also has an id number' => ['pending red', [], ['contact_id_number' => '079000000001']],
+    'pending red with id number only → same id number, target also has a phone' => ['pending red', ['contact_phone' => null, 'contact_email' => 'a@example.com', 'contact_id_number' => '079123456789'], ['contact_phone' => '0901000002', 'contact_id_number' => '079123456789']],
+    'pending red with no declared role → another phone' => ['pending red', ['contact_role' => null], ['contact_phone' => '0901000002']],
+    'pending red with neither phone nor id number → another phone' => ['pending red', ['contact_phone' => null, 'contact_email' => 'a@example.com'], ['contact_phone' => '0901000002']],
+    'pending red with neither phone nor id number → another phone and role' => ['pending red', ['contact_phone' => null, 'contact_email' => 'a@example.com'], ['contact_phone' => '0901000002', 'contact_role' => PartyRole::Related]],
+    'declined for a conflict → same phone and role' => ['declined for a conflict', [], []],
+    'declined, ordinary → same phone and role' => ['declined, ordinary', [], []],
+]);
+
+it('lets a manager or an admin merge a record that locks repeat calls into any record, not a lawyer', function (Role $role, bool $allowed) {
+    $actor = iwaStaff($role);
+    $source = iwaSource($actor, 'declined for a conflict');
+    $target = iwaRecord($actor, ['contact_phone' => '0901000002']);
+
+    $call = fn () => app(MergeIntake::class)->handle($actor, $source, $target);
+
+    if ($allowed) {
+        $call();
+        expect($source->fresh()->status)->toBe(IntakeStatus::Merged)
+            ->and($target->fresh()->hasUnresolvedRed())->toBeTrue();
+    } else {
+        expect($call)->toThrow(ValidationException::class, __('intake.errors.merge_drops_caller'));
+        expect($source->fresh()->status)->toBe(IntakeStatus::Declined);
+    }
+})->with([
+    'manager' => [Role::Manager, true],
+    'admin' => [Role::Admin, true],
+    'lawyer' => [Role::Lawyer, false],
+]);
+
+it('refuses any identity edit of a declined record, to anyone, whatever the reason it was declined', function (string $state, Role $role) {
+    $assistant = iwaStaff();
+    $intake = iwaSource($assistant, $state);
+    $actor = $role === Role::Assistant ? $assistant : iwaStaff($role);
+
+    expect(fn () => app(UpdateIntakeIdentity::class)->handle($actor, $intake, iwaIdentity($intake, ['contact_name' => 'Đổi Tên']), []))
+        ->toThrow(ValidationException::class, __('intake.errors.identity_declined'));
+
+    expect($intake->fresh()->contact_name)->toBe('Người Gọi Mẫu')
+        ->and(Activity::query()->where('event', 'intake_identity_updated')->exists())->toBeFalse();
+})->with([
+    'ordinary, by the assistant who recorded it' => ['declined, ordinary', Role::Assistant],
+    'conflict, by the assistant who recorded it' => ['declined for a conflict', Role::Assistant],
+    'conflict, by a manager' => ['declined for a conflict', Role::Manager],
+]);
+
+it('refuses an assistant a change of the phone, ID number or role of a record with a pending red', function (array $edit, string $field) {
+    $assistant = iwaStaff();
+    $intake = iwaRed($assistant, ['contact_id_number' => '079123456789'])->fresh();
+
+    try {
+        app(UpdateIntakeIdentity::class)->handle($assistant, $intake, iwaIdentity($intake, $edit), iwaParties($intake));
+        $this->fail('expected a validation error');
+    } catch (ValidationException $exception) {
+        expect($exception->errors())->toBe([$field => [__('intake.errors.caller_keys_locked')]]);
+    }
+
+    $fresh = $intake->fresh();
+
+    expect($fresh->contact_phone_normalized)->toBe('84832270898')
+        ->and($fresh->contact_id_number_hash)->toBe(Normalizer::idNumberHash('079123456789'))
+        ->and($fresh->contact_role)->toBe(PartyRole::Plaintiff);
+})->with([
+    'phone changed' => [['contact_phone' => '0901000002'], 'contact_phone'],
+    'phone erased' => [['contact_phone' => null, 'contact_email' => 'a@example.com'], 'contact_phone'],
+    'id number changed' => [['contact_id_number' => '079000000001'], 'contact_id_number'],
+    'role changed' => [['contact_role' => PartyRole::Related], 'contact_role'],
+    'role erased' => [['contact_role' => null], 'contact_role'],
+]);
+
+it('lets an assistant add an identifier, retype the same phone, or change anything else on a record with a pending red', function (array $source, array $edit, string $column, mixed $expected) {
+    $assistant = iwaStaff();
+    $intake = iwaRed($assistant, $source)->fresh();
+
+    app(UpdateIntakeIdentity::class)->handle($assistant, $intake, iwaIdentity($intake, $edit), iwaParties($intake));
+
+    $expected = $column === 'contact_id_number_hash' ? Normalizer::idNumberHash($expected) : $expected;
+
+    expect($intake->fresh()->{$column})->toBe($expected)
+        ->and($intake->fresh()->hasUnresolvedRed())->toBeTrue();
+})->with([
+    'same phone typed otherwise' => [[], ['contact_phone' => '+84 832 270 898'], 'contact_phone', '+84 832 270 898'],
+    'id number added' => [[], ['contact_id_number' => '079123456789'], 'contact_id_number_hash', '079123456789'],
+    'phone added' => [['contact_phone' => null, 'contact_email' => 'a@example.com'], ['contact_phone' => '0832270898'], 'contact_phone_normalized', '84832270898'],
+    'role declared' => [['contact_role' => null], ['contact_role' => PartyRole::Plaintiff], 'contact_role', PartyRole::Plaintiff],
+    'name changed' => [[], ['contact_name' => 'Tên Khác'], 'contact_name', 'Tên Khác'],
+]);
+
+it('lets a manager or an admin change the phone, ID number and role of a record with a pending red', function (Role $role) {
+    $intake = iwaRed(iwaStaff(), ['contact_id_number' => '079123456789'])->fresh();
+
+    app(UpdateIntakeIdentity::class)->handle(iwaStaff($role), $intake, iwaIdentity($intake, [
+        'contact_phone' => '0901000002', 'contact_id_number' => '079000000001', 'contact_role' => PartyRole::Related,
+    ]), iwaParties($intake));
+
+    $fresh = $intake->fresh();
+
+    expect($fresh->contact_phone_normalized)->toBe('84901000002')
+        ->and($fresh->contact_id_number_hash)->toBe(Normalizer::idNumberHash('079000000001'))
+        ->and($fresh->contact_role)->toBe(PartyRole::Related);
+})->with(['manager' => Role::Manager, 'admin' => Role::Admin]);
