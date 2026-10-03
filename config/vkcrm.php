@@ -176,9 +176,13 @@ return [
          * đây mà không cần gỡ thật một extension của container —
          * `tests/Feature/Deployment/PreflightCommandTest.php` dùng đúng cách này để dựng cả hai
          * chiều đỏ/xanh của điều kiện "thiếu extension".
+         *
+         * M12 Task 4 (R6) thêm `curl`: `minishlink/web-push` (gói thông báo đẩy) đòi `ext-curl`.
+         * Từ đây danh sách được canh bằng `composer.lock`: test "mọi ext-* mà một gói production
+         * đòi" của `PreflightCommandTest` đỏ khi một gói mới đòi extension chưa có ở đây.
          */
         'required_extensions' => [
-            'ctype', 'dom', 'exif', 'fileinfo', 'filter', 'hash', 'iconv', 'intl', 'json',
+            'ctype', 'curl', 'dom', 'exif', 'fileinfo', 'filter', 'hash', 'iconv', 'intl', 'json',
             'libxml', 'mbstring', 'openssl', 'pcre', 'session', 'tokenizer', 'xmlreader', 'zip',
             'zlib', 'pdo_mysql',
         ],

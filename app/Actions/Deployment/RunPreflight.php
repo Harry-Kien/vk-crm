@@ -6,6 +6,7 @@ use App\Enums\PreflightLevel;
 use App\Http\Middleware\RestrictAdminIpAllowlist;
 use App\Models\User;
 use App\Support\Backup\RcloneProcess;
+use App\Support\Push\VapidKeys;
 use Database\Seeders\DemoAccountsSeeder;
 use Database\Seeders\DemoDataSeeder;
 use Illuminate\Http\Client\ConnectionException;
@@ -83,6 +84,7 @@ class RunPreflight
             $this->extensionsRow(),
             $this->gdRow(),
             $this->brandFieldsRow(),
+            $this->vapidKeysRow(),
             $this->storagePrivateExposureRow(),
             $this->zipAes256Row(),
             $this->procOpenRow(),
@@ -238,6 +240,32 @@ class RunPreflight
             : $this->row('brand_fields', PreflightLevel::Yellow, __('preflight.brand_fields_missing', [
                 'fields' => implode(', ', $missing),
             ]));
+    }
+
+    /**
+     * M12 Task 4 (R7) — khoá thông báo đẩy. VÀNG, không ĐỎ: thiếu khoá thì push tắt êm, app trên
+     * điện thoại vẫn cài và chạy. XANH đúng khi {@see VapidKeys::configured()} đúng — ba điều kiện
+     * dưới là ba vế của chính hàm đó, xét theo thứ tự để dòng VÀNG nói đúng một việc cần sửa.
+     */
+    private function vapidKeysRow(): array
+    {
+        $missing = VapidKeys::missing();
+
+        if ($missing !== []) {
+            return $this->row('vapid_keys', PreflightLevel::Yellow, __('preflight.vapid_missing', [
+                'variables' => implode(', ', $missing),
+            ]));
+        }
+
+        if (! VapidKeys::keysAreValid()) {
+            return $this->row('vapid_keys', PreflightLevel::Yellow, __('preflight.vapid_invalid'));
+        }
+
+        if (! VapidKeys::subjectIsValid()) {
+            return $this->row('vapid_keys', PreflightLevel::Yellow, __('preflight.vapid_subject_invalid'));
+        }
+
+        return $this->row('vapid_keys', PreflightLevel::Green, __('preflight.vapid_ok'));
     }
 
     /**

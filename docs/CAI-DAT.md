@@ -183,14 +183,15 @@ Mọi lệnh `php artisan …` chạy trong thư mục `/var/www/vk-crm`, bằng
 - **PHP 8.3** chạy qua **PHP-FPM**, với ĐỦ các extension sau — thiếu một cái là `vkcrm:preflight`
   báo ĐỎ:
 
-  `ctype` `dom` `exif` `fileinfo` `filter` `hash` `iconv` `intl` `json` `libxml` `mbstring`
-  `openssl` `pcre` `session` `tokenizer` `xmlreader` `zip` `zlib` `pdo_mysql`
+  `ctype` `curl` `dom` `exif` `fileinfo` `filter` `hash` `iconv` `intl` `json` `libxml`
+  `mbstring` `openssl` `pcre` `session` `tokenizer` `xmlreader` `zip` `zlib` `pdo_mysql`
 
   Đây là kết quả `composer check-platform-reqs --no-dev` cộng `pdo_mysql`, và chính là danh sách
   `vkcrm:preflight` kiểm (`config/vkcrm.php`, khoá `deployment.required_extensions`). Hai cái hay
   thiếu nhất trên shared hosting: `intl` (Filament bắt buộc) và `dom` (gói làm sạch HTML, gói ghép
-  CSS vào thư, gói đọc/ghi tệp xlsx đều cần). Nên có thêm, chưa bắt buộc: `gd` (preflight báo VÀNG
-  nếu thiếu) và `curl`. Kiểm nhanh: `php -m`.
+  CSS vào thư, gói đọc/ghi tệp xlsx đều cần). `curl` bắt buộc từ M12 (gói thông báo đẩy
+  `minishlink/web-push` cần nó). Nên có thêm, chưa bắt buộc: `gd` (preflight báo VÀNG nếu thiếu).
+  Kiểm nhanh: `php -m`.
 - **Cấu hình PHP-FPM** (php.ini của FPM, KHÁC tệp php.ini của dòng lệnh — `php -i` chỉ in tệp của
   dòng lệnh; trên Ubuntu xem bản của FPM bằng `php-fpm8.3 -i`):
   - `upload_max_filesize` ≥ `UPLOAD_MAX_MB` (mặc định 20 → `20M`) và `post_max_size` lớn hơn nó

@@ -131,6 +131,9 @@ return [
         'staff_login_unlocked' => 'Mở khoá đăng nhập nhân sự',
         // M8 Task 7: app/Actions/User/CreateAdminFromConsole.php (lệnh vkcrm:create-admin).
         'admin_created_via_console' => 'Tạo quản trị viên từ dòng lệnh máy chủ',
+        // M12 Task 4 (R7): app/Actions/Push/ResetPushSubscriptions.php (lệnh vkcrm:push-reset) —
+        // chỉ ghi số đăng ký đã xoá, không bao giờ endpoint.
+        'push_subscriptions_reset' => 'Xoá mọi đăng ký thông báo đẩy (sau khi đổi khoá)',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

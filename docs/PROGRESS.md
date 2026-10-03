@@ -2670,3 +2670,74 @@ Vòng sửa 1 (rà soát Task 3, Important I1 — trang lỗi của liên kết 
   này — thêm một bước chuyển hướng chưa đo trên iPhone, A8–A9).
 - Danh sách kiểm tra máy thật thêm A10 (để trang yên hơn 5 phút rồi tải, chạm "Về trang chính" ở cả
   hai app: phải về đầu của chính app, trong cửa sổ app) — PENDING OWNER.
+
+### Task 4 — gói thông báo đẩy, khoá VAPID, preflight, bảng đăng ký (2026-10-03)
+
+Đã làm (R6, R7, R8):
+- `laravel-notification-channels/webpush` 13.0.1. Dry-run lại trên nền làn: đúng tám gói và phiên bản của R6
+  (`composer.json`/`composer.lock` không đổi khi dry-run). Khác R6 một dòng: Composer nay báo 2 advisory — của
+  `league/commonmark` ≤ 2.10.1, gói ĐÃ có trên `main`, công bố 2026-09-30; không gói nào trong tám gói mới →
+  cài. Nâng `league/commonmark` là việc của `main`, không của làn.
+- Gói bị loại khỏi tự dò (`composer.json` `extra.laravel.dont-discover`) và nạp qua
+  `App\Providers\WebPushServiceProvider` (con của provider gốc, `bootstrap/providers.php`) — xem lệch 1.
+- `config/webpush.php` (publish rồi sửa, giữ đủ khoá cấp một của tệp gói): chỉ ba biến `VAPID_*` đọc từ `.env`;
+  bảng `push_subscriptions` cố định, kết nối mặc định, `pem_file` không dùng, `client_options.timeout` 10.
+  `.env.example` có `VAPID_SUBJECT=`, `VAPID_PUBLIC_KEY=`, `VAPID_PRIVATE_KEY=` TRỐNG và KHÔNG chú thích —
+  `webpush:vapid` chỉ thay được dòng `KEY=` không có dấu `#` (test chạy lệnh trên bản chép của `.env.example`).
+  `phpunit.xml` ghim ba biến trống: bộ test không xanh/đỏ theo `.env` cục bộ.
+- Migration `2026_10_03_000001_create_push_subscriptions_table` (stub của gói, nguyên văn) và
+  `…_000002_add_device_label_and_last_seen_at_…` (`device_label` `string(100)` nullable, `last_seen_at`
+  nullable). MariaDB thật: `endpoint varchar(1024) CHARACTER SET ascii`, `UNIQUE KEY
+  push_subscriptions_endpoint_unique (endpoint)` BTREE trên cả cột; vòng seed → reset → migrate sạch.
+- `App\Support\Push\VapidKeys::configured()` — MỘT định nghĩa "máy chủ có khoá dùng được": ba biến không trống
+  (dòng `KEY=` của `.env.example` là chuỗi rỗng = trống), cặp khoá qua `Minishlink\WebPush\VAPID::validate()`,
+  subject `mailto:…@…` hoặc `https://…`.
+- `vkcrm:preflight`: `curl` vào `deployment.required_extensions` (ĐỎ khi thiếu); dòng `vapid_keys` VÀNG khi thiếu
+  biến (nêu tên) / khoá sai định dạng / subject sai, XANH khi đủ. Danh sách extension nay được canh bằng
+  `composer.lock` (test: mọi `ext-*` của gói production phải có trong danh sách). SPEC §2 có đính chính
+  2026-10-03; `docs/CAI-DAT.md` Bước 1 thêm `curl`.
+- `vkcrm:push-reset` (`PushResetCommand` → `App\Actions\Push\ResetPushSubscriptions`): hỏi xác nhận và nói trước số
+  đăng ký sẽ xoá, `--force` bỏ bước hỏi, chạy không tương tác thiếu `--force` thì từ chối (mã 1, không xoá).
+  Audit `push_subscriptions_reset` chỉ có `count` và `via = console` — không endpoint, không người thực hiện.
+- `HasPushSubscriptions` trên `User` và `ClientUser`; morph lưu bí danh `user` / `client_user` (đo).
+- Lưới R8 `tests/Feature/Push/PushSubscriptionAccessTest.php`: quét token PHP trong `app/` — truy cập tĩnh
+  `PushSubscription::` (kể cả bí danh `use … as X` và tên đầy đủ; `::class` không tính), `new PushSubscription`,
+  chuỗi `push_subscriptions` / `webpush.model` / `webpush.table_name`. Chỉ cho phép bốn tệp:
+  `app/Actions/Push/ResetPushSubscriptions.php` (có), `app/Actions/Push/RegisterPushDevice.php` (Task 5),
+  `app/Actions/Push/ForgetPushDevice.php` (Task 6), `app/Actions/Schedule/PrunePushSubscriptions.php` (Task 6).
+  Docblock `PortalIsolationSweepTest` ghi `PushSubscription` cạnh `Activity` và `Media`.
+
+Lệch kế hoạch, có lý do:
+1. **Hạn 10 giây (R12) cần một provider của dự án.** Bản gốc dựng client bằng
+   `Http::timeout(30)->withOptions($options)->buildClient()` (`WebPushServiceProvider.php:98` của gói), mà
+   `PendingRequest::buildClient()` chỉ đưa `handler` và `cookies` vào `GuzzleHttp\Client`; `minishlink/web-push`
+   gửi bằng `sendRequest()` trên client đó (`WebPush.php:183`). Kết quả: request ra máy chủ push KHÔNG có hạn
+   nào, kể cả 30 giây của gói. Đo thật bằng một socket nhận kết nối rồi im lặng: client của gói vẫn treo khi bị
+   giết ở giây thứ 40; client của dự án dừng ở `cURL error 28 … after 10001 milliseconds`. Provider con chỉ ghi
+   đè `webPushClient()`; chồng handler vẫn lấy từ `Http::buildHandlerStack()`.
+2. Stub thứ hai của gói (`increase_push_subscriptions_endpoint_length`) không publish: nó chỉ nâng bảng của bản
+   gói cũ lên đúng hình dạng mà stub `create` đã tạo.
+3. `VAPID_SUBJECT` trống, hay khoá sai định dạng, cũng là "chưa cấu hình" (VÀNG, push tắt): gói tự lấp
+   `url('/')` cho subject trống, còn khoá sai định dạng làm việc dựng kênh ném lỗi ở mọi job.
+
+Sự thật cho task sau:
+- Task 5/7: hỏi `VapidKeys::configured()` để ẩn nút Bật và để không xếp job; không tự đọc
+  `config('webpush.vapid…')`.
+- Task 5: `$fillable` của model gói chỉ có `endpoint`, `public_key`, `auth_token`, `content_encoding` →
+  `device_label`, `last_seen_at` ghi bằng `forceFill`; model gói không cast `last_seen_at` (đọc ra là chuỗi).
+  `updatePushSubscription()` (`HasPushSubscriptions.php:28-57`) chuyển chủ bằng cách XOÁ dòng của chủ cũ rồi tạo
+  dòng mới (đã test) — chỉ nút Bật được gọi nó, lượt `sync=1` thì không (R8).
+- Task 7 (câu hỏi 5 của brief): `Http::fake()` chặn được request push, trên cả client của gói lẫn của dự án; bộ
+  chặn nhận tuỳ chọn Guzzle thật của request làm tham số thứ hai (test hạn 10 giây dùng đúng chỗ đó).
+  `ReportHandler::handleReport()` (`:25-38`): thành công → `NotificationSent`; 404/410 → xoá dòng rồi
+  `NotificationFailed`; lỗi khác (401/403 khi khoá lệch) → chỉ `NotificationFailed`. Tuyến `WebPush` phải là
+  `Illuminate\Database\Eloquent\Collection` (`WebPushChannel::handleReports()`).
+- Task 10: `README.md`, `docs/SAO-LUU-KHOI-PHUC.md` Bước 6 (cất `VAPID_PRIVATE_KEY` cùng `APP_KEY`), các bước
+  `webpush:vapid` / `vkcrm:push-reset` / dòng VÀNG của `docs/CAI-DAT.md` CHƯA viết (kế hoạch giao Task 10).
+- Lúc gộp `main`: `composer.json`/`composer.lock` xung đột với M7 (dompdf) — gộp `composer.json` (giữ
+  `dont-discover` của webpush) rồi dựng lại lock bằng composer, không gộp tay; `bootstrap/providers.php` có thêm
+  `WebPushServiceProvider`; `phpunit.xml` có ba dòng `VAPID_*`.
+
+Số đo: cả bộ `test --parallel --processes=2` 3848 passed, 25 skipped, 1 todo, 1 risky, 0 failed (mốc của làn:
+3695 passed; skipped/todo/risky có sẵn trên `main`); test của task trên MariaDB 91 passed; 21 mutation probe đều đỏ
+rồi khôi phục (báo cáo task 4 của làn).

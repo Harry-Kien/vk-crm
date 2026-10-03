@@ -85,6 +85,12 @@ vào thư và gói đọc/ghi xlsx cần. `gd` không còn là bắt buộc (d�
 tắt, lệnh `mariadb-dump` (gói `mariadb-client`) và `rclone` cho sao lưu (§10 mục 8). Hướng dẫn cài:
 `docs/CAI-DAT.md`, phần "Cài lên máy chủ thật".
 
+**Đính chính 2026-10-03 (M12 Task 4).** Thêm `curl` vào danh sách bắt buộc ở trên: gói thông báo đẩy
+`minishlink/web-push` (dùng qua `laravel-notification-channels/webpush`) đòi `ext-curl`, và
+`vkcrm:preflight` báo ĐỎ khi thiếu. Từ đây danh sách được canh bằng `composer.lock`: một gói
+production mới đòi extension chưa có trong `deployment.required_extensions` làm đỏ test
+`tests/Feature/Deployment/PreflightCommandTest.php` ("mọi ext-* mà một gói production … đòi").
+
 ### Giám sát cron
 
 Trên shared hosting cron rất hay lặng lẽ ngừng chạy sau khi gia hạn gói hoặc đổi

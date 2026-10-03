@@ -858,6 +858,11 @@ it('leaves the staff side of every table untouched', function () {
  *    của một gói là một thay đổi có bán kính rộng hơn M5 — nó đổi hành vi của mọi màn hình nội
  *    bộ, mọi job, và của chính gói đó. `PortalCoverageTest` quét `app/Models`, nên hai model này
  *    nằm ngoài lưới ấy; đây là chỗ điều đó được nói ra thay vì được ngầm hiểu.
+ *    `NotificationChannels\WebPush\PushSubscription` (M12 R8 — thiết bị nhận thông báo đẩy, của
+ *    `laravel-notification-channels/webpush`) cùng hoàn cảnh: trong `vendor/`, không global scope,
+ *    và mỗi dòng mang một endpoint — URL có quyền gửi thông báo tới máy đó. Lưới của nó là
+ *    `tests/Feature/Push/PushSubscriptionAccessTest.php`: mã trong `app/` chỉ chạm bảng ấy qua
+ *    `$user->pushSubscriptions()` của chính người đang đăng nhập, trừ vài Action được liệt kê.
  *  - `DB::table()` đi thẳng xuống query builder: không có model thì không có global scope nào để
  *    chạy. Không một thiết kế nào chặn được nó; chỉ có luật "không dùng nó trong portal".
  *  - Quan hệ tới `User` trả về nhân sự, và nhân sự KHÔNG phải dữ liệu của một khách hàng nào để

@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
+use Tests\Support\WebPushTestKeys;
 
 /*
 |--------------------------------------------------------------------------
@@ -37,6 +38,7 @@ function preflightGreenProductionConfig(): array
         'vkcrm.brand.bar_association' => 'Đoàn Luật sư TP.HCM',
         'vkcrm.brand.licence_number' => '1234/TP/ĐKHĐ',
         'vkcrm.brand.office_address' => '123 Đường ABC, Quận 1, TP.HCM',
+        ...WebPushTestKeys::config(),
     ];
 }
 
@@ -112,6 +114,7 @@ it('§preflight R1 production đủ điều kiện: mọi dòng XANH/VÀNG hợp
         ->and($output)->toContain(__('preflight.demo_accounts_ok'))
         ->and($output)->toContain(__('preflight.extensions_ok'))
         ->and($output)->toContain(__('preflight.brand_fields_ok'))
+        ->and($output)->toContain(__('preflight.vapid_ok'))
         ->and($output)->toContain(__('preflight.storage_private_ok', ['count' => 2]))
         ->and($output)->toContain(__('preflight.zip_aes256_ok'))
         ->and($output)->toContain(__('preflight.proc_open_ok'))
@@ -213,6 +216,101 @@ it('§preflight R1 production thiếu một PHP extension bắt buộc là ĐỎ
 
     expect($exitCode)->not->toBe(0)
         ->and($output)->toContain('khong-co-that');
+});
+
+it('§preflight M12 R6 mọi ext-* mà một gói production trong composer.lock đòi đều nằm trong danh sách ĐỎ — gồm curl của minishlink/web-push', function () {
+    $lock = json_decode((string) file_get_contents(base_path('composer.lock')), true, flags: JSON_THROW_ON_ERROR);
+    $demanded = [];
+
+    foreach ($lock['packages'] as $package) {
+        foreach (array_keys($package['require'] ?? []) as $requirement) {
+            if (str_starts_with($requirement, 'ext-')) {
+                $demanded[substr($requirement, 4)][] = $package['name'];
+            }
+        }
+    }
+
+    $missing = array_diff_key($demanded, array_flip(config('vkcrm.deployment.required_extensions')));
+
+    expect($demanded)->toHaveKey('curl')
+        ->and($demanded['curl'])->toContain('minishlink/web-push')
+        ->and($missing)->toBe([], 'Gói đòi extension mà preflight không kiểm: '.json_encode($missing));
+});
+
+it('§preflight M12 R7 production chưa có khoá VAPID (dòng KEY= trống như .env.example) là VÀNG, không ĐỎ, nêu tên biến', function () {
+    config(preflightGreenProductionConfig());
+    config(['webpush.vapid.subject' => '', 'webpush.vapid.public_key' => '', 'webpush.vapid.private_key' => '']);
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($exitCode)->toBe(0)
+        ->and($output)->toContain(__('preflight.vapid_missing', ['variables' => 'VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT']))
+        ->and($output)->not->toContain(__('preflight.vapid_ok'))
+        ->and($output)->toContain(__('preflight.summary_yellow'));
+});
+
+it('§preflight M12 R7 production chỉ thiếu khoá riêng cũng là VÀNG, nêu đúng biến đó', function () {
+    config(preflightGreenProductionConfig());
+    config(['webpush.vapid.private_key' => null]);
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($exitCode)->toBe(0)
+        ->and($output)->toContain(__('preflight.vapid_missing', ['variables' => 'VAPID_PRIVATE_KEY']))
+        ->and($output)->toContain(__('preflight.summary_yellow'));
+});
+
+it('§preflight M12 R7 production khoá VAPID sai định dạng là VÀNG, không XANH', function (string $publicKey, string $privateKey) {
+    config(preflightGreenProductionConfig());
+    config(['webpush.vapid.public_key' => $publicKey, 'webpush.vapid.private_key' => $privateKey]);
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($exitCode)->toBe(0)
+        ->and($output)->toContain(__('preflight.vapid_invalid'))
+        ->and($output)->not->toContain(__('preflight.vapid_ok'));
+})->with([
+    'khoá công khai cụt' => fn () => [substr(WebPushTestKeys::vapid()['public'], 0, 40), WebPushTestKeys::vapid()['private']],
+    'khoá riêng cụt' => fn () => [WebPushTestKeys::vapid()['public'], substr(WebPushTestKeys::vapid()['private'], 0, 20)],
+    'hai khoá đổi chỗ' => fn () => [WebPushTestKeys::vapid()['private'], WebPushTestKeys::vapid()['public']],
+]);
+
+it('§preflight M12 R7 production VAPID_SUBJECT không phải mailto:/https:// là VÀNG', function (string $subject) {
+    config(preflightGreenProductionConfig());
+    config(['webpush.vapid.subject' => $subject]);
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($exitCode)->toBe(0)
+        ->and($output)->toContain(__('preflight.vapid_subject_invalid'))
+        ->and($output)->not->toContain(__('preflight.vapid_ok'));
+})->with([
+    'thiếu mailto:' => 'lienhe@luatvukhang.com',
+    'http không mã hoá' => 'http://luatvukhang.com',
+    'mailto: trống' => 'mailto:',
+]);
+
+it('§preflight M12 R7 VAPID_SUBJECT dạng https:// cũng là XANH', function () {
+    config(preflightGreenProductionConfig());
+    config(['webpush.vapid.subject' => 'https://luatvukhang.com']);
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    Artisan::call('vkcrm:preflight');
+
+    expect(Artisan::output())->toContain(__('preflight.vapid_ok'));
 });
 
 it('§preflight R1 production thiếu bốn thông tin pháp lý BRAND_* là VÀNG, không ĐỎ', function () {
