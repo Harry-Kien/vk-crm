@@ -290,6 +290,62 @@ it('reports a validation error on public_content when publishing with fewer than
 });
 
 /**
+ * M9 Task 6, lỗi I6 — đường MÀN HÌNH: một chuỗi ngày hỏng gửi lên form "Chuyển giai đoạn" hay
+ * "Thêm cập nhật" (request Livewire tự dựng, không qua lịch chọn ngày) thành lỗi trên đúng ô, không
+ * phải trang 500, và không dòng tiến độ nào được ghi.
+ *
+ * Với `occurred_at` đây là test HỒI QUY (red-first yếu, nói thẳng): `DatePicker` của Filament 5 tự
+ * gắn luật `date` (`DateTimePicker::setUp()`), nên form đã chặn trước khi Action được gọi. Với
+ * `expected_next_update_at` thì ĐỎ THẬT trước bản sửa: luật `date` vẫn chặn lần lưu, nhưng lần vẽ
+ * lại modal sau đó đọc ô đó cho bản xem trước cho khách bằng `$get()` — tức
+ * `DateTimeStateCast::get()` của Filament, tức `Carbon::parse()` trên chính chuỗi hỏng —
+ * `ViewException`, trang 500. Cổng thật của Action (API công khai) test ở `TransitionMatterStageTest`.
+ */
+it('shows a field error, not a 500, when the stage forms get a malformed date', function (string $action, string $field) {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->atStage('intake')->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(StageLogsRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction($action, data: [
+        ...($action === 'transitionStage' ? ['to_stage' => 'collecting_documents'] : []),
+        'occurred_at' => today()->toDateString(),
+        'expected_next_update_at' => today()->addDays(5)->toDateString(),
+        'publish' => false,
+        $field => 'ngày 31 tháng 2',
+    ])->assertHasTableActionErrors([$field]);
+
+    expect($matter->refresh()->stage)->toBe('intake')
+        ->and(StageLog::query()->where('matter_id', $matter->id)->exists())->toBeFalse();
+})->with(['transitionStage', 'addUpdate'])->with(['occurred_at', 'expected_next_update_at']);
+
+/**
+ * Cùng lỗi, đường thứ hai đọc lại ô ngày lúc form còn mở: đổi giai đoạn đích khi ô "dự kiến có tin
+ * tiếp theo" đang chứa một chuỗi hỏng. Chuỗi hỏng là "không có ngày", nên ô được điền lại ngày gợi
+ * ý của giai đoạn mới (`default_next_update_days` của nó) thay vì làm vỡ trang.
+ */
+it('refills a malformed expected date with the new stage default when the target stage changes, instead of a 500', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->atStage('intake')->create(['lead_lawyer_id' => $lawyer->id]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(StageLogsRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])
+        ->mountTableAction('transitionStage')
+        ->setTableActionData(['expected_next_update_at' => 'ngày 31 tháng 2'])
+        ->setTableActionData(['to_stage' => 'collecting_documents'])
+        ->assertTableActionDataSet([
+            'expected_next_update_at' => now()->addDays($matter->matterType->stage('collecting_documents')->default_next_update_days)->toDateString(),
+        ]);
+});
+
+/**
  * Fix round 1, finding 2 (ruling B): không để luật sư tự bật công tắc "Công bố cho khách ngay"
  * trên một vụ chưa bật portal rồi mới nhận một DomainException không ai báo trước — khoá hẳn công
  * tắc khi `is_published_to_portal = false`.

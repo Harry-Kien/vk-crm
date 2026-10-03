@@ -4,6 +4,7 @@ use App\Actions\Schedule\CheckDeadlines;
 use App\Actions\Schedule\CheckStaleMatters;
 use App\Actions\Schedule\ExpireClientAccess;
 use App\Actions\Schedule\FlagRetentionExpiry;
+use App\Actions\Schedule\ReconcileStageTriggeredInstalments;
 use App\Actions\Schedule\RecordScheduleRun;
 use App\Actions\Schedule\RemindMissingDocuments;
 use App\Actions\Schedule\RemindOverdueInstalments;
@@ -301,4 +302,27 @@ Schedule::call(new ExpireClientAccess)
 Schedule::call(new FlagRetentionExpiry)
     ->dailyAt('01:00')
     ->name('retention.flag')
+    ->withoutOverlapping(60);
+
+/**
+ * M9 Task 6: lưới an toàn cho đợt thanh toán theo giai đoạn — 07:00 hằng ngày, giờ Việt Nam. Kích hoạt
+ * các đợt mà vụ ĐÃ chạm giai đoạn của chúng nhưng listener không kích hoạt (đợt thêm bằng phụ lục sau
+ * khi vụ đã qua giai đoạn, lần kích hoạt hỏng ở listener, `stage_logs` ghi thẳng từ dữ liệu mẫu) — qua
+ * đúng `TriggerInstalmentsForStage`, xem docblock `ReconcileStageTriggeredInstalments`.
+ *
+ * 07:00, TRƯỚC `instalments.remind` (08:00): một đợt vừa được đối chiếu kích hoạt với hạn ghi lùi
+ * (đã quá hạn ngay khi ra đời) được nhắc ngay sáng hôm đó, không đợi tới hôm sau. Không 07:30
+ * (`stale-matters.check`) hay 08:00 (`backup.monitor`, `instalments.remind`) để log lịch đọc được.
+ * Cùng phút với lượt đầu của `deadlines.check` — hai việc độc lập; `schedule:run` chạy chúng lần lượt,
+ * và tác vụ này ngày thường chỉ là một truy vấn.
+ *
+ * `withoutOverlapping(60)` vì nó ghi tiền — hai lượt chồng nhau tự xếp hàng ở khoá `matters` và cổng
+ * `triggered_at` chặn kích hoạt hai lần, nhưng không có lý do để cho phép — và 60 phút, không phải 1440
+ * mặc định (cùng lý lẽ M6.5 X6: một lượt bị giết giữa chừng không được khoá luôn lượt hôm sau;
+ * `tests/Feature/Schedule/BackupScheduleTest.php` ghim "không tác vụ nào giữ khoá ≥ 1440 phút").
+ * CHỈ `->name()`, không `->description()` (bí danh của nhau trong Laravel 13, xem `backup.nightly`).
+ */
+Schedule::call(new ReconcileStageTriggeredInstalments)
+    ->dailyAt('07:00')
+    ->name('instalments.reconcile-stage')
     ->withoutOverlapping(60);

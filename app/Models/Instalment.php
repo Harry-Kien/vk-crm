@@ -259,6 +259,30 @@ class Instalment extends Model
             ->whereRaw($this->qualifyColumn('amount').' > '.BillingSummary::collectedExpression($this->qualifyColumn('id')));
     }
 
+    /**
+     * **MỘT định nghĩa "đợt đang chờ vụ chạm giai đoạn"** (M9 Task 6): `trigger_type = stage`,
+     * `status = pending`, `triggered_at` rỗng — và, khi truyền `$stageKey`, `trigger_stage_key` đúng
+     * key đó. Chỉ điều kiện của CHÍNH đợt; điều kiện của hợp đồng cha (đang hiệu lực khi kích hoạt;
+     * nháp hoặc đang hiệu lực khi khoá cấu hình giai đoạn) và của vụ việc là việc của nơi gọi.
+     *
+     * Cổng chống kích hoạt hai lần là `triggered_at IS NULL` — KHÔNG phải "giai đoạn hiện tại bằng
+     * giai đoạn kích hoạt": `allowed_next` có chu trình và `on_hold` ra vào được, nên một vụ vào lại
+     * một giai đoạn không được làm một đợt đã đến hạn "đến hạn lần nữa". Đợt đã miễn/đã thu/đã huỷ
+     * không còn chờ gì.
+     *
+     * Dùng bởi `App\Actions\Billing\TriggerInstalmentsForStage` (thăm dò, khoá rồi kích hoạt),
+     * `App\Actions\Schedule\ReconcileStageTriggeredInstalments` (tập ứng viên) và
+     * {@see MatterTypeStage::instalmentsAwaitingStage()} (guard khoá đổi/xoá giai đoạn).
+     */
+    public function scopeAwaitingStage(Builder $query, ?string $stageKey = null): Builder
+    {
+        return $query
+            ->where($this->qualifyColumn('trigger_type'), InstalmentTrigger::Stage->value)
+            ->where($this->qualifyColumn('status'), InstalmentStatus::Pending->value)
+            ->whereNull($this->qualifyColumn('triggered_at'))
+            ->when($stageKey !== null, fn (Builder $query) => $query->where($this->qualifyColumn('trigger_stage_key'), $stageKey));
+    }
+
     public function contract(): BelongsTo
     {
         return $this->belongsTo(Contract::class);

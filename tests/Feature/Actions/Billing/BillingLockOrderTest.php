@@ -7,6 +7,7 @@ use App\Actions\Billing\CompleteContract;
 use App\Actions\Billing\DeleteDraftContract;
 use App\Actions\Billing\DraftContract;
 use App\Actions\Billing\RecordPayment;
+use App\Actions\Billing\TriggerInstalmentsForStage;
 use App\Actions\Billing\UpdateDraftContract;
 use App\Actions\Billing\VoidPayment;
 use App\Actions\Billing\WaiveInstalment;
@@ -23,6 +24,7 @@ use App\Models\Document;
 use App\Models\Instalment;
 use App\Models\Matter;
 use App\Models\Payment;
+use App\Models\StageLog;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Database\Events\QueryExecuted;
@@ -207,12 +209,31 @@ it('locks matters first, then contracts, when cancelling a contract', function (
     expect($order)->toBe(['matters', 'contracts']);
 });
 
-it('locks matters first, then contracts, then the instalments it sums, when activating a draft', function () {
+/**
+ * M9 Task 6: hai khoá `instalments`, cùng chỗ trong chuỗi. Lần thứ nhất là tổng lịch thu
+ * (`ScheduleTotal::lockedOf()`), lần thứ hai là các đợt `stage` còn chờ mà lõi của
+ * `TriggerInstalmentsForStage::releaseLocked()` có thể kích hoạt ngay trong lần kích hoạt — vẫn
+ * dưới khoá `matters` → `contracts` của chính `ActivateContract`, không mở transaction thứ hai.
+ */
+it('locks matters first, then contracts, then the instalments it sums, then the stage instalments it may release, when activating a draft', function () {
     $draft = Contract::factory()->for(Matter::factory()->create(['lead_lawyer_id' => $this->lead->id]))
         ->create(['status' => ContractStatus::Draft, 'total_amount' => 10_000_000]);
     Instalment::factory()->for($draft)->create(['amount' => 10_000_000]);
 
     $order = lockOrderOf(fn () => app(ActivateContract::class)->handle($this->lead, $draft, today()->toDateString()));
+
+    expect($order)->toBe(['matters', 'contracts', 'instalments', 'instalments']);
+});
+
+/**
+ * M9 Task 6: đường listener/đối chiếu tự mở transaction tiền của nó — thăm dò hợp đồng và đợt chờ
+ * NGOÀI transaction, rồi khoá `matters` (câu đầu tiên) → `contracts` → đúng các đợt chờ giai đoạn đó.
+ */
+it('locks matters first, then contracts, then the waiting instalments, when releasing stage-triggered instalments', function () {
+    Instalment::factory()->for($this->contract)->onStage('filed')->create(['amount' => 10_000_000]);
+    $entry = StageLog::factory()->for($this->matter)->transition('drafting', 'filed')->create();
+
+    $order = lockOrderOf(fn () => app(TriggerInstalmentsForStage::class)->handle($this->matter, 'filed', $entry));
 
     expect($order)->toBe(['matters', 'contracts', 'instalments']);
 });

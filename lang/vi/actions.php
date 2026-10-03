@@ -24,6 +24,10 @@ return [
     'transition_matter_stage' => [
         'public_content_too_short' => 'Nội dung công khai cho khách phải có ít nhất 30 ký tự khi công bố tiến độ.',
         'occurred_at_future' => 'Ngày xảy ra không được ở tương lai.',
+        // M9 Task 6, lỗi I6: TransitionMatterStage parse ngày dạng chuỗi tường minh.
+        'occurred_at_required' => 'Vui lòng nhập ngày xảy ra.',
+        'occurred_at_invalid' => 'Ngày xảy ra không phải một ngày hợp lệ.',
+        'expected_next_update_at_invalid' => 'Ngày dự kiến có tin tiếp theo không phải một ngày hợp lệ.',
     ],
     'open_matter' => [
         'client_role_required' => 'Phải chọn vai của khách hàng (nguyên đơn/bị đơn/...) trong vụ việc này trước khi mở vụ việc — không có mặc định, vì mặc định sai sẽ khiến kiểm tra xung đột lợi ích bỏ sót mức đỏ.',

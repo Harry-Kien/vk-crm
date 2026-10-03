@@ -134,7 +134,9 @@ class TransitionStageAction extends Action
                     }
 
                     $previousExpectedDate = $this->stageDefaultNextUpdateAt($matter, $old);
-                    $currentExpectedDate = $get('expected_next_update_at');
+                    // M9 Task 6 (I6): một chuỗi ngày hỏng trong ô là "không có ngày" — xem
+                    // `expectedNextUpdateAtState()`; ô được điền lại ngày gợi ý của giai đoạn mới.
+                    $currentExpectedDate = $this->expectedNextUpdateAtState($get);
 
                     if (blank($currentExpectedDate) || $currentExpectedDate === $previousExpectedDate) {
                         $set('expected_next_update_at', $this->stageDefaultNextUpdateAt($matter, $state));
@@ -157,7 +159,7 @@ class TransitionStageAction extends Action
                 'publicContent' => $get('public_content'),
                 'nextStep' => $get('next_step'),
                 'clientAction' => $get('client_action'),
-                'expectedNextUpdateAt' => $get('expected_next_update_at'),
+                'expectedNextUpdateAt' => $this->expectedNextUpdateAtState($get),
                 'willPublish' => (bool) $get('publish'),
             ]),
         ];

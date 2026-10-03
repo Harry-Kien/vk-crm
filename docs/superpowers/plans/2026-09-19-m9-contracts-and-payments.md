@@ -624,7 +624,7 @@ Trong cùng task:
 
 **Test bắt buộc:** chuyển tới giai đoạn kích hoạt → đúng đợt đó có `due_date`, `triggered_at`, và `triggered_by_stage_log_id` trỏ đúng dòng vừa tạo; **một dòng cập nhật cùng giai đoạn (§6.3) KHÔNG kích hoạt gì** (test quan trọng nhất); vào lại lần hai **không** kích hoạt lại; hợp đồng `draft` không bị kích hoạt; `occurred_at` ghi lùi sinh đợt đã quá hạn; transaction rollback → listener **không** chạy (bọc trong transaction ngoài rồi ném lỗi); đối chiếu kích hoạt được một đợt **thêm sau khi** vụ đã qua giai đoạn đó; đối chiếu chạy hai lần chỉ kích hoạt một lần; đổi `key` của giai đoạn còn đợt `pending` trỏ tới → bị từ chối qua Livewire; chuỗi ngày hỏng ở form chuyển giai đoạn → lỗi trên trường, không 500.
 
-- [ ] Test đỏ, cài đặt, test xanh, pint, mutation probe, commit `feat: đợt thanh toán tự đến hạn khi vụ việc chạm giai đoạn`.
+- [x] Test đỏ, cài đặt, test xanh, pint, mutation probe, commit `feat: đợt thanh toán tự đến hạn khi vụ việc chạm giai đoạn`. (Làn m9f, 2026-10-03 — xem PROGRESS "Ghi chú M9 › Làn m9f › Task 6".)
 
 ---
 

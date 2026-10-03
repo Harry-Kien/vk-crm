@@ -37,8 +37,11 @@ use Illuminate\Validation\ValidationException;
  *
  * - `['action' => 'add', ...]` — thêm một đợt, cùng các khoá và cùng luật với một dòng của
  *   `DraftContract` (`ValidatesBillingInput::instalmentAttributes()`). Đợt `on_signing` thêm bằng
- *   phụ lục đến hạn tính từ ngày ký PHỤ LỤC. Đợt `stage` gắn vào giai đoạn vụ đã đi qua thì chờ
- *   M9 Task 6 (đối chiếu hằng ngày kích hoạt một đợt thêm sau khi vụ đã qua giai đoạn đó).
+ *   phụ lục đến hạn tính từ ngày ký PHỤ LỤC. Đợt `stage` gắn vào giai đoạn vụ ĐÃ chạm thì không
+ *   được phụ lục kích hoạt: tác vụ đối chiếu `App\Actions\Schedule\ReconcileStageTriggeredInstalments`
+ *   (07:00 hằng ngày, M9 Task 6) kích hoạt nó qua `TriggerInstalmentsForStage` — gắn vào lần chạm
+ *   ĐẦU, hạn tính từ ngày chạm đó (không sớm hơn ngày ký hợp đồng). Tới lượt đối chiếu kế tiếp, đợt
+ *   đó hiển thị `scheduled`.
  * - `['action' => 'update', 'instalment_id' => …, 'amount' => …, 'percent_basis' => …?]` — đổi số
  *   tiền của một đợt đang `pending`; không nhỏ hơn số đã thu trên đợt đó. `percent_basis` không
  *   đưa vào thì thành rỗng: phần trăm cũ không còn mô tả số tiền mới.

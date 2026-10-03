@@ -97,6 +97,9 @@ return [
         'payment_recorded' => 'Ghi khoản thu',
         'payment_voided' => 'Huỷ khoản thu',
         'instalment_waived' => 'Miễn đợt thanh toán',
+        // M9 Task 6: App\Actions\Billing\TriggerInstalmentsForStage — đợt đến hạn vì vụ chạm giai
+        // đoạn kích hoạt (dòng của hệ thống, không causer; nguồn gốc ở properties.stage_log_id).
+        'instalment_triggered' => 'Đợt thanh toán đến hạn theo giai đoạn vụ việc',
         // Lượt rà soát cuối M9, M9: App\Actions\Billing\DeleteDraftContract.
         'contract_draft_deleted' => 'Xoá hợp đồng nháp',
         // app/Actions/Portal/*.php
