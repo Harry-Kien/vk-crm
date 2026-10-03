@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Intake\AnonymiseProspect;
 use App\Actions\Intake\ChangeIntakeStatus;
 use App\Actions\Intake\RecordIntake;
 use App\Actions\Intake\RecordPrivacyNotice;
@@ -29,6 +30,7 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Validation\ValidationException;
 use Spatie\Activitylog\Models\Activity;
 use Spatie\Permission\Models\Role as SpatieRole;
 use Spatie\Permission\PermissionRegistrar;
@@ -628,6 +630,52 @@ it('does not remind a record that has left new, been anonymised or been deleted'
     'đã ẩn danh mà vẫn ở new' => fn (IntakeRequest $i) => $i->forceFill(['anonymised_at' => now()])->save(),
     'đã xoá mềm' => fn (IntakeRequest $i) => $i->delete(),
 ]);
+
+/*
+ * Gộp làn m10-t7 (Task 7) vào m10-intake: "xoá theo yêu cầu" THẬT (`AnonymiseProspect::erase()`), không
+ * dựng tay `anonymised_at`. Xoá giữ trạng thái (R7c), nên bản vẫn là `new` — nhưng không còn chờ phản
+ * hồi: job thư đã xếp trước khi xoá không gửi gì lúc chạy, và lượt sau không nhắc ai, kể cả một người
+ * xem mới vào sau (người mà một bản còn chờ thật sẽ nhắc — "mails a viewer who joins later once"). Bản
+ * đã xoá cũng không bao giờ nhận mốc phản hồi: đổi trạng thái bị từ chối, không chạm lại cột nào.
+ */
+it('neither mails nor alerts anyone about a record erased on request while still in new, even with its reminder already queued', function () {
+    config(['queue.default' => 'database']);
+    $manager = ruiStaff(Role::Manager);
+    $admin = ruiStaff(Role::Admin);
+    $assistant = ruiStaff(Role::Assistant);
+    $intake = ruiRecord($assistant);
+
+    $this->travelTo(ruiAt('2026-10-07 13:00'));
+    ruiRun();
+
+    expect(DB::table('jobs')->count())->toBe(1)
+        ->and(ruiAlerts($manager))->toBe(1);
+
+    app(AnonymiseProspect::class)->erase($admin, $intake, 'Người liên hệ gọi lại yêu cầu xoá toàn bộ dữ liệu của mình');
+    Artisan::call('queue:work', ['connection' => 'database', '--once' => true, '--sleep' => 0]);
+
+    expect(DB::table('jobs')->count())->toBe(0)
+        ->and(DB::table('failed_jobs')->count())->toBe(0)
+        ->and(OutboundMessage::query()->withoutGlobalScopes()->count())->toBe(0);
+
+    $newManager = ruiStaff(Role::Manager);
+    $this->travelTo(ruiAt('2026-10-08 09:00'));
+    ruiRun();
+
+    expect(ruiAlerts($newManager))->toBe(0)
+        ->and(ruiAlerts())->toBe(2)
+        ->and(DB::table('jobs')->count())->toBe(0)
+        ->and(OutboundMessage::query()->withoutGlobalScopes()->count())->toBe(0);
+
+    expect(fn () => app(ChangeIntakeStatus::class)->handle($manager, $intake->fresh(), IntakeStatus::Contacted))
+        ->toThrow(ValidationException::class);
+
+    $fresh = $intake->fresh();
+    expect($fresh->status)->toBe(IntakeStatus::New)
+        ->and($fresh->anonymised_at)->not->toBeNull()
+        ->and($fresh->first_response_at)->toBeNull()
+        ->and($fresh->contact_name)->toBeNull();
+});
 
 it('still reminds the same record while it stays in new, not anonymised and not deleted', function () {
     $lawyer = ruiStaff();

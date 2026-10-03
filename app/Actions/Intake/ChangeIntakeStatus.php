@@ -24,7 +24,14 @@ use Illuminate\Validation\ValidationException;
  * **`first_response_at` (R5, Task 5):** đặt bằng `now()` khi bản ghi rời `new` — trạng thái đọc từ dòng
  * vừa khoá, và không có đường quay về `new`, nên đó là đúng lần phản hồi ĐẦU; mọi lần đổi sau giữ
  * nguyên mốc ấy. Cùng luật ở `DeclineIntake` và `ConvertIntakeToMatter`; gộp (`MergeIntake`) không phải
- * một lần phản hồi. `retention_until` khi vào `lost` (R7b) là việc của Task 7.
+ * một lần phản hồi. `retention_until` khi vào `lost` (R7b) do `IntakeRequest::stampRetention()` đặt lúc
+ * lưu (Task 7) — một chỗ cho mọi đường vào trạng thái cuối; `new` → `lost` đặt cả hai mốc trong CÙNG
+ * một lần lưu.
+ *
+ * **Bản đã ẩn danh** — hết hạn lưu, hay xoá theo yêu cầu khi còn `new` (R7c giữ trạng thái, Task 7) —
+ * là bản đã xong việc (`isClosedToChanges()`, đọc trên dòng vừa khoá): không đổi trạng thái, nên không
+ * bao giờ nhận `first_response_at` sau khi dữ liệu đã xoá, và lời nhắc của Task 5 cũng bỏ nó
+ * (`IntakeRequest::scopeAwaitingFirstResponse()`).
  *
  * Quyền: `IntakeRequestPolicy::update` (người ghi, người được giao, hoặc `intake.viewAny`). Bản ghi đã
  * xong việc ({@see IntakeRequest::isClosedToChanges()}: ẩn danh, gộp, chuyển đổi) bị từ chối. Câu đầu tiên của transaction là lần đọc có khoá dòng bản ghi; trạng thái được

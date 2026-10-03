@@ -16,6 +16,10 @@ return [
     // Chính sách lưu trữ
     'retention_years' => (int) env('RETENTION_YEARS', 10),
     'client_access_days' => (int) env('CLIENT_ACCESS_DAYS', 90),
+    // M10 R7b: số tháng giữ dữ liệu người liên hệ KHÔNG thành khách (từ lúc bị từ chối, không theo
+    // tiếp hoặc bị gộp) rồi tự ẩn danh. Riêng với `retention_years` (hồ sơ vụ việc, M7). Đọc qua
+    // `IntakeRequest::retentionMonths()`, nơi một giá trị vô nghĩa về 24 — không ép kiểu ở đây.
+    'prospect_retention_months' => env('PROSPECT_RETENTION_MONTHS', 24),
 
     // Giám sát cron
     'heartbeat_url' => $domain(env('HEARTBEAT_URL')),

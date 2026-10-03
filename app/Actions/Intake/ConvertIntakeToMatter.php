@@ -19,6 +19,7 @@ use App\Models\User;
 use App\Support\Audit;
 use App\Support\Intake\IntakeConversionResult;
 use App\Support\Normalizer;
+use App\Support\Scopes\ClientPortalScope;
 use BackedEnum;
 use Closure;
 use Illuminate\Support\Facades\DB;
@@ -70,7 +71,12 @@ use Illuminate\Validation\ValidationException;
  *     biến bước kiểm tra thành savepoint). Các bên đối lập sang `matter_parties` qua `identify()`:
  *     SĐT đã chuẩn hoá (luỹ đẳng), dấu băm CCCD qua đường có kiểm soát `id_number_hash`
  *     (`MatterParty::identifyWithKnownHash()`). Bản ghi đang chuyển đổi được loại khỏi nguồn dò thứ
- *     hai (`$excludeIntakeId`) để không tự khớp chính nó.
+ *     hai (`$excludeIntakeId`) để không tự khớp chính nó. Dòng `conflict_check_run` của lần kiểm tra
+ *     đó mang chủ thể là bản ghi cho tới khi vụ việc có id (`$checkSubject` của `OpenMatter`, Task 7
+ *     fix vòng 1): một lần chuyển đổi KHÔNG thành vụ — bị chặn Đỏ, chưa xác nhận (lượt đầu của trang
+ *     chuyển đổi luôn như vậy), bước 6 từ chối, lưu hỏng — để dòng đó, với tên người liên hệ và các bên
+ *     đối lập, ở lại với bản ghi, nơi việc ẩn danh bản ghi (`AnonymiseProspect`) tìm thấy nó. Thành vụ
+ *     thì nó sang vụ việc như mọi lần mở vụ.
  *  6. **Liên kết hai chiều + `won` + khoá — TRONG transaction lưu của `OpenMatter`** (`$beforeCommit`):
  *     khoá lại dòng bản ghi (sau dòng `matters` — thứ tự khoá của dự án), hỏi lại
  *     {@see self::refusal()}, rồi đặt `status = won`, `matter_id`, `client_id` (và `first_response_at`
@@ -81,7 +87,11 @@ use Illuminate\Validation\ValidationException;
  *     rollback: không vụ thứ hai, không khách mồ côi. Cùng lý do cho mọi thay đổi xen giữa (bản ghi
  *     bị từ chối, bị gộp): không bao giờ có "vụ đã tạo mà bản ghi tiếp nhận chưa cập nhật".
  *     `matter_id` unique là lưới cuối. Nhật ký `intake_converted` (mã vụ KHÔNG ghi — chỉ id, như
- *     nhật ký tự động của model) với causer = actor; nhật ký tự động tắt cho lần lưu này.
+ *     nhật ký tự động của model) với causer = actor; nhật ký tự động tắt cho lần lưu này. Cùng
+ *     transaction: mọi bản đã gộp vào bản ghi (trực tiếp hay qua bản khác,
+ *     `IntakeRequest::mergedFromTreeIds()`) mất `retention_until` — người đó vừa thành khách, nên các
+ *     bản ấy không còn bị ẩn danh hết hạn (Task 7 fix vòng 1; R7c dọc chuỗi gộp,
+ *     `IntakeRequest::convertedMergeTarget()`).
  *
  * Sau chuyển đổi bản ghi tự thành chỉ đọc (`IntakeRequest::isClosedToChanges()`: `won`/`matter_id`)
  * và rời nguồn dò thứ hai (`scopeOpenForConflictCheck()`). `quoted_amount` không đi vào vụ việc: form
@@ -157,6 +167,8 @@ class ConvertIntakeToMatter
             newClient: $client,
             excludeIntakeId: $locked->getKey(),
             beforeCommit: fn (Matter $matter) => $this->link($actor, $locked->getKey(), $matter, $clientCreated),
+            // Lần chuyển đổi không thành để dòng kiểm tra của nó ở lại với bản ghi — xem bước 5.
+            checkSubject: $locked,
         );
 
         return new IntakeConversionResult(
@@ -335,6 +347,20 @@ class ConvertIntakeToMatter
         $locked->blameOn($actor);
         $locked->disableLogging()->save();
         $locked->enableLogging();
+
+        // Task 7, fix vòng 1 (rà soát Task 7, I1): người liên hệ vừa thành khách, nên mọi bản đã gộp vào
+        // bản này — trực tiếp hay qua bản khác — mất hạn lưu như chính nó: R7b chỉ cho người KHÔNG thành
+        // khách. Câu UPDATE thẳng (không `updated_at`, không sự kiện): không ai sửa các bản đó.
+        $merged = $locked->mergedFromTreeIds();
+
+        if ($merged !== []) {
+            IntakeRequest::query()
+                ->withoutGlobalScope(ClientPortalScope::class)
+                ->withTrashed()
+                ->whereKey($merged)
+                ->toBase()
+                ->update(['retention_until' => null]);
+        }
 
         Audit::record('intake_converted', $locked, [
             'matter_id' => $matter->getKey(),

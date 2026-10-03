@@ -45,6 +45,9 @@ return [
         'intake_converted' => 'Chuyển một lần liên hệ thành vụ việc',
         // M10 Task 5: app/Jobs/SendUnansweredIntakeReminderMail.php — thư nhắc hỏng hẳn; chỉ mang tên mẫu thư.
         'intake_reminder_failed' => 'Gửi thư nhắc liên hệ chưa ai gọi lại thất bại hẳn',
+        // M10 Task 7 (`AnonymiseProspect`): mã bản ghi và lý do / ngày hạn — không bao giờ giá trị đã xoá.
+        'prospect_data_erased' => 'Xoá dữ liệu cá nhân của người liên hệ theo yêu cầu',
+        'prospect_data_anonymised' => 'Ẩn danh dữ liệu người liên hệ hết hạn lưu',
         // Ghi qua Audit::record() ở app/Actions/SyncClientPartyIdentities.php khi hồ sơ khách
         // hàng đổi số căn cước/điện thoại và ảnh chụp định danh của các bên được đồng bộ lại.
         'client_identity_resynced' => 'Đồng bộ lại định danh các bên',

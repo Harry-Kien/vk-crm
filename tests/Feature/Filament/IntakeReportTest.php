@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Intake\AnonymiseProspect;
 use App\Enums\IntakeSource;
 use App\Enums\IntakeStatus;
 use App\Enums\Permission;
@@ -402,6 +403,37 @@ it('still counts an anonymised record by its source, its status and its timestam
         ->and(irpData(IntakeOutcomesWidget::class)['datasets'][0]['data'])->toBe([0, 0, 1, 0])
         ->and(irpRows(IntakeResponseTimeWidget::class)[0]['value'])->toBe('45 phút')
         ->and(irpRows(IntakeConversionWidget::class)[1]['value'])->toBe('0/1 (0,0 %)');
+});
+
+/*
+ * Gộp làn m10-t7 vào m10-intake: cùng câu hỏi, nhưng dữ liệu bị xoá bởi Action THẬT của Task 7
+ * (`AnonymiseProspect::erase()`), không dựng tay. Cờ "từ chối vì xung đột" không phải dữ liệu cá nhân
+ * (bản ghi vẫn ở nhóm xung đột), mốc phản hồi ở lại (trung vị không đổi), và một cuộc gọi chưa ai gọi
+ * lại mà người gọi xin xoá vẫn là một cuộc gọi chưa được phản hồi trong kỳ của nó.
+ */
+it('still counts records the real anonymiser emptied: a conflict decline in its group, an erased call still in new as unanswered', function () {
+    $declined = irpRecord($this->assistant, IntakeSource::Phone, IntakeStatus::Declined, '2026-10-02 08:00', 120, [
+        'decline_reason' => 'Xung đột với một khách hàng hiện hữu',
+        'decline_reason_is_conflict' => true,
+    ]);
+    $waiting = irpRecord($this->assistant, IntakeSource::Zalo, IntakeStatus::New, '2026-10-03 08:00', null);
+
+    foreach ([$declined, $waiting] as $intake) {
+        app(AnonymiseProspect::class)->erase($this->admin, $intake, 'Người liên hệ yêu cầu xoá dữ liệu qua điện thoại');
+        expect($intake->fresh()->anonymised_at)->not->toBeNull()
+            ->and($intake->fresh()->contact_name)->toBeNull();
+    }
+
+    expect($declined->fresh()->decline_reason)->toBeNull();
+    $this->actingAs($this->manager, 'web');
+
+    expect(irpData(IntakesBySourceWidget::class)['datasets'][0]['data'])->toBe([1, 1, 0, 0, 0, 0])
+        ->and(irpData(IntakeOutcomesWidget::class)['datasets'][0]['data'])->toBe([1, 0, 0, 0])
+        ->and(array_slice(irpRows(IntakeResponseTimeWidget::class), 0, 3))->toBe([
+            ['label' => __('intake_report.response_time.overall'), 'value' => '2 giờ'],
+            ['label' => __('intake_report.response_time.responded'), 'value' => '1'],
+            ['label' => __('intake_report.response_time.unanswered'), 'value' => '1'],
+        ]);
 });
 
 // =================================================================================================

@@ -191,6 +191,33 @@ return [
         'not_recorded' => 'Chưa ghi nhận người liên hệ đã nghe thông báo.',
     ],
 
+    /*
+     * M10 Task 7 (R7b, R7c): hạn lưu, ẩn danh, xoá dữ liệu theo yêu cầu (`AnonymiseProspect`).
+     * `placeholder` thay mọi tên người liên hệ / bên đối lập trong bằng chứng kiểm tra xung đột còn lại
+     * sau ẩn danh — nó được LƯU vào nhật ký, nên đổi chữ ở đây không đổi các dòng đã làm sạch.
+     */
+    'anonymise' => [
+        'placeholder' => '(đã ẩn danh)',
+        'retention_reason' => 'Hết hạn lưu dữ liệu người liên hệ không thành khách (hạn :date).',
+        'action' => 'Xoá dữ liệu theo yêu cầu',
+        'modal_heading' => 'Xoá dữ liệu cá nhân của :code theo yêu cầu',
+        'modal_description' => 'Dùng khi chính người liên hệ yêu cầu xoá dữ liệu của họ. Tên, số điện thoại, email, số căn cước (dạng mã hoá), người giới thiệu, câu chuyện, lý do từ chối và ghi đè, các bên đối lập, và tên họ trong kết quả kiểm tra xung đột sẽ bị xoá vĩnh viễn — KHÔNG khôi phục được. Mã, nguồn, trạng thái và các mốc thời gian được giữ để thống kê. Chỉ xoá bản ghi này: người này còn bản ghi khác (gọi lại, đã gộp) thì xoá từng bản. Sau khi xoá, người này không còn được dùng để kiểm tra xung đột lợi ích.',
+        'reason' => 'Lý do xoá',
+        'reason_help' => 'Tối thiểu :min ký tự. Ghi yêu cầu đến bằng cách nào, ngày nào, đã xác minh ra sao (ví dụ "Yêu cầu qua điện thoại ngày 03/10/2026, đã gọi lại đúng số đã ghi"). KHÔNG ghi tên, số điện thoại hay nội dung câu chuyện: lý do được lưu vĩnh viễn trong nhật ký.',
+        'submit' => 'Xoá dữ liệu',
+        'done' => 'Đã xoá dữ liệu cá nhân của :code.',
+        'decision_retention' => 'Dữ liệu cá nhân của bản ghi này đã được ẩn danh ngày :date vì hết hạn lưu.',
+        'decision_request' => 'Dữ liệu cá nhân của bản ghi này đã được xoá ngày :date theo yêu cầu của người liên hệ.',
+        'decision_reason' => 'Lý do: :reason',
+        'errors' => [
+            'reason_too_short' => 'Lý do phải có ít nhất :min ký tự.',
+            'reason_too_long' => 'Lý do quá dài (tối đa :max ký tự).',
+            'converted' => 'Người liên hệ này đã thành khách hàng của văn phòng (bản ghi đã chuyển thành vụ việc): dữ liệu của họ đi theo hồ sơ khách hàng, không xoá ở đây.',
+            'converted_through_merge' => 'Người liên hệ này đã thành khách hàng của văn phòng (bản ghi này đã được gộp vào :code — trực tiếp hay qua một bản đã gộp khác — và bản đó đã chuyển thành vụ việc): dữ liệu của họ đi theo hồ sơ khách hàng, không xoá ở đây.',
+            'already' => 'Dữ liệu cá nhân của bản ghi này đã được xoá.',
+        ],
+    ],
+
     'decision' => [
         'declined_for_conflict' => 'Từ chối vì xung đột lợi ích',
         'outward_answer' => 'Câu trả lời cho người liên hệ: "Văn phòng xin phép không nhận vụ việc này." Không giải thích thêm.',
@@ -207,7 +234,7 @@ return [
         'acknowledge_description' => 'Xác nhận anh/chị đã xem đúng những khớp đang hiện trong bảng. Hệ thống chạy lại kiểm tra ngay lúc bấm; nếu kết quả đã đổi, anh/chị phải xem lại.',
         'acknowledged' => 'Đã ghi nhận xác nhận.',
         'resolve_red' => 'Xử lý mức đỏ',
-        'resolve_red_description' => 'Ghi đè mức đỏ kèm lý do. Lý do được ghi vào nhật ký và không xoá được. Muốn không nhận việc thì dùng "Từ chối" thay vì ghi đè.',
+        'resolve_red_description' => 'Ghi đè mức đỏ kèm lý do. Lý do được ghi vào nhật ký, và chỉ bị xoá cùng dữ liệu của người liên hệ khi bản ghi được ẩn danh (hết hạn lưu hoặc theo yêu cầu). Muốn không nhận việc thì dùng "Từ chối" thay vì ghi đè.',
         'red_resolved' => 'Đã ghi đè mức đỏ.',
         'rerun' => 'Kiểm tra lại',
         'rerun_done' => 'Đã chạy lại kiểm tra xung đột lợi ích.',

@@ -3,6 +3,7 @@
 namespace App\Filament\Admin\Resources\IntakeRequests\Pages;
 
 use App\Actions\Intake\AcknowledgeIntakeConflict;
+use App\Actions\Intake\AnonymiseProspect;
 use App\Actions\Intake\ChangeIntakeStatus;
 use App\Actions\Intake\ConvertIntakeToMatter;
 use App\Actions\Intake\DeclineIntake;
@@ -75,8 +76,8 @@ use Livewire\Attributes\Locked;
  * **Hành động trên đầu trang:** "Chuyển thành vụ việc" (Task 4 — liên kết tới `ConvertIntakeRequest`,
  * chỉ với `convert` trên bản ghi còn chuyển đổi được), "Đổi trạng thái" (`ChangeIntakeStatus`, chỉ các bước người ta tự đặt),
  * "Từ chối" (`DeclineIntake`; công tắc "vì xung đột" chỉ hiện với `resolveConflict`), "Gộp vào bản ghi
- * khác" (`MergeIntake`; chỉ các bản còn mở người dùng xem được). "Xoá dữ liệu theo yêu cầu" (R7c) là
- * của Task 7 — Action ẩn danh chưa có.
+ * khác" (`MergeIntake`; chỉ các bản còn mở người dùng xem được), "Xoá dữ liệu theo yêu cầu" (Task 7, R7c —
+ * `AnonymiseProspect::erase()`; chỉ admin, trên bản chưa chuyển đổi và chưa ẩn danh).
  *
  * **R8 — lý do từ chối vì xung đột:** chỉ người qua `viewConflictReason` thấy lý do và chữ "vì xung
  * đột"; người khác thấy "Văn phòng từ chối" và câu trả lời ra ngoài. `mutateFormDataBeforeFill()`
@@ -84,7 +85,10 @@ use Livewire\Attributes\Locked;
  * xuống trình duyệt, kể cả `decline_reason`, `conflict_override_reason` và các dấu băm.
  *
  * **Bản ghi đã xong việc** (`isClosedToChanges()`: đã gộp, đã ẩn danh, đã chuyển thành vụ): cả form chỉ
- * đọc, không nút Lưu, không hành động nào; khối "Kết quả xử lý" nói bản đã gộp vào đâu hoặc đã thành vụ nào.
+ * đọc, không nút Lưu, không hành động nào (trừ "Xoá dữ liệu theo yêu cầu" trên bản đã gộp — Task 7); khối
+ * "Kết quả xử lý" nói bản đã gộp vào đâu hoặc đã thành vụ nào, và (Task 7) dữ liệu đã được ẩn danh ngày nào,
+ * vì hết hạn lưu hay theo yêu cầu (lý do chỉ cho admin), hoặc — với admin, trên bản đã chuyển đổi — vì sao
+ * không xoá ở đây.
  *
  * **Bản ghi đã từ chối** (`isClosedToIdentityEdits()`, fix vòng 1 — rà soát Task 3, C1): phần danh tính
  * và phần bên đối lập chỉ đọc, không nút Lưu (nút đó chỉ lưu danh tính) — với mọi người, vì mọi lý do
@@ -130,7 +134,8 @@ class EditIntakeRequest extends EditRecord
             ->components([
                 Section::make(__('intake.sections.decision'))
                     ->columnSpanFull()
-                    ->visible(fn (): bool => in_array($this->intake()->status, [IntakeStatus::Declined, IntakeStatus::Merged, IntakeStatus::Won], true))
+                    ->visible(fn (): bool => in_array($this->intake()->status, [IntakeStatus::Declined, IntakeStatus::Merged, IntakeStatus::Won], true)
+                        || $this->intake()->anonymised_at !== null)
                     ->schema([View::make('filament.intake.decision')->viewData(fn (): array => $this->decisionViewData())]),
                 // `dehydrated()`: khối khoá vẫn gửi giá trị đang có, để một lần lưu lọt tới (request sửa
                 // tay, hay bản ghi vừa bị gộp/từ chối ở tab khác) nhận đúng lời từ chối của Action, không
@@ -239,7 +244,7 @@ class EditIntakeRequest extends EditRecord
 
     protected function getHeaderActions(): array
     {
-        return [$this->convertAction(), $this->changeStatusAction(), $this->declineAction(), $this->mergeAction()];
+        return [$this->convertAction(), $this->changeStatusAction(), $this->declineAction(), $this->mergeAction(), $this->eraseDataAction()];
     }
 
     private function intake(): IntakeRequest
@@ -470,6 +475,45 @@ class EditIntakeRequest extends EditRecord
     }
 
     /**
+     * "Xoá dữ liệu theo yêu cầu" (M10 Task 7, R7c): chỉ hiện với admin (`IntakeRequestPolicy::erase`) trên
+     * bản ghi chưa chuyển đổi và chưa ẩn danh (`AnonymiseProspect::refusal()` — một định nghĩa với Action),
+     * ở bất kỳ trạng thái nào khác, kể cả bản đã gộp — trừ bản đã gộp vào một bản về sau thành vụ việc
+     * (fix vòng 1 của Task 7: người đó đã là khách). Lý do ≥ 20 ký tự là luật của Action; lời từ chối về
+     * đúng ô lý do (`ReportsActionFailures`). Xong thì tải lại trang: form và trạng thái Livewire đang giữ
+     * các giá trị vừa bị xoá.
+     */
+    private function eraseDataAction(): Action
+    {
+        return Action::make('eraseData')
+            ->label(__('intake.anonymise.action'))
+            ->color('danger')
+            ->visible(fn (): bool => Gate::allows('erase', $this->intake()) && AnonymiseProspect::refusal($this->intake()) === null)
+            ->modalHeading(fn (): string => __('intake.anonymise.modal_heading', ['code' => $this->intake()->code]))
+            ->modalDescription(__('intake.anonymise.modal_description'))
+            ->modalSubmitActionLabel(__('intake.anonymise.submit'))
+            ->schema([
+                Textarea::make('erase_reason')
+                    ->label(__('intake.anonymise.reason'))
+                    ->helperText(__('intake.anonymise.reason_help', ['min' => AnonymiseProspect::ERASE_REASON_MIN_LENGTH]))
+                    ->required()
+                    // Cột `anonymised_reason` là `text`; trần là trần của Action.
+                    ->maxLength(AnonymiseProspect::ERASE_REASON_MAX_LENGTH)
+                    ->rows(4),
+            ])
+            ->action(function (Action $action, array $data): void {
+                $intake = $this->intake();
+
+                $this->runAction($action, fn () => app(AnonymiseProspect::class)->erase(
+                    $this->actor(), $intake, (string) ($data['erase_reason'] ?? ''),
+                ));
+
+                Notification::make()->title(__('intake.anonymise.done', ['code' => $intake->code]))->success()->send();
+
+                $this->redirect(IntakeRequestResource::getUrl('edit', ['record' => $intake]));
+            });
+    }
+
+    /**
      * Các bản có thể gộp vào: còn mở (chưa gộp, chưa chuyển đổi, chưa ẩn danh — `openForConflictCheck`),
      * người dùng xem được, khác bản này; mới nhất trước, tối đa 50.
      *
@@ -658,6 +702,17 @@ class EditIntakeRequest extends EditRecord
                 'code' => $matter->code,
                 'url' => Gate::allows('view', $matter) ? MatterResource::getUrl('view', ['record' => $matter], panel: 'admin') : null,
             ],
+            // M10 Task 7: dữ liệu đã ẩn danh — ngày, và vì hết hạn lưu (không người làm) hay theo yêu cầu.
+            // Lý do (của admin, hoặc câu "hết hạn lưu") chỉ cho người xoá được (admin).
+            'anonymised' => $intake->anonymised_at === null ? null : [
+                'text' => __($intake->anonymised_by === null ? 'intake.anonymise.decision_retention' : 'intake.anonymise.decision_request', [
+                    'date' => $intake->anonymised_at->format('d/m/Y'),
+                ]),
+                'reason' => Gate::allows('erase', $intake) ? $intake->anonymised_reason : null,
+            ],
+            // Admin trên bản đã chuyển đổi, hay đã gộp vào một bản đã thành vụ: vì sao không có nút xoá
+            // (R7c). Bản đã ẩn danh nói ở dòng trên.
+            'eraseRefusal' => $intake->anonymised_at === null && Gate::allows('erase', $intake) ? AnonymiseProspect::refusal($intake) : null,
         ];
     }
 }

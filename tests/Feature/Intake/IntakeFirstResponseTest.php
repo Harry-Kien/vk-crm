@@ -1,5 +1,8 @@
 <?php
 
+use App\Actions\Intake\AnonymiseProspect;
+use App\Actions\Intake\ChangeIntakeStatus;
+use App\Actions\Intake\DeclineIntake;
 use App\Actions\Intake\RecordIntake;
 use App\Actions\Intake\RecordPrivacyNotice;
 use App\Actions\Intake\UpdateIntakeSummary;
@@ -188,5 +191,57 @@ it('answers "still awaiting a first response" the same way in SQL and in memory'
     'đã liên hệ lại' => [fn (IntakeRequest $i) => $i->forceFill(['status' => IntakeStatus::Contacted])->save(), false],
     'đã gộp' => [fn (IntakeRequest $i) => $i->forceFill(['status' => IntakeStatus::Merged])->save(), false],
     'đã ẩn danh mà vẫn ở new' => [fn (IntakeRequest $i) => $i->forceFill(['anonymised_at' => now()])->save(), false],
+    'xoá theo yêu cầu khi còn new (Action thật của Task 7)' => [fn (IntakeRequest $i) => app(AnonymiseProspect::class)
+        ->erase(ifrStaff(Role::Admin), $i, 'Người liên hệ yêu cầu xoá dữ liệu qua điện thoại'), false],
     'đã xoá mềm' => [fn (IntakeRequest $i) => $i->delete(), false],
 ]);
+
+/*
+ * Gộp làn m10-t7 (Task 7) vào m10-intake: rời `new` sang một trạng thái cuối "không thành khách" ghi HAI
+ * mốc trong cùng một lần lưu — mốc phản hồi của Task 5 (Action) và hạn lưu của Task 7 (móc `saving`
+ * `IntakeRequest::stampRetention()`); từ một bước sau `new` thì chỉ hạn lưu là mới.
+ */
+it('records the first response and the retention date in the same save when a record leaves new for lost or declined', function (Closure $close) {
+    $lawyer = ifrStaff(Role::Lawyer);
+    $fresh = ifrRecord($lawyer);
+    $answered = ifrRecord($lawyer, ['contact_phone' => '0901222333']);
+    $this->actingAs($lawyer, 'web');
+
+    $this->travelTo(CarbonImmutable::parse('2026-10-07 09:40', 'Asia/Ho_Chi_Minh'));
+    ifrEdit($answered)->callAction('changeStatus', data: ['status' => IntakeStatus::Contacted->value])->assertHasNoErrors();
+    expect($answered->fresh()->retention_until)->toBeNull();
+
+    $this->travelTo(CarbonImmutable::parse('2026-10-07 11:05', 'Asia/Ho_Chi_Minh'));
+    $close($fresh);
+    $close($answered->fresh());
+
+    expect($fresh->fresh()->first_response_at?->format('Y-m-d H:i'))->toBe('2026-10-07 11:05')
+        ->and($fresh->fresh()->retention_until?->toDateString())->toBe('2028-10-07')
+        ->and($answered->fresh()->first_response_at?->format('Y-m-d H:i'))->toBe('2026-10-07 09:40')
+        ->and($answered->fresh()->retention_until?->toDateString())->toBe('2028-10-07');
+})->with([
+    'khách không theo tiếp' => fn (IntakeRequest $i) => ifrEdit($i)
+        ->callAction('changeStatus', data: ['status' => IntakeStatus::Lost->value])->assertHasNoErrors(),
+    'từ chối' => fn (IntakeRequest $i) => ifrEdit($i)
+        ->callAction('decline', data: ['decline_reason' => 'Ngoài lĩnh vực'])->assertHasNoErrors(),
+]);
+
+it('never records a first response on a record erased on request while still in new', function () {
+    $manager = ifrStaff(Role::Manager);
+    $intake = ifrRecord($manager);
+    app(AnonymiseProspect::class)->erase(ifrStaff(Role::Admin), $intake, 'Người liên hệ yêu cầu xoá dữ liệu qua điện thoại');
+
+    $this->travelTo(CarbonImmutable::parse('2026-10-07 11:05', 'Asia/Ho_Chi_Minh'));
+
+    expect(fn () => app(ChangeIntakeStatus::class)->handle($manager, $intake->fresh(), IntakeStatus::Contacted))
+        ->toThrow(ValidationException::class)
+        ->and(fn () => app(DeclineIntake::class)->handle($manager, $intake->fresh(), 'Ngoài lĩnh vực'))
+        ->toThrow(ValidationException::class);
+
+    $after = $intake->fresh();
+    expect($after->status)->toBe(IntakeStatus::New)
+        ->and($after->first_response_at)->toBeNull()
+        ->and($after->retention_until)->toBeNull()
+        ->and($after->contact_name)->toBeNull()
+        ->and($after->contact_phone_normalized)->toBeNull();
+});

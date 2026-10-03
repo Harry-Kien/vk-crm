@@ -22,7 +22,12 @@ use Illuminate\Support\Facades\Schedule;
  */
 function iriEvent(): CallbackEvent
 {
-    $event = collect(Schedule::events())->first(fn ($e) => $e->description === 'intakes.remind-unanswered');
+    // Đúng MỘT tác vụ tên này (gộp làn m10-t7: tệp lịch có hai đoạn nối thêm của hai làn — không đoạn nào được lặp).
+    $matches = collect(Schedule::events())->filter(fn ($e) => $e->description === 'intakes.remind-unanswered')->values();
+
+    expect($matches)->toHaveCount(1, 'phải có đúng một tác vụ lịch tên intakes.remind-unanswered');
+
+    $event = $matches->first();
 
     expect($event)->toBeInstanceOf(CallbackEvent::class);
 

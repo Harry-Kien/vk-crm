@@ -39,11 +39,14 @@ use Illuminate\Validation\ValidationException;
  * ({@see IntakeRequest::isClosedToChanges()}) bị từ chối. Câu đầu tiên của transaction là lần đọc có
  * khoá dòng bản ghi. Nhật ký `intake_declined` chỉ mang trạng thái trước đó — KHÔNG lý do, KHÔNG cờ
  * xung đột (R8: `ActivityOwningMatter` cho mọi người có `auditLog.view` đọc dòng này; cột của bản ghi
- * mới là nơi giữ quyết định, sau `viewConflictReason`). `retention_until` (R7b) là việc của Task 7.
+ * mới là nơi giữ quyết định, sau `viewConflictReason`). `retention_until` (R7b) do
+ * `IntakeRequest::stampRetention()` đặt lúc lưu (Task 7).
  *
  * **Từ chối một bản còn `new` là lần phản hồi đầu** (R5, Task 5): câu trả lời "văn phòng xin phép
  * không nhận" là một lần văn phòng trả lời người liên hệ — `first_response_at = now()`, cùng luật
- * `ChangeIntakeStatus`. Từ một bước sau `new` thì giữ mốc đã có.
+ * `ChangeIntakeStatus`. Từ một bước sau `new` thì giữ mốc đã có. Hai mốc đi cùng MỘT lần lưu: bản `new`
+ * bị từ chối nhận cả `first_response_at` lẫn `retention_until`. Bản đã ẩn danh (kể cả bản `new` đã xoá
+ * theo yêu cầu) bị từ chối ở cổng `isClosedToChanges()` trên dòng vừa khoá — không mốc nào được ghi.
  */
 class DeclineIntake
 {
