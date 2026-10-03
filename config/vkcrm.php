@@ -194,6 +194,18 @@ return [
          * `required_extensions`: test gài một tên giả để dựng chiều VÀNG.
          */
         'worker_timeout_extension' => 'pcntl',
+
+        /*
+         * Rà soát cuối làn fu2 (I1): các hàm pcntl mà `Illuminate\Queue\Worker::daemon()` GỌI khi
+         * extension ở trên đã nạp — `pcntl_async_signals()`/`pcntl_signal()` ở `listenForSignals()`,
+         * `pcntl_signal()`/`pcntl_alarm()` ở `registerTimeoutHandler()`. `Worker::
+         * supportsAsyncSignals()` chỉ hỏi `extension_loaded('pcntl')`, nên khi một hàm ở đây nằm
+         * trong `disable_functions` (PHP 8: hàm bị chặn là hàm không tồn tại) mọi lượt `queue:work`
+         * chết ở vòng đầu — `vkcrm:preflight` báo ĐỎ. Danh sách phải đúng bằng các hàm `pcntl_*` mà
+         * Worker gọi: `PreflightCommandTest` đọc mã nguồn Worker để chặn trôi khi nâng Laravel.
+         * Cấu hình được chỉ để test gài một tên hàm giả mà dựng chiều ĐỎ.
+         */
+        'worker_signal_functions' => ['pcntl_async_signals', 'pcntl_signal', 'pcntl_alarm'],
     ],
 
     /*

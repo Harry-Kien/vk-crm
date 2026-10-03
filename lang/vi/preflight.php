@@ -79,7 +79,15 @@ return [
         .'báo lỗi, và sau 15 phút lượt chạy kế tiếp có thể dựng cùng gói đó một lần nữa vào cùng thư '
         .'mục. VÀNG chứ không ĐỎ (không màn hình nào vỡ) — bật pcntl cho PHP dòng lệnh (php.ini của '
         .'CLI) trước khi đóng vụ việc có nhiều tài liệu.',
-    'pcntl_ok' => 'PHP dòng lệnh có extension pcntl (giờ chết của job gói bàn giao có tác dụng).',
+    // Rà soát cuối làn fu2 (I1): pcntl đã nạp nhưng hàm bị chặn — worker không khởi động được.
+    'pcntl_functions_disabled' => 'PHP dòng lệnh có extension pcntl nhưng không dùng được hàm '
+        .':functions (thường do disable_functions trong php.ini của dòng lệnh). Laravel chỉ hỏi '
+        .'pcntl đã nạp chưa, nên worker hàng đợi vẫn gọi các hàm đó ngay khi khởi động và chết với '
+        .'lỗi "Call to undefined function" trước khi chạy job nào: mọi lượt queue:work (queue.drain '
+        .'và queue.handover) đều hỏng, không thư nào được gửi, kể cả thư nhắc mốc thời hạn. Bỏ '
+        .':functions khỏi disable_functions của PHP dòng lệnh.',
+    'pcntl_ok' => 'PHP dòng lệnh có extension pcntl và dùng được các hàm :functions (worker hàng đợi '
+        .'khởi động được, giờ chết của job gói bàn giao có tác dụng).',
 
     'brand_fields_missing' => 'Còn thiếu thông tin pháp lý của văn phòng: :fields — thư gửi khách '
         .'và PDF xuất ra sẽ thiếu các trường này cho tới khi điền. Chủ văn phòng điền ở trang '

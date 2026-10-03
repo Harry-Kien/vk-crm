@@ -3901,12 +3901,19 @@ Không merge vào `main`; dòng M7 của bảng milestone không đổi.
     hứa gì sai nên giữ nguyên.
   - Đính chính SPEC §9 ngày 2026-10-03.
 - **pcntl trong preflight.** Dòng `pcntl` mới của `vkcrm:preflight` (`RunPreflight::pcntlRow()`, theo
-  khuôn `gdRow`): PHP dòng lệnh thiếu pcntl → VÀNG, kèm câu giải thích gói bàn giao lớn chạy quá giờ.
-  Không vào `required_extensions`; tên extension ở `vkcrm.deployment.worker_timeout_extension` chỉ để
-  test dựng được chiều VÀNG. `docs/CAI-DAT.md` Bước 1 thêm hai mục: pcntl cho PHP dòng lệnh, và chỗ
-  trống trên đĩa cho gói bàn giao (`HANDOVER_WORK_DIR`, `MEDIA_MAX_FILE_SIZE_MB`, gói nằm trong
-  `storage/app/private` nên bản sao lưu lớn lên tương ứng). Chú thích mục lịch `queue.handover` nhắc
-  pcntl.
+  khuôn `gdRow`/`procOpenRow`), ba chiều. PHP dòng lệnh thiếu pcntl → VÀNG, kèm câu giải thích gói
+  bàn giao lớn chạy quá giờ. Có pcntl mà `pcntl_async_signals`, `pcntl_signal` hay `pcntl_alarm` bị
+  chặn (`disable_functions`, hay gặp ở PHP dòng lệnh của cPanel/CloudLinux) → ĐỎ, nêu đúng hàm bị
+  chặn (rà soát cuối làn, I1): `Worker::supportsAsyncSignals()` chỉ hỏi `extension_loaded('pcntl')`
+  nên mọi `queue:work` (`queue.drain` lẫn `queue.handover`) chết ở vòng đầu với "Call to undefined
+  function" — đã đo thật trong container bằng `php -d disable_functions=pcntl_alarm`. Đủ cả hai →
+  XANH. Không vào `required_extensions`; tên extension (`vkcrm.deployment.worker_timeout_extension`)
+  và danh sách hàm (`vkcrm.deployment.worker_signal_functions`) ở cấu hình chỉ để test dựng được
+  chiều VÀNG và ĐỎ; một test đọc mã nguồn `Illuminate\Queue\Worker` để danh sách hàm không trôi khi
+  nâng Laravel. `docs/CAI-DAT.md` Bước 1 thêm hai mục: pcntl cho PHP dòng lệnh (lệnh kiểm in bốn
+  giá trị: extension và ba hàm), và chỗ trống trên đĩa cho gói bàn giao (`HANDOVER_WORK_DIR`,
+  `MEDIA_MAX_FILE_SIZE_MB`, gói nằm trong `storage/app/private` nên bản sao lưu lớn lên tương ứng).
+  Chú thích mục lịch `queue.handover` nhắc pcntl.
 - **Việc nhỏ đã sửa:**
   - "Khách chưa xem cập nhật" (`UnseenStageLogs`, dùng chung bởi widget trang chủ và
     `RemindUnseenUpdates`): thêm vế "chưa hết hạn tra cứu" của điều kiện cổng, viết bằng đúng
@@ -3965,3 +3972,8 @@ Không merge vào `main`; dòng M7 của bảng milestone không đổi.
   một mutant tương đương đã ghi: bỏ `withoutGlobalScope(ClientPortalScope)` trong vế mới của
   `UnseenStageLogs` (widget và lịch nhắc không bao giờ chạy trong ngữ cảnh cổng; trong ngữ cảnh
   cổng, scope của chính `Matter` đã mang cùng điều kiện).
+- **Rà soát cuối của làn, vòng sửa 1 (I1, chiều ĐỎ của dòng pcntl):** RED trước khi sửa, 3 test đỏ
+  (câu XANH không nêu hàm, chiều "đã nạp mà hàm bị chặn" vẫn thoát mã 0, chưa có danh sách hàm). Sáu
+  mutation probe đều đỏ đúng test. Cả bộ SQLite → **4340 passed, 29 skipped, 1 risky, 1 todo,
+  0 failed** (19.040 khẳng định, 2377 s). MariaDB, tuần tự, `PreflightCommandTest` → **29 passed**.
+  `pint --test` sạch (928 tệp).

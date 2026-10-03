@@ -226,20 +226,56 @@ class RunPreflight
      * vượt 900 giây (`retry_after` và khoá `withoutOverlapping` 15 phút cùng hết) lượt kế tiếp nhận
      * lại cùng job, dựng vào cùng thư mục làm việc — đúng cuộc đua R9 dựng kết nối `handover` để tránh.
      *
-     * Đọc `extension_loaded()` của CHÍNH tiến trình đang chạy lệnh này — tức PHP dòng lệnh, cùng PHP
-     * mà cron chạy `schedule:run` (cùng giới hạn đã ghi ở {@see procOpenRow()}: chạy preflight bằng
-     * đúng binary PHP của cron). VÀNG chứ không ĐỎ, và KHÔNG thêm vào `required_extensions`: danh
-     * sách đó đúng bằng `composer check-platform-reqs` + `pdo_mysql`, và thiếu pcntl không làm vỡ màn
-     * hình nào — chỉ làm mất lưới an toàn của gói lớn. Tên extension đọc từ cấu hình
-     * (`vkcrm.deployment.worker_timeout_extension`) chỉ để test dựng được chiều VÀNG.
+     * Đọc `extension_loaded()`/`function_exists()` của CHÍNH tiến trình đang chạy lệnh này — tức PHP
+     * dòng lệnh, cùng PHP mà cron chạy `schedule:run` (cùng giới hạn đã ghi ở {@see procOpenRow()}:
+     * chạy preflight bằng đúng binary PHP của cron). Ba chiều, hỏi theo thứ tự:
+     *
+     * 1. Extension CHƯA nạp → VÀNG, và KHÔNG thêm vào `required_extensions`: danh sách đó đúng bằng
+     *    `composer check-platform-reqs` + `pdo_mysql`, và thiếu pcntl không làm vỡ màn hình nào —
+     *    `Worker::supportsAsyncSignals()` trả false nên worker không gọi hàm pcntl nào, vẫn chạy,
+     *    chỉ mất lưới an toàn của gói lớn. Câu này hỏi TRƯỚC: thiếu extension thì các hàm của nó
+     *    cũng không tồn tại, nhưng đó không phải chiều ĐỎ dưới đây.
+     * 2. Extension đã nạp nhưng một hàm trong `vkcrm.deployment.worker_signal_functions` không tồn
+     *    tại → ĐỎ (rà soát cuối làn fu2, I1). `Worker::supportsAsyncSignals()` chỉ hỏi
+     *    `extension_loaded('pcntl')`, nên `daemon()` vẫn gọi `pcntl_async_signals()`/`pcntl_signal()`
+     *    (`listenForSignals()`) và `pcntl_signal()`/`pcntl_alarm()` (`registerTimeoutHandler()`, mỗi
+     *    vòng, kể cả vòng không có job). Trên PHP 8 một hàm nằm trong `disable_functions` là hàm
+     *    không tồn tại — hay gặp ở PHP dòng lệnh của cPanel/CloudLinux — nên MỌI lượt `queue:work`
+     *    (`queue.drain` lẫn `queue.handover`) chết ở vòng đầu với "Call to undefined function",
+     *    trước khi chạy job nào: không thư nào đi, kể cả thư nhắc mốc thời hạn. Câu ĐỎ nêu đúng các
+     *    hàm bị chặn. Cùng lý do {@see procOpenRow()} hỏi `function_exists()`.
+     * 3. Đủ cả hai → XANH, câu XANH nêu các hàm đã kiểm.
+     *
+     * Tên extension và danh sách hàm đọc từ cấu hình chỉ để test gài tên giả mà dựng chiều VÀNG và
+     * ĐỎ (`extension_loaded()`/`function_exists()` không giả được). Giá trị dự phòng của hai lời gọi
+     * `config()` bằng đúng giá trị trong `config/vkcrm.php`, để một tệp cấu hình đã cache từ bản cũ
+     * (chưa có khoá danh sách hàm) không làm dòng này lặng lẽ XANH.
      */
     private function pcntlRow(): array
     {
         $extension = (string) config('vkcrm.deployment.worker_timeout_extension', 'pcntl');
+        $functions = (array) config('vkcrm.deployment.worker_signal_functions', [
+            'pcntl_async_signals', 'pcntl_signal', 'pcntl_alarm',
+        ]);
 
-        return extension_loaded($extension)
-            ? $this->row('pcntl', PreflightLevel::Green, __('preflight.pcntl_ok'))
-            : $this->row('pcntl', PreflightLevel::Yellow, __('preflight.pcntl_missing'));
+        if (! extension_loaded($extension)) {
+            return $this->row('pcntl', PreflightLevel::Yellow, __('preflight.pcntl_missing'));
+        }
+
+        $disabled = array_values(array_filter(
+            $functions,
+            fn (string $function): bool => ! function_exists($function),
+        ));
+
+        if ($disabled !== []) {
+            return $this->row('pcntl', PreflightLevel::Red, __('preflight.pcntl_functions_disabled', [
+                'functions' => implode(', ', $disabled),
+            ]));
+        }
+
+        return $this->row('pcntl', PreflightLevel::Green, __('preflight.pcntl_ok', [
+            'functions' => implode(', ', $functions),
+        ]));
     }
 
     /**

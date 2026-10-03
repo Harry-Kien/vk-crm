@@ -197,12 +197,24 @@ Mọi lệnh `php artisan …` chạy trong thư mục `/var/www/vk-crm`, bằng
     (ví dụ `25M`). Mặc định của PHP là `2M`/`8M`: để nguyên thì mọi lần tải tệp trên 2 MB hỏng.
   - `proc_open` KHÔNG nằm trong `disable_functions` (sao lưu cần nó để gọi `mariadb-dump` và
     `rclone`; preflight kiểm bản của dòng lệnh — cron chạy sao lưu bằng PHP dòng lệnh).
-- **PHP dòng lệnh có `pcntl`** (PHP-FPM không cần). Cron rút hàng đợi bằng PHP dòng lệnh, và giờ
-  chết 600 giây của job dựng gói bàn giao (mục lịch `queue.handover`) chỉ có tác dụng khi có
-  `pcntl`. Thiếu thì `vkcrm:preflight` báo VÀNG: một gói lớn chạy quá giờ không bị dừng, luật sư
-  không được báo lỗi, và sau 15 phút lượt chạy kế tiếp có thể dựng lại cùng gói vào cùng thư mục.
-  `pcntl` không nằm trong danh sách bắt buộc ở trên vì `composer check-platform-reqs` không đòi nó.
-  Kiểm bằng đúng PHP mà cron gọi: `php -m | grep pcntl`.
+- **PHP dòng lệnh có `pcntl`, và ba hàm `pcntl_async_signals`, `pcntl_signal`, `pcntl_alarm`
+  không bị chặn** (PHP-FPM không cần). Cron rút hàng đợi bằng PHP dòng lệnh, và giờ chết 600 giây
+  của job dựng gói bàn giao (mục lịch `queue.handover`) chỉ có tác dụng khi có `pcntl`. Thiếu
+  `pcntl` thì `vkcrm:preflight` báo VÀNG: một gói lớn chạy quá giờ không bị dừng, luật sư không được
+  báo lỗi, và sau 15 phút lượt chạy kế tiếp có thể dựng lại cùng gói vào cùng thư mục. Có `pcntl`
+  mà một trong ba hàm trên nằm trong `disable_functions` của php.ini dòng lệnh (hay gặp trên
+  cPanel/CloudLinux) thì nặng hơn nhiều: Laravel chỉ hỏi `pcntl` đã nạp chưa, nên worker vẫn gọi
+  các hàm đó ngay khi khởi động và chết với lỗi "Call to undefined function". Mọi lượt rút hàng đợi
+  hỏng, không thư nào được gửi, kể cả thư nhắc mốc thời hạn. `vkcrm:preflight` báo ĐỎ trường hợp
+  này; bỏ các hàm đó khỏi `disable_functions` của PHP dòng lệnh. `pcntl` không nằm trong danh sách
+  bắt buộc ở trên vì `composer check-platform-reqs` không đòi nó. Kiểm bằng đúng PHP mà cron gọi:
+
+  ```bash
+  php -r 'echo json_encode([extension_loaded("pcntl"), function_exists("pcntl_async_signals"), function_exists("pcntl_signal"), function_exists("pcntl_alarm")]), PHP_EOL;'
+  ```
+
+  Phải in `[true,true,true,true]`. Giá trị đầu là `false`: thiếu `pcntl` (VÀNG). Giá trị đầu là
+  `true` mà một giá trị sau là `false`: hàm ở vị trí đó bị chặn (ĐỎ).
 - **Chỗ trống trên đĩa cho gói bàn giao.** Khi vụ việc kết thúc, hệ thống tự dựng một tệp zip chứa
   các tài liệu nhóm A, B, C của vụ cùng mục lục, rồi cất nó vào kho hồ sơ (`storage/app/private`).
   Mỗi vụ đã kết thúc vì vậy chiếm thêm chừng bằng dung lượng tài liệu của chính nó, và bản sao lưu
