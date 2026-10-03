@@ -73,6 +73,14 @@ return [
         .'dựng lại hôm nay. VÀNG chứ không ĐỎ — cài trước khi ai đó bật một chuyển đổi ảnh.',
     'gd_ok' => 'Extension gd có sẵn.',
 
+    // Việc sau gộp M7 (làn fu2): giờ chết của worker gói bàn giao — xem RunPreflight::pcntlRow().
+    'pcntl_missing' => 'PHP dòng lệnh thiếu extension pcntl — worker không giết được một job chạy '
+        .'quá giờ. Một gói bàn giao lớn có thể chạy quá 10 phút mà không bị dừng: luật sư không được '
+        .'báo lỗi, và sau 15 phút lượt chạy kế tiếp có thể dựng cùng gói đó một lần nữa vào cùng thư '
+        .'mục. VÀNG chứ không ĐỎ (không màn hình nào vỡ) — bật pcntl cho PHP dòng lệnh (php.ini của '
+        .'CLI) trước khi đóng vụ việc có nhiều tài liệu.',
+    'pcntl_ok' => 'PHP dòng lệnh có extension pcntl (giờ chết của job gói bàn giao có tác dụng).',
+
     'brand_fields_missing' => 'Còn thiếu thông tin pháp lý của văn phòng: :fields — thư gửi khách '
         .'và PDF xuất ra sẽ thiếu các trường này cho tới khi điền. Chủ văn phòng điền ở trang '
         .'"Thông tin văn phòng" trong /admin (hoặc đặt biến tương ứng trong .env); giá trị nhập trong '

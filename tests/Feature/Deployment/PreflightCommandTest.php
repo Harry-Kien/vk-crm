@@ -431,3 +431,51 @@ it('§preflight bốn thông tin pháp lý nhập ở trang Thông tin văn phò
         ->and($output)->toContain(__('preflight.brand_fields_ok'))
         ->and($output)->not->toContain('BRAND_TAX_CODE');
 });
+
+/*
+|--------------------------------------------------------------------------
+| pcntl — giờ chết của job gói bàn giao (việc sau gộp M7, làn fu2)
+|--------------------------------------------------------------------------
+|
+| `GenerateHandoverPackage::$timeout`/`$failOnTimeout` và `--timeout=600` của mục lịch
+| `queue.handover` chỉ có tác dụng khi PHP DÒNG LỆNH có ext-pcntl. pcntl KHÔNG nằm trong
+| `required_extensions` (danh sách đó đúng bằng `composer check-platform-reqs` + `pdo_mysql`), nên nó
+| là một dòng VÀNG riêng. Container test có pcntl thật (chiều XANH đo thật); chiều VÀNG gài một tên
+| extension giả vào `vkcrm.deployment.worker_timeout_extension`, cùng cách test "thiếu extension bắt
+| buộc" ở trên — `extension_loaded()` không giả được.
+*/
+
+it('§preflight production PHP dòng lệnh có pcntl là XANH', function () {
+    config(preflightGreenProductionConfig());
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect(extension_loaded('pcntl'))->toBeTrue()
+        ->and($exitCode)->toBe(0)
+        ->and($output)->toContain('['.__('preflight.levels.green').'] '.__('preflight.pcntl_ok'))
+        ->and($output)->not->toContain(__('preflight.pcntl_missing'));
+});
+
+it('§preflight production PHP dòng lệnh thiếu pcntl là VÀNG kèm lý do gói bàn giao, không ĐỎ', function () {
+    config(preflightGreenProductionConfig());
+    config(['vkcrm.deployment.worker_timeout_extension' => 'khong-co-pcntl-that']);
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($exitCode)->toBe(0)
+        ->and($output)->toContain('['.__('preflight.levels.yellow').'] '.__('preflight.pcntl_missing'))
+        ->and(__('preflight.pcntl_missing'))->toContain('gói bàn giao')
+        ->and($output)->not->toContain(__('preflight.pcntl_ok'))
+        ->and($output)->toContain(__('preflight.summary_yellow'));
+});
+
+it('§preflight pcntl không nằm trong danh sách extension bắt buộc (danh sách đó là check-platform-reqs + pdo_mysql)', function () {
+    expect(config('vkcrm.deployment.required_extensions'))->not->toContain('pcntl')
+        ->and(config('vkcrm.deployment.worker_timeout_extension'))->toBe('pcntl');
+});

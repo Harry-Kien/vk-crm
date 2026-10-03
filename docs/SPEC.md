@@ -1362,6 +1362,34 @@ mọi thư cho khách: `is_active` **và** `activated_at` không null (M6.5 R12)
 (`docs/superpowers/plans/2026-09-21-m6-notifications.md`), cùng với huy hiệu "có trả lời mới" trên
 thẻ hồ sơ ở cổng; M6.5 không viết mẫu thư này (R1).
 
+**Đính chính 2026-10-03 (M7, gộp vào `main`; việc sau gộp, làn fu2).** M7 thêm hai mẫu thư NỘI BỘ
+vào bảng trên, và đổi một hành vi của `client.document_published`:
+
+| Mẫu | Kích hoạt khi |
+|---|---|
+| `staff.matter_reassigned` | Bàn giao một hay nhiều vụ việc sang luật sư phụ trách mới (§6.11 bước 3, R10) |
+| `staff.handover_ready` | Gói bàn giao hồ sơ sinh xong (§6.12 bước 3) |
+
+- `staff.matter_reassigned`: một thư tổng hợp cho cả lô, chỉ tới luật sư phụ trách MỚI, liệt kê các
+  mốc thời hạn chưa xong vừa chuyển sang họ. Tiêu đề chỉ nêu số vụ, không nêu mã. Dòng
+  `outbound_messages` gắn vào chính người nhận (`related` = người dùng), nên ở màn hình nhật ký thư
+  chỉ admin thấy dòng đó.
+- `staff.handover_ready`: tới luật sư phụ trách và người bấm "Sinh gói bàn giao", qua
+  `ResolveStaffRecipients` (R3), kèm một chuông trong hệ thống. Thư nội bộ nên tiêu đề mang mã hồ sơ.
+  Dòng nhật ký thư gắn vào tài liệu gói (`related` = tài liệu). Job gửi thẳng thư từ trong nó, không
+  xếp thêm một job thư mang model người nhận (làn fu2).
+- Cả hai mẫu **không gửi lại được** từ nhật ký thư (`ResendTargets::NOT_RESENDABLE`, mỗi mẫu một câu
+  từ chối): thư tổng hợp liệt kê các mốc ở đúng lúc bàn giao, gửi lại là gửi một danh sách cũ, và các
+  mốc vẫn hiện ở trang chủ, ở tab "Mốc thời hạn" và trong thư nhắc mốc; thư gói chỉ báo một sự kiện
+  đã qua, trạng thái gói luôn hiện trên trang vụ việc và chuông đã báo cùng lúc.
+- `client.document_published` khi tài liệu là **gói bàn giao hiện tại** của vụ
+  (`matter_archives.handover_document_id`): thư đi cả khi vụ đã kết thúc (ngoại lệ duy nhất của điều
+  kiện "vụ còn mở" mà M6 đặt cho mẫu này), tới các tài khoản R12 mà vụ còn trên cổng của chính họ
+  (chưa quá `client_access_until`). Tiêu đề và thân thư là của gói: nói đây là gói hồ sơ bàn giao
+  (các tài liệu của hồ sơ cùng `MUC-LUC.pdf`) và hạn tải theo `client_access_until`, không nêu tên
+  tài liệu nào; gói công bố "chỉ xem" thì thư không hứa tải được. Tài liệu thường trên vụ đã kết thúc
+  vẫn không gửi thư này.
+
 ---
 
 ## 10. Bảo mật — yêu cầu cụ thể

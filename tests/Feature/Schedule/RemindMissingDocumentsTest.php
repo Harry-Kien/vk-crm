@@ -11,6 +11,7 @@ use App\Mail\Client\MissingDocuments;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\MatterChecklistItem;
 use App\Models\OutboundMessage;
 use App\Models\User;
@@ -178,6 +179,30 @@ it('does not queue a mail when the client has no account that can receive one', 
     Queue::assertNothingPushed();
     expect($result['mailed'])->toBe(0);
 });
+
+/**
+ * Việc sau gộp M7 (làn fu2): Action hỏi người nhận đúng như job (`ResolveClientRecipients::
+ * onPortal()` sau R12), nên không xếp một job mà job sẽ bỏ, và `mailed` không đếm một thư không đi.
+ * Trạng thái: vụ đang mở mà dòng lưu trữ còn `client_access_until` đã qua (lần mở lại chưa dọn),
+ * khách còn một vụ khác trên cổng. Vế dương: ngày tra cứu cuối thì vẫn xếp.
+ *
+ * Mutation probe: bỏ `onPortal()` khỏi `RemindMissingDocuments::processOne()` — hàng "đã hết hạn" ĐỎ.
+ */
+it('queues no mail for a matter the portal no longer shows the client, and still queues on its last day', function (string $accessUntil, int $expected) {
+    $this->travelTo(Carbon::parse('2026-10-21 08:00:00'));
+    Queue::fake([SendMissingDocumentsMail::class]);
+    [$matter, $account] = awaitingMatter();
+    MatterArchive::factory()->create(['matter_id' => $matter->id, 'client_access_until' => $accessUntil]);
+    Matter::factory()->create(['client_id' => $account->client_id, 'is_published_to_portal' => true]);
+
+    $result = (new RemindMissingDocuments)->handle();
+
+    Queue::assertPushed(SendMissingDocumentsMail::class, $expected);
+    expect($result['mailed'])->toBe($expected);
+})->with([
+    'hạn tra cứu đã qua từ hôm qua' => ['2026-10-20', 0],
+    'hôm nay là ngày tra cứu cuối' => ['2026-10-21', 1],
+]);
 
 // ---------------------------------------------------------------------------------------------
 // R3 của kế hoạch — không quá một thư mỗi 3 ngày cho cùng một hồ sơ (tra outbound_messages)

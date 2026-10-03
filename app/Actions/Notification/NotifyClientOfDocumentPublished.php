@@ -7,6 +7,7 @@ use App\Mail\Client\DocumentPublished as DocumentPublishedMail;
 use App\Models\ClientUser;
 use App\Models\Document;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\OutboundMessage;
 use App\Notifications\Staff\DocumentPublishedMailFailedAlert;
 use App\Support\Scopes\ClientPortalScope;
@@ -31,11 +32,12 @@ use Throwable;
  *    cần thêm khoá gì khác vào header, vì `DocumentPublished` chỉ bắn ĐÚNG MỘT LẦN cho một tài
  *    liệu (xem docblock sự kiện: "Chỉ lần công bố đầu tiên").
  *  - Kiểm tra lại lúc gửi hỏi `Document::isReleasedToPortal()` (còn `client_can_view`, còn
- *    `published`, còn ngoài nhóm D, chưa xoá mềm) VÀ `Matter::open()` của chính vụ việc, VÀ
- *    `matters.is_published_to_portal` (cùng cách `App\Jobs\SendDeadlineReminderMail` hỏi
- *    `Matter::open()` — brief Task 3 chỉ đích danh câu này) — một tài liệu có thể đã bị chuyển
- *    sang nhóm D hoặc gỡ cổng, và vụ việc có thể đã bị huỷ, đóng, hoặc tắt công tắc portal, trong
- *    cửa sổ hàng đợi giữa lúc sự kiện bắn và lúc listener chạy.
+ *    `published`, còn ngoài nhóm D, chưa xoá mềm) VÀ vụ việc còn mở (trừ gói bàn giao — mục cuối
+ *    của docblock này), VÀ `matters.is_published_to_portal` (cùng cách
+ *    `App\Jobs\SendDeadlineReminderMail` hỏi `Matter::open()` — brief Task 3 chỉ đích danh câu
+ *    này) — một tài liệu có thể đã bị chuyển sang nhóm D hoặc gỡ cổng, và vụ việc có thể đã bị
+ *    huỷ, đóng, hoặc tắt công tắc portal, trong cửa sổ hàng đợi giữa lúc sự kiện bắn và lúc
+ *    listener chạy.
  *
  * **Fix round 1 (finding Critical 1).** Bản trước KHÔNG hỏi `matters.is_published_to_portal` ở
  * đâu trong đường đi này — không ở đây, không ở `Document::isReleasedToPortal()` (chỉ soi các cột
@@ -53,8 +55,15 @@ use Throwable;
  * Ngoài hai cổng trên (vụ còn mở, cờ `is_published_to_portal`), mỗi người nhận R12 còn phải qua
  * {@see ResolveClientRecipients::onPortal()} (`MatterPolicy::view` nhánh khách — gồm "chưa hết hạn
  * tra cứu" của M7 Task 5), để thư không bao giờ nói khác điều cổng đang cho chính khách đó thấy.
- * Giữ nguyên `open()` (quyết định của M6 Task 3): vì vậy công bố gói bàn giao — luôn trên một vụ đã
- * kết thúc (M7 Task 4) — không gửi thư này.
+ *
+ * **Gói bàn giao hồ sơ — ngoại lệ DUY NHẤT của "vụ còn mở" (việc sau gộp M7, làn fu2, phán quyết
+ * controller (b)).** Gói bàn giao là tài liệu nhóm B chỉ bao giờ được công bố trên một vụ ĐÃ kết thúc
+ * (SPEC §6.12 bước 4, M7 Task 4). Đòi vụ còn mở như M6 Task 3 nghĩa là đúng tài liệu mà cả mục đích
+ * là tới tay khách không bao giờ được báo, trong khi cổng vẫn cho khách thấy nó tới hết
+ * `client_access_until`. Vì vậy vụ đã kết thúc chỉ cho qua khi tài liệu là gói HIỆN TẠI của vụ
+ * ({@see MatterArchive::whereCurrentHandoverPackageIs()}, `handover_document_id` trỏ đúng nó); hạn
+ * tra cứu do `onPortal()` quyết (công bố cổng, khách chưa xoá mềm, `client_access_until`), không do
+ * một luật thứ hai ở đây. Tài liệu thường trên vụ đã kết thúc giữ hành vi M6: không gửi.
  */
 class NotifyClientOfDocumentPublished
 {
@@ -99,9 +108,10 @@ class NotifyClientOfDocumentPublished
 
     /**
      * Những tài khoản ĐỦ ĐIỀU KIỆN nhận thư về tài liệu này NGAY BÂY GIỜ — mọi cổng kiểm tra lúc
-     * gửi của {@see self::handle()} gộp lại (tài liệu còn ra tới khách, vụ việc còn mở và còn
-     * công bố portal, tài khoản R12). Rỗng là "không gửi cho ai". Public để nút "Gửi lại" của nhật
-     * ký thư ({@see ResendOutboundMessage}) hỏi đúng câu này thay vì viết luật thứ hai.
+     * gửi của {@see self::handle()} gộp lại (tài liệu còn ra tới khách, vụ việc còn mở — hoặc tài
+     * liệu là gói bàn giao hiện tại — và còn công bố portal, tài khoản R12 mà vụ còn trên cổng của
+     * họ). Rỗng là "không gửi cho ai". Public để nút "Gửi lại" của nhật ký thư
+     * ({@see ResendOutboundMessage}) hỏi đúng câu này thay vì viết luật thứ hai.
      *
      * @return Collection<int, ClientUser>
      */
@@ -113,9 +123,11 @@ class NotifyClientOfDocumentPublished
     }
 
     /**
-     * Phần sau cổng "tài liệu còn ra tới khách": vụ việc còn mở VÀ còn công bố portal (fix round
-     * 1, Critical 1), rồi tài khoản R12 mà vụ còn trên cổng của chính họ (gộp M7 — xem docblock
-     * lớp). Bản ghi vụ ĐẦY ĐỦ (không chọn vài cột), vì `onPortal()` hỏi `MatterPolicy::view` trên nó.
+     * Phần sau cổng "tài liệu còn ra tới khách": vụ việc còn công bố portal (fix round 1, Critical
+     * 1) và chưa huỷ (`SoftDeletingScope` mặc định của `Matter::query()`), còn mở — trừ khi tài
+     * liệu là gói bàn giao hiện tại của vụ (làn fu2, xem docblock lớp) — rồi tài khoản R12 mà vụ
+     * còn trên cổng của chính họ (gộp M7). Bản ghi vụ ĐẦY ĐỦ (không chọn vài cột), vì `onPortal()`
+     * hỏi `MatterPolicy::view` trên nó.
      *
      * @return Collection<int, ClientUser>
      */
@@ -124,11 +136,14 @@ class NotifyClientOfDocumentPublished
         $matter = Matter::query()
             ->withoutGlobalScope(ClientPortalScope::class)
             ->whereKey($fresh->matter_id)
-            ->open()
             ->where('is_published_to_portal', true)
             ->first();
 
         if ($matter === null) {
+            return collect();
+        }
+
+        if (! $matter->isOpen() && MatterArchive::whereCurrentHandoverPackageIs($fresh) === null) {
             return collect();
         }
 

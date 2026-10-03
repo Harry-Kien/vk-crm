@@ -16,9 +16,11 @@ use Illuminate\Mail\Mailables\Envelope;
 /**
  * Mẫu thư `staff.handover_ready` (M7 Task 4): báo nhân sự gói bàn giao hồ sơ đã sinh xong và cần
  * được xem lại rồi công bố. Chỉ gửi cho nhân sự, nên được phép mang mã và tên vụ việc (người nhận
- * đã qua `ResolveStaffRecipients`, tức xem được vụ — kể cả vụ `restricted`). Xếp hàng bởi
- * {@see SendHandoverPackageReady} bằng `Mail::queue()`; không `ShouldQueue` ở lớp này, cùng lý lẽ
- * với `DeadlineReminder` (job gửi nó đã ở trên hàng đợi hoặc gọi `queue()` tường minh).
+ * đã qua `ResolveStaffRecipients`, tức xem được vụ — kể cả vụ `restricted`). Gửi bởi
+ * {@see SendHandoverPackageReady} bằng `Mail::send()` từ trong job (việc sau gộp M7, làn fu2); không
+ * `ShouldQueue` ở lớp này và không bao giờ `Mail::queue()` nó: lớp mang nguyên model `User`, và
+ * `BrandedMailable` không `SerializesModels` — xếp hàng nó là chép mã băm mật khẩu và bí mật 2FA của
+ * người nhận vào `jobs.payload` (docblock job).
  *
  * Không đính kèm gói: nó có thể vài trăm MB, và khách chưa được thấy nó — người nhận mở vụ việc để
  * xem lại. Thư chỉ mang đường dẫn tới trang vụ việc (cần đăng nhập).

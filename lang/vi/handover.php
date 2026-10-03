@@ -92,7 +92,10 @@ return [
         'subject' => 'Gói bàn giao hồ sơ :code đã sẵn sàng',
         'greeting' => 'Chào :name,',
         'intro' => 'Gói bàn giao của vụ việc :code — :title đã sinh xong, gồm các tài liệu của hồ sơ kèm tệp mục lục MUC-LUC.pdf.',
-        'action' => 'Anh/chị xem lại nội dung gói, rồi công bố ở tab Tài liệu của vụ việc để khách tải được. Khách chỉ thấy gói sau khi anh/chị công bố.',
+        // Việc sau gộp M7 (làn fu2): công bố gói nay gửi thư `client.document_published` (biến thể gói
+        // bàn giao) — người bấm công bố cần biết trước điều đó, và biết thư chỉ tới tài khoản cổng đã
+        // kích hoạt khi vụ còn trên cổng (chưa quá hạn tra cứu).
+        'action' => 'Anh/chị xem lại nội dung gói, rồi công bố ở tab Tài liệu của vụ việc để khách tải được. Khách chỉ thấy gói sau khi anh/chị công bố. Công bố xong, hệ thống gửi thư báo kèm hạn tải tới các tài khoản cổng đã kích hoạt của khách, nếu vụ việc còn trên cổng khách hàng.',
         'link' => 'Mở vụ việc: :url',
         'salutation' => 'Trân trọng, :office',
     ],

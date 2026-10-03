@@ -3875,3 +3875,93 @@ Gộp `--no-ff`, chưa commit (controller commit). Dòng M7 của bảng milesto
     bằng chứng).
   - Đầu mục khách nộp khi vụ còn mở rồi vụ đóng trước khi duyệt: danh mục chỉ đọc nên không duyệt
     hay từ chối được nữa, và câu cảm ơn đã hứa "sẽ gửi email nếu có gì chưa ổn".
+
+#### Việc sau gộp vào main (làn `fu2`, nhánh `m7-merge-followups`, 2026-10-03)
+
+Base `main` @ `35ec313` (ngay sau khi M7 gộp). Một task, theo brief của controller
+(`.superpowers/sdd/fu2/task-1-brief.md`): hai việc chính và các việc nhỏ của lượt rà soát gộp M7 →
+`main`. Báo cáo đầy đủ (RED/GREEN, mutation probe, số đo) ở `.superpowers/sdd/fu2/task-1-report.md`.
+Không merge vào `main`; dòng M7 của bảng milestone không đổi.
+
+- **Thư cho khách khi gói bàn giao được công bố** (Important, phán quyết controller (b)). Mục "Việc
+  cần controller/chủ văn phòng quyết (mới, do gộp)" ở trên ghi gói bàn giao không bao giờ gửi
+  `client.document_published`; nay đã sửa.
+  - `NotifyClientOfDocumentPublished`: vụ đã kết thúc chỉ cho qua khi tài liệu là gói HIỆN TẠI của
+    vụ (`MatterArchive::whereCurrentHandoverPackageIs()`, so `handover_document_id` với id tài liệu).
+    Hạn tra cứu do `ResolveClientRecipients::onPortal()` quyết, không có luật thứ hai. Tài liệu thường
+    trên vụ đã kết thúc vẫn không gửi (hành vi M6). Nút "Gửi lại" hỏi cùng câu (`eligibleRecipients()`).
+  - Thư `App\Mail\Client\DocumentPublished` có biến thể gói (cùng mẫu `client.document_published`):
+    tiêu đề "Hồ sơ … : gói hồ sơ bàn giao đã sẵn sàng", thân thư nói đây là gói hồ sơ bàn giao (các
+    tài liệu cùng `MUC-LUC.pdf`) và hạn tải "hết ngày dd/mm/yyyy" theo `client_access_until`. Không
+    nêu tên tài liệu nào, kể cả tiêu đề của gói. Gói công bố "chỉ xem" thì thư nói văn phòng chưa mở
+    quyền tải. Vụ đã mở lại (`client_access_until` null) thì không in hạn. View mới
+    `emails/client/handover-published{,-text}`, khoá `portal.email.handover_published.*`.
+  - `lang/vi/handover.php` (`email.action`, thư `staff.handover_ready`): thêm câu "công bố xong, hệ
+    thống gửi thư báo kèm hạn tải…", để người bấm công bố biết trước. Câu chuông (`ready_body`) không
+    hứa gì sai nên giữ nguyên.
+  - Đính chính SPEC §9 ngày 2026-10-03.
+- **pcntl trong preflight.** Dòng `pcntl` mới của `vkcrm:preflight` (`RunPreflight::pcntlRow()`, theo
+  khuôn `gdRow`): PHP dòng lệnh thiếu pcntl → VÀNG, kèm câu giải thích gói bàn giao lớn chạy quá giờ.
+  Không vào `required_extensions`; tên extension ở `vkcrm.deployment.worker_timeout_extension` chỉ để
+  test dựng được chiều VÀNG. `docs/CAI-DAT.md` Bước 1 thêm hai mục: pcntl cho PHP dòng lệnh, và chỗ
+  trống trên đĩa cho gói bàn giao (`HANDOVER_WORK_DIR`, `MEDIA_MAX_FILE_SIZE_MB`, gói nằm trong
+  `storage/app/private` nên bản sao lưu lớn lên tương ứng). Chú thích mục lịch `queue.handover` nhắc
+  pcntl.
+- **Việc nhỏ đã sửa:**
+  - "Khách chưa xem cập nhật" (`UnseenStageLogs`, dùng chung bởi widget trang chủ và
+    `RemindUnseenUpdates`): thêm vế "chưa hết hạn tra cứu" của điều kiện cổng, viết bằng đúng
+    `MatterArchive::scopeClientAccessExpired()`. Vụ đã kết thúc vẫn hiện tới hết ngày tra cứu cuối.
+  - `client.missing_documents`: `SendMissingDocumentsMail::context()` và
+    `RemindMissingDocuments::processOne()` hỏi `ResolveClientRecipients::onPortal()` sau R12, như bốn
+    thư khách còn lại; Action không còn xếp một job mà job sẽ bỏ.
+  - `staff.handover_ready`: `SendHandoverPackageReady` gửi thư bằng `Mail::send()` từ trong job, thay
+    cho `Mail::queue()`. Trước bản sửa, mỗi thư thành một job mang nguyên model `User`, và đo được
+    `jobs.payload` chứa `two_factor_secret`. Nay mỗi người nhận được thử độc lập (lỗi đầu tiên ném
+    lại), và lần thử lại không báo trùng: thư khoá theo sổ thư (`related` = tài liệu gói, mẫu, người
+    nhận), chuông khoá theo `viewData.handover_document_id`.
+  - Tab "Hợp đồng và thanh toán": dòng nhắc tải hợp đồng đã ký lên đầu mục danh mục không hiện trên vụ
+    đã kết thúc, vì danh mục của vụ đó chỉ đọc.
+  - `ActivityLogSpec106Test` mục 7: tiêu đề mục nói tập đường xuất là `documents.download` cho tài liệu
+    thường và gói bàn giao. Ca chỉ kiểm nhãn được thay bằng ca đi hết đường thật: nút "Sinh gói bàn
+    giao" (Livewire), job, rồi route tải ký. Hai dòng `data_exported` (`generated`, `downloaded`);
+    tải tài liệu thường không ghi dòng nào.
+  - Đính chính SPEC §9: hai mẫu nội bộ `staff.matter_reassigned` và `staff.handover_ready` (người nhận,
+    tiêu đề, `related`, vì sao không gửi lại được), và hành vi mới của `client.document_published`
+    với gói.
+- **Cần chủ văn phòng quyết (mới, từ lượt rà soát gộp M7; làn fu2 KHÔNG làm, vì là quyết định
+  nghiệp vụ chứ không phải lỗi rõ):**
+  1. **Ghi quyết định tiêu huỷ một hồ sơ còn công nợ.** `RecordMatterDestruction` ghi quyết định
+     (không xoá gì) mà không hỏi `BillingSummary::outstandingForMatter()`. `FlagRetentionExpiry` vẫn
+     cảnh báo admin về hồ sơ đó như mọi hồ sơ quá hạn lưu. Trong khi đó `CancelMatter` (M9) từ chối
+     huỷ vụ còn dư nợ, và M9 coi biên lai, phụ lục là bằng chứng không xoá được. Hai lựa chọn:
+     (a) từ chối như `CancelMatter`, bằng lỗi có tên `MatterDestructionNotAllowed::outstandingBalance()`
+     kiểm dưới khoá `matters`, ẩn nút trên trang vụ và thêm một câu vào cảnh báo hạn lưu;
+     (b) giữ nguyên, nếu chủ văn phòng coi khoản nợ còn lại sau hạn lưu trữ là việc đã xử lý ngoài hệ
+     thống. *Giá nếu giữ nguyên mà sai:* biên bản tiêu huỷ có thể được ghi (và tệp bị huỷ thật bên
+     ngoài) cho một hồ sơ mà sổ còn ghi khách nợ.
+  2. **Giấy tờ khách nộp khi vụ còn mở, vụ kết thúc trước khi văn phòng duyệt** (đã nêu ở mục gộp
+     `main` phía trên, vẫn mở). Danh mục của vụ đã kết thúc chỉ đọc, nên đầu mục `pending_review`
+     không duyệt hay từ chối được nữa. Trong khi đó câu cảm ơn trên cổng (`portal_submit.done.body`)
+     đã hứa "nếu có gì chưa ổn, chúng tôi sẽ gửi email nêu rõ lý do". Hai lựa chọn: (a) form "Chuyển
+     giai đoạn" cảnh báo, hoặc từ chối giai đoạn kết thúc, khi còn đầu mục bắt buộc `pending_review`;
+     (b) cho `ReviewChecklistItem` duyệt trên vụ đã kết thúc với đầu mục đã `pending_review` từ trước
+     lúc đóng. Câu cảm ơn sửa theo lựa chọn, nên chưa sửa.
+  3. **Gói bàn giao trong bản sao lưu hằng đêm.** Mỗi vụ kết thúc tự sinh một gói zip lưu dưới
+     `storage/app/private`, nên bản sao lưu (M8a, `config/backup.php` sao lưu cả thư mục đó) chứa hai
+     bản của mọi tệp A/B/C của vụ đã kết thúc. M7 đã để việc này cho M8, nhưng danh sách quyết của lần
+     gộp chưa mang nó sang. Ba lựa chọn: (a) cất gói ở một đĩa/thư mục ngoài `storage/app/private`,
+     chỉ giữ trong kho sao lưu những version là bằng chứng (đã rút, hoặc khách đã tải); (b) loại khỏi
+     bản sao lưu media của các version gói không phải bằng chứng
+     (`MatterArchive::handoverDocumentIds()`); (c) chấp nhận dung lượng gấp đôi. `docs/CAI-DAT.md`
+     Bước 1 nay đã nói bản sao lưu lớn lên theo gói. Nếu chọn (c), cần sửa thêm phần ước lượng dung
+     lượng ở `docs/SAO-LUU-KHOI-PHUC.md` và lý do của `BACKUP_MAX_STORAGE_MB`.
+- **Kiểm chứng:** cả bộ SQLite (`/d/vkwt/wt-dev lane-fu2 test --parallel --processes=2`) → **4337
+  passed, 29 skipped, 1 risky, 1 todo, 0 failed** (19.022 khẳng định, 1798 s). Lượt chạy đầu đỏ một
+  test: `GenerateHandoverPackageTest` (đi thật qua hàng đợi) còn đòi `Mail::assertQueued`; đã viết
+  lại theo hành vi mới (`assertSent` + `assertNothingQueued`). MariaDB, tuần tự, 14 tệp (chín tệp
+  test đã sửa, cùng `GenerateHandoverPackageTest`, hai tệp `ResendOutboundMessageTest`,
+  `HandoverPackageDownloadTest`, `MailTemplateRegistryTest`) → **316 passed, 0 failed** (271 s).
+  `pint --test` sạch (928 tệp). Mỗi điều kiện mới có mutation probe đỏ (28 probe, báo cáo làn), cộng
+  một mutant tương đương đã ghi: bỏ `withoutGlobalScope(ClientPortalScope)` trong vế mới của
+  `UnseenStageLogs` (widget và lịch nhắc không bao giờ chạy trong ngữ cảnh cổng; trong ngữ cảnh
+  cổng, scope của chính `Matter` đã mang cùng điều kiện).

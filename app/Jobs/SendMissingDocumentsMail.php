@@ -34,7 +34,10 @@ use Throwable;
  *     chưa xoá mềm, còn mở, còn công bố portal, còn đầu mục bắt buộc thiếu);
  *  2. tính lại DANH SÁCH đầu mục còn thiếu ({@see ChecklistProgress::outstandingRequiredItems()}) —
  *     thư liệt kê đúng những gì còn thiếu LÚC GỬI, không phải lúc lên lịch; rỗng thì không gửi;
- *  3. tính lại NGƯỜI NHẬN qua {@see ResolveClientRecipients} (R12).
+ *  3. tính lại NGƯỜI NHẬN qua {@see ResolveClientRecipients} (R12), rồi chỉ giữ người mà vụ còn
+ *     trên cổng của CHÍNH họ ({@see ResolveClientRecipients::onPortal()} — việc sau gộp M7, làn
+ *     fu2: cùng bước hai với bốn thư khách còn lại, nên một dòng lưu trữ đã quá
+ *     `client_access_until` mà lần mở lại vụ chưa dọn không để thư đi kèm liên kết tới trang 404).
  *
  * # Không gửi trùng khi thử lại
  *
@@ -109,7 +112,9 @@ class SendMissingDocumentsMail implements ShouldQueue
 
     /**
      * Ba bước tính lại của `handle()`, một chỗ: hồ sơ (kèm cổng §6.9), danh sách đầu mục còn thiếu,
-     * người nhận. `null` khi hồ sơ không còn trong tập hoặc không còn gì thiếu.
+     * người nhận (R12, rồi vụ còn trên cổng của chính họ). `null` khi hồ sơ không còn trong tập hoặc
+     * không còn gì thiếu. `$matter` là bản ghi ĐẦY ĐỦ (`mattersAwaitingClient()` không chọn cột),
+     * đúng thứ `onPortal()` cần để hỏi `MatterPolicy::view`.
      *
      * @return array{0: Matter, 1: Collection, 2: Collection<int, ClientUser>}|null
      */
@@ -127,7 +132,9 @@ class SendMissingDocumentsMail implements ShouldQueue
             return null;
         }
 
-        return [$matter, $items, app(ResolveClientRecipients::class)->recipientsFor($matter->client_id)];
+        $recipients = app(ResolveClientRecipients::class);
+
+        return [$matter, $items, $recipients->onPortal($matter, $recipients->recipientsFor($matter->client_id))];
     }
 
     /**

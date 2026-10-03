@@ -182,6 +182,18 @@ return [
             'libxml', 'mbstring', 'openssl', 'pcre', 'session', 'tokenizer', 'xmlreader', 'zip',
             'zlib', 'pdo_mysql',
         ],
+
+        /*
+         * Việc sau gộp M7 (làn fu2): extension mà giờ chết của worker cần — `GenerateHandoverPackage::
+         * $timeout`/`$failOnTimeout` và `--timeout=600` của mục lịch `queue.handover` chỉ có tác dụng
+         * khi PHP DÒNG LỆNH có ext-pcntl (thiếu nó, `Worker::registerTimeoutHandler()` bỏ qua lặng
+         * lẽ). KHÔNG nằm trong `required_extensions` ở trên: danh sách đó đúng bằng
+         * `composer check-platform-reqs` + `pdo_mysql` (`docs/CAI-DAT.md`, Bước 1), và thiếu pcntl
+         * không làm vỡ màn hình nào — `vkcrm:preflight` báo VÀNG ({@see
+         * \App\Actions\Deployment\RunPreflight}). Cấu hình được chỉ vì cùng lý do với
+         * `required_extensions`: test gài một tên giả để dựng chiều VÀNG.
+         */
+        'worker_timeout_extension' => 'pcntl',
     ],
 
     /*

@@ -183,6 +183,27 @@ class MatterArchive extends Model
     }
 
     /**
+     * Dòng lưu trữ mà `$document` đang là gói bàn giao HIỆN TẠI của nó (`handover_document_id` trỏ
+     * đúng tài liệu này), hoặc `null`. Khác {@see self::isHandoverDocument()} ở chỗ chỉ nhận version
+     * mới nhất: một version cũ của gói không còn là thứ khách được mời tải.
+     *
+     * Việc sau gộp M7 (làn fu2): dùng ở `NotifyClientOfDocumentPublished` (gói là tài liệu duy nhất
+     * được báo dù vụ đã kết thúc) và ở thư `App\Mail\Client\DocumentPublished` (câu chữ gói bàn giao
+     * kèm hạn tải `client_access_until`) — một câu hỏi, một chỗ trả lời. Bỏ `ClientPortalScope` cùng
+     * lý do {@see self::isHandoverDocument()}: thư có thể được dựng trong một tiến trình còn treo ngữ
+     * cảnh cổng. `SoftDeletingScope` giữ nguyên: dòng lưu trữ đã xoá mềm không tính, cùng luật với
+     * điều kiện "hết hạn tra cứu" của cổng.
+     */
+    public static function whereCurrentHandoverPackageIs(Document $document): ?self
+    {
+        return static::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->where('matter_id', $document->matter_id)
+            ->where('handover_document_id', $document->getKey())
+            ->first();
+    }
+
+    /**
      * M7 Task 3/6: người GHI quyết định tiêu huỷ hồ sơ (`RecordMatterDestruction`, chỉ admin).
      * Ghi quyết định không xoá gì — xem docblock Action đó.
      *

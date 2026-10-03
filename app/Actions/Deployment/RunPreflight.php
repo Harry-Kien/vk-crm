@@ -83,6 +83,7 @@ class RunPreflight
             $this->demoAccountsRow(),
             $this->extensionsRow(),
             $this->gdRow(),
+            $this->pcntlRow(),
             $this->brandFieldsRow(),
             $this->storagePrivateExposureRow(),
             $this->zipAes256Row(),
@@ -215,6 +216,30 @@ class RunPreflight
         return extension_loaded('gd')
             ? $this->row('gd', PreflightLevel::Green, __('preflight.gd_ok'))
             : $this->row('gd', PreflightLevel::Yellow, __('preflight.gd_missing'));
+    }
+
+    /**
+     * Việc sau gộp M7 (làn fu2, phát hiện "wiring" của rà soát gộp): giờ chết của job gói bàn giao
+     * (`GenerateHandoverPackage::$timeout` = 600, `$failOnTimeout`, `--timeout=600` của mục lịch
+     * `queue.handover`) chỉ có tác dụng khi PHP DÒNG LỆNH có ext-pcntl. Thiếu nó, worker không bao
+     * giờ giết job quá giờ: `failed()` không chạy (luật sư không được báo), và khi một lần dựng gói
+     * vượt 900 giây (`retry_after` và khoá `withoutOverlapping` 15 phút cùng hết) lượt kế tiếp nhận
+     * lại cùng job, dựng vào cùng thư mục làm việc — đúng cuộc đua R9 dựng kết nối `handover` để tránh.
+     *
+     * Đọc `extension_loaded()` của CHÍNH tiến trình đang chạy lệnh này — tức PHP dòng lệnh, cùng PHP
+     * mà cron chạy `schedule:run` (cùng giới hạn đã ghi ở {@see procOpenRow()}: chạy preflight bằng
+     * đúng binary PHP của cron). VÀNG chứ không ĐỎ, và KHÔNG thêm vào `required_extensions`: danh
+     * sách đó đúng bằng `composer check-platform-reqs` + `pdo_mysql`, và thiếu pcntl không làm vỡ màn
+     * hình nào — chỉ làm mất lưới an toàn của gói lớn. Tên extension đọc từ cấu hình
+     * (`vkcrm.deployment.worker_timeout_extension`) chỉ để test dựng được chiều VÀNG.
+     */
+    private function pcntlRow(): array
+    {
+        $extension = (string) config('vkcrm.deployment.worker_timeout_extension', 'pcntl');
+
+        return extension_loaded($extension)
+            ? $this->row('pcntl', PreflightLevel::Green, __('preflight.pcntl_ok'))
+            : $this->row('pcntl', PreflightLevel::Yellow, __('preflight.pcntl_missing'));
     }
 
     /**
