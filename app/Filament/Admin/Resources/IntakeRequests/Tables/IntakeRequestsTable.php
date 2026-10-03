@@ -36,6 +36,8 @@ class IntakeRequestsTable
                     ->searchable(),
                 TextColumn::make('contact_name')
                     ->label(__('intake.fields.contact_name'))
+                    // Tên chỉ rỗng sau khi ẩn danh (bắt buộc lúc ghi) — M10 Task 7.
+                    ->placeholder(__('intake.anonymise.placeholder'))
                     ->searchable(),
                 TextColumn::make('contact_phone')
                     ->label(__('intake.fields.contact_phone')),

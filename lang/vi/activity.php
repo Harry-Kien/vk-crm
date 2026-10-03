@@ -43,6 +43,9 @@ return [
         'intake_merge_received' => 'Nhận một lần liên hệ được gộp vào',
         // M10 Task 4 (`ConvertIntakeToMatter`): chỉ id vụ việc/khách hàng, không mã, không tên.
         'intake_converted' => 'Chuyển một lần liên hệ thành vụ việc',
+        // M10 Task 7 (`AnonymiseProspect`): mã bản ghi và lý do / ngày hạn — không bao giờ giá trị đã xoá.
+        'prospect_data_erased' => 'Xoá dữ liệu cá nhân của người liên hệ theo yêu cầu',
+        'prospect_data_anonymised' => 'Ẩn danh dữ liệu người liên hệ hết hạn lưu',
         // Ghi qua Audit::record() ở app/Actions/SyncClientPartyIdentities.php khi hồ sơ khách
         // hàng đổi số căn cước/điện thoại và ảnh chụp định danh của các bên được đồng bộ lại.
         'client_identity_resynced' => 'Đồng bộ lại định danh các bên',

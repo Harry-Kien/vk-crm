@@ -72,6 +72,9 @@ class IntakeRequest extends Model
      */
     public const NORMALIZED_PHONE_LENGTH = 20;
 
+    /** Hạn lưu mặc định (tháng) khi `PROSPECT_RETENTION_MONTHS` thiếu hoặc vô nghĩa — kế hoạch M10 R7b. */
+    public const DEFAULT_RETENTION_MONTHS = 24;
+
     /**
      * Dạng chuẩn hoá của một SĐT gõ vào có vừa cột không (M10 Task 3; rà soát Task 2, m2). Dạng chuẩn
      * hoá có thể DÀI hơn dạng gõ: số 0 đầu thành `84` (`09123456780987654321`, 20 ký tự → 21), nên luật
@@ -135,6 +138,74 @@ class IntakeRequest extends Model
         static::saving(function (IntakeRequest $intake): void {
             $intake->contact_name_normalized = Normalizer::name($intake->contact_name);
         });
+
+        // M10 Task 7 (R7b): MỘT chỗ đặt hạn lưu cho mọi đường vào `declined`/`lost`/`merged`.
+        static::saving(function (IntakeRequest $intake): void {
+            $intake->stampRetention();
+        });
+    }
+
+    /**
+     * Số tháng giữ dữ liệu của người KHÔNG thành khách (M10 R7b): `PROSPECT_RETENTION_MONTHS`, đọc qua
+     * `config('vkcrm.prospect_retention_months')`. Chỉ một số nguyên dương được nhận; thiếu, rỗng, 0,
+     * số âm, chữ hay số lẻ thì về {@see self::DEFAULT_RETENTION_MONTHS} — một lỗi gõ trong `.env` không
+     * được biến thành "ẩn danh từ ngày mai" (`(int) 'abc'` là 0).
+     */
+    public static function retentionMonths(): int
+    {
+        $months = filter_var(config('vkcrm.prospect_retention_months'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+
+        return $months === false ? self::DEFAULT_RETENTION_MONTHS : $months;
+    }
+
+    /**
+     * Đặt `retention_until` lúc lưu (M10 R7b, Task 7) — chỗ DUY NHẤT, nên `DeclineIntake`,
+     * `ChangeIntakeStatus` (→ `lost`), `MergeIntake` (bản nguồn) và mọi đường sau này không thể quên —
+     * miễn là đường đó lưu qua model (một `saveQuietly()` hay câu UPDATE thẳng bỏ qua móc này; không Action
+     * tiếp nhận nào đổi trạng thái theo cách đó).
+     * Chỉ khi `status` vừa đổi SANG một trạng thái cuối "không thành khách"
+     * ({@see IntakeStatus::startsRetention()}): ngày hôm nay (giờ `APP_TIMEZONE`) cộng
+     * {@see self::retentionMonths()} tháng — đếm từ lúc VÀO trạng thái đó, nên một bản đã từ chối rồi bị
+     * gộp đi bắt đầu lại từ ngày gộp. Không đường nào đưa một bản từ ba trạng thái đó về một trạng thái
+     * KHÔNG có hạn (chúng là trạng thái cuối của `ChangeIntakeStatus`/`DeclineIntake`, gộp chỉ đi tới
+     * `merged`, chuyển đổi chỉ đi từ trạng thái còn mở), nên không bao giờ phải xoá một hạn đã đặt.
+     * Lưu lại mà trạng thái không đổi (gộp VÀO một bản đã từ chối, kiểm tra lại…) giữ nguyên ngày cũ.
+     * Người gọi đặt `retention_until` tường minh trong CÙNG lần lưu (factory, test) thì giá trị đó
+     * thắng. Bản ghi bị ẩn danh từ ngày SAU ngày hạn ({@see self::scopeRetentionExpired()}).
+     */
+    public function stampRetention(): void
+    {
+        if (! $this->isDirty('status') || $this->isDirty('retention_until') || ! $this->status?->startsRetention()) {
+            return;
+        }
+
+        $this->retention_until = now()->addMonthsNoOverflow(static::retentionMonths())->toDateString();
+    }
+
+    /**
+     * Bản ghi đã quá hạn lưu và còn phải ẩn danh (M10 R7b, Task 7) — MỘT định nghĩa cho truy vấn của
+     * tác vụ hằng ngày và cho lần đọc lại trên dòng vừa khoá (`AnonymiseProspect::expire()`): ở một
+     * trạng thái cuối "không thành khách" ({@see IntakeStatus::startsRetention()}), chưa chuyển thành
+     * vụ (`matter_id` null — một bản lệch trạng thái mà có vụ vẫn không bị đụng), chưa ẩn danh, và
+     * `retention_until` đã QUA (nhỏ hơn hôm nay — ngày hạn là ngày cuối còn giữ). So với NỬA ĐÊM đầu
+     * hôm nay (`Y-m-d 00:00:00`), không với chuỗi `Y-m-d`: SQLite lưu cột `date` dưới dạng
+     * `Y-m-d 00:00:00`, và so chuỗi với `Y-m-d` thì `<` và `<=` cho cùng một câu trả lời ở ngày hạn;
+     * MariaDB đổi cột `date` sang nửa đêm khi so với một datetime — hai CSDL trả lời giống nhau, và
+     * truy vấn vẫn dùng được index `retention_until`.
+     */
+    public function scopeRetentionExpired(Builder $query): Builder
+    {
+        $model = $query->getModel();
+
+        return $query
+            ->whereIn($model->qualifyColumn('status'), collect(IntakeStatus::cases())
+                ->filter(fn (IntakeStatus $status): bool => $status->startsRetention())
+                ->map(fn (IntakeStatus $status): string => $status->value)
+                ->values()
+                ->all())
+            ->whereNull($model->qualifyColumn('matter_id'))
+            ->whereNull($model->qualifyColumn('anonymised_at'))
+            ->where($model->qualifyColumn('retention_until'), '<', today()->toDateTimeString());
     }
 
     /**

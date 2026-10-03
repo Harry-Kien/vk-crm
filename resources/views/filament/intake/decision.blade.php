@@ -1,6 +1,7 @@
 {{--
     Kết quả xử lý một lần tiếp nhận (M10 Task 3): đã từ chối, hoặc đã gộp vào bản khác — và (Task 4) đã
-    chuyển thành vụ việc nào. Dữ liệu dựng sẵn ở `EditIntakeRequest::decisionViewData()`.
+    chuyển thành vụ việc nào, (Task 7) dữ liệu cá nhân đã được ẩn danh khi nào và vì sao. Dữ liệu dựng sẵn ở
+    `EditIntakeRequest::decisionViewData()`.
 
     R8: lý do của một lần từ chối VÌ XUNG ĐỘT (và chính việc đó là vì xung đột) chỉ có trong dữ liệu
     khi người xem qua `IntakeRequestPolicy::viewConflictReason`; người khác chỉ thấy nhãn trung tính
@@ -36,5 +37,17 @@
                 {{ __('intake.decision.merged_into', ['code' => $mergedInto['code']]) }}
             @endif
         </p>
+    @endif
+
+    {{-- M10 Task 7 (R7b, R7c): dữ liệu đã ẩn danh; lý do chỉ có trong dữ liệu khi người xem là admin. --}}
+    @if($anonymised !== null)
+        <p style="font-weight: 600; margin: 0;">{{ $anonymised['text'] }}</p>
+        @if($anonymised['reason'] !== null)
+            <p style="color: var(--gray-700); margin: 0; white-space: pre-line;">{{ __('intake.anonymise.decision_reason', ['reason' => $anonymised['reason']]) }}</p>
+        @endif
+    @endif
+
+    @if($eraseRefusal !== null)
+        <p style="color: var(--gray-700); margin: 0;">{{ $eraseRefusal }}</p>
     @endif
 </div>

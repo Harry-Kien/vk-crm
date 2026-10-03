@@ -160,3 +160,19 @@ Schedule::command('backup:monitor')
     ->name('backup.monitor')
     ->withoutOverlapping(60)
     ->then(fn () => app()->call('App\Actions\Backup\CheckRcloneRemoteFreshness@handle'));
+
+/**
+ * Ẩn danh người liên hệ KHÔNG thành khách đã quá hạn lưu, 03:30 hằng ngày (M10 R7b, Task 7):
+ * `declined`/`lost`/`merged` quá `retention_until` (`PROSPECT_RETENTION_MONTHS`, mặc định 24 tháng),
+ * chưa chuyển đổi, chưa ẩn danh. Việc RIÊNG, tên riêng — không gộp với tác vụ cảnh báo hồ sơ của M7
+ * (`FlagRetentionExpiry` chỉ cảnh báo, không bao giờ xoá hồ sơ vụ việc — M7 R5).
+ *
+ * 03:30: sau lượt sao lưu 02:00 và ngoài giờ làm việc, khi không ai đang ghi tiếp nhận phải chờ khoá
+ * `conflict-check` mà Action giữ cho từng bản ghi. `withoutOverlapping(60)`, không để khoá mặc định
+ * 1440 phút: một lượt bị giết giữa chừng không được chặn lượt ngày hôm sau. Gọi bằng chuỗi `Lớp@handle`
+ * (không `use`): luật làn song song cho tệp này là chỉ nối thêm dòng ở cuối, cùng cách `backup.monitor`.
+ */
+Schedule::call('App\Actions\Schedule\AnonymiseExpiredProspects@handle')
+    ->dailyAt('03:30')
+    ->name('prospects.anonymise')
+    ->withoutOverlapping(60);

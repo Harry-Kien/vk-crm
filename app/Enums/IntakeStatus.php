@@ -26,4 +26,14 @@ enum IntakeStatus: string
     {
         return __('enums.intake_status.'.$this->value);
     }
+
+    /**
+     * Ba trạng thái cuối của một người KHÔNG thành khách (M10 R7b, Task 7): vào một trong ba thì bản
+     * ghi nhận hạn lưu `retention_until` (`IntakeRequest::stampRetention()`) và hết hạn thì bị ẩn
+     * danh. `Won` không có: người đó đã là khách, dữ liệu theo hồ sơ khách.
+     */
+    public function startsRetention(): bool
+    {
+        return in_array($this, [self::Declined, self::Lost, self::Merged], true);
+    }
 }

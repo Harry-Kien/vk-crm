@@ -21,8 +21,8 @@ use Illuminate\Validation\ValidationException;
  * `declined`, `won`, `merged` là trạng thái cuối của thao tác này. Đổi sang chính trạng thái hiện tại
  * bị từ chối (không có gì để ghi).
  *
- * `first_response_at` (lần đầu rời `new`, R5) là việc của Task 5; `retention_until` khi vào `lost`
- * (R7b) là việc của Task 7 — cả hai sẽ gắn vào đúng Action này.
+ * `first_response_at` (lần đầu rời `new`, R5) là việc của Task 5. `retention_until` khi vào `lost` (R7b)
+ * do `IntakeRequest::stampRetention()` đặt lúc lưu (Task 7) — một chỗ cho mọi đường vào trạng thái cuối.
  *
  * Quyền: `IntakeRequestPolicy::update` (người ghi, người được giao, hoặc `intake.viewAny`). Bản ghi đã
  * xong việc ({@see IntakeRequest::isClosedToChanges()}: ẩn danh, gộp, chuyển đổi) bị từ chối. Câu đầu tiên của transaction là lần đọc có khoá dòng bản ghi; trạng thái được

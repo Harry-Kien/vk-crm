@@ -39,7 +39,8 @@ use Illuminate\Validation\ValidationException;
  * ({@see IntakeRequest::isClosedToChanges()}) bị từ chối. Câu đầu tiên của transaction là lần đọc có
  * khoá dòng bản ghi. Nhật ký `intake_declined` chỉ mang trạng thái trước đó — KHÔNG lý do, KHÔNG cờ
  * xung đột (R8: `ActivityOwningMatter` cho mọi người có `auditLog.view` đọc dòng này; cột của bản ghi
- * mới là nơi giữ quyết định, sau `viewConflictReason`). `retention_until` (R7b) là việc của Task 7.
+ * mới là nơi giữ quyết định, sau `viewConflictReason`). `retention_until` (R7b) do
+ * `IntakeRequest::stampRetention()` đặt lúc lưu (Task 7).
  */
 class DeclineIntake
 {
