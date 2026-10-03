@@ -158,16 +158,31 @@ function cimdLawyer(): User
 
 /**
  * `GET /oauth/authorize` của một nhân sự đã đăng nhập, PKCE S256, `resource` đúng URL MCP, qua màn
- * hình đồng ý thay tạm (200 JSON mang `auth_token` khi tới được màn hình đó).
+ * hình đồng ý thay tạm (200 JSON mang `auth_token` khi tới được màn hình đó). `$extra` thêm tham số
+ * (ví dụ `prompt`) vào query.
  *
  * @param  array{verifier: string, challenge: string}|null  $pkce
+ * @param  array<string, string>  $extra
  */
-function cimdAuthorize(User $user, string $clientId, string $redirectUri = McpOAuth::REDIRECT_URI, ?array $pkce = null): TestResponse
+function cimdAuthorize(User $user, string $clientId, string $redirectUri = McpOAuth::REDIRECT_URI, ?array $pkce = null, array $extra = []): TestResponse
 {
     McpOAuth::useConsentStandIn();
+
+    return test()->actingAs($user, 'web')->get('/oauth/authorize?'.http_build_query(cimdAuthorizeQuery($clientId, $redirectUri, $pkce, $extra)));
+}
+
+/**
+ * Query của `GET /oauth/authorize` mà {@see cimdAuthorize()} gửi.
+ *
+ * @param  array{verifier: string, challenge: string}|null  $pkce
+ * @param  array<string, string>  $extra
+ * @return array<string, string>
+ */
+function cimdAuthorizeQuery(string $clientId, string $redirectUri = McpOAuth::REDIRECT_URI, ?array $pkce = null, array $extra = []): array
+{
     $pkce ??= McpOAuth::pkce();
 
-    return test()->actingAs($user, 'web')->get('/oauth/authorize?'.http_build_query([
+    return [
         'response_type' => 'code',
         'client_id' => $clientId,
         'redirect_uri' => $redirectUri,
@@ -176,7 +191,8 @@ function cimdAuthorize(User $user, string $clientId, string $redirectUri = McpOA
         'code_challenge' => $pkce['challenge'],
         'code_challenge_method' => 'S256',
         'resource' => CIMD_RESOURCE,
-    ]));
+        ...$extra,
+    ];
 }
 
 /** `POST /oauth/token` dạng `application/x-www-form-urlencoded`, như Claude gửi. */
@@ -759,4 +775,167 @@ it('CIMD bỏ qua cổng chỉ áp cho client CIMD: client DCR đăng ký http:/
     $client = McpOAuth::client(['http://localhost:8787/callback']);
 
     cimdAssertRejected(cimdAuthorize(cimdLawyer(), $client->getKey(), 'http://localhost:9999/callback'));
+});
+
+/*
+|--------------------------------------------------------------------------
+| Không bao giờ tự duyệt client CIMD (rà soát Task 5, I1)
+|--------------------------------------------------------------------------
+| `AuthorizationController::authorize()` của Passport 13.8.0 (dòng 84-86) cấp mã ngay, không màn hình
+| đồng ý, khi người đang đăng nhập đã có access token còn hạn cho đúng dòng client đó với scope được
+| xin (`hasGrantedScopes()`). Dòng CIMD là MỘT dòng dùng chung cho mọi nhân sự của nền tảng, và
+| `client_id` của nó là một URL công khai: ai khiến trình duyệt của nhân sự mở `/oauth/authorize` với
+| URL đó (một tiến trình khác trên máy, cổng loopback riêng, PKCE của chính nó; hay một phiên nền tảng
+| của kẻ khác) sẽ nhận mã mà nhân sự không thấy gì. Với DCR thì không: client mới, chưa có token nào.
+*/
+
+dataset('cimd đã kết nối', [
+    'Claude Code: tiến trình khác, cổng loopback khác' => [
+        CIMD_CLAUDE_CODE,
+        ['http://localhost/callback', 'http://127.0.0.1/callback'],
+        'http://localhost:53682/callback',
+        'http://localhost:40000/callback',
+    ],
+    'Claude: cùng callback của nền tảng' => [
+        CIMD_CLAUDE,
+        [McpOAuth::REDIRECT_URI],
+        McpOAuth::REDIRECT_URI,
+        McpOAuth::REDIRECT_URI,
+    ],
+]);
+
+it('CIMD không bao giờ tự duyệt: nhân sự đang có token còn hạn trên dòng CIMD dùng chung, lần authorize kế tiếp (PKCE khác) vẫn tới màn hình đồng ý, không mã nào được cấp', function (string $url, array $redirectUris, string $connectedRedirect, string $nextRedirect) {
+    cimdServe($url, cimdDocument($url, ['redirect_uris' => $redirectUris]));
+    $user = cimdLawyer();
+    cimdConnect($user, $url, $connectedRedirect);
+    $codes = Passport::authCode()->newQuery()->count();
+
+    $response = cimdAuthorize($user, $url, $nextRedirect);
+
+    $response->assertOk();
+    expect($response->json('auth_token'))->toBeString()
+        ->and($response->headers->get('Location'))->toBeNull()
+        ->and(Passport::authCode()->newQuery()->count())->toBe($codes);
+})->with('cimd đã kết nối');
+
+it('CIMD dòng CIMD gọi bằng UUID của nó (đường Passport, không qua tài liệu) cũng không bao giờ tự duyệt', function () {
+    cimdServe(CIMD_CLAUDE, cimdDocument(CIMD_CLAUDE));
+    $user = cimdLawyer();
+    cimdConnect($user, CIMD_CLAUDE);
+    $codes = Passport::authCode()->newQuery()->count();
+
+    $response = cimdAuthorize($user, cimdClients()->sole()->getKey());
+
+    $response->assertOk();
+    expect($response->json('auth_token'))->toBeString()
+        ->and($response->headers->get('Location'))->toBeNull()
+        ->and(Passport::authCode()->newQuery()->count())->toBe($codes);
+});
+
+it('CIMD prompt=none (không được hiện màn hình nào) trả consent_required về redirect URI đã kiểm, kèm state và iss, không mã nào được cấp, kể cả khi đã có token còn hạn', function (string $prompt) {
+    cimdServe(CIMD_CLAUDE, cimdDocument(CIMD_CLAUDE));
+    $user = cimdLawyer();
+    cimdConnect($user, CIMD_CLAUDE);
+    $codes = Passport::authCode()->newQuery()->count();
+
+    $response = cimdAuthorize($user, CIMD_CLAUDE, extra: ['prompt' => $prompt]);
+
+    $response->assertRedirect();
+    $location = (string) $response->headers->get('Location');
+    expect($location)->toStartWith(McpOAuth::REDIRECT_URI.'?');
+    parse_str((string) parse_url($location, PHP_URL_QUERY), $query);
+
+    expect($query['error'] ?? null)->toBe('consent_required')
+        ->and($query['state'] ?? null)->toBe('trang-thai-cimd')
+        ->and($query['iss'] ?? null)->toBe(CIMD_ORIGIN)
+        ->and($query)->not->toHaveKey('code')
+        ->and(Passport::authCode()->newQuery()->count())->toBe($codes);
+})->with([
+    'none' => 'none',
+    // Passport bỏ mọi giá trị khác khi có `none`, nên thêm `consent` không cứu được trường hợp này.
+    'none consent' => 'none consent',
+    // Passport tách bằng `explode(' ')->map(trim(...))`: Collection truyền KHOÁ làm đối số thứ hai của
+    // `trim()`, nên giá trị ở vị trí 0 bị cắt chữ "0", ở vị trí 1 cắt chữ "1". Hai chuỗi dưới là `none` với
+    // Passport (không có lớp ép đồng ý thì chúng được tự duyệt), dù một bản tách "đúng" không thấy `none`.
+    'none0 (vị trí 0)' => 'none0',
+    'consent none1 (vị trí 1)' => 'consent none1',
+]);
+
+it('CIMD prompt dạng mảng (prompt[]=none) bị thay bằng consent: tới màn hình đồng ý, không mã nào được cấp', function () {
+    cimdServe(CIMD_CLAUDE, cimdDocument(CIMD_CLAUDE));
+    $user = cimdLawyer();
+    cimdConnect($user, CIMD_CLAUDE);
+    $codes = Passport::authCode()->newQuery()->count();
+
+    $response = test()->actingAs($user, 'web')
+        ->get('/oauth/authorize?'.http_build_query([...cimdAuthorizeQuery(CIMD_CLAUDE), 'prompt' => ['none']]));
+
+    $response->assertOk();
+    expect($response->json('auth_token'))->toBeString()
+        ->and(Passport::authCode()->newQuery()->count())->toBe($codes);
+});
+
+it('CIMD prompt=login của client vẫn được Passport áp (đăng xuất, đòi đăng nhập lại), không bị ép đồng ý nuốt mất', function () {
+    cimdServe(CIMD_CLAUDE, cimdDocument(CIMD_CLAUDE));
+    $user = cimdLawyer();
+    McpOAuth::useConsentStandIn();
+
+    $response = test()->actingAs($user, 'web')
+        ->withHeader('Accept', 'application/json')
+        ->get('/oauth/authorize?'.http_build_query(cimdAuthorizeQuery(CIMD_CLAUDE, extra: ['prompt' => 'login'])));
+
+    $response->assertUnauthorized();
+    expect($response->json('auth_token'))->toBeNull()
+        ->and(Passport::authCode()->newQuery()->count())->toBe(0);
+    $this->assertGuest('web');
+});
+
+it('CIMD client_id dạng mảng (client_id[]=URL) không làm lớp ép đồng ý lỗi 500: Passport trả lỗi 400 của nó, không màn hình, không mã, không tải gì', function () {
+    McpOAuth::useConsentStandIn();
+
+    $response = test()->actingAs(cimdLawyer(), 'web')
+        ->get('/oauth/authorize?'.http_build_query([...cimdAuthorizeQuery(CIMD_CLAUDE), 'client_id' => [CIMD_CLAUDE]]));
+
+    $response->assertStatus(400);
+    expect($response->json('auth_token'))->toBeNull()
+        ->and(Passport::authCode()->newQuery()->count())->toBe(0);
+    Http::assertNothingSent();
+});
+
+it('CIMD lớp ép đồng ý chỉ nhắm client CIMD: client DCR (dòng riêng của một lần kết nối) có token còn hạn vẫn được Passport xử lý như trước, kể cả khi đã có dòng CIMD', function () {
+    cimdServe(CIMD_CLAUDE, cimdDocument(CIMD_CLAUDE));
+    $user = cimdLawyer();
+    cimdConnect($user, CIMD_CLAUDE);
+    $dcr = McpOAuth::client();
+    McpOAuth::issueTokens($this, $user, $dcr);
+
+    $response = cimdAuthorize($user, $dcr->getKey());
+
+    $response->assertRedirect();
+    expect((string) $response->headers->get('Location'))->toStartWith(McpOAuth::REDIRECT_URI.'?code=');
+});
+
+it('CIMD lớp ép đồng ý chỉ hành động ở GET /oauth/authorize: tham số uỷ quyền (client_id CIMD, prompt=none) lạc vào query của /oauth/token không chặn việc đổi mã', function () {
+    cimdServe(CIMD_CLAUDE, cimdDocument(CIMD_CLAUDE));
+    $user = cimdLawyer();
+    $pkce = McpOAuth::pkce();
+
+    $consent = cimdAuthorize($user, CIMD_CLAUDE, pkce: $pkce)->assertOk();
+    $approve = test()->actingAs($user, 'web')->post('/oauth/authorize', ['auth_token' => $consent->json('auth_token')]);
+    parse_str((string) parse_url((string) $approve->headers->get('Location'), PHP_URL_QUERY), $approved);
+
+    Auth::forgetGuards();
+    Once::flush();
+
+    test()->call('POST', '/oauth/token?'.http_build_query(cimdAuthorizeQuery(CIMD_CLAUDE, pkce: $pkce, extra: ['prompt' => 'none'])), [
+        'grant_type' => 'authorization_code',
+        'client_id' => CIMD_CLAUDE,
+        'redirect_uri' => McpOAuth::REDIRECT_URI,
+        'code' => $approved['code'] ?? '',
+        'code_verifier' => $pkce['verifier'],
+        'resource' => CIMD_RESOURCE,
+    ], server: [
+        'CONTENT_TYPE' => 'application/x-www-form-urlencoded',
+        'HTTP_ACCEPT' => 'application/json',
+    ])->assertOk()->assertJsonStructure(['access_token', 'refresh_token']);
 });

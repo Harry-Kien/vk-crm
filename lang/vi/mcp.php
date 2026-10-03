@@ -22,6 +22,7 @@ return [
         'unsupported_grant_type' => 'Máy chủ chỉ cấp token theo luồng authorization_code (PKCE) và refresh_token.',
         'pkce_s256_required' => 'Yêu cầu uỷ quyền phải dùng PKCE với code_challenge_method=S256.',
         'invalid_target' => 'Tham số resource phải là đúng địa chỉ của máy chủ MCP này.',
+        'consent_required' => 'Client khai qua tài liệu metadata (CIMD) luôn cần nhân sự đồng ý trên màn hình, nên không uỷ quyền được với prompt=none.',
     ],
 
     // Lệnh `vkcrm:mcp-prune-clients` (Task 3), người vận hành đọc.

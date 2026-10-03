@@ -1,12 +1,13 @@
 <?php
 
 use App\Http\Middleware\Mcp\AddIssuerToAuthorizationResponse;
+use App\Http\Middleware\Mcp\RequireConsentForMetadataDocumentClients;
 use App\Http\Middleware\Mcp\RestrictOAuthGrantTypes;
 use App\Http\Middleware\Mcp\ValidateOAuthParameters;
 
 /*
 |-------------------------------------------------------------------------------------------
-| BẢN PUBLISH CỦA laravel/passport — ĐÃ SỬA ĐÚNG MỘT KHOÁ (M11 Task 1, Task 2)
+| BẢN PUBLISH CỦA laravel/passport — ĐÃ SỬA ĐÚNG MỘT KHOÁ (M11 Task 1, Task 2, Task 5)
 |-------------------------------------------------------------------------------------------
 |
 | Sinh bằng `artisan vendor:publish --tag=passport-config`, rồi đổi đúng `middleware`. Mọi khoá
@@ -43,11 +44,14 @@ return [
     // - M11 R7 (Task 2): gắn `iss` (RFC 9207) vào mọi phản hồi uỷ quyền; đứng NGOÀI lớp kế tiếp để cả
     //   lỗi mà lớp đó chuyển hướng về client cũng mang `iss`;
     // - M11 R7 (Task 2): PKCE chỉ S256, bắt buộc với mọi client; `resource` (RFC 8707) chỉ được là URL
-    //   MCP chuẩn, ở `/oauth/authorize` và `/oauth/token`.
+    //   MCP chuẩn, ở `/oauth/authorize` và `/oauth/token`;
+    // - M11 R7 (Task 5): client CIMD (một dòng dùng chung cho mọi nhân sự) không bao giờ được tự duyệt ở
+    //   `/oauth/authorize`: luôn hiện màn hình đồng ý, `prompt=none` nhận `consent_required` (mang `iss`).
     'middleware' => [
         RestrictOAuthGrantTypes::class,
         AddIssuerToAuthorizationResponse::class,
         ValidateOAuthParameters::class,
+        RequireConsentForMetadataDocumentClients::class,
     ],
 
     /*

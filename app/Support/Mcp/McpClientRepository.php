@@ -3,6 +3,7 @@
 namespace App\Support\Mcp;
 
 use App\Actions\Mcp\ResolveClientIdMetadataDocument;
+use App\Http\Middleware\Mcp\RequireConsentForMetadataDocumentClients;
 use Laravel\Passport\Bridge\Client as ClientEntity;
 use Laravel\Passport\Bridge\ClientRepository;
 use League\OAuth2\Server\Entities\ClientEntityInterface;
@@ -20,6 +21,9 @@ use League\OAuth2\Server\Entities\ClientEntityInterface;
  *   và mọi phép so của league (`client_id` của mã với client, của refresh token với client) đều chạy
  *   trên UUID, nên client gửi URL ở `/oauth/authorize` lẫn `/oauth/token` đều khớp.
  * - mọi id khác (UUID của client DCR hay `passport:client`): đúng như Passport.
+ *
+ * Một dòng CIMD dùng chung cho mọi nhân sự của nền tảng, nên `/oauth/authorize` với client CIMD (bằng URL hay bằng
+ * UUID của dòng) không bao giờ được Passport tự duyệt: {@see RequireConsentForMetadataDocumentClients}.
  *
  * `validateClient()` không đổi: client CIMD là client công khai, league không gọi hàm đó cho chúng
  * (`AbstractGrant::validateClient()` chỉ gọi khi `isConfidential()`), và với URL thì Passport tìm

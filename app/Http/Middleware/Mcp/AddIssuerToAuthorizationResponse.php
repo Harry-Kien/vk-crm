@@ -21,9 +21,10 @@ use Symfony\Component\HttpFoundation\Response;
  * ({@see self::isActive()}).
  *
  * Đăng ký ở `config/passport.php` (`middleware`), cùng chỗ với `RestrictOAuthGrantTypes`, và đứng
- * TRƯỚC `ValidateOAuthParameters` để bọc nó: lỗi `invalid_target` / `invalid_request` mà lớp đó
- * chuyển hướng về client cũng mang `iss`. Chỉ hành động ở ba route uỷ quyền: GET (Passport tự duyệt
- * khi người dùng đã có token còn hạn, hoặc lỗi), POST (duyệt), DELETE (từ chối). Phản hồi lỗi mà
+ * TRƯỚC `ValidateOAuthParameters` và `RequireConsentForMetadataDocumentClients` để bọc chúng: lỗi
+ * `invalid_target` / `invalid_request` / `consent_required` mà hai lớp đó chuyển hướng về client cũng mang
+ * `iss`. Chỉ hành động ở ba route uỷ quyền: GET (Passport tự duyệt client không phải CIMD khi người dùng đã
+ * có token còn hạn, hoặc lỗi), POST (duyệt), DELETE (từ chối). Phản hồi lỗi mà
  * Passport ném ra (`OAuthServerException`, `HttpResponseException`) đã được router dựng thành phản
  * hồi trước khi quay ra tới đây, nên cũng được gắn.
  *

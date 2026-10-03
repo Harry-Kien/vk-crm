@@ -2,6 +2,7 @@
 
 namespace App\Actions\Mcp;
 
+use App\Http\Middleware\Mcp\RequireConsentForMetadataDocumentClients;
 use App\Support\Mcp\McpClientRepository;
 use App\Support\Mcp\MetadataDocumentFetcher;
 use App\Support\Mcp\RedirectUriAllowlist;
@@ -52,7 +53,9 @@ use Laravel\Passport\Passport;
  * MariaDB strict), thiếu hay rỗng thì là host; nó do nền tảng tự khai, nên màn hình nào hiện client
  * phải hiện host của redirect URI, không chỉ tên này. Hai request tạo cùng lúc: mục unique của `metadata_url` giữ một dòng, request thua
  * đọc lại dòng thắng. Mọi client CIMD của một nền tảng là MỘT dòng dùng chung cho mọi nhân sự (cùng
- * URL); "kết nối" của từng người là token của người đó, không phải dòng client.
+ * URL); "kết nối" của từng người là token của người đó, không phải dòng client. Vì dòng dùng chung và URL
+ * công khai, Passport không được tự duyệt theo token đã có trên dòng đó: mỗi lần kết nối đều qua màn hình
+ * đồng ý ({@see RequireConsentForMetadataDocumentClients}).
  *
  * Không ghi nhật ký hoạt động: lời gọi này vô danh (chưa có nhân sự nào) và một client không mở được
  * gì khi chưa có nhân sự đồng ý ở `/oauth/authorize` (cùng lý do với DCR, `RegisterMcpClient`).

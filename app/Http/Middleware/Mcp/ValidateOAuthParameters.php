@@ -49,7 +49,7 @@ class ValidateOAuthParameters
         if ($request->routeIs('passport.authorizations.authorize')) {
             $violation = self::authorizationViolation($request);
 
-            return $violation === null ? $next($request) : $this->rejectAuthorization($request, $next, ...$violation);
+            return $violation === null ? $next($request) : self::rejectAuthorization($request, $next, ...$violation);
         }
 
         if ($request->routeIs('passport.token') && ! self::resourceIsAcceptable($request->input('resource'))) {
@@ -98,7 +98,12 @@ class ValidateOAuthParameters
         return true;
     }
 
-    private function rejectAuthorization(Request $request, Closure $next, string $error, string $description): Response
+    /**
+     * Báo lỗi `$error` cho một `GET /oauth/authorize` theo cách ở docblock của lớp: chuyển hướng về redirect
+     * URI mà `AuthorizationServer` đã kiểm, kèm `error`, `error_description`, `state`; league từ chối yêu cầu
+     * thì để Passport trả lỗi của nó. Dùng chung với {@see RequireConsentForMetadataDocumentClients}.
+     */
+    public static function rejectAuthorization(Request $request, Closure $next, string $error, string $description): Response
     {
         try {
             $authRequest = app(AuthorizationServer::class)->validateAuthorizationRequest(

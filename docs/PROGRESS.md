@@ -2993,11 +2993,12 @@ Vì vậy cờ để TẮT: `MCP_CLIENT_ID_METADATA_DOCUMENTS=false` (mặc đ�
 quảng bá `client_id_metadata_document_supported`, máy chủ không tải gì, và `client_id` dạng URL nhận
 `invalid_client`; Claude và ChatGPT tự lùi về DCR [DC:715], [PL:179]. Không hỏng kết nối nào. **Việc của Task
 17:** trên staging đặt cờ `true`, kết nối Claude web, ChatGPT (và VS Code, Claude Code nếu muốn), xem AS metadata
-có cờ, `oauth_clients` có dòng `metadata_url`, `/mcp` 200, làm mới token sau một giờ được. Hỏng chỗ nào thì đặt
-lại `false`. *Giá nếu sai* (bật mà một nền tảng không chạy): nền tảng đó chọn CIMD và không kết nối được, vì
+có cờ, `oauth_clients` có dòng `metadata_url`, `/mcp` 200, làm mới token sau một giờ được, và **kết nối lại lần
+hai trong lúc token cũ còn hạn vẫn hiện màn hình đồng ý** (vòng sửa 1, xem dưới). Hỏng chỗ nào thì đặt lại
+`false`. *Giá nếu sai* (bật mà một nền tảng không chạy): nền tảng đó chọn CIMD và không kết nối được, vì
 Claude chỉ lùi về DCR khi metadata KHÔNG quảng bá CIMD [PL:179], không lùi khi CIMD hỏng giữa chừng.
 
-**Đã có, kèm test HTTP** (`tests/Feature/Mcp/ClientIdMetadataDocumentTest.php`, 88 test; `/oauth/authorize`,
+**Đã có, kèm test HTTP** (`tests/Feature/Mcp/ClientIdMetadataDocumentTest.php`, 100 test; `/oauth/authorize`,
 `/oauth/token`, `/mcp` thật; `Http::preventStrayRequests()` + `Http::fake()`, DNS giả, không gọi mạng):
 - **`App\Actions\Mcp\ResolveClientIdMetadataDocument`** (nơi DUY NHẤT quyết URL nào được nhận). Từ chối, theo thứ
   tự: cờ tắt; URL không đúng `https://<host>/<đoạn>[/<đoạn>…]` (host đúng chuỗi trong
@@ -3028,6 +3029,19 @@ Claude chỉ lùi về DCR khi metadata KHÔNG quảng bá CIMD [PL:179], không
   (`RedirectUriAllowlist::sameLoopback()`, mới) thì entity mang thêm đúng URI đó; tài liệu Claude Code khai
   `http://localhost/callback` [DC:739], request `http://localhost:53682/callback` đi hết luồng tới `/mcp` 200.
   Client DCR vẫn đòi đúng cổng đã đăng ký (test ghim).
+- **Không bao giờ tự duyệt client CIMD (vòng sửa 1, rà soát Task 5 I1).** Passport 13.8.0
+  (`AuthorizationController::authorize()` dòng 84-86) cấp mã ngay, không màn hình đồng ý, khi người đang đăng
+  nhập đã có access token còn hạn cho đúng dòng client đó (`hasGrantedScopes()`). Dòng CIMD dùng chung cho mọi
+  nhân sự và `client_id` là URL công khai, nên trước bản sửa: nhân sự vừa kết nối Claude Code, một tiến trình khác
+  trên máy mở `/oauth/authorize` với cùng URL, cổng loopback và PKCE của nó, nhận mã rồi token mà không ai bấm gì
+  (rà soát tái hiện). Middleware mới `App\Http\Middleware\Mcp\RequireConsentForMetadataDocumentClients` (cuối
+  `passport.middleware`, trong `AddIssuerToAuthorizationResponse`; không thay lớp nào của Passport): khi
+  `client_id` có `://` hoặc là UUID của một dòng có `metadata_url`, chuỗi `prompt` chứa `none` →
+  `error=consent_required` (kèm `state`, `iss`) về redirect URI đã kiểm; còn lại nối ` consent` vào `prompt`, nên
+  Passport luôn hiện màn hình đồng ý, và mọi điều kiện từ chối cùng nhật ký của Task 4 áp cho mọi lần kết nối
+  CIMD. So `none` theo ĐOẠN CON vì Passport tách `prompt` bằng `explode(' ')->map(trim(...))`, và
+  `Collection::map()` truyền khoá làm đối số thứ hai của `trim()`: `none0` và `consent none1` là `none` với Passport
+  (test). Client DCR giữ hành vi của Passport.
 - AS metadata đọc `ResolveClientIdMetadataDocument::enabled()`: một cờ cho cả quảng bá lẫn nhận.
 - `config/vkcrm.php`: cờ đọc `MCP_CLIENT_ID_METADATA_DOCUMENTS` (`FILTER_VALIDATE_BOOLEAN`, chuỗi lạ là tắt),
   `client_id_metadata_hosts`, và **`curl` thêm vào `deployment.required_extensions`** (preflight đỏ khi thiếu).
@@ -3044,6 +3058,12 @@ Claude chỉ lùi về DCR khi metadata KHÔNG quảng bá CIMD [PL:179], không
   nối" là thu hồi token (access + refresh) CỦA NGƯỜI ĐÓ, không bao giờ thu hồi hay xoá dòng client CIMD (cắt cả
   văn phòng; dòng bị thu hồi không tự hồi sinh). Màn hình hiện host của redirect URI, không chỉ `client_name` (do
   nền tảng tự khai).
+- **Bàn giao Task 4: client DCR vẫn được Passport tự duyệt** khi đúng client đó xin uỷ quyền lại trong lúc người
+  dùng còn access token sống (≤ 1 giờ), ví dụ Claude Code dùng lại bản đăng ký cũ. Nhánh đó bỏ qua điều kiện từ
+  chối và nhật ký `mcp_connection_authorized` của màn hình đồng ý. Không mở được cho người ngoài như CIMD (UUID của
+  client DCR không công khai, và redirect phải khớp bản đăng ký). Task 4 quyết có ép đồng ý cho MỌI client không;
+  nếu có thì bỏ điều kiện CIMD của middleware trên, sửa test DCR đối chứng trong `ClientIdMetadataDocumentTest` và
+  test `iss` của nhánh tự duyệt trong `OAuthMetadataTest`.
 - **Bàn giao Task 6:** khi công tắc `mcp.enabled` (bảng `settings`) có, `/oauth/authorize` với `client_id` URL vẫn
   tải tài liệu dù MCP tắt toàn hệ thống (như DCR, rà soát Task 3 m5). Vô hại (không token nào dùng được), có thể
   cho `enabled()` đòi thêm công tắc đó.
@@ -3078,3 +3098,14 @@ tự; tệp mới, `OAuthMetadataTest`, `ClientRegistrationTest`, `PruneMcpClien
 `EnvExampleTest`, `McpPackageConfigTest`): 262 passed, 1 risky (có sẵn). Vòng migration thật trên
 `vk_crm_lane_m11` (`migrate:fresh --seed`, `migrate:reset`, `migrate`): EXIT 0, cột `metadata_url varchar(255)
 DEFAULT NULL`, `UNIQUE KEY oauth_clients_metadata_url_unique`. `pint --test`: PASS, 875 tệp.
+
+**Vòng sửa 1 (2026-10-03, ép đồng ý cho client CIMD).** Đỏ trước khi cài: 5 test (hai dòng "kết nối lại khi còn
+token", đường UUID, hai dòng `prompt=none`) nhận 302 kèm `code`, đúng như rà soát tái hiện; test thứ tự middleware
+đỏ. Thêm sau, đều đỏ khi gỡ middleware khỏi `passport.middleware`: `none0`, `consent none1` (Passport tự duyệt),
+`prompt[]=none` (Passport lỗi 500). Mười ba phép mutation, mỗi phép cho ít nhất một test đỏ rồi khôi phục: kiểm
+route; `://`; tra UUID; `whereNotNull('metadata_url')` (đỏ cả test `iss` của `OAuthMetadataTest`); `whereKey`;
+nhánh `none`; so `none` theo từng giá trị cắt khoảng trắng thay cho đoạn con (`none0`, `consent none1` đỏ); giữ
+giá trị `prompt` cũ (`login`); `merge`; `prompt` là chuỗi; `client_id` là chuỗi (bỏ thì `client_id[]` thành 500);
+gỡ khỏi cấu hình; đặt ngoài `AddIssuerToAuthorizationResponse` (mất `iss`). Cả bộ: EXIT 0, 4014 passed
+(4002 + 12), 1 risky, 1 todo, 25 skipped. MariaDB (tuần tự; `ClientIdMetadataDocumentTest`, `McpPackageConfigTest`,
+`OAuthMetadataTest`): 151 passed. `pint --test`: PASS, 876 tệp.
