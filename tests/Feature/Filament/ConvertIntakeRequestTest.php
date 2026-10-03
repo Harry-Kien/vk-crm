@@ -363,6 +363,87 @@ it('keeps a record from converting while another call of the same caller holds t
     'the other call was declined for a conflict' => [true],
 ]);
 
+/*
+ * Fix vòng 2 (rà soát lại Task 4, N1): ghi đè của quản lý trên B chỉ che các khoá người gọi lại mà lần
+ * kiểm tra gần nhất của B đã thấy. Một lần gọi khác của cùng người bắt đầu khoá SAU ghi đè đó thì nút
+ * ẩn lại và trang từ chối, kể cả sau "Kiểm tra lại", tới khi quản lý ghi đè lại trên B.
+ */
+it('hides the conversion again when another call of the same caller starts to lock after a manager overrode this record, until a manager overrides it again', function (bool $laterDecline) {
+    cvsExistingClient(['phone' => '0912000111', 'name' => 'Công Ty D']);
+    cvsExistingClient(['phone' => '0912000222', 'name' => 'Công Ty F']);
+    $lawyer = cvsStaff();
+    $manager = cvsStaff(Role::Manager);
+    $call = fn (array $parties): IntakeRequest => cvsRecord($lawyer, ['contact_name' => 'Người Gọi P'], $parties);
+
+    if ($laterDecline) {
+        // A chưa khoá ai; C bị từ chối vì xung đột — C là khoá mà quản lý thấy khi ghi đè trên B.
+        $a = $call([['name' => 'Bên A', 'role' => PartyRole::Defendant]]);
+        $c = $call([['name' => 'Bên C', 'role' => PartyRole::Defendant]]);
+        app(DeclineIntake::class)->handle($manager, $c, 'Bên kia là khách hiện hữu của văn phòng', true);
+    } else {
+        // C nêu khách hiện hữu D kèm SĐT: Đỏ — khoá mà quản lý thấy khi ghi đè trên B.
+        $call([['name' => 'Công Ty D', 'role' => PartyRole::Defendant, 'phone' => '0912000111']]);
+    }
+
+    $b = $call([['name' => 'Ai Đó', 'role' => PartyRole::Defendant]]);
+    $editUrl = IntakeRequestResource::getUrl('edit', ['record' => $b], panel: 'admin');
+
+    $this->actingAs($manager, 'web');
+    cvsEdit($b)
+        ->callAction(TestAction::make('resolveRed')->schemaComponent('checkActions'), data: ['override_reason' => 'Đã xem lần gọi trước, phần việc này không liên quan'])
+        ->assertHasNoErrors();
+
+    $this->actingAs($lawyer, 'web');
+    cvsEdit($b)->assertActionVisible('convert');
+    // Trang mở TRƯỚC khi lần gọi kia khoá (lúc đó B chuyển đổi được).
+    $stale = cvsPage($b)->assertNoRedirect();
+
+    if ($laterDecline) {
+        app(DeclineIntake::class)->handle($manager, $a->fresh(), 'Bên kia là khách hiện hữu của văn phòng', true);
+    } else {
+        // A: P gọi lần nữa, nêu khách hiện hữu F — Đỏ, chưa quản lý nào xem.
+        $a = $call([['name' => 'Công Ty F', 'role' => PartyRole::Defendant, 'phone' => '0912000222']]);
+    }
+
+    expect($a->fresh()->locksRepeatCalls())->toBeTrue()
+        ->and($b->fresh()->hasConflictOverride())->toBeTrue();
+
+    cvsEdit($b)->assertActionHidden('convert');
+
+    session()->forget(['filament.notifications', 'filament.claimed_notifications']);
+    cvsPage($b)->assertNotified(__('intake.errors.convert_caller_locked'))->assertRedirect($editUrl);
+
+    $stale->call('convert')->assertNotified(__('actions.failed_title'));
+
+    expect($b->fresh()->matter_id)->toBeNull()
+        ->and($b->fresh()->status)->toBe(IntakeStatus::New);
+
+    // "Kiểm tra lại" của luật sư không mở lại nút.
+    cvsEdit($b)->callAction(TestAction::make('rerun')->schemaComponent('checkActions'))->assertHasNoErrors();
+    cvsEdit($b)->assertActionHidden('convert');
+
+    // Quản lý ghi đè LẠI trên B.
+    $this->actingAs($manager, 'web');
+    cvsEdit($b)
+        ->callAction(TestAction::make('resolveRed')->schemaComponent('checkActions'), data: ['override_reason' => 'Đã xem cả lần gọi mới, phần việc này vẫn không liên quan'])
+        ->assertHasNoErrors();
+
+    $this->actingAs($lawyer, 'web');
+    cvsEdit($b)->assertActionVisible('convert');
+
+    $page = cvsPage($b)->assertNoRedirect()->call('convert');
+
+    if ($b->fresh()->matter_id === null) {
+        $page->fillForm(['acknowledge_conflict' => true])->call('convert')->assertHasNoFormErrors();
+    }
+
+    expect($b->fresh()->status)->toBe(IntakeStatus::Won)
+        ->and($a->fresh()->locksRepeatCalls())->toBeTrue();
+})->with([
+    'a later call of the caller is red' => [false],
+    'a later decline of a call of the caller for a conflict' => [true],
+]);
+
 it('does not attach the contact to a client who only shares the name, and asks to review the name match first', function () {
     $lawyer = cvsStaff();
     $namesake = cvsExistingClient(['phone' => '0900999888', 'name' => 'Trần Thị Mới']);

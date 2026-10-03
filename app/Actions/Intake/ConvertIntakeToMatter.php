@@ -37,8 +37,10 @@ use Illuminate\Validation\ValidationException;
  *     đổi, chưa gộp/ẩn danh, đang ở một trạng thái còn mở (`new` … `quoted`), không còn Đỏ chờ
  *     quản lý/admin, và không bị giữ như một cuộc gọi lại của người có lần gọi khác đang khoá
  *     ({@see IntakeRequest::isHeldByRepeatCallLock()} — fix vòng 1, C1; đọc thẳng, không đợi một lần
- *     "Kiểm tra lại" đặt dấu Đỏ chờ). R1: Đỏ chỉ có hai cách xử lý — từ chối hoặc ghi đè kèm lý do;
- *     chuyển đổi không phải cách thứ ba. Không thì `ValidationException` khoá `intake`.
+ *     "Kiểm tra lại" đặt dấu Đỏ chờ; fix vòng 2, N1: một ghi đè trên chính bản này chỉ che những khoá
+ *     mà lần kiểm tra gần nhất của nó đã thấy, không che một lần gọi bắt đầu khoá sau đó). R1: Đỏ chỉ
+ *     có hai cách xử lý — từ chối hoặc ghi đè kèm lý do; chuyển đổi không phải cách thứ ba. Không thì
+ *     `ValidationException` khoá `intake`.
  *  3. **Dữ liệu:** các ô của vụ việc (cùng luật cột với `matters`), loại khách, và số căn cước thô
  *     tuỳ chọn — phải có chữ số; nếu bản ghi đã lưu dấu băm CCCD của người liên hệ thì số gõ phải
  *     băm ra ĐÚNG dấu đó (gõ nhầm một số là ghi sai định danh lên hồ sơ khách, thứ mọi lần kiểm tra
@@ -178,7 +180,8 @@ class ConvertIntakeToMatter
                 'status' => $intake->status->label(),
             ]),
             $intake->hasUnresolvedRed() => __('intake.errors.convert_red_pending'),
-            // Một câu cho mọi lý do lần gọi kia khoá (Đỏ chờ, hay từ chối vì xung đột — R8).
+            // Một câu cho mọi lý do lần gọi kia khoá (Đỏ chờ, hay từ chối vì xung đột — R8), và cho một
+            // ghi đè trên bản này mà lần kiểm tra của nó chưa thấy khoá đó (fix vòng 2, N1).
             $intake->isHeldByRepeatCallLock() => __('intake.errors.convert_caller_locked'),
             default => null,
         };

@@ -613,6 +613,150 @@ it('lets the conversion through once a manager has overridden the lock on this r
         ->and($a->fresh()->hasUnresolvedRed())->toBeTrue();
 });
 
+/*
+ * Fix vòng 2 (rà soát lại Task 4, N1): ghi đè trên B chỉ che những khoá người gọi lại mà lần kiểm tra
+ * GẦN NHẤT của B đã thấy. Một lần gọi khác của P bắt đầu khoá SAU đó thì B lại bị giữ — chuyển đổi
+ * đọc thẳng điều này, không đợi ai bấm "Kiểm tra lại"; và lần kiểm tra lại cũng không mở được (khớp
+ * mới làm ghi đè cũ hết hiệu lực), chỉ một ghi đè mới của quản lý trên B.
+ */
+it('holds a record again when another call of the same caller starts to lock after a manager overrode it, until a manager overrides it again', function (Closure $arrange) {
+    cvtClientD();
+    cvtExistingClient(['phone' => '0912000222', 'name' => 'Công Ty F']);
+    $lawyer = cvtStaff();
+    $manager = cvtStaff(Role::Manager);
+
+    /** @var array{0: IntakeRequest, 1: IntakeRequest} $records */
+    $records = $arrange($lawyer, $manager);
+    [$b, $other] = $records;
+
+    expect($b->fresh()->hasConflictOverride())->toBeTrue()
+        ->and($b->fresh()->hasUnresolvedRed())->toBeFalse()
+        ->and($other->fresh()->locksRepeatCalls())->toBeTrue();
+
+    $before = cvtCounts();
+    $runs = Activity::query()->whereIn('event', ['conflict_check_run', 'client_lookup'])->count();
+
+    expect(ConvertIntakeToMatter::refusal($b->fresh()))->toBe(__('intake.errors.convert_caller_locked'))
+        ->and(cvtRefusal(fn () => cvtConvert($lawyer, $b->fresh(), [], null, ConflictLevel::Yellow), 'intake'))
+        ->toBe(__('intake.errors.convert_caller_locked'));
+
+    expect(cvtCounts())->toBe($before)
+        ->and(Activity::query()->whereIn('event', ['conflict_check_run', 'client_lookup'])->count())->toBe($runs)
+        ->and($b->fresh()->status)->toBe(IntakeStatus::New)
+        ->and($b->fresh()->matter_id)->toBeNull();
+
+    // Luật sư bấm "Kiểm tra lại": khớp mới làm ghi đè cũ hết hiệu lực, B chờ quản lý — không mở.
+    app(RerunIntakeConflictCheck::class)->handle($lawyer, $b->fresh());
+
+    expect($b->fresh()->hasConflictOverride())->toBeFalse()
+        ->and(ConvertIntakeToMatter::refusal($b->fresh()))->toBe(__('intake.errors.convert_red_pending'));
+
+    app(ResolveIntakeRedConflict::class)->handle($manager, $b->fresh(), 'Đã xem cả lần gọi mới, phần việc này vẫn không liên quan');
+
+    expect(ConvertIntakeToMatter::refusal($b->fresh()))->toBeNull()
+        ->and(cvtConvertAcknowledging($lawyer, $b)->intake->status)->toBe(IntakeStatus::Won)
+        // Lần gọi kia vẫn khoá: ghi đè trên B không xử lý nó.
+        ->and($other->fresh()->locksRepeatCalls())->toBeTrue();
+})->with([
+    // Đúng kịch bản của người rà soát: C (P nêu khách D) Đỏ, B bị giữ, quản lý ghi đè trên B; SAU ĐÓ
+    // A (P nêu khách F) Đỏ, chưa quản lý nào xem.
+    'a later call of the caller is red' => [function (User $lawyer, User $manager): array {
+        cvtRecord($lawyer, ['contact_name' => 'Người Gọi P'], [['name' => 'Công Ty D', 'role' => PartyRole::Defendant, 'phone' => '0912000111']]);
+        $b = cvtFirstCallOfP($lawyer);
+        app(ResolveIntakeRedConflict::class)->handle($manager, $b->fresh(), 'Đã xem lần gọi trước, phần việc này không liên quan Công Ty D');
+
+        $a = cvtRecord($lawyer, ['contact_name' => 'Người Gọi P'], [['name' => 'Công Ty F', 'role' => PartyRole::Defendant, 'phone' => '0912000222']]);
+
+        return [$b, $a];
+    }],
+    // A (P, không Đỏ) chưa khoá ai; C (P) bị từ chối vì xung đột nên B bị giữ, quản lý ghi đè trên B;
+    // SAU ĐÓ quản lý từ chối A vì xung đột.
+    'a later decline of a call of the caller for a conflict' => [function (User $lawyer, User $manager): array {
+        $a = cvtRecord($lawyer, ['contact_name' => 'Người Gọi P'], [['name' => 'Bên A', 'role' => PartyRole::Defendant]]);
+        $c = cvtRecord($lawyer, ['contact_name' => 'Người Gọi P'], [['name' => 'Bên C', 'role' => PartyRole::Defendant]]);
+        app(DeclineIntake::class)->handle($manager, $c, 'Bên kia là khách hiện hữu của văn phòng', true);
+        $b = cvtFirstCallOfP($lawyer);
+        app(ResolveIntakeRedConflict::class)->handle($manager, $b->fresh(), 'Đã xem lần gọi bị từ chối, phần việc này khác hẳn');
+
+        expect($a->fresh()->locksRepeatCalls())->toBeFalse()
+            ->and(ConvertIntakeToMatter::refusal($b->fresh()))->toBeNull();
+
+        app(DeclineIntake::class)->handle($manager, $a->fresh(), 'Bên kia là khách hiện hữu của văn phòng', true);
+
+        return [$b, $a];
+    }],
+    // C Đỏ, B bị giữ, quản lý ghi đè trên B và trên C (C hết khoá); vài phút sau văn phòng mở thêm một
+    // vụ cho D, lần kiểm tra lại của C có khớp mới: một đợt Đỏ MỚI của C, không phải đợt quản lý đã thấy.
+    'a call of the caller that a manager resolved turns red again' => [function (User $lawyer, User $manager): array {
+        $c = cvtRecord($lawyer, ['contact_name' => 'Người Gọi P'], [['name' => 'Công Ty D', 'role' => PartyRole::Defendant, 'phone' => '0912000111']]);
+        $b = cvtFirstCallOfP($lawyer);
+        app(ResolveIntakeRedConflict::class)->handle($manager, $b->fresh(), 'Đã xem lần gọi trước, phần việc này không liên quan Công Ty D');
+        app(ResolveIntakeRedConflict::class)->handle($manager, $c->fresh(), 'Đã xem, nhận lần gọi này');
+
+        expect($c->fresh()->locksRepeatCalls())->toBeFalse()
+            ->and(ConvertIntakeToMatter::refusal($b->fresh()))->toBeNull();
+
+        test()->travel(5)->minutes();
+        $d = Client::query()->where('phone', '0912000111')->sole();
+        MatterParty::factory()->for(Matter::factory()->create(['client_id' => $d->id]))->ourClient($d)->create();
+        app(RerunIntakeConflictCheck::class)->handle($lawyer, $c->fresh());
+
+        expect($c->fresh()->hasUnresolvedRed())->toBeTrue();
+
+        return [$b, $c];
+    }],
+]);
+
+it('holds an overridden record when a lock its last check saw changes form, until a rerun that finds nothing new lets the override stand', function () {
+    cvtClientD();
+    $lawyer = cvtStaff();
+    $manager = cvtStaff(Role::Manager);
+    $c = cvtRecord($lawyer, ['contact_name' => 'Người Gọi P'], [['name' => 'Công Ty D', 'role' => PartyRole::Defendant, 'phone' => '0912000111']]);
+    $b = cvtFirstCallOfP($lawyer);
+    app(ResolveIntakeRedConflict::class)->handle($manager, $b->fresh(), 'Đã xem lần gọi trước, phần việc này không liên quan Công Ty D');
+
+    expect(ConvertIntakeToMatter::refusal($b->fresh()))->toBeNull();
+
+    // C vẫn Đỏ chờ, và giờ còn bị từ chối vì xung đột: một khoá lần kiểm tra của B chưa thấy.
+    app(DeclineIntake::class)->handle($manager, $c->fresh(), 'Bên kia là khách hiện hữu của văn phòng', true);
+
+    expect(ConvertIntakeToMatter::refusal($b->fresh()))->toBe(__('intake.errors.convert_caller_locked'));
+
+    // Kiểm tra lại không ra khớp mới (C và bên của nó đều đã nằm trong lần ghi đè): ghi đè đứng, và
+    // giờ lần kiểm tra gần nhất đã thấy khoá đó.
+    app(RerunIntakeConflictCheck::class)->handle($lawyer, $b->fresh());
+
+    expect($b->fresh()->hasConflictOverride())->toBeTrue()
+        ->and($b->fresh()->hasUnresolvedRed())->toBeFalse()
+        ->and(ConvertIntakeToMatter::refusal($b->fresh()))->toBeNull();
+});
+
+it('keeps an override standing for the locks its own last check saw: a rerun with nothing new, or one of those locks ending, does not hold the record', function () {
+    cvtClientD();
+    $lawyer = cvtStaff();
+    $manager = cvtStaff(Role::Manager);
+    // Hai lần gọi trước của P cùng khoá: C Đỏ, E bị từ chối vì xung đột. B thấy cả hai rồi được ghi đè.
+    $c = cvtRecord($lawyer, ['contact_name' => 'Người Gọi P'], [['name' => 'Công Ty D', 'role' => PartyRole::Defendant, 'phone' => '0912000111']]);
+    $e = cvtRecord($lawyer, ['contact_name' => 'Người Gọi P'], [['name' => 'Bên E', 'role' => PartyRole::Defendant]]);
+    app(DeclineIntake::class)->handle($manager, $e->fresh(), 'Bên kia là khách hiện hữu của văn phòng', true);
+    $b = cvtFirstCallOfP($lawyer);
+    app(ResolveIntakeRedConflict::class)->handle($manager, $b->fresh(), 'Đã xem hai lần gọi trước, phần việc này không liên quan');
+
+    // Không có gì mới: kiểm tra lại không lật quyết định của quản lý.
+    app(RerunIntakeConflictCheck::class)->handle($lawyer, $b->fresh());
+
+    expect($b->fresh()->hasConflictOverride())->toBeTrue()
+        ->and($b->fresh()->hasUnresolvedRed())->toBeFalse()
+        ->and(ConvertIntakeToMatter::refusal($b->fresh()))->toBeNull();
+
+    // C được xử lý (quản lý ghi đè trên C): còn lại khoá của E, khoá lần kiểm tra của B đã thấy.
+    app(ResolveIntakeRedConflict::class)->handle($manager, $c->fresh(), 'Đã xem, nhận lần gọi này');
+
+    expect($c->fresh()->locksRepeatCalls())->toBeFalse()
+        ->and($e->fresh()->locksRepeatCalls())->toBeTrue()
+        ->and(ConvertIntakeToMatter::refusal($b->fresh()))->toBeNull();
+});
+
 it('rolls the save back when the lock of another call appears between the check and the save', function () {
     $lawyer = cvtStaff();
     $b = cvtFirstCallOfP($lawyer);

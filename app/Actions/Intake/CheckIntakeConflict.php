@@ -35,7 +35,10 @@ use Illuminate\Support\Collection;
  *
  * **Ghi lên bản ghi:** `conflict_level` (mức của các khớp MỚI, như `OpenMatter`), `conflict_checked_at`,
  * `conflict_result` (hình dạng `properties` của dòng audit, kèm `fingerprint` — dấu vân tay danh
- * tính đã chạy, để cổng ô câu chuyện biết kết quả có còn khớp danh tính hiện tại không).
+ * tính đã chạy, để cổng ô câu chuyện biết kết quả có còn khớp danh tính hiện tại không — và
+ * `repeat_call_locks` — dấu các khoá người gọi lại mà lần chạy này đã thấy,
+ * {@see IntakeRequest::repeatCallLocks()}; fix vòng 2 của Task 4, N1: một ghi đè chỉ che những khoá
+ * mà lần kiểm tra gần nhất đã thấy, {@see IntakeRequest::isHeldByRepeatCallLock()}).
  *
  * **Khi nào xác nhận/ghi đè cũ bị xoá:** khi lần chạy này có khớp MỚI (chưa từng được chấp nhận) hoặc
  * danh tính đã đổi so với lần chạy trước. Xác nhận Vàng và ghi đè Đỏ chỉ che những khớp người ta đã
@@ -50,8 +53,10 @@ use Illuminate\Support\Collection;
  *    của CÙNG người ({@see IntakeRequest::sameCallerIntakes()}, cùng vai mà lần kiểm tra này dùng) đang
  *    khoá cuộc gọi lại ({@see IntakeRequest::locksRepeatCalls()}: Đỏ chưa xử lý, hoặc từ chối vì xung
  *    đột). Điều kiện "chưa có ghi đè" là để một quyết định của quản lý trên CHÍNH bản này không bị lần
- *    chạy lại kế tiếp lật lại khi lần gọi kia vẫn còn khoá; sửa danh tính làm ghi đè hết hiệu lực
- *    (bước trên), nên khoá trở lại.
+ *    chạy lại kế tiếp lật lại khi lần gọi kia vẫn còn khoá; sửa danh tính, hay một khớp mới — kể cả
+ *    khớp mang sang từ một lần gọi bắt đầu khoá sau ghi đè — làm ghi đè hết hiệu lực (bước trên), nên
+ *    khoá trở lại. Ở đây `repeat_call_locks` vừa lưu đã gồm mọi khoá hiện có, nên vế "khoá mà lần kiểm
+ *    tra gần nhất chưa thấy" của hàm đó không bao giờ đúng: một ghi đè còn sót qua bước trên che hết.
  * KHÔNG BAO GIỜ xoá ở đây — một lần chạy ra Xanh, kể cả do quản lý chạy, không xử lý được Đỏ (R1: chỉ
  * từ chối hoặc ghi đè kèm lý do). Chỉ `ResolveIntakeRedConflict` xoá nó.
  */
@@ -77,7 +82,13 @@ class CheckIntakeConflict
         $intake->fill([
             'conflict_level' => $result->level,
             'conflict_checked_at' => now(),
-            'conflict_result' => [...$result->toArray(), 'fingerprint' => $fingerprint],
+            'conflict_result' => [
+                ...$result->toArray(),
+                'fingerprint' => $fingerprint,
+                // Các khoá người gọi lại lần chạy này đã thấy (fix vòng 2 của Task 4, N1) — xem docblock
+                // lớp. Lưu TRƯỚC khi hỏi `isHeldByRepeatCallLock()` bên dưới.
+                'repeat_call_locks' => $intake->repeatCallLocks($contactRole),
+            ],
         ]);
 
         if ($result->matches->isNotEmpty() || $previousFingerprint !== $fingerprint) {

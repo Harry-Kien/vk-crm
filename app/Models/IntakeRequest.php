@@ -335,21 +335,101 @@ class IntakeRequest extends Model
     }
 
     /**
-     * Bản này đang bị giữ như MỘT CUỘC GỌI LẠI (M10 Task 4, fix vòng 1 — rà soát Task 4, C1): chưa có
-     * ghi đè còn hiệu lực trên CHÍNH bản này ({@see self::hasConflictOverride()}), và một lần gọi khác
-     * của cùng người ({@see self::sameCallerIntakes()}, với vai {@see self::conflictContactRole()})
-     * đang khoá cuộc gọi lại ({@see self::locksRepeatCalls()}). MỘT định nghĩa cho hai nơi:
-     * `CheckIntakeConflict` (đặt dấu Đỏ chờ khi chạy kiểm tra) và `ConvertIntakeToMatter::refusal()`
-     * (chuyển đổi đọc thẳng điều kiện này, không đợi một lần "Kiểm tra lại" — nếu không, một bản ghi
-     * kiểm tra TRƯỚC khi lần gọi kia thành Đỏ chuyển thành vụ được, đúng đường rửa khoá).
+     * Dấu của từng khoá cuộc gọi lại mà bản này ĐANG đặt lên các lần gọi lại của cùng người (M10 Task
+     * 4, fix vòng 2 — rà soát lại Task 4, N1). Rỗng khi và chỉ khi bản này không
+     * {@see self::locksRepeatCalls()}; cùng hai vế của hàm đó, mỗi vế một dấu:
+     *  - Đỏ chưa xử lý: id + thời điểm `conflict_red_pending_since` — một đợt Đỏ MỚI, sau khi đợt cũ đã
+     *    được ghi đè, là một khoá mới (Đỏ của vế lưới an toàn, không có dấu "đang chờ", mang thời điểm
+     *    rỗng);
+     *  - từ chối vì xung đột: id — từ chối là trạng thái cuối (`ChangeIntakeStatus` và `DeclineIntake`
+     *    chỉ đi từ trạng thái còn mở).
+     * Dấu là HMAC với `APP_KEY` ({@see Audit::identifierHash()}), không phải chuỗi đọc được: nó nằm
+     * trong `conflict_result` của một bản ghi KHÁC ({@see self::repeatCallLocks()}), và một chữ "từ
+     * chối" trần ở đó nói ra lý do từ chối là xung đột (R8).
+     *
+     * @return list<string>
+     */
+    public function repeatCallLockMarks(): array
+    {
+        $marks = [];
+
+        if ($this->hasUnresolvedRed()) {
+            $marks[] = Audit::identifierHash($this->getKey().'|red|'.($this->conflict_red_pending_since?->getTimestamp() ?? ''));
+        }
+
+        if ($this->decline_reason_is_conflict) {
+            $marks[] = Audit::identifierHash($this->getKey().'|declined');
+        }
+
+        return $marks;
+    }
+
+    /**
+     * Dấu ({@see self::repeatCallLockMarks()}) của mọi khoá mà các lần gọi khác của cùng người
+     * ({@see self::sameCallerIntakes()}, với vai `$role`) đang đặt lên bản này — xếp thứ tự, không
+     * trùng. `CheckIntakeConflict` lưu kết quả của hàm này ở mỗi lần kiểm tra (khoá `repeat_call_locks`
+     * của `conflict_result`, đọc lại bằng {@see self::repeatCallLocksSeenAtLastCheck()}).
+     *
+     * @param  PartyRole|null  $role  Vai lần kiểm tra dùng, khi người gọi đã tính sẵn; null thì
+     *                                {@see self::conflictContactRole()}.
+     * @return list<string>
+     */
+    public function repeatCallLocks(?PartyRole $role = null): array
+    {
+        return $this->sameCallerIntakes($role ?? $this->conflictContactRole())
+            ->flatMap(fn (IntakeRequest $other): array => $other->repeatCallLockMarks())
+            ->unique()
+            ->sort()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Các khoá ({@see self::repeatCallLocks()}) mà lần kiểm tra GẦN NHẤT của bản này đã thấy — khoá
+     * `repeat_call_locks` mà `CheckIntakeConflict` lưu trong `conflict_result`. Chưa kiểm tra lần nào,
+     * hoặc kết quả lưu trước khi có khoá này: rỗng (không thấy khoá nào).
+     *
+     * @return list<string>
+     */
+    public function repeatCallLocksSeenAtLastCheck(): array
+    {
+        $seen = is_array($this->conflict_result) ? ($this->conflict_result['repeat_call_locks'] ?? []) : [];
+
+        return is_array($seen) ? array_values(array_filter($seen, is_string(...))) : [];
+    }
+
+    /**
+     * Bản này đang bị giữ như MỘT CUỘC GỌI LẠI (M10 Task 4, fix vòng 1 — rà soát Task 4, C1; fix vòng
+     * 2 — N1): một lần gọi khác của cùng người ({@see self::sameCallerIntakes()}, với vai
+     * {@see self::conflictContactRole()}) đang khoá cuộc gọi lại ({@see self::repeatCallLocks()} không
+     * rỗng — {@see self::locksRepeatCalls()}), VÀ
+     *  - chưa có ghi đè còn hiệu lực trên CHÍNH bản này ({@see self::hasConflictOverride()}); HOẶC
+     *  - có, nhưng một khoá trong số đó lần kiểm tra GẦN NHẤT của bản này chưa thấy
+     *    ({@see self::repeatCallLocksSeenAtLastCheck()}) — lần gọi kia bắt đầu khoá, hay khoá theo cách
+     *    khác (một đợt Đỏ mới, bị từ chối vì xung đột), SAU lần kiểm tra đó. Ghi đè chỉ che những gì đã
+     *    được kiểm tra: lần kiểm tra lại mang bên đối lập của lần gọi kia vào (và hiện chính nó, mã
+     *    `TN-…`, khi nó khoá), và một khớp mới làm `CheckIntakeConflict` xoá ghi đè trước khi đặt Đỏ
+     *    chờ. Tới lần kiểm tra đó bản ghi bị giữ; nó ra khớp mới thì chờ quản lý ghi đè lại, không có gì
+     *    mới thì ghi đè cũ vẫn che (và giờ đã thấy khoá).
+     * MỘT định nghĩa cho hai nơi: `CheckIntakeConflict` (đặt dấu Đỏ chờ khi chạy kiểm tra — nó lưu các
+     * khoá vừa thấy TRƯỚC khi hỏi hàm này, và mọi Action đặt hay đổi một khoá đều chạy dưới cùng khoá
+     * `conflict-check` với nó, nên ở đó vế thứ hai không đúng) và
+     * `ConvertIntakeToMatter::refusal()` (chuyển đổi đọc thẳng điều kiện này, không đợi một lần "Kiểm
+     * tra lại" — nếu không, một bản ghi kiểm tra hay được ghi đè TRƯỚC khi lần gọi kia khoá chuyển
+     * thành vụ được, đúng đường rửa khoá).
      *
      * @param  PartyRole|null  $role  Vai lần kiểm tra dùng, khi người gọi đã tính sẵn; null thì tự tính.
      */
     public function isHeldByRepeatCallLock(?PartyRole $role = null): bool
     {
+        $locks = $this->repeatCallLocks($role);
+
+        if ($locks === []) {
+            return false;
+        }
+
         return ! $this->hasConflictOverride()
-            && $this->sameCallerIntakes($role ?? $this->conflictContactRole())
-                ->contains(fn (IntakeRequest $other): bool => $other->locksRepeatCalls());
+            || array_diff($locks, $this->repeatCallLocksSeenAtLastCheck()) !== [];
     }
 
     /**
