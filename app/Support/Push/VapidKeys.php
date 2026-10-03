@@ -41,6 +41,17 @@ final class VapidKeys
     }
 
     /**
+     * Khoá CÔNG KHAI (base64url, 65 byte) mà trình duyệt cần cho `pushManager.subscribe()` — `null`
+     * khi chưa cấu hình đủ ({@see self::configured()}). Khoá công khai đúng như tên gọi: in ra
+     * `data-push-key` của thẻ `register.js` (M12 Task 5) là việc của nó; khoá riêng thì không bao
+     * giờ rời máy chủ.
+     */
+    public static function publicKey(): ?string
+    {
+        return self::configured() ? (string) config('webpush.vapid.public_key') : null;
+    }
+
+    /**
      * Tên các biến đang trống (null, chuỗi rỗng, chỉ khoảng trắng).
      *
      * @return list<string>

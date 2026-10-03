@@ -305,5 +305,23 @@ return [
          * có dấu `/` ở cuối (so tiền tố chuỗi — `/brand` không dấu `/` sẽ khớp cả `/brandx/…`).
          */
         'static_prefixes' => ['/css/filament/', '/js/filament/', '/fonts/filament/', '/brand/', '/pwa/'],
+
+        /*
+         * R8 — máy chủ push mà một endpoint đăng ký được phép trỏ tới. Máy chủ của văn phòng
+         * POST tới endpoint theo lịch (job push), nên KHÔNG có danh sách này thì một người đã đăng
+         * nhập — kể cả khách — gửi `endpoint = http://169.254.169.254/…` là biến máy chủ thành
+         * công cụ gọi vào địa chỉ nội bộ, có sẵn bộ hẹn giờ (SSRF).
+         *
+         * Tên đầy đủ khớp đúng tên; `*.` khớp MỘT hay nhiều nhãn đứng trước phần đuôi (không khớp
+         * chính phần đuôi). So không phân biệt hoa thường. Luật đầy đủ (chỉ `https`, cổng 443, chỉ
+         * ký tự URL in được, không `@`/`#`/`\`): `App\Actions\Push\RegisterPushDevice`.
+         * Chrome và Samsung Internet đi qua FCM, Safari qua Apple, Firefox qua Mozilla, Edge qua WNS.
+         */
+        'push_hosts' => [
+            'fcm.googleapis.com',
+            '*.push.apple.com',
+            'updates.push.services.mozilla.com',
+            '*.notify.windows.com',
+        ],
     ],
 ];

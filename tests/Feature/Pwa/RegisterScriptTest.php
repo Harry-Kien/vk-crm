@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Support\Pwa\PwaPanels;
 use App\Support\Pwa\RegisterScript;
 use Illuminate\Support\Facades\File;
+use Tests\Support\WebPushTestKeys;
 
 /*
 |--------------------------------------------------------------------------
@@ -119,18 +120,75 @@ it('changes the ?v= of register.js when the file changes', function () {
 
 /**
  * Hợp đồng `data-*`: mọi khoá `dataset.x` mà tệp đọc phải được thẻ in ra (thiếu thì tệp nhận
- * `undefined` và im lặng không làm gì), và thẻ không in khoá nào mà tệp không đọc.
+ * `undefined` và im lặng không làm gì), và thẻ không in khoá nào mà tệp không đọc. Đo trên trang
+ * ĐÃ ĐĂNG NHẬP của máy chủ có khoá VAPID — nơi thẻ in đủ, kể cả ba thuộc tính push (Task 5).
  */
 it('reads exactly the data-* attributes the head tag prints', function () {
+    config(WebPushTestKeys::config());
     preg_match_all('/\bdata\.([a-zA-Z]+)\b/', pwaRegisterCode(pwaRegisterSource()), $reads);
     $read = collect($reads[1])->map(fn (string $key): string => strtolower((string) preg_replace('/([A-Z])/', '-$1', $key)))
         ->unique()->sort()->values()->all();
 
-    $printed = collect(array_keys(pwaRegisterData(pwaRegisterTag($this->get('/admin/login')->getContent()))))
+    $staff = User::factory()->withRole(Role::Lawyer)->create();
+    $printed = collect(array_keys(pwaRegisterData(pwaRegisterTag($this->actingAs($staff, 'web')->get('/admin')->getContent()))))
         ->sort()->values()->all();
 
     expect($read)->not->toBe([])
-        ->and($read)->toBe($printed);
+        ->and($read)->toBe($printed)
+        ->and($read)->toBe(['push-check', 'push-key', 'push-url', 'scope', 'sw']);
+});
+
+/**
+ * M12 Task 5 (R8, R7) — ba thuộc tính push chỉ trên trang đã đăng nhập của máy chủ có khoá VAPID:
+ * trang đăng nhập và máy chủ chưa bật push không có chúng, nên script không gửi lượt kiểm nào, không
+ * hiện nút nào ở đó.
+ */
+it('hands the push data-* only to a signed-in page of a server with VAPID keys', function (string $panel, Closure $viewer) {
+    $user = $viewer();
+    $guard = $panel === 'admin' ? 'web' : 'client';
+
+    // Thiếu khoá (phpunit.xml để trống): chỉ hai thuộc tính của Task 3, kể cả khi đã đăng nhập.
+    expect(array_keys(pwaRegisterData(pwaRegisterTag($this->actingAs($user, $guard)->get("/{$panel}")->getContent()))))
+        ->toBe(['sw', 'scope']);
+
+    config(WebPushTestKeys::config());
+    $data = pwaRegisterData(pwaRegisterTag($this->actingAs($user, $guard)->get("/{$panel}")->getContent()));
+
+    expect($data)->toBe([
+        'sw' => route("pwa.{$panel}.sw"),
+        'scope' => PwaPanels::path($panel),
+        'push-key' => WebPushTestKeys::vapid()['public'],
+        'push-url' => url("/{$panel}/push/subscriptions"),
+        'push-check' => '1',
+    ]);
+
+    // Trang đăng nhập của panel đó: không push dù có khoá.
+    auth($guard)->logout();
+    expect(array_keys(pwaRegisterData(pwaRegisterTag($this->get("/{$panel}/login")->getContent()))))
+        ->toBe(['sw', 'scope']);
+})->with([
+    'admin' => ['admin', fn () => User::factory()->withRole(Role::Lawyer)->create()],
+    'portal' => ['portal', fn () => ClientUser::factory()->activated()->create()],
+]);
+
+/**
+ * Lượt kiểm `sync=1` chạy MỘT lần mỗi phiên máy chủ: sau lượt kiểm, trang in `push-check="0"`.
+ * Theo guard: lượt kiểm của panel này không tính cho panel kia.
+ */
+it('flips push-check to 0 once this session has been checked, per guard', function () {
+    config(WebPushTestKeys::config());
+    $client = ClientUser::factory()->activated()->create();
+    $staff = User::factory()->withRole(Role::Lawyer)->create();
+    $this->actingAs($client, 'client')->actingAs($staff, 'web');
+
+    $this->postJson('/portal/push/subscriptions', [
+        'endpoint' => 'https://fcm.googleapis.com/fcm/send/kiem-mot-lan',
+        'keys' => WebPushTestKeys::subscription(),
+        'sync' => 1,
+    ])->assertOk();
+
+    expect(pwaRegisterData(pwaRegisterTag($this->get('/portal')->getContent()))['push-check'])->toBe('0')
+        ->and(pwaRegisterData(pwaRegisterTag($this->get('/admin')->getContent()))['push-check'])->toBe('1');
 });
 
 /**
@@ -154,4 +212,32 @@ it('registers the worker with the scope from data-* only where the browser suppo
     expect($code)->toContain("'serviceWorker' in navigator")
         ->toContain('navigator.serviceWorker.register(data.sw, { scope: data.scope })')
         ->toContain('document.currentScript');
+});
+
+/**
+ * M12 Task 5 (R8) — các điều mà không test tự động nào khác chạm được (máy dev không có Node; hành vi
+ * kiểm bằng `tools/pwa/survey-push.cjs`), ghim trên văn bản:
+ *  - xin quyền thông báo ĐÚNG MỘT chỗ, trong `enable()`, và `enable()` chỉ được gọi từ trình xử lý
+ *    cú bấm — không bao giờ lúc tải trang;
+ *  - lượt kiểm gửi `sync: 1`; request mang CSRF, cùng origin, không đi theo chuyển hướng.
+ */
+it('asks for notification permission only from the click handler and sends a guarded request', function () {
+    $code = pwaRegisterCode(pwaRegisterSource());
+
+    expect(substr_count($code, 'requestPermission('))->toBe(1)
+        ->and(substr_count($code, 'enable()'))->toBe(2)
+        ->and(preg_match('/function enable\(\) \{.*?requestPermission\(.*?\n  \}\n/s', $code))->toBe(1)
+        ->and(preg_match("/document\.addEventListener\('click', function \(event\) \{[^}]*?\{[^}]*?\}[^}]*?if \(canPush\) enable\(\);/s", $code))->toBe(1);
+
+    $onLoad = substr($code, strrpos($code, "window.addEventListener('load'"));
+    expect($onLoad)->not->toContain('enable(')
+        ->not->toContain('requestPermission')
+        ->not->toContain('subscribe(')
+        ->toContain('send(subscription, { sync: 1 })');
+
+    expect($code)->toContain("redirect: 'manual'")
+        ->toContain("credentials: 'same-origin'")
+        ->toContain("'X-CSRF-TOKEN'")
+        ->toContain('userVisibleOnly: true')
+        ->toContain('applicationServerKey: keyBytes()');
 });

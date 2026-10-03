@@ -4,6 +4,7 @@ use App\Enums\Role;
 use App\Filament\Admin\Resources\Users\Pages\EditUser;
 use App\Filament\Admin\Resources\Users\UserResource;
 use App\Http\Controllers\DocumentDownloadController;
+use App\Http\Middleware\RefuseStaffWithoutTwoFactor;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Auth\MultiFactor\Http\Middleware\EnsureMultiFactorAuthenticationIsEnabled;
@@ -252,7 +253,13 @@ it('§10.7 mọi route của router thuộc đúng một nhóm: panel admin có 
         $key = normalizedRouteKey($route);
 
         if (str_starts_with($name, 'filament.admin.')) {
-            $hasGate = in_array(EnsureMultiFactorAuthenticationIsEnabled::class, $route->gatherMiddleware(), true);
+            // M12 Task 5: route `->authenticatedRoutes()` (`POST`/`DELETE admin/push/subscriptions`,
+            // gọi bằng `fetch`) mang cổng 2FA KHÔNG chuyển hướng — `redirect()->guest()` của cổng
+            // Filament ghi Referer vào `url.intended` với request không phải GET. Cùng điều kiện
+            // (`hasEnabledProviders()`), trả 404; hành vi ở tests/Feature/Push/PushDeviceRegistrationTest.php.
+            $middleware = $route->gatherMiddleware();
+            $hasGate = in_array(EnsureMultiFactorAuthenticationIsEnabled::class, $middleware, true)
+                || in_array(RefuseStaffWithoutTwoFactor::class, $middleware, true);
 
             if (! $hasGate && ! in_array($name, $exemptAdmin, true)) {
                 $unaccounted[] = "{$name}: route panel admin thiếu EnsureMultiFactorAuthenticationIsEnabled";

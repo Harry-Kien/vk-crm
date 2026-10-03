@@ -23,6 +23,10 @@
       `immutable`. `defer`: chạy sau khi phân tích xong trang, `document.currentScript` vẫn là thẻ
       này. Test `tests/Feature/Pwa/HeadTagsTest.php` khẳng định mọi `<script>` giữa hai dấu chú
       thích `vk-pwa:head` đều có `src`; `RegisterScriptTest.php` ghim hợp đồng `data-*`.
+    - M12 Task 5 (R8): trên trang ĐÃ ĐĂNG NHẬP và khi máy chủ có khoá VAPID, thẻ mang thêm
+      `data-push-key`, `data-push-url`, `data-push-check` (`RegisterScript::pushData()` — điều
+      kiện và ý nghĩa ở docblock đó). Trang đăng nhập và máy chủ chưa bật push không có ba thuộc
+      tính này, nên script không làm gì về push ở đó.
 --}}
 @php($panel = filament()->getId())
 <!-- vk-pwa:head -->
@@ -31,5 +35,5 @@
 <link rel="apple-touch-icon" href="{{ asset(\App\Support\Pwa\AppIcons::appleTouch($panel)) }}">
 <meta name="apple-mobile-web-app-title" content="{{ __("pwa.{$panel}.short_name", ['firm' => config('vkcrm.brand.short_name')]) }}">
 <meta name="mobile-web-app-capable" content="yes">
-<script src="{{ \App\Support\Pwa\RegisterScript::url() }}" defer data-sw="{{ route("pwa.{$panel}.sw") }}" data-scope="{{ \App\Support\Pwa\PwaPanels::path($panel) }}"></script>
+<script src="{{ \App\Support\Pwa\RegisterScript::url() }}" defer data-sw="{{ route("pwa.{$panel}.sw") }}" data-scope="{{ \App\Support\Pwa\PwaPanels::path($panel) }}"@foreach (\App\Support\Pwa\RegisterScript::pushData($panel) as $name => $value) data-{{ $name }}="{{ $value }}"@endforeach></script>
 <!-- /vk-pwa:head -->

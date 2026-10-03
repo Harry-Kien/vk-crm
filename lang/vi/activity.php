@@ -134,6 +134,12 @@ return [
         // M12 Task 4 (R7): app/Actions/Push/ResetPushSubscriptions.php (lệnh vkcrm:push-reset) —
         // chỉ ghi số đăng ký đã xoá, không bao giờ endpoint.
         'push_subscriptions_reset' => 'Xoá mọi đăng ký thông báo đẩy (sau khi đổi khoá)',
+        // M12 Task 5 (R8): app/Actions/Push/RegisterPushDevice.php (nút "Bật trên máy này") và
+        // app/Actions/Push/ForgetPushDevice.php (nút "Gỡ", "Gỡ mọi thiết bị", trình duyệt tự gỡ) —
+        // chỉ ghi nhãn thiết bị ("iPhone · Safari"), không bao giờ endpoint. Một máy dùng chung đổi
+        // chủ khi người sau bấm Bật: dòng "gỡ" ghi trên người trước, người bấm là người gây ra.
+        'push_device_added' => 'Bật thông báo đẩy trên một thiết bị',
+        'push_device_removed' => 'Gỡ thông báo đẩy khỏi một thiết bị',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

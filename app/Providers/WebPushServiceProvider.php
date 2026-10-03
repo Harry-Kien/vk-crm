@@ -2,8 +2,12 @@
 
 namespace App\Providers;
 
+use App\Http\Controllers\Pwa\PushSubscriptionController;
 use GuzzleHttp\Client;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\RateLimiter;
 use NotificationChannels\WebPush\WebPushServiceProvider as PackageWebPushServiceProvider;
 use Psr\Http\Client\ClientInterface;
 
@@ -26,9 +30,22 @@ use Psr\Http\Client\ClientInterface;
  * mọi request. Chồng handler vẫn lấy từ `Http::buildHandlerStack()` — middleware toàn cục và bộ
  * chặn của `Http::fake()`/`Http::preventStrayRequests()` vẫn đứng trong đường gửi (test
  * `tests/Feature/Push/WebPushInstallTest.php` đọc lại tuỳ chọn thật của request qua đúng bộ chặn đó).
+ *
+ * M12 Task 5 thêm chỗ cắm bộ đếm `throttle:push-devices` (R8: 10 request/phút cho mỗi tài khoản) của
+ * route đăng ký thiết bị — ở đây chứ không ở `AppServiceProvider`, để mọi thứ của push nằm một chỗ.
+ * Con số và khoá đếm thuộc {@see PushSubscriptionController}.
  */
 class WebPushServiceProvider extends PackageWebPushServiceProvider
 {
+    public function boot(): void
+    {
+        parent::boot();
+
+        RateLimiter::for(PushSubscriptionController::RATE_LIMITER, fn (Request $request) => Limit::perMinute(
+            PushSubscriptionController::REQUESTS_PER_MINUTE,
+        )->by(PushSubscriptionController::rateLimitKey($request)));
+    }
+
     /** @param  array<mixed>  $options */
     protected function webPushClient(array $options): ClientInterface
     {

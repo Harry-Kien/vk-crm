@@ -2764,3 +2764,84 @@ không quét Blade/`routes/`):
   thấy/gỡ được máy của B".
 - Số đo: cả bộ 3883 passed, 25 skipped, 1 todo, 1 risky, 0 failed (+35 = 38 ca của tệp lưới mới − 3 ca cũ); MariaDB
   (lưới + `PortalIsolationSweepTest`) 69 passed; 22 đột biến trên bản chép git-ignored đều đỏ.
+
+### Task 5 — đăng ký thiết bị, trang "Thông báo trên điện thoại" (2026-10-03)
+
+Đã làm (R8, R14):
+- `POST`/`DELETE /{admin,portal}/push/subscriptions` (`App\Http\Controllers\Pwa\PushSubscriptionController`, tên route
+  `filament.{panel}.push.subscriptions.store|destroy`), đăng ký VÔ ĐIỀU KIỆN trong `->authenticatedRoutes()` của từng
+  panel — sau toàn bộ chồng middleware có phiên và cổng đăng nhập của panel. `throttle:push-devices`: 10 request/phút
+  cho MỖI tài khoản, khoá đếm = guard + id (nhân sự và khách trùng id vẫn tách; chỗ cắm ở
+  `App\Providers\WebPushServiceProvider::boot()`). Máy chủ thiếu khoá VAPID: `POST` trả 404, `DELETE` vẫn chạy.
+- Action `App\Actions\Push\RegisterPushDevice` — `handle()` (nút Bật: lối DUY NHẤT chuyển chủ một endpoint, qua
+  `updatePushSubscription()` của gói; ghi `device_label` rút từ User-Agent và `last_seen_at`) và `check()` (lượt kiểm
+  `sync=1`: chỉ làm mới `last_seen_at` khi endpoint là của chính người này; "chưa ai có" và "người khác có" trả cùng
+  `not_owned`). Luật endpoint (SSRF): `https://<host>[:443]/<đường dẫn>`, host trong `config('vkcrm.pwa.push_hosts')`
+  (`fcm.googleapis.com`, `*.push.apple.com`, `updates.push.services.mozilla.com`, `*.notify.windows.com`), chỉ ký tự URL
+  in được (ASCII — cột `ascii`, rà soát Task 4 Minor 1), không `@`/`#`/`\`/khoảng trắng, tối đa 1024. `keys.p256dh` =
+  điểm P-256 65 byte mở đầu `0x04`, `keys.auth` = 16 byte, base64url. Hai lượt Bật đồng thời: bắt
+  `UniqueConstraintViolationException`, thử lại MỘT lần, thua nữa thì `App\Exceptions\PushDeviceConflict` (409, không
+  mang ngoại lệ gốc — câu SQL kèm endpoint không vào `laravel.log`; rà soát Task 4 Minor 3).
+- Action `App\Actions\Push\ForgetPushDevice` — `byEndpoint()` (route `DELETE`), `byId()` (nút "Gỡ"), `all()` (nút
+  "Gỡ mọi thiết bị", R14); mọi lối đi qua `$owner->pushSubscriptions()` — máy của người khác là 404, dòng đứng nguyên.
+- Audit `push_device_added` / `push_device_removed` (khoá ở `lang/vi/activity.php`): chủ thể là CHỦ máy, `properties`
+  đúng `['device_label' => …]`. Máy dùng chung đổi chủ khi người sau bấm Bật: dòng `push_device_removed` ghi trên người
+  TRƯỚC, người bấm là người gây ra. Đo: không endpoint nào trong audit, câu trả lời hay `laravel.log`.
+- Hai trang `App\Filament\{Admin,Portal}\Pages\PushDevices` (`/{panel}/thong-bao-dien-thoai`, view chung
+  `resources/views/pwa/push-devices.blade.php`, hành vi chung `App\Filament\Concerns\ManagesOwnPushDevices`), mở từ
+  user menu (mục ẩn khi thiếu khoá VAPID). Chỉ máy của CHÍNH người xem, ánh xạ sang mảng chuỗi (id, nhãn, ngày bật, lần
+  cuối thấy, cờ "Máy đang dùng" so endpoint trong phiên ở MÁY CHỦ) — không model nào của gói vào Livewire/Blade (rà
+  soát Task 4 Minor 4). `canAccess()` theo KIỂU tài khoản; trait thay `mountCanAuthorizeAccess()` và
+  `hydrateCanAuthorizeAccess()` của Filament (403) bằng 404. Mọi vai trò nhân sự vào được, kể cả kế toán.
+- `public/pwa/register.js` (190 dòng): khối "Máy này" của trang in SẴN mọi câu trạng thái (ẩn); script chỉ chọn khối
+  (`unsupported` mặc định, `ios-install`, `denied`, `ready`, `enabled`, `failed`). `Notification.requestPermission()`
+  chỉ trong trình xử lý cú bấm `[data-vk-push-enable]`. Lượt kiểm `sync=1` gửi đăng ký đang có của trình duyệt;
+  `not_owned` → dải mời `[data-vk-push-invite]` (hook `CONTENT_START`, view `resources/views/pwa/push-invite.blade.php`,
+  in sẵn và ẩn). Khoá của đăng ký khác `data-push-key` (R7) → huỷ đăng ký cũ, mời bật lại. `fetch` với
+  `redirect: 'manual'`. Thẻ `register.js` mang thêm `data-push-key|url|check` CHỈ trên trang đã đăng nhập của máy chủ
+  có khoá (`App\Support\Pwa\RegisterScript::pushData()`); `VapidKeys::publicKey()` là nơi duy nhất đọc khoá công khai.
+
+Lệch kế hoạch, có lý do:
+1. `SendTestPush`, route `POST {panel}/push/test`, nút "Gửi thử" và test của nó chuyển sang CUỐI Task 7 (phán quyết (b)
+   của controller — cần `PushAlert`/`SendPushAlert`). Ô kiểm của kế hoạch để `[ ]` kèm ghi chú.
+2. **Khoá phiên theo guard** (phán quyết (c)): `push.endpoint.web` / `push.endpoint.client`
+   (`App\Support\Push\PushSession::endpointKey()`), không một khoá `push.endpoint`.
+3. **"Một lần mỗi phiên" nhớ ở PHIÊN MÁY CHỦ** (`push.checked.{guard}`, in ra `data-push-check`), không bằng
+   `sessionStorage` như kế hoạch: `sessionStorage` sống theo THẺ trình duyệt — hết phiên rồi đăng nhập lại trong cùng
+   thẻ thì không kiểm lại, phiên mới không có `push.endpoint.{guard}`, và lần đăng xuất sau (Task 6) không gỡ máy này.
+   Đăng xuất `invalidate()` cả phiên nên người đăng nhập kế tiếp luôn được kiểm lại. Trên trang thiết bị, lượt kiểm
+   chạy mỗi lần mở trang (để biết khối nào đúng).
+4. **Cổng 2FA của route admin là middleware riêng** `App\Http\Middleware\RefuseStaffWithoutTwoFactor` (cùng điều kiện
+   `hasEnabledProviders()`, trả 403 → 404), không phải `EnsureMultiFactorAuthenticationIsEnabled` của Filament: cái đó
+   trả lời bằng `redirect()->guest()`, mà với POST/JSON thì `guest()` ghi Referer vào `url.intended` — lượt kiểm chạy
+   trên trang "cài 2FA bắt buộc" sẽ ghi đè đường dẫn sâu người đó đang trên đường tới. Test: 404, không dòng,
+   `url.intended` giữ nguyên. Lưới `StaffTwoFactorEscapeRoutesTest` nay nhận cả hai cổng.
+5. Chuỗi của trang ở `lang/vi/push.php` (tệp của thông báo đẩy từ Task 4), không `lang/vi/pwa.php`.
+
+Kiểm bằng trình duyệt thật (`tools/pwa/survey-push.cjs`, Chromium 153, bản chạy của làn, `CSP_MODE=enforce`, khoá VAPID
+THỬ sinh bằng `webpush:vapid --show`, 21/21 dòng OK): thẻ `register.js` mang đúng khoá công khai; trang thiết bị không
+hỏi quyền và không gửi request nào lúc tải; bấm Bật → hỏi quyền đúng một lần, `POST` 201, khối "đang nhận", danh sách
+vẽ lại có "Máy đang dùng"; tải lại → `sync=1` trả `owned`; trang khác sau lượt kiểm không gửi gì; máy dùng chung —
+khách 1 đăng xuất, khách 2 đăng nhập → `not_owned`, dải mời hiện, endpoint vẫn của khách 1; bấm Bật của dải → endpoint
+sang khách 2; app nội bộ (TOTP) bật được từ user menu; iPhone chưa cài app → khối hướng dẫn; quyền bị chặn → khối
+"đang chặn"; 0 vi phạm CSP, 0 lỗi JS. **Mô phỏng:** Chromium headless không có `PushSubscription` thật (context của
+Playwright là ẩn danh — Chrome không có Push API ở chế độ ẩn danh; lượt không stub đi đúng tới khối "Chưa bật được"),
+và báo `Notification.permission === 'denied'` dù đã cấp quyền, nên `subscribe`/`getSubscription` và quyền thông báo là
+bản giả trong trang; mọi thứ khác là thật. Máy thật: mục D1–D8 của danh sách kiểm tra (PENDING OWNER, Task 10).
+
+Sự thật cho task sau:
+- Task 6: endpoint của trình duyệt này ở `session(PushSession::endpointKey($guard))` — CHỈ khi dòng là của người đang
+  đăng nhập ở guard đó (lượt kiểm `owned` hoặc vừa bấm Bật); listener `Logout` đọc nó (guard của sự kiện) rồi gọi
+  `ForgetPushDevice::byEndpoint($user, $endpoint)` (đã kiểm hình dạng, chỉ trong dòng của `$user`, có audit).
+  `RejectStaffSessionsFromBeforeReset` là đường đăng xuất thứ ba (phán quyết của controller).
+- Task 7: `SendTestPush` + `POST {panel}/push/test` thêm vào `PushSubscriptionController::routes()` (cùng throttle,
+  cùng cổng 2FA của admin); nút "Gửi thử" vào khối "Máy này" của `resources/views/pwa/push-devices.blade.php` (chuỗi
+  ở `lang/vi/push.php` — đừng ghi đè `reset.*`, `devices.*`, `invite.*`, `validation.*`). `PushAlert` chỉ xếp khi
+  `VapidKeys::configured()`.
+- Bản chạy của làn chậm (ổ 9p: 3–7 giây mỗi request): kịch bản trình duyệt phải chờ phần tử, không dựa vào
+  `networkidle` sau một cú bấm.
+
+Số đo: cả bộ `test --parallel --processes=2` 3978 passed, 25 skipped, 1 todo, 1 risky, 0 failed (sau Task 4: 3883;
++95 ca); MariaDB (`test:mariadb`, tuần tự) trên năm tệp test đã chạm 114 passed — gồm ca endpoint ngoài ASCII trả 422
+trước khi tới cột `ascii`; 49 đột biến đều đỏ (hai đột biến sống ở lượt đầu — `@` trong phần host, `+` trong khoá —
+được đóng bằng hai ca test mới rồi chạy lại); `tools/pwa/survey-push.cjs` 21/21 OK.
