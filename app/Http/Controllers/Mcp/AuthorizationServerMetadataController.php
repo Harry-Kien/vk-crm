@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Mcp;
 
+use App\Actions\Mcp\ResolveClientIdMetadataDocument;
 use App\Http\Middleware\Mcp\AddIssuerToAuthorizationResponse;
 use App\Http\Middleware\Mcp\RestrictOAuthGrantTypes;
 use App\Http\Middleware\Mcp\ValidateOAuthParameters;
@@ -27,9 +28,10 @@ use Laravel\Mcp\Server\Registrar;
  * - `authorization_response_iss_parameter_supported: true` CHỈ KHI middleware gắn `iss` đang đứng
  *   trong nhóm route của Passport ({@see AddIssuerToAuthorizationResponse::isActive()}) — R7: "chỉ khi
  *   đã trả được `iss`".
- * - `client_id_metadata_document_supported: true` CHỈ KHI cờ `vkcrm.mcp.client_id_metadata_documents`
- *   bật, việc của Task 5 (CIMD, có cổng dừng). Mặc định tắt: Claude và ChatGPT tự lùi về DCR
- *   [DC:715], [PL:179].
+ * - `client_id_metadata_document_supported: true` CHỈ KHI máy chủ nhận `client_id` dạng URL
+ *   ({@see ResolveClientIdMetadataDocument::enabled()}, cờ `vkcrm.mcp.client_id_metadata_documents`):
+ *   cùng một cờ quyết cả việc quảng bá lẫn việc nhận (Task 5). Mặc định tắt (cổng dừng của Task 5
+ *   chưa đạt): Claude và ChatGPT tự lùi về DCR [DC:715], [PL:179].
  *
  * Mọi URL dựng từ cấu hình ({@see McpEndpoint}), không từ host của request; `issuer` bằng đúng
  * `iss` trong phản hồi uỷ quyền và `authorization_servers[0]` của PRM. Không đọc
@@ -63,7 +65,7 @@ class AuthorizationServerMetadataController
             $metadata['authorization_response_iss_parameter_supported'] = true;
         }
 
-        if (config('vkcrm.mcp.client_id_metadata_documents') === true) {
+        if (ResolveClientIdMetadataDocument::enabled()) {
             $metadata['client_id_metadata_document_supported'] = true;
         }
 

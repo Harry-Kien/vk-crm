@@ -31,6 +31,7 @@ use App\Support\Files\NullScanner;
 use App\Support\Files\VirusScanner;
 use App\Support\Mail\OutboundLedgerMailManager;
 use App\Support\Mcp\McpAccessToken;
+use App\Support\Mcp\McpClientRepository;
 use App\Support\Security\HttpsDefaults;
 use DateInterval;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -42,6 +43,7 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Mcp\Server\Middleware\AddWwwAuthenticateHeader as PackageAddWwwAuthenticateHeader;
+use Laravel\Passport\Bridge\ClientRepository as PassportBridgeClientRepository;
 use Laravel\Passport\Passport;
 use Laravel\Passport\PersonalAccessTokenFactory;
 use LogicException;
@@ -102,6 +104,11 @@ class AppServiceProvider extends ServiceProvider
         // M11 R7 — header `WWW-Authenticate` của 401 từ `/mcp` luôn trỏ tới PRM. Lý do phải BIND thay
         // cho lớp của gói (chứ không thêm một middleware riêng) ở docblock của lớp app.
         $this->app->bind(PackageAddWwwAuthenticateHeader::class, AddWwwAuthenticateHeader::class);
+
+        // M11 R7 (Task 5) — CIMD: `client_id` dạng URL HTTPS. `PassportServiceProvider` dựng
+        // `AuthorizationServer` bằng `make(Bridge\ClientRepository::class)`, nên bind lớp con ở đây
+        // thay repository mà không sửa lớp nào của gói. Cờ tắt thì lớp con chạy y như lớp gốc.
+        $this->app->bind(PassportBridgeClientRepository::class, McpClientRepository::class);
     }
 
     /**

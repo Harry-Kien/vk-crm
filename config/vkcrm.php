@@ -181,9 +181,13 @@ return [
          * khai `ext-sodium`. Thiếu nó thì `/oauth/token` hỏng, và chỉ hỏng trên máy chủ thật.
          * `PreflightCommandTest` đối chiếu danh sách này với mọi `ext-*` của gói production trong
          * `composer.lock`, nên lần sau một gói mới đòi extension mới thì test đỏ.
+         *
+         * `curl` thêm ở M11 Task 5: không gói nào khai nó (Guzzle chỉ "suggest"), nhưng việc tải tài
+         * liệu CIMD ghim IP đã kiểm bằng `CURLOPT_RESOLVE` (chống DNS rebinding,
+         * `App\Support\Mcp\MetadataDocumentFetcher`); thiếu curl thì hằng số đó không tồn tại.
          */
         'required_extensions' => [
-            'ctype', 'dom', 'exif', 'fileinfo', 'filter', 'hash', 'iconv', 'intl', 'json',
+            'ctype', 'curl', 'dom', 'exif', 'fileinfo', 'filter', 'hash', 'iconv', 'intl', 'json',
             'libxml', 'mbstring', 'openssl', 'pcre', 'session', 'sodium', 'tokenizer', 'xmlreader',
             'zip', 'zlib', 'pdo_mysql',
         ],
@@ -207,14 +211,27 @@ return [
         ]))),
 
         /*
-         * R7: AS metadata chỉ quảng bá `client_id_metadata_document_supported: true` khi cờ này bật
-         * ({@see \App\Http\Controllers\Mcp\AuthorizationServerMetadataController}). Bật nó là việc
-         * của Task 5 (CIMD phía máy chủ, có cổng dừng), CÙNG commit với mã nhận `client_id` dạng URL.
-         * Không có biến `.env`: bật cờ khi chưa có mã đó thì Claude và ChatGPT chọn CIMD, gửi một
-         * `client_id` là URL mà Passport không tìm thấy, và mọi kết nối mới hỏng. Tắt thì hai nền
-         * tảng tự lùi về DCR [DC:715], [PL:179].
+         * R7 (Task 5): CIMD — `client_id` là URL HTTPS của một tài liệu metadata
+         * ({@see \App\Actions\Mcp\ResolveClientIdMetadataDocument}). MỘT cờ cho cả hai việc: AS
+         * metadata quảng bá `client_id_metadata_document_supported: true`
+         * ({@see \App\Http\Controllers\Mcp\AuthorizationServerMetadataController}), VÀ máy chủ nhận
+         * `client_id` dạng URL. Tắt thì không quảng bá, không tải gì, `client_id` URL là
+         * `invalid_client`; Claude và ChatGPT tự lùi về DCR [DC:715], [PL:179].
+         *
+         * MẶC ĐỊNH TẮT: cổng dừng của Task 5 chưa đạt — chưa thử được với Claude thật trên staging
+         * (PROGRESS, Ghi chú M11, Task 5). Chỉ bật (`MCP_CLIENT_ID_METADATA_DOCUMENTS=true`) sau khi
+         * nghiệm thu thật ở Task 17. Tắt lại sau khi đã bật thì kết nối đã tạo qua CIMD hỏng ở lần làm
+         * mới kế tiếp, và nhân sự kết nối lại (qua DCR).
          */
-        'client_id_metadata_documents' => false,
+        'client_id_metadata_documents' => filter_var(env('MCP_CLIENT_ID_METADATA_DOCUMENTS', false), FILTER_VALIDATE_BOOLEAN),
+
+        /*
+         * R7 (Task 5): host được phép làm `client_id` CIMD, so ĐÚNG chuỗi (chữ thường, không tên miền
+         * con, không cổng) — chính sách tin cậy của CIMD [PL:224]. Tài liệu ở các host này do Claude
+         * (web, desktop, mobile, Claude Code), ChatGPT và VS Code phát hành [DC:739], [PL:169], [PL:200].
+         * Không có biến `.env`: thêm một host là mở thêm một nơi mà máy chủ sẽ gửi request tới.
+         */
+        'client_id_metadata_hosts' => ['claude.ai', 'chatgpt.com', 'vscode.dev'],
 
         /*
          * R7 (Task 3): redirect URI mà đăng ký client động (DCR, `POST /oauth/register`) chấp nhận,

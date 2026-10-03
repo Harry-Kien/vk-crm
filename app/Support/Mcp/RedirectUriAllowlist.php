@@ -58,6 +58,20 @@ final class RedirectUriAllowlist
     }
 
     /**
+     * Hai URI có cùng là MỘT redirect loopback theo cách 2 ở trên không: cả hai đều là loopback hợp lệ
+     * (`http://`, host `localhost` / `127.0.0.1` / `[::1]` chữ thường, cổng 1–65535 hoặc không cổng),
+     * cùng host, cùng phần sau cổng; cổng được bỏ qua. Dùng cho client CIMD (Task 5,
+     * {@see McpClientRepository}): tài liệu khai `http://localhost/callback`, request mang
+     * `http://localhost:53682/callback`.
+     */
+    public static function sameLoopback(string $registered, string $requested): bool
+    {
+        $loopback = self::withoutLoopbackPort($registered);
+
+        return $loopback !== null && $loopback === self::withoutLoopbackPort($requested);
+    }
+
+    /**
      * Mọi mục, phẳng (khoá nền tảng bị bỏ). Mục thêm đã được `config/vkcrm.php` cắt khoảng trắng và
      * bỏ mục rỗng.
      *

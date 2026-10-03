@@ -2973,3 +2973,108 @@ phục; bỏ `--hours` cùng phép kiểm dòng access token ở giữa thì ba 
 EXIT 0, 3914 passed (3904 + 10), 1 risky, 1 todo, 25 skipped. MariaDB (tuần tự, hai tệp): 23 passed.
 `schedule:list` hiện `0 3 * * * php artisan passport:purge --hours=888`; chạy thật `passport:purge
 --hours=888` và `vkcrm:mcp-prune-clients` trên `vk_crm_lane_m11`. `pint --test`: PASS, 869 tệp.
+
+### Task 5 — CIMD (2026-10-03): cổng dừng CHƯA đạt, mã có, cờ tắt
+
+**Phán quyết: "CIMD hoãn, DCR là đường duy nhất"** cho tới khi Task 17 thử thật. Cổng dừng của kế hoạch có hai
+vế:
+- **"Đòi sửa hơn một lớp lõi của Passport hay league": ĐẠT.** Đã đọc trên tag đã cài (Passport 13.8.0, league
+  9.4.1): league chỉ so định danh của ENTITY client (`AuthCodeGrant::validateAuthorizationCode()` dòng 216,
+  `RefreshTokenGrant::validateOldRefreshToken()` dòng 119), còn Passport tra client theo định danh đó
+  (`AuthorizationController::authorize()` `find()`, `Bridge\ScopeRepository::finalizeScopes()` `findActive()`,
+  `Bridge\AccessTokenRepository::persistNewAccessToken()` ghi `client_id`). Nên đổi URL ra dòng client có UUID
+  ngay trong repository là đủ: MỘT lớp thay qua container (`Bridge\ClientRepository` →
+  `App\Support\Mcp\McpClientRepository`; `PassportServiceProvider::makeAuthorizationServer()` gọi `make()`),
+  không sửa lớp nào của gói.
+- **"Chạy được với Claude thật trên staging": CHƯA KIỂM ĐƯỢC.** Chưa có staging HTTPS công khai, và agent không
+  đăng nhập tài khoản AI của ai (brief Task 5: chưa có staging thì coi cổng là chưa đạt).
+
+Vì vậy cờ để TẮT: `MCP_CLIENT_ID_METADATA_DOCUMENTS=false` (mặc định, `.env.example`). Tắt thì AS metadata không
+quảng bá `client_id_metadata_document_supported`, máy chủ không tải gì, và `client_id` dạng URL nhận
+`invalid_client`; Claude và ChatGPT tự lùi về DCR [DC:715], [PL:179]. Không hỏng kết nối nào. **Việc của Task
+17:** trên staging đặt cờ `true`, kết nối Claude web, ChatGPT (và VS Code, Claude Code nếu muốn), xem AS metadata
+có cờ, `oauth_clients` có dòng `metadata_url`, `/mcp` 200, làm mới token sau một giờ được. Hỏng chỗ nào thì đặt
+lại `false`. *Giá nếu sai* (bật mà một nền tảng không chạy): nền tảng đó chọn CIMD và không kết nối được, vì
+Claude chỉ lùi về DCR khi metadata KHÔNG quảng bá CIMD [PL:179], không lùi khi CIMD hỏng giữa chừng.
+
+**Đã có, kèm test HTTP** (`tests/Feature/Mcp/ClientIdMetadataDocumentTest.php`, 88 test; `/oauth/authorize`,
+`/oauth/token`, `/mcp` thật; `Http::preventStrayRequests()` + `Http::fake()`, DNS giả, không gọi mạng):
+- **`App\Actions\Mcp\ResolveClientIdMetadataDocument`** (nơi DUY NHẤT quyết URL nào được nhận). Từ chối, theo thứ
+  tự: cờ tắt; URL không đúng `https://<host>/<đoạn>[/<đoạn>…]` (host đúng chuỗi trong
+  `vkcrm.mcp.client_id_metadata_hosts` = `claude.ai`, `chatgpt.com`, `vscode.dev`, không tên miền con; đoạn
+  `[A-Za-z0-9._~-]`, không `.`/`..`; không cổng, thông tin người dùng, query, fragment, mã hoá phần trăm, `/`
+  cuối; tối đa 255 ký tự = cột) — không hỏi DNS, không request nào; quá 30 lần tải/phút TOÀN hệ thống (lời gọi
+  vô danh tới `/oauth/authorize` với URL mới mỗi lần sẽ giữ PHP-FPM chờ mạng); tải hỏng; tài liệu không có
+  `client_id` ĐÚNG bằng URL, `token_endpoint_auth_method` khác `none`, `redirect_uris` không phải danh sách
+  1–10 chuỗi trong allowlist R7; dòng client đã bị thu hồi (tài liệu hợp lệ không hồi sinh nó). Tải hỏng và tài
+  liệu hỏng ghi `Log::warning` (`client_id`, mã lý do; không nội dung). Lần hỏng không được nhớ.
+- **Cache một ngày** (store mặc định, production là `database`), chỉ phần đã kiểm (`name`, `redirect_uris`);
+  mỗi lần đọc lại kiểm `redirect_uris` với allowlist HIỆN TẠI, nên gỡ một URI khỏi allowlist có hiệu lực ngay.
+- **Upsert theo URL:** cột mới `oauth_clients.metadata_url` (varchar 255, unique, rỗng với client khác; migration
+  `2026_10_03_120000_add_metadata_url_to_oauth_clients_table.php`). Dòng mới: công khai, không secret,
+  `authorization_code` + `refresh_token`, `is_mcp` (nên `EnsureMcpClient` nhận token của nó). Dòng có rồi: cập
+  nhật tên, redirect URI, giữ `id` (token đã cấp còn dùng được). Hai request tạo cùng lúc: request thua đọc lại
+  dòng thắng (test chèn dòng ngay trước `INSERT`). Tên = `client_name` cắt 255 ký tự (MariaDB strict), thiếu thì
+  host.
+- **`App\Support\Mcp\MetadataDocumentFetcher`** (chống SSRF [PL:164]): phân giải host
+  (`App\Support\Mcp\HostResolver`, A + AAAA, lùi về `gethostbynamel`); không phân giải được hay BẤT KỲ địa chỉ
+  nào không công khai (`FILTER_FLAG_NO_PRIV_RANGE | NO_RES_RANGE | GLOBAL_RANGE`: loopback, dải riêng,
+  `169.254.169.254`, CGNAT, `::1`, `fe80::`, `fc00::`, `::ffff:127.0.0.1`…) thì không request nào; request ghim
+  IP vừa kiểm (`CURLOPT_RESOLVE`, chống DNS rebinding), `allow_redirects: false`, timeout và connect timeout 5
+  giây, `CURLOPT_MAXFILESIZE` 16384; nhận chỉ trạng thái ĐÚNG 200 và thân ≤ 16 KB.
+- **`App\Support\Mcp\McpClientRepository`**: id có `://` đi qua Action, id khác đi đường Passport. Entity mang
+  UUID của dòng, nên mã, token, `aud[0]`, làm mới bằng cùng URL đều khớp. **Loopback `localhost` bỏ qua cổng chỉ
+  cho client CIMD** (đóng điều Task 3 để lại): redirect URI của request khớp một URI đã lưu theo luật loopback R7
+  (`RedirectUriAllowlist::sameLoopback()`, mới) thì entity mang thêm đúng URI đó; tài liệu Claude Code khai
+  `http://localhost/callback` [DC:739], request `http://localhost:53682/callback` đi hết luồng tới `/mcp` 200.
+  Client DCR vẫn đòi đúng cổng đã đăng ký (test ghim).
+- AS metadata đọc `ResolveClientIdMetadataDocument::enabled()`: một cờ cho cả quảng bá lẫn nhận.
+- `config/vkcrm.php`: cờ đọc `MCP_CLIENT_ID_METADATA_DOCUMENTS` (`FILTER_VALIDATE_BOOLEAN`, chuỗi lạ là tắt),
+  `client_id_metadata_hosts`, và **`curl` thêm vào `deployment.required_extensions`** (preflight đỏ khi thiếu).
+
+**Lệch và khoảng hở, ghi để biết.**
+- **Extension mới `curl`** (như D5 với `sodium`): không gói nào khai nó (Guzzle chỉ "suggest"), nhưng ghim IP cần
+  `CURLOPT_RESOLVE`. Task 16/17 đính chính SPEC §2 và `docs/CAI-DAT.md`. Hosting cPanel/DirectAdmin luôn có curl.
+- **URL `client_id` CIMD của Claude web/desktop chưa có trong tra cứu** (chỉ có Claude Code
+  `https://claude.ai/oauth/claude-code-client-metadata` [DC:739], ChatGPT `https://chatgpt.com/oauth/client.json`
+  và `…/oauth/{callback_id}/client.json` [PL:169], VS Code `https://vscode.dev/oauth/client-metadata.json`
+  [PL:200]); test dùng một URL mẫu trên `claude.ai`. Allowlist theo HOST nên URL thật nào trên ba host đó cũng
+  qua, miễn tài liệu đạt.
+- **Một dòng client CIMD dùng chung cho mọi nhân sự của cùng nền tảng** (cùng URL). Bàn giao Task 15: "ngắt kết
+  nối" là thu hồi token (access + refresh) CỦA NGƯỜI ĐÓ, không bao giờ thu hồi hay xoá dòng client CIMD (cắt cả
+  văn phòng; dòng bị thu hồi không tự hồi sinh). Màn hình hiện host của redirect URI, không chỉ `client_name` (do
+  nền tảng tự khai).
+- **Bàn giao Task 6:** khi công tắc `mcp.enabled` (bảng `settings`) có, `/oauth/authorize` với `client_id` URL vẫn
+  tải tài liệu dù MCP tắt toàn hệ thống (như DCR, rà soát Task 3 m5). Vô hại (không token nào dùng được), có thể
+  cho `enabled()` đòi thêm công tắc đó.
+- Tắt cờ sau khi đã bật: kết nối tạo qua CIMD hỏng ở lần làm mới kế tiếp (URL không còn được nhận), nhân sự kết
+  nối lại qua DCR. Ghi ở `.env.example` và `config/vkcrm.php`.
+- Trần 30 lần tải/phút là TOÀN hệ thống: một người gửi dồn URL mới (trên ba host được phép) chặn được việc tạo
+  kết nối CIMD mới, và việc làm mới của kết nối có bản cache vừa hết hạn, trong phút đó. Kết nối có cache còn hạn
+  không bị ảnh hưởng; DCR không bị ảnh hưởng.
+- Lệnh dọn (Task 3) xoá dòng CIMD quá 30 ngày không còn token sống, như client DCR; lần dùng sau tạo lại từ cache
+  hoặc tải lại (test). Một màn hình đồng ý đang mở đúng lúc 03:15 mà dòng bị xoá thì lần đổi mã nhận
+  `invalid_grant` (UUID mới), nhân sự bấm kết nối lại.
+- `HostResolver` thật (DNS) không có test (không gọi mạng trong test); máy chủ chặn `dns_get_record` thì chỉ còn
+  IPv4 qua `gethostbynamel`. Tiền tố NAT64 `64:ff9b::/96` được PHP coi là Global nên qua phép kiểm IP; không
+  liên quan khi máy chủ không nằm sau NAT64.
+- Hai lớp phòng thủ thừa, mutation SỐNG có chủ đích: lớp ký tự host của regex (bỏ thì `Claude.ai`, `claude.ai:443`,
+  `user@claude.ai` vẫn bị phép so đúng chuỗi với allowlist host chặn) và cờ `NO_PRIV_RANGE | NO_RES_RANGE` (bỏ thì
+  `GLOBAL_RANGE` vẫn chặn mọi dòng của dataset).
+
+**Kiểm chứng (2026-10-03).** Đỏ trước khi cài: 79 đỏ (lớp `HostResolver` chưa có), rồi khi có `HostResolver`:
+38 đỏ, 41 xanh (các dòng xanh là vế "từ chối", được chứng minh bằng mutation). Xanh: 79, rồi 84, cuối cùng 88
+passed sau khi thêm test cho điều kiện còn thiếu cặp (mục redirect là mảng, tên client, chạy đua tạo dòng,
+redirect không có trong tài liệu, phép kiểm URL không hỏi DNS). Bốn mươi mốt phép mutation, mỗi phép bỏ hay đổi
+đúng một điều kiện mới, mỗi phép cho ít nhất một test đỏ rồi khôi phục (cờ; độ dài; `https`; lớp ký tự đường dẫn;
+allowlist host; đoạn `.`/`..`; đọc cache; kiểm lại cache; trần tải; bắt `JsonException`; `client_id`;
+`token_endpoint_auth_method`; `redirect_uris` là mảng, là danh sách, không rỗng, ≤ 10, mục là chuỗi, trong
+allowlist; tên cắt 255 — đỏ trên MariaDB `Data too long`; tên lùi về host; thu hồi; bắt lỗi unique; log; DNS
+rỗng; IP công khai; `GLOBAL_RANGE`; ghim IP; không chuyển hướng; timeout; trạng thái 200; 16 KB; `MAXFILESIZE`;
+bắt lỗi kết nối; định tuyến `://`; mở rộng loopback; `redirect_uri` là chuỗi; `sameLoopback` khi URI đã lưu không
+phải loopback; đọc cờ từ `.env`; `curl` bắt buộc; metadata quảng bá; bind repository). Cả bộ
+(`test --parallel --processes=2`): EXIT 0, 4002 passed (3914 + 88), 1 risky, 1 todo, 25 skipped. MariaDB (tuần
+tự; tệp mới, `OAuthMetadataTest`, `ClientRegistrationTest`, `PruneMcpClientsTest`, `PreflightCommandTest`,
+`EnvExampleTest`, `McpPackageConfigTest`): 262 passed, 1 risky (có sẵn). Vòng migration thật trên
+`vk_crm_lane_m11` (`migrate:fresh --seed`, `migrate:reset`, `migrate`): EXIT 0, cột `metadata_url varchar(255)
+DEFAULT NULL`, `UNIQUE KEY oauth_clients_metadata_url_unique`. `pint --test`: PASS, 875 tệp.
