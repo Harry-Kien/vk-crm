@@ -11,7 +11,8 @@ use Throwable;
 /**
  * Tác vụ hằng ngày của M10 R7b (Task 7): ẩn danh dữ liệu của người liên hệ KHÔNG thành khách đã quá hạn
  * lưu — `declined`, `lost` hoặc `merged`, chưa chuyển đổi, chưa ẩn danh, `retention_until` đã qua
- * (`IntakeRequest::scopeRetentionExpired()`, kể cả bản đã xoá mềm). Việc ẩn danh là của
+ * (`IntakeRequest::scopeRetentionExpired()`, kể cả bản đã xoá mềm; bản đã gộp vào một bản về sau thành
+ * vụ việc không còn hạn, và `expire()` hỏi lại chuỗi gộp trên dòng đã khoá). Việc ẩn danh là của
  * {@see AnonymiseProspect::expire()} — CÙNG Action với "Xoá dữ liệu theo yêu cầu" của admin.
  *
  * **Việc riêng, không lẫn với `FlagRetentionExpiry` của M7 Task 6:** tác vụ đó chỉ CẢNH BÁO và không

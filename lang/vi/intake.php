@@ -211,6 +211,7 @@ return [
             'reason_too_short' => 'Lý do phải có ít nhất :min ký tự.',
             'reason_too_long' => 'Lý do quá dài (tối đa :max ký tự).',
             'converted' => 'Người liên hệ này đã thành khách hàng của văn phòng (bản ghi đã chuyển thành vụ việc): dữ liệu của họ đi theo hồ sơ khách hàng, không xoá ở đây.',
+            'converted_through_merge' => 'Người liên hệ này đã thành khách hàng của văn phòng (bản ghi này đã được gộp vào :code — trực tiếp hay qua một bản đã gộp khác — và bản đó đã chuyển thành vụ việc): dữ liệu của họ đi theo hồ sơ khách hàng, không xoá ở đây.',
             'already' => 'Dữ liệu cá nhân của bản ghi này đã được xoá.',
         ],
     ],

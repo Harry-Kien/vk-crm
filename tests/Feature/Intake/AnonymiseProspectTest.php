@@ -3,6 +3,7 @@
 use App\Actions\Intake\AcknowledgeIntakeConflict;
 use App\Actions\Intake\AnonymiseProspect;
 use App\Actions\Intake\ChangeIntakeStatus;
+use App\Actions\Intake\ConvertIntakeToMatter;
 use App\Actions\Intake\DeclineIntake;
 use App\Actions\Intake\FindIntakeDuplicates;
 use App\Actions\Intake\MergeIntake;
@@ -13,12 +14,15 @@ use App\Actions\Intake\UpdateIntakeSummary;
 use App\Actions\OpenMatter;
 use App\Actions\RunConflictCheck;
 use App\Actions\Schedule\AnonymiseExpiredProspects;
+use App\Enums\ClientType;
+use App\Enums\Confidentiality;
 use App\Enums\ConflictLevel;
 use App\Enums\IntakeSource;
 use App\Enums\IntakeStatus;
 use App\Enums\PartyRole;
 use App\Enums\Role;
 use App\Exceptions\ConflictAcknowledgementRequired;
+use App\Exceptions\ConflictBlocked;
 use App\Models\Client;
 use App\Models\IntakeParty;
 use App\Models\IntakeRequest;
@@ -555,12 +559,77 @@ it('removes the opposing party it carried into a repeat call by the same person,
         ->and(anpFindEverywhere('zqxcarried'))->toBe([]);
 });
 
+/** Ô của một lần chuyển đổi (`ConvertIntakeToMatter`), người bấm phụ trách vụ. */
+function anpConversionAttributes(User $actor): array
+{
+    return [
+        'title' => 'Vụ từ một lần tiếp nhận',
+        'matter_type_id' => MatterType::factory()->withStages()->create(['is_active' => true])->id,
+        'lead_lawyer_id' => $actor->id,
+        'client_role' => PartyRole::Plaintiff->value,
+        'opened_at' => today()->toDateString(),
+        'confidentiality' => Confidentiality::Normal->value,
+        'client_type' => ClientType::Individual->value,
+    ];
+}
+
+/** Một lần chuyển đổi bị `OpenMatter` từ chối (Đỏ chưa ghi đè, hay chưa xác nhận): trả lớp ngoại lệ. */
+function anpRefusedConversion(User $actor, IntakeRequest $intake): string
+{
+    try {
+        app(ConvertIntakeToMatter::class)->handle($actor, $intake, anpConversionAttributes($actor));
+    } catch (ConflictBlocked|ConflictAcknowledgementRequired $refused) {
+        return $refused::class;
+    }
+
+    throw new RuntimeException('Lần chuyển đổi phải bị từ chối.');
+}
+
+/**
+ * Bản ghi đầu của một chuỗi gộp cùng người (SĐT mặc định), có câu chuyện, gộp `$hops` lần — mỗi lần vào
+ * một bản ghi mới của cùng người. Trả mọi bản theo thứ tự; bản cuối còn mở.
+ *
+ * @return list<IntakeRequest>
+ */
+function anpMergeChain(User $actor, int $hops): array
+{
+    $first = anpRecord($actor, ['contact_name' => 'Người Gọi Nhiều Lần']);
+    app(RecordPrivacyNotice::class)->handle($actor, $first, true);
+    app(UpdateIntakeSummary::class)->handle($actor, $first->fresh(), 'Câu chuyện kể ở lần gọi đầu');
+    $chain = [$first];
+
+    for ($hop = 0; $hop < $hops; $hop++) {
+        $next = anpRecord($actor, ['contact_name' => 'Người Gọi Nhiều Lần']);
+        app(MergeIntake::class)->handle($actor, $chain[$hop]->fresh(), $next);
+        $chain[] = $next;
+    }
+
+    return $chain;
+}
+
+/** Chuyển thành vụ việc qua đúng Action của Task 4; xác nhận mức được hỏi nếu có. */
+function anpConvert(User $actor, IntakeRequest $intake): void
+{
+    try {
+        app(ConvertIntakeToMatter::class)->handle($actor, $intake->fresh(), anpConversionAttributes($actor));
+    } catch (ConflictAcknowledgementRequired $ask) {
+        app(ConvertIntakeToMatter::class)->handle($actor, $intake->fresh(), anpConversionAttributes($actor), acknowledged: $ask->result->level);
+    }
+
+    expect($intake->fresh()->status)->toBe(IntakeStatus::Won);
+}
+
 /*
  * Test chuỗi đánh dấu của kế hoạch: mỗi thứ người liên hệ A kể cho văn phòng mang một chuỗi riêng —
  * tên, email, người giới thiệu, câu chuyện, lý do từ chối, lý do ghi đè, tên bên đối lập — cộng SĐT và
  * dấu băm CCCD. A còn bị một bản ghi khác (B) và một vụ việc tìm thấy qua SĐT. Sau khi A hết hạn,
  * quét MỌI bảng của CSDL: không còn chuỗi nào; SĐT của A chỉ còn ở hai dòng thuộc về người KHÁC (bên
  * đối lập B tự khai, bên của vụ) — đó là dữ liệu của họ, không phải của A (PROGRESS, Ghi chú M10).
+ *
+ * Fix vòng 1 (rà soát Task 7, C1): trước khi từ chối, mỗi bản ghi có một lần chuyển đổi bị từ chối —
+ * A ở Đỏ (quản lý không ghi lý do ghi đè), A2 ở Vàng (bên đối lập chỉ có tên, trùng tên bên của A, chưa
+ * xác nhận). Dòng `conflict_check_run` của lần đó mang tên các bên mà không mang mã `TN-…` của chính
+ * bản ghi (bản đang chuyển đổi bị loại khỏi nguồn dò thứ hai).
  */
 it('leaves no trace of anything the contact told the office in any table once the retention has passed', function () {
     anpExistingClient();
@@ -580,7 +649,13 @@ it('leaves no trace of anything the contact told the office in any table once th
     app(ResolveIntakeRedConflict::class)->handle($manager, $a, 'ZQXANP-OVERRIDE đã xem xét kỹ với luật sư phụ trách');
     app(RecordPrivacyNotice::class)->handle($assistant, $a->fresh(), true);
     app(UpdateIntakeSummary::class)->handle($assistant, $a->fresh(), 'ZQXANP-STORY: người liên hệ kể chuyện gia đình');
+    expect(anpRefusedConversion($manager, $a->fresh()))->toBe(ConflictBlocked::class);
     app(DeclineIntake::class)->handle($assistant, $a->fresh(), 'ZQXANP-DECLINE ngoài khả năng của văn phòng');
+
+    $a2 = anpRecord($lawyer, ['contact_name' => 'Zqxanp Second Contact', 'contact_phone' => '0907111222'],
+        [['name' => 'Zqxanp Party', 'role' => PartyRole::Defendant]]);
+    expect(anpRefusedConversion($lawyer, $a2->fresh()))->toBe(ConflictAcknowledgementRequired::class);
+    app(DeclineIntake::class)->handle($lawyer, $a2->fresh(), 'Không theo tiếp');
 
     $b = anpRecord($assistant, ['contact_name' => 'Lê Văn Bình', 'contact_phone' => '0903333444', 'contact_role' => PartyRole::Defendant],
         [['name' => 'Tên khác hẳn', 'role' => PartyRole::Plaintiff, 'phone' => '0919876543']]);
@@ -605,7 +680,7 @@ it('leaves no trace of anything the contact told the office in any table once th
         ->and(anpFindEverywhere($hash))->not->toBe([]);
 
     $this->travelTo(now()->setDate(2028, 10, 4)->setTime(3, 30));
-    expect(anpExpire())->toBe(['anonymised' => 1, 'skipped' => 0]);
+    expect(anpExpire())->toBe(['anonymised' => 2, 'skipped' => 0]);
 
     expect(anpFindEverywhere('zqxanp'))->toBe([])
         ->and(anpFindEverywhere($hash))->toBe([])
@@ -670,6 +745,128 @@ it('tells an admin a converted record is out of reach before it looks at the rea
         expect($exception->errors())->toBe(['intake' => [__('intake.anonymise.errors.converted')]]);
     }
 });
+
+// =================================================================================================
+// Bản đã gộp vào một bản về sau thành khách (fix vòng 1, rà soát Task 7, I1)
+// =================================================================================================
+
+/*
+ * Người gọi hai lần: lần A được gộp vào lần T, rồi T thành vụ việc — người đó đã là khách. Gộp để câu
+ * chuyện và danh tính ở lại A (`MergeIntake`), nên A là một phần hồ sơ của một khách: R7c ("đã là
+ * khách, dữ liệu theo hồ sơ khách") áp dọc `merged_into_id`, tới bản cuối của chuỗi gộp.
+ */
+it('never anonymises a record merged, directly or through another merge, into one that became a client', function (int $hops) {
+    $lawyer = anpStaff(Role::Lawyer);
+    $chain = anpMergeChain($lawyer, $hops);
+
+    // Cặp dương: một bản gộp vào một bản vẫn còn mở thì vẫn hết hạn như cũ.
+    $other = anpRecord($lawyer, ['contact_name' => 'Người Khác', 'contact_phone' => '0901000201']);
+    app(MergeIntake::class)->handle($lawyer, $other, anpRecord($lawyer, ['contact_name' => 'Bản Đích Còn Mở', 'contact_phone' => '0901000202']));
+
+    anpConvert($lawyer, end($chain));
+
+    $this->travelTo(now()->setDate(2028, 10, 4)->setTime(3, 30));
+
+    expect(anpExpire())->toBe(['anonymised' => 1, 'skipped' => 0])
+        ->and($other->fresh()->contact_name)->toBeNull()
+        ->and($chain[0]->fresh()->contact_name)->toBe('Người Gọi Nhiều Lần')
+        ->and($chain[0]->fresh()->summary)->toBe('Câu chuyện kể ở lần gọi đầu');
+
+    foreach (array_slice($chain, 0, -1) as $merged) {
+        expect($merged->fresh()->anonymised_at)->toBeNull()
+            ->and(app(AnonymiseProspect::class)->expire($merged->fresh()))->toBeFalse();
+    }
+})->with(['merged straight into it' => [1], 'merged into a record later merged into it' => [2]]);
+
+/*
+ * Lưới thứ hai: dù bản đó vì lý do nào còn mang một hạn đã qua (một đường chuyển đổi khác, dữ liệu cũ),
+ * cửa hết hạn đọc lại chuỗi gộp trên dòng vừa khoá và không đụng tới nó.
+ */
+it('leaves a record merged into a client\'s record alone even when it still carries a past retention date', function () {
+    $lawyer = anpStaff(Role::Lawyer);
+    [$first, $target] = anpMergeChain($lawyer, 1);
+    anpConvert($lawyer, $target);
+    $first->forceFill(['retention_until' => '2027-01-01'])->save();
+
+    $this->travelTo(now()->setDate(2028, 10, 4)->setTime(3, 30));
+
+    expect(anpExpire())->toBe(['anonymised' => 0, 'skipped' => 0])
+        ->and($first->fresh()->contact_name)->toBe('Người Gọi Nhiều Lần')
+        ->and($first->fresh()->anonymised_at)->toBeNull()
+        ->and(Activity::query()->where('event', 'prospect_data_anonymised')->exists())->toBeFalse();
+});
+
+it('refuses to erase a record merged, directly or through another merge, into one that became a client, naming that record', function (int $hops) {
+    $lawyer = anpStaff(Role::Lawyer);
+    $admin = anpStaff(Role::Admin);
+    $chain = anpMergeChain($lawyer, $hops);
+    $client = end($chain);
+
+    // Trước khi bản cuối thành vụ: xoá được (bản này chỉ để thử, không xoá thật).
+    expect(AnonymiseProspect::refusal($chain[0]->fresh()))->toBeNull();
+
+    anpConvert($lawyer, $client);
+
+    foreach (array_slice($chain, 0, -1) as $merged) {
+        try {
+            app(AnonymiseProspect::class)->erase($admin, $merged->fresh(), 'Người liên hệ yêu cầu xoá qua điện thoại');
+            $this->fail('phải từ chối');
+        } catch (ValidationException $exception) {
+            expect($exception->errors())->toBe(['intake' => [__('intake.anonymise.errors.converted_through_merge', ['code' => $client->code])]]);
+        }
+
+        expect($merged->fresh()->contact_name)->toBe('Người Gọi Nhiều Lần');
+    }
+
+    expect(Activity::query()->where('event', 'prospect_data_erased')->exists())->toBeFalse();
+})->with(['merged straight into it' => [1], 'merged into a record later merged into it' => [2]]);
+
+it('treats the end of a merge chain as converted when it is won, linked to a matter, or converted and later soft-deleted', function (Closure $convert) {
+    $lawyer = anpStaff(Role::Lawyer);
+    [$first, $target] = anpMergeChain($lawyer, 1);
+    $convert($lawyer, $target);
+
+    expect(AnonymiseProspect::refusal($first->fresh()))
+        ->toBe(__('intake.anonymise.errors.converted_through_merge', ['code' => $target->code]));
+})->with([
+    'won' => [fn (User $lawyer, IntakeRequest $target) => $target->forceFill(['status' => IntakeStatus::Won])->save()],
+    'linked to a matter' => [fn (User $lawyer, IntakeRequest $target) => $target->forceFill(['matter_id' => Matter::factory()->create()->id])->save()],
+    'converted, then soft-deleted' => [function (User $lawyer, IntakeRequest $target): void {
+        anpConvert($lawyer, $target);
+        $target->fresh()->delete();
+    }],
+]);
+
+/*
+ * `MergeIntake` không tạo được vòng (chỉ gộp VÀO một bản chưa gộp đi); dựng thẳng một vòng để chắc hai
+ * lần đi theo `merged_into_id` vẫn dừng.
+ */
+it('stops on a merge chain that loops instead of following it forever', function () {
+    $lawyer = anpStaff(Role::Lawyer);
+    $a = anpRecord($lawyer, ['contact_phone' => '0901000301']);
+    $b = anpRecord($lawyer, ['contact_phone' => '0901000302']);
+    $a->forceFill(['status' => IntakeStatus::Merged, 'merged_into_id' => $b->id])->save();
+    $b->forceFill(['status' => IntakeStatus::Merged, 'merged_into_id' => $a->id])->save();
+
+    expect($a->fresh()->mergeChainEnd()->id)->toBe($b->id)
+        ->and($a->fresh()->mergedFromTreeIds())->toBe([$b->id])
+        ->and(AnonymiseProspect::refusal($a->fresh()))->toBeNull();
+});
+
+it('still erases a record merged into one that is open, declined or lost', function (Closure $close) {
+    $lawyer = anpStaff(Role::Lawyer);
+    [$first, $target] = anpMergeChain($lawyer, 1);
+    $close($lawyer, $target);
+
+    app(AnonymiseProspect::class)->erase(anpStaff(Role::Admin), $first->fresh(), 'Người liên hệ yêu cầu xoá qua điện thoại');
+
+    expect($first->fresh()->contact_name)->toBeNull()
+        ->and($target->fresh()->contact_name)->toBe('Người Gọi Nhiều Lần');
+})->with([
+    'open' => [fn () => null],
+    'declined' => [fn (User $lawyer, IntakeRequest $target) => app(DeclineIntake::class)->handle($lawyer, $target->fresh(), 'Ngoài lĩnh vực')],
+    'lost' => [fn (User $lawyer, IntakeRequest $target) => app(ChangeIntakeStatus::class)->handle($lawyer, $target->fresh(), IntakeStatus::Lost)],
+]);
 
 // =================================================================================================
 // Tác vụ hằng ngày: một bản hỏng hay bận không chặn cả lượt

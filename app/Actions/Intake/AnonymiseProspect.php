@@ -25,7 +25,10 @@ use Spatie\Activitylog\Models\Activity;
  *    bản ghi bất kỳ trạng thái nào CHƯA chuyển đổi. Audit `prospect_data_erased`: người làm (causer),
  *    lý do, mã bản ghi — KHÔNG giá trị đã xoá.
  * Bản ghi đã chuyển thành vụ việc (`won` hoặc có `matter_id`) bị từ chối: người đó đã là khách, dữ liệu
- * theo hồ sơ khách ({@see self::refusal()}). Bản đã ẩn danh bị từ chối (cửa xoá) hoặc bỏ qua (cửa hết hạn).
+ * theo hồ sơ khách ({@see self::refusal()}). Cùng lý do dọc chuỗi gộp (fix vòng 1 — rà soát Task 7, I1):
+ * bản đã gộp vào một bản mà bản cuối của chuỗi gộp đã thành vụ (`IntakeRequest::convertedMergeTarget()`)
+ * bị từ chối ở cửa xoá (câu nêu mã bản đã thành vụ) và bỏ qua ở cửa hết hạn. Bản đã ẩn danh bị từ chối
+ * (cửa xoá) hoặc bỏ qua (cửa hết hạn).
  *
  * **Ẩn danh là CẬP NHẬT, không bao giờ xoá dòng** (R7 — test cấu trúc `IntakeNoForceDeleteTest`): dòng,
  * mã, nguồn, trạng thái, vai dự kiến, lĩnh vực, phí đã báo, người ghi/được giao, mức và thời điểm kiểm
@@ -44,8 +47,11 @@ use Spatie\Activitylog\Models\Activity;
  * Task 7) cũng được làm sạch trong CÙNG transaction — tên bị thay bằng chữ "(đã ẩn danh)", mã `TN-…`,
  * vai, mức, bậc khớp và ngày liên hệ ở lại làm bằng chứng đã kiểm tra:
  *  - nhật ký của CHÍNH bản ghi: mọi tên trong các dòng `conflict_check_run` (cả hai phía của từng khớp,
- *    và danh sách bên thiếu định danh); lý do trong các dòng `intake_conflict_overridden`; và khoá
- *    `confirmed_pairs` (chữ ký HMAC của danh tính) của các dòng ghi đè và xác nhận;
+ *    và danh sách bên thiếu định danh) — kể cả dòng của một lần chuyển đổi KHÔNG thành vụ, mà
+ *    `ConvertIntakeToMatter` để lại với bản ghi (`$checkSubject` của `OpenMatter`, fix vòng 1 — rà soát
+ *    Task 7, C1: dòng đó không mang mã `TN-…` của bản ghi, nên chỉ tìm được theo chủ thể); lý do trong
+ *    các dòng `intake_conflict_overridden`; và khoá `confirmed_pairs` (chữ ký HMAC của danh tính) của
+ *    các dòng ghi đè và xác nhận;
  *  - bằng chứng kiểm tra của bản ghi KHÁC và vụ việc đã TÌM THẤY người này qua nguồn dò thứ hai: mỗi
  *    khớp mang `matter_code` = mã `TN-…` của bản ghi này thì mất `party_name` — trong `conflict_result`
  *    của các bản ghi tiếp nhận khác và trong mọi dòng `conflict_check_run` (chủ thể là bản ghi khác, vụ
@@ -89,16 +95,23 @@ class AnonymiseProspect
 
     /**
      * Câu từ chối nếu bản ghi KHÔNG xoá theo yêu cầu được, null nếu được — MỘT định nghĩa cho Action và
-     * cho màn hình (nút chỉ hiện khi null; trên bản đã chuyển đổi, khối "Kết quả xử lý" nói câu này với
-     * admin).
+     * cho màn hình (nút chỉ hiện khi null; trên bản đã chuyển đổi, hay đã gộp vào một bản đã thành vụ,
+     * khối "Kết quả xử lý" nói câu này với admin).
      */
     public static function refusal(IntakeRequest $intake): ?string
     {
-        return match (true) {
-            $intake->status === IntakeStatus::Won || $intake->matter_id !== null => __('intake.anonymise.errors.converted'),
-            $intake->anonymised_at !== null => __('intake.anonymise.errors.already'),
-            default => null,
-        };
+        if ($intake->status === IntakeStatus::Won || $intake->matter_id !== null) {
+            return __('intake.anonymise.errors.converted');
+        }
+
+        if ($intake->anonymised_at !== null) {
+            return __('intake.anonymise.errors.already');
+        }
+
+        // Fix vòng 1 (rà soát Task 7, I1): R7c dọc chuỗi gộp — câu nêu mã bản đã thành vụ.
+        $client = $intake->convertedMergeTarget();
+
+        return $client === null ? null : __('intake.anonymise.errors.converted_through_merge', ['code' => $client->code]);
     }
 
     /**
@@ -145,9 +158,12 @@ class AnonymiseProspect
 
     /**
      * Hết hạn lưu (R7b): ẩn danh `$intake` nếu — đọc lại trên dòng vừa khoá — nó còn thoả
-     * `IntakeRequest::scopeRetentionExpired()`. Trả true khi đã ẩn danh, false khi không còn gì để làm
-     * (chưa tới hạn, đã ẩn danh, đã chuyển đổi, không còn tồn tại). Bản đã xoá mềm vẫn mang dữ liệu cá
-     * nhân, nên vẫn được ẩn danh.
+     * `IntakeRequest::scopeRetentionExpired()` VÀ không được gộp vào một bản đã thành vụ việc
+     * (`IntakeRequest::convertedMergeTarget()`, fix vòng 1 — rà soát Task 7, I1). Bản như vậy bình thường
+     * không còn hạn để mà quá (`ConvertIntakeToMatter` xoá hạn của cả cây gộp); câu hỏi ở đây là lưới thứ
+     * hai cho một hạn vẫn còn đó vì bất kỳ lý do gì. Trả true khi đã ẩn danh, false khi không còn gì để
+     * làm (chưa tới hạn, đã ẩn danh, đã chuyển đổi — chính nó hay bản cuối của chuỗi gộp —, không còn
+     * tồn tại). Bản đã xoá mềm vẫn mang dữ liệu cá nhân, nên vẫn được ẩn danh.
      */
     public function expire(IntakeRequest $intake): bool
     {
@@ -160,7 +176,7 @@ class AnonymiseProspect
                 ->lockForUpdate()
                 ->first();
 
-            if ($locked === null) {
+            if ($locked === null || $locked->convertedMergeTarget() !== null) {
                 return false;
             }
 

@@ -477,7 +477,8 @@ class EditIntakeRequest extends EditRecord
     /**
      * "Xoá dữ liệu theo yêu cầu" (M10 Task 7, R7c): chỉ hiện với admin (`IntakeRequestPolicy::erase`) trên
      * bản ghi chưa chuyển đổi và chưa ẩn danh (`AnonymiseProspect::refusal()` — một định nghĩa với Action),
-     * ở bất kỳ trạng thái nào khác, kể cả bản đã gộp. Lý do ≥ 20 ký tự là luật của Action; lời từ chối về
+     * ở bất kỳ trạng thái nào khác, kể cả bản đã gộp — trừ bản đã gộp vào một bản về sau thành vụ việc
+     * (fix vòng 1 của Task 7: người đó đã là khách). Lý do ≥ 20 ký tự là luật của Action; lời từ chối về
      * đúng ô lý do (`ReportsActionFailures`). Xong thì tải lại trang: form và trạng thái Livewire đang giữ
      * các giá trị vừa bị xoá.
      */
@@ -709,7 +710,8 @@ class EditIntakeRequest extends EditRecord
                 ]),
                 'reason' => Gate::allows('erase', $intake) ? $intake->anonymised_reason : null,
             ],
-            // Admin trên bản đã chuyển đổi: vì sao không có nút xoá (R7c). Bản đã ẩn danh nói ở dòng trên.
+            // Admin trên bản đã chuyển đổi, hay đã gộp vào một bản đã thành vụ: vì sao không có nút xoá
+            // (R7c). Bản đã ẩn danh nói ở dòng trên.
             'eraseRefusal' => $intake->anonymised_at === null && Gate::allows('erase', $intake) ? AnonymiseProspect::refusal($intake) : null,
         ];
     }

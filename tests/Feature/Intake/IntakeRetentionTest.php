@@ -91,6 +91,46 @@ it('gives no retention date to a record that stays open, nor to one converted in
         ->and($converted->fresh()->retention_until)->toBeNull();
 });
 
+/*
+ * Fix vòng 1 (rà soát Task 7, I1): bản đã gộp mang hạn từ ngày gộp; khi bản cuối của chuỗi gộp thành
+ * vụ việc, người đó đã là khách — mọi bản đã gộp vào nó, trực tiếp hay qua một lần gộp khác, mất hạn
+ * như chính bản đã chuyển đổi. Bản gộp vào một bản KHÁC giữ hạn của mình.
+ */
+it('takes the retention date away from every record merged, directly or through another merge, into a record that is converted', function () {
+    $lawyer = retStaff(Role::Lawyer);
+
+    $first = retRecord($lawyer, '0901000061');
+    $second = retRecord($lawyer, '0901000061', ['contact_name' => 'Cùng người, gọi lần hai']);
+    $last = retRecord($lawyer, '0901000061', ['contact_name' => 'Cùng người, gọi lần ba']);
+    app(MergeIntake::class)->handle($lawyer, $first, $second);
+    app(MergeIntake::class)->handle($lawyer, $second->fresh(), $last);
+
+    $elsewhere = retRecord($lawyer, '0901000062');
+    $openTarget = retRecord($lawyer, '0901000063');
+    app(MergeIntake::class)->handle($lawyer, $elsewhere, $openTarget);
+
+    // Cặp dương: trước khi chuyển đổi, cả ba bản đã gộp đều mang hạn.
+    foreach ([$first, $second, $elsewhere] as $merged) {
+        expect($merged->fresh()->retention_until?->toDateString())->toBe('2028-10-03', $merged->code);
+    }
+
+    app(ConvertIntakeToMatter::class)->handle($lawyer, $last, [
+        'title' => 'Tranh chấp hợp đồng mua bán',
+        'matter_type_id' => MatterType::factory()->withStages()->create(['is_active' => true])->id,
+        'lead_lawyer_id' => $lawyer->id,
+        'client_role' => PartyRole::Plaintiff->value,
+        'opened_at' => today()->toDateString(),
+        'confidentiality' => Confidentiality::Normal->value,
+        'client_type' => ClientType::Individual->value,
+    ]);
+
+    expect($last->fresh()->status)->toBe(IntakeStatus::Won)
+        ->and($first->fresh()->retention_until)->toBeNull()
+        ->and($second->fresh()->retention_until)->toBeNull()
+        ->and($first->fresh()->status)->toBe(IntakeStatus::Merged)
+        ->and($elsewhere->fresh()->retention_until?->toDateString())->toBe('2028-10-03');
+});
+
 it('keeps the first retention date when a closed record is saved again without a status change', function () {
     $assistant = retStaff();
 

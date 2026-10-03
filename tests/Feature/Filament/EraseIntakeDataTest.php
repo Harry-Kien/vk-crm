@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Intake\AnonymiseProspect;
+use App\Actions\Intake\MergeIntake;
 use App\Actions\Intake\RecordIntake;
 use App\Actions\Intake\RecordPrivacyNotice;
 use App\Actions\Intake\UpdateIntakeSummary;
@@ -9,10 +10,12 @@ use App\Enums\IntakeStatus;
 use App\Enums\PartyRole;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\IntakeRequests\IntakeRequestResource;
+use App\Filament\Admin\Resources\IntakeRequests\Pages\ConvertIntakeRequest;
 use App\Filament\Admin\Resources\IntakeRequests\Pages\EditIntakeRequest;
 use App\Filament\Admin\Resources\IntakeRequests\Pages\ListIntakeRequests;
 use App\Models\IntakeRequest;
 use App\Models\Matter;
+use App\Models\MatterType;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
@@ -195,6 +198,76 @@ it('hides erasure on a converted record and tells the admin that the data now fo
     // Người không phải admin không cần câu đó.
     $this->actingAs(eraStaff(Role::Manager), 'web');
     eraEdit($intake)->assertDontSee(__('intake.anonymise.errors.converted'));
+});
+
+/*
+ * Fix vòng 1 (rà soát Task 7, I1): người gọi hai lần, lần đầu được gộp vào lần sau, lần sau thành vụ
+ * việc qua trang chuyển đổi — người đó đã là khách, nên bản đã gộp cũng không xoá ở đây; admin đọc vì
+ * sao, kèm mã bản đã thành vụ.
+ */
+it('hides erasure on a record merged into one that became a client, and tells the admin which record that is', function () {
+    $lawyer = eraStaff(Role::Lawyer);
+    $first = eraRecord($lawyer);
+    $target = eraRecord($lawyer, [
+        'contact_name' => 'Hoàng Thị Riêng Tư, gọi lại',
+        'matter_type_id' => MatterType::factory()->withStages()->create(['is_active' => true])->id,
+    ]);
+    app(MergeIntake::class)->handle($lawyer, $first, $target);
+    $message = __('intake.anonymise.errors.converted_through_merge', ['code' => $target->code]);
+
+    $admin = eraStaff(Role::Admin);
+    $this->actingAs($admin, 'web');
+
+    // Cặp dương: khi bản đích còn mở, admin xoá được bản đã gộp.
+    eraEdit($first)->assertActionVisible('eraseData')->assertDontSee($message);
+
+    $this->actingAs($lawyer, 'web');
+    test()->livewire(ConvertIntakeRequest::class, ['record' => $target->getRouteKey()])
+        ->call('convert')
+        ->assertHasNoFormErrors();
+
+    expect($target->fresh()->status)->toBe(IntakeStatus::Won);
+
+    $this->actingAs($admin, 'web');
+    eraEdit($first)
+        ->assertActionHidden('eraseData')
+        ->assertSee($message);
+
+    expect($first->fresh()->contact_name)->toBe('Hoàng Thị Riêng Tư');
+});
+
+/*
+ * Fix vòng 1 (rà soát Task 7, C1): trang chuyển đổi luôn chạy một lượt đầu chưa xác nhận; lượt đó bị
+ * từ chối để lại một dòng kiểm tra mang tên các bên. Modal hứa "tên họ trong kết quả kiểm tra xung đột
+ * sẽ bị xoá" — xoá theo yêu cầu phải tới được cả dòng đó.
+ */
+it('erases the names that a refused first pass on the conversion page left in its conflict check', function () {
+    $lawyer = eraStaff(Role::Lawyer);
+    $intake = app(RecordIntake::class)->handle($lawyer, [
+        'contact_name' => 'Zqxera Contact',
+        'contact_phone' => '0966555444',
+        'contact_role' => PartyRole::Plaintiff,
+        'source' => IntakeSource::Phone,
+        'matter_type_id' => MatterType::factory()->withStages()->create(['is_active' => true])->id,
+    ], [['name' => 'Zqxera Party', 'role' => PartyRole::Defendant]])->intake;
+
+    $this->actingAs($lawyer, 'web');
+    test()->livewire(ConvertIntakeRequest::class, ['record' => $intake->getRouteKey()])
+        ->call('convert')
+        ->assertHasFormErrors(['acknowledge_conflict']);
+
+    expect($intake->fresh()->matter_id)->toBeNull();
+
+    $trail = fn (): string => (string) json_encode(Activity::query()->pluck('properties'), JSON_UNESCAPED_UNICODE);
+    expect($trail())->toContain('Zqxera Party');
+
+    $this->actingAs(eraStaff(Role::Admin), 'web');
+    eraEdit($intake)
+        ->callAction('eraseData', data: ['erase_reason' => ERA_REASON_20])
+        ->assertHasNoActionErrors();
+
+    expect($intake->fresh()->contact_name)->toBeNull()
+        ->and($trail())->not->toContain('Zqxera');
 });
 
 /*

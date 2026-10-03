@@ -331,6 +331,58 @@ it('leaves no matter and no client when the record changes between the check and
         ->and(Activity::query()->where('event', 'matter_opened')->exists())->toBeFalse();
 });
 
+/*
+ * Fix vòng 1 của Task 7 (rà soát Task 7, C1): dòng `conflict_check_run` của một lần chuyển đổi KHÔNG
+ * thành vụ mang tên người liên hệ và các bên đối lập, nhưng không mang mã `TN-…` của bản ghi (bản đang
+ * chuyển đổi bị loại khỏi nguồn dò thứ hai). Nó phải thuộc về bản ghi — để việc ẩn danh bản ghi (Task 7)
+ * tìm thấy nó theo chủ thể — chứ không nằm lại không chủ thể. Ba đường không thành: Đỏ chưa ghi đè, mức
+ * đòi xác nhận chưa xác nhận, và bước lưu bị rollback vì bản ghi đổi giữa chừng.
+ */
+it('keeps the conflict check of a conversion that opened no matter with the record, never without a subject', function (Closure $arrange, Closure $refusal) {
+    $lawyer = cvtStaff();
+    $intake = $arrange($lawyer);
+    $runs = fn () => Activity::query()->where('event', 'conflict_check_run');
+    $before = $runs()->pluck('id')->all();
+
+    expect(cvtRefusal(fn () => cvtConvert($lawyer, $intake->fresh()), 'intake'))->toBe($refusal());
+
+    $run = $runs()->whereNotIn('id', $before)->sole();
+
+    expect($run->subject_type)->toBe('intake_request')
+        ->and($run->subject_id)->toBe($intake->id)
+        ->and($runs()->whereNull('subject_id')->exists())->toBeFalse()
+        ->and(Matter::query()->where('title', 'Tranh chấp hợp đồng mua bán')->exists())->toBeFalse();
+})->with([
+    'red, not overridden' => [function (User $lawyer): IntakeRequest {
+        cvtClientD();
+        $intake = cvtRecord($lawyer, [], [['name' => 'Công Ty D', 'role' => PartyRole::Defendant, 'phone' => '0912000111']]);
+        app(ResolveIntakeRedConflict::class)->handle(cvtStaff(Role::Manager), $intake, 'Đã hỏi ý kiến, khách cũ đồng ý bằng văn bản');
+
+        return $intake;
+    }, fn (): string => ConflictBlocked::class],
+    'acknowledgement required' => [
+        fn (User $lawyer): IntakeRequest => cvtRecord($lawyer, [], [['name' => 'Bên Chỉ Có Tên', 'role' => PartyRole::Defendant]]),
+        fn (): string => ConflictAcknowledgementRequired::class,
+    ],
+    'record declined between the check and the save' => [function (User $lawyer): IntakeRequest {
+        app()->bind(RunConflictCheck::class, fn () => new class extends RunConflictCheck
+        {
+            public function handle(Collection $parties, ?Matter $matter = null, ?User $actor = null, ?int $excludePartyId = null, ?Collection $ignoreConfirmedForPartyIds = null, ?Model $subject = null, ?int $excludeIntakeId = null): ConflictCheckResult
+            {
+                $result = parent::handle($parties, $matter, $actor, $excludePartyId, $ignoreConfirmedForPartyIds, $subject, $excludeIntakeId);
+
+                if ($excludeIntakeId !== null) {
+                    DB::table('intake_requests')->where('id', $excludeIntakeId)->update(['status' => IntakeStatus::Declined->value]);
+                }
+
+                return $result;
+            }
+        });
+
+        return cvtRecord($lawyer);
+    }, fn (): string => __('intake.errors.convert_status', ['status' => IntakeStatus::Declined->label()])],
+]);
+
 it('makes the second of two conversions of the same record fail at the save, not open a second matter', function () {
     $lawyer = cvtStaff();
     $intake = cvtRecord($lawyer);
