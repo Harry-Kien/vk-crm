@@ -4,6 +4,7 @@ namespace App\Actions;
 
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\Role;
+use App\Events\MatterStageChanged as MatterStageChangedEvent;
 use App\Events\StageLogPublished;
 use App\Exceptions\InvalidStageTransition;
 use App\Exceptions\MatterNotPublishedToPortal;
@@ -252,8 +253,39 @@ class TransitionMatterStage
             // cột mới chỉ đúng người vừa chuyển giai đoạn.
             $matter->blameOn($actor)->update($matterUpdates);
 
+            // M7 Task 3. CHỈ khi giai đoạn THẬT SỰ đổi — một dòng cập nhật không đổi giai đoạn
+            // (§6.3) không "chuyển" gì để một listener lưu trữ phải chạy lại. Độc lập với
+            // `$publishedToPortal`/`$publish`: một lần chuyển giai đoạn NỘI BỘ (không công bố)
+            // vẫn có thể là lần vụ việc đóng hay mở lại — `SyncMatterArchiveOnStageChange` phải
+            // chạy cho cả hai, không chỉ cho những lần công bố ra portal.
+            //
+            // Rà soát cuối M7, I3 — phát TRƯỚC `StageLogPublished`. Cả hai sự kiện đợi commit và
+            // chạy theo đúng thứ tự phát. Thư báo tiến độ hỏi "vụ còn trên cổng của người nhận
+            // không" (`MatterPolicy::view`, gồm hạn tra cứu), nên dòng lưu trữ phải được đồng bộ
+            // TRƯỚC: mở lại một vụ đã quá hạn tra cứu xoá `client_access_until`, và chỉ sau đó vụ
+            // mới trở lại cổng. Phát ngược lại thì với hàng đợi `sync` thư đi (hay không đi) theo
+            // hạn tra cứu CŨ, và với hàng đợi thật là một cuộc đua giữa worker và listener đồng bộ.
+            if (! $isSameStage) {
+                event(new MatterStageChangedEvent($stageLog));
+            }
+
             if ($publishedToPortal) {
                 event(new StageLogPublished($stageLog));
+
+                // M8 Task 3 (SPEC §10.6, "công bố tiến độ"): sự kiện TƯỜNG MINH mỗi khi một dòng
+                // tiến độ tới tay khách — cả chuyển giai đoạn lẫn "Thêm cập nhật" (cùng đi qua
+                // Action này). Trước đây chỉ có cờ `published_to_portal` bên trong dòng
+                // `matter_stage_transitioned` ngay dưới, nên câu "văn phòng đã công bố những gì
+                // cho khách" phải đọc từng properties. Chủ thể là dòng tiến độ (thuộc vụ việc
+                // qua `ActivityOwningMatter::MATTER_OWNED`, nên trang nhật ký lọc nó theo quyền
+                // xem vụ — vụ `restricted` không lộ ra người không xem được); properties chỉ mang
+                // id và mã giai đoạn, không mã/tên vụ, không nội dung công bố.
+                Audit::record('stage_log_published', $stageLog, [
+                    'matter_id' => $matter->id,
+                    'stage_log_id' => $stageLog->id,
+                    'to_stage' => $toStage,
+                    'same_stage' => $isSameStage,
+                ], $actor);
             }
 
             // Bước 8.

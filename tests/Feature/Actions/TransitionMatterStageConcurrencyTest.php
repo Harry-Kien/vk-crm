@@ -51,23 +51,25 @@ it('serializes two concurrent transitions of the same matter — only one applie
     // dữ liệu vừa dựng — RefreshDatabase vẫn giữ bài test này trong một transaction chưa commit.
     DB::commit();
 
+    // Bắt tay hai chiều (xem docblock của probe): mỗi tiến trình đọc snapshot xong mới tạo tệp của
+    // mình rồi đợi tệp của bên kia, nên không bên nào vào transaction trước khi bên kia đọc xong.
     $script = base_path('tests/concurrency/transition_matter_stage_probe.php');
-    $barrierFile = sys_get_temp_dir().'/vkcrm-concurrency-barrier-'.uniqid().'.txt';
+    $fileA = sys_get_temp_dir().'/vkcrm-transition-'.uniqid().'-a.txt';
+    $fileB = sys_get_temp_dir().'/vkcrm-transition-'.uniqid().'-b.txt';
 
-    $processA = Process::timeout(30)->start([
-        'php', $script, (string) $matter->id, (string) $lawyer->id, 'collecting_documents', $barrierFile,
+    $processA = Process::timeout(60)->start([
+        'php', $script, (string) $matter->id, (string) $lawyer->id, 'collecting_documents', $fileA, $fileB,
     ]);
-    $processB = Process::timeout(30)->start([
-        'php', $script, (string) $matter->id, (string) $lawyer->id, 'collecting_documents', $barrierFile,
+    $processB = Process::timeout(60)->start([
+        'php', $script, (string) $matter->id, (string) $lawyer->id, 'collecting_documents', $fileB, $fileA,
     ]);
-
-    file_put_contents($barrierFile, '1');
 
     try {
         $resultA = $processA->wait();
         $resultB = $processB->wait();
     } finally {
-        @unlink($barrierFile);
+        @unlink($fileA);
+        @unlink($fileB);
     }
 
     $outputA = trim($resultA->output());

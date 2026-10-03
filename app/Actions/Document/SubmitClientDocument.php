@@ -7,6 +7,7 @@ use App\Actions\Document\Concerns\StoresDocumentFile;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
 use App\Events\ClientDocumentSubmitted;
+use App\Exceptions\MatterClosedForSubmission;
 use App\Filament\Portal\Pages\MatterProgress;
 use App\Models\ClientUser;
 use App\Models\Document;
@@ -124,6 +125,18 @@ use InvalidArgumentException;
  * là mã độc thì cả lô phải dừng, không được "chấp nhận nửa lô". Ba thứ CÒN LẠI vẫn dùng chung cho
  * cả lô, đúng như tên gọi "một lần nộp": một lần hỏi quyền (đầu mục không đổi giữa các tệp của
  * cùng một lô), một lần khoá hàng đầu mục, một lần chuyển trạng thái `pending_review`.
+ *
+ * # M7 Task 3 — vụ việc đã đóng không nhận tệp mới nữa
+ *
+ * `matters.closed_at` khác null từ chối bằng {@see MatterClosedForSubmission} —
+ * MỘT `DomainException` RIÊNG, KHÔNG dùng chung với `AuthorizationException` của
+ * {@see self::refuse()} (xem docblock lớp đó cho lý do: trang portal đổi MỌI
+ * `AuthorizationException` thành `abort(404)` trống trơn — đúng cho ba tình huống chống dò của
+ * `refuse()`, sai ở đây, vì khách đọc câu này cần biết phải gọi văn phòng, không phải một trang
+ * 404). Hai lần kiểm, cùng nhịp với `authorize()`: một lần rẻ trước cửa sổ quét virus, một lần
+ * dưới khoá `matters` trong transaction — xem docblock từng lần gọi. Không chặn thì một vụ vừa
+ * đóng vẫn nhận `pending_review` mới mà phía văn phòng (`MatterChecklistReadOnly`, Task 3) không
+ * còn duyệt được nữa — một đầu mục treo vĩnh viễn.
  */
 class SubmitClientDocument
 {
@@ -180,6 +193,21 @@ class SubmitClientDocument
         // Bước 1, phần quyết định. KÈM đầu mục — xem docblock lớp.
         $this->authorize($actor, $item);
 
+        // M7 Task 3 — lần kiểm RẺ, không dưới khoá: cùng lý do với lần hỏi `Gate` ngay trên, id
+        // một vụ đã đóng dừng lại TRƯỚC khi hệ thống bỏ công đọc/quét/ghi tệp, thay vì phát hiện
+        // ra sau cả một lần quét virus. KHÔNG có hiệu lực gác cổng thật: lần dưới khoá trong
+        // transaction (sau `guardFile()`, cùng chỗ với lần hỏi lại `Gate` thứ hai) mới là câu trả
+        // lời được dùng, vì 30 giây quét là thừa để một luật sư đóng vụ việc ngay lúc đó.
+        //
+        // Cả hai lần kiểm ném cùng một câu, nên test "không nộp được vào một vụ đã đóng" chỉ phân
+        // biệt được chúng nhờ một bộ quét virus giả đếm số lần bị gọi: vụ đã đóng TỪ ĐẦU phải dừng
+        // ở đây với 0 lượt quét (bỏ điều kiện này thì lượt quét xảy ra rồi mới bị lần dưới khoá
+        // chặn — đỏ). Lần dưới khoá có test riêng ("bị đóng trong lúc quét virus"). Điều kiện này
+        // ở đây vì HIỆU NĂNG, không vì an toàn.
+        if ($matter?->isClosed()) {
+            throw MatterClosedForSubmission::make();
+        }
+
         // Bước 2-5, cho TỪNG tệp của lô — xem docblock lớp, mục R10. Một lô hai tệp mà tệp thứ
         // hai là mã độc phải dừng CẢ LÔ trước khi bất kỳ tệp nào của nó chạm tới đĩa `private`:
         // vòng lặp này chạy NGOÀI transaction, trước khi `Document` đầu tiên được tạo, nên một
@@ -201,6 +229,14 @@ class SubmitClientDocument
             // `lockForUpdate()` thì KHÁC: nó nối tiếp hai lần nộp song song trên cùng một đầu
             // mục trên MariaDB, nhưng bộ test chạy SQLite, nơi nó không sinh ra khoá nào. Không
             // test nào trong dự án chứng minh được phần khoá của câu này.
+            //
+            // M7 Task 3, THỨ TỰ KHOÁ: dòng `matters` TRƯỚC, đầu mục sau (ràng buộc toàn cục của
+            // làn — mọi nơi khoá `matters` trước để không tạo chu trình khoá với một transaction
+            // khác đi theo chiều ngược lại). `$item->matter_id` là cột do CSDL trả về ở lần đọc
+            // ngoài transaction phía trên, không phải một giá trị caller gán được; và vì
+            // `matter_checklist_items.matter_id` không bao giờ được cập nhật sau khi dòng sinh ra
+            // (không Action nào ghi cột đó), nó đáng tin ở đây dù đọc trước cửa sổ quét.
+            $matter = $this->scopelessly(Matter::query())->lockForUpdate()->find($item->matter_id);
             $locked = $this->findChecklistItem($item->getKey(), lock: true);
 
             // Và HỎI LẠI QUYỀN, trên bản đọc lại. Lần hỏi trước cửa sổ quét không còn trả lời
@@ -221,9 +257,28 @@ class SubmitClientDocument
             // nhưng đổi nó thành `withTrashed()` KHÔNG làm đỏ test nào — `Gate` từ chối cả hai
             // đường, vì `visibleToPortal()` hỏi lại đầu mục bằng `whereHas('matter')` và câu đó
             // cũng loại hồ sơ đã xoá. Điều kiện có test đứng sau ở đây là chính lần hỏi `Gate`.
-            $matter = $this->scopelessly(Matter::query())->find($locked->matter_id);
+            //
+            // M7 Task 3: `$matter` được đọc dưới khoá ở đầu transaction (xem "THỨ TỰ KHOÁ" trên),
+            // nên câu kiểm tra "vụ đã đóng" ngay dưới đây đọc đúng giá trị MỚI NHẤT của
+            // `closed_at`, không phải một ảnh chụp trước cửa sổ quét virus 30 giây.
             $locked->setRelation('matter', $matter);
             $this->authorize($actor, $locked);
+
+            // M7 Task 3 (sửa 2026-09-27, đoạn "Danh mục hồ sơ của vụ đã đóng"): một vụ đã kết
+            // thúc không nhận thêm giấy tờ nào qua cổng khách nữa — nếu không, một lượt nộp sinh
+            // đầu mục `pending_review` mà không ai còn duyệt được (danh mục vụ đã đóng là chỉ đọc
+            // ở phía văn phòng, xem `MatterChecklistReadOnly`). Đứng SAU `authorize()`: đây là một
+            // câu về TRẠNG THÁI hồ sơ, chỉ nói cho người đã qua được cổng quyền — nói nó trước sẽ
+            // là một máy dò "vụ này đã đóng chưa" cho một id bất kỳ (SPEC §10.10).
+            //
+            // `MatterClosedForSubmission`, KHÔNG `AuthorizationException` — xem docblock lớp đó,
+            // mục "Không dùng AuthorizationException": `SubmitDocument::submit()` đổi MỌI
+            // `AuthorizationException` từ Action thành `abort(404)` trống trơn, đúng cho ba tình
+            // huống của `refuse()` nhưng SAI ở đây — R8/ctl-3 đòi khách ĐỌC ĐƯỢC câu mời gọi
+            // hotline, không phải một trang 404.
+            if ($matter->isClosed()) {
+                throw MatterClosedForSubmission::make();
+            }
 
             // Bước 7, phần đánh số. ĐỊNH NGHĨA DUY NHẤT nằm ở `StoresDocumentFile
             // ::nextInSubmissionChain()`, nơi phát biểu luôn cái bất biến mà không chỉ mục cơ sở dữ

@@ -23,6 +23,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -475,6 +476,35 @@ it('says the office is now checking the file, in those words', function () {
         ->call('submit');
 
     expect(submitRegion($component->html()))->toContain('Đang chờ văn phòng kiểm tra');
+});
+
+/**
+ * Rà soát cuối làn M6 (I1) — VIẾT LẠI khi gộp M7 vào `main`. Câu cảm ơn sau khi nộp
+ * (`portal_submit.done.body`) hứa "Nếu có gì chưa ổn, chúng tôi sẽ gửi email nêu rõ lý do". Bản M6
+ * giữ lời hứa đó trên một vụ ĐÃ ĐÓNG còn trên cổng bằng cách cho lần từ chối ở đó gửi thư. Từ M7
+ * Task 3 (kế hoạch M7, "Danh mục hồ sơ của vụ đã đóng" — việc M6.5 hoãn sang M7) danh mục của vụ đã
+ * đóng là chỉ đọc, nên văn phòng không còn từ chối được ở đó — lời hứa chỉ giữ được nếu nó không bao
+ * giờ được nói ra: cổng từ chối lần nộp TRƯỚC câu cảm ơn (`MatterClosedForSubmission`, câu mời gọi
+ * hotline — test "shows a sentence inviting the client to call the office…" dưới đây), đầu mục không
+ * đổi, không tài liệu nào được tạo, không thư nào đi. Trên vụ còn mở, lời hứa được giữ —
+ * `ChecklistRelationManagerTest`, "tells the reviewer after rejecting…", dòng `email`.
+ */
+it('never makes the email promise of the thank-you sentence on a closed matter the office left on the portal', function () {
+    Mail::fake();
+    $this->matter->update(['closed_at' => now()->subDay()]);
+
+    $component = submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->set('data.file', submitPagePdf())
+        ->call('submit')
+        ->assertHasErrors('data.file');
+
+    expect(submitRegion($component->html()))
+        ->not->toContain(e(__('portal_submit.done.body', ['name' => $this->item->name])))
+        ->and($this->item->refresh()->status)->toBe(ChecklistItemStatus::Missing)
+        ->and(Document::query()->count())->toBe(0);
+
+    Mail::assertNothingSent();
 });
 
 /**
@@ -951,6 +981,33 @@ it('answers with 404 when the office pulls the matter off the portal between two
     $component->call('submit')->assertNotFound();
 
     expect(Document::query()->count())->toBe(0);
+});
+
+/**
+ * M7 Task 3 — vế THỨ BA, cố ý tách khỏi hai test 404 ngay trên (gộp lại thì cái này che cái kia,
+ * cùng lý lẽ ngay phía trên). "Vụ đã đóng" đi ra bằng một câu HIỆN TRÊN Ô TỆP, không phải 404:
+ * `SubmitClientDocument` ném `MatterClosedForSubmission` — một `DomainException` riêng, KHÔNG
+ * `AuthorizationException` — chính xác để trang này KHÔNG đổi nó thành `abort(404)` (xem
+ * docblock `SubmitClientDocument`, mục "M7 Task 3", và docblock lớp exception đó). Khách đã có
+ * quyền hợp lệ trên đúng đầu mục này; câu cần đọc là lời mời gọi hotline, không phải một trang
+ * trống.
+ */
+it('shows a sentence inviting the client to call the office when the matter has closed, not a 404', function () {
+    $component = submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->set('data.file', submitPagePdf());
+
+    $this->matter->update(['closed_at' => now()->subDay()]);
+
+    $component->call('submit');
+
+    $component->assertHasErrors('data.file');
+
+    expect($component->errors()->first('data.file'))
+        ->toBe(__('checklist.submit.matter_closed', ['hotline' => config('vkcrm.brand.hotline')]));
+
+    expect(Document::query()->count())->toBe(0)
+        ->and($this->item->fresh()->status)->toBe(ChecklistItemStatus::Missing);
 });
 
 // =========================================================================================
@@ -1494,8 +1551,8 @@ it('empties the file field after a successful send', function () {
  * Dải 13–20 MB là dải mà SPEC §14 mục 4 sống hay chết: một khách chụp sổ đỏ bằng điện thoại đời
  * nay ra khoảng 15 MB.
  *
- * **Bảy lần POST, và con số bảy phụ thuộc vào `throttle:20,60` ở cùng tệp cấu hình** — đo được
- * bằng đột biến: hạ throttle xuống `5,60` thì test này đỏ ở 200/429 chứ không ở kích thước, tức
+ * **Bảy lần POST (mỗi lần một tệp), và con số bảy phụ thuộc vào `UploadThrottle::FILES_PER_HOUR`
+ * ở cùng tệp cấu hình** — đo được bằng đột biến: hạ trần xuống 5 thì test này đỏ ở 200/429 chứ không ở kích thước, tức
  * nó tố cáo đúng lỗi nhưng bằng sai câu. Không tách ra được mà vẫn giữ lời hứa "endpoint THẬT":
  * cả hai luật sống trên cùng một route. Nên nó được ghi lại ở đây, và ai hạ mức throttle xuống
  * dưới 8 phải đọc dòng này trước khi đi tìm lỗi ở luật `max`.
@@ -1654,6 +1711,48 @@ it('names the hourly limit when the endpoint refuses with 429, instead of blamin
         // Và KHÔNG phải câu chung đổ cho dung lượng với sóng.
         ->not->toContain('sóng')
         ->not->toContain('HDR')
+        ->not->toContain('kilobyte');
+});
+
+/**
+ * M8 Task 3: endpoint đếm TỆP và từ chối CẢ lô nếu lô làm vượt trần — mà KHÔNG tăng bộ đếm. Nên
+ * bộ đếm có thể mới ở 19/20 trong khi một lô 2 tệp bị từ chối bằng 429; câu cũ "bộ đếm đã đầy"
+ * (`tooManyAttempts`) khi đó trả `false` và khách đọc câu chung đổ cho dung lượng và sóng — đúng
+ * lỗi mà test ngay trên sinh ra để đóng, ở một đường mới. `_uploadErrored()` phải nhận ra lần từ
+ * chối gần nhất qua dấu mà middleware đánh (`UploadThrottle::markRefused()`).
+ */
+it('names the hourly limit when the endpoint refused a whole batch although the counter is not full', function () {
+    $url = submitUploadUrl();
+
+    for ($attempt = 1; $attempt <= 19; $attempt++) {
+        expect(submitPostBytes(1, $url)->status())->toBe(200, 'lần '.$attempt);
+    }
+
+    $key = UploadThrottle::cacheKeyFor(Document::recipientToken($this->clientUser));
+
+    // Lô hai tệp: 19 + 2 = 21 > 20 → từ chối cả lô, bộ đếm đứng nguyên ở 19.
+    $refusal = $this->post(
+        $url,
+        ['files' => [
+            UploadedFile::fake()->create('mat-truoc.jpg', 1024, 'image/jpeg'),
+            UploadedFile::fake()->create('mat-sau.jpg', 1024, 'image/jpeg'),
+        ]],
+        ['Accept' => 'application/json'],
+    );
+
+    expect($refusal->status())->toBe(429)
+        ->and(RateLimiter::attempts($key))->toBe(19)
+        ->and(RateLimiter::tooManyAttempts($key, UploadThrottle::FILES_PER_HOUR))->toBeFalse();
+
+    $message = submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->call('_uploadErrored', 'data.file', null, false)
+        ->errors()->first('data.file');
+
+    expect($message)
+        ->toContain((string) UploadThrottle::FILES_PER_HOUR)
+        ->toContain('phút')
+        ->not->toContain('sóng')
         ->not->toContain('kilobyte');
 });
 

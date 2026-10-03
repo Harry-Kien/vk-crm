@@ -106,7 +106,10 @@ return [
     'done' => [
         'heading' => 'Chúng tôi đã nhận được',
         'status' => 'Đang chờ văn phòng kiểm tra',
-        'body' => 'Chúng tôi đã nhận ":name" và sẽ kiểm tra trong thời gian sớm nhất. Nếu có gì chưa ổn, lý do sẽ hiện trên trang tiến độ hồ sơ để anh/chị gửi lại, và văn phòng sẽ liên hệ khi cần.',
+        // M6 Task 3: thư `client.document_rejected` giờ CÓ THẬT — câu cũ chỉ hứa "văn phòng sẽ
+        // liên hệ khi cần" (mơ hồ, không nói bằng cách nào); giờ nói đúng: một email sẽ tới nếu
+        // có vấn đề, cùng lý do hiện trên trang tiến độ.
+        'body' => 'Chúng tôi đã nhận ":name" và sẽ kiểm tra trong thời gian sớm nhất. Nếu có gì chưa ổn, chúng tôi sẽ gửi email nêu rõ lý do, và lý do đó cũng hiện trên trang tiến độ hồ sơ để anh/chị gửi lại.',
         'another' => 'Gửi thêm giấy tờ khác',
     ],
 

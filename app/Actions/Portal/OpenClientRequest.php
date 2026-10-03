@@ -5,6 +5,7 @@ namespace App\Actions\Portal;
 use App\Actions\Concerns\ChecksAccountActive;
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\ClientRequestStatus;
+use App\Events\ClientRequestOpened;
 use App\Models\ClientRequest;
 use App\Models\ClientUser;
 use App\Models\Matter;
@@ -128,6 +129,10 @@ class OpenClientRequest
             'matter_id' => $target->getKey(),
             'client_id' => $target->client_id,
         ], causer: $actor);
+
+        // M6 Task 4 (`requests/REQ-1`): báo cho văn phòng có yêu cầu mới. Xem docblock sự kiện
+        // cho lý do nó không mang sẵn người nhận và vì sao `ShouldDispatchAfterCommit`.
+        ClientRequestOpened::dispatch($request);
 
         return $request;
     }

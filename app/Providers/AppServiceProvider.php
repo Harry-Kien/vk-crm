@@ -6,12 +6,14 @@ use App\Actions\Backup\GuardBackupEncryption;
 use App\Actions\Backup\GuardOffServerBackupDestination;
 use App\Actions\Backup\GuardRcloneDestinationReachable;
 use App\Actions\Backup\PushBackupArchiveToRclone;
+use App\Enums\Role;
 use App\Http\Controllers\DocumentDownloadController;
 use App\Listeners\RecordOutboundMail;
 use App\Models\Client;
 use App\Models\ClientRequest;
 use App\Models\ClientRequestReply;
 use App\Models\ClientUser;
+use App\Models\CommunicationLog;
 use App\Models\Contract;
 use App\Models\ContractAmendment;
 use App\Models\Deadline;
@@ -30,13 +32,15 @@ use App\Support\Files\ClamAvScanner;
 use App\Support\Files\NullScanner;
 use App\Support\Files\VirusScanner;
 use App\Support\Mail\OutboundLedgerMailManager;
-use App\Support\UploadThrottle;
+use App\Support\Security\HttpsDefaults;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Foundation\Console\AboutCommand;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Spatie\Backup\Events\BackupManifestWasCreated;
 use Spatie\Backup\Events\BackupWasSuccessful;
@@ -78,6 +82,31 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        /*
+         * SPEC §10 mục 1 (kế hoạch M8 Task 1) — `SESSION_SECURE_COOKIE` để trống giải thành
+         * `true` ở mọi môi trường trừ `local`/`testing` (thành ngữ chung, xem
+         * `App\Support\Security\HttpsDefaults`). `config/session.php` VẪN đọc thẳng
+         * `env('SESSION_SECURE_COOKIE')` (không đổi), nên giá trị đọc ra ở ĐÂY còn là giá trị THÔ
+         * — ghi đè lại đúng khoá đó SAU KHI môi trường đã biết. `boot()` LÀ nơi AN TOÀN DUY NHẤT
+         * để làm việc này: nó chạy sau `LoadConfiguration` (nên `app()->environment()` đã có câu
+         * trả lời) và chạy TRƯỚC bất kỳ middleware nào — `Illuminate\Foundation\Http\Kernel`
+         * chạy bootstrapper `BootProviders` (gọi `boot()` của mọi provider) làm bước CUỐI của
+         * `bootstrap()`, trước khi router gửi request vào pipeline middleware, nên
+         * `StartSession` không bao giờ đọc được giá trị thô còn sót lại. Đọc thêm lý do "vì sao
+         * không đặt logic này thẳng trong `config/session.php`" ở docblock của `HttpsDefaults`.
+         */
+        config(['session.secure' => HttpsDefaults::boolFromRaw(config('session.secure'))]);
+
+        /*
+         * `URL::forceHttps()` không đặt trong middleware `EnforceHttps`: một job hàng đợi (thư có
+         * link tải tệp ký sẵn, PDF xuất ra) không đi qua middleware nào, nhưng NÓ VẪN chạy qua
+         * provider này — mọi tiến trình (web, `queue:work`, lệnh artisan) đều gọi `boot()`. Đặt ở
+         * đây để link luôn là `https` bất kể ai sinh ra nó, không riêng request HTTP.
+         */
+        if (HttpsDefaults::boolFromRaw(config('vkcrm.security.force_https'))) {
+            URL::forceHttps();
+        }
+
         /*
          * Cánh cửa thư đi ra (SPEC §4.15, Phán quyết R1 của M6): nhật ký được ghi bởi một
          * listener nghe sự kiện thư của Laravel, không bởi từng nơi gửi thư — nên một thư mà
@@ -125,6 +154,18 @@ class AppServiceProvider extends ServiceProvider
          */
         Event::listen(BackupWasSuccessful::class, [PushBackupArchiveToRclone::class, 'handle']);
 
+        /*
+         * M7 Task 2: trang tự viết `App\Filament\Admin\Pages\BulkReassign` (bàn giao hàng loạt) —
+         * admin hoặc trưởng phòng, cùng phán quyết controller ("luật sư dùng nút 'Bàn giao' từng
+         * vụ như hiện nay"). `Gate::define()` thay vì thêm một quyền thứ 14 vào
+         * `App\Enums\Permission` — enum đó ghim đúng "13 quyền ở SPEC §5", một danh sách đóng mà
+         * SPEC liệt kê tường minh; ability này không nằm trong danh sách đó và không cần một cột
+         * `permissions` mới cho một cổng chỉ mở MỘT trang. Từng vụ việc bên trong trang này vẫn tự
+         * hỏi lại `MatterPolicy::manageTeam()` qua `ReassignMatter`/`ReassignMatters` — cổng này
+         * chỉ quyết định ai MỞ ĐƯỢC trang, không quyết định vụ việc nào bàn giao được.
+         */
+        Gate::define('bulkReassign', fn (User $user): bool => $user->hasRole(Role::Admin->value) || $user->hasRole(Role::Manager->value));
+
         Relation::enforceMorphMap([
             'user' => User::class,
             'client_user' => ClientUser::class,
@@ -163,6 +204,10 @@ class AppServiceProvider extends ServiceProvider
             // nhận, Task 2) và `outbound_messages.related` là một lỗi 500.
             'intake_request' => IntakeRequest::class,
             'intake_party' => IntakeParty::class,
+            // M7 Task 8: chủ thể của `communication_logged` / `communication_log_deleted`. Cũng
+            // có tên trong `ActivityOwningMatter::MATTER_OWNED`, để dòng nhật ký của một vụ
+            // `restricted` không lọt ra trang Nhật ký hệ thống.
+            'communication_log' => CommunicationLog::class,
         ]);
 
         // Giới hạn lượt tải tệp (route `documents.download`). Con số và toàn bộ lý lẽ — kể cả vì
@@ -173,20 +218,10 @@ class AppServiceProvider extends ServiceProvider
             DocumentDownloadController::DOWNLOADS_PER_MINUTE,
         )->by(DocumentDownloadController::rateLimitKey($request)));
 
-        /*
-         * Giới hạn lượt TẢI TỆP LÊN của endpoint `livewire.upload-file` (SPEC §10.3). Cùng thành
-         * ngữ với bộ đếm ngay trên, và cố ý cùng thành ngữ: con số, cách khoá và toàn bộ lý lẽ
-         * nằm ở `App\Support\UploadThrottle`; ở đây chỉ có chỗ cắm vào framework. Chỗ cắm phía
-         * route nằm ở `config/livewire.php` (`throttle:livewire-upload`).
-         *
-         * Một bộ đếm CÓ TÊN chứ không phải `throttle:20,60` trần, vì chỉ bộ đếm có tên mới tự
-         * quyết định được khoá: `ThrottleRequests` mặc định hỏi guard MẶC ĐỊNH, thứ luôn rỗng
-         * trên cổng khách hàng, nên bản trần khoá cả hai vợ chồng vào một rổ theo địa chỉ.
-         */
-        RateLimiter::for(UploadThrottle::NAME, fn (Request $request) => Limit::perMinutes(
-            UploadThrottle::WINDOW_MINUTES,
-            UploadThrottle::FILES_PER_HOUR,
-        )->by(UploadThrottle::keyFor($request)));
+        // Giới hạn TẢI TỆP LÊN của endpoint `livewire.upload-file` (SPEC §10.3) KHÔNG còn đăng ký ở
+        // đây: từ M8 Task 3 nó là middleware `App\Http\Middleware\ThrottleUploadedFiles` (cắm ở
+        // `config/livewire.php`), vì một bộ đếm có tên của `ThrottleRequests` đếm REQUEST còn SPEC
+        // đòi đếm TỆP — xem docblock `App\Support\UploadThrottle`.
 
         // Câu trả lời cho "virus scanning có thật sự bật không" phải lấy được từ chính hệ thống,
         // không phải từ việc đọc `.env` hay mã nguồn — `php artisan about` là chỗ một người vận

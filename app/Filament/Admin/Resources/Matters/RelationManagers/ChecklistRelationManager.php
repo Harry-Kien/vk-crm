@@ -6,6 +6,7 @@ use App\Actions\Document\AddChecklistItem;
 use App\Actions\Document\ChecklistProgress;
 use App\Actions\Document\MarkChecklistItemNotApplicable;
 use App\Actions\Document\ReviewChecklistItem;
+use App\Actions\Notification\NotifyClientOfChecklistItemRejected;
 use App\Enums\ChecklistItemStatus;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Concerns\ScopesToVisibleMatters;
@@ -264,6 +265,10 @@ class ChecklistRelationManager extends RelationManager
             // người (xem docblock lớp). Hỏi `MatterChecklistItemPolicy::create()`, KHÔNG phải
             // `checklist.review`: đây là "xin thêm giấy tờ", không phải "duyệt giấy tờ đã nộp".
             ->authorize(fn (): bool => Gate::allows('create', [MatterChecklistItem::class, $matter]))
+            // M7 Task 3: danh mục hồ sơ của vụ đã đóng là chỉ đọc — cổng HIỂN THỊ, không phải
+            // cổng thật (Action tự hỏi lại `closed_at` dưới khoá; xem `MatterChecklistReadOnly`).
+            // Ẩn nút chỉ để người dùng không bấm vào một thao tác chắc chắn bị từ chối.
+            ->visible(fn (): bool => $matter->isOpen())
             ->schema([
                 TextInput::make('name')
                     ->label(__('checklist.tab.fields.item_name'))
@@ -376,6 +381,8 @@ class ChecklistRelationManager extends RelationManager
             ->modalHeading(__('checklist.tab.actions.accept_heading'))
             ->modalDescription(__('checklist.tab.actions.accept_description'))
             ->authorize(fn (MatterChecklistItem $record): bool => Gate::allows('review', $record))
+            // M7 Task 3: danh mục hồ sơ của vụ đã đóng là chỉ đọc — xem `addItemAction()`.
+            ->visible(fn (): bool => $this->getOwnerRecord()->isOpen())
             ->schema($this->documentsSchema())
             ->successNotificationTitle(__('checklist.tab.actions.accept_success'))
             ->action(fn (Action $action, MatterChecklistItem $record, array $data) => $this->runAction(
@@ -398,8 +405,10 @@ class ChecklistRelationManager extends RelationManager
             ->modalHeading(__('checklist.tab.actions.reject_heading'))
             ->authorize(fn (MatterChecklistItem $record): bool => Gate::allows('review', $record))
             // Cổng TRẠNG THÁI, chép từ `ReviewChecklistItem::guardDecisionAgainstState()`: không
-            // có gì đang chờ thì không có gì để từ chối.
-            ->visible(fn (MatterChecklistItem $record): bool => static::hasSomethingToReject($record))
+            // có gì đang chờ thì không có gì để từ chối. M7 Task 3: VÀ vụ việc chưa đóng — xem
+            // `addItemAction()`.
+            ->visible(fn (MatterChecklistItem $record): bool => static::hasSomethingToReject($record)
+                && $this->getOwnerRecord()->isOpen())
             ->schema([
                 // Ba mẫu của SPEC §6.7, mỗi mẫu một nút, bấm một cái là điền vào ô lý do bên
                 // dưới. Chúng là `Action` của schema nên Filament tự lo việc ghi state đúng chỗ
@@ -435,7 +444,15 @@ class ChecklistRelationManager extends RelationManager
                     ->label(__('checklist.tab.fields.templates')),
                 Textarea::make('rejection_reason')
                     ->label(__('checklist.tab.fields.rejection_reason'))
-                    ->helperText(__('checklist.tab.fields.rejection_reason_help'))
+                    // Fix round 1 (finding Important 2) + fix round 2 (finding 1, 2): câu này nói
+                    // khách sẽ đọc lý do ở ĐÂU — email và cổng, chỉ cổng, hay không ở đâu cả — xem
+                    // docblock `successNotificationTitle()` bên dưới và `self::rejectionNoticeCopy()`.
+                    ->helperText(fn (MatterChecklistItem $record): string => static::rejectionNoticeCopy(
+                        $record,
+                        emailed: 'checklist.tab.fields.rejection_reason_help',
+                        portalOnly: 'checklist.tab.fields.rejection_reason_help_no_notice',
+                        hidden: 'checklist.tab.fields.rejection_reason_help_portal_hidden',
+                    ))
                     ->rows(4)
                     ->columnSpanFull()
                     // Nửa "cho người dùng thấy" của luật SPEC §4.10 ("tối thiểu 20 ký tự"); nửa
@@ -448,7 +465,27 @@ class ChecklistRelationManager extends RelationManager
                 // R11 (M6.5 Task 17, checklist-04) — xem docblock `self::documentsSchema()`.
                 ...$this->documentsSchema(),
             ])
-            ->successNotificationTitle(__('checklist.tab.actions.reject_success'))
+            /**
+             * Fix round 1 (finding Important 2). Bản trước hứa VÔ ĐIỀU KIỆN "một email đã được
+             * gửi báo khách về việc này" — SAI khi khách không có tài khoản portal đủ điều kiện
+             * (chưa có tài khoản, chưa kích hoạt, hoặc bị khoá) HAY khi vụ việc đang tắt công tắc
+             * portal (`is_published_to_portal`, chính lỗ hổng Critical 1 vừa lấp ở
+             * `NotifyClientOfChecklistItemRejected`): `handle()` sẽ trả về `0`, không gửi gì,
+             * nhưng nhân sự đã tin lời hứa cũ và không tự liên hệ khách bằng kênh khác — đúng lớp
+             * lời hứa sai mà `CopyPromisesTest` tồn tại để chặn.
+             *
+             * Fix round 2: cùng lớp lỗi, hai chỗ fix round 1 còn sót — toast và `handle()` lệch
+             * nhau (finding 1: giờ cùng hỏi `NotifyClientOfChecklistItemRejected`), và câu "không
+             * email" nói lý do hiện trên cổng cả khi vụ ẩn khỏi cổng (finding 2). Giờ ba câu, chọn
+             * ở {@see self::rejectionNoticeCopy()}. (Rà soát cuối làn M6, I1, cho vụ ĐÃ ĐÓNG còn trên
+             * cổng thuộc nhánh "có email"; gộp M7 vào `main`: từ M7 Task 3 nút này ẩn trên vụ đã đóng.)
+             */
+            ->successNotificationTitle(fn (MatterChecklistItem $record): string => static::rejectionNoticeCopy(
+                $record,
+                emailed: 'checklist.tab.actions.reject_success',
+                portalOnly: 'checklist.tab.actions.reject_success_no_notice',
+                hidden: 'checklist.tab.actions.reject_success_portal_hidden',
+            ))
             ->action(fn (Action $action, MatterChecklistItem $record, array $data) => $this->runAction(
                 $action,
                 fn () => app(ReviewChecklistItem::class)->handle(
@@ -472,7 +509,9 @@ class ChecklistRelationManager extends RelationManager
             ->modalHeading(__('checklist.tab.actions.not_applicable_heading'))
             ->modalDescription(__('checklist.tab.actions.not_applicable_description'))
             ->authorize(fn (MatterChecklistItem $record): bool => Gate::allows('review', $record))
-            ->visible(fn (MatterChecklistItem $record): bool => $record->status !== ChecklistItemStatus::PendingReview)
+            // M7 Task 3: VÀ vụ việc chưa đóng — xem `addItemAction()`.
+            ->visible(fn (MatterChecklistItem $record): bool => $record->status !== ChecklistItemStatus::PendingReview
+                && $this->getOwnerRecord()->isOpen())
             ->successNotificationTitle(__('checklist.tab.actions.not_applicable_success'))
             ->action(fn (Action $action, MatterChecklistItem $record) => $this->runAction(
                 $action,
@@ -501,5 +540,36 @@ class ChecklistRelationManager extends RelationManager
             [ChecklistItemStatus::Missing, ChecklistItemStatus::NotApplicable],
             true,
         );
+    }
+
+    /**
+     * "Khách sẽ biết về lần từ chối này bằng đường nào" — chọn MỘT trong ba khoá câu chữ cho toast
+     * và helper text của nút "Cần nộp lại":
+     *
+     *  - `$emailed`: thư `client.document_rejected` sẽ đi (vụ chưa huỷ — đang mở HAY đã đóng —, bật
+     *    công bố portal, khách có tài khoản đã kích hoạt) — và lý do hiện trên cổng.
+     *  - `$portalOnly`: không thư (khách chưa có tài khoản đã kích hoạt, hay tài khoản bị khoá),
+     *    nhưng lý do VẪN hiện trên cổng khách hàng.
+     *  - `$hidden`: không thư, VÀ cổng giấu cả vụ lẫn lý do (tắt công bố portal, khách hàng đã
+     *    xoá) — luật sư phải tự liên hệ khách.
+     *
+     * Hai câu hỏi đều gọi thẳng `NotifyClientOfChecklistItemRejected`
+     * ({@see NotifyClientOfChecklistItemRejected::hasEligibleRecipient()},
+     * {@see NotifyClientOfChecklistItemRejected::isShownOnPortal()}) — KHÔNG chép điều kiện nào ra
+     * đây, cùng lý do `BuildsStageUpdateSchema::noActivatedAccountWarning()` dùng lại
+     * `NotifyClientOfStageUpdate::hasEligibleRecipient()`: câu trên màn hình không bao giờ được
+     * phép lệch với chính Action gửi thư, hay với chính cổng khách hàng. Truyền `$item` (không
+     * `$item->matter`): Action tự đọc vụ việc theo `matter_id`, nên một quan hệ `null` (vụ đã xoá
+     * mềm) không thể thành lỗi kiểu ở đây.
+     */
+    private static function rejectionNoticeCopy(MatterChecklistItem $item, string $emailed, string $portalOnly, string $hidden): string
+    {
+        $notifier = app(NotifyClientOfChecklistItemRejected::class);
+
+        return __(match (true) {
+            $notifier->hasEligibleRecipient($item) => $emailed,
+            $notifier->isShownOnPortal($item) => $portalOnly,
+            default => $hidden,
+        });
     }
 }

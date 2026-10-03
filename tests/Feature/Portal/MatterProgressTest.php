@@ -3,12 +3,15 @@
 use App\Actions\Document\ChecklistProgress;
 use App\Actions\Document\PublishDocument;
 use App\Enums\ChecklistItemStatus;
+use App\Enums\ClientRequestStatus;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Filament\Portal\Pages\MatterProgress;
 use App\Models\Client;
+use App\Models\ClientRequest;
+use App\Models\ClientRequestReply;
 use App\Models\ClientUser;
 use App\Models\Deadline;
 use App\Models\Document;
@@ -1462,6 +1465,61 @@ it('keeps the office phone number on the page beside the button to send a reques
     expect($region)->toContain(__('portal_progress.blocks.requests.open'))
         ->and($region)->toContain(config('vkcrm.brand.hotline'))
         ->and($region)->toContain('tel:'.config('vkcrm.brand.hotline'));
+});
+
+// =========================================================================================
+// M6 Task 4 (`requests/REQ-4`, đính chính SPEC §9 2026-09-27) — huy hiệu "có trả lời mới"
+// trong khối 7, cùng định nghĩa với MyMatters (App\Support\ClientRequestActivity).
+// =========================================================================================
+
+it('shows the new-reply notice in block 7 when staff has answered after the clients last entry', function () {
+    $request = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'status' => ClientRequestStatus::Answered,
+    ]);
+    $staff = User::factory()->create();
+    ClientRequestReply::factory()->for($request, 'request')->create([
+        'author_type' => $staff->getMorphClass(),
+        'author_id' => $staff->id,
+    ]);
+
+    $region = progressRegion(
+        $this->actingAs($this->clientUser, 'client')->get(progressUrl($this->matter))->assertOk()->getContent()
+    );
+
+    expect($region)->toContain(__('portal_progress.blocks.requests.new_reply'));
+});
+
+it('never shows the new-reply notice when nobody has written a request yet', function () {
+    $region = progressRegion(
+        $this->actingAs($this->clientUser, 'client')->get(progressUrl($this->matter))->assertOk()->getContent()
+    );
+
+    expect($region)->not->toContain(__('portal_progress.blocks.requests.new_reply'));
+});
+
+/**
+ * Tầng thứ hai (`Gate::allows('view', ...)`) giữ đúng điều kiện `ClientRequestPolicy::view()`
+ * phát biểu bằng THUỘC TÍNH — một luồng đã RÚT (xoá mềm bình thường, không cần đục thủng scope
+ * nào) không bật huy hiệu, dù nó có một câu trả lời của nhân sự.
+ */
+it('never shows the new-reply notice for a retracted thread', function () {
+    $request = ClientRequest::factory()->for($this->matter)->create([
+        'client_user_id' => $this->clientUser->id,
+        'status' => ClientRequestStatus::Answered,
+    ]);
+    $staff = User::factory()->create();
+    ClientRequestReply::factory()->for($request, 'request')->create([
+        'author_type' => $staff->getMorphClass(),
+        'author_id' => $staff->id,
+    ]);
+    $request->delete();
+
+    $region = progressRegion(
+        $this->actingAs($this->clientUser, 'client')->get(progressUrl($this->matter))->assertOk()->getContent()
+    );
+
+    expect($region)->not->toContain(__('portal_progress.blocks.requests.new_reply'));
 });
 
 /** @return list<string> `href` của mọi thẻ `<a>` mang đúng nhãn `$label`, đọc từ HTML thật. */

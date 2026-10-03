@@ -11,6 +11,7 @@ use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Exceptions\ChecklistItemNotReviewable;
 use App\Exceptions\FileRejected;
+use App\Exceptions\MatterChecklistReadOnly;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Document;
@@ -968,3 +969,99 @@ it('nộp tệp nhóm B, C hoặc D vào một đầu mục đang chờ duyệt 
     'nhóm C' => [DocumentGroup::Authority],
     'nhóm D' => [DocumentGroup::Internal],
 ]);
+
+// ---------------------------------------------------------------------------------------------
+// M7 Task 3, vòng sửa 1 — danh mục của vụ đã kết thúc là CHỈ ĐỌC, kể cả với lần nộp thay.
+// ---------------------------------------------------------------------------------------------
+
+it('không nộp thay được ở nhóm A vào đầu mục của vụ đã kết thúc, và đầu mục đứng nguyên', function () {
+    // Trước bản sửa này, `settleChecklistItem()` ghi `accepted` + `reviewed_by`, xoá
+    // `rejection_reason` trên một vụ đã đóng — một lần duyệt tương đương, và một version "mới
+    // nhất được chấp nhận" mới cho gói bàn giao mà lẽ ra đã đứng yên.
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = staffUploadMatter($lawyer, ['closed_at' => now()->subDay()]);
+    $item = MatterChecklistItem::factory()->create([
+        'matter_id' => $matter->id,
+        'status' => ChecklistItemStatus::Rejected,
+        'rejection_reason' => 'Ảnh chụp bị mờ, anh/chị chụp lại giúp chúng tôi.',
+    ]);
+
+    expect(fn () => uploadStaffDocument($matter, $lawyer, DocumentGroup::ClientProvided, null, $item))
+        ->toThrow(MatterChecklistReadOnly::class, MatterChecklistReadOnly::make()->getMessage());
+
+    $item->refresh();
+
+    expect($item->status)->toBe(ChecklistItemStatus::Rejected)
+        ->and($item->reviewed_by)->toBeNull()
+        ->and($item->rejection_reason)->toBe('Ảnh chụp bị mờ, anh/chị chụp lại giúp chúng tôi.')
+        ->and(Document::query()->count())->toBe(0)
+        ->and(Media::query()->count())->toBe(0);
+});
+
+it('đọc closed_at MỚI NHẤT dưới khoá, không tin đối tượng vụ việc caller cầm trong tay', function () {
+    // Vụ việc đóng trong lúc quét virus (tới 30 giây): đối tượng caller cầm vẫn `closed_at =
+    // null`, dòng thật đã có giá trị.
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = staffUploadMatter($lawyer);
+    $item = MatterChecklistItem::factory()->create([
+        'matter_id' => $matter->id,
+        'status' => ChecklistItemStatus::Missing,
+    ]);
+
+    Matter::query()->whereKey($matter->id)->update(['closed_at' => now()]);
+
+    expect($matter->closed_at)->toBeNull();
+
+    expect(fn () => uploadStaffDocument($matter, $lawyer, DocumentGroup::ClientProvided, null, $item))
+        ->toThrow(MatterChecklistReadOnly::class);
+
+    expect($item->refresh()->status)->toBe(ChecklistItemStatus::Missing)
+        ->and(Document::query()->count())->toBe(0);
+});
+
+it('vụ đã kết thúc vẫn nhận tệp không gắn đầu mục ở mọi nhóm — gói bàn giao cần chúng', function (DocumentGroup $group) {
+    // Cặp dương của cổng trên: cổng hỏi về đầu mục, không hỏi về việc vụ đã đóng nói chung.
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = staffUploadMatter($lawyer, ['closed_at' => now()->subDay()]);
+
+    $document = uploadStaffDocument($matter, $lawyer, $group);
+
+    expect($document->exists)->toBeTrue()
+        ->and($document->group)->toBe($group)
+        ->and($document->matter_checklist_item_id)->toBeNull();
+})->with(fn () => DocumentGroup::cases());
+
+it('vụ đã kết thúc từ chối MỌI nhóm khi tệp gắn vào một đầu mục, đầu mục không bị đụng tới', function (DocumentGroup $group) {
+    // Danh mục của vụ đã đóng đứng yên trọn vẹn: cả trạng thái lẫn tập tài liệu gắn vào nó
+    // (hộp xác nhận của `ReviewChecklistItem` so đúng tập này).
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = staffUploadMatter($lawyer, ['closed_at' => now()->subDay()]);
+    $item = MatterChecklistItem::factory()->create([
+        'matter_id' => $matter->id,
+        'status' => ChecklistItemStatus::Missing,
+    ]);
+
+    expect(fn () => uploadStaffDocument($matter, $lawyer, $group, null, $item))
+        ->toThrow(MatterChecklistReadOnly::class);
+
+    expect($item->refresh()->status)->toBe(ChecklistItemStatus::Missing)
+        ->and(Document::query()->count())->toBe(0);
+})->with(fn () => DocumentGroup::cases());
+
+it('vụ còn mở vẫn nộp thay được nhóm A vào đầu mục và đóng nó lại', function () {
+    // Cặp dương thứ hai: cổng chỉ đóng khi `closed_at` có giá trị.
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = staffUploadMatter($lawyer);
+    $item = MatterChecklistItem::factory()->create([
+        'matter_id' => $matter->id,
+        'status' => ChecklistItemStatus::Rejected,
+        'rejection_reason' => 'Ảnh chụp bị mờ, anh/chị chụp lại giúp chúng tôi.',
+    ]);
+
+    uploadStaffDocument($matter, $lawyer, DocumentGroup::ClientProvided, null, $item);
+
+    $item->refresh();
+
+    expect($item->status)->toBe(ChecklistItemStatus::Accepted)
+        ->and($item->reviewed_by)->toBe($lawyer->id);
+});

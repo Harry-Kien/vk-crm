@@ -5,6 +5,7 @@ namespace App\Actions\Matter;
 use App\Enums\ClientRequestStatus;
 use App\Enums\MatterRole;
 use App\Enums\Role;
+use App\Jobs\SendReassignmentDigest;
 use App\Models\ClientRequest;
 use App\Models\Deadline;
 use App\Models\Matter;
@@ -32,12 +33,29 @@ use Illuminate\Validation\ValidationException;
  * "ai đã thật sự hoàn thành mốc này". Đây là phán quyết của brief Task 4, và M7 R10 ghi lại chính
  * xác sự lệch này vào SPEC — không phải một chỗ bỏ sót ở đây.
  *
- * # Deferred (M6.5 → M6/M7)
+ * # Thư tổng hợp mốc hạn cho lead mới (M7 Task 1 — trước đó bị hoãn ở M6.5 Task 4)
  *
- * - **Thư tổng hợp mốc hạn cho lead mới** (SPEC §6.11 bước 3, "gửi email tổng hợp danh sách mốc
- *   hạn cho người nhận") phải đi qua hàng đợi, sau khi commit (R2) — hạ tầng thư xếp hàng đó là
- *   việc của M6.5 Task 11, CHƯA merge lúc Task 4 chạy. Action này KHÔNG gửi thư nào. M7 Task 1
- *   dựng lại đúng bước này trên hạ tầng thư đã có (kế hoạch M7, R6 và Task 1 đã ghi rõ).
+ * SPEC §6.11 bước 3 ("gửi email tổng hợp danh sách mốc hạn cho người nhận") bị hoãn ở M6.5 Task 4
+ * vì hạ tầng thư xếp hàng (M6.5 Task 11) CHƯA merge lúc đó. Nay hạ tầng đã có: bước cuối của
+ * transaction dưới đây dispatch {@see SendReassignmentDigest} bằng `->afterCommit()`
+ * (R2 — không bao giờ gửi thư TRONG transaction), MẶC ĐỊNH bật (`$sendDigest = true`). Job đó tự
+ * dựng lại nội dung thư LÚC NÓ CHẠY — chỉ giữ mốc còn chưa hoàn thành và còn do lead mới phụ
+ * trách, bỏ vụ nào lead mới không còn xem được nữa — không tin ảnh chụp `$movedDeadlineIds`
+ * dưới đây đưa vào payload là còn đúng tới lúc thư rời tay (xem docblock của job).
+ *
+ * **`$sendDigest = false` dành cho M7 Task 2 (màn hình bàn giao HÀNG LOẠT, chưa tới lượt ở
+ * milestone này).** Task 2 gọi Action này lặp lại cho nhiều vụ việc, mỗi vụ một transaction
+ * riêng (không đổi ở đây) — và ĐỌC LẠI đúng {@see ReassignMatterResult::$movedDeadlineIds}/
+ * `$movedRequestIds` mà MỖI lần gọi trả về (fix round 1, finding 2 — bản trước chỉ trả về
+ * `StageLog` trần, không có cách nào khác để lấy đúng những id lần gọi ĐÓ vừa chuyển). Task 2
+ * KHÔNG được tự re-query `deadlines`/`client_requests` sau khi cả lô đã chạy xong: một câu hỏi
+ * "chưa hoàn thành và hiện do lead mới phụ trách" chạy SAU sẽ vô tình vét luôn cả những mốc lead
+ * mới ĐÃ giữ TỪ TRƯỚC lần bàn giao này (ví dụ vai `associate` trên một vụ khác trong cùng lô) —
+ * phá đúng câu "Nội dung = đúng những gì lần bàn giao NÀY chuyển" mà controller Task 1 đã ràng
+ * buộc (xem docblock {@see ReassignMatterResult}). Task 2 gộp các mảng id đó theo `matter_id` rồi
+ * tự dispatch MỘT `SendReassignmentDigest` duy nhất mang TOÀN BỘ `$matters` của cả lô — người
+ * nhận chỉ nhận đúng MỘT thư cho cả đợt bàn giao, không phải một thư trên mỗi vụ. Việc gộp
+ * payload nhiều vụ là việc của Task 2, không phải của Action này.
  *
  * # Gợi ý giới thiệu luật sư mới cho khách (SPEC §6.11 bước 4) — ĐÃ LÀM, KHÔNG nằm trong Action này
  *
@@ -103,6 +121,32 @@ use Illuminate\Validation\ValidationException;
  * vào, có thể cũ) — `withTrashed()` vì một lead cũ đã bị xoá mềm (qua một đường khác, trước khi
  * luật này tồn tại) vẫn cần tên thật cho dòng `stage_logs`/audit, không phải `null`.
  *
+ * # `$expectedLeadId` — vụ đã trôi lead hoặc đã đóng, dưới khoá (fix round 1, finding 1)
+ *
+ * M7 Task 2 (`App\Actions\Matter\ReassignMatters`, bàn giao hàng loạt) chọn TRƯỚC "luật sư đang
+ * phụ trách" trên màn hình, rồi mới liệt kê vụ việc của người đó để tick chọn — nhưng thời gian
+ * giữa lúc màn hình dựng danh sách đó và lúc actor bấm gửi có thể dài (đọc lý do, tick nhiều vụ).
+ * Nếu MỘT vụ trong lô đã bị bàn giao sang một lead THỨ BA ở một tab khác trong lúc đó, không câu
+ * hỏi nào ở trên (`manageTeam`, `is_active`/`trashed()` của lead mới, vai của lead mới) phát hiện
+ * ra chuyện đó — `manageTeam` chỉ hỏi actor có quản lý được vụ việc không, không hỏi "vụ này còn
+ * đúng do người mà màn hình ĐANG hiển thị phụ trách hay không". Kết quả (trước bản sửa này): vụ đó
+ * bị bàn giao LẦN NỮA, lần này từ lead thứ ba sang lead mới trên màn hình — đè mất bàn giao của tab
+ * kia mà không ai được báo, và báo "Đã bàn giao thành công." cho một vụ mà actor chưa từng thấy
+ * đúng lead hiện tại của nó.
+ *
+ * `$expectedLeadId` (từ `ReassignMatters`, chính là `lead_lawyer_id` đã chọn ở đầu màn hình hàng
+ * loạt) đóng khe hở đó: SAU khi khoá `$locked` và hỏi lại `manageTeam` trên bản ghi đã khoá, so
+ * `$locked->lead_lawyer_id` với `$expectedLeadId` — khác nhau thì vụ đã trôi sang tay người khác,
+ * từ chối. Cùng câu đó khoá luôn vụ đã ĐÓNG (`closed_at` khác `null`) — một vụ đóng giữa lúc màn
+ * hình đang mở không còn "việc" nào để bàn giao. Câu hỏi này CHẠY DƯỚI KHOÁ, không phải một câu đọc
+ * trước transaction: đọc trước sẽ vẫn có đúng cửa sổ đua với một tab khác giành khoá ngay sau lần
+ * đọc đó, y hệt lý do `manageTeam` phải hỏi lại trên `$locked` thay vì trên `$matter` caller đưa
+ * vào.
+ *
+ * `null` (mặc định) tắt hẳn câu hỏi này — nút "Bàn giao" MỘT vụ của `ViewMatter` không có khái
+ * niệm "lead đang chọn trên màn hình" để so sánh (actor bàn giao đúng vụ việc họ đang xem, không
+ * qua danh sách trung gian nào), nên không truyền `$expectedLeadId`.
+ *
  * **I3 residual (fix round 2) — vai cũng được hỏi lại trên `$lockedNewLead`, không chỉ
  * `is_active`/`trashed()`.** Bản round 1 chỉ khoá lại is_active/trashed; nếu đối tượng `$newLead`
  * caller đưa vào đã CACHE quan hệ `roles` từ một lần chạm trước đó (ví dụ
@@ -117,6 +161,17 @@ use Illuminate\Validation\ValidationException;
 class ReassignMatter
 {
     /**
+     * @param  bool  $sendDigest  Mặc định `true`: bàn giao MỘT vụ tự xếp thư tổng hợp cho lead
+     *                            mới (SPEC §6.11 bước 3). `false` dành cho M7 Task 2 (bàn giao
+     *                            hàng loạt) — xem docblock lớp, mục "Thư tổng hợp mốc hạn cho
+     *                            lead mới".
+     * @param  int|null  $expectedLeadId  Fix round 1, finding 1. Mặc định `null` (không hỏi).
+     *                                    M7 Task 2 truyền lead đang được chọn trên màn hình hàng
+     *                                    loạt — xem docblock lớp, mục "$expectedLeadId".
+     * @return ReassignMatterResult Fix round 1, finding 2 — trước đó trả về `StageLog` trần; xem
+     *                              docblock {@see ReassignMatterResult} cho lý do và cách Task 2
+     *                              dùng lại `$movedDeadlineIds`/`$movedRequestIds`.
+     *
      * @throws ValidationException
      */
     public function handle(
@@ -125,7 +180,9 @@ class ReassignMatter
         User $newLead,
         string $reason,
         bool $keepOldLeadAsAssociate,
-    ): StageLog {
+        bool $sendDigest = true,
+        ?int $expectedLeadId = null,
+    ): ReassignMatterResult {
         Gate::forUser($actor)->authorize('manageTeam', $matter);
 
         if (trim($reason) === '') {
@@ -152,13 +209,23 @@ class ReassignMatter
             ]);
         }
 
-        return DB::transaction(function () use ($matter, $actor, $newLead, $reason, $keepOldLeadAsAssociate): StageLog {
+        return DB::transaction(function () use ($matter, $actor, $newLead, $reason, $keepOldLeadAsAssociate, $sendDigest, $expectedLeadId): ReassignMatterResult {
             $locked = Matter::query()->whereKey($matter->getKey())->lockForUpdate()->firstOrFail();
 
             // Final review A-M5: câu `manageTeam` ở đầu hàm hỏi trên đối tượng caller đưa vào —
             // có thể đã cũ (một lượt bàn giao khác vừa đổi `lead_lawyer_id`). Hỏi lại trên bản
             // ghi ĐÃ KHOÁ; M7 sẽ gọi Action này hàng loạt, cổng phải đúng dưới khoá.
             Gate::forUser($actor)->authorize('manageTeam', $locked);
+
+            // Fix round 1, finding 1 — xem docblock lớp, mục "$expectedLeadId". Dưới khoá, ngay
+            // sau khi hỏi lại manageTeam: vụ đã trôi sang lead khác (tab kia bàn giao trước) hoặc
+            // đã đóng (closed_at khác null) giữa lúc màn hình hàng loạt đang mở thì từ chối NGAY,
+            // trước khi chạm tới bất kỳ bước ghi nào.
+            if ($expectedLeadId !== null && ($locked->lead_lawyer_id !== $expectedLeadId || $locked->isClosed())) {
+                throw ValidationException::withMessages([
+                    'matter_ids' => [__('reassign.validation.stale_or_closed')],
+                ]);
+            }
 
             // I2 (fix round 1): khoá dòng lead mới NGAY SAU dòng vụ việc — cùng thứ tự toàn cục
             // "vụ việc trước, bảng con sau" — rồi đọc lại `is_active`/`trashed()` DƯỚI KHOÁ. Câu
@@ -300,7 +367,21 @@ class ReassignMatter
                 'stage_log_id' => $stageLog->id,
             ], $actor);
 
-            return $stageLog;
+            // SPEC §6.11 bước 3 (M7 Task 1) — thư tổng hợp cho lead mới, chỉ những gì LẦN BÀN
+            // GIAO NÀY thực sự chuyển (không phải mọi mốc lead mới đang giữ). Payload chỉ mang
+            // ID — job tự dựng lại nội dung LÚC NÓ CHẠY, không tin đây còn đúng tới lúc đó (xem
+            // docblock lớp và của job). `$sendDigest = false`: M7 Task 2 tự gộp một thư cho cả lô.
+            if ($sendDigest) {
+                SendReassignmentDigest::dispatch($lockedNewLead->getKey(), [
+                    $locked->getKey() => [
+                        'deadline_ids' => $movedDeadlineIds->all(),
+                        'client_request_ids' => $movedRequestIds->all(),
+                        'reason' => $reason,
+                    ],
+                ])->afterCommit();
+            }
+
+            return new ReassignMatterResult($stageLog, $movedDeadlineIds->all(), $movedRequestIds->all());
         });
     }
 }

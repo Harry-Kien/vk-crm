@@ -4,9 +4,10 @@ namespace App\Support\Backup;
 
 /**
  * Phân tích `BACKUP_DISKS` (SPEC §10 mục 8; M8a Task 1, R3) — biến này THAY THẾ `BACKUP_DISK`
- * cũ trong `.env.example`. `BACKUP_DISK` không còn được đọc ở bất kỳ đâu trong mã nguồn (kiểm
- * bằng `grep -rn "BACKUP_DISK\b"`, ghi lại trong `docs/research/2026-09-26-sao-luu.md`); nó ở
- * lại trong `.env.example` chỉ vì luật của làn song song này là CHỈ NỐI THÊM, không xoá.
+ * cũ. `BACKUP_DISK` không còn được đọc ở bất kỳ đâu trong mã nguồn (kiểm bằng
+ * `grep -rn "BACKUP_DISK\b"`, ghi lại trong `docs/research/2026-09-26-sao-luu.md`); dòng mẫu của
+ * nó (cùng khối AWS) đã xoá khỏi `.env.example` ở M8 Task 7, và
+ * `tests/Feature/Deployment/EnvExampleTest.php` giữ cho không biến chết nào quay lại bản mẫu.
  *
  * Danh sách disk cấu hình bằng một chuỗi phân tách dấu phẩy, ví dụ `"google, ,office"` — có thể
  * có khoảng trắng quanh từng tên và phần tử rỗng (dấu phẩy cụt) do người vận hành gõ tay hoặc do

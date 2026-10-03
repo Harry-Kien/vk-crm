@@ -71,4 +71,25 @@ class OutboundMessagePolicy
 
         return app(MatterPolicy::class)->view($user, $matter);
     }
+
+    /**
+     * Nút "Gửi lại" trên một dòng `failed` (M6 Task 10, `App\Actions\Notification\
+     * ResendOutboundMessage`). **CHỈ ADMIN**, và vẫn phải qua {@see self::view()} của ĐÚNG dòng đó.
+     *
+     * Vì sao không mở cho ai có `matter.view` như `viewAny()`: gửi lại là một hành động có hậu quả
+     * ra ngoài (một thư thật tới hộp thư của khách hay của đồng nghiệp), khác hẳn việc đọc nhật ký.
+     * Kế hoạch M6 đề xuất admin và phán quyết của lane giữ nguyên — nhân sự thường không cần nút này
+     * để làm việc, và mỗi người bấm thêm là thêm một nguồn thư trùng. Hai điều kiện rời nhau chứ
+     * không thay nhau: admin thấy MỌI dòng theo `view()` hiện nay, nhưng nếu luật xem của một dòng
+     * siết lại sau này thì nút này siết theo mà không phải sửa ở đây.
+     *
+     * Ability này chỉ trả lời "AI được bấm". "Dòng này có gửi lại được không" (mẫu, trạng thái,
+     * người nhận) là chuyện của Action — cùng phân tách policy/Action như `ClientRequestNotOpen`.
+     */
+    public function resend(User|ClientUser $user, OutboundMessage $message): bool
+    {
+        return $user instanceof User
+            && $user->hasRole(Role::Admin->value)
+            && $this->view($user, $message);
+    }
 }

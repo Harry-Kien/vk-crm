@@ -222,14 +222,22 @@ trait BuildsStageUpdateSchema
 
     /**
      * Task 7 (R12, phát hiện `stage/stage-06` — nửa "luật sư không biết khách không được báo"):
-     * `NotifyClientOfStageUpdate::handle()` âm thầm bỏ qua một dòng công bố khi khách chưa có tài
-     * khoản cổng đủ điều kiện nhận thư (`recipientsFor()` rỗng) — không lỗi, không cảnh báo, chỉ
-     * để `notified_at` trống. Luật sư bấm "Chuyển giai đoạn"/"Thêm cập nhật", thấy thông báo
-     * thành công CỐ ĐỊNH (`setUpStageUpdateAction()` ở trên), và tin rằng khách đã được báo.
+     * `NotifyClientOfStageUpdate::handle()` âm thầm bỏ qua một dòng công bố khi không ai đủ điều
+     * kiện nhận thư — không lỗi, không cảnh báo, chỉ để `notified_at` trống. Luật sư bấm "Chuyển
+     * giai đoạn"/"Thêm cập nhật", thấy thông báo thành công CỐ ĐỊNH (`setUpStageUpdateAction()` ở
+     * trên), và tin rằng khách đã được báo.
      *
-     * Dùng LẠI đúng `NotifyClientOfStageUpdate::hasEligibleRecipient()` — một nơi duy nhất đọc
-     * "ai đủ điều kiện nhận thư" (R12: `is_active` + `activated_at` không null + khách chưa xoá
-     * mềm) — để cảnh báo này không bao giờ lệch với chính Action gửi thư thật.
+     * **Hai câu cảnh báo, một điều kiện (rà soát cuối M7, I3).** Trên một vụ đã bật công bố, form
+     * cảnh báo khi và chỉ khi `NotifyClientOfStageUpdate::hasEligibleRecipient()` sai — cùng hai bước
+     * mà `handle()` dùng để chọn người nhận (tài khoản đủ điều kiện R12, rồi vụ còn trên cổng của
+     * chính tài khoản đó qua `MatterPolicy::view`). Câu nào hiện thì do
+     * `NotifyClientOfStageUpdate::hasEligibleAccount()` chọn: khách chưa có tài khoản đủ điều kiện →
+     * câu này; khách có tài khoản nhưng vụ không còn trên cổng của họ (vụ đã kết thúc và quá hạn tra
+     * cứu — M7 Task 5) → {@see self::matterNotOnPortalWarning()}. Hai câu không bao giờ cùng hiện.
+     * Trước bản sửa, form chỉ hỏi bước đầu: vụ hết hạn tra cứu, tài khoản còn hoạt động nhờ một vụ
+     * khác → không cảnh báo, và không thư nào đi. Một ngoại lệ có chủ ý: trên form "Chuyển giai
+     * đoạn", câu thứ hai còn hỏi giai đoạn đích — một giai đoạn không kết thúc mở lại vụ và đưa vụ về
+     * cổng, nên lúc đó thư VẪN đi và câu không hiện (xem docblock `matterNotOnPortalWarning()`).
      *
      * Dùng `Filament\Schemas\Components\Text` với `->color('warning')` thay vì một Blade view tự
      * viết: dự án không có bước dựng CSS (CLAUDE.md), và một lớp Tailwind tự viết sẽ không có tác
@@ -245,7 +253,40 @@ trait BuildsStageUpdateSchema
             ->color('warning')
             ->columnSpanFull()
             ->visible(fn (): bool => $matter->is_published_to_portal
-                && ! app(NotifyClientOfStageUpdate::class)->hasEligibleRecipient($matter));
+                && ! app(NotifyClientOfStageUpdate::class)->hasEligibleAccount($matter));
+    }
+
+    /**
+     * Câu cảnh báo thứ hai (rà soát cuối M7, I3) — xem {@see self::noActivatedAccountWarning()}:
+     * khách CÓ tài khoản đủ điều kiện, nhưng không tài khoản nào còn thấy vụ này trên cổng (vụ đã
+     * kết thúc và quá `client_access_until`), nên dòng cập nhật không tới mắt khách và không ai
+     * nhận thư. Chuỗi ở `lang/vi/archive.php` (tệp của làn M7: hạn tra cứu là chuyện lưu trữ).
+     *
+     * `$matterStaysClosed` (chỉ form "Chuyển giai đoạn" truyền): câu hỏi trên mô tả vụ NHƯ BÂY GIỜ,
+     * nhưng một lần chuyển sang giai đoạn KHÔNG kết thúc mở lại vụ (`closed_at` về null,
+     * `SyncMatterArchive` xoá `client_access_until`), vụ trở lại cổng và thư đi. Closure trả `true`
+     * khi giai đoạn đích đã chọn giữ vụ ở trạng thái đóng; sai thì câu không hiện. "Thêm cập nhật"
+     * không đổi giai đoạn nên không truyền gì.
+     *
+     * @param  (Closure(Get): bool)|null  $matterStaysClosed
+     */
+    protected function matterNotOnPortalWarning(Matter $matter, ?Closure $matterStaysClosed = null): Text
+    {
+        return Text::make(__('archive.stage_update.not_on_portal_warning'))
+            ->icon(Heroicon::OutlinedExclamationTriangle)
+            ->color('warning')
+            ->columnSpanFull()
+            ->visible(function (Get $get) use ($matter, $matterStaysClosed): bool {
+                if ($matterStaysClosed !== null && ! $matterStaysClosed($get)) {
+                    return false;
+                }
+
+                $notify = app(NotifyClientOfStageUpdate::class);
+
+                return $matter->is_published_to_portal
+                    && $notify->hasEligibleAccount($matter)
+                    && ! $notify->hasEligibleRecipient($matter);
+            });
     }
 
     /**

@@ -25,10 +25,19 @@ return [
     |
     | Mặc định là **không tin ai** (`null`), nên máy dev và bộ test giữ nguyên hành vi: header
     | `X-Forwarded-For` bị bỏ qua hoàn toàn. Trên máy thật thì `TRUSTED_PROXIES` phải được điền
-    | bằng địa chỉ THẬT của proxy — xem mục chặn ra mắt ở `docs/PROGRESS.md`. Dùng `*` chỉ khi
-    | không có cách nào biết địa chỉ đó (`*` tin bất kỳ ai gửi header, tức trả lại quyền tự khai
-    | địa chỉ cho người gọi; chỉ an toàn khi không có đường nào chạm tới ứng dụng mà không đi qua
-    | proxy).
+    | bằng địa chỉ THẬT của proxy — xem mục chặn ra mắt ở `docs/PROGRESS.md`.
+    |
+    | **KHÔNG dùng `*`/`**` hay các dải bao trọn `0.0.0.0/0`/`::/0` — dù trước đây tài liệu này có
+    | gợi ý `*` "khi không có cách nào biết địa chỉ đó".** Bốn giá trị đó tin bất kỳ ai gửi header
+    | `X-Forwarded-For` (`Illuminate\Http\Middleware\TrustProxies::
+    | setTrustedProxyIpAddressesToTheCallingIp()` đặt dải tin thành đúng hai CIDR bao trọn đó khi
+    | thấy `*`/`**`), xuyên thủng `ADMIN_IP_ALLOWLIST` (R7) và bộ đếm đăng nhập theo IP (§10.3) —
+    | `vkcrm:preflight` (R1, fix round 1 Task 1) chặn ĐỎ cả bốn giá trị này, không còn cho qua
+    | XANH. Đứng theo đúng mẫu `tools/deploy/nginx.conf.example`/`apache-vhost.conf.example` (máy
+    | chủ web nói thẳng với php-fpm, KHÔNG proxy/CDN tách rời) thì điền `TRUSTED_PROXIES=
+    | 127.0.0.1` — không có proxy nào để tin, `REMOTE_ADDR` mà php-fpm thấy đã là địa chỉ thật của
+    | khách (nginx tự đặt qua `fastcgi_param REMOTE_ADDR $remote_addr`). Có CDN/reverse-proxy thật
+    | đứng trước (Cloudflare, một load balancer riêng…) thì điền địa chỉ/dải IP THẬT của nó.
     |
     | Nhiều proxy thì ngăn cách bằng dấu phẩy: `TRUSTED_PROXIES=10.0.0.1,10.0.0.2`.
     |

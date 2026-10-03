@@ -7,6 +7,7 @@ use App\Models\Matter;
 use App\Models\MatterType;
 use App\Models\StageLog;
 use App\Support\StagePresets;
+use Database\Seeders\MatterTypeSeeder;
 
 it('orders stages and exposes allowed transitions', function () {
     $type = MatterType::factory()->withStages()->create(['code' => 'DS']);
@@ -31,7 +32,7 @@ it('has a full civil preset matching the spec sequence', function () {
 });
 
 it('maps every seeded type code to a preset', function () {
-    foreach (['DD', 'DS', 'HS', 'DN', 'LD', 'HN'] as $code) {
+    foreach (array_column(MatterTypeSeeder::types(), 'code') as $code) {
         expect(StagePresets::for($code))->not->toBeEmpty();
     }
 });

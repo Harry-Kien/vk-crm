@@ -1,0 +1,146 @@
+# VK-CRM — mẫu cấu hình nginx cho máy chủ thật (SPEC §10 mục 1, kế hoạch M8 Task 1).
+#
+# ĐÂY LÀ MẪU, không phải tệp chạy thẳng được — sửa domain, đường dẫn chứng chỉ TLS và đường dẫn
+# dự án (/var/www/vk-crm) cho đúng máy chủ thật rồi mới dùng. Đã CHẠY THỬ (không phải chỉ viết ra
+# rồi đoán) bằng `nginx -t` trong container `nginx:stable-alpine` chính thức ngày 2026-09-28 (xem
+# `docs/PROGRESS.md`, mục "Ghi chú M8", để đọc nguyên văn lệnh và kết quả).
+#
+# Ba lớp mà tầng máy chủ web này đảm nhận, KHÔNG lặp lại ở tầng app (nhưng app CÓ một lớp dự phòng
+# cho HSTS — xem `App\Http\Middleware\EnforceHttps` — khi hosting không cho sửa tệp này):
+#
+#   1. Chuyển http sang https (301) TRƯỚC KHI PHP chạy — rẻ hơn và không tốn một worker PHP nào
+#      cho một request chắc chắn sẽ bị chuyển hướng.
+#   2. Strict-Transport-Security — trình duyệt chỉ tôn trọng header này khi đọc được QUA HTTPS,
+#      nên chỉ đặt ở server block 443.
+#   3. Ba header SPEC §10 mục 2 (X-Frame-Options, X-Content-Type-Options, Referrer-Policy) cho
+#      TỆP TĨNH dưới public/ — `App\Http\Middleware\SendSecurityHeaders` chỉ chạy khi request đi
+#      qua PHP; ảnh/CSS/JS do chính nginx trả thẳng không bao giờ qua middleware đó (M8a, minor
+#      hoãn "public/ static files never see any header" — Task 1 đóng nốt phần này).
+#
+# `client_max_body_size` PHẢI >= UPLOAD_MAX_MB (.env, mặc định 20) CỘNG phần dư cho multipart
+# overhead và các trường form khác đi kèm — dưới ngưỡng này nginx tự trả 413 TRƯỚC KHI PHP kịp
+# thấy request, và `ValidatePostSize` (413, có ba header §10.2 — xem `SecurityHeadersTest`) không
+# bao giờ chạy tới. Ví dụ dưới đây dùng 25m cho UPLOAD_MAX_MB=20 mặc định — ĐỔI THEO
+# `UPLOAD_MAX_MB` thật của `.env` khi khác 20.
+
+# --- Chuyển toàn bộ http sang https ---
+server {
+    listen 80;
+    listen [::]:80;
+    server_name khachhang.luatvukhang.com;
+
+    # Cho phép ACME http-01 (Let's Encrypt / Certbot) xin chứng chỉ mà không bị chuyển hướng.
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/vk-crm/public;
+        default_type "text/plain";
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name khachhang.luatvukhang.com;
+
+    root /var/www/vk-crm/public;
+    index index.php;
+
+    ssl_certificate /etc/letsencrypt/live/khachhang.luatvukhang.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/khachhang.luatvukhang.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    # SPEC §10 mục 1 — HSTS chỉ có nghĩa trên một response ĐÃ qua https. KHÔNG includeSubDomains
+    # hay preload ở đây (các tên miền con khác của luatvukhang.com nằm ngoài ứng dụng này, đúng
+    # phán quyết cùng ở `App\Http\Middleware\EnforceHttps`) — bật thêm hai tuỳ chọn đó là quyết
+    # định của chủ văn phòng, không phải một giá trị mặc định an toàn.
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    # SPEC §10 mục 8 (điều kiện máy chủ cho sao lưu) — kích thước tối đa MỘT request, phải đủ cho
+    # tệp khách nộp qua form nhiều phần. ĐỔI 25m nếu UPLOAD_MAX_MB trong .env khác 20.
+    client_max_body_size 25m;
+
+    # Chặn dotfile và thư mục dấu chấm (.env, .git, .github/…, .htaccess…) ở BẤT KỲ đoạn nào của
+    # đường dẫn — không route nào của Laravel có một đoạn bắt đầu bằng dấu chấm, nên đây chỉ có thể
+    # là một tệp không nên lộ ra. 404 chứ không 403, cùng lý do với `/storage/` ngay dưới.
+    location ~ /\. {
+        return 404;
+    }
+
+    # SPEC §10.4 — `/storage/` KHÔNG BAO GIỜ do máy chủ web phục vụ, và trả 404 (không 403: một 403
+    # báo cho người dò rằng ở đó có thứ được canh giữ, 404 thì trông như không có gì — cùng mã mà
+    # ứng dụng trả cho mọi thứ không được phép, SPEC §10.10). Hai cấu hình sai mà khối này chặn:
+    #   1. `public/storage` là một symlink trỏ nhầm vào `storage/app/private` (dự án KHÔNG dùng
+    #      `storage:link` — SPEC §2, "tệp phục vụ qua controller"): URL `/storage/<tệp>`;
+    #   2. `root` trỏ nhầm vào GỐC dự án thay vì `public/`: URL `/storage/app/private/<tệp>` — và
+    #      cả `/storage/logs/laravel.log`.
+    # `vkcrm:preflight` dò đúng hai URL đó trên máy thật (`App\Actions\Deployment\RunPreflight`);
+    # đây là lớp phòng thủ thứ hai. `return` chạy ở pha rewrite, trước pha truy cập và pha nội dung,
+    # nên không phụ thuộc tệp có tồn tại hay không; `^~` cắt bước dò location regex (kể cả location
+    # tệp tĩnh bên dưới). Đã CHẠY THẬT (M8 Task 4, `tools/deploy/verify-storage-blocked.sh`):
+    # container `nginx:stable-alpine` dựng từ chính tệp này, `root` cố ý đặt vào gốc dự án —
+    # `/storage/app/private/<tệp thật>` (cả dạng `//`, `%73`, `/public/../`) và `/storage/logs/<tệp>`
+    # trả 404; bỏ khối này thì cùng URL trả 200 kèm nội dung tệp.
+    location ^~ /storage/ {
+        return 404;
+    }
+
+    # Livewire 4 phục vụ script/asset của chính nó qua một ROUTE PHP mang tiền tố băm theo
+    # APP_KEY — `/livewire-<hash>/livewire.min.js`, `.../livewire.min.js.map`, và
+    # `.../preview-file/<tên>.png|jpg|...` (ảnh xem trước sau khi khách/nhân sự tải tệp lên) —
+    # KHÔNG phải tệp tĩnh dưới `public/` (không có `public/vendor/livewire`; `filament:upgrade`
+    # chỉ publish asset của Filament, không của Livewire — xem
+    # `vendor/livewire/livewire/src/Mechanisms/HandleRequests/EndpointResolver.php`). Những
+    # đường dẫn này TRÙNG đuôi tên tệp với location regex tệp tĩnh ngay bên dưới (khớp theo ĐUÔI,
+    # không phân biệt "tệp thật nằm trên đĩa" hay "route PHP tình cờ có tên trông giống tệp").
+    # Thiếu chặn này: mọi trang có Livewire (đăng nhập admin, đăng nhập portal, mọi form) tải HTML
+    # bình thường nhưng `livewire.min.js` nhận 404 THẲNG từ nginx — không component Livewire nào
+    # chạy được, hệ thống coi như chết ở khâu ra mắt dù mọi trang khác vẫn "lên" được. `^~` dừng
+    # nginx dò location REGEX ngay khi đây là tiền tố khớp DÀI NHẤT (thuật toán nginx: tìm tiền tố
+    # khớp dài nhất trước, `^~` trên tiền tố đó cắt hẳn bước dò regex) — không phụ thuộc thứ tự
+    # khai báo với location regex bên dưới. Xác nhận thật bằng curl qua nginx+php-fpm, xem
+    # `docs/PROGRESS.md` mục "Ghi chú M8".
+    location ^~ /livewire- {
+        try_files $uri /index.php?$query_string;
+    }
+
+    # Ba header SPEC §10 mục 2 cho tệp tĩnh — PHP không chạm tới các request này. HSTS lặp lại ở
+    # đây vì nginx KHÔNG cộng dồn `add_header`: một location có `add_header` riêng thì bỏ hết
+    # `add_header` của server block (đo bằng request thật ngày 2026-10-01, M8 Task 7 — trước dòng
+    # này /favicon.ico qua mẫu không có Strict-Transport-Security).
+    location ~* \.(?:css|js|mjs|map|png|jpg|jpeg|gif|svg|webp|ico|woff2?|ttf|eot)$ {
+        add_header Strict-Transport-Security "max-age=31536000" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        access_log off;
+        try_files $uri =404;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    # `include fastcgi_params;` chuyển TOÀN BỘ header của client sang PHP dưới dạng biến môi
+    # trường `HTTP_*` (kể cả một `X-Forwarded-For` do client tự gắn) — nhưng `REMOTE_ADDR` ở đây
+    # LUÔN là địa chỉ thật của client (nginx tự đặt `fastcgi_param REMOTE_ADDR $remote_addr;`
+    # trong chính `fastcgi_params`, không phải địa chỉ của một proxy trung gian nào khác). Nginx ở
+    # đây là máy chủ web DUY NHẤT đứng trước php-fpm — không phải một reverse-proxy tách rời mà
+    # Laravel cần "tin" theo nghĩa `TRUSTED_PROXIES` (SPEC §10.3, `config/trustedproxy.php`).
+    # Với cấu hình này, `.env` điền `TRUSTED_PROXIES=127.0.0.1` (không có proxy nào để tin,
+    # `REMOTE_ADDR` đã là địa chỉ thật) — KHÔNG dùng `*`/`**`/`0.0.0.0/0`/`::/0`: bốn giá trị đó
+    # tin bất kỳ ai tự khai `X-Forwarded-For`, xuyên thủng `ADMIN_IP_ALLOWLIST` (R7) và bộ đếm
+    # đăng nhập theo IP — `vkcrm:preflight` (R1) chặn đỏ cả bốn. Có CDN/reverse-proxy thật đứng
+    # trước tầng nginx này (ví dụ Cloudflare) thì điền địa chỉ/dải IP THẬT của nó thay vào đây.
+    location ~ \.php$ {
+        include fastcgi_params;
+        fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        fastcgi_hide_header X-Powered-By;
+    }
+}

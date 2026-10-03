@@ -1,10 +1,10 @@
 <?php
 
 use App\Filament\Portal\Pages\SubmitDocument;
+use App\Http\Middleware\ThrottleUploadedFiles;
 use App\Models\ClientUser;
 use App\Models\Document;
 use App\Support\UploadThrottle;
-use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 
@@ -95,41 +95,46 @@ it('caps the upload endpoint at exactly the number the screen promises', functio
 });
 
 /**
- * SPEC §10.3: 20 tệp / giờ / **tài khoản**.
+ * SPEC §10.3: 20 tệp / giờ / **tài khoản** — M8 Task 3 đổi CÁCH đếm.
  *
- * Bản trước khẳng định chuỗi `throttle:20,60` và xanh — trong khi cái nó khẳng định là một bộ
- * đếm khoá theo ĐỊA CHỈ với mọi khách hàng, vì `ThrottleRequests` hỏi guard MẶC ĐỊNH (`web`) và
- * guard ấy rỗng trên cổng. Nên test này không còn khẳng định một chuỗi nữa: nó lấy chính bộ đếm
- * đã đăng ký ra, chạy nó trên hai request của HAI tài khoản khác nhau, và đòi ba điều — mức đúng
- * của SPEC, cửa sổ đúng 60 phút, và hai khoá KHÁC NHAU.
+ * Bản trước cắm bộ đếm có tên `throttle:livewire-upload` của framework, thứ tăng MỘT đơn vị cho
+ * mỗi REQUEST. Sau M6.5 R10 một request mang được nhiều tệp, nên trần "20 TỆP" thành 20 REQUEST.
+ * Nay chỗ cắm là {@see ThrottleUploadedFiles}, đếm TỆP; hành vi thật (một request nhiều tệp, hai
+ * tài khoản cùng địa chỉ, hai trần khách/nhân sự) được đo qua HTTP ở
+ * `tests/Feature/Http/UploadFileCountThrottleTest.php` và `tests/Feature/Portal/SubmitDocumentTest.php`.
+ * Test này chỉ ghim chỗ cắm và hai hằng số, và khoá theo tài khoản (không theo địa chỉ) ở mức
+ * đơn vị.
  */
-it('throttles the upload endpoint per account at the rate SPEC 10.3 allows', function () {
-    expect(config('livewire.temporary_file_upload.middleware'))->toBe('throttle:'.UploadThrottle::NAME);
+it('plugs the file counting middleware into the upload endpoint', function () {
+    expect(config('livewire.temporary_file_upload.middleware'))->toBe(ThrottleUploadedFiles::class);
 
-    $limiter = RateLimiter::limiter(UploadThrottle::NAME);
+    // Không còn một bộ đếm có tên nào của framework đứng cạnh nó: hai bộ đếm cho cùng một luật là
+    // cách chắc chắn để chúng lệch nhau.
+    expect(RateLimiter::limiter(UploadThrottle::NAME))->toBeNull();
 
-    expect($limiter)->not->toBeNull('bộ đếm `'.UploadThrottle::NAME.'` chưa được đăng ký ở AppServiceProvider');
+    expect(UploadThrottle::FILES_PER_HOUR)->toBe(SubmitDocument::FILES_PER_HOUR)
+        ->and(UploadThrottle::STAFF_FILES_PER_HOUR)->toBeGreaterThan(UploadThrottle::FILES_PER_HOUR);
+});
 
+it('keys the upload counter per account and only falls back to the address for nobody', function () {
     $first = ClientUser::factory()->create();
     $second = ClientUser::factory()->create(['client_id' => $first->client_id]);
 
-    $limitFor = function (?ClientUser $actor) use ($limiter): Limit {
-        $actor === null ? auth('client')->logout() : auth('client')->setUser($actor);
+    $request = Request::create('/livewire/upload-file', 'POST');
 
-        return $limiter(Request::create('/livewire/upload-file', 'POST'));
-    };
+    auth('client')->setUser($first);
+    $one = UploadThrottle::keyFor($request);
 
-    $one = $limitFor($first);
-    $two = $limitFor($second);
+    auth('client')->setUser($second);
+    $two = UploadThrottle::keyFor($request);
 
-    expect($one->maxAttempts)->toBe(SubmitDocument::FILES_PER_HOUR)
-        ->and($one->decaySeconds)->toBe(60 * 60)
-        // Hai người của CÙNG một khách hàng trên cùng một đường truyền: hai rổ đếm khác nhau.
-        ->and($one->key)->not->toBe($two->key)
-        // Và cả hai khoá nói về tài khoản chứ không về địa chỉ.
-        ->and($one->key)->toBe(Document::recipientToken($first))
-        ->and($two->key)->toBe(Document::recipientToken($second));
+    expect($one)->not->toBe($two)
+        // Hai người của CÙNG một khách hàng trên cùng một đường truyền: hai rổ đếm khác nhau,
+        // và cả hai khoá nói về tài khoản chứ không về địa chỉ.
+        ->and($one)->toBe(Document::recipientToken($first))
+        ->and($two)->toBe(Document::recipientToken($second));
 
     // Vế còn lại của luật: không có ai đăng nhập thì mới rơi về địa chỉ.
-    expect($limitFor(null)->key)->toStartWith('ip:');
+    auth('client')->logout();
+    expect(UploadThrottle::keyFor($request))->toStartWith('ip:');
 });

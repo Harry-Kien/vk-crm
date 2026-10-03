@@ -40,6 +40,8 @@ return [
         'pending_approval' => 'Chờ duyệt',
         'signed_filed' => 'Đã ký, đã nộp',
         'published' => 'Đã công bố',
+        // M7 Task 7: RetractDocument — trạng thái thứ năm, tài liệu đã rút khỏi cổng khách.
+        'retracted' => 'Đã rút lại',
     ],
     'deadline_severity' => [
         'normal' => 'Thông thường',
@@ -140,5 +142,11 @@ return [
         'conflict_acknowledgement' => 'cần xác nhận đã xem các khớp xung đột đang hiện',
         'conflict_red' => 'xung đột mức đỏ, cần trưởng phòng hoặc quản trị xử lý',
         'declined' => 'văn phòng đã từ chối bản ghi này',
+    ],
+    // M7 Task 4: App\Enums\HandoverPackageStatus.
+    'handover_package_status' => [
+        'generating' => 'Đang sinh',
+        'ready' => 'Sẵn sàng',
+        'failed' => 'Lỗi',
     ],
 ];

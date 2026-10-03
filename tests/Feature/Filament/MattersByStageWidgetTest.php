@@ -5,6 +5,7 @@ use App\Filament\Admin\Widgets\MattersByStageWidget;
 use App\Models\Matter;
 use App\Models\MatterType;
 use App\Models\User;
+use Database\Seeders\ReferenceDataSeeder;
 use Database\Seeders\RolesAndPermissionsSeeder;
 
 beforeEach(function () {
@@ -132,4 +133,29 @@ it('keeps one bar per stage of one matter type', function () {
         ->and($data['labels'])->toBe([
             __('widgets.matters_by_stage.stage_label', ['type' => 'Dân sự', 'stage' => $stage->label]),
         ]);
+});
+
+/**
+ * M9 Task 1: mười hai lĩnh vực đều có giai đoạn "Tiếp nhận" — đúng tình huống "trùng nhãn ở quy mô
+ * thật" mà kế hoạch mô tả. Mỗi loại một vụ ở `intake` phải ra mười hai cột riêng, mỗi cột kèm tên loại.
+ */
+it('draws twelve separate bars for one intake matter in each of the twelve seeded types', function () {
+    $this->seed(ReferenceDataSeeder::class);
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+
+    $types = MatterType::query()->orderBy('sort_order')->get();
+
+    foreach ($types as $type) {
+        Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'matter_type_id' => $type->id, 'stage' => 'intake']);
+    }
+
+    $this->actingAs($lawyer, 'web');
+
+    $data = mattersByStageWidgetData(new MattersByStageWidget);
+
+    expect($types)->toHaveCount(12)
+        ->and($data['datasets'][0]['data'])->toBe(array_fill(0, 12, 1))
+        ->and(array_unique($data['labels']))->toHaveCount(12)
+        ->and($data['labels'])->toContain(__('widgets.matters_by_stage.stage_label', ['type' => 'Thuế và tài chính', 'stage' => 'Tiếp nhận']))
+        ->and($data['labels'])->toContain(__('widgets.matters_by_stage.stage_label', ['type' => 'Đất đai và bất động sản', 'stage' => 'Tiếp nhận']));
 });

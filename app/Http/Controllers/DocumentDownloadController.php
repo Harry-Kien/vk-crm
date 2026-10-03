@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\ClientUser;
 use App\Models\Document;
 use App\Models\DocumentDownload;
+use App\Models\MatterArchive;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\Files\FileGuard;
@@ -193,6 +194,9 @@ final class DocumentDownloadController extends Controller
      * từ trước, dù `MatterPolicy::releasedToPortal()` (đã sửa cùng vòng này) đã đóng đường đó lại
      * ở TẦNG POLICY — hai tầng độc lập, đúng cấu trúc "Ba tầng trả lời khác đi" mà class này nói
      * ngay ở đầu tệp, giờ thành bốn cho riêng khách hàng đã xoá mềm.
+     *
+     * **Và Task 2 của M8b (§10.7) thêm điều kiện "nhân sự đã cài 2FA"** — xem chú thích ở nhánh đó
+     * trong thân hàm.
      */
     private function actor(): User|ClientUser|null
     {
@@ -203,6 +207,14 @@ final class DocumentDownloadController extends Controller
         }
 
         if ($actor instanceof ClientUser && $actor->client === null) {
+            return null;
+        }
+
+        // §10.7 (M8 Task 2, R2): nhân sự CHƯA có 2FA (vừa bị "Đặt lại 2FA", hay chưa cài lần đầu)
+        // không tải được tệp. Cổng `EnsureMultiFactorAuthenticationIsEnabled` của Filament chỉ đứng
+        // trước route của trang panel — route này nằm ngoài chúng, nên một đường dẫn ký còn hạn
+        // (5 phút) cộng một phiên đăng nhập mới bằng mật khẩu sẽ đi vòng qua 2FA nếu thiếu dòng này.
+        if ($actor instanceof User && blank($actor->getAppAuthenticationSecret())) {
             return null;
         }
 
@@ -245,9 +257,10 @@ final class DocumentDownloadController extends Controller
      * minh, nên bỏ nó ở đây không nới thêm một dòng nào cho khách; nó chỉ làm câu trả lời không
      * còn phụ thuộc vào guard nào tình cờ đang mở.
      *
-     * `SoftDeletes` thì GIỮ: xoá mềm là đường thu hồi tài liệu trên thực tế cho tới khi `M6` có
-     * `RetractDocument`, nên một tài liệu đã thu hồi không được tải về bằng một đường dẫn ký
-     * trước đó. Vì vậy phải là `withoutGlobalScope(ClientPortalScope::class)` chứ tuyệt đối
+     * `SoftDeletes` thì GIỮ: một tài liệu đã xoá mềm không được tải về bằng một đường dẫn ký trước
+     * đó. (Xoá mềm từng là đường thu hồi trên thực tế; từ M7 Task 7 đường thu hồi là
+     * `RetractDocument`, và tài liệu đã rút bị policy từ chối với khách vì nó không còn
+     * `published` + cờ xem.) Vì vậy phải là `withoutGlobalScope(ClientPortalScope::class)` chứ tuyệt đối
      * không phải `withoutGlobalScopes()`, thứ sẽ gỡ luôn cả `SoftDeletingScope` — mutation probe
      * đổi đúng một chữ đó làm đỏ test tài liệu đã xoá mềm.
      *
@@ -329,6 +342,20 @@ final class DocumentDownloadController extends Controller
             'group' => $document->group->value,
             'version' => $document->version,
         ], $actor);
+
+        // M7 Task 4 (SPEC §10.6 "xuất dữ liệu"): gói bàn giao là tính năng xuất dữ liệu đầu tiên của
+        // hệ thống, nên mỗi lượt tải nó ghi THÊM một dòng `data_exported` — cạnh
+        // `document_downloaded` ở trên chứ không thay nó (sổ `document_downloads` và dòng nhật ký
+        // tải tệp áp cho mọi tài liệu, kể cả gói).
+        if (MatterArchive::isHandoverDocument($document)) {
+            Audit::record('data_exported', $document, [
+                'matter_id' => $document->matter_id,
+                'client_id' => $document->matter?->client_id,
+                'kind' => 'handover_package',
+                'action' => 'downloaded',
+                'version' => $document->version,
+            ], $actor);
+        }
     }
 
     /**

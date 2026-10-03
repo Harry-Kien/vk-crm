@@ -6,7 +6,7 @@ use Illuminate\Support\Str;
 
 /**
  * Chuẩn hoá dữ liệu để so khớp xung đột lợi ích (SPEC §6.10 bước 1).
- * Không bao giờ lưu số căn cước gốc ở đây; chỉ lưu hash.
+ * Không bao giờ lưu số căn cước gốc ở đây; chỉ lưu hash CÓ KHOÁ — xem {@see self::idNumberHash()}.
  */
 final class Normalizer
 {
@@ -153,11 +153,33 @@ final class Normalizer
         return $digits;
     }
 
+    /**
+     * Băm số căn cước để lưu vào `matter_parties.id_number_hash` — tầng so khớp "chắc chắn" của
+     * kiểm tra xung đột lợi ích (SPEC §6.10, R13). Chỉ chữ số mang thông tin: `079 188 123 456`,
+     * `079.188.123.456` và `079188123456` cho cùng một hash.
+     *
+     * **Có khoá, không bao giờ `sha256` trần (M8 Task 4, SPEC §10.5).** Một CCCD chỉ có 12 chữ số,
+     * và sáu chữ số đầu còn là mã tỉnh + thế kỷ/giới tính + năm sinh — một `sha256` trần của nó dò
+     * ngược được bằng vét cạn bởi bất kỳ ai đọc được một bản dump CSDL. Với bên là khách hàng, cột
+     * này khi đó là `clients.id_number` gần như ở dạng rõ, nằm NGOÀI cột đã mã hoá; với bên đối
+     * lập, nó là dạng lưu DUY NHẤT của số của họ. Phép quét dữ liệu thật
+     * (`tests/Feature/Security/PersonalDataSpec105Test.php`) bắt đúng cột này trước bản sửa.
+     *
+     * **Một định nghĩa, không hai.** Hàm này gọi thẳng {@see Audit::identifierHash()} (HMAC-SHA256
+     * với `APP_KEY`) — cùng một cách băm cho cột so trùng lẫn `properties` của nhật ký, nên không có
+     * hai công thức để trôi khỏi nhau. Hệ quả phải biết: đổi `APP_KEY` làm MỌI hash đã lưu thôi khớp
+     * — tầng số CCCD của kiểm tra xung đột lợi ích mù, im lặng, với mọi bên nhập trước đó (test
+     * "a new key silently blinds the id-number tier" ở `RunConflictCheckTest`), và bên đối lập không
+     * tính lại được (số thô của họ chưa bao giờ được lưu). Thêm một lý do cho luật "không bao giờ
+     * sinh khoá mới trên dữ liệu thật" (`docs/CAI-DAT.md`). Các dòng băm trần có từ trước do
+     * migration `2026_10_01_000001_rehash_matter_party_id_number_hashes` xử lý: bên khách hàng tính
+     * lại từ `clients.id_number`, bên không còn số thô thành `NULL`.
+     */
     public static function idNumberHash(?string $value): ?string
     {
         $digits = self::digits($value);
 
-        return $digits === null ? null : hash('sha256', $digits);
+        return $digits === null ? null : Audit::identifierHash($digits);
     }
 
     /**

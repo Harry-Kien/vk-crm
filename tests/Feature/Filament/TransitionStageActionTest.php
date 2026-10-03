@@ -7,9 +7,11 @@ use App\Exceptions\MatterStageChanged;
 use App\Filament\Admin\Resources\Matters\Actions\TransitionStageAction;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\StageLogsRelationManager;
+use App\Mail\Client\StageUpdate;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\StageLog;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -17,6 +19,8 @@ use Filament\Facades\Filament;
 use Filament\Schemas\Components\Text;
 use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Mail;
 use Livewire\Features\SupportTesting\Testable;
 use Spatie\Activitylog\Models\Activity;
 
@@ -492,6 +496,191 @@ it('shows the same warning on the add-update form', function () {
     expect(noActivatedAccountWarningComponent($component)->isVisible())->toBeTrue();
 });
 
+/**
+ * Nội dung mọi cảnh báo "khách sẽ không được báo" ĐANG HIỆN trên form đang mount — đọc cây schema
+ * như `noActivatedAccountWarningComponent()`, lọc các `Text` màu cảnh báo có biểu tượng tam giác.
+ *
+ * @return list<string>
+ */
+function visibleRecipientWarnings(Testable $component): array
+{
+    $formName = $component->instance()->getMountedActionSchemaName();
+    /** @var Schema $schema */
+    $schema = $component->instance()->{$formName};
+
+    return array_values(array_map(
+        fn (Text $text): string => (string) $text->getContent(),
+        array_filter(
+            $schema->getFlatComponents(),
+            fn ($c) => $c instanceof Text && $c->getColor() === 'warning' && $c->isVisible(),
+        ),
+    ));
+}
+
+/**
+ * Rà soát cuối M7, I3 (rà soát Task 11, m1): `NotifyClientOfStageUpdate::handle()` bỏ mọi người
+ * nhận không còn thấy vụ trên cổng của chính họ (`MatterPolicy::view` — vụ đã kết thúc và quá
+ * `client_access_until`). Cảnh báo trên form phải hỏi ĐÚNG câu đó, không chỉ "khách có tài khoản đủ
+ * điều kiện không": tài khoản còn hoạt động nhờ một vụ khác, nên trước bản sửa form im lặng, luật sư
+ * bấm công bố, không thư nào đi và `notified_at` trống. Đi qua form thật tới tận lúc gửi, để chứng
+ * minh cảnh báo và việc gửi thư không lệch nhau: hiện cảnh báo ⇔ không thư. Vế dương: hôm nay là
+ * ngày tra cứu cuối thì không cảnh báo và thư đi.
+ */
+it('warns on the add-update form that a closed matter whose client access expired is off the portal, and then mails nobody', function (string $accessUntil, bool $expired) {
+    Mail::fake();
+    $this->travelTo(Carbon::parse('2026-10-21 09:00:00'));
+
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $client = Client::factory()->create();
+    ClientUser::factory()->activated()->create(['client_id' => $client->id, 'is_active' => true]);
+    $matter = Matter::factory()->atStage('closed')->create([
+        'client_id' => $client->id,
+        'lead_lawyer_id' => $lawyer->id,
+        'is_published_to_portal' => true,
+        'closed_at' => '2026-07-22 10:00:00',
+    ]);
+    MatterArchive::factory()->create(['matter_id' => $matter->id, 'client_access_until' => $accessUntil]);
+    // Vụ thứ hai của cùng khách, còn trên cổng: lý do tài khoản vẫn hoạt động.
+    Matter::factory()->create(['client_id' => $client->id, 'is_published_to_portal' => true]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = $this->livewire(StageLogsRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->mountTableAction('addUpdate');
+
+    expect(visibleRecipientWarnings($component))
+        ->toBe($expired ? [__('archive.stage_update.not_on_portal_warning')] : []);
+
+    $component->setTableActionData([
+        'public_content' => 'Văn phòng gửi lại bản sao biên bản bàn giao hồ sơ để anh chị lưu giữ.',
+        'publish' => true,
+    ])->callMountedTableAction()->assertHasNoTableActionErrors();
+
+    $log = StageLog::query()->where('matter_id', $matter->id)->latest('id')->firstOrFail();
+
+    Mail::assertSent(StageUpdate::class, $expired ? 0 : 1);
+    expect($log->is_published)->toBeTrue()
+        ->and($log->notified_at === null)->toBe($expired);
+})->with([
+    'đã hết hạn tra cứu từ hôm nay' => ['2026-10-20', true],
+    'hôm nay là ngày tra cứu cuối' => ['2026-10-21', false],
+]);
+
+/**
+ * Vụ đã kết thúc, đã hết hạn tra cứu, khách có tài khoản còn hoạt động nhờ một vụ khác — dữ liệu
+ * chung của hai test form "Chuyển giai đoạn" dưới đây. Loại vụ được thêm MỘT giai đoạn kết thúc thứ
+ * hai (`archived`), để có đường chuyển giữa hai giai đoạn kết thúc (vụ vẫn đóng, `closed_at` không
+ * đổi) bên cạnh đường mở lại vụ (`intake`, không kết thúc).
+ *
+ * @return array{0: User, 1: Matter}
+ */
+function tsaExpiredClosedMatter(bool $account = true, bool $published = true, bool $expired = true): array
+{
+    test()->travelTo(Carbon::parse('2026-10-21 09:00:00'));
+
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $client = Client::factory()->create();
+
+    if ($account) {
+        ClientUser::factory()->activated()->create(['client_id' => $client->id, 'is_active' => true]);
+        Matter::factory()->create(['client_id' => $client->id, 'is_published_to_portal' => true]);
+    }
+
+    $matter = Matter::factory()->atStage('closed')->create([
+        'client_id' => $client->id,
+        'is_published_to_portal' => $published,
+        'closed_at' => '2026-07-22 10:00:00',
+    ]);
+    $matter->matterType->stages()->create([
+        'key' => 'archived', 'label' => 'Lưu kho', 'client_label' => 'Đã lưu kho', 'client_description' => null,
+        'sort_order' => 99, 'is_terminal' => true, 'allowed_next' => [], 'default_next_update_days' => 14,
+    ]);
+    $matter->matterType->unsetRelation('stages');
+    MatterArchive::factory()->create([
+        'matter_id' => $matter->id,
+        'client_access_until' => $expired ? '2026-10-20' : '2026-10-21',
+    ]);
+
+    return [$admin, $matter->fresh()];
+}
+
+/**
+ * Cùng hai câu ở form "Chuyển giai đoạn": đúng MỘT câu hiện khi không ai sẽ nhận thư, và đúng câu
+ * — "chưa có tài khoản" khi khách không có tài khoản đủ điều kiện, "vụ không còn trên cổng" khi có
+ * tài khoản mà vụ đã hết hạn tra cứu; không câu nào khi vụ chưa bật công bố hay khi có người nhận.
+ *
+ * Trên form NÀY, câu "vụ không còn trên cổng" còn phụ thuộc giai đoạn đích: chuyển sang một giai
+ * đoạn KHÔNG kết thúc là mở lại vụ (`closed_at` về null, `SyncMatterArchive` xoá
+ * `client_access_until`), vụ trở lại cổng và thư đi — test kế tiếp đi hết đường đó. Nên câu chỉ hiện
+ * khi giai đoạn đích ĐÃ CHỌN là giai đoạn kết thúc (vụ vẫn đóng, vẫn quá hạn tra cứu).
+ */
+it('shows exactly the right recipient warning on the transition-stage form', function (bool $account, bool $published, bool $expired, ?string $toStage, ?string $warningKey) {
+    [$admin, $matter] = tsaExpiredClosedMatter($account, $published, $expired);
+
+    $this->actingAs($admin, 'web');
+
+    $component = $this->livewire(StageLogsRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->mountTableAction('transitionStage');
+
+    if ($toStage !== null) {
+        $component->setTableActionData(['to_stage' => $toStage]);
+    }
+
+    expect(visibleRecipientWarnings($component))->toBe($warningKey === null ? [] : [__($warningKey)])
+        // Câu thật, không phải khoá dịch trả về nguyên văn khi thiếu chuỗi.
+        ->and(__('archive.stage_update.not_on_portal_warning'))->toContain('hết hạn tra cứu');
+})->with([
+    'có tài khoản, đã hết hạn, sang giai đoạn kết thúc khác' => [true, true, true, 'archived', 'archive.stage_update.not_on_portal_warning'],
+    'có tài khoản, đã hết hạn, sang giai đoạn mở lại vụ' => [true, true, true, 'intake', null],
+    'có tài khoản, đã hết hạn, chưa chọn giai đoạn' => [true, true, true, null, null],
+    'không tài khoản, đã hết hạn' => [false, true, true, 'archived', 'matters.transition_form.no_activated_account_warning'],
+    'không tài khoản, còn hạn' => [false, true, false, null, 'matters.transition_form.no_activated_account_warning'],
+    'có tài khoản, còn hạn' => [true, true, false, 'archived', null],
+    'có tài khoản, vụ chưa bật công bố' => [true, false, true, 'archived', null],
+]);
+
+/**
+ * Vế còn lại của "cảnh báo ⇔ không thư" trên form "Chuyển giai đoạn": hai đường thật tới tận lúc
+ * gửi. Sang giai đoạn kết thúc khác → vụ vẫn quá hạn tra cứu → cảnh báo, không thư. Mở lại vụ (sang
+ * `intake`) → không cảnh báo, và khách THẬT SỰ nhận thư, vì vụ đã trở lại cổng.
+ */
+it('on the transition-stage form the off-portal warning matches who is mailed: kept closed warns and mails nobody, reopened mails the client', function (string $toStage, bool $warned) {
+    Mail::fake();
+    [$admin, $matter] = tsaExpiredClosedMatter();
+
+    $this->actingAs($admin, 'web');
+
+    $component = $this->livewire(StageLogsRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->mountTableAction('transitionStage')
+        ->setTableActionData(['to_stage' => $toStage]);
+
+    expect(visibleRecipientWarnings($component))
+        ->toBe($warned ? [__('archive.stage_update.not_on_portal_warning')] : []);
+
+    $component->setTableActionData([
+        'to_stage' => $toStage,
+        'public_content' => 'Văn phòng cập nhật lại giai đoạn hồ sơ để anh chị theo dõi.',
+        'publish' => true,
+    ])->callMountedTableAction()->assertHasNoTableActionErrors();
+
+    $log = StageLog::query()->where('matter_id', $matter->id)->latest('id')->firstOrFail();
+
+    Mail::assertSent(StageUpdate::class, $warned ? 0 : 1);
+    expect($log->to_stage)->toBe($toStage)
+        ->and($log->is_published)->toBeTrue()
+        ->and($log->notified_at === null)->toBe($warned)
+        ->and($matter->fresh()->closed_at === null)->toBe(! $warned);
+})->with([
+    'sang giai đoạn kết thúc khác' => ['archived', true],
+    'mở lại vụ' => ['intake', false],
+]);
+
 /*
 |--------------------------------------------------------------------------
 | `stage/stage-02` + `stage/stage-07` (M6.5 Task 10): bản xem trước (client-preview.blade.php),
@@ -639,4 +828,79 @@ it('shows a Vietnamese notification instead of a 500 when the matter changed sta
 
     expect(StageLog::query()->count())->toBe(0)
         ->and($component->get('mountedActions'))->not->toBeEmpty();
+});
+
+// ---------------------------------------------------------------------------------------------
+// M7 Task 3 — lưu trữ khi vụ việc kết thúc, đi qua ĐÚNG form "Chuyển giai đoạn" (không gọi thẳng
+// Action): sự kiện `MatterStageChanged` -> listener `SyncMatterArchiveOnStageChange` ->
+// `SyncMatterArchive`. Tầng Action có test riêng ở `TransitionMatterStageTest` và
+// `SyncMatterArchiveTest`; ở đây chứng minh màn hình thật nối đủ cả chuỗi.
+// ---------------------------------------------------------------------------------------------
+
+/** Gửi form "Chuyển giai đoạn" của một vụ việc tới `$toStage` (người đăng nhập hiện tại). */
+function submitTransitionForm(Matter $matter, string $toStage): Testable
+{
+    return test()->livewire(StageLogsRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ])->callTableAction('transitionStage', data: [
+        'to_stage' => $toStage,
+        'occurred_at' => today()->toDateString(),
+        'internal_note' => 'Chuyển giai đoạn qua form — kiểm tra lưu trữ M7 Task 3.',
+        'public_content' => null,
+        'publish' => false,
+    ]);
+}
+
+it('archives the matter with dates from config when the transition-stage form closes it', function () {
+    config(['vkcrm.client_access_days' => 33, 'vkcrm.retention_years' => 6]);
+
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = Matter::factory()->atStage('intake')->create();
+    $this->actingAs($admin, 'web');
+
+    submitTransitionForm($matter, 'closed')->assertHasNoTableActionErrors();
+
+    $fresh = $matter->refresh();
+    $archive = MatterArchive::query()->where('matter_id', $matter->id)->first();
+
+    expect($fresh->closed_at)->not->toBeNull()
+        ->and($archive)->not->toBeNull()
+        ->and($archive->archived_by)->toBe($admin->id)
+        ->and($archive->client_access_until->toDateString())
+        ->toBe($fresh->closed_at->copy()->addDays(33)->toDateString())
+        ->and($archive->retention_until->toDateString())
+        ->toBe($fresh->closed_at->copy()->addYears(6)->toDateString());
+});
+
+it('clears client_access_until when an admin reopens through the form, and updates the same row on re-close', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = Matter::factory()->atStage('intake')->create();
+    $this->actingAs($admin, 'web');
+
+    submitTransitionForm($matter, 'closed')->assertHasNoTableActionErrors();
+    $archiveId = MatterArchive::query()->where('matter_id', $matter->id)->value('id');
+    expect($archiveId)->not->toBeNull();
+
+    submitTransitionForm($matter->refresh(), 'mediation')->assertHasNoTableActionErrors();
+
+    $reopened = MatterArchive::query()->find($archiveId);
+    expect($matter->refresh()->closed_at)->toBeNull()
+        ->and($reopened)->not->toBeNull()
+        ->and($reopened->client_access_until)->toBeNull();
+
+    submitTransitionForm($matter->refresh(), 'closed')->assertHasNoTableActionErrors();
+
+    expect(MatterArchive::query()->where('matter_id', $matter->id)->count())->toBe(1)
+        ->and(MatterArchive::query()->find($archiveId)->client_access_until)->not->toBeNull();
+});
+
+it('creates no archive when the form only moves between two non-terminal stages', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $matter = Matter::factory()->atStage('intake')->create();
+    $this->actingAs($admin, 'web');
+
+    submitTransitionForm($matter, 'collecting_documents')->assertHasNoTableActionErrors();
+
+    expect(MatterArchive::query()->where('matter_id', $matter->id)->exists())->toBeFalse();
 });

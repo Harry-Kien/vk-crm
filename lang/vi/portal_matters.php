@@ -37,6 +37,14 @@ return [
         // tính, màn hình chỉ đọc ra.
         'progress' => 'Đã nộp :submitted/:total giấy tờ',
         'progress_empty' => 'Hồ sơ này chưa có giấy tờ nào anh/chị cần nộp.',
+
+        /*
+         * M6 Task 4 (`requests/REQ-4`, đính chính SPEC §9 2026-09-27): huy hiệu "có trả lời
+         * mới" — App\Support\ClientRequestActivity::matterHasUnseenStaffReply(). Đứng riêng, độc
+         * lập với ba màu tiến độ ở dưới ('status'): một hồ sơ đã "đủ giấy tờ" vẫn có thể có một
+         * câu hỏi văn phòng vừa trả lời mà khách chưa đọc.
+         */
+        'new_reply' => 'Văn phòng vừa trả lời một yêu cầu của anh/chị',
     ],
 
     /*

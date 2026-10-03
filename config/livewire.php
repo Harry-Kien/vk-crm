@@ -1,6 +1,6 @@
 <?php
 
-use App\Support\UploadThrottle;
+use App\Http\Middleware\ThrottleUploadedFiles;
 
 /*
 |-------------------------------------------------------------------------------------------
@@ -202,13 +202,19 @@ return [
          * chồng đã gửi. Hai cửa của chính trang vẫn không thừa, nhưng vì một lý do khác — chúng
          * chặn TRƯỚC khi một URL đã ký được cấp, tức trước khi một byte nào rời khỏi điện thoại.
          *
-         * **Phạm vi, nói cho đủ:** endpoint này dùng CHUNG cho cả hai panel, nên mức 20/giờ áp cả
-         * lên nhân sự đang tải tài liệu ở /admin. SPEC §10.3 viết "nộp tài liệu 20 tệp / giờ /
-         * tài khoản" không phân biệt hai bên, nên con số này là con số của SPEC; nếu văn phòng
-         * cần tải hàng loạt thì đó là một quyết định nghiệp vụ phải sửa SPEC trước, chứ không
-         * phải một con số nới lén ở đây.
+         * **Phạm vi, nói cho đủ:** endpoint này dùng CHUNG cho cả hai panel. SPEC §10.3 viết
+         * "nộp tài liệu 20 tệp / giờ / tài khoản" — luật nộp tài liệu của KHÁCH (SPEC §6.6, §8.4).
+         *
+         * **M8 Task 3 đổi hai điều ở đây.** (1) Nó là `App\Http\Middleware\ThrottleUploadedFiles`
+         * chứ không còn `throttle:livewire-upload`: bộ đếm có tên của framework tăng MỘT đơn vị
+         * cho mỗi REQUEST, trong khi một request `files[]` có thể mang nhiều tệp (M6.5 R10) — nên
+         * SPEC "20 TỆP / giờ" bị đếm thành 20 REQUEST / giờ. Middleware này đếm số tệp thật và
+         * từ chối cả request nếu vượt trần. (2) Nhân sự (guard `web`) có trần riêng
+         * `UploadThrottle::STAFF_FILES_PER_HOUR` = 200 — mức 20 của SPEC áp lên luật sư tải bộ hồ
+         * sơ toà 30 trang là chạm giới hạn của khách. Không bỏ trần cho nhân sự: mỗi POST vẫn ghi
+         * đĩa. Lý lẽ đầy đủ và "giá nếu sai": docblock `App\Support\UploadThrottle`.
          */
-        'middleware' => 'throttle:'.UploadThrottle::NAME,
+        'middleware' => ThrottleUploadedFiles::class,
         'preview_mimes' => [                                  // Supported file types for temporary pre-signed file URLs...
             'png', 'gif', 'bmp', 'svg', 'wav', 'mp4',
             'mov', 'avi', 'wmv', 'mp3', 'm4a',

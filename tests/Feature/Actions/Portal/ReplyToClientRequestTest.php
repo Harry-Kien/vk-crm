@@ -1,6 +1,8 @@
 <?php
 
+use App\Actions\Notification\ResolveStaffRecipients;
 use App\Actions\Portal\ReplyToClientRequest;
+use App\Actions\Portal\TriageClientRequest;
 use App\Enums\ClientRequestStatus;
 use App\Enums\MatterRole;
 use App\Enums\Role;
@@ -11,10 +13,12 @@ use App\Models\ClientRequestReply;
 use App\Models\ClientUser;
 use App\Models\Matter;
 use App\Models\User;
+use App\Notifications\Staff\ClientRequestFollowUpAlert;
 use App\Support\Scopes\ClientPortalScope;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Spatie\Activitylog\Models\Activity;
@@ -520,4 +524,87 @@ it('writes neither a reply nor a log line when it refuses', function () {
             'client_request_replied_by_client',
             'client_request_answered_by_staff',
         ])->count())->toBe(0);
+});
+
+// =========================================================================================
+// M6 Task 4 (`requests/REQ-2`, đính chính 2026-09-27) — thông báo trong hệ thống khi KHÁCH
+// viết thêm vào một luồng cũ. Quyết định của implementer: mọi trạng thái, không riêng ca ví dụ
+// "answered → in_progress" — xem docblock `ReplyToClientRequest::handle()`.
+// =========================================================================================
+
+it('notifies the lead lawyer in-app when the client writes again into a fresh thread nobody has claimed', function () {
+    $this->action->handle($this->request, $this->clientUser, 'Tôi hỏi thêm một ý nữa ạ.');
+
+    $notice = $this->lawyer->fresh()->notifications()->where('type', ClientRequestFollowUpAlert::class)->first();
+
+    expect($notice)->not->toBeNull()
+        ->and($notice->data['title'] ?? null)->toBe(__('requests.followup_notification.title'));
+});
+
+/** `$preferred = [assigned_to ?? luật sư phụ trách]` — người ĐANG GIỮ luồng, không phải lead. */
+it('notifies the assignee holding the thread instead of the lead lawyer', function () {
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $this->matter->addTeamMember($assistant, MatterRole::Assistant);
+    app(TriageClientRequest::class)->assign($this->request, $this->lawyer, $assistant);
+
+    $this->action->handle(freshRequest($this->request), $this->clientUser, 'Tôi hỏi thêm.');
+
+    expect($assistant->fresh()->notifications()->where('type', ClientRequestFollowUpAlert::class)->count())->toBe(1)
+        ->and($this->lawyer->fresh()->notifications()->where('type', ClientRequestFollowUpAlert::class)->count())->toBe(0);
+});
+
+/**
+ * Ca SPEC nêu làm ví dụ điển hình: khách viết tiếp vào một luồng ĐÃ `answered` (văn phòng tưởng
+ * đã xong).
+ */
+it('notifies the lead lawyer when the client writes again into an answered thread', function () {
+    $this->action->handle($this->request, $this->lawyer, 'Văn phòng trả lời anh/chị như sau.');
+
+    $this->action->handle(freshRequest($this->request), $this->clientUser, 'Tôi còn một ý chưa rõ.');
+
+    expect($this->lawyer->fresh()->notifications()->where('type', ClientRequestFollowUpAlert::class)->count())->toBe(1);
+});
+
+/**
+ * Cặp âm: một câu trả lời của NHÂN SỰ không sinh thông báo "khách viết thêm" này.
+ *
+ * Mutation probe: bỏ điều kiện `$actor instanceof ClientUser` khỏi `handle()` (gọi
+ * `notifyHolderOfFollowUp()` vô điều kiện) — test này ĐỎ (nhân sự trả lời cũng sinh thông báo).
+ */
+it('does not send a follow-up alert when the office replies, only when the client does', function () {
+    $this->action->handle($this->request, $this->lawyer, 'Văn phòng trả lời.');
+
+    expect($this->lawyer->fresh()->notifications()->where('type', ClientRequestFollowUpAlert::class)->count())->toBe(0);
+});
+
+it('mentions the matter code in the follow-up notification body', function () {
+    $this->action->handle($this->request, $this->clientUser, 'Tôi hỏi thêm.');
+
+    $notice = $this->lawyer->fresh()->notifications()->where('type', ClientRequestFollowUpAlert::class)->first();
+
+    expect($notice->data['body'] ?? '')->toContain($this->matter->code);
+});
+
+/**
+ * R2 (áp dụng cho notification, không riêng thư): một notification hỏng không được biến câu trả
+ * lời ĐÃ LƯU THÀNH CÔNG của khách thành một lỗi 500. Ép `ResolveStaffRecipients` (gọi bên trong
+ * `notifyHolderOfFollowUp()`) ném lỗi thật, rồi khẳng định `handle()` vẫn trả về bình thường.
+ *
+ * Mutation probe: bỏ `try/catch` khỏi `notifyHolderOfFollowUp()` — test này ĐỎ (ngoại lệ thoát ra
+ * khỏi `handle()`).
+ */
+it('never turns a successful client reply into an exception when the follow-up notification blows up', function () {
+    app()->bind(ResolveStaffRecipients::class, fn () => new class extends ResolveStaffRecipients
+    {
+        public function handle(Matter $matter, array $preferred): Collection
+        {
+            throw new RuntimeException('Hỏng có chủ ý để đo khả năng chịu lỗi.');
+        }
+    });
+
+    $reply = $this->action->handle($this->request, $this->clientUser, 'Tôi hỏi thêm.');
+
+    expect($reply)->not->toBeNull()
+        ->and($reply->content)->toBe('Tôi hỏi thêm.')
+        ->and(allReplies()->count())->toBe(1);
 });

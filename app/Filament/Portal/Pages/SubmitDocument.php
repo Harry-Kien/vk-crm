@@ -8,6 +8,7 @@ use App\Models\ClientUser;
 use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
+use App\Support\OfficeProfile;
 use App\Support\UploadThrottle;
 use DomainException;
 use Filament\Facades\Filament;
@@ -130,10 +131,12 @@ use Livewire\Features\SupportFileUploads\WithFileUploads;
  * tệp/giờ: gấp 180 lần mức SPEC §10.3 cho phép.
  *
  * Nên cửa thứ ba đứng ở chính endpoint, bằng `temporary_file_upload.middleware` trong
- * `config/livewire.php` (`throttle:20,60`). Hai cửa của trang KHÔNG vì thế mà thừa: cửa endpoint
- * khoá theo `$request->user()` của guard mặc định (`web`), thứ trống rỗng trên cổng khách — tức
- * nó khoá theo ĐỊA CHỈ với khách, còn SPEC §10.3 đòi khoá theo TÀI KHOẢN. Ba cửa, ba thứ được
- * bảo vệ: byte không rời khỏi điện thoại, byte không rơi xuống đĩa, bản ghi không sinh ra.
+ * `config/livewire.php`. Bản đầu là `throttle:20,60`, khoá theo `$request->user()` của guard mặc
+ * định (`web`), thứ trống rỗng trên cổng khách — tức khoá theo ĐỊA CHỈ với khách, còn SPEC §10.3
+ * đòi khoá theo TÀI KHOẢN; M8 Task 3 thay nó bằng `App\Http\Middleware\ThrottleUploadedFiles`, khoá
+ * theo TÀI KHOẢN và đếm TỆP chứ không đếm request (xem `App\Support\UploadThrottle`). Hai cửa của
+ * trang KHÔNG vì thế mà thừa. Ba cửa, ba thứ được bảo vệ: byte không rời khỏi điện thoại, byte
+ * không rơi xuống đĩa, bản ghi không sinh ra.
  *
  * # Trần dung lượng: MỘT con số, ba chỗ đọc nó
  *
@@ -1016,19 +1019,29 @@ class SubmitDocument extends Page
     {
         $this->dispatch('upload:errored', name: $name)->self();
 
-        $endpointKey = UploadThrottle::cacheKeyFor(UploadThrottle::keyFor(request()));
+        $throttleKey = UploadThrottle::keyFor(request());
+        $endpointKey = UploadThrottle::cacheKeyFor($throttleKey);
 
-        if (RateLimiter::tooManyAttempts($endpointKey, UploadThrottle::FILES_PER_HOUR)) {
+        // M8 Task 3: hai dấu hiệu, vì endpoint nay đếm TỆP và từ chối CẢ lô nếu lô làm vượt trần mà
+        // KHÔNG tăng bộ đếm — bộ đếm mới ở 19/20 trong khi một lô 2 tệp bị từ chối. "Đã đầy"
+        // (`tooManyAttempts`) vẫn đúng cho trường hợp cũ; "vừa bị từ chối"
+        // (`ThrottleUploadedFiles` đánh dấu, sống 60 giây) đúng cho lô. Dấu này có thể sống dai
+        // hơn lần từ chối của nó tới 60 giây: một lỗi tệp KHÁC trong khoảng đó bị đọc là hết suất —
+        // cái giá chấp nhận được, vì câu `rate_limited_upload` nói cả số phút phải chờ thật.
+        if (
+            RateLimiter::tooManyAttempts($endpointKey, UploadThrottle::FILES_PER_HOUR)
+            || UploadThrottle::wasRecentlyRefused($throttleKey)
+        ) {
             $this->failOnFile(__('portal_submit.errors.rate_limited_upload', [
                 'limit' => UploadThrottle::FILES_PER_HOUR,
                 'minutes' => max(1, (int) ceil(RateLimiter::availableIn($endpointKey) / 60)),
-                'hotline' => config('vkcrm.brand.hotline'),
+                'hotline' => OfficeProfile::current()->hotline(),
             ]), $name);
         }
 
         $this->failOnFile(__('portal_submit.errors.upload_failed', [
             'max' => static::maxMegabytes(),
-            'hotline' => config('vkcrm.brand.hotline'),
+            'hotline' => OfficeProfile::current()->hotline(),
         ]), $name);
     }
 
@@ -1074,7 +1087,7 @@ class SubmitDocument extends Page
             $this->failOnFile(__($message, [
                 'limit' => self::FILES_PER_HOUR,
                 'minutes' => max(1, (int) ceil(RateLimiter::availableIn($key) / 60)),
-                'hotline' => config('vkcrm.brand.hotline'),
+                'hotline' => OfficeProfile::current()->hotline(),
             ]), $field);
         }
     }
@@ -1104,7 +1117,9 @@ class SubmitDocument extends Page
         // lần ở đây cho `MatterPolicy::releasedToPortal()` đọc miễn phí qua `relationLoaded()` ở
         // MỌI lần hỏi `Gate` của từng đầu mục, thay vì một EXISTS mới cho mỗi đầu mục — đúng chỗ
         // "đường trong bộ nhớ" mà docblock của `choosableItems()` báo là thiếu, nay đã có.
-        $matter = Matter::query()->with('client')->whereKey($this->record)->first();
+        // M7 Task 5: `clientAccessArchive` cùng lý do, cho điều kiện thứ năm (hết hạn tra cứu) —
+        // không phải `archive`, xem docblock `Matter::clientAccessArchive()`.
+        $matter = Matter::query()->with(['client', 'clientAccessArchive'])->whereKey($this->record)->first();
 
         abort_if($matter === null, 404);
         abort_unless(Gate::forUser($viewer)->allows('view', $matter), 404);
@@ -1142,8 +1157,10 @@ class SubmitDocument extends Page
      *
      * Nên hai điều kiện này không phải một thứ nói hai lần: điều kiện 2 giữ PHẠM VI, `Gate` giữ
      * QUYỀN, và mỗi cái đỡ được lần quên của cái kia. Xoá `Gate` vì "không test nào đỏ" là gỡ
-     * đúng cái lưới sẽ đỡ lần sửa sau — và M7 (`client_access_until`) là lần sửa đó: khi
-     * `MatterChecklistItem` có điều kiện portal của riêng nó, `Gate` thành tầng duy nhất đọc nó.
+     * đúng cái lưới sẽ đỡ lần sửa sau. (M7 Task 5 đặt điều kiện `client_access_until` ở `Matter`
+     * chứ không ở `MatterChecklistItem`, nên ở đây nó tới qua CẢ `whereHas('matter')` của scope
+     * đầu mục LẪN `MatterPolicy` phía sau `Gate` — đầu mục vẫn chưa có điều kiện portal của riêng
+     * nó.)
      */
     private function resolveItem(int|string $key): MatterChecklistItem
     {

@@ -161,7 +161,9 @@ use Illuminate\Validation\ValidationException;
  * vụ pháp lý và giấy uỷ quyền" (SPEC §4.9) còn ở trạng thái `missing`, tab hiện một dòng nhắc tải
  * bản đã ký lên đúng đầu mục đó ở tab Tài liệu. **Không** tự đánh dấu đầu mục — nó nhận diện CHỈ
  * bằng tên (SPEC không cho một cách khác), và việc đánh dấu "đã nhận" là việc của
- * `ReviewChecklistItem` (M4), không phải của tab này.
+ * `ReviewChecklistItem` (M4), không phải của tab này. Không hiện trên vụ ĐÃ KẾT THÚC (việc sau gộp
+ * M7, làn fu2): từ M7 Task 3 danh mục của vụ đó chỉ đọc, `UploadStaffDocument` lên đầu mục ném
+ * `MatterChecklistReadOnly`, nên dòng nhắc chỉ dẫn tới một lời từ chối.
  *
  * # Dải cảnh báo hồ sơ đã kết thúc còn công nợ
  *
@@ -368,10 +370,13 @@ class BillingRelationManager extends RelationManager
         );
     }
 
-    /** `null` khi hợp đồng còn `draft` (chưa từng kích hoạt) hoặc đầu mục không còn thiếu. */
+    /**
+     * `null` khi hợp đồng còn `draft` (chưa từng kích hoạt), khi vụ đã kết thúc (danh mục chỉ đọc —
+     * xem docblock lớp), hoặc khi đầu mục không còn thiếu.
+     */
     private static function checklistNudge(Matter $matter, Contract $contract): ?string
     {
-        if ($contract->status === ContractStatus::Draft) {
+        if ($contract->status === ContractStatus::Draft || $matter->isClosed()) {
             return null;
         }
 

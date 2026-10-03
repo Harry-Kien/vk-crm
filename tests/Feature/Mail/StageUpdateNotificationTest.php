@@ -13,6 +13,7 @@ use App\Mail\Client\StageUpdate;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\MatterType;
 use App\Models\OutboundMessage;
 use App\Models\StageLog;
@@ -21,6 +22,7 @@ use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -175,7 +177,8 @@ it('tells every active account of the client, because a client may have two', fu
  * Twin dương/âm trong CÙNG một test: hai tài khoản của cùng một khách, chỉ khác activated_at.
  *
  * Mutation probe: bỏ `->whereNotNull('activated_at')` khỏi
- * NotifyClientOfStageUpdate::eligibleRecipientsQuery() thì test này đỏ (xem báo cáo).
+ * ResolveClientRecipients::eligibleQuery() (trước M6 Task 3 là
+ * NotifyClientOfStageUpdate::eligibleRecipientsQuery()) thì test này đỏ (xem báo cáo).
  */
 it('tells only the activated account when the client has two, one activated and one never signed in', function () {
     Mail::fake();
@@ -209,7 +212,8 @@ it('tells only the activated account when the client has two, one activated and 
  * helper, khách CHƯA xoá — thư vẫn đi.
  *
  * Mutation probe: bỏ `->whereHas('client')` khỏi
- * NotifyClientOfStageUpdate::eligibleRecipientsQuery() thì test này đỏ (xem báo cáo).
+ * ResolveClientRecipients::eligibleQuery() (trước M6 Task 3 là
+ * NotifyClientOfStageUpdate::eligibleRecipientsQuery()) thì test này đỏ (xem báo cáo).
  */
 it('never tells an account whose client has been soft deleted, even while the account itself is still active', function () {
     Mail::fake();
@@ -303,6 +307,41 @@ it('never carries the internal note into the client mailbox', function () {
         ->and($text)->not->toContain($marker)
         // Cặp dương: nội dung ĐÃ CÔNG BỐ thì phải có mặt, nếu không test trên xanh vì thư rỗng.
         ->and($html)->toContain('hoàn tất bước chuẩn bị hồ sơ');
+});
+
+/**
+ * Fix round 1 (finding Important 3, R6 ranh giới người nhận) — cùng lý lẽ
+ * `DocumentPublishedNotificationTest`/`DocumentRejectedNotificationTest`: một tài khoản đã kích
+ * hoạt của một khách hàng KHÁC (đứng trên một vụ việc thứ hai, hoàn toàn đủ điều kiện R12) không
+ * bao giờ được vào cùng lô người nhận của `client.stage_update` — ranh giới ở đây là CLIENT_ID,
+ * không chỉ "đã kích hoạt". Đi qua ĐÚNG đường sản phẩm (`TransitionMatterStage` thật).
+ *
+ * Mutation probe: xoá `->where('client_id', $clientId)` khỏi
+ * `ResolveClientRecipients::eligibleQuery()` — test này ĐỎ (thư đi luôn tới tài khoản của khách
+ * khác, trên một vụ việc nó không hề liên quan).
+ */
+it('never tells an activated account belonging to a different client', function () {
+    Mail::fake();
+    [$matter, $lawyer, $account, $open] = publishedMatterWithClientAccount();
+    $strangerClient = Client::factory()->create();
+    $strangerAccount = ClientUser::factory()->activated()->create(['client_id' => $strangerClient->id, 'is_active' => true]);
+    Matter::factory()->create(['client_id' => $strangerClient->id, 'is_published_to_portal' => true]);
+
+    app(TransitionMatterStage::class)->handle(
+        matter: $matter,
+        actor: $lawyer,
+        toStage: $open->skip(1)->first()->key,
+        occurredAt: today(),
+        internalNote: null,
+        publicContent: 'Toà án đã thụ lý vụ việc và sẽ tiến hành các bước tiếp theo trong thời gian tới.',
+        nextStep: null,
+        clientAction: null,
+        expectedNextUpdateAt: null,
+        publish: true,
+    );
+
+    Mail::assertSent(StageUpdate::class, fn ($mail) => $mail->hasTo($account->email));
+    Mail::assertNotSent(StageUpdate::class, fn ($mail) => $mail->hasTo($strangerAccount->email));
 });
 
 it('puts the matter code in the subject and nothing about the case itself', function () {
@@ -762,3 +801,54 @@ it('does not tell a lead lawyer who has been deactivated about the failed update
 
     expect($lawyer->fresh()->notifications()->count())->toBe(0);
 });
+
+/**
+ * M7 Task 11 (rà soát Task 5, m2; PROGRESS "Ghi chú M7", Task 5 "Việc cho lần gộp main"): "vụ còn
+ * trên cổng" lúc gửi được hỏi bằng ĐỊNH NGHĨA cổng của chính người nhận (`MatterPolicy::view` nhánh
+ * khách — năm điều kiện, kể cả hết hạn tra cứu), không chỉ bằng cờ `is_published_to_portal`.
+ *
+ * Đường sản phẩm thật: vụ đã kết thúc, khách tra cứu được tới hết hôm qua; luật sư vẫn thêm được
+ * một dòng cùng giai đoạn có công bố trên vụ đã đóng (`TransitionMatterStage` không cấm). Tài khoản
+ * của khách còn hoạt động vì khách còn MỘT vụ khác trên cổng. Trước bản sửa, thư vẫn đi, kèm liên
+ * kết tới một trang trả 404 — trái với "vụ rời cổng". Vế dương: hạn tra cứu là HÔM NAY (khách còn
+ * xem được hết ngày) thì thư vẫn đi, nên vế âm không xanh nhờ một lý do khác.
+ */
+it('mails nothing about a closed matter whose client access has expired, but still mails on its last day', function (string $accessUntil, int $expectedMails) {
+    Mail::fake();
+    $this->travelTo(Carbon::parse('2026-10-21 09:00:00'));
+
+    [$matter, $lawyer, $account] = publishedMatterWithClientAccount();
+
+    $terminal = $matter->matterType->stages()->where('is_terminal', true)->firstOrFail();
+    DB::table('matters')->where('id', $matter->id)->update([
+        'stage' => $terminal->key,
+        'closed_at' => '2026-07-22 10:00:00',
+    ]);
+    MatterArchive::factory()->create([
+        'matter_id' => $matter->id,
+        'client_access_until' => $accessUntil === 'yesterday' ? '2026-10-20' : '2026-10-21',
+    ]);
+
+    // Vụ thứ hai của cùng khách, còn trên cổng: lý do tài khoản vẫn hoạt động.
+    Matter::factory()->create(['client_id' => $account->client_id, 'is_published_to_portal' => true]);
+
+    $log = app(TransitionMatterStage::class)->handle(
+        matter: $matter->fresh(),
+        actor: $lawyer,
+        toStage: $terminal->key,
+        occurredAt: today(),
+        internalNote: null,
+        publicContent: 'Văn phòng gửi lại bản sao biên bản bàn giao hồ sơ để anh chị lưu giữ.',
+        nextStep: null,
+        clientAction: null,
+        expectedNextUpdateAt: null,
+        publish: true,
+    );
+
+    Mail::assertSent(StageUpdate::class, $expectedMails);
+
+    expect($log->fresh()->notified_at === null)->toBe($expectedMails === 0);
+})->with([
+    'đã hết hạn tra cứu từ hôm nay' => ['yesterday', 0],
+    'hôm nay là ngày tra cứu cuối' => ['today', 1],
+]);

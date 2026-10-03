@@ -8,6 +8,7 @@ use App\Models\ClientUser;
 use App\Models\Matter;
 use App\Models\User;
 use App\Support\Scopes\ClientPortalScope;
+use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Gate;
@@ -20,8 +21,16 @@ use Spatie\Activitylog\Models\Activity;
  * Hai thứ được đo ở đây và không đo ở đâu khác: **cổng quyền luôn đi kèm `Matter`** (nghĩa vụ
  * mang sang từ rà soát M4, thứ trước M5 không được ghi ở đâu cả), và **dòng nhật ký mang đúng
  * `causer` là một `ClientUser`** — kể cả khi một phiên nhân sự đang mở trong cùng trình duyệt.
+ *
+ * **M6 Task 4:** `handle()` giờ dispatch `App\Events\ClientRequestOpened` (`requests/REQ-1`),
+ * nên mọi test ở đây chạy qua `ResolveStaffRecipients` (đọc vai trò qua Spatie permission) —
+ * seed vai trò/quyền là bắt buộc từ task này, dù phần lớn test không có luật sư phụ trách/đội
+ * ngũ nào (recipients rỗng, không thư nào thật sự gửi). Việc gửi thư/thông báo staff.
+ * new_client_request có test riêng ở `tests/Feature/Mail/NewClientRequestNotificationTest.php`.
  */
 beforeEach(function () {
+    $this->seed(RolesAndPermissionsSeeder::class);
+
     $this->action = app(OpenClientRequest::class);
 
     $this->client = Client::factory()->create();

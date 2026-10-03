@@ -112,8 +112,9 @@ return [
              * Tuổi tối đa (giờ) của bản MỚI NHẤT trên remote trước khi giám sát 08:00 báo lỗi
              * (`App\Actions\Backup\CheckRcloneRemoteFreshness`, fix I4 lượt rà soát cuối M8a).
              * Lượt đẩy chạy mỗi đêm lúc 02:00, nên lúc 08:00 bản mới nhất bình thường chỉ ~6 giờ
-             * tuổi; 36 giờ nghĩa là đã lỡ ít nhất MỘT đêm, cộng biên cho một lượt sao lưu chạy
-             * chậm. Hằng số, cùng lý lẽ với `keep`.
+             * tuổi, và bản của đêm TRƯỚC đó ~30 giờ: vượt 36 giờ nghĩa là HAI đêm liền không lên
+             * được (một đêm hỏng đơn lẻ đã có thư lỗi của chính lượt đẩy). Chủ văn phòng giữ 36 giờ.
+             * Hằng số, cùng lý lẽ với `keep`.
              */
             'max_age_hours' => 36,
         ],
@@ -129,6 +130,86 @@ return [
          * nguồn với mọi chỗ khác của ứng dụng hỏi "đây là môi trường nào".
          */
         'csp_mode' => env('CSP_MODE'),
+
+        /*
+         * Ép HTTPS (SPEC §10 mục 1, kế hoạch M8 Task 1). Giá trị THÔ ở đây — CHƯA giải "để trống
+         * nghĩa là gì": đọc qua {@see \App\Support\Security\HttpsDefaults::boolFromRaw()} ở
+         * {@see \App\Http\Middleware\EnforceHttps}, KHÔNG đọc trực tiếp khoá này, cùng lý do
+         * `csp_mode` ở trên (hỏi `app()->environment()` lúc xử lý request, không bị đông cứng nếu
+         * `config:cache` chạy ở một môi trường rồi copy sang môi trường khác).
+         */
+        'force_https' => env('FORCE_HTTPS'),
+
+        /*
+         * HSTS `max-age` (giây) cho lớp dự phòng ở tầng app khi hosting không cho cấu hình máy chủ
+         * web (SPEC §10 mục 1). Giá trị THÔ; giải qua
+         * {@see \App\Support\Security\HttpsDefaults::secondsFromRaw()} ở
+         * {@see \App\Http\Middleware\EnforceHttps} — để trống là 31536000 (một năm) ở mọi môi trường
+         * trừ `local`/`testing` (0, tức tắt).
+         */
+        'hsts_max_age' => env('HSTS_MAX_AGE'),
+
+        /*
+         * `includeSubDomains`/`preload` của header Strict-Transport-Security — KHÔNG bật mặc định
+         * dù để trống hay có giá trị khác rỗng: website luatvukhang.com và các tên miền con khác
+         * của văn phòng nằm NGOÀI ứng dụng này, và bật nhầm khoá luôn chúng vào https một năm.
+         * Chỉ bật khi `.env` ghi rõ `true` (bất kể môi trường).
+         */
+        'hsts_include_subdomains' => filter_var(env('HSTS_INCLUDE_SUBDOMAINS', false), FILTER_VALIDATE_BOOLEAN),
+        'hsts_preload' => filter_var(env('HSTS_PRELOAD', false), FILTER_VALIDATE_BOOLEAN),
+
+        /*
+         * Danh sách IP/CIDR được vào `/admin` (R7, SPEC §3 và §10 mục 10), phân tách dấu phẩy.
+         * Rỗng = tắt hẳn (mặc định) — {@see \App\Http\Middleware\RestrictAdminIpAllowlist} đọc
+         * qua đây, không đọc `env()` trực tiếp.
+         */
+        'admin_ip_allowlist' => (string) env('ADMIN_IP_ALLOWLIST', ''),
+    ],
+
+    /*
+     * `vkcrm:preflight` (R1, kế hoạch M8 Task 1) — {@see \App\Actions\Deployment\RunPreflight}.
+     */
+    'deployment' => [
+        /*
+         * PHP extension bắt buộc ở production, HẰNG SỐ chứ không đoán theo máy đang chạy lệnh:
+         * `composer check-platform-reqs --no-dev` ngày 2026-09-28 cộng `pdo_mysql` (MariaDB, SPEC
+         * §2). KHÔNG có `gd` — xem {@see \App\Actions\Deployment\RunPreflight} vì sao đó là một
+         * dòng VÀNG riêng, không phải một extension bắt buộc.
+         *
+         * Cấu hình được (không phải một `const` cứng trong Action) để test gài một tên giả vào
+         * đây mà không cần gỡ thật một extension của container —
+         * `tests/Feature/Deployment/PreflightCommandTest.php` dùng đúng cách này để dựng cả hai
+         * chiều đỏ/xanh của điều kiện "thiếu extension".
+         */
+        'required_extensions' => [
+            'ctype', 'dom', 'exif', 'fileinfo', 'filter', 'hash', 'iconv', 'intl', 'json',
+            'libxml', 'mbstring', 'openssl', 'pcre', 'session', 'tokenizer', 'xmlreader', 'zip',
+            'zlib', 'pdo_mysql',
+        ],
+
+        /*
+         * Việc sau gộp M7 (làn fu2): extension mà giờ chết của worker cần — `GenerateHandoverPackage::
+         * $timeout`/`$failOnTimeout` và `--timeout=600` của mục lịch `queue.handover` chỉ có tác dụng
+         * khi PHP DÒNG LỆNH có ext-pcntl (thiếu nó, `Worker::registerTimeoutHandler()` bỏ qua lặng
+         * lẽ). KHÔNG nằm trong `required_extensions` ở trên: danh sách đó đúng bằng
+         * `composer check-platform-reqs` + `pdo_mysql` (`docs/CAI-DAT.md`, Bước 1), và thiếu pcntl
+         * không làm vỡ màn hình nào — `vkcrm:preflight` báo VÀNG ({@see
+         * \App\Actions\Deployment\RunPreflight}). Cấu hình được chỉ vì cùng lý do với
+         * `required_extensions`: test gài một tên giả để dựng chiều VÀNG.
+         */
+        'worker_timeout_extension' => 'pcntl',
+
+        /*
+         * Rà soát cuối làn fu2 (I1): các hàm pcntl mà `Illuminate\Queue\Worker::daemon()` GỌI khi
+         * extension ở trên đã nạp — `pcntl_async_signals()`/`pcntl_signal()` ở `listenForSignals()`,
+         * `pcntl_signal()`/`pcntl_alarm()` ở `registerTimeoutHandler()`. `Worker::
+         * supportsAsyncSignals()` chỉ hỏi `extension_loaded('pcntl')`, nên khi một hàm ở đây nằm
+         * trong `disable_functions` (PHP 8: hàm bị chặn là hàm không tồn tại) mọi lượt `queue:work`
+         * chết ở vòng đầu — `vkcrm:preflight` báo ĐỎ. Danh sách phải đúng bằng các hàm `pcntl_*` mà
+         * Worker gọi: `PreflightCommandTest` đọc mã nguồn Worker để chặn trôi khi nâng Laravel.
+         * Cấu hình được chỉ để test gài một tên hàm giả mà dựng chiều ĐỎ.
+         */
+        'worker_signal_functions' => ['pcntl_async_signals', 'pcntl_signal', 'pcntl_alarm'],
     ],
 
     /*
@@ -139,6 +220,12 @@ return [
      * Bảng màu và bộ chữ lấy đúng biến CSS của website (--navy, --red, --paper, --muted; Be
      * Vietnam Pro cho chữ thường, Noto Serif cho tiêu đề trang trọng). Đổi ở đây là đổi cả hai
      * panel, trang đăng nhập, email và tệp PDF xuất ra về sau.
+     *
+     * M7 Task 10: chín trường `legal_name`, `website`, `hotline`, `zalo`, `reply_to` và bốn thông
+     * tin pháp lý bên dưới sửa được TRONG APP (trang "Thông tin văn phòng", chỉ admin). Giá trị ở
+     * đây chỉ còn là MẶC ĐỊNH: mã đọc chúng qua `App\Support\OfficeProfile` (bảng `settings` trước,
+     * rồi tới đây), không bao giờ `config('vkcrm.brand.<trường>')` trực tiếp — có test cấu trúc.
+     * Màu, logo, font, lockup không sửa được trong app.
      */
     'brand' => [
         'legal_name' => env('BRAND_LEGAL_NAME', 'Công ty Luật TNHH Vũ Khang Solutions & Partners'),
@@ -176,12 +263,18 @@ return [
          * Đã tra luatvukhang.com (trang chủ, /vi/about, /vi/contact) ngày 19/09/2026: website
          * KHÔNG đăng bốn thông tin này, nên không có cách nào lấy tự động cho chính xác. Để trống
          * có chủ đích thay vì điền phỏng đoán — một mã số thuế sai trên văn bản gửi khách còn tệ
-         * hơn một chỗ trống. Chủ văn phòng điền vào .env là xong, không phải sửa mã.
+         * hơn một chỗ trống. Chủ văn phòng điền vào .env là xong, không phải sửa mã — hoặc, từ M7
+         * Task 10 (quyết định của chủ văn phòng ngày 2026-09-24), tự nhập ở trang "Thông tin văn
+         * phòng"; giá trị nhập trong app thắng giá trị ở đây.
+         *
+         * Địa chỉ trụ sở do chính chủ văn phòng cung cấp ngày 2026-10-02 nên là giá trị mặc định;
+         * ba thông tin còn lại vẫn để trống tới khi chủ văn phòng đưa. `BRAND_OFFICE_ADDRESS`
+         * trong .env (hoặc trang "Thông tin văn phòng" của M7) vẫn ghi đè được.
          */
         'tax_code' => env('BRAND_TAX_CODE'),
         'bar_association' => env('BRAND_BAR_ASSOCIATION'),
         'licence_number' => env('BRAND_LICENCE_NUMBER'),
-        'office_address' => env('BRAND_OFFICE_ADDRESS'),
+        'office_address' => env('BRAND_OFFICE_ADDRESS', '1808 đường Nguyễn Ái Quốc, phường Trấn Biên, thành phố Đồng Nai'),
 
         'colors' => [
             'navy' => '#101d35',
@@ -244,5 +337,18 @@ return [
         'days' => [1, 2, 3, 4, 5],
         'opens_at' => '08:00',
         'closes_at' => '17:30',
+    ],
+
+    /*
+     * M7 Task 4 — thư mục TẠM để dựng gói bàn giao (zip + MUC-LUC.pdf) trước khi gắn vào kho hồ sơ.
+     * Mỗi lần yêu cầu có một thư mục con riêng (`<id vụ>-<dấu yêu cầu>`, xem
+     * `BuildHandoverPackage::workDirectory()`), xoá khi xong, khi lỗi, và — với một tiến trình bị
+     * giết giữa chừng — ở lần chạy lại hoặc khi job thất bại hẳn. Đặt riêng ở đây
+     * vì gói có thể vài trăm MB: trên shared hosting nơi `storage/` nằm trên phần đĩa nhỏ, chỉ tới
+     * một ổ rộng hơn bằng `HANDOVER_WORK_DIR`. Không bao giờ đặt nó bên trong đĩa `private` (thư
+     * mục tạm ở đó sẽ bị lẫn với tệp hồ sơ thật).
+     */
+    'handover' => [
+        'work_dir' => env('HANDOVER_WORK_DIR', storage_path('app/handover-tmp')),
     ],
 ];

@@ -4,18 +4,26 @@ namespace App\Filament\Admin\Resources\Users\Pages;
 
 use App\Actions\User\Concerns\GuardsStaffOffboarding;
 use App\Actions\User\DeleteStaffMember;
+use App\Actions\User\RecordStaffPermissionChange;
+use App\Actions\User\ResetStaffTwoFactor;
+use App\Actions\User\UnlockStaffLogin;
 use App\Enums\Role;
 use App\Enums\UserPosition;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
+use App\Filament\Admin\Pages\BulkReassign;
 use App\Filament\Admin\Resources\Users\UserResource;
 use App\Models\User;
 use App\Support\Audit;
+use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
+use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
+use Filament\Support\Icons\Heroicon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
 class EditUser extends EditRecord
@@ -44,8 +52,19 @@ class EditUser extends EditRecord
     protected ?bool $hasDatabaseTransactions = false;
 
     /**
-     * Chỉ `DeleteAction`. Khuôn mẫu `make:filament-resource` sinh thêm `ForceDeleteAction` và
-     * `RestoreAction`, nhưng `UserPolicy::restore()`/`forceDelete()` luôn từ chối (cùng luật
+     * Hai action: "Đặt lại 2FA" (M8 Task 2, R2) rồi `DeleteAction`.
+     *
+     * **`resetTwoFactor`** — cùng thành ngữ `unlockLogin` của `EditClientUser`: `->visible()` hỏi
+     * `Gate` cho HÌNH DẠNG nút (`UserPolicy::resetTwoFactor()` — tên action khớp tên phương thức
+     * policy, `HeaderActionsAreReachableTest` đòi), rồi `Gate::authorize()` hỏi LẠI bên trong
+     * `action()` — một request Livewire bị chỉnh tay gọi thẳng `callMountedAction()` vẫn phải qua
+     * đúng cổng đó dù nút không hiện ra. `ResetStaffTwoFactor` tự nó CŨNG chặn tự đặt lại
+     * (`LogicException`) — phòng thủ hai lớp, không tin riêng lớp nào. `->color('warning')`,
+     * không `danger`: đây không phải một xoá dữ liệu — nó buộc MỘT người cài lại 2FA, một thao
+     * tác khôi phục, không phải phá huỷ.
+     *
+     * **`DeleteAction`** — chỉ nó. Khuôn mẫu `make:filament-resource` sinh thêm `ForceDeleteAction`
+     * và `RestoreAction`, nhưng `UserPolicy::restore()`/`forceDelete()` luôn từ chối (cùng luật
      * `ClientPolicy`) — nên hai nút đó vẫn không hiện, giờ vì policy TỪ CHỐI thật (`false`), không
      * còn vì THIẾU phương thức tương ứng như trước Task 4. `HeaderActionsAreReachableTest` giữ
      * luật này cho mọi trang.
@@ -62,18 +81,106 @@ class EditUser extends EditRecord
      * Filament tự hỏi `UserPolicy::delete()` (không khoá gì) để quyết định nút có bấm được không,
      * rồi gọi `$record->delete()` NGAY SAU — hai câu lệnh RỜI. Giữa hai câu đó, một request khác
      * có thể đổi đúng thứ vừa được đọc. Xem docblock lớp của Action đó cho lý lẽ đầy đủ.
+     *
+     * **`->unauthorizedNotification()` (M7 Task 2, R6) — thêm liên kết tới "Bàn giao hàng loạt"
+     * vào ĐÚNG thông báo mà `authorizationNotification()` của Filament tự dựng khi
+     * `UserPolicy::delete()` từ chối** (tiêu đề = nguyên văn lý do của policy — KHÔNG đổi, đo bởi
+     * `assertNotified(staffOffboardingMessage(...))` đã có từ M6.5). `attachBulkReassignLink()`
+     * chỉ THÊM một action-button vào `$notification` nếu người này còn dẫn vụ mở VÀ actor hiện
+     * tại `BulkReassign::canAccess()` được — xem docblock `BulkReassign::offboardingLinkAction()`.
      */
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('resetTwoFactor')
+                ->label(__('users.actions.reset_two_factor.label'))
+                ->icon(Heroicon::OutlinedShieldExclamation)
+                ->color('warning')
+                ->requiresConfirmation()
+                ->modalHeading(fn (): string => __('users.actions.reset_two_factor.modal_heading', ['name' => $this->getRecord()->name]))
+                ->modalDescription(fn (): string => __('users.actions.reset_two_factor.modal_description', ['name' => $this->getRecord()->name]))
+                ->visible(fn (): bool => Gate::allows('resetTwoFactor', $this->getRecord()))
+                ->action(function (Action $action): void {
+                    Gate::authorize('resetTwoFactor', $this->getRecord());
+
+                    /** @var User $target */
+                    $target = $this->getRecord();
+
+                    $this->runAction($action, fn () => app(ResetStaffTwoFactor::class)->handle(Auth::user(), $target));
+
+                    Notification::make()
+                        ->title(__('users.actions.reset_two_factor.success', ['name' => $target->name]))
+                        ->success()
+                        ->send();
+                }),
+            /*
+             * M8 Task 3 (SPEC §10.3): xoá khoá đếm đăng nhập của nhân sự này. Cùng khuôn `unlockLogin`
+             * của `EditClientUser`: `visible()` hỏi Gate (một ability RIÊNG `unlockLogin` trên
+             * `UserPolicy`, vì `HeaderActionsAreReachableTest` đòi tên action trùng tên một phương
+             * thức policy), và `Gate::authorize()` LẶP LẠI trong `action()` vì `visible()` chỉ quyết
+             * định có VẼ nút hay không — một request Livewire chỉnh tay vẫn gọi được action. Action
+             * `UnlockStaffLogin` hỏi Gate lần thứ ba, bên trong.
+             */
+            Action::make('unlockLogin')
+                ->label(__('users.actions.unlock_login.label'))
+                ->icon(Heroicon::OutlinedLockOpen)
+                ->color('gray')
+                ->requiresConfirmation()
+                ->modalHeading(fn (): string => __('users.actions.unlock_login.modal_heading', ['name' => $this->getRecord()->name]))
+                ->modalDescription(fn (): string => __('users.actions.unlock_login.modal_description', ['name' => $this->getRecord()->name]))
+                ->visible(fn (): bool => Gate::allows('unlockLogin', $this->getRecord()))
+                ->action(function (): void {
+                    /** @var User $target */
+                    $target = $this->getRecord();
+
+                    Gate::authorize('unlockLogin', $target);
+
+                    $actor = Auth::user();
+                    abort_unless($actor instanceof User, 403);
+
+                    $result = app(UnlockStaffLogin::class)->handle($target, $actor);
+
+                    // Final review I2: "đăng nhập lại được ngay" chỉ khi không còn khoá địa chỉ
+                    // nào — nhân sự có thể bị khoá chỉ vì đồng nghiệp cùng NAT văn phòng.
+                    Notification::make()
+                        ->title(match (true) {
+                            $result->ipStillLocked => __('users.actions.unlock_login.success_ip_still_locked', [
+                                'name' => $target->name,
+                                'minutes' => $result->minutesRemaining,
+                            ]),
+                            $result->anyAddressLockedMinutes !== null => __('users.actions.unlock_login.success_other_address_locked', [
+                                'name' => $target->name,
+                                'minutes' => $result->anyAddressLockedMinutes,
+                            ]),
+                            default => __('users.actions.unlock_login.success', ['name' => $target->name]),
+                        })
+                        ->success()
+                        ->send();
+                }),
             DeleteAction::make()
                 ->authorizationNotification()
+                ->unauthorizedNotification(fn (Notification $notification): Notification => $this->attachBulkReassignLink($notification, $this->getRecord()))
                 ->using(function (DeleteAction $action): bool {
                     $this->runAction($action, fn () => app(DeleteStaffMember::class)->handle(Auth::user(), $this->getRecord()));
 
                     return true;
                 }),
         ];
+    }
+
+    /**
+     * Xem docblock {@see self::getHeaderActions()} và {@see self::handleRecordUpdate()} — dùng
+     * lại ở HAI nơi (xoá và tắt `is_active`), cùng một điều kiện.
+     */
+    private function attachBulkReassignLink(Notification $notification, User $target): Notification
+    {
+        $action = BulkReassign::offboardingLinkAction($target);
+
+        if ($action !== null) {
+            $notification->actions([$action]);
+        }
+
+        return $notification;
     }
 
     /** Chức danh KHÔNG đứng tên phụ trách được một vụ việc — cùng tập vai `ReassignMatter` từ chối cho lead mới (I3, fix round 1). */
@@ -165,6 +272,23 @@ class EditUser extends EditRecord
                     $reason = $this->offboardingOpenWorkReason($locked);
 
                     if ($reason !== null) {
+                        // M7 Task 2, R6: ô lỗi trên form giữ NGUYÊN $reason (đo bởi
+                        // `staffOffboardingMessage()` ở UserResourceTest, không đổi) — liên kết
+                        // tới "Bàn giao hàng loạt" đi bằng một Notification RIÊNG (chuỗi $reason
+                        // không mang được một URL bấm được), và CHỈ khi có gì để trỏ tới: người
+                        // này chỉ còn giữ mốc hạn/yêu cầu khách (không còn vụ lead nào) thì màn
+                        // hình đó không giúp được gì — xem docblock `BulkReassign::
+                        // offboardingLinkAction()`.
+                        $linkAction = BulkReassign::offboardingLinkAction($locked);
+
+                        if ($linkAction !== null) {
+                            Notification::make()
+                                ->warning()
+                                ->title(__('users.offboarding.bulk_reassign_notice', ['name' => $locked->name]))
+                                ->actions([$linkAction])
+                                ->send();
+                        }
+
                         throw ValidationException::withMessages([$this->errorKey('is_active') => [$reason]]);
                     }
                 }
@@ -200,9 +324,25 @@ class EditUser extends EditRecord
                     throw ValidationException::withMessages([$this->errorKey($field) => [$this->lastActiveAdminReason()]]);
                 }
 
+                // M8 Task 3 (§10.6, `permission_changed`): chụp chức danh + vai trò TRƯỚC khi ghi,
+                // đọc từ `$locked` (dưới khoá) chứ không từ `$record`. Vai trò hỏi thẳng bảng
+                // (`roles()->pluck()`), không qua quan hệ đã nạp — `syncRoles()` không chắc làm
+                // mới quan hệ được cache.
+                $positionBefore = $locked->position;
+                $rolesBefore = $locked->roles()->pluck('name')->all();
+
                 $updated = parent::handleRecordUpdate($record, $data);
 
                 $updated->assignRoleFromPosition();
+
+                app(RecordStaffPermissionChange::class)->handle(
+                    $updated,
+                    $positionBefore,
+                    $updated->position,
+                    $rolesBefore,
+                    $updated->roles()->pluck('name')->all(),
+                    Auth::user() instanceof User ? Auth::user() : null,
+                );
 
                 // Task 20 (phát hiện "admin đặt được mật khẩu 1 cho luật sư mà không có nhật ký
                 // nào"): CÙNG điều kiện dehydrate của ô mật khẩu ở UserForm (`filled($state)`) —

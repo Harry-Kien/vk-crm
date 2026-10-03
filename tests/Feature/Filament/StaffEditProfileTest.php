@@ -4,6 +4,7 @@ use App\Enums\Role;
 use App\Filament\Admin\Pages\Auth\EditProfile;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\Hash;
 
@@ -90,16 +91,73 @@ it('refuses to change a staff password when the current password is wrong', func
     expect(Hash::check('mat-khau-cu-1', $staff->fresh()->password))->toBeTrue();
 });
 
+/*
+|--------------------------------------------------------------------------
+| M8 Task 2 (R2, §10.7) — đường tắt của khối 2FA trên trang hồ sơ
+|--------------------------------------------------------------------------
+| Trước Task 2, panel `admin` không gọi `->multiFactorAuthentication()`, nên trang này không vẽ
+| khối 2FA nào — bài test cũ ở đây chỉ đo đúng sự vắng mặt đó. Task 2 BẬT 2FA bắt buộc; hai bài
+| test dưới thay chỗ bài cũ, đo đúng cái R2 đòi: khối 2FA CÓ mặt, nhưng không có nút tắt nào —
+| cùng lối "quét đường tắt" M5 đã dùng cho `ClientUser::toggleEmailAuthentication()`.
+*/
+
 /**
- * Controller decision: "không dựng gì giả định 2FA tắt được" — panel admin không bật MFA nên
- * trang không có khối 2FA nào để mà có nút tắt.
+ * Khối 2FA sống trong schema `content` (`Filament\Auth\Pages\EditProfile::content()`), KHÔNG
+ * trong `form` — và các action của nó KHÔNG được đăng ký vào registry phẳng
+ * `InteractsWithActions::$cachedActions` như action thanh tiêu đề/form (`cacheAction()` chỉ được
+ * gọi cho bốn nhóm đó, xem `InteractsWithHeaderActions`/`InteractsWithFormActions`). Một
+ * `assertActionDoesNotExist('disableAppAuthentication')` bằng chuỗi trần vì vậy XANH VÔ NGHĨA —
+ * nó xanh cho MỌI tên action không tồn tại ở bốn nhóm đó, kể cả một tên action THẬT SỰ có mặt
+ * trong `content` (đã tự đo: đổi tên thành `regenerateAppAuthenticationRecoveryCodes`, vẫn xanh).
+ * Phải trỏ đúng schema bằng `TestAction::schemaComponent(true, 'content')` — cùng cái bẫy và cùng
+ * cách sửa "vacuous Livewire test" mà `AdminIpAllowlistTest` (M8 Task 1, Important #1) đã gặp.
+ *
+ * `UserFactory` mặc định có secret (Task 2, "sẽ cắn" #3) nên `isEnabled()` true —
+ * `SetUpAppAuthenticationAction` ẩn, `RegenerateAppAuthenticationRecoveryCodesAction` hiện, và
+ * ĐÂY LÀ ĐÚNG TÌNH HUỐNG mà một nút tắt sẽ xuất hiện nếu `StaffAppAuthentication::getActions()`
+ * không cố ý bỏ nó — kiểm khi 2FA ĐANG BẬT, không phải khi chưa cài.
  */
-it('has no multi-factor authentication block on the admin profile page', function () {
+it('§10.7 vẽ khối 2FA trên trang hồ sơ nhưng không có nút tắt xác thực ứng dụng', function () {
     $staff = User::factory()->withRole(Role::Lawyer)->create();
 
     $this->actingAs($staff, 'web');
 
-    expect(Filament::getPanel('admin')->hasMultiFactorAuthentication())->toBeFalse();
+    expect(Filament::getPanel('admin')->hasMultiFactorAuthentication())->toBeTrue();
+
+    // KHÔNG `assertActionHidden('setUpAppAuthentication', ...)` ở đây: `Schema::getAction()`
+    // (`Filament\Schemas\Concerns\HasComponents::getAction()`) duyệt qua `getComponents(withHidden:
+    // false)` — một action THẬT SỰ `->hidden()` (như `setUpAppAuthentication` khi đã cài, khác
+    // `disableAppAuthentication` dùng `->visible()`) không truy được tới bằng cách này ở bất kỳ
+    // trạng thái nào, nên không có cách viết một assertion có nghĩa cho nó qua đường
+    // `TestAction::schemaComponent()`. Đây là hành vi GỐC của Filament (`SetUpAppAuthenticationAction`),
+    // không phải điều Task 2 thêm vào — không đo.
+    $this->livewire(EditProfile::class)
+        ->assertActionDoesNotExist(TestAction::make('disableAppAuthentication')->schemaComponent(true, 'content'))
+        ->assertActionExists(TestAction::make('regenerateAppAuthenticationRecoveryCodes')->schemaComponent(true, 'content'));
+});
+
+/**
+ * Vế "ép gọi thẳng vẫn bị chặn" — cùng tinh thần `ClientUser::toggleEmailAuthentication()` ném
+ * `LogicException`: ở đây action không TỒN TẠI trong schema (không phải bị ẩn có điều kiện), nên
+ * `resolveSchemaComponentAction()` ném `ActionNotResolvableException`,
+ * `InteractsWithActions::mountAction()` bắt lại, coi action là `null`, và không làm gì —
+ * `two_factor_secret` giữ nguyên. Không có action nào được MOUNT (khác một action bị `->hidden()`
+ * — vẫn mount được, chỉ ẩn trên giao diện), nên đây là bằng chứng con đường đó không tồn tại,
+ * không chỉ "không hiện nút". Cùng `TestAction::schemaComponent()` cho lý do đã ghi ở test trên —
+ * không có nó, `mountAction('disableAppAuthentication')` bằng chuỗi trần cũng "thành công" (trả
+ * `null`) cho một tên action BỊA RA, không chứng minh được gì về action THẬT trong `content`.
+ */
+it('§10.7 gọi thẳng action tắt xác thực ứng dụng qua Livewire không làm gì cả', function () {
+    $staff = User::factory()->withRole(Role::Lawyer)->create();
+    $secretBefore = $staff->two_factor_secret;
+
+    $this->actingAs($staff, 'web');
+
+    $this->livewire(EditProfile::class)
+        ->mountAction(TestAction::make('disableAppAuthentication')->schemaComponent(true, 'content'))
+        ->assertActionNotMounted();
+
+    expect($staff->fresh()->two_factor_secret)->toBe($secretBefore);
 });
 
 /**

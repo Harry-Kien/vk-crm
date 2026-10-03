@@ -6,6 +6,7 @@ use App\Actions\Document\Concerns\RefusesWhileAwaitingReview;
 use App\Actions\Document\Concerns\StoresDocumentFile;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
+use App\Exceptions\MatterChecklistReadOnly;
 use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
@@ -193,7 +194,16 @@ class UploadStaffDocument
             // `matter.update` chung chung và vì thế mở toang. Một cổng hỏng theo hướng CHO QUA
             // đắt hơn hẳn một nhánh thừa, và "hôm nay không với tới được" là một tính chất của
             // mã xung quanh, không phải của hàm này.
-            $freshMatter = $this->scopelessly(Matter::query())->withTrashed()->find($matter->getKey());
+            //
+            // `lockForUpdate()` (M7 Task 3, vòng sửa 1): cổng "vụ đã đóng" ở dưới đọc
+            // `closed_at` của bản đọc lại này, và `TransitionMatterStage` ghi cột đó dưới khoá
+            // `matters`. Khoá hàng hồ sơ TRƯỚC (rồi mới tới đầu mục ở dưới) là đúng thứ tự khoá
+            // của cả hệ thống — hồ sơ trước, đầu mục sau — nên câu kiểm tra và lần ghi ở
+            // `settleChecklistItem()` không còn một khe để vụ việc đóng lọt vào giữa.
+            $freshMatter = $this->scopelessly(Matter::query())
+                ->withTrashed()
+                ->lockForUpdate()
+                ->find($matter->getKey());
 
             if ($freshMatter === null) {
                 throw new AuthorizationException;
@@ -234,6 +244,22 @@ class UploadStaffDocument
                         'matter_checklist_item_id' => [__('documents.upload.checklist_item_deleted')],
                     ]);
                 }
+            }
+
+            // M7 Task 3, vòng sửa 1: danh mục hồ sơ của một vụ đã kết thúc là CHỈ ĐỌC (xem
+            // {@see MatterChecklistReadOnly}), và lần nộp thay là một lối GHI vào danh mục mà ba
+            // Action kia (`AddChecklistItem`, `ReviewChecklistItem`,
+            // `MarkChecklistItemNotApplicable`) không phủ tới: ở nhóm A nó ghi `accepted` +
+            // `reviewed_by`, xoá `rejection_reason` và thêm một version "mới nhất được chấp nhận"
+            // — đổi đúng thứ mà gói bàn giao đọc. Đứng SAU `Gate` (mọi cổng quyền ở trên): đây là
+            // câu về TRẠNG THÁI hồ sơ, chỉ nói cho người đã qua cổng quyền.
+            //
+            // Điều kiện là "có đầu mục", KHÔNG phải "nhóm A": danh mục đứng yên trọn vẹn, cả
+            // trạng thái lẫn tập tài liệu gắn vào từng đầu mục. Tệp KHÔNG gắn đầu mục — ở mọi
+            // nhóm, kể cả A — vẫn vào được vụ đã đóng, vì đó là đường nhân viên bổ sung hồ sơ cho
+            // việc bàn giao.
+            if ($lockedItem !== null && $freshMatter->isClosed()) {
+                throw MatterChecklistReadOnly::make();
             }
 
             // Một lần nộp thay ở nhóm A ĐÓNG đầu mục lại (xem `settleChecklistItem()` ngay dưới),

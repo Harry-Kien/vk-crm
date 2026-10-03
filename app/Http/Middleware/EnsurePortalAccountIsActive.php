@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Models\ClientUser;
+use App\Support\OfficeProfile;
 use Closure;
 use Filament\Facades\Filament;
 use Filament\Notifications\Notification;
@@ -112,7 +113,7 @@ class EnsurePortalAccountIsActive
         $session->regenerateToken();
 
         Notification::make()
-            ->title(__('portal.inactive', ['phone' => config('vkcrm.brand.hotline')]))
+            ->title(__('portal.inactive', ['phone' => OfficeProfile::current()->hotline()]))
             ->danger()
             ->persistent()
             ->send();

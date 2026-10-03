@@ -126,7 +126,7 @@ Mỗi gói kiểm `composer require --dry-run` trên sàn PHP 8.3 trước, như
 
 ## Tasks
 
-### - [ ] Task 1 — Proxy, HTTPS, header, CSP, giới hạn IP admin (§10 mục 1, 2; R1, R4, R7)
+### - [x] Task 1 — Proxy, HTTPS, header, CSP, giới hạn IP admin (§10 mục 1, 2; R1, R4, R7)
 
 - `vkcrm:preflight` theo R1.
 - Ép HTTPS bằng middleware. Đặt `SESSION_SECURE_COOKIE=true`, và thêm biến này vào `.env.example`.
@@ -136,7 +136,7 @@ Mỗi gói kiểm `composer require --dry-run` trên sàn PHP 8.3 trước, như
 - Giới hạn IP admin theo R7.
 - Mỗi header và mỗi điều kiện có một test nêu tên mục §10.
 
-### - [ ] Task 2 — 2FA cho toàn bộ tài khoản nội bộ (§10 mục 7, R2)
+### - [x] Task 2 — 2FA cho toàn bộ tài khoản nội bộ (§10 mục 7, R2)
 
 - Bắt buộc, không tắt được, có mã khôi phục, dùng chuỗi tiếng Việt đã dịch sẵn từ M5.
 - Migration cast `encrypted` cho hai cột secret, kèm vòng MariaDB thật.
@@ -145,7 +145,7 @@ Mỗi gói kiểm `composer require --dry-run` trên sàn PHP 8.3 trước, như
 - Test quét mọi đường tắt, gồm trang hồ sơ của M6.5 Task 20.
 - Ghi đính chính SPEC §3 và §4.1.
 
-### - [ ] Task 3 — Rate limit và nhật ký hoạt động (§10 mục 3, 6)
+### - [x] Task 3 — Rate limit và nhật ký hoạt động (§10 mục 3, 6)
 
 - **Đăng nhập admin:** chưa có luật 5 lần/15 phút theo email **và** IP. `AdminPanelProvider` dùng `->login()` mặc định của Filament, chỉ giới hạn theo IP từng phút. Dựng theo khuôn `PortalLoginThrottle` của M5, kèm đường mở khoá.
 - **Đăng nhập portal:** M5 đã làm. Đọc lại sau hai thay đổi: M6.5 Task 7 (mở khoá) và Task 20 (lỗi gửi OTP không tính là một lần sai). Chạy lại toàn bộ test rate limit **sau** khi R1 đổi nguồn IP, và đọc lại kết luận của chúng, đừng chỉ xem màu xanh.
@@ -155,7 +155,7 @@ Mỗi gói kiểm `composer require --dry-run` trên sàn PHP 8.3 trước, như
 - **API 60 request/phút:** chưa có route API nào. Test khẳng định không tồn tại route `api/*`. Ghi vào kế hoạch M11 rằng máy chủ MCP phải áp giới hạn này.
 - **Activity log đủ tám loại sự kiện §10 mục 6**, mỗi loại một test. "Xuất dữ liệu" là sinh và tải gói bàn giao (M7 Task 4) và tải bản sao lưu (Task 5). Đăng nhập guard `web` đã ghi từ M6.5 Task 20.
 
-### - [ ] Task 4 — Dữ liệu cá nhân và tệp (§10 mục 4, 5)
+### - [x] Task 4 — Dữ liệu cá nhân và tệp (§10 mục 4, 5)
 
 - Kiểm chứng `clients.id_number` mang cast `encrypted` và **không xuất hiện trong bất kỳ log nào**. Quét dữ liệu thật sau khi chạy luồng tạo khách hàng và luồng gửi thư, không đọc mã bằng mắt. Chỗ quét:
   - `storage/logs`;
@@ -183,7 +183,7 @@ Mỗi gói kiểm `composer require --dry-run` trên sàn PHP 8.3 trước, như
   - Danh sách màn hình dựng từ router, không từ trí nhớ.
   - Ghi rõ ngoại lệ có chủ đích: chữ ký URL sai trả 403 (`routes/web.php`).
 
-### - [ ] Task 7 — `README.md` và hướng dẫn triển khai (§14 mục 8, R6)
+### - [x] Task 7 — `README.md` và hướng dẫn triển khai (§14 mục 8, R6)
 
 Mở rộng `README.md` và `docs/CAI-DAT.md`. Nội dung:
 - **Cài từ máy chủ trống.**

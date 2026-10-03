@@ -24,8 +24,9 @@ use Illuminate\Support\Facades\Gate;
  *
  * Hai tầng, mỗi tầng một câu hỏi: `DocumentPolicy::delete` trả lời "nút xoá có bấm được không" kèm
  * lý do đọc được; hook `Document::deleting` chặn MỌI đường xoá (mềm lẫn cứng, kể cả một đường
- * tương lai không hỏi policy). `RetractDocument` (M7 Task 7) chưa tồn tại — khi nó có, nó phải hỏi
- * cùng {@see Document::isReferencedByBillingRecord()} (việc mang sang, xem báo cáo gộp M9).
+ * tương lai không hỏi policy). `RetractDocument` (M7 Task 7) và lần sinh lại gói bàn giao hỏi cùng
+ * {@see Document::isReferencedByBillingRecord()} từ khi gộp M7 vào `main` — test ở
+ * `RetractDocumentTest` và `BuildHandoverPackageTest`.
  */
 beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);

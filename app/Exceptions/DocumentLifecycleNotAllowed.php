@@ -18,9 +18,10 @@ use DomainException;
  *
  * **Vòng sửa 1: nhóm D không còn nằm trong cổng rời-nhóm-B.** Phán quyết R9 mở rộng nói thẳng:
  * chuyển VÀO nhóm D luôn được phép với `document.update` — nó chỉ SIẾT lại (khách mất quyền xem
- * ngay, xem hook `saving` của `Document`), và đó là đường DUY NHẤT để rút một tài liệu nhóm B đã
- * lỡ công bố ra khỏi tầm mắt khách trước khi `M7` có `RetractDocument` thật. `RegroupDocument` vì
- * vậy chỉ ném lớp này khi nhóm ĐÍCH là A hoặc C, không bao giờ khi nhóm đích là D.
+ * ngay, xem hook `saving` của `Document`). `RegroupDocument` vì vậy chỉ ném lớp này khi nhóm ĐÍCH
+ * là A hoặc C, không bao giờ khi nhóm đích là D. (M7 Task 7: tài liệu ĐANG ra tới khách không vào D
+ * được nữa — lời từ chối đó là `DocumentGroupNotChangeable::releasedToClientUseRetract()`, chỉ tới
+ * `RetractDocument`.)
  *
  * Cùng họ `DomainException` với `DocumentNotPublishable` và `DocumentGroupNotChangeable`, nên
  * `ReportsActionFailures` bắt được nó mà không cần thêm một nhánh `catch` nào — xem docblock của

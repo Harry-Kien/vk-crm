@@ -23,7 +23,17 @@ use Illuminate\Foundation\Application;
  * commit thành công; tiến trình chạy SAU phải bị `MatterStageChanged` từ chối vì giai đoạn đã đổi
  * dưới chân nó trong lúc đợi khoá — không phải vì `to_stage` không hợp lệ.
  *
- * Tham số dòng lệnh, theo thứ tự: <matter_id> <actor_id> <to_stage> <barrier_file>.
+ * Tham số dòng lệnh, theo thứ tự: <matter_id> <actor_id> <to_stage> <my_file> <their_file>.
+ *
+ * **Bắt tay hai chiều, không phải rào chắn một chiều** (sửa 2026-10-01 sau một lần CI đỏ trên
+ * MariaDB): trước đây tiến trình cha tạo MỘT tệp rào chắn ngay sau khi khởi động hai tiến trình
+ * con, nên rào chắn không đợi ai — tiến trình khởi động nhanh đi thẳng qua, chuyển giai đoạn và
+ * commit trước khi tiến trình chậm kịp đọc `$matter`. Tiến trình chậm khi đó cầm giai đoạn ĐÃ ĐỔI,
+ * gửi một dòng cập nhật cùng giai đoạn (§6.3, hợp lệ) và cũng ra GREEN: hai GREEN, không có
+ * STAGE_CHANGED, bài test đỏ theo tốc độ máy chứ không theo mã. Nay mỗi tiến trình đọc snapshot
+ * XONG mới tạo tệp của mình, rồi đợi tệp của bên kia — cùng khuôn `money_overlap_probe.php` —
+ * nên cả hai CHẮC CHẮN cầm giai đoạn gốc trước khi bên nào vào transaction. Đợi quá 20 giây thì
+ * in ERROR, để một cuộc bắt tay hỏng làm bài test đỏ to, không xanh nhầm.
  *
  * In ra ĐÚNG MỘT dòng ra stdout, một trong ba giá trị: "GREEN <stage_log_id>",
  * "STAGE_CHANGED", hoặc "ERROR <thông điệp>" — test cha đọc dòng này để biết kết quả.
@@ -38,16 +48,23 @@ $app = require __DIR__.'/../../bootstrap/app.php';
 $kernel = $app->make(Kernel::class);
 $kernel->bootstrap();
 
-[$script, $matterId, $actorId, $toStage, $barrierFile] = $argv;
+[$script, $matterId, $actorId, $toStage, $myFile, $theirFile] = $argv;
 
-// Đọc TRƯỚC rào chắn, TRƯỚC transaction của handle() — đúng snapshot "giai đoạn gốc" mà cả hai
-// tiến trình cùng cầm, cùng hình dạng với hai request thật đọc $matter trước khi vào Action.
+// Đọc TRƯỚC cuộc bắt tay, TRƯỚC transaction của handle() — đúng snapshot "giai đoạn gốc" mà cả
+// hai tiến trình cùng cầm, cùng hình dạng với hai request thật đọc $matter trước khi vào Action.
 $actor = User::query()->findOrFail((int) $actorId);
 $matter = Matter::query()->findOrFail((int) $matterId);
 
-$deadline = microtime(true) + 5;
-while (! file_exists($barrierFile) && microtime(true) < $deadline) {
+file_put_contents($myFile, '1');
+
+$deadline = microtime(true) + 20;
+while (! file_exists($theirFile) && microtime(true) < $deadline) {
     usleep(1_000);
+}
+
+if (! file_exists($theirFile)) {
+    fwrite(STDOUT, 'ERROR handshake: the other process never read its snapshot'.PHP_EOL);
+    exit(0);
 }
 
 try {

@@ -8,6 +8,7 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use PragmaRX\Google2FAQRCode\Google2FA;
 use Spatie\Permission\Models\Role as SpatieRole;
 
 /**
@@ -19,6 +20,17 @@ class UserFactory extends Factory
      * The current password being used by the factory.
      */
     protected static ?string $password;
+
+    /**
+     * M8 Task 2 (kế hoạch, "sẽ cắn" #3): panel `admin` bắt buộc 2FA (`isRequired: true`,
+     * `AdminPanelProvider`), nên MỌI nhân sự do factory sinh ra phải có sẵn secret hợp lệ — không
+     * có nó, `EnsureMultiFactorAuthenticationIsEnabled` chuyển hướng gần 2.400 test của panel
+     * admin sang trang cài đặt bắt buộc thay vì trang chúng đang đo. Sinh bằng CHÍNH API của
+     * `pragmarx/google2fa` (`AppAuthentication::generateSecret()` gọi cùng hàm) để secret luôn là
+     * một base32 hợp lệ, không phải một chuỗi tự bịa. Cache tĩnh — cùng thành ngữ `$password` ở
+     * trên — vì hàng nghìn user không cần secret PHÂN BIỆT nhau, chỉ cần một secret HỢP LỆ.
+     */
+    protected static ?string $twoFactorSecret;
 
     /**
      * Define the model's default state.
@@ -36,6 +48,7 @@ class UserFactory extends Factory
             'position' => UserPosition::Lawyer,
             'is_active' => true,
             'remember_token' => Str::random(10),
+            'two_factor_secret' => static::$twoFactorSecret ??= app(Google2FA::class)->generateSecretKey(),
         ];
     }
 
@@ -46,6 +59,20 @@ class UserFactory extends Factory
     {
         return $this->state(fn (array $attributes) => [
             'email_verified_at' => null,
+        ]);
+    }
+
+    /**
+     * Đường "chưa cài 2FA" (nhân sự mới, hay vừa bị admin đặt lại — {@see
+     * \App\Actions\User\ResetStaffTwoFactor}): panel admin chuyển hướng người này sang trang cài
+     * đặt bắt buộc thay vì trang họ định vào. Dùng ở test cho đúng đường đó, thay vì `forceFill`
+     * rải rác từng nơi.
+     */
+    public function withoutTwoFactor(): static
+    {
+        return $this->state(fn (): array => [
+            'two_factor_secret' => null,
+            'two_factor_recovery_codes' => null,
         ]);
     }
 

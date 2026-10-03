@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Client\IssuePortalAccess;
 use App\Actions\Notification\NotifyClientOfStageUpdate;
 use App\Enums\Permission;
 use App\Enums\Role;
@@ -11,6 +12,9 @@ use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\StageLogsRelationManager;
 use App\Filament\Admin\Support\VisibleClientOptions;
 use App\Filament\Portal\Pages\Auth\Login;
+use App\Jobs\SendPortalActivationMail;
+use App\Mail\Client\Activation;
+use App\Mail\Client\StageUpdate;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Matter;
@@ -20,12 +24,14 @@ use App\Notifications\Client\SendLoginCode;
 use App\Policies\ClientUserPolicy;
 use App\Support\PortalLoginThrottle;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Filament\Schemas\Components\Text;
 use Filament\Schemas\Schema;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Queue;
 use Livewire\Features\SupportTesting\Testable;
 use Spatie\Activitylog\Models\Activity;
 
@@ -210,7 +216,6 @@ it('refuses to create a client user for a client outside the lawyers reach even 
             'client_id' => $strangerClient->id,
             'name' => 'Tài khoản giả mạo',
             'email' => 'gia-mao@example.com',
-            'password' => 'password',
         ])
         ->call('create')
         ->assertHasFormErrors(['client_id']);
@@ -264,17 +269,62 @@ it('lets a lawyer create a client user for a client of a matter they can see', f
     $this->actingAs($lawyer, 'web');
     Filament::setCurrentPanel('admin');
 
+    Mail::fake();
+
     $this->livewire(CreateClientUser::class)
         ->fillForm([
             'client_id' => $ownClient->id,
             'name' => 'Tài khoản hợp lệ',
             'email' => 'hop-le@example.com',
-            'password' => 'password',
         ])
         ->call('create')
         ->assertHasNoFormErrors();
 
-    expect(ClientUser::where('email', 'hop-le@example.com')->where('client_id', $ownClient->id)->exists())->toBeTrue();
+    $created = ClientUser::where('email', 'hop-le@example.com')->where('client_id', $ownClient->id)->first();
+    expect($created)->not->toBeNull();
+
+    // Task 3: tạo xong, `CreateClientUser::afterCreate()` cấp quyền truy cập ngay — không còn
+    // đường nào khác một tài khoản mới có được mật khẩu.
+    Mail::assertSent(Activation::class, fn ($mail) => $mail->hasTo('hop-le@example.com'));
+});
+
+/**
+ * Fix round 1 (finding Important 1): tạo một tài khoản với `is_active` TẮT ngay từ form không
+ * được phép gửi thư kích hoạt (khách chưa được phép dùng tài khoản này), VÀ không được ghi audit
+ * "đã cấp quyền truy cập" — một dòng audit nói đã cấp trong khi không ai nhận được gì là chính
+ * lời hứa sai mà finding này chỉ ra (`IssuePortalAccess::isEligible()` giờ được hỏi TRƯỚC audit).
+ *
+ * Mutation probe: bỏ điều kiện `isEligible()` khỏi `IssuePortalAccess::handle()` — test này ĐỎ
+ * (Mail::assertSent sẽ đúng, audit tồn tại).
+ */
+it('creates an inactive client user without emailing activation or recording the audit line', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $ownClient = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $ownClient->id, 'lead_lawyer_id' => $lawyer->id]);
+
+    $this->actingAs($lawyer, 'web');
+    Filament::setCurrentPanel('admin');
+
+    Mail::fake();
+
+    $this->livewire(CreateClientUser::class)
+        ->fillForm([
+            'client_id' => $ownClient->id,
+            'name' => 'Tài khoản tắt hoạt động',
+            'email' => 'tat-hoat-dong@example.com',
+            'is_active' => false,
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $created = ClientUser::where('email', 'tat-hoat-dong@example.com')->first();
+    expect($created)->not->toBeNull()
+        ->and($created->is_active)->toBeFalse();
+
+    Mail::assertNothingSent();
+    expect(Activity::query()->where('event', 'client_portal_access_issued')
+        ->where('subject_id', $created->getKey())
+        ->exists())->toBeFalse();
 });
 
 // =========================================================================================
@@ -409,11 +459,12 @@ it('the edit-page mutate hook itself restores the original client_id, independen
 // =========================================================================================
 
 /**
- * Ô mật khẩu ở form admin trước bản sửa này không có luật độ mạnh nào (chỉ required/maxLength),
- * trong khi cổng khách (ChangePassword) đã dùng PasswordRule::default(). Cùng một luật ở cả hai
- * nơi khách/nhân sự đặt mật khẩu cho tài khoản cổng.
+ * Task 3: ô mật khẩu — nơi trước đây một chuỗi yếu có thể bị gõ tay — đã BỎ HẲN khỏi form. Không
+ * ai gõ mật khẩu nữa, nên không có "mật khẩu yếu trên form" để mà từ chối: mật khẩu tạm luôn do
+ * `Str::password(12)` sinh ra (`App\Jobs\SendPortalActivationMail`), thừa sức thoả
+ * `PasswordRule::default()` — xem `tests/Feature/Mail/PortalActivationMailTest.php`.
  */
-it('rejects a weak temporary password on the create form, the same strength rule as the portal', function () {
+it('has no password field on the create form at all', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $ownClient = Client::factory()->create();
     Matter::factory()->create(['client_id' => $ownClient->id, 'lead_lawyer_id' => $lawyer->id]);
@@ -422,16 +473,7 @@ it('rejects a weak temporary password on the create form, the same strength rule
     Filament::setCurrentPanel('admin');
 
     $this->livewire(CreateClientUser::class)
-        ->fillForm([
-            'client_id' => $ownClient->id,
-            'name' => 'Tài khoản mật khẩu yếu',
-            'email' => 'mat-khau-yeu@example.com',
-            'password' => '1',
-        ])
-        ->call('create')
-        ->assertHasFormErrors(['password']);
-
-    expect(ClientUser::where('email', 'mat-khau-yeu@example.com')->exists())->toBeFalse();
+        ->assertFormFieldDoesNotExist('password');
 });
 
 /**
@@ -451,7 +493,8 @@ it('has no must_change_password toggle or activated_at field on the create form'
 
     $this->livewire(CreateClientUser::class)
         ->assertFormFieldDoesNotExist('must_change_password')
-        ->assertFormFieldDoesNotExist('activated_at');
+        ->assertFormFieldDoesNotExist('activated_at')
+        ->assertFormFieldDoesNotExist('password');
 });
 
 /**
@@ -484,7 +527,6 @@ it('still saves must_change_password true even when a tampered livewire request 
             'client_id' => $ownClient->id,
             'name' => 'Tài khoản bị chỉnh sửa tay',
             'email' => 'chinh-sua-tay@example.com',
-            'password' => 'MatKhauTamThoi2026',
         ])
         ->set('data.must_change_password', false)
         ->call('create')
@@ -509,7 +551,6 @@ it('always saves must_change_password true from the create form, regardless of t
             'client_id' => $ownClient->id,
             'name' => 'Tài khoản mới',
             'email' => 'tai-khoan-moi-2026@example.com',
-            'password' => 'MatKhauTamThoi2026',
         ])
         ->call('create')
         ->assertHasNoFormErrors();
@@ -531,14 +572,18 @@ it('has no must_change_password toggle or activated_at field on the edit form ei
 
     $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
         ->assertFormFieldDoesNotExist('must_change_password')
-        ->assertFormFieldDoesNotExist('activated_at');
+        ->assertFormFieldDoesNotExist('activated_at')
+        ->assertFormFieldDoesNotExist('password');
 });
 
 /**
- * R12: "khi nhân sự đặt lại mật khẩu" thì must_change_password bật lại — trước bản sửa này, đặt
- * lại mật khẩu qua trang sửa không tự bật lại cờ này (nửa còn lại của `intake/intake-05`).
+ * R12: "khi nhân sự đặt lại mật khẩu" thì must_change_password bật lại. Task 3: không còn ô mật
+ * khẩu trên form sửa — con đường DUY NHẤT giờ là nút "Cấp lại mật khẩu" (action `reissueAccess`,
+ * gọi `App\Actions\Client\IssuePortalAccess`), không phải một trường trên form `save()`.
  */
-it('turns must_change_password back on when staff resets the password on the edit form', function () {
+it('turns must_change_password back on and emails a new temporary password via "reissue access"', function () {
+    Mail::fake();
+
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $ownClient = Client::factory()->create();
     Matter::factory()->create(['client_id' => $ownClient->id, 'lead_lawyer_id' => $lawyer->id]);
@@ -550,25 +595,100 @@ it('turns must_change_password back on when staff resets the password on the edi
     Filament::setCurrentPanel('admin');
 
     $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
-        ->fillForm([
-            'name' => $account->name,
-            'email' => $account->email,
-            'password' => 'MatKhauTamMoi2026',
-        ])
-        ->call('save')
-        ->assertHasNoFormErrors();
+        ->assertActionVisible('reissueAccess')
+        ->assertActionEnabled('reissueAccess')
+        ->callAction('reissueAccess')
+        ->assertHasNoActionErrors()
+        // Fix round 1 (finding Important 1): toast nói "sẽ được gửi" (hàng đợi), không "đã gửi".
+        ->assertNotified(__('client_users.actions.reissue_access_success'));
 
     expect($account->fresh()->must_change_password)->toBeTrue();
+    // Việc sau gộp M6 (làn fu, mục 6 — N1): thư của lần CẤP LẠI nói mật khẩu cũ hết hiệu lực.
+    Mail::assertSent(Activation::class, fn (Activation $mail) => $mail->hasTo($account->email) && $mail->reissue);
+});
+
+// =========================================================================================
+// Fix round 1, finding Important 1: "Cấp lại mật khẩu" trên một tài khoản KHÔNG đủ điều kiện
+// (is_active = false, hoặc khách đã xoá mềm) không được phép hiện toast thành công giả.
+// =========================================================================================
+
+/**
+ * Nút bị `disabled()` (không bị ẨN — nhân sự vẫn cần thấy nó tồn tại) kèm tooltip giải thích, cho
+ * một tài khoản `is_active = false`. Filament tự chặn `callMountedAction()` cho một action đã
+ * `isDisabled()` (`InteractsWithActions::mountAction()`/`callMountedAction()` đều tự hỏi lại,
+ * không tin trạng thái đã vẽ) — nên bấm nó qua Livewire test không chạy `action()` closure, không
+ * gửi thư, và KHÔNG hiện toast nào cả (khác bug ban đầu: hiện toast "Đã gửi" giả).
+ *
+ * Mutation probe: bỏ `->disabled()` khỏi `reissueAccessAction()` — vế `assertActionDisabled` ĐỎ,
+ * và `Mail::assertNothingSent()` cũng ĐỎ (action chạy thật, gửi thư bù dù tài khoản không đủ điều
+ * kiện — không, vì `IssuePortalAccess::isEligible()` vẫn chặn ở tầng Action; nhưng khi đó test này
+ * không còn đo được lớp phòng thủ UI nữa, chỉ còn đo lớp Action — xem
+ * `PortalActivationMailTest::'sends nothing when the account was deactivated…'` cho lớp đó).
+ */
+it('disables reissue access for an inactive account and lets nothing through if clicked anyway', function () {
+    Mail::fake();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $ownClient = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $ownClient->id, 'lead_lawyer_id' => $lawyer->id]);
+    $account = ClientUser::factory()->for($ownClient)->create(['is_active' => false]);
+
+    $this->actingAs($lawyer, 'web');
+    Filament::setCurrentPanel('admin');
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->assertActionVisible('reissueAccess')
+        ->assertActionDisabled('reissueAccess')
+        ->callAction('reissueAccess')
+        ->assertHasNoActionErrors()
+        ->assertNotNotified();
+
+    Mail::assertNothingSent();
+});
+
+/** Cùng luật, vế KHÁC: khách hàng sở hữu bị xoá mềm (chứ không phải is_active) — cùng một Action. */
+it('disables reissue access when the owning client is soft deleted and lets nothing through if clicked anyway', function () {
+    Mail::fake();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $ownClient = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $ownClient->id, 'lead_lawyer_id' => $lawyer->id]);
+    $account = ClientUser::factory()->for($ownClient)->activated()->create(['is_active' => true]);
+    $ownClient->delete();
+
+    $this->actingAs($lawyer, 'web');
+    Filament::setCurrentPanel('admin');
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->assertActionDisabled('reissueAccess')
+        ->callAction('reissueAccess')
+        ->assertHasNoActionErrors()
+        ->assertNotNotified();
+
+    Mail::assertNothingSent();
+});
+
+/** Cặp dương: tài khoản đủ điều kiện thì nút vẫn bấm được bình thường (không quá siết). */
+it('keeps reissue access enabled for an eligible account', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $ownClient = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $ownClient->id, 'lead_lawyer_id' => $lawyer->id]);
+    $account = ClientUser::factory()->for($ownClient)->activated()->create(['is_active' => true]);
+
+    $this->actingAs($lawyer, 'web');
+    Filament::setCurrentPanel('admin');
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->assertActionEnabled('reissueAccess');
 });
 
 /**
- * Twin âm của test trên: sửa các trường KHÁC mà không đổi mật khẩu thì không đụng tới
- * must_change_password — không phải mọi lần lưu trang sửa đều là một lần "đặt lại mật khẩu".
+ * Twin âm: sửa các trường KHÁC (không đổi email) không đụng tới must_change_password — trang sửa
+ * (từ Task 3) không còn ô mật khẩu nào để mà "đổi" nữa; con đường duy nhất bật lại cờ này qua
+ * form là đổi EMAIL (xem test `resets activation and stops the stage-update mail…` ở trên).
  *
- * Mutation probe: đổi điều kiện `filled($data['password'] ?? null)` thành luôn `true` (bật lại
- * must_change_password ở MỌI lần lưu) thì test này đỏ.
+ * Mutation probe: đổi điều kiện `$emailChanged` trong `EditClientUser::mutateFormDataBeforeSave()`
+ * thành luôn `true` thì test này đỏ.
  */
-it('leaves must_change_password alone when the edit form saves without touching the password', function () {
+it('leaves must_change_password alone when the edit form saves without touching the email', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $ownClient = Client::factory()->create();
     Matter::factory()->create(['client_id' => $ownClient->id, 'lead_lawyer_id' => $lawyer->id]);
@@ -586,6 +706,130 @@ it('leaves must_change_password alone when the edit form saves without touching 
         ->assertHasNoFormErrors();
 
     expect($account->fresh()->must_change_password)->toBeFalse();
+});
+
+// =========================================================================================
+// Fix round 1, finding Important 1: bật `is_active` lại cho một tài khoản CHƯA TỪNG kích hoạt
+// phải tự cấp một mật khẩu tạm mới — nếu không, khách mới không có đường nào vào hệ thống trừ
+// khi ai đó nhớ bấm "Cấp lại mật khẩu" thủ công.
+// =========================================================================================
+
+/**
+ * Tài khoản tạo với `is_active` tắt (chưa từng nhận thư kích hoạt, `activated_at` còn null).
+ * Nhân sự bật `is_active` lên trên form sửa: phải kích hoạt lại đúng như một tài khoản MỚI.
+ *
+ * Mutation probe: bỏ điều kiện `$reactivatedNeverActivated` khỏi
+ * `EditClientUser::mutateFormDataBeforeSave()` — test này ĐỎ (Mail::assertNothingSent thay vì
+ * assertSent).
+ */
+it('issues a fresh activation mail when staff turns is_active back on for a never-activated account', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $ownClient = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $ownClient->id, 'lead_lawyer_id' => $lawyer->id]);
+    $account = ClientUser::factory()->for($ownClient)->create(['is_active' => false]);
+
+    expect($account->activated_at)->toBeNull();
+
+    $this->actingAs($lawyer, 'web');
+    Filament::setCurrentPanel('admin');
+
+    Mail::fake();
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'name' => $account->name,
+            'email' => $account->email,
+            'is_active' => true,
+        ])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($account->fresh()->is_active)->toBeTrue();
+    Mail::assertSent(Activation::class, fn ($mail) => $mail->hasTo($account->email));
+});
+
+/**
+ * Twin âm: một tài khoản ĐÃ TỪNG kích hoạt (`activated_at` không null) bị khoá rồi mở lại — còn
+ * mật khẩu cũ, không cần thư mới. Chỉ khoá "chưa từng kích hoạt" mới kích hoạt lại.
+ *
+ * Mutation probe: bỏ vế `$this->record->activated_at === null` khỏi điều kiện — test này ĐỎ
+ * (Mail::assertSent thay vì assertNothingSent, gửi thêm một thư không cần thiết mỗi lần mở khoá
+ * một tài khoản đã từng dùng).
+ */
+it('does not re-issue activation when staff turns is_active back on for an already-activated account', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $ownClient = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $ownClient->id, 'lead_lawyer_id' => $lawyer->id]);
+    $account = ClientUser::factory()->for($ownClient)->activated()->create(['is_active' => false]);
+
+    expect($account->activated_at)->not->toBeNull();
+
+    $this->actingAs($lawyer, 'web');
+    Filament::setCurrentPanel('admin');
+
+    Mail::fake();
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'name' => $account->name,
+            'email' => $account->email,
+            'is_active' => true,
+        ])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    expect($account->fresh()->is_active)->toBeTrue();
+    Mail::assertNothingSent();
+});
+
+/**
+ * Rà soát cuối làn (I2): docblock `EditClientUser::afterSave()` từng nói `issued` "luôn true" vì
+ * `mutateFormDataBeforeSave()` đã hỏi `IssuePortalAccess::isEligible()` — nó không hỏi. Test này
+ * ghim hành vi THẬT mà docblock giờ mô tả: đổi email trên một tài khoản đang TẮT không gửi thư
+ * kích hoạt nào lúc lưu (`IssuePortalAccess` từ chối tài khoản tắt), và thư đó tới địa chỉ MỚI
+ * đúng lúc nhân sự bật tài khoản lên lại — vì đổi email đã xoá `activated_at`.
+ *
+ * Mutation probe: bỏ `$data['activated_at'] = null;` khỏi nhánh đổi email của
+ * `mutateFormDataBeforeSave()` — test này ĐỎ (`activated_at` không về null sau lần lưu thứ nhất,
+ * nên lần bật lại cũng không rơi vào nhánh "chưa từng kích hoạt").
+ */
+it('sends no activation mail for an email change on an inactive account until staff turns it back on', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $ownClient = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $ownClient->id, 'lead_lawyer_id' => $lawyer->id]);
+    $account = ClientUser::factory()->for($ownClient)->activated()->create(['is_active' => false]);
+
+    $this->actingAs($lawyer, 'web');
+    Filament::setCurrentPanel('admin');
+
+    Mail::fake();
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'name' => $account->name,
+            'email' => 'dia-chi-moi@example.com',
+            'is_active' => false,
+        ])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    $account->refresh();
+    expect($account->email)->toBe('dia-chi-moi@example.com')
+        ->and($account->activated_at)->toBeNull()
+        ->and($account->is_active)->toBeFalse();
+    Mail::assertNothingSent();
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'name' => $account->name,
+            'email' => $account->email,
+            'is_active' => true,
+        ])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    Mail::assertSent(Activation::class, 1);
+    Mail::assertSent(Activation::class, fn ($mail) => $mail->hasTo('dia-chi-moi@example.com'));
 });
 
 // =========================================================================================
@@ -657,6 +901,13 @@ it('resets activation and stops the stage-update mail when staff edits the email
         ->and($account->must_change_password)->toBeTrue()
         ->and(app(NotifyClientOfStageUpdate::class)->hasEligibleRecipient($matter))->toBeFalse();
 
+    // Task 3: đổi email giờ CŨNG cấp lại quyền truy cập (đề xuất setup agent — địa chỉ mới chưa
+    // ai xác minh, cần chính thư kích hoạt để chứng minh, giống một tài khoản vừa tạo) — một thư
+    // `client.activation` đã đi ra ngay lúc lưu form ở trên. Đó không phải điều test này đo; giữ
+    // khẳng định hẹp lại đúng phạm vi của nó thay vì `assertNothingSent()` (thứ giờ sẽ luôn đỏ vì
+    // đúng một hành vi MỚI có chủ ý).
+    Mail::assertSent(Activation::class, fn ($mail) => $mail->hasTo($account->email));
+
     $log = StageLog::factory()->create([
         'matter_id' => $matter->id,
         'is_published' => true,
@@ -666,7 +917,7 @@ it('resets activation and stops the stage-update mail when staff edits the email
 
     app(NotifyClientOfStageUpdate::class)->handle($log);
 
-    Mail::assertNothingSent();
+    Mail::assertNotSent(StageUpdate::class);
 
     $warningComponent = $this->livewire(StageLogsRelationManager::class, [
         'ownerRecord' => $matter,
@@ -1149,6 +1400,63 @@ it('leaves the shared IP lock in place when another account also failed from the
         ->and(PortalLoginThrottle::tooManyAttempts([$ipKey]))->toBeTrue();
 });
 
+/**
+ * Final review I2: khách C bị khoá CHỈ vì lần hỏng của NGƯỜI KHÁC cùng địa chỉ (A và B gõ sai mật
+ * khẩu trên cùng một wifi). Lần thử của C bị chặn ngay ở cổng nên không để lại dòng `login_failed`
+ * nào của C — trước bản sửa, nhân sự bấm mở khoá nhận câu "Khách đăng nhập lại được ngay" trong khi
+ * C vẫn bị chặn tới 15 phút.
+ */
+it('does not promise an immediate sign-in when only other people\'s failures at the shared address lock the client out', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $ownClient = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $ownClient->id, 'lead_lawyer_id' => $lawyer->id]);
+    $accountA = ClientUser::factory()->activated()->create();
+    $accountB = ClientUser::factory()->activated()->create();
+    $accountC = ClientUser::factory()->for($ownClient)->activated()->create();
+
+    Filament::setCurrentPanel('portal');
+
+    $wrongPassword = fn (ClientUser $account) => $this->livewire(Login::class)
+        ->set('data.email', $account->email)
+        ->set('data.password', 'sai-mat-khau')
+        ->call('authenticate');
+
+    foreach (range(1, 2) as $ignored) {
+        $wrongPassword($accountB);
+    }
+
+    foreach (range(1, 3) as $ignored) {
+        $wrongPassword($accountA);
+    }
+
+    $rightPassword = fn () => $this->livewire(Login::class)
+        ->set('data.email', $accountC->email)
+        ->set('data.password', 'password')
+        ->call('authenticate');
+
+    $rightPassword()->assertHasErrors(['data.email']);
+
+    expect(Activity::query()
+        ->where('event', 'login_failed')
+        ->where('causer_type', $accountC->getMorphClass())
+        ->where('causer_id', $accountC->getKey())
+        ->count())->toBe(0);
+
+    Filament::setCurrentPanel('admin');
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(EditClientUser::class, ['record' => $accountC->getKey()])
+        ->callAction('unlockLogin')
+        ->assertNotified(__('client_users.actions.unlock_login_success_other_address_locked', ['minutes' => 15]));
+
+    // Câu trên nói thật: C vẫn bị chặn ở đúng địa chỉ đó.
+    Filament::setCurrentPanel('portal');
+
+    $rightPassword()->assertHasErrors(['data.email']);
+
+    expect(auth('client')->check())->toBeFalse();
+});
+
 /** Vế dương của ba test trên: không có khoá IP nào để báo thì câu trả lời là câu đơn giản. */
 it('tells staff the plain unlock message when there is no IP lock to report', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
@@ -1301,8 +1609,14 @@ it('stops applying once the restricted matter is soft-deleted', function () {
  * người tạo được quản lý tài khoản cổng (X3) — không phải mọi khách họ "với tới". Trước bản sửa
  * này luật sư B thấy khách C trong ô chọn, chọn, bấm lưu, rồi nhận một lỗi 403 trần từ
  * `mutateFormDataBeforeCreate()`.
+ *
+ * Việc sau gộp M6 (làn fu, mục 5): bản của main còn điền ô `password` mà form đã bỏ từ M6 Task 3 —
+ * Filament lặng lẽ bỏ khoá đó nên test vẫn xanh nhưng không còn khớp form thật. Nay form chỉ có
+ * các ô thật, và vế dương đo đúng luồng tạo đã gộp: mật khẩu tạm do `IssuePortalAccess` →
+ * `SendPortalActivationMail` sinh và gửi, không ai gõ.
  */
 it('offers on the create form only the clients the actor may manage portal accounts for, so nobody hits a raw 403', function () {
+    Queue::fake();
     ['lawyerA' => $lawyerA, 'lawyerB' => $lawyerB, 'account' => $account] = clientWithRestrictedMatterAndSecondLawyer();
     $clientC = $account->client;
 
@@ -1314,12 +1628,12 @@ it('offers on the create form only the clients the actor may manage portal accou
             'client_id' => $clientC->id,
             'name' => 'Tài khoản thứ hai của C',
             'email' => 'c-thu-hai@example.test',
-            'password' => 'Mat-khau-that-manh-2026!',
         ])
         ->call('create')
         ->assertHasFormErrors(['client_id']);
 
     expect(ClientUser::where('email', 'c-thu-hai@example.test')->exists())->toBeFalse();
+    Queue::assertNotPushed(SendPortalActivationMail::class);
 
     // Vế dương: luật sư phụ trách vụ restricted của C vẫn chọn được C.
     $this->actingAs($lawyerA, 'web');
@@ -1329,10 +1643,497 @@ it('offers on the create form only the clients the actor may manage portal accou
             'client_id' => $clientC->id,
             'name' => 'Tài khoản thứ hai của C',
             'email' => 'c-thu-hai@example.test',
-            'password' => 'Mat-khau-that-manh-2026!',
         ])
         ->call('create')
         ->assertHasNoFormErrors();
 
-    expect(ClientUser::where('email', 'c-thu-hai@example.test')->exists())->toBeTrue();
+    $created = ClientUser::where('email', 'c-thu-hai@example.test')->first();
+    expect($created)->not->toBeNull();
+    Queue::assertPushed(SendPortalActivationMail::class, fn (SendPortalActivationMail $job): bool => $job->clientUserId === $created->getKey());
+});
+
+// =========================================================================================
+// Việc sau gộp M6 (làn fu, mục 6 — N2 của rà soát cuối làn m6): thư kích hoạt mang mật khẩu tạm,
+// và mọi mã OTP sau đó cũng tới ĐÚNG địa chỉ ấy — gõ nhầm một ký tự là đưa cả hai cho người lạ.
+// Nên trước khi tạo tài khoản, và trước khi lưu một lần đổi email (hay bật lại một tài khoản chưa
+// từng kích hoạt) — tức mọi lần lưu sẽ gửi mật khẩu tạm — trang hỏi xác nhận, nêu rõ địa chỉ đích;
+// huỷ thì không gì đổi, không thư nào đi. Sau khi lưu, một thông báo nói thư đi tới địa chỉ nào,
+// hoặc vì sao chưa đi.
+// =========================================================================================
+
+/** Luật sư phụ trách một vụ của khách — người được tạo/sửa tài khoản cổng của khách đó. */
+function portalAccountActorAndClient(): array
+{
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $client = Client::factory()->create();
+    Matter::factory()->create(['client_id' => $client->id, 'lead_lawyer_id' => $lawyer->id]);
+
+    return [$lawyer, $client];
+}
+
+/**
+ * Nút lưu của trang (Tạo / Tạo và tạo thêm / Lưu) nằm trong khối nút dưới form (`form-actions` của
+ * schema `content`), không trên trang — `mountAction()` cần đúng ngữ cảnh đó, như nút Filament tự vẽ.
+ */
+function clientUserFormAction(string $name): TestAction
+{
+    return TestAction::make($name)->schemaComponent('form-actions', 'content');
+}
+
+/** Chuỗi `mountAction(...)` mà CHÍNH nút `$name` của trang vẽ ra trong HTML (`wire:click`). */
+function clientUserFormButtonHandler(string $html, string $name): string
+{
+    expect(preg_match('/wire:click(?:\.[a-z]+)*="(mountAction\(\''.$name.'\'[^"]*)"/', $html, $match))
+        ->toBe(1, "Không tìm thấy nút [{$name}] trong HTML của trang.");
+
+    return $match[1];
+}
+
+/**
+ * Mutation probe: đổi `->modal(...)` của nút "Tạo" (`ConfirmsPortalAccessIssue::
+ * confirmPortalAccessIssue()`) thành `->modal(false)` → ĐỎ (không hộp xác nhận nào mở, tài khoản
+ * tạo ngay lúc bấm).
+ */
+it('asks to confirm the destination address before creating a portal account, and creates and mails only once confirmed', function () {
+    Mail::fake();
+    [$lawyer, $client] = portalAccountActorAndClient();
+    $this->actingAs($lawyer, 'web');
+
+    $page = $this->livewire(CreateClientUser::class)
+        ->fillForm([
+            'client_id' => $client->id,
+            'name' => 'Khách cần xác nhận',
+            'email' => 'xac-nhan@example.com',
+        ])
+        ->mountAction(clientUserFormAction('create'))
+        ->assertActionMounted(clientUserFormAction('create'))
+        ->assertMountedActionModalSee([
+            __('client_users.issue_confirmation.create_heading'),
+            'xac-nhan@example.com',
+        ]);
+
+    expect(ClientUser::where('email', 'xac-nhan@example.com')->exists())->toBeFalse();
+    Mail::assertNothingSent();
+
+    $page->callMountedAction()->assertHasNoFormErrors();
+
+    $created = ClientUser::where('email', 'xac-nhan@example.com')->first();
+    expect($created)->not->toBeNull();
+    Mail::assertSent(Activation::class, fn (Activation $mail) => $mail->hasTo('xac-nhan@example.com') && ! $mail->reissue);
+    $page->assertNotified(__('client_users.issue_notice.queued', ['email' => 'xac-nhan@example.com']));
+});
+
+it('creates nothing and sends nothing when the creation confirmation is cancelled', function () {
+    Mail::fake();
+    [$lawyer, $client] = portalAccountActorAndClient();
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(CreateClientUser::class)
+        ->fillForm([
+            'client_id' => $client->id,
+            'name' => 'Khách đổi ý',
+            'email' => 'go-nham@example.com',
+        ])
+        ->mountAction(clientUserFormAction('create'))
+        ->assertActionMounted(clientUserFormAction('create'))
+        ->unmountAction()
+        ->assertActionNotMounted(clientUserFormAction('create'));
+
+    expect(ClientUser::where('email', 'go-nham@example.com')->exists())->toBeFalse();
+    Mail::assertNothingSent();
+    expect(Activity::query()->where('event', 'client_portal_access_issued')->exists())->toBeFalse();
+});
+
+/**
+ * Form sai thì báo lỗi ngay trên ô, KHÔNG mở hộp xác nhận cho một địa chỉ chưa hợp lệ.
+ *
+ * Mutation probe: bỏ `->mountUsing(...)` kiểm tra form khỏi
+ * `ConfirmsPortalAccessIssue::confirmPortalAccessIssue()` → ĐỎ (Filament không tự kiểm form trước
+ * khi mở action của khối nút).
+ */
+it('shows the form errors instead of the confirmation when the account form is invalid', function () {
+    Mail::fake();
+    [$lawyer, $client] = portalAccountActorAndClient();
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(CreateClientUser::class)
+        ->fillForm([
+            'client_id' => $client->id,
+            'name' => 'Thiếu email',
+            'email' => '',
+        ])
+        ->mountAction(clientUserFormAction('create'))
+        ->assertActionNotMounted(clientUserFormAction('create'))
+        ->assertHasFormErrors(['email' => 'required']);
+
+    expect(ClientUser::where('name', 'Thiếu email')->exists())->toBeFalse();
+});
+
+/** "Tạo và tạo thêm" là đường thứ hai tới cùng một lần tạo — cùng hộp xác nhận. */
+it('asks the same confirmation for create-and-create-another', function () {
+    Mail::fake();
+    [$lawyer, $client] = portalAccountActorAndClient();
+    $this->actingAs($lawyer, 'web');
+
+    $page = $this->livewire(CreateClientUser::class)
+        ->fillForm([
+            'client_id' => $client->id,
+            'name' => 'Khách thứ nhất',
+            'email' => 'tao-them@example.com',
+        ])
+        ->mountAction(clientUserFormAction('createAnother'))
+        ->assertActionMounted(clientUserFormAction('createAnother'))
+        ->assertMountedActionModalSee('tao-them@example.com');
+
+    expect(ClientUser::where('email', 'tao-them@example.com')->exists())->toBeFalse();
+
+    $page->callMountedAction();
+
+    expect(ClientUser::where('email', 'tao-them@example.com')->exists())->toBeTrue();
+    Mail::assertSent(Activation::class, fn (Activation $mail) => $mail->hasTo('tao-them@example.com'));
+});
+
+/**
+ * Enter trong một ô của form gửi form — đường đó phải mở ĐÚNG action của nút lưu (cùng chuỗi
+ * `mountAction(...)`, cùng ngữ cảnh khối nút, như chính nút vẽ ra), để hộp xác nhận cũng đứng
+ * trước nó; không gọi thẳng `create()`/`save()`. So với chuỗi của nút trong HTML thay vì chép tay,
+ * để một lần nâng Filament đổi khoá khối nút làm test này đỏ thay vì làm Enter im lặng không làm gì.
+ *
+ * Mutation probe: bỏ `getSubmitFormLivewireMethodName()` của một trong hai trang → ĐỎ.
+ */
+it('routes the form submit (Enter in a field) through the save button and its confirmation on both pages', function () {
+    [$lawyer, $client] = portalAccountActorAndClient();
+    $account = ClientUser::factory()->for($client)->activated()->create();
+    $this->actingAs($lawyer, 'web');
+
+    $create = $this->livewire(CreateClientUser::class)->html();
+    expect($create)->toContain('wire:submit="'.clientUserFormButtonHandler($create, 'create').'"')
+        ->not->toContain('wire:submit="create"');
+
+    $edit = $this->livewire(EditClientUser::class, ['record' => $account->getKey()])->html();
+    expect($edit)->toContain('wire:submit="'.clientUserFormButtonHandler($edit, 'save').'"')
+        ->not->toContain('wire:submit="save"');
+});
+
+/** Tạo tài khoản TẮT: hộp xác nhận và thông báo nói thật là chưa thư nào đi, và khi nào nó sẽ đi. */
+it('says no mail goes yet when creating an inactive account, both before and after confirming', function () {
+    Mail::fake();
+    [$lawyer, $client] = portalAccountActorAndClient();
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(CreateClientUser::class)
+        ->fillForm([
+            'client_id' => $client->id,
+            'name' => 'Khách chưa bật',
+            'email' => 'chua-bat@example.com',
+            'is_active' => false,
+        ])
+        ->mountAction(clientUserFormAction('create'))
+        ->assertMountedActionModalSee([
+            __('client_users.issue_confirmation.create_heading_inactive'),
+            'chua-bat@example.com',
+        ])
+        ->callMountedAction()
+        ->assertNotified(__('client_users.issue_notice.not_sent_inactive', ['email' => 'chua-bat@example.com']));
+
+    expect(ClientUser::where('email', 'chua-bat@example.com')->exists())->toBeTrue();
+    Mail::assertNothingSent();
+});
+
+/**
+ * Đổi email = mật khẩu mới tới địa chỉ mới, mật khẩu cũ hết hiệu lực. Huỷ thì không gì đổi.
+ *
+ * Mutation probe: đổi `->modal($confirmWhen)` của `ConfirmsPortalAccessIssue::
+ * confirmPortalAccessIssue()` thành `->modal(false)` → ĐỎ.
+ */
+it('asks to confirm the new address before an email change replaces the password, and changes nothing if cancelled', function () {
+    Mail::fake();
+    [$lawyer, $client] = portalAccountActorAndClient();
+    $account = ClientUser::factory()->for($client)->activated()->create(['is_active' => true]);
+    $oldEmail = $account->email;
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'name' => $account->name,
+            'email' => 'dia-chi-moi@example.com',
+        ])
+        ->mountAction(clientUserFormAction('save'))
+        ->assertActionMounted(clientUserFormAction('save'))
+        ->assertMountedActionModalSee([
+            __('client_users.issue_confirmation.edit_heading'),
+            'dia-chi-moi@example.com',
+            'mật khẩu cũ sẽ không dùng được nữa',
+        ])
+        ->unmountAction();
+
+    $account->refresh();
+    expect($account->email)->toBe($oldEmail)
+        ->and($account->activated_at)->not->toBeNull()
+        ->and($account->must_change_password)->toBeFalse();
+    Mail::assertNothingSent();
+});
+
+/**
+ * Rà soát cuối làn fu, fix round 1: tài khoản ở đây ĐÃ từng được cấp quyền (dòng audit
+ * `client_portal_access_issued` thật, qua `IssuePortalAccess`) rồi khách tự đổi mật khẩu lần đầu —
+ * đúng hình dạng mọi tài khoản đã kích hoạt có trên hệ thống thật. Thư đi tới địa chỉ mới vì vậy là
+ * bản "cấp lại" (`reissue`). Một factory `activated()` trần, không dòng audit nào, là tài khoản
+ * chưa từng được cấp — trang sửa giờ gửi bản "đã tạo tài khoản" cho nó.
+ */
+it('changes the email and mails a new temporary password to the new address once confirmed, telling staff where it went', function () {
+    [$lawyer, $client] = portalAccountActorAndClient();
+    $account = ClientUser::factory()->for($client)->create(['is_active' => true]);
+    app(IssuePortalAccess::class)->handle($account, $lawyer);
+    $account->refresh()->forceFill(['must_change_password' => false, 'activated_at' => now()])->save();
+    Mail::fake();
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'name' => $account->name,
+            'email' => 'dia-chi-moi@example.com',
+        ])
+        ->mountAction(clientUserFormAction('save'))
+        ->callMountedAction()
+        ->assertHasNoFormErrors()
+        ->assertNotified(__('client_users.issue_notice.queued', ['email' => 'dia-chi-moi@example.com']));
+
+    $account->refresh();
+    expect($account->email)->toBe('dia-chi-moi@example.com')
+        ->and($account->activated_at)->toBeNull()
+        ->and($account->must_change_password)->toBeTrue();
+    Mail::assertSent(Activation::class, 1);
+    Mail::assertSent(Activation::class, fn (Activation $mail) => $mail->hasTo('dia-chi-moi@example.com') && $mail->reissue);
+});
+
+/**
+ * Lưu không gửi mật khẩu (chỉ đổi tên) thì không hỏi gì — hộp xác nhận chỉ đứng trước những lần
+ * lưu SẼ gửi mật khẩu tạm, không thành một cú bấm thừa cho mọi lần sửa.
+ *
+ * Mutation probe: đổi điều kiện hộp xác nhận của nút "Lưu" (`EditClientUser::getSaveFormAction()`,
+ * `saveIssuesAccess(...)`) thành `fn () => true` → ĐỎ.
+ */
+it('saves a name-only edit straight away, without a confirmation and without any mail', function () {
+    Mail::fake();
+    [$lawyer, $client] = portalAccountActorAndClient();
+    $account = ClientUser::factory()->for($client)->activated()->create(['is_active' => true]);
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'name' => 'Tên mới, cùng email',
+            'email' => $account->email,
+        ])
+        ->mountAction(clientUserFormAction('save'))
+        ->assertActionNotMounted(clientUserFormAction('save'))
+        ->assertHasNoFormErrors();
+
+    expect($account->fresh()->name)->toBe('Tên mới, cùng email');
+    Mail::assertNothingSent();
+});
+
+/** Đổi email trên tài khoản TẮT: vẫn hỏi (địa chỉ quyết định thư sau này đi đâu), và nói thật là chưa gửi. */
+it('confirms an email change on an inactive account and says the mail waits until the account is turned back on', function () {
+    Mail::fake();
+    [$lawyer, $client] = portalAccountActorAndClient();
+    $account = ClientUser::factory()->for($client)->activated()->create(['is_active' => false]);
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'name' => $account->name,
+            'email' => 'dia-chi-moi-tat@example.com',
+            'is_active' => false,
+        ])
+        ->mountAction(clientUserFormAction('save'))
+        ->assertMountedActionModalSee([
+            __('client_users.issue_confirmation.edit_heading_inactive'),
+            'dia-chi-moi-tat@example.com',
+        ])
+        ->callMountedAction()
+        ->assertNotified(__('client_users.issue_notice.not_sent_inactive', ['email' => 'dia-chi-moi-tat@example.com']));
+
+    expect($account->fresh()->email)->toBe('dia-chi-moi-tat@example.com');
+    Mail::assertNothingSent();
+});
+
+/**
+ * Bật lại một tài khoản chưa từng kích hoạt cũng gửi mật khẩu tạm mới — cùng hộp xác nhận.
+ *
+ * Rà soát cuối làn fu, fix round 1: tài khoản này TẠO ở trạng thái tắt, chưa từng nhận thư nào
+ * (không có dòng audit `client_portal_access_issued`), nên thư đi lúc bật lên là thư ĐẦU TIÊN
+ * khách nhận về cổng — phải là bản "đã tạo tài khoản" (`reissue` false), không phải "thông tin
+ * đăng nhập mới… mật khẩu trước không còn dùng được". Bản trước test này ghim đúng câu sai đó.
+ * Một tài khoản KHÁC của cùng khách đã được cấp từ trước — dòng audit của nó không được tính cho
+ * tài khoản này.
+ *
+ * Mutation probe: đổi `reissue:` trong `EditClientUser::afterSave()` lại thành `true` → ĐỎ; bỏ
+ * `->forSubject($account)` khỏi `IssuePortalAccess::hasBeenIssued()` → ĐỎ (dòng audit của tài khoản
+ * kia bị tính); bỏ `->forEvent(...)` → ĐỎ (dòng `created` của LogsActivity bị tính).
+ */
+it('confirms before turning a never-activated account back on, since that save mails a new temporary password', function () {
+    [$lawyer, $client] = portalAccountActorAndClient();
+    app(IssuePortalAccess::class)->handle(ClientUser::factory()->for($client)->create(['is_active' => true]), $lawyer);
+    $account = ClientUser::factory()->for($client)->create(['is_active' => false]);
+    Mail::fake();
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'name' => $account->name,
+            'email' => $account->email,
+            'is_active' => true,
+        ])
+        ->mountAction(clientUserFormAction('save'))
+        ->assertActionMounted(clientUserFormAction('save'))
+        ->assertMountedActionModalSee($account->email)
+        ->callMountedAction()
+        ->assertNotified(__('client_users.issue_notice.queued', ['email' => $account->email]));
+
+    Mail::assertSent(Activation::class, 1);
+    Mail::assertSent(Activation::class, fn (Activation $mail) => $mail->hasTo($account->email)
+        && ! $mail->reissue
+        && $mail->envelope()->subject === __('portal.email.activation.subject'));
+});
+
+/**
+ * Cùng luật, đường thứ hai mà finding nêu: tài khoản TẠO tắt (trên trang tạo thật — không thư,
+ * không audit), đổi email khi còn tắt (không thư), rồi bật lên. Thư đầu tiên khách nhận, tới địa
+ * chỉ MỚI, là bản "đã tạo tài khoản".
+ *
+ * Mutation probe: đổi `reissue:` trong `EditClientUser::afterSave()` lại thành `true` → ĐỎ.
+ */
+it('mails the first-time copy when an account created inactive has its email changed and is then turned on', function () {
+    Mail::fake();
+    [$lawyer, $client] = portalAccountActorAndClient();
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(CreateClientUser::class)
+        ->fillForm([
+            'client_id' => $client->id,
+            'name' => 'Khách tạo tắt',
+            'email' => 'tao-tat@example.com',
+            'is_active' => false,
+        ])
+        ->mountAction(clientUserFormAction('create'))
+        ->callMountedAction()
+        ->assertHasNoFormErrors();
+
+    $account = ClientUser::where('email', 'tao-tat@example.com')->firstOrFail();
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'name' => $account->name,
+            'email' => 'tao-tat-moi@example.com',
+            'is_active' => false,
+        ])
+        ->mountAction(clientUserFormAction('save'))
+        ->callMountedAction()
+        ->assertHasNoFormErrors();
+
+    Mail::assertNothingSent();
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'name' => $account->name,
+            'email' => 'tao-tat-moi@example.com',
+            'is_active' => true,
+        ])
+        ->mountAction(clientUserFormAction('save'))
+        ->callMountedAction()
+        ->assertHasNoFormErrors();
+
+    Mail::assertSent(Activation::class, 1);
+    Mail::assertSent(Activation::class, fn (Activation $mail) => $mail->hasTo('tao-tat-moi@example.com') && ! $mail->reissue);
+});
+
+/**
+ * Twin dương: tài khoản ĐÃ từng được cấp (tạo bật trên trang tạo thật → thư "đã tạo tài khoản",
+ * dòng audit), khách chưa kịp kích hoạt thì bị tắt, rồi bật lại. Lần bật này thay mật khẩu tạm
+ * khách ĐÃ nhận — thư phải nói "thông tin đăng nhập mới… mật khẩu trước không còn dùng được".
+ *
+ * Mutation probe: đổi `reissue:` trong `EditClientUser::afterSave()` thành `false` → ĐỎ.
+ */
+it('mails the replacement copy when staff turns back on an account that was issued access before but never activated', function () {
+    Mail::fake();
+    [$lawyer, $client] = portalAccountActorAndClient();
+    $this->actingAs($lawyer, 'web');
+
+    $this->livewire(CreateClientUser::class)
+        ->fillForm([
+            'client_id' => $client->id,
+            'name' => 'Khách đã từng nhận thư',
+            'email' => 'da-tung-nhan@example.com',
+            'is_active' => true,
+        ])
+        ->mountAction(clientUserFormAction('create'))
+        ->callMountedAction()
+        ->assertHasNoFormErrors();
+
+    $account = ClientUser::where('email', 'da-tung-nhan@example.com')->firstOrFail();
+    Mail::assertSent(Activation::class, 1);
+    Mail::assertSent(Activation::class, fn (Activation $mail) => ! $mail->reissue);
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'name' => $account->name,
+            'email' => $account->email,
+            'is_active' => false,
+        ])
+        ->mountAction(clientUserFormAction('save'))
+        ->assertHasNoFormErrors();
+
+    expect($account->fresh())
+        ->is_active->toBeFalse()
+        ->activated_at->toBeNull();
+    Mail::assertSent(Activation::class, 1);
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'name' => $account->name,
+            'email' => $account->email,
+            'is_active' => true,
+        ])
+        ->mountAction(clientUserFormAction('save'))
+        ->assertActionMounted(clientUserFormAction('save'))
+        ->callMountedAction()
+        ->assertHasNoFormErrors();
+
+    Mail::assertSent(Activation::class, 2);
+    $last = Mail::sent(Activation::class)->last();
+    expect($last->hasTo('da-tung-nhan@example.com'))->toBeTrue()
+        ->and($last->reissue)->toBeTrue()
+        ->and($last->envelope()->subject)->toBe(__('portal.email.activation.subject_reissued'));
+});
+
+/**
+ * Vế thứ hai của `IssuePortalAccess::isEligible()`: khách sở hữu bị xoá mềm. Form không lưu được
+ * một tài khoản mà khách ĐÃ xoá từ trước (ô "Khách hàng" từ chối giá trị ngoài danh sách), nên
+ * đường này chỉ còn là một cuộc đua: một nhân sự khác xoá khách giữa lúc form qua kiểm tra và lúc
+ * cấp quyền. Dựng cuộc đua bằng một listener `saved` xoá khách ngay sau khi tài khoản được ghi.
+ * Thông báo phải nói thật là thư chưa đi, và vì sao — không nói "sẽ được gửi".
+ */
+it('tells staff the activation mail did not go when the owning client is deleted while the form is being saved', function () {
+    Mail::fake();
+    [$lawyer, $client] = portalAccountActorAndClient();
+    $account = ClientUser::factory()->for($client)->activated()->create(['is_active' => true]);
+    $this->actingAs($lawyer, 'web');
+
+    ClientUser::saved(function (ClientUser $saved) use ($account): void {
+        if ($saved->is($account)) {
+            $saved->client()->first()?->delete();
+        }
+    });
+
+    $this->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm([
+            'name' => $account->name,
+            'email' => 'khach-da-xoa@example.com',
+        ])
+        ->mountAction(clientUserFormAction('save'))
+        ->callMountedAction()
+        ->assertNotified(__('client_users.issue_notice.not_sent_client_deleted', ['email' => 'khach-da-xoa@example.com']));
+
+    Mail::assertNothingSent();
 });

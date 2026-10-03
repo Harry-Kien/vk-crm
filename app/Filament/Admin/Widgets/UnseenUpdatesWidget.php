@@ -6,6 +6,7 @@ use App\Enums\Permission;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Models\StageLog;
 use App\Models\User;
+use App\Support\UnseenStageLogs;
 use Filament\Actions\Action;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
@@ -21,6 +22,11 @@ use Illuminate\Support\Facades\Auth;
  * Widget này được kế hoạch M5 xếp vào Task 6 vì **giờ mới có dữ liệu**: `stage_log_views` chỉ
  * bắt đầu có hàng từ khi `MatterProgress` (Task 4) gọi `RecordStageLogView`. Trước M5 mọi dòng
  * đã công bố đều "chưa xem", nên widget sẽ là một danh sách toàn bộ lịch sử văn phòng.
+ *
+ * M6 Task 9: định nghĩa "chưa xem quá 5 ngày" (mọi điều kiện mô tả dưới đây, trừ phạm vi
+ * `listableBy`) nay nằm ở {@see UnseenStageLogs}, dùng chung với `RemindUnseenUpdates` — Action
+ * nhắc luật sư phụ trách gọi điện lúc 08:30 về đúng những dòng này. Widget chỉ ghép thêm phạm vi
+ * người xem.
  *
  * # Điều kiện "chưa xem" đọc CHÍNH XÁC là gì
  *
@@ -52,7 +58,9 @@ use Illuminate\Support\Facades\Auth;
  *  3. **Không lọc `closed_at`.** SPEC §7.1 mục 5 không nêu điều kiện đó (khác §6.4 và §6.9, nơi
  *     SPEC nói thẳng "chưa đóng"/"đang mở"), và một cập nhật cuối cùng trên một hồ sơ vừa đóng
  *     mà khách chưa từng nhìn thấy là đúng cuộc gọi đáng thực hiện nhất — thường nó là câu "việc
- *     của anh/chị đã xong".
+ *     của anh/chị đã xong". Nhưng một hồ sơ đã kết thúc và đã QUÁ `client_access_until` thì
+ *     không còn trên cổng của khách (M7 Task 5) dù cờ ở mục 1 giữ nguyên, nên rơi khỏi widget
+ *     cùng lý do mục 1 (việc sau gộp M7 — điều kiện 4 của {@see UnseenStageLogs}).
  *
  * # Phạm vi và cách nó KHÔNG rò rỉ
  *
@@ -79,8 +87,8 @@ class UnseenUpdatesWidget extends TableWidget
      */
     protected static ?int $sort = 1;
 
-    /** SPEC §7.1 mục 5 và §4.18: "quá 5 ngày". */
-    public const UNSEEN_AFTER_DAYS = 5;
+    /** SPEC §7.1 mục 5 và §4.18: "quá 5 ngày" — một hằng số với {@see UnseenStageLogs::AFTER_DAYS}. */
+    public const UNSEEN_AFTER_DAYS = UnseenStageLogs::AFTER_DAYS;
 
     /**
      * Gác bằng `matter.view`, cùng quyền với `StaleMattersWidget`: bảng này hiện mã hồ sơ, tên
@@ -96,6 +104,12 @@ class UnseenUpdatesWidget extends TableWidget
     /**
      * Truy vấn của widget, tách static để test được mà không dựng cả bảng Livewire.
      *
+     * Định nghĩa "chưa xem quá 5 ngày" (đồng hồ `published_at`, `whereDoesntHave('views')`, hồ sơ
+     * đang công bố lên cổng và chưa hết hạn tra cứu, không lọc `closed_at`) là của
+     * {@see UnseenStageLogs} — dùng chung với
+     * Action nhắc luật sư gọi điện. Widget chỉ ghép thêm phần phụ thuộc người xem:
+     * `Matter::scopeListableBy()`.
+     *
      * `whereDoesntHave('views')` chạy **không** qua `ClientPortalScope`: dưới guard `web` scope
      * đó không kích hoạt (xem `ClientPortalScope::isActive()`), nên câu hỏi con đếm mọi biên bản
      * của mọi tài khoản portal — đúng cách đọc "theo khách hàng" mà docblock lớp mô tả. Một nhân
@@ -105,17 +119,8 @@ class UnseenUpdatesWidget extends TableWidget
      */
     public static function rowsFor(User $user): Builder
     {
-        return StageLog::query()
-            ->where('is_published', true)
-            // `published_at`, không phải `occurred_at`: đồng hồ của SPEC §7.1 mục 5 đếm từ lúc
-            // văn phòng ĐƯA TIN ra, không từ lúc chuyện xảy ra. Một dòng ghi lại một phiên toà
-            // tháng trước nhưng vừa được công bố hôm nay thì khách mới có hai ngày để mở nó.
-            ->whereNotNull('published_at')
-            ->where('published_at', '<', now()->subDays(self::UNSEEN_AFTER_DAYS))
-            ->whereDoesntHave('views')
-            ->whereHas('matter', fn (Builder $matter): Builder => $matter
-                ->listableBy($user)
-                ->where('is_published_to_portal', true))
+        return UnseenStageLogs::query()
+            ->whereHas('matter', fn (Builder $matter): Builder => $matter->listableBy($user))
             ->with(['matter.client']);
     }
 

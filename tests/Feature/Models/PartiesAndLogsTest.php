@@ -21,7 +21,9 @@ it('stores only hashed and normalized identity for parties', function () {
         ->identify('079 090 001 234', '0901234567')
         ->create(['name' => 'Trần Thị Bích Đào']);
 
-    expect($party->id_number_hash)->toBe(hash('sha256', '079090001234'))
+    // M8 Task 4 (SPEC §10.5): băm có khoá APP_KEY, không phải sha256 trần — xem NormalizerTest.
+    expect($party->id_number_hash)->toBe(hash_hmac('sha256', '079090001234', (string) config('app.key')))
+        ->and($party->id_number_hash)->not->toBe(hash('sha256', '079090001234'))
         ->and($party->phone_normalized)->toBe('84901234567')
         ->and($party->name_normalized)->toBe('tran thi bich dao')
         ->and($party->role)->toBe(PartyRole::Defendant)
@@ -70,7 +72,7 @@ it('cannot receive a raw identity through mass assignment and identify() is the 
 
     $party->identify('079 090 001 234', '0901234567')->save();
 
-    expect($party->fresh()->id_number_hash)->toBe(hash('sha256', '079090001234'))
+    expect($party->fresh()->id_number_hash)->toBe(hash_hmac('sha256', '079090001234', (string) config('app.key')))
         ->and($party->fresh()->phone_normalized)->toBe('84901234567');
 });
 

@@ -12,6 +12,7 @@ use App\Enums\Role;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ChecklistRelationManager;
+use App\Mail\Client\DocumentRejected;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Document;
@@ -21,9 +22,13 @@ use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
+use Filament\Forms\Components\Field;
 use Filament\Notifications\Notification;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
+use Livewire\Features\SupportTesting\Testable;
 use Spatie\Activitylog\Models\Activity;
 
 /**
@@ -248,6 +253,30 @@ it('gates the three review buttons on checklist.review and nothing else', functi
 });
 
 /**
+ * M7 Task 3: cả ba nút ẩn trên một vụ đã đóng — cổng HIỂN THỊ, độc lập với `checklist.review`
+ * (nhân chứng ở đây CÓ đủ quyền, để không lẫn với test ngay trên). Action thật vẫn tự hỏi lại
+ * `closed_at` (xem `OpensChecklistItem`, có test riêng ở `ReviewChecklistItemTest`/
+ * `MarkChecklistItemNotApplicableTest`) — cổng ở đây chỉ là để người dùng không bấm vào một thao
+ * tác chắc chắn bị từ chối.
+ */
+it('hides the three review buttons on a closed matter', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create([
+        'lead_lawyer_id' => $lawyer->id,
+        'closed_at' => now()->subDay(),
+    ]);
+    $waiting = MatterChecklistItem::factory()->for($matter)->status(ChecklistItemStatus::PendingReview)->create();
+    $missing = MatterChecklistItem::factory()->for($matter)->status(ChecklistItemStatus::Missing)->create();
+
+    $this->actingAs($lawyer, 'web');
+
+    checklistManager($matter)
+        ->assertActionHidden(TestAction::make('accept')->table($waiting))
+        ->assertActionHidden(TestAction::make('reject')->table($waiting))
+        ->assertActionHidden(TestAction::make('markNotApplicable')->table($missing));
+});
+
+/**
  * Và cặp sinh đôi dương cho chính vai trò mà M4 cần chứng minh: một TRỢ LÝ trong đội ngũ duyệt
  * được. SPEC §5 cho trợ lý `checklist.review`, và nếu màn hình này chỉ mở cho luật sư thì cái tab
  * mất đúng người dùng thường xuyên nhất của nó.
@@ -354,6 +383,136 @@ it('rejects an item through ReviewChecklistItem and stores the sentence the clie
     expect($item->status)->toBe(ChecklistItemStatus::Rejected)
         ->and($item->rejection_reason)->toBe(__('checklist.rejection_templates.blurred'));
 });
+
+// =========================================================================================
+// Câu báo sau khi từ chối (toast) và câu nhắc dưới ô lý do (helper text) phải nói ĐÚNG khách sẽ
+// biết về lần từ chối này bằng đường nào: email VÀ cổng khách hàng, CHỈ cổng khách hàng, hay
+// KHÔNG đường nào. Fix round 1 (Important 2) tách "có email"/"không email"; fix round 2 tách nhánh
+// "không email" theo NGUYÊN NHÂN, vì một vụ ẩn khỏi cổng thì lý do cũng ẩn theo (finding 2). Rà
+// soát cuối làn (I1): vụ ĐÃ ĐÓNG còn công bố trên cổng quay về nhánh "có email" — khách vẫn nộp
+// được ở đó và trang nộp đã hứa email (`portal_submit.done.body`).
+// =========================================================================================
+
+/**
+ * Dựng đúng một trong bốn cách một lần từ chối đến (hoặc không đến) được khách. Khách LUÔN có một
+ * tài khoản `is_active` — để test hỏi được chính cổng khách hàng "tài khoản này có thấy lý do
+ * không", thay vì tin câu chữ:
+ *
+ *  - `email`: vụ đang mở, bật công bố portal, tài khoản đã kích hoạt → thư đi, lý do hiện trên cổng.
+ *  - `not_activated`: tài khoản CHƯA kích hoạt (R12 không gửi thư cho nó) → không thư, nhưng lý do
+ *    vẫn chờ sẵn trên cổng cho lần đăng nhập đầu.
+ *  - `portal_off`: vụ tắt công bố portal → không thư, và cổng ẩn cả vụ lẫn lý do.
+ *  - `client_deleted`: vụ của một khách hàng đã xoá mềm → cổng ẩn vụ
+ *    (`Matter::applyClientPortalConstraints()` hỏi `whereHas('client')`), không thư.
+ *
+ * Gộp M7 vào `main`: bản M6 có thêm dòng `closed` (vụ ĐÃ ĐÓNG còn trên cổng — duyệt được, thư đi),
+ * và dựng `client_deleted` trên một vụ ĐÃ ĐÓNG (`ClientPolicy::delete` chỉ cho xoá khách khi không
+ * còn vụ đang mở, nên đó là đường thật tới trạng thái này). Từ M7 Task 3 danh mục của vụ đã đóng là
+ * chỉ đọc — nút "Cần nộp lại" ẩn (test "hides the three review buttons on a closed matter" ở trên) và
+ * `ReviewChecklistItem` từ chối — nên cả hai không còn là một lần từ chối có thật. Dòng `closed` bỏ;
+ * `client_deleted` dựng thẳng trên một vụ còn mở (xoá mềm khách hàng không qua policy), để vẫn đo
+ * được nhánh "cổng ẩn cả vụ" của `isShownOnPortal()` cho lý do khách hàng đã xoá — thứ dòng
+ * `portal_off` không phủ.
+ *
+ * @return array{0: Matter, 1: MatterChecklistItem, 2: ClientUser}
+ */
+function rejectionNoticeScenario(User $lawyer, string $scenario): array
+{
+    $client = Client::factory()->create();
+    $account = ClientUser::factory()
+        ->when($scenario !== 'not_activated', fn ($factory) => $factory->activated())
+        ->create(['client_id' => $client->id, 'is_active' => true]);
+    $matter = Matter::factory()->create([
+        'client_id' => $client->id,
+        'lead_lawyer_id' => $lawyer->id,
+        'is_published_to_portal' => $scenario !== 'portal_off',
+    ]);
+    $item = MatterChecklistItem::factory()->for($matter)->status(ChecklistItemStatus::PendingReview)->create();
+
+    if ($scenario === 'client_deleted') {
+        $client->delete();
+    }
+
+    return [$matter, $item, $account];
+}
+
+/**
+ * Câu nhắc ĐANG HIỆN dưới ô "Lý do" của modal từ chối đang mở — cùng cách
+ * `mountedPartyFieldHelperText()` (ViewMatterTest) đọc: `helperText()` của Filament 5 là một schema
+ * con `BELOW_CONTENT`, và thân modal không nằm trong HTML của lượt render test.
+ */
+function mountedRejectionReasonHelperText(Testable $component): string
+{
+    /** @var ChecklistRelationManager $instance */
+    $instance = $component->instance();
+    $schema = $instance->getSchema($instance->getMountedActionSchemaName());
+
+    /** @var Field $field */
+    $field = $schema->getFlatFields(withHidden: true)['rejection_reason'];
+
+    return (string) $field->getChildSchema(Field::BELOW_CONTENT_SCHEMA_KEY)?->toHtmlString();
+}
+
+/**
+ * Toast sau khi từ chối, cho cả bốn cách — và ghim nó vào SỰ THẬT, không vào câu chữ: thư
+ * `client.document_rejected` thật sự đi (hàng đợi `sync` trong test chạy listener ngay) đúng khi
+ * toast hứa email, và chính cổng khách hàng (`MatterChecklistItemPolicy::view` của tài khoản khách)
+ * thấy đầu mục đúng khi toast nói lý do hiện trên cổng.
+ *
+ * Mutation probe: thay `isShownOnPortal()` bằng `is_published_to_portal` trần → dòng
+ * `client_deleted` ĐỎ (toast nói lý do hiện trên cổng của một khách đã xoá). (Probe "thêm lại
+ * `->open()`" của rà soát cuối làn M6, I1, nay đo ở `DocumentRejectedNotificationTest` — vụ đóng
+ * giữa lúc từ chối và lúc job chạy — vì từ M7 không còn lần từ chối nào trên vụ đã đóng.)
+ */
+it('tells the reviewer after rejecting exactly how the client will learn of it', function (string $scenario, string $toastKey, bool $mailed, bool $onPortal) {
+    Mail::fake();
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    [$matter, $item, $account] = rejectionNoticeScenario($lawyer, $scenario);
+
+    $this->actingAs($lawyer, 'web');
+
+    checklistManager($matter)
+        ->callAction(TestAction::make('reject')->table($item), data: [
+            'rejection_reason' => __('checklist.rejection_templates.blurred'),
+        ])
+        ->assertHasNoActionErrors();
+
+    expect($item->refresh()->status)->toBe(ChecklistItemStatus::Rejected);
+    Notification::assertNotified(__($toastKey));
+
+    if ($mailed) {
+        Mail::assertSent(DocumentRejected::class, fn (DocumentRejected $mail): bool => $mail->hasTo($account->email));
+    } else {
+        Mail::assertNotSent(DocumentRejected::class);
+    }
+
+    expect(Gate::forUser($account)->allows('view', $item->fresh()))->toBe($onPortal);
+})->with([
+    'open, on the portal, activated account' => ['email', 'checklist.tab.actions.reject_success', true, true],
+    'account not activated yet' => ['not_activated', 'checklist.tab.actions.reject_success_no_notice', false, true],
+    'portal switch off' => ['portal_off', 'checklist.tab.actions.reject_success_portal_hidden', false, false],
+    'matter of a soft-deleted client' => ['client_deleted', 'checklist.tab.actions.reject_success_portal_hidden', false, false],
+]);
+
+/**
+ * Câu nhắc dưới ô lý do — cùng bốn cách, cùng lựa chọn với toast. Fix round 1 viết nhánh
+ * "không email" nhưng chưa test nó qua màn hình (minor của vòng rà soát lại); vòng này test cả ba.
+ */
+it('tells the reviewer under the reason box how the client will learn of it', function (string $scenario, string $helpKey) {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    [$matter, $item] = rejectionNoticeScenario($lawyer, $scenario);
+
+    $this->actingAs($lawyer, 'web');
+
+    $component = checklistManager($matter)->mountAction(TestAction::make('reject')->table($item));
+
+    expect(mountedRejectionReasonHelperText($component))->toContain(e(__($helpKey)));
+})->with([
+    'open, on the portal, activated account' => ['email', 'checklist.tab.fields.rejection_reason_help'],
+    'account not activated yet' => ['not_activated', 'checklist.tab.fields.rejection_reason_help_no_notice'],
+    'portal switch off' => ['portal_off', 'checklist.tab.fields.rejection_reason_help_portal_hidden'],
+    'matter of a soft-deleted client' => ['client_deleted', 'checklist.tab.fields.rejection_reason_help_portal_hidden'],
+]);
 
 it('marks an item not applicable through MarkChecklistItemNotApplicable', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();

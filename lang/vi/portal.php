@@ -107,5 +107,114 @@ return [
             'help' => 'Có điều gì chưa rõ, anh/chị gọi giúp văn phòng theo số :phone.',
             'salutation' => 'Trân trọng, :office',
         ],
+
+        /*
+         * Mẫu `client.document_published` (SPEC §9, M6 Task 3). Tiêu đề KHÔNG mang tên tài liệu
+         * (sổ tay M6.5 Task 13 — dòng nhật ký thư hiện cho mọi người xem được vụ, kể cả trợ lý);
+         * tên tài liệu chỉ nằm ở `document_line`, trong THÂN thư.
+         */
+        'document_published' => [
+            'subject' => 'Hồ sơ :code có văn bản mới',
+            'greeting' => 'Kính gửi anh/chị :name,',
+            'line' => 'Văn phòng vừa gửi một văn bản mới cho hồ sơ :code của anh/chị.',
+            'document_line' => 'Văn bản: ":title" (:group).',
+            'open' => 'Mở hồ sơ để xem văn bản',
+            'help' => 'Có điều gì chưa rõ, anh/chị gọi giúp văn phòng theo số :phone.',
+            'salutation' => 'Trân trọng, :office',
+        ],
+
+        /*
+         * Cùng mẫu `client.document_published`, biến thể GÓI BÀN GIAO HỒ SƠ (việc sau gộp M7, làn
+         * fu2; SPEC §6.12 bước 4). Không câu nào nêu tên tài liệu — kể cả tiêu đề của gói. Bốn câu
+         * hạn tải (`download_until`, `download`, `view_only_until`, `view_only`) do
+         * `App\Mail\Client\DocumentPublished::handoverAccessLine()` chọn: có cho tải không, có hạn
+         * tra cứu (`client_access_until`) không. Hạn là NGÀY CUỐI khách còn xem được (M7 Task 5:
+         * vụ rời cổng từ 00:00 ngày hôm sau).
+         */
+        'handover_published' => [
+            'subject' => 'Hồ sơ :code: gói hồ sơ bàn giao đã sẵn sàng',
+            'greeting' => 'Kính gửi anh/chị :name,',
+            'line' => 'Văn phòng đã chuẩn bị gói hồ sơ bàn giao cho hồ sơ :code của anh/chị: các tài liệu của hồ sơ cùng tệp mục lục MUC-LUC.pdf, nén trong một tệp zip.',
+            'download_until' => 'Anh/chị đăng nhập cổng khách hàng để tải gói về và cất giữ. Hạn tải: hết ngày :date. Sau ngày này hồ sơ không còn trên cổng khách hàng.',
+            'download' => 'Anh/chị đăng nhập cổng khách hàng để tải gói về và cất giữ.',
+            'view_only_until' => 'Gói đã hiện trên cổng khách hàng tới hết ngày :date, nhưng văn phòng chưa mở quyền tải về. Anh/chị cần nhận tệp, xin liên hệ văn phòng.',
+            'view_only' => 'Gói đã hiện trên cổng khách hàng, nhưng văn phòng chưa mở quyền tải về. Anh/chị cần nhận tệp, xin liên hệ văn phòng.',
+            'open' => 'Mở cổng khách hàng',
+            'help' => 'Có điều gì chưa rõ, anh/chị gọi giúp văn phòng theo số :phone.',
+            'salutation' => 'Trân trọng, :office',
+        ],
+
+        /*
+         * Mẫu `client.document_rejected` (SPEC §9, M6 Task 3). Cùng lý do tiêu đề không mang tên
+         * đầu mục hay lý do — chỉ mã hồ sơ.
+         */
+        'document_rejected' => [
+            'subject' => 'Hồ sơ :code cần bổ sung giấy tờ',
+            'greeting' => 'Kính gửi anh/chị :name,',
+            'line' => 'Văn phòng chưa thể nhận giấy tờ ":item" của hồ sơ :code. Lý do:',
+            'open' => 'Mở hồ sơ để nộp lại',
+            'help' => 'Có điều gì chưa rõ, anh/chị gọi giúp văn phòng theo số :phone.',
+            'salutation' => 'Trân trọng, :office',
+        ],
+
+        /*
+         * Mẫu `client.activation` (SPEC §9, M6 Task 3) — con đường DUY NHẤT một khách có mật khẩu
+         * cổng thông tin (xem docblock `App\Mail\Client\Activation`). Không hứa "đã gửi kèm email"
+         * ở đâu khác vì đây chính là thư đó.
+         *
+         * Việc sau gộp M6 (làn fu, mục 6 — N1): mật khẩu tạm có nhãn riêng; lần CẤP LẠI (nút "Cấp
+         * lại mật khẩu", đổi email, bật lại tài khoản chưa từng kích hoạt) dùng tiêu đề và câu mở
+         * riêng (`*_reissued`), không nói "đã tạo tài khoản", và thêm `previous_invalid`.
+         */
+        'activation' => [
+            'subject' => 'Tài khoản cổng thông tin của anh/chị đã sẵn sàng',
+            'subject_reissued' => 'Thông tin đăng nhập mới cho cổng thông tin của anh/chị',
+            'greeting' => 'Kính gửi anh/chị :name,',
+            'line' => 'Văn phòng đã tạo tài khoản cổng thông tin để anh/chị theo dõi hồ sơ của mình. Thông tin đăng nhập:',
+            'line_reissued' => 'Văn phòng vừa cấp thông tin đăng nhập mới cho tài khoản cổng thông tin của anh/chị. Thông tin đăng nhập:',
+            'email_label' => 'Email đăng nhập:',
+            'password_label' => 'Mật khẩu tạm thời:',
+            // Đúng ngay khi thư tới: SendPortalActivationMail ghi hash mật khẩu mới TRƯỚC khi gửi.
+            'previous_invalid' => 'Mật khẩu tạm này thay cho mọi mật khẩu trước đó của tài khoản: nếu anh/chị từng có mật khẩu (kể cả một mật khẩu tạm gửi trước đây), mật khẩu đó không còn dùng được nữa.',
+            'must_change' => 'Đây là mật khẩu tạm thời — lần đầu đăng nhập bằng mật khẩu này, hệ thống sẽ yêu cầu anh/chị đổi sang mật khẩu khác.',
+            'otp_note' => 'Cổng thông tin không có đường tự đặt lại mật khẩu, nên mỗi lần đăng nhập anh/chị cần nhập thêm một mã gửi về CHÍNH hộp thư này — xin giữ hộp thư này an toàn.',
+            'open' => 'Mở cổng thông tin',
+            'help' => 'Có điều gì chưa rõ, anh/chị gọi giúp văn phòng theo số :phone.',
+            'salutation' => 'Trân trọng, :office',
+        ],
+
+        /*
+         * Mẫu `client.request_answered` (SPEC §9, đính chính 2026-09-27, M6 Task 4,
+         * `requests/REQ-4`) — văn phòng vừa trả lời một luồng trao đổi. Cùng luật tiêu đề với
+         * `document_published`/`document_rejected`: chỉ mã hồ sơ, không mang tiêu đề yêu cầu do
+         * CHÍNH khách gõ. Thân thư KHÔNG trích nội dung câu trả lời (SPEC §9: "chi tiết mời bấm
+         * vào portal") — xem docblock `App\Mail\Client\RequestAnswered`.
+         */
+        'request_answered' => [
+            'subject' => 'Hồ sơ :code có phản hồi mới từ văn phòng',
+            'greeting' => 'Kính gửi anh/chị :name,',
+            'line' => 'Văn phòng vừa trả lời một yêu cầu anh/chị đã gửi cho hồ sơ :code.',
+            'open' => 'Mở hồ sơ để xem câu trả lời',
+            'help' => 'Có điều gì chưa rõ, anh/chị gọi giúp văn phòng theo số :phone.',
+            'salutation' => 'Trân trọng, :office',
+        ],
+
+        /*
+         * Mẫu `client.missing_documents` (SPEC §6.9, §9, M6 Task 8) — nhắc khách những giấy tờ BẮT
+         * BUỘC còn thiếu. Cùng luật tiêu đề với các mẫu trên: chỉ mã hồ sơ (một người có thể đại diện
+         * hai khách hàng, hai tài khoản — tiêu đề phải nói HỒ SƠ NÀO) và một câu chung, không tên
+         * giấy tờ; tên giấy tờ và lý do từ chối chỉ nằm trong THÂN thư. `rejected`/`rejected_reason`
+         * là đúng chữ khách đọc trên cổng ("cần nộp lại", lý do văn phòng đã viết để khách đọc).
+         */
+        'missing_documents' => [
+            'subject' => 'Hồ sơ :code còn thiếu giấy tờ cần anh/chị gửi',
+            'greeting' => 'Kính gửi anh/chị :name,',
+            'line' => 'Để văn phòng tiếp tục xử lý hồ sơ :code, anh/chị vui lòng gửi giúp những giấy tờ sau:',
+            'rejected' => 'cần nộp lại',
+            'rejected_reason' => 'Lý do: :reason',
+            'open' => 'Mở hồ sơ để gửi giấy tờ',
+            'help' => 'Nếu anh/chị đã gửi rồi hoặc có điều gì chưa rõ, xin gọi giúp văn phòng theo số :phone.',
+            'salutation' => 'Trân trọng, :office',
+        ],
     ],
 ];

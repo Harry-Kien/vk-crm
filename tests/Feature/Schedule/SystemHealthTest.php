@@ -9,6 +9,7 @@ use App\Models\SystemHealth;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schedule;
 
@@ -306,4 +307,104 @@ it('lets a killed deadline check hold its overlap lock for an hour at most, and 
         ->and($check->expiresAt)->toBe(60)
         ->and($heartbeat->withoutOverlapping)->toBeTrue()
         ->and($heartbeat->expiresAt)->toBeLessThanOrEqual(10);
+});
+
+// ---------------------------------------------------------------------------------------------
+// M6 Task 7 — stale-matters.check
+// ---------------------------------------------------------------------------------------------
+
+/** SPEC §6.4: mốc hồ sơ quá hạn cập nhật cũng phải tra được theo đúng định danh ổn định của nó. */
+it('registers the stale matters check under its stable id', function () {
+    $names = collect(Schedule::events())
+        ->map(fn ($event) => $event->description)
+        ->filter()
+        ->values()
+        ->all();
+
+    expect($names)->toContain('stale-matters.check');
+});
+
+/**
+ * SPEC §6.4: "lịch 07:30 hằng ngày" — MỘT lần một ngày, giờ Việt Nam (cùng lý lẽ
+ * `deadlines.check`: 07:30 giờ Việt Nam là 00:30 UTC, ngoài khung nếu sự kiện rơi về UTC).
+ */
+it('says the stale matters check is due at 07:30 Vietnam time, and only then', function () {
+    $event = collect(Schedule::events())->first(fn ($e) => $e->description === 'stale-matters.check');
+
+    expect($event)->not->toBeNull();
+
+    $today = today()->startOfDay();
+
+    $this->travelTo($today->copy()->setTime(7, 30));
+    expect($event->isDue(app()))->toBeTrue('phải tới hạn lúc 07:30');
+
+    foreach (['00:00', '07:00', '07:29', '07:31', '12:00', '23:59'] as $notDue) {
+        [$h, $m] = explode(':', $notDue);
+        $this->travelTo($today->copy()->setTime((int) $h, (int) $m));
+        expect($event->isDue(app()))->toBeFalse("không được tới hạn lúc {$notDue}");
+    }
+});
+
+/**
+ * Nó gửi thư và ghi thông báo, nên hai tiến trình chồng nhau là hai lần nhắc cho cùng một người —
+ * cùng lý lẽ `deadlines.check`. Khoá hết hạn sau 60 phút, không phải mặc định 1440: một lần chạy
+ * bị giết giữa chừng (giới hạn CPU của shared hosting) không được khoá luôn lần chạy NGÀY HÔM SAU.
+ */
+it('lets a killed stale matters check hold its overlap lock for an hour at most', function () {
+    $event = collect(Schedule::events())->first(fn ($e) => $e->description === 'stale-matters.check');
+
+    expect($event->withoutOverlapping)->toBeTrue()
+        ->and($event->expiresAt)->toBe(60);
+});
+
+// ---------------------------------------------------------------------------------------------
+// M6 Task 8 — missing-documents.remind
+// ---------------------------------------------------------------------------------------------
+
+/** SPEC §6.9: tác vụ nhắc thiếu giấy tờ phải tra được theo đúng định danh ổn định của nó. */
+it('registers the missing documents reminder under its stable id', function () {
+    $names = collect(Schedule::events())
+        ->map(fn ($event) => $event->description)
+        ->filter()
+        ->values()
+        ->all();
+
+    expect($names)->toContain('missing-documents.remind');
+});
+
+/**
+ * SPEC §6.9: "thứ Hai/Tư/Sáu 08:00" — giờ Việt Nam (08:00 Việt Nam là 01:00 UTC; nếu sự kiện rơi về
+ * UTC thì `isDue()` lúc 08:00 giờ máy Việt Nam sai). Ngày cố định trong tuần, không phụ thuộc hôm nay
+ * là thứ mấy: 2026-10-05 là thứ Hai.
+ *
+ * Mutation probe: đổi cron thành `0 8 * * 1,3` (bỏ thứ Sáu) — hàng thứ Sáu ĐỎ; thành `0 8 * * *`
+ * — hàng thứ Ba ĐỎ; thành `0 9 * * 1,3,5` — mọi hàng 08:00 ĐỎ.
+ */
+it('says the missing documents reminder is due Monday, Wednesday and Friday at 08:00 Vietnam time, and only then', function () {
+    $event = collect(Schedule::events())->first(fn ($e) => $e->description === 'missing-documents.remind');
+
+    expect($event)->not->toBeNull();
+
+    foreach (['2026-10-05' => 'thứ Hai', '2026-10-07' => 'thứ Tư', '2026-10-09' => 'thứ Sáu'] as $day => $label) {
+        $this->travelTo(Carbon::parse($day.' 08:00:00'));
+        expect($event->isDue(app()))->toBeTrue("phải tới hạn lúc 08:00 {$label}");
+
+        foreach (['00:00', '07:59', '08:01', '09:00', '20:00'] as $notDue) {
+            $this->travelTo(Carbon::parse($day.' '.$notDue.':00'));
+            expect($event->isDue(app()))->toBeFalse("không được tới hạn lúc {$notDue} {$label}");
+        }
+    }
+
+    foreach (['2026-10-06' => 'thứ Ba', '2026-10-08' => 'thứ Năm', '2026-10-10' => 'thứ Bảy', '2026-10-11' => 'Chủ nhật'] as $day => $label) {
+        $this->travelTo(Carbon::parse($day.' 08:00:00'));
+        expect($event->isDue(app()))->toBeFalse("không được tới hạn lúc 08:00 {$label}");
+    }
+});
+
+/** Nó gửi thư và ghi thông báo — cùng lý lẽ `deadlines.check`: khoá hết hạn sau 60 phút, không phải 1440. */
+it('lets a killed missing documents reminder hold its overlap lock for an hour at most', function () {
+    $event = collect(Schedule::events())->first(fn ($e) => $e->description === 'missing-documents.remind');
+
+    expect($event->withoutOverlapping)->toBeTrue()
+        ->and($event->expiresAt)->toBe(60);
 });

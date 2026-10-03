@@ -67,8 +67,9 @@ class StageLogViewPolicy
         // lỗ hổng bộ test, vì `StageLogView::applyClientPortalConstraints()` không có một điều
         // kiện nào của riêng mình: nó là đúng một câu `whereHas('stageLog')`, tức cùng một luật
         // mà `$user->can('view', $stageLog)` ngay bên cạnh đã hỏi. Nó được giữ vì ngày nào bảng
-        // này có điều kiện riêng (ví dụ M7 thêm `client_access_until`), đây là chỗ điều kiện đó
-        // được hỏi lại mà không ai phải nhớ ra.
+        // này có điều kiện riêng, đây là chỗ điều kiện đó được hỏi lại mà không ai phải nhớ ra.
+        // (M7 Task 5 đặt `client_access_until` ở `Matter`, không ở đây: bảng này nhận nó qua chuỗi
+        // `whereHas('stageLog')` → `whereHas('matter')`, và vẫn chưa có điều kiện riêng.)
         return $user instanceof ClientUser
             ? $this->visibleToPortal($user, $view) && $user->can('view', $stageLog)
             : $user->can('view', $stageLog);

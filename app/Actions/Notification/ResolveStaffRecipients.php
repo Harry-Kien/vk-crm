@@ -5,6 +5,7 @@ namespace App\Actions\Notification;
 use App\Enums\Confidentiality;
 use App\Enums\Permission;
 use App\Enums\Role;
+use App\Models\Contract;
 use App\Models\IntakeRequest;
 use App\Models\Matter;
 use App\Models\User;
@@ -59,6 +60,16 @@ use Illuminate\Support\Facades\Gate;
  * điều kiện đều bắt buộc, không có thứ tự ưu tiên — một người bị vô hiệu hoá giữa chừng (Review
  * Focus 2 của brief) không được nhận, kể cả khi họ vẫn `Gate::view()` được (cột `is_active` không
  * nằm trong bất kỳ điều kiện nào của `MatterPolicy::view()`).
+ *
+ * **Thư về TIỀN (M9 Task 11, P3): cùng lớp, cổng khác.** {@see self::forBilling()} là
+ * {@see self::handle()} với MỘT điều kiện đổi chỗ: "được xem vụ" (`Gate view`) thành "được xem TIỀN
+ * của vụ" (`Gate viewAny` với `[Contract::class, $matter]` — định nghĩa duy nhất ở
+ * `ChecksBillingAccess`: `billing.view` + `Matter::isListableBy()` + vụ chưa xoá mềm). Cùng
+ * `is_active`, cùng `! trashed()`, cùng chuỗi dự phòng R3 (luật sư phụ trách → một quản lý → một
+ * admin) — mỗi tầng của chuỗi cũng hỏi cổng tiền, không phải cổng vụ. Kế toán không có
+ * `matter.view` nên `handle()` sẽ luôn loại họ; đó là lý do cổng tiền tồn tại riêng.
+ * {@see self::billingAudienceFor()} là nơi DUY NHẤT quyết định vai trò nào nhận thư tiền của vụ
+ * nào (như `supervisorsFor()` cho việc giám sát): nơi gọi không tự rẽ nhánh theo `confidentiality`.
  */
 class ResolveStaffRecipients
 {
@@ -86,6 +97,50 @@ class ResolveStaffRecipients
     }
 
     /**
+     * Người nhận thư về TIỀN của `$matter` — {@see self::handle()} với cổng tiền thay cổng vụ (xem
+     * docblock lớp). `$preferred` lọc theo `is_active` + `! trashed()` + cổng tiền, giữ thứ tự,
+     * trả MỌI người hợp lệ; rỗng thì chuỗi dự phòng (cũng qua cổng tiền), không bao giờ im lặng.
+     *
+     * @param  array<int, User|null>  $preferred  thường là {@see self::billingAudienceFor()}
+     * @return Collection<int, User>
+     */
+    public function forBilling(Matter $matter, array $preferred): Collection
+    {
+        $qualified = $this->qualify(collect($preferred), $matter, billing: true);
+
+        if ($qualified->isNotEmpty()) {
+            return $qualified;
+        }
+
+        return $this->fallbackChain($matter, billing: true);
+    }
+
+    /**
+     * "Ai nhận thư về tiền của vụ này" (P3) — MỘT định nghĩa, quyết định vai trò ở ĐÂY. Luật sư
+     * phụ trách đứng đầu; rồi vụ THƯỜNG: mọi kế toán đang hoạt động; vụ `restricted`: mọi admin
+     * đang hoạt động (cả kế toán lẫn quản lý đều không thấy tiền của vụ hạn chế, nên không ai trong
+     * hai vai trò đó nhận thư về nó). Admin KHÔNG có mặt ở vụ thường dù cổng tiền cho
+     * admin qua — thư này không phải bản sao gửi mọi admin cho mọi vụ (admin chỉ tới đây qua chuỗi
+     * dự phòng khi không còn ai khác).
+     *
+     * Đã qua {@see self::qualify()} với cổng tiền: một kế toán bị vô hiệu hoá, hay người phụ trách
+     * đã nghỉ việc, không có mặt trong kết quả. Kết quả có thể RỖNG — {@see self::forBilling()}
+     * mới là nơi chuỗi dự phòng chạy.
+     *
+     * @return Collection<int, User>
+     */
+    public function billingAudienceFor(Matter $matter): Collection
+    {
+        $role = $matter->confidentiality === Confidentiality::Restricted ? Role::Admin : Role::Accountant;
+
+        // Không `where('is_active', true)` ở đây: `qualify()` là nơi DUY NHẤT lọc `is_active`, và một
+        // bộ lọc thứ hai ở truy vấn chỉ là điều kiện chết (mutation probe: gỡ nó không đổi kết quả).
+        $members = User::query()->role($role->value)->orderBy('id')->get();
+
+        return $this->qualify(collect([$matter->leadLawyer])->merge($members), $matter, billing: true);
+    }
+
+    /**
      * "Ai giám sát vụ việc này" (vòng sửa 1, M1) — MỘT định nghĩa DUY NHẤT, xem docblock lớp. Mọi
      * quản lý được xem vụ; RIÊNG vụ `restricted`, mọi admin đang hoạt động THAY VÌ quản lý — một
      * quyết định vai trò có chủ ý, không phải hệ quả tình cờ của `Gate::view()` (khác hẳn
@@ -103,6 +158,25 @@ class ResolveStaffRecipients
 
         return $this->qualify(
             User::query()->where('is_active', true)->role($role->value)->get(),
+            $matter,
+        );
+    }
+
+    /**
+     * M7 Task 6 (R5): MỌI admin đang hoạt động được xem `$matter` — người nhận cảnh báo "hồ sơ quá
+     * hạn lưu trữ" (`App\Actions\Schedule\FlagRetentionExpiry`). Quyết định tiêu huỷ là việc của
+     * quản trị, không của luật sư phụ trách hay trưởng phòng, nên đây không phải
+     * {@see self::supervisorsFor()} (manager cho vụ thường) và không có chuỗi dự phòng: không còn
+     * admin nào thì trả rỗng (R7 của M6.5 cấm chính điều đó). Truy vấn chỉ chọn vai trò; ba điều
+     * kiện người nhận (`is_active`, chưa xoá mềm, `Gate::view()`) nằm ở MỘT chỗ,
+     * {@see self::qualify()}, như mọi danh sách khác — không lọc `is_active` lần thứ hai ở đây.
+     *
+     * @return Collection<int, User>
+     */
+    public function activeAdminsFor(Matter $matter): Collection
+    {
+        return $this->qualify(
+            User::query()->role(Role::Admin->value)->orderBy('id')->get(),
             $matter,
         );
     }
@@ -129,14 +203,16 @@ class ResolveStaffRecipients
      * `is_active = false` TRƯỚC KHI xoá mềm (R7 nói "vô hiệu hoá VÀ xoá" như hai bước, không phải
      * một bất biến DB). Kiểm tra tường minh ở đây, không tin cột kia làm thay việc của cột này.
      */
-    private function qualify(Collection $candidates, Matter $matter): Collection
+    private function qualify(Collection $candidates, Matter $matter, bool $billing = false): Collection
     {
         return $candidates
             ->filter(fn (?User $user): bool => $user instanceof User)
             ->unique(fn (User $user): int|string => $user->getKey())
             ->filter(fn (User $user): bool => $user->is_active)
             ->filter(fn (User $user): bool => ! $user->trashed())
-            ->filter(fn (User $user): bool => Gate::forUser($user)->allows('view', $matter))
+            ->filter(fn (User $user): bool => $billing
+                ? Gate::forUser($user)->allows('viewAny', [Contract::class, $matter])
+                : Gate::forUser($user)->allows('view', $matter))
             ->values();
     }
 
@@ -145,12 +221,15 @@ class ResolveStaffRecipients
      * admin. Trả về ngay khi tìm được MỘT người hợp lệ; tầng "người phụ trách" của SPEC không lặp
      * lại ở đây — xem docblock lớp.
      *
+     * `$billing` đổi cổng của MỌI tầng (kể cả luật sư phụ trách) từ "được xem vụ" sang "được xem
+     * tiền của vụ" — {@see self::forBilling()}; chuỗi vẫn là một, không có bản thứ hai cho tiền.
+     *
      * @return Collection<int, User>
      */
-    private function fallbackChain(Matter $matter): Collection
+    private function fallbackChain(Matter $matter, bool $billing = false): Collection
     {
         if ($matter->leadLawyer !== null) {
-            $leadLawyerQualified = $this->qualify(collect([$matter->leadLawyer]), $matter);
+            $leadLawyerQualified = $this->qualify(collect([$matter->leadLawyer]), $matter, $billing);
 
             if ($leadLawyerQualified->isNotEmpty()) {
                 return $leadLawyerQualified;
@@ -168,6 +247,7 @@ class ResolveStaffRecipients
         $manager = $this->qualify(
             User::query()->where('is_active', true)->role(Role::Manager->value)->get(),
             $matter,
+            $billing,
         )->first();
 
         if ($manager !== null) {
@@ -177,6 +257,7 @@ class ResolveStaffRecipients
         $admin = $this->qualify(
             User::query()->where('is_active', true)->role(Role::Admin->value)->get(),
             $matter,
+            $billing,
         )->first();
 
         return $admin !== null ? collect([$admin]) : collect();

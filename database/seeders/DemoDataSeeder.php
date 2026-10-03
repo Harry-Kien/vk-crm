@@ -15,10 +15,27 @@ use Illuminate\Database\Seeder;
  * Văn phòng cần dữ liệu mẫu trên production (demo cho khách hàng xem trước khi dùng thật) vẫn
  * gọi được lớp này trực tiếp: `php artisan db:seed --class=DemoDataSeeder` — cờ `--class` tường
  * minh này đi THẲNG vào seeder được đặt tên, không qua `DatabaseSeeder::run()`, nên không bị chặn
- * bởi kiểm tra môi trường ở đó.
+ * bởi kiểm tra môi trường ở đó. Chốt chặn trong MÃ cho đường đó (final review I4): `vkcrm:preflight`
+ * ĐỎ khi một tài khoản trong {@see self::staffEmails()} còn mật khẩu mẫu mà `ADMIN_IP_ALLOWLIST`
+ * trống — xem `App\Actions\Deployment\RunPreflight::demoAccountsRow()`.
  */
 class DemoDataSeeder extends Seeder
 {
+    /**
+     * Email của MỌI tài khoản NHÂN SỰ (panel /admin) mà seeder này tạo — quản trị viên demo cộng
+     * danh sách của {@see StaffSeeder}. Tài khoản cổng khách demo (`khach1@example.com`) không ở
+     * đây: mã OTP của nó gửi tới một hộp thư `example.com` không ai nhận, nên không ai chiếm được.
+     *
+     * @return list<string>
+     */
+    public static function staffEmails(): array
+    {
+        return [
+            DemoAccountsSeeder::ADMIN_EMAIL,
+            ...array_map(fn (array $person): string => $person['email'], StaffSeeder::roster()),
+        ];
+    }
+
     public function run(): void
     {
         $this->call([

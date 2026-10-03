@@ -68,7 +68,7 @@ Migration `system_health` (một dòng, `last_schedule_run_at`) và `notificatio
 
 Task có migration → bắt buộc vòng MariaDB thật, dán output.
 
-### - [ ] Task 3 — Bốn mẫu thư cho khách, kích hoạt bởi hành động
+### - [x] Task 3 — Bốn mẫu thư cho khách, kích hoạt bởi hành động
 
 `client.activation`, `client.stage_update`, `client.document_published`, `client.document_rejected`. Mỗi mẫu nối vào Action đã có (`TransitionMatterStage`, `PublishDocument`, `ReviewChecklistItem`). **Lỗ hổng phải lấp trong task này:** hôm nay tài khoản portal được tạo bằng cách một luật sư **gõ tay mật khẩu vào form** rồi đọc cho khách qua điện thoại — không có thư kích hoạt nào cả. Thêm Action `App\Actions\Client\IssuePortalAccess` sinh mật khẩu tạm, đặt `must_change_password`, gửi `client.activation`, và **bỏ ô mật khẩu khỏi form tạo** (giữ đường đặt lại cho luật sư, nhưng cũng đi qua Action và cũng gửi thư). Áp dụng R6 cho cả bốn mẫu.
 
@@ -94,7 +94,7 @@ lúc gửi rằng vụ việc chưa bị xoá mềm (cùng cách `SendDeadlineRe
 `outbound_messages` của thư về tài liệu hiện ra cho mọi người xem được vụ việc, kể cả trợ lý, trên
 màn hình nhật ký thư của M6.5 Task 13. Áp cho cả Task 3 và Task 4.
 
-### - [ ] Task 4 — Hai mẫu thư cho nhân sự, kích hoạt bởi khách
+### - [x] Task 4 — Hai mẫu thư cho nhân sự, kích hoạt bởi khách
 
 `staff.new_client_document` (khách nộp tài liệu — `SubmitClientDocument`), `staff.new_client_request` (khách gửi yêu cầu — `OpenClientRequest` của M5 Task 6), kèm thông báo trong hệ thống cho lead lawyer và người phụ trách. Người nhận suy từ đội ngũ vụ việc, không hardcode vai trò.
 
@@ -142,7 +142,7 @@ Relation manager "Mốc thời hạn" trên trang chi tiết vụ việc: danh s
 
 Bậc 7/3/1/quá hạn, thêm bậc 14 khi `severity = critical`; `reminders_sent` chống trùng; quá hạn thì đánh dấu và sinh cảnh báo. Mẫu `staff.deadline_reminder`. Test theo R4 và bằng `travelTo()` qua từng mốc, gồm **mốc bị nhảy qua** (cron chết 3 ngày rồi chạy lại: hệ thống phải nhắc mốc gần nhất còn ý nghĩa, không im lặng bỏ qua). Lịch 07:00 hằng ngày.
 
-### - [ ] Task 7 — `CheckStaleMatters` (SPEC §6.4)
+### - [x] Task 7 — `CheckStaleMatters` (SPEC §6.4)
 
 14 ngày → thông báo trong hệ thống cho lead lawyer; 21 ngày → email cho lead lawyer, đồng gửi mọi `manager`; theo R5 về tần suất. `StaleMattersWidget` đã có từ M3 — **kiểm chứng nó dùng chung đúng một định nghĩa "quá hạn cập nhật"** với job này, không hai định nghĩa (M4 đã tìm ra đúng hình dạng lỗi đó ở thanh X/Y). Lịch 07:30 hằng ngày.
 
@@ -157,15 +157,15 @@ Bậc 7/3/1/quá hạn, thêm bậc 14 khi `severity = critical`; `reminders_sen
   `App\Actions\Notification\ResolveStaffRecipients::supervisorsFor()` (M6.5 Task 12), thay manager
   bằng admin ở vụ `restricted` — không lấy toàn bộ user có vai trò manager của văn phòng.
 
-### - [ ] Task 8 — `RemindMissingDocuments` (SPEC §6.9)
+### - [x] Task 8 — `RemindMissingDocuments` (SPEC §6.9)
 
 Thứ Hai/Tư/Sáu 08:00. Chỉ matter đang mở, đã công bố portal, còn item **bắt buộc** ở `missing`/`rejected`. Liệt kê đúng những gì thiếu (R7). Không quá một thư mỗi 3 ngày cho cùng một matter (R3). Thiếu kéo dài quá 14 ngày → báo lead lawyer để gọi điện. Dùng đúng một nguồn sự thật về "còn thiếu": `App\Actions\Document\ChecklistProgress`.
 
-### - [ ] Task 9 — Nhắc dòng tiến độ khách chưa xem (SPEC §4.18, §7.1 mục 5)
+### - [x] Task 9 — Nhắc dòng tiến độ khách chưa xem (SPEC §4.18, §7.1 mục 5)
 
 Dòng đã công bố quá 5 ngày mà `stage_log_views` chưa có dòng nào → nhắc luật sư phụ trách **gọi điện**, không gửi thêm thư cho khách. Lý do đã nằm trong SPEC: khách không xem thường là khách không dùng được portal, và thứ cần là một cuộc gọi. Widget "Khách chưa xem cập nhật" của M5 dùng chung định nghĩa này.
 
-### - [ ] Task 10 — Nghiệm thu, tài liệu, cổng merge
+### - [x] Task 10 — Nghiệm thu, tài liệu, cổng merge
 
 Chạy `schedule:list` và `schedule:test` cho **từng tác vụ** trên dữ liệu seed thật trong container, dán nguyên văn output và các thư sinh ra trong log. Cập nhật `docs/PROGRESS.md` theo đúng lối M3/M4 (đường đi thật, số đo thật). Rà soát toàn nhánh, brief "giả định có một Critical". Cập nhật `.env.example` với mọi biến mới; điền giá trị thật lúc triển khai là việc của M8.
 

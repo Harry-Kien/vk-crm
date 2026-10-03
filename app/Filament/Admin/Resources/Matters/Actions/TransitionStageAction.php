@@ -102,6 +102,18 @@ class TransitionStageAction extends Action
         return $data['to_stage'];
     }
 
+    /**
+     * Rà soát cuối M7, I3: sau lần chuyển sang `$toStage`, vụ có còn ở trạng thái đóng không — cùng
+     * luật `TransitionMatterStage` dùng để ghi `closed_at`: giai đoạn đích `is_terminal` thì vụ đóng
+     * (hoặc vẫn đóng, `closed_at` giữ nguyên), không kết thúc thì vụ mở (một vụ đang đóng được MỞ
+     * LẠI). Chưa chọn giai đoạn đích thì chưa biết — `false`, câu cảnh báo phụ thuộc nó chưa hiện.
+     */
+    private function targetKeepsMatterClosed(Matter $matter, ?string $toStage): bool
+    {
+        return $toStage !== null
+            && (bool) $matter->matterType->stage($toStage)?->is_terminal;
+    }
+
     protected function buildSchema(Matter $matter): array
     {
         return [
@@ -136,6 +148,9 @@ class TransitionStageAction extends Action
             $this->expectedNextUpdateAtField(null),
             $this->publishToggleField($matter),
             $this->noActivatedAccountWarning($matter),
+            // Rà soát cuối M7, I3: "vụ không còn trên cổng" chỉ đúng khi giai đoạn đích giữ vụ ở
+            // trạng thái đóng — xem docblock `matterNotOnPortalWarning()`.
+            $this->matterNotOnPortalWarning($matter, fn (Get $get): bool => $this->targetKeepsMatterClosed($matter, $get('to_stage'))),
             $this->previewField(fn (Get $get): array => [
                 'showStageLabel' => true,
                 'stageLabel' => $this->stageClientLabel($matter, $get('to_stage')),

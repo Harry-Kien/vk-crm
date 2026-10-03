@@ -16,8 +16,6 @@
 <x-filament-panels::page>
     @php
         $cards = $this->getCards();
-        $hotline = config('vkcrm.brand.hotline');
-        $zalo = config('vkcrm.brand.zalo');
     @endphp
 
     @if ($cards === [])
@@ -26,7 +24,16 @@
             bước tiếp theo". Một khách vừa đăng nhập lần đầu mà gặp một trang trắng sẽ nghĩ mình
             làm sai điều gì đó, nên khối này vừa nói chuyện gì đang xảy ra, vừa đưa ra một con
             đường KHÔNG đi qua màn hình này — hai cách liên hệ thật với văn phòng.
+
+            Hotline và Zalo đọc qua `OfficeProfile` (M7 Task 10) CHỈ trong nhánh này: đó là một
+            truy vấn bảng `settings`, và trang có thẻ hồ sơ không in hai giá trị này — ngân sách
+            truy vấn của trang ("phần cố định đúng bằng 6", `MyMattersTest`) không đổi.
         --}}
+        @php
+            $office = App\Support\OfficeProfile::current();
+            $hotline = $office->hotline();
+            $zalo = $office->zalo();
+        @endphp
         <div style="display:flex;flex-direction:column;gap:1rem;max-width:34rem;">
             <p style="font-size:1.125rem;font-weight:600;line-height:1.5;">
                 {{ __('portal_matters.empty.heading') }}
@@ -74,6 +81,27 @@
                             {{ $card['title'] }}
                         </h2>
                     </div>
+
+                    {{--
+                        M6 Task 4 (`requests/REQ-4`, đính chính SPEC §9 2026-09-27) — huy hiệu
+                        "có trả lời mới". Đứng NGAY dưới tiêu đề, trước cả tóm tắt: đây là tin cần
+                        khách hàng chú ý trước nhất trên thẻ, và nó không phải một trong ba màu
+                        tiến độ ở cuối thẻ (một hồ sơ "đã đủ giấy tờ" vẫn có thể vừa có trả lời
+                        mới). Màu không phải kênh thông tin duy nhất (tài liệu bộ công cụ §4): câu
+                        chữ đứng cạnh và mang toàn bộ nghĩa.
+                    --}}
+                    @if ($card['has_new_reply'])
+                        <p
+                            data-portal-card-new-reply
+                            style="display:flex;align-items:center;gap:0.5rem;font-size:0.875rem;font-weight:600;line-height:1.4;color:var(--primary-600);"
+                        >
+                            <span
+                                aria-hidden="true"
+                                style="flex:none;height:0.5rem;width:0.5rem;border-radius:999px;background-color:currentColor;"
+                            ></span>
+                            {{ __('portal_matters.card.new_reply') }}
+                        </p>
+                    @endif
 
                     {{-- `summary_for_client` (portal/portal-2, M6.5 Task 5). Chỉ vẽ khi có nội
                          dung — thẻ không có chỗ cho một dòng trống. --}}

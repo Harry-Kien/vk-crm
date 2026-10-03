@@ -5,6 +5,7 @@ namespace App\Filament\Portal\Pages\Auth;
 use App\Filament\Portal\Auth\PortalMultiFactorChallenge;
 use App\Models\ClientUser;
 use App\Support\Audit;
+use App\Support\OfficeProfile;
 use App\Support\PortalLoginThrottle;
 use Filament\Auth\Http\Responses\Contracts\LoginResponse;
 use Filament\Auth\MultiFactor\MultiFactorChallenge;
@@ -104,6 +105,16 @@ class Login extends BaseLogin
     private bool $failureAudited = false;
 
     /**
+     * Request này đã đập khoá ĐỊA CHỈ của bước mã (`hitRateLimiter()`). Chỉ khi cờ này bật thì
+     * {@see self::authenticate()} mới hoàn suất sau một lần nhập mã đúng — cùng luật với
+     * `App\Filament\Admin\Pages\Auth\Login::$codeIpHit` (final review I1). Ngày nay mọi lần vào
+     * cổng khách đều qua bước mã (OTP bắt buộc), nhưng việc hoàn suất vẫn hỏi chính request này
+     * đã đập hay chưa thay vì suy ra từ "đăng nhập được": hoàn khi chưa đập là ăn mất lần hỏng
+     * của một người khác cùng địa chỉ.
+     */
+    private bool $codeIpHit = false;
+
+    /**
      * Ghi đè bộ đếm 60 giây / theo IP của `WithRateLimiting` bằng bộ đếm SPEC §10.3. Cố ý chỉ
      * KIỂM TRA chứ không đập: lần đập nằm ở `throwFailureValidationException()`.
      *
@@ -165,7 +176,9 @@ class Login extends BaseLogin
      * lỗi xác thực gắn thẳng vào ô mã, vì đó là ô khách đang nhìn.
      *
      * Khi chưa chạm trần thì vẫn đập bộ đếm đúng như lớp cha — mỗi lần gửi mã là một lần thử,
-     * kể cả lần đúng; chiều tài khoản của lần đúng được xoá ở `recordSuccessfulLogin()`.
+     * kể cả lần đúng (đập TRƯỚC khi chấm, để hai request song song không cùng lọt qua trần). Lần
+     * đúng được dọn ở `authenticate()`: chiều tài khoản bị xoá (`recordSuccessfulLogin()`), còn
+     * chiều địa chỉ được HOÀN đúng suất của request này (`PortalLoginThrottle::refundCodeIp()`).
      */
     protected function isMultiFactorChallengeRateLimited(Authenticatable $user): bool
     {
@@ -180,6 +193,7 @@ class Login extends BaseLogin
         }
 
         $challenge->hitRateLimiter($user);
+        $this->codeIpHit = true;
 
         return false;
     }
@@ -248,6 +262,8 @@ class Login extends BaseLogin
      */
     public function authenticate(): ?LoginResponse
     {
+        $this->codeIpHit = false;
+
         try {
             $response = parent::authenticate();
         } catch (TransportExceptionInterface $exception) {
@@ -266,6 +282,13 @@ class Login extends BaseLogin
 
         if ($response !== null) {
             $this->recordSuccessfulLogin();
+
+            if ($this->codeIpHit) {
+                // Mã đúng: lần thử này không phải một lần HỎNG nên không được tiêu chiều địa chỉ
+                // dùng chung — khách thứ sáu sau wifi văn phòng gõ ĐÚNG mã không được bị "thử quá
+                // nhiều lần". Lý do đầy đủ ở docblock của LoginThrottle::refundCodeIp().
+                PortalLoginThrottle::refundCodeIp();
+            }
         }
 
         return $response;
@@ -395,7 +418,7 @@ class Login extends BaseLogin
     {
         return __('portal.login.throttled', [
             'minutes' => $minutes,
-            'phone' => config('vkcrm.brand.hotline'),
+            'phone' => OfficeProfile::current()->hotline(),
         ]);
     }
 }

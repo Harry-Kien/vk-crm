@@ -132,6 +132,44 @@ return [
         'deadline_reminder_failed' => 'Gửi thư nhắc mốc thời hạn thất bại hẳn',
         // Task 20: app/Filament/Admin/Resources/Users/Pages/EditUser.php.
         'user_password_reset' => 'Đặt lại mật khẩu nhân sự',
+        // M6 Task 3: app/Actions/Client/IssuePortalAccess.php — cấp hoặc cấp lại quyền truy cập
+        // cổng khách hàng (mật khẩu tạm gửi qua thư `client.activation`).
+        'client_portal_access_issued' => 'Cấp quyền truy cập cổng khách hàng',
+        // M6 Task 7: app/Jobs/SendStaleMatterMail.php::failed() — job nhắc hồ sơ quá hạn cập nhật
+        // (staff.stale_matter) hỏng hẳn sau hết lượt thử lại.
+        'stale_matter_reminder_failed' => 'Gửi thư nhắc hồ sơ quá hạn cập nhật thất bại hẳn',
+        // M6 Task 8: app/Jobs/SendMissingDocumentsMail.php::failed() — job nhắc khách nộp giấy tờ
+        // còn thiếu (client.missing_documents) hỏng hẳn sau hết lượt thử lại.
+        'missing_documents_reminder_failed' => 'Gửi thư nhắc khách nộp giấy tờ thất bại hẳn',
+        // M6 Task 10: app/Actions/Notification/ResendOutboundMessage.php — admin bấm "Gửi lại" trên
+        // một dòng nhật ký thư `failed` (ghi ai bấm, dòng nào, mẫu nào; không ghi địa chỉ/nội dung).
+        'outbound_message_resent' => 'Gửi lại một thư đã gửi lỗi',
+        // M8 Task 2 (R2): app/Actions/User/ResetStaffTwoFactor.php.
+        'staff_two_factor_reset' => 'Đặt lại 2FA nhân sự',
+        // M8 Task 3 (SPEC §10.3): app/Actions/User/UnlockStaffLogin.php.
+        'staff_login_unlocked' => 'Mở khoá đăng nhập nhân sự',
+        // M8 Task 7: app/Actions/User/CreateAdminFromConsole.php (lệnh vkcrm:create-admin).
+        'admin_created_via_console' => 'Tạo quản trị viên từ dòng lệnh máy chủ',
+        // M7 Task 1: app/Jobs/SendReassignmentDigest.php — thư tổng hợp mốc hạn cho lead mới
+        // (SPEC §6.11 bước 3) hỏng hẳn sau hết lượt thử lại.
+        'matter_reassignment_digest_failed' => 'Gửi thư tổng hợp bàn giao vụ việc thất bại hẳn',
+        // M7 Task 4: gói bàn giao hồ sơ (app/Actions/Matter/RequestHandoverPackage.php,
+        // app/Jobs/GenerateHandoverPackage.php). `data_exported` (khoá có sẵn ở trên) được ghi khi
+        // gói sinh xong và mỗi lần gói được tải.
+        'handover_package_requested' => 'Yêu cầu sinh gói bàn giao hồ sơ',
+        'handover_package_failed' => 'Sinh gói bàn giao hồ sơ thất bại hẳn',
+        // M7 Task 6: app/Actions/Matter/RecordMatterDestruction.php — chỉ GHI quyết định, không xoá gì.
+        'matter_destruction_recorded' => 'Ghi quyết định tiêu huỷ hồ sơ',
+        // M7 Task 7: app/Actions/Document/RetractDocument.php — rút tài liệu đã công bố khỏi cổng
+        // khách; tệp và nhật ký tải giữ nguyên.
+        'document_retracted' => 'Rút lại tài liệu đã công bố cho khách',
+        // M7 Task 10: app/Actions/Settings/UpdateOfficeProfile.php — `changed_fields` nêu TÊN các
+        // trường đã đổi trên trang "Thông tin văn phòng", không nêu giá trị.
+        'office_profile_updated' => 'Sửa thông tin văn phòng',
+        // M7 Task 8: app/Actions/Communication/{LogCommunication,DeleteCommunicationLog}.php —
+        // chủ thể là dòng `communication_logs`; không ghi nội dung cuộc liên lạc vào nhật ký.
+        'communication_logged' => 'Ghi nhật ký liên lạc',
+        'communication_log_deleted' => 'Xoá một dòng nhật ký liên lạc',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */
