@@ -222,7 +222,7 @@ Món nợ mang từ M4 sang (`docs/docs-6`): hôm nay một tài liệu công b�
 - **Một đường rút duy nhất.** Với tài liệu đã công bố, "chuyển sang nhóm D" và "xoá" hoặc đi qua `RetractDocument`, hoặc bị chặn kèm thông điệp chỉ tới nút Rút. Đây là hai "đường rút tạm thời" mà PROGRESS ghi ở M4. M6.5 Task 21 sửa câu tương ứng trong PROGRESS.
 - **Trước hết, sửa khoá ngoại `document_downloads.document_id` khỏi `cascadeOnDelete`.** Nếu không, xoá một tài liệu sẽ xoá luôn bằng chứng tải của nó. Đây là migration, nên áp dụng luật MariaDB thật.
 
-### - [ ] Task 8 — Nhật ký liên lạc và nhật ký riêng của vụ việc (SPEC §7.2, §13 dòng M7)
+### - [x] Task 8 — Nhật ký liên lạc và nhật ký riêng của vụ việc (SPEC §7.2, §13 dòng M7)
 
 SPEC §13 liệt kê "nhật ký liên lạc" trên dòng M7, và §7.2 đặc tả hẳn một tab. Bảng `communication_logs` có từ M1, policy có từ M2, nhưng **không có màn hình nào để ghi một cuộc gọi**. M5 đã phán quyết bảng này không lên cổng khách.
 
@@ -241,7 +241,7 @@ Phán quyết kèm theo:
   - `delete` hiện mở cho bất kỳ ai xem được vụ: đổi thành xoá mềm kèm lý do bắt buộc và một dòng audit, như `stage_logs`.
 - `CommunicationLogPolicy::view` **đã đúng** từ d069424. Không sửa lại.
 
-### - [ ] Task 9 — Tìm kiếm (SPEC §6.13, R7)
+### - [x] Task 9 — Tìm kiếm (SPEC §6.13, R7)
 
 - Một ô tìm kiếm trên admin, là một trang tự viết (luật `canAccess()` của M6.5). Nó tìm đồng thời trong: mã hồ sơ, tiêu đề vụ việc, tên khách hàng, số thụ lý của toà, tên các bên, tiêu đề tài liệu.
 - Dựng trên phần đã có: ô tìm của `MattersTable` đã tìm được mã, tên khách, tiêu đề và luật sư. `matter_parties.name_normalized` đã có index.
@@ -255,7 +255,7 @@ Phán quyết kèm theo:
   - vụ `restricted` không lộ với người ngoài đội ngũ.
 - Chạy cả dưới `test:mariadb`: `utf8mb4_unicode_ci` bỏ qua dấu nhưng coi "đ" khác "d", còn SQLite so theo byte.
 
-### - [ ] Task 10 — Thông tin văn phòng sửa được trong app
+### - [x] Task 10 — Thông tin văn phòng sửa được trong app
 
 Chủ văn phòng quyết ngày 2026-09-24 sẽ nhập thông tin pháp lý sau, **trong app**. Hôm nay mọi thông tin thương hiệu nằm ở `config/vkcrm.php` và chỉ đổi được qua `.env`, tức là phải có người sửa máy chủ.
 

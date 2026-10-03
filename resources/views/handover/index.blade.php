@@ -51,7 +51,9 @@
     {{-- Chân trang `position: fixed` phải đứng TRƯỚC nội dung để dompdf lặp nó từ trang đầu. --}}
     @include('handover.partials.footer')
 
-    <div class="office">{{ $officeName }}</div>
+    @if ($officeName !== '')
+        <div class="office">{{ $officeName }}</div>
+    @endif
     <h1>{{ __('handover.pdf.title') }}</h1>
     <div class="muted">{{ __('handover.pdf.generated_at', ['date' => $generatedAt]) }}</div>
 

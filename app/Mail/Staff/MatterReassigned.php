@@ -6,6 +6,7 @@ use App\Mail\BrandedMailable;
 use App\Models\Deadline;
 use App\Models\Matter;
 use App\Models\User;
+use App\Support\OfficeProfile;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
@@ -65,16 +66,19 @@ class MatterReassigned extends BrandedMailable
         );
     }
 
+    /** Đọc thông tin văn phòng LÚC RENDER, không lúc xếp hàng — xem docblock `OfficeProfile`. */
     public function content(): Content
     {
+        $office = OfficeProfile::current();
+
         return new Content(
             view: 'emails.staff.matter-reassigned',
             text: 'emails.staff.matter-reassigned-text',
             with: [
                 'recipientName' => $this->recipient->name,
                 'blocks' => $this->blocks,
-                'office' => config('vkcrm.brand.legal_name'),
-                'hotline' => config('vkcrm.brand.hotline'),
+                'office' => $office->legalName(),
+                'hotline' => $office->hotline(),
             ],
         );
     }

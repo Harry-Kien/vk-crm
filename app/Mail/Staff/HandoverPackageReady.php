@@ -8,6 +8,7 @@ use App\Mail\BrandedMailable;
 use App\Models\Document;
 use App\Models\Matter;
 use App\Models\User;
+use App\Support\OfficeProfile;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
@@ -57,7 +58,8 @@ class HandoverPackageReady extends BrandedMailable
                 'matterCode' => $this->matter->code,
                 'matterTitle' => $this->matter->title,
                 'url' => MatterResource::getUrl('view', ['record' => $this->matter], panel: 'admin'),
-                'office' => config('vkcrm.brand.legal_name'),
+                // Đọc LÚC RENDER, không lúc xếp hàng — xem docblock `OfficeProfile`.
+                'office' => OfficeProfile::current()->legalName(),
             ],
         );
     }

@@ -30,7 +30,7 @@
     $tap = 'min-height: 44px;display:inline-flex;align-items:center;gap:0.375rem;padding:0.5rem 0.875rem;border-radius:0.5rem;text-decoration:none;font-weight:600;';
     $primaryTap = $tap.'background-color:var(--primary-600);color:var(--primary-50);';
     $quietTap = $tap.'border:1px solid color-mix(in srgb, var(--gray-500) 40%, transparent);color:var(--primary-600);';
-    $hotline = config('vkcrm.brand.hotline');
+    $hotline = App\Support\OfficeProfile::current()->hotline();
 @endphp
 
 <x-filament-panels::page>

@@ -545,6 +545,14 @@ báo cho tôi không", sẽ trả lời được bằng bằng chứng.
 | is_visible_to_client | boolean default false | Mặc định nội bộ |
 | created_by | FK users | |
 
+**Đính chính 2026-09-28 (M7 Task 8).** Cột `is_visible_to_client` giữ nguyên, mặc định `false`,
+nhưng **không có công tắc nào trên form** ghi nhật ký liên lạc và Action ghi
+(`App\Actions\Communication\LogCommunication`) luôn ép `false`: không màn hình portal nào đọc bảng
+này (§8.3, phán quyết 3 của M5), nên một công tắc chỉ khiến luật sư tin rằng khách đã thấy. Nhật ký
+liên lạc là bằng chứng: không sửa được trên màn hình; xoá là xoá mềm kèm lý do bắt buộc và một dòng
+audit (`communication_log_deleted`), không bao giờ xoá cứng. Ghi vào một vụ việc đòi đúng
+`MatterPolicy::update` trên vụ đó (`CommunicationLogPolicy::create($user, $matter)`).
+
 ### 4.18 `stage_log_views` — xác nhận khách đã đọc
 
 | Cột | Kiểu |
@@ -993,6 +1001,26 @@ Dùng `LIKE` với index phù hợp là đủ ở quy mô vài nghìn hồ sơ. 
 Elasticsearch hay Meilisearch** — vi phạm ràng buộc chạy được trên shared
 hosting.
 
+**Đính chính 2026-09-28 (M7 Task 9, R7).** "Luôn đi qua policy" đọc theo từng nguồn, cài ở
+`App\Actions\Search\SearchMatters` (trang `App\Filament\Admin\Pages\Search` chỉ gọi nó; M11
+`search_matters` dùng lại `matching()` với bốn nguồn của vụ):
+- Tập vụ là `Matter::scopeListableBy()` của người tìm, áp **trong cùng câu SQL, trước giới hạn số
+  dòng**. Không tổng số, không "có kết quả bị ẩn"; "không có gì khớp" và "có khớp nhưng không được
+  xem" là cùng một câu. Vụ `restricted` chỉ ra cho luật sư phụ trách và admin.
+- Mã hồ sơ và tên khách hàng: mọi người liệt kê được vụ. Tiêu đề vụ việc, số thụ lý, tên các bên,
+  tiêu đề tài liệu: chỉ người có `matter.view`. **Kế toán vì vậy chỉ tìm theo mã và tên khách** —
+  đúng hai cột họ thấy trên danh sách vụ việc và đúng "Ranh giới của kế toán" ở §5 (không tiêu đề,
+  không tài liệu, không các bên); dòng kết quả của kế toán không có tiêu đề và không liên kết vào
+  trang vụ việc. Tài liệu nhóm D chỉ với `document.viewInternal`; tài liệu, các bên và vụ đã xoá
+  mềm không bao giờ ra.
+- Số thụ lý tìm theo tiền tố (`LIKE 'x%'`, vì độ chính xác); mã, tiêu đề, tên khách, tên các bên,
+  tiêu đề tài liệu theo kiểu chứa (`LIKE '%x%'`). Sáu nguồn nằm trong một `OR`, nên câu tìm duyệt
+  bảng, không dùng index nào — đo trên 6.000 hồ sơ: 3,5–23,5 ms (PROGRESS, "Ghi chú M7"). Index của bốn
+  cột (`matters.case_number`, `matters.title`, `clients.name`, `documents.title`) vẫn được thêm,
+  cho câu tiền tố đứng riêng và cho lúc quy mô vượt "vài nghìn hồ sơ". Tên các bên so trên
+  `name_normalized` (không dấu, `đ` → `d`); các cột còn lại theo collation (MariaDB
+  `utf8mb4_unicode_ci` bỏ qua dấu và hoa/thường, nhưng `đ` khác `d`).
+
 ---
 
 ## 7. Giao diện panel `admin`
@@ -1069,6 +1097,22 @@ công bố.
 `Client`, `ClientUser`, `MatterType` (kèm relation manager cho stages và
 checklist template), `User`, `Role`, và trang xem `ActivityLog`,
 `OutboundMessage`.
+
+**Đính chính 2026-09-28 (M7 Task 10).** Thêm trang **"Thông tin văn phòng"**, chỉ người có
+`settings.manage` (admin) mở được; người khác nhận 404, kể cả ở request cập nhật Livewire. Chủ văn
+phòng quyết ngày 2026-09-24 sẽ tự nhập bốn thông tin pháp lý trong app thay vì sửa `.env` trên máy
+chủ. Trang sửa chín trường: mã số thuế (10 chữ số, hoặc 13 chữ số dạng `0123456789-001`), Đoàn Luật
+sư, số Giấy đăng ký hoạt động, địa chỉ trụ sở, tên pháp lý, hotline (chuẩn hoá qua
+`Normalizer::phone()`, lưu theo cách viết trong nước), Zalo và website (URL `http`/`https`), email
+liên hệ (Reply-To của mọi thư). Màu, logo, font **không** sửa được trong app.
+- Lưu trong bảng mới `settings` (`key` `string(100)` unique, `value` `text` NULL, `updated_by` FK
+  `users` NULL, timestamps), một bảng khoá–giá trị **chung**: khoá văn phòng có tiền tố `office.`;
+  M11 lưu công tắc MCP vào cùng bảng. Mọi lần ghi qua `App\Actions\Settings\WriteSettings`; lần lưu
+  của trang qua `UpdateOfficeProfile`, ghi audit `office_profile_updated` nêu tên các trường đã đổi.
+- Đọc qua MỘT nơi, `App\Support\OfficeProfile`: bảng `settings` (giá trị không rỗng) →
+  `config('vkcrm.brand.*')`. Ô để trống nghĩa là dùng giá trị `.env`/mặc định. Chân thư (§9), chân
+  `MUC-LUC.pdf` (§6.12) và cổng khách hàng đọc qua service này, **lúc render**: thư đang nằm trong
+  hàng đợi mang giá trị mới. Thông tin còn trống thì dòng của nó biến mất, không để lại nhãn treo.
 
 ---
 

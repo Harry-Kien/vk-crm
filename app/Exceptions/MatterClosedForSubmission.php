@@ -3,6 +3,7 @@
 namespace App\Exceptions;
 
 use App\Actions\Document\SubmitClientDocument;
+use App\Support\OfficeProfile;
 use DomainException;
 
 /**
@@ -28,7 +29,7 @@ class MatterClosedForSubmission extends DomainException
     public static function make(): self
     {
         return new self(__('checklist.submit.matter_closed', [
-            'hotline' => config('vkcrm.brand.hotline'),
+            'hotline' => OfficeProfile::current()->hotline(),
         ]));
     }
 }

@@ -90,9 +90,11 @@ it('sets a reply-to address on staff mail too', function () {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Mutation probe: xem báo cáo — bỏ điều kiện `filled($address)` trong
- * `BrandedMailable::replyToAddress()` (trả thẳng `config(...)` dù rỗng) làm test này đỏ:
- * `Address('')` khiến `getReplyTo()` không còn rỗng (Symfony vẫn dựng một Address, dù chuỗi rỗng).
+ * Chuỗi RỖNG bị lọc ở hai tầng: `filled()` trong `App\Support\OfficeProfile::configured()` (từ M7
+ * Task 10, nơi `BrandedMailable::replyToAddress()` đọc "email liên hệ"), và `setAddress()` của
+ * Laravel (dùng `empty()`). Bỏ riêng một tầng thì test này vẫn xanh — đo lại ở M7 Task 10, nên câu
+ * "bỏ `filled()` làm test này đỏ" của bản trước không đúng với ca chuỗi rỗng. Ca phân biệt được
+ * `filled()` là test khoảng trắng bên dưới.
  */
 it('does not set a reply-to header when the configured address is blank', function () {
     config(['vkcrm.brand.reply_to' => '']);
@@ -120,12 +122,13 @@ it('still sets a reply-to header when the configured address is not blank', func
 /**
  * Biến thể của "blank-safe": một giá trị CHỈ CÓ KHOẢNG TRẮNG (`' '`) — PHP coi `empty(' ')` là
  * `false` (chỉ chuỗi RỖNG mới `empty()`), nên đây là ca DUY NHẤT phân biệt được điều kiện
- * `filled()` của `replyToAddress()` với việc dựa vào `Illuminate\Mail\Mailable::setAddress()` tự
- * lọc (hàm đó dùng `empty()`, không lọc được khoảng trắng). Không có điều kiện `filled()` riêng,
- * một cấu hình gõ nhầm khoảng trắng sẽ cố dựng một địa chỉ Reply-To không hợp lệ.
+ * `filled()` (từ M7 Task 10 nằm ở `App\Support\OfficeProfile::configured()`) với việc dựa vào
+ * `Illuminate\Mail\Mailable::setAddress()` tự lọc (hàm đó dùng `empty()`, không lọc được khoảng
+ * trắng). Không có điều kiện `filled()` riêng, một cấu hình gõ nhầm khoảng trắng sẽ cố dựng một
+ * địa chỉ Reply-To không hợp lệ.
  *
- * Mutation probe: xem báo cáo — bỏ `filled()`, trả thẳng `config(...)`, làm test này đỏ (Reply-To
- * không còn rỗng, mang một địa chỉ chỉ có khoảng trắng).
+ * Mutation probe: xem báo cáo — bỏ `filled()` ở `OfficeProfile::configured()`, trả thẳng
+ * `config(...)`, làm test này đỏ (Reply-To không còn rỗng, mang một địa chỉ chỉ có khoảng trắng).
  */
 it('treats a whitespace-only reply-to address as blank too, not just an empty string', function () {
     config(['vkcrm.brand.reply_to' => ' ']);

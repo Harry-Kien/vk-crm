@@ -16,8 +16,6 @@
 <x-filament-panels::page>
     @php
         $cards = $this->getCards();
-        $hotline = config('vkcrm.brand.hotline');
-        $zalo = config('vkcrm.brand.zalo');
     @endphp
 
     @if ($cards === [])
@@ -26,7 +24,16 @@
             bước tiếp theo". Một khách vừa đăng nhập lần đầu mà gặp một trang trắng sẽ nghĩ mình
             làm sai điều gì đó, nên khối này vừa nói chuyện gì đang xảy ra, vừa đưa ra một con
             đường KHÔNG đi qua màn hình này — hai cách liên hệ thật với văn phòng.
+
+            Hotline và Zalo đọc qua `OfficeProfile` (M7 Task 10) CHỈ trong nhánh này: đó là một
+            truy vấn bảng `settings`, và trang có thẻ hồ sơ không in hai giá trị này — ngân sách
+            truy vấn của trang ("phần cố định đúng bằng 6", `MyMattersTest`) không đổi.
         --}}
+        @php
+            $office = App\Support\OfficeProfile::current();
+            $hotline = $office->hotline();
+            $zalo = $office->zalo();
+        @endphp
         <div style="display:flex;flex-direction:column;gap:1rem;max-width:34rem;">
             <p style="font-size:1.125rem;font-weight:600;line-height:1.5;">
                 {{ __('portal_matters.empty.heading') }}
