@@ -21,9 +21,11 @@ use Illuminate\Support\Facades\Exceptions;
 use Spatie\Activitylog\Models\Activity;
 
 /**
- * M9 Task 6 — lưới an toàn hằng ngày cho đợt theo giai đoạn. Nó phủ ba đường listener không phủ:
- * một đợt THÊM vào lịch sau khi vụ đã qua giai đoạn kích hoạt (phụ lục), một lần kích hoạt bị hỏng
- * (listener `report()` rồi nuốt), và dữ liệu ghi thẳng `stage_logs` không phát sự kiện (seeder).
+ * M9 Task 6 — lưới an toàn hằng ngày cho đợt theo giai đoạn. Nó phủ những đường listener không phủ:
+ * một lần kích hoạt bị hỏng (listener `report()` rồi nuốt), dữ liệu ghi thẳng `stage_logs` không phát
+ * sự kiện (seeder), và một đợt nằm trong lịch mà vụ đã qua giai đoạn của nó mà chưa được kích hoạt
+ * (ở đây dựng bằng factory). Đợt do phụ lục thêm cho giai đoạn vụ đã qua thì `AmendContract` tự kích
+ * hoạt ngay (lượt rà soát Task 6, I1 — `TriggerInstalmentsForStageTest`); đối chiếu chỉ còn là lưới.
  * Nó gọi ĐÚNG `TriggerInstalmentsForStage`, không bản sao logic.
  */
 beforeEach(function () {

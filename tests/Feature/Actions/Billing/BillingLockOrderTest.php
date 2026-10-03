@@ -23,6 +23,7 @@ use App\Models\Contract;
 use App\Models\Document;
 use App\Models\Instalment;
 use App\Models\Matter;
+use App\Models\MatterType;
 use App\Models\Payment;
 use App\Models\StageLog;
 use App\Models\User;
@@ -295,6 +296,36 @@ it('locks matters first, then contracts, instalments and their payments, and the
 
     expect($order)->toBe(['matters', 'contracts', 'instalments', 'payments', 'documents', 'instalments', 'contract_amendments']);
 });
+
+/**
+ * Lượt rà soát Task 6, I1: phụ lục thêm một đợt `stage` cho giai đoạn vụ ĐÃ chạm thì kích hoạt nó
+ * ngay (`TriggerInstalmentsForStage::releaseAddedByAmendment()`) — một khoá `instalments` nữa, trên
+ * đúng các đợt vừa thêm (hàng của chính transaction này), SAU lần kiểm lại tầng 3 và TRƯỚC
+ * `contract_amendments`, vẫn dưới khoá `matters` → `contracts` của phụ lục. Phụ lục không thêm đợt
+ * `stage` nào (ở đây: một đợt `on_signing`) thì không khoá thêm gì.
+ */
+it('locks the stage instalments an amendment adds after the schedule re-check, and nothing more when it adds none', function (string $trigger, array $expected, int $released) {
+    $civil = MatterType::factory()->withStages()->create(['code' => 'CIV']);
+    $matter = Matter::factory()->for($civil, 'matterType')->atStage('filed')->create(['lead_lawyer_id' => $this->lead->id]);
+    $contract = Contract::factory()->for($matter)->active()->create(['total_amount' => 10_000_000, 'signed_at' => today()->subMonth()->toDateString()]);
+    Instalment::factory()->for($contract)->create(['amount' => 10_000_000]);
+    StageLog::factory()->for($matter)->transition('drafting', 'filed')->create(['occurred_at' => today()->subWeek()]);
+
+    $order = lockOrderOf(fn () => app(AmendContract::class)->handle(
+        $this->lead,
+        $contract,
+        15_000_000,
+        [['action' => AmendContract::ADD, 'name' => 'Đợt bổ sung', 'amount' => 5_000_000, 'trigger_type' => $trigger, 'trigger_stage_key' => 'filed']],
+        str_repeat('a', 20),
+        today()->toDateString(),
+    ));
+
+    expect($order)->toBe($expected)
+        ->and(Instalment::query()->where('contract_id', $contract->id)->whereNotNull('triggered_by_stage_log_id')->count())->toBe($released);
+})->with([
+    'a stage row for a stage the matter reached' => ['stage', ['matters', 'contracts', 'instalments', 'payments', 'instalments', 'instalments', 'contract_amendments'], 1],
+    'an on-signing row' => ['on_signing', ['matters', 'contracts', 'instalments', 'payments', 'instalments', 'contract_amendments'], 0],
+]);
 
 /**
  * Gộp M6.5 + M9 (xung đột 4): ba Action của VỤ VIỆC mở transaction riêng. Luật thứ tự khoá toàn dự

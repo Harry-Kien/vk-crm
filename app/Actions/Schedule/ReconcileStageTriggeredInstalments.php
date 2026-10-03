@@ -15,13 +15,14 @@ use Throwable;
 /**
  * M9 Task 6 — LƯỚI AN TOÀN hằng ngày (07:00, trước lượt nhắc quá hạn 08:00) cho đợt thanh toán theo
  * giai đoạn. Listener {@see ReleaseStageTriggeredInstalments} kích hoạt đợt NGAY khi vụ vào giai
- * đoạn; tác vụ này phủ ba đường listener không phủ:
- *  1. một đợt THÊM vào lịch sau khi vụ đã qua giai đoạn kích hoạt (phụ lục `AmendContract`);
- *  2. một lần kích hoạt hỏng ở listener (khoá hết giờ, "thử lại"… — listener `report()` rồi nuốt để
+ * đoạn; tác vụ này phủ hai đường listener không phủ:
+ *  1. một lần kích hoạt hỏng ở listener (khoá hết giờ, "thử lại"… — listener `report()` rồi nuốt để
  *     lần chuyển giai đoạn đã commit không hiện ra như thất bại);
- *  3. `stage_logs` ghi thẳng không phát sự kiện (dữ liệu mẫu `MatterSeeder`, lệnh console).
- * (Đường thứ tư kế hoạch nêu — hợp đồng KÍCH HOẠT khi vụ đã ở giữa chừng — `ActivateContract` tự kích
- * hoạt trong cùng transaction; tác vụ này chỉ còn là lưới cho nó.)
+ *  2. `stage_logs` ghi thẳng không phát sự kiện (dữ liệu mẫu `MatterSeeder`, lệnh console), và đợt
+ *     ghi thẳng vào lịch không qua Action nào.
+ * (Hai đường khác kế hoạch nêu — hợp đồng KÍCH HOẠT khi vụ đã ở giữa chừng, và một đợt THÊM bằng phụ
+ * lục sau khi vụ đã qua giai đoạn kích hoạt — `ActivateContract` và `AmendContract` tự kích hoạt
+ * trong cùng transaction của chúng; tác vụ này chỉ còn là lưới cho hai đường đó.)
  *
  * **Gọi ĐÚNG {@see TriggerInstalmentsForStage::handle()}, không bản sao logic.** Tác vụ chỉ TÌM các
  * cặp (vụ, giai đoạn) đáng hỏi; mọi điều kiện quyết định (hợp đồng `active`, vụ chưa xoá mềm, đợt
@@ -33,8 +34,8 @@ use Throwable;
  * (`StageLog::entries()`, EXISTS tương quan) — gộp thành các cặp (vụ, giai đoạn) khác nhau. Ngày
  * thường của văn phòng (mọi đợt còn chờ những giai đoạn vụ chưa tới) là đúng MỘT truy vấn và không
  * transaction nào. Mỗi cặp tìm được tốn thêm: một lần nạp vụ cho cả lượt, một lần đọc lần chạm đầu,
- * rồi một transaction tiền của Action — các cặp đó hiếm (một lần kích hoạt hỏng, một phụ lục), và
- * mỗi cặp cần transaction riêng của nó dù sao.
+ * rồi một transaction tiền của Action — các cặp đó hiếm (một lần kích hoạt hỏng, dữ liệu ghi
+ * thẳng), và mỗi cặp cần transaction riêng của nó dù sao.
  *
  * **Mỗi cặp một `try/catch`**: một cặp hỏng (khoá hết giờ sau ba lần chạy) không chặn các cặp khác của
  * lượt; lỗi được `report()`, và lượt ngày mai thử lại (đợt vẫn chờ). Không thư nào, không hàng đợi nào.

@@ -1,6 +1,8 @@
 <?php
 
+use App\Actions\Billing\AmendContract;
 use App\Actions\Billing\TriggerInstalmentsForStage;
+use App\Actions\Schedule\ReconcileStageTriggeredInstalments;
 use App\Actions\TransitionMatterStage;
 use App\Enums\ContractStatus;
 use App\Enums\InstalmentState;
@@ -517,3 +519,98 @@ it('opens no money transaction when nothing waits on the stage', function (bool 
     expect(app(TriggerInstalmentsForStage::class)->handle($this->matter, 'filed', $log))->toBe(0)
         ->and($transactions)->toBe(0);
 })->with(['no contract' => false, 'nothing waits on that stage' => true]);
+
+// --- Đường phụ lục: AmendContract thêm đợt cho giai đoạn vụ ĐÃ chạm -------------------------------
+
+/** Ký một phụ lục thêm ĐÚNG MỘT đợt chờ giai đoạn `$key`, qua Action thật; giá trị mới = cũ + `$amount`. */
+function amendAddingStageRow(User $actor, Contract $contract, string $key, int $amount, int $dueDays, string $signedAt): void
+{
+    $contract = $contract->fresh();
+
+    app(AmendContract::class)->handle(
+        $actor,
+        $contract,
+        $contract->total_amount + $amount,
+        [[
+            'action' => AmendContract::ADD,
+            'name' => 'Đợt bổ sung theo phụ lục',
+            'amount' => $amount,
+            'trigger_type' => 'stage',
+            'trigger_stage_key' => $key,
+            'due_days_after_trigger' => $dueDays,
+        ]],
+        'Phát sinh thêm công việc ngoài phạm vi hợp đồng.',
+        $signedAt,
+    );
+}
+
+/**
+ * Lượt rà soát Task 6, I1. Hợp đồng ký 01/03, vụ nộp đơn 10/04; phụ lục ký 01/10 thêm "Đợt bổ sung —
+ * 15 ngày sau khi nộp đơn". Đợt đó được kích hoạt NGAY trong transaction của phụ lục (tab không hiện
+ * nó "chờ" một giai đoạn vụ đã qua tới lượt đối chiếu 07:00), gắn vào lần chạm đầu, nhưng hạn tính
+ * từ ngày ký PHỤ LỤC — cùng lý lẽ với phán quyết kẹp (3) và với đợt `on_signing` thêm bằng phụ lục:
+ * khách chưa đồng ý khoản này thì nó chưa thể đến hạn. Không quá hạn từ lúc ra đời, nên không lọt
+ * vào thư nhắc 08:00, Công nợ, doanh thu hay cổng khách như một khoản nợ năm tháng tuổi.
+ */
+it('releases a stage instalment an amendment adds for a stage the matter already passed, due from the amendment day so it is not overdue at birth', function () {
+    $contract = stageTriggerContract($this->matter, [awaitingStageRow('filed', 30_000_000, 10)], signedAt: '2026-03-01');
+    $this->actingAs($this->lead, 'web');
+    $entry = moveMatterTo($this->matter, $this->lead, 'filed', '2026-04-10');
+
+    amendAddingStageRow($this->lead, $contract, 'filed', 20_000_000, 15, '2026-10-01');
+
+    [$original, $added] = $contract->instalments()->orderBy('sequence')->get()->all();
+    $activity = Activity::query()->where('event', 'instalment_triggered')->where('subject_id', $added->id)->sole();
+
+    expect($added->due_date?->toDateString())->toBe('2026-10-16')
+        ->and($added->triggered_at?->toDateTimeString())->toBe('2026-10-03 10:00:00')
+        ->and($added->triggered_by_stage_log_id)->toBe($entry->id)
+        ->and($added->state())->toBe(InstalmentState::Due)
+        ->and(Instalment::query()->overdue()->whereKey($added->id)->exists())->toBeFalse()
+        ->and($activity->causer_id)->toBeNull()
+        ->and($activity->properties->all())->toBe(['stage_log_id' => $entry->id, 'stage' => 'filed', 'due_date' => '2026-10-16'])
+        ->and($original->due_date->toDateString())->toBe('2026-04-20')
+        ->and($original->triggered_by_stage_log_id)->toBe($entry->id);
+});
+
+/**
+ * Mặt kia của cùng một sàn: phụ lục ký lùi ngày (giấy ký 01/05, nhập hôm nay), vụ nộp đơn SAU đó
+ * (01/06). Hạn tính từ ngày nộp đơn — ngày muộn nhất trong ba ngày — và đợt quá hạn từ 16/06 là sự
+ * thật (kế hoạch điểm 2): ngày ký phụ lục chỉ là một sàn, không thay ngày giai đoạn xảy ra.
+ */
+it('dates an amendment-added stage instalment from the stage day when the stage came after the amendment was signed', function () {
+    $contract = stageTriggerContract($this->matter, [awaitingStageRow('court_accepted', 30_000_000)], signedAt: '2026-03-01');
+    $this->actingAs($this->lead, 'web');
+    $entry = moveMatterTo($this->matter, $this->lead, 'filed', '2026-06-01');
+
+    amendAddingStageRow($this->lead, $contract, 'filed', 20_000_000, 15, '2026-05-01');
+
+    $added = $contract->instalments()->orderBy('sequence')->get()->last();
+
+    expect($added->due_date?->toDateString())->toBe('2026-06-16')
+        ->and($added->triggered_by_stage_log_id)->toBe($entry->id)
+        ->and($added->state())->toBe(InstalmentState::Overdue);
+});
+
+/**
+ * Phụ lục chỉ kích hoạt — và chỉ đặt sàn ngày ký phụ lục cho — đợt CHÍNH NÓ vừa thêm. Một đợt cũ chờ
+ * cùng giai đoạn mà lần kích hoạt đã lỡ (ở đây: dòng tiến độ ghi thẳng, không sự kiện) không mang
+ * ngày của phụ lục — khách đã đồng ý nó từ ngày ký hợp đồng; nó để lại cho đối chiếu hằng ngày, hạn
+ * tính từ lần chạm đầu như mọi đợt cũ.
+ */
+it('leaves a missed stage instalment the amendment did not add to the daily reconcile, dated from the first entry', function () {
+    $contract = stageTriggerContract($this->matter, [awaitingStageRow('filed', 30_000_000, 10)], signedAt: '2026-03-01');
+    $entry = StageLog::factory()->for($this->matter)->transition('drafting', 'filed')->create(['occurred_at' => '2026-04-10 00:00:00']);
+
+    amendAddingStageRow($this->lead, $contract, 'filed', 20_000_000, 15, '2026-10-01');
+
+    [$original, $added] = $contract->instalments()->orderBy('sequence')->get()->all();
+
+    expect($added->due_date?->toDateString())->toBe('2026-10-16')
+        ->and($original->triggered_at)->toBeNull()
+        ->and($original->due_date)->toBeNull();
+
+    expect(app(ReconcileStageTriggeredInstalments::class)->handle())->toBe(['triggered' => 1, 'failed' => 0])
+        ->and($original->refresh()->due_date->toDateString())->toBe('2026-04-20')
+        ->and($original->triggered_by_stage_log_id)->toBe($entry->id);
+});

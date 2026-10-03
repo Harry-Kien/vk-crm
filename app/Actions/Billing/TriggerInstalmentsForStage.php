@@ -14,6 +14,7 @@ use App\Models\StageLog;
 use App\Support\Audit;
 use App\Support\Scopes\ClientPortalScope;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
 use LogicException;
 
 /**
@@ -22,7 +23,7 @@ use LogicException;
  * `TransitionMatterStage` không biết gì về tiền: nó chỉ phát `App\Events\MatterStageChanged`, và
  * listener {@see ReleaseStageTriggeredInstalments} gọi Action này.
  *
- * **MỘT logic, hai lối vào** (kế hoạch + phán quyết controller 6, vì Action tiền không được lồng
+ * **MỘT logic, ba lối vào** (kế hoạch + phán quyết controller 6, vì Action tiền không được lồng
  * transaction — docblock {@see LocksBillingRows}):
  *  - {@see self::handle()} — cho nơi gọi ĐỨNG NGOÀI mọi transaction (listener sau commit, đối chiếu
  *    hằng ngày {@see ReconcileStageTriggeredInstalments}): thăm dò NGOÀI transaction, rồi tự mở MỘT
@@ -30,6 +31,11 @@ use LogicException;
  *  - {@see self::releaseLocked()} — LÕI, không mở transaction nào: cho nơi gọi ĐÃ cầm khoá `matters`
  *    → `contracts` trong transaction tiền của chính nó (`ActivateContract`: kích hoạt hợp đồng khi vụ
  *    đã đi qua giai đoạn của vài đợt — luật sư thường nộp đơn trước khi hợp đồng giấy về).
+ *  - {@see self::releaseAddedByAmendment()} — cùng lõi, cùng điều kiện tiên quyết, cho `AmendContract`
+ *    dưới khoá của chính nó: chỉ các đợt phụ lục VỪA thêm, với thêm một sàn ngày (ngày ký phụ lục —
+ *    lượt rà soát Task 6, I1). Không có nó, một đợt phụ lục thêm cho giai đoạn vụ đã qua hiện "chờ"
+ *    tới lượt đối chiếu 07:00, rồi ra đời với hạn tính từ lần chạm đầu — có thể nhiều tháng trước
+ *    ngày khách đồng ý khoản đó.
  *
  * **Điều kiện để một đợt được kích hoạt** — tất cả đọc dưới khoá:
  *  1. Hợp đồng của vụ đang `active` (không `draft` — chưa ai phải trả gì; không `completed`/
@@ -48,7 +54,9 @@ use LogicException;
  * của `occurred_at` trên dòng kích hoạt — ngày giai đoạn THẬT SỰ xảy ra, không phải hôm nay (kế hoạch
  * điểm 2: một lần chuyển ghi lùi ngày sinh ra một đợt đã quá hạn ngay khi ra đời, và đó là sự thật) —
  * nhưng không sớm hơn `signed_at` của hợp đồng (phán quyết controller 3: kẹp vào ngày muộn hơn; một
- * giai đoạn vụ chạm TRƯỚC khi khách ký không làm khoản tiền đến hạn trước ngày ký).
+ * giai đoạn vụ chạm TRƯỚC khi khách ký không làm khoản tiền đến hạn trước ngày ký), và — chỉ với đợt
+ * một phụ lục vừa thêm, ở lối vào {@see self::releaseAddedByAmendment()} — không sớm hơn ngày ký phụ
+ * lục đó, cùng lý lẽ. Cả hai chỉ là sàn ({@see self::triggerDay()}).
  * `triggered_at = now()`; `triggered_by_stage_log_id` = dòng kích hoạt (bằng chứng "vì sao đợt này
  * đến hạn"). Đi qua model, không `DB::table()`, để mọi hook của `Instalment` còn đứng (hook `saving`
  * của bất biến tổng chỉ hỏi khi `amount`/`status`/`contract_id` đổi — ba cột ghi ở đây không đụng).
@@ -58,7 +66,8 @@ use LogicException;
  * bySystem: true)` KHÔNG causer, nguồn gốc là `stage_log_id`; `blameOnSystem()` giữ nguyên
  * `updated_by` của đợt. Cả hai đứng như nhau ở MỌI lối vào — kể cả khi listener chạy trong request của
  * luật sư vừa bấm "Chuyển giai đoạn" (không bao giờ rơi về người đang đăng nhập), và kể cả trong lần
- * kích hoạt hợp đồng (người kích hoạt đứng tên trên dòng `contract_activated`, không trên đợt này).
+ * kích hoạt hợp đồng hay ký phụ lục (người kích hoạt/ký đứng tên trên dòng `contract_activated`/
+ * `contract_amended`, không trên đợt này).
  * Người đã chuyển giai đoạn truy ngược được qua `stage_log_id` → `stage_logs.created_by`.
  */
 class TriggerInstalmentsForStage
@@ -115,6 +124,46 @@ class TriggerInstalmentsForStage
      */
     public function releaseLocked(Matter $lockedMatter, Contract $lockedContract, ?string $stageKey = null): int
     {
+        return $this->release($lockedMatter, $lockedContract, $stageKey);
+    }
+
+    /**
+     * Lối vào của `AmendContract` — cùng LÕI, cùng điều kiện tiên quyết với {@see self::releaseLocked()}
+     * (bên trong transaction tiền của phụ lục, với hai hàng `matters` → `contracts` nó đã khoá; không
+     * tự mở transaction). Chỉ xét ĐÚNG các đợt `$instalmentIds` mà phụ lục vừa thêm: đợt nào chờ một
+     * giai đoạn vụ ĐÃ chạm thì kích hoạt ngay, gắn vào lần chạm ĐẦU như mọi lối vào khác, nhưng NGÀY
+     * gốc của hạn còn không sớm hơn `$amendmentSignedOn` (lượt rà soát Task 6, I1 — cùng lý lẽ với kẹp
+     * vào `signed_at` của hợp đồng: khách chưa ký phụ lục thì khoản đó chưa thể đến hạn; và cùng tiền
+     * lệ với đợt `on_signing` thêm bằng phụ lục, tính từ ngày ký phụ lục). Đợt chờ giai đoạn vụ CHƯA
+     * chạm vẫn chờ (listener kích hoạt nó khi vụ tới đó). Đợt CŨ của hợp đồng không bao giờ mang sàn
+     * này — một đợt cũ đã lỡ lần kích hoạt để lại cho đối chiếu hằng ngày. `$instalmentIds` rỗng thì
+     * trả `0` mà không đọc gì: phụ lục không thêm đợt `stage` nào thì không khoá thêm hàng nào.
+     *
+     * @param  list<int>  $instalmentIds
+     * @return int số đợt đã kích hoạt
+     */
+    public function releaseAddedByAmendment(Matter $lockedMatter, Contract $lockedContract, array $instalmentIds, CarbonInterface $amendmentSignedOn): int
+    {
+        if ($instalmentIds === []) {
+            return 0;
+        }
+
+        return $this->release($lockedMatter, $lockedContract, null, $instalmentIds, $amendmentSignedOn);
+    }
+
+    /**
+     * Thân chung của mọi lối vào. `$onlyInstalmentIds` (khác `null`) giới hạn vào đúng các đợt đó;
+     * `$notBefore` (khác `null`) là một sàn nữa cho NGÀY gốc của hạn — {@see self::triggerDay()}.
+     *
+     * @param  list<int>|null  $onlyInstalmentIds
+     */
+    private function release(
+        Matter $lockedMatter,
+        Contract $lockedContract,
+        ?string $stageKey,
+        ?array $onlyInstalmentIds = null,
+        ?CarbonInterface $notBefore = null,
+    ): int {
         if ((int) $lockedContract->matter_id !== (int) $lockedMatter->getKey()) {
             throw new LogicException(
                 "Hợp đồng #{$lockedContract->getKey()} không thuộc vụ việc #{$lockedMatter->getKey()} đã khoá — dừng, không kích hoạt đợt nào dưới khoá của vụ khác.",
@@ -128,6 +177,7 @@ class TriggerInstalmentsForStage
         $waiting = $this->scopelessly(Instalment::query())
             ->where('contract_id', $lockedContract->getKey())
             ->awaitingStage($stageKey)
+            ->when($onlyInstalmentIds !== null, fn (Builder $query): Builder => $query->whereKey($onlyInstalmentIds))
             ->orderBy('sequence')
             ->lockForUpdate()
             ->get();
@@ -141,7 +191,7 @@ class TriggerInstalmentsForStage
                 continue;
             }
 
-            $triggerDay = self::triggerDay($entry, $lockedContract);
+            $triggerDay = self::triggerDay($entry, $lockedContract, $notBefore);
 
             foreach ($instalments as $instalment) {
                 $instalment->fill([
@@ -187,13 +237,23 @@ class TriggerInstalmentsForStage
             ->first();
     }
 
-    /** Ngày gốc của hạn: ngày của `occurred_at`, kẹp không sớm hơn `signed_at` — xem docblock lớp. */
-    private static function triggerDay(StageLog $entry, Contract $contract): CarbonInterface
+    /**
+     * Ngày gốc của hạn: NGÀY muộn nhất trong ngày của `occurred_at`, `signed_at` của hợp đồng, và
+     * `$notBefore` (ngày ký phụ lục, chỉ ở lối vào {@see self::releaseAddedByAmendment()}) — xem
+     * docblock lớp. Hai ngày sau chỉ là SÀN: một giai đoạn xảy ra muộn hơn cả hai vẫn tính từ ngày
+     * của nó.
+     */
+    private static function triggerDay(StageLog $entry, Contract $contract, ?CarbonInterface $notBefore): CarbonInterface
     {
-        $occurredOn = $entry->occurred_at->copy()->startOfDay();
-        $signedOn = $contract->signed_at?->copy()->startOfDay();
+        $day = $entry->occurred_at->copy()->startOfDay();
 
-        return $signedOn !== null && $signedOn->gt($occurredOn) ? $signedOn : $occurredOn;
+        foreach ([$contract->signed_at, $notBefore] as $floor) {
+            if ($floor !== null && $floor->copy()->startOfDay()->gt($day)) {
+                $day = $floor->copy()->startOfDay();
+            }
+        }
+
+        return $day;
     }
 
     /**
