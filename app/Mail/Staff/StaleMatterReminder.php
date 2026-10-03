@@ -7,6 +7,7 @@ use App\Mail\BrandedMailable;
 use App\Models\Matter;
 use App\Models\User;
 use App\Support\MatterStaleness;
+use App\Support\OfficeProfile;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
@@ -50,8 +51,11 @@ class StaleMatterReminder extends BrandedMailable
         );
     }
 
+    /** Đọc thông tin văn phòng LÚC RENDER, không lúc xếp hàng — xem docblock `OfficeProfile`. */
     public function content(): Content
     {
+        $office = OfficeProfile::current();
+
         return new Content(
             view: 'emails.staff.stale-matter-reminder',
             text: 'emails.staff.stale-matter-reminder-text',
@@ -61,7 +65,7 @@ class StaleMatterReminder extends BrandedMailable
                 'matterTitle' => $this->matter->title,
                 // Số ngày TRÒN (đã đủ bao nhiêu ngày): `daysSinceUpdate()` trả số thực.
                 'daysSinceUpdate' => (int) floor(MatterStaleness::daysSinceUpdate($this->matter) ?? MatterStaleness::EMAIL_AFTER_DAYS),
-                'office' => config('vkcrm.brand.legal_name'),
+                'office' => $office->legalName(),
             ],
         );
     }

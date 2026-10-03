@@ -8,11 +8,13 @@ use App\Jobs\ResendOutboundMessageJob;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\OutboundMessage;
 use App\Models\StageLog;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Queue;
 use Spatie\Activitylog\Models\Activity;
@@ -170,3 +172,40 @@ it('never grants resend to a client portal account', function () {
         ->and(Gate::forUser(User::factory()->withRole(Role::Admin)->create())->allows('resend', $row))->toBeTrue()
         ->and(Gate::forUser(User::factory()->withRole(Role::Lawyer)->create())->allows('resend', $row))->toBeFalse();
 });
+
+/**
+ * Gộp M7 vào `main`: nút "Gửi lại" (M6 Task 10) hỏi `NotifyClientOfStageUpdate::eligibleRecipients()`
+ * — hàm `main` tách ra từ `handle()` để hai nơi không thể lệch nhau — nên hàm đó phải mang cả bước
+ * "vụ còn trên cổng của CHÍNH người nhận" (`Gate::forUser($account)->allows('view', $matter)`) mà M7
+ * Task 11 thêm vào `handle()`. Ca thật: thư tiến độ hỏng lúc vụ còn mở; vài tháng sau vụ đã kết thúc
+ * và khách hết hạn tra cứu (tài khoản còn hoạt động nhờ một vụ khác) — admin bấm "Gửi lại" thì bị từ
+ * chối bằng câu "không còn ai đủ điều kiện", không xếp một thư mang liên kết tới trang 404. Vế dương:
+ * hôm nay là ngày tra cứu cuối thì vẫn xếp hàng.
+ */
+it('refuses to resend a stage update about a closed matter whose client access has expired, but resends on its last day', function (string $accessUntil, bool $queued) {
+    $this->travelTo(Carbon::parse('2026-10-21 09:00:00'));
+    $row = forcedFailedStageRow();
+    $matter = Matter::query()->findOrFail(StageLog::query()->findOrFail($row->related_id)->matter_id);
+
+    $matter->update(['closed_at' => '2026-07-22 10:00:00']);
+    MatterArchive::factory()->create(['matter_id' => $matter->id, 'client_access_until' => $accessUntil]);
+    // Vụ thứ hai của cùng khách, còn trên cổng: lý do tài khoản vẫn hoạt động.
+    Matter::factory()->create(['client_id' => $matter->client_id, 'is_published_to_portal' => true]);
+
+    $admin = User::factory()->withRole(Role::Admin)->create();
+
+    if ($queued) {
+        expect(app(ResendOutboundMessage::class)->handle($admin, $row))->toBe(1);
+        Queue::assertPushed(ResendOutboundMessageJob::class, 1);
+
+        return;
+    }
+
+    expect(fn () => app(ResendOutboundMessage::class)->handle($admin, $row))
+        ->toThrow(OutboundMessageNotResendable::class, OutboundMessageNotResendable::noEligibleRecipient()->getMessage());
+
+    Queue::assertNothingPushed();
+})->with([
+    'đã hết hạn tra cứu từ hôm nay' => ['2026-10-20', false],
+    'hôm nay là ngày tra cứu cuối' => ['2026-10-21', true],
+]);

@@ -4,6 +4,7 @@ namespace App\Mail\Client;
 
 use App\Mail\BrandedMailable;
 use App\Models\ClientUser;
+use App\Support\OfficeProfile;
 use App\Support\PortalUrl;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Mail\Mailables\Content;
@@ -81,6 +82,8 @@ class Activation extends BrandedMailable
      */
     public function content(): Content
     {
+        $office = OfficeProfile::current();
+
         return new Content(
             view: 'emails.client.activation',
             text: 'emails.client.activation-text',
@@ -91,8 +94,8 @@ class Activation extends BrandedMailable
                 'previousInvalid' => $this->reissue ? __('portal.email.activation.previous_invalid') : null,
                 'temporaryPassword' => $this->temporaryPassword,
                 'portalUrl' => PortalUrl::base(),
-                'office' => config('vkcrm.brand.legal_name'),
-                'hotline' => config('vkcrm.brand.hotline'),
+                'office' => $office->legalName(),
+                'hotline' => $office->hotline(),
             ],
         );
     }

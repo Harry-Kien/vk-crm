@@ -224,6 +224,9 @@ class MatterProgress extends Page
     /** @var Collection<int, array<string, mixed>>|null */
     private ?Collection $resolvedDeadlines = null;
 
+    /** @var Collection<int, array<string, string>>|null */
+    private ?Collection $resolvedRetractionNotices = null;
+
     /**
      * `{record}` nối vào đường dẫn ở đây chứ không ở `$slug`: `getRelativeRouteName()` dựng tên
      * route từ chính `getSlug()`, nên nhét tham số vào slug sẽ sinh ra một tên route mang dấu
@@ -828,6 +831,55 @@ class MatterProgress extends Page
     {
         return $document->group === DocumentGroup::ClientProvided
             && filled($document->matter_checklist_item_id);
+    }
+
+    /**
+     * M7 Task 7 — "Văn phòng đã rút lại tài liệu này. Lý do: …", vẽ ở khối Tài liệu, chỗ tài liệu
+     * từng hiện. Khoảng trống không lời giải thích làm khách nghĩ tài liệu bị mất.
+     *
+     * Ba tầng, mỗi tầng một câu lệnh riêng: truy vấn hẹp `Document::retractionNoticesFor()` (scope
+     * portal của `Document` KHÔNG nới cho `retracted` — đường này là đường riêng, chỉ trạng thái
+     * đã rút, không nhóm D, chưa xoá mềm, vụ việc qua ranh giới portal của chính khách); quyền
+     * `DocumentPolicy::viewRetractionNotice` trên TỪNG bản ghi; và hình chiếu dưới đây — lý do và
+     * ngày rút. Không id, không đường tải, không người rút: khách được biết VĂN PHÒNG đã rút và vì
+     * sao, không cần biết ai bấm nút.
+     *
+     * **Không tiêu đề (rà soát cuối M7, C1).** Ca rút điển hình là một tài liệu của KHÁCH KHÁC công
+     * bố nhầm lên hồ sơ này, và dòng rút là vĩnh viễn: tài liệu đã rút không xoá được
+     * (`DocumentPolicy::delete`), không vào nhóm D được (`RegroupDocument`), không công bố lại được
+     * (`PublishDocument`), và không Action nào sửa tiêu đề. Mang tiêu đề thì tên (và có khi số giấy
+     * tờ) của khách kia nằm trên cổng của khách này chừng nào vụ còn trên cổng, không ai gỡ được.
+     * Blade vẽ một nhãn trung tính (`retraction.portal.heading`) ở chỗ tiêu đề; chữ duy nhất về tài
+     * liệu là LÝ DO, do người rút viết khi ô nhập đã nói rõ khách đọc nó và tiêu đề không hiện. Tiêu
+     * đề không vào hình chiếu, nên không tới Blade, không tới ảnh chụp Livewire.
+     *
+     * **Nói thẳng một mutant sống sót:** bỏ lần lọc `Gate` ở đây thì bộ test vẫn xanh — mọi bản ghi
+     * tầng truy vấn trả về cũng là bản ghi tầng quyền cho qua (cùng luật, hai cách nói). Hai tầng
+     * được đo ĐỘC LẬP ở `RetractedDocumentNoticeTest` (truy vấn không qua policy, policy không qua
+     * truy vấn); lần lọc ở trang giữ cho tầng quyền còn đứng nếu một ngày tầng truy vấn quên một
+     * câu `where`.
+     *
+     * @return Collection<int, array<string, string>>
+     */
+    public function retractionNotices(): Collection
+    {
+        if ($this->resolvedRetractionNotices !== null) {
+            return $this->resolvedRetractionNotices;
+        }
+
+        $viewer = $this->viewer();
+        $matter = $this->matter();
+
+        return $this->resolvedRetractionNotices = Document::retractionNoticesFor($matter, $viewer)
+            ->get()
+            // Quan hệ đã biết, khỏi nạp lười dưới guard đang mở cho mỗi dòng.
+            ->each(fn (Document $document) => $document->setRelation('matter', $matter))
+            ->filter(fn (Document $document): bool => Gate::forUser($viewer)->allows('viewRetractionNotice', $document))
+            ->map(fn (Document $document): array => [
+                'reason' => (string) $document->retraction_reason,
+                'retracted_on' => (string) $document->retracted_at?->format('d/m/Y'),
+            ])
+            ->values();
     }
 
     /** Cờ thứ hai, hỏi qua policy (`DocumentPolicy::download` hỏi lại `view` trước). */

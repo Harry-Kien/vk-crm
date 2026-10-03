@@ -6,6 +6,7 @@ use App\Mail\BrandedMailable;
 use App\Mail\OutboundHeaders;
 use App\Models\ClientUser;
 use App\Models\MatterChecklistItem;
+use App\Support\OfficeProfile;
 use App\Support\PortalUrl;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Mail\Mailables\Content;
@@ -79,8 +80,11 @@ class DocumentRejected extends BrandedMailable
         );
     }
 
+    /** Đọc thông tin văn phòng LÚC RENDER, không lúc xếp hàng — xem docblock `OfficeProfile`. */
     public function content(): Content
     {
+        $office = OfficeProfile::current();
+
         return new Content(
             view: 'emails.client.document-rejected',
             text: 'emails.client.document-rejected-text',
@@ -90,8 +94,8 @@ class DocumentRejected extends BrandedMailable
                 'itemName' => $this->checklistItem->name,
                 'reason' => $this->checklistItem->rejection_reason,
                 'portalUrl' => PortalUrl::base(),
-                'office' => config('vkcrm.brand.legal_name'),
-                'hotline' => config('vkcrm.brand.hotline'),
+                'office' => $office->legalName(),
+                'hotline' => $office->hotline(),
             ],
         );
     }

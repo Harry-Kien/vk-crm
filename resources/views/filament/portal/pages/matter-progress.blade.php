@@ -30,7 +30,7 @@
     $tap = 'min-height: 44px;display:inline-flex;align-items:center;gap:0.375rem;padding:0.5rem 0.875rem;border-radius:0.5rem;text-decoration:none;font-weight:600;';
     $primaryTap = $tap.'background-color:var(--primary-600);color:var(--primary-50);';
     $quietTap = $tap.'border:1px solid color-mix(in srgb, var(--gray-500) 40%, transparent);color:var(--primary-600);';
-    $hotline = config('vkcrm.brand.hotline');
+    $hotline = App\Support\OfficeProfile::current()->hotline();
 @endphp
 
 <x-filament-panels::page>
@@ -202,8 +202,14 @@
         <section data-portal-block="5" style="{{ $card }}">
             <h2 style="{{ $blockHeading }}">{{ __('portal_progress.blocks.documents.heading') }}</h2>
 
+            {{-- M7 Task 7: dòng "đã rút lại" đứng cùng khối, sau các tài liệu còn hiệu lực. Chỉ dùng
+                 dạng gán một dòng ở đây: tệp này đã có dạng một dòng ở khối 1, và bộ dịch Blade ghép
+                 nó với lần đóng khối kế tiếp (kể cả lần đóng nằm trong một chú thích) thành một khối
+                 PHP nuốt mất phần trang ở giữa. --}}
+            @php($retractionNotices = $this->retractionNotices())
+
             @forelse ($this->documents() as $document)
-                <article style="padding:0.75rem 0;{{ ! $loop->last ? 'border-bottom:1px solid color-mix(in srgb, var(--gray-500) 25%, transparent);' : '' }}">
+                <article style="padding:0.75rem 0;{{ ! $loop->last || $retractionNotices->isNotEmpty() ? 'border-bottom:1px solid color-mix(in srgb, var(--gray-500) 25%, transparent);' : '' }}">
                     <p style="font-weight:600;">{{ $document['title'] }}</p>
 
                     @if (filled($document['issued_on']))
@@ -223,8 +229,25 @@
                     @endif
                 </article>
             @empty
-                <p style="{{ $muted }}">{{ __('portal_progress.blocks.documents.empty') }}</p>
+                @if ($retractionNotices->isEmpty())
+                    <p style="{{ $muted }}">{{ __('portal_progress.blocks.documents.empty') }}</p>
+                @endif
             @endforelse
+
+            {{-- M7 Task 7 — tài liệu văn phòng đã RÚT LẠI: nhãn trung tính, lý do, ngày rút; không có
+                 đường tải. KHÔNG tiêu đề (rà soát cuối M7, C1 — xem `retractionNotices()`). Hình
+                 chiếu hẹp từ `retractionNotices()`, không bao giờ một bản ghi. --}}
+            @foreach ($retractionNotices as $notice)
+                <article data-retracted-document style="padding:0.75rem 0;{{ ! $loop->last ? 'border-bottom:1px solid color-mix(in srgb, var(--gray-500) 25%, transparent);' : '' }}">
+                    <p style="font-weight:600;{{ $muted }}">{{ __('retraction.portal.heading') }}</p>
+                    <p style="margin-top:0.25rem;font-size:0.9375rem;">
+                        {{ __('retraction.portal.notice', ['reason' => $notice['reason']]) }}
+                    </p>
+                    <p style="margin-top:0.25rem;font-size:0.9375rem;{{ $muted }}">
+                        {{ __('retraction.portal.retracted_on', ['date' => $notice['retracted_on']]) }}
+                    </p>
+                </article>
+            @endforeach
         </section>
 
         {{-- 6. MỐC THỜI HẠN SẮP TỚI — chỉ mốc đã công bố ---------------------------------- --}}

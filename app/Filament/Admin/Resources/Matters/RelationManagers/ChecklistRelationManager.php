@@ -265,6 +265,10 @@ class ChecklistRelationManager extends RelationManager
             // người (xem docblock lớp). Hỏi `MatterChecklistItemPolicy::create()`, KHÔNG phải
             // `checklist.review`: đây là "xin thêm giấy tờ", không phải "duyệt giấy tờ đã nộp".
             ->authorize(fn (): bool => Gate::allows('create', [MatterChecklistItem::class, $matter]))
+            // M7 Task 3: danh mục hồ sơ của vụ đã đóng là chỉ đọc — cổng HIỂN THỊ, không phải
+            // cổng thật (Action tự hỏi lại `closed_at` dưới khoá; xem `MatterChecklistReadOnly`).
+            // Ẩn nút chỉ để người dùng không bấm vào một thao tác chắc chắn bị từ chối.
+            ->visible(fn (): bool => $matter->isOpen())
             ->schema([
                 TextInput::make('name')
                     ->label(__('checklist.tab.fields.item_name'))
@@ -377,6 +381,8 @@ class ChecklistRelationManager extends RelationManager
             ->modalHeading(__('checklist.tab.actions.accept_heading'))
             ->modalDescription(__('checklist.tab.actions.accept_description'))
             ->authorize(fn (MatterChecklistItem $record): bool => Gate::allows('review', $record))
+            // M7 Task 3: danh mục hồ sơ của vụ đã đóng là chỉ đọc — xem `addItemAction()`.
+            ->visible(fn (): bool => $this->getOwnerRecord()->isOpen())
             ->schema($this->documentsSchema())
             ->successNotificationTitle(__('checklist.tab.actions.accept_success'))
             ->action(fn (Action $action, MatterChecklistItem $record, array $data) => $this->runAction(
@@ -399,8 +405,10 @@ class ChecklistRelationManager extends RelationManager
             ->modalHeading(__('checklist.tab.actions.reject_heading'))
             ->authorize(fn (MatterChecklistItem $record): bool => Gate::allows('review', $record))
             // Cổng TRẠNG THÁI, chép từ `ReviewChecklistItem::guardDecisionAgainstState()`: không
-            // có gì đang chờ thì không có gì để từ chối.
-            ->visible(fn (MatterChecklistItem $record): bool => static::hasSomethingToReject($record))
+            // có gì đang chờ thì không có gì để từ chối. M7 Task 3: VÀ vụ việc chưa đóng — xem
+            // `addItemAction()`.
+            ->visible(fn (MatterChecklistItem $record): bool => static::hasSomethingToReject($record)
+                && $this->getOwnerRecord()->isOpen())
             ->schema([
                 // Ba mẫu của SPEC §6.7, mỗi mẫu một nút, bấm một cái là điền vào ô lý do bên
                 // dưới. Chúng là `Action` của schema nên Filament tự lo việc ghi state đúng chỗ
@@ -469,8 +477,8 @@ class ChecklistRelationManager extends RelationManager
              * Fix round 2: cùng lớp lỗi, hai chỗ fix round 1 còn sót — toast và `handle()` lệch
              * nhau (finding 1: giờ cùng hỏi `NotifyClientOfChecklistItemRejected`), và câu "không
              * email" nói lý do hiện trên cổng cả khi vụ ẩn khỏi cổng (finding 2). Giờ ba câu, chọn
-             * ở {@see self::rejectionNoticeCopy()}. Rà soát cuối làn (I1): vụ ĐÃ ĐÓNG còn trên cổng
-             * thuộc nhánh "có email" — thư từ chối đi cho vụ đó.
+             * ở {@see self::rejectionNoticeCopy()}. (Rà soát cuối làn M6, I1, cho vụ ĐÃ ĐÓNG còn trên
+             * cổng thuộc nhánh "có email"; gộp M7 vào `main`: từ M7 Task 3 nút này ẩn trên vụ đã đóng.)
              */
             ->successNotificationTitle(fn (MatterChecklistItem $record): string => static::rejectionNoticeCopy(
                 $record,
@@ -501,7 +509,9 @@ class ChecklistRelationManager extends RelationManager
             ->modalHeading(__('checklist.tab.actions.not_applicable_heading'))
             ->modalDescription(__('checklist.tab.actions.not_applicable_description'))
             ->authorize(fn (MatterChecklistItem $record): bool => Gate::allows('review', $record))
-            ->visible(fn (MatterChecklistItem $record): bool => $record->status !== ChecklistItemStatus::PendingReview)
+            // M7 Task 3: VÀ vụ việc chưa đóng — xem `addItemAction()`.
+            ->visible(fn (MatterChecklistItem $record): bool => $record->status !== ChecklistItemStatus::PendingReview
+                && $this->getOwnerRecord()->isOpen())
             ->successNotificationTitle(__('checklist.tab.actions.not_applicable_success'))
             ->action(fn (Action $action, MatterChecklistItem $record) => $this->runAction(
                 $action,

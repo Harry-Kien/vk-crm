@@ -2499,3 +2499,1379 @@ test mới của bốn điểm trên: 5+1+2). `pint --test` sạch 599 tệp. Ba
     **2613 passed, 7 skipped, 0 failed** (11489 assertions, 1094 s; mốc trước 2604 — chênh +9 khớp
     số test mới 2+3+3+1); `test:mariadb` năm tệp đụng tới → 191 passed; `pint --test` sạch 639 tệp.
     Chi tiết ở `.superpowers/sdd/m8b/final-fix-report.md`, mục "## Fix round 1".
+
+## Ghi chú M7
+
+Worktree `D:\vkwt\lane-m7`, nhánh `m7-handover`, cắt từ `origin/m6-5-lane-d` @ `d2de674` (M6.5 đã
+nghiệm thu + đợt sửa cuối). Kế hoạch: `docs/superpowers/plans/2026-09-21-m7-handover-and-archive.md`.
+Sổ làn: `.superpowers/sdd/m7/progress.md`.
+
+### Làn m7b (Task 10, 8, 9 — chạy song song với làn m7)
+
+Worktree `D:\vkwt\lane-m7b`, nhánh `m7-extras`, cắt từ `m7-handover` @ `985a5c4` (Task 1–5 xong), để
+M11 có sớm bảng `settings` và nhật ký liên lạc. Sổ làn: `.superpowers/sdd/m7b/progress.md`. Controller
+gộp nhánh này vào `m7-handover` trước Task 11. Mục này đặt ở ĐẦU "Ghi chú M7" (không ở cuối) để lần
+gộp không đụng các ghi chú Task 6, 7 mà làn m7 viết thêm ở cuối.
+
+#### Task 10 — Thông tin văn phòng sửa được trong app
+
+Chủ văn phòng quyết ngày 2026-09-24 sẽ tự nhập bốn thông tin pháp lý trong app. Trước task này mọi
+thông tin thương hiệu chỉ đổi được qua `.env`.
+
+- **Tên giữ cho M11** (kế hoạch M11 dòng 50, 97):
+  - bảng `settings` (migration `2026_09_28_071000_create_settings_table`): `key` `string(100)`
+    unique, `value` `text` NULL (NULL = chưa đặt), `updated_by` FK `users` NULL, timestamps. Bảng
+    khoá–giá trị CHUNG; khoá văn phòng có tiền tố `office.`;
+  - model `App\Models\Setting` — không `LogsActivity` (Action của tính năng ghi audit có cấu trúc),
+    miễn trừ ranh giới cổng có lý do ở `PortalCoverageTest` (cổng phải đọc được hotline);
+  - **bước ghi chung** `App\Actions\Settings\WriteSettings::handle(array<string, ?string> $values,
+    ?User $actor): list<string>` — câu đầu là `lockForUpdate()` mọi khoá của lần ghi; khoá chưa có
+    dòng thì `insertOrIgnore` một dòng NULL rồi khoá-đọc lại; so cũ/mới dưới khoá, `save()` từng dòng đổi (kèm
+    `updated_by`), trả khoá đã đổi. Không hỏi quyền, không audit. Chuỗi rỗng/khoảng trắng = NULL;
+    `'0'` là một giá trị; giá trị không phải chuỗi bị từ chối (`(string) false` là `''`); khoá rỗng
+    hay dài hơn 100 ký tự bị từ chối trước khi chạm DB;
+  - **Cho M11:** Action công tắc MCP của M11 gọi `WriteSettings` với
+    `['mcp.enabled' => '1'|'0', 'mcp.write_enabled' => '1'|'0']`, tự hỏi `settings.manage`, tự ghi
+    `ai_access_changed` khi danh sách trả về không rỗng. Middleware `EnsureMcpAccess` đọc
+    `Setting::query()->where('key', 'mcp.enabled')->value('value') === '1'` ở MỖI request (không
+    cache; dòng vắng mặt hay NULL = tắt, đúng "mặc định tắt");
+  - service đọc `App\Support\OfficeProfile`; Action lưu `App\Actions\Settings\UpdateOfficeProfile`;
+    trang `App\Filament\Admin\Pages\OfficeProfilePage` (slug `office-profile`).
+- **Chín trường** = bốn thông tin pháp lý (`tax_code`, `bar_association`, `licence_number`,
+  `office_address`) + `legal_name`, `hotline`, `zalo`, `website`, `reply_to` ("email liên hệ" =
+  Reply-To của mọi thư). Giới hạn ký tự ở MỘT chỗ, `OfficeProfile::FIELDS` (255; `tax_code` 14;
+  `licence_number` 100; `office_address` 500; `hotline` 20 cho ô nhập; `reply_to` 254), dùng cho cả
+  `maxLength()` của form lẫn luật `max:` của Action. Cột `text` chứa xa hơn mọi giới hạn đó.
+- **Thứ tự đọc:** `settings` (giá trị không rỗng) → `config('vkcrm.brand.*')`. **Trống = dùng cấu
+  hình**: form mở với giá trị ĐÃ LƯU (ô chưa lưu để trống, placeholder nói giá trị `.env` đang dùng)
+  — điền sẵn giá trị cấu hình sẽ khiến lần Lưu đầu chép `.env` vào bảng. Muốn một trường TRỐNG hẳn:
+  đặt biến RỖNG trong `.env` (`BRAND_HOTLINE=`; xoá cả dòng thì mặc định của `config/vkcrm.php` quay
+  lại) rồi để trống ô (ghi ở docblock `OfficeProfile`).
+- **Không cache vượt một lần render:** mỗi `OfficeProfile::current()` là một đối tượng mới, đọc bảng
+  MỘT lần (một truy vấn cho cả chín trường) khi được hỏi lần đầu. Không `static`, không
+  `singleton`/`scoped`. Thư đang nằm trong hàng đợi dùng giá trị ở LÚC RENDER: mẫu thư đọc service
+  trong `content()`/`toMail()`/layout, không chụp vào thuộc tính (test: một `StageUpdate` tuần tự
+  hoá trước lần lưu, gửi sau, mang giá trị mới).
+- **Kiểm tra đầu vào (Action, lần nữa sau form):** mã số thuế bỏ khoảng trắng, 13 chữ số liền viết
+  lại thành `0123456789-001`, rồi phải là `^\d{10}(-\d{3})?$`; hotline: đầu số dịch vụ
+  `1900`/`1800` được nhận ra TRƯỚC `Normalizer::phone()` (sau khi bỏ khoảng trắng, chấm, gạch,
+  ngoặc), phải đủ 8 hoặc 10 chữ số và LƯU nguyên các chữ số (`1900 6557` → `19006557`); số khác
+  qua `Normalizer::phone()` phải ra `84` + phần quốc gia 9…10 chữ số bắt đầu bằng 2…9 (không số
+  thuê bao nào còn phần quốc gia 8 chữ số hay đầu 1), LƯU theo cách viết trong nước (`0` + phần
+  quốc gia — cùng dạng mặc định `0832270898`, vì số này in nguyên văn cho khách đọc và nằm trong
+  `tel:`) (vòng sửa 1: trước đó `1900 6557` bị lưu thành số không tồn tại `019006557`); Zalo/website
+  `url:http,https`; email liên hệ `email`. Lỗi của Action gắn vào đúng ô trên form (`data.<trường>`).
+  Khoá vắng mặt trong đầu vào thì giữ nguyên; khoá ngoài chín trường bị bỏ qua.
+- **Audit:** `office_profile_updated` (nhãn trong `lang/vi/activity.php`), `changed_fields` = tên
+  các trường đã đổi, không giá trị, không chủ thể; không ghi khi không có gì đổi.
+- **Cổng 404:** `canAccess()` = `Gate::forUser($user)->allows('settings.manage')`. `boot()` của trang
+  `abort(404)` — Livewire gọi `boot()` ở đầu cả mount lẫn mọi request cập nhật, TRƯỚC
+  `hydrateCanAuthorizeAccess()` của Filament (hook đó trả 403). `save()` hỏi lại; Action hỏi lần nữa.
+- **Nơi đọc đã chuyển sang `OfficeProfile`:** layout thư HTML + văn bản, `BrandFooter` (nhận đối
+  tượng của người gọi để cả chân thư từ một lần đọc), `BrandedMailable::replyToAddress()`,
+  `StageUpdate`, `DeadlineReminder`, `MatterReassigned`, `HandoverPackageReady`, `SendLoginCode`,
+  `RenderHandoverIndex` (`MUC-LUC.pdf`), chân trang đăng nhập, trang lỗi 403/404, `MatterProgress`,
+  `MyMatters` (CHỈ trong nhánh "chưa có hồ sơ" — ngân sách truy vấn "phần cố định đúng bằng 6" của
+  `MyMattersTest` không đổi), `SubmitDocument` (trang + view), `MatterClosedForSubmission`, `Login`,
+  `EnsurePortalAccountIsActive`. Test cấu trúc (`tests/Feature/Support/OfficeProfileTest.php`) quét
+  `app/`, `resources/views/`, `routes/` bằng `scandir()` (ổ 9p) và đỏ ở bất kỳ
+  `vkcrm.brand.<một trong chín trường>`, `'vkcrm.brand'` hay `'vkcrm'` nguyên khối nào ngoài
+  `OfficeProfile`; thêm một test: không màn hình cổng nào đọc thẳng `Setting`.
+- **`alt` của logo** (`brand/logo.blade.php`) là ba dòng lockup ghép lại, không phải tên pháp lý:
+  `alt` mô tả hình (không sửa được trong app), trùng từng chữ với tên pháp lý mặc định, và đọc tên
+  pháp lý ở đó sẽ thêm một truy vấn vào MỌI trang của hai panel.
+- **Để trống:** chân thư HTML/văn bản bỏ hẳn dòng tên pháp lý, hotline, website khi trống ở cả hai
+  nơi (trước đây in nhãn treo nếu `.env` đặt rỗng); bốn thông tin pháp lý vẫn qua `BrandFooter`;
+  `MUC-LUC.pdf` bỏ dòng tên văn phòng ở đầu trang và chân trang khi trống.
+- **Việc cho lần gộp `main` (M6 phần còn lại):** các mẫu thư `main` thêm sau `985a5c4` vẫn đọc
+  `config('vkcrm.brand.legal_name')`/`hotline`: `Mail/Client/{Activation, DocumentPublished,
+  DocumentRejected, MissingDocuments, RequestAnswered}`, `Mail/Staff/{BackupAlert,
+  InstalmentOverdue, NewClientDocument, NewClientRequest, StaleMatterReminder}`. Test cấu trúc sẽ
+  đỏ và nêu đích danh từng dòng; sửa mỗi `content()` thành `$office = OfficeProfile::current();` rồi
+  `$office->legalName()`/`$office->hotline()`, như `StageUpdate`.
+- **M8 Task 7 (làn M8b):** cảnh báo "bốn thông tin pháp lý còn trống" của `vkcrm:preflight` đọc
+  `OfficeProfile::current()->taxCode()` (…), không đọc `config('vkcrm.brand.*')` — sau khi gộp, test
+  cấu trúc bắt chỗ đọc cấu hình trực tiếp.
+- **Giới hạn đã biết:** màn hình cổng (chân trang đăng nhập, trang lỗi 403/404, `MatterProgress`,
+  `MyMatters`) chưa bỏ nút/liên kết `tel:` khi hotline trống ở CẢ hai nơi — như trước Task 10;
+  chỉ xảy ra khi `.env` đặt `BRAND_HOTLINE=` rỗng VÀ trang để trống ô, vì mặc định của
+  `config/vkcrm.php` có số.
+- Test: `tests/Feature/Support/OfficeProfileTest.php` (service + cấu trúc),
+  `tests/Feature/Actions/Settings/{UpdateOfficeProfileTest, WriteSettingsTest}.php`,
+  `tests/Feature/Filament/OfficeProfilePageTest.php` (màn hình qua Livewire/HTTP: 404 cả request
+  cập nhật Livewire thật; lưu xong thì thư khách, ba thư nhân sự (`DeadlineReminder`,
+  `MatterReassigned`, `HandoverPackageReady` — khẳng định cả tên CŨ không còn, vì chân thư một mình
+  đã đủ làm "có tên mới" xanh), thư OTP, `MUC-LUC.pdf`, chân trang đăng nhập,
+  trang 404, trạng thái trống của cổng mang giá trị mới; để trống thì bỏ dòng); `PortalCoverageTest`
+  thêm `Setting` vào danh sách miễn trừ; `SenderIdentityTest` sửa docblock (chuỗi rỗng bị lọc ở hai
+  tầng, câu "bỏ `filled()` làm test này đỏ" của bản trước sai với ca đó).
+
+#### Task 8 — Nhật ký liên lạc và nhật ký riêng của vụ việc
+
+- **Tên giữ cho M11** (kế hoạch M11 dòng 49, 318):
+  - `CommunicationLogPolicy::create(User|ClientUser $user, ?Matter $matter = null)` — khách luôn
+    `false`; nhân sự không nêu vụ việc: `false`; nêu vụ: đúng `MatterPolicy::update` (chưa xoá
+    mềm + `matter.update` + xem được vụ) qua `ChecksMatterAccess::canUpdateMatter()`. Gọi bằng
+    `Gate::forUser($actor)->…('create', [CommunicationLog::class, $matter])`;
+  - **Action ghi** `App\Actions\Communication\LogCommunication::handle(Matter $matter, User $actor,
+    CommunicationType $type, string $summary, ?string $counterpart = null, string|CarbonInterface|null
+    $occurredAt = null, ?int $durationMinutes = null): CommunicationLog`. Câu đầu khoá dòng `matters`;
+    hỏi cổng trên vụ ĐỌC LẠI dưới khoá; mọi lý do từ chối ra một câu (`communications.unavailable`,
+    `AuthorizationException`); kiểm tra đầu vào chạy SAU cổng (`ValidationException` gắn khoá
+    `summary`/`counterpart`/`occurred_at`/`duration_minutes`). M11 thêm cột `created_via` và truyền
+    nó vào Action này;
+  - Action xoá `App\Actions\Communication\DeleteCommunicationLog::handle(CommunicationLog $log, User
+    $actor, string $reason)` — khoá `matters` rồi `communication_logs`, lý do bắt buộc (≤ 1000 ký tự),
+    audit TRƯỚC lệnh xoá mềm trong cùng transaction. Không `forceDelete()` ở đâu cả.
+- **Luật đầu vào (Action):** `summary` bắt buộc sau `trim`, ≤ 16.383 ký tự (`TEXT` 65.535 byte ÷ 4
+  byte utf8mb4 — trần bảo đảm vừa trên MariaDB strict); `counterpart` trống = tên khách của vụ, ≤ 200;
+  `occurred_at` trống = bây giờ, không được ở tương lai quá 60 giây (nhật ký ghi điều đã xảy ra);
+  `duration_minutes` 0…65.535 hoặc trống; `is_visible_to_client` luôn `false` — không phải tham số.
+- **Policy siết:** `update()`/`delete()` = dòng chưa xoá mềm VÀ điều kiện của `create()` trên vụ của
+  dòng (bản trước mở cho bất kỳ ai xem được vụ); `forceDelete()` luôn `false`. `view()` không đổi
+  (d069424). `ChildPolicyTest` đổi một dòng: `can('create', [CommunicationLog::class, $matter])`.
+- **Tab "Liên lạc"** (`CommunicationLogsRelationManager`, quan hệ `communicationLogs`): một hàng nút
+  chọn kênh (`ToggleButtons` inline, không mặc định — một lần chạm) + một ô nội dung; khối thu gọn
+  "Thời điểm, người liên lạc, thời lượng" đã điền sẵn bây giờ và tên khách; người ghi là người đăng
+  nhập (không có ô); không có ô `is_visible_to_client`; không nút "Sửa"; "Xoá" có ô lý do. Cổng tab =
+  `MatterPolicy::view`; nút ghi = `create` với vụ; nút xoá = `delete`. Bảng mới nhất trước, hiện
+  người ghi kể cả tài khoản đã xoá mềm.
+- **Tab "Nhật ký"** (`MatterActivityRelationManager`): ability mới `MatterPolicy::viewActivityLog` =
+  `view()` VÀ (`auditLog.view` — admin, trưởng phòng — HOẶC `lead_lawyer_id` của chính vụ). Ẩn tab
+  (`canViewForRecord`), 404 ở mount (`booted()`) và ở mọi request cập nhật Livewire (`hydrate()` —
+  chạy TRƯỚC `hydrateCanAuthorizeAccess()` 403 của Filament), modal hỏi lại. Dòng = luật
+  `ActivityOwningMatter` qua `scopeOwnedBy($query, $matter)`; `scopeVisibleTo()` nay dùng chung câu
+  SQL `whereOwnedByAny()` với nó (một định nghĩa). Modal qua `SensitivePropertyFilter`; nhãn sự kiện
+  qua `lang/vi/activity.php`.
+- **Morph map** thêm `communication_log`; `ActivityOwningMatter::MATTER_OWNED` thêm
+  `communication_log => communication_logs` (test: dòng audit nhật ký liên lạc của vụ `restricted`
+  không lên trang Nhật ký hệ thống của trưởng phòng ngoài vụ). Hai khoá audit mới
+  `communication_logged` (kênh, thời điểm — KHÔNG nội dung, KHÔNG tên người liên lạc) và
+  `communication_log_deleted` (thêm lý do). Chuỗi mới ở `lang/vi/communications.php`.
+- **Thứ tự tab:** Liên lạc nối sau Mốc thời hạn, Nhật ký cuối cùng. SPEC đặt Mốc thời hạn và Liên lạc
+  trước "Yêu cầu từ khách"; không đảo dòng của M5/M6 để lần gộp các làn không đụng nhau (ghi ở
+  docblock `MatterResource::getRelations()`).
+- **Giới hạn đã biết:** trên một vụ đã xoá mềm, tab Liên lạc (như mọi tab con dùng
+  `ScopesToVisibleMatters`) hiện rỗng với admin — `whereHas('matter')` loại vụ đã xoá; dữ liệu còn
+  nguyên. Dòng `conflict_check_run` trong tab Nhật ký mang mã hồ sơ trùng — đúng ranh giới
+  `ConflictMatch` mà SPEC §6.10 cho người chạy kiểm tra thấy; tab mở ranh giới đó thêm cho luật sư
+  phụ trách của vụ (trước chỉ admin/trưởng phòng ở trang hệ thống).
+- Đính chính SPEC §4.17 (không công tắc, bằng chứng, cổng ghi).
+- Test: `tests/Feature/Filament/{CommunicationLogsRelationManagerTest, MatterActivityRelationManagerTest}.php`
+  (Livewire/HTTP), `tests/Feature/Actions/Communication/{LogCommunicationTest, DeleteCommunicationLogTest}.php`,
+  `tests/Feature/Authorization/CommunicationLogPolicyTest.php`. Test M5 về cổng khách
+  (`PortalIsolationSweepTest`, `PortalVisibilityTest`) xanh nguyên.
+- **Bằng chứng TDD.** Phiên đầu bị dừng sau commit `de05774` mà không để lại nhật ký RED; phiên tiếp
+  dựng lại RED bằng cách đưa mã `app/` và `lang/` của Task 8 về base `579aaa8` (giữ nguyên test):
+  44 bài đỏ, 3 bài của `CommunicationLogPolicyTest` xanh ngay trên base vì chúng đo điều kiện đã có
+  (`matter.update`, khách bị từ chối). 58 mutation probe: 51 đỏ, 7 xanh và là đột biến tương đương —
+  `create()` bỏ `instanceof User` (`MatterPolicy::update` đã từ chối khách); `LogCommunication` bỏ
+  `$fresh === null` hoặc đọc vụ bằng `withTrashed()` (cổng `create($user, null)` và
+  `MatterPolicy::update` đều trả `false`); modal "Xem chi tiết" bỏ `abort_unless` hoặc `authorize`
+  (mọi request chạm tới modal đã qua `hydrate()` cùng câu hỏi); bảng Liên lạc bỏ
+  `scopeToVisibleMatters()` (quan hệ đã khoá vào vụ chủ, và tab chỉ có cho người xem được vụ — chỉ
+  khác ở vụ đã xoá mềm, tức giới hạn đã biết ở trên); `using()` bỏ nhánh `type` rỗng (`->required()`
+  của form chặn trước). Phiên tiếp thêm hai ca: người ghi đã bị xoá mềm vẫn hiện tên (bảo vệ
+  `author` `withTrashed()`), và ép khoá một dòng nhật ký của vụ `restricted` khác vào "Xem chi tiết"
+  không mở được modal (kèm vế dương), cộng ba chỗ docblock cũ (danh sách `MATTER_OWNED`, tab "Đội
+  ngũ" trong thứ tự tab, `booted()` cũng chạy ở request cập nhật).
+- **Ghi chú lúc gộp main** (đo bằng `git merge-tree origin/main m7-extras` ngày 2026-10-03, main @
+  `88b6044`; làn không gộp gì):
+  - `ActivityOwningMatter`: main (gộp M9) thêm `MONEY_OWNED` và cổng `seesMoney($viewer)` vào
+    `scopeVisibleTo()`; Task 8 tách ba bước đầu của nó thành `whereOwnedByAny()`, dùng chung với
+    `scopeOwnedBy()` của tab "Nhật ký". `scopeOwnedBy()` KHÔNG nhận người xem, nên khi gộp **không
+    được** đưa nhánh `MONEY_OWNED` vào `whereOwnedByAny()` vô điều kiện: luật sư phụ trách không có
+    `billing.view` sẽ thấy dòng hợp đồng/khoản thu trong tab. Hoặc thêm `User $viewer` cho
+    `scopeOwnedBy()` và áp đúng `seesMoney()`, hoặc để dòng tiền ngoài tab (chúng nằm trong
+    `matterOwnedTypes()`, nên nhánh `properties.matter_id` cũng không thả chúng ra) — kèm một test
+    cho luật sư phụ trách không có `billing.view`.
+  - `MatterResource::getRelations()`: main thêm `BillingRelationManager` (M9) vào cuối; "Nhật ký"
+    phải vẫn đứng cuối cùng (SPEC §7.2). `AppServiceProvider`: xung đột ở `use` và khối listener —
+    giữ cả hai bên; morph map giữ `communication_log` cạnh các khoá của M9.
+  - Địa chỉ trụ sở: main `88b6044` đặt mặc định `vkcrm.brand.office_address` = "1808 đường Nguyễn
+    Ái Quốc, phường Trấn Biên, thành phố Đồng Nai" (chủ văn phòng đưa ngày 2026-10-02).
+    `config/vkcrm.php` và `.env.example` xung đột với Task 10 (cả hai sửa cùng docblock/khối
+    `BRAND_*`): giữ dòng mặc định của main VÀ câu "giá trị nhập trong app thắng" của Task 10. Đo
+    ngày 2026-10-03 (sửa tạm `config/vkcrm.php` của làn rồi trả lại): với mặc định đó, tám tệp test
+    chạm chân thư/`OfficeProfile` (`BuildHandoverPackageTest`, `UpdateOfficeProfileTest`,
+    `WriteSettingsTest`, `PortalCoverageTest`, `OfficeProfilePageTest`, `EmailLayoutTest`,
+    `SenderIdentityTest`, `OfficeProfileTest`) chỉ đỏ đúng hai bài của `EmailLayoutTest` mà
+    `88b6044` đã viết lại trên main; làn không đụng tệp đó nên lần gộp nhận bản của main, và bản đó
+    (10 bài) xanh trên mã của làn cộng mặc định ấy.
+
+#### Task 9 — Tìm kiếm (SPEC §6.13, R7)
+
+- **Tên giữ cho M11** (kế hoạch M11 dòng 307, 632 — `search_matters` "tìm giống M7 Task 9"):
+  - Action đọc `App\Actions\Search\SearchMatters`:
+    - `handle(User $actor, string $term, ?array $sources = null, int $limit = 25): MatterSearchResults`
+      — mới nhất trước (`matters.id` giảm dần), `limit` kẹp [1, `MAX_LIMIT` = 50], cờ `truncated`
+      (lấy `limit + 1` dòng) thay cho tổng số;
+    - `matching(User $actor, string $term, ?array $sources = null): Builder<Matter>` — truy vấn ĐÃ
+      mang luật hiển thị, để M11 tự lắp bộ lọc (loại vụ, giai đoạn, "vụ tôi phụ trách", đang mở),
+      `McpMatterScope` và phân trang cursor. M11 truyền `[SearchSource::Code, Title, ClientName,
+      CaseNumber]` (kế hoạch M11: không tìm theo tên các bên hay tiêu đề tài liệu). Tham số nguồn
+      chỉ thu hẹp, không nới;
+    - `sourcesFor(User): list<SearchSource>`, `normalizeTerm(string): ?string` (NFC, gộp khoảng
+      trắng, 2…100 ký tự sau chuẩn hoá; ô tìm mang `maxlength` = `MAX_TERM_LENGTH`).
+  - DTO readonly `MatterSearchResults` (`matters`, `truncated`), `MatterSearchResult` (`matterId`,
+    `code`, `title`, `clientName`, `matterTypeName`, `hits`), `MatterSearchHit` (`source`, `text`);
+    enum `App\Enums\SearchSource` (sáu case, nhãn ở `lang/vi/search.php`).
+- **Luật hiển thị trong câu SQL, trước `limit`:** `Matter::scopeListableBy($actor)` VÀ "khớp ít nhất
+  một nguồn" trong cùng truy vấn. Không tổng số, không "có kết quả bị ẩn"; "không khớp" và "khớp mà
+  không được xem" là một câu. Test: khối kết quả của trưởng phòng giống từng byte dù hai vụ
+  `restricted` cùng khớp có tồn tại hay không; câu "chỉ hiện 25 hồ sơ mới nhất" chỉ bật trên tập
+  người đó thấy. Vụ `restricted` không lộ với trưởng phòng hay thành viên đội ngũ không phải lead,
+  qua cả sáu nguồn. Kiểm tra xung đột lợi ích không là cửa sau: vụ không xem được không bao giờ ra,
+  kể cả khi tên một bên khớp đúng.
+- **Ai tìm theo nguồn nào:** cần `MatterPolicy::viewAny`. Mã và tên khách: mọi người liệt kê được vụ.
+  Tiêu đề vụ, số thụ lý, tên các bên, tiêu đề tài liệu: chỉ `matter.view`. Tài liệu nhóm D: chỉ
+  `document.viewInternal` (`group != 'D'` trong SQL, cùng điều kiện nhóm của `DocumentPolicy::view`),
+  áp CHUNG cho điều kiện lọc lẫn dòng "Khớp" — một vụ ra nhờ nguồn khác không kèm tiêu đề nhóm D.
+  Tài liệu, các bên, vụ đã xoá mềm không ra. Dòng kết quả chỉ mang id/tiêu đề (tức liên kết vào
+  trang vụ việc) khi `Gate::forUser($actor)->allows('view', $matter)` (đội ngũ đã nạp, trả lời trong
+  bộ nhớ). Dòng "Khớp" của tên các bên/tiêu đề tài liệu có hai lớp chặn độc lập (chỉ truy vấn khi
+  nguồn được phép; `present()` chỉ dựng cho nguồn được phép).
+- **Lệch khỏi phán quyết controller — cần controller xác nhận.** Phán quyết ghi "kế toán: chỉ bốn
+  nguồn đầu" (mã, tiêu đề, tên khách, số thụ lý). Làn cài **hai** (mã, tên khách), vì:
+  `MattersTable` ẩn cột tiêu đề với kế toán (và Filament không tìm trên cột ẩn —
+  `CanSearchRecords::applyGlobalSearchToTableQuery()` bỏ cột `isHidden()`); số thụ lý chỉ hiện trên
+  trang vụ việc, nơi kế toán không mở được; SPEC §5 trên `main` ("Ranh giới của kế toán", M9) nói màn
+  hình của kế toán mang mã, loại vụ, tên khách — **không** tiêu đề. Tìm theo một trường là đọc được
+  trường đó (gõ "ly hôn" rồi xem vụ nào ra). Muốn mở thêm hai nguồn: bỏ `Title`/`CaseNumber` khỏi
+  `SearchMatters::CONTENT_SOURCES` — dòng kết quả của kế toán vẫn không mang tiêu đề (`matterId`,
+  `title` theo `MatterPolicy::view`), nhưng việc khớp thì vẫn lộ nội dung. Đính chính SPEC §6.13 ghi
+  cách đọc của làn.
+- **Trang** `App\Filament\Admin\Pages\Search` (slug `search`, "Tìm kiếm" trên thanh điều hướng):
+  `canAccess()` = `Gate::forUser()->allows('viewAny', Matter::class)`; `boot()` `abort(404)` ở mount
+  và mọi request cập nhật (TRƯỚC `hydrateCanAuthorizeAccess()` 403); `search()` hỏi lại; Action hỏi
+  lần nữa. "Đang hoạt động" do `Authenticate` của panel lo — Livewire giữ nó làm middleware bền, nên
+  một tài khoản vừa bị vô hiệu hoá nhận 404 cả ở request cập nhật (đo bằng request thật); bản đầu có
+  thêm `is_active` trong `canAccess()`, mutation probe cho thấy không đường nào tới được nó, nên đã
+  gỡ. Thuộc tính công khai duy nhất là `$term` (`wire:model.live.debounce.500ms`); kết quả tính
+  trong `getViewData()` (protected). Chuỗi tìm KHÔNG lên query string: thường là tên người, và URL
+  vào lịch sử trình duyệt và nhật ký máy chủ. Trang nói "Tìm trong: …" đúng các nguồn của người đó.
+  Blade không lớp CSS, chỉ biến màu đã đăng ký (test).
+- **Cách tìm và index** (migration `2026_09_28_070900_add_search_indexes`: `matters_case_number_index`,
+  `matters_title_index`, `clients_name_index`, `documents_title_index`). `LIKE 'x%'` dùng được index,
+  `LIKE '%x%'` thì không. Số thụ lý: tiền tố, vì độ chính xác (phần ký hiệu cuối chung cho cả loạt
+  vụ). Mã: chứa (người ta nhớ "0147"; ô tìm của `MattersTable` cũng chứa). Tiêu đề, tên khách, tên
+  các bên, tiêu đề tài liệu: chứa. **Câu tìm sáu nguồn không dùng index nào** — một `OR` có vế chứa;
+  `EXPLAIN` bên dưới. Bốn index vẫn thêm theo kế hoạch: chúng phục vụ câu tiền tố đứng riêng và lúc
+  quy mô vượt "vài nghìn hồ sơ"; docblock migration nói thẳng như vậy. `%`, `_` trong chuỗi gõ là
+  chữ thường (`ESCAPE '!'` — SQLite không có ký tự thoát mặc định, `'\\'` đọc khác nhau giữa hai CSDL).
+- **Số đo** (`tests/Benchmark/SearchMattersBenchmarkTest.php`, ngoài mọi testsuite của
+  `phpunit.xml` — CI và `container-test` không tham số đều bỏ qua; chạy tay
+  `/d/vkwt/m7b-dev test:mariadb tests/Benchmark/SearchMattersBenchmarkTest.php`). MariaDB trong Docker
+  trên máy dev Windows, 6.000 vụ (5% restricted, 60% có số thụ lý), 3.000 khách, 18.000 bên, 30.000
+  tài liệu, đội ngũ 2 người mỗi vụ; trung vị 5 lần của `SearchMatters::handle()`:
+
+  | Chuỗi | admin | luật sư (≈400 vụ) | kế toán |
+  |---|---|---|---|
+  | `0147` (mảnh mã) | 15,1 ms | 13,3 ms | 5,3 ms |
+  | `VK-2026` (25+ dòng) | 11,9 ms | 13,8 ms | 7,4 ms |
+  | `Nguyễn Văn` | 20,1 ms | 22,5 ms | 10,2 ms |
+  | `nguyen van an` | 20,8 ms | 14,1 ms | 5,9 ms |
+  | `4711/2026` (số thụ lý) | 15,2 ms | 13,0 ms | 3,5 ms |
+  | `khởi kiện 512` (tài liệu) | 18,6 ms | 14,7 ms | 4,1 ms |
+  | `Ánh` | 20,1 ms | 23,5 ms | 9,5 ms |
+  | `zzqqxx` (không khớp) | 12,6 ms | 13,0 ms | 4,3 ms |
+
+  `EXPLAIN`: câu sáu nguồn — `matters`, `clients`, `documents`, `matter_parties` đều `type=ALL`
+  (luật sư thêm `matter_user` `ref`); `case_number LIKE '4711/2026%'` đứng riêng — `range` trên
+  `matters_case_number_index`; `title LIKE '%khởi%'` đứng riêng — `type=index` (duyệt cả index phủ).
+- **Tiếng Việt — hành vi thật, đo trên cả hai CSDL** (`SearchPageTest`, "tìm tiếng Việt", chạy cả
+  `test:mariadb`; đã xác nhận lần chạy MariaDB dùng driver `mariadb`): tên các bên so trên
+  `name_normalized` với chuỗi chuẩn hoá cùng `Normalizer::name()` — có dấu/không dấu, hoa/thường,
+  `đ`/`d` đều ra, mọi CSDL. Tiêu đề, tên khách: MariaDB `utf8mb4_unicode_ci` bỏ qua dấu ("thue nha"
+  ra "thuê nhà") và hoa/thường ngoài ASCII ("ĐỖ VĂN" ra "Đỗ Văn"), nhưng `đ` khác `d` ("duong lam"
+  không ra "Đường Lâm"); SQLite so theo byte, chỉ gộp hoa/thường ASCII. Chuỗi gõ ở dạng NFD được đưa
+  về NFC trước khi so (mọi CSDL).
+- **Giới hạn đã biết:** (1) khách hàng đã xoá mềm thì tên không còn tìm được (vụ vẫn ra theo mã) —
+  cùng cách `MattersTable` đọc quan hệ `client`; (2) tiêu đề/tên LƯU ở dạng NFD (dán từ macOS) không
+  khớp chuỗi NFC trên SQLite; (3) `đ` ≠ `d` ở tiêu đề và tên khách trên MariaDB — phải gõ đúng chữ
+  đ; (4) tìm kiếm không ghi audit (không mở hồ sơ nào; chuỗi tìm thường là tên người, ghi lại là
+  thêm một chỗ lưu dữ liệu cá nhân); (5) vụ đã xoá mềm không ra, kể cả với admin (như danh sách vụ
+  việc).
+- Test: `tests/Feature/Filament/SearchPageTest.php` (màn hình qua Livewire/HTTP: sáu nguồn × thấy/
+  không thấy — mỗi "không thấy" kèm đối chứng admin thấy đúng vụ đó bằng đúng chuỗi đó —; vụ
+  `restricted` × sáu nguồn; số lượng không rò rỉ; nhóm D với trợ lý; kế toán × năm nguồn bị chặn;
+  kế toán không liên kết, không tiêu đề, không dòng khớp tên bên/tài liệu; xoá mềm; ký tự đại diện;
+  tiếng Việt; NFD; 404 kể cả request cập nhật Livewire thật; không lớp CSS),
+  `tests/Feature/Actions/Search/SearchMattersTest.php` (bề mặt M11: thu hẹp nguồn, không nới nguồn,
+  `limit`, tài khoản vô hiệu hoá/xoá mềm, `matching()`, chuẩn hoá, gộp/cắt dòng khớp, chuỗi chuẩn hoá
+  rỗng), `tests/Feature/Database/SearchIndexesTest.php`.
+- **Bằng chứng TDD.** RED: ba tệp test viết trước mã — 58/58 đỏ (lớp `Search`/`SearchMatters` chưa
+  có, bốn index chưa có). GREEN 58/58 ở lần chạy đầu, cả SQLite lẫn MariaDB. Sau đó thêm ba test
+  Action (nguồn rỗng cho nhân sự không quyền, chuỗi chuẩn hoá rỗng, trần `MAX_LIMIT`), siết test kế
+  toán (dòng khớp tên bên/tài liệu) và test số thụ lý (cờ khớp tiền tố) để ghim những điều kiện mà
+  lần lập kế hoạch probe thấy chưa có test nào đỏ. **47 mutation probe:** 43 đỏ; 4 xanh — ba là đột
+  biến tương đương của hai lớp chặn dòng khớp (bỏ riêng lớp "chỉ truy vấn khi nguồn được phép" cho
+  tên bên, cho tài liệu, hoặc bỏ riêng lớp "`present()` chỉ dựng cho nguồn được phép"; bỏ CẢ HAI lớp
+  thì đỏ, hai probe), một là `is_active` thừa trong `canAccess()` (đã gỡ, xem mục Trang).
+- **Ghi chú lúc gộp** (đo bằng `git merge-tree` ngày 2026-10-03 trên một commit tạm chứa Task 9, so
+  với cùng phép đo từ `572f3be`): Task 9 không thêm tệp xung đột nào — với `origin/m7-handover` vẫn
+  đúng một tệp như trước (`lang/vi/activity.php`), với `origin/main` vẫn đúng 13 tệp như trước. Mọi
+  tệp mã của Task 9 là tệp mới; đính chính SPEC §6.13 tự gộp với cả hai nhánh (làn m7 thêm đoạn
+  §6.12 ngay TRÊN tiêu đề §6.13, Task 9 viết DƯỚI đoạn cuối của §6.13). Sau khi gộp main: M9 cho kế
+  toán `billing.view` — `sourcesFor()` đọc `matter.view`, không đọc vai trò, nên không đổi; M8 (2FA
+  bắt buộc): `UserFactory` của main mặc định có `two_factor_secret`, `SearchPageTest` dùng factory
+  như mọi test trang khác; M11 gọi `matching()`/`handle()` với bốn nguồn của vụ.
+
+### Task 1 — Phần còn lại của `ReassignMatter` (SPEC §6.11 bước 3, R10)
+
+M6.5 Task 4 đã dựng `ReassignMatter` cho MỘT vụ việc (đổi lead, chuyển mốc hạn CHƯA hoàn thành,
+audit) nhưng hoãn thư tổng hợp mốc hạn cho lead mới, vì hạ tầng thư xếp hàng (M6.5 Task 11) chưa
+merge lúc đó. Task 1 dựng thư đó:
+
+- `App\Jobs\SendReassignmentDigest` (queue mặc định, `ShouldQueue`) — dispatch bằng
+  `->afterCommit()` từ `ReassignMatter::handle()` (R2). Mang `$newLeadId` + một mảng
+  `matter_id => {deadline_ids, client_request_ids, reason}` — CHỈ id, dựng để dùng lại được cho
+  M7 Task 2 (bàn giao hàng loạt): một lô nhiều vụ, một thư duy nhất cho lead mới.
+- Dựng lại TOÀN BỘ nội dung LÚC GỬI, không tin payload: mốc phải còn tồn tại, chưa hoàn thành, và
+  hiện do lead mới phụ trách; yêu cầu khách phải còn gán cho lead mới và chưa đóng; cả vụ việc bị
+  loại khỏi thư nếu lead mới không còn qua được `ResolveStaffRecipients::qualifies()` (vụ
+  `restricted` vừa bàn giao tiếp, tài khoản bị vô hiệu hoá giữa chừng, …). Không còn vụ nào qua
+  được lọc thì không gửi gì.
+  - Một vụ vẫn có mặt trong thư dù danh sách mốc rỗng ("không có mốc hạn nào được chuyển") — lead
+    mới cần biết mình vừa nhận vụ.
+- `App\Mail\Staff\MatterReassigned` (kế thừa `BrandedMailable`, mẫu `staff.matter_reassigned`) —
+  tiêu đề KHÔNG nêu mã/tiêu đề vụ nào, chỉ số lượng; `relatedRecord()` trỏ người nhận (không phải
+  một `Matter`) để dòng `outbound_messages` chỉ admin thấy.
+- `ReassignMatter::handle()` thêm tham số `bool $sendDigest = true` — `false` dành cho Task 2 tự
+  gộp một thư cho cả lô thay vì một thư trên mỗi vụ.
+- `failed()` (hết `$tries`): audit `matter_reassignment_digest_failed` (chỉ `new_lead_id` +
+  `matter_ids`) và thông báo trong hệ thống cho chính người nhận.
+- Đính chính SPEC §6.11 bước 3 và §11 ("Bàn giao và lưu trữ"): chỉ deadline CHƯA HOÀN THÀNH được
+  chuyển, không phải "toàn bộ" (R10, cùng cách đọc M6.5 Task 4 đã chọn).
+- Test: `tests/Feature/Jobs/SendReassignmentDigestTest.php` (job, 17 test — mọi điều kiện lọc có
+  mutation probe, cộng một test KHÔNG `Mail::fake()` xác nhận view Blade thật biên dịch và nhật
+  ký `outbound_messages` mở đúng dòng), `tests/Feature/Actions/Matter/ReassignMatterTest.php`
+  (2 test mới: dispatch mặc định + `sendDigest: false`), `tests/Feature/Filament/
+  ReassignMatterActionTest.php` (cập nhật: `Mail::assertNothingSent()` cũ thay bằng
+  `Mail::assertSent(MatterReassigned::class, …)` + `Mail::assertNotSent(StageUpdate::class)` cho
+  đúng "không thư nào tới KHÁCH"; thêm test vụ `restricted` vẫn nhận thư, và rollback → không có
+  thư).
+- Không việc nào bị hoãn tiếp ở task này.
+
+**Fix round 1** (review needs_fixes: 0 critical/2 important/7 minor — 2 important sửa ở đây):
+- **Finding 1 (R2 chưa có test).** Test "rollback" cũ (`ReassignMatterActionTest`, "refuses to keep
+  the old lead...") ném `ValidationException` TRƯỚC Bước 5/dispatch, nên `Mail::assertNothingSent()`
+  ở đó đúng bất kể `->afterCommit()` có mặt hay không — không đo được gì về R2. Thêm một test MỚI,
+  cùng tệp: bọc một lần bàn giao THÀNH CÔNG (chạm cả dòng dispatch) trong một `DB::transaction`
+  NGOÀI của chính test rồi CỐ Ý rollback, khẳng định `Mail::assertNotSent(MatterReassigned::class)`
+  — cùng thành ngữ `ClientIdentitySyncTest.php`. Xác nhận đỏ bằng tay khi bỏ `->afterCommit()` khỏi
+  `ReassignMatter::handle()` (cả test mới này lẫn test dispatch payload ở `ReassignMatterTest.php`
+  đều đỏ), rồi khôi phục lại. Cũng thêm `&& $job->afterCommit === true` vào closure
+  `Queue::assertPushed()` của test dispatch payload cũ (`ReassignMatterTest.php`) — trước đó tên
+  test nói "after commit" nhưng không hề đo cờ đó.
+- **Finding 2 (Task 2 không có cách lấy đúng id đã chuyển mà không re-query sai).** `handle()` giờ
+  trả về `App\Actions\Matter\ReassignMatterResult` (mới, `stageLog` + `movedDeadlineIds` +
+  `movedRequestIds`) thay vì `StageLog` trần — đúng lựa chọn mà phán quyết controller Task 1 đã cho
+  phép ("đổi giá trị trả về... nếu cập nhật MỌI nơi gọi và test"). Cập nhật
+  `ViewMatter::submitReassign()` (vẫn bỏ qua giá trị trả về — màn hình MỘT vụ không cần gộp gì) và
+  hai test ở tầng Action đang gán `$stageLog = handle(...)` sang `$result->stageLog`. Thêm một test
+  mới xác nhận `$result->movedDeadlineIds`/`movedRequestIds` chỉ mang đúng id LẦN GỌI NÀY chuyển,
+  không lẫn deadline/client request lead mới đã giữ TỪ TRƯỚC — đúng rủi ro mà một cách làm
+  "re-query sau khi cả lô chạy xong" sẽ mắc phải. Sửa lại docblock lớp `ReassignMatter` (đoạn nói
+  Task 2 "chỉ cần gọi lặp lại") cho đúng cơ chế mới.
+- Test: 2 test mới (`ReassignMatterActionTest.php`: rollback qua transaction ngoài;
+  `ReassignMatterTest.php`: `movedDeadlineIds`/`movedRequestIds` trên result object) + 2 test có
+  sẵn được sửa (`$job->afterCommit === true`; `$stageLog` → `$result->stageLog` × 2). Toàn bộ 27
+  test của hai tệp `ReassignMatterTest.php` + `ReassignMatterActionTest.php` xanh; `pint --test`
+  sạch (546 tệp).
+
+### Task 2 — Màn hình bàn giao hàng loạt (SPEC §6.11; admin/trưởng phòng)
+
+Trang tự viết cho phép chọn nhiều vụ ĐANG MỞ của một luật sư/trưởng phòng và bàn giao cả lô sang
+một lead mới cùng lúc — luật sư vẫn dùng nút "Bàn giao" từng vụ trên `ViewMatter` như trước (không
+thấy trang này).
+
+- `App\Actions\Matter\ReassignMatters` — vòng lặp gọi `ReassignMatter::handle()` cho TỪNG vụ (mỗi
+  vụ tự mở/đóng transaction riêng của chính nó, KHÔNG có transaction ngoài bọc cả vòng lặp — một
+  vụ lỗi không rollback các vụ đã xong trước đó). Bắt riêng bốn họ lỗi
+  (`AuthorizationException`, `ValidationException`, `DomainException`, `ModelNotFoundException`)
+  thành một dòng `App\Actions\Matter\BulkReassignMatterResult` tiếng Việt cho từng vụ — không phá
+  vỡ vòng lặp. Vụ `restricted` LUÔN bị ép `keepOldLeadAsAssociate = false`, bất kể công tắc "giữ
+  lại" của cả lô (cùng luật nút một vụ). Sau vòng lặp, gộp `movedDeadlineIds`/`movedRequestIds` của
+  MỌI vụ THÀNH CÔNG theo `matter_id` rồi dispatch ĐÚNG MỘT `SendReassignmentDigest` (hạ tầng Task
+  1), `->afterCommit()` — không vụ nào thành công thì không dispatch gì.
+  - `BulkReassignMatterResult::$matterCode`/`$matterTitle` là `null` khi và chỉ khi actor không
+    qua được `manageTeam` trên vụ đó (`AuthorizationException`) — actor không hợp lệ để THẤY vụ
+    việc thì không được biết mã/tiêu đề của nó, kể cả trong một dòng kết quả thất bại.
+- `App\Filament\Admin\Pages\BulkReassign` (tiêu đề "Bàn giao hàng loạt") — `canAccess()` hỏi
+  `Gate::define('bulkReassign')` mới (`AppServiceProvider::boot()`, admin hoặc trưởng phòng; không
+  phải quyền thứ 14 trong `App\Enums\Permission`, xem docblock nơi khai báo), hỏi lại ở CẢ
+  `mount()` LẪN hành động thật `reassignSelected()` (`abort_unless(..., 404)` độc lập, cùng gotcha
+  Livewire "middleware 404 của panel không phủ được request cập nhật Livewire" đã ghi từ
+  `SubmitDocument`/`MyRequests`). Luồng bốn bước: chọn luật sư đang phụ trách → danh sách vụ đang
+  mở CHỈ những vụ actor `manageTeam` được (vụ `restricted` không bao giờ vào tới mảng trả về cho
+  một trưởng phòng không phải admin/lead — không phải ẩn UI, mà là chưa từng được tính) → chọn
+  nhiều vụ + lead mới (hỏi lại `newLeadOptions()` lúc submit, không chỉ tin Select) + lý do (bắt
+  buộc, `maxLength(5000)`) + công tắc "giữ lead cũ" → bấm. Tham số `?from=<user_id>` mở sẵn với một
+  luật sư (R6). Mọi phương thức trả danh sách/tuỳ chọn là `private`/`protected` (gotcha Livewire
+  M6.5 Task 3). `matter_ids` KHÔNG được lọc lại theo `matterOptions()` trước khi gọi Action — việc
+  hỏi lại `manageTeam` cho TỪNG vụ là việc của Action.
+  - **Cắn thật, đã sửa:** `CheckboxList` mặc định tự suy luật validate `in:` từ CHÍNH
+    `options()` đã render — một id KHÔNG còn trong `matterOptions()` LÚC SUBMIT (vụ vừa bị bàn
+    giao ở tab khác, hoặc một vụ `restricted` bị ép vào payload) bị Livewire chặn NGAY Ở TẦNG
+    VALIDATE-FORM (lỗi "đã chọn không hợp lệ"), chặn CẢ LÔ và không bao giờ chạm tới
+    `ReassignMatters` — đúng thứ docblock lớp cấm ("không được lọc theo matterOptions() trước
+    khi gọi Action"), chỉ là Filament tự làm việc đó thay vì trang. Sửa bằng `->in(fn(): array
+    => Matter::query()->pluck('id')->all())` trên `CheckboxList::make('matter_ids')` — luật
+    "in:" chỉ còn giữ vai trò vệ sinh cơ bản (một id phải là một vụ việc còn tồn tại), quyết định
+    AI được bàn giao VỤ NÀO vẫn hoàn toàn thuộc `manageTeam` bên trong Action.
+  - **Báo cáo kết quả từng vụ** sau khi bấm (thành công/thất bại, lý do tiếng Việt thật), với mỗi
+    vụ THÀNH CÔNG đã công bố portal (`is_published_to_portal`) một dòng gợi ý soạn cập nhật giới
+    thiệu luật sư mới (chỉ gợi ý, có liên kết tới trang vụ, không tự soạn/gửi — SPEC §6.11 bước
+    4). `$results` là mảng THUẦN (không phải đối tượng `BulkReassignMatterResult`) vì Livewire
+    không serialize được một `final readonly class` không có synth đăng ký sẵn.
+- R6: `EditUser::attachBulkReassignLink()` thêm một action-button "Mở màn hình Bàn giao hàng loạt"
+  vào ĐÚNG thông báo mà `authorizationNotification()`/`unauthorizedNotification()` của
+  `DeleteAction` tự dựng khi `UserPolicy::delete()` từ chối (tiêu đề = nguyên văn lý do policy,
+  KHÔNG đổi); và một `Notification` RIÊNG (chuỗi lỗi form không mang được URL) khi tắt `is_active`
+  bị chặn. Cả hai chỉ thêm liên kết khi người bị chặn CÒN dẫn ít nhất một vụ mở
+  (`BulkReassign::offboardingLinkAction()`, đọc qua `OpenWork`) VÀ actor hiện tại
+  `BulkReassign::canAccess()` được — `null` (không thêm gì) trong hai trường hợp còn lại.
+- Chuỗi mới: `lang/vi/reassign.php` khối `bulk` (M7 Task 2); `lang/vi/users.php` khoá
+  `offboarding.bulk_reassign_notice` (thêm cuối khối `offboarding`, chú thích `// M7 Task 2`).
+- Test: `tests/Feature/Actions/Matter/ReassignMattersTest.php` (7 test tầng Action — vòng lặp
+  không rollback chéo, id thiếu không vỡ vòng lặp, redact mã/tiêu đề khi `AuthorizationException`,
+  ép gỡ lead cũ trên vụ `restricted`, một thư duy nhất chỉ liệt vụ thành công, không thư khi mọi vụ
+  thất bại); `tests/Feature/Filament/BulkReassignTest.php` (11 test màn hình — 404 cho luật
+  sư/trợ lý/kế toán kể cả bypass route, che vụ `restricted` khỏi trưởng phòng, từ chối payload ép
+  vụ `restricted` không lộ mã/tiêu đề, một vụ thất bại không chặn các vụ khác, gợi ý giới thiệu chỉ
+  cho vụ đã công bố — đếm đúng 1 lần, `?from=` mở sẵn, mutation probe cho `->in()`);
+  `tests/Feature/Filament/UserResourceTest.php` (+3 test cho R6: liên kết ở thông báo chặn xoá,
+  thông báo riêng ở đường tắt `is_active`, không liên kết nào khi người bị chặn không dẫn vụ mở —
+  cả ba có mutation probe bằng tay, xác nhận đỏ khi bỏ dòng gắn liên kết rồi khôi phục).
+- Không việc nào bị hoãn tiếp ở task này. Toàn bộ 59 test của ba tệp trên xanh trên SQLite và trên
+  MariaDB (chạy tuần tự từng tệp); full suite `/d/vkwt/m7-dev test --parallel --processes=4`:
+  **2258 passed / 5 skipped / 0 failed** (9665 assertions, 452.91s — so với baseline 2216/5/0);
+  `pint --test` sạch (551 tệp).
+
+**Fix round 1** (review needs_fixes: 1 critical/3 important/8 minor — bốn phát hiện sửa ở đây,
+theo đúng thứ tự findings 1–4 của review):
+- **Finding 1 (Critical — id trôi lead/đã đóng không bị chặn dưới khoá).** `ReassignMatters`
+  không hề so `matter_ids` với "luật sư đang phụ trách" đã chọn ở đầu trang, cũng không hỏi
+  `closed_at`; `ReassignMatter::handle()` chỉ hỏi `manageTeam` và tự tra `lead_lawyer_id` DƯỚI
+  KHOÁ làm "lead cũ", không so nó với người actor NGHĨ đang phụ trách. Một vụ bị một tab khác bàn
+  giao sang lead THỨ BA (khác lead mới N của lượt hàng loạt này) bị bàn giao LẦN NỮA, đè mất bàn
+  giao của tab kia, báo "Đã bàn giao thành công."; cùng lỗ hổng cho một id giả của vụ thuộc lead
+  khác, hoặc một vụ đã đóng. Sửa: `ReassignMatter::handle()` nhận thêm `?int $expectedLeadId`
+  (mặc định `null`, không đổi nút một vụ của `ViewMatter`); `ReassignMatters::handle()` nhận
+  `int $expectedLeadId` (KHÔNG có mặc định — luôn là "luật sư đang phụ trách" đã chọn trên
+  `BulkReassign`) và truyền xuống MỖI lời gọi. Dưới khoá, ngay sau khi hỏi lại `manageTeam`: khác
+  lead hoặc `closed_at` khác `null` thì `ValidationException` tiếng Việt mới
+  (`reassign.validation.stale_or_closed`). Test: 3 test Livewire mới ở
+  `BulkReassignTest.php` (lead thứ ba, id giả của lead khác, vụ đã đóng — mỗi test mutation-probe
+  bằng tay: bỏ điều kiện, xác nhận đỏ, khôi phục); cập nhật docblock của test cũ "keeps a matter
+  that already succeeded..." (bản trước đỏ đúng nhờ "same_lead" — một sự trùng hợp findings đã chỉ
+  ra, giờ đỏ đúng lý do `stale_or_closed`).
+- **Finding 2 (Important — `currentLeadOptions()` lộ tên lead của vụ `restricted`).** Ô "Luật sư
+  đang phụ trách" liệt kê MỌI lead của vụ đang mở, không lọc `manageTeam` như `matterOptions()` —
+  một trưởng phòng không quản lý được một vụ `restricted` vẫn thấy TÊN lead của vụ đó, một kênh rò
+  rỉ mới (trang quản lý nhân sự vốn chỉ admin xem được). Sửa: lọc bằng CÙNG
+  `Gate::allows('manageTeam', ...)` mà `matterOptions()` dùng, trước khi rút `lead_lawyer_id`.
+  Test Livewire mới: một trưởng phòng không thấy tên một lead chỉ dẫn vụ `restricted`, admin vẫn
+  thấy (mutation probe: bỏ `->filter(...)`, xác nhận đỏ, khôi phục).
+- **Finding 3 (Important — một exception lạ giữa lô làm mất digest của các vụ đã commit).** Chỉ
+  bốn họ lỗi được bắt; một `QueryException` (lock-wait/deadlock) hay bất kỳ `Throwable` nào khác
+  thoát thẳng khỏi `ReassignMatters::handle()`, và dispatch digest (đứng SAU vòng lặp) không bao
+  giờ chạy — các vụ ĐÃ commit trước đó không bao giờ được báo cho lead mới. Sửa: thêm
+  `catch (Throwable)` cuối cùng (cùng lưới an toàn `UsersTable`'s `DeleteBulkAction::using()`) —
+  `report()` rồi ghi một dòng thất bại chung chung (`reassign.bulk.results.unexpected_error`),
+  KHÔNG ném tiếp; và bọc dispatch trong `finally` quanh TOÀN BỘ vòng lặp (không chỉ SAU nó) làm
+  lưới thứ hai phòng xa (đính chính fix round 2: câu `Matter::query()->find($matterId)` NẰM TRONG
+  `try` của từng vụ, không ngoài nó như bản này từng ghi; `finally` không có test riêng). Test mới ở `ReassignMattersTest.php`: một
+  `ReassignMatter` giả (`ThrowsUnlistedExceptionOnSecondCall`, cùng thành ngữ
+  `ThrowingOnMarkSentLedger`) ném `RuntimeException` ở vụ thứ hai — xác nhận vụ đầu vẫn có trong
+  digest đã dispatch VÀ `Exceptions::assertReported(RuntimeException::class)` (mutation probe: bỏ
+  `try{}finally{}` + `catch (Throwable)`, xác nhận đỏ — exception thoát thẳng khỏi `handle()`,
+  không job nào được dispatch — rồi khôi phục).
+- **Finding 4 (Minor — toast luôn xanh "Đã bàn giao vụ việc." kể cả khi cả lô thất bại).** Tiêu đề
+  cố định `reassign.action.success` (câu của nút MỘT vụ) + `->success()` bất kể kết quả thật. Sửa:
+  ba khoá mới `reassign.bulk.notification_titles.{success,partial,failure}`, chọn tiêu đề VÀ màu
+  (`success`/`warning`/`danger`) theo `$successCount`/`$failureCount`. Test Livewire mới: cả lô
+  thất bại (id giả vụ `restricted`) → `assertNotified('...notification_titles.failure')` +
+  `Notification::assertNotNotified('reassign.action.success')` (mutation probe: khôi phục bản cứ
+  định cũ, xác nhận đỏ, khôi phục lại bản sửa).
+- Test mới: 3 (Livewire, finding 1) + 1 (Livewire, finding 2) + 1 (Action, finding 3) + 1
+  (Livewire, finding 4) = 6 test mới, cộng cập nhật 7 lời gọi `ReassignMatters::handle()` hiện có
+  (`ReassignMattersTest.php`) để truyền `expectedLeadId`. `pint --test` sạch (551 tệp); full suite
+  `/d/vkwt/m7-dev test --parallel --processes=4` và `test:mariadb` (ba tệp đã đụng, tuần tự) — xem
+  báo cáo `.superpowers/sdd/m7/task-2-report.md`, mục "Fix round 1" cho số liệu đầy đủ.
+
+**Fix round 2** (review needs_fixes 0 critical/2 important/10 minor — hai phát hiện Important và các
+minor rẻ được sửa ở đây):
+- **I1 — test "ép id vụ restricted" rỗng.** Sau fix round 1 finding 2, `$oldLead` chỉ dẫn đúng vụ
+  `restricted` nên bị lọc khỏi ô "Luật sư đang phụ trách" của trưởng phòng; form tự chặn
+  `data.lead_lawyer_id` và test không bao giờ chạm tới `ReassignMatters`. Sửa: `$oldLead` còn dẫn
+  một vụ thường; test thêm `assertHasNoErrors()` và đọc `results[0]` (mã/tiêu đề `null`). Probe: bỏ
+  vụ thường → đỏ.
+- **I2 — oracle tồn tại vụ `restricted`.** Luật `in:` của `CheckboxList` dựa trên `pluck('id')` làm
+  id đã xoá/không tồn tại thành lỗi form, còn id vụ `restricted` thật thành một dòng kết quả với
+  câu khác ("không có quyền") — đếm được số vụ `restricted`. Sửa: `in:` là dải `1..max(id, kể cả
+  xoá mềm)`; nhánh "không tìm thấy" và `AuthorizationException` dùng CHUNG một câu
+  `reassign.bulk.results.unavailable` (bỏ `not_found`/`unauthorized`). Test mới "gives the identical
+  response to a forged nonexistent matter id and a forged restricted matter id". Probe: khôi phục
+  `pluck('id')` → đỏ; tách lại hai câu → đỏ. Giới hạn còn lại đã biết: id LỚN HƠN mọi id từng cấp
+  vẫn là lỗi form (chỉ lộ "id lớn nhất", không lộ vụ `restricted` nào).
+- Minor đã sửa: nhánh `Throwable` không còn gắn mã/tiêu đề (lỗi có thể nổ trước `manageTeam`; probe
+  → đỏ); docblock sai "find() nằm ngoài try" đã đính chính (ở lớp và ở mục fix round 1), và nêu
+  thẳng `finally` không có probe riêng (đã chạy: bỏ riêng `finally` thì test vẫn xanh); bỏ khoá
+  `reassign.bulk.fields.no_matters` không dùng; thêm test đường HTTP/`?from=` thật của liên kết R6
+  (probe: bỏ `request()->query('from')` → đỏ).
+- Minor để lại (không đụng luật nghiệp vụ, ghi cho reviewer): không chọn-tất-cả; không `wire:loading`
+  trên nút gửi; công tắc "giữ luật sư cũ" mặc định bật cả với liên kết từ màn hình nghỉ việc; liên
+  kết R6 chưa gắn ở nhánh hạ vai trò/xoá hàng loạt (cố ý — xem ghi chú Task 2 ở trên).
+
+### Task 3 — Lưu trữ khi vụ việc kết thúc (sự kiện `MatterStageChanged`, `SyncMatterArchive`)
+
+Bảng `matter_archives` đã có từ M1; task này dựng vòng đời của nó trên `matters.closed_at` (M6.5 R8).
+
+- **Sự kiện + listener + Action.** `App\Events\MatterStageChanged` (`ShouldDispatchAfterCommit`, mang
+  `StageLog`) phát ở `TransitionMatterStage` CHỈ khi giai đoạn thật sự đổi, độc lập với việc công bố
+  ra portal. Hình dạng khớp kế hoạch M9 (M9 thêm listener của nó vào đúng sự kiện này). Trùng tên
+  ngắn với `App\Exceptions\MatterStageChanged` nên `TransitionMatterStage` import sự kiện bằng bí danh
+  `MatterStageChangedEvent`. Listener `SyncMatterArchiveOnStageChange` chỉ gọi
+  `App\Actions\Matter\SyncMatterArchive::handle(int $matterId, ?User $actor)`.
+- **Chạy đồng bộ, không xếp hàng (đã chọn, lý do ở docblock listener).** Một archive sai là lỗ hổng
+  âm thầm (`client_access_until` quyết ngày khách mất quyền xem), nên lỗi phải hiện cho người bấm
+  "Chuyển giai đoạn" thay vì nằm trong `failed_jobs`. Vì sự kiện là after-commit, `StageLog` đã commit
+  trước khi listener chạy — lỗi archive không làm mất lần chuyển giai đoạn, và Action idempotent nên
+  lần chuyển giai đoạn kế tiếp tự đồng bộ lại.
+- **`SyncMatterArchive`.** Khoá `matters` trước, rồi `matter_archives`; đọc `closed_at` DƯỚI khoá
+  (không tin sự kiện). `closed_at` khác null: tạo/cập nhật (`archived_at = now()`, `archived_by`,
+  `client_access_until = closed_at + config('vkcrm.client_access_days')`,
+  `retention_until = closed_at + config('vkcrm.retention_years')`, không số cứng). `closed_at` null
+  (admin mở lại): CHỈ `client_access_until = null`, giữ nguyên dòng, không xoá mềm (unique
+  `matter_id` trên MariaDB tính cả dòng xoá mềm); nếu gặp dòng đã xoá mềm thì khôi phục. Không đụng
+  `destroyed_at`/cột tiêu huỷ/`handover_document_id`. Nhận `int $matterId` vì `ClientPortalScope` có
+  thể làm quan hệ `$stageLog->matter` trả `null` khi một nhân sự mở cả hai panel.
+- **Migration** `2026_09_28_070001_add_lifecycle_columns_to_matter_archives_table`:
+  `handover_document_id` (FK `documents`, `nullOnDelete`), `destruction_reason` (text),
+  `destruction_record_no` (**string(50)** — form Task 6 dùng `maxLength(50)`), `destroyed_by` (FK
+  `users`, `nullOnDelete`). `handover_package_path` giữ cột nhưng bỏ khỏi `$fillable`. Đính chính SPEC
+  §4.19. Vòng MariaDB thật (seed → `migrate:reset` → `migrate`) sạch, `down()` chạy được.
+- **Danh mục hồ sơ của vụ đã đóng là chỉ đọc, chặn ở Action** (việc M6.5 Task 15 hoãn sang đây):
+  `AddChecklistItem`, `ReviewChecklistItem`, `MarkChecklistItemNotApplicable` (qua
+  `OpensChecklistItem`) ném `MatterChecklistReadOnly` khi `closed_at` khác null, kiểm dưới khoá
+  `matters`, SAU Gate (không thành máy dò "vụ đã đóng chưa"). Ba nút của `ChecklistRelationManager`
+  ẩn trên vụ đã đóng. `OpensChecklistItem` đổi sang thứ tự khoá `matters` trước, đầu mục sau (đọc
+  không khoá để lấy `matter_id`, khoá `matters`, rồi khoá đầu mục); `SubmitClientDocument` cũng khoá
+  `matters` ở đầu transaction.
+- **Khách nộp tài liệu vào vụ đã đóng** (`SubmitClientDocument`) bị từ chối bằng
+  `MatterClosedForSubmission` — một `DomainException` riêng, KHÔNG `AuthorizationException` (trang
+  portal đổi mọi `AuthorizationException` thành 404 trống, còn khách cần đọc câu mời gọi hotline).
+  Hai lần kiểm: một lần rẻ trước khi quét virus (test đếm số lượt quét = 0), một lần dưới khoá
+  trong transaction (test "vụ bị đóng trong lúc quét virus").
+- **Đổi `is_terminal` khi giai đoạn đang có vụ.** Không dựng cơ chế đồng bộ thứ hai: M6.5 final fix
+  wave X9 đã CHẶN đổi cờ khi giai đoạn còn vụ đứng đó (`MatterTypeStage::booted()` →
+  `StageTerminalFlagInUse`). Lý do chọn chặn thay vì đồng bộ: một đồng bộ hàng loạt `closed_at` +
+  archive trong một lần lưu cấu hình sẽ đóng/mở hàng chục vụ mà không ai bấm "Chuyển giai đoạn" (không
+  StageLog, không người chịu trách nhiệm); giá nếu sai (ruling M6.5): admin phải chuyển các vụ đi trước khi
+  đổi cờ. Hệ quả cho task này: archive không cần đường đồng bộ theo
+  cờ, vì cờ không đổi được khi còn vụ.
+- **Seeder** (`MatterSeeder::closedMatter()`, chỉ phần demo): vụ `99/2026/TLST-DS` đã kết thúc, dựng
+  `closed_at` trực tiếp rồi gọi `SyncMatterArchive` (không viết tay cột archive); bảy tài liệu THẬT
+  trên đĩa `private`: nhóm A (khách nộp), B `signed_filed` + B `published` trùng tiêu đề, B còn
+  `internal_draft`, B đã xoá mềm, C với tiêu đề chứa `../`, D. Chọn client `get(5)` và lead
+  `$lawyers->last()` để không đổi số ghim của luatsu1/khach1. Test seeder và
+  `DemoDataAuthorizationTest` cập nhật (21 → 22 vụ, kế toán 20 → 21).
+- **Quyết định cho chủ văn phòng (chưa quyết): vụ bị huỷ vì mở nhầm.** `CancelMatter` (xoá mềm) không
+  bao giờ có bản ghi archive nên không có `retention_until`; dữ liệu cá nhân trong vụ đó cần một hạn
+  xoá. Cần chủ văn phòng quyết cùng chính sách lưu trữ của M10.
+- **Không có test/probe cho:** khoá thật `lockForUpdate()` (SQLite không sinh khoá), so khớp
+  `matter_id` giữa hai lần đọc đầu mục ở `OpensChecklistItem` (nhánh phòng thủ, cột bất biến).
+- Test: `tests/Feature/Actions/Matter/SyncMatterArchiveTest.php` (14),
+  `TransitionMatterStageTest` (+6), `TransitionStageActionTest` (+3, Livewire: đóng/mở lại/đóng lại
+  qua form thật), các test Action + Livewire của danh mục/nộp portal, `DemoDataSeederTest` (+4).
+
+### Task 4 — `GenerateHandoverPackage` (SPEC §6.12, R1, R3, R8, R9)
+
+Job sinh gói bàn giao trên hàng đợi RIÊNG, dựng zip + `MUC-LUC.pdf`, lưu thành một `Document`.
+
+- **Cấu trúc.** Nghiệp vụ nằm trong Action, job chỉ gọi Action:
+  - `RequestHandoverPackage` — cửa DUY NHẤT xếp hàng (tự động khi vụ đóng, đúng MỘT lần, chỉ khi
+    `handover_status` còn NULL; thủ công qua nút, cần `MatterArchivePolicy::generateHandover` =
+    `document.publish` + xem được vụ). Khoá `matters` trước `matter_archives`; đặt `generating`, ghi
+    dấu yêu cầu (`handover_requested_at`) rồi `GenerateHandoverPackage::dispatch()->afterCommit()`.
+    Một lần `generating` cũ hơn 60 phút được coi là kẹt (worker chết không gọi `failed()`) và cho
+    yêu cầu lại; nút bị khoá khi đang chạy và chưa kẹt.
+  - `CollectHandoverEntries` (R8 — chọn tài liệu và đặt tên entry), `RenderHandoverIndex` (R3 — PDF
+    bằng dompdf), `BuildHandoverPackage` (dựng trong thư mục tạm, kiểm zip đọc lại được với đúng số
+    entry, rồi MỘT transaction tạo `Document` + gắn tệp + cập nhật lưu trữ + audit — xem "Khoá
+    trong lúc chép gói" dưới đây: transaction này không ngắn với gói lớn),
+    `RecordHandoverPackageFailure` (lỗi thất bại hẳn), job `SendHandoverPackageReady` (báo kết quả).
+  - Tự sinh nối vào `SyncMatterArchiveOnStageChange` (sau khi bản ghi lưu trữ đã đồng bộ). Lỗi xếp
+    hàng ở bước này được `report()` rồi nuốt: một lần đóng vụ đã commit không hiện ra như thất bại
+    vì hàng đợi trục trặc; luật sư vẫn bấm nút thủ công được.
+- **Hàng đợi (R9).** Kết nối `handover` MỚI trong `config/queue.php` (driver LUÔN `database`,
+  không theo `QUEUE_CONNECTION`; `retry_after` 900 giây > `$timeout` 600 giây của job — kết nối
+  `database` chung chỉ 90 giây, một gói lâu hơn sẽ bị nhặt lại và chạy song song). Mục lịch riêng
+  `queue.handover` (`queue:work handover --queue=handover --stop-when-empty --max-time=50
+  --timeout=600`, mỗi phút, `withoutOverlapping(15)`, `runInBackground()`) ở cuối `routes/console.php`;
+  `queue.drain` không đổi. Chạy NỀN vì `schedule:run` chạy các mục của một phút lần lượt: một gói
+  600 giây ở tiền cảnh sẽ bắt mọi mục đăng ký SAU nó (các tác vụ hằng ngày của Task 5/6, thêm vào
+  cuối tệp) đứng chờ; khoá `withoutOverlapping` vẫn giữ tới khi lệnh nền xong. Job: `$timeout`
+  600, `$tries` 2, `$failOnTimeout` true, backoff 120 giây; lỗi CÓ TÊN (`HandoverPackageFailed`:
+  thiếu tệp, không nén được, không dựng được mục lục, và từ vòng sửa 1: thư mục tạm không ghi được,
+  gói vượt trần một tệp của kho, kho không lưu được gói) là tất định hoặc cần người sửa trước nên
+  ghi thất bại ngay, không thử lại, với câu chỉ người vận hành phải làm gì. Test ghim `retry_after > $timeout`, khoá hết hạn 15 phút, tên/tần
+  suất mục lịch, và việc kết nối không đổi theo `QUEUE_CONNECTION`.
+- **Dấu của lần yêu cầu.** Job mang `handover_requested_at` (giây UNIX); cả lúc dựng lẫn lúc ghi lỗi
+  chỉ ghi khi dấu còn khớp dòng lưu trữ và trạng thái còn `generating` — job cũ nhặt lại muộn không
+  đè kết quả của lần yêu cầu mới hơn.
+- **Thư mục tạm khi tiến trình bị GIẾT.** Hết `$timeout` thì worker gọi `failed()` rồi tự giết tiến
+  trình (`Worker::registerTimeoutHandler`); hết bộ nhớ hay bị máy chủ cắt thì không gì chạy cả — cả
+  hai đều không tới `finally` của lần dựng, và zip dở (vài trăm MB, trên đĩa có hạn mức) sẽ nằm lại.
+  Vì vậy thư mục tạm có tên CỐ ĐỊNH theo lần yêu cầu, `<work_dir>/<id vụ>-<dấu yêu cầu>`
+  (`BuildHandoverPackage::workDirectory()`): lần chạy lại của cùng job dùng lại rồi xoá nó (kể cả khi
+  nó thoát sớm vì yêu cầu đã bị thay), và `RecordHandoverPackageFailure` xoá nó khi job thất bại hẳn
+  (hết giờ, hoặc hết lượt thử sau `retry_after` với một tiến trình chết). Còn một khe: dòng job bị xoá
+  tay khỏi bảng `jobs` thì không ai dọn — thư mục vẫn nằm dưới `HANDOVER_WORK_DIR`, tìm theo tên.
+  Lưu ý vận hành: `--timeout` của worker chỉ có hiệu lực khi PHP có `ext-pcntl`; không có nó, một job
+  quá giờ chạy tiếp, và sau 900 giây (`retry_after`, cũng là hết khoá 15 phút) một worker khác có
+  thể nhặt lại cùng job — ghi vào danh sách extension của M8 Task 7.
+- **Gói là `Document` (R1).** Nhóm B, `signed_filed`, hai cờ khách tắt, đĩa `private`; sinh lại =
+  version mới của cùng tài liệu, chỉ tệp version mới nhất được giữ (dòng `documents` và
+  `document_downloads` của version cũ giữ nguyên). **Quyết định của task:** nếu version cũ đang mở
+  cho khách thì bị gỡ khỏi cổng khách (`signed_filed`, hai cờ tắt) cùng lúc tệp bị xoá — nếu không,
+  khách bấm một liên kết tải trỏ vào tệp đã xoá. Gói mới phải được công bố lại qua `PublishDocument`.
+- **Nội dung gói (R8), đối chiếu mã.** A: mọi tệp của version mới nhất của đầu mục `accepted` (đầu
+  mục chưa duyệt/bị từ chối/không áp dụng/đã xoá → không có gì); **quyết định của task:** tài liệu
+  nhóm A nhân sự nộp thay KHÔNG gắn đầu mục nào cũng vào gói (không có luồng duyệt để "chưa chấp
+  nhận"). Danh sách TRẮNG trạng thái `signed_filed`/`published` áp cho MỌI nhóm vào gói (A, B, C) —
+  một trạng thái mới thêm sau (Task 7 "đã rút") tự nằm ngoài gói ở mọi nhóm cho tới khi có người cố
+  ý thêm. Với nhóm A, luật này không bớt gì của đường thường (A luôn `published`), nhưng bắt một tài
+  liệu ĐỔI NHÓM sang A: `RegroupDocument` chỉ đổi `group`, giữ `status`, nên một bản D → A vẫn
+  `internal_draft` — khách chưa từng được thấy nó, và nó không vào gói. Version mới nhất của đầu mục
+  tính trên mọi version rồi mới lọc: version mới nhất chưa phát hành/bị rút thì đầu mục không có gì
+  trong gói, không lùi về bản đã bị thay. **Cho Task 7:** chỉ cần thêm case `retracted` vào enum,
+  `CollectHandoverEntries::RELEASED_STATUSES` đã loại nó. Không bao giờ: D, đã xoá mềm,
+  chính gói ở mọi version (đi ngược `parent_document_id` từ `handover_document_id`), không có tệp.
+  Tên entry `<nhóm>/<NN>-<tên>.<đuôi>`, đuôi lấy từ tệp thật
+  (`CollectHandoverEntries::entryName()`, theo thứ tự): UTF-8 hợp lệ (`mb_scrub`), `/` và `\` đổi
+  thành `-` (tiêu đề văn bản pháp lý đầy `/`; `basename()` của `safeName` sẽ cắt còn "DS-ST"), NFC;
+  rồi `FileGuard::safeName(<tiêu đề>.<đuôi thật>)` — **không** `safeName(<tiêu đề>)`, vì
+  `safeName()` coi phần sau dấu chấm CUỐI là đuôi tệp và cắt nó còn 20 byte (vòng sửa 1: "… ngày
+  05.3.2026 với Toà án nhân dân quận Hải Châu" thành "… với Toà án", "Đơn. Yêu cầu bồi thường…"
+  bị cắt giữa chữ "ư" thành "?"); bỏ lại đuôi; cắt 100 ký tự; ký tự Windows cấm đổi thành `-` SAU
+  mọi bước cắt.
+- **Trần một tệp của kho, `MEDIA_MAX_FILE_SIZE_MB` (vòng sửa 1).** `config/media-library.php`
+  giữ mặc định 10 MB của gói medialibrary, nên không gói bàn giao nào quá 10 MB lưu được (job thử
+  lại, hỏng y hệt, rồi ghi "lỗi hệ thống"), và tệp tải lên 10–20 MB qua `FileGuard`
+  (`UPLOAD_MAX_MB`) rồi hỏng ở medialibrary. Nay `max_file_size` = `MEDIA_MAX_FILE_SIZE_MB` (mặc
+  định 2048; trống/không hợp lệ → 2048; không bao giờ thấp hơn `UPLOAD_MAX_MB`, để `FileGuard` là
+  cổng tải lên duy nhất). Gói vượt trần → lỗi có tên `too_large` chỉ đúng biến này; đĩa từ chối
+  ghi → `store_failed`; thư mục tạm không ghi được → `work_dir_failed`; cả ba không thử lại.
+  **Cho làn M8b (Task 7, triển khai):** thêm `MEDIA_MAX_FILE_SIZE_MB` vào `.env` của máy chủ (đã
+  có ở `.env.example`).
+- **Khoá trong lúc chép gói.** Medialibrary không đổi tên zip vào đĩa `private` mà CHÉP nó
+  (`fopen()` + `put()` cả luồng, rồi xoá nguồn), kể cả khi cùng ổ; việc chép nằm trong transaction
+  giữ khoá dòng `matters` (rồi `matter_archives`) của đúng vụ đó. Một thao tác khác khoá vụ đó
+  (chuyển giai đoạn; ghi tiền sau khi M9 merge) chờ tối đa bằng thời gian chép gói lớn nhất (trần
+  cỡ gói chia tốc độ ghi đĩa); quá `innodb_lock_wait_timeout` (50 giây) thì thao tác ĐANG CHỜ hỏng,
+  gói vẫn xong. Đưa việc chép ra ngoài khoá thì mất bảo đảm "không tệp mồ côi" — giới hạn được ghi
+  lại, chưa gỡ (rà soát Task 4, m1).
+- **MUC-LUC.pdf (R3).** dompdf qua `barryvdh/laravel-dompdf` 3.1.2 (gói mới DUY NHẤT, kèm dompdf
+  3.1.6, php-font-lib, php-svg-lib, sabberworm/php-css-parser). Font DejaVu Sans đi kèm dompdf,
+  nhúng nguyên (cắt font tốn ~2,5 giây CPU mỗi lần dựng, đo trong container); cache font ở
+  `storage/app/dompdf-fonts` (ngoài git). Thư mục tạm dựng gói cấu hình được (`HANDOVER_WORK_DIR`,
+  mặc định `storage/app/handover-tmp`) để trỏ tới ổ rộng hơn trên shared hosting. Nội dung: thông tin vụ, danh sách đánh số khớp entry,
+  toàn bộ dòng tiến độ ĐÃ CÔNG BỐ với đúng các trường cổng khách hiện (giai đoạn, ngày, nội dung
+  công khai, bước tiếp theo, việc khách cần làm), chân trang bốn thông tin pháp lý qua
+  `BrandFooter` (bỏ hẳn dòng trống). Truy vấn dòng tiến độ chọn cột TƯỜNG MINH — `internal_note`
+  không được nạp vào bộ nhớ (test bắt SQL). Test trích chữ từ PDF bằng một bộ trích nhỏ phía test
+  (`tests/Support/PdfText.php`: giải nén FlateDecode, đọc CMap ToUnicode, giải mã `Tj`/`TJ`) — không
+  thêm gói thứ hai. **Cho M9 Task 10 (bảng kê thanh toán trong MUC-LUC.pdf):** mỗi khối của PDF là
+  một partial trong `resources/views/handover/partials/` (`matter-info`, `documents`, `timeline`,
+  `footer`); thêm một khối = một partial dùng lại CSS chung của `handover/index.blade.php` + một
+  `@include` + một khoá dữ liệu mới trong `RenderHandoverIndex::handle()`. Bảng kê tiền của một vụ
+  `restricted` chỉ đi vào gói của chính vụ đó, và gói chỉ tới tay khách qua `PublishDocument`.
+- **Audit `data_exported`.** Khi gói sinh xong (subject = tài liệu gói) và mỗi lần tải gói ở
+  `DocumentDownloadController::recordDownload()` (nhận biết qua `MatterArchive::isHandoverDocument()`,
+  bất kỳ version nào), THÊM vào `document_downloaded`, không thay. Thêm nhãn `handover_package_requested`
+  và `handover_package_failed` vào `lang/vi/activity.php`.
+- **Báo kết quả.** Xong: `SendHandoverPackageReady` (hàng `default`, sau commit) → thông báo trong hệ
+  thống + MỘT thư xếp hàng (`Mail::queue`, mẫu mới `staff.handover_ready`) cho mỗi người nhận;
+  người nhận = luật sư phụ trách và người bấm qua `ResolveStaffRecipients`, tính lại lúc gửi. Thất
+  bại hẳn: `handover_status = failed` + câu tiếng Việt (KHÔNG thông điệp thô của exception lạ — chỉ ở
+  log máy chủ), audit, thông báo trong hệ thống.
+- **UI.** Khối "Gói bàn giao hồ sơ" ở tab Tổng quan (trạng thái, lúc bấm, người bấm hoặc "Tự động khi
+  vụ kết thúc", lúc xong, tài liệu + phiên bản, câu lỗi, lời nhắc khi kẹt) và header action "Sinh
+  (lại) gói bàn giao" trên `ViewMatter`. Test qua Livewire. Nút chỉ hiện khi vụ ĐANG kết thúc
+  (`closed_at` có giá trị): bản ghi lưu trữ còn nguyên khi admin mở lại vụ, và nút ở đó chỉ dẫn tới
+  lỗi "chưa kết thúc" — khối trạng thái gói cũ vẫn hiện. Người bấm đã bị xoá mềm thì cột "Người
+  yêu cầu" là "—", không phải "Tự động" ("Tự động" chỉ khi `handover_requested_by` NULL). Chống bấm
+  trùng có HAI lớp: nút `disabled` khi đang chạy, và `RequestHandoverPackage` kiểm lại dưới khoá
+  (`HandoverPackageBusy`); test Livewire "trang mở từ trước khi người khác bấm" chỉ đỏ khi bỏ CẢ
+  hai (bỏ một lớp thì lớp kia giữ — lớp Action có probe riêng ở `RequestHandoverPackageTest`).
+- **Dữ liệu mẫu (cho Task 11).** `MatterSeeder::closedMatter()` (Task 3) đóng vụ bằng cách ghi thẳng
+  `closed_at` rồi gọi `SyncMatterArchive`, không qua `TransitionMatterStage` — nên listener không chạy
+  và seed KHÔNG xếp job gói nào: vụ mẫu đã kết thúc hiện "Chưa sinh" kèm nút "Sinh gói bàn giao".
+  Sinh gói thật từ seed: bấm nút (hoặc `RequestHandoverPackage`), rồi chạy `queue:work handover
+  --queue=handover --stop-when-empty` trên CSDL của làn.
+- **M9 (hook `deleting` từ chối xoá mềm vụ còn công nợ).** Task này không xoá hay lưu trữ vụ việc
+  nào: nó chỉ đọc vụ (kể cả `withTrashed()` để báo "vụ không còn") và ghi `matter_archives`/`documents`.
+  Không có đường nào ở đây cần đi qua hook đó.
+- **Thư `client.document_published` KHÔNG có trong làn này** (là của làn M6 Task 3, chưa có trên
+  base). Test chỉ khẳng định công bố gói đi qua đúng `PublishDocument` và phát `DocumentPublished`;
+  sau khi làn M6 merge, thư tự đi.
+- **Cho làn M8b (Task 5/7).** dompdf đòi `ext-dom` (và `ext-mbstring`); việc nén gói dùng
+  `ext-zip` (`ZipArchive`); `--timeout` của worker hàng `handover` cần `ext-pcntl` — cả bốn vào danh
+  sách extension của M8 Task 7. **Quyết định còn mở cho M8 Task 5:** tài liệu gói bàn giao (nhóm B, `signed_filed`) là BẢN SAO THỨ HAI của mọi tệp A/B/C, và
+  M8 sao lưu thêm một bản nữa — quyết có loại tài liệu gói khỏi sao lưu hay không (gói sinh lại được
+  từ dữ liệu gốc, nên loại nó là hợp lý; nhận biết qua `MatterArchive::handoverDocumentIds()`).
+  Hạn mức đĩa của shared hosting sẽ chạm trần ở vụ lớn nhất trước tiên.
+- **Không có probe/test cho:** `Gate::allows('view', $record->archive)` trong `visible()` của khối
+  (tương đương với quyền vào trang: `MatterArchivePolicy::view` = xem được vụ, cùng điều kiện vào
+  `ViewMatter`); hai `whereNotIn('id', $excluded)` của truy vấn nhóm A (gói luôn là nhóm B nên không
+  bao giờ nằm trong truy vấn A — phòng thủ); cờ `FL_ENC_UTF_8` bị bỏ thì libzip tự đoán ra UTF-8
+  với tên hợp lệ (probe thay bằng `FL_ENC_CP437` mới đỏ — cờ giữ lại để ghi rõ ý định).
+
+### Task 5 — `ExpireClientAccess` (R4, SPEC §6.12)
+
+Quá `client_access_until` thì vụ việc rời cổng khách ở cả hai tầng; một tác vụ hằng ngày vô hiệu
+hoá tài khoản cổng theo đúng điều kiện R4. Đính chính SPEC §6.12 ghi ngay dưới đoạn `ExpireClientAccess`.
+
+- **Định nghĩa hết hạn (một luật, hai cách nói).** Dòng `matter_archives` chưa xoá mềm, với
+  `client_access_until` khác null và < hôm nay theo giờ ứng dụng: khách xem được HẾT ngày
+  `client_access_until`, mất quyền từ 00:00 hôm sau. Nói bằng `where` ở
+  `MatterArchive::scopeClientAccessExpired()` (`whereDate`, vì cast `date` trên SQLite ghi cả phần
+  giờ) và bằng thuộc tính ở `MatterArchive::isClientAccessExpired()` (so chuỗi `Y-m-d`). Hai câu
+  không gọi nhau.
+- **Tầng truy vấn.** Điều kiện thứ năm của `Matter::applyClientPortalConstraints()`:
+  `whereDoesntHave('archive', … ->withoutGlobalScope(ClientPortalScope::class)->clientAccessExpired())`.
+  Gỡ `ClientPortalScope` trong truy vấn con là bắt buộc: `MatterArchive` chặn sạch (`1 = 0`) dưới
+  phiên khách, và không gỡ thì `whereDoesntHave` luôn đúng — test "tầng truy vấn một mình … dưới
+  phiên khách đang mở" đỏ khi bỏ nó. Mọi model con (tài liệu, dòng tiến độ, mốc hạn, đầu mục, yêu
+  cầu, biên bản đã xem) nhận điều kiện qua `whereHas('matter')` sẵn có — không sửa model con nào.
+- **Tầng policy.** Điều kiện thứ năm của `MatterPolicy::releasedToPortal()` (docblock "bốn" → "năm"
+  ở `view()` và `releasedToPortal()`), có đường trong bộ nhớ như nhánh `client`. **Quyết định của
+  task: quan hệ mới `Matter::clientAccessArchive()`** (gỡ `ClientPortalScope` ngay trong định nghĩa),
+  không nạp sẵn `archive`: `archive` nạp dưới phiên khách luôn là `null` (scope `1 = 0` của
+  `MatterArchive`), và đường trong bộ nhớ sẽ đọc `null` thành "không hết hạn" — thủng tầng policy
+  đúng ở hai màn hình dùng đường nhanh. `MyMatters::buildCards()` và `SubmitDocument::resolveMatter()`
+  nạp sẵn `clientAccessArchive`; ngân sách `MyMattersTest` đổi phần cố định 5 → 6 (độ dốc vẫn 2
+  truy vấn mỗi thẻ), `SubmitDocumentTest` không đổi (độ dốc ≤ 2 mỗi đầu mục). `MatterProgress`,
+  `MyRequests` không nạp sẵn (một truy vấn dự phòng cho mỗi lần hỏi `Gate` trên vụ — cùng giá của
+  nhánh `client` dự phòng ở đó).
+- **Không sửa dữ liệu vụ việc.** Không cột nào của `matters`/`matter_archives`/`documents` bị đổi
+  (test so ảnh chụp dòng trước/sau, cả khi chỉ qua ngày lẫn khi job chạy). Admin mở trang vụ như cũ;
+  luật sư phụ trách vẫn tải được tệp. URL tải có chữ ký phát lúc 23:58 ngày cuối, dùng lúc 00:01 hôm
+  sau (chữ ký còn hợp lệ) → 404 từ policy. Mở lại vụ (`client_access_until` về null qua
+  `TransitionMatterStage` thật) đưa vụ về lại cổng.
+- **Tác vụ `App\Actions\Schedule\ExpireClientAccess`.** Mục lịch `client-access.expire`, 00:30 giờ
+  Việt Nam hằng ngày, `withoutOverlapping(60)`, ở cuối `routes/console.php`, cộng một dòng `use` MỚI
+  ở đầu tệp (không sửa dòng nào có sẵn; Pint — `fully_qualified_strict_types` — không nhận tên lớp
+  đầy đủ ở đó; một làn khác thêm `use` ngay cạnh khi merge là xung đột hai dòng liền kề, gỡ tay
+  ngay). Việc của nó CHỈ là vô hiệu hoá tài khoản; vụ rời cổng nhờ hai tầng, đúng từ 00:00 ngày sau
+  `client_access_until` dù tác vụ chưa chạy — một đêm cron lỡ chỉ hoãn việc khoá tài khoản.
+  - Ai: mọi tài khoản đang hoạt động (chưa xoá mềm) của khách có ÍT NHẤT MỘT vụ (chưa xoá mềm) đã
+    hết hạn VÀ không còn vụ nào hiển thị trên cổng — vế 2 hỏi bằng chính định nghĩa cổng
+    (`ClientPortalScope::actingAs()` + `Matter::query()->exists()`). Khách mới có vụ đầu tiên chưa
+    công bố không bao giờ bị đụng. Một vụ đã hết hạn rồi bị xoá mềm không còn tính cho vế 1 (có
+    test ghim; khoá tài khoản không dựa trên một hồ sơ văn phòng đã rút lại).
+  - Lưu từng model (`save()`, `LogsActivity` ghi `is_active` cũ/mới) + một dòng
+    `portal_account_deactivated` (thuộc tính chỉ `reason`, không mã/tiêu đề vụ; người thực hiện
+    trống = "Hệ thống" khi chạy từ scheduler). Idempotent: tập ứng viên chỉ gồm khách còn tài khoản
+    đang hoạt động, nên lần chạy sau không mở transaction nào cho khách đã xử lý (test đếm
+    `TransactionBeginning`), và số transaction mỗi đêm không lớn dần theo năm tháng.
+  - Một khách một transaction: câu lệnh đầu tiên khoá mọi dòng `matters` của khách (thứ tự khoá toàn
+    cục), rồi ĐỌC LẠI cả hai vế dưới khoá (test: một vụ vừa công bố / vừa mở lại giữa lúc tác vụ xử
+    lý khách khác giữ tài khoản của khách đó). Lỗi ở một khách: `report()`, rollback trọn khách đó,
+    các khách sau vẫn chạy (`['deactivated' => n, 'failed' => m]`). Không thư nào.
+  - Mọi truy vấn của tác vụ gỡ `ClientPortalScope` tường minh (test chạy tác vụ trong lúc một phiên
+    cổng đang mở trong cùng tiến trình; phiên đó mất ở request kế tiếp qua
+    `EnsurePortalAccountIsActive`).
+- **Cần chủ văn phòng/nhân sự biết.** (1) Tài khoản bị vô hiệu KHÔNG tự bật lại khi vụ được mở lại
+  — nhân sự bật tay ở trang tài khoản cổng. (2) R4 theo đúng chữ: một khách CŨ có vụ đã hết hạn và
+  vừa có vụ MỚI chưa công bố thoả cả hai vế nên bị vô hiệu hoá (có test ghim); nếu nhân sự bật lại
+  tài khoản TRƯỚC khi công bố vụ mới thì đêm sau tác vụ lại khoá — công bố vụ mới trước (hoặc cùng
+  lúc) rồi mới bật tài khoản. Nếu muốn "khách còn vụ đang mở thì không khoá", đó là một thay đổi
+  của R4, cần phán quyết.
+- **M9 (hook `deleting` từ chối xoá mềm vụ còn công nợ).** Task này không xoá, không lưu trữ vụ việc
+  nào — chỉ đọc vụ và ghi `client_users`. Không đường nào ở đây cần đi qua hook đó.
+- **Việc cho lần gộp `main` (M6 phần còn lại) ở Task 11.** Các Action thư cho khách về MỘT vụ việc
+  hỏi "vụ còn trên cổng" bằng `where('is_published_to_portal', true)`, không bằng định nghĩa cổng:
+  trong làn này `NotifyClientOfStageUpdate::stillReleasedToPortal()`; trên `main` thêm
+  `NotifyClientOfRequestAnswered`, `NotifyClientOfChecklistItemRejected` (M6 cố ý gửi cả cho vụ
+  đã đóng "còn trên cổng") và `NotifyClientOfDocumentPublished` (cái này còn hỏi `open()`, nên vụ
+  đã đóng không nhận). Khách còn một vụ khác trên cổng thì tài khoản vẫn hoạt động, nên một thư về
+  vụ ĐÃ hết hạn tra cứu vẫn đi, kèm liên kết tới một trang trả 404. Không lộ vụ cho người ngoài
+  (người nhận là chính khách của vụ), nhưng trái với "vụ rời cổng". Khi gộp, cho các chỗ đó hỏi
+  bằng định nghĩa cổng (`ClientPortalScope::actingAs($account, …)` hoặc
+  `Gate::forUser($account)->allows('view', $matter)`), không thêm một định nghĩa thứ ba.
+- **Không có probe hành vi cho:** câu khoá `lockForUpdate()` các dòng `matters` đầu transaction
+  (SQLite bỏ qua `FOR UPDATE`; câu lệnh chạy thật trên MariaDB khi chạy `test:mariadb` tệp này) và
+  `orderBy`/`distinct` của tập ứng viên (thứ tự xử lý, không phải điều kiện).
+- **Nguyên nhân của họ test chập chờn "thiếu giai đoạn" (có từ trước, không sửa ở task này).**
+  `MatterTypeFactory` bốc `code` ngẫu nhiên hai chữ (`lexify('??')`) và `withStages()` dựng giai
+  đoạn theo `StagePresets::for($type->code)`. Khi mã bốc trúng `HS` hoặc `DN` (2/676), loại vụ nhận
+  bộ hình sự/doanh nghiệp: không có `on_hold`, không có `enforcement → closed`. Đó là chỗ
+  `TransitionStageActionTest` "thiếu `on_hold`" (Ghi chú M6.5) và `StaleMattersWidgetTest`
+  (`closed_at` null) đỏ lẻ tẻ khi chạy cả bộ. Sửa: loại hai mã preset khỏi lần bốc ngẫu nhiên.
+
+### Task 6 — `FlagRetentionExpiry` và ghi quyết định tiêu huỷ (R5, SPEC §6.12)
+
+Hệ thống không bao giờ tự xoá hồ sơ. Một tác vụ hằng ngày CẢNH BÁO quản trị khi hồ sơ quá hạn lưu
+trữ; một Action GHI LẠI quyết định tiêu huỷ đã lập biên bản ngoài hệ thống. Đính chính SPEC §6.12
+ghi ngay dưới đoạn `FlagRetentionExpiry`.
+
+- **Định nghĩa quá hạn lưu trữ (một luật, hai cách nói).** Cùng biên với hạn tra cứu của Task 5:
+  hồ sơ còn trong hạn HẾT ngày `retention_until`, quá hạn từ 00:00 hôm sau.
+  `MatterArchive::scopeRetentionExpired()` (`whereDate`) và `MatterArchive::isRetentionExpired()`
+  (so chuỗi `Y-m-d`; chưa có ngày thì không bao giờ quá hạn).
+- **Tác vụ `App\Actions\Schedule\FlagRetentionExpiry`.** Mục lịch `retention.flag`, 01:00 giờ Việt
+  Nam hằng ngày (không dồn vào lượt 00:30 của `client-access.expire`), `withoutOverlapping(60)`,
+  thêm ở cuối `routes/console.php` cùng một dòng `use` mới. Không transaction, không khoá: nó không
+  sửa dòng nào, chỉ ghi thông báo.
+  - Hồ sơ nào: archive chưa xoá mềm, quá hạn, `destroyed_at` rỗng, vụ chưa xoá mềm và đang đóng.
+    Vụ đã mở lại giữ `retention_until` của lần đóng trước trên archive (`SyncMatterArchive` chỉ xoá
+    `client_access_until`), nhưng không bị cảnh báo. Vụ đã xoá mềm cũng không: trang vụ việc không
+    mở được nó, và Action từ chối nó.
+  - Ai nhận: mọi admin đang hoạt động — hàm mới `ResolveStaffRecipients::activeAdminsFor()`, lọc
+    qua đúng `qualify()` (`is_active`, chưa xoá mềm, `Gate::view()`), không chuỗi dự phòng. Vụ
+    `restricted` vì vậy chỉ tới admin. Không phải `supervisorsFor()`: quyết định tiêu huỷ là việc
+    của quản trị, không của trưởng phòng.
+  - Cảnh báo: `App\Notifications\Staff\RetentionExpiryAlert`, kênh `database` (chuông của panel
+    admin), cùng hình dạng `DeadlineOverdueAlert`, nút "Mở vụ việc". Thân thông báo có mã hồ sơ và
+    ngày hết hạn, không tiêu đề vụ. Không thư nào.
+  - Không lặp (mẫu B-M1): khoá chống lặp là (loại thông báo, `viewData.matter_id`,
+    `viewData.retention_until`). Admin thêm sau nhận một lần; hồ sơ đóng lại với hạn mới rồi quá hạn
+    lần nữa thì là một lần mới.
+  - Lỗi ở một người nhận hay cả một hồ sơ: `report()`, các hồ sơ sau vẫn chạy
+    (`['flagged', 'notified', 'failed']`). Mọi truy vấn gỡ `ClientPortalScope` tường minh (test chạy
+    tác vụ dưới một phiên cổng đang mở trong cùng tiến trình).
+- **Action `App\Actions\Matter\RecordMatterDestruction`** (nút "Ghi quyết định tiêu huỷ" ở header
+  trang vụ việc, cộng khối "Lưu trữ hồ sơ" trên tab Tổng quan).
+  - Chỉ admin: ability mới `MatterPolicy::recordDestruction` (vai trò admin, cùng luật `delete()`;
+    không thêm quyền thứ 14 vào `App\Enums\Permission`). Action hỏi `Gate` TƯỜNG MINH trên người
+    thực hiện ĐỌC LẠI từ CSDL (admin vừa bị gỡ vai, vô hiệu hoá hay xoá trong lúc hộp thoại mở bị
+    từ chối). Vụ không tồn tại cũng là `AuthorizationException`.
+  - Một transaction; câu đầu tiên khoá dòng `matters` (kể cả đã xoá mềm), rồi khoá `matter_archives`
+    — có test thứ tự khoá chạy trên MariaDB.
+  - Từ chối (câu tiếng Việt, `MatterDestructionNotAllowed`): vụ đã xoá mềm, không có archive (hoặc
+    archive đã xoá mềm), vụ đang mở, chưa quá hạn (kể cả đúng ngày cuối), đã ghi rồi.
+  - Lý do bắt buộc 20–5000 ký tự (`mb_strlen` sau `trim`), số biên bản bắt buộc, tối đa 50 ký tự
+    (= `varchar(50)`); form có cùng `minLength`/`maxLength`.
+  - Ghi bốn cột + audit `matter_destruction_recorded` (thuộc tính: id vụ, id archive, số biên bản,
+    ngày hết hạn — không lý do, không mã/tiêu đề vụ; nhãn ở `lang/vi/activity.php`). **Không xoá
+    gì**: không `delete()`, không `forceDelete()`, không xoá media.
+  - `destroyed_by` là admin đã GHI quyết định; người phê duyệt trên biên bản nêu trong lý do (ghi ở
+    đính chính SPEC). Quan hệ `MatterArchive::destroyer()` có `withTrashed()`: tài khoản người ghi bị
+    xoá mềm sau này (nghỉ việc) không làm tên họ biến khỏi khối "Lưu trữ hồ sơ".
+- **Test cấu trúc `RecordsAreNeverForceDeletedTest`.** Tách token bằng `token_get_all()` và chỉ bắt
+  LỜI GỌI (`->`/`?->`/`::` + `forceDelete`/`forceDeleteQuietly`/`forceDestroy` + `(`) trong `app/`,
+  `routes/`, `database/seeders/`. Phương thức policy `forceDelete()`, `ForceDeleteBulkAction`, chuỗi
+  và chú thích không khớp. Kiểu của vế trái không đọc được bằng phân tích tĩnh, nên MỌI lời gọi đều
+  bị coi là xoá hồ sơ; ngoại lệ hợp lệ một ngày nào đó phải vào `$allowed` kèm lý do. Xanh trên mã
+  nền, đỏ khi cài một lời gọi thử ở cả ba thư mục.
+- **M9 (hook `deleting` từ chối xoá mềm vụ còn công nợ).** Task này không xoá, không lưu trữ vụ việc
+  nào, nên không đường nào ở đây chạm hook đó.
+- **Cần chủ văn phòng biết.** Hạn lưu trữ lấy từ cấu hình (`retention_until` ghi khi đóng vụ, Task 3).
+  Cảnh báo chỉ là lời nhắc; nếu văn phòng quyết định GIỮ hồ sơ lâu hơn, hôm nay không có nút "gia
+  hạn lưu trữ" — cảnh báo đã đọc thì nằm trong chuông, không lặp lại. Nếu cần gia hạn, đó là một
+  tính năng mới (M10, cùng chính sách lưu trữ).
+- **Mutation probe (64).** 61 đỏ. Ba xanh là mutant tương đương, không phải lỗ hổng test:
+  - bỏ `archive !== null` ở khối "Lưu trữ hồ sơ": vế `Gate::allows('view', null)` còn lại cũng từ
+    chối (không có policy cho `null`), nên khối vẫn ẩn;
+  - bỏ `Gate::allows('view', $record->archive)`: `MatterArchivePolicy::view` là "xem được vụ cha",
+    đúng điều kiện để mở trang vụ việc, nên không ai tới được khối mà lại không qua vế này;
+  - bỏ `instanceof MatterArchive` ở dòng nhắc quá hạn: chỉ là chốt `null`, dòng đó nằm trong khối
+    vốn chỉ hiện khi có bản ghi lưu trữ.
+- **Vụ đã xoá mềm mà có bản ghi lưu trữ** không bị cảnh báo. Hôm nay không đường nào tạo ra trường
+  hợp đó: admin không có nút xoá vụ việc, và `CancelMatter` chỉ huỷ vụ mở nhầm, vốn không bao giờ có
+  bản ghi lưu trữ.
+
+### Task 7 — Rút lại tài liệu đã công bố (`RetractDocument`)
+
+Món nợ từ M4 (`docs/docs-6`): tài liệu công bố nhầm nay có một đường rút đúng nghiệp vụ. Đính chính
+SPEC §4.11 (trạng thái thứ năm) và §4.12 (khoá ngoại) ghi ngay dưới mục tương ứng.
+
+- **Bước 1 (commit riêng, trước Action).** `document_downloads.document_id` thôi `cascadeOnDelete`,
+  thành `restrictOnDelete` (migration `2026_09_28_070701_…`): xoá cứng một tài liệu đã có lượt tải
+  bị CSDL từ chối, dòng tải còn nguyên. `DocumentDownloadsForeignKeyTest` (cả SQLite lẫn MariaDB).
+- **Bước 2.** Migration `2026_09_28_070702_…` thêm `documents.retracted_at`, `retracted_by` (FK
+  users, `nullOnDelete`), `retraction_reason` (text). Case `DocumentStatus::Retracted` (nhãn "Đã rút
+  lại"). Chuỗi mới ở tệp lang riêng `lang/vi/retraction.php`; `enums.php`/`activity.php` chỉ thêm
+  khối `// M7 Task 7`.
+- **Action `App\Actions\Document\RetractDocument`.** Một transaction; câu đầu tiên khoá dòng
+  `matters` (tìm bằng truy vấn con trên `documents.matter_id`, không tin caller), rồi khoá
+  `documents`; người thực hiện đọc lại từ CSDL; quyền `DocumentPolicy::publish` hỏi lại dưới khoá
+  (trợ lý không rút được). Từ chối bằng câu trạng thái (`DocumentNotRetractable`): không còn tồn tại,
+  đã xoá mềm, vụ đã xoá mềm, đã rút rồi (quyết định đầu giữ nguyên), không đang ra tới khách. Lý do
+  bắt buộc, gỡ khoảng trắng Unicode hai đầu, `mb_strlen` 20–5000. Ghi `status = retracted`, tắt hai
+  cờ khách, ghi người/lúc/lý do; giữ tệp, `document_downloads`, `published_at/by`. Audit
+  `document_retracted` mang `client_downloads` (số lượt tải CỦA KHÁCH trước lúc rút), không mang lý
+  do hay tiêu đề. Không thư, không thông báo.
+- **Vị từ "đang ra tới khách" chọn `Document::isReleasedToPortal()`**, một vị từ dùng chung cho
+  Action, lời từ chối của "Chuyển nhóm", `DocumentPolicy::delete()` và điều kiện hiện nút. Không
+  chọn `wasPublishedToClient()` vì nó thiếu vế nhóm D và xoá mềm. Vị từ không hỏi vụ việc: tài liệu
+  đã công bố trên một vụ đang ẩn khỏi portal vẫn rút được (nó trở lại tầm mắt khách khi vụ lên lại).
+- **Một đường rút duy nhất.**
+  - `RegroupDocument` từ chối đưa vào nhóm D một tài liệu đang ra tới khách, câu chỉ tới nút "Rút
+    lại" và nói ai bấm được. Phán quyết "vào D luôn được" của M6.5 Task 16 nay chỉ đúng cho tài liệu
+    không đang ra tới khách và chưa bị rút. Câu tương ứng ở mục M4 "Việc hoãn lại" và ở ghi chú M6.5
+    (hai "đường rút tạm") không sửa ở đây (luật làn: chỉ viết trong Ghi chú M7) — đọc chúng với đính
+    chính này.
+  - Thêm ngoài brief, cùng lý lẽ với quyền xoá: tài liệu ĐÃ RÚT cũng không vào nhóm D
+    (`DocumentGroupNotChangeable::retractedStaysVisibleToClient()`), vì dòng giải thích của khách đọc
+    từ chính bản ghi đó và không bao giờ trả nhóm D. Đổi giữa A/B/C vẫn được (dòng rút còn nguyên;
+    tài liệu đã rút rời nhóm B sang A/C cần lý do sửa nhầm nhóm, vì `hasClearedIssuedLifecycle()` sai
+    với trạng thái `retracted`).
+  - `DocumentPolicy::delete()` trả `false` cho tài liệu đang ra tới khách hoặc đã rút, kể cả admin.
+  - `PublishDocument` từ chối tài liệu đã rút (`DocumentNotPublishable::retracted`): muốn đưa lại
+    cho khách thì tải lên một bản mới. Các bước vòng đời B (trình duyệt, đã ký, trả về nháp) vốn chỉ
+    nhận đúng một trạng thái nguồn nên không chạm được `retracted`.
+  - Test cũ dựng "rút bằng cách vào D" (dữ liệu có từ trước M7) nay ghi thẳng model, hook `saving` vẫn
+    hạ cờ; `RegroupDocumentTest`, `PublishDocumentTest`, `DocumentDownloadTest`,
+    `DocumentsRelationManagerTest`, `DocumentAccessTest` cập nhật theo.
+- **Cổng khách.** Ở khối Tài liệu của `MatterProgress`, sau các tài liệu còn hiệu lực: tiêu đề (gạch
+  ngang — **đã bỏ ở rà soát cuối, vòng sửa 1, C1**: nay là nhãn trung tính, hình chiếu không còn tiêu
+  đề, xem mục cuối), "Văn phòng đã rút lại tài liệu này. Lý do: …", ngày rút; không liên kết tải, không người
+  rút. Vụ chỉ còn tài liệu đã rút không hiện "chưa có tài liệu". Scope portal của `Document` KHÔNG
+  nới: dòng rút đi qua đường hẹp `Document::retractionNoticesFor()` (gỡ đúng `ClientPortalScope`,
+  chỉ `retracted`, không nhóm D, chưa xoá mềm, đúng vụ, vụ qua `Matter::applyClientPortalConstraints`
+  của chính khách — gồm hạn tra cứu Task 5) cộng ability `DocumentPolicy::viewRetractionNotice` (chỉ
+  khách, phát biểu bằng thuộc tính) cộng hình chiếu hẹp (tiêu đề, lý do, ngày). Đường dẫn tải ký trước
+  lúc rút trả 404; nhân sự vẫn tải được (tệp là bằng chứng, lượt tải vẫn ghi).
+- **Màn hình nội bộ.** Nút "Rút lại" trên tab Tài liệu (`authorize` = `publish`, `visible` =
+  `isReleasedToPortal()`), ô lý do `maxLength(5000)` = trần của Action cho cột `text`, KHÔNG
+  `minLength` (ngưỡng ở một chỗ, Action, lời từ chối về đúng ô). Nhãn trạng thái "Đã rút lại" màu đỏ,
+  chú thích có lúc rút, người rút (hoặc "tài khoản đã xoá") và lý do; cột "Khách thấy" ghi "Đã rút
+  khỏi cổng khách"; nút "Công bố" ẩn trên dòng đã rút.
+- **Gói bàn giao (Task 4).** Danh sách trắng trạng thái của `CollectHandoverEntries` đã loại
+  `retracted`; thêm test giải nén ghim điều đó ở cả ba nhóm A/B/C.
+  - Chỗ hai task chạm nhau, KHÔNG sửa ở Task 7 (ghi cho rà soát cuối M7): sinh lại gói vẫn theo
+    luật Task 4 "chỉ giữ version mới nhất". (1) Version cũ ĐÃ RÚT giữ nguyên `retracted` và dòng
+    giải thích của khách (`wasPublishedToClient()` sai với nó), nhưng TỆP của nó bị xoá sau commit
+    như mọi version cũ của gói — dòng `documents` và `document_downloads` còn nguyên. (2) Version cũ
+    ĐANG công bố bị Task 4 hạ về `signed_filed` và tắt cờ khách, không lý do, không dòng rút: đó là
+    thay bằng bản mới chứ không phải rút, nhưng khách thấy gói biến mất cho tới khi luật sư công bố
+    bản mới. Nếu chủ nhiệm muốn "một đường rút duy nhất" phủ cả trường hợp này, sửa ở Task 4.
+- **Chỗ gắn cho M9.** Làn M9 yêu cầu `RetractDocument` và `DocumentPolicy::delete()` từ chối tài liệu
+  đang được `payments.receipt_document_id` / `contract_amendments.document_id` trỏ tới. Hai bảng đó
+  chưa có trên làn này; M9 thêm phần chặn lúc merge, ở bước 6 của Action (ngay sau `notReleased`,
+  dưới khoá `documents`; khoá bảng tiền tệ nếu cần đi sau `matters`). Ghi trong docblock Action. Task
+  này không xoá hay lưu trữ vụ việc nào, nên không chạm hook `deleting` của M9.
+
+### Task 11 — Nghiệm thu làn (cổng merge, 2026-10-03)
+
+Base `7d670ce` (sau khi controller gộp `m7-extras`, Task 10, 8, 9, vào `m7-handover`). Task 11 KHÔNG
+merge vào `main`; dòng M7 trong bảng milestone giữ ⬜, controller sửa lúc merge. Làn m7 làm Task 1–7
+và 11; làn m7b làm Task 10, 8, 9 (mục "Làn m7b" ở đầu "Ghi chú M7").
+
+#### Việc đã làm, theo task (dải `d2de674..m7-handover`)
+
+- **Task 1** (`1d511e7`, `e82fc55`, `e235013`): thư tổng hợp mốc hạn cho lead mới
+  (`SendReassignmentDigest`, mẫu `staff.matter_reassigned`). Thư chỉ liệt kê mốc CHƯA xong vừa
+  chuyển, dựng lại lúc gửi, xếp hàng sau commit. Đính chính R10 (§6.11, §11).
+- **Task 2** (`5dc7fc6`, `bc9cb65`, `cc3ee7a`): trang "Bàn giao hàng loạt" cho admin và trưởng phòng,
+  `ReassignMatters`. Mỗi vụ một transaction, cả lô một thư. `expectedLeadId` được kiểm dưới khoá. Thông
+  điệp chặn nghỉ việc có liên kết tới trang này.
+- **Task 3** (`4f5336e`, `2213c99`): sự kiện `MatterStageChanged` (sau commit) gọi `SyncMatterArchive`
+  (khoá `matters` trước, idempotent). Danh mục của vụ đã đóng chỉ đọc, chặn ở Action, cả khi khách
+  nộp lẫn khi nhân sự nộp thay. Thêm vụ mẫu đã kết thúc.
+- **Task 4** (`29d84ff`, `59f7d18`): `GenerateHandoverPackage` chạy trên kết nối và hàng `handover`.
+  Zip theo R8, kèm `MUC-LUC.pdf` (dompdf, DejaVu Sans). Gói là `Document` nhóm B ở `signed_filed`. Trang
+  vụ có trạng thái gói và nút sinh lại; hệ thống ghi `data_exported`.
+- **Task 5** (`985a5c4`): ranh giới cổng có điều kiện thứ năm, áp ở cả hai tầng. Thêm
+  `ExpireClientAccess`, chạy 00:30.
+- **Task 6** (`e52e514`): `FlagRetentionExpiry` chạy 01:00 và chỉ cảnh báo admin. Thêm
+  `RecordMatterDestruction`, cùng một test cấu trúc cấm `forceDelete()`.
+- **Task 7** (`0904bbb`, `08e5766`): khoá ngoại `document_downloads` đổi sang `restrictOnDelete`. Thêm
+  `RetractDocument`; cổng khách hiện dòng "Văn phòng đã rút lại".
+- **Task 8** (`de05774`, `572f3be`, làn m7b): tab "Liên lạc" và tab "Nhật ký" của vụ việc.
+- **Task 9** (`76e49c2`, làn m7b): trang "Tìm kiếm" và `SearchMatters`.
+- **Task 10** (`8b5a1cf`, `579aaa8`, làn m7b): bảng `settings`, `OfficeProfile`, trang "Thông tin văn
+  phòng".
+- **Task 11** (`689e331` cho phần sửa, rồi một commit tài liệu): nghiệm thu, ba sửa nhỏ và một test
+  (mục "Sửa trong Task 11" bên dưới), các đính chính SPEC, mục này.
+
+#### Bốn test SPEC §11 "Bàn giao và lưu trữ" (theo tên) — chạy riêng, xanh
+
+1. *Vô hiệu hoá luật sư còn lead vụ đang mở → bị chặn, thông điệp nêu số vụ.*
+   `tests/Feature/Filament/UserResourceTest.php:234`, "refuses to deactivate a lawyer who still leads
+   open matters, with a reason naming how many to hand off". Test này **mới ở Task 11**: đi qua Livewire
+   `EditUser`, lawyer có 2 vụ mở và 1 vụ đã đóng, câu báo phải nói "2". Trước đó, đường VÔ HIỆU HOÁ chỉ
+   được khẳng định là "có lỗi form" (`:637` "offboards a lead lawyer…", `:363` "sends a separate
+   notification…"). Số vụ chỉ được đo ở đường XOÁ (`:170`) và ở mức Action
+   (`tests/Feature/Actions/User/GuardsStaffOffboardingTest.php:84`). Test mới xanh ngay từ đầu, vì hành
+   vi đã có từ M6.5. Ba mutation probe đều làm nó đỏ: đếm cứng `1` trong `composeOpenWorkReason()`,
+   bỏ `->open()` khỏi `OpenWork::forUser()->leadMatters`, và bỏ nhánh `is_active` true → false của
+   `EditUser::handleRecordUpdate()`.
+2. *Bàn giao tự sinh `stage_logs` nội bộ và chuyển mốc chưa xong, kèm thư tổng hợp.*
+   `tests/Feature/Filament/ReassignMatterActionTest.php:48` (M6.5 Task 4, M7 Task 1).
+3. *Gói bàn giao không bao giờ chứa nhóm D, kiểm bằng cách giải nén.*
+   `tests/Feature/Actions/Matter/BuildHandoverPackageTest.php:331` ("giải nén: nhóm D, tài liệu đã xoá
+   mềm và nhóm B còn nháp…") và `:434` (tài liệu đã rút).
+4. *Quá `client_access_until` thì vụ rời cổng, còn nguyên trong admin.*
+   `tests/Feature/Portal/ClientAccessExpiryTest.php:159` (mọi trang theo vụ của cổng trả 404), `:242`
+   (admin còn nguyên, không cột nào đổi), `:122` (ngày biên).
+
+Bảy test trên chạy riêng (SQLite, lọc theo tên): **7 passed (78 assertions), 15,5 s**.
+
+#### Gói thật từ vụ mẫu đã kết thúc (`VK-2026-DD-0007`, CSDL `vk_crm_lane_m7`)
+
+Các bước: `/d/vkwt/m7-dev seed`, rồi `RequestHandoverPackage::handle(22, <lead luatsu3>)` chạy qua
+`db:artisan tinker`. Sau đó chạy `db:artisan queue:work handover --queue=handover --stop-when-empty
+--timeout=600`. Cuối cùng liệt kê entry bằng `ZipArchive`, đọc bit 11 (UTF-8) từ central directory
+và trích chữ của `MUC-LUC.pdf` bằng `Tests\Support\PdfText`.
+
+- **Lần chạy đầu thất bại.** Lỗi ghi lại là `handover_error` = "Hệ thống không dựng được tệp mục lục
+  MUC-LUC.pdf…", lỗi gốc là `MatterType::stageIncludingTrashed(): Argument #1 ($key) must be of type
+  string, null given` (`RenderHandoverIndex.php:142`). Vụ mẫu có dòng tiến độ đã công bố với
+  `to_stage` NULL, mà SPEC §4.8 cho phép NULL. Đây là sửa thứ nhất ở dưới.
+- **Sau bản sửa:** gói `ready`, tài liệu #57 "Gói bàn giao hồ sơ VK-2026-DD-0007", nhóm B,
+  `signed_filed`, v1, đĩa `private`, 783.746 byte. `data_exported` được ghi.
+
+```
+5 entries in 01m401b0ne33a32anxmtw3bdb3.zip (783746 bytes)
+  MUC-LUC.pdf                                                       880898 bytes  utf8-flag=yes
+  A/01-Giấy tờ tuỳ thân của người khởi kiện, bản sao chứng thực.pdf    832 bytes  utf8-flag=yes
+  B/02-Thông báo xử lý vụ án.pdf                                         760 bytes  utf8-flag=yes
+  B/03-Thông báo xử lý vụ án.pdf                                         768 bytes  utf8-flag=yes
+  C/04--..-etc-thong-bao — tiêu đề cố tình chứa đường dẫn cha.pdf        765 bytes  utf8-flag=yes
+group D entries: 0
+```
+
+Đối chiếu với tám tài liệu của vụ:
+- **Có mặt:** nhóm A chỉ có v2 đã chấp nhận (v1 bị từ chối không vào). Hai bản B trùng tiêu đề
+  (`signed_filed` và `published`) thành `02` và `03`. Bản C có tiêu đề chứa `../../etc` không thoát ra
+  khỏi thư mục `C/`.
+- **Vắng mặt:** bản B `internal_draft`, bản B đã xoá mềm, bản D, và chính tài liệu gói.
+- **Tên entry:** mọi tên là UTF-8 hợp lệ, có cờ UTF-8, giữ nguyên dấu tiếng Việt.
+- **`MUC-LUC.pdf`:**
+  - Trích lại được chữ có dấu: tên văn phòng, "MỤC LỤC HỒ SƠ BÀN GIAO", thông tin vụ.
+  - Có bốn tài liệu đánh số khớp tên entry, và bốn dòng tiến độ đã công bố. Hai dòng không ghi giai
+    đoạn chỉ in ngày.
+  - Chân trang không có dòng pháp lý nào, vì bốn thông tin pháp lý còn trống.
+
+Đi bộ tay trên cùng dữ liệu (qua `db:artisan tinker`, không qua trình duyệt):
+- `ExpireClientAccess` trả `{"deactivated":0,"failed":0}`: vụ mẫu còn hạn tra cứu tới 29/12/2026.
+- `FlagRetentionExpiry` trả `{"flagged":0,…}`.
+- `SearchMatters` cho admin, `luatsu1` và kế toán cho ra đúng tập của từng người:
+  - "Thông báo xử lý" (tiêu đề tài liệu): trong ba người, chỉ admin nhận kết quả;
+  - "ranh giới" (tiêu đề vụ) không ra gì cho kế toán;
+  - "Hoàng Minh" (tên khách) ra cho kế toán, không ra cho `luatsu1` (vụ không thuộc đội của họ).
+
+Chưa đi bộ trên trình duyệt (`/d/vkwt/m7-dev serve`). Việc đó để cho lượt rà soát cuối hoặc chủ văn
+phòng.
+
+#### Sửa trong Task 11 (TDD; RED ghi lại, mỗi điều kiện mới có mutation probe)
+
+1. **Mục lục của gói hỏng khi một dòng tiến độ đã công bố không có `to_stage`**
+   (`app/Actions/Matter/RenderHandoverIndex.php`, `resources/views/handover/partials/timeline.blade.php`).
+   - `stageLabel()` trả chuỗi rỗng khi khoá rỗng. View khi đó chỉ in ngày; khối thông tin bỏ hẳn dòng
+     "Giai đoạn cuối".
+   - Cùng chỗ, nhãn giai đoạn đổi từ `label` (nội bộ) sang `client_label`, vì mục lục là thứ giao cho
+     khách (SPEC §4.5). Đó cũng là nhãn cổng khách hàng đang hiện (`MatterProgress::stageLabel()`).
+   - Test: `BuildHandoverPackageTest.php:672`. RED là `TypeError` ở `RenderHandoverIndex.php:142`.
+     Ba probe đều đỏ: bỏ chặn khoá rỗng, đổi lại `label`, và in "ngày — " cả khi không có nhãn.
+   - Đính chính §6.12 đã ghi.
+2. **Thư báo tiến độ về một vụ đã hết hạn tra cứu** (rà soát Task 5, m2; việc mục Task 5 hẹn cho Task
+   11), `app/Actions/Notification/NotifyClientOfStageUpdate.php`.
+   - Mỗi người nhận giờ phải qua `Gate::forUser($recipient)->allows('view', $matter)`, tức định nghĩa
+     cổng. Không có định nghĩa thứ ba.
+   - Đường sản phẩm thật: luật sư thêm một dòng cùng giai đoạn có công bố trên vụ đã đóng, đã quá hạn
+     tra cứu, trong khi tài khoản khách còn hoạt động nhờ một vụ khác. Trước bản sửa, thư vẫn đi, kèm
+     liên kết tới một trang trả 404.
+   - Test: `tests/Feature/Mail/StageUpdateNotificationTest.php:779`, hai ca. "Đã hết hạn" phải ra 0 thư
+     và `notified_at` trống; "hôm nay là ngày cuối" vẫn ra 1 thư. RED ghi lại: 1 thư thay vì 0.
+   - Probe: bỏ lời hỏi `Gate` thì đỏ. Bỏ `$matter !== null` thì vẫn xanh. Đây là mutant tương đương:
+     vụ đã xoá mềm đã bị `recipientsFor()` loại trước đó (quan hệ `matter` mang `SoftDeletingScope`),
+     và `Gate::allows('view', null)` cũng trả `false`.
+   - Ba thư cùng loại trên `main` (`NotifyClientOfRequestAnswered`,
+     `NotifyClientOfChecklistItemRejected`, `NotifyClientOfDocumentPublished`) chưa có trên làn này.
+     Sửa chúng theo đúng mẫu này lúc gộp `main` (mục dưới).
+3. **Test 1 của SPEC §11** (trên).
+4. **Câu chữ "ai rút"** (rà soát Task 7, m4). `lang/vi/retraction.php` (`blocked.regroup_to_internal`)
+   và SPEC §4.11 nay ghi đúng: luật sư trong đội ngũ vụ việc, trưởng phòng, quản trị. `DocumentPolicy::
+   publish` = `update` của vụ + `document.publish`, không riêng luật sư phụ trách.
+
+#### Đính chính SPEC
+
+- **Có từ các task:**
+  - §4.11: Task 7, `retracted`. Task 11 sửa câu "ai rút".
+  - §4.12: Task 7, khoá ngoại.
+  - §4.17: Task 8.
+  - §4.19: Task 3 và Task 4.
+  - §6.11: Task 1, R10.
+  - §6.12: Task 4, 5, 6.
+  - §6.13: Task 9.
+  - §7.4: Task 10.
+  - §11: R10 của Task 1.
+- **Thêm ở Task 11:**
+  - §4.19: vòng đời dòng lưu trữ và bốn cột tiêu huỷ (Task 3, 5, 6).
+  - §6.12: nhãn giai đoạn trong `MUC-LUC.pdf`.
+  - §10.6: 10 sự kiện audit mới của M7, đếm bằng cách so `Audit::record('…'` (kể cả lời gọi xuống
+    dòng) giữa `d2de674` và nhánh. Cả 10 có nhãn trong `lang/vi/activity.php`. "Xuất dữ liệu" =
+    `data_exported`, "vô hiệu hoá tài khoản portal" = `portal_account_deactivated`.
+  - §11: cách đọc bốn test.
+
+#### Phán quyết của controller trong các brief, và giá nếu sai
+
+- **T1:** thư thiết kế cho cả lô, Task 2 dùng lại. Tiêu đề thư không nêu mã vụ.
+  *Giá nếu sai:* mỗi vụ một thư, lead mới nhận mười thư khi nhận mười vụ.
+- **T2:** trang hàng loạt chỉ cho admin và trưởng phòng. *Giá nếu sai:* một luật sư muốn tự bàn giao
+  nhiều vụ của mình phải bấm từng vụ.
+- **T3:**
+  - Danh mục của vụ đã đóng chỉ đọc, chặn ở Action, kể cả khi khách nộp. *Giá nếu sai:* khách của vụ
+    đã đóng phải gọi điện để gửi thêm giấy tờ.
+  - Dòng lưu trữ không bao giờ bị xoá mềm.
+- **T4:**
+  - Dùng dompdf; không thêm gói thứ hai, kể cả để trích chữ PDF trong test.
+  - Gói chạy trên kết nối riêng (`retry_after` 900 > `$timeout` 600).
+  - Gói tự sinh MỘT lần khi vụ đóng; sinh lại là nút bấm.
+  - *Giá nếu sai:* một gói lớn giữ lượt `queue.drain`, và thư nhắc mốc hạn phải đứng chờ.
+- **T5:**
+  - Hết hạn khi `client_access_until < hôm nay`, nên ngày cuối khách vẫn xem được.
+  - Ẩn vụ là việc của hai tầng ranh giới, không phải của job.
+  - R4 đọc đúng chữ. *Giá nếu sai:* khách cũ có vụ mới chưa công bố bị khoá tài khoản (mục "Cần chủ
+    văn phòng quyết").
+- **T6:** chỉ cảnh báo, mỗi hạn một lần, chỉ tới admin. Ghi quyết định tiêu huỷ chỉ admin làm, không
+  xoá gì. *Giá nếu sai:* hồ sơ quá hạn vẫn nằm nguyên trên đĩa cho tới khi người làm thủ công, và
+  chưa có đường "gia hạn lưu trữ" (M10).
+- **T7:** đổi nhóm sang D bị từ chối với tài liệu đang ra tới khách. *Giá nếu sai:* trợ lý phải nhờ
+  luật sư hoặc trưởng phòng bấm "Rút lại".
+- **T8:**
+  - Không có nút sửa nhật ký liên lạc; xoá là xoá mềm, kèm lý do.
+  - Tab Nhật ký chỉ cho admin, trưởng phòng và lead của vụ. *Giá nếu sai:* cộng sự không xem được
+    nhật ký của vụ mình làm.
+- **T9:** kế toán chỉ tìm theo mã và tên khách, chặt hơn phán quyết "bốn nguồn" (mục Task 9 ở trên;
+  cần controller xác nhận). *Giá nếu sai:* kế toán gõ số thụ lý thì không ra vụ.
+- **T10:** bảng `settings` khoá–giá trị chung. Ô để trống nghĩa là dùng giá trị `.env`. *Giá nếu sai:*
+  muốn "cố ý để trống dù `.env` có giá trị" thì phải xoá ở `.env`.
+
+#### Kiểm chứng trên bản cuối của làn
+
+- **Cả bộ** (`/d/vkwt/m7-dev test --parallel --processes=2`, SQLite): **2804 passed / 6 skipped /
+  0 failed** (12.279 assertions), 782 s. Số đo này lấy trước khi viết mục Ghi chú; sau đó chỉ tài
+  liệu thay đổi.
+- **MariaDB, tuần tự** (`/d/vkwt/m7-dev test:mariadb`): 62 tệp test mà M7 tạo hoặc sửa trong
+  `d2de674..`, trừ `tests/Benchmark`, chạy một lượt. Kết quả **1348 passed / 0 failed** (6.150
+  assertions), 747 s (12 phút 35 giây).
+- **Pint** `--test`: sạch, 638 tệp.
+- **Vòng migration thật** trên `vk_crm_lane_m7`:
+  - `seed` (`migrate:fresh --seed`): DONE.
+  - `db:artisan migrate:reset --force`: 42 migration DONE.
+  - `db:artisan migrate --force`: 42 migration DONE.
+  - Sáu migration của M7 (`2026_09_28_070001`, `070400`, `070701`, `070702`, `070900`, `071000`)
+    chạy sạch cả hai chiều. Sau vòng này CSDL của làn được seed lại để dùng thử.
+
+Tìm kiếm (Task 9) đo trên 6.000 hồ sơ: 3,5–23,5 ms mỗi câu. Sáu nguồn nằm trong một `OR` nên câu tìm
+duyệt bảng (chi tiết ở mục Task 9 ở trên, test đo `tests/Benchmark/SearchMattersBenchmarkTest.php`
+không chạy trong bộ thường).
+
+#### Việc để lại cho milestone khác và cho lần gộp `main`
+
+- **Lúc gộp `main` (M6 phần còn lại, M8, M9 đã trên `main`):**
+  - `NotifyClientOfRequestAnswered`, `NotifyClientOfChecklistItemRejected` và
+    `NotifyClientOfDocumentPublished` hỏi "vụ còn trên cổng" bằng
+    `Gate::forUser($account)->allows('view', $matter)`, đúng mẫu
+    `NotifyClientOfStageUpdate::recipientsOnPortal()` (Task 11; tên cũ `matterStillOnPortalOf()` đổi
+    ở rà soát cuối, vòng sửa 1, I3).
+  - Thư `client.document_published` khi công bố gói bàn giao là của làn M6 Task 3. Sau khi gộp,
+    công bố gói qua `PublishDocument` sẽ tự gửi thư.
+- **M9:**
+  - Hook `deleting` (`MatterHasOutstandingBalance`) không chạm đường nào của M7. Lưu trữ, tiêu huỷ,
+    huỷ và gói bàn giao đều không xoá vụ; mọi đường xoá hay lưu trữ vụ đi qua Action.
+  - `RetractDocument` (bước 6) và `DocumentPolicy::delete()` phải từ chối tài liệu được
+    `payments.receipt_document_id` hoặc `contract_amendments.document_id` trỏ tới. M9 thêm lúc gộp.
+  - M9 dùng lại `App\Events\MatterStageChanged`.
+  - Bảng kê thanh toán vào `MUC-LUC.pdf` là một partial mới cộng một `@include` (xem
+    `RenderHandoverIndex`).
+- **M11:** dùng đúng các tên sau:
+  - `CommunicationLogPolicy::create($user, $matter)` và `LogCommunication` (Task 8);
+  - bảng `settings`, `WriteSettings`, `OfficeProfile` (Task 10);
+  - `SearchMatters::matching()` (Task 9).
+- **M8 (làn M8b, nay trên `main`):**
+  - Danh sách extension: `ext-dom` và `ext-mbstring` (dompdf), `ext-zip` (`ZipArchive`), `ext-pcntl`
+    (`--timeout` của worker `handover`).
+  - Cần quyết có loại tài liệu gói khỏi bản sao lưu không (`MatterArchive::handoverDocumentIds()`).
+  - `vkcrm:preflight` đọc `OfficeProfile`.
+  - Phải `migrate` (bảng `settings`) TRƯỚC khi bật lại web và queue: chân trang cổng, trang 404 và
+    mọi thư đều đọc bảng này.
+  - "Xuất dữ liệu" = sinh gói và tải gói (`data_exported`).
+- **M10:** chính sách lưu trữ gồm cả "gia hạn lưu trữ", và hạn xoá dữ liệu cá nhân của vụ bị huỷ
+  (`CancelMatter`, không có dòng lưu trữ). Vụ đã xoá mềm thì không bao giờ được cảnh báo hạn lưu (rà
+  soát Task 6, m7).
+- **Bộ test chập chờn có từ trước:** `MatterTypeFactory` bốc mã `HS`/`DN` ngẫu nhiên (mục Task 5).
+
+#### Cần chủ văn phòng hoặc controller quyết
+
+1. R4 đọc đúng chữ: một khách cũ có vụ đã hết hạn và vừa có vụ MỚI chưa công bố bị khoá tài khoản.
+   Tài khoản bị khoá không tự bật lại (mục Task 5).
+2. Cảnh báo hạn lưu trữ: admin bấm đóng thông báo trong chuông thì hôm sau nhận lại. Một vụ đã ghi
+   quyết định tiêu huỷ vẫn mở lại được (rà soát Task 6, m1 và m2).
+3. Sinh lại gói bàn giao:
+   - xoá TỆP của version cũ kể cả khi version đó đã bị rút;
+   - lặng lẽ gỡ version cũ đang công bố khỏi cổng, không có dòng "đã rút".
+   (Rà soát Task 7, m1 và m2.) **Đã sửa ở rà soát cuối, vòng sửa 1 (I2)** theo mẫu Task 7 "bị chặn
+   kèm thông điệp chỉ tới nút Rút"; controller xác nhận phán quyết (mục cuối).
+6. **Dòng rút trên cổng không còn tiêu đề** (rà soát cuối, vòng sửa 1, C1) — controller xác nhận, hoặc
+   chọn thêm đường "admin gỡ dòng rút có lý do" (mục cuối nói vì sao chưa làm).
+4. Kế toán tìm theo hai nguồn hay bốn nguồn (Task 9, M1).
+5. Hạn xoá dữ liệu cá nhân của vụ bị huỷ vì mở nhầm (cùng chính sách lưu trữ M10).
+
+#### Ghi chú cũ đã lỗi thời (không sửa tại chỗ — luật làn chỉ cho viết trong "Ghi chú M7")
+
+Mục "Việc hoãn lại" của Ghi chú M4 và các ghi chú M6.5 còn tả "chuyển vào nhóm D" là đường rút tạm
+khỏi cổng khách. Từ M7 Task 7, đường rút duy nhất là "Rút lại" (`RetractDocument`, §4.11). Chuyển vào
+D bị từ chối với tài liệu đang ra tới khách.
+
+#### Gói rà soát toàn nhánh (lượt rà soát cuối do quy trình điều phối chạy)
+
+Dải `d2de674..` đầu nhánh `m7-handover`. Danh sách tệp theo khu vực ghi ở sổ làn
+(`.superpowers/sdd/m7/progress.md`, "Task 11: review package"). Brief rà soát giả định có một
+Critical.
+
+#### Rà soát cuối, vòng sửa 1 (2026-10-03, base `f88ed52`)
+
+Năm phát hiện: một Critical (C1), bốn Important (I1–I4). Mỗi phát hiện có test đỏ trước bản sửa
+(RED ghi ở báo cáo `.superpowers/sdd/m7/final-fix-report.md`), và mỗi điều kiện mới có mutation
+probe đỏ (24 probe, cùng báo cáo).
+
+- **C1 — dòng rút trên cổng không còn tiêu đề tài liệu.** Ca rút điển hình là tài liệu của khách
+  KHÁC công bố nhầm. Dòng rút lại vĩnh viễn: tài liệu đã rút không xoá được, không vào nhóm D được,
+  không công bố lại được, và không Action nào sửa tiêu đề. Vì vậy tiêu đề của khách kia từng nằm trên
+  cổng của khách này, không ai gỡ được.
+  - **Phán quyết của người sửa (controller xác nhận):** hình chiếu `MatterProgress::retractionNotices()`
+    chỉ còn lý do và ngày rút. Blade vẽ nhãn trung tính "Tài liệu đã được văn phòng rút lại" thay cho
+    tiêu đề. Ô lý do và hộp thoại "Rút lại" nói rõ: tiêu đề không hiện; muốn khách biết là tài liệu
+    nào thì nêu trong lý do; tài liệu của khách khác thì đừng nêu tên.
+  - **Chưa làm đường "admin gỡ dòng rút có lý do".** Sau bản sửa, chữ duy nhất còn lại trên dòng rút
+    là lý do — do người rút viết khi đã được báo khách đọc nó. Thêm một đường gỡ là thêm một cách thứ
+    hai làm tài liệu biến khỏi mắt khách không lời giải thích, đúng điều plan Task 7 tránh. Nếu chủ
+    văn phòng muốn sửa được cả một lý do viết sai, đó là một Action mới (cột, audit, nút), cần phán
+    quyết riêng.
+  - Test: `tests/Feature/Portal/RetractedDocumentNoticeTest.php` (ca khách khác, có hình chiếu qua
+    Livewire; mọi test nhận dòng rút bằng lý do), `PortalIsolationSweepTest`,
+    `DocumentsRelationManagerTest`. Đính chính SPEC §4.11 "Khách thấy gì".
+- **I1 — READ VIEW cố định trước khi đợi khoá `matters`.** Hai chỗ: `OpensChecklistItem` (Task 3)
+  đọc trần đầu mục làm câu đầu tiên trong transaction; `RetractDocument` (Task 7) khoá `matters` qua
+  một truy vấn con không khoá. Nay `matter_id` được đọc TRƯỚC `DB::transaction()` (cùng luật M6.5 ở
+  `TriageClientRequest`), và câu đầu tiên trong transaction là câu khoá `matters` theo id.
+  - Đo bằng hai phiên thật trên MariaDB 11.8: `tests/Feature/Actions/MatterLockBeforeSnapshotTest.php`
+    và `tests/Support/MatterLockRace.php` (`pcntl_fork`, chờ có xác minh qua
+    `information_schema.PROCESSLIST`, nhóm `mariadb-locking`).
+  - Trước bản sửa: người vừa bị gỡ khỏi đội ngũ vẫn gạt được "không cần nộp" (`marked`) và vẫn rút
+    được tài liệu (`retracted`). Người vừa bị vô hiệu hoá qua được bước đọc lại rồi chết ở câu UPDATE
+    với lỗi 1020. Sau bản sửa: cả ba ca bị từ chối sạch.
+  - Ba test thứ tự câu lệnh chạy được cả trên SQLite.
+- **I2 — sinh lại gói bàn giao (mục 3 của danh sách quyết ở trên).** Theo đúng mẫu plan Task 7 "bị
+  chặn kèm thông điệp chỉ tới nút Rút":
+  - Gói hiện tại đang ra tới khách thì KHÔNG sinh lại được. `RequestHandoverPackage` từ chối bằng
+    `HandoverPackageUnavailable::released()`; nút trên trang vụ báo câu đó. `BuildHandoverPackage`
+    hỏi lại dưới khoá (gói có thể được công bố trong lúc job chờ hàng) và hỏng với lỗi có tên
+    `previousReleased()`, không tạo version mới.
+  - Job không bao giờ đổi trạng thái hay cờ khách của version cũ nữa.
+  - Tệp của version cũ chỉ bị xoá khi version đó chưa từng tới tay khách: không `retracted` và không
+    có lượt tải của khách. Lượt tải của nhân sự không tính.
+  - Đính chính SPEC §6.12 ("Sinh lại và rút lại"); câu hộp thoại "Sinh lại gói" sửa theo.
+- **I3 — cảnh báo trên form và việc gửi thư hỏi cùng một câu.**
+  - `NotifyClientOfStageUpdate::hasEligibleRecipient()` nay đi đúng hai bước của `handle()`: tài
+    khoản đủ điều kiện, rồi `Gate view` của từng tài khoản (dùng chung `recipientsOnPortal()`).
+  - Câu cảnh báo mới (`archive.stage_update.not_on_portal_warning`) hiện khi khách có tài khoản mà
+    vụ đã rời cổng vì hết hạn tra cứu. `hasEligibleAccount()` chỉ còn để chọn câu nào hiện.
+  - Thêm ngoài phát hiện, tìm ra khi viết test đi hết đường thật:
+    - Trên form "Chuyển giai đoạn", chọn một giai đoạn không kết thúc là MỞ LẠI vụ. Vụ trở lại cổng
+      và thư vẫn đi, nên câu mới chỉ hiện khi giai đoạn đích là giai đoạn kết thúc.
+    - `TransitionMatterStage` nay phát `MatterStageChanged` TRƯỚC `StageLogPublished`. Trước đó, với
+      hàng đợi `sync`, thư của một lần mở lại vụ đã hết hạn tra cứu không đi (đo được: 0 thư thay vì
+      1), vì dòng lưu trữ chưa kịp xoá `client_access_until`. Với hàng đợi thật, đó là một cuộc đua.
+  - Docblock cũ hứa "không bao giờ lệch" đã viết lại.
+- **I4 — log máy chủ không mang thông điệp nào khi sinh gói hỏng.** `RecordHandoverPackageFailure`
+  chỉ ghi `matter_id`, lớp exception và lớp lỗi gốc. Câu tiếng Việt đầy đủ (có tiêu đề tài liệu)
+  vẫn tới `handover_error` và chuông của người xem được vụ. Test với vụ `restricted`
+  (`GenerateHandoverPackageTest`).
+- **Kiểm chứng:**
+  - Cả bộ SQLite (`--parallel --processes=2`): **2826 passed / 9 skipped / 0 failed**, 773 s. Chín
+    test bỏ qua gồm sáu test cũ và ba test đua chỉ chạy trên MariaDB.
+  - MariaDB, tuần tự: 18 tệp test đã sửa hoặc phủ mã đã sửa, gồm cả test đua. Kết quả **478 passed
+    / 0 skipped / 0 failed**, 307 s.
+  - Pint `--test` sạch, 640 tệp.
+  - Vòng này không có migration.
+
+#### Gộp `m7-handover` vào `main` (2026-10-03, `main` @ `88b6044`)
+
+Gộp `--no-ff`, chưa commit (controller commit). Dòng M7 của bảng milestone để controller sửa.
+
+- **16 tệp xung đột, giữ cả hai phía:**
+  - `.env.example`: khối `BRAND_*` + sao lưu/CSP/HTTPS của `main`, rồi khối gói bàn giao
+    (`HANDOVER_QUEUE_RETRY_AFTER`, `HANDOVER_WORK_DIR`, `MEDIA_MAX_FILE_SIZE_MB`); mỗi biến đúng
+    một dòng.
+  - `composer.lock`: lock của `main` cộng đúng năm gói dompdf của làn (`barryvdh/laravel-dompdf`
+    v3.1.2, `dompdf/dompdf` v3.1.6, `dompdf/php-font-lib`, `dompdf/php-svg-lib`,
+    `sabberworm/php-css-parser` — cùng phiên bản với làn). Không gói nào khác đổi. `composer
+    update barryvdh/laravel-dompdf --with-all-dependencies` kéo theo 30 gói (Laravel 13.31 → 13.34,
+    `brick/math` 0.18 → 1.0), nên lock được dựng lại bằng `composer update` CHỈ năm gói đó.
+  - `routes/console.php`: đủ 13 mục lịch, mỗi mục một lần, mọi `withoutOverlapping` có hạn.
+  - `AppServiceProvider`: bốn listener sao lưu của M8a, `Gate::define('bulkReassign')`, morph map có
+    cả năm khoá tiền của M9 lẫn `communication_log`.
+  - `MatterResource::getRelations()`: … Mốc thời hạn, Liên lạc, Hợp đồng và thanh toán, Nhật ký (cuối
+    cùng, SPEC §7.2).
+  - `DocumentPolicy::delete()`: chặn của M7 (đang ra tới khách / đã rút → `false`) TRƯỚC cổng quyền,
+    chặn tiền của M9 (`Response::deny()` kèm lý do) SAU cổng quyền.
+  - `ActivityOwningMatter`: `whereOwnedByAny()` của M7 nhận thêm `$includeMoney`; `scopeVisibleTo()`
+    và `scopeOwnedBy()` (nay nhận `User $viewer`) cùng thả dòng TIỀN chỉ khi có `billing.view`.
+  - `NotifyClientOfStageUpdate`: luật người nhận của `main` (`ResolveClientRecipients`,
+    `eligibleRecipients()` public cho nút "Gửi lại") cộng bước "vụ còn trên cổng" của M7.
+  - `MyMatters` + `MyMattersTest`: nạp sẵn cả `clientRequests.replies` (M6) lẫn
+    `clientAccessArchive` (M7) — phần truy vấn cố định thành **bảy** (`2N + 7`).
+  - `config/vkcrm.php`, `docs/SPEC.md` (§10.6: cả đính chính M8 lẫn M7, cộng một câu: với `main`,
+    M7 thêm chín sự kiện mới, `portal_account_deactivated` đã có từ M8), `lang/vi/{activity, enums,
+    exceptions}.php`, `docs/PROGRESS.md`: giữ mọi khoá, mọi mục.
+- **Gộp ngữ nghĩa (mỗi mục có test đỏ trước, rồi xanh):**
+  1. Ba thư khách của M6 (`client.document_published`, `client.document_rejected`,
+     `client.request_answered`) và `eligibleRecipients()` của thư tiến độ (nút "Gửi lại") hỏi
+     `ResolveClientRecipients::onPortal()` = `Gate::forUser($account)->allows('view', $matter)`:
+     không thư nào tới khách đã hết hạn tra cứu. `NotifyClientOfDocumentPublished` giữ `open()` của
+     M6. Test: một ca mỗi thư trong `tests/Feature/Mail/*NotificationTest.php`, một ca "Gửi lại" ở
+     `ResendOutboundMessageTest`.
+  2. M9 `Document::isReferencedByBillingRecord()`: `RetractDocument` bước 6 từ chối
+     (`DocumentNotRetractable::referencedByBillingRecord()`); `BuildHandoverPackage::keepsFileOf()`
+     giữ tệp của version cũ đang là biên lai (lần sinh lại xoá TỆP qua medialibrary, hook
+     `Document::deleting` không đứng trước). Không đường nào của M7 xoá vụ việc: hook dư nợ của M9
+     không bị vòng qua.
+  3. Tab "Nhật ký" của vụ: dòng hợp đồng/khoản thu chỉ với `billing.view`
+     (`MatterActivityRelationManagerTest`).
+  4. `OfficeProfile`: mười mẫu thư của `main` (`Mail/Client/{Activation, DocumentPublished,
+     DocumentRejected, MissingDocuments, RequestAnswered}`, `Mail/Staff/{BackupAlert,
+     InstalmentOverdue, NewClientDocument, NewClientRequest, StaleMatterReminder}`) đọc
+     `OfficeProfile::current()` trong `content()`. `vkcrm:preflight` đọc bốn thông tin pháp lý qua
+     `OfficeProfile` (test mới: nhập trong app, `.env` trống → XANH); câu VÀNG và `docs/CAI-DAT.md`
+     chỉ tới trang "Thông tin văn phòng". `OfficeProfile` vẫn rơi về
+     `config('vkcrm.brand.office_address')` (mặc định = địa chỉ trụ sở).
+  5. Test cấu trúc của `main` (`MatterTest`: `closed_at` chỉ là điều kiện ở `Matter.php` và
+     `TransitionMatterStage`): 12 tệp của M7 viết lại bằng `isClosed()`/`isOpen()`/`closed()`. Mọi
+     chỗ đều đã loại vụ xoá mềm trước đó (nên `isClosed()` đúng nghĩa cũ), trừ hai nơi đổi có chủ ý:
+     nút danh mục ẩn với vụ đã huỷ (`isOpen()`), và `SyncMatterArchive` đọc vụ `withTrashed()` (chỉ
+     chạy sau `TransitionMatterStage`, vốn từ chối vụ đã huỷ).
+  6. `MailTemplateRegistryTest` của `main`: `staff.matter_reassigned` có nhãn; cả hai thư nội bộ của
+     M7 vào `ResendTargets::NOT_RESENDABLE`, mỗi thư một câu từ chối riêng.
+  7. **M6 và M7 nói ngược nhau về vụ ĐÃ ĐÓNG, M7 thắng** (kế hoạch M7 nhận việc này từ M6.5 Task 21:
+     "Danh mục hồ sơ của vụ đã đóng" là chỉ đọc, khách không nộp thêm). Bốn test của M6 đo "vụ đã
+     đóng vẫn duyệt/nộp được" được viết lại thành điều ngược lại:
+     `DocumentRejectedNotificationTest`, `NewClientDocumentNotificationTest`, `SubmitDocumentTest`
+     (câu cảm ơn không bao giờ hứa trên vụ đã đóng), `ChecklistRelationManagerTest` (bỏ dòng
+     `closed`; `client_deleted` dựng trên vụ còn mở). Hai test "vụ đóng giữa lúc sự kiện bắn và
+     lúc job chạy" của M6 giữ nguyên và vẫn là mutation probe cho "listener không đòi vụ còn mở".
+- **Kiểm chứng:** `bin/dev test --parallel --processes=4` → **4317 passed, 29 skipped, 1 risky,
+  1 todo, 0 failed** (18922 khẳng định, 996 s). `bin/dev test:mariadb`, tuần tự, 28 tệp (mọi test
+  khoá/đua của làn, gồm `MatterLockBeforeSnapshotTest` hai phiên thật, cộng mọi tệp test chạm tới
+  mã đã sửa lúc gộp) → **636 passed, 0 skipped, 0 failed** (562 s). `pint --test` sạch (206 tệp
+  PHP của lần gộp; cả dự án 928 tệp).
+- **Việc cần controller/chủ văn phòng quyết (mới, do gộp):**
+  - Gói bàn giao luôn nằm trên vụ đã kết thúc, mà `client.document_published` (M6) đòi vụ còn mở —
+    nên công bố gói KHÔNG gửi thư cho khách (trái câu "công bố gói qua `PublishDocument` sẽ tự gửi
+    thư" ở mục Task 11 trên). Muốn có thư thì nới `open()` cho tài liệu gói (cổng `onPortal()` đã
+    chặn vụ hết hạn tra cứu).
+  - `RetractDocument` từ chối biên lai/phụ lục đúng như hai làn đã thống nhất. Rút không xoá gì,
+    nên phần chặn này chỉ khoá một bản scan tiền bị công bố nhầm lại trên cổng (đường: nhóm D → đổi
+    nhóm → công bố). Nếu muốn rút được, bỏ bước đó ở `RetractDocument` (policy xoá và hook vẫn giữ
+    bằng chứng).
+  - Đầu mục khách nộp khi vụ còn mở rồi vụ đóng trước khi duyệt: danh mục chỉ đọc nên không duyệt
+    hay từ chối được nữa, và câu cảm ơn đã hứa "sẽ gửi email nếu có gì chưa ổn".

@@ -126,7 +126,7 @@ Nếu gói là một chuỗi đường dẫn trong `matter_archives.handover_pac
 
 ## Tasks
 
-### - [ ] Task 1 — Phần còn lại của `ReassignMatter` (SPEC §6.11)
+### - [x] Task 1 — Phần còn lại của `ReassignMatter` (SPEC §6.11)
 
 **Đã làm ở M6.5 Task 4 (một vụ):** đổi `lead_lawyer_id` và `matter_user`, dòng `stage_logs` nội bộ, chuyển mốc hạn và yêu cầu khách chưa đóng, audit, và luật chặn vô hiệu hoá (R6). **Không viết lại.**
 
@@ -134,7 +134,7 @@ Còn lại:
 - Nếu M6.5 Task 4 ghi rằng thư tổng hợp mốc hạn cho người nhận bị hoãn, vì hạ tầng thư của M6.5 Task 11 chưa có lúc đó, thì làm thư đó ở đây. Thư đi qua hàng đợi, người nhận theo R3.
 - Ghi đính chính SPEC §6.11 bước 3 và §11 theo R10.
 
-### - [ ] Task 2 — Màn hình bàn giao hàng loạt
+### - [x] Task 2 — Màn hình bàn giao hàng loạt
 
 - Chọn nhiều vụ việc của một luật sư và bàn giao cùng lúc, qua **đúng `ReassignMatter`**. Một vòng lặp gọi Action, không phải một truy vấn `update()` hàng loạt: mỗi vụ phải có dòng `stage_logs` và mốc hạn của nó.
 - Báo cáo kết quả từng vụ, kể cả vụ thất bại, thay vì một thông điệp chung.
@@ -144,7 +144,7 @@ Còn lại:
 - Thêm liên kết tới màn hình này vào thông điệp chặn vô hiệu hoá của M6.5 (R6).
 - Test Livewire cho các điểm trên.
 
-### - [ ] Task 3 — Lưu trữ khi vụ việc kết thúc
+### - [x] Task 3 — Lưu trữ khi vụ việc kết thúc
 
 **Bảng `matter_archives` đã có từ M1** (migration `2026_09_14_000020`), cùng model, policy (portal `1 = 0`) và factory. Không tạo lại bảng.
 
@@ -167,7 +167,7 @@ Còn lại:
   - **Danh mục hồ sơ của vụ đã đóng.** Thêm đầu mục, duyệt, từ chối và "không áp dụng" trên một vụ có `closed_at` hiện không bị chặn ở đâu (có từ trước M6.5; SPEC im lặng; R8 chỉ định nghĩa `closed_at`). Phán quyết Task 15 của M6.5 hoãn sang M7. Task này quyết vụ đã đóng là chỉ đọc với danh mục (đề xuất), chặn ở Action, và thông điệp tiếng Việt chỉ đường mở lại vụ.
   - **Đổi `is_terminal` của một giai đoạn** trên màn hình cấu hình không cập nhật các vụ đang đứng ở giai đoạn đó (việc nhỏ hoãn lại của M6.5 Task 5): vụ đang ở giai đoạn vừa thành "kết thúc" không có `closed_at`, và ngược lại. Hoặc chặn đổi cờ khi giai đoạn đang có vụ, hoặc đồng bộ `closed_at` và bản ghi archive trong cùng Action; chọn một và ghi lý do.
 
-### - [ ] Task 4 — `GenerateHandoverPackage` (SPEC §6.12, R1, R8, R9)
+### - [x] Task 4 — `GenerateHandoverPackage` (SPEC §6.12, R1, R8, R9)
 
 Job trên hàng đợi `handover` (R9) dựng zip theo R8, kèm `MUC-LUC.pdf` sinh tự động (R3). `MUC-LUC.pdf` gồm:
 - thông tin vụ việc;
@@ -187,7 +187,7 @@ Kết quả là một `Document` nhóm B ở `signed_filed` (R1). Xong thì báo
 - Hai tài liệu cùng tiêu đề, và một tiêu đề chứa `../`: entry đúng, không đè nhau, không thoát khỏi thư mục nhóm.
 - Job lỗi giữa chừng: không để lại tệp dở dang, luật sư được báo, bấm sinh lại được.
 
-### - [ ] Task 5 — `ExpireClientAccess` (R4)
+### - [x] Task 5 — `ExpireClientAccess` (R4)
 
 - Tác vụ hằng ngày. Đăng ký lịch, kèm test ghim giờ chạy như M6.5 Task 14 đã làm cho `CheckDeadlines`.
 - Quá `client_access_until` thì vụ việc rời portal ở **cả hai tầng**. Mỗi tầng một điều kiện độc lập, mỗi tầng một mutation probe. Sửa docblock `MatterPolicy` từ "bốn điều kiện" thành năm (M6.5 Task 2 đã thêm điều kiện thứ tư: khách chưa bị xoá mềm).
@@ -198,7 +198,7 @@ Kết quả là một `Document` nhóm B ở `signed_filed` (R1). Xong thì báo
   - một URL tải có chữ ký phát ra trước ngày hết hạn trả 404 sau ngày hết hạn;
   - việc vô hiệu hoá có dòng trong activity log.
 
-### - [ ] Task 6 — `FlagRetentionExpiry` và ghi quyết định tiêu huỷ (R5)
+### - [x] Task 6 — `FlagRetentionExpiry` và ghi quyết định tiêu huỷ (R5)
 
 - **`FlagRetentionExpiry`:** cảnh báo quản trị khi có hồ sơ quá `retention_until` mà `destroyed_at` còn null. Không xoá.
 - **Action `RecordMatterDestruction`**, chỉ admin: ghi `destroyed_at`, người quyết định, lý do và số biên bản, cùng một dòng audit. Action này **không xoá gì**. Việc huỷ vật lý hồ sơ giấy và tệp là thao tác có biên bản ngoài hệ thống. Sau khi đã ghi quyết định, `FlagRetentionExpiry` bỏ qua vụ đó, để cảnh báo không lặp mãi.
@@ -208,7 +208,7 @@ Kết quả là một `Document` nhóm B ở `signed_filed` (R1). Xong thì báo
   - người không phải admin không gọi được Action;
   - một test cấu trúc quét **lời gọi** `->forceDelete(` trên các model hồ sơ. Không quét chuỗi `forceDelete`: `ForceDeleteBulkAction` bị policy chặn vẫn hợp lệ trong bảng.
 
-### - [ ] Task 7 — Rút lại tài liệu đã công bố (`RetractDocument`)
+### - [x] Task 7 — Rút lại tài liệu đã công bố (`RetractDocument`)
 
 Món nợ mang từ M4 sang (`docs/docs-6`): hôm nay một tài liệu công bố nhầm cho khách **không có đường rút lại đúng nghiệp vụ**.
 
@@ -222,7 +222,7 @@ Món nợ mang từ M4 sang (`docs/docs-6`): hôm nay một tài liệu công b�
 - **Một đường rút duy nhất.** Với tài liệu đã công bố, "chuyển sang nhóm D" và "xoá" hoặc đi qua `RetractDocument`, hoặc bị chặn kèm thông điệp chỉ tới nút Rút. Đây là hai "đường rút tạm thời" mà PROGRESS ghi ở M4. M6.5 Task 21 sửa câu tương ứng trong PROGRESS.
 - **Trước hết, sửa khoá ngoại `document_downloads.document_id` khỏi `cascadeOnDelete`.** Nếu không, xoá một tài liệu sẽ xoá luôn bằng chứng tải của nó. Đây là migration, nên áp dụng luật MariaDB thật.
 
-### - [ ] Task 8 — Nhật ký liên lạc và nhật ký riêng của vụ việc (SPEC §7.2, §13 dòng M7)
+### - [x] Task 8 — Nhật ký liên lạc và nhật ký riêng của vụ việc (SPEC §7.2, §13 dòng M7)
 
 SPEC §13 liệt kê "nhật ký liên lạc" trên dòng M7, và §7.2 đặc tả hẳn một tab. Bảng `communication_logs` có từ M1, policy có từ M2, nhưng **không có màn hình nào để ghi một cuộc gọi**. M5 đã phán quyết bảng này không lên cổng khách.
 
@@ -241,7 +241,7 @@ Phán quyết kèm theo:
   - `delete` hiện mở cho bất kỳ ai xem được vụ: đổi thành xoá mềm kèm lý do bắt buộc và một dòng audit, như `stage_logs`.
 - `CommunicationLogPolicy::view` **đã đúng** từ d069424. Không sửa lại.
 
-### - [ ] Task 9 — Tìm kiếm (SPEC §6.13, R7)
+### - [x] Task 9 — Tìm kiếm (SPEC §6.13, R7)
 
 - Một ô tìm kiếm trên admin, là một trang tự viết (luật `canAccess()` của M6.5). Nó tìm đồng thời trong: mã hồ sơ, tiêu đề vụ việc, tên khách hàng, số thụ lý của toà, tên các bên, tiêu đề tài liệu.
 - Dựng trên phần đã có: ô tìm của `MattersTable` đã tìm được mã, tên khách, tiêu đề và luật sư. `matter_parties.name_normalized` đã có index.
@@ -255,7 +255,7 @@ Phán quyết kèm theo:
   - vụ `restricted` không lộ với người ngoài đội ngũ.
 - Chạy cả dưới `test:mariadb`: `utf8mb4_unicode_ci` bỏ qua dấu nhưng coi "đ" khác "d", còn SQLite so theo byte.
 
-### - [ ] Task 10 — Thông tin văn phòng sửa được trong app
+### - [x] Task 10 — Thông tin văn phòng sửa được trong app
 
 Chủ văn phòng quyết ngày 2026-09-24 sẽ nhập thông tin pháp lý sau, **trong app**. Hôm nay mọi thông tin thương hiệu nằm ở `config/vkcrm.php` và chỉ đổi được qua `.env`, tức là phải có người sửa máy chủ.
 
@@ -275,7 +275,7 @@ Chủ văn phòng quyết ngày 2026-09-24 sẽ nhập thông tin pháp lý sau,
   - để trống thì chân thư và chân PDF bỏ hẳn dòng đó.
 - Migration → vòng MariaDB thật.
 
-### - [ ] Task 11 — Nghiệm thu, tài liệu, cổng merge
+### - [x] Task 11 — Nghiệm thu, tài liệu, cổng merge
 
 - Liệt kê theo tên bốn test SPEC §11 "Bàn giao và lưu trữ", trong đó hai test nằm ở M6.5 Task 4, và chạy chúng.
 - Sinh gói thật từ vụ đã kết thúc trong seed (Task 3), giải nén, và dán danh sách entry.

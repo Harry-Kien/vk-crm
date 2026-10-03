@@ -161,6 +161,25 @@ class ResolveStaffRecipients
     }
 
     /**
+     * M7 Task 6 (R5): MỌI admin đang hoạt động được xem `$matter` — người nhận cảnh báo "hồ sơ quá
+     * hạn lưu trữ" (`App\Actions\Schedule\FlagRetentionExpiry`). Quyết định tiêu huỷ là việc của
+     * quản trị, không của luật sư phụ trách hay trưởng phòng, nên đây không phải
+     * {@see self::supervisorsFor()} (manager cho vụ thường) và không có chuỗi dự phòng: không còn
+     * admin nào thì trả rỗng (R7 của M6.5 cấm chính điều đó). Truy vấn chỉ chọn vai trò; ba điều
+     * kiện người nhận (`is_active`, chưa xoá mềm, `Gate::view()`) nằm ở MỘT chỗ,
+     * {@see self::qualify()}, như mọi danh sách khác — không lọc `is_active` lần thứ hai ở đây.
+     *
+     * @return Collection<int, User>
+     */
+    public function activeAdminsFor(Matter $matter): Collection
+    {
+        return $this->qualify(
+            User::query()->role(Role::Admin->value)->orderBy('id')->get(),
+            $matter,
+        );
+    }
+
+    /**
      * Một người CÓ qua được `is_active` + `Gate::view()` của `$matter` hay không — cùng luật của
      * {@see self::qualify()}, chỉ khác là hỏi về MỘT người thay vì lọc một danh sách. Dùng khi
      * caller cần biết "người X có còn hợp lệ không" để tự quyết định thay THẾ họ bằng ai (ví dụ

@@ -14,11 +14,13 @@ use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Document;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\OutboundMessage;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
@@ -390,3 +392,37 @@ it('tells the lead lawyer in-app when the document mail fails for good', functio
     expect($notice)->not->toBeNull()
         ->and($notice->data['title'] ?? null)->toBe(__('matters.document_published_failed_notification.title'));
 });
+
+/**
+ * Gộp M7 vào `main` (PROGRESS "Ghi chú M7", Task 11, "Lúc gộp `main`"): "vụ còn trên cổng" lúc gửi
+ * được hỏi bằng ĐỊNH NGHĨA cổng của chính người nhận — `Gate::forUser($account)->allows('view',
+ * $matter)`, gồm điều kiện "chưa hết hạn tra cứu" của M7 Task 5 (R4) — CỘNG với hai cổng sẵn có của
+ * thư này (vụ còn mở, `is_published_to_portal`), không thay chúng.
+ *
+ * Trên đường sản phẩm, vụ đã hết hạn tra cứu luôn là vụ đã đóng, nên `open()` đã chặn trước; test này
+ * dựng thẳng trạng thái "vụ còn mở nhưng dòng lưu trữ nói hạn tra cứu đã qua" (một dòng lưu trữ mà
+ * lần mở lại không dọn) để đo riêng tầng mới: thư không bao giờ nói khác điều cổng đang cho khách
+ * thấy. Vế dương: hôm nay là ngày tra cứu cuối thì thư vẫn đi.
+ */
+it('mails nothing when the portal no longer shows the matter to the client, but still mails on its last day', function (string $accessUntil, int $expected) {
+    $this->travelTo(Carbon::parse('2026-10-21 09:00:00'));
+    Event::fake([DocumentPublished::class]);
+    [$matter, $lawyer, $account, $document] = publishableMatterWithClientAccount();
+    $published = publishAsLawyer($document, $lawyer);
+
+    MatterArchive::factory()->create(['matter_id' => $matter->id, 'client_access_until' => $accessUntil]);
+    // Vụ thứ hai của cùng khách, còn trên cổng: lý do tài khoản vẫn hoạt động.
+    Matter::factory()->create(['client_id' => $account->client_id, 'is_published_to_portal' => true]);
+
+    $notifier = app(NotifyClientOfDocumentPublished::class);
+
+    expect($notifier->eligibleRecipients($published->fresh()))->toHaveCount($expected);
+
+    Mail::fake();
+
+    expect($notifier->handle($published->fresh()))->toBe($expected);
+    Mail::assertSent(DocumentPublishedMail::class, $expected);
+})->with([
+    'đã hết hạn tra cứu từ hôm nay' => ['2026-10-20', 0],
+    'hôm nay là ngày tra cứu cuối' => ['2026-10-21', 1],
+]);

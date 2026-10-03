@@ -298,12 +298,22 @@ it('gates answering a client request by writing to the matter, not just seeing i
  * trợ lý vẫn xoá được. Cái phân biệt được vòng đời tài liệu với công việc hồ sơ thường ngày là
  * `document.publish`: đúng nhóm vai trò mà SPEC §5 giao quyền quyết định tài liệu ra tới khách.
  */
+/**
+ * M7 Task 7: xoá không còn là một đường rút — tài liệu ĐANG ra tới khách (`publishedDoc`) không ai
+ * xoá được, kể cả lead và admin; họ dùng "Rút lại". Luật "chỉ vai trò công bố mới xoá" đo trên một
+ * bản nháp cùng nhóm, khách chưa từng thấy.
+ */
 it('lets the team edit a document but limits deleting it to the roles that publish', function () {
+    $draft = Document::factory()->for($this->matter)->group(DocumentGroup::Issued)->create();
+
     expect($this->assistant->can('update', $this->publishedDoc))->toBeTrue()
         ->and($this->assistant->can('delete', $this->publishedDoc))->toBeFalse()
         ->and($this->lead->can('update', $this->publishedDoc))->toBeTrue()
-        ->and($this->lead->can('delete', $this->publishedDoc))->toBeTrue()
-        ->and($this->admin->can('delete', $this->publishedDoc))->toBeTrue()
+        ->and($this->lead->can('delete', $this->publishedDoc))->toBeFalse()
+        ->and($this->admin->can('delete', $this->publishedDoc))->toBeFalse()
+        ->and($this->assistant->can('delete', $draft))->toBeFalse()
+        ->and($this->lead->can('delete', $draft))->toBeTrue()
+        ->and($this->admin->can('delete', $draft))->toBeTrue()
         ->and($this->outsider->can('update', $this->publishedDoc))->toBeFalse()
         ->and($this->outsider->can('delete', $this->publishedDoc))->toBeFalse()
         ->and($this->accountant->can('update', $this->publishedDoc))->toBeFalse()

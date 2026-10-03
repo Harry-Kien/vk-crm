@@ -4,11 +4,8 @@ use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Enums\Role;
-use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
-use App\Filament\Admin\Resources\Matters\RelationManagers\ChecklistRelationManager;
 use App\Filament\Portal\Pages\MatterProgress;
 use App\Filament\Portal\Pages\SubmitDocument;
-use App\Mail\Client\DocumentRejected;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Document;
@@ -19,9 +16,7 @@ use App\Models\User;
 use App\Support\Scopes\ClientPortalScope;
 use App\Support\UploadThrottle;
 use Database\Seeders\RolesAndPermissionsSeeder;
-use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
-use Filament\Notifications\Notification;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Http\Events\RequestHandled;
 use Illuminate\Http\UploadedFile;
@@ -484,20 +479,17 @@ it('says the office is now checking the file, in those words', function () {
 });
 
 /**
- * Rà soát cuối làn M6 (I1): câu cảm ơn sau khi nộp (`portal_submit.done.body`) hứa "Nếu có gì chưa
- * ổn, chúng tôi sẽ gửi email nêu rõ lý do" — VÔ ĐIỀU KIỆN, kể cả trên một vụ ĐÃ ĐÓNG mà văn phòng
- * còn để trên cổng. Khách nộp được ở đó (`DocumentPolicy::create` → `MatterPolicy::releasedToPortal`
- * không hỏi `closed_at`), nên lần từ chối trên màn hình duyệt của văn phòng phải thật sự gửi thư
- * `client.document_rejected`. Trước bản sửa, `NotifyClientOfChecklistItemRejected::notifiableMatter()`
- * đòi `Matter::open()`: câu hứa hiện ra, thư không bao giờ đi, và toast của người duyệt nói "vụ
- * việc đã đóng" như thể đó là lý do chính đáng.
- *
- * Đi hết đường thật ở cả hai phía: nộp qua trang nộp của cổng, từ chối qua nút "Cần nộp lại" của
- * `ChecklistRelationManager` — không gọi Action nào trực tiếp.
- *
- * Mutation probe: thêm lại `->open()` vào `notifiableMatter()` — test này ĐỎ.
+ * Rà soát cuối làn M6 (I1) — VIẾT LẠI khi gộp M7 vào `main`. Câu cảm ơn sau khi nộp
+ * (`portal_submit.done.body`) hứa "Nếu có gì chưa ổn, chúng tôi sẽ gửi email nêu rõ lý do". Bản M6
+ * giữ lời hứa đó trên một vụ ĐÃ ĐÓNG còn trên cổng bằng cách cho lần từ chối ở đó gửi thư. Từ M7
+ * Task 3 (kế hoạch M7, "Danh mục hồ sơ của vụ đã đóng" — việc M6.5 hoãn sang M7) danh mục của vụ đã
+ * đóng là chỉ đọc, nên văn phòng không còn từ chối được ở đó — lời hứa chỉ giữ được nếu nó không bao
+ * giờ được nói ra: cổng từ chối lần nộp TRƯỚC câu cảm ơn (`MatterClosedForSubmission`, câu mời gọi
+ * hotline — test "shows a sentence inviting the client to call the office…" dưới đây), đầu mục không
+ * đổi, không tài liệu nào được tạo, không thư nào đi. Trên vụ còn mở, lời hứa được giữ —
+ * `ChecklistRelationManagerTest`, "tells the reviewer after rejecting…", dòng `email`.
  */
-it('keeps the email promise of the thank-you sentence on a closed matter the office left on the portal', function () {
+it('never makes the email promise of the thank-you sentence on a closed matter the office left on the portal', function () {
     Mail::fake();
     $this->matter->update(['closed_at' => now()->subDay()]);
 
@@ -505,30 +497,14 @@ it('keeps the email promise of the thank-you sentence on a closed matter the off
         ->call('chooseItem', $this->item->getKey())
         ->set('data.file', submitPagePdf())
         ->call('submit')
-        ->assertHasNoErrors();
+        ->assertHasErrors('data.file');
 
     expect(submitRegion($component->html()))
-        ->toContain(e(__('portal_submit.done.body', ['name' => $this->item->name])))
-        ->and($this->item->refresh()->status)->toBe(ChecklistItemStatus::PendingReview);
+        ->not->toContain(e(__('portal_submit.done.body', ['name' => $this->item->name])))
+        ->and($this->item->refresh()->status)->toBe(ChecklistItemStatus::Missing)
+        ->and(Document::query()->count())->toBe(0);
 
-    Filament::setCurrentPanel('admin');
-    $this->actingAs($this->lawyer, 'web');
-
-    $this->livewire(ChecklistRelationManager::class, [
-        'ownerRecord' => $this->matter->fresh(),
-        'pageClass' => ViewMatter::class,
-    ])
-        ->callAction(TestAction::make('reject')->table($this->item), data: [
-            'rejection_reason' => __('checklist.rejection_templates.blurred'),
-        ])
-        ->assertHasNoActionErrors();
-
-    expect($this->item->refresh()->status)->toBe(ChecklistItemStatus::Rejected);
-    Notification::assertNotified(__('checklist.tab.actions.reject_success'));
-    Mail::assertSent(
-        DocumentRejected::class,
-        fn (DocumentRejected $mail): bool => $mail->hasTo($this->clientUser->email),
-    );
+    Mail::assertNothingSent();
 });
 
 /**
@@ -1005,6 +981,33 @@ it('answers with 404 when the office pulls the matter off the portal between two
     $component->call('submit')->assertNotFound();
 
     expect(Document::query()->count())->toBe(0);
+});
+
+/**
+ * M7 Task 3 — vế THỨ BA, cố ý tách khỏi hai test 404 ngay trên (gộp lại thì cái này che cái kia,
+ * cùng lý lẽ ngay phía trên). "Vụ đã đóng" đi ra bằng một câu HIỆN TRÊN Ô TỆP, không phải 404:
+ * `SubmitClientDocument` ném `MatterClosedForSubmission` — một `DomainException` riêng, KHÔNG
+ * `AuthorizationException` — chính xác để trang này KHÔNG đổi nó thành `abort(404)` (xem
+ * docblock `SubmitClientDocument`, mục "M7 Task 3", và docblock lớp exception đó). Khách đã có
+ * quyền hợp lệ trên đúng đầu mục này; câu cần đọc là lời mời gọi hotline, không phải một trang
+ * trống.
+ */
+it('shows a sentence inviting the client to call the office when the matter has closed, not a 404', function () {
+    $component = submitPage()
+        ->call('chooseItem', $this->item->getKey())
+        ->set('data.file', submitPagePdf());
+
+    $this->matter->update(['closed_at' => now()->subDay()]);
+
+    $component->call('submit');
+
+    $component->assertHasErrors('data.file');
+
+    expect($component->errors()->first('data.file'))
+        ->toBe(__('checklist.submit.matter_closed', ['hotline' => config('vkcrm.brand.hotline')]));
+
+    expect(Document::query()->count())->toBe(0)
+        ->and($this->item->fresh()->status)->toBe(ChecklistItemStatus::Missing);
 });
 
 // =========================================================================================

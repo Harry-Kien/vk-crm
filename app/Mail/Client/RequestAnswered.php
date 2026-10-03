@@ -5,6 +5,7 @@ namespace App\Mail\Client;
 use App\Mail\BrandedMailable;
 use App\Models\ClientRequestReply;
 use App\Models\ClientUser;
+use App\Support\OfficeProfile;
 use App\Support\PortalUrl;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Mail\Mailables\Content;
@@ -57,8 +58,11 @@ class RequestAnswered extends BrandedMailable
         );
     }
 
+    /** Đọc thông tin văn phòng LÚC RENDER, không lúc xếp hàng — xem docblock `OfficeProfile`. */
     public function content(): Content
     {
+        $office = OfficeProfile::current();
+
         return new Content(
             view: 'emails.client.request-answered',
             text: 'emails.client.request-answered-text',
@@ -66,8 +70,8 @@ class RequestAnswered extends BrandedMailable
                 'name' => $this->recipient->name,
                 'matterCode' => $this->reply->request?->matter?->code,
                 'portalUrl' => PortalUrl::base(),
-                'office' => config('vkcrm.brand.legal_name'),
-                'hotline' => config('vkcrm.brand.hotline'),
+                'office' => $office->legalName(),
+                'hotline' => $office->hotline(),
             ],
         );
     }

@@ -48,6 +48,13 @@ use Throwable;
  * tổng và mang đúng nội dung mà ranh giới portal đang giấu (R6: "chỉ chứa nội dung đã công bố").
  * Sửa: nạp `Matter` với `->where('is_published_to_portal', true)` ngay cạnh `->open()`, cùng cách
  * `NotifyClientOfStageUpdate::stillReleasedToPortal()` đã làm cho `client.stage_update`.
+ *
+ * **Gộp M7 vào `main` (PROGRESS "Ghi chú M7", Task 11): vụ còn trên cổng của CHÍNH người nhận.**
+ * Ngoài hai cổng trên (vụ còn mở, cờ `is_published_to_portal`), mỗi người nhận R12 còn phải qua
+ * {@see ResolveClientRecipients::onPortal()} (`MatterPolicy::view` nhánh khách — gồm "chưa hết hạn
+ * tra cứu" của M7 Task 5), để thư không bao giờ nói khác điều cổng đang cho chính khách đó thấy.
+ * Giữ nguyên `open()` (quyết định của M6 Task 3): vì vậy công bố gói bàn giao — luôn trên một vụ đã
+ * kết thúc (M7 Task 4) — không gửi thư này.
  */
 class NotifyClientOfDocumentPublished
 {
@@ -107,7 +114,8 @@ class NotifyClientOfDocumentPublished
 
     /**
      * Phần sau cổng "tài liệu còn ra tới khách": vụ việc còn mở VÀ còn công bố portal (fix round
-     * 1, Critical 1), rồi tài khoản R12.
+     * 1, Critical 1), rồi tài khoản R12 mà vụ còn trên cổng của chính họ (gộp M7 — xem docblock
+     * lớp). Bản ghi vụ ĐẦY ĐỦ (không chọn vài cột), vì `onPortal()` hỏi `MatterPolicy::view` trên nó.
      *
      * @return Collection<int, ClientUser>
      */
@@ -118,13 +126,15 @@ class NotifyClientOfDocumentPublished
             ->whereKey($fresh->matter_id)
             ->open()
             ->where('is_published_to_portal', true)
-            ->first(['id', 'client_id']);
+            ->first();
 
         if ($matter === null) {
             return collect();
         }
 
-        return app(ResolveClientRecipients::class)->recipientsFor($matter->client_id);
+        $recipients = app(ResolveClientRecipients::class);
+
+        return $recipients->onPortal($matter, $recipients->recipientsFor($matter->client_id));
     }
 
     /**

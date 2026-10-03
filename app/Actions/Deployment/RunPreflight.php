@@ -6,6 +6,7 @@ use App\Enums\PreflightLevel;
 use App\Http\Middleware\RestrictAdminIpAllowlist;
 use App\Models\User;
 use App\Support\Backup\RcloneProcess;
+use App\Support\OfficeProfile;
 use Database\Seeders\DemoAccountsSeeder;
 use Database\Seeders\DemoDataSeeder;
 use Illuminate\Http\Client\ConnectionException;
@@ -216,19 +217,27 @@ class RunPreflight
             : $this->row('gd', PreflightLevel::Yellow, __('preflight.gd_missing'));
     }
 
+    /**
+     * Bốn thông tin pháp lý của chân thư. Gộp M7 vào `main`: đọc qua {@see OfficeProfile} (bảng
+     * `settings` mà chủ văn phòng nhập ở trang "Thông tin văn phòng", M7 Task 10 → cấu hình) — CÙNG
+     * nguồn mà chân mọi thư (`BrandFooter`) và `MUC-LUC.pdf` in ra, nên dòng này không báo "còn
+     * thiếu" một giá trị đang in đúng. Tên biến `.env` vẫn được nêu: đó là nơi thứ hai điền được.
+     */
     private function brandFieldsRow(): array
     {
+        $office = OfficeProfile::current();
+
         $fields = [
-            'tax_code' => 'BRAND_TAX_CODE',
-            'bar_association' => 'BRAND_BAR_ASSOCIATION',
-            'licence_number' => 'BRAND_LICENCE_NUMBER',
-            'office_address' => 'BRAND_OFFICE_ADDRESS',
+            'BRAND_TAX_CODE' => $office->taxCode(),
+            'BRAND_BAR_ASSOCIATION' => $office->barAssociation(),
+            'BRAND_LICENCE_NUMBER' => $office->licenceNumber(),
+            'BRAND_OFFICE_ADDRESS' => $office->officeAddress(),
         ];
 
         $missing = [];
 
-        foreach ($fields as $configKey => $envName) {
-            if (blank(config('vkcrm.brand.'.$configKey))) {
+        foreach ($fields as $envName => $value) {
+            if (blank($value)) {
                 $missing[] = $envName;
             }
         }

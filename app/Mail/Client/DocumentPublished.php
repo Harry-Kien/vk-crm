@@ -6,6 +6,7 @@ use App\Actions\Notification\ResolveClientRecipients;
 use App\Mail\BrandedMailable;
 use App\Models\ClientUser;
 use App\Models\Document;
+use App\Support\OfficeProfile;
 use App\Support\PortalUrl;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Mail\Mailables\Content;
@@ -57,8 +58,11 @@ class DocumentPublished extends BrandedMailable
         );
     }
 
+    /** Đọc thông tin văn phòng LÚC RENDER, không lúc xếp hàng — xem docblock `OfficeProfile`. */
     public function content(): Content
     {
+        $office = OfficeProfile::current();
+
         return new Content(
             view: 'emails.client.document-published',
             text: 'emails.client.document-published-text',
@@ -68,8 +72,8 @@ class DocumentPublished extends BrandedMailable
                 'documentTitle' => $this->document->title,
                 'groupLabel' => $this->document->group->label(),
                 'portalUrl' => PortalUrl::base(),
-                'office' => config('vkcrm.brand.legal_name'),
-                'hotline' => config('vkcrm.brand.hotline'),
+                'office' => $office->legalName(),
+                'hotline' => $office->hotline(),
             ],
         );
     }

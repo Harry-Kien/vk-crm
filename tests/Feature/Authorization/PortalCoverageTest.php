@@ -4,6 +4,7 @@ use App\Models\ClientUser;
 use App\Models\Concerns\RestrictedToClientPortal;
 use App\Models\MatterType;
 use App\Models\MatterTypeStage;
+use App\Models\Setting;
 use App\Models\SystemHealth;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
@@ -56,6 +57,11 @@ it('makes every model state whether the portal may read it', function () {
      *   nên một scope theo khách hàng ở đây là vô nghĩa. Ranh giới thật là ở màn hình:
      *   `SystemHealthWidget::canView()` chỉ trả true cho nhân sự nội bộ, và không màn hình nào
      *   của cổng khách đọc bảng này. Có test cho cả hai điều đó.
+     * - Setting (M7 Task 10): cấu hình khoá–giá trị của hệ thống, không mang dữ liệu của khách nào.
+     *   Cổng PHẢI đọc được chín thông tin văn phòng trong đó (hotline trên trang lỗi, chân trang
+     *   đăng nhập) qua `App\Support\OfficeProfile`; một scope theo khách ở đây sẽ lặng lẽ đưa cổng
+     *   về giá trị `.env` cũ. Ranh giới thật: không màn hình nào của cổng đọc `Setting` trực tiếp,
+     *   chỉ đọc chín trường công khai qua `OfficeProfile` (test cấu trúc ở `OfficeProfileTest`).
      */
     $exempt = [
         User::class,
@@ -63,6 +69,7 @@ it('makes every model state whether the portal may read it', function () {
         MatterType::class,
         MatterTypeStage::class,
         SystemHealth::class,
+        Setting::class,
     ];
 
     $classes = portalCoverageModelClasses();

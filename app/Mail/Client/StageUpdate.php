@@ -5,6 +5,7 @@ namespace App\Mail\Client;
 use App\Mail\BrandedMailable;
 use App\Models\ClientUser;
 use App\Models\StageLog;
+use App\Support\OfficeProfile;
 use App\Support\PortalUrl;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Mail\Mailables\Content;
@@ -56,8 +57,11 @@ class StageUpdate extends BrandedMailable
         );
     }
 
+    /** Đọc thông tin văn phòng LÚC RENDER, không lúc xếp hàng — xem docblock `OfficeProfile`. */
     public function content(): Content
     {
+        $office = OfficeProfile::current();
+
         return new Content(
             view: 'emails.client.stage-update',
             text: 'emails.client.stage-update-text',
@@ -71,8 +75,8 @@ class StageUpdate extends BrandedMailable
                 // nên `url()` lấy nhầm host quản trị khi ADMIN_DOMAIN/PORTAL_DOMAIN tách riêng.
                 // Xem docblock `App\Support\PortalUrl`.
                 'portalUrl' => PortalUrl::base(),
-                'office' => config('vkcrm.brand.legal_name'),
-                'hotline' => config('vkcrm.brand.hotline'),
+                'office' => $office->legalName(),
+                'hotline' => $office->hotline(),
             ],
         );
     }

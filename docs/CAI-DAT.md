@@ -315,8 +315,12 @@ Ba điều cần nói rõ hơn một dòng bảng:
    Chủ văn phòng cần xác nhận địa chỉ mặc định có đúng không (sổ tay M6.5 ghi việc này đang chờ trả
    lời).
 
-**Bốn thông tin pháp lý nằm ở `.env` cho tới khi M7 Task 10 được gộp vào** — từ đó chủ văn phòng
-sửa chúng ngay trong ứng dụng, không cần quyền vào máy chủ.
+**Từ M7 Task 10, chủ văn phòng sửa bốn thông tin pháp lý (cùng tên pháp lý, hotline, Zalo,
+website, email liên hệ) ngay trong ứng dụng** — trang "Thông tin văn phòng" trong `/admin`, chỉ
+quản trị viên — không cần quyền vào máy chủ. Giá trị nhập trong ứng dụng thắng giá trị trong
+`.env`; ô để trống thì dùng `.env` (rồi mặc định của `config/vkcrm.php`). Chạy `php artisan
+migrate --force` (Bước 5) TRƯỚC khi mở lại web và hàng đợi: chân trang cổng, trang 404 và mọi thư
+đều đọc bảng `settings`.
 
 ### Bước 4 — Máy chủ web
 
@@ -508,8 +512,8 @@ khi máy chủ web và HTTPS ở Bước 4 đã lên), và ba điều kiện má
 - cộng tệp chạy `rclone` cho đích Google Drive (Bước 1 của `docs/SAO-LUU-KHOI-PHUC.md` —
   `vkcrm:preflight` không kiểm riêng `rclone`, dùng `vkcrm:backup-check` cho việc đó).
 
-Dòng ĐỎ chặn mở cổng; dòng VÀNG (ví dụ bốn thông tin pháp lý `BRAND_*` chưa điền — xem M7
-Task 10) không chặn nhưng nên xử lý sớm.
+Dòng ĐỎ chặn mở cổng; dòng VÀNG (ví dụ bốn thông tin pháp lý chưa điền ở cả trang "Thông tin văn
+phòng" lẫn `.env` — Bước 3) không chặn nhưng nên xử lý sớm.
 
 `php artisan optimize` cache cấu hình, route, view và sự kiện (cộng phần cache riêng của
 Filament). **Từ lúc này, sửa `.env` không có tác dụng cho tới khi cache lại**: sau mỗi lần sửa

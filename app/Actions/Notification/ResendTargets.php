@@ -47,6 +47,14 @@ use Illuminate\Database\Eloquent\Relations\Relation;
  *  - `staff.backup_alert.*` (M8a; hậu tố là loại sự cố: `backup_failed`, `cleanup_failed`,
  *    `unhealthy`): thư mang trạng thái của MỘT lượt sao lưu đã qua — gửi lại là báo một sự kiện
  *    cũ. Sự cố còn thì lượt sao lưu 02:00 hoặc lượt kiểm tra 08:00 kế tiếp tự báo lại.
+ *  - `staff.matter_reassigned` (M7 Task 1, gộp M7 vào `main`): thư tổng hợp mốc thời hạn cho luật
+ *    sư phụ trách MỚI liệt kê các mốc ở đúng lúc bàn giao, không có một bản ghi `related` nào để
+ *    dựng lại (một lô vụ việc). Hỏng hẳn thì `SendReassignmentDigest::failed()` đã ghi dòng
+ *    `matter_reassignment_digest_failed` và rung chuông cho chính luật sư đó; các mốc vẫn ở trang
+ *    chủ, ở tab "Mốc thời hạn" và trong thư nhắc mốc theo lịch.
+ *  - `staff.handover_ready` (M7 Task 4, gộp M7 vào `main`): thư chỉ báo "gói bàn giao đã sinh xong"
+ *    — trạng thái gói luôn hiện ở khối "Gói bàn giao" trên trang vụ việc, và chuông trong hệ thống
+ *    đi cùng lúc với thư. Gửi lại là báo một sự kiện đã qua (gói có thể đã được sinh lại).
  *  - `undeclared` và mọi mẫu lạ: không biết dựng lại từ đâu (mẫu lạ nhận câu từ chối chung).
  *
  * # Nguyên tắc: KHÔNG viết luật thứ hai
@@ -71,6 +79,8 @@ final class ResendTargets
         'client.activation',
         'staff.instalment_overdue',
         'staff.backup_alert.*',
+        'staff.matter_reassigned',
+        'staff.handover_ready',
         'undeclared',
     ];
 

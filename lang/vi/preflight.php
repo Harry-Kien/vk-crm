@@ -74,9 +74,9 @@ return [
     'gd_ok' => 'Extension gd có sẵn.',
 
     'brand_fields_missing' => 'Còn thiếu thông tin pháp lý của văn phòng: :fields — thư gửi khách '
-        .'và PDF xuất ra sẽ thiếu các trường này cho tới khi điền (không chặn M8; M7 Task 10 sẽ '
-        .'chuyển nguồn đọc bốn trường này sang một nơi chủ văn phòng tự nhập trong app — đọc '
-        .'"## Ghi chú M8" ở docs/PROGRESS.md).',
+        .'và PDF xuất ra sẽ thiếu các trường này cho tới khi điền. Chủ văn phòng điền ở trang '
+        .'"Thông tin văn phòng" trong /admin (hoặc đặt biến tương ứng trong .env); giá trị nhập trong '
+        .'app thắng giá trị trong .env.',
     'brand_fields_ok' => 'Đủ bốn thông tin pháp lý của văn phòng.',
 
     'storage_private_exposed' => 'storage/app/private PHỤC VỤ CÔNG KHAI được, qua :url — hồ sơ '

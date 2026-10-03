@@ -1,6 +1,8 @@
 <?php
 
+use App\Actions\Settings\WriteSettings;
 use App\Models\User;
+use App\Support\OfficeProfile;
 use Database\Seeders\DemoDataSeeder;
 use Database\Seeders\ReferenceDataSeeder;
 use Illuminate\Http\Client\ConnectionException;
@@ -395,4 +397,37 @@ it('§preflight R1 các biến số sao lưu số nguyên hợp lệ hoặc đ�
         unset($_SERVER['BACKUP_LOCAL_KEEP'], $_ENV['BACKUP_LOCAL_KEEP']);
         putenv('BACKUP_LOCAL_KEEP');
     }
+});
+
+/**
+ * Gộp M7 vào `main` (PROGRESS "Ghi chú M7", Task 10, "M8 Task 7 (làn M8b)"): từ M7 Task 10 chủ văn
+ * phòng tự nhập bốn thông tin pháp lý ở trang "Thông tin văn phòng" (bảng `settings`), và mọi nơi in
+ * chúng đọc qua `OfficeProfile` (bảng → cấu hình). Dòng kiểm tra của `vkcrm:preflight` phải hỏi cùng
+ * nguồn đó: bốn trường đã nhập trong app thì XANH dù `.env` để trống — trước bản gộp nó đọc thẳng
+ * `config('vkcrm.brand.*')` nên báo VÀNG "còn thiếu" cho những giá trị đang in đúng ở chân mọi thư.
+ * Vế âm (cả hai nơi trống → VÀNG, nêu tên biến) là test ngay trên.
+ */
+it('§preflight bốn thông tin pháp lý nhập ở trang Thông tin văn phòng là XANH dù .env để trống', function () {
+    config(preflightGreenProductionConfig());
+    config([
+        'vkcrm.brand.tax_code' => null,
+        'vkcrm.brand.bar_association' => null,
+        'vkcrm.brand.licence_number' => null,
+        'vkcrm.brand.office_address' => null,
+    ]);
+    app(WriteSettings::class)->handle([
+        OfficeProfile::KEY_PREFIX.'tax_code' => '0101234567',
+        OfficeProfile::KEY_PREFIX.'bar_association' => 'Đoàn Luật sư Đồng Nai',
+        OfficeProfile::KEY_PREFIX.'licence_number' => '1234/TP/ĐKHĐ',
+        OfficeProfile::KEY_PREFIX.'office_address' => '1808 đường Nguyễn Ái Quốc, phường Trấn Biên, thành phố Đồng Nai',
+    ], null);
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($exitCode)->toBe(0)
+        ->and($output)->toContain(__('preflight.brand_fields_ok'))
+        ->and($output)->not->toContain('BRAND_TAX_CODE');
 });

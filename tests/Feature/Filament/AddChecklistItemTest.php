@@ -146,6 +146,32 @@ it('hides the add-item button from someone without matter.update, and blocks a f
 });
 
 /**
+ * M7 Task 3: nút "Thêm đầu mục" ẩn trên một vụ đã đóng — cổng HIỂN THỊ, cùng thành ngữ với test
+ * ngay trên. Nhân chứng có ĐỦ `matter.update` (chính lead lawyer), nên lý do ẩn duy nhất có thể
+ * là cổng mới thêm ở `addItemAction()`, không lẫn với cổng quyền đã đo ở trên.
+ */
+it('hides the add-item button on a closed matter, and blocks a forced call', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create([
+        'lead_lawyer_id' => $lawyer->id,
+        'closed_at' => now()->subDay(),
+    ]);
+
+    $this->actingAs($lawyer, 'web');
+
+    $tab = addItemTab($matter);
+    $tab->assertTableActionHidden('addItem');
+
+    expect(fn () => $tab->callTableAction('addItem', data: [
+        'name' => 'Giấy tờ ép buộc trên vụ đã đóng',
+        'description' => null,
+        'is_required' => false,
+    ]))->toThrow(ExpectationFailedException::class);
+
+    expect(MatterChecklistItem::query()->where('matter_id', $matter->id)->count())->toBe(0);
+});
+
+/**
  * Cùng luật `ApplyChecklistTemplate` đã dùng để không tạo trùng khi áp lại một mẫu ("item đã có,
  * theo tên, được giữ nguyên") — tên đầu mục là duy nhất trong PHẠM VI MỘT VỤ VIỆC, kể cả với đầu
  * mục đã bị gỡ (xoá mềm). Khác `ApplyChecklistTemplate` (một lượt sao chép hàng loạt, lặng lẽ bỏ

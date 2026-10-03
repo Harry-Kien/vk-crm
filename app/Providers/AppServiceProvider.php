@@ -6,12 +6,14 @@ use App\Actions\Backup\GuardBackupEncryption;
 use App\Actions\Backup\GuardOffServerBackupDestination;
 use App\Actions\Backup\GuardRcloneDestinationReachable;
 use App\Actions\Backup\PushBackupArchiveToRclone;
+use App\Enums\Role;
 use App\Http\Controllers\DocumentDownloadController;
 use App\Listeners\RecordOutboundMail;
 use App\Models\Client;
 use App\Models\ClientRequest;
 use App\Models\ClientRequestReply;
 use App\Models\ClientUser;
+use App\Models\CommunicationLog;
 use App\Models\Contract;
 use App\Models\ContractAmendment;
 use App\Models\Deadline;
@@ -34,6 +36,7 @@ use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Foundation\Console\AboutCommand;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
@@ -149,6 +152,18 @@ class AppServiceProvider extends ServiceProvider
          */
         Event::listen(BackupWasSuccessful::class, [PushBackupArchiveToRclone::class, 'handle']);
 
+        /*
+         * M7 Task 2: trang tự viết `App\Filament\Admin\Pages\BulkReassign` (bàn giao hàng loạt) —
+         * admin hoặc trưởng phòng, cùng phán quyết controller ("luật sư dùng nút 'Bàn giao' từng
+         * vụ như hiện nay"). `Gate::define()` thay vì thêm một quyền thứ 14 vào
+         * `App\Enums\Permission` — enum đó ghim đúng "13 quyền ở SPEC §5", một danh sách đóng mà
+         * SPEC liệt kê tường minh; ability này không nằm trong danh sách đó và không cần một cột
+         * `permissions` mới cho một cổng chỉ mở MỘT trang. Từng vụ việc bên trong trang này vẫn tự
+         * hỏi lại `MatterPolicy::manageTeam()` qua `ReassignMatter`/`ReassignMatters` — cổng này
+         * chỉ quyết định ai MỞ ĐƯỢC trang, không quyết định vụ việc nào bàn giao được.
+         */
+        Gate::define('bulkReassign', fn (User $user): bool => $user->hasRole(Role::Admin->value) || $user->hasRole(Role::Manager->value));
+
         Relation::enforceMorphMap([
             'user' => User::class,
             'client_user' => ClientUser::class,
@@ -182,6 +197,10 @@ class AppServiceProvider extends ServiceProvider
             // TRƯỚC KHI bất cứ đâu (kể cả một job tương lai) có thể trỏ `outbound_messages.related`
             // hay `Audit::record()` vào nó mà không vấp `ClassMorphViolationException`.
             'time_entry' => TimeEntry::class,
+            // M7 Task 8: chủ thể của `communication_logged` / `communication_log_deleted`. Cũng
+            // có tên trong `ActivityOwningMatter::MATTER_OWNED`, để dòng nhật ký của một vụ
+            // `restricted` không lọt ra trang Nhật ký hệ thống.
+            'communication_log' => CommunicationLog::class,
         ]);
 
         // Giới hạn lượt tải tệp (route `documents.download`). Con số và toàn bộ lý lẽ — kể cả vì

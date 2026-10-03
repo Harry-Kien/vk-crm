@@ -32,4 +32,6 @@ return [
     'payment_not_destroyable' => 'Không thể xoá khoản thu đã ghi nhận. Ghi nhầm thì huỷ khoản thu kèm lý do, khoản thu vẫn được giữ lại.',
     'contract_amendment_immutable' => 'Phụ lục hợp đồng chỉ được thêm mới, không được sửa hoặc xoá sau khi đã ghi.',
     'matter_has_outstanding_balance' => 'Không thể xoá vụ việc :code: còn dư nợ :amount trên :count đợt thanh toán của hợp đồng đang có hiệu lực. Thu nốt hoặc miễn các đợt còn lại (kèm lý do) trước khi xoá.',
+    // M7 Task 3
+    'matter_checklist_read_only' => 'Vụ việc đã kết thúc nên danh mục hồ sơ chỉ xem được, không thêm hay sửa được nữa. Quản trị viên mở lại vụ bằng "Chuyển giai đoạn" nếu cần thao tác tiếp.',
 ];

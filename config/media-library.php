@@ -27,6 +27,30 @@ use Spatie\MediaLibrary\Support\PathGenerator\DefaultPathGenerator;
 use Spatie\MediaLibrary\Support\UrlGenerator\DefaultUrlGenerator;
 use Spatie\MediaLibraryPro\Models\TemporaryUpload;
 
+/*
+ * M7 Task 4, vòng sửa 1 — trần MỘT tệp của kho hồ sơ (`max_file_size` bên dưới), tính bằng MB.
+ *
+ * Đây KHÔNG phải cổng tải lên: cổng đó là `FileGuard` với `UPLOAD_MAX_MB` (SPEC §6.6 bước 4), chạy
+ * trước medialibrary ở cả `UploadStaffDocument` lẫn `SubmitClientDocument`. Trần này chặn thứ
+ * không đi qua `FileGuard`: gói bàn giao (`BuildHandoverPackage`) — một zip gồm MỌI tệp A/B/C của
+ * vụ, vài trăm MB ở vụ lớn. Mặc định 10 MB của gói medialibrary làm hai việc sai cùng lúc: không
+ * gói nào quá 10 MB lưu được, và tệp tải lên 10–20 MB qua được `FileGuard` rồi hỏng ở đây.
+ *
+ * - `MEDIA_MAX_FILE_SIZE_MB` trống hoặc không phải số dương → 2048 MB (đủ cho gói lớn nhất ước
+ *   tính; gói vượt trần thì job ghi một lỗi CÓ TÊN chỉ đúng biến này — `HandoverPackageFailed::
+ *   tooLarge()`).
+ * - Không bao giờ thấp hơn `UPLOAD_MAX_MB`, để `FileGuard` luôn là cổng tải lên duy nhất. Đọc
+ *   thẳng biến môi trường, cùng bước lùi 20 MB của `FileGuard`, vì `LoadConfiguration` nạp tệp
+ *   cấu hình theo thứ tự chữ cái: lúc tệp này chạy, `config('vkcrm')` chưa có (cùng lý do với
+ *   `config/livewire.php`).
+ */
+$mediaMaxFileSizeMb = (int) env('MEDIA_MAX_FILE_SIZE_MB', 2048);
+$mediaUploadMaxMb = (int) env('UPLOAD_MAX_MB', 20);
+$mediaMaxFileSizeMb = max(
+    $mediaMaxFileSizeMb > 0 ? $mediaMaxFileSizeMb : 2048,
+    $mediaUploadMaxMb > 0 ? $mediaUploadMaxMb : 20,
+);
+
 return [
 
     /*
@@ -55,8 +79,10 @@ return [
     /*
      * The maximum file size of an item in bytes.
      * Adding a larger file will result in an exception.
+     *
+     * Trần của KHO, không phải cổng tải lên — xem khối chú thích đầu tệp (M7 Task 4, vòng sửa 1).
      */
-    'max_file_size' => 1024 * 1024 * 10, // 10MB
+    'max_file_size' => $mediaMaxFileSizeMb * 1024 * 1024,
 
     /*
      * Uploads whose file name contains any of these extensions will be rejected.

@@ -192,6 +192,12 @@ return [
      * Bảng màu và bộ chữ lấy đúng biến CSS của website (--navy, --red, --paper, --muted; Be
      * Vietnam Pro cho chữ thường, Noto Serif cho tiêu đề trang trọng). Đổi ở đây là đổi cả hai
      * panel, trang đăng nhập, email và tệp PDF xuất ra về sau.
+     *
+     * M7 Task 10: chín trường `legal_name`, `website`, `hotline`, `zalo`, `reply_to` và bốn thông
+     * tin pháp lý bên dưới sửa được TRONG APP (trang "Thông tin văn phòng", chỉ admin). Giá trị ở
+     * đây chỉ còn là MẶC ĐỊNH: mã đọc chúng qua `App\Support\OfficeProfile` (bảng `settings` trước,
+     * rồi tới đây), không bao giờ `config('vkcrm.brand.<trường>')` trực tiếp — có test cấu trúc.
+     * Màu, logo, font, lockup không sửa được trong app.
      */
     'brand' => [
         'legal_name' => env('BRAND_LEGAL_NAME', 'Công ty Luật TNHH Vũ Khang Solutions & Partners'),
@@ -229,7 +235,9 @@ return [
          * Đã tra luatvukhang.com (trang chủ, /vi/about, /vi/contact) ngày 19/09/2026: website
          * KHÔNG đăng bốn thông tin này, nên không có cách nào lấy tự động cho chính xác. Để trống
          * có chủ đích thay vì điền phỏng đoán — một mã số thuế sai trên văn bản gửi khách còn tệ
-         * hơn một chỗ trống. Chủ văn phòng điền vào .env là xong, không phải sửa mã.
+         * hơn một chỗ trống. Chủ văn phòng điền vào .env là xong, không phải sửa mã — hoặc, từ M7
+         * Task 10 (quyết định của chủ văn phòng ngày 2026-09-24), tự nhập ở trang "Thông tin văn
+         * phòng"; giá trị nhập trong app thắng giá trị ở đây.
          *
          * Địa chỉ trụ sở do chính chủ văn phòng cung cấp ngày 2026-10-02 nên là giá trị mặc định;
          * ba thông tin còn lại vẫn để trống tới khi chủ văn phòng đưa. `BRAND_OFFICE_ADDRESS`
@@ -273,5 +281,18 @@ return [
             900 => 'oklch(0.260 0.058 261.7)',
             950 => 'oklch(0.233 0.050 261.7)',
         ],
+    ],
+
+    /*
+     * M7 Task 4 — thư mục TẠM để dựng gói bàn giao (zip + MUC-LUC.pdf) trước khi gắn vào kho hồ sơ.
+     * Mỗi lần yêu cầu có một thư mục con riêng (`<id vụ>-<dấu yêu cầu>`, xem
+     * `BuildHandoverPackage::workDirectory()`), xoá khi xong, khi lỗi, và — với một tiến trình bị
+     * giết giữa chừng — ở lần chạy lại hoặc khi job thất bại hẳn. Đặt riêng ở đây
+     * vì gói có thể vài trăm MB: trên shared hosting nơi `storage/` nằm trên phần đĩa nhỏ, chỉ tới
+     * một ổ rộng hơn bằng `HANDOVER_WORK_DIR`. Không bao giờ đặt nó bên trong đĩa `private` (thư
+     * mục tạm ở đó sẽ bị lẫn với tệp hồ sơ thật).
+     */
+    'handover' => [
+        'work_dir' => env('HANDOVER_WORK_DIR', storage_path('app/handover-tmp')),
     ],
 ];

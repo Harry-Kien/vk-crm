@@ -36,6 +36,14 @@ use Throwable;
  * tổng của portal, tắt thì vụ việc vô hình dù khách đúng quyền, và không nơi nào khác trên đường
  * đi (`ResolveClientRecipients`, `ReviewChecklistItem`) tự hỏi nó. VÀ vụ việc chưa huỷ (xoá mềm)
  * — nhưng KHÔNG đòi vụ còn mở: xem {@see self::notifiableMatter()} (rà soát cuối làn, I1).
+ *
+ * **Gộp M7 vào `main` (PROGRESS "Ghi chú M7", Task 11): vụ còn trên cổng của CHÍNH người nhận.** Cờ
+ * `is_published_to_portal` một mình không còn đủ: từ M7 Task 5 (R4) một vụ đã kết thúc rời cổng khi
+ * hạn tra cứu (`client_access_until`) qua, mà cờ giữ nguyên. Mỗi người nhận R12 còn phải qua
+ * {@see ResolveClientRecipients::onPortal()} (`MatterPolicy::view` nhánh khách) — ở lúc gửi, ở nút
+ * "Gửi lại" (`eligibleRecipients()`) và ở câu trên màn hình (`hasEligibleRecipient()`), cùng một
+ * câu. (Từ M7 Task 3 danh mục của vụ đã đóng là chỉ đọc, nên một lần từ chối chỉ còn gặp vụ đã đóng
+ * khi thư được gửi MUỘN — hàng đợi, hay nút "Gửi lại".)
  */
 class NotifyClientOfChecklistItemRejected
 {
@@ -125,17 +133,38 @@ class NotifyClientOfChecklistItemRejected
      * (`NotifyStaffOfNewClientDocument`, `NotifyStaffOfNewClientRequest`): một phản hồi của văn phòng
      * cho thứ khách gửi qua cổng đi theo ranh giới cổng, không theo việc vụ đã khép lại.
      *
+     * Gộp M7 vào `main`: từ M7 Task 3, khách KHÔNG còn nộp được vào vụ đã đóng
+     * (`MatterClosedForSubmission`) và danh mục của vụ đã đóng là chỉ đọc (`MatterChecklistReadOnly`),
+     * nên câu trên chỉ còn đúng cho lần từ chối xảy ra khi vụ còn mở mà thư đi MUỘN (vụ đóng trong cửa
+     * sổ hàng đợi, hay nút "Gửi lại"). Vẫn không `open()`: khách còn thấy vụ trên cổng tới hết hạn tra
+     * cứu, và cổng đó do {@see self::onPortalRecipients()} hỏi.
+     *
      * Fix round 2 (finding 1): điều kiện này từng được viết HAI lần — trong `handle()`, và trong
      * `hasEligibleRecipient()` — nên toast và `handle()` lệch nhau. Tách ra đây để hai nơi không thể
      * lệch nhau nữa.
      */
     private function notifiableMatter(int $matterId): ?Matter
     {
+        // Bản ghi ĐẦY ĐỦ (không chọn vài cột): `onPortalRecipients()` hỏi `MatterPolicy::view` trên
+        // chính bản ghi này.
         return Matter::query()
             ->withoutGlobalScope(ClientPortalScope::class)
             ->whereKey($matterId)
             ->where('is_published_to_portal', true)
-            ->first(['id', 'client_id']);
+            ->first();
+    }
+
+    /**
+     * Người nhận R12 của khách sở hữu `$matter` mà vụ còn trên cổng của CHÍNH họ (gộp M7 — xem
+     * docblock lớp). Một chỗ cho cả `recipientsForRejected()` lẫn `hasEligibleRecipient()`.
+     *
+     * @return Collection<int, ClientUser>
+     */
+    private function onPortalRecipients(Matter $matter): Collection
+    {
+        $recipients = app(ResolveClientRecipients::class);
+
+        return $recipients->onPortal($matter, $recipients->recipientsFor($matter->client_id));
     }
 
     /**
@@ -146,7 +175,8 @@ class NotifyClientOfChecklistItemRejected
      *
      * Fix round 2 (finding 1): dùng LẠI đúng hai bước chọn người nhận của `handle()` —
      * {@see self::notifiableMatter()} (vụ chưa huỷ, còn bật công bố portal) rồi
-     * {@see ResolveClientRecipients::hasEligibleRecipient()} (R12) — không chép điều kiện nào, để
+     * {@see self::onPortalRecipients()} (R12, và vụ còn trên cổng của chính người nhận — gộp M7) —
+     * không chép điều kiện nào, để
      * câu trên màn hình và việc gửi thật không thể lệch nhau. Hai bước của `handle()` KHÔNG có ở đây —
      * {@see self::stillRejected()} (khách nộp lại trong cửa sổ hàng đợi) và
      * {@see self::alreadyDelivered()} (hàng đợi thử lại, không gửi hai lần) — canh việc gửi MUỘN và
@@ -156,8 +186,7 @@ class NotifyClientOfChecklistItemRejected
     {
         $matter = $this->notifiableMatter($checklistItem->matter_id);
 
-        return $matter !== null
-            && app(ResolveClientRecipients::class)->hasEligibleRecipient($matter->client_id);
+        return $matter !== null && $this->onPortalRecipients($matter)->isNotEmpty();
     }
 
     /**
@@ -181,7 +210,8 @@ class NotifyClientOfChecklistItemRejected
 
     /**
      * Phần sau cổng "còn bị từ chối đúng lần này": vụ việc chưa huỷ + còn công bố portal
-     * ({@see self::notifiableMatter()}), rồi tài khoản R12.
+     * ({@see self::notifiableMatter()}), rồi tài khoản R12 mà vụ còn trên cổng của chính họ
+     * ({@see self::onPortalRecipients()}).
      *
      * @return Collection<int, ClientUser>
      */
@@ -193,7 +223,7 @@ class NotifyClientOfChecklistItemRejected
             return collect();
         }
 
-        return app(ResolveClientRecipients::class)->recipientsFor($matter->client_id);
+        return $this->onPortalRecipients($matter);
     }
 
     /**

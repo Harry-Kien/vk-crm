@@ -13,6 +13,7 @@ use App\Models\Payment;
 use App\Models\User;
 use App\Support\Billing\AccountantBillingRow;
 use App\Support\Billing\Money;
+use App\Support\OfficeProfile;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
@@ -95,8 +96,11 @@ class InstalmentOverdue extends BrandedMailable
         );
     }
 
+    /** Đọc thông tin văn phòng LÚC RENDER, không lúc xếp hàng — xem docblock `OfficeProfile`. */
     public function content(): Content
     {
+        $office = OfficeProfile::current();
+
         [$linkUrl, $linkLabel] = $this->link();
 
         return new Content(
@@ -114,7 +118,7 @@ class InstalmentOverdue extends BrandedMailable
                 'linkUrl' => $linkUrl,
                 'linkLabel' => $linkLabel,
                 'actionLine' => $this->actionLine(),
-                'office' => config('vkcrm.brand.legal_name'),
+                'office' => $office->legalName(),
             ],
         );
     }

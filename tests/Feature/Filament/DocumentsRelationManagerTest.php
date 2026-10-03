@@ -927,14 +927,16 @@ it('refuses to regroup a group B document out of B while it is still internal_dr
 // ---------------------------------------------------------------------------------------------
 
 /**
- * **"Biến mất khỏi cổng khách" đo bằng HTTP thật — vòng sửa 2, mục nhỏ.** Bản vòng sửa 1 chỉ gọi
- * `isReleasedToPortal()` sau khi chuyển nhóm — hàm đó đọc lại đúng những cột mà CHÍNH test này vừa
- * ghi, không đi qua `ClientPortalScope`/`DocumentPolicy`/route tải có chữ ký nào cả, nên nó không
- * đo được gì hơn "cột đã đổi giá trị". Test này lấy đường dẫn tải có chữ ký TRƯỚC khi thu hồi
- * (đúng thứ một khách đã mở trang trước đó có thể còn giữ), rồi đo lại CẢ trang portal LẪN đường
- * dẫn đó SAU khi thu hồi, dưới guard `client` thật — cùng kỹ thuật với walk test S2.
+ * **"Biến mất khỏi cổng khách" đo bằng HTTP thật — vòng sửa 2, mục nhỏ; ĐỔI ĐƯỜNG ở M7 Task 7.**
+ * Test này lấy đường dẫn tải có chữ ký TRƯỚC khi thu hồi (đúng thứ một khách đã mở trang trước đó
+ * có thể còn giữ), rồi đo lại CẢ trang portal LẪN đường dẫn đó SAU khi thu hồi, dưới guard `client`
+ * thật — cùng kỹ thuật với walk test S2.
+ *
+ * M6.5 thu hồi bằng "trợ lý chuyển vào nhóm D". M7 Task 7: một đường rút duy nhất — trợ lý chọn D
+ * trên tài liệu đang ra tới khách bị từ chối bằng câu chỉ tới nút "Rút lại" (tài liệu vẫn ở trên
+ * cổng), rồi luật sư bấm "Rút lại" và khách mất tài liệu — thay bằng một dòng có lý do.
  */
-it('trợ lý chuyển được một tài liệu nhóm B ĐÃ CÔNG BỐ vào nhóm D qua màn hình, không cần document.publish, và nó biến mất khỏi cổng khách', function () {
+it('trợ lý chọn nhóm D cho một tài liệu nhóm B ĐÃ CÔNG BỐ thì bị chỉ tới nút Rút lại; luật sư rút qua màn hình và nó biến mất khỏi cổng khách', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $client = Client::factory()->create();
     $clientUser = ClientUser::factory()->activated()->create(['client_id' => $client->id]);
@@ -965,41 +967,62 @@ it('trợ lý chuyển được một tài liệu nhóm B ĐÃ CÔNG BỐ vào n
 
     $this->actingAs($assistant, 'web');
 
-    // Ô chọn nhóm chỉ được offer B (giữ nguyên) và D — không phải A/C, thứ Action luôn từ chối
-    // trợ lý — xem docblock `regroupOptions()`.
+    // Ô chọn nhóm vẫn mời B (giữ nguyên) và D — không phải A/C, thứ Action luôn từ chối trợ lý.
+    // D được mời có chủ đích: chọn nó là nhận câu chỉ đường (xem docblock `regroupOptions()`).
     expect(array_keys(DocumentsRelationManager::regroupOptions($document)))->toBe(['B', 'D']);
 
     documentsManager($matter)
         ->callAction(TestAction::make('regroup')->table($document), data: [
             'group' => DocumentGroup::Internal->value,
+        ]);
+
+    expect(array_column(sentNotifications(), 'body'))->toContain(__('retraction.blocked.regroup_to_internal'))
+        ->and($document->refresh()->group)->toBe(DocumentGroup::Issued)
+        ->and($document->isReleasedToPortal())->toBeTrue();
+
+    $this->actingAs($lawyer, 'web');
+
+    documentsManager($matter)
+        ->callAction(TestAction::make('retract')->table($document), data: [
+            'retraction_reason' => 'Văn bản công bố nhầm, sẽ gửi lại bản đúng',
         ])
         ->assertHasNoActionErrors();
 
-    expect($document->refresh()->group)->toBe(DocumentGroup::Internal)
+    expect($document->refresh()->status)->toBe(DocumentStatus::Retracted)
         ->and($document->isReleasedToPortal())->toBeFalse();
 
-    // Và khách THẬT SỰ không còn thấy nó — cùng trang, cùng đường dẫn ký, đo lại SAU khi thu hồi.
+    // Và khách THẬT SỰ không còn tải được nó — cùng trang, cùng đường dẫn ký, đo lại SAU khi rút.
+    // Ở chỗ tài liệu từng hiện chỉ còn dòng "Văn phòng đã rút lại tài liệu này" với lý do — không
+    // tiêu đề (rà soát cuối M7, C1), không đường tải.
     auth('web')->logout();
     $this->actingAs($clientUser, 'client');
-    $this->get(MatterProgress::getUrl(['record' => $matter->getKey()], panel: 'portal'))
+    $html = $this->get(MatterProgress::getUrl(['record' => $matter->getKey()], panel: 'portal'))
         ->assertOk()
-        ->assertDontSee($document->title);
+        ->assertSee(__('retraction.portal.notice', ['reason' => 'Văn bản công bố nhầm, sẽ gửi lại bản đúng']))
+        ->assertDontSee($document->title)
+        ->getContent();
+    expect($html)->not->toContain('documents/'.$document->id.'/download');
     $this->get($signedDownloadUrl)->assertNotFound();
 });
 
 /**
  * Vòng sửa 2, mục nhỏ: phán quyết (a) nói "vào D luôn được phép với `document.update`, BẤT KỂ
- * nhóm NGUỒN" — nhưng `regroupOptions()` (vòng sửa 1) chỉ mời D cho ai không có
- * `document.viewInternal` khi nguồn LÀ B. Một tài liệu nhóm A (`ClientProvided`) công bố nhầm
- * cũng cần rút được, và một trợ lý cũng phải làm được việc đó — cùng lý lẽ với nhóm B.
+ * nhóm NGUỒN". M7 Task 7 thu hẹp: chỉ còn đúng với tài liệu KHÔNG đang ra tới khách. Một tài liệu
+ * nhóm A (`ClientProvided`) đang ra tới khách thì trợ lý bị chỉ tới nút "Rút lại"; một tài liệu
+ * nhóm A khách không còn thấy thì trợ lý vẫn đưa vào D được — không cần `document.viewInternal`.
  */
-it('trợ lý rút được một tài liệu nhóm A ĐÃ CÔNG BỐ vào nhóm D qua màn hình, không cần document.viewInternal', function () {
+it('trợ lý đưa được một tài liệu nhóm A khách không thấy vào nhóm D qua màn hình, còn bản đang công bố thì bị chỉ tới nút Rút lại', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
-    $document = documentWithFile($matter, DocumentGroup::ClientProvided, [
+    $released = documentWithFile($matter, DocumentGroup::ClientProvided, [
         'status' => DocumentStatus::Published,
         'client_can_view' => true,
         'client_can_download' => true,
+    ]);
+    $document = documentWithFile($matter, DocumentGroup::ClientProvided, [
+        'status' => DocumentStatus::Published,
+        'client_can_view' => false,
+        'client_can_download' => false,
     ]);
 
     $assistant = User::factory()->withRole(Role::Assistant)->create();
@@ -1017,6 +1040,15 @@ it('trợ lý rút được một tài liệu nhóm A ĐÃ CÔNG BỐ vào nhóm
 
     expect($document->refresh()->group)->toBe(DocumentGroup::Internal)
         ->and($document->isReleasedToPortal())->toBeFalse();
+
+    documentsManager($matter)
+        ->callAction(TestAction::make('regroup')->table($released), data: [
+            'group' => DocumentGroup::Internal->value,
+        ]);
+
+    expect(array_column(sentNotifications(), 'body'))->toContain(__('retraction.blocked.regroup_to_internal'))
+        ->and($released->refresh()->group)->toBe(DocumentGroup::ClientProvided)
+        ->and($released->isReleasedToPortal())->toBeTrue();
 });
 
 it('luật sư chuyển một bản nháp B chưa ký sang C mà KHÔNG nhập lý do thì bị từ chối qua màn hình', function () {
@@ -1787,4 +1819,55 @@ it('requires the misfiling reason on screen for a draft that went B → D and no
         ->assertHasActionErrors(['reason' => 'required']);
 
     expect($document->fresh()->group)->toBe(DocumentGroup::Internal);
+});
+
+/**
+ * M7 Task 3, vòng sửa 1 — danh mục của vụ đã kết thúc là CHỈ ĐỌC, kể cả khi luật sư bấm "Tải lên"
+ * ở tab Tài liệu, chọn nhóm A và một đầu mục bị từ chối. Trước bản sửa, đầu mục sang `accepted`.
+ *
+ * `MatterChecklistReadOnly` là một `DomainException`: màn hình phải đổi nó thành thông báo tiếng
+ * Việt, không phải lỗi 500, và câu "đã lưu xong" không được xuất hiện cạnh nó.
+ */
+it('turns the closed-matter refusal of a group A staff upload into a Vietnamese notification', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'closed_at' => now()->subDay()]);
+    $item = MatterChecklistItem::factory()->for($matter)->status(ChecklistItemStatus::Rejected)->create([
+        'rejection_reason' => 'Ảnh chụp bị mờ, anh/chị chụp lại giúp chúng tôi.',
+    ]);
+
+    $this->actingAs($lawyer, 'web');
+
+    documentsManager($matter)->callAction(TestAction::make('upload')->table(), data: [
+        'file' => validPdf(),
+        'title' => 'Bản sao hộ khẩu nộp thay khách',
+        'group' => DocumentGroup::ClientProvided->value,
+        'matter_checklist_item_id' => $item->id,
+    ]);
+
+    $titles = sentNotificationTitles();
+
+    expect($titles)->toContain(__('actions.failed_title'))
+        ->and($titles)->not->toContain(__('documents.tab.actions.upload_success'))
+        ->and($matter->documents()->count())->toBe(0)
+        ->and($item->refresh()->status)->toBe(ChecklistItemStatus::Rejected)
+        ->and($item->reviewed_by)->toBeNull();
+});
+
+/** Cặp dương: cùng người, cùng vụ đã đóng, nhóm A — chỉ khác là không chọn đầu mục nào. */
+it('still lets a group A staff upload without a checklist item through on a closed matter', function () {
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'closed_at' => now()->subDay()]);
+
+    $this->actingAs($lawyer, 'web');
+
+    documentsManager($matter)
+        ->callAction(TestAction::make('upload')->table(), data: [
+            'file' => validPdf(),
+            'title' => 'Bản sao hộ khẩu nộp thay khách',
+            'group' => DocumentGroup::ClientProvided->value,
+        ])
+        ->assertHasNoActionErrors();
+
+    expect($matter->documents()->count())->toBe(1)
+        ->and(sentNotificationTitles())->toContain(__('documents.tab.actions.upload_success'));
 });
