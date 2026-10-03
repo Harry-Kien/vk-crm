@@ -2700,12 +2700,15 @@ Vòng sửa 1 (rà soát Task 3, Important I1 — trang lỗi của liên kết 
   đăng ký sẽ xoá, `--force` bỏ bước hỏi, chạy không tương tác thiếu `--force` thì từ chối (mã 1, không xoá).
   Audit `push_subscriptions_reset` chỉ có `count` và `via = console` — không endpoint, không người thực hiện.
 - `HasPushSubscriptions` trên `User` và `ClientUser`; morph lưu bí danh `user` / `client_user` (đo).
-- Lưới R8 `tests/Feature/Push/PushSubscriptionAccessTest.php`: quét token PHP trong `app/` — truy cập tĩnh
-  `PushSubscription::` (kể cả bí danh `use … as X` và tên đầy đủ; `::class` không tính), `new PushSubscription`,
-  chuỗi `push_subscriptions` / `webpush.model` / `webpush.table_name`. Chỉ cho phép bốn tệp:
-  `app/Actions/Push/ResetPushSubscriptions.php` (có), `app/Actions/Push/RegisterPushDevice.php` (Task 5),
-  `app/Actions/Push/ForgetPushDevice.php` (Task 6), `app/Actions/Schedule/PrunePushSubscriptions.php` (Task 6).
-  Docblock `PortalIsolationSweepTest` ghi `PushSubscription` cạnh `Activity` và `Media`.
+- Lưới R8 `tests/Feature/Push/PushSubscriptionAccessTest.php` (sau vòng sửa 1, xem dưới): quét token PHP trong
+  `app/`, `routes/` và `resources/views/` (Blade biên dịch trước) — `PushSubscription::` KỂ CẢ `::class` (tên
+  trần, bí danh `use … as X` và trong `use …\{…}`, tên có namespace một phần/đầy đủ), `new`/`extends
+  PushSubscription`, chuỗi chứa từ `push_subscriptions` hay `PushSubscription`, chuỗi đúng bằng
+  `pushSubscriptions` / `webpush` / `webpush.model` / `webpush.table_name`; và đọc route đã đăng ký tìm route
+  model binding vào `PushSubscription` (closure, controller, `mount()` và thuộc tính public của trang Livewire).
+  Chỉ cho phép bốn tệp: `app/Actions/Push/ResetPushSubscriptions.php` (có), `app/Actions/Push/RegisterPushDevice.php`
+  (Task 5), `app/Actions/Push/ForgetPushDevice.php` (Task 6), `app/Actions/Schedule/PrunePushSubscriptions.php`
+  (Task 6). Docblock `PortalIsolationSweepTest` ghi `PushSubscription` cạnh `Activity` và `Media`.
 
 Lệch kế hoạch, có lý do:
 1. **Hạn 10 giây (R12) cần một provider của dự án.** Bản gốc dựng client bằng
@@ -2741,3 +2744,23 @@ Sự thật cho task sau:
 Số đo: cả bộ `test --parallel --processes=2` 3848 passed, 25 skipped, 1 todo, 1 risky, 0 failed (mốc của làn:
 3695 passed; skipped/todo/risky có sẵn trên `main`); test của task trên MariaDB 91 passed; 21 mutation probe đều đỏ
 rồi khôi phục (báo cáo task 4 của làn).
+
+Vòng sửa 1 (rà soát Task 4, Important I1 — lưới R8 tha `PushSubscription::class`, bỏ sót `'push_subscriptions as ps'`,
+không quét Blade/`routes/`):
+- Máy quét cũ trả `[]` cho `protected static ?string $model = PushSubscription::class` (Filament Resource liệt kê thiết
+  bị của MỌI người), `Rule::exists(PushSubscription::class, 'endpoint')` (hỏi được endpoint đã thuộc ai),
+  `app(PushSubscription::class)->newQuery()`, `DB::table('push_subscriptions as ps')`. Nay bắt cả bốn, cùng các dạng đi
+  vòng cùng loại (đoạn "Lưới R8" ở trên): đo bằng máy quét cũ trên mẫu mới, 23/32 mẫu lọt.
+- Route model binding là chỗ duy nhất một GỢI Ý KIỂU tự truy vấn (`{device}` → `PushSubscription $device` trên closure,
+  controller, `mount()` hay thuộc tính public cùng tên của trang Livewire/Filament): test đọc route đã đăng ký.
+- Lưới cũ mù trên máy dev: `RecursiveDirectoryIterator` dưới ổ 9p thấy 412/451 tệp `.php` của `app/` (thiếu 39 tệp
+  `app/Exceptions`; CI Linux thấy đủ). Nay duyệt bằng `scandir()` và đối chiếu với `find`. Cùng lỗi còn ở
+  `ArchitectureTest` và `ActivityLogEventTranslationsTest` (quét `app/` bằng iterator) — việc của `main`, không sửa ở làn.
+- Cho Task 5/6: validation đụng bảng (`unique:push_subscriptions…`, `Rule::exists(PushSubscription::class…)`) chỉ
+  trong `RegisterPushDevice`; trang thiết bị không `$model = PushSubscription::class`, không relation manager
+  `'pushSubscriptions'`, không route bind `PushSubscription` (gỡ theo id thì tìm trong `$user->pushSubscriptions()`);
+  tên lịch/khoá trong `app/`, `routes/`, `resources/views` không chứa TỪ `push_subscriptions` đứng riêng (dùng
+  `push-subscriptions`). Lưới không phân biệt quan hệ gọi trên người KHÁC — test màn hình Task 5 có ca "A không
+  thấy/gỡ được máy của B".
+- Số đo: cả bộ 3883 passed, 25 skipped, 1 todo, 1 risky, 0 failed (+35 = 38 ca của tệp lưới mới − 3 ca cũ); MariaDB
+  (lưới + `PortalIsolationSweepTest`) 69 passed; 22 đột biến trên bản chép git-ignored đều đỏ.
