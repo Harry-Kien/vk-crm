@@ -21,6 +21,7 @@ use App\Support\Audit;
 use App\Support\ConflictCheckResult;
 use App\Support\ConflictOverride;
 use App\Support\OpenMatterResult;
+use Closure;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Collection;
@@ -241,6 +242,23 @@ class OpenMatter
      *                                  dòng cũ nào để tự khớp); hồ sơ chỉ được LƯU ở bước 5, sau khi
      *                                  bước 4 cho qua. Bị chặn đỏ/vàng thì không có gì được ghi — không
      *                                  còn khách hàng mồ côi của một lần mở vụ không thành.
+     * @param  int|null  $excludeIntakeId  (M10 Task 4) Một lần tiếp nhận cần loại khỏi nguồn dò thứ
+     *                                     hai của `RunConflictCheck` (tham số cùng tên ở đó).
+     *                                     `ConvertIntakeToMatter` truyền id bản ghi ĐANG được chuyển
+     *                                     đổi: lúc kiểm tra chạy, bản ghi đó còn "chưa chuyển đổi",
+     *                                     nên không loại nó ra thì người liên hệ và bên đối lập của nó
+     *                                     khớp chính các bên của vụ mới — một Vàng "đã liên hệ văn
+     *                                     phòng" giả ở mọi lần chuyển đổi.
+     * @param  Closure(Matter): void|null  $beforeCommit  (M10 Task 4) Chạy TRONG transaction của
+     *                                                    bước 5, sau khi vụ việc, các bên, danh mục hồ sơ và dòng
+     *                                                    `matter_opened` đã ghi, trước khi commit — vẫn dưới khoá
+     *                                                    `conflict-check`. Nó ném thì CẢ bước lưu rollback: không
+     *                                                    vụ việc, không khách hàng mới, không dòng nhật ký nào của
+     *                                                    bước 5 (dòng `conflict_check_run` của bước 3 ở lại, như
+     *                                                    mọi lần bị chặn). `ConvertIntakeToMatter` dùng nó để khoá
+     *                                                    và kiểm tra lại bản ghi tiếp nhận rồi liên kết hai chiều
+     *                                                    ở CÙNG transaction với vụ việc — thứ tự khoá: dòng
+     *                                                    `matters` (đã khoá ở trên) trước, `intake_requests` sau.
      */
     public function handle(
         User $actor,
@@ -249,6 +267,8 @@ class OpenMatter
         ?string $overrideReason = null,
         ?ConflictLevel $acknowledged = null,
         ?Client $newClient = null,
+        ?int $excludeIntakeId = null,
+        ?Closure $beforeCommit = null,
     ): OpenMatterResult {
         if ($newClient !== null && $newClient->exists) {
             $attributes['client_id'] = $newClient->getKey();
@@ -295,11 +315,11 @@ class OpenMatter
         // là đủ. Round 0 cố ý KHÔNG bắt lỗi này; chủ nhiệm đã đảo phán quyết đó ở round 1.
         try {
             return Cache::store('database')->lock('conflict-check', 30)->block(10, function () use (
-                $attributes, $parties, $clientRole, $actor, $overrideReason, $acknowledged, $newClient,
+                $attributes, $parties, $clientRole, $actor, $overrideReason, $acknowledged, $newClient, $excludeIntakeId, $beforeCommit,
             ): OpenMatterResult {
                 // Bước 3.
                 /** @var array{0: ConflictCheckResult, 1: Collection<int, MatterParty>} $checked */
-                $checked = DB::transaction(function () use ($attributes, $parties, $clientRole, $actor, $newClient): array {
+                $checked = DB::transaction(function () use ($attributes, $parties, $clientRole, $actor, $newClient, $excludeIntakeId): array {
                     $clients = $this->lockClients($newClient === null ? $attributes['client_id'] : null, $parties);
 
                     $proposedParties = collect([
@@ -314,7 +334,8 @@ class OpenMatter
 
                     // Actor truyền xuống để dòng `conflict_check_run` và dòng `matter_opened` — hai bằng
                     // chứng của CÙNG một thao tác — không bao giờ ghi hai người khác nhau.
-                    return [app(RunConflictCheck::class)->handle($proposedParties, null, $actor), $proposedParties];
+                    // `$excludeIntakeId` (M10 Task 4): xem docblock tham số cùng tên của `handle()`.
+                    return [app(RunConflictCheck::class)->handle($proposedParties, null, $actor, excludeIntakeId: $excludeIntakeId), $proposedParties];
                 });
 
                 [$result, $proposedParties] = $checked;
@@ -340,7 +361,7 @@ class OpenMatter
 
                 // Bước 5.
                 return DB::transaction(function () use (
-                    $attributes, $proposedParties, $result, $isOverridden, $overrideReason, $actor, $newClient,
+                    $attributes, $proposedParties, $result, $isOverridden, $overrideReason, $actor, $newClient, $beforeCommit,
                 ): OpenMatterResult {
                     // Final review A-M7: khách hàng mới chỉ ra đời ở ĐÂY — bước 4 đã cho qua. Bên
                     // khách hàng dựng ở bước 3 (chưa có `client_id`) nhận id vừa có, rồi
@@ -478,6 +499,11 @@ class OpenMatter
                             'published_stage_log_count' => 0,
                             'at_creation' => true,
                         ], $actor);
+                    }
+
+                    // M10 Task 4 — xem docblock tham số `$beforeCommit` của `handle()`.
+                    if ($beforeCommit !== null) {
+                        $beforeCommit($matter);
                     }
 
                     return new OpenMatterResult($matter, $result, $isOverridden, $isOverridden ? $overrideReason : null);

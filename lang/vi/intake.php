@@ -69,6 +69,14 @@ return [
         'identity_declined' => 'Bản ghi này đã bị từ chối nên phần danh tính không sửa được nữa.',
         'caller_keys_locked' => 'Bản ghi này còn xung đột mức đỏ chờ trưởng phòng hoặc quản trị xử lý: chỉ họ đổi hoặc xoá được số điện thoại, số căn cước và vai đã ghi của người liên hệ, vì văn phòng nhận ra người này gọi lại theo đúng ba thông tin đó.',
         'merge_drops_caller' => 'Bản ghi này chỉ gộp được vào một bản ghi cùng vai, cùng số điện thoại và số căn cước của người liên hệ, để văn phòng vẫn nhận ra khi người này gọi lại. Muốn gộp vào bản ghi khác, nhờ trưởng phòng hoặc quản trị.',
+        // M10 Task 4 (`ConvertIntakeToMatter`). Câu về trạng thái dùng nhãn trạng thái — bản từ chối vì
+        // xung đột nói đúng như bản từ chối thường (R8).
+        'convert_already' => 'Bản ghi này đã được chuyển thành vụ việc.',
+        'convert_status' => 'Không chuyển thành vụ việc được một bản ghi ở trạng thái ":status".',
+        'convert_red_pending' => 'Bản ghi còn xung đột mức đỏ chờ trưởng phòng hoặc quản trị xử lý. Xử lý xong mới chuyển thành vụ việc được.',
+        'description_too_long' => 'Ghi chú nội bộ quá dài.',
+        'id_number_invalid' => 'Số căn cước không hợp lệ: phải có chữ số.',
+        'convert_id_number_mismatch' => 'Số căn cước này không khớp số đã ghi lúc tiếp nhận. Kiểm tra lại với người liên hệ; nếu số lúc tiếp nhận sai thì sửa ở trang bản ghi trước.',
     ],
 
     /*
@@ -177,6 +185,7 @@ return [
         'declined_for_conflict' => 'Từ chối vì xung đột lợi ích',
         'outward_answer' => 'Câu trả lời cho người liên hệ: "Văn phòng xin phép không nhận vụ việc này." Không giải thích thêm.',
         'merged_into' => 'Đã gộp vào :code.',
+        'converted_into' => 'Đã chuyển thành vụ việc :code.',
     ],
 
     'actions' => [
@@ -198,5 +207,39 @@ return [
         'declined' => 'Đã từ chối bản ghi.',
         'merge' => 'Gộp vào bản ghi khác',
         'merged' => 'Đã gộp bản ghi.',
+        'convert' => 'Chuyển thành vụ việc',
+    ],
+
+    /*
+     * Trang "Chuyển thành vụ việc" (M10 Task 4, R3). Mọi thứ điền sẵn từ bản ghi; chỉ số căn cước thô
+     * là phải hỏi lại (lúc tiếp nhận chỉ lưu dấu băm, R7).
+     */
+    'convert' => [
+        'title' => 'Chuyển :code thành vụ việc',
+        'breadcrumb' => 'Chuyển thành vụ việc',
+        'submit' => 'Chuyển thành vụ việc',
+        'cancel' => 'Quay lại bản ghi',
+        'default_title' => ':name — :type',
+        'sections' => [
+            'carried' => 'Chuyển sang từ bản ghi',
+            'carried_description' => 'Không cần gõ lại: người liên hệ thành khách hàng của vụ, các bên đối lập sang danh sách các bên kèm định danh đã ghi, câu chuyện sang ghi chú nội bộ (sửa được ở dưới), phí đã báo hiện sẵn khi soạn hợp đồng.',
+            'client' => 'Khách hàng',
+            'client_description' => 'Hệ thống tra khách theo số căn cước (nếu nhập) rồi theo số điện thoại đã ghi. Trùng đúng số thì gắn vào khách đó; không trùng thì tạo hồ sơ khách mới. Không bao giờ gắn theo tên.',
+            'matter' => 'Vụ việc',
+        ],
+        'contact_line' => 'Người liên hệ: :name',
+        'contact_phone_line' => 'Số điện thoại: :phone',
+        'contact_email_line' => 'Email: :email',
+        'contact_id_line' => 'Số căn cước: đã ghi lúc tiếp nhận (chỉ lưu dạng mã hoá).',
+        'contact_no_id_line' => 'Số căn cước: không ghi lúc tiếp nhận.',
+        'party_line' => 'Bên đối lập — :role: :name',
+        'no_parties' => 'Không có bên đối lập nào được khai lúc tiếp nhận.',
+        'client_type' => 'Loại khách hàng',
+        'id_number' => 'Số căn cước của khách hàng',
+        'id_number_help' => 'Không bắt buộc. Nhập nếu văn phòng cần số này trên hồ sơ khách; hệ thống cũng dùng nó để tra khách đã có.',
+        'id_number_recorded_help' => 'Lúc tiếp nhận đã ghi số căn cước của người liên hệ (chỉ lưu dạng mã hoá, không lưu số gốc). Nhập lại đúng số đó nếu văn phòng cần nó trên hồ sơ khách; bỏ trống thì hồ sơ khách không có số căn cước.',
+        'done' => 'Đã chuyển :intake thành vụ việc :matter.',
+        'done_existing_client' => 'Người liên hệ được gắn vào khách hàng đã có của văn phòng.',
+        'done_new_client' => 'Đã tạo hồ sơ khách hàng mới cho người liên hệ.',
     ],
 ];

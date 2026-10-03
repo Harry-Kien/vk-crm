@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Resources\IntakeRequests;
 
+use App\Filament\Admin\Resources\IntakeRequests\Pages\ConvertIntakeRequest;
 use App\Filament\Admin\Resources\IntakeRequests\Pages\CreateIntakeRequest;
 use App\Filament\Admin\Resources\IntakeRequests\Pages\EditIntakeRequest;
 use App\Filament\Admin\Resources\IntakeRequests\Pages\ListIntakeRequests;
@@ -69,6 +70,8 @@ class IntakeRequestResource extends Resource
             'index' => ListIntakeRequests::route('/'),
             'create' => CreateIntakeRequest::route('/create'),
             'edit' => EditIntakeRequest::route('/{record}/edit'),
+            // M10 Task 4 (R3): trang chuyển đổi — tự hỏi `IntakeRequestPolicy::convert`, 404 khi không qua.
+            'convert' => ConvertIntakeRequest::route('/{record}/convert'),
         ];
     }
 

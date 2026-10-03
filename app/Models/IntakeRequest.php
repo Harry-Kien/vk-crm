@@ -414,6 +414,22 @@ class IntakeRequest extends Model
         ]));
     }
 
+    /**
+     * Phí đã báo lúc tiếp nhận của bản ghi đã CHUYỂN THÀNH `$matter` (M10 Task 4, R3) — giá trị GỢI Ý
+     * cho ô tổng giá trị của form soạn hợp đồng M9; `DraftContract` không đọc nó. `matter_id` là cột
+     * unique, nên có nhiều nhất một bản ghi. Không có bản ghi nào, hay bản ghi không có phí: null. Bỏ
+     * `ClientPortalScope` như mọi truy vấn nội bộ của bảng này; người hỏi đã qua cổng của tab tiền.
+     */
+    public static function quotedAmountFor(Matter $matter): ?int
+    {
+        $amount = static::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->where('matter_id', $matter->getKey())
+            ->value('quoted_amount');
+
+        return $amount === null ? null : (int) $amount;
+    }
+
     /** Portal không bao giờ đọc bảng này: người liên hệ chưa là khách hàng, chưa có tài khoản. */
     public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
     {

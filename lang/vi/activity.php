@@ -41,6 +41,8 @@ return [
         'intake_declined' => 'Từ chối một lần liên hệ',
         'intake_merged' => 'Gộp một lần liên hệ vào bản ghi khác',
         'intake_merge_received' => 'Nhận một lần liên hệ được gộp vào',
+        // M10 Task 4 (`ConvertIntakeToMatter`): chỉ id vụ việc/khách hàng, không mã, không tên.
+        'intake_converted' => 'Chuyển một lần liên hệ thành vụ việc',
         // Ghi qua Audit::record() ở app/Actions/SyncClientPartyIdentities.php khi hồ sơ khách
         // hàng đổi số căn cước/điện thoại và ảnh chụp định danh của các bên được đồng bộ lại.
         'client_identity_resynced' => 'Đồng bộ lại định danh các bên',

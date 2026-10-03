@@ -4,6 +4,7 @@ namespace App\Filament\Admin\Resources\IntakeRequests\Pages;
 
 use App\Actions\Intake\AcknowledgeIntakeConflict;
 use App\Actions\Intake\ChangeIntakeStatus;
+use App\Actions\Intake\ConvertIntakeToMatter;
 use App\Actions\Intake\DeclineIntake;
 use App\Actions\Intake\IntakeSummaryGate;
 use App\Actions\Intake\MergeIntake;
@@ -22,8 +23,10 @@ use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Resources\IntakeRequests\Concerns\TranslatesIntakeFailures;
 use App\Filament\Admin\Resources\IntakeRequests\IntakeRequestResource;
 use App\Filament\Admin\Resources\IntakeRequests\Schemas\IntakeRequestForm;
+use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Models\IntakeParty;
 use App\Models\IntakeRequest;
+use App\Models\Matter;
 use App\Models\User;
 use App\Support\Billing\Money;
 use App\Support\Normalizer;
@@ -69,7 +72,8 @@ use Livewire\Attributes\Locked;
  * chỉ cho `resolveConflict`: quản lý/admin). Modal ghi đè nói rõ khi bản ghi từng ra Đỏ mà lần chạy
  * gần nhất không còn Đỏ.
  *
- * **Hành động trên đầu trang:** "Đổi trạng thái" (`ChangeIntakeStatus`, chỉ các bước người ta tự đặt),
+ * **Hành động trên đầu trang:** "Chuyển thành vụ việc" (Task 4 — liên kết tới `ConvertIntakeRequest`,
+ * chỉ với `convert` trên bản ghi còn chuyển đổi được), "Đổi trạng thái" (`ChangeIntakeStatus`, chỉ các bước người ta tự đặt),
  * "Từ chối" (`DeclineIntake`; công tắc "vì xung đột" chỉ hiện với `resolveConflict`), "Gộp vào bản ghi
  * khác" (`MergeIntake`; chỉ các bản còn mở người dùng xem được). "Xoá dữ liệu theo yêu cầu" (R7c) là
  * của Task 7 — Action ẩn danh chưa có.
@@ -80,7 +84,7 @@ use Livewire\Attributes\Locked;
  * xuống trình duyệt, kể cả `decline_reason`, `conflict_override_reason` và các dấu băm.
  *
  * **Bản ghi đã xong việc** (`isClosedToChanges()`: đã gộp, đã ẩn danh, đã chuyển thành vụ): cả form chỉ
- * đọc, không nút Lưu, không hành động nào.
+ * đọc, không nút Lưu, không hành động nào; khối "Kết quả xử lý" nói bản đã gộp vào đâu hoặc đã thành vụ nào.
  *
  * **Bản ghi đã từ chối** (`isClosedToIdentityEdits()`, fix vòng 1 — rà soát Task 3, C1): phần danh tính
  * và phần bên đối lập chỉ đọc, không nút Lưu (nút đó chỉ lưu danh tính) — với mọi người, vì mọi lý do
@@ -126,7 +130,7 @@ class EditIntakeRequest extends EditRecord
             ->components([
                 Section::make(__('intake.sections.decision'))
                     ->columnSpanFull()
-                    ->visible(fn (): bool => in_array($this->intake()->status, [IntakeStatus::Declined, IntakeStatus::Merged], true))
+                    ->visible(fn (): bool => in_array($this->intake()->status, [IntakeStatus::Declined, IntakeStatus::Merged, IntakeStatus::Won], true))
                     ->schema([View::make('filament.intake.decision')->viewData(fn (): array => $this->decisionViewData())]),
                 // `dehydrated()`: khối khoá vẫn gửi giá trị đang có, để một lần lưu lọt tới (request sửa
                 // tay, hay bản ghi vừa bị gộp/từ chối ở tab khác) nhận đúng lời từ chối của Action, không
@@ -235,7 +239,7 @@ class EditIntakeRequest extends EditRecord
 
     protected function getHeaderActions(): array
     {
-        return [$this->changeStatusAction(), $this->declineAction(), $this->mergeAction()];
+        return [$this->convertAction(), $this->changeStatusAction(), $this->declineAction(), $this->mergeAction()];
     }
 
     private function intake(): IntakeRequest
@@ -366,6 +370,22 @@ class EditIntakeRequest extends EditRecord
 
                 $this->afterIntakeAction(__('intake.actions.red_resolved'));
             });
+    }
+
+    /**
+     * "Chuyển thành vụ việc" (M10 Task 4, R3): một liên kết tới trang chuyển đổi, chỉ hiện với người qua
+     * `IntakeRequestPolicy::convert` (`intake.convert` VÀ `matter.create` — trợ lý không thấy) trên một
+     * bản ghi còn chuyển đổi được (`ConvertIntakeToMatter::refusal()` — một định nghĩa với Action). Trang
+     * đích tự kiểm tra lại cả hai.
+     */
+    private function convertAction(): Action
+    {
+        return Action::make('convert')
+            ->label(__('intake.actions.convert'))
+            ->color('success')
+            ->visible(fn (): bool => Gate::allows('convert', $this->intake())
+                && ConvertIntakeToMatter::refusal($this->intake()) === null)
+            ->url(fn (): string => IntakeRequestResource::getUrl('convert', ['record' => $this->intake()]));
     }
 
     private function changeStatusAction(): Action
@@ -520,13 +540,14 @@ class EditIntakeRequest extends EditRecord
 
     /**
      * Cùng phép dịch `CreateMatter::conflictResultViewData()` (đúng tám khoá của `ConflictMatch::toArray()`,
-     * không thêm gì), cho kết quả ĐÃ LƯU của một lần tiếp nhận. Khớp của nguồn thứ hai mang nhãn "Đã
+     * không thêm gì), cho kết quả ĐÃ LƯU của một lần tiếp nhận — và (M10 Task 4) cho kết quả lần kiểm
+     * tra lúc chuyển đổi trên `ConvertIntakeRequest`. Khớp của nguồn thứ hai mang nhãn "Đã
      * liên hệ văn phòng ngày …" ở cột loại vụ việc và mã `TN-…` ở cột mã hồ sơ (Task 2).
      *
      * @param  array<string, mixed>  $result
      * @return array<string, mixed>
      */
-    private static function conflictTableData(array $result): array
+    public static function conflictTableData(array $result): array
     {
         $level = $result['level'] ?? ConflictLevel::Green->value;
         $incomplete = $result['incomplete_parties'] ?? [];
@@ -620,6 +641,7 @@ class EditIntakeRequest extends EditRecord
         $declined = $intake->status === IntakeStatus::Declined;
         $mayKnowConflict = Gate::allows('viewConflictReason', $intake);
         $target = $intake->merged_into_id === null ? null : IntakeRequest::query()->find($intake->merged_into_id);
+        $matter = $intake->matter_id === null ? null : Matter::query()->withTrashed()->find($intake->matter_id);
 
         return [
             'declined' => $declined,
@@ -629,6 +651,12 @@ class EditIntakeRequest extends EditRecord
             'mergedInto' => $target === null ? null : [
                 'code' => $target->code,
                 'url' => Gate::allows('view', $target) ? IntakeRequestResource::getUrl('edit', ['record' => $target], panel: 'admin') : null,
+            ],
+            // M10 Task 4: vụ việc bản ghi đã thành. Ai thấy được một bản ghi đã chuyển thành vụ `restricted`
+            // thì xem được vụ đó (`IntakeRequest::scopeVisibleTo()`), nên mã vụ không lộ cho ai mới.
+            'convertedInto' => $matter === null ? null : [
+                'code' => $matter->code,
+                'url' => Gate::allows('view', $matter) ? MatterResource::getUrl('view', ['record' => $matter], panel: 'admin') : null,
             ],
         ];
     }

@@ -1,6 +1,6 @@
 {{--
-    Kết quả xử lý một lần tiếp nhận (M10 Task 3): đã từ chối, hoặc đã gộp vào bản khác. Dữ liệu dựng
-    sẵn ở `EditIntakeRequest::decisionViewData()`.
+    Kết quả xử lý một lần tiếp nhận (M10 Task 3): đã từ chối, hoặc đã gộp vào bản khác — và (Task 4) đã
+    chuyển thành vụ việc nào. Dữ liệu dựng sẵn ở `EditIntakeRequest::decisionViewData()`.
 
     R8: lý do của một lần từ chối VÌ XUNG ĐỘT (và chính việc đó là vì xung đột) chỉ có trong dữ liệu
     khi người xem qua `IntakeRequestPolicy::viewConflictReason`; người khác chỉ thấy nhãn trung tính
@@ -16,6 +16,16 @@
             <p style="margin: 0; white-space: pre-line;">{{ $reason }}</p>
         @endif
         <p style="color: var(--gray-700); margin: 0;">{{ __('intake.decision.outward_answer') }}</p>
+    @endif
+
+    @if($convertedInto !== null)
+        <p style="margin: 0;">
+            @if($convertedInto['url'] !== null)
+                <a href="{{ $convertedInto['url'] }}" style="color: var(--primary-600); font-weight: 600;">{{ __('intake.decision.converted_into', ['code' => $convertedInto['code']]) }}</a>
+            @else
+                {{ __('intake.decision.converted_into', ['code' => $convertedInto['code']]) }}
+            @endif
+        </p>
     @endif
 
     @if($mergedInto !== null)

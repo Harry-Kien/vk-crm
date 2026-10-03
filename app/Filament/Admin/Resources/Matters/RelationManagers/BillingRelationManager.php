@@ -24,6 +24,7 @@ use App\Filament\Admin\Concerns\ScopesToVisibleMatters;
 use App\Models\Contract;
 use App\Models\ContractAmendment;
 use App\Models\Instalment;
+use App\Models\IntakeRequest;
 use App\Models\Matter;
 use App\Models\Payment;
 use App\Policies\Concerns\ChecksBillingAccess;
@@ -496,7 +497,9 @@ class BillingRelationManager extends RelationManager
             ->modalHeading(__('billing.tab.actions.draft_heading'))
             ->visible(fn (): bool => $matter->contract === null)
             ->authorize(fn (): bool => Gate::allows('create', [Contract::class, $matter]))
-            ->schema(static::contractScheduleFields())
+            // M10 Task 4 (R3): vụ đến từ một lần tiếp nhận thì phí đã báo lúc đó hiện sẵn làm GỢI Ý tổng
+            // giá trị — chỉ là giá trị mặc định của ô (`DraftContract` không đổi, người soạn sửa được).
+            ->schema(static::contractScheduleFields(suggestedTotal: fn (): ?string => static::quotedAmountSuggestion($matter)))
             ->successNotificationTitle(__('billing.tab.actions.draft_success'))
             ->action(fn (Action $action, array $data) => $this->runAction(
                 $action,
@@ -948,12 +951,14 @@ class BillingRelationManager extends RelationManager
     // =============================================================================================
 
     /** @return array<int, mixed> */
-    private static function contractScheduleFields(): array
+    private static function contractScheduleFields(?Closure $suggestedTotal = null): array
     {
         return [
             TextInput::make('total_amount')
                 ->label(__('billing.tab.fields.total_amount'))
                 ->helperText(__('billing.tab.fields.total_amount_help'))
+                // Chỉ áp khi modal mở KHÔNG có `fillForm()` (soạn mới); "sửa bản nháp" điền từ hợp đồng.
+                ->default($suggestedTotal)
                 ->maxLength(15)
                 ->required()
                 ->live(onBlur: true),
@@ -1226,6 +1231,17 @@ class BillingRelationManager extends RelationManager
             ->reject(fn ($stage): bool => $stage->key === $firstKey)
             ->pluck('label', 'key')
             ->all();
+    }
+
+    /**
+     * M10 Task 4 (R3): phí đã báo lúc tiếp nhận của bản ghi đã chuyển thành `$matter`, ở đúng dạng ô nhập
+     * nhận (`Money::formatForInput()`), hoặc null khi vụ không đến từ tiếp nhận nào / chưa báo phí.
+     */
+    private static function quotedAmountSuggestion(Matter $matter): ?string
+    {
+        $amount = IntakeRequest::quotedAmountFor($matter);
+
+        return $amount === null ? null : Money::formatForInput($amount);
     }
 
     private static function intOrNull(mixed $value): ?int
