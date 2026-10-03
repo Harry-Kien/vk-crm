@@ -126,7 +126,11 @@ class IntakeSeeder extends Seeder
         }
     }
 
-    /** Từ chối vì lý do thường (ngoài lĩnh vực): luật sư đã ghi bản ghi tự từ chối, kèm lý do. */
+    /**
+     * Từ chối vì lý do thường (không bố trí kịp người theo thời hạn của khách): luật sư đã ghi bản ghi tự
+     * từ chối, kèm lý do. Sở hữu trí tuệ LÀ một lĩnh vực văn phòng nhận (`MatterTypeSeeder`, mã `SH`), nên
+     * lý do không được là "ngoài lĩnh vực".
+     */
     private function declinedOutsidePractice(): void
     {
         $start = $this->now->subDays(40)->setTime(14, 5);
@@ -145,7 +149,7 @@ class IntakeSeeder extends Seeder
         $this->at($start->addDay()->setTime(9, 0), fn () => app(DeclineIntake::class)->handle(
             $this->staff['luatsu3'],
             $intake->fresh(),
-            'Sở hữu trí tuệ nằm ngoài lĩnh vực văn phòng nhận; đã giới thiệu bà Hỏi tới một văn phòng chuyên về nhãn hiệu.',
+            'Bà Hỏi cần nộp đơn và gửi thư cảnh báo ngay trong tuần; luật sư phụ trách sở hữu trí tuệ đang kín lịch tới cuối tháng, nên đã giới thiệu bà tới một văn phòng khác.',
         ));
     }
 

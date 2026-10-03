@@ -9,6 +9,7 @@ use App\Models\Client;
 use App\Models\IntakeRequest;
 use App\Models\Matter;
 use App\Models\MatterParty;
+use App\Models\MatterType;
 use App\Models\User;
 use App\Support\Intake\FirstResponseClock;
 use Carbon\CarbonImmutable;
@@ -122,6 +123,24 @@ it('plants one red call that waits for a manager, and one call declined for a co
         ->and(Activity::query()->where('event', 'intake_declined')->where('subject_id', $declined->id)->sole()->causer_id)->toBe($manager->id);
 });
 
+/**
+ * Rà soát cuối M10, FI7 (t8-m10): lý do của lần từ chối THƯỜNG trong dữ liệu mẫu không được nói ngược
+ * danh mục lĩnh vực của chính văn phòng mẫu. Bản Task 8 ghi "Sở hữu trí tuệ nằm ngoài lĩnh vực văn phòng
+ * nhận", trong khi `MatterTypeSeeder` của `main` (M9 Task 1) có `SH` "Sở hữu trí tuệ và công nghệ".
+ */
+it('gives the ordinary decline a reason that does not contradict the practice areas of the demo office', function () {
+    isdSeed();
+
+    $declined = IntakeRequest::query()
+        ->where('status', IntakeStatus::Declined)
+        ->where('decline_reason_is_conflict', false)
+        ->sole();
+
+    expect(MatterType::query()->where('code', 'SH')->value('name'))->toBe('Sở hữu trí tuệ và công nghệ')
+        ->and($declined->decline_reason)->not->toBeEmpty()
+        ->and(mb_strtolower((string) $declined->decline_reason))->not->toContain('ngoài lĩnh vực');
+});
+
 it('leaves one call overdue for a first response, on the home widget of the person it is assigned to', function () {
     isdSeed();
 
@@ -207,7 +226,7 @@ it('does not seed the intake records a second time', function () {
     $this->seed(IntakeSeeder::class);
 
     expect(IntakeRequest::withTrashed()->count())->toBe($before)
-        ->and(Matter::query()->count())->toBe(22);
+        ->and(Matter::query()->count())->toBe(23);
 });
 
 /**

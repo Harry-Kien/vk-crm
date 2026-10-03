@@ -16,6 +16,7 @@ use App\Filament\Portal\Pages\Auth\ChangePassword;
 use App\Filament\Portal\Pages\Auth\Login;
 use App\Filament\Portal\Pages\MatterProgress;
 use App\Filament\Portal\Pages\MyMatters;
+use App\Mail\Client\Activation;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Contract;
@@ -111,7 +112,7 @@ it('walks a first call from the phone to the client portal: notice, green check,
     $intake = IntakeRequest::query()->where('contact_name', 'Võ Thị Lần Đầu')->sole();
 
     // Kiểm tra chạy ở lần chạm đầu, trước câu chuyện: Xanh đủ định danh, trên văn phòng mẫu có 12 khách,
-    // 22 vụ và 12 lần tiếp nhận khác (nguồn dò thứ hai).
+    // 23 vụ và 12 lần tiếp nhận khác (nguồn dò thứ hai).
     expect($intake->code)->toStartWith('TN-2026-')
         ->and($intake->conflict_level)->toBe(ConflictLevel::Green)
         ->and($intake->conflict_result['incomplete_parties'])->toBe([])
@@ -190,17 +191,21 @@ it('walks a first call from the phone to the client portal: notice, green check,
         ->and($contract->fresh()->signed_at->toDateString())->toBe('2026-10-07');
 
     // ── Bước 3a — cấp tài khoản cổng cho khách mới: luôn phải đổi mật khẩu lần đầu, chưa kích hoạt (R12).
+    // Không ai gõ mật khẩu (luồng của `main` sau M6 Task 3): `IssuePortalAccess` sinh mật khẩu tạm và gửi
+    // nó trong thư `client.activation` tới đúng địa chỉ vừa nhập — khách đọc nó từ thư.
     $this->livewire(CreateClientUser::class)
         ->fillForm([
             'client_id' => $client->id,
             'name' => 'Võ Thị Lần Đầu',
             'email' => 'vo.thi.lan.dau@example.com',
-            'password' => 'MatKhauTamThoi2026',
         ])
         ->call('create')
         ->assertHasNoFormErrors();
 
     $account = ClientUser::query()->where('email', 'vo.thi.lan.dau@example.com')->sole();
+    $temporaryPassword = Mail::sent(Activation::class, fn (Activation $mail): bool => $mail->hasTo('vo.thi.lan.dau@example.com'))
+        ->sole()
+        ->temporaryPassword;
 
     expect($account->client_id)->toBe($client->id)
         ->and($account->must_change_password)->toBeTrue()
@@ -227,7 +232,7 @@ it('walks a first call from the phone to the client portal: notice, green check,
 
     $login = $this->livewire(Login::class)
         ->set('data.email', 'vo.thi.lan.dau@example.com')
-        ->set('data.password', 'MatKhauTamThoi2026')
+        ->set('data.password', $temporaryPassword)
         ->call('authenticate');
 
     $code = Notification::sent($account, SendLoginCode::class)->sole()->code();
