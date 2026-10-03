@@ -10,6 +10,7 @@ use App\Enums\Confidentiality;
 use App\Enums\ConflictLevel;
 use App\Enums\IntakeStatus;
 use App\Enums\PartyRole;
+use App\Exceptions\ExistingClientConfirmationRequired;
 use App\Models\Client;
 use App\Models\IntakeParty;
 use App\Models\IntakeRequest;
@@ -28,14 +29,16 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * Chuyển một lần tiếp nhận thành vụ việc (M10 Task 4, R3) — không gõ lại dữ liệu nào, trừ số căn
- * cước thô nếu văn phòng cần nó trên hồ sơ khách (lúc tiếp nhận chỉ lưu dấu băm, R7).
+ * cước thô nếu văn phòng cần nó trên hồ sơ của một khách MỚI (lúc tiếp nhận chỉ lưu dấu băm, R7).
  *
  *  1. **Quyền:** `IntakeRequestPolicy::convert` — `intake.convert` VÀ `matter.create`, và thấy được
  *     bản ghi. Trước mọi lần tra hay ghi nào.
  *  2. **Bản ghi còn chuyển đổi được** ({@see self::refusal()}), đọc từ dòng vừa khoá: chưa chuyển
- *     đổi, chưa gộp/ẩn danh, đang ở một trạng thái còn mở (`new` … `quoted`), và không còn Đỏ chờ
- *     quản lý/admin (R1: Đỏ chỉ có hai cách xử lý — từ chối hoặc ghi đè kèm lý do; chuyển đổi không
- *     phải cách thứ ba). Không thì `ValidationException` khoá `intake`.
+ *     đổi, chưa gộp/ẩn danh, đang ở một trạng thái còn mở (`new` … `quoted`), không còn Đỏ chờ
+ *     quản lý/admin, và không bị giữ như một cuộc gọi lại của người có lần gọi khác đang khoá
+ *     ({@see IntakeRequest::isHeldByRepeatCallLock()} — fix vòng 1, C1; đọc thẳng, không đợi một lần
+ *     "Kiểm tra lại" đặt dấu Đỏ chờ). R1: Đỏ chỉ có hai cách xử lý — từ chối hoặc ghi đè kèm lý do;
+ *     chuyển đổi không phải cách thứ ba. Không thì `ValidationException` khoá `intake`.
  *  3. **Dữ liệu:** các ô của vụ việc (cùng luật cột với `matters`), loại khách, và số căn cước thô
  *     tuỳ chọn — phải có chữ số; nếu bản ghi đã lưu dấu băm CCCD của người liên hệ thì số gõ phải
  *     băm ra ĐÚNG dấu đó (gõ nhầm một số là ghi sai định danh lên hồ sơ khách, thứ mọi lần kiểm tra
@@ -48,6 +51,16 @@ use Illuminate\Validation\ValidationException;
  *     đã chấp nhận ở M6.5); một lần chuyển đổi tốn tới ba suất mỗi lượt gửi. `ClientLookupThrottled`,
  *     `DuplicateClientNotVisible` (khách chỉ biết qua vụ `restricted` — câu trung lập, không tên) và
  *     `DuplicateClientDetected` đi ra nguyên vẹn cho màn hình dịch.
+ *     **Một hồ sơ ĐÃ CÓ chỉ được gắn khi** ({@see self::guardExistingClient()}, fix vòng 1, I1/I2):
+ *     (a) số căn cước của nó không mâu thuẫn với số đã biết của người liên hệ (số vừa gõ, không thì
+ *     dấu băm lúc tiếp nhận) — mâu thuẫn là hai người dùng chung một số máy, không gắn; (b) người bấm
+ *     không gõ một số căn cước mà hồ sơ đó không có — chuyển đổi không sửa hồ sơ của khách đã có (không
+ *     có Action sửa khách nào để đi qua; lần sửa còn đồng bộ lại các bên `is_our_client`, việc của màn
+ *     hình Khách hàng), nên số gõ sẽ mất âm thầm; và (c) người bấm đã XÁC NHẬN đúng hồ sơ đó
+ *     (`$confirmedClientId` bằng id của nó) sau khi màn hình hiện mã + tên — không thì
+ *     `ExistingClientConfirmationRequired` mang hồ sơ ra ngoài. (a) và (b) là `ValidationException`
+ *     khoá `client_id_number`. Ngoài dòng nhật ký `client_lookup` và suất tra của chính các lần tra,
+ *     không gì được ghi trước bước này.
  *  5. **Mở vụ bằng ĐÚNG `OpenMatter`**: nó tự lấy khoá `conflict-check`, tự chạy lại kiểm tra xung
  *     đột (kết quả lúc tiếp nhận đã cũ), tự áp hai lượt xác nhận/ghi đè (`$acknowledged`,
  *     `$overrideReason` — cùng hợp đồng), và chỉ lưu khách mới SAU khi kiểm tra cho qua (A-M7). Action
@@ -87,6 +100,10 @@ class ConvertIntakeToMatter
      * @param  string|null  $overrideReason  Lý do ghi đè mức đỏ — chuyển nguyên cho `OpenMatter`.
      * @param  ConflictLevel|null  $acknowledged  Mức đã hiện cho người bấm và được xác nhận — chuyển
      *                                            nguyên cho `OpenMatter`.
+     * @param  int|null  $confirmedClientId  Id của hồ sơ khách ĐÃ CÓ mà người bấm đã thấy (mã + tên, từ
+     *                                       `ExistingClientConfirmationRequired` của một lượt trước) và
+     *                                       xác nhận đúng người. Chỉ có nghĩa khi bước 4 tìm ra ĐÚNG hồ
+     *                                       sơ đó; khác đi thì hỏi lại.
      */
     public function handle(
         User $actor,
@@ -94,6 +111,7 @@ class ConvertIntakeToMatter
         array $attributes,
         ?string $overrideReason = null,
         ?ConflictLevel $acknowledged = null,
+        ?int $confirmedClientId = null,
     ): IntakeConversionResult {
         // Bước 1.
         Gate::forUser($actor)->authorize('convert', $intake);
@@ -110,7 +128,7 @@ class ConvertIntakeToMatter
         $data = $this->validated($attributes, $locked);
 
         // Bước 4.
-        $client = $this->resolveClient($actor, $locked, $data);
+        $client = $this->resolveClient($actor, $locked, $data, $confirmedClientId);
         $clientCreated = ! $client->exists;
 
         // Bước 5 + 6.
@@ -160,6 +178,8 @@ class ConvertIntakeToMatter
                 'status' => $intake->status->label(),
             ]),
             $intake->hasUnresolvedRed() => __('intake.errors.convert_red_pending'),
+            // Một câu cho mọi lý do lần gọi kia khoá (Đỏ chờ, hay từ chối vì xung đột — R8).
+            $intake->isHeldByRepeatCallLock() => __('intake.errors.convert_caller_locked'),
             default => null,
         };
     }
@@ -212,32 +232,65 @@ class ConvertIntakeToMatter
     }
 
     /**
-     * Bước 4 — xem docblock lớp. Trả một hồ sơ ĐÃ CÓ (gắn vào) hoặc một hồ sơ MỚI CHƯA LƯU
-     * (`OpenMatter` lưu nó sau khi kiểm tra cho qua).
+     * Bước 4 — xem docblock lớp. Trả một hồ sơ ĐÃ CÓ (gắn vào — chỉ sau
+     * {@see self::guardExistingClient()}) hoặc một hồ sơ MỚI CHƯA LƯU (`OpenMatter` lưu nó sau khi
+     * kiểm tra cho qua).
      *
      * @param  array<string, mixed>  $data
      */
-    private function resolveClient(User $actor, IntakeRequest $intake, array $data): Client
+    private function resolveClient(User $actor, IntakeRequest $intake, array $data, ?int $confirmedClientId): Client
     {
         $finder = app(FindClientByIdentifier::class);
         $idNumber = filled($data['client_id_number'] ?? null) ? (string) $data['client_id_number'] : null;
+        $client = null;
 
         // Định danh trống: `FindClientByIdentifier` trả null ngay, không tra, không trừ suất.
         foreach ([$idNumber, $intake->contact_phone] as $identifier) {
-            $found = $finder->handle($actor, $identifier);
+            $client = $finder->handle($actor, $identifier);
 
-            if ($found !== null) {
-                return $found;
+            if ($client !== null) {
+                break;
             }
         }
 
-        return app(CreateClient::class)->resolve($actor, [
+        $client ??= app(CreateClient::class)->resolve($actor, [
             'type' => $data['client_type'],
             'name' => $intake->contact_name,
             'id_number' => $idNumber,
             'phone' => $intake->contact_phone,
             'email' => $intake->contact_email,
         ]);
+
+        if ($client->exists) {
+            $this->guardExistingClient($client, $intake, $idNumber, $confirmedClientId);
+        }
+
+        return $client;
+    }
+
+    /**
+     * Ba điều kiện để GẮN người liên hệ vào một hồ sơ khách ĐÃ CÓ — (a), (b), (c) ở bước 4 của docblock
+     * lớp. Số căn cước "đã biết" của người liên hệ là số vừa gõ (bước 3 đã buộc nó khớp dấu băm lúc
+     * tiếp nhận, nếu có), không thì dấu băm lúc tiếp nhận. Hồ sơ không có số căn cước thì không có gì
+     * để mâu thuẫn (a), nhưng cũng không nhận được số vừa gõ (b).
+     */
+    private function guardExistingClient(Client $client, IntakeRequest $intake, ?string $idNumber, ?int $confirmedClientId): void
+    {
+        $knownHash = Normalizer::idNumberHash($idNumber) ?? $intake->contact_id_number_hash;
+        $clientHash = Normalizer::idNumberHash($client->id_number);
+        $names = ['code' => $client->code, 'name' => $client->name];
+
+        if ($knownHash !== null && $clientHash !== null && $clientHash !== $knownHash) {
+            throw ValidationException::withMessages(['client_id_number' => [__('intake.errors.convert_client_id_differs', $names)]]);
+        }
+
+        if ($idNumber !== null && $clientHash === null) {
+            throw ValidationException::withMessages(['client_id_number' => [__('intake.errors.convert_id_number_not_carried', $names)]]);
+        }
+
+        if ($confirmedClientId !== $client->getKey()) {
+            throw ExistingClientConfirmationRequired::make($client);
+        }
     }
 
     /**

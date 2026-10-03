@@ -32,7 +32,8 @@ use App\Models\IntakeRequest;
  *     `OpenMatter`.
  *  5. Xanh đủ định danh: mở.
  *
- * Bản ghi đã ẩn danh hoặc đã gộp không phải chuyện của cổng này: `UpdateIntakeSummary` từ chối riêng.
+ * Bản ghi đã xong việc (đã chuyển thành vụ việc, đã ẩn danh, đã gộp — `IntakeRequest::isClosedToChanges()`)
+ * không phải chuyện của cổng này: `UpdateIntakeSummary` từ chối riêng.
  */
 final class IntakeSummaryGate
 {

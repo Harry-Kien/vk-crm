@@ -20,7 +20,8 @@ use Illuminate\Support\Facades\Gate;
  * cả khi quản lý chạy, ô vẫn khoá cho tới khi quản lý/admin ghi đè kèm lý do
  * ({@see ResolveIntakeRedConflict}) — R1 chỉ có hai cách: từ chối hoặc ghi đè.
  *
- * Quyền: người nhìn thấy được bản ghi (`IntakeRequestPolicy::update`); bản đã ẩn danh hoặc đã gộp
+ * Quyền: người nhìn thấy được bản ghi (`IntakeRequestPolicy::update`); bản đã xong việc (đã chuyển
+ * thành vụ việc, đã ẩn danh hoặc đã gộp — `IntakeRequest::isClosedToChanges()`, đọc trên dòng vừa khoá)
  * bị từ chối.
  */
 class RerunIntakeConflictCheck

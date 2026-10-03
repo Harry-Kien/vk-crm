@@ -23,6 +23,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Collection;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
 
@@ -257,9 +258,9 @@ class IntakeRequest extends Model
     }
 
     /**
-     * Bản ghi đã ẩn danh hoặc đã gộp vào bản khác: không còn nhận thêm nội dung hay kiểm tra nào
-     * (M10, các Action `app/Actions/Intake` từ chối). Ẩn danh xoá dữ liệu cá nhân; bản đã gộp đã
-     * chuyển phần việc sang bản đích.
+     * Bản ghi đã ẩn danh hoặc đã gộp vào bản khác. Ẩn danh xoá dữ liệu cá nhân; bản đã gộp đã chuyển
+     * phần việc sang bản đích. Là MỘT vế của {@see self::isClosedToChanges()} — cổng thật của các
+     * Action ghi; tự nó chỉ còn dùng để chọn câu từ chối (`ConvertIntakeToMatter::refusal()`).
      */
     public function isClosedToWrites(): bool
     {
@@ -267,11 +268,14 @@ class IntakeRequest extends Model
     }
 
     /**
-     * Bản ghi đã xong việc với màn hình tiếp nhận (M10 Task 3): đã ẩn danh hoặc đã gộp
-     * ({@see self::isClosedToWrites()}), HOẶC đã chuyển thành vụ việc (`won`, hay đã có `matter_id`
-     * — R3: "khoá bản ghi tiếp nhận"). Không sửa danh tính, không đổi trạng thái, không từ chối, không
-     * gộp vào hay gộp đi; màn hình hiện nó ở dạng chỉ đọc. Hẹp hơn có chủ đích, `isClosedToWrites()`
-     * vẫn là cổng của các Action Task 2 (câu chuyện, thông báo, kiểm tra lại).
+     * Bản ghi đã xong việc (M10 Task 3): đã ẩn danh hoặc đã gộp ({@see self::isClosedToWrites()}),
+     * HOẶC đã chuyển thành vụ việc (`won`, hay đã có `matter_id` — R3: "khoá bản ghi tiếp nhận").
+     * Không sửa danh tính, không đổi trạng thái, không từ chối, không gộp vào hay gộp đi; màn hình hiện
+     * nó ở dạng chỉ đọc. Từ Task 4, fix vòng 1 (rà soát Task 4, I3) đây cũng là cổng của các Action
+     * Task 2 — câu chuyện (`UpdateIntakeSummary`), thông báo (`RecordPrivacyNotice`), kiểm tra lại,
+     * xác nhận và ghi đè Đỏ (`HoldsConflictCheckLock::checkAndRecord()`): một bản ghi đã chuyển đổi
+     * không nhận thêm nội dung hay kiểm tra nào, kể cả từ một request đã qua bước hiện nút trước khi
+     * tab khác chuyển đổi xong (Action đọc hàm này trên dòng vừa khoá).
      */
     public function isClosedToChanges(): bool
     {
@@ -331,17 +335,67 @@ class IntakeRequest extends Model
     }
 
     /**
+     * Bản này đang bị giữ như MỘT CUỘC GỌI LẠI (M10 Task 4, fix vòng 1 — rà soát Task 4, C1): chưa có
+     * ghi đè còn hiệu lực trên CHÍNH bản này ({@see self::hasConflictOverride()}), và một lần gọi khác
+     * của cùng người ({@see self::sameCallerIntakes()}, với vai {@see self::conflictContactRole()})
+     * đang khoá cuộc gọi lại ({@see self::locksRepeatCalls()}). MỘT định nghĩa cho hai nơi:
+     * `CheckIntakeConflict` (đặt dấu Đỏ chờ khi chạy kiểm tra) và `ConvertIntakeToMatter::refusal()`
+     * (chuyển đổi đọc thẳng điều kiện này, không đợi một lần "Kiểm tra lại" — nếu không, một bản ghi
+     * kiểm tra TRƯỚC khi lần gọi kia thành Đỏ chuyển thành vụ được, đúng đường rửa khoá).
+     *
+     * @param  PartyRole|null  $role  Vai lần kiểm tra dùng, khi người gọi đã tính sẵn; null thì tự tính.
+     */
+    public function isHeldByRepeatCallLock(?PartyRole $role = null): bool
+    {
+        return ! $this->hasConflictOverride()
+            && $this->sameCallerIntakes($role ?? $this->conflictContactRole())
+                ->contains(fn (IntakeRequest $other): bool => $other->locksRepeatCalls());
+    }
+
+    /**
+     * Vai của người liên hệ mà MỘT lần kiểm tra xung đột của bản này dùng (M10 R1): vai đã khai
+     * (`contact_role`); chưa khai thì suy từ bên đối lập — đối của vai nguyên đơn/bị đơn ĐẦU TIÊN
+     * trong các bên (theo thứ tự của `$parties`) — còn không thì `related`, để Đỏ không lặng lẽ tắt chỉ
+     * vì người gọi chưa nói mình là nguyên đơn hay bị đơn. Vai suy ra chỉ để kiểm tra, KHÔNG ghi lại
+     * vào `contact_role`. MỘT định nghĩa cho `CheckIntakeConflict` và
+     * {@see self::isHeldByRepeatCallLock()}.
+     *
+     * @param  Collection<int, IntakeParty>|null  $parties  Các bên đối lập đã nạp sẵn; null thì tự nạp
+     *                                                      (cùng truy vấn `parties()->get()` của
+     *                                                      `CheckIntakeConflict`).
+     */
+    public function conflictContactRole(?Collection $parties = null): PartyRole
+    {
+        if ($this->contact_role !== null) {
+            return $this->contact_role;
+        }
+
+        foreach ($parties ?? $this->parties()->get() as $party) {
+            if ($party->role === PartyRole::Plaintiff) {
+                return PartyRole::Defendant;
+            }
+
+            if ($party->role === PartyRole::Defendant) {
+                return PartyRole::Plaintiff;
+            }
+        }
+
+        return PartyRole::Related;
+    }
+
+    /**
      * Các lần tiếp nhận KHÁC còn mở ({@see self::scopeOpenForConflictCheck()}) mà người liên hệ là
      * CÙNG người gọi lại với bản này, về cùng một việc: khớp dấu băm CCCD hoặc SĐT chuẩn hoá (không bao
      * giờ chỉ tên — tên người Việt trùng nhau rất phổ biến) VÀ đã khai đúng vai `$role`. `$role` là vai
      * mà lần kiểm tra của bản này dùng cho người liên hệ (đã khai, hoặc suy từ bên đối lập khi chưa
-     * khai — `App\Actions\Intake\CheckIntakeConflict`); lần gọi kia phải ĐÃ KHAI vai (cột `contact_role`). Khác vai
+     * khai — {@see self::conflictContactRole()}); lần gọi kia phải ĐÃ KHAI vai (cột `contact_role`). Khác vai
      * thì không phải cùng một người gọi lại: vợ và chồng chung một số máy bàn.
      *
      * MỘT định nghĩa cho cả hai nơi dùng: `RunConflictCheck` (bỏ khớp với lần gọi lành, mang bên đối
-     * lập của lần gọi trước vào lần kiểm tra) và `CheckIntakeConflict` (khoá lần gọi lại khi một lần
-     * gọi trước {@see self::locksRepeatCalls()}). Không có định danh mạnh nào thì rỗng. Bỏ
-     * `ClientPortalScope` như mọi truy vấn của kiểm tra xung đột.
+     * lập của lần gọi trước vào lần kiểm tra) và {@see self::isHeldByRepeatCallLock()} (khoá lần gọi lại
+     * khi một lần gọi trước {@see self::locksRepeatCalls()} — `CheckIntakeConflict` đặt Đỏ chờ theo nó,
+     * `ConvertIntakeToMatter::refusal()` từ chối chuyển đổi theo nó). Không có định danh mạnh nào thì
+     * rỗng. Bỏ `ClientPortalScope` như mọi truy vấn của kiểm tra xung đột.
      *
      * @return EloquentCollection<int, IntakeRequest>
      */

@@ -47,14 +47,15 @@ trait HoldsConflictCheckLock
      * Chạy kiểm tra và ghi kết quả trong MỘT transaction RIÊNG, commit ngay — NGƯỜI GỌI PHẢI ĐANG GIỮ
      * khoá `conflict-check`. Riêng và commit trước để bằng chứng "đã kiểm tra" (dòng `conflict_check_run`
      * và `conflict_result`) không mất khi bước sau (xác nhận, ghi đè) bị từ chối. Câu đầu tiên của
-     * transaction là một lần đọc có khoá dòng bản ghi (luật dự án); bản đã ẩn danh hoặc đã gộp bị từ chối.
+     * transaction là một lần đọc có khoá dòng bản ghi (luật dự án); bản đã xong việc — đã chuyển thành vụ
+     * việc, đã ẩn danh hoặc đã gộp (`IntakeRequest::isClosedToChanges()`) — bị từ chối.
      */
     protected function checkAndRecord(User $actor, IntakeRequest $intake): ConflictCheckResult
     {
         return DB::transaction(function () use ($actor, $intake): ConflictCheckResult {
             $locked = IntakeRequest::query()->whereKey($intake->getKey())->lockForUpdate()->firstOrFail();
 
-            if ($locked->isClosedToWrites()) {
+            if ($locked->isClosedToChanges()) {
                 throw ValidationException::withMessages(['intake' => [__('intake.errors.record_closed')]]);
             }
 

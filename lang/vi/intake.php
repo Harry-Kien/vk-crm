@@ -51,7 +51,8 @@ return [
         'override_reason_too_long' => 'Lý do quá dài.',
         'summary_too_long' => 'Nội dung câu chuyện quá dài.',
         'summary_locked' => 'Chưa thể ghi nội dung câu chuyện: :blockers',
-        'record_closed' => 'Bản ghi này đã được ẩn danh hoặc gộp vào bản khác nên không ghi thêm được nội dung.',
+        // Task 4, fix vòng 1: cả bản đã chuyển thành vụ việc (`isClosedToChanges()`).
+        'record_closed' => 'Bản ghi này đã chuyển thành vụ việc, đã gộp vào bản khác hoặc đã được ẩn danh nên không ghi thêm được nội dung.',
         // M10 Task 3: các Action của màn hình tiếp nhận.
         'record_final' => 'Bản ghi này đã chuyển thành vụ việc, đã gộp hoặc đã ẩn danh nên không sửa được nữa.',
         'party_not_on_record' => 'Một dòng bên đối lập không thuộc bản ghi này. Hãy tải lại trang rồi thử lại.',
@@ -77,6 +78,13 @@ return [
         'description_too_long' => 'Ghi chú nội bộ quá dài.',
         'id_number_invalid' => 'Số căn cước không hợp lệ: phải có chữ số.',
         'convert_id_number_mismatch' => 'Số căn cước này không khớp số đã ghi lúc tiếp nhận. Kiểm tra lại với người liên hệ; nếu số lúc tiếp nhận sai thì sửa ở trang bản ghi trước.',
+        // M10 Task 4, fix vòng 1. Khoá người gọi lại: MỘT câu cho mọi lý do lần gọi kia khoá (Đỏ chờ,
+        // hay từ chối vì xung đột — R8).
+        'convert_caller_locked' => 'Người liên hệ này có một lần liên hệ khác với văn phòng mà các lần gọi lại phải chờ trưởng phòng hoặc quản trị xem trước. Bấm "Kiểm tra lại" ở trang bản ghi để cập nhật kết quả, rồi báo họ: chỉ họ mở được bản ghi này (ghi đè kèm lý do, hoặc từ chối). Xong mới chuyển thành vụ việc được.',
+        // Gắn vào một khách ĐÃ CÓ (chỉ khách người bấm được tra ra, M6.5 R4a — nên nêu mã và tên được).
+        'convert_client_confirmation_required' => 'Số đã tra trùng khách hàng :code — :name của văn phòng. Phải xác nhận đúng người này trước khi gắn người liên hệ vào hồ sơ đó.',
+        'convert_client_id_differs' => 'Số điện thoại đã ghi trùng khách hàng :code — :name, nhưng hồ sơ đó mang số căn cước khác với người liên hệ: có thể là hai người dùng chung một số máy. Hệ thống không gắn người liên hệ vào hồ sơ đó. Nếu người liên hệ có số điện thoại riêng, sửa số ở trang bản ghi rồi chuyển đổi lại; nếu không, nhờ người quản lý hồ sơ khách hàng tạo hồ sơ cho người liên hệ (kèm số căn cước), rồi nhập số căn cước đó ở ô này.',
+        'convert_id_number_not_carried' => 'Khách hàng :code — :name chưa có số căn cước trên hồ sơ, và chuyển đổi không sửa hồ sơ của một khách đã có: số vừa nhập sẽ không được lưu ở đâu. Bỏ trống ô này để gắn người liên hệ vào hồ sơ đó; muốn hồ sơ có số căn cước, nhờ người quản lý hồ sơ khách hàng bổ sung ở màn hình Khách hàng.',
     ],
 
     /*
@@ -224,7 +232,7 @@ return [
             'carried' => 'Chuyển sang từ bản ghi',
             'carried_description' => 'Không cần gõ lại: người liên hệ thành khách hàng của vụ, các bên đối lập sang danh sách các bên kèm định danh đã ghi, câu chuyện sang ghi chú nội bộ (sửa được ở dưới), phí đã báo hiện sẵn khi soạn hợp đồng.',
             'client' => 'Khách hàng',
-            'client_description' => 'Hệ thống tra khách theo số căn cước (nếu nhập) rồi theo số điện thoại đã ghi. Trùng đúng số thì gắn vào khách đó; không trùng thì tạo hồ sơ khách mới. Không bao giờ gắn theo tên.',
+            'client_description' => 'Hệ thống tra khách theo số căn cước (nếu nhập) rồi theo số điện thoại đã ghi. Trùng đúng số thì hiện hồ sơ khách đó để anh/chị xác nhận đúng người trước khi gắn; không trùng thì tạo hồ sơ khách mới. Không bao giờ gắn theo tên.',
             'matter' => 'Vụ việc',
         ],
         'contact_line' => 'Người liên hệ: :name',
@@ -236,8 +244,15 @@ return [
         'no_parties' => 'Không có bên đối lập nào được khai lúc tiếp nhận.',
         'client_type' => 'Loại khách hàng',
         'id_number' => 'Số căn cước của khách hàng',
-        'id_number_help' => 'Không bắt buộc. Nhập nếu văn phòng cần số này trên hồ sơ khách; hệ thống cũng dùng nó để tra khách đã có.',
-        'id_number_recorded_help' => 'Lúc tiếp nhận đã ghi số căn cước của người liên hệ (chỉ lưu dạng mã hoá, không lưu số gốc). Nhập lại đúng số đó nếu văn phòng cần nó trên hồ sơ khách; bỏ trống thì hồ sơ khách không có số căn cước.',
+        // Task 4, fix vòng 1 (I2): số chỉ được lưu lên hồ sơ khách MỚI — chuyển đổi không sửa hồ sơ của
+        // khách đã có (Action từ chối thay vì bỏ số âm thầm).
+        'id_number_help' => 'Không bắt buộc. Hệ thống dùng số này để tra khách đã có (trước số điện thoại). Số chỉ được lưu khi tạo hồ sơ khách MỚI; chuyển đổi không sửa hồ sơ của khách đã có.',
+        'id_number_recorded_help' => 'Lúc tiếp nhận đã ghi số căn cước của người liên hệ (chỉ lưu dạng mã hoá, không lưu số gốc). Nhập lại đúng số đó để tra khách đã có theo số căn cước và để hồ sơ khách MỚI có số này; chuyển đổi không sửa hồ sơ của khách đã có. Bỏ trống thì hồ sơ khách mới không có số căn cước.',
+        // Task 4, fix vòng 1 (I1): hồ sơ khách ĐÃ CÓ mà số tra ra — hiện mã + tên, gắn chỉ khi xác nhận.
+        'client_match' => 'Số đã tra trùng khách hàng đã có của văn phòng: :code — :name.',
+        'confirm_existing_client' => 'Đúng người này — gắn người liên hệ vào hồ sơ khách hàng trên',
+        'confirm_existing_client_help' => 'Một số máy có thể dùng chung (người nhà, đồng nghiệp). Không phải người này thì đừng tích: sửa số điện thoại ở trang bản ghi nếu người liên hệ có số riêng, hoặc nhờ người quản lý hồ sơ khách hàng tạo hồ sơ riêng cho người liên hệ kèm số căn cước rồi nhập số đó ở ô số căn cước.',
+        'confirm_existing_client_required' => 'Xem hồ sơ khách hàng hệ thống tìm thấy ở trên. Đúng người thì tích ô này rồi bấm chuyển đổi lần nữa.',
         'done' => 'Đã chuyển :intake thành vụ việc :matter.',
         'done_existing_client' => 'Người liên hệ được gắn vào khách hàng đã có của văn phòng.',
         'done_new_client' => 'Đã tạo hồ sơ khách hàng mới cho người liên hệ.',

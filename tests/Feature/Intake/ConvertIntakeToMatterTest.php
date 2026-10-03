@@ -1,10 +1,14 @@
 <?php
 
+use App\Actions\Intake\AcknowledgeIntakeConflict;
 use App\Actions\Intake\ConvertIntakeToMatter;
 use App\Actions\Intake\DeclineIntake;
 use App\Actions\Intake\MergeIntake;
 use App\Actions\Intake\RecordIntake;
+use App\Actions\Intake\RecordPrivacyNotice;
+use App\Actions\Intake\RerunIntakeConflictCheck;
 use App\Actions\Intake\ResolveIntakeRedConflict;
+use App\Actions\Intake\UpdateIntakeSummary;
 use App\Actions\OpenMatter;
 use App\Actions\RunConflictCheck;
 use App\Enums\ClientType;
@@ -16,6 +20,7 @@ use App\Enums\PartyRole;
 use App\Enums\Role;
 use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
+use App\Exceptions\ExistingClientConfirmationRequired;
 use App\Models\Client;
 use App\Models\IntakeRequest;
 use App\Models\Matter;
@@ -84,9 +89,38 @@ function cvtAttributes(User $lead, MatterType $type, array $overrides = []): arr
     ], ...$overrides];
 }
 
-function cvtConvert(User $actor, IntakeRequest $intake, array $overrides = [], ?string $overrideReason = null, ?ConflictLevel $ack = null)
+function cvtConvert(User $actor, IntakeRequest $intake, array $overrides = [], ?string $overrideReason = null, ?ConflictLevel $ack = null, ?int $confirmedClientId = null)
 {
-    return app(ConvertIntakeToMatter::class)->handle($actor, $intake, cvtAttributes($actor, cvtType(), $overrides), $overrideReason, $ack);
+    return app(ConvertIntakeToMatter::class)->handle($actor, $intake, cvtAttributes($actor, cvtType(), $overrides), $overrideReason, $ack, $confirmedClientId);
+}
+
+/** Khách hiện hữu D (SĐT 0912000111, không CCCD) có một vụ thường. */
+function cvtClientD(): Client
+{
+    return cvtExistingClient(['phone' => '0912000111', 'name' => 'Công Ty D']);
+}
+
+/** Một khách hiện hữu có một vụ thường (luật sư tra được, M6.5 R4a). */
+function cvtExistingClient(array $attributes): Client
+{
+    $client = Client::factory()->create([...['id_number' => null], ...$attributes]);
+    MatterParty::factory()->for(Matter::factory()->create(['client_id' => $client->id]))->ourClient($client)->create();
+
+    return $client;
+}
+
+/** Câu đầu tiên của khoá `$key` trong lời từ chối của một lần gọi, hoặc tên lớp ngoại lệ khác, hoặc null. */
+function cvtRefusal(Closure $call, string $key): ?string
+{
+    try {
+        $call();
+    } catch (ValidationException $e) {
+        return $e->errors()[$key][0] ?? (string) json_encode($e->errors());
+    } catch (Throwable $e) {
+        return $e::class;
+    }
+
+    return null;
 }
 
 /** @return array<string, int> số dòng của các bảng mà một lần chuyển đổi hỏng không được để lại gì. */
@@ -381,7 +415,11 @@ it('finds the existing client by the ID number typed at conversion before trying
     $byIdNumber = Client::factory()->create(['phone' => '0900111222', 'id_number' => '079090000555', 'name' => 'Trần Thị Mới']);
     $intake = cvtRecord($lawyer, ['contact_id_number' => '079090000555']);
 
-    $result = cvtConvert($lawyer, $intake, ['client_id_number' => '079090000555'], null, ConflictLevel::Yellow);
+    // Lượt đầu: hệ thống nói khách nào nó định gắn (fix vòng 1, I1), chưa gắn gì.
+    expect(fn () => cvtConvert($lawyer, $intake, ['client_id_number' => '079090000555'], null, ConflictLevel::Yellow))
+        ->toThrow(fn (ExistingClientConfirmationRequired $e) => expect($e->client->id)->toBe($byIdNumber->id));
+
+    $result = cvtConvert($lawyer, $intake->fresh(), ['client_id_number' => '079090000555'], null, ConflictLevel::Yellow, $byIdNumber->id);
 
     expect($result->clientCreated)->toBeFalse()
         ->and($result->opening->matter->client_id)->toBe($byIdNumber->id)
@@ -467,4 +505,264 @@ it('takes the converted record out of the second source: a later call by the sam
     $codes = collect($later->conflict_result['matches'] ?? [])->pluck('matter_code')->all();
 
     expect($codes)->toContain($matter->code)->not->toContain($intake->code);
+});
+
+/*
+ * Fix vòng 1 (rà soát Task 4). Hàm toàn cục mang tiền tố `cvt…` như trên.
+ */
+
+/** Chuyển đổi; nếu `OpenMatter` đòi xác nhận một mức Vàng/"thiếu định danh" thì xác nhận đúng mức đó. */
+function cvtConvertAcknowledging(User $actor, IntakeRequest $intake, array $overrides = [], ?int $confirmedClientId = null)
+{
+    try {
+        return cvtConvert($actor, $intake->fresh(), $overrides, null, null, $confirmedClientId);
+    } catch (ConflictAcknowledgementRequired $e) {
+        return cvtConvert($actor, $intake->fresh(), $overrides, null, $e->result->level, $confirmedClientId);
+    }
+}
+
+/** Lần gọi ĐẦU của người gọi P (nguyên đơn, 0832270898): bên đối lập không có định danh — không Đỏ. */
+function cvtFirstCallOfP(User $actor): IntakeRequest
+{
+    return cvtRecord($actor, ['contact_name' => 'Người Gọi P'], [['name' => 'Ai Đó', 'role' => PartyRole::Defendant]]);
+}
+
+it('refuses a record whose caller is held by the repeat-call lock of another call, before any lookup, in the same words for a red and for a conflict decline', function (Closure $lockingCall) {
+    cvtClientD();
+    $lawyer = cvtStaff();
+    $b = cvtFirstCallOfP($lawyer);
+    $lockingCall($lawyer);
+
+    // Chính B không có Đỏ nào: chỉ khoá người gọi lại của lần gọi kia giữ nó.
+    expect($b->fresh()->hasUnresolvedRed())->toBeFalse();
+
+    $before = cvtCounts();
+    $runs = Activity::query()->whereIn('event', ['conflict_check_run', 'client_lookup'])->count();
+
+    expect(cvtRefusal(fn () => cvtConvert($lawyer, $b->fresh(), [], null, ConflictLevel::Yellow), 'intake'))
+        ->toBe(__('intake.errors.convert_caller_locked'))
+        ->and(ConvertIntakeToMatter::refusal($b->fresh()))->toBe(__('intake.errors.convert_caller_locked'));
+
+    expect(cvtCounts())->toBe($before)
+        ->and(Activity::query()->whereIn('event', ['conflict_check_run', 'client_lookup'])->count())->toBe($runs)
+        ->and($b->fresh()->status)->toBe(IntakeStatus::New);
+})->with([
+    // P gọi lại, nêu tên khách hiện hữu D kèm SĐT của D: Đỏ chờ quản lý.
+    'the other call still red' => [fn (User $lawyer) => cvtRecord($lawyer, ['contact_name' => 'Người Gọi P'], [
+        ['name' => 'Công Ty D', 'role' => PartyRole::Defendant, 'phone' => '0912000111'],
+    ])],
+    // P gọi lại, không Đỏ nào trong hệ thống, nhưng quản lý từ chối vì xung đột (R8).
+    'the other call declined for a conflict' => [function (User $lawyer): void {
+        $other = cvtRecord($lawyer, ['contact_name' => 'Người Gọi P'], [['name' => 'Bên Nào Đó', 'role' => PartyRole::Defendant]]);
+
+        expect($other->hasUnresolvedRed())->toBeFalse();
+
+        app(DeclineIntake::class)->handle(cvtStaff(Role::Manager), $other, 'Bên kia là khách hiện hữu của văn phòng', true);
+    }],
+]);
+
+it('reads the contact role the conflict check reads: a role not declared is implied from the opposing party', function () {
+    cvtClientD();
+    $lawyer = cvtStaff();
+    // Không khai vai; bên đối lập là bị đơn → lần kiểm tra coi người liên hệ là nguyên đơn.
+    $b = cvtRecord($lawyer, ['contact_name' => 'Người Gọi P', 'contact_role' => null], [['name' => 'Ai Đó', 'role' => PartyRole::Defendant]]);
+    cvtRecord($lawyer, ['contact_name' => 'Người Gọi P'], [['name' => 'Công Ty D', 'role' => PartyRole::Defendant, 'phone' => '0912000111']]);
+
+    expect($b->fresh()->contact_role)->toBeNull()
+        ->and(cvtRefusal(fn () => cvtConvert($lawyer, $b->fresh(), [], null, ConflictLevel::Yellow), 'intake'))
+        ->toBe(__('intake.errors.convert_caller_locked'));
+});
+
+it('is not held by another call of the same number that does not lock, or that declared another role', function (Closure $otherCall) {
+    cvtClientD();
+    $lawyer = cvtStaff();
+    $b = cvtFirstCallOfP($lawyer);
+    $otherCall($lawyer);
+
+    expect(ConvertIntakeToMatter::refusal($b->fresh()))->toBeNull()
+        ->and(cvtConvertAcknowledging($lawyer, $b)->intake->status)->toBe(IntakeStatus::Won);
+})->with([
+    'same caller, an ordinary open call' => [fn (User $lawyer) => cvtRecord($lawyer, ['contact_name' => 'Người Gọi P'], [
+        ['name' => 'Bên Khác', 'role' => PartyRole::Defendant, 'phone' => '0977000555'],
+    ])],
+    // Cùng số máy, vai khác (bị đơn) và Đỏ: không phải cùng người gọi lại (vợ chồng chung máy bàn).
+    'same number, another declared role, red' => [function (User $lawyer): void {
+        $other = cvtRecord($lawyer, ['contact_name' => 'Người Gọi Q', 'contact_role' => PartyRole::Defendant], [
+            ['name' => 'Công Ty D', 'role' => PartyRole::Plaintiff, 'phone' => '0912000111'],
+        ]);
+
+        expect($other->hasUnresolvedRed())->toBeTrue();
+    }],
+]);
+
+it('lets the conversion through once a manager has overridden the lock on this record itself', function () {
+    cvtClientD();
+    $lawyer = cvtStaff();
+    $manager = cvtStaff(Role::Manager);
+    $b = cvtFirstCallOfP($lawyer);
+    $a = cvtRecord($lawyer, ['contact_name' => 'Người Gọi P'], [['name' => 'Công Ty D', 'role' => PartyRole::Defendant, 'phone' => '0912000111']]);
+
+    expect(ConvertIntakeToMatter::refusal($b->fresh()))->toBe(__('intake.errors.convert_caller_locked'));
+
+    app(ResolveIntakeRedConflict::class)->handle($manager, $b->fresh(), 'Đã xem cả hai lần gọi, nhận phần việc không liên quan Công Ty D');
+
+    $result = cvtConvertAcknowledging($manager, $b);
+
+    expect($result->intake->status)->toBe(IntakeStatus::Won)
+        // Lần gọi kia vẫn chờ quản lý xử lý riêng: ghi đè trên B không xử lý Đỏ của nó.
+        ->and($a->fresh()->hasUnresolvedRed())->toBeTrue();
+});
+
+it('rolls the save back when the lock of another call appears between the check and the save', function () {
+    $lawyer = cvtStaff();
+    $b = cvtFirstCallOfP($lawyer);
+    $a = cvtRecord($lawyer, ['contact_name' => 'Người Gọi P'], [['name' => 'Bên Khác', 'role' => PartyRole::Defendant, 'phone' => '0977000555']]);
+    $before = cvtCounts();
+
+    $decorator = new class extends RunConflictCheck
+    {
+        public ?int $lockAfterCheckOf = null;
+
+        public ?int $otherId = null;
+
+        public function handle(Collection $parties, ?Matter $matter = null, ?User $actor = null, ?int $excludePartyId = null, ?Collection $ignoreConfirmedForPartyIds = null, ?Model $subject = null, ?int $excludeIntakeId = null): ConflictCheckResult
+        {
+            $result = parent::handle($parties, $matter, $actor, $excludePartyId, $ignoreConfirmedForPartyIds, $subject, $excludeIntakeId);
+
+            if ($excludeIntakeId !== null && $excludeIntakeId === $this->lockAfterCheckOf) {
+                DB::table('intake_requests')->where('id', $this->otherId)->update(['conflict_red_pending_since' => now()]);
+            }
+
+            return $result;
+        }
+    };
+    $decorator->lockAfterCheckOf = $b->id;
+    $decorator->otherId = $a->id;
+    app()->instance(RunConflictCheck::class, $decorator);
+
+    // Lượt đã xác nhận đúng mức (Vàng: lần gọi kia là "đã liên hệ"), nên lượt này đi tới bước lưu.
+    expect(cvtRefusal(fn () => cvtConvert($lawyer, $b->fresh(), [], null, ConflictLevel::Yellow), 'intake'))
+        ->toBe(__('intake.errors.convert_caller_locked'));
+
+    expect(cvtCounts())->toBe($before)
+        ->and($b->fresh()->matter_id)->toBeNull()
+        ->and($b->fresh()->status)->toBe(IntakeStatus::New)
+        ->and(Activity::query()->where('event', 'matter_opened')->exists())->toBeFalse();
+});
+
+it('shows the existing client it would attach and attaches only once that exact client is confirmed', function () {
+    $lawyer = cvtStaff();
+    // Cùng số máy, KHÁC tên: chỉ người bấm biết đây có phải cùng một người không.
+    $mother = cvtExistingClient(['phone' => '0832270898', 'name' => 'Nguyễn Thị Mẹ']);
+    $someoneElse = cvtExistingClient(['phone' => '0900111333', 'name' => 'Người Khác Hẳn']);
+    $intake = cvtRecord($lawyer);
+    $before = cvtCounts();
+    $runs = Activity::query()->where('event', 'conflict_check_run')->count();
+
+    foreach ([null, $someoneElse->id] as $confirmed) {
+        try {
+            cvtConvert($lawyer, $intake->fresh(), [], null, null, $confirmed);
+            $this->fail('Phải hỏi xác nhận trước khi gắn.');
+        } catch (ExistingClientConfirmationRequired $e) {
+            expect($e->client->id)->toBe($mother->id)
+                ->and($e->getMessage())->toBe(__('intake.errors.convert_client_confirmation_required', ['code' => $mother->code, 'name' => 'Nguyễn Thị Mẹ']));
+        }
+    }
+
+    // Chưa gắn gì, chưa mở gì, chưa chạy kiểm tra xung đột nào.
+    expect(cvtCounts())->toBe($before)
+        ->and(Activity::query()->where('event', 'conflict_check_run')->count())->toBe($runs)
+        ->and($intake->fresh()->matter_id)->toBeNull();
+
+    $result = cvtConvertAcknowledging($lawyer, $intake, [], $mother->id);
+
+    expect($result->clientCreated)->toBeFalse()
+        ->and($result->opening->matter->client_id)->toBe($mother->id)
+        ->and(Client::query()->count())->toBe($before['clients']);
+});
+
+it('never attaches a client found by phone whose ID number differs from the one known for the contact', function (array $typed, ?string $recorded) {
+    $lawyer = cvtStaff();
+    $mother = cvtExistingClient(['phone' => '0832270898', 'id_number' => '079080000111', 'name' => 'Nguyễn Thị Mẹ']);
+    // Con gọi bằng máy của mẹ, khai số căn cước của chính mình (lúc tiếp nhận, lúc chuyển đổi, hay cả hai).
+    $intake = cvtRecord($lawyer, ['contact_name' => 'Nguyễn Thị Con', 'contact_id_number' => $recorded]);
+    $before = cvtCounts();
+
+    // Kể cả khi người gọi Action "đã xác nhận" đúng hồ sơ đó.
+    expect(cvtRefusal(fn () => cvtConvert($lawyer, $intake->fresh(), $typed, null, ConflictLevel::Yellow, $mother->id), 'client_id_number'))
+        ->toBe(__('intake.errors.convert_client_id_differs', ['code' => $mother->code, 'name' => 'Nguyễn Thị Mẹ']));
+
+    expect(cvtCounts())->toBe($before)
+        ->and($intake->fresh()->matter_id)->toBeNull();
+})->with([
+    'ID number recorded at intake, not typed again' => [[], '079090000555'],
+    'ID number recorded at intake and typed again' => [['client_id_number' => '079 090 000 555'], '079090000555'],
+    'ID number typed at conversion only' => [['client_id_number' => '079 090 000 555'], null],
+]);
+
+it('attaches a client found by phone whose ID number does not contradict the contact', function (?string $recorded) {
+    $lawyer = cvtStaff();
+    $same = cvtExistingClient(['phone' => '0832270898', 'id_number' => '079090000555', 'name' => 'Trần Thị Mới']);
+    $intake = cvtRecord($lawyer, ['contact_id_number' => $recorded]);
+
+    $result = cvtConvertAcknowledging($lawyer, $intake, [], $same->id);
+
+    expect($result->opening->matter->client_id)->toBe($same->id)
+        ->and($result->clientCreated)->toBeFalse();
+})->with([
+    'the same ID number recorded at intake' => ['079090000555'],
+    // Người liên hệ không khai số căn cước: không có gì để mâu thuẫn — chỉ cần xác nhận đúng người.
+    'no ID number known for the contact' => [null],
+]);
+
+it('refuses to drop an ID number typed for an existing client that has none on file, and attaches when it is left empty', function () {
+    $lawyer = cvtStaff();
+    $existing = cvtExistingClient(['phone' => '0832270898', 'name' => 'Trần Thị Mới']);
+    $intake = cvtRecord($lawyer, ['contact_id_number' => '079090000555']);
+    $before = cvtCounts();
+
+    expect(cvtRefusal(fn () => cvtConvert($lawyer, $intake->fresh(), ['client_id_number' => '079090000555'], null, ConflictLevel::Yellow, $existing->id), 'client_id_number'))
+        ->toBe(__('intake.errors.convert_id_number_not_carried', ['code' => $existing->code, 'name' => 'Trần Thị Mới']));
+
+    expect(cvtCounts())->toBe($before);
+
+    // Không gõ lại số: không có gì bị bỏ âm thầm (dấu băm lúc tiếp nhận không bao giờ là số trên hồ sơ khách).
+    $result = cvtConvertAcknowledging($lawyer, $intake, [], $existing->id);
+
+    expect($result->opening->matter->client_id)->toBe($existing->id)
+        ->and($existing->fresh()->id_number)->toBeNull();
+});
+
+it('takes no more story, notice or conflict-check writes once the record has been converted', function () {
+    $lawyer = cvtStaff();
+    $manager = cvtStaff(Role::Manager);
+
+    $withStory = cvtRecord($lawyer);
+    app(RecordPrivacyNotice::class)->handle($lawyer, $withStory, true);
+    app(UpdateIntakeSummary::class)->handle($lawyer, $withStory->fresh(), 'Câu chuyện gốc.');
+    cvtConvert($lawyer, $withStory->fresh());
+
+    $withoutNotice = cvtRecord($lawyer, ['contact_phone' => '0832270111', 'contact_name' => 'Người Thứ Hai'], [
+        ['name' => 'Bên Thứ Hai', 'role' => PartyRole::Defendant, 'phone' => '0977000666'],
+    ]);
+    cvtConvert($lawyer, $withoutNotice->fresh());
+
+    $this->travel(5)->minutes();
+
+    $checkedAt = $withStory->fresh()->conflict_checked_at->toIso8601String();
+    $runs = Activity::query()->where('event', 'conflict_check_run')->count();
+    $closed = __('intake.errors.record_closed');
+
+    expect(cvtRefusal(fn () => app(UpdateIntakeSummary::class)->handle($lawyer, $withStory->fresh(), null), 'summary'))->toBe($closed)
+        ->and(cvtRefusal(fn () => app(UpdateIntakeSummary::class)->handle($lawyer, $withStory->fresh(), 'Viết đè sau khi chuyển'), 'summary'))->toBe($closed)
+        ->and(cvtRefusal(fn () => app(RecordPrivacyNotice::class)->handle($lawyer, $withoutNotice->fresh(), true), 'intake'))->toBe($closed)
+        ->and(cvtRefusal(fn () => app(RerunIntakeConflictCheck::class)->handle($lawyer, $withStory->fresh()), 'intake'))->toBe($closed)
+        ->and(cvtRefusal(fn () => app(AcknowledgeIntakeConflict::class)->handle($lawyer, $withStory->fresh(), ConflictLevel::Green), 'intake'))->toBe($closed)
+        ->and(cvtRefusal(fn () => app(ResolveIntakeRedConflict::class)->handle($manager, $withStory->fresh(), 'Ghi đè sau khi đã chuyển thành vụ'), 'intake'))->toBe($closed);
+
+    expect($withStory->fresh()->summary)->toBe('Câu chuyện gốc.')
+        ->and($withStory->fresh()->conflict_checked_at->toIso8601String())->toBe($checkedAt)
+        ->and($withStory->fresh()->conflict_overridden_by)->toBeNull()
+        ->and($withoutNotice->fresh()->privacy_notice_acknowledged_at)->toBeNull()
+        ->and(Activity::query()->where('event', 'conflict_check_run')->count())->toBe($runs);
 });

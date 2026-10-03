@@ -23,7 +23,9 @@ use Illuminate\Validation\ValidationException;
  * ghi đè/xác nhận/kiểm tra lại chen vào giữa được tính đúng — không đọc một bản đã cũ trong bộ nhớ.
  *
  * Quyền: người nhìn thấy được bản ghi (`IntakeRequestPolicy::update` — người ghi hoặc được giao,
- * hoặc `intake.viewAny`, và không phải vụ `restricted` họ không xem được). Bản đã ẩn danh hoặc đã gộp
+ * hoặc `intake.viewAny`, và không phải vụ `restricted` họ không xem được). Bản đã xong việc (đã chuyển
+ * thành vụ việc, đã ẩn danh hoặc đã gộp — `IntakeRequest::isClosedToChanges()`, đọc trên dòng vừa khoá:
+ * một lần lưu đã qua bước hiện nút trước khi tab khác chuyển đổi xong cũng bị chặn)
  * bị từ chối. Rỗng hoặc chỉ khoảng trắng nghĩa là xoá câu chuyện (đặt null) — vẫn qua cổng. Dòng
  * `intake_summary_updated` chỉ mang số ký tự: nội dung câu chuyện không bao giờ vào nhật ký.
  */
@@ -46,7 +48,7 @@ class UpdateIntakeSummary
         return DB::transaction(function () use ($actor, $intake, $summary): IntakeRequest {
             $locked = IntakeRequest::query()->whereKey($intake->getKey())->lockForUpdate()->firstOrFail();
 
-            if ($locked->isClosedToWrites()) {
+            if ($locked->isClosedToChanges()) {
                 throw ValidationException::withMessages(['summary' => [__('intake.errors.record_closed')]]);
             }
 

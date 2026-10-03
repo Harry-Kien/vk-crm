@@ -185,7 +185,12 @@ it('attaches the contact to the existing client with exactly the same phone, and
     $clients = Client::query()->count();
 
     $this->actingAs($lawyer, 'web');
-    cvsPage($intake)->call('convert')->assertHasNoFormErrors();
+    cvsPage($intake)
+        ->call('convert')
+        ->assertHasFormErrors(['confirm_existing_client'])
+        ->fillForm(['confirm_existing_client' => true])
+        ->call('convert')
+        ->assertHasNoFormErrors();
 
     $matter = Matter::query()->where('id', $intake->fresh()->matter_id)->sole();
 
@@ -193,6 +198,170 @@ it('attaches the contact to the existing client with exactly the same phone, and
         ->and($matter->client_id)->toBe($existing->id)
         ->and($intake->fresh()->client_id)->toBe($existing->id);
 });
+
+it('shows who the phone belongs to before attaching, and attaches nobody until the lawyer confirms that person', function () {
+    $lawyer = cvsStaff();
+    // Cùng số máy, khác tên (con gọi bằng máy của mẹ): chỉ người bấm biết có phải cùng người không.
+    $mother = cvsExistingClient(['phone' => '0832270898', 'name' => 'Nguyễn Thị Mẹ']);
+    $intake = cvsRecord($lawyer);
+    $clients = Client::query()->count();
+    $matters = Matter::query()->count();
+
+    $this->actingAs($lawyer, 'web');
+    $page = cvsPage($intake)
+        ->assertDontSee('Nguyễn Thị Mẹ')
+        ->assertFormFieldDoesNotExist('confirm_existing_client')
+        ->call('convert')
+        ->assertHasFormErrors(['confirm_existing_client'])
+        ->assertSee(__('intake.convert.client_match', ['code' => $mother->code, 'name' => 'Nguyễn Thị Mẹ']));
+
+    // Lượt hai KHÔNG tích: vẫn không gắn.
+    $page->call('convert')->assertHasFormErrors(['confirm_existing_client']);
+
+    expect(Matter::query()->count())->toBe($matters)
+        ->and($intake->fresh()->client_id)->toBeNull();
+
+    // Đổi số căn cước là đổi khách được tra ra: hồ sơ đang hiện không còn là câu trả lời.
+    $page->fillForm(['client_id_number' => '079090000123']);
+
+    expect($page->instance()->matchedClientId)->toBeNull();
+
+    $page->fillForm(['client_id_number' => null])
+        ->call('convert')
+        ->assertHasFormErrors(['confirm_existing_client'])
+        ->fillForm(['confirm_existing_client' => true])
+        ->call('convert')
+        ->assertHasNoFormErrors();
+
+    expect($intake->fresh()->client_id)->toBe($mother->id)
+        ->and(Client::query()->count())->toBe($clients);
+});
+
+it('clears the tick when the lookup now finds a different client than the one the lawyer confirmed', function () {
+    $lawyer = cvsStaff();
+    $first = cvsExistingClient(['phone' => '0832270898', 'name' => 'Nguyễn Thị Mẹ']);
+    $intake = cvsRecord($lawyer);
+
+    $this->actingAs($lawyer, 'web');
+    $page = cvsPage($intake)
+        ->call('convert')
+        ->assertHasFormErrors(['confirm_existing_client'])
+        ->fillForm(['confirm_existing_client' => true]);
+
+    // Giữa hai lượt, số máy đó thành của một khách KHÁC (hồ sơ kia đổi số, một hồ sơ mới mang số này).
+    $first->forceFill(['phone' => '0900111444'])->save();
+    $second = cvsExistingClient(['phone' => '0832270898', 'name' => 'Lê Văn Khác']);
+
+    $page->call('convert')
+        ->assertHasFormErrors(['confirm_existing_client'])
+        ->assertSee(__('intake.convert.client_match', ['code' => $second->code, 'name' => 'Lê Văn Khác']))
+        // Dấu tích đã cho hồ sơ trước không được chuyển sang hồ sơ mới hiện ra.
+        ->assertFormSet(['confirm_existing_client' => false]);
+
+    expect($page->instance()->matchedClientId)->toBe($second->id)
+        ->and($intake->fresh()->matter_id)->toBeNull();
+});
+
+it('does not attach a client found by phone whose ID number is not the contact\'s, and says why on the ID field', function (?string $typed) {
+    $lawyer = cvsStaff();
+    $mother = cvsExistingClient(['phone' => '0832270898', 'id_number' => '079080000111', 'name' => 'Nguyễn Thị Mẹ']);
+    $intake = cvsRecord($lawyer, ['contact_name' => 'Nguyễn Thị Con', 'contact_id_number' => '079090000555']);
+    $clients = Client::query()->count();
+    $matters = Matter::query()->count();
+
+    $this->actingAs($lawyer, 'web');
+    cvsPage($intake)
+        ->fillForm(['client_id_number' => $typed])
+        ->call('convert')
+        ->assertHasFormErrors(['client_id_number'])
+        ->assertSee(__('intake.errors.convert_client_id_differs', ['code' => $mother->code, 'name' => 'Nguyễn Thị Mẹ']))
+        ->assertFormFieldDoesNotExist('confirm_existing_client');
+
+    expect(Matter::query()->count())->toBe($matters)
+        ->and(Client::query()->count())->toBe($clients)
+        ->and($intake->fresh()->status)->toBe(IntakeStatus::New);
+})->with([
+    'ID number only recorded at intake' => [null],
+    'ID number typed again' => ['079090000555'],
+]);
+
+it('says a typed ID number will not go onto an existing client that has none, instead of dropping it', function () {
+    $lawyer = cvsStaff();
+    $existing = cvsExistingClient(['phone' => '0832270898', 'name' => 'Trần Thị Mới']);
+    $intake = cvsRecord($lawyer);
+
+    $this->actingAs($lawyer, 'web');
+    $page = cvsPage($intake)
+        ->assertSee(__('intake.convert.id_number_help'))
+        ->fillForm(['client_id_number' => '079090000555'])
+        ->call('convert')
+        ->assertHasFormErrors(['client_id_number'])
+        ->assertSee(__('intake.errors.convert_id_number_not_carried', ['code' => $existing->code, 'name' => 'Trần Thị Mới']));
+
+    expect($intake->fresh()->matter_id)->toBeNull();
+
+    $page->fillForm(['client_id_number' => null])
+        ->call('convert')
+        ->assertHasFormErrors(['confirm_existing_client'])
+        ->fillForm(['confirm_existing_client' => true])
+        ->call('convert')
+        ->assertHasNoFormErrors();
+
+    expect($intake->fresh()->client_id)->toBe($existing->id)
+        ->and($existing->fresh()->id_number)->toBeNull();
+});
+
+it('keeps a record from converting while another call of the same caller holds the repeat-call lock, until a manager overrides it on this record', function (bool $declineTheOtherCall) {
+    cvsExistingClient(['phone' => '0912000111', 'name' => 'Công Ty D']);
+    $lawyer = cvsStaff();
+    $b = cvsRecord($lawyer, ['contact_name' => 'Người Gọi P'], [['name' => 'Ai Đó', 'role' => PartyRole::Defendant]]);
+    $editUrl = IntakeRequestResource::getUrl('edit', ['record' => $b], panel: 'admin');
+
+    $this->actingAs($lawyer, 'web');
+    // Trang mở TRƯỚC lần gọi lại (lúc đó B còn chuyển đổi được).
+    $stale = cvsPage($b)->assertNoRedirect();
+
+    // P gọi lại, nêu tên khách hiện hữu D kèm SĐT: Đỏ. Quản lý có thể từ chối luôn vì xung đột (R8).
+    $a = cvsRecord($lawyer, ['contact_name' => 'Người Gọi P', 'matter_type_id' => $b->matter_type_id], [
+        ['name' => 'Công Ty D', 'role' => PartyRole::Defendant, 'phone' => '0912000111'],
+    ]);
+
+    if ($declineTheOtherCall) {
+        app(DeclineIntake::class)->handle(cvsStaff(Role::Manager), $a, 'Bên kia là khách hiện hữu của văn phòng', true);
+    }
+
+    expect($b->fresh()->hasUnresolvedRed())->toBeFalse();
+
+    cvsEdit($b)->assertActionHidden('convert');
+
+    session()->forget(['filament.notifications', 'filament.claimed_notifications']);
+    cvsPage($b)->assertNotified(__('intake.errors.convert_caller_locked'))->assertRedirect($editUrl);
+
+    $stale->call('convert')->assertNotified(__('actions.failed_title'));
+
+    expect(Matter::query()->where('id', $b->fresh()->matter_id)->exists())->toBeFalse()
+        ->and($b->fresh()->status)->toBe(IntakeStatus::New);
+
+    // Quản lý xử lý trên CHÍNH B: kiểm tra lại (B nhận khoá), rồi ghi đè kèm lý do.
+    $this->actingAs(cvsStaff(Role::Manager), 'web');
+    cvsEdit($b)->callAction(TestAction::make('rerun')->schemaComponent('checkActions'))->assertHasNoErrors();
+    cvsEdit($b)
+        ->callAction(TestAction::make('resolveRed')->schemaComponent('checkActions'), data: ['override_reason' => 'Đã xem cả hai lần gọi, phần việc này không liên quan Công Ty D'])
+        ->assertHasNoErrors();
+
+    cvsEdit($b)->assertActionVisible('convert');
+
+    $page = cvsPage($b)->assertNoRedirect()->call('convert');
+
+    if ($b->fresh()->matter_id === null) {
+        $page->fillForm(['acknowledge_conflict' => true])->call('convert')->assertHasNoFormErrors();
+    }
+
+    expect($b->fresh()->status)->toBe(IntakeStatus::Won);
+})->with([
+    'the other call is still red' => [false],
+    'the other call was declined for a conflict' => [true],
+]);
 
 it('does not attach the contact to a client who only shares the name, and asks to review the name match first', function () {
     $lawyer = cvsStaff();

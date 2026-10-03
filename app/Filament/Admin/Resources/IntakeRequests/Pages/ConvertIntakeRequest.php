@@ -12,6 +12,7 @@ use App\Exceptions\ConflictAcknowledgementRequired;
 use App\Exceptions\ConflictBlocked;
 use App\Exceptions\DuplicateClientDetected;
 use App\Exceptions\DuplicateClientNotVisible;
+use App\Exceptions\ExistingClientConfirmationRequired;
 use App\Filament\Admin\Resources\IntakeRequests\IntakeRequestResource;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Filament\Admin\Resources\Matters\Pages\CreateMatter;
@@ -69,6 +70,14 @@ use Livewire\Attributes\Locked;
  * mở với quản lý/admin). Lượt 2 gửi `acknowledged` đúng bằng mức của lượt 1. Đổi vai của khách hay
  * số căn cước làm kết quả đang hiện mất hiệu lực (`forgetConflictResult()`).
  *
+ * **Gắn vào khách ĐÃ CÓ — hiện rồi mới gắn** (fix vòng 1, rà soát Task 4, I1): khi bước tra khách của
+ * Action ra một hồ sơ đã có, Action ném `ExistingClientConfirmationRequired`; trang giữ id và nhãn
+ * "mã — tên" của hồ sơ đó (`#[Locked]`, chỉ máy chủ ghi), hiện chúng trong khối "Khách hàng" cùng ô
+ * "Đúng người này", và gắn lỗi vào ô đó. Lượt sau gửi `confirmedClientId` = id đã hiện chỉ khi ô được
+ * tích. Đổi số căn cước làm hồ sơ đang hiện mất hiệu lực (`forgetClientMatch()`) — nó đổi khách được
+ * tra ra. Hồ sơ mâu thuẫn số căn cước, hay số căn cước gõ cho một hồ sơ không có số, là lỗi ở ô số căn
+ * cước (Action từ chối, không hỏi xác nhận).
+ *
  * **Sau khi chuyển:** hai thông báo — kết quả kiểm tra xung đột (cùng hàm của form mở vụ,
  * `CreateMatter::notifySaved()`), và việc chuyển đổi (khách mới hay khách đã có) — rồi tới trang vụ
  * việc nếu người bấm xem được nó, không thì danh sách tiếp nhận (vụ `restricted` giao cho luật sư
@@ -98,6 +107,17 @@ class ConvertIntakeRequest extends Page
     /** Cùng vai trò và cùng lý do `#[Locked]` như `CreateMatter::$pendingConflictLevel`. */
     #[Locked]
     public ?string $pendingConflictLevel = null;
+
+    /**
+     * Hồ sơ khách ĐÃ CÓ mà lượt trước của Action tìm ra và đã hiện cho người bấm (xem docblock lớp).
+     * `#[Locked]`: một payload sửa tay không được tự đặt id để "xác nhận" một hồ sơ chưa từng hiện.
+     */
+    #[Locked]
+    public ?int $matchedClientId = null;
+
+    /** Nhãn "mã — tên" của {@see self::$matchedClientId}, dựng ở máy chủ. */
+    #[Locked]
+    public ?string $matchedClientLabel = null;
 
     public function mount(int|string $record): void
     {
@@ -164,7 +184,19 @@ class ConvertIntakeRequest extends Page
                             ->maxLength(20)
                             // Số căn cước đổi khách hàng được tra ra, tức đổi chính bên mà kiểm tra xét.
                             ->live(onBlur: true)
-                            ->afterStateUpdated(fn () => $this->forgetConflictResult()),
+                            ->afterStateUpdated(function (): void {
+                                $this->forgetConflictResult();
+                                $this->forgetClientMatch();
+                            }),
+                        Text::make(fn (): string => (string) $this->matchedClientLabel)
+                            ->visible(fn (): bool => $this->matchedClientId !== null)
+                            ->columnSpanFull(),
+                        Toggle::make('confirm_existing_client')
+                            ->label(__('intake.convert.confirm_existing_client'))
+                            ->helperText(__('intake.convert.confirm_existing_client_help'))
+                            ->visible(fn (): bool => $this->matchedClientId !== null)
+                            ->default(false)
+                            ->columnSpanFull(),
                     ]),
                 Section::make(__('intake.convert.sections.matter'))
                     ->columns(2)
@@ -278,6 +310,8 @@ class ConvertIntakeRequest extends Page
             ? ConflictLevel::tryFrom($this->pendingConflictLevel)
             : null;
         $overrideReason = $this->redResultShown() ? ($data['override_reason'] ?? null) : null;
+        // Chỉ xác nhận đúng hồ sơ đã hiện (ô "Đúng người này" chỉ tồn tại khi có một hồ sơ đã hiện).
+        $confirmedClientId = ((bool) ($data['confirm_existing_client'] ?? false)) ? $this->matchedClientId : null;
 
         try {
             $conversion = app(ConvertIntakeToMatter::class)->handle(
@@ -286,7 +320,23 @@ class ConvertIntakeRequest extends Page
                 $data,
                 $overrideReason,
                 $acknowledged,
+                $confirmedClientId,
             );
+        } catch (ExistingClientConfirmationRequired $exception) {
+            if ($this->matchedClientId !== $exception->client->getKey()) {
+                // Một hồ sơ KHÁC hồ sơ đang hiện (hay lần đầu): bỏ dấu tích cũ, hiện hồ sơ mới.
+                $this->data['confirm_existing_client'] = false;
+            }
+
+            $this->matchedClientId = $exception->client->getKey();
+            $this->matchedClientLabel = __('intake.convert.client_match', [
+                'code' => $exception->client->code,
+                'name' => $exception->client->name,
+            ]);
+
+            throw ValidationException::withMessages([
+                'data.confirm_existing_client' => [__('intake.convert.confirm_existing_client_required')],
+            ]);
         } catch (ConflictBlocked $exception) {
             $this->pendingConflictLevel = null;
             $this->conflictResult = $exception->result->toArray();
@@ -340,6 +390,14 @@ class ConvertIntakeRequest extends Page
         $this->pendingConflictLevel = null;
         $this->data['acknowledge_conflict'] = false;
         $this->data['override_reason'] = null;
+    }
+
+    /** Bỏ hồ sơ khách đã hiện và dấu tích "Đúng người này" (xem docblock lớp). */
+    public function forgetClientMatch(): void
+    {
+        $this->matchedClientId = null;
+        $this->matchedClientLabel = null;
+        $this->data['confirm_existing_client'] = false;
     }
 
     /** Chỉ để HIỂN THỊ — cổng thật ở `OpenMatter` (`ConflictOverride`). */
@@ -406,6 +464,7 @@ class ConvertIntakeRequest extends Page
             'case_number' => null,
             'acknowledge_conflict' => false,
             'override_reason' => null,
+            'confirm_existing_client' => false,
         ];
     }
 

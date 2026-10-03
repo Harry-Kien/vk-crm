@@ -23,7 +23,8 @@ use Illuminate\Validation\ValidationException;
  * kiểm tra xung đột — căn cứ pháp lý của việc đó là mục CẦN LUẬT SƯ XÁC NHẬN (R7a), không phải một
  * quyết định của Action. Dòng `intake_privacy_notice_recorded` chỉ mang phiên bản.
  *
- * Quyền: người nhìn thấy được bản ghi (`IntakeRequestPolicy::update`); bản đã ẩn danh hoặc đã gộp
+ * Quyền: người nhìn thấy được bản ghi (`IntakeRequestPolicy::update`); bản đã xong việc (đã chuyển
+ * thành vụ việc, đã ẩn danh hoặc đã gộp — `IntakeRequest::isClosedToChanges()`, đọc trên dòng vừa khoá)
  * bị từ chối.
  */
 class RecordPrivacyNotice
@@ -41,7 +42,7 @@ class RecordPrivacyNotice
         return DB::transaction(function () use ($actor, $intake, $version): IntakeRequest {
             $locked = IntakeRequest::query()->whereKey($intake->getKey())->lockForUpdate()->firstOrFail();
 
-            if ($locked->isClosedToWrites()) {
+            if ($locked->isClosedToChanges()) {
                 throw ValidationException::withMessages(['intake' => [__('intake.errors.record_closed')]]);
             }
 

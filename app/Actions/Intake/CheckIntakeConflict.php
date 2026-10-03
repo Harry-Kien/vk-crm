@@ -26,10 +26,11 @@ use Illuminate\Support\Collection;
  * lúc xác nhận, lúc ghi đè) cũng chỉ có chừng đó. Nên MỌI lần chạy, kể cả lần đầu, dựng các
  * `MatterParty` chưa lưu từ chính các cột đã lưu; hai đường dựng khác nhau là hai định nghĩa "cùng
  * một người" sẽ lệch nhau.
- *  - Người liên hệ = `MatterParty` `is_our_client`, `client_id` null, vai = `contact_role`. Vai chưa
- *    khai thì suy ra từ bên đối lập (đối của nguyên đơn là bị đơn và ngược lại), còn không thì
- *    `related` — để Đỏ không lặng lẽ tắt chỉ vì người gọi chưa nói mình là nguyên đơn hay bị đơn.
- *    Vai suy ra chỉ dùng cho lần kiểm tra, KHÔNG ghi lại vào `contact_role`.
+ *  - Người liên hệ = `MatterParty` `is_our_client`, `client_id` null, vai =
+ *    {@see IntakeRequest::conflictContactRole()}: `contact_role`; chưa khai thì suy ra từ bên đối lập
+ *    (đối của nguyên đơn là bị đơn và ngược lại), còn không thì `related` — để Đỏ không lặng lẽ tắt chỉ
+ *    vì người gọi chưa nói mình là nguyên đơn hay bị đơn. Vai suy ra chỉ dùng cho lần kiểm tra, KHÔNG
+ *    ghi lại vào `contact_role`.
  *  - Bên đối lập = {@see IntakeParty::toConflictParty()}.
  *
  * **Ghi lên bản ghi:** `conflict_level` (mức của các khớp MỚI, như `OpenMatter`), `conflict_checked_at`,
@@ -44,12 +45,13 @@ use Illuminate\Support\Collection;
  *
  * **Đỏ DÍNH (fix vòng 1 của Task 2, I2): `conflict_red_pending_since`.** Đặt (giữ thời điểm ĐẦU) khi:
  *  - lần chạy này ra Đỏ; hoặc
- *  - (C1, người gọi lại) bản ghi chưa có ghi đè còn hiệu lực và một lần gọi khác của CÙNG người
- *    ({@see IntakeRequest::sameCallerIntakes()}, cùng vai mà lần kiểm tra này dùng) đang khoá cuộc gọi
- *    lại ({@see IntakeRequest::locksRepeatCalls()}: Đỏ chưa xử lý, hoặc từ chối vì xung đột). Điều kiện
- *    "chưa có ghi đè" là để một quyết định của quản lý trên CHÍNH bản này không bị lần chạy lại kế tiếp
- *    lật lại khi lần gọi kia vẫn còn khoá; sửa danh tính làm ghi đè hết hiệu lực (bước trên), nên
- *    khoá trở lại.
+ *  - (C1, người gọi lại — {@see IntakeRequest::isHeldByRepeatCallLock()}, cùng định nghĩa mà
+ *    `ConvertIntakeToMatter::refusal()` đọc) bản ghi chưa có ghi đè còn hiệu lực và một lần gọi khác
+ *    của CÙNG người ({@see IntakeRequest::sameCallerIntakes()}, cùng vai mà lần kiểm tra này dùng) đang
+ *    khoá cuộc gọi lại ({@see IntakeRequest::locksRepeatCalls()}: Đỏ chưa xử lý, hoặc từ chối vì xung
+ *    đột). Điều kiện "chưa có ghi đè" là để một quyết định của quản lý trên CHÍNH bản này không bị lần
+ *    chạy lại kế tiếp lật lại khi lần gọi kia vẫn còn khoá; sửa danh tính làm ghi đè hết hiệu lực
+ *    (bước trên), nên khoá trở lại.
  * KHÔNG BAO GIỜ xoá ở đây — một lần chạy ra Xanh, kể cả do quản lý chạy, không xử lý được Đỏ (R1: chỉ
  * từ chối hoặc ghi đè kèm lý do). Chỉ `ResolveIntakeRedConflict` xoá nó.
  */
@@ -58,7 +60,7 @@ class CheckIntakeConflict
     public function handle(?User $actor, IntakeRequest $intake): ConflictCheckResult
     {
         $parties = $intake->parties()->get();
-        $contactRole = $intake->contact_role ?? $this->impliedContactRole($parties);
+        $contactRole = $intake->conflictContactRole($parties);
 
         $result = app(RunConflictCheck::class)->handle(
             $this->buildParties($intake, $contactRole, $parties),
@@ -88,8 +90,7 @@ class CheckIntakeConflict
         }
 
         // Sau bước xoá ở trên: "chưa có ghi đè còn hiệu lực" phải là trạng thái SAU lần chạy này.
-        if ($result->level === ConflictLevel::Red
-            || (! $intake->hasConflictOverride() && $this->sameCallerLocks($intake, $contactRole))) {
+        if ($result->level === ConflictLevel::Red || $intake->isHeldByRepeatCallLock($contactRole)) {
             $intake->conflict_red_pending_since ??= now();
         }
 
@@ -100,11 +101,6 @@ class CheckIntakeConflict
         $intake->save();
 
         return $result;
-    }
-
-    private function sameCallerLocks(IntakeRequest $intake, PartyRole $contactRole): bool
-    {
-        return $intake->sameCallerIntakes($contactRole)->contains(fn (IntakeRequest $other): bool => $other->locksRepeatCalls());
     }
 
     /**
@@ -125,21 +121,5 @@ class CheckIntakeConflict
             $contact,
             ...$intakeParties->map(fn (IntakeParty $party): MatterParty => $party->toConflictParty())->all(),
         ]);
-    }
-
-    /** Vai của người liên hệ khi chưa khai: đối của vai (nguyên đơn/bị đơn) đầu tiên trong các bên đối lập. */
-    private function impliedContactRole(Collection $intakeParties): PartyRole
-    {
-        foreach ($intakeParties as $party) {
-            if ($party->role === PartyRole::Plaintiff) {
-                return PartyRole::Defendant;
-            }
-
-            if ($party->role === PartyRole::Defendant) {
-                return PartyRole::Plaintiff;
-            }
-        }
-
-        return PartyRole::Related;
     }
 }
