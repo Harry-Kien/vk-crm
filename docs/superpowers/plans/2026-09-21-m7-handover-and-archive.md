@@ -275,7 +275,7 @@ Chủ văn phòng quyết ngày 2026-09-24 sẽ nhập thông tin pháp lý sau,
   - để trống thì chân thư và chân PDF bỏ hẳn dòng đó.
 - Migration → vòng MariaDB thật.
 
-### - [ ] Task 11 — Nghiệm thu, tài liệu, cổng merge
+### - [x] Task 11 — Nghiệm thu, tài liệu, cổng merge
 
 - Liệt kê theo tên bốn test SPEC §11 "Bàn giao và lưu trữ", trong đó hai test nằm ở M6.5 Task 4, và chạy chúng.
 - Sinh gói thật từ vụ đã kết thúc trong seed (Task 3), giải nén, và dán danh sách entry.

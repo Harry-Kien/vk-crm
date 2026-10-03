@@ -448,8 +448,10 @@ nullable, `nullOnDelete`) và `retraction_reason` (text nullable).
   không nhóm D, chưa xoá mềm) ra khỏi tầm mắt khách: `status = retracted`, hai cờ khách tắt, ghi
   người rút, lúc rút và lý do. Tệp và mọi dòng `document_downloads` giữ nguyên; `published_at`/
   `published_by` giữ nguyên. Audit `document_retracted` mang số lượt tải của khách trước lúc rút.
-- **Ai rút.** Người có `document.publish` trên tài liệu (cùng cổng với công bố): luật sư phụ trách,
-  trưởng phòng, quản trị. Trợ lý không rút được; họ nhờ người có quyền bấm "Rút lại".
+- **Ai rút.** Người có `document.publish` trên tài liệu (cùng cổng với công bố): luật sư trong đội
+  ngũ của vụ việc (không riêng luật sư phụ trách), trưởng phòng, quản trị — tức người sửa được vụ
+  việc VÀ có quyền công bố (sửa câu ngày 2026-10-03, M7 Task 11, theo rà soát Task 7). Trợ lý không
+  rút được; họ nhờ người có quyền bấm "Rút lại".
 - **Lý do** bắt buộc, tối thiểu 20 ký tự (`mb_strlen`, sau khi bỏ khoảng trắng hai đầu), tối đa 5000.
   Lý do **khách đọc được**.
 - **Khách thấy gì.** Ở khối Tài liệu của trang hồ sơ, chỗ tài liệu từng hiện: tiêu đề, câu "Văn
@@ -609,6 +611,20 @@ hiện "đang sinh / sẵn sàng / lỗi" kèm thời điểm bấm và thời �
 khoá nút khi gói đang được dựng. `handover_requested_at` còn là dấu của lần yêu cầu: job mang theo
 giá trị đó và chỉ được ghi kết quả khi nó còn khớp, nên một job cũ không ghi đè lần yêu cầu mới hơn.
 Một lần `generating` cũ hơn 60 phút được coi là kẹt và cho yêu cầu lại.
+
+**Đính chính 2026-10-03 (M7 Task 3, 5, 6 — ghi ở Task 11).** Vòng đời của dòng lưu trữ:
+- *Ai ghi.* Dòng được tạo khi vụ việc vào giai đoạn kết thúc (`closed_at` có giá trị), bởi
+  `SyncMatterArchive` qua sự kiện `MatterStageChanged` — không có form nào sửa các cột ngày của
+  nó. Mỗi lần đóng (lại), `archived_at`, `client_access_until` và `retention_until` được tính lại
+  từ `closed_at`. Vụ được mở lại thì chỉ `client_access_until` về NULL; phần còn lại của dòng giữ
+  nguyên. Dòng không bao giờ bị xoá. Vụ bị huỷ vì mở nhầm (`CancelMatter`) không bao giờ có dòng
+  này.
+- *`client_access_until`* là ngày CUỐI khách còn tra cứu được (hết ngày đó, theo giờ ứng dụng);
+  xem đính chính M7 Task 5 ở §6.12.
+- *Bốn cột tiêu huỷ* (`destroyed_at`, `destroyed_by`, `destruction_reason`,
+  `destruction_record_no`) chỉ do `RecordMatterDestruction` ghi, MỘT lần, không sửa được;
+  `SyncMatterArchive` không bao giờ đụng tới chúng. Ghi quyết định không xoá gì — xem đính chính M7
+  Task 6 ở §6.12.
 
 ---
 
@@ -941,6 +957,11 @@ Khi vụ việc chuyển sang giai đoạn kết thúc, hệ thống sinh một 
   `$timeout` và `$tries` tường minh; thất bại hẳn thì báo luật sư phụ trách và màn hình hiện trạng
   thái lỗi. Tự sinh MỘT lần khi vụ vào giai đoạn kết thúc; sinh lại là nút bấm.
 - *Xuất dữ liệu (SPEC §10.6).* Ghi `data_exported` khi gói sinh xong và mỗi lần gói được tải.
+- *Nhãn giai đoạn trong `MUC-LUC.pdf` (sửa ở M7 Task 11).* Mục lục giao cho khách, nên nhãn giai
+  đoạn (cả "giai đoạn cuối" lẫn từng dòng tiến độ) là `client_label` (§4.5), cùng nhãn cổng khách
+  hàng hiện. Dòng tiến độ đã công bố mà không ghi giai đoạn đích (`to_stage` NULL, §4.8) vẫn vào
+  mục lục, chỉ in ngày và nội dung. Trước bản sửa, một dòng như vậy làm hỏng cả mục lục, và gói của
+  vụ mẫu đã kết thúc không sinh được.
 
 Job `ExpireClientAccess` chạy hằng ngày: khi quá `client_access_until`, vụ việc
 biến mất khỏi portal của khách. Tài khoản `client_users` không còn vụ việc nào
@@ -1230,6 +1251,20 @@ thẻ hồ sơ ở cổng; M6.5 không viết mẫu thư này (R1).
    Task 14 (sửa và xoá mốc hạn) còn đang làm lúc ghi đính chính này và có thể thêm sự kiện. Trước
    khi merge, chạy lại phép so trên và `ActivityLogEventTranslationsTest` (mọi sự kiện phải có
    nhãn trong `lang/vi/activity.php`).
+
+   **Đính chính 2026-10-03 (§10.6, M7 Task 11).** M7 thêm 10 sự kiện `Audit::record()`, đếm bằng
+   cách so mọi `Audit::record('…'` trong `app/` (kể cả lời gọi xuống dòng) giữa gốc làn `d2de674`
+   và nhánh `m7-handover` sau khi gộp làn m7b; cả 10 đều có nhãn trong `lang/vi/activity.php`:
+   - bàn giao: `matter_reassignment_digest_failed` (Task 1, thư tổng hợp hỏng hẳn);
+   - gói bàn giao và **xuất dữ liệu**: `handover_package_requested`, `handover_package_failed`,
+     `data_exported` (Task 4 — ghi khi gói sinh xong VÀ mỗi lần gói được tải; đây là mục "xuất dữ
+     liệu" của danh sách gốc ở trên);
+   - **vô hiệu hoá tài khoản portal**: `portal_account_deactivated` (Task 5, `ExpireClientAccess`;
+     mỗi tài khoản cũng được lưu từng model nên `LogsActivity` ghi thêm dòng "cập nhật");
+   - lưu trữ: `matter_destruction_recorded` (Task 6);
+   - tài liệu: `document_retracted` (Task 7);
+   - nhật ký liên lạc: `communication_logged`, `communication_log_deleted` (Task 8);
+   - thông tin văn phòng: `office_profile_updated` (Task 10).
 7. 2FA bắt buộc cho toàn bộ tài khoản nội bộ. Không có tuỳ chọn tắt.
 8. `spatie/laravel-backup` cấu hình sao lưu hằng ngày cả CSDL lẫn thư mục tệp,
    đẩy ra một disk ngoài máy chủ (S3 hoặc tương đương), giữ 30 bản.
@@ -1296,6 +1331,16 @@ Dùng Pest. Các test sau là điều kiện nghiệm thu, không phải tuỳ c
   khẳng định.
 - Quá `client_access_until` thì vụ việc biến mất khỏi portal của khách nhưng vẫn
   còn nguyên trong admin panel.
+
+**Đính chính 2026-10-03 (M7 Task 11).** Bốn test trên đọc như sau; tên test cụ thể ở PROGRESS,
+"Ghi chú M7", mục Task 11:
+- *Test 1* đi qua đúng form sửa nhân sự (tắt `is_active`), và thông điệp đếm vụ ĐANG MỞ — vụ đã
+  kết thúc không cần bàn giao nên không tính.
+- *Test 3* giải nén tệp zip thật và khẳng định trên danh sách entry đọc lại, không trên mảng dựng
+  trước khi nén. Ngoài nhóm D, gói cũng không bao giờ chứa tài liệu đã xoá mềm, bản nháp hay bản
+  chờ duyệt của nhóm B/C, tài liệu đã rút, và gói của lần trước (đính chính M7 Task 4 ở §6.12).
+- *Test 4*: "quá" nghĩa là từ 00:00 ngày SAU `client_access_until` theo giờ ứng dụng — khách còn
+  xem được hết ngày đó (đính chính M7 Task 5 ở §6.12).
 
 ### Tải tệp
 - Tải tệp `.svg` bị từ chối.
