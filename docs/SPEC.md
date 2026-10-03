@@ -770,6 +770,26 @@ lọc theo `client_user_id`. Trước bản đính chính này, cách đọc đ�
 18 thêm trên trang "Yêu cầu của tôi" một dòng nói rõ điều này, và chỉ gắn nhãn "Anh/chị viết"
 cho câu của chính tài khoản đang xem; câu của tài khoản khác cùng khách hàng mang tên người viết.
 
+**Đính chính 2026-10-03 (M9 Task 10, phán quyết P1 của chủ văn phòng).** Danh sách trên có thêm
+**loại dữ liệu thứ tám**: hợp đồng và lịch thu của chính khách, CHỈ ĐỌC.
+- Thấy `Contract` khi thuộc matter hợp lệ **và** `status` là `active` hoặc `completed` (không bao
+  giờ bản nháp hay bản đã huỷ).
+- Thấy `Instalment` khi thuộc hợp đồng thấy được **và** `status != cancelled` (đợt đã miễn vẫn hiện,
+  chỉ một câu "Văn phòng đã miễn", không lý do).
+- Thấy `Payment` khi thuộc đợt thấy được **và** `voided_at` rỗng.
+- Thấy `ContractAmendment` khi thuộc hợp đồng thấy được (mở theo chữ kế hoạch M9; trang cổng không
+  vẽ phụ lục, lý do và bản scan không bao giờ ra cổng).
+
+"Matter hợp lệ" ở đây là ĐÚNG ranh giới cổng của vụ việc — năm điều kiện của
+`Matter::applyClientPortalConstraints()`: đúng khách, `is_published_to_portal`, vụ chưa xoá mềm,
+khách hàng chưa xoá mềm, chưa quá `client_access_until` (§6.12). Tiền không có ranh giới thứ hai.
+Khách không liệt kê, soạn, sửa, xoá, miễn, ghi hay huỷ gì. Cột nội bộ không bao giờ ra cổng: ghi
+chú, lý do huỷ hợp đồng/miễn đợt/huỷ khoản thu/phụ lục, người kích hoạt/miễn/huỷ/ghi/sửa, luật sư
+được tính doanh thu, biên lai và bản scan phụ lục (nhóm D), phần trăm người soạn đã gõ. `TimeEntry`
+vẫn đóng kín. Vụ `restricted` không đổi điều gì ở đây: "chỉ luật sư phụ trách và admin thấy tiền"
+(P3) là luật của NHÂN SỰ; khách là bên đã ký hợp đồng đó. Ba tầng (scope, policy, serialize) đo
+độc lập ở `tests/Feature/Portal/BillingOnPortalTest.php`.
+
 ---
 
 ## 6. Logic nghiệp vụ
@@ -1090,6 +1110,17 @@ Khi vụ việc chuyển sang giai đoạn kết thúc, hệ thống sinh một 
   mục lục, chỉ in ngày và nội dung. Trước bản sửa, một dòng như vậy làm hỏng cả mục lục, và gói của
   vụ mẫu đã kết thúc không sinh được.
 
+**Đính chính 2026-10-03 (M9 Task 10, P1).** `MUC-LUC.pdf` có thêm mục **"Bảng kê thanh toán"**, sau
+khối tiến độ: ĐÚNG những trường khối "Hợp đồng và thanh toán" của cổng khách hiện (§8.3, đính chính
+cùng ngày) — cùng một hình chiếu (`App\Support\Billing\ClientBillingStatement`), nên cùng dữ liệu thì
+cổng và mục lục cho đúng cùng các dòng và cùng câu chữ. Bản ghi được lọc bằng cùng điều kiện mà tầng
+truy vấn của cổng dùng (hợp đồng `active`/`completed`, đợt khác `cancelled`, khoản thu chưa huỷ —
+các scope `shownToClient()`), vì gói dựng trong job, không có phiên cổng. Ranh giới vụ việc của cổng
+(đã công bố, chưa hết hạn tra cứu) KHÔNG áp ở đây, như mọi khối khác của mục lục. Vụ không có hợp
+đồng như vậy thì không có mục này. Cột nội bộ của bốn bảng tiền không được nạp (chọn cột tường
+minh). Biên lai (`payments.receipt_document_id`) và bản scan phụ lục (`contract_amendments.document_id`)
+là nhóm D, nên không vào zip.
+
 Job `ExpireClientAccess` chạy hằng ngày: khi quá `client_access_until`, vụ việc
 biến mất khỏi portal của khách. Tài khoản `client_users` không còn vụ việc nào
 thì tự đặt `is_active = false`. Dữ liệu vẫn nguyên trong hệ thống nội bộ.
@@ -1306,6 +1337,18 @@ Bố cục dọc, theo thứ tự:
    `client_can_download`.
 6. **Mốc thời hạn sắp tới** — chỉ những mốc `is_published`.
 7. **Gửi yêu cầu** — form đơn giản, xem lại lịch sử trao đổi.
+
+**Đính chính 2026-10-03 (M9 Task 10, P1).** Thêm khối **Hợp đồng và thanh toán**, đứng SAU khối 6
+"Mốc thời hạn sắp tới" và TRƯỚC khối 7 "Gửi yêu cầu", và — như khối 2 — **chỉ hiện khi có**: vụ có
+hợp đồng `active` hoặc `completed` (§5 Portal, đính chính cùng ngày). Khối gồm: số hợp đồng, ngày
+ký, tổng giá trị, thuế suất khi hợp đồng có thuế suất (kể cả 0%), "Hợp đồng đã hoàn tất ngày …" khi
+đã hoàn tất; mỗi đợt (trừ đợt đã huỷ) — tên, số tiền, "Đến hạn ngày …" hoặc "Đến hạn khi vụ việc
+tới bước: <nhãn cho khách của giai đoạn>", đã thanh toán, còn lại, tình trạng ("Quá hạn thanh
+toán" luôn bằng chữ kèm màu; đợt miễn chỉ "Văn phòng đã miễn"; hợp đồng đã hoàn tất thì tình trạng
+của hợp đồng thay cho tình trạng từng đợt); các khoản văn phòng đã nhận (trừ khoản đã huỷ) — ngày,
+số tiền, cách trả. Không ghi chú, lý do, người ghi, mã giao dịch, biên lai, phụ lục. Tiền định dạng
+một chỗ (`Money::format()`), trạng thái đợt suy ra một chỗ (`Instalment::state()`). Một cột, không
+bảng, như phần còn lại của trang.
 
 ### 8.4 Nộp tài liệu
 

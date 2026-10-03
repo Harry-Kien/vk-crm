@@ -2,12 +2,15 @@
 
 namespace App\Policies;
 
+use App\Enums\InstalmentStatus;
 use App\Enums\Permission;
 use App\Models\ClientUser;
+use App\Models\Contract;
 use App\Models\Instalment;
 use App\Models\Matter;
 use App\Models\User;
 use App\Policies\Concerns\ChecksBillingAccess;
+use App\Policies\Concerns\ReadsPortalParents;
 
 /**
  * Cùng định nghĩa "ai thấy tiền của vụ nào" với {@see ContractPolicy}, đọc qua hợp đồng cha.
@@ -15,10 +18,14 @@ use App\Policies\Concerns\ChecksBillingAccess;
  * Không có `create`/`update`/`delete`: lịch thu chỉ đổi qua hợp đồng — soạn nháp và phụ lục đi
  * qua `ContractPolicy::create`/`update`, và hook `Instalment::deleting` chặn xoá đợt của hợp đồng
  * đã rời `draft`. Gate trả `false` cho mọi ability không có ở đây.
+ *
+ * Khách hàng (M9 Task 10, P1): CHỈ `view`, xem {@see self::view()}. `viewAny` và `waive` vẫn từ
+ * chối khách qua `ChecksBillingAccess`.
  */
 class InstalmentPolicy
 {
     use ChecksBillingAccess;
+    use ReadsPortalParents;
 
     /** @param  Matter|null  $context  xem {@see ChecksBillingAccess::canListBilling()} */
     public function viewAny(User|ClientUser $user, mixed $context = null): bool
@@ -26,8 +33,23 @@ class InstalmentPolicy
         return $this->canListBilling($user, $context);
     }
 
+    /**
+     * Khách — tầng QUYỀN của cổng (M9 Task 10, P1): đợt KHÔNG `cancelled` (thuộc tính của chính
+     * dòng, nói lại `Instalment::scopeShownToClient()` mà không chạy nó), **và** khách thấy hợp đồng
+     * cha — hỏi `Gate` (`ContractPolicy::view`), không viết lại điều kiện hợp đồng hay vụ việc nào.
+     * Hợp đồng cha nạp không qua scope cổng (`parentWithoutPortalScope()`).
+     */
     public function view(User|ClientUser $user, Instalment $instalment): bool
     {
+        if ($user instanceof ClientUser) {
+            /** @var Contract|null $contract */
+            $contract = $this->parentWithoutPortalScope($instalment, 'contract');
+
+            return $instalment->status !== InstalmentStatus::Cancelled
+                && $contract !== null
+                && $user->can('view', $contract);
+        }
+
         return $this->canSeeBilling($user, $instalment->contract->matter);
     }
 

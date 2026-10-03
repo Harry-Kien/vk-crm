@@ -279,15 +279,41 @@ class Instalment extends Model
         return $this->belongsTo(User::class, 'waived_by');
     }
 
-    /** Cổng khách đóng kín ở Task 2 (P1: mở có chủ đích ở Task 10). */
+    /**
+     * Tầng TRUY VẤN của cổng khách (M9 Task 10, P1): đợt chưa huỷ —
+     * {@see self::scopeShownToClient()} — của một hợp đồng khách thấy được. `whereHas('contract')`
+     * trần kế thừa scope cổng của {@see Contract} (đã ký + vụ việc trên cổng của đúng khách), nên
+     * không điều kiện nào của hợp đồng hay vụ việc được viết lại ở đây.
+     *
+     * Đợt đã miễn VẪN hiện ("Văn phòng đã miễn", không lý do); đợt đã huỷ thì không — nó đã ra khỏi
+     * hợp đồng qua phụ lục. Tầng QUYỀN nói lại điều này bằng thuộc tính: `InstalmentPolicy::view()`.
+     */
     public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
     {
-        $query->whereRaw('1 = 0');
+        $this->scopeShownToClient($query);
+
+        $query->whereHas('contract');
     }
 
-    /** `waived_reason` (lý do miễn) và `note` là nội bộ (P1). */
+    /**
+     * Đợt nào khách được thấy, xét trên CHÍNH dòng đợt: mọi trạng thái trừ `cancelled` (P1). Một
+     * định nghĩa SQL cho cổng và cho bảng kê trong gói bàn giao — cùng lý do với
+     * `Contract::scopeShownToClient()`.
+     */
+    public function scopeShownToClient(Builder $query): Builder
+    {
+        return $query->where($this->qualifyColumn('status'), '!=', InstalmentStatus::Cancelled->value);
+    }
+
+    /**
+     * Tầng SERIALIZE (P1, kế hoạch Task 10 điểm 3): `waived_reason` (lý do miễn) và `note` là nội bộ;
+     * `waived_by`, `created_by`, `updated_by` là nhân sự; `percent_basis` là phần trăm người soạn đã
+     * gõ, chỉ để truy vết nội bộ (khách thấy số tiền, con số có tính quyết định).
+     * `triggered_by_stage_log_id` trỏ một dòng tiến độ có thể CHƯA công bố — ẩn thêm, ngoài danh
+     * sách của kế hoạch, vì một id dòng nội bộ không phải thứ khách cần.
+     */
     protected function internalAttributes(): array
     {
-        return ['waived_reason', 'note'];
+        return ['waived_reason', 'note', 'waived_by', 'percent_basis', 'triggered_by_stage_log_id', 'created_by', 'updated_by'];
     }
 }
