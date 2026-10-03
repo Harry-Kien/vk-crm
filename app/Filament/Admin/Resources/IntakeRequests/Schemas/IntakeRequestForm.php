@@ -44,7 +44,8 @@ use Illuminate\Support\Facades\Auth;
  * **Trang sửa, bản ghi còn Đỏ chờ xử lý** (fix vòng 1, rà soát Task 3 C1): SĐT, CCCD và vai ĐÃ CÓ của
  * người liên hệ khoá với người không xử lý được Đỏ, kèm câu nói vì sao — ba ô đó là thứ nhận ra người
  * này gọi lại (xem `callerKeyLock()`); ô còn trống vẫn điền được. Bản đã từ chối thì trang sửa khoá cả
- * hai phần này.
+ * hai phần này, với mọi người, và không khoá từng ô cũng không nói lý do khoá (fix vòng 2, R8 — xem
+ * `callerKeyLocked()`): bản từ chối vì xung đột và bản từ chối vì lý do thường trông như nhau.
  */
 class IntakeRequestForm
 {
@@ -158,10 +159,11 @@ class IntakeRequestForm
      * Trang SỬA: ô SĐT, CCCD hay vai `$field` của người liên hệ khoá với người mà `UpdateIntakeIdentity`
      * sẽ từ chối đổi nó ({@see UpdateIntakeIdentity::guardsCallerKey()}: bản ghi đang khoá cuộc gọi lại,
      * người xem không xử lý được Đỏ, và ô đó đã có giá trị — fix vòng 1, rà soát Task 3 C1). Ô còn trống
-     * thì mở: Action nhận việc thêm nó. Action là cổng thật; ô khoá chỉ để người nhập không gõ rồi mới bị
-     * từ chối. SĐT và vai vẫn gửi giá trị đang có (`dehydrated()` ở chỗ dùng): một ô khoá KHÔNG gửi gì sẽ
-     * thành "xoá" ở Action, và lần lưu tên/email bị từ chối oan. Ô CCCD thì không cần: trống đã nghĩa là
-     * "giữ". Trang tạo: không bao giờ khoá.
+     * thì mở: Action nhận việc thêm nó. Bản đã từ chối hay đã xong việc thì không khoá từng ô: trang sửa
+     * khoá cả phần danh tính, và Action từ chối mọi lần sửa danh tính của nó trước khi hỏi tới ô nào.
+     * Action là cổng thật; ô khoá chỉ để người nhập không gõ rồi mới bị từ chối. SĐT và vai vẫn gửi giá
+     * trị đang có (`dehydrated()` ở chỗ dùng): một ô khoá KHÔNG gửi gì sẽ thành "xoá" ở Action, và lần lưu
+     * tên/email bị từ chối oan. Ô CCCD thì không cần: trống đã nghĩa là "giữ". Trang tạo: không bao giờ khoá.
      */
     private static function callerKeyLock(bool $editing, string $field): Closure|bool
     {
@@ -176,11 +178,22 @@ class IntakeRequestForm
             : $help;
     }
 
+    /**
+     * Bản ghi đã từ chối hay đã xong việc ({@see IntakeRequest::isClosedToIdentityEdits()}) thì KHÔNG khoá
+     * từng ô (fix vòng 2, rà soát Task 3): trang sửa đã khoá cả phần danh tính với mọi người, nên khoá
+     * từng ô không thêm gì, còn câu `caller_keys_locked_help` ở đó vừa sai (trưởng phòng cũng không đổi
+     * được) vừa lộ lý do: một bản từ chối VÌ XUNG ĐỘT vẫn khoá cuộc gọi lại (`locksRepeatCalls()`) dù
+     * không còn Đỏ nào chờ, bản từ chối vì lý do thường thì không — câu đó sẽ cho người không có
+     * `viewConflictReason` biết đó là xung đột (R8). Mọi bản đã từ chối hiện cùng những câu hướng dẫn.
+     */
     private static function callerKeyLocked(?IntakeRequest $record, string $field): bool
     {
         $user = Auth::user();
 
-        return $record !== null && $user instanceof User && UpdateIntakeIdentity::guardsCallerKey($user, $record, $field);
+        return $record !== null
+            && ! $record->isClosedToIdentityEdits()
+            && $user instanceof User
+            && UpdateIntakeIdentity::guardsCallerKey($user, $record, $field);
     }
 
     private static function phoneInput(string $name): TextInput

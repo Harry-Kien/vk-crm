@@ -777,11 +777,14 @@ it('shows the identity of a declined record read-only, saves nothing from a forg
     $first = iraDeclinedForConflict($assistantA);
 
     $this->actingAs($assistantA, 'web');
+    // Cả phần danh tính khoá: không câu "còn Đỏ chờ xử lý — chỉ trưởng phòng đổi được" dưới ô nào (fix
+    // vòng 2): câu đó sai ở đây (trưởng phòng cũng không đổi được) và nói lý do từ chối (R8).
     iraEdit($first)
         ->assertFormFieldIsDisabled('contact_phone')
         ->assertFormFieldIsDisabled('contact_name')
         ->assertFormFieldIsDisabled('contact_role')
-        ->assertFormFieldIsDisabled('parties');
+        ->assertFormFieldIsDisabled('parties')
+        ->assertDontSee(__('intake.fields.caller_keys_locked_help'));
 
     expect(iraFormActionNames($first))->toBe([]);
 
@@ -813,6 +816,38 @@ it('shows the identity of a record declined for an ordinary reason read-only too
 
     expect(iraFormActionNames($intake->fresh()))->toBe([])
         ->and($intake->fresh()->contact_name)->toBe('Người Gọi Mẫu');
+});
+
+it('shows an assistant the same identity help on a green record declined for a conflict as on one declined for an ordinary reason, so the page does not tell it was a conflict', function () {
+    $assistant = iraStaff();
+    $ordinary = iraRecord($assistant, ['contact_name' => 'Lê Thị Thường', 'contact_phone' => '0901000001']);
+    app(DeclineIntake::class)->handle($assistant, $ordinary, 'Ngoài lĩnh vực', false);
+    // Xanh, không Đỏ nào chờ xử lý: điều duy nhất khác bản trên là lý do từ chối — xung đột (R8).
+    $conflict = iraRecord($assistant, ['contact_name' => 'Trần Văn Xung', 'contact_phone' => '0901000002']);
+    app(DeclineIntake::class)->handle(iraStaff(Role::Manager), $conflict, 'Bên kia là khách hiện hữu', true);
+
+    expect($conflict->fresh()->conflict_level)->toBe(ConflictLevel::Green)
+        ->and($conflict->fresh()->hasUnresolvedRed())->toBeFalse()
+        ->and($conflict->fresh()->decline_reason_is_conflict)->toBeTrue();
+
+    $this->actingAs($assistant, 'web');
+    $helpTexts = [
+        __('intake.fields.caller_keys_locked_help'),
+        __('intake.fields.contact_phone_help'),
+        __('intake.fields.contact_id_number_help_edit'),
+        __('intake.fields.contact_role_help'),
+    ];
+    $helpOn = function (IntakeRequest $intake) use ($helpTexts): array {
+        $html = iraEdit($intake->fresh())
+            ->assertFormFieldIsDisabled('contact_phone')
+            ->assertFormFieldIsDisabled('contact_role')
+            ->html();
+
+        return array_map(fn (string $text): int => substr_count($html, $text), $helpTexts);
+    };
+
+    expect($helpOn($conflict))->toBe($helpOn($ordinary))
+        ->and($helpOn($ordinary))->toBe([0, 1, 1, 1]);
 });
 
 it('keeps the phone, ID number and role of a record with a pending red out of an assistant\'s reach, not the name, and the callback stays locked', function () {
