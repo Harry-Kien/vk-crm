@@ -9,7 +9,9 @@ use App\Enums\HandoverPackageStatus;
 use App\Exceptions\HandoverPackageFailed;
 use App\Jobs\GenerateHandoverPackage;
 use App\Jobs\SendHandoverPackageReady;
+use App\Models\ClientUser;
 use App\Models\Document;
+use App\Models\DocumentDownload;
 use App\Models\Matter;
 use App\Models\MatterArchive;
 use App\Models\User;
@@ -43,11 +45,31 @@ use ZipArchive;
  * qua ĐÚNG `PublishDocument`; action này không bao giờ tự công bố.
  *
  * Sinh lại = version MỚI của CÙNG tài liệu (`parent_document_id` = version trước, `version + 1`),
- * `matter_archives.handover_document_id` trỏ version mới nhất. Chỉ tệp của version mới nhất được
- * giữ: tệp của version cũ bị xoá (dòng `documents` và `document_downloads` của nó GIỮ NGUYÊN — lịch
- * sử ai đã tải gì không mất). Nếu version cũ đang mở cho khách, nó bị gỡ khỏi cổng khách cùng lúc
- * (`signed_filed`, hai cờ tắt): một liên kết tải trỏ vào tệp đã xoá là 404 đối với khách. Gói mới
- * phải được công bố lại.
+ * `matter_archives.handover_document_id` trỏ version mới nhất. Dòng `documents` và
+ * `document_downloads` của version cũ luôn GIỮ NGUYÊN (lịch sử ai đã tải gì không mất).
+ *
+ * # Sinh lại và rút lại (rà soát cuối M7, I2)
+ *
+ * Hai luật của plan từng cãi nhau ở đây: "chỉ giữ version mới nhất của gói" (Task 4, vì hạn mức đĩa)
+ * và "một đường rút duy nhất" cùng "bằng chứng khách đã nhận không được biến mất" (Task 7). Bản Task
+ * 4 xoá tệp của version cũ kể cả khi nó đã bị rút — trong khi hộp thoại "Rút lại" hứa giữ tệp — và
+ * lặng lẽ hạ version cũ đang công bố về `signed_filed`, một đường rút thứ ba không lý do, không dòng
+ * giải thích cho khách. Nay:
+ *
+ *  - **Version cũ đang ra tới khách** (`Document::isReleasedToPortal()`, đọc có khoá trong
+ *    transaction lưu): không sinh lại — {@see HandoverPackageFailed::previousReleased()}, không
+ *    version mới, version cũ còn nguyên công bố và tệp. Lúc bấm nút, `RequestHandoverPackage` đã từ
+ *    chối cùng câu hỏi; ở đây là lần hỏi lại cho gói được công bố trong lúc job chờ hàng. Muốn thay
+ *    gói đang công bố, luật sư rút nó bằng "Rút lại" (lý do khách đọc được) rồi sinh lại. Không có
+ *    lần kiểm sớm trước khi dựng zip: lời từ chối lúc bấm nút đã chặn ca thường, và một lần kiểm
+ *    thứ ba chỉ tiết kiệm công dựng zip cho ca chạy đua hiếm (zip dựng xong bị bỏ, thư mục tạm vẫn
+ *    được dọn trong `finally`).
+ *  - **Tệp của version cũ chỉ bị xoá khi version đó chưa từng tới tay khách**
+ *    ({@see self::keepsFileOf()}): không ở trạng thái `retracted`, và không có lượt tải nào của
+ *    khách. Version đã rút hay khách đã tải giữ tệp — đó là bằng chứng văn phòng đã giao gì. Phần
+ *    "chỉ giữ version mới nhất" vẫn đúng cho mọi version khách chưa nhận (bản luật sư xem lại rồi
+ *    sinh lại trước khi công bố), tức gần như mọi version cũ; tệp giữ lại chỉ phát sinh khi một gói
+ *    đã giao bị rút để thay.
  *
  * # Nguyên tử (không tệp dở dang, không version rác)
  *
@@ -71,8 +93,9 @@ use ZipArchive;
  *     của job, hết bộ nhớ) không tới được `finally`; vì thế thư mục tạm có tên cố định theo lần
  *     yêu cầu: lần chạy lại của cùng job dùng lại rồi xoá nó (kể cả khi lần chạy lại thoát sớm vì
  *     yêu cầu đã bị thay), và {@see RecordHandoverPackageFailure} xoá nó khi job thất bại hẳn.
- *  4. Xoá tệp version cũ chỉ sau khi transaction commit (nếu commit hỏng, tệp cũ còn nguyên); lỗi
- *     xoá không làm hỏng gói mới (ghi log).
+ *  4. Xoá tệp version cũ (chỉ khi version đó chưa từng tới tay khách — mục "Sinh lại và rút lại")
+ *     chỉ sau khi transaction commit (nếu commit hỏng, tệp cũ còn nguyên); lỗi xoá không làm hỏng
+ *     gói mới (ghi log).
  *
  * # Lỗi đĩa và cỡ gói là lỗi CÓ TÊN (vòng sửa 1)
  *
@@ -290,6 +313,12 @@ class BuildHandoverPackage
                     ->lockForUpdate()
                     ->find($archive->handover_document_id);
 
+                // Rà soát cuối M7, I2 — xem docblock lớp, mục "Sinh lại và rút lại". Trước khi tạo
+                // gì: chưa có dòng nào, chưa có tệp nào để dọn.
+                if ($previous !== null && $previous->isReleasedToPortal()) {
+                    throw HandoverPackageFailed::previousReleased();
+                }
+
                 $requester = $archive->handoverRequester;
                 $uploader = $requester
                     ?? $matter->leadLawyer
@@ -336,17 +365,11 @@ class BuildHandoverPackage
                     throw HandoverPackageFailed::storeFailed($exception);
                 }
 
-                if ($previous !== null) {
+                // Version cũ KHÔNG bao giờ bị đổi trạng thái hay cờ khách ở đây (đường rút duy nhất
+                // là `RetractDocument`); chỉ tệp của version khách chưa từng nhận mới bị xoá, sau
+                // commit — xem docblock lớp.
+                if ($previous !== null && ! $this->keepsFileOf($previous)) {
                     $previousMedia = $previous->getMedia('file')->all();
-
-                    // Version cũ đang mở cho khách thì gỡ nó cùng lúc tệp bị xoá — xem docblock lớp.
-                    if ($previous->wasPublishedToClient()) {
-                        $previous->update([
-                            'status' => DocumentStatus::SignedFiled,
-                            'client_can_view' => false,
-                            'client_can_download' => false,
-                        ]);
-                    }
                 }
 
                 $archive->update([
@@ -393,6 +416,26 @@ class BuildHandoverPackage
         }
 
         return $document;
+    }
+
+    /**
+     * Version gói cũ này có phải đã tới tay khách không — nếu có, tệp của nó là bằng chứng văn phòng
+     * đã giao gì và KHÔNG bị xoá khi sinh lại (rà soát cuối M7, I2; xem docblock lớp).
+     *
+     *  - `retracted`: hộp thoại "Rút lại" hứa giữ tệp (`retraction.action.modal_description`).
+     *  - Có lượt tải của KHÁCH (`downloader_type` là `ClientUser`, cùng cách `RetractDocument` đếm
+     *    `client_downloads`). Lượt tải của nhân sự — luật sư xem lại gói trước khi công bố — không
+     *    tính. Hôm nay mọi version khách tải được thì hoặc đang công bố (bị từ chối trước khi tới
+     *    đây), hoặc đã rút; vế này giữ luật bằng chứng đứng vững nếu một đường khác `RetractDocument`
+     *    từng hạ tài liệu khỏi cổng (chính bản Task 4 trước bản sửa là một đường như vậy).
+     */
+    private function keepsFileOf(Document $version): bool
+    {
+        return $version->status === DocumentStatus::Retracted
+            || $this->scopelessly(DocumentDownload::query())
+                ->where('document_id', $version->getKey())
+                ->where('downloader_type', (new ClientUser)->getMorphClass())
+                ->exists();
     }
 
     private function discardStoredFile(?Media $media): void

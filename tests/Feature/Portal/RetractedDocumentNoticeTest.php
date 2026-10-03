@@ -27,8 +27,15 @@ use Illuminate\Support\Str;
  *  1. **Truy vấn** — `Document::retractionNoticesFor($matter, $viewer)`, đo ở đây KHÔNG qua policy;
  *  2. **Quyền** — `DocumentPolicy::viewRetractionNotice`, đo ở đây KHÔNG qua truy vấn (bản ghi
  *     dựng thẳng, policy đọc thuộc tính);
- *  3. **Serialize** — hình chiếu hẹp `MatterProgress::retractionNotices()` (tiêu đề, lý do, ngày;
- *     không id, không đường tải), đo qua HTML thật của trang.
+ *  3. **Serialize** — hình chiếu hẹp `MatterProgress::retractionNotices()` (lý do, ngày; KHÔNG tiêu
+ *     đề, không id, không đường tải), đo qua HTML thật của trang và qua chính hình chiếu.
+ *
+ * **Không tiêu đề (rà soát cuối M7, C1).** Ca rút điển hình là tài liệu của KHÁCH KHÁC công bố nhầm
+ * (đúng lý do `RDN_REASON` dưới đây). Dòng rút là vĩnh viễn — tài liệu đã rút không xoá được, không
+ * vào nhóm D được, không công bố lại được, không Action nào sửa tiêu đề — nên nếu nó mang tiêu đề,
+ * tiêu đề của khách kia nằm trên cổng của khách này chừng nào vụ còn trên cổng. Dòng rút chỉ mang
+ * một nhãn trung tính (`retraction.portal.heading`), lý do (chữ văn phòng viết khi đã biết khách đọc)
+ * và ngày rút. Vì vậy các test dưới đây nhận ra một dòng rút bằng LÝ DO của nó, không bằng tiêu đề.
  *
  * Mỗi khẳng định âm đi kèm vế dương trong chính test đó: tài liệu đã rút của CHÍNH khách trên vụ
  * CHÍNH khách đang xem thì hiện.
@@ -77,9 +84,21 @@ function rdnDocument(Matter $matter, string $title): Document
     return $document->refresh();
 }
 
-function rdnRetract(Document $document, User $lawyer): Document
+function rdnRetract(Document $document, User $lawyer, string $reason = RDN_REASON): Document
 {
-    return app(RetractDocument::class)->handle(document: $document, actor: $lawyer, reason: RDN_REASON);
+    return app(RetractDocument::class)->handle(document: $document, actor: $lawyer, reason: $reason);
+}
+
+/** Câu khách đọc cho một lý do — cách các test nhận ra MỘT dòng rút trên trang. */
+function rdnNotice(string $reason): string
+{
+    return __('retraction.portal.notice', ['reason' => $reason]);
+}
+
+/** Số dòng rút trên trang (`data-retracted-document`, một `article` cho mỗi dòng). */
+function rdnNoticeCount(string $html): int
+{
+    return substr_count($html, 'data-retracted-document');
 }
 
 function rdnPage(Matter $matter)
@@ -97,7 +116,7 @@ function rdnQueryIds(Matter $matter, ClientUser $viewer): array
 // Tầng 3 — trang thật, HTML thật.
 // ---------------------------------------------------------------------------------------------
 
-it('khách thấy một dòng rút lại ở chỗ tài liệu từng hiện: tiêu đề, lý do, ngày rút — không đường tải', function () {
+it('khách thấy một dòng rút lại ở chỗ tài liệu từng hiện: nhãn trung tính, lý do, ngày rút — không tiêu đề, không đường tải', function () {
     $document = rdnDocument($this->matter, 'Quyết định đình chỉ bản nhầm');
     $kept = rdnDocument($this->matter, 'Bản án sơ thẩm còn hiệu lực');
 
@@ -105,36 +124,80 @@ it('khách thấy một dòng rút lại ở chỗ tài liệu từng hiện: ti
     $signed = $document->downloadUrlFor($this->clientUser);
     $this->get($signed)->assertOk();
 
+    // Trước khi rút, tiêu đề có trên trang: vế dương của khẳng định "không tiêu đề" bên dưới.
+    rdnPage($this->matter)->assertOk()->assertSee('Quyết định đình chỉ bản nhầm');
+
     rdnRetract($document, $this->lawyer);
 
     $html = rdnPage($this->matter)->assertOk()
-        ->assertSee('Quyết định đình chỉ bản nhầm')
-        ->assertSee(__('retraction.portal.notice', ['reason' => RDN_REASON]))
+        ->assertSee(__('retraction.portal.heading'))
+        ->assertSee(rdnNotice(RDN_REASON))
         ->assertSee(__('retraction.portal.retracted_on', ['date' => '20/10/2026']))
+        ->assertDontSee('Quyết định đình chỉ bản nhầm')
         // Vế dương: tài liệu còn hiệu lực vẫn ở đó, kèm đường tải của nó.
         ->assertSee('Bản án sơ thẩm còn hiệu lực')
         ->getContent();
 
     // Không một đường tải nào trỏ tới tài liệu đã rút; đường của tài liệu còn lại thì có.
-    expect($html)->not->toContain('documents/'.$document->id.'/download')
+    expect(rdnNoticeCount($html))->toBe(1)
+        ->and($html)->not->toContain('documents/'.$document->id.'/download')
         ->and($html)->toContain('documents/'.$kept->id.'/download');
 
     // URL ký TRƯỚC lúc rút, còn hạn chữ ký, nay trả 404.
     $this->get($signed)->assertNotFound();
 });
 
+/**
+ * Rà soát cuối M7, C1 — ca rút điển hình: một văn bản của KHÁCH KHÁC (tiêu đề nêu tên và số giấy tờ
+ * của người đó) bị công bố nhầm lên hồ sơ của khách này, rồi được rút. Tài liệu đã rút không xoá
+ * được, không vào nhóm D được, không công bố lại được, và không Action nào sửa tiêu đề — nên dòng rút
+ * KHÔNG được mang tiêu đề: không trên HTML (kể cả ảnh chụp Livewire nhúng trong trang), không trong
+ * hình chiếu của trang. Vế dương: trước khi rút tiêu đề có trên trang; sau khi rút dòng rút vẫn ở
+ * đó, với lý do và ngày rút.
+ */
+it('tài liệu của khách khác công bố nhầm: sau khi rút, tiêu đề của nó không còn ở đâu trên cổng của khách này', function () {
+    $title = 'Đơn khởi kiện của ông NGUYỄN VĂN XUÂN, CCCD 001088009999';
+    $reason = 'Văn bản này thuộc hồ sơ của một khách hàng khác, văn phòng công bố nhầm.';
+    $document = rdnDocument($this->matter, $title);
+
+    $this->actingAs($this->clientUser, 'client');
+    rdnPage($this->matter)->assertOk()->assertSee($title);
+
+    rdnRetract($document, $this->lawyer, $reason);
+
+    $html = rdnPage($this->matter)->assertOk()
+        ->assertSee(__('retraction.portal.heading'))
+        ->assertSee(rdnNotice($reason))
+        ->getContent();
+
+    expect(rdnNoticeCount($html))->toBe(1)
+        ->and($html)->not->toContain('NGUYỄN VĂN XUÂN')
+        ->and($html)->not->toContain(e('NGUYỄN VĂN XUÂN'))
+        ->and($html)->not->toContain('001088009999');
+
+    // Tầng serialize: hình chiếu chỉ có lý do và ngày — không tiêu đề, không id.
+    $notices = $this->livewire(MatterProgress::class, ['record' => $this->matter->getKey()])
+        ->instance()
+        ->retractionNotices();
+
+    expect($notices->all())->toBe([[
+        'reason' => $reason,
+        'retracted_on' => '20/10/2026',
+    ]]);
+});
+
 it('khách khác không thấy dòng rút lại của vụ không phải của mình', function () {
     $document = rdnDocument($this->matter, 'Tài liệu rút của khách thứ nhất');
-    rdnRetract($document, $this->lawyer);
+    rdnRetract($document, $this->lawyer, 'Lý do rút của khách thứ nhất, công bố nhầm.');
     $theirs = rdnDocument($this->otherMatter, 'Tài liệu rút của khách thứ hai');
-    rdnRetract($theirs, $this->lawyer);
+    rdnRetract($theirs, $this->lawyer, 'Lý do rút của khách thứ hai, công bố nhầm.');
 
     $this->actingAs($this->otherUser, 'client');
 
     rdnPage($this->matter)->assertNotFound();
     rdnPage($this->otherMatter)->assertOk()
-        ->assertSee('Tài liệu rút của khách thứ hai')
-        ->assertDontSee('Tài liệu rút của khách thứ nhất');
+        ->assertSee(rdnNotice('Lý do rút của khách thứ hai, công bố nhầm.'))
+        ->assertDontSee('Lý do rút của khách thứ nhất');
 
     expect(rdnQueryIds($this->matter, $this->otherUser))->toBe([])
         ->and(rdnQueryIds($this->otherMatter, $this->otherUser))->toBe([$theirs->id])
@@ -169,7 +232,7 @@ it('vụ đã hết hạn tra cứu (Task 5): không trang, không dòng, ở c�
     $this->actingAs($this->clientUser, 'client');
 
     // Ngày cuối còn tra cứu: còn thấy.
-    rdnPage($this->matter)->assertOk()->assertSee('Tài liệu rút trên vụ đã kết thúc');
+    rdnPage($this->matter)->assertOk()->assertSee(rdnNotice(RDN_REASON));
 
     $this->travelTo(Carbon::parse('2026-10-21 00:00:00'));
 
@@ -184,9 +247,9 @@ it('vụ đã hết hạn tra cứu (Task 5): không trang, không dòng, ở c�
 
 it('không bao giờ nhóm D, không bao giờ bản đã xoá mềm, không bao giờ một trạng thái khác', function (array $attributes, ?Closure $after) {
     $document = rdnDocument($this->matter, 'Bản ghi bị loại');
-    rdnRetract($document, $this->lawyer);
+    rdnRetract($document, $this->lawyer, 'Lý do của bản ghi bị loại, công bố nhầm.');
     $positive = rdnDocument($this->matter, 'Bản ghi vế dương');
-    rdnRetract($positive, $this->lawyer);
+    rdnRetract($positive, $this->lawyer, 'Lý do của bản ghi vế dương, công bố nhầm.');
 
     // Ghi thẳng bằng query builder: không đi qua hook `saving` hay Action nào — đúng hình dạng
     // "một lần ghi tay vào CSDL" mà hai tầng phải tự chống được.
@@ -214,8 +277,8 @@ it('không bao giờ nhóm D, không bao giờ bản đã xoá mềm, không bao
         ->and(Gate::forUser($this->clientUser)->allows('viewRetractionNotice', $positive->fresh()))->toBeTrue();
 
     rdnPage($this->matter)->assertOk()
-        ->assertSee('Bản ghi vế dương')
-        ->assertDontSee('Bản ghi bị loại');
+        ->assertSee(rdnNotice('Lý do của bản ghi vế dương, công bố nhầm.'))
+        ->assertDontSee('Lý do của bản ghi bị loại');
 })->with([
     'nhóm D' => [['group' => 'D'], null],
     'đã xoá mềm' => [[], fn (Document $document) => $document->delete()],
@@ -240,7 +303,8 @@ it('vụ chỉ còn tài liệu đã rút: không nói "chưa có tài liệu", 
     rdnRetract($document, $this->lawyer);
 
     rdnPage($this->matter)->assertOk()
-        ->assertSee('Tài liệu duy nhất, đã rút')
+        ->assertSee(__('retraction.portal.heading'))
+        ->assertSee(rdnNotice(RDN_REASON))
         ->assertDontSee(__('portal_progress.blocks.documents.empty'));
 });
 
@@ -250,9 +314,9 @@ it('tầng truy vấn chỉ trả tài liệu của ĐÚNG vụ đang xem, kể 
         'lead_lawyer_id' => $this->lawyer->id,
     ]);
     $here = rdnDocument($this->matter, 'Tài liệu rút của vụ này');
-    rdnRetract($here, $this->lawyer);
+    rdnRetract($here, $this->lawyer, 'Lý do rút của tài liệu thuộc vụ này.');
     $there = rdnDocument($sibling, 'Tài liệu rút của vụ kia');
-    rdnRetract($there, $this->lawyer);
+    rdnRetract($there, $this->lawyer, 'Lý do rút của tài liệu thuộc vụ kia.');
 
     $this->actingAs($this->clientUser, 'client');
 
@@ -260,6 +324,6 @@ it('tầng truy vấn chỉ trả tài liệu của ĐÚNG vụ đang xem, kể 
         ->and(rdnQueryIds($sibling, $this->clientUser))->toBe([$there->id]);
 
     rdnPage($this->matter)->assertOk()
-        ->assertSee('Tài liệu rút của vụ này')
-        ->assertDontSee('Tài liệu rút của vụ kia');
+        ->assertSee(rdnNotice('Lý do rút của tài liệu thuộc vụ này.'))
+        ->assertDontSee('Lý do rút của tài liệu thuộc vụ kia');
 });

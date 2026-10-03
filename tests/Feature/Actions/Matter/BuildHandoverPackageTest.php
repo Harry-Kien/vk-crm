@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Document\PublishDocument;
+use App\Actions\Document\RetractDocument;
 use App\Actions\Matter\BuildHandoverPackage;
 use App\Actions\Matter\ReassignMatter;
 use App\Actions\Matter\RenderHandoverIndex;
@@ -13,6 +14,7 @@ use App\Events\DocumentPublished;
 use App\Exceptions\HandoverPackageFailed;
 use App\Jobs\SendHandoverPackageReady;
 use App\Models\Client;
+use App\Models\ClientUser;
 use App\Models\Document;
 use App\Models\DocumentDownload;
 use App\Models\Matter;
@@ -822,11 +824,13 @@ it('xếp hàng việc báo luật sư sau khi gói sinh xong', function () {
 // Sinh lại = version mới của cùng tài liệu.
 // ---------------------------------------------------------------------------------------------
 
-it('sinh lại là version mới của cùng tài liệu; tệp cũ bị xoá, dòng tài liệu và lượt tải cũ giữ nguyên', function () {
+it('sinh lại là version mới của cùng tài liệu; tệp của version cũ CHƯA TỪNG tới tay khách bị xoá, dòng tài liệu và lượt tải của nhân sự giữ nguyên', function () {
     $first = hpBuild($this);
     $firstMedia = $first->getFirstMedia('file');
     $firstPath = $firstMedia->getPathRelativeToRoot();
 
+    // Lượt tải của NHÂN SỰ (mặc định của factory): luật sư xem lại gói trước khi công bố. Không phải
+    // bằng chứng khách đã nhận gói, nên không giữ tệp lại.
     DocumentDownload::factory()->create(['document_id' => $first->id]);
 
     hpRequestAgain($this, 5);
@@ -846,24 +850,103 @@ it('sinh lại là version mới của cùng tài liệu; tệp cũ bị xoá, d
         ->and(DocumentDownload::query()->where('document_id', $first->id)->count())->toBe(1);
 });
 
-it('gỡ version cũ khỏi cổng khách khi nó đang được công bố, vì tệp của nó đã bị xoá', function () {
-    $first = hpBuild($this);
-    $first->update(['status' => DocumentStatus::Published, 'client_can_view' => true, 'client_can_download' => true, 'published_at' => now()]);
+/** Công bố gói cho khách qua ĐÚNG `PublishDocument` (đường thật duy nhất, R1). */
+function hpPublish(object $test, Document $package): Document
+{
+    return app(PublishDocument::class)->handle(
+        $package,
+        $test->lawyer,
+        clientCanView: true,
+        clientCanDownload: true,
+        expectedClientCanView: false,
+        expectedClientCanDownload: false,
+        expectedIsReleased: false,
+    )->refresh();
+}
 
-    expect($first->refresh()->isReleasedToPortal())->toBeTrue();
+/**
+ * Rà soát cuối M7, I2 (luật "một đường rút duy nhất" của Task 7). Trước bản sửa, sinh lại lặng lẽ
+ * hạ version cũ ĐANG CÔNG BỐ về `signed_filed` và tắt hai cờ khách — một đường rút thứ ba, không lý
+ * do, không dòng giải thích cho khách — rồi xoá tệp của nó. Nay: job kiểm DƯỚI KHOÁ (gói có thể đã
+ * được công bố trong lúc job chờ hàng) và từ chối bằng lỗi có tên chỉ tới nút "Rút lại"; không
+ * version mới, version cũ còn nguyên công bố và còn tệp.
+ */
+it('version cũ đang công bố cho khách: không sinh lại — lỗi có tên chỉ tới nút Rút lại, version cũ còn nguyên', function () {
+    $first = hpPublish($this, hpBuild($this));
+    $firstPath = $first->getFirstMedia('file')->getPathRelativeToRoot();
+
+    expect($first->isReleasedToPortal())->toBeTrue();
+
+    hpRequestAgain($this, 5);
+
+    expect(fn () => hpBuild($this))->toThrow(HandoverPackageFailed::class, __('handover.exceptions.previous_released'));
+
+    $first->refresh();
+
+    expect($first->isReleasedToPortal())->toBeTrue()
+        ->and($first->status)->toBe(DocumentStatus::Published)
+        ->and(Storage::disk('private')->exists($firstPath))->toBeTrue()
+        ->and(Document::query()->where('parent_document_id', $first->id)->count())->toBe(0)
+        ->and($this->archive->fresh()->handover_document_id)->toBe($first->id)
+        ->and(hpWorkDirectoryIsEmpty())->toBeTrue()
+        ->and(__('handover.exceptions.previous_released'))->toContain('Rút lại');
+});
+
+/**
+ * Rà soát cuối M7, I2: hộp thoại "Rút lại" hứa "Tệp và nhật ký các lượt khách đã tải được giữ
+ * nguyên" (`lang/vi/retraction.php`), và plan Task 7 nói bằng chứng khách đã nhận không được biến
+ * mất. Trước bản sửa, sinh lại xoá tệp của version cũ kể cả khi nó đã bị rút. Rút qua đường thật
+ * (`PublishDocument` rồi `RetractDocument`), rồi sinh lại.
+ */
+it('version cũ đã rút: sinh lại giữ TỆP của nó và dòng rút của khách, version mới vẫn sinh', function () {
+    $first = hpPublish($this, hpBuild($this));
+    $firstPath = $first->getFirstMedia('file')->getPathRelativeToRoot();
+
+    app(RetractDocument::class)->handle($first, $this->lawyer, 'Gói này thiếu bản án phúc thẩm, văn phòng sẽ gửi gói mới.');
+
+    hpRequestAgain($this, 5);
+
+    $second = hpBuild($this);
+    $first->refresh();
+
+    expect($second->version)->toBe(2)
+        ->and($second->parent_document_id)->toBe($first->id)
+        ->and($this->archive->fresh()->handover_document_id)->toBe($second->id)
+        // Tệp của version đã rút còn nguyên trên đĩa, và còn gắn với nó.
+        ->and(Storage::disk('private')->exists($firstPath))->toBeTrue()
+        ->and($first->getMedia('file'))->toHaveCount(1)
+        // Version đã rút giữ nguyên trạng thái và lý do khách đọc.
+        ->and($first->status)->toBe(DocumentStatus::Retracted)
+        ->and($first->retraction_reason)->toBe('Gói này thiếu bản án phúc thẩm, văn phòng sẽ gửi gói mới.');
+});
+
+/**
+ * Rà soát cuối M7, I2, vế "khách đã tải". Hôm nay mọi version khách đã tải được thì hoặc đang công bố
+ * (bị từ chối ở test trên), hoặc đã rút — nên bản ghi ở đây dựng thẳng, như dữ liệu một đường KHÁC
+ * `RetractDocument` từng hạ khỏi cổng để lại (chính bản Task 4 trước bản sửa này là một đường như
+ * vậy). Luật bằng chứng được phát biểu bằng lượt tải của khách, không bằng trạng thái: tệp khách đã
+ * nhận không bị xoá, dù tài liệu đang ở trạng thái nào.
+ */
+it('version cũ khách đã tải (lượt tải của khách, không phải của nhân sự): sinh lại giữ tệp của nó', function () {
+    $first = hpBuild($this);
+    $firstPath = $first->getFirstMedia('file')->getPathRelativeToRoot();
+
+    $clientUser = ClientUser::factory()->activated()->create(['client_id' => $this->client->id]);
+    DocumentDownload::factory()->create([
+        'document_id' => $first->id,
+        'downloader_type' => $clientUser->getMorphClass(),
+        'downloader_id' => $clientUser->id,
+    ]);
+
+    expect($first->refresh()->status)->toBe(DocumentStatus::SignedFiled);
 
     hpRequestAgain($this, 5);
 
     $second = hpBuild($this);
 
-    $first->refresh();
-
-    expect($first->isReleasedToPortal())->toBeFalse()
-        ->and($first->status)->toBe(DocumentStatus::SignedFiled)
-        ->and($first->client_can_view)->toBeFalse()
-        ->and($first->client_can_download)->toBeFalse()
-        // Version mới KHÔNG tự công bố.
-        ->and($second->refresh()->isReleasedToPortal())->toBeFalse();
+    expect($second->version)->toBe(2)
+        ->and(Storage::disk('private')->exists($firstPath))->toBeTrue()
+        ->and($first->refresh()->getMedia('file'))->toHaveCount(1);
 });
 
 // ---------------------------------------------------------------------------------------------

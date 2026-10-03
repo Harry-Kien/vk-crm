@@ -26,7 +26,10 @@ use Illuminate\Validation\ValidationException;
  * phía khách (scope portal và `DocumentPolicy::view` đều đòi `published` + cờ xem), nên một URL tải
  * có chữ ký phát trước lúc rút trả 404 sau đó. Thay vào chỗ tài liệu, khách thấy MỘT dòng
  * "Văn phòng đã rút lại tài liệu này. Lý do: …" (đường đọc hẹp `Document::retractionNoticesFor()`):
- * một khoảng trống không lời giải thích làm khách nghĩ tài liệu bị mất.
+ * một khoảng trống không lời giải thích làm khách nghĩ tài liệu bị mất. Dòng đó mang nhãn trung
+ * tính, lý do và ngày rút — KHÔNG mang tiêu đề (rà soát cuối M7, C1, xem
+ * `MatterProgress::retractionNotices()`): tài liệu rút thường là tài liệu của khách khác công bố
+ * nhầm, và dòng rút không bao giờ gỡ được.
  *
  * **Rút KHÔNG xoá gì.** Tệp (media) giữ nguyên, mọi dòng `document_downloads` giữ nguyên — bằng
  * chứng khách đã tải là thứ không được phép biến mất (khoá ngoại của chúng nay `restrictOnDelete`,
@@ -44,12 +47,22 @@ use Illuminate\Validation\ValidationException;
  * cứu) vẫn là một tài liệu ĐÃ được quyết định cho khách xem — nó trở lại tầm mắt khách ngay khi vụ
  * việc lên lại portal — nên rút nó vẫn là một lần rút có lý do, không phải một lần đổi nhóm.
  *
- * **Thứ tự (mọi bước trong MỘT transaction):**
- *  1. Câu ĐẦU TIÊN là một lần đọc có khoá trên `matters` (thứ tự khoá toàn cục: `matters` trước):
- *     dòng vụ việc của tài liệu, tìm bằng truy vấn con trên `documents.matter_id` — không tin
- *     `$document->matter_id` caller cầm trong tay. Gỡ `ClientPortalScope`, kể cả vụ đã xoá mềm.
+ * **Thứ tự.** Bước 0 chạy TRƯỚC `DB::transaction()`; mọi bước còn lại trong MỘT transaction.
+ *  0. `matter_id` THẬT của tài liệu, đọc từ CSDL bằng một câu auto-commit riêng — không tin
+ *     `$document->matter_id` caller cầm trong tay. **Không bao giờ bên trong transaction (rà soát
+ *     cuối M7, I1).** Bản Task 7 khoá `matters` qua một truy vấn con KHÔNG khoá trên `documents` nằm
+ *     ngay trong câu khoá; trên MariaDB (REPEATABLE READ) lần đọc trần đó cố định READ VIEW của cả
+ *     transaction TRƯỚC lúc đợi khoá `matters`, nên một lần gỡ khỏi đội ngũ hay vô hiệu hoá commit
+ *     trong lúc đợi không được bước 3 và bước 5 nhìn thấy. Đo bằng hai phiên thật trên MariaDB 11.8
+ *     (`MatterLockBeforeSnapshotTest`): người vừa bị gỡ khỏi đội ngũ VẪN RÚT ĐƯỢC; người vừa bị vô
+ *     hiệu hoá qua được bước 3 rồi chết ở câu UPDATE với lỗi 1020 của `innodb_snapshot_isolation`.
+ *     Cùng luật M6.5 ở `TriageClientRequest::realMatterId()`. An toàn để đọc sớm: không Action nào
+ *     ghi lại `documents.matter_id`, và bước 2 vẫn đối chiếu giá trị này dưới khoá.
+ *  1. Câu ĐẦU TIÊN của transaction là câu khoá dòng `matters` đó theo id (thứ tự khoá toàn cục:
+ *     `matters` trước). Gỡ `ClientPortalScope`, kể cả vụ đã xoá mềm.
  *  2. Khoá dòng `documents` (gỡ scope portal, kể cả đã xoá mềm), và mọi quyết định đọc từ bản này,
- *     không từ `$document` của caller. Không có → `missing`.
+ *     không từ `$document` của caller. Không có, hoặc `matter_id` dưới khoá khác giá trị ở bước 0 →
+ *     `missing`.
  *  3. Người thực hiện ĐỌC LẠI từ CSDL: tài khoản vừa bị vô hiệu hoá/xoá trong lúc hộp thoại còn mở
  *     không rút được bằng đối tượng cũ → `AuthorizationException`.
  *  4. Tài liệu đã xoá mềm, vụ việc đã xoá mềm → từ chối bằng câu trạng thái (cùng hạng các cổng
@@ -87,19 +100,18 @@ class RetractDocument
 
     public function handle(Document $document, User $actor, string $reason): Document
     {
-        return DB::transaction(function () use ($document, $actor, $reason): Document {
+        // 0. TRƯỚC transaction, không bên trong — xem docblock lớp (rà soát cuối M7, I1).
+        $matterId = $this->scopelessly(Document::query())
+            ->withTrashed()
+            ->whereKey($document->getKey())
+            ->value('matter_id');
+
+        return DB::transaction(function () use ($document, $actor, $reason, $matterId): Document {
             // 1. Câu ĐẦU TIÊN: khoá dòng `matters`.
-            $matter = $this->scopelessly(Matter::query())
+            $matter = $matterId === null ? null : $this->scopelessly(Matter::query())
                 ->withTrashed()
-                ->whereIn(
-                    (new Matter)->getQualifiedKeyName(),
-                    $this->scopelessly(Document::query())
-                        ->withTrashed()
-                        ->whereKey($document->getKey())
-                        ->select('matter_id'),
-                )
                 ->lockForUpdate()
-                ->first();
+                ->find($matterId);
 
             // 2. Khoá dòng `documents`, SAU `matters`.
             $fresh = $this->scopelessly(Document::query())

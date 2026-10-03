@@ -253,17 +253,24 @@ class TransitionMatterStage
             // cột mới chỉ đúng người vừa chuyển giai đoạn.
             $matter->blameOn($actor)->update($matterUpdates);
 
-            if ($publishedToPortal) {
-                event(new StageLogPublished($stageLog));
-            }
-
             // M7 Task 3. CHỈ khi giai đoạn THẬT SỰ đổi — một dòng cập nhật không đổi giai đoạn
             // (§6.3) không "chuyển" gì để một listener lưu trữ phải chạy lại. Độc lập với
             // `$publishedToPortal`/`$publish`: một lần chuyển giai đoạn NỘI BỘ (không công bố)
             // vẫn có thể là lần vụ việc đóng hay mở lại — `SyncMatterArchiveOnStageChange` phải
             // chạy cho cả hai, không chỉ cho những lần công bố ra portal.
+            //
+            // Rà soát cuối M7, I3 — phát TRƯỚC `StageLogPublished`. Cả hai sự kiện đợi commit và
+            // chạy theo đúng thứ tự phát. Thư báo tiến độ hỏi "vụ còn trên cổng của người nhận
+            // không" (`MatterPolicy::view`, gồm hạn tra cứu), nên dòng lưu trữ phải được đồng bộ
+            // TRƯỚC: mở lại một vụ đã quá hạn tra cứu xoá `client_access_until`, và chỉ sau đó vụ
+            // mới trở lại cổng. Phát ngược lại thì với hàng đợi `sync` thư đi (hay không đi) theo
+            // hạn tra cứu CŨ, và với hàng đợi thật là một cuộc đua giữa worker và listener đồng bộ.
             if (! $isSameStage) {
                 event(new MatterStageChangedEvent($stageLog));
+            }
+
+            if ($publishedToPortal) {
+                event(new StageLogPublished($stageLog));
             }
 
             // Bước 8.

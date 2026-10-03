@@ -453,9 +453,14 @@ nullable, `nullOnDelete`) và `retraction_reason` (text nullable).
   việc VÀ có quyền công bố (sửa câu ngày 2026-10-03, M7 Task 11, theo rà soát Task 7). Trợ lý không
   rút được; họ nhờ người có quyền bấm "Rút lại".
 - **Lý do** bắt buộc, tối thiểu 20 ký tự (`mb_strlen`, sau khi bỏ khoảng trắng hai đầu), tối đa 5000.
-  Lý do **khách đọc được**.
-- **Khách thấy gì.** Ở khối Tài liệu của trang hồ sơ, chỗ tài liệu từng hiện: tiêu đề, câu "Văn
-  phòng đã rút lại tài liệu này. Lý do: …" và ngày rút. Không có đường tải; một đường dẫn tải ký
+  Lý do **khách đọc được**, và là chữ duy nhất về tài liệu mà khách còn đọc được (dòng dưới).
+- **Khách thấy gì.** Ở khối Tài liệu của trang hồ sơ, chỗ tài liệu từng hiện: nhãn trung tính "Tài
+  liệu đã được văn phòng rút lại", câu "Văn phòng đã rút lại tài liệu này. Lý do: …" và ngày rút.
+  **Không có tiêu đề tài liệu** (sửa ngày 2026-10-03, rà soát cuối M7, C1): ca rút điển hình là tài
+  liệu của khách khác công bố nhầm, và dòng rút không bao giờ gỡ được (tài liệu đã rút không xoá,
+  không vào nhóm D, không công bố lại được), nên một dòng mang tiêu đề sẽ để tên của khách kia trên
+  cổng của khách này chừng nào vụ còn trên cổng. Ô lý do nói rõ cho người rút: tiêu đề không hiện,
+  muốn khách biết là tài liệu nào thì nêu trong lý do. Không có đường tải; một đường dẫn tải ký
   trước lúc rút trả 404. Dòng này chỉ hiện trên vụ khách đang xem được (cùng khách, đã lên portal,
   chưa hết hạn tra cứu), không bao giờ cho tài liệu nhóm D.
 - **Trạng thái cuối.** Tài liệu đã rút không công bố lại được; muốn đưa lại cho khách thì tải lên
@@ -951,7 +956,17 @@ Khi vụ việc chuyển sang giai đoạn kết thúc, hệ thống sinh một 
   Tiêu đề không duy nhất và có thể chứa `/` hay `..`; số thứ tự loại cả hai rủi ro, và cho mục lục
   với zip cùng một cách đánh số. Tên entry được đánh dấu UTF-8 (bit 11) để dấu tiếng Việt không hỏng.
 - *Gói là một `Document` (R1).* Nhóm B, `signed_filed`, tệp trên đĩa `private`; sinh lại là version
-  mới của cùng tài liệu và chỉ tệp của version mới nhất được giữ. Bước 4 đi qua đúng `PublishDocument`.
+  mới của cùng tài liệu. Bước 4 đi qua đúng `PublishDocument`.
+- *Sinh lại và rút lại (sửa ngày 2026-10-03, rà soát cuối M7, I2).* Hai luật từng cãi nhau: "chỉ giữ
+  version mới nhất của gói" (hạn mức đĩa) và "một đường rút duy nhất" cùng "bằng chứng khách đã nhận
+  không biến mất" (§4.11, đính chính M7 Task 7). Đọc như sau:
+  - Gói hiện tại đang ra tới khách thì **không sinh lại được**: nút báo câu chỉ tới "Rút lại", và job
+    hỏi lại dưới khoá (gói có thể được công bố trong lúc job chờ hàng) rồi hỏng với lỗi có tên, không
+    tạo version mới. Sinh lại không bao giờ tự gỡ gói khỏi cổng khách. Muốn thay gói đã giao: rút nó
+    (lý do khách đọc được) rồi sinh lại.
+  - Tệp của version cũ chỉ bị xoá khi version đó chưa từng tới tay khách: không ở trạng thái
+    `retracted` và không có lượt tải nào của khách. Version đã rút hay khách đã tải giữ tệp. Dòng
+    `documents` và `document_downloads` của mọi version luôn giữ nguyên.
 - *Chạy nền (R9).* Job chạy trên kết nối/hàng `handover` riêng với mục lịch `queue.handover` riêng
   (không dùng chung lượt của `queue.drain`, để một gói lớn không giữ thư nhắc mốc thời hạn), có
   `$timeout` và `$tries` tường minh; thất bại hẳn thì báo luật sư phụ trách và màn hình hiện trạng

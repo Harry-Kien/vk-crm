@@ -234,11 +234,12 @@
                 @endif
             @endforelse
 
-            {{-- M7 Task 7 — tài liệu văn phòng đã RÚT LẠI: tiêu đề, lý do, ngày rút; không có đường
-                 tải. Hình chiếu hẹp từ `retractionNotices()`, không bao giờ một bản ghi. --}}
+            {{-- M7 Task 7 — tài liệu văn phòng đã RÚT LẠI: nhãn trung tính, lý do, ngày rút; không có
+                 đường tải. KHÔNG tiêu đề (rà soát cuối M7, C1 — xem `retractionNotices()`). Hình
+                 chiếu hẹp từ `retractionNotices()`, không bao giờ một bản ghi. --}}
             @foreach ($retractionNotices as $notice)
                 <article data-retracted-document style="padding:0.75rem 0;{{ ! $loop->last ? 'border-bottom:1px solid color-mix(in srgb, var(--gray-500) 25%, transparent);' : '' }}">
-                    <p style="font-weight:600;text-decoration:line-through;{{ $muted }}">{{ $notice['title'] }}</p>
+                    <p style="font-weight:600;{{ $muted }}">{{ __('retraction.portal.heading') }}</p>
                     <p style="margin-top:0.25rem;font-size:0.9375rem;">
                         {{ __('retraction.portal.notice', ['reason' => $notice['reason']]) }}
                     </p>

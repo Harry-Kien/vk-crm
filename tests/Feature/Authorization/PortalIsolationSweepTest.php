@@ -1116,9 +1116,11 @@ it('never serves a retracted document through a document query or a download, an
         ->getContent();
 
     expect($html)->not->toContain(SWEEP_MARKER)
-        // Vế dương: dòng rút của chính khách A có mặt, cùng tài liệu còn hiệu lực.
-        ->and($html)->toContain('Bản đã rút của khách A')
+        // Vế dương: dòng rút của chính khách A có mặt, cùng tài liệu còn hiệu lực. Dòng rút mang nhãn
+        // trung tính và lý do, KHÔNG mang tiêu đề (rà soát cuối M7, C1).
+        ->and($html)->toContain(e(__('retraction.portal.heading')))
         ->and($html)->toContain(e(__('retraction.portal.notice', ['reason' => 'Văn phòng công bố nhầm bản dự thảo'])))
+        ->and($html)->not->toContain('Bản đã rút của khách A')
         ->and($html)->toContain('Quyết định của toà')
         ->and($html)->not->toContain('documents/'.$own->id.'/download');
 });

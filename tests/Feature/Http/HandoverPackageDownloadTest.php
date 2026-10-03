@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Document\PublishDocument;
+use App\Actions\Document\RetractDocument;
 use App\Actions\Matter\BuildHandoverPackage;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
@@ -106,7 +107,11 @@ it('khách tải gói sau khi được công bố: data_exported ghi đúng khá
 it('tải MỘT VERSION CŨ của gói cũng ghi data_exported (nhận biết qua chuỗi version)', function () {
     hpdPublish($this);
 
-    // Sinh lại: version 2; version 1 giữ dòng tài liệu nhưng mất tệp và mất quyền hiển thị cho khách.
+    // Gói đang công bố thì không sinh lại được (rà soát cuối M7, I2): rút nó trước, qua đường thật.
+    // Version 1 đã rút giữ dòng tài liệu VÀ tệp — tải lại được, bên dưới.
+    app(RetractDocument::class)->handle($this->package->refresh(), $this->lawyer, 'Gói này thiếu bản án phúc thẩm, văn phòng sẽ gửi gói mới.');
+
+    // Sinh lại: version 2.
     MatterArchive::query()->whereKey($this->archive->id)->update([
         'handover_status' => HandoverPackageStatus::Generating->value,
         'handover_requested_at' => now()->addSeconds(5)->startOfSecond(),
@@ -120,8 +125,10 @@ it('tải MỘT VERSION CŨ của gói cũng ghi data_exported (nhận biết qu
         ->and(MatterArchive::isHandoverDocument($second))->toBeTrue();
 
     $this->actingAs($this->lawyer, 'web')->get($second->downloadUrlFor($this->lawyer))->assertOk();
+    $this->actingAs($this->lawyer, 'web')->get($this->package->downloadUrlFor($this->lawyer))->assertOk();
 
-    expect(Activity::query()->where('event', 'data_exported')->where('properties->action', 'downloaded')->sole()->properties['version'])->toBe(2);
+    expect(Activity::query()->where('event', 'data_exported')->where('properties->action', 'downloaded')->orderBy('id')->pluck('properties')->map(fn ($properties) => $properties['version'])->all())
+        ->toBe([2, 1]);
 });
 
 it('tải tài liệu bình thường KHÔNG ghi data_exported', function () {

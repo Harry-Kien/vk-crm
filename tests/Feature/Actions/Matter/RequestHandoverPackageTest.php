@@ -3,6 +3,8 @@
 use App\Actions\Matter\BuildHandoverPackage;
 use App\Actions\Matter\RequestHandoverPackage;
 use App\Actions\TransitionMatterStage;
+use App\Enums\DocumentGroup;
+use App\Enums\DocumentStatus;
 use App\Enums\HandoverPackageStatus;
 use App\Enums\Role;
 use App\Exceptions\HandoverPackageBusy;
@@ -206,6 +208,41 @@ it('thủ công: đang sinh thì bấm lại bị chặn, không xếp thêm job
 
     Queue::assertNothingPushed();
 });
+
+/**
+ * Rà soát cuối M7, I2 ("một đường rút duy nhất", Task 7). Gói hiện tại đang công bố cho khách thì
+ * sinh lại bị từ chối bằng câu chỉ tới nút "Rút lại" — cùng mẫu với "chuyển vào nhóm D" và "xoá" của
+ * Task 7 — thay vì để job lặng lẽ gỡ gói khỏi cổng. Vế dương: gói chưa công bố, hay đã rút, thì sinh
+ * lại được.
+ */
+it('thủ công: gói hiện tại đang công bố cho khách thì sinh lại bị từ chối, câu chỉ tới nút Rút lại', function (array $package, bool $refused) {
+    Queue::fake();
+
+    $document = Document::factory()->for($this->matter)->group(DocumentGroup::Issued)->create($package);
+    $this->archive->update([
+        'handover_status' => HandoverPackageStatus::Ready,
+        'handover_requested_at' => now()->subDay(),
+        'handover_document_id' => $document->id,
+    ]);
+
+    if ($refused) {
+        expect(fn () => rhpRequest($this, $this->lawyer))
+            ->toThrow(HandoverPackageUnavailable::class, __('handover.exceptions.released'));
+
+        expect($this->archive->fresh()->handover_status)->toBe(HandoverPackageStatus::Ready)
+            ->and(__('handover.exceptions.released'))->toContain('Rút lại');
+        Queue::assertNothingPushed();
+
+        return;
+    }
+
+    expect(rhpRequest($this, $this->lawyer)->handover_status)->toBe(HandoverPackageStatus::Generating);
+    Queue::assertPushed(GenerateHandoverPackage::class, 1);
+})->with([
+    'đang công bố' => [['status' => DocumentStatus::Published, 'client_can_view' => true, 'client_can_download' => true, 'published_at' => now()], true],
+    'chưa công bố' => [['status' => DocumentStatus::SignedFiled], false],
+    'đã rút' => [['status' => DocumentStatus::Retracted, 'published_at' => now()->subDay(), 'retracted_at' => now(), 'retraction_reason' => 'Gói thiếu bản án phúc thẩm, sẽ gửi gói mới.'], false],
+]);
 
 it('thủ công: một lần generating KẸT quá STALE_AFTER_MINUTES thì mở khoá được', function () {
     Queue::fake();

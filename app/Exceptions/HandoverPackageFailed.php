@@ -49,6 +49,17 @@ class HandoverPackageFailed extends RuntimeException
     }
 
     /**
+     * Rà soát cuối M7, I2: version gói hiện tại đã được công bố cho khách trong lúc job chờ hàng.
+     * Job không tự gỡ nó khỏi cổng ("một đường rút duy nhất", Task 7) — kiểm dưới khoá trong
+     * `BuildHandoverPackage::store()`, cùng luật với lời từ chối lúc bấm nút
+     * ({@see HandoverPackageUnavailable::released()}).
+     */
+    public static function previousReleased(): self
+    {
+        return new self(__('handover.exceptions.previous_released'));
+    }
+
+    /**
      * Vòng sửa 1: thư mục tạm dựng gói (`HANDOVER_WORK_DIR`) không tạo/ghi được — đĩa đầy, mất
      * quyền ghi. PHP báo những lỗi này bằng cảnh báo, Laravel đổi thành `ErrorException`.
      */

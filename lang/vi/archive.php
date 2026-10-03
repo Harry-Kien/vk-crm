@@ -60,4 +60,10 @@ return [
         'body' => 'Vụ việc :code đã hết hạn lưu trữ ngày :date. Hệ thống không tự xoá gì. Nếu văn phòng quyết định tiêu huỷ, hãy lập biên bản rồi ghi quyết định trên trang vụ việc.',
         'open' => 'Mở vụ việc',
     ],
+
+    // Rà soát cuối M7 (I3): cảnh báo trên form "Chuyển giai đoạn"/"Thêm cập nhật" khi khách có tài
+    // khoản nhưng vụ không còn trên cổng của họ (vụ đã kết thúc và quá hạn tra cứu).
+    'stage_update' => [
+        'not_on_portal_warning' => 'Khách không còn xem được vụ việc này trên cổng khách hàng (vụ đã hết hạn tra cứu) — cập nhật sẽ không hiện cho khách và sẽ không ai nhận thư.',
+    ],
 ];

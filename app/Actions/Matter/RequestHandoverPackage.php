@@ -8,6 +8,7 @@ use App\Exceptions\HandoverPackageBusy;
 use App\Exceptions\HandoverPackageUnavailable;
 use App\Jobs\GenerateHandoverPackage;
 use App\Listeners\SyncMatterArchiveOnStageChange;
+use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterArchive;
 use App\Models\User;
@@ -27,12 +28,25 @@ use Illuminate\Support\Facades\Gate;
  *    (SPEC §6.12 "khi vụ việc chuyển sang giai đoạn kết thúc, hệ thống sinh"). "Một lần" = chỉ khi
  *    `handover_status` còn NULL. Một vụ đóng rồi mở lại rồi đóng lại, hay chuyển từ giai đoạn kết
  *    thúc này sang giai đoạn kết thúc khác, không tự sinh lại — sinh lại là quyết định của người
- *    (nút bấm), vì mỗi lần sinh xoá tệp của version trước. Không đủ điều kiện thì trả `null` LẶNG
- *    LẼ: đường này chạy sau MỖI lần chuyển giai đoạn, và "chưa nên sinh" không phải lỗi.
+ *    (nút bấm), vì mỗi lần sinh có thể xoá tệp của version trước. Không đủ điều kiện thì trả `null`
+ *    LẶNG LẼ: đường này chạy sau MỖI lần chuyển giai đoạn, và "chưa nên sinh" không phải lỗi.
  *  - **Thủ công** (có `$actor`): phải qua `MatterArchivePolicy::generateHandover` (`document.publish`
  *    và xem được vụ), và mọi điều kiện không đủ là một exception có tên (`HandoverPackageUnavailable`
- *    khi vụ chưa kết thúc / chưa có bản ghi lưu trữ, `HandoverPackageBusy` khi đang có lần sinh chạy)
- *    để màn hình báo cho người bấm.
+ *    khi vụ chưa kết thúc / chưa có bản ghi lưu trữ / gói hiện tại đang công bố cho khách,
+ *    `HandoverPackageBusy` khi đang có lần sinh chạy) để màn hình báo cho người bấm.
+ *
+ * # Gói đang công bố cho khách thì không sinh lại (rà soát cuối M7, I2)
+ *
+ * "Một đường rút duy nhất" (plan Task 7): với tài liệu đang ra tới khách, mọi thao tác đưa nó ra
+ * khỏi tầm mắt khách hoặc đi qua `RetractDocument`, hoặc bị chặn kèm câu chỉ tới nút "Rút lại". Bản
+ * Task 4 để job sinh lại lặng lẽ hạ version đang công bố về `signed_filed` — một đường rút thứ ba,
+ * không lý do, không dòng giải thích cho khách. Nay sinh lại bị từ chối ở đây
+ * (`HandoverPackageUnavailable::released()`) khi version mà `handover_document_id` trỏ tới đang
+ * `Document::isReleasedToPortal()`; luật sư rút nó (lý do khách đọc được) rồi bấm lại. Đọc version đó
+ * có khoá, SAU `matter_archives` (thứ tự `matters` → `matter_archives` → `documents`, cùng
+ * {@see BuildHandoverPackage}). Job hỏi lại cùng câu dưới khoá lúc lưu, vì gói có thể được công bố
+ * trong lúc job chờ hàng. Chế độ tự động chỉ chạy khi `handover_status` còn NULL — chưa có gói nào
+ * — nên không bao giờ tới được câu hỏi này.
  *
  * # Khoá và trạng thái
  *
@@ -109,6 +123,15 @@ class RequestHandoverPackage
                 throw HandoverPackageBusy::make();
             }
 
+            // Rà soát cuối M7, I2 — xem docblock lớp, mục "Gói đang công bố cho khách".
+            if ($this->currentPackageIsReleased($archive)) {
+                if ($automatic) {
+                    return null;
+                }
+
+                throw HandoverPackageUnavailable::released();
+            }
+
             // Giây tròn: cột `timestamp` không lưu phần lẻ, và dấu này được job so LẠI với giá trị
             // đọc từ cột — phải bằng nhau tuyệt đối.
             $requestedAt = now()->startOfSecond();
@@ -148,5 +171,24 @@ class RequestHandoverPackage
         return $archive->handover_status === HandoverPackageStatus::Generating
             && ($archive->handover_requested_at === null
                 || $archive->handover_requested_at->lt(now()->subMinutes(self::STALE_AFTER_MINUTES)));
+    }
+
+    /**
+     * Version gói mà dòng lưu trữ đang trỏ tới có đang ra tới khách không — đọc có khoá, gỡ scope
+     * portal, kể cả bản đã xoá mềm (bản đã xoá mềm thì `isReleasedToPortal()` sai). Cùng vị từ mà
+     * `RetractDocument` dùng làm cổng, nên "đang công bố" ở đây đúng là "rút được bằng nút Rút lại".
+     */
+    private function currentPackageIsReleased(MatterArchive $archive): bool
+    {
+        if ($archive->handover_document_id === null) {
+            return false;
+        }
+
+        $package = $this->scopelessly(Document::query())
+            ->withTrashed()
+            ->lockForUpdate()
+            ->find($archive->handover_document_id);
+
+        return $package !== null && $package->isReleasedToPortal();
     }
 }

@@ -980,12 +980,14 @@ it('trợ lý chọn nhóm D cho một tài liệu nhóm B ĐÃ CÔNG BỐ thì 
         ->and($document->isReleasedToPortal())->toBeFalse();
 
     // Và khách THẬT SỰ không còn tải được nó — cùng trang, cùng đường dẫn ký, đo lại SAU khi rút.
-    // Tiêu đề vẫn hiện, nhưng trong dòng "Văn phòng đã rút lại tài liệu này", không còn đường tải.
+    // Ở chỗ tài liệu từng hiện chỉ còn dòng "Văn phòng đã rút lại tài liệu này" với lý do — không
+    // tiêu đề (rà soát cuối M7, C1), không đường tải.
     auth('web')->logout();
     $this->actingAs($clientUser, 'client');
     $html = $this->get(MatterProgress::getUrl(['record' => $matter->getKey()], panel: 'portal'))
         ->assertOk()
         ->assertSee(__('retraction.portal.notice', ['reason' => 'Văn bản công bố nhầm, sẽ gửi lại bản đúng']))
+        ->assertDontSee($document->title)
         ->getContent();
     expect($html)->not->toContain('documents/'.$document->id.'/download');
     $this->get($signedDownloadUrl)->assertNotFound();

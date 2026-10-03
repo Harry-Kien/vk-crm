@@ -6,21 +6,22 @@ use App\Actions\Document\RetractDocument;
  * M7 Task 7 — rút lại một tài liệu đã công bố cho khách ({@see RetractDocument}). Tệp lang RIÊNG
  * của làn M7 (luật giảm xung đột merge: `documents.php`, `portal_progress.php` là tệp dùng chung).
  *
- * Lý do rút là chữ KHÁCH ĐỌC ĐƯỢC: nó hiện nguyên văn trên cổng, ở chỗ tài liệu từng hiện. Các câu
- * hướng dẫn ở màn hình nội bộ phải nói thẳng điều đó.
+ * Lý do rút là chữ KHÁCH ĐỌC ĐƯỢC: nó hiện nguyên văn trên cổng, ở chỗ tài liệu từng hiện — và là
+ * chữ DUY NHẤT về tài liệu đó mà khách còn đọc được, vì dòng rút không mang tiêu đề (rà soát cuối
+ * M7, C1). Các câu hướng dẫn ở màn hình nội bộ phải nói thẳng cả hai điều.
  */
 return [
     // Nút và hộp thoại trên tab "Tài liệu" của trang vụ việc (DocumentsRelationManager).
     'action' => [
         'label' => 'Rút lại',
         'modal_heading' => 'Rút lại tài liệu đã công bố cho khách',
-        'modal_description' => 'Khách sẽ không còn xem hay tải được tài liệu này. Tệp và nhật ký các lượt khách đã tải được giữ nguyên. Thao tác này không hoàn tác được: muốn đưa lại cho khách thì tải lên một bản mới.',
+        'modal_description' => 'Khách sẽ không còn xem hay tải được tài liệu này. Ở chỗ tài liệu từng hiện, khách chỉ còn thấy dòng "Văn phòng đã rút lại tài liệu này" kèm lý do và ngày rút — không còn tiêu đề tài liệu. Tệp và nhật ký các lượt khách đã tải được giữ nguyên. Thao tác này không hoàn tác được: muốn đưa lại cho khách thì tải lên một bản mới.',
         'submit' => 'Rút lại',
         'success' => 'Đã rút lại tài liệu khỏi cổng khách hàng.',
     ],
     'fields' => [
         'retraction_reason' => 'Lý do rút lại',
-        'retraction_reason_help' => 'KHÁCH SẼ ĐỌC ĐƯỢC lý do này trên cổng khách hàng, ở chỗ tài liệu từng hiện. Tối thiểu :min ký tự.',
+        'retraction_reason_help' => 'KHÁCH SẼ ĐỌC ĐƯỢC lý do này trên cổng khách hàng, ở chỗ tài liệu từng hiện, và đây là chữ duy nhất khách còn thấy về tài liệu này (tiêu đề không hiện nữa). Muốn khách biết là tài liệu nào thì nêu trong lý do; nếu tài liệu thuộc về khách khác, đừng nêu tên hay nội dung của nó. Tối thiểu :min ký tự.',
     ],
 
     // Tab "Tài liệu": cột "Khách thấy" của một dòng đã rút, và chú thích của nhãn trạng thái.
@@ -30,8 +31,11 @@ return [
         'unknown_actor' => 'tài khoản đã xoá',
     ],
 
-    // Dòng khách nhìn thấy trên trang chi tiết hồ sơ (cổng), ở khối "Tài liệu".
+    // Dòng khách nhìn thấy trên trang chi tiết hồ sơ (cổng), ở khối "Tài liệu". KHÔNG có tiêu đề
+    // tài liệu (rà soát cuối M7, C1): ca rút điển hình là tài liệu của khách khác công bố nhầm, và
+    // dòng rút không bao giờ gỡ được — nên nó chỉ mang nhãn trung tính dưới đây, lý do và ngày rút.
     'portal' => [
+        'heading' => 'Tài liệu đã được văn phòng rút lại',
         'notice' => 'Văn phòng đã rút lại tài liệu này. Lý do: :reason',
         'retracted_on' => 'Rút lại ngày :date',
     ],

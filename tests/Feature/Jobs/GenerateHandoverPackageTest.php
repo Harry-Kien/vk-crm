@@ -2,10 +2,12 @@
 
 use App\Actions\Matter\BuildHandoverPackage;
 use App\Actions\Matter\RequestHandoverPackage;
+use App\Enums\Confidentiality;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Enums\HandoverPackageStatus;
 use App\Enums\Role;
+use App\Exceptions\HandoverPackageFailed;
 use App\Jobs\GenerateHandoverPackage;
 use App\Jobs\SendHandoverPackageReady;
 use App\Mail\Staff\HandoverPackageReady;
@@ -14,11 +16,13 @@ use App\Models\Matter;
 use App\Models\MatterArchive;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Queue\TimeoutExceededException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
@@ -263,6 +267,58 @@ it('báo lỗi chỉ tới người xem được vụ: vụ restricted không b�
     expect(ghpNotifications($admin))->toHaveCount(1)
         ->and(ghpNotifications($manager))->toHaveCount(0)
         ->and(ghpNotifications($this->lawyer))->toHaveCount(0);
+});
+
+/**
+ * Rà soát cuối M7, I4 (luật cứng: vụ restricted không bao giờ lộ trong log). Thông điệp của
+ * `HandoverPackageFailed::missingFile()` mang TIÊU ĐỀ tài liệu — cố ý, để luật sư biết sửa tài liệu
+ * nào; câu đó đi vào `handover_error` và chuông của người XEM ĐƯỢC vụ. Log máy chủ thì ai vận hành
+ * máy cũng đọc được, nên chỉ mang lớp exception, id vụ và lớp của lỗi gốc — không thông điệp nào,
+ * kể cả thông điệp của một lỗi lạ hay của lỗi gốc của nó. Dấu ASCII trong tiêu đề để `json_encode`
+ * không giấu nó sau `\uXXXX`.
+ */
+it('log máy chủ không mang tiêu đề tài liệu hay thông điệp thô khi sinh gói hỏng — vụ restricted', function () {
+    Queue::fake(SendHandoverPackageReady::class);
+    $this->matter->forceFill(['confidentiality' => Confidentiality::Restricted])->save();
+
+    $marker = 'MARKER-RESTRICTED-TITLE-7731';
+    $broken = Document::factory()->create([
+        'matter_id' => $this->matter->id, 'group' => DocumentGroup::Issued, 'status' => DocumentStatus::SignedFiled,
+        'title' => 'Don khoi kien '.$marker,
+    ]);
+    $broken->addMediaFromString('x')->usingFileName('mat.pdf')->toMediaCollection('file');
+    Storage::disk('private')->delete($broken->getFirstMedia('file')->getPathRelativeToRoot());
+
+    $logged = [];
+    Event::listen(MessageLogged::class, function (MessageLogged $event) use (&$logged): void {
+        $logged[] = $event;
+    });
+
+    // Lỗi có tên (thiếu tệp) đi qua `handle()` của job.
+    ghpRun(ghpJob($this));
+
+    // Vế dương: câu cho người xem được vụ vẫn nêu tài liệu cần sửa.
+    expect($this->archive->fresh()->handover_error)->toContain($marker);
+
+    // Lỗi lạ (và lỗi gốc của nó) đi qua `failed()`.
+    ghpJob($this)->failed(new RuntimeException('SQLSTATE '.$marker, 0, new LogicException('goc '.$marker)));
+
+    $errors = collect($logged)->where('message', 'handover_package.failed')->values();
+
+    expect($errors)->toHaveCount(2)
+        ->and($errors[0]->level)->toBe('error')
+        ->and($errors[0]->context)->toBe([
+            'matter_id' => $this->matter->id,
+            'exception' => HandoverPackageFailed::class,
+            'previous' => null,
+        ])
+        ->and($errors[1]->context)->toBe([
+            'matter_id' => $this->matter->id,
+            'exception' => RuntimeException::class,
+            'previous' => LogicException::class,
+        ])
+        ->and(json_encode(array_map(fn (MessageLogged $event): array => [$event->message, $event->context], $logged), JSON_UNESCAPED_UNICODE))
+        ->not->toContain($marker);
 });
 
 // ---------------------------------------------------------------------------------------------

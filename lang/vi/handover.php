@@ -39,6 +39,11 @@ return [
         'store_failed' => 'Gói đã dựng xong nhưng hệ thống không lưu được vào kho hồ sơ (đĩa lưu trữ không ghi được). Báo quản trị hệ thống kiểm tra dung lượng trống và quyền ghi của kho hồ sơ trên máy chủ rồi bấm sinh lại.',
         // Lỗi không thuộc loại nào ở trên: chi tiết kỹ thuật chỉ ở nhật ký máy chủ.
         'unknown' => 'Gói bàn giao chưa sinh được vì một lỗi hệ thống. Bấm sinh lại; nếu vẫn lỗi, báo quản trị hệ thống (chi tiết ở nhật ký máy chủ).',
+        // Rà soát cuối M7, I2 ("một đường rút duy nhất"): sinh lại không bao giờ tự gỡ gói đang công
+        // bố khỏi cổng khách. `released` là lời từ chối lúc bấm nút; `previous_released` là lỗi có
+        // tên của job khi gói được công bố trong lúc gói mới đang chờ sinh.
+        'released' => 'Gói bàn giao hiện tại đang công bố cho khách nên chưa sinh lại được. Muốn thay bằng gói mới, trước hết rút gói hiện tại bằng nút "Rút lại" trên dòng của nó ở tab Tài liệu (khách sẽ đọc được lý do rút), rồi bấm sinh lại.',
+        'previous_released' => 'Gói bàn giao hiện tại đã được công bố cho khách trong lúc gói mới đang chờ sinh, nên gói mới không được lưu. Muốn thay gói, rút gói hiện tại bằng nút "Rút lại" ở tab Tài liệu, rồi bấm sinh lại.',
     ],
 
     /*
@@ -65,7 +70,7 @@ return [
         'generate' => 'Sinh gói bàn giao',
         'regenerate' => 'Sinh lại gói bàn giao',
         'modal_heading' => 'Sinh gói bàn giao hồ sơ',
-        'modal_description' => 'Hệ thống sẽ dựng lại gói từ các tài liệu hiện có. Gói mới là một phiên bản mới của cùng tài liệu; tệp của phiên bản cũ được xoá, và nếu phiên bản cũ đang mở cho khách thì sẽ bị gỡ khỏi cổng khách cho tới khi anh/chị công bố phiên bản mới.',
+        'modal_description' => 'Hệ thống sẽ dựng lại gói từ các tài liệu hiện có. Gói mới là một phiên bản mới của cùng tài liệu và chỉ tới tay khách sau khi anh/chị công bố. Tệp của phiên bản cũ được xoá, trừ khi phiên bản đó đã bị rút lại hoặc khách đã tải về (khi ấy tệp được giữ làm bằng chứng). Gói đang công bố cho khách thì phải rút lại trước khi sinh lại.',
         'submit' => 'Sinh gói',
         'queued' => 'Đã xếp hàng sinh gói bàn giao. Anh/chị sẽ được báo khi xong.',
     ],

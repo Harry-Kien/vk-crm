@@ -45,18 +45,49 @@ use Illuminate\Support\Facades\Gate;
  * khoá và đọc lại chính đầu mục. Cột `matter_checklist_items.matter_id` không Action nào ghi lại
  * sau khi dòng sinh ra, nên hai lần đọc đầu mục luôn cho cùng một `matter_id`; nếu có một ngày
  * chúng khác nhau thì trả lời như đầu mục không còn nữa, không đi tiếp trên một khoá sai dòng.
+ *
+ * **Lần đọc KHÔNG khoá đó chạy TRƯỚC `DB::transaction()` (rà soát cuối M7, I1)** — hai bước, hai
+ * hàm: Action gọi {@see self::checklistItemMatterId()} trước khi mở transaction, rồi
+ * {@see self::openChecklistItem()} làm câu đầu tiên BÊN TRONG transaction, bắt đầu bằng khoá
+ * `matters`. Bản Task 3 đặt lần đọc trần làm câu đầu tiên bên trong transaction: trên MariaDB
+ * (REPEATABLE READ) câu đó cố định READ VIEW của cả transaction TRƯỚC lúc đợi khoá `matters`, nên
+ * một lần gỡ khỏi đội ngũ commit trong lúc đợi không được Gate phía sau nhìn thấy — người vừa bị gỡ
+ * vẫn gạt được "không cần nộp" (đo bằng hai phiên thật trên MariaDB 11.8,
+ * `MatterLockBeforeSnapshotTest`). Cùng luật M6.5 đã ghi ở `TriageClientRequest::realMatterId()`.
  */
 trait OpensChecklistItem
 {
     use ChecksAccountActive;
 
     /**
+     * `matter_id` THẬT của đầu mục, đọc từ CSDL — GỌI TRƯỚC `DB::transaction()`, không bao giờ bên
+     * trong (xem docblock trait, rà soát cuối M7 I1): chạy như một câu auto-commit riêng, nó không cố
+     * định READ VIEW nào cho transaction sắp mở. `null` = đầu mục không còn (đã xoá mềm, hay chưa bao
+     * giờ có); {@see self::openChecklistItem()} trả lời ca đó bằng câu từ chối chung.
+     *
+     * `withoutGlobalScope(ClientPortalScope::class)`: cùng lý do với hai lần đọc trong
+     * `openChecklistItem()` (ghi chú ở đó).
+     */
+    protected function checklistItemMatterId(MatterChecklistItem $checklistItem): ?int
+    {
+        $matterId = MatterChecklistItem::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->whereKey($checklistItem->getKey())
+            ->value('matter_id');
+
+        return $matterId === null ? null : (int) $matterId;
+    }
+
+    /**
+     * Chỉ gọi BÊN TRONG transaction, như câu đầu tiên của nó, với `$matterId` do
+     * {@see self::checklistItemMatterId()} đọc TRƯỚC khi transaction mở.
+     *
      * @return array{0: MatterChecklistItem, 1: Matter} bản ghi đã đọc lại, và hồ sơ của nó
      *
      * @throws ChecklistItemNotReviewable
      * @throws MatterChecklistReadOnly
      */
-    protected function openChecklistItem(MatterChecklistItem $checklistItem, User $actor): array
+    protected function openChecklistItem(MatterChecklistItem $checklistItem, User $actor, ?int $matterId): array
     {
         // `withoutGlobalScope(ClientPortalScope::class)`: một nhân sự đăng nhập cả /admin lẫn
         // /portal có CẢ HAI guard cùng xác thực (xem `ClientPortalScope::isActive()`), và scope
@@ -74,28 +105,22 @@ trait OpensChecklistItem
         // Bộ test chạy SQLite, nơi nó không sinh ra khoá nào, nên phần KHOÁ của câu này không có
         // test chứng minh; phần ĐỌC LẠI thì có.
         //
-        // M7 Task 3 — thứ tự khoá `matters` trước (xem docblock lớp): đọc KHÔNG khoá để biết dòng
-        // `matters` nào cần khoá, khoá nó, rồi mới khoá đầu mục.
-        $unlocked = MatterChecklistItem::query()
-            ->withoutGlobalScope(ClientPortalScope::class)
-            ->find($checklistItem->getKey());
-
-        if ($unlocked === null) {
-            throw ChecklistItemNotReviewable::unavailable();
-        }
-
-        $matter = Matter::query()
+        // M7 Task 3 — thứ tự khoá `matters` trước (xem docblock trait). `matter_id` đã đọc TRƯỚC
+        // transaction (rà soát cuối M7, I1): câu ĐẦU TIÊN ở đây là câu khoá `matters`, không câu
+        // đọc trần nào đứng trước nó. `$matterId === null` (đầu mục không còn) thì không có dòng
+        // nào để khoá; lần đọc đầu mục ngay dưới ra `null` và đi ra bằng câu từ chối chung.
+        $matter = $matterId === null ? null : Matter::query()
             ->withoutGlobalScope(ClientPortalScope::class)
             ->withTrashed()
             ->lockForUpdate()
-            ->find($unlocked->matter_id);
+            ->find($matterId);
 
         $fresh = MatterChecklistItem::query()
             ->withoutGlobalScope(ClientPortalScope::class)
             ->lockForUpdate()
             ->find($checklistItem->getKey());
 
-        if ($fresh === null || $fresh->matter_id !== $unlocked->matter_id) {
+        if ($fresh === null || (int) $fresh->matter_id !== $matterId) {
             throw ChecklistItemNotReviewable::unavailable();
         }
 

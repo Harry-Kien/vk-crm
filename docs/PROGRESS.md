@@ -2287,7 +2287,8 @@ SPEC §4.11 (trạng thái thứ năm) và §4.12 (khoá ngoại) ghi ngay dư�
     hạ cờ; `RegroupDocumentTest`, `PublishDocumentTest`, `DocumentDownloadTest`,
     `DocumentsRelationManagerTest`, `DocumentAccessTest` cập nhật theo.
 - **Cổng khách.** Ở khối Tài liệu của `MatterProgress`, sau các tài liệu còn hiệu lực: tiêu đề (gạch
-  ngang), "Văn phòng đã rút lại tài liệu này. Lý do: …", ngày rút; không liên kết tải, không người
+  ngang — **đã bỏ ở rà soát cuối, vòng sửa 1, C1**: nay là nhãn trung tính, hình chiếu không còn tiêu
+  đề, xem mục cuối), "Văn phòng đã rút lại tài liệu này. Lý do: …", ngày rút; không liên kết tải, không người
   rút. Vụ chỉ còn tài liệu đã rút không hiện "chưa có tài liệu". Scope portal của `Document` KHÔNG
   nới: dòng rút đi qua đường hẹp `Document::retractionNoticesFor()` (gỡ đúng `ClientPortalScope`,
   chỉ `retracted`, không nhóm D, chưa xoá mềm, đúng vụ, vụ qua `Matter::applyClientPortalConstraints`
@@ -2528,7 +2529,8 @@ không chạy trong bộ thường).
   - `NotifyClientOfRequestAnswered`, `NotifyClientOfChecklistItemRejected` và
     `NotifyClientOfDocumentPublished` hỏi "vụ còn trên cổng" bằng
     `Gate::forUser($account)->allows('view', $matter)`, đúng mẫu
-    `NotifyClientOfStageUpdate::matterStillOnPortalOf()` (Task 11).
+    `NotifyClientOfStageUpdate::recipientsOnPortal()` (Task 11; tên cũ `matterStillOnPortalOf()` đổi
+    ở rà soát cuối, vòng sửa 1, I3).
   - Thư `client.document_published` khi công bố gói bàn giao là của làn M6 Task 3. Sau khi gộp,
     công bố gói qua `PublishDocument` sẽ tự gửi thư.
 - **M9:**
@@ -2565,7 +2567,10 @@ không chạy trong bộ thường).
 3. Sinh lại gói bàn giao:
    - xoá TỆP của version cũ kể cả khi version đó đã bị rút;
    - lặng lẽ gỡ version cũ đang công bố khỏi cổng, không có dòng "đã rút".
-   (Rà soát Task 7, m1 và m2; chưa sửa, cần phán quyết.)
+   (Rà soát Task 7, m1 và m2.) **Đã sửa ở rà soát cuối, vòng sửa 1 (I2)** theo mẫu Task 7 "bị chặn
+   kèm thông điệp chỉ tới nút Rút"; controller xác nhận phán quyết (mục cuối).
+6. **Dòng rút trên cổng không còn tiêu đề** (rà soát cuối, vòng sửa 1, C1) — controller xác nhận, hoặc
+   chọn thêm đường "admin gỡ dòng rút có lý do" (mục cuối nói vì sao chưa làm).
 4. Kế toán tìm theo hai nguồn hay bốn nguồn (Task 9, M1).
 5. Hạn xoá dữ liệu cá nhân của vụ bị huỷ vì mở nhầm (cùng chính sách lưu trữ M10).
 
@@ -2580,3 +2585,70 @@ D bị từ chối với tài liệu đang ra tới khách.
 Dải `d2de674..` đầu nhánh `m7-handover`. Danh sách tệp theo khu vực ghi ở sổ làn
 (`.superpowers/sdd/m7/progress.md`, "Task 11: review package"). Brief rà soát giả định có một
 Critical.
+
+#### Rà soát cuối, vòng sửa 1 (2026-10-03, base `f88ed52`)
+
+Năm phát hiện: một Critical (C1), bốn Important (I1–I4). Mỗi phát hiện có test đỏ trước bản sửa
+(RED ghi ở báo cáo `.superpowers/sdd/m7/final-fix-report.md`), và mỗi điều kiện mới có mutation
+probe đỏ (24 probe, cùng báo cáo).
+
+- **C1 — dòng rút trên cổng không còn tiêu đề tài liệu.** Ca rút điển hình là tài liệu của khách
+  KHÁC công bố nhầm. Dòng rút lại vĩnh viễn: tài liệu đã rút không xoá được, không vào nhóm D được,
+  không công bố lại được, và không Action nào sửa tiêu đề. Vì vậy tiêu đề của khách kia từng nằm trên
+  cổng của khách này, không ai gỡ được.
+  - **Phán quyết của người sửa (controller xác nhận):** hình chiếu `MatterProgress::retractionNotices()`
+    chỉ còn lý do và ngày rút. Blade vẽ nhãn trung tính "Tài liệu đã được văn phòng rút lại" thay cho
+    tiêu đề. Ô lý do và hộp thoại "Rút lại" nói rõ: tiêu đề không hiện; muốn khách biết là tài liệu
+    nào thì nêu trong lý do; tài liệu của khách khác thì đừng nêu tên.
+  - **Chưa làm đường "admin gỡ dòng rút có lý do".** Sau bản sửa, chữ duy nhất còn lại trên dòng rút
+    là lý do — do người rút viết khi đã được báo khách đọc nó. Thêm một đường gỡ là thêm một cách thứ
+    hai làm tài liệu biến khỏi mắt khách không lời giải thích, đúng điều plan Task 7 tránh. Nếu chủ
+    văn phòng muốn sửa được cả một lý do viết sai, đó là một Action mới (cột, audit, nút), cần phán
+    quyết riêng.
+  - Test: `tests/Feature/Portal/RetractedDocumentNoticeTest.php` (ca khách khác, có hình chiếu qua
+    Livewire; mọi test nhận dòng rút bằng lý do), `PortalIsolationSweepTest`,
+    `DocumentsRelationManagerTest`. Đính chính SPEC §4.11 "Khách thấy gì".
+- **I1 — READ VIEW cố định trước khi đợi khoá `matters`.** Hai chỗ: `OpensChecklistItem` (Task 3)
+  đọc trần đầu mục làm câu đầu tiên trong transaction; `RetractDocument` (Task 7) khoá `matters` qua
+  một truy vấn con không khoá. Nay `matter_id` được đọc TRƯỚC `DB::transaction()` (cùng luật M6.5 ở
+  `TriageClientRequest`), và câu đầu tiên trong transaction là câu khoá `matters` theo id.
+  - Đo bằng hai phiên thật trên MariaDB 11.8: `tests/Feature/Actions/MatterLockBeforeSnapshotTest.php`
+    và `tests/Support/MatterLockRace.php` (`pcntl_fork`, chờ có xác minh qua
+    `information_schema.PROCESSLIST`, nhóm `mariadb-locking`).
+  - Trước bản sửa: người vừa bị gỡ khỏi đội ngũ vẫn gạt được "không cần nộp" (`marked`) và vẫn rút
+    được tài liệu (`retracted`). Người vừa bị vô hiệu hoá qua được bước đọc lại rồi chết ở câu UPDATE
+    với lỗi 1020. Sau bản sửa: cả ba ca bị từ chối sạch.
+  - Ba test thứ tự câu lệnh chạy được cả trên SQLite.
+- **I2 — sinh lại gói bàn giao (mục 3 của danh sách quyết ở trên).** Theo đúng mẫu plan Task 7 "bị
+  chặn kèm thông điệp chỉ tới nút Rút":
+  - Gói hiện tại đang ra tới khách thì KHÔNG sinh lại được. `RequestHandoverPackage` từ chối bằng
+    `HandoverPackageUnavailable::released()`; nút trên trang vụ báo câu đó. `BuildHandoverPackage`
+    hỏi lại dưới khoá (gói có thể được công bố trong lúc job chờ hàng) và hỏng với lỗi có tên
+    `previousReleased()`, không tạo version mới.
+  - Job không bao giờ đổi trạng thái hay cờ khách của version cũ nữa.
+  - Tệp của version cũ chỉ bị xoá khi version đó chưa từng tới tay khách: không `retracted` và không
+    có lượt tải của khách. Lượt tải của nhân sự không tính.
+  - Đính chính SPEC §6.12 ("Sinh lại và rút lại"); câu hộp thoại "Sinh lại gói" sửa theo.
+- **I3 — cảnh báo trên form và việc gửi thư hỏi cùng một câu.**
+  - `NotifyClientOfStageUpdate::hasEligibleRecipient()` nay đi đúng hai bước của `handle()`: tài
+    khoản đủ điều kiện, rồi `Gate view` của từng tài khoản (dùng chung `recipientsOnPortal()`).
+  - Câu cảnh báo mới (`archive.stage_update.not_on_portal_warning`) hiện khi khách có tài khoản mà
+    vụ đã rời cổng vì hết hạn tra cứu. `hasEligibleAccount()` chỉ còn để chọn câu nào hiện.
+  - Thêm ngoài phát hiện, tìm ra khi viết test đi hết đường thật:
+    - Trên form "Chuyển giai đoạn", chọn một giai đoạn không kết thúc là MỞ LẠI vụ. Vụ trở lại cổng
+      và thư vẫn đi, nên câu mới chỉ hiện khi giai đoạn đích là giai đoạn kết thúc.
+    - `TransitionMatterStage` nay phát `MatterStageChanged` TRƯỚC `StageLogPublished`. Trước đó, với
+      hàng đợi `sync`, thư của một lần mở lại vụ đã hết hạn tra cứu không đi (đo được: 0 thư thay vì
+      1), vì dòng lưu trữ chưa kịp xoá `client_access_until`. Với hàng đợi thật, đó là một cuộc đua.
+  - Docblock cũ hứa "không bao giờ lệch" đã viết lại.
+- **I4 — log máy chủ không mang thông điệp nào khi sinh gói hỏng.** `RecordHandoverPackageFailure`
+  chỉ ghi `matter_id`, lớp exception và lớp lỗi gốc. Câu tiếng Việt đầy đủ (có tiêu đề tài liệu)
+  vẫn tới `handover_error` và chuông của người xem được vụ. Test với vụ `restricted`
+  (`GenerateHandoverPackageTest`).
+- **Kiểm chứng:**
+  - Cả bộ SQLite (`--parallel --processes=2`): **2826 passed / 9 skipped / 0 failed**, 773 s. Chín
+    test bỏ qua gồm sáu test cũ và ba test đua chỉ chạy trên MariaDB.
+  - MariaDB, tuần tự: 18 tệp test đã sửa hoặc phủ mã đã sửa, gồm cả test đua. Kết quả **478 passed
+    / 0 skipped / 0 failed**, 307 s.
+  - Pint `--test` sạch, 640 tệp.
+  - Vòng này không có migration.

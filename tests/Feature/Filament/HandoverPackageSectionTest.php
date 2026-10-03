@@ -1,6 +1,8 @@
 <?php
 
 use App\Actions\Matter\RequestHandoverPackage;
+use App\Enums\DocumentGroup;
+use App\Enums\DocumentStatus;
 use App\Enums\HandoverPackageStatus;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
@@ -11,6 +13,8 @@ use App\Models\MatterArchive;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
+use Filament\Notifications\Livewire\Notifications;
+use Filament\Notifications\Notification;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Queue;
 use Livewire\Features\SupportTesting\Testable;
@@ -147,6 +151,50 @@ it('sẵn sàng: hiện tài liệu gói, phiên bản và thời điểm xong',
         ->assertSee('Gói bàn giao hồ sơ '.$this->matter->code.' — phiên bản 3')
         ->assertSee(now()->subMinutes(8)->format('d/m/Y H:i'))
         ->assertSee(now()->subMinutes(10)->format('d/m/Y H:i'));
+});
+
+/** Thân của mọi thông báo đã gửi, đọc đúng MỘT lần (đọc là lấy ra khỏi session). */
+function hpsNotificationBodies(): array
+{
+    $component = new Notifications;
+    $component->mount();
+
+    return $component->notifications
+        ->map(fn (Notification $notification): string => (string) $notification->getBody())
+        ->values()
+        ->all();
+}
+
+/**
+ * Rà soát cuối M7, I2 ("một đường rút duy nhất", Task 7): gói hiện tại đang công bố cho khách thì
+ * bấm "Sinh lại gói bàn giao" nhận câu chỉ tới nút "Rút lại" — không xếp job, không đổi trạng thái,
+ * gói vẫn công bố. Trước bản sửa, job sinh lại lặng lẽ gỡ gói khỏi cổng khách, không lý do.
+ */
+it('gói hiện tại đang công bố cho khách: bấm sinh lại nhận câu chỉ tới nút Rút lại, không xếp job', function () {
+    $package = Document::factory()->for($this->matter)->group(DocumentGroup::Issued)->create([
+        'title' => 'Gói bàn giao hồ sơ '.$this->matter->code,
+        'status' => DocumentStatus::Published,
+        'client_can_view' => true,
+        'client_can_download' => true,
+        'published_at' => now()->subDay(),
+    ]);
+    $this->archive->update([
+        'handover_status' => HandoverPackageStatus::Ready,
+        'handover_document_id' => $package->id,
+        'handover_requested_at' => now()->subDays(2),
+        'handover_generated_at' => now()->subDays(2),
+    ]);
+
+    hpsPage($this)
+        ->assertActionEnabled('generateHandoverPackage')
+        ->callAction('generateHandoverPackage');
+
+    expect(hpsNotificationBodies())->toContain(__('handover.exceptions.released'));
+
+    Queue::assertNothingPushed();
+
+    expect($this->archive->fresh()->handover_status)->toBe(HandoverPackageStatus::Ready)
+        ->and($package->fresh()->isReleasedToPortal())->toBeTrue();
 });
 
 it('lần tự sinh khi vụ đóng (không có người bấm) ghi rõ "Tự động khi vụ kết thúc"', function () {

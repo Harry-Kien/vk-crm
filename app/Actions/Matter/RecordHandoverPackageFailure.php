@@ -26,8 +26,16 @@ use Throwable;
  *
  * Chỉ thông điệp của {@see HandoverPackageFailed} (đã là tiếng Việt, không lộ đường dẫn máy chủ);
  * mọi lỗi khác thành câu chung `handover.exceptions.unknown`. Thông điệp thô của exception lạ có
- * thể chứa đường dẫn, câu SQL hay tên tệp — nó đi vào log máy chủ (`Log::error`), không vào một
- * cột mà nhân sự đọc được.
+ * thể chứa đường dẫn, câu SQL hay tên tệp — nó không vào một cột mà nhân sự đọc được.
+ *
+ * # Log máy chủ: KHÔNG một thông điệp nào (rà soát cuối M7, I4)
+ *
+ * `Log::error` chỉ mang id vụ, LỚP của exception và LỚP của lỗi gốc (`getPrevious()`). Không mang
+ * thông điệp của exception nào, kể cả của {@see HandoverPackageFailed}: `missingFile()` nêu TIÊU ĐỀ
+ * tài liệu (thường gọi tên khách), của bất kỳ vụ nào kể cả vụ `restricted`, và log máy chủ thì ai
+ * vận hành máy cũng đọc được — luật cứng của dự án là vụ `restricted` không lộ qua log. Thông điệp
+ * thô của một lỗi lạ (câu SQL kèm giá trị ràng buộc, đường dẫn) cũng có thể mang dữ liệu hồ sơ. Câu
+ * tiếng Việt đầy đủ vẫn tới đúng người: cột `handover_error` và chuông của người xem được vụ.
  *
  * # Dấu của lần yêu cầu
  *
@@ -61,11 +69,13 @@ class RecordHandoverPackageFailure
             ? $exception->getMessage()
             : __('handover.exceptions.unknown');
 
+        // Chỉ lớp, không thông điệp — xem docblock lớp, mục "Log máy chủ".
+        $previous = $exception->getPrevious();
+
         Log::error('handover_package.failed', [
             'matter_id' => $matterId,
             'exception' => $exception::class,
-            'message' => $exception->getMessage(),
-            'previous' => $exception->getPrevious()?->getMessage(),
+            'previous' => $previous === null ? null : $previous::class,
         ]);
 
         $this->discardWorkDirectory($matterId, $requestedAt);
