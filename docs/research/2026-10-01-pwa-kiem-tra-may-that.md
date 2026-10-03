@@ -11,6 +11,8 @@ Bối cảnh kỹ thuật và lý do của từng câu: `docs/research/2026-10-0
   manifest, service worker, liên kết tải trong phạm vi app) đã lên máy chủ HTTPS. Mục A kiểm việc
   **tải tài liệu ngay trong app đã cài** trên iPhone, cho cả app khách lẫn app nội bộ.
 - Mục **D, E, F** là phần máy thật của nghiệm thu Task 10. Chạy khi bản đầy đủ của M12 đã lên máy chủ.
+  Riêng **E** (mất mạng) và **F** (không để lại dữ liệu) đã chạy được ngay khi bản có Task 3 lên máy
+  chủ — làm cùng lúc với A–C nếu tiện.
 
 Mỗi bước có ba phần: **Làm**, **ĐẠT khi**, **Chụp**. Bước nào không ĐẠT thì ghi lại đúng những gì
 thấy trên màn hình (chữ báo lỗi, trang trắng, trang "404") và chụp lại. Không cần sửa gì.
@@ -128,9 +130,11 @@ chính** (iOS 16.4+); mở bằng Safari thường thì không có nút bật.
 
 | # | Làm | ĐẠT khi | Chụp |
 |---|---|---|---|
-| E1 | Mở app khách một lần khi có mạng, rồi đóng app. Bật **Chế độ máy bay**. Mở lại app. | Thấy trang tiếng Việt **"Chưa có kết nối mạng"**, có số hotline chạm để gọi, và nút "Thử lại". **Không** thấy nội dung hồ sơ cũ nào. | Trang ngoại tuyến. |
+| E1 | Mở app khách một lần khi có mạng, rồi **đóng hẳn app**: mở màn hình đa nhiệm (iPhone: vuốt từ đáy lên và giữ; Android: nút hình vuông) rồi **vuốt app lên để bỏ** — chỉ về màn hình chính thì điện thoại còn giữ trang cũ trong bộ nhớ, không đo được gì. Bật **Chế độ máy bay**. Mở lại app. | Thấy trang tiếng Việt **"Chưa có kết nối mạng"**, có số hotline chạm để gọi, và nút "Thử lại". **Không** thấy nội dung hồ sơ cũ nào. | Trang ngoại tuyến. |
 | E2 | Chạm số hotline. | Điện thoại mở màn hình gọi với đúng số của văn phòng. | — |
 | E3 | Tắt chế độ máy bay, chạm **Thử lại**. | App tải lại bình thường (có thể phải đăng nhập lại). | — |
+| E4 | **Chỉ làm nếu văn phòng đã bật giới hạn địa chỉ cho trang nội bộ** (`ADMIN_IP_ALLOWLIST`; hỏi kỹ thuật). Trên máy đã cài app nội bộ (A7 hoặc C3) **khi ở văn phòng**: tắt Wi-Fi văn phòng, dùng 4G, mở app nội bộ. | Trang báo **không tìm thấy (404)** hoặc trang lỗi — đúng như thiết kế, trang nội bộ chỉ mở trong văn phòng. **Không** thấy nội dung hồ sơ nào. | Màn hình. |
+| E5 | Tiếp E4: vuốt bỏ app (như E1), bật lại Wi-Fi văn phòng, mở lại app nội bộ từ màn hình chính. | App mở bình thường, **không phải cài lại**, biểu tượng vẫn còn; nếu đã bật thông báo (mục D) thì máy vẫn có trong danh sách thiết bị. | Màn hình app sau khi mở lại. |
 
 ---
 
@@ -139,7 +143,7 @@ chính** (iOS 16.4+); mở bằng Safari thường thì không có nút bật.
 | # | Làm | ĐẠT khi | Chụp |
 |---|---|---|---|
 | F1 | Trong app khách đã đăng nhập: mở một hồ sơ, tải một tài liệu, nộp thử một giấy tờ (chụp ảnh bằng điện thoại). | Cả ba việc chạy bình thường, nút bấm phản hồi. | — |
-| F2 | Đăng xuất. Bật chế độ máy bay. Mở lại app. | Chỉ thấy trang "Chưa có kết nối mạng" (như E1), không thấy hồ sơ vừa xem. | Màn hình. |
+| F2 | Đăng xuất. Đóng hẳn app (vuốt bỏ khỏi màn hình đa nhiệm, như E1). Bật chế độ máy bay. Mở lại app. | Chỉ thấy trang "Chưa có kết nối mạng" (như E1), không thấy hồ sơ vừa xem. | Màn hình. |
 
 ---
 
@@ -156,4 +160,5 @@ Phiên bản iPhone (iOS): ______ Mẫu máy: ______ · Phiên bản Android: __
 | C1–C6 | (không áp dụng) | | |
 | D1–D8 | | | |
 | E1–E3 | | | |
+| E4–E5 (chỉ khi bật giới hạn địa chỉ) | | | |
 | F1–F2 | | | |

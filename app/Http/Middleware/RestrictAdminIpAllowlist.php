@@ -37,6 +37,11 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  * phủ luôn route đó nghĩa là một link vừa mở trong văn phòng không mở được ở nơi khác trong 5
  * phút còn lại của nó, một hành vi khó hiểu hơn cái giá phải trả: một nhân sự tải link đó ở ngoài
  * dải IP vẫn tải xong trong 5 phút. Chấp nhận cái giá đó có chủ đích (ghi trong brief Task 1).
+ * Quyết định đó giữ nguyên cho bí danh trong scope của app nội bộ, `/admin/documents/{id}/download`
+ * (M12 Task 3, `routes/web.php`): cùng controller, cùng middleware với `documents.download`, không
+ * thêm middleware này. Cái giá đi kèm: một IP ngoài danh sách gọi đường dẫn đó mà không có chữ ký
+ * hợp lệ nhận 403 của `signed` chứ không phải 404 — biết được có một route dưới `/admin`, dù không
+ * thấy gì của panel và không lấy được gì.
  *
  * IP đọc qua `$request->ip()`, tức PHỤ THUỘC `TRUSTED_PROXIES`
  * (`config/trustedproxy.php`) giống mọi chỗ khác hỏi "IP thật của ai đang gọi" — không tin proxy

@@ -2520,7 +2520,8 @@ tạm (xem dưới). Phán quyết tạm do controller duyệt để Task 2–9 
    liệu không đủ chắc về cookie của trình duyệt trong app; mô phỏng chỉ đo được cái giá: cùng URL tải
    có chữ ký trả 200 khi có cookie phiên, 404 khi không. **Tạm: Task 3 làm route tải bí danh TRONG
    scope** (`/portal/documents/{document}/download`, `/admin/documents/{document}/download`, cùng
-   controller, cùng middleware; nơi ký URL chọn tên route theo panel hiện hành), **và liên kết tải
+   controller, cùng middleware; nơi ký URL chọn tên route theo KIỂU người nhận — Task 3, xem dưới),
+   **và liên kết tải
    của admin mở trong cùng cửa sổ**: hôm nay nút "Tải tệp" gọi `openUrlInNewTab()`
    (`DocumentsRelationManager.php:767`) và danh sách tệp của hộp duyệt có `target="_blank"`
    (`ChecklistRelationManager.php:361`); trong app nội bộ đã cài trên iPhone, tab mới đi ra ngoài cửa
@@ -2583,3 +2584,72 @@ nhóm `web`: không cookie, không dòng `sessions`), Action `App\Actions\Pwa\Bu
   (app nội bộ chỉ cài được trong danh sách; theo đặc tả Service Worker, lượt cập nhật `sw.js` gặp 404
   ngoài văn phòng hỏng mà vẫn giữ bản đã cài — chưa đo trên máy thật). Thẻ `<script>` của `register.js` CHƯA in
   (tránh 404 trên mọi trang) — Task 3 in cùng lúc với tệp; test "không `<script>` nào thiếu `src`" đã có.
+
+### Task 3 — service worker, trang ngoại tuyến, script đăng ký, tải tài liệu trong scope (2026-10-03)
+
+Đã làm (R4, R5, phán quyết tạm 1 của Task 1):
+- `GET /{admin,portal}/sw.js` (`ServiceWorkerController` → Action `BuildServiceWorker`, view
+  `resources/views/pwa/sw-js.blade.php`, phục vụ ra < 150 dòng) và `GET /{admin,portal}/offline`
+  (`OfflinePageController` → Action `RenderOfflinePage`, view `resources/views/pwa/offline.blade.php`),
+  cùng nhóm route PWA của Task 2 (ngoài nhóm `web`; `/admin/…` sau giới hạn IP). Header của worker:
+  JavaScript, `Cache-Control: no-cache`, `Service-Worker-Allowed: /{panel}`, CSP riêng
+  `default-src 'self'` (`ContentSecurityPolicy::WORKER_POLICY`).
+- Worker: chỉ `GET` cùng origin (hai câu lệnh đầu của `fetch`); điều hướng chỉ đi mạng (bật
+  `navigationPreload`), LỖI MẠNG thì trang ngoại tuyến cài sẵn, response lỗi của máy chủ (403/404/…) và
+  tệp `attachment` đi nguyên vẹn; tài nguyên tĩnh theo `config('vkcrm.pwa.static_prefixes')`
+  (stale-while-revalidate, chỉ lưu `ok` + `basic`, `cache.put` duy nhất); `install` cài trang ngoại
+  tuyến + logo + biểu tượng 192 rồi `skipWaiting()`, `activate` xoá bộ đệm cũ của CHÍNH app rồi
+  `clients.claim()`.
+- `public/pwa/register.js` (tệp tĩnh, chỉ đăng ký worker; phần push là của Task 5), thẻ
+  `<script src="/pwa/register.js?v=<12 hex sha256 nội dung>" defer data-sw data-scope>` trong
+  `resources/views/pwa/head.blade.php` (`App\Support\Pwa\RegisterScript`). CSP của trang không thêm
+  nguồn nào: `worker-src 'self'` đã có.
+- Route tải bí danh `/portal/documents/{id}/download` (`documents.download.portal`) và
+  `/admin/documents/{id}/download` (`documents.download.admin`), `routes/web.php`: cùng
+  `DocumentDownloadController`, cùng `['signed', 'throttle:document-download']`, nhóm `web`, KHÔNG
+  middleware panel, KHÔNG allowlist IP (M8 R7 giữ nguyên). `Document::downloadUrlFor()` ký trên bí danh
+  theo KIỂU người nhận (`ClientUser` → cổng, `User` → nội bộ), không theo panel hiện hành (URL còn được
+  dựng ngoài request của panel). Route gốc `documents.download` ở lại cho URL đã phát lúc triển khai.
+  Nút "Tải tệp" (tab Tài liệu) và danh sách "Tệp khách đã gửi" (hộp duyệt "Đã nhận") mở CÙNG cửa sổ.
+- Mẫu nginx thêm `location = /admin/sw.js` và `location = /portal/sw.js`; mẫu Apache không cần khối
+  riêng (`<FilesMatch>` không chạm route PHP). Cả hai ĐO THẬT bằng `tools/deploy/verify-pwa-routes.sh`
+  (nginx/httpd chính thức + php-fpm, kèm đối chứng nginx bỏ hai khối → 404 của nginx).
+
+Lệch kế hoạch, có lý do (ghi cả ở docblock):
+1. Tên bộ đệm `vk-static-{panel}-{VERSION}` thay cho `vk-static-{VERSION}`, và `activate` chỉ xoá bộ
+   đệm mang tiền tố của chính app: để trống `ADMIN_DOMAIN`/`PORTAL_DOMAIN` thì hai app chung một
+   CacheStorage; luật nguyên văn để worker app này xoá trang ngoại tuyến đã cài của app kia sau mỗi lần
+   triển khai.
+2. `VERSION` băm thêm danh sách cài sẵn và HTML trang ngoại tuyến (ngoài view, tiền tố, phiên bản
+   Filament của kế hoạch): bản ngoại tuyến chỉ được cài lại khi `VERSION` đổi — thiếu nó, đổi hotline
+   thì app đã cài hiện số cũ khi mất mạng. Không bí mật nào trong băm (có test đổi `APP_KEY`).
+3. `SendSecurityHeaders` (M8 R4) đổi theo: response mang ĐÚNG một dòng CSP bằng chuỗi worker giữ nó ở
+   mọi chế độ, kể cả `off`; mọi CSP KHÁC mà một response tự đặt bị gỡ và thay bằng chính sách trang
+   (trước đây `set()` chỉ thay header của chế độ hiện hành, nên ở `report`/`off` một CSP tự đặt sống
+   sót). Chỉ `ServiceWorkerController` được đặt chuỗi worker (test quét `app/`).
+
+Kiểm bằng trình duyệt thật (`tools/pwa/survey-sw.cjs`, Chromium 153, bản chạy của làn với
+`CSP_MODE=enforce`, 33/33 dòng OK): worker đăng ký đúng scope `/portal` và `/admin` và điều khiển
+trang; với worker đang điều khiển — đăng nhập hai panel, khách nộp tệp, khách tải tài liệu qua
+`/portal/documents/…` (response đi qua worker, tệp về đủ byte), luật sư chuyển giai đoạn, đưa tài
+liệu lên, tải qua `/admin/documents/…` (cùng cửa sổ), đăng xuất bằng menu; CacheStorage sau mỗi lượt
+chỉ có trang ngoại tuyến của app + tài nguyên tĩnh trong danh sách (không `/portal/…`, `/admin/…`,
+`/livewire-…`, `…/documents/…`, không HTML/JSON nào khác); ngoại tuyến → trang "Chưa có kết nối mạng"
+(hotline `tel:`, không script), trực tuyến + "Thử lại" → `start_url`; 0 vi phạm CSP, 0 lỗi JS.
+
+Sự thật cho task sau:
+- **Phát hiện có sẵn từ M5, KHÔNG do service worker (đối chứng với worker bị chặn cho đúng cùng kết
+  quả):** khách bị vô hiệu giữa phiên rồi bấm một nút Livewire thì về trang đăng nhập nhưng KHÔNG thấy
+  câu `portal.inactive`. Livewire `abort()` bằng chính 302 của `EnsurePortalAccountIsActive`
+  (`Livewire\Drawer\Utils::applyMiddleware()`), `fetch` của request cập nhật TỰ đi theo 302 tới
+  `/portal/login` — lượt GET đó tiêu thông báo đã flash — rồi JS của Livewire điều hướng lần nữa tới
+  `response.url` và trang đăng nhập không còn gì để hiện. Đường điều hướng thường (tải lại trang) hiện
+  câu đó đúng, có và không có worker. Không sửa ở M12 (ngoài phạm vi, đụng luồng đăng nhập M5) — việc
+  cho controller quyết.
+- Task 5: `register.js` đọc `data-*` qua `document.currentScript.dataset`; `RegisterScriptTest` ghim hợp
+  đồng HAI chiều (mọi `data.x` tệp đọc phải được thẻ in và ngược lại) và cấm chữ tiếng Việt trong mã
+  JS — chuỗi của nút Bật/hướng dẫn iPhone đi qua `data-*`. Tổng dưới 200 dòng.
+- Task 10: chạy lại `tools/pwa/survey-sw.cjs` sau khi có push; mục E4–E5 mới của danh sách kiểm tra
+  máy thật đo lượt cập nhật `sw.js` ngoài allowlist (chưa đo được ở máy dev).
+- Mục `/pwa/register.js?v=<cũ>` ở lại CacheStorage tới lần `VERSION` kế tiếp (tài nguyên công khai, vài
+  KB) — không băm `register.js` vào `VERSION` để một lần sửa script không bắt mọi máy cài lại worker.

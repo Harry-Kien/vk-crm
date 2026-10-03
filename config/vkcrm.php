@@ -289,5 +289,17 @@ return [
             'admin' => 'paper',
             'portal' => 'navy',
         ],
+
+        /*
+         * R4 — danh sách cho phép DUY NHẤT của bộ đệm service worker: tài nguyên tĩnh công khai
+         * dưới `public/` (CSS/JS/phông của Filament, biểu tượng, `register.js`), lưu theo
+         * stale-while-revalidate. Mọi đường dẫn khác — trang HTML, Livewire (`/livewire-…`),
+         * tệp hồ sơ (`…/documents/{id}/download`), JSON — KHÔNG BAO GIỜ vào bộ đệm trình duyệt.
+         * Render nguyên văn vào `sw.js` (`resources/views/pwa/sw-js.blade.php`) và nằm trong
+         * VERSION; `tests/Feature/Pwa/ServiceWorkerTest.php` khẳng định hai bên bằng nhau. Thêm một
+         * tiền tố ở đây là thêm một thứ vào điện thoại của khách: chỉ thêm tài nguyên công khai,
+         * có dấu `/` ở cuối (so tiền tố chuỗi — `/brand` không dấu `/` sẽ khớp cả `/brandx/…`).
+         */
+        'static_prefixes' => ['/css/filament/', '/js/filament/', '/fonts/filament/', '/brand/', '/pwa/'],
     ],
 ];

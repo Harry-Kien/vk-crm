@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Pwa\ManifestController;
+use App\Http\Controllers\Pwa\OfflinePageController;
+use App\Http\Controllers\Pwa\ServiceWorkerController;
 use App\Http\Middleware\RestrictAdminIpAllowlist;
 use App\Support\Pwa\PwaPanels;
 use Filament\Facades\Filament;
@@ -63,6 +65,14 @@ foreach (PwaPanels::IDS as $panelId) {
                 Route::get('manifest.webmanifest', ManifestController::class)
                     ->defaults('panel', $panelId)
                     ->name('manifest');
+
+                Route::get('sw.js', ServiceWorkerController::class)
+                    ->defaults('panel', $panelId)
+                    ->name('sw');
+
+                Route::get('offline', OfflinePageController::class)
+                    ->defaults('panel', $panelId)
+                    ->name('offline');
             });
     }
 }

@@ -81,11 +81,18 @@ class Document extends Model implements HasMedia
      * Hàm này KHÔNG kiểm tra quyền, và không được phép kiểm: nơi quyết định là policy trong
      * controller, ở thời điểm tải, chứ không phải ở thời điểm dựng đường dẫn — giữa hai thời
      * điểm đó có 5 phút để một tài khoản bị vô hiệu hoặc một tài liệu đổi nhóm.
+     *
+     * **Route là bí danh TRONG scope của app trên điện thoại** (M12 Task 3, `routes/web.php`):
+     * `ClientUser` → `/portal/documents/{id}/download`, `User` → `/admin/documents/{id}/download`.
+     * Chọn theo KIỂU người nhận — mỗi guard chỉ đăng nhập được đúng một panel — chứ không theo
+     * panel hiện hành, vì URL có thể được dựng ngoài một request của panel. Cùng controller, cùng
+     * middleware với `documents.download`; chữ ký phủ cả path, nên đổi tiền tố của một URL đã ký là
+     * 403.
      */
     public function downloadUrlFor(User|ClientUser $recipient): string
     {
         return URL::temporarySignedRoute(
-            'documents.download',
+            $recipient instanceof ClientUser ? 'documents.download.portal' : 'documents.download.admin',
             now()->addMinutes(self::DOWNLOAD_LINK_MINUTES),
             [
                 'document' => $this->getKey(),

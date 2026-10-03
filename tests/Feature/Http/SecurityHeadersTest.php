@@ -16,6 +16,7 @@ use Filament\Facades\Filament;
 use Illuminate\Contracts\Foundation\MaintenanceMode as MaintenanceModeContract;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 
@@ -168,6 +169,27 @@ it('M12 R5 manifest-src chỉ self, connect-src không mở cho máy chủ push'
             ->and($policy['connect-src'])->toBe(["'self'"]);
     }
 });
+
+/**
+ * M12 R4 (Task 3): `sw.js` mang CSP riêng của worker (`ContentSecurityPolicy::WORKER_POLICY`) và
+ * middleware để nguyên nó (test ở `tests/Feature/Pwa/ServiceWorkerTest.php`). Lối thoát đó HẸP: chỉ
+ * đúng chính sách worker — chặt hơn chính sách trang. Một response tự mang một CSP KHÁC (rộng hơn,
+ * hay chỉ là khác) vẫn bị thay bằng chính sách trang, ở cả chế độ report lẫn enforce.
+ */
+it('M12 R4 một response tự mang CSP khác chính sách worker vẫn nhận chính sách trang', function (string $mode, string $header) {
+    config(['vkcrm.security.csp_mode' => $mode]);
+
+    Route::get('vk-crm-test-own-csp', fn () => response('x')->header('Content-Security-Policy', 'default-src *'));
+    Route::getRoutes()->refreshNameLookups();
+
+    $response = $this->get('/vk-crm-test-own-csp');
+
+    expect($response->headers->get($header))->toContain("script-src 'self' 'nonce-")
+        ->and($response->headers->get('Content-Security-Policy'))->not->toBe('default-src *');
+})->with([
+    'enforce' => ['enforce', 'Content-Security-Policy'],
+    'report' => ['report', 'Content-Security-Policy-Report-Only'],
+]);
 
 it('§10.2 nonce khác nhau giữa hai request', function () {
     config(['vkcrm.security.csp_mode' => 'enforce']);

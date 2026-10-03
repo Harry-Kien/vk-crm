@@ -735,10 +735,15 @@ class DocumentsRelationManager extends RelationManager
      * SPEC §10.4: đường duy nhất tới một tệp là route có chữ ký, hết hạn sau 5 phút, và
      * `DocumentDownloadController` vẫn hỏi policy sau khi xác minh chữ ký.
      *
-     * `->url()` chứ không `->action()`: đây là một liên kết thật, mở trong tab mới, không phải
-     * một vòng Livewire. Và chữ ký được ký cho ĐÚNG người đang đăng nhập
-     * (`downloadUrlFor(Auth::user())`), nên dòng `document_downloads` ghi đúng tên người được
-     * trao tệp chứ không phải tên người bấm chuột.
+     * `->url()` chứ không `->action()`: đây là một liên kết thật, không phải một vòng Livewire. Và
+     * chữ ký được ký cho ĐÚNG người đang đăng nhập (`downloadUrlFor(Auth::user())`), nên dòng
+     * `document_downloads` ghi đúng tên người được trao tệp chứ không phải tên người bấm chuột.
+     *
+     * **Mở trong CÙNG cửa sổ, không `->openUrlInNewTab()`** (M12 Task 3; khảo sát Task 1 mục 2.10):
+     * app nội bộ cài trên iPhone là một cửa sổ standalone không có tab — một tab mới đi ra trình
+     * duyệt trong app hoặc Safari dù URL (route bí danh `/admin/documents/{id}/download`) nằm trong
+     * scope, và chuyện cookie có đi theo hay không lại thành câu hỏi chưa đo. Trên máy tính không mất
+     * gì: response là `Content-Disposition: attachment`, trình duyệt tải tệp về và giữ nguyên trang.
      *
      * Điều kiện hiển thị có hai vế, và chúng KHÔNG cùng sức nặng — nói thẳng vì một mutation
      * probe đã chỉ ra điều đó:
@@ -763,8 +768,7 @@ class DocumentsRelationManager extends RelationManager
             ->color('gray')
             ->authorize(fn (Document $record): bool => Gate::allows('download', $record))
             ->visible(fn (Document $record): bool => $record->getMedia('file')->isNotEmpty())
-            ->url(fn (Document $record): string => $record->downloadUrlFor(Auth::user()))
-            ->openUrlInNewTab();
+            ->url(fn (Document $record): string => $record->downloadUrlFor(Auth::user()));
     }
 
     /**
