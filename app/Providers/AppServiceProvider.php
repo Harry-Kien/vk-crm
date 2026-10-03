@@ -7,6 +7,7 @@ use App\Actions\Backup\GuardOffServerBackupDestination;
 use App\Actions\Backup\GuardRcloneDestinationReachable;
 use App\Actions\Backup\PushBackupArchiveToRclone;
 use App\Http\Controllers\DocumentDownloadController;
+use App\Http\Controllers\Mcp\RegisterClientController;
 use App\Http\Middleware\Mcp\AddWwwAuthenticateHeader;
 use App\Listeners\RecordOutboundMail;
 use App\Models\Client;
@@ -240,6 +241,13 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('document-download', fn (Request $request) => Limit::perMinute(
             DocumentDownloadController::DOWNLOADS_PER_MINUTE,
         )->by(DocumentDownloadController::rateLimitKey($request)));
+
+        // M11 R7 (Task 3) — đăng ký client động `POST /oauth/register`: theo IP, mười lần một giờ, đếm
+        // cả lần hỏng. Con số, lý lẽ và phản hồi 429 ở `RegisterClientController`; ở đây chỉ có chỗ
+        // cắm vào framework.
+        RateLimiter::for(RegisterClientController::RATE_LIMITER, fn (Request $request) => Limit::perHour(
+            RegisterClientController::REGISTRATIONS_PER_HOUR,
+        )->by((string) $request->ip())->response(RegisterClientController::tooManyRegistrations(...)));
 
         // Giới hạn TẢI TỆP LÊN của endpoint `livewire.upload-file` (SPEC §10.3) KHÔNG còn đăng ký ở
         // đây: từ M8 Task 3 nó là middleware `App\Http\Middleware\ThrottleUploadedFiles` (cắm ở

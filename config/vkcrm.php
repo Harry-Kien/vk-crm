@@ -215,6 +215,44 @@ return [
          * tảng tự lùi về DCR [DC:715], [PL:179].
          */
         'client_id_metadata_documents' => false,
+
+        /*
+         * R7 (Task 3): redirect URI mà đăng ký client động (DCR, `POST /oauth/register`) chấp nhận,
+         * theo nền tảng [PL:225], [DC:631], [DC:739], [PL:196], [PL:199-200]. Mỗi mục là MỘT URI đầy
+         * đủ và được so khớp CHÍNH XÁC từng ký tự ({@see \App\Support\Mcp\RedirectUriAllowlist}), trừ
+         * hai ngoại lệ có tên:
+         *  - loopback `http://localhost`, `http://127.0.0.1` (và `http://[::1]` nếu được thêm): bỏ qua
+         *    CỔNG, phần còn lại vẫn khớp chính xác (RFC 8252 §7.3; Claude Code đổi cổng mỗi phiên);
+         *  - `{callback_id}` trong ĐƯỜNG DẪN: đúng một đoạn `[A-Za-z0-9_-]{1,128}` (ChatGPT cấp một
+         *    callback cho mỗi kết nối). Không bao giờ có ký tự đại diện ở host.
+         * Khoá theo nền tảng chỉ để người đọc biết mục nào của ai; phép so không đọc khoá.
+         */
+        'redirect_uris' => [
+            // Claude web, desktop, mobile.
+            'claude' => ['https://claude.ai/api/mcp/auth_callback'],
+            // ChatGPT: redirect ổn định (dùng khi máy chủ trả `iss`, RFC 9207 — Task 2 đã có) và redirect
+            // theo từng callback.
+            'chatgpt' => [
+                'https://chatgpt.com/connector_platform_oauth_redirect',
+                'https://chatgpt.com/connector/oauth/{callback_id}',
+            ],
+            // Claude Code và CLI: loopback, bỏ qua cổng.
+            'loopback' => ['http://localhost/callback', 'http://127.0.0.1/callback'],
+            'vscode' => ['https://vscode.dev/redirect', 'http://127.0.0.1:33418/'],
+            // Cursor: tra cứu xếp mức "likely" [PL:199].
+            'cursor' => ['https://www.cursor.com/agents/mcp/oauth/callback', 'http://localhost:8787/callback'],
+            'antigravity' => ['https://antigravity.google/oauth-callback'],
+        ],
+
+        /*
+         * `MCP_EXTRA_REDIRECT_URIS`: thêm redirect URI cho nền tảng khác mà không sửa mã (ví dụ
+         * Copilot Studio, Gemini Enterprise [PL:225]), phân tách dấu phẩy. Cùng luật so khớp như
+         * danh sách trên.
+         */
+        'extra_redirect_uris' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', (string) env('MCP_EXTRA_REDIRECT_URIS', '')),
+        ))),
     ],
 
     /*

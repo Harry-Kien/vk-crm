@@ -2,6 +2,7 @@
 
 use App\Enums\Role;
 use App\Http\Middleware\Mcp\CheckOrigin;
+use App\Http\Middleware\Mcp\EnsureMcpClient;
 use App\Http\Middleware\Mcp\EnsureTokenAudience;
 use App\Http\Middleware\Mcp\RequireBearerToken;
 use App\Models\ClientUser;
@@ -238,11 +239,12 @@ it('R1 /mcp không nằm trong nhóm web: không phiên, không CSRF', function 
 });
 
 /*
- * Thứ tự năm middleware của app trước `POST /mcp` (sau ba middleware của gói): Origin trước mọi bước
+ * Thứ tự sáu middleware của app trước `POST /mcp` (sau ba middleware của gói): Origin trước mọi bước
  * xác thực; xoá cookie `laravel_token` trước guard; `aud` chỉ đọc sau khi guard đã kiểm chữ ký của
- * chính token đó (Task 2); scope cuối cùng.
+ * chính token đó (Task 2); client của token phải mang cờ `is_mcp` (Task 3) — đọc client mà guard vừa
+ * gắn cho request; scope cuối cùng.
  */
-it('R1/R7 năm middleware của app trước /mcp đứng đúng thứ tự: Origin, chỉ bearer, auth:mcp, aud, scope', function () {
+it('R1/R7 sáu middleware của app trước /mcp đứng đúng thứ tự: Origin, chỉ bearer, auth:mcp, aud, client is_mcp, scope', function () {
     $middleware = Route::getRoutes()->match(request()->create('/mcp', 'POST'))->gatherMiddleware();
 
     $ours = array_values(array_filter($middleware, fn ($entry) => in_array($entry, [
@@ -250,6 +252,7 @@ it('R1/R7 năm middleware của app trước /mcp đứng đúng thứ tự: Ori
         RequireBearerToken::class,
         'auth:mcp',
         EnsureTokenAudience::class,
+        EnsureMcpClient::class,
         CheckToken::using('mcp:use'),
     ], true)));
 
@@ -258,6 +261,7 @@ it('R1/R7 năm middleware của app trước /mcp đứng đúng thứ tự: Ori
         RequireBearerToken::class,
         'auth:mcp',
         EnsureTokenAudience::class,
+        EnsureMcpClient::class,
         CheckToken::using('mcp:use'),
     ]);
 });

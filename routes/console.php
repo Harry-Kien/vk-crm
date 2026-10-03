@@ -238,3 +238,28 @@ Schedule::call(new RemindUnseenUpdates)
     ->dailyAt('08:30')
     ->name('unseen-updates.remind')
     ->withoutOverlapping(60);
+
+/**
+ * M11 R7 (Task 3) — dọn token OAuth chết, 03:00 hằng ngày, sau lượt sao lưu 02:00. `passport:purge`
+ * với mặc định của Passport xoá access token, refresh token và mã uỷ quyền ĐÃ THU HỒI, cùng những cái
+ * đã hết hạn quá 7 ngày (`--hours=168`). Xoá một token đã thu hồi không mở lại được gì: Passport coi
+ * dòng không còn trong CSDL là đã thu hồi (`isAccessTokenRevoked()`, `isRefreshTokenRevoked()` hỏi
+ * "có dòng chưa thu hồi không"), nên refresh token cũ dùng lại vẫn nhận `invalid_grant`.
+ *
+ * Không `withoutOverlapping()`: ba câu DELETE, chạy chồng nhau là vô hại. CHỈ `->name()`, không
+ * `->description()` (bí danh của nhau trong Laravel 13, xem `backup.nightly`).
+ * `tests/Feature/Schedule/McpOAuthCleanupScheduleTest.php` ghim giờ và lệnh.
+ */
+Schedule::command('passport:purge')
+    ->dailyAt('03:00')
+    ->name('mcp.tokens.purge');
+
+/**
+ * M11 R7 (Task 3) — dọn client OAuth do đăng ký động tạo ra mà đã quá 30 ngày không còn token nào
+ * sống, 03:15 hằng ngày (sau `mcp.tokens.purge`). Luật ở `App\Actions\Mcp\PruneStaleMcpClients`.
+ * Không `withoutOverlapping()`: điều kiện được kiểm lại trong chính câu DELETE, chạy chồng nhau là vô
+ * hại. Ghim giờ ở `tests/Feature/Schedule/McpOAuthCleanupScheduleTest.php`.
+ */
+Schedule::command('vkcrm:mcp-prune-clients')
+    ->dailyAt('03:15')
+    ->name('mcp.clients.prune');

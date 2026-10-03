@@ -2846,3 +2846,105 @@ EXIT 0, 3812 passed (3764 + 46 dòng của `OAuthMetadataTest` + 2 test mới c�
 `OAuthRoutesStaffSessionTest`, `OAuthServerHardeningTest`, `McpPackageConfigTest`,
 `StaffTwoFactorEscapeRoutesTest`): 120 passed. `pint --test`: PASS, 858 tệp. Không đổi migration nào nên
 không chạy lại vòng migration thật.
+
+### Task 3 — DCR: allowlist redirect chính xác, throttle, dọn client (2026-10-03)
+
+**Đã có, kèm test HTTP** (`tests/Feature/Mcp/ClientRegistrationTest.php`,
+`tests/Feature/Mcp/PruneMcpClientsTest.php`, `tests/Feature/Schedule/McpOAuthCleanupScheduleTest.php`):
+- **`POST /oauth/register`** (DCR, RFC 7591) là controller của app (`App\Http\Controllers\Mcp\RegisterClientController`),
+  ngoài nhóm `web`. Client tạo ra luôn công khai (không secret, `token_endpoint_auth_method: none`), chỉ
+  `authorization_code` + `refresh_token`, dù client xin gì (RFC 7591 §2 cho máy chủ thay). 201 trả
+  `client_id`, `client_name`, `redirect_uris`, `grant_types`, `response_types`, `scope`,
+  `token_endpoint_auth_method`. Lỗi 400 `invalid_redirect_uri` (thiếu, rỗng, không phải danh sách, quá 10
+  mục, mục không phải chuỗi, mục ngoài allowlist) hoặc `invalid_client_metadata` (`client_name` không phải
+  chuỗi hoặc dài quá 255 = cột `oauth_clients.name`). Một mục sai là cả lần đăng ký thất bại.
+- **Allowlist so khớp chính xác** (`App\Support\Mcp\RedirectUriAllowlist`; danh sách ở `config/vkcrm.php`
+  `mcp.redirect_uris` theo nền tảng, cộng `mcp.extra_redirect_uris` từ `MCP_EXTRA_REDIRECT_URIS`): bằng nhau
+  từng ký tự; riêng loopback `http://localhost|127.0.0.1|[::1]` bỏ qua cổng (1–65535) và phần còn lại vẫn
+  khớp chính xác; `{callback_id}` (ChatGPT) chỉ mở rộng trong đường dẫn, đúng một đoạn
+  `[A-Za-z0-9_-]{1,128}`. Không ký tự đại diện nào ở host (`*` chỉ khớp chính nó; `{callback_id}` ở host,
+  ở cổng, hay mục không đường dẫn thì không mở rộng). Nhận: Claude, ChatGPT hai dạng, loopback có/không
+  cổng, VS Code hai dạng, Cursor hai dạng, Antigravity. Từ chối 33 dạng, gồm sáu dạng kế hoạch nêu.
+- **`oauth_clients.is_mcp`** (migration `2026_10_02_110000_add_is_mcp_to_oauth_clients_table.php`, mặc định
+  `false`): chỉ `App\Actions\Mcp\RegisterMcpClient` gắn cờ, trong CÙNG transaction với việc tạo client.
+  `tests/Support/McpOAuth::client()` tạo client bằng chính Action đó.
+- **`/mcp` chỉ nhận token của client mang cờ** (`App\Http\Middleware\Mcp\EnsureMcpClient`, sau
+  `EnsureTokenAudience`, trước `CheckToken mcp:use`; thứ tự sáu middleware được ghim ở `TransportTest`):
+  token hợp lệ của client tạo bằng `passport:client` → 401 `error="invalid_token"`; cờ đọc ở mỗi request,
+  gỡ cờ thì token đang sống chết ở request kế tiếp.
+- **Throttle** `/oauth/register`: 10 lần/giờ/IP, đếm cả lần hỏng (limiter `mcp-client-registration`); lần
+  thứ 11 → 429 JSON `too_many_requests` kèm `Retry-After`, `X-RateLimit-Limit`, `X-RateLimit-Remaining`.
+- **Dọn client**: `vkcrm:mcp-prune-clients` (`App\Console\Commands\PruneMcpClients` →
+  `App\Actions\Mcp\PruneStaleMcpClients`) xoá client `is_mcp` quá 30 ngày tuổi không còn access token,
+  refresh token hay mã uỷ quyền nào sống (chưa thu hồi, `expires_at` rỗng hoặc chưa tới), cùng mọi dòng
+  token chết của nó. Điều kiện được kiểm lại trong chính câu DELETE (test chạy đua bằng listener truy vấn).
+  Client không mang cờ không bao giờ bị dọn.
+- **Lịch** (`routes/console.php`, nối ở cuối): `passport:purge` 03:00 (`mcp.tokens.purge`), dọn client 03:15
+  (`mcp.clients.prune`), ghim giờ như M6.5 Task 14.
+- `.env.example`: `MCP_EXTRA_REDIRECT_URIS=`; lý lẽ §10.7 cho `POST oauth/register`
+  (`StaffTwoFactorEscapeRoutesTest`).
+
+**Phán quyết.**
+- **Thay hẳn `OAuthRegisterController` của gói, không bọc nó**, và không gọi `Mcp::oauthRoutes()`. Phép kiểm
+  của gói so TIỀN TỐ (`Str::startsWith`), nên `/../x`, query hay đường dẫn bất kỳ dưới tên miền được phép
+  đều lọt, và nó không gắn được cờ `is_mcp`. Không gọi `Mcp::oauthRoutes()` cũng đóng rà soát Task 2 m6
+  (route `{path}` của gói không còn đè được metadata của app theo thứ tự nạp). `config/mcp.php`
+  `redirect_domains` và `custom_schemes` vẫn rỗng, ghim ở `McpPackageConfigTest` (rà soát Task 0, M4a).
+- **`error_description` của DCR là chữ ASCII tiếng Anh**, không qua `lang/vi`: RFC 7591 §3.2.2 định nghĩa nó
+  là "Human-readable ASCII text … used for debugging", đọc bởi người viết client, không phải nhân sự (theo
+  hướng rà soát Task 2, m1). Các thông điệp OAuth tiếng Việt của Task 1–2 (`mcp.http.*`) chưa đổi; việc đó
+  chờ controller quyết ở lượt phân loại cuối.
+- **Điều kiện "client OAuth mang cờ `mcp`" của R2 đã là `EnsureMcpClient`.** Task 6 (`EnsureMcpAccess`) không
+  cần kiểm lại.
+- **Loopback ở `/oauth/authorize` (đã đo, kế hoạch ghi "chưa kiểm được")**: league/oauth2-server 9.4.1
+  (`RedirectUriValidator::isLoopbackUri()`) coi CHỈ `127.0.0.1` và `[::1]` là loopback và bỏ qua cổng của
+  chúng; `localhost` thì so chính xác, kể cả cổng. Hai test ghim hành vi này. Với DCR không sao: client đăng
+  ký lại ở mỗi lần kết nối, nên cổng lúc authorize là cổng vừa đăng ký. Với CIMD (Task 5) thì có sao: tài
+  liệu CIMD của Claude Code khai `http://localhost/callback` không cổng [DC:739], nên Task 5 phải tự so
+  `localhost` bỏ qua cổng.
+- **DCR không ghi nhật ký**: lời gọi vô danh (chưa có nhân sự), throttle theo IP, và một client mới không mở
+  được gì khi chưa có nhân sự đồng ý. Kết nối được ghi ở màn hình đồng ý (Task 4).
+- **`passport:purge` chạy với mặc định**: xoá token và mã ĐÃ THU HỒI ngay, và cái hết hạn quá 7 ngày. Dòng
+  biến mất vẫn được Passport coi là đã thu hồi (`isRefreshTokenRevoked()` hỏi "có dòng chưa thu hồi
+  không"), nên refresh token cũ dùng lại vẫn nhận `invalid_grant`.
+- Khoá nền tảng trong `mcp.redirect_uris` (`claude`, `chatgpt`, `loopback`, `vscode`, `cursor`,
+  `antigravity`) chỉ để đọc; Task 8 có thể dùng chúng để suy nền tảng cho nhật ký (loopback dùng chung cho
+  Claude Code, Cursor desktop và CLI nên không suy được tên duy nhất).
+
+**Lệch và khoảng hở, ghi để biết.**
+- Công tắc `mcp.enabled` (bảng `settings`, m7b) chưa có, nên DCR vẫn nhận đăng ký khi MCP "tắt". Vô hại
+  (client không có token nào dùng được khi `/mcp` từ chối), nhưng Task 6 có thể chặn thêm ở đây.
+- Mẫu `callback_id` của ChatGPT (`[A-Za-z0-9_-]{1,128}`) chưa đối chiếu với một callback thật; nếu ChatGPT
+  dùng ký tự khác, kết nối hỏng với `invalid_redirect_uri` (đóng, không mở). Kiểm ở Task 17. Hai URI của
+  Cursor là mức "likely" của tra cứu [PL:199].
+- Middleware toàn cục `TrimStrings` và `ConvertEmptyStringsToNull` chạy cả ở `/oauth/register`: một URI có
+  khoảng trắng đầu/cuối được lưu đã cắt, và client đó sau này authorize bằng URI chưa cắt thì league từ
+  chối. Vô hại.
+- Cột `oauth_access_tokens.client_id` của Passport không có chỉ mục; truy vấn dọn quét bảng. Ổn ở quy mô một
+  văn phòng (token chết bị `passport:purge` xoá mỗi đêm).
+- Bẫy của bộ test (không phải của máy chủ thật): trong một test, `TokenGuard` (người dùng, client) và
+  `Laravel\Passport\ClientRepository::find()` (`once()`, singleton) nhớ kết quả của request trước. Test gọi
+  `/mcp` nhiều lần phải `Auth::forgetGuards()` và `Once::flush()` giữa hai request (`dcrInitialize()` của
+  `ClientRegistrationTest`), không thì token của request trước "mở" request sau.
+
+**Kiểm chứng (2026-10-03).** Đỏ trước khi cài: 90 đỏ, 57 xanh (sáu tệp: ba tệp test mới,
+`TransportTest`, `StaffTwoFactorEscapeRoutesTest`, `EnvExampleTest`). Xanh: mười bốn tệp chạm tới hoặc dùng
+chung `McpOAuth` (thêm `OAuthMetadataTest`, `OAuthRoutesStaffSessionTest`, `OAuthServerHardeningTest`,
+`CrmToolBaseTest`, `McpPackageConfigTest`, `BackupScheduleTest`, `ArchitectureTest`, `RateLimitSpec103Test`):
+239 passed; rồi bốn test thêm cho điều kiện chưa có cặp (loopback chỉ ba host, neo `/` sau host loopback,
+transaction tạo client + gắn cờ, chạy đua khi dọn): hai tệp mới 89 passed. Bốn mươi tám phép mutation, mỗi
+phép bỏ hay đổi đúng một điều kiện mới (allowlist: so theo tên miền, bỏ qua cổng, ba host loopback, neo `/`,
+cổng không số 0 đầu, cổng ≤ 65535, `{callback_id}` chỉ trong đường dẫn, ký tự và độ dài đoạn, neo cuối mẫu;
+Action: kiểm allowlist, gắn cờ, công khai, transaction; controller: `max:10`, `list`, `required`, mục là
+chuỗi, `client_name` 255 và nullable, mã lỗi cho mục con, tên mặc định; throttle: có mặt, theo IP, theo giờ,
+phản hồi 429; `EnsureMcpClient`: có mặt, điều kiện; dọn: cờ, tuổi, ba nguồn token sống, thu hồi, hạn rỗng,
+hạn chưa tới, ràng refresh token với client, kiểm lại khi xoá, chỉ xoá token của client đã mất, ba câu xoá
+token, câu in của lệnh; lịch: hai giờ chạy, lệnh purge; cấu hình: cắt khoảng trắng, bỏ mục rỗng): mỗi phép
+cho ít nhất một test đỏ, rồi khôi phục. Đổi so khớp chính xác thành so theo tên miền làm 21 test đỏ, gồm hai
+dạng `/../` của kế hoạch. Cả bộ (`test --parallel --processes=2`): EXIT 0, 3904 passed (3812 + 92 test mới:
+79 `ClientRegistrationTest`, 10 `PruneMcpClientsTest`, 3 `McpOAuthCleanupScheduleTest`), 1 risky, 1 todo, 25
+skipped, như trước. MariaDB (tuần tự; ba tệp mới, `TransportTest`, `StaffTwoFactorEscapeRoutesTest`,
+`OAuthMetadataTest`, `OAuthRoutesStaffSessionTest`, `OAuthServerHardeningTest`, `McpPackageConfigTest`): 212
+passed. Vòng migration thật trên `vk_crm_lane_m11` (`migrate:fresh --seed`, `migrate:reset`, `migrate`): EXIT
+0, cột `is_mcp tinyint(1) NOT NULL DEFAULT 0`; `vkcrm:mcp-prune-clients` chạy thật trên MariaDB và
+`schedule:list` hiện hai dòng 03:00 / 03:15. `pint --test`: PASS, 869 tệp.

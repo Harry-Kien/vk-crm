@@ -245,6 +245,8 @@ function outsidePanelRouteReasons(): array
         'GET .well-known/oauth-protected-resource/mcp' => 'metadata công khai cố định dựng từ cấu hình (URL MCP, issuer, scope), không đọc phiên, không dữ liệu người dùng (OAuthMetadataTest)',
         'GET .well-known/oauth-authorization-server' => 'metadata công khai cố định của máy chủ uỷ quyền (điểm cuối, grant, PKCE), không đọc phiên, không dữ liệu người dùng (OAuthMetadataTest)',
         'GET .well-known/oauth-authorization-server/mcp' => 'metadata công khai cố định của máy chủ uỷ quyền (điểm cuối, grant, PKCE), không đọc phiên, không dữ liệu người dùng (OAuthMetadataTest)',
+        // M11 Task 3 — đăng ký client động (DCR, RFC 7591), `routes/ai.php`, ngoài nhóm `web`.
+        'POST oauth/register' => 'không đọc phiên, không cookie, không dữ liệu người dùng: chỉ tạo một client OAuth công khai (không secret) mang cờ is_mcp, redirect URI phải khớp chính xác allowlist; client đó không tự cấp được token nào, mọi token vẫn phải qua GET/POST oauth/authorize của một nhân sự; throttle 10 lần/giờ/IP (ClientRegistrationTest)',
     ];
 }
 

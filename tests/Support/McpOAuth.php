@@ -2,6 +2,7 @@
 
 namespace Tests\Support;
 
+use App\Actions\Mcp\RegisterMcpClient;
 use App\Models\User;
 use DateTimeImmutable;
 use GuzzleHttp\Psr7\Response as Psr7Response;
@@ -14,7 +15,6 @@ use Laravel\Passport\Bridge\Client as ClientEntity;
 use Laravel\Passport\Bridge\Scope;
 use Laravel\Passport\Bridge\User as UserEntity;
 use Laravel\Passport\Client;
-use Laravel\Passport\ClientRepository;
 use Laravel\Passport\Passport;
 use League\OAuth2\Server\AuthorizationServer;
 use League\OAuth2\Server\CryptKey;
@@ -63,16 +63,18 @@ final class McpOAuth
     }
 
     /**
-     * Client công khai (không secret) cho grant `authorization_code` + `refresh_token` — đúng hình
-     * dạng của một client mà DCR của laravel/mcp tạo ra.
+     * Client công khai (không secret) cho grant `authorization_code` + `refresh_token`, mang cờ
+     * `is_mcp` — tạo bằng CHÍNH Action của đăng ký động `POST /oauth/register`
+     * (`App\Actions\Mcp\RegisterMcpClient`, Task 3), nên cùng hình dạng với client mà Claude hay
+     * ChatGPT đăng ký. Redirect URI phải nằm trong allowlist. Client KHÔNG mang cờ (token của nó bị
+     * `/mcp` từ chối) thì tạo bằng `passport:client` hoặc `ClientRepository`, như
+     * `ClientRegistrationTest` làm.
      *
      * @param  list<string>  $redirectUris
      */
     public static function client(array $redirectUris = [self::REDIRECT_URI]): Client
     {
-        return app(ClientRepository::class)->createAuthorizationCodeGrantClient(
-            'Client thử', $redirectUris, confidential: false,
-        );
+        return app(RegisterMcpClient::class)->handle('Client thử', $redirectUris);
     }
 
     /**

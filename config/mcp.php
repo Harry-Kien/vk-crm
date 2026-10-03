@@ -28,10 +28,12 @@ return [
 
     /*
      * M11 R7: KHÔNG `'*'` (mặc định của gói, nghĩa là DCR nhận mọi redirect URI). Rỗng = DCR của gói
-     * từ chối MỌI redirect URI, kể cả nếu ai đó nạp route `/oauth/register` trước khi có allowlist.
-     * Phép kiểm của gói chỉ so TIỀN TỐ (`Str::startsWith`), không so chính xác, nên danh sách này
-     * không bao giờ là nơi khai allowlist thật: Task 3 dựng allowlist so khớp chính xác ở
-     * `config/vkcrm.php` (`mcp.redirect_uris`) và ghi lại câu này.
+     * từ chối MỌI redirect URI, nếu ai đó gọi `Mcp::oauthRoutes()` và nạp route `/oauth/register` của
+     * gói. Phép kiểm của gói chỉ so TIỀN TỐ (`Str::startsWith`), không so chính xác, nên danh sách này
+     * không bao giờ là nơi khai allowlist thật. Từ Task 3, `/oauth/register` là controller của app
+     * (`App\Http\Controllers\Mcp\RegisterClientController`), không đọc khoá này: allowlist so khớp
+     * chính xác ở `config/vkcrm.php` (`mcp.redirect_uris`, `App\Support\Mcp\RedirectUriAllowlist`).
+     * `custom_schemes` bên dưới giữ rỗng vì cùng lý do (McpPackageConfigTest ghim cả hai).
      */
     'redirect_domains' => [],
 

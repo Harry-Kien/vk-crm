@@ -24,6 +24,11 @@ return [
         'invalid_target' => 'Tham số resource phải là đúng địa chỉ của máy chủ MCP này.',
     ],
 
+    // Lệnh `vkcrm:mcp-prune-clients` (Task 3), người vận hành đọc.
+    'prune' => [
+        'done' => 'Đã xoá :count client OAuth tạo qua đăng ký động (quá 30 ngày, không còn token nào sống).',
+    ],
+
     'tools' => [
         // Tool đầu tiên (`whoami`) đến ở Task 10.
     ],
