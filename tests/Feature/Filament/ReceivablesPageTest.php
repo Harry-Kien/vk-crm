@@ -635,7 +635,7 @@ it('lets the accountant find and void a back-dated payment older than 90 days by
     // Mặc định vẫn là cửa sổ 90 ngày, và mục nói rõ cách bỏ nó.
     $this->livewire(RecentPaymentsWidget::class)
         ->assertCanNotSeeTableRecords([$old, $otherOld])
-        ->assertSee('Gõ mã hồ sơ vào bộ lọc "Mã hồ sơ" thì thấy mọi khoản thu chưa huỷ của hồ sơ đó, kể cả cũ hơn 90 ngày');
+        ->assertSee('Khoản cũ hơn 90 ngày (như khoản ghi lùi ngày lúc nhập hợp đồng cũ): gõ mã hồ sơ vào ô "Mã hồ sơ" của bộ lọc rồi bấm "Áp dụng bộ lọc" — mục hiện mọi khoản thu chưa huỷ của hồ sơ đó.');
 
     $this->livewire(RecentPaymentsWidget::class)
         ->filterTable('matter_code', ['code' => $this->matter->code])
@@ -650,6 +650,45 @@ it('lets the accountant find and void a back-dated payment older than 90 days by
     expect($old->fresh()->voided_at)->not->toBeNull()
         ->and($old->fresh()->voided_by)->toBe($this->accountant->id)
         ->and($instalment->fresh()->status)->toBe(InstalmentStatus::Pending);
+});
+
+/**
+ * Việc sau gộp M9 + M10 (làn fu3, Task 2 mục C; N6 của rà soát cuối làn m9f): bộ lọc bảng của Filament
+ * mặc định HOÃN (`Table::$hasDeferredFilters = true`, widget không gọi `deferFilters(false)`), nên gõ
+ * mã hồ sơ chưa đổi gì — khoản cũ chỉ hiện sau khi bấm nút "Áp dụng bộ lọc". Câu mô tả của mục và
+ * `docs/QUY-TRINH.md` (Kế toán ghi tiền bước 4, nhập hợp đồng đang chạy bước 4) nói đúng điều đó.
+ *
+ * Test gõ vào ĐÚNG ô mà màn hình vẽ: đường trạng thái của form bộ lọc (`tableDeferredFilters` khi hoãn,
+ * `tableFilters` khi không) — nên một bản bỏ hoãn làm vế "gõ mà chưa bấm" đỏ, và câu chữ phải đổi theo.
+ * Tên nút đọc từ bản dịch của Filament (`lang/vendor/filament-tables/vi`), không chép tay.
+ */
+it('shows an old payment only after the accountant presses the apply button, exactly as the section says', function () {
+    [, $old] = paidInstalmentOn($this->matter, 10_000_000, ['paid_on' => today()->subDays(200)->toDateString()]);
+    [, $recent] = paidInstalmentOn(Matter::factory()->create());
+
+    $apply = __('filament-tables::table.filters.actions.apply.label');
+    $box = __('billing.receivables.recent_payments.filters.matter_code');
+
+    expect($apply)->toBe('Áp dụng bộ lọc')
+        ->and($box)->toBe('Mã hồ sơ');
+
+    $this->actingAs($this->accountant, 'web');
+
+    $widget = $this->livewire(RecentPaymentsWidget::class)
+        ->assertSee("gõ mã hồ sơ vào ô \"{$box}\" của bộ lọc rồi bấm \"{$apply}\"")
+        ->assertSee("Chưa bấm \"{$apply}\" thì danh sách chưa đổi.");
+
+    $statePath = $widget->instance()->getTableFiltersForm()->getStatePath();
+
+    // Gõ mã — chưa bấm: danh sách y như trước.
+    $widget->set("{$statePath}.matter_code.code", $this->matter->code)
+        ->assertCanSeeTableRecords([$recent])
+        ->assertCanNotSeeTableRecords([$old]);
+
+    // Bấm "Áp dụng bộ lọc".
+    $widget->call('applyTableFilters')
+        ->assertCanSeeTableRecords([$old])
+        ->assertCanNotSeeTableRecords([$recent]);
 });
 
 /** Một ô mã hồ sơ chỉ có khoảng trắng là ô trống: cửa sổ 90 ngày vẫn còn, không thành "mọi khoản thu". */

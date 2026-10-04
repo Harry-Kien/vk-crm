@@ -1245,6 +1245,17 @@ bản nháp rồi hợp đồng được ký sau đó cũng bị giữ lại v�
 có hợp đồng đã ký, và mọi tài liệu khác của vụ, không đổi luật. Khách tải gói đã công bố như trước.
 Xem §5, đính chính cùng ngày.
 
+**Bổ sung 2026-10-04 (việc sau gộp M9 + M10, làn fu3) — bảng kê là ảnh chụp lúc lập gói.** "Bảng kê
+thanh toán" trong `MUC-LUC.pdf` được dựng một lần, lúc gói được lập, và không đổi sau đó: khoản thu ghi
+sau ngày đó, một đợt miễn hay huỷ sau, một phụ lục ký sau không vào gói đã lập — chỉ vào gói sinh lại.
+Từ khi thư công bố gói mời khách tải gói về và cất giữ, khách giữ đúng ảnh chụp đó, nên ngay dưới tiêu
+đề mục là một dòng "Tính đến ngày lập gói (dd/mm/yyyy)" — cùng ngày với dòng "Lập ngày" đầu mục lục,
+cùng một biến lúc dựng — kèm câu chỉ khách sang cổng cho tình hình mới nhất. Khối "Hợp đồng và thanh
+toán" của cổng khách đọc dữ liệu lúc mở trang, nên luôn là tình hình hiện tại — trong thời gian khách
+còn xem được vụ trên cổng (vụ đang công bố, chưa quá `client_access_until`); sau đó khách chỉ còn gói đã
+tải về. Thư công bố gói không thêm câu nào về tiền: thư đi cho mọi gói, kể cả gói của vụ không có hợp
+đồng nào.
+
 Job `ExpireClientAccess` chạy hằng ngày: khi quá `client_access_until`, vụ việc
 biến mất khỏi portal của khách. Tài khoản `client_users` không còn vụ việc nào
 thì tự đặt `is_active = false`. Dữ liệu vẫn nguyên trong hệ thống nội bộ.
@@ -1785,16 +1796,19 @@ mẫu nào (kể cả đã xoá), nên máy chủ mà văn phòng đã tự so�
 nguyên danh mục đó. Máy chủ đã có dữ liệu đổi tên bốn loại cũ bằng một migration dữ liệu
 chỉ đổi khi tên hiện tại đúng bằng tên seed cũ.
 
-**Bổ sung 2026-10-03 (M9 Task 13) — tiền mẫu.** `BillingSeeder`, gọi cuối `DemoDataSeeder` (chỉ
-dữ liệu mẫu, không bao giờ `ReferenceDataSeeder`), dựng hợp đồng, lịch thu và khoản thu qua đúng
-các Action tiền, đủ để mọi màn hình tiền có dữ liệu thật: mọi vụ đã rời giai đoạn đầu có hợp đồng
-đang hiệu lực, một vụ ở "Tiếp nhận" có bản nháp, một vụ cố ý không có hợp đồng; giá trị 15–450
+**Bổ sung 2026-10-03 (M9 Task 13) — tiền mẫu.** `BillingSeeder`, gọi sau `MatterSeeder` trong
+`DemoDataSeeder` (chỉ dữ liệu mẫu, không bao giờ `ReferenceDataSeeder`), dựng hợp đồng, lịch thu và
+khoản thu qua đúng các Action tiền, đủ để mọi màn hình tiền có dữ liệu thật: mọi vụ đã rời giai đoạn
+đầu có hợp đồng đang hiệu lực, một vụ ở "Tiếp nhận" có bản nháp, một vụ của danh sách cố ý không có
+hợp đồng (vụ mở từ tiếp nhận của M10 cũng chưa có — xem đính chính M10 dưới); giá trị 15–450
 triệu đồng, thuế 8%, 10% hoặc không có; lịch 30% khi ký / 40% khi nộp đơn / 30% khi xét xử sơ
 thẩm trên ít nhất bốn hợp đồng; đợt quá hạn theo ngày và theo giai đoạn; thu một phần; một lần
 miễn có lý do; một khoản thu đã huỷ kèm lý do; một phụ lục; vụ đã kết thúc còn nợ; vụ `restricted`
 có hợp đồng; một vụ bàn giao có khoản thu trước và sau; khoản thu rải trên ít nhất tám tháng; tổng
 các đợt khớp giá trị hợp đồng tới từng đồng (`billing:check-invariants` sạch). Để có tám tháng,
-vụ mẫu thứ i mở `30 + 12·i` ngày trước (vụ cũ nhất khoảng chín tháng).
+vụ mẫu thứ i mở `30 + 12·i` ngày trước (vụ cũ nhất khoảng chín tháng). *(Sửa 2026-10-04, việc sau
+gộp M9 + M10: bản đầu ghi `BillingSeeder` "gọi cuối `DemoDataSeeder`" và "một vụ cố ý không có hợp
+đồng" — từ khi gộp M10, `IntakeSeeder` chạy sau nó và thêm vụ thứ 23 chưa có hợp đồng.)*
 
 **Đính chính 2026-10-03 (M10 Task 8 — tiếp nhận).** Thêm dữ liệu mẫu tiếp nhận (`IntakeSeeder`, gọi
 cuối `DemoDataSeeder`, nên không bao giờ chạy production qua `DatabaseSeeder`): 12 lần có người liên

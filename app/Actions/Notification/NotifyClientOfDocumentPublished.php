@@ -174,7 +174,12 @@ class NotifyClientOfDocumentPublished
 
     /**
      * Cùng hình dạng `NotifyClientOfStageUpdate::alreadyDelivered()` — không cần khoá bổ sung
-     * (xem docblock lớp).
+     * (xem docblock lớp) — CỘNG điều kiện mẫu (việc sau gộp M9 + M10, làn fu3, Task 1 mục B):
+     * `Document` không chỉ là `related` của mẫu này. `staff.handover_ready` gắn vào chính gói bàn
+     * giao, nên một địa chỉ vừa là của nhân sự vừa là tài khoản cổng của khách đã có một dòng `sent`
+     * về đúng tài liệu ấy TRƯỚC khi gói được công bố; thiếu điều kiện mẫu, thư báo khách bị bỏ qua
+     * im lặng như "đã gửi". Một mẫu sau này gắn vào tài liệu (thư rút công bố chẳng hạn) cũng vậy.
+     * Nút "Gửi lại" ({@see ResendTargets}) hỏi cùng hàm này nên đọc cùng định nghĩa.
      */
     public function alreadyDelivered(Document $document, ClientUser $recipient): bool
     {
@@ -182,6 +187,7 @@ class NotifyClientOfDocumentPublished
             ->withoutGlobalScopes()
             ->where('related_type', $document->getMorphClass())
             ->where('related_id', $document->getKey())
+            ->where('template', DocumentPublishedMail::TEMPLATE)
             ->where('recipient', $recipient->email)
             ->where('status', OutboundStatus::Sent)
             ->exists();

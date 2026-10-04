@@ -596,7 +596,7 @@ it('mentions the matter code in the follow-up notification body', function () {
 it('never turns a successful client reply into an exception when the follow-up notification blows up', function () {
     app()->bind(ResolveStaffRecipients::class, fn () => new class extends ResolveStaffRecipients
     {
-        public function handle(Matter $matter, array $preferred): Collection
+        public function handle(Matter $matter, array $preferred, array $mustAllow = []): Collection
         {
             throw new RuntimeException('Hỏng có chủ ý để đo khả năng chịu lỗi.');
         }

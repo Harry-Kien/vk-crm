@@ -443,6 +443,48 @@ biết trước ô chọn loại vụ việc sẽ hiện gì:
   hợp đồng đang chạy khi bắt đầu dùng hệ thống" — đặc biệt luật "đợt của giai đoạn đã qua nhập là
   đến hạn theo ngày".
 
+**Bản cập nhật M10 (tiếp nhận) làm gì trên máy chủ đã có dữ liệu:**
+
+- `migrate --force` chỉ THÊM hai bảng mới và hai cột của một trong hai bảng đó, không sửa bảng nào
+  đã có — bốn migration: `2026_09_30_000001_create_intake_requests_table` (bảng `intake_requests`,
+  mỗi lần có người liên hệ văn phòng là một dòng), `2026_09_30_000002_create_intake_parties_table`
+  (bảng `intake_parties`, các bên đối lập người liên hệ kể),
+  `2026_10_01_000001_add_conflict_red_pending_since_to_intake_requests_table` và
+  `2026_10_04_000001_add_merge_chain_matter_id_to_intake_requests_table` (hai cột của
+  `intake_requests`; migration sau điền ngược cho những bản ghi đã gộp mà chuỗi của chúng đã thành vụ
+  việc — máy chủ chưa có bản ghi tiếp nhận nào thì không có gì để điền).
+- `db:seed --force` (`ReferenceDataSeeder`) tạo ba quyền mới — `intake.create`, `intake.viewAny`,
+  `intake.convert` — và gắn chúng vào vai trò theo bảng SPEC §5: quản trị viên và quản lý cả ba, luật
+  sư `intake.create` và `intake.convert`, trợ lý `intake.create`, kế toán không quyền nào.
+  **Bắt buộc**: chưa chạy thì menu **Tiếp nhận** không hiện với ai, kể cả quản trị viên (mở thẳng
+  đường dẫn cũng ra 404), và trang "Bức tranh đầu vào" cùng widget "Liên hệ chưa ai gọi lại" cũng
+  vắng. Không tạo bản ghi tiếp nhận nào: dữ liệu mẫu tiếp nhận (`IntakeSeeder`) chỉ nằm trong
+  `DemoDataSeeder`.
+- Hai tác vụ mới chạy dưới dòng cron sẵn có (không thêm dòng cron nào):
+  - `intakes.remind-unanswered`, mỗi 15 phút: một lần liên hệ còn ở "Mới" quá ngưỡng phản hồi
+    (`INTAKE_RESPONSE_HOURS` giờ làm việc, dưới) thì người được giao — không có ai thì trưởng phòng
+    hay quản trị viên — nhận thư nội bộ và chuông, không mang dữ liệu của người liên hệ. Giờ làm việc
+    là Thứ Hai–Thứ Sáu 08:00–17:30 theo `APP_TIMEZONE` (`config/vkcrm.php`, khoá `business_hours`;
+    ngày lễ chưa được trừ ra); ngoài giờ đó mỗi lượt không làm gì.
+  - `prospects.anonymise`, 03:30 hằng ngày: **ẩn danh — không hoàn tác được —** người liên hệ KHÔNG
+    thành khách đã quá hạn lưu, tức bản ghi "Văn phòng từ chối", "Khách không theo tiếp" hay "Đã gộp
+    vào bản ghi khác", chưa thành vụ việc, đã qua ngày hạn của nó. Tên, số điện thoại, email, số căn
+    cước, câu chuyện, các bên đối lập bị xoá khỏi hệ thống; mã, nguồn, trạng thái và các mốc thời gian
+    ở lại để thống kê. Chỉ các bản sao lưu cũ còn giữ dữ liệu đó, cho tới khi chúng bị dọn.
+- Hai biến `.env` tuỳ chọn — không đặt thì dùng mặc định, nên bản nâng cấp không bắt buộc sửa `.env`
+  (sửa thì chạy lại `optimize:clear`, `vkcrm:preflight`, `optimize` như Bước 7):
+  - `PROSPECT_RETENTION_MONTHS` — số tháng giữ dữ liệu người liên hệ không thành khách, mặc định 24
+    (`.env.example` ghi sẵn 24; trống, 0, số âm hay chữ cũng về 24). Hạn của mỗi bản ghi tính MỘT
+    lần, ngày bản ghi vào một trong ba trạng thái trên (hôm đó cộng số tháng này); đổi biến sau đó
+    không dời hạn của bản ghi đã có. Bản ghi còn mở hoặc đã thành vụ việc không có hạn. Con số 24 là
+    mặc định của kế hoạch M10, **chưa được luật sư xác nhận**: xác nhận với luật sư TRƯỚC khi nhân sự
+    bắt đầu dùng màn hình Tiếp nhận, không đợi tới lúc bản ghi đầu tiên tới hạn — bản ghi đã đóng trước
+    khi đổi biến giữ hạn cũ, và lượt 03:30 ẩn danh nó đúng hạn đó mà không hỏi ai. Câu thông báo đọc
+    cho người gọi (bản nháp `2026-09-nhap`, `lang/vi/intake.php`, khoá `privacy_notice.text`) viết
+    cứng "24 tháng": đổi biến thì sửa cả câu đó, và đổi `privacy_notice.version` theo.
+  - `INTAKE_RESPONSE_HOURS` — ngưỡng phản hồi lần đầu, tính bằng giờ làm việc, mặc định 4
+    (`.env.example` để trống; trống, 0, số âm hay chữ cũng về 4).
+
 **Muốn dữ liệu mẫu để demo cho khách trước khi dùng thật** (không phải dữ liệu thật) — đọc hết
 đoạn này TRƯỚC khi chạy lệnh. Dữ liệu mẫu có tám tài khoản nhân sự, cùng mật khẩu `password`,
 và CHƯA tài khoản nào có 2FA: `admin@luatvukhang.com` (Quản trị viên), `quanly@luatvukhang.com`,
@@ -656,7 +698,11 @@ php artisan up
 - `php artisan down` trả trang bảo trì (503) cho mọi người trong lúc cập nhật, để không ai ghi dữ
   liệu giữa chừng một migration.
 - `db:seed --force` an toàn để chạy lại (Bước 5) và NÊN chạy: bản mới có thể thêm quyền hay loại vụ
-  việc (bản M9 thêm bốn quyền tiền — không chạy thì không ai mở được màn hình tiền, xem Bước 5).
+  việc. Bản M9 thêm bốn quyền tiền (`billing.view`, `contract.manage`, `payment.record`,
+  `revenue.viewAny`) — không chạy thì không ai mở được màn hình tiền; bản M10 thêm ba quyền tiếp nhận
+  (`intake.create`, `intake.viewAny`, `intake.convert`) — không chạy thì menu Tiếp nhận không hiện
+  với ai, kể cả quản trị viên. Từng bản làm gì trên máy chủ đã có dữ liệu: Bước 5, các đoạn "Bản cập
+  nhật …".
 - `billing:check-invariants` in bảng những hợp đồng đang hiệu lực mà tổng các đợt lệch giá trị hợp
   đồng (mã thoát 1). `vkcrm:preflight` ngay sau cũng ĐỎ vì cùng lý do. Dòng ĐỎ này là DỮ LIỆU,
   không phải cấu hình máy, và chỉ sửa được trong app: vẫn `up`, rồi luật sư phụ trách ký ngay một

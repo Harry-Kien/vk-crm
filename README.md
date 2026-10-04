@@ -186,9 +186,17 @@ Tóm tắt những điều không được bỏ qua:
   Chi tiết: `docs/CAI-DAT.md`, "Nâng cấp lên bản mới".
   - `db:seed --force` chạy `ReferenceDataSeeder` (vai trò, quyền, loại vụ việc, danh mục mẫu; chỉ
     thêm, không ghi đè thứ quản trị viên đã sửa): đây là bước mang **bốn quyền tiền** của M9
-    (`billing.view`, `contract.manage`, `payment.record`, `revenue.viewAny`) tới một máy chủ đã
-    có dữ liệu — bỏ bước này thì không ai, kể cả quản trị viên, mở được trang Công nợ, trang
-    Doanh thu hay tab "Hợp đồng và thanh toán" (vai trò chưa mang quyền nào trong bốn quyền đó).
+    (`billing.view`, `contract.manage`, `payment.record`, `revenue.viewAny`) và
+    **ba quyền tiếp nhận** của M10 (`intake.create`, `intake.viewAny`, `intake.convert`) tới một máy
+    chủ đã có dữ liệu — bỏ bước này thì không ai, kể cả quản trị viên, mở được trang Công nợ, trang Doanh thu hay
+    tab "Hợp đồng và thanh toán", và menu Tiếp nhận không hiện với ai (vai trò chưa mang quyền nào
+    trong bảy quyền đó).
+  - Bản M10 (tiếp nhận) thêm hai tác vụ lịch dưới dòng cron sẵn có — `intakes.remind-unanswered`
+    mỗi 15 phút, và `prospects.anonymise` lúc 03:30, ẩn danh (không hoàn tác được) người liên hệ
+    không thành khách đã quá hạn lưu — cùng hai biến `.env` tuỳ chọn, `PROSPECT_RETENTION_MONTHS`
+    (mặc định 24, chờ luật sư xác nhận trước khi dùng màn hình Tiếp nhận) và `INTAKE_RESPONSE_HOURS`
+    (mặc định 4 giờ làm việc). Chi tiết từng bản: `docs/CAI-DAT.md`, Bước 5, các đoạn "Bản cập nhật
+    M9 …" và "Bản cập nhật M10 (tiếp nhận) …".
   - `billing:check-invariants` quét mọi hợp đồng đang hiệu lực: tổng các đợt phải khớp đúng giá
     trị hợp đồng; lệch thì in bảng từng hợp đồng và trả mã thoát 1. `vkcrm:preflight` có cùng phép
     kiểm thành một dòng (ĐỎ khi lệch). Sửa một hợp đồng lệch bằng phụ lục, không sửa thẳng CSDL —

@@ -33,6 +33,12 @@ nghiệm thu đi hết trên dữ liệu mẫu — `tests/Feature/Intake/IntakeA
 gộp vào `main`** lúc viết. Chi tiết, phán quyết và những gì còn chờ chủ văn phòng/luật sư xác nhận ở
 `docs/PROGRESS.md`, "Ghi chú M10".
 
+**Cập nhật 2026-10-04 (việc sau gộp M9 + M10).** M10 đã gộp vào `main` (`b2e02d7`, 2026-10-04): mọi dòng
+**[Xong]** của giai đoạn này là trạng thái của `main`. Nâng một máy chủ đang chạy lên bản này:
+`docs/CAI-DAT.md`, Bước 5, "Bản cập nhật M10 (tiếp nhận) làm gì trên máy chủ đã có dữ liệu" — đặc
+biệt `db:seed --force` (thiếu nó thì menu Tiếp nhận không hiện với ai) và con số
+`PROSPECT_RETENTION_MONTHS` phải được luật sư xác nhận TRƯỚC khi nhân sự bắt đầu ghi tiếp nhận.
+
 **Cập nhật 2026-10-04 (rà soát cuối M10, vòng sửa 1).** Ba câu dưới đây từng hứa nhiều hơn hệ thống làm,
 đã sửa cho đúng mã: "người nhập chỉ thấy mã hồ sơ và vai" (nay đúng với khớp Đỏ; khớp Vàng vẫn hiện tên
 để người nhập tự xem), "người gọi lại cũng bị khoá" (chỉ khi cùng vai đã khai), "cùng số là cùng một
@@ -76,8 +82,9 @@ người" (chỉ là gợi ý).
    **Không thành:** "Khách không theo tiếp", hoặc "Từ chối" kèm lý do. Từ chối vì xung đột thì chỉ nói
    với người gọi **"Văn phòng xin phép không nhận vụ việc này"**, không giải thích thêm.
 7. **Dữ liệu người không thành khách** tự ẩn danh sau hạn lưu. Ai yêu cầu xoá: báo admin, admin dùng
-   "Xoá dữ liệu theo yêu cầu" và ghi cách đã xác minh người yêu cầu (bản sao lưu còn dữ liệu cũ tới
-   khoảng 30 ngày).
+   "Xoá dữ liệu theo yêu cầu" và ghi cách đã xác minh người yêu cầu. Bản sao lưu cũ còn dữ liệu cho tới
+   khi bị dọn — 30 bản đêm gần nhất, cộng khoảng 30 ngày trong Thùng rác của Google Drive: thường
+   khoảng hai tháng, lâu hơn nếu có đêm sao lưu bị lỡ (`docs/SAO-LUU-KHOI-PHUC.md`).
 
 **Luật nghề nghiệp đứng sau giai đoạn này.** Nếu nghe hết câu chuyện rồi mới phát
 hiện bên kia là khách hàng hiện hữu thì thông tin bí mật đã nghe rồi và không rút lại
@@ -161,11 +168,12 @@ dòng chưa ai xem quá năm ngày thì nhắc luật sư gọi điện.
 4. Ghi nhầm: **Huỷ khoản thu** trên dòng của đợt (chọn khoản cần huỷ), hoặc — khi đợt đã thu đủ và
    không còn trong bảng — ở mục **Khoản thu gần đây** cuối trang. Mục này mặc định chỉ có khoản thu
    có ngày tiền về trong **90 ngày** gần nhất; khoản cũ hơn (như khoản ghi lùi ngày lúc nhập hợp đồng
-   cũ, xem mục dưới) thì **gõ mã hồ sơ** vào bộ lọc "Mã hồ sơ": mục hiện mọi khoản thu chưa huỷ của
-   hồ sơ đó, cũ đến đâu cũng vậy. Lý do ít nhất 20 ký tự. Khoản đã huỷ không bị xoá, chỉ ra khỏi mọi
+   cũ, xem mục dưới) thì mở bộ lọc của mục, **gõ mã hồ sơ** vào ô "Mã hồ sơ" rồi **bấm "Áp dụng bộ
+   lọc"**: mục hiện mọi khoản thu chưa huỷ của hồ sơ đó, cũ đến đâu cũng vậy. Gõ xong mà chưa bấm thì
+   danh sách chưa đổi. Lý do ít nhất 20 ký tự. Khoản đã huỷ không bị xoá, chỉ ra khỏi mọi
    tổng; trạng thái đợt lùi lại đúng như trước. Hợp đồng đã hoàn tất thì không huỷ khoản thu được.
    Vụ hạn chế không có trên trang của kế toán: quản trị viên huỷ ở chính mục này (khoản cũ hơn 90
-   ngày: cũng gõ mã hồ sơ); luật sư phụ trách huỷ trên tab **Hợp đồng và thanh toán** của vụ, nhưng nút ở đó chỉ huỷ khoản
+   ngày: cũng gõ mã hồ sơ rồi bấm "Áp dụng bộ lọc"); luật sư phụ trách huỷ trên tab **Hợp đồng và thanh toán** của vụ, nhưng nút ở đó chỉ huỷ khoản
    **mới nhất** chưa huỷ của đợt — muốn huỷ một khoản cũ hơn thì huỷ lần lượt từ mới về cũ rồi ghi
    lại những khoản đúng.
 5. Doanh thu của một khoản thu tính cho **luật sư phụ trách lúc tiền về**; bàn giao vụ sau đó không
@@ -198,8 +206,9 @@ việc đã đi được nửa đường. Nhập chúng như sau (phép đo:
    trang Công nợ, cổng khách và thư nhắc 08:00 — hệ thống không phân biệt được "chưa thu" với
    "đã thu mà chưa nhập". Ghi nhầm (sai đợt, sai ngày, sai số tiền) thì huỷ rồi ghi lại cho đúng:
    khoản ghi lùi hơn 90 ngày **không hiện** ở mục **Khoản thu gần đây** của trang Công nợ cho tới khi
-   **gõ mã hồ sơ** vào bộ lọc "Mã hồ sơ" của mục đó (xem "Kế toán ghi tiền", bước 4; vụ hạn chế: quản
-   trị viên hoặc luật sư phụ trách huỷ).
+   **gõ mã hồ sơ** vào ô "Mã hồ sơ" của bộ lọc mục đó **rồi bấm "Áp dụng bộ lọc"** — gõ mà chưa bấm thì
+   danh sách chưa đổi (xem "Kế toán ghi tiền", bước 4; vụ hạn chế: quản trị viên hoặc luật sư phụ trách
+   huỷ).
 5. Kiểm: trang Doanh thu, kỳ chứa ngày ký — lát "Quá hạn" phải đúng bằng số khách thật sự còn nợ
    quá hạn (thường là 0); `php artisan billing:check-invariants` sạch.
 

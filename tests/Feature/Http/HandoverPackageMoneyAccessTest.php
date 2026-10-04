@@ -7,9 +7,12 @@ use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Enums\HandoverPackageStatus;
 use App\Enums\MatterRole;
+use App\Enums\Permission;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\DocumentsRelationManager;
+use App\Jobs\SendHandoverPackageReady;
+use App\Mail\Staff\HandoverPackageReady;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Contract;
@@ -24,6 +27,7 @@ use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Tests\Support\PdfText;
@@ -254,4 +258,178 @@ it('keeps the package of a restricted matter from a former lead whose role was s
     $this->actingAs($formerLead, 'web')
         ->get($issued->downloadUrlFor($formerLead))
         ->assertOk();
+});
+
+// ---------------------------------------------------------------------------------------------
+// Việc sau gộp M9 + M10 (làn fu3, Task 1 mục C — dư r4 của làn m9f): chuông và thư "gói sẵn sàng"
+// chỉ tới người MỞ ĐƯỢC và CÔNG BỐ ĐƯỢC chính gói đó. Thư bảo người nhận xem gói, công bố, rồi khách
+// sẽ được báo; báo cho người không tải được (404, không có nút "Tải") hay không công bố được
+// (thiếu `document.publish`) là để gói nằm đó, không ai làm gì, và khách không bao giờ nhận thư.
+// Đi qua ĐÚNG job mà `BuildHandoverPackage` vừa xếp hàng (Queue::fake giữ nó lại).
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Chạy job "gói sẵn sàng" mà lần sinh gói vừa rồi đã xếp hàng — đúng đối tượng job thật. Chuông của
+ * Filament là một thông báo xếp hàng (`Filament\Notifications\DatabaseNotification` là `ShouldQueue`),
+ * nên từ đây chỉ giữ lại chính job này trong hàng đợi giả và để hàng `sync` của bộ test ghi chuông.
+ */
+function hpmRunReadyJob(): void
+{
+    $job = Queue::pushed(SendHandoverPackageReady::class)->sole();
+
+    Queue::fake([SendHandoverPackageReady::class]);
+
+    app()->call([$job, 'handle']);
+}
+
+/** Số chuông "gói sẵn sàng" của `$user` về đúng gói này (khoá `viewData.handover_document_id`). */
+function hpmReadyBells(User $user, Document $package): int
+{
+    return $user->notifications()->where('data->viewData->handover_document_id', $package->getKey())->count();
+}
+
+/**
+ * Kịch bản của rà soát gộp M9: vụ hạn chế có hợp đồng đã ký, luật sư phụ trách bị đổi vai thành trợ
+ * lý. Họ vẫn qua `MatterPolicy::view` (matter.view + là lead), nên `ResolveStaffRecipients::handle()`
+ * trả đúng [họ] và chuỗi dự phòng không bao giờ chạy — dù họ không tải được gói (gói in tiền) và không
+ * công bố được. Người nhận phải là admin (người duy nhất ngoài lead thấy vụ hạn chế), không phải quản
+ * lý (không thấy vụ hạn chế).
+ *
+ * Mutation probe: bỏ bộ lọc khả năng khỏi lời gọi `ResolveStaffRecipients::handle()` của
+ * `SendHandoverPackageReady` — test này ĐỎ (người cũ nhận chuông và thư, admin không).
+ */
+it('tells the admin, not the restricted matter lead switched to assistant, that the package is ready', function () {
+    Mail::fake();
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $formerLead = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->restricted()->for(Client::factory())->create([
+        'lead_lawyer_id' => $formerLead->id,
+        'closed_at' => now()->subDay()->toDateString(),
+    ]);
+    hpmContract($matter, ContractStatus::Active);
+
+    $formerLead->syncRoles([Role::Assistant->value]);
+    $formerLead = User::query()->findOrFail($formerLead->id);
+
+    $package = hpmPackage($matter, $formerLead);
+
+    // Tiền đề: vẫn xem được vụ, nhưng không mở được gói, không công bố được gói; admin làm được cả hai.
+    expect(Gate::forUser($formerLead)->allows('view', $matter))->toBeTrue()
+        ->and(Gate::forUser($formerLead)->allows('download', $package))->toBeFalse()
+        ->and(Gate::forUser($formerLead)->allows('publish', $package))->toBeFalse()
+        ->and(Gate::forUser($admin)->allows('download', $package))->toBeTrue()
+        ->and(Gate::forUser($admin)->allows('publish', $package))->toBeTrue();
+
+    hpmRunReadyJob();
+
+    expect(hpmReadyBells($formerLead, $package))->toBe(0)
+        ->and(hpmReadyBells($manager, $package))->toBe(0)
+        ->and(hpmReadyBells($admin, $package))->toBe(1);
+
+    Mail::assertSent(HandoverPackageReady::class, 1);
+    Mail::assertSent(HandoverPackageReady::class, fn (HandoverPackageReady $mail): bool => $mail->hasTo($admin->email));
+});
+
+/**
+ * Vế dương: ca thường không đổi — luật sư phụ trách (tải được, công bố được gói in tiền) và quản lý đã
+ * bấm sinh gói đều được báo; trợ lý trong đội (không thấy tiền, không công bố) không có mặt trong danh
+ * sách ưu tiên nên vốn không được báo.
+ */
+it('still tells the lead and the manager who asked for it when both can open and publish the package', function () {
+    Mail::fake();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    hpmContract($this->matter, ContractStatus::Active);
+    $package = hpmPackage($this->matter, $manager);
+
+    hpmRunReadyJob();
+
+    expect(hpmReadyBells($this->lead, $package))->toBe(1)
+        ->and(hpmReadyBells($manager, $package))->toBe(1)
+        ->and(hpmReadyBells($this->assistant, $package))->toBe(0);
+
+    Mail::assertSent(HandoverPackageReady::class, 2);
+    Mail::assertSent(HandoverPackageReady::class, fn (HandoverPackageReady $mail): bool => $mail->hasTo($this->lead->email));
+    Mail::assertSent(HandoverPackageReady::class, fn (HandoverPackageReady $mail): bool => $mail->hasTo($manager->email));
+});
+
+/**
+ * Job chạy trong một tiến trình còn treo phiên cổng của một khách KHÁC (cùng điều kiện test "…while an
+ * unrelated client portal session is open" ở trên): `ClientPortalScope` khi đó cắt truy vấn vụ theo
+ * khách của phiên kia. Để `$document->matter` tự nạp qua scope thì vụ ra `null`, không ai qua được
+ * `download`/`publish` — kể cả cả chuỗi dự phòng — và KHÔNG AI được báo. Job gắn sẵn vụ đã nạp không
+ * qua scope vào tài liệu gói.
+ *
+ * Mutation probe: bỏ `$document->setRelation('matter', $matter)` khỏi
+ * `SendHandoverPackageReady::handle()` — test này ĐỎ.
+ */
+it('still tells the lead while an unrelated client portal session is open in the same process', function () {
+    Mail::fake();
+    hpmContract($this->matter, ContractStatus::Active);
+    $package = hpmPackage($this->matter, $this->lead);
+
+    $this->actingAs(ClientUser::factory()->activated()->create(), 'client');
+
+    hpmRunReadyJob();
+
+    expect(hpmReadyBells($this->lead, $package))->toBe(1);
+
+    Mail::assertSent(HandoverPackageReady::class, 1);
+    Mail::assertSent(HandoverPackageReady::class, fn (HandoverPackageReady $mail): bool => $mail->hasTo($this->lead->email));
+});
+
+/**
+ * Riêng vế "công bố được": vụ thường chưa từng có hợp đồng đã ký, nên gói không in tiền và người
+ * phụ trách đã bị đổi vai thành trợ lý vẫn TẢI được gói — nhưng không công bố được. Người nhận là
+ * quản lý (tầng kế của chuỗi dự phòng R3), không phải người không làm được bước kế tiếp.
+ *
+ * Mutation probe: bỏ `publish` khỏi bộ lọc khả năng của `SendHandoverPackageReady` — test này ĐỎ.
+ */
+it('does not tell a lead switched to assistant who can still download a package without money but cannot publish it', function () {
+    Mail::fake();
+    $manager = User::factory()->withRole(Role::Manager)->create();
+    $this->lead->syncRoles([Role::Assistant->value]);
+    $formerLead = User::query()->findOrFail($this->lead->id);
+
+    $package = hpmPackage($this->matter, $formerLead);
+
+    expect(Gate::forUser($formerLead)->allows('download', $package))->toBeTrue()
+        ->and(Gate::forUser($formerLead)->allows('publish', $package))->toBeFalse();
+
+    hpmRunReadyJob();
+
+    expect(hpmReadyBells($formerLead, $package))->toBe(0)
+        ->and(hpmReadyBells($manager, $package))->toBe(1);
+
+    Mail::assertSent(HandoverPackageReady::class, 1);
+    Mail::assertSent(HandoverPackageReady::class, fn (HandoverPackageReady $mail): bool => $mail->hasTo($manager->email));
+});
+
+/**
+ * Riêng vế "tải được": với bảng quyền mặc định, mọi vai có `document.publish` (luật sư, quản lý,
+ * admin) đều có `billing.view`, nên "công bố được mà không tải được gói in tiền" chỉ dựng được bằng
+ * một quyền gán thẳng — ở đây một trợ lý trong đội được gán riêng `document.publish` và là người bấm
+ * sinh gói. Hai câu hỏi là hai cổng khác nhau của `DocumentPolicy`; bộ lọc hỏi cả hai, không suy cái
+ * này từ cái kia.
+ *
+ * Mutation probe: bỏ `download` khỏi bộ lọc khả năng của `SendHandoverPackageReady` — test này ĐỎ.
+ */
+it('does not tell a requester who may publish the package but may not download it, since it prints the money', function () {
+    Mail::fake();
+    hpmContract($this->matter, ContractStatus::Active);
+    $this->assistant->givePermissionTo(Permission::DocumentPublish->value);
+    $assistant = User::query()->findOrFail($this->assistant->id);
+
+    $package = hpmPackage($this->matter, $assistant);
+
+    expect(Gate::forUser($assistant)->allows('publish', $package))->toBeTrue()
+        ->and(Gate::forUser($assistant)->allows('download', $package))->toBeFalse();
+
+    hpmRunReadyJob();
+
+    expect(hpmReadyBells($assistant, $package))->toBe(0)
+        ->and(hpmReadyBells($this->lead, $package))->toBe(1);
+
+    Mail::assertSent(HandoverPackageReady::class, 1);
+    Mail::assertSent(HandoverPackageReady::class, fn (HandoverPackageReady $mail): bool => $mail->hasTo($this->lead->email));
 });

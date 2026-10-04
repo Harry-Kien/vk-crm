@@ -35,6 +35,7 @@ use App\Models\MatterType;
 use App\Models\OutboundMessage;
 use App\Models\User;
 use App\Notifications\Staff\IntakeUnansweredAlert;
+use App\Support\Audit;
 use App\Support\Normalizer;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -693,30 +694,29 @@ it('leaves no trace of anything the contact told the office in any table once th
 
     $matter = app(OpenMatter::class)->handle($lawyer, $attributes, $parties, acknowledged: ConflictLevel::Yellow)->matter;
     $hash = Normalizer::idNumberHash('079123456789');
+    // HMAC của SĐT như sổ tra khách ghi: chữ số của đúng chuỗi đã gõ (`FindClientByIdentifier`).
+    $phoneLookupHash = Audit::identifierHash('0919876543');
+    $lookupRows = fn (): array => Activity::query()->where('event', 'client_lookup')->orderBy('id')->pluck('id')->all();
 
-    // Cặp dương: trước khi hết hạn, các chuỗi có mặt ở nhiều bảng.
+    // Cặp dương: trước khi hết hạn, các chuỗi có mặt ở nhiều bảng — kể cả hai dấu băm trong sổ tra khách.
     expect(anpFindEverywhere('zqxanp'))->not->toBe([])
         ->and(collect(anpFindEverywhere('zqxanp'))->map(fn ($hit) => strstr($hit, '#', true))->unique()->sort()->values()->all())
         ->toBe(['activity_log', 'intake_parties', 'intake_requests'])
-        ->and(anpFindEverywhere($hash))->not->toBe([]);
+        ->and(anpFindEverywhere($hash))->not->toBe([])
+        ->and(anpFindEverywhere($phoneLookupHash))->not->toBe([]);
+
+    $lookupsBefore = $lookupRows();
 
     $this->travelTo(now()->setDate(2028, 10, 4)->setTime(3, 30));
     expect(anpExpire())->toBe(['anonymised' => 2, 'skipped' => 0]);
 
-    // Dấu băm CCCD chỉ còn ở nơi PROGRESS ghi là CỐ Ý giữ ("Ghi chú M10", Task 7, mục 6): sổ an ninh
-    // `client_lookup` của lần tra khách lúc chuyển đổi. Từ khi gộp `main` (M8 Task 4:
-    // `Normalizer::idNumberHash()` = `Audit::identifierHash()`), HMAC ở đó BẰNG đúng dấu băm cũ của bản
-    // ghi — trước đó cũng là HMAC của cùng số, chỉ khác công thức nên phép tìm chuỗi không thấy.
-    $hashHits = collect(anpFindEverywhere($hash))
-        ->map(fn (string $hit): ?string => str_starts_with($hit, 'activity_log#')
-            ? Activity::query()->whereKey((int) substr($hit, strlen('activity_log#')))->value('event')
-            : $hit)
-        ->unique()
-        ->values()
-        ->all();
-
+    // Việc sau gộp M9 + M10 (làn fu3, Task 1 mục E): sổ tra khách `client_lookup` — nơi Task 7 từng CỐ Ý
+    // giữ dấu băm — nay mất dấu băm SĐT và CCCD của A (HMAC của CCCD bằng đúng dấu băm cũ của bản ghi từ
+    // M8 Task 4), còn DÒNG thì ở lại: ai tra, lúc nào, trúng hay trượt.
     expect(anpFindEverywhere('zqxanp'))->toBe([])
-        ->and($hashHits)->toBe(['client_lookup'])
+        ->and(anpFindEverywhere($hash))->toBe([])
+        ->and(anpFindEverywhere($phoneLookupHash))->toBe([])
+        ->and($lookupRows())->toBe($lookupsBefore)
         ->and(anpFindEverywhere('919876543'))->toEqualCanonicalizing([
             'intake_parties#'.$b->parties()->sole()->id,
             'matter_parties#'.$matter->parties()->where('name', 'Bên tên khác')->sole()->id,

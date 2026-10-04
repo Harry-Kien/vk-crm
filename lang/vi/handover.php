@@ -136,9 +136,14 @@ return [
          * M9 Task 10 (P1) — mục "Bảng kê thanh toán". Chỉ tiêu đề; chữ của từng dòng (đến hạn, trạng
          * thái, cách trả) đến từ `portal_progress.billing`, qua cùng hình chiếu với cổng khách, để
          * khách đọc cùng một câu ở hai nơi.
+         *
+         * `as_of` (làn fu3): dòng ngay dưới tiêu đề. Khách tải gói về và cất giữ (thư công bố gói), còn
+         * bảng kê đóng băng lúc lập gói — dòng này nói ngày "tính đến" (cùng ngày với `generated_at`) và
+         * chỉ sang cổng, nơi khối tiền đọc dữ liệu lúc mở trang. SPEC §6.12, bổ sung 2026-10-04.
          */
         'billing' => [
             'heading' => 'Bảng kê thanh toán',
+            'as_of' => 'Tính đến ngày lập gói (:date). Khoản thanh toán văn phòng ghi nhận sau ngày này không có trong bảng kê; tình hình thanh toán mới nhất xem trên cổng khách hàng, trong thời gian hồ sơ còn trên cổng.',
             'contract_code' => 'Số hợp đồng',
             'signed_on' => 'Ngày ký',
             'total' => 'Tổng giá trị hợp đồng',

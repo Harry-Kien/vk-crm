@@ -138,8 +138,9 @@ it('leaves no false overdue once the money already collected is recorded back-da
 /**
  * Ghi nhầm lúc nhập (vòng sửa 1, I1): kế toán ghi lùi "tạm ứng khi ký" 20.000.000 ngày 07/03 vào
  * nhầm đợt 3 (cũng 20.000.000). Đợt 3 sang "đã thu đủ" và rời bảng công nợ; khoản thu cũ hơn 90 ngày
- * nên cũng không có trong mục "Khoản thu gần đây" mặc định. Gõ mã hồ sơ vào bộ lọc của mục đó thì
- * thấy nó, huỷ được, rồi ghi lại cho đúng — đúng đường QUY-TRINH chỉ.
+ * nên cũng không có trong mục "Khoản thu gần đây" mặc định. Gõ mã hồ sơ vào ô "Mã hồ sơ" của bộ lọc
+ * rồi bấm "Áp dụng bộ lọc" (bộ lọc của Filament hoãn tới lúc bấm — làn fu3, Task 2 mục C) thì thấy nó,
+ * huỷ được, rồi ghi lại cho đúng — đúng đường QUY-TRINH chỉ.
  */
 it('lets the accountant void a back-dated payment recorded on the wrong instalment, months outside the recent-payments window, by typing the matter code', function () {
     [$onSigning, $filed, $accepted] = goLiveRows(goLiveContract($this->matter, $this->lead));
@@ -154,8 +155,13 @@ it('lets the accountant void a back-dated payment recorded on the wrong instalme
 
     Livewire::test(RecentPaymentsWidget::class)->assertCanNotSeeTableRecords([$wrong]);
 
-    Livewire::test(RecentPaymentsWidget::class)
-        ->filterTable('matter_code', ['code' => $this->matter->code])
+    $widget = Livewire::test(RecentPaymentsWidget::class);
+    $statePath = $widget->instance()->getTableFiltersForm()->getStatePath();
+
+    // Gõ mã vào ô của bộ lọc: chưa bấm "Áp dụng bộ lọc" thì chưa thấy gì.
+    $widget->set("{$statePath}.matter_code.code", $this->matter->code)
+        ->assertCanNotSeeTableRecords([$wrong])
+        ->call('applyTableFilters')
         ->assertCanSeeTableRecords([$wrong])
         ->callAction(TestAction::make('voidPayment')->table($wrong), data: [
             'reason' => 'Ghi nhầm vào đợt 3, đây là tiền tạm ứng khi ký.',

@@ -61,9 +61,18 @@ use Spatie\Activitylog\Models\Activity;
  *    `conflict_result` và các dòng `conflict_check_run` của mọi bản ghi khác cùng SĐT chuẩn hoá hoặc cùng
  *    dấu băm CCCD, khớp có `our_party_name` trùng (chuẩn hoá) tên một bên đối lập của bản này mà bản kia
  *    KHÔNG tự có (tên người liên hệ và tên bên đối lập của chính bản kia giữ nguyên — đó là dữ liệu của
- *    nó). Đọc định danh TRƯỚC khi xoá.
- * Những gì CỐ Ý còn giữ, và vì sao, ghi ở PROGRESS (dấu HMAC trong `client_lookup`, chữ ký `confirmed_pairs`
- * trong nhật ký của bản ghi KHÁC, bản sao lưu cũ).
+ *    nó). Đọc định danh TRƯỚC khi xoá;
+ *  - sổ tra khách (việc sau gộp M9 + M10, làn fu3, Task 1 mục E): mỗi lần ghi nhận và mỗi lần chuyển đổi
+ *    chạy `FindClientByIdentifier`, thứ ghi dòng `client_lookup` (và `client_lookup_throttled` khi chạm
+ *    trần) mang `identifier_hash` — HMAC của chữ số ĐÃ GÕ, cùng hàm băm với dấu băm CCCD của bản ghi.
+ *    `identifier_hash` của mọi dòng như vậy khớp SĐT hoặc CCCD của bản ghi thành null; DÒNG ở lại (ai
+ *    tra, lúc nào, trúng hay trượt, id khách khớp). SĐT tính theo mọi cách viết thường gặp của cùng số
+ *    ({@see self::lookupHashesOf()}), vì nhân sự khác có thể đã gõ `+84 …` thay cho `0…`. Đọc định danh
+ *    TRƯỚC khi xoá.
+ * Những gì CỐ Ý còn giữ, và vì sao, ghi ở PROGRESS (chữ ký `confirmed_pairs` trong nhật ký của bản ghi
+ * KHÁC, bản sao lưu cũ — 30 bản đêm, cộng khoảng 30 ngày trong Thùng rác của Google Drive). Dấu băm trong
+ * sổ tra khách từng nằm trong danh sách này (Task 7);
+ * làn fu3 xoá nó, và quyết định "giữ dấu băm để dò xung đột" vẫn chờ luật sư xác nhận.
  *
  * **Khoá.** Ẩn danh đổi đầu vào của kiểm tra xung đột (người này rời nguồn dò thứ hai), nên chạy dưới
  * khoá `conflict-check` — cùng khoá mà mọi đường GHI một lần kiểm tra giữ (`OpenMatter`, `AddMatterParty`,
@@ -92,6 +101,12 @@ class AnonymiseProspect
 
     /** Các sự kiện nhật ký của chính bản ghi mang dữ liệu người liên hệ — xem docblock lớp. */
     private const OWN_TRAIL_EVENTS = ['conflict_check_run', 'intake_conflict_overridden', 'intake_conflict_acknowledged'];
+
+    /**
+     * Các sự kiện của sổ tra khách mang `identifier_hash` (`FindClientByIdentifier`, và `CreateClient` khi
+     * chạm trần) — xem docblock lớp.
+     */
+    private const LOOKUP_EVENTS = ['client_lookup', 'client_lookup_throttled'];
 
     /**
      * Câu từ chối nếu bản ghi KHÔNG xoá theo yêu cầu được, null nếu được — MỘT định nghĩa cho Action và
@@ -215,6 +230,7 @@ class AnonymiseProspect
         $this->scrubOwnTrail($locked);
         $this->scrubFoundByOthers($locked->code);
         $this->scrubCarriedIntoRepeatCalls($locked, $partyNames);
+        $this->scrubClientLookups(self::lookupHashesOf($locked));
 
         $parties()->update(['name' => null, 'name_normalized' => null, 'phone_normalized' => null, 'id_number_hash' => null]);
 
@@ -350,6 +366,68 @@ class AnonymiseProspect
                         $row, $row->properties?->all() ?? [], self::scrubResult($row->properties?->all() ?? [], $never, $isCarried),
                     ));
             });
+    }
+
+    /**
+     * Sổ tra khách — xem docblock lớp: `identifier_hash` của mọi dòng `client_lookup`/
+     * `client_lookup_throttled` mang một trong `$hashes` thành null; dòng và mọi khoá khác ở lại.
+     *
+     * @param  list<string>  $hashes
+     */
+    private function scrubClientLookups(array $hashes): void
+    {
+        if ($hashes === []) {
+            return;
+        }
+
+        Activity::query()
+            ->whereIn('event', self::LOOKUP_EVENTS)
+            ->whereIn('properties->identifier_hash', $hashes)
+            ->get()
+            ->each(function (Activity $row): void {
+                $properties = $row->properties?->all() ?? [];
+
+                $this->saveProperties($row, $properties, [...$properties, 'identifier_hash' => null]);
+            });
+    }
+
+    /**
+     * Mọi `identifier_hash` mà một lần tra SĐT hay CCCD của người này có thể đã ghi. Sổ tra khách băm
+     * CHỮ SỐ của đúng chuỗi đã gõ (`FindClientByIdentifier`), không băm dạng chuẩn hoá, nên một số điện
+     * thoại cho nhiều dấu băm: chuỗi đã lưu của bản ghi (đúng thứ lần ghi nhận và lần chuyển đổi đã tra),
+     * cộng các cách viết mà `Normalizer::phone()` đưa về cùng một số: dạng chuẩn hoá (`84…`, cả `+84 …`) và
+     * `00` + dạng đó với mọi số; riêng số Việt Nam (dạng chuẩn hoá bắt đầu bằng `84`) thêm `0…`, số thuê
+     * bao trần và `840…` (`+84 (0) …`) — với số nước ngoài, cắt hai chữ số đầu ra là số của người khác.
+     * CCCD: dấu băm của bản ghi đã là HMAC của chữ số (`Normalizer::idNumberHash()` =
+     * `Audit::identifierHash()`). Đọc TRƯỚC khi xoá cột.
+     *
+     * @return list<string>
+     */
+    private static function lookupHashesOf(IntakeRequest $intake): array
+    {
+        $digitForms = [preg_replace('/\D+/', '', (string) $intake->contact_phone) ?? ''];
+        $normalized = $intake->contact_phone_normalized;
+
+        if ($normalized !== null) {
+            $digitForms[] = $normalized;
+            $digitForms[] = '00'.$normalized;
+
+            if (str_starts_with($normalized, '84')) {
+                $subscriber = substr($normalized, 2);
+
+                array_push($digitForms, '0'.$subscriber, $subscriber, '840'.$subscriber);
+            }
+        }
+
+        $hashes = collect($digitForms)
+            ->filter(fn (string $digits): bool => $digits !== '')
+            ->map(fn (string $digits): string => Audit::identifierHash($digits));
+
+        if ($intake->contact_id_number_hash !== null) {
+            $hashes->push($intake->contact_id_number_hash);
+        }
+
+        return $hashes->unique()->values()->all();
     }
 
     /**
