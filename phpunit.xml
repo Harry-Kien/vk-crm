@@ -38,5 +38,13 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <!-- M14 (rà soát Task 1, m6): kho tài liệu ở chế độ cục bộ và không có khoá Google nào trong
+             cấu hình mặc định của tiến trình test, kể cả khi `.env` cục bộ (gitignored) đặt khác.
+             Test cần kho Drive tự đặt cấu hình trên máy chủ Drive giả (tests/Support/FakeGoogleDrive.php). -->
+        <env name="DOCUMENT_STORAGE" value="local"/>
+        <env name="GOOGLE_DRIVE_CREDENTIALS_PATH" value=""/>
+        <env name="GOOGLE_DRIVE_SHARED_DRIVE_ID" value=""/>
+        <env name="GOOGLE_DRIVE_ROOT_FOLDER_ID" value=""/>
+        <env name="GOOGLE_DRIVE_ALLOWED_MEMBERS" value=""/>
     </php>
 </phpunit>

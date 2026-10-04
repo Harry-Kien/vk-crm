@@ -792,7 +792,7 @@ Mọi số đọc theo thành ngữ `?:` + `max(1, …)` của `config/backup.ph
 
 Commit: `feat: M14 Task 1 — nền kho tài liệu: google/auth, cấu hình DOCUMENT_STORAGE và mốc bật kho, đĩa documents_remote, kết nối hàng đợi storage, chỉ mục drive_objects có thế hệ và biên nhận văn phòng, cột media và system_health`.
 
-### - [ ] Task 2 — `DriveAdapter` và `DriveClient` trên Drive REST v3 (R1, R4, R5, R6, R8, R9)
+### - [x] Task 2 — `DriveAdapter` và `DriveClient` trên Drive REST v3 (R1, R4, R5, R6, R8, R9)
 
 **Files:**
 - `app/Support/Storage/GoogleDrive/DriveAdapter.php`, `DriveClient.php`, `DriveTokenProvider.php` (interface), `ServiceAccountTokenProvider.php`, `DriveCircuitBreaker.php`, `DriveObjectIndex.php`, `DriveObjectName.php`, `DriveApiError.php`;
@@ -827,24 +827,24 @@ final class DriveClient {
 final class DriveAdapter implements \League\Flysystem\FilesystemAdapter, \League\Flysystem\ChecksumProvider { /* … */ }
 ```
 
-- [ ] `ServiceAccountTokenProvider`:
+- [x] `ServiceAccountTokenProvider`:
   - dùng `Google\Auth\Credentials\ServiceAccountCredentials`, phạm vi `https://www.googleapis.com/auth/drive`;
   - `httpHandler` chuyển request PSR-7 qua `Http` của Laravel;
   - cache token 50 phút trong store `token_cache_store`.
 
   Phạm vi `drive.file` hẹp hơn nhưng không đọc được `drives.get`. Khoá bị lộ thì xin được mọi phạm vi, nên thu hẹp chỉ che token bị lộ trong một giờ. Ghi lý do vào docblock.
-- [ ] `DriveClient`:
+- [x] `DriveClient`:
   - mọi request có `supportsAllDrives=true`; mọi danh sách có `corpora=drive&driveId=…&includeItemsFromAllDrives=true`;
   - `fields=` tường minh, không bao giờ có `webViewLink`, `webContentLink`, `thumbnailLink`, `permissions`, `exportLinks`;
   - thời gian chờ, thử lại, phân loại lỗi theo R9;
   - ngắt mạch theo R9: phạm vi `web`/`job`, store `breaker_store`. Chỉ lỗi đọc và metadata được đếm.
-- [ ] Upload resumable:
+- [x] Upload resumable:
   - `POST /upload/drive/v3/files?uploadType=resumable` lấy URI phiên;
   - `PUT` từng khối với `Content-Range`, nhận 308 kèm `Range`, đi tiếp từ byte đã nhận;
   - lỗi giữa chừng thì hỏi `bytes */<tổng>`;
   - md5 tính dần trong lúc đọc, so với `md5Checksum` trả về; lệch thì cho tệp vào thùng rác rồi ném lỗi;
   - tệp 0 byte: một `PUT` rỗng, không hỏng.
-- [ ] `DriveAdapter`:
+- [x] `DriveAdapter`:
 
   | Phương thức | Hành vi |
   |---|---|
@@ -859,9 +859,9 @@ final class DriveAdapter implements \League\Flysystem\FilesystemAdapter, \League
   | `copy` | `files.copy` + dòng chỉ mục mới |
   | `checksum` | Chỉ `md5`, hỏi Google. Thuật toán khác → `UnableToProvideChecksum` |
 
-- [ ] Khoá chứa `~`, `..`, ký tự điều khiển, hoặc bắt đầu bằng `/` → từ chối.
-- [ ] Log: phương thức, đường endpoint, mã trạng thái, `reason`, lần thử. **Không** header, không token, không thân phản hồi token, không nội dung khoá.
-- [ ] Test sống (R7): ghi 10 MB ngẫu nhiên với khối 4 MiB, kiểm checksum, đọc lại so byte, liệt kê, cho vào thùng rác, xác nhận `trashed`, đọc `drives.get` và `permissions.list`.
+- [x] Khoá chứa `~`, `..`, ký tự điều khiển, hoặc bắt đầu bằng `/` → từ chối.
+- [x] Log: phương thức, đường endpoint, mã trạng thái, `reason`, lần thử. **Không** header, không token, không thân phản hồi token, không nội dung khoá.
+- [ ] Test sống (R7): ghi 10 MB ngẫu nhiên với khối 4 MiB, kiểm checksum, đọc lại so byte, liệt kê, cho vào thùng rác, xác nhận `trashed`, đọc `drives.get` và `permissions.list`. **Task 2: đã viết `tests/Feature/Storage/GoogleDriveLiveTest.php`, tự bỏ qua khi thiếu biến `DRIVE_LIVE_*`; lượt chạy thật là PENDING OWNER (Task 8 Phần 2, phán quyết C2).**
 
 **Test bắt buộc** (`Http::fake()`, mỗi trường hợp một `it()`):
 - Token:

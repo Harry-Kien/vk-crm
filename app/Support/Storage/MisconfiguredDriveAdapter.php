@@ -4,6 +4,7 @@ namespace App\Support\Storage;
 
 use App\Exceptions\DocumentStorageMisconfigured;
 use App\Providers\DocumentStorageServiceProvider;
+use App\Support\Storage\GoogleDrive\DriveAdapter;
 use Closure;
 use League\Flysystem\ChecksumProvider;
 use League\Flysystem\Config;
@@ -12,18 +13,19 @@ use League\Flysystem\FilesystemAdapter;
 
 /**
  * Adapter Flysystem cho đĩa `documents_remote` khi kho không dùng được vì cấu hình: MỌI lời gọi ném
- * {@see DocumentStorageMisconfigured}, không lời gọi nào chạm mạng hay đĩa (kế hoạch M14 Task 1).
+ * {@see DocumentStorageMisconfigured}, không lời gọi nào chạm mạng hay đĩa (kế hoạch M14, R7).
  *
  * Vì sao một adapter ném lỗi thay vì ném ngay lúc dựng đĩa: đĩa `documents_remote` luôn có trong
  * `config/filesystems.php` (R7). Ném lúc dựng thì mọi chỗ chỉ LẤY đĩa mà chưa dùng đều hỏng chỉ vì
  * kho chưa cấu hình, kể cả khi công tắc là `local`. Ném lúc DÙNG thì chỉ đúng thao tác cần kho mới
  * hỏng, với lý do tiếng Việt.
  *
- * Ở M14 Task 1 đây là adapter duy nhất mà driver `google-drive` trả về (xem
- * {@see DocumentStorageServiceProvider}); Task 2 thay nó bằng adapter Drive thật.
+ * Driver `google-drive` ({@see DocumentStorageServiceProvider}) trả adapter này khi thiếu một trong ba
+ * khoá cấu hình của kho (đường khoá tài khoản dịch vụ, Shared Drive, thư mục gốc); đủ thì trả
+ * {@see DriveAdapter} thật (M14 Task 2).
  *
- * Cài cả {@see ChecksumProvider}, như adapter Drive thật sẽ cài (R4): `checksum()` ném thẳng từ
- * adapter, không qua đường Flysystem tự mở luồng đọc để tính md5.
+ * Cài cả {@see ChecksumProvider}, như {@see DriveAdapter} (R4): `checksum()` ném thẳng từ adapter,
+ * không qua đường Flysystem tự mở luồng đọc để tính md5.
  */
 final class MisconfiguredDriveAdapter implements ChecksumProvider, FilesystemAdapter
 {
