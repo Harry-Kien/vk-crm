@@ -311,9 +311,13 @@ Schedule::call(new FlagRetentionExpiry)
 
 /**
  * M9 Task 6: lưới an toàn cho đợt thanh toán theo giai đoạn — 07:00 hằng ngày, giờ Việt Nam. Kích hoạt
- * các đợt mà vụ ĐÃ chạm giai đoạn của chúng nhưng listener không kích hoạt (đợt thêm bằng phụ lục sau
- * khi vụ đã qua giai đoạn, lần kích hoạt hỏng ở listener, `stage_logs` ghi thẳng từ dữ liệu mẫu) — qua
- * đúng `TriggerInstalmentsForStage`, xem docblock `ReconcileStageTriggeredInstalments`.
+ * các đợt mà vụ ĐÃ chạm giai đoạn của chúng nhưng chưa được kích hoạt: lần kích hoạt hỏng ở listener, và
+ * dòng `stage_logs` ghi thẳng không phát sự kiện (dữ liệu mẫu, lệnh console) — qua đúng
+ * `TriggerInstalmentsForStage`, xem docblock `ReconcileStageTriggeredInstalments` và SPEC §6.8 (đính chính
+ * M9 Task 6). Hợp đồng kích hoạt khi vụ đã ở giữa chừng và đợt thêm bằng phụ lục cho một giai đoạn vụ đã
+ * qua thì tự kích hoạt trong transaction của chính chúng (`ActivateContract`, và `AmendContract` gọi
+ * `TriggerInstalmentsForStage::releaseAddedByAmendment()` — vòng sửa 1 của Task 6); tác vụ này chỉ còn
+ * là lưới cho hai đường đó.
  *
  * 07:00, TRƯỚC `instalments.remind` (08:00): một đợt vừa được đối chiếu kích hoạt với hạn ghi lùi
  * (đã quá hạn ngay khi ra đời) được nhắc ngay sáng hôm đó, không đợi tới hôm sau. Không 07:30
