@@ -2,6 +2,7 @@
 
 use App\Actions\Performance\BuildTeamWorkload;
 use App\Enums\Role;
+use App\Filament\Admin\Pages\TeamMember;
 use App\Filament\Admin\Pages\TeamOverview;
 use App\Models\Matter;
 use App\Models\MatterType;
@@ -33,7 +34,8 @@ uses(TestCase::class, RefreshDatabase::class);
  * vấn gộp N11 (quá 150 ms thì cột N11 rời trang tổng quan, chỉ còn trên trang của một người — phán
  * quyết ghi PROGRESS). Lần đo đầu (2026-10-04) cho N11 gộp 297,6 ms, nên phán quyết N11 áp dụng: trang
  * tổng quan không hỏi N11, trang của một người hỏi N11 cho một người — tệp này đo cả ba hình dạng.
- * Task 5 thêm trang một người (≤ 200 ms), Task 6/7 (sau khi gộp làn m13b) thêm
+ * Task 5 đo trang một người qua Livewire (≤ 200 ms; luật sư xem chính mình, trưởng phòng xem một luật
+ * sư và một trợ lý — kèm số truy vấn và các truy vấn chậm nhất), Task 6/7 (sau khi gộp làn m13b) thêm
  * "Hiệu suất theo kỳ", một quý (≤ 500 ms), Task 7 thêm ảnh chụp hai năm và tác vụ chụp (≤ 10 giây).
  *
  * Kết quả và `EXPLAIN` của MỌI truy vấn mà `BuildTeamWorkload` chạy (bắt qua query log) in ra STDERR;
@@ -306,6 +308,44 @@ it('đo trang "Theo dõi đội ngũ" trên 3.000 vụ', function () {
     $page = $median(fn () => Livewire::test(TeamOverview::class));
     $report .= sprintf("  Trang \"Theo dõi đội ngũ\" (Livewire, trưởng phòng): %.1f ms — ngân sách 300 ms\n", $page);
     expect($page)->toBeLessThan(3000.0);
+
+    // Task 5 — trang của một người, qua Livewire: mount (cổng người, nhật ký `performance_viewed` khi
+    // xem người khác) + lần vẽ đầu (dòng BuildTeamWorkload có N11, cơ cấu lĩnh vực, ba danh sách, trang
+    // đầu của bảng "Vụ việc"). Ngân sách 200 ms (R11). Kèm số truy vấn mỗi lần vẽ và sáu truy vấn chậm
+    // nhất (trung vị 5 lần).
+    $memberPages = [
+        'luật sư xem chính mình' => [$lawyers[3], $lawyers[3]],
+        'trưởng phòng xem một luật sư' => [$manager, $lawyers[3]],
+        'trưởng phòng xem một trợ lý' => [$manager, $assistants[0]],
+    ];
+    foreach ($memberPages as $label => [$viewer, $subject]) {
+        $this->actingAs($viewer->fresh(), 'web');
+        Livewire::test(TeamMember::class, ['user' => $subject->getKey()]); // làm nóng
+
+        $ms = $median(fn () => Livewire::test(TeamMember::class, ['user' => $subject->getKey()]));
+        $report .= sprintf("  Trang của một người (Livewire, %s): %.1f ms — ngân sách 200 ms\n", $label, $ms);
+        expect($ms)->toBeLessThan(3000.0);
+
+        $runs = [];
+        foreach (range(1, 5) as $_) {
+            DB::flushQueryLog();
+            DB::enableQueryLog();
+            Livewire::test(TeamMember::class, ['user' => $subject->getKey()]);
+            $runs[] = DB::getQueryLog();
+            DB::disableQueryLog();
+        }
+        $slowest = [];
+        foreach (array_keys($runs[0]) as $q) {
+            $times = array_map(fn (array $log): float => (float) ($log[$q]['time'] ?? 0), $runs);
+            sort($times);
+            $slowest[$q] = $times[2];
+        }
+        arsort($slowest);
+        $report .= sprintf("    %d truy vấn mỗi lần mở trang, tổng %.1f ms; chậm nhất:\n", count($runs[0]), array_sum($slowest));
+        foreach (array_slice($slowest, 0, 6, true) as $q => $queryMs) {
+            $report .= sprintf("      #%-2d %7.1f ms  %s\n", $q, $queryMs, mb_strimwidth(preg_replace('/\s+/', ' ', $runs[0][$q]['query']), 0, 110, '…'));
+        }
+    }
 
     if ($mariadb) {
         $explain = fn (string $sql, array $bindings): string => collect(DB::select('EXPLAIN '.$sql, $bindings))

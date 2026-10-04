@@ -9,15 +9,5 @@
 
     {{ $this->table }}
 
-    <details data-vk-performance-explain style="border:1px solid color-mix(in srgb, var(--gray-500) 30%, transparent);border-radius:0.75rem;padding:0.75rem 1rem;">
-        <summary style="cursor:pointer;font-weight:600;">{{ __('performance.how_computed') }}</summary>
-        <dl style="margin:0.75rem 0 0;display:grid;gap:0.5rem;">
-            @foreach ($this->explanations() as $explanation)
-                <div>
-                    <dt style="font-weight:600;">{{ $explanation['label'] }}</dt>
-                    <dd style="margin:0;">{{ $explanation['sentence'] }}</dd>
-                </div>
-            @endforeach
-        </dl>
-    </details>
+    @include('filament.admin.pages.performance-explanations', ['explanations' => $this->explanations()])
 </x-filament-panels::page>

@@ -3,8 +3,10 @@
 use App\Actions\Performance\BuildTeamWorkload;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\ClientRequestStatus;
+use App\Enums\Confidentiality;
 use App\Enums\MatterRole;
 use App\Enums\Role;
+use App\Filament\Admin\Pages\TeamMember;
 use App\Filament\Admin\Pages\TeamOverview;
 use App\Models\ClientRequest;
 use App\Models\Deadline;
@@ -243,3 +245,68 @@ function m13t4LeakVisibleText(string $html): string
 
     return trim((string) preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags($html), ENT_QUOTES)));
 }
+
+/**
+ * Task 5 — trang của một người, qua Livewire: mọi chữ trên trang (đầu trang, cơ cấu lĩnh vực, ba
+ * danh sách, bảng "Vụ việc", câu giải thích) và tập dòng của bảng mà trưởng phòng đọc về L và về S
+ * KHÔNG khác đi khi các vụ `restricted` của L có mặt — kể cả bảng lọc "đã kết thúc", "phụ trách",
+ * "tham gia". L và admin thấy vụ đó trên trang của L.
+ */
+it('shows the manager the same member page of L and of S, numbers, mix, lists and matters, with or without the restricted matters', function () {
+    $world = m13t4LeakWorld();
+
+    $render = function (User $viewer, User $subject): array {
+        $this->actingAs($viewer->fresh(), 'web');
+        $page = Livewire::test(TeamMember::class, ['user' => $subject->getKey()]);
+
+        $views = ['default' => [
+            'records' => $page->instance()->getTableRecords()->pluck('id')->all(),
+            'text' => m13t4LeakVisibleText($page->html()),
+        ]];
+
+        foreach (['state' => ['open', 'closed'], 'role' => ['lead', 'supporting']] as $filter => $values) {
+            foreach ($values as $value) {
+                $page->filterTable($filter, $value);
+                $views["{$filter}:{$value}"] = [
+                    'records' => $page->instance()->getTableRecords()->pluck('id')->all(),
+                    'text' => m13t4LeakVisibleText($page->html()),
+                ];
+            }
+
+            $page->filterTable($filter, null);
+        }
+
+        return $views;
+    };
+
+    $before = [
+        'lead' => $render($world['manager'], $world['lead']),
+        'member' => $render($world['manager'], $world['member']),
+    ];
+
+    m13t4LeakRestricted($world);
+
+    $after = [
+        'lead' => $render($world['manager'], $world['lead']),
+        'member' => $render($world['manager'], $world['member']),
+    ];
+
+    foreach ($before as $subject => $views) {
+        expect(array_keys($after[$subject]))->toBe(array_keys($views));
+
+        foreach ($views as $view => $content) {
+            expect($after[$subject][$view])->toBe($content, "trang của {$subject} khác đi ở {$view}");
+        }
+    }
+
+    $secret = Matter::query()->where('lead_lawyer_id', $world['lead']->id)->get()
+        ->first(fn (Matter $matter): bool => $matter->confidentiality === Confidentiality::Restricted && $matter->closed_at === null && $matter->is_published_to_portal);
+
+    foreach ([$world['lead'], $world['admin']] as $viewer) {
+        $this->actingAs($viewer->fresh(), 'web');
+
+        Livewire::test(TeamMember::class, ['user' => $world['lead']->getKey()])
+            ->assertCanSeeTableRecords([$secret])
+            ->assertSee($secret->code);
+    }
+});

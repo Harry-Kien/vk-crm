@@ -41,8 +41,12 @@ class PendingChecklistReviewsWidget extends TableWidget
     // Thứ tự SPEC §7.1: sau "Hồ sơ quá hạn cập nhật" (-4) và AccountWidget (-3, của Filament).
     protected static ?int $sort = -2;
 
-    /** Bí danh của mốc "khách nộp lúc" — xem {@see self::rowsFor()}. */
-    private const SUBMITTED_AT_ALIAS = 'submitted_at';
+    /**
+     * Bí danh của mốc "khách nộp lúc" — xem {@see self::rowsFor()}. Công khai từ M13 Task 5: danh
+     * sách "Giấy tờ chờ duyệt" trên trang của một người dựng trên `rowsFor()` và xếp, in theo đúng
+     * mốc này, không đặt lại tên.
+     */
+    public const SUBMITTED_AT_ALIAS = 'submitted_at';
 
     /**
      * Gác bằng `checklist.review`, không phải `matter.view`: đây là hàng chờ việc của người đi

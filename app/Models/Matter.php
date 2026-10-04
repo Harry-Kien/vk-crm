@@ -263,17 +263,31 @@ class Matter extends Model
     }
 
     /**
-     * Vụ `$subject` đang làm (M13, bảng vụ trên trang của một người): {@see self::scopeLedBy()}, HOẶC
-     * có tên trong đội ngũ với vai thuộc {@see MatterRole::supporting()}. Cùng hai vế với N1 + N2 — vai
-     * `observer` không tính. Chỉ thu hẹp: người gọi tự ghép `listableBy($viewer)` (R4).
+     * Vụ `$subject` giữ một ghế "việc phụ" trong đội ngũ — vai thuộc {@see MatterRole::supporting()}
+     * (luật sư cộng sự, trợ lý); không `lead`, không `observer` (M13 Task 5: bộ lọc "Tham gia" của bảng
+     * vụ và bảng cơ cấu lĩnh vực của một trợ lý trên trang của một người). Đúng tập vụ mà
+     * {@see self::scopeWithSupportingMember()} cho một dòng mang `member_id` của người đó — cùng danh
+     * sách vai; `matter_user` có khoá duy nhất `(matter_id, user_id)`, nên mỗi vụ là đúng một ghế và
+     * phép đếm vụ ở đây bằng phép đếm ghế của N2 (`TeamMemberPageTest` ghim hai hình dạng). Chỉ thu
+     * hẹp: người gọi tự ghép `listableBy($viewer)` (R4).
+     */
+    public function scopeSupportedBy(Builder $query, User $subject): Builder
+    {
+        return $query->whereHas('team', fn (Builder $team): Builder => $team
+            ->whereKey($subject->getKey())
+            ->whereIn('matter_user.role_in_matter', self::supportingRoleValues()));
+    }
+
+    /**
+     * Vụ `$subject` đang làm (M13, bảng vụ trên trang của một người): {@see self::scopeLedBy()} HOẶC
+     * {@see self::scopeSupportedBy()}. Cùng hai vế với N1 + N2 — vai `observer` không tính. Chỉ thu
+     * hẹp: người gọi tự ghép `listableBy($viewer)` (R4).
      */
     public function scopeWorkedOnBy(Builder $query, User $subject): Builder
     {
         return $query->where(fn (Builder $matters): Builder => $matters
             ->ledBy($subject)
-            ->orWhereHas('team', fn (Builder $team): Builder => $team
-                ->whereKey($subject->getKey())
-                ->whereIn('matter_user.role_in_matter', self::supportingRoleValues())));
+            ->orWhere(fn (Builder $seated): Builder => $seated->supportedBy($subject)));
     }
 
     /**

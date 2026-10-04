@@ -89,4 +89,53 @@ return [
         'not_measurable' => 'chưa bật cổng: :count',
         'empty' => 'Chưa có nhân sự nào được theo dõi.',
     ],
+
+    // Task 5 — trang của một người (`/team/{user}`): đầu trang, cơ cấu lĩnh vực, ba danh sách ngắn,
+    // bảng "Vụ việc". Tên và câu giải thích của N1–N11 dùng lại `columns`/`explain` của Task 4; trạng
+    // thái "Đã nghỉ việc" dùng lại `team_overview.inactive`.
+    'team_member' => [
+        'position' => 'Chức danh',
+        'status' => 'Trạng thái',
+        'active' => 'Đang làm việc',
+        'workload_heading' => 'Việc đang giữ',
+        // N11 rỗng: người này chưa ghi thay đổi nào vào một vụ việc người xem thấy được.
+        'no_activity' => 'Chưa có',
+        'mix' => [
+            'label' => 'Cơ cấu lĩnh vực',
+            'heading_lead' => 'Cơ cấu lĩnh vực — vụ đang phụ trách',
+            'heading_supporting' => 'Cơ cấu lĩnh vực — vụ đang tham gia (luật sư cộng sự hoặc trợ lý)',
+            'type' => 'Loại vụ việc',
+            'matters' => 'Số vụ',
+            'empty' => 'Không có vụ việc đang mở nào.',
+            'explain' => 'Cơ cấu lĩnh vực: các vụ của cột "Vụ đang phụ trách" chia theo loại vụ việc; với người không đứng tên phụ trách vụ (ví dụ trợ lý), các vụ của cột "Vụ đang tham gia". Bảng này cho bối cảnh để đọc các con số, không để so người này với người khác.',
+        ],
+        'lists' => [
+            'label' => 'Ba danh sách việc',
+            'deadlines' => 'Mốc quá hạn và 7 ngày tới',
+            'requests' => 'Yêu cầu của khách chờ trả lời',
+            'reviews' => 'Giấy tờ chờ duyệt',
+            'empty' => 'Không có việc nào.',
+            // Danh sách dài hơn TeamMember::LIST_LIMIT chỉ in phần đầu; tổng là con số đầu trang.
+            'more' => 'Hiện :shown việc gấp nhất trên tổng số :total.',
+            'explain' => 'Ba danh sách "Mốc quá hạn và 7 ngày tới", "Yêu cầu của khách chờ trả lời" và "Giấy tờ chờ duyệt" là chính các việc được đếm ở các cột Mốc quá hạn cùng Mốc 7 ngày tới, Yêu cầu chờ trả lời và Giấy tờ chờ duyệt. Mốc và giấy tờ là các dòng của bảng "Mốc thời hạn 7 ngày tới" và "Tài liệu chờ duyệt" trên trang chủ của anh/chị, chỉ giữ việc của người này. Mỗi danh sách in tối đa :limit việc gấp nhất (mốc quá hạn lâu nhất, yêu cầu chờ lâu nhất, giấy tờ nộp sớm nhất) và nói tổng số.',
+            'columns' => [
+                'subject' => 'Chủ đề',
+                'status' => 'Trạng thái',
+                'sent_at' => 'Khách gửi lúc',
+            ],
+        ],
+        'matters' => [
+            'heading' => 'Vụ việc',
+            'role' => 'Vai của người này',
+            'empty' => 'Không có vụ việc nào.',
+            'filters' => [
+                'state' => 'Tình trạng',
+                'open' => 'Đang mở',
+                'closed' => 'Đã kết thúc',
+                'role' => 'Vai',
+                'lead' => 'Phụ trách',
+                'supporting' => 'Tham gia (luật sư cộng sự hoặc trợ lý)',
+            ],
+        ],
+    ],
 ];

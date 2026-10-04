@@ -945,43 +945,43 @@ final readonly class TeamWorkloadRow {
 
 **Commit:** `feat: M13 Task 4 — trang "Theo dõi đội ngũ": BuildTeamWorkload, mỗi chỉ số một truy vấn gộp trên listableBy, đồng nhất với widget trang chủ và LoadPerLawyerWidget, "Không áp dụng" theo quyền cho cột của người phụ trách, quét rò rỉ restricted, benchmark`
 
-### - [ ] Task 5 — Trang của một người (đi sâu)
+### - [x] Task 5 — Trang của một người (đi sâu)
 
 **Tệp:**
 - sửa: `app/Filament/Admin/Pages/TeamMember.php` và view;
 - mới: `tests/Feature/Performance/TeamMemberPageTest.php`.
 
 **Bước:**
-- [ ] Đầu trang gồm:
+- [x] Đầu trang gồm:
   - tên, chức danh (`UserPosition::label()`), trạng thái (kể cả "đã nghỉ việc", R3);
   - **đúng** `TeamWorkloadRow` của người đó, gọi `BuildTeamWorkload` với một người; cột (L) in "Không áp dụng" như Task 4;
   - bảng cơ cấu lĩnh vực (N1 theo `matter_type_id`; với trợ lý, bảng cơ cấu tính trên vụ đang tham gia N2, ghi rõ trên tiêu đề bảng).
-- [ ] Bảng "Vụ việc" là bảng Filament trên Eloquent:
+- [x] Bảng "Vụ việc" là bảng Filament trên Eloquent:
   - truy vấn: `Matter::query()->listableBy($viewer)->workedOnBy($subject)` (Task 2). Trang không tự viết điều kiện trên `lead_lawyer_id` hay `role_in_matter` (`NoSecondDefinitionTest` quét tệp này);
   - cột: mã, khách, tiêu đề, giai đoạn, vai của X, "cập nhật gần nhất cho khách" tô màu bằng `MatterStaleness::color()`;
   - lọc: đang mở/đã kết thúc (`open()`/`closed()`), phụ trách/tham gia (`ledBy()`/`withSupportingMember()`);
   - mỗi dòng mở `MatterResource` `view`. Trang đó tự kiểm quyền.
-- [ ] Ba danh sách ngắn, mỗi danh sách dựng trên **truy vấn đang có** rồi thêm **scope người** của Task 2:
+- [x] Ba danh sách ngắn, mỗi danh sách dựng trên **truy vấn đang có** rồi thêm **scope người** của Task 2:
   - mốc quá hạn và 7 ngày tới: `UpcomingDeadlinesWidget::rowsFor($viewer)->heldBy($subject)`. Trang là lớp Filament nên được gọi widget;
   - yêu cầu chờ trả lời: `ClientRequest::awaitingOffice()->heldBy($subject)` trên vụ `open()` và `listableBy`;
   - giấy tờ chờ duyệt: `PendingChecklistReviewsWidget::rowsFor($viewer)->whereHas('matter', fn ($m) => $m->ledBy($subject))`.
-- [ ] Chỗ dành cho biểu đồ xu hướng; Task 7 lấp vào bằng hai widget **tự kiểm quyền** (Ràng buộc toàn cục). Trang truyền `subjectId` cho widget qua `getWidgetData()`; widget không tin giá trị đó.
-- [ ] `#[Locked] public int $subjectId`. `mount()` và `boot()` hỏi `viewPerformance` (Task 1).
-- [ ] `Audit::record('performance_viewed', $subject, [], causer: $viewer)` ở `mount()` khi người xem không phải chính người đó (R14).
+- [x] Chỗ dành cho biểu đồ xu hướng; Task 7 lấp vào bằng hai widget **tự kiểm quyền** (Ràng buộc toàn cục). Trang truyền `subjectId` cho widget qua `getWidgetData()`; widget không tin giá trị đó.
+- [x] `#[Locked] public int $subjectId`. `mount()` và `boot()` hỏi `viewPerformance` (Task 1).
+- [x] `Audit::record('performance_viewed', $subject, [], causer: $viewer)` ở `mount()` khi người xem không phải chính người đó (R14).
 
 **Test bắt buộc:**
-- [ ] Bảng vụ chứa đúng tập `listableBy(V) ∩ việc của X`:
+- [x] Bảng vụ chứa đúng tập `listableBy(V) ∩ việc của X`:
   - vụ `restricted` X phụ trách: X và admin thấy, trưởng phòng không;
   - vụ X chỉ là `observer`: không có.
-- [ ] Ba danh sách: mỗi dòng có trong widget trang chủ tương ứng của cùng người xem (Review Focus 2). Quét rò rỉ trên ba danh sách. Danh sách yêu cầu: luồng giao cho người đã xoá mềm hiện ở trang của luật sư phụ trách (cùng người với N9).
-- [ ] Sửa `subjectId` qua Livewire thì bị chặn. Mất quyền giữa chừng thì 404.
-- [ ] Trang của một trợ lý: cột (L) in "Không áp dụng", không in 0.
-- [ ] `performance_viewed`:
+- [x] Ba danh sách: mỗi dòng có trong widget trang chủ tương ứng của cùng người xem (Review Focus 2). Quét rò rỉ trên ba danh sách. Danh sách yêu cầu: luồng giao cho người đã xoá mềm hiện ở trang của luật sư phụ trách (cùng người với N9).
+- [x] Sửa `subjectId` qua Livewire thì bị chặn. Mất quyền giữa chừng thì 404.
+- [x] Trang của một trợ lý: cột (L) in "Không áp dụng", không in 0.
+- [x] `performance_viewed`:
   - đúng một dòng mỗi lần `mount()` khi xem người khác;
   - không có dòng khi xem chính mình;
   - không thêm dòng khi lọc bảng (request Livewire);
   - nhãn tiếng Việt hiện trên trang Nhật ký hệ thống.
-- [ ] Luật sư mở trang của chính mình thấy cả vụ `restricted` mình phụ trách, trong bảng và trong số đầu trang.
+- [x] Luật sư mở trang của chính mình thấy cả vụ `restricted` mình phụ trách, trong bảng và trong số đầu trang.
 
 **Commit:** `feat: M13 Task 5 — trang của một người: số đầu trang dùng lại BuildTeamWorkload, bảng vụ việc trên listableBy và Matter::workedOnBy, ba danh sách dựng từ truy vấn widget trang chủ cộng scope người, audit performance_viewed`
 

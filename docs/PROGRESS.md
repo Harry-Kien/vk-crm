@@ -4108,3 +4108,68 @@ hoạch — không từ `main` (phán quyết controller). Làn m13b tách sau T
 - **Số đo test (2026-10-04):** bộ đầy đủ SQLite song song 4635 passed / 32 skipped / 1 risky / 1 todo
   (todo = cổng tiếp nhận M10 của Task 2); bốn tệp Task 4 cùng `PerformanceAccessTest` trên MariaDB tuần
   tự 88 passed; 42 mutation probe, tất cả đỏ (báo cáo Task 4 của làn).
+
+### Task 5 — trang của một người (2026-10-04)
+
+- **Trang `TeamMember`** (`/team/{user}`) lấp khung Task 1, không tự đếm, không tự viết điều kiện
+  nghiệp vụ (`NoSecondDefinitionTest` quét nó và Action mới):
+  - **đầu trang:** tên, chức danh (`UserPosition::label()`), trạng thái ("Đang làm việc"/"Đã nghỉ
+    việc"); ĐÚNG `TeamWorkloadRow` của `BuildTeamWorkload` cho một người, có N11
+    (`withLastMatterActivity: true`, phán quyết N11 của Task 4) — mỗi con số dưới nhãn
+    `performance.columns.nX` của nó, cột (L) rỗng in "Không áp dụng", N4/N5 > 0 tô `var(--danger-600)`
+    qua `TeamOverview::dangerWhenPositive()`;
+  - **cơ cấu lĩnh vực:** Action mới `App\Actions\Performance\BuildMatterTypeMix` → DTO
+    `App\Support\Performance\MatterTypeMix` — tập N1 (`listableBy()->open()->ledBy()`) theo
+    `matter_type_id`, hoặc tập N2 (`supportedBy()`) khi `TeamRoster::leadsMatters()` sai; tiêu đề nói
+    tập nào; tổng các dòng bằng N1/N2 cho cùng người xem;
+  - **ba danh sách:** mốc = `UpcomingDeadlinesWidget::rowsFor($viewer)->heldBy()` (= N5 + N6), yêu cầu =
+    `awaitingOffice()->heldBy()` trên `open()->listableBy()` (= N9, luồng giao cho người đã xoá mềm ở
+    trang luật sư phụ trách), giấy tờ = `PendingChecklistReviewsWidget::rowsFor($viewer)` trên vụ
+    `ledBy()` (= N8, "Không áp dụng" với trợ lý);
+  - **bảng "Vụ việc"** (Filament, Eloquent): `listableBy($viewer)->workedOnBy($subject)`; lọc tình trạng
+    (`open()`/`closed()`) và vai (`ledBy()`/`supportedBy()`), không hoãn; cột mã, khách, tiêu đề, giai
+    đoạn, vai của người này (ghế của chính họ trong đội ngũ, quan hệ `team` nạp sẵn chỉ ghế đó), cập nhật
+    gần nhất cho khách (`MatterStaleness::color()`, như `MattersTable`); mỗi dòng mở trang xem vụ việc;
+  - khối "Cách tính các con số" (partial `performance-explanations.blade.php`, dùng chung với trang tổng
+    quan), câu R4; `getWidgetData()` = `['subjectId' => …]` cho hai widget xu hướng của Task 7;
+  - `performance_viewed` ở `mount()` khi xem người khác (chủ thể là người đó, `properties` rỗng); không
+    khi xem chính mình, không ở request Livewire (lọc, sắp xếp).
+- **Lệch chữ kế hoạch, có chủ đích:**
+  1. Bộ lọc "Tham gia" dùng scope mới `Matter::scopeSupportedBy()`, không `withSupportingMember()` như
+     chữ kế hoạch: `withSupportingMember()` nối ghế phụ của MỌI người, nên trên bảng của một người nó giữ
+     cả vụ người đó phụ trách mà có người khác làm cộng sự. `scopeWorkedOnBy()` nay là `ledBy() OR
+     supportedBy()` (một định nghĩa vai); `TeamMemberPageTest` ghim `supportedBy(X)` = các vụ mà
+     `withSupportingMember()` cho ra dòng `member_id = X`. **Người gộp M11:** `app/Models/Matter.php` có
+     thêm hàm này (M11 cũng sửa tệp đó).
+  2. Cơ cấu lĩnh vực là một Action (`BuildMatterTypeMix`), không phải truy vấn trong trang (CLAUDE.md:
+     nghiệp vụ ở `app/Actions`; kế hoạch chỉ nêu trang và view).
+  3. Mỗi danh sách chỉ hiện với người thấy widget trang chủ tương ứng (`canView()` của chính widget;
+     danh sách yêu cầu không có widget nên hỏi `matter.view`), cột tiêu đề chỉ với `matter.view` như
+     `MattersTable`. Hôm nay mọi vai mở được trang này đều có cả hai quyền; luật chỉ khác đi với người
+     được cấp thẳng `performance.viewAny` mà thiếu `matter.view` — người đó đọc số, không đọc nội dung
+     hồ sơ (R2: lý do kế toán không có trang này).
+  4. `PendingChecklistReviewsWidget::SUBMITTED_AT_ALIAS` thành `public` (danh sách giấy tờ xếp và in theo
+     đúng mốc "khách nộp lúc" của widget).
+- **Quét rò rỉ:** `RestrictedLeakSweepTest` thêm trang của một người — với trưởng phòng, chữ trên trang
+  của L và của S (đầu trang, cơ cấu, ba danh sách, bảng ở mặc định và ở bốn bộ lọc) cùng tập dòng của
+  bảng giống hệt khi có và khi không có các vụ `restricted` của L; L và admin thấy vụ đó.
+- **Danh sách ngắn thật sự ngắn (`TeamMember::LIST_LIMIT = 10`).** Mỗi danh sách in tối đa 10 việc gấp
+  nhất (mốc quá hạn lâu nhất, luồng chờ lâu nhất, giấy tờ nộp sớm nhất — thứ tự của widget trang chủ) và
+  câu "Hiện 10 việc gấp nhất trên tổng số N." khi còn nữa; N là chính con số đầu trang (N5 + N6, N9, N8,
+  cùng tập — test ghim). Lần đo đầu, chưa giới hạn: trên dữ liệu benchmark một luật sư giữ vài trăm việc
+  ở ba danh sách, trang 289–308 ms.
+- **Số đo Task 5 (MariaDB, dữ liệu R11 của Task 4, trung vị 5 lần, qua `Livewire::test()`):** trang của
+  một người — luật sư xem chính mình **228,7 ms** (33 truy vấn, 95,1 ms CSDL), trưởng phòng xem một luật
+  sư **241,0 ms** (34 truy vấn, 113,0 ms), trưởng phòng xem một trợ lý **235,1 ms** (31 truy vấn, 111,4
+  ms). **Vượt ngân sách 200 ms của R11 khoảng 15–20 %.** Cùng lần đo: trang tổng quan 160,0 ms ≤ 300 ms.
+  Phần CSDL chủ yếu là mười hai truy vấn gộp TOÀN văn phòng của `BuildTeamWorkload` (R11 không lọc theo
+  người trong SQL; N10 `totalsByLead()` 11–21 ms) cộng N11 cho một người (25–35 ms); phần còn lại là vẽ
+  Filament (bảng "Vụ việc" có bộ lọc, ba danh sách). Không đổi R11 ở Task 5. **Việc của Task 8:** chọn một
+  trong (a) cho hình dạng một người lọc theo người trong SQL (đổi R11 — cần kế hoạch/chủ văn phòng),
+  (b) index theo `EXPLAIN`, (c) nhận số đo này.
+- **Số đo test (2026-10-04):** bộ đầy đủ SQLite song song (trước bước giới hạn danh sách) **4666 passed /
+  32 skipped / 1 risky / 1 todo**, 0 failed, 306 tệp test; sau bước giới hạn: mọi tệp
+  `tests/Feature/Performance/` cùng các test widget, nhãn nhật ký, `ArchitectureTest`, `MatterTest` — 216
+  passed / 1 todo. MariaDB tuần tự: bảy tệp chạm tới 128 passed / 1 todo; sau bước giới hạn
+  `TeamMemberPageTest` + `RestrictedLeakSweepTest` 52 passed. 62 mutation probe, tất cả đỏ (báo cáo Task 5
+  của làn).
