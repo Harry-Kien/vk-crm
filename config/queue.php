@@ -113,6 +113,28 @@ return [
             'after_commit' => false,
         ],
 
+        /*
+         * M14 (kế hoạch R2): hàng đợi RIÊNG cho job đẩy tệp từ vùng đệm `private` lên kho Google
+         * Drive (`PushDocumentFile`, Task 3). Cùng lý do với kết nối `handover` ngay trên:
+         * `retry_after` là thuộc tính của KẾT NỐI. Job đẩy chạy tới 1800 giây (`$timeout`, một gói
+         * bàn giao tới 2 GB); `retry_after` = 2400 lớn hơn, nên worker khác không nhặt lại một job
+         * còn đang tải và chạy SONG SONG với chính nó (hai lượt tải cùng khoá đụng `object_key`
+         * unique). `tests/Feature/Storage/StorageConfigTest.php` ghim quan hệ đó bằng số.
+         *
+         * Không đọc biến môi trường: con số đi đôi với `$timeout` của job và TTL 2100 của khoá đẩy
+         * (`vkcrm.storage.lock_ttl_seconds`); hạ riêng nó là mở lại đúng lỗi chạy song song. Driver
+         * LUÔN là `database`, không theo `QUEUE_CONNECTION`: tải lên Drive không bao giờ chạy đồng
+         * bộ trong request của người vừa nộp tệp.
+         */
+        'storage' => [
+            'driver' => 'database',
+            'connection' => env('DB_QUEUE_CONNECTION'),
+            'table' => env('DB_QUEUE_TABLE', 'jobs'),
+            'queue' => 'storage',
+            'retry_after' => 2400,
+            'after_commit' => false,
+        ],
+
     ],
 
     /*

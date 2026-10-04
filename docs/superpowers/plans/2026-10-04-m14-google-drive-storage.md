@@ -723,7 +723,7 @@ Model `DriveObject`, `DriveFolder`:
 
 Commit: `docs: M14 Task 0 — khảo sát kho Google Drive: dry-run gói trên main và lane-m11, bản đồ chỗ chạm tệp, việc chờ chủ văn phòng`.
 
-### - [ ] Task 1 — Nền: gói, cấu hình, migration, model, enum, ngoại lệ, móc test
+### - [x] Task 1 — Nền: gói, cấu hình, migration, model, enum, ngoại lệ, móc test
 
 **Files:**
 - `composer.json`, `composer.lock`;
@@ -767,14 +767,14 @@ Khối cấu hình `vkcrm.storage`:
 
 Mọi số đọc theo thành ngữ `?:` + `max(1, …)` của `config/backup.php`: trống là mặc định, không phải 0.
 
-- [ ] Cài `google/auth:^1.55` bằng `/d/vkwt/m14-dev composer require`. Dán lock diff.
-- [ ] Đĩa `documents_remote`: driver `google-drive`, **không** `serve`, **không** `url`, `throw => true` (lỗi kho phải nổ ra ngoài, không thành `false` lặng lẽ).
+- [x] Cài `google/auth:^1.55` bằng `/d/vkwt/m14-dev composer require`. Dán lock diff.
+- [x] Đĩa `documents_remote`: driver `google-drive`, **không** `serve`, **không** `url`, `throw => true` (lỗi kho phải nổ ra ngoài, không thành `false` lặng lẽ).
   - Driver đăng ký bằng `Storage::extend('google-drive', …)` trong provider mới. Adapter dựng lười: thiếu cấu hình thì `DocumentStorageMisconfigured` lúc dùng, không lúc boot.
   - **Task 1 đăng ký một adapter giữ chỗ ném `DocumentStorageMisconfigured` ở mọi lời gọi; Task 2 thay bằng adapter thật.**
-- [ ] Kết nối `storage` trong `config/queue.php`: `retry_after` 2400 > `PushDocumentFile::$timeout` 1800. Docblock nói vì sao, như khối `handover`.
-- [ ] Bốn migration theo "Mô hình dữ liệu", đúng kiểu và độ dài. Vòng MariaDB thật.
-- [ ] `tests/Pest.php`: thêm `Storage::fake('documents_remote')` vào **cả hai** `beforeEach`. Thêm test nhân chứng: đĩa kho trong test luôn là đĩa giả.
-- [ ] Test cấu trúc "không I/O kho trong transaction": trong `app/Actions/` và `app/Support/Storage/`, không có `DocumentStore::remote(`, `->writeStream(`, `->readStream(`, `->checksum(` hay `Http::` nằm trong closure của `DB::transaction(`. Cùng cách quét với `ArchitectureTest.php:269`.
+- [x] Kết nối `storage` trong `config/queue.php`: `retry_after` 2400 > `PushDocumentFile::$timeout` 1800. Docblock nói vì sao, như khối `handover`.
+- [x] Bốn migration theo "Mô hình dữ liệu", đúng kiểu và độ dài. Vòng MariaDB thật.
+- [x] `tests/Pest.php`: thêm `Storage::fake('documents_remote')` vào **cả hai** `beforeEach`. Thêm test nhân chứng: đĩa kho trong test luôn là đĩa giả.
+- [x] Test cấu trúc "không I/O kho trong transaction": trong `app/Actions/` và `app/Support/Storage/`, không có `DocumentStore::remote(`, `->writeStream(`, `->readStream(`, `->checksum(` hay `Http::` nằm trong closure của `DB::transaction(`. Cùng cách quét với `ArchitectureTest.php:269`.
 
 **Test bắt buộc:**
 - Mặc định: công tắc `local`, `usesRemote() = false`. `google_drive`: `true`. Giá trị lạ (`gooogle_drive`): `false` **và** `driverIsValid() = false`. Mỗi vế một mutation probe.
