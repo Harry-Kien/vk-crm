@@ -4052,3 +4052,59 @@ hoạch — không từ `main` (phán quyết controller). Làn m13b tách sau T
 - **`MatterTest`:** bộ quét `closed_at` tách thành `matterClosedAtConditionIn(string $source)` (khuôn
   `forceDeleteCallLines()`), siết để bắt `whereBetween`/`whereDate`/`whereColumn`/`whereRelation`, so
   sánh `<`, `<=`, `>`, `>=` và so sánh Carbon (`->closed_at->lte(`); có cặp dương/âm trên fixture.
+
+### Task 4 — trang "Theo dõi đội ngũ" (N1–N11) (2026-10-04)
+
+- **Mới:** `App\Actions\Performance\BuildTeamWorkload` (mỗi chỉ số MỘT truy vấn `GROUP BY` cột quy
+  người trên `listableBy($viewer)`, không lọc tập người trong SQL; chỉ gọi scope của Task 2; hỏi
+  `viewPerformance` từng người, ném `AuthorizationException` — phòng thủ), DTO
+  `App\Support\Performance\TeamWorkloadRow` (trường (L) là `?int`: `null` = "Không áp dụng" khi và chỉ
+  khi `TeamRoster::leadsMatters()` sai). Trang `TeamOverview` dùng `Table::records()`, sắp xếp bằng PHP:
+  chỉ tên và tám cột đếm việc đang tồn (`TeamOverview::SORTABLE_COLUMNS`) sắp xếp được, "Không áp dụng"
+  xếp sau mọi số ở cả hai chiều, mọi `sortTable` khác giữ thứ tự theo tên; mốc quá hạn > 0 và quá hạn
+  cập nhật > 0 tô `var(--danger-600)` nội tuyến; công tắc "Gồm người đã nghỉ việc" (bộ lọc, không hoãn);
+  khối thu gọn "Cách tính các con số"; câu R4. `lang/vi/performance.php`: `not_applicable`,
+  `how_computed`, `columns.n1`…`n11`, `explain.n1`…`n11` + `explain.not_applicable`, `team_overview.*`.
+- **Phán quyết N11 (Task 4, 2026-10-04, theo ngưỡng kế hoạch đặt sẵn — chủ văn phòng đảo được).** Kế
+  hoạch: truy vấn gộp N11 trên dữ liệu benchmark quá 150 ms thì cột N11 rời trang tổng quan, chỉ còn
+  trên trang của một người, tính cho một người. Đo (MariaDB, `tests/Benchmark/TeamPerformanceBenchmarkTest.php`,
+  150.000 dòng nhật ký, trung vị 5 lần): N11 gộp cho 30 người **297,6 ms** (lần đo thứ hai 309,3 ms) —
+  luật sở hữu dòng của `ActivityOwningMatter` là một chuỗi `OR` trên mọi loại chủ thể, phải xét từng dòng
+  nhật ký (EXPLAIN: `activity_log` range trên index `causer`, 149.069 dòng). Vì vậy: trang tổng quan KHÔNG
+  có cột N11 và không hỏi nhật ký; `BuildTeamWorkload::handle(..., withLastMatterActivity: true)` (trang
+  của một người, Task 5) tính N11 bằng một truy vấn giới hạn ở `causer_id` của người được hỏi — **38,5 ms**
+  cho một luật sư (9.998 dòng qua index `causer`). Khoá `columns.n11`/`explain.n11` giữ cho Task 5.
+  Đảo phán quyết = cho trang tổng quan gọi `withLastMatterActivity: true` (giới hạn theo cả danh sách
+  người, cùng truy vấn) và nhận khoảng 300 ms thêm, hoặc thêm index/bảng tổng hợp ở Task 8.
+- **Số đo Task 4 (MariaDB, dữ liệu R11 trừ ảnh chụp: 3.000 vụ 5% restricted, 30 nhân sự, 15.000 mốc,
+  45.000 dòng tiến độ, 6.000 yêu cầu + 15.000 trả lời, 30.000 đầu mục, 20.000 tài liệu nhóm A, 150.000
+  dòng nhật ký, 9.000 khoản thu; trung vị 5 lần):** `BuildTeamWorkload` trang tổng quan, trưởng phòng
+  98,1 ms, admin 98,6 ms (12 truy vấn, chậm nhất là `totalsByLead()` 21,7 ms); cả trang qua Livewire
+  (mount + nhật ký + bảng) **177,7 ms** ≤ 300 ms. Hình dạng trang một người (Task 5): luật sư xem chính
+  mình + N11 111,1 ms, trưởng phòng xem một luật sư + N11 136,3 ms — phần lớn là mười hai truy vấn gộp
+  trên cả văn phòng (R11 không lọc theo người); ngân sách 200 ms của Task 5 còn chỗ cho danh sách vụ,
+  mốc, yêu cầu. Không index nào cần (EXPLAIN in ra STDERR của benchmark).
+- **Đồng nhất (Review Focus 2), qua Livewire hoặc qua đúng `rowsFor()` của widget, cho trưởng phòng và
+  luật sư:** N1 ↔ `LoadPerLawyerWidget::numberTableRows()` — widget đòi `revenue.viewAny` nhưng Filament
+  chỉ hỏi `canView()` ở `hydrateCanAuthorizeAccess()` (request cập nhật), không ở lần mount của
+  `Livewire::test()`, nên vế "luật sư" đọc widget bằng một luật sư thật (không cần nhân chứng được cấp
+  thêm quyền); N4 ↔ bản ghi bảng `StaleMattersWidget` (truy vấn đã lọc của widget qua Livewire); N5 + N6
+  ↔ `UpcomingDeadlinesWidget::rowsFor()` và `CheckDeadlines::tierFor()` (ngày 0, +7); số trong ngoặc của
+  N7 ↔ `MattersMissingDocumentsWidget::rowsFor()`, số chính ↔ `mattersAwaitingClient()` không tham số;
+  N8 ↔ `PendingChecklistReviewsWidget::rowsFor()` (không lọc `open()`, như widget); N10 ↔ chữ "Đã nộp X/Y"
+  của tab Danh mục (Livewire) cộng dồn.
+- **Quét rò rỉ (Review Focus 1)** ở `tests/Feature/Performance/RestrictedLeakSweepTest.php`: dataset là
+  tên thuộc tính của `TeamWorkloadRow` (reflection); trưởng phòng đọc đúng cùng giá trị có/không có vụ
+  `restricted` của L, admin thấy chỉ số đó đổi (fixture phải có bản ghi cho mọi chỉ số), L thấy vụ của
+  mình (trừ N2 — vụ `restricted` chỉ hiện với người phụ trách và admin); thêm một test trang: mọi dòng,
+  mọi cột, mọi thứ tự sắp xếp và chữ trên màn hình giống hệt. Task 5, 7 thêm vào tệp này; Task 6 (làn
+  m13b) quét `PerformanceRow` ở tệp riêng. Hàm toàn cục của Task 4 mang tiền tố `m13t4` (rà soát Task 1 m5).
+- **Người gộp làn m13b:** `lang/vi/performance.php` — `columns` và `explain` phải là MỘT mảng mỗi khoá
+  (khoá `n*` của Task 4 và `p*`, `reference`, `closed_period` của Task 6 chung một mảng). Hai khối
+  `'columns' => [...]` cùng cấp thì PHP giữ khối sau và nửa số câu biến mất —
+  `TeamOverviewPageTest` ("declares every top-level key of lang/vi/performance.php once") đỏ ngay.
+- **Benchmark** `tests/Benchmark/TeamPerformanceBenchmarkTest.php` (ngoài mọi testsuite): Task 5 thêm
+  trang một người; phần "Hiệu suất theo kỳ, một quý" và ảnh chụp hai năm thêm sau khi gộp m13b (Task 7/8).
+- **Số đo test (2026-10-04):** bộ đầy đủ SQLite song song 4635 passed / 32 skipped / 1 risky / 1 todo
+  (todo = cổng tiếp nhận M10 của Task 2); bốn tệp Task 4 cùng `PerformanceAccessTest` trên MariaDB tuần
+  tự 88 passed; 42 mutation probe, tất cả đỏ (báo cáo Task 4 của làn).

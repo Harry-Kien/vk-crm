@@ -875,7 +875,7 @@ final class RequestHolderAt {
 
 **Commit:** `feat: M13 Task 3 — lịch sử người giữ việc ở một khoá sự kiện: ReassignMatter ghi deadline_responsible_changed cho từng mốc và client_request_assigned cho từng luồng, UpdateDeadline ghi lần đổi người, DeadlineHolderAtDue, LeadAt và RequestHolderAt dựng người giữ tại một thời điểm, nhãn lý do trong nhật ký`
 
-### - [ ] Task 4 — Trang "Theo dõi đội ngũ" (N1–N11)
+### - [x] Task 4 — Trang "Theo dõi đội ngũ" (N1–N11)
 
 **Tệp:**
 - mới: `app/Actions/Performance/BuildTeamWorkload.php`, `app/Support/Performance/TeamWorkloadRow.php`;
@@ -907,22 +907,22 @@ final readonly class TeamWorkloadRow {
 ```
 
 **Bước:**
-- [ ] `handle()` chạy **một truy vấn gộp cho mỗi chỉ số** (R11), gốc là `listableBy($viewer)` (R4), `GROUP BY` cột quy người, **không** lọc tập người trong SQL; giữ dòng của `$subjects` bằng PHP. Chỉ gọi các scope của Task 2, không viết điều kiện nào (`NoSecondDefinitionTest` quét tệp này).
-- [ ] Hỏi `viewPerformance` cho từng `$subject` (phòng thủ); `$subjects` đến từ `TeamRoster`, đã nạp vai trò, nên không thêm truy vấn.
-- [ ] Trường (L) là `null` khi `TeamRoster::leadsMatters($subject)` sai; trang in `__('performance.not_applicable')` ("Không áp dụng").
-- [ ] Trang dùng `Table::records()` với các cột N1–N11:
+- [x] `handle()` chạy **một truy vấn gộp cho mỗi chỉ số** (R11), gốc là `listableBy($viewer)` (R4), `GROUP BY` cột quy người, **không** lọc tập người trong SQL; giữ dòng của `$subjects` bằng PHP. Chỉ gọi các scope của Task 2, không viết điều kiện nào (`NoSecondDefinitionTest` quét tệp này).
+- [x] Hỏi `viewPerformance` cho từng `$subject` (phòng thủ); `$subjects` đến từ `TeamRoster`, đã nạp vai trò, nên không thêm truy vấn.
+- [x] Trường (L) là `null` khi `TeamRoster::leadsMatters($subject)` sai; trang in `__('performance.not_applicable')` ("Không áp dụng").
+- [x] Trang dùng `Table::records()` với các cột N1–N11:
   - cột đếm việc đang tồn sắp xếp được, cột tỉ lệ thì không (R8); "Không áp dụng" xếp như giá trị rỗng, sau mọi số;
   - tô màu theo R8 (tiền lệ `StaleMattersWidget`, style nội tuyến `var(--danger-600)`);
   - tên người dẫn tới `TeamMember` (kể cả người đã nghỉ việc, R3);
   - công tắc "Gồm người đã nghỉ việc";
   - khối thu gọn "Cách tính các con số" (R6);
   - câu R4.
-- [ ] `mount()` ghi `performance_viewed` (R14, `page = team_overview`); công tắc và sắp xếp không ghi thêm.
-- [ ] N11: đo ngay ở task này. Nếu truy vấn gộp vượt 150 ms trên dữ liệu benchmark, cột N11 rời trang tổng quan, chỉ còn trên trang một người (tính cho một người), và ghi phán quyết vào PROGRESS.
-- [ ] Dựng benchmark theo R11, **trừ phần ảnh chụp** (Task 7 thêm), chèn theo lô bằng `DB::table()->insert()` như `SearchMattersBenchmarkTest`. In số đo và `EXPLAIN` ra STDERR.
+- [x] `mount()` ghi `performance_viewed` (R14, `page = team_overview`); công tắc và sắp xếp không ghi thêm.
+- [x] N11: đo ngay ở task này. Nếu truy vấn gộp vượt 150 ms trên dữ liệu benchmark, cột N11 rời trang tổng quan, chỉ còn trên trang một người (tính cho một người), và ghi phán quyết vào PROGRESS.
+- [x] Dựng benchmark theo R11, **trừ phần ảnh chụp** (Task 7 thêm), chèn theo lô bằng `DB::table()->insert()` như `SearchMattersBenchmarkTest`. In số đo và `EXPLAIN` ra STDERR.
 
 **Test bắt buộc:**
-- [ ] Mỗi cột một fixture có ca biên:
+- [x] Mỗi cột một fixture có ca biên:
   - N1 bằng `LoadPerLawyerWidget::numberTableRows()` (không bộ lọc) cho từng luật sư, với trưởng phòng và với luật sư (Review Focus 2);
   - N2 không đếm `observer` và không đếm `lead`;
   - N3 không đếm vụ đã huỷ;
@@ -931,17 +931,17 @@ final readonly class TeamWorkloadRow {
   - N9 đếm cho luật sư phụ trách khi `assigned_to` rỗng, cho người được giao khi có, và cho luật sư phụ trách khi người được giao đã xoá mềm;
   - N10 khớp `X/Y` trên tab Danh mục của từng vụ;
   - N11 không tính dòng đăng nhập, kể cả với admin; dòng khoản thu chỉ khi người xem có `billing.view`.
-- [ ] **Trợ lý:** mọi cột (L) là "Không áp dụng" trên trang, các cột còn lại là số (kể cả 0). Luật sư không có vụ nào: các cột (L) là 0, không phải "Không áp dụng". Mutation probe: đổi `leadsMatters()` sang "có vụ đang phụ trách" thì ca luật sư chỉ có vụ `restricted` (trưởng phòng xem) đỏ.
-- [ ] **Đồng nhất với trang chủ** (Review Focus 2), cho trưởng phòng và cho luật sư.
-- [ ] **Quét rò rỉ** (Review Focus 1) trên mọi thuộc tính của `TeamWorkloadRow`: trưởng phòng, luật sư phụ trách, admin.
-- [ ] Số truy vấn bằng nhau với 3 và 12 người (R11).
-- [ ] Livewire:
+- [x] **Trợ lý:** mọi cột (L) là "Không áp dụng" trên trang, các cột còn lại là số (kể cả 0). Luật sư không có vụ nào: các cột (L) là 0, không phải "Không áp dụng". Mutation probe: đổi `leadsMatters()` sang "có vụ đang phụ trách" thì ca luật sư chỉ có vụ `restricted` (trưởng phòng xem) đỏ.
+- [x] **Đồng nhất với trang chủ** (Review Focus 2), cho trưởng phòng và cho luật sư.
+- [x] **Quét rò rỉ** (Review Focus 1) trên mọi thuộc tính của `TeamWorkloadRow`: trưởng phòng, luật sư phụ trách, admin.
+- [x] Số truy vấn bằng nhau với 3 và 12 người (R11).
+- [x] Livewire:
   - sắp xếp theo N5 được;
   - gọi `sortTable` trên cột `X/Y` không đổi thứ tự;
   - công tắc người nghỉ việc;
   - có câu R4 và đủ các câu giải thích (khoá dịch tồn tại, không in ra tên khoá);
   - đúng một dòng `performance_viewed` mỗi lần `mount()`, không thêm dòng khi bật công tắc.
-- [ ] Người được theo dõi đã nghỉ việc vẫn hiện tên khi bật công tắc, và liên kết tên mở được trang của họ (200, không 404).
+- [x] Người được theo dõi đã nghỉ việc vẫn hiện tên khi bật công tắc, và liên kết tên mở được trang của họ (200, không 404).
 
 **Commit:** `feat: M13 Task 4 — trang "Theo dõi đội ngũ": BuildTeamWorkload, mỗi chỉ số một truy vấn gộp trên listableBy, đồng nhất với widget trang chủ và LoadPerLawyerWidget, "Không áp dụng" theo quyền cho cột của người phụ trách, quét rò rỉ restricted, benchmark`
 
