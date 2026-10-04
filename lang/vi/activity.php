@@ -154,6 +154,10 @@ return [
         // chủ thể là dòng `communication_logs`; không ghi nội dung cuộc liên lạc vào nhật ký.
         'communication_logged' => 'Ghi nhật ký liên lạc',
         'communication_log_deleted' => 'Xoá một dòng nhật ký liên lạc',
+        // M13 (R14): xem số liệu theo dõi/hiệu suất của NGƯỜI KHÁC — trang "Theo dõi đội ngũ"
+        // (Task 1, chủ thể rỗng, `page = team_overview`), trang của một người khác (Task 5, chủ thể
+        // là người đó), "Hiệu suất theo kỳ" với `performance.viewAny` (Task 6, `properties` mang kỳ).
+        'performance_viewed' => 'Xem số liệu hiệu suất của nhân sự',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

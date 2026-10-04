@@ -3961,3 +3961,46 @@ Gộp `--no-ff`, chưa commit (controller commit). Dòng M7 của bảng milesto
     bằng chứng).
   - Đầu mục khách nộp khi vụ còn mở rồi vụ đóng trước khi duyệt: danh mục chỉ đọc nên không duyệt
     hay từ chối được nữa, và câu cảm ơn đã hứa "sẽ gửi email nếu có gì chưa ổn".
+
+## Ghi chú M13
+
+Kế hoạch `docs/superpowers/plans/2026-10-04-m13-team-performance.md`. Làn A `m13` (nhánh
+`m13-team-performance`, worktree `D:\vkwt\lane-m13`) cắt từ đỉnh làn M9-final `558f0b5` cộng commit kế
+hoạch — không từ `main` (phán quyết controller). Làn m13b tách sau Task 2 cho Task 3, 6. Task 8 chép
+đủ phán quyết R1–R20 vào đây; mục dưới chỉ ghi việc của từng task.
+
+### Task 1 — quyền, policy, danh sách người được theo dõi, khung ba trang, đính chính SPEC, ranh giới MCP (2026-10-04)
+
+- **Quyền `performance.viewAny`** (admin qua `Permission::cases()`, quản lý tường minh), bằng đính chính
+  SPEC §5 "Bổ sung 2026-10-04". Số của chính mình: `UserPolicy::viewPerformance()` (có
+  `performance.viewAny`, hoặc chính mình với `matter.view`; và người được xem thuộc `TeamRoster`).
+  Cột doanh thu: `UserPolicy::viewPerformanceRevenue()`. Kế toán 404 ở cả ba trang.
+- **Đính chính SPEC, có ngày 2026-10-04:** §1 (dòng "Trưởng phòng / Ban lãnh đạo"), §5 (bảng quyền,
+  số của chính mình, kế toán, cột doanh thu, ranh giới MCP), §6.14 mới (định nghĩa các con số, ca biên
+  P1, R5, R6, R7, R9, R18, R19, R20), §7.1 (widget "Mốc thời hạn 7 ngày tới" gồm ngày +7 trên mọi CSDL —
+  bản sửa `scopeUpcoming()` là của Task 2), §7.5 mới (ba trang), §10 mục 6 (`performance_viewed`, lý do
+  mới của `deadline_responsible_changed`, dòng `client_request_assigned` từ bàn giao vụ — đường ghi là
+  của Task 3), §11 mục mới "Theo dõi đội ngũ", §13 (dòng M13), §15 (phần "năng suất" của mục 7 giai
+  đoạn 2 đã làm; giờ làm và tỉ lệ thắng vẫn để sau). Task 8 đối chiếu lại với mã cuối cùng.
+- **Ranh giới MCP — mang sang M11 (R13, đính chính 2026-10-04).** Bảng R4 của kế hoạch M11
+  (`docs/superpowers/plans/2026-09-24-m11-mcp.md`, "Các loại dữ liệu không bao giờ rời hệ thống qua
+  MCP") cần thêm dòng: **"Số liệu theo dõi đội ngũ và hiệu suất theo người (`performance_snapshots`,
+  mọi lớp dưới `App\Actions\Performance` và `App\Support\Performance`) — không bao giờ; không tool"**.
+  Làn M13 không sửa tệp kế hoạch của làn khác; người gộp M11 thêm dòng đó. Test cấu trúc
+  `tests/Feature/Performance/PerformanceMcpBoundaryTest.php` (quét token dưới `app/Mcp`,
+  `app/Support/Mcp`, `app/Actions/Mcp`; cặp dương trên fixture) hôm nay xanh vì rỗng — M11 chưa gộp
+  vào nhánh này — và canh từ lúc M11 gộp. M12: không `PushTopic` nào cho các con số này.
+- **Người gộp M10:** `Permission.php`, `Role.php`, `lang/vi/permissions.php`,
+  `RolesAndPermissionsTest.php` (khẳng định `toHaveCount(18)` và ma trận quyền của admin, quản lý),
+  `lang/vi/activity.php`, SPEC §5 — M10 thêm ba quyền `intake.*`: cộng số (18 + 3) và gộp ma trận; docblock
+  của `Permission` đếm cộng dồn theo milestone nên chỉ con số tổng phải sửa.
+- **Cổng của ba trang.** `canAccess()` (lần tải trang, điều hướng) và `boot()` (mọi request Livewire,
+  trước `hydrateCanAuthorizeAccess()` của Filament vốn trả 403). Kế hoạch ghi "hỏi trong `canAccess()`,
+  `mount()` và `boot()`"; `TeamOverview` và `Performance` **không** hỏi lần thứ ba trong `mount()` vì
+  Livewire gọi `boot()` TRƯỚC `mount()` ở lần mount (`SupportLifecycleHooks::mount()`), nên lần hỏi đó
+  không đường nào tới được và không mutation probe nào chứng minh được (cùng hình dạng
+  `Pages/Search.php`). Bằng chứng: bỏ dòng hỏi trong `TeamOverview::boot()` thì test "không ghi
+  `performance_viewed` cho người bị từ chối" đỏ — `mount()` đã chạy. `TeamMember::mount()` hỏi cổng
+  người (`viewPerformance`) vì id người chỉ có ở đó.
+- **Việc mang sang Task 8:** `docs/CAI-DAT.md` mục cập nhật — `db:seed --force` mang quyền
+  `performance.viewAny` cho máy chủ đã có dữ liệu (SPEC §5 đã ghi câu này).

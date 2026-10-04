@@ -41,7 +41,7 @@ của các vụ thường, trong ranh giới viết ở §5.
 | Vai trò | Guard | Mô tả |
 |---|---|---|
 | Quản trị hệ thống | `web` | Cấu hình loại vụ việc, giai đoạn, danh mục hồ sơ, người dùng, phân quyền |
-| Trưởng phòng / Ban lãnh đạo | `web` | Xem toàn bộ vụ việc, nhận cảnh báo leo thang |
+| Trưởng phòng / Ban lãnh đạo | `web` | Xem toàn bộ vụ việc, nhận cảnh báo leo thang, theo dõi tiến độ và hiệu suất của đội ngũ (M13 — bổ sung 2026-10-04, §5, §6.14, §7.5) |
 | Luật sư | `web` | Chỉ thấy vụ việc mình phụ trách hoặc được thêm vào đội ngũ |
 | Trợ lý | `web` | Hỗ trợ vụ việc được phân công, duyệt tài liệu khách nộp |
 | Kế toán | `web` | Bản 1.0 chỉ xem danh sách vụ việc, không thấy nội dung hồ sơ |
@@ -729,6 +729,20 @@ Dùng `spatie/laravel-permission`. Quyền đặt tên dạng `<resource>.<actio
 >
 > **Đính chính 2026-10-03 (M9 Task 10, rà soát vòng 1) — tải gói bàn giao là đọc tiền.** Từ M9, `MUC-LUC.pdf` trong gói bàn giao in "Bảng kê thanh toán" (§6.12). Gói là một tài liệu nhóm B của vụ, nên trước bản sửa mọi nhân sự có `matter.view` trên vụ — kể cả **trợ lý** trong đội, vai trò không có `billing.view` — tải được gói và đọc được toàn bộ tiền của vụ. Nay `DocumentPolicy::download` của nhân sự đòi thêm, **chỉ cho các version của gói bàn giao** và **chỉ khi vụ có hợp đồng đã từng ký** (khác `draft` — kể cả `cancelled`, vì gói dựng trước lần huỷ vẫn in bảng kê): người tải phải thấy được tiền của vụ theo đúng định nghĩa trên (`ContractPolicy::view`). Không có định nghĩa thứ hai. Người không tải được gói vẫn thấy dòng gói (tên, version) trên tab Tài liệu, chỉ mất nút "Tải"; mọi tài liệu khác của vụ, và gói của vụ chưa từng có hợp đồng đã ký, không đổi luật. Khách không chịu điều kiện này (bảng kê là thứ §5 phần Portal cho khách xem về vụ của chính họ).
 
+> **Bổ sung 2026-10-04 (M13 — theo dõi đội ngũ và hiệu suất).** Số liệu theo dõi và hiệu suất **theo người** (§6.14, ba trang ở §7.5) là dữ liệu truy cập về nhân sự, không phải một màn hình thao tác, nên nó nằm trong bảng vai trò này như M9 đã làm với tiền. Thêm **một** quyền (13 quyền gốc + 4 quyền tiền của M9 + 1 quyền của M13):
+>
+> | Quyền | admin | manager | lawyer | assistant | accountant |
+> |---|---|---|---|---|---|
+> | `performance.viewAny` (số liệu theo dõi và hiệu suất của **mọi** nhân sự được theo dõi; trang "Theo dõi đội ngũ") | ✓ | ✓ | — | — | — |
+>
+> **Số của chính mình không cần quyền mới.** Người thuộc danh sách theo dõi có `matter.view` (luật sư, trợ lý; quản lý thì đã có `performance.viewAny`) xem được trang của chính mình và dòng của chính mình trên "Hiệu suất theo kỳ". Một luật: `UserPolicy::viewPerformance(người xem, người được xem)` = (có `performance.viewAny` **hoặc** người xem chính là người được xem và có `matter.view`) **và** người được xem thuộc danh sách theo dõi (§6.14: luật sư, trợ lý, quản lý, chưa xoá mềm; người đã nghỉ việc vẫn thuộc danh sách). Quản lý xem được trang của một quản lý khác. Admin và kế toán không thuộc danh sách, nên trang của họ là cùng một 404 với id không tồn tại (§10 mục 10).
+>
+> **Kế toán: không gì cả** — 404 ở cả ba trang, kể cả trang "của mình". Phần đi sâu mang tên mốc thời hạn, chủ đề yêu cầu của khách, tên đầu mục giấy tờ — nội dung hồ sơ mà §1 và "Ranh giới của kế toán" ở trên giữ ngoài tầm của kế toán. Câu hỏi "doanh thu theo luật sư" của kế toán đã có trên trang Doanh thu (bộ lọc luật sư).
+>
+> **Cột doanh thu** trên dòng của một người chỉ hiện khi người xem được xem người đó (luật trên), **và** có `billing.view`, **và** (có `revenue.viewAny` **hoặc** là chính người đó) — `UserPolicy::viewPerformanceRevenue()`. Luật sư thấy doanh thu của chính mình, như trang Doanh thu cho họ thấy tiền của vụ mình; trợ lý không có `billing.view` nên không thấy cột này.
+>
+> Mọi vai trò có `performance.viewAny` cũng có `matter.viewAny` (test cấu trúc trên `Role::permissions()`): ảnh chụp số liệu hằng ngày dựa vào điều này để không lộ vụ `restricted` (§6.14, "Phạm vi xem"). Số liệu này không bao giờ rời hệ thống qua MCP (M11): không tool, không presenter nào tham chiếu các lớp `Performance` hay bảng `performance_snapshots` — test cấu trúc `PerformanceMcpBoundaryTest`, xanh vì rỗng cho tới khi M11 gộp, rồi canh từ đó. Máy chủ đã có dữ liệu nhận quyền mới qua `php artisan db:seed --force` (`RolesAndPermissionsSeeder`).
+
 **Mang sang M11, ghi 2026-09-24 (M9 Task 3), viết lại 2026-10-03 (M9 Task 13).** Dữ liệu
 tiền là dữ liệu nhạy cảm ("tài chính", Nghị định 356/2025): **tiền của vụ việc không bao giờ
 rời hệ thống qua MCP** (`contracts`, `instalments`, `payments`, `contract_amendments`, và
@@ -1229,6 +1243,197 @@ hosting.
   `name_normalized` (không dấu, `đ` → `d`); các cột còn lại theo collation (MariaDB
   `utf8mb4_unicode_ci` bỏ qua dấu và hoa/thường, nhưng `đ` khác `d`).
 
+### 6.14 Số liệu đội ngũ và hiệu suất
+
+**Bổ sung 2026-10-04 (M13 — theo dõi đội ngũ và hiệu suất; kế hoạch
+`docs/superpowers/plans/2026-10-04-m13-team-performance.md`, phán quyết R1–R20).** Chủ văn phòng
+yêu cầu ngày 2026-10-04: cấp trên theo dõi tiến độ vụ việc của luật sư/chuyên viên, và đánh giá tỉ
+lệ hoàn thành công việc. Mọi màn hình trước M13 xếp **theo vụ việc**; mục này định nghĩa các con số
+xếp **theo người**. Ba trang ở §7.5, quyền ở §5 (bổ sung 2026-10-04).
+
+**Một định nghĩa cho mỗi con số.** Mỗi số gọi lại đúng nguồn sự thật mà trang chủ, thư nhắc và trang
+doanh thu đang dùng (cột "Nguồn" dưới). Định nghĩa còn thiếu được thêm vào **đúng lớp đang giữ luật
+đó** (`Matter`, `Deadline`, `ClientRequest`, `MatterChecklistItem`, `ChecklistProgress`,
+`MatterStaleness`, `ActivityOwningMatter`, `App\Support\Billing`); mã của M13 (`App\Actions\Performance`,
+`App\Support\Performance`, ba trang, widget xu hướng, tác vụ chụp) không tự viết điều kiện nghiệp vụ
+nào, và một test cấu trúc quét token canh luật này. Mỗi con số có một câu giải thích tiếng Việt hiện
+trên trang (khối "Cách tính các con số").
+
+**Phạm vi xem — một phép đếm trên phần giao, không bao giờ một phép trừ (R4).** Mọi con số về người X
+mà người xem V đọc được tính trên **giao** của `Matter::listableBy(V)` và tập việc của X. Không số
+nào tính trên tập rộng hơn rồi trừ đi; không dòng "đã ẩn N vụ"; không tổng toàn văn phòng ngoài
+`listableBy(V)`. Hệ quả có chủ đích: cùng một người có thể có hai con số khác nhau với hai người xem
+(trưởng phòng thấy 12 vụ của luật sư A, A thấy 13 vì vụ thứ 13 là vụ `restricted` A phụ trách) —
+đúng như trang Doanh thu của M9. Mọi trang in cùng một câu cho mọi người xem, kể cả admin: "Mọi con
+số tính trên các vụ việc anh/chị được xem." Ảnh chụp hằng ngày (dùng cho xu hướng) được tính ngoài
+`listableBy` nên **đóng khi không chắc**: dòng `normal` chỉ hiện cho người có `matter.viewAny` hoặc
+cho chính người đó; dòng `restricted` chỉ khi một vụ `restricted` giả do người đó phụ trách qua được
+`Matter::isListableBy(V)`.
+
+**Ai được theo dõi (R3).** `App\Support\Performance\TeamRoster` là định nghĩa duy nhất: vai trò luật
+sư, trợ lý hoặc quản lý, và chưa xoá mềm. Admin và kế toán không vào danh sách. Người đã nghỉ việc
+(`is_active = false`) **vẫn** được theo dõi — số của kỳ họ đã làm là của họ; trang "bây giờ" mặc
+định chỉ hiện người đang hoạt động, công tắc "Gồm người đã nghỉ việc" thêm họ; trang theo kỳ mặc
+định gồm người đang hoạt động vào một lúc nào đó trong kỳ. Người đã xoá mềm không hiện ở đâu. Danh
+sách chỉ phụ thuộc vai trò, **không** phụ thuộc "có vụ mà người xem thấy được": một luật sư chỉ phụ
+trách vụ `restricted` mà biến mất khỏi danh sách của trưởng phòng thì chính sự biến mất đó lộ vụ ấy.
+
+**Quy về người (R5).** Mỗi con số quy về đúng một người, theo đúng một cột đã có:
+
+| Loại việc | Quy về | Cột / nguồn |
+|---|---|---|
+| Vụ việc, bây giờ (đang mở, đã kết thúc, quá hạn cập nhật, chờ giấy tờ khách, giấy tờ chờ duyệt, `X/Y`) | luật sư phụ trách hiện tại | `matters.lead_lawyer_id` (người §6.4 và §6.9 gửi cảnh báo) |
+| Vụ kết thúc **trong kỳ** | luật sư phụ trách **lúc vụ kết thúc** | lịch sử `matter_reassigned` (R18) |
+| Vụ tham gia | thành viên đội ngũ vai `associate` hoặc `assistant` | `matter_user.role_in_matter` (`observer` không giữ việc) |
+| Mốc thời hạn, bây giờ | người giữ mốc hiện tại | `deadlines.responsible_user_id` |
+| Mốc thời hạn, trong kỳ | người giữ mốc **vào ngày đến hạn** | lịch sử `deadline_responsible_changed` (R9) |
+| Yêu cầu của khách, bây giờ | người đang giữ luồng: người được giao còn tài khoản, không có thì luật sư phụ trách hiện tại | cùng người mà `ReplyToClientRequest` báo khi khách viết thêm |
+| Yêu cầu của khách, trong kỳ | người giữ luồng **lúc văn phòng trả lời lần đầu**; chưa trả lời tới hết kỳ thì **lúc hết kỳ** | lịch sử `client_request_assigned` và `matter_reassigned` (R18) |
+| Chuyển giai đoạn | người ghi dòng tiến độ | `stage_logs.created_by` |
+| Giấy tờ đã duyệt | người bấm duyệt hoặc từ chối | `causer_id` của dòng nhật ký `checklist_item_reviewed` |
+| Doanh thu đã thu | luật sư phụ trách tại lúc thu | `payments.attributed_lawyer_id` (M9, không bao giờ suy lại) |
+| Thao tác hồ sơ gần nhất | người gây ra dòng nhật ký | `activity_log.causer_id` |
+
+Việc không quy được về ai (ví dụ dòng lịch sử có `from` rỗng) **không** bị đoán cho ai: nó chỉ vào
+dòng tham chiếu "Chung" (mọi việc trên các vụ người xem được xem, không lọc người giữ; chỉ người có
+`performance.viewAny` thấy dòng này) của trang theo kỳ — vì vậy dòng "Chung" không bằng tổng các dòng
+bên dưới.
+
+**Các con số "bây giờ"** (trang "Theo dõi đội ngũ" và đầu trang của một người; tính tại lúc xem,
+trên vụ `listableBy(V)`; **(L)** = chỉ dành cho người phụ trách vụ, xem R6 dưới):
+
+| Mã | Con số | Cách tính | Nguồn sự thật |
+|---|---|---|---|
+| N1 (L) | Vụ đang phụ trách | đếm vụ `open()` theo `lead_lawyer_id` | `Matter::scopeOpen()`; cùng số với `LoadPerLawyerWidget` của trang Doanh thu |
+| N2 | Vụ đang tham gia | đếm vụ `open()` có người này trong đội với vai `associate`/`assistant` | `MatterRole` |
+| N3 (L) | Vụ đã kết thúc | đếm vụ `closed()` đang đứng tên người này, từ trước tới nay | `Matter::scopeClosed()` |
+| N4 (L) | Quá hạn cập nhật cho khách | vụ đang mở, đã bật cổng, cập nhật cho khách gần nhất quá 14 ngày; kèm "chưa bật cổng: N" | `MatterStaleness` (§6.4, widget §7.1 mục 1) |
+| N5 | Mốc quá hạn | mốc người này đang giữ, chưa xong, ngày đến hạn trước hôm nay, trên vụ còn mở | `Deadline` (bậc `overdue` của `CheckDeadlines`, §6.8) |
+| N6 | Mốc 7 ngày tới | mốc chưa xong, đến hạn từ hôm nay tới hết ngày thứ 7 kể từ hôm nay | `Deadline` (bậc `d7` của `CheckDeadlines`); N5 ∪ N6 = widget §7.1 mục 2 |
+| N7 (L) | Chờ giấy tờ của khách | vụ đã bật cổng còn đầu mục bắt buộc khách chưa nộp hoặc bị từ chối; trong ngoặc: số vụ đã chờ quá 14 ngày | `ChecklistProgress::mattersAwaitingClient()`; số trong ngoặc = widget §7.1 mục 4 |
+| N8 (L) | Giấy tờ chờ duyệt | đầu mục khách đã nộp mà văn phòng chưa duyệt, trên vụ người này phụ trách | `MatterChecklistItem` (widget §7.1 mục 3) |
+| N9 | Yêu cầu chờ trả lời | yêu cầu Mới hoặc Đang xử lý trên vụ còn mở mà người này đang giữ | `ClientRequest` |
+| N10 (L) | Hoàn thiện danh mục | `Σ X / Σ Y` trên các vụ đang phụ trách | `ChecklistProgress::handle()`, §4.10 |
+| N11 | Thao tác hồ sơ gần nhất | lần gần nhất người này ghi một thay đổi vào một vụ người xem được xem, theo nhật ký; đăng nhập không tính | `ActivityOwningMatter` (§10 mục 6) |
+
+N3 và P5 quy người khác nhau có chủ đích: bàn giao một vụ đã kết thúc chuyển N3 sang người nhận,
+nhưng P5 của kỳ kết thúc vẫn là của người phụ trách lúc đó.
+
+**Các con số "trong kỳ"** (trang "Hiệu suất theo kỳ"; vụ trong `listableBy(V)`; tập việc của kỳ
+nạp **không lọc người**, rồi mới quy về người):
+
+| Mã | Con số | Cách tính | Nguồn sự thật |
+|---|---|---|---|
+| P1 | Mốc đúng hạn | mốc đến hạn trong kỳ, phân loại đúng hạn / trễ / lỡ theo bảng ca biên dưới; tỉ lệ = đúng hạn / (đúng hạn + trễ + lỡ); quy về người giữ vào ngày đến hạn (R9) | `Deadline`, `SetDeadlineCompletion` |
+| P2 | Mốc đã gỡ | mốc người này giữ bị gỡ (xoá kèm lý do) trong kỳ; không vào tỉ lệ, hiện ra để tỉ lệ không đẹp lên nhờ gỡ mốc | `DeleteDeadline` |
+| P3 | Trả lời yêu cầu của khách | yêu cầu khách gửi trong kỳ (trừ yêu cầu đóng không trả lời): số đã trả lời tới hết kỳ trên tổng; thời gian từ lúc gửi tới lần trả lời đầu tiên (trung vị và trung bình); quy về người giữ luồng lúc trả lời, hoặc lúc hết kỳ nếu chưa trả lời (R18) | `ReplyToClientRequest`, `TriageClientRequest` |
+| P4 (L) | Chuyển giai đoạn | số lần người này đưa một vụ **vào** một giai đoạn mới trong kỳ (theo ngày ghi trên dòng tiến độ) và số vụ khác nhau; không chia tiến/lùi | `StageLog::scopeEntries()` |
+| P5 (L) | Vụ kết thúc trong kỳ | vụ người này phụ trách **lúc vụ kết thúc** đã vào giai đoạn kết thúc trong kỳ | `Matter` (`closed_at`), `LeadAt` (R18) |
+| P6 | Giấy tờ đã duyệt | số lần người này bấm duyệt hoặc từ chối một đầu mục trong kỳ, theo nhật ký (khách nộp lại rồi duyệt lại = hai lần; văn phòng tải lên thay khách không phải một lần duyệt) | `ReviewChecklistItem` |
+| P7 (L) | Doanh thu đã thu | tiền khách đã trả trong kỳ theo `attributed_lawyer_id`; cùng con số trên trang Doanh thu | M9 (P2 của kế hoạch M9) |
+| P8 | Xu hướng | số vụ quá hạn cập nhật, số mốc quá hạn và `X/Y` vào cuối mỗi ngày, từ ảnh chụp hằng ngày; ngày không có ảnh chụp để trống, không vẽ thành 0 | ảnh chụp `performance_snapshots` |
+| P9 | Hoàn thành việc đến hạn | R7 dưới | P1 + P3 |
+| P10 | Yêu cầu đóng không trả lời | yêu cầu khách gửi trong kỳ mà văn phòng đóng lại không trả lời; không vào tỉ lệ, hiện ra để tỉ lệ không đẹp lên nhờ đóng luồng chưa trả lời | `TriageClientRequest` |
+| — | Lĩnh vực chính | hai loại vụ có nhiều vụ nhất trong số vụ người này có việc trong kỳ (vụ của P1, P3/P10, P4, P5 đã quy về người đó), kèm số vụ — để đọc tỉ lệ trong đúng bối cảnh, thay cho chuẩn hoá | `MatterType` |
+
+Kỳ: tháng trước (**mặc định** — đánh giá trên kỳ đã đóng mới công bằng), tháng này, quý trước, quý
+này, hoặc tự chọn tối đa 366 ngày không quá hôm nay. Mọi cận ngày, kể cả của các con số "bây giờ",
+là cận **đủ giờ** (`00:00:00` ngày đầu … `23:59:59` ngày cuối), như `RevenueFilters::bounds()` của
+M9. Thời gian phản hồi (P3) đo bằng **giờ lịch** cho tới khi định nghĩa "giờ làm việc" của M10 có
+trên `main`; khi đó đo qua đúng lớp đó, không viết định nghĩa thứ hai. SPEC không có mục tiêu thời
+gian trả lời, nên P3 báo trung vị và trung bình, không báo "trong hạn".
+
+**Ca biên của P1** (`$dueEnd` = 23:59:59 của ngày đến hạn theo giờ ứng dụng; `$cutoff` = mốc cắt của
+kỳ, R19):
+
+| # | Ca | Kết quả |
+|---|---|---|
+| 1 | mốc ghi vào hệ thống sau `$dueEnd` (nhập dữ liệu cũ, ghi lại phiên toà đã qua, mốc AI tạo với ngày đã qua) | không vào tập |
+| 2 | đã xong nhưng không có `completed_at` (dữ liệu cũ) | không vào tập (không đoán) |
+| 3 | xong, `completed_at ≤ $dueEnd` | đúng hạn |
+| 4 | xong, `$dueEnd < completed_at ≤ $cutoff` | trễ |
+| 5 | chưa xong (hoặc xong sau `$cutoff`) và `$dueEnd > $cutoff` (đến hạn hôm nay, kỳ đang chạy) | không vào tập |
+| 6 | chưa xong (hoặc xong sau `$cutoff`) và vụ đã kết thúc không muộn hơn `$dueEnd` (kể cả kết thúc đúng ngày đến hạn) | không vào tập (mốc hết hiệu lực) |
+| 7 | chưa xong (hoặc xong sau `$cutoff`), các ca trên không áp | lỡ |
+| 8 | xong đúng hạn rồi bị **mở lại** sau ngày đến hạn | theo trạng thái hiện tại (ca 7, hoặc ca 4 nếu xong lại trước `$cutoff`), tính cho người giữ vào ngày đến hạn |
+| 9 | dòng lịch sử người giữ có `from` rỗng hoặc không phải số | phân loại giữ nguyên; không quy về ai, chỉ vào dòng "Chung" |
+
+Mốc đến hạn đúng ngày cuối kỳ vì vậy chỉ có thể đúng hạn hoặc lỡ.
+
+**"Không áp dụng" (R6).** Không hiện số 0 cho việc người đó không được làm — số 0 đọc thành "không
+làm gì". Một điều kiện duy nhất: người đó có `matter.transitionStage` (cùng quyền mà màn hình tạo vụ
+dùng để liệt kê người được chọn làm luật sư phụ trách) thì là người phụ trách vụ; không có (trợ lý)
+thì các cột **(L)** — N1, N3, N4, N7, N8, N10, P4, P5, P7 — hiện "Không áp dụng". Điều kiện này
+**chỉ theo quyền, không bao giờ theo vụ**: một luật sư chỉ phụ trách vụ `restricted` phải hiện **0**
+với trưởng phòng, không phải "Không áp dụng" (R4). Doanh thu có thêm một lý do vắng mặt khác, không
+trộn: người xem không được thấy tiền thì cả cột không có trên trang (§5).
+
+**Tỉ lệ hoàn thành việc đến hạn (R7).**
+
+```
+(mốc đến hạn đã xong tới hết kỳ, đúng hạn hoặc trễ) + (yêu cầu của khách đã trả lời tới hết kỳ)
+─────────────────────────────────────────────────────────────────────────────────────────────────
+     (mốc đến hạn trong kỳ) + (yêu cầu khách gửi trong kỳ, trừ yêu cầu đóng không trả lời)
+```
+
+- Là một phép đếm, không phải một điểm số: mỗi việc một đơn vị, không trọng số; phân rã luôn in cạnh
+  tỉ lệ ("12/15 mốc · 8/9 yêu cầu"). Chỉ hai loại việc vào: mốc (toà án hoặc cơ quan chờ) và yêu cầu
+  (khách chờ). Danh mục hồ sơ `X/Y` không vào — nó đo việc khách nộp đủ giấy tờ chưa.
+- Yêu cầu đóng không trả lời (trùng, khách rút, giải quyết ngoài hệ thống) không vào mẫu số và
+  **không** tính là "đã giải quyết"; chúng hiện ở P10. "Đã trả lời qua điện thoại" có đường riêng
+  (chuyển trạng thái sang Đã trả lời ghi `answered_at`).
+- Dưới 5 việc thì không tính tỉ lệ: trang hiện "Chưa đủ dữ liệu (n = 3)". Áp cho mọi tỉ lệ của M13.
+- Không bảng xếp hạng (R8): không cột hạng, không điểm tổng hợp; trên trang theo kỳ không cột nào
+  sắp xếp được ngoài tên; tỉ lệ không bao giờ tô xanh hay đỏ. Cơ cấu vụ khác nhau, mẫu nhỏ, và xếp
+  hạng dạy người ta bấm "xong" sớm, gỡ mốc khó, tránh vụ khó.
+
+**Lịch sử người giữ mốc (R9).** Lịch sử "ai từng giữ mốc này" đọc ở **một** khoá sự kiện,
+`deadline_responsible_changed` (`from`, `to`, `reason`). Từ M13 mọi đường đổi người giữ mốc đều ghi
+dòng đó: đổi người phụ trách mốc, lần mở lại có chuyển người (`reopened_holder_no_longer_qualifies`),
+sửa mốc khi người phụ trách thật sự đổi (`deadline_updated`, dòng `deadline_updated` vẫn giữ), và
+bàn giao vụ — **một dòng cho mỗi mốc** được chuyển (`matter_reassigned`), trong cùng transaction.
+Người giữ mốc vào ngày đến hạn = `from` của dòng sớm nhất sau 23:59:59 ngày đến hạn, không có dòng
+nào thì người giữ hiện tại. Nhờ vậy mốc lỡ rồi mới được bàn giao (ví dụ ngày một luật sư nghỉ việc)
+tính cho người trước, không kéo tỉ lệ của người nhận xuống. **Giới hạn đã biết:** lần bàn giao trước
+ngày triển khai M13 không có dòng cho từng mốc; những mốc đó rơi về người giữ hiện tại (câu giải
+thích của P1 nói điều này).
+
+**Người giữ yêu cầu và người phụ trách vụ tại một thời điểm (R18).** Gần như mọi luồng yêu cầu có
+`assigned_to` rỗng (chỉ "Giao việc" tay mới ghi), nên quy theo người giữ **hiện tại** sẽ chuyển mọi
+luồng của một vụ — kể cả luồng đã trả lời và đã đóng — sang người nhận mỗi lần bàn giao, và viết lại
+các tháng đã qua của người trước. Vì vậy:
+- luật sư phụ trách của một vụ tại thời điểm t = `from_user_id` của dòng `matter_reassigned` sớm
+  nhất sau t, không có thì `lead_lawyer_id` hiện tại (`ReassignMatter` là đường duy nhất đổi người
+  phụ trách, và dòng đó có từ M6.5, nên lịch sử này đầy đủ cả trước M13);
+- người giữ một luồng tại thời điểm t = người được giao tại t (`from` của dòng `client_request_assigned`
+  sớm nhất sau t, không có thì `assigned_to` hiện tại); rỗng thì là luật sư phụ trách của vụ tại t;
+- bàn giao vụ ghi thêm **một dòng `client_request_assigned` cho mỗi luồng** được chuyển (`reason =
+  matter_reassigned`), trong cùng transaction;
+- lịch sử **không** bỏ qua người đã xoá mềm (khác số "bây giờ" N9, nơi người được giao đã xoá mềm
+  nhường cho luật sư phụ trách như đường thông báo); việc của người đã xoá mềm chỉ hiện ở dòng "Chung".
+- **Giới hạn đã biết:** luồng giao đích danh cho luật sư cũ rồi bị bàn giao vụ chuyển **trước** ngày
+  triển khai M13 không có dòng riêng; luồng chưa giao ai không bị giới hạn này.
+
+**Kỳ đã đóng không trôi (R19).** Mốc cắt của một kỳ = `min(23:59:59 ngày cuối kỳ, bây giờ)`. Mốc xong
+sau mốc cắt vẫn là "lỡ" của kỳ đó; yêu cầu "đã trả lời" là trả lời không muộn hơn mốc cắt. Vì vậy
+"tháng trước" không tăng dần trong tháng này khi người ta làm nốt việc tồn, và bàn giao sau kỳ không
+đổi số của kỳ (R9, R18). Những gì vẫn đổi được sau kỳ, có chủ đích, mỗi việc có người bấm và có dòng
+nhật ký: ghi lùi ngày một dòng tiến độ (P4), admin mở lại vụ đã đóng (P5), gỡ một mốc (P1 → P2), dời
+ngày đến hạn (P1 dùng ngày đến hạn hiện tại), mở lại một mốc đã xong (ca 8), đóng một luồng chưa trả
+lời (mẫu số P3 → P10).
+
+**Mốc tạo qua AI (R20).** Khi M11 có mốc "Tạo qua AI, chưa xác nhận", mốc đó tính như mốc thường ở
+mọi con số (N5, N6, P1, P9), đúng như `CheckDeadlines` nhắc nó như mốc thường — "một mốc hạn thật
+không được im lặng chỉ vì AI tạo". Mốc AI tạo sai thì gỡ kèm lý do và nó hiện ở P2. Đảo phán quyết này
+thì sửa cùng lúc `Deadline`, `CheckDeadlines` và widget trang chủ, không loại ở một chỗ.
+
+**Định dạng.** Tỉ lệ in `87,5% (35/40)` (dấu phẩy thập phân, luôn kèm tử và mẫu); thời lượng "3,5
+giờ" hoặc "2 ngày 4 giờ"; tiền qua `Money::format()`.
+
+**Ngoài phạm vi, có chủ đích (R15):** không đo giờ làm (`time_entries` vẫn là khung, M13 không đọc),
+không tỉ lệ thắng kiện, không "thời gian xử lý theo loại vụ". Không thư tổng hợp, không thông báo mới
+(R12); số liệu này không bao giờ rời hệ thống qua MCP (R13, §5).
+
 ---
 
 ## 7. Giao diện panel `admin`
@@ -1253,6 +1458,14 @@ không phá luật "widget quan trọng nhất đặt trên cùng": luật đó 
 đầu, vì danh sách là thứ người ta phải hành động theo. Một hàng cao một dòng là phần tóm tắt,
 không đẩy danh sách quá hạn xuống khỏi màn hình đầu. Nếu hàng này dài thành nhiều dòng thì
 đính chính này hết đúng.
+
+**Đính chính 2026-10-04 (M13).** Widget mục 2 "Mốc thời hạn 7 ngày tới" gồm cả mốc đến hạn **đúng
+ngày thứ 7** kể từ hôm nay, trên mọi CSDL. Trước M13, cận trên của `Deadline::scopeUpcoming()` là một
+ngày trần, nên trên SQLite (cột `date` lưu `Y-m-d 00:00:00`) mốc ngày +7 rơi ra, còn trên MariaDB thì
+giữ — đúng lỗi "ngày cuối kỳ" mà M9 đã sửa cho trang Doanh thu (`RevenueFilters::bounds()`). M13 sửa
+cận đó thành `23:59:59`, khớp bậc `d7` của `CheckDeadlines` (§6.8): mốc nào được nhắc "còn 7 ngày"
+thì cũng có trên widget. Đây là bản sửa lỗi, không phải đổi luật; cùng định nghĩa là nguồn của cột
+"Mốc 7 ngày tới" ở §6.14.
 
 ### 7.2 Resource `Matter`
 
@@ -1328,6 +1541,35 @@ liên hệ (Reply-To của mọi thư). Màu, logo, font **không** sửa đư�
   `config('vkcrm.brand.*')`. Ô để trống nghĩa là dùng giá trị `.env`/mặc định. Chân thư (§9), chân
   `MUC-LUC.pdf` (§6.12) và cổng khách hàng đọc qua service này, **lúc render**: thư đang nằm trong
   hàng đợi mang giá trị mới. Thông tin còn trống thì dòng của nó biến mất, không để lại nhãn treo.
+
+### 7.5 Theo dõi đội ngũ và hiệu suất
+
+**Bổ sung 2026-10-04 (M13).** Ba trang tự viết trên panel `admin`, trả lời hai câu hỏi khác nhau —
+trộn số "bây giờ" với số "trong kỳ" trên một bảng làm người đọc so hai thứ không cùng thời điểm (R1).
+Định nghĩa từng con số ở §6.14, quyền ở §5 (bổ sung 2026-10-04).
+
+| Trang | Đường dẫn | Ai mở được | Trả lời câu |
+|---|---|---|---|
+| **Theo dõi đội ngũ** | `/admin/team` | `performance.viewAny` (admin, quản lý) | *Bây giờ* ai đang giữ gì, cái gì đang nguy hiểm — hàng đợi hành động: một dòng mỗi người được theo dõi, các cột N1–N11; công tắc "Gồm người đã nghỉ việc"; chỉ các cột đếm việc đang tồn sắp xếp được |
+| **Trang của một người** | `/admin/team/{người}` | người có `performance.viewAny`, hoặc chính người đó (có `matter.view`) | Đi sâu từ hai trang kia: danh sách vụ, mốc, yêu cầu, giấy tờ chờ, cơ cấu lĩnh vực, xu hướng 90 ngày |
+| **Hiệu suất theo kỳ** | `/admin/performance` | `matter.view` hoặc `performance.viewAny` | *Trong một kỳ*, mỗi người đã làm đúng hạn tới đâu (P1–P10); người có `performance.viewAny` thấy mọi người được theo dõi cùng dòng tham chiếu "Chung", người khác chỉ thấy dòng của chính mình; đoạn "Vì sao không có bảng xếp hạng" |
+
+- **Điều hướng.** Người có `performance.viewAny` thấy "Theo dõi đội ngũ" và "Hiệu suất". Người khác
+  có `matter.view` (luật sư, trợ lý) thấy "Việc của tôi" — trỏ tới trang của chính họ — và "Hiệu
+  suất". Kế toán không thấy mục nào.
+- **Từ chối luôn là 404, và là MỘT 404** (§10 mục 10): trang của admin, của kế toán, của người đã xoá
+  mềm, của người ngoài danh sách theo dõi, một id không tồn tại hay không phải số, và trang của một
+  đồng nghiệp với luật sư — cùng một response. Cổng được hỏi lại ở **mọi** request Livewire, không
+  chỉ lúc tải trang: người mất quyền khi trang còn mở nhận 404 ở thao tác kế tiếp. Id người được xem
+  là thuộc tính Livewire bị khoá, trình duyệt không đặt lại được.
+- Mọi trang in cùng câu phạm vi cho mọi người xem, kể cả admin: "Mọi con số tính trên các vụ việc
+  anh/chị được xem." (§6.14, R4).
+- **Chỉ xem, không quyết định tự động (R14).** Hệ thống không tự khoá, nhắc hay đổi quyền dựa trên
+  các con số này. Xem số của **người khác** để lại dòng nhật ký `performance_viewed` (§10 mục 6);
+  xem số của chính mình thì không. Trang của chính nhân sự hiện cùng bảng "Cách tính các con số"
+  như trang của trưởng phòng. Số liệu hiệu suất gắn với một người là dữ liệu cá nhân (Luật
+  91/2025/QH15); việc thông báo chính thức cho nhân sự (nội quy, hợp đồng lao động) là việc của
+  luật sư văn phòng.
 
 ---
 
@@ -1517,6 +1759,24 @@ thẻ hồ sơ ở cổng; M6.5 không viết mẫu thư này (R1).
    chuyển giai đoạn, không phải quyết định của ai, nên dòng này **không causer** (trang nhật ký
    hiện "Hệ thống"); nguồn gốc ở `properties.stage_log_id` → `stage_logs.created_by`. Dòng tiền
    trên trang nhật ký chỉ hiện cho người có `billing.view` (`ActivityOwningMatter`, P3).
+
+   **Đính chính 2026-10-04 (§10.6, M13).** Số liệu hiệu suất gắn với một người là dữ liệu cá nhân của
+   nhân sự (§7.5), nên xem số của người khác là một sự kiện bắt buộc ghi, và lịch sử người giữ việc
+   phải đủ để quy việc về đúng người (§6.14, R9, R18):
+   - **`performance_viewed`** (mới, causer là người xem, nhãn trong `lang/vi/activity.php`): một dòng
+     mỗi lần người có `performance.viewAny` mở "Theo dõi đội ngũ" (chủ thể rỗng, `page =
+     team_overview` — trang đó hiện số của mọi người được theo dõi); một dòng mỗi lần mở trang của
+     **một người khác** (chủ thể là người đó); một dòng mỗi lần người có `performance.viewAny` mở
+     "Hiệu suất theo kỳ" hoặc đổi kỳ (chủ thể rỗng, `properties` mang kỳ). Không ghi khi xem số của
+     chính mình, không ghi lại ở mỗi request Livewire (bật công tắc, sắp xếp).
+   - **`deadline_responsible_changed`** có thêm hai đường ghi, mỗi dòng mang `reason`:
+     `matter_reassigned` (bàn giao vụ — một dòng cho **mỗi** mốc chưa xong được chuyển, trước đây dòng
+     `matter_reassigned` chỉ mang số lượng) và `deadline_updated` (sửa mốc khi người phụ trách thật sự
+     đổi; dòng `deadline_updated` vẫn giữ). Lý do có sẵn `reopened_holder_no_longer_qualifies` (lần mở
+     lại có chuyển người) nay có nhãn tiếng Việt; trang nhật ký in nhãn lý do thay mã khi có nhãn.
+   - **`client_request_assigned`** có thêm đường ghi từ bàn giao vụ: một dòng cho **mỗi** luồng yêu
+     cầu giao đích danh cho luật sư cũ được chuyển sang luật sư mới (`from`, `to`, `reason =
+     matter_reassigned`), trong cùng transaction với lần chuyển.
 7. 2FA bắt buộc cho toàn bộ tài khoản nội bộ. Không có tuỳ chọn tắt.
 8. `spatie/laravel-backup` cấu hình sao lưu hằng ngày cả CSDL lẫn thư mục tệp,
    đẩy ra một disk ngoài máy chủ (S3 hoặc tương đương), giữ 30 bản.
@@ -1600,6 +1860,19 @@ Dùng Pest. Các test sau là điều kiện nghiệm thu, không phải tuỳ c
 - Tệp có phần mở rộng `.pdf` nhưng MIME thực tế là `application/x-dosexec` bị
   từ chối.
 
+### Theo dõi đội ngũ
+
+**Bổ sung 2026-10-04 (M13, §5, §6.14, §7.5).** Test ở `tests/Feature/Performance/`:
+- Vụ `restricted` không lộ qua con số: một vụ `restricted` của luật sư L chứa một bản ghi cho mọi chỉ
+  số; số trưởng phòng đọc về L — trên **mọi** trường của các dòng "bây giờ" và "trong kỳ" (lặp theo
+  tên thuộc tính, kể cả dòng "Chung" và "Lĩnh vực chính") và trên dữ liệu xu hướng — bằng đúng số khi
+  vụ đó không tồn tại; không cột nào của L đổi giữa "0" và "Không áp dụng"; L và admin thấy vụ đó
+  được tính.
+- Kế toán nhận 404 ở cả ba trang và ở widget xu hướng, kể cả trang "của mình".
+- Luật sư và trợ lý chỉ thấy số của chính mình: 404 ở "Theo dõi đội ngũ" và ở trang của người khác;
+  trên "Hiệu suất theo kỳ" chỉ có dòng của chính mình. Trang của admin, của kế toán, của người đã xoá
+  mềm và của một id không tồn tại trả cùng một 404.
+
 Mục tiêu độ phủ: tối thiểu 80% cho `app/Actions/` và `app/Policies/`.
 
 ---
@@ -1678,6 +1951,13 @@ Làm đúng thứ tự. Kết thúc mỗi milestone: test xanh, chạy Pint, c�
 không phải thứ tự dòng trong bảng: xem `docs/PROGRESS.md` (M9 chạy sau M11, trên
 cơ sở dữ liệu production đã có dữ liệu thật).
 
+**Đính chính 2026-10-04 (M13).** Thêm dòng **M13** (chủ văn phòng yêu cầu ngày 2026-10-04, làm
+song song với M11, M12):
+
+| | Nội dung | Xong khi |
+|---|---|---|
+| **M13** | Theo dõi đội ngũ và hiệu suất: quyền `performance.viewAny` (§5 bổ sung M13), danh sách người được theo dõi, trang "Theo dõi đội ngũ", trang của một người, trang "Hiệu suất theo kỳ" (§7.5), các con số §6.14 với một định nghĩa cho mỗi số, lịch sử người giữ mốc và người giữ yêu cầu đầy đủ, ảnh chụp số liệu hằng ngày cho xu hướng | Test phần "Theo dõi đội ngũ" ở §11 xanh; mỗi cột "bây giờ" bằng đúng widget trang chủ tương ứng cho cùng người xem; kỳ đã đóng không đổi sau khi làm nốt việc tồn hoặc bàn giao; ngân sách thời gian trang đo trên MariaDB thật |
+
 ---
 
 ## 14. Tiêu chí nghiệm thu
@@ -1722,3 +2002,9 @@ M9: bảng `contracts` và `instalments` gắn vào `matters` như trên, cùng 
 **dạng khung** — bảng, model, quan hệ với `matters` và `users`, policy đóng kín —
 không Action, không màn hình, không con số nào đọc bảng này; tính phí theo giờ
 vẫn là việc của giai đoạn sau.
+
+**Đính chính 2026-10-04 (M13).** Phần **"năng suất"** của báo cáo quản trị (mục 7, "Báo cáo quản trị
+nâng cao", của danh sách nâng cấp giai đoạn 2 trong `docs/PROGRESS.md`) đã làm ở M13: theo dõi đội
+ngũ và hiệu suất theo kỳ (§6.14, §7.5). Hai phần còn lại vẫn để sau, có chủ đích (R15): **đo giờ làm**
+(M13 không đọc `time_entries`, vẫn là khung của M9) và **tỉ lệ thắng kiện** (không có cột kết quả vụ
+việc); "thời gian xử lý theo loại vụ" cũng chưa làm.

@@ -3,10 +3,11 @@
 namespace App\Enums;
 
 /**
- * Đúng 17 quyền ở SPEC §5: 13 quyền của bảng gốc, cộng 4 quyền tiền của M9 (`billing.view`,
+ * Đúng 18 quyền ở SPEC §5: 13 quyền của bảng gốc, cộng 4 quyền tiền của M9 (`billing.view`,
  * `contract.manage`, `payment.record`, `revenue.viewAny`) thêm bằng đính chính có ngày ngay dưới
- * bảng đó ("Bổ sung 2026-09-19, sửa 2026-09-24"), không thêm lặng lẽ. Tên quyền là nguồn sự thật,
- * không sinh tự động từ resource.
+ * bảng đó ("Bổ sung 2026-09-19, sửa 2026-09-24"), cộng 1 quyền của M13 (`performance.viewAny`,
+ * "Bổ sung 2026-10-04"), không thêm lặng lẽ. Đếm cộng dồn theo milestone: lần gộp một làn khác
+ * thêm quyền chỉ phải sửa con số tổng. Tên quyền là nguồn sự thật, không sinh tự động từ resource.
  */
 enum Permission: string
 {
@@ -39,6 +40,9 @@ enum Permission: string
 
     /** Số liệu doanh thu toàn văn phòng và trang "Công nợ". Cặp với `billing.view` như `matter.viewAny` với `matter.view`. */
     case RevenueViewAny = 'revenue.viewAny';
+
+    /** M13: số liệu theo dõi và hiệu suất của MỌI nhân sự được theo dõi; số của chính mình chỉ cần `matter.view` (`UserPolicy::viewPerformance()`). */
+    case PerformanceViewAny = 'performance.viewAny';
 
     public function label(): string
     {

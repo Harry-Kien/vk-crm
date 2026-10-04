@@ -40,10 +40,12 @@ it('grants the admin every permission and the accountant almost none', function 
 /*
  * `EnumLabelsTest` chỉ bắt nhãn thiếu ở dạng `enums.…`; nhãn quyền đọc từ `lang/vi/permissions.php`,
  * nên một quyền thiếu nhãn trả về chính khoá `permissions.…` và lọt qua test đó. Bốn quyền M9 là
- * lần đầu bảng quyền đổi kể từ M2, nên chốt ở đây cho cả mười bảy.
+ * lần đầu bảng quyền đổi kể từ M2, nên chốt ở đây cho cả mười tám: 13 quyền gốc, cộng 4 quyền tiền
+ * của M9, cộng 1 quyền của M13 (`performance.viewAny`, SPEC §5 đính chính 2026-10-04). Đếm cộng dồn
+ * theo milestone để lần gộp làn khác (M10 thêm ba quyền `intake.*`) chỉ phải sửa con số tổng.
  */
 it('gives every permission a vietnamese label', function () {
-    expect(Permission::cases())->toHaveCount(17);
+    expect(Permission::cases())->toHaveCount(18);
 
     foreach (Permission::cases() as $permission) {
         expect($permission->label())->not->toStartWith('permissions.', "{$permission->value} thiếu nhãn trong lang/vi/permissions.php");
@@ -57,12 +59,14 @@ it('matches the spec permission table for every role', function () {
             'stageLog.publish', 'document.viewInternal', 'document.publish', 'checklist.review',
             'client.manage', 'clientUser.manage', 'settings.manage', 'auditLog.view',
             'billing.view', 'contract.manage', 'payment.record', 'revenue.viewAny',
+            'performance.viewAny',
         ],
         Role::Manager->value => [
             'matter.viewAny', 'matter.view', 'matter.create', 'matter.update', 'matter.transitionStage',
             'stageLog.publish', 'document.viewInternal', 'document.publish', 'checklist.review',
             'client.manage', 'clientUser.manage', 'auditLog.view',
             'billing.view', 'contract.manage', 'revenue.viewAny',
+            'performance.viewAny',
         ],
         Role::Lawyer->value => [
             'matter.view', 'matter.create', 'matter.update', 'matter.transitionStage',

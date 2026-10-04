@@ -588,7 +588,7 @@ Mọi cận ngày trên cột `date` (`due_date`, `paid_on`) là cận **đủ g
 
 ## Tasks
 
-### - [ ] Task 1 — Quyền, policy, danh sách người được theo dõi, khung ba trang, đính chính SPEC, ranh giới MCP
+### - [x] Task 1 — Quyền, policy, danh sách người được theo dõi, khung ba trang, đính chính SPEC, ranh giới MCP
 
 **Tệp:**
 - sửa: `app/Enums/Permission.php` (case mới, docblock đếm quyền cộng dồn), `app/Enums/Role.php` (Manager thêm quyền; Admin tự có qua `Permission::cases()`), `lang/vi/permissions.php`;
@@ -623,20 +623,20 @@ public function viewPerformanceRevenue(User|ClientUser $viewer, User $subject): 
 ```
 
 **Bước:**
-- [ ] Grep theo "Ràng buộc toàn cục" và dán kết quả. Nếu thiếu `StageLog::scopeEntries()` hoặc `RevenueFilters::bounds()` thì dừng lại.
-- [ ] Quyền và policy theo R2, danh sách người theo R3.
-- [ ] Ba trang, mỗi trang có icon riêng (Heroicon, không trùng icon đã dùng) và tiêu đề tiếng Việt:
+- [x] Grep theo "Ràng buộc toàn cục" và dán kết quả. Nếu thiếu `StageLog::scopeEntries()` hoặc `RevenueFilters::bounds()` thì dừng lại.
+- [x] Quyền và policy theo R2, danh sách người theo R3.
+- [x] Ba trang, mỗi trang có icon riêng (Heroicon, không trùng icon đã dùng) và tiêu đề tiếng Việt:
   - `TeamOverview::canAccess()` = `performance.viewAny`;
   - `TeamMember` và `Performance`: `canAccess()` = `matter.view` **hoặc** `performance.viewAny`;
   - `TeamMember::mount(int|string $user)` nạp người dùng **chưa xoá mềm** (đang hoạt động hay đã nghỉ việc đều được), rồi `abort_unless(Gate::forUser($viewer)->allows('viewPerformance', $subject), 404)`. Không tìm thấy cũng là 404 đó;
   - `boot()` của cả ba trang hỏi lại.
   - `TeamOverview::mount()` ghi `performance_viewed` (R14, `page = team_overview`).
-- [ ] Thanh điều hướng:
+- [x] Thanh điều hướng:
   - người có `performance.viewAny` thấy "Theo dõi đội ngũ" và "Hiệu suất";
   - người khác thấy "Việc của tôi" (đường dẫn tới `TeamMember` của chính mình, qua `getNavigationUrl()`, đọc `vendor/filament/filament/src/Pages/Page.php:270` trước) và "Hiệu suất".
 
   Thân trang ở task này chỉ là khung rỗng, có câu R4 cố định.
-- [ ] **Đính chính SPEC, mỗi mục kèm ngày 2026-10-04:**
+- [x] **Đính chính SPEC, mỗi mục kèm ngày 2026-10-04:**
   - §1, bảng người dùng: dòng "Trưởng phòng / Ban lãnh đạo" thêm "theo dõi tiến độ và hiệu suất của đội ngũ (M13)";
   - §5: bảng R2, câu "số của chính mình", và kế toán "không";
   - §6.14 mới "Số liệu đội ngũ và hiệu suất": bảng "Định nghĩa các con số" ở trên (kể cả bảng ca biên của P1), R5, R6 ("Không áp dụng"), R7, R9, R18 (người giữ yêu cầu tại một thời điểm), R19 (kỳ đã đóng không trôi), R20 (mốc tạo qua AI);
@@ -646,24 +646,24 @@ public function viewPerformanceRevenue(User|ClientUser $viewer, User $subject): 
   - §11 mục mới "Theo dõi đội ngũ": restricted không lộ qua con số; kế toán 404; luật sư chỉ thấy số của mình;
   - §13: dòng M13;
   - §15: phần "năng suất" của báo cáo quản trị đã làm; giờ làm và tỉ lệ thắng vẫn để sau (R15).
-- [ ] Test cấu trúc MCP theo R13.
+- [x] Test cấu trúc MCP theo R13.
 
 **Test bắt buộc** (mỗi vế một mutation probe; nhân chứng được cấp quyền trực tiếp, không qua vai trò, khi cần tách quyền):
-- [ ] Ma trận năm vai trò × ba trang:
+- [x] Ma trận năm vai trò × ba trang:
   - admin, quản lý: 200 cả ba;
   - luật sư, trợ lý: 404 `TeamOverview`, 200 `Performance`, 200 trang của mình, 404 trang người khác;
   - kế toán: 404 cả ba, kể cả trang "của mình".
-- [ ] `/team/{id}` của admin, của kế toán, của người đã xoá mềm, và của id không tồn tại: cùng một response 404, cùng thân.
-- [ ] `/team/{id}` của một luật sư **đã nghỉ việc** (chưa xoá mềm): 200 với trưởng phòng. Mutation probe: thêm `is_active` vào `isTrackable()` thì test đỏ.
-- [ ] Mất quyền sau `mount()`: lần gọi Livewire kế tiếp trả 404, nhờ hook `boot()`. Mutation probe: xoá dòng hỏi trong `boot()` thì test đỏ.
-- [ ] `TeamRoster`:
+- [x] `/team/{id}` của admin, của kế toán, của người đã xoá mềm, và của id không tồn tại: cùng một response 404, cùng thân.
+- [x] `/team/{id}` của một luật sư **đã nghỉ việc** (chưa xoá mềm): 200 với trưởng phòng. Mutation probe: thêm `is_active` vào `isTrackable()` thì test đỏ.
+- [x] Mất quyền sau `mount()`: lần gọi Livewire kế tiếp trả 404, nhờ hook `boot()`. Mutation probe: xoá dòng hỏi trong `boot()` thì test đỏ.
+- [x] `TeamRoster`:
   - có luật sư, trợ lý, quản lý; không có admin, kế toán;
   - `subjectsFor()`: người nghỉ việc chỉ có khi bật công tắc; người đã xoá mềm không bao giờ có;
   - **không** phụ thuộc vụ việc: luật sư chỉ có vụ `restricted` vẫn có mặt trong danh sách của trưởng phòng;
   - `leadsMatters()`: đúng với luật sư và quản lý, sai với trợ lý; theo quyền, không theo vụ;
   - gọi `Gate::allows('viewPerformance', …)` trên 3 rồi 12 người trả về: số truy vấn bằng nhau (vai trò đã nạp sẵn).
-- [ ] Mọi vai trò có `performance.viewAny` cũng có `matter.viewAny` (test cấu trúc trên `Role::permissions()`).
-- [ ] `PerformanceMcpBoundaryTest` xanh, kèm cặp dương trên fixture.
+- [x] Mọi vai trò có `performance.viewAny` cũng có `matter.viewAny` (test cấu trúc trên `Role::permissions()`).
+- [x] `PerformanceMcpBoundaryTest` xanh, kèm cặp dương trên fixture.
 
 **Commit:** `feat: M13 Task 1 — quyền performance.viewAny (đính chính SPEC §5), UserPolicy::viewPerformance, TeamRoster, khung ba trang trả 404 đồng nhất, ranh giới MCP`
 

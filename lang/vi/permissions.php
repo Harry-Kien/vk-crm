@@ -18,4 +18,5 @@ return [
     'contract.manage' => 'Soạn, kích hoạt, ký phụ lục và huỷ hợp đồng dịch vụ',
     'payment.record' => 'Ghi nhận và huỷ khoản thu',
     'revenue.viewAny' => 'Xem doanh thu toàn văn phòng và trang Công nợ',
+    'performance.viewAny' => 'Xem số liệu theo dõi và hiệu suất của mọi nhân sự',
 ];
