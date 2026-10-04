@@ -6,9 +6,11 @@ use App\Actions\Billing\RecordPayment;
 use App\Actions\Schedule\ReconcileStageTriggeredInstalments;
 use App\Actions\TransitionMatterStage;
 use App\Enums\InstalmentState;
+use App\Enums\InstalmentStatus;
 use App\Enums\InstalmentTrigger;
 use App\Enums\PaymentMethod;
 use App\Enums\Role;
+use App\Filament\Admin\Widgets\Billing\RecentPaymentsWidget;
 use App\Filament\Admin\Widgets\Revenue\ReceivablesDonutWidget;
 use App\Models\Contract;
 use App\Models\Instalment;
@@ -17,6 +19,7 @@ use App\Models\MatterType;
 use App\Models\StageLog;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Illuminate\Support\Carbon;
 
@@ -130,6 +133,43 @@ it('leaves no false overdue once the money already collected is recorded back-da
 
     // [đã thu, còn phải thu chưa tới hạn, quá hạn]
     expect($method->invoke($data)['datasets'][0]['data'])->toBe([70_000_000, 30_000_000, 0]);
+});
+
+/**
+ * Ghi nhầm lúc nhập (vòng sửa 1, I1): kế toán ghi lùi "tạm ứng khi ký" 20.000.000 ngày 07/03 vào
+ * nhầm đợt 3 (cũng 20.000.000). Đợt 3 sang "đã thu đủ" và rời bảng công nợ; khoản thu cũ hơn 90 ngày
+ * nên cũng không có trong mục "Khoản thu gần đây" mặc định. Gõ mã hồ sơ vào bộ lọc của mục đó thì
+ * thấy nó, huỷ được, rồi ghi lại cho đúng — đúng đường QUY-TRINH chỉ.
+ */
+it('lets the accountant void a back-dated payment recorded on the wrong instalment, months outside the recent-payments window, by typing the matter code', function () {
+    [$onSigning, $filed, $accepted] = goLiveRows(goLiveContract($this->matter, $this->lead));
+
+    goLivePayBack($this->accountant, $accepted, '2026-03-07');
+    $wrong = $accepted->payments()->sole();
+
+    expect($accepted->fresh()->status)->toBe(InstalmentStatus::Paid);
+
+    Filament::setCurrentPanel('admin');
+    $this->actingAs($this->accountant, 'web');
+
+    Livewire::test(RecentPaymentsWidget::class)->assertCanNotSeeTableRecords([$wrong]);
+
+    Livewire::test(RecentPaymentsWidget::class)
+        ->filterTable('matter_code', ['code' => $this->matter->code])
+        ->assertCanSeeTableRecords([$wrong])
+        ->callAction(TestAction::make('voidPayment')->table($wrong), data: [
+            'reason' => 'Ghi nhầm vào đợt 3, đây là tiền tạm ứng khi ký.',
+        ])
+        ->assertHasNoActionErrors();
+
+    expect($wrong->fresh()->voided_at)->not->toBeNull()
+        ->and($accepted->fresh()->status)->toBe(InstalmentStatus::Pending);
+
+    goLivePayBack($this->accountant, $onSigning, '2026-03-07');
+    goLivePayBack($this->accountant, $filed, '2026-04-25');
+    goLivePayBack($this->accountant, $accepted, '2026-07-10');
+
+    expect(Instalment::query()->overdue()->count())->toBe(0);
 });
 
 it('lets the daily reconciliation find nothing to release on an imported matter, and never invent a stage the matter has no record of', function () {

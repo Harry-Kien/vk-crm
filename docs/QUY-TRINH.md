@@ -116,9 +116,15 @@ dòng chưa ai xem quá năm ngày thì nhắc luật sư gọi điện.
    dư không tự dồn sang đợt sau (muốn đổi lịch thu thì luật sư ký phụ lục). Thu đủ thì đợt tự sang
    "đã thu đủ".
 4. Ghi nhầm: **Huỷ khoản thu** trên dòng của đợt (chọn khoản cần huỷ), hoặc — khi đợt đã thu đủ và
-   không còn trong bảng — ở mục **Khoản thu gần đây** cuối trang (lọc được theo mã hồ sơ). Lý do ít
-   nhất 20 ký tự. Khoản đã huỷ không bị xoá, chỉ ra khỏi mọi tổng; trạng thái đợt lùi lại đúng như
-   trước. Hợp đồng đã hoàn tất thì không huỷ khoản thu được.
+   không còn trong bảng — ở mục **Khoản thu gần đây** cuối trang. Mục này mặc định chỉ có khoản thu
+   có ngày tiền về trong **90 ngày** gần nhất; khoản cũ hơn (như khoản ghi lùi ngày lúc nhập hợp đồng
+   cũ, xem mục dưới) thì **gõ mã hồ sơ** vào bộ lọc "Mã hồ sơ": mục hiện mọi khoản thu chưa huỷ của
+   hồ sơ đó, cũ đến đâu cũng vậy. Lý do ít nhất 20 ký tự. Khoản đã huỷ không bị xoá, chỉ ra khỏi mọi
+   tổng; trạng thái đợt lùi lại đúng như trước. Hợp đồng đã hoàn tất thì không huỷ khoản thu được.
+   Vụ hạn chế không có trên trang của kế toán: quản trị viên huỷ ở chính mục này (khoản cũ hơn 90
+   ngày: cũng gõ mã hồ sơ); luật sư phụ trách huỷ trên tab **Hợp đồng và thanh toán** của vụ, nhưng nút ở đó chỉ huỷ khoản
+   **mới nhất** chưa huỷ của đợt — muốn huỷ một khoản cũ hơn thì huỷ lần lượt từ mới về cũ rồi ghi
+   lại những khoản đúng.
 5. Doanh thu của một khoản thu tính cho **luật sư phụ trách lúc tiền về**; bàn giao vụ sau đó không
    dời khoản đã thu sang người mới (phần còn phải thu thì theo người mới).
 
@@ -147,7 +153,10 @@ việc đã đi được nửa đường. Nhập chúng như sau (phép đo:
 4. **Kế toán ghi lùi ngay các khoản khách đã trả** (ngày tiền về thật). Làm trong cùng buổi, trước
    08:00 hôm sau: đợt nào đã qua hạn mà chưa ghi tiền thì là "quá hạn" thật trên trang Doanh thu,
    trang Công nợ, cổng khách và thư nhắc 08:00 — hệ thống không phân biệt được "chưa thu" với
-   "đã thu mà chưa nhập".
+   "đã thu mà chưa nhập". Ghi nhầm (sai đợt, sai ngày, sai số tiền) thì huỷ rồi ghi lại cho đúng:
+   khoản ghi lùi hơn 90 ngày **không hiện** ở mục **Khoản thu gần đây** của trang Công nợ cho tới khi
+   **gõ mã hồ sơ** vào bộ lọc "Mã hồ sơ" của mục đó (xem "Kế toán ghi tiền", bước 4; vụ hạn chế: quản
+   trị viên hoặc luật sư phụ trách huỷ).
 5. Kiểm: trang Doanh thu, kỳ chứa ngày ký — lát "Quá hạn" phải đúng bằng số khách thật sự còn nợ
    quá hạn (thường là 0); `php artisan billing:check-invariants` sạch.
 

@@ -620,6 +620,79 @@ it('filters recent payments by client and by matter code', function () {
         ->assertCanNotSeeTableRecords([$mine]);
 });
 
+/**
+ * M9 Task 13, vòng sửa 1 (I1): khoản thu ghi lùi ngày lúc nhập hợp đồng go-live (`paid_on` cũ hơn
+ * 90 ngày) trên một đợt đã thu đủ thì vừa rời bảng công nợ vừa nằm ngoài cửa sổ 90 ngày của mục
+ * này — trước bản sửa, kế toán không còn đường nào huỷ nó. Gõ mã hồ sơ thì bỏ cửa sổ: thấy mọi
+ * khoản thu chưa huỷ của hồ sơ đó, và huỷ được.
+ */
+it('lets the accountant find and void a back-dated payment older than 90 days by typing its matter code', function () {
+    [$instalment, $old] = paidInstalmentOn($this->matter, 10_000_000, ['paid_on' => today()->subDays(200)->toDateString()]);
+    [, $otherOld] = paidInstalmentOn(Matter::factory()->create(), 10_000_000, ['paid_on' => today()->subDays(200)->toDateString()]);
+
+    $this->actingAs($this->accountant, 'web');
+
+    // Mặc định vẫn là cửa sổ 90 ngày, và mục nói rõ cách bỏ nó.
+    $this->livewire(RecentPaymentsWidget::class)
+        ->assertCanNotSeeTableRecords([$old, $otherOld])
+        ->assertSee('Gõ mã hồ sơ vào bộ lọc "Mã hồ sơ" thì thấy mọi khoản thu chưa huỷ của hồ sơ đó, kể cả cũ hơn 90 ngày');
+
+    $this->livewire(RecentPaymentsWidget::class)
+        ->filterTable('matter_code', ['code' => $this->matter->code])
+        ->assertCanSeeTableRecords([$old])
+        ->assertCanNotSeeTableRecords([$otherOld])
+        ->assertActionVisible(TestAction::make('voidPayment')->table($old))
+        ->callAction(TestAction::make('voidPayment')->table($old), data: [
+            'reason' => 'Ghi lùi nhầm đợt lúc nhập hợp đồng go-live.',
+        ])
+        ->assertHasNoActionErrors();
+
+    expect($old->fresh()->voided_at)->not->toBeNull()
+        ->and($old->fresh()->voided_by)->toBe($this->accountant->id)
+        ->and($instalment->fresh()->status)->toBe(InstalmentStatus::Pending);
+});
+
+/** Một ô mã hồ sơ chỉ có khoảng trắng là ô trống: cửa sổ 90 ngày vẫn còn, không thành "mọi khoản thu". */
+it('keeps the 90-day window when the matter code filter holds only spaces', function () {
+    [, $recent] = paidInstalmentOn($this->matter);
+    [, $old] = paidInstalmentOn(Matter::factory()->create(), 10_000_000, ['paid_on' => today()->subDays(200)->toDateString()]);
+
+    $this->actingAs($this->accountant, 'web');
+
+    $this->livewire(RecentPaymentsWidget::class)
+        ->filterTable('matter_code', ['code' => '   '])
+        ->assertCanSeeTableRecords([$recent])
+        ->assertCanNotSeeTableRecords([$old]);
+});
+
+/**
+ * Bỏ cửa sổ 90 ngày theo mã hồ sơ KHÔNG bỏ hai ranh giới còn lại của mục: khoản đã huỷ vẫn không
+ * hiện, và vụ `restricted` vẫn chỉ admin thấy — kế toán gõ đúng mã của vụ đó cũng không ra gì.
+ */
+it('keeps voided payments out and a restricted matters old payment admin-only when the matter code lifts the 90-day window', function () {
+    [, $voidedOld] = paidInstalmentOn($this->matter, 10_000_000, [
+        'paid_on' => today()->subDays(200)->toDateString(),
+        'voided_at' => now(), 'voided_by' => $this->admin->id, 'void_reason' => str_repeat('v', 20),
+    ]);
+    [, $restrictedOld] = paidInstalmentOn($this->restricted, 10_000_000, ['paid_on' => today()->subDays(200)->toDateString()]);
+
+    $this->actingAs($this->accountant, 'web');
+
+    $this->livewire(RecentPaymentsWidget::class)
+        ->filterTable('matter_code', ['code' => $this->matter->code])
+        ->assertCanNotSeeTableRecords([$voidedOld]);
+
+    $this->livewire(RecentPaymentsWidget::class)
+        ->filterTable('matter_code', ['code' => $this->restricted->code])
+        ->assertCanNotSeeTableRecords([$restrictedOld]);
+
+    $this->actingAs($this->admin, 'web');
+
+    $this->livewire(RecentPaymentsWidget::class)
+        ->filterTable('matter_code', ['code' => $this->restricted->code])
+        ->assertCanSeeTableRecords([$restrictedOld]);
+});
+
 it('excludes a client whose only payment is on a restricted matter from the accountants client filter', function () {
     $client = Client::factory()->create();
     paidInstalmentOn(Matter::factory()->restricted()->for($client)->create(['lead_lawyer_id' => $this->lawyer->id]));

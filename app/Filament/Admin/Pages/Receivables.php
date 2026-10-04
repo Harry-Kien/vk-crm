@@ -107,8 +107,9 @@ use Illuminate\Validation\ValidationException;
  *
  * Bảng trên chỉ có đợt còn `pending`; một đợt đã thu đủ hay đã miễn rời khỏi nó, và cùng lúc nút
  * "Huỷ khoản thu" của bảng không còn tới được khoản thu ghi nhầm trên đợt đó. Chân trang mang
- * {@see RecentPaymentsWidget} ({@see self::getFooterWidgets()}): khoản thu chưa huỷ trong 90 ngày,
- * cùng phạm vi `listableBy()`, qua DTO `AccountantPaymentRow`, mỗi dòng một nút huỷ.
+ * {@see RecentPaymentsWidget} ({@see self::getFooterWidgets()}): khoản thu chưa huỷ trong 90 ngày
+ * (gõ mã hồ sơ thì mọi khoản thu chưa huỷ của hồ sơ đó, không giới hạn ngày — M9 Task 13, vòng sửa
+ * 1), cùng phạm vi `listableBy()`, qua DTO `AccountantPaymentRow`, mỗi dòng một nút huỷ.
  */
 class Receivables extends Page implements HasTable
 {
