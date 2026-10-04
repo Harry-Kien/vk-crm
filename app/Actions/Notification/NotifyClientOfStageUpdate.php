@@ -2,7 +2,9 @@
 
 namespace App\Actions\Notification;
 
+use App\Actions\Push\SendPushAlert;
 use App\Enums\OutboundStatus;
+use App\Enums\PushTopic;
 use App\Mail\Client\StageUpdate;
 use App\Models\ClientUser;
 use App\Models\Matter;
@@ -73,6 +75,17 @@ use Throwable;
  * `client.document_rejected`, và phần "nhân sự đặt lại quyền truy cập" của `client.activation`),
  * và chép luật này thêm ba lần là chép một luật bảo mật thêm ba lần. Lớp này giờ chỉ còn GỌI LẠI
  * class đó, không giữ điều kiện nào của riêng mình nữa.
+ *
+ * # M12 — thông báo đẩy (kế hoạch M12 R10, R12; phán quyết (d) của controller)
+ *
+ * Push không có luật người nhận của riêng nó: {@see SendPushAlert} nhận ĐÚNG những tài khoản mà
+ * CHÍNH lượt gọi này vừa gửi thư thành công — không người đã nhận ở lượt trước (`alreadyDelivered()`),
+ * không người vừa hỏng thư. Hợp qua mọi lượt (lượt thử lại của hàng đợi, nút "Gửi lại" của nhật ký
+ * thư — cả hai gọi lại `handle()`) đúng bằng tập người nhận thư; chống trùng là trí nhớ sẵn có của
+ * thư (`notified_at`, sổ thư), không trí nhớ mới. Thư trước, push sau: push được xếp SAU vòng thư và
+ * TRƯỚC lần ném lại lỗi của người khác; `SendPushAlert` không bao giờ ném vì lỗi lúc chạy, nên push
+ * hỏng không chặn `notified_at` hay lần ném lại của thư. Đổi lại, người đã nhận thư mà push của họ
+ * hỏng thì không có push bù — push là tiện ích, thư mới là chứng cứ.
  */
 class NotifyClientOfStageUpdate
 {
@@ -89,6 +102,7 @@ class NotifyClientOfStageUpdate
 
         $sent = 0;
         $failure = null;
+        $mailed = collect();
 
         foreach ($recipients as $recipient) {
             if ($this->alreadyDelivered($stageLog, $recipient)) {
@@ -100,12 +114,16 @@ class NotifyClientOfStageUpdate
             try {
                 Mail::to($recipient->email)->send(new StageUpdate($stageLog, $recipient));
                 $sent++;
+                $mailed->push($recipient);
             } catch (Throwable $e) {
                 // Giữ lại NGOẠI LỆ ĐẦU TIÊN gặp phải, nhưng không dừng vòng lặp: những người nhận
                 // còn lại vẫn phải được thử (xem docblock lớp).
                 $failure ??= $e;
             }
         }
+
+        // M12: push cho đúng những người lượt này vừa gửi thư được — xem docblock lớp.
+        app(SendPushAlert::class)->handle($mailed, PushTopic::ClientStageUpdate, $stageLog);
 
         if ($failure !== null) {
             throw $failure;

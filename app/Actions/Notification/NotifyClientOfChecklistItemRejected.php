@@ -2,8 +2,10 @@
 
 namespace App\Actions\Notification;
 
+use App\Actions\Push\SendPushAlert;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\OutboundStatus;
+use App\Enums\PushTopic;
 use App\Mail\Client\DocumentRejected;
 use App\Models\ClientUser;
 use App\Models\Matter;
@@ -36,6 +38,13 @@ use Throwable;
  * tổng của portal, tắt thì vụ việc vô hình dù khách đúng quyền, và không nơi nào khác trên đường
  * đi (`ResolveClientRecipients`, `ReviewChecklistItem`) tự hỏi nó. VÀ vụ việc chưa huỷ (xoá mềm)
  * — nhưng KHÔNG đòi vụ còn mở: xem {@see self::notifiableMatter()} (rà soát cuối làn, I1).
+ *
+ * **M12 — thông báo đẩy `client.document_rejected`:** cùng luật với `NotifyClientOfStageUpdate`
+ * (docblock lớp đó, mục "M12 — thông báo đẩy"): {@see SendPushAlert} nhận đúng những tài khoản lượt
+ * này vừa gửi thư thành công, sau vòng thư, trước lần ném lại lỗi; chống trùng là sổ thư theo LẦN từ
+ * chối (`alreadyDelivered()` so `payload.tier` với `DocumentRejected::ledgerKeyFor()`, khoá dựng từ
+ * `reviewed_at`) — nên lần từ chối thứ hai của cùng đầu mục là một thư và một push mới, đúng như thư.
+ * Push không mang tên đầu mục hay lý do (R11, `PushTopic`).
  */
 class NotifyClientOfChecklistItemRejected
 {
@@ -55,6 +64,7 @@ class NotifyClientOfChecklistItemRejected
 
         $sent = 0;
         $failure = null;
+        $mailed = collect();
 
         foreach ($recipients as $recipient) {
             if ($this->alreadyDelivered($fresh, $recipient)) {
@@ -66,10 +76,14 @@ class NotifyClientOfChecklistItemRejected
             try {
                 Mail::to($recipient->email)->send(new DocumentRejected($fresh, $recipient));
                 $sent++;
+                $mailed->push($recipient);
             } catch (Throwable $e) {
                 $failure ??= $e;
             }
         }
+
+        // M12: push cho đúng những người lượt này vừa gửi thư được — xem docblock lớp.
+        app(SendPushAlert::class)->handle($mailed, PushTopic::ClientDocumentRejected, $fresh);
 
         if ($failure !== null) {
             throw $failure;

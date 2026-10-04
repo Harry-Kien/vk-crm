@@ -3038,3 +3038,52 @@ test thành `str_contains(...)` + `->toBeFalse($message)`, đột biến đỏ. 
 R11 — chuyển dữ liệu ra nước ngoài (bổ sung cho đánh giá của M8 R3 ở "Ghi chú M8"): máy chủ push của Apple, Google,
 Mozilla chỉ thấy bản mã (aes128gcm, RFC 8291) cùng siêu dữ liệu (endpoint, thời điểm, TTL, `urgency`); bản giải mã
 cũng chỉ là tên văn phòng, một câu chung và một đường dẫn mang số id — không dữ liệu cá nhân nào của khách.
+
+### Task 8 — push cho bốn sự kiện của khách (2026-10-04)
+
+Đã làm (R10, R11; phán quyết (d) của controller):
+- Bốn Action thư khách gọi `App\Actions\Push\SendPushAlert` NGAY SAU vòng thư, TRƯỚC lần ném lại lỗi của người khác:
+  `NotifyClientOfStageUpdate` (`client.stage_update`, bản ghi = dòng tiến độ), `NotifyClientOfDocumentPublished`
+  (`client.document_published`, tài liệu đã đọc lại), `NotifyClientOfChecklistItemRejected` (`client.document_rejected`,
+  đầu mục đã đọc lại), `NotifyClientOfRequestAnswered` (`client.request_answered`, câu trả lời đã đọc lại) — đúng bản ghi
+  mà mailable ghi vào nhật ký.
+- Tập push của MỘT lượt = những tài khoản mà CHÍNH lượt đó vừa gửi thư thành công (`$mailed`): không người đã có dòng
+  `sent` từ lượt trước (`alreadyDelivered()`), không người vừa hỏng thư. Hợp qua mọi lượt — lượt thử lại của hàng đợi,
+  nút "Gửi lại" của nhật ký thư (`ResendTargets` gọi lại đúng `handle()`) — đúng bằng tập người nhận thư. Không luật
+  người nhận thứ hai (người nhận vẫn chỉ từ `ResolveClientRecipients`), không trí nhớ chống trùng mới (`notified_at`, sổ
+  thư). `SendPushAlert` không ném vì lỗi lúc chạy, nên push hỏng không chặn `notified_at` hay lần ném lại của thư (R12).
+- `PushStructureTest::pushAlertCallersAllowed()` thêm bốn tệp đó, mỗi tệp một chủ đề.
+- Test mới `tests/Feature/Push/ClientEventPushTest.php` (qua màn hình văn phòng bằng Livewire: form "Chuyển giai đoạn",
+  "Công bố" của tab Tài liệu, "Cần nộp lại" của tab Danh mục hồ sơ, "Trả lời" của tab Yêu cầu, "Gửi lại" của nhật ký thư):
+  tập push = tập thư (id giữa `Mail::fake()` và `Notification::fake()`, cảnh có vợ, chồng, tài khoản chưa kích hoạt,
+  tài khoản bị khoá, tài khoản của khách hàng khác — mọi người đều đã bật máy); chủ đề và bản ghi của push = header
+  `X-VKCRM-Template`/`X-VKCRM-Related` của thư; payload không chứa chuỗi đánh dấu nào (mã hồ sơ, tiêu đề vụ, tên khách,
+  tên các bên, toà, số thụ lý, ghi chú nội bộ, nội dung công bố, tiêu đề tài liệu, tên đầu mục, lý do từ chối, câu hỏi,
+  câu trả lời — Review Focus 2); ba điều kiện của luật chung (chưa kích hoạt, bị khoá, khách hàng xoá mềm) × bốn đường;
+  chuyển giai đoạn không công bố → không push, listener chạy lại → không push thứ hai (`notified_at`); vợ và chồng qua
+  kênh push THẬT tới máy chủ push giả (đúng hai request, mỗi máy một dòng nhật ký `push`), máy của người lạ không nhận;
+  lượt thử lại sau lỗi một phần qua hàng đợi `database` và worker thật (lượt 1: vợ có thư → có push, chồng hỏng thư →
+  không push; lượt 2: vợ không push thứ hai, chồng có thư → có push); lần từ chối thứ hai của cùng đầu mục là thư và push
+  thứ hai.
+
+Lệch kế hoạch, có lý do: kế hoạch viết "`SendPushAlert::handle($recipients, …)` với đúng collection đó"; làn đưa vào
+những người VỪA nhận thư ở lượt đó (phán quyết (d)) — với nguyên `$recipients`, một lượt thử lại sau lỗi một phần đẩy
+lần hai cho người đã nhận (đột biến "đẩy cho nguyên `$recipients`" ở mục Số đo đỏ đúng chỗ đó).
+Giá: người đã nhận thư mà push của họ hỏng không có push bù (push là tiện ích, thư là chứng cứ).
+
+Sự thật cho task sau:
+- `main` (`b2e02d7`, sau khi gộp M7 và M10) KHÔNG có thư khách mới nào ngoài bốn mẫu này: M7 thêm
+  `staff.matter_reassigned` (Task 1) và `staff.handover_ready` (Task 4), M10 thêm `staff.intake_unanswered` (Task 5) — đều là
+  thư nhân sự. Push cho thư nhân sự thuộc Task 9 / lúc gộp (phán quyết 2 của làn); nếu M10 về sau thêm thư cho khách,
+  push cho thư đó thuộc M10, làm qua `PushTopic`.
+- Test của Task 9 dùng lại khuôn của `ClientEventPushTest`: `Notification::fake()` + `Mail::fake()` cho phép so tập, hàng
+  đợi `database` + `--once` (không `--stop-when-empty`) cho lượt thử lại, `FakePushServer::start()` cho đường thật.
+
+Số đo: cả bộ `test --parallel --processes=2` 4132 passed, 25 skipped, 1 todo, 1 risky, 0 failed (sau Task 7: 4105; +27 ca,
+đúng số ca của `ClientEventPushTest`); MariaDB (`test:mariadb`, tuần tự) trên sáu tệp test đã chạm (`ClientEventPushTest`,
+`PushStructureTest`, bốn tệp thư khách) 107 passed; 21 đột biến Pest đều đỏ — ở mỗi Action: đẩy cho nguyên `$recipients`,
+bỏ lời gọi, ghi người nhận push trước khi thư đi, đặt lời gọi sau lần ném lại (mỗi đột biến chỉ đỏ đúng đường của nó);
+ba điều kiện của `ResolveClientRecipients::eligibleQuery()` (mỗi cái đỏ đúng điều kiện đó trên cả bốn đường, ở dòng
+"không push", TRƯỚC dòng thư); bỏ một tệp khỏi danh sách cho phép của `PushStructureTest`; bỏ khoá lần từ chối của
+`alreadyDelivered()` (lần từ chối thứ hai). Pint sạch. Máy thật ("màn hình khoá chỉ có câu chung", chạm mở đúng trang):
+PENDING OWNER (Task 10).

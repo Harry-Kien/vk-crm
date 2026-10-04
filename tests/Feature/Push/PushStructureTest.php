@@ -35,6 +35,12 @@ function pushAlertCallersAllowed(): array
         'app/Actions/Push/SendPushAlert.php' => 'chính nó',
         // Task 7 — nút "Gửi thử" của trang "Thông báo trên điện thoại" (chủ đề `push.test`).
         'app/Actions/Push/SendTestPush.php' => 'gửi thử tới máy của chính người bấm',
+        // Task 8 — bốn thư của khách (bảng R10): mỗi Action đẩy cho đúng những tài khoản lượt đó vừa
+        // gửi thư thành công (phán quyết (d)); test đồng nhất người nhận: `ClientEventPushTest`.
+        'app/Actions/Notification/NotifyClientOfStageUpdate.php' => 'client.stage_update',
+        'app/Actions/Notification/NotifyClientOfDocumentPublished.php' => 'client.document_published',
+        'app/Actions/Notification/NotifyClientOfChecklistItemRejected.php' => 'client.document_rejected',
+        'app/Actions/Notification/NotifyClientOfRequestAnswered.php' => 'client.request_answered',
     ];
 }
 
