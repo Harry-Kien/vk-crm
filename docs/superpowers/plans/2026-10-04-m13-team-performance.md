@@ -667,7 +667,7 @@ public function viewPerformanceRevenue(User|ClientUser $viewer, User $subject): 
 
 **Commit:** `feat: M13 Task 1 — quyền performance.viewAny (đính chính SPEC §5), UserPolicy::viewPerformance, TeamRoster, khung ba trang trả 404 đồng nhất, ranh giới MCP`
 
-### - [ ] Task 2 — Những định nghĩa còn thiếu, đặt vào đúng lớp đang giữ luật (không màn hình)
+### - [x] Task 2 — Những định nghĩa còn thiếu, đặt vào đúng lớp đang giữ luật (không màn hình)
 
 Task này không thêm hành vi nào mà người dùng thấy, trừ một bản sửa lỗi có chủ đích (`Deadline::scopeUpcoming()` làm rơi ngày +7 trên SQLite). Nó chuyển luật đang nằm trong widget xuống model, và thêm đúng những scope M13 cần **vào cạnh luật đã có**. Mỗi scope mới có test đồng nhất với nơi đang dùng luật đó.
 
@@ -745,30 +745,30 @@ public static function scopeEventsWithin(Builder $query, string $event, array $b
 ```
 
 **Bước:**
-- [ ] Viết test đồng nhất đỏ cho từng scope, rồi mới viết scope.
-- [ ] Viết docblock cho mọi scope mới. Mỗi docblock nêu luật gốc nó nói lại, và vì sao không phải định nghĩa thứ hai. Theo khuôn `MatterStaleness::scopeStale()` / `color()`: hai hình dạng, một luật, một hằng số.
-- [ ] **Sửa `Deadline::scopeUpcoming()`** sang cận trên `today()->addDays($days)->endOfDay()->toDateTimeString()`. Hôm nay nó so `due_date ≤ 'Y-m-d'` trần: trên SQLite cột lưu `Y-m-d 00:00:00`, lớn hơn chuỗi ngày trần, nên mốc ngày +7 rơi khỏi widget trang chủ, trong khi trên MariaDB nó có mặt, và `CheckDeadlines::tierFor()` trả `d7` cho đúng ngày đó. Trước khi sửa, grep các test của `UpcomingDeadlinesWidget` đang khẳng định ngày +7; nếu có test đang khẳng định hành vi sai trên SQLite thì sửa **có chủ đích** và nói trong báo cáo. Tệp này M11 cũng sửa (`casts()`); người gộp giữ cả hai.
-- [ ] `outcomeAt()` cài đúng bảng ca biên của P1 (Định nghĩa các con số), theo thứ tự trong bảng. `closedOnOrBefore()` dùng `≤ 23:59:59` của ngày đến hạn, không `<` ngày trần: vụ kết thúc **đúng** ngày đến hạn làm mốc hết hiệu lực.
-- [ ] **`ClientRequest::holderId()` giữ ngữ nghĩa của đường thông báo, không thay nó.** `ReplyToClientRequest::notifyHolderOfFollowUp()` viết `$thread->assignee ?? $matter->leadLawyer` (không có biến `$preferred` nào; chữ đó chỉ có trong docblock). Quan hệ `assignee` bỏ người đã xoá mềm, nên người được giao đã xoá mềm nhường cho luật sư phụ trách. `scopeWithHolder()` và `holderId()` làm **đúng** như vậy (nối `users` với `deleted_at is null`). `ReplyToClientRequest` **không** bị sửa: đổi đường thông báo sang `holderId()` không đem lại gì, mà còn phải nạp lại `User` từ một id. Test đồng nhất (dưới) ghim hai bên vào nhau.
-- [ ] `totalsByLead()` dùng chính `SETTLED_STATUSES` và `DocumentGroup::ClientProvided` của lớp. Bỏ `ClientPortalScope` của `Document` như `countClientSubmittedDocuments()`, giữ `SoftDeletingScope`, và loại đầu mục đã xoá mềm như quan hệ `checklistItems()`.
-- [ ] `CollectedRevenue` là phép **tách nguyên văn**: cùng `withoutGlobalScope(ClientPortalScope::class)`, `whereNull('voided_at')`, `whereBetween('paid_on', $filters->bounds())`, `whereHas('instalment.contract.matter', listableBy)`.
+- [x] Viết test đồng nhất đỏ cho từng scope, rồi mới viết scope.
+- [x] Viết docblock cho mọi scope mới. Mỗi docblock nêu luật gốc nó nói lại, và vì sao không phải định nghĩa thứ hai. Theo khuôn `MatterStaleness::scopeStale()` / `color()`: hai hình dạng, một luật, một hằng số.
+- [x] **Sửa `Deadline::scopeUpcoming()`** sang cận trên `today()->addDays($days)->endOfDay()->toDateTimeString()`. Hôm nay nó so `due_date ≤ 'Y-m-d'` trần: trên SQLite cột lưu `Y-m-d 00:00:00`, lớn hơn chuỗi ngày trần, nên mốc ngày +7 rơi khỏi widget trang chủ, trong khi trên MariaDB nó có mặt, và `CheckDeadlines::tierFor()` trả `d7` cho đúng ngày đó. Trước khi sửa, grep các test của `UpcomingDeadlinesWidget` đang khẳng định ngày +7; nếu có test đang khẳng định hành vi sai trên SQLite thì sửa **có chủ đích** và nói trong báo cáo. Tệp này M11 cũng sửa (`casts()`); người gộp giữ cả hai.
+- [x] `outcomeAt()` cài đúng bảng ca biên của P1 (Định nghĩa các con số), theo thứ tự trong bảng. `closedOnOrBefore()` dùng `≤ 23:59:59` của ngày đến hạn, không `<` ngày trần: vụ kết thúc **đúng** ngày đến hạn làm mốc hết hiệu lực.
+- [x] **`ClientRequest::holderId()` giữ ngữ nghĩa của đường thông báo, không thay nó.** `ReplyToClientRequest::notifyHolderOfFollowUp()` viết `$thread->assignee ?? $matter->leadLawyer` (không có biến `$preferred` nào; chữ đó chỉ có trong docblock). Quan hệ `assignee` bỏ người đã xoá mềm, nên người được giao đã xoá mềm nhường cho luật sư phụ trách. `scopeWithHolder()` và `holderId()` làm **đúng** như vậy (nối `users` với `deleted_at is null`). `ReplyToClientRequest` **không** bị sửa: đổi đường thông báo sang `holderId()` không đem lại gì, mà còn phải nạp lại `User` từ một id. Test đồng nhất (dưới) ghim hai bên vào nhau.
+- [x] `totalsByLead()` dùng chính `SETTLED_STATUSES` và `DocumentGroup::ClientProvided` của lớp. Bỏ `ClientPortalScope` của `Document` như `countClientSubmittedDocuments()`, giữ `SoftDeletingScope`, và loại đầu mục đã xoá mềm như quan hệ `checklistItems()`.
+- [x] `CollectedRevenue` là phép **tách nguyên văn**: cùng `withoutGlobalScope(ClientPortalScope::class)`, `whereNull('voided_at')`, `whereBetween('paid_on', $filters->bounds())`, `whereHas('instalment.contract.matter', listableBy)`.
   - Bộ lọc lĩnh vực và luật sư của widget vẫn nằm ở widget, gắn thêm vào truy vấn trả về.
   - Ghi trong PROGRESS: tệp này M9-final vừa sửa 1 dòng (`bounds()`), nên lúc gộp phải đọc lại.
-- [ ] `scopeOwnedByVisibleMatters()`: gọi `whereOwnedByAny()` (đang `private`, giữ `private`) với `listableBy($viewer)` và `includeMoney` như `scopeOwnedBy()`. Nếu lúc cắt nhánh M10 đã gộp (grep `INTAKE_REQUEST`), tách lớp chồng "dòng `intake_request` chỉ khi xem được bản ghi" của `scopeVisibleTo()` thành một hàm `private` dùng chung và gọi ở cả hai scope. Nếu chưa, ghi vào PROGRESS cho người gộp M10, và thêm test đỏ-chờ (`->todo()`) nêu đúng ca: dòng `intake_request` có `properties.matter_id` của một vụ trưởng phòng xem được, nhưng bản ghi tiếp nhận trưởng phòng không xem được.
-- [ ] **`NoSecondDefinitionTest`** quét token (bỏ chú thích) của **mọi tệp bị quét** ở "Ràng buộc toàn cục" (gồm `CapturePerformanceSnapshots.php`, ba trang, thư mục widget hiệu suất; tệp chưa tồn tại thì bỏ qua, test tự canh khi tệp xuất hiện) theo đúng danh sách cột và danh sách ngoại lệ theo tệp ở đó.
+- [x] `scopeOwnedByVisibleMatters()`: gọi `whereOwnedByAny()` (đang `private`, giữ `private`) với `listableBy($viewer)` và `includeMoney` như `scopeOwnedBy()`. Nếu lúc cắt nhánh M10 đã gộp (grep `INTAKE_REQUEST`), tách lớp chồng "dòng `intake_request` chỉ khi xem được bản ghi" của `scopeVisibleTo()` thành một hàm `private` dùng chung và gọi ở cả hai scope. Nếu chưa, ghi vào PROGRESS cho người gộp M10, và thêm test đỏ-chờ (`->todo()`) nêu đúng ca: dòng `intake_request` có `properties.matter_id` của một vụ trưởng phòng xem được, nhưng bản ghi tiếp nhận trưởng phòng không xem được.
+- [x] **`NoSecondDefinitionTest`** quét token (bỏ chú thích) của **mọi tệp bị quét** ở "Ràng buộc toàn cục" (gồm `CapturePerformanceSnapshots.php`, ba trang, thư mục widget hiệu suất; tệp chưa tồn tại thì bỏ qua, test tự canh khi tệp xuất hiện) theo đúng danh sách cột và danh sách ngoại lệ theo tệp ở đó.
   - Mẫu "điều kiện": `(where|orWhere|having|orHaving)\w*\(\s*['"](\w+\.)?<cột>['"]`, `whereIn`/`whereNotIn`/`whereBetween` cùng dạng, và so sánh trong bộ nhớ `->\s*<cột>\s*(===|!==|==|!=|<=|>=|<|>)` hoặc ngược lại.
   - `select`/`groupBy`/`orderBy`/`pluck` trên cột quy người **không** bị bắt (R5, Ràng buộc toàn cục).
   - Cặp dương trên fixture cho từng nhóm cột, cặp âm cho `groupBy('lead_lawyer_id')` và `TextColumn::make('due_date')`.
   - Thêm `created_via`, `confirmed_at` vào danh sách cấm (R20).
-- [ ] Ghi hằng số `ReviewChecklistItem::AUDIT_EVENT` và dùng nó ở chính câu `Audit::record()` của lớp đó, để P6 không đọc một chuỗi có thể trôi.
+- [x] Ghi hằng số `ReviewChecklistItem::AUDIT_EVENT` và dùng nó ở chính câu `Audit::record()` của lớp đó, để P6 không đọc một chuỗi có thể trôi.
 
 **Test bắt buộc:**
-- [ ] `scopeOverdue()` và `CheckDeadlines::tierFor() === OVERDUE_KEY` đồng ý trên một dải mốc từ −3 tới +8 ngày, kể cả ngày hôm nay. `scopeDueWithin(7)` chứa đúng các mốc mà `tierFor()` trả một bậc `d1`/`d3`/`d7` (với mốc thường) cộng mốc hôm nay.
-- [ ] `upcoming(7)` = `overdue()` ∪ `dueWithin(7)`, hai tập rời nhau, **và** mốc ngày +7 có trong cả `upcoming(7)` lẫn `dueWithin(7)`, mốc ngày +8 không. Chạy trên SQLite **và** `test:mariadb` (`DeadlineScopeBoundaryTest`). Mutation probe: đổi cận trên về ngày trần thì test SQLite đỏ.
-- [ ] `UpcomingDeadlinesWidget`: mốc ngày +7 có trong `rowsFor()` trên SQLite (bản sửa lỗi).
-- [ ] `StaleMattersWidget` và `scopeStale()`: không đổi. `scopeNotMeasurable()` và `scopeStale()` không giao nhau. Hợp của chúng cùng phần "đã bật cổng, chưa quá hạn" bằng `open()`.
-- [ ] `PendingChecklistReviewsWidget`: mọi test cũ xanh sau khi chuyển. Mutation probe trên `scopeAwaitingReview()` làm cả widget lẫn test mới đỏ.
-- [ ] `totalsByLead()` bằng tổng `handle()` từng vụ trên dữ liệu có:
+- [x] `scopeOverdue()` và `CheckDeadlines::tierFor() === OVERDUE_KEY` đồng ý trên một dải mốc từ −3 tới +8 ngày, kể cả ngày hôm nay. `scopeDueWithin(7)` chứa đúng các mốc mà `tierFor()` trả một bậc `d1`/`d3`/`d7` (với mốc thường) cộng mốc hôm nay.
+- [x] `upcoming(7)` = `overdue()` ∪ `dueWithin(7)`, hai tập rời nhau, **và** mốc ngày +7 có trong cả `upcoming(7)` lẫn `dueWithin(7)`, mốc ngày +8 không. Chạy trên SQLite **và** `test:mariadb` (`DeadlineScopeBoundaryTest`). Mutation probe: đổi cận trên về ngày trần thì test SQLite đỏ.
+- [x] `UpcomingDeadlinesWidget`: mốc ngày +7 có trong `rowsFor()` trên SQLite (bản sửa lỗi).
+- [x] `StaleMattersWidget` và `scopeStale()`: không đổi. `scopeNotMeasurable()` và `scopeStale()` không giao nhau. Hợp của chúng cùng phần "đã bật cổng, chưa quá hạn" bằng `open()`.
+- [x] `PendingChecklistReviewsWidget`: mọi test cũ xanh sau khi chuyển. Mutation probe trên `scopeAwaitingReview()` làm cả widget lẫn test mới đỏ.
+- [x] `totalsByLead()` bằng tổng `handle()` từng vụ trên dữ liệu có:
   - đầu mục không bắt buộc có tài liệu nhóm A;
   - đầu mục không bắt buộc chỉ có tài liệu nhóm B (không vào `Y`);
   - tài liệu nhóm A đã xoá mềm;
@@ -776,19 +776,19 @@ public static function scopeEventsWithin(Builder $query, string $event, array $b
   - `not_applicable`.
 
   Chạy dưới `test:mariadb`.
-- [ ] `CollectedRevenue`: `RevenueDashboardTest` xanh nguyên. Tổng của `query()` bằng tổng các cột của widget cho cùng kỳ. Khoản thu vào đúng ngày cuối kỳ được tính, trên cả hai CSDL.
-- [ ] `closedWithin()`: vụ đóng ngày cuối kỳ có mặt; vụ đã huỷ (xoá mềm) không. `matterClosedAtConditionIn()` bắt được `whereBetween('closed_at'` và `->closed_at <` trong một chuỗi fixture, và không bắt `TextEntry::make('closed_at')`.
-- [ ] `closedOnOrBefore()`: vụ kết thúc 10:00 đúng ngày đến hạn → đúng; 00:00:01 hôm sau → sai.
-- [ ] `DeadlineOutcomeTest`: **mỗi ca** của bảng ca biên P1 một `it()`, kể cả ca 1 (mốc ghi sau ngày đến hạn), ca 2 (`completed_at` rỗng), ca 6 (vụ kết thúc đúng ngày đến hạn), ca 8 (mở lại sau ngày đến hạn). Mutation probe cho từng điều kiện.
-- [ ] `holderId()`, `scopeWithHolder()` và người mà `notifyHolderOfFollowUp()` báo (bắt `Notification::fake()`) đồng ý trên bốn luồng: chưa giao; giao cho trợ lý; giao cho người **đã xoá mềm** (cả ba nói luật sư phụ trách); luật sư phụ trách đã đổi. Mutation probe: bỏ điều kiện `deleted_at is null` của phép nối thì ca xoá mềm đỏ.
-- [ ] `scopeWithHolder()` kết hợp với `scopeCreatedBetween()` và `scopeAwaitingOffice()` chạy được trên MariaDB strict (không lỗi cột mơ hồ `created_at`/`status`).
-- [ ] `isClosedWithoutAnswer()`: Mới → Đã đóng qua `TriageClientRequest::setStatus()` → đúng; Đã trả lời rồi đóng → sai.
-- [ ] `scopeOwnedByVisibleMatters()`:
+- [x] `CollectedRevenue`: `RevenueDashboardTest` xanh nguyên. Tổng của `query()` bằng tổng các cột của widget cho cùng kỳ. Khoản thu vào đúng ngày cuối kỳ được tính, trên cả hai CSDL.
+- [x] `closedWithin()`: vụ đóng ngày cuối kỳ có mặt; vụ đã huỷ (xoá mềm) không. `matterClosedAtConditionIn()` bắt được `whereBetween('closed_at'` và `->closed_at <` trong một chuỗi fixture, và không bắt `TextEntry::make('closed_at')`.
+- [x] `closedOnOrBefore()`: vụ kết thúc 10:00 đúng ngày đến hạn → đúng; 00:00:01 hôm sau → sai.
+- [x] `DeadlineOutcomeTest`: **mỗi ca** của bảng ca biên P1 một `it()`, kể cả ca 1 (mốc ghi sau ngày đến hạn), ca 2 (`completed_at` rỗng), ca 6 (vụ kết thúc đúng ngày đến hạn), ca 8 (mở lại sau ngày đến hạn). Mutation probe cho từng điều kiện.
+- [x] `holderId()`, `scopeWithHolder()` và người mà `notifyHolderOfFollowUp()` báo (bắt `Notification::fake()`) đồng ý trên bốn luồng: chưa giao; giao cho trợ lý; giao cho người **đã xoá mềm** (cả ba nói luật sư phụ trách); luật sư phụ trách đã đổi. Mutation probe: bỏ điều kiện `deleted_at is null` của phép nối thì ca xoá mềm đỏ.
+- [x] `scopeWithHolder()` kết hợp với `scopeCreatedBetween()` và `scopeAwaitingOffice()` chạy được trên MariaDB strict (không lỗi cột mơ hồ `created_at`/`status`).
+- [x] `isClosedWithoutAnswer()`: Mới → Đã đóng qua `TriageClientRequest::setStatus()` → đúng; Đã trả lời rồi đóng → sai.
+- [x] `scopeOwnedByVisibleMatters()`:
   - không thả dòng đăng nhập hay dòng của vụ `restricted` cho trưởng phòng; cùng dòng đó thả cho luật sư phụ trách và admin;
   - admin cũng **không** nhận dòng đăng nhập;
   - dòng khoản thu chỉ thả cho người có `billing.view` (luật sư phụ trách có, trợ lý không).
-- [ ] `scopeEventsWithin()`: dòng lúc 23:59:59 ngày cuối kỳ có mặt, 00:00:00 hôm sau không.
-- [ ] `NoSecondDefinitionTest` xanh, với cặp dương và âm trên fixture như ở bước.
+- [x] `scopeEventsWithin()`: dòng lúc 23:59:59 ngày cuối kỳ có mặt, 00:00:00 hôm sau không.
+- [x] `NoSecondDefinitionTest` xanh, với cặp dương và âm trên fixture như ở bước.
 
 **Commit:** `refactor: M13 Task 2 — luật đặt đúng chỗ: Deadline::overdue/dueWithin/dueBetween/removedBetween/outcomeAt và sửa upcoming() rơi ngày +7 trên SQLite, MatterChecklistItem::awaitingReview (chuyển từ widget), ClientRequest::awaitingOffice/withHolder/createdBetween (người giữ như đường thông báo), ChecklistProgress::totalsByLead, CollectedRevenue tách từ RevenueOverTimeWidget, Matter::closedWithin/closedOnOrBefore/withSupportingMember, ActivityOwningMatter::ownedByVisibleMatters/eventsWithin; test đồng nhất và test cấm định nghĩa thứ hai trên mọi tệp M13`
 

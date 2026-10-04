@@ -31,4 +31,11 @@ return [
             'title' => 'Hiệu suất theo kỳ',
         ],
     ],
+
+    // Task 2 — nhãn của App\Enums\DeadlineOutcome (kết quả của Deadline::outcomeAt(), cột P1).
+    'outcomes' => [
+        'on_time' => 'Đúng hạn',
+        'late' => 'Trễ hạn',
+        'missed' => 'Lỡ hạn',
+    ],
 ];

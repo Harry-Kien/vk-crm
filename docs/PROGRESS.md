@@ -4004,3 +4004,51 @@ hoạch — không từ `main` (phán quyết controller). Làn m13b tách sau T
   người (`viewPerformance`) vì id người chỉ có ở đó.
 - **Việc mang sang Task 8:** `docs/CAI-DAT.md` mục cập nhật — `db:seed --force` mang quyền
   `performance.viewAny` cho máy chủ đã có dữ liệu (SPEC §5 đã ghi câu này).
+
+### Task 2 — định nghĩa còn thiếu, đặt vào đúng lớp đang giữ luật (2026-10-04)
+
+- **Không màn hình mới.** Scope và hàm mới đặt cạnh luật đang có: `Matter::closedWithin()`,
+  `closedOnOrBefore()`, `withSupportingMember()`, `ledBy()`, `workedOnBy()`, `ofConfidentiality()`;
+  `MatterRole::supporting()`; `MatterStaleness::scopeNotMeasurable()`; `Deadline::UPCOMING_WINDOW_DAYS`,
+  `overdue()`, `dueWithin()`, `dueBetween()`, `removedBetween()`, `heldBy()`, `outcomeAt()` (bảng ca biên
+  P1) và enum `DeadlineOutcome`; `MatterChecklistItem::awaitingReview()` (chuyển từ
+  `PendingChecklistReviewsWidget::rowsFor()`); `ClientRequest::awaitingOffice()`, `withHolder()`,
+  `holderIdSql()`, `heldBy()`, `holderId()`, `createdBetween()`, `isClosedWithoutAnswer()`, `answeredBy()`;
+  `StageLog::occurredBetween()`; `ReviewChecklistItem::AUDIT_EVENT`; `ChecklistProgress::totalsByLead()`;
+  `App\Support\Billing\CollectedRevenue` (tách nguyên văn từ `RevenueOverTimeWidget::computeBuckets()`);
+  `ActivityOwningMatter::scopeOwnedByVisibleMatters()`, `scopeEventsWithin()`. Test đồng nhất ở
+  `tests/Feature/Performance/SingleSourceParityTest.php`; luật "không định nghĩa thứ hai" ở
+  `NoSecondDefinitionTest.php` (quét token mọi tệp M13, ngoại lệ có tên theo tệp).
+- **Bản sửa lỗi có chủ đích — widget "Mốc thời hạn 7 ngày tới" gồm ngày +7 trên SQLite.**
+  `Deadline::scopeUpcoming()` so `due_date <=` chuỗi ngày trần, nên mốc ngày +7 rơi khỏi widget trên
+  SQLite (giữ trên MariaDB) dù `CheckDeadlines::tierFor()` trả `d7`. Nay cận trên là 23:59:59. Không test
+  cũ nào khẳng định ngược lại (`UpcomingDeadlinesWidgetTest` dùng +5/+3/+2/−3/−2/+40;
+  `DeadlineAndRequestTest` dùng `upcoming(3)` với +2/−1/+20) — cả hai và `DashboardWidgetOrderTest` xanh
+  sau bản sửa. `UpcomingDeadlinesWidget::WINDOW_DAYS` nay là bí danh của `Deadline::UPCOMING_WINDOW_DAYS`.
+- **N11, P6 bỏ vụ ĐÃ HUỶ (lựa chọn của Task 2).** `scopeOwnedByVisibleMatters()` lấy tập vụ
+  `listableBy($viewer)` KHÔNG `withTrashed()`, khác trang Nhật ký hệ thống (`scopeVisibleTo()`, vẫn hiện
+  dòng của vụ đã huỷ): mọi con số khác của M13 bỏ vụ đã huỷ (`SoftDeletes` của `Matter`), nên "thao tác
+  gần nhất" và "số lần duyệt" đi cùng luật đó. Không bước 4 (dòng không thuộc vụ nào, như đăng nhập, không
+  tính) và không lối tắt admin. Ghim bằng test cạnh dòng tương ứng của trang nhật ký.
+- **Người gộp M10:** `app/Support/ActivityOwningMatter.php` — M10 thêm cổng bản ghi tiếp nhận
+  (`INTAKE_REQUEST`, `visibleIntakes()`) vào `canViewMany()`/`scopeVisibleTo()`. Tách lớp chồng "dòng
+  `intake_request` chỉ khi người xem xem được chính bản ghi" thành một hàm `private` dùng chung và gọi ở
+  CẢ `scopeVisibleTo()` lẫn `scopeOwnedByVisibleMatters()`, rồi viết test đang chờ
+  (`SingleSourceParityTest`, "drops an intake_request row whose matter the manager can see but whose
+  intake record they cannot (M10 gate)", hôm nay `->todo()`).
+- **Người gộp `main`:** `RevenueOverTimeWidget::computeBuckets()` vừa được M9-final sửa một dòng
+  (`bounds()`) trước khi Task 2 tách truy vấn sang `CollectedRevenue::query()`; đọc lại khi gộp. Bộ lọc
+  lĩnh vực của widget nay là một `whereHas('instalment.contract.matter', …)` thứ hai (một khoản thu thuộc
+  đúng một vụ, nên tương đương) — `RevenueDashboardTest` xanh nguyên.
+- **Người gộp M11:** `app/Models/Deadline.php` (M11 thêm `created_via`, `confirmed_at` vào `casts()` và
+  `$attributes`, quan hệ `confirmer()`; Task 2 thêm hằng số, năm scope, `outcomeAt()` và sửa
+  `scopeUpcoming()`),
+  `app/Models/ClientRequest.php` (M11: `replyDrafts()`; Task 2: tám scope/hàm) và `app/Models/Matter.php`
+  (M11: cast `ai_access`, một dòng trong `booted()`, `stageLogDrafts()`; Task 2: sáu scope/hàm) — giữ cả
+  hai bên. `NoSecondDefinitionTest` đã cấm `created_via`, `confirmed_at` trong điều kiện của tệp M13 (R20).
+- **`totalsByLead()`** trả khoá theo `lead_lawyer_id`; người phụ trách không có đầu mục nào trong `Y`
+  không có khoá (0/0 là "chưa có gì để đếm"). Hình dạng SQL của `countedInTotal()` nằm cạnh nó
+  (`countedInTotalQuery()`, riêng tư) và dùng chung ràng buộc tài liệu nhóm A với bộ đếm của `handle()`.
+- **`MatterTest`:** bộ quét `closed_at` tách thành `matterClosedAtConditionIn(string $source)` (khuôn
+  `forceDeleteCallLines()`), siết để bắt `whereBetween`/`whereDate`/`whereColumn`/`whereRelation`, so
+  sánh `<`, `<=`, `>`, `>=` và so sánh Carbon (`->closed_at->lte(`); có cặp dương/âm trên fixture.

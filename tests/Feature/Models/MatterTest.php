@@ -162,28 +162,86 @@ it('scopeClosed keeps only closed matters that were not cancelled, and isClosed 
 });
 
 /**
+ * Mã nguồn `$source` có dùng `closed_at` làm ĐIỀU KIỆN không — lọc SQL hay so trong bộ nhớ.
+ *
+ * Tách thành một hàm nhận mã nguồn (M13 Task 2, khuôn `forceDeleteCallLines()` của
+ * `RecordsAreNeverForceDeletedTest`) để chạy được trên một FIXTURE, không chỉ trên `app/`: không có
+ * cách đặt một tệp mẫu vào `app/`, nên trước bản tách này không test nào chứng minh được bộ quét bắt
+ * đúng thứ nó phải bắt. Chỉ đọc MÃ: docblock/chú thích kể lại lịch sử `whereNull('closed_at')` thì
+ * không tính.
+ */
+function matterClosedAtConditionIn(string $source): bool
+{
+    // Toán tử so sánh; `<=>` (sắp xếp) và `=>` (khoá mảng, mũi tên) không phải điều kiện.
+    $operator = '(?:===|!==|==|!=|<=(?!>)|>=|(?<![=<\-])<(?![=>])|(?<![=<\-])>(?!=))';
+    $property = '(?:\?->|->)\s*';
+
+    $pattern = '/'
+        // where/orWhere/having… với closed_at ở tham số đầu: whereNull, whereNotNull, whereBetween,
+        // whereDate, whereColumn, whereIn… — kể cả cột bọc trong `qualifyColumn('closed_at')`.
+        .'\b(?:where|orWhere|having|orHaving)\w*\(\s*(?:[\w$:>\-]+\(\s*)?[\'"](?:\w+\.)?closed_at[\'"]'
+        // whereColumn/whereRelation với closed_at ở tham số sau.
+        .'|\b(?:where|orWhere)(?:Column|Relation)\([^;)]*[\'"](?:\w+\.)?closed_at[\'"]'
+        // so sánh trong bộ nhớ, hai chiều.
+        .'|'.$property.'closed_at\b\s*'.$operator
+        .'|'.$operator.'\s*\$\w+(?:\s*'.$property.'\w+)*\s*'.$property.'closed_at\b'
+        // so sánh Carbon: ->closed_at->lte(…), ->closed_at?->isBefore(…)
+        .'|'.$property.'closed_at\s*'.$property.'(?:lt|lte|gt|gte|eq|ne|equalTo|lessThan|lessThanOrEqualTo|greaterThan|greaterThanOrEqualTo|isBefore|isAfter|isPast|isFuture|isSameDay|between|betweenIncluded|betweenExcluded)\s*\('
+        .'/i';
+
+    $code = collect(token_get_all($source))
+        ->reject(fn (mixed $token): bool => is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true))
+        ->map(fn (mixed $token): string => is_array($token) ? $token[1] : $token)
+        ->implode('');
+
+    return preg_match($pattern, $code) === 1;
+}
+
+/**
  * Một định nghĩa, và nó phải CÒN là một (gộp M9, xung đột 2): ngoài `Matter.php` (nơi định nghĩa
- * `scopeOpen`/`scopeClosed`/`isOpen`/`isClosed`) và `TransitionMatterStage` (nơi DUY NHẤT ghi cột
- * này), không tệp nào trong app/ được dùng `closed_at` làm điều kiện — lọc SQL hay so trong bộ nhớ.
- * Hiển thị cột (`TextEntry::make('closed_at')`, cast, nhãn) thì được. Bốn chỗ M9 viết trước khi
- * M6.5 có scope là đúng thứ test này bắt.
+ * `scopeOpen`/`scopeClosed`/`isOpen`/`isClosed`, và từ M13 `scopeClosedWithin`/`closedOnOrBefore`) và
+ * `TransitionMatterStage` (nơi DUY NHẤT ghi cột này), không tệp nào trong app/ được dùng `closed_at`
+ * làm điều kiện — lọc SQL hay so trong bộ nhớ. Hiển thị cột (`TextEntry::make('closed_at')`, cast,
+ * nhãn) thì được. Bốn chỗ M9 viết trước khi M6.5 có scope là đúng thứ test này bắt.
  */
 it('uses closed_at as a condition nowhere in app/ except the matter model and the stage transition', function () {
     $allowed = ['Models/Matter.php', 'Actions/TransitionMatterStage.php'];
 
-    $pattern = '/where(Null|NotNull)?\(\s*[\'"](\w+\.)?closed_at[\'"]'
-        .'|->closed_at\s*(===|!==|==|!=)|(===|!==|==|!=)\s*\$\w+->closed_at\b/';
-
     $offenders = collect(File::allFiles(app_path()))
         ->map(fn (SplFileInfo $file): string => $file->getRelativePathname())
         ->reject(fn (string $path): bool => in_array($path, $allowed, true))
-        // Chỉ đọc MÃ: docblock/chú thích kể lại lịch sử `whereNull('closed_at')` thì không tính.
-        ->filter(fn (string $path): bool => preg_match($pattern, collect(token_get_all((string) file_get_contents(app_path($path))))
-            ->reject(fn (mixed $token): bool => is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true))
-            ->map(fn (mixed $token): string => is_array($token) ? $token[1] : $token)
-            ->implode('')) === 1)
+        ->filter(fn (string $path): bool => matterClosedAtConditionIn((string) file_get_contents(app_path($path))))
         ->values()
         ->all();
 
     expect($offenders)->toBe([]);
+});
+
+/**
+ * M13 Task 2: bộ quét cũ chỉ bắt `where(Null|NotNull)?(` và bốn toán tử bằng/khác — một
+ * `scopeClosedWithin()` viết ngoài `Matter.php` bằng `whereBetween('closed_at'` hay so `<` trong bộ
+ * nhớ sẽ lọt qua. Cặp dương cho từng dạng, cặp âm cho hiển thị và chú thích.
+ */
+it('catches whereBetween, whereDate, whereColumn and ordering comparisons on closed_at, and lets display through', function () {
+    $condition = fn (string $body): bool => matterClosedAtConditionIn("<?php\n".$body."\n");
+
+    expect($condition('$q->whereBetween(\'closed_at\', $bounds);'))->toBeTrue()
+        ->and($condition('$q->whereBetween(\'matters.closed_at\', $bounds);'))->toBeTrue()
+        ->and($condition('$q->whereDate(\'closed_at\', \'<=\', $day);'))->toBeTrue()
+        ->and($condition('$q->whereColumn(\'closed_at\', \'<\', \'due_date\');'))->toBeTrue()
+        ->and($condition('$q->whereColumn(\'due_date\', \'>\', \'matters.closed_at\');'))->toBeTrue()
+        ->and($condition('$q->orWhereNull(\'closed_at\');'))->toBeTrue()
+        ->and($condition('$q->where($this->qualifyColumn(\'closed_at\'), \'<\', $x);'))->toBeTrue()
+        ->and($condition('if ($matter->closed_at < $day) {}'))->toBeTrue()
+        ->and($condition('if ($matter->closed_at <= $day) {}'))->toBeTrue()
+        ->and($condition('if ($matter->closed_at > $day) {}'))->toBeTrue()
+        ->and($condition('if ($matter->closed_at >= $day) {}'))->toBeTrue()
+        ->and($condition('if ($day > $deadline->matter->closed_at) {}'))->toBeTrue()
+        ->and($condition('if ($matter->closed_at === null) {}'))->toBeTrue()
+        ->and($condition('if ($matter->closed_at?->lte($day)) {}'))->toBeTrue()
+        ->and($condition('TextEntry::make(\'closed_at\')->label(__(\'x\'));'))->toBeFalse()
+        ->and($condition('$label = $matter->closed_at?->format(\'d/m/Y\');'))->toBeFalse()
+        ->and($condition('$row = [\'closed\' => $matter->closed_at];'))->toBeFalse()
+        ->and($condition('// $q->whereBetween(\'closed_at\', $b) chỉ là chú thích'))->toBeFalse()
+        ->and($condition('$q->with(\'matter:id,closed_at\');'))->toBeFalse();
 });

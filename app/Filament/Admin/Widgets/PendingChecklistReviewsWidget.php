@@ -2,7 +2,6 @@
 
 namespace App\Filament\Admin\Widgets;
 
-use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
 use App\Enums\Permission;
 use App\Filament\Admin\Resources\Matters\MatterResource;
@@ -57,6 +56,9 @@ class PendingChecklistReviewsWidget extends TableWidget
     /**
      * Truy vấn của widget, tách static để test được mà không dựng cả bảng Livewire.
      *
+     * "Chờ duyệt" là {@see MatterChecklistItem::scopeAwaitingReview()} (chuyển xuống model ở M13
+     * Task 2, để cột N8 của "Theo dõi đội ngũ" đếm ĐÚNG tập này mà không chép điều kiện trạng thái).
+     *
      * Mốc "khách nộp lúc" là `MAX(created_at)` của các tài liệu **nhóm A** gắn vào đầu mục. Nhóm
      * A là "khách cung cấp" (SPEC §4.11) bất kể ai bấm nút nộp, nên nó là lần nộp. Các nhóm khác
      * bị loại vì một tài liệu nhóm D — ghi chú công việc nội bộ — GẮN ĐƯỢC vào một đầu mục danh
@@ -71,7 +73,7 @@ class PendingChecklistReviewsWidget extends TableWidget
     public static function rowsFor(User $user): Builder
     {
         return MatterChecklistItem::query()
-            ->where('status', ChecklistItemStatus::PendingReview->value)
+            ->awaitingReview()
             ->whereHas('matter', fn (Builder $matter): Builder => $matter->listableBy($user))
             ->withMax(
                 ['documents as '.self::SUBMITTED_AT_ALIAS => fn (Builder $documents): Builder => $documents
