@@ -27,6 +27,21 @@ use Throwable;
  * {@see ResolveStaffRecipients} (R3) và được tính lại LÚC GỬI, không lúc xếp hàng — người vừa nghỉ
  * việc hay vụ vừa siết thành `restricted` giữa hai thời điểm đó tự bị loại.
  *
+ * # Người nhận phải LÀM ĐƯỢC việc thư giao (việc sau gộp M9 + M10, làn fu3, Task 1 mục C)
+ *
+ * Chuông và thư bảo người nhận xem gói, công bố, rồi khách sẽ được báo (`handover.notification.
+ * ready_body`, `handover.email.action`). Nên ngoài R3, mỗi người nhận — ở danh sách ưu tiên lẫn ở
+ * chuỗi dự phòng — phải qua `DocumentPolicy::download` (từ M9 Task 10, gói của vụ có hợp đồng đã ký
+ * in bảng kê tiền, người không thấy tiền nhận 404) VÀ `DocumentPolicy::publish` trên chính tài liệu
+ * gói: bộ lọc `$mustAllow` của {@see ResolveStaffRecipients::handle()}. Thiếu điều này, luật sư phụ
+ * trách một vụ `restricted` bị đổi vai thành trợ lý vẫn xem được vụ (là lead) nên là người DUY NHẤT
+ * được báo, chuỗi dự phòng không chạy, không ai tải hay công bố gói, và khách không bao giờ nhận thư.
+ *
+ * Vì sao không dùng `forBilling()` khi vụ có hợp đồng đã ký: cổng tiền chỉ trả lời "tải được" (và
+ * phải chép lại điều kiện "hợp đồng khác nháp" của policy), không trả lời "công bố được" — luật sư
+ * phụ trách bị đổi vai trên một vụ KHÔNG có hợp đồng vẫn tải được gói mà không công bố được. Hỏi
+ * thẳng hai ability của policy là một định nghĩa, không phải hai.
+ *
  * # Gửi thẳng từ job, không `Mail::queue()` (việc sau gộp M7, làn fu2)
  *
  * Bản M7 xếp mỗi thư thành một job riêng bằng `Mail::queue()`. `BrandedMailable` không dùng
@@ -86,9 +101,19 @@ class SendHandoverPackageReady implements ShouldQueue
             return;
         }
 
+        // Vụ đã nạp KHÔNG qua `ClientPortalScope` — gắn sẵn để các câu hỏi `Gate` về tài liệu bên dưới
+        // không tự nạp lại vụ qua scope (cùng lý do `DocumentPolicy::withholdsPaymentStatement()`).
+        $document->setRelation('matter', $matter);
+
         $failure = null;
 
-        foreach ($recipients->handle($matter, [$matter->leadLawyer, $archive->handoverRequester]) as $user) {
+        $actors = $recipients->handle(
+            $matter,
+            [$matter->leadLawyer, $archive->handoverRequester],
+            mustAllow: ['download' => $document, 'publish' => $document],
+        );
+
+        foreach ($actors as $user) {
             if ($this->alreadyDelivered($document, $user)) {
                 continue;
             }
