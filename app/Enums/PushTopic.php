@@ -46,6 +46,23 @@ use InvalidArgumentException;
  * chỉ góp ID (vào `tag`, `data.url`), không góp chữ nào. Mức khẩn của mốc hạn ("hôm nay hoặc ngày
  * mai", "đã quá hạn") được phép, vì nó không chỉ ra khách nào.
  *
+ * # Cùng tag, nhiều lần đẩy: máy vẫn phải rung (Task 9 vòng sửa 1, I1)
+ *
+ * Một bản ghi được đẩy NHIỀU lần dưới cùng `tag`: bốn bậc của một mốc hạn (d7 → d3 → d1 → quá hạn,
+ * mỗi bậc một thư), câu hỏi tiếp của khách (`REQ-2`) dưới `tag` của luồng yêu cầu, đợt thu quá hạn
+ * nhắc lại 7 ngày một lần. Theo Notifications API (Chrome làm đúng vậy), thông báo thay một thông báo
+ * cùng `tag` CÒN TRONG KHAY thì hiện IM LẶNG — không chuông, không rung — trừ khi `renotify: true`;
+ * `urgency = high` ({@see self::urgency()}) chỉ là gợi ý giao nhận cho máy chủ push, không làm máy
+ * báo. Không có `renotify`, bậc d1 thay bậc d3 mà luật sư để nguyên trong khay sẽ tới im lặng — trái
+ * mục tiêu "điện thoại rung khi có việc" của kế hoạch. Vì vậy service worker
+ * (`resources/views/pwa/sw-js.blade.php`) đặt `renotify` cho MỌI tin có `tag` (không kèm `tag` thì
+ * `showNotification` ném `TypeError`). Không chọn `tag` riêng theo bậc: R11 chốt `tag` = chủ đề + id
+ * bản ghi (khay giữ MỘT tin cho mỗi mốc), và `REQ-2` cùng đợt thu vẫn im lặng nếu chỉ tách bậc. Test:
+ * `tests/Feature/Pwa/ServiceWorkerTest.php` (văn bản `sw.js` phục vụ ra),
+ * `tests/Feature/Push/StaffEventPushTest.php` (một `tag` qua bốn bậc, cùng `renotify`). Chuông/rung
+ * thật chỉ đo được trên máy: bước D9 của `docs/research/2026-10-01-pwa-kiem-tra-may-that.md`
+ * (PENDING OWNER, Task 10; Safari trên iPhone chưa đo).
+ *
  * # Mỗi chủ đề đi cùng MỘT thư (R10)
  *
  * Giá trị chủ đề trùng đúng tên mẫu thư mà nó đi cùng (`client.stage_update`…), và bản ghi liên quan

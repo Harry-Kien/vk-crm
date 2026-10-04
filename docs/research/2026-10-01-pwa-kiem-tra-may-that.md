@@ -124,6 +124,7 @@ chính** (iOS 16.4+); mở bằng Safari thường thì không có nút bật.
 | D6 | Android (máy có cả hai app): bật thông báo trong **app nội bộ** (như D1). Tạo một việc khiến nhân sự nhận thông báo (ví dụ khách thử nộp một giấy tờ). Chạm thông báo. | Mở **app nội bộ**, tới đúng trang vụ việc. | Trang mở ra. |
 | D7 | Trong app khách: **Đăng xuất**. Nhờ nhân sự công bố thêm một tài liệu. | **Không** có thông báo nào tới máy này nữa (thư email vẫn tới bình thường). | — |
 | D8 | Đăng nhập app khách **bằng một tài khoản khách khác** trên cùng máy (nếu có). Không chạm "Bật". | Trang hiện dải mời "Bật thông báo trên máy này"; máy **không** tự nhận thông báo của tài khoản trước, cũng chưa nhận của tài khoản mới cho tới khi chạm Bật. | Dải mời. |
+| D9 | Android, **app nội bộ** đã bật thông báo (D6), đăng nhập bằng **luật sư phụ trách** của một vụ thử. Tắt chế độ im lặng / không làm phiền. Trên máy tính, tab **Mốc thời hạn** của vụ đó → **Thêm mốc thời hạn**, **Ngày đến hạn** là 3 ngày nữa. Chờ lượt kiểm tra mốc hạn kế tiếp (30 phút một lần, 07:00–19:30): điện thoại nhận "Có mốc thời hạn sắp đến cần chuẩn bị. Chạm để xem." **Để nguyên thông báo đó trong khay** (không chạm, không vuốt bỏ), khoá màn hình. Trên máy tính, **Sửa** mốc đó: **Ngày đến hạn** là ngày mai. Chờ lượt kiểm tra kế tiếp. Nếu iPhone có app nội bộ (A7), làm lại trên iPhone. | Thông báo "Có mốc thời hạn đến hạn hôm nay hoặc ngày mai. Chạm để xem." tới thì điện thoại **rung hoặc đổ chuông** như một thông báo mới, và trong khay chỉ còn **một** thông báo của mốc đó (tin mới thay tin cũ). Tin mới tới **im lặng** (không rung, không chuông) là KHÔNG ĐẠT. | Màn hình khoá có thông báo mới. |
 
 ---
 
@@ -160,7 +161,7 @@ Phiên bản iPhone (iOS): ______ Mẫu máy: ______ · Phiên bản Android: __
 | A10 | | (không áp dụng) | |
 | B1–B5 | | | |
 | C1–C6 | (không áp dụng) | | |
-| D1–D8 | | | |
+| D1–D9 | | | |
 | E1–E3 | | | |
 | E4–E5 (chỉ khi bật giới hạn địa chỉ) | | | |
 | F1–F2 | | | |

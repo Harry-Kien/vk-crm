@@ -131,3 +131,29 @@ it('I2: ghi chú dưới mục A nói đúng mỗi mã lỗi của lượt tải
         ->toContain('404')
         ->toContain('không đo câu hỏi cookie');
 });
+
+/**
+ * M12 Task 9 vòng sửa 1 (I1): bốn bậc của một mốc hạn đi dưới CÙNG một `tag` (R11), và thông báo thay
+ * một thông báo cùng `tag` còn trong khay thì im lặng trừ khi service worker đặt `renotify`. Văn bản
+ * không thể đo chuông/rung — chỉ máy thật đo được, nên danh sách kiểm tra phải có đúng bước đó: để
+ * nguyên thông báo bậc d3 trong khay, đưa mốc sang bậc d1, máy phải rung. Câu thông báo, tên tab, nút
+ * và nhịp kiểm tra mốc hạn được so với nguồn thật như mọi bước khác của tệp này.
+ */
+it('Task 9 I1: danh sách kiểm tra có bước để nguyên thông báo d3 trong khay, đưa mốc sang d1, máy phải rung', function (): void {
+    $checklist = pwaSurveyFile('docs/research/2026-10-01-pwa-kiem-tra-may-that.md');
+    $row = pwaSurveyFlat(pwaSurveyRow(pwaSurveySection($checklist, '## D.', '## E.'), 'D9'));
+
+    expect($row)->toContain(__('deadlines.tab.title'))
+        ->toContain(__('deadlines.tab.actions.add'))
+        ->toContain(__('deadlines.tab.actions.edit'))
+        ->toContain(__('deadlines.tab.fields.due_date'))
+        ->toContain(__('push.alerts.staff.deadline.upcoming'))
+        ->toContain(__('push.alerts.staff.deadline.imminent'))
+        ->toContain('30 phút một lần, 07:00–19:30')
+        ->toContain('Để nguyên thông báo đó trong khay')
+        ->toContain('rung hoặc đổ chuông')
+        ->toContain('**im lặng** (không rung, không chuông) là KHÔNG ĐẠT')
+        ->and(pwaSurveyFile('routes/console.php'))->toContain("->cron('*/30 7-19 * * *')")
+        ->and($checklist)->toContain('| D1–D9 |')
+        ->not->toContain('| D1–D8 |');
+});

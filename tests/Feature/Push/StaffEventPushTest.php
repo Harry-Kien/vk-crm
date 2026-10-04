@@ -492,7 +492,10 @@ it('follows the mail down the fallback chain when the person responsible has bee
  * ngày, 1 ngày, quá hạn — mỗi ngày tác vụ chạy HAI lần (cron chạy trùng, người quản trị chạy tay):
  * người phụ trách nhận đúng bốn push, một cho mỗi bậc, như bốn thư. Chống trùng là
  * `reminders_sent` (M6 R3), không trí nhớ mới. Câu chữ và độ khẩn đi theo bậc; `tag` giữ nguyên
- * (chủ đề + mốc), nên tin mới thay tin cũ của cùng mốc trên màn hình.
+ * (chủ đề + mốc, R11), nên tin mới thay tin cũ của cùng mốc trên màn hình — và vì thay im lặng là
+ * mặc định của Notifications API khi tin cũ còn trong khay, service worker của app nội bộ đặt
+ * `renotify` cho mọi tin có `tag` (vòng sửa 1, I1): bậc d1 thay bậc d3 còn nằm trong khay vẫn rung.
+ * Hai nửa đi cùng nhau, nên test này ghim cả hai.
  */
 it('pushes once per tier however often CheckDeadlines runs', function () {
     Mail::fake();
@@ -517,7 +520,8 @@ it('pushes once per tier however often CheckDeadlines runs', function () {
             __('push.alerts.staff.deadline.overdue'),
         ])
         ->and($alerts->map(fn (PushAlert $alert): string => $alert->message->urgency)->all())->toBe(['normal', 'normal', 'high', 'high'])
-        ->and($alerts->map(fn (PushAlert $alert): string => $alert->message->tag)->unique()->all())->toBe(['staff.deadline_reminder:'.$deadline->id]);
+        ->and($alerts->map(fn (PushAlert $alert): string => $alert->message->tag)->unique()->all())->toBe(['staff.deadline_reminder:'.$deadline->id])
+        ->and($this->get('/admin/sw.js')->assertOk()->getContent())->toContain('renotify: Boolean(payload.tag),');
 });
 
 /**

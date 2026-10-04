@@ -459,6 +459,26 @@ it('shows the server-built notification on push, with Vietnamese fallbacks rende
 })->with(['admin', 'portal']);
 
 /**
+ * Task 9 vòng sửa 1 (I1): `tag` = chủ đề + id bản ghi (R11, `App\Enums\PushTopic::message()`), nên CÙNG
+ * một bản ghi được đẩy nhiều lần dưới một `tag` — bốn bậc của một mốc hạn (d7 → d3 → d1 → quá hạn),
+ * câu hỏi tiếp của khách (`REQ-2`) thay tin yêu cầu mới của cùng luồng, đợt thu quá hạn 7 ngày một
+ * lần. Theo Notifications API (Chrome làm đúng vậy), thông báo thay một thông báo cùng `tag` CÒN ĐANG
+ * HIỆN thì hiện IM LẶNG — không chuông, không rung — trừ khi `renotify: true`; `urgency = high` chỉ là
+ * gợi ý giao nhận cho máy chủ push, không làm máy báo. `renotify` đi đúng theo điều kiện có `tag`:
+ * `renotify: true` mà không có `tag` thì `showNotification` ném `TypeError`, và thông báo của văn phòng
+ * cho lần đẩy đó không hiện.
+ *
+ * Mutation probe (báo cáo Task 9, vòng sửa 1): bỏ dòng `renotify` → ĐỎ; `renotify: true` → ĐỎ.
+ */
+it('alerts again when a push replaces a notification of the same tag still on screen', function (string $panel) {
+    $push = pwaJsCode(pwaSwListener(pwaServiceWorker($panel), 'push'));
+
+    expect($push)->toContain('tag: payload.tag || undefined,')
+        ->toContain('renotify: Boolean(payload.tag),')
+        ->and(substr_count($push, 'renotify'))->toBe(1);
+})->with(['admin', 'portal']);
+
+/**
  * R11: "`notificationclick` chỉ mở URL cùng origin và nằm trong scope của chính nó; URL khác bị bỏ
  * qua" — khớp scope theo ĐOẠN (`/portal` hay `/portal/…`; `/portalx` không), cùng luật
  * `PwaPanels::startUrlFor()`. "Nếu đã có cửa sổ app thì `focus()` rồi `navigate()`, không mở cửa sổ

@@ -19,11 +19,15 @@
  * Đo (mỗi dòng `[OK ]`/`[HỎNG]`; mã thoát 1 nếu có dòng HỎNG), cho CẢ HAI app (`/portal`, `/admin`):
  *   1. Worker của app đăng ký, `activated`.
  *   2. Đẩy một payload đúng hình dạng R11 (URL trong scope) → đúng một thông báo: tiêu đề, câu, `tag`
- *      như payload; `data.url` = URL tuyệt đối cùng origin.
+ *      như payload, `renotify` bật; `data.url` = URL tuyệt đối cùng origin.
+ *   2b. (Task 9 vòng sửa 1, I1) Đẩy lần hai CÙNG `tag` khi tin đầu còn hiện → vẫn đúng một thông báo,
+ *      mang câu MỚI, `renotify` bật (tin thay tin mà không bật cờ này thì hiện im lặng). Chuông/rung
+ *      thật không đo được ở đây: bước D9 của danh sách kiểm tra máy thật.
  *   3. Đẩy với URL NGOÀI scope (`/{app kia}/…`, `/{app}x/…`, khác origin, `//khác-origin/…`) → thông báo
  *      vẫn hiện, `data.url` = scope của app (trang chính), không phải URL đã gửi.
  *   4. Đẩy dữ liệu không phải JSON, và đẩy không dữ liệu → thông báo dự phòng: tên văn phòng và câu
- *      tiếng Việt render từ PHP.
+ *      tiếng Việt render từ PHP; không `tag` thì `renotify` tắt (bật mà không có `tag` thì
+ *      `showNotification` ném `TypeError` và không thông báo nào của văn phòng hiện).
  *   5. `inScope()` của worker: trong scope → URL tuyệt đối; ngoài scope / khác origin / rỗng /
  *      `javascript:` → null.
  *   6. CacheStorage sau các lượt đẩy: không mục nào mới ngoài tài nguyên tĩnh công khai của Task 3.
@@ -99,7 +103,7 @@ async function readNotifications(page, scope) {
     for (let i = 0; i < 40; i++) {
       const list = await reg.getNotifications();
       if (list.length > 0) {
-        return list.map((n) => ({ title: n.title, body: n.body, tag: n.tag, icon: n.icon, badge: n.badge, data: n.data }));
+        return list.map((n) => ({ title: n.title, body: n.body, tag: n.tag, renotify: n.renotify, icon: n.icon, badge: n.badge, data: n.data }));
       }
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
@@ -157,8 +161,23 @@ async function surveyPanel(context, page, cdp, registrations, panel, other) {
   if (good.length === 1) {
     const n = good[0];
     check(`${panel}: tiêu đề, câu, tag đúng payload`, n.title === FIRM && n.body === 'Hồ sơ của anh/chị có cập nhật mới. Chạm để xem.' && n.tag === 'client.stage_update:1', JSON.stringify({ title: n.title, body: n.body, tag: n.tag }));
+    check(`${panel}: tin có tag → renotify bật`, n.renotify === true, `renotify=${n.renotify}`);
     check(`${panel}: data.url là URL trong scope của payload`, n.data && (n.data.url === inside || n.data.url === `${BASE}${inside}`), `data.url=${n.data && n.data.url}`);
     check(`${panel}: biểu tượng và badge cùng origin`, String(n.icon).startsWith(BASE + '/brand/') && String(n.badge).startsWith(BASE + '/brand/'), `${n.icon} | ${n.badge}`);
+  }
+
+  // 2b. Lần đẩy thứ hai CÙNG tag khi tin đầu còn hiện: thay tin cũ (một thông báo, câu mới) và vẫn báo.
+  {
+    const sameTag = 'staff.deadline_reminder:1';
+    await deliver(JSON.stringify({ title: FIRM, body: 'bậc d3', tag: sameTag, data: { url: inside } }));
+    await cdp.send('ServiceWorker.deliverPushMessage', { origin: BASE, registrationId, data: JSON.stringify({ title: FIRM, body: 'bậc d1', tag: sameTag, data: { url: inside } }) });
+    let list = [];
+    for (let i = 0; i < 40; i++) {
+      list = await readNotifications(page, scope);
+      if (list.some((x) => x.body === 'bậc d1')) break;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    check(`${panel}: cùng tag lần hai → vẫn một thông báo, câu mới, renotify bật`, list.length === 1 && list[0].body === 'bậc d1' && list[0].tag === sameTag && list[0].renotify === true, JSON.stringify(list.map((x) => ({ body: x.body, tag: x.tag, renotify: x.renotify }))));
   }
 
   // 3. URL ngoài scope → về trang chính của app.
@@ -173,6 +192,7 @@ async function surveyPanel(context, page, cdp, registrations, panel, other) {
     const list = await deliver(data);
     const n = list[0] || {};
     check(`${panel}: ${label} → thông báo dự phòng tiếng Việt`, list.length === 1 && n.title === FIRM && n.body === FALLBACK && n.data && n.data.url === scopePath, JSON.stringify({ title: n.title, body: n.body, url: n.data && n.data.url }));
+    check(`${panel}: ${label} → không tag, renotify tắt`, list.length === 1 && n.tag === '' && n.renotify === false, JSON.stringify({ tag: n.tag, renotify: n.renotify }));
   }
   await clearNotifications(page, scope);
 

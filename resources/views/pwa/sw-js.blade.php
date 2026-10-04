@@ -26,6 +26,11 @@
     (`focus()` rồi `navigate()`) thay vì mở cửa sổ thứ hai. Tiêu đề, câu dự phòng và biểu tượng render
     từ PHP (`PUSH_*`), không chữ tiếng Việt nào viết cứng trong JS.
 
+    `renotify` (Task 9 vòng sửa 1, I1): một bản ghi được đẩy nhiều lần dưới CÙNG `tag` (bốn bậc của
+    một mốc hạn, câu hỏi tiếp REQ-2, đợt thu quá hạn 7 ngày một lần — `App\Enums\PushTopic`, mục
+    "Cùng tag"), và tin thay một tin cùng `tag` còn trong khay thì im lặng trừ khi `renotify: true`.
+    Chỉ đặt khi có `tag`: `renotify` không kèm `tag` làm `showNotification` ném `TypeError`.
+
     Dưới 150 dòng khi phục vụ (test đếm). JSON qua `@json` (thoát `<`, `>`, `&`, `'`, `"`).
 --}}
 /* VK-CRM — service worker của app {{ $scope }} (M12 R4). Sinh từ resources/views/pwa/sw-js.blade.php. */
@@ -110,7 +115,8 @@ async function fromStaticCache(event) {
 }
 
 /* Thông báo đẩy (M12 R11). Nội dung là câu chung do máy chủ dựng (App\Enums\PushTopic): không mã hồ sơ,
-   không tên. Mỗi lần đẩy phải hiện một thông báo; không đọc được nội dung thì hiện câu dự phòng. */
+   không tên. Mỗi lần đẩy phải hiện một thông báo; không đọc được nội dung thì hiện câu dự phòng.
+   Tin mới thay tin cùng tag mà vẫn rung (renotify); renotify không kèm tag thì ném TypeError. */
 self.addEventListener('push', (event) => {
   let payload = {};
   try {
@@ -124,6 +130,7 @@ self.addEventListener('push', (event) => {
     icon: payload.icon || PUSH_ICON,
     badge: payload.badge || PUSH_BADGE,
     tag: payload.tag || undefined,
+    renotify: Boolean(payload.tag),
     lang: 'vi',
     data: { url },
   }));

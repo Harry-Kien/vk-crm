@@ -3177,3 +3177,26 @@ nối tên bản ghi vào `body` (Review Focus 2), bỏ `d14` khỏi `DEADLINE_T
 khỏi danh sách cho phép; thêm push vào job thư stale/missing; hai đột biến ở luật CHUNG (`billingAudienceFor()`,
 `supervisorsFor()` của vụ hạn chế) đỏ ở dòng "tập thư = tập viết tay" mà push vẫn = thư. Pint sạch. Máy thật (màn hình
 khoá của nhân sự chỉ có câu chung, chạm mở đúng tab, độ khẩn d1/quá hạn): PENDING OWNER (Task 10).
+
+Vòng sửa 1 (review Task 9, I1 — thông báo cùng `tag` thay nhau im lặng):
+- Task 9 là nơi đầu tiên CÙNG một bản ghi được đẩy nhiều lần dưới một `tag` (R11: chủ đề + id): bốn bậc của một mốc hạn,
+  câu hỏi tiếp `REQ-2` dưới `tag` của luồng, đợt thu quá hạn 7 ngày một lần. Theo Notifications API (Chrome làm đúng
+  vậy), tin thay một tin cùng `tag` còn trong khay thì hiện im lặng trừ khi `renotify: true`; `urgency = high` chỉ là
+  gợi ý giao nhận cho máy chủ push. Sửa ở service worker: `renotify: Boolean(payload.tag)` trong `showNotification`
+  (`resources/views/pwa/sw-js.blade.php`; `renotify` không kèm `tag` làm `showNotification` ném `TypeError`). Không đổi
+  `tag` theo bậc: R11 chốt `tag` = chủ đề + id (khay giữ một tin cho mỗi mốc), và tách bậc không cứu `REQ-2` hay đợt thu.
+  Lý do ghi ở docblock `App\Enums\PushTopic`, mục "Cùng tag, nhiều lần đẩy".
+- Test: `ServiceWorkerTest` ghim `tag` + `renotify` trên văn bản `sw.js` phục vụ ra của cả hai panel; ca "pushes once per
+  tier" của `StaffEventPushTest` (một `tag` qua bốn bậc) ghim thêm `renotify` của `/admin/sw.js`; `SurveyDocsTest` ghim bước
+  D9 mới của danh sách kiểm tra máy thật (để nguyên thông báo bậc d3 trong khay, đưa mốc sang ngày mai, máy phải rung —
+  câu thông báo, tên tab/nút/ô và nhịp `deadlines.check` so với nguồn thật) và hàng "D1–D9" của bảng kết quả.
+- Chuông/rung thật: PENDING OWNER (bước D9, Task 10). Safari trên iPhone chưa đo (`renotify` có thể không được tôn trọng).
+- Hệ quả cho Task 9 review Minor 2 (chờ controller): `REQ-2` không có chống trùng và `submitReply` không có throttle, nên
+  khi tin cùng `tag` nay rung lại, một khách gửi liên tục N câu hỏi tiếp làm máy người giữ luồng rung N lần.
+- Trình duyệt thật: `tools/pwa/survey-sw-push.cjs` (Chromium headless mới, `CHANNEL=chromium`) thêm ba phép đo cho cả hai
+  app — tin có `tag` mang `renotify`; lần đẩy thứ hai cùng `tag` khi tin đầu còn hiện vẫn để lại MỘT thông báo, câu mới,
+  `renotify` bật; tin dự phòng (không đọc được nội dung, không dữ liệu) không `tag` và `renotify` tắt — 41/41 OK. Hai đột
+  biến chạy trên worker thật: `renotify: true` → 8 HỎNG (mọi tin dự phòng biến mất: `TypeError`); bỏ dòng → 4 HỎNG.
+- Số đo vòng sửa: cả bộ `test --parallel --processes=2` 4170 passed, 25 skipped, 1 todo, 1 risky, 0 failed (+3 ca: hai
+  dòng dataset của `ServiceWorkerTest`, một ca `SurveyDocsTest`); MariaDB (tuần tự) trên `ServiceWorkerTest`,
+  `SurveyDocsTest`, `StaffEventPushTest`, `PushTopicTest` 129 passed; 7 đột biến Pest đều đỏ đúng ca; pint sạch.
