@@ -216,7 +216,8 @@ return [
         'retention_reason' => 'Hết hạn lưu dữ liệu người liên hệ không thành khách (hạn :date).',
         'action' => 'Xoá dữ liệu theo yêu cầu',
         'modal_heading' => 'Xoá dữ liệu cá nhân của :code theo yêu cầu',
-        'modal_description' => 'Dùng khi chính người liên hệ yêu cầu xoá dữ liệu của họ. Tên, số điện thoại, email, số căn cước (dạng mã hoá), người giới thiệu, câu chuyện, lý do từ chối và ghi đè, các bên đối lập, và tên họ trong kết quả kiểm tra xung đột sẽ bị xoá vĩnh viễn — KHÔNG khôi phục được. Mã, nguồn, trạng thái và các mốc thời gian được giữ để thống kê. Chỉ xoá bản ghi này: người này còn bản ghi khác (gọi lại, đã gộp) thì xoá từng bản. Sau khi xoá, người này không còn được dùng để kiểm tra xung đột lợi ích.',
+        // Việc sau gộp M9 + M10 (làn fu3): không hứa "vĩnh viễn" — bản sao lưu đêm giữ 30 bản (`config/backup.php`).
+        'modal_description' => 'Dùng khi chính người liên hệ yêu cầu xoá dữ liệu của họ. Tên, số điện thoại, email, số căn cước (dạng mã hoá), người giới thiệu, câu chuyện, lý do từ chối và ghi đè, các bên đối lập, tên họ trong kết quả kiểm tra xung đột, và dấu mã hoá số điện thoại, số căn cước của họ trong nhật ký tra khách sẽ bị xoá khỏi hệ thống — KHÔNG khôi phục được. Riêng bản sao lưu cũ (giữ khoảng 30 ngày) vẫn còn dữ liệu cho đến khi hết hạn. Mã, nguồn, trạng thái và các mốc thời gian được giữ để thống kê; dòng nhật ký tra khách ở lại, không còn số. Chỉ xoá bản ghi này: người này còn bản ghi khác (gọi lại, đã gộp) thì xoá từng bản. Sau khi xoá, người này không còn được dùng để kiểm tra xung đột lợi ích.',
         'reason' => 'Lý do xoá',
         'reason_help' => 'Tối thiểu :min ký tự. Ghi yêu cầu đến bằng cách nào, ngày nào, đã xác minh ra sao (ví dụ "Yêu cầu qua điện thoại ngày 03/10/2026, đã gọi lại đúng số đã ghi"). KHÔNG ghi tên, số điện thoại hay nội dung câu chuyện: lý do được lưu vĩnh viễn trong nhật ký.',
         'submit' => 'Xoá dữ liệu',

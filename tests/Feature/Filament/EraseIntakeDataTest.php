@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Client\FindClientByIdentifier;
 use App\Actions\Intake\AnonymiseProspect;
 use App\Actions\Intake\MergeIntake;
 use App\Actions\Intake\RecordIntake;
@@ -17,6 +18,7 @@ use App\Models\IntakeRequest;
 use App\Models\Matter;
 use App\Models\MatterType;
 use App\Models\User;
+use App\Support\Audit;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Filament\Notifications\Notification;
@@ -268,6 +270,83 @@ it('erases the names that a refused first pass on the conversion page left in it
 
     expect($intake->fresh()->contact_name)->toBeNull()
         ->and($trail())->not->toContain('Zqxera');
+});
+
+/*
+ * Việc sau gộp M9 + M10 (làn fu3, Task 1 mục E): mỗi lần ghi nhận (và mỗi lần chuyển đổi) chạy
+ * `FindClientByIdentifier`, thứ ghi dòng `client_lookup` mang `identifier_hash` — HMAC của chữ số đã gõ,
+ * cùng hàm băm với dấu băm CCCD của bản ghi. Modal hứa xoá SĐT và số căn cước, nên dấu băm của chúng
+ * trong sổ tra khách đi cùng: thành null, DÒNG ở lại (ai tra, lúc nào, trúng hay trượt). Kể cả lần tra
+ * của nhân sự khác gõ cùng số theo cách khác (`+84 …`, có dấu chấm), và dòng `client_lookup_throttled`.
+ * Cặp dương: lần tra một số của người khác giữ nguyên dấu băm.
+ *
+ * Mutation probe: bỏ lời gọi làm sạch sổ tra khách khỏi `AnonymiseProspect::anonymise()` — ĐỎ; bỏ từng
+ * cách viết trong `lookupHashesOf()` (chuỗi đã lưu, `84…`, `0084…`, `0…`, số trần, `840…`) — mỗi lần
+ * ĐỎ; bỏ dấu băm CCCD — ĐỎ; bỏ `client_lookup_throttled` khỏi các sự kiện được làm sạch — ĐỎ.
+ */
+it('erases the identifier hashes the client lookups of this person left, but keeps the lookup rows', function () {
+    $assistant = eraStaff();
+    // Người ghi nhận gõ SĐT theo một cách lạ — chữ số của nó không trùng cách viết chuẩn nào — nên chỉ chính
+    // chuỗi đã lưu mới cho ra dấu băm của lần tra lúc ghi nhận.
+    $intake = eraRecord($assistant, ['contact_phone' => '0084 (0) 966 555 444', 'contact_id_number' => '079 188 123 456']);
+
+    // Cùng số, mọi cách viết thường gặp mà `Normalizer::phone()` đưa về `84966555444`, và cùng CCCD có dấu chấm.
+    $lawyer = eraStaff(Role::Lawyer);
+    foreach (['0966 555 444', '+84 966 555 444', '0084 966 555 444', '966 555 444', '+84 (0) 966 555 444', '079.188.123.456'] as $typed) {
+        app(FindClientByIdentifier::class)->handle($lawyer, $typed);
+    }
+    Audit::record('client_lookup_throttled', null, ['identifier_hash' => Audit::identifierHash('84966555444')], $lawyer);
+    app(FindClientByIdentifier::class)->handle($lawyer, '0911 222 333');
+
+    $lookups = fn () => Activity::query()->whereIn('event', ['client_lookup', 'client_lookup_throttled'])->orderBy('id')->get();
+    $before = $lookups();
+    $someoneElse = Audit::identifierHash('0911222333');
+
+    // Tiền đề: hai dòng của lần ghi nhận (SĐT và CCCD như đã gõ), bảy dòng tra cùng người (một bị chặn), một
+    // dòng người khác — mười dấu băm, bảy giá trị khác nhau cho cùng một người.
+    expect($before)->toHaveCount(10)
+        ->and($before->map(fn (Activity $row) => $row->properties['identifier_hash'])->filter()->count())->toBe(10)
+        ->and($before->map(fn (Activity $row) => $row->properties['identifier_hash'])->unique()->count())->toBe(8);
+
+    $this->actingAs(eraStaff(Role::Admin), 'web');
+    eraEdit($intake)
+        ->callAction('eraseData', data: ['erase_reason' => ERA_REASON_20])
+        ->assertHasNoActionErrors();
+
+    $after = $lookups();
+
+    expect($after->pluck('id')->all())->toBe($before->pluck('id')->all())
+        ->and($after->map(fn (Activity $row): ?string => $row->properties['identifier_hash'])->all())
+        ->toBe([null, null, null, null, null, null, null, null, null, $someoneElse])
+        // Phần còn lại của dòng giữ nguyên: trúng hay trượt, người tra.
+        ->and($after->map(fn (Activity $row): array => [$row->causer_id, $row->properties['hit'] ?? 'throttled'])->all())
+        ->toBe($before->map(fn (Activity $row): array => [$row->causer_id, $row->properties['hit'] ?? 'throttled'])->all());
+});
+
+/*
+ * Cặp âm của các cách viết: chúng chỉ là cách viết của một số VIỆT NAM (`84…`). Một số nước ngoài không
+ * có dạng `0…`/số trần nào — cắt hai chữ số đầu của nó ra là một số khác, của người khác, và lần tra số
+ * đó giữ nguyên dấu băm.
+ *
+ * Mutation probe: bỏ điều kiện `str_starts_with($normalized, '84')` trong `lookupHashesOf()` — ĐỎ.
+ */
+it('keeps the hash of someone else\'s number that only looks like a shortened form of a foreign number', function () {
+    $intake = eraRecord(eraStaff(), ['contact_phone' => '+1 415 555 0100']);
+    $lawyer = eraStaff(Role::Lawyer);
+    app(FindClientByIdentifier::class)->handle($lawyer, '0155 550 100');
+
+    $hashes = fn (): array => Activity::query()->where('event', 'client_lookup')->orderBy('id')
+        ->get()->map(fn (Activity $row): ?string => $row->properties['identifier_hash'])->all();
+
+    expect($intake->contact_phone_normalized)->toBe('14155550100')
+        ->and($hashes())->toBe([Audit::identifierHash('14155550100'), Audit::identifierHash('0155550100')]);
+
+    $this->actingAs(eraStaff(Role::Admin), 'web');
+    eraEdit($intake)
+        ->callAction('eraseData', data: ['erase_reason' => ERA_REASON_20])
+        ->assertHasNoActionErrors();
+
+    expect($hashes())->toBe([null, Audit::identifierHash('0155550100')]);
 });
 
 /*

@@ -161,3 +161,18 @@ it('does not promise the client a due-date notice that no mail ever sends', func
         ->not->toContain('báo')
         ->toContain('chưa có ngày đến hạn');
 });
+
+/**
+ * Việc sau gộp M9 + M10 (làn fu3, Task 1 mục E): modal "Xoá dữ liệu theo yêu cầu" từng hứa SĐT, email
+ * và CCCD "xoá vĩnh viễn — KHÔNG khôi phục được". Sổ tra khách nay được làm sạch cùng (đo bằng đường đi
+ * thật ở `tests/Feature/Filament/EraseIntakeDataTest.php`, "erases the identifier hashes…"), nhưng bản
+ * sao lưu đêm (giữ 30 bản — `config/backup.php`, rclone) vẫn mang dòng cũ tới khi xoay vòng. Admin đọc
+ * câu này rồi trả lời người yêu cầu xoá, nên câu phải nói ra điều đó và không hứa "vĩnh viễn".
+ */
+it('tells the admin that old backups keep the erased data until they expire', function () {
+    $copy = __('intake.anonymise.modal_description');
+
+    expect($copy)->toContain('bản sao lưu cũ (giữ khoảng 30 ngày) vẫn còn dữ liệu cho đến khi hết hạn')
+        ->toContain('nhật ký tra khách')
+        ->and(mb_strtolower($copy))->not->toContain('vĩnh viễn');
+});
