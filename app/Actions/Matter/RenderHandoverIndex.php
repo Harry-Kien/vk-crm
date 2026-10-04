@@ -42,7 +42,9 @@ use Throwable;
  *     giá trị mới.
  *  5. "Bảng kê thanh toán" (M9 Task 10, P1) — hợp đồng đã ký, các đợt chưa huỷ, các khoản đã nhận
  *     chưa huỷ, với ĐÚNG những trường khối tiền của cổng khách vẽ; vắng hẳn khi vụ không có hợp
- *     đồng khách được thấy. Xem {@see self::billingStatement()}.
+ *     đồng khách được thấy. Xem {@see self::billingStatement()}. Bảng kê là ảnh chụp lúc dựng: dòng
+ *     ngay dưới tiêu đề nói "tính đến ngày lập gói" với đúng `generatedAt` của dòng "Lập ngày" (tính
+ *     một lần trong `handle()`), và chỉ khách sang cổng cho tình hình mới nhất (làn fu3, SPEC §6.12).
  *
  * Mỗi khối là một partial trong `resources/views/handover/partials/`; thêm một khối là một partial +
  * một `@include` trong `handover/index.blade.php` + một khoá dữ liệu mới trong mảng `loadView()`

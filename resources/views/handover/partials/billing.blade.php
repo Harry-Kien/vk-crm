@@ -7,9 +7,15 @@
     Chữ của từng dòng (đến hạn, trạng thái, cách trả) đã được hình chiếu dịch sẵn, nên cổng và mục
     lục nói cùng một câu; tiêu đề cột ở `handover.pdf.billing`. Bảng ở đây hợp lệ (khổ A4) — trang
     cổng thì không dùng bảng (375px).
+
+    Dòng "tính đến ngày lập gói" (làn fu3, SPEC §6.12 bổ sung 2026-10-04): bảng kê là ẢNH CHỤP lúc lập
+    gói, còn khách tải gói về và cất giữ. Ngày là `$generatedAt` của `handover/index.blade.php` — đúng
+    biến của dòng "Lập ngày" đầu mục lục, do `RenderHandoverIndex::handle()` tính MỘT lần — nên hai ngày
+    không bao giờ lệch nhau.
 --}}
 @if ($billing !== null)
     <h2>{{ __('handover.pdf.billing.heading') }}</h2>
+    <p class="muted">{{ __('handover.pdf.billing.as_of', ['date' => $generatedAt]) }}</p>
 
     <table class="info">
         <tr>

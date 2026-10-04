@@ -216,8 +216,12 @@ return [
         'retention_reason' => 'Hết hạn lưu dữ liệu người liên hệ không thành khách (hạn :date).',
         'action' => 'Xoá dữ liệu theo yêu cầu',
         'modal_heading' => 'Xoá dữ liệu cá nhân của :code theo yêu cầu',
-        // Việc sau gộp M9 + M10 (làn fu3): không hứa "vĩnh viễn" — bản sao lưu đêm giữ 30 bản (`config/backup.php`).
-        'modal_description' => 'Dùng khi chính người liên hệ yêu cầu xoá dữ liệu của họ. Tên, số điện thoại, email, số căn cước (dạng mã hoá), người giới thiệu, câu chuyện, lý do từ chối và ghi đè, các bên đối lập, tên họ trong kết quả kiểm tra xung đột, và dấu mã hoá số điện thoại, số căn cước của họ trong nhật ký tra khách sẽ bị xoá khỏi hệ thống — KHÔNG khôi phục được. Riêng bản sao lưu cũ (giữ khoảng 30 ngày) vẫn còn dữ liệu cho đến khi hết hạn. Mã, nguồn, trạng thái và các mốc thời gian được giữ để thống kê; dòng nhật ký tra khách ở lại, không còn số. Chỉ xoá bản ghi này: người này còn bản ghi khác (gọi lại, đã gộp) thì xoá từng bản. Sau khi xoá, người này không còn được dùng để kiểm tra xung đột lợi ích.',
+        // Việc sau gộp M9 + M10 (làn fu3): không hứa "vĩnh viễn" — bản sao lưu đêm giữ 30 BẢN
+        // (`vkcrm.backup.rclone.keep`; đêm lỡ kéo dài khoảng đó), và bản bị dọn trên Google Drive nằm
+        // trong Thùng rác thêm khoảng 30 ngày (docs/SAO-LUU-KHOI-PHUC.md). "Không hoàn tác được", không
+        // "không khôi phục được": khôi phục một bản sao lưu trong khoảng đó đưa bản ghi về. Sổ tra khách
+        // chỉ mất dấu băm của số ĐANG GHI trên bản ghi (`AnonymiseProspect::lookupHashesOf()`).
+        'modal_description' => 'Dùng khi chính người liên hệ yêu cầu xoá dữ liệu của họ. Tên, số điện thoại, email, số căn cước (dạng mã hoá), người giới thiệu, câu chuyện, lý do từ chối và ghi đè, các bên đối lập, tên họ trong kết quả kiểm tra xung đột, và dấu mã hoá số điện thoại, số căn cước đang ghi trên bản ghi này trong nhật ký tra khách sẽ bị xoá khỏi hệ thống — KHÔNG hoàn tác được. Riêng các bản sao lưu cũ vẫn còn dữ liệu cho tới khi bị dọn: hệ thống giữ 30 bản sao lưu đêm gần nhất, và bản bị dọn khỏi Google Drive còn nằm trong Thùng rác thêm khoảng 30 ngày — thường là khoảng hai tháng kể từ hôm nay, lâu hơn nếu có đêm sao lưu bị lỡ. Mã, nguồn, trạng thái và các mốc thời gian được giữ để thống kê; dòng nhật ký tra khách ở lại, không còn số. Chỉ xoá bản ghi này: người này còn bản ghi khác (gọi lại, đã gộp) thì xoá từng bản. Sau khi xoá, người này không còn được dùng để kiểm tra xung đột lợi ích.',
         'reason' => 'Lý do xoá',
         'reason_help' => 'Tối thiểu :min ký tự. Ghi yêu cầu đến bằng cách nào, ngày nào, đã xác minh ra sao (ví dụ "Yêu cầu qua điện thoại ngày 03/10/2026, đã gọi lại đúng số đã ghi"). KHÔNG ghi tên, số điện thoại hay nội dung câu chuyện: lý do được lưu vĩnh viễn trong nhật ký.',
         'submit' => 'Xoá dữ liệu',

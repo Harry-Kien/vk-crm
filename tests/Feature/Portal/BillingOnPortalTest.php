@@ -870,9 +870,47 @@ it('prints no payment statement when the matter has no contract the client may s
     $flat = PdfText::squash(bopIndexText($matter));
 
     expect($flat)->not->toContain(PdfText::squash(__('handover.pdf.billing.heading')))
+        ->not->toContain(PdfText::squash(__('handover.pdf.billing.as_of', ['date' => '20/10/2026'])))
         ->not->toContain('BOPNHAP')
         // Vế dương: phần còn lại của mục lục vẫn được in.
         ->toContain(PdfText::squash(__('handover.pdf.timeline_heading')));
+});
+
+/**
+ * Việc sau gộp M9 + M10 (làn fu3, Task 2 mục D): từ fu2 thư công bố gói mời khách tải gói về và CẤT
+ * GIỮ, và bảng kê trong `MUC-LUC.pdf` đóng băng lúc gói được lập. Một khoản khách trả sau ngày đó không
+ * bao giờ vào tệp khách đang giữ — nên bảng kê nói ngày "tính đến" của nó (cùng ngày với dòng "Lập
+ * ngày" đầu mục lục), và chỉ khách sang cổng, nơi khối tiền đọc dữ liệu lúc mở trang. SPEC §6.12,
+ * bổ sung cùng ngày.
+ */
+it('dates the payment statement as of the day the package is generated, while the portal shows a payment recorded after that day', function () {
+    $asOf = fn (string $date): string => PdfText::squash(__('handover.pdf.billing.as_of', ['date' => $date]));
+
+    expect(__('handover.pdf.billing.as_of', ['date' => '20/10/2026']))
+        ->toContain('ngày lập gói')
+        ->toContain('cổng khách hàng');
+
+    $index = PdfText::squash(bopIndexText($this->matterA));
+
+    expect($index)->toContain($asOf('20/10/2026'))
+        ->toContain(PdfText::squash(__('handover.pdf.generated_at', ['date' => '20/10/2026'])));
+
+    // Hai tuần sau, khách trả nốt đợt 2; văn phòng ghi khoản thu.
+    $this->travelTo(Carbon::parse('2026-11-03 10:00:00'));
+    Payment::factory()->for($this->schedule['overdue'])->create([
+        'amount' => 10_000_000,
+        'paid_on' => '2026-11-02',
+        'method' => PaymentMethod::Cash,
+    ]);
+
+    // Cổng đọc dữ liệu lúc mở trang: khoản mới có ngay.
+    expect(bopBlock(bopHtml($this->userA, $this->matterA)))->toContain('02/11/2026');
+
+    // Gói lập lại hôm nay mang ngày mới và khoản mới; ngày cũ không còn.
+    expect(PdfText::squash(bopIndexText($this->matterA->fresh())))
+        ->toContain($asOf('03/11/2026'))
+        ->toContain('02/11/2026')
+        ->not->toContain($asOf('20/10/2026'));
 });
 
 it('gives the portal and the handover index the very same statement on the same data', function () {

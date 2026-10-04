@@ -70,7 +70,8 @@ use Spatie\Activitylog\Models\Activity;
  *    ({@see self::lookupHashesOf()}), vì nhân sự khác có thể đã gõ `+84 …` thay cho `0…`. Đọc định danh
  *    TRƯỚC khi xoá.
  * Những gì CỐ Ý còn giữ, và vì sao, ghi ở PROGRESS (chữ ký `confirmed_pairs` trong nhật ký của bản ghi
- * KHÁC, bản sao lưu cũ — khoảng 30 ngày). Dấu băm trong sổ tra khách từng nằm trong danh sách này (Task 7);
+ * KHÁC, bản sao lưu cũ — 30 bản đêm, cộng khoảng 30 ngày trong Thùng rác của Google Drive). Dấu băm trong
+ * sổ tra khách từng nằm trong danh sách này (Task 7);
  * làn fu3 xoá nó, và quyết định "giữ dấu băm để dò xung đột" vẫn chờ luật sư xác nhận.
  *
  * **Khoá.** Ẩn danh đổi đầu vào của kiểm tra xung đột (người này rời nguồn dò thứ hai), nên chạy dưới
