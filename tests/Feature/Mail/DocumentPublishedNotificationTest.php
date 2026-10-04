@@ -388,6 +388,44 @@ it('never sends the same document notification twice to the same recipient', fun
     expect($sentRows)->toBe(1);
 });
 
+/**
+ * Việc sau gộp M9 + M10 (làn fu3, Task 1 mục B): chống trùng chỉ đếm thư CÙNG MẪU
+ * `client.document_published`. Một thư mẫu KHÁC về đúng tài liệu ấy, tới đúng địa chỉ ấy, không phải
+ * "đã báo khách có văn bản mới". Ca có thật hôm nay: gói bàn giao là một `Document` mà
+ * `staff.handover_ready` cũng gắn vào (`related` = gói), và một địa chỉ thư vừa là của nhân sự vừa là
+ * tài khoản cổng của khách (nhân viên văn phòng tự là khách, hay hộp thư chung của một doanh nghiệp
+ * khách). Thiếu điều kiện mẫu, thư "gói sẵn sàng" gửi cho nhân sự làm lần công bố gói sau đó bị bỏ
+ * qua IM LẶNG như "đã gửi". Đi qua màn hình thật: luật sư bấm "Công bố cho khách" ở tab Tài liệu.
+ *
+ * Mutation probe: bỏ `->where('template', …)` khỏi `NotifyClientOfDocumentPublished::
+ * alreadyDelivered()` — test này ĐỎ (không thư nào đi).
+ */
+it('still emails the client when the only earlier mail about the document used another template', function () {
+    $this->travelTo(Carbon::parse('2026-10-21 09:00:00'));
+    [$matter, $lawyer, $account, $package] = closedMatterWithHandoverPackage();
+
+    OutboundMessage::factory()->sent()->create([
+        'template' => 'staff.handover_ready',
+        'recipient' => $account->email,
+        'related_type' => $package->getMorphClass(),
+        'related_id' => $package->getKey(),
+    ]);
+
+    Mail::fake();
+    $this->actingAs($lawyer, 'web');
+
+    handoverDocumentsTab($matter)
+        ->callAction(TestAction::make('publish')->table($package), data: [
+            'client_can_view' => true,
+            'client_can_download' => true,
+        ])
+        ->assertHasNoActionErrors();
+
+    Mail::assertSent(DocumentPublishedMail::class, 1);
+    Mail::assertSent(DocumentPublishedMail::class, fn ($mail) => $mail->hasTo($account->email));
+    expect(app(NotifyClientOfDocumentPublished::class)->alreadyDelivered($package->fresh(), $account))->toBeFalse();
+});
+
 /** Final review B-M3 style: hỏng hẳn thì báo luật sư phụ trách trong hệ thống. */
 it('tells the lead lawyer in-app when the document mail fails for good', function () {
     [, $lawyer, , $document] = publishableMatterWithClientAccount();

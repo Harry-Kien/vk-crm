@@ -532,6 +532,44 @@ it('refuses when every eligible recipient already received this very mail on a l
 });
 
 /**
+ * Việc sau gộp M9 + M10 (làn fu3, Task 1 mục B): "đã nhận" là đã nhận ĐÚNG MẪU này. Ba mẫu gắn vào
+ * một `Document` (`client.document_published`, `staff.new_client_document`, `staff.handover_ready`),
+ * nên một dòng `sent` của mẫu KHÁC về cùng tài liệu tới cùng địa chỉ (một địa chỉ vừa là nhân sự vừa
+ * là tài khoản cổng của khách) không được làm nút "Gửi lại" từ chối "đã nhận":
+ *  - thư báo khách về gói bàn giao, khi thư "gói sẵn sàng" đã tới địa chỉ ấy;
+ *  - thư báo nhân sự có tệp khách nộp, khi tệp ấy về sau được chuyển nhóm, công bố và báo khách
+ *    tới đúng địa chỉ ấy.
+ * Cặp đối chứng là test ngay trên: dòng `sent` CÙNG mẫu vẫn bị từ chối "đã nhận".
+ *
+ * Mutation probe: bỏ `->where('template', …)` khỏi `NotifyClientOfDocumentPublished::
+ * alreadyDelivered()` — hàng `client.document_published` ĐỎ; bỏ khỏi
+ * `NotifyStaffOfNewClientDocument::alreadyDelivered()` — hàng `staff.new_client_document` ĐỎ.
+ */
+it('still resends when the only later sent row about the same document used another template', function (string $template, string $otherTemplate) {
+    Queue::fake();
+    [$failed, $to] = resendFixture($template);
+    OutboundMessage::factory()->sent()->create([
+        'template' => $otherTemplate,
+        'related_type' => $failed->related_type,
+        'related_id' => $failed->related_id,
+        'recipient' => $to,
+    ]);
+
+    $this->actingAs(resendAdmin(), 'web');
+
+    $this->livewire(ListOutboundMessages::class)->callAction(TestAction::make('resend')->table($failed));
+
+    Notification::assertNotified(__('outbound.resend.success_title'));
+    expect(resendToastBodies())->not->toContain(__('outbound.resend.refused.already_delivered'));
+
+    Queue::assertPushed(ResendOutboundMessageJob::class, 1);
+    expect(resendAudits())->toHaveCount(1);
+})->with([
+    'thư báo khách về gói, sau thư "gói sẵn sàng"' => ['client.document_published', 'staff.handover_ready'],
+    'thư báo nhân sự có tệp mới, sau thư báo khách công bố tệp ấy' => ['staff.new_client_document', 'client.document_published'],
+]);
+
+/**
  * `stage_logs.notified_at` được ghi khi MỌI người nhận đã nhận (một lượt thử lại sau đó của hàng
  * đợi thành công). Cổng lúc-gửi của mẫu gốc trả "không ai", nhưng sự thật là "đã nhận" — câu từ
  * chối phải nói đúng sự thật đó, không đổ cho vụ việc/tài khoản.

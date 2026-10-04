@@ -183,12 +183,21 @@ class NotifyStaffOfNewClientDocument
             ->exists();
     }
 
+    /**
+     * "Đã gửi thư NÀY cho người này chưa" — theo đúng mẫu `staff.new_client_document` (việc sau gộp
+     * M9 + M10, làn fu3, Task 1 mục B, cùng sửa với `NotifyClientOfDocumentPublished::
+     * alreadyDelivered()`): `Document` còn là `related` của `client.document_published` và
+     * `staff.handover_ready`. Một tệp khách nộp về sau có thể được chuyển nhóm, công bố và báo khách
+     * tới một địa chỉ vừa là nhân sự vừa là tài khoản cổng; thiếu điều kiện mẫu, nút "Gửi lại"
+     * ({@see ResendTargets}) của thư nội bộ bị hỏng trước đó sẽ từ chối nhầm "đã nhận".
+     */
     public function alreadyDelivered(Document $representative, User $recipient): bool
     {
         return OutboundMessage::query()
             ->withoutGlobalScopes()
             ->where('related_type', $representative->getMorphClass())
             ->where('related_id', $representative->getKey())
+            ->where('template', NewClientDocumentMail::TEMPLATE)
             ->where('recipient', $recipient->email)
             ->where('status', OutboundStatus::Sent)
             ->exists();

@@ -27,6 +27,12 @@ use Illuminate\Mail\Mailables\Envelope;
  */
 class NewClientDocument extends BrandedMailable
 {
+    /**
+     * Tên mẫu SPEC §9. Hằng công khai vì `App\Actions\Notification\NotifyStaffOfNewClientDocument::
+     * alreadyDelivered()` lọc nhật ký thư theo đúng chuỗi này (làn fu3, Task 1 mục B).
+     */
+    public const TEMPLATE = 'staff.new_client_document';
+
     public function __construct(
         public Document $firstDocument,
         public int $count,
@@ -35,7 +41,7 @@ class NewClientDocument extends BrandedMailable
 
     protected function template(): string
     {
-        return 'staff.new_client_document';
+        return self::TEMPLATE;
     }
 
     protected function relatedRecord(): ?Model
