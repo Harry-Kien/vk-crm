@@ -52,4 +52,21 @@ return [
             'trash_after_failure' => 'Google Drive: không cho được bản tải lên hỏng vào thùng rác; tệp mồ côi, vkcrm:storage:orphans sẽ báo.',
         ],
     ],
+
+    // M14 Task 3: đẩy tệp từ vùng đệm lên kho, dọn vùng đệm (App\Actions\Storage\PushDocumentFileToRemote,
+    // App\Actions\Schedule\PurgeStagedDocumentCopies, App\Listeners\DiscardStagedCopyOnMediaDeleted).
+    // Chỉ đi vào log và ngoại lệ nội bộ; ngữ cảnh log chỉ mang mã media và khoá mờ.
+    'push' => [
+        // App\Exceptions\StoredFileMissing::staged()
+        'staged_file_missing' => 'Vùng đệm của máy chủ không còn tệp có khoá :key, dù media vẫn ghi tệp nằm ở máy chủ.',
+        'checksum_mismatch' => 'Bản trên kho của khoá :key lệch md5 hoặc kích thước so với bản trong vùng đệm; đã cho bản trên kho vào thùng rác, lượt sau tải lại.',
+        'write_failed' => 'Kho tài liệu không nhận bản ghi của khoá :key.',
+        'log' => [
+            'key_rejected' => 'Đẩy tệp lên kho: không đẩy media này — khoá không đúng khuôn <media_id>/<ULID>.<đuôi> của kho, hoặc media không nằm ở vùng đệm. Tệp ở lại máy chủ.',
+            'staged_missing' => 'Đẩy tệp lên kho: media còn ghi tệp ở máy chủ mà vùng đệm không còn tệp. Không đổi đĩa.',
+            'checksum_mismatch' => 'Đẩy tệp lên kho: bản trên kho lệch md5 hoặc kích thước; đã cho vào thùng rác.',
+            'gone_trash_failed' => 'Đẩy tệp lên kho: media đã bị xoá nhưng không cho được bản vừa tải vào thùng rác; tệp mồ côi, vkcrm:storage:orphans sẽ báo.',
+            'staged_discard_failed' => 'Không xoá được bản trong vùng đệm của một media; lượt sau thử lại hoặc người vận hành xoá tay.',
+        ],
+    ],
 ];

@@ -6,11 +6,15 @@
 |--------------------------------------------------------------------------
 |
 | Một lượt tải lên Drive giữ khoá hàng `matters`/`matter_checklist_items` trong khi chờ mạng (gói
-| bàn giao tới 2 GB), và một lỗi Google rollback cả tệp khách vừa nộp. Luật: trong `app/Actions/` và
-| `app/Support/Storage/`, không lời gọi nào sau đây nằm trong dấu ngoặc của một
-| `DB::transaction(...)`:
+| bàn giao tới 2 GB), và một lỗi Google rollback cả tệp khách vừa nộp. Luật: trong `app/Actions/`,
+| `app/Support/Storage/`, và từ Task 3 cả `app/Listeners/`, `app/Jobs/`, không lời gọi nào sau đây
+| nằm trong dấu ngoặc của một `DB::transaction(...)`:
 |
-|  - `DocumentStore::remote(` — lấy đĩa kho;
+|  - `DocumentStore::remote(` — lấy đĩa kho; cũng `Storage::disk(` với đối số là chuỗi
+|    `documents_remote` hay hằng `DocumentStore::REMOTE_DISK` (Task 3, rà soát Task 1 m6a);
+|  - `DocumentStore::pushLock(` (Task 3, rà soát Task 1 m3) — không phải I/O mạng, nhưng khoá đẩy
+|    lấy trong transaction thì dòng `cache_locks` vô hình với tiến trình khác tới lúc commit và bị
+|    rollback cùng transaction: loại trừ giữa job đẩy, lượt dọn và quay lui không còn;
 |  - `->writeStream(`, `->readStream(`, `->checksum(` (kể cả `?->`) — luồng và md5 trên bất kỳ đĩa
 |    nào, vì ở chỗ gọi không phân biệt được đĩa cục bộ với đĩa kho;
 |  - `Http::` — mọi lời gọi HTTP.
@@ -122,8 +126,23 @@ function remoteStorageIoInsideTransactions(string $source): array
         } elseif ($name === 'DocumentStore' && $textAt($after) === '::') {
             $method = $step($after, 1);
 
-            if ($textAt($method) === 'remote' && $textAt($step($method, 1)) === '(') {
-                $offenses[] = 'DocumentStore::remote(';
+            if (in_array($textAt($method), ['remote', 'pushLock'], true) && $textAt($step($method, 1)) === '(') {
+                $offenses[] = 'DocumentStore::'.$textAt($method).'(';
+            }
+        } elseif ($name === 'Storage' && $textAt($after) === '::') {
+            $method = $step($after, 1);
+            $open = $method === null ? null : $step($method, 1);
+            $argument = $open === null ? null : $step($open, 1);
+
+            if ($textAt($method) === 'disk' && $textAt($open) === '(' && $argument !== null) {
+                $literal = in_array($textAt($argument), ["'documents_remote'", '"documents_remote"'], true);
+                $constant = $shortName($tokens[$argument]) === 'DocumentStore'
+                    && $textAt($step($argument, 1)) === '::'
+                    && $textAt($step($step($argument, 1), 1)) === 'REMOTE_DISK';
+
+                if ($literal || $constant) {
+                    $offenses[] = 'Storage::disk(documents_remote)';
+                }
             }
         } elseif (in_array($name, ['writeStream', 'readStream', 'checksum'], true)
             && $textAt($after) === '('
@@ -136,10 +155,10 @@ function remoteStorageIoInsideTransactions(string $source): array
     return $offenses;
 }
 
-it('không có DocumentStore::remote(, ->writeStream(, ->readStream(, ->checksum( hay Http:: nào chạy bên trong DB::transaction ở app/Actions và app/Support/Storage', function () {
+it('không có DocumentStore::remote(, DocumentStore::pushLock(, Storage::disk(documents_remote), ->writeStream(, ->readStream(, ->checksum( hay Http:: nào chạy bên trong DB::transaction ở app/Actions, app/Support/Storage, app/Listeners và app/Jobs', function () {
     $offenders = [];
 
-    foreach ([app_path('Actions'), app_path('Support/Storage')] as $root) {
+    foreach ([app_path('Actions'), app_path('Support/Storage'), app_path('Listeners'), app_path('Jobs')] as $root) {
         expect(is_dir($root))->toBeTrue("thư mục quét không tồn tại: {$root}");
 
         foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)) as $file) {
@@ -174,6 +193,12 @@ it('bộ quét bắt từng dạng vi phạm đặt trong transaction', function
     '->transaction(' => ['DB::connection()->transaction(function () { Http::get("x"); });', ['Http::']],
     'sau ngoặc lồng nhau' => ['DB::transaction(function () { if (count(array_filter([1]))) { foo(bar()); } $disk->readStream("x"); });', ['->readStream(']],
     'khoảng trắng trước ngoặc' => ['DB::transaction (function () { Http::get("x"); });', ['Http::']],
+    // M14 Task 3 (rà soát Task 1, m3): khoá đẩy lấy trong transaction thì dòng `cache_locks` vô hình
+    // với tiến trình khác tới lúc commit, và bị rollback cùng transaction.
+    'DocumentStore::pushLock(' => ['DB::transaction(function () { DocumentStore::pushLock(18)->get(); });', ['DocumentStore::pushLock(']],
+    // M14 Task 3 (rà soát Task 1, m6a): lấy đĩa kho bằng tên, bằng chuỗi hay bằng hằng.
+    'Storage::disk(DocumentStore::REMOTE_DISK)' => ['DB::transaction(fn () => Storage::disk(DocumentStore::REMOTE_DISK)->delete("18/a.pdf"));', ['Storage::disk(documents_remote)']],
+    "Storage::disk('documents_remote')" => ["DB::transaction(fn () => Storage::disk('documents_remote')->exists('18/a.pdf'));", ['Storage::disk(documents_remote)']],
 ]);
 
 it('bộ quét không tố lời gọi nằm ngoài transaction, trong chú thích, hay chỉ là hằng/chuỗi', function (string $body) {
@@ -186,4 +211,6 @@ it('bộ quét không tố lời gọi nằm ngoài transaction, trong chú thí
     'chuỗi chứa Http::' => ['DB::transaction(fn () => Log::info("Http:: và ->readStream( chỉ là chữ"));'],
     'tên hàm trùng nhưng không phải phương thức' => ['DB::transaction(fn () => checksum("x"));'],
     'transaction không phải của DB' => ['Queue::transaction(function () { Http::get("x"); });'],
+    'đĩa vùng đệm trong transaction' => ["DB::transaction(fn () => Storage::disk('private')->exists('18/a.pdf'));"],
+    'khoá đẩy lấy ngoài transaction' => ['$lock = DocumentStore::pushLock(18); DB::transaction(fn () => Media::query()->whereKey(18)->update(["local_purge_after" => null]));'],
 ]);

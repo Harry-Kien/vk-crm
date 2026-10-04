@@ -141,5 +141,7 @@ return [
         'gone' => 'Tài liệu không còn',
         'disabled' => 'Kho chưa được bật',
         'locked' => 'Đang có lượt đẩy khác',
+        // M14 Task 3: khoá tệp lệch khuôn của kho, hay media trên một đĩa lạ — không đẩy.
+        'rejected' => 'Không đẩy: tệp không đúng khuôn của kho',
     ],
 ];

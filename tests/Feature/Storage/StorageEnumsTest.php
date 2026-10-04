@@ -20,7 +20,9 @@ it('các case và giá trị đúng kế hoạch', function (string $enum, array
 })->with([
     'DocumentStoreStatus' => [DocumentStoreStatus::class, ['ok', 'degraded', 'unavailable', 'misconfigured']],
     'DriveObjectRetirement' => [DriveObjectRetirement::class, ['trashed', 'superseded']],
-    'PushOutcome' => [PushOutcome::class, ['pushed', 'already_remote', 'gone', 'disabled', 'locked']],
+    // `rejected`: thêm ở Task 3 — khoá lệch khuôn R4 (hay media ở một đĩa lạ) thì không đẩy, và thử lại
+    // không đổi được gì (khác `locked`, khác lỗi tạm thời).
+    'PushOutcome' => [PushOutcome::class, ['pushed', 'already_remote', 'gone', 'disabled', 'locked', 'rejected']],
 ]);
 
 it('mỗi case có nhãn tiếng Việt riêng, và giá trị vừa cột string(20) chứa nó', function (string $enum) {

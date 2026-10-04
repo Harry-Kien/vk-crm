@@ -151,6 +151,9 @@ return [
         // chủ thể là dòng `communication_logs`; không ghi nội dung cuộc liên lạc vào nhật ký.
         'communication_logged' => 'Ghi nhật ký liên lạc',
         'communication_log_deleted' => 'Xoá một dòng nhật ký liên lạc',
+        // M14 Task 3: app/Actions/Schedule/PushPendingDocumentFiles.php — công tắc DOCUMENT_STORAGE không
+        // còn là google_drive mà mốc bật kho còn: mốc bị xoá (bật lại phải chạy vkcrm:storage:enable).
+        'document_store_disabled_observed' => 'Phát hiện kho tài liệu đã tắt: xoá mốc bật kho',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

@@ -3,6 +3,8 @@
 namespace App\Providers;
 
 use App\Exceptions\DocumentStorageMisconfigured;
+use App\Listeners\DiscardStagedCopyOnMediaDeleted;
+use App\Listeners\QueueDocumentFilePush;
 use App\Support\Storage\GoogleDrive\DriveAdapter;
 use App\Support\Storage\GoogleDrive\DriveCircuitBreaker;
 use App\Support\Storage\GoogleDrive\DriveClient;
@@ -13,10 +15,12 @@ use App\Support\Storage\MisconfiguredDriveAdapter;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\ServiceProvider;
 use League\Flysystem\Filesystem;
 use League\Flysystem\FilesystemAdapter as FlysystemAdapter;
+use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 /**
  * Kho tài liệu Google Drive (M14): đăng ký driver `google-drive` cho đĩa `documents_remote`
@@ -35,6 +39,12 @@ use League\Flysystem\FilesystemAdapter as FlysystemAdapter;
  *
  * {@see DriveTokenProvider} là một binding của container: test thay bằng token cố định mà không gọi
  * endpoint token.
+ *
+ * Task 3: hai listener của vùng đệm, đăng ký TƯỜNG MINH trên sự kiện Eloquent dạng chuỗi của lớp
+ * media (`media-library.media_model`): {@see QueueDocumentFilePush} ở `created` (xếp job đẩy sau
+ * commit), {@see DiscardStagedCopyOnMediaDeleted} ở `deleted` (xoá bản trong vùng đệm sau commit).
+ * Không dựa vào việc Laravel tự dò `app/Listeners`: nó đăng ký theo kiểu tham số của `handle()`, tức
+ * cho "sự kiện" lớp `Media`, thứ không bao giờ được phát.
  */
 class DocumentStorageServiceProvider extends ServiceProvider
 {
@@ -66,6 +76,11 @@ class DocumentStorageServiceProvider extends ServiceProvider
 
             return new FilesystemAdapter(new Filesystem($adapter, $config), $adapter, $config);
         });
+
+        $media = (string) config('media-library.media_model', Media::class);
+
+        Event::listen('eloquent.created: '.$media, [QueueDocumentFilePush::class, 'handle']);
+        Event::listen('eloquent.deleted: '.$media, [DiscardStagedCopyOnMediaDeleted::class, 'handle']);
     }
 
     private static function adapter(Application $app): FlysystemAdapter

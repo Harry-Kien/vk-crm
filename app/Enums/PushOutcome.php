@@ -10,7 +10,11 @@ namespace App\Enums;
  * - `already_remote`: media đã ở trên kho từ trước (lượt khác làm xong), không làm gì;
  * - `gone`: media không còn (đã xoá trước hoặc trong lúc đẩy);
  * - `disabled`: kho chưa được bật (công tắc khác `google_drive` hoặc chưa có mốc bật);
- * - `locked`: một lượt khác đang giữ khoá đẩy của media này — job thả lại để chạy sau.
+ * - `locked`: một lượt khác đang giữ khoá đẩy của media này — job thả lại để chạy sau;
+ * - `rejected` (thêm ở Task 3): media không đẩy được và thử lại không đổi được gì — khoá không khớp
+ *   khuôn `<media_id>/<ULID viết thường>[.<đuôi>]` của R4 (tên tệp không do CRM sinh, hay thư viện
+ *   media có tiền tố), hoặc media nằm trên một đĩa không phải vùng đệm lẫn kho. Tệp ở lại vùng đệm,
+ *   có log `critical`, và được đếm vào tồn đọng.
  */
 enum PushOutcome: string
 {
@@ -19,6 +23,7 @@ enum PushOutcome: string
     case Gone = 'gone';
     case Disabled = 'disabled';
     case Locked = 'locked';
+    case Rejected = 'rejected';
 
     public function label(): string
     {

@@ -903,7 +903,7 @@ final class DriveAdapter implements \League\Flysystem\FilesystemAdapter, \League
 
 Commit: `feat: M14 Task 2 — adapter Flysystem cho Google Drive: khoá mờ có số thế hệ, thư mục là tiền tố, chỉ mục, tải lên resumable kiểm md5, thùng rác thay xoá, thử lại, ngắt mạch tách web và job, không link và không quyền chia sẻ nào`.
 
-### - [ ] Task 3 — Ghi qua vùng đệm, đẩy lên kho, dọn bản cục bộ theo biên nhận (R2, R10)
+### - [x] Task 3 — Ghi qua vùng đệm, đẩy lên kho, dọn bản cục bộ theo biên nhận (R2, R10)
 
 **Files:**
 - `app/Listeners/QueueDocumentFilePush.php`, `app/Listeners/DiscardStagedCopyOnMediaDeleted.php`;
@@ -921,23 +921,23 @@ final class PushDocumentFileToRemote {
 }
 ```
 
-- [ ] Action theo đúng sáu bước của R2.
+- [x] Action theo đúng sáu bước của R2.
   - `keepLocalUntil` mặc định `now() + staging_grace_hours`; lệnh chuyển tệp truyền `+30 ngày`.
   - Không lấy được `pushLock()` → `Locked`.
   - Tệp vùng đệm không còn mà media vẫn ở `private` → **không đổi đĩa**, log `critical`, `StoredFileMissing`.
   - `first_transfer_at` chỉ trên production, chỉ ở `Pushed`, không ghi đè.
-- [ ] Job `PushDocumentFile`:
+- [x] Job `PushDocumentFile`:
   - kết nối và hàng `storage`; `$timeout = 1800`, `$tries = 4`, `backoff = [60, 300, 900]`, `$failOnTimeout = true`;
   - `Locked` → `release(120)`; `DocumentStorageUnavailable` → `release(60)`;
   - `DocumentStorageMisconfigured` → `fail()`, cảnh báo đi qua kiểm tra sức khoẻ (Task 5).
-- [ ] Listener `created` theo R2: điều kiện là `DocumentStore::pushesNewFiles()` **và** `disk = private`.
-- [ ] `DiscardStagedCopyOnMediaDeleted` theo R2: `DB::afterCommit`, đọc lại sự tồn tại của dòng, chỉ khi `disk` khác `private`.
-- [ ] Mục lịch, mỗi mục một `->name()`, `withoutOverlapping(<phút>)` có hạn, không mục nào 1440:
+- [x] Listener `created` theo R2: điều kiện là `DocumentStore::pushesNewFiles()` **và** `disk = private`.
+- [x] `DiscardStagedCopyOnMediaDeleted` theo R2: `DB::afterCommit`, đọc lại sự tồn tại của dòng, chỉ khi `disk` khác `private`.
+- [x] Mục lịch, mỗi mục một `->name()`, `withoutOverlapping(<phút>)` có hạn, không mục nào 1440:
   - `queue.storage` mỗi phút: `queue:work storage --queue=storage --stop-when-empty --max-time=50 --timeout=1800`, `withoutOverlapping(40)`, `runInBackground()`;
   - `storage.push-pending` 15 phút một lần, `withoutOverlapping(15)`;
   - `storage.purge-staged` mỗi giờ, `withoutOverlapping(60)`.
-- [ ] `PushPendingDocumentFiles` theo R2: cận dưới `created_at >= remote_enabled_at`; cận trên 10 phút; công tắc không phải `google_drive` mà còn mốc thì xoá mốc, audit, không xếp gì.
-- [ ] `PurgeStagedDocumentCopies`: bốn điều kiện của R10, đọc lại từng dòng dưới `pushLock()`. Xoá `private/<media_id>/`, đặt `local_purge_after = NULL` bằng UPDATE có điều kiện `disk = 'documents_remote'`.
+- [x] `PushPendingDocumentFiles` theo R2: cận dưới `created_at >= remote_enabled_at`; cận trên 10 phút; công tắc không phải `google_drive` mà còn mốc thì xoá mốc, audit, không xếp gì.
+- [x] `PurgeStagedDocumentCopies`: bốn điều kiện của R10, đọc lại từng dòng dưới `pushLock()`. Xoá `private/<media_id>/`, đặt `local_purge_after = NULL` bằng UPDATE có điều kiện `disk = 'documents_remote'`.
   - **Không bao giờ** chạm đĩa kho (test cấu trúc: lớp này không gọi `DocumentStore::remote()` và không dùng `Http`).
   - Không lấy được khoá thì bỏ qua dòng đó tới lượt sau.
 

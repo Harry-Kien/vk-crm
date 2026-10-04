@@ -4,6 +4,8 @@ use App\Actions\Schedule\CheckDeadlines;
 use App\Actions\Schedule\CheckStaleMatters;
 use App\Actions\Schedule\ExpireClientAccess;
 use App\Actions\Schedule\FlagRetentionExpiry;
+use App\Actions\Schedule\PurgeStagedDocumentCopies;
+use App\Actions\Schedule\PushPendingDocumentFiles;
 use App\Actions\Schedule\RecordScheduleRun;
 use App\Actions\Schedule\RemindMissingDocuments;
 use App\Actions\Schedule\RemindOverdueInstalments;
@@ -305,4 +307,47 @@ Schedule::call(new ExpireClientAccess)
 Schedule::call(new FlagRetentionExpiry)
     ->dailyAt('01:00')
     ->name('retention.flag')
+    ->withoutOverlapping(60);
+
+/**
+ * M14 Task 3 (kế hoạch M14, R2): rút hàng đợi RIÊNG của kho tài liệu — job `PushDocumentFile` đẩy
+ * tệp từ vùng đệm `private` lên Google Drive, có khi là một gói bàn giao 2 GB. Cùng lý lẽ với
+ * `queue.handover` ở trên: một lượt tải dài không được giữ lượt của thư nhắc mốc hạn (`queue.drain`)
+ * hay của gói bàn giao.
+ *
+ * Kết nối `storage` (`config/queue.php`, `retry_after` 2400) và hàng `storage`. `--timeout=1800` khớp
+ * `PushDocumentFile::TIMEOUT_SECONDS`; `--max-time=50` chỉ chặn việc NHẬN job mới sau 50 giây, không
+ * cắt job đang chạy. Khoá chống chồng lấn 40 phút: dài hơn một lượt worker dài nhất (50 giây + 1800
+ * giây), để không hai worker cùng chạy; ngắn hơn 1440 phút mặc định, để một tiến trình bị giết (giới
+ * hạn CPU của shared hosting) không khoá hàng cả ngày. `runInBackground()`: một lượt tải nhiều phút
+ * không giữ tiến trình `schedule:run` của phút đó. `DocumentStorageScheduleTest` ghim các số.
+ */
+Schedule::command('queue:work storage --queue=storage --stop-when-empty --max-time=50 --timeout=1800')
+    ->everyMinute()
+    ->name('queue.storage')
+    ->withoutOverlapping(40)
+    ->runInBackground();
+
+/**
+ * M14 Task 3 (R2): 15 phút một lần, xếp lại job đẩy cho media còn ở vùng đệm, tạo SAU mốc bật kho và
+ * đã quá 10 phút — lượt dispatch sau commit bị mất, hay job đã hết lượt thử. Tệp tạo trước mốc chỉ đi
+ * qua lệnh chuyển ngoài giờ. Công tắc không còn `google_drive` mà mốc còn: xoá mốc, ghi nhật ký,
+ * không xếp gì. Xem docblock `PushPendingDocumentFiles`. Khoá chống chồng lấn 15 phút: không bao giờ
+ * hai lượt quét cùng xếp một lô.
+ */
+Schedule::call(new PushPendingDocumentFiles)
+    ->everyFifteenMinutes()
+    ->name('storage.push-pending')
+    ->withoutOverlapping(15);
+
+/**
+ * M14 Task 3 (R10): mỗi giờ, phút 17 (tránh lượt `:00` nơi các mục theo giờ dồn vào cùng một
+ * `schedule:run`), xoá bản trong vùng đệm của media đã lên kho VÀ đã có biên nhận khớp md5 của máy
+ * văn phòng. Chưa có máy văn phòng thì không gì được dọn. Không bao giờ chạm kho. Xem docblock
+ * `PurgeStagedDocumentCopies`. Khoá chống chồng lấn 60 phút, không 1440: một lần chạy bị giết không
+ * khoá luôn lượt giờ sau.
+ */
+Schedule::call(new PurgeStagedDocumentCopies)
+    ->hourlyAt(17)
+    ->name('storage.purge-staged')
     ->withoutOverlapping(60);
