@@ -200,7 +200,9 @@ return [
             // chung thay vì in khoá nội bộ.
             'stage_unnamed' => 'Đến hạn theo tiến độ vụ việc',
             'on_signing' => 'Đến hạn khi ký hợp đồng',
-            'unscheduled' => 'Văn phòng sẽ báo ngày đến hạn',
+            // M9 Task 13 (minor m5 rà soát Task 10): không hứa "văn phòng sẽ báo" — M9 không gửi
+            // thư tiền nào cho khách (P1).
+            'unscheduled' => 'Chưa có ngày đến hạn',
         ],
 
         /*

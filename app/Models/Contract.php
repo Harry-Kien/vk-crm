@@ -147,8 +147,10 @@ class Contract extends Model
      * Tầng QUYỀN nói lại (a) bằng thuộc tính và hỏi `MatterPolicy::view` cho (b) — xem
      * `ContractPolicy::view()`; hai tầng không chung một câu lệnh nào.
      *
-     * Hết hạn tra cứu hay lưu trữ vụ việc làm khối tiền biến khỏi cổng, nhưng KHÔNG đổi sổ tiền: đây
-     * chỉ là một điều kiện đọc của phiên cổng, không có gì được ghi.
+     * Hết hạn tra cứu (`matter_archives.client_access_until` đã qua) làm khối tiền biến khỏi cổng —
+     * bản thân việc lưu trữ thì không: vụ đã kết thúc còn trong hạn tra cứu vẫn lên cổng, kèm tiền
+     * (sửa chữ ở M9 Task 13, minor m2 rà soát Task 10). Không điều kiện nào đổi sổ tiền: đây chỉ là
+     * một điều kiện đọc của phiên cổng, không có gì được ghi.
      */
     public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
     {

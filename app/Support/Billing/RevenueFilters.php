@@ -81,4 +81,22 @@ final class RevenueFilters
     {
         return $this->from->format('d/m/Y').' – '.$this->to->format('d/m/Y');
     }
+
+    /**
+     * Hai cận của kỳ cho `whereBetween()` trên một cột `date` (`contracts.signed_at`,
+     * `payments.paid_on`) — MỘT chỗ cho cả bốn widget lọc theo kỳ.
+     *
+     * **Mốc thời gian đủ giờ (`00:00:00` … `23:59:59`), không phải ngày trần** (M9 Task 13). Cast
+     * `date` của Eloquent ghi giá trị theo định dạng ngày-giờ của kết nối: MariaDB cắt về `DATE`,
+     * nhưng SQLite lưu chuỗi `2026-09-30 00:00:00` — lớn hơn cận trên `2026-09-30` khi so chuỗi, nên
+     * tiền ký/về ĐÚNG ngày cuối kỳ rơi khỏi kỳ (21 test đỏ vào ngày cuối tháng). Hai cận đủ giờ đúng
+     * trên cả hai: MariaDB so `DATE` với `DATETIME` bằng cách nâng cột lên nửa đêm của ngày đó, vẫn
+     * dùng được chỉ mục của cột (không bọc cột trong `DATE()` như `whereDate()`).
+     *
+     * @return array{0: string, 1: string}
+     */
+    public function bounds(): array
+    {
+        return [$this->from->toDateTimeString(), $this->to->toDateTimeString()];
+    }
 }

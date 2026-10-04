@@ -225,10 +225,13 @@ class Receivables extends Page implements HasTable
                     ->query(fn (Builder $query): Builder => $query->overdue()),
                 Filter::make('due_within_7_days')
                     ->label(__('billing.receivables.filters.due_within_7_days'))
+                    // Cận là mốc thời gian đủ giờ, không phải ngày trần (M9 Task 13): trên SQLite cast
+                    // `date` ghi `Y-m-d 00:00:00`, lớn hơn cận trên `Y-m-d` — đợt đến hạn đúng ngày
+                    // thứ bảy rơi khỏi bộ lọc. Cùng lý do `RevenueFilters::bounds()`.
                     ->query(fn (Builder $query): Builder => $query
                         ->where('status', InstalmentStatus::Pending->value)
                         ->whereNotNull('due_date')
-                        ->whereBetween('due_date', [today()->toDateString(), today()->addDays(7)->toDateString()])),
+                        ->whereBetween('due_date', [today()->toDateTimeString(), today()->addDays(7)->endOfDay()->toDateTimeString()])),
                 Filter::make('closed_with_balance')
                     ->label(__('billing.receivables.filters.closed_with_balance'))
                     ->query(fn (Builder $query): Builder => $query->whereHas(

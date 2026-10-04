@@ -6,7 +6,8 @@ use Illuminate\Database\Seeder;
 
 /**
  * Task 19 (rà soát cuối, "Cấu hình không phá dữ liệu đang chạy"): DỮ LIỆU MẪU — tài khoản demo
- * (mật khẩu `password`, kể cả `admin@luatvukhang.com`), khách hàng giả, vụ việc giả. `MatterSeeder`
+ * (mật khẩu `password`, kể cả `admin@luatvukhang.com`), khách hàng giả, vụ việc giả, và từ M9 Task
+ * 13 hợp đồng, lịch thu, khoản thu giả ({@see BillingSeeder}, chạy sau `MatterSeeder`). `MatterSeeder`
  * đọc `MatterType`/`ChecklistTemplate` đã có (`ReferenceDataSeeder`) nên PHẢI chạy sau seeder đó —
  * `DatabaseSeeder::run()` giữ đúng thứ tự này.
  *
@@ -43,6 +44,9 @@ class DemoDataSeeder extends Seeder
             StaffSeeder::class,
             ClientSeeder::class,
             MatterSeeder::class,
+            // M9 Task 13: tiền mẫu đọc vụ việc của MatterSeeder nên đứng sau nó — và chỉ ở đây,
+            // không bao giờ trong ReferenceDataSeeder (docblock BillingSeeder).
+            BillingSeeder::class,
         ]);
     }
 }

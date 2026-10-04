@@ -724,3 +724,22 @@ it('voids nothing when the hidden void action of a completed contract is mounted
 // Định nghĩa đầy đủ "ai ghi được payment.record trên vụ restricted" (chỉ lead lawyer/admin) đã có
 // bộ test riêng ở tests/Feature/Authorization/BillingAccessTest.php — không lặp lại ở đây; hai
 // test trên chỉ ghim rằng TRANG NÀY tôn trọng đúng cổng đó, kể cả khi bị gọi thẳng qua Livewire.
+
+/**
+ * M9 Task 13 — cùng lỗi ngày cuối kỳ của trang doanh thu (`RevenueFilters::bounds()`): trên SQLite,
+ * cast `date` ghi `due_date` thành `Y-m-d 00:00:00`, lớn hơn cận trên `Y-m-d` của
+ * `whereBetween`, nên đợt đến hạn ĐÚNG ngày thứ bảy (và hôm nay ở cận dưới thì vẫn đúng nhờ so lớn
+ * hơn) rơi khỏi bộ lọc "đến hạn trong 7 ngày". MariaDB (cột DATE) không sai; sửa ở mã cho đúng cả hai.
+ */
+it('keeps an instalment due exactly seven days from today, and one due today, in the due-within-7-days filter, but not one due on the eighth day', function () {
+    $dueToday = receivableOn($this->matter, 10_000_000, ['due_date' => today()->toDateString()]);
+    $dueOnDaySeven = receivableOn(Matter::factory()->create(), 10_000_000, ['due_date' => today()->addDays(7)->toDateString()]);
+    $dueOnDayEight = receivableOn(Matter::factory()->create(), 10_000_000, ['due_date' => today()->addDays(8)->toDateString()]);
+
+    $this->actingAs($this->accountant, 'web');
+
+    $this->livewire(Receivables::class)
+        ->filterTable('due_within_7_days')
+        ->assertCanSeeTableRecords([$dueToday, $dueOnDaySeven])
+        ->assertCanNotSeeTableRecords([$dueOnDayEight]);
+});

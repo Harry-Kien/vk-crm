@@ -6,6 +6,7 @@ use App\Enums\PreflightLevel;
 use App\Http\Middleware\RestrictAdminIpAllowlist;
 use App\Models\User;
 use App\Support\Backup\RcloneProcess;
+use App\Support\Billing\ScheduleTotal;
 use App\Support\OfficeProfile;
 use Database\Seeders\DemoAccountsSeeder;
 use Database\Seeders\DemoDataSeeder;
@@ -69,7 +70,47 @@ class RunPreflight
 
         array_push($rows, ...$this->backupNumericEnvRows());
 
+        $rows[] = $this->billingInvariantsRow();
+
         return $rows;
+    }
+
+    /** Số mã hợp đồng lệch tối đa in trên dòng ĐỎ — danh sách đủ là việc của `billing:check-invariants`. */
+    private const BILLING_CODES_SHOWN = 5;
+
+    /**
+     * M9 Task 13 — tầng 4 của bất biến tổng tiền (`billing:check-invariants`) thành một dòng ở đây:
+     * ĐỎ khi có hợp đồng `active` mà tổng các đợt chưa huỷ khác `total_amount`, nêu tối đa
+     * {@see self::BILLING_CODES_SHOWN} mã hợp đồng; XANH khi sạch, nêu số hợp đồng đã quét. Đọc
+     * ĐÚNG định nghĩa của lệnh đó, {@see ScheduleTotal::mismatchedActiveContracts()} — không gọi lệnh
+     * artisan từ trong Action, không viết câu truy vấn thứ hai.
+     *
+     * Chạy ở MỌI `APP_ENV`, như {@see self::backupNumericEnvRows()}: đây là dữ liệu của CSDL đang
+     * kiểm, không phải cấu hình máy chủ thật, và một hợp đồng lệch trên máy staging cũng là một sổ
+     * tiền sai. Chỉ đọc — sửa một hợp đồng lệch là quyết định của người, qua phụ lục.
+     *
+     * @return array{key: string, level: PreflightLevel, message: string}
+     */
+    private function billingInvariantsRow(): array
+    {
+        $mismatched = ScheduleTotal::mismatchedActiveContracts();
+
+        if ($mismatched->isEmpty()) {
+            return $this->row('billing_invariants', PreflightLevel::Green, __('preflight.billing_invariants_ok', [
+                'count' => ScheduleTotal::activeContractCount(),
+            ]));
+        }
+
+        $codes = $mismatched->take(self::BILLING_CODES_SHOWN)->pluck('code')->all();
+
+        if ($mismatched->count() > self::BILLING_CODES_SHOWN) {
+            $codes[] = '…';
+        }
+
+        return $this->row('billing_invariants', PreflightLevel::Red, __('preflight.billing_invariants_mismatch', [
+            'count' => $mismatched->count(),
+            'codes' => implode(', ', $codes),
+        ]));
     }
 
     /** @return list<array{key: string, level: PreflightLevel, message: string}> */

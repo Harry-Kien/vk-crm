@@ -109,6 +109,14 @@ return [
         .'chỉ đổi hành vi (ví dụ ":value" có thể bị cắt còn một số nhỏ hơn nhiều so với ý định). '
         .'Sửa lại thành một số nguyên, hoặc để trống để dùng mặc định.',
 
+    // M9 Task 13 — tầng 4 của bất biến tổng tiền, xem RunPreflight::billingInvariantsRow().
+    'billing_invariants_mismatch' => 'Có :count hợp đồng đang có hiệu lực mà tổng các đợt thanh '
+        .'toán khác giá trị hợp đồng: :codes. Màn hình tiền, công nợ và doanh thu đang tính sai cho '
+        .'các hợp đồng này. Chạy php artisan billing:check-invariants để xem từng con số, rồi luật sư '
+        .'phụ trách sửa bằng một phụ lục (không sửa thẳng vào CSDL).',
+    'billing_invariants_ok' => 'Tổng các đợt thanh toán khớp giá trị hợp đồng trên cả :count hợp '
+        .'đồng đang có hiệu lực.',
+
     'summary_red' => 'Có mục ĐỎ — KHÔNG mở cổng cho tới khi sửa hết.',
     'summary_yellow' => 'Không có mục ĐỎ, còn mục VÀNG cần chú ý.',
     'summary_ok' => 'Mọi điều kiện ra mắt đều đạt.',

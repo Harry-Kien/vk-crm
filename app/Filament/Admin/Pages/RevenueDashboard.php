@@ -12,6 +12,7 @@ use App\Filament\Admin\Widgets\Revenue\RevenueOverTimeWidget;
 use App\Models\MatterType;
 use App\Models\User;
 use App\Support\Billing\RevenueFilters;
+use App\Support\Scopes\ClientPortalScope;
 use BackedEnum;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
@@ -140,6 +141,12 @@ class RevenueDashboard extends Dashboard
                 // không bao giờ được đưa cho một cái tên luật sư chỉ phụ trách toàn vụ `restricted`
                 // để chọn — chọn cái tên đó rồi mọi widget ra 0 dòng sẽ ngầm xác nhận "có một luật
                 // sư như vậy tồn tại", đúng kiểu rò rỉ SỰ TỒN TẠI mà SPEC §10.10 cấm.
+                //
+                // M9 Task 13 (minor rà soát Task 9): cộng luật sư được GHI DOANH THU trên một khoản
+                // thu chưa huỷ của một vụ người xem thấy (P2 — "đã thu" lọc theo luật sư LÚC THU).
+                // Trước đó người cũ của một vụ đã bàn giao không chọn được, nên doanh thu họ đã mang
+                // về không lọc ra được. Cùng cổng `listableBy`, nên vụ `restricted` vẫn không đưa một
+                // cái tên nào tới người không thấy vụ đó.
                 ->options(function (): array {
                     $user = Auth::user();
 
@@ -148,7 +155,12 @@ class RevenueDashboard extends Dashboard
                     }
 
                     return User::query()
-                        ->whereHas('leadMatters', fn ($q) => $q->listableBy($user))
+                        ->where(fn ($q) => $q
+                            ->whereHas('leadMatters', fn ($matters) => $matters->listableBy($user))
+                            ->orWhereHas('attributedPayments', fn ($payments) => $payments
+                                ->withoutGlobalScope(ClientPortalScope::class)
+                                ->whereNull('voided_at')
+                                ->whereHas('instalment.contract.matter', fn ($matters) => $matters->listableBy($user))))
                         ->orderBy('name')
                         ->pluck('name', 'id')
                         ->all();

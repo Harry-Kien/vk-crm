@@ -719,8 +719,12 @@ it('shows nothing at all to a client whose client record was soft deleted', func
 
     $response = $this->actingAs($this->userA, 'client')->get(bopUrl($this->matterA));
 
-    expect($response->isOk())->toBeFalse()
-        ->and($response->getContent())->not->toContain('HD-2026-0042')
+    // M9 Task 13 (minor m6 rà soát Task 10): khẳng định ĐÚNG đường trả lời — phiên của khách đã bị
+    // xoá mềm bị đẩy về trang đăng nhập cổng (M6.5 `portal-3`) — chứ không chỉ "không phải 200",
+    // vì một trang 500 cũng qua được câu đó.
+    $response->assertRedirect(route('filament.portal.auth.login'));
+
+    expect($response->getContent())->not->toContain('HD-2026-0042')
         ->and($this->userA->can('view', $this->schedule['contract']))->toBeFalse();
 });
 
