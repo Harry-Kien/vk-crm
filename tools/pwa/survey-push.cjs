@@ -24,14 +24,16 @@
  *      `…/push/subscriptions`; bấm Bật → hỏi quyền đúng một lần, một `POST` 201, khối "đang nhận",
  *      danh sách vẽ lại có "Máy đang dùng"; tải lại → lượt kiểm `sync=1` trả `owned`; sang trang khác
  *      → không request nào (đã kiểm trong phiên); HTML không chứa endpoint; CacheStorage sạch.
- *   2. Máy dùng chung (stub, CÙNG context): khách 1 đăng xuất, khách 2 đăng nhập → lượt kiểm trả
- *      `not_owned`, dải mời hiện; bấm "Bật" của dải → `POST` 201, dải ẩn, trang thiết bị của khách 2
- *      có đúng máy này.
+ *   2. Máy dùng chung (stub, CÙNG context): khách 1 đăng xuất → máy này bị gỡ khỏi khách 1 (Task 6,
+ *      R9: đăng xuất gỡ đúng máy đang đăng xuất); khách 2 đăng nhập → lượt kiểm trả `not_owned`, máy
+ *      KHÔNG tự gắn cho khách 2, dải mời hiện; bấm "Bật" của dải → `POST` 201, dải ẩn, trang thiết
+ *      bị của khách 2 có đúng máy này.
  *   2b. Gỡ CHÍNH máy này (vòng sửa 1, I1 — khối "Máy này" nằm trong `wire:ignore`): bấm "Gỡ" trên dòng
  *      "Máy đang dùng" → danh sách trống VÀ khối "Máy này" đổi từ "đang nhận" sang nút Bật, cùng
  *      trang, không request đăng ký nào; bấm Bật lại → `POST` 201, "đang nhận"; thêm một máy khác
  *      cho khách 2, tải lại, "Gỡ mọi thiết bị" → cùng kết quả.
- *   3. App nội bộ (stub): đăng nhập TOTP, mục "Thông báo trên điện thoại" trong user menu, Bật → 201.
+ *   3. App nội bộ (stub): đăng nhập TOTP, mục "Thông báo trên điện thoại" trong user menu, Bật → 201;
+ *      Đăng xuất → máy bị gỡ khỏi nhân sự (Task 6, R9).
  *   4. iPhone chưa cài app → khối hướng dẫn, không nút Bật. Quyền bị chặn → khối "đang chặn".
  *   5. Không stub (Chromium thật) → bấm Bật đi tới khối "Chưa bật được" (hoặc "đang nhận" nếu
  *      Chromium có đăng ký thật) — ghi lại cái nào.
@@ -341,11 +343,14 @@ async function clientTour(browser, serverKey) {
 
   step = 'máy dùng chung: khách 1 đăng xuất, khách 2 đăng nhập';
   await logout(page, 'portal');
+  // Task 6 (R9): nút Đăng xuất gỡ máy của trình duyệt này khỏi khách 1 — đọc TRƯỚC khi khách 2 đăng nhập.
+  const ownerAfterLogout = ownerOf(fake.endpoint);
+  check('đăng xuất: máy này bị gỡ khỏi khách 1 (R9)', ownerAfterLogout === '', `chủ sau đăng xuất=${ownerAfterLogout || '(không ai)'}`);
   await portalLogin(page, CLIENTS[1]);
   await settle(page, 1500);
   const shared = pushRequests.filter((r) => r.step === step && /"sync":1/.test(r.body));
   const inviteShown = await page.locator('[data-vk-push-invite]').isVisible();
-  check('máy dùng chung: lượt kiểm trả not_owned (không chuyển chủ), dải mời hiện', shared.length === 1 && shared[0].status === 200 && inviteShown && ownerOf(fake.endpoint) === CLIENTS[0], `${JSON.stringify(shared.map((r) => [r.method, r.status]))}, dải=${inviteShown}, chủ=${ownerOf(fake.endpoint)}`);
+  check('máy dùng chung: lượt kiểm trả not_owned (không tự gắn cho khách 2), dải mời hiện', shared.length === 1 && shared[0].status === 200 && inviteShown && ownerOf(fake.endpoint) === '', `${JSON.stringify(shared.map((r) => [r.method, r.status]))}, dải=${inviteShown}, chủ=${ownerOf(fake.endpoint) || '(không ai)'}`);
 
   step = 'máy dùng chung: bấm Bật trên dải mời';
   await page.locator('[data-vk-push-invite] [data-vk-push-enable]').click();
@@ -401,7 +406,18 @@ async function staffTour(browser) {
   const post = pushRequests.filter((r) => r.step === step);
   await page.locator('[data-vk-push-row]').first().waitFor({ timeout: 45000 }).catch(() => {});
   check('nội bộ: bấm Bật → POST 201 tới /admin/push/subscriptions, khối "đang nhận", một máy trong danh sách', state === 'enabled' && post.length === 1 && post[0].status === 201 && (await page.locator('[data-vk-push-row]').count()) === 1, `khối=${state}; ${JSON.stringify(post.map((r) => [r.method, r.status]))}`);
+  // Task 6 (R9): nút Đăng xuất của app nội bộ gỡ máy của nhân sự trên trình duyệt này.
+  step = 'nội bộ: đăng xuất';
+  const before = staffDevices();
+  await logout(page, 'admin');
+  const after = staffDevices();
+  check('nội bộ: đăng xuất → máy này bị gỡ khỏi nhân sự (R9)', before === '1' && after === '0', `trước=${before}, sau=${after}`);
   await context.close();
+}
+
+/** Số máy nhận thông báo của tài khoản nhân sự thử — chỉ cho lượt đo này. */
+function staffDevices() {
+  return tinker(`echo App\\Models\\User::where('email', '${STAFF.email}')->firstOrFail()->pushSubscriptions()->count();`);
 }
 
 async function edgeTours(browser) {

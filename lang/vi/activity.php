@@ -135,11 +135,15 @@ return [
         // chỉ ghi số đăng ký đã xoá, không bao giờ endpoint.
         'push_subscriptions_reset' => 'Xoá mọi đăng ký thông báo đẩy (sau khi đổi khoá)',
         // M12 Task 5 (R8): app/Actions/Push/RegisterPushDevice.php (nút "Bật trên máy này") và
-        // app/Actions/Push/ForgetPushDevice.php (nút "Gỡ", "Gỡ mọi thiết bị", trình duyệt tự gỡ) —
-        // chỉ ghi nhãn thiết bị ("iPhone · Safari"), không bao giờ endpoint. Một máy dùng chung đổi
-        // chủ khi người sau bấm Bật: dòng "gỡ" ghi trên người trước, người bấm là người gây ra.
+        // app/Actions/Push/ForgetPushDevice.php (nút "Gỡ", "Gỡ mọi thiết bị"; Task 6: đăng xuất hay
+        // cắt phiên trên máy đó) — chỉ ghi nhãn thiết bị ("iPhone · Safari"), không bao giờ endpoint.
+        // Một máy dùng chung đổi chủ khi người sau bấm Bật: dòng "gỡ" ghi trên người trước, người bấm
+        // là người gây ra.
         'push_device_added' => 'Bật thông báo đẩy trên một thiết bị',
         'push_device_removed' => 'Gỡ thông báo đẩy khỏi một thiết bị',
+        // M12 Task 6 (R9): app/Actions/Schedule/PrunePushSubscriptions.php (lịch 03:30) — chỉ ghi các
+        // con số (tổng, vì chủ không còn dùng được, vì quá 180 ngày không mở), không bao giờ endpoint.
+        'push_subscriptions_pruned' => 'Dọn đăng ký thông báo đẩy không còn dùng',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

@@ -238,3 +238,19 @@ Schedule::call(new RemindUnseenUpdates)
     ->dailyAt('08:30')
     ->name('unseen-updates.remind')
     ->withoutOverlapping(60);
+
+/**
+ * Dọn đăng ký thông báo đẩy (M12 R9): 03:30 hằng ngày giờ Việt Nam, sau lượt sao lưu 02:00 và trước
+ * mọi tác vụ gửi thư buổi sáng. Bỏ đăng ký của tài khoản đã vô hiệu, đã xoá mềm (hay có khách hàng đã
+ * xoá mềm) và đăng ký không mở ứng dụng quá 180 ngày. Vệ sinh, không phải lớp bảo vệ: người nhận push
+ * luôn là người nhận của thư, tính lúc gửi.
+ *
+ * KHÔNG `withoutOverlapping()`: mỗi nhóm là một câu `DELETE`, chạy lại hay chồng nhau đều vô hại
+ * (bên sau xoá 0 dòng) — một khoá chỉ thêm một cách hỏng (khoá kẹt) mà không mua được gì. CHỈ
+ * `->name()`, không `->description()` (bí danh của nhau trong Laravel 13, xem `backup.nightly`).
+ * Lớp gọi bằng chuỗi `Lớp@handle`, không `use` + `new` — luật làn song song cho tệp này là chỉ nối
+ * thêm ở cuối (xem `backup.monitor`).
+ */
+Schedule::call('App\Actions\Schedule\PrunePushSubscriptions@handle')
+    ->dailyAt('03:30')
+    ->name('push-subscriptions.prune');

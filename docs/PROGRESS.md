@@ -2855,3 +2855,71 @@ báo." còn đứng sau khi máy chủ đã thôi gửi, và không có nút B�
 bước 2b (gỡ máy đang dùng → nút Bật cùng trang → bật lại 201 → "Gỡ mọi thiết bị" → nút Bật), 24/24 OK; hai đột biến
 chạy trên trình duyệt (bỏ trình nghe JS; bỏ lần phát của "Gỡ mọi thiết bị") đều HỎNG đúng bước. Số đo: cả bộ 3982
 passed, 25 skipped, 1 todo, 1 risky, 0 failed (+4 ca); MariaDB hai tệp đã chạm 37 passed; 10 đột biến Pest đều đỏ.
+
+### Task 6 — đăng xuất, cắt phiên, dọn dẹp (2026-10-04)
+
+Đã làm (R9):
+- Listener `App\Listeners\ForgetPushDeviceOnLogout` (auto-discovery; KHÔNG `ShouldQueue` — đọc phiên của request đang
+  chạy, trước khi phiên bị xoá) nghe `Logout` **và** `CurrentDeviceLogout`, gọi
+  `App\Actions\Push\ForgetPushDevice::onLogout($user, $guard, $session)`: rút endpoint ở `push.endpoint.{guard}` của
+  guard trong sự kiện, gỡ dòng đó CHỈ qua `$user->pushSubscriptions()` (dòng của người khác đứng nguyên), audit
+  `push_device_removed` chỉ mang `device_label`; luôn xoá cả `push.endpoint.{guard}` lẫn `push.checked.{guard}`. Bốn
+  đường đăng xuất, mỗi đường một test HTTP thật (`tests/Feature/Push/PushLogoutTest.php`, thiết bị bật bằng chính
+  `POST …/push/subscriptions`):
+  1. nút Đăng xuất của hai panel (`LogoutController`: `logout()` rồi `invalidate()`);
+  2. cắt phiên SPEC §10.9 trên request cập nhật Livewire (`EnsurePortalAccountIsActive`) — tài khoản vô hiệu, hoặc
+     khách hàng xoá mềm;
+  3. "Đặt lại 2FA" (`RejectStaffSessionsFromBeforeReset`: `logout()` KHÔNG huỷ phiên — nên khoá phiên phải được xoá ở
+     đây, để người đăng nhập lại trong cùng phiên được kiểm lại);
+  4. mật khẩu đổi ở nơi khác (`AuthenticateSession` của panel: `logoutCurrentDevice()` phát `CurrentDeviceLogout`, KHÔNG
+     phải `Logout`, rồi `flush()`) — đường setup không liệt kê.
+- Khoá phiên theo guard (phán quyết (c)) được kiểm: nhân sự bật push ở `/admin`, khách bật ở `/portal` SAU (cùng trình
+  duyệt, cùng phiên), nhân sự đăng xuất `/admin` → dòng admin bị gỡ, dòng portal còn nguyên (chủ của nó chưa đăng
+  xuất). Thêm ca của rà soát Task 5 Minor 4(b): `DELETE` một máy KHÁC của mình rồi đăng xuất → máy này vẫn bị gỡ.
+- `onLogout()` không bao giờ ném: lỗi CSDL lúc gỡ thì người dùng VẪN ra khỏi phiên (302 về trang đăng nhập, phiên huỷ;
+  đột biến bỏ `try` cho 500), nhật ký chỉ một cảnh báo mang tên lớp ngoại lệ, guard và `client_user:12` — thông điệp
+  `QueryException` chứa câu SQL kèm endpoint (R8). Endpoint trong phiên vẫn được kiểm hình dạng (không ném) trước khi vào
+  câu WHERE trên cột `ascii`.
+- `App\Actions\Schedule\PrunePushSubscriptions` + lịch `push-subscriptions.prune` 03:30 giờ Việt Nam
+  (`routes/console.php`, gọi bằng chuỗi `Lớp@handle` theo luật chỉ nối thêm ở cuối tệp; KHÔNG `withoutOverlapping()` —
+  mỗi nhóm là một câu `DELETE`, chồng nhau vô hại). Dọn: chủ không còn dùng được (nhân sự không `is_active`/xoá
+  mềm/không còn dòng; tài khoản cổng không `is_active`/xoá mềm/khách hàng xoá mềm — `whereDoesntHaveMorph` đi qua global
+  scope của model chủ) và đăng ký không mở ứng dụng quá 180 ngày (`last_seen_at`; chưa từng có thì `created_at`; đúng
+  180 ngày thì còn). Chạy hai lần không đổi. Một audit `push_subscriptions_pruned` (`count`, `owner_ineligible`, `stale`,
+  `via = schedule`) chỉ khi có dọn; không endpoint. `activated_at` cố ý không là điều kiện dọn (docblock). Khoá dịch ở
+  `lang/vi/activity.php`.
+- Deep link sau khi hết phiên (`tests/Feature/Portal/DeepLinkSignInTest.php`): ĐO được rằng `url.intended` sống qua bước
+  mã OTP (ca đó xanh trước mọi sửa). MẤT ở bước đổi mật khẩu bắt buộc, đúng như setup đo trên mã → sửa ở đó:
+  `RequirePortalPasswordChange` ghi URL của mỗi request `GET` bị chặn — mở trang, và request cập nhật Livewire (request
+  giả của đường ống bền mang phương thức/đường dẫn của TRANG) — vào khoá riêng
+  `RequirePortalPasswordChange::INTENDED_URL_KEY` (không dùng `url.intended`: hai panel chung phiên); `ChangePassword`
+  `pull` khoá đó, không có thì về trang chủ cổng như trước. Lượt kiểm `POST …/push/subscriptions` của `register.js` trên
+  trang đổi mật khẩu cũng bị chặn nhưng KHÔNG ghi đè đích.
+
+Lệch kế hoạch, có lý do:
+1. Listener nghe thêm `CurrentDeviceLogout` (đường thứ tư); kế hoạch chỉ nói `Logout`.
+2. Prune ghi một audit tổng (kế hoạch không đòi audit cho prune), không `push_device_removed` từng máy — đó là dấu vết
+   của một người tự gỡ máy của mình.
+3. `tools/pwa/survey-push.cjs` (Task 5) khẳng định "endpoint vẫn của khách 1" sau khi khách 1 đăng xuất — Task 6 đổi
+   đúng hành vi đó (nhật ký Task 5: `chủ=khach1@example.com`). Kịch bản nay kiểm máy bị gỡ lúc đăng xuất ở cả cổng
+   lẫn app nội bộ; lượt kiểm của khách 2 vẫn `not_owned` và không tự gắn.
+
+Không làm (đúng phán quyết controller): "Đặt lại 2FA" xoá phiên bằng CSDL (không sự kiện) — đăng ký của máy đã mất còn
+lại cho tới khi máy đó gửi một request (lúc ấy `RejectStaffSessionsFromBeforeReset` đăng xuất và gỡ), hoặc nhân sự gỡ nó
+ở trang thiết bị, hoặc lượt dọn 180 ngày. Hết 120 phút mà không đăng xuất thì đăng ký còn, có chủ đích.
+
+Kiểm bằng trình duyệt thật (`tools/pwa/survey-push.cjs`, bản chạy của làn, `CSP_MODE=enforce`, khoá VAPID THỬ): 26/26
+dòng OK — gồm "đăng xuất: máy này bị gỡ khỏi khách 1" (`chủ=(không ai)`) và "nội bộ: đăng xuất → máy này bị gỡ khỏi
+nhân sự" (`trước=1, sau=0`). Máy thật: D5 (chạm thông báo khi hết phiên → về đúng trang hồ sơ) và D7 (đăng xuất → không
+còn thông báo) của danh sách kiểm tra — PENDING OWNER (Task 10).
+
+Sự thật cho task sau:
+- Task 7–9: máy đã đăng xuất KHÔNG còn dòng; máy đã mất của người không đăng xuất vẫn còn dòng — luật người nhận lúc gửi
+  là nơi quyết định (R9), payload theo R11.
+- M7 `ExpireClientAccess` (00:30, `is_active = false`): prune 03:30 dọn đăng ký của các tài khoản đó sau khi gộp, không
+  cần nối gì; mục lịch của cả hai nằm cuối `routes/console.php` (vùng xung đột lúc gộp).
+
+Số đo: cả bộ `test --parallel --processes=2` 4006 passed, 25 skipped, 1 todo, 1 risky, 0 failed (sau Task 5: 3982; +24
+ca); MariaDB (`test:mariadb`, tuần tự) trên bốn tệp test đã chạm 96 passed (gồm hai câu `DELETE … whereDoesntHaveMorph`
+của lượt dọn và cột `ascii`); 29 đột biến, 28 đỏ — đột biến sống duy nhất (nhánh rơi về `session()` cho request giả
+của Livewire trong `RequirePortalPasswordChange`) cho thấy nhánh đó chết: request giả mang phiên, nên nhánh bị bỏ.
