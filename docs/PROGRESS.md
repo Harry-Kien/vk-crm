@@ -5189,8 +5189,8 @@ stateless 2026-07-28 kèm `MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name` — `
   `structuredContent`.
 - **Action đọc**: `ReadWhoAmI` (số vụ = `McpMatterScope::query()->count()`), `SearchRecords` (vụ: CHÍNH
   `SearchMatters::matching()` của M7 Task 9 trên bốn nguồn R10 cho phép — mã, tiêu đề, tên khách, số thụ lý —
-  làm điều kiện `id IN (…)` trên `McpMatterScope::query()`; yêu cầu: tiêu đề chứa chuỗi, `McpMatterScope::constrain()`;
-  mỗi loại tối đa 10, mới nhất trước), `ListMatters` (bộ lọc chữ/loại vụ theo mã hoặc tên/giai đoạn/"vụ tôi phụ
+  làm điều kiện `id IN (…)` trên `McpMatterScope::query()`; yêu cầu: tiêu đề chứa chuỗi, `McpMatterScope::constrain()`,
+  rồi Gate `view` từng dòng như `fetch`; mỗi loại tối đa 10, mới nhất trước), `ListMatters` (bộ lọc chữ/loại vụ theo mã hoặc tên/giai đoạn/"vụ tôi phụ
   trách" = luật sư phụ trách/đang mở qua `scopeOpen()`/`scopeClosed()`; `limit` mặc định 10, kẹp về [1, 25];
   phân trang theo khoá `id` giảm dần), `ReadMatter` (`McpMatterScope` RỒI Gate `view`; năm mốc; "Đã nộp X/Y" của
   chính `ChecklistProgress`; số yêu cầu chưa `closed`, chưa rút), `ReadClientRequest` (nhánh yêu cầu của `fetch`,
@@ -5216,7 +5216,7 @@ stateless 2026-07-28 kèm `MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name` — `
   đọc nhiều hơn.
 - **Cursor là lỗi riêng, không phải "Không tìm thấy"**: nó nói về cursor, không về bản ghi nào; trang kế vẫn đi
   qua `McpMatterScope` của người gọi, nên kể cả cursor giải mã được cũng không mở thêm dòng nào.
-- **`ReadMatter`/`ReadClientRequest` hỏi lại Gate sau `McpMatterScope`**: tập R3 đã là con của Gate `view`; lần
+- **`ReadMatter`/`ReadClientRequest` và nửa yêu cầu của `SearchRecords` hỏi lại Gate sau `McpMatterScope`**: tập R3 đã là con của Gate `view`; lần
   hỏi thứ hai giữ "MCP kế thừa policy web" đúng cả khi policy được thêm điều kiện mà bản SQL chưa có (test dùng
   `Gate::before` để ép đúng tình huống đó).
 - **Tham số rỗng là "không lọc"**: chuỗi chỉ có khoảng trắng ở `query`/`matter_type`/`stage` của `search_matters`
@@ -5259,3 +5259,13 @@ với phiên bản 1, chạy lại thì đỏ. Cả bộ (`--parallel --processe
 1 todo (test `->todo()` của chế độ `whoami`), 33 skipped (như baseline). MariaDB (tám tệp đụng tới cộng
 `MatterScopeTest`, `PresenterStructureTest`, tuần tự): EXIT 0 — 121 passed, 1 todo; test tiếng Việt chạy đúng nhánh
 MariaDB (bỏ dấu, "đ" ≠ "d"). `pint --test`: PASS 1173 tệp. Không có migration.
+
+**Vòng sửa 1 (rà soát Task 10, I1).** Nửa yêu cầu của `search` chưa hỏi `ClientRequestPolicy::view` — cột kiểm
+quyền của bảng tool dòng 2 — trong khi `fetch` hỏi: một yêu cầu policy từ chối vẫn hiện trong `search` (kèm tiêu đề
+khách viết trong `untrusted_client_content`) dù `fetch` cùng id trả "Không tìm thấy". Hôm nay không lộ gì (với nhân
+sự policy là `canSeeMatter`, chứa tập R3), nhưng không test nào ghim sự tương đương. Sửa: `SearchRecords` lọc tối đa
+10 dòng yêu cầu bằng `Gate::forUser($actor)->allows('view', $request)`, nạp kèm `matter.team` để Gate trả lời từ bộ
+nhớ. Lọc chạy sau khi cắt 10 — kết quả không có số đếm hay "còn nữa", nên dòng bị bỏ không để lại dấu. Nửa vụ việc
+giữ nguyên: bảng tool chỉ ghi `McpMatterScope` cho vụ ở `search`. Test mới trong `SearchToolTest` (cặp dương rồi
+`Gate::before` từ chối đúng một yêu cầu: `search` bỏ đúng dòng đó, chữ chỉ khớp dòng đó cho cùng phản hồi với chữ
+không khớp gì, `fetch` trả "Không tìm thấy"): đỏ trước khi sửa, xanh sau; hai mutation (bỏ lọc, đổi ability) đỏ.

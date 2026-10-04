@@ -11,6 +11,7 @@ use App\Models\Matter;
 use App\Models\User;
 use App\Support\Scopes\ClientPortalScope;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Gate;
 
 /**
  * Đọc cho tool `search` (hợp đồng ChatGPT, kế hoạch M11 bảng tool 2 [DC:48], [DC:644]): một chuỗi,
@@ -25,10 +26,17 @@ use Illuminate\Database\Eloquent\Builder;
  * không vụ hạn chế, không vụ `denied`).
  *
  * **Yêu cầu từ khách**: tiêu đề (`client_requests.subject`) chứa chuỗi, thuộc một vụ trong tập R3
- * (`McpMatterScope::constrain()`), chưa rút (xoá mềm). Chuỗi được chuẩn hoá bằng chính
- * `SearchMatters::normalizeTerm()` (NFC, gộp khoảng trắng, ≥ 2 và ≤ 100 ký tự), `%`/`_` được thoát
- * như ở đó, so theo collation của cột (MariaDB bỏ dấu, SQLite so byte — ghi ở `SearchMatters`).
- * Tiêu đề do KHÁCH viết: Action chỉ trả bản ghi; presenter bọc nó (R11).
+ * (`McpMatterScope::constrain()`), chưa rút (xoá mềm), RỒI qua `Gate::forUser($actor)->allows('view',
+ * $request)` từng dòng — `ClientRequestPolicy::view`, cột kiểm quyền của bảng tool dòng 2, đúng câu
+ * {@see ReadClientRequest} hỏi cho `fetch`, nên một yêu cầu `fetch` trả "Không tìm thấy" cũng không
+ * hiện trong `search`. Với nhân sự policy đó là `canSeeMatter`, chứa tập R3, nên hôm nay nó không bỏ
+ * dòng nào; nó giữ đúng chữ "kế thừa policy của web" nếu policy đổi. Lọc chạy SAU khi cắt
+ * {@see self::LIMIT_PER_KIND}, nên một lần tìm có thể trả ít hơn 10 yêu cầu dù còn dòng khớp cũ hơn:
+ * kết quả không mang số đếm hay "còn nữa", nên dòng bị bỏ không để lại dấu gì. `matter.team` nạp kèm
+ * để `MatterPolicy::view` trả lời từ bộ nhớ, không một truy vấn mỗi dòng. Chuỗi được chuẩn hoá bằng
+ * chính `SearchMatters::normalizeTerm()` (NFC, gộp khoảng trắng, ≥ 2 và ≤ 100 ký tự), `%`/`_` được
+ * thoát như ở đó, so theo collation của cột (MariaDB bỏ dấu, SQLite so byte — ghi ở
+ * `SearchMatters`). Tiêu đề do KHÁCH viết: Action chỉ trả bản ghi; presenter bọc nó (R11).
  *
  * Không có số đếm, không "còn nữa": một chuỗi khớp vụ người gọi không thấy cho đúng kết quả của một
  * chuỗi không khớp gì (R3, M7 R7).
@@ -73,10 +81,12 @@ final class SearchRecords
         /** @var list<ClientRequest> $requests */
         $requests = $this->scope->constrain(ClientRequest::query(), $actor)
             ->whereRaw("client_requests.subject LIKE ? ESCAPE '".self::ESCAPE."'", ['%'.self::escapeLike($term).'%'])
-            ->with($this->withoutPortalScope('matter'))
+            ->with([...$this->withoutPortalScope('matter'), 'matter.team'])
             ->orderByDesc('client_requests.id')
             ->limit(self::LIMIT_PER_KIND)
             ->get()
+            ->filter(fn (ClientRequest $request): bool => Gate::forUser($actor)->allows('view', $request))
+            ->values()
             ->all();
 
         return new SearchResults($matters, $requests);

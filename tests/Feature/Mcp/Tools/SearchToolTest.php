@@ -11,6 +11,7 @@ use App\Models\MatterParty;
 use App\Support\Mcp\AdminUrls;
 use App\Support\Mcp\McpIds;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Support\Facades\Gate;
 use Tests\Support\McpOAuth;
 use Tests\Support\McpReadWorld;
 use Tests\Support\McpToolCall;
@@ -127,6 +128,32 @@ it('R3: chữ khớp một vụ đội khác, vụ hạn chế của chính mìn
         McpIds::encode(McpIds::MATTER, $this->world->otherTeam->id),
         McpIds::encode(McpIds::REQUEST, ClientRequest::query()->where('matter_id', $this->world->otherTeam->id)->value('id')),
     ]);
+});
+
+it('kế thừa policy web cho yêu cầu (bảng tool dòng 2: ClientRequestPolicy::view): Gate view từ chối một yêu cầu thì search bỏ đúng dòng đó, cùng lúc fetch trả "Không tìm thấy"; cặp dương: không điều kiện thêm thì cả hai ra', function () {
+    $matter = $this->world->matter;
+    $hidden = ClientRequest::factory()->create(['matter_id' => $matter->id, 'subject' => 'Hỏi Dugongara riêng Sifakane']);
+    $shown = ClientRequest::factory()->create(['matter_id' => $matter->id, 'subject' => 'Hỏi Dugongara chung']);
+    $hiddenId = McpIds::encode(McpIds::REQUEST, $hidden->id);
+    $shownId = McpIds::encode(McpIds::REQUEST, $shown->id);
+
+    // Cặp dương trước: không điều kiện thêm thì cả hai yêu cầu ra, và fetch mở được yêu cầu kia.
+    expect(array_column(searchResults($this->token, 'Dugongara'), 'id'))->toBe([$shownId, $hiddenId])
+        ->and(array_column(searchResults($this->token, 'Sifakane'), 'id'))->toBe([$hiddenId])
+        ->and(McpToolCall::structured($this, $this->token, 'fetch', ['id' => $hiddenId])['id'])->toBe($hiddenId);
+
+    // Một điều kiện mới của policy yêu cầu — bản SQL của McpMatterScope không biết đến nó.
+    Gate::before(fn ($user, string $ability, array $arguments = []) => $ability === 'view'
+        && ($arguments[0] ?? null) instanceof ClientRequest
+        && $arguments[0]->is($hidden) ? false : null);
+
+    $nothing = McpToolCall::call($this, $this->token, 'search', ['query' => 'Khongtontaigica'])->json('result');
+    $onlyHidden = McpToolCall::call($this, $this->token, 'search', ['query' => 'Sifakane'])->json('result');
+
+    expect(array_column(searchResults($this->token, 'Dugongara'), 'id'))->toBe([$shownId])
+        ->and($onlyHidden)->toBe($nothing)
+        ->and(json_encode($onlyHidden))->not->toContain('Sifakane')
+        ->and(McpToolCall::error($this, $this->token, 'fetch', ['id' => $hiddenId]))->toBe(__('mcp.tool_errors.not_found'));
 });
 
 it('một phiên cổng khách đang mở trong cùng tiến trình không cắt vụ cha của yêu cầu: title vẫn mang mã vụ', function () {

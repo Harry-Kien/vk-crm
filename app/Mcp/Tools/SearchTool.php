@@ -14,7 +14,8 @@ use Laravel\Mcp\ResponseFactory;
 /**
  * Tool `search` — hợp đồng ChatGPT `query` → `{results: [{id, title, url}]}` (kế hoạch M11, bảng tool
  * 2 [DC:48], [DC:644]), trên vụ việc và yêu cầu từ khách. Đọc qua {@see SearchRecords} (bốn nguồn R10
- * cho phép của `SearchMatters`, giao `McpMatterScope`), trình bày qua {@see SearchResultPresenter}.
+ * cho phép của `SearchMatters`, giao `McpMatterScope`; yêu cầu qua thêm `ClientRequestPolicy::view`
+ * từng dòng, như `fetch`), trình bày qua {@see SearchResultPresenter}.
  *
  * `query` dài tối đa {@see SearchMatters::MAX_TERM_LENGTH} ký tự — đúng `maxlength` của ô tìm trên
  * web; dài hơn thì bị từ chối, không cắt im lặng.
