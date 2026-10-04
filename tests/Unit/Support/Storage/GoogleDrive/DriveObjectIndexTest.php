@@ -1,7 +1,9 @@
 <?php
 
 use App\Enums\DriveObjectRetirement;
+use App\Models\ClientUser;
 use App\Models\DriveObject;
+use App\Support\Scopes\ClientPortalScope;
 use App\Support\Storage\GoogleDrive\DriveObjectIndex;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
@@ -98,4 +100,31 @@ it('liveUnder và hasLiveUnder chỉ thấy dòng sống, theo thứ tự khoá;
         ->and($index->liveUnder('')->pluck('object_key')->all())->toBe(['18/a.pdf', '18/b.pdf', '19/a.pdf'])
         ->and($index->hasLiveUnder('19'))->toBeTrue()
         ->and($index->hasLiveUnder('20'))->toBeFalse();
+});
+
+it('phiên khách cổng không cắt chỉ mục: live, nextGeneration, liveUnder, hasLiveUnder, record, retire, rekey', function () {
+    $live = indexRow(['object_key' => '18/a.pdf']);
+    $renamed = indexRow(['object_key' => '18/b.pdf']);
+    indexRow(['object_key' => null, 'former_key' => '18/c.pdf', 'generation' => 3, 'retired_reason' => DriveObjectRetirement::Trashed]);
+    $index = new DriveObjectIndex;
+
+    // Đúng hình dạng phiên của route documents.download từ cổng: guard client, không guard web.
+    auth('client')->setUser(ClientUser::factory()->create());
+    expect(ClientPortalScope::isActive())->toBeTrue()
+        ->and(DriveObject::query()->count())->toBe(0);
+
+    expect($index->live('18/a.pdf')?->is($live))->toBeTrue()
+        ->and($index->nextGeneration('18/c.pdf'))->toBe(4)
+        ->and($index->liveUnder('18')->pluck('object_key')->all())->toBe(['18/a.pdf', '18/b.pdf'])
+        ->and($index->hasLiveUnder('18'))->toBeTrue();
+
+    $index->retire($live, DriveObjectRetirement::Trashed);
+    $index->rekey($renamed, '18/d.pdf', 2);
+    $index->record('drive', '18/c.pdf', 4, 'folder', ['id' => 'file-moi', 'size' => 5, 'md5Checksum' => str_repeat('b', 32)], 'application/pdf');
+
+    expect($live->fresh()->object_key)->toBeNull()
+        ->and($live->fresh()->former_key)->toBe('18/a.pdf')
+        ->and($renamed->fresh()->object_key)->toBe('18/d.pdf')
+        ->and($renamed->fresh()->generation)->toBe(2)
+        ->and($index->live('18/c.pdf')?->file_id)->toBe('file-moi');
 });

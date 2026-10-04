@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\RestrictedToClientPortal;
+use App\Support\Storage\GoogleDrive\DriveAdapter;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
@@ -11,7 +12,8 @@ use Illuminate\Database\Eloquent\Model;
  * docblock của migration `2026_10_04_000002_create_drive_folders_table`.
  *
  * Cùng lập trường với {@see DriveObject}: dữ liệu hạ tầng, không màn hình, policy từ chối mọi người,
- * cổng khách không thấy dòng nào, mọi mã Drive nằm trong `$hidden`.
+ * cổng khách không thấy dòng nào, mọi mã Drive nằm trong `$hidden`. Và cùng ngoại lệ: adapter của kho
+ * ({@see DriveAdapter}) đọc bảng KHÔNG qua scope cổng.
  *
  * @property int $id
  * @property string $drive_id

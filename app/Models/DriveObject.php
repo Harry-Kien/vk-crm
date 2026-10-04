@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\DriveObjectRetirement;
 use App\Models\Concerns\RestrictedToClientPortal;
 use App\Policies\DriveObjectPolicy;
+use App\Support\Storage\GoogleDrive\DriveObjectIndex;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
@@ -16,7 +17,9 @@ use Illuminate\Support\Carbon;
  * Bảng của hạ tầng, không phải dữ liệu nghiệp vụ:
  *  - không màn hình nào liệt kê nó, và {@see DriveObjectPolicy} từ chối mọi thao tác
  *    với mọi người, kể cả admin;
- *  - cổng khách không bao giờ thấy dòng nào ({@see self::applyClientPortalConstraints()});
+ *  - cổng khách không bao giờ thấy dòng nào ({@see self::applyClientPortalConstraints()}). Riêng
+ *    mã của kho ({@see DriveObjectIndex}) đọc bảng KHÔNG qua scope đó: adapter chạy cả trong phiên
+ *    khách của route tải, sau khi route đã kiểm quyền, và không dòng nào rời adapter (R3);
  *  - không `HasBlameable`, không `LogsActivity`: không người nào ghi bảng này, chỉ mã của kho.
  *
  * Mọi mã Drive (`file_id`, `parent_id`, `drive_id`) nằm trong `$hidden`: chúng không bao giờ rời máy

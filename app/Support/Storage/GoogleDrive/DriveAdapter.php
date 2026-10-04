@@ -7,8 +7,10 @@ use App\Exceptions\DocumentStorageUnavailable;
 use App\Exceptions\StoredFileMissing;
 use App\Models\DriveFolder;
 use App\Models\DriveObject;
+use App\Support\Scopes\ClientPortalScope;
 use Closure;
 use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
@@ -57,6 +59,9 @@ use Throwable;
  *   bảng `drive_folders`; đọc bảng và tạo khi chưa có, cả hai dưới
  *   `Cache::lock('drive-folder:{root}:{name}', 60)` trên store khoá chung mọi tiến trình: mỗi tháng
  *   đúng một thư mục.
+ * - **Không phụ thuộc guard nào đang mở**: chỉ mục và `drive_folders` được đọc KHÔNG qua
+ *   `ClientPortalScope` (docblock {@see DriveObjectIndex}); route tải của cổng khách gọi adapter
+ *   trong phiên khách, sau khi chính route đã kiểm quyền (R3).
  * - Không DB transaction nào ở đây: không I/O mạng tới kho trong transaction (R2).
  */
 final class DriveAdapter implements ChecksumProvider, FilesystemAdapter
@@ -493,7 +498,7 @@ final class DriveAdapter implements ChecksumProvider, FilesystemAdapter
             return Cache::store($this->lockStore)
                 ->lock('drive-folder:'.$this->rootFolderId.':'.$name, self::FOLDER_LOCK_SECONDS)
                 ->block(self::FOLDER_LOCK_WAIT_SECONDS, function () use ($name): string {
-                    $existing = DriveFolder::query()
+                    $existing = $this->folders()
                         ->where('root_folder_id', $this->rootFolderId)
                         ->where('name', $name)
                         ->value('folder_id');
@@ -504,7 +509,7 @@ final class DriveAdapter implements ChecksumProvider, FilesystemAdapter
 
                     $id = $this->client->folder($this->rootFolderId, $name);
 
-                    DriveFolder::query()->create([
+                    $this->folders()->create([
                         'drive_id' => $this->driveId,
                         'root_folder_id' => $this->rootFolderId,
                         'name' => $name,
@@ -516,5 +521,18 @@ final class DriveAdapter implements ChecksumProvider, FilesystemAdapter
         } catch (LockTimeoutException $e) {
             throw DocumentStorageUnavailable::temporarily($e);
         }
+    }
+
+    /**
+     * `drive_folders` BỎ `ClientPortalScope`, cùng lý do và cùng giới hạn với chỉ mục
+     * ({@see DriveObjectIndex}, hàm `query()`): `DriveFolder` mang scope cổng khách (`1 = 0`), nên một
+     * lượt ghi chạy trong phiên khách không thấy thư mục tháng đã có, tạo thêm một thư mục cùng tên
+     * trên Drive rồi vấp unique `(root_folder_id, name)` — lượt ghi hỏng, thư mục thừa ở lại Drive.
+     *
+     * @return Builder<DriveFolder>
+     */
+    private function folders(): Builder
+    {
+        return DriveFolder::query()->withoutGlobalScope(ClientPortalScope::class);
     }
 }

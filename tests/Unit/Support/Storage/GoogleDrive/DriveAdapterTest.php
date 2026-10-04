@@ -3,11 +3,14 @@
 use App\Enums\DriveObjectRetirement;
 use App\Exceptions\DocumentStorageUnavailable;
 use App\Exceptions\StoredFileMissing;
+use App\Models\ClientUser;
 use App\Models\DriveFolder;
 use App\Models\DriveObject;
+use App\Support\Scopes\ClientPortalScope;
 use App\Support\Storage\GoogleDrive\DriveAdapter;
 use App\Support\Storage\GoogleDrive\DriveCircuitBreaker;
 use App\Support\Storage\GoogleDrive\DriveObjectName;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
@@ -707,4 +710,113 @@ it('checksum khoá không có trong chỉ mục, hay tệp đã ở thùng rác 
 
 it('adapter là DriveAdapter khi đĩa documents_remote đủ cấu hình', function () {
     expect($this->drive->disk()->getAdapter())->toBeInstanceOf(DriveAdapter::class);
+});
+
+// -------------------------------------------------------------------------------------------------
+// Phiên khách cổng: scope cổng không cắt chỉ mục của adapter (R3, R4, R8, R11)
+// -------------------------------------------------------------------------------------------------
+
+/**
+ * Mở đúng hình dạng phiên của route `documents.download` khi khách tải từ cổng: guard `client` đã
+ * đăng nhập, guard `web` không, ngoài mọi panel Filament — nên `ClientPortalScope` KÍCH HOẠT và
+ * `DriveObject::query()`/`DriveFolder::query()` trần không thấy dòng nào (`1 = 0`, Task 1). Tự kiểm
+ * cả hai điều đó, không thì các test dưới xanh vì phiên không phải phiên khách.
+ */
+function openDriveClientPortalSession(): void
+{
+    auth('client')->setUser(ClientUser::factory()->create());
+
+    expect(ClientPortalScope::isActive())->toBeTrue()
+        ->and(auth('web')->check())->toBeFalse()
+        ->and(DriveObject::query()->count())->toBe(0)
+        ->and(DriveFolder::query()->count())->toBe(0);
+}
+
+/** Đọc chỉ mục cho phần khẳng định của test, không qua scope cổng của phiên đang mở. */
+function driveIndexRows(): Builder
+{
+    return DriveObject::query()->withoutGlobalScope(ClientPortalScope::class);
+}
+
+it('phiên khách cổng: exists, size, mimeType và readStream thấy chỉ mục như phiên nhân sự (route tải của cổng, R3, R11)', function () {
+    $key = '18/'.ADAPTER_ULID.'.pdf';
+    $this->drive->seed($key, 'noi dung ho so');
+    $disk = $this->drive->disk();
+
+    openDriveClientPortalSession();
+
+    $stream = $disk->readStream($key);
+
+    expect($disk->exists($key))->toBeTrue()
+        ->and($disk->size($key))->toBe(14)
+        ->and($disk->mimeType($key))->toBe('application/pdf')
+        ->and(is_resource($stream) ? stream_get_contents($stream) : $stream)->toBe('noi dung ho so')
+        ->and($disk->exists('18/'.ADAPTER_ULID_2.'.pdf'))->toBeFalse();
+});
+
+it('phiên khách cổng: ghi lại khoá đã vào thùng rác lên thế hệ kế tiếp và dùng lại thư mục tháng đã có (R4)', function () {
+    $key = '18/'.ADAPTER_ULID.'.pdf';
+    $disk = $this->drive->disk();
+    $disk->put($key, 'ban mot');
+    $disk->delete($key);
+
+    openDriveClientPortalSession();
+
+    $disk->put($key, 'ban hai');
+
+    $row = driveIndexRows()->where('object_key', $key)->sole();
+
+    expect($row->generation)->toBe(2)
+        ->and($this->drive->files[$row->file_id]['name'])->toBe('18~'.ADAPTER_ULID.'~g2.pdf')
+        ->and($this->drive->folders())->toHaveCount(1)
+        ->and(DriveFolder::query()->withoutGlobalScope(ClientPortalScope::class)->count())->toBe(1)
+        ->and($row->parent_id)->toBe(DriveFolder::query()->withoutGlobalScope(ClientPortalScope::class)->sole()->folder_id);
+});
+
+it('phiên khách cổng: ghi vào khoá đang sống bị từ chối TRƯỚC mọi request (R8)', function () {
+    $key = '18/'.ADAPTER_ULID.'.pdf';
+    $this->drive->seed($key, 'ban goc');
+    $disk = $this->drive->disk();
+
+    openDriveClientPortalSession();
+
+    expect(fn () => $disk->put($key, 'ban moi'))->toThrow(UnableToWriteFile::class);
+
+    Http::assertNothingSent();
+    expect($this->drive->named('18~'.ADAPTER_ULID.'.pdf'))->toHaveCount(1)
+        ->and(driveIndexRows()->count())->toBe(1);
+});
+
+it('phiên khách cổng: delete cho tệp vào thùng rác và rời chỉ mục sống; move đổi khoá (R8)', function () {
+    $key = '18/'.ADAPTER_ULID.'.pdf';
+    $row = $this->drive->seed($key);
+    $moved = $this->drive->seed('19/'.ADAPTER_ULID.'.pdf');
+    $disk = $this->drive->disk();
+
+    openDriveClientPortalSession();
+
+    $disk->delete($key);
+    $disk->move('19/'.ADAPTER_ULID.'.pdf', '19/'.ADAPTER_ULID_2.'.pdf');
+
+    expect(trashedFileIds())->toBe([$row->file_id])
+        ->and($row->fresh()->object_key)->toBeNull()
+        ->and($row->fresh()->former_key)->toBe($key)
+        ->and($row->fresh()->retired_reason)->toBe(DriveObjectRetirement::Trashed)
+        ->and($moved->fresh()->object_key)->toBe('19/'.ADAPTER_ULID_2.'.pdf')
+        ->and($this->drive->files[$moved->file_id]['name'])->toBe('19~'.ADAPTER_ULID_2.'.pdf');
+});
+
+it('phiên khách cổng: allFiles, directoryExists và deleteDirectory thấy các khoá dưới tiền tố (DefaultFileRemover)', function () {
+    $rows = seedPrefixNeighbours($this->drive);
+    $disk = $this->drive->disk();
+
+    openDriveClientPortalSession();
+
+    expect($disk->allFiles('18'))->toBe(['18/'.ADAPTER_ULID.'.pdf', '18/conversions/x.jpg'])
+        ->and($disk->directoryExists('18'))->toBeTrue();
+
+    $disk->deleteDirectory('18/');
+
+    expect(trashedFileIds())->toEqualCanonicalizing([$rows['18']->file_id, $rows['18c']->file_id])
+        ->and($rows['180']->fresh()->object_key)->toBe('180/'.ADAPTER_ULID.'.pdf');
 });

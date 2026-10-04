@@ -4,6 +4,7 @@ namespace App\Support\Storage\GoogleDrive;
 
 use App\Enums\DriveObjectRetirement;
 use App\Models\DriveObject;
+use App\Support\Scopes\ClientPortalScope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\LazyCollection;
 
@@ -26,6 +27,8 @@ use Illuminate\Support\LazyCollection;
  * - Trên MariaDB cột khoá dùng collation nhị phân (migration `drive_objects`), nên `=` và `LIKE` so
  *   từng byte. SQLite so `LIKE` không phân biệt hoa thường với chữ ASCII; khoá thư viện media vốn
  *   viết thường, nên khác biệt đó không chạm dữ liệu thật.
+ * - **Không phụ thuộc guard nào đang mở**: mọi truy vấn đi qua {@see self::query()}, bỏ
+ *   `ClientPortalScope` — trong phiên khách của cổng, scope đó làm chỉ mục RỖNG.
  */
 final class DriveObjectIndex
 {
@@ -33,7 +36,7 @@ final class DriveObjectIndex
 
     public function live(string $key): ?DriveObject
     {
-        return DriveObject::query()->where('object_key', $key)->first();
+        return $this->query()->where('object_key', $key)->first();
     }
 
     /**
@@ -47,7 +50,7 @@ final class DriveObjectIndex
      */
     public function nextGeneration(string $key): int
     {
-        return 1 + (int) DriveObject::query()->where('former_key', $key)->max('generation');
+        return 1 + (int) $this->query()->where('former_key', $key)->max('generation');
     }
 
     /**
@@ -72,7 +75,7 @@ final class DriveObjectIndex
      */
     public function record(string $driveId, string $key, int $generation, string $parentId, array $file, ?string $mimeType): DriveObject
     {
-        return DriveObject::query()->create([
+        return $this->query()->create([
             'drive_id' => $driveId,
             'object_key' => $key,
             'generation' => $generation,
@@ -87,7 +90,7 @@ final class DriveObjectIndex
     /** Dòng rời chỉ mục sống: `object_key = NULL`, `former_key` giữ khoá, lý do và lúc. */
     public function retire(DriveObject $object, DriveObjectRetirement $reason): void
     {
-        DriveObject::query()
+        $this->query()
             ->whereKey($object->getKey())
             ->where('object_key', $object->object_key)
             ->update([
@@ -101,16 +104,41 @@ final class DriveObjectIndex
     /** Dòng sống đổi sang khoá mới (đổi tên trên Drive), với thế hệ của tên mới. */
     public function rekey(DriveObject $object, string $key, int $generation): void
     {
-        DriveObject::query()
+        $this->query()
             ->whereKey($object->getKey())
             ->where('object_key', $object->object_key)
             ->update(['object_key' => $key, 'generation' => $generation]);
     }
 
+    /**
+     * Mọi truy vấn của chỉ mục đi qua đây, và BỎ `ClientPortalScope`.
+     *
+     * `DriveObject` mang scope cổng khách (`1 = 0`, Task 1), và route `documents.download` nằm ngoài
+     * panel Filament: khi khách tải từ cổng (guard `client` mở, guard `web` không), scope đó KÍCH
+     * HOẠT ngay trong adapter. Không bỏ nó thì với khách chỉ mục rỗng: `fileExists()` trả false nên
+     * controller trả 404 cho MỌI lượt tải tệp đã đẩy (R3, R11), `nextGeneration()` trả 1 và dùng lại
+     * một tên đã vào thùng rác (R4), `live()` bỏ qua kiểm khoá bất biến (R8), `retire()`/`rekey()`
+     * cập nhật 0 dòng.
+     *
+     * Bỏ scope ở đây không mở dòng nào cho khách. Adapter là hạ tầng, và quyết định ai được đọc tệp
+     * nào thuộc về người gọi nó, TRƯỚC khi chạm đĩa: route tải kiểm chữ ký, mã người nhận và
+     * `Gate::allows('download')` (404) rồi mới gọi `exists()`/`readStream()` (R3). Không dòng chỉ mục
+     * nào rời adapter — khách chỉ nhận byte của đúng tệp đã được phép. Mọi truy vấn khác lên
+     * `DriveObject` vẫn bị scope cắt. Gỡ đúng MỘT scope (`withoutGlobalScope`, không phải
+     * `withoutGlobalScopes()`), để scope nào thêm sau vẫn áp — hôm nay model không có scope nào
+     * khác, nên không test nào phân biệt hai cách đó.
+     *
+     * @return Builder<DriveObject>
+     */
+    private function query(): Builder
+    {
+        return DriveObject::query()->withoutGlobalScope(ClientPortalScope::class);
+    }
+
     /** @return Builder<DriveObject> */
     private function underQuery(string $directory): Builder
     {
-        $query = DriveObject::query()->whereNotNull('object_key');
+        $query = $this->query()->whereNotNull('object_key');
 
         if ($directory !== '') {
             $escaped = str_replace(
