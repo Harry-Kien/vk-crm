@@ -209,6 +209,15 @@ return [
         'matter_default' => env('MCP_MATTER_DEFAULT', 'denied'),
 
         /*
+         * R10 (Task 9): tên các bên KHÔNG phải khách của văn phòng khi ra khỏi hệ thống qua MCP.
+         * `pseudonym` (mặc định): vai + số thứ tự ("Bị đơn 1"); bên là khách của văn phòng vẫn ra bằng
+         * tên. `full`: tên thật của mọi bên — chủ văn phòng quyết (câu hỏi mở 3). Chỉ đúng chữ `full`
+         * bật tên thật; mọi giá trị khác là `pseudonym` ({@see \App\Support\Mcp\PartyLabel::mode()}).
+         * Giả danh KHÔNG phải khử nhận dạng: tiêu đề vụ việc hay chứa tên đương sự [PL:361].
+         */
+        'party_names' => env('MCP_PARTY_NAMES', 'pseudonym'),
+
+        /*
          * R7: Origin được gọi `/mcp` từ trình duyệt, so khớp CHÍNH XÁC
          * ({@see \App\Http\Middleware\Mcp\CheckOrigin}, cộng thêm origin của `APP_URL`). Request không
          * có Origin (Claude, ChatGPT gọi từ máy chủ của họ) không bị danh sách này chặn.

@@ -33,4 +33,22 @@ return [
     'tools' => [
         // Tool đầu tiên (`whoami`) đến ở Task 10.
     ],
+
+    /*
+     * R11 (Task 9): chỗ đánh dấu mà `App\Support\Mcp\UntrustedText` đặt vào nội dung khách viết thay
+     * cho ảnh và URL đã bỏ — để AI (và nhân sự đọc câu trả lời) biết ở đó từng có một liên kết, mà
+     * không nhận lại chính liên kết đó. Không chứa `$` hay `\`: chuỗi đi vào phần thay thế của
+     * `preg_replace`.
+     */
+    'untrusted' => [
+        'image_removed' => '[ảnh đã bỏ]',
+        'link_removed' => '[liên kết đã bỏ]',
+    ],
+
+    /*
+     * R10 (Task 9): tên giả của một bên không phải khách của văn phòng, `MCP_PARTY_NAMES=pseudonym`
+     * (`App\Support\Mcp\PartyLabel`) — vai tố tụng (`PartyRole::label()`) + số thứ tự trong vai đó:
+     * "Bị đơn 1", "Bị đơn 2".
+     */
+    'party_pseudonym' => ':role :number',
 ];

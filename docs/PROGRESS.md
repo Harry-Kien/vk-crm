@@ -3185,3 +3185,97 @@ không đánh dấu sẵn; chụp chiều lúc mở hộp; ô ở tab Tổng qua
 toàn cục; unique `jti`; `1 = 0` ba model; policy: nhánh khách, `viewAny`, phạm vi vụ/yêu cầu, `delete`,
 `McpConfirmation` hai ability; `created_via` ở `$attributes`, cast, mặc định cột (hai bảng); cast `confirmed_at`;
 các cột ngoài `$fillable` (hai bảng); dòng `.env.example`.
+
+### Task 9 — lớp trình bày: `McpMatterScope`, presenter allowlist, `UntrustedText`, che số (2026-10-04)
+
+**Đã có, kèm test** (`tests/Feature/Mcp/MatterScopeTest.php`, `tests/Unit/Mcp/UntrustedTextTest.php`,
+`PhoneMaskTest.php`, `PartyLabelTest.php`, `McpIdsTest.php`, `AdminUrlsTest.php`, `PresentersTest.php`,
+`PresenterStructureTest.php`). Chưa có tool nào dùng chúng — Task 10–13 dùng.
+- **`App\Actions\Mcp\McpMatterScope`** — định nghĩa DUY NHẤT của tập vụ việc MCP (R3): `query($actor)` (danh
+  sách, số đếm), `find($actor, $matterId)` (một id → vụ hoặc `null`), `constrain($childQuery, $actor, $column =
+  'matter_id')` (mốc, yêu cầu, tài liệu… chỉ trong các vụ của tập). Giao bốn điều kiện: `listableBy` ∧ Gate
+  `view`; `confidentiality = normal` (vụ hạn chế vắng mặt với CẢ luật sư phụ trách lẫn admin); `ai_access =
+  allowed`; `whereNull(deleted_at)` tường minh (đứng vững cả khi nơi gọi thêm `withTrashed()`). Không tìm thấy,
+  khác đội, hạn chế, `denied`, đã xoá: cùng một `null`. Bỏ `ClientPortalScope` tường minh ở truy vấn vụ VÀ ở truy
+  vấn con của `constrain()` — một phiên cổng khách trong cùng tiến trình không đổi được tập vụ của nhân sự (test).
+- **`App\Support\Mcp\UntrustedText::from(?string, int $limit = 2000): array{text, truncated}`** (R11): sửa UTF-8
+  hỏng; giải mã thực thể HTML ba lớp; bỏ ký tự vô hình (nhóm Cf gồm U+200B và điều khiển hướng chữ, nhóm Co, CẢ
+  khối tag U+E0000–E007F kể cả điểm chưa gán, bộ chọn biến thể, vài chữ "trống"), ký tự điều khiển (giữ xuống dòng,
+  tab thành dấu cách), khoảng trắng lạ thành dấu cách; bỏ `<script>`/`<style>` cùng nội dung, chú thích, mọi thẻ;
+  ảnh Markdown thành `[ảnh đã bỏ]`, link Markdown giữ chữ bỏ URL, định nghĩa link tham chiếu bỏ cả dòng; mọi URL
+  còn lại (`scheme://`, `//host`, `www.`, `data:`/`javascript:`/`vbscript:`/`mailto:`/`blob:`) thành `[liên kết
+  đã bỏ]` (`lang/vi/mcp.php`, `untrusted.*`); cắt theo cụm grapheme và gắn `truncated`. Không chuẩn hoá Unicode:
+  tiếng Việt NFC và NFD ra đúng từng byte, một chữ NFD không bao giờ bị cắt rời khỏi dấu. Biểu thức chính quy thất
+  bại (giới hạn PCRE) thì ra chuỗi RỖNG, không ra nguyên văn chưa lọc (test ép lỗi bằng `pcre.backtrack_limit=1`).
+- **`PhoneMask::mask()`** (R4): `'(+84) 912 345 678'` → `***678`; dưới sáu chữ số → `***` (không lộ chữ số nào);
+  không có chữ số → `null`.
+- **`PartyLabel`** (R10) và biến mới **`MCP_PARTY_NAMES`** (`config('vkcrm.mcp.party_names')`, dòng mẫu trong
+  `.env.example`, mặc định `pseudonym`; chỉ đúng chữ `full` bật tên thật). `assign()` trả mỗi bên kèm nhãn: khách
+  của văn phòng ra bằng tên, bên còn lại "Bị đơn 1", "Bị đơn 2" (vai `PartyRole::label()` + số thứ tự trong vai,
+  `lang/vi/mcp.php` `party_pseudonym`), đánh số theo `id` tăng dần — ổn định giữa các lần gọi và mọi thứ tự đầu
+  vào; `is_our_client` không rõ là "không phải khách". Từ chối các bên của hai vụ khác nhau và bên không có id.
+- **`McpIds`**: `matter_`, `deadline_`, `request_`, `doc_` (bốn ví dụ của kế hoạch) cộng `update_` (dòng tiến
+  độ), `item_` (đầu mục danh mục), `reply_` (trả lời), `user_` (nhân sự — để `list_deadlines` lọc theo người phụ
+  trách). Đọc ngược chặt (`\A<tiền tố>_[1-9][0-9]{0,17}\z`): mọi dạng lệch cho `null`, tool trả "Không tìm thấy"
+  như id không tồn tại.
+- **`AdminUrls`**: URL tuyệt đối về `/admin` — trang vụ việc, và TAB của nó cho dòng tiến độ, danh mục, tài liệu,
+  yêu cầu, mốc (`?relation=<vị trí tab>`, tra ngược trong `MatterResource::getRelations()` như
+  `InstalmentOverdue`; tab biến mất thì ném lỗi). Không bao giờ đường tải tệp.
+- **Mười presenter** ở `app/Support/Mcp/Presenters/`, mỗi presenter một hằng danh sách trường (`FIELDS`,
+  `ROW_FIELDS`…) và test so tập khoá trả ra ĐÚNG bằng hằng đó, với mọi cột nhạy cảm điền sẵn giá trị dễ nhận rồi
+  quét kết quả: `StaffPresenter` (id, tên, chức danh), `ClientPresenter` (tên, loại, số đã che), `PartyPresenter`,
+  `MatterPresenter` (`reference`/`row`/`detail`; chỉ cờ `has_internal_note`, không `description_internal`,
+  `summary_for_client`), `StageLogPresenter` (cờ `has_internal_note`, khách xem lần đầu lúc nào), `DeadlinePresenter`
+  (`awaiting_confirmation` cho mốc tạo qua AI chưa xác nhận), `ChecklistItemPresenter` (số tài liệu tự loại nhóm
+  D), `DocumentPresenter` (TỪ CHỐI nhóm D và nhóm không rõ; tiêu đề nhóm A chỉ ở
+  `untrusted_client_content.title`), `ClientRequestPresenter` (`row`/`detail`; tiêu đề và nội dung chỉ ở
+  `untrusted_client_content`), `ClientRequestReplyPresenter` (văn phòng viết: `content` thẳng; mọi `author_type`
+  khác `user` là khách: bọc). Test cấu trúc quét mã (đã gỡ chú thích) của thư mục presenter: không `toArray`,
+  `attributesToArray`, `jsonSerialize`, `toJson`, `getAttributes`, `only`…, không `json_encode`/`serialize`/
+  `(array)`, không nhắc `Intake` (C3); tự kiểm bộ quét trên một mẫu cài sẵn mười vi phạm.
+
+**Phán quyết trong task:**
+- **Vế Gate `view` của R3 (1) là một điều kiện quyền `matter.view` trên truy vấn, không phải lời gọi Gate từng
+  dòng.** Danh sách phân trang và số đếm của `whoami` không lọc lại sau truy vấn mà không lệch số. Bản SQL của
+  `MatterPolicy::view()` cho nhân sự là đúng `matter.view` ∧ `listableBy`; test "R3 is exactly the intersection"
+  hỏi CHÍNH Gate trên sáu vai × sáu vụ và so với `query()`/`find()`, nên một điều kiện mới của `view()` mà bộ dữ
+  liệu đó chạm tới làm test đỏ. Thiếu vế này thì kế toán (`matter.viewAny`, không `matter.view`) thấy mọi vụ thường
+  — `listableBy` một mình mở cho họ (test ghim cả điều đó).
+- **`confidentiality = normal`, không `!= restricted`**: giá trị lạ đóng cửa, cùng hướng `Matter::isListableBy()`.
+- **Presenter không truy vấn**: quan hệ chưa nạp ném `LogicException` (`Presenters\Concerns\ReadsLoadedRelations`),
+  không lazy-load — lazy-load trong request MCP chạy dưới `ClientPortalScope` của phiên lạ và trả thiếu, im lặng.
+  Action đọc của Task 10–11 phải nạp sẵn: vụ `client`, `leadLawyer`, `matterType.stages` (+ `team` kèm pivot,
+  `parties` cho `detail`); dòng tiến độ `views`; mốc `matter`, `responsible`; đầu mục `documents`; yêu cầu `matter`,
+  `assignee` (+ `replies`, `author` của trả lời văn phòng cho `detail`). Bản ghi liên quan đã mất ra `null`.
+- **Nhãn giai đoạn của dòng tiến độ do Action truyền vào** (`StageLogPresenter::present($log, $stageLabels)`):
+  `MatterType::stageIncludingTrashed()` là một truy vấn; khoá không có nhãn thì nhãn `null`, khoá vẫn trả.
+- **Hình dạng R11**: `untrusted_client_content: {<trường>: {text, truncated}}`; trường do khách viết không có khoá
+  riêng ở cấp trên (`title` của tài liệu nhóm A là `null`, yêu cầu không có `subject`/`content`). Khoá luôn có mặt
+  (giá trị `null` khi không áp) để `outputSchema` của tool cố định. Giới hạn: tiêu đề yêu cầu 200, tiêu đề tài liệu
+  250 (đúng độ dài cột), nội dung yêu cầu và trả lời 4000 chữ.
+- **Giới hạn của `UntrustedText`, nói thẳng**: URL viết bằng chữ toàn chiều rộng (`ｈｔｔｐｓ://`) không bị nhận
+  ra (không chuẩn hoá NFKC để giữ nguyên NFD); tên miền trần không scheme (`evil.com/x`) không bị bỏ — không tự tải
+  như ảnh. Lọc là best-effort; ranh giới thật là R5.
+- **Số thứ tự tên giả** đánh theo `id` trong các bên được đưa vào; một bên bị xoá mềm làm số của các bên cùng vai
+  sau nó dồn lên ở lần gọi kế — nhãn trong một câu trả lời, không phải định danh.
+- **`get_matter` chưa đủ ở presenter**: năm mốc sắp tới, "Đã nộp X/Y" và số yêu cầu đang mở do Action của Task 10
+  tính rồi ghép cạnh `MatterPresenter::detail()` (bằng `DeadlinePresenter`); số nháp trả lời của `get_client_request`
+  do Task 11 ghép.
+- Task này không có migration (không chạy vòng `migrate:reset` → `migrate`).
+
+**Kiểm chứng (2026-10-04).** ĐỎ trước khi cài: 125 trong 126 test của tám tệp mới đỏ (lớp chưa có); test còn
+xanh là test tự kiểm bộ quét cấu trúc trên mẫu cài sẵn — đúng ý nó. XANH: 131 passed (thêm năm test sau lượt
+mutation đầu: giải mã thực thể nhiều lớp, biểu thức chính quy thất bại thì ra rỗng, tab không còn trên trang vụ,
+bản ghi liên quan đã mất ra `null`, trả lời văn phòng thiếu `author` thì ném). Bảy mươi hai phép mutation, mỗi phép
+bỏ hay đổi đúng một điều kiện, cả bảy mươi hai cho ít nhất một test đỏ (đúng test nêu tên điều kiện) rồi khôi
+phục: bốn điều kiện R3 cộng vế `matter.view` và hai lần bỏ `ClientPortalScope`; hai mươi bốn bước của
+`UntrustedText` (giới hạn, `mb_scrub`, giải mã và số lớp, vô hình, khối tag, bộ chọn biến thể, điều khiển, khoảng
+trắng lạ, script, chú thích, ảnh, định nghĩa link, link, link tham chiếu, thẻ, URL và từng nhánh `//host`, `www.`,
+`data:`, gộp dòng trống, đếm grapheme, rỗng khi regex thất bại, cờ `truncated`); hai của `PhoneMask`; tám của
+`PartyLabel` (so chặt `full`, luôn `full`, khách của văn phòng, `null` không phải khách, sắp theo id, một vụ, phải có
+id, đếm theo vai); sáu của `McpIds`; ba của `AdminUrls`; hai mươi hai của presenter (chặn lazy-load, nhóm D, nhóm
+không rõ, bọc tiêu đề nhóm A, số đếm bỏ nhóm D, nhận diện văn phòng, chỉ nạp `author` cho văn phòng, hai vế
+`awaiting_confirmation`, hai cờ `has_internal_note` theo `filled`, lần xem đầu, `stages` đã nạp, bảy nhánh `null`,
+bọc nội dung chi tiết yêu cầu, `is_our_client`). Cả bộ (`--parallel --processes=2`): EXIT 0 — 4210 passed, 1 risky,
+1 todo, 25 skipped (risky/todo/skipped như baseline). MariaDB (tám tệp mới + `EnvExampleTest`, tuần tự): 137 passed,
+1 risky (test `BRAND_*` có sẵn). `pint --test`: PASS 928 tệp.
