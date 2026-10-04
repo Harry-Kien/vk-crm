@@ -34,8 +34,9 @@ use Throwable;
  * chuỗi dự phòng — phải qua `DocumentPolicy::download` (từ M9 Task 10, gói của vụ có hợp đồng đã ký
  * in bảng kê tiền, người không thấy tiền nhận 404) VÀ `DocumentPolicy::publish` trên chính tài liệu
  * gói: bộ lọc `$mustAllow` của {@see ResolveStaffRecipients::handle()}. Thiếu điều này, luật sư phụ
- * trách một vụ `restricted` bị đổi vai thành trợ lý vẫn xem được vụ (là lead) nên là người DUY NHẤT
- * được báo, chuỗi dự phòng không chạy, không ai tải hay công bố gói, và khách không bao giờ nhận thư.
+ * trách một vụ `restricted` bị đổi vai thành trợ lý vẫn xem được vụ (là lead), nên khi chính họ bấm
+ * sinh gói thì họ là người DUY NHẤT được báo, chuỗi dự phòng không chạy, không ai tải hay công bố gói,
+ * và khách không bao giờ nhận thư.
  *
  * Vì sao không dùng `forBilling()` khi vụ có hợp đồng đã ký: cổng tiền chỉ trả lời "tải được" (và
  * phải chép lại điều kiện "hợp đồng khác nháp" của policy), không trả lời "công bố được" — luật sư

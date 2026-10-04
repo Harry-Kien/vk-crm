@@ -7,7 +7,9 @@ use DomainException;
 /**
  * Một lần đổi nhóm tài liệu bị chặn ở tầng model (xem `Document::booted()`), tức là nó đã đi
  * vòng qua `RegroupDocument`. Từ M7 Task 7, `RegroupDocument` cũng ném lớp này cho hai lần chuyển
- * VÀO nhóm D mà một đường rút duy nhất không cho phép (hai factory cuối).
+ * VÀO nhóm D mà một đường rút duy nhất không cho phép (`releasedToClientUseRetract()`,
+ * `retractedStaysVisibleToClient()`), và từ làn fu3 cho một lần chuyển RA khỏi nhóm D của bằng chứng
+ * tiền (`referencedByBillingRecord()`).
  *
  * Là `DomainException` cùng họ với `DocumentNotPublishable` và `MatterNotDestroyable`: mọi màn
  * hình M4 gọi Action đã được dặn bắt lớp cha đó và đổi thành lỗi trên form, nên nhánh này không

@@ -394,9 +394,11 @@ class AnonymiseProspect
      * Mọi `identifier_hash` mà một lần tra SĐT hay CCCD của người này có thể đã ghi. Sổ tra khách băm
      * CHỮ SỐ của đúng chuỗi đã gõ (`FindClientByIdentifier`), không băm dạng chuẩn hoá, nên một số điện
      * thoại cho nhiều dấu băm: chuỗi đã lưu của bản ghi (đúng thứ lần ghi nhận và lần chuyển đổi đã tra),
-     * cộng các cách viết mà `Normalizer::phone()` đưa về cùng một số — `84…` (cả `+84 …`), `0084…`, `0…`,
-     * số thuê bao trần, `840…` (`+84 (0) …`). CCCD: dấu băm của bản ghi đã là HMAC của chữ số
-     * (`Normalizer::idNumberHash()` = `Audit::identifierHash()`). Đọc TRƯỚC khi xoá cột.
+     * cộng các cách viết mà `Normalizer::phone()` đưa về cùng một số: dạng chuẩn hoá (`84…`, cả `+84 …`) và
+     * `00` + dạng đó với mọi số; riêng số Việt Nam (dạng chuẩn hoá bắt đầu bằng `84`) thêm `0…`, số thuê
+     * bao trần và `840…` (`+84 (0) …`) — với số nước ngoài, cắt hai chữ số đầu ra là số của người khác.
+     * CCCD: dấu băm của bản ghi đã là HMAC của chữ số (`Normalizer::idNumberHash()` =
+     * `Audit::identifierHash()`). Đọc TRƯỚC khi xoá cột.
      *
      * @return list<string>
      */
