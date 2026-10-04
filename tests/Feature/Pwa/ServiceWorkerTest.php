@@ -428,3 +428,61 @@ it('serves a static Vietnamese offline page with the hotline and a retry link to
         ->not->toContain('csrf-token')
         ->not->toContain('livewire');
 })->with(['admin', 'portal']);
+
+// ---------------------------------------------------------------------------------------------
+// Thông báo đẩy (M12 Task 7, R11)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * R11 + R5: trình nghe `push` hiện ĐÚNG nội dung máy chủ đã dựng (`App\Enums\PushTopic`), chỉ trong
+ * `event.waitUntil(showNotification(…))` — không ghi bộ đệm nào. Tiêu đề, câu dự phòng và biểu tượng
+ * là hằng render từ PHP (tên văn phòng, câu tiếng Việt, cùng hai tệp mà payload thường mang): trình
+ * duyệt BẮT BUỘC hiện một thông báo cho mỗi lần đẩy, và câu mặc định của Chrome là tiếng Anh. URL đích
+ * qua `inScope()`, không thì về trang chính của app (`SCOPE`).
+ *
+ * Mutation probe: bỏ `inScope(…) ||` (dùng thẳng `payload.data.url`) → ĐỎ.
+ */
+it('shows the server-built notification on push, with Vietnamese fallbacks rendered from PHP', function (string $panel) {
+    $script = pwaServiceWorker($panel);
+    $push = pwaJsCode(pwaSwListener($script, 'push'));
+
+    expect(pwaSwConstant($script, 'PUSH_TITLE'))->toBe(config('vkcrm.brand.short_name'))
+        ->and(pwaSwConstant($script, 'PUSH_BODY'))->toBe(__('push.service_worker.fallback'))
+        ->and(pwaSwConstant($script, 'PUSH_ICON'))->toBe('/'.AppIcons::ANY[192])
+        ->and(pwaSwConstant($script, 'PUSH_BADGE'))->toBe('/'.AppIcons::BADGE)
+        ->and($push)->toContain('event.waitUntil(self.registration.showNotification(payload.title || PUSH_TITLE, {')
+        ->toContain('body: payload.body || PUSH_BODY')
+        ->toContain('const url = inScope(payload.data && payload.data.url) || SCOPE;')
+        ->toContain('data: { url }')
+        ->not->toContain('caches')
+        ->not->toContain('fetch(');
+})->with(['admin', 'portal']);
+
+/**
+ * R11: "`notificationclick` chỉ mở URL cùng origin và nằm trong scope của chính nó; URL khác bị bỏ
+ * qua" — khớp scope theo ĐOẠN (`/portal` hay `/portal/…`; `/portalx` không), cùng luật
+ * `PwaPanels::startUrlFor()`. "Nếu đã có cửa sổ app thì `focus()` rồi `navigate()`, không mở cửa sổ
+ * thứ hai"; `navigate()` hỏng (cửa sổ không do worker này điều khiển) thì mới mở cửa sổ mới.
+ *
+ * Mutation probe: bỏ vế `url.origin === self.location.origin` (hay vế khớp đoạn `SCOPE + '/'`) khỏi
+ * `inScope()`; bỏ `if (!url) return;` → ĐỎ.
+ */
+it('opens only same-origin URLs inside its own scope on a tap, reusing an open app window', function () {
+    $script = pwaServiceWorker('portal');
+    $click = pwaJsCode(pwaSwListener($script, 'notificationclick'));
+    $inScope = pwaJsCode(pwaSwFunction($script, 'inScope'));
+    $open = pwaJsCode(pwaSwFunction($script, 'openInApp'));
+
+    expect($click)->toContain('event.notification.close();')
+        ->toContain('const url = inScope(event.notification.data && event.notification.data.url);')
+        ->toContain('if (!url) return;')
+        ->toContain('event.waitUntil(openInApp(url));')
+        ->and($inScope)->toContain('const url = new URL(raw, self.location.origin);')
+        ->toContain("const inside = url.pathname === SCOPE || url.pathname.startsWith(SCOPE + '/');")
+        ->toContain('return url.origin === self.location.origin && inside ? url.href : null;')
+        ->and($open)->toContain("const windows = await self.clients.matchAll({ type: 'window' });")
+        ->toContain('const open = windows.find((client) => inScope(client.url));')
+        ->toContain('if (!open) return self.clients.openWindow(url);')
+        ->toContain('await open.focus();')
+        ->toContain('return open.navigate(url).catch(() => self.clients.openWindow(url));');
+});

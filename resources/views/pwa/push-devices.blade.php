@@ -15,6 +15,10 @@
       NGAY trong trình xử lý cú bấm (iOS đòi thao tác của người dùng). Không bao giờ hỏi quyền lúc
       tải trang.
     - Thiếu khoá VAPID (R7): không nút Bật, không khối trạng thái — một câu "chưa bật".
+    - Nút "Gửi thử" (M12 Task 7) là một `<form method="post">` THƯỜNG tới `POST {panel}/push/test`
+      (`PushSubscriptionController::test()`), có `@csrf` — không JavaScript, không lời gọi Livewire.
+      Chỉ hiện khi người xem có ít nhất một máy và máy chủ có khoá: gửi thử tới không máy nào là một
+      nút chết. Gửi tới MỌI máy trong danh sách, không riêng máy này.
     - KHÔNG CÓ BƯỚC DỰNG CSS (CLAUDE.md): mọi kiểu dáng là `style=` nội tuyến trên biến CSS của
       Filament; 375px một cột, mọi thứ bấm được cao tối thiểu 44px.
 --}}
@@ -110,6 +114,14 @@
             @empty
                 <p data-vk-push-empty style="{{ $muted }}">{{ __('push.devices.empty') }}</p>
             @endforelse
+
+            @if ($configured && count($devices) > 0)
+                <form method="post" action="{{ route("filament.{$panel}.push.test") }}" data-vk-push-test style="{{ $stateWithButton }}padding-top:0.75rem;border-top:1px solid color-mix(in srgb, var(--gray-500) 20%, transparent);">
+                    @csrf
+                    <p style="{{ $muted }}">{{ __('push.test.hint') }}</p>
+                    <button type="submit" style="{{ $primary }}">{{ __('push.test.button') }}</button>
+                </form>
+            @endif
 
             @if (count($devices) > 1)
                 <div>

@@ -4,7 +4,10 @@ namespace App\Http\Controllers\Pwa;
 
 use App\Actions\Push\ForgetPushDevice;
 use App\Actions\Push\RegisterPushDevice;
+use App\Actions\Push\SendTestPush;
 use App\Exceptions\PushDeviceConflict;
+use App\Filament\Admin\Pages\PushDevices as AdminPushDevices;
+use App\Filament\Portal\Pages\PushDevices as PortalPushDevices;
 use App\Http\Middleware\RefuseStaffWithoutTwoFactor;
 use App\Models\ClientUser;
 use App\Models\User;
@@ -12,7 +15,9 @@ use App\Support\Push\PushSession;
 use App\Support\Push\VapidKeys;
 use Closure;
 use Filament\Facades\Filament;
+use Filament\Notifications\Notification;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Route;
@@ -28,6 +33,11 @@ use Illuminate\Support\Facades\Route;
  *  - `DELETE` — gỡ máy này: 204, hoặc 404 khi endpoint không phải của người đang đăng nhập.
  *  - Endpoint sai luật: 422 với câu tiếng Việt. Lượt Bật thua chỉ mục UNIQUE hai lần: 409.
  *  - Máy chủ chưa có khoá VAPID (R7, push tắt êm): `POST` trả 404; `DELETE` vẫn chạy — gỡ luôn được.
+ *
+ * M12 Task 7: `POST /{admin,portal}/push/test` — nút "Gửi thử" của trang "Thông báo trên điện thoại",
+ * một `<form method="post">` thường (không JavaScript): {@see SendTestPush} xếp một thông báo đẩy cho
+ * chính người bấm, rồi chuyển về trang thiết bị với một toast nói đã gửi tới bao nhiêu máy (hay chưa
+ * có máy nào). Thiếu khoá VAPID: 404.
  *
  * Không câu trả lời nào mang endpoint.
  *
@@ -48,7 +58,8 @@ final class PushSubscriptionController
 
     /**
      * Route của một panel, cho `->authenticatedRoutes()`. Tên route (sau tiền tố `filament.{panel}.`
-     * của Filament): `push.subscriptions.store`, `push.subscriptions.destroy` — cùng một URL.
+     * của Filament): `push.subscriptions.store`, `push.subscriptions.destroy` — cùng một URL — và
+     * `push.test`.
      *
      * @param  list<class-string>  $middleware  middleware riêng của panel (admin: cổng 2FA)
      */
@@ -58,6 +69,7 @@ final class PushSubscriptionController
             Route::middleware([...$middleware, 'throttle:'.self::RATE_LIMITER])->group(function (): void {
                 Route::post('push/subscriptions', [self::class, 'store'])->name('push.subscriptions.store');
                 Route::delete('push/subscriptions', [self::class, 'destroy'])->name('push.subscriptions.destroy');
+                Route::post('push/test', [self::class, 'test'])->name('push.test');
             });
         };
     }
@@ -115,6 +127,24 @@ final class PushSubscriptionController
         }
 
         return new Response(status: 204);
+    }
+
+    /** Nút "Gửi thử": xếp một thông báo đẩy cho chính người bấm, về lại trang thiết bị với một toast. */
+    public function test(SendTestPush $sendTestPush): RedirectResponse
+    {
+        abort_unless(VapidKeys::configured(), 404);
+
+        $owner = $this->owner();
+        $devices = $sendTestPush->handle($owner);
+
+        $toast = Notification::make()->title($devices > 0
+            ? __('push.test.sent', ['count' => $devices])
+            : __('push.test.none'));
+        ($devices > 0 ? $toast->success() : $toast->warning())->send();
+
+        return redirect()->to($owner instanceof User
+            ? AdminPushDevices::getUrl(panel: 'admin')
+            : PortalPushDevices::getUrl(panel: 'portal'));
     }
 
     /** Người đang đăng nhập ở guard của panel hiện hành — `User` ở `/admin`, `ClientUser` ở `/portal`. */

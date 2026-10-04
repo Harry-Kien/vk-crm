@@ -48,7 +48,13 @@ final class BuildServiceWorker
     public function __construct(private readonly RenderOfflinePage $offlinePage) {}
 
     /**
-     * @return array{version: string, scope: string, cache_prefix: string, offline_url: string, precache: list<string>, static_prefixes: list<string>}
+     * `push_*` (M12 Task 7, R11): tiêu đề (`vkcrm.brand.short_name`), câu dự phòng
+     * (`push.service_worker.fallback`) và hai biểu tượng mà trình nghe `push` dùng khi một lần đẩy tới
+     * mà không đọc được nội dung — cùng giá trị `App\Enums\PushTopic` đặt vào payload thường. Không vào
+     * VERSION: chúng không đổi gì trong bộ đệm, và trình duyệt tự cài lại worker khi văn bản `sw.js`
+     * khác đi một byte.
+     *
+     * @return array{version: string, scope: string, cache_prefix: string, offline_url: string, precache: list<string>, static_prefixes: list<string>, push_title: string, push_body: string, push_icon: string, push_badge: string}
      */
     public function handle(string $panel, string $path, ?string $filamentVersion = null): array
     {
@@ -75,6 +81,10 @@ final class BuildServiceWorker
             'offline_url' => $offlineUrl,
             'precache' => $precache,
             'static_prefixes' => $staticPrefixes,
+            'push_title' => (string) config('vkcrm.brand.short_name'),
+            'push_body' => (string) __('push.service_worker.fallback'),
+            'push_icon' => (string) parse_url(asset(AppIcons::ANY[192]), PHP_URL_PATH),
+            'push_badge' => (string) parse_url(asset(AppIcons::BADGE), PHP_URL_PATH),
         ];
     }
 }

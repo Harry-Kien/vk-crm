@@ -20,6 +20,12 @@
        thay ngay không thể trộn trang cũ với JS mới.
      - Đăng xuất và cắt phiên không cần worker làm gì: không có gì riêng tư để dọn.
 
+    Thông báo đẩy (M12 R11, Task 7): `push` hiện đúng nội dung máy chủ đã dựng (`App\Enums\PushTopic` —
+    câu chung, không gì của hồ sơ), không ghi bộ đệm nào; `notificationclick` chỉ mở URL CÙNG origin và
+    NẰM TRONG scope của chính app này (`inScope`) — URL khác bị bỏ qua — và dùng lại cửa sổ app đang mở
+    (`focus()` rồi `navigate()`) thay vì mở cửa sổ thứ hai. Tiêu đề, câu dự phòng và biểu tượng render
+    từ PHP (`PUSH_*`), không chữ tiếng Việt nào viết cứng trong JS.
+
     Dưới 150 dòng khi phục vụ (test đếm). JSON qua `@json` (thoát `<`, `>`, `&`, `'`, `"`).
 --}}
 /* VK-CRM — service worker của app {{ $scope }} (M12 R4). Sinh từ resources/views/pwa/sw-js.blade.php. */
@@ -32,6 +38,10 @@ const CACHE = CACHE_PREFIX + VERSION;
 const OFFLINE_URL = @json($offline_url);
 const PRECACHE = @json($precache);
 const STATIC_PREFIXES = @json($static_prefixes);
+const PUSH_TITLE = @json($push_title);
+const PUSH_BODY = @json($push_body);
+const PUSH_ICON = @json($push_icon);
+const PUSH_BADGE = @json($push_badge);
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -97,4 +107,52 @@ async function fromStaticCache(event) {
   }
 
   return refresh;
+}
+
+/* Thông báo đẩy (M12 R11). Nội dung là câu chung do máy chủ dựng (App\Enums\PushTopic): không mã hồ sơ,
+   không tên. Mỗi lần đẩy phải hiện một thông báo; không đọc được nội dung thì hiện câu dự phòng. */
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch (error) {
+    payload = {};
+  }
+  const url = inScope(payload.data && payload.data.url) || SCOPE;
+  event.waitUntil(self.registration.showNotification(payload.title || PUSH_TITLE, {
+    body: payload.body || PUSH_BODY,
+    icon: payload.icon || PUSH_ICON,
+    badge: payload.badge || PUSH_BADGE,
+    tag: payload.tag || undefined,
+    lang: 'vi',
+    data: { url },
+  }));
+});
+
+/* Chạm: chỉ mở URL cùng origin và trong scope của chính app này; đã có cửa sổ app thì dùng lại nó. */
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = inScope(event.notification.data && event.notification.data.url);
+  if (!url) return;
+  event.waitUntil(openInApp(url));
+});
+
+async function openInApp(url) {
+  const windows = await self.clients.matchAll({ type: 'window' });
+  const open = windows.find((client) => inScope(client.url));
+  if (!open) return self.clients.openWindow(url);
+  await open.focus();
+  return open.navigate(url).catch(() => self.clients.openWindow(url));
+}
+
+/* URL tuyệt đối khi `raw` cùng origin và nằm trong SCOPE (khớp theo đoạn: /portal, /portal/…), không thì null. */
+function inScope(raw) {
+  if (typeof raw !== 'string' || raw === '') return null;
+  try {
+    const url = new URL(raw, self.location.origin);
+    const inside = url.pathname === SCOPE || url.pathname.startsWith(SCOPE + '/');
+    return url.origin === self.location.origin && inside ? url.href : null;
+  } catch (error) {
+    return null;
+  }
 }

@@ -533,6 +533,22 @@ Bảng con `client_request_replies`: `request_id`, `author_type`, `author_id`,
 
 Mục đích: khi khách nói "tôi không nhận được thông báo nào", phải tra được ngay.
 
+**Đính chính 2026-10-04 (M12 Task 7, phán quyết R13):** `channel` thêm giá trị `push` (thông báo đẩy
+trên điện thoại, nhãn "Thông báo đẩy"); cột `string(10)` đủ, không migration. Mỗi lần đẩy để lại MỘT dòng
+cho MỖI máy (`App\Actions\Notification\RecordOutboundPush`, nghe `NotificationSent`/`NotificationFailed`
+của gói `laravel-notification-channels/webpush`):
+- `recipient` = `{bí danh morph}:{id}` của chủ máy (`client_user:12`, `user:7`) — **không bao giờ endpoint**
+  (một URL mang quyền gửi);
+- `template` = giá trị `App\Enums\PushTopic`, trùng tên mẫu thư mà nó đi cùng (`client.stage_update`…;
+  riêng nút "Gửi thử" là `push.test`);
+- `related_type`/`related_id` = ĐÚNG bản ghi mà dòng thư tương ứng mang, nên luật "ai xem dòng nào"
+  không đổi;
+- `payload` chỉ `title` (tên văn phòng) và `body` (một câu chung, không dữ liệu hồ sơ);
+- `status` `sent`/`failed`; `error` = mã HTTP và lý do của máy chủ push (đã gỡ endpoint).
+
+Dòng `push` không gửi lại được từ nhật ký (nút "Gửi lại" chỉ cho dòng `email`); màn hình nhật ký lọc được
+theo kênh.
+
 ### 4.16 `matter_parties` — các bên trong vụ việc
 
 Bảng này tồn tại vì một lý do duy nhất nhưng rất quan trọng: **kiểm tra xung đột

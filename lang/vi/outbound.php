@@ -18,6 +18,9 @@ return [
         'sent_at' => 'Đã gửi lúc',
         'error' => 'Lý do lỗi',
         'subject' => 'Tiêu đề thư',
+        // M12 R13 — trang xem một dòng thông báo đẩy.
+        'push_owner' => 'Chủ máy',
+        'push_body' => 'Câu đã gửi',
         // "—" khi không có: dòng chưa gửi xong (`sent_at` null) hoặc không lỗi (`error` null).
         'none' => '—',
         'no_related_record' => 'Không gắn vụ việc nào',
@@ -25,6 +28,8 @@ return [
 
     'filters' => [
         'status' => 'Trạng thái',
+        // M12 R13 — thư điện tử hay thông báo đẩy.
+        'channel' => 'Kênh',
         'template' => 'Mẫu thư',
         'matter' => 'Vụ việc',
         'created_from' => 'Từ ngày',
@@ -55,6 +60,10 @@ return [
         'staff.backup_alert.cleanup_failed' => 'Báo nhân sự dọn bản sao lưu cũ thất bại',
         'staff.backup_alert.unhealthy' => 'Báo nhân sự bản sao lưu không lành mạnh',
         'undeclared' => 'Chưa khai báo mẫu',
+        // M12 R13 — dòng thông báo đẩy mang giá trị `App\Enums\PushTopic` làm mẫu: bảy chủ đề trùng tên
+        // mẫu thư đi cùng (nhãn ở trên; cột "Kênh" phân biệt thư với thông báo đẩy), riêng nút "Gửi thử"
+        // không có thư.
+        'push.test' => 'Thông báo đẩy thử',
     ],
 
     'matter_tab' => [
@@ -88,6 +97,8 @@ return [
                 'undeclared' => 'thư này không khai báo mẫu nên không dựng lại được nội dung.',
                 'default' => 'hệ thống không biết dựng lại thư này từ nhật ký.',
             ],
+            // M12 R13 — dòng thông báo đẩy (App\Exceptions\OutboundMessageNotResendable::channel()).
+            'channel' => 'Thông báo đẩy không gửi lại từ nhật ký: đó chỉ là lời nhắc trên điện thoại, còn thư điện tử của cùng việc có dòng riêng trong nhật ký và gửi lại được ở dòng đó nếu lỗi. Máy báo hết hạn (lỗi 404/410) đã được gỡ khỏi danh sách nhận; người đó bật lại ở trang "Thông báo trên điện thoại".',
             'not_failed' => 'Chỉ dòng thư gửi lỗi mới gửi lại được.',
             'related_gone' => 'Bản ghi mà thư này nói về không còn nữa nên không dựng lại được thư.',
             'superseded' => 'Việc mà thư này báo đã được thay bằng một lần mới hơn (ví dụ giấy tờ đã bị từ chối lại với lý do khác), nên thư cũ không còn đúng. Hãy xem dòng thư của lần mới trong nhật ký.',

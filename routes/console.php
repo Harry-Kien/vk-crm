@@ -254,3 +254,22 @@ Schedule::call(new RemindUnseenUpdates)
 Schedule::call('App\Actions\Schedule\PrunePushSubscriptions@handle')
     ->dailyAt('03:30')
     ->name('push-subscriptions.prune');
+
+/**
+ * Rút hàng đợi `push` (M12 R12): mỗi phút, `--stop-when-empty`, `--max-time=50` — cùng khuôn
+ * `queue.drain`, KHÔNG worker thường trực. `App\Notifications\PushAlert` nằm trên hàng riêng này: mỗi
+ * máy là một request ra máy chủ push (hạn 10 giây, `config/webpush.php`), và máy chủ push chậm nhân với
+ * số máy lúc 07:00 sẽ giữ hết lượt `queue.drain` trong khi thư nhắc hạn đứng chờ. `queue.drain` không
+ * có `--queue` nên chỉ rút hàng `default` — thiếu mục này thì không thông báo đẩy nào rời máy chủ.
+ * Kết nối mặc định (`database`, `retry_after` 90 giây).
+ *
+ * `withoutOverlapping(5)`: lớp thứ hai sau `--max-time=50`, cùng lý do `queue.drain` — một lượt kéo
+ * quá một phút (job đang gửi dở khi hết 50 giây, máy chủ push chậm) không bị lượt kế tiếp chồng lên —
+ * hai tiến trình chỉ gửi trùng một job khi job đó chạy quá `retry_after` (90 giây) và lượt kia lấy lại nó;
+ * khoá có hạn năm phút (không phải mặc định 1440) để một tiến trình bị giết không tắt push cả ngày.
+ * CHỈ `->name()`, không `->description()` (bí danh của nhau trong Laravel 13, xem `backup.nightly`).
+ */
+Schedule::command('queue:work --queue=push --stop-when-empty --max-time=50')
+    ->everyMinute()
+    ->name('queue.push')
+    ->withoutOverlapping(5);

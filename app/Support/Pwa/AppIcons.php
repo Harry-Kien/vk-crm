@@ -31,6 +31,13 @@ final class AppIcons
         512 => 'brand/vk-mark-512.png',
     ];
 
+    /**
+     * `badge` của thông báo đẩy (M12 R11, `App\Enums\PushTopic`): Android vẽ biểu tượng nhỏ trên thanh
+     * trạng thái chỉ từ kênh alpha, nên con dấu nền trong suốt 96×96 (cỡ Android khuyên) là đúng thứ
+     * cần — không sinh ảnh mới.
+     */
+    public const BADGE = 'brand/vk-mark-96.png';
+
     public const MASKABLE_SIZE = 512;
 
     public const APPLE_TOUCH_SIZE = 180;

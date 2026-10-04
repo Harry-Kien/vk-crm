@@ -24,6 +24,8 @@
  *      `…/push/subscriptions`; bấm Bật → hỏi quyền đúng một lần, một `POST` 201, khối "đang nhận",
  *      danh sách vẽ lại có "Máy đang dùng"; tải lại → lượt kiểm `sync=1` trả `owned`; sang trang khác
  *      → không request nào (đã kiểm trong phiên); HTML không chứa endpoint; CacheStorage sạch.
+ *      (Task 7) Bấm "Gửi thông báo thử" (biểu mẫu POST thường) → về trang thiết bị với toast "Đã gửi thử
+ *      tới 1 máy", đúng một job trên hàng `push` (job bị xoá ngay, không rút — endpoint là bản giả).
  *   2. Máy dùng chung (stub, CÙNG context): khách 1 đăng xuất → máy này bị gỡ khỏi khách 1 (Task 6,
  *      R9: đăng xuất gỡ đúng máy đang đăng xuất); khách 2 đăng nhập → lượt kiểm trả `not_owned`, máy
  *      KHÔNG tự gắn cho khách 2, dải mời hiện; bấm "Bật" của dải → `POST` 201, dải ẩn, trang thiết
@@ -340,6 +342,25 @@ async function clientTour(browser, serverKey) {
   check('cổng: trang khác sau lượt kiểm: push-check=0, không request nào, dải mời ẩn', (await scriptData(page)).pushCheck === '0' && pushRequests.filter((r) => r.step === step).length === 0 && (await page.locator('[data-vk-push-invite]').isHidden()), '');
   const cached = (await cacheUrls(page)).filter((u) => /push|\/portal\/(?!offline)|\/admin\/(?!offline)/.test(u));
   check('cổng: CacheStorage không có trang hay request đăng ký nào', cached.length === 0, cached.join(', '));
+
+  // Task 7: nút "Gửi thử" là một <form method="post"> thường tới /portal/push/test (không JavaScript).
+  // Job `PushAlert` được xếp trên hàng `push` rồi XOÁ ngay — không rút hàng đợi: endpoint là bản giả
+  // của lượt này, gửi thật sẽ là một request ra máy chủ push của Google.
+  step = 'cổng: gửi thử';
+  await openDevices(page, 'portal');
+  const testButton = page.locator('[data-vk-push-test] button[type="submit"]');
+  const jobsBefore = Number(tinker("echo DB::table('jobs')->where('queue', 'push')->count();"));
+  const [testPost] = await Promise.all([
+    page.waitForResponse((r) => r.url() === `${BASE}/portal/push/test` && r.request().method() === 'POST'),
+    testButton.click(),
+  ]);
+  await page.waitForLoadState('load');
+  await page.locator('[data-vk-push-page]').waitFor();
+  await settle(page, 1500);
+  const toast = await page.getByText('Đã gửi thử tới 1 máy').count();
+  const jobsAfter = Number(tinker("echo DB::table('jobs')->where('queue', 'push')->count();"));
+  tinker("DB::table('jobs')->where('queue', 'push')->delete();");
+  check('cổng: bấm "Gửi thông báo thử" → POST 302 về trang thiết bị, toast "Đã gửi thử tới 1 máy", đúng một job trên hàng push', testPost.status() === 302 && page.url() === `${BASE}/portal/thong-bao-dien-thoai` && toast > 0 && jobsAfter - jobsBefore === 1, `POST ${testPost.status()}, url=${page.url().replace(BASE, '')}, toast=${toast}, job push +${jobsAfter - jobsBefore}`);
 
   step = 'máy dùng chung: khách 1 đăng xuất, khách 2 đăng nhập';
   await logout(page, 'portal');

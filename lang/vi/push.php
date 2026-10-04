@@ -79,6 +79,53 @@ return [
         'dismiss' => 'Để sau',
     ],
 
+    /*
+     * M12 Task 7 (R11) — câu của thông báo đẩy, chỉ {@see \App\Enums\PushTopic} đọc (test cấu trúc).
+     * Một câu CHUNG cho mỗi chủ đề: không mã hồ sơ, không tên, không tiêu đề, không nội dung — điện
+     * thoại nằm trên bàn và người nhà đọc được màn hình khoá. Tiêu đề thông báo là tên văn phòng
+     * (`vkcrm.brand.short_name`), không ở đây. Mức khẩn của mốc hạn được phép: nó không chỉ ra khách nào.
+     */
+    'alerts' => [
+        'client' => [
+            'stage_update' => 'Hồ sơ của anh/chị có cập nhật mới. Chạm để xem.',
+            'document_published' => 'Văn phòng vừa gửi tài liệu mới trong hồ sơ của anh/chị. Chạm để xem.',
+            'document_rejected' => 'Có giấy tờ trong hồ sơ của anh/chị cần nộp lại. Chạm để xem.',
+            'request_answered' => 'Văn phòng đã trả lời câu hỏi của anh/chị. Chạm để xem.',
+        ],
+        'staff' => [
+            // Theo bậc của `CheckDeadlines::tierFor()`: d14/d7/d3 → upcoming, d1 → imminent, quá hạn → overdue.
+            'deadline' => [
+                'upcoming' => 'Có mốc thời hạn sắp đến cần chuẩn bị. Chạm để xem.',
+                'imminent' => 'Có mốc thời hạn đến hạn hôm nay hoặc ngày mai. Chạm để xem.',
+                'overdue' => 'Có mốc thời hạn đã quá hạn, cần xử lý ngay. Chạm để xem.',
+            ],
+            'new_client_request' => 'Khách vừa gửi một yêu cầu mới. Chạm để xem.',
+            'new_client_document' => 'Khách vừa nộp giấy tờ mới cần xem. Chạm để xem.',
+        ],
+        'test' => 'Thông báo thử: máy này đã nhận được thông báo của văn phòng.',
+    ],
+
+    /*
+     * M12 Task 7 — nút "Gửi thử" trên trang "Thông báo trên điện thoại"
+     * ({@see \App\Actions\Push\SendTestPush}). Hàng đợi `push` được rút mỗi phút nên câu nói "một, hai
+     * phút", không nói "ngay".
+     */
+    'test' => [
+        'hint' => 'Gửi một thông báo thử tới mọi máy trong danh sách để kiểm tra máy có nhận được không.',
+        'button' => 'Gửi thông báo thử',
+        'sent' => 'Đã gửi thử tới :count máy. Thông báo thường tới trong một, hai phút.',
+        'none' => 'Chưa có máy nào nhận thông báo để gửi thử. Hãy bật trên máy này trước.',
+    ],
+
+    /*
+     * M12 Task 7 (R11) — câu dự phòng của service worker (`resources/views/pwa/sw-js.blade.php`) khi một
+     * lần đẩy tới mà không đọc được nội dung: trình duyệt bắt buộc hiện MỘT thông báo cho mỗi lần đẩy,
+     * và câu mặc định của Chrome ("trang này đã cập nhật ở nền") là tiếng Anh.
+     */
+    'service_worker' => [
+        'fallback' => 'Có thông báo mới. Chạm để xem.',
+    ],
+
     // M12 Task 5 (R8) — {@see \App\Actions\Push\RegisterPushDevice}. Không nhắc lại giá trị đã gửi.
     'validation' => [
         'endpoint' => 'Địa chỉ nhận thông báo mà trình duyệt gửi lên không hợp lệ.',

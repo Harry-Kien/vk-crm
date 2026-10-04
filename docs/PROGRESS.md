@@ -2923,3 +2923,118 @@ Số đo: cả bộ `test --parallel --processes=2` 4006 passed, 25 skipped, 1 t
 ca); MariaDB (`test:mariadb`, tuần tự) trên bốn tệp test đã chạm 96 passed (gồm hai câu `DELETE … whereDoesntHaveMorph`
 của lượt dọn và cột `ascii`); 29 đột biến, 28 đỏ — đột biến sống duy nhất (nhánh rơi về `session()` cho request giả
 của Livewire trong `RequirePortalPasswordChange`) cho thấy nhánh đó chết: request giả mang phiên, nên nhánh bị bỏ.
+
+### Task 7 — `PushTopic`, `SendPushAlert`, hàng đợi `push`, nhật ký (2026-10-04)
+
+Đã làm (R10–R13):
+- `App\Enums\PushTopic` — NƠI DUY NHẤT dựng nội dung đẩy (`message()` → `App\Support\Push\VkWebPushMessage`):
+  bảy chủ đề của bảng R10 đã có trên `main` (`client.stage_update`, `client.document_published`,
+  `client.document_rejected`, `client.request_answered`, `staff.deadline_reminder`, `staff.new_client_request`,
+  `staff.new_client_document`) + `push.test` (nút "Gửi thử"). Giá trị trùng tên mẫu thư đi cùng; bản ghi liên quan
+  (`relatedClass()`) là ĐÚNG bản ghi mà mailable đó ghi vào nhật ký. Payload đúng các khoá R11: `title` = tên văn
+  phòng, `body` = một câu chung ở `lang/vi/push.php` (`alerts.*`; mốc hạn có ba câu theo bậc — d14/d7/d3 "sắp đến",
+  d1 "hôm nay hoặc ngày mai", quá hạn), `icon`/`badge` (`AppIcons::ANY[192]`, `AppIcons::BADGE` = con dấu 96 px),
+  `tag` = chủ đề + id bản ghi, `data.url` = đường dẫn TƯƠNG ĐỐI: khách → `/portal/ho-so/{vụ}` (khối Tài liệu
+  `#tai-lieu`, khối Hồ sơ giấy tờ `#ho-so-giay-to` — hai `id` mới ở `matter-progress.blade.php`), `/portal/yeu-cau/{vụ}`;
+  nhân sự → `/admin/matters/{vụ}?relation={chỉ số tab}` (Mốc thời hạn, Yêu cầu, và "Danh mục hồ sơ" cho giấy tờ khách
+  nộp — phán quyết (f)); "Gửi thử" → trang "Thông báo trên điện thoại" của panel người nhận. TTL 24 giờ cho mốc hạn,
+  72 giờ cho chủ đề khác; `urgency` `high` chỉ cho mốc hạn d1/quá hạn.
+- `App\Actions\Push\SendPushAlert::handle($recipients, PushTopic, $related, $tier)` — ĐƯỜNG DUY NHẤT dựng
+  `App\Notifications\PushAlert`. Nhận ĐÚNG người nhận của thư (R10; không luật người nhận riêng), bỏ người không có
+  máy, gộp người trùng, không làm gì khi thiếu khoá VAPID. Lời gọi sai (bản ghi sai loại, người nhận sai panel, bậc
+  lạ) ném `InvalidArgumentException` TRƯỚC khi xếp gì; lỗi lúc chạy (CSDL, hàng đợi) được `report()` và không bao
+  giờ lên tới nơi gửi thư (R12: push hỏng không làm hỏng thư). Docblock ghi câu R14 về bảng `(notifiable, topic)`.
+- `PushAlert`: `ShouldQueue`, `afterCommit`, `tries = 3`, `backoff = [60, 300]`, hàng `push`, kênh `WebPushChannel`;
+  thông điệp dựng sẵn lúc xếp (chỉ chuỗi và số trong `jobs.payload`); `shouldSend()` hỏi lại `VapidKeys::configured()`
+  lúc gửi (khoá bị gỡ giữa chừng → bỏ êm, không 401/403 cho từng máy).
+- Lịch `queue.push`: `queue:work --queue=push --stop-when-empty --max-time=50` mỗi phút, `withoutOverlapping(5)`
+  (cuối `routes/console.php`; `queue.drain` không `--queue` nên không bao giờ rút hàng này).
+- Nhật ký: `OutboundChannel::Push` ("Thông báo đẩy"); listener `App\Listeners\RecordOutboundPushReport` (auto-discovery,
+  KHÔNG `ShouldQueue`) nghe `NotificationSent`/`NotificationFailed` của gói → `App\Actions\Notification\RecordOutboundPush`:
+  mỗi máy một dòng, `recipient` = `client_user:12`/`user:7`, `template` = chủ đề, `related` = siêu dữ liệu của
+  `VkWebPushMessage` (ngoài payload), `payload` = `title`+`body`, `error` = `HTTP {mã} {lý do}` + đoạn thân trả lời,
+  ĐÃ GỠ endpoint (nguyên văn, dạng JSON-thoát, mã hoá URL, phần path, mọi URL — Guzzle ghép URL vào câu lỗi kết nối).
+  Hàm không bao giờ ném (chạy trong vòng báo cáo của kênh: một lỗi ghi sẽ cắt báo cáo của máy kế tiếp và làm job gửi
+  lại tới mọi máy). SPEC §4.15 có đính chính 2026-10-04.
+- Nhật ký thư (M6.5 Task 13): cột và bộ lọc "Kênh"; trang xem một dòng push hiện kênh, CHỦ máy (tra lại tên + email
+  từ `recipient`), "Câu đã gửi" thay "Tiêu đề thư". Luật ai xem dòng nào không đổi (test: luật sư phụ trách thấy,
+  luật sư ngoài vụ không thấy, trang xem 404).
+- **Sự thật CRITICAL của setup, đã xử lý:** `ResendOutboundMessage` chỉ gửi lại dòng `channel = email` — ở
+  `canResend()` (nút ẩn), ở `handle()` (sau cổng quyền, câu riêng `outbound.resend.refused.channel`) và ở
+  `ResendOutboundMessageJob` (lớp hai). Thiếu cổng này một dòng push hỏng (410) có nút "Gửi lại" xếp một THƯ (chủ đề
+  trùng tên mẫu thư). Truy vấn chống trùng của thư: KHÔNG sửa — mọi truy vấn lọc `recipient = <email>` (dòng push
+  không có `@`), trừ `CheckStaleMatters::recentlyMailed()` lọc `template = staff.stale_matter`, mẫu mà push cố ý không
+  bao giờ có (test ghim "không chủ đề nào cho `client.otp`, `client.activation`, `client.missing_documents`,
+  `staff.stale_matter`"). Lập luận ở docblock `RecordOutboundPush`.
+- Service worker (`sw-js.blade.php`, R11): trình nghe `push` hiện đúng nội dung máy chủ đã dựng, dự phòng tiêu đề/câu
+  tiếng Việt render từ PHP (`PUSH_*`, khoá `push.service_worker.fallback`), không ghi bộ đệm; `notificationclick` chỉ
+  mở URL cùng origin và trong scope (khớp theo đoạn), `focus()` + `navigate()` cửa sổ app đang mở, hỏng thì
+  `openWindow()`. Văn bản phục vụ vẫn dưới 150 dòng.
+- Nút "Gửi thử" (cuối Task 7, phán quyết (b)): `POST {panel}/push/test` (cùng throttle 10/phút, ở admin cùng cổng 2FA)
+  → `App\Actions\Push\SendTestPush` → `SendPushAlert` với chủ đề `push.test` cho CHÍNH người bấm; nút là một
+  `<form method="post">` thường (có `@csrf`, không JavaScript — `register.js` ở 198/200 dòng), chỉ hiện khi người xem
+  có máy và máy chủ có khoá; về lại trang thiết bị với toast "Đã gửi thử tới N máy" / "Chưa có máy nào".
+- Test cấu trúc `tests/Feature/Push/PushStructureTest.php` (token PHP trên `app/`, `routes/`, view đã biên dịch): chỉ
+  `SendPushAlert` tham chiếu `PushAlert`; chỉ `PushAlert` tham chiếu `WebPushChannel`; chỉ `PushTopic` dựng
+  `VkWebPushMessage`/đọc `push.alerts.*`, không ai dựng `WebPushMessage` của gói; `SendPushAlert` chỉ được tham chiếu
+  từ danh sách cho phép (hôm nay: `SendTestPush`) — Task 8/9 thêm từng nơi nối (kể cả JOB `SendDeadlineReminderMail`)
+  CÙNG commit nối.
+- Helper `tests/Support/FakePushServer.php` (máy chủ push giả ở tầng HTTP).
+
+Đo trước (R6, "chưa đo" của kế hoạch): `Http::fake()` chặn được request của `WebPushChannel` CHỈ KHI được đăng ký
+TRƯỚC lần đầu kênh được phân giải trong app (client Guzzle dựng một lần, chụp collection `stubCallbacks` và cờ
+`preventStrayRequests` của factory lúc đó; `ChannelManager` giữ driver). Test "a fake registered after the channel
+was built does not intercept" ghim điều kiện đó (endpoint `https://127.0.0.1:9/…`, cổng đóng của chính máy). Helper
+gọi `Http::preventStrayRequests()` cùng lúc.
+
+Lệch kế hoạch, có lý do:
+1. `PushTopic` thêm case `push.test` (kế hoạch: "một `PushTopic` riêng hoặc nội dung chung cố định — vẫn đi qua
+   `PushTopic`"), TTL MỘT giờ — một tin thử tới sau ba ngày (máy tắt) không thử được gì; R11 chỉ nói TTL của chủ đề
+   sự kiện.
+2. `staff.instalment_overdue` (phán quyết (e)) và `staff.handover_ready` (M7, mang sang) CHƯA có case: mỗi case thêm
+   CÙNG lời gọi của nó ở Task 9 / lúc gộp M7 (một case không ai gọi là mã chết).
+3. Nút "Gửi thử" là biểu mẫu POST thường thay vì nút do `register.js` điều khiển: route của kế hoạch có người gọi
+   thật, không thêm dòng JS nào (trần 200 dòng).
+4. Thêm listener `RecordOutboundPushReport` (kế hoạch chỉ liệt kê Action): Action không được auto-discovery.
+5. `RecordOutboundPush` giữ HOST đứng một mình trong câu lỗi kết nối ("Failed to connect to … port 443"): nó chỉ nói
+   máy chủ push nào; endpoint (path mang quyền gửi) và mọi URL thì bị thay.
+
+Sự thật cho task sau:
+- Task 8/9 gọi `app(SendPushAlert::class)->handle($recipients, PushTopic::X, $related[, $tier])` NGOÀI mọi
+  `DB::transaction()`, sau thư (phán quyết (d): từng người, ngay sau khi thư của chính người đó đi được); thêm tệp gọi
+  vào `pushAlertCallersAllowed()` của `PushStructureTest` cùng commit. `$tier` của mốc hạn là khoá
+  `CheckDeadlines::tierFor()` (`PushTopic::DEADLINE_TIERS`).
+- Test của Task 8/9 dựng thiết bị bằng `FakePushServer::device($owner, '…')`; đọc payload qua `Notification::fake()`
+  + `$alert->toWebPush($n, $alert)->toArray()` (xem `pushTopicPayload()` ở `PushTopicTest`), hay đi đường thật với
+  `FakePushServer::start()` (đăng ký TRƯỚC lần gửi đầu).
+- Task 9: thêm case `staff.instalment_overdue` (câu chung, deep link theo `InstalmentOverdue::link()` — phụ thuộc người
+  nhận; `PushTopic::url()` đã nhận `$recipient`), nhãn ở `lang/vi/enums.php`; `outbound.templates` đã có nhãn.
+- Task 10: `notificationclick` (focus/navigate) chỉ kiểm được trên máy thật (D-mục của danh sách kiểm tra, PENDING
+  OWNER) — sự kiện tổng hợp trong worker không gọi được `waitUntil`.
+- Test giả lỗi CSDL bằng `DB::beforeExecuting()` ném `QueryException` cho đúng câu cần hỏng (xem
+  `pushAlertFailInsertsInto()` ở `SendPushAlertTest`), KHÔNG `Schema::drop()`: trên MariaDB (`test:mariadb`) một câu
+  DDL tự commit transaction của `RefreshDatabase`, bảng mất luôn cho mọi test chạy sau trong cùng tiến trình.
+- Dòng `push.test` không có bản ghi liên quan, nên trong nhật ký thư chỉ admin thấy (luật `visibleTo()` không đổi);
+  người bấm "Gửi thử" thấy kết quả trên máy và ở toast, không ở nhật ký.
+
+Kiểm bằng trình duyệt thật (bản chạy của làn, `CSP_MODE=enforce`, khoá VAPID THỬ):
+- `tools/pwa/survey-sw-push.cjs` (mới, `CHANNEL=chromium` — headless-shell mặc định báo quyền thông báo `denied`):
+  một lần đẩy đưa thẳng vào worker bằng CDP `ServiceWorker.deliverPushMessage`, đọc lại bằng `getNotifications()`, cho
+  cả hai app: đúng một thông báo, tiêu đề/câu/`tag` như payload, `data.url` trong scope; URL ngoài scope (app kia,
+  `/portalx`, khác origin, `//khác-origin`, `javascript:`) → trang chính của app; dữ liệu hỏng hay rỗng → câu dự phòng
+  tiếng Việt; CacheStorage không thêm gì ngoài tài nguyên tĩnh. 33/33 OK. Hai đột biến chạy trên trình duyệt đều HỎNG
+  đúng dòng: bỏ vế cùng origin của `inScope()` (29/33), trình nghe `push` dùng thẳng `data.url` (23/33).
+- `tools/pwa/survey-push.cjs` thêm bước "Gửi thử": biểu mẫu POST → 302 về trang thiết bị, toast "Đã gửi thử tới 1 máy",
+  đúng một job trên hàng `push`. 27/27 OK.
+- KHÔNG đo được trên máy dev: cú chạm thật (`notificationclick` → `focus()`/`navigate()`), và một lần đẩy thật qua máy chủ
+  push của Google/Apple — mục D của danh sách kiểm tra máy thật, PENDING OWNER (Task 10).
+
+Số đo: cả bộ `test --parallel --processes=2` 4105 passed, 25 skipped, 1 todo, 1 risky, 0 failed (sau Task 6: 4006; +99
+ca); MariaDB (`test:mariadb`, tuần tự) trên chín tệp test đã chạm 232 passed; 47 đột biến Pest đều đỏ (M04, M23 chạy lại
+sau khi đổi cách giả lỗi CSDL, vẫn đỏ). Đột biến M09 (nối tiêu đề vụ vào `body`) lần đầu SỐNG vì lỗi của chính test:
+`->not->toContain($marker, $message)` của Pest coi đối số thứ hai là một chuỗi cần tìm nữa, không phải thông điệp — sửa
+test thành `str_contains(...)` + `->toBeFalse($message)`, đột biến đỏ. Pint sạch.
+
+R11 — chuyển dữ liệu ra nước ngoài (bổ sung cho đánh giá của M8 R3 ở "Ghi chú M8"): máy chủ push của Apple, Google,
+Mozilla chỉ thấy bản mã (aes128gcm, RFC 8291) cùng siêu dữ liệu (endpoint, thời điểm, TTL, `urgency`); bản giải mã
+cũng chỉ là tên văn phòng, một câu chung và một đường dẫn mang số id — không dữ liệu cá nhân nào của khách.

@@ -6,6 +6,7 @@ use App\Enums\ClientRequestStatus;
 use App\Enums\Confidentiality;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
+use App\Enums\OutboundChannel;
 use App\Enums\OutboundStatus;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\OutboundMessages\Pages\ListOutboundMessages;
@@ -783,3 +784,40 @@ it('keeps the audit event constant equal to the literal the action records', fun
     expect(ResendOutboundMessage::AUDIT_EVENT)->toBe('outbound_message_resent')
         ->and(__('activity.events.outbound_message_resent'))->not->toBe('activity.events.outbound_message_resent');
 });
+
+/**
+ * M12 R13 (Task 7): một dòng THÔNG BÁO ĐẨY hỏng (410 máy đã gỡ app, 500 máy chủ push) mang giá trị
+ * `PushTopic` làm mẫu — trùng tên mẫu thư gửi lại được — và `recipient` = `client_user:{id}` /
+ * `user:{id}`. Không nút "Gửi lại": push là tiện ích, không phải chứng cứ; bấm sẽ xếp một THƯ tới
+ * người nhận tính lại, dưới danh nghĩa một dòng push.
+ *
+ * Mutation probe: bỏ vế `channel === Email` khỏi `ResendOutboundMessage::canResend()` → ĐỎ (nút hiện).
+ */
+it('shows no resend button on a failed push row, even when its topic is a resendable mail template', function (string $template) {
+    Queue::fake();
+    [$failed, $to] = resendFixture($template);
+    $owner = ClientUser::query()->where('email', $to)->first() ?? User::query()->where('email', $to)->sole();
+    $failed->forceFill([
+        'channel' => OutboundChannel::Push,
+        'recipient' => $owner->getMorphClass().':'.$owner->getKey(),
+        'payload' => ['title' => 'Luật Vũ Khang', 'body' => 'Câu chung'],
+        'error' => 'HTTP 410 Gone',
+    ])->save();
+
+    $this->actingAs(resendAdmin(), 'web');
+
+    $this->livewire(ListOutboundMessages::class)
+        ->assertActionHidden(TestAction::make('resend')->table($failed))
+        ->call('mountAction', 'resend', [], forcedTableContext($failed))
+        ->call('callMountedAction');
+
+    Queue::assertNothingPushed();
+    expect(resendAudits())->toBeEmpty();
+})->with([
+    'client.stage_update',
+    'client.document_published',
+    'client.document_rejected',
+    'client.request_answered',
+    'staff.new_client_request',
+    'staff.new_client_document',
+]);
