@@ -187,6 +187,69 @@ it('marks the device of this browser and forgets it from the session once it is 
     expect(session()->has(PushSession::endpointKey('client')))->toBeFalse();
 });
 
+/**
+ * Các lần phát `vk-push-device-removed` của request Livewire vừa rồi. Phải là sự kiện TOÀN CỤC (không
+ * `self()`, `to()`, `ref`, `el`): chỉ bản đó nổi bọt từ phần tử component lên `window`, nơi
+ * `public/pwa/register.js` nghe.
+ *
+ * @return list<array<string, mixed>>
+ */
+function pushDeviceRemovedDispatches(mixed $component): array
+{
+    return collect($component->effects['dispatches'] ?? [])
+        ->where('name', 'vk-push-device-removed')
+        ->values()
+        ->all();
+}
+
+/**
+ * Vòng sửa 1 (I1) — khối "Máy này" nằm trong `wire:ignore`, chỉ `register.js` đổi nó. Gỡ dòng "Máy
+ * đang dùng" thì máy chủ thôi gửi tới máy này, nên trang phải báo cho script để câu "Máy này đang
+ * nhận thông báo." nhường chỗ cho nút Bật; gỡ một máy KHÁC thì không báo — máy này vẫn nhận.
+ */
+it('tells the script on the page when the device of this browser is removed, and not when another one is', function () {
+    Filament::setCurrentPanel('portal');
+    $client = ClientUser::factory()->activated()->create();
+    $other = pushPageDevice($client, 'khac', 'Windows · Edge');
+    $current = pushPageDevice($client, 'nay', 'iPhone · Ứng dụng đã cài');
+
+    $this->actingAs($client, 'client')->withSession([PushSession::endpointKey('client') => pushPageEndpoint('nay')]);
+
+    $page = Livewire::test(PortalPushDevices::class)->call('removeDevice', $other);
+    expect(pushDeviceRemovedDispatches($page))->toBe([])
+        ->and(session(PushSession::endpointKey('client')))->toBe(pushPageEndpoint('nay'));
+
+    $page->call('removeDevice', $current);
+    expect(pushDeviceRemovedDispatches($page))->toBe([['name' => 'vk-push-device-removed', 'params' => []]])
+        ->and(DB::table('push_subscriptions')->count())->toBe(0);
+});
+
+/**
+ * "Gỡ mọi thiết bị" luôn gỡ cả máy này (nếu nó đang nhận), nên luôn báo cho script — kể cả khi phiên
+ * không còn nhớ endpoint của máy này; script chỉ đổi khối khi nó đang nói "đang nhận".
+ */
+it('tells the script on the page when every device is removed at once', function (?string $sessionEndpoint) {
+    Filament::setCurrentPanel('admin');
+    $staff = User::factory()->withRole(Role::Lawyer)->create();
+    pushPageDevice($staff, 'mot', 'iPhone · Ứng dụng đã cài');
+    pushPageDevice($staff, 'hai', 'Windows · Chrome');
+
+    $this->actingAs($staff, 'web');
+    if ($sessionEndpoint !== null) {
+        $this->withSession([PushSession::endpointKey('web') => $sessionEndpoint]);
+    }
+
+    $page = Livewire::test(AdminPushDevices::class);
+    expect(pushDeviceRemovedDispatches($page))->toBe([]);
+
+    $page->call('removeAllDevices');
+    expect(pushDeviceRemovedDispatches($page))->toBe([['name' => 'vk-push-device-removed', 'params' => []]])
+        ->and($staff->pushSubscriptions()->count())->toBe(0);
+})->with([
+    'this browser is one of them' => [pushPageEndpoint('mot')],
+    'the session no longer remembers this browser' => [null],
+]);
+
 it('shows the enable button, the iPhone install hint and the logout note when push is configured', function (string $panel, Closure $viewer) {
     $user = $viewer();
     $guard = $panel === 'admin' ? 'web' : 'client';

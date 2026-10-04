@@ -2845,3 +2845,13 @@ Số đo: cả bộ `test --parallel --processes=2` 3978 passed, 25 skipped, 1 t
 +95 ca); MariaDB (`test:mariadb`, tuần tự) trên năm tệp test đã chạm 114 passed — gồm ca endpoint ngoài ASCII trả 422
 trước khi tới cột `ascii`; 49 đột biến đều đỏ (hai đột biến sống ở lượt đầu — `@` trong phần host, `+` trong khoá —
 được đóng bằng hai ca test mới rồi chạy lại); `tools/pwa/survey-push.cjs` 21/21 OK.
+
+Vòng sửa 1 (rà soát Task 5, I1 — 2026-10-04): khối "Máy này" nằm trong `wire:ignore`, nên gỡ CHÍNH máy này trên trang
+(nút "Gỡ" của dòng "Máy đang dùng", hay "Gỡ mọi thiết bị") nay phát sự kiện Livewire toàn cục `vk-push-device-removed`
+(`ManagesOwnPushDevices::DEVICE_REMOVED_EVENT`); `register.js` nghe trên `window` và đổi khối "đang nhận" sang khối có
+nút Bật — chỉ khi khối "đang nhận" đang hiện (các khối khác vẫn đúng sau khi gỡ). Gỡ một máy KHÁC không phát; "Gỡ mọi
+thiết bị" luôn phát, kể cả khi phiên không còn nhớ endpoint của máy này. Trước vòng này câu "Máy này đang nhận thông
+báo." còn đứng sau khi máy chủ đã thôi gửi, và không có nút Bật lại cho tới khi tải lại trang. `survey-push.cjs` thêm
+bước 2b (gỡ máy đang dùng → nút Bật cùng trang → bật lại 201 → "Gỡ mọi thiết bị" → nút Bật), 24/24 OK; hai đột biến
+chạy trên trình duyệt (bỏ trình nghe JS; bỏ lần phát của "Gỡ mọi thiết bị") đều HỎNG đúng bước. Số đo: cả bộ 3982
+passed, 25 skipped, 1 todo, 1 risky, 0 failed (+4 ca); MariaDB hai tệp đã chạm 37 passed; 10 đột biến Pest đều đỏ.

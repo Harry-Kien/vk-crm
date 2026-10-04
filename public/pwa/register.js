@@ -16,6 +16,8 @@
  *    đang có CHỈ ĐỂ HỎI. "owned" → máy này đang nhận; "not_owned" (máy dùng chung) → dải mời
  *    [data-vk-push-invite]. Chỉ cú bấm Bật mới chuyển chủ một endpoint.
  *  - R7: khoá của đăng ký đang có khác data-push-key → huỷ đăng ký cũ, mời bật lại.
+ *  - Trang thiết bị gỡ máy này (sự kiện Livewire vk-push-device-removed, nổi bọt lên window) → câu
+ *    "đang nhận" nhường chỗ cho khối có nút Bật; các câu khác vẫn đúng nên giữ nguyên.
  *  - iPhone/iPad chưa "Thêm vào Màn hình chính" (iOS chỉ cho push trong app đã cài) → khối hướng dẫn.
  *  - redirect: 'manual': một 302 (chưa đổi mật khẩu lần đầu, vừa bị vô hiệu) là một lần thất bại; đi
  *    theo nó sẽ tiêu mất thông báo flash mà trang đăng nhập cần hiện.
@@ -160,6 +162,12 @@
       event.preventDefault();
       if (canPush) enable();
     }
+  });
+
+  // Máy chủ thôi gửi tới máy này (ManagesOwnPushDevices::DEVICE_REMOVED_EVENT, PHP).
+  window.addEventListener('vk-push-device-removed', function () {
+    var receiving = document.querySelector('[data-vk-push-state="enabled"]');
+    if (receiving && !receiving.hidden) show('ready');
   });
 
   window.addEventListener('load', function () {

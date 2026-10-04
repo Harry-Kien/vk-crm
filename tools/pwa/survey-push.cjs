@@ -27,6 +27,10 @@
  *   2. Máy dùng chung (stub, CÙNG context): khách 1 đăng xuất, khách 2 đăng nhập → lượt kiểm trả
  *      `not_owned`, dải mời hiện; bấm "Bật" của dải → `POST` 201, dải ẩn, trang thiết bị của khách 2
  *      có đúng máy này.
+ *   2b. Gỡ CHÍNH máy này (vòng sửa 1, I1 — khối "Máy này" nằm trong `wire:ignore`): bấm "Gỡ" trên dòng
+ *      "Máy đang dùng" → danh sách trống VÀ khối "Máy này" đổi từ "đang nhận" sang nút Bật, cùng
+ *      trang, không request đăng ký nào; bấm Bật lại → `POST` 201, "đang nhận"; thêm một máy khác
+ *      cho khách 2, tải lại, "Gỡ mọi thiết bị" → cùng kết quả.
  *   3. App nội bộ (stub): đăng nhập TOTP, mục "Thông báo trên điện thoại" trong user menu, Bật → 201.
  *   4. iPhone chưa cài app → khối hướng dẫn, không nút Bật. Quyền bị chặn → khối "đang chặn".
  *   5. Không stub (Chromium thật) → bấm Bật đi tới khối "Chưa bật được" (hoặc "đang nhận" nếu
@@ -106,6 +110,18 @@ function ensureClients() {
 /** Chủ hiện tại của một endpoint (`client_user:7`), đọc qua quan hệ của từng tài khoản thử — chỉ cho lượt đo này. */
 function ownerOf(endpoint) {
   return tinker(`foreach (App\\Models\\ClientUser::whereIn('email', ${JSON.stringify(CLIENTS).replace(/"/g, "'")})->get() as $u) { if ($u->pushSubscriptions()->where('endpoint', '${endpoint}')->exists()) { echo $u->email; } }`);
+}
+
+/** Một máy KHÁC (endpoint giả, khoá thật của bản giả) cho tài khoản thử `email` — để có hai dòng và nút "Gỡ mọi thiết bị". */
+function addDevice(email, endpoint, fake) {
+  tinker(`App\\Models\\ClientUser::where('email', '${email}')->firstOrFail()->updatePushSubscription('${endpoint}', '${fake.p256dh}', '${fake.auth}', 'aes128gcm');`);
+}
+
+/** Bấm một nút có `wire:confirm` (hộp `confirm()` gốc — Playwright tự bấm "Huỷ" nếu không ai nhận) rồi chờ danh sách trống. */
+async function confirmAndWaitEmpty(page, button) {
+  page.once('dialog', (dialog) => dialog.accept());
+  await button.click();
+  await page.locator('[data-vk-push-empty]').waitFor({ timeout: 45000 }).catch(() => {});
 }
 
 async function settle(page, ms = 500) {
@@ -338,6 +354,31 @@ async function clientTour(browser, serverKey) {
   check('máy dùng chung: bấm Bật của dải → POST 201, dải ẩn, endpoint chuyển sang khách 2', moved.length === 1 && moved[0].status === 201 && (await page.locator('[data-vk-push-invite]').isHidden()) && ownerOf(fake.endpoint) === CLIENTS[1], `${JSON.stringify(moved.map((r) => [r.method, r.status]))}, chủ=${ownerOf(fake.endpoint)}`);
   await openDevices(page, 'portal');
   check('máy dùng chung: trang thiết bị của khách 2 có đúng máy này, "đang nhận"', (await page.locator('[data-vk-push-row]').count()) === 1 && (await page.locator('[data-vk-push-current]').count()) === 1 && (await visibleState(page, 'enabled')) === 'enabled', '');
+
+  // 2b — vòng sửa 1 (I1). Dấu `__vkSamePage` mất nếu trang tải lại: khối phải đổi NGAY trên trang.
+  const enableButton = page.getByRole('button', { name: 'Bật trên máy này' });
+  step = 'gỡ máy đang dùng';
+  await page.evaluate(() => { window.__vkSamePage = true; });
+  await confirmAndWaitEmpty(page, page.locator('[data-vk-push-row]', { has: page.locator('[data-vk-push-current]') }).getByRole('button', { name: 'Gỡ', exact: true }));
+  const afterOne = await visibleState(page, 'ready');
+  check('gỡ dòng "Máy đang dùng" → danh sách trống, khối "Máy này" đổi "đang nhận" → nút Bật, cùng trang, không request đăng ký', afterOne === 'ready' && (await enableButton.isVisible()) && (await page.locator('[data-vk-push-row]').count()) === 0 && (await page.evaluate(() => window.__vkSamePage === true)) && pushRequests.filter((r) => r.step === step).length === 0 && ownerOf(fake.endpoint) === '', `khối=${afterOne}, nút Bật=${await enableButton.isVisible()}, chủ=${ownerOf(fake.endpoint) || '(không ai)'}`);
+
+  step = 'bật lại sau khi gỡ';
+  await enableButton.click();
+  const again2 = await visibleState(page, 'enabled');
+  await page.locator('[data-vk-push-current]').first().waitFor({ timeout: 45000 }).catch(() => {});
+  const repost = pushRequests.filter((r) => r.step === step);
+  check('bấm Bật lại ngay trên trang → POST 201, "đang nhận", dòng "Máy đang dùng" trở lại', again2 === 'enabled' && repost.length === 1 && repost[0].status === 201 && (await page.locator('[data-vk-push-current]').count()) === 1 && ownerOf(fake.endpoint) === CLIENTS[1], `khối=${again2}; ${JSON.stringify(repost.map((r) => [r.method, r.status]))}`);
+
+  step = 'gỡ mọi thiết bị';
+  addDevice(CLIENTS[1], fake.endpoint + '-may-khac', fake);
+  await openDevices(page, 'portal');
+  const beforeAll = await visibleState(page, 'enabled');
+  const rowsBefore = await page.locator('[data-vk-push-row]').count();
+  await page.evaluate(() => { window.__vkSamePage = true; });
+  await confirmAndWaitEmpty(page, page.getByRole('button', { name: 'Gỡ mọi thiết bị' }));
+  const afterAll = await visibleState(page, 'ready');
+  check('"Gỡ mọi thiết bị" (hai máy, có máy này) → danh sách trống, khối "Máy này" đổi "đang nhận" → nút Bật, cùng trang', beforeAll === 'enabled' && rowsBefore === 2 && afterAll === 'ready' && (await enableButton.isVisible()) && (await page.locator('[data-vk-push-row]').count()) === 0 && (await page.evaluate(() => window.__vkSamePage === true)) && ownerOf(fake.endpoint) === '', `trước: khối=${beforeAll}, ${rowsBefore} dòng; sau: khối=${afterAll}`);
 
   await context.close();
 }

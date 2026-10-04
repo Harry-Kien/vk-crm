@@ -44,12 +44,21 @@ use Livewire\Attributes\On;
  *
  * Khối "Máy này" (nút Bật, hướng dẫn cài trên iPhone…) do `public/pwa/register.js` điều khiển; nó
  * nằm trong `wire:ignore` để một lần vẽ lại của Livewire (sau khi gỡ một máy) không đặt lại trạng
- * thái script đã chọn. Script báo "đã bật" bằng sự kiện `vk-push-devices-changed`
- * ({@see self::refreshDevices()}). Thiếu khoá VAPID (R7): không nút Bật, chỉ một câu "chưa bật";
- * danh sách và nút Gỡ vẫn còn.
+ * thái script đã chọn. Hai chiều, hai sự kiện:
+ *  - script → trang: `vk-push-devices-changed` khi vừa bật máy này ({@see self::refreshDevices()});
+ *  - trang → script: {@see self::DEVICE_REMOVED_EVENT} khi máy của trình duyệt này vừa bị gỡ — dòng
+ *    "Máy đang dùng" ({@see self::removeDevice()}) hay mọi máy ({@see self::removeAllDevices()}).
+ *    Sự kiện toàn cục, nổi bọt lên `window`; script đổi câu "Máy này đang nhận thông báo." thành
+ *    khối có nút Bật. Không có nó, câu đó vẫn đứng sau khi máy chủ đã thôi gửi tới máy này, và không
+ *    có nút Bật lại cho tới khi tải lại trang (rà soát Task 5, I1).
+ *
+ * Thiếu khoá VAPID (R7): không nút Bật, chỉ một câu "chưa bật"; danh sách và nút Gỡ vẫn còn.
  */
 trait ManagesOwnPushDevices
 {
+    /** Trang → `register.js`: máy của trình duyệt này vừa bị gỡ (cùng tên trong `public/pwa/register.js`). */
+    public const DEVICE_REMOVED_EVENT = 'vk-push-device-removed';
+
     public static function shouldRegisterNavigation(): bool
     {
         return false;
@@ -133,16 +142,22 @@ trait ManagesOwnPushDevices
 
         if ($wasCurrent) {
             session()->forget(PushSession::endpointKey(Filament::getAuthGuard()));
+            $this->dispatch(self::DEVICE_REMOVED_EVENT);
         }
 
         Notification::make()->title(__('push.devices.removed'))->success()->send();
     }
 
+    /**
+     * Gỡ mọi máy của người xem — cả máy này nếu nó đang nhận, nên luôn báo cho script (kể cả khi phiên
+     * không còn nhớ endpoint của máy này): script chỉ đổi khối khi nó đang nói "đang nhận".
+     */
     public function removeAllDevices(): void
     {
         $count = app(ForgetPushDevice::class)->all($this->viewer());
 
         session()->forget(PushSession::endpointKey(Filament::getAuthGuard()));
+        $this->dispatch(self::DEVICE_REMOVED_EVENT);
 
         Notification::make()->title(__('push.devices.removed_all', ['count' => $count]))->success()->send();
     }

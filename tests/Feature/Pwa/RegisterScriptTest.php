@@ -241,3 +241,23 @@ it('asks for notification permission only from the click handler and sends a gua
         ->toContain('userVisibleOnly: true')
         ->toContain('applicationServerKey: keyBytes()');
 });
+
+/**
+ * M12 Task 5, vòng sửa 1 (I1) — chiều Livewire → script. Trang thiết bị phát `vk-push-device-removed`
+ * khi máy của trình duyệt này bị gỡ (`App\Filament\Concerns\ManagesOwnPushDevices`, ca Livewire ở
+ * `tests/Feature/Push/PushDevicesPageTest.php`); sự kiện Livewire nổi bọt từ phần tử component lên
+ * `window`. Script nghe ở đó và chỉ đổi câu "đang nhận" thành khối có nút Bật: mọi câu khác (chặn,
+ * chưa hỗ trợ, chưa cài, chưa bật được) vẫn đúng sau khi gỡ. Không hỏi quyền, không gửi request.
+ */
+it('turns "this device is receiving" back into the enable button when the page removes this device', function () {
+    $code = pwaRegisterCode(pwaRegisterSource());
+
+    expect(substr_count($code, "'vk-push-device-removed'"))->toBe(1)
+        ->and(preg_match(
+            "/\n  window\.addEventListener\('vk-push-device-removed', function \(\) \{\n"
+            ."    var receiving = document\.querySelector\('\[data-vk-push-state=\"enabled\"\]'\);\n"
+            ."    if \(receiving && !receiving\.hidden\) show\('ready'\);\n"
+            ."  \}\);\n/",
+            $code,
+        ))->toBe(1);
+});

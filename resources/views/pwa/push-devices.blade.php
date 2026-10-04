@@ -9,7 +9,8 @@
       được in SẴN, ẩn (`hidden`), script chỉ chọn câu nào hiện — tệp JS không mang chữ tiếng Việt
       nào (R5). Câu hiện mặc định là "chưa nhận được" (`unsupported`): trình duyệt không chạy script
       hay không có service worker thì đó là sự thật. `wire:ignore`: Livewire vẽ lại danh sách sau
-      khi gỡ một máy mà không đặt lại trạng thái script đã chọn.
+      khi gỡ một máy mà không đặt lại trạng thái script đã chọn — vì vậy gỡ CHÍNH máy này báo cho
+      script bằng sự kiện `vk-push-device-removed` (docblock của trait), không bằng lần vẽ lại.
     - Nút Bật là `<button data-vk-push-enable>` thường: script gọi `Notification.requestPermission()`
       NGAY trong trình xử lý cú bấm (iOS đòi thao tác của người dùng). Không bao giờ hỏi quyền lúc
       tải trang.
