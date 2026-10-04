@@ -1,0 +1,133 @@
+<?php
+
+namespace App\Support\Performance;
+
+use App\Actions\Matter\ReassignMatter;
+use App\Models\Matter;
+use Carbon\CarbonInterface;
+use Closure;
+use Illuminate\Support\Collection;
+use Spatie\Activitylog\Models\Activity;
+
+/**
+ * Luật sư phụ trách của một vụ việc TẠI một thời điểm (M13, R18) — dựng lại từ nhật ký, không phải
+ * `lead_lawyer_id` hiện tại. Dùng cho P5 (vụ kết thúc trong kỳ: người phụ trách lúc vụ kết thúc) và
+ * cho {@see RequestHolderAt} (luồng chưa giao ai thuộc về người phụ trách vụ lúc đó).
+ *
+ * # Luật
+ *
+ * Tìm dòng `matter_reassigned` (chủ thể là vụ) SỚM NHẤT có `created_at` SAU thời điểm hỏi: có thì
+ * người phụ trách lúc đó là `properties.from_user_id` của dòng ấy (người đã bàn giao đi); không có thì
+ * là `lead_lawyer_id` hiện tại. So "sau" CHẶT (`created_at > $at`): một dòng ghi đúng giây `$at` coi như
+ * đã có hiệu lực tại `$at`. Cùng hình dạng với {@see DeadlineHolderAtDue} và {@see RequestHolderAt}.
+ *
+ * # Vì sao lịch sử này đầy đủ, kể cả trước ngày triển khai M13
+ *
+ * {@see ReassignMatter} là đường DUY NHẤT đổi `lead_lawyer_id` (docblock lớp đó), và nó ghi
+ * `matter_reassigned` kèm `from_user_id` từ M6.5. Khác lịch sử người giữ mốc (R9) hay luồng giao đích
+ * danh (R18), không có lần bàn giao vụ nào thiếu dòng.
+ *
+ * # Dữ liệu hỏng: không đoán
+ *
+ * `from_user_id` rỗng hoặc không phải một id (số nguyên, hoặc chuỗi chữ số): trả `null`. Vụ đó không quy
+ * về ai, chỉ vào dòng "Chung" (R5, R8). Mọi đường ghi hôm nay đều ghi một id.
+ *
+ * # Một truy vấn cho cả lô (R11)
+ *
+ * Mọi dòng `matter_reassigned` của các vụ trong lô, qua index morph `subject` của `activity_log`; phân
+ * loại theo thời điểm bằng PHP. `$at` có thể khác nhau cho từng vụ (P5: `closed_at` của chính vụ đó),
+ * nên không có điều kiện thời gian nào trong SQL.
+ *
+ * `$matters` cần cột `id` và `lead_lawyer_id`. Lớp này có tên trong danh sách ngoại lệ của
+ * `NoSecondDefinitionTest`: được viết điều kiện trên `created_at` của `activity_log`, không cột nào khác.
+ */
+final class LeadAt
+{
+    /** Khoá sự kiện mang lịch sử người phụ trách vụ — dòng bước 5 của {@see ReassignMatter}. */
+    public const EVENT = 'matter_reassigned';
+
+    /**
+     * @param  array<int, list<array{at: CarbonInterface, from: mixed}>>  $changes  matter_id => các lần
+     *                                                                              bàn giao, cũ trước
+     */
+    private function __construct(private readonly array $changes) {}
+
+    /**
+     * @param  Collection<int, Matter>  $matters
+     * @param  Closure(Matter): CarbonInterface  $at
+     * @return array<int, ?int> matter_id => user_id; `null` = không quy được về ai
+     */
+    public static function resolve(Collection $matters, Closure $at): array
+    {
+        if ($matters->isEmpty()) {
+            return [];
+        }
+
+        $history = self::historyOf($matters->map(fn (Matter $matter): int => (int) $matter->getKey())->all());
+
+        return $matters
+            ->mapWithKeys(fn (Matter $matter): array => [$matter->getKey() => $history->leadOf($matter, $at($matter))])
+            ->all();
+    }
+
+    /**
+     * Lịch sử bàn giao của nhiều vụ, nạp bằng MỘT truy vấn, để hỏi lại nhiều lần với các thời điểm
+     * khác nhau trên CÙNG một vụ — {@see RequestHolderAt} cần đúng điều đó (hai luồng của một vụ, hỏi
+     * tại hai lúc trả lời khác nhau), điều mà {@see self::resolve()} (một thời điểm cho mỗi vụ) không làm.
+     *
+     * @param  list<int>  $matterIds
+     */
+    public static function historyOf(array $matterIds): self
+    {
+        if ($matterIds === []) {
+            return new self([]);
+        }
+
+        $changes = [];
+
+        Activity::query()
+            ->select(['id', 'subject_id', 'properties', 'created_at'])
+            ->where('event', self::EVENT)
+            ->where('subject_type', (new Matter)->getMorphClass())
+            ->whereIntegerInRaw('subject_id', array_values(array_unique($matterIds)))
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->get()
+            ->each(function (Activity $row) use (&$changes): void {
+                $changes[(int) $row->subject_id][] = [
+                    'at' => $row->created_at,
+                    'from' => $row->properties?->get('from_user_id'),
+                ];
+            });
+
+        return new self($changes);
+    }
+
+    /** Luật sư phụ trách `$matter` tại `$at` — xem docblock lớp. */
+    public function leadOf(Matter $matter, CarbonInterface $at): ?int
+    {
+        foreach ($this->changes[(int) $matter->getKey()] ?? [] as $change) {
+            if ($change['at']->gt($at)) {
+                return self::userIdIn($change['from']);
+            }
+        }
+
+        return self::userIdIn($matter->lead_lawyer_id);
+    }
+
+    /**
+     * Một id người đọc từ `properties` của một dòng lịch sử: số nguyên dương, hoặc chuỗi chữ số của nó.
+     * Còn lại (rỗng, chữ, 0, số âm) là `null` — không đoán. MỘT định nghĩa cho cả ba bộ dựng lịch sử
+     * ({@see DeadlineHolderAtDue}, {@see RequestHolderAt} gọi lại hàm này).
+     */
+    public static function userIdIn(mixed $value): ?int
+    {
+        $id = match (true) {
+            is_int($value) => $value,
+            is_string($value) && ctype_digit($value) => (int) $value,
+            default => 0,
+        };
+
+        return $id > 0 ? $id : null;
+    }
+}

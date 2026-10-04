@@ -792,7 +792,7 @@ public static function scopeEventsWithin(Builder $query, string $event, array $b
 
 **Commit:** `refactor: M13 Task 2 — luật đặt đúng chỗ: Deadline::overdue/dueWithin/dueBetween/removedBetween/outcomeAt và sửa upcoming() rơi ngày +7 trên SQLite, MatterChecklistItem::awaitingReview (chuyển từ widget), ClientRequest::awaitingOffice/withHolder/createdBetween (người giữ như đường thông báo), ChecklistProgress::totalsByLead, CollectedRevenue tách từ RevenueOverTimeWidget, Matter::closedWithin/closedOnOrBefore/withSupportingMember, ActivityOwningMatter::ownedByVisibleMatters/eventsWithin; test đồng nhất và test cấm định nghĩa thứ hai trên mọi tệp M13`
 
-### - [ ] Task 3 — Lịch sử người giữ việc: mốc (R9), yêu cầu của khách và người phụ trách vụ (R18)
+### - [x] Task 3 — Lịch sử người giữ việc: mốc (R9), yêu cầu của khách và người phụ trách vụ (R18)
 
 **Tệp:**
 - sửa: `app/Actions/Matter/ReassignMatter.php`:
@@ -839,25 +839,25 @@ final class RequestHolderAt {
 ```
 
 **Bước:**
-- [ ] Trước khi sửa, grep các test đang đếm dòng nhật ký của `ReassignMatter`, `ReassignMatters`, `BulkReassign`, `SendReassignmentDigest` và `UpdateDeadline` (`toHaveCount`, `count()` trên `Activity`, khẳng định trên `client_request_assigned`). Dòng mới sẽ làm những test đó đổi số. Sửa số ở đó **có chủ đích**, và nói rõ trong báo cáo.
-- [ ] `ReassignMatter` bước 3: sau câu `update()` hàng loạt, ghi một `Audit::record('deadline_responsible_changed', $deadline, ['matter_id', 'client_id', 'from', 'to', 'reason' => self::DEADLINE_HANDOVER_REASON], causer: $actor)` cho mỗi mốc đã chuyển, trong cùng transaction.
+- [x] Trước khi sửa, grep các test đang đếm dòng nhật ký của `ReassignMatter`, `ReassignMatters`, `BulkReassign`, `SendReassignmentDigest` và `UpdateDeadline` (`toHaveCount`, `count()` trên `Activity`, khẳng định trên `client_request_assigned`). Dòng mới sẽ làm những test đó đổi số. Sửa số ở đó **có chủ đích**, và nói rõ trong báo cáo.
+- [x] `ReassignMatter` bước 3: sau câu `update()` hàng loạt, ghi một `Audit::record('deadline_responsible_changed', $deadline, ['matter_id', 'client_id', 'from', 'to', 'reason' => self::DEADLINE_HANDOVER_REASON], causer: $actor)` cho mỗi mốc đã chuyển, trong cùng transaction.
   - Nạp các mốc bằng **một** truy vấn theo `$movedDeadlineIds`, không một truy vấn mỗi mốc.
-- [ ] `ReassignMatter` bước 4: tương tự, `Audit::record('client_request_assigned', $thread, ['matter_id', 'client_id', 'from' => $oldLead->id, 'to' => $lockedNewLead->id, 'reason' => self::REQUEST_HANDOVER_REASON], causer: $actor)` cho mỗi luồng trong `$movedRequestIds`, một truy vấn nạp. Cùng tên sự kiện với `TriageClientRequest::assign()` và lần gỡ khi mở lại của `setStatus()`, để "ai từng giữ luồng này" đọc ở **một** khoá.
+- [x] `ReassignMatter` bước 4: tương tự, `Audit::record('client_request_assigned', $thread, ['matter_id', 'client_id', 'from' => $oldLead->id, 'to' => $lockedNewLead->id, 'reason' => self::REQUEST_HANDOVER_REASON], causer: $actor)` cho mỗi luồng trong `$movedRequestIds`, một truy vấn nạp. Cùng tên sự kiện với `TriageClientRequest::assign()` và lần gỡ khi mở lại của `setStatus()`, để "ai từng giữ luồng này" đọc ở **một** khoá.
   - Dòng `matter_reassigned` giữ nguyên ở cả hai bước.
-- [ ] `UpdateDeadline`: khi `responsible_user_id` thật sự đổi, ghi thêm dòng `deadline_responsible_changed` (`reason = deadline_updated`), sau dòng `deadline_updated`.
-- [ ] `DeadlineHolderAtDue` theo R9, một truy vấn cho cả lô. Ghi giới hạn "trước ngày triển khai" và ca `from` rỗng vào docblock.
-- [ ] `LeadAt` và `RequestHolderAt` theo R18. `RequestHolderAt` gọi `LeadAt` cho các luồng có người được giao rỗng tại thời điểm hỏi, **cùng** thời điểm. Tổng: hai truy vấn cho cả lô. So `created_at > $at` chặt: dòng ghi đúng giây `$at` coi như đã có hiệu lực. Docblock nêu giới hạn "luồng giao đích danh bị bàn giao trước ngày triển khai".
-- [ ] Nhãn lý do theo hình dạng trên. Modal "Xem chi tiết" của `ActivityLogPage` in `__('activity.reasons.'.$event.'.'.$reason)` thay mã khi `Lang::has()`, mã thô khi không.
+- [x] `UpdateDeadline`: khi `responsible_user_id` thật sự đổi, ghi thêm dòng `deadline_responsible_changed` (`reason = deadline_updated`), sau dòng `deadline_updated`.
+- [x] `DeadlineHolderAtDue` theo R9, một truy vấn cho cả lô. Ghi giới hạn "trước ngày triển khai" và ca `from` rỗng vào docblock.
+- [x] `LeadAt` và `RequestHolderAt` theo R18. `RequestHolderAt` gọi `LeadAt` cho các luồng có người được giao rỗng tại thời điểm hỏi, **cùng** thời điểm. Tổng: hai truy vấn cho cả lô. So `created_at > $at` chặt: dòng ghi đúng giây `$at` coi như đã có hiệu lực. Docblock nêu giới hạn "luồng giao đích danh bị bàn giao trước ngày triển khai".
+- [x] Nhãn lý do theo hình dạng trên. Modal "Xem chi tiết" của `ActivityLogPage` in `__('activity.reasons.'.$event.'.'.$reason)` thay mã khi `Lang::has()`, mã thô khi không.
 
 **Test bắt buộc:**
-- [ ] **Mốc:**
+- [x] **Mốc:**
   - lỡ rồi mới bàn giao, qua từng đường trong năm đường (`ReassignMatter`, `ReassignMatters` hàng loạt, `ChangeDeadlineResponsible`, `UpdateDeadline`, lần mở lại có chuyển người của `SetDeadlineCompletion`): người giữ vào ngày đến hạn là người **trước**;
   - bàn giao **trước** ngày đến hạn: người **sau**;
   - hai lần đổi sau ngày đến hạn: lấy `from` của lần **sớm nhất**;
   - đổi đúng lúc 23:59:59 của ngày đến hạn tính là "trước"; 00:00:01 hôm sau tính là "sau";
   - không có dòng lịch sử nào (dữ liệu cũ): người giữ hiện tại;
   - dòng lịch sử có `from` rỗng: `null`, không đoán.
-- [ ] **Yêu cầu của khách** (Review Focus 3):
+- [x] **Yêu cầu của khách** (Review Focus 3):
   - luồng chưa giao ai, trả lời khi A phụ trách, rồi `ReassignMatter` A → B: tại `answered_at` là A;
   - cùng ca qua `ReassignMatters` hàng loạt: A;
   - luồng chưa giao, chưa trả lời, hỏi tại một thời điểm trước lần bàn giao: A; sau: B;
@@ -867,11 +867,11 @@ final class RequestHolderAt {
   - luồng mở lại sau khi đóng làm `setStatus()` gỡ người giữ (dòng `client_request_assigned` với `to = null`): đọc đúng;
   - người được giao đã xoá mềm: `RequestHolderAt` vẫn trả người đó (lịch sử), trong khi `holderId()` trả luật sư phụ trách (R18, ghi trong docblock);
   - đồng nhất: `RequestHolderAt` tại `now()` bằng `holderId()` khi người được giao chưa xoá mềm; `LeadAt` tại `now()` bằng `lead_lawyer_id`.
-- [ ] **Người phụ trách vụ:** `LeadAt` tại `closed_at` của một vụ kết thúc rồi mới bàn giao (bàn giao từ trang vụ, `MatterPolicy::manageTeam()` cho phép) là người phụ trách cũ.
-- [ ] Test cấu trúc R9 (`HolderHistoryCompletenessTest`): ba mẫu token "ghi" cho `responsible_user_id` và `assigned_to` (R9); một đường ghi trong fixture mà thiếu khoá sự kiện thì test đỏ; các dạng âm (khoá `ValidationException`, câu `where`/`select`, đọc không gán) không bị bắt.
-- [ ] Mutation probe: bỏ dòng ghi trong `ReassignMatter` bước 3 thì test bàn giao mốc đỏ.
-- [ ] Số truy vấn của `DeadlineHolderAtDue::resolve()`, `LeadAt::resolve()` và `RequestHolderAt::resolve()` không đổi khi số phần tử tăng từ 3 lên 30.
-- [ ] `ActivityReasonLabelsTest`: mọi hằng số `*_REASON` dưới `app/Actions` (quét token `const \w+_REASON = '…'`, kèm tên sự kiện của dòng mà Action đó ghi) có khoá `activity.reasons.<sự kiện>.<lý do>`; modal "Xem chi tiết" in nhãn, không in mã, cho một dòng `reopened_holder_no_longer_qualifies`.
+- [x] **Người phụ trách vụ:** `LeadAt` tại `closed_at` của một vụ kết thúc rồi mới bàn giao (bàn giao từ trang vụ, `MatterPolicy::manageTeam()` cho phép) là người phụ trách cũ.
+- [x] Test cấu trúc R9 (`HolderHistoryCompletenessTest`): ba mẫu token "ghi" cho `responsible_user_id` và `assigned_to` (R9); một đường ghi trong fixture mà thiếu khoá sự kiện thì test đỏ; các dạng âm (khoá `ValidationException`, câu `where`/`select`, đọc không gán) không bị bắt.
+- [x] Mutation probe: bỏ dòng ghi trong `ReassignMatter` bước 3 thì test bàn giao mốc đỏ.
+- [x] Số truy vấn của `DeadlineHolderAtDue::resolve()`, `LeadAt::resolve()` và `RequestHolderAt::resolve()` không đổi khi số phần tử tăng từ 3 lên 30.
+- [x] `ActivityReasonLabelsTest`: mọi hằng số `*_REASON` dưới `app/Actions` (quét token `const \w+_REASON = '…'`, kèm tên sự kiện của dòng mà Action đó ghi) có khoá `activity.reasons.<sự kiện>.<lý do>`; modal "Xem chi tiết" in nhãn, không in mã, cho một dòng `reopened_holder_no_longer_qualifies`.
 
 **Commit:** `feat: M13 Task 3 — lịch sử người giữ việc ở một khoá sự kiện: ReassignMatter ghi deadline_responsible_changed cho từng mốc và client_request_assigned cho từng luồng, UpdateDeadline ghi lần đổi người, DeadlineHolderAtDue, LeadAt và RequestHolderAt dựng người giữ tại một thời điểm, nhãn lý do trong nhật ký`
 

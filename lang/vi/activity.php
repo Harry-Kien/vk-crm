@@ -188,4 +188,24 @@ return [
             'redacted' => '••• (đã ẩn — định danh cá nhân thô)',
         ],
     ],
+
+    // M13 Task 3 (R9, R18): nhãn của `reason` trong `properties` của một dòng nhật ký, theo CẶP
+    // sự kiện + lý do — `activity.reasons.<sự kiện>.<lý do>`. Mỗi lý do là một hằng số `*_REASON`
+    // của đúng Action ghi dòng đó (`ActivityReasonLabelsTest` ghim hai chiều: mọi hằng số có nhãn,
+    // không nhãn mồ côi). Modal "Xem chi tiết" in nhãn thay mã (`App\Support\ActivityReasonLabel`);
+    // lý do không có nhãn (lý do tự do của `matter_reassigned`, mã mới) in nguyên văn.
+    'reasons' => [
+        'deadline_responsible_changed' => [
+            // SetDeadlineCompletion::REOPEN_HANDOVER_REASON
+            'reopened_holder_no_longer_qualifies' => 'Mở lại mốc: người đang giữ không còn giữ được mốc, mốc chuyển về luật sư phụ trách hồ sơ',
+            // ReassignMatter::DEADLINE_HANDOVER_REASON
+            'matter_reassigned' => 'Bàn giao vụ việc: mốc chưa xong chuyển sang luật sư phụ trách mới',
+            // UpdateDeadline::HANDOVER_REASON
+            'deadline_updated' => 'Sửa mốc thời hạn: đổi người phụ trách',
+        ],
+        'client_request_assigned' => [
+            // ReassignMatter::REQUEST_HANDOVER_REASON
+            'matter_reassigned' => 'Bàn giao vụ việc: yêu cầu đang giao cho luật sư cũ chuyển sang luật sư phụ trách mới',
+        ],
+    ],
 ];

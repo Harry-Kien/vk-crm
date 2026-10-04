@@ -4052,3 +4052,44 @@ hoạch — không từ `main` (phán quyết controller). Làn m13b tách sau T
 - **`MatterTest`:** bộ quét `closed_at` tách thành `matterClosedAtConditionIn(string $source)` (khuôn
   `forceDeleteCallLines()`), siết để bắt `whereBetween`/`whereDate`/`whereColumn`/`whereRelation`, so
   sánh `<`, `<=`, `>`, `>=` và so sánh Carbon (`->closed_at->lte(`); có cặp dương/âm trên fixture.
+
+### Task 3 — lịch sử người giữ việc ở một khoá sự kiện (R9, R18) (2026-10-04, làn m13b)
+
+- **Đường ghi.** `ReassignMatter` bước 3 ghi một dòng `deadline_responsible_changed` cho MỖI mốc đã
+  chuyển (`reason = matter_reassigned`, hằng số `DEADLINE_HANDOVER_REASON`), bước 4 ghi một dòng
+  `client_request_assigned` cho MỖI luồng đã chuyển (`REQUEST_HANDOVER_REASON`), cùng transaction, ngay
+  sau câu `update()`, mỗi bước nạp mốc/luồng bằng một truy vấn; dòng `matter_reassigned` giữ nguyên.
+  `UpdateDeadline` ghi thêm `deadline_responsible_changed` (`reason = deadline_updated`,
+  `HANDOVER_REASON`) sau dòng `deadline_updated` khi người phụ trách thật sự đổi. Test cũ không đổi số:
+  mọi test đếm dòng nhật ký của các đường này đếm theo TÊN sự kiện (`matter_reassigned`,
+  `deadline_updated`, `matter_reassignment_digest_failed`…); không test nào đếm
+  `deadline_responsible_changed`/`client_request_assigned` sau một lần bàn giao hay một lần sửa mốc.
+- **Ba bộ dựng** (`app/Support/Performance`): `DeadlineHolderAtDue` (người giữ mốc vào ngày đến hạn — `from`
+  của dòng sớm nhất sau `Deadline::dueEnd()`, không có thì người giữ hiện tại; một truy vấn),
+  `LeadAt` (luật sư phụ trách tại một thời điểm, qua `matter_reassigned.from_user_id`; một truy vấn),
+  `RequestHolderAt` (người được giao tại một thời điểm, rỗng thì `LeadAt` cùng thời điểm; hai truy vấn).
+  So "sau" chặt: dòng ghi đúng giây được hỏi coi như đã có hiệu lực. `from` rỗng/không phải số trên lịch sử
+  mốc và người phụ trách → `null` (chỉ vào dòng "Chung"); trên lịch sử luồng, `from = null` nghĩa là "chưa
+  giao ai" (rơi về `LeadAt`), thiếu khoá `from` hoặc `from` không phải số → `null`. `Deadline::dueEnd()`
+  (mới) là biên chung của "xong đúng hạn" (`outcomeAt()`) và "người giữ vào ngày đến hạn".
+- **Giới hạn đã biết (R9, R18).** Lần bàn giao vụ TRƯỚC ngày triển khai M13 không có dòng
+  `deadline_responsible_changed` cho từng mốc, và không có dòng `client_request_assigned` cho luồng giao
+  đích danh bị `ReassignMatter` chuyển: những mốc/luồng đó rơi về người giữ hiện tại. Vài tháng đầu, tỉ lệ
+  đúng hạn của người từng nhận bàn giao hàng loạt có thể thấp hơn thật. Luồng chưa giao ai không bị ảnh
+  hưởng (`matter_reassigned` có từ M6.5). Câu giải thích của P1 và P3 (Task 6) nói điều này.
+- **Nhãn lý do.** Nhóm khoá mới `activity.reasons.<sự kiện>.<lý do>` (bốn nhãn, kể cả
+  `reopened_holder_no_longer_qualifies` của `SetDeadlineCompletion` trước đây chưa có nhãn). Modal "Xem chi
+  tiết" in nhãn thay mã khi có, giữ nguyên giá trị khi không (`App\Support\ActivityReasonLabel`) — ở trang
+  Nhật ký hệ thống như kế hoạch, VÀ ở tab "Nhật ký" của vụ việc (cùng view, cùng modal; để hai nơi không
+  in khác nhau). `ActivityReasonLabelsTest` ghim hai chiều: mọi hằng số `*_REASON` dưới `app/Actions` có
+  nhãn theo sự kiện của dòng mang nó, và không nhãn mồ côi.
+- **Test cấu trúc `HolderHistoryCompletenessTest`.** Mọi tệp dưới `app/Actions` ghi `responsible_user_id`
+  (ba mẫu token của kế hoạch, thêm `??=`) chứa `'deadline_responsible_changed'`; ghi `assigned_to` chứa
+  `'client_request_assigned'`. Ngoại lệ: `AddMatterDeadline`, `OpenClientRequest` (tạo mới).
+- **Người gộp M10, M11:** một Action mới ghi `deadlines.responsible_user_id` hoặc `client_requests.assigned_to`
+  (ví dụ tool `create_deadline` của M11 nếu nó không đi qua `AddMatterDeadline`, hay bước chuyển của M10)
+  phải ghi đúng khoá lịch sử, hoặc là một đường TẠO mới được thêm vào danh sách ngoại lệ có lý do; một hằng
+  số `*_REASON` mới cần nhãn `activity.reasons.*`. Hai test trên đỏ cho tới khi làm.
+- **Cho Task 6 (P5):** `matters.closed_at` là cột `date`; trên MariaDB `LeadAt` tại `closed_at` đọc 00:00 của
+  ngày kết thúc. Một lần bàn giao xảy ra TRONG chính ngày kết thúc thì luôn được coi là "sau" thời điểm hỏi
+  trên MariaDB (trên SQLite cột có giờ nên đúng thứ tự). Task 6 chọn thời điểm hỏi cho P5 và nói rõ ca đó.
