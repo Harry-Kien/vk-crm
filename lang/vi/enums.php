@@ -129,6 +129,7 @@ return [
             'deadline_reminder' => 'Nhắc mốc thời hạn',
             'new_client_request' => 'Khách gửi yêu cầu',
             'new_client_document' => 'Khách nộp giấy tờ',
+            'instalment_overdue' => 'Đợt thanh toán quá hạn',
         ],
         'push' => [
             'test' => 'Thông báo thử',

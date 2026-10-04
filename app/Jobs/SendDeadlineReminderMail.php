@@ -5,8 +5,10 @@ namespace App\Jobs;
 use App\Actions\Notification\NotifyClientOfStageUpdate;
 use App\Actions\Notification\RecordOutboundMessage;
 use App\Actions\Notification\ResolveStaffRecipients;
+use App\Actions\Push\SendPushAlert;
 use App\Actions\Schedule\CheckDeadlines;
 use App\Enums\OutboundStatus;
+use App\Enums\PushTopic;
 use App\Enums\Role;
 use App\Mail\Staff\DeadlineReminder;
 use App\Models\Deadline;
@@ -142,6 +144,23 @@ use Throwable;
  *    và dòng trần có thể nói về một ngày đến hạn đã bị hoãn. Chặn nhầm là im lặng; không chặn thì
  *    tệ nhất một người nhận thêm MỘT thư trùng (chỉ khi một `failed()` rút bậc đúng qua lúc triển
  *    khai). Giữa hai cái sai đó, R3 chọn "nói ra".
+ *
+ * # M12 — thông báo đẩy `staff.deadline_reminder` (kế hoạch M12 R10–R12; phán quyết (d) của controller)
+ *
+ * Nơi nối là JOB này, không phải `CheckDeadlines`: thư thật sự đi ở đây, với người nhận tính lại lúc
+ * gửi; nối ở `CheckDeadlines` là gọi push bên trong transaction của mốc, với một tập người nhận KHÁC
+ * tập thư. Sau vòng thư và TRƯỚC lần ném lại lỗi, {@see SendPushAlert} nhận đúng những người mà lượt
+ * này vừa gửi thư được (`$mailed`) — không người đã có dòng `sent` từ lượt trước
+ * ({@see self::alreadyDelivered()}), không người vừa hỏng thư — cùng bậc `$tierKey` (câu chữ, và
+ * `urgency = high` ở `d1`/quá hạn, R11). Không luật người nhận thứ hai (`recipientsFor()` vẫn là nơi
+ * duy nhất), không trí nhớ chống trùng mới: "mỗi bậc một push" đúng vì mỗi bậc chỉ được xếp một lần
+ * (`reminders_sent`) và lượt thử lại bỏ qua người đã nhận (sổ thư). `SendPushAlert` không ném vì lỗi
+ * lúc chạy, nên push hỏng không làm job hỏng hay thư thử lại.
+ *
+ * Push của một lượt được xếp SAU CẢ vòng thư, không ngay sau thư của từng người: worker bị giết giữa
+ * vòng thư (quá `timeout`) thì những người đã nhận thư trong lượt đó không có push, và lượt thử lại
+ * bỏ qua họ (đã có dòng `sent`) — không có push bù. Push là tiện ích, thư mới là chứng cứ (R12).
+ * `failed()` (bậc hỏng hẳn) không đẩy gì: chuông trong hệ thống là kênh báo lỗi của nó.
  */
 class SendDeadlineReminderMail implements ShouldQueue
 {
@@ -205,6 +224,7 @@ class SendDeadlineReminderMail implements ShouldQueue
         $aboutDueDate = $this->dueDateSnapshot() ?? $deadline->due_date->toDateString();
 
         $failure = null;
+        $mailed = collect();
 
         foreach ($recipients as $recipient) {
             // "Không gửi trùng khi thử lại" — xem docblock lớp, mục "Vòng sửa 2 (I1)". Bỏ qua
@@ -219,10 +239,14 @@ class SendDeadlineReminderMail implements ShouldQueue
             // rồi ném lại để hàng đợi vẫn thấy job hỏng (thử lại, rồi `failed()`).
             try {
                 Mail::to($recipient->email)->send(new DeadlineReminder($deadline, $recipient, $this->tierKey, $aboutDueDate));
+                $mailed->push($recipient);
             } catch (Throwable $exception) {
                 $failure ??= $exception;
             }
         }
+
+        // M12: push cho đúng những người lượt này vừa gửi thư được, ở đúng bậc — xem docblock lớp.
+        app(SendPushAlert::class)->handle($mailed, PushTopic::StaffDeadlineReminder, $deadline, $this->tierKey);
 
         if ($failure !== null) {
             throw $failure;

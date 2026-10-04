@@ -3,8 +3,10 @@
 namespace App\Jobs;
 
 use App\Actions\Notification\ResolveStaffRecipients;
+use App\Actions\Push\SendPushAlert;
 use App\Actions\Schedule\RemindOverdueInstalments;
 use App\Enums\OutboundStatus;
+use App\Enums\PushTopic;
 use App\Mail\Staff\InstalmentOverdue;
 use App\Models\Instalment;
 use App\Models\OutboundMessage;
@@ -57,6 +59,15 @@ use Throwable;
  *
  * **Không transaction, không khoá:** job chỉ đọc; `Mail::` chạy ngoài mọi `DB::transaction`
  * (M6.5 R2). Thứ tự khoá dự án (`matters` → `contracts` → `instalments` → `payments`) không áp dụng.
+ *
+ * **M12 — thông báo đẩy `staff.instalment_overdue`** (phán quyết (e) của controller: chủ đề thứ tám
+ * của bảng R10; phán quyết (d): push theo thư). Cùng luật với `SendDeadlineReminderMail` (docblock
+ * lớp đó, mục "M12"): sau vòng thư và TRƯỚC lần ném lại lỗi, {@see SendPushAlert} nhận đúng những
+ * người lượt này vừa gửi thư được — không người {@see self::alreadyReminded()} bỏ qua, không người vừa
+ * hỏng thư. Người nhận vẫn chỉ từ `forBilling()` (vụ `restricted`: admin thay kế toán), chống trùng
+ * vẫn chỉ là sổ thư: một push cho mỗi thư, tức ngày đầu tiên quá hạn rồi 7 ngày một lần. Nội dung là
+ * một câu chung (R11): không số tiền, không tên khách, không mã hồ sơ hay hợp đồng; chạm vào mở đúng
+ * nơi liên kết của thư trỏ tới, theo người nhận (`PushTopic`).
  */
 class SendInstalmentOverdueMail implements ShouldQueue
 {
@@ -107,6 +118,7 @@ class SendInstalmentOverdueMail implements ShouldQueue
         );
 
         $failure = null;
+        $mailed = collect();
 
         foreach ($recipients as $recipient) {
             // Bỏ qua NGƯỜI NÀY, không phải cả lượt: người khác có thể vẫn chưa nhận được.
@@ -116,10 +128,14 @@ class SendInstalmentOverdueMail implements ShouldQueue
 
             try {
                 Mail::to($recipient->email)->send(new InstalmentOverdue($instalment, $row, $recipient));
+                $mailed->push($recipient);
             } catch (Throwable $exception) {
                 $failure ??= $exception;
             }
         }
+
+        // M12: push cho đúng những người lượt này vừa gửi thư được — xem docblock lớp.
+        app(SendPushAlert::class)->handle($mailed, PushTopic::StaffInstalmentOverdue, $instalment);
 
         if ($failure !== null) {
             throw $failure;

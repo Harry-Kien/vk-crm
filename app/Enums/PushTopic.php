@@ -5,7 +5,9 @@ namespace App\Enums;
 use App\Actions\Push\SendPushAlert;
 use App\Actions\Schedule\CheckDeadlines;
 use App\Filament\Admin\Pages\PushDevices as AdminPushDevices;
+use App\Filament\Admin\Pages\Receivables;
 use App\Filament\Admin\Resources\Matters\MatterResource;
+use App\Filament\Admin\Resources\Matters\RelationManagers\BillingRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ChecklistRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ClientRequestsRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\DeadlinesRelationManager;
@@ -15,8 +17,10 @@ use App\Filament\Portal\Pages\PushDevices as PortalPushDevices;
 use App\Models\ClientRequest;
 use App\Models\ClientRequestReply;
 use App\Models\ClientUser;
+use App\Models\Contract;
 use App\Models\Deadline;
 use App\Models\Document;
+use App\Models\Instalment;
 use App\Models\MatterChecklistItem;
 use App\Models\StageLog;
 use App\Models\User;
@@ -58,17 +62,27 @@ use InvalidArgumentException;
  *  - nhân sự: trang vụ việc, đúng tab (`?relation=` = chỉ số của RelationManager trong
  *    `MatterResource::getRelations()`, cùng cách `App\Mail\Staff\InstalmentOverdue::link()`). Giấy
  *    tờ khách nộp trỏ tab "Danh mục hồ sơ" (`ChecklistRelationManager`), nơi nhân sự duyệt nó — không
- *    có tab nào tên "Hồ sơ giấy tờ" (phán quyết (f) của controller);
+ *    có tab nào tên "Hồ sơ giấy tờ" (phán quyết (f) của controller). Câu hỏi tiếp của khách (`REQ-2`)
+ *    đi dưới chủ đề yêu cầu mới, cùng `tag` của luồng: tin mới thay tin cũ của cùng luồng;
+ *  - đợt thanh toán quá hạn: ĐÚNG nơi thư `staff.instalment_overdue` trỏ, theo người nhận
+ *    (`InstalmentOverdue::link()`, phương thức riêng của mailable nên chép luật ở đây, và
+ *    `tests/Feature/Push/StaffEventPushTest.php` so hai bên trên đường thật): trang "Công nợ" cho ai
+ *    `Receivables::canBeOpenedBy()` (URL không mang id vụ nào — kế toán không xem được trang vụ
+ *    việc), không thì tab "Hợp đồng và thanh toán" (`BillingRelationManager`) của vụ;
  *  - "Gửi thử": trang "Thông báo trên điện thoại" của panel người nhận.
  * Trang đích tự hỏi quyền như mọi request (SPEC §10.10): người không xem được vụ nhận 404.
  *
  * Thêm một chủ đề về sau = thêm một case ở đây (câu chữ ở `lang/vi/push.php`, nhãn ở
  * `lang/vi/enums.php` và `lang/vi/outbound.php`), một lời gọi {@see SendPushAlert} ở đúng nơi gửi thư,
  * và một dòng trong test đồng nhất người nhận (Task 8, 9). Cố ý KHÔNG có (R10): `client.otp`,
- * `client.activation`, `client.missing_documents`, `staff.stale_matter` — test ghim.
+ * `client.activation`, `client.missing_documents`, `staff.stale_matter`, `staff.backup_alert.*` —
+ * test ghim.
  *
- * `staff.handover_ready` (M7) và `staff.instalment_overdue` (M9) chưa có case: case thứ nhất mang sang
- * lúc gộp M7, case thứ hai do Task 9 thêm cùng lời gọi của nó.
+ * `staff.instalment_overdue` (M9) là chủ đề thứ tám của bảng R10, theo phán quyết (e) của controller
+ * (kế hoạch, "Ràng buộc toàn cục": Task 9 thêm sự kiện của M9 "nếu chúng đã có thư"): `normal`, TTL 72
+ * giờ, một câu chung — không số tiền, không tên khách, không mã hợp đồng. `staff.handover_ready` (M7
+ * Task 4) CHƯA có case: nơi gửi thư của nó chưa có trên nhánh này, mang sang lúc gộp M7 (Ghi chú M12,
+ * Task 9 — một case không ai gọi là mã chết).
  */
 enum PushTopic: string
 {
@@ -79,6 +93,7 @@ enum PushTopic: string
     case StaffDeadlineReminder = 'staff.deadline_reminder';
     case StaffNewClientRequest = 'staff.new_client_request';
     case StaffNewClientDocument = 'staff.new_client_document';
+    case StaffInstalmentOverdue = 'staff.instalment_overdue';
 
     /** Nút "Gửi thử" của trang "Thông báo trên điện thoại" (`App\Actions\Push\SendTestPush`). */
     case Test = 'push.test';
@@ -110,7 +125,7 @@ enum PushTopic: string
     {
         return match ($this) {
             self::ClientStageUpdate, self::ClientDocumentPublished, self::ClientDocumentRejected, self::ClientRequestAnswered => 'portal',
-            self::StaffDeadlineReminder, self::StaffNewClientRequest, self::StaffNewClientDocument => 'admin',
+            self::StaffDeadlineReminder, self::StaffNewClientRequest, self::StaffNewClientDocument, self::StaffInstalmentOverdue => 'admin',
             self::Test => null,
         };
     }
@@ -119,7 +134,9 @@ enum PushTopic: string
      * Loại bản ghi liên quan — ĐÚNG bản ghi mà thư đi cùng ghi vào nhật ký (`relatedRecord()` của
      * mailable: `StageUpdate` → dòng tiến độ, `DocumentPublished` → tài liệu, `DocumentRejected` → đầu
      * mục danh mục, `RequestAnswered` → câu trả lời, `DeadlineReminder` → mốc hạn, `NewClientRequest` →
-     * yêu cầu, `NewClientDocument` → tài liệu đầu tiên của lượt nộp). `null` = không có ("Gửi thử").
+     * yêu cầu, `NewClientDocument` → tài liệu đầu tiên của lượt nộp, `InstalmentOverdue` → đợt thu).
+     * Câu hỏi tiếp của khách (`REQ-2`) không có thư: bản ghi là chính luồng yêu cầu, như thư của yêu
+     * cầu mới. `null` = không có ("Gửi thử").
      *
      * @return class-string<Model>|null
      */
@@ -132,6 +149,7 @@ enum PushTopic: string
             self::ClientRequestAnswered => ClientRequestReply::class,
             self::StaffDeadlineReminder => Deadline::class,
             self::StaffNewClientRequest => ClientRequest::class,
+            self::StaffInstalmentOverdue => Instalment::class,
             self::Test => null,
         };
     }
@@ -237,6 +255,10 @@ enum PushTopic: string
             $this === self::StaffDeadlineReminder => self::matterTab($matterId, DeadlinesRelationManager::class),
             $this === self::StaffNewClientRequest => self::matterTab($matterId, ClientRequestsRelationManager::class),
             $this === self::StaffNewClientDocument => self::matterTab($matterId, ChecklistRelationManager::class),
+            // Cùng luật `InstalmentOverdue::link()` — xem docblock lớp, mục deep link.
+            $this === self::StaffInstalmentOverdue => $recipient instanceof User && Receivables::canBeOpenedBy($recipient)
+                ? Receivables::getUrl(panel: 'admin')
+                : self::matterTab($matterId, BillingRelationManager::class),
         };
 
         return self::relative($absolute);
@@ -260,13 +282,16 @@ enum PushTopic: string
 
     /**
      * Vụ việc chứa bản ghi — đọc cột, không qua quan hệ có global scope: hàm có thể chạy trong request
-     * của một khách đang mở cổng (`RestrictedToClientPortal`), mà ở đây chỉ cần một con số.
+     * của một khách đang mở cổng (`RestrictedToClientPortal`), mà ở đây chỉ cần một con số. Câu trả lời
+     * đi qua luồng yêu cầu của nó, đợt thu qua hợp đồng của nó; mọi bản ghi khác mang `matter_id`.
      */
     private static function matterIdOf(Model $related): ?int
     {
-        $matterId = $related instanceof ClientRequestReply
-            ? ClientRequest::query()->withoutGlobalScopes()->whereKey($related->request_id)->value('matter_id')
-            : $related->getAttribute('matter_id');
+        $matterId = match (true) {
+            $related instanceof ClientRequestReply => ClientRequest::query()->withoutGlobalScopes()->whereKey($related->request_id)->value('matter_id'),
+            $related instanceof Instalment => Contract::query()->withoutGlobalScopes()->whereKey($related->contract_id)->value('matter_id'),
+            default => $related->getAttribute('matter_id'),
+        };
 
         return $matterId === null ? null : (int) $matterId;
     }

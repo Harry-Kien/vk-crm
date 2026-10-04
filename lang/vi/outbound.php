@@ -60,9 +60,9 @@ return [
         'staff.backup_alert.cleanup_failed' => 'Báo nhân sự dọn bản sao lưu cũ thất bại',
         'staff.backup_alert.unhealthy' => 'Báo nhân sự bản sao lưu không lành mạnh',
         'undeclared' => 'Chưa khai báo mẫu',
-        // M12 R13 — dòng thông báo đẩy mang giá trị `App\Enums\PushTopic` làm mẫu: bảy chủ đề trùng tên
+        // M12 R13 — dòng thông báo đẩy mang giá trị `App\Enums\PushTopic` làm mẫu: tám chủ đề trùng tên
         // mẫu thư đi cùng (nhãn ở trên; cột "Kênh" phân biệt thư với thông báo đẩy), riêng nút "Gửi thử"
-        // không có thư.
+        // không có thư (và câu hỏi tiếp của khách, REQ-2, đi dưới `staff.new_client_request`).
         'push.test' => 'Thông báo đẩy thử',
     ],
 

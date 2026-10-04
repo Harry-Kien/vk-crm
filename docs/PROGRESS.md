@@ -3087,3 +3087,93 @@ ba điều kiện của `ResolveClientRecipients::eligibleQuery()` (mỗi cái �
 "không push", TRƯỚC dòng thư); bỏ một tệp khỏi danh sách cho phép của `PushStructureTest`; bỏ khoá lần từ chối của
 `alreadyDelivered()` (lần từ chối thứ hai). Pint sạch. Máy thật ("màn hình khoá chỉ có câu chung", chạm mở đúng trang):
 PENDING OWNER (Task 10).
+
+### Task 9 — push cho các sự kiện của nhân sự (2026-10-04)
+
+Đã làm (R10, R11; phán quyết (d), (e), (f) của controller):
+- Nơi nối là nơi THƯ thật sự đi, không phải nơi xếp thư:
+  - `staff.deadline_reminder` — JOB `App\Jobs\SendDeadlineReminderMail` (kế hoạch ghi `CheckDeadlines`, nhưng từ M6.5
+    Task 11 tác vụ chỉ khoá mốc, ghi `reminders_sent` và xếp job bên trong transaction; job tính lại người nhận lúc gửi).
+    Push mang bậc của job (`$tierKey`): câu chữ theo bậc, `urgency = high` ở `d1`/quá hạn, TTL 24 giờ.
+  - `staff.new_client_request` — `NotifyStaffOfNewClientRequest` (bản ghi = yêu cầu đã đọc lại).
+  - `staff.new_client_request`, khách hỏi tiếp (`REQ-2`) — `App\Actions\Portal\ReplyToClientRequest::notifyHolderOfFollowUp()`:
+    KHÔNG có thư, nên push đi cùng thông báo trong hệ thống `ClientRequestFollowUpAlert`, cho ĐÚNG collection
+    `$recipients` của nó (người giữ luồng, chưa ai giữ thì luật sư phụ trách — qua `ResolveStaffRecipients`), sau vòng
+    `->notify(`, cùng khối `try`; bản ghi = luồng (cùng `tag` với push của yêu cầu mới: câu hỏi tiếp thay tin cũ của cùng
+    luồng). Không thêm thư mới cho REQ-2 (ngoài phạm vi M12). Câu push của chủ đề đổi thành "Khách vừa gửi yêu cầu hoặc
+    câu hỏi mới. Chạm để xem." cho đúng cả hai trường hợp.
+  - `staff.new_client_document` — `NotifyStaffOfNewClientDocument` (bản ghi = tài liệu đại diện đã đọc lại; chạm mở tab
+    "Danh mục hồ sơ" — phán quyết (f)).
+  - `staff.instalment_overdue` — case MỚI của `PushTopic` (phán quyết (e); thêm một hàng vào bảng R10 của kế hoạch):
+    JOB `App\Jobs\SendInstalmentOverdueMail`; `normal`, TTL 72 giờ, câu chung "Có khoản thu đã quá hạn cần theo dõi. Chạm
+    để xem." (không số tiền, không tên khách, không mã hồ sơ/hợp đồng); deep link theo người nhận, cùng luật
+    `InstalmentOverdue::link()` (trang "Công nợ" cho ai `Receivables::canBeOpenedBy()`, không thì tab "Hợp đồng và thanh
+    toán" của vụ) — luật được chép ở `PushTopic::url()` (phương thức của mailable là `private`) và test so hai bên trên
+    đường thật. Bản ghi = đợt thu (`instalment` không thuộc `OutboundMessage::DIRECT_MATTER_TYPES` nên dòng push, như dòng
+    thư, chỉ người xem-tất-cả thấy trong nhật ký — không mở rộng).
+- Bốn nơi có thư: push cho đúng những người mà CHÍNH lượt đó vừa gửi thư được (`$mailed`), SAU vòng thư và TRƯỚC lần
+  ném lại lỗi — cùng khuôn Task 8. Không luật người nhận thứ hai (`CheckDeadlines::recipientsFor()`,
+  `ResolveStaffRecipients::handle()/forBilling()` vẫn là nơi duy nhất), không trí nhớ chống trùng mới (`reminders_sent`,
+  sổ thư). Nút "Gửi lại" của nhật ký thư gọi lại `handle()` của hai Action yêu cầu/giấy tờ, nên người vừa nhận thư nhờ
+  nó cũng nhận push (cùng hành vi Task 8 — Task 8 review Minor 3 chờ controller chốt cho cả hai phía).
+  Câu chữ docblock nói đúng cửa sổ của Task 8 review Minor 1: push của một lượt xếp SAU CẢ vòng thư; worker chết giữa
+  vòng thư thì người đã nhận thư ở lượt đó không có push bù.
+- `PushStructureTest::pushAlertCallersAllowed()` thêm năm tệp (hai JOB, hai Action thư, `ReplyToClientRequest`).
+- Test mới `tests/Feature/Push/StaffEventPushTest.php` — đường thật của từng sự kiện (tác vụ `CheckDeadlines`/
+  `RemindOverdueInstalments` thật với job chạy sau commit; trang "Yêu cầu" và "Nộp giấy tờ" của cổng khách bằng
+  Livewire), mọi vai trò nhân sự đều đã bật máy:
+  - tập push = tập thư (REQ-2: = tập nhận `ClientRequestFollowUpAlert`) và = tập viết tay của luật R3, cho năm đường × vụ
+    thường / vụ `restricted` (manager, kế toán, trợ lý không xem được vụ hạn chế thì không thư, không push; admin thay
+    đúng chỗ); bốn tài khoản vô hiệu không nhận gì; chủ đề + bản ghi của push = header nhật ký của thư; deep link đúng
+    tab (đợt thu: = liên kết của chính thư, theo người nhận); payload không chuỗi đánh dấu nào (mã hồ sơ, tiêu đề vụ, tên
+    khách, các bên, toà, số thụ lý, tên mốc hạn, tiêu đề/nội dung yêu cầu, câu hỏi tiếp, tên đầu mục, tên tệp, tên đợt,
+    ghi chú đợt, mã hợp đồng, số tiền);
+  - chuỗi dự phòng của thư mốc hạn: người phụ trách mốc bị vô hiệu → luật sư phụ trách vụ thế chỗ (vụ hạn chế bậc 1
+    ngày: cạnh admin, không quản lý); cả hai vô hiệu → quản lý;
+  - `CheckDeadlines` chạy hai lần mỗi ngày qua cả đời mốc (7 → 3 → 1 ngày → quá hạn): đúng bốn push, một mỗi bậc, câu chữ
+    và `urgency` theo bậc, cùng `tag`;
+  - `urgency`/TTL qua đường thật cho d14 (mốc quan trọng), d7, d3 = `normal`; d1, hết hạn hôm nay, quá hạn = `high`; TTL
+    86400;
+  - payload mốc hạn vụ `restricted` trùng từng ký tự payload vụ thường sau khi bỏ id mốc/vụ;
+  - lượt thử lại sau lỗi một phần (hàng đợi `database`, worker thật) cho bốn đường có thư;
+  - mọi bậc `CheckDeadlines::tierFor()` có thể trả = `PushTopic::DEADLINE_TIERS` (một bậc lạ làm `SendPushAlert` ném SAU
+    khi thư đã đi → job hỏng, `failed()` rút bậc và rung chuông sai);
+  - không push cho `staff.stale_matter` (mốc 21 ngày) và `client.missing_documents`: thư đi, mọi người nhận có máy, không
+    một `PushAlert` nào (R10). `PushTopicTest` thêm: không chủ đề `staff.backup_alert.*` (Task 7 review Minor 10, một
+    phần); case mới trong mọi dataset (payload, deep link theo vai trò, TTL/urgency).
+
+Việc mang sang lúc gộp M7 (`staff.handover_ready`, M7 Task 4 — ĐÃ có trên `main` từ `b2e02d7`, chưa có trên nhánh này;
+ai gộp sau làm):
+1. `App\Enums\PushTopic`: thêm `case StaffHandoverReady = 'staff.handover_ready'`; `panel()` → `admin`; `relatedClass()` →
+   `Document::class` (đúng `HandoverPackageReady::relatedRecord()` = tài liệu gói); TTL mặc định 72 giờ, `normal`; `url()`
+   → `self::matterTab($matterId, DocumentsRelationManager::class)`; câu ở `lang/vi/push.php` (`alerts.staff.handover_ready`,
+   ví dụ "Gói bàn giao hồ sơ đã sẵn sàng. Chạm để xem." — không mã hồ sơ), nhãn ở `lang/vi/enums.php`
+   (`push_topic.staff.handover_ready`); `outbound.templates` đã có nhãn của mẫu thư trên `main`.
+2. `App\Jobs\SendHandoverPackageReady::handle()` (trên `main` gửi bằng `Mail::to()->send()`, không còn `->queue()`): thêm
+   `$mailed = collect()`, `$mailed->push($user)` ngay sau `Mail::...->send(...)` trong `try`, và sau vòng lặp, TRƯỚC
+   `throw $failure`: `app(SendPushAlert::class)->handle($mailed, PushTopic::StaffHandoverReady, $document);`.
+3. `tests/Feature/Push/PushStructureTest.php`: thêm `'app/Jobs/SendHandoverPackageReady.php' => 'staff.handover_ready'`.
+4. `tests/Feature/Push/StaffEventPushTest.php`: một đường `handover` (sinh gói qua đường thật của M7, job thư chạy sau
+   commit) trong dataset đồng nhất người nhận (vụ thường + `restricted`) và dataset thử lại; `PushTopicTest`:
+   `pushTopicRelated()` + một dòng deep link + một dòng TTL.
+5. Bỏ dòng "(mang sang lúc gộp M7)" ở Task 9 của kế hoạch, tick nó.
+
+Sự thật cho controller (không làm ở làn này):
+- `main` còn hai thư nhân sự KHÔNG có trong bảng R10: `staff.matter_reassigned` (M7 Task 1) và `staff.intake_unanswered`
+  (M10 Task 5). Theo phán quyết 1 của làn, push cho thư của M10 thuộc M10; `staff.matter_reassigned` chưa ai quyết — mặc
+  định không đẩy (không gấp), và nếu không đẩy thì thêm hai giá trị đó vào test "has no topic for the mails that are
+  deliberately never pushed" lúc gộp.
+- Task 7 review Minor 1 / Task 8 review Minor 2 (`PushAlert::shouldSend()` không hỏi lại `is_active`) áp cả cho nhân sự:
+  nhân sự bị vô hiệu trong cửa sổ hàng đợi `push` vẫn nhận MỘT câu chung. Không sửa ở Task 9 (ngoài brief).
+
+Số đo: cả bộ `test --parallel --processes=2` 4167 passed, 25 skipped, 1 todo, 1 risky, 0 failed (sau Task 8: 4132; +35 ca:
+27 của `StaffEventPushTest`, 8 dòng dataset mới của `PushTopicTest`); MariaDB (`test:mariadb`, tuần tự) trên tám tệp
+(`StaffEventPushTest`, `PushTopicTest`, `PushStructureTest`, `SendDeadlineReminderMailTest`, `SendInstalmentOverdueMailTest`,
+`NewClientRequestNotificationTest`, `NewClientDocumentNotificationTest`, `ReplyToClientRequestTest`) 208 passed; 23 đột biến
+Pest đều đỏ đúng đường — ở mỗi nơi nối: đẩy cho nguyên `$recipients` (đỏ đúng dòng thử lại của đường đó), bỏ lời gọi
+(đỏ đúng hai dòng đồng nhất của đường đó); ở job mốc hạn thêm: ghi người nhận push trước khi thư đi, đặt lời gọi sau lần
+ném lại, đưa bậc cố định; `PushTopic`: nhánh "Công nợ" luôn sai / luôn đúng, bỏ nhánh `Instalment` của `matterIdOf()`,
+nối tên bản ghi vào `body` (Review Focus 2), bỏ `d14` khỏi `DEADLINE_TIERS`, bỏ `d1` khỏi `PRESSING_TIERS`; bỏ một tệp
+khỏi danh sách cho phép; thêm push vào job thư stale/missing; hai đột biến ở luật CHUNG (`billingAudienceFor()`,
+`supervisorsFor()` của vụ hạn chế) đỏ ở dòng "tập thư = tập viết tay" mà push vẫn = thư. Pint sạch. Máy thật (màn hình
+khoá của nhân sự chỉ có câu chung, chạm mở đúng tab, độ khẩn d1/quá hạn): PENDING OWNER (Task 10).

@@ -5,7 +5,9 @@ namespace App\Actions\Portal;
 use App\Actions\Concerns\ChecksAccountActive;
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Actions\Notification\ResolveStaffRecipients;
+use App\Actions\Push\SendPushAlert;
 use App\Enums\ClientRequestStatus;
+use App\Enums\PushTopic;
 use App\Events\ClientRequestAnswered;
 use App\Exceptions\ClientRequestNotOpen;
 use App\Models\ClientRequest;
@@ -301,6 +303,15 @@ class ReplyToClientRequest
      * INSERT (kênh `database`, không `ShouldQueue` — không chạm mạng), nhưng nếu nó hỏng vì một
      * lý do bất kỳ (ví dụ một Notification channel khác được bật thêm trong tương lai), khách vừa
      * gửi câu hỏi thành công không được phép thấy trang lỗi.
+     *
+     * **M12 — thông báo đẩy** (kế hoạch M12 R10: hàng `staff.new_client_request`, "kể cả khách hỏi
+     * tiếp"). Câu hỏi tiếp KHÔNG có thư, nên push đi cùng thông báo trong hệ thống này: ĐÚNG
+     * collection `$recipients` ở trên (một định nghĩa người nhận — R10), sau vòng `->notify(`, cùng
+     * khối `try`; chủ đề yêu cầu mới, bản ghi là LUỒNG (`tag` theo luồng: câu hỏi tiếp thay tin cũ của
+     * cùng luồng trên màn hình khoá). Gọi sau commit như vòng thông báo (`SendPushAlert` không ở trong
+     * transaction nào). Một `->notify(` ném thì vòng dừng và không ai nhận push — cùng số phận với
+     * những người còn lại của vòng thông báo. Không chống trùng riêng: mỗi câu hỏi tiếp là một sự kiện,
+     * chạy đúng một lần trong request của khách. `SendPushAlert` không ném vì lỗi lúc chạy.
      */
     private function notifyHolderOfFollowUp(ClientRequestReply $reply): void
     {
@@ -323,6 +334,9 @@ class ReplyToClientRequest
             foreach ($recipients as $recipient) {
                 $recipient->notify(new ClientRequestFollowUpAlert($reply));
             }
+
+            // M12: push cho ĐÚNG những người vừa nhận thông báo này — xem docblock hàm.
+            app(SendPushAlert::class)->handle($recipients, PushTopic::StaffNewClientRequest, $thread);
         } catch (Throwable $e) {
             report($e);
         }

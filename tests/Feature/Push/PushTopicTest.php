@@ -3,8 +3,11 @@
 use App\Actions\Push\SendPushAlert;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\PushTopic;
+use App\Enums\Role;
 use App\Filament\Admin\Pages\PushDevices as AdminPushDevices;
+use App\Filament\Admin\Pages\Receivables;
 use App\Filament\Admin\Resources\Matters\MatterResource;
+use App\Filament\Admin\Resources\Matters\RelationManagers\BillingRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ChecklistRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ClientRequestsRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\DeadlinesRelationManager;
@@ -13,8 +16,10 @@ use App\Models\Client;
 use App\Models\ClientRequest;
 use App\Models\ClientRequestReply;
 use App\Models\ClientUser;
+use App\Models\Contract;
 use App\Models\Deadline;
 use App\Models\Document;
+use App\Models\Instalment;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Models\MatterParty;
@@ -23,6 +28,7 @@ use App\Models\User;
 use App\Notifications\PushAlert;
 use App\Support\Pwa\AppIcons;
 use App\Support\Pwa\PwaPanels;
+use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Notification;
 use Tests\Support\FakePushServer;
@@ -36,7 +42,8 @@ use Tests\Support\WebPushTestKeys;
 | Màn hình khoá không phải màn hình của văn phòng. Mỗi chủ đề được dựng qua ĐÚNG đường sản phẩm
 | (`SendPushAlert` → `PushAlert::toWebPush()`), trên một vụ việc mà MỌI chỗ nhạy cảm mang một chuỗi
 | đánh dấu: tiêu đề vụ, mã hồ sơ, tên khách, tên các bên, tiêu đề tài liệu, tên đầu mục giấy tờ, lý
-| do từ chối, nội dung yêu cầu và câu trả lời, `internal_note`, tên toà, số thụ lý, tên mốc hạn.
+| do từ chối, nội dung yêu cầu và câu trả lời, `internal_note`, tên toà, số thụ lý, tên mốc hạn, và
+| (Task 9) tên đợt thu, ghi chú đợt, mã hợp đồng, số tiền.
 | Không chuỗi nào được phép có mặt trong payload — kể cả ở `tag` hay `data.url`.
 */
 
@@ -64,6 +71,11 @@ function pushTopicMarkers(): array
         'tên toà' => 'DAUVET-TOA',
         'số thụ lý' => 'DAUVET-THULY',
         'tên mốc hạn' => 'DAUVET-MOC-HAN',
+        // M12 Task 9 — `staff.instalment_overdue`: thư mang tên đợt, số tiền, mã hồ sơ, tên khách; push thì không.
+        'tên đợt thu' => 'DAUVET-DOT-THU',
+        'ghi chú đợt thu' => 'DAUVET-GHICHU-DOT',
+        'mã hợp đồng' => 'DAUVET-MAHD',
+        'số tiền' => '987654321',
     ];
 }
 
@@ -122,6 +134,14 @@ function pushTopicRelated(PushTopic $topic, Matter $matter): ?Model
             'matter_checklist_item_id' => $item()->id,
             'title' => $m['tiêu đề tài liệu'],
         ]),
+        PushTopic::StaffInstalmentOverdue => Instalment::factory()
+            ->for(Contract::factory()->for($matter)->active()->create(['code' => $m['mã hợp đồng'], 'total_amount' => (int) $m['số tiền']]))
+            ->create([
+                'name' => $m['tên đợt thu'],
+                'note' => $m['ghi chú đợt thu'],
+                'amount' => (int) $m['số tiền'],
+                'due_date' => today()->subDays(3)->toDateString(),
+            ]),
         PushTopic::Test => null,
     };
 }
@@ -244,8 +264,38 @@ it('points every topic at the right page and tab', function (PushTopic $topic, s
     'staff.deadline_reminder' => [PushTopic::StaffDeadlineReminder, 'admin', fn (Matter $m) => "/admin/matters/{$m->id}?relation=".array_search(DeadlinesRelationManager::class, MatterResource::getRelations(), true)],
     'staff.new_client_request' => [PushTopic::StaffNewClientRequest, 'admin', fn (Matter $m) => "/admin/matters/{$m->id}?relation=".array_search(ClientRequestsRelationManager::class, MatterResource::getRelations(), true)],
     'staff.new_client_document' => [PushTopic::StaffNewClientDocument, 'admin', fn (Matter $m) => "/admin/matters/{$m->id}?relation=".array_search(ChecklistRelationManager::class, MatterResource::getRelations(), true)],
+    // Người nhận không mở được trang "Công nợ" (ở đây: tài khoản không vai trò) — tab tiền của vụ.
+    'staff.instalment_overdue' => [PushTopic::StaffInstalmentOverdue, 'admin', fn (Matter $m) => "/admin/matters/{$m->id}?relation=".array_search(BillingRelationManager::class, MatterResource::getRelations(), true)],
     'push.test / portal' => [PushTopic::Test, 'portal', fn () => parse_url(PortalPushDevices::getUrl(panel: 'portal'), PHP_URL_PATH)],
     'push.test / admin' => [PushTopic::Test, 'admin', fn () => parse_url(AdminPushDevices::getUrl(panel: 'admin'), PHP_URL_PATH)],
+]);
+
+/**
+ * M12 Task 9 (phán quyết (e)): đợt thu quá hạn về ĐÚNG nơi mà thư `staff.instalment_overdue` trỏ
+ * (`App\Mail\Staff\InstalmentOverdue::link()`, theo người nhận) — trang "Công nợ" cho ai mở được nó
+ * (admin, quản lý, kế toán; URL không mang id vụ nào, nên kế toán — không xem được trang vụ việc —
+ * không nhận một đường dẫn tới chỗ họ bị 404), tab "Hợp đồng và thanh toán" của vụ cho luật sư.
+ * `StaffEventPushTest` so thêm với chính liên kết của thư, trên đường thật.
+ *
+ * Mutation probe: bỏ nhánh `Receivables::canBeOpenedBy()` trong `PushTopic::url()` → ba dòng đầu ĐỎ.
+ */
+it('points an overdue instalment at the receivables page for whoever can open it, and at the billing tab otherwise', function (Role $role, bool $receivables) {
+    $this->seed(RolesAndPermissionsSeeder::class);
+    $matter = pushTopicMarkedMatter();
+    $instalment = pushTopicRelated(PushTopic::StaffInstalmentOverdue, $matter);
+    $recipient = User::factory()->withRole($role)->create();
+    FakePushServer::device($recipient, 'dot-thu-'.$role->value);
+
+    $url = pushTopicPayload(PushTopic::StaffInstalmentOverdue, $recipient, $instalment, null)['data']['url'];
+
+    expect($url)->toBe($receivables
+        ? parse_url(Receivables::getUrl(panel: 'admin'), PHP_URL_PATH)
+        : "/admin/matters/{$matter->id}?relation=".array_search(BillingRelationManager::class, MatterResource::getRelations(), true));
+})->with([
+    'kế toán' => [Role::Accountant, true],
+    'quản lý' => [Role::Manager, true],
+    'admin' => [Role::Admin, true],
+    'luật sư' => [Role::Lawyer, false],
 ]);
 
 /** Hai khối mà deep link của khách nhắm tới có mang đúng `id` trên trang tiến độ hồ sơ. */
@@ -286,6 +336,7 @@ it('sends deadlines with a 24 hour TTL and high urgency only at one day and over
     'trả lời yêu cầu' => [PushTopic::ClientRequestAnswered, null, 259200, 'normal'],
     'yêu cầu mới' => [PushTopic::StaffNewClientRequest, null, 259200, 'normal'],
     'giấy tờ khách nộp' => [PushTopic::StaffNewClientDocument, null, 259200, 'normal'],
+    'đợt thu quá hạn' => [PushTopic::StaffInstalmentOverdue, null, 259200, 'normal'],
     'gửi thử' => [PushTopic::Test, null, 3600, 'normal'],
 ]);
 
@@ -308,8 +359,9 @@ it('words a deadline alert by how pressing it is, without naming the deadline', 
 
 /**
  * R10 "Cố ý không đẩy": mã OTP (mã trên màn hình khoá là mã lộ), thư kích hoạt (chưa kích hoạt thì
- * chưa có máy), nhắc nộp giấy tờ định kỳ và nhắc hồ sơ chậm cập nhật (không gấp). Thêm một trong số
- * đó là sửa test này một cách có chủ ý.
+ * chưa có máy), nhắc nộp giấy tờ định kỳ và nhắc hồ sơ chậm cập nhật (không gấp), và mọi thư báo lỗi
+ * sao lưu (M8, `staff.backup_alert.*`: đọc trên máy tính). Thêm một trong số đó là sửa test này một
+ * cách có chủ ý. Đường thật của hai thư định kỳ (thư đi, không push): `StaffEventPushTest`.
  *
  * Cũng là chỗ dựa của lập luận chống trùng ở `RecordOutboundPush`: `CheckStaleMatters::recentlyMailed()`
  * đọc sổ thư theo `template = staff.stale_matter` mà KHÔNG lọc người nhận — dòng push không bao giờ
@@ -320,7 +372,8 @@ it('has no topic for the mails that are deliberately never pushed', function () 
         ->not->toContain('client.otp')
         ->not->toContain('client.activation')
         ->not->toContain('client.missing_documents')
-        ->not->toContain('staff.stale_matter');
+        ->not->toContain('staff.stale_matter')
+        ->and(array_filter(PushTopic::cases(), fn (PushTopic $topic): bool => str_starts_with($topic->value, 'staff.backup_alert')))->toBe([]);
 });
 
 /** Dòng push hiện trong nhật ký thư dưới nhãn tiếng Việt của mẫu, như dòng thư (`outbound.templates`). */

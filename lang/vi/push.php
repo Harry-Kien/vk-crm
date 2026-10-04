@@ -99,8 +99,11 @@ return [
                 'imminent' => 'Có mốc thời hạn đến hạn hôm nay hoặc ngày mai. Chạm để xem.',
                 'overdue' => 'Có mốc thời hạn đã quá hạn, cần xử lý ngay. Chạm để xem.',
             ],
-            'new_client_request' => 'Khách vừa gửi một yêu cầu mới. Chạm để xem.',
+            // Cũng là câu của lần khách hỏi tiếp vào một luồng cũ (`REQ-2`, Task 9) — cùng chủ đề.
+            'new_client_request' => 'Khách vừa gửi yêu cầu hoặc câu hỏi mới. Chạm để xem.',
             'new_client_document' => 'Khách vừa nộp giấy tờ mới cần xem. Chạm để xem.',
+            // Task 9 (phán quyết (e)): không số tiền, không tên khách, không mã hợp đồng.
+            'instalment_overdue' => 'Có khoản thu đã quá hạn cần theo dõi. Chạm để xem.',
         ],
         'test' => 'Thông báo thử: máy này đã nhận được thông báo của văn phòng.',
     ],

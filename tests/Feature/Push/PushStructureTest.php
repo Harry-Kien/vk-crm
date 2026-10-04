@@ -41,6 +41,16 @@ function pushAlertCallersAllowed(): array
         'app/Actions/Notification/NotifyClientOfDocumentPublished.php' => 'client.document_published',
         'app/Actions/Notification/NotifyClientOfChecklistItemRejected.php' => 'client.document_rejected',
         'app/Actions/Notification/NotifyClientOfRequestAnswered.php' => 'client.request_answered',
+        // Task 9 — sự kiện của nhân sự (bảng R10 + phán quyết (e)): nơi THƯ thật sự đi, đẩy cho đúng
+        // những người lượt đó vừa gửi thư được; mốc hạn và đợt thu là JOB (người nhận tính lại lúc
+        // gửi), không phải tác vụ xếp job. Test đồng nhất người nhận: `StaffEventPushTest`.
+        'app/Jobs/SendDeadlineReminderMail.php' => 'staff.deadline_reminder',
+        'app/Actions/Notification/NotifyStaffOfNewClientRequest.php' => 'staff.new_client_request',
+        'app/Actions/Notification/NotifyStaffOfNewClientDocument.php' => 'staff.new_client_document',
+        'app/Jobs/SendInstalmentOverdueMail.php' => 'staff.instalment_overdue',
+        // Câu hỏi tiếp của khách (REQ-2) không có thư: đẩy cùng chủ đề yêu cầu mới, cho đúng người
+        // nhận thông báo trong hệ thống `ClientRequestFollowUpAlert`.
+        'app/Actions/Portal/ReplyToClientRequest.php' => 'staff.new_client_request (khách hỏi tiếp)',
     ];
 }
 
