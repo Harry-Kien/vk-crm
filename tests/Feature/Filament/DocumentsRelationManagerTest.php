@@ -6,6 +6,7 @@ use App\Actions\Document\UploadStaffDocument;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
+use App\Enums\InstalmentStatus;
 use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\Matters\MatterResource;
@@ -14,9 +15,13 @@ use App\Filament\Admin\Resources\Matters\RelationManagers\DocumentsRelationManag
 use App\Filament\Portal\Pages\MatterProgress;
 use App\Models\Client;
 use App\Models\ClientUser;
+use App\Models\Contract;
+use App\Models\ContractAmendment;
 use App\Models\Document;
+use App\Models\Instalment;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
+use App\Models\Payment;
 use App\Models\User;
 use App\Support\Files\VirusScanner;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -1870,4 +1875,80 @@ it('still lets a group A staff upload without a checklist item through on a clos
 
     expect($matter->documents()->count())->toBe(1)
         ->and(sentNotificationTitles())->toContain(__('documents.tab.actions.upload_success'));
+});
+
+// ---------------------------------------------------------------------------------------------
+// Việc sau gộp M9 + M10 (làn fu3, Task 1 mục D — N3 của rà soát cuối làn m9f): bằng chứng tiền
+// không rời nhóm D. Biên lai của một khoản thu và bản scan phụ lục hợp đồng chỉ gắn được khi tệp ở
+// nhóm D (`RecordPayment`, `AmendContract`); chuyển chúng sang A/B/C là mở đường cho tệp tới tay
+// khách, trong khi rút lại và xoá đã bị chặn bằng cùng định nghĩa
+// `Document::isReferencedByBillingRecord()`.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Vụ của luật sư phụ trách, có hợp đồng đang hiệu lực và một đợt — đủ để gắn một biên lai hay một
+ * bản scan phụ lục vào một tệp nhóm D.
+ *
+ * @return array{0: Matter, 1: User, 2: Contract, 3: Instalment}
+ */
+function billingEvidenceMatter(): array
+{
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id]);
+    $contract = Contract::factory()->for($matter)->active()->create(['total_amount' => 10_000_000]);
+    $instalment = Instalment::factory()->for($contract)->create([
+        'amount' => 10_000_000,
+        'status' => InstalmentStatus::Pending,
+    ]);
+
+    return [$matter, $lawyer, $contract, $instalment];
+}
+
+/**
+ * Mutation probe: bỏ điều kiện `isReferencedByBillingRecord()` khỏi `RegroupDocument::handle()` —
+ * cả hai hàng ĐỎ (tệp sang nhóm C, có dòng `document_regrouped`).
+ */
+it('refuses to move money evidence out of group D from the documents tab', function (string $kind) {
+    [$matter, $lawyer, $contract, $instalment] = billingEvidenceMatter();
+    $scan = documentWithFile($matter, DocumentGroup::Internal, ['title' => 'Uỷ nhiệm chi đợt 1']);
+
+    match ($kind) {
+        'receipt' => Payment::factory()->for($instalment)->create([
+            'amount' => 4_000_000,
+            'receipt_document_id' => $scan->id,
+            'attributed_lawyer_id' => $lawyer->id,
+        ]),
+        'amendment' => ContractAmendment::factory()->for($contract)->create(['document_id' => $scan->id]),
+    };
+
+    $this->actingAs($lawyer, 'web');
+
+    documentsManager($matter)
+        ->callAction(TestAction::make('regroup')->table($scan), data: [
+            'group' => DocumentGroup::Authority->value,
+        ]);
+
+    expect(array_column(sentNotifications(), 'body'))->toContain(__('documents.regroup.billing_reference'))
+        ->and($scan->refresh()->group)->toBe(DocumentGroup::Internal)
+        ->and(Activity::query()->where('event', 'document_regrouped')->where('subject_id', $scan->id)->exists())->toBeFalse();
+})->with([
+    'biên lai của một khoản thu' => ['receipt'],
+    'bản scan phụ lục hợp đồng' => ['amendment'],
+]);
+
+/** Cặp dương: cùng người, cùng vụ, một tệp nhóm D không bản ghi tiền nào trỏ tới vẫn chuyển được. */
+it('still moves a group D document no money record points at out of group D from the documents tab', function () {
+    [$matter, $lawyer] = billingEvidenceMatter();
+    $note = documentWithFile($matter, DocumentGroup::Internal, ['title' => 'Bản sao quyết định đã có dấu']);
+
+    $this->actingAs($lawyer, 'web');
+
+    documentsManager($matter)
+        ->callAction(TestAction::make('regroup')->table($note), data: [
+            'group' => DocumentGroup::Authority->value,
+        ])
+        ->assertHasNoActionErrors();
+
+    expect($note->refresh()->group)->toBe(DocumentGroup::Authority)
+        ->and(array_column(sentNotifications(), 'title'))->toContain(__('documents.tab.actions.regroup_success'));
 });

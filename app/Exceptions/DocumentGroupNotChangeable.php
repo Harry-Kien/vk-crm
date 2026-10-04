@@ -42,4 +42,15 @@ class DocumentGroupNotChangeable extends DomainException
     {
         return new self(__('retraction.blocked.regroup_retracted_to_internal'));
     }
+
+    /**
+     * Việc sau gộp M9 + M10 (làn fu3, Task 1 mục D — N3 của rà soát cuối làn m9f): `RegroupDocument`
+     * từ chối đưa RA khỏi nhóm D một tệp mà bản ghi tiền trỏ tới (biên lai của khoản thu, bản scan
+     * phụ lục hợp đồng — `Document::isReferencedByBillingRecord()`). Cùng định nghĩa và cùng giọng
+     * với lời từ chối của `RetractDocument` và `DocumentPolicy::delete`.
+     */
+    public static function referencedByBillingRecord(): self
+    {
+        return new self(__('documents.regroup.billing_reference'));
+    }
 }

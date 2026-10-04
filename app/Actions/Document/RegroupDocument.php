@@ -83,6 +83,13 @@ use Spatie\Activitylog\Models\Activity;
  * đời nhóm B là một ranh giới "tuyệt đối" theo đúng nghĩa đó (nó là một CHUỖI trạng thái, không
  * phải một tập bị cấm tuyệt đối), nên một cổng ở tầng Action là đủ, cùng mức với cổng
  * `signed_filed` mà `PublishDocument` đã áp từ trước cho chính nhóm này.
+ *
+ * **Bằng chứng tiền không rời nhóm D (việc sau gộp M9 + M10, làn fu3, Task 1 mục D — N3 của rà
+ * soát cuối làn m9f).** Biên lai của một khoản thu và bản scan phụ lục hợp đồng chỉ gắn được khi
+ * tệp ở nhóm D (`RecordPayment`, `AmendContract`). Rút lại và xoá đã từ chối chúng bằng
+ * `Document::isReferencedByBillingRecord()`; chuyển chúng ra A/B/C là đường thứ ba mở cho tệp tới
+ * tay khách (và lần công bố sau đó). Ai cũng bị từ chối, kể cả người có `document.publish`, bằng
+ * {@see DocumentGroupNotChangeable::referencedByBillingRecord()}.
  */
 class RegroupDocument
 {
@@ -119,6 +126,15 @@ class RegroupDocument
 
             if ($from === DocumentGroup::Internal) {
                 Gate::forUser($actor)->authorize('publish', $fresh);
+
+                // Bằng chứng tiền không rời nhóm D (docblock lớp, mục cuối). Hỏi SAU cổng quyền như
+                // `RetractDocument` và `DocumentPolicy::delete`. Khoá dòng `documents` ở trên là đủ:
+                // `RecordPayment`/`AmendContract` cũng khoá đúng dòng này trước khi gắn tệp, và chỉ
+                // gắn khi tệp còn ở nhóm D — nên lần gắn chạy trước thì câu hỏi này thấy nó, lần
+                // gắn chạy sau thì thấy tệp đã ra khỏi D và từ chối.
+                if ($fresh->isReferencedByBillingRecord()) {
+                    throw DocumentGroupNotChangeable::referencedByBillingRecord();
+                }
             }
 
             // R9 mở rộng (vòng sửa 1): rời khỏi nhóm B SANG A HOẶC C — không áp dụng khi nhóm
