@@ -725,19 +725,23 @@ Dùng `spatie/laravel-permission`. Quyền đặt tên dạng `<resource>.<actio
 >
 > **`contract.manage` cũng là quyền đổi số tiền của từng đợt** qua phụ lục, kèm lý do, có dấu vết.
 >
+> **Đính chính 2026-10-03 (M9 Task 13, phán quyết rà soát Task 3) — miễn một đợt cũng thuộc `contract.manage`.** Miễn một đợt thanh toán (`WaiveInstalment`, lý do ≥ 20 ký tự) là xoá một khoản nợ, tức một quyết định thương mại về hợp đồng, không phải việc ghi tiền: `InstalmentPolicy::waive` đòi `contract.manage` cộng "thấy tiền của vụ" (định nghĩa trên) — luật sư phụ trách, quản lý, admin; **kế toán không miễn được** (họ có `payment.record`, không có `contract.manage`). Huỷ một đợt của hợp đồng đang hiệu lực thì không có quyền riêng: nó chỉ đi qua phụ lục (`AmendContract`), cũng dưới `contract.manage`.
+>
 > **Đính chính 2026-10-03 (M9 Task 10, rà soát vòng 1) — tải gói bàn giao là đọc tiền.** Từ M9, `MUC-LUC.pdf` trong gói bàn giao in "Bảng kê thanh toán" (§6.12). Gói là một tài liệu nhóm B của vụ, nên trước bản sửa mọi nhân sự có `matter.view` trên vụ — kể cả **trợ lý** trong đội, vai trò không có `billing.view` — tải được gói và đọc được toàn bộ tiền của vụ. Nay `DocumentPolicy::download` của nhân sự đòi thêm, **chỉ cho các version của gói bàn giao** và **chỉ khi vụ có hợp đồng đã từng ký** (khác `draft` — kể cả `cancelled`, vì gói dựng trước lần huỷ vẫn in bảng kê): người tải phải thấy được tiền của vụ theo đúng định nghĩa trên (`ContractPolicy::view`). Không có định nghĩa thứ hai. Người không tải được gói vẫn thấy dòng gói (tên, version) trên tab Tài liệu, chỉ mất nút "Tải"; mọi tài liệu khác của vụ, và gói của vụ chưa từng có hợp đồng đã ký, không đổi luật. Khách không chịu điều kiện này (bảng kê là thứ §5 phần Portal cho khách xem về vụ của chính họ).
 
-**Mang sang M11, ghi 2026-09-24 (M9 Task 3).** Dữ liệu tiền là dữ liệu nhạy cảm
-("tài chính", Nghị định 356/2025). Bảng R4 của kế hoạch M11
-(`docs/superpowers/plans/2026-09-24-m11-mcp.md`, "Các loại dữ liệu không bao giờ
-rời hệ thống qua MCP") thêm một dòng: **tiền của vụ việc — không bao giờ**
-(`contracts`, `instalments`, `payments`, `contract_amendments`), kể cả với người
-được xem tiền đó trên web. Presenter theo danh sách cho phép của M11 đã loại bốn
-model này theo mặc định; M11 thêm một test cấu trúc khẳng định không tool hay
-presenter nào dưới `app/Mcp` / `app/Support/Mcp` tham chiếu `Contract`,
-`Instalment`, `Payment`, `ContractAmendment`. M9 Task 3 không viết được test đó vì
-lúc ấy thư mục MCP chưa tồn tại; việc chép dòng này vào bảng R4 ghi ở PROGRESS
-(M9 Task 13).
+**Mang sang M11, ghi 2026-09-24 (M9 Task 3), viết lại 2026-10-03 (M9 Task 13).** Dữ liệu
+tiền là dữ liệu nhạy cảm ("tài chính", Nghị định 356/2025): **tiền của vụ việc không bao giờ
+rời hệ thống qua MCP** (`contracts`, `instalments`, `payments`, `contract_amendments`, và
+khung `time_entries`), kể cả với người được xem tiền đó trên web. Đây là một YÊU CẦU cho M11,
+chưa phải một sự thật của mã: M9 gộp vào `main` TRƯỚC M11 (thứ tự thực tế khác thứ tự đã chốt),
+và ngày 2026-10-03 nhánh `m11-mcp-server` chưa có dòng này. M11 phải (1) thêm dòng "tiền của vụ
+việc — không bao giờ" vào bảng R4 của kế hoạch M11 (`docs/superpowers/plans/2026-09-24-m11-mcp.md`,
+"Các loại dữ liệu không bao giờ rời hệ thống qua MCP"); (2) không liệt kê năm model đó trong
+presenter theo danh sách cho phép (R4 cài bằng danh sách cho phép, nên "không liệt kê" là đủ để
+chúng không ra); (3) thêm một test cấu trúc khẳng định không tool hay presenter nào dưới
+`app/Mcp` / `app/Support/Mcp` tham chiếu `Contract`, `Instalment`, `Payment`,
+`ContractAmendment`, `TimeEntry`. M9 không viết được test đó vì thư mục MCP chưa có trên `main`;
+việc mang sang ghi ở PROGRESS ("Ghi chú M9", làn m9f, Task 13).
 
 Cài bằng Policy cho từng model. `MatterPolicy::view()` kiểm tra: người dùng có
 `matter.viewAny`, **hoặc** có bản ghi trong `matter_user`. Vụ việc
@@ -962,6 +966,18 @@ chạy 08:00 hằng ngày (một lần mỗi ngày, không lặp trong ngày nh�
 - Thư hỏng để lại dòng `failed` trong `outbound_messages`, không chặn người nhận khác, không
   gây lỗi 500; không có thông báo trong ứng dụng khi hỏng hẳn (khác nhắc hạn) vì tác vụ chạy
   lại mỗi ngày.
+
+**Đính chính 2026-10-03 (M9 Task 6, ghi ở Task 13) — tác vụ hằng ngày thứ hai của tiền.**
+`ReconcileStageTriggeredInstalments` chạy 07:00 hằng ngày (`instalments.reconcile-stage`,
+`withoutOverlapping(60)`), TRƯỚC lượt nhắc quá hạn 08:00: một đợt vừa được đối chiếu kích hoạt
+với hạn ghi lùi được nhắc ngay sáng đó. Nó là lưới an toàn cho đợt thanh toán theo giai đoạn —
+bình thường đợt đến hạn ngay khi luật sư chuyển giai đoạn (sự kiện `MatterStageChanged` của M7 →
+listener → `TriggerInstalmentsForStage`), lúc kích hoạt hợp đồng, hoặc lúc ký phụ lục thêm đợt
+cho giai đoạn vụ đã qua; tác vụ này bắt những lần lỡ (một lần kích hoạt hỏng, dòng `stage_logs`
+ghi thẳng không qua `TransitionMatterStage`). Nó chỉ đọc dòng `stage_logs` có thật: một giai
+đoạn vụ chưa từng có dòng nào VÀO (vụ nhập thẳng vào giữa chừng lúc bắt đầu dùng hệ thống) không
+bao giờ kích hoạt đợt của nó — `docs/QUY-TRINH.md`, "Nhập hợp đồng đang chạy". Không gửi thư,
+không xếp hàng đợi; lỗi của một cặp (vụ, giai đoạn) được báo và không chặn các cặp khác.
 
 ### 6.9 Nhắc khách bổ sung giấy tờ — `RemindMissingDocuments`
 
@@ -1491,6 +1507,16 @@ thẻ hồ sơ ở cổng; M6.5 không viết mẫu thư này (R1).
    (`UpdatePortalAccount`), nên với `main` M7 chỉ thêm một ĐƯỜNG ghi thứ hai cho nó
    (`ExpireClientAccess`), không thêm khoá mới — chín sự kiện mới so với `main`. Gói bàn giao
    (Task 4) là đường "xuất dữ liệu" thứ hai mà đính chính M8 Task 3 ở trên báo trước.
+
+   **Đính chính 2026-10-03 (§10.6, M9 — ghi ở Task 13).** M9 thêm 11 sự kiện `Audit::record()`
+   cho tiền, đếm bằng mọi literal `Audit::record('…'` trong `app/Actions/Billing/`; cả 11 có nhãn
+   trong `lang/vi/activity.php`: `contract_drafted`, `contract_draft_updated`,
+   `contract_draft_deleted`, `contract_activated`, `contract_amended`, `contract_completed`,
+   `contract_cancelled`, `payment_recorded`, `payment_voided`, `instalment_waived` — người làm là
+   causer — và `instalment_triggered` (Task 6): đợt theo giai đoạn đến hạn là hệ quả của một lần
+   chuyển giai đoạn, không phải quyết định của ai, nên dòng này **không causer** (trang nhật ký
+   hiện "Hệ thống"); nguồn gốc ở `properties.stage_log_id` → `stage_logs.created_by`. Dòng tiền
+   trên trang nhật ký chỉ hiện cho người có `billing.view` (`ActivityOwningMatter`, P3).
 7. 2FA bắt buộc cho toàn bộ tài khoản nội bộ. Không có tuỳ chọn tắt.
 8. `spatie/laravel-backup` cấu hình sao lưu hằng ngày cả CSDL lẫn thư mục tệp,
    đẩy ra một disk ngoài máy chủ (S3 hoặc tương đương), giữ 30 bản.
@@ -1616,6 +1642,17 @@ Seeder tham chiếu vẫn **chỉ thêm**; danh mục mẫu chỉ được seed 
 mẫu nào (kể cả đã xoá), nên máy chủ mà văn phòng đã tự soạn danh mục cho một loại thì giữ
 nguyên danh mục đó. Máy chủ đã có dữ liệu đổi tên bốn loại cũ bằng một migration dữ liệu
 chỉ đổi khi tên hiện tại đúng bằng tên seed cũ.
+
+**Bổ sung 2026-10-03 (M9 Task 13) — tiền mẫu.** `BillingSeeder`, gọi cuối `DemoDataSeeder` (chỉ
+dữ liệu mẫu, không bao giờ `ReferenceDataSeeder`), dựng hợp đồng, lịch thu và khoản thu qua đúng
+các Action tiền, đủ để mọi màn hình tiền có dữ liệu thật: mọi vụ đã rời giai đoạn đầu có hợp đồng
+đang hiệu lực, một vụ ở "Tiếp nhận" có bản nháp, một vụ cố ý không có hợp đồng; giá trị 15–450
+triệu đồng, thuế 8%, 10% hoặc không có; lịch 30% khi ký / 40% khi nộp đơn / 30% khi xét xử sơ
+thẩm trên ít nhất bốn hợp đồng; đợt quá hạn theo ngày và theo giai đoạn; thu một phần; một lần
+miễn có lý do; một khoản thu đã huỷ kèm lý do; một phụ lục; vụ đã kết thúc còn nợ; vụ `restricted`
+có hợp đồng; một vụ bàn giao có khoản thu trước và sau; khoản thu rải trên ít nhất tám tháng; tổng
+các đợt khớp giá trị hợp đồng tới từng đồng (`billing:check-invariants` sạch). Để có tám tháng,
+vụ mẫu thứ i mở `30 + 12·i` ngày trước (vụ cũ nhất khoảng chín tháng).
 
 ---
 

@@ -777,7 +777,7 @@ SPEC §15: *"Riêng `time_entries` tuy chưa làm ở bản 1.0 nhưng nên tạ
    - Tài liệu bộ công cụ: không có "mục M9"; sửa hàng "Giai đoạn 2 (sau M8)" (`installments` → `instalments`) cho khớp.
 8. **Nghiệm thu:** `bin/dev test` xanh, `bin/dev pint --test` sạch, `bin/dev test:mariadb` xanh **tuần tự**; `security-review` bắt buộc; rà soát toàn nhánh bằng Opus, brief **giả định có một Critical**. Merge vào `main`, push, chờ CI xanh.
 
-- [ ] Test xanh, pint sạch, commit `docs: M9 hoàn tất — hợp đồng dịch vụ và thu phí theo đợt`.
+- [x] Test xanh, pint sạch, commit `docs: M9 hoàn tất — hợp đồng dịch vụ và thu phí theo đợt`. (Làn m9f, 2026-10-03 — dừng ở READY TO MERGE, controller gộp `main`; xem PROGRESS "Ghi chú M9 › Làn m9f › Task 13".)
 
 ---
 

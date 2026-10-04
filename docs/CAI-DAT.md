@@ -398,6 +398,26 @@ biết trước ô chọn loại vụ việc sẽ hiện gì:
   bản cập nhật ô chọn có hai mục gần giống nhau. Quản trị viên tắt "Đang dùng" ở một trong hai
   trong màn hình loại vụ việc; seeder không tự gộp hay xoá loại nào.
 
+**Bản cập nhật M9 (hợp đồng dịch vụ và thu phí theo đợt) làm gì trên máy chủ đã có dữ liệu:**
+
+- `migrate --force` chỉ THÊM năm bảng (`contracts`, `instalments`, `payments`,
+  `contract_amendments`, `time_entries` — bảng cuối chỉ là khung, chưa màn hình nào đọc), không
+  sửa cấu trúc bảng nào đã có.
+- `db:seed --force` (`ReferenceDataSeeder`) tạo bốn quyền mới — `billing.view`, `contract.manage`,
+  `payment.record`, `revenue.viewAny` — và gắn chúng vào vai trò theo bảng SPEC §5. **Bắt buộc**:
+  chưa chạy thì không ai, kể cả quản trị viên, mở được trang Công nợ, trang Doanh thu hay tab
+  "Hợp đồng và thanh toán". Không tạo hợp đồng hay khoản thu nào: tiền mẫu (`BillingSeeder`) chỉ
+  nằm trong `DemoDataSeeder`.
+- Hai tác vụ hằng ngày mới chạy dưới dòng cron sẵn có (không thêm dòng cron nào):
+  `instalments.reconcile-stage` 07:00 (đối chiếu đợt thu theo giai đoạn — lưới an toàn cho lần
+  kích hoạt lỡ) và `instalments.remind` 08:00 (thư nội bộ khi một đợt quá hạn).
+- `php artisan billing:check-invariants` (và dòng "bất biến tiền" của `vkcrm:preflight`): tổng
+  các đợt khớp đúng giá trị hợp đồng trên mọi hợp đồng đang hiệu lực. Trên một máy vừa nâng cấp
+  chưa có hợp đồng nào thì nó báo sạch trên 0 hợp đồng.
+- Văn phòng nhập những hợp đồng đang chạy từ trước theo `docs/QUY-TRINH.md`, Giai đoạn 5, "Nhập
+  hợp đồng đang chạy khi bắt đầu dùng hệ thống" — đặc biệt luật "đợt của giai đoạn đã qua nhập là
+  đến hạn theo ngày".
+
 **Muốn dữ liệu mẫu để demo cho khách trước khi dùng thật** (không phải dữ liệu thật) — đọc hết
 đoạn này TRƯỚC khi chạy lệnh. Dữ liệu mẫu có tám tài khoản nhân sự, cùng mật khẩu `password`,
 và CHƯA tài khoản nào có 2FA: `admin@luatvukhang.com` (Quản trị viên), `quanly@luatvukhang.com`,
@@ -596,6 +616,7 @@ composer install --no-dev --optimize-autoloader
 chown -R www-data:www-data storage bootstrap/cache
 php artisan migrate --force
 php artisan db:seed --force
+php artisan billing:check-invariants
 php artisan optimize:clear
 php artisan vkcrm:preflight
 php artisan optimize
@@ -605,7 +626,12 @@ php artisan up
 - `php artisan down` trả trang bảo trì (503) cho mọi người trong lúc cập nhật, để không ai ghi dữ
   liệu giữa chừng một migration.
 - `db:seed --force` an toàn để chạy lại (Bước 5) và NÊN chạy: bản mới có thể thêm quyền hay loại vụ
-  việc.
+  việc (bản M9 thêm bốn quyền tiền — không chạy thì không ai mở được màn hình tiền, xem Bước 5).
+- `billing:check-invariants` in bảng những hợp đồng đang hiệu lực mà tổng các đợt lệch giá trị hợp
+  đồng (mã thoát 1). `vkcrm:preflight` ngay sau cũng ĐỎ vì cùng lý do. Dòng ĐỎ này là DỮ LIỆU,
+  không phải cấu hình máy, và chỉ sửa được trong app: vẫn `up`, rồi luật sư phụ trách ký ngay một
+  phụ lục cho từng hợp đồng trong bảng (màn hình tiền, công nợ, doanh thu tính sai hợp đồng đó cho
+  tới khi sửa); chạy lại lệnh cho tới khi sạch. Mọi dòng ĐỎ khác của preflight vẫn chặn `up`.
 - Preflight ĐỎ thì sửa trước khi `php artisan up` — chạy `up` rồi mới phát hiện là mở cổng trên
   một cấu hình hỏng.
 - Đọc phần ghi chú nâng cấp của bản mới trong `docs/PROGRESS.md` TRƯỚC khi chạy: một bản có thể
@@ -642,6 +668,13 @@ Giữ **3 × `innodb_lock_wait_timeout` < thời gian chờ của máy chủ web
 
 Bình thường một lần ghi tiền khoá dòng vài phần nghìn giây; chờ lâu chỉ xảy ra khi một việc dài
 khác đang giữ khoá dòng vụ việc cùng lúc.
+
+**Phiên bản MariaDB cho bộ test (M9).** Test hai kết nối của `DraftContract`
+(`MoneyTransactionConcurrencyTest`) đo hành vi khoá của MariaDB ≥ 11.6 (`innodb_snapshot_isolation`
+bật mặc định từ bản đó). Trên MariaDB 10.11 hay MySQL 8 test đó đỏ mà mã không sai. CI
+(`.github/workflows/ci.yml`) và `compose.yaml` dùng ảnh `mariadb:11` (bản 11.x mới nhất) — đừng hạ
+xuống 10.x. `AmendContract` chưa có test hai kết nối; thứ tự khoá của nó có ở
+`BillingLockOrderTest`.
 
 ## Giới hạn đã biết
 
