@@ -24,7 +24,10 @@ use Tests\Support\McpOAuth;
 beforeEach(function () {
     McpOAuth::useTestKeys();
     $this->seed(RolesAndPermissionsSeeder::class);
-    $this->staff = User::factory()->withRole(Role::Lawyer)->withoutTwoFactor()->create();
+    // Task 6: người này đủ mọi điều kiện của `EnsureMcpAccess` (công tắc mở, `ai_access`, cam kết R12),
+    // để mọi 401 ở `/mcp` dưới đây là vì cookie, không vì một điều kiện của Task 6.
+    McpOAuth::openServer();
+    $this->staff = User::factory()->withRole(Role::Lawyer)->withoutTwoFactor()->withAiAccess()->create();
 });
 
 /** @return array<string, string> */

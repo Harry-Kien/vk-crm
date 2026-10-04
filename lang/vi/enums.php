@@ -34,6 +34,29 @@ return [
         'web' => 'Nhập trên web',
         'mcp' => 'Tạo qua AI',
     ],
+    // M11 R2 (Task 6): App\Enums\AiAccessMode — công tắc truy cập qua AI theo người (`users.ai_access`).
+    'ai_access_mode' => [
+        'off' => 'Tắt',
+        'read' => 'Chỉ đọc',
+        'read_write' => 'Đọc và ghi',
+    ],
+    // M11 R2/R12 (Task 6): App\Enums\McpAccessRefusal — vì sao một nhân sự chưa dùng được máy chủ AI.
+    // Màn hình đồng ý OAuth (Task 4) hiện nguyên câu cho chính người đó.
+    'mcp_access_refusal' => [
+        'inactive' => 'Tài khoản của bạn đang bị vô hiệu hoá.',
+        'ai_access_off' => 'Quản trị chưa bật truy cập qua AI cho tài khoản của bạn.',
+        'server_disabled' => 'Máy chủ AI của văn phòng đang tắt.',
+        'policy_not_acknowledged' => 'Bạn chưa cam kết chính sách dùng AI phiên bản hiện hành (trang "Kết nối AI của tôi").',
+    ],
+    // M11 R8 (Task 6): App\Enums\AiRevocationReason — vì sao mọi kết nối AI của một nhân sự bị thu hồi.
+    'ai_revocation_reason' => [
+        'ai_access_off' => 'Tắt truy cập qua AI',
+        'deactivated' => 'Vô hiệu hoá tài khoản',
+        'role_changed' => 'Đổi chức danh hoặc vai trò',
+        'password_changed' => 'Đổi mật khẩu',
+        'two_factor_reset' => 'Đặt lại 2FA',
+        'deleted' => 'Xoá tài khoản',
+    ],
     'checklist_item_status' => [
         'missing' => 'Chưa nộp',
         'pending_review' => 'Chờ kiểm tra',

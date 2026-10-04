@@ -55,6 +55,12 @@ return [
         'matter_portal_publication_set' => 'Đổi trạng thái công bố portal',
         // M11 R9 (Task 7): App\Actions\Matter\SetMatterAiAccess.
         'matter_ai_access_changed' => 'Đổi truy cập qua AI của vụ việc',
+        // M11 R2/R8/R12 (Task 6): App\Actions\Mcp\{SetUserAiAccess,RevokeAiConnections,AcknowledgeAiPolicy}.
+        // Chủ thể là nhân sự; `ai_access_changed` mang `from`/`to` (và `reason` khi hệ thống hạ về
+        // `off`), `ai_connections_revoked` mang `reason` và số token mỗi loại — không token nào.
+        'ai_access_changed' => 'Đổi quyền truy cập qua AI của nhân sự',
+        'ai_connections_revoked' => 'Thu hồi kết nối AI của nhân sự',
+        'ai_policy_acknowledged' => 'Cam kết chính sách dùng AI',
         // App\Actions\Matter\{AddTeamMember,RemoveTeamMember} (M6.5 Task 3, fix round 1, "also
         // fix": thiếu hai khoá này khiến ActivityLogPage hiện nguyên văn khoá sự kiện tiếng Anh).
         'team_member_added' => 'Thêm thành viên đội ngũ',

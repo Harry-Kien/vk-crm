@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Actions\User\ResetStaffTwoFactor;
+use App\Enums\AiAccessMode;
 use App\Enums\Role;
 use App\Enums\UserPosition;
 use Database\Factories\UserFactory;
@@ -85,6 +86,17 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
         'two_factor_recovery_codes',
     ];
 
+    /**
+     * M11 R2 (Task 6): khớp mặc định của cột `users.ai_access`, để một `User` chưa lưu cũng đọc ra
+     * `AiAccessMode::Off`. Cột cố ý KHÔNG nằm trong `$fillable` — form sửa nhân sự (và mọi `fill()`)
+     * không đặt được nó; chỉ `SetUserAiAccess` / `RevokeAiConnections` đổi nó.
+     *
+     * @var array<string, mixed>
+     */
+    protected $attributes = [
+        'ai_access' => 'off',
+    ];
+
     protected function casts(): array
     {
         return [
@@ -92,6 +104,7 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
             'password' => 'hashed',
             'position' => UserPosition::class,
             'is_active' => 'boolean',
+            'ai_access' => AiAccessMode::class,
             'session_epoch' => 'integer',
             'last_login_at' => 'datetime',
             'two_factor_confirmed_at' => 'datetime',
@@ -102,6 +115,16 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
             'two_factor_secret' => 'encrypted',
             'two_factor_recovery_codes' => 'encrypted:array',
         ];
+    }
+
+    /**
+     * Lời cam kết chính sách dùng AI của người này, mỗi phiên bản chính sách một dòng (M11 R12).
+     *
+     * @return HasMany<AiAcknowledgement, $this>
+     */
+    public function aiAcknowledgements(): HasMany
+    {
+        return $this->hasMany(AiAcknowledgement::class);
     }
 
     public function leadMatters(): HasMany

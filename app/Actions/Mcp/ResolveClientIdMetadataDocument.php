@@ -4,6 +4,7 @@ namespace App\Actions\Mcp;
 
 use App\Http\Middleware\Mcp\RequireConsentForMetadataDocumentClients;
 use App\Support\Mcp\McpClientRepository;
+use App\Support\Mcp\McpSwitches;
 use App\Support\Mcp\MetadataDocumentFetcher;
 use App\Support\Mcp\RedirectUriAllowlist;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -22,7 +23,7 @@ use Laravel\Passport\Passport;
  * `://` (`/oauth/authorize`, `/oauth/token`); lớp này là nơi DUY NHẤT quyết URL nào được nhận.
  *
  * Trả `null`, theo thứ tự kiểm, khi:
- * 1. cờ {@see self::enabled()} tắt (mặc định). Không tải gì;
+ * 1. {@see self::enabled()} sai: cờ tắt (mặc định), hoặc công tắc `mcp.enabled` tắt. Không tải gì;
  * 2. URL không đúng hình dạng ({@see self::isAcceptableUrl()}): không phải `https://` + host
  *    trong `vkcrm.mcp.client_id_metadata_hosts` (đúng chuỗi, chữ thường, không tên miền con) + đường
  *    dẫn gồm các đoạn chữ an toàn, không `.`/`..`; có cổng, thông tin người dùng, query, fragment, mã
@@ -81,10 +82,15 @@ class ResolveClientIdMetadataDocument
 
     public function __construct(private readonly MetadataDocumentFetcher $fetcher) {}
 
-    /** Cờ `vkcrm.mcp.client_id_metadata_documents` (`MCP_CLIENT_ID_METADATA_DOCUMENTS`), mặc định tắt. */
+    /**
+     * Cờ `vkcrm.mcp.client_id_metadata_documents` (`MCP_CLIENT_ID_METADATA_DOCUMENTS`), mặc định tắt,
+     * VÀ công tắc toàn hệ thống `mcp.enabled` ({@see McpSwitches}, Task 6): khi văn phòng tắt máy chủ
+     * MCP thì AS metadata không quảng bá CIMD và máy chủ không tải tài liệu nào. Cờ đọc trước (không
+     * chạm CSDL khi cờ tắt).
+     */
     public static function enabled(): bool
     {
-        return config('vkcrm.mcp.client_id_metadata_documents') === true;
+        return config('vkcrm.mcp.client_id_metadata_documents') === true && McpSwitches::enabled();
     }
 
     public static function isAcceptableUrl(string $url): bool

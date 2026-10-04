@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Mcp;
 use App\Actions\Mcp\RegisterMcpClient;
 use App\Exceptions\McpRedirectUriNotAllowed;
 use App\Support\Mcp\McpEndpoint;
+use App\Support\Mcp\McpSwitches;
 use App\Support\Mcp\RedirectUriAllowlist;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -38,6 +39,11 @@ use Laravel\Mcp\Server\Registrar;
  * `error_description` là chữ ASCII tiếng Anh, không qua `lang/vi`: RFC 7591 §3.2.2 định nghĩa nó là
  * "Human-readable ASCII text ... used for debugging", đọc bởi người viết client (rà soát Task 2, m1).
  *
+ * Công tắc toàn hệ thống `mcp.enabled` tắt ({@see McpSwitches}, Task 6): 403 `access_denied`, TRƯỚC
+ * mọi bước khác, không tạo client nào (rà soát Task 3, m5). RFC 7591 không có mã riêng cho "đăng ký
+ * đang đóng"; `access_denied` là mã OAuth gần nhất, và 403 (không phải 400) nói rằng gửi lại cùng nội
+ * dung cũng không được.
+ *
  * Throttle theo IP: {@see self::REGISTRATIONS_PER_HOUR} lần một giờ, đếm MỌI lần gọi kể cả lần hỏng
  * (limiter {@see self::RATE_LIMITER}, đăng ký ở `AppServiceProvider::boot()`); quá thì 429 kèm
  * `Retry-After` và `X-RateLimit-*` ({@see self::tooManyRegistrations()}). DCR tạo một client mới ở MỖI
@@ -59,6 +65,15 @@ final class RegisterClientController
 
     public function __invoke(Request $request, RegisterMcpClient $register): JsonResponse
     {
+        // M11 R2 (Task 6): máy chủ MCP đang tắt thì không nhận đăng ký nào, trước cả bước kiểm tra
+        // đầu vào — không ghi dòng `oauth_clients` nào khi văn phòng không dùng MCP.
+        if (! McpSwitches::enabled()) {
+            return response()->json([
+                'error' => 'access_denied',
+                'error_description' => 'The MCP server of this office is turned off. Client registration is closed.',
+            ], 403);
+        }
+
         // `required` loại cả thiếu lẫn danh sách rỗng; `list` loại chuỗi và đối tượng có khoá.
         $validator = Validator::make($request->all(), [
             'redirect_uris' => ['required', 'list', 'max:'.self::MAX_REDIRECT_URIS],

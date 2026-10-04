@@ -33,6 +33,8 @@ const DCR_CLAUDE = 'https://claude.ai/api/mcp/auth_callback';
 beforeEach(function () {
     McpOAuth::useTestKeys();
     $this->seed(RolesAndPermissionsSeeder::class);
+    // Task 6: công tắc toàn hệ thống mở (tắt thì `/oauth/register` trả 403 — AccessControlTest).
+    McpOAuth::openServer();
 });
 
 /**
@@ -462,7 +464,7 @@ it('R7 loopback localhost: authorize phải dùng đúng cổng đã đăng ký 
 */
 
 it('R2/R7 client không mang cờ is_mcp (tạo bằng passport:client) cầm token hợp lệ gọi /mcp: 401 invalid_token; cùng người, client DCR: 200', function () {
-    $user = User::factory()->withRole(Role::Lawyer)->create();
+    $user = User::factory()->withRole(Role::Lawyer)->withAiAccess()->create();
 
     Artisan::call('passport:client', ['--public' => true, '--name' => 'Thu cong', '--redirect_uri' => DCR_CLAUDE]);
     $manual = Passport::client()->newQuery()->where('name', 'Thu cong')->firstOrFail();
@@ -480,7 +482,7 @@ it('R2/R7 client không mang cờ is_mcp (tạo bằng passport:client) cầm to
 });
 
 it('R2/R7 cờ is_mcp được kiểm ở MỖI request, không lúc cấp token: gỡ cờ thì token đang sống nhận 401 ở request kế tiếp', function () {
-    $user = User::factory()->withRole(Role::Lawyer)->create();
+    $user = User::factory()->withRole(Role::Lawyer)->withAiAccess()->create();
     $client = dcrClient(dcrRegister([DCR_CLAUDE])->assertCreated());
     $token = McpOAuth::accessToken($this, $user, $client);
 

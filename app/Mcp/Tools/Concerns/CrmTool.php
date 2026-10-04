@@ -2,6 +2,9 @@
 
 namespace App\Mcp\Tools\Concerns;
 
+use App\Models\User;
+use App\Support\Mcp\McpAccess;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Lang;
 use Laravel\Mcp\Server\Contracts\Annotation;
 use Laravel\Mcp\Server\Tool;
@@ -33,12 +36,44 @@ use ReflectionClass;
  *   thật duy nhất là `writes()`.
  *
  * Tool con khai `protected string $name` (snake_case `[a-z0-9_]`, ≤ 64 ký tự [DC:30]), `writes()`
- * và `handle()`.
+ * và `handle()`. Không khai `shouldRegister()`: lớp này quyết định tool ghi đăng ký cho ai (R13,
+ * Task 6). Mọi lần gọi tool đi qua `App\Mcp\Methods\CallCrmTool` của `CrmServer` — chỗ duy nhất
+ * kiểm lại quyền ghi (và, từ Task 8, ghi audit, áp rate limit) cho mọi tool mà không cần mã riêng
+ * trong tool nào.
  */
 abstract class CrmTool extends Tool
 {
     /** `true` cho bốn tool ghi của R5, `false` cho mọi tool đọc. */
     abstract protected function writes(): bool;
+
+    /** {@see self::writes()} cho bên ngoài lớp (bước gọi tool `CrmToolInvoker`); con không khai lại. */
+    final public function isWriteTool(): bool
+    {
+        return $this->writes();
+    }
+
+    /**
+     * R13 (Task 6): tool ghi chỉ được ĐĂNG KÝ — có trong `tools/list`, và tìm thấy được ở
+     * `tools/call` — cho người ghi được qua MCP ngay lúc này ({@see McpAccess::canWrite()}:
+     * `read_write`, công tắc `mcp.write_enabled` bật). Người `read` không được mời gọi tool mà họ
+     * không dùng được; gọi thẳng tên tool ghi thì laravel/mcp trả "không tìm thấy". Tool đọc luôn
+     * đăng ký (`EnsureMcpAccess` đã chặn người không được dùng máy chủ).
+     *
+     * laravel/mcp hỏi hàm này ở mỗi request (`Primitive::eligibleForRegistration()`), nên hạ một
+     * người về `read` có hiệu lực ngay request kế tiếp dù client còn giữ danh sách tool cũ [DC:87].
+     * Người dùng đọc từ guard `mcp`, tường minh. Bước gọi tool vẫn kiểm lại quyền ghi
+     * (`App\Mcp\Methods\CrmToolInvoker`): hàm này chỉ quyết định danh sách.
+     */
+    public function shouldRegister(): bool
+    {
+        if (! $this->writes()) {
+            return true;
+        }
+
+        $user = Auth::guard('mcp')->user();
+
+        return $user instanceof User && McpAccess::canWrite($user);
+    }
 
     public function title(): string
     {

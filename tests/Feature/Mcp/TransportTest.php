@@ -2,6 +2,7 @@
 
 use App\Enums\Role;
 use App\Http\Middleware\Mcp\CheckOrigin;
+use App\Http\Middleware\Mcp\EnsureMcpAccess;
 use App\Http\Middleware\Mcp\EnsureMcpClient;
 use App\Http\Middleware\Mcp\EnsureTokenAudience;
 use App\Http\Middleware\Mcp\RequireBearerToken;
@@ -29,6 +30,10 @@ use Tests\Support\McpOAuth;
 beforeEach(function () {
     McpOAuth::useTestKeys();
     $this->seed(RolesAndPermissionsSeeder::class);
+    // Task 6: công tắc toàn hệ thống mở, và `mcpLawyer()` đủ điều kiện của `EnsureMcpAccess` — mọi
+    // từ chối ở tệp này vì thế là vì đúng điều kiện test nêu tên (AccessControlTest đo từng điều
+    // kiện của Task 6).
+    McpOAuth::openServer();
 });
 
 const MCP_LEGACY_VERSION = '2025-11-25';
@@ -80,9 +85,10 @@ function postMcp(array $body, array $headers = [], ?string $token = null): TestR
     return test()->postJson('/mcp', $body, $headers);
 }
 
+/** Luật sư được bật `ai_access` (chỉ đọc) và đã cam kết R12 — đủ điều kiện của `EnsureMcpAccess` (Task 6). */
 function mcpLawyer(): User
 {
-    return User::factory()->withRole(Role::Lawyer)->create();
+    return User::factory()->withRole(Role::Lawyer)->withAiAccess()->create();
 }
 
 /*
@@ -229,7 +235,8 @@ it('R1 /mcp không nằm trong nhóm web: không phiên, không CSRF', function 
         ->and($middleware)->toContain(CheckOrigin::class)
         ->and($middleware)->toContain(RequireBearerToken::class)
         ->and($middleware)->toContain('auth:mcp')
-        ->and($middleware)->toContain(CheckToken::using('mcp:use'));
+        ->and($middleware)->toContain(CheckToken::using('mcp:use'))
+        ->and($middleware)->toContain(EnsureMcpAccess::class);
 
     // Hành vi: request có token hợp lệ, không có mã CSRF nào, không nhận 419 và không được phát
     // cookie phiên.
@@ -239,12 +246,12 @@ it('R1 /mcp không nằm trong nhóm web: không phiên, không CSRF', function 
 });
 
 /*
- * Thứ tự sáu middleware của app trước `POST /mcp` (sau ba middleware của gói): Origin trước mọi bước
+ * Thứ tự bảy middleware của app trước `POST /mcp` (sau ba middleware của gói): Origin trước mọi bước
  * xác thực; xoá cookie `laravel_token` trước guard; `aud` chỉ đọc sau khi guard đã kiểm chữ ký của
  * chính token đó (Task 2); client của token phải mang cờ `is_mcp` (Task 3) — đọc client mà guard vừa
- * gắn cho request; scope cuối cùng.
+ * gắn cho request; scope; rồi điều kiện của NGƯỜI sở hữu token (`EnsureMcpAccess`, Task 6).
  */
-it('R1/R7 sáu middleware của app trước /mcp đứng đúng thứ tự: Origin, chỉ bearer, auth:mcp, aud, client is_mcp, scope', function () {
+it('R1/R7 bảy middleware của app trước /mcp đứng đúng thứ tự: Origin, chỉ bearer, auth:mcp, aud, client is_mcp, scope, quyền truy cập của người', function () {
     $middleware = Route::getRoutes()->match(request()->create('/mcp', 'POST'))->gatherMiddleware();
 
     $ours = array_values(array_filter($middleware, fn ($entry) => in_array($entry, [
@@ -254,6 +261,7 @@ it('R1/R7 sáu middleware của app trước /mcp đứng đúng thứ tự: Ori
         EnsureTokenAudience::class,
         EnsureMcpClient::class,
         CheckToken::using('mcp:use'),
+        EnsureMcpAccess::class,
     ], true)));
 
     expect($ours)->toBe([
@@ -263,6 +271,7 @@ it('R1/R7 sáu middleware của app trước /mcp đứng đúng thứ tự: Ori
         EnsureTokenAudience::class,
         EnsureMcpClient::class,
         CheckToken::using('mcp:use'),
+        EnsureMcpAccess::class,
     ]);
 });
 

@@ -3,7 +3,9 @@
 namespace Tests\Support;
 
 use App\Actions\Mcp\RegisterMcpClient;
+use App\Actions\Settings\WriteSettings;
 use App\Models\User;
+use App\Support\Mcp\McpSwitches;
 use DateTimeImmutable;
 use GuzzleHttp\Psr7\Response as Psr7Response;
 use GuzzleHttp\Psr7\ServerRequest;
@@ -83,8 +85,36 @@ final class McpOAuth
     public static function issueTokens(TestCase $test, User $user, ?Client $client = null, string $scope = 'mcp:use'): array
     {
         $client ??= self::client();
+        ['code' => $code, 'verifier' => $verifier] = self::authorizationCode($user, $client, $scope);
+
+        $response = $test->post('/oauth/token', [
+            'grant_type' => 'authorization_code',
+            'client_id' => $client->getKey(),
+            'redirect_uri' => $client->redirect_uris[0],
+            'code' => $code,
+            'code_verifier' => $verifier,
+        ]);
+
+        $response->assertOk();
+
+        return $response->json();
+    }
+
+    public static function accessToken(TestCase $test, User $user, ?Client $client = null, string $scope = 'mcp:use'): string
+    {
+        return self::issueTokens($test, $user, $client, $scope)['access_token'];
+    }
+
+    /**
+     * Nửa đầu của {@see self::issueTokens()}: một mã uỷ quyền THẬT (dòng `oauth_auth_codes`) cho
+     * người này, CHƯA đổi lấy token — như lúc nhân sự vừa bấm "Đồng ý" và client chưa kịp gọi
+     * `/oauth/token`. Trả kèm `verifier` PKCE để đổi mã sau.
+     *
+     * @return array{code: string, verifier: string}
+     */
+    public static function authorizationCode(User $user, Client $client, string $scope = 'mcp:use'): array
+    {
         ['verifier' => $verifier, 'challenge' => $challenge] = self::pkce();
-        $redirectUri = $client->redirect_uris[0];
 
         $server = app(AuthorizationServer::class);
 
@@ -92,7 +122,7 @@ final class McpOAuth
             (new ServerRequest('GET', url('/oauth/authorize')))->withQueryParams(array_filter([
                 'response_type' => 'code',
                 'client_id' => $client->getKey(),
-                'redirect_uri' => $redirectUri,
+                'redirect_uri' => $client->redirect_uris[0],
                 'scope' => $scope,
                 'state' => Str::random(16),
                 'code_challenge' => $challenge,
@@ -106,22 +136,21 @@ final class McpOAuth
         $location = $server->completeAuthorizationRequest($authRequest, new Psr7Response)->getHeaderLine('Location');
         parse_str((string) parse_url($location, PHP_URL_QUERY), $query);
 
-        $response = $test->post('/oauth/token', [
-            'grant_type' => 'authorization_code',
-            'client_id' => $client->getKey(),
-            'redirect_uri' => $redirectUri,
-            'code' => $query['code'] ?? '',
-            'code_verifier' => $verifier,
-        ]);
-
-        $response->assertOk();
-
-        return $response->json();
+        return ['code' => (string) ($query['code'] ?? ''), 'verifier' => $verifier];
     }
 
-    public static function accessToken(TestCase $test, User $user, ?Client $client = null, string $scope = 'mcp:use'): string
+    /**
+     * Hai công tắc toàn hệ thống của R2 (`mcp.enabled`, `mcp.write_enabled`, bảng `settings`), ghi
+     * qua bước ghi chung `WriteSettings` (Task 15 dựng Action và màn hình của chúng). Mặc định của
+     * hệ thống là TẮT cả hai, nên mọi test gọi `/mcp` thành công phải mở công tắc trước — và người
+     * gọi phải có `ai_access` cùng lời cam kết R12 (`UserFactory::withAiAccess()`).
+     */
+    public static function openServer(bool $enabled = true, bool $write = false): void
     {
-        return self::issueTokens($test, $user, $client, $scope)['access_token'];
+        app(WriteSettings::class)->handle([
+            McpSwitches::ENABLED => $enabled ? McpSwitches::ON : McpSwitches::OFF,
+            McpSwitches::WRITE_ENABLED => $write ? McpSwitches::ON : McpSwitches::OFF,
+        ], null);
     }
 
     /**

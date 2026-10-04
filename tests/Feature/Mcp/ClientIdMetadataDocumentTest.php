@@ -51,6 +51,8 @@ const CIMD_CLAUDE_IP = '160.79.104.10';
 beforeEach(function () {
     McpOAuth::useTestKeys();
     $this->seed(RolesAndPermissionsSeeder::class);
+    // Task 6: CIMD còn đòi công tắc toàn hệ thống `mcp.enabled` (AccessControlTest đo vế tắt).
+    McpOAuth::openServer();
 
     config([
         'app.url' => CIMD_ORIGIN,
@@ -151,9 +153,10 @@ function cimdServe(string $url, array|string $body, int $status = 200, array $he
     )]);
 }
 
+/** Luật sư đủ điều kiện của `EnsureMcpAccess` (Task 6): `ai_access` chỉ đọc, đã cam kết R12. */
 function cimdLawyer(): User
 {
-    return User::factory()->withRole(Role::Lawyer)->create();
+    return User::factory()->withRole(Role::Lawyer)->withAiAccess()->create();
 }
 
 /**

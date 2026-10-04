@@ -37,6 +37,8 @@ const OAUTH_META_RESOURCE = 'https://khachhang.luatvukhang.com/mcp';
 beforeEach(function () {
     McpOAuth::useTestKeys();
     $this->seed(RolesAndPermissionsSeeder::class);
+    // Task 6: công tắc toàn hệ thống mở; `oauthMetaLawyer()` đủ điều kiện của `EnsureMcpAccess`.
+    McpOAuth::openServer();
 
     config([
         'app.url' => OAUTH_META_ORIGIN,
@@ -47,7 +49,7 @@ beforeEach(function () {
 
 function oauthMetaLawyer(): User
 {
-    return User::factory()->withRole(Role::Lawyer)->create();
+    return User::factory()->withRole(Role::Lawyer)->withAiAccess()->create();
 }
 
 /**

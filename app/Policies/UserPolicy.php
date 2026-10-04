@@ -110,6 +110,17 @@ class UserPolicy
     }
 
     /**
+     * M11 R2 (Task 6): đặt chế độ truy cập qua AI (`users.ai_access`) của một nhân sự — chỉ người có
+     * `settings.manage` (`App\Actions\Mcp\SetUserAiAccess`; màn hình "Kết nối AI" ở Task 15). Không có
+     * điều kiện `isNot($model)`: quản trị bật được cho chính mình như cho mọi nhân sự khác, và Action
+     * vẫn từ chối người không giữ được quyền AI (thiếu `matter.view`) hay tài khoản bị vô hiệu hoá.
+     */
+    public function setAiAccess(User|ClientUser $user, User $model): bool
+    {
+        return $user instanceof User && $this->viewAny($user);
+    }
+
+    /**
      * Cổng THÔ của `DeleteBulkAction` trên `ListUsers` (carry-over từ rà soát Task 2, C1-class
      * hole): Filament tự hỏi `deleteAny` cho nút xoá hàng loạt, và một ability KHÔNG có phương
      * thức tương ứng trên policy được coi là CHO PHÉP khi không ở chế độ nghiêm ngặt (mặc định dự

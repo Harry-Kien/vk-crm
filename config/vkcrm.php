@@ -237,6 +237,20 @@ return [
         'matter_default' => env('MCP_MATTER_DEFAULT', 'denied'),
 
         /*
+         * R12 mục 1 (Task 6): phiên bản HIỆN HÀNH của chính sách dùng AI (`docs/CHINH-SACH-AI.md`,
+         * Task 16) mà nhân sự phải cam kết trước khi `/mcp` mở cho họ (`ai_acknowledgements`,
+         * `App\Actions\Mcp\AcknowledgeAiPolicy`). Đổi chuỗi này cùng lúc với mỗi lần sửa văn bản
+         * chính sách: mọi kết nối của mọi nhân sự ngừng ở request kế tiếp, cho tới khi từng người cam
+         * kết lại. Tối đa 20 ký tự (cột `ai_acknowledgements.policy_version`). Để trống (hay dài
+         * hơn) thì không ai cam kết được và `/mcp` đóng với mọi người
+         * (`App\Support\Mcp\McpAccess::policyVersion()`).
+         *
+         * Không có biến `.env`: phiên bản đi cùng văn bản trong mã nguồn, không phải một cấu hình
+         * của máy chủ.
+         */
+        'policy_version' => '2026-10-04',
+
+        /*
          * R10 (Task 9): tên các bên KHÔNG phải khách của văn phòng khi ra khỏi hệ thống qua MCP.
          * `pseudonym` (mặc định): vai + số thứ tự ("Bị đơn 1"); bên là khách của văn phòng vẫn ra bằng
          * tên. `full`: tên thật của mọi bên — chủ văn phòng quyết (câu hỏi mở 3). Chỉ đúng chữ `full`
@@ -265,6 +279,8 @@ return [
          * ({@see \App\Http\Controllers\Mcp\AuthorizationServerMetadataController}), VÀ máy chủ nhận
          * `client_id` dạng URL. Tắt thì không quảng bá, không tải gì, `client_id` URL là
          * `invalid_client`; Claude và ChatGPT tự lùi về DCR [DC:715], [PL:179].
+         * Công tắc toàn hệ thống `mcp.enabled` (bảng `settings`, Task 6) tắt thì CIMD cũng tắt, dù cờ
+         * này bật.
          *
          * MẶC ĐỊNH TẮT: cổng dừng của Task 5 chưa đạt — chưa thử được với Claude thật trên staging
          * (PROGRESS, Ghi chú M11, Task 5). Chỉ bật (`MCP_CLIENT_ID_METADATA_DOCUMENTS=true`) sau khi

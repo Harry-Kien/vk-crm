@@ -5170,3 +5170,131 @@ GFM cho phép HTML thô không còn phần tử nào ngoài `<p>`; autolink emai
 vẫn ra link `mailto:`, ghi ở phần giới hạn. Cả bộ (`--parallel --processes=2`): EXIT 0 — 4236 passed (4227 + 9),
 1 risky, 1 todo, 25 skipped như trước. MariaDB (`UntrustedTextTest`, `PresentersTest`, tuần tự): 83 passed.
 `pint --test`: PASS 928 tệp.
+
+### Task 6 — quyền truy cập theo người (R2), thu hồi (R8), cam kết (R12) (2026-10-04)
+
+**Đã có, kèm test** (`tests/Feature/Mcp/AccessControlTest.php`; sáu tệp test MCP cũ giờ mở công tắc toàn hệ thống
+trong `beforeEach` và dùng nhân sự đủ điều kiện, để mọi 401 của chúng vẫn là vì đúng điều kiện chúng nêu tên):
+- **`users.ai_access`** (`App\Enums\AiAccessMode`: `off` / `read` / `read_write`, nhãn "Tắt" / "Chỉ đọc" / "Đọc và
+  ghi"; migration `2026_10_04_110000_…`, mặc định CỘT `off` — mọi nhân sự có trước M11 không dùng được MCP cho tới
+  khi quản trị bật đích danh). Không nằm trong `User::$fillable` (form sửa nhân sự không đặt được); `$attributes`
+  khớp mặc định cột. Không thêm quyền spatie nào (D3).
+- **`ai_acknowledgements`** (migration `2026_10_04_110100_…`: `user_id` `restrictOnDelete`, `policy_version`
+  string(20), `accepted_at`, `ip_address` string(45), `user_agent` string(500), unique (`user_id`,
+  `policy_version`)); model `AiAcknowledgement` dùng `RestrictedToClientPortal` với `1 = 0` (không sửa danh sách
+  miễn trừ của `PortalCoverageTest`); `AiAcknowledgementPolicy` (quản trị `settings.manage` xem mọi dòng, nhân sự
+  xem dòng của chính mình, khách không bao giờ); `User::aiAcknowledgements()`.
+- **`config('vkcrm.mcp.policy_version')`** = `2026-10-04`, không có biến `.env` (phiên bản đi cùng văn bản chính
+  sách trong mã nguồn — Task 16 đổi nó khi sửa `docs/CHINH-SACH-AI.md`). Trống, không phải chuỗi, hay dài hơn 20 ký
+  tự thì `McpAccess::policyVersion()` trả `null`: không ai cam kết được và `/mcp` đóng với mọi người.
+- **`App\Support\Mcp\McpSwitches`** — đọc `mcp.enabled` và `mcp.write_enabled` từ bảng `settings` (M7 Task 10).
+  Chỉ ĐÚNG chuỗi `'1'` là bật; dòng vắng mặt, `null`, `'0'`, `'true'`, `' 1'` đều tắt. `writeEnabled()` đòi cả
+  hai. Không có Action ghi công tắc ở task này (Task 15, trên `WriteSettings`); test ghi thẳng qua `WriteSettings`.
+- **`App\Support\Mcp\McpAccess`** — một định nghĩa cho mọi nơi hỏi "người này dùng được MCP lúc này không":
+  `refusal(User): ?McpAccessRefusal` theo thứ tự R2 (tài khoản vô hiệu hoá hay xoá mềm → `ai_access = off` hay
+  thiếu `matter.view` → công tắc `mcp.enabled` → cam kết đúng phiên bản), `canWrite()` (dùng được + `read_write` +
+  cả hai công tắc), `canHold()` (`matter.view`). Enum `App\Enums\McpAccessRefusal` có nhãn tiếng Việt cho màn
+  hình đồng ý của Task 4.
+- **`EnsureMcpAccess`** — middleware thứ bảy của `POST /mcp`, ngay sau `CheckToken mcp:use` (điền
+  `TODO(m11-task6-mcp-enabled-switch)` của `routes/ai.php`). Kiểm ở MỖI request: tắt một người, hạ công tắc, đổi
+  phiên bản chính sách thì request kế tiếp của mọi token cũ nhận 401 kèm `WWW-Authenticate … error="invalid_token"`.
+  Điều kiện "client mang cờ mcp" của R2 vẫn là `EnsureMcpClient` (Task 3), scope là `CheckToken`.
+- **R13, hai lớp cho bốn tool ghi.** (1) `CrmTool::shouldRegister()`: tool ghi chỉ có trong `tools/list` (và chỉ
+  tìm thấy ở `tools/call`) cho người `canWrite()` — người `read`, hay mọi người khi `mcp.write_enabled` tắt, gọi tên
+  tool ghi thì nhận lỗi JSON-RPC -32602 "not found" (HTTP 400). (2) `App\Mcp\Methods\CallCrmTool` (thay `tools/call`
+  của gói ở `CrmServer::boot()`) gọi tool qua `App\Mcp\Methods\CrmToolInvoker`: tool không kế thừa `CrmTool` không
+  chạy; tool ghi kiểm lại `canWrite()` ngay trước `handle()`. Từ chối là một kết quả tool `isError: true` mang câu
+  tiếng Việt (`lang/vi/ai_access.php`), `handle()` không chạy. Hạ `read_write` về `read` có hiệu lực ở request kế
+  tiếp dù token cũ còn hạn và client còn giữ danh sách tool cũ.
+- **`App\Actions\Mcp\SetUserAiAccess`** — Gate `UserPolicy::setAiAccess` (= `settings.manage`) hỏi TRƯỚC mọi kiểm tra
+  (người không có quyền nhận `AuthorizationException`, không dò được ai đủ điều kiện); chiều BẬT đòi tài khoản đang
+  hoạt động và `matter.view` (kế toán bị từ chối bằng câu tiếng Việt ở ô `ai_access`); chiều TẮT luôn được; cùng
+  chế độ thì không ghi; mỗi lần đổi một dòng `ai_access_changed` (`from`, `to`, causer tường minh); hạ về `off` thì
+  thu hồi mọi kết nối cùng transaction; hạ `read_write` về `read` thì KHÔNG thu hồi.
+- **`App\Actions\Mcp\AcknowledgeAiPolicy`** — ô `acknowledged` bắt buộc (`ValidationException` khi không tích, trước
+  khi chạm CSDL); khoá dòng `users` trước; cùng phiên bản thì trả lại đúng dòng đã có; IP cắt ở 45, user agent ở 500
+  ký tự, chuỗi rỗng lưu `null`; một dòng audit `ai_policy_acknowledged` (`policy_version`), causer là chính người đó.
+- **`App\Actions\Mcp\RevokeAiConnections`** — khoá dòng `users` (kể cả đã xoá mềm); với lý do hạ quyền
+  (`AiRevocationReason::turnsAccessOff()`: tắt AI, vô hiệu hoá, đổi vai, xoá) đặt `ai_access = off` kèm
+  `ai_access_changed` có `reason`; thu hồi refresh token (qua MỌI access token của người đó), access token, và mã uỷ
+  quyền CHƯA đổi (thiếu bước này, một lần thu hồi ngay sau "Đồng ý" để lọt một cặp token); một dòng
+  `ai_connections_revoked` (`reason`, số dòng VỪA thu hồi mỗi loại) chỉ khi có gì để thu hồi. `$actor` null (lệnh
+  console) ghi dòng nhật ký không causer — không đoán từ phiên `web` đang mở (test). Chạy TRONG transaction của
+  người gọi.
+- **Móc thu hồi, cùng transaction với chính sự kiện** (D8: không có Action vô hiệu hoá / đặt lại mật khẩu trên main):
+  `EditUser::handleRecordUpdate()` — vô hiệu hoá, đổi vai, đặt mật khẩu mới (lý do do
+  `AiRevocationReason::forStaffUpdate()` chọn: vô hiệu hoá > đổi vai > mật khẩu); `EditProfile::handleRecordUpdate()`
+  — nhân sự tự đổi mật khẩu (bọc một transaction, khoá dòng `users` trước); `ResetStaffTwoFactor` (nút "Đặt lại 2FA"
+  và `vkcrm:reset-2fa`); `DeleteStaffMember` (xoá đơn và xoá hàng loạt). Mỗi đường có test qua Livewire (lệnh qua
+  `artisan`), và test "sụp ở bước cuối thì cả thay đổi lẫn token còn nguyên" cho vô hiệu hoá, tự đổi mật khẩu, đặt
+  lại 2FA.
+- **Công tắc tắt cũng chặn đăng ký client**: `POST /oauth/register` trả 403 `access_denied` trước mọi bước, không ghi
+  dòng `oauth_clients` nào (rà soát Task 3, m5); `ResolveClientIdMetadataDocument::enabled()` đòi thêm `mcp.enabled`
+  nên AS metadata thôi quảng bá CIMD và máy chủ không tải tài liệu nào (bàn giao 5 của Task 5).
+- Hạ tầng test: `McpOAuth::openServer(enabled, write)`, `McpOAuth::authorizationCode()` (mã thật chưa đổi;
+  `issueTokens()` dùng lại nó), `UserFactory::withAiAccess($mode)` (chế độ + cam kết đúng phiên bản, đi vòng Action
+  có chủ đích), `AiAcknowledgementFactory`.
+
+**Phán quyết trong task:**
+- **Đổi vai (phán quyết controller):** mọi lần đổi chức danh HAY tập vai spatie trên trang sửa nhân sự hạ `ai_access`
+  về `off` và thu hồi mọi kết nối; định nghĩa "đổi vai" là `RecordStaffPermissionChange::isChange()`, cùng định nghĩa
+  với dòng `permission_changed` — kể cả lần lưu đồng bộ lại một vai lệch chức danh.
+- **Thu hẹp thêm, ngoài chữ kế hoạch:** vô hiệu hoá và xoá cũng hạ `ai_access` về `off`, không chỉ thu hồi token —
+  tài khoản được kích hoạt lại hay khôi phục không mang theo quyền AI cũ. Đổi mật khẩu và đặt lại 2FA chỉ thu hồi
+  token, giữ chế độ (đó là chuyện thông tin đăng nhập, không phải quyền).
+- **`EnsureMcpAccess` kiểm thêm `matter.view`** (vế còn lại của câu hỏi mở Task 6): bất biến "`ai_access ≠ off` ⇒
+  `matter.view`" có thể vỡ qua đường không đi qua trang sửa nhân sự (seed lại quyền của một vai). Người thiếu quyền
+  nhận 401 thay vì "Không tìm thấy" ở mọi tool.
+- **Xoá mềm là "không hoạt động"** trong `refusal()`: ở `/mcp` provider đã không nạp người xoá mềm (test 401), còn
+  màn hình đồng ý của Task 4 hỏi qua phiên `web`.
+- **Tool ghi vắng khỏi `tools/list` cả khi `mcp.write_enabled` tắt**, không chỉ với người `read`: AI không được mời
+  gọi tool không dùng được.
+- **DCR khi tắt: 403 `access_denied`.** RFC 7591 không có mã cho "đăng ký đang đóng"; mô tả lỗi ASCII tiếng Anh như
+  các lỗi DCR khác.
+- "Gửi form cam kết không tích: lỗi validation" đo ở tầng Action; màn hình là của Task 15.
+- Migration đặt tiền tố `2026_10_04_11NNNN_` (sau migration cuối của main `2026_10_04_000001_…`).
+- Chuỗi mới ở tệp riêng `lang/vi/ai_access.php`; nhãn enum và sự kiện ở khối M11 riêng của `enums.php`,
+  `activity.php` (giảm đụng độ với làn m11b).
+
+**Lệch và khoảng hở:**
+- Một lần làm mới đang chạy ĐÚNG lúc thu hồi (league đọc refresh token cũ không khoá) vẫn cấp được một cặp token
+  mới. Với vô hiệu hoá, đổi vai, xoá và tắt AI, `EnsureMcpAccess` vẫn chặn cặp đó (nó đọc trạng thái người); với đổi
+  mật khẩu và đặt lại 2FA thì cặp đó sống tới khi hết hạn hay bị thu hồi lần nữa. Không đóng được mà không sửa
+  Passport.
+- `ExecuteTools` / `ToolSearch` của laravel/mcp gọi `ToolInvoker` trực tiếp, đi vòng `CallCrmTool`: không được đăng
+  ký trên `CrmServer` (Task 14 nên ghim bằng luật cấu trúc).
+- `/oauth/token` vẫn làm mới được khi công tắc tắt; token mới vẫn bị `/mcp` chặn. Màn hình đồng ý từ chối khi công
+  tắc tắt là việc của Task 4.
+
+**Bàn giao:**
+- **Task 4:** màn hình đồng ý hỏi `McpAccess::refusal($user)` và hiện `McpAccessRefusal::label()`; điều kiện 2FA và
+  `ClientUser` là của Task 4.
+- **Task 8 (và làn m11b):** audit `mcp_tool_called` và rate limit gắn ở `CallCrmTool` / `CrmToolInvoker` — chỗ duy
+  nhất mọi `tools/call` đi qua; tool không viết mã audit hay rate limit riêng. Lần từ chối của `EnsureMcpAccess` xảy
+  ra trước khi có thông điệp JSON-RPC nào; Task 8 quyết có ghi nó không.
+- **Task 13:** tool ghi chỉ khai `writes(): true`; không tự kiểm chế độ hay công tắc, không khai `shouldRegister()`.
+- **Task 15:** Action ghi hai công tắc trên `WriteSettings` (kèm quyền và audit); trang "Kết nối AI" gọi
+  `SetUserAiAccess`; "Kết nối AI của tôi" gọi `AcknowledgeAiPolicy` (truyền `request()->ip()`, `userAgent()`; ô
+  `acknowledged` không đánh dấu sẵn); thu hồi một kết nối mở rộng `RevokeAiConnections` theo client — thu hồi cả
+  refresh token (rà soát lại Task 3, m2).
+- **Task 16:** đổi `vkcrm.mcp.policy_version` cùng lúc với mỗi lần sửa `docs/CHINH-SACH-AI.md`.
+
+**Kiểm chứng (2026-10-04).** ĐỎ trước khi cài: cả tệp `AccessControlTest` không nạp được (enum `AiAccessMode` chưa có,
+`Pest\Exceptions\DatasetMissing`). XANH: 86 test trong tệp. Tám mươi mốt phép mutation, mỗi phép bỏ hay đổi đúng một
+điều kiện, chạy trên đúng nhóm test nêu tên điều kiện đó; tám mươi phép đỏ rồi khôi phục (đối chiếu md5 từng tệp
+sau khôi phục): middleware có mặt, thứ tự (sau `CheckToken`), cờ `is_mcp`; sáu vế của `refusal()` (vô hiệu hoá, xoá
+mềm, `off`, `matter.view`, công tắc, cam kết); ba vế của `canWrite()`; ba vế của `policyVersion()`; hai bộ lọc cam
+kết (người, phiên bản); đúng chuỗi `'1'`, mặc định tắt, `writeEnabled` đòi cả hai; người rỗng ở middleware, ở
+`shouldRegister()`, ở bước gọi tool; `shouldRegister()`; tool không phải `CrmTool`; kiểm lại quyền ghi;
+`addMethod('tools/call')`; Gate, tài khoản tắt, `matter.view`, chỉ kiểm chiều bật, cùng chế độ, audit, thu hồi khi
+`off` và không thu hồi khi hạ về `read`; `UserPolicy::setAiAccess`; `withTrashed`, hạ quyền khi thu hồi, từng loại
+token và mã, lọc `revoked`, lọc người, audit khi có gì thu hồi, không đoán causer (hai dòng audit), không ghi "off →
+off"; `turnsAccessOff()`, `forStaffUpdate()`; ba vế ở `EditUser`, thu hồi ngoài transaction (`DB::afterCommit`) ở
+`EditUser`, `EditProfile`, `ResetStaffTwoFactor`; bỏ thu hồi ở `EditProfile`, `ResetStaffTwoFactor`,
+`DeleteStaffMember`; vế vai spatie của `isChange()`; DCR và CIMD theo công tắc; `$fillable`, `$attributes`, mặc
+định cột; các điều kiện của `AcknowledgeAiPolicy` (tích, trả dòng đã có và hai bộ lọc, cắt UA/IP, chuỗi rỗng, audit,
+phiên bản hỏng); `1 = 0`; policy cam kết (quyền quản trị, "của chính mình", khách mang cùng số id). Một phép sống
+sót, tương đương: bỏ `$user instanceof User` ở `AiAcknowledgementPolicy::viewAny()` — `ClientUser` không có quyền
+spatie nào nên `can('settings.manage')` vốn sai. Cả bộ (`--parallel --processes=2`): EXIT 0 — 5869 passed (5783 +
+86), 1 risky, 33 skipped như baseline sau gộp main. MariaDB (bảy tệp MCP và sáu tệp người dùng/nhật ký/cổng khách,
+tuần tự): 453 passed. Vòng migration thật (`seed`, `migrate:reset`, `migrate`): EXIT 0. `pint --test`: PASS 1153 tệp.

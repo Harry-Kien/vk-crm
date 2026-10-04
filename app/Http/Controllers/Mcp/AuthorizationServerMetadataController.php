@@ -29,9 +29,10 @@ use Laravel\Mcp\Server\Registrar;
  *   trong nhóm route của Passport ({@see AddIssuerToAuthorizationResponse::isActive()}) — R7: "chỉ khi
  *   đã trả được `iss`".
  * - `client_id_metadata_document_supported: true` CHỈ KHI máy chủ nhận `client_id` dạng URL
- *   ({@see ResolveClientIdMetadataDocument::enabled()}, cờ `vkcrm.mcp.client_id_metadata_documents`):
- *   cùng một cờ quyết cả việc quảng bá lẫn việc nhận (Task 5). Mặc định tắt (cổng dừng của Task 5
- *   chưa đạt): Claude và ChatGPT tự lùi về DCR [DC:715], [PL:179].
+ *   ({@see ResolveClientIdMetadataDocument::enabled()}: cờ `vkcrm.mcp.client_id_metadata_documents` VÀ
+ *   công tắc toàn hệ thống `mcp.enabled` của Task 6): cùng một điều kiện quyết cả việc quảng bá lẫn
+ *   việc nhận (Task 5). Mặc định tắt (cổng dừng của Task 5 chưa đạt): Claude và ChatGPT tự lùi về
+ *   DCR [DC:715], [PL:179].
  *
  * Mọi URL dựng từ cấu hình ({@see McpEndpoint}), không từ host của request; `issuer` bằng đúng
  * `iss` trong phản hồi uỷ quyền và `authorization_servers[0]` của PRM. Không đọc

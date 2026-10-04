@@ -2,7 +2,9 @@
 
 namespace App\Actions\User;
 
+use App\Actions\Mcp\RevokeAiConnections;
 use App\Actions\User\Concerns\GuardsStaffOffboarding;
+use App\Enums\AiRevocationReason;
 use App\Enums\Role;
 use App\Models\User;
 use DomainException;
@@ -94,6 +96,14 @@ use Illuminate\Support\Facades\Gate;
  * actor — xem báo cáo, mục "Tự đánh giá"). Giữ lại làm phòng thủ nhiều lớp CÓ CHỦ ĐÍCH, không phải
  * mã thừa: nếu một vòng sửa tương lai đổi thứ tự (ví dụ actor được đọc lại LỎNG hơn), nhánh này vẫn
  * đứng đó bắt lại đúng luật R7.
+ *
+ * # Thu hồi kết nối AI (M11 R8, Task 6)
+ *
+ * Xoá mềm đã làm token MCP của người đó vô dụng (provider Eloquent không nạp người đã xoá mềm), nhưng
+ * dòng token vẫn "chưa thu hồi" và `UserPolicy::restore()` khôi phục được tài khoản. Nên cùng
+ * transaction với lần xoá, {@see RevokeAiConnections} thu hồi mọi access token, refresh token và mã uỷ
+ * quyền của người đó, và hạ `ai_access` về `off`: một tài khoản được khôi phục không mang theo quyền
+ * AI hay kết nối cũ.
  */
 class DeleteStaffMember
 {
@@ -126,6 +136,9 @@ class DeleteStaffMember
                 }
 
                 $lockedTarget->delete();
+
+                // M11 R8 (Task 6): xem docblock lớp, mục cuối.
+                app(RevokeAiConnections::class)->handle($lockedTarget, AiRevocationReason::Deleted, $lockedActor);
             });
         });
     }

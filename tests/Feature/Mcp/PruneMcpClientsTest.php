@@ -33,6 +33,8 @@ use Tests\Support\McpOAuth;
 beforeEach(function () {
     McpOAuth::useTestKeys();
     $this->seed(RolesAndPermissionsSeeder::class);
+    // Task 6: `/oauth/register` chỉ nhận đăng ký khi công tắc toàn hệ thống mở.
+    McpOAuth::openServer();
 });
 
 /** Client DCR (qua chính Action của `/oauth/register`) tạo cách đây `$days` ngày. */

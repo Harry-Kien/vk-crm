@@ -2,6 +2,7 @@
 
 namespace App\Mcp\Servers;
 
+use App\Mcp\Methods\CallCrmTool;
 use Laravel\Mcp\Server;
 
 /**
@@ -27,9 +28,14 @@ class CrmServer extends Server
      * `instructions` tiếng Việt qua `lang/vi/mcp.php` (R11). Thuộc tính của lớp cha không gọi được
      * `__()`, nên chuỗi được nạp ở `boot()`. `Server::start()` gọi `boot()` trước khi dựng
      * `ServerContext`, và `createContext()` đọc `$this->instructions` ở mỗi lần xử lý một thông điệp.
+     *
+     * `tools/call` đi qua {@see CallCrmTool} (Task 6), không qua `CallTool` của gói: chỗ duy nhất mọi
+     * lần gọi tool đi qua (kiểm lại quyền ghi R13; audit và rate limit của Task 8).
      */
     protected function boot(): void
     {
         $this->instructions = __('mcp.server.instructions');
+
+        $this->addMethod('tools/call', CallCrmTool::class);
     }
 }

@@ -2,6 +2,8 @@
 
 namespace App\Actions\User;
 
+use App\Actions\Mcp\RevokeAiConnections;
+use App\Enums\AiRevocationReason;
 use App\Models\User;
 use App\Support\Audit;
 use Illuminate\Support\Facades\DB;
@@ -19,7 +21,7 @@ use LogicException;
  * `vkcrm:reset-2fa {email}` (`$actor = null`, cho trường hợp admin DUY NHẤT mất cả điện thoại lẫn
  * mã khôi phục — người có quyền vào máy chủ đã ở trong vòng tin cậy).
  *
- * # Ba việc, một transaction, dưới khoá dòng `users` của người bị đặt lại
+ * # Bốn việc, một transaction, dưới khoá dòng `users` của người bị đặt lại
  *
  * 1. **Xoá secret + mã khôi phục** — qua `saveAppAuthenticationSecret(null)`/
  *    `saveAppAuthenticationRecoveryCodes(null)` ({@see User}), KHÔNG gán thẳng thuộc tính. Đây là
@@ -37,6 +39,10 @@ use LogicException;
  * 3. **Đổi `remember_token`** — phiên "ghi nhớ đăng nhập" (cookie sống nhiều ngày, không đi qua
  *    bảng `sessions`) mở lại được một phiên `web` mới chỉ từ cookie đó; đổi token vô hiệu hoá nó
  *    cùng lúc với bước 2.
+ * 4. **Thu hồi mọi kết nối AI** (M11 R8, Task 6) — access token, refresh token, mã uỷ quyền của
+ *    người đó ({@see RevokeAiConnections}). Token MCP không đi qua phiên `web`, nên bước 2 không chạm
+ *    tới chúng; điện thoại mất kèm một máy đang kết nối AI vẫn đọc được hồ sơ nếu thiếu bước này.
+ *    `ai_access` giữ nguyên: người đó kết nối lại sau khi cài 2FA mới.
  *
  * `lockForUpdate()` trên dòng `users` của TARGET (không phải actor): hai lượt đặt lại gần như
  * đồng thời cho cùng một người (một admin bấm nút, một admin khác gõ lệnh console cùng lúc) xếp
@@ -69,6 +75,9 @@ final class ResetStaffTwoFactor
             Audit::record('staff_two_factor_reset', $locked, [
                 'via' => $actor === null ? 'console' : 'admin',
             ], $actor);
+
+            // M11 R8 (Task 6): bước 4 — mọi kết nối AI của người này, cùng transaction.
+            app(RevokeAiConnections::class)->handle($locked, AiRevocationReason::TwoFactorReset, $actor);
         });
     }
 }
