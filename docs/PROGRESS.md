@@ -3204,11 +3204,14 @@ các cột ngoài `$fillable` (hai bảng); dòng `.env.example`.
   tab thành dấu cách), khoảng trắng lạ thành dấu cách; HTML và Markdown LẶP tới khi một lượt không đổi gì (tối đa
   mười lượt, quá thì ra rỗng): bỏ `<script>`/`<style>` cùng nội dung, chú thích, ảnh Markdown thành `[ảnh đã bỏ]`
   (chữ alt qua nhiều dòng, ngoặc vuông lồng nhau, `\]`), định nghĩa link tham chiếu bỏ cả dòng, link Markdown giữ
-  chữ bỏ URL, mọi thẻ; mọi URL còn lại (`scheme://`, `scheme:\`/`scheme:/` mà trình duyệt đọc như `//`, hai gạch
-  xuôi hay ngược ở đầu `//host`/`\\host`/`/\host`/`///host`, `www.`, `data:`/`javascript:`/`vbscript:`/`mailto:`/
-  `blob:`, `http:`/`https:`/`ws:`/`wss:`/`ftp:` không gạch; đường dẫn Windows `C:\…` giữ) thành `[liên kết đã
-  bỏ]` (`lang/vi/mcp.php`, `untrusted.*`); chặn cuối: mọi `](`, `][`, `]:` còn sót được chèn một dấu cách, nên
-  không còn ảnh, link hay định nghĩa link nào theo CommonMark; cắt theo cụm grapheme và gắn `truncated`. Không chuẩn hoá Unicode:
+  chữ bỏ URL, các thẻ mà mẫu `<…>` (không có `<`, `>` bên trong) thấy được; mọi URL còn lại (`scheme://`,
+  `scheme:\`/`scheme:/` mà trình duyệt đọc như `//`, hai gạch xuôi hay ngược ở đầu `//host`/`\\host`/`/\host`/
+  `///host`, `www.`, `data:`/`javascript:`/`vbscript:`/`mailto:`/`blob:`, `http:`/`https:`/`ws:`/`wss:`/`ftp:`
+  không gạch; đường dẫn Windows `C:\…` giữ) thành `[liên kết đã bỏ]` (`lang/vi/mcp.php`, `untrusted.*`); chặn
+  cuối: (a) mọi `](`, `][`, `]:` còn sót được chèn một dấu cách, nên không còn ảnh, link hay định nghĩa link nào
+  theo CommonMark; (b) (vòng sửa 2) một dấu cách sau mọi `<` đứng ngay trước chữ cái ASCII, `!`, `?`, `/`, nên
+  không còn thẻ HTML, chú thích hay autolink URL nào — kể cả thẻ có `<` trong thuộc tính (`<img alt="<" src=…>`)
+  hay thẻ chưa đóng mà mẫu thẻ không thấy; cắt theo cụm grapheme và gắn `truncated`. Không chuẩn hoá Unicode:
   tiếng Việt NFC và NFD ra đúng từng byte, một chữ NFD không bao giờ bị cắt rời khỏi dấu. Biểu thức chính quy thất
   bại (giới hạn PCRE) thì ra chuỗi RỖNG, không ra nguyên văn chưa lọc (test ép lỗi bằng `pcre.backtrack_limit=1`).
 - **`PhoneMask::mask()`** (R4): `'(+84) 912 345 678'` → `***678`; dưới sáu chữ số → `***` (không lộ chữ số nào);
@@ -3259,8 +3262,14 @@ các cột ngoài `$fillable` (hai bảng); dòng `.env.example`.
   250 (đúng độ dài cột), nội dung yêu cầu và trả lời 4000 chữ.
 - **Giới hạn của `UntrustedText`, nói thẳng**: URL viết bằng chữ toàn chiều rộng (`ｈｔｔｐｓ://`) không bị nhận
   ra (không chuẩn hoá NFKC để giữ nguyên NFD); tên miền trần không scheme (`evil.com/x`) và email trần không bị bỏ —
-  không tự tải như ảnh (GFM biến email trần thành link `mailto:`, phải bấm). Chặn cuối chèn dấu cách cả vào chữ
-  thường của khách: `[Ghi chú]: …` thành `[Ghi chú] : …`. Lọc là best-effort; ranh giới thật là R5.
+  không tự tải như ảnh (GFM biến email trần thành link `mailto:`, phải bấm); autolink email có phần trước `@` mở
+  bằng chữ số hay dấu (`<5a@b.example>`) cũng vậy, vì chặn cuối (b) chỉ tách `<` khỏi chữ cái, `!`, `?`, `/`.
+  Chặn cuối chèn dấu cách cả vào chữ thường của khách: `[Ghi chú]: …` giữa dòng thành `[Ghi chú] : …` (ở đầu dòng,
+  có chữ sau `:`, bước định nghĩa link bỏ cả dòng), `a<b` thành `a< b`.
+  URL có xuống dòng chen giữa
+  (`https` + xuống dòng + `://`) hay mang lớp thực thể thứ tư (`https&#58;&#47;&#47;…`) không bị bước URL nhận ra
+  và ra như chữ; không còn thẻ hay ảnh nào quanh nó để tự tải, nhưng một trình hiển thị giải mã thực thể rồi mới
+  tự nhận link có thể biến dạng thực thể thành link bấm được. Lọc là best-effort; ranh giới thật là R5.
 - **Số thứ tự tên giả** đánh theo `id` trong các bên được đưa vào; một bên bị xoá mềm làm số của các bên cùng vai
   sau nó dồn lên ở lần gọi kế — nhãn trong một câu trả lời, không phải định danh.
 - **`get_matter` chưa đủ ở presenter**: năm mốc sắp tới, "Đã nộp X/Y" và số yêu cầu đang mở do Action của Task 10
@@ -3302,3 +3311,20 @@ dòng/lồng/thoát, ảnh dùng nhãn mới, từng nhánh URL mới, chặn cu
 một gạch" sống ở lượt đầu vì nhánh `https?:\S+` che mất nó với `https:` — thêm hai dòng `file:\\host\share`,
 `file:/host` vào test rồi chạy lại thì đỏ. Cả bộ (`--parallel --processes=2`): EXIT 0 — 4227 passed (4210 + 17), 1
 risky, 1 todo, 25 skipped như trước. MariaDB (`UntrustedTextTest`, tuần tự): 42 passed. `pint --test`: PASS 928 tệp.
+
+**Vòng sửa 2 (duyệt lại I1, 2026-10-04): `<img>` mà mẫu thẻ không thấy.** Người duyệt lại cho hai `<img>` ra
+nguyên: `<img alt="<" src="https` + xuống dòng + `://evil.example/…">` (mẫu thẻ `<…>` không chứa `<` nên không
+thấy thẻ có `<` trong thuộc tính; bước URL không thấy scheme có xuống dòng chen giữa, WHATWG bỏ xuống dòng khỏi
+URL) và cùng thẻ đó với `src` mang bốn lớp thực thể (bước giải mã làm ba lớp, trình duyệt giải nốt lớp thứ tư).
+Sửa: chặn cuối thêm phần (b), một dấu cách sau mọi `<` đứng ngay trước chữ cái ASCII, `!`, `?`, `/`
+(`/<(?=[A-Za-z!?\/])/u`): bộ tách từ HTML của WHATWG chỉ mở thẻ, thẻ đóng, chú thích, khai báo, chỉ thị khi một
+trong các ký tự đó đứng ngay sau `<`, và CommonMark cũng vậy với HTML thô và autolink URL. Hai payload ra
+`< img …`. Docblock (bước 4, 5, 6, giới hạn) và lời chú ở mẫu thẻ thôi nói "mọi thẻ HTML còn lại". ĐỎ trước khi
+sửa: 8 trong 9 test mới (dataset tám dòng gồm hai payload, tên thẻ chữ hoa, thẻ chưa đóng, thẻ đóng, khai báo, chỉ
+thị, `a<b`; mỗi dòng đòi không còn `/<[a-z!?\/]/i` và đúng từng byte đầu ra); test thứ chín (giữ `<5`, `<=`, `<3`,
+`< 2`) xanh đúng ý, chống chặn quá tay. XANH: 51 test trong tệp. Bảy phép mutation (bỏ phần (b); bỏ `!`, `?`,
+`/`, chữ hoa, chữ thường khỏi lớp; tách mọi `<`) đều đỏ. Kiểm thêm, không commit: đầu ra đi qua league/commonmark
+GFM cho phép HTML thô không còn phần tử nào ngoài `<p>`; autolink email mở bằng chữ số hay dấu (`<5a@b.example>`)
+vẫn ra link `mailto:`, ghi ở phần giới hạn. Cả bộ (`--parallel --processes=2`): EXIT 0 — 4236 passed (4227 + 9),
+1 risky, 1 todo, 25 skipped như trước. MariaDB (`UntrustedTextTest`, `PresentersTest`, tuần tự): 83 passed.
+`pint --test`: PASS 928 tệp.

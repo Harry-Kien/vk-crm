@@ -25,24 +25,41 @@ use InvalidArgumentException;
  *  4. HTML và Markdown, LẶP cho tới khi một lượt không đổi gì (bỏ một thứ có thể ghép lại thứ khác:
  *     `<im<b>g …>` thành `<img …>`, `![x]<b>(…)` thành `![x](…)`). Mỗi lượt, theo thứ tự: khối
  *     `<script>`/`<style>` cùng nội dung; chú thích HTML; ảnh Markdown (kiểu inline và kiểu tham chiếu)
- *     thành `[ảnh đã bỏ]`; định nghĩa link tham chiếu bỏ cả dòng; link Markdown giữ chữ, bỏ URL; mọi
- *     thẻ HTML còn lại (kể cả autolink `<https://…>`). Chữ của ảnh và link được qua nhiều dòng, chứa
- *     ngoặc vuông lồng nhau cân bằng và `\]`; phần `(…)` dừng ở cuối dòng, nên một `](` không đóng
- *     không nuốt phần còn lại của đoạn văn. Dấu `<` `>` đứng trơ ("số tiền < 5 triệu") được giữ.
- *     Lượt thứ mười mà vẫn còn đổi thì kết quả là chuỗi RỖNG, không phải bản lọc dở;
+ *     thành `[ảnh đã bỏ]`; định nghĩa link tham chiếu bỏ cả dòng; link Markdown giữ chữ, bỏ URL; các
+ *     thẻ HTML còn lại mà mẫu `<…>` (không chứa `<` hay `>` bên trong) thấy được, kể cả autolink
+ *     `<https://…>`. Mẫu đó KHÔNG thấy thẻ có `<` trong giá trị thuộc tính (`<img alt="<" src=…>`) hay
+ *     thẻ chưa đóng — bước 6(b) chặn chúng. Chữ của ảnh và link được qua nhiều dòng, chứa ngoặc vuông
+ *     lồng nhau cân bằng và `\]`; phần `(…)` dừng ở cuối dòng, nên một `](` không đóng không nuốt phần
+ *     còn lại của đoạn văn. Dấu `<` `>` đứng trơ ("số tiền < 5 triệu") được giữ. Lượt thứ mười mà vẫn
+ *     còn đổi thì kết quả là chuỗi RỖNG, không phải bản lọc dở;
  *  5. mọi URL còn lại bị thay bằng `[liên kết đã bỏ]`: `scheme:` theo sau là `/` hoặc `\` (trình
  *     duyệt đọc `https:\host` và `https:/host` như `https://host`; scheme một chữ cái chỉ khi có hai
  *     gạch, để đường dẫn Windows `C:\…` còn nguyên); hai gạch trở lên ở đầu, xuôi hay ngược (`//host`,
  *     `\\host`, `/\host`, `///host` — URL tương đối theo giao thức); `www.`; các URI `data:`,
  *     `javascript:`, `vbscript:`, `mailto:`, `blob:`; và `http:`, `https:`, `ws:`, `wss:`, `ftp:` không
- *     có gạch nào (trên trang https, `http:evil.example` là `http://evil.example`);
- *  6. chặn cuối: mọi `](`, `][`, `]:` còn sót được chèn một dấu cách (`[Ghi chú]: …` của khách cũng
- *     thành `[Ghi chú] : …`). CommonMark đòi `(`, `[` hay `:` đứng NGAY sau `]` thì mới có ảnh hay link
- *     inline, ảnh hay link tham chiếu đầy đủ (kể cả `[x][]`), định nghĩa link; nên sau bước này không
- *     còn cú pháp nào trong số đó, kể cả các dạng mẫu ở bước 4 bỏ sót (chữ alt có code span chứa `]`,
- *     định nghĩa nằm trong trích dẫn `>` hay mục danh sách), và dạng rút gọn `![x]`, `[x]` không còn
- *     định nghĩa nào để trỏ tới. Bước 7 chỉ dồn nhiều dấu cách thành một và bỏ dấu cách sát xuống dòng,
- *     bước 8 chỉ cắt đuôi, nên không ghép lại được các cặp này;
+ *     có gạch nào (trên trang https, `http:evil.example` là `http://evil.example`). Bước này KHÔNG
+ *     thấy một URL có xuống dòng chen giữa (`https` + xuống dòng + `://…`; WHATWG bỏ xuống dòng khỏi
+ *     URL) hay mang lớp thực thể thứ tư (`https&#58;&#47;&#47;…`, bước 2 chỉ giải ba lớp): nó ra như
+ *     chữ, và sau bước 6 không còn thẻ hay ảnh nào quanh nó để trình duyệt tự tải;
+ *  6. chặn cuối, hai phần, mỗi phần chèn một dấu cách:
+ *     (a) vào mọi `](`, `][`, `]:` còn sót (`[Ghi chú]: …` giữa dòng của khách cũng thành
+ *     `[Ghi chú] : …`; ở đầu dòng mà sau `:` còn chữ, bước 4 đã bỏ cả dòng như một định nghĩa link).
+ *     CommonMark đòi `(`, `[` hay `:` đứng NGAY sau `]` thì mới có ảnh hay link inline, ảnh hay link
+ *     tham chiếu đầy đủ (kể cả `[x][]`), định nghĩa link; nên sau bước này không còn cú pháp nào trong
+ *     số đó, kể cả các dạng mẫu ở bước 4 bỏ sót (chữ alt có code span chứa `]`, định nghĩa nằm trong
+ *     trích dẫn `>` hay mục danh sách), và dạng rút gọn `![x]`, `[x]` không còn định nghĩa nào để trỏ
+ *     tới;
+ *     (b) sau mọi `<` đứng NGAY trước một chữ cái ASCII, `!`, `?` hay `/` (`<img` thành `< img`; `a<b`
+ *     của khách cũng thành `a< b`). Trình duyệt (bộ tách từ HTML của WHATWG) chỉ mở thẻ, thẻ đóng, chú
+ *     thích, khai báo hay chỉ thị khi một trong các ký tự đó đứng ngay sau `<`; CommonMark cũng đòi tên
+ *     thẻ hay scheme ngay sau `<` mới có HTML thô hay autolink URL. Nên sau bước này không còn thẻ HTML
+ *     hay autolink URL nào, kể cả thẻ có `<` trong thuộc tính hay thẻ chưa đóng mà bước 4 không thấy.
+ *     `<` trước chữ số, dấu cách hay dấu khác (`<5`, `<3`, `<=`) được giữ — kể cả autolink EMAIL có phần
+ *     trước `@` mở bằng chữ số hay dấu (`<5a@b.example>`, `<.a@b.example>`): nó vẫn là link `mailto:`,
+ *     như email trần ở đoạn cuối.
+ *     Dấu cách chèn ở (a) và (b) luôn đứng ngay trước một ký tự khác dấu cách, khác xuống dòng; bước 7
+ *     chỉ dồn nhiều dấu cách thành một và bỏ dấu cách sát xuống dòng, bước 8 chỉ cắt đuôi, nên không
+ *     ghép lại được các cặp này;
  *  7. khoảng trắng dồn lại, dòng trống quá hai dòng gộp lại;
  *  8. cắt theo CHỮ HIỂN THỊ (cụm grapheme `\X`), không theo byte hay code point: một chữ tiếng Việt
  *     dạng NFD không bao giờ bị tách khỏi dấu của nó, và NFC/NFD bị cắt ở cùng một chỗ.
@@ -51,7 +68,8 @@ use InvalidArgumentException;
  * NFC hay NFD (bài học M6.5 Review Focus 5). Cái giá: một URL viết bằng chữ toàn chiều rộng
  * (`ｈｔｔｐｓ://`) không bị nhận ra — thêm một lý do cho câu "best-effort" ở trên. Cũng không bị bỏ: tên
  * miền trần không scheme (`evil.example/x`) và địa chỉ email trần — GFM biến email trần thành link
- * `mailto:`, phải bấm mới đi, không tự tải như ảnh.
+ * `mailto:`, phải bấm mới đi, không tự tải như ảnh; tương tự, một trình hiển thị giải mã thực thể rồi
+ * mới tự nhận link có thể biến URL mang lớp thực thể thứ tư (bước 5) thành link bấm được.
  */
 final class UntrustedText
 {
@@ -120,8 +138,11 @@ final class UntrustedText
             $text,
         );
 
-        // 6. Chặn cuối: không còn `](`, `][`, `]:` nào để CommonMark dựng ảnh, link hay định nghĩa link.
+        // 6. Chặn cuối: (a) không còn `](`, `][`, `]:` nào để CommonMark dựng ảnh, link hay định nghĩa
+        // link; (b) không còn `<` nào đứng ngay trước chữ cái ASCII, `!`, `?`, `/` để mở thẻ HTML, chú
+        // thích hay autolink URL — kể cả thẻ có `<` trong thuộc tính, thẻ chưa đóng mà bước 4 không thấy.
         $text = self::replace('/\](?=[(\[:])/u', '] ', $text);
+        $text = self::replace('/<(?=[A-Za-z!?\/])/u', '< ', $text);
 
         // 7. Khoảng trắng.
         $text = self::replace('/ {2,}/u', ' ', $text);
@@ -168,7 +189,8 @@ final class UntrustedText
         $text = self::replace('/\[('.self::LABEL_BODY.'*+)\]\([^)\n]*\)'.self::LABEL_DEFINE.'/u', '$1', $text);
         $text = self::replace('/\[('.self::LABEL_BODY.'++)\]\[[^\]\n]*\]'.self::LABEL_DEFINE.'/u', '$1', $text);
 
-        // Mọi thẻ HTML còn lại, kể cả autolink `<https://…>`. Dấu `<` `>` đứng trơ được giữ.
+        // Các thẻ HTML mà mẫu này thấy (không có `<` hay `>` bên trong), kể cả autolink `<https://…>`;
+        // thẻ có `<` trong thuộc tính hay thẻ chưa đóng do bước 6(b) chặn. Dấu `<` `>` đứng trơ được giữ.
         return self::replace('/<[!?\/]?[a-z][^<>]*>/iu', '', $text);
     }
 

