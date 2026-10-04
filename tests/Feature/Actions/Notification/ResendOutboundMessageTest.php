@@ -114,6 +114,8 @@ it('refuses a forced resend of the instalment and backup mail families with thei
     'staff.backup_alert.backup_failed' => ['staff.backup_alert.backup_failed', 'staff.backup_alert.*'],
     'staff.backup_alert.cleanup_failed' => ['staff.backup_alert.cleanup_failed', 'staff.backup_alert.*'],
     'staff.backup_alert.unhealthy' => ['staff.backup_alert.unhealthy', 'staff.backup_alert.*'],
+    // Gộp `main` vào làn M10 (rà soát cuối, vòng sửa 1).
+    'staff.intake_unanswered' => ['staff.intake_unanswered', 'staff.intake_unanswered'],
 ]);
 
 /**

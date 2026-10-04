@@ -19,6 +19,8 @@ use App\Models\ContractAmendment;
 use App\Models\Deadline;
 use App\Models\Document;
 use App\Models\Instalment;
+use App\Models\IntakeParty;
+use App\Models\IntakeRequest;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Models\MatterParty;
@@ -197,6 +199,11 @@ class AppServiceProvider extends ServiceProvider
             // TRƯỚC KHI bất cứ đâu (kể cả một job tương lai) có thể trỏ `outbound_messages.related`
             // hay `Audit::record()` vào nó mà không vấp `ClassMorphViolationException`.
             'time_entry' => TimeEntry::class,
+            // M10 Task 1: bản ghi tiếp nhận và bên đối lập của nó. Map NGHIÊM NGẶT — thiếu tên ở đây
+            // thì `Audit::record(..., $intake)` (dòng `conflict_check_run` chủ thể là bản ghi tiếp
+            // nhận, Task 2) và `outbound_messages.related` là một lỗi 500.
+            'intake_request' => IntakeRequest::class,
+            'intake_party' => IntakeParty::class,
             // M7 Task 8: chủ thể của `communication_logged` / `communication_log_deleted`. Cũng
             // có tên trong `ActivityOwningMatter::MATTER_OWNED`, để dòng nhật ký của một vụ
             // `restricted` không lọt ra trang Nhật ký hệ thống.

@@ -21,6 +21,7 @@ use App\Models\Contract;
 use App\Models\Deadline;
 use App\Models\Document;
 use App\Models\Instalment;
+use App\Models\IntakeRequest;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Models\OutboundMessage;
@@ -381,6 +382,7 @@ it('shows no resend button on a failed row of a template that must not be resent
         'client_user' => $account,
         'deadline' => Deadline::factory()->create(['matter_id' => $matter->id]),
         'instalment' => Instalment::factory()->for(Contract::factory()->for($matter))->create(),
+        'intake_request' => IntakeRequest::factory()->create(),
         'none' => null,
     };
     $failed = OutboundMessage::factory()->create([
@@ -409,6 +411,9 @@ it('shows no resend button on a failed row of a template that must not be resent
     'staff.backup_alert.backup_failed' => ['staff.backup_alert.backup_failed', 'none'],
     'staff.backup_alert.cleanup_failed' => ['staff.backup_alert.cleanup_failed', 'none'],
     'staff.backup_alert.unhealthy' => ['staff.backup_alert.unhealthy', 'none'],
+    // Gộp `main` vào làn M10 (rà soát cuối, vòng sửa 1): nhắc liên hệ chưa ai gọi lại — lượt nhắc kế tiếp
+    // tự gửi lại khi bản ghi còn "Mới".
+    'staff.intake_unanswered' => ['staff.intake_unanswered', 'intake_request'],
     'undeclared' => ['undeclared', 'none'],
 ]);
 

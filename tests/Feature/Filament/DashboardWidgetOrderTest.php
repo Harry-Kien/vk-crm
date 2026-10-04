@@ -4,6 +4,7 @@ use App\Filament\Admin\Widgets\MattersByStageWidget;
 use App\Filament\Admin\Widgets\MattersMissingDocumentsWidget;
 use App\Filament\Admin\Widgets\PendingChecklistReviewsWidget;
 use App\Filament\Admin\Widgets\StaleMattersWidget;
+use App\Filament\Admin\Widgets\UnansweredIntakesWidget;
 use App\Filament\Admin\Widgets\UnseenUpdatesWidget;
 use App\Filament\Admin\Widgets\UpcomingDeadlinesWidget;
 use Filament\Widgets\AccountWidget;
@@ -27,12 +28,18 @@ use Filament\Widgets\AccountWidget;
  * `Filament\Widgets\AccountWidget` (cũng `-3`, không có mặt trong `$sorts` bên dưới nên không đụng
  * `array_unique`). Mục 7 vẫn chưa tồn tại (cần heartbeat — M7, và bản thân nó là một DẢI cảnh
  * báo chứ không phải một widget trong danh sách này — xem docblock `SystemHealthWidget`).
+ *
+ * "Liên hệ chưa ai gọi lại" ra đời ở M10 Task 5 (`UnansweredIntakesWidget`, SPEC §7.1 đính chính
+ * 2026-09-24 của M10): đặt NGAY DƯỚI mục 3. Giữa `-2` (mục 3) và `-1` (mục 4) không còn số nguyên
+ * nào, nên đánh số lại lần nữa: widget mới `-1`, mục 4 `-1` → `0`, mục 5 `0` → `1`, mục 6 `1` → `2`.
+ * Thứ tự tương đối của các mục cũ không đổi — test này đo đúng điều đó.
  */
 it('orders the dashboard widgets the way SPEC 7.1 numbers them', function () {
     $sorts = [
         StaleMattersWidget::class => StaleMattersWidget::getSort(),
         UpcomingDeadlinesWidget::class => UpcomingDeadlinesWidget::getSort(),
         PendingChecklistReviewsWidget::class => PendingChecklistReviewsWidget::getSort(),
+        UnansweredIntakesWidget::class => UnansweredIntakesWidget::getSort(),
         MattersMissingDocumentsWidget::class => MattersMissingDocumentsWidget::getSort(),
         UnseenUpdatesWidget::class => UnseenUpdatesWidget::getSort(),
         MattersByStageWidget::class => MattersByStageWidget::getSort(),

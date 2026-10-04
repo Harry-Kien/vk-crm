@@ -55,6 +55,12 @@ use Illuminate\Database\Eloquent\Relations\Relation;
  *  - `staff.handover_ready` (M7 Task 4, gộp M7 vào `main`): thư chỉ báo "gói bàn giao đã sinh xong"
  *    — trạng thái gói luôn hiện ở khối "Gói bàn giao" trên trang vụ việc, và chuông trong hệ thống
  *    đi cùng lúc với thư. Gửi lại là báo một sự kiện đã qua (gói có thể đã được sinh lại).
+ *  - `staff.intake_unanswered` (M10 Task 5; gộp `main` vào làn M10, rà soát cuối vòng sửa 1): tác vụ
+ *    `RemindUnansweredIntakes` chạy mỗi 15 phút trong giờ làm việc và chỉ dòng `sent` chặn lời nhắc mới,
+ *    nên một bản ghi còn "Mới" tự được nhắc lại ở lượt kế tiếp — lượt đầu của ngày làm việc hôm sau nếu
+ *    thư đã hỏng hẳn trong ngày (`SendUnansweredIntakeReminderMail::failedForGoodToday()`). Bản ghi đã có
+ *    người gọi lại thì không còn gì để nhắc; chuông trong hệ thống và widget "Liên hệ chưa ai gọi lại"
+ *    không phụ thuộc thư.
  *  - `undeclared` và mọi mẫu lạ: không biết dựng lại từ đâu (mẫu lạ nhận câu từ chối chung).
  *
  * # Nguyên tắc: KHÔNG viết luật thứ hai
@@ -81,6 +87,7 @@ final class ResendTargets
         'staff.backup_alert.*',
         'staff.matter_reassigned',
         'staff.handover_ready',
+        'staff.intake_unanswered',
         'undeclared',
     ];
 

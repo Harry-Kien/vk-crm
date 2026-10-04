@@ -25,16 +25,59 @@ thuộc kế hoạch nào.
 
 ## Giai đoạn 1 — Tiếp nhận và thẩm định đầu vào
 
-Đây là giai đoạn quyết định nhiều tiền nhất và mang rủi ro nghề nghiệp cao nhất, và
-cũng là giai đoạn hệ thống hiện **yếu nhất**.
+Đây là giai đoạn quyết định nhiều tiền nhất và mang rủi ro nghề nghiệp cao nhất. Trước M10 hệ
+thống không có chỗ nào cho nó; sau M10 mọi dòng dưới đây đã chạy được.
+
+**Cập nhật 2026-10-03 (M10 Task 8).** Trạng thái đo trên nhánh `m10-intake` (mọi cổng xanh, ba luồng
+nghiệm thu đi hết trên dữ liệu mẫu — `tests/Feature/Intake/IntakeAcceptanceWalkTest.php`); **M10 chưa
+gộp vào `main`** lúc viết. Chi tiết, phán quyết và những gì còn chờ chủ văn phòng/luật sư xác nhận ở
+`docs/PROGRESS.md`, "Ghi chú M10".
+
+**Cập nhật 2026-10-04 (rà soát cuối M10, vòng sửa 1).** Ba câu dưới đây từng hứa nhiều hơn hệ thống làm,
+đã sửa cho đúng mã: "người nhập chỉ thấy mã hồ sơ và vai" (nay đúng với khớp Đỏ; khớp Vàng vẫn hiện tên
+để người nhập tự xem), "người gọi lại cũng bị khoá" (chỉ khi cùng vai đã khai), "cùng số là cùng một
+người" (chỉ là gợi ý).
 
 | Văn phòng làm gì | Hệ thống đỡ bằng gì | Trạng thái |
 |---|---|---|
-| Ghi lại mỗi lần có người liên hệ, dù qua điện thoại, Zalo, website hay đến trực tiếp | Bảng tiếp nhận, màn hình nhập nhanh | **[Có kế hoạch]** M10 |
-| **Kiểm tra xung đột lợi ích trước khi nghe nội dung vụ việc** | `RunConflictCheck` chạy ngay ở bước danh tính; kết quả Đỏ khoá phần nội dung | **[Có kế hoạch]** M10 — Action đã có từ M3 |
-| Phát hiện cùng một người gọi nhiều lần | Dò trùng theo số điện thoại đã chuẩn hoá và tên đã chuẩn hoá | **[Có kế hoạch]** M10 |
-| Bảo đảm không ai bị bỏ quên không gọi lại | Mốc phản hồi lần đầu, nhắc quá ngưỡng, widget trang chủ | **[Có kế hoạch]** M10 |
-| Từ chối vụ việc và ghi lý do | Lý do xung đột chỉ hiện cho quản lý; người gọi không bao giờ được biết lý do thật | **[Có kế hoạch]** M10 |
+| Ghi lại mỗi lần có người liên hệ, dù qua điện thoại, Zalo, website hay đến trực tiếp | Màn hình **Tiếp nhận**: trang tạo nhập nhanh (bắt buộc tên, vai dự kiến, nguồn, SĐT hoặc email; câu chuyện ghi sau), mã `TN-2026-0001` để nhắc qua điện thoại, nguồn có cả "form website" cho lead nhân sự nhập tay; giao người phụ trách; chuyển thành vụ việc không gõ lại (`ConvertIntakeToMatter` — khách tra theo CCCD rồi SĐT, mở vụ bằng đúng `OpenMatter`, phí đã báo thành gợi ý của hợp đồng) | **[Xong]** sau M10 (Task 1–4). Chưa có đường công khai: form trên luatvukhang.com gửi thẳng vào là một milestone riêng (R6) |
+| **Kiểm tra xung đột lợi ích trước khi nghe nội dung vụ việc** | Lưu phần danh tính là chạy đúng `RunConflictCheck` (cùng khoá với mở vụ), dò khách và các bên của mọi vụ VÀ những người văn phòng đã nghe mà chưa nhận việc (lần tiếp nhận cũ — tối đa Vàng, "đã liên hệ văn phòng ngày …"). Ô câu chuyện: Xanh đủ định danh thì mở; Vàng hoặc thiếu định danh thì phải xác nhận đã xem các khớp; Đỏ thì khoá — chỉ trưởng phòng/quản trị từ chối hoặc ghi đè kèm lý do; Đỏ "dính" (sửa danh tính không gỡ được); một lần gọi khác của CÙNG người — cùng SĐT hoặc CCCD **và cùng vai đã khai** — cũng bị khoá như Đỏ, kể cả lần gọi đã ghi trước đó (khai vai khác thì lần gọi kia chỉ hiện ở mức Vàng, kèm mã `TN-…`). Danh sách có bộ lọc "Đỏ chờ trưởng phòng xử lý" để trưởng phòng/quản trị tìm những bản chỉ họ mở được | **[Xong]** sau M10 (Task 2, 3; rà soát cuối). Với khớp **Đỏ**, người nhập (không phải trưởng phòng/quản trị) chỉ thấy mã hồ sơ và vai của bên trùng — không tên, không lĩnh vực, không tiêu chí khớp. Với khớp **Vàng**, người nhập thấy mã hồ sơ, lĩnh vực, vai và tên bên trùng để tự xem trước khi xác nhận. Không ai thấy tiêu đề hay nội dung vụ ở đây |
+| Phát hiện cùng một người gọi nhiều lần | Gợi ý bản ghi cũ khi trùng đúng SĐT (đã chuẩn hoá) hoặc CCCD — chỉ là gợi ý: một số máy có thể dùng chung (vợ chồng, người nhà, đồng nghiệp); trùng theo tên chỉ hiện cho trưởng phòng/quản trị; trùng một khách hàng thì chỉ nói "số này đã là khách của văn phòng"; người nhập hỏi lại cho chắc rồi mới gộp bản trùng vào bản cũ hơn | **[Xong]** sau M10 (Task 2, 3) |
+| Bảo đảm không ai bị bỏ quên không gọi lại | Mốc phản hồi lần đầu (lần đầu rời "Mới"); quá 4 giờ làm việc (`INTAKE_RESPONSE_HOURS`) thì nhắc người được giao — không có thì trưởng phòng/quản trị, cuối cùng là admin — bằng chuông và thư không mang dữ liệu người liên hệ; widget "Liên hệ chưa ai gọi lại"; báo cáo "Bức tranh đầu vào" (nguồn, tỉ lệ thành vụ việc, thời gian phản hồi, lý do không thành) | **[Xong]** sau M10 (Task 5, 6). Ngày lễ chưa được trừ khỏi giờ làm việc và Thứ Bảy chưa tính — chờ chủ văn phòng |
+| Từ chối vụ việc và ghi lý do | Nút "Từ chối" bắt buộc lý do; "vì xung đột lợi ích" chỉ trưởng phòng/quản trị chọn; lý do của mọi lần từ chối chỉ trưởng phòng/quản trị (và chính người đã từ chối) đọc được; người khác chỉ thấy "Văn phòng từ chối" và câu trả lời chuẩn — giống nhau cho mọi lý do, để không ai đoán ra lần nào là vì xung đột | **[Xong]** sau M10 (Task 3; rà soát cuối) |
+| Giữ dữ liệu của người không thành khách đúng hạn, xoá khi họ yêu cầu | Ghi nhận người liên hệ đã nghe thông báo và đồng ý (ô không tích sẵn) trước khi ghi câu chuyện; hết `PROSPECT_RETENTION_MONTHS` (24) tháng thì tự ẩn danh; admin "Xoá dữ liệu theo yêu cầu" kèm lý do; câu chuyện không bao giờ ra máy chủ MCP | **[Xong]** sau M10 (Task 2, 7). Câu thông báo là BẢN NHÁP, con số 24 tháng và việc giữ dấu băm sau ẩn danh chờ luật sư xác nhận |
+
+**Nhận một cuộc gọi đầu — từng bước cho người trực điện thoại** (M10):
+
+1. **Tiếp nhận → Tạo.** Hỏi tên, số điện thoại (hoặc email), người gọi đứng ở vai nào (sẽ là người
+   kiện, người bị kiện, hay người liên quan), và bên kia là ai — tên, kèm SĐT hoặc CCCD nếu người gọi
+   biết. **Chưa hỏi chuyện gì đã xảy ra.**
+2. **Đọc câu thông báo** hiện trên form cho người gọi. Người gọi đồng ý thì tích ô "đã nghe thông báo
+   và đồng ý" (ô không bao giờ tích sẵn). Giao cho luật sư phụ trách nếu đã biết. Bấm Tạo — hệ thống
+   kiểm tra xung đột lợi ích ngay lúc đó.
+3. **Đọc kết quả trên trang bản ghi** (ngày giờ lần kiểm tra hiện ngay đó):
+   - **Xanh** — ô câu chuyện mở: nghe và ghi câu chuyện.
+   - **Vàng / thiếu định danh** — xem bảng khớp (mã hồ sơ, lĩnh vực, vai và tên bên trùng, hoặc "đã liên
+     hệ văn phòng ngày …" kèm mã `TN-…`), bấm "Xác nhận đã xem các khớp" rồi mới nghe chuyện. Không chắc
+     thì hỏi luật sư trước.
+   - **Đỏ** (kể cả "Đỏ chờ trưởng phòng xử lý") — **dừng, không nghe chuyện.** Bảng chỉ cho anh/chị mã
+     hồ sơ và vai của bên trùng. Hẹn sẽ gọi lại, báo trưởng phòng/quản trị. Họ quyết: từ chối (vì xung
+     đột) hoặc ghi đè kèm lý do. Lần gọi khác của cùng người — cùng số (hoặc CCCD) và **cùng vai** —
+     cũng bị khoá như vậy, cả lần gọi lại hôm sau lẫn một lần gọi đã ghi từ trước. Nếu lần gọi lại khai
+     vai KHÁC, hệ thống chỉ hiện lần gọi kia ở mức Vàng kèm mã `TN-…`: thấy mã một lần gọi trước của
+     cùng số thì báo trưởng phòng trước khi nghe chuyện.
+4. **Hệ thống báo đã có bản ghi cũ cùng số** — RẤT CÓ THỂ là cùng một người, nhưng một số máy có thể
+   dùng chung (vợ chồng, người nhà, đồng nghiệp): hỏi lại cho chắc. Đúng người thì gộp bản mới vào bản
+   CŨ hơn (đồng hồ phản hồi chạy theo bản còn lại); không phải thì để hai bản riêng.
+5. **Gọi lại và đổi trạng thái** (Đã liên hệ → Đang tư vấn → Đã báo giá, ghi phí đã báo). Lần đầu đổi
+   trạng thái là mốc "đã phản hồi"; quá 4 giờ làm việc mà bản ghi còn "Mới" thì hệ thống nhắc.
+6. **Khách đồng ý:** luật sư bấm "Chuyển thành vụ việc" (trợ lý không có nút này) — hệ thống tìm khách
+   cũ theo CCCD/SĐT, hỏi xác nhận đúng người, mở vụ có mã, phí đã báo hiện sẵn ở form soạn hợp đồng.
+   **Không thành:** "Khách không theo tiếp", hoặc "Từ chối" kèm lý do. Từ chối vì xung đột thì chỉ nói
+   với người gọi **"Văn phòng xin phép không nhận vụ việc này"**, không giải thích thêm.
+7. **Dữ liệu người không thành khách** tự ẩn danh sau hạn lưu. Ai yêu cầu xoá: báo admin, admin dùng
+   "Xoá dữ liệu theo yêu cầu" và ghi cách đã xác minh người yêu cầu (bản sao lưu còn dữ liệu cũ tới
+   khoảng 30 ngày).
 
 **Luật nghề nghiệp đứng sau giai đoạn này.** Nếu nghe hết câu chuyện rồi mới phát
 hiện bên kia là khách hàng hiện hữu thì thông tin bí mật đã nghe rồi và không rút lại

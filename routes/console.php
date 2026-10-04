@@ -8,6 +8,7 @@ use App\Actions\Schedule\ReconcileStageTriggeredInstalments;
 use App\Actions\Schedule\RecordScheduleRun;
 use App\Actions\Schedule\RemindMissingDocuments;
 use App\Actions\Schedule\RemindOverdueInstalments;
+use App\Actions\Schedule\RemindUnansweredIntakes;
 use App\Actions\Schedule\RemindUnseenUpdates;
 use App\Actions\Schedule\SendHeartbeat;
 use Illuminate\Foundation\Inspiring;
@@ -329,4 +330,40 @@ Schedule::call(new FlagRetentionExpiry)
 Schedule::call(new ReconcileStageTriggeredInstalments)
     ->dailyAt('07:00')
     ->name('instalments.reconcile-stage')
+    ->withoutOverlapping(60);
+
+/**
+ * Nhắc những lần có người liên hệ văn phòng mà chưa ai gọi lại quá ngưỡng phản hồi (M10 R5, mặc định 4
+ * giờ làm việc, `INTAKE_RESPONSE_HOURS`): thư `staff.intake_unanswered` + thông báo trong hệ thống.
+ *
+ * Mỗi 15 phút, CẢ NGÀY — "chỉ trong giờ làm việc" là câu đầu tiên của chính Action
+ * (`BusinessHours::isOpen()`), không phải của cron: giờ làm việc có MỘT định nghĩa
+ * (`config('vkcrm.business_hours')`, theo `APP_TIMEZONE`), và một cron gõ tay `8-17 * * 1-5` là định
+ * nghĩa thứ hai, sẽ lệch khi văn phòng làm thêm Thứ Bảy hay đổi giờ đóng cửa (17:30 cũng không biểu
+ * diễn được bằng một khoảng giờ của cron). Ngoài giờ, mỗi lượt chỉ là một phép so giờ.
+ *
+ * Chạy lại là vô hại: nhật ký thư chặn thư thứ hai cho cùng (người nhận, bản ghi), thông báo trong hệ
+ * thống tự chống lặp, và job thư là `ShouldBeUnique` theo bản ghi. `withoutOverlapping(15)`: một lượt
+ * bị giết giữa chừng chỉ chặn tối đa lượt kế tiếp, không chặn cả ngày (không để khoá 1440 phút mặc
+ * định — `BackupScheduleTest` ghim luật đó cho mọi tác vụ).
+ */
+Schedule::call(new RemindUnansweredIntakes)
+    ->cron('*/15 * * * *')
+    ->name('intakes.remind-unanswered')
+    ->withoutOverlapping(15);
+
+/**
+ * Ẩn danh người liên hệ KHÔNG thành khách đã quá hạn lưu, 03:30 hằng ngày (M10 R7b, Task 7):
+ * `declined`/`lost`/`merged` quá `retention_until` (`PROSPECT_RETENTION_MONTHS`, mặc định 24 tháng),
+ * chưa chuyển đổi, chưa ẩn danh. Việc RIÊNG, tên riêng — không gộp với tác vụ cảnh báo hồ sơ của M7
+ * (`FlagRetentionExpiry` chỉ cảnh báo, không bao giờ xoá hồ sơ vụ việc — M7 R5).
+ *
+ * 03:30: sau lượt sao lưu 02:00 và ngoài giờ làm việc, khi không ai đang ghi tiếp nhận phải chờ khoá
+ * `conflict-check` mà Action giữ cho từng bản ghi. `withoutOverlapping(60)`, không để khoá mặc định
+ * 1440 phút: một lượt bị giết giữa chừng không được chặn lượt ngày hôm sau. Gọi bằng chuỗi `Lớp@handle`
+ * (không `use`): luật làn song song cho tệp này là chỉ nối thêm dòng ở cuối, cùng cách `backup.monitor`.
+ */
+Schedule::call('App\Actions\Schedule\AnonymiseExpiredProspects@handle')
+    ->dailyAt('03:30')
+    ->name('prospects.anonymise')
     ->withoutOverlapping(60);
