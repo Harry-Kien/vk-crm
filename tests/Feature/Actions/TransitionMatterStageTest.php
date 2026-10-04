@@ -753,6 +753,104 @@ it('accepts occurred_at equal to today sent as a bare date string with no time c
     expect($stageLog->occurred_at->toDateString())->toBe(today()->toDateString());
 });
 
+// --- M9 Task 6, lỗi I6 (ledger M4): ngày dạng chuỗi được parse TƯỜNG MINH ----------------------
+
+/**
+ * Gọi Action với hai ngày dạng chuỗi tuỳ ý; mọi tham số khác hợp lệ (lawyer phụ trách, intake →
+ * collecting, không công bố).
+ */
+function transitionWithDates(string $occurredAt, ?string $expectedNextUpdateAt = null): StageLog
+{
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = matterWithLawyer($lawyer);
+    test()->actingAs($lawyer, 'web');
+
+    return app(TransitionMatterStage::class)->handle(
+        matter: $matter,
+        actor: $lawyer,
+        toStage: 'collecting',
+        occurredAt: $occurredAt,
+        internalNote: null,
+        publicContent: null,
+        nextStep: null,
+        clientAction: null,
+        expectedNextUpdateAt: $expectedNextUpdateAt,
+        publish: false,
+    );
+}
+
+/**
+ * I6: `Carbon::parse('không phải ngày')` ném `InvalidFormatException` — ngoài hợp đồng
+ * `DomainException`/`ValidationException` mà mọi màn hình bắt, tức một trang 500 cho một lỗi gõ
+ * phím (API công khai: lệnh, job, MCP của M11 không đi qua `DatePicker`). Giờ là lỗi xác thực trên
+ * đúng trường, và sổ chỉ-thêm không bị chạm. Một ngày KHÔNG CÓ THẬT (`2026-02-31`) cũng là chuỗi
+ * hỏng: `Carbon::parse()` lặng lẽ lật nó sang 03/03 (chỉ để lại một cảnh báo của PHP) — cùng câu
+ * trả lời với luật `date` của `DatePicker` trên form.
+ */
+it('turns a malformed occurred_at string into a validation error on that field, not a 500', function (string $malformed) {
+    try {
+        transitionWithDates($malformed);
+        $this->fail('Một chuỗi ngày hỏng phải bị từ chối.');
+    } catch (ValidationException $exception) {
+        expect($exception->errors())->toBe([
+            'occurred_at' => [__('actions.transition_matter_stage.occurred_at_invalid')],
+        ]);
+    }
+
+    expect(StageLog::query()->count())->toBe(0);
+})->with([
+    'words' => 'ngày 31 tháng 2',
+    'month 13' => '2026-13-05',
+    'a day that does not exist' => '2026-02-31',
+]);
+
+/**
+ * Chuỗi rỗng là "không có ngày" — và `occurred_at` là BẮT BUỘC, nên đó là lỗi "bắt buộc", không
+ * phải "hôm nay" như `Carbon::parse('')` vẫn hiểu (một ngày bịa ra ghi vào sổ chỉ-thêm và vào
+ * `stage_entered_at` mà SLA §6.4 đọc).
+ */
+it('refuses an empty occurred_at string instead of reading it as today', function (string $blank) {
+    try {
+        transitionWithDates($blank);
+        $this->fail('Một ngày xảy ra rỗng phải bị từ chối.');
+    } catch (ValidationException $exception) {
+        expect($exception->errors())->toBe([
+            'occurred_at' => [__('actions.transition_matter_stage.occurred_at_required')],
+        ]);
+    }
+
+    expect(StageLog::query()->count())->toBe(0);
+})->with(['empty' => '', 'spaces' => '   ']);
+
+it('turns a malformed expected_next_update_at string into a validation error on that field', function () {
+    try {
+        transitionWithDates(today()->toDateString(), '2026-13-45');
+        $this->fail('Một chuỗi ngày hỏng phải bị từ chối.');
+    } catch (ValidationException $exception) {
+        expect($exception->errors())->toBe([
+            'expected_next_update_at' => [__('actions.transition_matter_stage.expected_next_update_at_invalid')],
+        ]);
+    }
+
+    expect(StageLog::query()->count())->toBe(0);
+});
+
+/** Cặp dương: `expected_next_update_at` rỗng là "không có ngày" ⇒ tự tính từ giai đoạn MỚI (10 ngày của `collecting`). */
+it('reads an empty expected_next_update_at string as no date, and computes it from the new stage', function () {
+    $stageLog = transitionWithDates(today()->toDateString(), '');
+
+    expect($stageLog->fresh()->expected_next_update_at->toDateString())->toBe(today()->addDays(10)->toDateString());
+});
+
+/** Cặp dương: một chuỗi ngày hợp lệ của cả hai trường đi thẳng vào sổ. */
+it('stores well-formed date strings for both fields', function () {
+    $stageLog = transitionWithDates(today()->subDays(2)->toDateString(), today()->addDays(4)->toDateString())->fresh();
+
+    expect($stageLog->occurred_at->toDateString())->toBe(today()->subDays(2)->toDateString())
+        ->and($stageLog->expected_next_update_at->toDateString())->toBe(today()->addDays(4)->toDateString())
+        ->and($stageLog->matter->stage_entered_at->toDateString())->toBe(today()->subDays(2)->toDateString());
+});
+
 /**
  * I-1 (fix round 4), dòng `matters` của cùng khiếm khuyết — xem docblock bản sinh đôi ở
  * `SetMatterPortalPublicationTest`. `isDirty('updated_by')` so với giá trị GỐC, nên khi cột đã

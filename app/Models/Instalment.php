@@ -259,6 +259,30 @@ class Instalment extends Model
             ->whereRaw($this->qualifyColumn('amount').' > '.BillingSummary::collectedExpression($this->qualifyColumn('id')));
     }
 
+    /**
+     * **MỘT định nghĩa "đợt đang chờ vụ chạm giai đoạn"** (M9 Task 6): `trigger_type = stage`,
+     * `status = pending`, `triggered_at` rỗng — và, khi truyền `$stageKey`, `trigger_stage_key` đúng
+     * key đó. Chỉ điều kiện của CHÍNH đợt; điều kiện của hợp đồng cha (đang hiệu lực khi kích hoạt;
+     * nháp hoặc đang hiệu lực khi khoá cấu hình giai đoạn) và của vụ việc là việc của nơi gọi.
+     *
+     * Cổng chống kích hoạt hai lần là `triggered_at IS NULL` — KHÔNG phải "giai đoạn hiện tại bằng
+     * giai đoạn kích hoạt": `allowed_next` có chu trình và `on_hold` ra vào được, nên một vụ vào lại
+     * một giai đoạn không được làm một đợt đã đến hạn "đến hạn lần nữa". Đợt đã miễn/đã thu/đã huỷ
+     * không còn chờ gì.
+     *
+     * Dùng bởi `App\Actions\Billing\TriggerInstalmentsForStage` (thăm dò, khoá rồi kích hoạt),
+     * `App\Actions\Schedule\ReconcileStageTriggeredInstalments` (tập ứng viên) và
+     * {@see MatterTypeStage::instalmentsAwaitingStage()} (guard khoá đổi/xoá giai đoạn).
+     */
+    public function scopeAwaitingStage(Builder $query, ?string $stageKey = null): Builder
+    {
+        return $query
+            ->where($this->qualifyColumn('trigger_type'), InstalmentTrigger::Stage->value)
+            ->where($this->qualifyColumn('status'), InstalmentStatus::Pending->value)
+            ->whereNull($this->qualifyColumn('triggered_at'))
+            ->when($stageKey !== null, fn (Builder $query) => $query->where($this->qualifyColumn('trigger_stage_key'), $stageKey));
+    }
+
     public function contract(): BelongsTo
     {
         return $this->belongsTo(Contract::class);
@@ -279,15 +303,41 @@ class Instalment extends Model
         return $this->belongsTo(User::class, 'waived_by');
     }
 
-    /** Cổng khách đóng kín ở Task 2 (P1: mở có chủ đích ở Task 10). */
+    /**
+     * Tầng TRUY VẤN của cổng khách (M9 Task 10, P1): đợt chưa huỷ —
+     * {@see self::scopeShownToClient()} — của một hợp đồng khách thấy được. `whereHas('contract')`
+     * trần kế thừa scope cổng của {@see Contract} (đã ký + vụ việc trên cổng của đúng khách), nên
+     * không điều kiện nào của hợp đồng hay vụ việc được viết lại ở đây.
+     *
+     * Đợt đã miễn VẪN hiện ("Văn phòng đã miễn", không lý do); đợt đã huỷ thì không — nó đã ra khỏi
+     * hợp đồng qua phụ lục. Tầng QUYỀN nói lại điều này bằng thuộc tính: `InstalmentPolicy::view()`.
+     */
     public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
     {
-        $query->whereRaw('1 = 0');
+        $this->scopeShownToClient($query);
+
+        $query->whereHas('contract');
     }
 
-    /** `waived_reason` (lý do miễn) và `note` là nội bộ (P1). */
+    /**
+     * Đợt nào khách được thấy, xét trên CHÍNH dòng đợt: mọi trạng thái trừ `cancelled` (P1). Một
+     * định nghĩa SQL cho cổng và cho bảng kê trong gói bàn giao — cùng lý do với
+     * `Contract::scopeShownToClient()`.
+     */
+    public function scopeShownToClient(Builder $query): Builder
+    {
+        return $query->where($this->qualifyColumn('status'), '!=', InstalmentStatus::Cancelled->value);
+    }
+
+    /**
+     * Tầng SERIALIZE (P1, kế hoạch Task 10 điểm 3): `waived_reason` (lý do miễn) và `note` là nội bộ;
+     * `waived_by`, `created_by`, `updated_by` là nhân sự; `percent_basis` là phần trăm người soạn đã
+     * gõ, chỉ để truy vết nội bộ (khách thấy số tiền, con số có tính quyết định).
+     * `triggered_by_stage_log_id` trỏ một dòng tiến độ có thể CHƯA công bố — ẩn thêm, ngoài danh
+     * sách của kế hoạch, vì một id dòng nội bộ không phải thứ khách cần.
+     */
     protected function internalAttributes(): array
     {
-        return ['waived_reason', 'note'];
+        return ['waived_reason', 'note', 'waived_by', 'percent_basis', 'triggered_by_stage_log_id', 'created_by', 'updated_by'];
     }
 }

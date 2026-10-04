@@ -397,39 +397,57 @@ it('lists every practice area even one with zero matters, all twelve of them', f
 // Mỗi widget in nghĩa của bộ lọc thời gian và bộ lọc luật sư lên chính nó (test bắt buộc).
 // =================================================================================================
 
-it('prints the meaning of the time filter and the lawyer filter on every widget that filters by them', function () {
+/**
+ * M9 Task 13 (minor rà soát Task 9): nghĩa của bộ lọc in bằng LỜI tiếng Việt, không bằng tên cột
+ * CSDL (`contracts.signed_at`, `payments.attributed_lawyer_id`…) — người đọc là kế toán và chủ văn
+ * phòng. Các câu dưới đây là nghĩa, đúng một-một với cột mà mỗi widget lọc (docblock từng widget).
+ */
+it('prints the meaning of the time filter and the lawyer filter on every widget that filters by them, in words and not in column names', function () {
     $this->actingAs($this->admin, 'web');
 
-    expect(widgetDescription(ReceivablesDonutWidget::class))
-        ->toContain('contracts.signed_at')
-        ->toContain('lead_lawyer_id');
-
-    expect(widgetDescription(RevenueOverTimeWidget::class))
-        ->toContain('payments.paid_on')
-        ->toContain('attributed_lawyer_id');
-
-    expect(widgetDescription(RevenueByStageWidget::class))
-        ->toContain('payments.paid_on')
-        ->toContain('attributed_lawyer_id');
-
-    expect(widgetDescription(MatterMixByPracticeAreaWidget::class))
-        ->toContain('contracts.signed_at')
-        ->toContain('lead_lawyer_id');
-
-    // Fix round 1, I6: LoadPerLawyerWidget và ClosedWithBalanceWidget áp bộ lọc luật sư (hiện tại)
-    // nhưng bản trước không nói ra — giờ cả hai phải nêu rõ cột `lead_lawyer_id`.
-    expect(widgetDescription(LoadPerLawyerWidget::class))
-        ->toContain('KHÔNG phụ thuộc bộ lọc thời gian')
-        ->toContain('lead_lawyer_id');
+    $signedInPeriod = 'tính theo ngày ký hợp đồng';
+    $paidInPeriod = 'tính theo ngày tiền về';
+    $lawyerWhenPaid = 'luật sư phụ trách lúc tiền về';
+    $currentLawyer = 'luật sư phụ trách hiện tại';
 
     $closedWithBalanceDescription = (string) Livewire::test(ClosedWithBalanceWidget::class, ['pageFilters' => []])
         ->instance()
         ->getTable()
         ->getDescription();
 
-    expect($closedWithBalanceDescription)
-        ->toContain('KHÔNG phụ thuộc bộ lọc thời gian')
-        ->toContain('lead_lawyer_id');
+    $descriptions = [
+        'donut' => widgetDescription(ReceivablesDonutWidget::class),
+        'over_time' => widgetDescription(RevenueOverTimeWidget::class),
+        'by_stage' => widgetDescription(RevenueByStageWidget::class),
+        'mix' => widgetDescription(MatterMixByPracticeAreaWidget::class),
+        'load' => widgetDescription(LoadPerLawyerWidget::class),
+        'closed' => $closedWithBalanceDescription,
+    ];
+
+    expect($descriptions['donut'])->toContain($signedInPeriod)->toContain($lawyerWhenPaid)->toContain($currentLawyer)
+        ->and($descriptions['over_time'])->toContain($paidInPeriod)->toContain($lawyerWhenPaid)
+        ->and($descriptions['by_stage'])->toContain($paidInPeriod)->toContain($lawyerWhenPaid)
+        ->and($descriptions['mix'])->toContain($signedInPeriod)->toContain($currentLawyer)
+        ->and($descriptions['load'])->toContain('KHÔNG phụ thuộc bộ lọc thời gian')->toContain($currentLawyer)
+        ->and($descriptions['closed'])->toContain('KHÔNG phụ thuộc bộ lọc thời gian')->toContain($currentLawyer);
+
+    foreach ($descriptions as $description) {
+        expect($description)->not->toMatch('/\b[a-z]+_[a-z_]+\b/')
+            ->not->toMatch('/\b(contracts|payments|matters)\./');
+    }
+});
+
+/**
+ * Minor rà soát Task 9: tiền đã thu của một hợp đồng SAU ĐÓ bị huỷ vẫn là tiền đã về — hai biểu đồ
+ * doanh thu tính nó, donut (bức tranh công nợ của hợp đồng còn hiệu lực) thì không. Mỗi widget nói
+ * ra điều đó, để hai con số "đã thu" khác nhau không bị đọc thành một lỗi.
+ */
+it('says on the donut and on both revenue charts how money collected on a later cancelled contract is counted', function () {
+    $this->actingAs($this->admin, 'web');
+
+    expect(widgetDescription(ReceivablesDonutWidget::class))->toContain('Tiền đã thu của hợp đồng sau đó bị huỷ không tính ở đây')
+        ->and(widgetDescription(RevenueOverTimeWidget::class))->toContain('kể cả tiền đã thu của hợp đồng sau đó bị huỷ')
+        ->and(widgetDescription(RevenueByStageWidget::class))->toContain('kể cả tiền đã thu của hợp đồng sau đó bị huỷ');
 });
 
 // =================================================================================================
@@ -887,8 +905,14 @@ it('narrows every widget down to a single practice area when the practice-area f
     $matterA = Matter::factory()->create(['matter_type_id' => $typeA->id, 'lead_lawyer_id' => $this->lawyer->id]);
     $matterB = Matter::factory()->create(['matter_type_id' => $typeB->id, 'lead_lawyer_id' => $this->lawyer->id]);
 
-    signedContract($matterA, 11_000_000);
-    signedContract($matterB, 22_000_000);
+    $contractA = signedContract($matterA, 11_000_000);
+    $contractB = signedContract($matterB, 22_000_000);
+
+    // M9 Task 13 (minor rà soát Task 9): tên test nói "mọi widget" mà bản trước chỉ đo donut. Thêm
+    // một khoản thu trên mỗi vụ để hai biểu đồ tiền về cũng có gì để lọc, và đo cả bốn widget lọc
+    // theo lĩnh vực có dữ liệu ở đây (hai widget còn lại có test lọc lĩnh vực riêng của chúng).
+    Payment::factory()->for($contractA->instalments()->sole())->create(['amount' => 3_000_000, 'paid_on' => today()->toDateString(), 'attributed_lawyer_id' => $this->lawyer->id]);
+    Payment::factory()->for($contractB->instalments()->sole())->create(['amount' => 5_000_000, 'paid_on' => today()->toDateString(), 'attributed_lawyer_id' => $this->lawyer->id]);
 
     $this->actingAs($this->lawyer, 'web');
 
@@ -896,7 +920,19 @@ it('narrows every widget down to a single practice area when the practice-area f
     $unfiltered = widgetData(ReceivablesDonutWidget::class);
 
     expect(array_sum($filteredToA['datasets'][0]['data']))->toBe(11_000_000)
-        ->and(array_sum($unfiltered['datasets'][0]['data']))->toBe(33_000_000);
+        ->and(array_sum($unfiltered['datasets'][0]['data']))->toBe(33_000_000)
+        ->and(array_sum(widgetData(RevenueOverTimeWidget::class, ['practice_area_id' => $typeA->id])['datasets'][0]['data']))->toBe(3_000_000)
+        ->and(array_sum(widgetData(RevenueOverTimeWidget::class)['datasets'][0]['data']))->toBe(8_000_000)
+        ->and(array_sum(widgetData(RevenueByStageWidget::class, ['practice_area_id' => $typeA->id])['datasets'][0]['data']))->toBe(3_000_000)
+        ->and(array_sum(widgetData(RevenueByStageWidget::class)['datasets'][0]['data']))->toBe(8_000_000);
+
+    // Cơ cấu lĩnh vực là widget toàn văn phòng (revenue.viewAny) — đo bằng quản trị viên.
+    $this->actingAs($this->admin, 'web');
+
+    $mixA = collect(widgetRows(MatterMixByPracticeAreaWidget::class, ['practice_area_id' => $typeA->id]));
+
+    expect($mixA->firstWhere('label', $typeA->name)['value'])->toBe(Money::format(11_000_000))
+        ->and($mixA->firstWhere('label', $typeB->name)['value'])->toBe(Money::format(0));
 });
 
 // =================================================================================================
@@ -1096,4 +1132,116 @@ it('leaves a cancelled contract out of the practice-area mix, by amount and by c
 
     expect($byAmount['value'])->toBe(Money::format(30_000_000))
         ->and($byCount['value'])->toBe('2');
+});
+
+// =================================================================================================
+// M9 Task 13 — ngày CUỐI THÁNG. Làn m9r đo 21 test của tệp này đỏ ngày 2026-09-30, xanh ngày
+// 2026-10-01. Chẩn đoán (Task 13): trên SQLite, cast `date` của Eloquent ghi `signed_at`/`paid_on`
+// thành `Y-m-d 00:00:00`, còn bốn widget lọc kỳ bằng `whereBetween(cột, [Y-m-d, Y-m-d])` — chuỗi
+// `2026-09-30 00:00:00` lớn hơn cận trên `2026-09-30`, nên mọi tiền ký/về ĐÚNG ngày cuối kỳ rơi
+// khỏi kỳ "tháng này". Trên MariaDB (cột DATE) không sai — đã đo: cả tệp ghim ngày cuối tháng đỏ 21
+// trên SQLite, xanh 35/35 trên MariaDB. Sửa ở MÃ (cận của kỳ là mốc thời gian đủ giờ), không ghim
+// ngày cho tệp test: một test ghim giữa tháng sẽ giấu đúng ca biên này.
+// =================================================================================================
+
+it('counts a contract signed and money collected on the last day of the month under the default this-month filter, in all four period widgets', function () {
+    $this->travelTo(today()->endOfMonth()->setTime(10, 0));
+
+    $type = MatterType::factory()->withStages()->create(['name' => 'Lĩnh vực ký ngày cuối tháng']);
+    $matter = Matter::factory()->create(['matter_type_id' => $type->id, 'lead_lawyer_id' => $this->lawyer->id]);
+    $contract = signedContract($matter, 20_000_000, today()->toDateString());
+
+    Payment::factory()->for($contract->instalments()->sole())->create([
+        'amount' => 8_000_000,
+        'paid_on' => today()->toDateString(),
+        'attributed_lawyer_id' => $this->lawyer->id,
+    ]);
+
+    $this->actingAs($this->admin, 'web');
+
+    $signedRow = collect(widgetRows(ReceivablesDonutWidget::class))->firstWhere('label', __('widgets.revenue_dashboard.donut.table.signed_total'));
+    $mixRow = collect(widgetRows(MatterMixByPracticeAreaWidget::class))->firstWhere('label', 'Lĩnh vực ký ngày cuối tháng');
+    $byStage = (int) collect(widgetRows(RevenueByStageWidget::class))->sum(fn (array $row): int => parseMoneyRow($row['value']));
+
+    expect($signedRow['value'])->toBe(Money::format(20_000_000))
+        ->and(array_sum(widgetData(RevenueOverTimeWidget::class)['datasets'][0]['data']))->toBe(8_000_000)
+        ->and($byStage)->toBe(8_000_000)
+        ->and($mixRow['value'])->toBe(Money::format(20_000_000));
+});
+
+it('still leaves out a contract signed and money collected on the first day of the next month', function () {
+    $this->travelTo(today()->endOfMonth()->setTime(10, 0));
+
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
+    $contract = signedContract($matter, 20_000_000, today()->toDateString());
+    Payment::factory()->for($contract->instalments()->sole())->create([
+        'amount' => 8_000_000,
+        'paid_on' => today()->toDateString(),
+        'attributed_lawyer_id' => $this->lawyer->id,
+    ]);
+
+    // Sang ngày đầu tháng sau: kỳ mặc định "tháng này" là tháng mới, tiền hôm qua không còn trong đó.
+    $this->travelTo(today()->addDay()->setTime(10, 0));
+    $this->actingAs($this->admin, 'web');
+
+    $signedRow = collect(widgetRows(ReceivablesDonutWidget::class))->firstWhere('label', __('widgets.revenue_dashboard.donut.table.signed_total'));
+
+    expect($signedRow['value'])->toBe(Money::format(0))
+        ->and(array_sum(widgetData(RevenueOverTimeWidget::class)['datasets'][0]['data']))->toBe(0);
+});
+
+// =================================================================================================
+// M9 Task 13 (minor của rà soát Task 9) — bộ lọc luật sư phải chọn được luật sư CŨ đã được ghi
+// doanh thu trước một lần bàn giao (P2: "đã thu" lọc theo luật sư lúc thu). Trước bản sửa, ô chọn
+// chỉ liệt kê luật sư phụ trách HIỆN TẠI, nên doanh thu của người cũ không lọc ra được.
+// =================================================================================================
+
+it('lets the lawyer filter pick a former lead who was credited with collected money before a handover', function () {
+    $oldLawyer = User::factory()->withRole(Role::Lawyer)->create(['name' => 'Luật sư đã bàn giao Ất']);
+    $newLawyer = User::factory()->withRole(Role::Lawyer)->create(['name' => 'Luật sư nhận bàn giao Bính']);
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $oldLawyer->id]);
+    $contract = signedContract($matter, 10_000_000);
+    Payment::factory()->for($contract->instalments()->sole())->create([
+        'amount' => 4_000_000, 'paid_on' => today()->toDateString(), 'attributed_lawyer_id' => $oldLawyer->id,
+    ]);
+    $matter->update(['lead_lawyer_id' => $newLawyer->id]);
+
+    $html = $this->actingAs($this->accountant, 'web')->get(RevenueDashboard::getUrl(panel: 'admin'))->assertOk()->getContent();
+
+    expect($html)->toContain('Luật sư đã bàn giao Ất')
+        ->toContain('Luật sư nhận bàn giao Bính');
+});
+
+it('never offers the accountant a lawyer whose only credited money sits on a restricted matter', function () {
+    $hidden = User::factory()->withRole(Role::Lawyer)->create(['name' => 'Luật sư chỉ có vụ hạn chế Đinh']);
+    $visible = User::factory()->withRole(Role::Lawyer)->create(['name' => 'Luật sư vụ thường Mậu']);
+    $restricted = Matter::factory()->restricted()->create(['lead_lawyer_id' => $hidden->id]);
+    $contract = signedContract($restricted, 10_000_000);
+    Payment::factory()->for($contract->instalments()->sole())->create([
+        'amount' => 4_000_000, 'paid_on' => today()->toDateString(), 'attributed_lawyer_id' => $hidden->id,
+    ]);
+    // Vụ đã bàn giao cho người khác: tên người cũ chỉ còn đứng trên khoản thu của vụ hạn chế.
+    $restricted->update(['lead_lawyer_id' => $visible->id]);
+    Matter::factory()->create(['lead_lawyer_id' => $visible->id]);
+
+    $html = $this->actingAs($this->accountant, 'web')->get(RevenueDashboard::getUrl(panel: 'admin'))->assertOk()->getContent();
+
+    expect($html)->toContain('Luật sư vụ thường Mậu')
+        ->not->toContain('Luật sư chỉ có vụ hạn chế Đinh');
+});
+
+it('never offers a lawyer whose only credited payment was voided, since a voided payment is no revenue', function () {
+    $voidedOnly = User::factory()->withRole(Role::Lawyer)->create(['name' => 'Luật sư chỉ có khoản đã huỷ Kỷ']);
+    $lead = User::factory()->withRole(Role::Lawyer)->create(['name' => 'Luật sư phụ trách Canh']);
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lead->id]);
+    $contract = signedContract($matter, 10_000_000);
+    Payment::factory()->for($contract->instalments()->sole())->create([
+        'amount' => 4_000_000, 'paid_on' => today()->toDateString(), 'attributed_lawyer_id' => $voidedOnly->id,
+        'voided_at' => now(), 'voided_by' => $this->accountant->id, 'void_reason' => 'Ghi nhầm hồ sơ, đã ghi lại đúng vụ.',
+    ]);
+
+    $html = $this->actingAs($this->accountant, 'web')->get(RevenueDashboard::getUrl(panel: 'admin'))->assertOk()->getContent();
+
+    expect($html)->toContain('Luật sư phụ trách Canh')
+        ->not->toContain('Luật sư chỉ có khoản đã huỷ Kỷ');
 });

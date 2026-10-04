@@ -132,6 +132,32 @@ return [
             'next_step' => 'Bước tiếp theo:',
             'client_action' => 'Việc khách cần làm:',
         ],
+        /*
+         * M9 Task 10 (P1) — mục "Bảng kê thanh toán". Chỉ tiêu đề; chữ của từng dòng (đến hạn, trạng
+         * thái, cách trả) đến từ `portal_progress.billing`, qua cùng hình chiếu với cổng khách, để
+         * khách đọc cùng một câu ở hai nơi.
+         */
+        'billing' => [
+            'heading' => 'Bảng kê thanh toán',
+            'contract_code' => 'Số hợp đồng',
+            'signed_on' => 'Ngày ký',
+            'total' => 'Tổng giá trị hợp đồng',
+            'vat' => 'Thuế',
+            'completed_on' => 'Ngày hoàn tất hợp đồng',
+            'instalments_heading' => 'Các đợt thanh toán',
+            'payments_heading' => 'Các khoản văn phòng đã nhận',
+            'payments_empty' => 'Văn phòng chưa ghi nhận khoản thanh toán nào.',
+            'columns' => [
+                'name' => 'Đợt thanh toán',
+                'amount' => 'Số tiền',
+                'due' => 'Đến hạn',
+                'collected' => 'Đã thanh toán',
+                'outstanding' => 'Còn lại',
+                'state' => 'Tình trạng',
+                'paid_on' => 'Ngày nhận',
+                'method' => 'Hình thức',
+            ],
+        ],
         'generated_at' => 'Lập ngày :date',
         'page' => 'Trang',
     ],

@@ -51,3 +51,38 @@ it('lets an explicit blameOn beat the ambient session even when the column alrea
 
     expect($client->fresh()->updated_by)->toBe($actor->id);
 });
+
+/**
+ * M9 Task 6 (phán quyết controller 1): một lần lưu do HỆ THỐNG gây ra — đợt thanh toán đến hạn vì
+ * vụ chạm giai đoạn — không phải của ai. `blameOnSystem()` tuyên bố điều đó tường minh: `updated_by`
+ * giữ nguyên, `created_by` để trống, và KHÔNG rơi về phiên `web` đang mở (listener chạy ngay trong
+ * request của luật sư vừa bấm "Chuyển giai đoạn").
+ */
+it('lets blameOnSystem keep the blame columns away from the ambient session', function () {
+    $editor = User::factory()->create();
+    $sessionUser = User::factory()->create();
+
+    $this->actingAs($editor, 'web');
+    $client = Client::factory()->create();
+
+    $this->actingAs($sessionUser, 'web');
+
+    $client->fresh()->blameOnSystem()->update(['note' => 'hệ thống ghi']);
+
+    $created = Client::factory()->make();
+    $created->blameOnSystem()->save();
+
+    expect($client->fresh()->updated_by)->toBe($editor->id)
+        ->and($created->fresh()->created_by)->toBeNull()
+        ->and($created->fresh()->updated_by)->toBeNull();
+});
+
+/** Cặp: một `blameOn()` sau `blameOnSystem()` trên cùng instance lại ghi đúng người. */
+it('lets a later blameOn take the instance back from the system', function () {
+    $actor = User::factory()->create();
+    $client = Client::factory()->create();
+
+    $client->blameOnSystem()->blameOn($actor)->update(['note' => 'người ghi']);
+
+    expect($client->fresh()->updated_by)->toBe($actor->id);
+});

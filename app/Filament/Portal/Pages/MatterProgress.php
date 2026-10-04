@@ -10,9 +10,12 @@ use App\Models\ClientRequest;
 use App\Models\ClientUser;
 use App\Models\Deadline;
 use App\Models\Document;
+use App\Models\Instalment;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
+use App\Models\Payment;
 use App\Models\StageLog;
+use App\Support\Billing\ClientBillingStatement;
 use App\Support\ClientRequestActivity;
 use Filament\Facades\Filament;
 use Filament\Pages\Page;
@@ -27,16 +30,23 @@ use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Locked;
 
 /**
- * Chi tiết một hồ sơ trên cổng khách hàng — SPEC §8.3, bảy khối dọc, đúng thứ tự SPEC liệt kê.
+ * Chi tiết một hồ sơ trên cổng khách hàng — SPEC §8.3, các khối dọc, đúng thứ tự SPEC liệt kê.
  *
  * Đây là màn hình mà cả M0–M4 tồn tại để dẫn tới: một khách hàng, trên điện thoại, đọc vụ việc
- * của mình đang ở đâu, còn phải làm gì, và văn phòng đã nói gì với mình. Bảy khối, theo thứ tự:
+ * của mình đang ở đâu, còn phải làm gì, và văn phòng đã nói gì với mình. Các khối, theo thứ tự:
  * tình trạng hiện tại, việc anh/chị cần làm (**chỉ hiện khi có**), diễn biến, hồ sơ giấy tờ,
- * tài liệu, mốc thời hạn, gửi yêu cầu. Không có khối thứ tám: `communication_logs` **không** lên
- * cổng (phán quyết của người điều phối M5, 19/09/2026 — SPEC §5 không liệt kê nó, và thêm một
- * model vào danh sách đó là một việc cần chữ ký của văn phòng, không phải một mặc định).
+ * tài liệu, mốc thời hạn, **hợp đồng và thanh toán** (**chỉ hiện khi có**), gửi yêu cầu.
  *
- * Dưới bảy khối là **lối quay lại danh sách hồ sơ**, và nó gọi {@see MyMatters::getAllUrl()} chứ
+ * **Khối tiền là loại dữ liệu thứ tám khách được thấy, và nó được thêm CÓ CHỦ ĐÍCH** (M9 Task 10,
+ * phán quyết P1 của chủ văn phòng; đính chính SPEC §5 phần Portal và §8.3 cùng ngày). Nó đứng sau
+ * "Mốc thời hạn sắp tới" và trước "Gửi yêu cầu", đánh dấu `data-portal-block="billing"` (không
+ * phải một số: chèn "8" giữa "6" và "7" sẽ nói sai thứ tự), và chỉ hiện khi vụ có hợp đồng đã ký —
+ * xem {@see self::billing()}. Đây vẫn là câu trả lời CỦA VĂN PHÒNG cho câu hỏi "thêm một loại dữ
+ * liệu lên cổng", không phải một mặc định: `communication_logs` **vẫn không** lên cổng (phán quyết
+ * của người điều phối M5, 19/09/2026 — SPEC §5 không liệt kê nó, và thêm một model vào danh sách
+ * đó là một việc cần chữ ký của văn phòng, đúng thứ P1 là cho tiền).
+ *
+ * Dưới các khối là **lối quay lại danh sách hồ sơ**, và nó gọi {@see MyMatters::getAllUrl()} chứ
  * không `MyMatters::getUrl()`: với một khách có đúng MỘT hồ sơ thì `/portal` trần chuyển hướng
  * ngược về chính trang này, nên một lối quay lại không mang cờ "tất cả" là một cái nút không đi
  * đâu cả. Đo bằng cách ĐI THEO ĐƯỜNG LINK — đọc `href` ra khỏi HTML rồi gọi thật vào nó và đòi
@@ -79,9 +89,9 @@ use Livewire\Attributes\Locked;
  *     dòng nào ở đây viết `where('client_id', ...)`.
  *  2. **Quyền** — mỗi tập hợp còn đi qua một lần `Gate::allows('view', ...)` trên TỪNG bản ghi
  *     ({@see self::timeline()}, {@see self::documents()}, {@see self::deadlines()},
- *     {@see self::checklistItems()}). Đó không phải phòng thủ thừa: nó là tầng thứ hai của nghi
- *     thức ba tầng, và với ba tập đầu nó là thứ DUY NHẤT còn đứng khi tầng truy vấn quên một câu
- *     `where`. **`checklistItems()` là ngoại lệ và sắc thái của nó được viết ra ở chính docblock
+ *     {@see self::checklistItems()}, {@see self::billing()}). Đó không phải phòng thủ thừa: nó là
+ *     tầng thứ hai của nghi thức ba tầng, và với ba tập đầu và khối tiền nó là thứ DUY NHẤT còn
+ *     đứng khi tầng truy vấn quên một câu `where`. **`checklistItems()` là ngoại lệ và sắc thái của nó được viết ra ở chính docblock
  *     của phương thức đó** — ở đấy quan hệ cha đã giữ phạm vi, nên lần hỏi `Gate` sống sót một
  *     lần đột biến và được giữ vì một lý do khác, cũng đã đo. Đo
  *     được ở `MatterProgressTest`, test "keeps a group D document off the page even with both
@@ -226,6 +236,16 @@ class MatterProgress extends Page
 
     /** @var Collection<int, array<string, string>>|null */
     private ?Collection $resolvedRetractionNotices = null;
+
+    /**
+     * Khối tiền đã chiếu — `null` là một câu trả lời hợp lệ ("không có hợp đồng khách được thấy"),
+     * nên cờ riêng `$billingResolved` phân biệt "đã tính, ra null" với "chưa tính".
+     *
+     * @var array<string, mixed>|null
+     */
+    private ?array $resolvedBilling = null;
+
+    private bool $billingResolved = false;
 
     /**
      * `{record}` nối vào đường dẫn ở đây chứ không ở `$slug`: `getRelativeRouteName()` dựng tên
@@ -929,6 +949,75 @@ class MatterProgress extends Page
                 'days_left' => (int) today()->diffInDays($deadline->due_date, false),
             ])
             ->values();
+    }
+
+    // -------------------------------------------------------------------------------------
+    // Khối "Hợp đồng và thanh toán" — M9 Task 10 (P1), giữa khối 6 và khối 7
+    // -------------------------------------------------------------------------------------
+
+    /**
+     * Hợp đồng và lịch thu của hồ sơ này, **đã chiếu xuống đúng những gì khối tiền vẽ** —
+     * {@see ClientBillingStatement::present()}. `null` khi hồ sơ không có hợp đồng khách được thấy
+     * (chưa có, còn nháp, đã huỷ): khi đó cả khối biến mất, không có câu "trống".
+     *
+     * Ba tầng, như mọi khối khác của trang:
+     *
+     *  1. **Truy vấn** — `$this->matter()->contract()` neo vào hồ sơ đã gác, rồi scope cổng của
+     *     `Contract`/`Instalment`/`Payment` cắt bản nháp, bản huỷ, đợt huỷ, khoản thu huỷ.
+     *  2. **Quyền** — `Gate::allows('view', …)` trên HỢP ĐỒNG, TỪNG đợt, TỪNG khoản thu. Nhánh khách
+     *     của ba policy nói lại điều kiện của chính dòng bằng thuộc tính và hỏi lại bản ghi cha, nên
+     *     tầng này còn đứng khi tầng truy vấn quên một câu `where` — đo ở `BillingOnPortalTest`
+     *     ("keeps a draft contract, a cancelled instalment and a voided payment off the page when
+     *     the money scopes forget their rule"). Quan hệ cha được gắn sẵn (`setRelation`) từ chính
+     *     những bản ghi trang vừa gác, để mỗi lần hỏi không nạp lại cha.
+     *  3. **Serialize** — hàm này trả MẢNG CHUỖI hẹp, không model nào; cột nội bộ của bốn model tiền
+     *     còn bị `HidesInternalAttributesFromPortal` chặn ở tầng của chúng.
+     *
+     * Phụ lục hợp đồng không được vẽ (P1 không liệt kê chúng); giá trị hiện hành của hợp đồng đã
+     * phản ánh mọi phụ lục.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function billing(): ?array
+    {
+        if ($this->billingResolved) {
+            return $this->resolvedBilling;
+        }
+
+        $this->billingResolved = true;
+
+        $gate = Gate::forUser($this->viewer());
+        $matter = $this->matter();
+
+        $contract = $matter->contract()->first();
+
+        if ($contract === null) {
+            return $this->resolvedBilling = null;
+        }
+
+        $contract->setRelation('matter', $matter);
+
+        if (! $gate->allows('view', $contract)) {
+            return $this->resolvedBilling = null;
+        }
+
+        $instalments = $contract->instalments()->get()
+            ->each(fn (Instalment $instalment) => $instalment->setRelation('contract', $contract))
+            ->filter(fn (Instalment $instalment): bool => $gate->allows('view', $instalment))
+            ->values();
+
+        $byId = $instalments->keyBy(fn (Instalment $instalment): int => (int) $instalment->getKey());
+
+        $payments = Payment::query()
+            ->whereIn('instalment_id', $byId->keys()->all())
+            ->orderBy('paid_on')
+            ->orderBy('id')
+            ->get()
+            ->each(fn (Payment $payment) => $payment->setRelation('instalment', $byId->get((int) $payment->instalment_id)))
+            ->filter(fn (Payment $payment): bool => $gate->allows('view', $payment))
+            ->values();
+
+        return $this->resolvedBilling = ClientBillingStatement::present($matter, $contract, $instalments, $payments);
     }
 
     // -------------------------------------------------------------------------------------

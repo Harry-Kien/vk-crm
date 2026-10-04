@@ -150,3 +150,14 @@ it('tells the admin a failed deadline reminder comes back at the next day\'s fir
         ->not->toContain('kế tiếp')
         ->not->toContain('hai lần');
 });
+
+/**
+ * M9 Task 13 (minor m5 rà soát Task 10): M9 không gửi thư tiền nào cho khách (P1), nên dòng "chưa
+ * có ngày đến hạn" trên khối tiền của cổng không được hứa rằng văn phòng "sẽ báo" — không có lời
+ * báo nào đi. Câu trung tính nói đúng trạng thái.
+ */
+it('does not promise the client a due-date notice that no mail ever sends', function () {
+    expect(mb_strtolower(__('portal_progress.billing.due.unscheduled')))
+        ->not->toContain('báo')
+        ->toContain('chưa có ngày đến hạn');
+});

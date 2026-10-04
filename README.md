@@ -138,7 +138,9 @@ Tóm tắt những điều không được bỏ qua:
 - **`php artisan vkcrm:preflight` phải xanh TRƯỚC khi mở cổng và sau MỖI lần nâng cấp**, và chạy
   TRƯỚC `php artisan optimize` (một vài điều kiện đọc `.env` trực tiếp). Nó kiểm
   `TRUSTED_PROXIES`, `HEARTBEAT_URL`, cookie phiên chỉ qua https, `APP_DEBUG`, extension PHP,
-  `storage/app/private` có lộ ra web không, và điều kiện máy chủ cho sao lưu.
+  `storage/app/private` có lộ ra web không, và điều kiện máy chủ cho sao lưu. Một ngoại lệ duy
+  nhất: dòng "bất biến tiền" (hợp đồng lệch tổng, dưới) vẫn ĐỎ và mã thoát vẫn 1, nhưng KHÔNG chặn
+  `php artisan up` — nó là dữ liệu, chỉ sửa được trong app bằng phụ lục; mọi dòng ĐỎ khác chặn.
 - **Đúng một dòng cron**, cộng giám sát cron qua `HEARTBEAT_URL`:
   `* * * * * cd /var/www/vk-crm && php artisan schedule:run >> /dev/null 2>&1`
 - **`APP_KEY` là một nửa của bản sao lưu**: nó mã hoá số định danh khách hàng và secret 2FA của
@@ -146,6 +148,18 @@ Tóm tắt những điều không được bỏ qua:
   ngoài máy chủ, không cùng chỗ bản sao lưu; không bao giờ `key:generate` trên dữ liệu thật.
 - **Nâng cấp:** `php artisan down` → `git pull` → `composer install --no-dev --optimize-autoloader`
   → `chown -R www-data:www-data storage bootstrap/cache` → `php artisan migrate --force` →
-  `php artisan db:seed --force` → `php artisan optimize:clear` → `php artisan vkcrm:preflight` →
-  `php artisan optimize` → `php artisan up`, rồi theo dõi thư báo lỗi của lượt sao lưu đêm đầu.
+  `php artisan db:seed --force` → `php artisan billing:check-invariants` →
+  `php artisan optimize:clear` → `php artisan vkcrm:preflight` → `php artisan optimize` →
+  `php artisan up`, rồi theo dõi thư báo lỗi của lượt sao lưu đêm đầu.
   Chi tiết: `docs/CAI-DAT.md`, "Nâng cấp lên bản mới".
+  - `db:seed --force` chạy `ReferenceDataSeeder` (vai trò, quyền, loại vụ việc, danh mục mẫu; chỉ
+    thêm, không ghi đè thứ quản trị viên đã sửa): đây là bước mang **bốn quyền tiền** của M9
+    (`billing.view`, `contract.manage`, `payment.record`, `revenue.viewAny`) tới một máy chủ đã
+    có dữ liệu — bỏ bước này thì không ai, kể cả quản trị viên, mở được trang Công nợ, trang
+    Doanh thu hay tab "Hợp đồng và thanh toán" (vai trò chưa mang quyền nào trong bốn quyền đó).
+  - `billing:check-invariants` quét mọi hợp đồng đang hiệu lực: tổng các đợt phải khớp đúng giá
+    trị hợp đồng; lệch thì in bảng từng hợp đồng và trả mã thoát 1. `vkcrm:preflight` có cùng phép
+    kiểm thành một dòng (ĐỎ khi lệch). Sửa một hợp đồng lệch bằng phụ lục, không sửa thẳng CSDL —
+    nên dòng này không chặn `php artisan up`: vẫn mở cổng, rồi luật sư phụ trách ký phụ lục ngay.
+  - Nhập hợp đồng đang chạy khi bắt đầu dùng hệ thống: `docs/QUY-TRINH.md`, Giai đoạn 5, "Nhập hợp
+    đồng đang chạy khi bắt đầu dùng hệ thống".

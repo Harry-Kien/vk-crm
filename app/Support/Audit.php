@@ -44,6 +44,15 @@ use Spatie\Activitylog\Models\Activity;
  * caller quên `actingAs` trong test), truyền actor đó vào đây để dòng nhật ký được gán đúng
  * người, thay vì suy luận (có thể sai, hoặc rỗng) từ phiên đăng nhập hiện tại.
  *
+ * `$bySystem = true` (M9 Task 6, phán quyết controller 1): dòng của HỆ THỐNG — không causer nào,
+ * kể cả khi có người đang đăng nhập. Đặt `$causer = null` thôi KHÔNG đủ: ngoài lần rơi về phiên
+ * ngay dưới, spatie/laravel-activitylog tự gán người dùng của guard mặc định ngay lúc dựng dòng
+ * (`ActivityLogger::getActivity()`), nên phải xoá tường minh (`causedByAnonymous()`). Dùng cho một
+ * việc là HỆ QUẢ của một sự kiện chứ không phải quyết định của ai — ví dụ một đợt thanh toán đến hạn
+ * vì vụ chạm giai đoạn, ghi trong request của luật sư vừa chuyển giai đoạn; nguồn gốc của dòng đó
+ * nằm trong `$properties` (`stage_log_id`), và trang nhật ký hiện causer rỗng là "Hệ thống".
+ * `$causer` bị bỏ qua khi cờ này bật.
+ *
  * Return value (M6.5 Task 8, R13g / conflict-06): record() now returns the logged Activity (or
  * null) instead of void. RunConflictCheck needs it — the conflict_check_run row it writes during
  * OpenMatter's check phase is logged before the Matter exists, so its subject starts out empty;
@@ -53,12 +62,18 @@ use Spatie\Activitylog\Models\Activity;
  */
 final class Audit
 {
-    public static function record(string $event, ?Model $subject = null, array $properties = [], ?Model $causer = null): ?Activity
+    public static function record(string $event, ?Model $subject = null, array $properties = [], ?Model $causer = null, bool $bySystem = false): ?Activity
     {
         $log = activity()->event($event)->withProperties($properties);
 
         if ($subject !== null) {
             $log->performedOn($subject);
+        }
+
+        if ($bySystem) {
+            $log->causedByAnonymous();
+
+            return $log->log($event);
         }
 
         $causer ??= auth('web')->user() ?? auth('client')->user();

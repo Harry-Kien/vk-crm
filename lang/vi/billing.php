@@ -251,7 +251,7 @@ return [
         // thu đủ hay đã miễn (những đợt không còn trong bảng công nợ ở trên).
         'recent_payments' => [
             'heading' => 'Khoản thu gần đây',
-            'description' => 'Các khoản thu chưa huỷ trong :days ngày gần nhất (theo ngày thu), kể cả của đợt đã thu đủ — huỷ một khoản ghi nhầm ở đây.',
+            'description' => 'Các khoản thu chưa huỷ trong :days ngày gần nhất (theo ngày thu), kể cả của đợt đã thu đủ — huỷ một khoản ghi nhầm ở đây. Gõ mã hồ sơ vào bộ lọc "Mã hồ sơ" thì thấy mọi khoản thu chưa huỷ của hồ sơ đó, kể cả cũ hơn :days ngày (như khoản ghi lùi ngày lúc nhập hợp đồng cũ).',
             'empty_heading' => 'Không có khoản thu nào trong khoảng thời gian này.',
             'columns' => [
                 'paid_on' => 'Ngày thu',

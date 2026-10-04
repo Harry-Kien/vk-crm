@@ -1,14 +1,18 @@
 <?php
 
+use App\Enums\ContractStatus;
 use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Models\Client;
 use App\Models\ClientUser;
+use App\Models\Contract;
+use App\Models\Instalment;
 use App\Models\Matter;
 use App\Models\TimeEntry;
 use App\Models\User;
 use App\Policies\Concerns\ChecksMatterAccess;
 use App\Policies\TimeEntryPolicy;
+use App\Support\Scopes\ClientPortalScope;
 use Database\Seeders\RolesAndPermissionsSeeder;
 
 /**
@@ -72,4 +76,26 @@ it('never returns a time entry through the client portal query scope, even for t
     $this->actingAs($this->clientUser, 'client');
 
     expect(TimeEntry::query()->count())->toBe(0);
+});
+
+/**
+ * M9 Task 10 (P1) mở bốn model tiền cho khách; giờ làm việc thì KHÔNG. Test này đứng ở đây (không ở
+ * `tests/Feature/Portal/BillingOnPortalTest.php`) vì phép quét cấu trúc của `TimeEntryTest` chỉ cho
+ * đúng các tệp Task 12 nhắc tới model này. Cặp dương trong CÙNG ngữ cảnh: cùng khách, cùng vụ, hợp
+ * đồng đã ký đọc được qua cả hai tầng — nên hai lời từ chối dưới đây là về giờ làm việc, không phải
+ * một cổng đóng sạch.
+ */
+it('keeps time entries closed on both layers while the same client reads the signed contract of the same matter', function () {
+    $contract = Contract::factory()->for($this->matter)->create(['total_amount' => 8_000_000]);
+    Instalment::factory()->for($contract)->create(['amount' => 8_000_000]);
+    $contract->update(['status' => ContractStatus::Active, 'signed_at' => today()->subDay()->toDateString()]);
+
+    $visible = ClientPortalScope::actingAs($this->clientUser, fn () => [
+        TimeEntry::query()->count(),
+        Contract::query()->pluck('id')->all(),
+    ]);
+
+    expect($visible)->toBe([0, [$contract->id]])
+        ->and($this->clientUser->can('view', $this->entry))->toBeFalse()
+        ->and($this->clientUser->can('view', $contract))->toBeTrue();
 });

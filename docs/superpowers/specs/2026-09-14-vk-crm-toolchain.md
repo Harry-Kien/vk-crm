@@ -106,11 +106,11 @@ Không cần gói mới. Chỉ Laravel 13 + Filament 5 đã có.
 ### Giai đoạn 2 (sau M8)
 | Nhu cầu | Cách làm |
 |---|---|
-| Hợp đồng, đợt thanh toán, công nợ | Tự viết theo mô hình `contracts`, `installments`, `payments` |
+| Hợp đồng, đợt thanh toán, công nợ | **Đã làm ở M9** (không gói mới): tự viết theo mô hình `contracts`, `instalments`, `payments`, `contract_amendments`; biểu đồ bằng `Filament\Widgets\ChartWidget` có sẵn |
 | VietQR | Không có gói ổn định. Sinh QR theo chuẩn NAPAS bằng `simplesoftwareio/simple-qrcode` hoặc `endroid/qr-code` |
 | Zalo ZNS | Tự viết Notification channel gọi API Zalo OA; đã chừa enum `zns` |
 | Lịch Google | `spatie/laravel-google-calendar` |
-| Chấm giờ, tính phí | Bảng `time_entries`, đã chừa relation trên `Matter` |
+| Chấm giờ, tính phí | Bảng `time_entries` đã dựng khung ở M9 (chưa Action, chưa màn hình), relation trên `Matter` |
 | Nhận lead từ website | API token bằng Sanctum có sẵn, rate limit 60/phút |
 | Theo dõi lỗi production | `sentry/sentry-laravel` gói miễn phí, chỉ nếu VPS |
 

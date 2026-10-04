@@ -66,7 +66,7 @@ class AddUpdateAction extends Action
                 'publicContent' => $get('public_content'),
                 'nextStep' => $get('next_step'),
                 'clientAction' => $get('client_action'),
-                'expectedNextUpdateAt' => $get('expected_next_update_at'),
+                'expectedNextUpdateAt' => $this->expectedNextUpdateAtState($get),
                 'willPublish' => (bool) $get('publish'),
             ]),
         ];

@@ -47,6 +47,10 @@ use Illuminate\Support\Str;
  *  - vụ 10–14: có tài liệu khách nộp chờ duyệt
  *  - vụ 20: bị đơn trùng căn cước với khách hàng số 2 (đang là khách trong vụ 2) => xung đột đỏ
  *  - vụ 1–10: khách đã xem các dòng công bố; vụ 11–20: chưa xem
+ *  - vụ i mở `30 + 12·i` ngày trước (vụ 20: 270 ngày, khoảng chín tháng) — M9 Task 13: tiền mẫu
+ *    (`BillingSeeder`) ký hợp đồng vài ngày sau ngày mở vụ và đòi khoản thu rải trên ít nhất
+ *    tám tháng; trước đó (`30 + 7·i`, vụ cũ nhất 170 ngày) không vụ nào đủ cũ để tiền về từ tám
+ *    tháng trước mà không ký hợp đồng trước cả ngày mở hồ sơ.
  * Chạy lại không tạo thêm nếu đã đủ 20 vụ.
  *
  * **Tài liệu có TỆP THẬT, và chúng đi qua đúng hai Action của mã sản phẩm.** Cho tới vòng rà
@@ -91,8 +95,11 @@ class MatterSeeder extends Seeder
         'Tô Văn Chiến', 'La Thị Diệu', 'Ông Văn Đông', 'Từ Thị Giang', 'Trần Thị Bình',
     ];
 
-    /** M7 Task 3: mốc idempotency của {@see self::closedMatter()} — xem docblock `run()`. */
-    private const CLOSED_MATTER_CASE_NUMBER = '99/2026/TLST-DS';
+    /**
+     * M7 Task 3: mốc idempotency của {@see self::closedMatter()} — xem docblock `run()`. Công khai từ
+     * M9 Task 13: `BillingSeeder` tìm lại đúng vụ đã kết thúc bằng chính mốc này.
+     */
+    public const CLOSED_MATTER_CASE_NUMBER = '99/2026/TLST-DS';
 
     /**
      * Idempotency của MỖI phần dưới đây tự đứng riêng, không dựa vào một mốc tổng
@@ -132,7 +139,7 @@ class MatterSeeder extends Seeder
 
                 $workingStages = $type->stages->reject(fn ($s) => $s->is_terminal || $s->key === 'on_hold')->values();
                 $stage = $workingStages[$i % $workingStages->count()];
-                $openedAt = now()->subDays(30 + $i * 7);
+                $openedAt = now()->subDays(30 + $i * 12);
 
                 $matter = Matter::query()->create([
                     'client_id' => $client->id,

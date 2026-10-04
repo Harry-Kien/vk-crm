@@ -37,8 +37,10 @@ use Illuminate\Validation\ValidationException;
  *
  * - `['action' => 'add', ...]` — thêm một đợt, cùng các khoá và cùng luật với một dòng của
  *   `DraftContract` (`ValidatesBillingInput::instalmentAttributes()`). Đợt `on_signing` thêm bằng
- *   phụ lục đến hạn tính từ ngày ký PHỤ LỤC. Đợt `stage` gắn vào giai đoạn vụ đã đi qua thì chờ
- *   M9 Task 6 (đối chiếu hằng ngày kích hoạt một đợt thêm sau khi vụ đã qua giai đoạn đó).
+ *   phụ lục đến hạn tính từ ngày ký PHỤ LỤC. Đợt `stage` gắn vào giai đoạn vụ ĐÃ chạm được kích hoạt
+ *   NGAY trong transaction này (bước 8b) — gắn vào lần chạm ĐẦU, và hạn tính từ ngày chạm đó nhưng
+ *   không sớm hơn ngày ký PHỤ LỤC (cùng tiền lệ `on_signing` ở trên: khách chưa ký phụ lục thì khoản
+ *   đó chưa thể đến hạn). Đợt `stage` gắn vào giai đoạn vụ CHƯA chạm thì chờ, như đợt soạn từ đầu.
  * - `['action' => 'update', 'instalment_id' => …, 'amount' => …, 'percent_basis' => …?]` — đổi số
  *   tiền của một đợt đang `pending`; không nhỏ hơn số đã thu trên đợt đó. `percent_basis` không
  *   đưa vào thì thành rỗng: phần trăm cũ không còn mô tả số tiền mới.
@@ -72,6 +74,12 @@ use Illuminate\Validation\ValidationException;
  *  8. **Kiểm lại bất biến từ DB** sau khi ghi (`ScheduleTotal::lockedOf()` === giá trị mới — đọc CÓ
  *     KHOÁ, lại chính các đợt đã khoá ở bước 5 cộng các đợt vừa thêm). Đây là kiểm tra DUY NHẤT của
  *     tầng này — không có bản tính trước trong bộ nhớ, để không có hai định nghĩa.
+ *  8b. **Đợt `stage` vừa thêm cho giai đoạn vụ ĐÃ chạm** (lượt rà soát M9 Task 6, I1) — qua
+ *     `TriggerInstalmentsForStage::releaseAddedByAmendment()`, lõi không mở transaction, với hai hàng
+ *     `matters` → `contracts` đã khoá ở bước 1 (khoá lại các đợt vừa thêm — hàng của chính
+ *     transaction này). Chỉ các đợt phụ lục VỪA thêm; một đợt cũ đã lỡ lần kích hoạt để lại cho đối
+ *     chiếu hằng ngày. Không thêm đợt `stage` nào thì không khoá thêm hàng nào. Dòng
+ *     `instalment_triggered` không causer, như ở mọi lối vào của Action đó.
  *  9. Ghi dòng `contract_amendments` (chỉ thêm; `sequence` = số lớn nhất hiện có + 1, đọc CÓ KHOÁ
  *     — khoá cả khe chỉ mục, nên phụ lục đồng thời của hợp đồng khác có thể deadlock ở `insert`;
  *     bên thua được chạy lại trọn transaction, docblock trait) và
@@ -88,6 +96,8 @@ class AmendContract
     public const UPDATE = 'update';
 
     public const CANCEL = 'cancel';
+
+    public function __construct(private TriggerInstalmentsForStage $stageTrigger) {}
 
     /** @param  list<array<string, mixed>>  $instalmentChanges */
     public function handle(
@@ -149,7 +159,10 @@ class AmendContract
             $plan = $this->plan($locked, $instalments, $collected, $instalmentChanges);
             $previousTotal = $locked->total_amount;
 
-            ScheduleTotal::whileAmending($locked, function () use ($actor, $locked, $instalments, $plan, $signedOn, $newTotal): void {
+            /** @var list<int> $addedStageIds */
+            $addedStageIds = [];
+
+            ScheduleTotal::whileAmending($locked, function () use ($actor, $locked, $instalments, $plan, $signedOn, $newTotal, &$addedStageIds): void {
                 foreach ($plan['update'] as $id => $attributes) {
                     $instalments[$id]->fill($attributes)->blameOn($actor)->save();
                 }
@@ -174,6 +187,10 @@ class AmendContract
                     }
 
                     $added->blameOn($actor)->save();
+
+                    if ($added->trigger_type === InstalmentTrigger::Stage) {
+                        $addedStageIds[] = (int) $added->getKey();
+                    }
                 }
 
                 $locked->total_amount = $newTotal;
@@ -185,6 +202,9 @@ class AmendContract
             if ($scheduleTotal !== $newTotal) {
                 throw ContractTotalMismatch::onAmendment($locked, $newTotal, $scheduleTotal);
             }
+
+            // Bước 8b — sau kiểm tra tầng 3, vẫn dưới khoá `matters` → `contracts` của bước 1.
+            $this->stageTrigger->releaseAddedByAmendment($lockedMatter, $locked, $addedStageIds, $signedOn);
 
             $amendment = new ContractAmendment([
                 'contract_id' => $locked->id,

@@ -1,5 +1,8 @@
 <?php
 
+use App\Enums\ContractStatus;
+use App\Enums\InstalmentStatus;
+use App\Enums\InstalmentTrigger;
 use App\Enums\Role;
 use App\Exceptions\StageTerminalFlagInUse;
 use App\Filament\Admin\Resources\MatterTypes\MatterTypeResource;
@@ -10,6 +13,8 @@ use App\Filament\Admin\Resources\MatterTypes\RelationManagers\ChecklistTemplates
 use App\Filament\Admin\Resources\MatterTypes\RelationManagers\StagesRelationManager;
 use App\Models\ChecklistTemplate;
 use App\Models\Client;
+use App\Models\Contract;
+use App\Models\Instalment;
 use App\Models\Matter;
 use App\Models\MatterType;
 use App\Models\StageLog;
@@ -17,6 +22,7 @@ use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Filament\Notifications\Livewire\Notifications as NotificationsLivewireComponent;
+use Livewire\Features\SupportTesting\Testable;
 
 beforeEach(function () {
     $this->seed(RolesAndPermissionsSeeder::class);
@@ -561,4 +567,147 @@ it('still lets an admin toggle is_terminal on a stage no matter stands in', func
         ->assertHasNoTableActionErrors();
 
     expect($stage->fresh()->is_terminal)->toBe(! $stage->is_terminal);
+});
+
+// --- M9 Task 6: guard khoá giai đoạn (M6.5 Task 19) phủ cả đợt thanh toán chờ giai đoạn ----------
+
+/**
+ * Hai giai đoạn trần: `a` (đầu — hồ sơ mở ra đứng ở đây), `b`. Không giai đoạn nào trỏ `allowed_next`
+ * vào `b`, không hồ sơ nào đứng ở `b`, không dòng tiến độ nào chạm `b` — nên điều DUY NHẤT có thể
+ * khoá `b` là một đợt thanh toán đang chờ hồ sơ chạm nó.
+ */
+function stageGuardType(): MatterType
+{
+    $type = MatterType::factory()->create();
+    $type->stages()->create(['key' => 'a', 'label' => 'Giai đoạn A', 'client_label' => 'A', 'sort_order' => 1, 'allowed_next' => [], 'default_next_update_days' => 14]);
+    $type->stages()->create(['key' => 'b', 'label' => 'Giai đoạn B', 'client_label' => 'B', 'sort_order' => 2, 'allowed_next' => [], 'default_next_update_days' => 14]);
+    $type->unsetRelation('stages');
+
+    return $type;
+}
+
+/** Một hồ sơ mới của `$type` (đứng ở giai đoạn đầu) với một hợp đồng `$status` có MỘT đợt chờ giai đoạn `$key`. */
+function stageGuardInstalment(MatterType $type, string $key, ContractStatus $status = ContractStatus::Draft, array $attributes = []): Instalment
+{
+    $matter = Matter::factory()->for($type, 'matterType')->create();
+    $contract = Contract::factory()->for($matter)->create(['total_amount' => 10_000_000]);
+    $instalment = Instalment::factory()->for($contract)->onStage($key)->create(['amount' => 10_000_000, ...$attributes]);
+
+    if ($status !== ContractStatus::Draft) {
+        $contract->update(['status' => $status, 'signed_at' => today()->subDay()->toDateString()]);
+    }
+
+    return $instalment;
+}
+
+function renameStageThroughTheForm(MatterType $type, string $key, string $newKey): Testable
+{
+    $stage = $type->stage($key);
+
+    return test()->livewire(StagesRelationManager::class, [
+        'ownerRecord' => $type,
+        'pageClass' => EditMatterType::class,
+    ])
+        ->mountTableAction('edit', $stage)
+        ->setTableActionData([
+            'key' => $newKey,
+            'label' => $stage->label,
+            'client_label' => $stage->client_label,
+            'sort_order' => $stage->sort_order,
+            'default_next_update_days' => $stage->default_next_update_days,
+        ])
+        ->callMountedTableAction();
+}
+
+/**
+ * Test bắt buộc của kế hoạch: đổi `key` của một giai đoạn mà đợt `pending`, chưa kích hoạt, của hợp
+ * đồng `draft` HOẶC `active` còn trỏ tới bị từ chối ngay trên form — đổi đi thì đợt đó không bao giờ
+ * tới hạn (không lần chuyển giai đoạn nào còn mang key cũ). Thông điệp nêu số đợt (ba: hai của bản
+ * nháp, một của hợp đồng đang hiệu lực, trên hai hồ sơ).
+ */
+it('refuses to change the key of a stage that pending instalments still wait on, and says how many', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $type = stageGuardType();
+    $first = stageGuardInstalment($type, 'b');
+    Instalment::factory()->for($first->contract)->onStage('b')->create(['amount' => 5_000_000, 'sequence' => 2]);
+    stageGuardInstalment($type, 'b', ContractStatus::Active);
+
+    $this->actingAs($admin, 'web');
+    Filament::setCurrentPanel('admin');
+
+    $component = renameStageThroughTheForm($type, 'b', 'c')->assertHasTableActionErrors(['key']);
+
+    // Đọc thẳng error bag (thông điệp có dấu ':' — xem test `allowed_next` ở trên).
+    expect($component->errors()->first('mountedActions.0.data.key'))
+        ->toBe(__('matter_types.stage_fields.key_locked_instalments', ['count' => 3]))
+        ->and($type->stages()->where('key', 'b')->exists())->toBeTrue();
+});
+
+/**
+ * Cặp dương, từng điều kiện của hàm đếm: đợt đã kích hoạt (đã có ngày đến hạn, không còn chờ giai
+ * đoạn), đợt đã miễn/đã thu/đã huỷ, đợt của hợp đồng đã hoàn tất/đã huỷ, đợt không phải loại
+ * `stage`, và đợt chờ cùng key của MỘT LOẠI VỤ VIỆC KHÁC — không cái nào khoá `b`.
+ */
+it('lets the admin change the key when no pending, unreleased instalment of a live contract of this type waits on it', function (Closure $arrange) {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $type = stageGuardType();
+    $arranged = $arrange($type);
+
+    // Chặn một test xanh rỗng: đợt kia THẬT SỰ tồn tại và trỏ `b` (dataset đã chạy, không chỉ trả closure).
+    expect($arranged)->toBeInstanceOf(Instalment::class)
+        ->and($arranged->fresh()->trigger_stage_key)->toBe('b');
+
+    $this->actingAs($admin, 'web');
+    Filament::setCurrentPanel('admin');
+
+    renameStageThroughTheForm($type, 'b', 'c')->assertHasNoTableActionErrors();
+
+    expect($type->stages()->where('key', 'c')->exists())->toBeTrue();
+})->with([
+    'already released' => fn (MatterType $type) => stageGuardInstalment($type, 'b', ContractStatus::Active, ['due_date' => '2026-09-01', 'triggered_at' => '2026-09-01 08:00:00']),
+    'waived' => fn (MatterType $type) => stageGuardInstalment($type, 'b', ContractStatus::Active, ['status' => InstalmentStatus::Waived, 'waived_reason' => 'Miễn khoản này theo thoả thuận riêng với khách hàng.']),
+    'paid' => fn (MatterType $type) => stageGuardInstalment($type, 'b', ContractStatus::Active, ['status' => InstalmentStatus::Paid]),
+    'cancelled instalment' => fn (MatterType $type) => stageGuardInstalment($type, 'b', ContractStatus::Draft, ['status' => InstalmentStatus::Cancelled]),
+    'completed contract' => fn (MatterType $type) => stageGuardInstalment($type, 'b', ContractStatus::Completed),
+    'cancelled contract' => fn (MatterType $type) => stageGuardInstalment($type, 'b', ContractStatus::Cancelled),
+    'not a stage instalment' => fn (MatterType $type) => stageGuardInstalment($type, 'b', ContractStatus::Draft, ['trigger_type' => InstalmentTrigger::DueDate, 'due_date' => '2027-01-31']),
+    'another matter type' => fn (MatterType $type) => stageGuardInstalment(stageGuardType(), 'b'),
+]);
+
+/** Đường XOÁ của cùng guard: `MatterTypeStagePolicy::delete()` từ chối kèm lý do nêu số đợt. */
+it('refuses to delete a stage that pending instalments still wait on, and tells the admin how many', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $type = stageGuardType();
+    stageGuardInstalment($type, 'b', ContractStatus::Active);
+
+    $this->actingAs($admin, 'web');
+    Filament::setCurrentPanel('admin');
+
+    $this->livewire(StagesRelationManager::class, [
+        'ownerRecord' => $type,
+        'pageClass' => EditMatterType::class,
+    ])
+        ->assertTableActionVisible('delete', record: $type->stage('b'))
+        ->callTableAction('delete', record: $type->stage('b'))
+        ->assertNotified(__('matter_types.stages.delete_blocked_instalments', ['count' => 1]));
+
+    expect($type->stages()->where('key', 'b')->exists())->toBeTrue();
+});
+
+/** Cặp dương của đường xoá: đợt duy nhất trỏ tới `b` đã kích hoạt — xoá được. */
+it('lets the admin delete a stage whose only instalment has already been released', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $type = stageGuardType();
+    stageGuardInstalment($type, 'b', ContractStatus::Active, ['due_date' => '2026-09-01', 'triggered_at' => '2026-09-01 08:00:00']);
+    $stage = $type->stage('b');
+
+    $this->actingAs($admin, 'web');
+    Filament::setCurrentPanel('admin');
+
+    $this->livewire(StagesRelationManager::class, [
+        'ownerRecord' => $type,
+        'pageClass' => EditMatterType::class,
+    ])->callTableAction('delete', record: $stage);
+
+    expect($stage->fresh()->trashed())->toBeTrue();
 });

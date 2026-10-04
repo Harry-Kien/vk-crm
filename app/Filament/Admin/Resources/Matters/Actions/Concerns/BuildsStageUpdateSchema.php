@@ -5,6 +5,7 @@ namespace App\Filament\Admin\Resources\Matters\Actions\Concerns;
 use App\Actions\Notification\NotifyClientOfStageUpdate;
 use App\Actions\TransitionMatterStage;
 use App\Models\Matter;
+use Carbon\Exceptions\InvalidFormatException;
 use Closure;
 use DomainException;
 use Filament\Forms\Components\DatePicker;
@@ -182,6 +183,24 @@ trait BuildsStageUpdateSchema
             ->live()
             ->default($default)
             ->native(false);
+    }
+
+    /**
+     * M9 Task 6, lỗi I6 (nửa màn hình): giá trị của ô "dự kiến có tin tiếp theo" cho các chỗ ĐỌC lại
+     * nó lúc form còn mở — bản xem trước cho khách và việc đổi giai đoạn đích (`TransitionStageAction`).
+     * `$get()` trên một `DatePicker` chạy `DateTimeStateCast::get()` của Filament, tức `Carbon::parse()`
+     * trên chuỗi đang nằm trong ô: một chuỗi hỏng (request Livewire tự dựng) ném
+     * `InvalidFormatException` ngay trong lần vẽ lại modal — trang 500, dù luật `date` của chính ô đó
+     * đã từ chối nó. Ở đây chuỗi hỏng là "không có ngày" (`null`): bản xem trước bỏ dòng ngày, lỗi
+     * hiện ở chính ô nhập, và lần lưu vẫn bị luật `date` chặn trước khi tới `TransitionMatterStage`.
+     */
+    protected function expectedNextUpdateAtState(Get $get): ?string
+    {
+        try {
+            return $get('expected_next_update_at');
+        } catch (InvalidFormatException) {
+            return null;
+        }
     }
 
     /**

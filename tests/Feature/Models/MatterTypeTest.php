@@ -3,11 +3,15 @@
 use App\Exceptions\DuplicateMatterTypeCode;
 use App\Exceptions\DuplicateStageKey;
 use App\Exceptions\StageKeyInUse;
+use App\Models\Contract;
+use App\Models\Instalment;
 use App\Models\Matter;
 use App\Models\MatterType;
+use App\Models\MatterTypeStage;
 use App\Models\StageLog;
 use App\Support\StagePresets;
 use Database\Seeders\MatterTypeSeeder;
+use Illuminate\Support\Facades\DB;
 
 it('orders stages and exposes allowed transitions', function () {
     $type = MatterType::factory()->withStages()->create(['code' => 'DS']);
@@ -182,6 +186,34 @@ it('shares the allowed_next reference check between the delete guard and the ren
         ->and($a->referencingStageLabels()->all())->toBe([])
         ->and($a->isKeyInUse())->toBeFalse();
 });
+
+/**
+ * M9 Task 6 — CHỐT CHẶN THỨ HAI của guard đợt thanh toán: đổi `key` qua Eloquent trần (không qua
+ * form) của một giai đoạn mà một đợt `pending` chưa kích hoạt còn chờ, bị từ chối bằng một câu NÊU
+ * SỐ ĐỢT. Hồ sơ giữ đợt đó đã bị xoá mềm vẫn tính: xoá mềm khôi phục được, và đợt sẽ quay lại chờ
+ * một key không còn tồn tại (cùng lý do `mattersStandingIn()` dùng `withTrashed()`).
+ */
+it('rejects changing the key of a stage a pending instalment waits on, through the bare Eloquent relation, even on a soft-deleted matter', function (bool $trashed) {
+    $type = MatterType::factory()->create();
+    $type->stages()->create(['key' => 'a', 'label' => 'Giai đoạn A', 'client_label' => 'A', 'sort_order' => 1, 'allowed_next' => []]);
+    $b = $type->stages()->create(['key' => 'b', 'label' => 'Giai đoạn B', 'client_label' => 'B', 'sort_order' => 2, 'allowed_next' => []]);
+    $matter = Matter::factory()->create(['matter_type_id' => $type->id]);
+    $contract = Contract::factory()->for($matter)->create(['total_amount' => 20_000_000]);
+    Instalment::factory()->count(2)->for($contract)->onStage('b')->sequence(['sequence' => 1], ['sequence' => 2])->create(['amount' => 10_000_000]);
+
+    if ($trashed) {
+        DB::table('matters')->where('id', $matter->id)->update(['deleted_at' => now()]);
+    }
+
+    expect(fn () => $b->update(['key' => 'c']))->toThrow(
+        StageKeyInUse::class,
+        __('exceptions.stage_key_awaited_by_instalments', ['name' => $type->name, 'key' => 'b', 'count' => 2]),
+    );
+
+    expect($b->fresh()->key)->toBe('b')
+        ->and(MatterTypeStage::instalmentsAwaitingStage($type->id, 'b'))->toBe(2)
+        ->and($b->fresh()->isKeyInUse())->toBeTrue();
+})->with(['live matter' => false, 'soft-deleted matter' => true]);
 
 /**
  * Task 19, vòng sửa 1 (Important): `MatterType::stageIncludingTrashed()` — xoá mềm một giai đoạn

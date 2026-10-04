@@ -110,6 +110,15 @@ final class PdfText
     }
 
     /**
+     * **Luồng được cắt theo `/Length` của chính nó khi từ điển nêu một số trực tiếp** (M9 Task 10).
+     * Bản trước cắt bằng regex `\r?\nendstream`, và đó là một lỗi chập chờn đo được: dữ liệu NÉN là
+     * byte tuỳ ý, nên khoảng 1/256 luồng kết thúc đúng bằng byte `\r` (0x0D) — regex nuốt luôn byte
+     * đó như thể nó thuộc dấu xuống dòng trước `endstream`, `gzuncompress()` hỏng, và CẢ TRANG mất
+     * khỏi văn bản trích ra (đo trên 300 lần dựng mục lục hai trang: 1/2400 luồng, đúng một trang
+     * mất, đúng ở lần dựng có luồng đó). Một mục lục nhiều trang có nhiều luồng hơn nên chập chờn
+     * thường hơn. `/Length 12 0 R` (độ dài gián tiếp) không đọc được ở đây nên rơi về cách cũ; dompdf
+     * luôn ghi độ dài trực tiếp. Test ghim: `tests/Unit/Support/PdfTextTest.php`.
+     *
      * @return array<int, array{dict: string, stream: ?string}>
      */
     private static function objects(string $pdf): array
@@ -130,8 +139,12 @@ final class PdfText
 
             $dict = substr($body, 0, $position);
             $data = substr($body, $position + 6);
-            $data = preg_replace('/^\r?\n/', '', $data);
-            $data = (string) preg_replace('/\r?\nendstream\s*$/', '', (string) $data);
+            // Dấu xuống dòng ngay sau từ khoá `stream` (PDF 7.3.8.1: CRLF hoặc LF) không thuộc dữ liệu.
+            $data = (string) preg_replace('/^\r?\n/', '', $data);
+
+            $data = preg_match('#/Length\s+(\d+)\b(?!\s+\d+\s+R)#', $dict, $length) === 1
+                ? substr($data, 0, (int) $length[1])
+                : (string) preg_replace('/\r?\nendstream\s*$/', '', $data);
 
             if (str_contains($dict, 'FlateDecode')) {
                 $decoded = @gzuncompress($data);

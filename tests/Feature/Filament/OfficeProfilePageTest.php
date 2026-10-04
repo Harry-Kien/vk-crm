@@ -523,6 +523,8 @@ it('khi cả cấu hình cũng trống, chân thư và chân PDF không in nhãn
         'matterInfo' => [],
         'entries' => collect(),
         'timeline' => collect(),
+        // M9 Task 10: khoá thứ năm của view — `null` là "vụ không có hợp đồng khách được thấy".
+        'billing' => null,
     ])->render();
 
     expect($pdf)->toStartWith('%PDF')
