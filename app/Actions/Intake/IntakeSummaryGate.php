@@ -9,8 +9,9 @@ use App\Models\IntakeRequest;
 
 /**
  * NƠI DUY NHẤT quyết định ô CÂU CHUYỆN của một lần tiếp nhận đóng hay mở (M10 R1 + R7a). Đọc các cột
- * đã lưu, không chạy lại kiểm tra: `UpdateIntakeSummary` (cổng thật) và màn hình (Task 3, để nói
- * người nhập phải làm gì tiếp) cùng hỏi hàm này, nên hai nơi không thể lệch nhau.
+ * đã lưu (và, ở bước 3, các lần gọi khác của cùng người), không chạy lại kiểm tra: `UpdateIntakeSummary`
+ * (cổng thật) và màn hình (Task 3, để nói người nhập phải làm gì tiếp) cùng hỏi hàm này, nên hai nơi
+ * không thể lệch nhau.
  *
  * Ô mở khi KHÔNG còn điều nào trong {@see IntakeSummaryBlocker}:
  *  0. **Đã từ chối (R8, M10 Task 3):** bản ghi `declined`, vì bất kỳ lý do nào, đóng câu chuyện cho
@@ -21,11 +22,15 @@ use App\Models\IntakeRequest;
  *  2. **Đã kiểm tra, và kiểm tra còn khớp danh tính:** có `conflict_checked_at`, và dấu vân tay danh
  *     tính lưu kèm `conflict_result` bằng dấu vân tay HIỆN TẠI ({@see IntakeRequest::identityFingerprint()}).
  *     Ai sửa danh tính mà chưa chạy lại kiểm tra thì kết quả cũ (kể cả Xanh) không còn là bằng chứng.
- *  3. **Đỏ chưa xử lý ({@see IntakeRequest::hasUnresolvedRed()}):** khoá cho tới khi quản lý/admin
- *     ghi đè kèm lý do. Đỏ DÍNH (fix vòng 1, I2): nó không theo `conflict_level` của lần chạy gần
- *     nhất, nên sửa hay gỡ bên đối lập rồi chạy lại ra Xanh — kể cả quản lý tự chạy — KHÔNG mở ô; một
- *     lần gọi lại của người có lần gọi trước còn Đỏ hay đã bị từ chối vì xung đột cũng bị khoá như thế
- *     (C1, `CheckIntakeConflict`).
+ *  3. **Đỏ chưa xử lý ({@see IntakeRequest::hasUnresolvedRed()}) hoặc bị giữ như một cuộc gọi lại
+ *     ({@see IntakeRequest::isHeldByRepeatCallLock()}):** khoá cho tới khi quản lý/admin ghi đè kèm lý
+ *     do. Đỏ DÍNH (fix vòng 1, I2): nó không theo `conflict_level` của lần chạy gần nhất, nên sửa hay gỡ
+ *     bên đối lập rồi chạy lại ra Xanh — kể cả quản lý tự chạy — KHÔNG mở ô. Một lần gọi lại của người có
+ *     lần gọi khác còn Đỏ hay đã bị từ chối vì xung đột cũng bị khoá (C1) — đọc TRỰC TIẾP, cùng điều kiện
+ *     mà `ConvertIntakeToMatter::refusal()` đọc (rà soát cuối M10, vòng sửa 1 — FI2). Trước đó cổng chỉ
+ *     đọc dấu Đỏ chờ đã lưu, mà `CheckIntakeConflict` chỉ đặt dấu đó ở lần kiểm tra CỦA bản này, nên một
+ *     bản kiểm tra Xanh TRƯỚC khi lần gọi kia ra Đỏ vẫn ghi thêm câu chuyện trong khi chuyển đổi bị từ
+ *     chối — hai định nghĩa "bị khoá" lệch nhau.
  *  4. **Vàng, hoặc "thiếu định danh"** (`incomplete_parties` không rỗng): phải có xác nhận
  *     (`conflict_acknowledged_by`) — cùng cổng `OpenMatter` dùng. Một ghi đè còn hiệu lực
  *     ({@see IntakeRequest::hasConflictOverride()}: có người VÀ có lý do) che luôn bước này, như
@@ -61,7 +66,7 @@ final class IntakeSummaryGate
             return $blockers;
         }
 
-        if ($intake->hasUnresolvedRed()) {
+        if ($intake->hasUnresolvedRed() || $intake->isHeldByRepeatCallLock()) {
             $blockers[] = IntakeSummaryBlocker::ConflictRed;
 
             return $blockers;

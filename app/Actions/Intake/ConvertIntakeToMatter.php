@@ -91,7 +91,8 @@ use Illuminate\Validation\ValidationException;
  *     transaction: mọi bản đã gộp vào bản ghi (trực tiếp hay qua bản khác,
  *     `IntakeRequest::mergedFromTreeIds()`) mất `retention_until` — người đó vừa thành khách, nên các
  *     bản ấy không còn bị ẩn danh hết hạn (Task 7 fix vòng 1; R7c dọc chuỗi gộp,
- *     `IntakeRequest::convertedMergeTarget()`).
+ *     `IntakeRequest::convertedMergeTarget()`) — và mang id vụ vừa mở ở `merge_chain_matter_id` (rà
+ *     soát cuối, FC1), để luật `restricted` của `IntakeRequest::scopeVisibleTo()` phủ cả chúng.
  *
  * Sau chuyển đổi bản ghi tự thành chỉ đọc (`IntakeRequest::isClosedToChanges()`: `won`/`matter_id`)
  * và rời nguồn dò thứ hai (`scopeOpenForConflictCheck()`). `quoted_amount` không đi vào vụ việc: form
@@ -350,7 +351,11 @@ class ConvertIntakeToMatter
 
         // Task 7, fix vòng 1 (rà soát Task 7, I1): người liên hệ vừa thành khách, nên mọi bản đã gộp vào
         // bản này — trực tiếp hay qua bản khác — mất hạn lưu như chính nó: R7b chỉ cho người KHÔNG thành
-        // khách. Câu UPDATE thẳng (không `updated_at`, không sự kiện): không ai sửa các bản đó.
+        // khách. Rà soát cuối, vòng sửa 1 (FC1): chúng mang tên, SĐT và câu chuyện của cùng người, nên
+        // cũng mang vụ vừa mở (`merge_chain_matter_id`) — `IntakeRequest::scopeVisibleTo()` giấu chúng với
+        // đúng những người không thấy được bản này khi vụ `restricted`. Câu UPDATE thẳng (không
+        // `updated_at`, không sự kiện): không ai sửa các bản đó. Chuỗi đóng băng từ đây: `MergeIntake`
+        // không gộp vào một bản đã chuyển đổi hay đã gộp đi.
         $merged = $locked->mergedFromTreeIds();
 
         if ($merged !== []) {
@@ -359,7 +364,7 @@ class ConvertIntakeToMatter
                 ->withTrashed()
                 ->whereKey($merged)
                 ->toBase()
-                ->update(['retention_until' => null]);
+                ->update(['retention_until' => null, 'merge_chain_matter_id' => $matter->getKey()]);
         }
 
         Audit::record('intake_converted', $locked, [

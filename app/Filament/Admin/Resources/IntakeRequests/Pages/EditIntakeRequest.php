@@ -47,6 +47,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Locked;
+use Spatie\Activitylog\Models\Activity;
 
 /**
  * Trang làm việc của MỘT lần tiếp nhận (M10 Task 3) — biểu mẫu hai phần theo R1. Trang không có
@@ -69,9 +70,11 @@ use Livewire\Attributes\Locked;
  * tra"), bảng kết quả đã lưu (`conflict_result`, cùng ranh giới `ConflictMatch`), và ba nút:
  * "Kiểm tra lại" (`RerunIntakeConflictCheck`), "Xác nhận đã xem các khớp" (`AcknowledgeIntakeConflict`,
  * chỉ hiện khi cổng đòi xác nhận — không hiện khi Đỏ đang chờ), "Xử lý mức đỏ"
- * (`ResolveIntakeRedConflict`, hiện theo `hasUnresolvedRed()` — Đỏ DÍNH, không theo `conflict_level` — và
- * chỉ cho `resolveConflict`: quản lý/admin). Modal ghi đè nói rõ khi bản ghi từng ra Đỏ mà lần chạy
- * gần nhất không còn Đỏ.
+ * (`ResolveIntakeRedConflict`, hiện theo `IntakeRequest::awaitsConflictResolution()` — Đỏ DÍNH, hoặc bị giữ
+ * như một cuộc gọi lại; không theo `conflict_level` — và chỉ cho `resolveConflict`: quản lý/admin). Modal
+ * ghi đè nói rõ khi bản ghi từng ra Đỏ mà lần chạy gần nhất không còn Đỏ. Trạng thái của khối, bảng
+ * kết quả cho người không xử lý được Đỏ (R1: chỉ mã hồ sơ và vai của khớp Đỏ) và các lần gọi bản này
+ * đang giữ: xem {@see self::checkPanelViewData()} (rà soát cuối M10, vòng sửa 1 — FI5, FI6, FI2).
  *
  * **Hành động trên đầu trang:** "Chuyển thành vụ việc" (Task 4 — liên kết tới `ConvertIntakeRequest`,
  * chỉ với `convert` trên bản ghi còn chuyển đổi được), "Đổi trạng thái" (`ChangeIntakeStatus`, chỉ các bước người ta tự đặt),
@@ -79,8 +82,10 @@ use Livewire\Attributes\Locked;
  * khác" (`MergeIntake`; chỉ các bản còn mở người dùng xem được), "Xoá dữ liệu theo yêu cầu" (Task 7, R7c —
  * `AnonymiseProspect::erase()`; chỉ admin, trên bản chưa chuyển đổi và chưa ẩn danh).
  *
- * **R8 — lý do từ chối vì xung đột:** chỉ người qua `viewConflictReason` thấy lý do và chữ "vì xung
- * đột"; người khác thấy "Văn phòng từ chối" và câu trả lời ra ngoài. `mutateFormDataBeforeFill()`
+ * **R8 — lý do từ chối:** chỉ người qua `viewConflictReason` thấy chữ "vì xung đột", và lý do của MỌI
+ * lần từ chối (cộng chính người đã từ chối — rà soát cuối M10, vòng sửa 1, FI3: nếu lý do thường hiện
+ * cho mọi người thì "không có lý do" tự nói "vì xung đột"); người khác thấy "Văn phòng từ chối" và câu
+ * trả lời ra ngoài, giống nhau cho mọi lý do. `mutateFormDataBeforeFill()`
  * chỉ đưa đúng các ô của form vào trạng thái Livewire — mặc định Filament gửi MỌI thuộc tính của model
  * xuống trình duyệt, kể cả `decline_reason`, `conflict_override_reason` và các dấu băm.
  *
@@ -354,9 +359,7 @@ class EditIntakeRequest extends EditRecord
         return Action::make('resolveRed')
             ->label(__('intake.actions.resolve_red'))
             ->color('danger')
-            ->visible(fn (): bool => ! $this->intake()->isClosedToChanges()
-                && $this->intake()->status !== IntakeStatus::Declined
-                && $this->intake()->hasUnresolvedRed()
+            ->visible(fn (): bool => $this->intake()->awaitsConflictResolution()
                 && Gate::allows('resolveConflict', $this->intake()))
             ->modalDescription(fn (): string => $this->intake()->conflict_level === ConflictLevel::Red
                 ? __('intake.actions.resolve_red_description')
@@ -561,25 +564,70 @@ class EditIntakeRequest extends EditRecord
         ];
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Dữ liệu khối "Kiểm tra xung đột lợi ích". Ba điều của rà soát cuối M10, vòng sửa 1:
+     *  - **FI5 — trạng thái của khối đọc {@see IntakeRequest::awaitsConflictResolution()}**, không đọc mức
+     *    của lần chạy gần nhất: bản ghi còn chờ trưởng phòng (Đỏ dính, hay bị giữ như một cuộc gọi lại)
+     *    hiện khung đỏ và câu "Đỏ chờ trưởng phòng xử lý" kèm lời giải thích, dù bảng của lần chạy gần
+     *    nhất Xanh — cùng điều mà ô câu chuyện nói, không phải "Không tìm thấy xung đột lợi ích".
+     *  - **FI6 — R1 nguyên văn:** người không xử lý được Đỏ (`resolveConflict`) chỉ thấy mã hồ sơ và vai
+     *    của một khớp mức đỏ ({@see self::conflictTableData()}, `$hideRedDetails`).
+     *  - **FI2 — các lần gọi bản này đang giữ** ({@see IntakeRequest::repeatCallsHeldByThis()}): chỉ người
+     *    xử lý được Đỏ thấy, chỉ những bản họ xem được, kèm liên kết.
+     *
+     * @return array<string, mixed>
+     */
     private function checkPanelViewData(): array
     {
         $intake = $this->intake();
         $result = is_array($intake->conflict_result) ? $intake->conflict_result : null;
+        $mayResolve = Gate::allows('resolveConflict', $intake);
+        $awaiting = $intake->awaitsConflictResolution();
+        $lastRunRed = ($result['level'] ?? null) === ConflictLevel::Red->value;
+        // Đang chờ mà lần chạy gần nhất không ra Đỏ: Đỏ dính, hoặc khoá của một lần gọi khác.
+        $pendingBeyondLastRun = $awaiting && ! $lastRunRed;
+        $table = $result === null ? null : static::conflictTableData($result, hideRedDetails: ! $mayResolve);
 
         return [
             'checkedAt' => $intake->conflict_checked_at?->format('d/m/Y H:i'),
-            'result' => $result === null ? null : [
-                ...static::conflictTableData($result),
+            'result' => $table === null ? null : [
+                ...$table,
+                'level' => $awaiting ? ConflictLevel::Red->value : $table['level'],
                 // Mức đã lưu vẫn là Đỏ sau khi ghi đè (ghi đè không đổi kết quả); câu tiêu đề không được
                 // nói 'đang khoá' khi cổng đã mở. Lý do ghi đè KHÔNG hiện ở đây (R8, rà soát Task 2 I1).
-                'headingRed' => $intake->hasConflictOverride() ? __('intake.check.heading_red_overridden') : __('intake.check.heading_red'),
+                'headingRed' => match (true) {
+                    $pendingBeyondLastRun => __('intake.check.heading_red_pending'),
+                    ! $awaiting && $intake->hasConflictOverride() => __('intake.check.heading_red_overridden'),
+                    default => __('intake.check.heading_red'),
+                },
                 'headingAttention' => __('intake.check.heading_attention'),
                 'headingClear' => __('intake.check.heading_clear'),
                 'intro' => __('intake.check.intro'),
             ],
+            'redPendingNote' => $pendingBeyondLastRun ? __('intake.check.red_pending_note') : null,
+            'redHiddenNote' => ($table['redDetailsHidden'] ?? false) ? __('intake.check.red_hidden_note') : null,
             'carried' => $result !== null && $this->hasCarriedMatches($intake, $result),
+            'heldRepeatCalls' => $mayResolve ? $this->heldRepeatCalls($intake) : [],
         ];
+    }
+
+    /**
+     * Các lần gọi khác của cùng người mà bản này đang giữ (FI2), những bản người xem thấy được.
+     *
+     * @return list<array{code: string, url: string}>
+     */
+    private function heldRepeatCalls(IntakeRequest $intake): array
+    {
+        $actor = $this->actor();
+
+        return $intake->repeatCallsHeldByThis()
+            ->filter(fn (IntakeRequest $held): bool => $held->isVisibleTo($actor))
+            ->map(fn (IntakeRequest $held): array => [
+                'code' => $held->code,
+                'url' => IntakeRequestResource::getUrl('edit', ['record' => $held], panel: 'admin'),
+            ])
+            ->values()
+            ->all();
     }
 
     /**
@@ -588,25 +636,43 @@ class EditIntakeRequest extends EditRecord
      * tra lúc chuyển đổi trên `ConvertIntakeRequest`. Khớp của nguồn thứ hai mang nhãn "Đã
      * liên hệ văn phòng ngày …" ở cột loại vụ việc và mã `TN-…` ở cột mã hồ sơ (Task 2).
      *
+     * **`$hideRedDetails` (rà soát cuối M10, vòng sửa 1 — FI6, R1 nguyên văn: người nhập "không được thấy
+     * vì sao Đỏ ngoài mã hồ sơ và vai").** Trang tiếp nhận truyền `true` cho người không qua
+     * `IntakeRequestPolicy::resolveConflict` (trợ lý, luật sư): ở mỗi dòng mức ĐỎ — khớp mới hay đã ghi
+     * đè — tên bên trùng (với Đỏ, đó là tên thật của một khách hàng hiện hữu), loại vụ việc và tiêu chí
+     * khớp thành một câu "chỉ trưởng phòng/quản trị xem"; mã hồ sơ, vai của bên trùng, mức và cột "bên
+     * phía mình" (bên của chính bản ghi, hay bên đối lập cùng người đã khai ở lần gọi trước — điều người
+     * gọi tự nói với văn phòng) giữ nguyên. Dòng Vàng giữ đủ: người nhập phải tự xem từng khớp
+     * Vàng trước khi bấm xác nhận (cổng R13 của M6.5). `ConvertIntakeRequest` không truyền: bước chuyển
+     * đổi là bước mở vụ của `OpenMatter`, ranh giới SPEC §6.10 như form mở vụ, và người bấm đã qua
+     * `intake.convert` + `matter.create`. `redDetailsHidden` nói đã giấu ít nhất một dòng.
+     *
      * @param  array<string, mixed>  $result
      * @return array<string, mixed>
      */
-    public static function conflictTableData(array $result): array
+    public static function conflictTableData(array $result, bool $hideRedDetails = false): array
     {
         $level = $result['level'] ?? ConflictLevel::Green->value;
         $incomplete = $result['incomplete_parties'] ?? [];
+        $hidden = __('intake.check.hidden_for_red');
 
-        $format = fn (array $match, bool $alreadyConfirmed): array => [
-            'matter_code' => $match['matter_code'],
-            'matter_type_name' => $match['matter_type_name'],
-            'party_role' => PartyRole::from($match['party_role'])->label(),
-            'party_name' => $match['party_name'],
-            'tier' => ConflictMatchTier::from($match['tier'])->label(),
-            'level' => ConflictLevel::from($match['level'])->label(),
-            'our_party_role' => PartyRole::from($match['our_party_role'])->label(),
-            'our_party_name' => $match['our_party_name'],
-            'already_confirmed' => $alreadyConfirmed,
-        ];
+        $format = function (array $match, bool $alreadyConfirmed) use ($hideRedDetails, $hidden): array {
+            $redact = $hideRedDetails && $match['level'] === ConflictLevel::Red->value;
+
+            return [
+                'matter_code' => $match['matter_code'],
+                'matter_type_name' => $redact ? $hidden : $match['matter_type_name'],
+                'party_role' => PartyRole::from($match['party_role'])->label(),
+                'party_name' => $redact ? $hidden : $match['party_name'],
+                'tier' => $redact ? $hidden : ConflictMatchTier::from($match['tier'])->label(),
+                'level' => ConflictLevel::from($match['level'])->label(),
+                'our_party_role' => PartyRole::from($match['our_party_role'])->label(),
+                'our_party_name' => $match['our_party_name'],
+                'already_confirmed' => $alreadyConfirmed,
+            ];
+        };
+
+        $all = [...($result['matches'] ?? []), ...($result['confirmed_matches'] ?? [])];
 
         return [
             'level' => $level,
@@ -616,6 +682,7 @@ class EditIntakeRequest extends EditRecord
                 ...array_map(fn (array $match): array => $format($match, true), $result['confirmed_matches'] ?? []),
             ],
             'incompleteParties' => $incomplete,
+            'redDetailsHidden' => $hideRedDetails && collect($all)->contains(fn (array $match): bool => $match['level'] === ConflictLevel::Red->value),
         ];
     }
 
@@ -691,7 +758,11 @@ class EditIntakeRequest extends EditRecord
             'declined' => $declined,
             'declinedLabel' => IntakeStatus::Declined->label(),
             'forConflict' => $declined && $intake->decline_reason_is_conflict && $mayKnowConflict,
-            'reason' => $declined && (! $intake->decline_reason_is_conflict || $mayKnowConflict) ? $intake->decline_reason : null,
+            // R8 (rà soát cuối M10, vòng sửa 1 — FI3): lý do của MỌI lần từ chối chỉ cho người qua
+            // `viewConflictReason`, và cho chính người đã từ chối (họ viết nó). Trước bản sửa lý do thường
+            // hiện cho mọi người còn lý do xung đột thì không, nên "không có dòng lý do" nghĩa là "từ chối
+            // vì xung đột" — kể cả trên một bản Xanh, nơi bảng kiểm tra chưa từng hiện xung đột nào.
+            'reason' => $declined && ($mayKnowConflict || $this->declinedBy($intake, $this->actor())) ? $intake->decline_reason : null,
             'mergedInto' => $target === null ? null : [
                 'code' => $target->code,
                 'url' => Gate::allows('view', $target) ? IntakeRequestResource::getUrl('edit', ['record' => $target], panel: 'admin') : null,
@@ -714,5 +785,25 @@ class EditIntakeRequest extends EditRecord
             // (R7c). Bản đã ẩn danh nói ở dòng trên.
             'eraseRefusal' => $intake->anonymised_at === null && Gate::allows('erase', $intake) ? AnonymiseProspect::refusal($intake) : null,
         ];
+    }
+
+    /**
+     * `$user` là người đã từ chối bản ghi (FI3): causer của dòng `intake_declined` — `DeclineIntake` ghi
+     * đúng một dòng như thế (từ chối là trạng thái cuối). Người từ chối vì xung đột (quản lý/admin,
+     * `resolveConflict`) hôm nay cũng qua `viewConflictReason`, nên trên thực tế vế này chỉ mở thêm lý do
+     * THƯỜNG cho chính người đã viết nó — và người đã viết một lý do không học được gì mới từ nó.
+     */
+    private function declinedBy(IntakeRequest $intake, User $user): bool
+    {
+        $declined = Activity::query()
+            ->where('subject_type', $intake->getMorphClass())
+            ->where('subject_id', $intake->getKey())
+            ->where('event', 'intake_declined')
+            ->latest('id')
+            ->first(['causer_type', 'causer_id']);
+
+        return $declined !== null
+            && $declined->causer_type === $user->getMorphClass()
+            && (int) $declined->causer_id === $user->getKey();
     }
 }

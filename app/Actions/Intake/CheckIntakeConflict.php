@@ -49,8 +49,10 @@ use Illuminate\Support\Collection;
  * **Đỏ DÍNH (fix vòng 1 của Task 2, I2): `conflict_red_pending_since`.** Đặt (giữ thời điểm ĐẦU) khi:
  *  - lần chạy này ra Đỏ; hoặc
  *  - (C1, người gọi lại — {@see IntakeRequest::isHeldByRepeatCallLock()}, cùng định nghĩa mà
- *    `ConvertIntakeToMatter::refusal()` đọc) bản ghi chưa có ghi đè còn hiệu lực và một lần gọi khác
- *    của CÙNG người ({@see IntakeRequest::sameCallerIntakes()}, cùng vai mà lần kiểm tra này dùng) đang
+ *    `ConvertIntakeToMatter::refusal()` và, từ rà soát cuối M10 (FI2), `IntakeSummaryGate` đọc TRỰC TIẾP,
+ *    nên dấu này không còn là điều duy nhất khoá ô câu chuyện của một lần gọi lại) bản ghi chưa có ghi
+ *    đè còn hiệu lực và một lần gọi khác của CÙNG người ({@see IntakeRequest::sameCallerIntakes()},
+ *    cùng vai mà lần kiểm tra này dùng) đang
  *    khoá cuộc gọi lại ({@see IntakeRequest::locksRepeatCalls()}: Đỏ chưa xử lý, hoặc từ chối vì xung
  *    đột). Điều kiện "chưa có ghi đè" là để một quyết định của quản lý trên CHÍNH bản này không bị lần
  *    chạy lại kế tiếp lật lại khi lần gọi kia vẫn còn khoá; sửa danh tính, hay một khớp mới — kể cả

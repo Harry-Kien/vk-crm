@@ -703,8 +703,20 @@ it('leaves no trace of anything the contact told the office in any table once th
     $this->travelTo(now()->setDate(2028, 10, 4)->setTime(3, 30));
     expect(anpExpire())->toBe(['anonymised' => 2, 'skipped' => 0]);
 
+    // Dấu băm CCCD chỉ còn ở nơi PROGRESS ghi là CỐ Ý giữ ("Ghi chú M10", Task 7, mục 6): sổ an ninh
+    // `client_lookup` của lần tra khách lúc chuyển đổi. Từ khi gộp `main` (M8 Task 4:
+    // `Normalizer::idNumberHash()` = `Audit::identifierHash()`), HMAC ở đó BẰNG đúng dấu băm cũ của bản
+    // ghi — trước đó cũng là HMAC của cùng số, chỉ khác công thức nên phép tìm chuỗi không thấy.
+    $hashHits = collect(anpFindEverywhere($hash))
+        ->map(fn (string $hit): ?string => str_starts_with($hit, 'activity_log#')
+            ? Activity::query()->whereKey((int) substr($hit, strlen('activity_log#')))->value('event')
+            : $hit)
+        ->unique()
+        ->values()
+        ->all();
+
     expect(anpFindEverywhere('zqxanp'))->toBe([])
-        ->and(anpFindEverywhere($hash))->toBe([])
+        ->and($hashHits)->toBe(['client_lookup'])
         ->and(anpFindEverywhere('919876543'))->toEqualCanonicalizing([
             'intake_parties#'.$b->parties()->sole()->id,
             'matter_parties#'.$matter->parties()->where('name', 'Bên tên khác')->sole()->id,

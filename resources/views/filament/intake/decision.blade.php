@@ -3,9 +3,11 @@
     chuyển thành vụ việc nào, (Task 7) dữ liệu cá nhân đã được ẩn danh khi nào và vì sao. Dữ liệu dựng sẵn ở
     `EditIntakeRequest::decisionViewData()`.
 
-    R8: lý do của một lần từ chối VÌ XUNG ĐỘT (và chính việc đó là vì xung đột) chỉ có trong dữ liệu
-    khi người xem qua `IntakeRequestPolicy::viewConflictReason`; người khác chỉ thấy nhãn trung tính
-    "Văn phòng từ chối" và câu trả lời ra ngoài — luôn "văn phòng xin phép không nhận vụ việc này".
+    R8: việc một lần từ chối là VÌ XUNG ĐỘT chỉ có trong dữ liệu khi người xem qua
+    `IntakeRequestPolicy::viewConflictReason`; lý do của MỌI lần từ chối cũng vậy, cộng chính người đã từ
+    chối (rà soát cuối M10, vòng sửa 1 — FI3: lý do thường hiện cho mọi người thì "không có lý do" tự nói
+    "vì xung đột"). Người khác chỉ thấy nhãn trung tính "Văn phòng từ chối" và câu trả lời ra ngoài — luôn
+    "văn phòng xin phép không nhận vụ việc này" — giống nhau cho mọi lý do.
 --}}
 <div style="display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.875rem; color: var(--gray-950);">
     @if($declined)

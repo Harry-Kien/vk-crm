@@ -163,6 +163,21 @@ return [
         'heading_clear' => 'Không tìm thấy xung đột lợi ích',
         'intro' => 'Các hồ sơ và lần liên hệ dưới đây có bên trùng với người liên hệ hoặc bên đối lập vừa khai:',
         'carried_note' => 'Có dòng mang "bên phía mình" là bên đối lập mà CÙNG người liên hệ đã khai ở một lần gọi trước — hệ thống tự mang sang, người nhập không gõ lại.',
+        // Rà soát cuối M10, vòng sửa 1 (FI5): bản ghi còn chờ trưởng phòng/quản trị dù lần chạy gần nhất không
+        // ra Đỏ — Đỏ dính, hoặc khoá của một lần gọi khác của cùng người.
+        'heading_red_pending' => 'Đỏ chờ trưởng phòng xử lý — ô câu chuyện bị khoá',
+        'red_pending_note' => 'Lần kiểm tra gần nhất không ra mức đỏ, nhưng bản ghi còn một mức đỏ trước đó chưa được xử lý, hoặc là lần gọi lại của một người có lần gọi khác đang bị khoá. Chỉ trưởng phòng hoặc quản trị xử lý được: từ chối, hoặc ghi đè kèm lý do.',
+        'badge_red_pending' => 'Đỏ — chờ trưởng phòng',
+        // FI6 (R1): với khớp mức đỏ, người không xử lý được Đỏ chỉ thấy mã hồ sơ và vai.
+        'hidden_for_red' => '(chỉ trưởng phòng/quản trị xem)',
+        'red_hidden_note' => 'Với khớp mức đỏ, anh/chị chỉ thấy mã hồ sơ và vai của bên trùng; tên, lĩnh vực và tiêu chí khớp chỉ trưởng phòng hoặc quản trị xem.',
+        // FI2: chỉ người xử lý được Đỏ thấy — các lần gọi khác của cùng người mà bản ghi này đang khoá.
+        'held_repeat_calls' => 'Các lần gọi khác của cùng người này đang bị khoá vì bản ghi này:',
+        'held_repeat_calls_note' => 'Mở từng bản để xem. Ghi đè bản ghi này chỉ gỡ khoá do chính nó đặt: bản nào đã tự mang mức đỏ chờ (ví dụ đã được kiểm tra lại trong lúc bị khoá) vẫn phải xử lý riêng. Từ chối bản ghi này vì xung đột thì chúng vẫn bị khoá: xử lý từng bản (từ chối, hoặc ghi đè kèm lý do).',
+    ],
+
+    'filters' => [
+        'red_pending' => 'Đỏ chờ trưởng phòng xử lý',
     ],
 
     'gate' => [
@@ -283,6 +298,9 @@ return [
         'confirm_existing_client_help' => 'Một số máy có thể dùng chung (người nhà, đồng nghiệp). Không phải người này thì đừng tích: sửa số điện thoại ở trang bản ghi nếu người liên hệ có số riêng, hoặc nhờ người quản lý hồ sơ khách hàng tạo hồ sơ riêng cho người liên hệ kèm số căn cước rồi nhập số đó ở ô số căn cước.',
         'confirm_existing_client_required' => 'Xem hồ sơ khách hàng hệ thống tìm thấy ở trên. Đúng người thì tích ô này rồi bấm chuyển đổi lần nữa.',
         'done' => 'Đã chuyển :intake thành vụ việc :matter.',
+        // Rà soát cuối M10, vòng sửa 1 (FI4): vụ `restricted` giao cho luật sư khác — người bấm không còn
+        // xem được vụ, nên câu không nêu mã vụ.
+        'done_hidden' => 'Đã chuyển :intake thành vụ việc. Vụ ở chế độ hạn chế và do luật sư khác phụ trách, nên mã vụ và bản ghi tiếp nhận không còn hiện với anh/chị.',
         'done_existing_client' => 'Người liên hệ được gắn vào khách hàng đã có của văn phòng.',
         'done_new_client' => 'Đã tạo hồ sơ khách hàng mới cho người liên hệ.',
     ],

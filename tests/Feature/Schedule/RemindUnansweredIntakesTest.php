@@ -17,8 +17,10 @@ use App\Jobs\SendUnansweredIntakeReminderMail;
 use App\Mail\Staff\IntakeUnanswered;
 use App\Models\IntakeRequest;
 use App\Models\OutboundMessage;
+use App\Models\Setting;
 use App\Models\User;
 use App\Notifications\Staff\IntakeUnansweredAlert;
+use App\Support\OfficeProfile;
 use Carbon\CarbonImmutable;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Notifications\Notification as FilamentNotification;
@@ -364,6 +366,29 @@ it('mails the code, the source, the time waited and a link, and nothing about th
             ->and($ledger)->not->toContain($needle)
             ->and($alerts)->not->toContain($needle);
     }
+});
+
+/*
+ * Rà soát cuối M10, vòng sửa 1 (FI7, sau khi gộp `main`): tên văn phòng ở lời chào của thư đọc
+ * `OfficeProfile` (M7 Task 9 — trang "Thông tin văn phòng" ghi đè cấu hình), như mọi thư khác của `main`;
+ * trước đó thư nhắc đọc thẳng `config('vkcrm.brand.legal_name')` và bỏ qua tên quản trị đã sửa.
+ */
+it('signs the reminder with the office name set on the office profile page, not the configured one', function () {
+    config(['vkcrm.brand.legal_name' => 'Tên Trong Cấu Hình Cũ']);
+    Setting::query()->create(['key' => OfficeProfile::settingKey('legal_name'), 'value' => 'Văn Phòng Luật Đã Đổi Tên']);
+
+    $lawyer = ruiStaff(Role::Lawyer);
+    ruiRecord($lawyer, ['assigned_to' => $lawyer->id]);
+
+    $this->travelTo(ruiAt('2026-10-07 13:20'));
+    ruiRun();
+
+    /** @var Email $email */
+    $email = Mail::mailer()->getSymfonyTransport()->innerTransport()->messages()->sole()->getOriginalMessage();
+
+    expect($email->getHtmlBody())->toContain('Văn Phòng Luật Đã Đổi Tên')
+        ->and($email->getTextBody())->toContain('Văn Phòng Luật Đã Đổi Tên')
+        ->and($email->getHtmlBody().$email->getTextBody())->not->toContain('Tên Trong Cấu Hình Cũ');
 });
 
 it('writes an in-app alert the admin panel bell can render, with the code and no contact data', function () {

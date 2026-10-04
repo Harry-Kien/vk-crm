@@ -23,6 +23,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Collection;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
@@ -43,8 +44,9 @@ use Spatie\Activitylog\Traits\LogsActivity;
  * "Architecture"): `applyClientPortalConstraints()` chặn `1 = 0`, cùng thiết bị với `MatterParty`.
  *
  * **Nhật ký tự động chỉ mang cột KHÔNG cá nhân và KHÔNG nhạy cảm** ({@see self::getActivitylogOptions()}):
- * R7 đòi ẩn danh phủ cả `activity_log`, R8 giới hạn lý do xung đột, và `ActivityOwningMatter` cho mọi
- * người có `auditLog.view` đọc các dòng chủ thể `intake_request`.
+ * R7 đòi ẩn danh phủ cả `activity_log`, R8 giới hạn lý do xung đột, và `ActivityOwningMatter` cho người
+ * có `auditLog.view` đọc các dòng chủ thể `intake_request` của mọi bản ghi họ xem được
+ * ({@see self::scopeVisibleTo()} — rà soát cuối, FI1).
  */
 class IntakeRequest extends Model
 {
@@ -89,9 +91,11 @@ class IntakeRequest extends Model
 
     /**
      * KHÔNG có `code` (sinh khi tạo), `contact_phone_normalized` và `contact_id_number_hash` (chỉ
-     * `identify()` ghi được, xem {@see self::fill()}), `created_by`/`updated_by` (`HasBlameable`), và
+     * `identify()` ghi được, xem {@see self::fill()}), `created_by`/`updated_by` (`HasBlameable`),
      * `conflict_red_pending_since` (Đỏ đang chờ quản lý/admin — chỉ `CheckIntakeConflict` đặt, chỉ
-     * `ResolveIntakeRedConflict` xoá; một form gán hàng loạt không được xoá khoá đó).
+     * `ResolveIntakeRedConflict` xoá; một form gán hàng loạt không được xoá khoá đó), và
+     * `merge_chain_matter_id` (chỉ `ConvertIntakeToMatter` đặt — rà soát cuối, FC1; gỡ nó là mở bản nguồn
+     * của một vụ `restricted`).
      */
     protected $fillable = [
         'contact_name', 'contact_phone', 'contact_email', 'contact_role',
@@ -261,7 +265,8 @@ class IntakeRequest extends Model
     /**
      * Id mọi bản đã gộp VÀO bản này, trực tiếp hay qua một bản đã gộp khác (cây ngược của
      * `merged_into_id`), kể cả bản đã xoá mềm, bỏ `ClientPortalScope` (M10 Task 7, fix vòng 1).
-     * `ConvertIntakeToMatter` xoá hạn lưu của chúng khi bản này thành vụ việc. Một id đã gặp không được
+     * `ConvertIntakeToMatter` xoá hạn lưu của chúng khi bản này thành vụ việc, và (rà soát cuối, FC1) đóng
+     * dấu vụ đó lên chúng (`merge_chain_matter_id`, {@see self::scopeVisibleTo()}). Một id đã gặp không được
      * đọc lại, nên một vòng (không đường nào tạo ra) không lặp mãi.
      *
      * @return list<int>
@@ -330,6 +335,13 @@ class IntakeRequest extends Model
      * chính là người ghi/được giao. Vụ thường KHÔNG đòi thêm gì (R9 giữ nguyên: trợ lý đã ghi bản ghi
      * vẫn thấy dù không nằm trong nhóm vụ). Bản ghi chưa chuyển đổi (`matter_id` null) không đổi.
      * Vụ đã xoá mềm vẫn tính (cùng `MatterPolicy::view`), và truy vấn vụ bỏ `ClientPortalScope`.
+     *
+     * **Vế đó đi theo CHUỖI GỘP (rà soát cuối M10, vòng sửa 1 — FC1).** Gộp (R4) để tên, SĐT, email và câu
+     * chuyện ở lại bản nguồn; khi bản cuối của chuỗi thành vụ, bản nguồn là một phần hồ sơ của khách
+     * ({@see self::convertedMergeTarget()}). `ConvertIntakeToMatter` đóng dấu vụ đó lên mọi bản đã gộp
+     * vào bản được chuyển đổi (`merge_chain_matter_id`, {@see self::mergedFromTreeIds()}), và vế
+     * `restricted` áp cho cột đó y như cho `matter_id`: bản nguồn của một vụ `restricted` biến mất với
+     * đúng những người không thấy được bản đã chuyển đổi.
      */
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
@@ -347,15 +359,21 @@ class IntakeRequest extends Model
 
         $model = $query->getModel();
 
-        return $query->where(fn (Builder $q) => $q
-            ->whereNull($model->qualifyColumn('matter_id'))
-            ->orWhereIn($model->qualifyColumn('matter_id'), Matter::query()
-                ->withoutGlobalScope(ClientPortalScope::class)
-                ->withTrashed()
-                ->where(fn (Builder $m) => $m
-                    ->where('confidentiality', '!=', Confidentiality::Restricted->value)
-                    ->orWhere(fn (Builder $restricted) => $restricted->listableBy($user)))
-                ->select('matters.id')));
+        $visibleMatters = fn (): Builder => Matter::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->withTrashed()
+            ->where(fn (Builder $m) => $m
+                ->where('confidentiality', '!=', Confidentiality::Restricted->value)
+                ->orWhere(fn (Builder $restricted) => $restricted->listableBy($user)))
+            ->select('matters.id');
+
+        foreach (['matter_id', 'merge_chain_matter_id'] as $column) {
+            $query->where(fn (Builder $q) => $q
+                ->whereNull($model->qualifyColumn($column))
+                ->orWhereIn($model->qualifyColumn($column), $visibleMatters()));
+        }
+
+        return $query;
     }
 
     /** Bản trong bộ nhớ của {@see self::scopeVisibleTo()} — test khẳng định hai bản trả lời giống nhau. */
@@ -367,21 +385,23 @@ class IntakeRequest extends Model
             return false;
         }
 
-        return $this->matter_id === null || $this->canSeeConvertedMatter($user);
+        return ($this->matter_id === null || $this->canSeeConvertedMatter($user, (int) $this->matter_id))
+            && ($this->merge_chain_matter_id === null || $this->canSeeConvertedMatter($user, (int) $this->merge_chain_matter_id));
     }
 
     /**
-     * Vế "vụ đã chuyển đổi" của {@see self::isVisibleTo()}: vụ không `restricted` thì qua; vụ
-     * `restricted` thì phải là vụ người này xem được ({@see Matter::isListableBy()}, cùng luật
-     * `MatterPolicy::view`). Không tìm thấy vụ (khoá ngoại đã đặt null mà `matter_id` còn giữ
-     * trong bộ nhớ) → từ chối, đúng như truy vấn SQL.
+     * Vế "vụ đã chuyển đổi" của {@see self::isVisibleTo()} — cho `matter_id` của chính bản ghi, và cho
+     * `merge_chain_matter_id` của một bản đã gộp vào bản được chuyển đổi (FC1): vụ không `restricted` thì
+     * qua; vụ `restricted` thì phải là vụ người này xem được ({@see Matter::isListableBy()}, cùng luật
+     * `MatterPolicy::view`). Không tìm thấy vụ (khoá ngoại đã đặt null mà cột còn giữ trong bộ nhớ) → từ
+     * chối, đúng như truy vấn SQL.
      */
-    private function canSeeConvertedMatter(User $user): bool
+    private function canSeeConvertedMatter(User $user, int $matterId): bool
     {
         $matter = Matter::query()
             ->withoutGlobalScope(ClientPortalScope::class)
             ->withTrashed()
-            ->find($this->matter_id, ['id', 'confidentiality', 'lead_lawyer_id', 'deleted_at']);
+            ->find($matterId, ['id', 'confidentiality', 'lead_lawyer_id', 'deleted_at']);
 
         return $matter !== null
             && ($matter->confidentiality !== Confidentiality::Restricted || $matter->isListableBy($user));
@@ -586,12 +606,15 @@ class IntakeRequest extends Model
      *    `TN-…`, khi nó khoá), và một khớp mới làm `CheckIntakeConflict` xoá ghi đè trước khi đặt Đỏ
      *    chờ. Tới lần kiểm tra đó bản ghi bị giữ; nó ra khớp mới thì chờ quản lý ghi đè lại, không có gì
      *    mới thì ghi đè cũ vẫn che (và giờ đã thấy khoá).
-     * MỘT định nghĩa cho hai nơi: `CheckIntakeConflict` (đặt dấu Đỏ chờ khi chạy kiểm tra — nó lưu các
+     * MỘT định nghĩa cho ba nơi: `CheckIntakeConflict` (đặt dấu Đỏ chờ khi chạy kiểm tra — nó lưu các
      * khoá vừa thấy TRƯỚC khi hỏi hàm này, và mọi Action đặt hay đổi một khoá đều chạy dưới cùng khoá
-     * `conflict-check` với nó, nên ở đó vế thứ hai không đúng) và
+     * `conflict-check` với nó, nên ở đó vế thứ hai không đúng),
      * `ConvertIntakeToMatter::refusal()` (chuyển đổi đọc thẳng điều kiện này, không đợi một lần "Kiểm
      * tra lại" — nếu không, một bản ghi kiểm tra hay được ghi đè TRƯỚC khi lần gọi kia khoá chuyển
-     * thành vụ được, đúng đường rửa khoá).
+     * thành vụ được, đúng đường rửa khoá) và — rà soát cuối M10, vòng sửa 1 (FI2) — `IntakeSummaryGate`
+     * (ô câu chuyện khoá theo đúng điều kiện đó; trước bản sửa nó chỉ đọc dấu Đỏ chờ ĐÃ LƯU, nên một bản
+     * kiểm tra Xanh trước khi lần gọi kia ra Đỏ vẫn ghi thêm câu chuyện trong khi chuyển đổi bị từ chối).
+     * Màn hình đọc nó qua {@see self::awaitsConflictResolution()}.
      *
      * @param  PartyRole|null  $role  Vai lần kiểm tra dùng, khi người gọi đã tính sẵn; null thì tự tính.
      */
@@ -605,6 +628,105 @@ class IntakeRequest extends Model
 
         return ! $this->hasConflictOverride()
             || array_diff($locks, $this->repeatCallLocksSeenAtLastCheck()) !== [];
+    }
+
+    /**
+     * Bản ghi đang CHỜ trưởng phòng/quản trị xử lý xung đột (rà soát cuối M10, vòng sửa 1 — FI2, FI5):
+     * còn mở — chưa xong việc ({@see self::isClosedToChanges()}) và chưa bị từ chối (từ chối LÀ một cách
+     * xử lý Đỏ, R1/R8) — VÀ có một Đỏ chưa xử lý ({@see self::hasUnresolvedRed()}) hoặc đang bị giữ như
+     * một cuộc gọi lại ({@see self::isHeldByRepeatCallLock()}). Hai vế đó là đúng hai điều mà cổng ô câu
+     * chuyện (`IntakeSummaryGate`, điều chặn `ConflictRed`) và chuyển đổi (`ConvertIntakeToMatter::refusal()`)
+     * đọc. MỘT định nghĩa cho mọi chỗ màn hình nói "Đỏ chờ trưởng phòng": cột "Kết quả kiểm tra" và bộ
+     * lọc của danh sách ({@see self::scopeAwaitingConflictResolution()}), khối kiểm tra và nút "Xử lý mức
+     * đỏ" của trang bản ghi. KHÔNG đọc mức của lần chạy gần nhất: một Đỏ dính, hay một lần gọi kiểm tra
+     * Xanh TRƯỚC khi lần gọi kia của cùng người ra Đỏ, vẫn chờ.
+     */
+    public function awaitsConflictResolution(): bool
+    {
+        return ! $this->isClosedToChanges()
+            && $this->status !== IntakeStatus::Declined
+            && ($this->hasUnresolvedRed() || $this->isHeldByRepeatCallLock());
+    }
+
+    /**
+     * {@see self::awaitsConflictResolution()} cho bộ lọc "Đỏ chờ trưởng phòng xử lý" của danh sách (FI5).
+     * Vế "bị giữ như một cuộc gọi lại" so dấu HMAC của các khoá với `conflict_result` — không viết được
+     * bằng SQL — nên hai bước: SQL chọn một TẬP CHỨA mọi bản có thể đang chờ (còn mở, chưa từ chối, và có
+     * dấu Đỏ chờ, hoặc mức Đỏ, hoặc một bản KHÁC cùng SĐT chuẩn hoá hay cùng dấu băm CCCD đang mang dấu
+     * Đỏ chờ, mức Đỏ hay cờ từ chối vì xung đột — mọi khoá cuộc gọi lại đi qua một trong ba cột đó,
+     * {@see self::locksRepeatCalls()}), rồi hỏi đúng hàm trong bộ nhớ cho từng bản của tập đó. Tập đó nhỏ
+     * (chỉ những người có Đỏ hay có lần gọi bị khoá). Chạy trên chính truy vấn được đưa vào (của bảng: đã
+     * lọc theo người xem, theo ô tìm…), nên chỉ thu hẹp nó.
+     */
+    public function scopeAwaitingConflictResolution(Builder $query): Builder
+    {
+        $model = $query->getModel();
+        $other = 'other_call';
+
+        $candidates = (clone $query)
+            ->openForConflictCheck()
+            ->where($model->qualifyColumn('status'), '!=', IntakeStatus::Declined->value)
+            ->where(fn (Builder $q) => $q
+                ->whereNotNull($model->qualifyColumn('conflict_red_pending_since'))
+                ->orWhere($model->qualifyColumn('conflict_level'), ConflictLevel::Red->value)
+                ->orWhereExists(fn (QueryBuilder $sibling) => $sibling
+                    ->selectRaw('1')
+                    ->from($model->getTable().' as '.$other)
+                    ->whereColumn("{$other}.id", '!=', $model->qualifyColumn('id'))
+                    ->whereNull("{$other}.deleted_at")
+                    ->where(fn (QueryBuilder $same) => $same
+                        ->where(fn (QueryBuilder $phone) => $phone
+                            ->whereNotNull("{$other}.contact_phone_normalized")
+                            ->whereColumn("{$other}.contact_phone_normalized", $model->qualifyColumn('contact_phone_normalized')))
+                        ->orWhere(fn (QueryBuilder $hash) => $hash
+                            ->whereNotNull("{$other}.contact_id_number_hash")
+                            ->whereColumn("{$other}.contact_id_number_hash", $model->qualifyColumn('contact_id_number_hash'))))
+                    ->where(fn (QueryBuilder $locking) => $locking
+                        ->whereNotNull("{$other}.conflict_red_pending_since")
+                        ->orWhere("{$other}.conflict_level", ConflictLevel::Red->value)
+                        ->orWhere("{$other}.decline_reason_is_conflict", true))))
+            ->get();
+
+        return $query->whereKey($candidates
+            ->filter(fn (IntakeRequest $intake): bool => $intake->awaitsConflictResolution())
+            ->modelKeys());
+    }
+
+    /**
+     * Các lần gọi KHÁC của cùng người mà CHÍNH bản này đang khoá như cuộc gọi lại (rà soát cuối M10, vòng
+     * sửa 1 — FI2): bản này {@see self::locksRepeatCalls()}, và bản kia còn chờ xử lý
+     * ({@see self::awaitsConflictResolution()}) VÀ có bản này trong các lần gọi cùng người của nó
+     * ({@see self::sameCallerIntakes()}, theo vai mà lần kiểm tra của BẢN KIA dùng). Một lần gọi đã kiểm
+     * tra Xanh trước khi bản này ra Đỏ không bao giờ hiện trong kết quả kiểm tra của bản này
+     * (`RunConflictCheck` bỏ khớp với một lần gọi lành của cùng người), nên trưởng phòng xử lý bản này đọc
+     * chúng ở đây. Ghi đè bản này chỉ gỡ khoá do nó đặt — một bản đã tự mang dấu Đỏ chờ (kiểm tra lại
+     * trong lúc bị giữ thì `CheckIntakeConflict` đặt dấu đó) vẫn chờ riêng; từ chối bản này vì xung đột
+     * thì chúng vẫn bị khoá. Cũ nhất trước. Bỏ `ClientPortalScope`; người gọi lọc thêm theo người xem.
+     *
+     * @return EloquentCollection<int, IntakeRequest>
+     */
+    public function repeatCallsHeldByThis(): EloquentCollection
+    {
+        $hash = $this->contact_id_number_hash;
+        $phone = $this->contact_phone_normalized;
+
+        if (! $this->locksRepeatCalls() || ($hash === null && $phone === null)) {
+            return new EloquentCollection;
+        }
+
+        return static::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->openForConflictCheck()
+            ->whereKeyNot($this->getKey())
+            ->where(fn (Builder $q) => $q
+                ->when($hash, fn (Builder $w) => $w->orWhere('contact_id_number_hash', $hash))
+                ->when($phone, fn (Builder $w) => $w->orWhere('contact_phone_normalized', $phone)))
+            ->orderBy('received_at')
+            ->orderBy('id')
+            ->get()
+            ->filter(fn (IntakeRequest $other): bool => $other->awaitsConflictResolution()
+                && $other->sameCallerIntakes($other->conflictContactRole())->contains(fn (IntakeRequest $caller): bool => $caller->is($this)))
+            ->values();
     }
 
     /**

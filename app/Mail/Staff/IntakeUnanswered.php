@@ -8,6 +8,7 @@ use App\Mail\BrandedMailable;
 use App\Models\IntakeRequest;
 use App\Models\User;
 use App\Support\Intake\FirstResponseClock;
+use App\Support\OfficeProfile;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
@@ -72,7 +73,9 @@ class IntakeUnanswered extends BrandedMailable
                 'waited' => FirstResponseClock::formatMinutes($clock->waitedMinutes($this->intake)),
                 'thresholdHours' => $clock->thresholdHours,
                 'url' => IntakeRequestResource::getUrl('edit', ['record' => $this->intake], panel: 'admin'),
-                'office' => config('vkcrm.brand.legal_name'),
+                // Gộp `main` (M7 Task 9): tên văn phòng sửa được ở trang "Thông tin văn phòng" — đọc lúc
+                // render, qua MỘT chỗ như mọi thư khác (`OfficeProfile`), không đọc thẳng cấu hình.
+                'office' => OfficeProfile::current()->legalName(),
             ],
         );
     }

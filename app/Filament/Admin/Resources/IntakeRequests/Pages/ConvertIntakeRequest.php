@@ -81,7 +81,9 @@ use Livewire\Attributes\Locked;
  * **Sau khi chuyển:** hai thông báo — kết quả kiểm tra xung đột (cùng hàm của form mở vụ,
  * `CreateMatter::notifySaved()`), và việc chuyển đổi (khách mới hay khách đã có) — rồi tới trang vụ
  * việc nếu người bấm xem được nó, không thì danh sách tiếp nhận (vụ `restricted` giao cho luật sư
- * khác: cả vụ lẫn bản ghi đều thôi hiện với người bấm).
+ * khác: cả vụ lẫn bản ghi đều thôi hiện với người bấm). Trong trường hợp đó thông báo chuyển đổi KHÔNG
+ * nêu mã vụ (rà soát cuối M10, vòng sửa 1 — FI4: vụ `restricted` không bao giờ lộ mã cho người không xem
+ * được nó, kể cả trong thông báo); thông báo kết quả kiểm tra không có mã của vụ vừa mở.
  *
  * Không transaction ngoài: `OpenMatter` cấm (xem cảnh báo ở docblock của nó).
  */
@@ -369,16 +371,20 @@ class ConvertIntakeRequest extends Page
 
         CreateMatter::notifySaved($conversion->opening);
 
+        // Người bấm thường thấy vụ vừa mở (`OpenMatter` thêm họ vào đội ngũ khi họ không phải lead). Ngoại
+        // lệ: vụ `restricted` giao cho luật sư khác — khi đó cả vụ lẫn bản ghi (`scopeVisibleTo()`) đều
+        // thôi hiện với họ: thông báo không nêu mã vụ (FI4), và về danh sách tiếp nhận.
+        $seesMatter = Gate::allows('view', $conversion->opening->matter);
+
         Notification::make()
-            ->title(__('intake.convert.done', ['intake' => $conversion->intake->code, 'matter' => $conversion->opening->matter->code]))
+            ->title($seesMatter
+                ? __('intake.convert.done', ['intake' => $conversion->intake->code, 'matter' => $conversion->opening->matter->code])
+                : __('intake.convert.done_hidden', ['intake' => $conversion->intake->code]))
             ->body($conversion->clientCreated ? __('intake.convert.done_new_client') : __('intake.convert.done_existing_client'))
             ->success()
             ->send();
 
-        // Người bấm thường thấy vụ vừa mở (`OpenMatter` thêm họ vào đội ngũ khi họ không phải lead). Ngoại
-        // lệ: vụ `restricted` giao cho luật sư khác — khi đó cả vụ lẫn bản ghi (`scopeVisibleTo()`) đều
-        // thôi hiện với họ, nên về danh sách tiếp nhận.
-        $this->redirect(Gate::allows('view', $conversion->opening->matter)
+        $this->redirect($seesMatter
             ? MatterResource::getUrl('view', ['record' => $conversion->opening->matter])
             : IntakeRequestResource::getUrl('index'));
     }
