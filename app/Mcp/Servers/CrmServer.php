@@ -2,7 +2,13 @@
 
 namespace App\Mcp\Servers;
 
+use App\Mcp\Tools\FetchTool;
+use App\Mcp\Tools\GetMatterTool;
+use App\Mcp\Tools\SearchMattersTool;
+use App\Mcp\Tools\SearchTool;
+use App\Mcp\Tools\WhoAmITool;
 use Laravel\Mcp\Server;
+use Laravel\Mcp\Server\Tool;
 
 /**
  * Máy chủ MCP duy nhất của VK-CRM (kế hoạch M11): một endpoint Streamable HTTP `POST /mcp`, chỉ
@@ -12,7 +18,9 @@ use Laravel\Mcp\Server;
  * stateless 2026-07-28 (`server/discover`, header `Mcp-Method`) dùng chung lớp này [DC:626]. Không
  * phiên, không SSE: không tool nào trả Generator [PL:108], [PL:127].
  *
- * Task 1 chưa đăng ký tool nào. `whoami` đến ở Task 10.
+ * Tool đăng ký theo THỨ TỰ CỐ ĐỊNH của bảng tool trong kế hoạch (R13, [DC:649]): Task 10 đăng ký
+ * năm tool đọc đầu (`whoami`, `search`, `fetch`, `search_matters`, `get_matter`); Task 11 nối tiếp
+ * sáu tool đọc còn lại, Task 13 bốn tool ghi.
  */
 class CrmServer extends Server
 {
@@ -22,6 +30,15 @@ class CrmServer extends Server
     protected string $name = 'VK-CRM';
 
     protected string $version = '1.0.0';
+
+    /** @var array<int, class-string<Tool>> */
+    protected array $tools = [
+        WhoAmITool::class,
+        SearchTool::class,
+        FetchTool::class,
+        SearchMattersTool::class,
+        GetMatterTool::class,
+    ];
 
     /**
      * `instructions` tiếng Việt qua `lang/vi/mcp.php` (R11). Thuộc tính của lớp cha không gọi được

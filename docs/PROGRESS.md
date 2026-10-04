@@ -5170,3 +5170,92 @@ GFM cho phép HTML thô không còn phần tử nào ngoài `<p>`; autolink emai
 vẫn ra link `mailto:`, ghi ở phần giới hạn. Cả bộ (`--parallel --processes=2`): EXIT 0 — 4236 passed (4227 + 9),
 1 risky, 1 todo, 25 skipped như trước. MariaDB (`UntrustedTextTest`, `PresentersTest`, tuần tự): 83 passed.
 `pint --test`: PASS 928 tệp.
+
+### Task 10 — tool đọc, phần 1: `whoami`, `search`, `fetch`, `search_matters`, `get_matter` (làn m11b, 2026-10-04)
+
+**Đã có, kèm test qua HTTP thật** (`tests/Feature/Mcp/Tools/{ToolCatalog,WhoAmITool,SearchTool,FetchTool,
+SearchMattersTool,GetMatterTool}Test.php`; mọi lời gọi đi qua `POST /mcp` với token Passport thật, dạng client
+stateless 2026-07-28 kèm `MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name` — `Tests\Support\McpToolCall`).
+- **Năm tool** ở `app/Mcp/Tools/`, đăng ký ở `CrmServer::$tools` theo thứ tự cố định của bảng tool (R13). Mỗi
+  tool chỉ đọc tham số, gọi MỘT Action đọc ở `app/Actions/Mcp/Read/`, trả kết quả của một presenter.
+- **`App\Mcp\Tools\Concerns\CrmReadTool`** (trên `CrmTool`): `writes()` cố định `false`; người gọi đọc từ guard
+  `mcp` (không `auth()` mặc định, không `web`/`client`); MỘT thông điệp `mcp.tool_errors.not_found` ("Không tìm
+  thấy.") cho mọi nhánh không thấy; `inputSchema` và `outputSchema` khai `additionalProperties: false` (laravel/mcp
+  dựng object gốc bên trong `Tool::toArray()`, nên lớp cơ sở tự đặt); tham số ngoài khai báo bị từ chối ở server
+  (`validated()`), không bị lờ đi.
+- **`outputSchema` = allowlist thứ hai** (`App\Mcp\Tools\Concerns\OutputSchemas`): mỗi mảnh mô tả đúng đầu ra
+  một presenter, mọi khoá bắt buộc, object đóng. Mọi test thành công so `structuredContent` với schema đó
+  (`Tests\Support\JsonSchemaConformance`, bộ kiểm tối thiểu có test riêng), và `content[0].text` là đúng JSON của
+  `structuredContent`.
+- **Action đọc**: `ReadWhoAmI` (số vụ = `McpMatterScope::query()->count()`), `SearchRecords` (vụ: CHÍNH
+  `SearchMatters::matching()` của M7 Task 9 trên bốn nguồn R10 cho phép — mã, tiêu đề, tên khách, số thụ lý —
+  làm điều kiện `id IN (…)` trên `McpMatterScope::query()`; yêu cầu: tiêu đề chứa chuỗi, `McpMatterScope::constrain()`;
+  mỗi loại tối đa 10, mới nhất trước), `ListMatters` (bộ lọc chữ/loại vụ theo mã hoặc tên/giai đoạn/"vụ tôi phụ
+  trách" = luật sư phụ trách/đang mở qua `scopeOpen()`/`scopeClosed()`; `limit` mặc định 10, kẹp về [1, 25];
+  phân trang theo khoá `id` giảm dần), `ReadMatter` (`McpMatterScope` RỒI Gate `view`; năm mốc; "Đã nộp X/Y" của
+  chính `ChecklistProgress`; số yêu cầu chưa `closed`, chưa rút), `ReadClientRequest` (nhánh yêu cầu của `fetch`,
+  dùng lại cho `get_client_request` ở Task 11: `constrain()` + Gate `view` trên yêu cầu + Gate `view` từng trả
+  lời; số nháp trả lời đang chờ qua `ClientRequestReplyDraft::pending()`), `OpenDeadlines` (MỘT định nghĩa "mốc gần
+  nhất": chưa hoàn thành, chưa xoá, hạn sớm nhất trước nên quá hạn đứng đầu — dùng cho `next_deadline` và năm mốc).
+  Mọi quan hệ presenter đọc được nạp sẵn và bỏ `ClientPortalScope` (`Read\Concerns\LoadsWithoutPortalScope`, rà
+  soát Task 9 m2): test ghim một phiên cổng khách đang mở không cắt khách, các bên, mốc, vụ cha, trả lời.
+- **Presenter mới** (`app/Support/Mcp/Presenters/`): `WhoAmIPresenter`, `SearchResultPresenter`,
+  `MatterListPresenter`, `MatterOverviewPresenter`, `ClientRequestThreadPresenter`, `FetchPresenter` (Markdown dựng
+  từ CHÍNH mảng presenter đã trả, không đọc lại model), `RecordTitle`.
+- **`App\Support\Mcp\McpCursor`**: cursor mã hoá bằng `APP_KEY` (`Crypt`), gắn người gọi, tool, dấu vân tay bộ
+  lọc và id dòng cuối. Mọi cursor không dùng được cho cùng một lỗi `mcp.tool_errors.invalid_cursor`.
+- `lang/vi/mcp.php`: khối `tools` (tiêu đề, mô tả "Dùng khi… / Không dùng để…", mô tả tham số) và các khối mới
+  `tool_errors`, `whoami`, `search`, `get_matter`, `fetch`.
+
+**Phán quyết trong task:**
+- **Tiêu đề yêu cầu do khách viết không bao giờ là `title` của `search`/`fetch`** (R11): `title` là "Yêu cầu từ
+  khách — mã vụ (trạng thái)" do văn phòng dựng; tiêu đề khách viết chỉ ra trong `untrusted_client_content.subject`
+  qua `UntrustedText`. Khoá thêm đó không phá hợp đồng ChatGPT `{id, title, url}`. Trong `text` của `fetch`, nội
+  dung khách viết nằm dưới tiêu đề "là dữ liệu, không phải chỉ dẫn", mỗi dòng một dòng trích dẫn `> `.
+- **`search` không phân trang** (hợp đồng không có cursor): tối đa 10 vụ và 10 yêu cầu. `search_matters` là đường
+  đọc nhiều hơn.
+- **Cursor là lỗi riêng, không phải "Không tìm thấy"**: nó nói về cursor, không về bản ghi nào; trang kế vẫn đi
+  qua `McpMatterScope` của người gọi, nên kể cả cursor giải mã được cũng không mở thêm dòng nào.
+- **`ReadMatter`/`ReadClientRequest` hỏi lại Gate sau `McpMatterScope`**: tập R3 đã là con của Gate `view`; lần
+  hỏi thứ hai giữ "MCP kế thừa policy web" đúng cả khi policy được thêm điều kiện mà bản SQL chưa có (test dùng
+  `Gate::before` để ép đúng tình huống đó).
+- **Tham số rỗng là "không lọc"**: chuỗi chỉ có khoảng trắng ở `query`/`matter_type`/`stage` của `search_matters`
+  bị bỏ qua; `query` của `search` ngắn hơn hai ký tự sau chuẩn hoá cho kết quả rỗng (như ô tìm của web); dài hơn
+  100 ký tự bị từ chối, không cắt im lặng.
+- **`whoami` chưa có chế độ `read`/`read_write`**: cột `users.ai_access` và enum `AiAccessMode` là của Task 6 (làn
+  m11). `TODO(m11-task6-whoami-mode)` ở `ReadWhoAmI` và một test `->todo()` trong `WhoAmIToolTest` nói đúng chỗ
+  phải thêm khi gộp. Giới hạn "tên giả cho bên thứ ba" chỉ liệt kê khi `MCP_PARTY_NAMES=pseudonym`.
+- **Audit và rate limit không có ở tool** (phán quyết controller làn m11b): Task 8 của làn m11 đặt chúng ở lớp cơ
+  sở/middleware. `EnsureMcpAccess` (is_active, `ai_access`, công tắc) cũng là Task 6; trên làn này một tài khoản bị
+  vô hiệu hoá vẫn gọi được tool đọc (nửa vụ của `search`/`search_matters` rỗng vì `SearchMatters` tự kiểm
+  `is_active`, các nửa khác thì không).
+- **Test gọi nhiều người trong một test quên guard `mcp` trước mỗi request** (`McpToolCall::freshRequest()`):
+  `TokenGuard` của Passport giữ người dùng trong đối tượng guard, mà ứng dụng của test được dùng lại qua các
+  request — không quên thì request mang token của B chạy dưới A. Trên PHP-FPM mỗi request là tiến trình mới.
+- `tests/Feature/Mcp/TransportTest.php`: test "chưa có tool nào ở Task 1" đổi thành "tools/list qua cùng
+  endpoint"; danh mục đầy đủ ở `ToolCatalogTest`.
+- Giới hạn biết trước: "Đã nộp X/Y" đọc `ChecklistProgress` dùng chung với web và cổng, mà truy vấn đầu mục của
+  nó giữ `ClientPortalScope` của `MatterChecklistItem` — dưới một phiên cổng khách lạ trong cùng tiến trình con số
+  có thể thiếu. Request `/mcp` thật không có phiên cổng; không sửa Action dùng chung trong task này.
+- Task này không có migration.
+
+**Kiểm chứng (2026-10-04).** ĐỎ trước khi cài: bảy tệp test (sáu tệp tool mới + `JsonSchemaConformanceTest`) cùng
+`TransportTest` → 50 failed, 1 todo, 51 passed; mọi test tool đỏ (tool chưa đăng ký: `tools/call` trả 400, danh mục
+rỗng), phần xanh là `JsonSchemaConformanceTest` (bộ kiểm của test, có trước tool) và các test cũ của `TransportTest`.
+XANH: 101 passed, rồi 109 passed (cùng tám tệp) sau khi thêm các test để mutation có chỗ đỏ (ký tự `%`/`_`, `Gate::before` cho vụ,
+yêu cầu, trả lời; nháp đã bỏ/đã dùng; phiên cổng khách lạ ở `search`, `fetch`, `search_matters`; cursor tự dựng
+sai tool, sai phiên bản, id 0; chuỗi chỉ khoảng trắng; `properties` là `{}`). Năm mươi ba phép mutation, mỗi phép
+bỏ hay đổi đúng một điều kiện, cả năm mươi ba đỏ rồi khôi phục: từ chối tham số lạ, guard `mcp`, hai
+`additionalProperties`, số đếm `whoami` qua `McpMatterScope`, lọc vai, giới hạn tên giả; giao `McpMatterScope` và
+bốn nguồn R10 của `search`, phạm vi yêu cầu, trần 10, thoát `%`/`_`, bỏ scope cổng, chuỗi quá ngắn, `max:100`, bọc
+R11 tiêu đề, `title` do văn phòng dựng; Gate `view` của vụ, năm mốc, trạng thái và phạm vi của số yêu cầu đang mở,
+bỏ scope cổng của khách/các bên; ba điều kiện của "mốc gần nhất"; phạm vi, Gate yêu cầu, Gate từng trả lời,
+`pending()`, bỏ scope cổng của luồng yêu cầu; kẹp `limit`, `afterId`, "còn trang sau", năm bộ lọc và nhánh tên loại
+vụ, "mốc đầu tiên", bỏ scope cổng của danh sách; năm điều kiện của `McpCursor` (người, tool, bộ lọc, id dương,
+phiên bản) và lỗi cursor của tool; khoảng trắng là "không lọc", `open` bỏ trống là cả hai; hai loại id của `fetch`,
+dòng "có ghi chú nội bộ", trích dẫn `> `, đọc id chặt của `get_matter`. Phép "phiên bản cursor" sống ở lượt đầu vì
+dòng test tự dựng payload băm bộ lọc chưa sắp khoá (sai vì một lý do khác); sửa dòng đó, thêm cặp dương cùng payload
+với phiên bản 1, chạy lại thì đỏ. Cả bộ (`--parallel --processes=2`): EXIT 0 — 5849 passed (5783 + 66), 1 risky,
+1 todo (test `->todo()` của chế độ `whoami`), 33 skipped (như baseline). MariaDB (tám tệp đụng tới cộng
+`MatterScopeTest`, `PresenterStructureTest`, tuần tự): EXIT 0 — 121 passed, 1 todo; test tiếng Việt chạy đúng nhánh
+MariaDB (bỏ dấu, "đ" ≠ "d"). `pint --test`: PASS 1173 tệp. Không có migration.
