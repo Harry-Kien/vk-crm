@@ -113,11 +113,17 @@ return [
     'billing_invariants_mismatch' => 'Có :count hợp đồng đang có hiệu lực mà tổng các đợt thanh '
         .'toán khác giá trị hợp đồng: :codes. Màn hình tiền, công nợ và doanh thu đang tính sai cho '
         .'các hợp đồng này. Chạy php artisan billing:check-invariants để xem từng con số, rồi luật sư '
-        .'phụ trách sửa bằng một phụ lục (không sửa thẳng vào CSDL).',
+        .'phụ trách sửa bằng một phụ lục (không sửa thẳng vào CSDL). Dòng ĐỎ này không chặn mở cổng '
+        .'(php artisan up): nó là dữ liệu, không phải cấu hình máy, và chỉ sửa được trong app — nên vẫn '
+        .'mở cổng rồi sửa ngay. Mọi dòng ĐỎ khác vẫn chặn.',
     'billing_invariants_ok' => 'Tổng các đợt thanh toán khớp giá trị hợp đồng trên cả :count hợp '
         .'đồng đang có hiệu lực.',
 
     'summary_red' => 'Có mục ĐỎ — KHÔNG mở cổng cho tới khi sửa hết.',
+    // Rà soát cuối làn m9f, I2 — xem RunPreflight::blocksOpening().
+    'summary_red_billing_only' => 'Mục ĐỎ duy nhất là bất biến tiền — dữ liệu, không phải cấu hình máy: '
+        .'vẫn mở cổng (php artisan up), rồi luật sư phụ trách ký ngay phụ lục cho từng hợp đồng lệch. '
+        .'Mã thoát vẫn khác 0 cho tới khi sạch.',
     'summary_yellow' => 'Không có mục ĐỎ, còn mục VÀNG cần chú ý.',
     'summary_ok' => 'Mọi điều kiện ra mắt đều đạt.',
 ];

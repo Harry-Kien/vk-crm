@@ -56,10 +56,12 @@ class InstalmentPolicy
     /**
      * Miễn một đợt (`WaiveInstalment`) là bớt số khách phải trả: một quyết định về điều khoản
      * thương mại, cùng loại với đổi số tiền một đợt qua phụ lục — nên đi theo `contract.manage`
-     * (luật sư của vụ, quản lý, admin), không theo `payment.record` (kế toán ghi tiền đã về, không
-     * tự xoá nợ). SPEC §5 bổ sung M9 không nêu tên việc miễn; đây là cách đọc của M9 Task 3, ghi
-     * trong báo cáo để controller xác nhận hoặc đảo. Trạng thái nào thì miễn được, lý do ≥ 20 ký
-     * tự: `WaiveInstalment`.
+     * cộng "thấy tiền của vụ" ({@see self::canSeeBilling()}): mọi luật sư trong đội của vụ (kể cả
+     * luật sư phối hợp), quản lý, admin; trên vụ `restricted` chỉ luật sư phụ trách và admin. Không
+     * theo `payment.record` (kế toán ghi tiền đã về, không tự xoá nợ). Cách đọc của M9 Task 3, nay
+     * là đính chính có ngày của SPEC §5 ("miễn một đợt cũng thuộc `contract.manage`", sửa
+     * 2026-10-04 cho khớp hàm này); test qua màn hình: `tests/Feature/Filament/WaiveRightSpecTest.php`.
+     * Trạng thái nào thì miễn được, lý do ≥ 20 ký tự: `WaiveInstalment`.
      */
     public function waive(User|ClientUser $user, Instalment $instalment): bool
     {
