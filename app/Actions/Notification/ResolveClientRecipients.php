@@ -3,8 +3,10 @@
 namespace App\Actions\Notification;
 
 use App\Models\ClientUser;
+use App\Models\Matter;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Gate;
 
 /**
  * M6.5 R12: người nhận thư cho KHÁCH về một hồ sơ chỉ là tài khoản cổng đang `is_active`, đã
@@ -36,6 +38,34 @@ class ResolveClientRecipients
     public function hasEligibleRecipient(int $clientId): bool
     {
         return $this->eligibleQuery($clientId)->exists();
+    }
+
+    /**
+     * Bước hai của mọi thư cho khách về MỘT vụ việc (gộp M7 vào `main`): trong những tài khoản đã
+     * qua luật R12 ở trên, chỉ giữ người mà vụ việc còn nằm trên cổng của CHÍNH họ — hỏi bằng định
+     * nghĩa cổng, `Gate::forUser($account)->allows('view', $matter)` (`MatterPolicy::view` nhánh
+     * khách: năm điều kiện của `releasedToPortal()`, gồm "chưa hết hạn tra cứu" của M7 Task 5 (R4),
+     * cộng tầng truy vấn `visibleToPortal()`), chứ không thêm một định nghĩa thứ ba. Cờ
+     * `is_published_to_portal` một mình không đủ: một vụ đã kết thúc và đã quá `client_access_until`
+     * rời cổng mà cờ giữ nguyên, tài khoản khách còn hoạt động nhờ một vụ khác, và thư đi kèm liên
+     * kết tới một trang trả 404.
+     *
+     * `$matter` phải là bản ghi ĐẦY ĐỦ đọc tươi (policy đọc `client_id`, `is_published_to_portal`,
+     * `deleted_at` và dòng lưu trữ) — không phải một bản chọn vài cột. Dùng bởi
+     * `NotifyClientOfStageUpdate`, `NotifyClientOfDocumentPublished`,
+     * `NotifyClientOfChecklistItemRejected`, `NotifyClientOfRequestAnswered` và (việc sau gộp M7,
+     * làn fu2) `App\Jobs\SendMissingDocumentsMail` cùng Action xếp nó,
+     * `App\Actions\Schedule\RemindMissingDocuments` — đủ năm thư khách về một vụ — nên lời gửi thật,
+     * nút "Gửi lại" của nhật ký thư và câu trên màn hình hỏi cùng một câu.
+     *
+     * @param  Collection<int, ClientUser>  $accounts
+     * @return Collection<int, ClientUser>
+     */
+    public function onPortal(Matter $matter, Collection $accounts): Collection
+    {
+        return $accounts
+            ->filter(fn (ClientUser $account): bool => Gate::forUser($account)->allows('view', $matter))
+            ->values();
     }
 
     /**

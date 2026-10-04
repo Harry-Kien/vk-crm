@@ -3,6 +3,8 @@
 namespace App\Filament\Admin\Resources\Matters\Pages;
 
 use App\Actions\Matter\ReassignMatter;
+use App\Actions\Matter\RecordMatterDestruction;
+use App\Actions\Matter\RequestHandoverPackage;
 use App\Actions\Matter\SetMatterAiAccess;
 use App\Actions\SetMatterPortalPublication;
 use App\Enums\Confidentiality;
@@ -12,6 +14,7 @@ use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Filament\Admin\Resources\OutboundMessages\OutboundMessageResource;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\OutboundMessage;
 use App\Models\User;
 use Filament\Actions\Action;
@@ -20,6 +23,7 @@ use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
@@ -75,6 +79,8 @@ class ViewMatter extends ViewRecord
     {
         return [
             $this->reassignAction(),
+            $this->generateHandoverAction(),
+            $this->recordDestructionAction(),
             $this->outboundMessagesAction(),
             // Lối vào "Sửa vụ việc" (M6.5 Task 5, EditMatter). Cổng mặc định của EditAction là
             // ability `update` trên model — đúng MatterPolicy::update() đã có, không cần khai báo
@@ -177,6 +183,117 @@ class ViewMatter extends ViewRecord
                     ->success()
                     ->send();
             });
+    }
+
+    /**
+     * M7 Task 4 (R9): "Sinh gói bàn giao" / "Sinh lại gói bàn giao". Chỉ hiện với vụ ĐANG kết thúc
+     * (`closed_at` có giá trị) đã có bản ghi lưu trữ, VÀ người xem có
+     * `MatterArchivePolicy::generateHandover` (`document.publish` + xem được vụ). Bản ghi lưu trữ còn
+     * nguyên khi admin mở lại vụ (chỉ `client_access_until` bị xoá), nên chỉ riêng "có bản ghi" sẽ
+     * mời bấm một nút luôn hỏng với "chưa kết thúc". Khoá (`disabled`) khi một lần sinh đang chạy —
+     * cùng định nghĩa "đang chạy" với chính Action ({@see RequestHandoverPackage::isRunning()}), nên
+     * một lần sinh kẹt quá lâu tự mở nút. Action tự kiểm tra lại quyền và trạng thái dưới khoá; nút
+     * chỉ là lối vào.
+     */
+    private function generateHandoverAction(): Action
+    {
+        return Action::make('generateHandoverPackage')
+            ->label(fn (): string => $this->handoverArchive()?->handover_status === null
+                ? __('handover.action.generate')
+                : __('handover.action.regenerate'))
+            ->icon(Heroicon::OutlinedArchiveBox)
+            ->color('gray')
+            ->requiresConfirmation()
+            ->modalHeading(__('handover.action.modal_heading'))
+            ->modalDescription(__('handover.action.modal_description'))
+            ->modalSubmitActionLabel(__('handover.action.submit'))
+            ->visible(fn (): bool => $this->getRecord()->isClosed()
+                && ($archive = $this->handoverArchive()) !== null
+                && Gate::allows('generateHandover', $archive))
+            ->disabled(fn (): bool => ($archive = $this->handoverArchive()) !== null
+                && RequestHandoverPackage::isRunning($archive))
+            ->action(function (Action $action): void {
+                $this->runAction($action, fn () => app(RequestHandoverPackage::class)->handle(
+                    matterId: $this->getRecord()->getKey(),
+                    actor: Auth::user(),
+                ));
+
+                // Đọc lại bản ghi lưu trữ để khối "Gói bàn giao" hiện ngay trạng thái mới.
+                $this->getRecord()->unsetRelation('archive');
+
+                Notification::make()
+                    ->title(__('handover.action.queued'))
+                    ->success()
+                    ->send();
+            });
+    }
+
+    /**
+     * M7 Task 6 (R5): "Ghi quyết định tiêu huỷ" — GHI LẠI một quyết định đã lập biên bản ngoài hệ
+     * thống qua {@see RecordMatterDestruction}; không xoá gì. Chỉ hiện khi CẢ NĂM điều kiện: vụ
+     * đang đóng (`closed_at`), có bản ghi lưu trữ, bản ghi đó đã quá `retention_until`
+     * (`MatterArchive::isRetentionExpired()`, cùng định nghĩa với Action), chưa ghi quyết định
+     * (`destroyed_at` rỗng), và người xem qua `MatterPolicy::recordDestruction` (chỉ admin). Ẩn nút
+     * chỉ là lối vào: Action tự hỏi lại quyền trên người thực hiện ĐỌC LẠI từ CSDL và kiểm lại mọi
+     * điều kiện dưới khoá. Admin bị gỡ vai, hay người khác đã ghi, trong lúc hộp thoại còn mở: request
+     * bấm nút nạp lại người dùng và bản ghi lưu trữ, nên nút thường đã ẩn và Filament không chạy
+     * action. Nếu vẫn tới được Action (người dùng trong bộ nhớ còn giữ vai cũ — đúng trường hợp test
+     * Livewire dựng), Action từ chối và `runAction()` hiện câu tiếng Việt. Bản ghi lưu trữ đọc qua
+     * `handoverArchive()` (tên của Task 4 — nó trả quan hệ `archive` của vụ, không riêng gói).
+     *
+     * `maxLength` của số biên bản bằng độ dài cột (`varchar(50)`, MariaDB strict); lý do là cột
+     * `text`, trần chủ động {@see RecordMatterDestruction::REASON_MAX} như các lý do khác của dự án.
+     */
+    private function recordDestructionAction(): Action
+    {
+        return Action::make('recordDestruction')
+            ->label(__('archive.destruction.action.label'))
+            ->icon(Heroicon::OutlinedDocumentCheck)
+            ->color('danger')
+            ->modalHeading(__('archive.destruction.action.modal_heading'))
+            ->modalDescription(__('archive.destruction.action.modal_description'))
+            ->modalSubmitActionLabel(__('archive.destruction.action.submit'))
+            ->visible(fn (): bool => $this->getRecord()->isClosed()
+                && ($archive = $this->handoverArchive()) !== null
+                && $archive->destroyed_at === null
+                && $archive->isRetentionExpired()
+                && Gate::allows('recordDestruction', $this->getRecord()))
+            ->schema([
+                TextInput::make('destruction_record_no')
+                    ->label(__('archive.destruction.fields.destruction_record_no'))
+                    ->placeholder(__('archive.destruction.fields.destruction_record_no_hint'))
+                    ->required()
+                    ->maxLength(RecordMatterDestruction::RECORD_NO_MAX),
+                Textarea::make('destruction_reason')
+                    ->label(__('archive.destruction.fields.destruction_reason'))
+                    ->helperText(__('archive.destruction.fields.destruction_reason_hint'))
+                    ->rows(4)
+                    ->required()
+                    ->minLength(RecordMatterDestruction::REASON_MIN)
+                    ->maxLength(RecordMatterDestruction::REASON_MAX)
+                    ->columnSpanFull(),
+            ])
+            ->action(function (Action $action, array $data): void {
+                $this->runAction($action, fn () => app(RecordMatterDestruction::class)->handle(
+                    matterId: $this->getRecord()->getKey(),
+                    actor: Auth::user(),
+                    reason: (string) ($data['destruction_reason'] ?? ''),
+                    recordNo: (string) ($data['destruction_record_no'] ?? ''),
+                ));
+
+                // Đọc lại bản ghi lưu trữ để khối "Lưu trữ hồ sơ" hiện ngay quyết định vừa ghi.
+                $this->getRecord()->unsetRelation('archive');
+
+                Notification::make()
+                    ->title(__('archive.destruction.action.success'))
+                    ->success()
+                    ->send();
+            });
+    }
+
+    private function handoverArchive(): ?MatterArchive
+    {
+        return $this->getRecord()->archive;
     }
 
     /**
@@ -304,6 +421,12 @@ class ViewMatter extends ViewRecord
      * thể gọi thẳng qua `Closure::bind`, đo đúng lớp phòng thủ NẰM DƯỚI Filament, không phải một
      * chi tiết dehydrate của framework. `ReassignMatter::handle()` vẫn là nơi quyết định thật; hàm
      * này chỉ dịch `$data` của form sang tham số của Action — không tự thêm luật nào.
+     *
+     * Fix round 1 (finding 2): `handle()` giờ trả về `ReassignMatterResult` (không còn `StageLog`
+     * trần) để M7 Task 2 gộp được `$movedDeadlineIds`/`$movedRequestIds` của nhiều vụ thành một
+     * payload — CỐ Ý bỏ qua giá trị trả về ở đây: màn hình MỘT vụ này không cần gộp gì cả, và thư
+     * tổng hợp của chính vụ này đã tự xếp hàng bên trong `handle()` (`$sendDigest` mặc định
+     * `true`).
      */
     private function submitReassign(array $data): void
     {

@@ -3,9 +3,13 @@
 namespace Database\Seeders;
 
 use App\Actions\ApplyChecklistTemplate;
+use App\Actions\Document\MarkDocumentSignedFiled;
+use App\Actions\Document\PublishDocument;
 use App\Actions\Document\ReviewChecklistItem;
 use App\Actions\Document\SubmitClientDocument;
+use App\Actions\Document\SubmitDocumentForApproval;
 use App\Actions\Document\UploadStaffDocument;
+use App\Actions\Matter\SyncMatterArchive;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\CommunicationType;
 use App\Enums\Confidentiality;
@@ -43,6 +47,10 @@ use Illuminate\Support\Str;
  *  - vụ 10–14: có tài liệu khách nộp chờ duyệt
  *  - vụ 20: bị đơn trùng căn cước với khách hàng số 2 (đang là khách trong vụ 2) => xung đột đỏ
  *  - vụ 1–10: khách đã xem các dòng công bố; vụ 11–20: chưa xem
+ *  - vụ i mở `30 + 12·i` ngày trước (vụ 20: 270 ngày, khoảng chín tháng) — M9 Task 13: tiền mẫu
+ *    (`BillingSeeder`) ký hợp đồng vài ngày sau ngày mở vụ và đòi khoản thu rải trên ít nhất
+ *    tám tháng; trước đó (`30 + 7·i`, vụ cũ nhất 170 ngày) không vụ nào đủ cũ để tiền về từ tám
+ *    tháng trước mà không ký hợp đồng trước cả ngày mở hồ sơ.
  * Chạy lại không tạo thêm nếu đã đủ 20 vụ.
  *
  * **Tài liệu có TỆP THẬT, và chúng đi qua đúng hai Action của mã sản phẩm.** Cho tới vòng rà
@@ -88,6 +96,12 @@ class MatterSeeder extends Seeder
     ];
 
     /**
+     * M7 Task 3: mốc idempotency của {@see self::closedMatter()} — xem docblock `run()`. Công khai từ
+     * M9 Task 13: `BillingSeeder` tìm lại đúng vụ đã kết thúc bằng chính mốc này.
+     */
+    public const CLOSED_MATTER_CASE_NUMBER = '99/2026/TLST-DS';
+
+    /**
      * Idempotency của MỖI phần dưới đây tự đứng riêng, không dựa vào một mốc tổng
      * (`Matter::count()`) so với một con số cố định — một cơ sở dữ liệu đã seed ở bản TRƯỚC khi
      * có vụ `restricted` (20 vụ, không có vụ mật) và chạy lại seeder ở bản này phải chỉ thêm đúng
@@ -97,8 +111,12 @@ class MatterSeeder extends Seeder
     {
         $numberedMattersSeeded = Matter::where('confidentiality', '!=', Confidentiality::Restricted->value)->count() >= 20;
         $restrictedMatterSeeded = Matter::where('confidentiality', Confidentiality::Restricted->value)->exists();
+        // M7 Task 3: idempotency riêng cho vụ đã kết thúc — cùng lý lẽ với hai cờ trên, một
+        // trường không đổi (số hồ sơ toà) làm mốc thay vì đếm tổng, để chạy lại seeder trên một
+        // CSDL đã có 20 vụ + vụ mật (dựng trước khi Task 3 tồn tại) vẫn thêm đúng vụ còn thiếu.
+        $closedMatterSeeded = Matter::where('case_number', self::CLOSED_MATTER_CASE_NUMBER)->exists();
 
-        if ($numberedMattersSeeded && $restrictedMatterSeeded) {
+        if ($numberedMattersSeeded && $restrictedMatterSeeded && $closedMatterSeeded) {
             return;
         }
 
@@ -121,7 +139,7 @@ class MatterSeeder extends Seeder
 
                 $workingStages = $type->stages->reject(fn ($s) => $s->is_terminal || $s->key === 'on_hold')->values();
                 $stage = $workingStages[$i % $workingStages->count()];
-                $openedAt = now()->subDays(30 + $i * 7);
+                $openedAt = now()->subDays(30 + $i * 12);
 
                 $matter = Matter::query()->create([
                     'client_id' => $client->id,
@@ -158,6 +176,10 @@ class MatterSeeder extends Seeder
 
         if (! $restrictedMatterSeeded) {
             $this->restrictedMatter($lawyers, $clients, $types);
+        }
+
+        if (! $closedMatterSeeded) {
+            $this->closedMatter($lawyers, $clients, $types);
         }
 
         auth('web')->forgetUser();
@@ -210,6 +232,199 @@ class MatterSeeder extends Seeder
             group: DocumentGroup::Internal,
             title: 'Ghi chú nội bộ hồ sơ hạn chế truy cập',
         );
+    }
+
+    /**
+     * M7 Task 3 — một vụ việc ĐÃ KẾT THÚC, dựng riêng khỏi vòng lặp 1..20 (không theo
+     * `TYPE_SEQUENCE`/`OPPONENTS`, cùng lý do `restrictedMatter()`) vì nó cần một hình dạng tài
+     * liệu cụ thể mà `checklist()`/`documents()` dùng chung không tạo ra: đủ NHÓM A, B, C, D, một
+     * nhóm B còn `internal_draft`, và một tài liệu đã xoá mềm — TỆP THẬT, để Task 4/11 sinh và
+     * giải nén được một gói bàn giao thật từ đúng dữ liệu này (ctl-3 brief).
+     *
+     * **`closed_at` ghi THẲNG ở CUỐI hàm, không qua `TransitionMatterStage`.** Ctl-3 cho phép cả hai
+     * cách ("đi qua TransitionMatterStage thật hoặc dựng đúng closed_at + bản ghi archive như
+     * Action sẽ ghi"); đi qua Action thật đòi vụ việc leo hết chuỗi `allowed_next` của loại DD
+     * (`StagePresets::civil()`, bảy giai đoạn) trước khi tới `closed`, một chuỗi dài không có giá
+     * trị thêm cho MỤC ĐÍCH của dữ liệu mẫu này. Ghi `closed_at` trực tiếp — đúng cột mà
+     * `TransitionMatterStage` cũng ghi, cùng công thức — rồi gọi thẳng
+     * {@see SyncMatterArchive} để tạo bản ghi lưu trữ ĐÚNG như listener thật
+     * sẽ tạo, không viết tay các cột của nó ở đây (một Action idempotent gọi trực tiếp không phải
+     * một lối tắt bỏ qua nghiệp vụ — CLAUDE.md: nghiệp vụ chỉ ở `app/Actions/`).
+     *
+     * **Tiêu đề/tên tệp cố ý mang ba đặc điểm ctl-3 đòi:** dấu tiếng Việt (mọi tiêu đề ở đây),
+     * hai tài liệu TRÙNG tiêu đề trong CÙNG một nhóm (`B1`/`B4` — kiểm tra luật đánh số `NN` của
+     * R8 không lẫn hai entry zip vào nhau), và một tiêu đề chứa `../` (`C1` — kiểm tra
+     * `FileGuard::safeName()` cắt được đường dẫn cha khi Task 4/11 đặt tên entry).
+     */
+    private function closedMatter(Collection $lawyers, Collection $clients, Collection $types): void
+    {
+        $i = 22;
+        // `->get(5)`, không `->first()`: `restrictedMatter()` đã dùng client đầu tiên
+        // (`khach1@example.com`, đọc TRONG TÀI LIỆU của chính seeder này — xem docblock
+        // `checklist()`, mục "Hồ sơ ĐẦU TIÊN của khách demo"). Dùng lại đúng client đó cho vụ đã
+        // kết thúc sẽ thêm một vụ thứ ba vào tài khoản được ghi trong tài liệu mà không có lý do
+        // nghiệp vụ nào — chọn một client khác, không phải `$clients[1]` (mục tiêu xung đột lợi
+        // ích cố định của vụ 20, xem `parties()`).
+        $client = $clients->get(5);
+        $type = $types['DD'];
+        // `->last()`, không `->first()`: `restrictedMatter()` đã dùng luatsu1
+        // (`$lawyers->first()`) làm lead cố định, và các con số ghim của
+        // `DemoDataAuthorizationTest` đếm riêng "vụ luatsu1 có mặt trong đội ngũ". Vụ đã kết
+        // thúc không cần một lead CỤ THỂ nào — chọn một lawyer khác giữ nguyên con số ghim đó.
+        $lead = $lawyers->last();
+        $openedAt = now()->subDays(150);
+        $closedAt = now()->subDays(3);
+
+        // Tạo vụ việc CÒN MỞ (`closed_at` null) — `SubmitClientDocument` ngay dưới đây (nhóm A)
+        // tự chối một vụ đã đóng (M7 Task 3), nên mọi tài liệu/checklist phải dựng XONG trước
+        // khi vụ việc thật sự đóng ở cuối hàm.
+        $matter = Matter::query()->create([
+            'client_id' => $client->id,
+            'matter_type_id' => $type->id,
+            'title' => 'Tranh chấp ranh giới thửa đất — hồ sơ đã kết thúc (dữ liệu mẫu M7 Task 3)',
+            'description_internal' => 'Ghi chú nội bộ: vụ việc dùng để demo lưu trữ khi kết thúc (M7 Task 3) — đủ tài liệu nhóm A/B/C/D, một tài liệu nhóm B còn nháp và một tài liệu đã xoá mềm.',
+            'summary_for_client' => 'Văn phòng đã hoàn tất vụ việc này. Cảm ơn anh/chị đã tin tưởng đồng hành cùng văn phòng.',
+            'stage' => 'first_instance',
+            'stage_entered_at' => $openedAt->copy()->addDays(60),
+            'lead_lawyer_id' => $lead->id,
+            'opened_at' => $openedAt->toDateString(),
+            'is_published_to_portal' => true,
+            'court_name' => 'Toà án nhân dân Quận 1, TP. Hồ Chí Minh',
+            'case_number' => self::CLOSED_MATTER_CASE_NUMBER,
+            'last_client_update_at' => now()->subDays(3),
+        ]);
+
+        $this->parties($matter, $client, 'Bên bị đơn của hồ sơ đã kết thúc', $i, $clients);
+        $this->stageLogs($matter, 'closed', $i, $openedAt);
+
+        // Nhóm A — đúng đường thật của khách (SubmitClientDocument), qua một đầu mục do
+        // ApplyChecklistTemplate tạo, cùng cách `checklist()` dùng cho các vụ 1-20.
+        $template = $type->checklistTemplates->first();
+        $items = $template === null ? collect() : app(ApplyChecklistTemplate::class)->handle($matter, $template);
+        $firstItem = $items->first();
+
+        if ($firstItem !== null) {
+            $clientUser = $client->clientUsers()->first();
+
+            // Version 1 bị TRẢ LẠI (nộp rồi từ chối kèm lý do) — để gói bàn giao có một tệp nhóm
+            // A mà R8 phải BỎ QUA ("bỏ version bị từ chối"), cạnh version mới nhất được nhận.
+            $this->rejectAfterSubmission($firstItem, $clientUser, $lead);
+
+            // Version 2 — bản khách nộp lại đúng đường thật, rồi văn phòng DUYỆT. Duyệt là bắt
+            // buộc chứ không trang trí: R8 chỉ đưa vào gói nhóm A "mọi tệp của version mới nhất
+            // đã được chấp nhận", và danh mục của vụ đã đóng là chỉ đọc (`MatterChecklistReadOnly`)
+            // nên sau khi đóng không ai còn duyệt được — một đầu mục `pending_review` ở đây sẽ
+            // treo mãi và gói sinh từ vụ mẫu này sẽ không có mục nhóm A nào.
+            app(SubmitClientDocument::class)->handle(
+                $firstItem,
+                $clientUser,
+                [DemoPdf::upload(
+                    'Giấy chứng nhận quyền sử dụng đất — bản khách nộp.pdf',
+                    $firstItem->name,
+                    $matter->code.' - khach gui len qua trang khach hang',
+                )],
+            );
+
+            app(ReviewChecklistItem::class)->handle($firstItem, $lead, ChecklistItemStatus::Accepted);
+        }
+
+        // Nhóm B — vòng đời đủ ba bước (SPEC §4.11): internal_draft → pending_approval
+        // (SubmitDocumentForApproval) → signed_filed (MarkDocumentSignedFiled) → [published].
+        // B1/B4 trùng tiêu đề, cả hai đủ điều kiện vào gói (R8: signed_filed hoặc published);
+        // B3 dừng ở internal_draft (không đủ điều kiện); B5 đủ điều kiện NHƯNG bị xoá mềm ngay
+        // sau đó (không đủ điều kiện, vì đã xoá).
+        $b1 = app(UploadStaffDocument::class)->handle(
+            matter: $matter,
+            actor: $lead,
+            file: DemoPdf::upload('Thông báo xử lý vụ án.pdf', 'Thong bao xu ly vu an', $matter->code),
+            group: DocumentGroup::Issued,
+            title: 'Thông báo xử lý vụ án',
+            issuedAt: $closedAt->copy()->subDays(20)->toDateString(),
+        );
+        app(SubmitDocumentForApproval::class)->handle($b1, $lead);
+        app(MarkDocumentSignedFiled::class)->handle($b1, $lead);
+
+        $b4 = app(UploadStaffDocument::class)->handle(
+            matter: $matter,
+            actor: $lead,
+            file: DemoPdf::upload('Thông báo xử lý vụ án (bản 2).pdf', 'Thong bao xu ly vu an - ban 2', $matter->code),
+            group: DocumentGroup::Issued,
+            title: 'Thông báo xử lý vụ án',
+            issuedAt: $closedAt->copy()->subDays(18)->toDateString(),
+        );
+        app(SubmitDocumentForApproval::class)->handle($b4, $lead);
+        app(MarkDocumentSignedFiled::class)->handle($b4, $lead);
+        app(PublishDocument::class)->handle(
+            document: $b4,
+            actor: $lead,
+            clientCanView: true,
+            clientCanDownload: true,
+            expectedClientCanView: false,
+            expectedClientCanDownload: false,
+            expectedIsReleased: false,
+        );
+
+        app(UploadStaffDocument::class)->handle(
+            matter: $matter,
+            actor: $lead,
+            file: DemoPdf::upload('Dự thảo văn bản trả lời.pdf', 'Du thao van ban tra loi', $matter->code),
+            group: DocumentGroup::Issued,
+            title: 'Dự thảo văn bản trả lời — chưa ký',
+        );
+
+        $b5 = app(UploadStaffDocument::class)->handle(
+            matter: $matter,
+            actor: $lead,
+            file: DemoPdf::upload('Văn bản sẽ bị thay thế.pdf', 'Van ban se bi thay the', $matter->code),
+            group: DocumentGroup::Issued,
+            title: 'Văn bản sẽ bị thay thế',
+        );
+        app(SubmitDocumentForApproval::class)->handle($b5, $lead);
+        app(MarkDocumentSignedFiled::class)->handle($b5, $lead);
+        $b5->delete();
+
+        // Nhóm C — không đi qua vòng đời "ký, nộp" của nhóm B (`MarkDocumentSignedFiled` ném
+        // `notGroupB()` cho nhóm C — SPEC §4.11: "văn bản do cơ quan nhà nước ban hành, văn phòng
+        // không soạn và không ký nên không có gì để trình duyệt", xem docblock `PublishDocument`
+        // bước 2). Công bố THẲNG từ `internal_draft`, đủ điều kiện R8 ("published"). Tiêu đề cố
+        // tình chứa `../` (xem docblock lớp, mục "ba đặc điểm").
+        $c1 = app(UploadStaffDocument::class)->handle(
+            matter: $matter,
+            actor: $lead,
+            file: DemoPdf::upload('Thông báo cơ quan nhà nước.pdf', 'Thong bao co quan nha nuoc', $matter->code),
+            group: DocumentGroup::Authority,
+            title: '../../etc/thong-bao — tiêu đề cố tình chứa đường dẫn cha',
+            issuedAt: $closedAt->copy()->subDays(10)->toDateString(),
+        );
+        app(PublishDocument::class)->handle(
+            document: $c1,
+            actor: $lead,
+            clientCanView: true,
+            clientCanDownload: true,
+            expectedClientCanView: false,
+            expectedClientCanDownload: false,
+            expectedIsReleased: false,
+        );
+
+        // Nhóm D — không bao giờ vào gói bàn giao (R2), bất kể trạng thái.
+        app(UploadStaffDocument::class)->handle(
+            matter: $matter,
+            actor: $lead,
+            file: DemoPdf::upload('Ghi chú nội bộ nhạy cảm.pdf', 'Ghi chu noi bo nhay cam', $matter->code),
+            group: DocumentGroup::Internal,
+            title: 'Ghi chú nội bộ nhạy cảm — không bao giờ ra khách',
+        );
+
+        // ĐÓNG vụ việc — sau khi mọi tài liệu/checklist đã dựng xong (xem lý do ở đầu hàm). Ghi
+        // `closed_at`/`stage` trực tiếp, đúng cột và đúng công thức mà `TransitionMatterStage`
+        // cũng ghi (ctl-3 brief: đi qua Action thật hay dựng đúng closed_at đều được chấp nhận;
+        // đi hết chuỗi allowed_next bảy giai đoạn của DD chỉ để tới `closed` không thêm giá trị
+        // nào cho dữ liệu mẫu này).
+        $matter->update(['stage' => 'closed', 'stage_entered_at' => $closedAt, 'closed_at' => $closedAt->toDateString()]);
+
+        // Bản ghi lưu trữ — đúng Action mà listener thật sẽ gọi, không viết tay cột của nó (xem
+        // docblock lớp).
+        app(SyncMatterArchive::class)->handle($matter->id, $lead);
     }
 
     private function parties(Matter $matter, Client $client, string $opponent, int $i, Collection $clients): void

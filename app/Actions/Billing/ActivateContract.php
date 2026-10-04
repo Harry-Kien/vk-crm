@@ -37,7 +37,7 @@ use Illuminate\Support\Facades\Gate;
  *  7. Mọi đợt `on_signing`: `due_date = signed_at + due_days_after_trigger`, `triggered_at =
  *     now()`. (Đợt của một bản nháp luôn `pending` — hôm nay `DraftContract` chỉ tạo đợt
  *     `pending`, và không Action nào đổi trạng thái đợt của bản nháp.)
- *  8. **Điểm nối cho đợt theo giai đoạn** — {@see self::releaseStageTriggeredInstalments()}.
+ *  8. **Đợt theo giai đoạn vụ đã chạm** (M9 Task 6) — {@see self::releaseStageTriggeredInstalments()}.
  *  9. `Audit::record('contract_activated', ..., $actor)` bên trong transaction.
  *
  * **Không** tự đổi đầu mục danh mục nào (M9 Task 7: tab tiền chỉ nhắc luật sư tải bản đã ký lên).
@@ -47,6 +47,8 @@ class ActivateContract
     use LocksBillingRows;
     use ReadsWithoutPortalScope;
     use ValidatesBillingInput;
+
+    public function __construct(private TriggerInstalmentsForStage $stageTrigger) {}
 
     public function handle(User $actor, Contract $contract, DateTimeInterface|string $signedAt): Contract
     {
@@ -86,7 +88,7 @@ class ActivateContract
                 $instalment->blameOn($actor)->save();
             }
 
-            $this->releaseStageTriggeredInstalments($locked);
+            $this->releaseStageTriggeredInstalments($lockedMatter, $locked);
 
             Audit::record('contract_activated', $locked, [
                 'code' => $locked->code,
@@ -100,26 +102,18 @@ class ActivateContract
     }
 
     /**
-     * **ĐIỂM NỐI — M9 Task 6 (`TriggerInstalmentsForStage`), CHƯA CÀI.**
-     *
-     * Kế hoạch: kích hoạt xong, gọi `TriggerInstalmentsForStage` cho mọi đợt `stage` mà vụ việc
-     * ĐÃ đi qua giai đoạn kích hoạt của nó trước ngày ký (luật sư thường nhận việc và nộp đơn
-     * trước khi hợp đồng giấy về). Task 6 bị hoãn tới khi M6.5 merge (phán quyết controller, sổ
-     * `.superpowers/sdd/2026-09-19-m9-contracts-and-payments/progress.md`), vì nó sửa
-     * `TransitionMatterStage` và sự kiện đổi giai đoạn mà các làn M6.5 đang viết lại.
-     *
-     * Cố ý để TRỐNG, không một bản sao nào của logic kích hoạt: một bản sao ở đây sẽ là định nghĩa
-     * thứ hai của "vụ đã qua giai đoạn X chưa" và "đợt này đến hạn ngày nào", và nó sẽ lệch với
-     * bản của Task 6. Hệ quả tạm thời, nói thẳng: một đợt `stage` của vụ đã qua giai đoạn đó thì
-     * sau kích hoạt vẫn `due_date` rỗng (hiển thị `scheduled`) cho tới khi Task 6 — hoặc tác vụ
-     * đối chiếu hằng ngày `ReconcileStageTriggeredInstalments` của nó — chạy. Test `todo()` trong
-     * `tests/Feature/Actions/Billing/ActivateContractTest.php` mang đúng tên việc còn thiếu.
-     *
-     * Task 6 thay thân hàm này bằng lời gọi thật, trong CÙNG transaction, sau khi hợp đồng đã
-     * `active` (Task 6 không kích hoạt đợt của hợp đồng `draft`).
+     * **M9 Task 6 — đợt `stage` mà vụ ĐÃ chạm giai đoạn của nó trước lúc kích hoạt** (luật sư thường
+     * nhận việc và nộp đơn trước khi hợp đồng giấy về): kích hoạt luôn, trong CÙNG transaction, sau
+     * khi hợp đồng đã `active` — qua LÕI {@see TriggerInstalmentsForStage::releaseLocked()} với hai
+     * hàng `matters` → `contracts` mà transaction này đã khoá. Không gọi `handle()` của Action đó: nó
+     * tự mở một transaction tiền, và một transaction tiền lồng trong transaction của người khác là
+     * đúng thứ {@see LocksBillingRows} cấm (Laravel không chạy lại transaction lồng). Một logic, không
+     * bản sao: "vụ đã chạm giai đoạn X" (lần chạm ĐẦU), ngày đến hạn (ngày chạm, kẹp không sớm hơn
+     * `signed_at` vừa ghi ở bước 6), dòng nhật ký không causer và `updated_by` của đợt giữ nguyên —
+     * tất cả ở đó. Đợt của giai đoạn vụ CHƯA chạm vẫn chờ (`due_date` rỗng, hiển thị `scheduled`).
      */
-    private function releaseStageTriggeredInstalments(Contract $contract): void
+    private function releaseStageTriggeredInstalments(Matter $lockedMatter, Contract $locked): void
     {
-        // M9 Task 6: TriggerInstalmentsForStage cho các giai đoạn vụ việc đã đi qua.
+        $this->stageTrigger->releaseLocked($lockedMatter, $locked);
     }
 }

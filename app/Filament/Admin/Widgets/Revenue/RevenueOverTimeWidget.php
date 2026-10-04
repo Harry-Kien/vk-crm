@@ -126,7 +126,7 @@ class RevenueOverTimeWidget extends ChartWidget
         $rows = Payment::query()
             ->withoutGlobalScope(ClientPortalScope::class)
             ->whereNull('voided_at')
-            ->whereBetween('paid_on', [$filters->from->toDateString(), $filters->to->toDateString()])
+            ->whereBetween('paid_on', $filters->bounds())
             ->when($filters->lawyerId, fn (Builder $q, int $v) => $q->where('attributed_lawyer_id', $v))
             ->whereHas('instalment.contract.matter', fn (Builder $q) => $q
                 ->listableBy($user)

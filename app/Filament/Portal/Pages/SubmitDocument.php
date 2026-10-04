@@ -8,6 +8,7 @@ use App\Models\ClientUser;
 use App\Models\Document;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
+use App\Support\OfficeProfile;
 use App\Support\UploadThrottle;
 use DomainException;
 use Filament\Facades\Filament;
@@ -1034,13 +1035,13 @@ class SubmitDocument extends Page
             $this->failOnFile(__('portal_submit.errors.rate_limited_upload', [
                 'limit' => UploadThrottle::FILES_PER_HOUR,
                 'minutes' => max(1, (int) ceil(RateLimiter::availableIn($endpointKey) / 60)),
-                'hotline' => config('vkcrm.brand.hotline'),
+                'hotline' => OfficeProfile::current()->hotline(),
             ]), $name);
         }
 
         $this->failOnFile(__('portal_submit.errors.upload_failed', [
             'max' => static::maxMegabytes(),
-            'hotline' => config('vkcrm.brand.hotline'),
+            'hotline' => OfficeProfile::current()->hotline(),
         ]), $name);
     }
 
@@ -1086,7 +1087,7 @@ class SubmitDocument extends Page
             $this->failOnFile(__($message, [
                 'limit' => self::FILES_PER_HOUR,
                 'minutes' => max(1, (int) ceil(RateLimiter::availableIn($key) / 60)),
-                'hotline' => config('vkcrm.brand.hotline'),
+                'hotline' => OfficeProfile::current()->hotline(),
             ]), $field);
         }
     }
@@ -1116,7 +1117,9 @@ class SubmitDocument extends Page
         // lần ở đây cho `MatterPolicy::releasedToPortal()` đọc miễn phí qua `relationLoaded()` ở
         // MỌI lần hỏi `Gate` của từng đầu mục, thay vì một EXISTS mới cho mỗi đầu mục — đúng chỗ
         // "đường trong bộ nhớ" mà docblock của `choosableItems()` báo là thiếu, nay đã có.
-        $matter = Matter::query()->with('client')->whereKey($this->record)->first();
+        // M7 Task 5: `clientAccessArchive` cùng lý do, cho điều kiện thứ năm (hết hạn tra cứu) —
+        // không phải `archive`, xem docblock `Matter::clientAccessArchive()`.
+        $matter = Matter::query()->with(['client', 'clientAccessArchive'])->whereKey($this->record)->first();
 
         abort_if($matter === null, 404);
         abort_unless(Gate::forUser($viewer)->allows('view', $matter), 404);
@@ -1154,8 +1157,10 @@ class SubmitDocument extends Page
      *
      * Nên hai điều kiện này không phải một thứ nói hai lần: điều kiện 2 giữ PHẠM VI, `Gate` giữ
      * QUYỀN, và mỗi cái đỡ được lần quên của cái kia. Xoá `Gate` vì "không test nào đỏ" là gỡ
-     * đúng cái lưới sẽ đỡ lần sửa sau — và M7 (`client_access_until`) là lần sửa đó: khi
-     * `MatterChecklistItem` có điều kiện portal của riêng nó, `Gate` thành tầng duy nhất đọc nó.
+     * đúng cái lưới sẽ đỡ lần sửa sau. (M7 Task 5 đặt điều kiện `client_access_until` ở `Matter`
+     * chứ không ở `MatterChecklistItem`, nên ở đây nó tới qua CẢ `whereHas('matter')` của scope
+     * đầu mục LẪN `MatterPolicy` phía sau `Gate` — đầu mục vẫn chưa có điều kiện portal của riêng
+     * nó.)
      */
     private function resolveItem(int|string $key): MatterChecklistItem
     {

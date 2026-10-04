@@ -58,7 +58,9 @@ use Illuminate\Support\Facades\Auth;
  *  3. **Không lọc `closed_at`.** SPEC §7.1 mục 5 không nêu điều kiện đó (khác §6.4 và §6.9, nơi
  *     SPEC nói thẳng "chưa đóng"/"đang mở"), và một cập nhật cuối cùng trên một hồ sơ vừa đóng
  *     mà khách chưa từng nhìn thấy là đúng cuộc gọi đáng thực hiện nhất — thường nó là câu "việc
- *     của anh/chị đã xong".
+ *     của anh/chị đã xong". Nhưng một hồ sơ đã kết thúc và đã QUÁ `client_access_until` thì
+ *     không còn trên cổng của khách (M7 Task 5) dù cờ ở mục 1 giữ nguyên, nên rơi khỏi widget
+ *     cùng lý do mục 1 (việc sau gộp M7 — điều kiện 4 của {@see UnseenStageLogs}).
  *
  * # Phạm vi và cách nó KHÔNG rò rỉ
  *
@@ -79,8 +81,11 @@ class UnseenUpdatesWidget extends TableWidget
      * tình cờ nạp lớp, không gây lỗi gì cả, và không có gì báo động — M4 đã đo được đúng chuyện
      * đó trên trình duyệt (mục 6 hiện TRƯỚC mục 4). `DashboardWidgetOrderTest` giữ cho nó không
      * quay lại.
+     *
+     * M10 Task 5 đánh số lại lần nữa (widget "Liên hệ chưa ai gọi lại" chen vào ngay dưới mục 3):
+     * mục 4 `-1` → `0`, mục này `0` → `1`, mục 6 `1` → `2`. Thứ tự tương đối không đổi.
      */
-    protected static ?int $sort = 0;
+    protected static ?int $sort = 1;
 
     /** SPEC §7.1 mục 5 và §4.18: "quá 5 ngày" — một hằng số với {@see UnseenStageLogs::AFTER_DAYS}. */
     public const UNSEEN_AFTER_DAYS = UnseenStageLogs::AFTER_DAYS;
@@ -100,7 +105,8 @@ class UnseenUpdatesWidget extends TableWidget
      * Truy vấn của widget, tách static để test được mà không dựng cả bảng Livewire.
      *
      * Định nghĩa "chưa xem quá 5 ngày" (đồng hồ `published_at`, `whereDoesntHave('views')`, hồ sơ
-     * đang công bố lên cổng, không lọc `closed_at`) là của {@see UnseenStageLogs} — dùng chung với
+     * đang công bố lên cổng và chưa hết hạn tra cứu, không lọc `closed_at`) là của
+     * {@see UnseenStageLogs} — dùng chung với
      * Action nhắc luật sư gọi điện. Widget chỉ ghép thêm phần phụ thuộc người xem:
      * `Matter::scopeListableBy()`.
      *

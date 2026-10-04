@@ -71,15 +71,28 @@ class ContractAmendment extends Model
         return $this->belongsTo(Document::class);
     }
 
-    /** Cổng khách đóng kín ở Task 2 (P1: lý do phụ lục không bao giờ ra portal, kể cả sau Task 10). */
+    /**
+     * Tầng TRUY VẤN của cổng khách (M9 Task 10): phụ lục của một hợp đồng khách thấy được —
+     * `whereHas('contract')` trần kế thừa scope cổng của {@see Contract}. Không điều kiện riêng nào
+     * trên dòng phụ lục: phụ lục chỉ thêm, không có trạng thái.
+     *
+     * **Mở theo chữ kế hoạch (phán quyết controller, B.6 của brief Task 10)**, dù khối "Hợp đồng và
+     * thanh toán" trên cổng KHÔNG vẽ phụ lục (P1 không liệt kê nó): khách đã ký phụ lục đó, và giá
+     * trị hiện hành của hợp đồng đã phản ánh nó. Lý do phụ lục và bản scan KHÔNG BAO GIỜ ra cổng —
+     * {@see self::internalAttributes()}, và trang cổng không đọc bảng này. Tầng QUYỀN:
+     * `ContractAmendmentPolicy::view()`.
+     */
     public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
     {
-        $query->whereRaw('1 = 0');
+        $query->whereHas('contract');
     }
 
-    /** `reason` là nội bộ (P1: khách không thấy lý do phụ lục). `document_id` trỏ bản scan phụ lục, luôn nhóm D. */
+    /**
+     * Tầng SERIALIZE: `reason` là nội bộ (P1: khách không thấy lý do phụ lục). `document_id` trỏ bản
+     * scan phụ lục, luôn nhóm D. `created_by`, `updated_by` là nhân sự của văn phòng.
+     */
     protected function internalAttributes(): array
     {
-        return ['reason', 'document_id'];
+        return ['reason', 'document_id', 'created_by', 'updated_by'];
     }
 }

@@ -172,7 +172,7 @@ Mọi lệnh `php artisan …` chạy trong thư mục `/var/www/vk-crm`, bằng
 | Cần gì | Dùng ở đâu |
 |---|---|
 | Có giới hạn IP được vào `/admin` không; có thì những IP/dải nào | `ADMIN_IP_ALLOWLIST` (để trống = tắt, mặc định) |
-| Bốn thông tin pháp lý: mã số thuế, Đoàn Luật sư, số Giấy đăng ký hoạt động, địa chỉ văn phòng | `BRAND_TAX_CODE`, `BRAND_BAR_ASSOCIATION`, `BRAND_LICENCE_NUMBER`, `BRAND_OFFICE_ADDRESS` — in ở chân mọi thư gửi khách |
+| Bốn thông tin pháp lý: mã số thuế, Đoàn Luật sư, số Giấy đăng ký hoạt động, địa chỉ văn phòng | `BRAND_TAX_CODE`, `BRAND_BAR_ASSOCIATION`, `BRAND_LICENCE_NUMBER`, `BRAND_OFFICE_ADDRESS` — in ở chân mọi thư gửi khách. Địa chỉ trụ sở đã có sẵn (1808 đường Nguyễn Ái Quốc, phường Trấn Biên, thành phố Đồng Nai — chủ văn phòng cung cấp ngày 2026-10-02); ba thông tin còn lại chờ chủ văn phòng |
 | Hộp thư có người đọc, nhận thư khi khách bấm "Trả lời" | `BRAND_REPLY_TO_ADDRESS` |
 | Họ tên và email của quản trị viên đầu tiên | Bước 6 |
 | Một tài khoản Google RIÊNG cho sao lưu | `docs/SAO-LUU-KHOI-PHUC.md`, Bước 2 |
@@ -197,6 +197,31 @@ Mọi lệnh `php artisan …` chạy trong thư mục `/var/www/vk-crm`, bằng
     (ví dụ `25M`). Mặc định của PHP là `2M`/`8M`: để nguyên thì mọi lần tải tệp trên 2 MB hỏng.
   - `proc_open` KHÔNG nằm trong `disable_functions` (sao lưu cần nó để gọi `mariadb-dump` và
     `rclone`; preflight kiểm bản của dòng lệnh — cron chạy sao lưu bằng PHP dòng lệnh).
+- **PHP dòng lệnh có `pcntl`, và ba hàm `pcntl_async_signals`, `pcntl_signal`, `pcntl_alarm`
+  không bị chặn** (PHP-FPM không cần). Cron rút hàng đợi bằng PHP dòng lệnh, và giờ chết 600 giây
+  của job dựng gói bàn giao (mục lịch `queue.handover`) chỉ có tác dụng khi có `pcntl`. Thiếu
+  `pcntl` thì `vkcrm:preflight` báo VÀNG: một gói lớn chạy quá giờ không bị dừng, luật sư không được
+  báo lỗi, và sau 15 phút lượt chạy kế tiếp có thể dựng lại cùng gói vào cùng thư mục. Có `pcntl`
+  mà một trong ba hàm trên nằm trong `disable_functions` của php.ini dòng lệnh (hay gặp trên
+  cPanel/CloudLinux) thì nặng hơn nhiều: Laravel chỉ hỏi `pcntl` đã nạp chưa, nên worker vẫn gọi
+  các hàm đó ngay khi khởi động và chết với lỗi "Call to undefined function". Mọi lượt rút hàng đợi
+  hỏng, không thư nào được gửi, kể cả thư nhắc mốc thời hạn. `vkcrm:preflight` báo ĐỎ trường hợp
+  này; bỏ các hàm đó khỏi `disable_functions` của PHP dòng lệnh. `pcntl` không nằm trong danh sách
+  bắt buộc ở trên vì `composer check-platform-reqs` không đòi nó. Kiểm bằng đúng PHP mà cron gọi:
+
+  ```bash
+  php -r 'echo json_encode([extension_loaded("pcntl"), function_exists("pcntl_async_signals"), function_exists("pcntl_signal"), function_exists("pcntl_alarm")]), PHP_EOL;'
+  ```
+
+  Phải in `[true,true,true,true]`. Giá trị đầu là `false`: thiếu `pcntl` (VÀNG). Giá trị đầu là
+  `true` mà một giá trị sau là `false`: hàm ở vị trí đó bị chặn (ĐỎ).
+- **Chỗ trống trên đĩa cho gói bàn giao.** Khi vụ việc kết thúc, hệ thống tự dựng một tệp zip chứa
+  các tài liệu nhóm A, B, C của vụ cùng mục lục, rồi cất nó vào kho hồ sơ (`storage/app/private`).
+  Mỗi vụ đã kết thúc vì vậy chiếm thêm chừng bằng dung lượng tài liệu của chính nó, và bản sao lưu
+  hằng đêm lớn lên tương ứng. Lúc dựng, gói nằm tạm ở `HANDOVER_WORK_DIR` (mặc định
+  `storage/app/handover-tmp`; trỏ sang ổ rộng hơn nếu phần đĩa của `storage/` nhỏ, và không bao giờ
+  đặt bên trong `storage/app/private`). `MEDIA_MAX_FILE_SIZE_MB` (mặc định 2048) là trần của một
+  tệp trong kho hồ sơ: gói lớn hơn trần thì không sinh được, và trang vụ việc báo lỗi cho luật sư.
 - **MariaDB 11** — bản dự án chạy kiểm thử (máy dev và CI đều là `mariadb:11`). MariaDB 10.11 (mặc
   định của Ubuntu 24.04) chưa được chạy thử. Một cơ sở dữ liệu `utf8mb4` riêng và một tài khoản chỉ
   có quyền trên đúng cơ sở dữ liệu đó:
@@ -273,7 +298,7 @@ mới mà quên dòng mẫu là test đỏ). Những dòng PHẢI sửa so với
 | `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | `no-reply@luatvukhang.com`, `"Luật Vũ Khang"` | `MAIL_FROM_NAME` là tên văn phòng khách nhìn thấy, không phải `${APP_NAME}` |
 | `TRUSTED_PROXIES` | `127.0.0.1` (bỏ dấu `#` đầu dòng) | đọc mục 1 ngay dưới bảng — KHÔNG dùng `*` |
 | `HEARTBEAT_URL` | URL ping của dịch vụ giám sát cron | Bước 8 |
-| `BRAND_TAX_CODE`, `BRAND_BAR_ASSOCIATION`, `BRAND_LICENCE_NUMBER`, `BRAND_OFFICE_ADDRESS` | bốn thông tin pháp lý (bỏ dấu `#` đầu dòng rồi điền) | chủ văn phòng (Bước 0) |
+| `BRAND_TAX_CODE`, `BRAND_BAR_ASSOCIATION`, `BRAND_LICENCE_NUMBER`, `BRAND_OFFICE_ADDRESS` | bốn thông tin pháp lý (bỏ dấu `#` đầu dòng rồi điền); `BRAND_OFFICE_ADDRESS` đã có mặc định đúng địa chỉ trụ sở, chỉ điền khi đổi | chủ văn phòng (Bước 0) |
 | `BRAND_REPLY_TO_ADDRESS` | hộp thư có người đọc | chủ văn phòng — đọc mục 3 ngay dưới bảng |
 | `BACKUP_*` | | `docs/SAO-LUU-KHOI-PHUC.md`, Bước 4 |
 | `ADMIN_IP_ALLOWLIST` | để trống, hoặc danh sách IP/CIDR | chủ văn phòng (Bước 0) |
@@ -315,8 +340,12 @@ Ba điều cần nói rõ hơn một dòng bảng:
    Chủ văn phòng cần xác nhận địa chỉ mặc định có đúng không (sổ tay M6.5 ghi việc này đang chờ trả
    lời).
 
-**Bốn thông tin pháp lý nằm ở `.env` cho tới khi M7 Task 10 được gộp vào** — từ đó chủ văn phòng
-sửa chúng ngay trong ứng dụng, không cần quyền vào máy chủ.
+**Từ M7 Task 10, chủ văn phòng sửa bốn thông tin pháp lý (cùng tên pháp lý, hotline, Zalo,
+website, email liên hệ) ngay trong ứng dụng** — trang "Thông tin văn phòng" trong `/admin`, chỉ
+quản trị viên — không cần quyền vào máy chủ. Giá trị nhập trong ứng dụng thắng giá trị trong
+`.env`; ô để trống thì dùng `.env` (rồi mặc định của `config/vkcrm.php`). Chạy `php artisan
+migrate --force` (Bước 5) TRƯỚC khi mở lại web và hàng đợi: chân trang cổng, trang 404 và mọi thư
+đều đọc bảng `settings`.
 
 ### Bước 4 — Máy chủ web
 
@@ -393,6 +422,26 @@ biết trước ô chọn loại vụ việc sẽ hiện gì:
 - Văn phòng đã tự tạo một loại cùng lĩnh vực nhưng **mã khác** (ví dụ "Thuế" mã `TH`) thì sau
   bản cập nhật ô chọn có hai mục gần giống nhau. Quản trị viên tắt "Đang dùng" ở một trong hai
   trong màn hình loại vụ việc; seeder không tự gộp hay xoá loại nào.
+
+**Bản cập nhật M9 (hợp đồng dịch vụ và thu phí theo đợt) làm gì trên máy chủ đã có dữ liệu:**
+
+- `migrate --force` chỉ THÊM năm bảng (`contracts`, `instalments`, `payments`,
+  `contract_amendments`, `time_entries` — bảng cuối chỉ là khung, chưa màn hình nào đọc), không
+  sửa cấu trúc bảng nào đã có.
+- `db:seed --force` (`ReferenceDataSeeder`) tạo bốn quyền mới — `billing.view`, `contract.manage`,
+  `payment.record`, `revenue.viewAny` — và gắn chúng vào vai trò theo bảng SPEC §5. **Bắt buộc**:
+  chưa chạy thì không ai, kể cả quản trị viên, mở được trang Công nợ, trang Doanh thu hay tab
+  "Hợp đồng và thanh toán". Không tạo hợp đồng hay khoản thu nào: tiền mẫu (`BillingSeeder`) chỉ
+  nằm trong `DemoDataSeeder`.
+- Hai tác vụ hằng ngày mới chạy dưới dòng cron sẵn có (không thêm dòng cron nào):
+  `instalments.reconcile-stage` 07:00 (đối chiếu đợt thu theo giai đoạn — lưới an toàn cho lần
+  kích hoạt lỡ) và `instalments.remind` 08:00 (thư nội bộ khi một đợt quá hạn).
+- `php artisan billing:check-invariants` (và dòng "bất biến tiền" của `vkcrm:preflight`): tổng
+  các đợt khớp đúng giá trị hợp đồng trên mọi hợp đồng đang hiệu lực. Trên một máy vừa nâng cấp
+  chưa có hợp đồng nào thì nó báo sạch trên 0 hợp đồng.
+- Văn phòng nhập những hợp đồng đang chạy từ trước theo `docs/QUY-TRINH.md`, Giai đoạn 5, "Nhập
+  hợp đồng đang chạy khi bắt đầu dùng hệ thống" — đặc biệt luật "đợt của giai đoạn đã qua nhập là
+  đến hạn theo ngày".
 
 **Muốn dữ liệu mẫu để demo cho khách trước khi dùng thật** (không phải dữ liệu thật) — đọc hết
 đoạn này TRƯỚC khi chạy lệnh. Dữ liệu mẫu có tám tài khoản nhân sự, cùng mật khẩu `password`,
@@ -494,7 +543,8 @@ php artisan optimize
 
 **`php artisan vkcrm:preflight` phải xanh hết (R1) — chạy TRƯỚC khi mở cổng, sau MỖI lần nâng
 cấp, và TRƯỚC `php artisan optimize`/`config:cache`** (vài điều kiện đọc `.env` trực tiếp, không
-còn thấy giá trị thật sau khi cấu hình đã cache). Lệnh tự kiểm
+còn thấy giá trị thật sau khi cấu hình đã cache) — ngoại lệ duy nhất là dòng "bất biến tiền", xem
+đoạn ngay sau danh sách dưới. Lệnh tự kiểm
 `TRUSTED_PROXIES`/`HEARTBEAT_URL`/`SESSION_SECURE_COOKIE`/`APP_DEBUG`, tài khoản nhân sự demo
 còn mật khẩu `password` (ĐỎ khi `ADMIN_IP_ALLOWLIST` trống, VÀNG khi có — Bước 5), PHP extension
 bắt buộc, `storage/app/private` có phục vụ công khai được không (nó tự gửi một request tới `APP_URL` — chạy
@@ -508,8 +558,12 @@ khi máy chủ web và HTTPS ở Bước 4 đã lên), và ba điều kiện má
 - cộng tệp chạy `rclone` cho đích Google Drive (Bước 1 của `docs/SAO-LUU-KHOI-PHUC.md` —
   `vkcrm:preflight` không kiểm riêng `rclone`, dùng `vkcrm:backup-check` cho việc đó).
 
-Dòng ĐỎ chặn mở cổng; dòng VÀNG (ví dụ bốn thông tin pháp lý `BRAND_*` chưa điền — xem M7
-Task 10) không chặn nhưng nên xử lý sớm.
+Dòng ĐỎ chặn mở cổng — trừ dòng "bất biến tiền" (một hợp đồng đang hiệu lực mà tổng các đợt lệch
+giá trị hợp đồng; máy chưa có hợp đồng nào luôn XANH ở dòng này): nó vẫn ĐỎ và mã thoát vẫn 1, nhưng
+là dữ liệu, chỉ sửa được trong app bằng một phụ lục, nên không chặn `php artisan up` (mục "Nâng cấp
+lên bản mới"); câu tổng kết của lệnh nói đúng điều đó khi nó là dòng ĐỎ duy nhất. Dòng VÀNG (ví dụ
+bốn thông tin pháp lý chưa điền ở cả trang "Thông tin văn phòng" lẫn `.env` — Bước 3) không chặn
+nhưng nên xử lý sớm.
 
 `php artisan optimize` cache cấu hình, route, view và sự kiện (cộng phần cache riêng của
 Filament). **Từ lúc này, sửa `.env` không có tác dụng cho tới khi cache lại**: sau mỗi lần sửa
@@ -592,6 +646,7 @@ composer install --no-dev --optimize-autoloader
 chown -R www-data:www-data storage bootstrap/cache
 php artisan migrate --force
 php artisan db:seed --force
+php artisan billing:check-invariants
 php artisan optimize:clear
 php artisan vkcrm:preflight
 php artisan optimize
@@ -601,9 +656,15 @@ php artisan up
 - `php artisan down` trả trang bảo trì (503) cho mọi người trong lúc cập nhật, để không ai ghi dữ
   liệu giữa chừng một migration.
 - `db:seed --force` an toàn để chạy lại (Bước 5) và NÊN chạy: bản mới có thể thêm quyền hay loại vụ
-  việc.
+  việc (bản M9 thêm bốn quyền tiền — không chạy thì không ai mở được màn hình tiền, xem Bước 5).
+- `billing:check-invariants` in bảng những hợp đồng đang hiệu lực mà tổng các đợt lệch giá trị hợp
+  đồng (mã thoát 1). `vkcrm:preflight` ngay sau cũng ĐỎ vì cùng lý do. Dòng ĐỎ này là DỮ LIỆU,
+  không phải cấu hình máy, và chỉ sửa được trong app: vẫn `up`, rồi luật sư phụ trách ký ngay một
+  phụ lục cho từng hợp đồng trong bảng (màn hình tiền, công nợ, doanh thu tính sai hợp đồng đó cho
+  tới khi sửa); chạy lại lệnh cho tới khi sạch. Mọi dòng ĐỎ khác của preflight vẫn chặn `up`.
 - Preflight ĐỎ thì sửa trước khi `php artisan up` — chạy `up` rồi mới phát hiện là mở cổng trên
-  một cấu hình hỏng.
+  một cấu hình hỏng. Ngoại lệ duy nhất là dòng "bất biến tiền" ở gạch đầu dòng trên: khi nó là dòng
+  ĐỎ duy nhất, câu tổng kết của lệnh nói vẫn `up` (mã thoát vẫn 1), và đúng là vẫn `up`.
 - Đọc phần ghi chú nâng cấp của bản mới trong `docs/PROGRESS.md` TRƯỚC khi chạy: một bản có thể
   kèm việc phải làm tay (ví dụ một biến `.env` mới — so `.env.example` mới với `.env` đang chạy).
 - **Đêm đầu sau nâng cấp, theo dõi hộp thư báo lỗi**: lượt sao lưu 02:00 và lượt giám sát 08:00 là
@@ -638,6 +699,13 @@ Giữ **3 × `innodb_lock_wait_timeout` < thời gian chờ của máy chủ web
 
 Bình thường một lần ghi tiền khoá dòng vài phần nghìn giây; chờ lâu chỉ xảy ra khi một việc dài
 khác đang giữ khoá dòng vụ việc cùng lúc.
+
+**Phiên bản MariaDB cho bộ test (M9).** Test hai kết nối của `DraftContract`
+(`MoneyTransactionConcurrencyTest`) đo hành vi khoá của MariaDB ≥ 11.6 (`innodb_snapshot_isolation`
+bật mặc định từ bản đó). Trên MariaDB 10.11 hay MySQL 8 test đó đỏ mà mã không sai. CI
+(`.github/workflows/ci.yml`) và `compose.yaml` dùng ảnh `mariadb:11` (bản 11.x mới nhất) — đừng hạ
+xuống 10.x. `AmendContract` chưa có test hai kết nối; thứ tự khoá của nó có ở
+`BillingLockOrderTest`.
 
 ## Giới hạn đã biết
 

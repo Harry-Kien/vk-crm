@@ -4,6 +4,7 @@ namespace App\Actions;
 
 use App\Actions\Concerns\ReadsWithoutPortalScope;
 use App\Enums\Role;
+use App\Events\MatterStageChanged as MatterStageChangedEvent;
 use App\Events\StageLogPublished;
 use App\Exceptions\InvalidStageTransition;
 use App\Exceptions\MatterNotPublishedToPortal;
@@ -13,6 +14,9 @@ use App\Models\StageLog;
 use App\Models\User;
 use App\Support\Audit;
 use Carbon\Carbon;
+use Carbon\CarbonInterface;
+use Carbon\Exceptions\InvalidFormatException;
+use DateTime;
 use DateTimeInterface;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -38,6 +42,16 @@ use Illuminate\Validation\ValidationException;
  *     bị vòng qua, phải tự kiểm tra lại. So theo NGÀY (không giờ) ở múi giờ ứng dụng
  *     (`config('app.timezone')`, PHP default timezone được `LoadConfiguration` đặt từ đó), vì
  *     form chỉ gửi ngày, không có giờ.
+ *     **Lỗi I6 (ledger M4, sửa ở M9 Task 6): ngày dạng chuỗi được parse TƯỜNG MINH** —
+ *     {@see self::parsedDate()}, cho cả `occurred_at` lẫn `expected_next_update_at`. Bản trước gọi
+ *     thẳng `Carbon::parse()`: một chuỗi hỏng ném `InvalidFormatException`, ngoài hợp đồng
+ *     `DomainException`/`ValidationException` mà mọi nơi gọi bắt — trang 500 cho một lỗi gõ phím (API
+ *     công khai: lệnh, job, MCP của M11 không qua `DatePicker`); chuỗi rỗng thành "bây giờ"; và
+ *     `expected_next_update_at` hỏng đi thẳng vào cast `date` của `StageLog`. Giờ: chuỗi hỏng (kể cả
+ *     một ngày không có thật như 31/02, mà `Carbon::parse()` lặng lẽ lật sang tháng sau) là
+ *     `ValidationException` trên ĐÚNG trường; chuỗi rỗng là "không có ngày" — với `occurred_at` (bắt
+ *     buộc) đó là lỗi "bắt buộc", không phải "hôm nay"; với `expected_next_update_at` đó là "tự tính"
+ *     (bước 5). Ngày đã parse là thứ được ghi vào `StageLog` và `stage_entered_at`.
  *  4. `publish = true` đòi thêm ba điều kiện: (a) `matter.is_published_to_portal = true` — nếu
  *     không, một dòng công bố sẽ nằm im rồi lộ nguyên backlog ra portal ngay khi ai đó bật công
  *     tắc portal sau này, nên bị chặn từ gốc bằng `MatterNotPublishedToPortal` thay vì chỉ chặn
@@ -143,12 +157,13 @@ class TransitionMatterStage
             // Bước 2: Action tự kiểm tra quyền, không dựa vào caller đã kiểm tra hay chưa.
             Gate::forUser($actor)->authorize('transitionStage', $matter);
 
-            // Bước 3 (xem docblock lớp): occurred_at không được ở tương lai. So theo ngày, không
-            // giờ — DatePicker chỉ gửi ngày, và today()/Carbon::instance() đều đọc múi giờ ứng
-            // dụng đã đặt qua config('app.timezone').
-            $occurredAtDate = $occurredAt instanceof DateTimeInterface
-                ? Carbon::instance($occurredAt)
-                : Carbon::parse($occurredAt);
+            // Bước 3 (xem docblock lớp): occurred_at là một ngày thật (I6), và không được ở tương
+            // lai. So theo ngày, không giờ — DatePicker chỉ gửi ngày, và today()/Carbon::instance()
+            // đều đọc múi giờ ứng dụng đã đặt qua config('app.timezone').
+            $occurredAtDate = $this->parsedDate($occurredAt, 'occurred_at')
+                ?? throw ValidationException::withMessages([
+                    'occurred_at' => [__('actions.transition_matter_stage.occurred_at_required')],
+                ]);
 
             if ($occurredAtDate->copy()->startOfDay()->gt(today()->startOfDay())) {
                 throw ValidationException::withMessages([
@@ -182,13 +197,15 @@ class TransitionMatterStage
             // App\Filament\Admin\Resources\Matters\Actions\Concerns\BuildsStageUpdateSchema::stageDefaultNextUpdateAt()
             // (fix round 1, task 9, finding E) — bên đó chỉ tính để prefill/gợi ý trên form, đây mới
             // là nơi tính lại thật sự khi form gửi lên rỗng. Đổi công thức thì phải sửa cả hai nơi.
-            $expectedNextUpdateAt ??= now()->addDays($targetStageConfig->default_next_update_days);
+            // I6: chuỗi rỗng là "không có ngày" ⇒ tự tính, như null.
+            $expectedNextUpdateAt = $this->parsedDate($expectedNextUpdateAt, 'expected_next_update_at')
+                ?? now()->addDays($targetStageConfig->default_next_update_days);
 
             $stageLog = new StageLog([
                 'matter_id' => $matter->id,
                 'from_stage' => $fromStage,
                 'to_stage' => $toStage,
-                'occurred_at' => $occurredAt,
+                'occurred_at' => $occurredAtDate,
                 'internal_note' => $internalNote,
                 'public_content' => $publicContent,
                 'next_step' => $nextStep,
@@ -208,7 +225,7 @@ class TransitionMatterStage
             $matterUpdates = ['stage' => $toStage];
 
             if (! $isSameStage) {
-                $matterUpdates['stage_entered_at'] = $occurredAt;
+                $matterUpdates['stage_entered_at'] = $occurredAtDate;
 
                 // R8 (M6.5 Task 5): đúng MỘT nơi ghi closed_at trong toàn hệ thống. VÀO một giai
                 // đoạn is_terminal đóng vụ việc (dùng now(), không dùng $occurredAt — "đóng vụ"
@@ -252,6 +269,22 @@ class TransitionMatterStage
             // cột mới chỉ đúng người vừa chuyển giai đoạn.
             $matter->blameOn($actor)->update($matterUpdates);
 
+            // M7 Task 3. CHỈ khi giai đoạn THẬT SỰ đổi — một dòng cập nhật không đổi giai đoạn
+            // (§6.3) không "chuyển" gì để một listener lưu trữ phải chạy lại. Độc lập với
+            // `$publishedToPortal`/`$publish`: một lần chuyển giai đoạn NỘI BỘ (không công bố)
+            // vẫn có thể là lần vụ việc đóng hay mở lại — `SyncMatterArchiveOnStageChange` phải
+            // chạy cho cả hai, không chỉ cho những lần công bố ra portal.
+            //
+            // Rà soát cuối M7, I3 — phát TRƯỚC `StageLogPublished`. Cả hai sự kiện đợi commit và
+            // chạy theo đúng thứ tự phát. Thư báo tiến độ hỏi "vụ còn trên cổng của người nhận
+            // không" (`MatterPolicy::view`, gồm hạn tra cứu), nên dòng lưu trữ phải được đồng bộ
+            // TRƯỚC: mở lại một vụ đã quá hạn tra cứu xoá `client_access_until`, và chỉ sau đó vụ
+            // mới trở lại cổng. Phát ngược lại thì với hàng đợi `sync` thư đi (hay không đi) theo
+            // hạn tra cứu CŨ, và với hàng đợi thật là một cuộc đua giữa worker và listener đồng bộ.
+            if (! $isSameStage) {
+                event(new MatterStageChangedEvent($stageLog));
+            }
+
             if ($publishedToPortal) {
                 event(new StageLogPublished($stageLog));
 
@@ -284,5 +317,40 @@ class TransitionMatterStage
 
             return $stageLog;
         });
+    }
+
+    /**
+     * I6 (xem docblock lớp, bước 3) — một ngày nhận từ nơi gọi, parse TƯỜNG MINH, cùng thành ngữ
+     * `UploadStaffDocument::parseIssuedAt()`: `DateTimeInterface` dùng nguyên; `null` hoặc chuỗi
+     * rỗng/toàn khoảng trắng là "không có ngày" (`null` — nơi gọi quyết nghĩa của nó); chuỗi
+     * `Carbon::parse()` không đọc được, HOẶC đọc được chỉ nhờ lật một ngày không có thật sang ngày
+     * khác (31/02 → 03/03: PHP để lại một cảnh báo, không ném), là `ValidationException` trên đúng
+     * `$field` — cùng câu trả lời với luật `date` của `DatePicker` trên form.
+     */
+    private function parsedDate(DateTimeInterface|string|null $value, string $field): ?CarbonInterface
+    {
+        if ($value instanceof DateTimeInterface) {
+            return Carbon::instance($value);
+        }
+
+        if ($value === null || trim($value) === '') {
+            return null;
+        }
+
+        $invalid = ValidationException::withMessages([
+            $field => [__("actions.transition_matter_stage.{$field}_invalid")],
+        ]);
+
+        try {
+            $date = Carbon::parse($value);
+        } catch (InvalidFormatException) {
+            throw $invalid;
+        }
+
+        if (DateTime::getLastErrors() !== false) {
+            throw $invalid;
+        }
+
+        return $date;
     }
 }

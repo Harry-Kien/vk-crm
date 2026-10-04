@@ -56,6 +56,7 @@ class AddUpdateAction extends Action
             $this->expectedNextUpdateAtField($this->stageDefaultNextUpdateAt($matter, $stageKey)),
             $this->publishToggleField($matter),
             $this->noActivatedAccountWarning($matter),
+            $this->matterNotOnPortalWarning($matter),
             $this->previewField(fn (Get $get): array => [
                 // `stage/stage-07`: to_stage == giai đoạn hiện tại LUÔN đúng ở Action này (SPEC
                 // §6.3) — không có "giai đoạn MỚI" nào để vẽ, cùng cách cổng khách không vẽ nhãn
@@ -65,7 +66,7 @@ class AddUpdateAction extends Action
                 'publicContent' => $get('public_content'),
                 'nextStep' => $get('next_step'),
                 'clientAction' => $get('client_action'),
-                'expectedNextUpdateAt' => $get('expected_next_update_at'),
+                'expectedNextUpdateAt' => $this->expectedNextUpdateAtState($get),
                 'willPublish' => (bool) $get('publish'),
             ]),
         ];

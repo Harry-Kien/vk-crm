@@ -35,16 +35,27 @@ it('gives each role the reach the spec describes on the seeded office', function
      * 20 vụ đánh số.
      *
      * Task 10 thêm đúng MỘT vụ `restricted` ngoài 20 vụ đó (MatterSeeder::restrictedMatter()),
-     * với lead_lawyer_id cố định là luatsu1 — nên tổng ($all) tăng lên 21 và luatsu1 tăng lên
-     * 8 + 1 = 9. Admin luôn thấy $all (bypass mọi nhánh của scopeListableBy qua vai trò admin).
-     * Kế toán chỉ có matter.viewAny (không có matter.view), nên ở nhánh restricted của
-     * scopeListableBy() họ bị loại — kế toán dừng lại ở 20 (tất cả vụ THƯỜNG), không còn bằng
-     * $all nữa kể từ khi có vụ mật. Numbers xác nhận bằng
-     * `bin/dev artisan tinker` trên chính bộ seeder này (xem task-10-report.md).
+     * với lead_lawyer_id cố định là luatsu1 — nên tổng tăng lên 21 và luatsu1 tăng lên 8 + 1 = 9.
+     *
+     * M7 Task 3 thêm đúng MỘT vụ ĐÃ KẾT THÚC ngoài 21 vụ đó (MatterSeeder::closedMatter()), với
+     * lead_lawyer_id cố định là luatsu3 (`$lawyers->last()`, cố tình KHÁC luatsu1 — xem docblock
+     * `closedMatter()` — để con số 9 của luatsu1 ngay trên không đổi) — nên tổng tăng lên 22. Vụ
+     * này KHÔNG `restricted`, nên nó cũng rơi vào nhánh "vụ THƯỜNG" của scopeListableBy(); kế toán
+     * (chỉ `matter.viewAny`, không `matter.view`) thấy được nhánh đó không điều kiện gì thêm, nên
+     * con số của họ tăng THEO cùng tổng ở vế "vụ thường" — trong khi vẫn dừng lại TRƯỚC vụ mật
+     * (nhánh restricted, bị loại vì thiếu `matter.view`).
+     *
+     * M10 Task 8 thêm MỘT vụ THƯỜNG mở từ một lần tiếp nhận (`IntakeSeeder`, lead luatsu2 — không
+     * phải luatsu1, và luatsu1 không ở đội ngũ vụ đó): tổng ($all) lên 23; kế toán 20 (không mật) +
+     * 1 (đã kết thúc) + 1 (mở từ tiếp nhận) = 22, chứ không phải 23; luatsu1 vẫn 9.
+     *
+     * Admin luôn thấy $all (bypass mọi nhánh của scopeListableBy qua vai trò admin). Numbers xác
+     * nhận bằng `bin/dev artisan tinker` trên chính bộ seeder này (xem task-10-report.md, cập
+     * nhật M7 Task 3; M10 cập nhật khi gộp main vào làn, vòng sửa 1 của rà soát cuối).
      */
-    expect($all)->toBe(21)
+    expect($all)->toBe(23)
         ->and(Matter::query()->listableBy($admin)->count())->toBe($all)
-        ->and(Matter::query()->listableBy($accountant)->count())->toBe(20)
+        ->and(Matter::query()->listableBy($accountant)->count())->toBe(22)
         ->and($lawyerMatters)->toBe(9)
         ->and($accountant->can('view', Matter::first()))->toBeFalse();
 

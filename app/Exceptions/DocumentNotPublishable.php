@@ -106,4 +106,15 @@ class DocumentNotPublishable extends DomainException
     {
         return new self(__('documents.publish.stale_form'), $document);
     }
+
+    /**
+     * M7 Task 7: tài liệu đã bị rút lại (`DocumentStatus::Retracted`) không công bố lại được —
+     * lần rút là một sự kiện khách đã nhìn thấy ("Văn phòng đã rút lại tài liệu này"), và một lần
+     * công bố lại lặng lẽ trên cùng bản ghi sẽ xoá nghĩa của dòng đó. Muốn đưa lại cho khách thì
+     * tải lên một bản mới.
+     */
+    public static function retracted(Document $document): self
+    {
+        return new self(__('retraction.blocked.republish'), $document);
+    }
 }

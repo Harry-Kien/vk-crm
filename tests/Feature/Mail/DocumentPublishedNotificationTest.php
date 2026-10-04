@@ -5,20 +5,27 @@ use App\Actions\Matter\CancelMatter;
 use App\Actions\Notification\NotifyClientOfDocumentPublished;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
+use App\Enums\HandoverPackageStatus;
 use App\Enums\OutboundStatus;
 use App\Enums\Role;
 use App\Events\DocumentPublished;
+use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
+use App\Filament\Admin\Resources\Matters\RelationManagers\DocumentsRelationManager;
 use App\Listeners\SendDocumentPublishedNotification;
 use App\Mail\Client\DocumentPublished as DocumentPublishedMail;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Document;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\OutboundMessage;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Filament\Actions\Testing\TestAction;
+use Filament\Facades\Filament;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
@@ -315,9 +322,10 @@ it('sends nothing when the document was pulled from the portal before the job ra
 /**
  * Vụ việc bị xoá mềm (huỷ) giữa lúc sự kiện bắn và lúc job chạy.
  *
- * Mutation probe: bỏ điều kiện `->open()` khỏi `NotifyClientOfDocumentPublished::handle()` —
- * KHÔNG làm ĐỎ test này (Eloquent tự áp `SoftDeletingScope` mặc định, không cần `->open()` cho vế
- * xoá mềm) — xem test kế tiếp cho vế `closed_at` mà `->open()` thật sự canh.
+ * Mutation probe: bỏ điều kiện "vụ còn mở" (`! $matter->isOpen() && …`) khỏi
+ * `NotifyClientOfDocumentPublished::recipientsForReleased()` — KHÔNG làm ĐỎ test này (Eloquent tự áp
+ * `SoftDeletingScope` mặc định cho vế xoá mềm) — xem test kế tiếp cho vế `closed_at` mà điều kiện đó
+ * thật sự canh.
  */
 it('sends nothing when the matter was cancelled (soft-deleted) before the job ran', function () {
     Mail::fake();
@@ -334,10 +342,11 @@ it('sends nothing when the matter was cancelled (soft-deleted) before the job ra
 
 /**
  * Vụ việc đã ĐÓNG (`closed_at` khác `null`, KHÔNG xoá mềm) giữa lúc sự kiện bắn và lúc job chạy —
- * vế mà `SoftDeletingScope` mặc định KHÔNG tự bắt, nên đây mới là test thật sự đo `->open()`.
+ * vế mà `SoftDeletingScope` mặc định KHÔNG tự bắt, nên đây mới là test thật sự đo điều kiện "vụ còn
+ * mở". Tài liệu ở đây là tài liệu THƯỜNG; gói bàn giao là ngoại lệ duy nhất (phần cuối tệp).
  *
- * Mutation probe (paste vào báo cáo): bỏ `->open()` khỏi
- * `NotifyClientOfDocumentPublished::handle()` — test này ĐỎ.
+ * Mutation probe (paste vào báo cáo): bỏ điều kiện "vụ còn mở" khỏi
+ * `NotifyClientOfDocumentPublished::recipientsForReleased()` — test này ĐỎ.
  */
 it('sends nothing when the matter was closed (not soft-deleted) before the job ran', function () {
     [$matter, $lawyer, , $document] = publishableMatterWithClientAccount();
@@ -389,4 +398,242 @@ it('tells the lead lawyer in-app when the document mail fails for good', functio
 
     expect($notice)->not->toBeNull()
         ->and($notice->data['title'] ?? null)->toBe(__('matters.document_published_failed_notification.title'));
+});
+
+/**
+ * Gộp M7 vào `main` (PROGRESS "Ghi chú M7", Task 11, "Lúc gộp `main`"): "vụ còn trên cổng" lúc gửi
+ * được hỏi bằng ĐỊNH NGHĨA cổng của chính người nhận — `Gate::forUser($account)->allows('view',
+ * $matter)`, gồm điều kiện "chưa hết hạn tra cứu" của M7 Task 5 (R4) — CỘNG với hai cổng sẵn có của
+ * thư này (vụ còn mở, `is_published_to_portal`), không thay chúng.
+ *
+ * Trên đường sản phẩm, vụ đã hết hạn tra cứu luôn là vụ đã đóng, nên với tài liệu thường điều kiện
+ * "vụ còn mở" đã chặn trước (với gói bàn giao thì không — xem ca "handover package … access window"
+ * ở cuối tệp); test này dựng thẳng trạng thái "vụ còn mở nhưng dòng lưu trữ nói hạn tra cứu đã qua"
+ * (một dòng lưu trữ mà lần mở lại không dọn) để đo riêng tầng mới: thư không bao giờ nói khác điều
+ * cổng đang cho khách thấy. Vế dương: hôm nay là ngày tra cứu cuối thì thư vẫn đi.
+ */
+it('mails nothing when the portal no longer shows the matter to the client, but still mails on its last day', function (string $accessUntil, int $expected) {
+    $this->travelTo(Carbon::parse('2026-10-21 09:00:00'));
+    Event::fake([DocumentPublished::class]);
+    [$matter, $lawyer, $account, $document] = publishableMatterWithClientAccount();
+    $published = publishAsLawyer($document, $lawyer);
+
+    MatterArchive::factory()->create(['matter_id' => $matter->id, 'client_access_until' => $accessUntil]);
+    // Vụ thứ hai của cùng khách, còn trên cổng: lý do tài khoản vẫn hoạt động.
+    Matter::factory()->create(['client_id' => $account->client_id, 'is_published_to_portal' => true]);
+
+    $notifier = app(NotifyClientOfDocumentPublished::class);
+
+    expect($notifier->eligibleRecipients($published->fresh()))->toHaveCount($expected);
+
+    Mail::fake();
+
+    expect($notifier->handle($published->fresh()))->toBe($expected);
+    Mail::assertSent(DocumentPublishedMail::class, $expected);
+})->with([
+    'đã hết hạn tra cứu từ hôm nay' => ['2026-10-20', 0],
+    'hôm nay là ngày tra cứu cuối' => ['2026-10-21', 1],
+]);
+
+// ---------------------------------------------------------------------------------------------
+// Gói bàn giao hồ sơ (việc sau gộp M7, làn fu2): tài liệu DUY NHẤT được báo dù vụ đã kết thúc
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Vụ ĐÃ KẾT THÚC (`closed_at` có giá trị, chưa xoá mềm) với gói bàn giao HIỆN TẠI của nó: một
+ * `Document` nhóm B ở `signed_filed` mà dòng lưu trữ trỏ `handover_document_id` tới (M7 Task 4,
+ * R1) — đúng trạng thái `BuildHandoverPackage` để lại, dựng bằng factory vì nội dung zip không phải
+ * điều đang đo ở đây. `client_access_until` là hạn tra cứu của khách (M7 Task 5).
+ *
+ * @return array{0: Matter, 1: User, 2: ClientUser, 3: Document, 4: MatterArchive}
+ */
+function closedMatterWithHandoverPackage(?string $accessUntil = '2026-12-31'): array
+{
+    [$matter, $lawyer, $account, $package] = publishableMatterWithClientAccount();
+
+    $matter->forceFill(['closed_at' => now()->subDay()->toDateString()])->save();
+    $package->update(['title' => 'Gói bàn giao hồ sơ '.$matter->code]);
+
+    $archive = MatterArchive::factory()->create([
+        'matter_id' => $matter->id,
+        'handover_document_id' => $package->id,
+        'handover_status' => HandoverPackageStatus::Ready,
+        'client_access_until' => $accessUntil,
+    ]);
+
+    return [$matter->fresh(), $lawyer, $account, $package->fresh(), $archive->fresh()];
+}
+
+/** Tab "Tài liệu" của trang vụ việc — đường công bố thật của luật sư (SPEC §6.12 bước 4). */
+function handoverDocumentsTab(Matter $matter)
+{
+    Filament::setCurrentPanel('admin');
+
+    return test()->livewire(DocumentsRelationManager::class, [
+        'ownerRecord' => $matter,
+        'pageClass' => ViewMatter::class,
+    ]);
+}
+
+/** Thân thư ở cả hai dạng (HTML và văn bản thuần), cho một khẳng định chạy trên cả hai. */
+function handoverMailBodies(DocumentPublishedMail $mail): array
+{
+    return [
+        'html' => $mail->render(),
+        'text' => view($mail->content()->text, $mail->content()->with)->render(),
+    ];
+}
+
+/**
+ * Rà soát gộp M7 → `main` (Important, phán quyết controller (b)): gói bàn giao chỉ bao giờ được
+ * công bố trên một vụ ĐÃ kết thúc, nên `open()` của M6 làm thư SPEC §9 "Công bố văn bản nhóm B
+ * hoặc C" không bao giờ đi cho đúng tài liệu mà cả mục đích là tới tay khách. Đi qua màn hình thật:
+ * luật sư bấm "Công bố cho khách" ở tab Tài liệu.
+ *
+ * Mutation probe: bỏ ngoại lệ gói bàn giao (vụ đã kết thúc thì luôn không gửi) — test này ĐỎ.
+ */
+it('emails the client when the lawyer publishes the handover package of a closed matter from the documents tab', function () {
+    $this->travelTo(Carbon::parse('2026-10-21 09:00:00'));
+    Mail::fake();
+    [$matter, $lawyer, $account, $package] = closedMatterWithHandoverPackage();
+    $neverActivated = ClientUser::factory()->create(['client_id' => $account->client_id, 'is_active' => true]);
+
+    $this->actingAs($lawyer, 'web');
+
+    handoverDocumentsTab($matter)
+        ->callAction(TestAction::make('publish')->table($package), data: [
+            'client_can_view' => true,
+            'client_can_download' => true,
+        ])
+        ->assertHasNoActionErrors();
+
+    expect($package->fresh()->isReleasedToPortal())->toBeTrue();
+
+    Mail::assertSent(DocumentPublishedMail::class, 1);
+    Mail::assertSent(DocumentPublishedMail::class, fn ($mail) => $mail->hasTo($account->email));
+    // R12: chỉ tài khoản đã kích hoạt.
+    Mail::assertNotSent(DocumentPublishedMail::class, fn ($mail) => $mail->hasTo($neverActivated->email));
+});
+
+/**
+ * Hạn tra cứu (`client_access_until`, M7 Task 5) do `ResolveClientRecipients::onPortal()` quyết, không
+ * do một luật thứ hai: quá hạn thì cổng không còn cho khách mở vụ, nên thư không đi; ngày cuối thì
+ * vẫn đi. Khách còn một vụ khác trên cổng (lý do tài khoản còn hoạt động sau `ExpireClientAccess`).
+ *
+ * Mutation probe: bỏ `onPortal()` khỏi `recipientsForReleased()` (trả thẳng `recipientsFor()`) —
+ * hàng "đã hết hạn" ĐỎ.
+ */
+it('never emails about the handover package once the client access window has passed, but still does on its last day', function (string $accessUntil, int $expected) {
+    $this->travelTo(Carbon::parse('2026-10-21 09:00:00'));
+    [, $lawyer, $account, $package] = closedMatterWithHandoverPackage($accessUntil);
+    Matter::factory()->create(['client_id' => $account->client_id, 'is_published_to_portal' => true]);
+
+    Mail::fake();
+    $published = publishAsLawyer($package, $lawyer);
+
+    Mail::assertSent(DocumentPublishedMail::class, $expected);
+    expect(app(NotifyClientOfDocumentPublished::class)->eligibleRecipients($published->fresh()))->toHaveCount($expected);
+})->with([
+    'hạn tra cứu đã qua từ hôm qua' => ['2026-10-20', 0],
+    'hôm nay là ngày tra cứu cuối' => ['2026-10-21', 1],
+]);
+
+/**
+ * Cặp âm của ngoại lệ: một tài liệu THƯỜNG trên cùng vụ đã kết thúc — vụ có cả dòng lưu trữ lẫn gói
+ * bàn giao — vẫn giữ hành vi M6 (không gửi). Ngoại lệ là "đúng tài liệu `handover_document_id`",
+ * không phải "vụ có gói".
+ *
+ * Mutation probe: đổi ngoại lệ thành "vụ có dòng lưu trữ có gói" (bỏ so `handover_document_id` với
+ * id tài liệu) — test này ĐỎ.
+ */
+it('still sends nothing for an ordinary document published on a closed matter that has a handover package', function () {
+    $this->travelTo(Carbon::parse('2026-10-21 09:00:00'));
+    [$matter, $lawyer] = closedMatterWithHandoverPackage();
+
+    $ordinary = Document::factory()->create([
+        'matter_id' => $matter->id,
+        'group' => DocumentGroup::Issued,
+        'status' => DocumentStatus::SignedFiled,
+        'client_can_view' => false,
+        'client_can_download' => false,
+    ]);
+    $ordinary->addMedia(UploadedFile::fake()->createWithContent('ban-an.pdf', '%PDF-1.4 test'))->toMediaCollection('file');
+
+    Mail::fake();
+    $published = publishAsLawyer($ordinary->refresh(), $lawyer);
+
+    Mail::assertNothingSent();
+    expect(app(NotifyClientOfDocumentPublished::class)->eligibleRecipients($published->fresh()))->toBeEmpty();
+});
+
+/**
+ * Câu chữ (brief làn fu2): thư nói đây là GÓI HỒ SƠ BÀN GIAO và hạn tải theo `client_access_until`,
+ * không liệt kê tên tài liệu nào — kể cả tên nhóm D (gói không bao giờ chứa chúng, thư cũng không
+ * nhắc tới). Soi cả ba nơi: tiêu đề, HTML, văn bản thuần.
+ *
+ * Mutation probe: in thân thư của tài liệu thường cho gói (bỏ nhánh gói ở `content()`) — ĐỎ; bỏ
+ * nhánh gói ở `envelope()` — ĐỎ.
+ */
+it('tells the client it is the handover package and until when to download it, naming no document', function () {
+    $this->travelTo(Carbon::parse('2026-10-21 09:00:00'));
+    [$matter, , $account, $package] = closedMatterWithHandoverPackage('2026-12-31');
+    $package->update(['client_can_view' => true, 'client_can_download' => true, 'status' => DocumentStatus::Published]);
+
+    $internal = Document::factory()->create([
+        'matter_id' => $matter->id,
+        'group' => DocumentGroup::Internal,
+        'title' => 'BIEN-BAN-NOI-BO-'.uniqid(),
+    ]);
+
+    $mail = new DocumentPublishedMail($package->fresh(), $account);
+
+    expect($mail->envelope()->subject)->toBe(__('portal.email.handover_published.subject', ['code' => $matter->code]))
+        ->and($mail->envelope()->subject)->toContain($matter->code);
+
+    foreach (handoverMailBodies($mail) as $body) {
+        expect($body)->toContain('gói hồ sơ bàn giao')
+            ->and($body)->toContain('MUC-LUC.pdf')
+            ->and($body)->toContain(__('portal.email.handover_published.download_until', ['date' => '31/12/2026']))
+            ->and($body)->not->toContain($internal->title)
+            ->and($body)->not->toContain($package->fresh()->title);
+    }
+});
+
+/**
+ * Gói công bố "cho xem, không cho tải" (SPEC §6.5 bước 3 cho phép hai cờ độc lập): thư không hứa
+ * khách tải được, mà nói văn phòng chưa mở quyền tải.
+ *
+ * Mutation probe: bỏ điều kiện `client_can_download` (luôn in câu "tải gói về") — test này ĐỎ.
+ */
+it('does not promise a download when the package was published view-only', function () {
+    $this->travelTo(Carbon::parse('2026-10-21 09:00:00'));
+    [, , $account, $package] = closedMatterWithHandoverPackage('2026-12-31');
+    $package->update(['client_can_view' => true, 'client_can_download' => false, 'status' => DocumentStatus::Published]);
+
+    foreach (handoverMailBodies(new DocumentPublishedMail($package->fresh(), $account)) as $body) {
+        expect($body)->toContain(__('portal.email.handover_published.view_only_until', ['date' => '31/12/2026']))
+            ->and($body)->not->toContain(__('portal.email.handover_published.download_until', ['date' => '31/12/2026']));
+    }
+});
+
+/**
+ * Vụ đã MỞ LẠI (`SyncMatterArchive` xoá `client_access_until` về null) rồi luật sư mới công bố gói:
+ * vụ đang mở nên thư đi theo luật M6, vẫn là thư gói bàn giao, và không in một hạn tải không có.
+ *
+ * Mutation probe: bỏ nhánh "không có hạn" (luôn in câu có `:date`) — test này ĐỎ.
+ */
+it('mails the handover package of a reopened matter without inventing a download deadline', function () {
+    $this->travelTo(Carbon::parse('2026-10-21 09:00:00'));
+    [$matter, $lawyer, $account, $package] = closedMatterWithHandoverPackage(null);
+    $matter->forceFill(['closed_at' => null])->save();
+
+    Mail::fake();
+    publishAsLawyer($package, $lawyer);
+
+    Mail::assertSent(DocumentPublishedMail::class, fn ($mail) => $mail->hasTo($account->email));
+
+    foreach (handoverMailBodies(new DocumentPublishedMail($package->fresh(), $account)) as $body) {
+        expect($body)->toContain(__('portal.email.handover_published.download'))
+            ->and($body)->not->toContain(__('portal.email.handover_published.download_until', ['date' => '']));
+    }
 });

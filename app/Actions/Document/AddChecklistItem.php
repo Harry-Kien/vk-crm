@@ -2,7 +2,9 @@
 
 namespace App\Actions\Document;
 
+use App\Actions\Document\Concerns\OpensChecklistItem;
 use App\Enums\ChecklistItemStatus;
+use App\Exceptions\MatterChecklistReadOnly;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ChecklistRelationManager;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
@@ -55,6 +57,13 @@ use Illuminate\Validation\ValidationException;
  * mục đó được sinh ra từ mẫu hay được thêm tay, và bất kể còn sống hay đã gỡ — một khoá ngoại của
  * `documents.matter_checklist_item_id` vẫn trỏ vào dòng đã gỡ đó (xem `UploadStaffDocument`), nên
  * hai dòng cùng tên trên cùng một vụ là một điều dễ đọc nhầm với người tra cứu về sau.
+ *
+ * # M7 Task 3 — danh mục hồ sơ của vụ đã đóng là chỉ đọc
+ *
+ * `closed_at` khác null (dưới khoá, đọc từ `$locked`) từ chối thẳng bằng
+ * {@see MatterChecklistReadOnly} — SAU `Gate`, cùng lý lẽ với
+ * {@see OpensChecklistItem}. Một vụ vừa đóng không còn cần thêm
+ * giấy tờ nào nữa, và danh mục phải đứng yên để gói bàn giao (Task 4/11) sinh ra từ nó là ổn định.
  */
 class AddChecklistItem
 {
@@ -85,6 +94,15 @@ class AddChecklistItem
             // Final review C-M7: quyền hỏi SAU khoá, trên bản ghi đã khoá — một câu đọc trần trước
             // khoá (Gate đọc vụ việc, đội ngũ) cố định ảnh chụp REPEATABLE READ ở một thời điểm cũ.
             Gate::forUser($actor)->authorize('create', [MatterChecklistItem::class, $locked]);
+
+            // M7 Task 3: danh mục hồ sơ của một vụ đã kết thúc là chỉ đọc — kiểm DƯỚI khoá, SAU
+            // Gate (một câu về TRẠNG THÁI bản ghi chỉ được nói cho người đã có quyền trên hồ sơ,
+            // cùng thứ tự mà `OpensChecklistItem`/`ChecklistItemNotReviewable::matterUnavailable()`
+            // đã dùng — nói nó TRƯỚC Gate sẽ biến câu trả lời thành một máy dò "vụ này đã đóng
+            // chưa" cho bất kỳ ai gõ đúng id).
+            if ($locked->isClosed()) {
+                throw MatterChecklistReadOnly::make();
+            }
 
             $duplicateExists = $locked->checklistItems()->withTrashed()->where('name', $name)->exists();
 

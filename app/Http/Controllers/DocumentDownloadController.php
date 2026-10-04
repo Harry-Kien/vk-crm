@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\ClientUser;
 use App\Models\Document;
 use App\Models\DocumentDownload;
+use App\Models\MatterArchive;
 use App\Models\User;
 use App\Support\Audit;
 use App\Support\Files\FileGuard;
@@ -256,9 +257,10 @@ final class DocumentDownloadController extends Controller
      * minh, nên bỏ nó ở đây không nới thêm một dòng nào cho khách; nó chỉ làm câu trả lời không
      * còn phụ thuộc vào guard nào tình cờ đang mở.
      *
-     * `SoftDeletes` thì GIỮ: xoá mềm là đường thu hồi tài liệu trên thực tế cho tới khi `M6` có
-     * `RetractDocument`, nên một tài liệu đã thu hồi không được tải về bằng một đường dẫn ký
-     * trước đó. Vì vậy phải là `withoutGlobalScope(ClientPortalScope::class)` chứ tuyệt đối
+     * `SoftDeletes` thì GIỮ: một tài liệu đã xoá mềm không được tải về bằng một đường dẫn ký trước
+     * đó. (Xoá mềm từng là đường thu hồi trên thực tế; từ M7 Task 7 đường thu hồi là
+     * `RetractDocument`, và tài liệu đã rút bị policy từ chối với khách vì nó không còn
+     * `published` + cờ xem.) Vì vậy phải là `withoutGlobalScope(ClientPortalScope::class)` chứ tuyệt đối
      * không phải `withoutGlobalScopes()`, thứ sẽ gỡ luôn cả `SoftDeletingScope` — mutation probe
      * đổi đúng một chữ đó làm đỏ test tài liệu đã xoá mềm.
      *
@@ -340,6 +342,20 @@ final class DocumentDownloadController extends Controller
             'group' => $document->group->value,
             'version' => $document->version,
         ], $actor);
+
+        // M7 Task 4 (SPEC §10.6 "xuất dữ liệu"): gói bàn giao là tính năng xuất dữ liệu đầu tiên của
+        // hệ thống, nên mỗi lượt tải nó ghi THÊM một dòng `data_exported` — cạnh
+        // `document_downloaded` ở trên chứ không thay nó (sổ `document_downloads` và dòng nhật ký
+        // tải tệp áp cho mọi tài liệu, kể cả gói).
+        if (MatterArchive::isHandoverDocument($document)) {
+            Audit::record('data_exported', $document, [
+                'matter_id' => $document->matter_id,
+                'client_id' => $document->matter?->client_id,
+                'kind' => 'handover_package',
+                'action' => 'downloaded',
+                'version' => $document->version,
+            ], $actor);
+        }
     }
 
     /**

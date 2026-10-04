@@ -38,6 +38,9 @@ return [
         'client.otp' => 'Mã OTP đăng nhập cổng',
         'client.stage_update' => 'Cập nhật tiến độ cho khách',
         'staff.deadline_reminder' => 'Nhắc mốc thời hạn cho nhân sự',
+        // M10 Task 5 (R5): bản ghi liên quan là một lần tiếp nhận (`intake_request`), không thuộc vụ
+        // việc nào — dòng này chỉ admin thấy trên màn hình nhật ký thư (`OutboundMessage::scopeVisibleTo`).
+        'staff.intake_unanswered' => 'Nhắc liên hệ chưa ai gọi lại',
         // M6 Task 10: các mẫu M6 đã có thật (Task 3, 4, 7, 8) — trước đây cột hiện khoá thô.
         'client.activation' => 'Kích hoạt tài khoản cổng cho khách',
         'client.document_published' => 'Báo khách có tài liệu mới',
@@ -55,6 +58,10 @@ return [
         'staff.backup_alert.cleanup_failed' => 'Báo nhân sự dọn bản sao lưu cũ thất bại',
         'staff.backup_alert.unhealthy' => 'Báo nhân sự bản sao lưu không lành mạnh',
         'undeclared' => 'Chưa khai báo mẫu',
+        // M7 Task 4
+        'staff.handover_ready' => 'Báo gói bàn giao hồ sơ đã sẵn sàng',
+        // M7 Task 1 (nhãn thêm lúc gộp M7 vào `main` — MailTemplateRegistryTest).
+        'staff.matter_reassigned' => 'Thư tổng hợp mốc thời hạn khi bàn giao vụ việc',
     ],
 
     'matter_tab' => [
@@ -85,6 +92,11 @@ return [
                 'client.activation' => 'gửi lại thư kích hoạt là cấp mật khẩu tạm mới; hãy dùng nút "Cấp lại mật khẩu" ở màn hình tài khoản cổng khách hàng.',
                 'staff.instalment_overdue' => 'lời nhắc đợt thanh toán quá hạn tự được gửi lại ở lượt nhắc công nợ 08:00 kế tiếp nếu đợt vẫn quá hạn, vì chỉ thư đã gửi thành công mới chặn lời nhắc mới.',
                 'staff.backup_alert.*' => 'thư báo lỗi sao lưu nói về một lượt sao lưu đã qua, gửi lại là báo một sự kiện cũ; nếu sự cố còn, lượt sao lưu 02:00 hoặc lượt kiểm tra sao lưu 08:00 kế tiếp sẽ tự báo lại.',
+                // Gộp M7 vào `main`: hai thư nội bộ của M7 (lý do ở docblock `ResendTargets`).
+                'staff.matter_reassigned' => 'thư tổng hợp bàn giao liệt kê các mốc thời hạn ở đúng lúc bàn giao, gửi lại là gửi một danh sách cũ; luật sư nhận bàn giao đã được báo trong hệ thống khi thư hỏng, và các mốc vẫn hiện ở trang chủ, ở tab "Mốc thời hạn" của từng vụ và trong thư nhắc mốc theo lịch.',
+                'staff.handover_ready' => 'thư này chỉ báo gói bàn giao đã sinh xong — trạng thái gói luôn hiện ở khối "Gói bàn giao" trên trang vụ việc, và chuông trong hệ thống đã báo cùng lúc; gửi lại là báo một sự kiện đã qua.',
+                // M10 (gộp `main` vào làn M10): lý do ở docblock `ResendTargets`.
+                'staff.intake_unanswered' => 'lời nhắc liên hệ chưa ai gọi lại tự được gửi lại ở lượt nhắc kế tiếp (mỗi 15 phút trong giờ làm việc; thư đã hỏng hẳn thì từ ngày làm việc hôm sau) nếu bản ghi vẫn còn "Mới", vì chỉ thư đã gửi thành công mới chặn lời nhắc mới; chuông trong hệ thống và widget "Liên hệ chưa ai gọi lại" không phụ thuộc thư.',
                 'undeclared' => 'thư này không khai báo mẫu nên không dựng lại được nội dung.',
                 'default' => 'hệ thống không biết dựng lại thư này từ nhật ký.',
             ],
@@ -92,7 +104,7 @@ return [
             'related_gone' => 'Bản ghi mà thư này nói về không còn nữa nên không dựng lại được thư.',
             'superseded' => 'Việc mà thư này báo đã được thay bằng một lần mới hơn (ví dụ giấy tờ đã bị từ chối lại với lý do khác), nên thư cũ không còn đúng. Hãy xem dòng thư của lần mới trong nhật ký.',
             'already_requested' => 'Thư này đã được yêu cầu gửi lại lúc :time. Hãy xem dòng mới nhất của cùng mẫu thư trong nhật ký; nếu lần đó cũng lỗi thì dòng lỗi mới có nút gửi lại riêng.',
-            'no_eligible_recipient' => 'Hiện không còn ai đủ điều kiện nhận thư này (vụ việc đã đóng hoặc tắt công bố trên cổng, tài khoản đã khoá hoặc chưa kích hoạt, hay nhân sự không còn xem được vụ việc). Không có thư nào được gửi.',
+            'no_eligible_recipient' => 'Hiện không còn ai đủ điều kiện nhận thư này (vụ việc đã đóng, đã hết hạn tra cứu hoặc tắt công bố trên cổng, tài khoản đã khoá hoặc chưa kích hoạt, hay nhân sự không còn xem được vụ việc). Không có thư nào được gửi.',
             'already_delivered' => 'Mọi người đủ điều kiện nhận thư này đều đã nhận được ở một lần gửi khác. Không có thư nào được gửi.',
         ],
 

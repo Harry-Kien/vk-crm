@@ -4,9 +4,11 @@ namespace App\Support;
 
 use App\Enums\Permission;
 use App\Enums\Role;
+use App\Models\IntakeRequest;
 use App\Models\Matter;
 use App\Models\User;
 use App\Support\Scopes\ClientPortalScope;
+use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\DB;
@@ -25,15 +27,18 @@ use Spatie\Activitylog\Models\Activity;
  *
  *  1. chủ thể là một `Matter` → vụ đó;
  *  2. chủ thể là một model sống bên trong một vụ việc (`MATTER_OWNED` — bên đương sự, tài liệu,
- *     mốc thời hạn, nhật ký giai đoạn, yêu cầu của khách, đầu mục danh mục; trả lời của một yêu
- *     cầu đi qua yêu cầu đó) → vụ ghi ở cột `matter_id` của nó; chủ thể là một model TIỀN
- *     (`MONEY_OWNED`, gộp M9 — hợp đồng, đợt, khoản thu, phụ lục) → vụ của hợp đồng, và dòng đó
- *     còn đòi thêm `billing.view`;
+ *     mốc thời hạn, nhật ký giai đoạn, yêu cầu của khách, đầu mục danh mục, nhật ký liên lạc; trả
+ *     lời của một yêu cầu đi qua yêu cầu đó) → vụ ghi ở cột `matter_id` của nó; chủ thể là một
+ *     model TIỀN (`MONEY_OWNED`, gộp M9 — hợp đồng, đợt, khoản thu, phụ lục) → vụ của hợp đồng, và
+ *     dòng đó còn đòi thêm `billing.view`;
  *  3. còn lại → `properties.matter_id` nếu dòng có ghi;
  *  4. không có gì ở trên → dòng không thuộc vụ nào (đăng nhập, người dùng, khách hàng, cấu hình).
  *
  * {@see self::owningMatterId()} nói luật đó bằng PHP cho MỘT dòng (modal); {@see self::scopeVisibleTo()}
  * nói lại bằng SQL cho cả bảng (Filament phân trang trên truy vấn, không lọc được sau khi nạp).
+ * {@see self::scopeOwnedBy()} (M7 Task 8, tab "Nhật ký" của một vụ) dùng chung đúng câu SQL đó
+ * qua {@see self::whereOwnedByAny()}, chỉ với một vụ thay cho tập vụ người xem thấy được — và
+ * cùng cổng `billing.view` cho dòng TIỀN (gộp M7 vào `main`).
  * Hai cách nói đọc thẳng các bảng con qua `DB::table()` — không qua model — để `SoftDeletes` và
  * `ClientPortalScope` không làm một dòng con đã xoá mềm "mất chủ".
  *
@@ -49,6 +54,20 @@ use Spatie\Activitylog\Models\Activity;
  *    hoặc `properties.matter_id` trỏ tới một vụ không còn → ẩn, vì không ai chứng minh được vụ đó
  *    không phải `restricted`;
  *  - dòng không thuộc vụ nào → giữ nguyên như trước.
+ *
+ * # Dòng của một bản ghi tiếp nhận (rà soát cuối M10, vòng sửa 1 — FI1)
+ *
+ * Chủ thể `intake_request` không phải model của vụ việc — một lần liên hệ chưa chuyển đổi không thuộc
+ * vụ nào, và các dòng đó vẫn rơi vào bước 3/4 ở trên. Nhưng các dòng ấy mang tên người liên hệ và tên
+ * các bên (`conflict_check_run`, kể cả lượt chuyển đổi bị chặn mà Task 7 gắn vào bản ghi), lý do ghi đè
+ * Đỏ… Thêm MỘT cổng, chồng lên luật trên như cổng `billing.view` của dòng TIỀN: dòng chủ thể
+ * `intake_request` chỉ hiện cho người xem được CHÍNH bản ghi đó — đúng định nghĩa
+ * `IntakeRequest::scopeVisibleTo()`/`isVisibleTo()` (SPEC §5: mọi màn hình đọc bản ghi phải đi qua định
+ * nghĩa này). Với người có `auditLog.view` (trưởng phòng, admin — cả hai có `intake.viewAny`), cổng đó
+ * chỉ còn vế `restricted`: bản đã chuyển thành vụ `restricted` mà họ không xem được, và các bản đã gộp
+ * vào nó (`merge_chain_matter_id`), biến mất khỏi trang Nhật ký hệ thống. Cổng KHÔNG kéo các dòng đó
+ * vào tab "Nhật ký" của vụ ({@see self::scopeOwnedBy()}): lý do ghi đè Đỏ của bản ghi là của
+ * `intake.viewAny` (R8), không của mọi người trong đội vụ.
  */
 final class ActivityOwningMatter
 {
@@ -64,6 +83,8 @@ final class ActivityOwningMatter
         'stage_log' => 'stage_logs',
         'client_request' => 'client_requests',
         'matter_checklist_item' => 'matter_checklist_items',
+        // M7 Task 8: dòng `communication_logged` / `communication_log_deleted`.
+        'communication_log' => 'communication_logs',
     ];
 
     /**
@@ -87,6 +108,9 @@ final class ActivityOwningMatter
 
     private const CLIENT_REQUEST_REPLY = 'client_request_reply';
 
+    /** Rà soát cuối M10, FI1 — xem docblock lớp, mục "Dòng của một bản ghi tiếp nhận". */
+    private const INTAKE_REQUEST = 'intake_request';
+
     public static function canView(?User $viewer, Activity $activity): bool
     {
         return self::canViewMany($viewer, [$activity])[$activity->getKey()] ?? false;
@@ -98,7 +122,8 @@ final class ActivityOwningMatter
      * dòng (dòng con → vụ việc → Gate). Ở đây: một truy vấn cho mỗi LOẠI dòng con, một truy vấn
      * nạp mọi vụ việc (kèm `team`, để `MatterPolicy::view` đi đường trong bộ nhớ
      * `Matter::isListableBy()` — cùng câu trả lời với đường EXISTS, xem docblock hàm đó), rồi Gate
-     * một lần cho mỗi VỤ VIỆC, không phải mỗi dòng.
+     * một lần cho mỗi VỤ VIỆC, không phải mỗi dòng; cộng MỘT truy vấn cho mọi bản ghi tiếp nhận có mặt
+     * (cổng FI1, docblock lớp).
      *
      * @param  iterable<Activity>  $activities
      * @return array<int|string, bool> Khoá theo id của dòng nhật ký.
@@ -131,7 +156,13 @@ final class ActivityOwningMatter
 
         $seesMoney = self::seesMoney($viewer);
 
-        return $activities->mapWithKeys(function (Activity $activity) use ($owning, $visibleByMatter, $seesMoney): array {
+        $intakeIds = $activities->where('subject_type', self::INTAKE_REQUEST)->pluck('subject_id')->filter()->unique()->values();
+
+        $visibleIntakeIds = $intakeIds->isEmpty()
+            ? []
+            : array_flip(self::visibleIntakes($viewer)->whereKey($intakeIds->all())->pluck('intake_requests.id')->map(fn (mixed $id): int => (int) $id)->all());
+
+        return $activities->mapWithKeys(function (Activity $activity) use ($owning, $visibleByMatter, $seesMoney, $visibleIntakeIds): array {
             $matterId = $owning[$activity->getKey()] ?? null;
 
             // Không quy được về vụ nào: chỉ thả khi dòng THẬT SỰ không thuộc vụ nào. Quy được
@@ -142,6 +173,11 @@ final class ActivityOwningMatter
 
             // Dòng TIỀN (gộp M9): thấy vụ chưa đủ, còn phải có `billing.view`.
             if (isset(self::MONEY_OWNED[$activity->subject_type]) && ! $seesMoney) {
+                $allowed = false;
+            }
+
+            // Dòng của một bản ghi tiếp nhận (FI1): phải xem được chính bản ghi đó.
+            if ($activity->subject_type === self::INTAKE_REQUEST && ! isset($visibleIntakeIds[(int) $activity->subject_id])) {
                 $allowed = false;
             }
 
@@ -227,6 +263,11 @@ final class ActivityOwningMatter
     /**
      * Lọc truy vấn bảng nhật ký cho `$viewer` — cùng luật với {@see self::canView()}.
      *
+     * Hai phần: các dòng quy được về một vụ `$viewer` xem được ({@see self::whereOwnedByAny()},
+     * cùng câu mà tab "Nhật ký" của một vụ dùng; dòng TIỀN chỉ khi có `billing.view`), cộng các dòng
+     * không thuộc vụ nào (bước 4). Chồng lên cả hai: dòng chủ thể `intake_request` chỉ khi `$viewer` xem
+     * được bản ghi đó (FI1, docblock lớp).
+     *
      * @param  Builder<Activity>  $query
      */
     public static function scopeVisibleTo(Builder $query, User $viewer): void
@@ -244,43 +285,119 @@ final class ActivityOwningMatter
         $seesMoney = self::seesMoney($viewer);
 
         $query->where(function (Builder $rows) use ($visibleMatters, $seesMoney): void {
-            $rows->where(fn (Builder $q) => $q
-                ->where('subject_type', self::MATTER)
-                ->whereIn('subject_id', $visibleMatters()));
+            self::whereOwnedByAny($rows, $visibleMatters, $seesMoney);
 
-            foreach (self::MATTER_OWNED as $type => $table) {
-                $rows->orWhere(fn (Builder $q) => $q
-                    ->where('subject_type', $type)
-                    ->whereIn('subject_id', DB::table($table)->select('id')->whereIn('matter_id', $visibleMatters())));
-            }
-
-            // Dòng TIỀN (gộp M9): chỉ khi người xem có `billing.view` — không có thì không nhánh
-            // nào ở đây thả chúng ra (chúng nằm trong `matterOwnedTypes()`, nên nhánh cuối cũng bỏ).
-            if ($seesMoney) {
-                foreach (self::MONEY_OWNED as $type => $table) {
-                    $rows->orWhere(fn (Builder $q) => $q
-                        ->where('subject_type', $type)
-                        ->whereIn('subject_id', self::moneyRowsWithMatter($table)
-                            ->select("{$table}.id")
-                            ->whereIn('contracts.matter_id', $visibleMatters())));
-                }
-            }
-
-            $rows->orWhere(fn (Builder $q) => $q
-                ->where('subject_type', self::CLIENT_REQUEST_REPLY)
-                ->whereIn('subject_id', DB::table('client_request_replies')
-                    ->join('client_requests', 'client_requests.id', '=', 'client_request_replies.request_id')
-                    ->select('client_request_replies.id')
-                    ->whereIn('client_requests.matter_id', $visibleMatters())));
-
+            // Bước 4: dòng không thuộc vụ nào — chủ thể không phải model của vụ việc VÀ không có
+            // `properties.matter_id`.
             $rows->orWhere(fn (Builder $q) => $q
                 ->where(fn (Builder $type) => $type
                     ->whereNull('subject_type')
                     ->orWhereNotIn('subject_type', self::matterOwnedTypes()))
-                ->where(fn (Builder $property) => $property
-                    ->whereNull('properties->matter_id')
-                    ->orWhereIn('properties->matter_id', $visibleMatters())));
+                ->whereNull('properties->matter_id'));
         });
+
+        // Dòng của một bản ghi tiếp nhận (FI1, docblock lớp): chồng lên MỌI nhánh ở trên — phải xem được
+        // chính bản ghi đó.
+        $query->where(fn (Builder $rows) => $rows
+            ->whereNull('subject_type')
+            ->orWhere('subject_type', '!=', self::INTAKE_REQUEST)
+            ->orWhereIn('subject_id', self::visibleIntakes($viewer)->select('intake_requests.id')));
+    }
+
+    /**
+     * Các bản ghi tiếp nhận `$viewer` xem được — đúng `IntakeRequest::scopeVisibleTo()`, kể cả bản đã xoá
+     * mềm (một dòng nhật ký sống lâu hơn trạng thái của bản ghi), bỏ `ClientPortalScope` như mọi truy
+     * vấn của lớp này.
+     *
+     * @return Builder<IntakeRequest>
+     */
+    private static function visibleIntakes(User $viewer): Builder
+    {
+        return IntakeRequest::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->withTrashed()
+            ->visibleTo($viewer);
+    }
+
+    /**
+     * Chỉ các dòng mà {@see self::owningMatterId()} quy về đúng `$matter` (M7 Task 8, tab "Nhật
+     * ký" của riêng vụ việc). Cùng MỘT câu SQL với nửa "thuộc vụ xem được" của
+     * {@see self::scopeVisibleTo()}, chỉ khác tập vụ việc: ở đây là một vụ. Quyền ĐỌC tab không hỏi
+     * ở đây — đó là việc của `MatterPolicy::viewActivityLog` (nền là `view()`, nên người xem tab
+     * luôn thấy được vụ).
+     *
+     * **`$viewer` (gộp M7 vào `main`).** Dòng TIỀN (`MONEY_OWNED`, M9) thuộc về vụ của hợp đồng,
+     * nhưng SPEC §5 (bổ sung M9) tách "thấy vụ" khỏi "thấy tiền của vụ": tab chỉ thả chúng ra khi
+     * người xem có `billing.view` — cùng cổng mà {@see self::canViewMany()} và
+     * {@see self::scopeVisibleTo()} áp ở trang Nhật ký hệ thống. Không có tham số này, một luật sư
+     * phụ trách không có `billing.view` đọc được dòng hợp đồng/khoản thu của vụ mình ở tab, dù tab
+     * "Hợp đồng và thanh toán" đóng với họ.
+     *
+     * @param  Builder<Activity>  $query
+     */
+    public static function scopeOwnedBy(Builder $query, Matter $matter, User $viewer): void
+    {
+        $matterId = (int) $matter->getKey();
+
+        $seesMoney = self::isAdmin($viewer) || self::seesMoney($viewer);
+
+        $query->where(fn (Builder $rows) => self::whereOwnedByAny(
+            $rows,
+            fn () => Matter::query()
+                ->withoutGlobalScope(ClientPortalScope::class)
+                ->withTrashed()
+                ->whereKey($matterId)
+                ->select('matters.id'),
+            $seesMoney,
+        ));
+    }
+
+    /**
+     * Ba bước đầu của luật (docblock lớp) bằng SQL, nối bằng `OR`, cho một TẬP vụ việc cho trước
+     * (`$matterIds` trả về một truy vấn `select matters.id`): chủ thể là vụ đó; chủ thể là model
+     * con của vụ đó (dòng TIỀN chỉ khi `$includeMoney`); hoặc chủ thể không phải model của vụ việc
+     * và `properties.matter_id` là vụ đó.
+     *
+     * @param  Builder<Activity>  $rows
+     * @param  Closure(): Builder<Matter>  $matterIds
+     */
+    private static function whereOwnedByAny(Builder $rows, Closure $matterIds, bool $includeMoney): void
+    {
+        $rows->where(fn (Builder $q) => $q
+            ->where('subject_type', self::MATTER)
+            ->whereIn('subject_id', $matterIds()));
+
+        foreach (self::MATTER_OWNED as $type => $table) {
+            $rows->orWhere(fn (Builder $q) => $q
+                ->where('subject_type', $type)
+                ->whereIn('subject_id', DB::table($table)->select('id')->whereIn('matter_id', $matterIds())));
+        }
+
+        // Dòng TIỀN (gộp M9): chỉ khi người xem có `billing.view` — không có thì không nhánh nào
+        // ở đây thả chúng ra (chúng nằm trong `matterOwnedTypes()`, nên nhánh `properties.matter_id`
+        // dưới đây và bước 4 của `scopeVisibleTo()` cũng bỏ).
+        if ($includeMoney) {
+            foreach (self::MONEY_OWNED as $type => $table) {
+                $rows->orWhere(fn (Builder $q) => $q
+                    ->where('subject_type', $type)
+                    ->whereIn('subject_id', self::moneyRowsWithMatter($table)
+                        ->select("{$table}.id")
+                        ->whereIn('contracts.matter_id', $matterIds())));
+            }
+        }
+
+        $rows->orWhere(fn (Builder $q) => $q
+            ->where('subject_type', self::CLIENT_REQUEST_REPLY)
+            ->whereIn('subject_id', DB::table('client_request_replies')
+                ->join('client_requests', 'client_requests.id', '=', 'client_request_replies.request_id')
+                ->select('client_request_replies.id')
+                ->whereIn('client_requests.matter_id', $matterIds())));
+
+        $rows->orWhere(fn (Builder $q) => $q
+            ->where(fn (Builder $type) => $type
+                ->whereNull('subject_type')
+                ->orWhereNotIn('subject_type', self::matterOwnedTypes()))
+            ->whereIn('properties->matter_id', $matterIds()));
     }
 
     /**

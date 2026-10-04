@@ -6,6 +6,7 @@ use App\Actions\Notification\ResolveStaffRecipients;
 use App\Mail\BrandedMailable;
 use App\Models\ClientRequest;
 use App\Models\User;
+use App\Support\OfficeProfile;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
@@ -52,8 +53,11 @@ class NewClientRequest extends BrandedMailable
         );
     }
 
+    /** Đọc thông tin văn phòng LÚC RENDER, không lúc xếp hàng — xem docblock `OfficeProfile`. */
     public function content(): Content
     {
+        $office = OfficeProfile::current();
+
         return new Content(
             view: 'emails.staff.new-client-request',
             text: 'emails.staff.new-client-request-text',
@@ -63,7 +67,7 @@ class NewClientRequest extends BrandedMailable
                 'matterTitle' => $this->request->matter?->title,
                 'requestSubject' => $this->request->subject,
                 'requestContent' => $this->request->content,
-                'office' => config('vkcrm.brand.legal_name'),
+                'office' => $office->legalName(),
             ],
         );
     }

@@ -107,8 +107,9 @@ use Illuminate\Validation\ValidationException;
  *
  * Bảng trên chỉ có đợt còn `pending`; một đợt đã thu đủ hay đã miễn rời khỏi nó, và cùng lúc nút
  * "Huỷ khoản thu" của bảng không còn tới được khoản thu ghi nhầm trên đợt đó. Chân trang mang
- * {@see RecentPaymentsWidget} ({@see self::getFooterWidgets()}): khoản thu chưa huỷ trong 90 ngày,
- * cùng phạm vi `listableBy()`, qua DTO `AccountantPaymentRow`, mỗi dòng một nút huỷ.
+ * {@see RecentPaymentsWidget} ({@see self::getFooterWidgets()}): khoản thu chưa huỷ trong 90 ngày
+ * (gõ mã hồ sơ thì mọi khoản thu chưa huỷ của hồ sơ đó, không giới hạn ngày — M9 Task 13, vòng sửa
+ * 1), cùng phạm vi `listableBy()`, qua DTO `AccountantPaymentRow`, mỗi dòng một nút huỷ.
  */
 class Receivables extends Page implements HasTable
 {
@@ -225,10 +226,13 @@ class Receivables extends Page implements HasTable
                     ->query(fn (Builder $query): Builder => $query->overdue()),
                 Filter::make('due_within_7_days')
                     ->label(__('billing.receivables.filters.due_within_7_days'))
+                    // Cận là mốc thời gian đủ giờ, không phải ngày trần (M9 Task 13): trên SQLite cast
+                    // `date` ghi `Y-m-d 00:00:00`, lớn hơn cận trên `Y-m-d` — đợt đến hạn đúng ngày
+                    // thứ bảy rơi khỏi bộ lọc. Cùng lý do `RevenueFilters::bounds()`.
                     ->query(fn (Builder $query): Builder => $query
                         ->where('status', InstalmentStatus::Pending->value)
                         ->whereNotNull('due_date')
-                        ->whereBetween('due_date', [today()->toDateString(), today()->addDays(7)->toDateString()])),
+                        ->whereBetween('due_date', [today()->toDateTimeString(), today()->addDays(7)->endOfDay()->toDateTimeString()])),
                 Filter::make('closed_with_balance')
                     ->label(__('billing.receivables.filters.closed_with_balance'))
                     ->query(fn (Builder $query): Builder => $query->whereHas(

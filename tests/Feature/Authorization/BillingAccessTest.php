@@ -388,14 +388,29 @@ it('refuses a payment question that carries neither an instalment nor a matter',
         ->and($this->accountant->can('create', Payment::class))->toBeFalse();
 });
 
-// ── Khách hàng: chưa bao giờ, cho tới Task 10 ──────────────────────────────────────────────────
+// ── Khách hàng: ĐỌC tiền của chính mình (M9 Task 10, P1), không bao giờ quản lý hay ghi ──────────
 
-it('never lets a client user list, manage, record or void money, even on their own restricted matter', function () {
+/**
+ * **Đổi nghĩa CÓ CHỦ ĐÍCH ở M9 Task 10.** Bản trước ("never lets a client user list, manage, record
+ * or void money, even on their own restricted matter") khẳng định khách không đọc được tiền — đúng
+ * khi cổng còn đóng kín (Task 2). P1 đảo đúng vế ĐỌC: khách thấy hợp đồng đã ký, các đợt chưa huỷ,
+ * các khoản thu chưa huỷ và phụ lục của vụ việc mình trên cổng. Mọi vế còn lại giữ nguyên: không
+ * liệt kê, không soạn/sửa/xoá/miễn, không ghi/huỷ khoản thu.
+ *
+ * **Kể cả trên vụ `restricted`.** P3 ("tiền của vụ `restricted` chỉ luật sư phụ trách và admin
+ * thấy") là luật của NHÂN SỰ trong văn phòng; khách là bên đã ký hợp đồng đó. Ghi trong báo cáo
+ * Task 10 thành một câu hỏi cho chủ văn phòng, kèm đề xuất giữ như vậy.
+ *
+ * Cặp âm trên CÙNG vụ: một khách hàng khác không đọc được gì.
+ */
+it('lets a client user read but never list, manage, record or void the money of its own matter, restricted or not', function () {
     $clientUser = ClientUser::factory()->create(['client_id' => $this->restricted->client_id]);
+    $stranger = ClientUser::factory()->create();
 
     expect($clientUser->can('viewAny', [Contract::class, $this->restricted]))->toBeFalse()
         ->and(canListMoney($clientUser))->toBe([false, false, false, false])
-        ->and(canReadMoney($clientUser, $this->restrictedChain))->toBe([false, false, false, false])
+        ->and(canReadMoney($clientUser, $this->restrictedChain))->toBe([true, true, true, true])
+        ->and(canReadMoney($stranger, $this->restrictedChain))->toBe([false, false, false, false])
         ->and(canManageContract($clientUser, $this->restricted, $this->restrictedChain))->toBe([false, false, false, false])
         ->and(canRecordMoney($clientUser, $this->restricted, $this->restrictedChain))->toBe([false, false, false]);
 });

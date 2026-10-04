@@ -48,7 +48,7 @@ use Throwable;
  *     còn trỏ đúng hàng cha đã thăm dò, không thì ném ({@see self::assertStillUnder()}, fail-closed
  *     — không bao giờ lặng lẽ chạy dưới khoá của một vụ việc khác). Câu đầu tiên bên trong mọi
  *     transaction tiền vì thế là lần đọc CÓ KHOÁ hàng `matters` — `BillingLockOrderTest` đo điều
- *     đó cho cả mười Action. Chỉ dùng
+ *     đó cho cả mười một Action (M9 Task 6 thêm `TriggerInstalmentsForStage`). Chỉ dùng
  *     ba cửa {@see self::inContractTransaction()}, {@see self::inInstalmentTransaction()},
  *     {@see self::inPaymentTransaction()}; không tự viết `DB::transaction` rồi thăm dò bên trong.
  *     Ảnh chụp của transaction vì thế chỉ mở SAU khi khoá `matters` đã về tay, và mọi Action tiền

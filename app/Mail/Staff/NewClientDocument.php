@@ -5,6 +5,7 @@ namespace App\Mail\Staff;
 use App\Mail\BrandedMailable;
 use App\Models\Document;
 use App\Models\User;
+use App\Support\OfficeProfile;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
@@ -51,8 +52,11 @@ class NewClientDocument extends BrandedMailable
         );
     }
 
+    /** Đọc thông tin văn phòng LÚC RENDER, không lúc xếp hàng — xem docblock `OfficeProfile`. */
     public function content(): Content
     {
+        $office = OfficeProfile::current();
+
         return new Content(
             view: 'emails.staff.new-client-document',
             text: 'emails.staff.new-client-document-text',
@@ -62,7 +66,7 @@ class NewClientDocument extends BrandedMailable
                 'matterTitle' => $this->firstDocument->matter?->title,
                 'itemName' => $this->firstDocument->checklistItem?->name,
                 'count' => $this->count,
-                'office' => config('vkcrm.brand.legal_name'),
+                'office' => $office->legalName(),
             ],
         );
     }

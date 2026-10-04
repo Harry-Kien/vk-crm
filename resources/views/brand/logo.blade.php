@@ -18,13 +18,19 @@
 
     Muốn đổi logo: thay tools/brand/vk-logo-source.jpg rồi chạy
     `bin/dev php tools/brand/make-logo.php`, không cần sửa tệp này.
+
+    **`alt` là ba dòng lockup ghép lại, không phải tên pháp lý** (M7 Task 10). `alt` mô tả HÌNH —
+    khối nhận diện này, thứ không sửa được trong app — chứ không mô tả pháp nhân; với giá trị mặc
+    định hai chuỗi trùng nhau từng chữ. Đọc tên pháp lý ở đây (nay sửa được, qua
+    `App\Support\OfficeProfile`) sẽ thêm một truy vấn vào MỌI trang của cả hai panel chỉ để lấy chữ
+    thay thế cho một ảnh.
 --}}
 @php($lockup = config('vkcrm.brand.lockup'))
 
 <div style="display:flex;align-items:center;gap:0.62rem;height:100%;line-height:1">
     <img
         src="{{ asset('brand/vk-mark-256.png') }}"
-        alt="{{ config('vkcrm.brand.legal_name') }}"
+        alt="{{ $lockup['entity'] }} {{ $lockup['name'] }} {{ $lockup['suffix'] }}"
         style="height:100%;width:auto;display:block;flex:none"
     >
 

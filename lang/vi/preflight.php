@@ -73,10 +73,26 @@ return [
         .'dựng lại hôm nay. VÀNG chứ không ĐỎ — cài trước khi ai đó bật một chuyển đổi ảnh.',
     'gd_ok' => 'Extension gd có sẵn.',
 
+    // Việc sau gộp M7 (làn fu2): giờ chết của worker gói bàn giao — xem RunPreflight::pcntlRow().
+    'pcntl_missing' => 'PHP dòng lệnh thiếu extension pcntl — worker không giết được một job chạy '
+        .'quá giờ. Một gói bàn giao lớn có thể chạy quá 10 phút mà không bị dừng: luật sư không được '
+        .'báo lỗi, và sau 15 phút lượt chạy kế tiếp có thể dựng cùng gói đó một lần nữa vào cùng thư '
+        .'mục. VÀNG chứ không ĐỎ (không màn hình nào vỡ) — bật pcntl cho PHP dòng lệnh (php.ini của '
+        .'CLI) trước khi đóng vụ việc có nhiều tài liệu.',
+    // Rà soát cuối làn fu2 (I1): pcntl đã nạp nhưng hàm bị chặn — worker không khởi động được.
+    'pcntl_functions_disabled' => 'PHP dòng lệnh có extension pcntl nhưng không dùng được hàm '
+        .':functions (thường do disable_functions trong php.ini của dòng lệnh). Laravel chỉ hỏi '
+        .'pcntl đã nạp chưa, nên worker hàng đợi vẫn gọi các hàm đó ngay khi khởi động và chết với '
+        .'lỗi "Call to undefined function" trước khi chạy job nào: mọi lượt queue:work (queue.drain '
+        .'và queue.handover) đều hỏng, không thư nào được gửi, kể cả thư nhắc mốc thời hạn. Bỏ '
+        .':functions khỏi disable_functions của PHP dòng lệnh.',
+    'pcntl_ok' => 'PHP dòng lệnh có extension pcntl và dùng được các hàm :functions (worker hàng đợi '
+        .'khởi động được, giờ chết của job gói bàn giao có tác dụng).',
+
     'brand_fields_missing' => 'Còn thiếu thông tin pháp lý của văn phòng: :fields — thư gửi khách '
-        .'và PDF xuất ra sẽ thiếu các trường này cho tới khi điền (không chặn M8; M7 Task 10 sẽ '
-        .'chuyển nguồn đọc bốn trường này sang một nơi chủ văn phòng tự nhập trong app — đọc '
-        .'"## Ghi chú M8" ở docs/PROGRESS.md).',
+        .'và PDF xuất ra sẽ thiếu các trường này cho tới khi điền. Chủ văn phòng điền ở trang '
+        .'"Thông tin văn phòng" trong /admin (hoặc đặt biến tương ứng trong .env); giá trị nhập trong '
+        .'app thắng giá trị trong .env.',
     'brand_fields_ok' => 'Đủ bốn thông tin pháp lý của văn phòng.',
 
     'storage_private_exposed' => 'storage/app/private PHỤC VỤ CÔNG KHAI được, qua :url — hồ sơ '
@@ -109,7 +125,21 @@ return [
         .'chỉ đổi hành vi (ví dụ ":value" có thể bị cắt còn một số nhỏ hơn nhiều so với ý định). '
         .'Sửa lại thành một số nguyên, hoặc để trống để dùng mặc định.',
 
+    // M9 Task 13 — tầng 4 của bất biến tổng tiền, xem RunPreflight::billingInvariantsRow().
+    'billing_invariants_mismatch' => 'Có :count hợp đồng đang có hiệu lực mà tổng các đợt thanh '
+        .'toán khác giá trị hợp đồng: :codes. Màn hình tiền, công nợ và doanh thu đang tính sai cho '
+        .'các hợp đồng này. Chạy php artisan billing:check-invariants để xem từng con số, rồi luật sư '
+        .'phụ trách sửa bằng một phụ lục (không sửa thẳng vào CSDL). Dòng ĐỎ này không chặn mở cổng '
+        .'(php artisan up): nó là dữ liệu, không phải cấu hình máy, và chỉ sửa được trong app — nên vẫn '
+        .'mở cổng rồi sửa ngay. Mọi dòng ĐỎ khác vẫn chặn.',
+    'billing_invariants_ok' => 'Tổng các đợt thanh toán khớp giá trị hợp đồng trên cả :count hợp '
+        .'đồng đang có hiệu lực.',
+
     'summary_red' => 'Có mục ĐỎ — KHÔNG mở cổng cho tới khi sửa hết.',
+    // Rà soát cuối làn m9f, I2 — xem RunPreflight::blocksOpening().
+    'summary_red_billing_only' => 'Mục ĐỎ duy nhất là bất biến tiền — dữ liệu, không phải cấu hình máy: '
+        .'vẫn mở cổng (php artisan up), rồi luật sư phụ trách ký ngay phụ lục cho từng hợp đồng lệch. '
+        .'Mã thoát vẫn khác 0 cho tới khi sạch.',
     'summary_yellow' => 'Không có mục ĐỎ, còn mục VÀNG cần chú ý.',
     'summary_ok' => 'Mọi điều kiện ra mắt đều đạt.',
 ];

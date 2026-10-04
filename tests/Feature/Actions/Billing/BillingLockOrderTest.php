@@ -7,6 +7,7 @@ use App\Actions\Billing\CompleteContract;
 use App\Actions\Billing\DeleteDraftContract;
 use App\Actions\Billing\DraftContract;
 use App\Actions\Billing\RecordPayment;
+use App\Actions\Billing\TriggerInstalmentsForStage;
 use App\Actions\Billing\UpdateDraftContract;
 use App\Actions\Billing\VoidPayment;
 use App\Actions\Billing\WaiveInstalment;
@@ -22,7 +23,9 @@ use App\Models\Contract;
 use App\Models\Document;
 use App\Models\Instalment;
 use App\Models\Matter;
+use App\Models\MatterType;
 use App\Models\Payment;
+use App\Models\StageLog;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Database\Events\QueryExecuted;
@@ -207,12 +210,31 @@ it('locks matters first, then contracts, when cancelling a contract', function (
     expect($order)->toBe(['matters', 'contracts']);
 });
 
-it('locks matters first, then contracts, then the instalments it sums, when activating a draft', function () {
+/**
+ * M9 Task 6: hai khoá `instalments`, cùng chỗ trong chuỗi. Lần thứ nhất là tổng lịch thu
+ * (`ScheduleTotal::lockedOf()`), lần thứ hai là các đợt `stage` còn chờ mà lõi của
+ * `TriggerInstalmentsForStage::releaseLocked()` có thể kích hoạt ngay trong lần kích hoạt — vẫn
+ * dưới khoá `matters` → `contracts` của chính `ActivateContract`, không mở transaction thứ hai.
+ */
+it('locks matters first, then contracts, then the instalments it sums, then the stage instalments it may release, when activating a draft', function () {
     $draft = Contract::factory()->for(Matter::factory()->create(['lead_lawyer_id' => $this->lead->id]))
         ->create(['status' => ContractStatus::Draft, 'total_amount' => 10_000_000]);
     Instalment::factory()->for($draft)->create(['amount' => 10_000_000]);
 
     $order = lockOrderOf(fn () => app(ActivateContract::class)->handle($this->lead, $draft, today()->toDateString()));
+
+    expect($order)->toBe(['matters', 'contracts', 'instalments', 'instalments']);
+});
+
+/**
+ * M9 Task 6: đường listener/đối chiếu tự mở transaction tiền của nó — thăm dò hợp đồng và đợt chờ
+ * NGOÀI transaction, rồi khoá `matters` (câu đầu tiên) → `contracts` → đúng các đợt chờ giai đoạn đó.
+ */
+it('locks matters first, then contracts, then the waiting instalments, when releasing stage-triggered instalments', function () {
+    Instalment::factory()->for($this->contract)->onStage('filed')->create(['amount' => 10_000_000]);
+    $entry = StageLog::factory()->for($this->matter)->transition('drafting', 'filed')->create();
+
+    $order = lockOrderOf(fn () => app(TriggerInstalmentsForStage::class)->handle($this->matter, 'filed', $entry));
 
     expect($order)->toBe(['matters', 'contracts', 'instalments']);
 });
@@ -274,6 +296,36 @@ it('locks matters first, then contracts, instalments and their payments, and the
 
     expect($order)->toBe(['matters', 'contracts', 'instalments', 'payments', 'documents', 'instalments', 'contract_amendments']);
 });
+
+/**
+ * Lượt rà soát Task 6, I1: phụ lục thêm một đợt `stage` cho giai đoạn vụ ĐÃ chạm thì kích hoạt nó
+ * ngay (`TriggerInstalmentsForStage::releaseAddedByAmendment()`) — một khoá `instalments` nữa, trên
+ * đúng các đợt vừa thêm (hàng của chính transaction này), SAU lần kiểm lại tầng 3 và TRƯỚC
+ * `contract_amendments`, vẫn dưới khoá `matters` → `contracts` của phụ lục. Phụ lục không thêm đợt
+ * `stage` nào (ở đây: một đợt `on_signing`) thì không khoá thêm gì.
+ */
+it('locks the stage instalments an amendment adds after the schedule re-check, and nothing more when it adds none', function (string $trigger, array $expected, int $released) {
+    $civil = MatterType::factory()->withStages()->create(['code' => 'CIV']);
+    $matter = Matter::factory()->for($civil, 'matterType')->atStage('filed')->create(['lead_lawyer_id' => $this->lead->id]);
+    $contract = Contract::factory()->for($matter)->active()->create(['total_amount' => 10_000_000, 'signed_at' => today()->subMonth()->toDateString()]);
+    Instalment::factory()->for($contract)->create(['amount' => 10_000_000]);
+    StageLog::factory()->for($matter)->transition('drafting', 'filed')->create(['occurred_at' => today()->subWeek()]);
+
+    $order = lockOrderOf(fn () => app(AmendContract::class)->handle(
+        $this->lead,
+        $contract,
+        15_000_000,
+        [['action' => AmendContract::ADD, 'name' => 'Đợt bổ sung', 'amount' => 5_000_000, 'trigger_type' => $trigger, 'trigger_stage_key' => 'filed']],
+        str_repeat('a', 20),
+        today()->toDateString(),
+    ));
+
+    expect($order)->toBe($expected)
+        ->and(Instalment::query()->where('contract_id', $contract->id)->whereNotNull('triggered_by_stage_log_id')->count())->toBe($released);
+})->with([
+    'a stage row for a stage the matter reached' => ['stage', ['matters', 'contracts', 'instalments', 'payments', 'instalments', 'instalments', 'contract_amendments'], 1],
+    'an on-signing row' => ['on_signing', ['matters', 'contracts', 'instalments', 'payments', 'instalments', 'contract_amendments'], 0],
+]);
 
 /**
  * Gộp M6.5 + M9 (xung đột 4): ba Action của VỤ VIỆC mở transaction riêng. Luật thứ tự khoá toàn dự

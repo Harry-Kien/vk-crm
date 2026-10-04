@@ -1060,3 +1060,67 @@ it('answers the detail page of every matter the client may not read with 404', f
         ->get(MatterProgress::getUrl(['record' => $this->matterA->id], panel: 'portal'))
         ->assertOk();
 });
+
+// =========================================================================================
+// M7 Task 7 — TÀI LIỆU ĐÃ RÚT LẠI
+// =========================================================================================
+
+/**
+ * M7 Task 7: một tài liệu đã rút (`status = retracted`) ra khỏi MỌI đường đọc tài liệu của cổng —
+ * danh sách, theo id, tải về — kể cả khi hai cờ khách còn bật (ghi thẳng bảng, như nhóm D ở trên):
+ * scope portal của `Document` không nới cho `retracted`, và điều kiện đứng vững nhờ TRẠNG THÁI chứ
+ * không nhờ cái cờ. Thứ duy nhất khách thấy là dòng "Văn phòng đã rút lại tài liệu này" trên vụ của
+ * CHÍNH mình; dòng rút của khách B, của vụ chưa mở cho khách, và một dòng nhóm D mang trạng thái
+ * rút không lên trang (chuỗi đánh dấu nằm ở tiêu đề và lý do của cả ba).
+ */
+it('never serves a retracted document through a document query or a download, and shows only the own retraction notice', function () {
+    $this->userA->forceFill(['must_change_password' => false])->save();
+
+    $retracted = fn (Matter $matter, DocumentGroup $group, string $title, string $reason): Document => forceClientFlags(
+        Document::factory()->for($matter)->group($group)->create([
+            'title' => $title,
+            'status' => DocumentStatus::Retracted,
+            'retracted_at' => now(),
+            'retraction_reason' => $reason,
+        ])
+    );
+
+    $own = $retracted($this->matterA, DocumentGroup::Issued, 'Bản đã rút của khách A', 'Văn phòng công bố nhầm bản dự thảo');
+    $own->addMedia(UploadedFile::fake()->create('ban-rut.pdf', 10, 'application/pdf'))->toMediaCollection('file');
+    $hostile = collect([
+        $retracted($this->matterB, DocumentGroup::Issued, 'Rút của khách B '.SWEEP_MARKER, 'Lý do B '.SWEEP_MARKER),
+        $retracted($this->hiddenA, DocumentGroup::Issued, 'Rút trên vụ ẩn '.SWEEP_MARKER, 'Lý do ẩn '.SWEEP_MARKER),
+        $retracted($this->matterA, DocumentGroup::Internal, 'Rút nhóm D '.SWEEP_MARKER, 'Lý do D '.SWEEP_MARKER),
+    ]);
+
+    // Tiền đề: cả bốn bản ghi THẬT SỰ mang cờ xem — câu trả lời dưới đây không đến từ cái cờ.
+    expect(sweepAll(Document::class)->whereIn('id', $hostile->pluck('id')->push($own->id))->where('client_can_view', true)->count())
+        ->toBe(4);
+
+    ClientPortalScope::actingAs($this->userA, function () use ($own, $hostile): void {
+        $ids = Document::query()->pluck('id')->map(fn ($id): int => (int) $id)->all();
+
+        expect($ids)->not->toContain($own->id)
+            ->and(array_intersect($ids, $hostile->pluck('id')->all()))->toBe([])
+            // Vế dương: cùng truy vấn vẫn trả tài liệu đã công bố của khách A.
+            ->and($ids)->toContain($this->visibleDoc->id)
+            ->and(Document::query()->withTrashed()->find($own->id))->toBeNull();
+    });
+
+    $this->actingAs($this->userA, 'client');
+
+    $this->get($own->fresh()->downloadUrlFor($this->userA))->assertNotFound();
+
+    $html = $this->get(MatterProgress::getUrl(['record' => $this->matterA->id], panel: 'portal'))
+        ->assertOk()
+        ->getContent();
+
+    expect($html)->not->toContain(SWEEP_MARKER)
+        // Vế dương: dòng rút của chính khách A có mặt, cùng tài liệu còn hiệu lực. Dòng rút mang nhãn
+        // trung tính và lý do, KHÔNG mang tiêu đề (rà soát cuối M7, C1).
+        ->and($html)->toContain(e(__('retraction.portal.heading')))
+        ->and($html)->toContain(e(__('retraction.portal.notice', ['reason' => 'Văn phòng công bố nhầm bản dự thảo'])))
+        ->and($html)->not->toContain('Bản đã rút của khách A')
+        ->and($html)->toContain('Quyết định của toà')
+        ->and($html)->not->toContain('documents/'.$own->id.'/download');
+});

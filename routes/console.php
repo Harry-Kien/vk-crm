@@ -3,9 +3,13 @@
 use App\Actions\Mcp\PruneStaleMcpClients;
 use App\Actions\Schedule\CheckDeadlines;
 use App\Actions\Schedule\CheckStaleMatters;
+use App\Actions\Schedule\ExpireClientAccess;
+use App\Actions\Schedule\FlagRetentionExpiry;
+use App\Actions\Schedule\ReconcileStageTriggeredInstalments;
 use App\Actions\Schedule\RecordScheduleRun;
 use App\Actions\Schedule\RemindMissingDocuments;
 use App\Actions\Schedule\RemindOverdueInstalments;
+use App\Actions\Schedule\RemindUnansweredIntakes;
 use App\Actions\Schedule\RemindUnseenUpdates;
 use App\Actions\Schedule\SendHeartbeat;
 use Illuminate\Foundation\Inspiring;
@@ -238,6 +242,131 @@ Schedule::call(new RemindMissingDocuments)
 Schedule::call(new RemindUnseenUpdates)
     ->dailyAt('08:30')
     ->name('unseen-updates.remind')
+    ->withoutOverlapping(60);
+
+/**
+ * M7 Task 4 (R9): rút hàng đợi RIÊNG của gói bàn giao. Job `GenerateHandoverPackage` nén tệp hồ sơ
+ * (có thể vài trăm MB, vài phút) — nếu nó chạy trong mục `queue.drain` ở trên, nó giữ lượt
+ * `withoutOverlapping` của mục đó và thư nhắc mốc thời hạn (rủi ro nghề nghiệp cao nhất của hệ
+ * thống, xem `deadlines.check`) phải đứng chờ. Mục này chạy trên kết nối `handover`
+ * (`config/queue.php`, `retry_after` 900 giây) và hàng `handover`, còn `queue.drain` vẫn chỉ rút
+ * hàng `default`.
+ *
+ * `--timeout=600` khớp `GenerateHandoverPackage::$timeout` (worker ưu tiên `$timeout` của job,
+ * cờ này chỉ là tầng thứ hai cho job nào không khai). Cả hai giờ chết chỉ có tác dụng khi PHP dòng
+ * lệnh có ext-pcntl; thiếu thì `vkcrm:preflight` báo VÀNG, còn có pcntl mà hàm của nó bị chặn
+ * (`disable_functions`) thì báo ĐỎ, vì khi đó mọi `queue:work` — cả mục này lẫn `queue.drain` — chết
+ * ngay khi khởi động (việc sau gộp M7, `RunPreflight::pcntlRow()`). `--max-time=50` chỉ chặn việc
+ * NHẬN job mới
+ * sau 50 giây — nó không cắt một job đang chạy. Khoá chống chồng lấn hết hạn sau 15 phút: dài hơn
+ * một lần chạy tối đa (600 giây) để không hai worker cùng dựng gói, và ngắn hơn 1440 phút mặc định
+ * để một tiến trình bị giết giữa chừng (giới hạn CPU của shared hosting) không khoá hàng cả ngày.
+ *
+ * `runInBackground()`: `schedule:run` chạy các mục của một phút LẦN LƯỢT trong cùng tiến trình. Chạy
+ * tiền cảnh, một lần dựng gói tới 600 giây sẽ bắt mọi mục đăng ký SAU mục này trong cùng phút
+ * đứng chờ — gồm các tác vụ hằng ngày của M7 Task 5/6 được thêm vào cuối tệp. Chạy nền thì khoá
+ * `withoutOverlapping` vẫn giữ tới khi lệnh nền kết thúc (Laravel gỡ khoá ở `schedule:finish`).
+ * Mục `queue.drain` ở trên không đổi (ngoài phạm vi task này): nó ngừng nhận job sau 50 giây và
+ * các job của nó là thư, ngắn.
+ */
+Schedule::command('queue:work handover --queue=handover --stop-when-empty --max-time=50 --timeout=600')
+    ->everyMinute()
+    ->name('queue.handover')
+    ->withoutOverlapping(15)
+    ->runInBackground();
+
+/**
+ * M7 Task 5 (R4, SPEC §6.12): vô hiệu hoá tài khoản cổng của khách có vụ đã hết hạn tra cứu và không
+ * còn vụ nào trên cổng — 00:30 hằng ngày, giờ Việt Nam. Xem docblock `ExpireClientAccess` cho đúng
+ * điều kiện (R4).
+ *
+ * Vụ việc rời cổng ĐÚNG 00:00 ngày sau `client_access_until` nhờ hai tầng ranh giới
+ * (`Matter::applyClientPortalConstraints()`, `MatterPolicy::releasedToPortal()`), không nhờ tác vụ
+ * này — nên một đêm cron lỡ (shared hosting) chỉ hoãn việc khoá tài khoản một ngày, không để lộ hồ
+ * sơ nào. 00:30 chứ không `daily()` (00:00): tránh phút nửa đêm, nơi mọi mục `daily()` dồn vào cùng
+ * một lượt `schedule:run` và chạy lần lượt.
+ *
+ * Khoá chống chồng lấn hết hạn sau 60 phút, không 1440 mặc định — cùng lý lẽ với `deadlines.check`:
+ * một lần chạy bị giết giữa chừng không được khoá luôn lần chạy của đêm sau. Tác vụ idempotent (chỉ
+ * đụng tài khoản đang hoạt động), nên hai lần chạy chồng nhau cũng không ghi trùng.
+ */
+Schedule::call(new ExpireClientAccess)
+    ->dailyAt('00:30')
+    ->name('client-access.expire')
+    ->withoutOverlapping(60);
+
+/**
+ * M7 Task 6 (R5, SPEC §6.12): cảnh báo quản trị khi hồ sơ quá hạn lưu trữ mà chưa ghi quyết định
+ * tiêu huỷ — 01:00 hằng ngày, giờ Việt Nam. Chỉ ghi thông báo trong hệ thống; KHÔNG BAO GIỜ xoá
+ * hay sửa hồ sơ (xem docblock `FlagRetentionExpiry`). Quyết định tiêu huỷ được ghi tay bằng
+ * `RecordMatterDestruction` trên trang vụ việc.
+ *
+ * 01:00 chứ không `daily()` (00:00) hay 00:30: tránh dồn vào cùng lượt `schedule:run` với
+ * `client-access.expire`. Khoá chống chồng lấn hết hạn sau 60 phút, không 1440 mặc định — cùng lý lẽ
+ * với `deadlines.check` và `client-access.expire`. Tác vụ không gửi thư nên không đụng hàng đợi.
+ */
+Schedule::call(new FlagRetentionExpiry)
+    ->dailyAt('01:00')
+    ->name('retention.flag')
+    ->withoutOverlapping(60);
+
+/**
+ * M9 Task 6: lưới an toàn cho đợt thanh toán theo giai đoạn — 07:00 hằng ngày, giờ Việt Nam. Kích hoạt
+ * các đợt mà vụ ĐÃ chạm giai đoạn của chúng nhưng listener không kích hoạt (đợt thêm bằng phụ lục sau
+ * khi vụ đã qua giai đoạn, lần kích hoạt hỏng ở listener, `stage_logs` ghi thẳng từ dữ liệu mẫu) — qua
+ * đúng `TriggerInstalmentsForStage`, xem docblock `ReconcileStageTriggeredInstalments`.
+ *
+ * 07:00, TRƯỚC `instalments.remind` (08:00): một đợt vừa được đối chiếu kích hoạt với hạn ghi lùi
+ * (đã quá hạn ngay khi ra đời) được nhắc ngay sáng hôm đó, không đợi tới hôm sau. Không 07:30
+ * (`stale-matters.check`) hay 08:00 (`backup.monitor`, `instalments.remind`) để log lịch đọc được.
+ * Cùng phút với lượt đầu của `deadlines.check` — hai việc độc lập; `schedule:run` chạy chúng lần lượt,
+ * và tác vụ này ngày thường chỉ là một truy vấn.
+ *
+ * `withoutOverlapping(60)` vì nó ghi tiền — hai lượt chồng nhau tự xếp hàng ở khoá `matters` và cổng
+ * `triggered_at` chặn kích hoạt hai lần, nhưng không có lý do để cho phép — và 60 phút, không phải 1440
+ * mặc định (cùng lý lẽ M6.5 X6: một lượt bị giết giữa chừng không được khoá luôn lượt hôm sau;
+ * `tests/Feature/Schedule/BackupScheduleTest.php` ghim "không tác vụ nào giữ khoá ≥ 1440 phút").
+ * CHỈ `->name()`, không `->description()` (bí danh của nhau trong Laravel 13, xem `backup.nightly`).
+ */
+Schedule::call(new ReconcileStageTriggeredInstalments)
+    ->dailyAt('07:00')
+    ->name('instalments.reconcile-stage')
+    ->withoutOverlapping(60);
+
+/**
+ * Nhắc những lần có người liên hệ văn phòng mà chưa ai gọi lại quá ngưỡng phản hồi (M10 R5, mặc định 4
+ * giờ làm việc, `INTAKE_RESPONSE_HOURS`): thư `staff.intake_unanswered` + thông báo trong hệ thống.
+ *
+ * Mỗi 15 phút, CẢ NGÀY — "chỉ trong giờ làm việc" là câu đầu tiên của chính Action
+ * (`BusinessHours::isOpen()`), không phải của cron: giờ làm việc có MỘT định nghĩa
+ * (`config('vkcrm.business_hours')`, theo `APP_TIMEZONE`), và một cron gõ tay `8-17 * * 1-5` là định
+ * nghĩa thứ hai, sẽ lệch khi văn phòng làm thêm Thứ Bảy hay đổi giờ đóng cửa (17:30 cũng không biểu
+ * diễn được bằng một khoảng giờ của cron). Ngoài giờ, mỗi lượt chỉ là một phép so giờ.
+ *
+ * Chạy lại là vô hại: nhật ký thư chặn thư thứ hai cho cùng (người nhận, bản ghi), thông báo trong hệ
+ * thống tự chống lặp, và job thư là `ShouldBeUnique` theo bản ghi. `withoutOverlapping(15)`: một lượt
+ * bị giết giữa chừng chỉ chặn tối đa lượt kế tiếp, không chặn cả ngày (không để khoá 1440 phút mặc
+ * định — `BackupScheduleTest` ghim luật đó cho mọi tác vụ).
+ */
+Schedule::call(new RemindUnansweredIntakes)
+    ->cron('*/15 * * * *')
+    ->name('intakes.remind-unanswered')
+    ->withoutOverlapping(15);
+
+/**
+ * Ẩn danh người liên hệ KHÔNG thành khách đã quá hạn lưu, 03:30 hằng ngày (M10 R7b, Task 7):
+ * `declined`/`lost`/`merged` quá `retention_until` (`PROSPECT_RETENTION_MONTHS`, mặc định 24 tháng),
+ * chưa chuyển đổi, chưa ẩn danh. Việc RIÊNG, tên riêng — không gộp với tác vụ cảnh báo hồ sơ của M7
+ * (`FlagRetentionExpiry` chỉ cảnh báo, không bao giờ xoá hồ sơ vụ việc — M7 R5).
+ *
+ * 03:30: sau lượt sao lưu 02:00 và ngoài giờ làm việc, khi không ai đang ghi tiếp nhận phải chờ khoá
+ * `conflict-check` mà Action giữ cho từng bản ghi. `withoutOverlapping(60)`, không để khoá mặc định
+ * 1440 phút: một lượt bị giết giữa chừng không được chặn lượt ngày hôm sau. Gọi bằng chuỗi `Lớp@handle`
+ * (không `use`): luật làn song song cho tệp này là chỉ nối thêm dòng ở cuối, cùng cách `backup.monitor`.
+ */
+Schedule::call('App\Actions\Schedule\AnonymiseExpiredProspects@handle')
+    ->dailyAt('03:30')
+    ->name('prospects.anonymise')
     ->withoutOverlapping(60);
 
 /**

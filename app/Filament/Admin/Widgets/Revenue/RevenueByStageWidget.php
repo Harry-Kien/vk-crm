@@ -130,7 +130,12 @@ class RevenueByStageWidget extends ChartWidget
         ];
     }
 
-    /** @return list<array{key: string, label: string, amount: int}> Theo thứ tự giai đoạn, rồi hai bó "khác". */
+    /**
+     * Theo thứ tự giai đoạn, rồi ba bó "khác": giai đoạn không còn trong cấu hình, tạm ứng khi ký,
+     * đến hạn theo ngày (M9 Task 13 sửa chữ "hai bó" cũ — bó thứ ba có từ Fix round 2).
+     *
+     * @return list<array{key: string, label: string, amount: int}>
+     */
     private function buckets(): array
     {
         return $this->bucketsCache ??= $this->computeBuckets();
@@ -146,8 +151,7 @@ class RevenueByStageWidget extends ChartWidget
         }
 
         $filters = RevenueFilters::fromPageFilters($this->pageFilters);
-        $from = $filters->from->toDateString();
-        $to = $filters->to->toDateString();
+        [$from, $to] = $filters->bounds();
 
         // Subquery, KHÔNG `->pluck('id')` (Fix round 1, minor): `Matter::scopeListableBy()` vẫn
         // là MỘT định nghĩa duy nhất (P3), nhưng giữ nó ở dạng SQL con thay vì kéo danh sách id về

@@ -8,6 +8,7 @@ use App\Enums\MatterRole;
 use App\Enums\OutboundStatus;
 use App\Enums\Role;
 use App\Events\ClientDocumentSubmitted;
+use App\Exceptions\MatterClosedForSubmission;
 use App\Listeners\SendNewClientDocumentNotification;
 use App\Mail\Staff\NewClientDocument as NewClientDocumentMail;
 use App\Models\Client;
@@ -270,27 +271,34 @@ it('sends nothing when the matter was cancelled before the job ran', function ()
 });
 
 /**
- * Fix round 1 (finding Critical 1, review Task 4 toàn dải): `DocumentPolicy::create` cho khách
- * nộp tệp vào đầu mục của vụ ĐÃ ĐÓNG còn công bố trên cổng. Trước vòng sửa, hàm nạp vụ việc (khi
- * đó tên `openMatterFor()`, nay `existingMatterFor()`) đòi `->open()` nên thư
- * `staff.new_client_document` bị bỏ lặng lẽ — tệp nằm đó, không ai được báo. Thư nội bộ không
- * phải ranh giới cổng; chỉ vụ đã XOÁ MỀM (huỷ) mới hết thứ để báo.
- *
- * Mutation probe: thêm lại `->open()` vào `NotifyStaffOfNewClientDocument::existingMatterFor()` —
- * cả hai test dưới đây ĐỎ.
+ * Fix round 1 (finding Critical 1, review Task 4 toàn dải) — VIẾT LẠI khi gộp M7 vào `main`. Bản M6
+ * đo: khách nộp được tệp vào đầu mục của vụ ĐÃ ĐÓNG còn công bố trên cổng, và luật sư được báo. M7
+ * Task 3 (kế hoạch M7, "Danh mục hồ sơ của vụ đã đóng" — việc M6.5 hoãn sang M7) quyết cổng khách
+ * KHÔNG nhận tệp mới cho vụ đã đóng (`SubmitClientDocument` ném `MatterClosedForSubmission`, câu mời
+ * gọi hotline), vì danh mục của vụ đã đóng là chỉ đọc ở phía văn phòng và một tệp mới ở đó sẽ treo
+ * mãi. Không có tệp thì không có gì để báo: không thư, không chuông. Quyết định "thư nội bộ không
+ * đòi vụ còn mở" của M6 vẫn đúng và vẫn được đo ở test kế tiếp (vụ đóng giữa lúc sự kiện bắn và lúc
+ * job chạy).
  */
-it('still reaches the lead lawyer (mail and in-app) when the client submits a file on a CLOSED matter that stays on the portal', function () {
+it('refuses a client submission on a CLOSED matter that stays on the portal, so the lead lawyer has nothing to hear about', function () {
     Mail::fake();
     [$matter, $lawyer, $item, $clientUser] = documentSubmissionFixture();
     $matter->update(['closed_at' => now(), 'is_published_to_portal' => true]);
 
-    submitDocuments($item->fresh(), $clientUser);
+    expect(fn () => submitDocuments($item->fresh(), $clientUser))
+        ->toThrow(MatterClosedForSubmission::class);
 
-    Mail::assertSent(NewClientDocumentMail::class, fn ($mail) => $mail->hasTo($lawyer->email));
-    expect($lawyer->fresh()->notifications()->where('type', NewClientDocumentAlert::class)->count())->toBe(1);
+    expect(Document::query()->where('matter_id', $matter->id)->count())->toBe(0);
+    Mail::assertNotSent(NewClientDocumentMail::class);
+    expect($lawyer->fresh()->notifications()->where('type', NewClientDocumentAlert::class)->count())->toBe(0);
 });
 
 /**
+ * Quyết định "thư nội bộ không đòi vụ còn mở" (M6 fix round 1, Critical 1): vụ ĐÓNG giữa lúc khách
+ * nộp (vụ còn mở) và lúc job chạy thì luật sư vẫn được báo — chỉ vụ đã XOÁ MỀM (huỷ) mới hết thứ để
+ * báo. Mutation probe: thêm lại `->open()` vào `NotifyStaffOfNewClientDocument::existingMatterFor()`
+ * — test này ĐỎ.
+ *
  * Sự kiện bị `Event::fake()` chặn để listener KHÔNG chạy lúc nộp (nếu không, lần gọi tay dưới
  * đây bị `alreadyDelivered()`/`alreadyAlerted()` chặn vì một lý do KHÁC) — mô phỏng đúng "vụ
  * đóng giữa lúc sự kiện bắn và lúc job hàng đợi chạy".

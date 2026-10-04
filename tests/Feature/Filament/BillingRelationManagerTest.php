@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\ChecklistItemStatus;
 use App\Enums\ContractStatus;
 use App\Enums\InstalmentState;
 use App\Enums\InstalmentStatus;
@@ -13,7 +14,10 @@ use App\Filament\Admin\Resources\Matters\RelationManagers\BillingRelationManager
 use App\Models\Contract;
 use App\Models\Instalment;
 use App\Models\Matter;
+use App\Models\MatterChecklistItem;
+use App\Models\MatterType;
 use App\Models\Payment;
+use App\Models\StageLog;
 use App\Models\User;
 use App\Support\Billing\Money;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -238,6 +242,34 @@ it('shows the closed-with-balance banner only when the matter is closed and a de
     $this->matter->forceFill(['closed_at' => today()->toDateString()])->save();
 
     billingTab($this->matter->fresh())->assertSee(__('billing.tab.closed_with_balance_warning'));
+});
+
+// =================================================================================================
+// Gợi ý đầu mục "Hợp đồng dịch vụ pháp lý và giấy uỷ quyền" — việc sau gộp M7 (làn fu2)
+// =================================================================================================
+
+/**
+ * Từ M7 Task 3 danh mục của vụ ĐÃ KẾT THÚC là chỉ đọc: `UploadStaffDocument` lên một đầu mục của nó
+ * ném `MatterChecklistReadOnly`. Dòng nhắc "tải bản đã ký lên đúng đầu mục đó" vì vậy chỉ hiện khi vụ
+ * còn mở — trên vụ đã kết thúc nó chỉ dẫn tới một lời từ chối. Cặp dương/âm trên cùng dữ liệu.
+ *
+ * Mutation probe: bỏ điều kiện `$matter->isClosed()` khỏi `BillingRelationManager::checklistNudge()`
+ * — ĐỎ (vế vụ đã kết thúc); bỏ cả hàm (luôn `null`) — ĐỎ (vế vụ còn mở).
+ */
+it('nudges to upload the signed contract onto its checklist item on an open matter, and not once the matter is closed', function () {
+    activeContractOneInstalment($this->matter);
+    MatterChecklistItem::factory()->for($this->matter)->status(ChecklistItemStatus::Missing)->create([
+        'name' => BillingRelationManager::REQUIRED_CHECKLIST_ITEM_NAME,
+        'is_required' => true,
+    ]);
+
+    $this->actingAs($this->lead, 'web');
+
+    billingTab($this->matter)->assertSee(__('billing.tab.checklist_nudge'));
+
+    $this->matter->forceFill(['closed_at' => today()->toDateString()])->save();
+
+    billingTab($this->matter->fresh())->assertDontSee(__('billing.tab.checklist_nudge'));
 });
 
 // =================================================================================================
@@ -896,6 +928,44 @@ it('amends with the amounts computed from the percents of the new total', functi
     expect($contract->fresh()->total_amount)->toBe(120_000_000)
         ->and($contract->instalments()->pluck('amount')->all())->toBe([60_000_000, 60_000_000])
         ->and($contract->instalments()->pluck('percent_basis')->all())->toBe(['50.00', '50.00']);
+});
+
+/**
+ * Lượt rà soát Task 6, I1, trên màn hình: ký phụ lục thêm đợt "15 ngày sau khi nộp đơn" cho một vụ
+ * đã nộp đơn từ tháng 4. Ngay sau khi lưu, tab hiện đợt đó đến hạn tính từ ngày ký phụ lục — không
+ * "chờ giai đoạn" tới lượt đối chiếu 07:00, và không "quá hạn" từ tháng 4.
+ */
+it('shows a stage instalment added by amendment for a stage the matter already passed as due from the amendment, right after signing', function () {
+    $this->travelTo('2026-10-03 10:00:00');
+    $civil = MatterType::factory()->withStages()->create(['code' => 'CIV']);
+    $matter = Matter::factory()->for($civil, 'matterType')->atStage('filed')->create(['lead_lawyer_id' => $this->lead->id]);
+    StageLog::factory()->for($matter)->transition('drafting', 'filed')->create(['occurred_at' => '2026-04-10 00:00:00']);
+    $contract = Contract::factory()->for($matter)->active()->create(['total_amount' => 100_000_000, 'signed_at' => '2026-03-01']);
+    Instalment::factory()->for($contract)->create([
+        'amount' => 100_000_000,
+        'trigger_type' => InstalmentTrigger::DueDate,
+        'due_date' => '2026-12-31',
+    ]);
+
+    $this->actingAs($this->lead, 'web');
+
+    $tab = billingTab($matter)
+        ->callAction(TestAction::make('amendContract')->table(), data: [
+            'new_total_amount' => '120.000.000',
+            'signed_at' => '2026-10-01',
+            'reason' => 'Phát sinh công việc ngoài phạm vi ban đầu của hợp đồng.',
+            'instalment_changes' => [
+                ['action' => 'add', 'name' => 'Đợt bổ sung', 'amount' => '20.000.000', 'trigger_type' => 'stage', 'trigger_stage_key' => 'filed', 'due_days_after_trigger' => '15'],
+            ],
+        ])
+        ->assertHasNoActionErrors();
+
+    $added = $contract->instalments()->orderBy('sequence')->get()->last();
+
+    expect($added->trigger_stage_key)->toBe('filed');
+
+    $tab->assertTableColumnFormattedStateSet('due_date', '16/10/2026', $added)
+        ->assertTableColumnFormattedStateSet('state', InstalmentState::Due->label(), $added);
 });
 
 // =================================================================================================

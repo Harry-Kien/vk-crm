@@ -10,6 +10,7 @@ use App\Actions\User\UnlockStaffLogin;
 use App\Enums\Role;
 use App\Enums\UserPosition;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
+use App\Filament\Admin\Pages\BulkReassign;
 use App\Filament\Admin\Resources\Users\UserResource;
 use App\Models\User;
 use App\Support\Audit;
@@ -80,6 +81,13 @@ class EditUser extends EditRecord
      * Filament tự hỏi `UserPolicy::delete()` (không khoá gì) để quyết định nút có bấm được không,
      * rồi gọi `$record->delete()` NGAY SAU — hai câu lệnh RỜI. Giữa hai câu đó, một request khác
      * có thể đổi đúng thứ vừa được đọc. Xem docblock lớp của Action đó cho lý lẽ đầy đủ.
+     *
+     * **`->unauthorizedNotification()` (M7 Task 2, R6) — thêm liên kết tới "Bàn giao hàng loạt"
+     * vào ĐÚNG thông báo mà `authorizationNotification()` của Filament tự dựng khi
+     * `UserPolicy::delete()` từ chối** (tiêu đề = nguyên văn lý do của policy — KHÔNG đổi, đo bởi
+     * `assertNotified(staffOffboardingMessage(...))` đã có từ M6.5). `attachBulkReassignLink()`
+     * chỉ THÊM một action-button vào `$notification` nếu người này còn dẫn vụ mở VÀ actor hiện
+     * tại `BulkReassign::canAccess()` được — xem docblock `BulkReassign::offboardingLinkAction()`.
      */
     protected function getHeaderActions(): array
     {
@@ -151,12 +159,28 @@ class EditUser extends EditRecord
                 }),
             DeleteAction::make()
                 ->authorizationNotification()
+                ->unauthorizedNotification(fn (Notification $notification): Notification => $this->attachBulkReassignLink($notification, $this->getRecord()))
                 ->using(function (DeleteAction $action): bool {
                     $this->runAction($action, fn () => app(DeleteStaffMember::class)->handle(Auth::user(), $this->getRecord()));
 
                     return true;
                 }),
         ];
+    }
+
+    /**
+     * Xem docblock {@see self::getHeaderActions()} và {@see self::handleRecordUpdate()} — dùng
+     * lại ở HAI nơi (xoá và tắt `is_active`), cùng một điều kiện.
+     */
+    private function attachBulkReassignLink(Notification $notification, User $target): Notification
+    {
+        $action = BulkReassign::offboardingLinkAction($target);
+
+        if ($action !== null) {
+            $notification->actions([$action]);
+        }
+
+        return $notification;
     }
 
     /** Chức danh KHÔNG đứng tên phụ trách được một vụ việc — cùng tập vai `ReassignMatter` từ chối cho lead mới (I3, fix round 1). */
@@ -248,6 +272,23 @@ class EditUser extends EditRecord
                     $reason = $this->offboardingOpenWorkReason($locked);
 
                     if ($reason !== null) {
+                        // M7 Task 2, R6: ô lỗi trên form giữ NGUYÊN $reason (đo bởi
+                        // `staffOffboardingMessage()` ở UserResourceTest, không đổi) — liên kết
+                        // tới "Bàn giao hàng loạt" đi bằng một Notification RIÊNG (chuỗi $reason
+                        // không mang được một URL bấm được), và CHỈ khi có gì để trỏ tới: người
+                        // này chỉ còn giữ mốc hạn/yêu cầu khách (không còn vụ lead nào) thì màn
+                        // hình đó không giúp được gì — xem docblock `BulkReassign::
+                        // offboardingLinkAction()`.
+                        $linkAction = BulkReassign::offboardingLinkAction($locked);
+
+                        if ($linkAction !== null) {
+                            Notification::make()
+                                ->warning()
+                                ->title(__('users.offboarding.bulk_reassign_notice', ['name' => $locked->name]))
+                                ->actions([$linkAction])
+                                ->send();
+                        }
+
                         throw ValidationException::withMessages([$this->errorKey('is_active') => [$reason]]);
                     }
                 }

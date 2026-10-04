@@ -18,6 +18,8 @@ return [
         // Task 19 (rà soát cuối, "Cấu hình không phá dữ liệu đang chạy") — MatterTypeStagePolicy::delete().
         'delete_blocked_in_use' => 'Còn :count hồ sơ đang đứng ở giai đoạn này, không xoá được. Chuyển các hồ sơ đó sang giai đoạn khác trước.',
         'delete_blocked_allowed_next' => 'Giai đoạn này còn nằm trong "Được chuyển tới" của: :labels. Bỏ nó khỏi danh sách đó trước khi xoá.',
+        // M9 Task 6 — MatterTypeStagePolicy::delete(), cùng hàm đếm MatterTypeStage::instalmentsAwaitingStage().
+        'delete_blocked_instalments' => 'Còn :count đợt thanh toán đang chờ hồ sơ chạm giai đoạn này để đến hạn, không xoá được. Sửa lịch thu của các hợp đồng đó (bản nháp, hoặc phụ lục cho hợp đồng đã ký) trước.',
     ],
     'stage_fields' => [
         'key' => 'Định danh',
@@ -32,6 +34,8 @@ return [
         'key_locked' => 'Không đổi được định danh: đang có hồ sơ hoặc dòng tiến độ dùng giai đoạn này. Tạo một giai đoạn mới nếu cần định danh khác.',
         // Task 19, vòng sửa 1 (Critical): nhánh riêng của key_locked, nêu tên giai đoạn đang trỏ tới qua allowed_next.
         'key_locked_allowed_next' => 'Không đổi được định danh: giai đoạn này còn nằm trong "Được chuyển tới" của: :labels. Bỏ nó khỏi danh sách đó trước khi đổi định danh.',
+        // M9 Task 6: nhánh riêng của key_locked — đợt thanh toán còn chờ hồ sơ chạm giai đoạn này.
+        'key_locked_instalments' => 'Không đổi được định danh: còn :count đợt thanh toán đang chờ hồ sơ chạm giai đoạn này để đến hạn. Tạo một giai đoạn mới nếu cần định danh khác.',
         // Final review X9: bật/tắt "Giai đoạn kết thúc" đổi nghĩa closed_at của hồ sơ đang đứng ở đó.
         'is_terminal_locked' => 'Không đổi được "Giai đoạn kết thúc": còn :count hồ sơ đang đứng ở giai đoạn này. Chuyển các hồ sơ đó sang giai đoạn khác trước.',
     ],

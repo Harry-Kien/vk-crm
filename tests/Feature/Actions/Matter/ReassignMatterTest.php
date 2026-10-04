@@ -1,11 +1,17 @@
 <?php
 
 use App\Actions\Matter\ReassignMatter;
+use App\Actions\Matter\ReassignMatterResult;
+use App\Enums\ClientRequestStatus;
 use App\Enums\Role;
+use App\Jobs\SendReassignmentDigest;
+use App\Models\ClientRequest;
+use App\Models\Deadline;
 use App\Models\Matter;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -60,7 +66,7 @@ it('refuses an accountant as the new lead', function () {
 it('accepts another lawyer as the new lead', function () {
     $newLead = User::factory()->withRole(Role::Lawyer)->create();
 
-    $stageLog = app(ReassignMatter::class)->handle(
+    $result = app(ReassignMatter::class)->handle(
         matter: $this->matter,
         actor: $this->oldLead,
         newLead: $newLead,
@@ -68,7 +74,7 @@ it('accepts another lawyer as the new lead', function () {
         keepOldLeadAsAssociate: false,
     );
 
-    expect($stageLog)->not->toBeNull()
+    expect($result->stageLog)->not->toBeNull()
         ->and($this->matter->fresh()->lead_lawyer_id)->toBe($newLead->id);
 });
 
@@ -76,7 +82,7 @@ it('accepts another lawyer as the new lead', function () {
 it('accepts a manager as the new lead', function () {
     $manager = User::factory()->withRole(Role::Manager)->create();
 
-    $stageLog = app(ReassignMatter::class)->handle(
+    $result = app(ReassignMatter::class)->handle(
         matter: $this->matter,
         actor: $this->oldLead,
         newLead: $manager,
@@ -84,7 +90,7 @@ it('accepts a manager as the new lead', function () {
         keepOldLeadAsAssociate: false,
     );
 
-    expect($stageLog)->not->toBeNull()
+    expect($result->stageLog)->not->toBeNull()
         ->and($this->matter->fresh()->lead_lawyer_id)->toBe($manager->id);
 });
 
@@ -236,4 +242,129 @@ it('re-checks manageTeam under the lock, so a stale matter object cannot let a f
     ))->toThrow(AuthorizationException::class);
 
     expect($this->matter->fresh()->lead_lawyer_id)->toBe($lawyerB->id);
+});
+
+// =========================================================================================
+// M7 Task 1 — thư tổng hợp mốc hạn cho lead mới (SPEC §6.11 bước 3, R10).
+// =========================================================================================
+
+/**
+ * Mặc định `$sendDigest = true`: bàn giao MỘT vụ (đường vào duy nhất hiện có, qua
+ * `ViewMatter::reassignAction()`) tự xếp một `SendReassignmentDigest` mang đúng mốc CHƯA hoàn
+ * thành vừa chuyển — payload chỉ mang id, job tự dựng lại nội dung lúc chạy (xem tệp test riêng
+ * của job). Dùng `Queue::fake()` ở đây, khác `Mail::fake()` của `ReassignMatterActionTest`, để đo
+ * ĐÚNG việc job có được dispatch với payload đúng hay không, tách khỏi nội dung thư (việc của job).
+ *
+ * **`$job->afterCommit === true` (fix round 1, finding 1).** Bản trước chỉ đo payload, không đo
+ * R2 ("mọi thư đi qua hàng đợi, sau khi commit") chút nào — `QueueFake` (đằng sau `Queue::fake()`)
+ * ghi nhận job dù có `->afterCommit()` hay không, nên `Queue::assertPushed()` không tự nhìn thấy
+ * thiếu sót nếu ai đó xoá `->afterCommit()` khỏi `ReassignMatter::handle()`. `Queueable::
+ * afterCommit()` đặt thẳng thuộc tính public `$afterCommit` LÊN CHÍNH đối tượng job (không phải
+ * lên `PendingDispatch`), nên đọc lại được ngay trong closure này — không cần dựng một transaction
+ * ngoài thật sự để đo (test đó ở `ReassignMatterActionTest`, đo đúng NGHĨA của afterCommit qua
+ * hàng đợi `sync`, không chỉ đo CỜ có được bật hay chưa).
+ */
+it('dispatches a reassignment digest job after commit, by default, carrying the unfinished deadlines moved', function () {
+    Queue::fake();
+
+    $unfinished = Deadline::factory()->for($this->matter)->create([
+        'responsible_user_id' => $this->oldLead->id,
+        'is_completed' => false,
+    ]);
+    $finished = Deadline::factory()->for($this->matter)->create([
+        'responsible_user_id' => $this->oldLead->id,
+        'is_completed' => true,
+        'completed_at' => now(),
+    ]);
+    $newLead = User::factory()->withRole(Role::Lawyer)->create();
+
+    app(ReassignMatter::class)->handle(
+        matter: $this->matter,
+        actor: $this->oldLead,
+        newLead: $newLead,
+        reason: 'Bàn giao.',
+        keepOldLeadAsAssociate: false,
+    );
+
+    Queue::assertPushed(SendReassignmentDigest::class, function (SendReassignmentDigest $job) use ($newLead, $unfinished, $finished): bool {
+        $ids = $job->matters[$this->matter->id]['deadline_ids'] ?? null;
+
+        return $job->newLeadId === $newLead->id
+            && $ids !== null
+            && in_array($unfinished->id, $ids, true)
+            && ! in_array($finished->id, $ids, true)
+            && $job->afterCommit === true;
+    });
+});
+
+/**
+ * Mutation probe (cặp âm/dương với test trên): `$sendDigest: false` — dành cho M7 Task 2 (bàn
+ * giao hàng loạt), nơi CALLER tự gộp một thư cho cả lô thay vì để Action này tự xếp một thư trên
+ * mỗi vụ. Xoá điều kiện `if ($sendDigest)` khỏi `ReassignMatter::handle()` làm chính test này đỏ
+ * (job vẫn bị dispatch dù đã tắt).
+ */
+it('does not dispatch a reassignment digest job when sendDigest is turned off', function () {
+    Queue::fake();
+    $newLead = User::factory()->withRole(Role::Lawyer)->create();
+
+    app(ReassignMatter::class)->handle(
+        matter: $this->matter,
+        actor: $this->oldLead,
+        newLead: $newLead,
+        reason: 'Bàn giao.',
+        keepOldLeadAsAssociate: false,
+        sendDigest: false,
+    );
+
+    Queue::assertNotPushed(SendReassignmentDigest::class);
+});
+
+/**
+ * Fix round 1, finding 2 — `handle()` giờ trả về `App\Actions\Matter\ReassignMatterResult`, không
+ * còn `StageLog` trần, mang thêm `$movedDeadlineIds`/`$movedRequestIds` để M7 Task 2 gộp payload
+ * của cả lô mà KHÔNG phải re-query CSDL sau khi cả lô đã chạy xong (xem docblock lớp
+ * `ReassignMatter` và {@see ReassignMatterResult}). Test dựng đúng tình huống
+ * một re-query ngây thơ ("chưa hoàn thành + hiện do lead mới phụ trách") sẽ vét NHẦM: lead mới đã
+ * sẵn có một deadline chưa hoàn thành TRÊN CHÍNH vụ việc này TỪ TRƯỚC lần bàn giao (ví dụ được
+ * giao thẳng lúc còn là associate) — deadline đó KHÔNG được phép có mặt trong
+ * `$result->movedDeadlineIds` (chỉ đúng mốc bước 3 vừa chuyển từ lead cũ), dù truy vấn "hiện do
+ * lead mới phụ trách" chạy SAU sẽ thấy nó và tính nhầm là "vừa chuyển". Cùng công thức cho
+ * `client_requests` (mutation probe: đổi `assigned_to` của $preexistingRequest trước khi bàn giao
+ * — nếu `movedRequestIds` được tính bằng re-query thay vì bằng $movedRequestIds gốc, test này đỏ).
+ */
+it('returns the moved deadline and client-request ids on the result object, not just whatever the new lead now holds', function () {
+    $newLead = User::factory()->withRole(Role::Lawyer)->create();
+
+    // Đã có TỪ TRƯỚC lần bàn giao này — không liên quan gì tới nó, không được lẫn vào kết quả.
+    $preexistingDeadline = Deadline::factory()->for($this->matter)->create([
+        'responsible_user_id' => $newLead->id,
+        'is_completed' => false,
+    ]);
+    $preexistingRequest = ClientRequest::factory()->for($this->matter)->create([
+        'assigned_to' => $newLead->id,
+        'status' => ClientRequestStatus::InProgress,
+    ]);
+
+    $moved = Deadline::factory()->for($this->matter)->create([
+        'responsible_user_id' => $this->oldLead->id,
+        'is_completed' => false,
+    ]);
+    $movedRequest = ClientRequest::factory()->for($this->matter)->create([
+        'assigned_to' => $this->oldLead->id,
+        'status' => ClientRequestStatus::InProgress,
+    ]);
+
+    $result = app(ReassignMatter::class)->handle(
+        matter: $this->matter,
+        actor: $this->oldLead,
+        newLead: $newLead,
+        reason: 'Bàn giao.',
+        keepOldLeadAsAssociate: false,
+        sendDigest: false,
+    );
+
+    expect($result->movedDeadlineIds)->toBe([$moved->id])
+        ->and($result->movedDeadlineIds)->not->toContain($preexistingDeadline->id)
+        ->and($result->movedRequestIds)->toBe([$movedRequest->id])
+        ->and($result->movedRequestIds)->not->toContain($preexistingRequest->id);
 });

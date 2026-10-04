@@ -5,6 +5,8 @@ use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
+use App\Mail\Client\StageUpdate;
+use App\Mail\Staff\MatterReassigned;
 use App\Models\ClientRequest;
 use App\Models\Deadline;
 use App\Models\Matter;
@@ -15,6 +17,7 @@ use Filament\Facades\Filament;
 use Filament\Notifications\Livewire\Notifications;
 use Filament\Notifications\Notification;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification as NotificationFacade;
 use Illuminate\Validation\ValidationException;
@@ -35,6 +38,13 @@ beforeEach(function () {
     NotificationFacade::fake();
 });
 
+/**
+ * M7 Task 1: bàn giao qua màn hình giờ CŨNG xếp một thư tổng hợp mốc hạn cho lead mới (SPEC
+ * §6.11 bước 3, dựng trên `App\Jobs\SendReassignmentDigest` — xem tệp test riêng của job cho
+ * hành vi "dựng lại lúc gửi"). `Mail::assertNothingSent()` không còn đúng nữa; vế "không mail nào
+ * tới KHÁCH" của tên test này vẫn giữ nguyên — kiểm bằng cách phủ định đúng lớp thư gửi khách
+ * (`App\Mail\Client\StageUpdate`), không phải phủ định TOÀN BỘ facade `Mail`.
+ */
 it('reassigns the lead through the header action: lead changes, unfinished deadlines move, an unpublished internal stage log is written, and no mail goes to the client', function () {
     $oldLead = User::factory()->withRole(Role::Lawyer)->create(['name' => 'Luật sư Cũ']);
     $newLead = User::factory()->withRole(Role::Lawyer)->create(['name' => 'Luật sư Mới']);
@@ -75,15 +85,21 @@ it('reassigns the lead through the header action: lead changes, unfinished deadl
         ->and($internalLog->from_stage)->toBe($internalLog->to_stage)
         ->and($internalLog->internal_note)->toContain('Luật sư cũ chuyển công tác sang chi nhánh khác.');
 
-    Mail::assertNothingSent();
+    Mail::assertSent(MatterReassigned::class, function (MatterReassigned $mail) use ($newLead, $unfinished): bool {
+        return $mail->hasTo($newLead->email)
+            && collect($mail->blocks[0]['deadlines'])->pluck('id')->contains($unfinished->id);
+    });
+    Mail::assertNotSent(StageUpdate::class);
     NotificationFacade::assertNothingSent();
 });
 
 /**
  * Spec gap (fix round 1): SPEC §6.11 bước 4 — "gợi ý soạn một dòng cập nhật công bố giới thiệu
- * luật sư mới". Chỉ MỘT gợi ý trên giao diện (Filament Notification), KHÔNG BAO GIỜ tự gửi —
- * `Mail::assertNothingSent()` giữ nguyên vế đó. Chỉ hiện khi vụ việc ĐÃ công bố portal: gợi ý
- * "giới thiệu luật sư mới cho khách" không có nghĩa gì trên một vụ khách còn chưa thấy được.
+ * luật sư mới". Chỉ MỘT gợi ý trên giao diện (Filament Notification), KHÔNG BAO GIỜ tự gửi tới
+ * KHÁCH — vế đó giờ kiểm bằng `Mail::assertNotSent(StageUpdate::class)` (M7 Task 1: thư tổng hợp
+ * mốc hạn cho NHÂN SỰ giờ được gửi thật, nên `Mail::assertNothingSent()` không còn đúng nữa —
+ * xem test đầu tệp). Chỉ hiện khi vụ việc ĐÃ công bố portal: gợi ý "giới thiệu luật sư mới cho
+ * khách" không có nghĩa gì trên một vụ khách còn chưa thấy được.
  */
 it('suggests introducing the new lead to the client when the matter is published to the portal', function () {
     $oldLead = User::factory()->withRole(Role::Lawyer)->create();
@@ -101,7 +117,7 @@ it('suggests introducing the new lead to the client when the matter is published
         ->assertHasNoActionErrors();
 
     Notification::assertNotified(__('reassign.action.suggest_introduction_title'));
-    Mail::assertNothingSent();
+    Mail::assertNotSent(StageUpdate::class);
 });
 
 /** Vế âm bắt buộc: một vụ CHƯA công bố portal không hiện gợi ý này. */
@@ -233,6 +249,10 @@ it('reassigns a restricted matter to another lawyer: the new lead can see it, th
     $this->actingAs($oldLead, 'web')
         ->get(MatterResource::getUrl('view', ['record' => $matter], panel: 'admin'))
         ->assertNotFound();
+
+    // M7 Task 1: một vụ `restricted` vẫn xếp thư tổng hợp cho lead mới như thường — họ CHÍNH là
+    // người vừa được cấp quyền xem vụ này (lead_lawyer_id), nên qualifies() ở job không loại họ.
+    Mail::assertSent(MatterReassigned::class, fn (MatterReassigned $mail): bool => $mail->hasTo($newLead->email));
 });
 
 /**
@@ -314,6 +334,60 @@ it('refuses to keep the old lead as an associate on a restricted matter even whe
 
     expect($matter->lead_lawyer_id)->toBe($oldLead->id)
         ->and($matter->team()->whereKey($oldLead->id)->where('role_in_matter', MatterRole::Lead->value)->exists())->toBeTrue();
+
+    // M7 Task 1: `ValidationException` ném ở bước "giữ lại" (TRƯỚC Bước 5/dispatch — xem
+    // `ReassignMatter::handle()`) nên dòng `SendReassignmentDigest::dispatch()` KHÔNG BAO GIỜ
+    // chạy trong nhánh này. `Mail::assertNothingSent()` đúng ở ĐÂY bất kể `->afterCommit()` có mặt
+    // hay không — vế "gửi thư SAU KHI commit" (R2) được đo bởi một test KHÁC, ngay dưới đây, bọc
+    // một lần bàn giao THÀNH CÔNG (chạm cả dòng dispatch) trong một transaction ngoài rồi rollback
+    // (fix round 1, finding 1 — vế đó trước đây không có test nào phủ).
+    Mail::assertNothingSent();
+});
+
+/**
+ * Fix round 1, finding 1 — test trên đo một nhánh KHÔNG BAO GIỜ chạm dòng dispatch thư tổng hợp
+ * (`ValidationException` ném TRƯỚC Bước 5); nó không chứng minh được gì về R2 ("mọi thư đi qua
+ * hàng đợi, sau khi commit, không bao giờ trong `DB::transaction`"). Test này bọc một lần bàn
+ * giao THÀNH CÔNG (chạm cả 5 bước, kể cả dòng dispatch) trong một transaction NGOÀI của chính
+ * test rồi CỐ Ý rollback — cùng thành ngữ `tests/Feature/Models/ClientIdentitySyncTest.php`
+ * ("does not dispatch the identity recheck job when the enclosing transaction rolls back").
+ *
+ * Hàng đợi `sync` của bộ test (`phpunit.xml`, `QUEUE_CONNECTION=sync`) THẬT SỰ tôn trọng
+ * `->afterCommit()` (`Illuminate\Queue\SyncQueue::push()` đi qua `enqueueUsing()` như mọi driver
+ * khác) — khác `Queue::fake()` (`ReassignMatterTest.php`), bỏ qua hoàn toàn ngữ nghĩa đó. Nếu ai
+ * xoá `->afterCommit()` khỏi `ReassignMatter::handle()`, job sẽ chạy NGAY bên trong transaction
+ * ngoài này — TRƯỚC khi nó rollback — và thư "được gửi thật" dù toàn bộ bàn giao vừa biến mất;
+ * test dưới đây bắt đúng khoảng hở đó (đã xác nhận đỏ bằng tay khi bỏ `->afterCommit()`, xem báo
+ * cáo fix round 1).
+ */
+it('does not send the reassignment digest when an outer transaction around a successful handover rolls back', function () {
+    $oldLead = User::factory()->withRole(Role::Lawyer)->create();
+    $newLead = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $oldLead->id]);
+    Deadline::factory()->for($matter)->create([
+        'responsible_user_id' => $oldLead->id,
+        'is_completed' => false,
+    ]);
+
+    $this->actingAs($oldLead, 'web');
+
+    try {
+        DB::transaction(function () use ($matter, $newLead): void {
+            $this->livewire(ViewMatter::class, ['record' => $matter->getKey()])
+                ->callAction('reassignMatter', data: [
+                    'new_lead_id' => $newLead->id,
+                    'keep_old_lead_as_associate' => false,
+                    'reason' => 'Bàn giao, transaction ngoài sẽ rollback.',
+                ])
+                ->assertHasNoActionErrors();
+
+            throw new RuntimeException('Huỷ có chủ đích — thư không được phép gửi sau việc này.');
+        });
+    } catch (RuntimeException) {
+        // Mong đợi — xem để lộ rõ ý định thay vì một catch im lặng không giải thích.
+    }
+
+    Mail::assertNotSent(MatterReassigned::class);
 });
 
 it('writes a matter_reassigned audit entry', function () {

@@ -141,9 +141,10 @@ class NotifyStaffOfNewClientDocument
     }
 
     /**
-     * Chỉ loại vụ đã XOÁ MỀM (huỷ) — mặc định của `Matter::query()`. KHÔNG `->open()`: khách nộp được
-     * tệp vào vụ ĐÃ ĐÓNG còn công bố trên cổng (`DocumentPolicy::create`), nên văn phòng vẫn phải nhận báo
-     * (vòng sửa 1). Thư nội bộ không phải ranh giới cổng.
+     * Chỉ loại vụ đã XOÁ MỀM (huỷ) — mặc định của `Matter::query()`. KHÔNG `->open()`: một tệp khách
+     * nộp khi vụ còn mở vẫn phải được báo nếu vụ đóng trong cửa sổ hàng đợi (vòng sửa 1). Thư nội bộ
+     * không phải ranh giới cổng. (Gộp M7 vào `main`: từ M7 Task 3 khách không còn nộp được vào vụ ĐÃ
+     * ĐÓNG — `MatterClosedForSubmission` — nên lý do cũ "khách nộp được vào vụ đã đóng" không còn.)
      */
     private function existingMatterFor(Document $document): ?Matter
     {

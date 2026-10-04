@@ -3,8 +3,10 @@
 namespace App\Actions\Notification;
 
 use App\Enums\Confidentiality;
+use App\Enums\Permission;
 use App\Enums\Role;
 use App\Models\Contract;
+use App\Models\IntakeRequest;
 use App\Models\Matter;
 use App\Models\User;
 use Illuminate\Support\Collection;
@@ -161,6 +163,25 @@ class ResolveStaffRecipients
     }
 
     /**
+     * M7 Task 6 (R5): MỌI admin đang hoạt động được xem `$matter` — người nhận cảnh báo "hồ sơ quá
+     * hạn lưu trữ" (`App\Actions\Schedule\FlagRetentionExpiry`). Quyết định tiêu huỷ là việc của
+     * quản trị, không của luật sư phụ trách hay trưởng phòng, nên đây không phải
+     * {@see self::supervisorsFor()} (manager cho vụ thường) và không có chuỗi dự phòng: không còn
+     * admin nào thì trả rỗng (R7 của M6.5 cấm chính điều đó). Truy vấn chỉ chọn vai trò; ba điều
+     * kiện người nhận (`is_active`, chưa xoá mềm, `Gate::view()`) nằm ở MỘT chỗ,
+     * {@see self::qualify()}, như mọi danh sách khác — không lọc `is_active` lần thứ hai ở đây.
+     *
+     * @return Collection<int, User>
+     */
+    public function activeAdminsFor(Matter $matter): Collection
+    {
+        return $this->qualify(
+            User::query()->role(Role::Admin->value)->orderBy('id')->get(),
+            $matter,
+        );
+    }
+
+    /**
      * Một người CÓ qua được `is_active` + `Gate::view()` của `$matter` hay không — cùng luật của
      * {@see self::qualify()}, chỉ khác là hỏi về MỘT người thay vì lọc một danh sách. Dùng khi
      * caller cần biết "người X có còn hợp lệ không" để tự quyết định thay THẾ họ bằng ai (ví dụ
@@ -240,5 +261,46 @@ class ResolveStaffRecipients
         )->first();
 
         return $admin !== null ? collect([$admin]) : collect();
+    }
+
+    /**
+     * Người nhận thư/thông báo về MỘT LẦN CÓ NGƯỜI LIÊN HỆ (M10 R5, Task 5 — `staff.intake_unanswered`).
+     * Cổng riêng vì bản ghi tiếp nhận không có `Matter` nào để hỏi `Gate::view()` như {@see self::handle()};
+     * cùng lớp, cùng hai bộ lọc `is_active` + chưa xoá mềm, và "xem được" là `IntakeRequestPolicy::view`
+     * (`IntakeRequest::isVisibleTo()`). Ba tầng, dừng ở tầng ĐẦU TIÊN có người — "không bao giờ im lặng":
+     *  1. người được giao (`assigned_to`), nếu đang hoạt động, chưa xoá và còn xem được bản ghi;
+     *  2. không thì MỌI người có quyền `intake.viewAny` đang hoạt động, chưa xoá, xem được bản ghi;
+     *  3. không thì MỌI admin đang hoạt động, chưa xoá — KHÔNG hỏi "xem được": tầng cuối là lưới an
+     *     toàn khi chính quyền `intake.viewAny` đã bị gỡ khỏi mọi vai, và thư của mẫu này không mang
+     *     dữ liệu nào của người liên hệ (chỉ mã, nguồn, thời gian đã chờ, liên kết), nên báo cho admin
+     *     — người sửa được phân quyền — vẫn hơn im lặng.
+     * Người đã ghi bản ghi mà không được giao thì không nhận: R5 nói "người được giao", không nói
+     * "người nhấc máy". Người được giao đã xoá mềm không tới được tầng 1 (quan hệ `assignee` bỏ dòng đã
+     * xoá); tầng 2 và 3 đọc `User::query()`, cũng bỏ dòng đã xoá.
+     *
+     * @return Collection<int, User>
+     */
+    public function forIntake(IntakeRequest $intake): Collection
+    {
+        $qualifies = fn (User $user): bool => $user->is_active
+            && Gate::forUser($user)->allows('view', $intake);
+
+        $assignee = $intake->assignee()->first();
+
+        if ($assignee instanceof User && $qualifies($assignee)) {
+            return collect([$assignee]);
+        }
+
+        $viewers = User::query()
+            ->permission(Permission::IntakeViewAny->value)
+            ->get()
+            ->filter($qualifies)
+            ->values();
+
+        if ($viewers->isNotEmpty()) {
+            return $viewers;
+        }
+
+        return User::query()->where('is_active', true)->role(Role::Admin->value)->get()->values();
     }
 }

@@ -25,16 +25,59 @@ thuộc kế hoạch nào.
 
 ## Giai đoạn 1 — Tiếp nhận và thẩm định đầu vào
 
-Đây là giai đoạn quyết định nhiều tiền nhất và mang rủi ro nghề nghiệp cao nhất, và
-cũng là giai đoạn hệ thống hiện **yếu nhất**.
+Đây là giai đoạn quyết định nhiều tiền nhất và mang rủi ro nghề nghiệp cao nhất. Trước M10 hệ
+thống không có chỗ nào cho nó; sau M10 mọi dòng dưới đây đã chạy được.
+
+**Cập nhật 2026-10-03 (M10 Task 8).** Trạng thái đo trên nhánh `m10-intake` (mọi cổng xanh, ba luồng
+nghiệm thu đi hết trên dữ liệu mẫu — `tests/Feature/Intake/IntakeAcceptanceWalkTest.php`); **M10 chưa
+gộp vào `main`** lúc viết. Chi tiết, phán quyết và những gì còn chờ chủ văn phòng/luật sư xác nhận ở
+`docs/PROGRESS.md`, "Ghi chú M10".
+
+**Cập nhật 2026-10-04 (rà soát cuối M10, vòng sửa 1).** Ba câu dưới đây từng hứa nhiều hơn hệ thống làm,
+đã sửa cho đúng mã: "người nhập chỉ thấy mã hồ sơ và vai" (nay đúng với khớp Đỏ; khớp Vàng vẫn hiện tên
+để người nhập tự xem), "người gọi lại cũng bị khoá" (chỉ khi cùng vai đã khai), "cùng số là cùng một
+người" (chỉ là gợi ý).
 
 | Văn phòng làm gì | Hệ thống đỡ bằng gì | Trạng thái |
 |---|---|---|
-| Ghi lại mỗi lần có người liên hệ, dù qua điện thoại, Zalo, website hay đến trực tiếp | Bảng tiếp nhận, màn hình nhập nhanh | **[Có kế hoạch]** M10 |
-| **Kiểm tra xung đột lợi ích trước khi nghe nội dung vụ việc** | `RunConflictCheck` chạy ngay ở bước danh tính; kết quả Đỏ khoá phần nội dung | **[Có kế hoạch]** M10 — Action đã có từ M3 |
-| Phát hiện cùng một người gọi nhiều lần | Dò trùng theo số điện thoại đã chuẩn hoá và tên đã chuẩn hoá | **[Có kế hoạch]** M10 |
-| Bảo đảm không ai bị bỏ quên không gọi lại | Mốc phản hồi lần đầu, nhắc quá ngưỡng, widget trang chủ | **[Có kế hoạch]** M10 |
-| Từ chối vụ việc và ghi lý do | Lý do xung đột chỉ hiện cho quản lý; người gọi không bao giờ được biết lý do thật | **[Có kế hoạch]** M10 |
+| Ghi lại mỗi lần có người liên hệ, dù qua điện thoại, Zalo, website hay đến trực tiếp | Màn hình **Tiếp nhận**: trang tạo nhập nhanh (bắt buộc tên, vai dự kiến, nguồn, SĐT hoặc email; câu chuyện ghi sau), mã `TN-2026-0001` để nhắc qua điện thoại, nguồn có cả "form website" cho lead nhân sự nhập tay; giao người phụ trách; chuyển thành vụ việc không gõ lại (`ConvertIntakeToMatter` — khách tra theo CCCD rồi SĐT, mở vụ bằng đúng `OpenMatter`, phí đã báo thành gợi ý của hợp đồng) | **[Xong]** sau M10 (Task 1–4). Chưa có đường công khai: form trên luatvukhang.com gửi thẳng vào là một milestone riêng (R6) |
+| **Kiểm tra xung đột lợi ích trước khi nghe nội dung vụ việc** | Lưu phần danh tính là chạy đúng `RunConflictCheck` (cùng khoá với mở vụ), dò khách và các bên của mọi vụ VÀ những người văn phòng đã nghe mà chưa nhận việc (lần tiếp nhận cũ — tối đa Vàng, "đã liên hệ văn phòng ngày …"). Ô câu chuyện: Xanh đủ định danh thì mở; Vàng hoặc thiếu định danh thì phải xác nhận đã xem các khớp; Đỏ thì khoá — chỉ trưởng phòng/quản trị từ chối hoặc ghi đè kèm lý do; Đỏ "dính" (sửa danh tính không gỡ được); một lần gọi khác của CÙNG người — cùng SĐT hoặc CCCD **và cùng vai đã khai** — cũng bị khoá như Đỏ, kể cả lần gọi đã ghi trước đó (khai vai khác thì lần gọi kia chỉ hiện ở mức Vàng, kèm mã `TN-…`). Danh sách có bộ lọc "Đỏ chờ trưởng phòng xử lý" để trưởng phòng/quản trị tìm những bản chỉ họ mở được | **[Xong]** sau M10 (Task 2, 3; rà soát cuối). Với khớp **Đỏ**, người nhập (không phải trưởng phòng/quản trị) chỉ thấy mã hồ sơ và vai của bên trùng — không tên, không lĩnh vực, không tiêu chí khớp. Với khớp **Vàng**, người nhập thấy mã hồ sơ, lĩnh vực, vai và tên bên trùng để tự xem trước khi xác nhận. Không ai thấy tiêu đề hay nội dung vụ ở đây |
+| Phát hiện cùng một người gọi nhiều lần | Gợi ý bản ghi cũ khi trùng đúng SĐT (đã chuẩn hoá) hoặc CCCD — chỉ là gợi ý: một số máy có thể dùng chung (vợ chồng, người nhà, đồng nghiệp); trùng theo tên chỉ hiện cho trưởng phòng/quản trị; trùng một khách hàng thì chỉ nói "số này đã là khách của văn phòng"; người nhập hỏi lại cho chắc rồi mới gộp bản trùng vào bản cũ hơn | **[Xong]** sau M10 (Task 2, 3) |
+| Bảo đảm không ai bị bỏ quên không gọi lại | Mốc phản hồi lần đầu (lần đầu rời "Mới"); quá 4 giờ làm việc (`INTAKE_RESPONSE_HOURS`) thì nhắc người được giao — không có thì trưởng phòng/quản trị, cuối cùng là admin — bằng chuông và thư không mang dữ liệu người liên hệ; widget "Liên hệ chưa ai gọi lại"; báo cáo "Bức tranh đầu vào" (nguồn, tỉ lệ thành vụ việc, thời gian phản hồi, lý do không thành) | **[Xong]** sau M10 (Task 5, 6). Ngày lễ chưa được trừ khỏi giờ làm việc và Thứ Bảy chưa tính — chờ chủ văn phòng |
+| Từ chối vụ việc và ghi lý do | Nút "Từ chối" bắt buộc lý do; "vì xung đột lợi ích" chỉ trưởng phòng/quản trị chọn; lý do của mọi lần từ chối chỉ trưởng phòng/quản trị (và chính người đã từ chối) đọc được; người khác chỉ thấy "Văn phòng từ chối" và câu trả lời chuẩn — giống nhau cho mọi lý do, để không ai đoán ra lần nào là vì xung đột | **[Xong]** sau M10 (Task 3; rà soát cuối) |
+| Giữ dữ liệu của người không thành khách đúng hạn, xoá khi họ yêu cầu | Ghi nhận người liên hệ đã nghe thông báo và đồng ý (ô không tích sẵn) trước khi ghi câu chuyện; hết `PROSPECT_RETENTION_MONTHS` (24) tháng thì tự ẩn danh; admin "Xoá dữ liệu theo yêu cầu" kèm lý do; câu chuyện không bao giờ ra máy chủ MCP | **[Xong]** sau M10 (Task 2, 7). Câu thông báo là BẢN NHÁP, con số 24 tháng và việc giữ dấu băm sau ẩn danh chờ luật sư xác nhận |
+
+**Nhận một cuộc gọi đầu — từng bước cho người trực điện thoại** (M10):
+
+1. **Tiếp nhận → Tạo.** Hỏi tên, số điện thoại (hoặc email), người gọi đứng ở vai nào (sẽ là người
+   kiện, người bị kiện, hay người liên quan), và bên kia là ai — tên, kèm SĐT hoặc CCCD nếu người gọi
+   biết. **Chưa hỏi chuyện gì đã xảy ra.**
+2. **Đọc câu thông báo** hiện trên form cho người gọi. Người gọi đồng ý thì tích ô "đã nghe thông báo
+   và đồng ý" (ô không bao giờ tích sẵn). Giao cho luật sư phụ trách nếu đã biết. Bấm Tạo — hệ thống
+   kiểm tra xung đột lợi ích ngay lúc đó.
+3. **Đọc kết quả trên trang bản ghi** (ngày giờ lần kiểm tra hiện ngay đó):
+   - **Xanh** — ô câu chuyện mở: nghe và ghi câu chuyện.
+   - **Vàng / thiếu định danh** — xem bảng khớp (mã hồ sơ, lĩnh vực, vai và tên bên trùng, hoặc "đã liên
+     hệ văn phòng ngày …" kèm mã `TN-…`), bấm "Xác nhận đã xem các khớp" rồi mới nghe chuyện. Không chắc
+     thì hỏi luật sư trước.
+   - **Đỏ** (kể cả "Đỏ chờ trưởng phòng xử lý") — **dừng, không nghe chuyện.** Bảng chỉ cho anh/chị mã
+     hồ sơ và vai của bên trùng. Hẹn sẽ gọi lại, báo trưởng phòng/quản trị. Họ quyết: từ chối (vì xung
+     đột) hoặc ghi đè kèm lý do. Lần gọi khác của cùng người — cùng số (hoặc CCCD) và **cùng vai** —
+     cũng bị khoá như vậy, cả lần gọi lại hôm sau lẫn một lần gọi đã ghi từ trước. Nếu lần gọi lại khai
+     vai KHÁC, hệ thống chỉ hiện lần gọi kia ở mức Vàng kèm mã `TN-…`: thấy mã một lần gọi trước của
+     cùng số thì báo trưởng phòng trước khi nghe chuyện.
+4. **Hệ thống báo đã có bản ghi cũ cùng số** — RẤT CÓ THỂ là cùng một người, nhưng một số máy có thể
+   dùng chung (vợ chồng, người nhà, đồng nghiệp): hỏi lại cho chắc. Đúng người thì gộp bản mới vào bản
+   CŨ hơn (đồng hồ phản hồi chạy theo bản còn lại); không phải thì để hai bản riêng.
+5. **Gọi lại và đổi trạng thái** (Đã liên hệ → Đang tư vấn → Đã báo giá, ghi phí đã báo). Lần đầu đổi
+   trạng thái là mốc "đã phản hồi"; quá 4 giờ làm việc mà bản ghi còn "Mới" thì hệ thống nhắc.
+6. **Khách đồng ý:** luật sư bấm "Chuyển thành vụ việc" (trợ lý không có nút này) — hệ thống tìm khách
+   cũ theo CCCD/SĐT, hỏi xác nhận đúng người, mở vụ có mã, phí đã báo hiện sẵn ở form soạn hợp đồng.
+   **Không thành:** "Khách không theo tiếp", hoặc "Từ chối" kèm lý do. Từ chối vì xung đột thì chỉ nói
+   với người gọi **"Văn phòng xin phép không nhận vụ việc này"**, không giải thích thêm.
+7. **Dữ liệu người không thành khách** tự ẩn danh sau hạn lưu. Ai yêu cầu xoá: báo admin, admin dùng
+   "Xoá dữ liệu theo yêu cầu" và ghi cách đã xác minh người yêu cầu (bản sao lưu còn dữ liệu cũ tới
+   khoảng 30 ngày).
 
 **Luật nghề nghiệp đứng sau giai đoạn này.** Nếu nghe hết câu chuyện rồi mới phát
 hiện bên kia là khách hàng hiện hữu thì thông tin bí mật đã nghe rồi và không rút lại
@@ -54,7 +97,7 @@ một khách hàng khác.
 | Khai các bên trong vụ việc | Tab **Các bên**; thêm, sửa, gỡ một bên (gỡ là xoá mềm kèm lý do); mỗi lần đều chạy lại kiểm tra xung đột | **[Xong]** sau M6.5 — trước đó không sửa hay gỡ được bên đã nhập, số điện thoại viết kiểu `(+84) 912 345 678` bị từ chối (`conflict-05`, `09`, `10`); sửa ở Task 9 (R14) |
 | Giao luật sư phụ trách và đội ngũ | Tab **Đội ngũ**: thêm, gỡ luật sư phối hợp, trợ lý, người theo dõi; đổi luật sư phụ trách qua **Bàn giao**; phạm vi nhìn thấy suy từ đội ngũ | **[Xong]** sau M6.5 — trước đó **không có màn hình nào** thêm người vào đội ngũ: mọi vụ chỉ có luật sư phụ trách, trợ lý không bao giờ thấy vụ (`intake/intake-01`, `roles/roles-03`, `spec-gap/spec-gap-01`, `e2e/F4`, critical); sửa ở Task 3 (R6), bàn giao một vụ ở Task 4 (R7) |
 | Áp danh mục giấy tờ theo loại vụ việc | `ApplyChecklistTemplate`, màn hình quản lý danh mục mẫu trên loại vụ việc, nút thêm đầu mục cho một vụ, thanh tiến độ `X/Y` | **[Xong]** sau M6.5 — trước đó không có màn hình danh mục mẫu nào và 3/6 loại vụ việc mở ra với danh mục rỗng, khách không nộp được giấy tờ (`intake/intake-02`, `checklist/checklist-02`, `roles/roles-06`, `spec-gap/spec-gap-04`, critical; Task 15); thanh `X/Y` đếm nhầm văn bản văn phòng phát hành (`checklist-05`; Task 17, SPEC §4.10) |
-| Ký hợp đồng dịch vụ, chốt giá trị và các đợt thu | Hợp đồng một giá trị, chia đợt gắn vào giai đoạn | **[Có kế hoạch]** M9 |
+| Ký hợp đồng dịch vụ, chốt giá trị và các đợt thu | Tab **Hợp đồng và thanh toán** trên trang vụ việc: luật sư phụ trách bấm "Soạn hợp đồng" (một giá trị, thuế suất nếu có, các đợt theo phần trăm hoặc số tiền), rồi "Kích hoạt" khi khách đã ký — tổng các đợt lệch một đồng thì không kích hoạt được | **[Xong]** M9 — xem Giai đoạn 5 |
 
 ---
 
@@ -85,7 +128,7 @@ một khách hàng khác.
 | Đọc lý do khi giấy tờ bị từ chối và nộp lại | Lý do hiện nguyên văn, bản nộp lại nối vào bản cũ | **[Xong]** — khách phải tự mở cổng mới thấy; thư báo bị từ chối là M6 Task 3 |
 | Hỏi lại văn phòng và nhận trả lời | Yêu cầu từ khách, trả lời theo luồng; hộp thư văn phòng sắp theo hoạt động gần nhất | **[Xong]** phần hỏi và trả lời trên màn hình. **Còn thiếu:** văn phòng **không được báo** khi khách gửi yêu cầu mới hay hỏi tiếp, nhân sự phải tự mở tab Yêu cầu của từng vụ (`requests/REQ-1`, `REQ-2`); khách không được báo khi văn phòng trả lời (`REQ-4`). Cả ba chuyển sang M6 Task 4 |
 | Nhận thư báo khi có cập nhật mới | Bốn mẫu thư cho khách, chỉ chứa nội dung đã công bố | **[Có kế hoạch]** M6 |
-| **Xem đã đóng bao nhiêu trên tổng giá trị hợp đồng** | Hợp đồng và lịch thu trên cổng khách | **[Có kế hoạch]** M9 — *còn một quyết định của chủ văn phòng, xem dưới* |
+| **Xem đã đóng bao nhiêu trên tổng giá trị hợp đồng** | Khối **Hợp đồng và thanh toán** trên trang tiến độ của cổng: số hợp đồng, tổng giá trị, thuế suất, ngày ký, từng đợt (đến hạn khi nào, đã thanh toán, còn lại, quá hạn) và các khoản văn phòng đã nhận. Không hiện ghi chú nội bộ, lý do miễn/huỷ, người ghi, khoản thu đã huỷ, bản nháp hay hợp đồng đã huỷ. Đợt theo tiến độ chưa tới bước của nó nói "đến hạn khi vụ việc tới bước …" bằng nhãn cho khách; tới bước đó thì đổi thành ngày đến hạn. Gói bàn giao in cùng bảng kê đó | **[Xong]** M9 Task 10 — chủ văn phòng đã quyết: **khách xem được** (phán quyết P1, 2026-09-24). Không có thư nhắc nợ nào gửi khách |
 
 Văn phòng nhìn ngược lại: mỗi dòng đã công bố mang nhãn **khách đã xem lúc nào**, và
 dòng chưa ai xem quá năm ngày thì nhắc luật sư gọi điện.
@@ -96,11 +139,69 @@ dòng chưa ai xem quá năm ngày thì nhắc luật sư gọi điện.
 
 | Văn phòng làm gì | Hệ thống đỡ bằng gì | Trạng thái |
 |---|---|---|
-| Chốt một giá trị hợp đồng duy nhất | Hợp đồng gắn vào vụ việc, sửa bằng phụ lục chỉ thêm không sửa | **[Có kế hoạch]** M9 |
-| Chia thành các đợt thu gắn vào tiến độ | "Thu đợt hai khi nộp đơn khởi kiện" | **[Có kế hoạch]** M9 |
-| Ghi từng khoản tiền thật sự nhận, ai ghi, nhận bằng cách nào | Bảng thanh toán có người ghi và phương thức | **[Có kế hoạch]** M9 |
-| Nhìn bức tranh tiền: đã thu trên tổng, còn phải thu | Trang biểu đồ lọc theo thời gian, luật sư, lĩnh vực | **[Có kế hoạch]** M9 |
-| Không đóng hồ sơ nhầm khi còn công nợ | Đóng vụ việc không bị chặn, nhưng xoá thì bị chặn khi còn dư nợ | **[Có kế hoạch]** M9 |
+| Chốt một giá trị hợp đồng duy nhất | Tab **Hợp đồng và thanh toán** của vụ: một hợp đồng cho một vụ, giá trị là số khách trả (đã gồm thuế nếu có); bản nháp sửa thẳng được; từ lúc kích hoạt, đổi giá trị hay lịch thu chỉ bằng **Ký phụ lục** (lý do, ngày ký, giá trị cũ và mới được giữ lại, không sửa, không xoá); bản nháp chưa có khoản thu thì xoá được | **[Xong]** M9 |
+| Chia thành các đợt thu gắn vào tiến độ | Mỗi đợt đến hạn theo một trong ba cách: khi ký hợp đồng, vào một ngày cụ thể, hoặc **khi vụ việc tới một giai đoạn** ("thu đợt hai 15 ngày sau khi nộp đơn khởi kiện") — luật sư chuyển giai đoạn là đợt đó có ngày đến hạn ngay, tính từ ngày giai đoạn thật sự xảy ra; một lượt đối chiếu 07:00 hằng ngày bắt nốt những đợt lỡ | **[Xong]** M9 (Task 4, 6) |
+| Ghi từng khoản tiền thật sự nhận, ai ghi, nhận bằng cách nào | Trang **Công nợ** của kế toán (xem "Kế toán ghi tiền" bên dưới); người ghi, ngày tiền về, cách nhận, mã giao dịch/số biên lai; ghi nhầm thì **huỷ** kèm lý do, khoản đã huỷ vẫn nằm đó | **[Xong]** M9 (Task 5, 8) |
+| Được nhắc khi một đợt quá hạn | Thư nội bộ 08:00 hằng ngày: ngày đầu quá hạn, rồi bảy ngày một lần, tới kế toán và luật sư phụ trách (vụ hạn chế: luật sư phụ trách và quản trị viên). Không có thư nhắc nợ nào gửi khách | **[Xong]** M9 Task 11 |
+| Nhìn bức tranh tiền: đã thu trên tổng, còn phải thu | Trang **Doanh thu**: vành khuyên đã thu / còn phải thu / quá hạn, doanh thu theo thời gian, theo đợt/giai đoạn, cơ cấu theo 12 lĩnh vực, tải theo luật sư, hồ sơ đã kết thúc còn công nợ; lọc theo kỳ, luật sư, lĩnh vực. Mỗi biểu đồ ghi rõ nó lọc theo ngày ký hay ngày tiền về, theo luật sư lúc thu hay luật sư hiện tại | **[Xong]** M9 Task 9 |
+| Không đóng hồ sơ nhầm khi còn công nợ | Đóng vụ việc không bị chặn (vụ đã kết thúc còn nợ hiện trên trang Doanh thu, bộ lọc "Đã kết thúc, còn công nợ" của trang Công nợ và dải cảnh báo trên tab tiền), nhưng xoá vụ, huỷ vụ mở nhầm hay xoá khách hàng thì bị chặn khi còn hợp đồng đang hiệu lực có dư nợ | **[Xong]** M9 |
+
+### Kế toán ghi tiền
+
+1. Kế toán mở **Công nợ** (menu trái). Trang chỉ có mã hồ sơ, loại vụ việc, tên khách hàng, tên
+   đợt, các con số và các ngày — **không** có tiêu đề vụ việc, tài liệu hay tiến độ; vụ hạn chế
+   không có trên trang này (chỉ luật sư phụ trách và quản trị viên thấy và ghi tiền của nó).
+2. Tìm đợt khách vừa trả: bộ lọc "Quá hạn", "Đến hạn trong 7 ngày", "Đã kết thúc, còn công nợ"
+   và "Khách hàng".
+3. Bấm **Ghi khoản thu** trên dòng đó: số tiền (gõ `1.250.000` — dấu chấm là phân cách nghìn, không
+   nhận số lẻ), ngày tiền về (không được ở tương lai), cách nhận, mã giao dịch hoặc số biên lai.
+   Thu một phần là bình thường; thu vượt số còn lại của đợt thì bị từ chối kèm số còn thiếu — phần
+   dư không tự dồn sang đợt sau (muốn đổi lịch thu thì luật sư ký phụ lục). Thu đủ thì đợt tự sang
+   "đã thu đủ".
+4. Ghi nhầm: **Huỷ khoản thu** trên dòng của đợt (chọn khoản cần huỷ), hoặc — khi đợt đã thu đủ và
+   không còn trong bảng — ở mục **Khoản thu gần đây** cuối trang. Mục này mặc định chỉ có khoản thu
+   có ngày tiền về trong **90 ngày** gần nhất; khoản cũ hơn (như khoản ghi lùi ngày lúc nhập hợp đồng
+   cũ, xem mục dưới) thì **gõ mã hồ sơ** vào bộ lọc "Mã hồ sơ": mục hiện mọi khoản thu chưa huỷ của
+   hồ sơ đó, cũ đến đâu cũng vậy. Lý do ít nhất 20 ký tự. Khoản đã huỷ không bị xoá, chỉ ra khỏi mọi
+   tổng; trạng thái đợt lùi lại đúng như trước. Hợp đồng đã hoàn tất thì không huỷ khoản thu được.
+   Vụ hạn chế không có trên trang của kế toán: quản trị viên huỷ ở chính mục này (khoản cũ hơn 90
+   ngày: cũng gõ mã hồ sơ); luật sư phụ trách huỷ trên tab **Hợp đồng và thanh toán** của vụ, nhưng nút ở đó chỉ huỷ khoản
+   **mới nhất** chưa huỷ của đợt — muốn huỷ một khoản cũ hơn thì huỷ lần lượt từ mới về cũ rồi ghi
+   lại những khoản đúng.
+5. Doanh thu của một khoản thu tính cho **luật sư phụ trách lúc tiền về**; bàn giao vụ sau đó không
+   dời khoản đã thu sang người mới (phần còn phải thu thì theo người mới).
+
+Không có ô tải bản scan biên lai ở trang này (đã chọn giữ `mã giao dịch / số biên lai`, M9 Task 8);
+bản scan, nếu cần lưu, tải lên tab Tài liệu của vụ ở nhóm "Chỉ nội bộ".
+
+### Nhập hợp đồng đang chạy khi bắt đầu dùng hệ thống
+
+Văn phòng bắt đầu dùng hệ thống khi đã có những hợp đồng ký từ trước, khách đã trả một phần, vụ
+việc đã đi được nửa đường. Nhập chúng như sau (phép đo:
+`tests/Feature/Actions/Billing/GoLiveImportScenarioTest.php`):
+
+1. **Đưa vụ tới giai đoạn hiện tại bằng MỘT lần chuyển ghi lùi ngày** (quản trị viên bỏ qua được thứ
+   tự giai đoạn), ngày xảy ra là ngày thật vụ vào giai đoạn đó. Hệ thống chỉ có đúng một dòng tiến
+   độ: vào giai đoạn hiện tại. **Các giai đoạn trước đó không có dòng nào.**
+2. **Soạn hợp đồng với ngày ký thật** và lịch thu thật, theo luật:
+   - đợt của **giai đoạn đã qua** (ví dụ "khi nộp đơn" trên một vụ đã được toà thụ lý) nhập là
+     **đến hạn vào một ngày cụ thể** — ngày đã hẹn thật. Nhập nó là "khi vụ tới giai đoạn nộp đơn"
+     thì nó **không bao giờ đến hạn**: không có dòng tiến độ nào vào bước đó, và lượt đối chiếu hằng
+     ngày chỉ đọc dòng tiến độ có thật;
+   - đợt của **giai đoạn hiện tại** để "khi vụ tới giai đoạn" được: lần chuyển ở bước 1 là lần chạm
+     của nó, hạn tính từ ngày ghi ở bước 1 (không sớm hơn ngày ký);
+   - đợt của **giai đoạn chưa tới** để "khi vụ tới giai đoạn" như bình thường.
+3. **Kích hoạt** với ngày ký thật. Đợt khi ký và đợt của giai đoạn hiện tại có ngày đến hạn ngay —
+   nhiều khi đã qua.
+4. **Kế toán ghi lùi ngay các khoản khách đã trả** (ngày tiền về thật). Làm trong cùng buổi, trước
+   08:00 hôm sau: đợt nào đã qua hạn mà chưa ghi tiền thì là "quá hạn" thật trên trang Doanh thu,
+   trang Công nợ, cổng khách và thư nhắc 08:00 — hệ thống không phân biệt được "chưa thu" với
+   "đã thu mà chưa nhập". Ghi nhầm (sai đợt, sai ngày, sai số tiền) thì huỷ rồi ghi lại cho đúng:
+   khoản ghi lùi hơn 90 ngày **không hiện** ở mục **Khoản thu gần đây** của trang Công nợ cho tới khi
+   **gõ mã hồ sơ** vào bộ lọc "Mã hồ sơ" của mục đó (xem "Kế toán ghi tiền", bước 4; vụ hạn chế: quản
+   trị viên hoặc luật sư phụ trách huỷ).
+5. Kiểm: trang Doanh thu, kỳ chứa ngày ký — lát "Quá hạn" phải đúng bằng số khách thật sự còn nợ
+   quá hạn (thường là 0); `php artisan billing:check-invariants` sạch.
 
 ---
 
@@ -150,16 +251,15 @@ Năm thứ dưới đây không nằm trong bất kỳ kế hoạch nào. Tôi k
 5. **Tính phí theo giờ.** Cố ý hoãn: mô hình hiện tại là ký một lần thu theo giai
    đoạn. Quan hệ dữ liệu đã chừa sẵn chỗ nên gắn thêm sau không phải sửa mô hình.
 
-Và hai câu hỏi đang chờ trả lời, đã hỏi trước đó:
+Và một câu hỏi đang chờ trả lời, đã hỏi trước đó:
 
 - **Bốn thông tin pháp lý của văn phòng**: mã số thuế, Đoàn Luật sư, số Giấy đăng ký
   hoạt động, địa chỉ trụ sở. Chúng xuất hiện ở chân thư, mục lục gói bàn giao và tài
   liệu triển khai.
-- **Khách có được xem hợp đồng và lịch thu của mình trên cổng không.** Lập luận thuận:
-  họ đã ký, đó là thông tin của chính họ. Lập luận nghịch: một khách đang tranh chấp
-  đọc dòng "đợt ba thu khi có bản án sơ thẩm" có thể hiểu thành một lời hứa về kết quả.
-  Mặc định hiện tại là **không**, và mọi thứ được đóng kín sẵn để câu trả lời "có" về
-  sau chỉ là một lần nới có kiểm soát.
+
+(Câu hỏi "khách có được xem hợp đồng và lịch thu của mình trên cổng không" đã có câu trả
+lời ngày 2026-09-24: **có** — phán quyết P1 của kế hoạch M9, cài ở M9 Task 10; xem Giai
+đoạn 4. Chủ văn phòng đảo được.)
 
 ---
 

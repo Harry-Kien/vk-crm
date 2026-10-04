@@ -52,13 +52,16 @@ class MarkChecklistItemNotApplicable
 
     public function handle(MatterChecklistItem $checklistItem, User $actor): MatterChecklistItem
     {
-        return DB::transaction(function () use ($checklistItem, $actor): MatterChecklistItem {
+        // TRƯỚC transaction, không bên trong — rà soát cuối M7 (I1), xem docblock `OpensChecklistItem`.
+        $matterId = $this->checklistItemMatterId($checklistItem);
+
+        return DB::transaction(function () use ($checklistItem, $actor, $matterId): MatterChecklistItem {
             // Bốn bước (năm điều kiện từ chối) dùng chung với `ReviewChecklistItem`, kể cả cổng
             // quyền `checklist.review`: xem `OpensChecklistItem`. Quyền dùng chung là có chủ đích
             // — SPEC §5 không có mục riêng cho thao tác này, và người được giao quyết định một
             // giấy tờ khách nộp có đạt hay không cũng chính là người quyết định nó có cần nộp hay
-            // không.
-            [$fresh, $matter] = $this->openChecklistItem($checklistItem, $actor);
+            // không. Câu ĐẦU TIÊN của transaction là khoá `matters` bên trong lời gọi này.
+            [$fresh, $matter] = $this->openChecklistItem($checklistItem, $actor, $matterId);
 
             // Hỏi trên `$fresh` (bản đọc lại dưới khoá), không trên đối tượng caller đưa vào.
             $this->refuseWhileAwaitingReview($fresh);

@@ -156,7 +156,7 @@
                 {{-- SPEC §10.9: một tài khoản đang tạm ngưng cần một con đường KHÔNG đi qua tài
                      khoản, nên câu này chỉ tới điện thoại văn phòng chứ không tới một cái nút. --}}
                 <p style="{{ $muted }}">
-                    {{ __('portal_submit.steps.send.locked', ['hotline' => config('vkcrm.brand.hotline')]) }}
+                    {{ __('portal_submit.steps.send.locked', ['hotline' => App\Support\OfficeProfile::current()->hotline()]) }}
                 </p>
             @else
                 <button type="button" data-portal-action="send"

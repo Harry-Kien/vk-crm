@@ -143,8 +143,7 @@ class MatterMixByPracticeAreaWidget extends ChartWidget
         }
 
         $filters = RevenueFilters::fromPageFilters($this->pageFilters);
-        $from = $filters->from->toDateString();
-        $to = $filters->to->toDateString();
+        [$from, $to] = $filters->bounds();
 
         $signed = Contract::query()
             ->join('matters', 'matters.id', '=', 'contracts.matter_id')

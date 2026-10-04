@@ -357,6 +357,11 @@ class MyMatters extends Page
                 // `App\Support\ClientRequestActivity`. Cùng một truy vấn CỐ ĐỊNH cho cả trang,
                 // không một truy vấn thêm cho mỗi thẻ, cùng ràng buộc với hai quan hệ trên.
                 'clientRequests.replies',
+                // M7 Task 5: cùng lý do với `client` ngay trên, cho điều kiện thứ năm của
+                // `MatterPolicy::releasedToPortal()` (hết hạn tra cứu). `clientAccessArchive`,
+                // KHÔNG phải `archive`: nạp dưới phiên khách, `archive` luôn về `null` vì scope
+                // portal của `MatterArchive` — xem docblock `Matter::clientAccessArchive()`.
+                'clientAccessArchive',
             ])
             ->orderByDesc('last_client_update_at')
             ->orderByDesc('id')

@@ -1,6 +1,6 @@
 {{--
-    SPEC §8.3 — chi tiết hồ sơ, BẢY KHỐI DỌC, đúng thứ tự SPEC liệt kê, rồi lối quay lại danh
-    sách. Luật nghiệp vụ và lý do của từng quyết định nằm ở docblock
+    SPEC §8.3 — chi tiết hồ sơ, CÁC KHỐI DỌC, đúng thứ tự SPEC liệt kê (bảy khối của M5 cộng khối
+    "Hợp đồng và thanh toán" của M9 Task 10, giữa khối 6 và khối 7), rồi lối quay lại danh sách. Luật nghiệp vụ và lý do của từng quyết định nằm ở docblock
     `App\Filament\Portal\Pages\MatterProgress`; tệp này chỉ vẽ ra.
 
     **Tệp này không chạm vào một model nào.** Mọi accessor của trang trả về MẢNG hẹp gồm đúng
@@ -30,7 +30,7 @@
     $tap = 'min-height: 44px;display:inline-flex;align-items:center;gap:0.375rem;padding:0.5rem 0.875rem;border-radius:0.5rem;text-decoration:none;font-weight:600;';
     $primaryTap = $tap.'background-color:var(--primary-600);color:var(--primary-50);';
     $quietTap = $tap.'border:1px solid color-mix(in srgb, var(--gray-500) 40%, transparent);color:var(--primary-600);';
-    $hotline = config('vkcrm.brand.hotline');
+    $hotline = App\Support\OfficeProfile::current()->hotline();
 @endphp
 
 <x-filament-panels::page>
@@ -202,8 +202,14 @@
         <section data-portal-block="5" style="{{ $card }}">
             <h2 style="{{ $blockHeading }}">{{ __('portal_progress.blocks.documents.heading') }}</h2>
 
+            {{-- M7 Task 7: dòng "đã rút lại" đứng cùng khối, sau các tài liệu còn hiệu lực. Chỉ dùng
+                 dạng gán một dòng ở đây: tệp này đã có dạng một dòng ở khối 1, và bộ dịch Blade ghép
+                 nó với lần đóng khối kế tiếp (kể cả lần đóng nằm trong một chú thích) thành một khối
+                 PHP nuốt mất phần trang ở giữa. --}}
+            @php($retractionNotices = $this->retractionNotices())
+
             @forelse ($this->documents() as $document)
-                <article style="padding:0.75rem 0;{{ ! $loop->last ? 'border-bottom:1px solid color-mix(in srgb, var(--gray-500) 25%, transparent);' : '' }}">
+                <article style="padding:0.75rem 0;{{ ! $loop->last || $retractionNotices->isNotEmpty() ? 'border-bottom:1px solid color-mix(in srgb, var(--gray-500) 25%, transparent);' : '' }}">
                     <p style="font-weight:600;">{{ $document['title'] }}</p>
 
                     @if (filled($document['issued_on']))
@@ -223,8 +229,25 @@
                     @endif
                 </article>
             @empty
-                <p style="{{ $muted }}">{{ __('portal_progress.blocks.documents.empty') }}</p>
+                @if ($retractionNotices->isEmpty())
+                    <p style="{{ $muted }}">{{ __('portal_progress.blocks.documents.empty') }}</p>
+                @endif
             @endforelse
+
+            {{-- M7 Task 7 — tài liệu văn phòng đã RÚT LẠI: nhãn trung tính, lý do, ngày rút; không có
+                 đường tải. KHÔNG tiêu đề (rà soát cuối M7, C1 — xem `retractionNotices()`). Hình
+                 chiếu hẹp từ `retractionNotices()`, không bao giờ một bản ghi. --}}
+            @foreach ($retractionNotices as $notice)
+                <article data-retracted-document style="padding:0.75rem 0;{{ ! $loop->last ? 'border-bottom:1px solid color-mix(in srgb, var(--gray-500) 25%, transparent);' : '' }}">
+                    <p style="font-weight:600;{{ $muted }}">{{ __('retraction.portal.heading') }}</p>
+                    <p style="margin-top:0.25rem;font-size:0.9375rem;">
+                        {{ __('retraction.portal.notice', ['reason' => $notice['reason']]) }}
+                    </p>
+                    <p style="margin-top:0.25rem;font-size:0.9375rem;{{ $muted }}">
+                        {{ __('retraction.portal.retracted_on', ['date' => $notice['retracted_on']]) }}
+                    </p>
+                </article>
+            @endforeach
         </section>
 
         {{-- 6. MỐC THỜI HẠN SẮP TỚI — chỉ mốc đã công bố ---------------------------------- --}}
@@ -253,6 +276,67 @@
                 <p style="{{ $muted }}">{{ __('portal_progress.blocks.deadlines.empty') }}</p>
             @endforelse
         </section>
+
+        {{-- HỢP ĐỒNG VÀ THANH TOÁN — M9 Task 10 (P1), chỉ hiện khi vụ có hợp đồng đã ký -------
+             Loại dữ liệu thứ tám của cổng (đính chính SPEC §5, §8.3). Đánh dấu "billing", không
+             phải một số, vì nó đứng giữa khối 6 và khối 7. Hình chiếu hẹp từ `billing()` — chỉ
+             chuỗi đã định dạng, không bản ghi nào; cùng hình chiếu với "Bảng kê thanh toán" trong
+             MUC-LUC.pdf. Một cột, không bảng (375px). "Quá hạn" luôn có CHỮ đi kèm màu. --}}
+        @php($billing = $this->billing())
+        @if ($billing !== null)
+            <section data-portal-block="billing" style="{{ $card }}">
+                <h2 style="{{ $blockHeading }}">{{ __('portal_progress.blocks.billing.heading') }}</h2>
+
+                <p style="font-weight:600;">{{ __('portal_progress.billing.contract_code', ['code' => $billing['code']]) }}</p>
+
+                @if (filled($billing['signed_on']))
+                    <p style="margin-top:0.25rem;font-size:0.9375rem;{{ $muted }}">{{ __('portal_progress.billing.signed_on', ['date' => $billing['signed_on']]) }}</p>
+                @endif
+
+                <p style="margin-top:0.5rem;font-size:1.125rem;font-weight:700;">{{ __('portal_progress.billing.total', ['amount' => $billing['total']]) }}</p>
+
+                @if (filled($billing['vat']))
+                    <p style="margin-top:0.25rem;font-size:0.9375rem;{{ $muted }}">{{ $billing['vat'] }}</p>
+                @endif
+
+                @if (filled($billing['completed_on']))
+                    <p style="margin-top:0.5rem;font-weight:600;color:var(--success-600);">{{ __('portal_progress.billing.completed', ['date' => $billing['completed_on']]) }}</p>
+                @endif
+
+                <h3 style="margin-top:1rem;font-size:1rem;font-weight:700;">{{ __('portal_progress.billing.instalments_heading') }}</h3>
+
+                @foreach ($billing['instalments'] as $instalment)
+                    <article style="padding:0.75rem 0;{{ ! $loop->last ? 'border-bottom:1px solid color-mix(in srgb, var(--gray-500) 25%, transparent);' : '' }}">
+                        <p style="font-weight:600;">{{ $instalment['name'] }}</p>
+                        <p style="margin-top:0.25rem;">{{ __('portal_progress.billing.amount', ['amount' => $instalment['amount']]) }}</p>
+                        <p style="margin-top:0.25rem;font-size:0.9375rem;{{ $muted }}">{{ $instalment['due'] }}</p>
+                        <p style="margin-top:0.25rem;font-size:0.9375rem;">{{ __('portal_progress.billing.collected', ['amount' => $instalment['collected']]) }}</p>
+                        <p style="margin-top:0.25rem;font-size:0.9375rem;">{{ __('portal_progress.billing.outstanding', ['amount' => $instalment['outstanding']]) }}</p>
+
+                        @if (filled($instalment['state_label']))
+                            <p style="margin-top:0.25rem;font-weight:700;color:{{ match ($instalment['state']) {
+                                'overdue' => 'var(--danger-600)',
+                                'paid' => 'var(--success-600)',
+                                'due', 'partially_paid' => 'var(--warning-600)',
+                                default => 'color-mix(in srgb, var(--gray-500) 95%, transparent)',
+                            } }};">{{ $instalment['state_label'] }}</p>
+                        @endif
+                    </article>
+                @endforeach
+
+                <h3 style="margin-top:1rem;font-size:1rem;font-weight:700;">{{ __('portal_progress.billing.payments_heading') }}</h3>
+
+                @forelse ($billing['payments'] as $payment)
+                    <article style="padding:0.5rem 0;{{ ! $loop->last ? 'border-bottom:1px solid color-mix(in srgb, var(--gray-500) 25%, transparent);' : '' }}">
+                        <p style="font-size:0.9375rem;{{ $muted }}">{{ __('portal_progress.billing.paid_on', ['date' => $payment['paid_on']]) }}</p>
+                        <p style="margin-top:0.125rem;font-weight:600;">{{ $payment['amount'] }}</p>
+                        <p style="margin-top:0.125rem;font-size:0.9375rem;">{{ $payment['method'] }}</p>
+                    </article>
+                @empty
+                    <p style="{{ $muted }}">{{ __('portal_progress.billing.payments_empty') }}</p>
+                @endforelse
+            </section>
+        @endif
 
         {{-- 7. GỬI YÊU CẦU — cái nút VÀ số điện thoại, không rẽ nhánh ---------------------
              Trước vòng này khối 7 là `@if ($url = …) nút @else số điện thoại @endif`, và từ lúc
