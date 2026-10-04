@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Resources\Matters\Schemas;
 
+use App\Enums\MatterAiAccess;
 use App\Enums\MatterRole;
 use App\Models\Matter;
 use Filament\Infolists\Components\IconEntry;
@@ -39,6 +40,13 @@ class MatterInfolist
                         TextEntry::make('confidentiality')
                             ->label(__('matters.overview_fields.confidentiality'))
                             ->formatStateUsing(fn (Matter $record): string => $record->confidentiality->label()),
+                        // M11 R9: cờ "vụ việc lên AI". Đổi bằng nút "Bật/Tắt truy cập qua AI" trên
+                        // thanh tiêu đề (ViewMatter::aiAccessAction()), kèm ô tích đồng ý.
+                        TextEntry::make('ai_access')
+                            ->label(__('matters.overview_fields.ai_access'))
+                            ->badge()
+                            ->color(fn (Matter $record): string => $record->ai_access === MatterAiAccess::Allowed ? 'warning' : 'gray')
+                            ->formatStateUsing(fn (Matter $record): string => $record->ai_access->label()),
                         TextEntry::make('court_name')
                             ->label(__('matters.overview_fields.court_name'))
                             ->placeholder('—'),

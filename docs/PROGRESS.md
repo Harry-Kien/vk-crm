@@ -3109,3 +3109,79 @@ giá trị `prompt` cũ (`login`); `merge`; `prompt` là chuỗi; `client_id` l�
 gỡ khỏi cấu hình; đặt ngoài `AddIssuerToAuthorizationResponse` (mất `iss`). Cả bộ: EXIT 0, 4014 passed
 (4002 + 12), 1 risky, 1 todo, 25 skipped. MariaDB (tuần tự; `ClientIdMetadataDocumentTest`, `McpPackageConfigTest`,
 `OAuthMetadataTest`): 151 passed. `pint --test`: PASS, 876 tệp.
+
+### Task 7 — cờ AI ở cấp vụ việc (R9) và bảng nháp (2026-10-04)
+
+**Đã có, kèm test** (`tests/Feature/Filament/MatterAiAccessActionTest.php`,
+`tests/Feature/Filament/MatterAiAccessDefaultTest.php`, `tests/Feature/Actions/Matter/SetMatterAiAccessTest.php`,
+`tests/Feature/Models/McpDraftTest.php`, `tests/Feature/Authorization/McpDraftPortalIsolationTest.php`):
+- **`matters.ai_access`** (`App\Enums\MatterAiAccess`: `allowed` / `denied`; migration
+  `2026_10_03_130000_…`). Mặc định của CỘT là `denied`, độc lập với `.env`: mọi vụ có trước M11 không lên AI cho
+  tới khi một người bật từng vụ. Vụ MỚI nhận `MCP_MATTER_DEFAULT` (`config('vkcrm.mcp.matter_default')`, mặc định
+  `denied`, dòng mẫu trong `.env.example`) ở MỘT chỗ — hook `creating` của `Matter` — nên màn hình "Mở vụ việc",
+  `OpenMatter` và factory đi cùng một luật; thử cả hai giá trị qua màn hình. Giá trị khác đúng `allowed`/`denied`
+  (trống, chữ hoa, `true`, gõ sai) cho ra `denied`. Cột KHÔNG nằm trong `Matter::$fillable` (form mở/sửa vụ không
+  đặt được), có trong `logOnly` của `LogsActivity` (lịch sử chung nói giá trị lúc mở vụ và mọi lần đổi).
+- **Nút "Bật/Tắt truy cập qua AI"** trên thanh tiêu đề trang vụ việc (`ViewMatter::aiAccessAction()`), trạng thái
+  hiện ở tab Tổng quan (`MatterInfolist`, ô "Truy cập qua AI (MCP)"). `->authorize()` hỏi `update` (R9: cần
+  `matter.update`). Chiều BẬT hiện ô tích "Khách đã đồng ý bằng văn bản cho việc này" — không đánh dấu sẵn,
+  `accepted`. Chiều chụp lúc mở hộp (cùng luật C-M1 của công tắc công bố portal): người khác đổi trong lúc hộp còn
+  mở thì từ chối, không lật ngược. Lưu qua `App\Actions\Matter\SetMatterAiAccess` — khoá dòng vụ trước, hỏi
+  `Gate::forUser($actor)->authorize('update')` dưới khoá, đòi lại lời xác nhận đồng ý (lớp dưới form), `blameOn`,
+  ghi đúng một dòng `matter_ai_access_changed` (`from`, `to`, `client_consent_confirmed`; causer là `$actor` tường
+  minh — người và thời điểm là bằng chứng "ai xác nhận khách đồng ý, lúc nào"). Không thư, không thông báo.
+- **`deadlines.created_via`, `confirmed_at`, `confirmed_by`** và **`communication_logs.created_via`**
+  (`App\Enums\CreatedVia`: `web` / `mcp`, mặc định cột `web` — `AddMatterDeadline` là đường tạo mốc duy nhất trước
+  M11, nhật ký liên lạc chỉ nhân sự nhập). Ba cột không nằm trong `$fillable` (form web không tự dán nhãn "tạo qua
+  AI" hay "đã xác nhận"); `$attributes` khớp mặc định cột; quan hệ `Deadline::confirmer()`.
+- **Bảng nháp** `stage_log_drafts` (cha `matter_id`; năm cột nội dung cùng kiểu cột của `stage_logs`) và
+  `client_request_reply_drafts` (cha `request_id` — đúng tên cột của `client_request_replies`; `content` TEXT;
+  không cột người nhận), cùng khuôn: `created_by` bắt buộc (`restrictOnDelete`), `idempotency_key` string(64)
+  unique THEO NGƯỜI (`created_by`, `idempotency_key`), `used_stage_log_id` / `used_reply_id`, `discarded_at`,
+  `discarded_by`, `discard_reason`, không `deleted_at`. Model `StageLogDraft`, `ClientRequestReplyDraft` dùng
+  trait `App\Models\Concerns\IsMcpDraft`: hook `deleting` ném `McpDraftNotDestroyable` (không xoá, kể cả admin —
+  policy `delete` cũng `false`), hook `saving` ném `McpDraftDiscardIncomplete` khi bỏ mà thiếu người hay lý do
+  (rỗng/khoảng trắng), scope `pending()` (chưa dùng, chưa bỏ) là định nghĩa duy nhất của "nháp đang có". Quan hệ
+  `Matter::stageLogDrafts()`, `ClientRequest::replyDrafts()`.
+- **`mcp_confirmations`** (`jti` string(64) unique, `user_id`, `tool` string(64), `result_type` string(50) +
+  `result_id` qua morph map, chỉ `created_at`), model `McpConfirmation`.
+- **Cổng khách:** cả ba model dùng `RestrictedToClientPortal` với `1 = 0` (không cần sửa danh sách miễn trừ của
+  `PortalCoverageTest`), và có policy: `StageLogDraftPolicy` (nhân sự thấy vụ → thấy nháp, qua `canSeeMatter`),
+  `ClientRequestReplyDraftPolicy` (nhân sự đọc được yêu cầu cha → thấy nháp), `McpConfirmationPolicy` (không ai,
+  kể cả admin — không màn hình nào đọc bảng này). Mọi ability trả `false` cho `ClientUser`. Test dựng nháp thuộc
+  CHÍNH vụ đã công bố của chính khách đang đăng nhập: truy vấn, `find`, quan hệ, `withCount`, `whereHas`,
+  `ClientPortalScope::actingAs` đều 0; gỡ scope thì policy vẫn từ chối; phía nhân sự đọc đủ.
+
+**Phán quyết trong task:**
+- **Ô tích đồng ý chỉ ở chiều BẬT.** R9 viết "đổi cờ cần `matter.update`, cộng một ô tích 'Khách đã đồng ý bằng
+  văn bản cho việc này'". Ô tích là lời xác nhận cho một lần TIẾT LỘ; chiều TẮT chỉ thu hẹp, và không ai phải chờ
+  văn bản của khách để ngừng chia sẻ. Dòng audit của chiều tắt ghi `client_consent_confirmed: false`. *Giá nếu
+  sai* (chủ văn phòng muốn cả chiều tắt cũng tích): thêm một điều kiện ở Action và bỏ `visible()` của ô — không
+  đổi dữ liệu.
+- **Cùng ability `update` cho cả hai chiều** (đúng R9), không tách ability riêng như `setPortalPublication`: trợ
+  lý (có `matter.update`) bật được cờ nếu tự tích ô đồng ý. Kế hoạch không đòi hơn; ghi ra để chủ văn phòng biết.
+- **Không thêm alias morph cho hai model nháp ở task này.** Task 7 không ghi audit nào lên nháp. Task 12 (audit
+  "liên kết id nháp") nếu dùng nháp làm `subject` thì phải thêm alias `stage_log_draft` /
+  `client_request_reply_draft` VÀ xếp chúng vào `App\Support\ActivityOwningMatter` (nháp tiến độ: `MATTER_OWNED`
+  qua `matter_id`; nháp trả lời: qua yêu cầu cha, như `client_request_reply`) — thiếu bước sau thì dòng nhật ký
+  của nháp thuộc vụ `restricted` hiện cho mọi người có `auditLog.view`.
+- **Action "Bỏ nháp" (kèm lý do và audit) là của Task 12** (`DiscardDraft`, danh sách tệp Task 12). Task 7 giữ ở
+  model hai điều không Action nào được làm khác: không xoá, và không lần bỏ nào thiếu người hay lý do.
+- Migration đặt tiền tố `2026_10_03_13NNNN_` (sau migration `2026_10_03_120000_…` của Task 5) thay cho gợi ý
+  `2026_10_02_11NNNN_`, để thứ tự tệp khớp thứ tự viết.
+- **Nhãn `allowed` là "Cho phép AI truy cập", không kèm "khách đã đồng ý bằng văn bản".** Vụ mở khi
+  `MCP_MATTER_DEFAULT=allowed` nhận giá trị này mà không ai xác nhận gì, nên nhãn trên tab Tổng quan không được
+  khẳng định một lời đồng ý chưa từng được ghi. Lời xác nhận chỉ nằm ở dòng audit `matter_ai_access_changed`
+  (`client_consent_confirmed`, người, thời điểm).
+
+**Kiểm chứng (2026-10-04).** ĐỎ trước khi cài: 64 test của năm tệp mới đỏ hết (lớp/enum/cột chưa có, nút
+`setAiAccess` chưa có). XANH: 65 passed (thêm một test lịch sử chung). Năm mươi tư phép mutation, mỗi phép bỏ
+hay đổi đúng một điều kiện, mỗi phép cho ít nhất một test đỏ rồi khôi phục (đối chiếu md5 toàn bộ tệp sau lượt
+probe: trùng khớp): hook `creating`; enum bỏ qua config; hai nhánh lùi về `denied`; `ai_access` vào `$fillable`;
+mặc định cột `denied`; mặc định config; `logOnly`; lời xác nhận đồng ý ở Action; ability `update`; chống lật
+ngược; `blameOn`; audit; causer tường minh; `authorize()` của nút; `accepted`; ô tích chỉ ở chiều bật; ô tích
+không đánh dấu sẵn; chụp chiều lúc mở hộp; ô ở tab Tổng quan; hook `deleting`; bỏ thiếu người; bỏ thiếu lý do;
+`trim` lý do; nhánh "chưa bỏ thì không kiểm"; `pending()` hai điều kiện; unique theo người (hai bảng) và không
+toàn cục; unique `jti`; `1 = 0` ba model; policy: nhánh khách, `viewAny`, phạm vi vụ/yêu cầu, `delete`,
+`McpConfirmation` hai ability; `created_via` ở `$attributes`, cast, mặc định cột (hai bảng); cast `confirmed_at`;
+các cột ngoài `$fillable` (hai bảng); dòng `.env.example`.

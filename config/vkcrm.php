@@ -198,6 +198,17 @@ return [
      */
     'mcp' => [
         /*
+         * R9 (Task 7): cờ "truy cập qua AI" (`matters.ai_access`) cho một vụ việc MỚI, `allowed` hoặc
+         * `denied`. Mặc định `denied`: dự án không tự quyết thay luật sư rằng khách đã đồng ý bằng
+         * văn bản (Luật Luật sư Điều 25; Luật 91 Điều 9 — im lặng không phải đồng ý). Chủ văn phòng
+         * đổi được (câu hỏi mở 2 của kế hoạch). Giá trị khác hai chữ đó cho ra `denied`
+         * ({@see \App\Enums\MatterAiAccess::defaultForNewMatter()}). Không đụng tới vụ đã có: vụ cũ
+         * chỉ đổi cờ qua nút "Bật/Tắt truy cập qua AI" của trang vụ việc — chiều bật kèm ô tích
+         * "Khách đã đồng ý bằng văn bản".
+         */
+        'matter_default' => env('MCP_MATTER_DEFAULT', 'denied'),
+
+        /*
          * R7: Origin được gọi `/mcp` từ trình duyệt, so khớp CHÍNH XÁC
          * ({@see \App\Http\Middleware\Mcp\CheckOrigin}, cộng thêm origin của `APP_URL`). Request không
          * có Origin (Claude, ChatGPT gọi từ máy chủ của họ) không bị danh sách này chặn.

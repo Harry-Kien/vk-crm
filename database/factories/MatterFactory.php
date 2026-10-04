@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Enums\Confidentiality;
+use App\Enums\MatterAiAccess;
 use App\Models\Client;
 use App\Models\Matter;
 use App\Models\MatterType;
@@ -38,6 +39,15 @@ class MatterFactory extends Factory
     public function unpublished(): static
     {
         return $this->state(fn () => ['is_published_to_portal' => false]);
+    }
+
+    /**
+     * M11 R9: vụ đã được bật "truy cập qua AI". Không có state thì vụ nhận mặc định của
+     * `MCP_MATTER_DEFAULT` (`denied`) qua hook `creating` của `Matter`.
+     */
+    public function aiAccessAllowed(): static
+    {
+        return $this->state(fn () => ['ai_access' => MatterAiAccess::Allowed]);
     }
 
     public function atStage(string $key): static

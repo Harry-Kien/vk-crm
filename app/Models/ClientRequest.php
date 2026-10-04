@@ -84,4 +84,13 @@ class ClientRequest extends Model
     {
         return $this->hasMany(ClientRequestReply::class, 'request_id')->orderBy('created_at');
     }
+
+    /**
+     * Nháp trả lời do AI soạn (M11 R5) — mọi nháp, kể cả đã dùng hay đã bỏ; nháp đang chờ là
+     * `->pending()` ({@see ClientRequestReplyDraft}, scope của `IsMcpDraft`).
+     */
+    public function replyDrafts(): HasMany
+    {
+        return $this->hasMany(ClientRequestReplyDraft::class, 'request_id');
+    }
 }

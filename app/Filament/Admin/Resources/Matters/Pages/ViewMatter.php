@@ -3,8 +3,10 @@
 namespace App\Filament\Admin\Resources\Matters\Pages;
 
 use App\Actions\Matter\ReassignMatter;
+use App\Actions\Matter\SetMatterAiAccess;
 use App\Actions\SetMatterPortalPublication;
 use App\Enums\Confidentiality;
+use App\Enums\MatterAiAccess;
 use App\Enums\Role as StaffRole;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Resources\Matters\MatterResource;
@@ -14,12 +16,14 @@ use App\Models\OutboundMessage;
 use App\Models\User;
 use Filament\Actions\Action;
 use Filament\Actions\EditAction;
+use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -119,7 +123,60 @@ class ViewMatter extends ViewRecord
                         ->success()
                         ->send();
                 }),
+            $this->aiAccessAction(),
         ];
+    }
+
+    /**
+     * Nút "Bật/Tắt truy cập qua AI" (M11 R9, tab Tổng quan) — đổi cờ `matters.ai_access` qua
+     * {@see SetMatterAiAccess}, Action duy nhất được đổi cột đó.
+     *
+     * `->authorize()` hỏi đúng `update` (R9: "đổi cờ cần `matter.update`") — Filament tự ẩn nút cho
+     * người không qua Gate; Action vẫn tự hỏi lại dưới khoá, không tin trang đã lọc.
+     *
+     * Chiều được CHỤP lúc mở hộp (`allow`, cùng luật final review C-M1 của công tắc công bố portal):
+     * nếu người khác đã đổi trong lúc hộp còn mở, Action từ chối (`MatterAiAccessChanged`) thay vì
+     * lật ngược lại. Chiều BẬT hiện ô tích "Khách đã đồng ý bằng văn bản cho việc này" — không đánh
+     * dấu sẵn, bắt buộc tích (`accepted`). Chiều TẮT không có ô tích: rút khỏi AI chỉ thu hẹp.
+     */
+    private function aiAccessAction(): Action
+    {
+        $allowing = fn (): bool => $this->getRecord()->ai_access !== MatterAiAccess::Allowed;
+
+        return Action::make('setAiAccess')
+            ->label(fn (): string => $allowing() ? __('matters.ai_access.allow') : __('matters.ai_access.deny'))
+            ->icon(Heroicon::OutlinedSparkles)
+            ->color('gray')
+            ->authorize(fn (): bool => Gate::allows('update', $this->getRecord()))
+            ->modalHeading(fn (): string => $allowing() ? __('matters.ai_access.allow_heading') : __('matters.ai_access.deny_heading'))
+            ->modalDescription(fn (): string => $allowing() ? __('matters.ai_access.allow_description') : __('matters.ai_access.deny_description'))
+            ->modalSubmitActionLabel(fn (): string => $allowing() ? __('matters.ai_access.allow') : __('matters.ai_access.deny'))
+            ->schema([
+                Hidden::make('allow'),
+                Checkbox::make('client_consented')
+                    ->label(__('matters.ai_access.client_consented'))
+                    ->helperText(__('matters.ai_access.client_consented_help'))
+                    ->visible(fn (Get $get): bool => (bool) $get('allow'))
+                    ->accepted(),
+            ])
+            ->fillForm(fn (): array => ['allow' => $allowing(), 'client_consented' => false])
+            ->action(function (Action $action, array $data): void {
+                $this->runAction($action, fn () => app(SetMatterAiAccess::class)->handle(
+                    matter: $this->getRecord(),
+                    access: ($data['allow'] ?? false) ? MatterAiAccess::Allowed : MatterAiAccess::Denied,
+                    actor: Auth::user(),
+                    clientConsented: (bool) ($data['client_consented'] ?? false),
+                ));
+
+                // Action lưu trên bản ghi ĐÃ KHOÁ của chính nó — làm mới `$this->record` để nút và
+                // tab Tổng quan nói trạng thái MỚI ngay (cùng lý do với công tắc công bố portal).
+                $this->getRecord()->refresh();
+
+                Notification::make()
+                    ->title(__('matters.ai_access.saved'))
+                    ->success()
+                    ->send();
+            });
     }
 
     /**

@@ -22,6 +22,18 @@ return [
         'normal' => 'Thông thường',
         'restricted' => 'Hạn chế',
     ],
+    // M11 R9 (Task 7): App\Enums\MatterAiAccess — cờ "vụ việc lên AI" của tab Tổng quan. Nhãn
+    // `allowed` cố ý không nói "khách đã đồng ý": vụ mở khi `MCP_MATTER_DEFAULT=allowed` nhận giá trị
+    // này mà không ai xác nhận gì; lời xác nhận chỉ nằm ở dòng audit `matter_ai_access_changed`.
+    'matter_ai_access' => [
+        'allowed' => 'Cho phép AI truy cập',
+        'denied' => 'Không cho AI truy cập',
+    ],
+    // M11 R5 (Task 7): App\Enums\CreatedVia — mốc hạn, nhật ký liên lạc tạo qua đường nào.
+    'created_via' => [
+        'web' => 'Nhập trên web',
+        'mcp' => 'Tạo qua AI',
+    ],
     'checklist_item_status' => [
         'missing' => 'Chưa nộp',
         'pending_review' => 'Chờ kiểm tra',
