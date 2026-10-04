@@ -3201,10 +3201,14 @@ các cột ngoài `$fillable` (hai bảng); dòng `.env.example`.
 - **`App\Support\Mcp\UntrustedText::from(?string, int $limit = 2000): array{text, truncated}`** (R11): sửa UTF-8
   hỏng; giải mã thực thể HTML ba lớp; bỏ ký tự vô hình (nhóm Cf gồm U+200B và điều khiển hướng chữ, nhóm Co, CẢ
   khối tag U+E0000–E007F kể cả điểm chưa gán, bộ chọn biến thể, vài chữ "trống"), ký tự điều khiển (giữ xuống dòng,
-  tab thành dấu cách), khoảng trắng lạ thành dấu cách; bỏ `<script>`/`<style>` cùng nội dung, chú thích, mọi thẻ;
-  ảnh Markdown thành `[ảnh đã bỏ]`, link Markdown giữ chữ bỏ URL, định nghĩa link tham chiếu bỏ cả dòng; mọi URL
-  còn lại (`scheme://`, `//host`, `www.`, `data:`/`javascript:`/`vbscript:`/`mailto:`/`blob:`) thành `[liên kết
-  đã bỏ]` (`lang/vi/mcp.php`, `untrusted.*`); cắt theo cụm grapheme và gắn `truncated`. Không chuẩn hoá Unicode:
+  tab thành dấu cách), khoảng trắng lạ thành dấu cách; HTML và Markdown LẶP tới khi một lượt không đổi gì (tối đa
+  mười lượt, quá thì ra rỗng): bỏ `<script>`/`<style>` cùng nội dung, chú thích, ảnh Markdown thành `[ảnh đã bỏ]`
+  (chữ alt qua nhiều dòng, ngoặc vuông lồng nhau, `\]`), định nghĩa link tham chiếu bỏ cả dòng, link Markdown giữ
+  chữ bỏ URL, mọi thẻ; mọi URL còn lại (`scheme://`, `scheme:\`/`scheme:/` mà trình duyệt đọc như `//`, hai gạch
+  xuôi hay ngược ở đầu `//host`/`\\host`/`/\host`/`///host`, `www.`, `data:`/`javascript:`/`vbscript:`/`mailto:`/
+  `blob:`, `http:`/`https:`/`ws:`/`wss:`/`ftp:` không gạch; đường dẫn Windows `C:\…` giữ) thành `[liên kết đã
+  bỏ]` (`lang/vi/mcp.php`, `untrusted.*`); chặn cuối: mọi `](`, `][`, `]:` còn sót được chèn một dấu cách, nên
+  không còn ảnh, link hay định nghĩa link nào theo CommonMark; cắt theo cụm grapheme và gắn `truncated`. Không chuẩn hoá Unicode:
   tiếng Việt NFC và NFD ra đúng từng byte, một chữ NFD không bao giờ bị cắt rời khỏi dấu. Biểu thức chính quy thất
   bại (giới hạn PCRE) thì ra chuỗi RỖNG, không ra nguyên văn chưa lọc (test ép lỗi bằng `pcre.backtrack_limit=1`).
 - **`PhoneMask::mask()`** (R4): `'(+84) 912 345 678'` → `***678`; dưới sáu chữ số → `***` (không lộ chữ số nào);
@@ -3254,8 +3258,9 @@ các cột ngoài `$fillable` (hai bảng); dòng `.env.example`.
   (giá trị `null` khi không áp) để `outputSchema` của tool cố định. Giới hạn: tiêu đề yêu cầu 200, tiêu đề tài liệu
   250 (đúng độ dài cột), nội dung yêu cầu và trả lời 4000 chữ.
 - **Giới hạn của `UntrustedText`, nói thẳng**: URL viết bằng chữ toàn chiều rộng (`ｈｔｔｐｓ://`) không bị nhận
-  ra (không chuẩn hoá NFKC để giữ nguyên NFD); tên miền trần không scheme (`evil.com/x`) không bị bỏ — không tự tải
-  như ảnh. Lọc là best-effort; ranh giới thật là R5.
+  ra (không chuẩn hoá NFKC để giữ nguyên NFD); tên miền trần không scheme (`evil.com/x`) và email trần không bị bỏ —
+  không tự tải như ảnh (GFM biến email trần thành link `mailto:`, phải bấm). Chặn cuối chèn dấu cách cả vào chữ
+  thường của khách: `[Ghi chú]: …` thành `[Ghi chú] : …`. Lọc là best-effort; ranh giới thật là R5.
 - **Số thứ tự tên giả** đánh theo `id` trong các bên được đưa vào; một bên bị xoá mềm làm số của các bên cùng vai
   sau nó dồn lên ở lần gọi kế — nhãn trong một câu trả lời, không phải định danh.
 - **`get_matter` chưa đủ ở presenter**: năm mốc sắp tới, "Đã nộp X/Y" và số yêu cầu đang mở do Action của Task 10
@@ -3279,3 +3284,21 @@ không rõ, bọc tiêu đề nhóm A, số đếm bỏ nhóm D, nhận diện v
 bọc nội dung chi tiết yêu cầu, `is_our_client`). Cả bộ (`--parallel --processes=2`): EXIT 0 — 4210 passed, 1 risky,
 1 todo, 25 skipped (risky/todo/skipped như baseline). MariaDB (tám tệp mới + `EnvExampleTest`, tuần tự): 137 passed,
 1 risky (test `BRAND_*` có sẵn). `pint --test`: PASS 928 tệp.
+
+**Vòng sửa 1 (review I1, 2026-10-04): ảnh và link vượt `UntrustedText`.** Người duyệt cho sáu payload lọt nguyên
+một ảnh Markdown hay một `<img>` trỏ về máy kẻ tấn công: chữ alt qua xuống dòng, ngoặc vuông lồng nhau, thẻ chen
+giữa `]` và `(` (bỏ thẻ một lượt SAU bước Markdown thì dựng lại cú pháp), `<im<b>g …>`, và URL viết `https:\host`
+hay `\\host` mà trình duyệt đọc như `https://host`. Ảnh lọt ra là một lần tải không cần bấm, mang theo những gì MCP
+vừa trả trong lượt đó. Sửa: HTML và Markdown lặp tới khi một lượt không đổi gì (lượt thứ mười còn đổi thì ra rỗng);
+nhãn ảnh/link qua nhiều dòng, lồng nhau, có `\]`; bước URL nhận `scheme:\`, `scheme:/`, hai gạch xuôi/ngược bất
+kỳ ở đầu, `http:`/`https:`/`ws:`/`wss:`/`ftp:` không gạch (đường dẫn Windows `C:\…` giữ nguyên); chặn cuối chèn dấu
+cách vào mọi `](`, `][`, `]:` còn sót, nên không còn ảnh, link hay định nghĩa link nào theo CommonMark kể cả dạng
+mẫu bỏ sót (code span chứa `]` trong chữ alt, định nghĩa trong trích dẫn). ĐỎ trước khi sửa: 14 trong 16 test mới
+đỏ (sáu payload và tám test khác); hai test xanh là test giữ chữ thường, đúng ý chúng: đường dẫn Windows cùng `//`
+trơ (mutation "scheme một chữ cái" làm nó đỏ) và ngoặc thường (chống chặn quá tay, không điều kiện riêng). Test thứ
+mười bảy (scheme một chữ cái có hai gạch) thêm sau lượt ĐỎ.
+XANH: 42 test trong tệp (25 cũ + 17 mới). Mười bảy phép mutation (lặp, rỗng khi quá lượt, giới hạn lượt, nhãn qua
+dòng/lồng/thoát, ảnh dùng nhãn mới, từng nhánh URL mới, chặn cuối và từng ký tự `(`, `[`, `:`) đều đỏ; phép "scheme
+một gạch" sống ở lượt đầu vì nhánh `https?:\S+` che mất nó với `https:` — thêm hai dòng `file:\\host\share`,
+`file:/host` vào test rồi chạy lại thì đỏ. Cả bộ (`--parallel --processes=2`): EXIT 0 — 4227 passed (4210 + 17), 1
+risky, 1 todo, 25 skipped như trước. MariaDB (`UntrustedTextTest`, tuần tự): 42 passed. `pint --test`: PASS 928 tệp.
