@@ -135,4 +135,11 @@ return [
         'generated_at' => 'Lập ngày :date',
         'page' => 'Trang',
     ],
+
+    // M14 Task 4 (kế hoạch R12): hai lý do mới của HandoverPackageFailed khi tệp nằm trên kho Google
+    // Drive. Câu cho luật sư (lưu vào matter_archives.handover_error), không đường dẫn máy chủ.
+    'storage_failures' => [
+        'insufficient_work_space' => 'Máy chủ không đủ chỗ trống để dựng gói: cần khoảng :needed MB, còn :free MB. Báo quản trị hệ thống dọn ổ đĩa (hoặc trỏ biến HANDOVER_WORK_DIR tới ổ rộng hơn) rồi bấm sinh lại.',
+        'unavailable' => 'Không tải được tài liệu từ kho tài liệu (kho tạm thời chưa truy cập được, hoặc bản tải về không khớp bản đã lưu). Tài liệu vẫn được lưu an toàn; vui lòng bấm sinh lại sau ít phút.',
+    ],
 ];
