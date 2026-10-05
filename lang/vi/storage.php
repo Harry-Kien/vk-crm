@@ -69,4 +69,26 @@ return [
             'staged_discard_failed' => 'Không xoá được bản trong vùng đệm của một media; lượt sau thử lại hoặc người vận hành xoá tay.',
         ],
     ],
+
+    // M14 Task 4: đọc qua CRM (App\Actions\Storage\OpenStoredFile, App\Actions\Storage\MaterialiseStoredFile).
+    // Chỉ đi vào log và ngoại lệ nội bộ; ngữ cảnh log chỉ mang mã media, đĩa và khoá mờ.
+    'read' => [
+        'checksum_mismatch' => 'Bản tải về từ kho của khoá :key lệch md5 hoặc kích thước so với dòng media.',
+        'log' => [
+            'missing' => 'Đọc tệp hồ sơ: dòng media ghi tệp có mà nơi chứa không còn (kho trả 404, chỉ mục không có khoá, hay đĩa không mở được). Trả 404 cho người tải.',
+            'checksum_mismatch' => 'Tải tệp từ kho về máy chủ: lệch md5 hoặc kích thước; không dùng bản tải về.',
+            'free_space_unknown' => 'Gói bàn giao: không đo được chỗ trống của ổ đĩa (hàm disk_free_space bị tắt hoặc không trả lời); bỏ qua bước kiểm chỗ trống.',
+        ],
+    ],
+
+    // M14 Task 4: trang 503 khi kho tài liệu tạm thời chưa truy cập được
+    // (resources/views/errors/storage-unavailable.blade.php), cho cả nhân sự lẫn khách (R9).
+    // Câu chính là `exceptions.unavailable` ở trên. Không chi tiết kỹ thuật.
+    'unavailable_page' => [
+        'title' => 'Kho tài liệu tạm thời chưa truy cập được',
+        'heading' => 'Chưa tải được tài liệu lúc này',
+        'call_lead' => 'Nếu cần gấp, anh/chị gọi văn phòng:',
+        'call' => 'Gọi :hotline',
+        'home' => 'Về trang chủ',
+    ],
 ];

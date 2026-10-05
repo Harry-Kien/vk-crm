@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\Storage\OpenStoredFile;
+use App\Exceptions\StoredFileMissing;
 use App\Models\ClientUser;
 use App\Models\Document;
 use App\Models\DocumentDownload;
@@ -10,12 +12,15 @@ use App\Models\User;
 use App\Support\Audit;
 use App\Support\Files\FileGuard;
 use App\Support\Scopes\ClientPortalScope;
-use Illuminate\Filesystem\FilesystemAdapter;
+use App\Support\Storage\StoredFileStream;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
+use Symfony\Component\HttpFoundation\HeaderUtils;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Đường DUY NHẤT tới một tệp hồ sơ (SPEC §10.4). Disk `private` nằm ngoài document root, không
@@ -135,15 +140,15 @@ final class DocumentDownloadController extends Controller
             abort(404);
         }
 
-        $disk = Storage::disk($media->disk);
-
+        // `exists()` của đĩa kho trả lời từ CHỈ MỤC, không gọi mạng (kế hoạch M14, R3, R4).
+        //
         // Một dòng `media` mà tệp không còn trên đĩa: đến từ một lần dọn thư mục hay một lần
         // khôi phục sao lưu lệch (chiều ngược lại — tệp mồ côi không có dòng `media` — là thứ
         // `StoresDocumentFile` chấp nhận có chủ đích). Kiểm TRƯỚC khi ghi nhật ký, vì
         // `StreamedResponse` gửi header xong mới đọc đĩa: không có lần kiểm này, một tệp thiếu
         // sẽ để lại một dòng `document_downloads` nói rằng khách đã nhận được thứ họ chưa bao
         // giờ nhận.
-        if (! $disk->exists($media->getPathRelativeToRoot())) {
+        if (! Storage::disk($media->disk)->exists($media->getPathRelativeToRoot())) {
             abort(404);
         }
 
@@ -159,13 +164,27 @@ final class DocumentDownloadController extends Controller
         // cho một cuốn sổ chứng cứ (thiếu một dòng thì câu trả lời "khách chưa mở" là một lời
         // nói dối; thừa một dòng thì nó chỉ là một lần mở không ai chủ ý). `Cache-Control:
         // no-store` giữ cho một lần prefetch không biến thành nhiều lần đọc lại từ bộ đệm.
+        //
+        // M14 (R3): HEAD trả header từ dòng `media` và KHÔNG mở luồng — trên kho, mở luồng là một
+        // lệnh gọi Google.
         if (! $request->isMethod('GET')) {
-            return $this->fileResponse($record, $actor, $disk, $media);
+            return new StreamedResponse(static function (): void {}, 200, $this->fileHeaders($record, $actor, $media));
+        }
+
+        // M14 (R3): MỞ luồng trước, ghi nhật ký sau. Mở hỏng thì không có dòng nhật ký nào: kho
+        // sập → `DocumentStorageUnavailable` thành trang 503 tiếng Việt (`bootstrap/app.php`); kho
+        // không còn tệp → 404 (log `critical` ở `OpenStoredFile`). Còn một khe, chấp nhận có chủ
+        // đích: luồng đứt GIỮA CHỪNG, sau khi nhật ký đã ghi — "lượt tải" nghĩa là văn phòng đã bắt
+        // đầu giao tệp cho người đó (docblock `recordDownload()`).
+        try {
+            $file = app(OpenStoredFile::class)->handle($media);
+        } catch (StoredFileMissing) {
+            abort(404);
         }
 
         $this->recordDownload($record, $actor, $request);
 
-        return $this->fileResponse($record, $actor, $disk, $media);
+        return $this->fileResponse($record, $actor, $media, $file);
     }
 
     /**
@@ -394,29 +413,68 @@ final class DocumentDownloadController extends Controller
     }
 
     /**
-     * **`Content-Disposition` do Laravel dựng, không bao giờ nối chuỗi bằng tay.**
-     * `Symfony\Component\HttpFoundation\HeaderUtils::makeDisposition()` — thứ một đoạn mã tự dựng
-     * header sẽ gọi tới — ném `InvalidArgumentException` với MỌI tên tệp tiếng Việt có dấu ("The
-     * filename fallback must only contain ASCII characters") và với bất kỳ dấu `%` nào; đã chạy
-     * thử, không phải suy đoán. `FilesystemAdapter::download()` tự tính bản dự phòng ASCII
-     * (`Str::ascii()` rồi bỏ `%`) và truyền vào làm `$filenameFallback`, nên header ra đúng cả hai
-     * phần RFC 6266 đòi: `filename=` cho phần ASCII và `filename*=UTF-8''…` cho bản có dấu.
+     * Phản hồi stream từ luồng ĐÃ MỞ ({@see OpenStoredFile}). Tự dựng `StreamedResponse` thay cho
+     * `FilesystemAdapter::download()` (kế hoạch M14, R3): `download()` hỏi `mimeType()`, `size()` rồi
+     * mới mở luồng TRONG callback, sau khi header 200 đã gửi — một lỗi kho lúc đó là một tệp hỏng chứ
+     * không phải một trang lỗi, và trên kho đó là ba lệnh gọi thay vì một.
      *
-     * Tên truyền vào phụ thuộc AI đang tải — xem {@see self::downloadName()} cho luật đầy đủ
-     * (ruling vòng sửa 1) và cho việc nó đi qua `FileGuard::safeName()`, cùng cổng mà mọi tên đi
-     * vào một header `Content-Disposition` phải đi qua.
+     * Header lấy từ dòng `media` qua {@see self::fileHeaders()}, dùng chung với nhánh HEAD.
      */
-    private function fileResponse(Document $document, User|ClientUser $actor, FilesystemAdapter $disk, Media $media): Response
+    private function fileResponse(Document $document, User|ClientUser $actor, Media $media, StoredFileStream $file): Response
     {
-        return $disk->download($media->getPathRelativeToRoot(), $this->downloadName($document, $actor, $media), [
-            // Tệp hồ sơ không được nằm lại trong bất kỳ bộ nhớ đệm chung nào, và một phản hồi
-            // không lưu lại cũng là thứ khiến một lần "quay lại" trong trình duyệt phải đi lại
-            // qua chữ ký và policy thay vì đọc bản cũ.
+        return new StreamedResponse(static function () use ($file): void {
+            try {
+                fpassthru($file->resource);
+            } finally {
+                fclose($file->resource);
+            }
+        }, 200, $this->fileHeaders($document, $actor, $media));
+    }
+
+    /**
+     * Header của một lượt tải (GET) hay một lần hỏi (HEAD), lấy từ dòng `media`, không hỏi kho (kế
+     * hoạch M14, R3): `Content-Type` = `media.mime_type`, `Content-Length` = `media.size`.
+     *
+     * `Cache-Control` và `nosniff` giữ nguyên như trước M14: tệp hồ sơ không được nằm lại trong bất kỳ
+     * bộ nhớ đệm chung nào (và một lần "quay lại" của trình duyệt phải đi lại qua chữ ký và policy thay
+     * vì đọc bản cũ); `Content-Disposition: attachment` đã ngăn trình duyệt hiển thị tệp, nosniff là
+     * hàng rào thứ hai cho đúng trường hợp header kia bị bỏ qua (SPEC §10.2).
+     *
+     * @return array<string, string>
+     */
+    private function fileHeaders(Document $document, User|ClientUser $actor, Media $media): array
+    {
+        return [
+            'Content-Type' => $media->mime_type ?: 'application/octet-stream',
+            'Content-Length' => (string) (int) $media->size,
+            'Content-Disposition' => self::attachmentDisposition($this->downloadName($document, $actor, $media)),
             'Cache-Control' => 'private, no-store, max-age=0',
-            // `Content-Disposition: attachment` đã ngăn trình duyệt hiển thị tệp, nhưng nosniff
-            // là hàng rào thứ hai cho đúng trường hợp header kia bị bỏ qua (SPEC §10.2).
             'X-Content-Type-Options' => 'nosniff',
-        ]);
+        ];
+    }
+
+    /**
+     * **`Content-Disposition` không bao giờ nối chuỗi bằng tay, và luôn có bản dự phòng ASCII.**
+     * `HeaderUtils::makeDisposition()` ném `InvalidArgumentException` với MỌI tên tệp tiếng Việt có
+     * dấu ("The filename fallback must only contain ASCII characters") và với bất kỳ dấu `%` nào ở bản
+     * dự phòng; đã chạy thử, không phải suy đoán. Bản dự phòng chép ĐÚNG cách
+     * `FilesystemAdapter::download()` của Laravel dựng nó (`fallbackName()`: `Str::ascii()` rồi bỏ `%`)
+     * — đường tải trước M14 — nên header ra đúng cả hai phần RFC 6266 đòi: `filename=` cho phần ASCII
+     * và `filename*=UTF-8''…` cho bản có dấu, không đổi một byte so với trước.
+     *
+     * Một chỗ duy nhất cho cả nhánh cục bộ, nhánh kho và HEAD (kế hoạch M14, R3): không có hai bản của
+     * luật tên tải. Tên truyền vào phụ thuộc AI đang tải — xem {@see self::downloadName()} cho luật đầy
+     * đủ (ruling vòng sửa 1) và cho việc nó đi qua `FileGuard::safeName()`, cùng cổng mà mọi tên đi vào
+     * một header `Content-Disposition` phải đi qua. Tên đó luôn còn đuôi, nên bản dự phòng không bao
+     * giờ rỗng (docblock `portalDownloadName()`).
+     */
+    private static function attachmentDisposition(string $name): string
+    {
+        return HeaderUtils::makeDisposition(
+            HeaderUtils::DISPOSITION_ATTACHMENT,
+            $name,
+            str_replace('%', '', Str::ascii($name)),
+        );
     }
 
     /**
@@ -500,7 +558,8 @@ final class DocumentDownloadController extends Controller
      * `safeName()`.
      *
      * **Và tên cuối cùng PHẢI còn một đuôi, nếu không thì lượt tải này là một lỗi 500.**
-     * `FilesystemAdapter::download()` tự tính bản dự phòng ASCII bằng `Str::ascii()` rồi bỏ `%`,
+     * {@see self::attachmentDisposition()} (trước M14 là `FilesystemAdapter::download()`) tính bản
+     * dự phòng ASCII bằng `Str::ascii()` rồi bỏ `%`,
      * còn `HeaderUtils::makeDisposition()` ném `InvalidArgumentException` khi bản dự phòng đó
      * RỖNG. Một tiêu đề toàn chữ Hán hay emoji cho đúng chuỗi rỗng ấy (`Str::ascii('日本語')` →
      * `''`), và khi `media.file_name` cũng không có đuôi nào thì không còn byte ASCII nào sống

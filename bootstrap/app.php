@@ -1,5 +1,7 @@
 <?php
 
+use App\Exceptions\DocumentStorageMisconfigured;
+use App\Exceptions\DocumentStorageUnavailable;
 use App\Http\Middleware\EnforceHttps;
 use App\Http\Middleware\RejectStaffSessionsFromBeforeReset;
 use App\Http\Middleware\SendSecurityHeaders;
@@ -52,4 +54,16 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
+
+        // M14 (kế hoạch R3, R9): kho tài liệu sập hay cấu hình hỏng giữa một request → trang 503
+        // tiếng Việt `errors/storage-unavailable` (cả panel admin lẫn cổng khách) kèm
+        // `Retry-After: 120`; không bao giờ trang 500, không chi tiết kỹ thuật. Lỗi vẫn được báo cáo
+        // vào log như mọi ngoại lệ (render không thay report).
+        $exceptions->render(function (DocumentStorageUnavailable|DocumentStorageMisconfigured $exception, Request $request) {
+            $headers = ['Retry-After' => '120'];
+
+            return $request->expectsJson()
+                ? response()->json(['message' => __('storage.exceptions.unavailable')], 503, $headers)
+                : response()->view('errors.storage-unavailable', [], 503, $headers);
+        });
     })->create();
