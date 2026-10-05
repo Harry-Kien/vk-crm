@@ -127,6 +127,20 @@ function clientPushMailable(string $path): string
     };
 }
 
+/**
+ * Nơi cú chạm mở, viết nguyên văn (bảng R10): trang tiến độ, khối Tài liệu (`#tai-lieu`), khối Hồ sơ
+ * giấy tờ (`#ho-so-giay-to`), trang yêu cầu của hồ sơ.
+ */
+function clientPushDeepLink(string $path, Matter $matter): string
+{
+    return match ($path) {
+        'stage' => "/portal/ho-so/{$matter->id}",
+        'document_published' => "/portal/ho-so/{$matter->id}#tai-lieu",
+        'document_rejected' => "/portal/ho-so/{$matter->id}#ho-so-giay-to",
+        'request_answered' => "/portal/yeu-cau/{$matter->id}",
+    };
+}
+
 function clientPushTopic(string $path): PushTopic
 {
     return match ($path) {
@@ -392,7 +406,10 @@ it('pushes exactly the accounts it mails, about the same record, with nothing of
         expect($alert->message->topic)->toBe(clientPushTopic($path)->value)
             ->and($alert->message->topic)->toBe($headers[OutboundHeaders::TEMPLATE])
             ->and($alert->message->relatedType.':'.$alert->message->relatedId)->toBe($headers[OutboundHeaders::RELATED])
-            ->and($alert->message->relatedId)->toBe($related->getKey());
+            ->and($alert->message->relatedId)->toBe($related->getKey())
+            // Task 10 (rà soát Task 8, Minor 5): cú chạm mở đúng nơi trên bản ghi THẬT mà màn hình tạo —
+            // trước bước G1–G4 của danh sách kiểm tra máy thật.
+            ->and($alert->message->url)->toBe(clientPushDeepLink($path, $matter));
 
         $payload = json_encode($alert->toWebPush($account, $alert)->toArray(), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 

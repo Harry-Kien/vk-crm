@@ -1179,6 +1179,37 @@ mọi thư cho khách: `is_active` **và** `activated_at` không null (M6.5 R12)
 (`docs/superpowers/plans/2026-09-21-m6-notifications.md`), cùng với huy hiệu "có trả lời mới" trên
 thẻ hồ sơ ở cổng; M6.5 không viết mẫu thư này (R1).
 
+**Đính chính 2026-10-04 (M12 Task 10, phán quyết R10–R11 của kế hoạch
+`docs/superpowers/plans/2026-09-24-m12-pwa.md`).** Thông báo đẩy trên điện thoại (kênh `push`, §4.15
+đính chính M12 Task 7) đi CÙNG một thư của bảng trên, không bao giờ thay thư. Không có luật người
+nhận thứ hai: người nhận push là ĐÚNG những người lượt gửi đó vừa gửi thư thành công (khách: M6.5
+R12; nhân sự: `ResolveStaffRecipients`, gồm luật vụ `restricted`), nên chống trùng cũng là sổ thư.
+Chủ đề (`App\Enums\PushTopic`) mang đúng tên mẫu thư nó đi cùng:
+
+| Chủ đề | Đi cùng thư | Người nhận | Chạm vào thì mở |
+|---|---|---|---|
+| `client.stage_update` | `client.stage_update` | khách | trang tiến độ hồ sơ trên cổng |
+| `client.document_published` | `client.document_published` | khách | trang tiến độ, khối Tài liệu |
+| `client.document_rejected` | `client.document_rejected` | khách | trang tiến độ, khối Hồ sơ giấy tờ |
+| `client.request_answered` | `client.request_answered` | khách | trang yêu cầu của hồ sơ |
+| `staff.deadline_reminder` | `staff.deadline_reminder`, mọi bậc và quá hạn (mỗi bậc một lần) | như thư | trang vụ việc, tab Mốc thời hạn |
+| `staff.new_client_request` | `staff.new_client_request`, kể cả khách viết tiếp vào yêu cầu cũ (`REQ-2`, không có thư — cùng người nhận với thông báo trong hệ thống) | như thư | trang vụ việc, tab Yêu cầu từ khách |
+| `staff.new_client_document` | `staff.new_client_document` | như thư | trang vụ việc, tab Danh mục hồ sơ |
+| `staff.instalment_overdue` | `staff.instalment_overdue` (M9) | như thư | trang Công nợ cho người mở được nó, không thì tab Hợp đồng và thanh toán |
+| `staff.handover_ready` | báo gói bàn giao đã sinh (M7 Task 4) | như thư | trang vụ việc, tài liệu gói — **chưa nối ở M12, mang sang lúc gộp M7** |
+
+- Nội dung: tiêu đề là tên văn phòng, thân là chỉ một câu chung (`lang/vi/push.php`) — không mã hồ
+  sơ, tiêu đề vụ, tên khách, tên các bên, tiêu đề tài liệu, tên giấy tờ, lý do từ chối, nội dung
+  câu hỏi/trả lời hay `internal_note`; điện thoại nằm trên bàn và người nhà đọc được màn hình khoá
+  (R11). Mức khẩn của mốc hạn ("hôm nay hoặc ngày mai", "đã quá hạn") được phép.
+- TTL 24 giờ cho mốc hạn, 72 giờ cho các chủ đề khác; độ khẩn `high` cho mốc hạn bậc 1 ngày và quá
+  hạn, `normal` cho còn lại. Thêm nút "Gửi thử" (`push.test`) trên trang "Thông báo trên điện thoại".
+- Cố ý KHÔNG đẩy: `client.otp` (một mã trên màn hình khoá là một mã lộ), `client.activation` (chưa
+  kích hoạt thì chưa có máy), `client.missing_documents`, `staff.stale_matter` (không gấp; thư đã
+  đủ), cảnh báo xung đột lợi ích và mọi thư lỗi sao lưu (đọc trên máy tính).
+- Email không tắt được với mọi chủ đề và mọi người (R14): email là chứng cứ "văn phòng có báo cho tôi
+  không"; push là tiện ích, và "nhận push hay không" chính là "máy này đã bật chưa".
+
 ---
 
 ## 10. Bảo mật — yêu cầu cụ thể
@@ -1187,6 +1218,17 @@ thẻ hồ sơ ở cổng; M6.5 không viết mẫu thư này (R1).
 2. Header bảo mật: `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
    `Referrer-Policy: strict-origin-when-cross-origin`, Content-Security-Policy
    không cho `unsafe-inline` script.
+
+   **Đính chính 2026-10-04 (§10.2, M12 Task 10, phán quyết R5).** App trên điện thoại cần bốn chỉ thị
+   trong CSP của trang (M8 R4, `App\Support\Security\ContentSecurityPolicy::policy()`), đều đã có:
+   `manifest-src 'self'` (manifest của hai app), `worker-src 'self' blob:` (`'self'` cho service
+   worker `/{admin,portal}/sw.js`; `blob:` có từ M8 cho bản xem trước ảnh của ô tải tệp),
+   `connect-src 'self'` (script đăng ký thiết bị gửi về máy chủ), `img-src 'self' data: blob:` (biểu
+   tượng). Không thêm script nội tuyến nào: việc đăng ký nằm trong tệp tĩnh `public/pwa/register.js`,
+   tham số và chuỗi tiếng Việt đi qua thuộc tính `data-*`. Máy chủ push của Apple, Google và Mozilla
+   do TRÌNH DUYỆT gọi, không phải script của trang, nên KHÔNG thêm vào `connect-src` — đừng "sửa" bằng
+   cách mở rộng nó. Bản thân `sw.js` mang CSP riêng `default-src 'self'`
+   (`ContentSecurityPolicy::WORKER_POLICY`), cùng `Service-Worker-Allowed` và `Cache-Control: no-cache`.
 3. Rate limit: đăng nhập 5 lần / 15 phút theo email và theo IP; nộp tài liệu 20
    tệp / giờ / tài khoản; API 60 request / phút.
 
@@ -1367,10 +1409,15 @@ Làm đúng thứ tự. Kết thúc mỗi milestone: test xanh, chạy Pint, c�
 | **M7** | Bàn giao và lưu trữ: `ReassignMatter`, `GenerateHandoverPackage`, `ExpireClientAccess`, nhật ký liên lạc, tìm kiếm | Test phần "bàn giao và lưu trữ" xanh, giải nén gói bàn giao kiểm tra được |
 | **M8** | Bảo mật và hoàn thiện: header, rate limit, activity log, backup, kiểm tra toàn bộ mục 10, viết `README.md` và hướng dẫn triển khai | Toàn bộ test xanh, checklist mục 10 tick hết |
 | **M9** | Hợp đồng dịch vụ pháp lý và thu phí theo đợt: bốn quyền tiền (§5 bổ sung M9), hợp đồng một giá trị chia đợt (theo ngày, khi ký, theo giai đoạn), khoản thu, miễn, phụ lục, nhắc nội bộ đợt quá hạn, tab tiền trên trang vụ việc, trang "Công nợ", trang doanh thu, khối hợp đồng và lịch thu trên cổng khách, khung `time_entries` | Bất biến "tổng các đợt = giá trị hợp đồng" giữ ở mọi đường ghi; test phân quyền tiền và cách ly cổng khách xanh; `billing:check-invariants` sạch trên dữ liệu mẫu |
+| **M12** | App trên điện thoại (PWA) và thông báo đẩy: manifest, biểu tượng và service worker cho hai app (`/admin`, `/portal`) không lưu gì riêng tư, trang ngoại tuyến, tải tài liệu trong cửa sổ app, đăng ký thiết bị theo từng máy (trang "Thông báo trên điện thoại"), gỡ máy khi đăng xuất hay cắt phiên, `PushTopic` đi cùng thư với cùng người nhận, hàng đợi `push` rút bằng cron, nhật ký `outbound_messages` kênh `push`, `vkcrm:push-reset` | Toàn bộ test xanh trên SQLite và MariaDB; lượt Playwright cho thấy CacheStorage không giữ trang, JSON hay tệp hồ sơ nào; danh sách kiểm tra trên iPhone và Android thật (`docs/research/2026-10-01-pwa-kiem-tra-may-that.md`) do chủ văn phòng chạy |
 
 **Đính chính 2026-09-24 (M9).** Thêm dòng **M9** ở bảng trên. Thứ tự dựng hiện hành
 không phải thứ tự dòng trong bảng: xem `docs/PROGRESS.md` (M9 chạy sau M11, trên
 cơ sở dữ liệu production đã có dữ liệu thật).
+
+**Đính chính 2026-10-04 (M12 Task 10).** Thêm dòng **M12** ở bảng trên. Kế hoạch:
+`docs/superpowers/plans/2026-09-24-m12-pwa.md`; phán quyết R1–R14 và kết quả nghiệm thu ở
+`docs/PROGRESS.md`, "Ghi chú M12". M12 chạy cuối, sau M9, M10 và M11.
 
 ---
 
@@ -1416,3 +1463,12 @@ M9: bảng `contracts` và `instalments` gắn vào `matters` như trên, cùng 
 **dạng khung** — bảng, model, quan hệ với `matters` và `users`, policy đóng kín —
 không Action, không màn hình, không con số nào đọc bảng này; tính phí theo giờ
 vẫn là việc của giai đoạn sau.
+
+**Đính chính 2026-10-04 (M12 Task 10).** "Ứng dụng di động" ở đoạn đầu mục này: bản 1.0 đã có app
+trên điện thoại dạng PWA (M12) — cài từ trình duyệt vào màn hình chính, mở trong cửa sổ riêng, nhận
+thông báo đẩy trên Android và iPhone (iOS 16.4 trở lên), chung một nguồn dữ liệu với website, không
+lưu hồ sơ trên máy. App gốc trên App Store/Google Play vẫn là việc của giai đoạn sau. Khi nào mới
+đáng làm (đo được sau vài tháng vận hành) và làm thế nào để nó không thành hệ thống thứ hai (OAuth
+2.1 trên máy chủ Passport của M11, một lớp API mỏng trên đúng các Action, cùng `PushTopic` và cùng
+luật người nhận) ghi ở mục cuối của kế hoạch M12: `docs/superpowers/plans/2026-09-24-m12-pwa.md`,
+"Về sau: khi nào mới đáng làm app gốc".

@@ -215,6 +215,31 @@ Mọi lệnh `php artisan …` chạy trong thư mục `/var/www/vk-crm`, bằng
 - **Không cần** Redis, Supervisor, Node.js hay `npm run build`: cache, hàng đợi và phiên đều nằm
   trong cơ sở dữ liệu, và giao diện dùng tài sản đã biên dịch sẵn của Filament.
 
+#### Máy chủ có gọi ra được máy chủ push không
+
+Thông báo đẩy trên điện thoại (M12) đi từ CHÍNH máy chủ này tới máy chủ push của Google (Android,
+Chrome), Apple (iPhone) và Mozilla (Firefox), qua HTTPS cổng 443. Một số shared hosting chặn kết nối
+ra ngoài, hoặc chỉ mở tới vài đích — và việc ping giám sát cron (`HEARTBEAT_URL`, Bước 8) chạy được
+KHÔNG chứng minh push đi được, vì đích khác nhau. Kiểm trên đúng máy chủ thật, bằng đúng người dùng
+chạy PHP (ví dụ thêm `sudo -u www-data` trước mỗi dòng):
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' https://fcm.googleapis.com/
+curl -sS -o /dev/null -w '%{http_code}\n' https://jmt17.google.com/
+curl -sS -o /dev/null -w '%{http_code}\n' https://web.push.apple.com/
+curl -sS -o /dev/null -w '%{http_code}\n' https://updates.push.services.mozilla.com/
+```
+
+- In ra **một mã HTTP bất kỳ** (`404`, `405`, `400`…) là ĐẠT: máy chủ tới được nơi đó. Bốn trang gốc
+  này không dành cho trình duyệt, nên một mã "lỗi" là bình thường. Google có hai tên máy cho
+  thông báo đẩy: `fcm.googleapis.com` và `jmt17.google.com` (trình duyệt Chromium đo ngày 2026-10-04
+  đăng ký trên tên thứ hai) — kiểm cả hai.
+- In ra `000`, hoặc `curl: (6) Could not resolve host`, `(7) Failed to connect`, `(28) … timed out`
+  là KHÔNG ĐẠT: nhờ nhà cung cấp hosting mở kết nối ra ngoài cổng 443 tới bốn tên máy trên (Apple
+  còn dùng các tên máy con dạng `*.push.apple.com`). Chưa mở được thì app trên điện thoại vẫn cài và
+  chạy, email vẫn đi, chỉ thông báo đẩy không tới: màn hình **Thư đã gửi** của `/admin` (lọc kênh
+  "Thông báo đẩy") ghi một dòng `failed` cho từng máy.
+
 ### Bước 2 — Lấy mã nguồn, cài phụ thuộc
 
 ```bash
@@ -278,6 +303,7 @@ mới mà quên dòng mẫu là test đỏ). Những dòng PHẢI sửa so với
 | `BRAND_REPLY_TO_ADDRESS` | hộp thư có người đọc | chủ văn phòng — đọc mục 3 ngay dưới bảng |
 | `BACKUP_*` | | `docs/SAO-LUU-KHOI-PHUC.md`, Bước 4 |
 | `ADMIN_IP_ALLOWLIST` | để trống, hoặc danh sách IP/CIDR | chủ văn phòng (Bước 0) |
+| `VAPID_SUBJECT`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | `mailto:` + hộp thư có người đọc; cặp khoá do lệnh sinh | mục "Khoá thông báo đẩy" ngay dưới — để trống thì thông báo đẩy trên điện thoại TẮT êm |
 
 Để TRỐNG (đúng giá trị của bản mẫu) là chặt nhất, không cần điền gì: `SESSION_SECURE_COOKIE`,
 `FORCE_HTTPS`, `HSTS_MAX_AGE` (ba biến tự bật ở mọi môi trường trừ `local`/`testing`), `CSP_MODE`
@@ -319,6 +345,37 @@ Ba điều cần nói rõ hơn một dòng bảng:
 **Bốn thông tin pháp lý nằm ở `.env` cho tới khi M7 Task 10 được gộp vào** — từ đó chủ văn phòng
 sửa chúng ngay trong ứng dụng, không cần quyền vào máy chủ.
 
+#### Khoá thông báo đẩy (VAPID) — app trên điện thoại
+
+Thông báo đẩy trên điện thoại (M12) ký mỗi lần gửi bằng một cặp khoá VAPID. Sinh **MỘT lần cho mỗi
+môi trường** (máy chủ thật một cặp, máy chủ thử một cặp khác), trên chính máy chủ đó:
+
+```bash
+php artisan config:clear
+php artisan webpush:vapid
+```
+
+- `config:clear` phải đứng TRƯỚC: lệnh sinh khoá dò dòng cũ trong `.env` theo khoá đang có trong
+  CẤU HÌNH. Cấu hình đã cache (sau lệnh `optimize` của Bước 7) mà không khớp `.env` — ví dụ cache
+  lúc khoá còn trống, rồi `.env` có khoá — thì lệnh ghi đè hỏng dòng: `VAPID_PUBLIC_KEY=cu` thành
+  `VAPID_PUBLIC_KEY=moicu`.
+- Chỉ chạy khi hai dòng `VAPID_PUBLIC_KEY=` và `VAPID_PRIVATE_KEY=` trong `.env` **còn trống** (đúng
+  như `.env.example`). Lệnh tự điền hai dòng đó. Ngoài `production` lệnh GHI ĐÈ khoá đang có mà
+  không hỏi; ở `production` nó hỏi lại — trả lời **không** nếu đã có người bật thông báo.
+- Rồi mở `.env`, điền dòng thứ ba bằng hộp thư có người đọc của văn phòng (máy chủ push của Apple
+  từ chối khi thiếu): `VAPID_SUBJECT=mailto:lienhe@luatvukhang.com`.
+- Lần cài đầu: đi tiếp Bước 4; `vkcrm:preflight` ở Bước 7 kiểm cả ba biến. Sinh khoá trên một máy
+  chủ ĐANG CHẠY (nâng cấp lên bản có M12): chạy tiếp `php artisan vkcrm:preflight` rồi
+  `php artisan optimize`.
+- **`VAPID_PRIVATE_KEY` là bí mật cùng hạng với `APP_KEY`**: cất cả cặp (`VAPID_PUBLIC_KEY` và
+  `VAPID_PRIVATE_KEY`) cùng chỗ với `APP_KEY` — `docs/SAO-LUU-KHOI-PHUC.md`, Bước 6. Không commit,
+  không gửi qua thư. Khoá không nằm trong bản sao lưu (`.env` không được sao lưu).
+- **Mất hay đổi khoá riêng thì mọi đăng ký trên mọi điện thoại chết im lặng** (máy chủ push trả
+  401/403, không tự dọn). Sau MỖI lần đổi khoá chạy `php artisan vkcrm:push-reset` (xoá mọi đăng
+  ký, ghi nhật ký; mọi người bật lại thông báo trên từng máy), rồi báo nhân sự và khách.
+- Để trống cả ba biến cũng được: app trên điện thoại vẫn cài và chạy, email vẫn đi, chỉ thông báo
+  đẩy tắt (không nút bật, không gửi gì) — `vkcrm:preflight` báo VÀNG.
+
 ### Bước 4 — Máy chủ web
 
 Dùng mẫu ĐÃ CHẠY THỬ, sửa tên miền, đường dẫn chứng chỉ và đường dẫn dự án:
@@ -329,7 +386,7 @@ Dùng mẫu ĐÃ CHẠY THỬ, sửa tên miền, đường dẫn chứng chỉ 
   không tự nối PHP: dùng mod_php, hoặc PHP-FPM qua `proxy_fcgi` — trên Ubuntu
   `a2enmod proxy_fcgi setenvif` rồi `a2enconf php8.3-fpm`.
 
-Hai mẫu cùng làm năm việc — đừng bỏ việc nào khi chép sang cấu hình khác:
+Hai mẫu cùng làm sáu việc — đừng bỏ việc nào khi chép sang cấu hình khác:
 
 1. **Document root là `public/`**, không phải gốc dự án.
 2. **Chuyển http → https** trước khi PHP chạy, và gửi **HSTS** (`Strict-Transport-Security`) trên
@@ -348,6 +405,18 @@ Hai mẫu cùng làm năm việc — đừng bỏ việc nào khi chép sang c�
 5. **Giới hạn thân request ≥ `UPLOAD_MAX_MB` cộng phần dư** (`client_max_body_size 25m;` /
    `LimitRequestBody 26214400` cho 20 MB mặc định) — thấp hơn thì máy chủ web tự trả `413` trước
    khi PHP kịp thấy tệp.
+6. **Đưa service worker của hai app trên điện thoại tới PHP** (M12). `/admin/sw.js` và
+   `/portal/sw.js` là ROUTE PHP mang đuôi `.js`: thiếu hai khối `location = /admin/sw.js` và
+   `location = /portal/sw.js` của mẫu nginx, khối tệp tĩnh trả 404 thẳng từ nginx — app không cài
+   được và không bật được thông báo, dù mọi trang vẫn "lên". Mẫu Apache không cần khối riêng (đi qua
+   `.htaccess`). Kiểm bằng request thật: `bash tools/deploy/verify-pwa-routes.sh` (cần Docker, chạy
+   trên máy dev với chính mẫu đã sửa); trên máy chủ thật `curl -I https://<tên miền>/portal/sw.js`
+   phải là `200` kèm `Service-Worker-Allowed: /portal`.
+
+**HTTPS là bắt buộc cho app trên điện thoại**, không chỉ cho đăng nhập: trình duyệt chỉ chạy
+service worker, chỉ cho cài app và chỉ cho bật thông báo đẩy trên `https://` (ngoại lệ duy nhất là
+`localhost` của máy dev). Trên `http://` mọi trang vẫn mở, nhưng nút cài và nút bật thông báo không
+bao giờ hiện.
 
 Shared hosting không cho sửa cấu hình máy chủ web: trỏ document root (tên miền/tên miền con) vào
 `public/` trong bảng điều khiển, bật "Force HTTPS" nếu có, và kiểm mục 4 bằng `curl` như trên —
@@ -512,6 +581,13 @@ khi máy chủ web và HTTPS ở Bước 4 đã lên), và ba điều kiện má
 Dòng ĐỎ chặn mở cổng; dòng VÀNG (ví dụ bốn thông tin pháp lý `BRAND_*` chưa điền — xem M7
 Task 10) không chặn nhưng nên xử lý sớm.
 
+Hai dòng của app trên điện thoại (M12):
+
+- thiếu extension `curl` (gói thông báo đẩy cần nó) là ĐỎ, như mọi extension bắt buộc ở Bước 1;
+- thiếu hay sai khoá thông báo đẩy là VÀNG — "Chưa có khoá thông báo đẩy (…) — thông báo đẩy trên
+  điện thoại đang TẮT …": app vẫn cài và chạy, email vẫn đi, chỉ thông báo đẩy tắt. Sửa theo mục
+  "Khoá thông báo đẩy (VAPID)" ở Bước 3 (nhớ `php artisan config:clear` trước khi sinh khoá).
+
 `php artisan optimize` cache cấu hình, route, view và sự kiện (cộng phần cache riêng của
 Filament). **Từ lúc này, sửa `.env` không có tác dụng cho tới khi cache lại**: sau mỗi lần sửa
 `.env`, chạy `php artisan optimize:clear`, `php artisan vkcrm:preflight`, rồi `php artisan
@@ -529,6 +605,12 @@ optimize`.
 Dòng này chạy MỌI việc định kỳ khai báo trong `routes/console.php`, ví dụ: gửi thư trong hàng đợi
 (mỗi phút), nhắc mốc thời hạn (07:00–19:30, mỗi 30 phút), sao lưu (02:00), giám sát sao lưu (08:00),
 ping giám sát cron (mỗi 5 phút). Không cần tiến trình `queue:work` chạy thường trực.
+
+Thông báo đẩy trên điện thoại (M12) có hàng đợi RIÊNG, `push`, cũng rút bằng CHÍNH dòng này —
+không thêm dòng cron nào: mục lịch `queue.push` chạy
+`queue:work --queue=push --stop-when-empty --max-time=50` mỗi phút (mỗi máy nhận là một request ra
+máy chủ push, hạn 10 giây, nên tách khỏi hàng thư để máy chủ push chậm không giữ chân thư nhắc hạn),
+và `push-subscriptions.prune` dọn đăng ký cũ lúc 03:30.
 
 **Giám sát cron** — cron trên shared hosting hay lặng lẽ ngừng chạy sau khi gia hạn gói hay đổi
 cấu hình PHP:
@@ -610,6 +692,36 @@ php artisan up
 - **Đêm đầu sau nâng cấp, theo dõi hộp thư báo lỗi**: lượt sao lưu 02:00 và lượt giám sát 08:00 là
   lần đầu bản mới chạy những việc đó. Sáng hôm sau chạy `php artisan vkcrm:backup-check`.
 - Khi nghi ngờ: bản sao lưu đêm trước là điểm quay lại, và `APP_KEY` không đổi qua các bản nâng cấp.
+
+### Bản cập nhật M12 (app trên điện thoại và thông báo đẩy)
+
+Máy chủ đã chạy bản trước M12 thì làm thêm, theo thứ tự:
+
+1. **TRƯỚC `git pull`:** `php -m | grep -i curl` phải in `curl` (bản dòng lệnh) và `php-fpm8.3 -m`
+   cũng vậy — từ M12 `curl` là extension bắt buộc (Bước 1); thiếu thì `composer install` của bản mới
+   từ chối cài. Kiểm luôn máy chủ có gọi ra được máy chủ push không (Bước 1, mục "Máy chủ có gọi ra
+   được máy chủ push không").
+2. Chuỗi lệnh nâng cấp ở trên, nguyên vẹn. `migrate --force` chạy hai migration mới, chỉ THÊM một
+   bảng đăng ký thiết bị, không đụng dữ liệu cũ:
+   `2026_10_03_000001_create_push_subscriptions_table`,
+   `2026_10_03_000002_add_device_label_and_last_seen_at_to_push_subscriptions_table`.
+   M12 không thêm quyền mới (`db:seed --force` vẫn chạy như mọi lần).
+3. **nginx (đứng theo mẫu cũ):** chép hai khối `location = /admin/sw.js { … }` và
+   `location = /portal/sw.js { … }` của `tools/deploy/nginx.conf.example` mới vào cấu hình đang chạy
+   (đặt đâu cũng được trong khối `server` — `location =` thắng mọi khối regex), `nginx -t`, rồi
+   `systemctl reload nginx`. Thiếu hai khối này thì app không cài được (Bước 4, việc 6). Apache:
+   không phải sửa gì.
+4. **Khoá thông báo đẩy:** làm đúng mục "Khoá thông báo đẩy (VAPID)" ở Bước 3 — `config:clear`,
+   `webpush:vapid`, điền `VAPID_SUBJECT`, `vkcrm:preflight`, `optimize` — rồi cất cặp khoá cùng
+   `APP_KEY`. Chưa sinh khoá thì mọi thứ khác của M12 vẫn chạy, chỉ thông báo đẩy tắt (preflight
+   VÀNG).
+5. **Dòng cron giữ nguyên.** Mục lịch mới `queue.push` (rút hàng đợi thông báo đẩy mỗi phút) và
+   `push-subscriptions.prune` (03:30) chạy từ chính dòng `schedule:run` đã có (Bước 8).
+6. **`php artisan vkcrm:push-reset` chỉ khi đổi khoá** (lộ khoá, mất khoá, khôi phục mà không còn khoá
+   cũ) — KHÔNG chạy trong một lần nâng cấp bình thường: nó xoá đăng ký của mọi điện thoại.
+7. Gửi cho khách và nhân sự hướng dẫn cài app (`docs/QUY-TRINH.md`, mục "Hướng dẫn cài ứng dụng Luật
+   Vũ Khang trên điện thoại"). Chủ văn phòng chạy danh sách kiểm tra trên máy thật
+   (`docs/research/2026-10-01-pwa-kiem-tra-may-that.md`) trên chính máy chủ này.
 
 ## Thao tác tiền và thời gian chờ khoá của MariaDB (`innodb_lock_wait_timeout`)
 

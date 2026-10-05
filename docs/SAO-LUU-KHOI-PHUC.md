@@ -312,6 +312,17 @@ nghĩa.** Mất `APP_KEY` là mất vĩnh viễn mọi số CCCD và mọi bí m
   lại (không nên làm việc này sau khi đã có dữ liệu thật — nhưng nếu lỡ xảy ra, bản sao lưu cũ cần
   đúng `APP_KEY` CŨ, không phải key hiện tại).
 
+**Cùng chỗ đó, cặp khoá thông báo đẩy (M12): `VAPID_PRIVATE_KEY` và `VAPID_PUBLIC_KEY`** (hai dòng
+trong `.env`, sinh một lần ở `docs/CAI-DAT.md`, Bước 3), kèm `VAPID_SUBJECT`. Khoá riêng này cùng
+hạng bí mật với `APP_KEY`: ai có nó thì ký được lời gửi tới điện thoại đã đăng ký của nhân sự và
+khách. Nó **không** nằm trong bản sao lưu (`.env` không được sao lưu), nên:
+
+- khôi phục mà còn cặp khoá CŨ: mọi điện thoại đã bật thông báo tiếp tục nhận, không ai phải làm gì;
+- mất cặp khoá (hay nghi bị lộ): sinh cặp mới rồi chạy `php artisan vkcrm:push-reset` — đăng ký cũ
+  chết im lặng với khoá mới (máy chủ push trả 401/403, không tự dọn), lệnh xoá hết chúng và ghi nhật
+  ký; mọi người bật lại thông báo trên từng máy. Không mất dữ liệu hồ sơ nào: khoá này chỉ dùng để
+  gửi thông báo.
+
 ---
 
 ## Khôi phục thử
@@ -380,7 +391,11 @@ quý một lần, ghi kết quả vào `docs/PROGRESS.md`):
    `config/backup.php`) chép về ĐÚNG thư mục `storage/app/private/` của máy chủ mới, giữ nguyên
    cấu trúc thư mục con.
 7. **Đặt `APP_KEY`** trong `.env` của máy chủ mới bằng ĐÚNG giá trị lấy ở bước 1 — làm TRƯỚC khi
-   cho ứng dụng chạy thật (trước khi ai đăng nhập hay đọc một hồ sơ nào).
+   cho ứng dụng chạy thật (trước khi ai đăng nhập hay đọc một hồ sơ nào). Cùng lúc đặt ba dòng
+   `VAPID_SUBJECT`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` bằng cặp khoá cất ở Bước 6: còn khoá cũ
+   (và cùng tên miền) thì điện thoại đã bật thông báo tiếp tục nhận. Không còn khoá cũ: KHÔNG chép
+   khoá của máy khác, sinh cặp mới theo `docs/CAI-DAT.md`, Bước 3, rồi chạy
+   `php artisan vkcrm:push-reset` và báo mọi người bật lại thông báo.
 8. **`php artisan migrate:status`** — xác nhận không có migration nào "đang chờ" (mọi dòng đều có
    `Ran`). Nếu có dòng chưa chạy, đó là dấu hiệu bản dump cũ hơn mã nguồn đang triển khai — dừng
    lại, đối chiếu lại phiên bản mã nguồn với thời điểm bản sao lưu trước khi đi tiếp.

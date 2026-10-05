@@ -147,6 +147,9 @@ it('rejects an endpoint that is not https to a known push service with a Vietnam
     'máy nội bộ' => 'https://localhost/x',
     'đuôi giả mạo' => 'https://fcm.googleapis.com.evil.example/x',
     'tên ghép' => 'https://evilfcm.googleapis.com/x',
+    // `jmt17.google.com` là tên đầy đủ, không phải `*.google.com`: máy khác của Google vẫn bị từ chối.
+    'máy khác của google.com' => 'https://accounts.google.com/x',
+    'jmt17 giả mạo' => 'https://jmt17.google.com.evil.example/fcm/send/x',
     'thông tin người dùng trước host' => 'https://fcm.googleapis.com@evil.example/x',
     // Host THẬT là của Apple, nhưng một endpoint push không bao giờ mang phần thông tin người dùng: cho
     // `@` vào phần host là để hai bộ phân tích URL (PHP, cURL) có chỗ đọc khác nhau.
@@ -192,6 +195,11 @@ it('accepts the endpoints of the four push services the plan names', function (s
     expect(pushDeviceRow($endpoint))->not->toBeNull();
 })->with([
     'Chrome / Android (FCM)' => 'https://fcm.googleapis.com/fcm/send/dXk3:APA91bE-x_Y',
+    // Task 10, ĐO trên bản Chromium 153 của Playwright (đăng ký thật, context không ẩn danh,
+    // `tools/pwa/acceptance.cjs` mục 3): `pushManager.subscribe()` trả endpoint FCM trên tên máy
+    // `jmt17.google.com`, không phải `fcm.googleapis.com` — thiếu dòng này thì trình duyệt đó bấm Bật
+    // nhận 422. Google Chrome trên Android chưa đo (bước D1 của danh sách kiểm tra máy thật).
+    'Chromium (FCM, jmt17.google.com)' => 'https://jmt17.google.com/fcm/send/eW1x:APA91bF-x_Y',
     'Safari (Apple)' => 'https://web.push.apple.com/QOx7Hk-3aR_eW9',
     'Firefox (Mozilla)' => 'https://updates.push.services.mozilla.com/wpush/v2/gAAAAABm-x_y=',
     'Edge (WNS)' => 'https://wns2-par02p.notify.windows.com/w/?token=BQYAAAD%2bAbC%3d',

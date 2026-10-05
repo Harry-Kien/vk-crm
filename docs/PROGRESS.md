@@ -3200,3 +3200,176 @@ Vòng sửa 1 (review Task 9, I1 — thông báo cùng `tag` thay nhau im lặng
 - Số đo vòng sửa: cả bộ `test --parallel --processes=2` 4170 passed, 25 skipped, 1 todo, 1 risky, 0 failed (+3 ca: hai
   dòng dataset của `ServiceWorkerTest`, một ca `SurveyDocsTest`); MariaDB (tuần tự) trên `ServiceWorkerTest`,
   `SurveyDocsTest`, `StaffEventPushTest`, `PushTopicTest` 129 passed; 7 đột biến Pest đều đỏ đúng ca; pint sạch.
+
+### Task 10 — nghiệm thu, tài liệu, cổng merge của làn (2026-10-04)
+
+**Trạng thái.** Làn giao ở mức "sẵn sàng gộp": phần nghiệm thu TỰ ĐỘNG xong trên bản cuối của nhánh (số đo dưới),
+tài liệu xong, cổng test của làn xanh. Còn lại, không thuộc làn: rà soát toàn nhánh (controller điều phối), gộp vào
+`main` + CI + dòng M12 của bảng milestone (controller), và nghiệm thu trên iPhone/Android thật — **PENDING OWNER**
+theo danh sách kiểm tra `docs/research/2026-10-01-pwa-kiem-tra-may-that.md` (mục A–H; Task 10 thêm D10, G1–G8,
+H1–H4). Agent không điều khiển được điện thoại và không mở đường hầm HTTPS công khai.
+
+**Phán quyết R1–R14 của kế hoạch — đã thành mã ở đâu** (chi tiết từng task ở các mục trên):
+- **R1 — PWA mỏng, không dữ liệu ngoại tuyến:** không IndexedDB, không đồng bộ nền; mất mạng → trang tĩnh
+  `resources/views/pwa/offline.blade.php` (tiếng Việt, hotline `tel:`, "Thử lại" về `start_url`).
+- **R2 — hai app, một máy chủ:** `routes/pwa.php` (ngoài nhóm `web`: không cookie, không dòng `sessions`; nhóm của
+  admin đứng sau `RestrictAdminIpAllowlist`), `App\Actions\Pwa\BuildManifest`, `id`/`scope`/`start_url` = `/admin`,
+  `/portal` (không dấu `/` cuối), header `Service-Worker-Allowed`, thẻ `<head>` qua `PanelsRenderHook::HEAD_END`.
+- **R3 — biểu tượng PNG tĩnh:** sinh bằng `tools/brand/make-logo.php` (192, 512, maskable theo màu nền của từng app,
+  apple-touch 180 đục).
+- **R4 — service worker không lưu gì riêng tư:** `resources/views/pwa/sw-js.blade.php` — chỉ `GET` cùng origin; điều
+  hướng chỉ đi mạng (không ghi bộ đệm), lỗi mạng → trang ngoại tuyến; tài nguyên tĩnh theo
+  `config('vkcrm.pwa.static_prefixes')`; `VERSION` băm view + tiền tố + phiên bản Filament; CSP riêng của worker. Tải
+  tài liệu qua route bí danh TRONG scope, cùng cửa sổ (phán quyết tạm 1 của Task 1).
+- **R5 — CSP:** không script nội tuyến; `public/pwa/register.js` nhận mọi tham số và chuỗi qua `data-*`; bốn chỉ thị đã
+  có trong `App\Support\Security\ContentSecurityPolicy::policy()` (SPEC §10.2, đính chính 2026-10-04).
+- **R6 — gói:** `laravel-notification-channels/webpush` 13.0.1; `curl` thành extension bắt buộc (SPEC §2, preflight ĐỎ).
+- **R7 — khoá VAPID cùng hạng `APP_KEY`:** `App\Support\Push\VapidKeys`, preflight VÀNG khi thiếu, `vkcrm:push-reset`,
+  `register.js` so khoá; quy trình ở `docs/CAI-DAT.md` Bước 3 và `docs/SAO-LUU-KHOI-PHUC.md` Bước 6 (Task 10).
+- **R8 — đăng ký theo từng máy, không SSRF:** `App\Actions\Push\RegisterPushDevice`/`ForgetPushDevice`, trang "Thông
+  báo trên điện thoại" ở hai panel, máy chủ push trong `config('vkcrm.pwa.push_hosts')`, throttle 10/phút, audit chỉ
+  `device_label`, không `PushSubscription::` ngoài danh sách cho phép (`PushSubscriptionAccessTest`); lượt kiểm `sync=1`
+  không chuyển chủ, chỉ nút Bật mới chuyển.
+- **R9 — máy chủ quyết:** listener `ForgetPushDeviceOnLogout` (đăng xuất, cắt phiên SPEC §10.9, phiên trước "Đặt lại
+  2FA", mật khẩu đổi ở nơi khác); người nhận luôn tính lúc gửi; `PrunePushSubscriptions` 03:30 chỉ là vệ sinh.
+- **R10 — chủ đề đi cùng thư, một định nghĩa người nhận:** `App\Enums\PushTopic`, 8 chủ đề có sự kiện (bốn của khách,
+  bốn của nhân sự gồm `staff.instalment_overdue` theo phán quyết (e)) cộng "Gửi thử"; mỗi nơi gửi thư đẩy cho đúng
+  những người lượt đó vừa gửi thư được (phán quyết (d)). Bảng ở SPEC §9 (đính chính 2026-10-04). Kế hoạch nói "tám chủ
+  đề" với `staff.handover_ready`; con số thật trên nhánh là 8 chủ đề với `staff.instalment_overdue` thay chỗ, và
+  `staff.handover_ready` là chủ đề thứ chín, mang sang lúc gộp M7.
+- **R11 — màn hình khoá không phải màn hình của văn phòng:** tiêu đề là tên văn phòng, thân là một câu chung, `tag` =
+  chủ đề + id, `renotify` khi có `tag`; `notificationclick` chỉ mở URL cùng origin trong scope.
+- **R12 — hàng đợi `push` rút bằng cron:** `App\Notifications\PushAlert` (`ShouldQueue`, `afterCommit`, 3 lần thử),
+  mục lịch `queue.push` mỗi phút trong chính dòng cron.
+- **R13 — dấu vết:** `OutboundChannel::Push`, `App\Actions\Notification\RecordOutboundPush` (người nhận `user:7` /
+  `client_user:12`, không bao giờ endpoint).
+- **R14 — email không tắt được:** không bảng tuỳ chọn; "nhận push hay không" = "máy này đã bật chưa".
+
+**Ba phán quyết tạm của Task 1 — trạng thái cuối:** (1) tải tài liệu trong scope, cùng cửa sổ — đã làm (Task 3), máy
+thật PENDING OWNER (A5–A10); (2) không sửa luồng OTP — giữ nguyên, máy thật PENDING OWNER (B); (3) hai `id` + hai
+`scope` — đã làm (Task 2), máy thật PENDING OWNER (C). Phán quyết của controller cho làn: (a) ba phán quyết tạm trên;
+(b) "Gửi thử" ở cuối Task 7; (c) khoá phiên theo guard `push.endpoint.web`/`push.endpoint.client`; (d) push theo từng
+người sau khi thư của chính người đó gửi được; (e) `staff.instalment_overdue` vào bảng R10; (f) giấy tờ khách nộp trỏ
+tab "Danh mục hồ sơ".
+
+**Nghiệm thu tự động trên bản cuối của nhánh** (bản chạy của làn `http://localhost:8097`, `CSP_MODE=enforce`, khoá
+VAPID THỬ không ghi vào repo; Chromium 153 `CHANNEL=chromium`, WebKit 26.6 của Playwright 1.63):
+
+| Mục của kế hoạch | Phần tự động (agent) | Máy thật |
+|---|---|---|
+| Cài hai app; biểu tượng, tên, standalone, thanh trạng thái navy | `tools/pwa/acceptance.cjs` mục 1 (context bền): CDP `Page.getAppManifest` không lỗi và `Page.getInstallabilityErrors` RỖNG cho cả `/portal` lẫn `/admin`; `id`/`scope`/`start_url` không dấu `/` cuối, Chromium phân tích ra đúng scope; `display` standalone; `theme_color` và `<meta name="theme-color">` `#101d35`; tên, tên ngắn đúng; 192, 512, maskable 512 tải 200 | PENDING OWNER: A1–A3, A7, C1–C5 |
+| Bật thông báo; iPhone chỉ trong app đã cài, Safari thường thấy hướng dẫn | mục 2 (WebKit `iPhone 13`, không standalone): khối "Chạm nút Chia sẻ → Thêm vào Màn hình chính…", không nút Bật — cả app nội bộ (mục 5); mục 3 (Chromium thật, KHÔNG giả `PushManager`): bấm Bật → đăng ký FCM thật → `POST 201`, đúng một dòng `push_subscriptions` | PENDING OWNER: D1, D2 |
+| Đủ các chủ đề; màn hình khoá chỉ câu chung; chạm mở đúng trang kể cả hết phiên | Pest: 8 chủ đề nối ở Task 8–9 (người nhận push = người nhận thư, payload chỉ khoá R11, chuỗi đánh dấu); Task 10 ghim thêm deep link của bốn đường khách trên bản ghi THẬT; `survey-sw-push.cjs` (worker thật qua CDP `ServiceWorker.deliverPushMessage`); mục 3: MỘT lần đẩy THẬT qua FCM ("Gửi thông báo thử" → hàng `push` → FCM → Chromium): dòng `outbound_messages` kênh `push` là `sent`, service worker hiện "Luật Vũ Khang / Thông báo thử: máy này đã nhận được thông báo của văn phòng." Cú chạm thật (`notificationclick`) không đo được trên máy dev | PENDING OWNER: D3–D5, D9, G1–G8 |
+| Đăng xuất / vô hiệu hoá thì hết nhận tin | Pest (Task 6: đăng xuất, cắt phiên §10.9, phiên trước "Đặt lại 2FA"); `survey-push.cjs`: đăng xuất gỡ đúng máy, người sau trên cùng máy không tự nhận | PENDING OWNER: D7, D8, D10 |
+| Chụp ảnh nộp giấy tờ, tải tài liệu trong app đã cài | `survey-sw.cjs` trên bản cuối: 39/39 — nộp tệp (Livewire), tải qua bí danh trong scope, chuyển giai đoạn, đưa tài liệu lên, liên kết hết hạn về đầu đúng app, tất cả khi worker điều khiển trang | PENDING OWNER: A5–A10, F1 |
+| Chế độ máy bay → trang ngoại tuyến | `survey-sw.cjs` (hai app, "Thử lại" về `start_url`) + `acceptance.cjs` mục 3 (Pixel 7) | PENDING OWNER: E1–E3 |
+| Màn hình admin ở bề ngang 390px | mục 5 (WebKit `iPhone 13`, 390×844): H1 danh sách vụ việc (trang không tràn ngang, 390/390; chạm dòng → trang vụ việc), H2 cả 9 tab chạm được, H3 form "Chuyển giai đoạn" (ô công bố gõ được, cuộn tới và chạm "Gửi", chuyển xong), H4 "Thêm mốc thời hạn" (lịch chọn ngày nằm trong màn hình, lưu xong) — mọi nút trúng `elementFromPoint` ở tâm. Không chỗ nào chặn thao tác, nên không sửa giao diện | PENDING OWNER: H1–H4 |
+| Không dữ liệu hồ sơ nào trong CacheStorage (Review Focus 1, phán quyết 4) | sau MỌI lượt (survey-sw, mục 3, mục 5): chỉ `/portal/offline`, `/admin/offline` và tài nguyên tĩnh công khai (14–17 mục) | PENDING OWNER: F2 |
+| Đăng xuất rồi nút Back (máy dùng chung) | mục 4: trang đã đăng nhập mang `Cache-Control: max-age=0, must-revalidate, no-cache, no-store, private`; Back sau đăng xuất về trang đăng nhập, `pageshow.persisted=false` — Chromium với bộ nhớ đệm Back/Forward BẬT (cổng khách và app nội bộ) và WebKit iPhone | PENDING OWNER: F2 |
+| Máy chủ gọi ra được máy chủ push | bốn lệnh `curl` ở `docs/CAI-DAT.md` Bước 1; chạy trong container của làn: `fcm.googleapis.com` 404, `jmt17.google.com` 404, `web.push.apple.com` 405, `updates.push.services.mozilla.com` 406 (đều ĐẠT) | người triển khai, trên hosting thật |
+
+
+**Phát hiện và số đo của Task 10:**
+
+1. **Sửa trong Task 10 — Chromium thật không bật được thông báo (422).** Lần đầu tiên một trình duyệt THẬT (bản
+   Chromium 153 của Playwright, context không ẩn danh) gọi `pushManager.subscribe()` không qua bản giả: endpoint trả về
+   nằm trên tên máy `jmt17.google.com` (`/fcm/send/…`), không phải `fcm.googleapis.com` mà mọi test và bản giả của
+   Task 4–9 dùng. Tên đó không có trong `vkcrm.pwa.push_hosts`, nên `POST …/push/subscriptions` trả 422 và bấm Bật trên
+   trình duyệt đó báo "Chưa bật được". Google Chrome trên Android CHƯA đo — có thể vẫn trả `fcm.googleapis.com`; giữ
+   cả hai tên, bước D1 của danh sách kiểm tra máy thật xác nhận. Sửa: thêm đúng tên `jmt17.google.com` (không `*.google.com`) vào
+   `config/vkcrm.php`; `PushDeviceRegistrationTest` thêm endpoint đó vào ca chấp nhận (ĐỎ trước khi sửa: 422 thay 201)
+   và hai ca từ chối (`accounts.google.com`, `jmt17.google.com.evil.example`); `docs/CAI-DAT.md` Bước 1 kiểm cả tên máy
+   này. Sau khi sửa: bấm Bật → 201 → một lần đẩy thật qua FCM tới chính trình duyệt đó hiện đúng thông báo.
+2. **Back sau đăng xuất không lộ gì — rà soát Task 3 Minor 2 và Task 6 Minor 8 đóng bằng số đo.** Giả thuyết cũ ("trang
+   đã đăng nhập đi ra `no-cache, private`") sai với trang Filament: `Livewire\Features\SupportDisablingBackButtonCache`
+   gắn `DisableBackButtonCacheMiddleware` cho mọi response có component Livewire, nên trang hồ sơ của cả hai panel mang
+   `no-store`; bộ nhớ đệm Back/Forward không giữ trang, Back sau đăng xuất về trang đăng nhập. Không cần sửa.
+3. **Hai cái bẫy của Playwright khi đo PWA (đã tránh trong kịch bản):** context mặc định là ẩn danh — Chromium báo lỗi
+   cài `in-incognito` cho mọi trang và tắt hẳn Push API; Playwright tắt bộ nhớ đệm Back/Forward
+   (`--disable-back-forward-cache`). `acceptance.cjs` dùng context bền, và bật lại bộ nhớ đệm đó cho phép đo Back.
+4. **WebKit "Desktop Safari" của Playwright cho Windows đứng hình khi có `PushManager`** (đo ở
+   `.superpowers/sdd/m12/probe/t10/dbg/`: trang đầu tiên đã đăng nhập không trả lời nữa, lần điều hướng kế không bao giờ
+   xong; xoá `PushManager` trước khi trang chạy thì điều hướng bình thường; hồ sơ `iPhone 13` không bị vì `register.js`
+   dừng ở khối hướng dẫn trước Push API). Coi là hiện tượng của bản WebKit dựng cho Windows (không có dịch vụ push
+   thật), không suy ra Safari thật. Nhưng Safari trên máy Mac và app đã cài trên iPhone ĐỀU gọi Push API ở trang đầu
+   tiên sau đăng nhập, nên bước D1 của danh sách kiểm tra nay đòi chạm qua lại vài trang trước và sau khi bật — "đứng
+   hình" là KHÔNG ĐẠT. Mục 6 của `acceptance.cjs` chỉ ghi nhận.
+5. **Lỗi trang chỉ thấy ở WebKit 390, không chặn thao tác, chưa quy được cho worker.** (a) `Can't find variable:
+   textareaFormComponent` / `state` khi form "Chuyển giai đoạn" vẽ lại sau khi chọn giai đoạn — cuộc đua nạp component
+   bất đồng bộ (`x-load`) của Filament: gặp ở 2/6 lượt mục 5 có worker, 0/3 lượt chặn worker, 0/16 lần mở form trong
+   phép đo có kiểm soát (8 có worker, 8 chặn worker); ô vẫn gõ được và chuyển giai đoạn vẫn xong. (b) `… due to access
+   control checks` / `TypeError: Load failed` của WebKit cho một request cập nhật Livewire bị huỷ — gặp cả khi chặn
+   worker (máy chủ `artisan serve` của làn chậm vài giây mỗi trang). Dòng cuối của `acceptance.cjs` ("không lỗi JS")
+   vì vậy có thể HỎNG ở lượt đủ; bước H3 trên iPhone thật là nơi xác nhận.
+6. **Màn hình nội bộ ở 390px — xấu nhưng dùng được (không sửa):** bảng "Vụ việc" chỉ hiện hai cột đầu, phần còn lại
+   phải vuốt ngang trong bảng và tên khách dài bị cắt; dải 9 tab của trang vụ việc phải vuốt ngang; nút hành động xếp
+   chồng. Ảnh: `.superpowers/sdd/m12/probe/t10/shots-acc/admin-390-*.png` (ngoài repo).
+7. **Tài liệu:** `docs/CAI-DAT.md` (Bước 1 kiểm gọi ra máy chủ push; Bước 3 "Khoá thông báo đẩy (VAPID)": `config:clear`
+   → `webpush:vapid` → `VAPID_SUBJECT` → preflight → `optimize`, kèm lý do; Bước 4 việc thứ sáu — hai khối `location =`
+   cho `sw.js`, HTTPS bắt buộc cho app; Bước 7 dòng ĐỎ `curl`, dòng VÀNG khoá; Bước 8 hàng `push` trong chính dòng
+   cron; "Bản cập nhật M12" cho máy chủ đang chạy), `README.md`, `docs/SAO-LUU-KHOI-PHUC.md` Bước 6 và bước khôi phục
+   7, `.env.example`, câu VÀNG `preflight.vapid_missing` (rà soát Task 4 Minor 5, 6), SPEC §9/§10.2/§13/§15,
+   `docs/QUY-TRINH.md` (đoạn "đưa lên điện thoại" viết lại, dòng mới ở Giai đoạn 4, hướng dẫn cài app cho khách có ba
+   ảnh mô phỏng trong `docs/images/m12/`), danh sách kiểm tra máy thật (D3 đúng tên nút, D10, G1–G8, H1–H4, D1 thêm
+   "không đứng hình"). Ghim bằng `tests/Feature/Deployment/PushInstallGuideTest.php` và
+   `tests/Feature/Pwa/AcceptanceDocsTest.php`, so văn bản với mã (`Artisan::all()`, `Schedule::events()`, tên tệp
+   migration, `vkcrm.pwa.push_hosts`, `PushTopic::cases()`, `lang/vi`, `ContentSecurityPolicy::policy()`).
+
+
+**Đánh giá máy chủ push nước ngoài (R11, câu hỏi 3).** Nội dung đẩy tới trình duyệt ở dạng mã hoá (aes128gcm, RFC
+8291) qua máy chủ push của Google (FCM), Apple và Mozilla; khoá giải mã chỉ nằm trên điện thoại. Kể cả bản giải mã cũng
+không có dữ liệu cá nhân: tiêu đề là tên văn phòng, thân là một câu chung, kèm một đường dẫn tương đối chỉ mang id vụ
+việc. Máy chủ push thấy siêu dữ liệu: endpoint (định danh của trình duyệt trên dịch vụ đó), thời điểm và kích thước
+gói. PROGRESS không có mục đánh giá chuyển dữ liệu ra nước ngoài của M8 R3; đánh giá đó nằm ở kế hoạch M8
+(`docs/superpowers/plans/2026-09-21-m8-security-and-launch.md`, phán quyết R3) và
+`docs/research/2026-09-24-mcp-phap-ly-goi.md` — đọc cùng hai tệp đó. Chủ văn phòng xác nhận ở câu hỏi 3 dưới.
+
+**Câu hỏi cho chủ văn phòng — CHỜ TRẢ LỜI** (không chặn gộp):
+1. **Thời gian giữ đăng nhập trong app.** Hôm nay khách nhập lại mật khẩu và mã một lần sau 120 phút không dùng
+   (`SESSION_LIFETIME`). Giữ nguyên (an toàn nhất), hay kéo dài riêng cho cổng khách (ví dụ 7 ngày, mã một lần vẫn bắt
+   buộc ở mỗi lần đăng nhập mới)? — CHỜ TRẢ LỜI. Không tự đổi.
+2. **Nhân sự cài app nội bộ trên điện thoại cá nhân.** Văn phòng có cho phép không? Nếu bật giới hạn IP cho `/admin`
+   (`ADMIN_IP_ALLOWLIST`, M8 R7) thì app nội bộ chỉ dùng được trong mạng văn phòng: thông báo vẫn tới, chạm vào thì
+   404 khi ở ngoài. Nối với câu hỏi `ADMIN_IP_ALLOWLIST` còn treo của M8 ("Ghi chú M8", Task 1, "Lưu ý cho M12"). —
+   CHỜ TRẢ LỜI.
+3. **Máy chủ push nước ngoài.** Thông báo đi qua máy chủ của Apple và Google, mã hoá, không tên hay nội dung hồ sơ;
+   họ thấy thời điểm và thiết bị nhận. Chủ văn phòng xác nhận chấp nhận, ghi cùng đánh giá chuyển dữ liệu ra nước
+   ngoài của M8. — CHỜ TRẢ LỜI.
+
+**Việc cho controller và cho lần gộp:**
+- **M7 (`staff.handover_ready`)** — chưa nối ở làn này (phán quyết 2); công thức năm bước ở mục Task 9 trên. SPEC §9
+  ghi dòng đó là "mang sang lúc gộp M7"; danh sách kiểm tra máy thật thêm G9 khi nối.
+- **M10** — không nối (phán quyết 1): `staff.intake_unanswered` là việc của M10 nếu muốn đẩy; `staff.matter_reassigned`
+  (M7) chưa ai quyết — mặc định không đẩy, thêm vào test "deliberately never pushed" lúc gộp.
+- **M8 Task 6** (rà soát §10 toàn hệ thống sau khi mọi làn gộp) phải phủ bề mặt M12: `routes/pwa.php` (manifest,
+  `sw.js`, trang ngoại tuyến của hai panel), ba route thiết bị (`POST`/`DELETE …/push/subscriptions`,
+  `POST …/push/test`), hai route tải bí danh `/{admin,portal}/documents/{id}/download`, các chỉ thị CSP mới và CSP
+  riêng của worker.
+- **Vùng xung đột khi gộp:** `docs/PROGRESS.md`, `docs/SPEC.md` (§9, §10, §13, §15), `docs/CAI-DAT.md`, `README.md`,
+  `docs/QUY-TRINH.md`, `docs/SAO-LUU-KHOI-PHUC.md`, `.env.example` (+ `EnvExampleTest`), `composer.json`/`composer.lock`
+  (dựng lại lock bằng composer), `routes/console.php`, `config/vkcrm.php`, hai panel provider, `lang/vi/*`. Lần gộp M11
+  thêm `sodium` vào `deployment.required_extensions` (rà soát Task 4, Minor 7) — `PushInstallGuideTest` khi đó đòi
+  Bước 1 của `CAI-DAT.md` và tóm tắt của README liệt kê đúng danh sách mới.
+- **Chờ controller chốt (từ các lượt rà soát):** nghe `CurrentDeviceLogout` khi chính chủ đổi mật khẩu ở máy khác
+  (Task 6 Minor 2); nút "Gửi lại" của nhật ký thư cũng đẩy lại cho khách và nhân sự (Task 8 Minor 3, Task 9 Minor 3);
+  `REQ-2` không throttle nên N câu hỏi tiếp làm máy rung N lần (Task 9 Minor 2); `PushAlert::shouldSend()` không hỏi
+  lại `is_active` trong cửa sổ hàng đợi (Task 7 Minor 1, Task 8 Minor 2); trang 429/500 mặc định trong cửa sổ app
+  (Task 3 vòng sửa, Minor 1); câu `portal.inactive` không hiện trên đường Livewire (có từ M5); câu mời của trang thiết
+  bị nhân sự chưa nhắc khoản thu quá hạn (Task 9 Minor 1).
+- **Hướng dẫn cài app cho khách** nằm ở cuối `docs/QUY-TRINH.md`. Kho mã là riêng tư nên khách không mở được đường
+  dẫn: văn phòng chép phần chữ và ảnh vào thư/tin nhắn hoặc in ra. Một trang hướng dẫn công khai ngay trên cổng là
+  việc có thể làm sau, không thuộc kế hoạch M12.
+- **Giai đoạn 2:** M12 là milestone cuối của bản đầu tiên — khi M12 gộp xong, nhắc chủ văn phòng đúng bảy hạng mục ở
+  "Giai đoạn 2 — nâng cấp sau bản đầu tiên" (Ghi chú M6.5), như chủ văn phòng đã dặn.
+
+**Cổng của làn (2026-10-05, trên bản commit của Task 10):**
+- Cả bộ `/d/vkwt/m12-dev test --parallel --processes=2`: **4191 passed**, 25 skipped, 1 todo, 1 risky, **0 failed**
+  (157239 assertions, 2753 s) — mốc trước làn 3695 passed, sau Task 9 4170 passed.
+- MariaDB, tuần tự, `/d/vkwt/m12-dev test:mariadb` trên mọi tệp test của làn (`tests/Feature/Push`, `tests/Feature/Pwa`)
+  cùng `PushInstallGuideTest` và `EnvExampleTest`: **464 passed**, 1 risky (có sẵn trên `main`), 0 failed (515 s). Không
+  chạy cả bộ trên MariaDB ở làn — vòng đó là việc của CI sau khi controller gộp.
+- `/d/vkwt/m12-dev pint --test`: PASS (898 tệp).
+- Bằng chứng ĐỎ: 18/18 ca của `PushInstallGuideTest` + `AcceptanceDocsTest` đỏ trước khi viết tài liệu; ca
+  `jmt17.google.com` của `PushDeviceRegistrationTest` đỏ (422) trước khi sửa `push_hosts`. 21/22 đột biến đỏ đúng ca
+  (một đột biến nhắm sai khoá dịch, sống, được thay bằng đột biến đúng khoá — đỏ). Nhật ký ở
+  `.superpowers/sdd/m12/probe/t10/` (ngoài repo).

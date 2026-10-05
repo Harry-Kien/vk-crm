@@ -154,6 +154,7 @@ it('Task 9 I1: danh sách kiểm tra có bước để nguyên thông báo d3 tr
         ->toContain('rung hoặc đổ chuông')
         ->toContain('**im lặng** (không rung, không chuông) là KHÔNG ĐẠT')
         ->and(pwaSurveyFile('routes/console.php'))->toContain("->cron('*/30 7-19 * * *')")
-        ->and($checklist)->toContain('| D1–D9 |')
+        // Task 10 thêm D10 (vô hiệu hoá tài khoản) — bảng kết quả ghi cả dải.
+        ->and($checklist)->toContain('| D1–D10 |')
         ->not->toContain('| D1–D8 |');
 });

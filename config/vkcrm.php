@@ -316,9 +316,18 @@ return [
          * chính phần đuôi). So không phân biệt hoa thường. Luật đầy đủ (chỉ `https`, cổng 443, chỉ
          * ký tự URL in được, không `@`/`#`/`\`): `App\Actions\Push\RegisterPushDevice`.
          * Chrome và Samsung Internet đi qua FCM, Safari qua Apple, Firefox qua Mozilla, Edge qua WNS.
+         *
+         * FCM có HAI tên máy: `fcm.googleapis.com` và `jmt17.google.com` — ĐO ngày 2026-10-04 (M12
+         * Task 10): bản Chromium 153 của Playwright (đăng ký THẬT, không bản giả) trả endpoint
+         * `https://jmt17.google.com/fcm/send/…`; thiếu tên này thì trình duyệt đó bấm Bật nhận 422.
+         * Google Chrome trên Android CHƯA đo (bước D1 của danh sách kiểm tra máy thật) — có thể vẫn
+         * trả `fcm.googleapis.com`, nên giữ cả hai. Ghi đúng tên, không `*.google.com`: Google đổi tên
+         * máy lần nữa thì nút Bật báo "Chưa bật được" (D1) và tên mới được thêm vào đây — rộng hơn là
+         * mở cho mọi máy của Google.
          */
         'push_hosts' => [
             'fcm.googleapis.com',
+            'jmt17.google.com',
             '*.push.apple.com',
             'updates.push.services.mozilla.com',
             '*.notify.windows.com',
