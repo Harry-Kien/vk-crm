@@ -59,6 +59,15 @@ return [
         'staff.handover_ready' => 'Báo gói bàn giao hồ sơ đã sẵn sàng',
         // M7 Task 1 (nhãn thêm lúc gộp M7 vào `main` — MailTemplateRegistryTest).
         'staff.matter_reassigned' => 'Thư tổng hợp mốc thời hạn khi bàn giao vụ việc',
+        // M14 Task 5: App\Mail\Staff\DocumentStoreAlert — hậu tố là loại sự cố của kho tài liệu.
+        'staff.document_store_alert.sharing_drift' => 'Báo nhân sự chia sẻ của kho tài liệu lệch luật',
+        'staff.document_store_alert.unavailable' => 'Báo nhân sự kho tài liệu tạm thời không truy cập được',
+        'staff.document_store_alert.misconfigured' => 'Báo nhân sự kho tài liệu lỗi cấu hình',
+        'staff.document_store_alert.not_enabled' => 'Báo nhân sự kho tài liệu chưa được bật',
+        'staff.document_store_alert.push_backlog' => 'Báo nhân sự tệp chờ đẩy lên kho quá lâu',
+        'staff.document_store_alert.office_copy_stale' => 'Báo nhân sự máy văn phòng chưa gửi biên nhận',
+        'staff.document_store_alert.office_copy_error' => 'Báo nhân sự biên nhận của máy văn phòng báo lỗi',
+        'staff.document_store_alert.transfer_dossier_due' => 'Báo nhân sự sắp tới hạn nộp hồ sơ chuyển dữ liệu ra nước ngoài',
     ],
 
     'matter_tab' => [
@@ -92,6 +101,8 @@ return [
                 // Gộp M7 vào `main`: hai thư nội bộ của M7 (lý do ở docblock `ResendTargets`).
                 'staff.matter_reassigned' => 'thư tổng hợp bàn giao liệt kê các mốc thời hạn ở đúng lúc bàn giao, gửi lại là gửi một danh sách cũ; luật sư nhận bàn giao đã được báo trong hệ thống khi thư hỏng, và các mốc vẫn hiện ở trang chủ, ở tab "Mốc thời hạn" của từng vụ và trong thư nhắc mốc theo lịch.',
                 'staff.handover_ready' => 'thư này chỉ báo gói bàn giao đã sinh xong — trạng thái gói luôn hiện ở khối "Gói bàn giao" trên trang vụ việc, và chuông trong hệ thống đã báo cùng lúc; gửi lại là báo một sự kiện đã qua.',
+                // M14 Task 5 (lý do ở docblock `ResendTargets`).
+                'staff.document_store_alert.*' => 'thư cảnh báo kho tài liệu nói về một lần kiểm sức khoẻ đã qua; nếu sự cố còn, lượt kiểm mỗi giờ sẽ tự báo lại (mỗi loại sự cố một thư mỗi ngày, thư lỗi không chặn lần gửi sau). Xem tình trạng hiện tại ở trang "Kho tài liệu".',
                 'undeclared' => 'thư này không khai báo mẫu nên không dựng lại được nội dung.',
                 'default' => 'hệ thống không biết dựng lại thư này từ nhật ký.',
             ],

@@ -1066,7 +1066,7 @@ final class FreeSpace { public function bytes(string $path): ?int; } // null khi
 
 Commit: `feat: M14 Task 4 — đọc qua CRM: route tải mở luồng sau khi kiểm quyền và trước khi ghi nhật ký (khoá bằng đĩa gián điệp và adapter thật), tên tải có bản dự phòng ASCII, trang 503 tiếng Việt khi kho sập, gói bàn giao tải tệp về thư mục làm việc, xoá nguồn trước khi lưu, kiểm chỗ trống khi đo được, thời gian job tính lại`.
 
-### - [ ] Task 5 — Sẵn sàng, preflight, kiểm tra sức khoẻ, trang "Kho tài liệu", hướng dẫn chủ văn phòng, dàn ý hồ sơ pháp lý (R5, R6, R7, R13)
+### - [x] Task 5 — Sẵn sàng, preflight, kiểm tra sức khoẻ, trang "Kho tài liệu", hướng dẫn chủ văn phòng, dàn ý hồ sơ pháp lý (R5, R6, R7, R13)
 
 Hướng dẫn và kiểm tra viết **cùng một task**, để mỗi bước của chủ văn phòng có đúng một dòng kiểm lại nó.
 
@@ -1095,7 +1095,7 @@ final class StorageReadiness {
 }
 ```
 
-- [ ] **Dòng sẵn sàng** (`StorageReadiness::rows()`, mọi môi trường). Preflight production nối chúng vào `launchConditionRows()` khi công tắc là `google_drive` **hoặc** đã có media trên kho; dòng `document_storage_driver` luôn có.
+- [x] **Dòng sẵn sàng** (`StorageReadiness::rows()`, mọi môi trường). Preflight production nối chúng vào `launchConditionRows()` khi công tắc là `google_drive` **hoặc** đã có media trên kho; dòng `document_storage_driver` luôn có.
 
   | Khoá | Mức |
   |---|---|
@@ -1107,7 +1107,7 @@ final class StorageReadiness {
   | `drive_root_folder` | R5 |
   | `drive_roundtrip` | ĐỎ. Ghi một tệp thăm dò 1 KiB dưới khoá `preflight/<ngẫu nhiên>.txt`, kiểm md5, đọc lại, cho vào thùng rác; luôn dọn trong `finally`, như `storagePrivateExposureRow()` |
 
-- [ ] **Dòng trạng thái** (`StorageReadiness::stateRows()`; preflight production và `vkcrm:storage:check`):
+- [x] **Dòng trạng thái** (`StorageReadiness::stateRows()`; preflight production và `vkcrm:storage:check`):
 
   | Khoá | Mức |
   |---|---|
@@ -1119,16 +1119,16 @@ final class StorageReadiness {
   | `media_on_remote_while_local` | VÀNG khi công tắc `local` mà còn media trên kho |
   | `disk_free_space_available` | VÀNG khi `FreeSpace` trả `null` (gói bàn giao không kiểm được chỗ trống), mọi chế độ |
 
-- [ ] `vkcrm:storage:check`: in cả hai nhóm dòng ở **mọi** `APP_ENV`; mã thoát giống `vkcrm:preflight`. Đây là thứ Task 8 dùng ở làn, nơi `APP_ENV` không phải `production`.
-- [ ] `CheckDocumentStoreHealth` mỗi giờ (`storage.health`, `withoutOverlapping(30)`):
+- [x] `vkcrm:storage:check`: in cả hai nhóm dòng ở **mọi** `APP_ENV`; mã thoát giống `vkcrm:preflight`. Đây là thứ Task 8 dùng ở làn, nơi `APP_ENV` không phải `production`.
+- [x] `CheckDocumentStoreHealth` mỗi giờ (`storage.health`, `withoutOverlapping(30)`):
   - chạy `InspectDriveSharing` (khi có media trên kho hoặc công tắc `google_drive`), đếm tồn đọng, độ tươi biên nhận văn phòng, số mục, đồng hồ hồ sơ;
   - ghi các cột `document_store_*` của `system_health`;
   - đổi sang `degraded`/`unavailable`/`misconfigured`, hoặc tới ngày 45 của đồng hồ hồ sơ → thư `staff.document_store_alert` tới người nhận của `ResolveBackupNotificationRecipients` (cùng người vận hành nhận thư sao lưu). Xếp hàng sau commit; chống trùng theo loại sự cố mỗi ngày qua `outbound_messages`, chỉ tính `status = sent`;
   - loại sự cố: `sharing_drift`, `unavailable`, `misconfigured`, `not_enabled`, `push_backlog`, `office_copy_stale`, `office_copy_error`, `transfer_dossier_due`;
   - thư chỉ có số đếm và loại sự cố, không mã tệp, không tiêu đề.
-- [ ] `SystemHealthWidget`: một dòng đỏ khi trạng thái kho khác `ok`. Chỉ người có `settings.manage` thấy dòng này; dòng heartbeat sẵn có giữ nguyên.
-- [ ] `vkcrm:storage:init`: tạo thư mục gốc `vkcrm-<APP_ENV>` trong Shared Drive, in mã để điền `GOOGLE_DRIVE_ROOT_FOLDER_ID`. Có thư mục cùng tên thì liệt kê và dừng, không tạo thêm. Audit `document_store_initialised`.
-- [ ] Trang "Kho tài liệu" (admin):
+- [x] `SystemHealthWidget`: một dòng đỏ khi trạng thái kho khác `ok`. Chỉ người có `settings.manage` thấy dòng này; dòng heartbeat sẵn có giữ nguyên.
+- [x] `vkcrm:storage:init`: tạo thư mục gốc `vkcrm-<APP_ENV>` trong Shared Drive, in mã để điền `GOOGLE_DRIVE_ROOT_FOLDER_ID`. Có thư mục cùng tên thì liệt kê và dừng, không tạo thêm. Audit `document_store_initialised`.
+- [x] Trang "Kho tài liệu" (admin):
   - `canAccess()` hỏi `Gate::forUser()->allows('settings.manage')`, `abort(404)` ở `mount()` và ở action lưu;
   - hiện:
     - chế độ, mốc bật kho, trạng thái, lúc kiểm gần nhất;
@@ -1137,7 +1137,7 @@ final class StorageReadiness {
     - số mục so với 400.000;
     - lần chuyển đầu tiên và số ngày còn lại của đồng hồ 60 ngày;
   - form R13 gọi `RecordDataTransferDossier`: `maxLength(100)` cho mã hồ sơ, `maxLength(200)` cho căn cứ ý kiến luật sư.
-- [ ] Hai tài liệu cho chủ văn phòng:
+- [x] Hai tài liệu cho chủ văn phòng:
   - chép Phụ lục A, C và sổ tay huỷ (R15) vào `docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`;
   - chép Phụ lục B vào `docs/PHAP-LY-LUU-TRU-NUOC-NGOAI.md`.
 

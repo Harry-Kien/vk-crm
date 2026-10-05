@@ -55,6 +55,9 @@ use Illuminate\Database\Eloquent\Relations\Relation;
  *  - `staff.handover_ready` (M7 Task 4, gộp M7 vào `main`): thư chỉ báo "gói bàn giao đã sinh xong"
  *    — trạng thái gói luôn hiện ở khối "Gói bàn giao" trên trang vụ việc, và chuông trong hệ thống
  *    đi cùng lúc với thư. Gửi lại là báo một sự kiện đã qua (gói có thể đã được sinh lại).
+ *  - `staff.document_store_alert.*` (M14 Task 5; hậu tố là loại sự cố của kho tài liệu): thư nói về
+ *    MỘT lần kiểm sức khoẻ đã qua. Sự cố còn thì lượt `storage.health` mỗi giờ tự báo lại — mỗi loại
+ *    một thư mỗi ngày, và chỉ dòng `sent` chặn, nên một thư hỏng được gửi lại ở lượt kế tiếp.
  *  - `undeclared` và mọi mẫu lạ: không biết dựng lại từ đâu (mẫu lạ nhận câu từ chối chung).
  *
  * # Nguyên tắc: KHÔNG viết luật thứ hai
@@ -81,6 +84,7 @@ final class ResendTargets
         'staff.backup_alert.*',
         'staff.matter_reassigned',
         'staff.handover_ready',
+        'staff.document_store_alert.*',
         'undeclared',
     ];
 

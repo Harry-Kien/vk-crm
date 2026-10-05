@@ -151,6 +151,12 @@ return [
         // chủ thể là dòng `communication_logs`; không ghi nội dung cuộc liên lạc vào nhật ký.
         'communication_logged' => 'Ghi nhật ký liên lạc',
         'communication_log_deleted' => 'Xoá một dòng nhật ký liên lạc',
+        // M14 Task 5: app/Actions/Storage/RecordDataTransferDossier.php — `changed_fields` nêu TÊN các
+        // ô hồ sơ chuyển dữ liệu ra nước ngoài đã đổi (trang "Kho tài liệu"), không nêu giá trị.
+        'data_transfer_dossier_recorded' => 'Ghi hồ sơ chuyển dữ liệu cá nhân ra nước ngoài',
+        // M14 Task 5: app/Actions/Storage/InitialiseDocumentStore.php (`vkcrm:storage:init`) —
+        // `folder_name` là tên thư mục gốc; mã thư mục Drive không vào nhật ký.
+        'document_store_initialised' => 'Tạo thư mục gốc của kho tài liệu trên Google Drive',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */
