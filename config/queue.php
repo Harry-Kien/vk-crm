@@ -95,8 +95,9 @@ return [
          * Vì sao một KẾT NỐI riêng, không chỉ một tên hàng `--queue=handover`: `retry_after` là
          * thuộc tính của kết nối, không của hàng. Kết nối `database` ở trên giữ `retry_after` = 90
          * giây; một job nén vài trăm MB chạy quá 90 giây sẽ bị worker khác nhặt lại và chạy SONG
-         * SONG với chính nó (hai gói cùng ghi một version). Kết nối này đặt `retry_after` = 900 giây,
-         * cao hơn `GenerateHandoverPackage::$timeout` (600 giây) — `QueueHandoverScheduleTest` ghim quan hệ đó.
+         * SONG với chính nó (hai gói cùng ghi một version). Kết nối này đặt `retry_after` = 1500 giây,
+         * cao hơn `GenerateHandoverPackage::$timeout` (1200 giây; M14 R12: gói nay còn tải tệp từ kho
+         * Google Drive về trước khi nén) — `QueueHandoverScheduleTest` ghim quan hệ đó.
          *
          * Driver LUÔN là `database`, không theo `QUEUE_CONNECTION`: dù người vận hành đặt hàng chính
          * là `sync`, một job nén tệp không bao giờ được chạy đồng bộ trong một request web của
@@ -109,7 +110,7 @@ return [
             'connection' => env('DB_QUEUE_CONNECTION'),
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => 'handover',
-            'retry_after' => (int) env('HANDOVER_QUEUE_RETRY_AFTER', 900),
+            'retry_after' => (int) env('HANDOVER_QUEUE_RETRY_AFTER', 1500),
             'after_commit' => false,
         ],
 

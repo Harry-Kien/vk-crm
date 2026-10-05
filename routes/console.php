@@ -248,30 +248,34 @@ Schedule::call(new RemindUnseenUpdates)
  * (có thể vài trăm MB, vài phút) — nếu nó chạy trong mục `queue.drain` ở trên, nó giữ lượt
  * `withoutOverlapping` của mục đó và thư nhắc mốc thời hạn (rủi ro nghề nghiệp cao nhất của hệ
  * thống, xem `deadlines.check`) phải đứng chờ. Mục này chạy trên kết nối `handover`
- * (`config/queue.php`, `retry_after` 900 giây) và hàng `handover`, còn `queue.drain` vẫn chỉ rút
+ * (`config/queue.php`, `retry_after` 1500 giây) và hàng `handover`, còn `queue.drain` vẫn chỉ rút
  * hàng `default`.
  *
- * `--timeout=600` khớp `GenerateHandoverPackage::$timeout` (worker ưu tiên `$timeout` của job,
+ * M14 (kế hoạch R12): job nay còn TẢI tệp từ kho Google Drive về thư mục làm việc trước khi nén (tới
+ * 2 GB), nên ba con số của mục này cùng tăng: `--timeout` 600 → 1200, khoá 15 → 25 phút, và
+ * `retry_after` 900 → 1500 (`QueueHandoverScheduleTest` ghim cả ba cùng quan hệ của chúng).
+ *
+ * `--timeout=1200` khớp `GenerateHandoverPackage::$timeout` (worker ưu tiên `$timeout` của job,
  * cờ này chỉ là tầng thứ hai cho job nào không khai). Cả hai giờ chết chỉ có tác dụng khi PHP dòng
  * lệnh có ext-pcntl; thiếu thì `vkcrm:preflight` báo VÀNG, còn có pcntl mà hàm của nó bị chặn
  * (`disable_functions`) thì báo ĐỎ, vì khi đó mọi `queue:work` — cả mục này lẫn `queue.drain` — chết
  * ngay khi khởi động (việc sau gộp M7, `RunPreflight::pcntlRow()`). `--max-time=50` chỉ chặn việc
  * NHẬN job mới
- * sau 50 giây — nó không cắt một job đang chạy. Khoá chống chồng lấn hết hạn sau 15 phút: dài hơn
- * một lần chạy tối đa (600 giây) để không hai worker cùng dựng gói, và ngắn hơn 1440 phút mặc định
+ * sau 50 giây — nó không cắt một job đang chạy. Khoá chống chồng lấn hết hạn sau 25 phút: dài hơn
+ * một lần chạy tối đa (1200 giây) để không hai worker cùng dựng gói, và ngắn hơn 1440 phút mặc định
  * để một tiến trình bị giết giữa chừng (giới hạn CPU của shared hosting) không khoá hàng cả ngày.
  *
  * `runInBackground()`: `schedule:run` chạy các mục của một phút LẦN LƯỢT trong cùng tiến trình. Chạy
- * tiền cảnh, một lần dựng gói tới 600 giây sẽ bắt mọi mục đăng ký SAU mục này trong cùng phút
+ * tiền cảnh, một lần dựng gói tới 1200 giây sẽ bắt mọi mục đăng ký SAU mục này trong cùng phút
  * đứng chờ — gồm các tác vụ hằng ngày của M7 Task 5/6 được thêm vào cuối tệp. Chạy nền thì khoá
  * `withoutOverlapping` vẫn giữ tới khi lệnh nền kết thúc (Laravel gỡ khoá ở `schedule:finish`).
  * Mục `queue.drain` ở trên không đổi (ngoài phạm vi task này): nó ngừng nhận job sau 50 giây và
  * các job của nó là thư, ngắn.
  */
-Schedule::command('queue:work handover --queue=handover --stop-when-empty --max-time=50 --timeout=600')
+Schedule::command('queue:work handover --queue=handover --stop-when-empty --max-time=50 --timeout=1200')
     ->everyMinute()
     ->name('queue.handover')
-    ->withoutOverlapping(15)
+    ->withoutOverlapping(25)
     ->runInBackground();
 
 /**

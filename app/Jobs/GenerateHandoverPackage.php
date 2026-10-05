@@ -23,12 +23,15 @@ use Throwable;
  *
  * # `$timeout`, `$tries`, `retry_after`
  *
- *  - `$timeout` = {@see self::TIMEOUT_SECONDS} giây: đủ cho gói vài trăm MB trên shared hosting.
- *    `$failOnTimeout` = true: hết giờ là THẤT BẠI (gọi `failed()`, luật sư được báo), không phải
- *    thử lại vô hạn.
- *  - `retry_after` của kết nối `handover` = 900 giây > `$timeout`: một job đang chạy không bị worker
+ *  - `$timeout` = {@see self::TIMEOUT_SECONDS} giây (1200; 600 trước M14). Từ M14 (kế hoạch R12) job
+ *    không chỉ nén: tệp nằm trên kho Google Drive được TẢI về thư mục làm việc trước, tới 2 GB. Ước
+ *    trên shared hosting: tải 2 GB ở 5 MB/s ≈ 410 giây, nén ≈ 120–300 giây, medialibrary chép zip
+ *    ≈ 60 giây. `$failOnTimeout` = true: hết giờ là THẤT BẠI (gọi `failed()`, luật sư được báo),
+ *    không phải thử lại vô hạn.
+ *  - `retry_after` của kết nối `handover` = 1500 giây > `$timeout`: một job đang chạy không bị worker
  *    khác nhặt lại và chạy song song (kết nối `database` chung chỉ có 90 giây — lý do có kết nối
- *    riêng). `tests/Feature/Schedule/QueueHandoverScheduleTest.php` ghim quan hệ này.
+ *    riêng). `tests/Feature/Schedule/QueueHandoverScheduleTest.php` ghim quan hệ này, cùng
+ *    `--timeout` của mục lịch = `$timeout` và `RequestHandoverPackage::STALE_AFTER_MINUTES`.
  *  - `$tries` = 2: một lần thử lại cho lỗi nhất thời (khoá DB, mất kết nối DB). Lỗi CÓ TÊN
  *    ({@see HandoverPackageFailed} — thiếu tệp, không nén được, không dựng được mục lục, thư mục
  *    tạm không ghi được, gói vượt trần một tệp của kho, kho không lưu được gói) là lỗi tất định
@@ -46,7 +49,7 @@ class GenerateHandoverPackage implements ShouldQueue
 {
     use Queueable;
 
-    public const TIMEOUT_SECONDS = 600;
+    public const TIMEOUT_SECONDS = 1200;
 
     public int $timeout = self::TIMEOUT_SECONDS;
 

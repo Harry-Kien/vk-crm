@@ -185,7 +185,7 @@ return [
 
         /*
          * Việc sau gộp M7 (làn fu2): extension mà giờ chết của worker cần — `GenerateHandoverPackage::
-         * $timeout`/`$failOnTimeout` và `--timeout=600` của mục lịch `queue.handover` chỉ có tác dụng
+         * $timeout`/`$failOnTimeout` và `--timeout=1200` của mục lịch `queue.handover` chỉ có tác dụng
          * khi PHP DÒNG LỆNH có ext-pcntl (thiếu nó, `Worker::registerTimeoutHandler()` bỏ qua lặng
          * lẽ). KHÔNG nằm trong `required_extensions` ở trên: danh sách đó đúng bằng
          * `composer check-platform-reqs` + `pdo_mysql` (`docs/CAI-DAT.md`, Bước 1), và thiếu pcntl

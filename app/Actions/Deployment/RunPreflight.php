@@ -220,10 +220,10 @@ class RunPreflight
 
     /**
      * Việc sau gộp M7 (làn fu2, phát hiện "wiring" của rà soát gộp): giờ chết của job gói bàn giao
-     * (`GenerateHandoverPackage::$timeout` = 600, `$failOnTimeout`, `--timeout=600` của mục lịch
+     * (`GenerateHandoverPackage::$timeout` = 1200, `$failOnTimeout`, `--timeout=1200` của mục lịch
      * `queue.handover`) chỉ có tác dụng khi PHP DÒNG LỆNH có ext-pcntl. Thiếu nó, worker không bao
      * giờ giết job quá giờ: `failed()` không chạy (luật sư không được báo), và khi một lần dựng gói
-     * vượt 900 giây (`retry_after` và khoá `withoutOverlapping` 15 phút cùng hết) lượt kế tiếp nhận
+     * vượt 1500 giây (`retry_after` và khoá `withoutOverlapping` 25 phút cùng hết) lượt kế tiếp nhận
      * lại cùng job, dựng vào cùng thư mục làm việc — đúng cuộc đua R9 dựng kết nối `handover` để tránh.
      *
      * Đọc `extension_loaded()`/`function_exists()` của CHÍNH tiến trình đang chạy lệnh này — tức PHP
