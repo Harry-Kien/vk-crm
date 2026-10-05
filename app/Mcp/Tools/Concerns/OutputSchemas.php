@@ -2,11 +2,18 @@
 
 namespace App\Mcp\Tools\Concerns;
 
+use App\Enums\DocumentGroup;
+use App\Support\Mcp\Presenters\ChecklistItemPresenter;
 use App\Support\Mcp\Presenters\ClientPresenter;
+use App\Support\Mcp\Presenters\ClientRequestPresenter;
+use App\Support\Mcp\Presenters\ClientRequestReplyPresenter;
 use App\Support\Mcp\Presenters\DeadlinePresenter;
+use App\Support\Mcp\Presenters\DocumentPresenter;
+use App\Support\Mcp\Presenters\MatterChecklistPresenter;
 use App\Support\Mcp\Presenters\MatterPresenter;
 use App\Support\Mcp\Presenters\PartyPresenter;
 use App\Support\Mcp\Presenters\StaffPresenter;
+use App\Support\Mcp\Presenters\StageLogPresenter;
 use App\Support\Mcp\UntrustedText;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\JsonSchema\Types\ArrayType;
@@ -156,6 +163,125 @@ final class OutputSchemas
             'created_via_label' => $schema->string()->nullable(),
             'awaiting_confirmation' => $schema->boolean(),
             'url' => $schema->string(),
+        ]);
+    }
+
+    /** {@see StageLogPresenter::FIELDS} — không có khoá nào cho nội dung `internal_note` (R4). */
+    public static function stageLog(JsonSchema $schema): ObjectType
+    {
+        return self::closed($schema, [
+            'id' => $schema->string(),
+            'matter_id' => $schema->string(),
+            'occurred_at' => $schema->string()->nullable(),
+            'from_stage' => $schema->string()->nullable(),
+            'from_stage_label' => $schema->string()->nullable(),
+            'to_stage' => $schema->string()->nullable(),
+            'to_stage_label' => $schema->string()->nullable(),
+            'public_content' => $schema->string()->nullable(),
+            'next_step' => $schema->string()->nullable(),
+            'client_action' => $schema->string()->nullable(),
+            'expected_next_update_at' => $schema->string()->nullable(),
+            'is_published' => $schema->boolean(),
+            'published_at' => $schema->string()->nullable(),
+            'client_viewed_at' => $schema->string()->nullable(),
+            'has_internal_note' => $schema->boolean(),
+            'url' => $schema->string(),
+        ]);
+    }
+
+    /** {@see ChecklistItemPresenter::FIELDS} */
+    public static function checklistItem(JsonSchema $schema): ObjectType
+    {
+        return self::closed($schema, [
+            'id' => $schema->string(),
+            'name' => $schema->string(),
+            'is_required' => $schema->boolean(),
+            'status' => $schema->string()->nullable(),
+            'status_label' => $schema->string()->nullable(),
+            'rejection_reason' => $schema->string()->nullable(),
+            'document_count' => $schema->integer(),
+            'url' => $schema->string(),
+        ]);
+    }
+
+    /** {@see MatterChecklistPresenter::progress()} — "Đã nộp X/Y", chung cho `get_matter` và `get_checklist`. */
+    public static function checklistProgress(JsonSchema $schema): ObjectType
+    {
+        return self::closed($schema, [
+            'submitted' => $schema->integer(),
+            'total' => $schema->integer(),
+            'label' => $schema->string(),
+        ]);
+    }
+
+    /**
+     * {@see DocumentPresenter::FIELDS}. `group` là enum các nhóm KHÔNG nội bộ (A, B, C): một tài liệu
+     * nhóm D lọt tới đây — dù presenter đã từ chối nó — cũng làm kết quả lệch schema (R4).
+     */
+    public static function document(JsonSchema $schema): ObjectType
+    {
+        $groups = array_values(array_map(
+            fn (DocumentGroup $group): string => $group->value,
+            array_filter(DocumentGroup::cases(), fn (DocumentGroup $group): bool => ! $group->isInternal()),
+        ));
+
+        return self::closed($schema, [
+            'id' => $schema->string(),
+            'group' => $schema->string()->enum($groups),
+            'group_label' => $schema->string(),
+            'title' => $schema->string()->nullable(),
+            'untrusted_client_content' => self::closed($schema, ['title' => self::untrusted($schema)])->nullable(),
+            'status' => $schema->string()->nullable(),
+            'status_label' => $schema->string()->nullable(),
+            'version' => $schema->integer(),
+            'issued_at' => $schema->string()->nullable(),
+            'published_at' => $schema->string()->nullable(),
+            'created_at' => $schema->string()->nullable(),
+            'client_can_view' => $schema->boolean(),
+            'client_can_download' => $schema->boolean(),
+            'url' => $schema->string(),
+        ]);
+    }
+
+    /**
+     * {@see ClientRequestPresenter::ROW_FIELDS}, chưa đóng. `$untrusted` là các khoá trong
+     * `untrusted_client_content`: `subject` cho một dòng, thêm `content` cho cả luồng.
+     *
+     * @param  list<string>  $untrusted
+     * @return array<string, Type>
+     */
+    public static function clientRequestProperties(JsonSchema $schema, array $untrusted): array
+    {
+        $wrapped = [];
+
+        foreach ($untrusted as $key) {
+            $wrapped[$key] = self::untrusted($schema);
+        }
+
+        return [
+            'id' => $schema->string(),
+            'matter' => self::matterReference($schema)->nullable(),
+            'status' => $schema->string()->nullable(),
+            'status_label' => $schema->string()->nullable(),
+            'assignee' => self::staff($schema)->nullable(),
+            'created_at' => $schema->string()->nullable(),
+            'last_activity_at' => $schema->string()->nullable(),
+            'answered_at' => $schema->string()->nullable(),
+            'untrusted_client_content' => self::closed($schema, $wrapped),
+            'url' => $schema->string(),
+        ];
+    }
+
+    /** {@see ClientRequestReplyPresenter::FIELDS} */
+    public static function reply(JsonSchema $schema): ObjectType
+    {
+        return self::closed($schema, [
+            'id' => $schema->string(),
+            'author' => $schema->string()->enum(['office', 'client']),
+            'author_name' => $schema->string()->nullable(),
+            'created_at' => $schema->string()->nullable(),
+            'content' => $schema->string()->nullable(),
+            'untrusted_client_content' => self::closed($schema, ['content' => self::untrusted($schema)])->nullable(),
         ]);
     }
 

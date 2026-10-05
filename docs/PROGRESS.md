@@ -5269,3 +5269,71 @@ nhớ. Lọc chạy sau khi cắt 10 — kết quả không có số đếm hay 
 giữ nguyên: bảng tool chỉ ghi `McpMatterScope` cho vụ ở `search`. Test mới trong `SearchToolTest` (cặp dương rồi
 `Gate::before` từ chối đúng một yêu cầu: `search` bỏ đúng dòng đó, chữ chỉ khớp dòng đó cho cùng phản hồi với chữ
 không khớp gì, `fetch` trả "Không tìm thấy"): đỏ trước khi sửa, xanh sau; hai mutation (bỏ lọc, đổi ability) đỏ.
+
+### Task 11 — tool đọc, phần 2: `list_matter_updates`, `list_deadlines`, `get_checklist`, `list_documents`, `list_client_requests`, `get_client_request` (làn m11b, 2026-10-05)
+
+**Đã có, kèm test qua HTTP thật** (`tests/Feature/Mcp/Tools/{ListMatterUpdates,ListDeadlines,GetChecklist,
+ListDocuments,ListClientRequests,GetClientRequest}ToolTest.php`, cùng khuôn `McpToolCall` của Task 10;
+`tests/Feature/Mcp/KeysetOrderTest.php` cho phân trang theo khoá).
+- **Sáu tool** ở `app/Mcp/Tools/`, đăng ký nối tiếp năm tool của Task 10 trong `CrmServer::$tools` theo thứ tự của
+  bảng tool (6–11); `ToolCatalogTest` ghim mười một tên và annotation đọc trung thực. Mỗi tool trên `CrmReadTool`
+  (guard `mcp`, một "Không tìm thấy", schema đóng, từ chối tham số lạ), không audit hay rate limit riêng (phán quyết
+  controller: Task 8 của làn m11 đặt ở lớp cơ sở).
+- **Action đọc** (`app/Actions/Mcp/Read/`): `ListMatterUpdates`, `ListDeadlines` (+ `DeadlineListFilters`,
+  `DeadlineListPage`), `ReadChecklist` (+ `MatterChecklist`), `ListDocuments` (+ `MatterDocumentsPage`),
+  `ListClientRequests` (+ `ClientRequestListFilters`); `get_client_request` dùng CHÍNH `ReadClientRequest` của
+  `fetch`. Vụ theo id đi qua `Read\Concerns\FindsVisibleMatter`: `McpMatterScope` RỒI Gate `view` — cùng hai bước với
+  `ReadMatter`. Bản ghi con đi qua `McpMatterScope::constrain()` rồi policy `view` từng dòng (đúng cột kiểm quyền của
+  bảng tool; `list_matter_updates` thêm `StageLogPolicy::viewAny`). Mọi quan hệ presenter đọc nạp sẵn, bỏ
+  `ClientPortalScope`; bản ghi con được gắn chính vụ đã nạp `team`, nên policy không lazy-load vụ cha.
+- **Phân trang theo khoá với cột sắp xếp** (`KeysetOrder`, `KeysetPage`, `KeysetPosition`; tool:
+  `Concerns\PaginatesByCursor`): `limit` mặc định 10, kẹp [1, 25]; thứ tự (cột, `id`) giống màn hình web — mốc theo
+  hạn tăng dần (quá hạn tự lên đầu), tiến độ theo ngày xảy ra giảm dần, tài liệu theo ngày tạo giảm dần, yêu cầu theo
+  hoạt động gần nhất giảm dần; cột rỗng đúng quy ước `NULL` nhỏ nhất của SQLite và MariaDB. `McpCursor` thêm
+  `encodePosition()`/`decodePosition()` (giá trị cột thô + id), vẫn gắn người, tool, dấu vân tay bộ lọc (nên không dùng
+  chéo giữa các tool); `decodePosition()` còn từ chối một payload chỉ có id.
+- **Presenter mới**: `MatterUpdatesPresenter`, `DeadlineListPresenter`, `MatterChecklistPresenter` (`progress()` là
+  MỘT hình dạng "Đã nộp X/Y" cho cả `get_matter` và `get_checklist`), `DocumentListPresenter`,
+  `ClientRequestListPresenter`; mảnh `outputSchema` mới trong `OutputSchemas` (`stageLog`, `checklistItem`,
+  `checklistProgress`, `document` với `group` là enum A/B/C, `clientRequestProperties`, `reply`).
+- `lang/vi/mcp.php`: khối Task 11 trong `tools` (sáu tool) và khối mới `pagination`.
+
+**Phán quyết trong task:**
+- **`list_deadlines` mặc định** = mốc chưa xong do người gọi phụ trách, hạn ≤ hôm nay + 7 (cùng cửa sổ với widget,
+  không cận dưới nên quá hạn có mặt), hạn tăng dần. Không lọc theo vụ thì chỉ vụ ĐANG MỞ (như widget và
+  `CheckDeadlines`); lọc đúng một vụ thì mọi mốc của vụ đó, vụ đã kết thúc cũng vậy. `responsible`: `me` (mặc định),
+  `any`, hoặc `user_…`; trả `due_from`/`due_to` đã áp để AI nói đúng khoảng. Mốc của vụ hạn chế MÀ TÔI PHỤ TRÁCH vắng
+  mặt nhờ chính tập R3, không lọc riêng trong tool. Kế toán có tập rỗng nên nhận danh sách rỗng.
+- **Nhóm D nằm ngoài truy vấn của `list_documents`** (danh sách nhóm ĐƯỢC PHÉP lấy từ `DocumentGroup::isInternal()`,
+  không `!= D`), trước khi cắt trang: không dòng, không làm trang ngắn đi, không bật "còn trang sau" — kể cả với
+  admin có `document.viewInternal`. Không khoá nào trỏ tới `documents.download`, không URL ký. `get_checklist` chỉ
+  đếm tài liệu A/B/C đã gắn và chỉ nạp ba cột (`id`, `matter_checklist_item_id`, `group`).
+- **Mọi dòng tiến độ và mọi tài liệu chưa xoá mềm** (kể cả chưa công bố, nháp nội bộ, phiên bản cũ): tab của nhân sự
+  hiện cả; cờ `is_published`, `status`, `version`, hai cờ khách nói rõ từng dòng. Nhãn giai đoạn đọc cả giai đoạn đã
+  xoá mềm như `MatterType::stageIncludingTrashed()`.
+- **`get_checklist` không phân trang**: danh mục là một phần của MỘT vụ, như các bên của `get_matter`.
+- **`list_client_requests`**: `open` true/false/bỏ trống, `mine` = `assigned_to` là tôi, `matter_id`. Không nạp người
+  gửi (tên, email khách không ra).
+- **Người đã nghỉ việc (xoá mềm) vẫn hiện tên** ở người phụ trách mốc và người xử lý yêu cầu — như tab web. Áp cả cho
+  `OpenDeadlines` (năm mốc của `get_matter`, `next_deadline` của `search_matters`) và `ReadClientRequest`, để cùng
+  một mốc/yêu cầu cho cùng câu trả lời ở mọi tool.
+- **Lọc policy từng dòng chạy sau khi cắt trang**: trang có thể ít hơn `limit`; `next_cursor` vẫn là vị trí dòng cuối
+  truy vấn đã đọc, nên không sót và không lộ số dòng bị bỏ. Với nhân sự hôm nay policy là `canSeeMatter` nên không bỏ
+  dòng nào; test dùng `Gate::before` để ép đúng tình huống.
+- Không có migration.
+
+**Kiểm chứng (2026-10-04 → 2026-10-05).** ĐỎ trước khi cài: sáu tệp test tool mới cùng `ToolCatalogTest` và
+`GetMatterToolTest` → 62 failed, 17 passed (tool chưa đăng ký: mọi test tool mới đỏ, danh mục thiếu sáu tên; phần
+xanh là các test sẵn có của hai tệp cũ). XANH: 79 passed, rồi 82 passed (cùng tám tệp) sau khi thêm test để mutation
+có chỗ đỏ; `KeysetOrderTest` (thứ tự và cột rỗng hai chiều) viết trong lượt mutation. Tám mươi lăm phép mutation, mỗi phép bỏ hay đổi đúng một điều kiện, cả 85 đỏ rồi
+khôi phục (`probe/t11/probes-summary.txt` của làn): kẹp `limit`, "còn trang sau", điều kiện "sau vị trí", khoá phụ
+`id`, ba nhánh cột rỗng, chiều sắp xếp, `next` giữ nguyên khi lọc; sáu điều kiện của `decodePosition` và cursor của
+tool; Gate và `McpMatterScope` của `FindsVisibleMatter`; với từng Action: `viewAny`/Gate từng dòng, `constrain()`, lọc
+theo vụ, gắn vụ, bỏ scope cổng, cột sắp xếp, đọc id chặt ở tool; riêng `list_deadlines`: vụ đang mở, cửa sổ mặc định,
+bảy, hai cận, gồm ngày cận, đã xong, mức độ, ba nhánh người phụ trách, regex, `to` sau `from`, định dạng ngày, người
+đã nghỉ; `list_documents`: allowlist nhóm, enum nhóm của schema; `list_client_requests`: hai chiều `open`, `mine`,
+người xử lý đã nghỉ; thứ tự đăng ký ở `CrmServer`. Mọi tệp test MCP cộng `ArchitectureTest` (tuần
+tự): EXIT 0 — 445 passed, 1 todo. Cả bộ (`--parallel --processes=2`): EXIT 0 — 5914 passed (5850 + 64), 1 risky,
+1 todo, 33 skipped (như baseline). MariaDB (mười một tệp đụng tới: sáu tệp tool mới, `KeysetOrderTest`,
+`GetMatterToolTest`, `ToolCatalogTest`, `SearchMattersToolTest`, `FetchToolTest`; tuần tự): EXIT 0 — 102 passed.
+`pint --test`: PASS 1207 tệp. Không có migration.

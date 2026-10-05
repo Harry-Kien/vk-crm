@@ -51,11 +51,7 @@ final class GetMatterTool extends CrmReadTool
         return OutputSchemas::required([
             ...OutputSchemas::matterDetailProperties($schema),
             'next_deadlines' => OutputSchemas::listOf($schema, OutputSchemas::deadline($schema)),
-            'checklist_progress' => OutputSchemas::closed($schema, [
-                'submitted' => $schema->integer(),
-                'total' => $schema->integer(),
-                'label' => $schema->string(),
-            ]),
+            'checklist_progress' => OutputSchemas::checklistProgress($schema),
             'open_client_request_count' => $schema->integer(),
         ]);
     }

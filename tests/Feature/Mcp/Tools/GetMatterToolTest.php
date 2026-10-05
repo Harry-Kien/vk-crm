@@ -12,6 +12,7 @@ use App\Models\Deadline;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Models\MatterParty;
+use App\Models\User;
 use App\Support\Mcp\AdminUrls;
 use App\Support\Mcp\McpIds;
 use App\Support\Mcp\Presenters\MatterPresenter;
@@ -144,6 +145,14 @@ it('năm mốc chưa hoàn thành gần nhất, quá hạn lên đầu; mốc đ
         ->and($next[0]['matter']['id'])->toBe(McpIds::encode(McpIds::MATTER, $matter->id))
         ->and($next[0]['responsible']['name'])->toBe('Luật sư Phụ Trách')
         ->and($next[0]['url'])->toBe(AdminUrls::deadline($overdue));
+});
+
+it('người phụ trách mốc đã nghỉ việc (xoá mềm) vẫn hiện tên — cùng mốc, cùng câu trả lời với list_deadlines (Task 11)', function () {
+    $departed = User::factory()->create(['name' => 'Luật sư Đã Nghỉ']);
+    Deadline::factory()->create(['matter_id' => $this->world->matter->id, 'responsible_user_id' => $departed->id, 'due_date' => today()->addDay()->toDateString()]);
+    $departed->delete();
+
+    expect(getMatter($this->token, $this->world->matter)['next_deadlines'][0]['responsible']['name'])->toBe('Luật sư Đã Nghỉ');
 });
 
 it('"Đã nộp X/Y" theo ChecklistProgress và số yêu cầu đang mở (chưa đóng, chưa rút)', function () {

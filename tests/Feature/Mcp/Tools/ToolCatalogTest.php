@@ -9,7 +9,7 @@ use Tests\Support\McpToolCall;
 
 /*
 |--------------------------------------------------------------------------
-| M11 Task 10 — danh mục tool đọc phần 1, qua `tools/list` THẬT
+| M11 Task 10–11 — danh mục mười một tool đọc, qua `tools/list` THẬT
 |--------------------------------------------------------------------------
 | Thứ tự cố định (R13, [DC:649]), annotation trung thực (R14, lớp cơ sở `CrmTool`), `inputSchema`
 | chặt (`additionalProperties: false`, mọi chuỗi có `maxLength`) và `outputSchema` cho
@@ -32,9 +32,12 @@ function catalogTools(string $token): array
     return collect($response->json('result.tools'))->keyBy('name')->all();
 }
 
-it('tools/list trả năm tool đọc của Task 10, theo thứ tự cố định của bảng tool', function () {
+it('tools/list trả mười một tool đọc của Task 10 và 11, theo thứ tự cố định của bảng tool', function () {
     expect(array_keys(catalogTools($this->token)))
-        ->toBe(['whoami', 'search', 'fetch', 'search_matters', 'get_matter']);
+        ->toBe([
+            'whoami', 'search', 'fetch', 'search_matters', 'get_matter',
+            'list_matter_updates', 'list_deadlines', 'get_checklist', 'list_documents', 'list_client_requests', 'get_client_request',
+        ]);
 });
 
 it('mọi tool là tool đọc trung thực: readOnlyHint true, destructive false, idempotent true, openWorld false, title ở cả hai chỗ', function () {

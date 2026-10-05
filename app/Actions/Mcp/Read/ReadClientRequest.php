@@ -9,6 +9,7 @@ use App\Models\ClientRequest;
 use App\Models\ClientRequestReply;
 use App\Models\ClientRequestReplyDraft;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Gate;
 
 /**
@@ -23,8 +24,9 @@ use Illuminate\Support\Facades\Gate;
  * Mọi nhánh không thấy trả `null`, như {@see ReadMatter}.
  *
  * Nạp: `matter` (bỏ scope cổng) kèm `team` (Gate trả lời từ bộ nhớ, không một truy vấn mỗi trả lời),
- * `assignee`, `replies` theo thứ tự thời gian (bỏ scope cổng) và `author` của từng trả lời (presenter
- * chỉ đọc nó cho trả lời của văn phòng). Số nháp trả lời đang chờ đọc
+ * `assignee` kể cả tài khoản đã xoá mềm (người đã nghỉ việc vẫn hiện tên, như tab "Yêu cầu từ khách"
+ * và `list_client_requests` của Task 11), `replies` theo thứ tự thời gian (bỏ scope cổng) và `author`
+ * của từng trả lời (presenter chỉ đọc nó cho trả lời của văn phòng). Số nháp trả lời đang chờ đọc
  * `ClientRequestReplyDraft::pending()` (bỏ scope cổng) — định nghĩa duy nhất của "nháp đang có" (Task 7).
  */
 final class ReadClientRequest
@@ -42,7 +44,7 @@ final class ReadClientRequest
             ->with([
                 ...$this->withoutPortalScope('matter', 'replies'),
                 'matter.team',
-                'assignee',
+                'assignee' => fn (BelongsTo $assignee) => $assignee->withTrashed(),
                 'replies.author',
             ])
             ->first();

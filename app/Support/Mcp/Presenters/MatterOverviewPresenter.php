@@ -11,7 +11,8 @@ use App\Models\Deadline;
  * số thụ lý, cờ `has_internal_note` — cộng ba khoá ghép:
  *
  *  - `next_deadlines`: tối đa năm mốc chưa hoàn thành gần nhất ({@see DeadlinePresenter});
- *  - `checklist_progress`: `{submitted, total, label}` — "Đã nộp X/Y" của `ChecklistProgress`;
+ *  - `checklist_progress`: `{submitted, total, label}` — "Đã nộp X/Y" của `ChecklistProgress`, cùng
+ *    hình dạng với `get_checklist` ({@see MatterChecklistPresenter::progress()});
  *  - `open_client_request_count`: số yêu cầu từ khách chưa đóng, chưa rút.
  *
  * Không `description_internal`, `summary_for_client`, email khách (bảng tool: loại trừ riêng).
@@ -30,14 +31,7 @@ final class MatterOverviewPresenter
         return [
             ...MatterPresenter::detail($overview->matter),
             'next_deadlines' => array_map(fn (Deadline $deadline): array => DeadlinePresenter::present($deadline), $overview->nextDeadlines),
-            'checklist_progress' => [
-                'submitted' => $overview->checklistSubmitted,
-                'total' => $overview->checklistTotal,
-                'label' => __('mcp.get_matter.checklist_progress', [
-                    'submitted' => $overview->checklistSubmitted,
-                    'total' => $overview->checklistTotal,
-                ]),
-            ],
+            'checklist_progress' => MatterChecklistPresenter::progress($overview->checklistSubmitted, $overview->checklistTotal),
             'open_client_request_count' => $overview->openClientRequestCount,
         ];
     }

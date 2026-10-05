@@ -34,7 +34,7 @@ return [
      * Tiêu đề, mô tả và mô tả tham số của từng tool (`App\Mcp\Tools\Concerns\CrmTool` đọc
      * `tools.<name>.title` / `.description`; tool đọc `tools.<name>.params.<tham số>`). Mô tả theo mẫu
      * "Dùng khi… / Không dùng để…", không chỉ đạo model gọi hay tránh tool nào (R11, [DC:31], [DC:639]).
-     * Task 10: năm tool đọc đầu, theo thứ tự của bảng tool.
+     * Task 10: năm tool đọc đầu; Task 11: sáu tool đọc còn lại — theo thứ tự của bảng tool.
      */
     'tools' => [
         'whoami' => [
@@ -75,6 +75,63 @@ return [
                 'id' => 'Id vụ việc có tiền tố, ví dụ matter_12.',
             ],
         ],
+
+        // ----- Task 11: sáu tool đọc còn lại, theo thứ tự của bảng tool (6–11). -----
+        'list_matter_updates' => [
+            'title' => 'Tiến độ vụ việc',
+            'description' => 'Dùng khi cần dòng thời gian tiến độ của một vụ việc theo id matter_…: ngày, giai đoạn từ và tới, nội dung báo khách, bước tiếp theo, việc khách cần làm, đã công bố chưa, khách xem lần đầu lúc nào, có ghi chú nội bộ hay không; mới nhất trước, có phân trang. Không dùng để đọc nội dung ghi chú nội bộ hay chuyển giai đoạn.',
+            'params' => [
+                'matter_id' => 'Id vụ việc có tiền tố, ví dụ matter_12.',
+            ],
+        ],
+        'list_deadlines' => [
+            'title' => 'Mốc thời hạn',
+            'description' => 'Dùng khi cần danh sách mốc thời hạn: gọi không tham số là mốc chưa xong của tôi, hạn tới hết 7 ngày tới, quá hạn lên đầu; lọc được theo vụ, khoảng ngày, mức độ, người phụ trách, kèm mốc đã xong; có phân trang. Không dùng để tạo, sửa hay đánh dấu hoàn thành mốc.',
+            'params' => [
+                'matter_id' => 'Chỉ mốc của vụ này, id có tiền tố, ví dụ matter_12. Bỏ trống: mọi vụ đang mở.',
+                'from' => 'Hạn từ ngày (YYYY-MM-DD, gồm ngày đó). Bỏ trống cả from và to: hạn tới hết 7 ngày tới, kể cả quá hạn.',
+                'to' => 'Hạn tới ngày (YYYY-MM-DD, gồm ngày đó), không trước from.',
+                'severity' => 'Mức độ: normal (thường) hoặc critical (nghiêm trọng).',
+                'responsible' => 'Người phụ trách: me (mặc định), any (mọi người) hoặc id có tiền tố user_… lấy từ kết quả.',
+                'include_completed' => 'true: kèm cả mốc đã hoàn thành.',
+            ],
+        ],
+        'get_checklist' => [
+            'title' => 'Danh mục hồ sơ',
+            'description' => 'Dùng khi cần danh mục giấy tờ của một vụ việc theo id matter_…: tên mục, bắt buộc hay không, trạng thái, lý do từ chối, số tài liệu đã gắn, và Đã nộp X/Y. Không dùng để xem tên hay nội dung tệp khách gửi, hay để duyệt giấy tờ.',
+            'params' => [
+                'matter_id' => 'Id vụ việc có tiền tố, ví dụ matter_12.',
+            ],
+        ],
+        'list_documents' => [
+            'title' => 'Tài liệu của vụ việc',
+            'description' => 'Dùng khi cần danh sách tài liệu của một vụ việc theo id matter_…: tiêu đề, nhóm, trạng thái, phiên bản, ngày, khách xem hay tải được không; mới nhất trước, có phân trang. Không dùng để mở, tải hay đọc nội dung tệp, hay xem hồ sơ làm việc nội bộ (nhóm D).',
+            'params' => [
+                'matter_id' => 'Id vụ việc có tiền tố, ví dụ matter_12.',
+            ],
+        ],
+        'list_client_requests' => [
+            'title' => 'Yêu cầu từ khách',
+            'description' => 'Dùng khi cần danh sách yêu cầu khách gửi qua cổng: trạng thái, người xử lý, hoạt động gần nhất; lọc theo đang mở, giao cho tôi, theo vụ; hoạt động gần nhất trước, có phân trang. Không dùng để trả lời khách, đổi trạng thái hay tra email người gửi.',
+            'params' => [
+                'matter_id' => 'Chỉ yêu cầu của vụ này, id có tiền tố, ví dụ matter_12.',
+                'open' => 'true: chỉ yêu cầu chưa đóng; false: chỉ yêu cầu đã đóng; bỏ trống: cả hai.',
+                'mine' => 'true: chỉ yêu cầu đang giao cho tôi.',
+            ],
+        ],
+        'get_client_request' => [
+            'title' => 'Luồng yêu cầu từ khách',
+            'description' => 'Dùng khi cần toàn bộ một yêu cầu từ khách theo id request_…: nội dung, các lần trả lời của khách và văn phòng theo thời gian, người xử lý, số nháp trả lời đang chờ duyệt. Không dùng để gửi trả lời cho khách hay đọc nội dung nháp.',
+            'params' => [
+                'id' => 'Id yêu cầu có tiền tố, ví dụ request_7.',
+            ],
+        ],
+    ],
+
+    // Task 11 — mô tả `limit`/`cursor` chung của bốn tool danh sách (`App\Mcp\Tools\Concerns\PaginatesByCursor`).
+    'pagination' => [
+        'limit' => 'Số dòng mỗi trang, mặc định 10, tối đa 25.',
+        'cursor' => 'Giá trị next_cursor của trang trước, gửi kèm đúng các tham số cũ.',
     ],
 
     /*

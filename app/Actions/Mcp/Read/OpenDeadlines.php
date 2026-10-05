@@ -6,6 +6,7 @@ use App\Actions\Mcp\McpMatterScope;
 use App\Models\Deadline;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * "Mốc gần nhất" của MCP — MỘT định nghĩa cho `next_deadline` của `search_matters` và năm mốc của
@@ -15,7 +16,9 @@ use Illuminate\Database\Eloquent\Collection;
  * Chỉ mốc của vụ trong tập `McpMatterScope` của `$actor` (`constrain()`), kể cả khi nơi gọi đã chỉ
  * đưa vào id vụ lấy từ chính tập đó — hai lớp, không tin nơi gọi. Nhân sự xem được mốc của mọi vụ họ
  * xem được (`DeadlinePolicy::view` → `canSeeMatter`), nên không có điều kiện riêng từng mốc.
- * `responsible` được nạp sẵn cho `DeadlinePresenter`; quan hệ `matter` do nơi gọi gắn (nó đã có vụ).
+ * `responsible` được nạp sẵn cho `DeadlinePresenter`, kể cả tài khoản đã xoá mềm (người đã nghỉ việc
+ * vẫn hiện tên, như tab "Mốc thời hạn", widget và `list_deadlines` của Task 11); quan hệ `matter` do
+ * nơi gọi gắn (nó đã có vụ).
  */
 final class OpenDeadlines
 {
@@ -37,7 +40,7 @@ final class OpenDeadlines
             ->orderBy('deadlines.due_date')
             ->orderBy('deadlines.id')
             ->when($limit !== null, fn ($query) => $query->limit($limit))
-            ->with('responsible')
+            ->with(['responsible' => fn (BelongsTo $responsible) => $responsible->withTrashed()])
             ->get();
     }
 }
