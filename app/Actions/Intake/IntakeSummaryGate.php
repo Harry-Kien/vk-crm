@@ -1,0 +1,92 @@
+<?php
+
+namespace App\Actions\Intake;
+
+use App\Enums\ConflictLevel;
+use App\Enums\IntakeStatus;
+use App\Enums\IntakeSummaryBlocker;
+use App\Models\IntakeRequest;
+
+/**
+ * NƠI DUY NHẤT quyết định ô CÂU CHUYỆN của một lần tiếp nhận đóng hay mở (M10 R1 + R7a). Đọc các cột
+ * đã lưu (và, ở bước 3, các lần gọi khác của cùng người), không chạy lại kiểm tra: `UpdateIntakeSummary`
+ * (cổng thật) và màn hình (Task 3, để nói người nhập phải làm gì tiếp) cùng hỏi hàm này, nên hai nơi
+ * không thể lệch nhau.
+ *
+ * Ô mở khi KHÔNG còn điều nào trong {@see IntakeSummaryBlocker}:
+ *  0. **Đã từ chối (R8, M10 Task 3):** bản ghi `declined`, vì bất kỳ lý do nào, đóng câu chuyện cho
+ *     hẳn và chỉ trả MỘT lý do (`Declined`) — các bước dưới không còn gì để làm. Từ chối vì xung
+ *     đột không xoá Đỏ dính; nhãn trung tính để người không được biết lý do không đọc ra xung đột.
+ *  1. **Thông báo (R7a):** đã ghi nhận người liên hệ nghe thông báo và đồng ý
+ *     (`privacy_notice_acknowledged_at`). Áp cho MỌI kết quả, kể cả Xanh.
+ *  2. **Đã kiểm tra, và kiểm tra còn khớp danh tính:** có `conflict_checked_at`, và dấu vân tay danh
+ *     tính lưu kèm `conflict_result` bằng dấu vân tay HIỆN TẠI ({@see IntakeRequest::identityFingerprint()}).
+ *     Ai sửa danh tính mà chưa chạy lại kiểm tra thì kết quả cũ (kể cả Xanh) không còn là bằng chứng.
+ *  3. **Đỏ chưa xử lý ({@see IntakeRequest::hasUnresolvedRed()}) hoặc bị giữ như một cuộc gọi lại
+ *     ({@see IntakeRequest::isHeldByRepeatCallLock()}):** khoá cho tới khi quản lý/admin ghi đè kèm lý
+ *     do. Đỏ DÍNH (fix vòng 1, I2): nó không theo `conflict_level` của lần chạy gần nhất, nên sửa hay gỡ
+ *     bên đối lập rồi chạy lại ra Xanh — kể cả quản lý tự chạy — KHÔNG mở ô. Một lần gọi lại của người có
+ *     lần gọi khác còn Đỏ hay đã bị từ chối vì xung đột cũng bị khoá (C1) — đọc TRỰC TIẾP, cùng điều kiện
+ *     mà `ConvertIntakeToMatter::refusal()` đọc (rà soát cuối M10, vòng sửa 1 — FI2). Trước đó cổng chỉ
+ *     đọc dấu Đỏ chờ đã lưu, mà `CheckIntakeConflict` chỉ đặt dấu đó ở lần kiểm tra CỦA bản này, nên một
+ *     bản kiểm tra Xanh TRƯỚC khi lần gọi kia ra Đỏ vẫn ghi thêm câu chuyện trong khi chuyển đổi bị từ
+ *     chối — hai định nghĩa "bị khoá" lệch nhau.
+ *  4. **Vàng, hoặc "thiếu định danh"** (`incomplete_parties` không rỗng): phải có xác nhận
+ *     (`conflict_acknowledged_by`) — cùng cổng `OpenMatter` dùng. Một ghi đè còn hiệu lực
+ *     ({@see IntakeRequest::hasConflictOverride()}: có người VÀ có lý do) che luôn bước này, như
+ *     `OpenMatter`.
+ *  5. Xanh đủ định danh: mở.
+ *
+ * Bản ghi đã xong việc (đã chuyển thành vụ việc, đã ẩn danh, đã gộp — `IntakeRequest::isClosedToChanges()`)
+ * không phải chuyện của cổng này: `UpdateIntakeSummary` từ chối riêng.
+ */
+final class IntakeSummaryGate
+{
+    /** @return list<IntakeSummaryBlocker> */
+    public static function blockers(IntakeRequest $intake): array
+    {
+        // Từ chối (R8, M10 Task 3) đóng câu chuyện cho hẳn — không còn bước nào khác để làm.
+        if ($intake->status === IntakeStatus::Declined) {
+            return [IntakeSummaryBlocker::Declined];
+        }
+
+        $blockers = [];
+
+        if ($intake->privacy_notice_acknowledged_at === null) {
+            $blockers[] = IntakeSummaryBlocker::PrivacyNotice;
+        }
+
+        $result = is_array($intake->conflict_result) ? $intake->conflict_result : [];
+
+        if ($intake->conflict_checked_at === null
+            || $intake->conflict_level === null
+            || ($result['fingerprint'] ?? null) !== $intake->identityFingerprint()) {
+            $blockers[] = IntakeSummaryBlocker::ConflictUnchecked;
+
+            return $blockers;
+        }
+
+        if ($intake->hasUnresolvedRed() || $intake->isHeldByRepeatCallLock()) {
+            $blockers[] = IntakeSummaryBlocker::ConflictRed;
+
+            return $blockers;
+        }
+
+        $needsAcknowledgement = $intake->conflict_level === ConflictLevel::Yellow
+            || ($result['incomplete_parties'] ?? []) !== [];
+
+        // Một ghi đè Đỏ còn hiệu lực cũng che cổng xác nhận (như OpenMatter): người ghi đè đã xem hết,
+        // và một lần chạy lại không có gì mới không được làm cổng đóng lại sau khi vừa mở. "Còn hiệu
+        // lực" = CÙNG định nghĩa với bước Đỏ ở trên (người VÀ lý do, `hasConflictOverride()`).
+        if ($needsAcknowledgement && $intake->conflict_acknowledged_by === null && ! $intake->hasConflictOverride()) {
+            $blockers[] = IntakeSummaryBlocker::ConflictAcknowledgement;
+        }
+
+        return $blockers;
+    }
+
+    public static function isOpen(IntakeRequest $intake): bool
+    {
+        return self::blockers($intake) === [];
+    }
+}

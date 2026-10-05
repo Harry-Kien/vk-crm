@@ -492,7 +492,7 @@ Toàn bộ cột và index theo "Mô hình dữ liệu". Điểm dễ sai:
 
 **Bắt buộc trên MariaDB thật:** `migrate:fresh --seed`, rồi `migrate:reset` → `migrate`, **dán nguyên văn output**. Kiểm tay mỗi `down()` đảo được.
 
-- [ ] Test đỏ, cài đặt, test xanh, pint, **round-trip MariaDB dán vào báo cáo**, commit `feat: bảng hợp đồng, đợt thanh toán, khoản thu và phụ lục`.
+- [x] Test đỏ, cài đặt, test xanh, pint, **round-trip MariaDB dán vào báo cáo**, commit `feat: bảng hợp đồng, đợt thanh toán, khoản thu và phụ lục`.
 
 ---
 
@@ -544,7 +544,7 @@ Toàn bộ cột và index theo "Mô hình dữ liệu". Điểm dễ sai:
 
 **MCP (P7).** Kế hoạch M11 (`docs/superpowers/plans/2026-09-24-m11-mcp.md`, R4) trả dữ liệu qua presenter theo **danh sách cho phép**, nên bốn model tiền mặc định không ra ngoài. M9 không mở chúng: thêm dòng "tiền của vụ việc — không bao giờ" vào bảng R4 của M11 (đính chính có ngày trong PROGRESS), và một test cấu trúc khẳng định không tool hay presenter nào trong `app/Mcp` / `app/Support/Mcp` tham chiếu `Contract`, `Instalment`, `Payment`, `ContractAmendment`. Tên thư mục thật lấy từ bước dò ở Task 1.
 
-- [ ] Test đỏ, cài đặt, test xanh, pint, commit `feat: bốn quyền cho tiền, và đính chính SPEC kèm ngày`.
+- [x] Test đỏ, cài đặt, test xanh, pint, commit `feat: bốn quyền cho tiền, và đính chính SPEC kèm ngày`.
 
 ---
 
@@ -577,7 +577,7 @@ Mọi Action ghi `Audit::record(..., $actor)` **bên trong** transaction (và n�
 
 **Test bắt buộc:** tổng lệch 1 đồng → không kích hoạt được; ghi thẳng một `Instalment` lệch tổng trên hợp đồng `active` bằng model → bị từ chối; phần dư rơi vào đợt cuối (ba trường hợp); `percent_basis` không bao giờ tính lại `amount`; phụ lục lưu đúng giá trị cũ; phụ lục huỷ một đợt làm tổng mới khớp; phụ lục không lý do → `ValidationException`; lý do 19 ký tự tiếng Việt có dấu **bị từ chối**, 20 ký tự **được chấp nhận**; hợp đồng `draft` xoá được, `draft` có khoản thu hoặc `active` thì không; `billing_model = hourly` bị từ chối; `trigger_stage_key` là giai đoạn đầu bị từ chối; `Money::parse` ba trường hợp; `billing:check-invariants` tìm ra hợp đồng lệch.
 
-- [ ] Test đỏ, cài đặt, test xanh, pint, **mutation probe cho từng điều kiện, dán bằng chứng đỏ**, commit `feat: hợp đồng dịch vụ với bất biến tổng các đợt`.
+- [x] Test đỏ, cài đặt, test xanh, pint, **mutation probe cho từng điều kiện, dán bằng chứng đỏ**, commit `feat: hợp đồng dịch vụ với bất biến tổng các đợt`.
 
 ---
 
@@ -602,7 +602,7 @@ Mọi Action ghi `Audit::record(..., $actor)` **bên trong** transaction (và n�
 
 **Test bắt buộc:** thu một phần → `partially_paid`, `status` vẫn `pending`; thu đủ → `paid`; thu vượt → từ chối kèm thông điệp đọc được; huỷ làm tụt dưới đủ → `pending`, và `overdue` nếu ngày đã qua; huỷ không lý do → lỗi xác thực; `paid_on` ngày mai → lỗi xác thực; `state()` và `scopeOverdue()` khớp trên tập biên; khoản thu **không xoá được** (`delete()` lẫn `forceDelete()`); `created_by` là actor truyền vào **chứ không phải** người đang đăng nhập (đăng nhập một người, truyền người **khác**, như `RunConflictCheckActorTest`); `attributed_lawyer_id` là lead lúc ghi, và **không đổi** sau `ReassignMatter`; quản lý gọi `RecordPayment` → từ chối; luật sư phụ trách vụ `restricted` ghi được, kế toán trên vụ đó bị từ chối; **hai kế toán ghi hai khoản đồng thời trên cùng đợt** không vượt tổng và `status` đúng — chạy dưới `bin/dev test:mariadb`; xoá mềm vụ còn nợ → từ chối, qua **cả** hook lẫn `CancelMatter`; xoá mềm khách có vụ đã kết thúc còn nợ → từ chối.
 
-- [ ] Test đỏ, cài đặt, test xanh, pint, `test:mariadb` tuần tự, **mutation probe từng điều kiện**, commit `feat: khoản thu, miễn và huỷ, với trạng thái suy ra thay vì lưu`.
+- [x] Test đỏ, cài đặt, test xanh, pint, `test:mariadb` tuần tự, **mutation probe từng điều kiện**, commit `feat: khoản thu, miễn và huỷ, với trạng thái suy ra thay vì lưu`.
 
 ---
 
@@ -646,7 +646,7 @@ Nội dung: giá trị hợp đồng, thuế suất và ba con số VAT; trạng
 
 **Test bắt buộc (Livewire):** luật sư thấy tab trên vụ của mình, không thấy trên vụ khác; trợ lý không thấy tab; quản lý thấy tab nhưng **không** có nút ghi khoản thu; luật sư vụ thường không có nút ghi khoản thu; luật sư phụ trách vụ `restricted` ghi được; thành viên đội ngũ không phải lead của vụ `restricted` không thấy tiền; `"1.250.000"` lưu thành 1250000; mỗi `DomainException` của Task 4 và 5 hiện thành lỗi trên form, **một `it()` riêng cho từng trường hợp**; vào thẳng URL tab của một vụ không có quyền → **404**; dải cảnh báo hiện khi `closed_at` có giá trị và không hiện khi vụ còn mở.
 
-- [ ] Test đỏ, cài đặt, test xanh, pint, commit `feat: tab hợp đồng và thanh toán trên trang vụ việc`.
+- [x] Test đỏ, cài đặt, test xanh, pint, commit `feat: tab hợp đồng và thanh toán trên trang vụ việc`.
 
 ---
 
@@ -668,7 +668,7 @@ Nội dung: giá trị hợp đồng, thuế suất và ba con số VAT; trạng
 
 **Test bắt buộc (Livewire/HTTP, mỗi trường hợp một `it()`):** kế toán mở trang, thấy dòng, **không thấy tiêu đề vụ việc ở bất kỳ đâu** (chuỗi đánh dấu duy nhất đặt trong tiêu đề, như test `internal_note` của §11); kế toán ghi khoản thu qua Livewire và đợt chuyển trạng thái; quản lý mở trang, không có hành động, và gọi thẳng hành động qua Livewire bị từ chối; luật sư → 404; trợ lý → 404; đợt của vụ `restricted` không có trong bảng của kế toán và quản lý, có trong bảng của admin; `"1.250.000"` → 1250000; mỗi `DomainException` hiện thành lỗi trên form; biên lai theo cách đã chọn ở trên.
 
-- [ ] Test đỏ, cài đặt, test xanh, pint, commit `feat: trang công nợ cho kế toán, không cần mở hồ sơ`.
+- [x] Test đỏ, cài đặt, test xanh, pint, commit `feat: trang công nợ cho kế toán, không cần mở hồ sơ`.
 
 ---
 
@@ -690,7 +690,7 @@ Toàn bộ thiết kế ở mục "Trang doanh thu" — **đọc lại nguyên v
 
 **Test bắt buộc:** luật sư chỉ thấy số liệu của vụ mình (dựng hai luật sư, khẳng định hai con số khác nhau); luật sư **không** thấy hai widget toàn văn phòng; kế toán thấy đủ **trừ** vụ `restricted`; quản lý như kế toán; admin thấy cả vụ `restricted`; trang không in số vụ bị loại; trợ lý vào thẳng URL → **404**; ba lát donut cộng lại đúng tổng giá trị đã ký trong kỳ trừ phần đã miễn; đổi bộ lọc thời gian đổi đúng widget nói rằng nó đổi và **không** đổi widget khác; lọc luật sư: khoản thu trước bàn giao vẫn tính cho luật sư cũ, còn phải thu tính cho luật sư mới; hợp đồng của vụ đã xoá mềm **không** xuất hiện; khoản thu đã huỷ **không** được cộng; đủ 12 lĩnh vực kể cả lĩnh vực 0 vụ; trang chủ không có widget doanh thu.
 
-- [ ] Test đỏ, cài đặt, test xanh, pint, commit `feat: trang doanh thu với biểu đồ lọc theo kỳ, luật sư và lĩnh vực`.
+- [x] Test đỏ, cài đặt, test xanh, pint, commit `feat: trang doanh thu với biểu đồ lọc theo kỳ, luật sư và lĩnh vực`.
 
 ---
 
@@ -750,7 +750,7 @@ SPEC §15: *"Riêng `time_entries` tuy chưa làm ở bản 1.0 nhưng nên tạ
 
 **Test bắt buộc:** `PortalCoverageTest` xanh không thêm miễn trừ; `TimeEntryPolicy` từ chối mọi `ClientUser`; `Matter::timeEntries()` và `User::timeEntries()` trả đúng quan hệ; **không tệp nào ngoài danh sách tệp của task này** (migration, model, policy, factory, `Matter.php`, `User.php`, `AppServiceProvider.php`, test của task) tham chiếu `TimeEntry` — test grep, là thứ giữ cho task xoá được.
 
-- [ ] Test đỏ, cài đặt, test xanh, pint, **round-trip MariaDB**, commit `feat: khung time_entries cho mô hình tính phí theo giờ về sau`.
+- [x] Test đỏ, cài đặt, test xanh, pint, **round-trip MariaDB**, commit `feat: khung time_entries cho mô hình tính phí theo giờ về sau`.
 
 ---
 

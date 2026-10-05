@@ -48,5 +48,11 @@ class DemoDataSeeder extends Seeder
             // không bao giờ trong ReferenceDataSeeder (docblock BillingSeeder).
             BillingSeeder::class,
         ]);
+
+        // M10 Task 8 — tiếp nhận: SAU các seeder trên (Đỏ trỏ vào khách hiện hữu, bản chuyển đổi gắn vào
+        // một khách đã có và thêm một vụ việc). Sau cả `BillingSeeder` (gộp M10 vào main): vụ mở từ tiếp
+        // nhận chưa có hợp đồng, để form "Soạn hợp đồng" của nó hiện phí đã báo làm gợi ý (R3). Gọi riêng
+        // để làn khác thêm seeder vào danh sách trên mà không chạm dòng này.
+        $this->call(IntakeSeeder::class);
     }
 }

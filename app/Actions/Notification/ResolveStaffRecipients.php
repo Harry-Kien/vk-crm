@@ -3,8 +3,10 @@
 namespace App\Actions\Notification;
 
 use App\Enums\Confidentiality;
+use App\Enums\Permission;
 use App\Enums\Role;
 use App\Models\Contract;
+use App\Models\IntakeRequest;
 use App\Models\Matter;
 use App\Models\User;
 use Illuminate\Support\Collection;
@@ -68,6 +70,16 @@ use Illuminate\Support\Facades\Gate;
  * `matter.view` nên `handle()` sẽ luôn loại họ; đó là lý do cổng tiền tồn tại riêng.
  * {@see self::billingAudienceFor()} là nơi DUY NHẤT quyết định vai trò nào nhận thư tiền của vụ
  * nào (như `supervisorsFor()` cho việc giám sát): nơi gọi không tự rẽ nhánh theo `confidentiality`.
+ *
+ * **Thư giao việc: bộ lọc khả năng `$mustAllow` của {@see self::handle()} (việc sau gộp M9 + M10,
+ * làn fu3, Task 1 mục C).** Có thư không chỉ báo tin mà giao việc — thư "gói bàn giao sẵn sàng"
+ * (`App\Jobs\SendHandoverPackageReady`) bảo người nhận mở gói, công bố, rồi khách sẽ được báo. "Được
+ * xem vụ" không đủ cho thư đó: luật sư phụ trách bị đổi vai thành trợ lý vẫn xem được vụ (là lead),
+ * nhưng không tải được gói in tiền và không công bố được — báo cho đúng họ, và chỉ họ, là không ai
+ * làm gì. `$mustAllow` (khả năng ⇒ tham số của `Gate`) thêm các câu hỏi đó vào {@see self::qualify()},
+ * nên MỌI tầng — danh sách ưu tiên lẫn từng tầng của chuỗi dự phòng — cùng hỏi; rỗng (mặc định) thì
+ * không đổi gì cho mọi nơi gọi khác. Câu trả lời là của policy (`DocumentPolicy::download`,
+ * `DocumentPolicy::publish`), không chép điều kiện của policy vào đây.
  */
 class ResolveStaffRecipients
 {
@@ -79,19 +91,25 @@ class ResolveStaffRecipients
      *                                            không chỉ một người). Phần tử `null` bị bỏ qua
      *                                            lặng lẽ — tiện cho caller truyền thẳng một quan hệ
      *                                            có thể rỗng (`$deadline->responsibleUser`).
+     * @param  array<string, mixed>  $mustAllow  Khả năng ⇒ tham số: người nhận còn phải qua
+     *                                           `Gate::forUser($u)->allows($ability, $arguments)`
+     *                                           cho MỌI cặp, ở danh sách ưu tiên lẫn ở chuỗi dự
+     *                                           phòng (xem docblock lớp). Rỗng: chỉ luật R3.
      * @return Collection<int, User> Rỗng KHÔNG BAO GIỜ xảy ra trừ khi vụ việc không còn admin nào
      *                               đang hoạt động — R7 cấm chính điều đó ("admin đang hoạt động
-     *                               cuối cùng không thể tự vô hiệu hoá hay tự xoá").
+     *                               cuối cùng không thể tự vô hiệu hoá hay tự xoá") — hay, khi có
+     *                               `$mustAllow`, không admin đang hoạt động nào qua được các khả
+     *                               năng đó.
      */
-    public function handle(Matter $matter, array $preferred): Collection
+    public function handle(Matter $matter, array $preferred, array $mustAllow = []): Collection
     {
-        $qualified = $this->qualify(collect($preferred), $matter);
+        $qualified = $this->qualify(collect($preferred), $matter, mustAllow: $mustAllow);
 
         if ($qualified->isNotEmpty()) {
             return $qualified;
         }
 
-        return $this->fallbackChain($matter);
+        return $this->fallbackChain($matter, mustAllow: $mustAllow);
     }
 
     /**
@@ -192,6 +210,7 @@ class ResolveStaffRecipients
     }
 
     /**
+     * @param  array<string, mixed>  $mustAllow
      * @return Collection<int, User>
      *
      * **`! $user->trashed()` (fix round 1, minor ruling).** `$preferred` là caller-supplied — một
@@ -200,8 +219,11 @@ class ResolveStaffRecipients
      * `deleted_at` là HAI cột khác nhau — không có gì đảm bảo mọi đường xoá một tài khoản luôn đặt
      * `is_active = false` TRƯỚC KHI xoá mềm (R7 nói "vô hiệu hoá VÀ xoá" như hai bước, không phải
      * một bất biến DB). Kiểm tra tường minh ở đây, không tin cột kia làm thay việc của cột này.
+     *
+     * `$mustAllow`: bộ lọc khả năng của {@see self::handle()} (xem docblock lớp), hỏi SAU cổng vụ —
+     * người không xem được vụ không bao giờ tới được câu hỏi về tài liệu của vụ đó.
      */
-    private function qualify(Collection $candidates, Matter $matter, bool $billing = false): Collection
+    private function qualify(Collection $candidates, Matter $matter, bool $billing = false, array $mustAllow = []): Collection
     {
         return $candidates
             ->filter(fn (?User $user): bool => $user instanceof User)
@@ -211,6 +233,9 @@ class ResolveStaffRecipients
             ->filter(fn (User $user): bool => $billing
                 ? Gate::forUser($user)->allows('viewAny', [Contract::class, $matter])
                 : Gate::forUser($user)->allows('view', $matter))
+            ->filter(fn (User $user): bool => collect($mustAllow)->every(
+                fn (mixed $arguments, string $ability): bool => Gate::forUser($user)->allows($ability, $arguments),
+            ))
             ->values();
     }
 
@@ -221,13 +246,16 @@ class ResolveStaffRecipients
      *
      * `$billing` đổi cổng của MỌI tầng (kể cả luật sư phụ trách) từ "được xem vụ" sang "được xem
      * tiền của vụ" — {@see self::forBilling()}; chuỗi vẫn là một, không có bản thứ hai cho tiền.
+     * `$mustAllow` cũng áp vào MỌI tầng (làn fu3, Task 1 mục C): tầng dừng là tầng đầu tiên có người
+     * LÀM ĐƯỢC việc, không chỉ xem được vụ.
      *
+     * @param  array<string, mixed>  $mustAllow
      * @return Collection<int, User>
      */
-    private function fallbackChain(Matter $matter, bool $billing = false): Collection
+    private function fallbackChain(Matter $matter, bool $billing = false, array $mustAllow = []): Collection
     {
         if ($matter->leadLawyer !== null) {
-            $leadLawyerQualified = $this->qualify(collect([$matter->leadLawyer]), $matter, $billing);
+            $leadLawyerQualified = $this->qualify(collect([$matter->leadLawyer]), $matter, $billing, $mustAllow);
 
             if ($leadLawyerQualified->isNotEmpty()) {
                 return $leadLawyerQualified;
@@ -246,6 +274,7 @@ class ResolveStaffRecipients
             User::query()->where('is_active', true)->role(Role::Manager->value)->get(),
             $matter,
             $billing,
+            $mustAllow,
         )->first();
 
         if ($manager !== null) {
@@ -256,8 +285,50 @@ class ResolveStaffRecipients
             User::query()->where('is_active', true)->role(Role::Admin->value)->get(),
             $matter,
             $billing,
+            $mustAllow,
         )->first();
 
         return $admin !== null ? collect([$admin]) : collect();
+    }
+
+    /**
+     * Người nhận thư/thông báo về MỘT LẦN CÓ NGƯỜI LIÊN HỆ (M10 R5, Task 5 — `staff.intake_unanswered`).
+     * Cổng riêng vì bản ghi tiếp nhận không có `Matter` nào để hỏi `Gate::view()` như {@see self::handle()};
+     * cùng lớp, cùng hai bộ lọc `is_active` + chưa xoá mềm, và "xem được" là `IntakeRequestPolicy::view`
+     * (`IntakeRequest::isVisibleTo()`). Ba tầng, dừng ở tầng ĐẦU TIÊN có người — "không bao giờ im lặng":
+     *  1. người được giao (`assigned_to`), nếu đang hoạt động, chưa xoá và còn xem được bản ghi;
+     *  2. không thì MỌI người có quyền `intake.viewAny` đang hoạt động, chưa xoá, xem được bản ghi;
+     *  3. không thì MỌI admin đang hoạt động, chưa xoá — KHÔNG hỏi "xem được": tầng cuối là lưới an
+     *     toàn khi chính quyền `intake.viewAny` đã bị gỡ khỏi mọi vai, và thư của mẫu này không mang
+     *     dữ liệu nào của người liên hệ (chỉ mã, nguồn, thời gian đã chờ, liên kết), nên báo cho admin
+     *     — người sửa được phân quyền — vẫn hơn im lặng.
+     * Người đã ghi bản ghi mà không được giao thì không nhận: R5 nói "người được giao", không nói
+     * "người nhấc máy". Người được giao đã xoá mềm không tới được tầng 1 (quan hệ `assignee` bỏ dòng đã
+     * xoá); tầng 2 và 3 đọc `User::query()`, cũng bỏ dòng đã xoá.
+     *
+     * @return Collection<int, User>
+     */
+    public function forIntake(IntakeRequest $intake): Collection
+    {
+        $qualifies = fn (User $user): bool => $user->is_active
+            && Gate::forUser($user)->allows('view', $intake);
+
+        $assignee = $intake->assignee()->first();
+
+        if ($assignee instanceof User && $qualifies($assignee)) {
+            return collect([$assignee]);
+        }
+
+        $viewers = User::query()
+            ->permission(Permission::IntakeViewAny->value)
+            ->get()
+            ->filter($qualifies)
+            ->values();
+
+        if ($viewers->isNotEmpty()) {
+            return $viewers;
+        }
+
+        return User::query()->where('is_active', true)->role(Role::Admin->value)->get()->values();
     }
 }

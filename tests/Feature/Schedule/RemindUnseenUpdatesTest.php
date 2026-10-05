@@ -7,6 +7,7 @@ use App\Filament\Admin\Widgets\UnseenUpdatesWidget;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\OutboundMessage;
 use App\Models\StageLog;
 use App\Models\StageLogView;
@@ -110,7 +111,10 @@ it('sends the client nothing at all', function () {
  *
  * Mutation probe (mỗi hàng): xoá điều kiện tương ứng khỏi `UnseenStageLogs::query()` — `is_published`,
  * `whereNotNull('published_at')`/`published_at < ...`, `whereDoesntHave('views')`,
- * `is_published_to_portal` — hàng đó ĐỎ (vẫn có thông báo).
+ * `is_published_to_portal`, `whereDoesntHave('archive', … clientAccessExpired())` — hàng đó ĐỎ (vẫn
+ * có thông báo). Hàng cuối (việc sau gộp M7, làn fu2): vụ đã kết thúc và đã quá hạn tra cứu rời cổng
+ * khách (M7 Task 5) dù cờ giữ nguyên; cặp dương của nó là test "still reminds about a closed matter"
+ * (còn hạn tra cứu).
  */
 it('notifies nobody for an update outside the shared definition', function (Closure $arrange) {
     [$matter, $lawyer, $log, $account] = unseenMatter();
@@ -127,6 +131,10 @@ it('notifies nobody for an update outside the shared definition', function (Clos
     'the client opened it' => [fn (Matter $m, StageLog $l, ClientUser $a) => markSeen($l, $a)],
     'the matter is off the portal' => [fn (Matter $m) => $m->update(['is_published_to_portal' => false])],
     'the matter is soft-deleted' => [fn (Matter $m) => $m->delete()],
+    'the matter is closed and its client access window has passed' => [function (Matter $m) {
+        $m->update(['closed_at' => now()->subDays(120)]);
+        MatterArchive::factory()->create(['matter_id' => $m->id, 'client_access_until' => today()->subDay()->toDateString()]);
+    }],
 ]);
 
 /** Đồng hồ là `published_at` (SPEC §7.1 mục 5), không phải `occurred_at`: cặp dương và cặp âm trên MỘT bảng. */
@@ -164,6 +172,9 @@ it('is due strictly after five days, not on the fifth', function (string $publis
  */
 it('still reminds about a closed matter, exactly like the widget lists it', function () {
     [$matter, $lawyer] = unseenMatter(matterOverrides: ['closed_at' => now()->subDays(2)]);
+    // Dòng lưu trữ thật của một vụ vừa kết thúc: còn hạn tra cứu (cặp dương của hàng "client access
+    // window has passed" ở trên — chỉ khác ngày).
+    MatterArchive::factory()->create(['matter_id' => $matter->id, 'client_access_until' => today()->addDays(88)->toDateString()]);
 
     expect((new RemindUnseenUpdates)->handle()['notified'])->toBe(1)
         ->and($lawyer->fresh()->notifications)->toHaveCount(1);
@@ -200,7 +211,12 @@ it('agrees with the widget about which matters have an unseen update', function 
     unseenLog($inB, 8);
     [$inClosed] = unseenMatter(7, ['closed_at' => now()->subDay()]);
     [$inRestricted] = unseenMatter(12, ['confidentiality' => Confidentiality::Restricted]);
+    // Vụ đã kết thúc, hôm nay là ngày tra cứu cuối: còn trên cổng (việc sau gộp M7).
+    [$inLastDay] = unseenMatter(10, ['closed_at' => now()->subDays(90)]);
+    MatterArchive::factory()->create(['matter_id' => $inLastDay->id, 'client_access_until' => today()->toDateString()]);
     // Ngoài tập.
+    [$expired] = unseenMatter(10, ['closed_at' => now()->subDays(91)]);
+    MatterArchive::factory()->create(['matter_id' => $expired->id, 'client_access_until' => today()->subDay()->toDateString()]);
     unseenMatter(2);
     [, , $seenLog, $seenAccount] = unseenMatter(9);
     markSeen($seenLog, $seenAccount);
@@ -219,7 +235,7 @@ it('agrees with the widget about which matters have an unseen update', function 
     $admin = User::factory()->withRole(Role::Admin)->create();
     $listed = UnseenUpdatesWidget::rowsFor($admin)->pluck('matter_id')->unique()->sort()->values()->all();
 
-    expect($listed)->toBe(collect([$inA->id, $inB->id, $inClosed->id, $inRestricted->id])->sort()->values()->all())
+    expect($listed)->toBe(collect([$inA->id, $inB->id, $inClosed->id, $inRestricted->id, $inLastDay->id])->sort()->values()->all())
         ->and($notified)->toBe($listed)
         ->and(UnseenStageLogs::AFTER_DAYS)->toBe(UnseenUpdatesWidget::UNSEEN_AFTER_DAYS);
 });

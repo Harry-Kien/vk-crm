@@ -29,6 +29,25 @@ return [
         'matter_stage_transitioned' => 'Chuyển giai đoạn vụ việc',
         'matter_party_added' => 'Thêm bên trong vụ việc',
         'conflict_check_run' => 'Kiểm tra xung đột lợi ích',
+        // Các Action tiếp nhận ở app/Actions/Intake (M10 Task 2). Không dòng nào mang tên, SĐT, câu chuyện hay lý do ghi đè.
+        'intake_recorded' => 'Ghi nhận một lần liên hệ văn phòng',
+        'intake_conflict_acknowledged' => 'Xác nhận khớp xung đột lúc tiếp nhận',
+        'intake_conflict_overridden' => 'Ghi đè xung đột mức đỏ lúc tiếp nhận',
+        'intake_privacy_notice_recorded' => 'Ghi nhận thông báo xử lý dữ liệu cá nhân',
+        'intake_summary_updated' => 'Ghi nội dung câu chuyện của người liên hệ',
+        // M10 Task 3 (màn hình tiếp nhận). Cùng luật: không tên, SĐT, câu chuyện, lý do từ chối.
+        'intake_identity_updated' => 'Sửa phần danh tính của một lần liên hệ',
+        'intake_status_changed' => 'Đổi trạng thái một lần liên hệ',
+        'intake_declined' => 'Từ chối một lần liên hệ',
+        'intake_merged' => 'Gộp một lần liên hệ vào bản ghi khác',
+        'intake_merge_received' => 'Nhận một lần liên hệ được gộp vào',
+        // M10 Task 4 (`ConvertIntakeToMatter`): chỉ id vụ việc/khách hàng, không mã, không tên.
+        'intake_converted' => 'Chuyển một lần liên hệ thành vụ việc',
+        // M10 Task 5: app/Jobs/SendUnansweredIntakeReminderMail.php — thư nhắc hỏng hẳn; chỉ mang tên mẫu thư.
+        'intake_reminder_failed' => 'Gửi thư nhắc liên hệ chưa ai gọi lại thất bại hẳn',
+        // M10 Task 7 (`AnonymiseProspect`): mã bản ghi và lý do / ngày hạn — không bao giờ giá trị đã xoá.
+        'prospect_data_erased' => 'Xoá dữ liệu cá nhân của người liên hệ theo yêu cầu',
+        'prospect_data_anonymised' => 'Ẩn danh dữ liệu người liên hệ hết hạn lưu',
         // Ghi qua Audit::record() ở app/Actions/SyncClientPartyIdentities.php khi hồ sơ khách
         // hàng đổi số căn cước/điện thoại và ảnh chụp định danh của các bên được đồng bộ lại.
         'client_identity_resynced' => 'Đồng bộ lại định danh các bên',

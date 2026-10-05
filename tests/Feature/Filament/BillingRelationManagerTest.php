@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\ChecklistItemStatus;
 use App\Enums\ContractStatus;
 use App\Enums\InstalmentState;
 use App\Enums\InstalmentStatus;
@@ -13,6 +14,7 @@ use App\Filament\Admin\Resources\Matters\RelationManagers\BillingRelationManager
 use App\Models\Contract;
 use App\Models\Instalment;
 use App\Models\Matter;
+use App\Models\MatterChecklistItem;
 use App\Models\MatterType;
 use App\Models\Payment;
 use App\Models\StageLog;
@@ -240,6 +242,34 @@ it('shows the closed-with-balance banner only when the matter is closed and a de
     $this->matter->forceFill(['closed_at' => today()->toDateString()])->save();
 
     billingTab($this->matter->fresh())->assertSee(__('billing.tab.closed_with_balance_warning'));
+});
+
+// =================================================================================================
+// Gợi ý đầu mục "Hợp đồng dịch vụ pháp lý và giấy uỷ quyền" — việc sau gộp M7 (làn fu2)
+// =================================================================================================
+
+/**
+ * Từ M7 Task 3 danh mục của vụ ĐÃ KẾT THÚC là chỉ đọc: `UploadStaffDocument` lên một đầu mục của nó
+ * ném `MatterChecklistReadOnly`. Dòng nhắc "tải bản đã ký lên đúng đầu mục đó" vì vậy chỉ hiện khi vụ
+ * còn mở — trên vụ đã kết thúc nó chỉ dẫn tới một lời từ chối. Cặp dương/âm trên cùng dữ liệu.
+ *
+ * Mutation probe: bỏ điều kiện `$matter->isClosed()` khỏi `BillingRelationManager::checklistNudge()`
+ * — ĐỎ (vế vụ đã kết thúc); bỏ cả hàm (luôn `null`) — ĐỎ (vế vụ còn mở).
+ */
+it('nudges to upload the signed contract onto its checklist item on an open matter, and not once the matter is closed', function () {
+    activeContractOneInstalment($this->matter);
+    MatterChecklistItem::factory()->for($this->matter)->status(ChecklistItemStatus::Missing)->create([
+        'name' => BillingRelationManager::REQUIRED_CHECKLIST_ITEM_NAME,
+        'is_required' => true,
+    ]);
+
+    $this->actingAs($this->lead, 'web');
+
+    billingTab($this->matter)->assertSee(__('billing.tab.checklist_nudge'));
+
+    $this->matter->forceFill(['closed_at' => today()->toDateString()])->save();
+
+    billingTab($this->matter->fresh())->assertDontSee(__('billing.tab.checklist_nudge'));
 });
 
 // =================================================================================================

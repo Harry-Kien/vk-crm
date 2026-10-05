@@ -82,6 +82,9 @@ return [
      */
     'regroup' => [
         'leaving_internal_group' => 'Tài liệu nhóm D (hồ sơ công việc nội bộ) chỉ chuyển sang nhóm khác bằng thao tác "Chuyển nhóm tài liệu" — thao tác đó ghi lại ai chuyển và chuyển từ nhóm nào sang nhóm nào. Anh/chị dùng thao tác đó thay vì sửa nhóm trực tiếp trên biểu mẫu.',
+        // Việc sau gộp M9 + M10 (làn fu3, Task 1 mục D): cùng định nghĩa và cùng giọng với
+        // `retraction.exceptions.billing_reference` và `documents.delete_blocked_billing_reference`.
+        'billing_reference' => 'Không chuyển được tài liệu này ra khỏi nhóm D: nó là bản scan phụ lục hợp đồng hoặc biên lai của một khoản thu. Phụ lục và khoản thu không sửa, không xoá được, nên bằng chứng của chúng cũng được giữ nguyên trong hồ sơ nội bộ như đang có.',
     ],
 
     /*

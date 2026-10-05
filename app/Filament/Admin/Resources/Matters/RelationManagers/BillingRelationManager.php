@@ -24,6 +24,7 @@ use App\Filament\Admin\Concerns\ScopesToVisibleMatters;
 use App\Models\Contract;
 use App\Models\ContractAmendment;
 use App\Models\Instalment;
+use App\Models\IntakeRequest;
 use App\Models\Matter;
 use App\Models\Payment;
 use App\Policies\Concerns\ChecksBillingAccess;
@@ -160,7 +161,9 @@ use Illuminate\Validation\ValidationException;
  * vụ pháp lý và giấy uỷ quyền" (SPEC §4.9) còn ở trạng thái `missing`, tab hiện một dòng nhắc tải
  * bản đã ký lên đúng đầu mục đó ở tab Tài liệu. **Không** tự đánh dấu đầu mục — nó nhận diện CHỈ
  * bằng tên (SPEC không cho một cách khác), và việc đánh dấu "đã nhận" là việc của
- * `ReviewChecklistItem` (M4), không phải của tab này.
+ * `ReviewChecklistItem` (M4), không phải của tab này. Không hiện trên vụ ĐÃ KẾT THÚC (việc sau gộp
+ * M7, làn fu2): từ M7 Task 3 danh mục của vụ đó chỉ đọc, `UploadStaffDocument` lên đầu mục ném
+ * `MatterChecklistReadOnly`, nên dòng nhắc chỉ dẫn tới một lời từ chối.
  *
  * # Dải cảnh báo hồ sơ đã kết thúc còn công nợ
  *
@@ -367,10 +370,13 @@ class BillingRelationManager extends RelationManager
         );
     }
 
-    /** `null` khi hợp đồng còn `draft` (chưa từng kích hoạt) hoặc đầu mục không còn thiếu. */
+    /**
+     * `null` khi hợp đồng còn `draft` (chưa từng kích hoạt), khi vụ đã kết thúc (danh mục chỉ đọc —
+     * xem docblock lớp), hoặc khi đầu mục không còn thiếu.
+     */
     private static function checklistNudge(Matter $matter, Contract $contract): ?string
     {
-        if ($contract->status === ContractStatus::Draft) {
+        if ($contract->status === ContractStatus::Draft || $matter->isClosed()) {
             return null;
         }
 
@@ -496,7 +502,9 @@ class BillingRelationManager extends RelationManager
             ->modalHeading(__('billing.tab.actions.draft_heading'))
             ->visible(fn (): bool => $matter->contract === null)
             ->authorize(fn (): bool => Gate::allows('create', [Contract::class, $matter]))
-            ->schema(static::contractScheduleFields())
+            // M10 Task 4 (R3): vụ đến từ một lần tiếp nhận thì phí đã báo lúc đó hiện sẵn làm GỢI Ý tổng
+            // giá trị — chỉ là giá trị mặc định của ô (`DraftContract` không đổi, người soạn sửa được).
+            ->schema(static::contractScheduleFields(suggestedTotal: fn (): ?string => static::quotedAmountSuggestion($matter)))
             ->successNotificationTitle(__('billing.tab.actions.draft_success'))
             ->action(fn (Action $action, array $data) => $this->runAction(
                 $action,
@@ -948,12 +956,14 @@ class BillingRelationManager extends RelationManager
     // =============================================================================================
 
     /** @return array<int, mixed> */
-    private static function contractScheduleFields(): array
+    private static function contractScheduleFields(?Closure $suggestedTotal = null): array
     {
         return [
             TextInput::make('total_amount')
                 ->label(__('billing.tab.fields.total_amount'))
                 ->helperText(__('billing.tab.fields.total_amount_help'))
+                // Chỉ áp khi modal mở KHÔNG có `fillForm()` (soạn mới); "sửa bản nháp" điền từ hợp đồng.
+                ->default($suggestedTotal)
                 ->maxLength(15)
                 ->required()
                 ->live(onBlur: true),
@@ -1226,6 +1236,17 @@ class BillingRelationManager extends RelationManager
             ->reject(fn ($stage): bool => $stage->key === $firstKey)
             ->pluck('label', 'key')
             ->all();
+    }
+
+    /**
+     * M10 Task 4 (R3): phí đã báo lúc tiếp nhận của bản ghi đã chuyển thành `$matter`, ở đúng dạng ô nhập
+     * nhận (`Money::formatForInput()`), hoặc null khi vụ không đến từ tiếp nhận nào / chưa báo phí.
+     */
+    private static function quotedAmountSuggestion(Matter $matter): ?string
+    {
+        $amount = IntakeRequest::quotedAmountFor($matter);
+
+        return $amount === null ? null : Money::formatForInput($amount);
     }
 
     private static function intOrNull(mixed $value): ?int

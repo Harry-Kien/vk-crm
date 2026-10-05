@@ -372,10 +372,10 @@ class Document extends Model implements HasMedia
 
     /**
      * Có bản ghi tiền nào trỏ tới tệp này không — định nghĩa DUY NHẤT (gộp M6.5 + M9, xung đột 5),
-     * đọc bởi `DocumentPolicy::delete`, hook `deleting` ở {@see self::booted()}, và (gộp M7 vào
+     * đọc bởi `DocumentPolicy::delete`, hook `deleting` ở {@see self::booted()}, (gộp M7 vào
      * `main`) `RetractDocument` bước 6 cùng `BuildHandoverPackage::keepsFileOf()` — lần sinh lại gói
      * bàn giao xoá TỆP của version cũ qua medialibrary, không qua `delete()`, nên hook không đứng
-     * trước nó.
+     * trước nó — và (làn fu3) `RegroupDocument`, thứ không cho tệp rời nhóm D.
      *
      * `withoutGlobalScopes()`: một khoản thu ĐÃ HUỶ vẫn là bản ghi được giữ lại và vẫn cần biên lai
      * của nó, và câu hỏi này không được đổi đáp án theo guard đang đăng nhập (`ClientPortalScope`

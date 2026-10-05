@@ -347,6 +347,9 @@ it('đi thật qua hàng đợi: dispatch lên kết nối handover rồi queue:
         ->and(DB::table('jobs')->where('queue', 'handover')->count())->toBe(0)
         ->and(DB::table('failed_jobs')->count())->toBe(0);
 
-    // Việc báo kết quả chạy trên hàng chính (sync trong test) và xếp thư qua Mail::queue.
-    Mail::assertQueued(HandoverPackageReady::class, fn (HandoverPackageReady $mail): bool => $mail->hasTo($this->lawyer->email));
+    // Việc báo kết quả chạy trên hàng chính (sync trong test) và GỬI thư ngay trong job đó — không
+    // xếp thêm một job thư mang model người nhận (việc sau gộp M7, làn fu2; docblock
+    // `SendHandoverPackageReady`).
+    Mail::assertSent(HandoverPackageReady::class, fn (HandoverPackageReady $mail): bool => $mail->hasTo($this->lawyer->email));
+    Mail::assertNothingQueued();
 });

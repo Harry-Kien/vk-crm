@@ -6,6 +6,7 @@ use App\Support\OfficeProfile;
 use Database\Seeders\DemoDataSeeder;
 use Database\Seeders\ReferenceDataSeeder;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Queue\Worker;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Process;
@@ -430,4 +431,141 @@ it('§preflight bốn thông tin pháp lý nhập ở trang Thông tin văn phò
     expect($exitCode)->toBe(0)
         ->and($output)->toContain(__('preflight.brand_fields_ok'))
         ->and($output)->not->toContain('BRAND_TAX_CODE');
+});
+
+/*
+|--------------------------------------------------------------------------
+| pcntl — giờ chết của job gói bàn giao (việc sau gộp M7, làn fu2)
+|--------------------------------------------------------------------------
+|
+| `GenerateHandoverPackage::$timeout`/`$failOnTimeout` và `--timeout=600` của mục lịch
+| `queue.handover` chỉ có tác dụng khi PHP DÒNG LỆNH có ext-pcntl. pcntl KHÔNG nằm trong
+| `required_extensions` (danh sách đó đúng bằng `composer check-platform-reqs` + `pdo_mysql`), nên nó
+| là một dòng riêng, ba chiều:
+|
+| - extension chưa nạp → VÀNG (worker vẫn chạy, chỉ mất giờ chết);
+| - extension đã nạp nhưng một hàm mà `Illuminate\Queue\Worker` gọi bị chặn (`disable_functions`,
+|   hay gặp ở PHP dòng lệnh của cPanel/CloudLinux) → ĐỎ: `Worker::supportsAsyncSignals()` chỉ hỏi
+|   `extension_loaded('pcntl')`, nên `daemon()` vẫn gọi `pcntl_async_signals()`/`pcntl_signal()`
+|   (`listenForSignals()`) và `pcntl_alarm()` (`registerTimeoutHandler()`), và trên PHP 8 một hàm bị
+|   chặn là hàm KHÔNG TỒN TẠI — mọi lượt `queue:work` chết ở vòng đầu (rà soát cuối làn fu2, I1);
+| - đủ cả hai → XANH.
+|
+| Container test có pcntl thật và không chặn hàm nào (chiều XANH đo thật). `extension_loaded()` và
+| `function_exists()` không giả được, nên hai chiều kia gài TÊN giả vào cấu hình:
+| `vkcrm.deployment.worker_timeout_extension` (extension) và `vkcrm.deployment.
+| worker_signal_functions` (danh sách hàm), cùng cách test "thiếu extension bắt buộc" ở trên.
+*/
+
+/** Câu XANH của dòng pcntl, dựng từ đúng danh sách hàm đang cấu hình. */
+function preflightPcntlOk(): string
+{
+    return __('preflight.pcntl_ok', [
+        'functions' => implode(', ', (array) config('vkcrm.deployment.worker_signal_functions')),
+    ]);
+}
+
+it('§preflight production PHP dòng lệnh có pcntl và đủ hàm worker cần là XANH', function () {
+    config(preflightGreenProductionConfig());
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect(extension_loaded('pcntl'))->toBeTrue()
+        ->and(function_exists('pcntl_async_signals'))->toBeTrue()
+        ->and(function_exists('pcntl_signal'))->toBeTrue()
+        ->and(function_exists('pcntl_alarm'))->toBeTrue()
+        ->and($exitCode)->toBe(0)
+        ->and($output)->toContain('['.__('preflight.levels.green').'] '.preflightPcntlOk())
+        ->and($output)->toContain('pcntl_async_signals, pcntl_signal, pcntl_alarm')
+        ->and($output)->not->toContain(__('preflight.pcntl_missing'));
+});
+
+it('§preflight production PHP dòng lệnh thiếu pcntl là VÀNG kèm lý do gói bàn giao, không ĐỎ', function () {
+    config(preflightGreenProductionConfig());
+    // Thiếu extension thì hàm của nó cũng không tồn tại — dựng ĐÚNG trạng thái đó: tên extension
+    // giả VÀ một tên hàm giả. Worker không gọi hàm pcntl nào khi extension chưa nạp, nên đây là
+    // VÀNG, không phải ĐỎ "hàm bị chặn" (thứ tự hai câu hỏi trong pcntlRow()).
+    config([
+        'vkcrm.deployment.worker_timeout_extension' => 'khong-co-pcntl-that',
+        'vkcrm.deployment.worker_signal_functions' => ['pcntl_async_signals', 'khong_co_ham_pcntl_that'],
+    ]);
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($exitCode)->toBe(0)
+        ->and($output)->toContain('['.__('preflight.levels.yellow').'] '.__('preflight.pcntl_missing'))
+        ->and(__('preflight.pcntl_missing'))->toContain('gói bàn giao')
+        ->and($output)->not->toContain(preflightPcntlOk())
+        ->and($output)->not->toContain('khong_co_ham_pcntl_that')
+        ->and($output)->toContain(__('preflight.summary_yellow'));
+});
+
+it('§preflight production pcntl đã nạp mà một hàm worker gọi bị chặn là ĐỎ, nêu đúng hàm bị chặn, mã thoát khác 0', function () {
+    config(preflightGreenProductionConfig());
+    config(['vkcrm.deployment.worker_signal_functions' => ['pcntl_async_signals', 'pcntl_signal', 'khong_co_ham_pcntl_that']]);
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect(extension_loaded('pcntl'))->toBeTrue()
+        ->and($exitCode)->not->toBe(0)
+        ->and($output)->toContain('['.__('preflight.levels.red').'] '.__('preflight.pcntl_functions_disabled', [
+            'functions' => 'khong_co_ham_pcntl_that',
+        ]))
+        ->and(__('preflight.pcntl_functions_disabled'))->toContain('disable_functions')
+        ->and(__('preflight.pcntl_functions_disabled'))->toContain('queue.drain')
+        ->and($output)->not->toContain(preflightPcntlOk())
+        ->and($output)->not->toContain(__('preflight.pcntl_missing'))
+        ->and($output)->toContain(__('preflight.summary_red'));
+});
+
+it('§preflight cấu hình đã cache từ bản cũ (chưa có khoá danh sách hàm pcntl) vẫn kiểm đủ ba hàm, không lặng lẽ XANH rỗng', function () {
+    config(preflightGreenProductionConfig());
+    $deployment = config('vkcrm.deployment');
+    unset($deployment['worker_signal_functions']);
+    config(['vkcrm.deployment' => $deployment]);
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect(config()->has('vkcrm.deployment.worker_signal_functions'))->toBeFalse()
+        ->and($exitCode)->toBe(0)
+        ->and($output)->toContain('['.__('preflight.levels.green').'] '.__('preflight.pcntl_ok', [
+            'functions' => 'pcntl_async_signals, pcntl_signal, pcntl_alarm',
+        ]));
+});
+
+it('§preflight pcntl không nằm trong danh sách extension bắt buộc (danh sách đó là check-platform-reqs + pdo_mysql)', function () {
+    expect(config('vkcrm.deployment.required_extensions'))->not->toContain('pcntl')
+        ->and(config('vkcrm.deployment.worker_timeout_extension'))->toBe('pcntl');
+});
+
+/*
+ * Chặn trôi khi nâng Laravel: danh sách hàm mà dòng pcntl đòi phải đúng bằng các hàm `pcntl_*` mà
+ * `Illuminate\Queue\Worker` thật sự gọi. Một bản Laravel mới gọi thêm hàm pcntl nào thì test này đỏ,
+ * và người nâng cấp thêm hàm đó vào `vkcrm.deployment.worker_signal_functions`.
+ */
+it('§preflight danh sách hàm pcntl của preflight đúng bằng các hàm pcntl_* mà Worker của Laravel gọi', function () {
+    $source = (string) file_get_contents((string) (new ReflectionClass(Worker::class))->getFileName());
+
+    preg_match_all('/\bpcntl_[a-z_]+(?=\s*\()/', $source, $matches);
+
+    $called = array_values(array_unique($matches[0]));
+    sort($called);
+
+    $configured = (array) config('vkcrm.deployment.worker_signal_functions');
+    sort($configured);
+
+    expect($called)->toBe(['pcntl_alarm', 'pcntl_async_signals', 'pcntl_signal'])
+        ->and($configured)->toBe($called);
 });

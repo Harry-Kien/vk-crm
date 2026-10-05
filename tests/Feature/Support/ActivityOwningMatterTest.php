@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\InstalmentStatus;
+use App\Enums\IntakeStatus;
 use App\Enums\MatterRole;
 use App\Enums\Permission;
 use App\Enums\Role;
@@ -9,6 +10,7 @@ use App\Models\ClientRequestReply;
 use App\Models\Contract;
 use App\Models\ContractAmendment;
 use App\Models\Instalment;
+use App\Models\IntakeRequest;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Models\MatterParty;
@@ -186,4 +188,49 @@ it('keeps money rows from a viewer who may read the audit log and the matter but
 
     expectVerdict($assistant, $matterRow, true);
     expectVerdict($assistant, $moneyRow, false);
+});
+
+/*
+ * Rà soát cuối M10, vòng sửa 1 (FI1): dòng chủ thể `intake_request` chỉ hiện cho người xem được CHÍNH bản
+ * ghi đó (`IntakeRequest::scopeVisibleTo()`) — bản đã chuyển thành vụ `restricted` (`matter_id`), và bản đã
+ * gộp vào nó (`merge_chain_matter_id`), biến mất với trưởng phòng không phụ trách vụ. Cả hai nửa của luật
+ * (bảng SQL và modal PHP) — mỗi nửa một phép đột biến.
+ */
+it('shows the rows of an intake only to whoever can view that intake: converted into a restricted matter, merged into one, or still open', function () {
+    $converted = IntakeRequest::factory()->create([
+        'status' => IntakeStatus::Won,
+        'matter_id' => $this->restricted->id,
+        'client_id' => $this->restricted->client_id,
+        'assigned_to' => $this->lead->id,
+    ]);
+    $mergedSource = IntakeRequest::factory()->create([
+        'status' => IntakeStatus::Merged,
+        'merged_into_id' => $converted->id,
+        'assigned_to' => $this->lead->id,
+    ]);
+    $mergedSource->forceFill(['merge_chain_matter_id' => $this->restricted->id])->saveQuietly();
+    $open = IntakeRequest::factory()->create();
+    $admin = User::factory()->withRole(Role::Admin)->create();
+
+    foreach ([$converted, $mergedSource] as $intake) {
+        $row = Audit::record('conflict_check_run', $intake, ['matches' => [], 'incomplete_parties' => ['Ông Bên Kia']], $this->lead);
+
+        expect(ActivityOwningMatter::owningMatterId($row))->toBeNull();
+        expectVerdict($this->manager, $row, false);
+        expectVerdict($this->lead, $row, true);
+        expectVerdict($admin, $row, true);
+    }
+
+    expectVerdict($this->manager, Audit::record('intake_recorded', $open, [], $this->lead), true);
+
+    // Một dòng nhật ký sống lâu hơn trạng thái của bản ghi: bản đã xoá mềm (không màn hình nào xoá, nhưng
+    // `SoftDeletes` có mặt) vẫn là một bản ghi người này xem được, nên dòng của nó vẫn hiện.
+    $trashed = IntakeRequest::factory()->create();
+    $trashedRow = Audit::record('intake_recorded', $trashed, [], $this->lead);
+    $trashed->delete();
+
+    expectVerdict($this->manager, $trashedRow, true);
+
+    // Dòng không có chủ thể (đăng nhập, tác vụ hệ thống): cổng của bản ghi tiếp nhận không đụng tới.
+    expectVerdict($this->manager, Audit::record('system_event_without_subject', null, [], $this->lead), true);
 });

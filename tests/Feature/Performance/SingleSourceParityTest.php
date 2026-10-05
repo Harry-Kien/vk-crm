@@ -9,6 +9,7 @@ use App\Enums\ChecklistItemStatus;
 use App\Enums\ClientRequestStatus;
 use App\Enums\Confidentiality;
 use App\Enums\DocumentGroup;
+use App\Enums\IntakeStatus;
 use App\Enums\MatterRole;
 use App\Enums\Role;
 use App\Filament\Admin\Widgets\PendingChecklistReviewsWidget;
@@ -20,6 +21,7 @@ use App\Models\Contract;
 use App\Models\Deadline;
 use App\Models\Document;
 use App\Models\Instalment;
+use App\Models\IntakeRequest;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Models\Payment;
@@ -673,15 +675,49 @@ it('keeps login rows and restricted matter rows out of scopeOwnedByVisibleMatter
 });
 
 /**
- * Nhánh "M10 chưa gộp" của kế hoạch (Task 2, bước `scopeOwnedByVisibleMatters()`): khi M10 gộp,
- * `ActivityOwningMatter::scopeVisibleTo()` có thêm cổng bản ghi tiếp nhận (`INTAKE_REQUEST`,
- * `visibleIntakes()`). Người gộp tách lớp chồng đó thành một hàm `private` dùng chung và gọi ở CẢ
- * `scopeVisibleTo()` lẫn `scopeOwnedByVisibleMatters()`, rồi viết test này: một dòng chủ thể
- * `intake_request` mang `properties.matter_id` của một vụ trưởng phòng XEM ĐƯỢC, nhưng bản ghi tiếp
- * nhận đó trưởng phòng KHÔNG xem được — dòng không được tính vào N11/P6 của trưởng phòng; cặp dương:
- * người xem được bản ghi tiếp nhận thì dòng được tính.
+ * Cổng bản ghi tiếp nhận của M10 (`ActivityOwningMatter`, docblock lớp, mục FI1), gộp `main` vào làn
+ * M13: dòng chủ thể `intake_request` chỉ tính khi người xem xem được CHÍNH bản ghi đó
+ * (`IntakeRequest::scopeVisibleTo()`), ở CẢ `scopeVisibleTo()` (trang Nhật ký hệ thống) lẫn
+ * `scopeOwnedByVisibleMatters()` (N11, P6) — cùng một hàm riêng của lớp. Hai cách một vụ xem được mà
+ * bản ghi không:
+ *  - luật sư phụ trách vụ đã chuyển đổi, nhưng bản ghi do người khác ghi và không giao cho mình
+ *    (`intake.create` chỉ thấy bản mình ghi hoặc được giao) — dòng `intake_converted` mang
+ *    `properties.matter_id` của vụ luật sư thấy;
+ *  - trưởng phòng (`intake.viewAny`) với một bản đã gộp vào chuỗi chuyển thành vụ `restricted` mà họ không
+ *    xem được (`merge_chain_matter_id`), trong khi dòng mang `properties.matter_id` của một vụ thường.
+ * Cặp dương: người xem được bản ghi thì dòng được tính.
  */
-it('drops an intake_request row whose matter the manager can see but whose intake record they cannot (M10 gate)')->todo();
+it('drops an intake_request row whose matter the viewer can see but whose intake record they cannot (M10 gate)', function () {
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
+    $restricted = Matter::factory()->restricted()->create(['lead_lawyer_id' => $this->lawyer->id]);
+
+    // Trưởng phòng ghi và chuyển thành vụ của luật sư: luật sư thấy vụ, không thấy bản ghi.
+    $managersIntake = IntakeRequest::factory()->create(['created_by' => $this->manager->id, 'matter_id' => $matter->id]);
+    $managersRow = Audit::record('intake_converted', $managersIntake, ['matter_id' => $matter->id], causer: $this->manager)->getKey();
+
+    // Luật sư tự ghi (một bản ghi chuyển thành đúng một vụ): thấy cả vụ lẫn bản ghi.
+    $ownMatter = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);
+    $lawyersIntake = IntakeRequest::factory()->create(['created_by' => $this->lawyer->id, 'matter_id' => $ownMatter->id]);
+    $lawyersRow = Audit::record('intake_converted', $lawyersIntake, ['matter_id' => $ownMatter->id], causer: $this->lawyer)->getKey();
+
+    // Bản đã gộp vào chuỗi chuyển thành vụ `restricted` của luật sư: trưởng phòng thấy vụ thường mà
+    // dòng trỏ tới, không thấy bản ghi.
+    $chained = IntakeRequest::factory()->status(IntakeStatus::Merged)->create([
+        'created_by' => $this->lawyer->id,
+        'merge_chain_matter_id' => $restricted->id,
+    ]);
+    $chainedRow = Audit::record('intake_status_changed', $chained, ['matter_id' => $matter->id], causer: $this->lawyer)->getKey();
+
+    $among = [$managersRow, $lawyersRow, $chainedRow];
+
+    expect(m13t2OwnedRows($this->lawyer, $among))->toBe(m13t2Keys([$lawyersRow, $chainedRow]))
+        ->and(m13t2OwnedRows($this->manager, $among))->toBe(m13t2Keys([$managersRow, $lawyersRow]))
+        ->and(m13t2OwnedRows($this->admin, $among))->toBe(m13t2Keys($among));
+
+    // Cùng câu trả lời với trang Nhật ký hệ thống trên những dòng thuộc vụ (một luật, một hàm).
+    expect(m13t2LogPageRows($this->lawyer, $among))->toBe(m13t2OwnedRows($this->lawyer, $among))
+        ->and(m13t2LogPageRows($this->manager, $among))->toBe(m13t2OwnedRows($this->manager, $among));
+});
 
 it('counts an event logged at 23:59:59 on the last day in scopeEventsWithin(), and not one logged at midnight after it', function () {
     $matter = Matter::factory()->create(['lead_lawyer_id' => $this->lawyer->id]);

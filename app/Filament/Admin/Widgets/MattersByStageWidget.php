@@ -25,7 +25,10 @@ class MattersByStageWidget extends ChartWidget
     // -1 và 0 không còn số nguyên nào. Đây là một lần ĐÁNH SỐ LẠI, không phải một thay đổi về
     // thứ tự — vị trí tương đối của mọi widget vẫn đúng SPEC §7.1, và DashboardWidgetOrderTest
     // so sánh theo thứ tự tương đối nên nó đo được đúng điều đó.
-    protected static ?int $sort = 1;
+    //
+    // Dời từ 1 lên 2 ở M10 Task 5, cùng lý do: widget "Liên hệ chưa ai gọi lại" chen vào ngay dưới
+    // mục 3 và đẩy mục 4, 5 lên một số.
+    protected static ?int $sort = 2;
 
     public function getHeading(): string|Htmlable|null
     {

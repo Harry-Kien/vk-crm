@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Enums\Permission;
 use App\Enums\Role;
+use App\Models\IntakeRequest;
 use App\Models\Matter;
 use App\Models\User;
 use App\Support\Scopes\ClientPortalScope;
@@ -53,6 +54,20 @@ use Spatie\Activitylog\Models\Activity;
  *    hoặc `properties.matter_id` trỏ tới một vụ không còn → ẩn, vì không ai chứng minh được vụ đó
  *    không phải `restricted`;
  *  - dòng không thuộc vụ nào → giữ nguyên như trước.
+ *
+ * # Dòng của một bản ghi tiếp nhận (rà soát cuối M10, vòng sửa 1 — FI1)
+ *
+ * Chủ thể `intake_request` không phải model của vụ việc — một lần liên hệ chưa chuyển đổi không thuộc
+ * vụ nào, và các dòng đó vẫn rơi vào bước 3/4 ở trên. Nhưng các dòng ấy mang tên người liên hệ và tên
+ * các bên (`conflict_check_run`, kể cả lượt chuyển đổi bị chặn mà Task 7 gắn vào bản ghi), lý do ghi đè
+ * Đỏ… Thêm MỘT cổng, chồng lên luật trên như cổng `billing.view` của dòng TIỀN: dòng chủ thể
+ * `intake_request` chỉ hiện cho người xem được CHÍNH bản ghi đó — đúng định nghĩa
+ * `IntakeRequest::scopeVisibleTo()`/`isVisibleTo()` (SPEC §5: mọi màn hình đọc bản ghi phải đi qua định
+ * nghĩa này). Với người có `auditLog.view` (trưởng phòng, admin — cả hai có `intake.viewAny`), cổng đó
+ * chỉ còn vế `restricted`: bản đã chuyển thành vụ `restricted` mà họ không xem được, và các bản đã gộp
+ * vào nó (`merge_chain_matter_id`), biến mất khỏi trang Nhật ký hệ thống. Cổng KHÔNG kéo các dòng đó
+ * vào tab "Nhật ký" của vụ ({@see self::scopeOwnedBy()}): lý do ghi đè Đỏ của bản ghi là của
+ * `intake.viewAny` (R8), không của mọi người trong đội vụ.
  */
 final class ActivityOwningMatter
 {
@@ -93,6 +108,9 @@ final class ActivityOwningMatter
 
     private const CLIENT_REQUEST_REPLY = 'client_request_reply';
 
+    /** Rà soát cuối M10, FI1 — xem docblock lớp, mục "Dòng của một bản ghi tiếp nhận". */
+    private const INTAKE_REQUEST = 'intake_request';
+
     public static function canView(?User $viewer, Activity $activity): bool
     {
         return self::canViewMany($viewer, [$activity])[$activity->getKey()] ?? false;
@@ -104,7 +122,8 @@ final class ActivityOwningMatter
      * dòng (dòng con → vụ việc → Gate). Ở đây: một truy vấn cho mỗi LOẠI dòng con, một truy vấn
      * nạp mọi vụ việc (kèm `team`, để `MatterPolicy::view` đi đường trong bộ nhớ
      * `Matter::isListableBy()` — cùng câu trả lời với đường EXISTS, xem docblock hàm đó), rồi Gate
-     * một lần cho mỗi VỤ VIỆC, không phải mỗi dòng.
+     * một lần cho mỗi VỤ VIỆC, không phải mỗi dòng; cộng MỘT truy vấn cho mọi bản ghi tiếp nhận có mặt
+     * (cổng FI1, docblock lớp).
      *
      * @param  iterable<Activity>  $activities
      * @return array<int|string, bool> Khoá theo id của dòng nhật ký.
@@ -137,7 +156,13 @@ final class ActivityOwningMatter
 
         $seesMoney = self::seesMoney($viewer);
 
-        return $activities->mapWithKeys(function (Activity $activity) use ($owning, $visibleByMatter, $seesMoney): array {
+        $intakeIds = $activities->where('subject_type', self::INTAKE_REQUEST)->pluck('subject_id')->filter()->unique()->values();
+
+        $visibleIntakeIds = $intakeIds->isEmpty()
+            ? []
+            : array_flip(self::visibleIntakes($viewer)->whereKey($intakeIds->all())->pluck('intake_requests.id')->map(fn (mixed $id): int => (int) $id)->all());
+
+        return $activities->mapWithKeys(function (Activity $activity) use ($owning, $visibleByMatter, $seesMoney, $visibleIntakeIds): array {
             $matterId = $owning[$activity->getKey()] ?? null;
 
             // Không quy được về vụ nào: chỉ thả khi dòng THẬT SỰ không thuộc vụ nào. Quy được
@@ -148,6 +173,11 @@ final class ActivityOwningMatter
 
             // Dòng TIỀN (gộp M9): thấy vụ chưa đủ, còn phải có `billing.view`.
             if (isset(self::MONEY_OWNED[$activity->subject_type]) && ! $seesMoney) {
+                $allowed = false;
+            }
+
+            // Dòng của một bản ghi tiếp nhận (FI1): phải xem được chính bản ghi đó.
+            if ($activity->subject_type === self::INTAKE_REQUEST && ! isset($visibleIntakeIds[(int) $activity->subject_id])) {
                 $allowed = false;
             }
 
@@ -235,7 +265,8 @@ final class ActivityOwningMatter
      *
      * Hai phần: các dòng quy được về một vụ `$viewer` xem được ({@see self::whereOwnedByAny()},
      * cùng câu mà tab "Nhật ký" của một vụ dùng; dòng TIỀN chỉ khi có `billing.view`), cộng các dòng
-     * không thuộc vụ nào (bước 4).
+     * không thuộc vụ nào (bước 4). Chồng lên cả hai: dòng chủ thể `intake_request` chỉ khi `$viewer` xem
+     * được bản ghi đó (FI1, docblock lớp).
      *
      * @param  Builder<Activity>  $query
      */
@@ -264,6 +295,41 @@ final class ActivityOwningMatter
                     ->orWhereNotIn('subject_type', self::matterOwnedTypes()))
                 ->whereNull('properties->matter_id'));
         });
+
+        // Dòng của một bản ghi tiếp nhận (FI1, docblock lớp): chồng lên MỌI nhánh ở trên — phải xem được
+        // chính bản ghi đó.
+        self::whereIntakeRowVisibleTo($query, $viewer);
+    }
+
+    /**
+     * Cổng FI1 (docblock lớp) dạng SQL: dòng chủ thể `intake_request` chỉ khi `$viewer` xem được chính bản
+     * ghi đó; dòng khác giữ nguyên. Một hàm cho cả {@see self::scopeVisibleTo()} (trang Nhật ký hệ thống) và
+     * {@see self::scopeOwnedByVisibleMatters()} (M13: N11, P6) — gộp `main` vào làn M13. Bản trong bộ nhớ
+     * là nhánh `INTAKE_REQUEST` của {@see self::canViewMany()}.
+     *
+     * @param  Builder<Activity>  $query
+     */
+    private static function whereIntakeRowVisibleTo(Builder $query, User $viewer): void
+    {
+        $query->where(fn (Builder $rows) => $rows
+            ->whereNull('subject_type')
+            ->orWhere('subject_type', '!=', self::INTAKE_REQUEST)
+            ->orWhereIn('subject_id', self::visibleIntakes($viewer)->select('intake_requests.id')));
+    }
+
+    /**
+     * Các bản ghi tiếp nhận `$viewer` xem được — đúng `IntakeRequest::scopeVisibleTo()`, kể cả bản đã xoá
+     * mềm (một dòng nhật ký sống lâu hơn trạng thái của bản ghi), bỏ `ClientPortalScope` như mọi truy
+     * vấn của lớp này.
+     *
+     * @return Builder<IntakeRequest>
+     */
+    private static function visibleIntakes(User $viewer): Builder
+    {
+        return IntakeRequest::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->withTrashed()
+            ->visibleTo($viewer);
     }
 
     /**
@@ -320,10 +386,10 @@ final class ActivityOwningMatter
      * Dòng TIỀN chỉ khi người xem là admin hoặc có `billing.view` — đúng như `scopeOwnedBy()`. Bỏ
      * `ClientPortalScope` của `Matter` như `scopeVisibleTo()`.
      *
-     * **Sau khi gộp M10:** `scopeVisibleTo()` có thêm cổng bản ghi tiếp nhận (`INTAKE_REQUEST`: dòng
-     * chủ thể `intake_request` có `properties.matter_id` chỉ thả khi người xem xem được CHÍNH bản ghi
-     * đó). Người gộp tách lớp chồng đó thành một hàm `private` dùng chung và gọi ở cả hai scope; test
-     * đang chờ (`->todo()`) trong `SingleSourceParityTest` nêu đúng ca.
+     * Cổng bản ghi tiếp nhận của M10 (FI1, docblock lớp) chồng lên như ở `scopeVisibleTo()`, qua cùng
+     * hàm {@see self::whereIntakeRowVisibleTo()}: dòng chủ thể `intake_request` mang `properties.matter_id`
+     * của một vụ xem được chỉ tính khi người xem xem được CHÍNH bản ghi đó (`SingleSourceParityTest`,
+     * "drops an intake_request row … (M10 gate)"). Cổng này áp cho cả admin (admin thấy mọi bản ghi).
      *
      * @param  Builder<Activity>  $query
      */
@@ -339,6 +405,8 @@ final class ActivityOwningMatter
                 ->select('matters.id'),
             $seesMoney,
         ));
+
+        self::whereIntakeRowVisibleTo($query, $viewer);
     }
 
     /**

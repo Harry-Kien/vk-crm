@@ -92,7 +92,10 @@ return [
         'subject' => 'Gói bàn giao hồ sơ :code đã sẵn sàng',
         'greeting' => 'Chào :name,',
         'intro' => 'Gói bàn giao của vụ việc :code — :title đã sinh xong, gồm các tài liệu của hồ sơ kèm tệp mục lục MUC-LUC.pdf.',
-        'action' => 'Anh/chị xem lại nội dung gói, rồi công bố ở tab Tài liệu của vụ việc để khách tải được. Khách chỉ thấy gói sau khi anh/chị công bố.',
+        // Việc sau gộp M7 (làn fu2): công bố gói nay gửi thư `client.document_published` (biến thể gói
+        // bàn giao) — người bấm công bố cần biết trước điều đó, và biết thư chỉ tới tài khoản cổng đã
+        // kích hoạt khi vụ còn trên cổng (chưa quá hạn tra cứu).
+        'action' => 'Anh/chị xem lại nội dung gói, rồi công bố ở tab Tài liệu của vụ việc để khách tải được. Khách chỉ thấy gói sau khi anh/chị công bố. Công bố xong, hệ thống gửi thư báo kèm hạn tải tới các tài khoản cổng đã kích hoạt của khách, nếu vụ việc còn trên cổng khách hàng.',
         'link' => 'Mở vụ việc: :url',
         'salutation' => 'Trân trọng, :office',
     ],
@@ -133,9 +136,14 @@ return [
          * M9 Task 10 (P1) — mục "Bảng kê thanh toán". Chỉ tiêu đề; chữ của từng dòng (đến hạn, trạng
          * thái, cách trả) đến từ `portal_progress.billing`, qua cùng hình chiếu với cổng khách, để
          * khách đọc cùng một câu ở hai nơi.
+         *
+         * `as_of` (làn fu3): dòng ngay dưới tiêu đề. Khách tải gói về và cất giữ (thư công bố gói), còn
+         * bảng kê đóng băng lúc lập gói — dòng này nói ngày "tính đến" (cùng ngày với `generated_at`) và
+         * chỉ sang cổng, nơi khối tiền đọc dữ liệu lúc mở trang. SPEC §6.12, bổ sung 2026-10-04.
          */
         'billing' => [
             'heading' => 'Bảng kê thanh toán',
+            'as_of' => 'Tính đến ngày lập gói (:date). Khoản thanh toán văn phòng ghi nhận sau ngày này không có trong bảng kê; tình hình thanh toán mới nhất xem trên cổng khách hàng, trong thời gian hồ sơ còn trên cổng.',
             'contract_code' => 'Số hợp đồng',
             'signed_on' => 'Ngày ký',
             'total' => 'Tổng giá trị hợp đồng',

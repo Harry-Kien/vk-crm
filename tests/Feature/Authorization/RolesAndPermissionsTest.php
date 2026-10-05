@@ -34,18 +34,23 @@ it('grants the admin every permission and the accountant almost none', function 
         ->and($accountant->can(Permission::BillingView->value))->toBeTrue()
         ->and($accountant->can(Permission::PaymentRecord->value))->toBeTrue()
         ->and($accountant->can(Permission::RevenueViewAny->value))->toBeTrue()
-        ->and($accountant->can(Permission::ContractManage->value))->toBeFalse();
+        ->and($accountant->can(Permission::ContractManage->value))->toBeFalse()
+        // M10 (SPEC §5, bổ sung 2026-09-24): kế toán không thấy gì của tiếp nhận.
+        ->and($accountant->can(Permission::IntakeCreate->value))->toBeFalse()
+        ->and($accountant->can(Permission::IntakeViewAny->value))->toBeFalse()
+        ->and($accountant->can(Permission::IntakeConvert->value))->toBeFalse();
 });
 
 /*
  * `EnumLabelsTest` chỉ bắt nhãn thiếu ở dạng `enums.…`; nhãn quyền đọc từ `lang/vi/permissions.php`,
  * nên một quyền thiếu nhãn trả về chính khoá `permissions.…` và lọt qua test đó. Bốn quyền M9 là
- * lần đầu bảng quyền đổi kể từ M2, nên chốt ở đây cho cả mười tám: 13 quyền gốc, cộng 4 quyền tiền
- * của M9, cộng 1 quyền của M13 (`performance.viewAny`, SPEC §5 đính chính 2026-10-04). Đếm cộng dồn
- * theo milestone để lần gộp làn khác (M10 thêm ba quyền `intake.*`) chỉ phải sửa con số tổng.
+ * lần đầu bảng quyền đổi kể từ M2; ba quyền M10 (nhóm intake) là lần thứ hai; một quyền M13
+ * (`performance.viewAny`, SPEC §5 đính chính 2026-10-04) là lần thứ ba. Chốt ở đây cho cả hai mươi
+ * mốt: 13 quyền gốc, cộng 4 quyền tiền của M9, cộng 3 quyền tiếp nhận của M10, cộng 1 quyền của M13.
+ * Đếm cộng dồn theo milestone để lần gộp làn khác thêm quyền chỉ phải sửa con số tổng.
  */
 it('gives every permission a vietnamese label', function () {
-    expect(Permission::cases())->toHaveCount(18);
+    expect(Permission::cases())->toHaveCount(21);
 
     foreach (Permission::cases() as $permission) {
         expect($permission->label())->not->toStartWith('permissions.', "{$permission->value} thiếu nhãn trong lang/vi/permissions.php");
@@ -59,6 +64,7 @@ it('matches the spec permission table for every role', function () {
             'stageLog.publish', 'document.viewInternal', 'document.publish', 'checklist.review',
             'client.manage', 'clientUser.manage', 'settings.manage', 'auditLog.view',
             'billing.view', 'contract.manage', 'payment.record', 'revenue.viewAny',
+            'intake.create', 'intake.viewAny', 'intake.convert',
             'performance.viewAny',
         ],
         Role::Manager->value => [
@@ -66,6 +72,7 @@ it('matches the spec permission table for every role', function () {
             'stageLog.publish', 'document.viewInternal', 'document.publish', 'checklist.review',
             'client.manage', 'clientUser.manage', 'auditLog.view',
             'billing.view', 'contract.manage', 'revenue.viewAny',
+            'intake.create', 'intake.viewAny', 'intake.convert',
             'performance.viewAny',
         ],
         Role::Lawyer->value => [
@@ -73,9 +80,11 @@ it('matches the spec permission table for every role', function () {
             'stageLog.publish', 'document.viewInternal', 'document.publish', 'checklist.review',
             'clientUser.manage',
             'billing.view', 'contract.manage',
+            'intake.create', 'intake.convert',
         ],
         Role::Assistant->value => [
             'matter.view', 'matter.update', 'checklist.review', 'client.manage', 'clientUser.manage',
+            'intake.create',
         ],
         Role::Accountant->value => ['matter.viewAny', 'billing.view', 'payment.record', 'revenue.viewAny'],
     ];

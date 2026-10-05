@@ -48,6 +48,22 @@ return [
         'never_submitted' => 'Chưa có tệp nào',
         'open' => 'Mở danh mục hồ sơ',
     ],
+    // M10 Task 5 (R5), SPEC §7.1 đính chính M10 — đặt ngay dưới "Tài liệu chờ duyệt". Không cột tên hay
+    // số điện thoại của người liên hệ, có chủ đích (xem docblock `UnansweredIntakesWidget`).
+    'unanswered_intakes' => [
+        'heading' => 'Liên hệ chưa ai gọi lại',
+        'description' => 'Chưa ai gọi lại sau :hours giờ làm việc kể từ lúc nhận. Đổi trạng thái bản ghi khi đã gọi lại.',
+        'columns' => [
+            'code' => 'Mã bản ghi',
+            'source' => 'Nguồn',
+            'received_at' => 'Nhận lúc',
+            'waited' => 'Đã chờ (giờ làm việc)',
+            'assignee' => 'Người được giao',
+        ],
+        'unassigned' => 'Chưa giao',
+        'empty_state' => 'Không có lần liên hệ nào chờ quá hạn.',
+        'open' => 'Mở bản ghi',
+    ],
     'matters_missing_documents' => [
         'heading' => 'Hồ sơ thiếu giấy tờ quá 14 ngày',
         'description' => 'Hồ sơ đang tắc vì khách chưa nộp.',

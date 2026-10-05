@@ -161,3 +161,32 @@ it('does not promise the client a due-date notice that no mail ever sends', func
         ->not->toContain('báo')
         ->toContain('chưa có ngày đến hạn');
 });
+
+/**
+ * Việc sau gộp M9 + M10 (làn fu3, Task 1 mục E): modal "Xoá dữ liệu theo yêu cầu" từng hứa SĐT, email
+ * và CCCD "xoá vĩnh viễn — KHÔNG khôi phục được". Sổ tra khách nay được làm sạch cùng (đo bằng đường đi
+ * thật ở `tests/Feature/Filament/EraseIntakeDataTest.php`, "erases the identifier hashes…"), nhưng bản
+ * sao lưu đêm (giữ 30 bản — `config/backup.php`, rclone) vẫn mang dòng cũ tới khi xoay vòng. Admin đọc
+ * câu này rồi trả lời người yêu cầu xoá, nên câu phải nói ra điều đó và không hứa "vĩnh viễn".
+ *
+ * Làn fu3, Task 2 (minor m1, m4 của rà soát Task 1): "giữ khoảng 30 ngày" đếm 30 BẢN, không phải 30
+ * ngày — đêm lỡ kéo dài nó ra, và bản bị dọn trên Google Drive (rclone `deletefile`) nằm trong Thùng rác
+ * thêm khoảng 30 ngày (`docs/SAO-LUU-KHOI-PHUC.md`). "KHÔNG khôi phục được" hứa quá: khôi phục một bản sao
+ * lưu trong khoảng đó đưa bản ghi về — điều đúng là thao tác không HOÀN TÁC được trong hệ thống. Và sổ
+ * tra khách chỉ mất dấu băm của số đang ghi TRÊN BẢN GHI NÀY (số đã bị thay trước đó thì không — PROGRESS,
+ * "Còn sót, đã biết"). Số bản đọc từ cấu hình, không chép tay.
+ */
+it('tells the admin that old backups keep the erased data until they expire', function () {
+    $copy = __('intake.anonymise.modal_description');
+    $keep = config('vkcrm.backup.rclone.keep');
+
+    expect($keep)->toBe(30)
+        ->and($copy)->toContain("Riêng các bản sao lưu cũ vẫn còn dữ liệu cho tới khi bị dọn: hệ thống giữ {$keep} bản sao lưu đêm gần nhất")
+        ->toContain('Thùng rác thêm khoảng 30 ngày')
+        ->toContain('lâu hơn nếu có đêm sao lưu bị lỡ')
+        ->toContain('KHÔNG hoàn tác được')
+        ->toContain('dấu mã hoá số điện thoại, số căn cước đang ghi trên bản ghi này trong nhật ký tra khách')
+        ->not->toContain('khoảng 30 ngày)')
+        ->and(mb_strtolower($copy))->not->toContain('vĩnh viễn')
+        ->not->toContain('khôi phục');
+});

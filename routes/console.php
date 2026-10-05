@@ -8,6 +8,7 @@ use App\Actions\Schedule\ReconcileStageTriggeredInstalments;
 use App\Actions\Schedule\RecordScheduleRun;
 use App\Actions\Schedule\RemindMissingDocuments;
 use App\Actions\Schedule\RemindOverdueInstalments;
+use App\Actions\Schedule\RemindUnansweredIntakes;
 use App\Actions\Schedule\RemindUnseenUpdates;
 use App\Actions\Schedule\SendHeartbeat;
 use Illuminate\Foundation\Inspiring;
@@ -251,7 +252,11 @@ Schedule::call(new RemindUnseenUpdates)
  * hàng `default`.
  *
  * `--timeout=600` khớp `GenerateHandoverPackage::$timeout` (worker ưu tiên `$timeout` của job,
- * cờ này chỉ là tầng thứ hai cho job nào không khai). `--max-time=50` chỉ chặn việc NHẬN job mới
+ * cờ này chỉ là tầng thứ hai cho job nào không khai). Cả hai giờ chết chỉ có tác dụng khi PHP dòng
+ * lệnh có ext-pcntl; thiếu thì `vkcrm:preflight` báo VÀNG, còn có pcntl mà hàm của nó bị chặn
+ * (`disable_functions`) thì báo ĐỎ, vì khi đó mọi `queue:work` — cả mục này lẫn `queue.drain` — chết
+ * ngay khi khởi động (việc sau gộp M7, `RunPreflight::pcntlRow()`). `--max-time=50` chỉ chặn việc
+ * NHẬN job mới
  * sau 50 giây — nó không cắt một job đang chạy. Khoá chống chồng lấn hết hạn sau 15 phút: dài hơn
  * một lần chạy tối đa (600 giây) để không hai worker cùng dựng gói, và ngắn hơn 1440 phút mặc định
  * để một tiến trình bị giết giữa chừng (giới hạn CPU của shared hosting) không khoá hàng cả ngày.
@@ -306,9 +311,13 @@ Schedule::call(new FlagRetentionExpiry)
 
 /**
  * M9 Task 6: lưới an toàn cho đợt thanh toán theo giai đoạn — 07:00 hằng ngày, giờ Việt Nam. Kích hoạt
- * các đợt mà vụ ĐÃ chạm giai đoạn của chúng nhưng listener không kích hoạt (đợt thêm bằng phụ lục sau
- * khi vụ đã qua giai đoạn, lần kích hoạt hỏng ở listener, `stage_logs` ghi thẳng từ dữ liệu mẫu) — qua
- * đúng `TriggerInstalmentsForStage`, xem docblock `ReconcileStageTriggeredInstalments`.
+ * các đợt mà vụ ĐÃ chạm giai đoạn của chúng nhưng chưa được kích hoạt: lần kích hoạt hỏng ở listener, và
+ * dòng `stage_logs` ghi thẳng không phát sự kiện (dữ liệu mẫu, lệnh console) — qua đúng
+ * `TriggerInstalmentsForStage`, xem docblock `ReconcileStageTriggeredInstalments` và SPEC §6.8 (đính chính
+ * M9 Task 6). Hợp đồng kích hoạt khi vụ đã ở giữa chừng và đợt thêm bằng phụ lục cho một giai đoạn vụ đã
+ * qua thì tự kích hoạt trong transaction của chính chúng (`ActivateContract`, và `AmendContract` gọi
+ * `TriggerInstalmentsForStage::releaseAddedByAmendment()` — vòng sửa 1 của Task 6); tác vụ này chỉ còn
+ * là lưới cho hai đường đó.
  *
  * 07:00, TRƯỚC `instalments.remind` (08:00): một đợt vừa được đối chiếu kích hoạt với hạn ghi lùi
  * (đã quá hạn ngay khi ra đời) được nhắc ngay sáng hôm đó, không đợi tới hôm sau. Không 07:30
@@ -325,4 +334,40 @@ Schedule::call(new FlagRetentionExpiry)
 Schedule::call(new ReconcileStageTriggeredInstalments)
     ->dailyAt('07:00')
     ->name('instalments.reconcile-stage')
+    ->withoutOverlapping(60);
+
+/**
+ * Nhắc những lần có người liên hệ văn phòng mà chưa ai gọi lại quá ngưỡng phản hồi (M10 R5, mặc định 4
+ * giờ làm việc, `INTAKE_RESPONSE_HOURS`): thư `staff.intake_unanswered` + thông báo trong hệ thống.
+ *
+ * Mỗi 15 phút, CẢ NGÀY — "chỉ trong giờ làm việc" là câu đầu tiên của chính Action
+ * (`BusinessHours::isOpen()`), không phải của cron: giờ làm việc có MỘT định nghĩa
+ * (`config('vkcrm.business_hours')`, theo `APP_TIMEZONE`), và một cron gõ tay `8-17 * * 1-5` là định
+ * nghĩa thứ hai, sẽ lệch khi văn phòng làm thêm Thứ Bảy hay đổi giờ đóng cửa (17:30 cũng không biểu
+ * diễn được bằng một khoảng giờ của cron). Ngoài giờ, mỗi lượt chỉ là một phép so giờ.
+ *
+ * Chạy lại là vô hại: nhật ký thư chặn thư thứ hai cho cùng (người nhận, bản ghi), thông báo trong hệ
+ * thống tự chống lặp, và job thư là `ShouldBeUnique` theo bản ghi. `withoutOverlapping(15)`: một lượt
+ * bị giết giữa chừng chỉ chặn tối đa lượt kế tiếp, không chặn cả ngày (không để khoá 1440 phút mặc
+ * định — `BackupScheduleTest` ghim luật đó cho mọi tác vụ).
+ */
+Schedule::call(new RemindUnansweredIntakes)
+    ->cron('*/15 * * * *')
+    ->name('intakes.remind-unanswered')
+    ->withoutOverlapping(15);
+
+/**
+ * Ẩn danh người liên hệ KHÔNG thành khách đã quá hạn lưu, 03:30 hằng ngày (M10 R7b, Task 7):
+ * `declined`/`lost`/`merged` quá `retention_until` (`PROSPECT_RETENTION_MONTHS`, mặc định 24 tháng),
+ * chưa chuyển đổi, chưa ẩn danh. Việc RIÊNG, tên riêng — không gộp với tác vụ cảnh báo hồ sơ của M7
+ * (`FlagRetentionExpiry` chỉ cảnh báo, không bao giờ xoá hồ sơ vụ việc — M7 R5).
+ *
+ * 03:30: sau lượt sao lưu 02:00 và ngoài giờ làm việc, khi không ai đang ghi tiếp nhận phải chờ khoá
+ * `conflict-check` mà Action giữ cho từng bản ghi. `withoutOverlapping(60)`, không để khoá mặc định
+ * 1440 phút: một lượt bị giết giữa chừng không được chặn lượt ngày hôm sau. Gọi bằng chuỗi `Lớp@handle`
+ * (không `use`): luật làn song song cho tệp này là chỉ nối thêm dòng ở cuối, cùng cách `backup.monitor`.
+ */
+Schedule::call('App\Actions\Schedule\AnonymiseExpiredProspects@handle')
+    ->dailyAt('03:30')
+    ->name('prospects.anonymise')
     ->withoutOverlapping(60);

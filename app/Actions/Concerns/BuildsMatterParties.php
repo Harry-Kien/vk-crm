@@ -6,6 +6,7 @@ use App\Enums\PartyRole;
 use App\Exceptions\OurClientPartyNeedsClient;
 use App\Models\Client;
 use App\Models\MatterParty;
+use InvalidArgumentException;
 
 /**
  * Dựng một dòng `matter_parties` CHƯA LƯU từ dữ liệu form — đường dựng bên DUY NHẤT của cả
@@ -58,7 +59,9 @@ trait BuildsMatterParties
     /**
      * @param  array<string, mixed>  $data  `role` (`PartyRole|string`), `name`, và tuỳ chọn
      *                                      `id_number`, `phone`, `address`, `note`,
-     *                                      `is_our_client`, `client_id`.
+     *                                      `is_our_client`, `client_id`; và (M10 Task 4)
+     *                                      `id_number_hash` thay cho `id_number` khi chỉ có dấu
+     *                                      băm — xem `applyMatterPartyData()`.
      * @param  int|null  $matterId  Vụ việc đã tồn tại; `null` khi vụ việc chưa được lưu
      *                              (`OpenMatter` gán qua `$matter->parties()->save()` sau).
      * @param  Client|null  $lockedClient  Hồ sơ khách hàng mà caller ĐÃ khoá dòng sẵn, để không
@@ -126,6 +129,20 @@ trait BuildsMatterParties
 
         if ($clientId === null) {
             $party->name = $data['name'];
+
+            // M10 Task 4 — định danh ĐÃ BĂM SẴN, có kiểm soát: bên đối lập của một lần tiếp nhận
+            // chỉ còn dấu băm CCCD (R7, không số thô), và `ConvertIntakeToMatter` mang nó sang qua
+            // khoá `id_number_hash` thay cho `id_number` (`MatterParty::identifyWithKnownHash()` kiểm
+            // hình dạng). Có khoá này thì nó là định danh — gửi KÈM một số thô là hai định danh cho
+            // một bên, không biết tin cái nào, nên từ chối (lỗi lập trình, không form nào gửi khoá
+            // này: các form dựng mảng tường minh, `CreateMatter::partiesPayload()`).
+            if (array_key_exists('id_number_hash', $data)) {
+                if (filled($data['id_number'] ?? null)) {
+                    throw new InvalidArgumentException('Một bên chỉ nhận id_number HOẶC id_number_hash, không cả hai.');
+                }
+
+                return $party->identifyWithKnownHash($data['id_number_hash'], $data['phone'] ?? null);
+            }
 
             return $keepIdentityWhenBlank
                 ? $party->identifyKeepingWhenBlank($data['id_number'] ?? null, $data['phone'] ?? null)
