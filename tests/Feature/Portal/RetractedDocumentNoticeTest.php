@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Tests\Support\RemoteDocuments;
 
 /**
  * M7 Task 7 — dòng "Văn phòng đã rút lại tài liệu này. Lý do: …" trên cổng khách, và cách ly của
@@ -39,14 +40,18 @@ use Illuminate\Support\Str;
  *
  * Mỗi khẳng định âm đi kèm vế dương trong chính test đó: tài liệu đã rút của CHÍNH khách trên vụ
  * CHÍNH khách đang xem thì hiện.
+ *
+ * M14 Task 4 (kế hoạch R3): mọi test chạy hai lần, `local` (tệp trong vùng đệm) và `remote` (tệp CHỈ
+ * còn trên kho, `RemoteDocuments::settle()`). Test có dataset riêng nhận chế độ làm đối số đầu.
  */
 const RDN_REASON = 'Văn bản này thuộc hồ sơ của khách khác, công bố nhầm';
 
 beforeEach(function () {
+    RemoteDocuments::adopt($this);
     $this->seed(RolesAndPermissionsSeeder::class);
     Filament::setCurrentPanel('portal');
     Storage::fake('private');
-    config(['media-library.prefix' => 'test-'.Str::random(16)]);
+    config(['media-library.prefix' => RemoteDocuments::mediaPrefix('test-'.Str::random(16))]);
     $this->travelTo(Carbon::parse('2026-10-20 09:00:00'));
 
     $this->lawyer = User::factory()->withRole(Role::Lawyer)->create();
@@ -64,7 +69,7 @@ beforeEach(function () {
         'is_published_to_portal' => true,
         'lead_lawyer_id' => $this->lawyer->id,
     ]);
-});
+})->with(RemoteDocuments::MODES);
 
 function rdnDocument(Matter $matter, string $title): Document
 {
@@ -81,7 +86,7 @@ function rdnDocument(Matter $matter, string $title): Document
         ->usingFileName(Str::lower((string) Str::ulid()).'.pdf')
         ->toMediaCollection('file');
 
-    return $document->refresh();
+    return RemoteDocuments::settle($document);
 }
 
 function rdnRetract(Document $document, User $lawyer, string $reason = RDN_REASON): Document
@@ -245,7 +250,7 @@ it('vụ đã hết hạn tra cứu (Task 5): không trang, không dòng, ở c�
 // Tầng 1 và 2, từng điều kiện riêng — mỗi điều kiện có một bản ghi ghim nó ở MỖI tầng.
 // ---------------------------------------------------------------------------------------------
 
-it('không bao giờ nhóm D, không bao giờ bản đã xoá mềm, không bao giờ một trạng thái khác', function (array $attributes, ?Closure $after) {
+it('không bao giờ nhóm D, không bao giờ bản đã xoá mềm, không bao giờ một trạng thái khác', function (string $mode, array $attributes, ?Closure $after) {
     $document = rdnDocument($this->matter, 'Bản ghi bị loại');
     rdnRetract($document, $this->lawyer, 'Lý do của bản ghi bị loại, công bố nhầm.');
     $positive = rdnDocument($this->matter, 'Bản ghi vế dương');

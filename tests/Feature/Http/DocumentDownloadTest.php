@@ -22,14 +22,20 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use Spatie\Activitylog\Models\Activity;
+use Tests\Support\RemoteDocuments;
 
 /**
  * SPEC §10.4 — route tải tệp có chữ ký, **và controller vẫn kiểm tra policy**.
  *
  * Tệp test rơi vào `Storage::fake('private')` chứ không vào `storage/app/private` thật của máy
  * dev (bài học từ vòng sửa Task 3).
+ *
+ * M14 Task 4 (kế hoạch R3): mọi test chạy hai lần, `local` (tệp trong vùng đệm) và `remote` (tệp CHỈ
+ * còn trên kho — `downloadableDocument()` gọi `RemoteDocuments::settle()`, đẩy bằng Action thật của Task
+ * 3 rồi dọn vùng đệm). Test có dataset riêng nhận chế độ làm đối số đầu.
  */
 beforeEach(function () {
+    RemoteDocuments::adopt($this);
     $this->seed(RolesAndPermissionsSeeder::class);
     Storage::fake('private');
 
@@ -42,13 +48,15 @@ beforeEach(function () {
     // nội dung tệp, và lần nào cũng xanh khi chạy một mình. `media-library.prefix` là cách
     // medialibrary tự đưa ra để đổi gốc đường dẫn, nên mỗi test có một cây thư mục không ai khác
     // đụng tới và không có gì để tranh nhau nữa.
-    config(['media-library.prefix' => 'test-'.Str::random(16)]);
+    // M14: ở chế độ `remote` không tiền tố (khoá trên kho theo khuôn R4); `adopt()` đã đẩy chuỗi id
+    // của `media` tới một số ngẫu nhiên, cùng mục đích.
+    config(['media-library.prefix' => RemoteDocuments::mediaPrefix('test-'.Str::random(16))]);
 
     $this->lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $this->client = Client::factory()->create();
     $this->clientUser = ClientUser::factory()->create(['client_id' => $this->client->id]);
     $this->matter = Matter::factory()->for($this->client)->create(['lead_lawyer_id' => $this->lawyer->id]);
-});
+})->with(RemoteDocuments::MODES);
 
 /**
  * Tài liệu luôn có tệp thật trên disk giả: route từ chối một `Document` không tệp, nên một fixture
@@ -84,7 +92,7 @@ function downloadableDocument(
         ->usingFileName($storedName)
         ->toMediaCollection('file');
 
-    return $document->refresh();
+    return RemoteDocuments::settle($document);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -402,7 +410,9 @@ it('dòng media còn nhưng tệp đã biến mất khỏi đĩa thì trả 404 
     $document = downloadableDocument($this->matter, DocumentGroup::Authority);
     $media = $document->getFirstMedia('file');
 
-    Storage::disk('private')->delete($media->getPathRelativeToRoot());
+    // M14: xoá ở đúng nơi dòng `media` trỏ tới — vùng đệm ở `local`, kho ở `remote` (chỉ mục kho
+    // rời dòng sống khi tệp bị cho vào thùng rác, nên `exists()` nói không).
+    Storage::disk($media->disk)->delete($media->getPathRelativeToRoot());
 
     $this->actingAs($this->lawyer, 'web')
         ->get($document->downloadUrlFor($this->lawyer))
@@ -713,7 +723,7 @@ it('khách: tiêu đề mang mưu đồ tách header bị gỡ trước khi vào
         ->and(preg_match('/[\r\n]/', (string) $disposition))->toBe(0);
 });
 
-it('khách: tiêu đề không còn ký tự ASCII nào và tên tệp trên đĩa không có đuôi thì tải về bằng tên dự phòng', function (string $title) {
+it('khách: tiêu đề không còn ký tự ASCII nào và tên tệp trên đĩa không có đuôi thì tải về bằng tên dự phòng', function (string $mode, string $title) {
     // `title` đọc ra từ cơ sở dữ liệu nên nó có thể do một bản mã cũ, một lần nhập dữ liệu hay
     // một lần sửa tay ghi vào — `portalDownloadName()` phải tự đứng vững trước mọi giá trị.
     $document = downloadableDocument($this->matter, title: $title, storedName: '01k5g7q8wz0000000000000002');
@@ -779,7 +789,7 @@ it('nhân sự: tên tệp mang mưu đồ tách header bị gỡ trước khi v
         ->and(preg_match('/[\r\n]/', (string) $disposition))->toBe(0);
 });
 
-it('nhân sự: tên tệp không còn ký tự ASCII nào và không có đuôi thì tải về bằng tên dự phòng', function (string $mediaName) {
+it('nhân sự: tên tệp không còn ký tự ASCII nào và không có đuôi thì tải về bằng tên dự phòng', function (string $mode, string $mediaName) {
     $document = downloadableDocument($this->matter, mediaName: $mediaName, storedName: '01k5g7q8wz0000000000000002');
 
     $disposition = $this->actingAs($this->lawyer, 'web')
@@ -797,6 +807,13 @@ it('nhân sự: đuôi mượn từ tên trên đĩa cũng đi qua safeName mộ
     // Đuôi được nối vào SAU `safeName()`, nên nếu nó không đi lại qua đó thì một `media.file_name`
     // do một bản mã cũ ghi vào đưa được dấu `"` và `;` thẳng vào `Content-Disposition` — đúng hai
     // ký tự tách được header mà `safeName()` sinh ra để gỡ.
+    //
+    // M14: một tên như vậy lệch khuôn khoá R4, nên KHÔNG BAO GIỜ lên kho (lượt đẩy trả `Rejected`,
+    // tệp nằm lại vùng đệm) — ở chế độ `remote` không có ca nào để đo.
+    if (RemoteDocuments::remote()) {
+        $this->markTestSkipped('Tên tệp lệch khuôn khoá R4 không bao giờ lên kho (PushOutcome::Rejected).');
+    }
+
     $document = downloadableDocument($this->matter, mediaName: 'bang-ke', storedName: 'x.pd"f');
 
     $disposition = $this->actingAs($this->lawyer, 'web')
