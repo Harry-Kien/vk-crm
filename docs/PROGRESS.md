@@ -4090,6 +4090,56 @@ hoạch — không từ `main` (phán quyết controller). Làn m13b tách sau T
   (ví dụ tool `create_deadline` của M11 nếu nó không đi qua `AddMatterDeadline`, hay bước chuyển của M10)
   phải ghi đúng khoá lịch sử, hoặc là một đường TẠO mới được thêm vào danh sách ngoại lệ có lý do; một hằng
   số `*_REASON` mới cần nhãn `activity.reasons.*`. Hai test trên đỏ cho tới khi làm.
-- **Cho Task 6 (P5):** `matters.closed_at` là cột `date`; trên MariaDB `LeadAt` tại `closed_at` đọc 00:00 của
-  ngày kết thúc. Một lần bàn giao xảy ra TRONG chính ngày kết thúc thì luôn được coi là "sau" thời điểm hỏi
-  trên MariaDB (trên SQLite cột có giờ nên đúng thứ tự). Task 6 chọn thời điểm hỏi cho P5 và nói rõ ca đó.
+- **Cho Task 6 (P5)** (sửa theo minor m1 của rà soát Task 3): `matters.closed_at` là cột `date`, và cast `date`
+  của `Matter` đọc nó về 00:00 của ngày kết thúc trên CẢ SQLite lẫn MariaDB (`asDate()` gọi `startOfDay()`),
+  nên giờ đóng thật không đọc lại được. Hỏi `LeadAt` tại `closed_at` trần thì một lần bàn giao TRONG chính ngày
+  kết thúc luôn bị coi là "sau" thời điểm hỏi, trên cả hai CSDL. Task 6 chọn thời điểm hỏi (mục Task 6 dưới).
+
+### Task 6 — trang "Hiệu suất theo kỳ" (P1–P7, P9, P10) (2026-10-04, làn m13b)
+
+- **Đã làm.** `App\Support\Performance\PerformancePeriod` (R16, R19), `Ratio` (R7), `ResponseTime` (R17: trung
+  vị, trung bình, "3,5 giờ"/"2 ngày 4 giờ"), `PerformanceRow`, `PerformanceReport`;
+  `App\Actions\Performance\BuildPerformanceReport`; `TeamRoster::subjectsForPeriod()` (R3, khối riêng cuối lớp);
+  trang `Performance` lấp khung Task 1 (form kỳ, công tắc "Gồm người đã nghỉ việc", bảng `Table::records()`,
+  dòng "Chung", "Cách tính các con số", "Vì sao không có bảng xếp hạng", `performance_viewed`). Test:
+  `PerformancePeriodTest`, `PerformanceFormulasTest`, `PerformancePageTest`, `ClosedPeriodStabilityTest`,
+  `PerformanceLeakSweepTest` (tệp quét rò rỉ riêng của làn m13b, phán quyết controller).
+- **P5 hỏi `LeadAt` lúc 23:59:59 của ngày kết thúc** (chọn thời điểm theo ghi chú Task 3 ở trên). Cùng hình dạng
+  với "người giữ mốc vào ngày đến hạn" (R9). Bàn giao sáng rồi người nhận đóng vụ chiều cùng ngày tính cho người
+  nhận (test chạy cả SQLite lẫn MariaDB). Giới hạn đã biết, câu giải thích P5 nói rõ: vụ đóng rồi mới bàn giao
+  TRONG CÙNG NGÀY cũng tính cho người nhận. Bàn giao từ hôm sau trở đi không chuyển con số (Review Focus 3).
+- **R17 — giờ lịch (M10 chưa có trên nhánh này).** Trang ghi "giờ lịch" ở câu giải thích P3 và dưới ô P3.
+  **Người gộp M10:** trong `BuildPerformanceReport::countRequests()` có `TODO(M10-BusinessHours)`. Đổi phép tính
+  giờ sang `App\Support\BusinessHours::fromConfig()->minutesBetween($request->created_at, $request->answered_at) / 60`.
+  Đổi "giờ lịch" thành "giờ làm việc" ở `performance.explain.p3` và `performance.period_page.p3_response`.
+  Không viết định nghĩa giờ làm việc thứ hai.
+- **R20 — chưa viết test (M11 chưa gộp, không có `created_via`).** **Người gộp M11** viết test sau, qua trang
+  "Hiệu suất theo kỳ" và trang "Theo dõi đội ngũ": một mốc `created_via = mcp`, chưa xác nhận, quá hạn, là
+  "lỡ" ở P1, có mặt ở N5 và cùng con số với `CheckDeadlines::tierFor()`.
+- **Benchmark "một quý ≤ 500 ms": không làm ở làn m13b** (phán quyết controller: `tests/Benchmark/TeamPerformanceBenchmarkTest.php`
+  là của Task 4 làn A; tạo tệp cùng tên ở đây là xung đột add/add). Làn A thêm phép đo đó ở Task 7 hoặc 8, sau khi
+  gộp m13b. Số truy vấn của trang đã cố định theo số người (test 3 ↔ 12 người, `PerformancePageTest`). Tập người
+  tốn bốn truy vấn: người dùng, vai trò, quyền của vai trò, quyền riêng. Lần vô hiệu hoá tốn một truy vấn.
+  Phần số liệu, khi kỳ có dữ liệu: P1 hai (mốc, vụ) cộng lịch sử một, P2 một, P3 hai (luồng, vụ) cộng lịch sử
+  một hoặc hai, P4 một, P5 hai (vụ, lịch sử), P6 một, P7 một (chỉ khi có cột), lĩnh vực một.
+- **Cột doanh thu (P7), đọc rõ hơn kế hoạch.** Cột có trên trang khi và chỉ khi người xem đọc được tiền trên MỌI
+  dòng của trang. Dòng một người đọc được tiền qua `UserPolicy::viewPerformanceRevenue()`. Dòng "Chung" đọc được
+  tiền khi người xem có `billing.view` và `revenue.viewAny` (R8). Trang không có dòng nào thì không có cột. Kế
+  hoạch viết "billing.view và (revenue.viewAny hoặc tập người chỉ là chính người xem)": hai cách đọc cho cùng
+  kết quả với mọi vai trò hôm nay. Cách đọc theo từng dòng thêm hai ca biên có test: người có `performance.viewAny`
+  mà thiếu `revenue.viewAny`, và trang rỗng. Cột ẩn thì Action không chạy truy vấn tiền nào (test đếm truy vấn).
+- **Kỳ trên trang.** Form `$data` (ô kỳ, hai ô ngày chỉ hiện với "Tuỳ chọn") và nút "Xem số liệu" gọi
+  `applyPeriod()`. Chỉ kỳ đã qua `PerformancePeriod::fromFilters()` mới vào thuộc tính `#[Locked] $appliedPeriod`.
+  Lỗi của `fromFilters()` hiện tiếng Việt trên đúng ô (`data.date_to`…). Kỳ đặt sẵn tính lại từ hôm nay ở mỗi
+  request. `performance_viewed` (properties `page`, `period`, `from`, `to`) ghi ở `mount()` và khi kỳ THẬT SỰ đổi,
+  chỉ với người có `performance.viewAny`.
+- **Lần vô hiệu hoá (R3)** đọc dòng `updated` của chủ thể `user` có `attributes.is_active === false`
+  (`logOnlyDirty()` chỉ ghi khoá đó khi cột đổi). Lần GẦN NHẤT quyết định. Dòng sửa tên lúc đã nghỉ không phải
+  một lần vô hiệu hoá.
+- **"Lĩnh vực chính"**: hai loại vụ nhiều vụ nhất, bằng nhau thì theo tên. Truy vấn loại vụ không hỏi lại
+  `listableBy()`: mọi id đã đến từ các tập trong `listableBy(V)`.
+- **Người gộp làn A ↔ m13b — `lang/vi/performance.php`:** khối `// Task 6` thêm `not_applicable`, `how_computed`,
+  `columns`, `explain`, cùng các khoá `period`, `ratio`, `duration`, `period_page`. Làn A thêm `columns`/`explain`
+  cho N1–N11. Gộp thành MỘT mảng `columns` và MỘT mảng `explain`. `not_applicable`, `how_computed`,
+  `columns.name` giữ một bản. `explain.not_applicable` lấy câu của m13b: "…trong các vụ việc anh/chị được xem",
+  đúng R4, minor m3 rà soát Task 4. `TeamOverviewPageTest` của làn A canh mỗi khoá cấp một chỉ khai báo một lần.
