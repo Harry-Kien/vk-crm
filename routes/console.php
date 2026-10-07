@@ -420,3 +420,37 @@ Schedule::call('App\Actions\Schedule\AnonymiseExpiredProspects@handle')
     ->dailyAt('03:30')
     ->name('prospects.anonymise')
     ->withoutOverlapping(60);
+
+/**
+ * M14 Task 5 (kế hoạch R5, R9, R10, R13): kiểm tra sức khoẻ kho tài liệu Google Drive, mỗi giờ ở phút
+ * 20 — lệch khỏi phút 00 và 30, nơi `deadlines.check` và các tác vụ hằng ngày dồn vào cùng một lượt
+ * `schedule:run`. `App\Actions\Schedule\CheckDocumentStoreHealth` kiểm chia sẻ của Shared Drive (thành
+ * viên lạ, vai sai), tồn đọng tệp mới, biên nhận của máy văn phòng, đồng hồ 60 ngày nộp hồ sơ chuyển
+ * dữ liệu ra nước ngoài; ghi `system_health.document_store_*` và xếp thư cảnh báo cho người vận hành
+ * (mỗi loại sự cố một thư mỗi ngày). Kho không dùng (`local`, không media trên kho) thì không gọi
+ * Google. Action không bao giờ ném ra lịch.
+ *
+ * Gọi bằng chuỗi `Lớp@handle` thay vì `use` + `new`: luật làn song song cho tệp này là CHỈ NỐI THÊM
+ * dòng ở cuối (cùng lý do mục `backup.monitor`). `withoutOverlapping(30)`: một lượt hỏi Google lúc
+ * mạng chập chờn (thử lại với backoff) không được chồng lên lượt giờ sau, và khoá bị bỏ lại khi tiến
+ * trình chết giữa chừng hết hạn trước lượt kế tiếp.
+ */
+Schedule::call('App\Actions\Schedule\CheckDocumentStoreHealth@handle')
+    ->hourlyAt(20)
+    ->name('storage.health')
+    ->withoutOverlapping(30);
+
+/**
+ * M14 Task 7 (kế hoạch R10): nhập biên nhận bản thứ hai của máy văn phòng — 07:00 hằng ngày, sau lượt
+ * kéo 01:00 của `tools/backup/office-pull.sh` (Phụ lục D của `docs/SAO-LUU-KHOI-PHUC.md`) và trước lượt
+ * kiểm sao lưu 08:00. Chạy chính lệnh tay `vkcrm:storage:office-receipts`, nên mục lịch và người vận
+ * hành cùng đi qua `App\Actions\Storage\ImportOfficeReceipts` và cùng khoá `storage-office-receipts`.
+ * Chưa cấu hình máy văn phòng → lệnh không làm gì, không tiến trình `rclone` nào.
+ *
+ * `withoutOverlapping(60)`, không 1440 mặc định: một lượt bị giết giữa chừng không được chặn lượt của
+ * ngày sau. Nối ở cuối tệp (luật làn song song cho tệp này).
+ */
+Schedule::command('vkcrm:storage:office-receipts')
+    ->dailyAt('07:00')
+    ->name('storage.office-receipts')
+    ->withoutOverlapping(60);

@@ -18,6 +18,11 @@ use Throwable;
  * Task 2: "tests fake Process; no real rclone is needed").
  *
  * KHÔNG BAO GIỜ truyền `-v`/`-vv`: xem lý do ở docblock của {@see RcloneCommandFailed}.
+ *
+ * M14 Task 7 thêm `cat` (đọc một tệp biên nhận của máy văn phòng) và tham số `$timeout` tuỳ chọn cho
+ * `listJson`/`cat`: lượt nhập biên nhận dùng 120 giây (`vkcrm.storage.office.rclone_timeout`), không
+ * 1800 của sao lưu. Bỏ tham số thì giữ hạn {@see self::timeout()}, nên các nơi gọi của M8a không đổi.
+ * Mã ngoài sao lưu M8a chỉ được gọi `listJson` và `cat` (test cấu trúc `OfficeCopyStructureTest`).
  */
 class RcloneProcess
 {
@@ -57,9 +62,9 @@ class RcloneProcess
      *
      * @throws RcloneCommandFailed
      */
-    public static function listJson(string $remote): array
+    public static function listJson(string $remote, ?int $timeout = null): array
     {
-        $output = self::run(['lsjson', $remote]);
+        $output = self::run(['lsjson', $remote], $timeout);
 
         $decoded = json_decode(trim($output) === '' ? '[]' : $output, true);
 
@@ -94,8 +99,19 @@ class RcloneProcess
         return $entries;
     }
 
+    /**
+     * Nội dung của MỘT tệp remote (`rclone cat`), nguyên văn. Cả nội dung nằm trong bộ nhớ: người gọi
+     * phải tự chặn cỡ trước (lượt nhập biên nhận kiểm cỡ từ `listJson()` trước khi đọc).
+     *
+     * @throws RcloneCommandFailed
+     */
+    public static function cat(string $remoteFilePath, ?int $timeout = null): string
+    {
+        return self::run(['cat', $remoteFilePath], $timeout);
+    }
+
     /** @param  list<string>  $arguments */
-    private static function run(array $arguments): string
+    private static function run(array $arguments, ?int $timeout = null): string
     {
         $configPath = self::configPath();
         $command = $configPath !== null
@@ -103,7 +119,7 @@ class RcloneProcess
             : [self::binary(), ...$arguments];
 
         try {
-            $result = Process::timeout(self::timeout())->run($command);
+            $result = Process::timeout($timeout ?? self::timeout())->run($command);
         } catch (Throwable $exception) {
             throw RcloneCommandFailed::fromThrowable($exception);
         }

@@ -176,6 +176,12 @@ return [
         // M14 Task 3: app/Actions/Schedule/PushPendingDocumentFiles.php — công tắc DOCUMENT_STORAGE không
         // còn là google_drive mà mốc bật kho còn: mốc bị xoá (bật lại phải chạy vkcrm:storage:enable).
         'document_store_disabled_observed' => 'Phát hiện kho tài liệu đã tắt: xoá mốc bật kho',
+        // M14 Task 5: app/Actions/Storage/RecordDataTransferDossier.php — `changed_fields` nêu TÊN các
+        // ô hồ sơ chuyển dữ liệu ra nước ngoài đã đổi (trang "Kho tài liệu"), không nêu giá trị.
+        'data_transfer_dossier_recorded' => 'Ghi hồ sơ chuyển dữ liệu cá nhân ra nước ngoài',
+        // M14 Task 5: app/Actions/Storage/InitialiseDocumentStore.php (`vkcrm:storage:init`) —
+        // `folder_name` là tên thư mục gốc; mã thư mục Drive không vào nhật ký.
+        'document_store_initialised' => 'Tạo thư mục gốc của kho tài liệu trên Google Drive',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

@@ -2,10 +2,14 @@
 
 namespace App\Filament\Admin\Widgets;
 
+use App\Enums\DocumentStoreStatus;
+use App\Enums\Permission;
 use App\Models\SystemHealth;
 use App\Models\User;
 use Filament\Widgets\Widget;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Gate;
 
 /**
  * SPEC §7.1 mục 7 / §2 "Giám sát cron": dải đỏ khi lịch chạy tự động đã chết.
@@ -50,6 +54,35 @@ class SystemHealthWidget extends Widget
             'stale' => $health !== null && $health->scheduleIsStale(),
             'lastRunAt' => $health?->last_schedule_run_at,
             'staleAfterMinutes' => SystemHealth::STALE_AFTER_MINUTES,
+            'documentStore' => $this->documentStoreAlert($health),
+        ];
+    }
+
+    /**
+     * M14 Task 5 — dòng đỏ của kho tài liệu (kế hoạch R9, R13): khi lần kiểm sức khoẻ gần nhất
+     * (`CheckDocumentStoreHealth`, mỗi giờ) để trạng thái KHÁC `ok`. `null` (không có dòng) khi kho ổn
+     * hay chưa từng được kiểm (kho không dùng: mọi máy chủ trước M14), và với người không có
+     * `settings.manage`: chi tiết có thể nêu email thành viên lạ trên Shared Drive, và việc sửa là
+     * của quản trị viên. Dòng lịch chạy tự động ở trên vẫn cho mọi nhân sự, như cũ.
+     *
+     * @return array{status: string, detail: ?string, checkedAt: ?Carbon}|null
+     */
+    private function documentStoreAlert(?SystemHealth $health): ?array
+    {
+        $status = $health?->document_store_status;
+
+        if ($status === null || $status === DocumentStoreStatus::Ok) {
+            return null;
+        }
+
+        if (! Gate::forUser(Auth::user())->allows(Permission::SettingsManage->value)) {
+            return null;
+        }
+
+        return [
+            'status' => $status->label(),
+            'detail' => $health->document_store_detail,
+            'checkedAt' => $health->document_store_checked_at,
         ];
     }
 }

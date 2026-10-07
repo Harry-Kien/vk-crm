@@ -107,6 +107,8 @@ it('mặc định khi không biến nào được khai: công tắc local, các 
             'max_age_hours' => 36,
             'purge_margin_hours' => 24,
             'receipt_max_bytes' => 33554432,
+            // M14 Task 7: hạn riêng của lượt nhập biên nhận văn phòng, không 1800 của sao lưu.
+            'rclone_timeout' => 120,
         ],
     ]);
 });

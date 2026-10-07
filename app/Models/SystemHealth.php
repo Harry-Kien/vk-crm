@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\DocumentStoreStatus;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -24,6 +25,13 @@ class SystemHealth extends Model
         'last_schedule_run_at',
         'last_heartbeat_at',
         'last_heartbeat_error',
+        // M14 (kho tài liệu): ba cột document_store_* do `CheckDocumentStoreHealth` ghi; hai cột
+        // last_office_receipt_* do lượt nhập biên nhận của máy văn phòng ghi.
+        'document_store_status',
+        'document_store_checked_at',
+        'document_store_detail',
+        'last_office_receipt_at',
+        'last_office_receipt_error',
     ];
 
     protected function casts(): array
@@ -31,6 +39,9 @@ class SystemHealth extends Model
         return [
             'last_schedule_run_at' => 'datetime',
             'last_heartbeat_at' => 'datetime',
+            'document_store_status' => DocumentStoreStatus::class,
+            'document_store_checked_at' => 'datetime',
+            'last_office_receipt_at' => 'datetime',
         ];
     }
 
