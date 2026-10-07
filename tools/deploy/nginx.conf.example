@@ -64,9 +64,17 @@ server {
     client_max_body_size 25m;
 
     # Chặn dotfile và thư mục dấu chấm (.env, .git, .github/…, .htaccess…) ở BẤT KỲ đoạn nào của
-    # đường dẫn — không route nào của Laravel có một đoạn bắt đầu bằng dấu chấm, nên đây chỉ có thể
-    # là một tệp không nên lộ ra. 404 chứ không 403, cùng lý do với `/storage/` ngay dưới.
-    location ~ /\. {
+    # đường dẫn — trừ ĐÚNG một đoạn đầu `/.well-known/`. 404 chứ không 403, cùng lý do với
+    # `/storage/` ngay dưới.
+    #
+    # Ngoại lệ `/.well-known/` (M11 Task 16): máy chủ MCP cho nhân sự có bốn route Laravel ở đó —
+    # `/.well-known/oauth-protected-resource[/mcp]` và `/.well-known/oauth-authorization-server[/mcp]`
+    # (`routes/ai.php`). Claude và ChatGPT đọc chúng TRƯỚC khi đăng nhập; bị chặn ở đây thì không
+    # nhân sự nào kết nối được AI, dù `/mcp` vẫn trả 401 đúng. Đoạn đầu `/.well-known/` rơi xuống
+    # `location /` (tệp có thật dưới `public/.well-known/` thì phát, còn lại vào `index.php`); một đoạn
+    # dấu chấm KHÁC trong cùng đường dẫn (`/.well-known/.env`) vẫn bị chặn, vì regex tìm mọi `/.`
+    # không đứng ngay trước `well-known/`. Đã CHẠY THẬT: `tools/deploy/verify-storage-blocked.sh`.
+    location ~ /\.(?!well-known/) {
         return 404;
     }
 
@@ -136,6 +144,11 @@ server {
     # tin bất kỳ ai tự khai `X-Forwarded-For`, xuyên thủng `ADMIN_IP_ALLOWLIST` (R7) và bộ đếm
     # đăng nhập theo IP — `vkcrm:preflight` (R1) chặn đỏ cả bốn. Có CDN/reverse-proxy thật đứng
     # trước tầng nginx này (ví dụ Cloudflare) thì điền địa chỉ/dải IP THẬT của nó thay vào đây.
+    #
+    # `/mcp` (máy chủ MCP cho nhân sự, M11) không cần khối riêng: mọi tool trả JSON thường, không
+    # luồng SSE. Nếu sau này một tool trả luồng, laravel/mcp tự gửi `X-Accel-Buffering: no` cho đúng
+    # phản hồi đó, và nginx tôn trọng header này theo mặc định — ĐỪNG thêm
+    # `fastcgi_ignore_headers X-Accel-Buffering` ở đây.
     location ~ \.php$ {
         include fastcgi_params;
         fastcgi_pass unix:/run/php/php8.3-fpm.sock;

@@ -5,6 +5,7 @@ namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 use App\Actions\Communication\DeleteCommunicationLog;
 use App\Actions\Communication\LogCommunication;
 use App\Enums\CommunicationType;
+use App\Enums\CreatedVia;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Concerns\ScopesToVisibleMatters;
 use App\Models\CommunicationLog;
@@ -154,6 +155,14 @@ class CommunicationLogsRelationManager extends RelationManager
                     ->placeholder('—'),
                 TextColumn::make('author.name')
                     ->label(__('communications.tab.columns.author'))
+                    ->placeholder('—'),
+                // M11 Task 12: nhãn "Tạo qua AI" trên dòng `created_via = mcp` (tool
+                // `log_communication`); dòng ghi trên web để trống ô.
+                TextColumn::make('created_via')
+                    ->label(__('ai_drafts.communication.column'))
+                    ->badge()
+                    ->color('warning')
+                    ->getStateUsing(fn (CommunicationLog $record): ?string => $record->created_via === CreatedVia::Mcp ? CreatedVia::Mcp->label() : null)
                     ->placeholder('—'),
             ])
             ->defaultSort('occurred_at', 'desc')

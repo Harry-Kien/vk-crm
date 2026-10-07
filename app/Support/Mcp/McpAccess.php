@@ -10,6 +10,7 @@ use App\Http\Middleware\Mcp\EnsureMcpAccess;
 use App\Mcp\Tools\Concerns\CrmTool;
 use App\Models\AiAcknowledgement;
 use App\Models\User;
+use App\Support\Scopes\ClientPortalScope;
 use Illuminate\Contracts\Auth\Authenticatable;
 
 /**
@@ -141,13 +142,22 @@ final class McpAccess
         return $version;
     }
 
-    /** Người này đã cam kết đúng phiên bản chính sách hiện hành (một dòng `ai_acknowledgements`). */
+    /**
+     * Người này đã cam kết đúng phiên bản chính sách hiện hành (một dòng `ai_acknowledgements`).
+     *
+     * Bỏ `ClientPortalScope` (`AiAcknowledgement` chặn `1 = 0` khi có phiên cổng khách): đây là câu
+     * hỏi có/không về CHÍNH nhân sự này cho một quyết định truy cập, không trả dòng nào ra ngoài.
+     * Giữ scope thì một phiên cổng khách đang mở trong cùng tiến trình (test, hàng đợi) làm mọi nhân
+     * sự đủ điều kiện bị từ chối `policy_not_acknowledged` (phát hiện khi gộp làn m11b: mười test
+     * "phiên cổng khách không cắt …" của tool đọc).
+     */
     public static function hasAcknowledgedCurrentPolicy(User $user): bool
     {
         $version = self::policyVersion();
 
         return $version !== null
             && AiAcknowledgement::query()
+                ->withoutGlobalScope(ClientPortalScope::class)
                 ->where('user_id', $user->getKey())
                 ->where('policy_version', $version)
                 ->exists();

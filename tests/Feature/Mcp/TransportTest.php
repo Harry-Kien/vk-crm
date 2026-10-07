@@ -407,14 +407,16 @@ it('R7 client 2026-07-28 (server/discover, header Mcp-Method) nhận phản hồ
     expect($response->json('result.supportedVersions'))->toContain(MCP_STATELESS_VERSION);
 });
 
-it('R7 CrmServer chưa có tool nào ở Task 1: tools/list trả danh sách rỗng', function () {
+it('R7 client 2026-07-28 nhận tools/list qua cùng endpoint (danh mục tool: tests/Feature/Mcp/Tools/ToolCatalogTest.php)', function () {
     $response = postMcp(
         mcpStatelessBody('tools/list'),
         mcpStatelessHeaders('tools/list'),
         McpOAuth::accessToken($this, mcpLawyer()),
     );
 
-    $response->assertOk()->assertJsonPath('result.tools', []);
+    $response->assertOk();
+
+    expect(array_column($response->json('result.tools'), 'name'))->toContain('whoami');
 });
 
 it('R7 header Mcp-Method lệch với body: 400, mã -32020', function () {

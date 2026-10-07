@@ -8,6 +8,7 @@ use App\Models\Matter;
 use Carbon\Exceptions\InvalidFormatException;
 use Closure;
 use DomainException;
+use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
@@ -41,27 +42,17 @@ trait BuildsStageUpdateSchema
             ->visible(fn (RelationManager $livewire): bool => Gate::allows('transitionStage', $livewire->getOwnerRecord()))
             ->schema(fn (RelationManager $livewire): array => $this->buildSchema($livewire->getOwnerRecord()))
             ->successNotificationTitle(__($successMessageKey))
-            ->action(function (array $data, RelationManager $livewire): void {
+            ->action(function (Action $action, array $data, RelationManager $livewire): void {
                 /** @var Matter $matter */
                 $matter = $livewire->getOwnerRecord();
 
+                // Lần ghi chạy trên bản action Filament TIÊM vào (bản mang đối số của lần mount), không
+                // trên `$this` của lúc `setUp()`: "Mở nháp" đọc id nháp từ đối số (M11 Task 12, vòng
+                // sửa 1 — xem docblock `UseStageLogDraftAction`). Hai nút không đối số không đổi gì.
+                $submitter = $action instanceof static ? $action : $this;
+
                 try {
-                    app(TransitionMatterStage::class)->handle(
-                        matter: $matter,
-                        actor: Auth::user(),
-                        toStage: $this->resolveToStage($matter, $data),
-                        occurredAt: $data['occurred_at'],
-                        internalNote: $data['internal_note'] ?? null,
-                        publicContent: $data['public_content'] ?? null,
-                        nextStep: $data['next_step'] ?? null,
-                        clientAction: $data['client_action'] ?? null,
-                        // ?: chứ không phải ??: DatePicker rỗng gửi lên chuỗi rỗng, không phải null —
-                        // để lọt qua '' thì StageLog (cast 'date') sẽ ném lỗi phân tích ngày tháng,
-                        // thay vì để TransitionMatterStage tự tính lại theo default_next_update_days
-                        // như thiết kế.
-                        expectedNextUpdateAt: $data['expected_next_update_at'] ?: null,
-                        publish: (bool) ($data['publish'] ?? false),
-                    );
+                    $submitter->submitStageUpdate($matter, $data);
                 } catch (DomainException $exception) {
                     // M6.5 Task 10, fix round 1 (C1, Critical): bắt CHUNG mọi `DomainException` mà
                     // `TransitionMatterStage::handle()` có thể ném, không chỉ
@@ -97,6 +88,38 @@ trait BuildsStageUpdateSchema
                     $this->halt();
                 }
             });
+    }
+
+    /**
+     * Lần ghi của nút: `TransitionMatterStage` dưới tên người bấm. M11 Task 12: "Mở nháp" từ AI
+     * (`UseStageLogDraftAction`) đè hàm này để đi qua `UseStageLogDraft` — vẫn chính
+     * `TransitionMatterStage`, cộng việc đánh dấu nháp đã dùng trong cùng transaction. Mọi
+     * `DomainException` ném ra ở đây đi về `setUpStageUpdateAction()` như trước.
+     */
+    protected function submitStageUpdate(Matter $matter, array $data): void
+    {
+        app(TransitionMatterStage::class)->handle(
+            matter: $matter,
+            actor: Auth::user(),
+            toStage: $this->resolveToStage($matter, $data),
+            occurredAt: $data['occurred_at'],
+            internalNote: $data['internal_note'] ?? null,
+            publicContent: $data['public_content'] ?? null,
+            nextStep: $data['next_step'] ?? null,
+            clientAction: $data['client_action'] ?? null,
+            expectedNextUpdateAt: $this->expectedNextUpdateAtInput($data),
+            publish: (bool) ($data['publish'] ?? false),
+        );
+    }
+
+    /**
+     * `?:` chứ không phải `??`: DatePicker rỗng gửi lên chuỗi rỗng, không phải null — để lọt qua ''
+     * thì StageLog (cast 'date') sẽ ném lỗi phân tích ngày tháng, thay vì để TransitionMatterStage tự
+     * tính lại theo default_next_update_days như thiết kế.
+     */
+    protected function expectedNextUpdateAtInput(array $data): ?string
+    {
+        return ($data['expected_next_update_at'] ?? null) ?: null;
     }
 
     /** Giai đoạn đích thật sự gửi cho Action — khác nhau giữa hai lớp con. */

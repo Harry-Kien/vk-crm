@@ -72,6 +72,11 @@ return [
         // M11 Task 15 (R2, R12 mục 3): App\Actions\Mcp\UpdateAiSettings — trang "Kết nối AI" đổi công
         // tắc toàn hệ thống hay ngày đã nộp hồ sơ đánh giá tác động; `changed` = trường → giá trị mới.
         'ai_settings_updated' => 'Đổi cấu hình trợ lý AI toàn hệ thống',
+        // M11 Task 12 (làn m11b): App\Actions\Mcp\{UseStageLogDraft,UseReplyDraft,DiscardDraft},
+        // App\Actions\Deadline\ConfirmAiDeadline.
+        'mcp_draft_used' => 'Gửi từ nháp do AI soạn',
+        'mcp_draft_discarded' => 'Bỏ nháp do AI soạn',
+        'deadline_ai_confirmed' => 'Xác nhận mốc tạo qua AI',
         // App\Actions\Matter\{AddTeamMember,RemoveTeamMember} (M6.5 Task 3, fix round 1, "also
         // fix": thiếu hai khoá này khiến ActivityLogPage hiện nguyên văn khoá sự kiện tiếng Anh).
         'team_member_added' => 'Thêm thành viên đội ngũ',

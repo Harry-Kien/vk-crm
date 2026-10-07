@@ -5553,3 +5553,367 @@ md5: 54 đỏ; M36 (bỏ bộ lọc sự kiện của khối nhật ký) sống 
 người, test được siết (một dòng ngoài kênh AI mà chính người đó là causer, xem cả khi không lọc) và M36b đỏ. Cả bộ
 (`--parallel --processes=2`): EXIT 0 — 6075 passed (5999 + 76), 33 skipped, 1 risky như baseline. MariaDB tuần tự
 (năm tệp đã chạm): 165 passed. `pint --test`: PASS 1191 tệp. Task không có migration.
+
+### Task 10 — tool đọc, phần 1: `whoami`, `search`, `fetch`, `search_matters`, `get_matter` (làn m11b, 2026-10-04)
+
+**Đã có, kèm test qua HTTP thật** (`tests/Feature/Mcp/Tools/{ToolCatalog,WhoAmITool,SearchTool,FetchTool,
+SearchMattersTool,GetMatterTool}Test.php`; mọi lời gọi đi qua `POST /mcp` với token Passport thật, dạng client
+stateless 2026-07-28 kèm `MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name` — `Tests\Support\McpToolCall`).
+- **Năm tool** ở `app/Mcp/Tools/`, đăng ký ở `CrmServer::$tools` theo thứ tự cố định của bảng tool (R13). Mỗi
+  tool chỉ đọc tham số, gọi MỘT Action đọc ở `app/Actions/Mcp/Read/`, trả kết quả của một presenter.
+- **`App\Mcp\Tools\Concerns\CrmReadTool`** (trên `CrmTool`): `writes()` cố định `false`; người gọi đọc từ guard
+  `mcp` (không `auth()` mặc định, không `web`/`client`); MỘT thông điệp `mcp.tool_errors.not_found` ("Không tìm
+  thấy.") cho mọi nhánh không thấy; `inputSchema` và `outputSchema` khai `additionalProperties: false` (laravel/mcp
+  dựng object gốc bên trong `Tool::toArray()`, nên lớp cơ sở tự đặt); tham số ngoài khai báo bị từ chối ở server
+  (`validated()`), không bị lờ đi.
+- **`outputSchema` = allowlist thứ hai** (`App\Mcp\Tools\Concerns\OutputSchemas`): mỗi mảnh mô tả đúng đầu ra
+  một presenter, mọi khoá bắt buộc, object đóng. Mọi test thành công so `structuredContent` với schema đó
+  (`Tests\Support\JsonSchemaConformance`, bộ kiểm tối thiểu có test riêng), và `content[0].text` là đúng JSON của
+  `structuredContent`.
+- **Action đọc**: `ReadWhoAmI` (số vụ = `McpMatterScope::query()->count()`), `SearchRecords` (vụ: CHÍNH
+  `SearchMatters::matching()` của M7 Task 9 trên bốn nguồn R10 cho phép — mã, tiêu đề, tên khách, số thụ lý —
+  làm điều kiện `id IN (…)` trên `McpMatterScope::query()`; yêu cầu: tiêu đề chứa chuỗi, `McpMatterScope::constrain()`,
+  rồi Gate `view` từng dòng như `fetch`; mỗi loại tối đa 10, mới nhất trước), `ListMatters` (bộ lọc chữ/loại vụ theo mã hoặc tên/giai đoạn/"vụ tôi phụ
+  trách" = luật sư phụ trách/đang mở qua `scopeOpen()`/`scopeClosed()`; `limit` mặc định 10, kẹp về [1, 25];
+  phân trang theo khoá `id` giảm dần), `ReadMatter` (`McpMatterScope` RỒI Gate `view`; năm mốc; "Đã nộp X/Y" của
+  chính `ChecklistProgress`; số yêu cầu chưa `closed`, chưa rút), `ReadClientRequest` (nhánh yêu cầu của `fetch`,
+  dùng lại cho `get_client_request` ở Task 11: `constrain()` + Gate `view` trên yêu cầu + Gate `view` từng trả
+  lời; số nháp trả lời đang chờ qua `ClientRequestReplyDraft::pending()`), `OpenDeadlines` (MỘT định nghĩa "mốc gần
+  nhất": chưa hoàn thành, chưa xoá, hạn sớm nhất trước nên quá hạn đứng đầu — dùng cho `next_deadline` và năm mốc).
+  Mọi quan hệ presenter đọc được nạp sẵn và bỏ `ClientPortalScope` (`Read\Concerns\LoadsWithoutPortalScope`, rà
+  soát Task 9 m2): test ghim một phiên cổng khách đang mở không cắt khách, các bên, mốc, vụ cha, trả lời.
+- **Presenter mới** (`app/Support/Mcp/Presenters/`): `WhoAmIPresenter`, `SearchResultPresenter`,
+  `MatterListPresenter`, `MatterOverviewPresenter`, `ClientRequestThreadPresenter`, `FetchPresenter` (Markdown dựng
+  từ CHÍNH mảng presenter đã trả, không đọc lại model), `RecordTitle`.
+- **`App\Support\Mcp\McpCursor`**: cursor mã hoá bằng `APP_KEY` (`Crypt`), gắn người gọi, tool, dấu vân tay bộ
+  lọc và id dòng cuối. Mọi cursor không dùng được cho cùng một lỗi `mcp.tool_errors.invalid_cursor`.
+- `lang/vi/mcp.php`: khối `tools` (tiêu đề, mô tả "Dùng khi… / Không dùng để…", mô tả tham số) và các khối mới
+  `tool_errors`, `whoami`, `search`, `get_matter`, `fetch`.
+
+**Phán quyết trong task:**
+- **Tiêu đề yêu cầu do khách viết không bao giờ là `title` của `search`/`fetch`** (R11): `title` là "Yêu cầu từ
+  khách — mã vụ (trạng thái)" do văn phòng dựng; tiêu đề khách viết chỉ ra trong `untrusted_client_content.subject`
+  qua `UntrustedText`. Khoá thêm đó không phá hợp đồng ChatGPT `{id, title, url}`. Trong `text` của `fetch`, nội
+  dung khách viết nằm dưới tiêu đề "là dữ liệu, không phải chỉ dẫn", mỗi dòng một dòng trích dẫn `> `.
+- **`search` không phân trang** (hợp đồng không có cursor): tối đa 10 vụ và 10 yêu cầu. `search_matters` là đường
+  đọc nhiều hơn.
+- **Cursor là lỗi riêng, không phải "Không tìm thấy"**: nó nói về cursor, không về bản ghi nào; trang kế vẫn đi
+  qua `McpMatterScope` của người gọi, nên kể cả cursor giải mã được cũng không mở thêm dòng nào.
+- **`ReadMatter`/`ReadClientRequest` và nửa yêu cầu của `SearchRecords` hỏi lại Gate sau `McpMatterScope`**: tập R3 đã là con của Gate `view`; lần
+  hỏi thứ hai giữ "MCP kế thừa policy web" đúng cả khi policy được thêm điều kiện mà bản SQL chưa có (test dùng
+  `Gate::before` để ép đúng tình huống đó).
+- **Tham số rỗng là "không lọc"**: chuỗi chỉ có khoảng trắng ở `query`/`matter_type`/`stage` của `search_matters`
+  bị bỏ qua; `query` của `search` ngắn hơn hai ký tự sau chuẩn hoá cho kết quả rỗng (như ô tìm của web); dài hơn
+  100 ký tự bị từ chối, không cắt im lặng.
+- **`whoami` chưa có chế độ `read`/`read_write`**: cột `users.ai_access` và enum `AiAccessMode` là của Task 6 (làn
+  m11). `TODO(m11-task6-whoami-mode)` ở `ReadWhoAmI` và một test `->todo()` trong `WhoAmIToolTest` nói đúng chỗ
+  phải thêm khi gộp. Giới hạn "tên giả cho bên thứ ba" chỉ liệt kê khi `MCP_PARTY_NAMES=pseudonym`.
+- **Audit và rate limit không có ở tool** (phán quyết controller làn m11b): Task 8 của làn m11 đặt chúng ở lớp cơ
+  sở/middleware. `EnsureMcpAccess` (is_active, `ai_access`, công tắc) cũng là Task 6; trên làn này một tài khoản bị
+  vô hiệu hoá vẫn gọi được tool đọc (nửa vụ của `search`/`search_matters` rỗng vì `SearchMatters` tự kiểm
+  `is_active`, các nửa khác thì không).
+- **Test gọi nhiều người trong một test quên guard `mcp` trước mỗi request** (`McpToolCall::freshRequest()`):
+  `TokenGuard` của Passport giữ người dùng trong đối tượng guard, mà ứng dụng của test được dùng lại qua các
+  request — không quên thì request mang token của B chạy dưới A. Trên PHP-FPM mỗi request là tiến trình mới.
+- `tests/Feature/Mcp/TransportTest.php`: test "chưa có tool nào ở Task 1" đổi thành "tools/list qua cùng
+  endpoint"; danh mục đầy đủ ở `ToolCatalogTest`.
+- Giới hạn biết trước: "Đã nộp X/Y" đọc `ChecklistProgress` dùng chung với web và cổng, mà truy vấn đầu mục của
+  nó giữ `ClientPortalScope` của `MatterChecklistItem` — dưới một phiên cổng khách lạ trong cùng tiến trình con số
+  có thể thiếu. Request `/mcp` thật không có phiên cổng; không sửa Action dùng chung trong task này.
+- Task này không có migration.
+
+**Kiểm chứng (2026-10-04).** ĐỎ trước khi cài: bảy tệp test (sáu tệp tool mới + `JsonSchemaConformanceTest`) cùng
+`TransportTest` → 50 failed, 1 todo, 51 passed; mọi test tool đỏ (tool chưa đăng ký: `tools/call` trả 400, danh mục
+rỗng), phần xanh là `JsonSchemaConformanceTest` (bộ kiểm của test, có trước tool) và các test cũ của `TransportTest`.
+XANH: 101 passed, rồi 109 passed (cùng tám tệp) sau khi thêm các test để mutation có chỗ đỏ (ký tự `%`/`_`, `Gate::before` cho vụ,
+yêu cầu, trả lời; nháp đã bỏ/đã dùng; phiên cổng khách lạ ở `search`, `fetch`, `search_matters`; cursor tự dựng
+sai tool, sai phiên bản, id 0; chuỗi chỉ khoảng trắng; `properties` là `{}`). Năm mươi ba phép mutation, mỗi phép
+bỏ hay đổi đúng một điều kiện, cả năm mươi ba đỏ rồi khôi phục: từ chối tham số lạ, guard `mcp`, hai
+`additionalProperties`, số đếm `whoami` qua `McpMatterScope`, lọc vai, giới hạn tên giả; giao `McpMatterScope` và
+bốn nguồn R10 của `search`, phạm vi yêu cầu, trần 10, thoát `%`/`_`, bỏ scope cổng, chuỗi quá ngắn, `max:100`, bọc
+R11 tiêu đề, `title` do văn phòng dựng; Gate `view` của vụ, năm mốc, trạng thái và phạm vi của số yêu cầu đang mở,
+bỏ scope cổng của khách/các bên; ba điều kiện của "mốc gần nhất"; phạm vi, Gate yêu cầu, Gate từng trả lời,
+`pending()`, bỏ scope cổng của luồng yêu cầu; kẹp `limit`, `afterId`, "còn trang sau", năm bộ lọc và nhánh tên loại
+vụ, "mốc đầu tiên", bỏ scope cổng của danh sách; năm điều kiện của `McpCursor` (người, tool, bộ lọc, id dương,
+phiên bản) và lỗi cursor của tool; khoảng trắng là "không lọc", `open` bỏ trống là cả hai; hai loại id của `fetch`,
+dòng "có ghi chú nội bộ", trích dẫn `> `, đọc id chặt của `get_matter`. Phép "phiên bản cursor" sống ở lượt đầu vì
+dòng test tự dựng payload băm bộ lọc chưa sắp khoá (sai vì một lý do khác); sửa dòng đó, thêm cặp dương cùng payload
+với phiên bản 1, chạy lại thì đỏ. Cả bộ (`--parallel --processes=2`): EXIT 0 — 5849 passed (5783 + 66), 1 risky,
+1 todo (test `->todo()` của chế độ `whoami`), 33 skipped (như baseline). MariaDB (tám tệp đụng tới cộng
+`MatterScopeTest`, `PresenterStructureTest`, tuần tự): EXIT 0 — 121 passed, 1 todo; test tiếng Việt chạy đúng nhánh
+MariaDB (bỏ dấu, "đ" ≠ "d"). `pint --test`: PASS 1173 tệp. Không có migration.
+
+**Vòng sửa 1 (rà soát Task 10, I1).** Nửa yêu cầu của `search` chưa hỏi `ClientRequestPolicy::view` — cột kiểm
+quyền của bảng tool dòng 2 — trong khi `fetch` hỏi: một yêu cầu policy từ chối vẫn hiện trong `search` (kèm tiêu đề
+khách viết trong `untrusted_client_content`) dù `fetch` cùng id trả "Không tìm thấy". Hôm nay không lộ gì (với nhân
+sự policy là `canSeeMatter`, chứa tập R3), nhưng không test nào ghim sự tương đương. Sửa: `SearchRecords` lọc tối đa
+10 dòng yêu cầu bằng `Gate::forUser($actor)->allows('view', $request)`, nạp kèm `matter.team` để Gate trả lời từ bộ
+nhớ. Lọc chạy sau khi cắt 10 — kết quả không có số đếm hay "còn nữa", nên dòng bị bỏ không để lại dấu. Nửa vụ việc
+giữ nguyên: bảng tool chỉ ghi `McpMatterScope` cho vụ ở `search`. Test mới trong `SearchToolTest` (cặp dương rồi
+`Gate::before` từ chối đúng một yêu cầu: `search` bỏ đúng dòng đó, chữ chỉ khớp dòng đó cho cùng phản hồi với chữ
+không khớp gì, `fetch` trả "Không tìm thấy"): đỏ trước khi sửa, xanh sau; hai mutation (bỏ lọc, đổi ability) đỏ.
+
+### Task 11 — tool đọc, phần 2: `list_matter_updates`, `list_deadlines`, `get_checklist`, `list_documents`, `list_client_requests`, `get_client_request` (làn m11b, 2026-10-05)
+
+**Đã có, kèm test qua HTTP thật** (`tests/Feature/Mcp/Tools/{ListMatterUpdates,ListDeadlines,GetChecklist,
+ListDocuments,ListClientRequests,GetClientRequest}ToolTest.php`, cùng khuôn `McpToolCall` của Task 10;
+`tests/Feature/Mcp/KeysetOrderTest.php` cho phân trang theo khoá).
+- **Sáu tool** ở `app/Mcp/Tools/`, đăng ký nối tiếp năm tool của Task 10 trong `CrmServer::$tools` theo thứ tự của
+  bảng tool (6–11); `ToolCatalogTest` ghim mười một tên và annotation đọc trung thực. Mỗi tool trên `CrmReadTool`
+  (guard `mcp`, một "Không tìm thấy", schema đóng, từ chối tham số lạ), không audit hay rate limit riêng (phán quyết
+  controller: Task 8 của làn m11 đặt ở lớp cơ sở).
+- **Action đọc** (`app/Actions/Mcp/Read/`): `ListMatterUpdates`, `ListDeadlines` (+ `DeadlineListFilters`,
+  `DeadlineListPage`), `ReadChecklist` (+ `MatterChecklist`), `ListDocuments` (+ `MatterDocumentsPage`),
+  `ListClientRequests` (+ `ClientRequestListFilters`); `get_client_request` dùng CHÍNH `ReadClientRequest` của
+  `fetch`. Vụ theo id đi qua `Read\Concerns\FindsVisibleMatter`: `McpMatterScope` RỒI Gate `view` — cùng hai bước với
+  `ReadMatter`. Bản ghi con đi qua `McpMatterScope::constrain()` rồi policy `view` từng dòng (đúng cột kiểm quyền của
+  bảng tool; `list_matter_updates` thêm `StageLogPolicy::viewAny`). Mọi quan hệ presenter đọc nạp sẵn, bỏ
+  `ClientPortalScope`; bản ghi con được gắn chính vụ đã nạp `team`, nên policy không lazy-load vụ cha.
+- **Phân trang theo khoá với cột sắp xếp** (`KeysetOrder`, `KeysetPage`, `KeysetPosition`; tool:
+  `Concerns\PaginatesByCursor`): `limit` mặc định 10, kẹp [1, 25]; thứ tự (cột, `id`) giống màn hình web — mốc theo
+  hạn tăng dần (quá hạn tự lên đầu), tiến độ theo ngày xảy ra giảm dần, tài liệu theo ngày tạo giảm dần, yêu cầu theo
+  hoạt động gần nhất giảm dần; cột rỗng đúng quy ước `NULL` nhỏ nhất của SQLite và MariaDB. `McpCursor` thêm
+  `encodePosition()`/`decodePosition()` (giá trị cột thô + id), vẫn gắn người, tool, dấu vân tay bộ lọc (nên không dùng
+  chéo giữa các tool); `decodePosition()` còn từ chối một payload chỉ có id.
+- **Presenter mới**: `MatterUpdatesPresenter`, `DeadlineListPresenter`, `MatterChecklistPresenter` (`progress()` là
+  MỘT hình dạng "Đã nộp X/Y" cho cả `get_matter` và `get_checklist`), `DocumentListPresenter`,
+  `ClientRequestListPresenter`; mảnh `outputSchema` mới trong `OutputSchemas` (`stageLog`, `checklistItem`,
+  `checklistProgress`, `document` với `group` là enum A/B/C, `clientRequestProperties`, `reply`).
+- `lang/vi/mcp.php`: khối Task 11 trong `tools` (sáu tool) và khối mới `pagination`.
+
+**Phán quyết trong task:**
+- **`list_deadlines` mặc định** = mốc chưa xong do người gọi phụ trách, hạn ≤ hôm nay + 7 (cùng cửa sổ với widget,
+  không cận dưới nên quá hạn có mặt), hạn tăng dần. Không lọc theo vụ thì chỉ vụ ĐANG MỞ (như widget và
+  `CheckDeadlines`); lọc đúng một vụ thì mọi mốc của vụ đó, vụ đã kết thúc cũng vậy. `responsible`: `me` (mặc định),
+  `any`, hoặc `user_…`; trả `due_from`/`due_to` đã áp để AI nói đúng khoảng. Mốc của vụ hạn chế MÀ TÔI PHỤ TRÁCH vắng
+  mặt nhờ chính tập R3, không lọc riêng trong tool. Kế toán có tập rỗng nên nhận danh sách rỗng.
+- **Nhóm D nằm ngoài truy vấn của `list_documents`** (danh sách nhóm ĐƯỢC PHÉP lấy từ `DocumentGroup::isInternal()`,
+  không `!= D`), trước khi cắt trang: không dòng, không làm trang ngắn đi, không bật "còn trang sau" — kể cả với
+  admin có `document.viewInternal`. Không khoá nào trỏ tới `documents.download`, không URL ký. `get_checklist` chỉ
+  đếm tài liệu A/B/C đã gắn và chỉ nạp ba cột (`id`, `matter_checklist_item_id`, `group`).
+- **Mọi dòng tiến độ và mọi tài liệu chưa xoá mềm** (kể cả chưa công bố, nháp nội bộ, phiên bản cũ): tab của nhân sự
+  hiện cả; cờ `is_published`, `status`, `version`, hai cờ khách nói rõ từng dòng. Nhãn giai đoạn đọc cả giai đoạn đã
+  xoá mềm như `MatterType::stageIncludingTrashed()`.
+- **`get_checklist` không phân trang**: danh mục là một phần của MỘT vụ, như các bên của `get_matter`.
+- **`list_client_requests`**: `open` true/false/bỏ trống, `mine` = `assigned_to` là tôi, `matter_id`. Không nạp người
+  gửi (tên, email khách không ra).
+- **Người đã nghỉ việc (xoá mềm) vẫn hiện tên** ở người phụ trách mốc và người xử lý yêu cầu — như tab web. Áp cả cho
+  `OpenDeadlines` (năm mốc của `get_matter`, `next_deadline` của `search_matters`) và `ReadClientRequest`, để cùng
+  một mốc/yêu cầu cho cùng câu trả lời ở mọi tool.
+- **Lọc policy từng dòng chạy sau khi cắt trang**: trang có thể ít hơn `limit`; `next_cursor` vẫn là vị trí dòng cuối
+  truy vấn đã đọc, nên không sót và không lộ số dòng bị bỏ. Với nhân sự hôm nay policy là `canSeeMatter` nên không bỏ
+  dòng nào; test dùng `Gate::before` để ép đúng tình huống.
+- Không có migration.
+
+**Kiểm chứng (2026-10-04 → 2026-10-05).** ĐỎ trước khi cài: sáu tệp test tool mới cùng `ToolCatalogTest` và
+`GetMatterToolTest` → 62 failed, 17 passed (tool chưa đăng ký: mọi test tool mới đỏ, danh mục thiếu sáu tên; phần
+xanh là các test sẵn có của hai tệp cũ). XANH: 79 passed, rồi 82 passed (cùng tám tệp) sau khi thêm test để mutation
+có chỗ đỏ; `KeysetOrderTest` (thứ tự và cột rỗng hai chiều) viết trong lượt mutation. Tám mươi lăm phép mutation, mỗi phép bỏ hay đổi đúng một điều kiện, cả 85 đỏ rồi
+khôi phục (`probe/t11/probes-summary.txt` của làn): kẹp `limit`, "còn trang sau", điều kiện "sau vị trí", khoá phụ
+`id`, ba nhánh cột rỗng, chiều sắp xếp, `next` giữ nguyên khi lọc; sáu điều kiện của `decodePosition` và cursor của
+tool; Gate và `McpMatterScope` của `FindsVisibleMatter`; với từng Action: `viewAny`/Gate từng dòng, `constrain()`, lọc
+theo vụ, gắn vụ, bỏ scope cổng, cột sắp xếp, đọc id chặt ở tool; riêng `list_deadlines`: vụ đang mở, cửa sổ mặc định,
+bảy, hai cận, gồm ngày cận, đã xong, mức độ, ba nhánh người phụ trách, regex, `to` sau `from`, định dạng ngày, người
+đã nghỉ; `list_documents`: allowlist nhóm, enum nhóm của schema; `list_client_requests`: hai chiều `open`, `mine`,
+người xử lý đã nghỉ; thứ tự đăng ký ở `CrmServer`. Mọi tệp test MCP cộng `ArchitectureTest` (tuần
+tự): EXIT 0 — 445 passed, 1 todo. Cả bộ (`--parallel --processes=2`): EXIT 0 — 5914 passed (5850 + 64), 1 risky,
+1 todo, 33 skipped (như baseline). MariaDB (mười một tệp đụng tới: sáu tệp tool mới, `KeysetOrderTest`,
+`GetMatterToolTest`, `ToolCatalogTest`, `SearchMattersToolTest`, `FetchToolTest`; tuần tự): EXIT 0 — 102 passed.
+`pint --test`: PASS 1207 tệp. Không có migration.
+
+### Task 12 — bước của người trong `/admin`: mở nháp, sửa, gửi hoặc bỏ; nhãn "Tạo qua AI" (làn m11b, 2026-10-07)
+
+**Đã có, kèm test Livewire** (`tests/Feature/Filament/{StageLogDrafts,ReplyDrafts,AiCreatedRecords}Test.php`) và test
+Action (`tests/Feature/Actions/Mcp/McpDraftActionsTest.php`).
+- **Tab Tiến độ**: khối "Nháp từ AI (n)" trên dòng thời gian (`StageLogsRelationManager::content()`, view
+  `filament.admin.ai-drafts`, phần chung ở `RelationManagers\Concerns\ManagesAiDrafts`). Chỉ nháp ĐANG CHỜ của đúng vụ,
+  chỉ cho người có `MatterPolicy::view` (nháp có thể mang ghi chú nội bộ; kế toán không thấy). "Mở nháp"
+  (`UseStageLogDraftAction`, kế thừa `AddUpdateAction`) là CHÍNH form "Thêm cập nhật": cùng schema, cùng bản xem trước
+  "đúng như khách sẽ thấy" (chạy trên nội dung nháp, không bao giờ đọc ghi chú nội bộ), công tắc công bố mặc định theo
+  `is_published_to_portal` như SPEC §7.3 và người bấm tự quyết; ô nháp để trống nhận mặc định của "Thêm cập nhật".
+- **Tab Yêu cầu từ khách**: khối "Nháp trả lời từ AI (n)" (tiêu đề yêu cầu là chữ khách viết, in đã thoát HTML). "Mở
+  nháp" là modal trả lời có cả cuộc trao đổi, ô nội dung điền sẵn; yêu cầu đã đóng thì chỉ còn "Bỏ nháp".
+- **Ba Action mới** (`app/Actions/Mcp/`): `UseStageLogDraft` (gọi ĐÚNG `TransitionMatterStage`, `to_stage` = giai đoạn
+  người bấm đã thấy, nên giai đoạn trôi → `MatterStageChanged`), `UseReplyDraft` (gọi ĐÚNG `ReplyToClientRequest`),
+  `DiscardDraft` (lý do bắt buộc, trim, trần 1000 ký tự như lý do xoá nhật ký liên lạc). Cả ba dưới tên NGƯỜI BẤM;
+  một transaction; khoá dòng cha (`matters` / `client_requests`) TRƯỚC rồi dòng nháp; quyền và "nháp thuộc vụ/cuộc trao
+  đổi này" hỏi TRƯỚC trạng thái nháp (câu chung `ai_drafts.unavailable`, SPEC §10.10); nháp đã dùng/đã bỏ →
+  `McpDraftNotPending`. Ghi `used_stage_log_id` / `used_reply_id` cùng transaction với bản ghi thật. Audit
+  `mcp_draft_used` (chủ thể: dòng tiến độ / câu trả lời; `draft_type`, `draft_id`, `draft_created_by`, `matter_id`) và
+  `mcp_draft_discarded` (chủ thể: vụ / yêu cầu, kèm lý do) — chủ thể là model đã có trong `ActivityOwningMatter`, nên
+  KHÔNG thêm alias morph cho hai bảng nháp (hand-off "nếu nháp thành chủ thể audit" của Task 7 không phát sinh).
+- **Nút dùng/bỏ là action CỦA COMPONENT mang đối số `draft`** (không phải action gắn vào một component của khối): nút
+  vẫn giải được khi nháp vừa bị người khác dùng, nên lần bấm đó nhận câu "đã dùng hoặc đã bỏ" thay vì im lặng. Ba cổng:
+  `visible()` (nháp thuộc ĐÚNG vụ của trang + quyền: `transitionStage` cho nháp tiến độ, `ClientRequestReplyPolicy::create`
+  với yêu cầu cho nháp trả lời — một id của vụ khác ẩn nút và Filament không chạy action, kể cả request Livewire tự dựng),
+  `beforeFormFilled()` (nháp đã xong → báo, không mở), và Action hỏi lại dưới khoá.
+- **Model** (`IsMcpDraft`, đóng minor m1 của rà soát Task 7): nháp đã dùng hoặc đã bỏ không nhận thêm lần ghi nào, và
+  một lần ghi không thể đặt cùng lúc "đã dùng" và "đã bỏ" → `McpDraftNotPending`. `isPending()` và `draftType()` mới.
+- **Mốc tạo qua AI**: cột "Nguồn" trên tab Mốc thời hạn ("Tạo qua AI, chưa xác nhận" / "…, đã xác nhận", trống với mốc
+  web) và nút "Xác nhận" (`ConfirmAiDeadline`: `DeadlinePolicy::update` qua `OpensDeadline`, ghi `confirmed_at`/
+  `confirmed_by`, audit `deadline_ai_confirmed`; mốc web → `DeadlineNotCreatedViaAi`; bấm lần hai giữ người xác nhận đầu).
+  `CheckDeadlines` không đổi: test ghim mốc `mcp` được nhắc y như mốc web.
+- **Tab Liên lạc**: cột "Nguồn" mang nhãn "Tạo qua AI" trên dòng `created_via = mcp` (tab đã có sau khi gộp m7b).
+- `BuildsStageUpdateSchema`: lần ghi tách thành `submitStageUpdate()` (mặc định vẫn `TransitionMatterStage`) để "Mở
+  nháp" đè; hành vi hai nút cũ không đổi.
+- Chuỗi: `lang/vi/ai_drafts.php` (tệp mới); ba khoá sự kiện trong `lang/vi/activity.php` (khối Task 12 riêng).
+- Câu "Nháp trả lời đang chờ người duyệt trên web" (`lang/vi/mcp.php`, Task 10 m4 / Task 11 r4) và "Nháp AI đã soạn
+  trước đó vẫn ở trên trang vụ việc" (`lang/vi/matters.php`, Task 7 m9 nửa đầu) nay đúng: màn hình duyệt đã có, và nháp
+  vẫn hiện sau khi vụ bị rút khỏi AI (có test).
+
+**Còn để lại (ghi để rà soát cuối):** minor m2/m3/m4 của Task 7 không đụng (khoá ngoại `used_*` `nullOnDelete`, cha
+`cascadeOnDelete`, collation của `idempotency_key` — Task 13 phải xử lý m4/m5 khi ghi nháp). Task 13 tạo nháp nên theo
+cùng thứ tự khoá (dòng cha trước, rồi nháp).
+
+**Kiểm chứng (2026-10-07).** ĐỎ trước khi nối màn hình: bốn tệp test mới → 51 failed, 7 passed (bảy test xanh sẵn là
+các vế âm "không hiện" khi chưa có khối, test ghim `CheckDeadlines` nhắc mốc `mcp` như mốc web — hành vi có sẵn, và ba
+test của `ConfirmAiDeadline` viết sau Action; mutation P25–P28 phủ chúng). XANH: 67 passed. Sáu mươi bốn phép mutation,
+mỗi phép bỏ hay đổi đúng một điều kiện (`probe/t12/probes-summary.txt` của làn): 59 đỏ ngay; P27 (người xác nhận) và
+P32 (`isPending()` bỏ cột "đã dùng") sống ở lượt đầu vì test yếu / chọn sai test — sửa test (người phụ trách mốc khác
+người bấm) và chạy lại: P27b, P32b đỏ. Ba phép sống là tương đương có lý do: P02 (bỏ `$lockedMatter === null` — Gate
+trên vụ đã xoá mềm/`null` vẫn từ chối), P08 (`to_stage` lấy từ vụ đã khoá — `TransitionMatterStage` vẫn ném
+`MatterStageChanged` theo giai đoạn người bấm đã thấy), P24 (đọc yêu cầu kèm bản đã xoá mềm — `ClientRequestReplyPolicy::
+create` từ chối yêu cầu đã xoá). Các test đụng tới cộng mười bốn tệp liên quan (tuần tự): 273 passed. Cả bộ
+(`--parallel --processes=2`): EXIT 0 — 5981 passed (5914 + 67), 1 risky, 1 todo, 33 skipped (như baseline). MariaDB
+(mười tệp: bốn tệp mới, `McpDraftTest`, `TransitionStageActionTest`, `ClientRequestsRelationManagerTest`,
+`DeadlinesRelationManagerTest`, `CommunicationLogsRelationManagerTest`, `ActivityLogEventTranslationsTest`; tuần tự):
+EXIT 0 — 234 passed. `pint --test`: PASS 1220 tệp. Không có migration.
+
+### Task 12 — vòng sửa 1 (rà soát: 1 Critical; làn m11b, 2026-10-07)
+
+- **C1 — nút "Mở nháp" của khối "Nháp từ AI (n)" trên tab Tiến độ không bao giờ được vẽ.** Khối nháp vẽ nút bằng bản
+  SAO `$action(['draft' => id])` (Filament `HasMountableArguments::__invoke` clone rồi gắn đối số), còn các closure của
+  `UseStageLogDraftAction` đọc nháp qua `$this` — bản action dùng chung lúc `setUp()` chạy, không có đối số. `visible()`
+  vì thế luôn thấy "không có nháp": luật sư thấy "Nháp từ AI (1)" với mỗi nút "Bỏ nháp". Test cũ không thấy vì
+  `TestAction::arguments()` đặt đối số lên chính bản dùng chung. **Sửa:** `visible()`, `beforeFormFilled()`,
+  `fillForm()` đọc nháp từ `Action $action` Filament tiêm vào (`draftOf()`), như `ClientRequestsRelationManager` đã làm;
+  lần ghi trong `BuildsStageUpdateSchema::setUpStageUpdateAction()` chạy `submitStageUpdate()` trên bản được tiêm (hai
+  nút cũ không đối số, không đổi gì). Lúc mount Filament gộp đối số vào chính bản dùng chung và tiêm nó, nên ba chỗ sau
+  `visible()` vốn đã đọc đúng — đổi để một cách đọc đúng cho cả lúc vẽ lẫn lúc chạy (mutation của ba chỗ đó là tương đương,
+  ghi dưới).
+- **Test mới hỏi HTML thật** (dò đúng `wire:click` `mountAction('…', {draft: id}` mà Filament vẽ): `StageLogDraftsTest`
+  — hai nháp, luật sư phụ trách thấy cả bốn nút mang đúng id, trợ lý thấy nội dung nháp mà không nút nào; đi đúng hai lời
+  gọi Livewire của nút và nút lưu (`mountAction` với đối số, `callMountedAction`) với nháp THỨ HAI, dòng tiến độ ra dưới tên
+  người bấm, nháp kia vẫn chờ; "nháp đã dùng không mở lại" có thêm cặp dương (nút có trong HTML khi nháp còn chờ, không
+  còn sau khi dùng) thay cho `assertDontSee` rỗng. `ReplyDraftsTest` — cùng câu hỏi HTML cho nháp trả lời (đã đúng, nay có
+  rào).
+- **Kiểm chứng.** ĐỎ trước khi sửa: `StageLogDraftsTest` 2 failed / 13 passed (nút "Mở nháp" không có trong HTML).
+  XANH: 16 passed; `ReplyDraftsTest` 12 passed. Mutation: đưa `visible()` về `$this->draft()` → 3 đỏ; `draftOf()` trả
+  `null` → 10 đỏ; `visible()` của nháp trả lời đọc bản dùng chung → test HTML mới đỏ (test cũ của tệp vẫn xanh). Tương
+  đương có lý do: `beforeFormFilled()`/`fillForm()` qua `$this`, và `$submitter = $this` trong lần ghi — lúc chạy, bản được
+  tiêm CHÍNH LÀ bản dùng chung đã mang đối số.
+  Cả bộ (`--parallel --processes=2`): EXIT 0 — 5984 passed (5981 + 3), 1 risky, 1 todo, 33 skipped. MariaDB (tuần tự:
+  `StageLogDraftsTest`, `ReplyDraftsTest`, `TransitionStageActionTest`, `StageLogsTabTest` — hai tệp sau phủ phần lần ghi
+  chung đã đổi): EXIT 0 — 72 passed. `pint --test`: PASS. Không có migration.
+
+### Task 16 — tài liệu: chính sách AI, hướng dẫn kết nối, triển khai; bốn điều kiện preflight (làn m11b, 2026-10-07)
+
+- **Tài liệu mới.** `docs/CHINH-SACH-AI.md` (bản nháp chờ chủ văn phòng duyệt câu chữ, ghi phiên bản `2026-10-04`
+  = `vkcrm.mcp.policy_version` của làn m11): ai được dùng, AI thấy gì (R3, vụ hạn chế, cờ R9, giả danh R10 nói thẳng
+  không phải khử nhận dạng), bảng R4, AI làm được gì (nói thẳng "Always allow" thì AI tự gọi cả hai bước; lớp an toàn
+  thật là ghi nội bộ, nhãn "Tạo qua AI", người sửa được), bắt buộc tắt huấn luyện (ChatGPT "Improve the model for
+  everyone" [PL:175]; tên mục của Claude **chưa kiểm được**, Task 17 ghi kèm ảnh), "Needs approval" trên Claude, không
+  nhớ lựa chọn duyệt trên ChatGPT, quy tắc dùng, năm việc của chủ văn phòng trước khi bật `mcp.enabled` (chỉ liệt kê,
+  không quyết), kiểm tra định kỳ, báo sự cố 72 giờ. `docs/KET-NOI-AI.md`: Claude, Claude Code, ChatGPT, client khác,
+  mỗi mục ghi giới hạn của gói đúng như tra cứu (kể cả "Plus: các nguồn nói khác nhau" và "ChatGPT cá nhân coi như chỉ
+  đọc"), bảng redirect URI (test đối chiếu với `vkcrm.mcp.redirect_uris`), bảng 15 tool, "Không kết nối được?".
+- **`docs/CAI-DAT.md` / `README.md` mở rộng, không viết lại.** Bước 1: thêm `sodium`, `curl` vào danh sách bắt buộc (bỏ
+  câu "nên có `curl`"); Bước 0: dòng hỏi chủ văn phòng về `MCP_MATTER_DEFAULT`/`MCP_PARTY_NAMES`; Bước 3:
+  `php artisan passport:keys` ngay sau `key:generate`, cùng luật và cùng chỗ cất với `APP_KEY` (bản sao lưu đêm chỉ chứa
+  `storage/app/private`, không chứa khoá); Bước 4: mục 6 `/.well-known/` và đoạn "Không đệm `/mcp`"; Bước 7: ba dòng
+  preflight mới; mục mới "Máy chủ MCP (kết nối AI cho nhân sự)" (tắt khi cài, năm việc của người cài, URL trên tên miền
+  quản trị khi tách tên miền — hand-off m8 của rà soát Task 2, WAF/Cloudflare cho `160.79.104.0/21` và
+  `chatgpt-connectors.json`, bảng biến `.env`, giới hạn đã biết: DCR 10 lần/giờ/IP chung cho cả văn phòng trên một nền
+  tảng — hand-off m1 của rà soát Task 3, loopback `[::1]` hỏng vì CSP — hand-off m6 của rà soát Task 4, IP nhật ký là IP
+  nền tảng, hai lượt dọn 03:00/03:15); "Nâng cấp lên bản mới": gạch đầu dòng "Bản cập nhật M11"; "CẢNH BÁO về `APP_KEY`":
+  `APP_KEY` mã hoá refresh token và mã uỷ quyền, đổi nó là mọi nhân sự kết nối lại, còn mất khoá RSA chỉ làm access token
+  (≤ 1 giờ) chết rồi client tự làm mới (hand-off m3 của rà soát Task 1; dòng chú thích `PASSPORT_*` của `.env.example`
+  sửa theo). `.env.example` `MCP_MATTER_DEFAULT`: `allowed` nghĩa là không ô tích, không dòng nhật ký đồng ý (hand-off m9
+  của rà soát Task 7). SPEC §2: "Đính chính 2026-10-07 (M11 Task 16)" thêm `sodium`, `curl`.
+- **Phát hiện: hai mẫu máy chủ web chặn `/.well-known/`.** Luật dotfile `location ~ /\.` (nginx) và
+  `RedirectMatch 404 "/\."` (Apache) trả 404 cho cả bốn route metadata OAuth (`routes/ai.php`): trên máy chủ dựng theo
+  mẫu, `/mcp` trả 401 đúng nhưng Claude/ChatGPT không bao giờ tìm được máy uỷ quyền. Sửa thành `/\.(?!well-known/)` ở cả
+  hai mẫu (đoạn đầu `/.well-known/` qua, mọi đoạn dấu chấm khác — kể cả `/.well-known/.env` — vẫn chặn). Đo THẬT bằng
+  `tools/deploy/verify-storage-blocked.sh` (mở rộng: lính canh tạm trong `.well-known/` ở gốc dự án; N1/A1 tới được tệp
+  200 + lính canh, đoạn dấu chấm thứ hai 404; đối chứng NW/AW với luật cũ 404): mọi dòng PASS.
+- **`vkcrm:preflight` thêm ba dòng, chỉ ở `APP_ENV=production`** (`RunPreflight::mcpRedirectDomainsRow()`,
+  `passportTokenTtlRow()`, `passportKeysRow()`): ĐỎ khi `mcp.redirect_domains` có phần tử `*` (so như chính gói,
+  `in_array('*', …, true)`; app không đăng ký route DCR của gói nên hôm nay đây là chốt cho ngày ai đó bật lại nó); ĐỎ khi
+  `Passport::tokensExpireIn()` dài hơn 3600 giây; ĐỎ khi một khoá Passport vắng/không đọc được thành khoá RSA (đọc đúng
+  như `PassportServiceProvider::makeCryptKey()`: nội dung `PASSPORT_*_KEY` với `\n` viết tay, rồi tệp `Passport::keyPath()`)
+  hay khi tệp khoá riêng có bit quyền nào của "người khác" (640/660 được, như league). Mỗi điều kiện có cả chiều ĐỎ lẫn
+  XANH. **Dòng VÀNG thứ tư ("`mcp.enabled` bật mà chưa ghi ngày nộp hồ sơ") CHƯA làm:** công tắc (`McpSwitches`) là Task 6
+  của làn m11, ngày nộp hồ sơ là Task 15. `TODO(m11-task6-preflight-filing-date)` ở docblock
+  `RunPreflight::launchConditionRows()` và một test `->todo()` cùng tên trong `PreflightCommandTest` nói đúng việc còn lại.
+- **Câu "required_extensions = check-platform-reqs + pdo_mysql"** (hand-off "MAIN MERGE" của làn m11) sửa ở
+  `RunPreflight` (docblock dòng pcntl), `config/vkcrm.php` (hai docblock) và `PreflightCommandTest` (khối chú thích + tên
+  test): danh sách là `check-platform-reqs` + `pdo_mysql` + `curl`, tức chỉ extension mà thiếu thì một tính năng hỏng.
+- **Test.** `PreflightCommandTest`: 20 ca mới (mỗi dòng dataset một ca) + 1 todo; `preflightGreenProductionConfig()` mang
+  thêm cặp khoá RSA thật dạng nội dung, để các test production cũ vẫn mã thoát 0 mà không đụng `storage/oauth-*.key`;
+  khoá dạng tệp dựng trong thư mục tạm của container (`Passport::loadKeysFrom()`, `afterEach` trả `$keyPath` và TTL về
+  như cũ). `InstallGuideM11Test` (mới, 7 test) đọc chính tài liệu: danh sách extension của CAI-DAT Bước 1 và README bằng
+  `required_extensions`, đính chính SPEC §2, mọi redirect URI trong `KET-NOI-AI.md`, mọi biến `MCP_*`/`PASSPORT_*` của
+  `.env.example` có tên trong CAI-DAT, Bước 7 nêu ba dòng mới, hai tài liệu có mặt và được trỏ tới.
+  ĐỎ trước khi cài: `PreflightCommandTest` 19 failed / 1 todo / 32 passed (ca mới duy nhất xanh là ca "chỉ kiểm ở production", một rào chưa có gì để chặn); `InstallGuideM11Test` 7 failed.
+  Mutation: 14/14 đỏ trên `RunPreflight` (bỏ từng điều kiện, `>` thành `>=`, mặt nạ quyền `0o007` thành `0o004`, kiểm quyền
+  cả khoá công khai, bỏ đổi `\n`, luôn đọc tệp, bỏ kiểm từng loại khoá, dời ba dòng ra ngoài nhánh production, bỏ đọc
+  tệp); 7/7 đỏ trên tài liệu (bỏ `sodium` ở CAI-DAT, `curl` ở README, tiêu đề đính chính SPEC, một redirect URI, một
+  biến, `mcp.redirect_domains` ở Bước 7, đường dẫn `KET-NOI-AI.md` ở README).
+- **Chưa kiểm được / để lại.** Tên mục tắt huấn luyện của Claude và ảnh chụp từng bước (Task 17). Hai tài liệu nhắc
+  trang "Kết nối AI"/"Kết nối AI của tôi" (Task 15, chưa dựng; brief Task 15 nên hiện `McpEndpoint::resource()` vì
+  `KET-NOI-AI.md` hứa "Trang 'Kết nối AI của tôi' hiện đúng URL cần dán") và bốn tool ghi (Task 13). Khi gộp với làn m11:
+  thêm dòng VÀNG `mcp_filing_date`, và kiểm `vkcrm.mcp.policy_version` vẫn bằng phiên bản ghi đầu `CHINH-SACH-AI.md`.
+  Cả bộ (`--parallel --processes=2`): EXIT 0 — 6011 passed (5984 + 27), 1 risky, 2 todo, 33 skipped. MariaDB (tuần tự:
+  `PreflightCommandTest`, `InstallGuideM11Test`): EXIT 0 — 58 passed, 1 todo. `pint --test`: PASS 1221 tệp. Không có
+  migration.
+
+### Gộp làn m11b (`m11-mcp-tools`, Task 10, 11, 12, 16) vào làn m11 (2026-10-07)
+
+**Xung đột (3) và cách giải:**
+- `app/Mcp/Servers/CrmServer.php` — giữ CẢ HAI: `boot()` của làn m11 (`addMethod('tools/call', CallCrmTool::class)`,
+  nên mọi `tools/call` đi qua bước gọi tool chung của Task 6/8) và mảng `$tools` mười một tool đọc của làn m11b theo
+  thứ tự cố định của bảng tool.
+- `lang/vi/activity.php` — giữ cả hai khối: các sự kiện Task 6/4/8/15 (`ai_access_changed` … `ai_settings_updated`),
+  rồi ba sự kiện Task 12 (`mcp_draft_used`, `mcp_draft_discarded`, `deadline_ai_confirmed`).
+- `docs/PROGRESS.md` — giữ cả hai phía: ghi chú Task 6, 4, 8, 15 rồi Task 10, 11, 12, 16.
+
+**Nối sau gộp (các móc chỉ chờ Task 6/8):**
+- **Mười một tool đọc qua bước truy cập, audit và rate limit.** Không thêm mã nào vào tool: chúng kế thừa `CrmTool`
+  nên đi qua `EnsureMcpAccess` (Task 6), `AuditToolCall` + `CallCrmTool` (Task 8) như hợp đồng của hai task. Test mới
+  `tests/Feature/Mcp/Tools/ReadToolsAccessAuditTest.php` ghim điều đó cho TỪNG tool đăng ký trên `CrmServer` (danh
+  sách đọc từ `CrmServer::$tools`, nên tool đọc mới thiếu tham số ở đây làm test đỏ): người đủ điều kiện thì mỗi lần
+  gọi có kết quả và đúng một dòng `mcp_tool_called` outcome `ok`, causer là người sở hữu token, `returned_ids` mang id
+  có tiền tố; tài khoản vô hiệu hoá, `ai_access = off`, công tắc `mcp.enabled` tắt thì 401, không phản hồi JSON-RPC
+  nào, một dòng `denied` mỗi lần gọi; hết 60 lượt một phút thì 429, không phản hồi tool, một dòng `rate_limited`;
+  `search` hết 30 lượt riêng thì `fetch` và `whoami` vẫn chạy.
+- **Test tool đọc của làn m11b theo điều kiện truy cập của Task 6:** `McpReadWorld` dựng mọi nhân sự với
+  `withAiAccess()` (chế độ `read`, đã cam kết đúng phiên bản), mỗi tệp test tool gọi `McpOAuth::openServer()` trong
+  `beforeEach`. Kế toán (không `matter.view`) nay bị `EnsureMcpAccess` từ chối trước máy chủ — test "kế toán nhận
+  danh sách rỗng / Không tìm thấy" của chín tool và `whoami` đổi thành `McpToolCall::refused()` (401,
+  `error="invalid_token"`, không `result`). Lớp thứ hai (`McpMatterScope` rỗng cho người thiếu `matter.view`) vẫn
+  được ghim ở `MatterScopeTest`.
+- **`TODO(m11-task6-whoami-mode)` đã điền:** `whoami` trả `mode` / `mode_label` — chế độ ĐANG CÓ HIỆU LỰC, cùng câu
+  hỏi quyết định danh sách tool (R13): `read_write` chỉ khi `McpAccess::canWrite()` (người `read_write` VÀ công tắc
+  `mcp.write_enabled` bật), còn lại `read`. `outputSchema` khai `enum` hai giá trị. Test ba chiều trong
+  `WhoAmIToolTest` (người read; người read_write khi công tắc ghi tắt; khi bật — kèm cặp âm người read).
+- **`TODO(m11-task6-preflight-filing-date)` đã điền:** `vkcrm:preflight` có dòng `mcp_filing_date` — VÀNG khi
+  `mcp.enabled` bật mà chưa ghi ngày nộp hồ sơ đánh giá tác động (giá trị ngày hỏng cũng là "chưa ghi", cùng định
+  nghĩa `McpSwitches::transferAssessmentFiledOn()` với dải cảnh báo trang "Kết nối AI"); XANH khi công tắc tắt hay đã
+  ghi ngày (kèm ngày). Không bao giờ ĐỎ. `docs/CAI-DAT.md` thôi nói "Chưa có" và kể dòng thứ tư.
+- **Sửa phát hiện khi gộp:** `McpAccess::hasAcknowledgedCurrentPolicy()` bỏ `ClientPortalScope` khi hỏi
+  `ai_acknowledgements`. Giữ scope thì một phiên cổng khách đang mở trong cùng tiến trình làm mọi nhân sự đủ điều kiện
+  bị từ chối `policy_not_acknowledged` — mười test "phiên cổng khách không cắt …" của làn m11b đỏ vì đúng điều này.
+  Câu hỏi chỉ trả có/không về chính nhân sự đó cho một quyết định truy cập, không dòng nào ra ngoài.
+- `vkcrm.mcp.policy_version` (`2026-10-04`) bằng phiên bản ghi đầu `docs/CHINH-SACH-AI.md`.
+
+**Còn lại cho Task 13/14 (cần thiết kế, không phải nối máy móc; chi tiết nguyên văn trong sổ làn m11, mục "Deferred
+minors from m11b"):**
+- Task 13 (tool ghi): `UseStageLogDraft` chưa hỏi tài khoản còn hoạt động như `DiscardDraft` (rà soát Task 12, m2);
+  câu từ chối tiếng Việt khi client gọi tên tool ghi đã ẩn (Task 6, m5); tính `canWrite()` một lần mỗi request
+  (Task 6, m7).
+- Task 14 (rà soát toàn bộ): minor Task 10 m1–m6 (độ dài id 32/26, tiêu đề yêu cầu trùng nhau, `OpenDeadlines`
+  không giới hạn mỗi trang, "5 mốc" quá hạn lên đầu), Task 11 r1–r4 (`list_deadlines` không trả bộ lọc
+  `responsible` đã áp, `get_checklist` không phân trang), Task 12 m1, m3–m7, Task 16 m1–m9 (tài liệu: giới hạn
+  `ADMIN_IP_ALLOWLIST` cho mọi app, trường tài liệu AI thấy, khoá Passport trong quy trình khôi phục, thứ tự cài
+  sodium trước `composer install`, khoá EC/không cùng cặp vẫn XANH, thư mục tạm của test preflight, câu 72 giờ,
+  ChatGPT Business phải tạo lại app).

@@ -2,6 +2,7 @@
 
 namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 
+use App\Actions\Mcp\UseReplyDraft;
 use App\Actions\Portal\OpenClientRequest;
 use App\Actions\Portal\ReplyToClientRequest;
 use App\Actions\Portal\SetClientRequestStatusResult;
@@ -9,8 +10,11 @@ use App\Actions\Portal\TriageClientRequest;
 use App\Enums\ClientRequestStatus;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Concerns\ScopesToVisibleMatters;
+use App\Filament\Admin\Resources\Matters\RelationManagers\Concerns\ManagesAiDrafts;
 use App\Filament\Portal\Pages\MyRequests;
 use App\Models\ClientRequest;
+use App\Models\ClientRequestReply;
+use App\Models\ClientRequestReplyDraft;
 use App\Models\ClientUser;
 use App\Models\User;
 use Filament\Actions\Action;
@@ -18,9 +22,15 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
+use Filament\Schemas\Components\EmbeddedTable;
+use Filament\Schemas\Components\RenderHook;
+use Filament\Schemas\Schema;
+use Filament\Support\Enums\Size;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Filament\View\PanelsRenderHook;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -88,6 +98,7 @@ use Illuminate\Support\HtmlString;
  */
 class ClientRequestsRelationManager extends RelationManager
 {
+    use ManagesAiDrafts;
     use ReportsActionFailures;
     use ScopesToVisibleMatters;
 
@@ -106,6 +117,154 @@ class ClientRequestsRelationManager extends RelationManager
     public static function canViewForRecord(Model $ownerRecord, string $pageClass): bool
     {
         return Gate::allows('view', $ownerRecord);
+    }
+
+    /**
+     * M11 Task 12: mặc định của Filament ({@see RelationManager::content()}), cộng khối "Nháp trả lời
+     * từ AI (n)" trước hộp thư — nháp do tool `draft_request_reply` soạn, còn đang chờ, của mọi yêu
+     * cầu thuộc vụ này. Chỉ người xem được nội dung vụ thấy khối (cùng cổng với cả tab).
+     */
+    public function content(Schema $schema): Schema
+    {
+        return $schema
+            ->components([
+                $this->getTabsContentComponent(),
+                $this->aiDraftsSection(
+                    'ai_drafts.reply.heading',
+                    'ai_drafts.reply.description',
+                    $this->replyDraftCards(),
+                    ['useReplyDraft', 'discardReplyDraft'],
+                ),
+                RenderHook::make(PanelsRenderHook::RESOURCE_RELATION_MANAGER_BEFORE),
+                EmbeddedTable::make(),
+                RenderHook::make(PanelsRenderHook::RESOURCE_RELATION_MANAGER_AFTER),
+            ]);
+    }
+
+    /**
+     * "Mở nháp" trả lời (M11 Task 12): cùng modal với nút "Trả lời" ({@see self::replyAction()} — cả
+     * cuộc trao đổi vẽ trên ô nhập, cùng câu báo theo trạng thái công bố của vụ), ô nội dung điền sẵn
+     * nháp. Gửi đi qua {@see UseReplyDraft}: vẫn `ReplyToClientRequest` dưới tên người bấm, cộng việc
+     * đánh dấu nháp đã dùng trong cùng transaction.
+     *
+     * Nháp đến từ đối số `draft` — xem `UseStageLogDraftAction` cho lý do và ba cổng. Ở đây
+     * `visible()` hỏi: nháp thuộc một yêu cầu của vụ này, yêu cầu chưa đóng, và
+     * `ClientRequestReplyPolicy::create` với yêu cầu đó (cổng `ReplyToClientRequest` hỏi).
+     */
+    public function useReplyDraftAction(): Action
+    {
+        return Action::make('useReplyDraft')
+            ->label(__('ai_drafts.actions.open'))
+            ->icon(Heroicon::OutlinedPencilSquare)
+            ->color('primary')
+            ->size(Size::Small)
+            ->modalHeading(__('ai_drafts.reply.open_heading'))
+            ->modalSubmitActionLabel(__('requests.tab.actions.reply_submit'))
+            ->modalDescription(fn (Action $action): ?HtmlString => ($draft = $this->replyDraft($action)) === null
+                ? null
+                : static::renderThread($draft->request))
+            ->visible(function (Action $action): bool {
+                $draft = $this->replyDraft($action);
+
+                return $draft !== null
+                    && $draft->request->status !== ClientRequestStatus::Closed
+                    && Gate::allows('create', [ClientRequestReply::class, $draft->request]);
+            })
+            ->beforeFormFilled(function (Action $action): void {
+                if (! $this->replyDraft($action)?->isPending()) {
+                    Notification::make()->title(__('ai_drafts.not_pending'))->warning()->send();
+
+                    $action->cancel();
+                }
+            })
+            ->fillForm(fn (Action $action): array => ['content' => $this->replyDraft($action)?->content])
+            ->schema([
+                Textarea::make('content')
+                    ->label(__('requests.tab.fields.content'))
+                    ->helperText(__('requests.tab.fields.content_help'))
+                    ->rows(5)
+                    ->columnSpanFull()
+                    ->required()
+                    ->maxLength(ReplyToClientRequest::CONTENT_MAX),
+            ])
+            ->action(function (Action $action, array $data): void {
+                $draft = $this->replyDraft($action);
+                $isPublished = (bool) $this->getOwnerRecord()->is_published_to_portal;
+
+                $this->runAction($action, function () use ($draft, $data, $isPublished): void {
+                    if ($draft === null) {
+                        throw new AuthorizationException(__('ai_drafts.unavailable'));
+                    }
+
+                    app(UseReplyDraft::class)->handle($draft, $draft->request, Auth::user(), $data['content'] ?? '');
+
+                    Notification::make()
+                        ->title($isPublished
+                            ? __('requests.tab.actions.reply_success')
+                            : __('requests.tab.actions.reply_success_hidden'))
+                        ->success()
+                        ->send();
+                });
+            });
+    }
+
+    /** "Bỏ nháp" trả lời — cổng `ClientRequestReplyPolicy::create`; yêu cầu đã đóng vẫn bỏ được. */
+    public function discardReplyDraftAction(): Action
+    {
+        return $this->discardAiDraftAction(
+            'discardReplyDraft',
+            fn (Action $action): ?ClientRequestReplyDraft => $this->replyDraft($action),
+            fn (ClientRequestReplyDraft $draft): bool => Gate::allows('create', [ClientRequestReply::class, $draft->request]),
+        );
+    }
+
+    /**
+     * Nháp mang id của đối số `draft`, CHỈ khi yêu cầu của nó thuộc vụ của trang (đang chờ hay không),
+     * kèm yêu cầu và các lần trả lời (cho modal).
+     */
+    private function replyDraft(Action $action): ?ClientRequestReplyDraft
+    {
+        $id = static::draftIdArgument($action);
+
+        if ($id === null) {
+            return null;
+        }
+
+        return ClientRequestReplyDraft::query()
+            ->whereKey($id)
+            ->whereHas('request', fn (Builder $request): Builder => $request->where('matter_id', $this->getOwnerRecord()->getKey()))
+            ->with(['request.replies' => fn (HasMany $replies): HasMany => $replies->orderBy('created_at')])
+            ->first();
+    }
+
+    /**
+     * Thẻ của các nháp trả lời ĐANG CHỜ của vụ, cũ nhất trước. Tiêu đề là tiêu đề yêu cầu — chữ KHÁCH
+     * viết, view in nó đã thoát HTML.
+     *
+     * @return list<array{id: int, title: ?string, meta: string, fields: list<array{label: string, value: string, internal: bool}>, note: ?string}>
+     */
+    private function replyDraftCards(): array
+    {
+        $matter = $this->getOwnerRecord();
+
+        if (! Gate::allows('view', $matter)) {
+            return [];
+        }
+
+        return ClientRequestReplyDraft::query()
+            ->whereHas('request', fn (Builder $request): Builder => $request->where('matter_id', $matter->getKey()))
+            ->pending()
+            ->with('request')
+            ->oldest('id')
+            ->get()
+            ->map(fn (ClientRequestReplyDraft $draft): array => [
+                'id' => $draft->getKey(),
+                'title' => __('ai_drafts.reply.for_request', ['subject' => $draft->request->subject]),
+                'meta' => $this->draftMeta($draft),
+                'fields' => [static::draftField('requests.tab.fields.content', $draft->content)],
+                'note' => $draft->request->status === ClientRequestStatus::Closed ? __('ai_drafts.reply.closed') : null,
+            ])
+            ->all();
     }
 
     public function table(Table $table): Table
