@@ -411,6 +411,13 @@ return [
 
             // Trần một tệp biên nhận (32 MiB); lớn hơn thì từ chối cả tệp.
             'receipt_max_bytes' => 33554432,
+
+            /*
+             * Hạn (giây) cho mỗi lệnh `rclone` của lượt nhập biên nhận (`lsjson` thư mục biên nhận,
+             * `cat` một tệp; M14 Task 7). Không dùng 1800 của sao lưu: lượt này chỉ đọc vài tệp
+             * JSON, và một `rclone` treo không được giữ khoá của lượt 07:00 nửa giờ.
+             */
+            'rclone_timeout' => 120,
         ],
     ],
 ];

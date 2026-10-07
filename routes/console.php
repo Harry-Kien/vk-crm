@@ -325,3 +325,18 @@ Schedule::call('App\Actions\Schedule\CheckDocumentStoreHealth@handle')
     ->hourlyAt(20)
     ->name('storage.health')
     ->withoutOverlapping(30);
+
+/**
+ * M14 Task 7 (kế hoạch R10): nhập biên nhận bản thứ hai của máy văn phòng — 07:00 hằng ngày, sau lượt
+ * kéo 01:00 của `tools/backup/office-pull.sh` (Phụ lục D của `docs/SAO-LUU-KHOI-PHUC.md`) và trước lượt
+ * kiểm sao lưu 08:00. Chạy chính lệnh tay `vkcrm:storage:office-receipts`, nên mục lịch và người vận
+ * hành cùng đi qua `App\Actions\Storage\ImportOfficeReceipts` và cùng khoá `storage-office-receipts`.
+ * Chưa cấu hình máy văn phòng → lệnh không làm gì, không tiến trình `rclone` nào.
+ *
+ * `withoutOverlapping(60)`, không 1440 mặc định: một lượt bị giết giữa chừng không được chặn lượt của
+ * ngày sau. Nối ở cuối tệp (luật làn song song cho tệp này).
+ */
+Schedule::command('vkcrm:storage:office-receipts')
+    ->dailyAt('07:00')
+    ->name('storage.office-receipts')
+    ->withoutOverlapping(60);

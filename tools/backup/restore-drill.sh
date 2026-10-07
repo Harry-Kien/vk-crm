@@ -553,6 +553,38 @@ verify_restore() {
 }
 
 # --------------------------------------------------------------------------------------------
+# Bước 12b — kho tài liệu (M14 Task 7, kế hoạch R10): sau khi khôi phục CSDL, kiểm một mẫu 20 media
+# so với kho (`vkcrm:storage:verify --sample=20`, md5 + cỡ của tệp trên kho so với dòng media). Lượt
+# diễn tập trên máy dev không có khoá Google nào (`DOCUMENT_STORAGE=local`) và dữ liệu thử của nó
+# không có media nào trên kho, nên ở đây bước này chỉ chứng minh lệnh chạy được trên CSDL vừa khôi
+# phục; trên máy chủ thật (docs/SAO-LUU-KHOI-PHUC.md, "Quy trình cho máy chủ thật") nó hỏi kho thật.
+# Lệnh thuộc Task 6 của M14: bản mã chưa có lệnh đó thì bước này in "bỏ qua" thay vì làm hỏng cả
+# lượt diễn tập.
+# --------------------------------------------------------------------------------------------
+verify_document_store() {
+  local commands
+
+  commands="$(docker run --rm -i --network "${NETWORK}" \
+    -v "${CLEAN_APP_DIR_WIN}:/var/www/html" -w /var/www/html \
+    -e DB_CONNECTION=mariadb -e DB_HOST="${RESTORE_DB_CONTAINER}" -e DB_PORT=3306 \
+    -e DB_DATABASE="${RESTORE_DB_NAME}" -e DB_USERNAME=sail -e DB_PASSWORD=password \
+    -e APP_KEY="${APP_KEY_OLD}" \
+    "${IMAGE}" php artisan list --raw)"
+
+  if ! grep -q '^vkcrm:storage:verify ' <<<"${commands}"; then
+    echo "Bỏ qua: bản mã này chưa có lệnh vkcrm:storage:verify (M14 Task 6)."
+    return 0
+  fi
+
+  docker run --rm -i --network "${NETWORK}" \
+    -v "${CLEAN_APP_DIR_WIN}:/var/www/html" -w /var/www/html \
+    -e DB_CONNECTION=mariadb -e DB_HOST="${RESTORE_DB_CONTAINER}" -e DB_PORT=3306 \
+    -e DB_DATABASE="${RESTORE_DB_NAME}" -e DB_USERNAME=sail -e DB_PASSWORD=password \
+    -e APP_KEY="${APP_KEY_OLD}" -e DOCUMENT_STORAGE=local \
+    "${IMAGE}" php artisan vkcrm:storage:verify --sample=20
+}
+
+# --------------------------------------------------------------------------------------------
 # Bước 12 — CHỨNG MINH thất bại với một APP_KEY MỚI (R3: "APP_KEY là một nửa của bản sao lưu")
 # --------------------------------------------------------------------------------------------
 verify_wrong_key() {
@@ -599,6 +631,7 @@ main() {
   step "10. Chép tệp hồ sơ về storage/app/private của bản sao sạch" copy_private_files
   step "11. migrate:status trên bản khôi phục (không migration nào đang chờ)" migrate_status
   step "12. Giải mã id_number + so checksum tệp + đếm dòng bảng chính (APP_KEY CŨ, đúng)" verify_restore
+  step "12b. Kiểm mẫu 20 media với kho tài liệu (vkcrm:storage:verify --sample=20, M14)" verify_document_store
   step "13. Chứng minh thất bại với APP_KEY MỚI (R3)" verify_wrong_key
 
   print_summary

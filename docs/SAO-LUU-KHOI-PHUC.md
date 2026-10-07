@@ -32,6 +32,47 @@ email báo lỗi mỗi đêm** — "không có bản sao ngoài máy chủ" — 
 đĩa sao lưu khác nằm ngoài máy chủ): bản sao lưu nằm cùng ổ đĩa với dữ liệu thì máy chủ hỏng ổ là
 mất cả hai.
 
+### Khi đã bật kho tài liệu Google Drive (M14)
+
+Từ M14, tệp hồ sơ có thể nằm trên Shared Drive "Kho" thay vì trên máy chủ
+(`docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`). Tệp mới vẫn vào máy chủ trước (thư mục `storage/app/private`,
+gọi là **vùng đệm**), được đẩy lên Kho ngay sau đó, và chỉ bị dọn khỏi máy chủ khi **máy chủ văn
+phòng** (Phụ lục D) đã kéo tệp đó về, kiểm nội dung, và gửi **biên nhận** cho đúng tệp đó. Ở chế độ
+này, hệ thống giữ những bản sau:
+
+| Dữ liệu | Bản chính | Bản thứ hai, ngoài Google | Mã hoá bằng khoá của văn phòng? |
+|---|---|---|---|
+| Cơ sở dữ liệu (hồ sơ, vụ việc, khách hàng, chỉ mục kho `drive_objects`) | MariaDB trên máy chủ | Archive đêm 02:00 (30 bản trên "VK-CRM Backups"); máy văn phòng kéo mọi archive về mỗi đêm | Có: AES-256 bằng `BACKUP_ARCHIVE_PASSWORD` |
+| Tệp chưa có biên nhận văn phòng (tệp mới, hoặc mọi tệp khi chưa có máy văn phòng) | Kho, cộng vùng đệm trên máy chủ | Vùng đệm nằm trong archive đêm | Archive: có. Bản trên Kho: **không** |
+| Tệp đã có biên nhận văn phòng | Kho | Máy văn phòng, remote `crypt` | Bản ở văn phòng: có (`crypt`). Bản trên Kho: **không** |
+| Gói bàn giao M7 | Như mọi tệp ở hai dòng trên | Như mọi tệp | Như mọi tệp |
+| Biên nhận của máy văn phòng | "VK-CRM Backups", thư mục `office-receipts` | — | Không cần: chỉ tên mờ, md5 và cỡ, không dữ liệu khách |
+
+Nói thẳng ba điều:
+
+- **Thùng rác 30 ngày và lịch sử phiên bản của Google Drive KHÔNG phải sao lưu.** Chúng nằm trong
+  chính Workspace có thể bị khoá hay bị chiếm, và Google tự xoá chúng. Không chỗ nào trong tài liệu
+  này tính chúng là một bản.
+- **Archive đêm chỉ còn chứa vùng đệm.** Khi một tệp đã có biên nhận văn phòng và được dọn khỏi máy
+  chủ, archive của các đêm SAU không còn tệp đó: bản của nó lúc ấy là Kho và máy văn phòng. Chưa có
+  máy văn phòng thì không tệp nào được dọn, và archive vẫn chứa mọi tệp như trước M14.
+- **Tệp trên Kho không được văn phòng mã hoá.** Google mã hoá khi lưu bằng khoá của Google; người có
+  quyền quản trị Workspace (và tài khoản quản trị dự phòng) mở được tệp trên giao diện Drive. Chỉ bản
+  ở máy văn phòng (`crypt`) và archive CSDL (AES-256) được mã hoá bằng khoá của văn phòng. Trước M14,
+  bản duy nhất của tệp khách nằm ngoài máy chủ là archive AES-256; đây là một bảo đảm đã đổi, và
+  cần chữ ký của chủ văn phòng (câu hỏi 8 của kế hoạch M14, `docs/PHAP-LY-LUU-TRU-NUOC-NGOAI.md`).
+
+Bản nào còn lại khi có sự cố:
+
+| Sự cố | Bản còn lại |
+|---|---|
+| Lỗi của CRM xoá hoặc ghi sai | Bản ở văn phòng (chỉ chép thêm, không bao giờ xoá); vùng đệm trong thời gian ân hạn |
+| Lộ khoá tài khoản dịch vụ của Kho | Khoá đó chỉ cho tệp vào thùng rác, không chạm được máy văn phòng. Tệp bị sửa trên Kho làm lượt kéo của máy văn phòng báo lỗi, và lỗi đó tới CRM qua biên nhận |
+| Máy chủ web bị chiếm, mã độc tống tiền | Kho (tài khoản dịch vụ không xoá vĩnh viễn được) và bản ở văn phòng |
+| Google khoá Workspace, hay quản trị viên Workspace bị chiếm | Bản ở văn phòng. Trước khi có máy văn phòng: vùng đệm trên máy chủ, vì nó chưa bao giờ được dọn |
+| Máy văn phòng hỏng, cháy, mất | Kho, cộng vùng đệm của tệp chưa dọn. Kéo lại toàn bộ sang máy mới (Phụ lục D) |
+| Mất **cùng lúc** Workspace và máy văn phòng | **Không đỡ được.** Văn phòng đã chấp nhận rủi ro này |
+
 **Mỗi môi trường một thư mục trên Google Drive.** Hệ thống đẩy bản sao lưu vào một thư mục con của
 remote, đặt tên theo `BACKUP_NAME` (ví dụ `BACKUP_NAME="VK-CRM production"` → thư mục
 `gdrive:VK-CRM-backups/vk-crm-production`). Nếu máy chủ thật và máy thử (staging) dùng chung một
@@ -391,6 +432,12 @@ quý một lần, ghi kết quả vào `docs/PROGRESS.md`):
 10. **So dòng vài bảng chính** (`clients`, `matters`, `documents`, `users`) với số liệu ghi nhận
     lúc sao lưu (nếu có) — một hệ thống giám sát tốt (`backup:monitor`, Task 1) nên đã cảnh báo từ
     trước nếu bản sao lưu bị cắt cụt, nhưng đối chiếu lại ở đây là lớp phòng thủ cuối.
+11. **Ở chế độ kho tài liệu (M14)**: archive chỉ mang vùng đệm; tệp đã dọn khỏi máy chủ nằm trên
+    Kho, và bản CSDL vừa nạp chỉ trỏ tới chúng qua chỉ mục `drive_objects`. Đặt đúng các biến
+    `GOOGLE_DRIVE_*` và đặt khoá tài khoản dịch vụ như lúc cài (`docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`,
+    Phụ lục A), `php artisan optimize`, rồi chạy `php artisan vkcrm:storage:verify --sample=20`: hai
+    mươi media trên kho, chọn ngẫu nhiên, phải khớp md5 và cỡ. Kho cũng mất thì làm "Diễn tập mất
+    kho" ở dưới với bản ở máy văn phòng. `tools/backup/restore-drill.sh` có cùng bước này (bước 12b).
 
 ### Bảng số đo thật (lượt khôi phục thử ngày 2026-09-27, máy dev, `tools/backup/restore-drill.sh`)
 
@@ -453,7 +500,55 @@ thứ của lượt chạy nằm dưới `storage/app/_drill/` (git bỏ qua) v�
 giữa chừng. Không chạy trên máy chủ thật — kịch bản này giả lập, không thay thế quy trình thật ở
 trên (nó cũng KHÔNG dùng SFTP/rclone, vì đích thử là chính máy dev).
 
+Bước 12b (M14) chạy `vkcrm:storage:verify --sample=20` trên bản khôi phục. Lượt diễn tập trên máy dev
+không có khoá Google nào và dữ liệu thử không có media nào trên kho, nên ở đây bước đó chỉ chứng minh
+lệnh chạy được trên CSDL vừa khôi phục; bản mã chưa có lệnh đó (trước M14 Task 6) thì bước in "bỏ
+qua".
+
+### Diễn tập "mất kho" (M14) — dựng lại Kho từ bản ở máy văn phòng
+
+Tình huống: Shared Drive "Kho" không còn dùng được (Workspace bị khoá, Kho bị xoá nhầm bởi một quản
+trị viên, …), còn máy văn phòng thì còn. Diễn tập trên một **Shared Drive THỬ** với dữ liệu seed,
+không bao giờ trên Kho thật. Chưa chạy: cần Workspace, Shared Drive thử và máy văn phòng giả lập
+(**PENDING OWNER**, M14 Task 8 Phần 2).
+
+1. **Dựng Kho mới và trỏ máy chủ vào nó.** Tạo Shared Drive mới, thêm tài khoản dịch vụ đúng vai
+   "Người quản lý nội dung" và các thành viên được phép (Phụ lục A của
+   `docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`). Đặt `GOOGLE_DRIVE_SHARED_DRIVE_ID` mới trong `.env`,
+   `php artisan optimize`, `php artisan vkcrm:storage:init` (in mã thư mục gốc mới), đặt
+   `GOOGLE_DRIVE_ROOT_FOLDER_ID` bằng mã đó, `php artisan optimize`, rồi
+   `php artisan vkcrm:storage:check`: các dòng sẵn sàng phải XANH.
+2. **Chép bản ở văn phòng lên Kho mới.** Trên máy văn phòng, tạo tạm một remote `vkkhomoi` (Google
+   Drive, phạm vi `drive`, `team_drive` = Shared Drive mới, `root_folder_id` = thư mục gốc mới) bằng
+   tài khoản quản trị dự phòng — tài khoản `van-phong-kho@` chỉ có quyền đọc. Rồi:
+   ```
+   rclone copy vkoffice:kho vkkhomoi: --immutable
+   ```
+   Remote `crypt` giải mã cả tên lẫn nội dung trên đường đi, nên Kho mới nhận đúng các thư mục tháng
+   và đúng tên tệp mờ như Kho cũ. Xong thì gỡ remote tạm đó khỏi cấu hình rclone của máy văn phòng.
+3. **Dựng lại chỉ mục:**
+   `php artisan vkcrm:storage:reindex --drive=<mã Shared Drive mới> --root=<mã thư mục gốc mới>`.
+   Lệnh đọc tên tệp (khoá + thế hệ đảo ngược được) và dựng lại cả các thư mục tháng; nó từ chối khi
+   hai mã khác `.env` đang dùng.
+4. **Kiểm toàn bộ:** `php artisan vkcrm:storage:verify --all`. Phải sạch.
+5. **Một lượt tải lên mới** (một tài liệu thử) phải vào thư mục tháng của gốc MỚI: kiểm trên giao
+   diện Drive bằng tài khoản quản trị dự phòng.
+6. **Trỏ máy văn phòng vào Kho mới:** sửa `team_drive` và `root_folder_id` của remote `vkkho` (vẫn
+   phạm vi `drive.readonly`, vai Người xem của `van-phong-kho@` trên Shared Drive mới), rồi đổi tên
+   `receipted.txt` trong thư mục trạng thái của `office-pull.sh` thành `receipted-<ngày>.txt`.
+   Biên nhận ràng vào mã Shared Drive: các dòng chỉ mục vừa dựng lại thuộc Kho mới và chưa có biên
+   nhận, nên lượt kéo kế tiếp phải kiểm và ghi biên nhận lại mọi tệp. Giữ `receipted.txt` cũ thì
+   không tệp nào được ghi biên nhận cho Kho mới, và vùng đệm không bao giờ được dọn.
+
+Các lệnh `reindex`, `verify` thuộc M14 Task 6.
+
 ### Đóng gói bàn giao M7 — có sao lưu lại không?
+
+**Cập nhật M14 (kho tài liệu):** gói bàn giao là một tệp như mọi tệp hồ sơ. Ở chế độ kho, nó vào
+vùng đệm trên máy chủ, được đẩy lên Kho, được máy văn phòng kéo về và ghi biên nhận, rồi được dọn
+khỏi máy chủ theo đúng luật của mọi tệp (bảng "Khi đã bật kho tài liệu Google Drive" ở đầu tài liệu).
+Nó nằm trong archive đêm khi chưa có biên nhận, như mọi tệp. Phán quyết tạm dưới đây (không loại gói
+khỏi `include`) giữ nguyên.
 
 Kế hoạch M8 (Task 5) yêu cầu phán quyết "có loại gói bàn giao (M7 Task 4) khỏi bản sao lưu hay
 không — nó là bản sao thứ hai của tệp đã có". Tại thời điểm viết mục này, **M7 chưa merge vào
@@ -475,3 +570,137 @@ người đọc lại phán quyết này (sau khi M7 merge) xác nhận cả (a)
 cả những gì nằm trong `storage/app/private`**, kể cả khi có trùng lặp — dư thừa vài phần trăm dung
 lượng archive rẻ hơn một gói bàn giao không khôi phục lại được. Xem thêm PROGRESS-note trong báo
 cáo Task 3 (`.superpowers/sdd/2026-09-26-m8a-backup-csp/task-3-report.md`).
+
+---
+
+## Phụ lục D — Máy chủ văn phòng: bản thứ hai ngoài Google (M14)
+
+Phụ lục này dành cho **chủ văn phòng** và **người cài đặt**. Nó **không chặn** việc bật kho tài
+liệu, nhưng **chặn việc dọn vùng đệm**: chưa có máy này thì máy chủ web giữ mọi tệp như trước M14
+(dòng kiểm `document_office_copy` VÀNG nhắc điều đó), và archive đêm vẫn chứa mọi tệp.
+
+Mô hình là **kéo**: máy văn phòng tự kéo tệp từ Kho về, máy chủ web không có đường nào ghi vào máy
+văn phòng. Chiếm được máy chủ web cũng không với tới bản ở văn phòng. Mọi việc dưới đây chưa chạy
+thật lần nào (cần Workspace, Shared Drive thử và một máy văn phòng): **PENDING OWNER**, nghiệm thu ở
+M14 Task 8 Phần 2.
+
+| # | Việc | Dòng kiểm |
+|---|---|---|
+| 1 | **Máy**: một máy luôn bật trong văn phòng (Windows hoặc Linux). Ổ trống ít nhất **gấp đôi** dung lượng Kho; bật mã hoá ổ đĩa (BitLocker hoặc LUKS); có UPS. Băng thông: mỗi tệp mới được tải về hai lần (một lần chép, một lần kiểm), và lượt kiểm hằng tháng tải lại toàn bộ Kho | — |
+| 2 | **Tài khoản Google** `van-phong-kho@…` (Workspace, bật xác thực hai lớp, không ai dùng để làm việc hằng ngày). Vai **Người xem** trên Kho (Phụ lục A bước 7 của `docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`), vai **Người đóng góp** trên "VK-CRM Backups" (gửi được biên nhận; không cho vào thùng rác được) | `drive_sharing` |
+| 3 | **Tài khoản hệ điều hành riêng** `vkcrm-saoluu` trên máy văn phòng. Nhân sự không đăng nhập bằng nó; thư mục bản sao chỉ nó đọc được | — |
+| 4 | **Cài `rclone`** (như Bước 1, bản Windows hoặc Linux), và **Git Bash** nếu là Windows | — |
+| 5 | **`rclone config`** dưới tài khoản `vkcrm-saoluu`, ba remote (mục D.5); đặt mật khẩu cho tệp cấu hình rclone | `document_office_copy` |
+| 6 | **Cất ba mật khẩu** (mật khẩu `crypt`, salt, mật khẩu cấu hình rclone) cùng chỗ với `APP_KEY` và `BACKUP_ARCHIVE_PASSWORD` (Bước 6). **Không bao giờ** đặt chúng trên máy chủ web, không gửi qua email, Zalo hay Drive. **Mất mật khẩu `crypt` là mất bản ở văn phòng** | — |
+| 7 | **Đặt script và lịch**: `office-pull.sh` mỗi đêm 01:00, `office-pull.sh --check-monthly` ngày 1 hằng tháng (mục D.7) | `document_office_copy` |
+| 8 | **Người cài đặt** điền `DOCUMENT_OFFICE_RECEIPTS_PATH` trên máy chủ web, `php artisan optimize`, chạy `php artisan vkcrm:storage:office-receipts` (mục D.8) | `document_office_copy` |
+| 9 | **Kiểm**: trang "Kho tài liệu" hiện biên nhận gần nhất, và số "media trên kho chưa có biên nhận" giảm dần qua các đêm. Mở thư mục bản sao bằng Explorer: tên và nội dung tệp không đọc được | — |
+| 10 | **Mỗi tháng**: xem `office-pull.log` của lượt `--check-monthly`. Có tệp lệch thì báo người cài đặt (có thể có tệp bị sửa trên Kho) | `document_office_copy` |
+
+### D.5 — Ba remote rclone
+
+Chạy `rclone config` dưới tài khoản `vkcrm-saoluu` (không dưới tài khoản của ai khác: cấu hình
+rclone nằm trong thư mục nhà của tài khoản chạy nó):
+
+- **`vkkho`** — Kho, **chỉ đọc**:
+  - `Storage>`: Google Drive; `scope>`: **`drive.readonly`**. Đổi vai trên Drive cũng không làm token
+    này ghi được; `office-pull.sh` từ chối chạy khi scope khác `drive.readonly`;
+  - đăng nhập bằng `van-phong-kho@…` (Bước 3b nếu máy không có trình duyệt);
+  - `Configure this as a Shared Drive?` → `y`, chọn Shared Drive kho: đó là `team_drive`;
+  - `root_folder_id`: **đúng** giá trị `GOOGLE_DRIVE_ROOT_FOLDER_ID` trong `.env` của máy chủ web.
+    `team_drive` cũng phải bằng `GOOGLE_DRIVE_SHARED_DRIVE_ID`. CRM từ chối cả biên nhận khi hai mã
+    này khác cấu hình của nó: script đọc chúng từ `rclone config show vkkho`, không gõ tay.
+- **`vkbackups`** — "VK-CRM Backups", để gửi biên nhận và kéo archive CSDL: Google Drive, `scope>`
+  `drive`, đăng nhập bằng `van-phong-kho@…`, Shared Drive "VK-CRM Backups". Vai Người đóng góp chỉ
+  cho thêm tệp, không cho vào thùng rác.
+- **`vkoffice`** — bản sao trên ổ của máy văn phòng, **mã hoá**:
+  - `Storage>`: `crypt`; `remote>`: một thư mục cục bộ, ví dụ `D:\VKCRM-saoluu\kho` (Windows) hay
+    `/srv/vkcrm-saoluu/kho` (Linux);
+  - `filename_encryption>`: `standard`; `directory_name_encryption>`: `true`;
+  - mật khẩu và salt: chọn `g` để rclone sinh, độ dài 256 bit; **chép cả hai** vào chỗ cất ở bước 6.
+
+Rồi đặt mật khẩu cho chính tệp cấu hình rclone: `rclone config` → `s` (Set configuration password)
+→ `a`. Lịch chạy không gõ được mật khẩu, nên rclone hỏi nó qua `RCLONE_PASSWORD_COMMAND`: một lệnh in
+mật khẩu từ kho mật khẩu của hệ điều hành (Windows Credential Manager, ví dụ qua mô-đun PowerShell
+`CredentialManager`; hoặc `secret-tool` trên Linux). Mẫu ở `tools/backup/office-pull.conf.example`.
+
+Kiểm ba remote: `rclone lsd vkkho:` (thấy các thư mục tháng `YYYY-MM`), `rclone lsd vkbackups:` (thấy
+`VK-CRM-backups`), `rclone lsd vkoffice:` (trống lúc đầu, không báo lỗi).
+
+### D.7 — Script và lịch
+
+1. Chép `tools/backup/office-pull.sh` và `tools/backup/office-pull.conf.example` từ mã nguồn sang
+   máy văn phòng, ví dụ `D:\VKCRM-saoluu\` (hoặc `/srv/vkcrm-saoluu/`). Đổi tên tệp mẫu thành
+   `office-pull.conf` cạnh script và sửa: đường dẫn `rclone`, `ENV_FOLDER` (thư mục của môi trường
+   trên "VK-CRM Backups", theo `BACKUP_NAME`: `"VK-CRM production"` → `vk-crm-production`),
+   `ARCHIVE_DIR`, `STATE_DIR`, `RCLONE_PASSWORD_COMMAND`. Tệp này không chứa mật khẩu nào.
+2. Chạy thử một lần bằng tay dưới `vkcrm-saoluu`: `bash office-pull.sh; echo $?`, rồi đọc
+   `office-pull.log` cạnh script. Lượt đầu chép toàn bộ Kho, có thể mất nhiều giờ, hay nhiều đêm; khoá
+   của script (thư mục `office-pull.lock` trong `STATE_DIR`) ngăn hai lượt chồng nhau, và lượt sau
+   tiếp từ chỗ lượt trước dừng.
+3. Lịch:
+   - **Windows** (Task Scheduler), hai tác vụ, "Run whether user is logged on or not", dưới
+     `vkcrm-saoluu`. Chương trình `C:\Program Files\Git\bin\bash.exe`; đối số
+     `-lc "/d/VKCRM-saoluu/office-pull.sh"` mỗi ngày lúc 01:00, và
+     `-lc "/d/VKCRM-saoluu/office-pull.sh --check-monthly"` ngày 1 hằng tháng lúc 04:00.
+   - **Linux** (crontab của `vkcrm-saoluu`):
+     ```
+     0 1 * * * /srv/vkcrm-saoluu/office-pull.sh
+     0 4 1 * * /srv/vkcrm-saoluu/office-pull.sh --check-monthly
+     ```
+
+Mỗi đêm script:
+
+1. chép Kho về `vkoffice:kho` với `--immutable`: tệp đã có ở văn phòng mà bị đổi trên Kho thì báo
+   lỗi, **không ghi đè** — đó là tín hiệu giả mạo, và nó đi tới CRM qua số lỗi của biên nhận;
+2. lấy danh sách tệp trên Kho **chưa có biên nhận** (trừ đi `receipted.txt` trong `STATE_DIR`);
+3. `rclone cryptcheck --one-way` đúng các tệp đó: so nội dung đã mã hoá ở văn phòng với tệp trên Kho,
+   từng tệp;
+4. dựng biên nhận `receipt-<giờ UTC>.json` cho đúng các tệp khớp (tên mờ, md5 của Drive, cỡ; mã
+   Shared Drive và thư mục gốc đọc từ cấu hình `vkkho`; giờ chạy; số lỗi), gửi lên
+   `vkbackups:VK-CRM-backups/office-receipts/<ENV_FOLDER>/`, và **chỉ sau khi gửi được** mới ghi các
+   tệp đó vào `receipted.txt`. Đêm không có tệp mới vẫn gửi một biên nhận rỗng, để CRM biết máy văn
+   phòng còn sống;
+5. kéo các archive CSDL (đã mã hoá AES-256) về `ARCHIVE_DIR`, cũng với `--immutable`.
+
+Script **không bao giờ** xoá, di chuyển hay đồng bộ gì, ở Kho, ở "VK-CRM Backups" hay ở văn phòng:
+bản ở văn phòng chỉ được thêm vào. Có test cấu trúc giữ điều đó
+(`tests/Feature/Storage/OfficeCopyStructureTest.php`). Mã thoát: 0 không lỗi; 1 có lỗi (xem nhật
+ký); 2 cấu hình sai; 75 một lượt khác đang chạy.
+
+CRM đọc biên nhận lúc 07:00 hằng ngày (`vkcrm:storage:office-receipts`, qua remote `gdrive` của
+Bước 3) và chỉ đánh dấu một tệp "đã có bản ở văn phòng" khi tên, thế hệ, md5 và cỡ khớp đúng một
+dòng chỉ mục SỐNG của Kho đang cấu hình. Biên nhận của Kho khác, sai khuôn, quá 32 MiB hay ghi giờ ở
+tương lai thì bị từ chối cả tệp, và lý do hiện ở dòng `document_office_copy` cùng thư cảnh báo kho.
+Biên nhận báo lỗi phía văn phòng thì các tệp khớp vẫn được ghi nhận, và câu "máy văn phòng báo N lỗi"
+hiện ở cùng chỗ. Lỗi `rclone` phía máy chủ đi theo đúng đường thư báo lỗi sao lưu
+(`rclone:office-receipts`).
+
+### D.8 — Trên máy chủ web
+
+```
+DOCUMENT_OFFICE_RECEIPTS_PATH=gdrive:VK-CRM-backups/office-receipts/vk-crm-production
+```
+
+(`gdrive` là remote của Bước 3; phần cuối là `ENV_FOLDER` của máy văn phòng.) Rồi
+`php artisan optimize` và `php artisan vkcrm:storage:office-receipts`: lệnh in số biên nhận đã nhập
+và số tệp được đánh dấu. Trống biến này thì lệnh và mục lịch không làm gì, và vùng đệm không bao giờ
+được dọn.
+
+### Những điều cần biết
+
+- **Biên nhận là lời của máy văn phòng.** Một máy văn phòng bị chiếm có thể gửi biên nhận giả và làm
+  vùng đệm bị dọn sớm. Kho vẫn còn bản (CRM không bao giờ xoá gì trên Kho vì một biên nhận), và lượt
+  `--check-monthly` cùng `vkcrm:storage:verify` là lưới. Giữ máy văn phòng như giữ két sắt.
+- **Archive ở văn phòng không tự hết.** Script chỉ chép thêm, nên `ARCHIVE_DIR` giữ mọi archive đã
+  từng có. Người giữ máy văn phòng tự xoá bằng tay các archive cũ, giữ ít nhất 30 bản mới nhất. Khi
+  huỷ tệp của hồ sơ hết hạn lưu (`docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`, "Huỷ tệp của hồ sơ đã quá hạn
+  lưu"), archive cũ ở văn phòng cũng là một nơi còn tệp.
+- **Biên nhận tích luỹ** trên "VK-CRM Backups" (một tệp nhỏ mỗi đêm, khoảng 365 tệp mỗi năm). CRM chỉ
+  đọc biên nhận mới hơn biên nhận đã nhập gần nhất. Người quản lý "VK-CRM Backups" có thể xoá bằng
+  tay các biên nhận cũ hơn một năm.
+- **Đừng xoá `receipted.txt`** trừ khi được dặn (diễn tập "mất kho", bước 6). Mất nó thì mọi tệp được
+  kiểm và ghi biên nhận lại: an toàn, nhưng tốn một lượt tải lại toàn bộ.
+- **Máy văn phòng hỏng**: dựng máy mới theo phụ lục này, với **cùng** mật khẩu `crypt` và salt nếu
+  còn ổ cũ; ổ mất thì một remote `crypt` mới và một `receipted.txt` trống — lượt đầu kéo lại toàn bộ
+  Kho.

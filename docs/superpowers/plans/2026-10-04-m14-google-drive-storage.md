@@ -1254,7 +1254,7 @@ Commit: `feat: M14 Task 5 — StorageReadiness chạy ở mọi môi trường, 
 
 Commit: `feat: M14 Task 6 — bật kho có mốc và cổng pháp lý, chuyển tệp cũ (chạy thử, chạy tiếp, giữ bản cục bộ 30 ngày), kiểm checksum, quay lui chỉ khi đã tắt kho và không tự đảo ngược, dựng lại chỉ mục cho Shared Drive mới, báo tệp mồ côi và trùng tên, liệt kê tệp cần huỷ`.
 
-### - [ ] Task 7 — Bản ở máy chủ văn phòng: kéo về có mã hoá, biên nhận từng tệp, CRM nhập biên nhận (R10)
+### - [x] Task 7 — Bản ở máy chủ văn phòng: kéo về có mã hoá, biên nhận từng tệp, CRM nhập biên nhận (R10)
 
 **Files:**
 - `app/Actions/Storage/ImportOfficeReceipts.php`, `app/Support/Storage/OfficeReceipt.php` (đọc và kiểm khuôn);
@@ -1266,7 +1266,7 @@ Commit: `feat: M14 Task 6 — bật kho có mốc và cổng pháp lý, chuyển
 - `docs/SAO-LUU-KHOI-PHUC.md`;
 - tests.
 
-- [ ] `ImportOfficeReceipts`:
+- [x] `ImportOfficeReceipts`:
   1. `rclone lsjson <office.receipts_path>` (thời gian chờ 120 giây, không dùng mặc định 1800 của sao lưu); lấy các tệp `receipt-*.json` có tên lớn hơn `storage.office_receipt_cursor`, theo thứ tự tên;
   2. với từng tệp: bỏ khi lớn hơn `office.receipt_max_bytes`; `rclone cat`; `OfficeReceipt::parse()` kiểm khuôn:
      - `format = 1`;
@@ -1285,8 +1285,8 @@ Commit: `feat: M14 Task 6 — bật kho có mốc và cổng pháp lý, chuyển
   7. lỗi `rclone` → `BackupHasFailed('rclone:office-receipts')`, cùng đường thư của M8a.
 
   Chưa cấu hình → không làm gì, không ném lỗi.
-- [ ] Mục lịch `storage.office-receipts` 07:00 hằng ngày, `withoutOverlapping(60)`. Lệnh tay `vkcrm:storage:office-receipts` gọi cùng Action, dưới cùng khoá `Cache::lock('storage-office-receipts', 600)`.
-- [ ] `office-pull.sh`, chạy trên máy văn phòng (Linux cron, hoặc Windows Task Scheduler qua Git Bash):
+- [x] Mục lịch `storage.office-receipts` 07:00 hằng ngày, `withoutOverlapping(60)`. Lệnh tay `vkcrm:storage:office-receipts` gọi cùng Action, dưới cùng khoá `Cache::lock('storage-office-receipts', 600)`.
+- [x] `office-pull.sh`, chạy trên máy văn phòng (Linux cron, hoặc Windows Task Scheduler qua Git Bash):
   - khoá chống chạy chồng bằng `mkdir` (có trên mọi nền), ghi PID; khoá của PID đã chết thì gỡ;
   - `rclone copy vkkho: vkoffice:kho --immutable`;
   - danh sách chưa có biên nhận = `rclone lsf -R --files-only vkkho:` trừ `receipted.txt` (`comm -23` trên danh sách đã `sort`);
@@ -1299,14 +1299,14 @@ Commit: `feat: M14 Task 6 — bật kho có mốc và cổng pháp lý, chuyển
   - **không bao giờ** `sync`, `move`, `delete`, `deletefile`, `purge`, `rmdir`, `cleanup`.
 
   Mã thoát khác 0 khi có lỗi; nhật ký ở một tệp cạnh script.
-- [ ] `restore-drill.sh` thêm bước: sau khi khôi phục CSDL, `vkcrm:storage:verify --sample=20`.
-- [ ] Tài liệu thêm diễn tập "mất kho" trên Shared Drive thử:
+- [x] `restore-drill.sh` thêm bước: sau khi khôi phục CSDL, `vkcrm:storage:verify --sample=20`.
+- [x] Tài liệu thêm diễn tập "mất kho" trên Shared Drive thử:
   1. `rclone copy vkoffice:kho <kho-mới>:` (crypt giải mã tên và nội dung);
   2. đặt `GOOGLE_DRIVE_SHARED_DRIVE_ID`/`ROOT_FOLDER_ID` mới, `optimize`;
   3. `vkcrm:storage:reindex --drive=<mới> --root=<mới>`;
   4. `verify --all`;
   5. một tải lên mới đi vào thư mục tháng của gốc mới.
-- [ ] `docs/SAO-LUU-KHOI-PHUC.md`:
+- [x] `docs/SAO-LUU-KHOI-PHUC.md`:
   - bảng "hệ thống sao lưu những gì" viết lại cho chế độ kho;
   - nói thẳng: thùng rác và phiên bản Drive không phải sao lưu; archive đêm chỉ còn vùng đệm khi đã có biên nhận; tệp trên Kho không mã hoá phía văn phòng;
   - mục "Đóng gói bàn giao M7 — có sao lưu lại không?" cập nhật: gói nằm trên kho và ở văn phòng như mọi tệp;

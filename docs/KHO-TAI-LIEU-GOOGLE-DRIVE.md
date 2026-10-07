@@ -134,7 +134,9 @@ chủ thể dữ liệu yêu cầu xoá theo Luật 91/2025, việc huỷ tệp 
 3. **Trên máy văn phòng** (người giữ máy văn phòng): `rclone deletefile` cho từng tệp trong remote `crypt`.
 4. **Trên máy chủ web** (người vận hành): xoá các thư mục vùng đệm trong danh sách.
 
-Archive sao lưu CSDL cũ (đã mã hoá AES-256) tự hết dần theo vòng giữ 30 bản. Biên bản huỷ ghi đủ bốn nơi, người
+Archive sao lưu CSDL cũ (đã mã hoá AES-256) trên "VK-CRM Backups" tự hết dần theo vòng giữ 30 bản; bản
+kéo về máy văn phòng (`ARCHIVE_DIR` của `office-pull.sh`) thì không tự hết — người giữ máy văn phòng xoá tay các
+archive cũ (Phụ lục D của `docs/SAO-LUU-KHOI-PHUC.md`, "Những điều cần biết"). Biên bản huỷ ghi đủ bốn nơi, người
 làm, ngày làm. Ai làm từng bước và biên bản lưu ở đâu là câu hỏi 10 của kế hoạch M14 — **PENDING OWNER**.
 
 Thùng rác 30 ngày và lịch sử phiên bản của Drive **không** phải sao lưu: bản thứ hai của mọi tệp là bản mã hoá ở

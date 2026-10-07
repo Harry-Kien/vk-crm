@@ -1,0 +1,30 @@
+# Mẫu cấu hình cho tools/backup/office-pull.sh (M14 Task 7, Phụ lục D của docs/SAO-LUU-KHOI-PHUC.md).
+# Chép thành office-pull.conf cạnh script trên MÁY VĂN PHÒNG, dưới tài khoản vkcrm-saoluu, rồi sửa.
+# Tệp này KHÔNG chứa mật khẩu nào: mật khẩu của tệp cấu hình rclone đến từ kho mật khẩu của hệ điều
+# hành qua RCLONE_PASSWORD_COMMAND (dòng cuối).
+
+# Đường dẫn đầy đủ tới rclone (Task Scheduler/cron không đọc PATH của phiên đăng nhập).
+RCLONE="/c/Users/vkcrm-saoluu/bin/rclone.exe"
+
+# Tên ba remote đã tạo bằng `rclone config` (Phụ lục D, bước 5). Giữ nguyên nếu đặt đúng tên.
+KHO_REMOTE="vkkho"
+OFFICE_DEST="vkoffice:kho"
+BACKUPS_REMOTE="vkbackups"
+
+# Thư mục sao lưu trên Shared Drive "VK-CRM Backups" (BACKUP_RCLONE_REMOTE của máy chủ là
+# gdrive:VK-CRM-backups) và thư mục của môi trường trong đó (theo BACKUP_NAME: "VK-CRM production"
+# → vk-crm-production). Biên nhận đi vào <BACKUPS_FOLDER>/office-receipts/<ENV_FOLDER>/, nên
+# DOCUMENT_OFFICE_RECEIPTS_PATH trên máy chủ là gdrive:VK-CRM-backups/office-receipts/vk-crm-production.
+BACKUPS_FOLDER="VK-CRM-backups"
+ENV_FOLDER="vk-crm-production"
+
+# Thư mục cục bộ nhận các archive CSDL (đã mã hoá AES-256). Chỉ tài khoản vkcrm-saoluu đọc được.
+ARCHIVE_DIR="/d/VKCRM-saoluu/archives"
+
+# Trạng thái của script (receipted.txt, khoá chạy chồng, số lỗi mang sang). Không xoá receipted.txt:
+# mất nó thì mọi tệp được kiểm và ghi biên nhận lại (an toàn, chỉ tốn băng thông).
+STATE_DIR="/d/VKCRM-saoluu/office-pull-state"
+
+# Lệnh in mật khẩu của tệp cấu hình rclone từ kho mật khẩu của hệ điều hành (ví dụ Windows Credential
+# Manager qua PowerShell, hoặc `secret-tool lookup` trên Linux). Xem Phụ lục D, bước 6.
+export RCLONE_PASSWORD_COMMAND="powershell -NoProfile -Command \"(Get-StoredCredential -Target vkcrm-rclone).GetNetworkCredential().Password\""
