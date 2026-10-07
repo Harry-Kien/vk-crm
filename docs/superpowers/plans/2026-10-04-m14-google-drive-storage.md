@@ -984,7 +984,7 @@ final class PushDocumentFileToRemote {
 
 Commit: `feat: M14 Task 3 — ghi qua vùng đệm: job đẩy tệp lên kho sau commit trên hàng đợi storage, chỉ cho tệp tạo sau mốc bật kho, khoá đẩy có hạn, kiểm md5 rồi đổi đĩa có điều kiện, dọn bản cục bộ chỉ khi media ở kho và có biên nhận văn phòng khớp md5`.
 
-### - [ ] Task 4 — Đọc qua CRM: route tải, gói bàn giao, xoá, khi kho sập (R3, R8, R9, R12)
+### - [x] Task 4 — Đọc qua CRM: route tải, gói bàn giao, xoá, khi kho sập (R3, R8, R9, R12)
 
 **Files:**
 - `app/Http/Controllers/DocumentDownloadController.php`;
@@ -1003,18 +1003,18 @@ final class MaterialiseStoredFile { public function handle(Media $media, string 
 final class FreeSpace { public function bytes(string $path): ?int; } // null khi disk_free_space bị tắt hoặc trả false
 ```
 
-- [ ] Controller theo thứ tự R3.
+- [x] Controller theo thứ tự R3.
   - Nhánh `HEAD` trả header từ `media`, không mở luồng. `StoredFileMissing` → 404 + log `critical`.
   - Giữ nguyên tên tải (`staffDownloadName`, `portalDownloadName`) và các header.
   - Một helper `Content-Disposition` dùng chung, có bản dự phòng `Str::ascii` rồi bỏ `%`.
-- [ ] Trang 503 render cho **cả** request của panel admin lẫn cổng khách, có `Retry-After: 120`. Câu chữ từ `lang/vi/storage.php`; hotline qua `OfficeProfile`.
-- [ ] Gói bàn giao theo R12:
+- [x] Trang 503 render cho **cả** request của panel admin lẫn cổng khách, có `Retry-After: 120`. Câu chữ từ `lang/vi/storage.php`; hotline qua `OfficeProfile`.
+- [x] Gói bàn giao theo R12:
   - hai lý do mới trong `HandoverPackageFailed`: `insufficientWorkSpace`, `storageUnavailable`, câu tiếng Việt cho luật sư;
   - xoá `src/` trước `store()`;
   - đo chỗ trống qua `FreeSpace`, bỏ qua khi hàm bị tắt;
   - năm số thời gian của bảng R12, sửa docblock cả bốn tệp.
-- [ ] Một trợ giúp test `pushToRemote(Media $media)` gọi **Action thật** của Task 3 trên đĩa giả, để các bộ test hiện có chạy được với media đã ở trên kho.
-- [ ] Một trợ giúp test `bindRealDriveAdapter(array $indexRows)`: adapter thật, `Http::fake()` + `Http::preventStrayRequests()`, `DriveTokenProvider` giả không gọi HTTP.
+- [x] Một trợ giúp test `pushToRemote(Media $media)` gọi **Action thật** của Task 3 trên đĩa giả, để các bộ test hiện có chạy được với media đã ở trên kho.
+- [x] Một trợ giúp test `bindRealDriveAdapter(array $indexRows)`: adapter thật, `Http::fake()` + `Http::preventStrayRequests()`, `DriveTokenProvider` giả không gọi HTTP.
 
 **Test bắt buộc:**
 - **Bộ hồi quy với media trên kho** (dataset `['local', 'remote']`, phần `remote` dùng `pushToRemote()`): `DocumentDownloadTest`, `HandoverPackageDownloadTest`, `RetractedDocumentNoticeTest`, cùng các test nhóm D và cách ly khách của SPEC §11. Danh sách tệp tường minh trong báo cáo.
