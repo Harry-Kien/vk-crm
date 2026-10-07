@@ -5014,7 +5014,7 @@ PENDING OWNER (Task 10).
     phần); case mới trong mọi dataset (payload, deep link theo vai trò, TTL/urgency).
 
 Việc mang sang lúc gộp M7 (`staff.handover_ready`, M7 Task 4 — ĐÃ có trên `main` từ `b2e02d7`, chưa có trên nhánh này;
-ai gộp sau làm):
+ai gộp sau làm) — **ĐÃ LÀM ở vòng sửa cuối (I5, mục "Vòng sửa cuối" dưới), sau khi gộp `main` vào nhánh**:
 1. `App\Enums\PushTopic`: thêm `case StaffHandoverReady = 'staff.handover_ready'`; `panel()` → `admin`; `relatedClass()` →
    `Document::class` (đúng `HandoverPackageReady::relatedRecord()` = tài liệu gói); TTL mặc định 72 giờ, `normal`; `url()`
    → `self::matterTab($matterId, DocumentsRelationManager::class)`; câu ở `lang/vi/push.php` (`alerts.staff.handover_ready`,
@@ -5208,10 +5208,23 @@ gói. PROGRESS không có mục đánh giá chuyển dữ liệu ra nước ngo�
    ngoài của M8. — CHỜ TRẢ LỜI.
 
 **Việc cho controller và cho lần gộp:**
-- **M7 (`staff.handover_ready`)** — chưa nối ở làn này (phán quyết 2); công thức năm bước ở mục Task 9 trên. SPEC §9
-  ghi dòng đó là "mang sang lúc gộp M7"; danh sách kiểm tra máy thật thêm G9 khi nối.
-- **M10** — không nối (phán quyết 1): `staff.intake_unanswered` là việc của M10 nếu muốn đẩy; `staff.matter_reassigned`
-  (M7) chưa ai quyết — mặc định không đẩy, thêm vào test "deliberately never pushed" lúc gộp.
+- **Nhánh đã gộp `origin/main` (`8b0dbf9`) ở vòng sửa cuối** (commit merge `09e65cf`), nên lần gộp nhánh vào `main` không
+  còn xung đột nếu `main` chưa có commit mới. **Nguy cơ gộp đã biết (I6):** bốn `NotifyClientOf*` sửa ở cả hai phía —
+  `main` thêm bước người nhận thứ hai `ResolveClientRecipients::onPortal()` (M7 R4: hết `client_access_until` thì không
+  thư), làn thêm vòng `$mailed->push()` + `SendPushAlert`. Giải xung đột lấy bản làn làm rơi `onPortal()` (thư mang mã
+  hồ sơ và push tới khách đã hết hạn tra cứu); lấy bản `main` làm rơi push im lặng. Bản gộp giữ CẢ HAI (xung đột chỉ ở
+  docblock); `ClientEventPushTest` canh hai chiều: dòng "access expired" của "neither mails nor pushes" (+ vế dương "last
+  day") đỏ khi rơi `onPortal()`, "pushes exactly the accounts it mails" đỏ khi rơi push. Nếu `main` lại sửa một trong
+  bốn tệp trước lần gộp tới: giữ cả hai, chạy lại hai test đó, cả bộ và MariaDB tuần tự.
+- **M7 (`staff.handover_ready`)** — ĐÃ nối ở vòng sửa cuối (I5): nay 9 chủ đề sự kiện (cộng `push.test` của nút
+  "Gửi thử"); SPEC §9 hàng đó, G9 của danh sách kiểm tra máy thật.
+- **Hai thư nhân sự của M7/M10 không đẩy — đề xuất của làn, CHỜ controller chốt:** `staff.matter_reassigned` (M7 — thư
+  tổng hợp mốc hạn khi bàn giao, để đọc trên máy tính; mỗi mốc có thư nhắc và push riêng theo bậc) và
+  `staff.intake_unanswered` (M10 — phán quyết 1 của làn: push cho thư của M10 thuộc M10, qua `PushTopic`; kế hoạch
+  "Ràng buộc toàn cục" nói Task 9 thêm sự kiện M10 "nếu đã có thư" — mâu thuẫn với phán quyết 1, làn theo phán quyết).
+  Cả hai được ghim ở `PushTopicTest` ("deliberately never pushed" và test mới "decides for every mail template whether
+  it is pushed": mọi mẫu thư của `app/Mail` hoặc có chủ đề cùng tên, hoặc nằm trong danh sách cố ý không đẩy). Controller
+  đảo quyết định nào thì thêm case `PushTopic` + lời gọi ở nơi gửi thư + dòng đồng nhất người nhận, và sửa hai test đó.
 - **M8 Task 6** (rà soát §10 toàn hệ thống sau khi mọi làn gộp) phải phủ bề mặt M12: `routes/pwa.php` (manifest,
   `sw.js`, trang ngoại tuyến của hai panel), ba route thiết bị (`POST`/`DELETE …/push/subscriptions`,
   `POST …/push/test`), hai route tải bí danh `/{admin,portal}/documents/{id}/download`, các chỉ thị CSP mới và CSP
@@ -5223,10 +5236,9 @@ gói. PROGRESS không có mục đánh giá chuyển dữ liệu ra nước ngo�
   Bước 1 của `CAI-DAT.md` và tóm tắt của README liệt kê đúng danh sách mới.
 - **Chờ controller chốt (từ các lượt rà soát):** nghe `CurrentDeviceLogout` khi chính chủ đổi mật khẩu ở máy khác
   (Task 6 Minor 2); nút "Gửi lại" của nhật ký thư cũng đẩy lại cho khách và nhân sự (Task 8 Minor 3, Task 9 Minor 3);
-  `REQ-2` không throttle nên N câu hỏi tiếp làm máy rung N lần (Task 9 Minor 2); `PushAlert::shouldSend()` không hỏi
-  lại `is_active` trong cửa sổ hàng đợi (Task 7 Minor 1, Task 8 Minor 2); trang 429/500 mặc định trong cửa sổ app
-  (Task 3 vòng sửa, Minor 1); câu `portal.inactive` không hiện trên đường Livewire (có từ M5); câu mời của trang thiết
-  bị nhân sự chưa nhắc khoản thu quá hạn (Task 9 Minor 1).
+  trang 429/500 mặc định trong cửa sổ app (Task 3 vòng sửa, Minor 1); câu `portal.inactive` không hiện trên đường
+  Livewire (có từ M5). Ba mục cũ đã sửa ở vòng sửa cuối: `REQ-2` gom push theo luồng (I7), `PushAlert::shouldSend()`
+  hỏi lại người nhận (I2), câu mời của trang thiết bị nhân sự (I3).
 - **Hướng dẫn cài app cho khách** nằm ở cuối `docs/QUY-TRINH.md`. Kho mã là riêng tư nên khách không mở được đường
   dẫn: văn phòng chép phần chữ và ảnh vào thư/tin nhắn hoặc in ra. Một trang hướng dẫn công khai ngay trên cổng là
   việc có thể làm sau, không thuộc kế hoạch M12.
@@ -5244,3 +5256,49 @@ gói. PROGRESS không có mục đánh giá chuyển dữ liệu ra nước ngo�
   `jmt17.google.com` của `PushDeviceRegistrationTest` đỏ (422) trước khi sửa `push_hosts`. 21/22 đột biến đỏ đúng ca
   (một đột biến nhắm sai khoá dịch, sống, được thay bằng đột biến đúng khoá — đỏ). Nhật ký ở
   `.superpowers/sdd/m12/probe/t10/` (ngoài repo).
+
+### Vòng sửa cuối (rà soát toàn nhánh, vòng sửa 1 — 2026-10-07)
+
+Gốc vòng sửa: `c5cb845`. Rà soát toàn nhánh (`47ee8e3..c5cb845`) báo 0 Critical, 7 Important (I1–I7), 14 Minor. Vòng
+này sửa đủ bảy mục Important; Minor để nguyên (danh sách ở sổ làn `.superpowers/sdd/m12/progress.md`).
+
+- **Gộp `origin/main` vào nhánh** (commit merge `09e65cf`, `main` = `8b0dbf9`: M7, M9 phần còn lại, M10, việc sau gộp
+  fu2/fu3). 19 tệp xung đột; bốn `NotifyClientOf*` chỉ xung đột ở docblock, mã giữ CẢ `onPortal()` của `main` LẪN
+  `$mailed->push()` + `SendPushAlert` của làn (I6). `composer.lock` dựng lại từ lock của `main` cộng đúng tám gói Web Push
+  (`composer update` theo tên gói, không `-W`: không gói nào của `main` đổi phiên bản). Cả bộ trên cây vừa gộp (trước
+  mọi sửa): 5760 passed, **2 failed** — hai lỗi ngữ nghĩa của lần gộp, sửa trong vòng này:
+  `RenderOfflinePage` đọc hotline từ cấu hình (`OfficeProfileTest` của M7 Task 10 cấm; nay qua `OfficeProfile`, hotline
+  trống thì trang bỏ dòng gọi), và ca "chỉ đúng tên miền" của `ManifestTest` dựng lại ứng dụng với SQLite trong bộ nhớ
+  chưa có bảng mà trang 404 của `main` đọc (`settings`) — test chạy `migrate` sau `refreshApplication()`.
+- **I1** — trang ngoại tuyến (`lang/vi/pwa.php` `offline.body`): "Ứng dụng không giữ bản sao hồ sơ để xem khi mất
+  mạng", bỏ "Hồ sơ không được lưu trên máy" và "Điện thoại…"; SPEC §15 nói cùng câu với QUY-TRINH (chỉ tài liệu chủ
+  động tải về nằm lại trong thư mục tải xuống, đăng xuất không xoá). Test: `ServiceWorkerTest` (HTTP, hai panel),
+  `AcceptanceDocsTest` (§15).
+- **I2** — `PushAlert::shouldSend()` hỏi lại người nhận LÚC GỬI: tài khoản cổng qua
+  `ResolveClientRecipients::eligibleQuery()`, nhân sự `is_active` và chưa xoá mềm (model mà job khôi phục được nạp không
+  qua global scope, nên tài khoản xoá mềm vẫn tới đây). Test đường thật (hàng đợi `database`, worker thật, máy chủ push
+  giả): `ClientEventPushTest` (khoá, xoá mềm, gỡ `activated_at`, xoá khách hàng — trong lúc `PushAlert` chờ hàng `push`),
+  `StaffEventPushTest` (nhân sự bị vô hiệu, xoá mềm).
+- **I3** — câu mời trang "Thông báo trên điện thoại" của app nội bộ nêu đủ năm chủ đề nhân sự (gồm "khoản thu quá hạn",
+  "gói bàn giao") và "tuỳ việc anh/chị phụ trách"; `PushDevicesPageTest` ghim bảng chủ đề ↔ cụm từ phủ đủ mọi chủ đề
+  của panel `admin`.
+- **I4** — SPEC §13 (đính chính M12): bỏ "M12 chạy cuối, sau M9, M10 và M11"; nay nói nhánh cắt trước M10/M11, đã
+  gộp lại `main` trước khi giao, hai thư nhân sự không đẩy, M11 chưa gộp. `AcceptanceDocsTest` ghim.
+- **I5** — `staff.handover_ready` nối theo công thức năm bước của Task 9 (case `PushTopic::StaffHandoverReady`, tab
+  "Tài liệu", câu chung không mã hồ sơ; `SendHandoverPackageReady` đẩy cho `$mailed` sau vòng thư, trước lần ném lại;
+  `PushStructureTest`; `StaffEventPushTest` đường `handover` qua nút "Sinh gói bàn giao" + worker THẬT của hàng
+  `handover`, vụ thường (người bấm: quản lý) và `restricted` (người bấm: admin), cùng lượt thử lại; `PushTopicTest`;
+  G9; ô kế hoạch đã tick). `staff.matter_reassigned` và `staff.intake_unanswered`: KHÔNG đẩy (đề xuất của làn, chờ
+  controller chốt — mục "Việc cho controller" trên), ghim ở "deliberately never pushed" và test mới "decides for every
+  mail template whether it is pushed" (mọi mẫu thư của `app/Mail` thuộc đúng một bên).
+- **I6** — ghi ở "Việc cho controller và cho lần gộp"; `ClientEventPushTest` thêm dòng "access expired" (listener thư
+  chạy trễ qua hàng đợi sau khi hạn tra cứu đã qua, tài khoản còn hoạt động nhờ vụ khác) vào "neither mails nor
+  pushes", cùng vế dương "still mails and pushes on the last day".
+- **I7** — `ReplyToClientRequest`: push của câu hỏi tiếp (`REQ-2`) gom theo luồng, khung
+  `FOLLOW_UP_PUSH_QUIET_MINUTES` = 10 phút trượt theo lời liền trước (lời của văn phòng thì luôn đẩy; lời mở luồng tính
+  là lời của khách); thông báo trong hệ thống vẫn đi mỗi lần. Chọn gom thay vì RateLimiter ở `submitReply`: không chặn
+  khách gửi câu hỏi, không trạng thái mới (đọc từ chính các dòng của luồng). SPEC §9 và G6 nói đúng hành vi này.
+
+Số đo: RED trước khi sửa 20 ca (cộng `PushTopicTest` không nạp được dataset vì thiếu case); 14/14 đột biến đỏ đúng
+ca; cả bộ SQLite (`test --parallel --processes=2`) **5790 passed**, 33 skipped, 1 risky, **0 failed** (166407 khẳng định, 3555 s; trên cây vừa gộp trước khi sửa: 5760 passed, 2 failed); MariaDB tuần tự trên các tệp đã chạm (`tests/Feature/Push`, `tests/Feature/Pwa`, `OfficeProfileTest`, `SendHandoverPackageReadyTest`, `MailTemplateRegistryTest`, bốn tệp thư khách, hai `ResendOutboundMessageTest`, `ActivityLogSpec106Test`, `PreflightCommandTest`, `EnvExampleTest`, `MyRequestsTest`) **759 passed**, 1 risky, 0 failed (771 s); `pint --test` PASS. Nhật ký:
+`.superpowers/sdd/m12/probe/finalfix1/` (ngoài repo).

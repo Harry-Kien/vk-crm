@@ -7,7 +7,8 @@
      - mọi đường dẫn là tuyệt đối (`asset()`, `$startUrl`), không tương đối với URL đang mở;
      - chỉ style nội tuyến, có giá trị dự phòng cho mọi biến màu: trang đứng ngoài Filament và
        không có bước dựng CSS (CLAUDE.md), cùng khuôn `resources/views/errors/403.blade.php`;
-     - hotline dạng `tel:` (chỉ chữ số và `+`) — đường đi tiếp không cần mạng dữ liệu.
+     - hotline dạng `tel:` (chỉ chữ số và `+`) — đường đi tiếp không cần mạng dữ liệu; văn phòng không
+       có hotline (trống ở trang "Thông tin văn phòng" lẫn cấu hình) thì bỏ hẳn dòng gọi.
     "Thử lại" trỏ về `start_url` của app (lý do ở docblock Action).
 --}}
 @php
@@ -36,13 +37,15 @@
             </a>
         </p>
 
-        <p style="margin-top:1.25rem;margin-bottom:0.25rem;color:color-mix(in srgb, var(--gray-500, #6b7280) 95%, transparent);">
-            {{ __('pwa.offline.call_lead') }}
-        </p>
+        @if ($hotline !== null)
+            <p style="margin-top:1.25rem;margin-bottom:0.25rem;color:color-mix(in srgb, var(--gray-500, #6b7280) 95%, transparent);">
+                {{ __('pwa.offline.call_lead') }}
+            </p>
 
-        <a href="tel:{{ $tel }}" style="{{ $tap }}border:1px solid color-mix(in srgb, var(--gray-500, #6b7280) 40%, transparent);color:var(--primary-600, {{ config('vkcrm.brand.colors.navy') }});">
-            {{ __('pwa.offline.call', ['hotline' => $hotline]) }}
-        </a>
+            <a href="tel:{{ $tel }}" style="{{ $tap }}border:1px solid color-mix(in srgb, var(--gray-500, #6b7280) 40%, transparent);color:var(--primary-600, {{ config('vkcrm.brand.colors.navy') }});">
+                {{ __('pwa.offline.call', ['hotline' => $hotline]) }}
+            </a>
+        @endif
     </main>
 </body>
 </html>

@@ -21,7 +21,10 @@ return [
     ],
     'offline' => [
         'heading' => 'Chưa có kết nối mạng',
-        'body' => 'Điện thoại đang không kết nối được Internet nên chưa mở được trang này. Hồ sơ không được lưu trên máy: khi có mạng trở lại, mọi thông tin hiện ra như bình thường.',
+        // Vòng sửa cuối I1: không hứa "hồ sơ không được lưu trên máy" — tài liệu khách chủ động tải về
+        // nằm lại trong thư mục tải xuống (QUY-TRINH, "Điều nên biết"); không nói "Điện thoại": trang
+        // này cũng hiện trên máy tính đã cài app.
+        'body' => 'Máy đang không kết nối được Internet nên chưa mở được trang này. Ứng dụng không giữ bản sao hồ sơ để xem khi mất mạng: khi có mạng trở lại, mọi thông tin hiện ra như bình thường.',
         'retry' => 'Thử lại',
         'call_lead' => 'Cần việc gấp? Gọi văn phòng:',
         'call' => 'Gọi :hotline',

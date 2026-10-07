@@ -11,7 +11,9 @@ use App\Filament\Admin\Resources\Matters\RelationManagers\BillingRelationManager
 use App\Filament\Admin\Resources\Matters\RelationManagers\ChecklistRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ClientRequestsRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\DeadlinesRelationManager;
+use App\Filament\Admin\Resources\Matters\RelationManagers\DocumentsRelationManager;
 use App\Filament\Portal\Pages\PushDevices as PortalPushDevices;
+use App\Mail\BrandedMailable;
 use App\Models\Client;
 use App\Models\ClientRequest;
 use App\Models\ClientRequestReply;
@@ -30,7 +32,9 @@ use App\Support\Pwa\AppIcons;
 use App\Support\Pwa\PwaPanels;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Str;
 use Tests\Support\FakePushServer;
 use Tests\Support\WebPushTestKeys;
 
@@ -142,6 +146,8 @@ function pushTopicRelated(PushTopic $topic, Matter $matter): ?Model
                 'amount' => (int) $m['số tiền'],
                 'due_date' => today()->subDays(3)->toDateString(),
             ]),
+        // Vòng sửa cuối I5 (M7 Task 4): tài liệu gói bàn giao — `HandoverPackageReady::relatedRecord()`.
+        PushTopic::StaffHandoverReady => Document::factory()->create(['matter_id' => $matter->id, 'title' => 'Gói bàn giao hồ sơ '.$matter->code]),
         PushTopic::Test => null,
     };
 }
@@ -266,6 +272,7 @@ it('points every topic at the right page and tab', function (PushTopic $topic, s
     'staff.new_client_document' => [PushTopic::StaffNewClientDocument, 'admin', fn (Matter $m) => "/admin/matters/{$m->id}?relation=".array_search(ChecklistRelationManager::class, MatterResource::getRelations(), true)],
     // Người nhận không mở được trang "Công nợ" (ở đây: tài khoản không vai trò) — tab tiền của vụ.
     'staff.instalment_overdue' => [PushTopic::StaffInstalmentOverdue, 'admin', fn (Matter $m) => "/admin/matters/{$m->id}?relation=".array_search(BillingRelationManager::class, MatterResource::getRelations(), true)],
+    'staff.handover_ready' => [PushTopic::StaffHandoverReady, 'admin', fn (Matter $m) => "/admin/matters/{$m->id}?relation=".array_search(DocumentsRelationManager::class, MatterResource::getRelations(), true)],
     'push.test / portal' => [PushTopic::Test, 'portal', fn () => parse_url(PortalPushDevices::getUrl(panel: 'portal'), PHP_URL_PATH)],
     'push.test / admin' => [PushTopic::Test, 'admin', fn () => parse_url(AdminPushDevices::getUrl(panel: 'admin'), PHP_URL_PATH)],
 ]);
@@ -337,6 +344,7 @@ it('sends deadlines with a 24 hour TTL and high urgency only at one day and over
     'yêu cầu mới' => [PushTopic::StaffNewClientRequest, null, 259200, 'normal'],
     'giấy tờ khách nộp' => [PushTopic::StaffNewClientDocument, null, 259200, 'normal'],
     'đợt thu quá hạn' => [PushTopic::StaffInstalmentOverdue, null, 259200, 'normal'],
+    'gói bàn giao' => [PushTopic::StaffHandoverReady, null, 259200, 'normal'],
     'gửi thử' => [PushTopic::Test, null, 3600, 'normal'],
 ]);
 
@@ -366,6 +374,11 @@ it('words a deadline alert by how pressing it is, without naming the deadline', 
  * Cũng là chỗ dựa của lập luận chống trùng ở `RecordOutboundPush`: `CheckStaleMatters::recentlyMailed()`
  * đọc sổ thư theo `template = staff.stale_matter` mà KHÔNG lọc người nhận — dòng push không bao giờ
  * mang mẫu đó.
+ *
+ * Vòng sửa cuối I5 (sau khi gộp `main` vào nhánh): hai thư nhân sự của M7/M10 cũng cố ý không đẩy —
+ * `staff.matter_reassigned` (thư tổng hợp mốc hạn khi bàn giao vụ: một danh sách để đọc trên máy tính;
+ * mỗi mốc vẫn có thư nhắc và push riêng theo bậc) và `staff.intake_unanswered` (M10; phán quyết 1 của
+ * làn: push cho thư của M10 thuộc M10, làm qua `PushTopic`). Controller chốt hay đảo hai mục này.
  */
 it('has no topic for the mails that are deliberately never pushed', function () {
     expect(array_map(fn (PushTopic $topic): string => $topic->value, PushTopic::cases()))
@@ -373,7 +386,78 @@ it('has no topic for the mails that are deliberately never pushed', function () 
         ->not->toContain('client.activation')
         ->not->toContain('client.missing_documents')
         ->not->toContain('staff.stale_matter')
+        ->not->toContain('staff.matter_reassigned')
+        ->not->toContain('staff.intake_unanswered')
         ->and(array_filter(PushTopic::cases(), fn (PushTopic $topic): bool => str_starts_with($topic->value, 'staff.backup_alert')))->toBe([]);
+});
+
+/**
+ * Mẫu thư mà một `BrandedMailable` dưới `app/Mail` ghi vào nhật ký — đọc từ chính `template()` của lớp
+ * (cùng cách `MailTemplateRegistryTest`, không gõ tay danh sách thứ hai); lớp có hằng `KIND_*` mở ra
+ * thành từng loại.
+ *
+ * @return list<string>
+ */
+function pushTopicMailTemplates(): array
+{
+    $templates = [];
+
+    foreach (File::allFiles(app_path('Mail')) as $file) {
+        $class = 'App\\Mail\\'.Str::of($file->getRelativePathname())->beforeLast('.php')->replace('/', '\\');
+
+        if (! class_exists($class)) {
+            continue;
+        }
+
+        $reflection = new ReflectionClass($class);
+
+        if ($reflection->isAbstract() || ! $reflection->isSubclassOf(BrandedMailable::class)) {
+            continue;
+        }
+
+        $kinds = array_values(array_filter($reflection->getConstants(), fn (string $name): bool => str_starts_with($name, 'KIND_'), ARRAY_FILTER_USE_KEY));
+
+        foreach ($kinds === [] ? [null] : $kinds as $kind) {
+            $mailable = $reflection->newInstanceWithoutConstructor();
+
+            if ($kind !== null) {
+                $mailable->kind = $kind;
+            }
+
+            $templates[] = (fn (): string => $this->template())->call($mailable);
+        }
+    }
+
+    sort($templates);
+
+    return $templates;
+}
+
+/**
+ * Vòng sửa cuối I5: MỌI mẫu thư hoặc có chủ đề đẩy cùng tên (R10: push đi cùng đúng thư đó), hoặc nằm
+ * trong danh sách "cố ý không đẩy" ngay dưới — không mẫu nào lọt giữa hai bên vì một milestone sau thêm
+ * thư mà không ai quyết có đẩy hay không. Lần gộp M7 + M10 vào nhánh là chỗ đã lọt:
+ * `staff.handover_ready` (nay nối), `staff.matter_reassigned` và `staff.intake_unanswered` (cố ý không
+ * đẩy, test ngay trên). Thêm một mẫu thư mới = thêm nó vào một trong hai bên, có chủ ý.
+ *
+ * Mutation probe (báo cáo vòng sửa cuối): bỏ case `StaffHandoverReady` khỏi `PushTopic` → ĐỎ (mẫu
+ * `staff.handover_ready` không thuộc bên nào).
+ */
+it('decides for every mail template whether it is pushed', function () {
+    $neverPushed = [
+        'client.activation',
+        'client.missing_documents',
+        'staff.backup_alert.backup_failed',
+        'staff.backup_alert.cleanup_failed',
+        'staff.backup_alert.unhealthy',
+        'staff.intake_unanswered',
+        'staff.matter_reassigned',
+        'staff.stale_matter',
+    ];
+    $pushed = array_values(array_map(fn (PushTopic $topic): string => $topic->value, array_filter(PushTopic::cases(), fn (PushTopic $topic): bool => $topic !== PushTopic::Test)));
+
+    expect(array_intersect($pushed, $neverPushed))->toBe([])
+        ->and(pushTopicMailTemplates())->toEqualCanonicalizing([...$pushed, ...$neverPushed]);
 });
 
 /** Dòng push hiện trong nhật ký thư dưới nhãn tiếng Việt của mẫu, như dòng thư (`outbound.templates`). */

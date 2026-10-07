@@ -113,6 +113,12 @@ class ReplyToClientRequest
     public const CONTENT_MAX = 5000;
 
     /**
+     * Vòng sửa cuối M12 (I7): khung GOM thông báo đẩy của câu hỏi tiếp — xem
+     * {@see self::followUpRingsAgain()}.
+     */
+    public const FOLLOW_UP_PUSH_QUIET_MINUTES = 10;
+
+    /**
      * **M6 Task 4 (`requests/REQ-2`): thông báo trong hệ thống khi KHÁCH viết thêm.** Sau khi
      * transaction commit — không bao giờ bên trong nó, xem docblock {@see self::
      * notifyHolderOfFollowUp()} cho lý do bắt buộc (luật kiến trúc cấm `->notify(` bên trong
@@ -310,8 +316,13 @@ class ReplyToClientRequest
      * khối `try`; chủ đề yêu cầu mới, bản ghi là LUỒNG (`tag` theo luồng: câu hỏi tiếp thay tin cũ của
      * cùng luồng trên màn hình khoá). Gọi sau commit như vòng thông báo (`SendPushAlert` không ở trong
      * transaction nào). Một `->notify(` ném thì vòng dừng và không ai nhận push — cùng số phận với
-     * những người còn lại của vòng thông báo. Không chống trùng riêng: mỗi câu hỏi tiếp là một sự kiện,
-     * chạy đúng một lần trong request của khách. `SendPushAlert` không ném vì lỗi lúc chạy.
+     * những người còn lại của vòng thông báo. Mỗi câu hỏi tiếp là một sự kiện, chạy đúng một lần trong
+     * request của khách. `SendPushAlert` không ném vì lỗi lúc chạy.
+     *
+     * **Gom push theo luồng (vòng sửa cuối M12, I7).** Từ Task 9 vòng sửa 1 mọi push cùng `tag` đều
+     * rung (`renotify`), nên N câu hỏi tiếp liên tiếp của một tài khoản khách — hay của một tài khoản
+     * bị chiếm, kể cả nửa đêm — là N lần máy luật sư rung. Thông báo trong hệ thống vẫn đi MỖI lần;
+     * push chỉ đi khi {@see self::followUpRingsAgain()} nói đây là đầu một đợt mới.
      */
     private function notifyHolderOfFollowUp(ClientRequestReply $reply): void
     {
@@ -335,11 +346,45 @@ class ReplyToClientRequest
                 $recipient->notify(new ClientRequestFollowUpAlert($reply));
             }
 
-            // M12: push cho ĐÚNG những người vừa nhận thông báo này — xem docblock hàm.
-            app(SendPushAlert::class)->handle($recipients, PushTopic::StaffNewClientRequest, $thread);
+            // M12: push cho ĐÚNG những người vừa nhận thông báo này, trừ khi câu này còn nằm trong một
+            // đợt câu hỏi tiếp đã rung — xem docblock hàm.
+            if ($this->followUpRingsAgain($thread, $reply)) {
+                app(SendPushAlert::class)->handle($recipients, PushTopic::StaffNewClientRequest, $thread);
+            }
         } catch (Throwable $e) {
             report($e);
         }
+    }
+
+    /**
+     * Câu hỏi tiếp `$reply` có mở một ĐỢT mới (đẩy, máy rung) không — vòng sửa cuối M12, I7. Nhìn LỜI
+     * LIỀN TRƯỚC trong luồng: dòng trả lời có id nhỏ hơn gần nhất; chưa có dòng nào thì là chính lời mở
+     * luồng của khách (`client_requests.created_at` — lúc mở luồng đã có thư và push
+     * `staff.new_client_request`).
+     *  - Lời của VĂN PHÒNG → đẩy: khách đang trả lời văn phòng, đó là việc mới cho người giữ luồng.
+     *  - Lời của KHÁCH cách đây chưa tới {@see self::FOLLOW_UP_PUSH_QUIET_MINUTES} phút → không đẩy: vẫn
+     *    là đợt đang dồn; người giữ luồng đã được rung ở đầu đợt và chuông trong app vẫn đếm từng câu.
+     *  - Lời của khách cũ hơn thế → đẩy.
+     * Khung trượt theo lời liền trước, không theo lần đẩy trước: khách viết đều đặn mỗi vài phút cả buổi
+     * là MỘT đợt (một lần rung), tới khi văn phòng trả lời hay khách ngừng đủ 10 phút. Đọc từ chính các
+     * dòng của luồng — không bộ nhớ đệm, không trạng thái mới.
+     */
+    private function followUpRingsAgain(ClientRequest $thread, ClientRequestReply $reply): bool
+    {
+        $previous = $this->scopelessly(ClientRequestReply::query())
+            ->where('request_id', $thread->getKey())
+            ->where('id', '<', $reply->getKey())
+            ->orderByDesc('id')
+            ->first();
+
+        if ($previous !== null && $previous->author_type !== (new ClientUser)->getMorphClass()) {
+            return true;
+        }
+
+        $clientSpokeAt = $previous?->created_at ?? $thread->created_at;
+
+        return $clientSpokeAt === null
+            || $clientSpokeAt->lte(now()->subMinutes(self::FOLLOW_UP_PUSH_QUIET_MINUTES));
     }
 
     /**

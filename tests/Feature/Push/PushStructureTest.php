@@ -48,6 +48,8 @@ function pushAlertCallersAllowed(): array
         'app/Actions/Notification/NotifyStaffOfNewClientRequest.php' => 'staff.new_client_request',
         'app/Actions/Notification/NotifyStaffOfNewClientDocument.php' => 'staff.new_client_document',
         'app/Jobs/SendInstalmentOverdueMail.php' => 'staff.instalment_overdue',
+        // Vòng sửa cuối I5 (M7 Task 4, nối lúc gộp `main` vào nhánh): job thư báo gói bàn giao đã sinh.
+        'app/Jobs/SendHandoverPackageReady.php' => 'staff.handover_ready',
         // Câu hỏi tiếp của khách (REQ-2) không có thư: đẩy cùng chủ đề yêu cầu mới, cho đúng người
         // nhận thông báo trong hệ thống `ClientRequestFollowUpAlert`.
         'app/Actions/Portal/ReplyToClientRequest.php' => 'staff.new_client_request (khách hỏi tiếp)',

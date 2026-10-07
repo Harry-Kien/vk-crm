@@ -227,6 +227,9 @@ it('serves each manifest only on its own panel domain when the domains are split
 
     try {
         $this->refreshApplication();
+        // Ứng dụng mới dựng có CSDL SQLite trong bộ nhớ MỚI, chưa có bảng: trang 404 của `main` (gộp
+        // M7 Task 10) đọc hotline qua `OfficeProfile`, tức bảng `settings`. Trên MariaDB lệnh không làm gì.
+        $this->artisan('migrate');
 
         // Tự kiểm: biến môi trường đã tới ứng dụng mới dựng, không thì test xanh giả.
         expect(Filament::getPanel('admin')->getDomains())->toBe(['quantri.luatvukhang.test']);

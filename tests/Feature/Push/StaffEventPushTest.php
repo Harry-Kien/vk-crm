@@ -6,21 +6,26 @@ use App\Actions\Schedule\RemindMissingDocuments;
 use App\Actions\Schedule\RemindOverdueInstalments;
 use App\Enums\ChecklistItemStatus;
 use App\Enums\ClientRequestStatus;
+use App\Enums\Confidentiality;
 use App\Enums\DeadlineSeverity;
+use App\Enums\HandoverPackageStatus;
 use App\Enums\MatterRole;
 use App\Enums\OutboundChannel;
 use App\Enums\OutboundStatus;
 use App\Enums\PushTopic;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\Matters\MatterResource;
+use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ChecklistRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ClientRequestsRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\DeadlinesRelationManager;
+use App\Filament\Admin\Resources\Matters\RelationManagers\DocumentsRelationManager;
 use App\Filament\Portal\Pages\MyRequests;
 use App\Filament\Portal\Pages\SubmitDocument;
 use App\Mail\Client\MissingDocuments;
 use App\Mail\OutboundHeaders;
 use App\Mail\Staff\DeadlineReminder;
+use App\Mail\Staff\HandoverPackageReady;
 use App\Mail\Staff\InstalmentOverdue;
 use App\Mail\Staff\NewClientDocument as NewClientDocumentMail;
 use App\Mail\Staff\NewClientRequest as NewClientRequestMail;
@@ -33,6 +38,7 @@ use App\Models\Deadline;
 use App\Models\Document;
 use App\Models\Instalment;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\MatterChecklistItem;
 use App\Models\MatterParty;
 use App\Models\OutboundMessage;
@@ -73,9 +79,10 @@ use Tests\Support\WebPushTestKeys;
 |    thông báo trong hệ thống `ClientRequestFollowUpAlert`;
 |  - khách nộp giấy tờ (`staff.new_client_document`): trang "Nộp giấy tờ" của cổng (Livewire);
 |  - đợt thanh toán quá hạn (`staff.instalment_overdue`, M9 — phán quyết (e)): tác vụ
-|    `RemindOverdueInstalments` THẬT.
-| "Gói bàn giao đã sinh" (M7 Task 4, `staff.handover_ready`) chưa có trên nhánh này: mang sang lúc
-| gộp M7 (Ghi chú M12, Task 9).
+|    `RemindOverdueInstalments` THẬT;
+|  - gói bàn giao đã sinh (`staff.handover_ready`, M7 Task 4 — nối lúc gộp `main` vào nhánh, vòng sửa
+|    cuối I5): nút "Sinh gói bàn giao" trên trang vụ việc (Livewire), job dựng gói chạy bằng worker
+|    THẬT trên hàng `handover`, job thư `SendHandoverPackageReady` chạy sau commit của gói.
 |
 | R10: push không có luật người nhận của riêng nó. Nơi gửi thư gọi `SendPushAlert` với ĐÚNG những
 | người mà CHÍNH lượt đó vừa gửi thư thành công (phán quyết (d)), nên tập người nhận push đúng bằng
@@ -124,10 +131,11 @@ function staffPushPaths(): array
         'khách hỏi tiếp vào luồng cũ' => ['follow_up'],
         'khách nộp giấy tờ' => ['new_document'],
         'đợt thanh toán quá hạn' => ['instalment'],
+        'gói bàn giao đã sinh' => ['handover'],
     ];
 }
 
-/** Bốn đường CÓ thư (REQ-2 không có thư nào để thử lại). */
+/** Năm đường CÓ thư (REQ-2 không có thư nào để thử lại). */
 function staffPushMailPaths(): array
 {
     return array_diff_key(staffPushPaths(), ['khách hỏi tiếp vào luồng cũ' => true]);
@@ -140,6 +148,7 @@ function staffPushTopic(string $path): PushTopic
         'new_request', 'follow_up' => PushTopic::StaffNewClientRequest,
         'new_document' => PushTopic::StaffNewClientDocument,
         'instalment' => PushTopic::StaffInstalmentOverdue,
+        'handover' => PushTopic::StaffHandoverReady,
     };
 }
 
@@ -152,6 +161,7 @@ function staffPushMailable(string $path): ?string
         'follow_up' => null,
         'new_document' => NewClientDocumentMail::class,
         'instalment' => InstalmentOverdue::class,
+        'handover' => HandoverPackageReady::class,
     };
 }
 
@@ -231,10 +241,21 @@ function staffPushExpected(string $path, array $s, bool $restricted): array
         'follow_up' => [$s['lead']],
         // Thư tiền: luật sư phụ trách + kế toán; vụ hạn chế: admin thay kế toán.
         'instalment' => [$s['lead'], $restricted ? $s['admin'] : $s['accountant']],
+        // Gói bàn giao: luật sư phụ trách + người bấm "Sinh gói bàn giao" (`staffPushHandoverClicker()`).
+        'handover' => [$s['lead'], staffPushHandoverClicker($s)],
     });
     sort($ids);
 
     return $ids;
+}
+
+/**
+ * Người bấm "Sinh gói bàn giao": quản lý trên vụ thường; trên vụ `restricted` quản lý không xem được
+ * vụ (R3) nên admin bấm. Cả hai tải và công bố được gói (`mustAllow` của `SendHandoverPackageReady`).
+ */
+function staffPushHandoverClicker(array $s): User
+{
+    return $s['matter']->confidentiality === Confidentiality::Restricted ? $s['admin'] : $s['manager'];
 }
 
 /** Byte thật của một PDF tối thiểu — `FileGuard` đọc MIME bằng `finfo` trên nội dung tệp. */
@@ -293,6 +314,8 @@ function staffPushAct(string $path, array $s): Model
                 'subject' => 'Hỏi về '.$m['tiêu đề yêu cầu'],
                 'content' => 'Văn phòng cho tôi hỏi: '.$m['nội dung yêu cầu'].'.',
                 'status' => ClientRequestStatus::Answered,
+                // Luồng mở từ hôm qua: câu hỏi tiếp mở một đợt mới (luật gom của vòng sửa cuối I7).
+                'created_at' => now()->subDay(),
             ]);
 
             test()->livewire(MyRequests::class, ['record' => $s['matter']->getKey()])
@@ -331,6 +354,27 @@ function staffPushAct(string $path, array $s): Model
             app(RemindOverdueInstalments::class)->handle();
 
             return $instalment;
+        })(),
+        'handover' => (function () use ($s): Document {
+            // Thư mục tạm RIÊNG của mỗi test (cùng lý do `GenerateHandoverPackageTest`).
+            config(['vkcrm.handover.work_dir' => storage_path('framework/testing/handover-'.Str::random(16))]);
+            $s['matter']->forceFill(['closed_at' => today()->subDay()->toDateString()])->save();
+            MatterArchive::factory()->create(['matter_id' => $s['matter']->id, 'archived_by' => $s['lead']->id]);
+
+            Filament::setCurrentPanel('admin');
+            test()->actingAs(staffPushHandoverClicker($s), 'web');
+            test()->livewire(ViewMatter::class, ['record' => $s['matter']->getKey()])
+                ->callAction('generateHandoverPackage')
+                ->assertHasNoActionErrors();
+
+            // Worker THẬT của hàng `handover` dựng gói; job thư xếp sau commit của gói.
+            Artisan::call('queue:work', ['connection' => 'handover', '--queue' => 'handover', '--once' => true, '--sleep' => 0]);
+
+            $archive = MatterArchive::query()->withoutGlobalScopes()->where('matter_id', $s['matter']->id)->sole();
+
+            expect($archive->handover_status)->toBe(HandoverPackageStatus::Ready);
+
+            return Document::query()->withoutGlobalScopes()->findOrFail($archive->handover_document_id);
         })(),
     };
 }
@@ -437,6 +481,7 @@ it('pushes exactly the staff it mails, about the same record, with nothing of th
             'new_request', 'follow_up' => staffPushTab($s['matter'], ClientRequestsRelationManager::class),
             'new_document' => staffPushTab($s['matter'], ChecklistRelationManager::class),
             'instalment' => staffPushRelative($mail->content()->with['linkUrl']),
+            'handover' => staffPushTab($s['matter'], DocumentsRelationManager::class),
         });
 
         $payload = json_encode($alert->toWebPush($user, $alert)->toArray(), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
@@ -676,7 +721,8 @@ function staffPushDrainQueue(): void
 /**
  * Phán quyết (d) của controller: push đi cho những người mà CHÍNH lượt đó vừa gửi thư được; chống
  * trùng là sổ thư. Đường thật: hàng đợi `database`, worker thật, transport hỏng đúng địa chỉ của
- * người nhận thứ hai ở lượt đầu (quản lý ở mốc hạn, trợ lý ở yêu cầu/giấy tờ, kế toán ở đợt thu).
+ * người nhận thứ hai ở lượt đầu (quản lý ở mốc hạn và ở gói bàn giao — người bấm sinh gói —, trợ lý
+ * ở yêu cầu/giấy tờ, kế toán ở đợt thu).
  *  - Lượt 1: thư của luật sư phụ trách đi → có push; thư của người thứ hai hỏng → KHÔNG push, job
  *    (listener) ném lại để hàng đợi thử lại.
  *  - Lượt 2 (sau backoff, SMTP đã sống): luật sư phụ trách đã có dòng `sent` → không thư thứ hai,
@@ -692,7 +738,7 @@ it('pushes each staff member once, right after their own mail went through, acro
     Notification::fake();
     $s = staffPushScenario();
     $second = match ($path) {
-        'deadline' => $s['manager'],
+        'deadline', 'handover' => $s['manager'],
         'new_request', 'new_document' => $s['assistant'],
         'instalment' => $s['accountant'],
     };
@@ -760,4 +806,155 @@ it('never pushes the reminders that R10 keeps to email: stale matters and missin
     expect(Notification::sent($lawyer, PushAlert::class))->toBeEmpty()
         ->and(Notification::sent($manager, PushAlert::class))->toBeEmpty()
         ->and(Notification::sent($account, PushAlert::class))->toBeEmpty();
+});
+
+/** Rút hàng `push` của kết nối `database` bằng worker THẬT, mỗi lần một job. */
+function staffPushDrainPushQueue(): void
+{
+    for ($guard = 0; $guard < 20; $guard++) {
+        if (! DB::table('jobs')->where('queue', PushAlert::QUEUE)->where('available_at', '<=', now()->getTimestamp())->exists()) {
+            return;
+        }
+
+        Artisan::call('queue:work', ['connection' => 'database', '--queue' => PushAlert::QUEUE, '--once' => true, '--sleep' => 0]);
+    }
+}
+
+/**
+ * Vòng sửa cuối I2 (phán quyết R9), phía nhân sự: người nhận push chốt lúc xếp, rồi `PushAlert` chờ
+ * trên hàng `push`. Nhân sự nghỉ việc (tài khoản bị vô hiệu hay xoá mềm) trong cửa sổ đó thì máy của
+ * họ không nhận gì — `PushAlert::shouldSend()` hỏi lại `is_active` và "chưa xoá mềm" lúc gửi. Job thư
+ * nhân sự tự tính lại người nhận lúc chạy; push là kênh duy nhất có cửa sổ này.
+ *
+ * Đường thật: khách gửi yêu cầu trên cổng, hàng đợi `database`, worker thật cho listener thư rồi cho
+ * hàng `push`, máy chủ push giả. Vế dương: máy của luật sư phụ trách nhận đúng một request.
+ *
+ * Mutation probe (báo cáo vòng sửa cuối): bỏ điều kiện `is_active` ở `shouldSend()` → dòng
+ * "deactivated" ĐỎ; hỏi bằng `withTrashed()` → dòng "soft-deleted" ĐỎ.
+ */
+it('never uses the phone of a staff member who leaves while their push waits in the queue', function (string $condition) {
+    $server = FakePushServer::start();
+    Mail::fake();
+    config(['queue.default' => 'database']);
+    $s = staffPushScenario();
+
+    staffPushAct('new_request', $s);
+    staffPushDrainQueue();
+
+    // Đã gửi thư cho luật sư phụ trách và trợ lý, và xếp hai `PushAlert`; chưa máy nào nhận gì.
+    Mail::assertSent(NewClientRequestMail::class, 2);
+    expect(DB::table('jobs')->where('queue', PushAlert::QUEUE)->count())->toBe(2)
+        ->and($server->endpoints())->toBe([]);
+
+    match ($condition) {
+        'deactivated' => $s['assistant']->update(['is_active' => false]),
+        'soft-deleted' => $s['assistant']->delete(),
+    };
+
+    staffPushDrainPushQueue();
+
+    expect($server->endpoints())->toBe([FakePushServer::endpoint('nhan-su--0')])
+        ->and(DB::table('jobs')->count())->toBe(0)
+        ->and(DB::table('failed_jobs')->count())->toBe(0);
+})->with([
+    'deactivated',
+    'soft-deleted',
+]);
+
+/** Khách viết thêm vào luồng `$thread` trên trang "Yêu cầu" của cổng (Livewire). */
+function staffPushFollowUp(array $s, ClientRequest $thread, string $text): void
+{
+    Filament::setCurrentPanel('portal');
+    test()->actingAs($s['account'], 'client');
+
+    test()->livewire(MyRequests::class, ['record' => $s['matter']->getKey()])
+        ->set('replies.'.$thread->id, $text)
+        ->call('submitReply', $thread->id)
+        ->assertHasNoErrors();
+}
+
+/**
+ * Vòng sửa cuối I7: câu hỏi tiếp của khách (`REQ-2`) không có thư, và từ Task 9 vòng sửa 1 mỗi push
+ * cùng `tag` đều rung (`renotify`). Không gom thì một tài khoản khách — hay một tài khoản bị chiếm —
+ * gửi N câu liên tiếp, kể cả nửa đêm, là N lần máy của luật sư rung. Luật gom
+ * (`ReplyToClientRequest::FOLLOW_UP_PUSH_QUIET_MINUTES`, 10 phút) theo LUỒNG: câu hỏi tiếp chỉ đẩy khi
+ * lời liền trước trong luồng là của VĂN PHÒNG (khách đang trả lời văn phòng), hoặc lời liền trước của
+ * khách — câu hỏi tiếp trước đó, hay chính lúc mở luồng — đã cách đủ 10 phút. Thông báo trong hệ thống
+ * (`ClientRequestFollowUpAlert`) vẫn đi MỖI lần: chuông trong app đếm đủ, chỉ máy không rung lại.
+ *
+ * Mutation probe (báo cáo vòng sửa cuối): bỏ lời hỏi luật gom (luôn đẩy) → bước 2 ĐỎ; bỏ vế "lời liền
+ * trước là của văn phòng" → bước 3 ĐỎ; bỏ khung 10 phút (khách viết liền sau khách thì không bao giờ
+ * đẩy) → bước 5 ĐỎ.
+ */
+it('rings the holder once per burst of follow-up questions, again after the office answers or after ten quiet minutes', function () {
+    Mail::fake();
+    Notification::fake();
+    $s = staffPushScenario();
+    $m = staffPushMarkers();
+    $thread = ClientRequest::factory()->for($s['matter'])->create([
+        'client_user_id' => $s['account']->id,
+        'subject' => 'Hỏi về '.$m['tiêu đề yêu cầu'],
+        'content' => 'Văn phòng cho tôi hỏi: '.$m['nội dung yêu cầu'].'.',
+        'status' => ClientRequestStatus::Answered,
+        'created_at' => now()->subHour(),
+    ]);
+    $alerts = fn (): int => Notification::sent($s['lead'], ClientRequestFollowUpAlert::class)->count();
+
+    // 1. Câu hỏi tiếp đầu tiên sau một giờ im lặng: rung.
+    staffPushFollowUp($s, $thread, 'Tôi hỏi thêm: '.$m['câu hỏi tiếp'].'.');
+    expect(staffPushCounts($s['lead']))->toBe([1])->and($alerts())->toBe(1);
+
+    // 2. Ba phút sau, khách viết tiếp: thông báo trong hệ thống có, máy không rung lại.
+    $this->travel(3)->minutes();
+    staffPushFollowUp($s, $thread, 'Tôi gửi thêm một ý nữa.');
+    expect(staffPushCounts($s['lead']))->toBe([1])->and($alerts())->toBe(2);
+
+    // 3. Văn phòng trả lời, một phút sau khách hỏi lại: khách đang trả lời văn phòng — rung.
+    Filament::setCurrentPanel('admin');
+    test()->actingAs($s['lead'], 'web');
+    test()->livewire(ClientRequestsRelationManager::class, ['ownerRecord' => $s['matter'], 'pageClass' => ViewMatter::class])
+        ->callTableAction('reply', $thread, ['content' => 'Văn phòng trả lời anh/chị như sau.'])
+        ->assertHasNoTableActionErrors();
+    $this->travel(1)->minutes();
+    staffPushFollowUp($s, $thread, 'Cảm ơn, vậy còn bước sau thì sao?');
+    expect(staffPushCounts($s['lead']))->toBe([2])->and($alerts())->toBe(3);
+
+    // 4. Hai phút sau, thêm một câu: không rung.
+    $this->travel(2)->minutes();
+    staffPushFollowUp($s, $thread, 'Tôi bổ sung thêm.');
+    expect(staffPushCounts($s['lead']))->toBe([2])->and($alerts())->toBe(4);
+
+    // 5. Mười một phút im lặng, rồi một câu nữa: rung.
+    $this->travel(11)->minutes();
+    staffPushFollowUp($s, $thread, 'Văn phòng xem giúp tôi nhé.');
+    expect(staffPushCounts($s['lead']))->toBe([3])->and($alerts())->toBe(5);
+
+    // Mọi push của luồng mang cùng một tag — tin mới thay tin cũ trong khay.
+    expect(Notification::sent($s['lead'], PushAlert::class)->map(fn (PushAlert $alert): string => $alert->message->tag)->unique()->values()->all())
+        ->toBe([PushTopic::StaffNewClientRequest->value.':'.$thread->id]);
+});
+
+/**
+ * Cùng luật gom, ở lời ĐẦU của luồng: khách mở yêu cầu (thư + push `staff.new_client_request` cho luật
+ * sư phụ trách) rồi hai phút sau viết thêm — không rung lần hai; hơn mười phút sau mới viết thì rung.
+ *
+ * Mutation probe (báo cáo vòng sửa cuối): coi luồng chưa có lời nào trước là "đẩy" (bỏ mốc mở luồng)
+ * → ĐỎ.
+ */
+it('counts the opening of a thread as the start of the burst', function () {
+    Mail::fake();
+    Notification::fake();
+    $s = staffPushScenario();
+
+    $thread = staffPushAct('new_request', $s);
+    expect(staffPushCounts($s['lead']))->toBe([1]);
+
+    $this->travel(2)->minutes();
+    staffPushFollowUp($s, $thread, 'Tôi gửi thêm một ý.');
+    expect(staffPushCounts($s['lead']))->toBe([1])
+        ->and(Notification::sent($s['lead'], ClientRequestFollowUpAlert::class))->toHaveCount(1);
+
+    $this->travel(11)->minutes();
+    staffPushFollowUp($s, $thread, 'Văn phòng xem giúp tôi nhé.');
+    expect(staffPushCounts($s['lead']))->toBe([2]);
 });

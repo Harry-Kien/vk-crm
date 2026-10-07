@@ -85,15 +85,17 @@ function pwaDocsLanding(PushTopic $topic): array
         PushTopic::StaffNewClientRequest => [__('requests.tab.title')],
         PushTopic::StaffNewClientDocument => [__('matters.tabs.checklist')],
         PushTopic::StaffInstalmentOverdue => [__('billing.receivables.title'), __('billing.tab.title')],
+        PushTopic::StaffHandoverReady => [__('matters.tabs.documents')],
         PushTopic::Test => [],
     };
 }
 
-it('danh sách kiểm tra có mục G kích hoạt ĐỦ tám chủ đề: mỗi dòng một chủ đề, đúng app, đúng câu màn hình khoá, đúng nơi chạm mở', function (): void {
+it('danh sách kiểm tra có mục G kích hoạt ĐỦ chín chủ đề: mỗi dòng một chủ đề, đúng app, đúng câu màn hình khoá, đúng nơi chạm mở', function (): void {
     $sectionG = pwaDocsSection(pwaDocsChecklist(), '## G.', '## H.');
     $firm = (string) config('vkcrm.brand.short_name');
 
-    expect(pwaDocsEventTopics())->toHaveCount(8);
+    // Vòng sửa cuối I5: `staff.handover_ready` nối lúc gộp `main` vào nhánh — dòng G9.
+    expect(pwaDocsEventTopics())->toHaveCount(9);
 
     preg_match_all('/^\| (G\d+) \|/m', $sectionG, $ids);
     expect($ids[1])->toBe(array_map(fn (int $i): string => 'G'.$i, range(1, count(pwaDocsEventTopics()))));
@@ -164,24 +166,27 @@ it('bảng kết quả của danh sách kiểm tra có chỗ ghi mọi mục m�
     $results = pwaDocsSection(pwaDocsChecklist(), '## Bảng kết quả', null);
 
     expect($results)->toContain('| D1–D10 |')
-        ->toContain('| G1–G8 |')
+        ->toContain('| G1–G9 |')
+        ->not->toContain('| G1–G8 |')
         ->toContain('| H1–H4 |')
         ->not->toContain('| D1–D9 |');
 });
 
-it('SPEC §9 có bảng chủ đề đẩy: đúng tám chủ đề của PushTopic, cộng staff.handover_ready ghi là mang sang', function (): void {
+it('SPEC §9 có bảng chủ đề đẩy: đúng chín chủ đề của PushTopic, gói bàn giao đã nối, và hai thư nhân sự của M7/M10 nằm trong danh sách cố ý không đẩy', function (): void {
     $sectionNine = pwaDocsSection(pwaDocsFile('docs/SPEC.md'), '## 9. Email', '## 10.');
     $erratum = pwaDocsSection($sectionNine, '**Đính chính 2026-10-04 (M12 Task 10, phán quyết R10', '**Đính chính');
 
     preg_match_all('/^\| `([a-z_.]+)` \|.*$/m', $erratum, $rows);
 
     $expected = array_map(fn (PushTopic $topic): string => $topic->value, pwaDocsEventTopics());
-    $expected[] = 'staff.handover_ready';
 
-    expect($rows[1])->toEqualCanonicalizing($expected);
+    expect($rows[1])->toEqualCanonicalizing($expected)
+        ->and($expected)->toContain('staff.handover_ready');
 
+    // Vòng sửa cuối I5: dòng gói bàn giao không còn ghi "mang sang".
     $handover = collect($rows[0])->first(fn (string $row): bool => str_starts_with($row, '| `staff.handover_ready`'));
-    expect($handover)->toContain('mang sang');
+    expect($handover)->not->toContain('mang sang')
+        ->and($handover)->not->toContain('chưa nối');
 
     // Cố ý không đẩy (R10) — liệt kê để không ai "thêm cho đủ".
     expect(pwaDocsFlat($erratum))
@@ -189,6 +194,8 @@ it('SPEC §9 có bảng chủ đề đẩy: đúng tám chủ đề của PushTo
         ->toContain('`client.activation`')
         ->toContain('`client.missing_documents`')
         ->toContain('`staff.stale_matter`')
+        ->toContain('`staff.matter_reassigned`')
+        ->toContain('`staff.intake_unanswered`')
         ->toContain('chỉ một câu chung');
 });
 
@@ -221,6 +228,19 @@ it('SPEC §13 có dòng M12, §15 trỏ câu "ứng dụng di động" về mụ
     expect($plan)->toContain('## '.$heading)
         ->and($later)->toContain('`docs/superpowers/plans/2026-09-24-m12-pwa.md`')
         ->and($later)->toContain('"'.$heading.'"');
+
+    // Vòng sửa cuối I4: SPEC là nguồn sự thật — nhánh cắt TRƯỚC khi M10/M11 gộp, không "chạy cuối".
+    $erratum13 = pwaDocsFlat(pwaDocsSection($milestones, '**Đính chính 2026-10-04 (M12 Task 10).**', null));
+    expect($erratum13)
+        ->not->toContain('M12 chạy cuối, sau M9, M10 và M11')
+        ->toContain('cắt từ `main` trước khi M10 và M11 gộp')
+        ->toContain('`staff.intake_unanswered`')
+        ->toContain('`staff.matter_reassigned`');
+
+    // Vòng sửa cuối I1: §15 nói cùng một điều với QUY-TRINH về tài liệu đã tải.
+    expect($later)
+        ->not->toContain('không lưu hồ sơ trên máy')
+        ->toContain('không lưu sẵn hồ sơ trên điện thoại (chỉ tài liệu người dùng chủ động tải về nằm lại trong thư mục tải xuống của máy, đăng xuất không xoá)');
 
     // Hai đính chính đã có từ Task 4 và Task 7 vẫn đứng.
     expect(pwaDocsFlat(pwaDocsSection($spec, '## 2.', '## 3.')))->toContain('Đính chính 2026-10-03 (M12 Task 4)')

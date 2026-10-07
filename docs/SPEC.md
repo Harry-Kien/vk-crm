@@ -1623,10 +1623,10 @@ Chủ đề (`App\Enums\PushTopic`) mang đúng tên mẫu thư nó đi cùng:
 | `client.document_rejected` | `client.document_rejected` | khách | trang tiến độ, khối Hồ sơ giấy tờ |
 | `client.request_answered` | `client.request_answered` | khách | trang yêu cầu của hồ sơ |
 | `staff.deadline_reminder` | `staff.deadline_reminder`, mọi bậc và quá hạn (mỗi bậc một lần) | như thư | trang vụ việc, tab Mốc thời hạn |
-| `staff.new_client_request` | `staff.new_client_request`, kể cả khách viết tiếp vào yêu cầu cũ (`REQ-2`, không có thư — cùng người nhận với thông báo trong hệ thống) | như thư | trang vụ việc, tab Yêu cầu từ khách |
+| `staff.new_client_request` | `staff.new_client_request`, kể cả khách viết tiếp vào yêu cầu cũ (`REQ-2`, không có thư — cùng người nhận với thông báo trong hệ thống; gom theo luồng: câu viết tiếp chưa tới 10 phút sau lời trước của chính khách không đẩy lại, thông báo trong hệ thống vẫn có — vòng sửa cuối M12) | như thư | trang vụ việc, tab Yêu cầu từ khách |
 | `staff.new_client_document` | `staff.new_client_document` | như thư | trang vụ việc, tab Danh mục hồ sơ |
 | `staff.instalment_overdue` | `staff.instalment_overdue` (M9) | như thư | trang Công nợ cho người mở được nó, không thì tab Hợp đồng và thanh toán |
-| `staff.handover_ready` | báo gói bàn giao đã sinh (M7 Task 4) | như thư | trang vụ việc, tài liệu gói — **chưa nối ở M12, mang sang lúc gộp M7** |
+| `staff.handover_ready` | `staff.handover_ready`, báo gói bàn giao đã sinh (M7 Task 4; nối lúc gộp `main` vào nhánh M12) | như thư | trang vụ việc, tab Tài liệu (nơi xem lại và công bố gói) |
 
 - Nội dung: tiêu đề là tên văn phòng, thân là chỉ một câu chung (`lang/vi/push.php`) — không mã hồ
   sơ, tiêu đề vụ, tên khách, tên các bên, tiêu đề tài liệu, tên giấy tờ, lý do từ chối, nội dung
@@ -1636,7 +1636,11 @@ Chủ đề (`App\Enums\PushTopic`) mang đúng tên mẫu thư nó đi cùng:
   hạn, `normal` cho còn lại. Thêm nút "Gửi thử" (`push.test`) trên trang "Thông báo trên điện thoại".
 - Cố ý KHÔNG đẩy: `client.otp` (một mã trên màn hình khoá là một mã lộ), `client.activation` (chưa
   kích hoạt thì chưa có máy), `client.missing_documents`, `staff.stale_matter` (không gấp; thư đã
-  đủ), cảnh báo xung đột lợi ích và mọi thư lỗi sao lưu (đọc trên máy tính).
+  đủ), cảnh báo xung đột lợi ích và mọi thư lỗi sao lưu (đọc trên máy tính). Hai thư nhân sự có trên
+  `main` khi M12 gộp cũng không đẩy: `staff.matter_reassigned` (M7 — thư tổng hợp mốc hạn khi bàn
+  giao vụ, một danh sách để đọc trên máy tính; mỗi mốc vẫn có thư nhắc và thông báo đẩy riêng theo bậc)
+  và `staff.intake_unanswered` (M10 — nhánh M12 cắt trước M10; đẩy thư này, nếu muốn, là việc của M10
+  qua `PushTopic`). Mọi mẫu thư về sau phải được xếp vào một trong hai bên (`PushTopicTest`).
 - Email không tắt được với mọi chủ đề và mọi người (R14): email là chứng cứ "văn phòng có báo cho tôi
   không"; push là tiện ích, và "nhận push hay không" chính là "máy này đã bật chưa".
 
@@ -1925,7 +1929,11 @@ dòng cũ của bảng). Thứ tự dựng hiện hành: M6.5 → phần còn l�
 
 **Đính chính 2026-10-04 (M12 Task 10).** Thêm dòng **M12** ở bảng trên. Kế hoạch:
 `docs/superpowers/plans/2026-09-24-m12-pwa.md`; phán quyết R1–R14 và kết quả nghiệm thu ở
-`docs/PROGRESS.md`, "Ghi chú M12". M12 chạy cuối, sau M9, M10 và M11.
+`docs/PROGRESS.md`, "Ghi chú M12". Nhánh M12 cắt từ `main` trước khi M10 và M11 gộp (phán quyết 1 của
+làn); trước khi giao, nhánh gộp lại `main` (M7, M9, M10) và nối thêm thông báo đẩy cho thư
+`staff.handover_ready` của M7. Hai thư nhân sự khác của `main` không có thông báo đẩy:
+`staff.matter_reassigned` (M7) và `staff.intake_unanswered` (M10) — §9, đính chính M12. M11 chưa gộp
+lúc giao M12.
 
 ---
 
@@ -1985,8 +1993,9 @@ gửi tự gõ được lưu vào vùng khoá, chỉ mở theo đúng §6.10 đ�
 
 **Đính chính 2026-10-04 (M12 Task 10).** "Ứng dụng di động" ở đoạn đầu mục này: bản 1.0 đã có app
 trên điện thoại dạng PWA (M12) — cài từ trình duyệt vào màn hình chính, mở trong cửa sổ riêng, nhận
-thông báo đẩy trên Android và iPhone (iOS 16.4 trở lên), chung một nguồn dữ liệu với website, không
-lưu hồ sơ trên máy. App gốc trên App Store/Google Play vẫn là việc của giai đoạn sau. Khi nào mới
+thông báo đẩy trên Android và iPhone (iOS 16.4 trở lên), chung một nguồn dữ liệu với website;
+ứng dụng không lưu sẵn hồ sơ trên điện thoại (chỉ tài liệu người dùng chủ động tải về nằm lại trong
+thư mục tải xuống của máy, đăng xuất không xoá). App gốc trên App Store/Google Play vẫn là việc của giai đoạn sau. Khi nào mới
 đáng làm (đo được sau vài tháng vận hành) và làm thế nào để nó không thành hệ thống thứ hai (OAuth
 2.1 trên máy chủ Passport của M11, một lớp API mỏng trên đúng các Action, cùng `PushTopic` và cùng
 luật người nhận) ghi ở mục cuối của kế hoạch M12: `docs/superpowers/plans/2026-09-24-m12-pwa.md`,

@@ -29,8 +29,11 @@ return [
         'lead' => [
             'portal' => 'Bật thông báo trên điện thoại để biết ngay khi hồ sơ của anh/chị có cập nhật. '
                 .'Thư điện tử vẫn gửi như trước và không tắt được.',
-            'admin' => 'Bật thông báo trên điện thoại để biết ngay khi có mốc thời hạn cần chú ý, hay khi '
-                .'khách gửi giấy tờ, câu hỏi. Thư điện tử vẫn gửi như trước và không tắt được.',
+            // Vòng sửa cuối I3: mỗi chủ đề đẩy của nhân sự có tên ở đây (`PushDevicesPageTest` ghim) — kế
+            // toán chỉ bao giờ nhận "khoản thu quá hạn", nên câu nói rõ là tuỳ việc người đó phụ trách.
+            'admin' => 'Bật thông báo trên điện thoại để biết ngay khi có việc cần anh/chị chú ý, tuỳ việc '
+                .'anh/chị phụ trách: mốc thời hạn sắp đến, khách gửi giấy tờ hay câu hỏi, khoản thu quá hạn, '
+                .'gói bàn giao hồ sơ đã sẵn sàng. Thư điện tử vẫn gửi như trước và không tắt được.',
         ],
         'lock_screen' => 'Thông báo chỉ hiện một câu chung — không tên, không mã hồ sơ, không nội dung. '
             .'Chạm vào để xem trong ứng dụng.',
@@ -104,6 +107,8 @@ return [
             'new_client_document' => 'Khách vừa nộp giấy tờ mới cần xem. Chạm để xem.',
             // Task 9 (phán quyết (e)): không số tiền, không tên khách, không mã hợp đồng.
             'instalment_overdue' => 'Có khoản thu đã quá hạn cần theo dõi. Chạm để xem.',
+            // Vòng sửa cuối I5 (M7 Task 4): không mã hồ sơ — chỉ thư nội bộ mới mang mã.
+            'handover_ready' => 'Gói bàn giao hồ sơ đã sẵn sàng để xem và công bố. Chạm để xem.',
         ],
         'test' => 'Thông báo thử: máy này đã nhận được thông báo của văn phòng.',
     ],

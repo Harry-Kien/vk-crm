@@ -11,6 +11,7 @@ use App\Filament\Admin\Resources\Matters\RelationManagers\BillingRelationManager
 use App\Filament\Admin\Resources\Matters\RelationManagers\ChecklistRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\ClientRequestsRelationManager;
 use App\Filament\Admin\Resources\Matters\RelationManagers\DeadlinesRelationManager;
+use App\Filament\Admin\Resources\Matters\RelationManagers\DocumentsRelationManager;
 use App\Filament\Portal\Pages\MatterProgress;
 use App\Filament\Portal\Pages\MyRequests;
 use App\Filament\Portal\Pages\PushDevices as PortalPushDevices;
@@ -86,6 +87,8 @@ use InvalidArgumentException;
  *    `tests/Feature/Push/StaffEventPushTest.php` so hai bên trên đường thật): trang "Công nợ" cho ai
  *    `Receivables::canBeOpenedBy()` (URL không mang id vụ nào — kế toán không xem được trang vụ
  *    việc), không thì tab "Hợp đồng và thanh toán" (`BillingRelationManager`) của vụ;
+ *  - gói bàn giao đã sinh: trang vụ việc, tab "Tài liệu" (`DocumentsRelationManager`), nơi luật sư xem
+ *    lại và công bố gói — cùng chỗ thư `staff.handover_ready` và chuông trong hệ thống chỉ tới;
  *  - "Gửi thử": trang "Thông báo trên điện thoại" của panel người nhận.
  * Trang đích tự hỏi quyền như mọi request (SPEC §10.10): người không xem được vụ nhận 404.
  *
@@ -98,8 +101,11 @@ use InvalidArgumentException;
  * `staff.instalment_overdue` (M9) là chủ đề thứ tám của bảng R10, theo phán quyết (e) của controller
  * (kế hoạch, "Ràng buộc toàn cục": Task 9 thêm sự kiện của M9 "nếu chúng đã có thư"): `normal`, TTL 72
  * giờ, một câu chung — không số tiền, không tên khách, không mã hợp đồng. `staff.handover_ready` (M7
- * Task 4) CHƯA có case: nơi gửi thư của nó chưa có trên nhánh này, mang sang lúc gộp M7 (Ghi chú M12,
- * Task 9 — một case không ai gọi là mã chết).
+ * Task 4) là chủ đề thứ chín, nối lúc gộp `main` vào nhánh (vòng sửa cuối I5): nơi gửi là job thư
+ * `App\Jobs\SendHandoverPackageReady`, bản ghi là tài liệu gói (`HandoverPackageReady::relatedRecord()`),
+ * `normal`, TTL 72 giờ, một câu chung không mã hồ sơ. Hai thư nhân sự khác của M7/M10
+ * (`staff.matter_reassigned`, `staff.intake_unanswered`) cố ý KHÔNG có case — `PushTopicTest` ghim, và
+ * buộc mọi mẫu thư về sau phải được xếp vào một trong hai bên.
  */
 enum PushTopic: string
 {
@@ -111,6 +117,7 @@ enum PushTopic: string
     case StaffNewClientRequest = 'staff.new_client_request';
     case StaffNewClientDocument = 'staff.new_client_document';
     case StaffInstalmentOverdue = 'staff.instalment_overdue';
+    case StaffHandoverReady = 'staff.handover_ready';
 
     /** Nút "Gửi thử" của trang "Thông báo trên điện thoại" (`App\Actions\Push\SendTestPush`). */
     case Test = 'push.test';
@@ -142,7 +149,7 @@ enum PushTopic: string
     {
         return match ($this) {
             self::ClientStageUpdate, self::ClientDocumentPublished, self::ClientDocumentRejected, self::ClientRequestAnswered => 'portal',
-            self::StaffDeadlineReminder, self::StaffNewClientRequest, self::StaffNewClientDocument, self::StaffInstalmentOverdue => 'admin',
+            self::StaffDeadlineReminder, self::StaffNewClientRequest, self::StaffNewClientDocument, self::StaffInstalmentOverdue, self::StaffHandoverReady => 'admin',
             self::Test => null,
         };
     }
@@ -151,7 +158,8 @@ enum PushTopic: string
      * Loại bản ghi liên quan — ĐÚNG bản ghi mà thư đi cùng ghi vào nhật ký (`relatedRecord()` của
      * mailable: `StageUpdate` → dòng tiến độ, `DocumentPublished` → tài liệu, `DocumentRejected` → đầu
      * mục danh mục, `RequestAnswered` → câu trả lời, `DeadlineReminder` → mốc hạn, `NewClientRequest` →
-     * yêu cầu, `NewClientDocument` → tài liệu đầu tiên của lượt nộp, `InstalmentOverdue` → đợt thu).
+     * yêu cầu, `NewClientDocument` → tài liệu đầu tiên của lượt nộp, `InstalmentOverdue` → đợt thu,
+     * `HandoverPackageReady` → tài liệu gói bàn giao).
      * Câu hỏi tiếp của khách (`REQ-2`) không có thư: bản ghi là chính luồng yêu cầu, như thư của yêu
      * cầu mới. `null` = không có ("Gửi thử").
      *
@@ -161,7 +169,7 @@ enum PushTopic: string
     {
         return match ($this) {
             self::ClientStageUpdate => StageLog::class,
-            self::ClientDocumentPublished, self::StaffNewClientDocument => Document::class,
+            self::ClientDocumentPublished, self::StaffNewClientDocument, self::StaffHandoverReady => Document::class,
             self::ClientDocumentRejected => MatterChecklistItem::class,
             self::ClientRequestAnswered => ClientRequestReply::class,
             self::StaffDeadlineReminder => Deadline::class,
@@ -272,6 +280,7 @@ enum PushTopic: string
             $this === self::StaffDeadlineReminder => self::matterTab($matterId, DeadlinesRelationManager::class),
             $this === self::StaffNewClientRequest => self::matterTab($matterId, ClientRequestsRelationManager::class),
             $this === self::StaffNewClientDocument => self::matterTab($matterId, ChecklistRelationManager::class),
+            $this === self::StaffHandoverReady => self::matterTab($matterId, DocumentsRelationManager::class),
             // Cùng luật `InstalmentOverdue::link()` — xem docblock lớp, mục deep link.
             $this === self::StaffInstalmentOverdue => $recipient instanceof User && Receivables::canBeOpenedBy($recipient)
                 ? Receivables::getUrl(panel: 'admin')

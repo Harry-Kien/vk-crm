@@ -2,6 +2,7 @@
 
 use App\Actions\Pwa\BuildServiceWorker;
 use App\Actions\Pwa\RenderOfflinePage;
+use App\Support\OfficeProfile;
 use App\Support\Pwa\AppIcons;
 use App\Support\Pwa\PwaPanels;
 use App\Support\Security\ContentSecurityPolicy;
@@ -428,6 +429,54 @@ it('serves a static Vietnamese offline page with the hotline and a retry link to
         ->not->toContain('csrf-token')
         ->not->toContain('livewire');
 })->with(['admin', 'portal']);
+
+/**
+ * Vòng sửa cuối I1: trang ngoại tuyến (KHÁCH thấy nó trên app đã cài) không hứa "hồ sơ không được lưu
+ * trên máy" — tài liệu khách chủ động tải về (`Content-Disposition: attachment`) nằm lại trong thư mục
+ * tải xuống và đăng xuất không xoá (QUY-TRINH, "Điều nên biết"). Câu đúng: chính ỨNG DỤNG không giữ
+ * bản sao hồ sơ để xem khi mất mạng. Không nói "Điện thoại": trang cũng hiện trên máy tính đã cài app
+ * (Task 3 Minor 3).
+ *
+ * Mutation probe (báo cáo vòng sửa cuối): đặt lại câu cũ → ĐỎ.
+ */
+it('says on the offline page that the app keeps no copy of the file to read offline, without promising nothing is stored on the device', function (string $panel) {
+    app('livewire')->flushState();
+
+    $html = $this->get("/{$panel}/offline")->assertOk()->getContent();
+
+    expect($html)->toContain(e('Ứng dụng không giữ bản sao hồ sơ để xem khi mất mạng'))
+        ->not->toContain(e('không được lưu trên máy'))
+        ->not->toContain(e('Điện thoại'));
+})->with(['admin', 'portal']);
+
+/**
+ * Gộp `main` vào nhánh (M7 Task 10): hotline là một trong chín thông tin văn phòng sửa được trên trang
+ * "Thông tin văn phòng", đọc qua `App\Support\OfficeProfile`, không đọc thẳng cấu hình
+ * (`OfficeProfileTest` canh). Số admin lưu trên trang đó là số trang ngoại tuyến hiện, và VERSION đổi
+ * theo để bản đã cài trên điện thoại được thay. Hotline trống ở cả hai nơi thì trang bỏ hẳn dòng gọi
+ * (không để lại nhãn treo và một `tel:` rỗng), như chân thư.
+ *
+ * Mutation probe (báo cáo vòng sửa cuối): đọc lại `config('vkcrm.brand.hotline')` → ĐỎ; bỏ `@if` quanh
+ * dòng gọi → ĐỎ.
+ */
+it('reads the hotline of the offline page from the office profile, and drops the call line when there is none', function () {
+    app('livewire')->flushState();
+    config(['vkcrm.brand.hotline' => '0832 270 898']);
+    $before = pwaSwConstant(pwaServiceWorker('portal'), 'VERSION');
+
+    DB::table('settings')->insert(['key' => OfficeProfile::settingKey('hotline'), 'value' => '0905123456', 'created_at' => now(), 'updated_at' => now()]);
+
+    expect($this->get('/portal/offline')->getContent())->toContain('href="tel:0905123456"')->not->toContain('0832 270 898')
+        ->and(pwaSwConstant(pwaServiceWorker('portal'), 'VERSION'))->not->toBe($before);
+
+    DB::table('settings')->delete();
+    config(['vkcrm.brand.hotline' => '']);
+
+    expect($this->get('/portal/offline')->getContent())
+        ->not->toContain('href="tel:')
+        ->not->toContain(e(__('pwa.offline.call_lead')))
+        ->toContain(e(__('pwa.offline.retry')));
+});
 
 // ---------------------------------------------------------------------------------------------
 // Thông báo đẩy (M12 Task 7, R11)

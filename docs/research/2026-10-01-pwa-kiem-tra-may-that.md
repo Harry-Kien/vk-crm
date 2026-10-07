@@ -12,7 +12,7 @@ Bối cảnh kỹ thuật và lý do của từng câu: `docs/research/2026-10-0
   **tải tài liệu ngay trong app đã cài** trên iPhone, cho cả app khách lẫn app nội bộ.
 - Mục **D, E, F, G, H** là phần máy thật của nghiệm thu Task 10. Chạy khi bản đầy đủ của M12 đã lên
   máy chủ. Riêng **E** (mất mạng) và **F** (không để lại dữ liệu) đã chạy được ngay khi bản có Task 3
-  lên máy chủ — làm cùng lúc với A–C nếu tiện. **G** thử đủ tám loại thông báo; **H** thử các màn
+  lên máy chủ — làm cùng lúc với A–C nếu tiện. **G** thử đủ chín loại thông báo; **H** thử các màn
   hình chính của app nội bộ trên bề ngang của iPhone.
 
 Mỗi bước có ba phần: **Làm**, **ĐẠT khi**, **Chụp**. Bước nào không ĐẠT thì ghi lại đúng những gì
@@ -151,7 +151,7 @@ chính** (iOS 16.4+); mở bằng Safari thường thì không có nút bật.
 
 ---
 
-## G. Đủ tám loại thông báo (nghiệm thu Task 10)
+## G. Đủ chín loại thông báo (nghiệm thu Task 10)
 
 Mỗi dòng là MỘT loại thông báo mà hệ thống gửi. Một người làm trên máy tính tạo ra sự kiện; điện
 thoại thử đã bật thông báo trong đúng app (app khách: D1; app nội bộ: D6) và đã **khoá màn hình**.
@@ -169,8 +169,10 @@ Với MỌI dòng, ĐẠT gồm cả ba điều:
    ứng dụng xác thực) → đăng nhập xong về **đúng trang đó**. Với app khách, trang mở ở đầu trang chứ
    không cuộn sẵn tới khối — vẫn ĐẠT.
 
-Thông báo "gói bàn giao hồ sơ đã sẵn sàng" (`staff.handover_ready`) chưa có ở bản này: nó vào cùng
-lúc gộp phần bàn giao hồ sơ (M7), và khi đó danh sách thêm dòng G9.
+Thông báo "gói bàn giao hồ sơ đã sẵn sàng" (`staff.handover_ready`, dòng G9) nối lúc gộp phần bàn
+giao hồ sơ (M7) vào nhánh M12. Thư tổng hợp khi bàn giao vụ việc (`staff.matter_reassigned`) và thư
+nhắc "liên hệ chưa ai gọi lại" của phần tiếp nhận (`staff.intake_unanswered`) cố ý KHÔNG có thông báo
+đẩy — chỉ có thư.
 
 | # | Loại và app | Làm | ĐẠT khi (ngoài ba điều trên) | Chụp |
 |---|---|---|---|---|
@@ -179,9 +181,10 @@ lúc gộp phần bàn giao hồ sơ (M7), và khi đó danh sách thêm dòng G
 | G3 | `client.document_rejected` — **app khách** | Khách thử nộp một giấy tờ trong app (như F1). Trên máy tính, tab **Danh mục hồ sơ** → đầu mục vừa nộp → **Cần nộp lại**, ghi một lý do. | Màn hình khoá: **Luật Vũ Khang** — "Có giấy tờ trong hồ sơ của anh/chị cần nộp lại. Chạm để xem." Chạm: trang hồ sơ, khối **Hồ sơ giấy tờ**; lý do chỉ hiện trong app, không trên màn hình khoá. | Màn hình khoá; trang mở ra. |
 | G4 | `client.request_answered` — **app khách** | Trong app khách, trang hồ sơ → **Gửi yêu cầu cho văn phòng**, gửi một câu hỏi. Trên máy tính, tab **Yêu cầu từ khách** của vụ → mở yêu cầu đó → trả lời. | Màn hình khoá: **Luật Vũ Khang** — "Văn phòng đã trả lời câu hỏi của anh/chị. Chạm để xem." Chạm: trang **Gửi yêu cầu và xem trả lời** của hồ sơ đó, có câu trả lời. | Màn hình khoá; trang mở ra. |
 | G5 | `staff.deadline_reminder` — **app nội bộ** | Như D9 (một mốc 3 ngày nữa, rồi sửa thành ngày mai), cộng một mốc nữa: tab **Mốc thời hạn** → **Thêm mốc thời hạn**, **Ngày đến hạn** là hôm qua. Chờ lượt kiểm tra mốc hạn kế tiếp (30 phút một lần, 07:00–19:30). | Ba câu theo mức: "Có mốc thời hạn sắp đến cần chuẩn bị. Chạm để xem." · "Có mốc thời hạn đến hạn hôm nay hoặc ngày mai. Chạm để xem." · "Có mốc thời hạn đã quá hạn, cần xử lý ngay. Chạm để xem." Tiêu đề **Luật Vũ Khang**. Chạm: trang vụ việc, tab **Mốc thời hạn**. | Màn hình khoá (câu quá hạn); trang mở ra. |
-| G6 | `staff.new_client_request` — **app nội bộ** | Khách thử (trên máy khác, hoặc trên máy tính) gửi một yêu cầu mới bằng **Gửi yêu cầu cho văn phòng**; vài phút sau viết thêm vào chính yêu cầu đó (**Gửi thêm**). | Hai lần, mỗi lần: **Luật Vũ Khang** — "Khách vừa gửi yêu cầu hoặc câu hỏi mới. Chạm để xem."; lần hai cũng rung, và trong khay chỉ còn một thông báo của yêu cầu đó. Chạm: trang vụ việc, tab **Yêu cầu từ khách**. | Màn hình khoá; trang mở ra. |
+| G6 | `staff.new_client_request` — **app nội bộ** | Khách thử (trên máy khác, hoặc trên máy tính) gửi một yêu cầu mới bằng **Gửi yêu cầu cho văn phòng**; hơn 10 phút sau viết thêm vào chính yêu cầu đó (**Gửi thêm**); rồi trong vòng 10 phút viết thêm một câu nữa. | Hai lần đầu, mỗi lần: **Luật Vũ Khang** — "Khách vừa gửi yêu cầu hoặc câu hỏi mới. Chạm để xem."; lần hai cũng rung, và trong khay chỉ còn một thông báo của yêu cầu đó. Câu thứ ba (chưa tới 10 phút sau câu trước của khách) **không** rung lại — chuông trong app nội bộ vẫn đếm nó. Chạm: trang vụ việc, tab **Yêu cầu từ khách**. | Màn hình khoá; trang mở ra. |
 | G7 | `staff.new_client_document` — **app nội bộ** | Khách thử nộp một giấy tờ (như F1). | **Luật Vũ Khang** — "Khách vừa nộp giấy tờ mới cần xem. Chạm để xem." Chạm: trang vụ việc, tab **Danh mục hồ sơ** (nơi duyệt giấy tờ). | Màn hình khoá; trang mở ra. |
 | G8 | `staff.instalment_overdue` — **app nội bộ** | Vụ thử có hợp đồng, với một đợt thu chưa thu đủ mà **ngày đến hạn đã qua**. Chờ lượt nhắc lúc **08:00** sáng. Người nhận: luật sư phụ trách và kế toán (vụ hạn chế: luật sư phụ trách và quản trị viên) — thử trên máy của một trong họ. | **Luật Vũ Khang** — "Có khoản thu đã quá hạn cần theo dõi. Chạm để xem." (không số tiền, không tên khách). Chạm: người mở được trang **Công nợ** (thường là kế toán, quản trị viên) tới trang **Công nợ**; người khác tới tab **Hợp đồng và thanh toán** của vụ. | Màn hình khoá; trang mở ra. |
+| G9 | `staff.handover_ready` — **app nội bộ** | Trên máy tính, một vụ thử đã kết thúc (đã chuyển tới giai đoạn cuối): trang vụ việc → khối **Gói bàn giao hồ sơ** → **Sinh gói bàn giao** → **Sinh gói**. Chờ gói sinh xong (lượt rút hàng đợi mỗi phút; gói lớn có thể vài phút). Người nhận: luật sư phụ trách và người bấm sinh gói — thử trên máy của một trong họ. | **Luật Vũ Khang** — "Gói bàn giao hồ sơ đã sẵn sàng để xem và công bố. Chạm để xem." (không mã hồ sơ). Chạm: trang vụ việc, tab **Tài liệu**. | Màn hình khoá; trang mở ra. |
 
 ---
 
@@ -218,5 +221,5 @@ Phiên bản iPhone (iOS): ______ Mẫu máy: ______ · Phiên bản Android: __
 | E1–E3 | | | |
 | E4–E5 (chỉ khi bật giới hạn địa chỉ) | | | |
 | F1–F2 | | | |
-| G1–G8 | | | |
+| G1–G9 | | | |
 | H1–H4 | | (nếu có thời gian) | |

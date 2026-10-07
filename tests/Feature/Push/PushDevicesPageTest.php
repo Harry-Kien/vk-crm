@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\PushTopic;
 use App\Enums\Role;
 use App\Filament\Admin\Pages\PushDevices as AdminPushDevices;
 use App\Filament\Portal\Pages\PushDevices as PortalPushDevices;
@@ -335,3 +336,36 @@ it('prints the hidden invite strip on signed-in pages only', function (string $p
     'admin' => ['admin', fn () => User::factory()->withRole(Role::Lawyer)->create()],
     'portal' => ['portal', fn () => ClientUser::factory()->activated()->create()],
 ]);
+
+/**
+ * Vòng sửa cuối I3: câu mời ở đầu trang "Thông báo trên điện thoại" của app nội bộ chỉ được hứa điều
+ * hệ thống làm. Mỗi chủ đề đẩy của nhân sự phải có tên trong câu — kế toán chỉ bao giờ nhận
+ * `staff.instalment_overdue`, nên câu cũ ("mốc thời hạn … giấy tờ, câu hỏi") hứa với họ ba thứ không
+ * bao giờ tới và không nhắc thứ duy nhất tới — và câu nói rõ là "tuỳ việc anh/chị phụ trách". Bảng
+ * dưới phủ ĐỦ mọi chủ đề của panel `admin`: thêm một chủ đề nhân sự mà không sửa câu thì đỏ.
+ *
+ * Mutation probe (báo cáo vòng sửa cuối): bỏ "khoản thu quá hạn" khỏi câu → ĐỎ.
+ */
+it('names every staff push topic in the lead of the internal page, as it depends on what the person handles', function () {
+    $phrases = [
+        PushTopic::StaffDeadlineReminder->value => 'mốc thời hạn',
+        PushTopic::StaffNewClientRequest->value => 'câu hỏi',
+        PushTopic::StaffNewClientDocument->value => 'giấy tờ',
+        PushTopic::StaffInstalmentOverdue->value => 'khoản thu quá hạn',
+        PushTopic::StaffHandoverReady->value => 'gói bàn giao',
+    ];
+    $staffTopics = array_values(array_map(fn (PushTopic $topic): string => $topic->value, array_filter(PushTopic::cases(), fn (PushTopic $topic): bool => $topic->panel() === 'admin')));
+
+    expect(array_keys($phrases))->toEqualCanonicalizing($staffTopics);
+
+    $accountant = User::factory()->withRole(Role::Accountant)->create();
+    $html = $this->actingAs($accountant, 'web')->get('/admin/thong-bao-dien-thoai')->assertOk()->getContent();
+    $lead = __('push.devices.lead.admin');
+
+    expect($html)->toContain(e($lead))
+        ->and($lead)->toContain('tuỳ việc anh/chị phụ trách');
+
+    foreach ($phrases as $topic => $phrase) {
+        expect(str_contains($lead, $phrase))->toBeTrue("Câu mời không nhắc chủ đề {$topic}");
+    }
+});

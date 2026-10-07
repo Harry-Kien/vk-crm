@@ -132,6 +132,7 @@ return [
             'new_client_request' => 'Khách gửi yêu cầu',
             'new_client_document' => 'Khách nộp giấy tờ',
             'instalment_overdue' => 'Đợt thanh toán quá hạn',
+            'handover_ready' => 'Gói bàn giao đã sẵn sàng',
         ],
         'push' => [
             'test' => 'Thông báo thử',

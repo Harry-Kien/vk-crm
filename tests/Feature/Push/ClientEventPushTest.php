@@ -26,6 +26,7 @@ use App\Models\ClientRequestReply;
 use App\Models\ClientUser;
 use App\Models\Document;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\MatterChecklistItem;
 use App\Models\MatterParty;
 use App\Models\OutboundMessage;
@@ -426,18 +427,38 @@ it('pushes exactly the accounts it mails, about the same record, with nothing of
  * `whereHas('client')`). Push được khẳng định TRƯỚC thư: bỏ một điều kiện ở đó thì dòng "không push"
  * đỏ trước tiên — bằng chứng push đi theo đúng luật đó, không có bản sao nào của riêng nó.
  *
- * Vế dương trong cùng test (trừ khi chính khách hàng đã xoá): tài khoản "vợ" của cùng khách vẫn nhận
- * đúng một thư và một push — lượt gửi đã chạy thật, không phải xanh vì không ai được xét.
+ * Vế dương trong cùng test (trừ khi chính khách hàng đã xoá hay vụ đã rời cổng của chính "vợ"): tài
+ * khoản "vợ" của cùng khách vẫn nhận đúng một thư và một push — lượt gửi đã chạy thật, không phải xanh
+ * vì không ai được xét.
+ *
+ * Vòng sửa cuối I6 — bước người nhận THỨ HAI của `main` (gộp M7, R4):
+ * `ResolveClientRecipients::onPortal()`, vụ còn trên cổng của CHÍNH người nhận (`MatterPolicy::view`
+ * nhánh khách, gồm "chưa hết hạn tra cứu"). Dòng "access expired": văn phòng bấm xong, listener thư
+ * còn nằm trên hàng đợi `database`; trong lúc đó hạn tra cứu của vụ đã qua (dòng lưu trữ
+ * `client_access_until` = hôm qua) trong khi tài khoản vẫn hoạt động nhờ một vụ khác của cùng khách.
+ * Khi worker chạy listener: không thư (thư mang mã hồ sơ và liên kết tới một trang 404), và vì push chỉ
+ * đi cho người vừa nhận thư, không push. Lần gộp lấy bản làn của bốn `NotifyClientOf*` làm rơi
+ * `onPortal()` và dòng này đỏ; lấy bản `main` làm rơi `$mailed->push()` và test "pushes exactly the
+ * accounts it mails" đỏ. Vế dương của dòng này: test "still mails and pushes on the last day" ngay dưới.
+ *
+ * Mutation probe (báo cáo vòng sửa cuối): `onPortal()` trả nguyên `$accounts` → dòng "access expired"
+ * ĐỎ trên cả bốn đường (thư và push tới "vợ").
  */
 it('neither mails nor pushes an account the shared client rule leaves out', function (string $path, string $condition) {
     Mail::fake();
     Notification::fake();
+    $deferred = $condition === 'access expired';
+
+    if ($deferred) {
+        config(['queue.default' => 'database']);
+    }
+
     [$matter, $lawyer, $wife] = clientPushScenario();
 
     $excluded = match ($condition) {
         'never activated' => ClientUser::factory()->create(['client_id' => $wife->client_id, 'is_active' => true]),
         'locked' => clientPushSpouse($wife, ['is_active' => false]),
-        'client soft-deleted' => $wife,
+        'client soft-deleted', 'access expired' => $wife,
     };
 
     FakePushServer::device($wife, 'vo');
@@ -452,10 +473,19 @@ it('neither mails nor pushes an account the shared client rule leaves out', func
 
     clientPushAct($path, $matter, $lawyer, $wife);
 
+    if ($deferred) {
+        clientPushExpireAccess($matter, $wife, today()->subDay()->toDateString());
+        clientPushDrainQueue();
+
+        // Listener đã chạy hết, không nằm lại hay hỏng: dòng này không xanh vì không ai được xét.
+        expect(DB::table('jobs')->count())->toBe(0)
+            ->and(DB::table('failed_jobs')->count())->toBe(0);
+    }
+
     expect(clientPushCounts($excluded))->toBe([0], "{$condition}: có push")
         ->and(Mail::sent(clientPushMailable($path), fn ($mail): bool => $mail->hasTo($excluded->email)))->toBeEmpty();
 
-    if ($condition !== 'client soft-deleted') {
+    if (! in_array($condition, ['client soft-deleted', 'access expired'], true)) {
         expect(clientPushCounts($wife))->toBe([1])
             ->and(Mail::sent(clientPushMailable($path), fn ($mail): bool => $mail->hasTo($wife->email)))->toHaveCount(1);
     }
@@ -463,7 +493,38 @@ it('neither mails nor pushes an account the shared client rule leaves out', func
     'never activated',
     'locked',
     'client soft-deleted',
+    'access expired',
 ]);
+
+/**
+ * Hạn tra cứu của vụ là `$until` (dòng lưu trữ M7 Task 5), và khách có thêm một vụ khác còn trên cổng —
+ * lý do tài khoản vẫn hoạt động sau khi vụ này rời cổng.
+ */
+function clientPushExpireAccess(Matter $matter, ClientUser $account, string $until): void
+{
+    MatterArchive::factory()->create(['matter_id' => $matter->id, 'client_access_until' => $until]);
+    Matter::factory()->create(['client_id' => $account->client_id, 'is_published_to_portal' => true]);
+}
+
+/**
+ * Vế dương của dòng "access expired" ngay trên (cùng đường trễ qua hàng đợi): hôm nay là NGÀY TRA CỨU
+ * CUỐI — khách còn xem được hết ngày — thì thư và push vẫn đi, nên dòng âm không xanh nhờ một lý do
+ * khác (listener không chạy, dòng lưu trữ chặn mọi thứ).
+ */
+it('still mails and pushes on the last day of client access, after the same queue delay', function (string $path) {
+    Mail::fake();
+    Notification::fake();
+    config(['queue.default' => 'database']);
+    [$matter, $lawyer, $wife] = clientPushScenario();
+    FakePushServer::device($wife, 'vo');
+
+    clientPushAct($path, $matter, $lawyer, $wife);
+    clientPushExpireAccess($matter, $wife, today()->toDateString());
+    clientPushDrainQueue();
+
+    expect(clientPushCounts($wife))->toBe([1])
+        ->and(Mail::sent(clientPushMailable($path), fn ($mail): bool => $mail->hasTo($wife->email)))->toHaveCount(1);
+})->with(clientPushPaths());
 
 /**
  * Plan Task 8: "Chuyển giai đoạn không công bố: không push. Chạy lại listener: không push thứ hai
@@ -646,3 +707,68 @@ it('pushes again on a second rejection of the same item, as it mails again', fun
         ->and($alerts->map(fn (PushAlert $alert): string => $alert->message->tag)->unique()->all())->toBe(['client.document_rejected:'.$item->id])
         ->and(clientPushMailRows($wife->email, OutboundStatus::Sent))->toBe(2);
 });
+
+/** Rút hàng `push` của kết nối `database` bằng worker THẬT, mỗi lần một job (cùng lối `clientPushDrainQueue()`). */
+function clientPushDrainPushQueue(): void
+{
+    for ($guard = 0; $guard < 20; $guard++) {
+        if (! DB::table('jobs')->where('queue', PushAlert::QUEUE)->where('available_at', '<=', now()->getTimestamp())->exists()) {
+            return;
+        }
+
+        Artisan::call('queue:work', ['connection' => 'database', '--queue' => PushAlert::QUEUE, '--once' => true, '--sleep' => 0]);
+    }
+}
+
+/**
+ * Vòng sửa cuối I2 (phán quyết R9: "đăng ký còn sót của tài khoản đã vô hiệu KHÔNG BAO GIỜ được
+ * dùng"). Người nhận push chốt lúc xếp (đúng người vừa nhận thư), rồi `PushAlert` nằm trên hàng `push`
+ * tới lượt rút kế tiếp (≤ 1 phút; 60 + 300 giây khi thử lại; lâu hơn khi cron trễ). Văn phòng khoá tài
+ * khoản, xoá tài khoản, gỡ dấu kích hoạt hay xoá khách hàng TRONG cửa sổ đó thì máy của tài khoản ấy
+ * không nhận gì: `PushAlert::shouldSend()` hỏi lại đúng luật R12
+ * (`ResolveClientRecipients::eligibleQuery()`) lúc gửi. Thư khách gửi đồng bộ trong listener nên không
+ * có cửa sổ này; push là kênh duy nhất có.
+ *
+ * Đường thật: luật sư chuyển giai đoạn có công bố trên màn hình, hàng đợi `database`, worker thật cho
+ * listener thư rồi cho hàng `push`, máy chủ push giả ở tầng HTTP. Vế dương trong cùng test: máy của
+ * chồng (vẫn đủ điều kiện) nhận đúng một request, và mọi job đã chạy hết (không job nào nằm lại hay
+ * hỏng) — test không xanh vì hàng `push` không được rút.
+ *
+ * Mutation probe (báo cáo vòng sửa cuối): bỏ lời hỏi lại luật R12 ở `shouldSend()` → máy của vợ nhận
+ * request ở mọi dòng, ĐỎ.
+ */
+it('never uses the phone of an account the office shuts out while its push waits in the queue', function (string $condition) {
+    $server = FakePushServer::start();
+    Mail::fake();
+    config(['queue.default' => 'database']);
+    [$matter, $lawyer, $wife] = clientPushScenario();
+    $husband = clientPushSpouse($wife);
+    FakePushServer::device($wife, 'vo');
+    $husbandPhone = FakePushServer::device($husband, 'chong');
+
+    clientPushAct('stage', $matter, $lawyer, $wife);
+    clientPushDrainQueue();
+
+    // Listener đã gửi hai thư và xếp hai `PushAlert` trên hàng `push`; chưa máy nào nhận gì.
+    Mail::assertSent(StageUpdate::class, 2);
+    expect(DB::table('jobs')->where('queue', PushAlert::QUEUE)->count())->toBe(2)
+        ->and($server->endpoints())->toBe([]);
+
+    match ($condition) {
+        'deactivated' => $wife->update(['is_active' => false]),
+        'soft-deleted' => $wife->delete(),
+        'activation cleared' => $wife->forceFill(['activated_at' => null])->save(),
+        'client soft-deleted' => $wife->client->delete(),
+    };
+
+    clientPushDrainPushQueue();
+
+    expect($server->endpoints())->toBe($condition === 'client soft-deleted' ? [] : [$husbandPhone])
+        ->and(DB::table('jobs')->count())->toBe(0)
+        ->and(DB::table('failed_jobs')->count())->toBe(0);
+})->with([
+    'deactivated',
+    'soft-deleted',
+    'activation cleared',
+    'client soft-deleted',
+]);
