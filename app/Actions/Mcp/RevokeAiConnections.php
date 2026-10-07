@@ -42,6 +42,17 @@ use Laravel\Passport\Passport;
  * `$actor` null (lệnh `vkcrm:reset-2fa`) ghi dòng nhật ký không có causer, tường minh — không đoán
  * từ phiên `web` hay `client`.
  *
+ * # Một kết nối (`$clientId`, Task 15)
+ *
+ * Có `$clientId` thì chỉ thu hồi token và mã của người này CHO client đó: access token
+ * `client_id = $clientId`, refresh token của các access token đó, mã uỷ quyền `client_id =
+ * $clientId` — một "kết nối" trên trang "Kết nối AI". Dòng nhật ký mang thêm `oauth_client_id`.
+ * Token của người khác trên cùng client (client CIMD dùng chung cho cả văn phòng, Task 5) và chính
+ * dòng client không bị đụng tới. Không `$clientId` = mọi kết nối, như trên.
+ *
+ * Action này KHÔNG hỏi quyền: người gọi là một bước nội bộ trong transaction của chính nó, hoặc
+ * {@see DisconnectAiConnections} — đường của hai màn hình, hỏi `Gate` trước khi gọi tới đây.
+ *
  * Không xoá client OAuth nào: client DCR là của một lần kết nối, client CIMD dùng chung cho mọi nhân
  * sự trên một nền tảng (Task 5); lệnh dọn của Task 3 xoá client không còn token sống.
  *
@@ -53,9 +64,9 @@ use Laravel\Passport\Passport;
 final class RevokeAiConnections
 {
     /** @return int tổng số dòng đã thu hồi (access token + refresh token + mã uỷ quyền) */
-    public function handle(User $target, AiRevocationReason $reason, ?User $actor = null): int
+    public function handle(User $target, AiRevocationReason $reason, ?User $actor = null, ?string $clientId = null): int
     {
-        return DB::transaction(function () use ($target, $reason, $actor): int {
+        return DB::transaction(function () use ($target, $reason, $actor, $clientId): int {
             /** @var User $locked */
             $locked = User::query()->withTrashed()->whereKey($target->getKey())->lockForUpdate()->firstOrFail();
 
@@ -73,18 +84,18 @@ final class RevokeAiConnections
 
             $userId = $locked->getKey();
 
+            $forClient = fn ($query) => $clientId === null ? $query : $query->where('client_id', $clientId);
+
             $refreshTokens = Passport::refreshToken()->newQuery()
-                ->whereIn('access_token_id', Passport::token()->newQuery()->select('id')->where('user_id', $userId))
+                ->whereIn('access_token_id', $forClient(Passport::token()->newQuery()->select('id')->where('user_id', $userId)))
                 ->where('revoked', false)
                 ->update(['revoked' => true]);
 
-            $accessTokens = Passport::token()->newQuery()
-                ->where('user_id', $userId)
+            $accessTokens = $forClient(Passport::token()->newQuery()->where('user_id', $userId))
                 ->where('revoked', false)
                 ->update(['revoked' => true]);
 
-            $authorizationCodes = Passport::authCode()->newQuery()
-                ->where('user_id', $userId)
+            $authorizationCodes = $forClient(Passport::authCode()->newQuery()->where('user_id', $userId))
                 ->where('revoked', false)
                 ->update(['revoked' => true]);
 
@@ -93,6 +104,7 @@ final class RevokeAiConnections
             if ($total > 0) {
                 Audit::record('ai_connections_revoked', $locked, [
                     'reason' => $reason->value,
+                    ...($clientId === null ? [] : ['oauth_client_id' => $clientId]),
                     'access_tokens' => $accessTokens,
                     'refresh_tokens' => $refreshTokens,
                     'authorization_codes' => $authorizationCodes,

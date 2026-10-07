@@ -71,6 +71,8 @@ return [
         'password_changed' => 'Đổi mật khẩu',
         'two_factor_reset' => 'Đặt lại 2FA',
         'deleted' => 'Xoá tài khoản',
+        'revoked_by_admin' => 'Quản trị thu hồi kết nối',
+        'revoked_by_self' => 'Nhân sự tự thu hồi kết nối',
     ],
     'checklist_item_status' => [
         'missing' => 'Chưa nộp',

@@ -121,6 +121,27 @@ class UserPolicy
     }
 
     /**
+     * M11 R8 (Task 15): xem danh sách kết nối AI (token OAuth đang sống, theo client) của một nhân sự
+     * (`App\Actions\Mcp\ListAiConnections`) — người có `settings.manage` xem của mọi người (trang "Kết
+     * nối AI"), một nhân sự xem của chính mình (trang "Kết nối AI của tôi"). Không bao giờ của người khác.
+     */
+    public function viewAiConnections(User|ClientUser $user, User $model): bool
+    {
+        return $user instanceof User && ($this->viewAny($user) || $user->is($model));
+    }
+
+    /**
+     * M11 R8 (Task 15): thu hồi kết nối AI của một nhân sự (`App\Actions\Mcp\DisconnectAiConnections`)
+     * — cùng luật với {@see self::viewAiConnections()}: quản trị thu hồi của mọi người ("Thu hồi",
+     * "Thu hồi tất cả"), nhân sự tự thu hồi của chính mình [DC:144]. Thu hồi chỉ thu hẹp, nên không
+     * có điều kiện nào khác.
+     */
+    public function revokeAiConnections(User|ClientUser $user, User $model): bool
+    {
+        return $this->viewAiConnections($user, $model);
+    }
+
+    /**
      * Cổng THÔ của `DeleteBulkAction` trên `ListUsers` (carry-over từ rà soát Task 2, C1-class
      * hole): Filament tự hỏi `deleteAny` cho nút xoá hàng loạt, và một ability KHÔNG có phương
      * thức tương ứng trên policy được coi là CHO PHÉP khi không ở chế độ nghiêm ngặt (mặc định dự

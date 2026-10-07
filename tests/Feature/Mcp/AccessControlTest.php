@@ -57,7 +57,9 @@ use Tests\Support\McpOAuth;
 |
 | Mọi test của `/mcp` đi qua HTTP THẬT với token Passport THẬT (`Tests\Support\McpOAuth`), mỗi
 | request như một tiến trình PHP-FPM mới ({@see aclFresh()}). Màn hình đi qua Livewire. Action của
-| màn hình "Kết nối AI" (Task 15) — bật chế độ, cam kết — đo ở tầng Action vì màn hình chưa có.
+| màn hình "Kết nối AI" — bật chế độ, cam kết — đo ở tầng Action ở đây (viết trước khi có màn hình);
+| hai màn hình của Task 15 có test riêng: `tests/Feature/Filament/AiConnectionsTest.php`,
+| `tests/Feature/Filament/MyAiConnectionsTest.php`.
 */
 
 beforeEach(function () {

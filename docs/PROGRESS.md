@@ -5477,3 +5477,79 @@ passed. `pint --test`: PASS 1163 tệp. Task không có migration.
 probe đều đỏ (hai probe sống ở lần đầu được đóng bằng hai test mới: cửa sổ riêng của từng bearer, bearer mới vào được
 bộ đếm đã đầy). Cả bộ song song: 5999 passed, 33 skipped, 1 risky (có từ trước), EXIT 0. MariaDB tuần tự (năm tệp đã
 chạm): 195 passed. `pint --test`: PASS 1178 tệp.
+
+### Task 15 — trang "Kết nối AI" và "Kết nối AI của tôi" (2026-10-07)
+
+**Đã có, kèm test** (`tests/Feature/Filament/AiConnectionsTest.php`, `tests/Feature/Filament/MyAiConnectionsTest.php`
+qua Livewire và HTTP thật — hiệu lực của bật/tắt và thu hồi đo bằng một request `/mcp` thật với token Passport thật
+ở request kế tiếp; `tests/Feature/Mcp/AiConnectionsActionsTest.php` đo cổng quyền của chính các Action):
+- **Tên lớp tiếng Anh (D9):** `App\Filament\Admin\Pages\AiConnections` (kế hoạch: `KetNoiAi`, slug `ket-noi-ai`) và
+  `App\Filament\Admin\Pages\MyAiConnections` (kế hoạch: `KetNoiAiCuaToi`, slug `McpEndpoint::MY_AI_CONNECTIONS_SLUG`
+  = `ket-noi-ai-cua-toi`, đúng đường dẫn màn hình đồng ý OAuth trỏ tới từ Task 4 — test GET
+  `McpEndpoint::myAiConnectionsUrl()` 200, và cam kết ở trang này biến màn hình từ chối "chưa cam kết" thành màn
+  hình có nút "Đồng ý": đóng rà soát Task 4, m5). Chuỗi ở tệp mới `lang/vi/ai_connections.php`.
+- **Cổng:** "Kết nối AI" đòi `settings.manage`; "Kết nối AI của tôi" đòi nhân sự đang hoạt động có `matter.view`
+  (kế toán 404). Cả hai: `boot()` trả 404 ở mount VÀ ở mọi request cập nhật Livewire (test bằng `wire:snapshot` thật,
+  cặp dương cùng snapshot), mọi hành động thật hỏi lại cổng (test gọi thẳng trên một thể hiện dựng tay), Action hỏi
+  `Gate::forUser($actor)` lần nữa. Người đang xem chi tiết ở `#[Locked] $selectedUserId` (trình duyệt không đặt
+  được), resolve lại mỗi lần dùng; đã xoá thì 404. Hàm đọc dữ liệu cho view là `protected` (`getViewData()`), không
+  gọi được từ trình duyệt.
+- **"Kết nối AI":** dải cảnh báo R12 mục 3 (bốn việc pháp lý của chủ văn phòng, mục đầu là hồ sơ đánh giá tác động
+  chuyển dữ liệu ra nước ngoài, "Mẫu 09 hay 10 chưa xác nhận") tới khi quản trị ghi ngày đã nộp — ghi ngày chỉ ẩn
+  dải, không bật/tắt gì khác (test), ngày ở tương lai hay sai dạng bị từ chối, giá trị lưu hỏng không ẩn được dải;
+  hai công tắc `mcp.enabled` / `mcp.write_enabled` (tắt máy chủ qua trang: `/mcp` 401 ở request kế tiếp, bật lại
+  thì chạy); bảng nhân sự (chế độ, ngày cam kết và phiên bản — đánh dấu phiên bản cũ, số kết nối đang sống, lần dùng
+  cuối; tính theo lô cho cả trang bảng); "Đổi chế độ" (`SetUserAiAccess`, ghi `ai_access_changed` với causer là
+  quản trị; người thiếu `matter.view` hay đang bị vô hiệu hoá chỉ có lựa chọn "Tắt", ép giá trị khác bị từ chối);
+  chi tiết một người: từng kết nối với nền tảng suy từ host redirect, chính host đó (không bao giờ `client_name`),
+  ngày tạo (lần đồng ý gần nhất, `mcp_connection_authorized`; không có thì token cũ nhất còn trong bảng), lần dùng
+  cuối (`mcp_tool_called` gần nhất qua client đó); "Thu hồi" từng dòng (token đó 401 ở request kế tiếp, refresh token
+  của nó `invalid_grant`, kết nối khác của cùng người vẫn chạy và vẫn làm mới được; với client CIMD dùng chung chỉ
+  token của người đó, dòng client không bị đụng) và "Thu hồi tất cả" (chế độ giữ nguyên); khối "Nhật ký MCP" 100
+  dòng gần nhất (gọi tool, đồng ý/từ chối kết nối, thu hồi, đổi chế độ, cam kết, đổi cấu hình — không dòng nào khác),
+  lọc theo người (causer hoặc chủ thể) và theo tool, giá trị qua `SensitivePropertyFilter`, ghi chú IP là IP của
+  nền tảng.
+- **"Kết nối AI của tôi":** chế độ của tôi và lý do đầu tiên khi chưa dùng được (`McpAccess::refusal()`, cùng câu
+  với màn hình đồng ý); chính sách dùng AI phiên bản hiện hành (bản tóm tắt trong app, `ai_connections.policy.items`)
+  và ô cam kết không đánh dấu sẵn (`AcknowledgeAiPolicy`, IP và user agent của chính request); URL MCP để dán vào
+  client; dòng chỉ tới hướng dẫn; kết nối của tôi kèm nút tự thu hồi (gửi id client của người khác lên trang mình
+  không thu hồi gì của người đó).
+- **Action mới** (`app/Actions/Mcp/`): `UpdateAiSettings` (ba trường trên `WriteSettings`, `settings.manage`, audit
+  `ai_settings_updated` với `changed` = trường → giá trị mới, chỉ khi có đổi); `ListAiConnections` (`forUser()` — quản
+  trị mọi người, nhân sự chỉ chính mình; `overview()` — `settings.manage`; DTO `AiConnection`, `StaffAiSummary`);
+  `DisconnectAiConnections` (đường duy nhất từ màn hình tới `RevokeAiConnections`, hỏi `revokeAiConnections` trước —
+  đóng rà soát Task 6, m3 về thu hồi không hỏi quyền; lý do `revoked_by_admin` / `revoked_by_self`, không hạ
+  `ai_access`); `ListMcpAuditEntries` (DTO `McpAuditEntry`). `RevokeAiConnections` nhận thêm `$clientId` (một kết nối:
+  access token, refresh token của chúng và mã uỷ quyền của người đó cho client đó; dòng nhật ký mang
+  `oauth_client_id`). `UserPolicy::viewAiConnections()` / `revokeAiConnections()`. `McpSwitches` có thêm
+  `TRANSFER_ASSESSMENT_FILED_ON`, `transferAssessmentFiledOn()`, `writeSwitchOn()`.
+
+**Phán quyết trong task:**
+- **Một "kết nối"** là một cặp (người, client OAuth chưa thu hồi) còn ít nhất một token sống: access token chưa thu
+  hồi và chưa hết hạn, hoặc refresh token chưa thu hồi và chưa hết hạn. Mã uỷ quyền chưa đổi không phải kết nối
+  (nhưng "Thu hồi" vẫn thu hồi chúng).
+- **"Lần dùng cuối"** là lần gọi tool gần nhất (nhật ký `mcp_tool_called`), không phải lần làm mới token.
+  `initialize` và `tools/list` không tính.
+- **Bộ lọc tool** của khối nhật ký lấy tên từ 1000 dòng `mcp_tool_called` gần nhất (nhật ký chỉ ghi tên tool đã
+  khai), nên tự đầy đủ khi làn m11b đưa tool vào `CrmServer::$tools`.
+- **Khối "Nhật ký MCP" không lọc vụ `restricted`**: trang chỉ cho admin, và dòng chỉ mang id dạng `matter_N`.
+
+**Lệch và khoảng hở:**
+- Bản chính sách trên trang là tóm tắt trong `lang/vi/ai_connections.php`; văn bản đầy đủ `docs/CHINH-SACH-AI.md` là
+  Task 16. Dòng "hướng dẫn" là chữ chỉ tới `docs/KET-NOI-AI.md` (tài liệu không được phục vụ qua web), không phải
+  liên kết.
+- Filament 5 chỉ vẽ lại modal khi mở một action (vẽ một phần), nên lần mở modal không chạy lại phần chi tiết; người
+  được chọn bị xoá giữa chừng nhận 404 ở lần bấm nút hay lần vẽ lại đầy đủ kế tiếp (cả hai có test).
+
+**Bàn giao:**
+- **Task 16:** sửa `ai_connections.policy.items` cùng lúc với `docs/CHINH-SACH-AI.md` và `vkcrm.mcp.policy_version`;
+  quyết có một liên kết thật tới hướng dẫn hay không; dòng vàng của `vkcrm:preflight` đọc
+  `McpSwitches::transferAssessmentFiledOn()` (null = chưa nộp).
+- **Task 17:** ảnh chụp hai trang; thử thật "Thu hồi" khi Claude/ChatGPT đang kết nối.
+
+**Kiểm chứng (2026-10-07):** ĐỎ trước khi cài (chỉ test, chưa có trang): 54 failed. XANH: 76 test mới (ba tệp). 55
+mutation probe, mỗi probe bỏ hay đổi đúng một điều kiện mới, chạy trên đúng nhóm test nêu tên nó, khôi phục và đối chiếu
+md5: 54 đỏ; M36 (bỏ bộ lọc sự kiện của khối nhật ký) sống ở lần đầu vì dòng ngoài kênh AI của test không qua được bộ lọc
+người, test được siết (một dòng ngoài kênh AI mà chính người đó là causer, xem cả khi không lọc) và M36b đỏ. Cả bộ
+(`--parallel --processes=2`): EXIT 0 — 6075 passed (5999 + 76), 33 skipped, 1 risky như baseline. MariaDB tuần tự
+(năm tệp đã chạm): 165 passed. `pint --test`: PASS 1191 tệp. Task không có migration.

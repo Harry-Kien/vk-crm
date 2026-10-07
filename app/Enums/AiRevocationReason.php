@@ -29,6 +29,12 @@ enum AiRevocationReason: string
     /** Xoá (mềm) tài khoản (`DeleteStaffMember`). */
     case Deleted = 'deleted';
 
+    /** Quản trị bấm "Thu hồi" (một kết nối) hay "Thu hồi tất cả" trên trang "Kết nối AI" (Task 15). */
+    case RevokedByAdmin = 'revoked_by_admin';
+
+    /** Nhân sự tự thu hồi một kết nối của mình trên trang "Kết nối AI của tôi" (Task 15, [DC:144]). */
+    case RevokedBySelf = 'revoked_by_self';
+
     public function label(): string
     {
         return __('enums.ai_revocation_reason.'.$this->value);
@@ -42,12 +48,14 @@ enum AiRevocationReason: string
      *    khoản được kích hoạt lại hay khôi phục sau khi xoá không được lặng lẽ mang theo quyền AI cũ.
      *  - Không: đổi mật khẩu và đặt lại 2FA. Đó là chuyện thông tin đăng nhập có thể đã lộ, không
      *    phải chuyện người đó được dùng AI hay không — họ kết nối lại là đủ.
+     *  - Không: quản trị hay chính người đó bấm "Thu hồi". Đó là ngắt MỘT (hay mọi) kết nối đang có,
+     *    không phải rút quyền; rút quyền là đổi chế độ về "Tắt" (`SetUserAiAccess`).
      */
     public function turnsAccessOff(): bool
     {
         return match ($this) {
             self::AiAccessOff, self::Deactivated, self::RoleChanged, self::Deleted => true,
-            self::PasswordChanged, self::TwoFactorReset => false,
+            self::PasswordChanged, self::TwoFactorReset, self::RevokedByAdmin, self::RevokedBySelf => false,
         };
     }
 

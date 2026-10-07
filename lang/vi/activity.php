@@ -69,6 +69,9 @@ return [
         // M11 Task 8 (R8): App\Actions\Mcp\RecordMcpToolCall — mỗi lần gọi tool qua MCP, kể cả bị từ
         // chối; `properties.channel = mcp`, tham số theo allowlist, id và tên trường đã trả, `outcome`.
         'mcp_tool_called' => 'Trợ lý AI gọi công cụ',
+        // M11 Task 15 (R2, R12 mục 3): App\Actions\Mcp\UpdateAiSettings — trang "Kết nối AI" đổi công
+        // tắc toàn hệ thống hay ngày đã nộp hồ sơ đánh giá tác động; `changed` = trường → giá trị mới.
+        'ai_settings_updated' => 'Đổi cấu hình trợ lý AI toàn hệ thống',
         // App\Actions\Matter\{AddTeamMember,RemoveTeamMember} (M6.5 Task 3, fix round 1, "also
         // fix": thiếu hai khoá này khiến ActivityLogPage hiện nguyên văn khoá sự kiện tiếng Anh).
         'team_member_added' => 'Thêm thành viên đội ngũ',
