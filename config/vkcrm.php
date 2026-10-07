@@ -16,6 +16,10 @@ return [
     // Chính sách lưu trữ
     'retention_years' => (int) env('RETENTION_YEARS', 10),
     'client_access_days' => (int) env('CLIENT_ACCESS_DAYS', 90),
+    // M10 R7b: số tháng giữ dữ liệu người liên hệ KHÔNG thành khách (từ lúc bị từ chối, không theo
+    // tiếp hoặc bị gộp) rồi tự ẩn danh. Riêng với `retention_years` (hồ sơ vụ việc, M7). Đọc qua
+    // `IntakeRequest::retentionMonths()`, nơi một giá trị vô nghĩa về 24 — không ép kiểu ở đây.
+    'prospect_retention_months' => env('PROSPECT_RETENTION_MONTHS', 24),
 
     // Giám sát cron
     'heartbeat_url' => $domain(env('HEARTBEAT_URL')),
@@ -305,6 +309,34 @@ return [
             900 => 'oklch(0.260 0.058 261.7)',
             950 => 'oklch(0.233 0.050 261.7)',
         ],
+    ],
+
+    /*
+     * M10 Task 5 (R5) — ngưỡng phản hồi lần đầu của một lần có người liên hệ: quá chừng ấy GIỜ LÀM
+     * VIỆC (`business_hours` dưới đây) mà bản ghi còn ở `new` thì `RemindUnansweredIntakes` nhắc và
+     * widget "Liên hệ chưa ai gọi lại" hiện nó. Số nguyên giờ, `INTAKE_RESPONSE_HOURS`; trống, `0`,
+     * số âm hay chữ đều rơi về 4 (mặc định của kế hoạch M10) — không bao giờ thành "nhắc ngay khi vừa
+     * nhận" hay "không bao giờ nhắc".
+     */
+    'intake_response_hours' => (static fn (int $hours): int => $hours >= 1 ? $hours : 4)((int) env('INTAKE_RESPONSE_HOURS')),
+
+    /*
+     * Giờ làm việc của văn phòng (M10 R5) — MỘT định nghĩa, đọc qua `App\Support\BusinessHours::
+     * fromConfig()`, theo `APP_TIMEZONE`. Ngày theo ISO-8601: 1 = Thứ Hai … 7 = Chủ nhật. Khung giờ
+     * tính cả hai đầu (08:00 và 17:30 đều là trong giờ).
+     *
+     * Viết thẳng ở đây, không đọc `.env`: đổi lịch làm việc là một quyết định của văn phòng, nên đi
+     * qua mã và bộ test (`VkcrmConfigTest` ghim mặc định), không qua một biến môi trường gõ nhầm được.
+     * Văn phòng làm thêm Thứ Bảy thì thêm `6` vào `days` — tác vụ nhắc chạy mỗi 15 phút và tự hỏi
+     * lịch này, nên không cron nào phải sửa theo.
+     *
+     * **Ngày lễ không mô hình hoá ở M10** (kế hoạch M10, mục 5 "Còn cần xác nhận"): một ngày lễ rơi
+     * vào Thứ Hai–Thứ Sáu vẫn được tính là ngày làm việc — lời nhắc có thể tới giữa kỳ nghỉ.
+     */
+    'business_hours' => [
+        'days' => [1, 2, 3, 4, 5],
+        'opens_at' => '08:00',
+        'closes_at' => '17:30',
     ],
 
     /*

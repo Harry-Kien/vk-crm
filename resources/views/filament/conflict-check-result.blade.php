@@ -23,6 +23,10 @@
     `resources/views/filament/admin/widgets/system-health.blade.php`, quy ước đã thiết lập ở đó).
     Toàn bộ style ở đây giờ nội tuyến, lấy màu qua biến CSS của Filament (`var(--danger-600)`,
     v.v.) — cùng quy ước với `system-health.blade.php` và `resources/views/errors/403.blade.php`.
+
+    **Bốn câu tuỳ chọn (M10 Task 3):** `$headingRed`, `$headingAttention`, `$headingClear`, `$intro` —
+    màn hình tiếp nhận nói về "ô câu chuyện" chứ không về "lưu vụ việc". Không truyền thì giữ nguyên
+    câu của form mở vụ; bảng và ranh giới lộ thông tin không đổi.
 --}}
 @php
     $boxStyle = match (true) {
@@ -34,16 +38,16 @@
 <div style="{{ $boxStyle }} border-width: 1px; border-style: solid; border-radius: 0.75rem; padding: 1rem;">
     <p style="font-size: 1rem; font-weight: 700; color: var(--gray-950); margin: 0;">
         @if($level === 'red')
-            {{ __('matters.conflict.heading_red') }}
+            {{ $headingRed ?? __('matters.conflict.heading_red') }}
         @elseif($requiresAttention)
-            {{ __('matters.conflict.heading_attention') }}
+            {{ $headingAttention ?? __('matters.conflict.heading_attention') }}
         @else
-            {{ __('matters.conflict.heading_clear') }}
+            {{ $headingClear ?? __('matters.conflict.heading_clear') }}
         @endif
     </p>
 
     @if(count($matches) > 0)
-        <p style="font-size: 0.875rem; color: var(--gray-700); margin-top: 0.75rem;">{{ __('matters.conflict.intro') }}</p>
+        <p style="font-size: 0.875rem; color: var(--gray-700); margin-top: 0.75rem;">{{ $intro ?? __('matters.conflict.intro') }}</p>
 
         <div style="overflow-x: auto; margin-top: 0.75rem;">
             <table style="width: 100%; font-size: 0.875rem; text-align: left; border-collapse: collapse;">

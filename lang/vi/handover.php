@@ -132,6 +132,37 @@ return [
             'next_step' => 'Bước tiếp theo:',
             'client_action' => 'Việc khách cần làm:',
         ],
+        /*
+         * M9 Task 10 (P1) — mục "Bảng kê thanh toán". Chỉ tiêu đề; chữ của từng dòng (đến hạn, trạng
+         * thái, cách trả) đến từ `portal_progress.billing`, qua cùng hình chiếu với cổng khách, để
+         * khách đọc cùng một câu ở hai nơi.
+         *
+         * `as_of` (làn fu3): dòng ngay dưới tiêu đề. Khách tải gói về và cất giữ (thư công bố gói), còn
+         * bảng kê đóng băng lúc lập gói — dòng này nói ngày "tính đến" (cùng ngày với `generated_at`) và
+         * chỉ sang cổng, nơi khối tiền đọc dữ liệu lúc mở trang. SPEC §6.12, bổ sung 2026-10-04.
+         */
+        'billing' => [
+            'heading' => 'Bảng kê thanh toán',
+            'as_of' => 'Tính đến ngày lập gói (:date). Khoản thanh toán văn phòng ghi nhận sau ngày này không có trong bảng kê; tình hình thanh toán mới nhất xem trên cổng khách hàng, trong thời gian hồ sơ còn trên cổng.',
+            'contract_code' => 'Số hợp đồng',
+            'signed_on' => 'Ngày ký',
+            'total' => 'Tổng giá trị hợp đồng',
+            'vat' => 'Thuế',
+            'completed_on' => 'Ngày hoàn tất hợp đồng',
+            'instalments_heading' => 'Các đợt thanh toán',
+            'payments_heading' => 'Các khoản văn phòng đã nhận',
+            'payments_empty' => 'Văn phòng chưa ghi nhận khoản thanh toán nào.',
+            'columns' => [
+                'name' => 'Đợt thanh toán',
+                'amount' => 'Số tiền',
+                'due' => 'Đến hạn',
+                'collected' => 'Đã thanh toán',
+                'outstanding' => 'Còn lại',
+                'state' => 'Tình trạng',
+                'paid_on' => 'Ngày nhận',
+                'method' => 'Hình thức',
+            ],
+        ],
         'generated_at' => 'Lập ngày :date',
         'page' => 'Trang',
     ],

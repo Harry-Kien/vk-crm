@@ -10,16 +10,21 @@ use App\Models\Matter;
 use App\Models\Payment;
 use App\Models\User;
 use App\Policies\Concerns\ChecksBillingAccess;
+use App\Policies\Concerns\ReadsPortalParents;
 
 /**
  * Cùng định nghĩa "ai thấy tiền của vụ nào" với {@see ContractPolicy}, đọc qua đợt và hợp đồng cha.
  *
  * Không có `update`/`delete`: một khoản thu không sửa, không xoá — ghi nhầm thì HUỶ (`void`), và
  * hook `Payment::deleting` từ chối mọi lần xoá. Gate trả `false` cho mọi ability không có ở đây.
+ *
+ * Khách hàng (M9 Task 10, P1): CHỈ `view`, xem {@see self::view()}. `viewAny`, `create`, `void`
+ * vẫn từ chối khách (`ChecksBillingAccess`, và `canRecordPaymentOn()` hỏi `User` đầu tiên).
  */
 class PaymentPolicy
 {
     use ChecksBillingAccess;
+    use ReadsPortalParents;
 
     /** @param  Matter|null  $context  xem {@see ChecksBillingAccess::canListBilling()} */
     public function viewAny(User|ClientUser $user, mixed $context = null): bool
@@ -27,8 +32,23 @@ class PaymentPolicy
         return $this->canListBilling($user, $context);
     }
 
+    /**
+     * Khách — tầng QUYỀN của cổng (M9 Task 10, P1): khoản thu CHƯA huỷ (`voided_at` trên chính dòng,
+     * nói lại `Payment::scopeShownToClient()` mà không chạy nó), **và** khách thấy đợt cha — hỏi
+     * `Gate` (`InstalmentPolicy::view`, rồi tới hợp đồng và vụ việc). Đợt cha nạp không qua scope
+     * cổng (`parentWithoutPortalScope()`).
+     */
     public function view(User|ClientUser $user, Payment $payment): bool
     {
+        if ($user instanceof ClientUser) {
+            /** @var Instalment|null $instalment */
+            $instalment = $this->parentWithoutPortalScope($payment, 'instalment');
+
+            return $payment->voided_at === null
+                && $instalment !== null
+                && $user->can('view', $instalment);
+        }
+
         return $this->canSeeBilling($user, $payment->instalment->contract->matter);
     }
 

@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use InvalidArgumentException;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
 
@@ -47,8 +48,9 @@ class MatterParty extends Model
     }
 
     /**
-     * identify() là đường ghi duy nhất cho id_number_hash và phone_normalized:
-     * chặn cả khi factory gọi qua Model::unguarded() (vd. ->make(['id_number_hash' => ...])).
+     * identify() (và bản có kiểm soát `identifyWithKnownHash()`, M10 Task 4) là đường ghi duy nhất
+     * cho id_number_hash và phone_normalized: chặn cả khi factory gọi qua Model::unguarded() (vd.
+     * ->make(['id_number_hash' => ...])).
      */
     public function fill(array $attributes): static
     {
@@ -61,6 +63,30 @@ class MatterParty extends Model
     public function identify(?string $idNumber, ?string $phone): static
     {
         $this->id_number_hash = Normalizer::idNumberHash($idNumber);
+        $this->phone_normalized = Normalizer::phone($phone);
+
+        return $this;
+    }
+
+    /**
+     * Điền định danh từ một dấu băm CCCD ĐÃ CÓ SẴN, không từ số thô (M10 Task 4) — đường ghi thứ hai,
+     * có kiểm soát, cạnh {@see self::identify()}. Một nguồn dùng: bên đối lập của một lần tiếp nhận
+     * (`intake_parties`), nơi số CCCD thô KHÔNG BAO GIỜ được lưu (R7: bên thứ ba không thể đồng ý) mà
+     * chỉ có dấu băm `Normalizer::idNumberHash()`. Đưa dấu băm đó qua `identify()` sẽ băm lại nó thành
+     * rác (`digits()` bỏ chữ cái), và bên đối lập trên hồ sơ mất định danh mạnh nhất của nó.
+     *
+     * Kiểm soát: dấu băm phải đúng hình dạng `Normalizer::idNumberHash()` sinh ra (64 ký tự hex
+     * thường) hoặc null; sai hình dạng là lỗi lập trình (`InvalidArgumentException`), không phải lỗi
+     * người dùng — không form nào gửi dấu băm. `$phone` đi qua `Normalizer::phone()` như `identify()`
+     * (luỹ đẳng, nên một SĐT đã chuẩn hoá đi qua không đổi).
+     */
+    public function identifyWithKnownHash(?string $idNumberHash, ?string $phone): static
+    {
+        if ($idNumberHash !== null && preg_match('/^[0-9a-f]{64}$/', $idNumberHash) !== 1) {
+            throw new InvalidArgumentException('id_number_hash phải là dấu băm SHA-256 dạng 64 ký tự hex thường.');
+        }
+
+        $this->id_number_hash = $idNumberHash;
         $this->phone_normalized = Normalizer::phone($phone);
 
         return $this;

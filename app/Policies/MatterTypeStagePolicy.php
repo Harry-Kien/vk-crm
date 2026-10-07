@@ -49,6 +49,12 @@ class MatterTypeStagePolicy
      *  2. `key` này còn nằm trong `allowed_next` của một giai đoạn KHÁC cùng loại vụ việc: xoá nó
      *     đi thì màn hình "Chuyển giai đoạn" của giai đoạn kia mời một đích không còn cấu hình.
      *
+     * M9 Task 6 thêm điều kiện thứ ba, cùng họ — đứng giữa hai điều kiện trên: còn đợt thanh toán
+     * `pending` chưa kích hoạt của hợp đồng `draft`/`active` trên hồ sơ cùng loại chờ hồ sơ chạm `key`
+     * này ({@see MatterTypeStage::instalmentsAwaitingStage()}, cùng hàm đếm với luật đổi `key`). Xoá
+     * giai đoạn thì không lần chuyển giai đoạn nào còn tới được nó, và đợt đó không bao giờ đến hạn.
+     * Câu từ chối nêu số đợt.
+     *
      * Trả `Response::deny()` kèm lý do, không `bool`: `StagesRelationManager` bật
      * `authorizationNotification()` cho `DeleteAction` này, nên admin đọc được NGAY vì sao không
      * xoá được, thay vì một nút biến mất không lời giải thích (cùng kỹ thuật
@@ -68,6 +74,12 @@ class MatterTypeStagePolicy
 
         if ($matterCount > 0) {
             return Response::deny(__('matter_types.stages.delete_blocked_in_use', ['count' => $matterCount]));
+        }
+
+        $awaitingInstalments = MatterTypeStage::instalmentsAwaitingStage((int) $matterTypeStage->matter_type_id, $matterTypeStage->key);
+
+        if ($awaitingInstalments > 0) {
+            return Response::deny(__('matter_types.stages.delete_blocked_instalments', ['count' => $awaitingInstalments]));
         }
 
         // Task 19, vòng sửa 1: dùng chung MatterTypeStage::stagesReferencing() với luật đổi

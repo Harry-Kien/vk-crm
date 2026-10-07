@@ -2,6 +2,7 @@
 
 namespace App\Events;
 
+use App\Listeners\ReleaseStageTriggeredInstalments;
 use App\Listeners\SyncMatterArchiveOnStageChange;
 use App\Models\StageLog;
 use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
@@ -23,11 +24,12 @@ use Illuminate\Queue\SerializesModels;
  * (`use App\Exceptions\MatterStageChanged as MatterStageChangedException`) — PHP không cho hai
  * `use` trần cùng short name trong một file.
  *
- * **Hình dạng khớp kế hoạch M9** (dòng 139–145 của kế hoạch M9: "M7 dùng chung về sau"): M9 —
- * chưa merge tại thời điểm Task này chạy — sẽ tự thêm listener CỦA NÓ vào đúng sự kiện này, không
- * cần Task 3 chờ M9 hay đoán trước nhu cầu của M9. Vì vậy sự kiện mang nguyên `StageLog` (không
+ * **Hình dạng khớp kế hoạch M9** (dòng 139–145 của kế hoạch M9: "M7 dùng chung về sau"): M9 Task 6
+ * đã thêm listener CỦA NÓ vào đúng sự kiện này — {@see ReleaseStageTriggeredInstalments} (đợt thanh
+ * toán đến hạn khi vụ chạm giai đoạn) — không đổi hình dạng sự kiện, không phát sự kiện thứ hai. Sự
+ * kiện mang nguyên `StageLog` (không
  * chỉ `matter_id`): mọi thông tin về LẦN CHUYỂN GIAI ĐOẠN vừa xảy ra (from/to, actor qua
- * `created_by`, thời điểm `occurred_at`) đều có sẵn cho một listener tương lai mà không cần đọc
+ * `created_by`, thời điểm `occurred_at`) đều có sẵn cho listener mà không cần đọc
  * lại `stage_logs`.
  *
  * `ShouldDispatchAfterCommit` — cùng lý lẽ với `StageLogPublished`: `TransitionMatterStage` dispatch

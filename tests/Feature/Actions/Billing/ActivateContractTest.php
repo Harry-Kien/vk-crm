@@ -10,6 +10,7 @@ use App\Exceptions\ContractTotalMismatch;
 use App\Models\Contract;
 use App\Models\Matter;
 use App\Models\MatterType;
+use App\Models\StageLog;
 use App\Models\User;
 use App\Support\Billing\Money;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -176,9 +177,52 @@ it('accepts a DateTimeInterface as the signing date', function () {
 });
 
 /**
- * M9 Task 6 (`TriggerInstalmentsForStage`) bị hoãn tới khi M6.5 merge (phán quyết controller).
- * `ActivateContract::releaseStageTriggeredInstalments()` là điểm nối tường minh, để trống có chủ
- * đích — không một bản sao nào của logic kích hoạt theo giai đoạn.
+ * M9 Task 6: luật sư thường nhận việc và nộp đơn TRƯỚC khi hợp đồng giấy về. Kích hoạt hợp đồng
+ * kích hoạt luôn, trong CÙNG transaction, mọi đợt `stage` mà vụ đã chạm giai đoạn của nó — qua
+ * đúng lõi của `TriggerInstalmentsForStage` (không bản sao logic). Ngày gốc là ngày vụ chạm giai
+ * đoạn nhưng không sớm hơn ngày ký (phán quyết controller 3): nộp đơn 10/09, ký 20/09 ⇒ gốc 20/09.
+ * Dòng nhật ký của đợt không có causer và `updated_by` của đợt giữ nguyên (phán quyết controller 1)
+ * — người kích hoạt chỉ đứng tên trên dòng `contract_activated` và trên đợt `on_signing`.
  */
-it('releases the stage-triggered instalments whose stage the matter has already passed when the contract is activated (M9 Task 6: TriggerInstalmentsForStage via ActivateContract::releaseStageTriggeredInstalments)')
-    ->todo();
+it('releases the stage-triggered instalments whose stage the matter has already passed when the contract is activated (M9 Task 6: TriggerInstalmentsForStage via ActivateContract::releaseStageTriggeredInstalments)', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $contract = activationDraft($this->lead, $this->matter, 100_000_000);
+    $filed = StageLog::factory()->for($this->matter)->transition('drafting', 'filed')->create(['occurred_at' => '2026-09-10 00:00:00']);
+
+    activate($admin, $contract, '2026-09-20');
+
+    [$onSigning, $onFiled, $onDate] = $contract->instalments()->get()->all();
+
+    expect($onFiled->due_date->toDateString())->toBe('2026-09-20')
+        ->and($onFiled->triggered_at->toDateTimeString())->toBe('2026-09-25 10:00:00')
+        ->and($onFiled->triggered_by_stage_log_id)->toBe($filed->id)
+        ->and($onFiled->updated_by)->toBe($this->lead->id)
+        ->and($onSigning->updated_by)->toBe($admin->id)
+        ->and($onDate->triggered_at)->toBeNull()
+        ->and(Activity::query()->where('event', 'instalment_triggered')->sole()->causer_id)->toBeNull()
+        ->and(Activity::query()->where('event', 'contract_activated')->sole()->causer_id)->toBe($admin->id);
+});
+
+/** Vụ chạm giai đoạn SAU ngày ký (nhưng trước lúc văn phòng ghi nhận việc ký): gốc là ngày chạm giai đoạn. */
+it('dates a released instalment from the stage when the matter reached it after the signing date', function () {
+    $contract = activationDraft($this->lead, $this->matter, 100_000_000);
+    StageLog::factory()->for($this->matter)->transition('drafting', 'filed')->create(['occurred_at' => '2026-09-22 00:00:00']);
+
+    activate($this->lead, $contract, '2026-09-20');
+
+    expect($contract->instalments()->where('trigger_type', InstalmentTrigger::Stage->value)->sole()->due_date->toDateString())
+        ->toBe('2026-09-22');
+});
+
+it('leaves a stage-triggered instalment alone when the matter has not reached its stage at activation', function () {
+    $contract = activationDraft($this->lead, $this->matter, 100_000_000);
+    StageLog::factory()->for($this->matter)->transition('intake', 'collecting_documents')->create(['occurred_at' => '2026-09-10 00:00:00']);
+
+    activate($this->lead, $contract, '2026-09-20');
+
+    $onFiled = $contract->instalments()->where('trigger_type', InstalmentTrigger::Stage->value)->sole();
+
+    expect($onFiled->due_date)->toBeNull()
+        ->and($onFiled->triggered_at)->toBeNull()
+        ->and(Activity::query()->where('event', 'instalment_triggered')->exists())->toBeFalse();
+});

@@ -70,8 +70,13 @@ class StagesRelationManager extends RelationManager
                     // Task 19, vòng sửa 1 (Critical): kiểm `referencingStageLabels()` TRƯỚC —
                     // đây là nhánh của `isKeyInUse()` cần một câu NÊU TÊN giai đoạn đang trỏ tới,
                     // không phải câu chung chung `key_locked`. Không tách nhánh này thì
-                    // `isKeyInUse()` vẫn từ chối đúng (nó đã gộp cả ba điều kiện), nhưng người
+                    // `isKeyInUse()` vẫn từ chối đúng (nó đã gộp mọi điều kiện), nhưng người
                     // bấm chỉ đọc được "đang có hồ sơ hoặc dòng tiến độ dùng" — sai lý do thật.
+                    //
+                    // M9 Task 6: cùng cách cho nhánh đợt thanh toán đang chờ giai đoạn này — một
+                    // câu NÊU SỐ ĐỢT (`instalmentsAwaitingHereCount()`, cùng hàm đếm với chốt ở
+                    // model và luật xoá ở policy), để admin biết phải sửa lịch thu, không phải đi
+                    // tìm hồ sơ hay dòng tiến độ nào.
                     ->rule(fn (?MatterTypeStage $record): Closure => function (string $attribute, mixed $value, Closure $fail) use ($record): void {
                         if ($record === null || $value === $record->key) {
                             return;
@@ -83,6 +88,14 @@ class StagesRelationManager extends RelationManager
                             $fail(__('matter_types.stage_fields.key_locked_allowed_next', [
                                 'labels' => $referencingLabels->implode(', '),
                             ]));
+
+                            return;
+                        }
+
+                        $awaitingInstalments = $record->instalmentsAwaitingHereCount();
+
+                        if ($awaitingInstalments > 0) {
+                            $fail(__('matter_types.stage_fields.key_locked_instalments', ['count' => $awaitingInstalments]));
 
                             return;
                         }

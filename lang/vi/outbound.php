@@ -38,6 +38,9 @@ return [
         'client.otp' => 'Mã OTP đăng nhập cổng',
         'client.stage_update' => 'Cập nhật tiến độ cho khách',
         'staff.deadline_reminder' => 'Nhắc mốc thời hạn cho nhân sự',
+        // M10 Task 5 (R5): bản ghi liên quan là một lần tiếp nhận (`intake_request`), không thuộc vụ
+        // việc nào — dòng này chỉ admin thấy trên màn hình nhật ký thư (`OutboundMessage::scopeVisibleTo`).
+        'staff.intake_unanswered' => 'Nhắc liên hệ chưa ai gọi lại',
         // M6 Task 10: các mẫu M6 đã có thật (Task 3, 4, 7, 8) — trước đây cột hiện khoá thô.
         'client.activation' => 'Kích hoạt tài khoản cổng cho khách',
         'client.document_published' => 'Báo khách có tài liệu mới',
@@ -92,6 +95,8 @@ return [
                 // Gộp M7 vào `main`: hai thư nội bộ của M7 (lý do ở docblock `ResendTargets`).
                 'staff.matter_reassigned' => 'thư tổng hợp bàn giao liệt kê các mốc thời hạn ở đúng lúc bàn giao, gửi lại là gửi một danh sách cũ; luật sư nhận bàn giao đã được báo trong hệ thống khi thư hỏng, và các mốc vẫn hiện ở trang chủ, ở tab "Mốc thời hạn" của từng vụ và trong thư nhắc mốc theo lịch.',
                 'staff.handover_ready' => 'thư này chỉ báo gói bàn giao đã sinh xong — trạng thái gói luôn hiện ở khối "Gói bàn giao" trên trang vụ việc, và chuông trong hệ thống đã báo cùng lúc; gửi lại là báo một sự kiện đã qua.',
+                // M10 (gộp `main` vào làn M10): lý do ở docblock `ResendTargets`.
+                'staff.intake_unanswered' => 'lời nhắc liên hệ chưa ai gọi lại tự được gửi lại ở lượt nhắc kế tiếp (mỗi 15 phút trong giờ làm việc; thư đã hỏng hẳn thì từ ngày làm việc hôm sau) nếu bản ghi vẫn còn "Mới", vì chỉ thư đã gửi thành công mới chặn lời nhắc mới; chuông trong hệ thống và widget "Liên hệ chưa ai gọi lại" không phụ thuộc thư.',
                 'undeclared' => 'thư này không khai báo mẫu nên không dựng lại được nội dung.',
                 'default' => 'hệ thống không biết dựng lại thư này từ nhật ký.',
             ],

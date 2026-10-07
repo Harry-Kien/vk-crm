@@ -2,15 +2,19 @@
 
 namespace App\Policies;
 
+use App\Enums\ContractStatus;
 use App\Enums\DocumentStatus;
 use App\Enums\Permission;
 use App\Models\ClientUser;
+use App\Models\Contract;
 use App\Models\Document;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\MatterChecklistItem;
 use App\Models\User;
 use App\Policies\Concerns\ChecksMatterAccess;
 use App\Policies\Concerns\ChecksPortalVisibility;
+use App\Support\Scopes\ClientPortalScope;
 use Illuminate\Auth\Access\Response;
 
 /**
@@ -59,14 +63,78 @@ class DocumentPolicy
         return $this->canSeeMatter($user, $document->matter);
     }
 
-    /** Tải tệp: khách phải được bật thêm client_can_download (SPEC §5). */
+    /**
+     * Tải tệp: khách phải được bật thêm client_can_download (SPEC §5).
+     *
+     * **Nhân sự: tải gói bàn giao của vụ có hợp đồng là đọc tiền** (M9 Task 10, rà soát vòng 1,
+     * C1). `MUC-LUC.pdf` trong zip của gói in "Bảng kê thanh toán"
+     * (`RenderHandoverIndex::billingStatement()`), nên tải gói đó phải qua đúng định nghĩa P3 của
+     * "ai thấy tiền của vụ nào" — `ContractPolicy::view` (`billing.view` + `Matter::listableBy()`)
+     * — chứ không chỉ `matter.view`. Thiếu điều này, trợ lý trong đội (không `billing.view`, SPEC
+     * §5) đọc được toàn bộ tiền của vụ qua nút "Tải" của tab Tài liệu. Xem
+     * {@see self::withholdsPaymentStatement()}.
+     *
+     * Chỉ siết `download`, không siết `view`: dòng tài liệu (tên gói, version) không mang con số
+     * nào, và người không tải được gói vẫn cần biết gói đã có. Khách không đi qua điều kiện này:
+     * bảng kê là đúng thứ P1 cho khách xem về vụ của chính họ, và khách chỉ tải được gói sau khi
+     * văn phòng công bố nó.
+     */
     public function download(User|ClientUser $user, Document $document): bool
     {
         if (! $this->view($user, $document)) {
             return false;
         }
 
-        return $user instanceof ClientUser ? $document->client_can_download : true;
+        if ($user instanceof ClientUser) {
+            return $document->client_can_download;
+        }
+
+        return ! $this->withholdsPaymentStatement($user, $document);
+    }
+
+    /**
+     * `true` khi `$document` là một version của gói bàn giao mà `$user` không được tải vì gói có
+     * thể mang tiền của vụ mà họ không được thấy. Ba vế, đều phải đúng:
+     *
+     * - **Vụ có hợp đồng đã từng ký** — trạng thái khác `draft`. Không dùng
+     *   `Contract::shownToClient()` (`active`/`completed`): `cancelled` chỉ đến từ `active`
+     *   (`CancelContract`), nên một gói dựng TRƯỚC lần huỷ vẫn in bảng kê, và mọi version cũ của
+     *   gói vẫn tải được. Hợp đồng `draft` chưa bao giờ vào bảng kê. Mỗi vụ một hợp đồng
+     *   (`contracts.matter_id` unique, không xoá mềm), nên `first()` là hợp đồng của vụ. Cái giá
+     *   phía đóng: gói dựng khi hợp đồng còn là bản nháp rồi hợp đồng được ký sau đó cũng bị giữ
+     *   lại với người không thấy tiền, dù tệp đó không có bảng kê.
+     * - **`$user` không được xem hợp đồng đó** (`ContractPolicy::view`, nhánh nhân sự = P3). Hỏi
+     *   trước phép thử gói, để người thấy tiền không phải trả thêm lượt dò chuỗi version.
+     * - **Tài liệu là một version của gói** ({@see MatterArchive::isHandoverDocument()}). Mọi tài
+     *   liệu khác của vụ — kể cả nhóm B — không đổi luật.
+     *
+     * Câu trả lời về nhân sự không được đổi theo một phiên cổng khách đang mở song song (một job,
+     * một Action gọi `Gate::forUser($staff)` khi guard `client` đã xác thực còn `web` thì chưa —
+     * cùng lý do với `ChecksBillingAccess::matterForBillingGate()`). Hai chỗ giữ điều đó, mỗi chỗ
+     * có test ("…while an unrelated client portal session is open", đỏ khi gỡ từng chỗ):
+     *
+     * - hợp đồng nạp KHÔNG qua `ClientPortalScope` — qua scope, phiên của khách khác không thấy
+     *   hợp đồng nào và trợ lý được tải gói;
+     * - vụ của hợp đồng gắn sẵn bằng `setRelation()` từ chính vụ của tài liệu, thứ `view()` vừa
+     *   nạp và vừa cho qua — để `$contract->matter` tự nạp thì nó đi qua scope, ra `null`, và
+     *   luật sư phụ trách bị từ chối gói của chính vụ mình.
+     */
+    private function withholdsPaymentStatement(User $user, Document $document): bool
+    {
+        $contract = Contract::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->where('matter_id', $document->matter_id)
+            ->where('status', '!=', ContractStatus::Draft->value)
+            ->first();
+
+        if ($contract === null) {
+            return false;
+        }
+
+        $contract->setRelation('matter', $document->matter);
+
+        return ! $user->can('view', $contract)
+            && MatterArchive::isHandoverDocument($document);
     }
 
     /**

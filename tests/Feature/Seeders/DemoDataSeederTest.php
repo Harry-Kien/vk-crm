@@ -12,6 +12,7 @@ use App\Models\ClientUser;
 use App\Models\Deadline;
 use App\Models\Document;
 use App\Models\DocumentDownload;
+use App\Models\IntakeRequest;
 use App\Models\Matter;
 use App\Models\MatterArchive;
 use App\Models\MatterChecklistItem;
@@ -131,14 +132,17 @@ it('lets the documented first demo client walk the whole paperwork journey', fun
 });
 
 /**
- * 22 = 20 vụ theo kịch bản SPEC §12 + 1 vụ `restricted` (mang sang từ rà soát M2, task 10) + 1
- * vụ ĐÃ KẾT THÚC (M7 Task 3): `MatterSeeder::restrictedMatter()` thêm đúng một vụ mật ngoài 20 vụ
- * đánh số, để nhánh `restricted` của `Matter::scopeListableBy()` có dữ liệu thật thay vì chỉ có
- * trong test; `MatterSeeder::closedMatter()` thêm đúng một vụ đã đóng, để Task 4/11 sinh và giải
- * nén được một gói bàn giao thật từ dữ liệu mẫu.
+ * 23 = 20 vụ theo kịch bản SPEC §12 + 1 vụ `restricted` (mang sang từ rà soát M2, task 10) + 1
+ * vụ ĐÃ KẾT THÚC (M7 Task 3) + 1 vụ MỞ TỪ MỘT LẦN TIẾP NHẬN (M10 Task 8): `MatterSeeder::
+ * restrictedMatter()` thêm đúng một vụ mật ngoài 20 vụ đánh số, để nhánh `restricted` của
+ * `Matter::scopeListableBy()` có dữ liệu thật thay vì chỉ có trong test; `MatterSeeder::
+ * closedMatter()` thêm đúng một vụ đã đóng, để Task 4/11 sinh và giải nén được một gói bàn giao
+ * thật từ dữ liệu mẫu; `IntakeSeeder` (`ConvertIntakeToMatter` gắn một khách đã có vào vụ mới,
+ * đính chính SPEC §12 ngày 2026-10-03) thêm vụ thứ 23.
  */
-it('seeds twenty matters with the deliberate situations from the spec, plus one restricted matter and one closed matter', function () {
-    expect(Matter::count())->toBe(22)
+it('seeds twenty matters with the deliberate situations from the spec, plus one restricted, one closed and one opened from an intake', function () {
+    expect(Matter::count())->toBe(23)
+        ->and(IntakeRequest::query()->whereNotNull('matter_id')->count())->toBe(1)
         ->and(Matter::where('last_client_update_at', '<', now()->subDays(14))->count())->toBeGreaterThanOrEqual(3)
         ->and(Deadline::query()->upcoming(3)->distinct('matter_id')->count('matter_id'))->toBeGreaterThanOrEqual(2)
         ->and(MatterChecklistItem::where('status', ChecklistItemStatus::Missing)->distinct('matter_id')->count('matter_id'))->toBeGreaterThanOrEqual(4)
@@ -146,12 +150,23 @@ it('seeds twenty matters with the deliberate situations from the spec, plus one 
         ->and(Matter::pluck('stage')->unique()->count())->toBeGreaterThanOrEqual(4);
 });
 
+/**
+ * Vụ mở từ tiếp nhận (M10 Task 8) là một vụ VỪA MỞ qua `OpenMatter`: lead trong đội ngũ, khách và bên
+ * đối lập mang từ bản ghi tiếp nhận, nhưng chưa có dòng tiến độ nào — đúng hình dạng một vụ mới mở trên
+ * dữ liệu thật. Luật "3–8 dòng" của SPEC §12 là của 22 vụ `MatterSeeder` dựng (đính chính SPEC §12
+ * ngày 2026-10-03).
+ */
 it('gives every matter a lead in the team, three to eight stage logs and two to four parties', function () {
-    Matter::with(['team', 'stageLogs', 'parties'])->get()->each(function (Matter $m) {
+    $fromIntake = IntakeRequest::query()->whereNotNull('matter_id')->pluck('matter_id');
+
+    Matter::with(['team', 'stageLogs', 'parties'])->get()->each(function (Matter $m) use ($fromIntake) {
         expect($m->team->pluck('id'))->toContain($m->lead_lawyer_id)
-            ->and($m->stageLogs->count())->toBeGreaterThanOrEqual(3)->toBeLessThanOrEqual(8)
             ->and($m->parties->count())->toBeGreaterThanOrEqual(2)->toBeLessThanOrEqual(4)
             ->and($m->parties->where('is_our_client', true)->count())->toBe(1);
+
+        $fromIntake->contains($m->id)
+            ? expect($m->stageLogs)->toBeEmpty()
+            : expect($m->stageLogs->count())->toBeGreaterThanOrEqual(3)->toBeLessThanOrEqual(8);
     });
 
     expect(StageLog::where('is_published', true)->count())->toBeGreaterThan(0)

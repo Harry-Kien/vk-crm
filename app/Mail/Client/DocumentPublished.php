@@ -47,6 +47,12 @@ use Illuminate\Mail\Mailables\Envelope;
  */
 class DocumentPublished extends BrandedMailable
 {
+    /**
+     * Tên mẫu SPEC §9. Hằng công khai vì {@see NotifyClientOfDocumentPublished::alreadyDelivered()}
+     * lọc nhật ký thư theo đúng chuỗi này (làn fu3, Task 1 mục B).
+     */
+    public const TEMPLATE = 'client.document_published';
+
     public function __construct(
         public Document $document,
         public ClientUser $recipient,
@@ -54,7 +60,7 @@ class DocumentPublished extends BrandedMailable
 
     protected function template(): string
     {
-        return 'client.document_published';
+        return self::TEMPLATE;
     }
 
     protected function relatedRecord(): ?Model

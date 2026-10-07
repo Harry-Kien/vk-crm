@@ -60,5 +60,7 @@
     @include('handover.partials.matter-info')
     @include('handover.partials.documents')
     @include('handover.partials.timeline')
+    {{-- M9 Task 10: "Bảng kê thanh toán" — tự vắng khi `$billing` là null. --}}
+    @include('handover.partials.billing')
 </body>
 </html>

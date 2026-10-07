@@ -87,6 +87,24 @@ class StageLog extends Model
         return $this->hasMany(Instalment::class, 'triggered_by_stage_log_id');
     }
 
+    /**
+     * **MỘT định nghĩa "dòng đưa vụ VÀO giai đoạn `to_stage`"** (M9 Task 6): `from_stage` rỗng (dòng
+     * mở đầu mà dữ liệu mẫu ghi thẳng) HOẶC khác `to_stage`. Dòng cùng giai đoạn — "thêm cập nhật"
+     * (SPEC §6.3), dòng bàn giao nội bộ của `ReassignMatter` — không đưa vụ vào đâu cả, nên không bao
+     * giờ là một lần "chạm tới giai đoạn". Cùng điều kiện mà `TransitionMatterStage` dùng để phát
+     * `MatterStageChanged` (`! $isSameStage`), nói lại bằng SQL cho các dòng đã ghi.
+     *
+     * Dùng bởi `App\Actions\Billing\TriggerInstalmentsForStage::firstEntryInto()` (lần chạm ĐẦU của
+     * một vụ vào một giai đoạn) và bởi tập ứng viên của
+     * `App\Actions\Schedule\ReconcileStageTriggeredInstalments`.
+     */
+    public function scopeEntries(Builder $query): Builder
+    {
+        return $query->where(fn (Builder $query) => $query
+            ->whereNull($this->qualifyColumn('from_stage'))
+            ->orWhereColumn($this->qualifyColumn('from_stage'), '!=', $this->qualifyColumn('to_stage')));
+    }
+
     /** SPEC §4.8: internal_note chỉ dành cho nội bộ. */
     protected function internalAttributes(): array
     {

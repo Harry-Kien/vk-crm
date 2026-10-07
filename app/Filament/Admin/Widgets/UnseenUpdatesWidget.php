@@ -81,8 +81,11 @@ class UnseenUpdatesWidget extends TableWidget
      * tình cờ nạp lớp, không gây lỗi gì cả, và không có gì báo động — M4 đã đo được đúng chuyện
      * đó trên trình duyệt (mục 6 hiện TRƯỚC mục 4). `DashboardWidgetOrderTest` giữ cho nó không
      * quay lại.
+     *
+     * M10 Task 5 đánh số lại lần nữa (widget "Liên hệ chưa ai gọi lại" chen vào ngay dưới mục 3):
+     * mục 4 `-1` → `0`, mục này `0` → `1`, mục 6 `1` → `2`. Thứ tự tương đối không đổi.
      */
-    protected static ?int $sort = 0;
+    protected static ?int $sort = 1;
 
     /** SPEC §7.1 mục 5 và §4.18: "quá 5 ngày" — một hằng số với {@see UnseenStageLogs::AFTER_DAYS}. */
     public const UNSEEN_AFTER_DAYS = UnseenStageLogs::AFTER_DAYS;
