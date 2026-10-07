@@ -21,7 +21,7 @@ use Illuminate\Support\Facades\Gate;
 use Spatie\Activitylog\Models\Activity;
 
 /**
- * Số "bây giờ" của trang "Theo dõi đội ngũ" (M13, R1, cột N1–N11): mỗi người được theo dõi đang giữ
+ * Số "bây giờ" của trang "Theo dõi đội ngũ" (M13, R1, cột N1–N10; N11 chỉ cho trang của một người): mỗi người được theo dõi đang giữ
  * gì, cái gì đang nguy hiểm — như `$viewer` đọc được. Trang `TeamOverview` (mọi người) và trang của
  * một người (Task 5, một người) cùng gọi đây; không màn hình nào tự đếm.
  *

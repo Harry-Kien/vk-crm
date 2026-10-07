@@ -766,7 +766,7 @@ Dùng `spatie/laravel-permission`. Quyền đặt tên dạng `<resource>.<actio
 >
 > **Đính chính 2026-10-03 (M9 Task 10, rà soát vòng 1) — tải gói bàn giao là đọc tiền.** Từ M9, `MUC-LUC.pdf` trong gói bàn giao in "Bảng kê thanh toán" (§6.12). Gói là một tài liệu nhóm B của vụ, nên trước bản sửa mọi nhân sự có `matter.view` trên vụ — kể cả **trợ lý** trong đội, vai trò không có `billing.view` — tải được gói và đọc được toàn bộ tiền của vụ. Nay `DocumentPolicy::download` của nhân sự đòi thêm, **chỉ cho các version của gói bàn giao** và **chỉ khi vụ có hợp đồng đã từng ký** (khác `draft` — kể cả `cancelled`, vì gói dựng trước lần huỷ vẫn in bảng kê): người tải phải thấy được tiền của vụ theo đúng định nghĩa trên (`ContractPolicy::view`). Không có định nghĩa thứ hai. Người không tải được gói vẫn thấy dòng gói (tên, version) trên tab Tài liệu, chỉ mất nút "Tải"; mọi tài liệu khác của vụ, và gói của vụ chưa từng có hợp đồng đã ký, không đổi luật. Khách không chịu điều kiện này (bảng kê là thứ §5 phần Portal cho khách xem về vụ của chính họ).
 
-> **Bổ sung 2026-10-04 (M13 — theo dõi đội ngũ và hiệu suất).** Số liệu theo dõi và hiệu suất **theo người** (§6.14, ba trang ở §7.5) là dữ liệu truy cập về nhân sự, không phải một màn hình thao tác, nên nó nằm trong bảng vai trò này như M9 đã làm với tiền. Thêm **một** quyền (13 quyền gốc + 4 quyền tiền của M9 + 1 quyền của M13):
+> **Bổ sung 2026-10-04 (M13 — theo dõi đội ngũ và hiệu suất).** Số liệu theo dõi và hiệu suất **theo người** (§6.14, ba trang ở §7.5) là dữ liệu truy cập về nhân sự, không phải một màn hình thao tác, nên nó nằm trong bảng vai trò này như M9 đã làm với tiền. Thêm **một** quyền (13 quyền gốc + 4 quyền tiền của M9 + 3 quyền tiếp nhận của M10 + 1 quyền của M13 = **21**, đúng số trường hợp của enum `Permission`; *sửa 2026-10-07, rà soát cuối làn M13: bản trước ghi "13 + 4 + 1", bỏ sót ba quyền `intake.*` của bổ sung M10 ngay dưới*):
 >
 > | Quyền | admin | manager | lawyer | assistant | accountant |
 > |---|---|---|---|---|---|
@@ -1442,7 +1442,7 @@ trên vụ `listableBy(V)`; **(L)** = chỉ dành cho người phụ trách vụ
 | N8 (L) | Giấy tờ chờ duyệt | đầu mục khách đã nộp mà văn phòng chưa duyệt, trên vụ người này phụ trách | `MatterChecklistItem` (widget §7.1 mục 3) |
 | N9 | Yêu cầu chờ trả lời | yêu cầu Mới hoặc Đang xử lý trên vụ còn mở mà người này đang giữ | `ClientRequest` |
 | N10 (L) | Hoàn thiện danh mục | `Σ X / Σ Y` trên các vụ đang phụ trách | `ChecklistProgress::handle()`, §4.10 |
-| N11 | Thao tác hồ sơ gần nhất | lần gần nhất người này ghi một thay đổi vào một vụ người xem được xem, theo nhật ký; đăng nhập không tính | `ActivityOwningMatter` (§10 mục 6) |
+| N11 | Thao tác hồ sơ gần nhất — **chỉ ở trang của một người** (phán quyết N11 của M13 Task 4: tính cho một người, không phải một cột của "Theo dõi đội ngũ") | lần gần nhất người này ghi một thay đổi vào một vụ người xem được xem, theo nhật ký; đăng nhập không tính | `ActivityOwningMatter` (§10 mục 6) |
 
 N3 và P5 quy người khác nhau có chủ đích: bàn giao một vụ đã kết thúc chuyển N3 sang người nhận,
 nhưng P5 của kỳ kết thúc vẫn là của người phụ trách lúc đó.
@@ -1553,17 +1553,23 @@ các tháng đã qua của người trước. Vì vậy:
 sau mốc cắt vẫn là "lỡ" của kỳ đó; yêu cầu "đã trả lời" là trả lời không muộn hơn mốc cắt. Vì vậy
 "tháng trước" không tăng dần trong tháng này khi người ta làm nốt việc tồn, và bàn giao sau kỳ không
 đổi số của kỳ (R9, R18). Những gì vẫn đổi được sau kỳ, có chủ đích, mỗi việc có người bấm và có dòng
-nhật ký: ghi lùi ngày một dòng tiến độ (P4), admin mở lại vụ đã đóng (P5), gỡ một mốc (P1 → P2), dời
-ngày đến hạn (P1 dùng ngày đến hạn hiện tại), mở lại một mốc đã xong (ca 8), đóng một luồng chưa trả
-lời (mẫu số P3 → P10).
+nhật ký: ghi lùi ngày một dòng tiến độ (P4), mở lại một vụ đã kết thúc (admin; P5), gỡ một mốc (P1 →
+P2), dời ngày đến hạn của một mốc (P1 dùng ngày đến hạn hiện tại), mở lại một mốc đã xong (ca 8), đóng
+một yêu cầu chưa trả lời (mẫu số P3 → P10), huỷ một vụ việc (việc của vụ đã huỷ rời mọi con số, vì
+`listableBy` không chứa vụ đã xoá mềm). Ngoài ra, mọi con số chỉ tính trên các vụ người xem đang được
+xem: khi người xem không còn được xem một vụ (ví dụ một vụ `restricted` đã bàn giao cho người khác),
+việc trên vụ đó không còn trong số người xem đọc, kể cả ở kỳ đã qua. Câu "Kỳ đã đóng" trên màn hình
+(`performance.explain.closed_period`) kể đúng bảy việc này; test `SpecM13ParityTest` giữ hai nơi khớp
+nhau.
 
 **Mốc tạo qua AI (R20).** Khi M11 có mốc "Tạo qua AI, chưa xác nhận", mốc đó tính như mốc thường ở
 mọi con số (N5, N6, P1, P9), đúng như `CheckDeadlines` nhắc nó như mốc thường — "một mốc hạn thật
 không được im lặng chỉ vì AI tạo". Mốc AI tạo sai thì gỡ kèm lý do và nó hiện ở P2. Đảo phán quyết này
 thì sửa cùng lúc `Deadline`, `CheckDeadlines` và widget trang chủ, không loại ở một chỗ.
 
-**Định dạng.** Tỉ lệ in `87,5% (35/40)` (dấu phẩy thập phân, luôn kèm tử và mẫu); thời lượng "3,5
-giờ" hoặc "2 ngày 4 giờ"; tiền qua `Money::format()`.
+**Định dạng.** Tỉ lệ in `87,5% (35/40)` (dấu phẩy thập phân, luôn kèm tử và mẫu); thời lượng tính bằng
+giờ làm việc, in "3,5 giờ" hoặc "52 giờ" — không bao giờ gộp thành "ngày", vì một ngày làm việc không phải
+24 giờ (`ResponseTime::label()`); tiền qua `Money::format()`.
 
 **Ngoài phạm vi, có chủ đích (R15):** không đo giờ làm (`time_entries` vẫn là khung, M13 không đọc),
 không tỉ lệ thắng kiện, không "thời gian xử lý theo loại vụ". Không thư tổng hợp, không thông báo mới
@@ -1694,7 +1700,7 @@ trộn số "bây giờ" với số "trong kỳ" trên một bảng làm ngườ
 
 | Trang | Đường dẫn | Ai mở được | Trả lời câu |
 |---|---|---|---|
-| **Theo dõi đội ngũ** | `/admin/team` | `performance.viewAny` (admin, quản lý) | *Bây giờ* ai đang giữ gì, cái gì đang nguy hiểm — hàng đợi hành động: một dòng mỗi người được theo dõi, các cột N1–N11; công tắc "Gồm người đã nghỉ việc"; chỉ các cột đếm việc đang tồn sắp xếp được |
+| **Theo dõi đội ngũ** | `/admin/team` | `performance.viewAny` (admin, quản lý) | *Bây giờ* ai đang giữ gì, cái gì đang nguy hiểm — hàng đợi hành động: một dòng mỗi người được theo dõi, các cột N1–N10 (N11 chỉ ở trang của một người, §6.14); công tắc "Gồm người đã nghỉ việc"; chỉ các cột đếm việc đang tồn sắp xếp được |
 | **Trang của một người** | `/admin/team/{người}` | người có `performance.viewAny`, hoặc chính người đó (có `matter.view`) | Đi sâu từ hai trang kia: danh sách vụ, mốc, yêu cầu, giấy tờ chờ, cơ cấu lĩnh vực, xu hướng 90 ngày |
 | **Hiệu suất theo kỳ** | `/admin/performance` | `matter.view` hoặc `performance.viewAny` | *Trong một kỳ*, mỗi người đã làm đúng hạn tới đâu (P1–P10); người có `performance.viewAny` thấy mọi người được theo dõi cùng dòng tham chiếu "Chung", người khác chỉ thấy dòng của chính mình; đoạn "Vì sao không có bảng xếp hạng" |
 

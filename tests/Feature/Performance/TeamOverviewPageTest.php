@@ -14,6 +14,7 @@ use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Lang;
+use Illuminate\Support\Facades\Schema;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
 use Spatie\Activitylog\Models\Activity;
@@ -255,6 +256,18 @@ it('prints the fixed scope sentence and every explanation, each from an existing
         ->and($html)->not->toMatch('/performance\.(explain|columns|team_overview)\./')
         ->and($html)->not->toContain('performance.not_applicable')
         ->and($html)->not->toContain('performance.how_computed');
+});
+
+/**
+ * Câu N5 chỉ được nói tới "mốc tạo qua trợ lý AI chưa xác nhận" khi hệ thống thật sự ghi mốc tạo cách
+ * nào (cột `deadlines.created_via` của M11, R20). Trước khi M11 gộp, câu đó tả một tính năng không có
+ * trên màn hình; khi M11 gộp, test này đỏ cho tới khi người gộp trả câu lại (Ghi chú M13, "Người gộp M11").
+ */
+it('mentions AI-created deadlines in the N5 explanation only once deadlines record how they were created', function () {
+    $html = m13t4PageOpen($this->manager)->html();
+
+    expect(str_contains($html, 'trợ lý AI'))->toBe(Schema::hasColumn('deadlines', 'created_via'))
+        ->and($html)->toContain(e(__('performance.explain.n5')));
 });
 
 /**

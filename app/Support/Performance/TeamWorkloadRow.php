@@ -6,7 +6,7 @@ use App\Actions\Performance\BuildTeamWorkload;
 use Carbon\CarbonImmutable;
 
 /**
- * Một dòng của trang "Theo dõi đội ngũ" (M13, cột N1–N11): số "bây giờ" của MỘT người được theo
+ * Một dòng của trang "Theo dõi đội ngũ" (M13, cột N1–N10; N11 chỉ trên trang của một người): số "bây giờ" của MỘT người được theo
  * dõi, như MỘT người xem đọc được — mọi con số đã tính trên `Matter::listableBy($viewer)` (R4). Dựng
  * bởi {@see BuildTeamWorkload}; định nghĩa từng cột ở bảng "Định nghĩa các con số" của kế hoạch M13
  * và ở khoá `performance.explain.n1` … `n11`.
