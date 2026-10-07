@@ -83,3 +83,31 @@ it('diễn tập "mất kho" có đủ năm bước của kế hoạch, cộng b
         ->and($drill)->toContain('thư mục tháng của gốc MỚI')
         ->and($drill)->toContain('`receipted-<ngày>.txt`');
 });
+
+it('vai Người đóng góp trên "VK-CRM Backups" thêm VÀ SỬA được tệp: không hứa "chỉ thêm", nêu rủi ro ghi đè archive và bản đối chứng ở văn phòng', function () {
+    $guide = (string) preg_replace('/\s+/u', ' ', t7Guide());
+    $notes = substr($guide, (int) strpos($guide, '### Những điều cần biết'));
+
+    expect($guide)->not->toContain('chỉ cho thêm tệp')
+        ->and($guide)->not->toContain('không cho vào thùng rác được)')
+        ->and($guide)->toContain('vai **Người đóng góp** trên "VK-CRM Backups" (thêm và sửa được tệp, không xoá được)')
+        ->and($guide)->toContain('Vai Người đóng góp cho **thêm và sửa** tệp')
+        ->and($notes)->toContain('**Token `vkbackups` ghi đè được archive.**')
+        ->and($notes)->toContain('`ARCHIVE_DIR`')
+        ->and($notes)->toContain('`--immutable`');
+});
+
+it('gỡ biên nhận bị từ chối, đang chờ hay bị bỏ qua: mục D.9 nói cách, và câu lỗi chỉ tới đúng mục đó', function () {
+    $guide = (string) preg_replace('/\s+/u', ' ', t7Guide());
+    $recovery = substr($guide, (int) strpos($guide, '### D.9 — '));
+
+    expect(strpos($guide, '### D.9 — '))->not->toBeFalse()
+        ->and($recovery)->toContain('`receipted.txt`')
+        ->and($recovery)->toContain('`receipted-<ngày>.txt`')
+        ->and($recovery)->toContain('php artisan vkcrm:storage:office-receipts')
+        ->and($recovery)->toContain('w32tm /resync')
+        ->and(__('office_copy.import.rejected'))->toContain('receipted.txt')
+        ->and(__('office_copy.import.rejected'))->toContain('D.9')
+        ->and(__('office_copy.import.deferred'))->toContain('receipted.txt')
+        ->and(__('office_copy.import.deferred'))->toContain('D.9');
+});

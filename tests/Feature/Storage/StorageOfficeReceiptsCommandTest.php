@@ -3,6 +3,7 @@
 use App\Actions\Storage\ImportOfficeReceipts;
 use App\Actions\Storage\StorageReadiness;
 use App\Enums\PreflightLevel;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -27,6 +28,8 @@ use Tests\Support\OfficeReceiptFixtures as Receipts;
 beforeEach(function () {
     Http::preventStrayRequests();
     Receipts::configure();
+    // Tên biên nhận mặc định (01:00 UTC ngày 07/10) phải ở quá khứ: tên ở tương lai thì không được đọc.
+    $this->travelTo(CarbonImmutable::parse('2026-10-08 08:00:00', 'Asia/Ho_Chi_Minh'));
 });
 
 it('nhập biên nhận và in số đếm; mã thoát 0', function () {
@@ -104,4 +107,17 @@ it('nhập xong thì dòng document_office_copy XANH', function () {
 
     $row = DocumentStoreFixtures::find(app(StorageReadiness::class)->stateRows(), 'document_office_copy');
     expect($row['level'])->toBe(PreflightLevel::Green);
+});
+
+it('biên nhận tên ở tương lai → in số biên nhận đang chờ và cách gỡ, mã thoát 1', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-10-09 08:00:00', 'Asia/Ho_Chi_Minh'));
+    Receipts::fakeRclone([Receipts::fileName('20261011T010000Z') => Receipts::receipt([])]);
+
+    $exit = Artisan::call('vkcrm:storage:office-receipts');
+    $output = Artisan::output();
+
+    expect($exit)->toBe(1)
+        ->and($output)->toContain('Biên nhận mang tên giờ ở tương lai, chưa đọc: 1')
+        ->and($output)->toContain(Receipts::fileName('20261011T010000Z'))
+        ->and($output)->toContain('receipted.txt');
 });

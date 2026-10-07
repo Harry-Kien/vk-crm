@@ -12,8 +12,10 @@ use Illuminate\Console\Command;
  * khoá chống chạy chồng `storage-office-receipts` ở {@see ImportOfficeReceipts}; lớp này chỉ in số đếm
  * và chọn mã thoát.
  *
- * Mã thoát: 0 khi nhập xong không biên nhận nào bị từ chối, hoặc khi chưa cấu hình (không có gì để
- * làm, không phải lỗi); 1 khi lượt khác đang chạy, khi `rclone` hỏng, hoặc khi có biên nhận bị từ chối.
+ * Mã thoát: 0 khi nhập xong không biên nhận nào bị từ chối hay đang chờ, hoặc khi chưa cấu hình (không
+ * có gì để làm, không phải lỗi); 1 khi lượt khác đang chạy, khi `rclone` hỏng, khi có biên nhận bị từ
+ * chối, hoặc khi có biên nhận mang tên giờ ở tương lai (chưa đọc; người vận hành gỡ theo Phụ lục D,
+ * mục D.9 của `docs/SAO-LUU-KHOI-PHUC.md`).
  * Biên nhận báo `errors > 0` hay có tệp lệch md5 vẫn là 0: các dòng khớp đã được ghi, và câu lỗi đã nằm
  * ở dòng sức khoẻ `document_office_copy` và thư cảnh báo kho — lệnh in lại chúng.
  */
@@ -42,6 +44,7 @@ class StorageOfficeReceiptsCommand extends Command
         foreach ([
             'imported' => $result->imported,
             'rejected' => $result->rejected,
+            'deferred' => $result->deferred,
             'marked' => $result->marked,
             'already' => $result->alreadyMarked,
             'unmatched' => $result->unmatched,
@@ -59,6 +62,6 @@ class StorageOfficeReceiptsCommand extends Command
             $this->error(__('office_copy.command.rclone_failed'));
         }
 
-        return $result->rcloneFailed || $result->rejected > 0 ? self::FAILURE : self::SUCCESS;
+        return $result->rcloneFailed || $result->rejected > 0 || $result->deferred > 0 ? self::FAILURE : self::SUCCESS;
     }
 }

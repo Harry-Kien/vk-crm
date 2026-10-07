@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Storage\ImportOfficeReceipts;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Process;
@@ -90,6 +91,8 @@ it('argv của mọi lời gọi rclone của lượt nhập biên nhận chỉ 
     Http::preventStrayRequests();
     Event::fake([BackupHasFailed::class]);
     Receipts::configure();
+    // Sau tên biên nhận lớn nhất dưới đây: tên ở tương lai thì không được đọc, và ca "cat hỏng" mất.
+    $this->travelTo(CarbonImmutable::parse('2026-10-09 08:00:00', 'Asia/Ho_Chi_Minh'));
     $key = Receipts::key();
     DocumentStoreFixtures::driveObject(['object_key' => $key, 'md5' => md5('x'), 'size' => 10]);
 

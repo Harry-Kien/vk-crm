@@ -11,6 +11,8 @@ use App\Support\Backup\RcloneProcess;
 use App\Support\Storage\OfficeReceipt;
 use App\Support\Storage\OfficeReceiptImport;
 use Carbon\CarbonInterface;
+use DateTimeImmutable;
+use DateTimeZone;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -34,10 +36,21 @@ use Spatie\Backup\Events\BackupHasFailed;
  *    tên khớp {@see self::FILE_PATTERN} (`receipt-<UTC>.json`, đúng tên `office-pull.sh` đặt) và lớn
  *    hơn cursor `settings.storage.office_receipt_cursor`, theo thứ tự tên — tên mang giờ UTC cố định
  *    độ dài nên thứ tự tên là thứ tự thời gian.
+ *    Cursor không bao giờ được vượt giờ máy chủ + {@see OfficeReceipt::FUTURE_TOLERANCE_MINUTES} phút
+ *    (vòng sửa 1 của Task 7): máy văn phòng ghi tệp vào `receipted.txt` ngay khi gửi được biên nhận, nên
+ *    mọi biên nhận mà CRM bỏ qua vì tên <= cursor là các tệp ấy không bao giờ có biên nhận lại.
+ *    - Tên mang giờ quá mốc đó, hoặc một ngày giờ không có thật → CHƯA đọc, không đếm là từ chối, cursor
+ *      không đi qua; câu `office_copy.import.deferred` (cách gỡ: Phụ lục D, mục D.9) vào lỗi mỗi lượt
+ *      cho tới khi tệp được xoá hay giờ thật vượt tên nó. Đồng hồ máy văn phòng chạy nhanh vì thế không
+ *      chặn các biên nhận đúng giờ đến sau, tên nhỏ hơn nó.
+ *    - Cursor đã lưu ở quá mốc đó (đồng hồ máy chủ web từng chạy nhanh) → đặt lại về rỗng và đọc lại
+ *      mọi biên nhận trong thư mục; an toàn vì lần đánh dấu chỉ ghi dòng `office_copied_at IS NULL`.
+ *      Câu `office_copy.import.cursor_reset` vào lỗi của lượt đó.
  * 4. Từng tệp: lớn hơn `office.receipt_max_bytes` (theo `lsjson`, rồi đo lại nội dung đọc về) → từ
  *    chối, không đọc; còn lại `rclone cat` rồi {@see OfficeReceipt::parse()}. Tệp bị từ chối: không
- *    dòng nào được đánh dấu, lý do vào `last_office_receipt_error`, log `warning`, và cursor VẪN đi qua
- *    nó (một tệp hỏng không làm kẹt mọi biên nhận sau).
+ *    dòng nào được đánh dấu, lý do vào `last_office_receipt_error` (kèm cách gỡ: đổi tên
+ *    `receipted.txt` trên máy văn phòng), log `warning`, và cursor VẪN đi qua nó (một tệp hỏng không
+ *    làm kẹt mọi biên nhận sau) — tên nó đã đến hạn ở điều 3, nên cursor vẫn không vượt mốc giờ.
  * 5. Từng dòng của biên nhận hợp lệ, trong MỘT transaction cùng với lần ghi cursor:
  *    `UPDATE drive_objects SET office_copied_at = now() WHERE drive_id = <kho đang cấu hình> AND
  *    object_key = <khoá đọc ngược> AND generation = <thế hệ đọc ngược> AND md5 = ? AND size = ? AND
@@ -49,10 +62,10 @@ use Spatie\Backup\Events\BackupHasFailed;
  *    lỗi.
  * 6. `errors > 0` trong biên nhận → vẫn đánh dấu các dòng khớp (cryptcheck đã xác nhận chúng), và ghi
  *    câu "máy văn phòng báo N lỗi; có thể có tệp bị đổi trên kho".
- * 7. Cuối lượt, chỉ khi có tệp mới được xử lý: có biên nhận hợp lệ → `last_office_receipt_at = now()`;
- *    có câu lỗi → `last_office_receipt_error` = các câu đó; không lỗi mà có biên nhận hợp lệ → xoá lỗi
- *    cũ. Không có tệp mới → không chạm dòng sức khoẻ (biên nhận cũ dần, dòng `document_office_copy`
- *    tự VÀNG sau `office.max_age_hours`).
+ * 7. Cuối lượt: có biên nhận hợp lệ → `last_office_receipt_at = now()`; có câu lỗi (kể cả câu biên nhận
+ *    đang chờ và câu đặt lại cursor của điều 3) → `last_office_receipt_error` = các câu đó, thay câu cũ;
+ *    không lỗi mà có biên nhận hợp lệ → xoá lỗi cũ. Không tệp mới và không câu lỗi → không chạm dòng
+ *    sức khoẻ (biên nhận cũ dần, dòng `document_office_copy` tự VÀNG sau `office.max_age_hours`).
  * 8. Lỗi `rclone` → `BackupHasFailed(…, 'rclone:office-receipts', BACKUP_NAME)`, cùng đường thư lỗi sao
  *    lưu của M8a, rồi dừng: cursor không đi qua tệp chưa đọc được, lượt sau đọc lại.
  *
@@ -108,16 +121,36 @@ final class ImportOfficeReceipts
             return new OfficeReceiptImport(rcloneFailed: true);
         }
 
+        $horizon = now()->addMinutes(OfficeReceipt::FUTURE_TOLERANCE_MINUTES);
+        $errors = [];
+
         $cursor = (string) Setting::query()->where('key', self::CURSOR_KEY)->value('value');
 
-        $pending = array_values(array_filter(
+        if ($cursor !== '' && ! self::nameIsDue($cursor, $horizon)) {
+            $errors[] = __('office_copy.import.cursor_reset', ['file' => $cursor, 'minutes' => OfficeReceipt::FUTURE_TOLERANCE_MINUTES]);
+            Log::warning(__('office_copy.import.log.cursor_reset'), ['cursor' => $cursor]);
+            $cursor = '';
+        }
+
+        $pending = array_filter(
             $entries,
             fn (array $entry) => preg_match(self::FILE_PATTERN, $entry['name']) === 1 && strcmp($entry['name'], $cursor) > 0,
-        ));
+        );
+        $deferred = array_values(array_filter($pending, fn (array $entry) => ! self::nameIsDue($entry['name'], $horizon)));
+        $pending = array_values(array_filter($pending, fn (array $entry) => self::nameIsDue($entry['name'], $horizon)));
         usort($pending, fn (array $a, array $b) => strcmp($a['name'], $b['name']));
+        usort($deferred, fn (array $a, array $b) => strcmp($a['name'], $b['name']));
+
+        if ($deferred !== []) {
+            $errors[] = __('office_copy.import.deferred', [
+                'count' => count($deferred),
+                'minutes' => OfficeReceipt::FUTURE_TOLERANCE_MINUTES,
+                'file' => $deferred[0]['name'],
+            ]);
+            Log::warning(__('office_copy.import.log.deferred'), ['files' => array_column($deferred, 'name')]);
+        }
 
         $counts = ['imported' => 0, 'rejected' => 0, 'marked' => 0, 'already' => 0, 'unmatched' => 0, 'mismatched' => 0, 'unknown' => 0];
-        $errors = [];
         $rcloneFailed = false;
 
         foreach ($pending as $entry) {
@@ -192,8 +225,28 @@ final class ImportOfficeReceipts
             unmatched: $counts['unmatched'],
             mismatched: $counts['mismatched'],
             unknownNames: $counts['unknown'],
+            deferred: count($deferred),
             errors: $errors,
         );
+    }
+
+    /**
+     * Giờ UTC trong tên `receipt-<UTC>.json` không quá `$horizon` (giờ máy chủ + dung sai). Tên không
+     * mang một ngày giờ có thật (`20261000T…`, `…T256100Z`: PHP tự tràn sang ngày khác, nên đọc rồi in
+     * lại không ra đúng chuỗi cũ) thì KHÔNG đến hạn: giờ của nó không kiểm được, nên nó không được đọc
+     * và cursor không đi qua nó. Chuỗi không đúng khuôn tên (chỉ có thể là cursor bị sửa tay) cũng vậy.
+     */
+    private static function nameIsDue(string $name, CarbonInterface $horizon): bool
+    {
+        if (preg_match('/^receipt-(\d{8}T\d{6})Z\.json$/D', $name, $match) !== 1) {
+            return false;
+        }
+
+        // 14 chữ số luôn đọc được bằng khuôn này (tràn chứ không hỏng), nên không có nhánh `false`.
+        /** @var DateTimeImmutable $time */
+        $time = DateTimeImmutable::createFromFormat('!Ymd\THis', $match[1], new DateTimeZone('UTC'));
+
+        return $time->format('Ymd\THis') === $match[1] && $time <= $horizon;
     }
 
     /**

@@ -28,12 +28,18 @@ return [
     ],
 
     'import' => [
-        'rejected' => 'Biên nhận :file bị từ chối, không tệp nào của nó được ghi nhận: :reason',
+        'rejected' => 'Biên nhận :file bị từ chối, không tệp nào của nó được ghi nhận: :reason Máy văn phòng đã ghi các tệp ấy vào receipted.txt nên sẽ không gửi biên nhận cho chúng lần nữa: sửa nguyên nhân rồi làm theo Phụ lục D, mục D.9 của docs/SAO-LUU-KHOI-PHUC.md (đổi tên receipted.txt).',
+        // Vòng sửa 1 của Task 7: tên mang giờ quá giờ máy chủ + :minutes phút (hoặc ngày giờ không có thật) thì
+        // không đọc và cursor không đi qua; câu này hiện mỗi lượt cho tới khi người vận hành gỡ.
+        'deferred' => ':count biên nhận mang tên giờ ở tương lai quá :minutes phút so với máy chủ, hoặc ngày giờ không có thật (đầu tiên: :file): chưa đọc, và CRM không đi qua chúng; các biên nhận đúng giờ vẫn được nhập. Kiểm đồng hồ (NTP) của máy văn phòng, rồi làm theo Phụ lục D, mục D.9 của docs/SAO-LUU-KHOI-PHUC.md (xoá biên nhận tên tương lai trên "VK-CRM Backups", đổi tên receipted.txt).',
+        'cursor_reset' => 'Mốc biên nhận đã nhập (:file) ở tương lai quá :minutes phút so với máy chủ (đồng hồ máy chủ web từng chạy nhanh?): đã đặt lại và đọc lại mọi biên nhận trong thư mục; tệp đã có biên nhận không bị ghi lại. Kiểm đồng hồ (NTP) của máy chủ web.',
         'office_errors' => 'Biên nhận :file: máy văn phòng báo :count lỗi; có thể có tệp bị đổi trên kho. Xem nhật ký office-pull.log trên máy văn phòng.',
         'mismatched' => 'Biên nhận :file: :count tệp khớp tên và thế hệ của chỉ mục nhưng khác md5 hoặc cỡ; có thể có tệp bị đổi trên kho. Chạy vkcrm:storage:verify.',
         'log' => [
             'rejected' => 'Bản thứ hai: biên nhận văn phòng bị từ chối.',
             'imported' => 'Bản thứ hai: đã nhập biên nhận văn phòng.',
+            'deferred' => 'Bản thứ hai: biên nhận văn phòng mang tên giờ ở tương lai, chưa đọc.',
+            'cursor_reset' => 'Bản thứ hai: mốc biên nhận đã nhập ở tương lai, đã đặt lại.',
         ],
     ],
 
@@ -43,6 +49,7 @@ return [
         'busy' => 'Một lượt nhập biên nhận khác đang chạy (khoá storage-office-receipts). Thử lại sau ít phút.',
         'imported' => 'Biên nhận đã nhập: :count',
         'rejected' => 'Biên nhận bị từ chối: :count',
+        'deferred' => 'Biên nhận mang tên giờ ở tương lai, chưa đọc: :count',
         'marked' => 'Tệp được đánh dấu có bản ở văn phòng: :count',
         'already' => 'Tệp đã có biên nhận từ trước: :count',
         'unmatched' => 'Tệp không khớp dòng sống nào của chỉ mục: :count (đã vào thùng rác, thế hệ cũ, hoặc kho khác)',

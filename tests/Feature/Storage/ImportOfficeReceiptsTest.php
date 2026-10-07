@@ -3,6 +3,7 @@
 use App\Actions\Storage\ImportOfficeReceipts;
 use App\Models\Setting;
 use App\Models\SystemHealth;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -32,7 +33,9 @@ use Tests\Support\OfficeReceiptFixtures as Receipts;
 beforeEach(function () {
     Http::preventStrayRequests();
     Receipts::configure();
-    $this->freezeTime();
+    // Giờ cố định (01:00 UTC ngày 09/10): tên biên nhận mang giờ UTC, và tên ở tương lai thì không được
+    // đọc (vòng sửa 1 của Task 7) — giờ thật của máy chạy test không được đổi kết quả.
+    $this->travelTo(CarbonImmutable::parse('2026-10-09 08:00:00', 'Asia/Ho_Chi_Minh'));
 });
 
 function t7Copied(int $id): ?string
@@ -469,4 +472,139 @@ it('đang có lượt khác giữ khoá storage-office-receipts → không chạ
 it('khoá chống chạy chồng hết hạn sau 600 giây', function () {
     expect(ImportOfficeReceipts::LOCK_KEY)->toBe('storage-office-receipts')
         ->and(ImportOfficeReceipts::LOCK_SECONDS)->toBe(600);
+});
+
+/*
+| Vòng sửa 1 (I1 của rà soát Task 7): máy văn phòng ghi tệp vào `receipted.txt` ngay khi gửi được biên
+| nhận, nên một biên nhận mà CRM bỏ qua là các tệp ấy không bao giờ có biên nhận lại. Biên nhận mang
+| tên giờ ở tương lai (đồng hồ máy văn phòng chạy nhanh) không được đọc và cursor không đi qua nó: các
+| biên nhận đúng giờ đến sau, tên nhỏ hơn nó, vẫn được nhập.
+*/
+
+it('biên nhận tên ở tương lai (đồng hồ văn phòng nhanh 2 ngày) → chưa đọc, cursor không qua; biên nhận đúng giờ sau đó vẫn được nhập', function () {
+    $keyA = Receipts::key(1834);
+    $keyB = Receipts::key(1835);
+    $rowA = DocumentStoreFixtures::driveObject(['object_key' => $keyA, 'md5' => md5('a'), 'size' => 10]);
+    $rowB = DocumentStoreFixtures::driveObject(['object_key' => $keyB, 'md5' => md5('b'), 'size' => 10]);
+    SystemHealth::current()->update(['last_office_receipt_error' => 'lỗi cũ']);
+
+    $future = Receipts::fileName('20261011T010000Z');
+    $files = [$future => Receipts::receipt([Receipts::line($keyA, md5('a'), 10)], [
+        'started_at' => '2026-10-11T01:00:00Z',
+    ])];
+
+    Receipts::fakeRclone($files);
+    $first = app(ImportOfficeReceipts::class)->handle();
+
+    $error = SystemHealth::current()->last_office_receipt_error;
+    expect($first->deferred)->toBe(1)
+        ->and($first->rejected)->toBe(0)
+        ->and($first->imported)->toBe(0)
+        ->and(Receipts::catted())->toBe([])
+        ->and(Setting::query()->where('key', ImportOfficeReceipts::CURSOR_KEY)->exists())->toBeFalse()
+        ->and($error)->toContain($future)
+        ->and($error)->toContain('receipted.txt')
+        ->and($error)->not->toContain('lỗi cũ');
+
+    // Người vận hành sửa đồng hồ; đêm sau máy văn phòng gửi một biên nhận tên ĐÚNG giờ (nhỏ hơn tên xấu).
+    $this->travel(1)->days();
+    $good = Receipts::fileName('20261010T005900Z');
+    Receipts::fakeRclone([...$files, $good => Receipts::receipt([Receipts::line($keyB, md5('b'), 10)])]);
+    $second = app(ImportOfficeReceipts::class)->handle();
+
+    expect($second->imported)->toBe(1)
+        ->and($second->deferred)->toBe(1)
+        ->and(Receipts::catted())->toBe([$good])
+        ->and(t7Copied($rowB))->not->toBeNull()
+        ->and(t7Copied($rowA))->toBeNull()
+        ->and(Setting::query()->where('key', ImportOfficeReceipts::CURSOR_KEY)->value('value'))->toBe($good)
+        ->and(SystemHealth::current()->last_office_receipt_error)->toContain($future);
+});
+
+it('biên của tên biên nhận: đúng 5 phút tới thì đọc, quá một giây thì chờ', function () {
+    $edge = Receipts::fileName('20261009T010500Z');
+    $over = Receipts::fileName('20261009T010501Z');
+
+    Receipts::fakeRclone([$edge => Receipts::receipt([]), $over => Receipts::receipt([])]);
+    $result = app(ImportOfficeReceipts::class)->handle();
+
+    expect($result->imported)->toBe(1)
+        ->and($result->deferred)->toBe(1)
+        ->and(Receipts::catted())->toBe([$edge])
+        ->and(Setting::query()->where('key', ImportOfficeReceipts::CURSOR_KEY)->value('value'))->toBe($edge);
+});
+
+it('tên biên nhận mang ngày không có thật → không đọc, cursor không qua (giờ trong tên không kiểm được)', function () {
+    $invalid = Receipts::fileName('20261000T010000Z');
+    $good = Receipts::fileName('20261008T010000Z');
+
+    Receipts::fakeRclone([$invalid => Receipts::receipt([]), $good => Receipts::receipt([])]);
+    $result = app(ImportOfficeReceipts::class)->handle();
+
+    expect($result->deferred)->toBe(1)
+        ->and($result->imported)->toBe(1)
+        ->and(Receipts::catted())->toBe([$good])
+        ->and(SystemHealth::current()->last_office_receipt_error)->toContain($invalid);
+});
+
+it('biên nhận bị từ chối: cursor qua nó, và câu lỗi nói cách gỡ (receipted.txt)', function () {
+    $rejected = Receipts::fileName('20261009T010000Z');
+
+    Receipts::fakeRclone([$rejected => Receipts::receipt([], ['format' => 2])]);
+    $result = app(ImportOfficeReceipts::class)->handle();
+
+    expect($result->rejected)->toBe(1)
+        ->and(Setting::query()->where('key', ImportOfficeReceipts::CURSOR_KEY)->value('value'))->toBe($rejected)
+        ->and(SystemHealth::current()->last_office_receipt_error)->toContain('receipted.txt');
+});
+
+it('cursor đã chạy trước giờ máy chủ (đồng hồ máy chủ web từng nhanh) → đặt lại, đọc lại mọi biên nhận, dòng đã có biên nhận không bị ghi lại', function () {
+    $keyA = Receipts::key(1834);
+    $keyB = Receipts::key(1835);
+    $rowA = DocumentStoreFixtures::driveObject(['object_key' => $keyA, 'md5' => md5('a'), 'size' => 10, 'office_copied_at' => now()->subDays(3)]);
+    $rowB = DocumentStoreFixtures::driveObject(['object_key' => $keyB, 'md5' => md5('b'), 'size' => 10]);
+    $before = t7Copied($rowA);
+    $ahead = Receipts::fileName('20261201T010000Z');
+    DocumentStoreFixtures::setting(ImportOfficeReceipts::CURSOR_KEY, $ahead);
+
+    $old = Receipts::fileName('20261006T010000Z');
+    $late = Receipts::fileName('20261008T010000Z');
+    Receipts::fakeRclone([
+        $old => Receipts::receipt([Receipts::line($keyA, md5('a'), 10)]),
+        $late => Receipts::receipt([Receipts::line($keyB, md5('b'), 10)]),
+    ]);
+
+    $result = app(ImportOfficeReceipts::class)->handle();
+
+    expect($result->imported)->toBe(2)
+        ->and($result->alreadyMarked)->toBe(1)
+        ->and($result->marked)->toBe(1)
+        ->and(t7Copied($rowA))->toBe($before)
+        ->and(t7Copied($rowB))->not->toBeNull()
+        ->and(Setting::query()->where('key', ImportOfficeReceipts::CURSOR_KEY)->value('value'))->toBe($late)
+        ->and(SystemHealth::current()->last_office_receipt_error)->toContain($ahead);
+});
+
+it('nhiều biên nhận tên ở tương lai → một câu lỗi, đếm đủ, nêu tên sớm nhất', function () {
+    $later = Receipts::fileName('20261120T010000Z');
+    $sooner = Receipts::fileName('20261011T010000Z');
+
+    Receipts::fakeRclone([$later => Receipts::receipt([]), $sooner => Receipts::receipt([])]);
+    $result = app(ImportOfficeReceipts::class)->handle();
+
+    expect($result->deferred)->toBe(2)
+        ->and($result->errors)->toHaveCount(1)
+        ->and($result->errors[0])->toContain('2 biên nhận')
+        ->and($result->errors[0])->toContain('(đầu tiên: '.$sooner.')');
+});
+
+it('cursor không đúng khuôn tên biên nhận (sửa tay nhầm) → đặt lại và đọc biên nhận', function () {
+    DocumentStoreFixtures::setting(ImportOfficeReceipts::CURSOR_KEY, 'zzz');
+
+    Receipts::fakeRclone([Receipts::fileName('20261008T010000Z') => Receipts::receipt([])]);
+    $result = app(ImportOfficeReceipts::class)->handle();
+
+    expect($result->imported)->toBe(1)
+        ->and(Setting::query()->where('key', ImportOfficeReceipts::CURSOR_KEY)->value('value'))->toBe(Receipts::fileName('20261008T010000Z'))
+        ->and(SystemHealth::current()->last_office_receipt_error)->toContain('zzz');
 });

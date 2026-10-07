@@ -17,6 +17,8 @@ use App\Actions\Storage\ImportOfficeReceipts;
  *   biên nhận từ trước; `unmatched`: tên đọc ngược được mà không có dòng SỐNG nào cùng khoá + thế hệ
  *   trên Shared Drive đang cấu hình; `mismatched`: có dòng sống cùng khoá + thế hệ nhưng md5 hoặc
  *   cỡ khác (tín hiệu tệp bị đổi trên kho); `unknownNames`: tên không đọc ngược được.
+ * - `deferred`: biên nhận có tên mang giờ quá giờ máy chủ + {@see OfficeReceipt::FUTURE_TOLERANCE_MINUTES}
+ *   phút, hoặc ngày giờ không có thật: chưa đọc, cursor không đi qua (vòng sửa 1 của Task 7).
  * - `errors`: các câu đã ghi vào `system_health.last_office_receipt_error`.
  */
 final class OfficeReceiptImport
@@ -33,6 +35,7 @@ final class OfficeReceiptImport
         public readonly int $unmatched = 0,
         public readonly int $mismatched = 0,
         public readonly int $unknownNames = 0,
+        public readonly int $deferred = 0,
         public readonly array $errors = [],
     ) {}
 

@@ -587,7 +587,7 @@ M14 Task 8 Phần 2.
 | # | Việc | Dòng kiểm |
 |---|---|---|
 | 1 | **Máy**: một máy luôn bật trong văn phòng (Windows hoặc Linux). Ổ trống ít nhất **gấp đôi** dung lượng Kho; bật mã hoá ổ đĩa (BitLocker hoặc LUKS); có UPS. Băng thông: mỗi tệp mới được tải về hai lần (một lần chép, một lần kiểm), và lượt kiểm hằng tháng tải lại toàn bộ Kho | — |
-| 2 | **Tài khoản Google** `van-phong-kho@…` (Workspace, bật xác thực hai lớp, không ai dùng để làm việc hằng ngày). Vai **Người xem** trên Kho (Phụ lục A bước 7 của `docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`), vai **Người đóng góp** trên "VK-CRM Backups" (gửi được biên nhận; không cho vào thùng rác được) | `drive_sharing` |
+| 2 | **Tài khoản Google** `van-phong-kho@…` (Workspace, bật xác thực hai lớp, không ai dùng để làm việc hằng ngày). Vai **Người xem** trên Kho (Phụ lục A bước 7 của `docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`), vai **Người đóng góp** trên "VK-CRM Backups" (thêm và sửa được tệp, không xoá được). Vai đó đủ để gửi biên nhận, và cũng đủ để ghi đè nội dung archive CSDL: xem "Token `vkbackups` ghi đè được archive" ở "Những điều cần biết" | `drive_sharing` |
 | 3 | **Tài khoản hệ điều hành riêng** `vkcrm-saoluu` trên máy văn phòng. Nhân sự không đăng nhập bằng nó; thư mục bản sao chỉ nó đọc được | — |
 | 4 | **Cài `rclone`** (như Bước 1, bản Windows hoặc Linux), và **Git Bash** nếu là Windows | — |
 | 5 | **`rclone config`** dưới tài khoản `vkcrm-saoluu`, ba remote (mục D.5); đặt mật khẩu cho tệp cấu hình rclone | `document_office_copy` |
@@ -611,8 +611,11 @@ rclone nằm trong thư mục nhà của tài khoản chạy nó):
     `team_drive` cũng phải bằng `GOOGLE_DRIVE_SHARED_DRIVE_ID`. CRM từ chối cả biên nhận khi hai mã
     này khác cấu hình của nó: script đọc chúng từ `rclone config show vkkho`, không gõ tay.
 - **`vkbackups`** — "VK-CRM Backups", để gửi biên nhận và kéo archive CSDL: Google Drive, `scope>`
-  `drive`, đăng nhập bằng `van-phong-kho@…`, Shared Drive "VK-CRM Backups". Vai Người đóng góp chỉ
-  cho thêm tệp, không cho vào thùng rác.
+  `drive`, đăng nhập bằng `van-phong-kho@…`, Shared Drive "VK-CRM Backups". Vai Người đóng góp cho
+  **thêm và sửa** tệp: tải được tệp mới, và tải được phiên bản mới đè lên tệp người khác tạo (kể cả
+  archive CSDL do máy chủ web đẩy lên); chỉ không xoá, không cho vào thùng rác và không di chuyển
+  được. Không có vai nào của Shared Drive chỉ cho thêm mà không cho sửa. Rủi ro và lưới đỡ: "Token
+  `vkbackups` ghi đè được archive" ở "Những điều cần biết".
 - **`vkoffice`** — bản sao trên ổ của máy văn phòng, **mã hoá**:
   - `Storage>`: `crypt`; `remote>`: một thư mục cục bộ, ví dụ `D:\VKCRM-saoluu\kho` (Windows) hay
     `/srv/vkcrm-saoluu/kho` (Linux);
@@ -672,6 +675,9 @@ CRM đọc biên nhận lúc 07:00 hằng ngày (`vkcrm:storage:office-receipts`
 Bước 3) và chỉ đánh dấu một tệp "đã có bản ở văn phòng" khi tên, thế hệ, md5 và cỡ khớp đúng một
 dòng chỉ mục SỐNG của Kho đang cấu hình. Biên nhận của Kho khác, sai khuôn, quá 32 MiB hay ghi giờ ở
 tương lai thì bị từ chối cả tệp, và lý do hiện ở dòng `document_office_copy` cùng thư cảnh báo kho.
+Biên nhận có **tên** mang giờ ở tương lai quá 5 phút (đồng hồ máy văn phòng chạy nhanh) thì CRM chưa
+đọc và không đi qua nó, để các biên nhận đúng giờ đến sau vẫn được nhập; câu "biên nhận mang tên giờ ở
+tương lai" hiện mỗi ngày cho tới khi được gỡ. Cả hai trường hợp cần người gỡ: mục D.9.
 Biên nhận báo lỗi phía văn phòng thì các tệp khớp vẫn được ghi nhận, và câu "máy văn phòng báo N lỗi"
 hiện ở cùng chỗ. Lỗi `rclone` phía máy chủ đi theo đúng đường thư báo lỗi sao lưu
 (`rclone:office-receipts`).
@@ -687,11 +693,60 @@ DOCUMENT_OFFICE_RECEIPTS_PATH=gdrive:VK-CRM-backups/office-receipts/vk-crm-produ
 và số tệp được đánh dấu. Trống biến này thì lệnh và mục lịch không làm gì, và vùng đệm không bao giờ
 được dọn.
 
+### D.9 — Gỡ biên nhận bị từ chối, đang chờ, hay bị bỏ qua
+
+Máy văn phòng ghi các tệp của một biên nhận vào `receipted.txt` (trong `STATE_DIR`) **ngay khi gửi
+được** biên nhận đó, và từ đó không kiểm hay gửi biên nhận cho chúng nữa. Vì vậy một biên nhận mà CRM
+không nhập là các tệp của nó **không bao giờ** có biên nhận: vùng đệm trên máy chủ web giữ chúng mãi
+(an toàn, nhưng ổ đĩa cứ đầy dần). Ba dấu hiệu:
+
+- dòng `document_office_copy` hay thư cảnh báo kho có câu "Biên nhận … bị từ chối" (Kho khác, sai
+  khuôn, quá 32 MiB, giờ bắt đầu ở tương lai);
+- câu "… biên nhận mang tên giờ ở tương lai …": đồng hồ máy văn phòng chạy nhanh (pin CMOS hết, mất
+  đồng bộ giờ). CRM chưa đọc biên nhận đó và không đi qua nó; biên nhận đúng giờ đến sau vẫn được nhập;
+- không câu lỗi nào, nhưng số "media trên kho chưa có biên nhận" ở trang "Kho tài liệu" không giảm qua
+  nhiều đêm: một biên nhận đến muộn mang tên nhỏ hơn biên nhận đã nhập (ví dụ hai lượt kéo chạy chồng)
+  và CRM đã bỏ qua nó.
+
+Cách gỡ, theo thứ tự:
+
+1. **Sửa nguyên nhân.** Đồng hồ: trên Windows `w32tm /resync` (cửa sổ dòng lệnh quyền quản trị), trên
+   Linux `timedatectl set-ntp true`; kiểm lại bằng `date -u` trong Git Bash. Kho khác: sửa remote
+   `vkkho` theo D.5. Biên nhận quá 32 MiB: báo người cài đặt.
+2. **Biên nhận tên ở tương lai**: người quản lý "VK-CRM Backups" mở thư mục
+   `VK-CRM-backups/office-receipts/<ENV_FOLDER>/` trên Google Drive và xoá các tệp `receipt-….json` có
+   ngày sau hôm nay. Tài khoản `van-phong-kho@…` không xoá được (vai Người đóng góp).
+3. **Trên máy văn phòng**, dưới `vkcrm-saoluu`, lúc không có lượt kéo nào đang chạy (không có thư mục
+   `office-pull.lock` trong `STATE_DIR`): đổi tên `receipted.txt` thành `receipted-<ngày>.txt`. Không
+   xoá tệp cũ. Lượt đêm sau kiểm lại mọi tệp (tải lại toàn bộ Kho một lần) và gửi một biên nhận cho tất
+   cả; CRM đánh dấu những tệp chưa có biên nhận, và đếm những tệp đã có là "đã có biên nhận từ trước".
+   Kho rất lớn (khoảng 300 000 tệp trở lên) thì biên nhận gộp đó có thể vượt trần 32 MiB và bị từ chối:
+   hỏi người cài đặt trước khi đổi tên.
+4. **Sáng hôm sau**, sau 07:00, xem dòng `document_office_copy`, hoặc người cài đặt chạy
+   `php artisan vkcrm:storage:office-receipts` và đọc số đếm. Mã thoát 1 nghĩa là còn biên nhận bị từ
+   chối hay đang chờ, lệnh `rclone` hỏng, hoặc một lượt nhập khác đang chạy: lệnh in lý do.
+
+Mốc biên nhận đã nhập của CRM (cursor, `storage.office_receipt_cursor`) không cần sửa tay: CRM không
+bao giờ cho nó vượt giờ máy chủ cộng 5 phút. Nếu nó đã ở tương lai (đồng hồ máy chủ web từng chạy
+nhanh), lượt nhập kế tiếp tự đặt lại, đọc lại mọi biên nhận trong thư mục (tệp đã có biên nhận không bị
+ghi lại), và câu "Mốc biên nhận đã nhập … đã đặt lại" hiện ở dòng `document_office_copy` một lần. Khi
+thấy câu đó, kiểm đồng hồ của máy chủ web.
+
 ### Những điều cần biết
 
 - **Biên nhận là lời của máy văn phòng.** Một máy văn phòng bị chiếm có thể gửi biên nhận giả và làm
   vùng đệm bị dọn sớm. Kho vẫn còn bản (CRM không bao giờ xoá gì trên Kho vì một biên nhận), và lượt
   `--check-monthly` cùng `vkcrm:storage:verify` là lưới. Giữ máy văn phòng như giữ két sắt.
+- **Token `vkbackups` ghi đè được archive.** Vai Người đóng góp trên "VK-CRM Backups" cho sửa tệp, và
+  token `vkbackups` có `scope` `drive`. Một máy văn phòng bị chiếm vì thế tải được phiên bản mới (rác,
+  hay bản đã bị mã độc tống tiền mã hoá) đè lên mọi archive CSDL và mọi biên nhận trên "VK-CRM
+  Backups". Nó không xoá được tệp nào, nhưng nội dung gốc khi đó chỉ còn trong lịch sử phiên bản của
+  Drive, mà lịch sử phiên bản không phải sao lưu. Bản đối chứng là chính `ARCHIVE_DIR` ở văn phòng:
+  script chỉ chép thêm vào đó, với `--immutable`, nên archive đã có ở văn phòng không bao giờ bị bản
+  trên Drive ghi đè. Archive bị đổi trên Drive (khác cỡ hay giờ sửa) làm lượt kéo báo lỗi, và lỗi đó
+  tới CRM qua số lỗi của biên nhận kế tiếp ("máy văn phòng báo N lỗi"). Thấy câu đó thì đừng xoá
+  archive nào ở `ARCHIVE_DIR`, và báo người cài đặt so hai bản. Kẻ đã chiếm được máy văn phòng thì
+  sửa được cả `ARCHIVE_DIR`: đó là lý do thêm để giữ máy này như két sắt.
 - **Archive ở văn phòng không tự hết.** Script chỉ chép thêm, nên `ARCHIVE_DIR` giữ mọi archive đã
   từng có. Người giữ máy văn phòng tự xoá bằng tay các archive cũ, giữ ít nhất 30 bản mới nhất. Khi
   huỷ tệp của hồ sơ hết hạn lưu (`docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`, "Huỷ tệp của hồ sơ đã quá hạn
@@ -699,7 +754,8 @@ và số tệp được đánh dấu. Trống biến này thì lệnh và mục 
 - **Biên nhận tích luỹ** trên "VK-CRM Backups" (một tệp nhỏ mỗi đêm, khoảng 365 tệp mỗi năm). CRM chỉ
   đọc biên nhận mới hơn biên nhận đã nhập gần nhất. Người quản lý "VK-CRM Backups" có thể xoá bằng
   tay các biên nhận cũ hơn một năm.
-- **Đừng xoá `receipted.txt`** trừ khi được dặn (diễn tập "mất kho", bước 6). Mất nó thì mọi tệp được
+- **Đừng xoá `receipted.txt`** trừ khi được dặn (diễn tập "mất kho", bước 6; gỡ biên nhận, mục D.9 —
+  ở cả hai chỗ là đổi tên, không xoá). Mất nó thì mọi tệp được
   kiểm và ghi biên nhận lại: an toàn, nhưng tốn một lượt tải lại toàn bộ.
 - **Máy văn phòng hỏng**: dựng máy mới theo phụ lục này, với **cùng** mật khẩu `crypt` và salt nếu
   còn ổ cũ; ổ mất thì một remote `crypt` mới và một `receipted.txt` trống — lượt đầu kéo lại toàn bộ
