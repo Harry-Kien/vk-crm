@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use LogicException;
+use NotificationChannels\WebPush\HasPushSubscriptions;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
 
@@ -24,6 +25,9 @@ class ClientUser extends Authenticatable implements FilamentUser, HasEmailAuthen
     /** @use HasFactory<ClientUserFactory> */
     use HasFactory;
 
+    // M12 R8 — thiết bị nhận thông báo đẩy của CHÍNH người này (`pushSubscriptions()`); màn hình chỉ
+    // chạm bảng đăng ký qua quan hệ này (tests/Feature/Push/PushSubscriptionAccessTest.php).
+    use HasPushSubscriptions;
     use LogsActivity;
     use Notifiable;
     use SoftDeletes;

@@ -41,7 +41,9 @@ use Illuminate\Support\Facades\Gate;
  * cửa sổ — lại thành khoản kế toán không huỷ được. Nên bộ lọc "Mã hồ sơ" quyết định cửa sổ
  * ({@see self::windowOrMatterCode()}): để trống là 90 ngày; gõ mã là mọi khoản thu chưa huỷ của các
  * hồ sơ khớp mã, cũ đến đâu cũng vậy. Chỉ cửa sổ được bỏ: điều kiện "chưa huỷ" và phạm vi
- * `listableBy()` vẫn nằm ở {@see self::rowsQuery()}, áp cho mọi dòng.
+ * `listableBy()` vẫn nằm ở {@see self::rowsQuery()}, áp cho mọi dòng. Bộ lọc của bảng HOÃN (mặc định
+ * của Filament, widget không gọi `deferFilters(false)`): gõ mã chưa đổi gì cho tới khi bấm nút "Áp dụng
+ * bộ lọc" — câu mô tả của mục nói đúng điều đó, với nhãn nút đọc từ bản dịch của Filament (làn fu3).
  *
  * **Một widget, không phải bảng thứ hai của trang:** một trang Filament chỉ mang MỘT
  * `InteractsWithTable`; mục thứ hai là một `TableWidget` đặt ở chân trang
@@ -95,7 +97,10 @@ class RecentPaymentsWidget extends TableWidget
     {
         return $table
             ->heading(__('billing.receivables.recent_payments.heading'))
-            ->description(__('billing.receivables.recent_payments.description', ['days' => self::WINDOW_DAYS]))
+            ->description(__('billing.receivables.recent_payments.description', [
+                'days' => self::WINDOW_DAYS,
+                'apply' => __('filament-tables::table.filters.actions.apply.label'),
+            ]))
             ->query(fn (): Builder => $this->rowsQuery())
             ->emptyStateHeading(__('billing.receivables.recent_payments.empty_heading'))
             ->columns([

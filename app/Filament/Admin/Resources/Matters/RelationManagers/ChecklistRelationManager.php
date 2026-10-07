@@ -333,7 +333,12 @@ class ChecklistRelationManager extends RelationManager
      * trình duyệt không được nhận một danh sách rỗng chỉ vì guard `client` cũng đang xác thực.
      *
      * `downloadUrlFor(Auth::user())` — route đã ký, hết hạn sau 5 phút (SPEC §10.4), ký cho ĐÚNG
-     * người đang mở hộp này. Cùng thành ngữ `DocumentsRelationManager::downloadAction()`.
+     * người đang mở hộp này. Cùng thành ngữ `DocumentsRelationManager::downloadAction()`, và cùng
+     * luật mở trong CÙNG cửa sổ (không `target="_blank"`, M12 Task 3 — lý do ở docblock đó): tải
+     * THÀNH CÔNG thì tệp về và hộp duyệt đang mở vẫn đứng nguyên. Cùng cái giá ghi ở docblock đó:
+     * href được ký lúc hộp được vẽ, nên hộp đã đứng yên quá 5 phút (hay một lượt tải bị từ chối) thì
+     * trang lỗi 403/404 thay cả trang — hộp duyệt và lý do đã gõ mất theo; nút về của trang lỗi dẫn
+     * về `/admin` (`App\Support\Pwa\PwaPanels::startUrlFor()`).
      *
      * Tên hiện ra là tên TỆP KHÁCH ĐÃ ĐẶT (`Media::name`, qua `FileGuard::safeName()`), không
      * phải `Document::title` — hai (hoặc nhiều) tệp của cùng một lần nộp (R10) đều mang chung một
@@ -362,7 +367,7 @@ class ChecklistRelationManager extends RelationManager
             ->get()
             ->sortBy(fn (Document $document): int => array_search($document->getKey(), $ids, true))
             ->map(fn (Document $document): string => sprintf(
-                '<li><a href="%s" target="_blank" rel="noopener" style="color:var(--primary-600);text-decoration:underline;">%s</a></li>',
+                '<li><a href="%s" style="color:var(--primary-600);text-decoration:underline;">%s</a></li>',
                 e($document->downloadUrlFor($viewer)),
                 e($document->getFirstMedia('file')?->name ?? $document->title),
             ))

@@ -115,6 +115,27 @@ server {
         try_files $uri /index.php?$query_string;
     }
 
+    # M12 (app trên điện thoại, phán quyết R4) — service worker của hai app cũng là ROUTE PHP mang
+    # đuôi `.js` (`routes/pwa.php`: `/admin/sw.js`, `/portal/sw.js`), cùng cái bẫy với Livewire ở
+    # trên: thiếu hai khối này, location regex tệp tĩnh bên dưới trả 404 THẲNG từ nginx (không có
+    # tệp nào ở đó trên đĩa) — trình duyệt không đăng ký được worker và app không cài được, dù mọi
+    # trang vẫn "lên". `location =` (khớp CHÍNH XÁC) thắng mọi location regex, không phụ thuộc thứ
+    # tự khai báo. Mọi header của worker (`Service-Worker-Allowed`, CSP riêng, `Cache-Control:
+    # no-cache` thay cho `immutable` một năm của tệp tĩnh) do PHP đặt
+    # (`App\Http\Controllers\Pwa\ServiceWorkerController`). Manifest (`.webmanifest`) và trang
+    # ngoại tuyến (`/admin/offline`, `/portal/offline`) không mang đuôi trong danh sách bên dưới nên
+    # tự đi `location /`. `public/pwa/register.js` là tệp tĩnh THẬT — nhận `immutable` của khối
+    # dưới, và thẻ `<script>` mang `?v=<băm nội dung>` để bản sửa vẫn tới điện thoại. Đã CHẠY THẬT
+    # qua nginx + php-fpm (cả đối chứng bỏ hai khối này → 404 của nginx):
+    # `tools/deploy/verify-pwa-routes.sh`.
+    location = /admin/sw.js {
+        try_files $uri /index.php?$query_string;
+    }
+
+    location = /portal/sw.js {
+        try_files $uri /index.php?$query_string;
+    }
+
     # Ba header SPEC §10 mục 2 cho tệp tĩnh — PHP không chạm tới các request này. HSTS lặp lại ở
     # đây vì nginx KHÔNG cộng dồn `add_header`: một location có `add_header` riêng thì bỏ hết
     # `add_header` của server block (đo bằng request thật ngày 2026-10-01, M8 Task 7 — trước dòng

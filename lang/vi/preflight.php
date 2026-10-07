@@ -95,6 +95,26 @@ return [
         .'app thắng giá trị trong .env.',
     'brand_fields_ok' => 'Đủ bốn thông tin pháp lý của văn phòng.',
 
+    // M12 Task 4 (R7) — App\Support\Push\VapidKeys. VÀNG, không ĐỎ: app trên điện thoại vẫn cài và
+    // chạy được, chỉ thông báo đẩy tắt. Không bao giờ in giá trị của khoá, chỉ tên biến.
+    // Task 10 (rà soát Task 4, Minor 5): `config:clear` TRƯỚC `webpush:vapid` — lệnh của gói dò dòng
+    // cũ trong `.env` theo khoá đang có trong CẤU HÌNH; cấu hình đã cache với khoá rỗng thì dòng
+    // `VAPID_PUBLIC_KEY=cu` thành `VAPID_PUBLIC_KEY=moicu`. Và cache lại sau khi điền, không thì khoá
+    // mới không có hiệu lực (docs/CAI-DAT.md, Bước 3, "Khoá thông báo đẩy").
+    'vapid_missing' => 'Chưa có khoá thông báo đẩy (:variables) — thông báo đẩy trên điện thoại đang '
+        .'TẮT: không ai bật được, hệ thống không gửi (email vẫn đi bình thường). Sinh MỘT lần cho '
+        .'máy chủ này: php artisan config:clear, rồi php artisan webpush:vapid, điền '
+        .'VAPID_SUBJECT=mailto:<hộp thư có người đọc của văn phòng>, chạy lại php artisan '
+        .'vkcrm:preflight rồi php artisan optimize, và cất VAPID_PRIVATE_KEY cùng chỗ với APP_KEY.',
+    'vapid_invalid' => 'VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY sai định dạng (khoá công khai 65 byte, '
+        .'khoá riêng 32 byte, mã base64url) — thông báo đẩy đang TẮT. Dán lại đúng cặp khoá đã cất. '
+        .'Đừng sinh cặp mới nếu đã có người bật thông báo: khoá mới làm mọi đăng ký cũ chết, và sau '
+        .'khi đổi khoá phải chạy php artisan vkcrm:push-reset.',
+    'vapid_subject_invalid' => 'VAPID_SUBJECT phải là "mailto:" kèm hộp thư có người đọc của văn '
+        .'phòng (ví dụ mailto:lienhe@luatvukhang.com) hoặc một địa chỉ https:// — máy chủ đẩy của '
+        .'Apple từ chối khi thiếu. Thông báo đẩy đang TẮT.',
+    'vapid_ok' => 'Khoá thông báo đẩy (VAPID) đã khai báo.',
+
     'storage_private_exposed' => 'storage/app/private PHỤC VỤ CÔNG KHAI được, qua :url — hồ sơ '
         .'khách hàng có thể bị tải trực tiếp không qua kiểm tra quyền. Kiểm lại document root của '
         .'máy chủ web (phải là public/, không phải gốc dự án) và symlink public/storage (phải '

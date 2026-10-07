@@ -4,6 +4,7 @@ use App\Enums\Role;
 use App\Filament\Admin\Resources\Users\Pages\EditUser;
 use App\Filament\Admin\Resources\Users\UserResource;
 use App\Http\Controllers\DocumentDownloadController;
+use App\Http\Middleware\RefuseStaffWithoutTwoFactor;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Auth\MultiFactor\Http\Middleware\EnsureMultiFactorAuthenticationIsEnabled;
@@ -215,7 +216,15 @@ function outsidePanelRouteReasons(): array
     return [
         'GET|POST|PUT|PATCH|DELETE|OPTIONS /' => 'chuyển hướng cố định sang /portal, không dữ liệu',
         'GET up' => 'kiểm tra sống của máy chủ, không dữ liệu',
+        'GET admin/manifest.webmanifest' => 'manifest công khai của app trên điện thoại (M12 R2): ngoài nhóm `web`, không phiên, không dữ liệu người dùng (tests/Feature/Pwa/ManifestTest.php)',
+        'GET portal/manifest.webmanifest' => 'manifest công khai của app trên điện thoại (M12 R2): ngoài nhóm `web`, không phiên, không dữ liệu người dùng (tests/Feature/Pwa/ManifestTest.php)',
+        'GET admin/sw.js' => 'service worker công khai của app trên điện thoại (M12 R4): ngoài nhóm `web`, không phiên, không dữ liệu người dùng (tests/Feature/Pwa/ServiceWorkerTest.php)',
+        'GET portal/sw.js' => 'service worker công khai của app trên điện thoại (M12 R4): ngoài nhóm `web`, không phiên, không dữ liệu người dùng (tests/Feature/Pwa/ServiceWorkerTest.php)',
+        'GET admin/offline' => 'trang ngoại tuyến tĩnh của app trên điện thoại (M12 R4): ngoài nhóm `web`, không phiên, không dữ liệu người dùng (tests/Feature/Pwa/ServiceWorkerTest.php)',
+        'GET portal/offline' => 'trang ngoại tuyến tĩnh của app trên điện thoại (M12 R4): ngoài nhóm `web`, không phiên, không dữ liệu người dùng (tests/Feature/Pwa/ServiceWorkerTest.php)',
         'GET documents/{document}/download' => 'chữ ký gắn người nhận + `DocumentDownloadController::actor()` đòi 2FA (DocumentDownloadTest §10.7)',
+        'GET admin/documents/{document}/download' => 'bí danh trong scope của `documents.download` (M12 Task 3): cùng controller, cùng middleware, nên cùng `actor()` đòi 2FA; `downloadUrlFor()` ký URL của nhân sự trên chính bí danh này, nên DocumentDownloadTest §10.7 chạy qua nó (tests/Feature/Pwa/DocumentDownloadAliasTest.php)',
+        'GET portal/documents/{document}/download' => 'bí danh trong scope của `documents.download` (M12 Task 3): cùng controller, cùng middleware; chữ ký gắn người nhận và `actor()` đòi 2FA với mọi phiên `web` (tests/Feature/Pwa/DocumentDownloadAliasTest.php)',
         'GET filament/exports/{export}/download' => 'không có Exporter trong `app/` và không có bảng `exports` nên không có gì để tải (test bên dưới)',
         'GET filament/imports/{import}/failed-rows/download' => 'không có Importer trong `app/` và không có bảng `imports` nên không có gì để tải (test bên dưới)',
         'GET livewire-{hash}/preview-file/{filename}' => 'đòi chữ ký tương đối hợp lệ, không sinh được từ trang panel bị chặn (test bên dưới)',
@@ -266,7 +275,13 @@ it('§10.7 mọi route của router thuộc đúng một nhóm: panel admin có 
         $key = normalizedRouteKey($route);
 
         if (str_starts_with($name, 'filament.admin.')) {
-            $hasGate = in_array(EnsureMultiFactorAuthenticationIsEnabled::class, $route->gatherMiddleware(), true);
+            // M12 Task 5: route `->authenticatedRoutes()` (`POST`/`DELETE admin/push/subscriptions`,
+            // gọi bằng `fetch`) mang cổng 2FA KHÔNG chuyển hướng — `redirect()->guest()` của cổng
+            // Filament ghi Referer vào `url.intended` với request không phải GET. Cùng điều kiện
+            // (`hasEnabledProviders()`), trả 404; hành vi ở tests/Feature/Push/PushDeviceRegistrationTest.php.
+            $middleware = $route->gatherMiddleware();
+            $hasGate = in_array(EnsureMultiFactorAuthenticationIsEnabled::class, $middleware, true)
+                || in_array(RefuseStaffWithoutTwoFactor::class, $middleware, true);
 
             if (! $hasGate && ! in_array($name, $exemptAdmin, true)) {
                 $unaccounted[] = "{$name}: route panel admin thiếu EnsureMultiFactorAuthenticationIsEnabled";

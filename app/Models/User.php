@@ -19,6 +19,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Passport\Contracts\OAuthenticatable;
 use Laravel\Passport\HasApiTokens;
+use NotificationChannels\WebPush\HasPushSubscriptions;
 use SensitiveParameter;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
@@ -49,6 +50,9 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
     /** @use HasFactory<UserFactory> */
     use HasFactory;
 
+    // M12 R8 — thiết bị nhận thông báo đẩy của CHÍNH người này (`pushSubscriptions()`); màn hình chỉ
+    // chạm bảng đăng ký qua quan hệ này (tests/Feature/Push/PushSubscriptionAccessTest.php).
+    use HasPushSubscriptions;
     use HasRoles;
     use LogsActivity;
     use Notifiable;

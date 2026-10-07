@@ -109,6 +109,8 @@ return [
         'email' => 'Email',
         'zns' => 'Zalo ZNS',
         'sms' => 'SMS',
+        // M12 R13 — dòng của `App\Actions\Notification\RecordOutboundPush`, mỗi máy một dòng.
+        'push' => 'Thông báo đẩy',
     ],
     'outbound_status' => [
         'queued' => 'Chờ gửi',
@@ -167,6 +169,26 @@ return [
         'card' => 'Thẻ',
         'offset' => 'Cấn trừ',
         'other' => 'Khác',
+    ],
+    // M12 R10 — `App\Enums\PushTopic`. Giá trị có dấu chấm (`client.stage_update`) nên khoá lồng theo
+    // từng đoạn: `__('enums.push_topic.client.stage_update')` đi đúng mảng con.
+    'push_topic' => [
+        'client' => [
+            'stage_update' => 'Cập nhật tiến độ hồ sơ',
+            'document_published' => 'Tài liệu mới cho khách',
+            'document_rejected' => 'Giấy tờ khách nộp chưa đạt',
+            'request_answered' => 'Văn phòng trả lời yêu cầu',
+        ],
+        'staff' => [
+            'deadline_reminder' => 'Nhắc mốc thời hạn',
+            'new_client_request' => 'Khách gửi yêu cầu',
+            'new_client_document' => 'Khách nộp giấy tờ',
+            'instalment_overdue' => 'Đợt thanh toán quá hạn',
+            'handover_ready' => 'Gói bàn giao đã sẵn sàng',
+        ],
+        'push' => [
+            'test' => 'Thông báo thử',
+        ],
     ],
     // M10: tiếp nhận khách tiềm năng.
     'intake_status' => [

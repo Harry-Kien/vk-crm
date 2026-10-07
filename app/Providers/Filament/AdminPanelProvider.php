@@ -5,8 +5,11 @@ namespace App\Providers\Filament;
 use App\Filament\Admin\Auth\StaffAppAuthentication;
 use App\Filament\Admin\Pages\Auth\EditProfile;
 use App\Filament\Admin\Pages\Auth\Login;
+use App\Filament\Admin\Pages\PushDevices;
 use App\Filament\AvatarProviders\InitialsAvatarProvider;
+use App\Http\Controllers\Pwa\PushSubscriptionController;
 use App\Http\Middleware\AnswerDeniedPanelRequestsWithNotFound;
+use App\Http\Middleware\RefuseStaffWithoutTwoFactor;
 use App\Http\Middleware\RejectStaffSessionsFromBeforeReset;
 use App\Http\Middleware\RestrictAdminIpAllowlist;
 use Filament\Auth\MultiFactor\Http\Middleware\EnsureMultiFactorAuthenticationIsEnabled;
@@ -176,7 +179,21 @@ class AdminPanelProvider extends PanelProvider
             ->authMiddleware([
                 Authenticate::class,
             ])
+            /*
+             * M12 R8 — `POST`/`DELETE /admin/push/subscriptions` (đăng ký thiết bị nhận thông báo
+             * đẩy), sau `authMiddleware` của panel. Cổng 2FA gắn TƯỜNG MINH: `isRequired: true` ở
+             * trên chỉ phủ route của TRANG — vì sao không dùng thẳng middleware của Filament, xem
+             * docblock `RefuseStaffWithoutTwoFactor`. Trang "Thông báo trên điện thoại" mở từ user
+             * menu (ẩn khi máy chủ chưa có khoá VAPID).
+             */
+            ->authenticatedRoutes(PushSubscriptionController::routes([RefuseStaffWithoutTwoFactor::class]))
+            ->userMenuItems(['push-devices' => PushDevices::userMenuItem()])
             ->renderHook(PanelsRenderHook::HEAD_END, fn () => view('brand.theme'))
+            // M12 R2 — manifest, theme-color, apple-touch-icon: hook THỨ HAI cùng tên, không gộp vào
+            // `brand.theme`. Nội dung và lý do: `resources/views/pwa/head.blade.php`.
+            ->renderHook(PanelsRenderHook::HEAD_END, fn () => view('pwa.head'))
+            // M12 R8 — dải mời "Bật thông báo trên máy này?" (ẩn; `register.js` quyết khi nào hiện).
+            ->renderHook(PanelsRenderHook::CONTENT_START, fn () => view('pwa.push-invite'))
             ->renderHook(PanelsRenderHook::AUTH_LOGIN_FORM_BEFORE, fn () => view('brand.login-tagline'))
             ->renderHook(PanelsRenderHook::AUTH_LOGIN_FORM_AFTER, fn () => view('brand.login-footer'));
     }

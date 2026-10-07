@@ -10,6 +10,7 @@
         "barryvdh/laravel-dompdf": "^3.1",
         "filament/filament": "^5.0",
         "filament/spatie-laravel-media-library-plugin": "^5",
+        "laravel-notification-channels/webpush": "^13.0",
         "laravel/framework": "^13.17",
         "laravel/mcp": "^1.0",
         "laravel/passport": "^13.8",
@@ -81,7 +82,9 @@
     },
     "extra": {
         "laravel": {
-            "dont-discover": []
+            "dont-discover": [
+                "laravel-notification-channels/webpush"
+            ]
         }
     },
     "config": {

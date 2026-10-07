@@ -140,9 +140,12 @@ app/
 ├── Providers/Filament/     AdminPanelProvider, PortalPanelProvider
 ├── Support/Files/          FileGuard và seam VirusScanner (từ M4)
 └── Support/Scopes/         Global scope giới hạn dữ liệu theo khách (từ M2)
-app/Console/Commands/       vkcrm:preflight, vkcrm:create-admin, vkcrm:reset-2fa, vkcrm:backup-check
+app/Console/Commands/       vkcrm:preflight, vkcrm:create-admin, vkcrm:reset-2fa, vkcrm:backup-check,
+                            vkcrm:push-reset
 config/vkcrm.php            Cấu hình riêng của hệ thống (tên miền, tiền tố mã hồ sơ, ...)
-tools/deploy/               Mẫu nginx/Apache đã chạy thử + kịch bản kiểm máy chủ web chặn storage/
+tools/deploy/               Mẫu nginx/Apache đã chạy thử + kịch bản kiểm máy chủ web (chặn storage/,
+                            đưa /admin/sw.js và /portal/sw.js tới PHP)
+tools/pwa/                  Kịch bản Playwright đo app trên điện thoại (service worker, thông báo đẩy)
 lang/vi/                    Toàn bộ chuỗi giao diện tiếng Việt
 docs/                       Đặc tả, kiến trúc, kế hoạch, tiến độ
 ```
@@ -156,9 +159,9 @@ Tóm tắt những điều không được bỏ qua:
 
 - **PHP 8.3 với đủ extension**: `ctype` `curl` `dom` `exif` `fileinfo` `filter` `hash` `iconv`
   `intl` `json` `libxml` `mbstring` `openssl` `pcre` `session` `sodium` `tokenizer` `xmlreader`
-  `zip` `zlib` `pdo_mysql` (nên có thêm `gd`). MariaDB 11, gói `mariadb-client` (`mariadb-dump`),
-  và `rclone` cho sao lưu Google Drive. Không cần Redis, Supervisor hay Node.js. `sodium` và `curl`
-  là của máy chủ MCP (M11, kết nối AI cho nhân sự).
+  `zip` `zlib` `pdo_mysql` (nên có thêm `gd`). `curl` bắt buộc từ M12 (gói thông báo đẩy), `sodium`
+  là của máy chủ MCP (M11, kết nối AI cho nhân sự). MariaDB 11, gói `mariadb-client`
+  (`mariadb-dump`), và `rclone` cho sao lưu Google Drive. Không cần Redis, Supervisor hay Node.js.
 - **Thứ tự cài:** `cp .env.example .env` → `composer install --no-dev --optimize-autoloader` →
   `php artisan key:generate` (chỉ lần cài đầu, trên cơ sở dữ liệu rỗng) và điền `.env`
   (`APP_ENV=production`, `APP_DEBUG=false`, `TRUSTED_PROXIES`, `BRAND_*`…) → cấu hình máy chủ web
@@ -192,6 +195,14 @@ Tóm tắt những điều không được bỏ qua:
     Anthropic `160.79.104.0/21` và danh sách IP của OpenAI;
   - máy chủ MCP TẮT cho tới khi chủ văn phòng bật trên trang "Kết nối AI", sau khi xong danh sách
     việc pháp lý ở `docs/CHINH-SACH-AI.md`. Hướng dẫn nhân sự tự kết nối: `docs/KET-NOI-AI.md`.
+- **App trên điện thoại và thông báo đẩy (M12)** chỉ chạy trên HTTPS. Khoá thông báo đẩy sinh MỘT
+  lần cho mỗi môi trường: `php artisan config:clear` rồi `php artisan webpush:vapid` (khi hai dòng
+  `VAPID_*_KEY` còn trống), điền `VAPID_SUBJECT=mailto:…`. `VAPID_PRIVATE_KEY` cất cùng chỗ với
+  `APP_KEY`; mất hay đổi khoá thì chạy `php artisan vkcrm:push-reset` (mọi người bật lại thông báo
+  trên từng máy). Mẫu nginx có hai khối `location = /admin/sw.js`, `location = /portal/sw.js` — máy
+  chủ cũ phải chép thêm. Hàng đợi `push` chạy trong chính dòng cron ở trên. Chi tiết:
+  `docs/CAI-DAT.md`, Bước 3 và "Bản cập nhật M12"; hướng dẫn cài app cho khách:
+  `docs/QUY-TRINH.md`.
 - **Nâng cấp:** `php artisan down` → `git pull` → `composer install --no-dev --optimize-autoloader`
   → `chown -R www-data:www-data storage bootstrap/cache` → `php artisan migrate --force` →
   `php artisan db:seed --force` → `php artisan billing:check-invariants` →
@@ -200,9 +211,17 @@ Tóm tắt những điều không được bỏ qua:
   Chi tiết: `docs/CAI-DAT.md`, "Nâng cấp lên bản mới".
   - `db:seed --force` chạy `ReferenceDataSeeder` (vai trò, quyền, loại vụ việc, danh mục mẫu; chỉ
     thêm, không ghi đè thứ quản trị viên đã sửa): đây là bước mang **bốn quyền tiền** của M9
-    (`billing.view`, `contract.manage`, `payment.record`, `revenue.viewAny`) tới một máy chủ đã
-    có dữ liệu — bỏ bước này thì không ai, kể cả quản trị viên, mở được trang Công nợ, trang
-    Doanh thu hay tab "Hợp đồng và thanh toán" (vai trò chưa mang quyền nào trong bốn quyền đó).
+    (`billing.view`, `contract.manage`, `payment.record`, `revenue.viewAny`) và
+    **ba quyền tiếp nhận** của M10 (`intake.create`, `intake.viewAny`, `intake.convert`) tới một máy
+    chủ đã có dữ liệu — bỏ bước này thì không ai, kể cả quản trị viên, mở được trang Công nợ, trang Doanh thu hay
+    tab "Hợp đồng và thanh toán", và menu Tiếp nhận không hiện với ai (vai trò chưa mang quyền nào
+    trong bảy quyền đó).
+  - Bản M10 (tiếp nhận) thêm hai tác vụ lịch dưới dòng cron sẵn có — `intakes.remind-unanswered`
+    mỗi 15 phút, và `prospects.anonymise` lúc 03:30, ẩn danh (không hoàn tác được) người liên hệ
+    không thành khách đã quá hạn lưu — cùng hai biến `.env` tuỳ chọn, `PROSPECT_RETENTION_MONTHS`
+    (mặc định 24, chờ luật sư xác nhận trước khi dùng màn hình Tiếp nhận) và `INTAKE_RESPONSE_HOURS`
+    (mặc định 4 giờ làm việc). Chi tiết từng bản: `docs/CAI-DAT.md`, Bước 5, các đoạn "Bản cập nhật
+    M9 …" và "Bản cập nhật M10 (tiếp nhận) …".
   - `billing:check-invariants` quét mọi hợp đồng đang hiệu lực: tổng các đợt phải khớp đúng giá
     trị hợp đồng; lệch thì in bảng từng hợp đồng và trả mã thoát 1. `vkcrm:preflight` có cùng phép
     kiểm thành một dòng (ĐỎ khi lệch). Sửa một hợp đồng lệch bằng phụ lục, không sửa thẳng CSDL —

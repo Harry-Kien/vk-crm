@@ -15,7 +15,7 @@
 | M11 Máy chủ MCP (ChatGPT, Claude) | 🟡 Đang làm | | Làn `m11-mcp-server` cắt từ `main` sau M8 (chủ văn phòng yêu cầu làm ngay); nhận bảng `settings` và nhật ký liên lạc từ làn `m7-extras` khi các task đó đạt. Phán quyết của chủ văn phòng ngày 2026-09-24 ở kế hoạch `docs/superpowers/plans/2026-09-24-m11-mcp.md` |
 | M9 Hợp đồng dịch vụ + đợt thanh toán | ✅ Xong | 2026-10-04 | Gộp a65ba4c (Task 2–5, 7–9, 12), 4280a4c (làn `m9-rest`: Task 1, 11) và lần gộp làn `m9-final` (Task 6 đợt thu theo giai đoạn + đối soát 07:00, Task 10 khối thanh toán trên cổng khách + bảng kê trong gói bàn giao, Task 13 nghiệm thu toàn M9: dữ liệu mẫu, `billing:check-invariants` trong preflight, kịch bản nhập liệu khi đưa vào dùng); suite sau gộp 4519 xanh (32 bỏ qua, 1 risky có sẵn). Rà soát gộp ba góc nhìn: 0 lỗi xác nhận. Việc nhỏ để lại (người nhận thư "gói sẵn sàng" theo quyền tải gói; ghi rõ bảng kê là ảnh chụp tại ngày lập gói) chuyển sang lượt quét M8 Task 6. Chi tiết ở "Ghi chú M9 → Làn m9f" |
 | M10 Tiếp nhận khách | ✅ Xong | 2026-10-04 | Gộp làn `m10-intake` (Task 1–8; Task 6, 7 làm song song ở làn `m10-t6`, `m10-t7`): phiếu tiếp nhận, kiểm tra xung đột lợi ích (Đỏ/Vàng/Xanh, khoá gọi lặp, nguồn thứ hai), thông báo bảo vệ dữ liệu (bản nháp chờ luật sư), chuyển thành khách + vụ việc (phí đã báo gợi ý vào hợp đồng), gộp/từ chối/xoá theo yêu cầu, đồng hồ phản hồi theo giờ làm việc, nhắc nội bộ mỗi 15 phút, ẩn danh tự động 03:30 theo hạn lưu, bảng điều khiển tiếp nhận, dữ liệu mẫu. Suite sau gộp 5242 xanh (33 bỏ qua, 1 risky có sẵn). Rà soát gộp ba góc nhìn: 0 lỗi xác nhận; bốn việc nhỏ (câu chữ hộp thoại xoá dữ liệu, khối hợp đồng trong bài nghiệm thu, đoạn nâng cấp M10 trong CAI-DAT, ghi chú §12) ở làn việc sau gộp `fu3`. Chi tiết ở "Ghi chú M10" |
-| M12 Ứng dụng điện thoại (PWA) + thông báo đẩy | 🟡 Đang làm | | Làn `m12-pwa-push` cắt từ `main` (kế hoạch nói M12 không phụ thuộc M9/M10). Phần thử trên máy Android và iPhone thật (Task 1, 10) do chủ văn phòng làm theo danh sách kiểm tra |
+| M12 Ứng dụng điện thoại (PWA) + thông báo đẩy | ✅ Xong | 2026-10-07 | Gộp làn `m12-pwa-push` (Task 1–10 + vòng sửa của rà soát cuối làn): cài lên màn hình điện thoại (manifest, biểu tượng, service worker, trang ngoại tuyến, hướng dẫn cài), thông báo đẩy Web Push (khoá VAPID, đăng ký theo thiết bị, trang "Thông báo trên điện thoại", gỡ máy khi đăng xuất/cắt phiên, hàng đợi `push` + nhật ký gửi), nối vào bốn sự kiện của khách và bốn sự kiện của nhân sự (kể cả nhắc hạn, đợt thu quá hạn), "Gửi thử". Suite sau gộp 5790 xanh (33 bỏ qua, 1 risky có sẵn); composer audit sạch. Rà soát gộp ba góc nhìn: 2 lỗi xác nhận (đổi email cổng khách và "Đặt lại 2FA" chưa gỡ máy nhận thông báo) cùng các việc nhỏ chuyển sang làn việc sau gộp `fu4`. Kiểm tra trên máy thật (Android, iPhone): CHỜ CHỦ VĂN PHÒNG theo danh sách trong tài liệu |
 | M13 Theo dõi đội ngũ + hiệu suất | 🟡 Đang làm | | Chủ văn phòng yêu cầu 2026-10-04 (cấp trên theo dõi tiến độ vụ việc của luật sư/chuyên viên; tỉ lệ hoàn thành công việc). Kế hoạch `docs/superpowers/plans/2026-10-04-m13-team-performance.md` (đã qua một vòng rà soát Opus). Trang "Theo dõi đội ngũ", trang từng người, trang "Hiệu suất theo kỳ", ảnh chụp số liệu hằng ngày; quyền mới `performance.viewAny` (admin, quản lý); luật sư/chuyên viên chỉ thấy số của mình; không xếp hạng; không lộ vụ mật. Làn `m13-team-performance` (D:kwtlane-m13) cắt từ đầu làn M9 cuối (558f0b5) + commit kế hoạch; làn A làm Task 1, 2, 4, 5, làn m13b tách sau Task 2 làm Task 3, 6 |
 | M14 Google Drive làm kho tài liệu | 🟡 Đang làm | | Chủ văn phòng quyết 2026-10-04: Shared Drive của văn phòng làm kho phía sau CRM, chỉ CRM đọc/ghi qua tài khoản dịch vụ; quyền theo vụ, vụ mật, nhật ký tải giữ nguyên. Kế hoạch `docs/superpowers/plans/2026-10-04-m14-google-drive-storage.md` (đã qua một vòng rà soát Opus). Adapter Drive REST v3 của dự án + `google/auth`; tải về luôn đi qua CRM; bản sao thứ hai ở máy chủ văn phòng; preflight ĐỎ khi bật Drive trên production mà chưa ghi ngày hồ sơ chuyển dữ liệu ra nước ngoài (Luật 91/2025). Việc của chủ văn phòng: tạo Shared Drive + tài khoản dịch vụ theo hướng dẫn trong kế hoạch |
 
@@ -1962,7 +1962,7 @@ Tám task xong trên `m10-intake` (Task 6 và 7 làm ở hai làn song song `m10
 
 **M11 (máy chủ MCP):** dòng "Tiếp nhận, kể cả câu chuyện — không bao giờ" nằm ở `docs/superpowers/plans/2026-09-24-m11-mcp.md`, R4 (đính chính 2026-09-24, ghi ở Task 1), đối chiếu lại ở Task 8: không cần dòng mới; thông báo `IntakeUnansweredAlert` theo cùng dòng nếu M11 đọc thông báo; không tool nào chạy `RunConflictCheck`. `tests/Feature/Intake/IntakeMcpBoundaryTest.php` canh từ tệp MCP đầu tiên.
 
-**Khoảng trống bước 4 của luồng nghiệm thu:** "khối hợp đồng M9" trên cổng khách là M9 Task 10 — chưa có trên `main` lẫn nhánh này (không gộp `main` vào làn). Luồng 1 kiểm phần hồ sơ trên cổng (khách đăng nhập, đổi mật khẩu lần đầu, thấy hồ sơ của mình, không thấy hồ sơ người khác); khi M9 Task 10 vào `main`, thêm một khẳng định "thấy khối hợp đồng" vào `IntakeAcceptanceWalkTest` luồng 1.
+**Khoảng trống bước 4 của luồng nghiệm thu — đã đóng (2026-10-04, việc sau gộp M9 + M10, làn fu3):** lúc viết, "khối hợp đồng M9" trên cổng khách (M9 Task 10) chưa có trên `main` lẫn nhánh này; lần gộp M9 (`568c655`) rồi M10 (`b2e02d7`) vào `main` đã đóng khoảng trống đó. `IntakeAcceptanceWalkTest` luồng 1 nay kiểm cả phần tiền: trước khi bật công bố, vụ vừa chuyển đổi (hợp đồng đã ký) trả 404 cho chính khách; sau khi bật, khối "Hợp đồng và thanh toán" hiện số hợp đồng và tổng giá trị của hợp đồng vừa ký; số hợp đồng của khách khác không bao giờ hiện.
 
 **Độ phủ ≥ 80 % (SPEC §11) không đo được bằng công cụ của làn:** image `webdevops/php:8.3-alpine` không có `pcov`/`xdebug`, CI đặt `coverage: none`, cài `pcov` là việc M8 Task 8. Thay bằng bảng "tệp ↔ mutation probe đã đỏ" gộp từ mọi lần probe của Task 1–8 (báo cáo Task 8, `.superpowers/sdd/m10/task-8-report.md`): 805 probe bị giết; 19 sống sót, tất cả đã được gọi tên — 18 tương đương hoặc thừa, 1 chỉ ra một nhánh chết trong seeder của Task 8 (đã xoá); trên `app/Actions/Intake/*` (mỗi tệp có probe đỏ), hai policy mới (`IntakeRequestPolicy` 15, `IntakePartyPolicy` 3) và mọi tệp M10 chạm tới. Đo lại bằng `--coverage` khi `pcov` có trên `main`.
 
@@ -2201,6 +2201,35 @@ Người rà soát toàn nhánh (`c4949cf..3008353`) trả `needs_fixes`: 1 Crit
 - **FI6 — QUY-TRINH và R1.** Theo **R1 nguyên văn của kế hoạch** ("người nhập không được thấy vì sao Đỏ ngoài mã hồ sơ và vai"), trang tiếp nhận giấu với người không qua `resolveConflict` tên bên trùng, loại vụ việc và tiêu chí khớp của mỗi dòng mức Đỏ ("chỉ trưởng phòng/quản trị xem"); dòng Vàng giữ đủ (người nhập phải tự xem trước khi xác nhận), trang chuyển đổi giữ ranh giới §6.10 như form mở vụ. Đây là phán quyết của kế hoạch (2026-09-24), không phải một quyết định mới của chủ văn phòng — **chủ văn phòng đảo được** (mở lại cho người nhập, hay giấu cả dòng Vàng): sửa `EditIntakeRequest::conflictTableData()` tham số `hideRedDetails`. `docs/QUY-TRINH.md` Giai đoạn 1 sửa ba câu hứa quá: "chỉ thấy mã hồ sơ và vai" (nay đúng với Đỏ, nói rõ Vàng), "người gọi lại cũng bị khoá" (chỉ khi cùng vai đã khai; khác vai chỉ Vàng kèm mã `TN-…`), "cùng số là cùng một người" (chỉ là gợi ý — máy dùng chung).
 - **FI7 — cổng merge sau khi gộp `main`.** Lý do từ chối thường của dữ liệu mẫu không còn nói sở hữu trí tuệ "ngoài lĩnh vực" (`main` có `SH`); hai tệp đếm vụ mẫu 23 (kế toán 22, luatsu1 vẫn 9) và `IntakeSeederTest` 23; luồng nghiệm thu 1 đọc mật khẩu tạm từ thư kích hoạt cổng (main không còn ô mật khẩu); `AnonymiseProspectTest` chấp nhận dấu băm CCCD còn trong dòng `client_lookup` (từ M8 Task 4 `Normalizer::idNumberHash()` = `Audit::identifierHash()`, nên HMAC trong sổ tra khách — nơi Task 7 đã ghi là CỐ Ý giữ — giờ bằng đúng dấu băm cũ của bản ghi). Toàn bộ bộ test sau khi gộp lộ thêm hai chỗ mã M10 chưa theo `main`, đã sửa: thư `staff.intake_unanswered` đọc tên văn phòng qua `OfficeProfile` (M7 Task 9 — tên sửa ở trang "Thông tin văn phòng"), không đọc thẳng `config('vkcrm.brand.legal_name')` (`OfficeProfileTest` quét điều đó); và mẫu đó vào `ResendTargets::NOT_RESENDABLE` kèm câu từ chối riêng (`MailTemplateRegistryTest` của `main` đòi mọi mẫu khai một trong hai) — lượt nhắc 15 phút tự gửi lại khi bản ghi còn "Mới". 41 lỗi còn lại của lần chạy đó (gói bàn giao M7) là MÔI TRƯỜNG: `bootstrap/cache/packages.php` của worktree còn từ 28/09, thiếu `barryvdh/laravel-dompdf` mà `main` thêm — chạy `wt-dev lane-m10 artisan package:discover` là hết; ai gộp làn nào vào `main` mà thấy "Target class [$concrete] does not exist" ở gói bàn giao thì làm đúng bước đó. Chạy **toàn bộ** `test:mariadb` tuần tự (số đo dưới).
 - **Số đo (2026-10-04):** RED trên mã trước bản sửa — 17 test mới đỏ (`IntakeMergeChainVisibilityTest`, `ActivityOwningMatterTest`, `IntakeConflictStateScreensTest`), 4 đỏ cho hai chỗ sau gộp `main`; 48 mutation probe trên mọi điều kiện mới: 43 bị giết, 5 sống sót đều tương đương có tên (lọc thêm theo người xem trên danh sách lần gọi bị giữ — người xử lý được Đỏ hôm nay luôn có `intake.viewAny`; ba vế chỉ làm rộng tập ứng viên SQL mà bước lọc trong bộ nhớ thu lại; kiểu causer của dòng từ chối — chỉ người dùng từ chối); toàn bộ bộ test `--parallel --processes=2`: **5063 passed, 0 failed** (1 risky, 30 skipped, 1 todo); `pint --test` PASS 1020 tệp. **MariaDB TUẦN TỰ, TOÀN BỘ bộ test** (`test:mariadb`, không danh sách con): **5091 passed, 0 failed** (1 risky, 2 skipped, 1 todo; 5 051 s). Test risky là `EnvExampleTest` "không biến BRAND_* có mặc định nào bị khai trống" của `main` (M8): `.env.example` của `main` không có dòng `BRAND_*` trống nào nên `->each` không khẳng định gì — có sẵn trên `main`, không do làn. Vòng migration THẬT trên `vk_crm_lane_m10`: `migrate:fresh --seed` (12 bản ghi tiếp nhận, 23 vụ; cột mới không bản nào mang dấu vì dữ liệu mẫu không có chuỗi gộp nào thành vụ) → `migrate:reset` → `migrate`, cả ba thoát 0, migration `2026_10_04_000001` chạy cả hai chiều.
+
+### Việc sau gộp M9 + M10 (làn fu3)
+
+Làn `m10-merge-followups` (worktree `D:\vkwt\lane-fu3`), cắt từ `main` ở `b2e02d7`: các việc nhỏ mà rà soát gộp M9 (`568c655`) và M10 (`b2e02d7`) chuyển sang, cộng một bản vá bảo mật. Hai task: Task 1 mã và test, Task 2 tài liệu và câu chữ. Báo cáo từng task: `.superpowers/sdd/fu3/task-<n>-report.md`.
+
+**Task 1 — mã và test:**
+- **A. `league/commonmark` 2.10.1 → 2.10.3** — vá PKSA-m4t9-vsgq-8khn (cao: từ chối dịch vụ bậc hai khi quét bảng GFM) và PKSA-m2dq-1fhr-29b1 (trung bình: lọt `DisallowedRawHtml`). `composer update league/commonmark` chỉ đổi đúng gói này trong `composer.lock`; bản `--with-dependencies` kéo thêm `symfony/polyfill-php80` 1.37 → 1.43 mà bản vá không cần, nên đã bỏ. `composer audit --locked` sạch, `composer check-platform-reqs` đạt trên PHP 8.3. Không chữ người dùng nào tới CommonMark: mọi thư render bằng view Blade (`Content(view:, text:)`, `SendLoginCode` qua `->view()`), không có `MarkdownEditor`, `->markdown()`, `Str::markdown()` hay `Filament\Support\Markdown` trong `app/`/`resources/`, và không panel nào bật đặt lại mật khẩu (thư `MailMessage` mặc định của Laravel là đường markdown duy nhất còn có thể có).
+- **B. Chống gửi trùng đếm đúng mẫu.** `NotifyClientOfDocumentPublished::alreadyDelivered()` lọc `template = client.document_published`, `NotifyStaffOfNewClientDocument::alreadyDelivered()` lọc `staff.new_client_document`. `Document` là `related` của ba mẫu (`staff.handover_ready` gắn vào chính gói bàn giao); một địa chỉ vừa là nhân sự vừa là tài khoản cổng của khách có dòng `sent` của mẫu khác về cùng tài liệu → thư công bố gói bị bỏ qua im lặng như "đã gửi", nút "Gửi lại" từ chối nhầm "đã nhận". Các Notify* khác gắn vào bản ghi chỉ một mẫu dùng (`StageLog`, `ClientRequestReply`, `ClientRequest`; `MatterChecklistItem` đã lọc theo bậc) nên giữ nguyên.
+- **C. "Gói bàn giao sẵn sàng" chỉ tới người làm được việc** (dư r4 của làn m9f). `ResolveStaffRecipients::handle()` nhận bộ lọc khả năng `$mustAllow` (khả năng ⇒ tham số của `Gate`), áp vào danh sách ưu tiên lẫn mọi tầng của chuỗi dự phòng R3; `SendHandoverPackageReady` hỏi `download` + `publish` của `DocumentPolicy` trên tài liệu gói. Chọn bộ lọc thay cho `forBilling()`: cổng tiền chỉ trả lời "tải được" (phải chép lại điều kiện "hợp đồng khác nháp" của policy) và bỏ sót người tải được mà không công bố được (luật sư phụ trách bị đổi vai trên một vụ không hợp đồng). R3 giữ nguyên: người nhận vẫn chỉ qua `ResolveStaffRecipients`. Job gắn sẵn vụ đã nạp ngoài `ClientPortalScope` vào tài liệu gói.
+- **D. Bằng chứng tiền không rời nhóm D** (N3 của làn m9f). `RegroupDocument` từ chối (`documents.regroup.billing_reference`) chuyển ra khỏi nhóm D một tệp mà khoản thu hay phụ lục hợp đồng trỏ tới — sau cổng `document.publish`, cùng `Document::isReferencedByBillingRecord()` với rút lại và xoá. Khoá dòng `documents` là đủ: `RecordPayment`/`AmendContract` khoá đúng dòng đó và chỉ gắn tệp còn ở nhóm D.
+- **E. Sổ tra khách khi ẩn danh và khi xoá theo yêu cầu.** `AnonymiseProspect::anonymise()` (cùng transaction, cùng khoá `conflict-check`) đặt `identifier_hash = null` trên mọi dòng `client_lookup`/`client_lookup_throttled` khớp SĐT của bản ghi (chuỗi đã lưu, cộng các cách viết `84…`, `0084…`, `0…`, số trần, `840…` của cùng số Việt Nam — sổ băm chữ số của ĐÚNG chuỗi đã gõ) hoặc dấu băm CCCD; DÒNG ở lại (ai tra, lúc nào, trúng hay trượt, id khách khớp). Không phán quyết M8/M10 nào nói nhật ký chỉ-thêm (SPEC §10.6 chỉ nói "không bị xoá theo lịch", và Task 7 của M10 đã viết lại `properties` của dòng `conflict_check_run`), nên làm sạch chứ không lùi về câu chữ. Gạch đầu dòng `client_lookup` ở "Task 7 (làn m10c)" mục 6 và cụm "HMAC trong sổ tra khách" của Tóm tắt M10 nay không còn đúng cho bản ghi tiếp nhận. Modal "Xoá dữ liệu theo yêu cầu" không còn hứa "xoá vĩnh viễn": nói nhật ký tra khách mất số, và "bản sao lưu cũ (giữ khoảng 30 ngày) vẫn còn dữ liệu cho đến khi hết hạn" (ghim ở `CopyPromisesTest`).
+  - **Quyết định "giữ dấu băm" — chờ luật sư xác nhận.** Câu hỏi #2 của R7b (giữ một dấu băm có khoá để dò xung đột sau ẩn danh) không còn mở cho bản ghi tiếp nhận theo kiểu "dư lượng trong nhật ký": ẩn danh xoá mọi dấu băm của người liên hệ, kể cả trong sổ tra khách. Nếu luật sư muốn giữ, đó là một cột mới có chủ đích (ghi vào SPEC), không phải thứ còn sót trong nhật ký.
+  - **Còn sót, đã biết:** dấu băm của một SĐT/CCCD đã bị THAY trước khi xoá (`UpdateIntakeIdentity` không lưu giá trị cũ), của một CCCD chỉ gõ ở trang chuyển đổi của một bản ghi không có CCCD rồi lần chuyển đổi không thành, và của một cách viết SĐT lạ mà nhân sự khác gõ — không còn số gốc để băm lại nên không tìm được.
+- **F.** `IntakeAcceptanceWalkTest` luồng 1 kiểm khối hợp đồng M9 trên cổng (xem "Khoảng trống bước 4" ở Tóm tắt M10 — đã đóng).
+- **Số đo Task 1 (2026-10-04):** RED trước khi cài — B: test tab Tài liệu và hàng `staff.new_client_document` của nút "Gửi lại"; C: 3 test chuông/thư (vế dương xanh); D: 2 hàng; E: test xoá qua màn hình, test chuỗi đánh dấu, `CopyPromisesTest`. 21 mutation probe trên điều kiện mới và trên các khẳng định mới của F: 20 đỏ; 1 sống sót có chủ đích (F: bỏ riêng điều kiện công bố ở `ClientPortalScope` — `MatterPolicy::view` vẫn chặn; bỏ cả hai thì đỏ). Lượt probe đầu của E để sống một đột biến (bỏ cách viết `0…` khi chuỗi đã lưu cũng là `0…`); test đổi chuỗi đã lưu sang `0084 (0) …` và thêm lần tra `0…`, nên cả hai nay đỏ. Full suite `--parallel --processes=2`: **5256 passed / 0 failed / 1 risky (có sẵn) / 33 skipped** (2283 s). Lần chạy đầu dừng vì một chỗ thế `ResolveStaffRecipients` trong `ReplyToClientRequestTest` khai `handle()` hai tham số (PHP báo không tương thích khi thêm `$mustAllow`) — đã sửa chữ ký ở test. `test:mariadb` tuần tự 10 tệp test chạm tới: **277 passed**. `pint --test` PASS; `composer audit --locked` sạch.
+
+**Task 2 — tài liệu và câu chữ:**
+- **A. Sổ nâng cấp M10.** `docs/CAI-DAT.md` Bước 5 có đoạn mới "Bản cập nhật M10 (tiếp nhận) làm gì trên máy chủ đã có dữ liệu", ngay sau đoạn tiền của M9: bốn migration (`2026_09_30_000001_create_intake_requests_table`, `2026_09_30_000002_create_intake_parties_table`, `2026_10_01_000001_add_conflict_red_pending_since_to_intake_requests_table`, `2026_10_04_000001_add_merge_chain_matter_id_to_intake_requests_table` — chỉ thêm hai bảng và hai cột, không sửa bảng cũ); `db:seed --force` **bắt buộc** (ba quyền `intake.create`, `intake.viewAny`, `intake.convert`; thiếu thì menu Tiếp nhận không hiện với ai, kể cả quản trị viên); hai tác vụ lịch dưới dòng cron sẵn có — `intakes.remind-unanswered` mỗi 15 phút, `prospects.anonymise` 03:30, ẩn danh không hoàn tác được; hai biến `.env` tuỳ chọn, `PROSPECT_RETENTION_MONTHS` (mặc định 24) và `INTAKE_RESPONSE_HOURS` (mặc định 4). `README.md` (gạch đầu dòng `db:seed --force` của "Nâng cấp", cộng một gạch đầu dòng M10) và CAI-DAT "Nâng cấp lên bản mới" nêu tên bảy quyền: bốn quyền tiền và ba quyền tiếp nhận. Ghim bằng `tests/Feature/Deployment/InstallGuideM10UpgradeTest.php` (7 test): đọc CHÍNH tài liệu rồi so với mã — tên tệp migration (đủ và không thừa), tên quyền (`App\Enums\Permission`), tên và biểu thức cron của hai tác vụ (`Schedule::events()`), hai mặc định (`IntakeRequest::retentionMonths()`, `config('vkcrm.intake_response_hours')`), vị trí đoạn trong Bước 5; lời hứa "thiếu `db:seed --force` thì không ai thấy menu" đo bằng đường đi thật (CSDL có vai trò mà chưa có ba quyền `intake.*` → admin nhận 404 và `IntakeRequestResource::canAccess()` sai; chạy lại `RolesAndPermissionsSeeder` → 200). **Lệch brief có chủ đích:** brief nói xác nhận `PROSPECT_RETENTION_MONTHS` với luật sư "trước khi bản ghi đầu tiên tới hạn"; mã đặt `retention_until` MỘT lần, lúc bản ghi vào `declined`/`lost`/`merged` (`IntakeRequest::stampRetention()`), nên đổi biến sau đó không dời hạn của bản ghi đã đóng — tài liệu nói xác nhận TRƯỚC khi nhân sự bắt đầu dùng màn hình Tiếp nhận.
+- **B. SPEC §12.** Ghi chú tiền mẫu của M9 Task 13 nay nói `BillingSeeder` "gọi sau `MatterSeeder` trong `DemoDataSeeder`" và "một vụ của danh sách cố ý không có hợp đồng (vụ mở từ tiếp nhận của M10 cũng chưa có …)", kèm một dòng sửa có ngày.
+- **C. QUY-TRINH và mục "Khoản thu gần đây".** Giai đoạn 1 có ghi chú ngày 2026-10-04: M10 đã gộp (`b2e02d7`), chỉ tới đoạn nâng cấp M10 của CAI-DAT. N6 của rà soát cuối làn m9f (= r2): bộ lọc bảng của Filament HOÃN (`Table::$hasDeferredFilters = true`), nên "Kế toán ghi tiền" bước 4 và "Nhập hợp đồng đang chạy" bước 4 nói gõ mã vào ô "Mã hồ sơ" **rồi bấm "Áp dụng bộ lọc"**, gõ mà chưa bấm thì danh sách chưa đổi; `billing.receivables.recent_payments.description` nói đúng điều đó, nhãn nút là `:apply` do `RecentPaymentsWidget` truyền từ bản dịch của Filament (`filament-tables::table.filters.actions.apply.label`). Test mới ở `ReceivablesPageTest` gõ vào đúng đường trạng thái của form bộ lọc (`getTableFiltersForm()->getStatePath()`): gõ mà chưa bấm thì khoản cũ không hiện, `applyTableFilters` thì hiện; `GoLiveImportScenarioTest` đi cùng đường đó thay cho `filterTable()` (thứ đặt thẳng `tableFilters`, vòng qua việc hoãn). r1 (`empty_heading` "trong khoảng thời gian này" khi đã gõ mã) và r3 (`LIKE %…%` khớp một mảnh mã) **còn nguyên** — ngoài brief.
+- **D. Bảng kê trong gói bàn giao là ảnh chụp.** Dòng `handover.pdf.billing.as_of` ngay dưới tiêu đề "Bảng kê thanh toán": "Tính đến ngày lập gói (dd/mm/yyyy)…", chỉ khách sang cổng cho tình hình mới nhất "trong thời gian hồ sơ còn trên cổng". Ngày là `$generatedAt` mà `RenderHandoverIndex::handle()` tính một lần cho dòng "Lập ngày", nên hai ngày không lệch. SPEC §6.12 có đoạn bổ sung cùng ngày. Test ở `BillingOnPortalTest`: dòng mang ngày lập (20/10), một khoản thu ghi hai tuần sau hiện ngay trên cổng, gói lập lại mang ngày mới và khoản mới; vụ không hợp đồng không có dòng này. **Không thêm câu vào thư `portal.email.handover_published`** (brief để tuỳ): thư đi cho MỌI gói, kể cả vụ chưa từng có hợp đồng — một câu về tiền ở đó sai cho những vụ ấy, và thêm điều kiện thì thư phải đọc tiền; dòng trong chính `MUC-LUC.pdf` là chỗ khách đọc bảng kê.
+- **E.** Docblock `instalments.reconcile-stage` ở `routes/console.php` nói đúng hai đường tác vụ phủ (lần kích hoạt hỏng ở listener, `stage_logs` ghi thẳng); đợt thêm bằng phụ lục tự kích hoạt trong `AmendContract` (`TriggerInstalmentsForStage::releaseAddedByAmendment()`, vòng sửa 1 của M9 Task 6) — cùng giọng docblock `ReconcileStageTriggeredInstalments` và SPEC §6.8.
+- **Minor của rà soát Task 1 đã nhặt trong Task 2 (câu chữ):** m1 — modal "Xoá dữ liệu theo yêu cầu" nói "KHÔNG hoàn tác được" (không "không khôi phục được": khôi phục một bản sao lưu trong khoảng giữ đưa bản ghi về) và "dấu mã hoá số điện thoại, số căn cước **đang ghi trên bản ghi này**" (số đã bị thay trước đó thì dấu băm còn — "Còn sót, đã biết" ở trên); m4 — "giữ khoảng 30 ngày" đếm 30 BẢN, và bản bị dọn trên Google Drive (rclone `deletefile`) nằm trong Thùng rác thêm khoảng 30 ngày (`docs/SAO-LUU-KHOI-PHUC.md`): modal và QUY-TRINH Giai đoạn 1 bước 7 nói "30 bản sao lưu đêm gần nhất, cộng khoảng 30 ngày trong Thùng rác … thường khoảng hai tháng, lâu hơn nếu có đêm sao lưu bị lỡ" (không đổi cấu hình rclone — tài liệu sao lưu đã chọn giữ Thùng rác và tính dung lượng cho 60 bản). `CopyPromisesTest` ghim cả hai, số bản đọc từ `vkcrm.backup.rclone.keep`. Câu "bản sao lưu cũ (giữ khoảng 30 ngày)" ở mục E của Task 1 trên đây là chữ CŨ. **m3 không sửa ở chỗ nó nằm:** câu "giữ có chủ đích: HMAC trong sổ tra khách" ở Tóm tắt M10 và gạch đầu dòng `client_lookup` ở "Task 7 (làn m10c)" mục 6 thuộc phần Ghi chú M10, ngoài phần của làn này — đọc chúng theo mục E của Task 1: ẩn danh và xoá theo yêu cầu nay làm sạch dấu băm trong sổ tra khách. m2 (làm sạch theo số chạm cả dòng tra của bản ghi khác), m5, m6 là mã/test, ngoài Task 2 — để rà soát cuối của làn phân loại.
+- **Còn chờ chủ văn phòng / luật sư:**
+  - **Câu thông báo tiếp nhận (bản nháp `2026-09-nhap`, `intake.privacy_notice.text`)** hứa ba điều mã không giữ: viết cứng "lưu tối đa 24 tháng" thay vì đọc `IntakeRequest::retentionMonths()` (đổi `PROSPECT_RETENTION_MONTHS` thì câu sai — CAI-DAT nay dặn sửa câu và đổi `version` theo); "tối đa" sai cho bản ghi còn mở ("Mới, chưa ai gọi lại", "Đã liên hệ lại", "Đang tư vấn", "Đã báo phí") — chúng không bao giờ có `retention_until` nên không bao giờ tự ẩn danh; "yêu cầu xoá thông tin bất cứ lúc nào" sai cho bản ghi đã chuyển thành vụ việc (và bản đã gộp vào một chuỗi đã chuyển đổi) — "Xoá dữ liệu theo yêu cầu" từ chối chúng vì dữ liệu đi theo hồ sơ khách hàng. Luật sư chọn câu chữ và con số; sửa `text` thì đổi `version`.
+  - **Con số `PROSPECT_RETENTION_MONTHS`** (mặc định 24 của kế hoạch) — trước khi nhân sự bắt đầu ghi tiếp nhận (A ở trên).
+  - **Quyết định "giữ dấu băm"** (câu hỏi #2 của R7b) — xem mục E của Task 1.
+- **Số đo Task 2 (2026-10-04):** RED trước khi viết tài liệu/câu chữ — `InstallGuideM10UpgradeTest` 6/7 đỏ (đoạn M10 chưa có, CAI-DAT "Nâng cấp" chưa nêu tên quyền; test thứ bảy, menu Tiếp nhận trước/sau `db:seed`, ghim hành vi đã có nên xanh từ đầu — probe P16 dưới chứng minh nó cắn), `ReceivablesPageTest` 2 đỏ (câu mô tả), `BillingOnPortalTest` 1 đỏ (dòng "tính đến"), `CopyPromisesTest` 1 đỏ (m1/m4). 20 mutation probe, cả 20 đỏ: bỏ `:apply` khỏi widget; `deferFilters(false)`; bỏ dòng `as_of`; `as_of` lấy ngày ký thay ngày lập; dòng `as_of` ra ngoài `@if` (vụ không hợp đồng); bỏ một tên migration khỏi CAI-DAT; nêu một migration không có; bỏ `intake.viewAny` khỏi đoạn M10; cron nhắc `*/30`; ẩn danh 04:30; bỏ "không hoàn tác được"; `DEFAULT_RETENTION_MONTHS` 36; bỏ `intake.convert` khỏi README; bỏ tên bốn quyền tiền khỏi CAI-DAT "Nâng cấp"; một đoạn M10 đứng trước đoạn tiền M9; `IntakeRequestPolicy::viewAny` cho mọi nhân sự; modal về "KHÔNG khôi phục được"; modal "20 bản"; bỏ vế Thùng rác; bỏ vế chỉ sang cổng của `as_of`. Full suite `--parallel --processes=2`: **5265 passed / 0 failed / 1 risky (có sẵn) / 33 skipped** (3384 s). `test:mariadb` tuần tự 6 tệp (5 tệp test chạm tới + `PreflightBillingInvariantsTest`, đọc README/CAI-DAT): **139 passed**. `pint --test` PASS.
+
 
 ## Ghi chú M9
 
@@ -5917,3 +5946,978 @@ minors from m11b"):**
   `ADMIN_IP_ALLOWLIST` cho mọi app, trường tài liệu AI thấy, khoá Passport trong quy trình khôi phục, thứ tự cài
   sodium trước `composer install`, khoá EC/không cùng cặp vẫn XANH, thư mục tạm của test preflight, câu 72 giờ,
   ChatGPT Business phải tạo lại app).
+
+### Gộp `main` (1fbd991: M9 cuối, M10, việc sau gộp fu2/fu3, M12, Filament 5.8.4) vào làn M11 (2026-10-07)
+
+**Xung đột (10) và cách giải:**
+- `composer.lock` — lấy lock của `main`, rồi `composer update laravel/mcp laravel/passport --with-dependencies
+  --minimal-changes --with laravel/passport:13.8.0`: đúng 12 gói của làn được khoá thêm ở đúng phiên bản đã thử
+  (Passport giữ 13.8.0 — không ghim thì nó lên 13.9.0, mà hai controller Approve/Deny của Task 4 chép thân hàm của
+  Passport 13.8.0 và chưa ai đối chiếu với 13.9.0), không gói nào của `main` đổi phiên bản hay bị gỡ.
+  `composer install`, `composer audit --locked` (không cảnh báo: `main` đã nâng `league/commonmark` 2.10.3, D6 hết)
+  và `check-platform-reqs` đều qua.
+- `config/vkcrm.php` `deployment.required_extensions` — hợp hai phía: danh sách của `main` (đã có `curl` từ M12) cộng
+  `sodium`; docblock nói `curl` nay do `minishlink/web-push` khai và CIMD của M11 cũng dùng nó.
+- `app/Support/Security/ContentSecurityPolicy.php` — giữ cả `WORKER_POLICY` + `manifest-src` của M12 lẫn
+  `allowFormActionTo()` / `formActionOrigins()` của Task 4; `SendSecurityHeaders` (tự gộp) vẫn để nguyên CSP của
+  `sw.js` và dựng chính sách trang kèm origin `form-action` của đúng request đó.
+- `app/Models/User.php` — giữ `HasApiTokens` + `OAuthenticatable` (M11) và `HasPushSubscriptions` (M12); cast
+  `ai_access`, `$attributes`, `$guard_name = 'web'` và quan hệ `aiAcknowledgements()` của làn còn nguyên.
+- `bootstrap/app.php` — giữ route `routes/pwa.php` (`then:`) của M12 và `redirectGuestsTo` / JSON cho `/mcp` /
+  `dontReport(LeagueOAuthServerException)` của M11.
+- `.env.example` — khối MCP của làn rồi khối VAPID của M12.
+- `README.md`, `docs/CAI-DAT.md` — danh sách extension hợp hai phía (có `sodium`, `curl` nói rõ của ai); mục triển
+  khai giữ cả "Kết nối AI cho nhân sự" lẫn "App trên điện thoại"; bảng biến `.env` giữ cả dòng `MCP_*` lẫn
+  `VAPID_*`; mục 6 `/.well-known/` của M11, mục 7 service worker của M12. SPEC §2 (tự gộp): đính chính M11 sửa lại —
+  `curl` đã bắt buộc từ M12, M11 chỉ thêm `sodium`.
+- `tests/Feature/Deployment/PreflightCommandTest.php` — cấu hình xanh dùng cả khoá Passport dạng nội dung lẫn khoá
+  VAPID thử (`WebPushTestKeys::config()`).
+- `docs/PROGRESS.md` — bảng milestone lấy chữ của `main`; "Ghi chú M11" rồi "Ghi chú M12".
+
+**Kiểm tra ngữ nghĩa sau gộp:**
+- Vô hiệu hoá, đổi vai, đặt lại 2FA, đổi mật khẩu, xoá nhân sự vẫn thu hồi mọi kết nối AI cùng transaction (móc của
+  Task 6 ở `EditUser`, `EditProfile`, `ResetStaffTwoFactor`, `DeleteStaffMember` không bị `main` đụng); thiết bị
+  push của người không còn đủ điều kiện vẫn do M12 lo (`PushAlert::shouldSend()` lúc gửi,
+  `PrunePushSubscriptions`). Hai hành vi độc lập, giữ cả hai.
+- Không tool MCP nào đưa dữ liệu thiết bị push ra: test mới trong `ReadToolsAccessAuditTest` (endpoint và khoá
+  `p256dh`/`auth` của chính người gọi không có trong phản hồi của mười một tool).
+- `IntakeMcpBoundaryTest` (quét chuỗi `app/Mcp`, `app/Support/Mcp`, `app/Actions/Mcp`) vẫn xanh.
+
+**Kiểm chứng:** cả bộ (`--parallel --processes=2`) EXIT 0 — 6862 passed, 33 skipped, 1 risky (`EnvExampleTest`, có
+từ trước), 0 failed, 3804 s. MariaDB tuần tự (`tests/Feature/Mcp`, `tests/Unit/Mcp`, `PreflightCommandTest`,
+`InstallGuideM11Test`, `PushInstallGuideTest`, `SecurityHeadersTest`, `ServiceWorkerTest`,
+`PushSubscriptionAccessTest`, `tests/Feature/Actions/User`, `IntakeMcpBoundaryTest`): 1086 passed, 1 failed —
+`TransportTest` "access token … sống đúng 1 giờ" nhận `expires_in` 3599 (giây đồng hồ sang giữa lúc cấp token và lúc
+dựng phản hồi; test không đổi trong lần gộp); chạy lại `TransportTest` trên MariaDB: 43 passed. `pint --test` sạch.
+
+## Ghi chú M12
+
+Làn `m12-pwa-push` (`D:\vkwt\lane-m12`), kế hoạch `docs/superpowers/plans/2026-09-24-m12-pwa.md`. Cắt
+từ `main` = `47ee8e3` trước khi M10 merge (controller duyệt: kế hoạch nói M12 không phụ thuộc M9/M10).
+Phần thử trên máy thật do chủ văn phòng chạy theo danh sách kiểm tra; agent không điều khiển được
+điện thoại và không mở đường hầm HTTPS công khai tới máy dev.
+
+### Task 1 — khảo sát trước khi viết mã (2026-10-01): ba phán quyết tạm, câu 2–3 PENDING OWNER
+
+Tra cứu + khảo sát MÔ PHỎNG bằng Playwright (Chromium 153, WebKit 26.6, bản chạy local ở chế độ CSP
+enforce; manifest và service worker viết tay không commit): `docs/research/2026-10-01-pwa-khao-sat.md`.
+Danh sách kiểm tra tiếng Việt cho iPhone + Android (cũng là phần máy thật của Task 10):
+`docs/research/2026-10-01-pwa-kiem-tra-may-that.md`. Câu 2 và 3 giữ trạng thái **PENDING OWNER** cho
+tới khi chủ văn phòng gửi lại bảng kết quả; câu 1 gốc không đo được nữa và được thay bằng phán quyết
+tạm (xem dưới). Phán quyết tạm do controller duyệt để Task 2–9 đi tiếp.
+
+1. **iPhone, app đã cài, tải tài liệu ngoài scope** — **không đo, thay bằng phán quyết tạm.** Tài
+   liệu không đủ chắc về cookie của trình duyệt trong app; mô phỏng chỉ đo được cái giá: cùng URL tải
+   có chữ ký trả 200 khi có cookie phiên, 404 khi không. **Tạm: Task 3 làm route tải bí danh TRONG
+   scope** (`/portal/documents/{document}/download`, `/admin/documents/{document}/download`, cùng
+   controller, cùng middleware; nơi ký URL chọn tên route theo KIỂU người nhận — Task 3, xem dưới),
+   **và liên kết tải
+   của admin mở trong cùng cửa sổ**: hôm nay nút "Tải tệp" gọi `openUrlInNewTab()`
+   (`DocumentsRelationManager.php:767`) và danh sách tệp của hộp duyệt có `target="_blank"`
+   (`ChecklistRelationManager.php:361`); trong app nội bộ đã cài trên iPhone, tab mới đi ra ngoài cửa
+   sổ app dù URL trong scope, nên thiếu vế này thì route bí danh không giúp nhân sự (khảo sát mục 2.10).
+   Danh sách kiểm tra chạy sau Task 3, khi mọi liên kết tải đã trong scope, nên **không trả lời được
+   câu cookie gốc**; phần còn PENDING OWNER là "tải trong scope chạy trên iPhone thật, trong cửa sổ
+   app": mục A, bước A5–A6 (app khách) và A7–A9 (app nội bộ), kèm ảnh chụp và phiên bản iOS.
+2. **Đăng nhập cổng có OTP trong app đã cài** — PENDING OWNER (mục B). Ô mã đã có
+   `autocomplete="one-time-code"` (`OneTimeCodeInput`, đo trên trang thật). Mô phỏng: nạp lại trang
+   giữa bước mã thì quay về bước mật khẩu, và Filament chỉ gửi 2 mã / 60 giây / tài khoản
+   (`EmailAuthentication::sendCode()`). Deep link sống qua bước OTP (về đúng trang hồ sơ). **Tạm:
+   không sửa luồng OTP**; nếu máy thật mất bước mã, Task 10 ghi thành phát hiện.
+3. **Chrome Android, hai app cùng origin** — PENDING OWNER (mục C, D). Mô phỏng: hai manifest
+   (`id` `/admin` + `scope` `/admin`; `id` `/portal` + `scope` `/portal`) phân tích sạch, không lỗi cài
+   đặt; `scope: "/admin/"` có dấu `/` bị Chromium **bỏ** ("Start url should be within scope") và rơi về
+   cả origin `/`; đăng ký service worker `scope: '/admin'` thiếu `Service-Worker-Allowed` → `SecurityError`.
+   **Tạm: làm đúng R2 — hai `id`, hai `scope` không dấu `/`, header `Service-Worker-Allowed`.**
+
+Sự thật đo được mà task sau phải dùng (chi tiết ở tệp khảo sát, mục 2):
+- Cho Task 3: liên kết tải của admin phải mở trong cùng cửa sổ — bỏ `openUrlInNewTab()` ở
+  `DocumentsRelationManager.php:767` và `target="_blank"` ở `ChecklistRelationManager.php:361` khi URL
+  là route bí danh; response tải là `attachment` nên trên máy tính trang vẫn đứng yên. Liên kết của
+  cổng (`matter-progress.blade.php:218`) vốn đã mở cùng cửa sổ (khảo sát mục 2.10).
+- Không lượt Playwright nào có được `PushSubscription` thật (Chromium headless: `AbortError:
+  Registration failed - permission denied`; WebKit của Playwright không có `PushManager`). Kiểm trình
+  duyệt của Task 3/5 dừng ở bước gọi `subscribe` hoặc giả nó; Task 7 giả transport.
+- Service worker nhận `fetch` cho cả `POST /livewire-…/update` và font của `fonts.bunny.net` → luật R4
+  "chỉ GET cùng origin" ở dòng đầu trình xử lý `fetch` là cần thật.
+- Mẫu nginx: `location ~* \.(?:css|js|…)$` (`tools/deploy/nginx.conf.example:114-122`) sẽ trả 404 cho
+  `/admin/sw.js` do Laravel phục vụ, và giữ `public/pwa/register.js` một năm `immutable` → cần khối
+  `location =` cho hai `sw.js`, và thẻ `<script>` của `register.js` phải mang tham số phiên bản.
+
+### Task 2 — biểu tượng, manifest, thẻ `<head>` (2026-10-03)
+
+`GET /{admin,portal}/manifest.webmanifest` (`routes/pwa.php`, nạp ở `bootstrap/app.php` `then:`, ngoài
+nhóm `web`: không cookie, không dòng `sessions`), Action `App\Actions\Pwa\BuildManifest`, thẻ `<head>`
+`resources/views/pwa/head.blade.php` (hook `HEAD_END` thứ hai ở hai provider), `lang/vi/pwa.php`, khối
+`pwa` trong `config/vkcrm.php`, CSP thêm `manifest-src 'self'`. Biểu tượng sinh bằng
+`tools/brand/make-logo.php`, commit PNG tĩnh. Sự thật mà task sau phải dùng:
+- Thẻ `<head>` đọc panel HIỆN HÀNH (`filament()->getId()`), không nhận tên panel từ closure của provider:
+  `FilamentManager::bootCurrentPanel()` chỉ khởi động panel (đăng ký render hook) MỘT lần mỗi ứng dụng,
+  nên trong test hai request liên tiếp `/admin/login` rồi `/portal/login` dùng hook của admin cho cả
+  portal (đo: closure mang `'admin'` in manifest nội bộ lên trang cổng). Task 3 in thẻ `register.js` với
+  `data-*` trong CÙNG view này, cùng cách đọc panel.
+- Tên tệp biểu tượng lệch kế hoạch (kế hoạch chỉ nêu `app-180.png`): `apple-touch-icon` và maskable
+  RIÊNG từng panel (`App\Support\Pwa\AppIcons`: `brand/app-{admin,portal}-180.png`,
+  `brand/app-{admin,portal}-maskable-512.png`; nền paper / navy theo `config('vkcrm.pwa.icon_background')`)
+  — iOS không dùng maskable, nên trên iPhone `apple-touch-icon` là cách duy nhất phân biệt hai app.
+  Thêm `brand/vk-mark-192.png` (nền trong suốt, mục đích `any`). Đổi hình về sau phải đổi TÊN tệp
+  (mẫu nginx/Apache gửi `immutable` một năm cho `.png`).
+- Route PWA đứng ngoài chồng middleware có phiên của panel, nhưng `ADMIN_IP_ALLOWLIST` (M8 R7) VẪN phủ
+  nhóm route PWA của `/admin` (vòng sửa 1): nhóm của một panel gắn `RestrictAdminIpAllowlist` khi và
+  chỉ khi panel đó mang nó trong `getMiddleware()` — hôm nay `admin`, không `portal`. Máy ngoài danh
+  sách nhận 404 ở `/admin/manifest.webmanifest` như ở mọi URL `/admin` khác (manifest nội bộ mang tên
+  "… — Nội bộ" và `scope` `/admin`, đủ để lộ app nội bộ); máy trong danh sách nhận 200, vẫn không cookie,
+  không dòng `sessions`; manifest cổng tới mọi IP. Có test cả hai chiều.
+- Tên route luôn là `pwa.{panel}.manifest` (provider chỉ cho một tên miền mỗi panel). Task 3 thêm `sw.js`
+  và trang ngoại tuyến vào cùng nhóm route, cùng khuôn tên — tức `/admin/sw.js` và trang ngoại tuyến
+  của admin cũng nhận 404 từ IP ngoài danh sách; đừng tách chúng ra khỏi nhóm để "cài được từ xa"
+  (app nội bộ chỉ cài được trong danh sách; theo đặc tả Service Worker, lượt cập nhật `sw.js` gặp 404
+  ngoài văn phòng hỏng mà vẫn giữ bản đã cài — chưa đo trên máy thật). Thẻ `<script>` của `register.js` CHƯA in
+  (tránh 404 trên mọi trang) — Task 3 in cùng lúc với tệp; test "không `<script>` nào thiếu `src`" đã có.
+
+### Task 3 — service worker, trang ngoại tuyến, script đăng ký, tải tài liệu trong scope (2026-10-03)
+
+Đã làm (R4, R5, phán quyết tạm 1 của Task 1):
+- `GET /{admin,portal}/sw.js` (`ServiceWorkerController` → Action `BuildServiceWorker`, view
+  `resources/views/pwa/sw-js.blade.php`, phục vụ ra < 150 dòng) và `GET /{admin,portal}/offline`
+  (`OfflinePageController` → Action `RenderOfflinePage`, view `resources/views/pwa/offline.blade.php`),
+  cùng nhóm route PWA của Task 2 (ngoài nhóm `web`; `/admin/…` sau giới hạn IP). Header của worker:
+  JavaScript, `Cache-Control: no-cache`, `Service-Worker-Allowed: /{panel}`, CSP riêng
+  `default-src 'self'` (`ContentSecurityPolicy::WORKER_POLICY`).
+- Worker: chỉ `GET` cùng origin (hai câu lệnh đầu của `fetch`); điều hướng chỉ đi mạng (bật
+  `navigationPreload`), LỖI MẠNG thì trang ngoại tuyến cài sẵn, response lỗi của máy chủ (403/404/…) và
+  tệp `attachment` đi nguyên vẹn; tài nguyên tĩnh theo `config('vkcrm.pwa.static_prefixes')`
+  (stale-while-revalidate, chỉ lưu `ok` + `basic`, `cache.put` duy nhất); `install` cài trang ngoại
+  tuyến + logo + biểu tượng 192 rồi `skipWaiting()`, `activate` xoá bộ đệm cũ của CHÍNH app rồi
+  `clients.claim()`.
+- `public/pwa/register.js` (tệp tĩnh, chỉ đăng ký worker; phần push là của Task 5), thẻ
+  `<script src="/pwa/register.js?v=<12 hex sha256 nội dung>" defer data-sw data-scope>` trong
+  `resources/views/pwa/head.blade.php` (`App\Support\Pwa\RegisterScript`). CSP của trang không thêm
+  nguồn nào: `worker-src 'self'` đã có.
+- Route tải bí danh `/portal/documents/{id}/download` (`documents.download.portal`) và
+  `/admin/documents/{id}/download` (`documents.download.admin`), `routes/web.php`: cùng
+  `DocumentDownloadController`, cùng `['signed', 'throttle:document-download']`, nhóm `web`, KHÔNG
+  middleware panel, KHÔNG allowlist IP (M8 R7 giữ nguyên). `Document::downloadUrlFor()` ký trên bí danh
+  theo KIỂU người nhận (`ClientUser` → cổng, `User` → nội bộ), không theo panel hiện hành (URL còn được
+  dựng ngoài request của panel). Route gốc `documents.download` ở lại cho URL đã phát lúc triển khai.
+  Nút "Tải tệp" (tab Tài liệu) và danh sách "Tệp khách đã gửi" (hộp duyệt "Đã nhận") mở CÙNG cửa sổ.
+- Mẫu nginx thêm `location = /admin/sw.js` và `location = /portal/sw.js`; mẫu Apache không cần khối
+  riêng (`<FilesMatch>` không chạm route PHP). Cả hai ĐO THẬT bằng `tools/deploy/verify-pwa-routes.sh`
+  (nginx/httpd chính thức + php-fpm, kèm đối chứng nginx bỏ hai khối → 404 của nginx).
+
+Lệch kế hoạch, có lý do (ghi cả ở docblock):
+1. Tên bộ đệm `vk-static-{panel}-{VERSION}` thay cho `vk-static-{VERSION}`, và `activate` chỉ xoá bộ
+   đệm mang tiền tố của chính app: để trống `ADMIN_DOMAIN`/`PORTAL_DOMAIN` thì hai app chung một
+   CacheStorage; luật nguyên văn để worker app này xoá trang ngoại tuyến đã cài của app kia sau mỗi lần
+   triển khai.
+2. `VERSION` băm thêm danh sách cài sẵn và HTML trang ngoại tuyến (ngoài view, tiền tố, phiên bản
+   Filament của kế hoạch): bản ngoại tuyến chỉ được cài lại khi `VERSION` đổi — thiếu nó, đổi hotline
+   thì app đã cài hiện số cũ khi mất mạng. Không bí mật nào trong băm (có test đổi `APP_KEY`).
+3. `SendSecurityHeaders` (M8 R4) đổi theo: response mang ĐÚNG một dòng CSP bằng chuỗi worker giữ nó ở
+   mọi chế độ, kể cả `off`; mọi CSP KHÁC mà một response tự đặt bị gỡ và thay bằng chính sách trang
+   (trước đây `set()` chỉ thay header của chế độ hiện hành, nên ở `report`/`off` một CSP tự đặt sống
+   sót). Chỉ `ServiceWorkerController` được đặt chuỗi worker (test quét `app/`).
+
+Kiểm bằng trình duyệt thật (`tools/pwa/survey-sw.cjs`, Chromium 153, bản chạy của làn với
+`CSP_MODE=enforce`, 33/33 dòng OK): worker đăng ký đúng scope `/portal` và `/admin` và điều khiển
+trang; với worker đang điều khiển — đăng nhập hai panel, khách nộp tệp, khách tải tài liệu qua
+`/portal/documents/…` (response đi qua worker, tệp về đủ byte), luật sư chuyển giai đoạn, đưa tài
+liệu lên, tải qua `/admin/documents/…` (cùng cửa sổ), đăng xuất bằng menu; CacheStorage sau mỗi lượt
+chỉ có trang ngoại tuyến của app + tài nguyên tĩnh trong danh sách (không `/portal/…`, `/admin/…`,
+`/livewire-…`, `…/documents/…`, không HTML/JSON nào khác); ngoại tuyến → trang "Chưa có kết nối mạng"
+(hotline `tel:`, không script), trực tuyến + "Thử lại" → `start_url`; 0 vi phạm CSP, 0 lỗi JS.
+
+Sự thật cho task sau:
+- **Phát hiện có sẵn từ M5, KHÔNG do service worker (đối chứng với worker bị chặn cho đúng cùng kết
+  quả):** khách bị vô hiệu giữa phiên rồi bấm một nút Livewire thì về trang đăng nhập nhưng KHÔNG thấy
+  câu `portal.inactive`. Livewire `abort()` bằng chính 302 của `EnsurePortalAccountIsActive`
+  (`Livewire\Drawer\Utils::applyMiddleware()`), `fetch` của request cập nhật TỰ đi theo 302 tới
+  `/portal/login` — lượt GET đó tiêu thông báo đã flash — rồi JS của Livewire điều hướng lần nữa tới
+  `response.url` và trang đăng nhập không còn gì để hiện. Đường điều hướng thường (tải lại trang) hiện
+  câu đó đúng, có và không có worker. Không sửa ở M12 (ngoài phạm vi, đụng luồng đăng nhập M5) — việc
+  cho controller quyết.
+- Task 5: `register.js` đọc `data-*` qua `document.currentScript.dataset`; `RegisterScriptTest` ghim hợp
+  đồng HAI chiều (mọi `data.x` tệp đọc phải được thẻ in và ngược lại) và cấm chữ tiếng Việt trong mã
+  JS — chuỗi của nút Bật/hướng dẫn iPhone đi qua `data-*`. Tổng dưới 200 dòng.
+- Task 10: chạy lại `tools/pwa/survey-sw.cjs` sau khi có push; mục E4–E5 mới của danh sách kiểm tra
+  máy thật đo lượt cập nhật `sw.js` ngoài allowlist (chưa đo được ở máy dev).
+- Mục `/pwa/register.js?v=<cũ>` ở lại CacheStorage tới lần `VERSION` kế tiếp (tài nguyên công khai, vài
+  KB) — không băm `register.js` vào `VERSION` để một lần sửa script không bắt mọi máy cài lại worker.
+
+Vòng sửa 1 (rà soát Task 3, Important I1 — trang lỗi của liên kết tải là ngõ cụt trong app đã cài):
+- Liên kết tải mở CÙNG cửa sổ nên liên kết đã hết hạn (> 5 phút) hay bị từ chối mở trang lỗi 403/404
+  ngay trong cửa sổ app; lối ra cũ `url('/')` → `/portal` (đăng nhập của KHÁCH, ngoài scope `/admin`;
+  `/` cũng ngoài scope `/portal`), còn câu chữ bảo "quay lại, tải lại trang" — cửa sổ standalone của
+  iPhone không có hai nút đó. Nay nút "Về trang chính" của `errors/403` và `errors/404` trỏ
+  `App\Support\Pwa\PwaPanels::startUrlFor()`: `/admin` khi path dưới `/admin` (khớp theo đoạn) hoặc
+  khi request Livewire thuộc một trang admin (panel hiện hành do `SetUpPanel` đặt), `/portal` cho mọi
+  thứ khác; IP ngoài `ADMIN_IP_ALLOWLIST` luôn nhận `/portal` (trang 404 của nó dưới `/admin` giống
+  từng byte trang của một path lạ — M8 R7). Câu `link_expired.retry` bảo bấm chính nút đó.
+- Cái giá còn lại, ghi ở docblock `DocumentsRelationManager::downloadAction()` và
+  `ChecklistRelationManager::documentsList()`: trên máy tính, liên kết đã hết hạn thay cả trang admin
+  đang mở — hộp duyệt và lý do đã gõ mất (trước Task 3 là tab mới). Tuỳ chọn để controller quyết: một
+  route trong panel ký URL lúc bấm để liên kết admin không hết hạn khi trang còn mở (không làm ở vòng
+  này — thêm một bước chuyển hướng chưa đo trên iPhone, A8–A9).
+- Danh sách kiểm tra máy thật thêm A10 (để trang yên hơn 5 phút rồi tải, chạm "Về trang chính" ở cả
+  hai app: phải về đầu của chính app, trong cửa sổ app) — PENDING OWNER.
+
+### Task 4 — gói thông báo đẩy, khoá VAPID, preflight, bảng đăng ký (2026-10-03)
+
+Đã làm (R6, R7, R8):
+- `laravel-notification-channels/webpush` 13.0.1. Dry-run lại trên nền làn: đúng tám gói và phiên bản của R6
+  (`composer.json`/`composer.lock` không đổi khi dry-run). Khác R6 một dòng: Composer nay báo 2 advisory — của
+  `league/commonmark` ≤ 2.10.1, gói ĐÃ có trên `main`, công bố 2026-09-30; không gói nào trong tám gói mới →
+  cài. Nâng `league/commonmark` là việc của `main`, không của làn.
+- Gói bị loại khỏi tự dò (`composer.json` `extra.laravel.dont-discover`) và nạp qua
+  `App\Providers\WebPushServiceProvider` (con của provider gốc, `bootstrap/providers.php`) — xem lệch 1.
+- `config/webpush.php` (publish rồi sửa, giữ đủ khoá cấp một của tệp gói): chỉ ba biến `VAPID_*` đọc từ `.env`;
+  bảng `push_subscriptions` cố định, kết nối mặc định, `pem_file` không dùng, `client_options.timeout` 10.
+  `.env.example` có `VAPID_SUBJECT=`, `VAPID_PUBLIC_KEY=`, `VAPID_PRIVATE_KEY=` TRỐNG và KHÔNG chú thích —
+  `webpush:vapid` chỉ thay được dòng `KEY=` không có dấu `#` (test chạy lệnh trên bản chép của `.env.example`).
+  `phpunit.xml` ghim ba biến trống: bộ test không xanh/đỏ theo `.env` cục bộ.
+- Migration `2026_10_03_000001_create_push_subscriptions_table` (stub của gói, nguyên văn) và
+  `…_000002_add_device_label_and_last_seen_at_…` (`device_label` `string(100)` nullable, `last_seen_at`
+  nullable). MariaDB thật: `endpoint varchar(1024) CHARACTER SET ascii`, `UNIQUE KEY
+  push_subscriptions_endpoint_unique (endpoint)` BTREE trên cả cột; vòng seed → reset → migrate sạch.
+- `App\Support\Push\VapidKeys::configured()` — MỘT định nghĩa "máy chủ có khoá dùng được": ba biến không trống
+  (dòng `KEY=` của `.env.example` là chuỗi rỗng = trống), cặp khoá qua `Minishlink\WebPush\VAPID::validate()`,
+  subject `mailto:…@…` hoặc `https://…`.
+- `vkcrm:preflight`: `curl` vào `deployment.required_extensions` (ĐỎ khi thiếu); dòng `vapid_keys` VÀNG khi thiếu
+  biến (nêu tên) / khoá sai định dạng / subject sai, XANH khi đủ. Danh sách extension nay được canh bằng
+  `composer.lock` (test: mọi `ext-*` của gói production phải có trong danh sách). SPEC §2 có đính chính
+  2026-10-03; `docs/CAI-DAT.md` Bước 1 thêm `curl`.
+- `vkcrm:push-reset` (`PushResetCommand` → `App\Actions\Push\ResetPushSubscriptions`): hỏi xác nhận và nói trước số
+  đăng ký sẽ xoá, `--force` bỏ bước hỏi, chạy không tương tác thiếu `--force` thì từ chối (mã 1, không xoá).
+  Audit `push_subscriptions_reset` chỉ có `count` và `via = console` — không endpoint, không người thực hiện.
+- `HasPushSubscriptions` trên `User` và `ClientUser`; morph lưu bí danh `user` / `client_user` (đo).
+- Lưới R8 `tests/Feature/Push/PushSubscriptionAccessTest.php` (sau vòng sửa 1, xem dưới): quét token PHP trong
+  `app/`, `routes/` và `resources/views/` (Blade biên dịch trước) — `PushSubscription::` KỂ CẢ `::class` (tên
+  trần, bí danh `use … as X` và trong `use …\{…}`, tên có namespace một phần/đầy đủ), `new`/`extends
+  PushSubscription`, chuỗi chứa từ `push_subscriptions` hay `PushSubscription`, chuỗi đúng bằng
+  `pushSubscriptions` / `webpush` / `webpush.model` / `webpush.table_name`; và đọc route đã đăng ký tìm route
+  model binding vào `PushSubscription` (closure, controller, `mount()` và thuộc tính public của trang Livewire).
+  Chỉ cho phép bốn tệp: `app/Actions/Push/ResetPushSubscriptions.php` (có), `app/Actions/Push/RegisterPushDevice.php`
+  (Task 5), `app/Actions/Push/ForgetPushDevice.php` (Task 6), `app/Actions/Schedule/PrunePushSubscriptions.php`
+  (Task 6). Docblock `PortalIsolationSweepTest` ghi `PushSubscription` cạnh `Activity` và `Media`.
+
+Lệch kế hoạch, có lý do:
+1. **Hạn 10 giây (R12) cần một provider của dự án.** Bản gốc dựng client bằng
+   `Http::timeout(30)->withOptions($options)->buildClient()` (`WebPushServiceProvider.php:98` của gói), mà
+   `PendingRequest::buildClient()` chỉ đưa `handler` và `cookies` vào `GuzzleHttp\Client`; `minishlink/web-push`
+   gửi bằng `sendRequest()` trên client đó (`WebPush.php:183`). Kết quả: request ra máy chủ push KHÔNG có hạn
+   nào, kể cả 30 giây của gói. Đo thật bằng một socket nhận kết nối rồi im lặng: client của gói vẫn treo khi bị
+   giết ở giây thứ 40; client của dự án dừng ở `cURL error 28 … after 10001 milliseconds`. Provider con chỉ ghi
+   đè `webPushClient()`; chồng handler vẫn lấy từ `Http::buildHandlerStack()`.
+2. Stub thứ hai của gói (`increase_push_subscriptions_endpoint_length`) không publish: nó chỉ nâng bảng của bản
+   gói cũ lên đúng hình dạng mà stub `create` đã tạo.
+3. `VAPID_SUBJECT` trống, hay khoá sai định dạng, cũng là "chưa cấu hình" (VÀNG, push tắt): gói tự lấp
+   `url('/')` cho subject trống, còn khoá sai định dạng làm việc dựng kênh ném lỗi ở mọi job.
+
+Sự thật cho task sau:
+- Task 5/7: hỏi `VapidKeys::configured()` để ẩn nút Bật và để không xếp job; không tự đọc
+  `config('webpush.vapid…')`.
+- Task 5: `$fillable` của model gói chỉ có `endpoint`, `public_key`, `auth_token`, `content_encoding` →
+  `device_label`, `last_seen_at` ghi bằng `forceFill`; model gói không cast `last_seen_at` (đọc ra là chuỗi).
+  `updatePushSubscription()` (`HasPushSubscriptions.php:28-57`) chuyển chủ bằng cách XOÁ dòng của chủ cũ rồi tạo
+  dòng mới (đã test) — chỉ nút Bật được gọi nó, lượt `sync=1` thì không (R8).
+- Task 7 (câu hỏi 5 của brief): `Http::fake()` chặn được request push, trên cả client của gói lẫn của dự án; bộ
+  chặn nhận tuỳ chọn Guzzle thật của request làm tham số thứ hai (test hạn 10 giây dùng đúng chỗ đó).
+  `ReportHandler::handleReport()` (`:25-38`): thành công → `NotificationSent`; 404/410 → xoá dòng rồi
+  `NotificationFailed`; lỗi khác (401/403 khi khoá lệch) → chỉ `NotificationFailed`. Tuyến `WebPush` phải là
+  `Illuminate\Database\Eloquent\Collection` (`WebPushChannel::handleReports()`).
+- Task 10: `README.md`, `docs/SAO-LUU-KHOI-PHUC.md` Bước 6 (cất `VAPID_PRIVATE_KEY` cùng `APP_KEY`), các bước
+  `webpush:vapid` / `vkcrm:push-reset` / dòng VÀNG của `docs/CAI-DAT.md` CHƯA viết (kế hoạch giao Task 10).
+- Lúc gộp `main`: `composer.json`/`composer.lock` xung đột với M7 (dompdf) — gộp `composer.json` (giữ
+  `dont-discover` của webpush) rồi dựng lại lock bằng composer, không gộp tay; `bootstrap/providers.php` có thêm
+  `WebPushServiceProvider`; `phpunit.xml` có ba dòng `VAPID_*`.
+
+Số đo: cả bộ `test --parallel --processes=2` 3848 passed, 25 skipped, 1 todo, 1 risky, 0 failed (mốc của làn:
+3695 passed; skipped/todo/risky có sẵn trên `main`); test của task trên MariaDB 91 passed; 21 mutation probe đều đỏ
+rồi khôi phục (báo cáo task 4 của làn).
+
+Vòng sửa 1 (rà soát Task 4, Important I1 — lưới R8 tha `PushSubscription::class`, bỏ sót `'push_subscriptions as ps'`,
+không quét Blade/`routes/`):
+- Máy quét cũ trả `[]` cho `protected static ?string $model = PushSubscription::class` (Filament Resource liệt kê thiết
+  bị của MỌI người), `Rule::exists(PushSubscription::class, 'endpoint')` (hỏi được endpoint đã thuộc ai),
+  `app(PushSubscription::class)->newQuery()`, `DB::table('push_subscriptions as ps')`. Nay bắt cả bốn, cùng các dạng đi
+  vòng cùng loại (đoạn "Lưới R8" ở trên): đo bằng máy quét cũ trên mẫu mới, 23/32 mẫu lọt.
+- Route model binding là chỗ duy nhất một GỢI Ý KIỂU tự truy vấn (`{device}` → `PushSubscription $device` trên closure,
+  controller, `mount()` hay thuộc tính public cùng tên của trang Livewire/Filament): test đọc route đã đăng ký.
+- Lưới cũ mù trên máy dev: `RecursiveDirectoryIterator` dưới ổ 9p thấy 412/451 tệp `.php` của `app/` (thiếu 39 tệp
+  `app/Exceptions`; CI Linux thấy đủ). Nay duyệt bằng `scandir()` và đối chiếu với `find`. Cùng lỗi còn ở
+  `ArchitectureTest` và `ActivityLogEventTranslationsTest` (quét `app/` bằng iterator) — việc của `main`, không sửa ở làn.
+- Cho Task 5/6: validation đụng bảng (`unique:push_subscriptions…`, `Rule::exists(PushSubscription::class…)`) chỉ
+  trong `RegisterPushDevice`; trang thiết bị không `$model = PushSubscription::class`, không relation manager
+  `'pushSubscriptions'`, không route bind `PushSubscription` (gỡ theo id thì tìm trong `$user->pushSubscriptions()`);
+  tên lịch/khoá trong `app/`, `routes/`, `resources/views` không chứa TỪ `push_subscriptions` đứng riêng (dùng
+  `push-subscriptions`). Lưới không phân biệt quan hệ gọi trên người KHÁC — test màn hình Task 5 có ca "A không
+  thấy/gỡ được máy của B".
+- Số đo: cả bộ 3883 passed, 25 skipped, 1 todo, 1 risky, 0 failed (+35 = 38 ca của tệp lưới mới − 3 ca cũ); MariaDB
+  (lưới + `PortalIsolationSweepTest`) 69 passed; 22 đột biến trên bản chép git-ignored đều đỏ.
+
+### Task 5 — đăng ký thiết bị, trang "Thông báo trên điện thoại" (2026-10-03)
+
+Đã làm (R8, R14):
+- `POST`/`DELETE /{admin,portal}/push/subscriptions` (`App\Http\Controllers\Pwa\PushSubscriptionController`, tên route
+  `filament.{panel}.push.subscriptions.store|destroy`), đăng ký VÔ ĐIỀU KIỆN trong `->authenticatedRoutes()` của từng
+  panel — sau toàn bộ chồng middleware có phiên và cổng đăng nhập của panel. `throttle:push-devices`: 10 request/phút
+  cho MỖI tài khoản, khoá đếm = guard + id (nhân sự và khách trùng id vẫn tách; chỗ cắm ở
+  `App\Providers\WebPushServiceProvider::boot()`). Máy chủ thiếu khoá VAPID: `POST` trả 404, `DELETE` vẫn chạy.
+- Action `App\Actions\Push\RegisterPushDevice` — `handle()` (nút Bật: lối DUY NHẤT chuyển chủ một endpoint, qua
+  `updatePushSubscription()` của gói; ghi `device_label` rút từ User-Agent và `last_seen_at`) và `check()` (lượt kiểm
+  `sync=1`: chỉ làm mới `last_seen_at` khi endpoint là của chính người này; "chưa ai có" và "người khác có" trả cùng
+  `not_owned`). Luật endpoint (SSRF): `https://<host>[:443]/<đường dẫn>`, host trong `config('vkcrm.pwa.push_hosts')`
+  (`fcm.googleapis.com`, `*.push.apple.com`, `updates.push.services.mozilla.com`, `*.notify.windows.com`), chỉ ký tự URL
+  in được (ASCII — cột `ascii`, rà soát Task 4 Minor 1), không `@`/`#`/`\`/khoảng trắng, tối đa 1024. `keys.p256dh` =
+  điểm P-256 65 byte mở đầu `0x04`, `keys.auth` = 16 byte, base64url. Hai lượt Bật đồng thời: bắt
+  `UniqueConstraintViolationException`, thử lại MỘT lần, thua nữa thì `App\Exceptions\PushDeviceConflict` (409, không
+  mang ngoại lệ gốc — câu SQL kèm endpoint không vào `laravel.log`; rà soát Task 4 Minor 3).
+- Action `App\Actions\Push\ForgetPushDevice` — `byEndpoint()` (route `DELETE`), `byId()` (nút "Gỡ"), `all()` (nút
+  "Gỡ mọi thiết bị", R14); mọi lối đi qua `$owner->pushSubscriptions()` — máy của người khác là 404, dòng đứng nguyên.
+- Audit `push_device_added` / `push_device_removed` (khoá ở `lang/vi/activity.php`): chủ thể là CHỦ máy, `properties`
+  đúng `['device_label' => …]`. Máy dùng chung đổi chủ khi người sau bấm Bật: dòng `push_device_removed` ghi trên người
+  TRƯỚC, người bấm là người gây ra. Đo: không endpoint nào trong audit, câu trả lời hay `laravel.log`.
+- Hai trang `App\Filament\{Admin,Portal}\Pages\PushDevices` (`/{panel}/thong-bao-dien-thoai`, view chung
+  `resources/views/pwa/push-devices.blade.php`, hành vi chung `App\Filament\Concerns\ManagesOwnPushDevices`), mở từ
+  user menu (mục ẩn khi thiếu khoá VAPID). Chỉ máy của CHÍNH người xem, ánh xạ sang mảng chuỗi (id, nhãn, ngày bật, lần
+  cuối thấy, cờ "Máy đang dùng" so endpoint trong phiên ở MÁY CHỦ) — không model nào của gói vào Livewire/Blade (rà
+  soát Task 4 Minor 4). `canAccess()` theo KIỂU tài khoản; trait thay `mountCanAuthorizeAccess()` và
+  `hydrateCanAuthorizeAccess()` của Filament (403) bằng 404. Mọi vai trò nhân sự vào được, kể cả kế toán.
+- `public/pwa/register.js` (190 dòng): khối "Máy này" của trang in SẴN mọi câu trạng thái (ẩn); script chỉ chọn khối
+  (`unsupported` mặc định, `ios-install`, `denied`, `ready`, `enabled`, `failed`). `Notification.requestPermission()`
+  chỉ trong trình xử lý cú bấm `[data-vk-push-enable]`. Lượt kiểm `sync=1` gửi đăng ký đang có của trình duyệt;
+  `not_owned` → dải mời `[data-vk-push-invite]` (hook `CONTENT_START`, view `resources/views/pwa/push-invite.blade.php`,
+  in sẵn và ẩn). Khoá của đăng ký khác `data-push-key` (R7) → huỷ đăng ký cũ, mời bật lại. `fetch` với
+  `redirect: 'manual'`. Thẻ `register.js` mang thêm `data-push-key|url|check` CHỈ trên trang đã đăng nhập của máy chủ
+  có khoá (`App\Support\Pwa\RegisterScript::pushData()`); `VapidKeys::publicKey()` là nơi duy nhất đọc khoá công khai.
+
+Lệch kế hoạch, có lý do:
+1. `SendTestPush`, route `POST {panel}/push/test`, nút "Gửi thử" và test của nó chuyển sang CUỐI Task 7 (phán quyết (b)
+   của controller — cần `PushAlert`/`SendPushAlert`). Ô kiểm của kế hoạch để `[ ]` kèm ghi chú.
+2. **Khoá phiên theo guard** (phán quyết (c)): `push.endpoint.web` / `push.endpoint.client`
+   (`App\Support\Push\PushSession::endpointKey()`), không một khoá `push.endpoint`.
+3. **"Một lần mỗi phiên" nhớ ở PHIÊN MÁY CHỦ** (`push.checked.{guard}`, in ra `data-push-check`), không bằng
+   `sessionStorage` như kế hoạch: `sessionStorage` sống theo THẺ trình duyệt — hết phiên rồi đăng nhập lại trong cùng
+   thẻ thì không kiểm lại, phiên mới không có `push.endpoint.{guard}`, và lần đăng xuất sau (Task 6) không gỡ máy này.
+   Đăng xuất `invalidate()` cả phiên nên người đăng nhập kế tiếp luôn được kiểm lại. Trên trang thiết bị, lượt kiểm
+   chạy mỗi lần mở trang (để biết khối nào đúng).
+4. **Cổng 2FA của route admin là middleware riêng** `App\Http\Middleware\RefuseStaffWithoutTwoFactor` (cùng điều kiện
+   `hasEnabledProviders()`, trả 403 → 404), không phải `EnsureMultiFactorAuthenticationIsEnabled` của Filament: cái đó
+   trả lời bằng `redirect()->guest()`, mà với POST/JSON thì `guest()` ghi Referer vào `url.intended` — lượt kiểm chạy
+   trên trang "cài 2FA bắt buộc" sẽ ghi đè đường dẫn sâu người đó đang trên đường tới. Test: 404, không dòng,
+   `url.intended` giữ nguyên. Lưới `StaffTwoFactorEscapeRoutesTest` nay nhận cả hai cổng.
+5. Chuỗi của trang ở `lang/vi/push.php` (tệp của thông báo đẩy từ Task 4), không `lang/vi/pwa.php`.
+
+Kiểm bằng trình duyệt thật (`tools/pwa/survey-push.cjs`, Chromium 153, bản chạy của làn, `CSP_MODE=enforce`, khoá VAPID
+THỬ sinh bằng `webpush:vapid --show`, 21/21 dòng OK): thẻ `register.js` mang đúng khoá công khai; trang thiết bị không
+hỏi quyền và không gửi request nào lúc tải; bấm Bật → hỏi quyền đúng một lần, `POST` 201, khối "đang nhận", danh sách
+vẽ lại có "Máy đang dùng"; tải lại → `sync=1` trả `owned`; trang khác sau lượt kiểm không gửi gì; máy dùng chung —
+khách 1 đăng xuất, khách 2 đăng nhập → `not_owned`, dải mời hiện, endpoint vẫn của khách 1; bấm Bật của dải → endpoint
+sang khách 2; app nội bộ (TOTP) bật được từ user menu; iPhone chưa cài app → khối hướng dẫn; quyền bị chặn → khối
+"đang chặn"; 0 vi phạm CSP, 0 lỗi JS. **Mô phỏng:** Chromium headless không có `PushSubscription` thật (context của
+Playwright là ẩn danh — Chrome không có Push API ở chế độ ẩn danh; lượt không stub đi đúng tới khối "Chưa bật được"),
+và báo `Notification.permission === 'denied'` dù đã cấp quyền, nên `subscribe`/`getSubscription` và quyền thông báo là
+bản giả trong trang; mọi thứ khác là thật. Máy thật: mục D1–D8 của danh sách kiểm tra (PENDING OWNER, Task 10).
+
+Sự thật cho task sau:
+- Task 6: endpoint của trình duyệt này ở `session(PushSession::endpointKey($guard))` — CHỈ khi dòng là của người đang
+  đăng nhập ở guard đó (lượt kiểm `owned` hoặc vừa bấm Bật); listener `Logout` đọc nó (guard của sự kiện) rồi gọi
+  `ForgetPushDevice::byEndpoint($user, $endpoint)` (đã kiểm hình dạng, chỉ trong dòng của `$user`, có audit).
+  `RejectStaffSessionsFromBeforeReset` là đường đăng xuất thứ ba (phán quyết của controller).
+- Task 7: `SendTestPush` + `POST {panel}/push/test` thêm vào `PushSubscriptionController::routes()` (cùng throttle,
+  cùng cổng 2FA của admin); nút "Gửi thử" vào khối "Máy này" của `resources/views/pwa/push-devices.blade.php` (chuỗi
+  ở `lang/vi/push.php` — đừng ghi đè `reset.*`, `devices.*`, `invite.*`, `validation.*`). `PushAlert` chỉ xếp khi
+  `VapidKeys::configured()`.
+- Bản chạy của làn chậm (ổ 9p: 3–7 giây mỗi request): kịch bản trình duyệt phải chờ phần tử, không dựa vào
+  `networkidle` sau một cú bấm.
+
+Số đo: cả bộ `test --parallel --processes=2` 3978 passed, 25 skipped, 1 todo, 1 risky, 0 failed (sau Task 4: 3883;
++95 ca); MariaDB (`test:mariadb`, tuần tự) trên năm tệp test đã chạm 114 passed — gồm ca endpoint ngoài ASCII trả 422
+trước khi tới cột `ascii`; 49 đột biến đều đỏ (hai đột biến sống ở lượt đầu — `@` trong phần host, `+` trong khoá —
+được đóng bằng hai ca test mới rồi chạy lại); `tools/pwa/survey-push.cjs` 21/21 OK.
+
+Vòng sửa 1 (rà soát Task 5, I1 — 2026-10-04): khối "Máy này" nằm trong `wire:ignore`, nên gỡ CHÍNH máy này trên trang
+(nút "Gỡ" của dòng "Máy đang dùng", hay "Gỡ mọi thiết bị") nay phát sự kiện Livewire toàn cục `vk-push-device-removed`
+(`ManagesOwnPushDevices::DEVICE_REMOVED_EVENT`); `register.js` nghe trên `window` và đổi khối "đang nhận" sang khối có
+nút Bật — chỉ khi khối "đang nhận" đang hiện (các khối khác vẫn đúng sau khi gỡ). Gỡ một máy KHÁC không phát; "Gỡ mọi
+thiết bị" luôn phát, kể cả khi phiên không còn nhớ endpoint của máy này. Trước vòng này câu "Máy này đang nhận thông
+báo." còn đứng sau khi máy chủ đã thôi gửi, và không có nút Bật lại cho tới khi tải lại trang. `survey-push.cjs` thêm
+bước 2b (gỡ máy đang dùng → nút Bật cùng trang → bật lại 201 → "Gỡ mọi thiết bị" → nút Bật), 24/24 OK; hai đột biến
+chạy trên trình duyệt (bỏ trình nghe JS; bỏ lần phát của "Gỡ mọi thiết bị") đều HỎNG đúng bước. Số đo: cả bộ 3982
+passed, 25 skipped, 1 todo, 1 risky, 0 failed (+4 ca); MariaDB hai tệp đã chạm 37 passed; 10 đột biến Pest đều đỏ.
+
+### Task 6 — đăng xuất, cắt phiên, dọn dẹp (2026-10-04)
+
+Đã làm (R9):
+- Listener `App\Listeners\ForgetPushDeviceOnLogout` (auto-discovery; KHÔNG `ShouldQueue` — đọc phiên của request đang
+  chạy, trước khi phiên bị xoá) nghe `Logout` **và** `CurrentDeviceLogout`, gọi
+  `App\Actions\Push\ForgetPushDevice::onLogout($user, $guard, $session)`: rút endpoint ở `push.endpoint.{guard}` của
+  guard trong sự kiện, gỡ dòng đó CHỈ qua `$user->pushSubscriptions()` (dòng của người khác đứng nguyên), audit
+  `push_device_removed` chỉ mang `device_label`; luôn xoá cả `push.endpoint.{guard}` lẫn `push.checked.{guard}`. Bốn
+  đường đăng xuất, mỗi đường một test HTTP thật (`tests/Feature/Push/PushLogoutTest.php`, thiết bị bật bằng chính
+  `POST …/push/subscriptions`):
+  1. nút Đăng xuất của hai panel (`LogoutController`: `logout()` rồi `invalidate()`);
+  2. cắt phiên SPEC §10.9 trên request cập nhật Livewire (`EnsurePortalAccountIsActive`) — tài khoản vô hiệu, hoặc
+     khách hàng xoá mềm;
+  3. "Đặt lại 2FA" (`RejectStaffSessionsFromBeforeReset`: `logout()` KHÔNG huỷ phiên — nên khoá phiên phải được xoá ở
+     đây, để người đăng nhập lại trong cùng phiên được kiểm lại);
+  4. mật khẩu đổi ở nơi khác (`AuthenticateSession` của panel: `logoutCurrentDevice()` phát `CurrentDeviceLogout`, KHÔNG
+     phải `Logout`, rồi `flush()`) — đường setup không liệt kê.
+- Khoá phiên theo guard (phán quyết (c)) được kiểm: nhân sự bật push ở `/admin`, khách bật ở `/portal` SAU (cùng trình
+  duyệt, cùng phiên), nhân sự đăng xuất `/admin` → dòng admin bị gỡ, dòng portal còn nguyên (chủ của nó chưa đăng
+  xuất). Thêm ca của rà soát Task 5 Minor 4(b): `DELETE` một máy KHÁC của mình rồi đăng xuất → máy này vẫn bị gỡ.
+- `onLogout()` không bao giờ ném: lỗi CSDL lúc gỡ thì người dùng VẪN ra khỏi phiên (302 về trang đăng nhập, phiên huỷ;
+  đột biến bỏ `try` cho 500), nhật ký chỉ một cảnh báo mang tên lớp ngoại lệ, guard và `client_user:12` — thông điệp
+  `QueryException` chứa câu SQL kèm endpoint (R8). Endpoint trong phiên vẫn được kiểm hình dạng (không ném) trước khi vào
+  câu WHERE trên cột `ascii`.
+- `App\Actions\Schedule\PrunePushSubscriptions` + lịch `push-subscriptions.prune` 03:30 giờ Việt Nam
+  (`routes/console.php`, gọi bằng chuỗi `Lớp@handle` theo luật chỉ nối thêm ở cuối tệp; KHÔNG `withoutOverlapping()` —
+  mỗi nhóm là một câu `DELETE`, chồng nhau vô hại). Dọn: chủ không còn dùng được (nhân sự không `is_active`/xoá
+  mềm/không còn dòng; tài khoản cổng không `is_active`/xoá mềm/khách hàng xoá mềm — `whereDoesntHaveMorph` đi qua global
+  scope của model chủ) và đăng ký không mở ứng dụng quá 180 ngày (`last_seen_at`; chưa từng có thì `created_at`; đúng
+  180 ngày thì còn). Chạy hai lần không đổi. Một audit `push_subscriptions_pruned` (`count`, `owner_ineligible`, `stale`,
+  `via = schedule`) chỉ khi có dọn; không endpoint. `activated_at` cố ý không là điều kiện dọn (docblock). Khoá dịch ở
+  `lang/vi/activity.php`.
+- Deep link sau khi hết phiên (`tests/Feature/Portal/DeepLinkSignInTest.php`): ĐO được rằng `url.intended` sống qua bước
+  mã OTP (ca đó xanh trước mọi sửa). MẤT ở bước đổi mật khẩu bắt buộc, đúng như setup đo trên mã → sửa ở đó:
+  `RequirePortalPasswordChange` ghi URL của mỗi request `GET` bị chặn — mở trang, và request cập nhật Livewire (request
+  giả của đường ống bền mang phương thức/đường dẫn của TRANG) — vào khoá riêng
+  `RequirePortalPasswordChange::INTENDED_URL_KEY` (không dùng `url.intended`: hai panel chung phiên); `ChangePassword`
+  `pull` khoá đó, không có thì về trang chủ cổng như trước. Lượt kiểm `POST …/push/subscriptions` của `register.js` trên
+  trang đổi mật khẩu cũng bị chặn nhưng KHÔNG ghi đè đích.
+
+Lệch kế hoạch, có lý do:
+1. Listener nghe thêm `CurrentDeviceLogout` (đường thứ tư); kế hoạch chỉ nói `Logout`.
+2. Prune ghi một audit tổng (kế hoạch không đòi audit cho prune), không `push_device_removed` từng máy — đó là dấu vết
+   của một người tự gỡ máy của mình.
+3. `tools/pwa/survey-push.cjs` (Task 5) khẳng định "endpoint vẫn của khách 1" sau khi khách 1 đăng xuất — Task 6 đổi
+   đúng hành vi đó (nhật ký Task 5: `chủ=khach1@example.com`). Kịch bản nay kiểm máy bị gỡ lúc đăng xuất ở cả cổng
+   lẫn app nội bộ; lượt kiểm của khách 2 vẫn `not_owned` và không tự gắn.
+
+Không làm (đúng phán quyết controller): "Đặt lại 2FA" xoá phiên bằng CSDL (không sự kiện) — đăng ký của máy đã mất còn
+lại cho tới khi máy đó gửi một request (lúc ấy `RejectStaffSessionsFromBeforeReset` đăng xuất và gỡ), hoặc nhân sự gỡ nó
+ở trang thiết bị, hoặc lượt dọn 180 ngày. Hết 120 phút mà không đăng xuất thì đăng ký còn, có chủ đích.
+
+Kiểm bằng trình duyệt thật (`tools/pwa/survey-push.cjs`, bản chạy của làn, `CSP_MODE=enforce`, khoá VAPID THỬ): 26/26
+dòng OK — gồm "đăng xuất: máy này bị gỡ khỏi khách 1" (`chủ=(không ai)`) và "nội bộ: đăng xuất → máy này bị gỡ khỏi
+nhân sự" (`trước=1, sau=0`). Máy thật: D5 (chạm thông báo khi hết phiên → về đúng trang hồ sơ) và D7 (đăng xuất → không
+còn thông báo) của danh sách kiểm tra — PENDING OWNER (Task 10).
+
+Sự thật cho task sau:
+- Task 7–9: máy đã đăng xuất KHÔNG còn dòng; máy đã mất của người không đăng xuất vẫn còn dòng — luật người nhận lúc gửi
+  là nơi quyết định (R9), payload theo R11.
+- M7 `ExpireClientAccess` (00:30, `is_active = false`): prune 03:30 dọn đăng ký của các tài khoản đó sau khi gộp, không
+  cần nối gì; mục lịch của cả hai nằm cuối `routes/console.php` (vùng xung đột lúc gộp).
+
+Số đo: cả bộ `test --parallel --processes=2` 4006 passed, 25 skipped, 1 todo, 1 risky, 0 failed (sau Task 5: 3982; +24
+ca); MariaDB (`test:mariadb`, tuần tự) trên bốn tệp test đã chạm 96 passed (gồm hai câu `DELETE … whereDoesntHaveMorph`
+của lượt dọn và cột `ascii`); 29 đột biến, 28 đỏ — đột biến sống duy nhất (nhánh rơi về `session()` cho request giả
+của Livewire trong `RequirePortalPasswordChange`) cho thấy nhánh đó chết: request giả mang phiên, nên nhánh bị bỏ.
+
+### Task 7 — `PushTopic`, `SendPushAlert`, hàng đợi `push`, nhật ký (2026-10-04)
+
+Đã làm (R10–R13):
+- `App\Enums\PushTopic` — NƠI DUY NHẤT dựng nội dung đẩy (`message()` → `App\Support\Push\VkWebPushMessage`):
+  bảy chủ đề của bảng R10 đã có trên `main` (`client.stage_update`, `client.document_published`,
+  `client.document_rejected`, `client.request_answered`, `staff.deadline_reminder`, `staff.new_client_request`,
+  `staff.new_client_document`) + `push.test` (nút "Gửi thử"). Giá trị trùng tên mẫu thư đi cùng; bản ghi liên quan
+  (`relatedClass()`) là ĐÚNG bản ghi mà mailable đó ghi vào nhật ký. Payload đúng các khoá R11: `title` = tên văn
+  phòng, `body` = một câu chung ở `lang/vi/push.php` (`alerts.*`; mốc hạn có ba câu theo bậc — d14/d7/d3 "sắp đến",
+  d1 "hôm nay hoặc ngày mai", quá hạn), `icon`/`badge` (`AppIcons::ANY[192]`, `AppIcons::BADGE` = con dấu 96 px),
+  `tag` = chủ đề + id bản ghi, `data.url` = đường dẫn TƯƠNG ĐỐI: khách → `/portal/ho-so/{vụ}` (khối Tài liệu
+  `#tai-lieu`, khối Hồ sơ giấy tờ `#ho-so-giay-to` — hai `id` mới ở `matter-progress.blade.php`), `/portal/yeu-cau/{vụ}`;
+  nhân sự → `/admin/matters/{vụ}?relation={chỉ số tab}` (Mốc thời hạn, Yêu cầu, và "Danh mục hồ sơ" cho giấy tờ khách
+  nộp — phán quyết (f)); "Gửi thử" → trang "Thông báo trên điện thoại" của panel người nhận. TTL 24 giờ cho mốc hạn,
+  72 giờ cho chủ đề khác; `urgency` `high` chỉ cho mốc hạn d1/quá hạn.
+- `App\Actions\Push\SendPushAlert::handle($recipients, PushTopic, $related, $tier)` — ĐƯỜNG DUY NHẤT dựng
+  `App\Notifications\PushAlert`. Nhận ĐÚNG người nhận của thư (R10; không luật người nhận riêng), bỏ người không có
+  máy, gộp người trùng, không làm gì khi thiếu khoá VAPID. Lời gọi sai (bản ghi sai loại, người nhận sai panel, bậc
+  lạ) ném `InvalidArgumentException` TRƯỚC khi xếp gì; lỗi lúc chạy (CSDL, hàng đợi) được `report()` và không bao
+  giờ lên tới nơi gửi thư (R12: push hỏng không làm hỏng thư). Docblock ghi câu R14 về bảng `(notifiable, topic)`.
+- `PushAlert`: `ShouldQueue`, `afterCommit`, `tries = 3`, `backoff = [60, 300]`, hàng `push`, kênh `WebPushChannel`;
+  thông điệp dựng sẵn lúc xếp (chỉ chuỗi và số trong `jobs.payload`); `shouldSend()` hỏi lại `VapidKeys::configured()`
+  lúc gửi (khoá bị gỡ giữa chừng → bỏ êm, không 401/403 cho từng máy).
+- Lịch `queue.push`: `queue:work --queue=push --stop-when-empty --max-time=50` mỗi phút, `withoutOverlapping(5)`
+  (cuối `routes/console.php`; `queue.drain` không `--queue` nên không bao giờ rút hàng này).
+- Nhật ký: `OutboundChannel::Push` ("Thông báo đẩy"); listener `App\Listeners\RecordOutboundPushReport` (auto-discovery,
+  KHÔNG `ShouldQueue`) nghe `NotificationSent`/`NotificationFailed` của gói → `App\Actions\Notification\RecordOutboundPush`:
+  mỗi máy một dòng, `recipient` = `client_user:12`/`user:7`, `template` = chủ đề, `related` = siêu dữ liệu của
+  `VkWebPushMessage` (ngoài payload), `payload` = `title`+`body`, `error` = `HTTP {mã} {lý do}` + đoạn thân trả lời,
+  ĐÃ GỠ endpoint (nguyên văn, dạng JSON-thoát, mã hoá URL, phần path, mọi URL — Guzzle ghép URL vào câu lỗi kết nối).
+  Hàm không bao giờ ném (chạy trong vòng báo cáo của kênh: một lỗi ghi sẽ cắt báo cáo của máy kế tiếp và làm job gửi
+  lại tới mọi máy). SPEC §4.15 có đính chính 2026-10-04.
+- Nhật ký thư (M6.5 Task 13): cột và bộ lọc "Kênh"; trang xem một dòng push hiện kênh, CHỦ máy (tra lại tên + email
+  từ `recipient`), "Câu đã gửi" thay "Tiêu đề thư". Luật ai xem dòng nào không đổi (test: luật sư phụ trách thấy,
+  luật sư ngoài vụ không thấy, trang xem 404).
+- **Sự thật CRITICAL của setup, đã xử lý:** `ResendOutboundMessage` chỉ gửi lại dòng `channel = email` — ở
+  `canResend()` (nút ẩn), ở `handle()` (sau cổng quyền, câu riêng `outbound.resend.refused.channel`) và ở
+  `ResendOutboundMessageJob` (lớp hai). Thiếu cổng này một dòng push hỏng (410) có nút "Gửi lại" xếp một THƯ (chủ đề
+  trùng tên mẫu thư). Truy vấn chống trùng của thư: KHÔNG sửa — mọi truy vấn lọc `recipient = <email>` (dòng push
+  không có `@`), trừ `CheckStaleMatters::recentlyMailed()` lọc `template = staff.stale_matter`, mẫu mà push cố ý không
+  bao giờ có (test ghim "không chủ đề nào cho `client.otp`, `client.activation`, `client.missing_documents`,
+  `staff.stale_matter`"). Lập luận ở docblock `RecordOutboundPush`.
+- Service worker (`sw-js.blade.php`, R11): trình nghe `push` hiện đúng nội dung máy chủ đã dựng, dự phòng tiêu đề/câu
+  tiếng Việt render từ PHP (`PUSH_*`, khoá `push.service_worker.fallback`), không ghi bộ đệm; `notificationclick` chỉ
+  mở URL cùng origin và trong scope (khớp theo đoạn), `focus()` + `navigate()` cửa sổ app đang mở, hỏng thì
+  `openWindow()`. Văn bản phục vụ vẫn dưới 150 dòng.
+- Nút "Gửi thử" (cuối Task 7, phán quyết (b)): `POST {panel}/push/test` (cùng throttle 10/phút, ở admin cùng cổng 2FA)
+  → `App\Actions\Push\SendTestPush` → `SendPushAlert` với chủ đề `push.test` cho CHÍNH người bấm; nút là một
+  `<form method="post">` thường (có `@csrf`, không JavaScript — `register.js` ở 198/200 dòng), chỉ hiện khi người xem
+  có máy và máy chủ có khoá; về lại trang thiết bị với toast "Đã gửi thử tới N máy" / "Chưa có máy nào".
+- Test cấu trúc `tests/Feature/Push/PushStructureTest.php` (token PHP trên `app/`, `routes/`, view đã biên dịch): chỉ
+  `SendPushAlert` tham chiếu `PushAlert`; chỉ `PushAlert` tham chiếu `WebPushChannel`; chỉ `PushTopic` dựng
+  `VkWebPushMessage`/đọc `push.alerts.*`, không ai dựng `WebPushMessage` của gói; `SendPushAlert` chỉ được tham chiếu
+  từ danh sách cho phép (hôm nay: `SendTestPush`) — Task 8/9 thêm từng nơi nối (kể cả JOB `SendDeadlineReminderMail`)
+  CÙNG commit nối.
+- Helper `tests/Support/FakePushServer.php` (máy chủ push giả ở tầng HTTP).
+
+Đo trước (R6, "chưa đo" của kế hoạch): `Http::fake()` chặn được request của `WebPushChannel` CHỈ KHI được đăng ký
+TRƯỚC lần đầu kênh được phân giải trong app (client Guzzle dựng một lần, chụp collection `stubCallbacks` và cờ
+`preventStrayRequests` của factory lúc đó; `ChannelManager` giữ driver). Test "a fake registered after the channel
+was built does not intercept" ghim điều kiện đó (endpoint `https://127.0.0.1:9/…`, cổng đóng của chính máy). Helper
+gọi `Http::preventStrayRequests()` cùng lúc.
+
+Lệch kế hoạch, có lý do:
+1. `PushTopic` thêm case `push.test` (kế hoạch: "một `PushTopic` riêng hoặc nội dung chung cố định — vẫn đi qua
+   `PushTopic`"), TTL MỘT giờ — một tin thử tới sau ba ngày (máy tắt) không thử được gì; R11 chỉ nói TTL của chủ đề
+   sự kiện.
+2. `staff.instalment_overdue` (phán quyết (e)) và `staff.handover_ready` (M7, mang sang) CHƯA có case: mỗi case thêm
+   CÙNG lời gọi của nó ở Task 9 / lúc gộp M7 (một case không ai gọi là mã chết).
+3. Nút "Gửi thử" là biểu mẫu POST thường thay vì nút do `register.js` điều khiển: route của kế hoạch có người gọi
+   thật, không thêm dòng JS nào (trần 200 dòng).
+4. Thêm listener `RecordOutboundPushReport` (kế hoạch chỉ liệt kê Action): Action không được auto-discovery.
+5. `RecordOutboundPush` giữ HOST đứng một mình trong câu lỗi kết nối ("Failed to connect to … port 443"): nó chỉ nói
+   máy chủ push nào; endpoint (path mang quyền gửi) và mọi URL thì bị thay.
+
+Sự thật cho task sau:
+- Task 8/9 gọi `app(SendPushAlert::class)->handle($recipients, PushTopic::X, $related[, $tier])` NGOÀI mọi
+  `DB::transaction()`, sau thư (phán quyết (d): từng người, ngay sau khi thư của chính người đó đi được); thêm tệp gọi
+  vào `pushAlertCallersAllowed()` của `PushStructureTest` cùng commit. `$tier` của mốc hạn là khoá
+  `CheckDeadlines::tierFor()` (`PushTopic::DEADLINE_TIERS`).
+- Test của Task 8/9 dựng thiết bị bằng `FakePushServer::device($owner, '…')`; đọc payload qua `Notification::fake()`
+  + `$alert->toWebPush($n, $alert)->toArray()` (xem `pushTopicPayload()` ở `PushTopicTest`), hay đi đường thật với
+  `FakePushServer::start()` (đăng ký TRƯỚC lần gửi đầu).
+- Task 9: thêm case `staff.instalment_overdue` (câu chung, deep link theo `InstalmentOverdue::link()` — phụ thuộc người
+  nhận; `PushTopic::url()` đã nhận `$recipient`), nhãn ở `lang/vi/enums.php`; `outbound.templates` đã có nhãn.
+- Task 10: `notificationclick` (focus/navigate) chỉ kiểm được trên máy thật (D-mục của danh sách kiểm tra, PENDING
+  OWNER) — sự kiện tổng hợp trong worker không gọi được `waitUntil`.
+- Test giả lỗi CSDL bằng `DB::beforeExecuting()` ném `QueryException` cho đúng câu cần hỏng (xem
+  `pushAlertFailInsertsInto()` ở `SendPushAlertTest`), KHÔNG `Schema::drop()`: trên MariaDB (`test:mariadb`) một câu
+  DDL tự commit transaction của `RefreshDatabase`, bảng mất luôn cho mọi test chạy sau trong cùng tiến trình.
+- Dòng `push.test` không có bản ghi liên quan, nên trong nhật ký thư chỉ admin thấy (luật `visibleTo()` không đổi);
+  người bấm "Gửi thử" thấy kết quả trên máy và ở toast, không ở nhật ký.
+
+Kiểm bằng trình duyệt thật (bản chạy của làn, `CSP_MODE=enforce`, khoá VAPID THỬ):
+- `tools/pwa/survey-sw-push.cjs` (mới, `CHANNEL=chromium` — headless-shell mặc định báo quyền thông báo `denied`):
+  một lần đẩy đưa thẳng vào worker bằng CDP `ServiceWorker.deliverPushMessage`, đọc lại bằng `getNotifications()`, cho
+  cả hai app: đúng một thông báo, tiêu đề/câu/`tag` như payload, `data.url` trong scope; URL ngoài scope (app kia,
+  `/portalx`, khác origin, `//khác-origin`, `javascript:`) → trang chính của app; dữ liệu hỏng hay rỗng → câu dự phòng
+  tiếng Việt; CacheStorage không thêm gì ngoài tài nguyên tĩnh. 33/33 OK. Hai đột biến chạy trên trình duyệt đều HỎNG
+  đúng dòng: bỏ vế cùng origin của `inScope()` (29/33), trình nghe `push` dùng thẳng `data.url` (23/33).
+- `tools/pwa/survey-push.cjs` thêm bước "Gửi thử": biểu mẫu POST → 302 về trang thiết bị, toast "Đã gửi thử tới 1 máy",
+  đúng một job trên hàng `push`. 27/27 OK.
+- KHÔNG đo được trên máy dev: cú chạm thật (`notificationclick` → `focus()`/`navigate()`), và một lần đẩy thật qua máy chủ
+  push của Google/Apple — mục D của danh sách kiểm tra máy thật, PENDING OWNER (Task 10).
+
+Số đo: cả bộ `test --parallel --processes=2` 4105 passed, 25 skipped, 1 todo, 1 risky, 0 failed (sau Task 6: 4006; +99
+ca); MariaDB (`test:mariadb`, tuần tự) trên chín tệp test đã chạm 232 passed; 47 đột biến Pest đều đỏ (M04, M23 chạy lại
+sau khi đổi cách giả lỗi CSDL, vẫn đỏ). Đột biến M09 (nối tiêu đề vụ vào `body`) lần đầu SỐNG vì lỗi của chính test:
+`->not->toContain($marker, $message)` của Pest coi đối số thứ hai là một chuỗi cần tìm nữa, không phải thông điệp — sửa
+test thành `str_contains(...)` + `->toBeFalse($message)`, đột biến đỏ. Pint sạch.
+
+R11 — chuyển dữ liệu ra nước ngoài (bổ sung cho đánh giá của M8 R3 ở "Ghi chú M8"): máy chủ push của Apple, Google,
+Mozilla chỉ thấy bản mã (aes128gcm, RFC 8291) cùng siêu dữ liệu (endpoint, thời điểm, TTL, `urgency`); bản giải mã
+cũng chỉ là tên văn phòng, một câu chung và một đường dẫn mang số id — không dữ liệu cá nhân nào của khách.
+
+### Task 8 — push cho bốn sự kiện của khách (2026-10-04)
+
+Đã làm (R10, R11; phán quyết (d) của controller):
+- Bốn Action thư khách gọi `App\Actions\Push\SendPushAlert` NGAY SAU vòng thư, TRƯỚC lần ném lại lỗi của người khác:
+  `NotifyClientOfStageUpdate` (`client.stage_update`, bản ghi = dòng tiến độ), `NotifyClientOfDocumentPublished`
+  (`client.document_published`, tài liệu đã đọc lại), `NotifyClientOfChecklistItemRejected` (`client.document_rejected`,
+  đầu mục đã đọc lại), `NotifyClientOfRequestAnswered` (`client.request_answered`, câu trả lời đã đọc lại) — đúng bản ghi
+  mà mailable ghi vào nhật ký.
+- Tập push của MỘT lượt = những tài khoản mà CHÍNH lượt đó vừa gửi thư thành công (`$mailed`): không người đã có dòng
+  `sent` từ lượt trước (`alreadyDelivered()`), không người vừa hỏng thư. Hợp qua mọi lượt — lượt thử lại của hàng đợi,
+  nút "Gửi lại" của nhật ký thư (`ResendTargets` gọi lại đúng `handle()`) — đúng bằng tập người nhận thư. Không luật
+  người nhận thứ hai (người nhận vẫn chỉ từ `ResolveClientRecipients`), không trí nhớ chống trùng mới (`notified_at`, sổ
+  thư). `SendPushAlert` không ném vì lỗi lúc chạy, nên push hỏng không chặn `notified_at` hay lần ném lại của thư (R12).
+- `PushStructureTest::pushAlertCallersAllowed()` thêm bốn tệp đó, mỗi tệp một chủ đề.
+- Test mới `tests/Feature/Push/ClientEventPushTest.php` (qua màn hình văn phòng bằng Livewire: form "Chuyển giai đoạn",
+  "Công bố" của tab Tài liệu, "Cần nộp lại" của tab Danh mục hồ sơ, "Trả lời" của tab Yêu cầu, "Gửi lại" của nhật ký thư):
+  tập push = tập thư (id giữa `Mail::fake()` và `Notification::fake()`, cảnh có vợ, chồng, tài khoản chưa kích hoạt,
+  tài khoản bị khoá, tài khoản của khách hàng khác — mọi người đều đã bật máy); chủ đề và bản ghi của push = header
+  `X-VKCRM-Template`/`X-VKCRM-Related` của thư; payload không chứa chuỗi đánh dấu nào (mã hồ sơ, tiêu đề vụ, tên khách,
+  tên các bên, toà, số thụ lý, ghi chú nội bộ, nội dung công bố, tiêu đề tài liệu, tên đầu mục, lý do từ chối, câu hỏi,
+  câu trả lời — Review Focus 2); ba điều kiện của luật chung (chưa kích hoạt, bị khoá, khách hàng xoá mềm) × bốn đường;
+  chuyển giai đoạn không công bố → không push, listener chạy lại → không push thứ hai (`notified_at`); vợ và chồng qua
+  kênh push THẬT tới máy chủ push giả (đúng hai request, mỗi máy một dòng nhật ký `push`), máy của người lạ không nhận;
+  lượt thử lại sau lỗi một phần qua hàng đợi `database` và worker thật (lượt 1: vợ có thư → có push, chồng hỏng thư →
+  không push; lượt 2: vợ không push thứ hai, chồng có thư → có push); lần từ chối thứ hai của cùng đầu mục là thư và push
+  thứ hai.
+
+Lệch kế hoạch, có lý do: kế hoạch viết "`SendPushAlert::handle($recipients, …)` với đúng collection đó"; làn đưa vào
+những người VỪA nhận thư ở lượt đó (phán quyết (d)) — với nguyên `$recipients`, một lượt thử lại sau lỗi một phần đẩy
+lần hai cho người đã nhận (đột biến "đẩy cho nguyên `$recipients`" ở mục Số đo đỏ đúng chỗ đó).
+Giá: người đã nhận thư mà push của họ hỏng không có push bù (push là tiện ích, thư là chứng cứ).
+
+Sự thật cho task sau:
+- `main` (`b2e02d7`, sau khi gộp M7 và M10) KHÔNG có thư khách mới nào ngoài bốn mẫu này: M7 thêm
+  `staff.matter_reassigned` (Task 1) và `staff.handover_ready` (Task 4), M10 thêm `staff.intake_unanswered` (Task 5) — đều là
+  thư nhân sự. Push cho thư nhân sự thuộc Task 9 / lúc gộp (phán quyết 2 của làn); nếu M10 về sau thêm thư cho khách,
+  push cho thư đó thuộc M10, làm qua `PushTopic`.
+- Test của Task 9 dùng lại khuôn của `ClientEventPushTest`: `Notification::fake()` + `Mail::fake()` cho phép so tập, hàng
+  đợi `database` + `--once` (không `--stop-when-empty`) cho lượt thử lại, `FakePushServer::start()` cho đường thật.
+
+Số đo: cả bộ `test --parallel --processes=2` 4132 passed, 25 skipped, 1 todo, 1 risky, 0 failed (sau Task 7: 4105; +27 ca,
+đúng số ca của `ClientEventPushTest`); MariaDB (`test:mariadb`, tuần tự) trên sáu tệp test đã chạm (`ClientEventPushTest`,
+`PushStructureTest`, bốn tệp thư khách) 107 passed; 21 đột biến Pest đều đỏ — ở mỗi Action: đẩy cho nguyên `$recipients`,
+bỏ lời gọi, ghi người nhận push trước khi thư đi, đặt lời gọi sau lần ném lại (mỗi đột biến chỉ đỏ đúng đường của nó);
+ba điều kiện của `ResolveClientRecipients::eligibleQuery()` (mỗi cái đỏ đúng điều kiện đó trên cả bốn đường, ở dòng
+"không push", TRƯỚC dòng thư); bỏ một tệp khỏi danh sách cho phép của `PushStructureTest`; bỏ khoá lần từ chối của
+`alreadyDelivered()` (lần từ chối thứ hai). Pint sạch. Máy thật ("màn hình khoá chỉ có câu chung", chạm mở đúng trang):
+PENDING OWNER (Task 10).
+
+### Task 9 — push cho các sự kiện của nhân sự (2026-10-04)
+
+Đã làm (R10, R11; phán quyết (d), (e), (f) của controller):
+- Nơi nối là nơi THƯ thật sự đi, không phải nơi xếp thư:
+  - `staff.deadline_reminder` — JOB `App\Jobs\SendDeadlineReminderMail` (kế hoạch ghi `CheckDeadlines`, nhưng từ M6.5
+    Task 11 tác vụ chỉ khoá mốc, ghi `reminders_sent` và xếp job bên trong transaction; job tính lại người nhận lúc gửi).
+    Push mang bậc của job (`$tierKey`): câu chữ theo bậc, `urgency = high` ở `d1`/quá hạn, TTL 24 giờ.
+  - `staff.new_client_request` — `NotifyStaffOfNewClientRequest` (bản ghi = yêu cầu đã đọc lại).
+  - `staff.new_client_request`, khách hỏi tiếp (`REQ-2`) — `App\Actions\Portal\ReplyToClientRequest::notifyHolderOfFollowUp()`:
+    KHÔNG có thư, nên push đi cùng thông báo trong hệ thống `ClientRequestFollowUpAlert`, cho ĐÚNG collection
+    `$recipients` của nó (người giữ luồng, chưa ai giữ thì luật sư phụ trách — qua `ResolveStaffRecipients`), sau vòng
+    `->notify(`, cùng khối `try`; bản ghi = luồng (cùng `tag` với push của yêu cầu mới: câu hỏi tiếp thay tin cũ của cùng
+    luồng). Không thêm thư mới cho REQ-2 (ngoài phạm vi M12). Câu push của chủ đề đổi thành "Khách vừa gửi yêu cầu hoặc
+    câu hỏi mới. Chạm để xem." cho đúng cả hai trường hợp.
+  - `staff.new_client_document` — `NotifyStaffOfNewClientDocument` (bản ghi = tài liệu đại diện đã đọc lại; chạm mở tab
+    "Danh mục hồ sơ" — phán quyết (f)).
+  - `staff.instalment_overdue` — case MỚI của `PushTopic` (phán quyết (e); thêm một hàng vào bảng R10 của kế hoạch):
+    JOB `App\Jobs\SendInstalmentOverdueMail`; `normal`, TTL 72 giờ, câu chung "Có khoản thu đã quá hạn cần theo dõi. Chạm
+    để xem." (không số tiền, không tên khách, không mã hồ sơ/hợp đồng); deep link theo người nhận, cùng luật
+    `InstalmentOverdue::link()` (trang "Công nợ" cho ai `Receivables::canBeOpenedBy()`, không thì tab "Hợp đồng và thanh
+    toán" của vụ) — luật được chép ở `PushTopic::url()` (phương thức của mailable là `private`) và test so hai bên trên
+    đường thật. Bản ghi = đợt thu (`instalment` không thuộc `OutboundMessage::DIRECT_MATTER_TYPES` nên dòng push, như dòng
+    thư, chỉ người xem-tất-cả thấy trong nhật ký — không mở rộng).
+- Bốn nơi có thư: push cho đúng những người mà CHÍNH lượt đó vừa gửi thư được (`$mailed`), SAU vòng thư và TRƯỚC lần
+  ném lại lỗi — cùng khuôn Task 8. Không luật người nhận thứ hai (`CheckDeadlines::recipientsFor()`,
+  `ResolveStaffRecipients::handle()/forBilling()` vẫn là nơi duy nhất), không trí nhớ chống trùng mới (`reminders_sent`,
+  sổ thư). Nút "Gửi lại" của nhật ký thư gọi lại `handle()` của hai Action yêu cầu/giấy tờ, nên người vừa nhận thư nhờ
+  nó cũng nhận push (cùng hành vi Task 8 — Task 8 review Minor 3 chờ controller chốt cho cả hai phía).
+  Câu chữ docblock nói đúng cửa sổ của Task 8 review Minor 1: push của một lượt xếp SAU CẢ vòng thư; worker chết giữa
+  vòng thư thì người đã nhận thư ở lượt đó không có push bù.
+- `PushStructureTest::pushAlertCallersAllowed()` thêm năm tệp (hai JOB, hai Action thư, `ReplyToClientRequest`).
+- Test mới `tests/Feature/Push/StaffEventPushTest.php` — đường thật của từng sự kiện (tác vụ `CheckDeadlines`/
+  `RemindOverdueInstalments` thật với job chạy sau commit; trang "Yêu cầu" và "Nộp giấy tờ" của cổng khách bằng
+  Livewire), mọi vai trò nhân sự đều đã bật máy:
+  - tập push = tập thư (REQ-2: = tập nhận `ClientRequestFollowUpAlert`) và = tập viết tay của luật R3, cho năm đường × vụ
+    thường / vụ `restricted` (manager, kế toán, trợ lý không xem được vụ hạn chế thì không thư, không push; admin thay
+    đúng chỗ); bốn tài khoản vô hiệu không nhận gì; chủ đề + bản ghi của push = header nhật ký của thư; deep link đúng
+    tab (đợt thu: = liên kết của chính thư, theo người nhận); payload không chuỗi đánh dấu nào (mã hồ sơ, tiêu đề vụ, tên
+    khách, các bên, toà, số thụ lý, tên mốc hạn, tiêu đề/nội dung yêu cầu, câu hỏi tiếp, tên đầu mục, tên tệp, tên đợt,
+    ghi chú đợt, mã hợp đồng, số tiền);
+  - chuỗi dự phòng của thư mốc hạn: người phụ trách mốc bị vô hiệu → luật sư phụ trách vụ thế chỗ (vụ hạn chế bậc 1
+    ngày: cạnh admin, không quản lý); cả hai vô hiệu → quản lý;
+  - `CheckDeadlines` chạy hai lần mỗi ngày qua cả đời mốc (7 → 3 → 1 ngày → quá hạn): đúng bốn push, một mỗi bậc, câu chữ
+    và `urgency` theo bậc, cùng `tag`;
+  - `urgency`/TTL qua đường thật cho d14 (mốc quan trọng), d7, d3 = `normal`; d1, hết hạn hôm nay, quá hạn = `high`; TTL
+    86400;
+  - payload mốc hạn vụ `restricted` trùng từng ký tự payload vụ thường sau khi bỏ id mốc/vụ;
+  - lượt thử lại sau lỗi một phần (hàng đợi `database`, worker thật) cho bốn đường có thư;
+  - mọi bậc `CheckDeadlines::tierFor()` có thể trả = `PushTopic::DEADLINE_TIERS` (một bậc lạ làm `SendPushAlert` ném SAU
+    khi thư đã đi → job hỏng, `failed()` rút bậc và rung chuông sai);
+  - không push cho `staff.stale_matter` (mốc 21 ngày) và `client.missing_documents`: thư đi, mọi người nhận có máy, không
+    một `PushAlert` nào (R10). `PushTopicTest` thêm: không chủ đề `staff.backup_alert.*` (Task 7 review Minor 10, một
+    phần); case mới trong mọi dataset (payload, deep link theo vai trò, TTL/urgency).
+
+Việc mang sang lúc gộp M7 (`staff.handover_ready`, M7 Task 4 — ĐÃ có trên `main` từ `b2e02d7`, chưa có trên nhánh này;
+ai gộp sau làm) — **ĐÃ LÀM ở vòng sửa cuối (I5, mục "Vòng sửa cuối" dưới), sau khi gộp `main` vào nhánh**:
+1. `App\Enums\PushTopic`: thêm `case StaffHandoverReady = 'staff.handover_ready'`; `panel()` → `admin`; `relatedClass()` →
+   `Document::class` (đúng `HandoverPackageReady::relatedRecord()` = tài liệu gói); TTL mặc định 72 giờ, `normal`; `url()`
+   → `self::matterTab($matterId, DocumentsRelationManager::class)`; câu ở `lang/vi/push.php` (`alerts.staff.handover_ready`,
+   ví dụ "Gói bàn giao hồ sơ đã sẵn sàng. Chạm để xem." — không mã hồ sơ), nhãn ở `lang/vi/enums.php`
+   (`push_topic.staff.handover_ready`); `outbound.templates` đã có nhãn của mẫu thư trên `main`.
+2. `App\Jobs\SendHandoverPackageReady::handle()` (trên `main` gửi bằng `Mail::to()->send()`, không còn `->queue()`): thêm
+   `$mailed = collect()`, `$mailed->push($user)` ngay sau `Mail::...->send(...)` trong `try`, và sau vòng lặp, TRƯỚC
+   `throw $failure`: `app(SendPushAlert::class)->handle($mailed, PushTopic::StaffHandoverReady, $document);`.
+3. `tests/Feature/Push/PushStructureTest.php`: thêm `'app/Jobs/SendHandoverPackageReady.php' => 'staff.handover_ready'`.
+4. `tests/Feature/Push/StaffEventPushTest.php`: một đường `handover` (sinh gói qua đường thật của M7, job thư chạy sau
+   commit) trong dataset đồng nhất người nhận (vụ thường + `restricted`) và dataset thử lại; `PushTopicTest`:
+   `pushTopicRelated()` + một dòng deep link + một dòng TTL.
+5. Bỏ dòng "(mang sang lúc gộp M7)" ở Task 9 của kế hoạch, tick nó.
+
+Sự thật cho controller (không làm ở làn này):
+- `main` còn hai thư nhân sự KHÔNG có trong bảng R10: `staff.matter_reassigned` (M7 Task 1) và `staff.intake_unanswered`
+  (M10 Task 5). Theo phán quyết 1 của làn, push cho thư của M10 thuộc M10; `staff.matter_reassigned` chưa ai quyết — mặc
+  định không đẩy (không gấp), và nếu không đẩy thì thêm hai giá trị đó vào test "has no topic for the mails that are
+  deliberately never pushed" lúc gộp.
+- Task 7 review Minor 1 / Task 8 review Minor 2 (`PushAlert::shouldSend()` không hỏi lại `is_active`) áp cả cho nhân sự:
+  nhân sự bị vô hiệu trong cửa sổ hàng đợi `push` vẫn nhận MỘT câu chung. Không sửa ở Task 9 (ngoài brief).
+
+Số đo: cả bộ `test --parallel --processes=2` 4167 passed, 25 skipped, 1 todo, 1 risky, 0 failed (sau Task 8: 4132; +35 ca:
+27 của `StaffEventPushTest`, 8 dòng dataset mới của `PushTopicTest`); MariaDB (`test:mariadb`, tuần tự) trên tám tệp
+(`StaffEventPushTest`, `PushTopicTest`, `PushStructureTest`, `SendDeadlineReminderMailTest`, `SendInstalmentOverdueMailTest`,
+`NewClientRequestNotificationTest`, `NewClientDocumentNotificationTest`, `ReplyToClientRequestTest`) 208 passed; 23 đột biến
+Pest đều đỏ đúng đường — ở mỗi nơi nối: đẩy cho nguyên `$recipients` (đỏ đúng dòng thử lại của đường đó), bỏ lời gọi
+(đỏ đúng hai dòng đồng nhất của đường đó); ở job mốc hạn thêm: ghi người nhận push trước khi thư đi, đặt lời gọi sau lần
+ném lại, đưa bậc cố định; `PushTopic`: nhánh "Công nợ" luôn sai / luôn đúng, bỏ nhánh `Instalment` của `matterIdOf()`,
+nối tên bản ghi vào `body` (Review Focus 2), bỏ `d14` khỏi `DEADLINE_TIERS`, bỏ `d1` khỏi `PRESSING_TIERS`; bỏ một tệp
+khỏi danh sách cho phép; thêm push vào job thư stale/missing; hai đột biến ở luật CHUNG (`billingAudienceFor()`,
+`supervisorsFor()` của vụ hạn chế) đỏ ở dòng "tập thư = tập viết tay" mà push vẫn = thư. Pint sạch. Máy thật (màn hình
+khoá của nhân sự chỉ có câu chung, chạm mở đúng tab, độ khẩn d1/quá hạn): PENDING OWNER (Task 10).
+
+Vòng sửa 1 (review Task 9, I1 — thông báo cùng `tag` thay nhau im lặng):
+- Task 9 là nơi đầu tiên CÙNG một bản ghi được đẩy nhiều lần dưới một `tag` (R11: chủ đề + id): bốn bậc của một mốc hạn,
+  câu hỏi tiếp `REQ-2` dưới `tag` của luồng, đợt thu quá hạn 7 ngày một lần. Theo Notifications API (Chrome làm đúng
+  vậy), tin thay một tin cùng `tag` còn trong khay thì hiện im lặng trừ khi `renotify: true`; `urgency = high` chỉ là
+  gợi ý giao nhận cho máy chủ push. Sửa ở service worker: `renotify: Boolean(payload.tag)` trong `showNotification`
+  (`resources/views/pwa/sw-js.blade.php`; `renotify` không kèm `tag` làm `showNotification` ném `TypeError`). Không đổi
+  `tag` theo bậc: R11 chốt `tag` = chủ đề + id (khay giữ một tin cho mỗi mốc), và tách bậc không cứu `REQ-2` hay đợt thu.
+  Lý do ghi ở docblock `App\Enums\PushTopic`, mục "Cùng tag, nhiều lần đẩy".
+- Test: `ServiceWorkerTest` ghim `tag` + `renotify` trên văn bản `sw.js` phục vụ ra của cả hai panel; ca "pushes once per
+  tier" của `StaffEventPushTest` (một `tag` qua bốn bậc) ghim thêm `renotify` của `/admin/sw.js`; `SurveyDocsTest` ghim bước
+  D9 mới của danh sách kiểm tra máy thật (để nguyên thông báo bậc d3 trong khay, đưa mốc sang ngày mai, máy phải rung —
+  câu thông báo, tên tab/nút/ô và nhịp `deadlines.check` so với nguồn thật) và hàng "D1–D9" của bảng kết quả.
+- Chuông/rung thật: PENDING OWNER (bước D9, Task 10). Safari trên iPhone chưa đo (`renotify` có thể không được tôn trọng).
+- Hệ quả cho Task 9 review Minor 2 (chờ controller): `REQ-2` không có chống trùng và `submitReply` không có throttle, nên
+  khi tin cùng `tag` nay rung lại, một khách gửi liên tục N câu hỏi tiếp làm máy người giữ luồng rung N lần.
+- Trình duyệt thật: `tools/pwa/survey-sw-push.cjs` (Chromium headless mới, `CHANNEL=chromium`) thêm ba phép đo cho cả hai
+  app — tin có `tag` mang `renotify`; lần đẩy thứ hai cùng `tag` khi tin đầu còn hiện vẫn để lại MỘT thông báo, câu mới,
+  `renotify` bật; tin dự phòng (không đọc được nội dung, không dữ liệu) không `tag` và `renotify` tắt — 41/41 OK. Hai đột
+  biến chạy trên worker thật: `renotify: true` → 8 HỎNG (mọi tin dự phòng biến mất: `TypeError`); bỏ dòng → 4 HỎNG.
+- Số đo vòng sửa: cả bộ `test --parallel --processes=2` 4170 passed, 25 skipped, 1 todo, 1 risky, 0 failed (+3 ca: hai
+  dòng dataset của `ServiceWorkerTest`, một ca `SurveyDocsTest`); MariaDB (tuần tự) trên `ServiceWorkerTest`,
+  `SurveyDocsTest`, `StaffEventPushTest`, `PushTopicTest` 129 passed; 7 đột biến Pest đều đỏ đúng ca; pint sạch.
+
+### Task 10 — nghiệm thu, tài liệu, cổng merge của làn (2026-10-04)
+
+**Trạng thái.** Làn giao ở mức "sẵn sàng gộp": phần nghiệm thu TỰ ĐỘNG xong trên bản cuối của nhánh (số đo dưới),
+tài liệu xong, cổng test của làn xanh. Còn lại, không thuộc làn: rà soát toàn nhánh (controller điều phối), gộp vào
+`main` + CI + dòng M12 của bảng milestone (controller), và nghiệm thu trên iPhone/Android thật — **PENDING OWNER**
+theo danh sách kiểm tra `docs/research/2026-10-01-pwa-kiem-tra-may-that.md` (mục A–H; Task 10 thêm D10, G1–G8,
+H1–H4). Agent không điều khiển được điện thoại và không mở đường hầm HTTPS công khai.
+
+**Phán quyết R1–R14 của kế hoạch — đã thành mã ở đâu** (chi tiết từng task ở các mục trên):
+- **R1 — PWA mỏng, không dữ liệu ngoại tuyến:** không IndexedDB, không đồng bộ nền; mất mạng → trang tĩnh
+  `resources/views/pwa/offline.blade.php` (tiếng Việt, hotline `tel:`, "Thử lại" về `start_url`).
+- **R2 — hai app, một máy chủ:** `routes/pwa.php` (ngoài nhóm `web`: không cookie, không dòng `sessions`; nhóm của
+  admin đứng sau `RestrictAdminIpAllowlist`), `App\Actions\Pwa\BuildManifest`, `id`/`scope`/`start_url` = `/admin`,
+  `/portal` (không dấu `/` cuối), header `Service-Worker-Allowed`, thẻ `<head>` qua `PanelsRenderHook::HEAD_END`.
+- **R3 — biểu tượng PNG tĩnh:** sinh bằng `tools/brand/make-logo.php` (192, 512, maskable theo màu nền của từng app,
+  apple-touch 180 đục).
+- **R4 — service worker không lưu gì riêng tư:** `resources/views/pwa/sw-js.blade.php` — chỉ `GET` cùng origin; điều
+  hướng chỉ đi mạng (không ghi bộ đệm), lỗi mạng → trang ngoại tuyến; tài nguyên tĩnh theo
+  `config('vkcrm.pwa.static_prefixes')`; `VERSION` băm view + tiền tố + phiên bản Filament; CSP riêng của worker. Tải
+  tài liệu qua route bí danh TRONG scope, cùng cửa sổ (phán quyết tạm 1 của Task 1).
+- **R5 — CSP:** không script nội tuyến; `public/pwa/register.js` nhận mọi tham số và chuỗi qua `data-*`; bốn chỉ thị đã
+  có trong `App\Support\Security\ContentSecurityPolicy::policy()` (SPEC §10.2, đính chính 2026-10-04).
+- **R6 — gói:** `laravel-notification-channels/webpush` 13.0.1; `curl` thành extension bắt buộc (SPEC §2, preflight ĐỎ).
+- **R7 — khoá VAPID cùng hạng `APP_KEY`:** `App\Support\Push\VapidKeys`, preflight VÀNG khi thiếu, `vkcrm:push-reset`,
+  `register.js` so khoá; quy trình ở `docs/CAI-DAT.md` Bước 3 và `docs/SAO-LUU-KHOI-PHUC.md` Bước 6 (Task 10).
+- **R8 — đăng ký theo từng máy, không SSRF:** `App\Actions\Push\RegisterPushDevice`/`ForgetPushDevice`, trang "Thông
+  báo trên điện thoại" ở hai panel, máy chủ push trong `config('vkcrm.pwa.push_hosts')`, throttle 10/phút, audit chỉ
+  `device_label`, không `PushSubscription::` ngoài danh sách cho phép (`PushSubscriptionAccessTest`); lượt kiểm `sync=1`
+  không chuyển chủ, chỉ nút Bật mới chuyển.
+- **R9 — máy chủ quyết:** listener `ForgetPushDeviceOnLogout` (đăng xuất, cắt phiên SPEC §10.9, phiên trước "Đặt lại
+  2FA", mật khẩu đổi ở nơi khác); người nhận luôn tính lúc gửi; `PrunePushSubscriptions` 03:30 chỉ là vệ sinh.
+- **R10 — chủ đề đi cùng thư, một định nghĩa người nhận:** `App\Enums\PushTopic`, 8 chủ đề có sự kiện (bốn của khách,
+  bốn của nhân sự gồm `staff.instalment_overdue` theo phán quyết (e)) cộng "Gửi thử"; mỗi nơi gửi thư đẩy cho đúng
+  những người lượt đó vừa gửi thư được (phán quyết (d)). Bảng ở SPEC §9 (đính chính 2026-10-04). Kế hoạch nói "tám chủ
+  đề" với `staff.handover_ready`; con số thật trên nhánh là 8 chủ đề với `staff.instalment_overdue` thay chỗ, và
+  `staff.handover_ready` là chủ đề thứ chín, mang sang lúc gộp M7.
+- **R11 — màn hình khoá không phải màn hình của văn phòng:** tiêu đề là tên văn phòng, thân là một câu chung, `tag` =
+  chủ đề + id, `renotify` khi có `tag`; `notificationclick` chỉ mở URL cùng origin trong scope.
+- **R12 — hàng đợi `push` rút bằng cron:** `App\Notifications\PushAlert` (`ShouldQueue`, `afterCommit`, 3 lần thử),
+  mục lịch `queue.push` mỗi phút trong chính dòng cron.
+- **R13 — dấu vết:** `OutboundChannel::Push`, `App\Actions\Notification\RecordOutboundPush` (người nhận `user:7` /
+  `client_user:12`, không bao giờ endpoint).
+- **R14 — email không tắt được:** không bảng tuỳ chọn; "nhận push hay không" = "máy này đã bật chưa".
+
+**Ba phán quyết tạm của Task 1 — trạng thái cuối:** (1) tải tài liệu trong scope, cùng cửa sổ — đã làm (Task 3), máy
+thật PENDING OWNER (A5–A10); (2) không sửa luồng OTP — giữ nguyên, máy thật PENDING OWNER (B); (3) hai `id` + hai
+`scope` — đã làm (Task 2), máy thật PENDING OWNER (C). Phán quyết của controller cho làn: (a) ba phán quyết tạm trên;
+(b) "Gửi thử" ở cuối Task 7; (c) khoá phiên theo guard `push.endpoint.web`/`push.endpoint.client`; (d) push theo từng
+người sau khi thư của chính người đó gửi được; (e) `staff.instalment_overdue` vào bảng R10; (f) giấy tờ khách nộp trỏ
+tab "Danh mục hồ sơ".
+
+**Nghiệm thu tự động trên bản cuối của nhánh** (bản chạy của làn `http://localhost:8097`, `CSP_MODE=enforce`, khoá
+VAPID THỬ không ghi vào repo; Chromium 153 `CHANNEL=chromium`, WebKit 26.6 của Playwright 1.63):
+
+| Mục của kế hoạch | Phần tự động (agent) | Máy thật |
+|---|---|---|
+| Cài hai app; biểu tượng, tên, standalone, thanh trạng thái navy | `tools/pwa/acceptance.cjs` mục 1 (context bền): CDP `Page.getAppManifest` không lỗi và `Page.getInstallabilityErrors` RỖNG cho cả `/portal` lẫn `/admin`; `id`/`scope`/`start_url` không dấu `/` cuối, Chromium phân tích ra đúng scope; `display` standalone; `theme_color` và `<meta name="theme-color">` `#101d35`; tên, tên ngắn đúng; 192, 512, maskable 512 tải 200 | PENDING OWNER: A1–A3, A7, C1–C5 |
+| Bật thông báo; iPhone chỉ trong app đã cài, Safari thường thấy hướng dẫn | mục 2 (WebKit `iPhone 13`, không standalone): khối "Chạm nút Chia sẻ → Thêm vào Màn hình chính…", không nút Bật — cả app nội bộ (mục 5); mục 3 (Chromium thật, KHÔNG giả `PushManager`): bấm Bật → đăng ký FCM thật → `POST 201`, đúng một dòng `push_subscriptions` | PENDING OWNER: D1, D2 |
+| Đủ các chủ đề; màn hình khoá chỉ câu chung; chạm mở đúng trang kể cả hết phiên | Pest: 8 chủ đề nối ở Task 8–9 (người nhận push = người nhận thư, payload chỉ khoá R11, chuỗi đánh dấu); Task 10 ghim thêm deep link của bốn đường khách trên bản ghi THẬT; `survey-sw-push.cjs` (worker thật qua CDP `ServiceWorker.deliverPushMessage`); mục 3: MỘT lần đẩy THẬT qua FCM ("Gửi thông báo thử" → hàng `push` → FCM → Chromium): dòng `outbound_messages` kênh `push` là `sent`, service worker hiện "Luật Vũ Khang / Thông báo thử: máy này đã nhận được thông báo của văn phòng." Cú chạm thật (`notificationclick`) không đo được trên máy dev | PENDING OWNER: D3–D5, D9, G1–G8 |
+| Đăng xuất / vô hiệu hoá thì hết nhận tin | Pest (Task 6: đăng xuất, cắt phiên §10.9, phiên trước "Đặt lại 2FA"); `survey-push.cjs`: đăng xuất gỡ đúng máy, người sau trên cùng máy không tự nhận | PENDING OWNER: D7, D8, D10 |
+| Chụp ảnh nộp giấy tờ, tải tài liệu trong app đã cài | `survey-sw.cjs` trên bản cuối: 39/39 — nộp tệp (Livewire), tải qua bí danh trong scope, chuyển giai đoạn, đưa tài liệu lên, liên kết hết hạn về đầu đúng app, tất cả khi worker điều khiển trang | PENDING OWNER: A5–A10, F1 |
+| Chế độ máy bay → trang ngoại tuyến | `survey-sw.cjs` (hai app, "Thử lại" về `start_url`) + `acceptance.cjs` mục 3 (Pixel 7) | PENDING OWNER: E1–E3 |
+| Màn hình admin ở bề ngang 390px | mục 5 (WebKit `iPhone 13`, 390×844): H1 danh sách vụ việc (trang không tràn ngang, 390/390; chạm dòng → trang vụ việc), H2 cả 9 tab chạm được, H3 form "Chuyển giai đoạn" (ô công bố gõ được, cuộn tới và chạm "Gửi", chuyển xong), H4 "Thêm mốc thời hạn" (lịch chọn ngày nằm trong màn hình, lưu xong) — mọi nút trúng `elementFromPoint` ở tâm. Không chỗ nào chặn thao tác, nên không sửa giao diện | PENDING OWNER: H1–H4 |
+| Không dữ liệu hồ sơ nào trong CacheStorage (Review Focus 1, phán quyết 4) | sau MỌI lượt (survey-sw, mục 3, mục 5): chỉ `/portal/offline`, `/admin/offline` và tài nguyên tĩnh công khai (14–17 mục) | PENDING OWNER: F2 |
+| Đăng xuất rồi nút Back (máy dùng chung) | mục 4: trang đã đăng nhập mang `Cache-Control: max-age=0, must-revalidate, no-cache, no-store, private`; Back sau đăng xuất về trang đăng nhập, `pageshow.persisted=false` — Chromium với bộ nhớ đệm Back/Forward BẬT (cổng khách và app nội bộ) và WebKit iPhone | PENDING OWNER: F2 |
+| Máy chủ gọi ra được máy chủ push | bốn lệnh `curl` ở `docs/CAI-DAT.md` Bước 1; chạy trong container của làn: `fcm.googleapis.com` 404, `jmt17.google.com` 404, `web.push.apple.com` 405, `updates.push.services.mozilla.com` 406 (đều ĐẠT) | người triển khai, trên hosting thật |
+
+
+**Phát hiện và số đo của Task 10:**
+
+1. **Sửa trong Task 10 — Chromium thật không bật được thông báo (422).** Lần đầu tiên một trình duyệt THẬT (bản
+   Chromium 153 của Playwright, context không ẩn danh) gọi `pushManager.subscribe()` không qua bản giả: endpoint trả về
+   nằm trên tên máy `jmt17.google.com` (`/fcm/send/…`), không phải `fcm.googleapis.com` mà mọi test và bản giả của
+   Task 4–9 dùng. Tên đó không có trong `vkcrm.pwa.push_hosts`, nên `POST …/push/subscriptions` trả 422 và bấm Bật trên
+   trình duyệt đó báo "Chưa bật được". Google Chrome trên Android CHƯA đo — có thể vẫn trả `fcm.googleapis.com`; giữ
+   cả hai tên, bước D1 của danh sách kiểm tra máy thật xác nhận. Sửa: thêm đúng tên `jmt17.google.com` (không `*.google.com`) vào
+   `config/vkcrm.php`; `PushDeviceRegistrationTest` thêm endpoint đó vào ca chấp nhận (ĐỎ trước khi sửa: 422 thay 201)
+   và hai ca từ chối (`accounts.google.com`, `jmt17.google.com.evil.example`); `docs/CAI-DAT.md` Bước 1 kiểm cả tên máy
+   này. Sau khi sửa: bấm Bật → 201 → một lần đẩy thật qua FCM tới chính trình duyệt đó hiện đúng thông báo.
+2. **Back sau đăng xuất không lộ gì — rà soát Task 3 Minor 2 và Task 6 Minor 8 đóng bằng số đo.** Giả thuyết cũ ("trang
+   đã đăng nhập đi ra `no-cache, private`") sai với trang Filament: `Livewire\Features\SupportDisablingBackButtonCache`
+   gắn `DisableBackButtonCacheMiddleware` cho mọi response có component Livewire, nên trang hồ sơ của cả hai panel mang
+   `no-store`; bộ nhớ đệm Back/Forward không giữ trang, Back sau đăng xuất về trang đăng nhập. Không cần sửa.
+3. **Hai cái bẫy của Playwright khi đo PWA (đã tránh trong kịch bản):** context mặc định là ẩn danh — Chromium báo lỗi
+   cài `in-incognito` cho mọi trang và tắt hẳn Push API; Playwright tắt bộ nhớ đệm Back/Forward
+   (`--disable-back-forward-cache`). `acceptance.cjs` dùng context bền, và bật lại bộ nhớ đệm đó cho phép đo Back.
+4. **WebKit "Desktop Safari" của Playwright cho Windows đứng hình khi có `PushManager`** (đo ở
+   `.superpowers/sdd/m12/probe/t10/dbg/`: trang đầu tiên đã đăng nhập không trả lời nữa, lần điều hướng kế không bao giờ
+   xong; xoá `PushManager` trước khi trang chạy thì điều hướng bình thường; hồ sơ `iPhone 13` không bị vì `register.js`
+   dừng ở khối hướng dẫn trước Push API). Coi là hiện tượng của bản WebKit dựng cho Windows (không có dịch vụ push
+   thật), không suy ra Safari thật. Nhưng Safari trên máy Mac và app đã cài trên iPhone ĐỀU gọi Push API ở trang đầu
+   tiên sau đăng nhập, nên bước D1 của danh sách kiểm tra nay đòi chạm qua lại vài trang trước và sau khi bật — "đứng
+   hình" là KHÔNG ĐẠT. Mục 6 của `acceptance.cjs` chỉ ghi nhận.
+5. **Lỗi trang chỉ thấy ở WebKit 390, không chặn thao tác, chưa quy được cho worker.** (a) `Can't find variable:
+   textareaFormComponent` / `state` khi form "Chuyển giai đoạn" vẽ lại sau khi chọn giai đoạn — cuộc đua nạp component
+   bất đồng bộ (`x-load`) của Filament: gặp ở 2/6 lượt mục 5 có worker, 0/3 lượt chặn worker, 0/16 lần mở form trong
+   phép đo có kiểm soát (8 có worker, 8 chặn worker); ô vẫn gõ được và chuyển giai đoạn vẫn xong. (b) `… due to access
+   control checks` / `TypeError: Load failed` của WebKit cho một request cập nhật Livewire bị huỷ — gặp cả khi chặn
+   worker (máy chủ `artisan serve` của làn chậm vài giây mỗi trang). Dòng cuối của `acceptance.cjs` ("không lỗi JS")
+   vì vậy có thể HỎNG ở lượt đủ; bước H3 trên iPhone thật là nơi xác nhận.
+6. **Màn hình nội bộ ở 390px — xấu nhưng dùng được (không sửa):** bảng "Vụ việc" chỉ hiện hai cột đầu, phần còn lại
+   phải vuốt ngang trong bảng và tên khách dài bị cắt; dải 9 tab của trang vụ việc phải vuốt ngang; nút hành động xếp
+   chồng. Ảnh: `.superpowers/sdd/m12/probe/t10/shots-acc/admin-390-*.png` (ngoài repo).
+7. **Tài liệu:** `docs/CAI-DAT.md` (Bước 1 kiểm gọi ra máy chủ push; Bước 3 "Khoá thông báo đẩy (VAPID)": `config:clear`
+   → `webpush:vapid` → `VAPID_SUBJECT` → preflight → `optimize`, kèm lý do; Bước 4 việc thứ sáu — hai khối `location =`
+   cho `sw.js`, HTTPS bắt buộc cho app; Bước 7 dòng ĐỎ `curl`, dòng VÀNG khoá; Bước 8 hàng `push` trong chính dòng
+   cron; "Bản cập nhật M12" cho máy chủ đang chạy), `README.md`, `docs/SAO-LUU-KHOI-PHUC.md` Bước 6 và bước khôi phục
+   7, `.env.example`, câu VÀNG `preflight.vapid_missing` (rà soát Task 4 Minor 5, 6), SPEC §9/§10.2/§13/§15,
+   `docs/QUY-TRINH.md` (đoạn "đưa lên điện thoại" viết lại, dòng mới ở Giai đoạn 4, hướng dẫn cài app cho khách có ba
+   ảnh mô phỏng trong `docs/images/m12/`), danh sách kiểm tra máy thật (D3 đúng tên nút, D10, G1–G8, H1–H4, D1 thêm
+   "không đứng hình"). Ghim bằng `tests/Feature/Deployment/PushInstallGuideTest.php` và
+   `tests/Feature/Pwa/AcceptanceDocsTest.php`, so văn bản với mã (`Artisan::all()`, `Schedule::events()`, tên tệp
+   migration, `vkcrm.pwa.push_hosts`, `PushTopic::cases()`, `lang/vi`, `ContentSecurityPolicy::policy()`).
+
+
+**Đánh giá máy chủ push nước ngoài (R11, câu hỏi 3).** Nội dung đẩy tới trình duyệt ở dạng mã hoá (aes128gcm, RFC
+8291) qua máy chủ push của Google (FCM), Apple và Mozilla; khoá giải mã chỉ nằm trên điện thoại. Kể cả bản giải mã cũng
+không có dữ liệu cá nhân: tiêu đề là tên văn phòng, thân là một câu chung, kèm một đường dẫn tương đối chỉ mang id vụ
+việc. Máy chủ push thấy siêu dữ liệu: endpoint (định danh của trình duyệt trên dịch vụ đó), thời điểm và kích thước
+gói. PROGRESS không có mục đánh giá chuyển dữ liệu ra nước ngoài của M8 R3; đánh giá đó nằm ở kế hoạch M8
+(`docs/superpowers/plans/2026-09-21-m8-security-and-launch.md`, phán quyết R3) và
+`docs/research/2026-09-24-mcp-phap-ly-goi.md` — đọc cùng hai tệp đó. Chủ văn phòng xác nhận ở câu hỏi 3 dưới.
+
+**Câu hỏi cho chủ văn phòng — CHỜ TRẢ LỜI** (không chặn gộp):
+1. **Thời gian giữ đăng nhập trong app.** Hôm nay khách nhập lại mật khẩu và mã một lần sau 120 phút không dùng
+   (`SESSION_LIFETIME`). Giữ nguyên (an toàn nhất), hay kéo dài riêng cho cổng khách (ví dụ 7 ngày, mã một lần vẫn bắt
+   buộc ở mỗi lần đăng nhập mới)? — CHỜ TRẢ LỜI. Không tự đổi.
+2. **Nhân sự cài app nội bộ trên điện thoại cá nhân.** Văn phòng có cho phép không? Nếu bật giới hạn IP cho `/admin`
+   (`ADMIN_IP_ALLOWLIST`, M8 R7) thì app nội bộ chỉ dùng được trong mạng văn phòng: thông báo vẫn tới, chạm vào thì
+   404 khi ở ngoài. Nối với câu hỏi `ADMIN_IP_ALLOWLIST` còn treo của M8 ("Ghi chú M8", Task 1, "Lưu ý cho M12"). —
+   CHỜ TRẢ LỜI.
+3. **Máy chủ push nước ngoài.** Thông báo đi qua máy chủ của Apple và Google, mã hoá, không tên hay nội dung hồ sơ;
+   họ thấy thời điểm và thiết bị nhận. Chủ văn phòng xác nhận chấp nhận, ghi cùng đánh giá chuyển dữ liệu ra nước
+   ngoài của M8. — CHỜ TRẢ LỜI.
+
+**Việc cho controller và cho lần gộp:**
+- **Nhánh đã gộp `origin/main` (`8b0dbf9`) ở vòng sửa cuối** (commit merge `09e65cf`), nên lần gộp nhánh vào `main` không
+  còn xung đột nếu `main` chưa có commit mới. **Nguy cơ gộp đã biết (I6):** bốn `NotifyClientOf*` sửa ở cả hai phía —
+  `main` thêm bước người nhận thứ hai `ResolveClientRecipients::onPortal()` (M7 R4: hết `client_access_until` thì không
+  thư), làn thêm vòng `$mailed->push()` + `SendPushAlert`. Giải xung đột lấy bản làn làm rơi `onPortal()` (thư mang mã
+  hồ sơ và push tới khách đã hết hạn tra cứu); lấy bản `main` làm rơi push im lặng. Bản gộp giữ CẢ HAI (xung đột chỉ ở
+  docblock); `ClientEventPushTest` canh hai chiều: dòng "access expired" của "neither mails nor pushes" (+ vế dương "last
+  day") đỏ khi rơi `onPortal()`, "pushes exactly the accounts it mails" đỏ khi rơi push. Nếu `main` lại sửa một trong
+  bốn tệp trước lần gộp tới: giữ cả hai, chạy lại hai test đó, cả bộ và MariaDB tuần tự.
+- **M7 (`staff.handover_ready`)** — ĐÃ nối ở vòng sửa cuối (I5): nay 9 chủ đề sự kiện (cộng `push.test` của nút
+  "Gửi thử"); SPEC §9 hàng đó, G9 của danh sách kiểm tra máy thật.
+- **Hai thư nhân sự của M7/M10 không đẩy — đề xuất của làn, CHỜ controller chốt:** `staff.matter_reassigned` (M7 — thư
+  tổng hợp mốc hạn khi bàn giao, để đọc trên máy tính; mỗi mốc có thư nhắc và push riêng theo bậc) và
+  `staff.intake_unanswered` (M10 — phán quyết 1 của làn: push cho thư của M10 thuộc M10, qua `PushTopic`; kế hoạch
+  "Ràng buộc toàn cục" nói Task 9 thêm sự kiện M10 "nếu đã có thư" — mâu thuẫn với phán quyết 1, làn theo phán quyết).
+  Cả hai được ghim ở `PushTopicTest` ("deliberately never pushed" và test mới "decides for every mail template whether
+  it is pushed": mọi mẫu thư của `app/Mail` hoặc có chủ đề cùng tên, hoặc nằm trong danh sách cố ý không đẩy). Controller
+  đảo quyết định nào thì thêm case `PushTopic` + lời gọi ở nơi gửi thư + dòng đồng nhất người nhận, và sửa hai test đó.
+- **M8 Task 6** (rà soát §10 toàn hệ thống sau khi mọi làn gộp) phải phủ bề mặt M12: `routes/pwa.php` (manifest,
+  `sw.js`, trang ngoại tuyến của hai panel), ba route thiết bị (`POST`/`DELETE …/push/subscriptions`,
+  `POST …/push/test`), hai route tải bí danh `/{admin,portal}/documents/{id}/download`, các chỉ thị CSP mới và CSP
+  riêng của worker.
+- **Vùng xung đột khi gộp:** `docs/PROGRESS.md`, `docs/SPEC.md` (§9, §10, §13, §15), `docs/CAI-DAT.md`, `README.md`,
+  `docs/QUY-TRINH.md`, `docs/SAO-LUU-KHOI-PHUC.md`, `.env.example` (+ `EnvExampleTest`), `composer.json`/`composer.lock`
+  (dựng lại lock bằng composer), `routes/console.php`, `config/vkcrm.php`, hai panel provider, `lang/vi/*`. Lần gộp M11
+  thêm `sodium` vào `deployment.required_extensions` (rà soát Task 4, Minor 7) — `PushInstallGuideTest` khi đó đòi
+  Bước 1 của `CAI-DAT.md` và tóm tắt của README liệt kê đúng danh sách mới.
+- **Chờ controller chốt (từ các lượt rà soát):** nghe `CurrentDeviceLogout` khi chính chủ đổi mật khẩu ở máy khác
+  (Task 6 Minor 2); nút "Gửi lại" của nhật ký thư cũng đẩy lại cho khách và nhân sự (Task 8 Minor 3, Task 9 Minor 3);
+  trang 429/500 mặc định trong cửa sổ app (Task 3 vòng sửa, Minor 1); câu `portal.inactive` không hiện trên đường
+  Livewire (có từ M5). Ba mục cũ đã sửa ở vòng sửa cuối: `REQ-2` gom push theo luồng (I7), `PushAlert::shouldSend()`
+  hỏi lại người nhận (I2), câu mời của trang thiết bị nhân sự (I3).
+- **Hướng dẫn cài app cho khách** nằm ở cuối `docs/QUY-TRINH.md`. Kho mã là riêng tư nên khách không mở được đường
+  dẫn: văn phòng chép phần chữ và ảnh vào thư/tin nhắn hoặc in ra. Một trang hướng dẫn công khai ngay trên cổng là
+  việc có thể làm sau, không thuộc kế hoạch M12.
+- **Giai đoạn 2:** M12 là milestone cuối của bản đầu tiên — khi M12 gộp xong, nhắc chủ văn phòng đúng bảy hạng mục ở
+  "Giai đoạn 2 — nâng cấp sau bản đầu tiên" (Ghi chú M6.5), như chủ văn phòng đã dặn.
+
+**Cổng của làn (2026-10-05, trên bản commit của Task 10):**
+- Cả bộ `/d/vkwt/m12-dev test --parallel --processes=2`: **4191 passed**, 25 skipped, 1 todo, 1 risky, **0 failed**
+  (157239 assertions, 2753 s) — mốc trước làn 3695 passed, sau Task 9 4170 passed.
+- MariaDB, tuần tự, `/d/vkwt/m12-dev test:mariadb` trên mọi tệp test của làn (`tests/Feature/Push`, `tests/Feature/Pwa`)
+  cùng `PushInstallGuideTest` và `EnvExampleTest`: **464 passed**, 1 risky (có sẵn trên `main`), 0 failed (515 s). Không
+  chạy cả bộ trên MariaDB ở làn — vòng đó là việc của CI sau khi controller gộp.
+- `/d/vkwt/m12-dev pint --test`: PASS (898 tệp).
+- Bằng chứng ĐỎ: 18/18 ca của `PushInstallGuideTest` + `AcceptanceDocsTest` đỏ trước khi viết tài liệu; ca
+  `jmt17.google.com` của `PushDeviceRegistrationTest` đỏ (422) trước khi sửa `push_hosts`. 21/22 đột biến đỏ đúng ca
+  (một đột biến nhắm sai khoá dịch, sống, được thay bằng đột biến đúng khoá — đỏ). Nhật ký ở
+  `.superpowers/sdd/m12/probe/t10/` (ngoài repo).
+
+### Vòng sửa cuối (rà soát toàn nhánh, vòng sửa 1 — 2026-10-07)
+
+Gốc vòng sửa: `c5cb845`. Rà soát toàn nhánh (`47ee8e3..c5cb845`) báo 0 Critical, 7 Important (I1–I7), 14 Minor. Vòng
+này sửa đủ bảy mục Important; Minor để nguyên (danh sách ở sổ làn `.superpowers/sdd/m12/progress.md`).
+
+- **Gộp `origin/main` vào nhánh** (commit merge `09e65cf`, `main` = `8b0dbf9`: M7, M9 phần còn lại, M10, việc sau gộp
+  fu2/fu3). 19 tệp xung đột; bốn `NotifyClientOf*` chỉ xung đột ở docblock, mã giữ CẢ `onPortal()` của `main` LẪN
+  `$mailed->push()` + `SendPushAlert` của làn (I6). `composer.lock` dựng lại từ lock của `main` cộng đúng tám gói Web Push
+  (`composer update` theo tên gói, không `-W`: không gói nào của `main` đổi phiên bản). Cả bộ trên cây vừa gộp (trước
+  mọi sửa): 5760 passed, **2 failed** — hai lỗi ngữ nghĩa của lần gộp, sửa trong vòng này:
+  `RenderOfflinePage` đọc hotline từ cấu hình (`OfficeProfileTest` của M7 Task 10 cấm; nay qua `OfficeProfile`, hotline
+  trống thì trang bỏ dòng gọi), và ca "chỉ đúng tên miền" của `ManifestTest` dựng lại ứng dụng với SQLite trong bộ nhớ
+  chưa có bảng mà trang 404 của `main` đọc (`settings`) — test chạy `migrate` sau `refreshApplication()`.
+- **I1** — trang ngoại tuyến (`lang/vi/pwa.php` `offline.body`): "Ứng dụng không giữ bản sao hồ sơ để xem khi mất
+  mạng", bỏ "Hồ sơ không được lưu trên máy" và "Điện thoại…"; SPEC §15 nói cùng câu với QUY-TRINH (chỉ tài liệu chủ
+  động tải về nằm lại trong thư mục tải xuống, đăng xuất không xoá). Test: `ServiceWorkerTest` (HTTP, hai panel),
+  `AcceptanceDocsTest` (§15).
+- **I2** — `PushAlert::shouldSend()` hỏi lại người nhận LÚC GỬI: tài khoản cổng qua
+  `ResolveClientRecipients::eligibleQuery()`, nhân sự `is_active` và chưa xoá mềm (model mà job khôi phục được nạp không
+  qua global scope, nên tài khoản xoá mềm vẫn tới đây). Test đường thật (hàng đợi `database`, worker thật, máy chủ push
+  giả): `ClientEventPushTest` (khoá, xoá mềm, gỡ `activated_at`, xoá khách hàng — trong lúc `PushAlert` chờ hàng `push`),
+  `StaffEventPushTest` (nhân sự bị vô hiệu, xoá mềm).
+- **I3** — câu mời trang "Thông báo trên điện thoại" của app nội bộ nêu đủ năm chủ đề nhân sự (gồm "khoản thu quá hạn",
+  "gói bàn giao") và "tuỳ việc anh/chị phụ trách"; `PushDevicesPageTest` ghim bảng chủ đề ↔ cụm từ phủ đủ mọi chủ đề
+  của panel `admin`.
+- **I4** — SPEC §13 (đính chính M12): bỏ "M12 chạy cuối, sau M9, M10 và M11"; nay nói nhánh cắt trước M10/M11, đã
+  gộp lại `main` trước khi giao, hai thư nhân sự không đẩy, M11 chưa gộp. `AcceptanceDocsTest` ghim.
+- **I5** — `staff.handover_ready` nối theo công thức năm bước của Task 9 (case `PushTopic::StaffHandoverReady`, tab
+  "Tài liệu", câu chung không mã hồ sơ; `SendHandoverPackageReady` đẩy cho `$mailed` sau vòng thư, trước lần ném lại;
+  `PushStructureTest`; `StaffEventPushTest` đường `handover` qua nút "Sinh gói bàn giao" + worker THẬT của hàng
+  `handover`, vụ thường (người bấm: quản lý) và `restricted` (người bấm: admin), cùng lượt thử lại; `PushTopicTest`;
+  G9; ô kế hoạch đã tick). `staff.matter_reassigned` và `staff.intake_unanswered`: KHÔNG đẩy (đề xuất của làn, chờ
+  controller chốt — mục "Việc cho controller" trên), ghim ở "deliberately never pushed" và test mới "decides for every
+  mail template whether it is pushed" (mọi mẫu thư của `app/Mail` thuộc đúng một bên).
+- **I6** — ghi ở "Việc cho controller và cho lần gộp"; `ClientEventPushTest` thêm dòng "access expired" (listener thư
+  chạy trễ qua hàng đợi sau khi hạn tra cứu đã qua, tài khoản còn hoạt động nhờ vụ khác) vào "neither mails nor
+  pushes", cùng vế dương "still mails and pushes on the last day".
+- **I7** — `ReplyToClientRequest`: push của câu hỏi tiếp (`REQ-2`) gom theo luồng, khung
+  `FOLLOW_UP_PUSH_QUIET_MINUTES` = 10 phút trượt theo lời liền trước (lời của văn phòng thì luôn đẩy; lời mở luồng tính
+  là lời của khách); thông báo trong hệ thống vẫn đi mỗi lần. Chọn gom thay vì RateLimiter ở `submitReply`: không chặn
+  khách gửi câu hỏi, không trạng thái mới (đọc từ chính các dòng của luồng). SPEC §9 và G6 nói đúng hành vi này.
+
+Số đo: RED trước khi sửa 20 ca (cộng `PushTopicTest` không nạp được dataset vì thiếu case); 14/14 đột biến đỏ đúng
+ca; cả bộ SQLite (`test --parallel --processes=2`) **5790 passed**, 33 skipped, 1 risky, **0 failed** (166407 khẳng định, 3555 s; trên cây vừa gộp trước khi sửa: 5760 passed, 2 failed); MariaDB tuần tự trên các tệp đã chạm (`tests/Feature/Push`, `tests/Feature/Pwa`, `OfficeProfileTest`, `SendHandoverPackageReadyTest`, `MailTemplateRegistryTest`, bốn tệp thư khách, hai `ResendOutboundMessageTest`, `ActivityLogSpec106Test`, `PreflightCommandTest`, `EnvExampleTest`, `MyRequestsTest`) **759 passed**, 1 risky, 0 failed (771 s); `pint --test` PASS. Nhật ký:
+`.superpowers/sdd/m12/probe/finalfix1/` (ngoài repo).

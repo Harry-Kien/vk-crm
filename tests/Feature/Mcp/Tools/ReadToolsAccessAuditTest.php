@@ -10,6 +10,7 @@ use Spatie\Activitylog\Models\Activity;
 use Tests\Support\McpOAuth;
 use Tests\Support\McpReadWorld;
 use Tests\Support\McpToolCall;
+use Tests\Support\WebPushTestKeys;
 
 /*
 |--------------------------------------------------------------------------
@@ -157,6 +158,25 @@ it('mỗi tool đọc: hết 60 lượt một phút thì 429, không phản hồ
     expect($rows)->toHaveCount(count($tools))
         ->and(array_map(fn (Activity $row): string => $row->properties['tool'], $rows))->toBe(array_keys($tools))
         ->and(array_unique(array_map(fn (Activity $row): string => $row->properties['outcome'], $rows)))->toBe(['rate_limited']);
+});
+
+it('không tool đọc nào đưa thiết bị nhận thông báo đẩy (M12) ra MCP: endpoint và khoá của người gọi không có trong phản hồi', function () {
+    $lead = $this->world->lead;
+    $endpoint = 'https://fcm.googleapis.com/fcm/send/MCP-PUSH-MARKER-7c1d';
+    $keys = WebPushTestKeys::subscription();
+    $lead->updatePushSubscription($endpoint, $keys['p256dh'], $keys['auth']);
+    $token = McpOAuth::accessToken($this, $lead);
+
+    foreach (readToolArguments($this->world, $this->request) as $tool => $arguments) {
+        $response = McpToolCall::call($this, $token, $tool, $arguments);
+        $response->assertOk();
+
+        expect($response->json('result.isError'))->toBeFalse($tool)
+            ->and((string) $response->getContent())->not->toContain('MCP-PUSH-MARKER-7c1d')
+            ->not->toContain($keys['p256dh'])
+            ->not->toContain($keys['auth'])
+            ->not->toContain('push_subscription');
+    }
 });
 
 it('search và fetch thật: lượt riêng 30 một phút; hết lượt search thì 429, fetch và whoami vẫn chạy', function () {

@@ -89,6 +89,27 @@ final class ContentSecurityPolicy
             : [];
     }
 
+    /**
+     * CSP riêng của service worker (kế hoạch M12, phán quyết R4) — header của chính
+     * `/{admin,portal}/sw.js` (`App\Http\Controllers\Pwa\ServiceWorkerController`), áp lên mọi
+     * request mà worker tự gửi (`fetch`, `cache.addAll`), không lên trang.
+     *
+     * Worker chỉ đi cùng origin (luật "chỉ GET cùng origin" của R4) nên `default-src 'self'` là đủ.
+     * Ở mọi chỉ thị rơi về `default-src` (nguồn script, `fetch`, ảnh…) nó CHẶT HƠN chính sách trang
+     * ({@see self::policy()}: không nonce, không `unsafe-eval`, không `blob:`, không Bunny Fonts).
+     * Ba chỉ thị của trang KHÔNG rơi về `default-src` (`frame-ancestors`, `form-action`,
+     * `base-uri`) vắng mặt ở đây — chúng không có nghĩa với một worker (không khung, không form,
+     * không `<base>`). Vì thế chuỗi này CHỈ dành cho response JavaScript của worker: chỉ
+     * `ServiceWorkerController` đặt nó (test quét `app/` ở `tests/Feature/Pwa/ServiceWorkerTest.php`).
+     *
+     * Được THI HÀNH ở mọi chế độ, kể cả `off`: công tắc `off` là lối thoát khẩn cho một trang bị
+     * CSP làm hỏng; worker không cần gì ngoài origin của nó nên không có gì để cứu.
+     *
+     * `App\Http\Middleware\SendSecurityHeaders` để nguyên ĐÚNG chuỗi này và không thêm chính sách
+     * trang vào response mang nó; mọi CSP khác mà một response tự đặt bị thay bằng chính sách trang.
+     */
+    public const WORKER_POLICY = "default-src 'self'";
+
     public static function mode(): string
     {
         $mode = strtolower(trim((string) config('vkcrm.security.csp_mode')));
@@ -132,7 +153,15 @@ final class ContentSecurityPolicy
      * bản xem trước ẢNH trong một Worker tạo từ `URL.createObjectURL(blob)`. Không có chỉ thị này
      * thì trình duyệt dùng `script-src`, nơi `blob:` không khớp, và bản xem trước ảnh chụp của
      * khách (SPEC §8.4) hỏng ở cả Chromium lẫn WebKit. `blob:` CHỈ mở cho Worker: `script-src`
-     * không có nó, nên một `<script src="blob:…">` vẫn bị chặn.
+     * không có nó, nên một `<script src="blob:…">` vẫn bị chặn. Nguồn `'self'` của chỉ thị này cũng
+     * là thứ cho `navigator.serviceWorker.register('/{admin,portal}/sw.js')` của M12 (R5,
+     * `public/pwa/register.js`) — cùng origin, không cần thêm nguồn nào.
+     *
+     * `manifest-src 'self'` — M12 R5: manifest của hai app trên điện thoại (`routes/pwa.php`)
+     * cùng origin với trang. Trước M12 nó rơi về `default-src 'self'` (0 vi phạm, đo ở
+     * `docs/research/2026-10-01-pwa-khao-sat.md` mục 2.4); ghi tường minh để một lần siết
+     * `default-src` không chặn manifest. Máy chủ push (Apple, Google, Mozilla) do TRÌNH DUYỆT gọi,
+     * không phải script của trang, nên KHÔNG thuộc `connect-src` — đừng "sửa" bằng cách mở rộng nó.
      *
      * `style-src` CÓ `'unsafe-inline'` — luật style nội tuyến của dự án (không có bước build CSS)
      * và Filament in `style=""` khắp nơi; SPEC chỉ cấm với script. Vì thế cũng KHÔNG được thêm
@@ -153,6 +182,7 @@ final class ContentSecurityPolicy
             'default-src' => ["'self'"],
             'script-src' => ["'self'", "'nonce-{$nonce}'", "'unsafe-eval'"],
             'worker-src' => ["'self'", 'blob:'],
+            'manifest-src' => ["'self'"],
             'style-src' => ["'self'", "'unsafe-inline'", 'https://fonts.bunny.net'],
             'font-src' => ["'self'", 'https://fonts.bunny.net', 'data:'],
             'img-src' => ["'self'", 'data:', 'blob:'],

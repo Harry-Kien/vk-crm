@@ -2,7 +2,9 @@
 
 namespace App\Actions\Notification;
 
+use App\Actions\Push\SendPushAlert;
 use App\Enums\OutboundStatus;
+use App\Enums\PushTopic;
 use App\Enums\Role;
 use App\Mail\Staff\NewClientDocument as NewClientDocumentMail;
 use App\Models\Document;
@@ -31,6 +33,13 @@ use Throwable;
  *
  * Không hỏi `is_published_to_portal` — cùng lý do {@see NotifyStaffOfNewClientRequest}: đây là
  * thư nội bộ, không phải thư cho khách.
+ *
+ * **M12 — thông báo đẩy `staff.new_client_document`:** cùng luật với lớp anh em (docblock
+ * {@see NotifyStaffOfNewClientRequest}, mục "M12"): {@see SendPushAlert} nhận đúng những người lượt
+ * này vừa gửi thư được, sau vòng thư, trước lần ném lại lỗi; chống trùng là sổ thư
+ * (`alreadyDelivered()`). Bản ghi đi kèm là tài liệu đại diện ĐÃ đọc lại (`$fresh`) — đúng bản ghi
+ * thư ghi vào nhật ký. Chạm vào mở tab "Danh mục hồ sơ" của vụ, nơi nhân sự duyệt giấy tờ khách nộp
+ * (phán quyết (f), `PushTopic`).
  */
 class NotifyStaffOfNewClientDocument
 {
@@ -57,6 +66,7 @@ class NotifyStaffOfNewClientDocument
 
         $sent = 0;
         $failure = null;
+        $mailed = collect();
 
         foreach ($recipients as $recipient) {
             if ($this->alreadyDelivered($fresh, $recipient)) {
@@ -68,10 +78,14 @@ class NotifyStaffOfNewClientDocument
             try {
                 Mail::to($recipient->email)->send(new NewClientDocumentMail($fresh, $count, $recipient));
                 $sent++;
+                $mailed->push($recipient);
             } catch (Throwable $e) {
                 $failure ??= $e;
             }
         }
+
+        // M12: push cho đúng những người lượt này vừa gửi thư được — xem docblock lớp.
+        app(SendPushAlert::class)->handle($mailed, PushTopic::StaffNewClientDocument, $fresh);
 
         if ($failure !== null) {
             throw $failure;
@@ -183,12 +197,21 @@ class NotifyStaffOfNewClientDocument
             ->exists();
     }
 
+    /**
+     * "Đã gửi thư NÀY cho người này chưa" — theo đúng mẫu `staff.new_client_document` (việc sau gộp
+     * M9 + M10, làn fu3, Task 1 mục B, cùng sửa với `NotifyClientOfDocumentPublished::
+     * alreadyDelivered()`): `Document` còn là `related` của `client.document_published` và
+     * `staff.handover_ready`. Một tệp khách nộp về sau có thể được chuyển nhóm, công bố và báo khách
+     * tới một địa chỉ vừa là nhân sự vừa là tài khoản cổng; thiếu điều kiện mẫu, nút "Gửi lại"
+     * ({@see ResendTargets}) của thư nội bộ bị hỏng trước đó sẽ từ chối nhầm "đã nhận".
+     */
     public function alreadyDelivered(Document $representative, User $recipient): bool
     {
         return OutboundMessage::query()
             ->withoutGlobalScopes()
             ->where('related_type', $representative->getMorphClass())
             ->where('related_id', $representative->getKey())
+            ->where('template', NewClientDocumentMail::TEMPLATE)
             ->where('recipient', $recipient->email)
             ->where('status', OutboundStatus::Sent)
             ->exists();

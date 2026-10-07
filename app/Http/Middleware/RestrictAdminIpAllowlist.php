@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\Pwa\PwaPanels;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\IpUtils;
@@ -27,11 +28,21 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  * sách middleware BỀN của Livewire, nên nó cũng chặn request cập nhật (`/livewire/update`) của
  * một component admin, không chỉ trang HTML đầu tiên.
  *
+ * **Cũng phủ route PWA của `/admin`** (`routes/pwa.php`, M12: manifest, rồi `sw.js` và trang ngoại
+ * tuyến). Các route đó đứng ngoài chồng middleware có phiên của panel, nên nhóm của chúng gắn
+ * middleware này trực tiếp — khi và chỉ khi panel mang nó trong `getMiddleware()`. Middleware này
+ * không đụng phiên, nên gắn ở đó không đẻ cookie hay dòng `sessions` nào.
+ *
  * **KHÔNG phủ `documents.download` và `/livewire/upload-file`.** URL tải tệp có chữ ký sống 5
  * phút và chỉ được SINH RA bên trong panel (một nhân sự đã qua allowlist mới bấm được nút tải) —
  * phủ luôn route đó nghĩa là một link vừa mở trong văn phòng không mở được ở nơi khác trong 5
  * phút còn lại của nó, một hành vi khó hiểu hơn cái giá phải trả: một nhân sự tải link đó ở ngoài
  * dải IP vẫn tải xong trong 5 phút. Chấp nhận cái giá đó có chủ đích (ghi trong brief Task 1).
+ * Quyết định đó giữ nguyên cho bí danh trong scope của app nội bộ, `/admin/documents/{id}/download`
+ * (M12 Task 3, `routes/web.php`): cùng controller, cùng middleware với `documents.download`, không
+ * thêm middleware này. Cái giá đi kèm: một IP ngoài danh sách gọi đường dẫn đó mà không có chữ ký
+ * hợp lệ nhận 403 của `signed` chứ không phải 404 — biết được có một route dưới `/admin`, dù không
+ * thấy gì của panel và không lấy được gì.
  *
  * IP đọc qua `$request->ip()`, tức PHỤ THUỘC `TRUSTED_PROXIES`
  * (`config/trustedproxy.php`) giống mọi chỗ khác hỏi "IP thật của ai đang gọi" — không tin proxy
@@ -42,17 +53,24 @@ class RestrictAdminIpAllowlist
 {
     public function handle(Request $request, Closure $next): mixed
     {
-        $allowlist = self::entries();
-
-        if ($allowlist === []) {
-            return $next($request);
-        }
-
-        if (! IpUtils::checkIp($request->ip(), $allowlist)) {
+        if (! self::admits($request)) {
             throw new NotFoundHttpException;
         }
 
         return $next($request);
+    }
+
+    /**
+     * "IP của request này có được vào `/admin` không" — danh sách rỗng là tắt (mọi IP được vào).
+     * Đây là câu DUY NHẤT {@see self::handle()} hỏi; tách ra để trang lỗi 403/404 hỏi lại đúng câu
+     * đó ({@see PwaPanels::startUrlFor()}): một IP ngoài danh sách không được thấy nút "Về trang
+     * chính" trỏ `/admin`, kẻo trang 404 của nó dưới `/admin` khác trang 404 của một path lạ bất kỳ.
+     */
+    public static function admits(Request $request): bool
+    {
+        $allowlist = self::entries();
+
+        return $allowlist === [] || IpUtils::checkIp($request->ip(), $allowlist);
     }
 
     /**

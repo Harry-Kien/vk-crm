@@ -172,8 +172,8 @@ return [
     'deployment' => [
         /*
          * PHP extension bắt buộc ở production, HẰNG SỐ chứ không đoán theo máy đang chạy lệnh:
-         * `composer check-platform-reqs --no-dev` (ngày 2026-09-28; từ M11 Task 1 thêm `sodium`) cộng
-         * `pdo_mysql` (MariaDB, SPEC §2) và `curl` (M11 Task 5, không gói nào khai nó — hai đoạn dưới).
+         * `composer check-platform-reqs --no-dev` (ngày 2026-09-28; từ M11 Task 1 thêm `sodium`, từ M12
+         * Task 4 thêm `curl`) cộng `pdo_mysql` (MariaDB, SPEC §2).
          * Nói gọn: chỉ những extension mà thiếu thì một tính năng hỏng. KHÔNG có `gd` — xem
          * {@see \App\Actions\Deployment\RunPreflight} vì sao đó là một dòng VÀNG riêng, không phải một
          * extension bắt buộc.
@@ -185,12 +185,13 @@ return [
          *
          * `sodium` thêm ở M11 Task 1 (D5): `lcobucci/jwt` (Passport → league/oauth2-server kéo vào)
          * khai `ext-sodium`. Thiếu nó thì `/oauth/token` hỏng, và chỉ hỏng trên máy chủ thật.
-         * `PreflightCommandTest` đối chiếu danh sách này với mọi `ext-*` của gói production trong
-         * `composer.lock`, nên lần sau một gói mới đòi extension mới thì test đỏ.
          *
-         * `curl` thêm ở M11 Task 5: không gói nào khai nó (Guzzle chỉ "suggest"), nhưng việc tải tài
-         * liệu CIMD ghim IP đã kiểm bằng `CURLOPT_RESOLVE` (chống DNS rebinding,
-         * `App\Support\Mcp\MetadataDocumentFetcher`); thiếu curl thì hằng số đó không tồn tại.
+         * `curl`: M12 Task 4 (R6) — `minishlink/web-push` (gói thông báo đẩy) khai `ext-curl`; M11
+         * Task 5 cũng cần nó dù không gói nào của M11 khai: việc tải tài liệu CIMD ghim IP đã kiểm
+         * bằng `CURLOPT_RESOLVE` (chống DNS rebinding, `App\Support\Mcp\MetadataDocumentFetcher`).
+         *
+         * Danh sách được canh bằng `composer.lock`: test "mọi ext-* mà một gói production đòi" của
+         * `PreflightCommandTest` đỏ khi một gói mới đòi extension chưa có ở đây.
          */
         'required_extensions' => [
             'ctype', 'curl', 'dom', 'exif', 'fileinfo', 'filter', 'hash', 'iconv', 'intl', 'json',
@@ -435,6 +436,65 @@ return [
             800 => 'oklch(0.300 0.075 261.7)',
             900 => 'oklch(0.260 0.058 261.7)',
             950 => 'oklch(0.233 0.050 261.7)',
+        ],
+    ],
+
+    /*
+     * M12 — app trên điện thoại (PWA). Kế hoạch `docs/superpowers/plans/2026-09-24-m12-pwa.md`.
+     *
+     * `theme_color`/`background_color` của manifest KHÔNG nằm ở đây: chúng đọc thẳng
+     * `brand.colors.navy`/`brand.colors.paper` (phán quyết R2 — không viết mã màu lần thứ hai).
+     */
+    'pwa' => [
+        /*
+         * R3 — nền đặc của biểu tượng maskable và `apple-touch-icon` theo từng app, là KHOÁ trong
+         * `brand.colors` chứ không phải mã màu. Hai nền khác nhau để một nhân sự cài cả hai app
+         * phân biệt được bằng mắt: cổng khách navy, nội bộ paper. `tools/brand/make-logo.php` đọc
+         * đúng khoá này khi sinh PNG; đổi ở đây thì phải chạy lại công cụ đó (và đổi tên tệp —
+         * docblock của công cụ nói vì sao).
+         */
+        'icon_background' => [
+            'admin' => 'paper',
+            'portal' => 'navy',
+        ],
+
+        /*
+         * R4 — danh sách cho phép DUY NHẤT của bộ đệm service worker: tài nguyên tĩnh công khai
+         * dưới `public/` (CSS/JS/phông của Filament, biểu tượng, `register.js`), lưu theo
+         * stale-while-revalidate. Mọi đường dẫn khác — trang HTML, Livewire (`/livewire-…`),
+         * tệp hồ sơ (`…/documents/{id}/download`), JSON — KHÔNG BAO GIỜ vào bộ đệm trình duyệt.
+         * Render nguyên văn vào `sw.js` (`resources/views/pwa/sw-js.blade.php`) và nằm trong
+         * VERSION; `tests/Feature/Pwa/ServiceWorkerTest.php` khẳng định hai bên bằng nhau. Thêm một
+         * tiền tố ở đây là thêm một thứ vào điện thoại của khách: chỉ thêm tài nguyên công khai,
+         * có dấu `/` ở cuối (so tiền tố chuỗi — `/brand` không dấu `/` sẽ khớp cả `/brandx/…`).
+         */
+        'static_prefixes' => ['/css/filament/', '/js/filament/', '/fonts/filament/', '/brand/', '/pwa/'],
+
+        /*
+         * R8 — máy chủ push mà một endpoint đăng ký được phép trỏ tới. Máy chủ của văn phòng
+         * POST tới endpoint theo lịch (job push), nên KHÔNG có danh sách này thì một người đã đăng
+         * nhập — kể cả khách — gửi `endpoint = http://169.254.169.254/…` là biến máy chủ thành
+         * công cụ gọi vào địa chỉ nội bộ, có sẵn bộ hẹn giờ (SSRF).
+         *
+         * Tên đầy đủ khớp đúng tên; `*.` khớp MỘT hay nhiều nhãn đứng trước phần đuôi (không khớp
+         * chính phần đuôi). So không phân biệt hoa thường. Luật đầy đủ (chỉ `https`, cổng 443, chỉ
+         * ký tự URL in được, không `@`/`#`/`\`): `App\Actions\Push\RegisterPushDevice`.
+         * Chrome và Samsung Internet đi qua FCM, Safari qua Apple, Firefox qua Mozilla, Edge qua WNS.
+         *
+         * FCM có HAI tên máy: `fcm.googleapis.com` và `jmt17.google.com` — ĐO ngày 2026-10-04 (M12
+         * Task 10): bản Chromium 153 của Playwright (đăng ký THẬT, không bản giả) trả endpoint
+         * `https://jmt17.google.com/fcm/send/…`; thiếu tên này thì trình duyệt đó bấm Bật nhận 422.
+         * Google Chrome trên Android CHƯA đo (bước D1 của danh sách kiểm tra máy thật) — có thể vẫn
+         * trả `fcm.googleapis.com`, nên giữ cả hai. Ghi đúng tên, không `*.google.com`: Google đổi tên
+         * máy lần nữa thì nút Bật báo "Chưa bật được" (D1) và tên mới được thêm vào đây — rộng hơn là
+         * mở cho mọi máy của Google.
+         */
+        'push_hosts' => [
+            'fcm.googleapis.com',
+            'jmt17.google.com',
+            '*.push.apple.com',
+            'updates.push.services.mozilla.com',
+            '*.notify.windows.com',
         ],
     ],
 

@@ -211,6 +211,17 @@ it('walks a first call from the phone to the client portal: notice, green check,
         ->and($account->must_change_password)->toBeTrue()
         ->and($account->activated_at)->toBeNull();
 
+    // Việc sau gộp M9 + M10 (làn fu3, Task 1 mục F): TRƯỚC khi bật công bố, vụ vừa chuyển đổi — đã có hợp
+    // đồng đang hiệu lực — vô hình với chính khách của nó: trang tiến độ trả 404, nên không khối tiền nào
+    // lộ ra. Hỏi thẳng component (Livewire), vì đường HTTP lúc này dừng sớm hơn ở trang đổi mật khẩu.
+    Filament::setCurrentPanel('portal');
+    $this->actingAs($account->fresh(), 'client')
+        ->livewire(MatterProgress::class, ['record' => $matter->getKey()])
+        ->assertNotFound();
+    auth('client')->logout();
+    Filament::setCurrentPanel('admin');
+    $this->actingAs($lawyer, 'web');
+
     // ── Bước 3b — bật công bố cổng cho vụ (`SetMatterPortalPublication` qua nút của trang vụ việc).
     expect($matter->fresh()->is_published_to_portal)->toBeFalse();
 
@@ -222,9 +233,13 @@ it('walks a first call from the phone to the client portal: notice, green check,
         ->and(Activity::query()->where('subject_type', 'matter')->where('subject_id', $matter->id)
             ->where('causer_id', $lawyer->id)->where('event', 'matter_portal_publication_set')->exists())->toBeTrue();
 
-    // Một hồ sơ đang công bố của khách KHÁC, đọc trước khi phiên khách mở (dưới guard `client` mọi truy vấn
-    // vụ việc chỉ ra hồ sơ của chính khách đó).
-    $someoneElses = Matter::query()->where('client_id', '!=', $client->id)->where('is_published_to_portal', true)->firstOrFail();
+    // Một hồ sơ đang công bố của khách KHÁC — có hợp đồng đã ký, để vế "không bao giờ thấy" của khối tiền
+    // có gì mà không thấy — đọc trước khi phiên khách mở (dưới guard `client` mọi truy vấn vụ việc và tiền
+    // chỉ ra của chính khách đó).
+    $someoneElses = Matter::query()->where('client_id', '!=', $client->id)->where('is_published_to_portal', true)
+        ->whereHas('contract', fn ($contracts) => $contracts->where('status', '!=', ContractStatus::Draft->value))
+        ->orderBy('id')->firstOrFail();
+    $someoneElsesContract = $someoneElses->contract()->sole();
 
     // ── Bước 4 — khách đăng nhập cổng: mật khẩu + mã một lần trong thư, rồi bị buộc đổi mật khẩu.
     Filament::setCurrentPanel('portal');
@@ -260,11 +275,20 @@ it('walks a first call from the phone to the client portal: notice, green check,
     $this->get(MyMatters::getUrl([MyMatters::SHOW_ALL_PARAMETER => 1], panel: 'portal'))
         ->assertOk()
         ->assertSee($matter->title);
+    // Việc sau gộp M9 + M10 (làn fu3, Task 1 mục F — khoảng trống bước 4 của Ghi chú M10): khối "Hợp đồng
+    // và thanh toán" của M9 Task 10 hiện hợp đồng vừa chuyển đổi và ký — số hợp đồng và tổng giá trị — và
+    // không bao giờ mang số hợp đồng của khách khác.
     $this->get(MatterProgress::getUrl(['record' => $matter->getKey()], panel: 'portal'))
         ->assertOk()
-        ->assertSee($matter->title);
+        ->assertSee($matter->title)
+        ->assertSee(__('portal_progress.blocks.billing.heading'))
+        ->assertSee(__('portal_progress.billing.contract_code', ['code' => $contract->code]))
+        ->assertSee(__('portal_progress.billing.total', ['amount' => '15.000.000 ₫']))
+        ->assertDontSee($someoneElsesContract->code);
 
-    $this->get(MatterProgress::getUrl(['record' => $someoneElses->getKey()], panel: 'portal'))->assertNotFound();
+    $this->get(MatterProgress::getUrl(['record' => $someoneElses->getKey()], panel: 'portal'))
+        ->assertNotFound()
+        ->assertDontSee($someoneElsesContract->code);
 });
 
 it('stops a call that names an existing client at the first touch, logs it, lets the manager decline it, and tells the caller no reason', function () {

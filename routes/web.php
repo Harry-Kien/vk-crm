@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\DocumentDownloadController;
+use App\Support\Pwa\PwaPanels;
+use Filament\Facades\Filament;
 use Illuminate\Support\Facades\Route;
 
 // Tên miền gốc dẫn thẳng tới portal khách hàng; panel nội bộ nằm ở /admin.
@@ -24,3 +26,37 @@ Route::redirect('/', '/portal');
 Route::get('documents/{document}/download', DocumentDownloadController::class)
     ->middleware(['signed', 'throttle:document-download'])
     ->name('documents.download');
+
+/*
+ * M12 Task 3 — hai BÍ DANH của route trên, nằm TRONG scope của app trên điện thoại:
+ * `/portal/documents/{document}/download` (`documents.download.portal`) và
+ * `/admin/documents/{document}/download` (`documents.download.admin`). Phán quyết tạm 1 của Task 1
+ * (`docs/research/2026-10-01-pwa-khao-sat.md` mục 3): trên iPhone, app đã cài mở một URL NGOÀI scope
+ * trong trình duyệt trong app, và tài liệu không đủ chắc nó mang cookie phiên theo — thiếu cookie
+ * thì mọi lượt tải là 404. Trong scope thì lượt tải ở lại cửa sổ app (cùng cookie).
+ *
+ * CÙNG controller, CÙNG middleware, cùng nhóm `web` — mọi luật ở trên (chữ ký gắn người nhận, 403
+ * cho chữ ký, 404 cho mọi từ chối khác, nhật ký tải, giới hạn theo tài khoản dùng chung bộ đếm có
+ * tên) đứng nguyên. KHÔNG thuộc middleware của panel: không `Authenticate` (không đăng nhập → 404,
+ * không chuyển hướng cất URL đã ký vào phiên), không `AnswerDeniedPanelRequestsWithNotFound` (403
+ * của chữ ký giữ nguyên), không `RestrictAdminIpAllowlist` (quyết định M8 R7 cho route tải tệp giữ
+ * nguyên cho bí danh nội bộ, dù path bắt đầu bằng `/admin`).
+ *
+ * Nơi ký URL DUY NHẤT là `Document::downloadUrlFor()`, chọn bí danh theo KIỂU người nhận. Tiền tố và
+ * tên miền theo panel, cùng khuôn vòng lặp của `routes/pwa.php` (một tên miền mỗi panel). Route gốc
+ * ở trên được giữ: không mã nào còn ký URL cho nó, nhưng một URL đã phát (sống 5 phút) lúc triển
+ * khai vẫn tải được, và các test của SPEC §10.4 đứng trên nó.
+ */
+foreach (PwaPanels::IDS as $panelId) {
+    $panel = Filament::getPanel($panelId);
+
+    foreach ((empty($panel->getDomains()) ? [null] : $panel->getDomains()) as $domain) {
+        Route::domain($domain)
+            ->prefix($panel->getPath())
+            ->group(function () use ($panelId): void {
+                Route::get('documents/{document}/download', DocumentDownloadController::class)
+                    ->middleware(['signed', 'throttle:document-download'])
+                    ->name("documents.download.{$panelId}");
+            });
+    }
+}

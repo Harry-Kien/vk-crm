@@ -2,7 +2,9 @@
 
 namespace App\Actions\Notification;
 
+use App\Actions\Push\SendPushAlert;
 use App\Enums\OutboundStatus;
+use App\Enums\PushTopic;
 use App\Mail\Client\DocumentPublished as DocumentPublishedMail;
 use App\Models\ClientUser;
 use App\Models\Document;
@@ -51,6 +53,12 @@ use Throwable;
  * Sửa: nạp `Matter` với `->where('is_published_to_portal', true)` ngay cạnh `->open()`, cùng cách
  * `NotifyClientOfStageUpdate::stillReleasedToPortal()` đã làm cho `client.stage_update`.
  *
+ * **M12 — thông báo đẩy `client.document_published`:** cùng luật với lớp anh em (docblock
+ * `NotifyClientOfStageUpdate`, mục "M12 — thông báo đẩy"): {@see SendPushAlert} nhận đúng những tài
+ * khoản lượt này vừa gửi thư thành công, sau vòng thư, trước lần ném lại lỗi; chống trùng là sổ thư
+ * (`alreadyDelivered()`). Bản ghi đi kèm là tài liệu ĐÃ đọc lại (`$fresh`) — đúng bản ghi thư ghi vào
+ * nhật ký.
+ *
  * **Gộp M7 vào `main` (PROGRESS "Ghi chú M7", Task 11): vụ còn trên cổng của CHÍNH người nhận.**
  * Ngoài hai cổng trên (vụ còn mở, cờ `is_published_to_portal`), mỗi người nhận R12 còn phải qua
  * {@see ResolveClientRecipients::onPortal()} (`MatterPolicy::view` nhánh khách — gồm "chưa hết hạn
@@ -83,6 +91,7 @@ class NotifyClientOfDocumentPublished
 
         $sent = 0;
         $failure = null;
+        $mailed = collect();
 
         foreach ($recipients as $recipient) {
             if ($this->alreadyDelivered($fresh, $recipient)) {
@@ -94,10 +103,14 @@ class NotifyClientOfDocumentPublished
             try {
                 Mail::to($recipient->email)->send(new DocumentPublishedMail($fresh, $recipient));
                 $sent++;
+                $mailed->push($recipient);
             } catch (Throwable $e) {
                 $failure ??= $e;
             }
         }
+
+        // M12: push cho đúng những người lượt này vừa gửi thư được — xem docblock lớp.
+        app(SendPushAlert::class)->handle($mailed, PushTopic::ClientDocumentPublished, $fresh);
 
         if ($failure !== null) {
             throw $failure;
@@ -174,7 +187,12 @@ class NotifyClientOfDocumentPublished
 
     /**
      * Cùng hình dạng `NotifyClientOfStageUpdate::alreadyDelivered()` — không cần khoá bổ sung
-     * (xem docblock lớp).
+     * (xem docblock lớp) — CỘNG điều kiện mẫu (việc sau gộp M9 + M10, làn fu3, Task 1 mục B):
+     * `Document` không chỉ là `related` của mẫu này. `staff.handover_ready` gắn vào chính gói bàn
+     * giao, nên một địa chỉ vừa là của nhân sự vừa là tài khoản cổng của khách đã có một dòng `sent`
+     * về đúng tài liệu ấy TRƯỚC khi gói được công bố; thiếu điều kiện mẫu, thư báo khách bị bỏ qua
+     * im lặng như "đã gửi". Một mẫu sau này gắn vào tài liệu (thư rút công bố chẳng hạn) cũng vậy.
+     * Nút "Gửi lại" ({@see ResendTargets}) hỏi cùng hàm này nên đọc cùng định nghĩa.
      */
     public function alreadyDelivered(Document $document, ClientUser $recipient): bool
     {
@@ -182,6 +200,7 @@ class NotifyClientOfDocumentPublished
             ->withoutGlobalScopes()
             ->where('related_type', $document->getMorphClass())
             ->where('related_id', $document->getKey())
+            ->where('template', DocumentPublishedMail::TEMPLATE)
             ->where('recipient', $recipient->email)
             ->where('status', OutboundStatus::Sent)
             ->exists();

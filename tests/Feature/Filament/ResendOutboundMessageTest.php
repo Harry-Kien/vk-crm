@@ -6,6 +6,7 @@ use App\Enums\ClientRequestStatus;
 use App\Enums\Confidentiality;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
+use App\Enums\OutboundChannel;
 use App\Enums\OutboundStatus;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\OutboundMessages\Pages\ListOutboundMessages;
@@ -532,6 +533,44 @@ it('refuses when every eligible recipient already received this very mail on a l
 });
 
 /**
+ * Việc sau gộp M9 + M10 (làn fu3, Task 1 mục B): "đã nhận" là đã nhận ĐÚNG MẪU này. Ba mẫu gắn vào
+ * một `Document` (`client.document_published`, `staff.new_client_document`, `staff.handover_ready`),
+ * nên một dòng `sent` của mẫu KHÁC về cùng tài liệu tới cùng địa chỉ (một địa chỉ vừa là nhân sự vừa
+ * là tài khoản cổng của khách) không được làm nút "Gửi lại" từ chối "đã nhận":
+ *  - thư báo khách về gói bàn giao, khi thư "gói sẵn sàng" đã tới địa chỉ ấy;
+ *  - thư báo nhân sự có tệp khách nộp, khi tệp ấy về sau được chuyển nhóm, công bố và báo khách
+ *    tới đúng địa chỉ ấy.
+ * Cặp đối chứng là test ngay trên: dòng `sent` CÙNG mẫu vẫn bị từ chối "đã nhận".
+ *
+ * Mutation probe: bỏ `->where('template', …)` khỏi `NotifyClientOfDocumentPublished::
+ * alreadyDelivered()` — hàng `client.document_published` ĐỎ; bỏ khỏi
+ * `NotifyStaffOfNewClientDocument::alreadyDelivered()` — hàng `staff.new_client_document` ĐỎ.
+ */
+it('still resends when the only later sent row about the same document used another template', function (string $template, string $otherTemplate) {
+    Queue::fake();
+    [$failed, $to] = resendFixture($template);
+    OutboundMessage::factory()->sent()->create([
+        'template' => $otherTemplate,
+        'related_type' => $failed->related_type,
+        'related_id' => $failed->related_id,
+        'recipient' => $to,
+    ]);
+
+    $this->actingAs(resendAdmin(), 'web');
+
+    $this->livewire(ListOutboundMessages::class)->callAction(TestAction::make('resend')->table($failed));
+
+    Notification::assertNotified(__('outbound.resend.success_title'));
+    expect(resendToastBodies())->not->toContain(__('outbound.resend.refused.already_delivered'));
+
+    Queue::assertPushed(ResendOutboundMessageJob::class, 1);
+    expect(resendAudits())->toHaveCount(1);
+})->with([
+    'thư báo khách về gói, sau thư "gói sẵn sàng"' => ['client.document_published', 'staff.handover_ready'],
+    'thư báo nhân sự có tệp mới, sau thư báo khách công bố tệp ấy' => ['staff.new_client_document', 'client.document_published'],
+]);
+
+/**
  * `stage_logs.notified_at` được ghi khi MỌI người nhận đã nhận (một lượt thử lại sau đó của hàng
  * đợi thành công). Cổng lúc-gửi của mẫu gốc trả "không ai", nhưng sự thật là "đã nhận" — câu từ
  * chối phải nói đúng sự thật đó, không đổ cho vụ việc/tài khoản.
@@ -788,3 +827,40 @@ it('keeps the audit event constant equal to the literal the action records', fun
     expect(ResendOutboundMessage::AUDIT_EVENT)->toBe('outbound_message_resent')
         ->and(__('activity.events.outbound_message_resent'))->not->toBe('activity.events.outbound_message_resent');
 });
+
+/**
+ * M12 R13 (Task 7): một dòng THÔNG BÁO ĐẨY hỏng (410 máy đã gỡ app, 500 máy chủ push) mang giá trị
+ * `PushTopic` làm mẫu — trùng tên mẫu thư gửi lại được — và `recipient` = `client_user:{id}` /
+ * `user:{id}`. Không nút "Gửi lại": push là tiện ích, không phải chứng cứ; bấm sẽ xếp một THƯ tới
+ * người nhận tính lại, dưới danh nghĩa một dòng push.
+ *
+ * Mutation probe: bỏ vế `channel === Email` khỏi `ResendOutboundMessage::canResend()` → ĐỎ (nút hiện).
+ */
+it('shows no resend button on a failed push row, even when its topic is a resendable mail template', function (string $template) {
+    Queue::fake();
+    [$failed, $to] = resendFixture($template);
+    $owner = ClientUser::query()->where('email', $to)->first() ?? User::query()->where('email', $to)->sole();
+    $failed->forceFill([
+        'channel' => OutboundChannel::Push,
+        'recipient' => $owner->getMorphClass().':'.$owner->getKey(),
+        'payload' => ['title' => 'Luật Vũ Khang', 'body' => 'Câu chung'],
+        'error' => 'HTTP 410 Gone',
+    ])->save();
+
+    $this->actingAs(resendAdmin(), 'web');
+
+    $this->livewire(ListOutboundMessages::class)
+        ->assertActionHidden(TestAction::make('resend')->table($failed))
+        ->call('mountAction', 'resend', [], forcedTableContext($failed))
+        ->call('callMountedAction');
+
+    Queue::assertNothingPushed();
+    expect(resendAudits())->toBeEmpty();
+})->with([
+    'client.stage_update',
+    'client.document_published',
+    'client.document_rejected',
+    'client.request_answered',
+    'staff.new_client_request',
+    'staff.new_client_document',
+]);

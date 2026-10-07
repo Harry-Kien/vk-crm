@@ -2,6 +2,7 @@
 
 namespace App\Filament\Portal\Pages\Auth;
 
+use App\Http\Middleware\RequirePortalPasswordChange;
 use App\Models\ClientUser;
 use BackedEnum;
 use Closure;
@@ -219,7 +220,13 @@ class ChangePassword extends Page
             ->success()
             ->send();
 
-        $this->redirect(Filament::getUrl(), navigate: false);
+        // M12 Task 6 (R9): về đúng trang khách đang định mở khi bị chặn để đổi mật khẩu — ví dụ trang
+        // hồ sơ mà một thông báo đẩy dẫn tới. `RequirePortalPasswordChange` là nơi ghi DUY NHẤT của
+        // khoá này (chỉ URL `GET` của panel `portal`). Không có thì về trang chủ cổng như trước.
+        $this->redirect(
+            (string) session()->pull(RequirePortalPasswordChange::INTENDED_URL_KEY, Filament::getUrl()),
+            navigate: false,
+        );
     }
 
     /**
