@@ -158,7 +158,7 @@ class Deadline extends Model
      */
     public function outcomeAt(CarbonInterface $cutoff): ?DeadlineOutcome
     {
-        $dueEnd = $this->due_date->copy()->setTime(23, 59, 59);
+        $dueEnd = $this->dueEnd();
 
         if ($this->created_at !== null && $this->created_at->gt($dueEnd)) {
             return null;
@@ -187,6 +187,17 @@ class Deadline extends Model
         }
 
         return DeadlineOutcome::Missed;
+    }
+
+    /**
+     * Hết ngày đến hạn: 23:59:59 của `due_date` theo `APP_TIMEZONE` (M13). MỘT định nghĩa cho hai câu
+     * hỏi của kỳ: "xong đúng hạn" ({@see self::outcomeAt()}: `completed_at ≤ dueEnd`) và "người giữ
+     * mốc vào ngày đến hạn" (`App\Support\Performance\DeadlineHolderAtDue`: lần đổi người sớm nhất
+     * SAU mốc này) — cùng một biên, nên việc làm lúc 23:59:59 ngày đến hạn là "trong hạn" ở cả hai.
+     */
+    public function dueEnd(): CarbonInterface
+    {
+        return $this->due_date->copy()->setTime(23, 59, 59);
     }
 
     /** 23:59:59 của ngày (hôm nay + `$days`), dạng chuỗi ngày-giờ cho một cận trên cột `date`. */

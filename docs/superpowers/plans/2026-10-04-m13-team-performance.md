@@ -792,7 +792,7 @@ public static function scopeEventsWithin(Builder $query, string $event, array $b
 
 **Commit:** `refactor: M13 Task 2 — luật đặt đúng chỗ: Deadline::overdue/dueWithin/dueBetween/removedBetween/outcomeAt và sửa upcoming() rơi ngày +7 trên SQLite, MatterChecklistItem::awaitingReview (chuyển từ widget), ClientRequest::awaitingOffice/withHolder/createdBetween (người giữ như đường thông báo), ChecklistProgress::totalsByLead, CollectedRevenue tách từ RevenueOverTimeWidget, Matter::closedWithin/closedOnOrBefore/withSupportingMember, ActivityOwningMatter::ownedByVisibleMatters/eventsWithin; test đồng nhất và test cấm định nghĩa thứ hai trên mọi tệp M13`
 
-### - [ ] Task 3 — Lịch sử người giữ việc: mốc (R9), yêu cầu của khách và người phụ trách vụ (R18)
+### - [x] Task 3 — Lịch sử người giữ việc: mốc (R9), yêu cầu của khách và người phụ trách vụ (R18)
 
 **Tệp:**
 - sửa: `app/Actions/Matter/ReassignMatter.php`:
@@ -839,25 +839,25 @@ final class RequestHolderAt {
 ```
 
 **Bước:**
-- [ ] Trước khi sửa, grep các test đang đếm dòng nhật ký của `ReassignMatter`, `ReassignMatters`, `BulkReassign`, `SendReassignmentDigest` và `UpdateDeadline` (`toHaveCount`, `count()` trên `Activity`, khẳng định trên `client_request_assigned`). Dòng mới sẽ làm những test đó đổi số. Sửa số ở đó **có chủ đích**, và nói rõ trong báo cáo.
-- [ ] `ReassignMatter` bước 3: sau câu `update()` hàng loạt, ghi một `Audit::record('deadline_responsible_changed', $deadline, ['matter_id', 'client_id', 'from', 'to', 'reason' => self::DEADLINE_HANDOVER_REASON], causer: $actor)` cho mỗi mốc đã chuyển, trong cùng transaction.
+- [x] Trước khi sửa, grep các test đang đếm dòng nhật ký của `ReassignMatter`, `ReassignMatters`, `BulkReassign`, `SendReassignmentDigest` và `UpdateDeadline` (`toHaveCount`, `count()` trên `Activity`, khẳng định trên `client_request_assigned`). Dòng mới sẽ làm những test đó đổi số. Sửa số ở đó **có chủ đích**, và nói rõ trong báo cáo.
+- [x] `ReassignMatter` bước 3: sau câu `update()` hàng loạt, ghi một `Audit::record('deadline_responsible_changed', $deadline, ['matter_id', 'client_id', 'from', 'to', 'reason' => self::DEADLINE_HANDOVER_REASON], causer: $actor)` cho mỗi mốc đã chuyển, trong cùng transaction.
   - Nạp các mốc bằng **một** truy vấn theo `$movedDeadlineIds`, không một truy vấn mỗi mốc.
-- [ ] `ReassignMatter` bước 4: tương tự, `Audit::record('client_request_assigned', $thread, ['matter_id', 'client_id', 'from' => $oldLead->id, 'to' => $lockedNewLead->id, 'reason' => self::REQUEST_HANDOVER_REASON], causer: $actor)` cho mỗi luồng trong `$movedRequestIds`, một truy vấn nạp. Cùng tên sự kiện với `TriageClientRequest::assign()` và lần gỡ khi mở lại của `setStatus()`, để "ai từng giữ luồng này" đọc ở **một** khoá.
+- [x] `ReassignMatter` bước 4: tương tự, `Audit::record('client_request_assigned', $thread, ['matter_id', 'client_id', 'from' => $oldLead->id, 'to' => $lockedNewLead->id, 'reason' => self::REQUEST_HANDOVER_REASON], causer: $actor)` cho mỗi luồng trong `$movedRequestIds`, một truy vấn nạp. Cùng tên sự kiện với `TriageClientRequest::assign()` và lần gỡ khi mở lại của `setStatus()`, để "ai từng giữ luồng này" đọc ở **một** khoá.
   - Dòng `matter_reassigned` giữ nguyên ở cả hai bước.
-- [ ] `UpdateDeadline`: khi `responsible_user_id` thật sự đổi, ghi thêm dòng `deadline_responsible_changed` (`reason = deadline_updated`), sau dòng `deadline_updated`.
-- [ ] `DeadlineHolderAtDue` theo R9, một truy vấn cho cả lô. Ghi giới hạn "trước ngày triển khai" và ca `from` rỗng vào docblock.
-- [ ] `LeadAt` và `RequestHolderAt` theo R18. `RequestHolderAt` gọi `LeadAt` cho các luồng có người được giao rỗng tại thời điểm hỏi, **cùng** thời điểm. Tổng: hai truy vấn cho cả lô. So `created_at > $at` chặt: dòng ghi đúng giây `$at` coi như đã có hiệu lực. Docblock nêu giới hạn "luồng giao đích danh bị bàn giao trước ngày triển khai".
-- [ ] Nhãn lý do theo hình dạng trên. Modal "Xem chi tiết" của `ActivityLogPage` in `__('activity.reasons.'.$event.'.'.$reason)` thay mã khi `Lang::has()`, mã thô khi không.
+- [x] `UpdateDeadline`: khi `responsible_user_id` thật sự đổi, ghi thêm dòng `deadline_responsible_changed` (`reason = deadline_updated`), sau dòng `deadline_updated`.
+- [x] `DeadlineHolderAtDue` theo R9, một truy vấn cho cả lô. Ghi giới hạn "trước ngày triển khai" và ca `from` rỗng vào docblock.
+- [x] `LeadAt` và `RequestHolderAt` theo R18. `RequestHolderAt` gọi `LeadAt` cho các luồng có người được giao rỗng tại thời điểm hỏi, **cùng** thời điểm. Tổng: hai truy vấn cho cả lô. So `created_at > $at` chặt: dòng ghi đúng giây `$at` coi như đã có hiệu lực. Docblock nêu giới hạn "luồng giao đích danh bị bàn giao trước ngày triển khai".
+- [x] Nhãn lý do theo hình dạng trên. Modal "Xem chi tiết" của `ActivityLogPage` in `__('activity.reasons.'.$event.'.'.$reason)` thay mã khi `Lang::has()`, mã thô khi không.
 
 **Test bắt buộc:**
-- [ ] **Mốc:**
+- [x] **Mốc:**
   - lỡ rồi mới bàn giao, qua từng đường trong năm đường (`ReassignMatter`, `ReassignMatters` hàng loạt, `ChangeDeadlineResponsible`, `UpdateDeadline`, lần mở lại có chuyển người của `SetDeadlineCompletion`): người giữ vào ngày đến hạn là người **trước**;
   - bàn giao **trước** ngày đến hạn: người **sau**;
   - hai lần đổi sau ngày đến hạn: lấy `from` của lần **sớm nhất**;
   - đổi đúng lúc 23:59:59 của ngày đến hạn tính là "trước"; 00:00:01 hôm sau tính là "sau";
   - không có dòng lịch sử nào (dữ liệu cũ): người giữ hiện tại;
   - dòng lịch sử có `from` rỗng: `null`, không đoán.
-- [ ] **Yêu cầu của khách** (Review Focus 3):
+- [x] **Yêu cầu của khách** (Review Focus 3):
   - luồng chưa giao ai, trả lời khi A phụ trách, rồi `ReassignMatter` A → B: tại `answered_at` là A;
   - cùng ca qua `ReassignMatters` hàng loạt: A;
   - luồng chưa giao, chưa trả lời, hỏi tại một thời điểm trước lần bàn giao: A; sau: B;
@@ -867,11 +867,11 @@ final class RequestHolderAt {
   - luồng mở lại sau khi đóng làm `setStatus()` gỡ người giữ (dòng `client_request_assigned` với `to = null`): đọc đúng;
   - người được giao đã xoá mềm: `RequestHolderAt` vẫn trả người đó (lịch sử), trong khi `holderId()` trả luật sư phụ trách (R18, ghi trong docblock);
   - đồng nhất: `RequestHolderAt` tại `now()` bằng `holderId()` khi người được giao chưa xoá mềm; `LeadAt` tại `now()` bằng `lead_lawyer_id`.
-- [ ] **Người phụ trách vụ:** `LeadAt` tại `closed_at` của một vụ kết thúc rồi mới bàn giao (bàn giao từ trang vụ, `MatterPolicy::manageTeam()` cho phép) là người phụ trách cũ.
-- [ ] Test cấu trúc R9 (`HolderHistoryCompletenessTest`): ba mẫu token "ghi" cho `responsible_user_id` và `assigned_to` (R9); một đường ghi trong fixture mà thiếu khoá sự kiện thì test đỏ; các dạng âm (khoá `ValidationException`, câu `where`/`select`, đọc không gán) không bị bắt.
-- [ ] Mutation probe: bỏ dòng ghi trong `ReassignMatter` bước 3 thì test bàn giao mốc đỏ.
-- [ ] Số truy vấn của `DeadlineHolderAtDue::resolve()`, `LeadAt::resolve()` và `RequestHolderAt::resolve()` không đổi khi số phần tử tăng từ 3 lên 30.
-- [ ] `ActivityReasonLabelsTest`: mọi hằng số `*_REASON` dưới `app/Actions` (quét token `const \w+_REASON = '…'`, kèm tên sự kiện của dòng mà Action đó ghi) có khoá `activity.reasons.<sự kiện>.<lý do>`; modal "Xem chi tiết" in nhãn, không in mã, cho một dòng `reopened_holder_no_longer_qualifies`.
+- [x] **Người phụ trách vụ:** `LeadAt` tại `closed_at` của một vụ kết thúc rồi mới bàn giao (bàn giao từ trang vụ, `MatterPolicy::manageTeam()` cho phép) là người phụ trách cũ.
+- [x] Test cấu trúc R9 (`HolderHistoryCompletenessTest`): ba mẫu token "ghi" cho `responsible_user_id` và `assigned_to` (R9); một đường ghi trong fixture mà thiếu khoá sự kiện thì test đỏ; các dạng âm (khoá `ValidationException`, câu `where`/`select`, đọc không gán) không bị bắt.
+- [x] Mutation probe: bỏ dòng ghi trong `ReassignMatter` bước 3 thì test bàn giao mốc đỏ.
+- [x] Số truy vấn của `DeadlineHolderAtDue::resolve()`, `LeadAt::resolve()` và `RequestHolderAt::resolve()` không đổi khi số phần tử tăng từ 3 lên 30.
+- [x] `ActivityReasonLabelsTest`: mọi hằng số `*_REASON` dưới `app/Actions` (quét token `const \w+_REASON = '…'`, kèm tên sự kiện của dòng mà Action đó ghi) có khoá `activity.reasons.<sự kiện>.<lý do>`; modal "Xem chi tiết" in nhãn, không in mã, cho một dòng `reopened_holder_no_longer_qualifies`.
 
 **Commit:** `feat: M13 Task 3 — lịch sử người giữ việc ở một khoá sự kiện: ReassignMatter ghi deadline_responsible_changed cho từng mốc và client_request_assigned cho từng luồng, UpdateDeadline ghi lần đổi người, DeadlineHolderAtDue, LeadAt và RequestHolderAt dựng người giữ tại một thời điểm, nhãn lý do trong nhật ký`
 
@@ -985,7 +985,7 @@ final readonly class TeamWorkloadRow {
 
 **Commit:** `feat: M13 Task 5 — trang của một người: số đầu trang dùng lại BuildTeamWorkload, bảng vụ việc trên listableBy và Matter::workedOnBy, ba danh sách dựng từ truy vấn widget trang chủ cộng scope người, audit performance_viewed`
 
-### - [ ] Task 6 — Trang "Hiệu suất theo kỳ" (P1–P7, P9, P10)
+### - [x] Task 6 — Trang "Hiệu suất theo kỳ" (P1–P7, P9, P10)
 
 **Tệp:**
 - mới: `app/Support/Performance/PerformancePeriod.php`, `Ratio.php`, `PerformanceRow.php`, `PerformanceReport.php`;
@@ -1033,16 +1033,16 @@ final class BuildPerformanceReport {
 ```
 
 **Bước:**
-- [ ] Chỉ số quy người theo một cột: một truy vấn `GROUP BY` (R11). Chỉ số quy người theo lịch sử: nạp tập của kỳ **không lọc người** rồi dựng lịch sử một lần (R11):
+- [x] Chỉ số quy người theo một cột: một truy vấn `GROUP BY` (R11). Chỉ số quy người theo lịch sử: nạp tập của kỳ **không lọc người** rồi dựng lịch sử một lần (R11):
   - P1: `Deadline::dueBetween($period->bounds())` trên vụ trong `listableBy(V)`, nạp kèm `matter` (`closed_at`); `DeadlineHolderAtDue::resolve()`; `outcomeAt($period->cutoff())`; lọc người bằng PHP;
   - P3, P10: `ClientRequest::createdBetween($period->bounds())` trên vụ trong `listableBy(V)`, nạp `created_at`, `answered_at`, `status`, `assigned_to`, `matter_id` và `matter`; `RequestHolderAt::resolve()` với thời điểm `answered_at` (luồng `answeredBy(cutoff)`) hoặc `cutoff` (mọi luồng khác); trung vị và trung bình bằng PHP (R17) chỉ trên luồng đã trả lời;
   - P5: `Matter::closedWithin(...)` trên `listableBy(V)`, `LeadAt::resolve()` tại `closed_at`;
   - P6: `ActivityOwningMatter::scopeEventsWithin(…, ReviewChecklistItem::AUDIT_EVENT, bounds)` cộng `scopeOwnedByVisibleMatters(…, V)`, `GROUP BY causer_id`;
   - "Lĩnh vực chính": hợp các `matter_id` đã quy về người đó ở P1, P3, P10, P4, P5; một truy vấn `matter_type_id`.
-- [ ] Hỏi `viewPerformance` cho từng `$subject` (phòng thủ, như `BuildTeamWorkload`). Vai trò đã nạp sẵn qua `TeamRoster`, nên kiểm tra này không thêm truy vấn (R11).
-- [ ] Các trường (L) trả `null` khi `TeamRoster::leadsMatters($subject)` sai (R6). P7 chỉ được tính khi `PerformanceReport::$revenueVisible`: người xem có `billing.view` và (có `revenue.viewAny` hoặc tập người chỉ là chính người xem), tức `viewPerformanceRevenue` đúng cho mọi người trong trang.
-- [ ] Dòng tham chiếu R8 chỉ khi người xem có `performance.viewAny`, theo đúng các luật của dòng "Chung" ở R8 (không lọc người giữ, P4 luôn hiện, P7 theo `revenue.viewAny`).
-- [ ] Trang:
+- [x] Hỏi `viewPerformance` cho từng `$subject` (phòng thủ, như `BuildTeamWorkload`). Vai trò đã nạp sẵn qua `TeamRoster`, nên kiểm tra này không thêm truy vấn (R11).
+- [x] Các trường (L) trả `null` khi `TeamRoster::leadsMatters($subject)` sai (R6). P7 chỉ được tính khi `PerformanceReport::$revenueVisible`: người xem có `billing.view` và (có `revenue.viewAny` hoặc tập người chỉ là chính người xem), tức `viewPerformanceRevenue` đúng cho mọi người trong trang.
+- [x] Dòng tham chiếu R8 chỉ khi người xem có `performance.viewAny`, theo đúng các luật của dòng "Chung" ở R8 (không lọc người giữ, P4 luôn hiện, P7 theo `revenue.viewAny`).
+- [x] Trang:
   - form kỳ (R16) và công tắc "Gồm người đã nghỉ việc" (R3);
   - tập người mặc định: `TeamRoster::subjectsForPeriod()`;
   - bảng `records()` **không cột nào sắp xếp được ngoài tên** (R8);
@@ -1050,53 +1050,53 @@ final class BuildPerformanceReport {
   - nhãn "kỳ đang chạy";
   - "Cách tính các con số" (gồm câu `closed_period` của R19) và "Vì sao không có bảng xếp hạng";
   - câu R4.
-- [ ] Người xem không có `performance.viewAny` chỉ có dòng của chính mình. Tập người tính lại từ người xem ở mỗi request, không nằm trong trạng thái Livewire.
-- [ ] `performance_viewed` theo R14: khi `mount()` và khi đổi kỳ, chỉ với người có `performance.viewAny`.
+- [x] Người xem không có `performance.viewAny` chỉ có dòng của chính mình. Tập người tính lại từ người xem ở mỗi request, không nằm trong trạng thái Livewire.
+- [x] `performance_viewed` theo R14: khi `mount()` và khi đổi kỳ, chỉ với người có `performance.viewAny`.
 - [ ] Mở rộng benchmark với một quý.
 
 **Test bắt buộc** (mỗi ca một `it()`):
-- [ ] P1, ranh giới thời gian:
+- [x] P1, ranh giới thời gian:
   - xong 23:59:59 ngày đến hạn → đúng hạn; 00:00:01 hôm sau → trễ;
   - đến hạn hôm nay, chưa xong → không vào tập; đến hạn hôm nay, đã xong → vào tập, đúng hạn;
   - kỳ đã đóng: xong sau 23:59:59 ngày cuối kỳ → lỡ, không phải trễ (R19).
-- [ ] P1, vụ và mốc đặc biệt (qua trang, đối chiếu bảng ca biên đã test ở Task 2):
+- [x] P1, vụ và mốc đặc biệt (qua trang, đối chiếu bảng ca biên đã test ở Task 2):
   - vụ kết thúc **trước** hoặc **đúng** ngày đến hạn, mốc chưa xong → không vào tập;
   - vụ kết thúc **sau** ngày đến hạn, mốc chưa xong → lỡ;
   - mốc ghi vào hệ thống sau ngày đến hạn → không vào tập;
   - mốc mở lại sau ngày đến hạn → lỡ, tính cho người giữ vào ngày đến hạn;
   - mốc đã gỡ → không vào tỉ lệ, có ở P2;
   - vụ đã huỷ → không ở đâu cả.
-- [ ] P1 quy người qua bàn giao (Review Focus 3): **luật sư xem dòng của chính mình** sau khi mốc mình lỡ đã được bàn giao cho người khác: mốc vẫn có trong dòng của mình là "lỡ". Mutation probe: nạp mốc bằng `responsible_user_id IN (tập người)` thì ca này đỏ.
-- [ ] P3:
+- [x] P1 quy người qua bàn giao (Review Focus 3): **luật sư xem dòng của chính mình** sau khi mốc mình lỡ đã được bàn giao cho người khác: mốc vẫn có trong dòng của mình là "lỡ". Mutation probe: nạp mốc bằng `responsible_user_id IN (tập người)` thì ca này đỏ.
+- [x] P3:
   - trung vị với n chẵn và n lẻ;
   - yêu cầu chưa trả lời vào mẫu số của P9, không vào thời gian phản hồi;
   - trả lời qua `TriageClientRequest` (đánh dấu đã trả lời qua điện thoại) có `answered_at`, nên được tính;
   - kỳ đã đóng: trả lời sau mốc cắt → chưa trả lời của kỳ đó;
   - quy về người giữ luồng lúc trả lời; các ca bàn giao của Review Focus 3 qua trang.
-- [ ] P10: Mới → Đã đóng qua `TriageClientRequest::setStatus()` → không ở mẫu số P3/P9, có ở P10; luồng đã trả lời rồi đóng → vẫn "đã trả lời" ở P3. Mutation probe: bỏ điều kiện loại ở mẫu số thì test đỏ.
-- [ ] P4:
+- [x] P10: Mới → Đã đóng qua `TriageClientRequest::setStatus()` → không ở mẫu số P3/P9, có ở P10; luồng đã trả lời rồi đóng → vẫn "đã trả lời" ở P3. Mutation probe: bỏ điều kiện loại ở mẫu số thì test đỏ.
+- [x] P4:
   - dòng "thêm cập nhật" cùng giai đoạn và dòng bàn giao nội bộ của `ReassignMatter` không tính (`entries()`);
   - dòng ghi lùi ngày tính theo `occurred_at`;
   - trợ lý hiện "Không áp dụng".
-- [ ] P5: vụ đóng rồi được admin mở lại (đường bỏ qua M6.5 R8) không còn tính; vụ kết thúc rồi mới bàn giao vẫn tính cho người phụ trách lúc kết thúc.
-- [ ] P6:
+- [x] P5: vụ đóng rồi được admin mở lại (đường bỏ qua M6.5 R8) không còn tính; vụ kết thúc rồi mới bàn giao vẫn tính cho người phụ trách lúc kết thúc.
+- [x] P6:
   - một lần duyệt và một lần từ chối trong kỳ → 2, theo người bấm;
   - khách nộp lại sau khi bị từ chối (`markPendingReview()` xoá `reviewed_by`) → lần từ chối trong kỳ vẫn được tính;
   - văn phòng tải giấy tờ thay khách (`settleChecklistItem()` ghi `accepted`) → không tính;
   - lần duyệt trên vụ `restricted` không tính cho trưởng phòng.
-- [ ] P7:
+- [x] P7:
   - bằng tổng `RevenueOverTimeWidget` với bộ lọc luật sư cùng kỳ (Review Focus 2);
   - trợ lý: "Không áp dụng" khi người xem thấy cột; người xem là trợ lý: không có cột;
   - luật sư chỉ thấy cột của mình;
   - khoản thu đã huỷ không tính.
-- [ ] **"Không áp dụng"**: dòng của trợ lý in "Không áp dụng" ở P4, P5, P7, số ở mọi cột còn lại.
-- [ ] **Dòng "Chung"**: gồm việc do admin và người ngoài danh sách giữ; không bằng tổng các dòng; P7 của dòng này bằng tổng `RevenueOverTimeWidget` không lọc luật sư.
-- [ ] **"Lĩnh vực chính"**: luật sư có 3 vụ hình sự đã kết thúc trong kỳ và 1 vụ dân sự đang mở không có việc trong kỳ → "Hình sự (3)", không có "Dân sự".
-- [ ] P9 và `Ratio`: n = 4 → "Chưa đủ dữ liệu"; n = 5 → có tỉ lệ. Mutation probe trên `MIN_SAMPLE`.
-- [ ] **Kỳ đã đóng ổn định** (`ClosedPeriodStabilityTest`, R19): tính "tháng trước"; rồi hôm nay hoàn thành một mốc đã lỡ, trả lời một luồng tồn, bàn giao vụ (`ReassignMatter` và `ReassignMatters`) sang người khác; tính lại: mọi trường của mọi `PerformanceRow` không đổi. Chạy dưới `test:mariadb`.
+- [x] **"Không áp dụng"**: dòng của trợ lý in "Không áp dụng" ở P4, P5, P7, số ở mọi cột còn lại.
+- [x] **Dòng "Chung"**: gồm việc do admin và người ngoài danh sách giữ; không bằng tổng các dòng; P7 của dòng này bằng tổng `RevenueOverTimeWidget` không lọc luật sư.
+- [x] **"Lĩnh vực chính"**: luật sư có 3 vụ hình sự đã kết thúc trong kỳ và 1 vụ dân sự đang mở không có việc trong kỳ → "Hình sự (3)", không có "Dân sự".
+- [x] P9 và `Ratio`: n = 4 → "Chưa đủ dữ liệu"; n = 5 → có tỉ lệ. Mutation probe trên `MIN_SAMPLE`.
+- [x] **Kỳ đã đóng ổn định** (`ClosedPeriodStabilityTest`, R19): tính "tháng trước"; rồi hôm nay hoàn thành một mốc đã lỡ, trả lời một luồng tồn, bàn giao vụ (`ReassignMatter` và `ReassignMatters`) sang người khác; tính lại: mọi trường của mọi `PerformanceRow` không đổi. Chạy dưới `test:mariadb`.
 - [ ] **R20** (khi `created_via` đã có trên `main`): mốc tạo qua AI chưa xác nhận, quá hạn → lỡ ở P1, có ở N5, cùng con số với `CheckDeadlines::tierFor()`.
-- [ ] **Tập người theo kỳ** (`subjectsForPeriod()`): luật sư vô hiệu hoá ngày 05/11 có dòng trong "tháng trước" (tháng 10) khi xem ngày 10/11, không cần công tắc; luật sư vô hiệu hoá ngày 20/09 không có, trừ khi bật công tắc; người đã xoá mềm không bao giờ có.
-- [ ] `PerformancePeriod`:
+- [x] **Tập người theo kỳ** (`subjectsForPeriod()`): luật sư vô hiệu hoá ngày 05/11 có dòng trong "tháng trước" (tháng 10) khi xem ngày 10/11, không cần công tắc; luật sư vô hiệu hoá ngày 20/09 không có, trừ khi bật công tắc; người đã xoá mềm không bao giờ có.
+- [x] `PerformancePeriod`:
   - `last_month` vào ngày 31/10 và ngày 01/11 (`travelTo()`);
   - quý;
   - `custom` dài 367 ngày → lỗi validation tiếng Việt;
@@ -1106,12 +1106,12 @@ final class BuildPerformanceReport {
   - `trailingDays(90)` vào ngày 2026-10-04 → 2026-07-06 … 2026-10-03.
 
   Chạy dưới `test:mariadb`.
-- [ ] Quét rò rỉ (Review Focus 1) trên mọi thuộc tính của `PerformanceRow` và của dòng tham chiếu.
-- [ ] Livewire:
+- [x] Quét rò rỉ (Review Focus 1) trên mọi thuộc tính của `PerformanceRow` và của dòng tham chiếu.
+- [x] Livewire:
   - luật sư gửi bộ lọc cố chèn id người khác vẫn chỉ có một dòng;
   - kế toán 404;
   - `sortTable` trên cột tỉ lệ không đổi thứ tự.
-- [ ] Số truy vấn hằng theo số người (3 và 12), kể cả kiểm quyền từng người.
+- [x] Số truy vấn hằng theo số người (3 và 12), kể cả kiểm quyền từng người.
 
 **Commit:** `feat: M13 Task 6 — trang "Hiệu suất theo kỳ": mốc đúng hạn/trễ/lỡ theo người giữ vào ngày đến hạn và cắt ở cuối kỳ, phản hồi yêu cầu khách theo người giữ lúc trả lời (trung vị, trung bình), yêu cầu đóng không trả lời tách riêng, chuyển giai đoạn qua StageLog::entries, duyệt giấy tờ theo nhật ký, doanh thu qua CollectedRevenue, tỉ lệ hoàn thành việc đến hạn có ngưỡng mẫu, không xếp hạng`
 

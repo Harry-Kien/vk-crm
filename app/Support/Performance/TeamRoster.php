@@ -6,9 +6,11 @@ use App\Enums\Permission;
 use App\Enums\Role;
 use App\Models\User;
 use App\Policies\UserPolicy;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Gate;
+use Spatie\Activitylog\Models\Activity;
 
 /**
  * Định nghĩa DUY NHẤT của "ai được theo dõi" (M13, phán quyết R3) và của "người này có phụ trách
@@ -39,7 +41,8 @@ use Illuminate\Support\Facades\Gate;
  * theo từng người (`viewPerformance`, {@see self::leadsMatters()}) không sinh một truy vấn spatie cho
  * mỗi người. `TeamRosterTest` đếm truy vấn với 3 và với 12 người.
  *
- * `subjectsForPeriod()` (danh sách theo kỳ, R3) thêm ở Task 6, khi `PerformancePeriod` đã có.
+ * {@see self::subjectsForPeriod()} (Task 6) là danh sách theo KỲ của trang "Hiệu suất theo kỳ": thêm người
+ * đã nghỉ việc trong hoặc sau kỳ (R3).
  */
 final class TeamRoster
 {
@@ -111,5 +114,87 @@ final class TeamRoster
     private static function trackedRoleNames(): array
     {
         return array_map(fn (Role $role): string => $role->value, self::TRACKED_ROLES);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Task 6 (làn m13b) — danh sách theo KỲ của trang "Hiệu suất theo kỳ" (R3).
+    // ---------------------------------------------------------------------------------------------
+
+    /**
+     * Những người `$viewer` được xem số liệu TRONG `$period` (R3): người trackable đang hoạt động, cộng
+     * người đã nghỉ việc mà lần vô hiệu hoá GẦN NHẤT xảy ra từ 00:00 ngày đầu kỳ trở đi — họ đã làm một
+     * phần kỳ đó, số của phần ấy là của họ. Luật sư nghỉ ngày 05/11 vẫn có dòng trong "tháng trước" (tháng
+     * 10) mà không cần công tắc. `$includeInactive` ("Gồm người đã nghỉ việc") thêm MỌI người trackable đã
+     * nghỉ. Người đã xoá mềm không bao giờ có dòng ({@see self::members()} bỏ họ), kể cả khi bật công tắc.
+     *
+     * Rồi lọc qua `UserPolicy::viewPerformance()` như {@see self::subjectsFor()}: người có
+     * `performance.viewAny` nhận cả danh sách; người khác chỉ nhận chính mình; kế toán nhận rỗng.
+     *
+     * **Lần vô hiệu hoá đọc từ nhật ký**, vì `users` không có cột ngày nghỉ việc: `User` ghi `is_active`
+     * qua `LogsActivity` (`logOnly([... 'is_active'])->logOnlyDirty()`), nên tắt tài khoản sinh một dòng
+     * `updated` của chủ thể `user` mang `attributes.is_active = false` (và `old.is_active = true`). MỘT truy
+     * vấn cho mọi người đang nghỉ (vài chục dòng), lọc bằng PHP — không truy vấn JSON (khác nhau giữa
+     * SQLite và MariaDB).
+     * Người nghỉ việc không có dòng nào như vậy (dữ liệu trước khi có nhật ký) coi như nghỉ trước mọi kỳ.
+     * Ai bỏ `is_active` khỏi `logOnly()` của `User` thì người nghỉ việc biến khỏi kỳ họ đã làm —
+     * `PerformancePageTest` ("deactivated on 5 November") đỏ.
+     *
+     * Tệp này là ngoại lệ có tên của `NoSecondDefinitionTest`: được viết điều kiện trên `is_active`,
+     * `deleted_at` của `users` và trên `event`, `subject_type`, `created_at` của dòng nhật ký vô hiệu hoá.
+     *
+     * @return Collection<int, User> đã nạp sẵn `roles.permissions` và `permissions`, xếp theo tên
+     */
+    public static function subjectsForPeriod(User $viewer, PerformancePeriod $period, bool $includeInactive = false): Collection
+    {
+        $gate = Gate::forUser($viewer);
+        $everyone = self::members(includeInactive: true);
+        $leftDuringPeriod = self::deactivatedSince($everyone->reject(fn (User $user): bool => $user->is_active), $period->from);
+
+        return $everyone
+            ->filter(fn (User $subject): bool => $includeInactive || $subject->is_active || isset($leftDuringPeriod[$subject->getKey()]))
+            ->filter(fn (User $subject): bool => $gate->allows('viewPerformance', $subject))
+            ->values();
+    }
+
+    /**
+     * Trong `$inactive`, những người mà lần vô hiệu hoá GẦN NHẤT xảy ra không sớm hơn `$since`. Một truy
+     * vấn, kể cả khi `$inactive` rỗng (khi đó `whereIntegerInRaw` thành `0 = 1`).
+     *
+     * @param  Collection<int, User>  $inactive
+     * @return array<int, true> khoá là id người
+     */
+    private static function deactivatedSince(Collection $inactive, CarbonInterface $since): array
+    {
+        $lastDeactivation = [];
+
+        Activity::query()
+            ->select(['id', 'subject_id', 'properties', 'created_at'])
+            ->where('event', 'updated')
+            ->where('subject_type', (new User)->getMorphClass())
+            ->whereIntegerInRaw('subject_id', $inactive->map(fn (User $user): int => (int) $user->getKey())->all())
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->get()
+            ->each(function (Activity $row) use (&$lastDeactivation): void {
+                if (self::isDeactivation($row)) {
+                    $lastDeactivation[(int) $row->subject_id] = $row->created_at;
+                }
+            });
+
+        return array_map(
+            fn (): bool => true,
+            array_filter($lastDeactivation, fn (CarbonInterface $at): bool => $at->gte($since)),
+        );
+    }
+
+    /**
+     * Dòng `updated` đặt `is_active` thành tắt. `User` ghi nhật ký `logOnlyDirty()`, nên khoá
+     * `attributes.is_active` chỉ có mặt khi cột thật sự đổi — `false` ở đó nghĩa là đi từ bật sang tắt.
+     * `is_active` cast boolean, nên nhật ký ghi `false` JSON. Dòng đổi cột khác (tên, điện thoại) không
+     * mang khoá này và không phải một lần vô hiệu hoá.
+     */
+    private static function isDeactivation(Activity $row): bool
+    {
+        return data_get($row->properties?->all() ?? [], 'attributes.is_active') === false;
     }
 }
