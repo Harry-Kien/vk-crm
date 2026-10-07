@@ -135,6 +135,7 @@ một khách hàng khác.
 | Đọc lý do khi giấy tờ bị từ chối và nộp lại | Lý do hiện nguyên văn, bản nộp lại nối vào bản cũ | **[Xong]** — khách phải tự mở cổng mới thấy; thư báo bị từ chối là M6 Task 3 |
 | Hỏi lại văn phòng và nhận trả lời | Yêu cầu từ khách, trả lời theo luồng; hộp thư văn phòng sắp theo hoạt động gần nhất | **[Xong]** phần hỏi và trả lời trên màn hình. **Còn thiếu:** văn phòng **không được báo** khi khách gửi yêu cầu mới hay hỏi tiếp, nhân sự phải tự mở tab Yêu cầu của từng vụ (`requests/REQ-1`, `REQ-2`); khách không được báo khi văn phòng trả lời (`REQ-4`). Cả ba chuyển sang M6 Task 4 |
 | Nhận thư báo khi có cập nhật mới | Bốn mẫu thư cho khách, chỉ chứa nội dung đã công bố | **[Có kế hoạch]** M6 |
+| Nhận thông báo trên điện thoại, chạm một lần là mở đúng hồ sơ | Ứng dụng cài từ trình duyệt (không qua chợ ứng dụng), thông báo đẩy đi cùng bốn thư của khách, màn hình khoá chỉ hiện một câu chung | **[Đang làm]** M12 — đã có mã, chờ gộp và chờ chủ văn phòng thử trên iPhone, Android thật; hướng dẫn cài ở mục cuối tài liệu này |
 | **Xem đã đóng bao nhiêu trên tổng giá trị hợp đồng** | Khối **Hợp đồng và thanh toán** trên trang tiến độ của cổng: số hợp đồng, tổng giá trị, thuế suất, ngày ký, từng đợt (đến hạn khi nào, đã thanh toán, còn lại, quá hạn) và các khoản văn phòng đã nhận. Không hiện ghi chú nội bộ, lý do miễn/huỷ, người ghi, khoản thu đã huỷ, bản nháp hay hợp đồng đã huỷ. Đợt theo tiến độ chưa tới bước của nó nói "đến hạn khi vụ việc tới bước …" bằng nhãn cho khách; tới bước đó thì đổi thành ngày đến hạn. Gói bàn giao in cùng bảng kê đó | **[Xong]** M9 Task 10 — chủ văn phòng đã quyết: **khách xem được** (phán quyết P1, 2026-09-24). Không có thư nhắc nợ nào gửi khách |
 
 Văn phòng nhìn ngược lại: mỗi dòng đã công bố mang nhãn **khách đã xem lúc nào**, và
@@ -366,8 +367,126 @@ Cổng khách hàng đã được dựng cho điện thoại ngay từ đầu: m
 44 điểm ảnh, không bảng ngang, chụp ảnh thẳng từ máy ảnh. Mở bằng trình duyệt điện
 thoại là dùng được ngay, không cần chờ gì.
 
-Muốn thành ứng dụng tải từ chợ ứng dụng thì cần thêm một lớp giao tiếp dữ liệu, và
-kiến trúc hiện tại đã chừa sẵn chỗ: **toàn bộ nghiệp vụ nằm trong tầng Action chứ
-không nằm trong màn hình**, nên lớp đó chỉ gọi lại đúng những Action đang chạy, không
-phải viết lại luật nào. Đó là một milestone riêng, làm sau khi hệ thống chạy thật một
-thời gian — vì thứ đáng đưa lên ứng dụng phải là thứ đã biết chắc khách dùng.
+**Cập nhật 2026-10-04 (M12).** Từ M12, cổng khách hàng và trang nội bộ cài được thành
+ứng dụng trên điện thoại ngay từ trình duyệt, không qua chợ ứng dụng: biểu tượng trên
+màn hình chính, cửa sổ riêng, và **thông báo đẩy** khi hồ sơ có việc mới (Android và
+iPhone iOS 16.4 trở lên). Ứng dụng chính là website, nên ứng dụng không lưu sẵn hồ sơ
+trên điện thoại và không có gì để "đồng bộ" (chỉ tài liệu người dùng chủ động tải về nằm
+lại trong thư mục tải xuống của máy, đăng xuất không xoá — hướng dẫn cho khách nói rõ điều
+này); mất mạng thì hiện một trang tiếng Việt kèm số hotline. Thông báo chỉ là một câu chung, không tên, không mã hồ sơ — màn hình khoá
+không phải màn hình của văn phòng — và thư điện tử vẫn gửi như trước. Hướng dẫn cài cho
+khách: mục "Hướng dẫn cài ứng dụng Luật Vũ Khang trên điện thoại" ở cuối tài liệu này.
+M12 đã có mã (nhánh `m12-pwa-push`), đang chờ gộp và chờ chủ văn phòng thử trên iPhone,
+Android thật (`docs/research/2026-10-01-pwa-kiem-tra-may-that.md`).
+
+Ứng dụng tải từ chợ ứng dụng (App Store, Google Play) vẫn để sau, và chỉ đáng làm khi
+thấy một dấu hiệu đo được sau vài tháng vận hành — ví dụ nhiều khách dùng iPhone không
+tự cài được, hay cần một khả năng mà ứng dụng web trên iPhone không có. Kiến trúc đã
+chừa sẵn chỗ: **toàn bộ nghiệp vụ nằm trong tầng Action chứ không nằm trong màn hình**,
+nên ứng dụng gốc chỉ cần một lớp giao tiếp dữ liệu gọi lại đúng những Action đang chạy,
+không phải viết lại luật nào. Dấu hiệu nào, và làm thế nào: mục cuối của kế hoạch M12
+(`docs/superpowers/plans/2026-09-24-m12-pwa.md`).
+
+---
+
+## Hướng dẫn cài ứng dụng Luật Vũ Khang trên điện thoại
+
+*Dành cho khách hàng. Văn phòng gửi phần này kèm thư kích hoạt tài khoản cổng khách hàng. Kho
+mã nguồn là riêng tư nên khách không mở được đường dẫn tới tệp này: chép phần chữ và ảnh dưới
+đây vào thư hay tin nhắn, hoặc in ra. Ảnh ghi "mô phỏng" chụp trên máy tính với khổ màn hình
+điện thoại; ô ghi "ảnh do chủ văn phòng chụp khi chạy danh sách kiểm tra" là chỗ để ảnh thật
+từ iPhone và Android (mục A, C, D của `docs/research/2026-10-01-pwa-kiem-tra-may-that.md`) — chưa
+có ảnh thật thì gửi bản không ảnh.*
+
+Ứng dụng **Luật Vũ Khang** chính là trang theo dõi hồ sơ của văn phòng, đặt thành một biểu
+tượng trên màn hình chính điện thoại. Không phải tải từ App Store hay Google Play. Ứng dụng
+không lưu sẵn hồ sơ trên điện thoại: mỗi lần mở, ứng dụng lấy thông tin mới nhất từ văn phòng;
+mất mạng thì hiện trang "Chưa có kết nối mạng" kèm số điện thoại của văn phòng. Riêng tài liệu
+anh/chị chủ động tải về thì nằm lại trong thư mục tải xuống của máy (xem "Điều nên biết").
+
+### Trước khi bắt đầu
+
+- Đã kích hoạt tài khoản theo thư của văn phòng (đặt mật khẩu của riêng anh/chị).
+- Mở được hộp thư email trên chính điện thoại này: mỗi lần đăng nhập, văn phòng gửi một mã 6 số
+  qua email.
+- iPhone cần **iOS 16.4 trở lên** để nhận thông báo (xem ở **Cài đặt → Cài đặt chung → Giới
+  thiệu → Phiên bản iOS**).
+
+### Trên iPhone
+
+1. Mở **Safari** — không dùng Chrome, không mở từ trong Zalo hay Facebook — và vào địa chỉ cổng
+   khách hàng văn phòng gửi (ví dụ `https://khachhang.luatvukhang.com/portal`).
+2. Chạm nút **Chia sẻ** (ô vuông có mũi tên chỉ lên, ở thanh dưới) → kéo xuống → **Thêm vào Màn
+   hình chính** → **Thêm**. Tên gợi ý là "Luật Vũ Khang".
+
+   > [Chỗ ảnh: nút Chia sẻ và dòng "Thêm vào Màn hình chính" trên iPhone.]
+   > [ảnh do chủ văn phòng chụp khi chạy danh sách kiểm tra — mục A, bước A2]
+
+3. Về màn hình chính, chạm biểu tượng **Luật Vũ Khang**. Ứng dụng mở trong cửa sổ riêng, không có
+   thanh địa chỉ của Safari. Lần đầu mở từ màn hình chính sẽ phải đăng nhập lại một lần. Đó là
+   bình thường: iPhone giữ ứng dụng tách khỏi Safari. Đăng nhập bằng email, mật khẩu, rồi mã 6 số
+   trong email.
+4. Bật thông báo: chạm ảnh đại diện ở góc trên bên phải → **Thông báo trên điện thoại** → **Bật
+   trên máy này** → khi điện thoại hỏi, chọn **Cho phép**.
+
+Nếu mở trang **Thông báo trên điện thoại** bằng Safari thường (chưa cài), thay cho nút bật là câu:
+"Chạm nút Chia sẻ → Thêm vào Màn hình chính, rồi mở Luật Vũ Khang từ màn hình chính để bật thông
+báo." kèm lời nhắc "Lần đầu mở từ màn hình chính sẽ phải đăng nhập lại một lần." — làm bước 2 và 3
+rồi bật từ trong ứng dụng. iPhone chỉ cho nhận thông báo trong ứng dụng đã thêm vào màn hình chính.
+
+![Trang "Thông báo trên điện thoại" mở bằng Safari thường trên iPhone: câu hướng dẫn thay cho nút bật (mô phỏng)](images/m12/iphone-chua-cai.png)
+
+### Trên điện thoại Android
+
+1. Mở **Chrome** và vào địa chỉ cổng khách hàng văn phòng gửi.
+2. Chạm **⋮** (ba chấm, góc trên bên phải) → **Cài đặt ứng dụng** (có máy ghi **Thêm vào màn hình
+   chính** → **Cài đặt**). Hộp thoại ghi "Luật Vũ Khang — Khách hàng"; dưới biểu tượng trên màn
+   hình chính là "Luật Vũ Khang" (nền xanh đậm).
+
+   > [Chỗ ảnh: hộp thoại cài đặt của Chrome.]
+   > [ảnh do chủ văn phòng chụp khi chạy danh sách kiểm tra — mục C, bước C2]
+
+3. Mở ứng dụng từ màn hình chính, đăng nhập bằng email, mật khẩu, rồi mã 6 số trong email.
+4. Bật thông báo: chạm ảnh đại diện ở góc trên bên phải → **Thông báo trên điện thoại** → **Bật
+   trên máy này** → **Cho phép**.
+
+![Trang "Thông báo trên điện thoại" trên Android, trước khi bật (mô phỏng)](images/m12/android-bat-thong-bao.png)
+
+### Điều nên biết
+
+- Thông báo chỉ hiện một câu chung, ví dụ "Hồ sơ của anh/chị có cập nhật mới. Chạm để xem." —
+  không tên, không mã hồ sơ, không nội dung, vì người khác có thể nhìn thấy màn hình khoá. Chạm
+  vào để xem trong ứng dụng.
+- Thư điện tử vẫn gửi như trước và không tắt được: thông báo trên điện thoại chỉ là thêm một cách
+  báo nhanh.
+- Đăng xuất trên máy này sẽ tắt thông báo trên máy này. Tài liệu anh/chị chủ động tải về được
+  điện thoại lưu vào thư mục tải xuống của máy (Android: ứng dụng **Tệp** hoặc **Tải xuống**;
+  iPhone: ứng dụng **Tệp**) và **đăng xuất không xoá chúng**. Điện thoại dùng chung với người nhà
+  thì sau khi xem, xoá tay các tài liệu đã tải rồi mới đăng xuất.
+- Không dùng ứng dụng khoảng hai tiếng thì lần sau phải đăng nhập lại (mật khẩu và mã 6 số) — để
+  giữ an toàn cho hồ sơ. Chạm một thông báo lúc đó thì đăng nhập xong sẽ về đúng trang của thông
+  báo.
+- Đổi điện thoại hay mất điện thoại: đăng nhập trên máy khác → **Thông báo trên điện thoại** →
+  chạm **Gỡ** ở máy cũ (hoặc **Gỡ mọi thiết bị**), hoặc gọi văn phòng — văn phòng gỡ giúp mọi máy
+  đang nhận thông báo của tài khoản anh/chị.
+- Mất mạng thì ứng dụng hiện trang "Chưa có kết nối mạng" có số điện thoại của văn phòng (chạm để
+  gọi) và nút **Thử lại**.
+
+![Trang "Chưa có kết nối mạng" của ứng dụng khi điện thoại mất mạng (mô phỏng)](images/m12/ngoai-tuyen.png)
+
+### Nhân sự của văn phòng
+
+Cùng các bước trên, với địa chỉ `/admin` thay cho `/portal`: ứng dụng nội bộ tên **VK Nội bộ**
+(biểu tượng nền sáng, phân biệt với ứng dụng của khách), đăng nhập bằng mật khẩu và mã của ứng dụng
+xác thực. Ứng dụng nội bộ báo khi có mốc thời hạn cần chú ý, khi khách gửi giấy tờ hay câu hỏi, và
+khi có khoản thu quá hạn (người theo dõi công nợ). Nếu văn phòng bật giới hạn địa chỉ cho trang nội
+bộ (`ADMIN_IP_ALLOWLIST`), ứng dụng nội bộ chỉ mở được trong mạng văn phòng — câu hỏi 2 cho chủ văn
+phòng trong `docs/PROGRESS.md`, "Ghi chú M12".
+
+Khách gọi báo mất hay đổi điện thoại: mở **Tài khoản portal → tài khoản của khách → "Gỡ mọi máy nhận
+thông báo"** — mọi máy đang nhận thông báo của đúng tài khoản đó thôi nhận, mỗi máy một dòng trong Nhật
+ký hệ thống mang tên người bấm. Việc này không đăng xuất ai: nếu máy bị mất còn đang đăng nhập cổng,
+bấm thêm **"Cấp lại mật khẩu"**. Đổi email của một tài khoản portal cũng tự gỡ mọi máy của tài khoản
+đó (địa chỉ mới là một người giữ mới; người đó bật lại trên máy của mình sau khi kích hoạt). Nhân sự
+mất điện thoại: quản trị viên bấm **"Đặt lại 2FA"** như cũ — việc đó nay gỡ luôn mọi máy nhận thông
+báo của người đó.

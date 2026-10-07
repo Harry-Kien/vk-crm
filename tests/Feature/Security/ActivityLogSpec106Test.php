@@ -428,7 +428,7 @@ it('§10.6 records the deactivation of a portal account, once, and only when is_
 
 /*
 |--------------------------------------------------------------------------
-| 7. Xuất dữ liệu — tập MỌI đường xuất = {documents.download: tài liệu thường + gói bàn giao}
+| 7. Xuất dữ liệu — tập MỌI đường xuất = {documents.download: tài liệu thường + gói bàn giao} (+ hai bí danh M12)
 |--------------------------------------------------------------------------
 |
 | "Xuất dữ liệu" của SPEC §10.6 là mọi đường để một byte dữ liệu rời hệ thống theo yêu cầu của người
@@ -458,7 +458,16 @@ it('§10.6 the only way to take data out of the app is the document download rou
     // Tập đường xuất THẬT là phần còn lại.
     $inertFilament = ['filament.exports.download', 'filament.imports.failed-rows.download'];
 
-    expect(array_values(array_diff($exportLike, $inertFilament)))->toBe(['documents.download']);
+    // M12 Task 3: hai BÍ DANH trong scope của app trên điện thoại (`/admin/…`, `/portal/…`) là CÙNG
+    // đường xuất, không phải đường mới — cùng `DocumentDownloadController` (khẳng định ngay dưới),
+    // nên cùng dòng `document_downloaded`; hành vi ở tests/Feature/Pwa/DocumentDownloadAliasTest.php.
+    expect(array_values(array_diff($exportLike, $inertFilament)))
+        ->toBe(['documents.download', 'documents.download.admin', 'documents.download.portal']);
+
+    foreach (['documents.download.admin', 'documents.download.portal'] as $alias) {
+        expect(Route::getRoutes()->getByName($alias)->getActionName())
+            ->toBe(Route::getRoutes()->getByName('documents.download')->getActionName());
+    }
 });
 
 it('§10.6 no source file streams a file or data body out except the document download controller', function () {

@@ -28,9 +28,29 @@ use Illuminate\Support\Facades\Auth;
  * hai loại request bằng cùng một luật: request cập nhật của trang đổi mật khẩu mang đường dẫn
  * trang đổi mật khẩu và đi qua, còn request cập nhật của một trang khác mang đường dẫn trang đó
  * và bị chặn — có test cho vế thứ hai ở `tests/Feature/Portal/LoginTest.php`.
+ *
+ * # Trang khách đang định mở sống qua bước đổi mật khẩu (M12 Task 6, R9)
+ *
+ * Khách chạm một thông báo đẩy khi phiên đã hết: `/portal/ho-so/{id}` → đăng nhập → mã OTP →
+ * `LoginResponse` TIÊU `url.intended` để về đúng trang hồ sơ → middleware này chặn trang đó (văn
+ * phòng vừa đặt lại mật khẩu). Trước bản sửa, đổi mật khẩu xong khách về trang chủ cổng và mất
+ * trang mình đang mở. Nay mỗi lần chặn một request `GET` — mở trang, hoặc request cập nhật Livewire
+ * của một trang đã mở, mà request giả của đường ống bền mang phương thức và đường dẫn của TRANG —
+ * URL đó được ghi vào {@see self::INTENDED_URL_KEY}; {@see ChangePassword} đưa khách về đó sau khi
+ * đổi xong. Không ghi request khác `GET`: trên trang đổi mật khẩu, `register.js` vẫn gửi lượt kiểm
+ * `POST …/push/subscriptions` và nó cũng bị chặn ở đây — ghi nó thì đổi mật khẩu xong khách bị đưa
+ * tới một route chỉ nhận `POST`.
+ *
+ * Khoá riêng, không phải `url.intended`: hai panel chung một phiên, và `url.intended` có thể đang
+ * giữ một URL `/admin` do panel kia ghi. Khoá này chỉ có một nơi ghi — chính middleware này, trên
+ * route của panel `portal` — nên giá trị của nó luôn là một trang cổng khách mà chính khách này vừa
+ * mở.
  */
 class RequirePortalPasswordChange
 {
+    /** Trang cổng khách mà khách đang định mở khi bị chặn để đổi mật khẩu — {@see ChangePassword} đọc. */
+    public const INTENDED_URL_KEY = 'portal.password_change.intended_url';
+
     public function handle(Request $request, Closure $next): mixed
     {
         $user = Auth::guard('client')->user();
@@ -43,6 +63,12 @@ class RequirePortalPasswordChange
 
         if (in_array($request->path(), $this->allowedPaths($changePasswordUrl), true)) {
             return $next($request);
+        }
+
+        if ($request->isMethod('GET')) {
+            // Request giả của đường ống bền là `duplicate()` của request thật nên mang theo phiên của
+            // nó — đo bằng ca cập nhật Livewire của `tests/Feature/Portal/DeepLinkSignInTest.php`.
+            $request->session()->put(self::INTENDED_URL_KEY, $request->fullUrl());
         }
 
         return redirect()->to($changePasswordUrl);

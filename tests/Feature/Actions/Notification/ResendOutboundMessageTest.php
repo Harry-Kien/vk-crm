@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Notification\ResendOutboundMessage;
+use App\Enums\OutboundChannel;
 use App\Enums\OutboundStatus;
 use App\Enums\Role;
 use App\Exceptions\OutboundMessageNotResendable;
@@ -16,6 +17,7 @@ use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Spatie\Activitylog\Models\Activity;
 
@@ -173,6 +175,55 @@ it('never grants resend to a client portal account', function () {
     expect(Gate::forUser($account)->allows('resend', $row))->toBeFalse()
         ->and(Gate::forUser(User::factory()->withRole(Role::Admin)->create())->allows('resend', $row))->toBeTrue()
         ->and(Gate::forUser(User::factory()->withRole(Role::Lawyer)->create())->allows('resend', $row))->toBeFalse();
+});
+
+/**
+ * M12 R13 (Task 7) — dòng của kênh thông báo đẩy mang giá trị `PushTopic` làm mẫu, TRÙNG tên mẫu thư
+ * (`client.stage_update`…), và `recipient` là `client_user:{id}`. Lời gọi ép vào `handle()` trên một
+ * dòng push `failed` phải bị từ chối bằng câu riêng — không bao giờ xếp một lần gửi lại THƯ.
+ *
+ * Mutation probe: bỏ cổng `channel !== Email` ở đầu phần kiểm của `handle()` → ĐỎ (một job gửi lại
+ * thư được xếp).
+ */
+it('refuses a forced resend of a failed push row, whose topic shares the mail template name', function () {
+    $mail = forcedFailedStageRow();
+    $account = ClientUser::query()->where('email', $mail->recipient)->sole();
+    $row = forcedFailedStageRow([
+        'channel' => OutboundChannel::Push,
+        'recipient' => 'client_user:'.$account->id,
+        'related_id' => $mail->related_id,
+        'payload' => ['title' => 'Luật Vũ Khang', 'body' => 'Hồ sơ của anh/chị có cập nhật mới. Chạm để xem.'],
+        'error' => 'HTTP 500 Internal Server Error',
+    ]);
+
+    expect(ResendOutboundMessage::canResend($row))->toBeFalse()
+        ->and(fn () => app(ResendOutboundMessage::class)->handle(User::factory()->withRole(Role::Admin)->create(), $row))
+        ->toThrow(OutboundMessageNotResendable::class, __('outbound.resend.refused.channel'));
+
+    Queue::assertNothingPushed();
+    expect(Activity::query()->where('event', 'outbound_message_resent')->count())->toBe(0);
+});
+
+/**
+ * Lớp thứ hai: job gửi lại (xếp từ trước, hay do một đường tương lai) cũng không dựng lại thư từ một
+ * dòng không phải email.
+ *
+ * Mutation probe: bỏ cổng kênh ở `ResendOutboundMessageJob::handle()` → ĐỎ (thư tiến độ được gửi).
+ */
+it('sends no mail when a resend job runs on a push row', function () {
+    Mail::fake();
+    $mail = forcedFailedStageRow();
+    $account = ClientUser::query()->where('email', $mail->recipient)->sole();
+    $row = forcedFailedStageRow([
+        'channel' => OutboundChannel::Push,
+        'recipient' => 'client_user:'.$account->id,
+        'related_id' => $mail->related_id,
+    ]);
+
+    (new ResendOutboundMessageJob($row->id, User::factory()->withRole(Role::Admin)->create()->id))->handle();
+
+    Mail::assertNothingSent();
+    Mail::assertNothingQueued();
 });
 
 /**

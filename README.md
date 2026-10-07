@@ -140,9 +140,12 @@ app/
 ├── Providers/Filament/     AdminPanelProvider, PortalPanelProvider
 ├── Support/Files/          FileGuard và seam VirusScanner (từ M4)
 └── Support/Scopes/         Global scope giới hạn dữ liệu theo khách (từ M2)
-app/Console/Commands/       vkcrm:preflight, vkcrm:create-admin, vkcrm:reset-2fa, vkcrm:backup-check
+app/Console/Commands/       vkcrm:preflight, vkcrm:create-admin, vkcrm:reset-2fa, vkcrm:backup-check,
+                            vkcrm:push-reset
 config/vkcrm.php            Cấu hình riêng của hệ thống (tên miền, tiền tố mã hồ sơ, ...)
-tools/deploy/               Mẫu nginx/Apache đã chạy thử + kịch bản kiểm máy chủ web chặn storage/
+tools/deploy/               Mẫu nginx/Apache đã chạy thử + kịch bản kiểm máy chủ web (chặn storage/,
+                            đưa /admin/sw.js và /portal/sw.js tới PHP)
+tools/pwa/                  Kịch bản Playwright đo app trên điện thoại (service worker, thông báo đẩy)
 lang/vi/                    Toàn bộ chuỗi giao diện tiếng Việt
 docs/                       Đặc tả, kiến trúc, kế hoạch, tiến độ
 ```
@@ -154,10 +157,11 @@ chủ thật (production)"**. Sao lưu và khôi phục: **`docs/SAO-LUU-KHOI-PH
 phòng, kèm bảng số đo thật của một lần khôi phục thử — khoảng 2 phút 14 giây trên dữ liệu mẫu).
 Tóm tắt những điều không được bỏ qua:
 
-- **PHP 8.3 với đủ extension**: `ctype` `dom` `exif` `fileinfo` `filter` `hash` `iconv` `intl`
-  `json` `libxml` `mbstring` `openssl` `pcre` `session` `tokenizer` `xmlreader` `zip` `zlib`
-  `pdo_mysql` (nên có thêm `gd`, `curl`). MariaDB 11, gói `mariadb-client` (`mariadb-dump`), và
-  `rclone` cho sao lưu Google Drive. Không cần Redis, Supervisor hay Node.js.
+- **PHP 8.3 với đủ extension**: `ctype` `curl` `dom` `exif` `fileinfo` `filter` `hash` `iconv`
+  `intl` `json` `libxml` `mbstring` `openssl` `pcre` `session` `tokenizer` `xmlreader` `zip`
+  `zlib` `pdo_mysql` (nên có thêm `gd`). `curl` bắt buộc từ M12 (gói thông báo đẩy). MariaDB 11,
+  gói `mariadb-client` (`mariadb-dump`), và `rclone` cho sao lưu Google Drive. Không cần Redis,
+  Supervisor hay Node.js.
 - **Thứ tự cài:** `cp .env.example .env` → `composer install --no-dev --optimize-autoloader` →
   `php artisan key:generate` (chỉ lần cài đầu, trên cơ sở dữ liệu rỗng) và điền `.env`
   (`APP_ENV=production`, `APP_DEBUG=false`, `TRUSTED_PROXIES`, `BRAND_*`…) → cấu hình máy chủ web
@@ -178,6 +182,14 @@ Tóm tắt những điều không được bỏ qua:
 - **`APP_KEY` là một nửa của bản sao lưu**: nó mã hoá số định danh khách hàng và secret 2FA của
   nhân sự, và là khoá của cột so trùng CCCD. Cất nó (cùng `BACKUP_ARCHIVE_PASSWORD`) ở hai nơi
   ngoài máy chủ, không cùng chỗ bản sao lưu; không bao giờ `key:generate` trên dữ liệu thật.
+- **App trên điện thoại và thông báo đẩy (M12)** chỉ chạy trên HTTPS. Khoá thông báo đẩy sinh MỘT
+  lần cho mỗi môi trường: `php artisan config:clear` rồi `php artisan webpush:vapid` (khi hai dòng
+  `VAPID_*_KEY` còn trống), điền `VAPID_SUBJECT=mailto:…`. `VAPID_PRIVATE_KEY` cất cùng chỗ với
+  `APP_KEY`; mất hay đổi khoá thì chạy `php artisan vkcrm:push-reset` (mọi người bật lại thông báo
+  trên từng máy). Mẫu nginx có hai khối `location = /admin/sw.js`, `location = /portal/sw.js` — máy
+  chủ cũ phải chép thêm. Hàng đợi `push` chạy trong chính dòng cron ở trên. Chi tiết:
+  `docs/CAI-DAT.md`, Bước 3 và "Bản cập nhật M12"; hướng dẫn cài app cho khách:
+  `docs/QUY-TRINH.md`.
 - **Nâng cấp:** `php artisan down` → `git pull` → `composer install --no-dev --optimize-autoloader`
   → `chown -R www-data:www-data storage bootstrap/cache` → `php artisan migrate --force` →
   `php artisan db:seed --force` → `php artisan billing:check-invariants` →

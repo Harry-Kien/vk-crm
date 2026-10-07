@@ -1,11 +1,13 @@
 <?php
 
+use App\Enums\OutboundChannel;
 use App\Enums\OutboundStatus;
 use App\Enums\Role;
 use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\OutboundMessages\OutboundMessageResource;
 use App\Filament\Admin\Resources\OutboundMessages\Pages\ListOutboundMessages;
 use App\Filament\Admin\Resources\OutboundMessages\Pages\ViewOutboundMessage;
+use App\Models\ClientUser;
 use App\Models\Deadline;
 use App\Models\Matter;
 use App\Models\OutboundMessage;
@@ -467,4 +469,109 @@ it('still shows the raw template name for a template that has no label yet', fun
 
     $this->livewire(ListOutboundMessages::class)
         ->assertTableColumnFormattedStateSet('template', 'staff.future_template', $message);
+});
+
+// ---------------------------------------------------------------------------------------------
+// M12 R13 — dòng thông báo đẩy trong cùng nhật ký
+// ---------------------------------------------------------------------------------------------
+
+/** Một dòng push hỏng đúng hình dạng `RecordOutboundPush` ghi, về cùng bản ghi với một dòng thư. */
+function outboundPushRow(StageLog $log, ClientUser $owner, array $overrides = []): OutboundMessage
+{
+    return OutboundMessage::factory()->create([
+        'channel' => OutboundChannel::Push,
+        'template' => 'client.stage_update',
+        'related_type' => 'stage_log',
+        'related_id' => $log->id,
+        'recipient' => 'client_user:'.$owner->id,
+        'payload' => ['title' => 'Luật Vũ Khang', 'body' => 'Hồ sơ của anh/chị có cập nhật mới. Chạm để xem.'],
+        'status' => OutboundStatus::Failed,
+        'error' => 'HTTP 410 Gone',
+        ...$overrides,
+    ]);
+}
+
+/**
+ * R13: "Màn hình nhật ký thư của M6.5 Task 13 lọc được theo kênh." Cột "Kênh" mang nhãn tiếng Việt
+ * của `OutboundChannel`; bộ lọc "Kênh" tách dòng push khỏi dòng thư của CÙNG một bản ghi (cùng mẫu,
+ * cùng `related`).
+ *
+ * Mutation probe: bỏ `SelectFilter::make('channel')` (hay `->query()` của nó) → ĐỎ.
+ */
+it('shows the channel of every row and filters the log by channel', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $log = StageLog::factory()->create();
+    $owner = ClientUser::factory()->activated()->create(['client_id' => $log->matter->client_id]);
+    $mail = OutboundMessage::factory()->create([
+        'template' => 'client.stage_update',
+        'related_type' => 'stage_log',
+        'related_id' => $log->id,
+        'recipient' => $owner->email,
+    ]);
+    $push = outboundPushRow($log, $owner);
+
+    $this->actingAs($admin, 'web');
+
+    $list = $this->livewire(ListOutboundMessages::class)
+        ->assertTableColumnFormattedStateSet('channel', 'Email', $mail)
+        ->assertTableColumnFormattedStateSet('channel', 'Thông báo đẩy', $push)
+        ->assertCanSeeTableRecords([$mail, $push]);
+
+    expect($list->instance()->getTable()->getFilter('channel')->getOptions())
+        ->toBe(collect(OutboundChannel::cases())->mapWithKeys(fn (OutboundChannel $c): array => [$c->value => $c->label()])->all());
+
+    $list->filterTable('channel', 'push')
+        ->assertCanSeeTableRecords([$push])
+        ->assertCanNotSeeTableRecords([$mail]);
+
+    $list->filterTable('channel', 'email')
+        ->assertCanSeeTableRecords([$mail])
+        ->assertCanNotSeeTableRecords([$push]);
+});
+
+/**
+ * R13: "Luật ai xem dòng nào không đổi." Dòng push mang ĐÚNG `related` của dòng thư, nên luật sư phụ
+ * trách thấy nó, luật sư ngoài vụ không thấy — không một dòng code nào riêng cho push.
+ */
+it('shows a push row exactly to whoever may see the mail row of the same record', function () {
+    $lead = User::factory()->withRole(Role::Lawyer)->create();
+    $outsider = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lead->id]);
+    $matter->team()->syncWithoutDetaching([$lead->id]);
+    $log = StageLog::factory()->create(['matter_id' => $matter->id]);
+    $owner = ClientUser::factory()->activated()->create(['client_id' => $matter->client_id]);
+    $push = outboundPushRow($log, $owner);
+
+    $this->actingAs($lead, 'web');
+    $this->livewire(ListOutboundMessages::class)->assertCanSeeTableRecords([$push]);
+
+    $this->actingAs($outsider, 'web');
+    $this->livewire(ListOutboundMessages::class)->assertCanNotSeeTableRecords([$push]);
+    $this->get(OutboundMessageResource::getUrl('view', ['record' => $push], panel: 'admin'))->assertNotFound();
+});
+
+/**
+ * Trang xem một dòng push: kênh, CHỦ máy (tên và email của tài khoản `client_user:{id}` — người đọc
+ * nhật ký tìm theo người, không theo id), câu chung đã gửi và lý do lỗi; không "Tiêu đề thư".
+ */
+it('shows the channel, the device owner and the generic sentence on the view page of a push row', function () {
+    $admin = User::factory()->withRole(Role::Admin)->create();
+    $log = StageLog::factory()->create();
+    $owner = ClientUser::factory()->activated()->create([
+        'client_id' => $log->matter->client_id,
+        'name' => 'Nguyễn Chủ Máy',
+        'email' => 'chu-may@example.test',
+    ]);
+    $push = outboundPushRow($log, $owner);
+
+    $this->actingAs($admin, 'web');
+
+    $this->get(OutboundMessageResource::getUrl('view', ['record' => $push], panel: 'admin'))
+        ->assertOk()
+        ->assertSee('Thông báo đẩy')
+        ->assertSee('Nguyễn Chủ Máy')
+        ->assertSee('chu-may@example.test')
+        ->assertSee('Hồ sơ của anh/chị có cập nhật mới. Chạm để xem.')
+        ->assertSee('HTTP 410 Gone')
+        ->assertDontSee(__('outbound.fields.subject'));
 });

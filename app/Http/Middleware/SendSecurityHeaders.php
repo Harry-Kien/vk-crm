@@ -17,6 +17,12 @@ use Symfony\Component\HttpFoundation\Response;
  *    `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`.
  *  - Content-Security-Policy theo chế độ `CSP_MODE`; chế độ và chính sách:
  *    {@see ContentSecurityPolicy}.
+ *  - **Một ngoại lệ, hẹp (M12 R4):** response mà CSP duy nhất của nó là ĐÚNG
+ *    {@see ContentSecurityPolicy::WORKER_POLICY} — `sw.js` của hai app trên điện thoại — giữ nguyên
+ *    CSP đó và không nhận chính sách trang (kể cả bản `…-Report-Only` ở `local`/`testing`). Mọi CSP
+ *    KHÁC mà một response tự đặt bị gỡ và thay bằng chính sách trang theo chế độ, nên không response
+ *    nào tự nới được CSP; chính sách worker thì chặt hơn chính sách trang. Có test cả hai chiều
+ *    (`tests/Feature/Pwa/ServiceWorkerTest.php`, `tests/Feature/Http/SecurityHeadersTest.php`).
  *
  * **Vì sao là middleware toàn cục chứ không nằm trong danh sách của từng panel.** Route của
  * Filament KHÔNG đi qua nhóm `web` — mỗi panel mang danh sách middleware riêng — còn route tải
@@ -51,6 +57,18 @@ class SendSecurityHeaders
         $response->headers->set('X-Frame-Options', 'DENY');
         $response->headers->set('X-Content-Type-Options', 'nosniff');
         $response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
+
+        // M12 R4 — `sw.js` mang CSP riêng của worker và giữ nó ở mọi chế độ, không kèm chính sách
+        // trang (docblock `ContentSecurityPolicy::WORKER_POLICY`). Chỉ khi header CSP thi hành của
+        // response là ĐÚNG MỘT dòng mang ĐÚNG chuỗi đó.
+        if ($response->headers->all(ContentSecurityPolicy::HEADER_ENFORCE) === [ContentSecurityPolicy::WORKER_POLICY]) {
+            return $response;
+        }
+
+        // Mọi CSP khác mà một response tự đặt bị gỡ: chính sách trang theo chế độ (hoặc không gì,
+        // ở `off`) là chính sách DUY NHẤT — không response nào tự nới được nó.
+        $response->headers->remove(ContentSecurityPolicy::HEADER_ENFORCE);
+        $response->headers->remove(ContentSecurityPolicy::HEADER_REPORT);
 
         if ($header = ContentSecurityPolicy::headerName()) {
             $response->headers->set($header, ContentSecurityPolicy::policy($nonce));

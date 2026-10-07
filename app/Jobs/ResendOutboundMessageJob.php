@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Actions\Notification\ResendOutboundMessage;
 use App\Actions\Notification\ResendTargets;
 use App\Actions\Notification\ResolveStaffRecipients;
+use App\Enums\OutboundChannel;
 use App\Enums\Role;
 use App\Models\OutboundMessage;
 use App\Models\User;
@@ -50,8 +51,15 @@ class ResendOutboundMessageJob implements ShouldQueue
     public function handle(): void
     {
         $message = OutboundMessage::query()->withoutGlobalScopes()->find($this->messageId);
-        $target = $message === null ? null : ResendTargets::for($message->template);
-        $related = $message === null || $target === null ? null : ResendTargets::relatedOf($message, $target);
+
+        // M12 R13: chỉ dòng email dựng lại được thư — chủ đề của một dòng thông báo đẩy trùng tên mẫu
+        // thư (docblock `ResendOutboundMessage`, mục "Chỉ dòng EMAIL"). Lớp thứ hai sau cổng của Action.
+        if ($message === null || $message->channel !== OutboundChannel::Email) {
+            return;
+        }
+
+        $target = ResendTargets::for($message->template);
+        $related = $target === null ? null : ResendTargets::relatedOf($message, $target);
 
         // Cửa sổ hàng đợi: bản ghi có thể đã bị xoá cứng, hay (lần từ chối) đã được thay bằng một
         // lần mới giữa lúc bấm và lúc job chạy — cùng các cổng Action đã hỏi lúc bấm.

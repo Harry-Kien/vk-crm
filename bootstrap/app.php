@@ -7,12 +7,18 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
         web: __DIR__.'/../routes/web.php',
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
+        // M12 R2 — manifest (Task 3: `sw.js`, trang ngoại tuyến) của hai app trên điện thoại: NGOÀI
+        // nhóm `web`, tức không cookie, không phiên. Lý do ở docblock `routes/pwa.php`.
+        then: function (): void {
+            Route::group([], base_path('routes/pwa.php'));
+        },
     )
     ->withMiddleware(function (Middleware $middleware): void {
         /*

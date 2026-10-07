@@ -62,6 +62,13 @@ use Symfony\Component\HttpFoundation\Response;
  * .download', …)` gọi thẳng thì tự chịu. Có test ghim hành vi 404 đó để nó là một quyết định chứ
  * không phải một điều ngẫu nhiên.
  *
+ * **Ba route, một controller** (M12 Task 3, `routes/web.php`): `documents.download`
+ * (`/documents/{id}/download`) và hai bí danh nằm trong scope của app trên điện thoại,
+ * `documents.download.portal` (`/portal/…`) và `documents.download.admin` (`/admin/…`) — cùng
+ * middleware, cùng mọi luật ở trên; riêng bí danh `/admin/…` đứng thêm sau giới hạn IP của admin
+ * (`RestrictAdminIpAllowlist`, việc sau gộp M12, làn fu4). `downloadUrlFor()` hôm nay chỉ ký trên bí
+ * danh (theo kiểu người nhận); route gốc ở lại cho URL đã phát trước lúc triển khai.
+ *
  * **Giới hạn {@see self::DOWNLOADS_PER_MINUTE} lượt/phút/tài khoản** — xem hằng số đó cho con số
  * và lý do chọn nó.
  */
@@ -214,7 +221,8 @@ final class DocumentDownloadController extends Controller
         // không tải được tệp. Cổng `EnsureMultiFactorAuthenticationIsEnabled` của Filament chỉ đứng
         // trước route của trang panel — route này nằm ngoài chúng, nên một đường dẫn ký còn hạn
         // (5 phút) cộng một phiên đăng nhập mới bằng mật khẩu sẽ đi vòng qua 2FA nếu thiếu dòng này.
-        if ($actor instanceof User && blank($actor->getAppAuthenticationSecret())) {
+        // Định nghĩa "có 2FA" là `User::hasAppAuthenticationSecret()`, chung với thông báo đẩy.
+        if ($actor instanceof User && ! $actor->hasAppAuthenticationSecret()) {
             return null;
         }
 

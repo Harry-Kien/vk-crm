@@ -245,6 +245,48 @@ Schedule::call(new RemindUnseenUpdates)
     ->withoutOverlapping(60);
 
 /**
+ * Dọn đăng ký thông báo đẩy (M12 R9): 03:30 hằng ngày giờ Việt Nam, sau lượt sao lưu 02:00 và trước
+ * mọi tác vụ gửi thư buổi sáng. Bỏ đăng ký của tài khoản đã vô hiệu, đã xoá mềm (hay có khách hàng đã
+ * xoá mềm) và đăng ký không mở ứng dụng quá 180 ngày. Vệ sinh, không phải lớp bảo vệ: người nhận push
+ * luôn là người nhận của thư, tính lúc gửi.
+ *
+ * KHÔNG `withoutOverlapping()`: mỗi nhóm là một câu `DELETE`, chạy lại hay chồng nhau đều vô hại
+ * (bên sau xoá 0 dòng) — một khoá chỉ thêm một cách hỏng (khoá kẹt) mà không mua được gì. CHỈ
+ * `->name()`, không `->description()` (bí danh của nhau trong Laravel 13, xem `backup.nightly`).
+ * Lớp gọi bằng chuỗi `Lớp@handle`, không `use` + `new` — luật làn song song cho tệp này là chỉ nối
+ * thêm ở cuối (xem `backup.monitor`).
+ */
+Schedule::call('App\Actions\Schedule\PrunePushSubscriptions@handle')
+    ->dailyAt('03:30')
+    ->name('push-subscriptions.prune');
+
+/**
+ * Rút hàng đợi `push` (M12 R12): mỗi phút, `--stop-when-empty`, `--max-time=50` — cùng khuôn
+ * `queue.drain`, KHÔNG worker thường trực. `App\Notifications\PushAlert` nằm trên hàng riêng này: mỗi
+ * máy là một request ra máy chủ push (hạn 10 giây, `config/webpush.php`), và máy chủ push chậm nhân với
+ * số máy lúc 07:00 sẽ giữ hết lượt `queue.drain` trong khi thư nhắc hạn đứng chờ. `queue.drain` không
+ * có `--queue` nên chỉ rút hàng `default` — thiếu mục này thì không thông báo đẩy nào rời máy chủ.
+ * Kết nối mặc định (`database`, `retry_after` 90 giây).
+ *
+ * `withoutOverlapping(5)`: lớp thứ hai sau `--max-time=50`, cùng lý do `queue.drain` — một lượt kéo
+ * quá một phút (job đang gửi dở khi hết 50 giây, máy chủ push chậm) không bị lượt kế tiếp chồng lên —
+ * hai tiến trình chỉ gửi trùng một job khi job đó chạy quá `retry_after` (90 giây) và lượt kia lấy lại nó;
+ * khoá có hạn năm phút (không phải mặc định 1440) để một tiến trình bị giết không tắt push cả ngày.
+ * CHỈ `->name()`, không `->description()` (bí danh của nhau trong Laravel 13, xem `backup.nightly`).
+ *
+ * `runInBackground()` (việc sau gộp M12, làn fu4): `schedule:run` chạy các mục của một phút LẦN LƯỢT
+ * trong cùng tiến trình, và mục này đứng trước `queue.handover` cùng các tác vụ hằng ngày của
+ * M7/M9/M10 — chạy tiền cảnh thì một phút bận (máy chủ push chậm, tới 50 giây) bắt mọi mục sau nó chờ,
+ * đúng điều docblock `queue.handover` cảnh báo. Chạy nền thì khoá `withoutOverlapping` vẫn giữ tới khi
+ * lệnh nền kết thúc (Laravel gỡ khoá ở `schedule:finish`).
+ */
+Schedule::command('queue:work --queue=push --stop-when-empty --max-time=50')
+    ->everyMinute()
+    ->name('queue.push')
+    ->withoutOverlapping(5)
+    ->runInBackground();
+
+/**
  * M7 Task 4 (R9): rút hàng đợi RIÊNG của gói bàn giao. Job `GenerateHandoverPackage` nén tệp hồ sơ
  * (có thể vài trăm MB, vài phút) — nếu nó chạy trong mục `queue.drain` ở trên, nó giữ lượt
  * `withoutOverlapping` của mục đó và thư nhắc mốc thời hạn (rủi ro nghề nghiệp cao nhất của hệ
