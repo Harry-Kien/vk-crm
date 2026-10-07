@@ -51,6 +51,11 @@ class StageLogDraft extends Model
         return 'used_stage_log_id';
     }
 
+    public static function draftType(): string
+    {
+        return 'stage_log_draft';
+    }
+
     /**
      * Nháp là thứ văn phòng CHƯA quyết định nói ra, và có thể mang `internal_note`. Không màn hình
      * cổng khách nào đọc bảng này; chặn sạch ở tầng truy vấn thay vì trông vào điều đó.

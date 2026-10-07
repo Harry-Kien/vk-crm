@@ -55,6 +55,11 @@ return [
         'matter_portal_publication_set' => 'Đổi trạng thái công bố portal',
         // M11 R9 (Task 7): App\Actions\Matter\SetMatterAiAccess.
         'matter_ai_access_changed' => 'Đổi truy cập qua AI của vụ việc',
+        // M11 Task 12 (làn m11b): App\Actions\Mcp\{UseStageLogDraft,UseReplyDraft,DiscardDraft},
+        // App\Actions\Deadline\ConfirmAiDeadline.
+        'mcp_draft_used' => 'Gửi từ nháp do AI soạn',
+        'mcp_draft_discarded' => 'Bỏ nháp do AI soạn',
+        'deadline_ai_confirmed' => 'Xác nhận mốc tạo qua AI',
         // App\Actions\Matter\{AddTeamMember,RemoveTeamMember} (M6.5 Task 3, fix round 1, "also
         // fix": thiếu hai khoá này khiến ActivityLogPage hiện nguyên văn khoá sự kiện tiếng Anh).
         'team_member_added' => 'Thêm thành viên đội ngũ',

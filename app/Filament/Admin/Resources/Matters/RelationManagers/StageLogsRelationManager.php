@@ -2,16 +2,26 @@
 
 namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 
+use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Concerns\ScopesToVisibleMatters;
 use App\Filament\Admin\Resources\Matters\Actions\AddUpdateAction;
 use App\Filament\Admin\Resources\Matters\Actions\TransitionStageAction;
+use App\Filament\Admin\Resources\Matters\Actions\UseStageLogDraftAction;
+use App\Filament\Admin\Resources\Matters\RelationManagers\Concerns\ManagesAiDrafts;
 use App\Models\StageLog;
+use App\Models\StageLogDraft;
+use Filament\Actions\Action;
 use Filament\Resources\RelationManagers\RelationManager;
+use Filament\Schemas\Components\EmbeddedTable;
+use Filament\Schemas\Components\RenderHook;
+use Filament\Schemas\Schema;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Filament\View\PanelsRenderHook;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\HtmlString;
 
 /**
@@ -24,9 +34,16 @@ use Illuminate\Support\HtmlString;
  * (`App\Filament\Admin\Resources\Matters\Actions\`) tự gate theo matter.transitionStage và tự
  * đóng gói schema/submit của chính mình — xem docblock của chúng và
  * `Concerns\BuildsStageUpdateSchema`.
+ *
+ * M11 Task 12: khối "Nháp từ AI (n)" đứng TRÊN dòng thời gian ({@see self::content()}) — nháp dòng
+ * tiến độ do tool `draft_progress_update` soạn, còn đang chờ. "Mở nháp"
+ * ({@see UseStageLogDraftAction}) là chính form "Thêm cập nhật" điền sẵn nháp; "Bỏ nháp" đòi lý do.
+ * Cả hai cần `transitionStage` trên vụ, như nút "Thêm cập nhật".
  */
 class StageLogsRelationManager extends RelationManager
 {
+    use ManagesAiDrafts;
+    use ReportsActionFailures;
     use ScopesToVisibleMatters;
 
     protected static string $relationship = 'stageLogs';
@@ -34,6 +51,88 @@ class StageLogsRelationManager extends RelationManager
     public static function getTitle(Model $ownerRecord, string $pageClass): string
     {
         return __('matters.tabs.progress');
+    }
+
+    /**
+     * Mặc định của Filament ({@see RelationManager::content()}), cộng khối nháp AI trước bảng. Khối chỉ
+     * hiện cho người xem được nội dung vụ (`MatterPolicy::view`): nháp có thể mang ghi chú nội bộ.
+     * Nháp vẫn hiện sau khi vụ bị rút khỏi AI (`ai_access = denied`) — thứ đã soạn không biến mất.
+     */
+    public function content(Schema $schema): Schema
+    {
+        return $schema
+            ->components([
+                $this->getTabsContentComponent(),
+                $this->aiDraftsSection(
+                    'ai_drafts.stage_log.heading',
+                    'ai_drafts.stage_log.description',
+                    $this->stageLogDraftCards(),
+                    ['useStageLogDraft', 'discardStageLogDraft'],
+                ),
+                RenderHook::make(PanelsRenderHook::RESOURCE_RELATION_MANAGER_BEFORE),
+                EmbeddedTable::make(),
+                RenderHook::make(PanelsRenderHook::RESOURCE_RELATION_MANAGER_AFTER),
+            ]);
+    }
+
+    /** "Mở nháp" — xem {@see UseStageLogDraftAction}. */
+    public function useStageLogDraftAction(): Action
+    {
+        return UseStageLogDraftAction::make();
+    }
+
+    /** "Bỏ nháp" — cùng cổng `transitionStage` với "Mở nháp". */
+    public function discardStageLogDraftAction(): Action
+    {
+        return $this->discardAiDraftAction(
+            'discardStageLogDraft',
+            fn (Action $action): ?StageLogDraft => $this->stageLogDraft($action),
+            fn (): bool => Gate::allows('transitionStage', $this->getOwnerRecord()),
+        );
+    }
+
+    /** Nháp mang id của đối số `draft`, CHỈ khi nó thuộc vụ của trang (đang chờ hay không). */
+    private function stageLogDraft(Action $action): ?StageLogDraft
+    {
+        $id = static::draftIdArgument($action);
+
+        return $id === null
+            ? null
+            : StageLogDraft::query()->whereKey($id)->where('matter_id', $this->getOwnerRecord()->getKey())->first();
+    }
+
+    /**
+     * Thẻ của các nháp ĐANG CHỜ của vụ, cũ nhất trước (thứ tự AI soạn).
+     *
+     * @return list<array{id: int, title: ?string, meta: string, fields: list<array{label: string, value: string, internal: bool}>, note: ?string}>
+     */
+    private function stageLogDraftCards(): array
+    {
+        $matter = $this->getOwnerRecord();
+
+        if (! Gate::allows('view', $matter)) {
+            return [];
+        }
+
+        return StageLogDraft::query()
+            ->where('matter_id', $matter->getKey())
+            ->pending()
+            ->oldest('id')
+            ->get()
+            ->map(fn (StageLogDraft $draft): array => [
+                'id' => $draft->getKey(),
+                'title' => null,
+                'meta' => $this->draftMeta($draft),
+                'fields' => [
+                    static::draftField('ai_drafts.fields.public_content', $draft->public_content),
+                    static::draftField('ai_drafts.fields.next_step', $draft->next_step),
+                    static::draftField('ai_drafts.fields.client_action', $draft->client_action),
+                    static::draftField('ai_drafts.fields.expected_next_update_at', $draft->expected_next_update_at?->format('d/m/Y')),
+                    static::draftField('ai_drafts.fields.internal_note', $draft->internal_note, internal: true),
+                ],
+                'note' => null,
+            ])
+            ->all();
     }
 
     public function table(Table $table): Table

@@ -4,10 +4,12 @@ namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 
 use App\Actions\Deadline\AddMatterDeadline;
 use App\Actions\Deadline\ChangeDeadlineResponsible;
+use App\Actions\Deadline\ConfirmAiDeadline;
 use App\Actions\Deadline\DeleteDeadline;
 use App\Actions\Deadline\SetDeadlineCompletion;
 use App\Actions\Deadline\SetDeadlinePublication;
 use App\Actions\Deadline\UpdateDeadline;
+use App\Enums\CreatedVia;
 use App\Enums\DeadlineSeverity;
 use App\Filament\Admin\Concerns\ReportsActionFailures;
 use App\Filament\Admin\Concerns\ScopesToVisibleMatters;
@@ -58,8 +60,8 @@ use Illuminate\Support\HtmlString;
  * # Lớp này không có một dòng nghiệp vụ nào
  *
  * Mọi lần ghi đi qua {@see AddMatterDeadline}, {@see UpdateDeadline}, {@see DeleteDeadline},
- * {@see ChangeDeadlineResponsible}, {@see SetDeadlineCompletion} hoặc {@see SetDeadlinePublication}
- * (CLAUDE.md: nghiệp vụ chỉ ở `app/Actions/`; M3 đã phải tách
+ * {@see ChangeDeadlineResponsible}, {@see SetDeadlineCompletion}, {@see SetDeadlinePublication}
+ * hoặc {@see ConfirmAiDeadline} (M11 Task 12, mốc tạo qua AI) (CLAUDE.md: nghiệp vụ chỉ ở `app/Actions/`; M3 đã phải tách
  * `SetMatterPortalPublication` ra khỏi `ViewMatter` vì đúng chuyện này). Những gì ở đây là: cột
  * nào hiện, nút nào hiện cho ai, một dòng quá hạn TRÔNG như thế nào, và một lời từ chối của
  * Action đến được mắt người dùng bằng tiếng Việt thay vì thành trang 500 — xem
@@ -244,6 +246,14 @@ class DeadlinesRelationManager extends RelationManager
                 IconColumn::make('is_published')
                     ->label(__('deadlines.tab.columns.is_published'))
                     ->boolean(),
+                // M11 Task 12: nhãn "Tạo qua AI, chưa xác nhận" / "…, đã xác nhận" — chỉ trên mốc
+                // `created_via = mcp`; mốc nhập trên web để trống ô.
+                TextColumn::make('created_via')
+                    ->label(__('ai_drafts.deadline.column'))
+                    ->badge()
+                    ->getStateUsing(fn (Deadline $record): ?string => static::aiLabel($record))
+                    ->color(fn (Deadline $record): string => $record->confirmed_at === null ? 'warning' : 'gray')
+                    ->placeholder('—'),
                 TextColumn::make('completed_at')
                     ->label(__('deadlines.tab.columns.completed_at'))
                     ->dateTime('H:i d/m/Y')
@@ -257,6 +267,7 @@ class DeadlinesRelationManager extends RelationManager
             ->recordActions([
                 $this->editAction(),
                 $this->changeResponsibleAction(),
+                $this->confirmAiAction(),
                 $this->completeAction(),
                 $this->reopenAction(),
                 $this->publishAction(),
@@ -593,6 +604,44 @@ class DeadlinesRelationManager extends RelationManager
                     actor: Auth::user(),
                     newResponsible: User::query()->findOrFail($data['responsible_user_id'] ?? null),
                 ),
+            ));
+    }
+
+    /**
+     * Nhãn nguồn của một mốc (M11 Task 12): `null` cho mốc nhập trên web, "Tạo qua AI, chưa xác nhận"
+     * cho mốc `created_via = mcp` chưa ai bấm "Xác nhận", "Tạo qua AI, đã xác nhận" sau đó.
+     */
+    public static function aiLabel(Deadline $deadline): ?string
+    {
+        if ($deadline->created_via !== CreatedVia::Mcp) {
+            return null;
+        }
+
+        return $deadline->confirmed_at === null
+            ? __('ai_drafts.deadline.unconfirmed')
+            : __('ai_drafts.deadline.confirmed');
+    }
+
+    /**
+     * "Xác nhận" một mốc tạo qua AI (M11 Task 12), qua {@see ConfirmAiDeadline}. Cổng quyền ngang mọi
+     * nút khác của tab (`DeadlinePolicy::update`); chỉ hiện trên mốc `created_via = mcp` chưa xác
+     * nhận. Không đổi việc nhắc hạn — xem docblock Action.
+     */
+    private function confirmAiAction(): Action
+    {
+        return Action::make('confirmAi')
+            ->label(__('ai_drafts.deadline.confirm'))
+            ->icon(Heroicon::OutlinedCheckBadge)
+            ->color('warning')
+            ->requiresConfirmation()
+            ->modalHeading(__('ai_drafts.deadline.confirm_heading'))
+            ->modalDescription(__('ai_drafts.deadline.confirm_description'))
+            ->authorize(fn (Deadline $record): bool => Gate::allows('update', $record))
+            ->visible(fn (Deadline $record): bool => $record->created_via === CreatedVia::Mcp && $record->confirmed_at === null)
+            ->successNotificationTitle(__('ai_drafts.deadline.confirm_success'))
+            ->action(fn (Action $action, Deadline $record) => $this->runAction(
+                $action,
+                fn () => app(ConfirmAiDeadline::class)->handle($record, Auth::user()),
             ));
     }
 

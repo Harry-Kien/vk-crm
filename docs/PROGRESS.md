@@ -5337,3 +5337,61 @@ tự): EXIT 0 — 445 passed, 1 todo. Cả bộ (`--parallel --processes=2`): EX
 1 todo, 33 skipped (như baseline). MariaDB (mười một tệp đụng tới: sáu tệp tool mới, `KeysetOrderTest`,
 `GetMatterToolTest`, `ToolCatalogTest`, `SearchMattersToolTest`, `FetchToolTest`; tuần tự): EXIT 0 — 102 passed.
 `pint --test`: PASS 1207 tệp. Không có migration.
+
+### Task 12 — bước của người trong `/admin`: mở nháp, sửa, gửi hoặc bỏ; nhãn "Tạo qua AI" (làn m11b, 2026-10-07)
+
+**Đã có, kèm test Livewire** (`tests/Feature/Filament/{StageLogDrafts,ReplyDrafts,AiCreatedRecords}Test.php`) và test
+Action (`tests/Feature/Actions/Mcp/McpDraftActionsTest.php`).
+- **Tab Tiến độ**: khối "Nháp từ AI (n)" trên dòng thời gian (`StageLogsRelationManager::content()`, view
+  `filament.admin.ai-drafts`, phần chung ở `RelationManagers\Concerns\ManagesAiDrafts`). Chỉ nháp ĐANG CHỜ của đúng vụ,
+  chỉ cho người có `MatterPolicy::view` (nháp có thể mang ghi chú nội bộ; kế toán không thấy). "Mở nháp"
+  (`UseStageLogDraftAction`, kế thừa `AddUpdateAction`) là CHÍNH form "Thêm cập nhật": cùng schema, cùng bản xem trước
+  "đúng như khách sẽ thấy" (chạy trên nội dung nháp, không bao giờ đọc ghi chú nội bộ), công tắc công bố mặc định theo
+  `is_published_to_portal` như SPEC §7.3 và người bấm tự quyết; ô nháp để trống nhận mặc định của "Thêm cập nhật".
+- **Tab Yêu cầu từ khách**: khối "Nháp trả lời từ AI (n)" (tiêu đề yêu cầu là chữ khách viết, in đã thoát HTML). "Mở
+  nháp" là modal trả lời có cả cuộc trao đổi, ô nội dung điền sẵn; yêu cầu đã đóng thì chỉ còn "Bỏ nháp".
+- **Ba Action mới** (`app/Actions/Mcp/`): `UseStageLogDraft` (gọi ĐÚNG `TransitionMatterStage`, `to_stage` = giai đoạn
+  người bấm đã thấy, nên giai đoạn trôi → `MatterStageChanged`), `UseReplyDraft` (gọi ĐÚNG `ReplyToClientRequest`),
+  `DiscardDraft` (lý do bắt buộc, trim, trần 1000 ký tự như lý do xoá nhật ký liên lạc). Cả ba dưới tên NGƯỜI BẤM;
+  một transaction; khoá dòng cha (`matters` / `client_requests`) TRƯỚC rồi dòng nháp; quyền và "nháp thuộc vụ/cuộc trao
+  đổi này" hỏi TRƯỚC trạng thái nháp (câu chung `ai_drafts.unavailable`, SPEC §10.10); nháp đã dùng/đã bỏ →
+  `McpDraftNotPending`. Ghi `used_stage_log_id` / `used_reply_id` cùng transaction với bản ghi thật. Audit
+  `mcp_draft_used` (chủ thể: dòng tiến độ / câu trả lời; `draft_type`, `draft_id`, `draft_created_by`, `matter_id`) và
+  `mcp_draft_discarded` (chủ thể: vụ / yêu cầu, kèm lý do) — chủ thể là model đã có trong `ActivityOwningMatter`, nên
+  KHÔNG thêm alias morph cho hai bảng nháp (hand-off "nếu nháp thành chủ thể audit" của Task 7 không phát sinh).
+- **Nút dùng/bỏ là action CỦA COMPONENT mang đối số `draft`** (không phải action gắn vào một component của khối): nút
+  vẫn giải được khi nháp vừa bị người khác dùng, nên lần bấm đó nhận câu "đã dùng hoặc đã bỏ" thay vì im lặng. Ba cổng:
+  `visible()` (nháp thuộc ĐÚNG vụ của trang + quyền: `transitionStage` cho nháp tiến độ, `ClientRequestReplyPolicy::create`
+  với yêu cầu cho nháp trả lời — một id của vụ khác ẩn nút và Filament không chạy action, kể cả request Livewire tự dựng),
+  `beforeFormFilled()` (nháp đã xong → báo, không mở), và Action hỏi lại dưới khoá.
+- **Model** (`IsMcpDraft`, đóng minor m1 của rà soát Task 7): nháp đã dùng hoặc đã bỏ không nhận thêm lần ghi nào, và
+  một lần ghi không thể đặt cùng lúc "đã dùng" và "đã bỏ" → `McpDraftNotPending`. `isPending()` và `draftType()` mới.
+- **Mốc tạo qua AI**: cột "Nguồn" trên tab Mốc thời hạn ("Tạo qua AI, chưa xác nhận" / "…, đã xác nhận", trống với mốc
+  web) và nút "Xác nhận" (`ConfirmAiDeadline`: `DeadlinePolicy::update` qua `OpensDeadline`, ghi `confirmed_at`/
+  `confirmed_by`, audit `deadline_ai_confirmed`; mốc web → `DeadlineNotCreatedViaAi`; bấm lần hai giữ người xác nhận đầu).
+  `CheckDeadlines` không đổi: test ghim mốc `mcp` được nhắc y như mốc web.
+- **Tab Liên lạc**: cột "Nguồn" mang nhãn "Tạo qua AI" trên dòng `created_via = mcp` (tab đã có sau khi gộp m7b).
+- `BuildsStageUpdateSchema`: lần ghi tách thành `submitStageUpdate()` (mặc định vẫn `TransitionMatterStage`) để "Mở
+  nháp" đè; hành vi hai nút cũ không đổi.
+- Chuỗi: `lang/vi/ai_drafts.php` (tệp mới); ba khoá sự kiện trong `lang/vi/activity.php` (khối Task 12 riêng).
+- Câu "Nháp trả lời đang chờ người duyệt trên web" (`lang/vi/mcp.php`, Task 10 m4 / Task 11 r4) và "Nháp AI đã soạn
+  trước đó vẫn ở trên trang vụ việc" (`lang/vi/matters.php`, Task 7 m9 nửa đầu) nay đúng: màn hình duyệt đã có, và nháp
+  vẫn hiện sau khi vụ bị rút khỏi AI (có test).
+
+**Còn để lại (ghi để rà soát cuối):** minor m2/m3/m4 của Task 7 không đụng (khoá ngoại `used_*` `nullOnDelete`, cha
+`cascadeOnDelete`, collation của `idempotency_key` — Task 13 phải xử lý m4/m5 khi ghi nháp). Task 13 tạo nháp nên theo
+cùng thứ tự khoá (dòng cha trước, rồi nháp).
+
+**Kiểm chứng (2026-10-07).** ĐỎ trước khi nối màn hình: bốn tệp test mới → 51 failed, 7 passed (bảy test xanh sẵn là
+các vế âm "không hiện" khi chưa có khối, test ghim `CheckDeadlines` nhắc mốc `mcp` như mốc web — hành vi có sẵn, và ba
+test của `ConfirmAiDeadline` viết sau Action; mutation P25–P28 phủ chúng). XANH: 67 passed. Sáu mươi bốn phép mutation,
+mỗi phép bỏ hay đổi đúng một điều kiện (`probe/t12/probes-summary.txt` của làn): 59 đỏ ngay; P27 (người xác nhận) và
+P32 (`isPending()` bỏ cột "đã dùng") sống ở lượt đầu vì test yếu / chọn sai test — sửa test (người phụ trách mốc khác
+người bấm) và chạy lại: P27b, P32b đỏ. Ba phép sống là tương đương có lý do: P02 (bỏ `$lockedMatter === null` — Gate
+trên vụ đã xoá mềm/`null` vẫn từ chối), P08 (`to_stage` lấy từ vụ đã khoá — `TransitionMatterStage` vẫn ném
+`MatterStageChanged` theo giai đoạn người bấm đã thấy), P24 (đọc yêu cầu kèm bản đã xoá mềm — `ClientRequestReplyPolicy::
+create` từ chối yêu cầu đã xoá). Các test đụng tới cộng mười bốn tệp liên quan (tuần tự): 273 passed. Cả bộ
+(`--parallel --processes=2`): EXIT 0 — 5981 passed (5914 + 67), 1 risky, 1 todo, 33 skipped (như baseline). MariaDB
+(mười tệp: bốn tệp mới, `McpDraftTest`, `TransitionStageActionTest`, `ClientRequestsRelationManagerTest`,
+`DeadlinesRelationManagerTest`, `CommunicationLogsRelationManagerTest`, `ActivityLogEventTranslationsTest`; tuần tự):
+EXIT 0 — 234 passed. `pint --test`: PASS 1220 tệp. Không có migration.

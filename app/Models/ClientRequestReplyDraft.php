@@ -43,6 +43,11 @@ class ClientRequestReplyDraft extends Model
         return 'used_reply_id';
     }
 
+    public static function draftType(): string
+    {
+        return 'client_request_reply_draft';
+    }
+
     /** Nháp là thứ văn phòng CHƯA quyết định nói ra — xem {@see StageLogDraft::applyClientPortalConstraints()}. */
     public function applyClientPortalConstraints(Builder $query, ClientUser $clientUser): void
     {
