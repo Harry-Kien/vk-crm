@@ -214,6 +214,9 @@ return [
             'transfer_before_dossier_on' => 'Ngày ý kiến luật sư cho chuyển trước khi nộp hồ sơ',
             'transfer_before_dossier_basis' => 'Căn cứ ý kiến luật sư (số và ngày văn bản)',
         ],
+        'validation' => [
+            'not_in_future' => ':attribute không được là ngày trong tương lai: chỉ ghi ngày đã xảy ra (hôm nay hoặc trước đó). Ngày dự kiến sẽ mở cổng chuyển dữ liệu khi hồ sơ chưa có.',
+        ],
         'submit' => 'Lưu',
         'notifications' => [
             'saved' => 'Đã lưu hồ sơ chuyển dữ liệu.',

@@ -36,7 +36,8 @@ use Illuminate\Validation\ValidationException;
  *    `settings`).
  *  - **Form hồ sơ chuyển dữ liệu ra nước ngoài** (R13), lưu qua {@see RecordDataTransferDossier}.
  *    `maxLength()` của hai ô chữ là {@see TransferDossier::REFERENCE_MAX}/{@see TransferDossier::BASIS_MAX},
- *    đúng luật `max:` của Action.
+ *    đúng luật `max:` của Action; ba ô ngày có `maxDate` = hôm nay, đúng luật `before_or_equal:today`
+ *    của Action ({@see self::pastDatePicker()}).
  *
  * # Cổng: `settings.manage` (R14: không quyền mới), hỏi ở MỌI request — kể cả request cập nhật Livewire
  *
@@ -94,21 +95,32 @@ class DocumentStorePage extends Page
                 Section::make(__('document_store.page.sections.dossier'))
                     ->description(__('document_store.page.dossier_intro'))
                     ->schema([
-                        DatePicker::make('transfer_dossier_on')
-                            ->label(__('document_store.page.fields.transfer_dossier_on')),
+                        $this->pastDatePicker('transfer_dossier_on'),
                         TextInput::make('transfer_dossier_reference')
                             ->label(__('document_store.page.fields.transfer_dossier_reference'))
                             ->maxLength(TransferDossier::REFERENCE_MAX),
-                        DatePicker::make('dpa_accepted_on')
-                            ->label(__('document_store.page.fields.dpa_accepted_on')),
-                        DatePicker::make('transfer_before_dossier_on')
-                            ->label(__('document_store.page.fields.transfer_before_dossier_on')),
+                        $this->pastDatePicker('dpa_accepted_on'),
+                        $this->pastDatePicker('transfer_before_dossier_on'),
                         Textarea::make('transfer_before_dossier_basis')
                             ->label(__('document_store.page.fields.transfer_before_dossier_basis'))
                             ->rows(2)
                             ->maxLength(TransferDossier::BASIS_MAX),
                     ]),
             ]);
+    }
+
+    /**
+     * Ô ngày của hồ sơ: ghi việc ĐÃ xảy ra, nên lịch không cho chọn sau hôm nay (`maxDate`, "hôm nay"
+     * tính lại mỗi lần form hiện hay kiểm, theo múi giờ ứng dụng). `maxDate` cũng thêm luật
+     * `before_or_equal` vào form; luật đó mang cùng câu lỗi với luật của {@see RecordDataTransferDossier}.
+     * Action vẫn tự chặn cho mọi đường gọi khác.
+     */
+    private function pastDatePicker(string $field): DatePicker
+    {
+        return DatePicker::make($field)
+            ->label(__("document_store.page.fields.{$field}"))
+            ->maxDate(fn (): string => today()->toDateString())
+            ->validationMessages(['before_or_equal' => __('document_store.page.validation.not_in_future')]);
     }
 
     /**

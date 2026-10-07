@@ -33,7 +33,9 @@ use Illuminate\Validation\ValidationException;
  * Chỉ năm khoá của {@see TransferDossier::KEYS}; khoá khác bị bỏ qua; khoá VẮNG MẶT giữ nguyên giá trị
  * đã lưu. Chuỗi được cắt khoảng trắng hai đầu; chuỗi rỗng = xoá giá trị đã lưu. Kiểm ở đây dù form đã
  * kiểm (form không phải đường gọi duy nhất), cả lô hỏng thì không ghi gì:
- *  - ba ngày: đúng dạng `Y-m-d` và là ngày có thật;
+ *  - ba ngày: đúng dạng `Y-m-d`, là ngày có thật và KHÔNG sau hôm nay (`before_or_equal:today`, "hôm
+ *    nay" theo múi giờ của ứng dụng). Các ô ghi việc ĐÃ xảy ra: một ngày hồ sơ hay ngày ý kiến "dự
+ *    kiến" sẽ mở cổng production ngay và dừng đồng hồ 60 ngày khi hồ sơ chưa tồn tại;
  *  - mã hồ sơ, căn cứ: chuỗi, tối đa 100 và 200 ký tự (`mb_strlen`, đúng `maxLength()` của form; cột
  *    `settings.value` là `text`);
  *  - có ngày ý kiến luật sư thì phải có căn cứ: một "ý kiến" không nói văn bản nào là một ý kiến không
@@ -105,8 +107,11 @@ final class RecordDataTransferDossier
             'transfer_before_dossier_basis' => ['nullable', 'string', 'max:'.TransferDossier::BASIS_MAX],
         ];
 
+        $messages = [];
+
         foreach (self::DATE_FIELDS as $field) {
-            $rules[$field] = ['nullable', 'date_format:Y-m-d'];
+            $rules[$field] = ['nullable', 'date_format:Y-m-d', 'before_or_equal:today'];
+            $messages["{$field}.before_or_equal"] = __('document_store.page.validation.not_in_future');
         }
 
         // Chỉ đòi căn cứ khi lần ghi này CÓ đụng tới ngày ý kiến (khoá vắng mặt = giữ nguyên, không xét).
@@ -117,7 +122,7 @@ final class RecordDataTransferDossier
         Validator::make(
             $values,
             $rules,
-            [],
+            $messages,
             collect(TransferDossier::KEYS)->mapWithKeys(fn (string $key, string $field): array => [
                 $field => __("document_store.page.fields.{$field}"),
             ])->all(),

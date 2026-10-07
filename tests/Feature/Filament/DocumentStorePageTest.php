@@ -12,8 +12,10 @@ use App\Models\User;
 use App\Support\Files\FreeSpace;
 use App\Support\Storage\DocumentStore;
 use App\Support\Storage\TransferDossier;
+use Carbon\CarbonImmutable;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Field;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
@@ -211,6 +213,63 @@ it('sau khi admin lưu ngày hồ sơ trên trang, dòng data_transfer_dossier t
 
     Livewire::test(DocumentStorePage::class)
         ->fillForm(['transfer_dossier_on' => '2026-10-02', 'transfer_dossier_reference' => 'A05-2026-0042'])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    Store::expectRow('data_transfer_dossier', PreflightLevel::Green, state: true);
+});
+
+/*
+| Ba ô ngày ghi việc ĐÃ xảy ra (vòng sửa 1 của Task 5, I1): một ngày hồ sơ hay ngày ý kiến "dự kiến" mở
+| cổng R13 trên production và dừng đồng hồ 60 ngày khi hồ sơ chưa tồn tại. 00:30 sáng 5/10 giờ Việt Nam
+| là 4/10 theo UTC: "hôm nay" là ngày theo múi giờ ứng dụng.
+*/
+
+it('ba ô ngày không cho chọn sau hôm nay (ngày tối đa của lịch = hôm nay theo múi giờ ứng dụng)', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-10-05 00:30', config('app.timezone')));
+    $this->actingAs($this->admin, 'web');
+
+    $page = Livewire::test(DocumentStorePage::class);
+
+    foreach (['transfer_dossier_on', 'dpa_accepted_on', 'transfer_before_dossier_on'] as $field) {
+        $page->assertFormFieldExists($field, fn (DatePicker $picker): bool => $picker->getMaxDate() === '2026-10-05');
+    }
+});
+
+it('ngày mai ở một ô ngày → lỗi tiếng Việt đúng ô đó, không lưu gì, dòng data_transfer_dossier vẫn ĐỎ', function (string $field) {
+    config(['app.env' => 'production', 'vkcrm.storage.driver' => DocumentStore::DRIVER_GOOGLE_DRIVE]);
+    $this->travelTo(CarbonImmutable::parse('2026-10-05 00:30', config('app.timezone')));
+    $this->actingAs($this->admin, 'web');
+
+    $page = Livewire::test(DocumentStorePage::class)
+        ->fillForm([
+            'transfer_dossier_reference' => 'A05-2026-0042',
+            'transfer_before_dossier_basis' => 'Ý kiến pháp lý số 12/2026/YK',
+            $field => '2026-10-06',
+        ])
+        ->call('save')
+        ->assertHasFormErrors([$field]);
+
+    expect($page->errors()->first("data.{$field}"))->toContain('không được là ngày trong tương lai')
+        ->and(Setting::query()->where('key', 'like', 'storage.%')->count())->toBe(0)
+        ->and(Activity::query()->where('event', 'data_transfer_dossier_recorded')->count())->toBe(0);
+
+    Store::expectRow('data_transfer_dossier', PreflightLevel::Red, state: true);
+})->with(['transfer_dossier_on', 'dpa_accepted_on', 'transfer_before_dossier_on']);
+
+it('ngày hôm nay ở cả ba ô ngày được lưu và mở cổng (biên của "không sau hôm nay")', function () {
+    config(['app.env' => 'production', 'vkcrm.storage.driver' => DocumentStore::DRIVER_GOOGLE_DRIVE]);
+    $this->travelTo(CarbonImmutable::parse('2026-10-05 00:30', config('app.timezone')));
+    $this->actingAs($this->admin, 'web');
+
+    Livewire::test(DocumentStorePage::class)
+        ->fillForm([
+            'transfer_dossier_on' => '2026-10-05',
+            'transfer_dossier_reference' => 'A05-2026-0042',
+            'dpa_accepted_on' => '2026-10-05',
+            'transfer_before_dossier_on' => '2026-10-05',
+            'transfer_before_dossier_basis' => 'Ý kiến pháp lý số 12/2026/YK',
+        ])
         ->call('save')
         ->assertHasNoFormErrors();
 

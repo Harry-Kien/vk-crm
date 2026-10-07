@@ -5,6 +5,7 @@ use App\Enums\Role;
 use App\Models\Setting;
 use App\Models\User;
 use App\Support\Storage\TransferDossier;
+use Carbon\CarbonImmutable;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Validation\ValidationException;
@@ -84,4 +85,46 @@ it('ô trống xoá giá trị đã lưu và audit nêu đúng trường đó; k
         ->and(TransferDossier::current()->dossierOn())->toBeNull()
         ->and(TransferDossier::current()->dpaAcceptedOn()?->toDateString())->toBe('2026-09-30')
         ->and(Activity::query()->where('event', 'data_transfer_dossier_recorded')->count())->toBe(2);
+});
+
+/*
+| Ba ô ngày ghi việc ĐÃ xảy ra (vòng sửa 1 của Task 5, I1): ngày hồ sơ hay ngày ý kiến "dự kiến" mở cổng
+| R13 trên production và dừng đồng hồ 60 ngày khi hồ sơ chưa tồn tại. Action tự chặn, cho mọi đường gọi.
+| "Hôm nay" là ngày theo múi giờ của ứng dụng (Asia/Ho_Chi_Minh): 00:30 sáng 5/10 giờ Việt Nam vẫn là
+| 4/10 theo UTC, và 5/10 phải được nhận, 6/10 bị từ chối.
+*/
+
+it('ngày trong tương lai bị từ chối với câu tiếng Việt, không ghi gì', function (string $field) {
+    $this->travelTo(CarbonImmutable::parse('2026-10-05 00:30', config('app.timezone')));
+
+    $input = [$field => '2026-10-06'];
+
+    if ($field === 'transfer_before_dossier_on') {
+        $input['transfer_before_dossier_basis'] = 'Ý kiến pháp lý số 12/2026/YK';
+    }
+
+    try {
+        app(RecordDataTransferDossier::class)->handle($this->admin, $input);
+        $this->fail('Action nhận một ngày trong tương lai.');
+    } catch (ValidationException $exception) {
+        expect($exception->errors())->toHaveKey($field)
+            ->and($exception->errors()[$field][0])->toContain('không được là ngày trong tương lai');
+    }
+
+    expect(Setting::query()->count())->toBe(0)
+        ->and(TransferDossier::current()->allowsTransfer())->toBeFalse();
+})->with(['transfer_dossier_on', 'dpa_accepted_on', 'transfer_before_dossier_on']);
+
+it('ngày hôm nay (theo múi giờ ứng dụng) được nhận ở cả ba ô ngày', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-10-05 00:30', config('app.timezone')));
+
+    $changed = app(RecordDataTransferDossier::class)->handle($this->admin, [
+        'transfer_dossier_on' => '2026-10-05',
+        'dpa_accepted_on' => '2026-10-05',
+        'transfer_before_dossier_on' => '2026-10-05',
+        'transfer_before_dossier_basis' => 'Ý kiến pháp lý số 12/2026/YK',
+    ]);
+
+    expect($changed)->toBe(['transfer_dossier_on', 'dpa_accepted_on', 'transfer_before_dossier_on', 'transfer_before_dossier_basis'])
+        ->and(TransferDossier::current()->dossierOn()?->toDateString())->toBe('2026-10-05');
 });
