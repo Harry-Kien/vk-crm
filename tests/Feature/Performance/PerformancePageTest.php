@@ -570,3 +570,36 @@ it('runs as many queries for three people as for twelve, permission checks inclu
     expect(m13bPgOrder(m13bPgOpen($this->manager)))->toHaveCount(13)
         ->and($twelve)->toBe($three);
 });
+
+/** Số lần dựng báo cáo trong một request: mỗi lần dựng nạp tập mốc của kỳ đúng một lần (`select * from deadlines`). */
+function m13t8PgReportsBuilt(callable $request): int
+{
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+    $request();
+    $built = collect(DB::getQueryLog())->filter(fn (array $query): bool => (bool) preg_match('/^select \* from [`"]deadlines[`"]/', $query['query']))->count();
+    DB::disableQueryLog();
+
+    return $built;
+}
+
+/**
+ * M13 Task 8 — đo hiệu năng (R11): cột doanh thu hỏi "có hiện không" ngay lúc Filament dựng bảng (cả khi
+ * hydrate, TRƯỚC khi `applyPeriod()` chạy). Hỏi qua `report()` thì mỗi request đổi kỳ dựng báo cáo của kỳ
+ * CŨ rồi mới dựng kỳ mới, và mỗi lần chọn ở ô kỳ (`live()`) dựng thêm vài lần nữa — trên 3.000 vụ, một quý
+ * là hàng giây. Mỗi request chỉ được dựng báo cáo MỘT lần.
+ */
+it('builds the report once per Livewire request, also on the request that changes the period', function () {
+    m13bPgBusyLawyer(1);
+    $page = null;
+
+    $mount = m13t8PgReportsBuilt(function () use (&$page): void {
+        $page = m13bPgOpen($this->manager);
+    });
+    $choose = m13t8PgReportsBuilt(fn () => $page->fillForm(['period' => 'last_quarter']));
+    $apply = m13t8PgReportsBuilt(fn () => $page->call('applyPeriod'));
+    $toggle = m13t8PgReportsBuilt(fn () => $page->call('sortTable', 'name', 'desc'));
+
+    expect([$mount, $choose, $apply, $toggle])->toBe([1, 1, 1, 1])
+        ->and($page->instance()->period()->key)->toBe('last_quarter');
+});

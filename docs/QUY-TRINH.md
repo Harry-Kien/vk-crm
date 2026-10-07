@@ -225,6 +225,34 @@ việc đã đi được nửa đường. Nhập chúng như sau (phép đo:
 
 ---
 
+## Theo dõi đội ngũ — giao ban hằng tuần và đánh giá hằng tháng (M13)
+
+Hai câu hỏi khác nhau, hai trang khác nhau. Đừng đặt số của trang này cạnh số của trang kia: "12 vụ đang
+mở" (bây giờ) và "80% đúng hạn" (tháng trước) không cùng một thời điểm.
+
+| Văn phòng làm gì | Hệ thống đỡ bằng gì | Trạng thái |
+|---|---|---|
+| **Giao ban hằng tuần:** ai đang giữ gì, việc nào đang nguy hiểm, phải gọi ai trước | Trang **Theo dõi đội ngũ** (trưởng phòng, quản trị viên): mỗi luật sư, trợ lý một dòng, số tính ngay lúc mở — vụ đang phụ trách, vụ quá hạn cập nhật cho khách, mốc quá hạn, mốc 7 ngày tới, yêu cầu của khách chờ trả lời, giấy tờ chờ duyệt, mức hoàn thiện danh mục. Sắp xếp theo cột đếm việc tồn (mốc quá hạn trước) để biết gọi ai trước; số > 0 ở mốc quá hạn và quá hạn cập nhật tô đỏ. Bấm tên để mở **trang của người đó**: danh sách vụ, mười mốc và mười yêu cầu gấp nhất, giấy tờ chờ duyệt, cơ cấu lĩnh vực, biểu đồ 90 ngày. Công tắc "Gồm người đã nghỉ việc" khi cần bàn giao nốt | **[Xong]** M13 |
+| **Đánh giá hằng tháng:** trong tháng trước mỗi người đã làm đúng hạn tới đâu | Trang **Hiệu suất theo kỳ**, kỳ mặc định **tháng trước** (kỳ đã đóng: làm nốt việc sau kỳ không làm đẹp số của kỳ). Mốc đúng hạn/trễ/lỡ tính cho người giữ mốc **vào ngày đến hạn**, yêu cầu của khách tính cho người giữ luồng **lúc trả lời** — người nhận bàn giao không gánh việc người trước đã lỡ. Mốc đã gỡ và yêu cầu đóng không trả lời ở cột riêng, để tỉ lệ không đẹp lên nhờ gỡ mốc hay đóng luồng. Dưới 5 việc thì không tính tỉ lệ. Dòng "Chung — các vụ bạn được xem" đứng đầu để so một người với cả văn phòng. Khối "Cách tính các con số" nói từng số được tính thế nào | **[Xong]** M13 |
+| Luật sư, trợ lý tự xem số của mình | Mục **Việc của tôi** (trang của chính mình) và dòng của chính mình trên "Hiệu suất theo kỳ" — cùng bảng "Cách tính" như trưởng phòng. Kế toán không thấy trang nào trong ba trang; doanh thu theo luật sư vẫn ở trang Doanh thu | **[Xong]** M13 |
+| Vụ hạn chế truy cập không lộ ra qua con số | Mọi số tính trên các vụ người xem được xem; trưởng phòng và luật sư phụ trách có thể thấy hai con số khác nhau cho cùng một người — đúng thiết kế | **[Xong]** M13 |
+
+**Vì sao không có bảng xếp hạng** — bốn lý do, cũng in trên trang "Hiệu suất theo kỳ":
+
+1. **Cơ cấu vụ khác nhau.** Luật sư hình sự có nhiều mốc dày, khách khó liên lạc; luật sư doanh nghiệp ít
+   mốc. So thẳng tỉ lệ của hai người là so hai loại việc. Cột "Lĩnh vực chính" cho biết mỗi tỉ lệ thuộc bối
+   cảnh nào.
+2. **Mẫu nhỏ.** Văn phòng vài chục người, mỗi người vài chục mốc một quý: hai điểm phần trăm chênh nhau là
+   nhiễu.
+3. **Xếp hạng dạy người ta lách số** — bấm "hoàn thành" sớm, gỡ mốc khó, tránh nhận vụ khó.
+4. **Vai trò khác nhau.** Trợ lý và luật sư không làm cùng loại việc.
+
+Hệ thống không tự làm gì dựa trên các con số này (không khoá, không nhắc, không đổi quyền), không gửi thư
+tổng hợp, và ghi nhật ký mỗi lần một người mở số của người khác. Đây là dữ liệu cá nhân của nhân sự: việc
+thông báo cho nhân sự là câu hỏi cho luật sư của văn phòng (`docs/PROGRESS.md`, "Ghi chú M13").
+
+---
+
 ## Nền móng chạy dưới tất cả
 
 | Thứ gì | Trạng thái |

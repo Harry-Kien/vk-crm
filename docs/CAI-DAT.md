@@ -485,6 +485,35 @@ biết trước ô chọn loại vụ việc sẽ hiện gì:
   - `INTAKE_RESPONSE_HOURS` — ngưỡng phản hồi lần đầu, tính bằng giờ làm việc, mặc định 4
     (`.env.example` để trống; trống, 0, số âm hay chữ cũng về 4).
 
+**Bản cập nhật M13 (theo dõi đội ngũ) làm gì trên máy chủ đã có dữ liệu:**
+
+- `migrate --force` thêm một bảng và một index, không sửa cột hay dữ liệu nào đã có — hai migration:
+  `2026_10_04_130000_create_performance_snapshots_table` (bảng `performance_snapshots`, ảnh chụp số
+  "bây giờ" của từng người mỗi tối, để vẽ xu hướng) và
+  `2026_10_07_090000_add_event_created_at_index_to_activity_log_table` (index `(event, created_at)` trên
+  bảng nhật ký `activity_log`, cho cột "Giấy tờ đã duyệt" của trang "Hiệu suất theo kỳ"; trên một nhật ký
+  vài trăm nghìn dòng, dựng index mất vài giây).
+- `db:seed --force` (`ReferenceDataSeeder`) tạo quyền mới `performance.viewAny` và gắn cho quản trị viên
+  và quản lý (SPEC §5). **Bắt buộc**: chưa chạy thì trang **Theo dõi đội ngũ** không hiện với ai, kể cả
+  quản trị viên (mở thẳng đường dẫn cũng ra 404), và trên trang **Hiệu suất theo kỳ** mỗi người chỉ thấy
+  dòng của chính mình. Luật sư và trợ lý không cần quyền mới: mục **Việc của tôi** và dòng của chính họ
+  đi theo quyền xem vụ việc sẵn có. Kế toán không mở được trang nào trong ba trang.
+- Một tác vụ mới chạy dưới dòng cron sẵn có (không thêm dòng cron nào): `performance.snapshot`, 23:50
+  hằng ngày, ghi số "bây giờ" của từng người được theo dõi (vụ quá hạn cập nhật, mốc quá hạn, mức hoàn
+  thiện danh mục) và xoá ảnh chụp cũ hơn 25 tháng. Không gửi thư, không thông báo.
+- **Xu hướng bắt đầu từ ngày nâng cấp:** biểu đồ xu hướng trên trang của từng người trống cho tới đêm
+  đầu tiên, và cột "Xu hướng" của trang "Hiệu suất theo kỳ" in "—" cho mọi ngày trước đó. Hệ thống không
+  dựng ảnh chụp ngược cho quá khứ.
+- **Lịch sử "ai giữ việc lúc nào" chỉ đầy đủ từ ngày nâng cấp** cho hai thứ: mốc thời hạn bị chuyển khi
+  bàn giao vụ (trước đó lần bàn giao chỉ ghi SỐ mốc đã chuyển), và yêu cầu của khách được giao ĐÍCH DANH
+  cho luật sư cũ. Với các tháng trước ngày nâng cấp, những mốc, luồng đó tính cho người đang giữ chúng.
+  Luồng yêu cầu chưa giao ai (gần như mọi luồng) thì đủ, nhờ dòng "bàn giao vụ việc" có từ trước. Vài
+  tháng đầu, tỉ lệ đúng hạn của người từng nhận bàn giao hàng loạt có thể thấp hơn thật.
+- Trang Nhật ký hệ thống có thêm dòng "Xem số liệu hiệu suất của nhân sự" mỗi lần một người mở số của
+  người khác. Số liệu hiệu suất theo người là dữ liệu cá nhân của nhân sự: thông báo cho nhân sự (nội
+  quy, hợp đồng lao động) là câu hỏi cho luật sư của văn phòng, TRƯỚC khi dùng trang này để đánh giá.
+- Bản này không có biến `.env` mới.
+
 **Muốn dữ liệu mẫu để demo cho khách trước khi dùng thật** (không phải dữ liệu thật) — đọc hết
 đoạn này TRƯỚC khi chạy lệnh. Dữ liệu mẫu có tám tài khoản nhân sự, cùng mật khẩu `password`,
 và CHƯA tài khoản nào có 2FA: `admin@luatvukhang.com` (Quản trị viên), `quanly@luatvukhang.com`,
@@ -497,7 +526,9 @@ khẩu này nằm công khai trong mã nguồn và trong chính tài liệu này
 Internet, một người lạ đăng nhập `admin@luatvukhang.com` trước văn phòng là **chiếm trọn quyền
 quản trị** — tạo nhân sự, đọc mọi vụ việc, gửi thư cho khách bằng hộp thư và chân thư của văn
 phòng — còn văn phòng thì bị khoá ngoài chính tài khoản đó, vì mã 2FA nằm trong điện thoại của
-người kia. Bảy tài khoản còn lại cũng vậy, mỗi cái một vai.
+người kia. Bảy tài khoản còn lại cũng vậy, mỗi cái một vai. (Từ M13 dữ liệu mẫu có thêm một luật sư
+"đã nghỉ việc", `luatsu4@luatvukhang.com`, để trang "Hiệu suất theo kỳ" có một lần bàn giao khi nghỉ
+việc: tài khoản đó đã bị vô hiệu hoá và mang mật khẩu ngẫu nhiên, không đăng nhập được.)
 
 Vì vậy dữ liệu mẫu chỉ được nạp khi người ngoài văn phòng không mở được `/admin`. Lệnh
 `php artisan vkcrm:preflight` (Bước 7) giữ đúng luật này trong mã: còn tài khoản nào ở trên dùng
@@ -701,7 +732,8 @@ php artisan up
   việc. Bản M9 thêm bốn quyền tiền (`billing.view`, `contract.manage`, `payment.record`,
   `revenue.viewAny`) — không chạy thì không ai mở được màn hình tiền; bản M10 thêm ba quyền tiếp nhận
   (`intake.create`, `intake.viewAny`, `intake.convert`) — không chạy thì menu Tiếp nhận không hiện
-  với ai, kể cả quản trị viên. Từng bản làm gì trên máy chủ đã có dữ liệu: Bước 5, các đoạn "Bản cập
+  với ai, kể cả quản trị viên; bản M13 thêm quyền `performance.viewAny` — không chạy thì trang Theo dõi
+  đội ngũ không hiện với ai. Từng bản làm gì trên máy chủ đã có dữ liệu: Bước 5, các đoạn "Bản cập
   nhật …".
 - `billing:check-invariants` in bảng những hợp đồng đang hiệu lực mà tổng các đợt lệch giá trị hợp
   đồng (mã thoát 1). `vkcrm:preflight` ngay sau cũng ĐỎ vì cùng lý do. Dòng ĐỎ này là DỮ LIỆU,

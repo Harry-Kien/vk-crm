@@ -26,6 +26,7 @@ use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -63,7 +64,8 @@ use Livewire\Attributes\Locked;
  * Dòng là mảng thuộc tính của {@see PerformanceRow}; dòng "Chung" (khoá {@see self::REFERENCE_KEY}) luôn
  * đứng đầu. KHÔNG cột nào sắp xếp được ngoài tên: một lời gọi `sortTable` lên cột số (Livewire nhận tên cột
  * bất kỳ) giữ nguyên thứ tự theo tên. Tỉ lệ không bao giờ tô màu. Phân rã R7 in ngay dưới tỉ lệ
- * ("12/15 mốc · 8/9 yêu cầu"). Cột doanh thu chỉ có khi `PerformanceReport::$revenueVisible`. Cột P8 (Task 7)
+ * ("12/15 mốc · 8/9 yêu cầu"). Cột doanh thu chỉ có khi `PerformanceReport::$revenueVisible` (hỏi qua
+ * {@see self::revenueVisible()}, cùng luật, không dựng báo cáo — mỗi request dựng báo cáo đúng một lần). Cột P8 (Task 7)
  * in mốc quá hạn và vụ quá hạn cập nhật của ngày đầu kỳ → ngày cuối kỳ (không muộn hơn hôm qua) từ ảnh chụp
  * hằng ngày; ngày không có ảnh chụp là "—", không phải 0; phần N4 là "Không áp dụng" với người không đứng tên
  * phụ trách vụ (R6); dòng "Chung" không có cột này.
@@ -106,6 +108,12 @@ class Performance extends Page implements HasTable
     private ?string $reportKey = null;
 
     private ?PerformanceReport $report = null;
+
+    /** Người của request này, theo (kỳ, công tắc) — {@see self::subjects()}. */
+    private ?string $subjectsKey = null;
+
+    /** @var Collection<int, User>|null */
+    private ?Collection $subjects = null;
 
     public static function getNavigationLabel(): string
     {
@@ -258,7 +266,7 @@ class Performance extends Page implements HasTable
                     ->label(__('performance.columns.p7'))
                     ->formatStateUsing(fn (int $state): string => Money::format($state))
                     ->placeholder(__('performance.not_applicable'))
-                    ->visible(fn (): bool => $this->report()->revenueVisible),
+                    ->visible(fn (): bool => $this->revenueVisible()),
                 TextColumn::make('completionRatio')
                     ->label(__('performance.columns.p9'))
                     ->state(fn (array $record): string => $record['completionRatio']->label())
@@ -317,23 +325,65 @@ class Performance extends Page implements HasTable
      */
     public function report(): PerformanceReport
     {
-        $period = $this->period();
-        $includeInactive = (bool) ($this->tableFilters['include_inactive']['isActive'] ?? false);
-        $key = serialize([$period->key, $period->bounds(), $includeInactive]);
+        $key = $this->stateKey();
 
         if ($this->report === null || $this->reportKey !== $key) {
             /** @var User $viewer */
             $viewer = Auth::user();
 
-            $this->report = app(BuildPerformanceReport::class)->handle(
-                $viewer,
-                TeamRoster::subjectsForPeriod($viewer, $period, $includeInactive),
-                $period,
-            );
+            $this->report = app(BuildPerformanceReport::class)->handle($viewer, $this->subjects(), $this->period());
             $this->reportKey = $key;
         }
 
         return $this->report;
+    }
+
+    /**
+     * Cột doanh thu có hiện không — {@see BuildPerformanceReport::revenueVisible()}, cùng luật mà báo cáo
+     * mang trong `revenueVisible`. Không dựng báo cáo để trả lời: Filament hỏi `visible()` của cột ngay lúc
+     * dựng bảng, cả khi hydrate một request đổi kỳ (lúc đó kỳ còn là kỳ CŨ), và mỗi lần dựng báo cáo một quý
+     * trên vài nghìn vụ là hàng trăm mili giây (Task 8, số đo R11).
+     */
+    public function revenueVisible(): bool
+    {
+        if ($this->report !== null && $this->reportKey === $this->stateKey()) {
+            return $this->report->revenueVisible;
+        }
+
+        /** @var User $viewer */
+        $viewer = Auth::user();
+
+        return BuildPerformanceReport::revenueVisible($viewer, $this->subjects());
+    }
+
+    /**
+     * Người của kỳ đang hiện và công tắc đang bật (`TeamRoster::subjectsForPeriod()`), nạp MỘT lần cho
+     * mỗi (kỳ, công tắc) trong một request.
+     *
+     * @return Collection<int, User>
+     */
+    private function subjects(): Collection
+    {
+        $key = $this->stateKey();
+
+        if ($this->subjects === null || $this->subjectsKey !== $key) {
+            /** @var User $viewer */
+            $viewer = Auth::user();
+            $includeInactive = (bool) ($this->tableFilters['include_inactive']['isActive'] ?? false);
+
+            $this->subjects = TeamRoster::subjectsForPeriod($viewer, $this->period(), $includeInactive);
+            $this->subjectsKey = $key;
+        }
+
+        return $this->subjects;
+    }
+
+    /** (kỳ, công tắc) — khoá của báo cáo và tập người đã nạp trong request này. */
+    private function stateKey(): string
+    {
+        $period = $this->period();
+
+        return serialize([$period->key, $period->bounds(), (bool) ($this->tableFilters['include_inactive']['isActive'] ?? false)]);
     }
 
     /**

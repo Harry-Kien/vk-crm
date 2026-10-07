@@ -1,18 +1,25 @@
 <?php
 
+use App\Actions\Performance\BuildPerformanceReport;
 use App\Actions\Performance\BuildPerformanceTrend;
 use App\Actions\Performance\BuildTeamWorkload;
 use App\Actions\Schedule\CapturePerformanceSnapshots;
 use App\Enums\Role;
+use App\Filament\Admin\Pages\Performance;
 use App\Filament\Admin\Pages\TeamMember;
 use App\Filament\Admin\Pages\TeamOverview;
 use App\Filament\Admin\Widgets\Performance\OverdueTrendWidget;
 use App\Filament\Admin\Widgets\Performance\StaleTrendWidget;
+use App\Models\ClientRequest;
+use App\Models\Deadline;
 use App\Models\Matter;
 use App\Models\MatterType;
 use App\Models\PerformanceSnapshot;
 use App\Models\User;
+use App\Support\BusinessHours;
+use App\Support\Performance\DeadlineHolderAtDue;
 use App\Support\Performance\PerformancePeriod;
+use App\Support\Performance\RequestHolderAt;
 use App\Support\Performance\TeamRoster;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
@@ -99,7 +106,9 @@ it('đo trang "Theo dõi đội ngũ" trên 3.000 vụ', function () {
             'last_client_update_at' => $i % 7 === 0 ? null : $ago(($i % 40) * 1440),
             'lead_lawyer_id' => $lawyers[$i % 20]->id,
             'opened_at' => $day(-400 + $i % 300),
-            'closed_at' => $i % 10 < 3 ? $day(-($i % 300)) : null,
+            // Task 8: 30% đã kết thúc là `i % 10` ∈ {1, 2, 3}, không phải {0, 1, 2} — vụ `restricted`
+            // (`i % 20 === 0`) nay còn mở, nên tác vụ chụp ghi cả dòng `restricted` (rà soát Task 7, m6).
+            'closed_at' => $i % 10 >= 1 && $i % 10 <= 3 ? $day(-($i % 300)) : null,
             'is_published_to_portal' => $i % 5 !== 0,
             'confidentiality' => $i % 20 === 0 ? 'restricted' : 'normal',
             'created_at' => $stamp,
@@ -139,11 +148,14 @@ it('đo trang "Theo dõi đội ngũ" trên 3.000 vụ', function () {
 
         foreach (range(0, 1) as $r) {
             $status = ['new', 'in_progress', 'answered', 'closed'][($k + $r) % 4];
+            // Task 8: văn phòng trả lời 0–95 giờ SAU khi khách gửi (trước đây hai cột rải độc lập, nên có luồng
+            // "trả lời" 300 ngày sau hoặc trước cả lúc gửi — thời gian phản hồi giờ làm việc đếm từng ngày).
+            $sentAgo = (($k + $r) % 300) * 1440 + 600;
             $requests[] = [
                 'matter_id' => $matter->id, 'client_user_id' => $clientUserIds[$k % count($clientUserIds)], 'subject' => "Yêu cầu {$r}",
                 'content' => 'Nội dung đo', 'status' => $status, 'assigned_to' => $k % 10 === 0 ? $assistant : null,
-                'answered_at' => in_array($status, ['answered', 'closed'], true) ? $ago((($k + $r) % 200) * 1440) : null,
-                'last_activity_at' => $stamp, 'created_at' => $ago((($k + $r) % 300) * 1440 + 600), 'updated_at' => $stamp,
+                'answered_at' => in_array($status, ['answered', 'closed'], true) ? $ago(max(0, $sentAgo - (($k * 7 + $r) % 96) * 60)) : null,
+                'last_activity_at' => $stamp, 'created_at' => $ago($sentAgo), 'updated_at' => $stamp,
             ];
         }
 
@@ -344,9 +356,11 @@ it('đo trang "Theo dõi đội ngũ" trên 3.000 vụ', function () {
     // xem người khác) + lần vẽ đầu (dòng BuildTeamWorkload có N11, cơ cấu lĩnh vực, ba danh sách, trang
     // đầu của bảng "Vụ việc"). Ngân sách 200 ms (R11). Kèm số truy vấn mỗi lần vẽ và sáu truy vấn chậm
     // nhất (trung vị 5 lần).
+    $memberSlow = [];
     $memberPages = [
         'luật sư xem chính mình' => [$lawyers[3], $lawyers[3]],
         'trưởng phòng xem một luật sư' => [$manager, $lawyers[3]],
+        'admin xem một luật sư' => [$admin, $lawyers[3]],
         'trưởng phòng xem một trợ lý' => [$manager, $assistants[0]],
     ];
     foreach ($memberPages as $label => [$viewer, $subject]) {
@@ -375,6 +389,7 @@ it('đo trang "Theo dõi đội ngũ" trên 3.000 vụ', function () {
         $report .= sprintf("    %d truy vấn mỗi lần mở trang, tổng %.1f ms; chậm nhất:\n", count($runs[0]), array_sum($slowest));
         foreach (array_slice($slowest, 0, 6, true) as $q => $queryMs) {
             $report .= sprintf("      #%-2d %7.1f ms  %s\n", $q, $queryMs, mb_strimwidth(preg_replace('/\s+/', ' ', $runs[0][$q]['query']), 0, 110, '…'));
+            $memberSlow[$label][$q] = ['sql' => $runs[0][$q]['query'], 'bindings' => $runs[0][$q]['bindings'], 'ms' => $queryMs];
         }
     }
 
@@ -425,6 +440,78 @@ it('đo trang "Theo dõi đội ngũ" trên 3.000 vụ', function () {
     $report .= sprintf("  Tác vụ chụp (CapturePerformanceSnapshots, %d dòng, %d dòng ảnh chụp trong bảng): %.1f ms — ngân sách 10 giây\n", $written, DB::table('performance_snapshots')->count(), $captureMs);
     expect($captureMs)->toBeLessThan(30000.0);
 
+    // Task 8 — "Hiệu suất theo kỳ", MỘT QUÝ (quý trước), ngân sách 500 ms (R11), cho ba loại người xem.
+    // (a) `BuildPerformanceReport::handle()` riêng; (b) cả request đổi kỳ của trang qua Livewire: trang mở ở
+    // kỳ mặc định (tháng trước) NGOÀI phép đo, rồi đo đúng request "chọn Quý trước → Áp dụng" (hydrate,
+    // ghi `performance_viewed`, dựng báo cáo quý, P8, vẽ bảng). Kèm số truy vấn của báo cáo quý và tập việc
+    // đã nạp (mốc, yêu cầu của kỳ) để thấy phần PHP tính trên bao nhiêu dòng.
+    $reportQueries = [];
+    foreach (['admin' => $admin, 'trưởng phòng' => $manager, 'luật sư (dòng của mình)' => $lawyers[3]] as $label => $viewer) {
+        $viewer = $viewer->fresh();
+        $subjects = TeamRoster::subjectsForPeriod($viewer, $quarter);
+        app(BuildPerformanceReport::class)->handle($viewer, $subjects, $quarter); // làm nóng
+
+        $reportMs = $median(fn () => app(BuildPerformanceReport::class)->handle($viewer, $subjects, $quarter));
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        app(BuildPerformanceReport::class)->handle($viewer, $subjects, $quarter);
+        $reportQueries[$label] = DB::getQueryLog();
+        DB::disableQueryLog();
+
+        $this->actingAs($viewer, 'web');
+        $times = [];
+        foreach (range(1, 5) as $_) {
+            // Mở trang và chọn "Quý trước" ở ô kỳ (mỗi việc một request, ngoài phép đo); đo request "Xem số liệu".
+            $page = Livewire::test(Performance::class)->fillForm(['period' => 'last_quarter']);
+            $start = hrtime(true);
+            $page->call('applyPeriod');
+            $times[] = (hrtime(true) - $start) / 1e6;
+        }
+        sort($times);
+        expect($page->instance()->period()->key)->toBe('last_quarter');
+
+        // Lần mở trang ở kỳ MẶC ĐỊNH (tháng trước): mount + ghi nhật ký + báo cáo một tháng + vẽ bảng.
+        Livewire::test(Performance::class); // làm nóng
+        $monthMs = $median(fn () => Livewire::test(Performance::class));
+
+        $report .= sprintf("  \"Hiệu suất theo kỳ\", quý trước (%s, %d người): BuildPerformanceReport %.1f ms, %d truy vấn; request đổi kỳ (Livewire) %.1f ms — ngân sách 500 ms; mở trang ở kỳ mặc định (tháng trước) %.1f ms\n",
+            $label, $subjects->count(), $reportMs, count($reportQueries[$label]), $times[2], $monthMs);
+        expect($times[2])->toBeLessThan(60000.0);
+    }
+    $lastMonthBounds = PerformancePeriod::fromFilters(['period' => 'last_month'])->bounds();
+    $report .= sprintf("    tập của tháng trước: %d mốc đến hạn, %d yêu cầu khách gửi (cả văn phòng)\n",
+        DB::table('deadlines')->whereBetween('due_date', $lastMonthBounds)->count(),
+        DB::table('client_requests')->whereBetween('created_at', $lastMonthBounds)->count());
+    // Phân rã phần PHP của báo cáo quý (trưởng phòng): cùng các scope và bộ dựng lịch sử mà
+    // `BuildPerformanceReport` gọi, đo từng khúc — để biết thời gian nằm ở SQL hay ở PHP.
+    $viewer = $manager->fresh();
+    $visible = fn ($matters) => $matters->listableBy($viewer);
+    $parts = [
+        'nạp mốc của quý (+ vụ)' => fn () => Deadline::query()->dueBetween($quarter->bounds())->whereHas('matter', $visible)->with('matter:id,closed_at,deleted_at')->get(),
+        'nạp yêu cầu của quý (+ vụ)' => fn () => ClientRequest::query()->createdBetween($quarter->bounds())->whereHas('matter', $visible)->with('matter:id,lead_lawyer_id')->get(),
+    ];
+    $loaded = [];
+    foreach ($parts as $label => $run) {
+        $loaded[$label] = $run();
+        $report .= sprintf("    %-30s %7.1f ms (%d dòng)\n", $label, $median($run), $loaded[$label]->count());
+    }
+    $quarterDeadlines = $loaded['nạp mốc của quý (+ vụ)'];
+    $quarterRequests = $loaded['nạp yêu cầu của quý (+ vụ)'];
+    $cutoff = $quarter->cutoff();
+    $hoursOf = BusinessHours::fromConfig();
+    foreach ([
+        'DeadlineHolderAtDue::resolve' => fn () => DeadlineHolderAtDue::resolve($quarterDeadlines),
+        'Deadline::outcomeAt (mọi mốc)' => fn () => $quarterDeadlines->each(fn (Deadline $d) => $d->outcomeAt($cutoff)),
+        'RequestHolderAt::resolve' => fn () => RequestHolderAt::resolve($quarterRequests, fn (ClientRequest $r) => $r->answeredBy($cutoff) ? $r->answered_at : $cutoff),
+        'BusinessHours (mọi luồng đã trả lời)' => fn () => $quarterRequests->each(fn (ClientRequest $r) => $r->answeredBy($cutoff) ? $hoursOf->minutesBetween($r->created_at, $r->answered_at) : null),
+    ] as $label => $run) {
+        $report .= sprintf("    %-30s %7.1f ms\n", $label, $median($run));
+    }
+    $report .= sprintf("    tập của quý: %d mốc đến hạn, %d yêu cầu khách gửi (cả văn phòng, trước listableBy)\n",
+        DB::table('deadlines')->whereBetween('due_date', $quarter->bounds())->count(),
+        DB::table('client_requests')->whereBetween('created_at', $quarter->bounds())->count());
+
     if ($mariadb) {
         $explain = fn (string $sql, array $bindings): string => collect(DB::select('EXPLAIN '.$sql, $bindings))
             ->map(fn ($row) => sprintf('      %s: type=%s key=%s rows=%s%s', $row->table, $row->type, $row->key ?? '-', $row->rows, isset($row->Extra) && $row->Extra !== '' ? " ({$row->Extra})" : ''))
@@ -441,6 +528,21 @@ it('đo trang "Theo dõi đội ngũ" trên 3.000 vụ', function () {
 
         foreach ($trendQueries as $label => $query) {
             $report .= sprintf("\n    EXPLAIN %s:\n%s", $label, $explain($query['query'], $query['bindings']));
+        }
+
+        // Task 8 — EXPLAIN của mọi truy vấn đọc của báo cáo quý (trưởng phòng) và của sáu truy vấn chậm
+        // nhất trên trang một người (trưởng phòng xem một luật sư): bằng chứng cho quyết định index (R11).
+        foreach ($reportQueries['trưởng phòng'] as $q => $query) {
+            if (! str_starts_with(strtolower(ltrim($query['query'])), 'select')) {
+                continue;
+            }
+            $report .= sprintf("\n    EXPLAIN báo cáo quý #%d (%.1f ms, %s):\n%s", $q, $query['time'], mb_strimwidth(preg_replace('/\s+/', ' ', $query['query']), 0, 90, '…'), $explain($query['query'], $query['bindings']));
+        }
+        foreach ($memberSlow['trưởng phòng xem một luật sư'] as $q => $query) {
+            if (! str_starts_with(strtolower(ltrim($query['sql'])), 'select')) {
+                continue;
+            }
+            $report .= sprintf("\n    EXPLAIN trang một người #%d (%.1f ms, %s):\n%s", $q, $query['ms'], mb_strimwidth(preg_replace('/\s+/', ' ', $query['sql']), 0, 90, '…'), $explain($query['sql'], $query['bindings']));
         }
 
         $report .= "\n";

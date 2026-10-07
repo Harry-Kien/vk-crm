@@ -756,7 +756,7 @@ Dùng `spatie/laravel-permission`. Quyền đặt tên dạng `<resource>.<actio
 >
 > **Cột doanh thu** trên dòng của một người chỉ hiện khi người xem được xem người đó (luật trên), **và** có `billing.view`, **và** (có `revenue.viewAny` **hoặc** là chính người đó) — `UserPolicy::viewPerformanceRevenue()`. Luật sư thấy doanh thu của chính mình, như trang Doanh thu cho họ thấy tiền của vụ mình; trợ lý không có `billing.view` nên không thấy cột này.
 >
-> Mọi vai trò có `performance.viewAny` cũng có `matter.viewAny` (test cấu trúc trên `Role::permissions()`): ảnh chụp số liệu hằng ngày dựa vào điều này để không lộ vụ `restricted` (§6.14, "Phạm vi xem"). Số liệu này không bao giờ rời hệ thống qua MCP (M11): không tool, không presenter nào tham chiếu các lớp `Performance` hay bảng `performance_snapshots` — test cấu trúc `PerformanceMcpBoundaryTest`, xanh vì rỗng cho tới khi M11 gộp, rồi canh từ đó. Máy chủ đã có dữ liệu nhận quyền mới qua `php artisan db:seed --force` (`RolesAndPermissionsSeeder`).
+> Mọi vai trò có `performance.viewAny` cũng có `matter.viewAny` (test cấu trúc trên `Role::permissions()`): nhờ vậy số xu hướng (ảnh chụp số liệu hằng ngày) mà người có `performance.viewAny` đọc bằng đúng số trực tiếp cùng ngày. Luật không lộ vụ `restricted` của ảnh chụp KHÔNG dựa vào điều này: nó nằm ở `PerformanceSnapshot::visibleLevels()`, hỏi `matter.viewAny` (và `Matter::isListableBy()` cho dòng `restricted`), không hỏi `performance.viewAny` (§6.14, "Phạm vi xem"; đính chính 2026-10-07, M13 Task 8). Số liệu này không bao giờ rời hệ thống qua MCP (M11): không tool, không presenter nào tham chiếu các lớp `Performance` hay bảng `performance_snapshots` — test cấu trúc `PerformanceMcpBoundaryTest`, xanh vì rỗng cho tới khi M11 gộp, rồi canh từ đó. Máy chủ đã có dữ liệu nhận quyền mới qua `php artisan db:seed --force` (`RolesAndPermissionsSeeder`).
 
 **Mang sang M11, ghi 2026-09-24 (M9 Task 3), viết lại 2026-10-03 (M9 Task 13).** Dữ liệu
 tiền là dữ liệu nhạy cảm ("tài chính", Nghị định 356/2025): **tiền của vụ việc không bao giờ
@@ -1445,9 +1445,16 @@ nạp **không lọc người**, rồi mới quy về người):
 Kỳ: tháng trước (**mặc định** — đánh giá trên kỳ đã đóng mới công bằng), tháng này, quý trước, quý
 này, hoặc tự chọn tối đa 366 ngày không quá hôm nay. Mọi cận ngày, kể cả của các con số "bây giờ",
 là cận **đủ giờ** (`00:00:00` ngày đầu … `23:59:59` ngày cuối), như `RevenueFilters::bounds()` của
-M9. Thời gian phản hồi (P3) đo bằng **giờ lịch** cho tới khi định nghĩa "giờ làm việc" của M10 có
-trên `main`; khi đó đo qua đúng lớp đó, không viết định nghĩa thứ hai. SPEC không có mục tiêu thời
-gian trả lời, nên P3 báo trung vị và trung bình, không báo "trong hạn".
+M9. Thời gian phản hồi (P3) đo bằng **giờ làm việc** qua đúng định nghĩa của M10
+(`App\Support\BusinessHours`, cấu hình `vkcrm.business_hours`: Thứ Hai–Thứ Sáu 08:00–17:30 theo giờ ứng
+dụng, ngày lễ chưa trừ), không viết định nghĩa thứ hai; trang in "x,y giờ" (giờ làm việc), không gộp
+thành "ngày". SPEC không có mục tiêu thời gian trả lời, nên P3 báo trung vị và trung bình, không báo
+"trong hạn".
+
+**Đính chính 2026-10-07 (M13 Task 8, R17).** Bản 2026-10-04 của đoạn trên ghi P3 đo bằng **giờ lịch**
+cho tới khi `BusinessHours` của M10 có trên `main`. M10 đã gộp vào `main` (và vào làn M13 ngày
+2026-10-05), nên từ M13 Task 7 P3 đo bằng giờ làm việc như trên: một yêu cầu gửi 16:00 Thứ Sáu, trả
+lời 09:00 Thứ Hai là 2,5 giờ, không phải 65 giờ. Đổi `vkcrm.business_hours` thì con số đổi theo.
 
 **Ca biên của P1** (`$dueEnd` = 23:59:59 của ngày đến hạn theo giờ ứng dụng; `$cutoff` = mốc cắt của
 kỳ, R19):

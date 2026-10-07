@@ -9,7 +9,6 @@ use Carbon\CarbonInterface;
 use Closure;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Collection;
-use Spatie\Activitylog\Models\Activity;
 
 /**
  * Người giữ mỗi luồng yêu cầu của khách TẠI một thời điểm (M13, R18) — người mà P3, P9, P10 tính luồng
@@ -55,8 +54,10 @@ use Spatie\Activitylog\Models\Activity;
  * nên nạp sẵn (`with('matter')`); thiếu thì lớp này nạp MỘT lần cho cả lô (`loadMissing`). Luồng của vụ
  * đã huỷ (quan hệ `matter` rỗng) mà chưa giao ai thì không quy về ai.
  *
- * Lớp này có tên trong danh sách ngoại lệ của `NoSecondDefinitionTest`: được viết điều kiện trên
- * `created_at` của `activity_log`, không cột nào khác.
+ * Cả hai truy vấn đọc qua {@see LeadAt::changes()} (đọc thô, không dựng model `Activity` — số đo Task 8).
+ *
+ * Lớp này có tên trong danh sách ngoại lệ của `NoSecondDefinitionTest`: được viết điều kiện trên `event`,
+ * `subject_type`, `subject_id`, `created_at` của `activity_log` (R18). Truy vấn nay nằm ở {@see LeadAt::changes()}.
  */
 final class RequestHolderAt
 {
@@ -77,7 +78,12 @@ final class RequestHolderAt
 
         (new EloquentCollection($requests->all()))->loadMissing('matter');
 
-        $changes = self::changesOf($requests->map(fn (ClientRequest $request): int => (int) $request->getKey())->all());
+        $changes = LeadAt::changes(
+            self::EVENT,
+            (new ClientRequest)->getMorphClass(),
+            $requests->map(fn (ClientRequest $request): int => (int) $request->getKey())->all(),
+            'from',
+        );
 
         $moments = [];
         $assignees = [];
@@ -110,44 +116,17 @@ final class RequestHolderAt
     }
 
     /**
-     * Mọi lần đổi người được giao của các luồng, cũ trước — MỘT truy vấn.
-     *
-     * @param  list<int>  $requestIds
-     * @return array<int, list<array{at: CarbonInterface, hasFrom: bool, from: mixed}>>
-     */
-    private static function changesOf(array $requestIds): array
-    {
-        $changes = [];
-
-        Activity::query()
-            ->select(['id', 'subject_id', 'properties', 'created_at'])
-            ->where('event', self::EVENT)
-            ->where('subject_type', (new ClientRequest)->getMorphClass())
-            ->whereIntegerInRaw('subject_id', array_values(array_unique($requestIds)))
-            ->orderBy('created_at')
-            ->orderBy('id')
-            ->get()
-            ->each(function (Activity $row) use (&$changes): void {
-                $changes[(int) $row->subject_id][] = [
-                    'at' => $row->created_at,
-                    'hasFrom' => $row->properties?->has('from') === true,
-                    'from' => $row->properties?->get('from'),
-                ];
-            });
-
-        return $changes;
-    }
-
-    /**
      * Người được giao `$request` tại `$at`: một id; `null` = lúc đó chưa giao ai (rơi về {@see LeadAt});
      * `false` = dòng lịch sử hỏng, không quy về ai.
      *
-     * @param  list<array{at: CarbonInterface, hasFrom: bool, from: mixed}>  $changes
+     * @param  list<array{at: int, hasFrom: bool, from: mixed}>  $changes  cũ trước, `at` là dấu thời gian Unix
      */
     private static function assigneeAt(ClientRequest $request, array $changes, CarbonInterface $at): int|false|null
     {
+        $moment = $at->getTimestamp();
+
         foreach ($changes as $change) {
-            if ($change['at']->gt($at)) {
+            if ($change['at'] > $moment) {
                 return $change['hasFrom'] ? self::assigneeIn($change['from']) : false;
             }
         }

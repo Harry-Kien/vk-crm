@@ -7,9 +7,7 @@ use App\Actions\Deadline\SetDeadlineCompletion;
 use App\Actions\Deadline\UpdateDeadline;
 use App\Actions\Matter\ReassignMatter;
 use App\Models\Deadline;
-use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
-use Spatie\Activitylog\Models\Activity;
 
 /**
  * Người giữ mỗi mốc VÀO NGÀY ĐẾN HẠN (M13, R9) — người mà cột P1 ("Mốc đúng hạn") tính mốc cho, để
@@ -42,12 +40,12 @@ use Spatie\Activitylog\Models\Activity;
  *
  * # Một truy vấn cho cả lô (R11)
  *
- * Mọi dòng của các mốc trong lô, qua index morph `subject` của `activity_log`; so với hết ngày đến hạn
- * của từng mốc bằng PHP. Người gọi nạp tập mốc của kỳ KHÔNG lọc người (R11): lọc theo
- * `responsible_user_id` hiện tại sẽ làm rơi đúng mốc đã bị chuyển đi sau khi lỡ.
+ * Mọi dòng của các mốc trong lô, qua {@see LeadAt::changes()} (index morph `subject` của `activity_log`,
+ * đọc thô); so với hết ngày đến hạn của từng mốc bằng PHP. Người gọi nạp tập mốc của kỳ KHÔNG lọc người
+ * (R11): lọc theo `responsible_user_id` hiện tại sẽ làm rơi đúng mốc đã bị chuyển đi sau khi lỡ.
  *
- * Lớp này có tên trong danh sách ngoại lệ của `NoSecondDefinitionTest`: được viết điều kiện trên
- * `created_at` của `activity_log`, không cột nào khác.
+ * Lớp này có tên trong danh sách ngoại lệ của `NoSecondDefinitionTest`: được viết điều kiện trên `event`,
+ * `subject_type`, `subject_id`, `created_at` của `activity_log` (R9). Truy vấn nay nằm ở {@see LeadAt::changes()}.
  */
 final class DeadlineHolderAtDue
 {
@@ -64,22 +62,12 @@ final class DeadlineHolderAtDue
             return [];
         }
 
-        $changes = [];
-
-        Activity::query()
-            ->select(['id', 'subject_id', 'properties', 'created_at'])
-            ->where('event', self::EVENT)
-            ->where('subject_type', (new Deadline)->getMorphClass())
-            ->whereIntegerInRaw('subject_id', $deadlines->map(fn (Deadline $deadline): int => (int) $deadline->getKey())->unique()->values()->all())
-            ->orderBy('created_at')
-            ->orderBy('id')
-            ->get()
-            ->each(function (Activity $row) use (&$changes): void {
-                $changes[(int) $row->subject_id][] = [
-                    'at' => $row->created_at,
-                    'from' => $row->properties?->get('from'),
-                ];
-            });
+        $changes = LeadAt::changes(
+            self::EVENT,
+            (new Deadline)->getMorphClass(),
+            $deadlines->map(fn (Deadline $deadline): int => (int) $deadline->getKey())->all(),
+            'from',
+        );
 
         return $deadlines
             ->mapWithKeys(fn (Deadline $deadline): array => [
@@ -88,13 +76,13 @@ final class DeadlineHolderAtDue
             ->all();
     }
 
-    /** @param  list<array{at: CarbonInterface, from: mixed}>  $changes  cũ trước */
+    /** @param  list<array{at: int, hasFrom: bool, from: mixed}>  $changes  cũ trước, `at` là dấu thời gian Unix */
     private static function holderOf(Deadline $deadline, array $changes): ?int
     {
-        $dueEnd = $deadline->dueEnd();
+        $dueEnd = $deadline->dueEnd()->getTimestamp();
 
         foreach ($changes as $change) {
-            if ($change['at']->gt($dueEnd)) {
+            if ($change['at'] > $dueEnd) {
                 return LeadAt::userIdIn($change['from']);
             }
         }

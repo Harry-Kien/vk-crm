@@ -121,17 +121,7 @@ final class BuildPerformanceReport
         }
 
         $withReference = $gate->allows(Permission::PerformanceViewAny->value);
-
-        // Cột doanh thu có trên trang khi và chỉ khi người xem được đọc tiền trên MỌI dòng của trang: dòng
-        // của một người qua `UserPolicy::viewPerformanceRevenue()` (R2), dòng "Chung" khi có `billing.view`
-        // và `revenue.viewAny` (R8). Trang không có dòng nào thì không có cột.
-        $mayReadRevenue = $subjects->map(fn (User $subject): bool => $gate->allows('viewPerformanceRevenue', $subject));
-
-        if ($withReference) {
-            $mayReadRevenue->push($gate->allows(Permission::BillingView->value) && $gate->allows(Permission::RevenueViewAny->value));
-        }
-
-        $revenueVisible = $mayReadRevenue->isNotEmpty() && ! $mayReadRevenue->contains(false);
+        $revenueVisible = self::revenueVisible($viewer, $subjects);
 
         $this->counts = $this->hours = $this->worked = $this->moved = [];
 
@@ -167,16 +157,43 @@ final class BuildPerformanceReport
     }
 
     /**
+     * Cột doanh thu (P7) có trên trang khi và chỉ khi người xem được đọc tiền trên MỌI dòng của trang: dòng
+     * của một người qua `UserPolicy::viewPerformanceRevenue()` (R2), dòng "Chung" (có khi người xem có
+     * `performance.viewAny`) khi có `billing.view` và `revenue.viewAny` (R8). Trang không có dòng nào thì
+     * không có cột. MỘT định nghĩa: {@see self::handle()} đặt `PerformanceReport::$revenueVisible` bằng nó,
+     * và trang `Performance` hỏi nó cho `visible()` của cột — Filament hỏi câu đó ngay lúc dựng bảng, TRƯỚC
+     * khi request đổi kỳ chạy, nên hỏi qua báo cáo sẽ dựng báo cáo của kỳ cũ một lần thừa (Task 8, R11).
+     * Chỉ hỏi Gate, không thêm truy vấn theo từng người (vai trò và quyền của `$subjects` đã nạp sẵn qua
+     * `TeamRoster`).
+     *
+     * @param  Collection<int, User>  $subjects
+     */
+    public static function revenueVisible(User $viewer, Collection $subjects): bool
+    {
+        $gate = Gate::forUser($viewer);
+
+        $mayReadRevenue = $subjects->map(fn (User $subject): bool => $gate->allows('viewPerformanceRevenue', $subject));
+
+        if ($gate->allows(Permission::PerformanceViewAny->value)) {
+            $mayReadRevenue->push($gate->allows(Permission::BillingView->value) && $gate->allows(Permission::RevenueViewAny->value));
+        }
+
+        return $mayReadRevenue->isNotEmpty() && ! $mayReadRevenue->contains(false);
+    }
+
+    /**
      * P1 (đúng hạn, trễ, lỡ — người giữ vào ngày đến hạn) và P2 (mốc đã gỡ trong kỳ).
      *
      * @param  Closure(Builder): Builder  $visible
      */
     private function countDeadlines(Closure $visible, PerformancePeriod $period): void
     {
+        // Vụ của mỗi mốc chỉ cần ba cột: `outcomeAt()` hỏi `closedOnOrBefore()` (`closed_at`, đã huỷ chưa). Một
+        // quý của trưởng phòng là hàng nghìn mốc; nạp cả dòng vụ là thời gian thừa (số đo Task 8, R11).
         $deadlines = Deadline::query()
             ->dueBetween($period->bounds())
             ->whereHas('matter', $visible)
-            ->with('matter')
+            ->with('matter:id,closed_at,deleted_at')
             ->get();
 
         $holders = DeadlineHolderAtDue::resolve($deadlines);
@@ -220,10 +237,11 @@ final class BuildPerformanceReport
         $cutoff = $period->cutoff();
         $businessHours = BusinessHours::fromConfig();
 
+        // `RequestHolderAt` đọc của vụ đúng `id` và `lead_lawyer_id` (luồng chưa giao ai thuộc người phụ trách vụ).
         $requests = ClientRequest::query()
             ->createdBetween($period->bounds())
             ->whereHas('matter', $visible)
-            ->with('matter')
+            ->with('matter:id,lead_lawyer_id')
             ->get();
 
         $holders = RequestHolderAt::resolve(

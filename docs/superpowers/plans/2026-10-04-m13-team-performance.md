@@ -1213,31 +1213,31 @@ protected ?string $pollingInterval = null;    // không kế thừa '5s' của C
 ### - [ ] Task 8 — Đo hiệu năng, dữ liệu mẫu, nghiệm thu, tài liệu, cổng merge
 
 **Bước:**
-- [ ] **Đo.** Chạy `tests/Benchmark/TeamPerformanceBenchmarkTest.php` trên MariaDB thật, theo khối lượng của R11.
+- [x] **Đo.** Chạy `tests/Benchmark/TeamPerformanceBenchmarkTest.php` trên MariaDB thật, theo khối lượng của R11.
   - Ghi vào "Ghi chú M13" một bảng số đo (trung vị 5 lần) cho từng trang × từng loại người xem (admin, trưởng phòng, luật sư), cùng `EXPLAIN` của từng truy vấn gộp.
   - Ngân sách vỡ thì thêm index theo R11 bằng một migration riêng, chạy vòng MariaDB thật, rồi đo lại và ghi cả hai lần.
   - Ghi rõ đã quyết gì về cache, và vì sao.
-- [ ] **Dữ liệu mẫu** trong `DemoDataSeeder` (không bao giờ chạy ở production):
+- [x] **Dữ liệu mẫu** trong `DemoDataSeeder` (không bao giờ chạy ở production):
   - ba luật sư và hai trợ lý với hồ sơ khác nhau: một người đúng hạn đều, một người có mốc lỡ, một người nhận bàn giao (qua `ReassignMatters`, đúng đường thật) từ một luật sư nghỉ việc sau tháng trước: một mốc đã lỡ (R9) và vài luồng yêu cầu chưa giao ai mà người nghỉ việc đã trả lời (R18);
   - luật sư nghỉ việc đó vẫn có dòng trong "tháng trước" (R3);
   - yêu cầu khách trả lời nhanh và chậm; một yêu cầu đóng không trả lời (P10);
   - dòng tiến độ trải ba tháng;
   - một vụ `restricted` của luật sư A có vụ quá hạn cập nhật và mốc quá hạn, để thấy khác biệt giữa trưởng phòng và A;
   - 90 ngày ảnh chụp giả, ghi rõ là dữ liệu mẫu.
-- [ ] **Đi hết luồng trên dữ liệu seed**, ghi từng bước:
+- [x] **Đi hết luồng trên dữ liệu seed**, ghi từng bước:
   1. Trưởng phòng mở "Theo dõi đội ngũ", sắp theo mốc quá hạn, mở trang luật sư A, thấy A có 2 vụ quá hạn cập nhật. Trang Nhật ký hệ thống có dòng `performance_viewed`.
   2. A đăng nhập, mở "Việc của tôi", thấy 3 vụ quá hạn: 2 vụ thường và 1 vụ `restricted` của mình. A không mở được trang của B.
   3. Trưởng phòng mở "Hiệu suất", kỳ "tháng trước". Người nhận bàn giao không bị tính mốc lỡ, cũng không bị tính các luồng yêu cầu của người trước; người nghỉ việc vẫn có dòng của mình. Yêu cầu đóng không trả lời nằm ở cột riêng. Không có cột hạng. Dòng tham chiếu đứng đầu. Bấm vào tiêu đề cột tỉ lệ không đổi thứ tự.
   4. Kế toán: 404 ở ba địa chỉ. Trang Doanh thu vẫn lọc được theo luật sư.
   5. Trợ lý: dòng của mình, không cột doanh thu; "Chuyển giai đoạn", "Vụ kết thúc trong kỳ" là "Không áp dụng". Trang "Việc của tôi" của trợ lý: các cột của người phụ trách vụ là "Không áp dụng", không phải 0.
   6. Hôm nay hoàn thành mốc đã lỡ của tháng trước; trang "Hiệu suất" kỳ "tháng trước" không đổi (R19).
-- [ ] **Test SPEC §11 phần "Quyền nội bộ"** và phần mới "Theo dõi đội ngũ": liệt kê theo tên rồi chạy. Độ phủ ≥ 80% cho `app/Actions/Performance/`, `app/Support/Performance/` và policy mới (SPEC §14 mục 1).
-- [ ] **Kiểm chứng:**
+- [x] **Test SPEC §11 phần "Quyền nội bộ"** và phần mới "Theo dõi đội ngũ": liệt kê theo tên rồi chạy. Độ phủ ≥ 80% cho `app/Actions/Performance/`, `app/Support/Performance/` và policy mới (SPEC §14 mục 1).
+- [x] **Kiểm chứng:**
   - `bin/dev test` xanh (so số test với `find`);
   - `bin/dev pint --test` sạch;
   - `bin/dev test:mariadb` xanh, **tuần tự**;
   - `migrate:fresh --seed` và vòng `migrate:reset` → `migrate` trên MariaDB thật.
-- [ ] **Tài liệu:**
+- [x] **Tài liệu:**
   - `docs/PROGRESS.md`: dòng M13 trong bảng và "Ghi chú M13" gồm mọi phán quyết R1–R20, số đo, các mục cần chủ văn phòng hoặc luật sư xác nhận, và các việc để lại cho người gộp làn khác: R17 (M10), cổng bản ghi tiếp nhận trong `scopeOwnedByVisibleMatters()` (M10, nếu chưa gộp), test R20 (M11, nếu chưa gộp);
   - đính chính có ngày cho bảng R4 của kế hoạch M11 (R13);
   - đính chính có ngày nếu R17 còn chờ M10 (đổi sang giờ làm việc);
@@ -1248,7 +1248,7 @@ protected ?string $pollingInterval = null;    // không kế thừa '5s' của C
     - xu hướng bắt đầu từ ngày triển khai;
     - lịch sử người giữ mốc chỉ đầy đủ từ ngày triển khai; lịch sử người giữ luồng yêu cầu **giao đích danh** cũng vậy (luồng chưa giao ai thì đủ, nhờ `matter_reassigned`);
     - không biến `.env` mới.
-- [ ] Đối chiếu lại các đính chính SPEC của Task 1 với mã cuối cùng.
+- [x] Đối chiếu lại các đính chính SPEC của Task 1 với mã cuối cùng.
 - [ ] Rà soát toàn nhánh bằng Opus, brief **giả định có một Critical** cộng hai câu riêng của M13. Merge, push, chờ CI xanh (SQLite và MariaDB).
 
 **Commit:** `docs: M13 Task 8 — nghiệm thu: số đo trên 3.000 vụ, dữ liệu mẫu theo dõi đội ngũ (bàn giao khi nghỉ việc, yêu cầu đóng không trả lời), đi bộ năm vai trò và kỳ đã đóng, Ghi chú M13, QUY-TRINH giao ban và đánh giá tháng, CAI-DAT cập nhật`

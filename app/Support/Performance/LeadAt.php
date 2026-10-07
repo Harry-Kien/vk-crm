@@ -6,7 +6,9 @@ use App\Actions\Matter\ReassignMatter;
 use App\Models\Matter;
 use Carbon\CarbonInterface;
 use Closure;
+use DateTimeInterface;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Date;
 use Spatie\Activitylog\Models\Activity;
 
 /**
@@ -39,7 +41,8 @@ use Spatie\Activitylog\Models\Activity;
  * nên không có điều kiện thời gian nào trong SQL.
  *
  * `$matters` cần cột `id` và `lead_lawyer_id`. Lớp này có tên trong danh sách ngoại lệ của
- * `NoSecondDefinitionTest`: được viết điều kiện trên `created_at` của `activity_log`, không cột nào khác.
+ * `NoSecondDefinitionTest`: được viết điều kiện trên `event`, `subject_type`, `subject_id`, `created_at` của
+ * `activity_log` (R18) — truy vấn lịch sử của cả ba bộ dựng nằm ở {@see self::changes()}.
  */
 final class LeadAt
 {
@@ -79,40 +82,85 @@ final class LeadAt
      */
     public static function historyOf(array $matterIds): self
     {
-        if ($matterIds === []) {
-            return new self([]);
-        }
-
-        $changes = [];
-
-        Activity::query()
-            ->select(['id', 'subject_id', 'properties', 'created_at'])
-            ->where('event', self::EVENT)
-            ->where('subject_type', (new Matter)->getMorphClass())
-            ->whereIntegerInRaw('subject_id', array_values(array_unique($matterIds)))
-            ->orderBy('created_at')
-            ->orderBy('id')
-            ->get()
-            ->each(function (Activity $row) use (&$changes): void {
-                $changes[(int) $row->subject_id][] = [
-                    'at' => $row->created_at,
-                    'from' => $row->properties?->get('from_user_id'),
-                ];
-            });
-
-        return new self($changes);
+        return new self(self::changes(self::EVENT, (new Matter)->getMorphClass(), $matterIds, 'from_user_id'));
     }
 
     /** Luật sư phụ trách `$matter` tại `$at` — xem docblock lớp. */
     public function leadOf(Matter $matter, CarbonInterface $at): ?int
     {
+        $moment = $at->getTimestamp();
+
         foreach ($this->changes[(int) $matter->getKey()] ?? [] as $change) {
-            if ($change['at']->gt($at)) {
+            if ($change['at'] > $moment) {
                 return self::userIdIn($change['from']);
             }
         }
 
         return self::userIdIn($matter->lead_lawyer_id);
+    }
+
+    /**
+     * Mọi dòng lịch sử `$event` của các chủ thể `$subjectType` có id trong `$subjectIds`, cũ trước — MỘT
+     * truy vấn qua index morph `subject` của `activity_log`. Cả ba bộ dựng lịch sử đọc qua đây
+     * ({@see DeadlineHolderAtDue}, {@see RequestHolderAt} và lớp này), mỗi bộ với khoá sự kiện của mình.
+     *
+     * Đọc THÔ (`toBase()`), không dựng model `Activity`: một quý của trưởng phòng là hàng nghìn tới hàng chục
+     * nghìn dòng lịch sử, và dựng model (cast JSON `properties`, cast ngày `created_at`) cho từng dòng là phần
+     * lớn thời gian của trang "Hiệu suất theo kỳ" (số đo Task 8, R11). `at` là dấu thời gian Unix của
+     * `created_at` ({@see self::timestampOf()}); cột lưu tới giây, nên "dòng SAU thời điểm `$at`" viết
+     * `at > $at->getTimestamp()` — cùng kết quả với `created_at->gt($at)`, kể cả khi `$at` có phần lẻ giây.
+     * `hasFrom` = `properties` có khoá `$fromKey`, kể cả khi giá trị của nó rỗng.
+     *
+     * @param  list<int>  $subjectIds
+     * @return array<int, list<array{at: int, hasFrom: bool, from: mixed}>> subject_id => các dòng, cũ trước
+     */
+    public static function changes(string $event, string $subjectType, array $subjectIds, string $fromKey): array
+    {
+        if ($subjectIds === []) {
+            return [];
+        }
+
+        $changes = [];
+
+        $rows = Activity::query()
+            ->toBase()
+            ->select(['id', 'subject_id', 'properties', 'created_at'])
+            ->where('event', $event)
+            ->where('subject_type', $subjectType)
+            ->whereIntegerInRaw('subject_id', array_values(array_unique($subjectIds)))
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->get();
+
+        foreach ($rows as $row) {
+            $properties = is_string($row->properties) ? json_decode($row->properties, true) : null;
+            $properties = is_array($properties) ? $properties : [];
+
+            $changes[(int) $row->subject_id][] = [
+                'at' => self::timestampOf($row->created_at),
+                'hasFrom' => array_key_exists($fromKey, $properties),
+                'from' => $properties[$fromKey] ?? null,
+            ];
+        }
+
+        return $changes;
+    }
+
+    /**
+     * Dấu thời gian Unix của một `created_at` đọc thô — cùng giá trị mà cast ngày của Eloquent cho: chuỗi
+     * `Y-m-d H:i:s` đọc theo múi giờ mặc định của PHP, tức `APP_TIMEZONE` (Laravel đặt khi khởi động).
+     * `strtotime()` thay cho `Date::parse()` vì đây là vòng lặp trên hàng chục nghìn dòng; chuỗi lạ thì rơi
+     * về `Date::parse()`.
+     */
+    private static function timestampOf(mixed $value): int
+    {
+        if ($value instanceof DateTimeInterface) {
+            return $value->getTimestamp();
+        }
+
+        $timestamp = is_string($value) ? strtotime($value) : false;
+
+        return $timestamp !== false ? $timestamp : Date::parse((string) $value)->getTimestamp();
     }
 
     /**

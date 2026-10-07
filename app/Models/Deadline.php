@@ -158,22 +158,27 @@ class Deadline extends Model
      */
     public function outcomeAt(CarbonInterface $cutoff): ?DeadlineOutcome
     {
+        // Mỗi cột ngày đọc MỘT lần: cast ngày của Eloquent dựng một Carbon mới ở mỗi lần đọc, và trang
+        // "Hiệu suất theo kỳ" gọi hàm này cho mọi mốc của kỳ (hàng nghìn mốc một quý — số đo Task 8, R11).
         $dueEnd = $this->dueEnd();
+        $createdAt = $this->created_at;
 
-        if ($this->created_at !== null && $this->created_at->gt($dueEnd)) {
+        if ($createdAt !== null && $createdAt->gt($dueEnd)) {
             return null;
         }
 
         if ($this->is_completed) {
-            if ($this->completed_at === null) {
+            $completedAt = $this->completed_at;
+
+            if ($completedAt === null) {
                 return null;
             }
 
-            if ($this->completed_at->lte($dueEnd)) {
+            if ($completedAt->lte($dueEnd)) {
                 return DeadlineOutcome::OnTime;
             }
 
-            if ($this->completed_at->lte($cutoff)) {
+            if ($completedAt->lte($cutoff)) {
                 return DeadlineOutcome::Late;
             }
         }
@@ -182,7 +187,8 @@ class Deadline extends Model
             return null;
         }
 
-        if ($this->matter?->closedOnOrBefore($this->due_date) === true) {
+        // `$dueEnd` là 23:59:59 của `due_date`; `closedOnOrBefore()` tự lấy hết ngày của nó — cùng ngày.
+        if ($this->matter?->closedOnOrBefore($dueEnd) === true) {
             return null;
         }
 
