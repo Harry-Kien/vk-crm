@@ -5302,3 +5302,75 @@ này sửa đủ bảy mục Important; Minor để nguyên (danh sách ở sổ
 Số đo: RED trước khi sửa 20 ca (cộng `PushTopicTest` không nạp được dataset vì thiếu case); 14/14 đột biến đỏ đúng
 ca; cả bộ SQLite (`test --parallel --processes=2`) **5790 passed**, 33 skipped, 1 risky, **0 failed** (166407 khẳng định, 3555 s; trên cây vừa gộp trước khi sửa: 5760 passed, 2 failed); MariaDB tuần tự trên các tệp đã chạm (`tests/Feature/Push`, `tests/Feature/Pwa`, `OfficeProfileTest`, `SendHandoverPackageReadyTest`, `MailTemplateRegistryTest`, bốn tệp thư khách, hai `ResendOutboundMessageTest`, `ActivityLogSpec106Test`, `PreflightCommandTest`, `EnvExampleTest`, `MyRequestsTest`) **759 passed**, 1 risky, 0 failed (771 s); `pint --test` PASS. Nhật ký:
 `.superpowers/sdd/m12/probe/finalfix1/` (ngoài repo).
+
+### Việc sau gộp M12 (làn fu4)
+
+Gốc làn: `main` `1fbd991` (sau khi gộp M12). Brief: `.superpowers/sdd/fu4/task-1-brief.md` (ngoài repo) — hai mục
+rà soát gộp xác nhận (1, 2), sáu mục nhỏ (3–8), hai mục nhỏ hoãn của làn M12 (9, 10). Không migration, không biến
+`.env` mới.
+
+- **Mục 1 — đổi email cổng gỡ máy của người giữ cũ.** `UpdatePortalAccount` (lối DUY NHẤT ghi email của tài khoản
+  cổng đã có) so email cũ trên dòng đã khoá với `UpdatePortalAccount::changesEmail()` — luật gấp hoa/thường, nay
+  cũng là luật của `EditClientUser::emailChangesIn()` (một định nghĩa) — và khi đổi thật thì `DB::afterCommit` gọi
+  `ForgetPushDevice::all($account, $actor, REASON_EMAIL_CHANGED)`. `ForgetPushDevice::all()` nhận thêm người bấm và
+  lý do: văn phòng gỡ thay thì dòng `push_device_removed` mang `device_label` + `reason`, người gây ra là nhân sự
+  (lệnh console: không ai); chính chủ tự gỡ thì như cũ. Docblock `PrunePushSubscriptions` sửa (bản cũ coi máy đó là
+  "máy của chính khách ấy"). Test `tests/Feature/Push/PushDeviceRevocationTest.php`: đường thật — đổi email trên
+  trang, người giữ mới kích hoạt qua trang đổi mật khẩu của cổng, bật máy mới, luật sư công bố tiến độ: máy cũ
+  không nhận request nào, máy mới nhận đúng một, thư chỉ tới địa chỉ mới; lưu không đổi email và đổi CHỈ hoa/thường
+  giữ máy; gỡ chạy ở mức transaction của test (sau commit).
+- **Mục 2 — "Đặt lại 2FA" và §10.7.** (a) `ResetStaffTwoFactor` gỡ mọi máy của người bị đặt lại sau commit
+  (`REASON_TWO_FACTOR_RESET`, cả nút trên `EditUser` lẫn `vkcrm:reset-2fa`). (b) `PushAlert::shouldSend()` không đẩy
+  cho nhân sự chưa có 2FA, theo `User::hasAppAuthenticationSecret()` — định nghĩa mới, dùng chung với
+  `DocumentDownloadController::actor()` (trước là `blank(getAppAuthenticationSecret())` viết tại chỗ). Test: dòng
+  "two-factor secret cleared" của "never uses the phone of a staff member who leaves…" (`StaffEventPushTest`, đường
+  thật, secret làm trống thẳng ở CSDL nên dòng đăng ký CÒN) và hai ca reset của `PushDeviceRevocationTest`. (c)
+  docblock `ForgetPushDeviceOnLogout` sửa: "Đặt lại 2FA" không xoá dòng phiên nào (cơ chế epoch M8a). (d)
+  `docs/CAI-DAT.md` "Vận hành hằng ngày" nói việc gỡ máy; câu xác nhận của nút (`users.actions.reset_two_factor.
+  modal_description`) cũng vậy. **Đính chính "Ghi chú M12", Task 6, đoạn "Không làm (đúng phán quyết controller)…":**
+  "Đặt lại 2FA" KHÔNG xoá phiên bằng CSDL (epoch M8a), và từ làn này đăng ký của máy đã mất bị gỡ ngay sau commit
+  của lần đặt lại, không còn chờ máy đó gửi request — đoạn cũ để nguyên vì luật làn chỉ cho viết trong mục này.
+- **Mục 3 — `queue.push` chạy nền.** `->runInBackground()`; `SystemHealthTest` ghim `runInBackground === true`. Không
+  dời vị trí mục lịch (tuỳ chọn trong brief): chạy nền thì vị trí không còn giữ chân mục nào.
+- **Mục 4 — bí danh tải `/admin/documents/{id}/download` sau giới hạn IP.** Nhóm bí danh trong `routes/web.php` gắn
+  `RestrictAdminIpAllowlist` khi và chỉ khi panel mang nó (cùng luật `$ipGate` của `routes/pwa.php`), đứng trước
+  `signed`: IP ngoài danh sách nhận 404 từng byte như một path lạ, có chữ ký hay không; IP trong danh sách tải được.
+  Đã đọc phán quyết tạm 1 của M12 Task 1: phán quyết đó cần bí danh TRONG scope, không cần nó ngoài allowlist —
+  giữ nguyên `Document::downloadUrlFor()` (bí danh theo kiểu người nhận). Mọi nơi ký URL cho nhân sự hôm nay là trang
+  của panel admin (nút tải của tab Tài liệu, hộp duyệt giấy tờ), vốn đã sau giới hạn đó; không thư hay push nào mang
+  URL tải. Cái giá: đường dẫn mở trong văn phòng, bấm lại từ ngoài dải trong 5 phút còn lại, nhận 404. Route gốc
+  `/documents/…` giữ quyết định M8 R7 (không giới hạn IP) — test mới ghim cả hai phía.
+- **Mục 5 — nút "Gỡ mọi máy nhận thông báo"** trên trang sửa tài khoản portal (`EditClientUser::
+  forgetPushDevicesAction()`), ability riêng `ClientUserPolicy::forgetPushDevices()` (biên giới `update`), Gate trong
+  `visible()` và lặp lại trong `action()`, `ForgetPushDevice::all(…, REASON_OFFICE)`, toast nói số máy. Không mâu thuẫn
+  phán quyết nào của M12 (R14 nói về nút của CHÍNH người dùng). `docs/QUY-TRINH.md` (khách: "văn phòng gỡ giúp";
+  nhân sự: nút, "Cấp lại mật khẩu" khi máy mất còn đăng nhập, đổi email tự gỡ, "Đặt lại 2FA" gỡ máy) và
+  `docs/CAI-DAT.md` "Vận hành hằng ngày".
+- **Mục 6 — `docs/SAO-LUU-KHOI-PHUC.md` bước 7** tách khôi phục thật (chép khoá VAPID như cũ) khỏi diễn tập (để trống
+  ba dòng `VAPID_*`, preflight VÀNG, KHÔNG cài cron).
+- **Mục 7 — `docs/CAI-DAT.md`:** đoạn "Bản cập nhật M12 … làm gì trên máy chủ đã có dữ liệu" ở Bước 5 (hai migration,
+  bảng `push_subscriptions`, không quyền mới, khoá VAPID, `queue.push` chạy nền + `push-subscriptions.prune`, hai
+  khối `location =`, hai dòng preflight — test đọc từng thứ từ mã); gạch đầu dòng chung của "Nâng cấp lên bản mới"
+  nay chỉ tới cả ba đoạn (M9, M10, M12) và tới mục M12 có bước TRƯỚC `git pull`; Bước 8 nói `queue.push` chạy nền.
+- **Mục 8 — chỉ kiểm, không thêm test.** Đã có: `StaffEventPushTest` "pushes exactly the staff it mails, about the
+  same record, with nothing of the case on the lock screen" với dataset "vụ hạn chế" (người nhận push đúng bằng
+  người nhận thư theo R3 — trợ lý trong đội và quản lý KHÔNG nhận; payload không chứa mã hồ sơ, tiêu đề vụ, tên
+  khách…), và "tells the lock screen no more about a restricted deadline than about an ordinary one".
+- **Mục 9 — `push.checked`** ghi TRƯỚC `RegisterPushDevice::check()` (lượt kiểm 422 không còn lặp mỗi lần tải trang
+  và đốt hạn mức 10/phút); máy chủ push bị từ chối vì không có trong `push_hosts` được ghi `Log::warning` với TÊN MÁY,
+  không bao giờ endpoint. Test HTTP trong `PushDeviceRegistrationTest`.
+- **Mục 10 — `tools/brand/make-logo.php`, `tools/pwa/*.cjs`** chạy với `bin/dev`: mặc định `BASE` là
+  `http://localhost` (APP_PORT của `compose.yaml`), `CONTAINER` trống thì gọi `docker compose exec -T app` từ gốc dự
+  án; tiêu đề hướng dẫn chạy bằng `bin/dev`. Test cấu trúc trong `PushInstallGuideTest`; `IconsTest` xanh.
+  Ngoài phạm vi, để nguyên: `tools/csp/survey.cjs` và `tools/csp/php/opcache.ini` (M8a) còn trỏ `/d/vkwt/m8-dev`,
+  `/d/vkwt/m8-tools`.
+
+Không làm, có chủ đích: không dời mục `queue.push` (mục 3, tuỳ chọn); không sửa đoạn cũ của "Ghi chú M12" Task 6
+(luật làn — đính chính ở mục 2 trên); không đổi `tools/csp`.
+
+Số đo: RED trước khi sửa 14 ca (mục 1, 2, 3, 4, 5, 9 và ba test tài liệu, một test công cụ); 14/14 đột biến đỏ đúng ca;
+cả bộ SQLite (`test --parallel --processes=2`) **5807 passed**, 33 skipped, 1 risky, **0 failed** (166555 khẳng định,
+3411 s); MariaDB tuần tự trên các tệp test đã chạm (`PushDeviceRevocationTest`, `PushDeviceRegistrationTest`,
+`StaffEventPushTest`, `DocumentDownloadAliasTest`, `SystemHealthTest`, `PushInstallGuideTest`) **160 passed**, và trên
+năm tệp liên quan (`ClientUserResourceTest`, `ResetStaffTwoFactorTest`, `DocumentDownloadTest`, `AdminIpAllowlistTest`,
+`ClientEventPushTest`) **205 passed**; `pint --test` PASS. Nhật ký: `.superpowers/sdd/fu4/probe/` (ngoài repo).

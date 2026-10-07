@@ -31,10 +31,13 @@ use NotificationChannels\WebPush\PushSubscription;
  *    kiểm "của mình" mỗi phiên và ở cú bấm Bật) cũ hơn mốc, hoặc chưa từng có mà ngày bật cũ hơn mốc.
  *    Ai chạm một thông báo rồi đăng nhập trong 180 ngày thì lượt kiểm đầu phiên đã làm mới nó.
  *
- * `activated_at` cố ý KHÔNG là điều kiện dọn (kế hoạch R9 không liệt kê). Máy đã bật trước khi văn
- * phòng đổi email của khách (`activated_at` về null, phải đổi mật khẩu lại) là máy của chính khách ấy:
- * luật người nhận lúc gửi tạm loại nó cho tới khi khách kích hoạt lại, còn dọn nó đi thì khách phải
- * bật lại mà không vì lý do gì.
+ * `activated_at` cố ý KHÔNG là điều kiện dọn (kế hoạch R9 không liệt kê): tài khoản chưa kích hoạt
+ * thì luật người nhận lúc gửi đã loại nó (và khi còn phải đổi mật khẩu lần đầu, trang đổi mật khẩu
+ * đứng trước route đăng ký máy). Máy của một tài khoản vừa bị văn phòng đổi email
+ * KHÔNG chờ tới lượt dọn này: email mới là một người giữ MỚI, nên `UpdatePortalAccount` gỡ mọi máy
+ * của tài khoản ngay sau commit của lần đổi (việc sau gộp M12, làn fu4 — bản trước của đoạn này coi
+ * máy đó là "máy của chính khách ấy" và giữ lại, và người giữ cũ nhận lại push khi người mới kích
+ * hoạt).
  *
  * Mọi điều kiện là MỘT câu `DELETE` cho mỗi nhóm, trong một transaction: chạy hai lần liên tiếp
  * không đổi kết quả (M6 R4) — lần hai không còn dòng nào khớp. Hai tiến trình chồng nhau cũng vô hại

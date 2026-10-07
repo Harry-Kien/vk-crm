@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\DocumentDownloadController;
+use App\Http\Middleware\RestrictAdminIpAllowlist;
 use App\Support\Pwa\PwaPanels;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\Route;
@@ -39,8 +40,20 @@ Route::get('documents/{document}/download', DocumentDownloadController::class)
  * cho chữ ký, 404 cho mọi từ chối khác, nhật ký tải, giới hạn theo tài khoản dùng chung bộ đếm có
  * tên) đứng nguyên. KHÔNG thuộc middleware của panel: không `Authenticate` (không đăng nhập → 404,
  * không chuyển hướng cất URL đã ký vào phiên), không `AnswerDeniedPanelRequestsWithNotFound` (403
- * của chữ ký giữ nguyên), không `RestrictAdminIpAllowlist` (quyết định M8 R7 cho route tải tệp giữ
- * nguyên cho bí danh nội bộ, dù path bắt đầu bằng `/admin`).
+ * của chữ ký giữ nguyên).
+ *
+ * **Giới hạn IP của admin (M8 R7) phủ bí danh của panel nào mang nó** — việc sau gộp M12 (làn fu4,
+ * mục 4), cùng luật `$ipGate` của `routes/pwa.php`: nhóm bí danh mang `RestrictAdminIpAllowlist` khi
+ * và chỉ khi panel đó mang nó trong `getMiddleware()` (hôm nay `admin`, không phải `portal`), ĐỨNG
+ * TRƯỚC `signed`. Bản M12 để bí danh nội bộ ngoài giới hạn (theo quyết định M8 cho route gốc), và
+ * nó là path DUY NHẤT dưới `/admin` trả lời một IP ngoài danh sách — bằng trang 403 riêng của chữ
+ * ký, tức "có một app nội bộ ở đây", trái lời hứa "máy lạ không biết `/admin` tồn tại". Không mất
+ * đường tải nào của nhân sự: URL ký cho nhân sự chỉ được dựng trên trang của panel admin (nút tải
+ * tệp, hộp duyệt giấy tờ), mà trang đó đã đứng sau cùng giới hạn này; không thư hay thông báo nào
+ * mang URL tải. Cái giá đã chấp nhận: một đường dẫn mở trong văn phòng rồi bấm lại từ ngoài dải IP
+ * trong 5 phút còn lại của nó nhận 404, như chính trang đã sinh ra nó. Route gốc `/documents/…` ở
+ * trên GIỮ quyết định M8 (không giới hạn IP): không mã nào ký URL cho nó nữa, nhưng URL đã phát lúc
+ * triển khai vẫn tải được.
  *
  * Nơi ký URL DUY NHẤT là `Document::downloadUrlFor()`, chọn bí danh theo KIỂU người nhận. Tiền tố và
  * tên miền theo panel, cùng khuôn vòng lặp của `routes/pwa.php` (một tên miền mỗi panel). Route gốc
@@ -50,9 +63,14 @@ Route::get('documents/{document}/download', DocumentDownloadController::class)
 foreach (PwaPanels::IDS as $panelId) {
     $panel = Filament::getPanel($panelId);
 
+    $ipGate = in_array(RestrictAdminIpAllowlist::class, $panel->getMiddleware(), true)
+        ? [RestrictAdminIpAllowlist::class]
+        : [];
+
     foreach ((empty($panel->getDomains()) ? [null] : $panel->getDomains()) as $domain) {
         Route::domain($domain)
             ->prefix($panel->getPath())
+            ->middleware($ipGate)
             ->group(function () use ($panelId): void {
                 Route::get('documents/{document}/download', DocumentDownloadController::class)
                     ->middleware(['signed', 'throttle:document-download'])

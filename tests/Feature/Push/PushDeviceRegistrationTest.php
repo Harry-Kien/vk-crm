@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Support\Push\PushSession;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use NotificationChannels\WebPush\PushSubscription;
 use Spatie\Activitylog\Models\Activity;
@@ -356,6 +357,47 @@ it('sync=1 for an endpoint nobody owns answers not_owned and creates nothing', f
         ->assertExactJson(['status' => 'not_owned']);
 
     expect(DB::table('push_subscriptions')->count())->toBe(0);
+});
+
+/**
+ * Việc sau gộp M12 (làn fu4, mục 9): lượt kiểm `sync=1` bị 422 (endpoint của một máy chủ push chưa có
+ * trong `push_hosts` — trình duyệt mới, hay một máy chủ đổi tên) vẫn ĐÁNH DẤU phiên là đã kiểm. Trước
+ * đó khoá chỉ được ghi sau khi `check()` qua, nên mỗi lần tải trang `register.js` gửi lại lượt kiểm,
+ * đốt hết 10 request/phút, rồi nút Bật nhận 429. Máy chủ ghi TÊN MÁY bị từ chối (để văn phòng biết mà
+ * thêm vào `push_hosts`), không bao giờ endpoint (R8: một URL mang quyền gửi).
+ *
+ * Mutation probe: ghi khoá sau `check()` như cũ → vế `checkedKey` ĐỎ; bỏ dòng log → vế log ĐỎ; log cả
+ * endpoint → vế "không endpoint" ĐỎ.
+ */
+it('sync=1 rejected for an unknown push host still marks the session as checked and logs only the host', function () {
+    Log::spy();
+    $client = pushDeviceClient();
+    $endpoint = 'https://push.may-chu-moi.example/gui/bi-mat-khong-duoc-ghi-log';
+
+    $this->actingAs($client, 'client')
+        ->postJson(pushDeviceUrl('portal'), pushDevicePayload($endpoint, ['sync' => 1]))
+        ->assertUnprocessable();
+
+    expect(session(PushSession::checkedKey('client')))->toBeTrue()
+        ->and(session()->has(PushSession::endpointKey('client')))->toBeFalse()
+        ->and(DB::table('push_subscriptions')->count())->toBe(0);
+
+    Log::shouldHaveReceived('warning')
+        ->withArgs(fn (string $message, array $context = []): bool => ($context['host'] ?? null) === 'push.may-chu-moi.example'
+            && ! str_contains($message.json_encode($context), 'bi-mat-khong-duoc-ghi-log'))
+        ->once();
+});
+
+/** Vế âm của dòng log: endpoint của một máy chủ đã biết không để lại dòng nào. */
+it('logs no rejected host for an endpoint on a known push service', function () {
+    Log::spy();
+    $client = pushDeviceClient();
+
+    $this->actingAs($client, 'client')
+        ->postJson(pushDeviceUrl('portal'), pushDevicePayload(pushDeviceEndpoint('may-biet'), ['sync' => 1]))
+        ->assertOk();
+
+    Log::shouldNotHaveReceived('warning');
 });
 
 it('sync=1 for my own endpoint answers owned, refreshes last_seen_at and remembers the endpoint for this guard', function () {

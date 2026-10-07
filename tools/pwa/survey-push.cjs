@@ -44,13 +44,17 @@
  *
  * Chạy (Playwright KHÔNG nằm trong repo — khuôn `tools/pwa/survey-sw.cjs`; khoá VAPID là khoá THỬ sinh
  * bằng `artisan webpush:vapid --show`, không bao giờ ghi vào repo):
- *   /d/vkwt/m12-dev seed
- *   /d/vkwt/m12-dev serve -e CSP_MODE=enforce -e VAPID_SUBJECT=mailto:thu@example.test \
- *       -e VAPID_PUBLIC_KEY=… -e VAPID_PRIVATE_KEY=… -e PHP_INI_SCAN_DIR=:/var/www/html/tools/csp/php
- *   NODE_PATH=/d/vkwt/m8-tools/node_modules node tools/pwa/survey-push.cjs
+ *   bin/dev up -d                                  # máy dev chính (compose.yaml)
+ *   bin/dev artisan migrate:fresh --seed           # XOÁ CSDL dev, nạp dữ liệu mẫu
+ *   # .env: CSP_MODE=enforce, VAPID_SUBJECT=mailto:thu@example.test, VAPID_PUBLIC_KEY=…,
+ *   #       VAPID_PRIVATE_KEY=… (khoá THỬ) — rồi:
+ *   bin/dev artisan config:clear
+ *   NODE_PATH=<thư mục ngoài repo>/node_modules node tools/pwa/survey-push.cjs
+ * `<thư mục ngoài repo>`: một thư mục đã `npm install playwright` (không thêm vào `package.json`).
  *
- * Biến môi trường: BASE (mặc định http://localhost:8097), LOG (laravel.log của bản chạy), CONTAINER
- * (mặc định vkcrm-lane-m12-app — tạo tài khoản khách thử, xoá bộ đếm đăng nhập), OUT (JSON kết quả).
+ * Biến môi trường: BASE (mặc định http://localhost — cổng APP_PORT của compose.yaml, mặc định 80),
+ * LOG (laravel.log của bản chạy), CONTAINER (trống = service `app` của bin/dev, qua
+ * `docker compose exec -T app` — tạo tài khoản khách thử, xoá bộ đếm đăng nhập), OUT (JSON kết quả).
  */
 'use strict';
 
@@ -60,9 +64,17 @@ const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const playwright = require('playwright');
 
-const BASE = (process.env.BASE || 'http://localhost:8097').replace(/\/$/, '');
+const BASE = (process.env.BASE || 'http://localhost').replace(/\/$/, '');
 const LOG = process.env.LOG || path.resolve(__dirname, '../../storage/logs/laravel.log');
-const CONTAINER = process.env.CONTAINER || 'vkcrm-lane-m12-app';
+const CONTAINER = process.env.CONTAINER || '';
+const ROOT = path.resolve(__dirname, '../..');
+
+/** `php artisan …` trong bản chạy: container CONTAINER nếu có, không thì service `app` của bin/dev (compose.yaml). */
+function dockerArtisan(...args) {
+  return CONTAINER
+    ? ['exec', CONTAINER, 'php', 'artisan', ...args]
+    : ['compose', 'exec', '-T', 'app', 'php', 'artisan', ...args];
+}
 const OUT = process.env.OUT || '';
 const STAFF = { email: 'admin@luatvukhang.com', password: 'password' };
 const DEMO_TWO_FACTOR_SECRET = 'JBSWY3DPEHPK3PXP';
@@ -99,7 +111,7 @@ function totp(secret) {
 }
 
 function artisan(...args) {
-  return execFileSync('docker', ['exec', CONTAINER, 'php', 'artisan', ...args], { stdio: 'pipe' }).toString();
+  return execFileSync('docker', dockerArtisan(...args), { stdio: 'pipe', cwd: ROOT }).toString();
 }
 
 function tinker(code) {

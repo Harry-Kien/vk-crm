@@ -433,10 +433,18 @@ it('drains the push queue every minute with its own worker, stopping when empty 
  * `withoutOverlapping()` có hạn: hai tiến trình rút cùng hàng `push` là hai lần gửi cùng một job khi
  * một lượt chạy quá `retry_after`; khoá mặc định 1440 phút thì một tiến trình bị giết tắt push cả ngày.
  * Năm phút — mỗi lượt tự dừng sau 50 giây.
+ *
+ * Việc sau gộp M12 (làn fu4, mục 3): và chạy NỀN. `schedule:run` chạy các mục của một phút lần lượt
+ * trong cùng tiến trình; `queue.push` đứng trước `queue.handover` và các tác vụ hằng ngày của
+ * M7/M9/M10, nên chạy tiền cảnh thì một phút bận (máy chủ push chậm, tới 50 giây) bắt mọi mục sau nó
+ * chờ. Khoá `withoutOverlapping` vẫn giữ tới `schedule:finish` của lệnh nền.
+ *
+ * Mutation probe (báo cáo fu4): bỏ `->runInBackground()` ở mục `queue.push` → ĐỎ.
  */
-it('never lets the push queue drain overlap itself, and frees a killed drain lock within five minutes', function () {
+it('never lets the push queue drain overlap itself, frees a killed drain lock within five minutes, and runs it in the background', function () {
     $push = collect(Schedule::events())->first(fn ($event) => $event->description === 'queue.push');
 
     expect($push->withoutOverlapping)->toBeTrue()
-        ->and($push->expiresAt)->toBe(5);
+        ->and($push->expiresAt)->toBe(5)
+        ->and($push->runInBackground)->toBeTrue();
 });

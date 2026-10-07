@@ -116,6 +116,16 @@ class ClientUserPolicy
     }
 
     /**
+     * Việc sau gộp M12 (làn fu4, mục 5): "Gỡ mọi máy nhận thông báo" trên trang sửa (Action
+     * `forgetPushDevices`, gọi `App\Actions\Push\ForgetPushDevice::all()`) — cùng lý lẽ
+     * `unlockLogin()` (ability riêng vì `HeaderActionsAreReachableTest`), cùng biên giới `update()`.
+     */
+    public function forgetPushDevices(User|ClientUser $user, ClientUser $clientUser): bool
+    {
+        return $this->update($user, $clientUser);
+    }
+
+    /**
      * Task 2, vòng sửa 1 (Important #3): cổng THÔ của `DeleteBulkAction`/`ForceDeleteBulkAction`/
      * `RestoreBulkAction` trên `ListClientUsers` — cùng lý do hệt `ClientPolicy::deleteAny()`
      * (đọc docblock ở đó): thiếu bốn phương thức này, Filament coi bốn ability tương ứng là CHO

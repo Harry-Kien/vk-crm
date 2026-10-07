@@ -831,6 +831,12 @@ function staffPushDrainPushQueue(): void
  *
  * Mutation probe (báo cáo vòng sửa cuối): bỏ điều kiện `is_active` ở `shouldSend()` → dòng
  * "deactivated" ĐỎ; hỏi bằng `withTrashed()` → dòng "soft-deleted" ĐỎ.
+ *
+ * Việc sau gộp M12 (làn fu4, mục 2b): dòng "two-factor secret cleared" — SPEC §10.7, nhân sự chưa có
+ * 2FA không nhận gì ngoài trang panel, cùng định nghĩa `User::hasAppAuthenticationSecret()` mà
+ * `DocumentDownloadController::actor()` dùng. Secret bị làm trống thẳng ở CSDL (không qua "Đặt lại
+ * 2FA", lối đó gỡ luôn máy — `PushDeviceRevocationTest`), nên dòng đăng ký CÒN, và chỉ luật lúc gửi
+ * chặn được. Mutation probe (báo cáo fu4): bỏ vế 2FA ở `PushAlert::stillReachable()` → dòng này ĐỎ.
  */
 it('never uses the phone of a staff member who leaves while their push waits in the queue', function (string $condition) {
     $server = FakePushServer::start();
@@ -849,6 +855,7 @@ it('never uses the phone of a staff member who leaves while their push waits in 
     match ($condition) {
         'deactivated' => $s['assistant']->update(['is_active' => false]),
         'soft-deleted' => $s['assistant']->delete(),
+        'two-factor secret cleared' => $s['assistant']->forceFill(['two_factor_secret' => null])->save(),
     };
 
     staffPushDrainPushQueue();
@@ -856,9 +863,14 @@ it('never uses the phone of a staff member who leaves while their push waits in 
     expect($server->endpoints())->toBe([FakePushServer::endpoint('nhan-su--0')])
         ->and(DB::table('jobs')->count())->toBe(0)
         ->and(DB::table('failed_jobs')->count())->toBe(0);
+
+    if ($condition === 'two-factor secret cleared') {
+        expect($s['assistant']->pushSubscriptions()->count())->toBe(1);
+    }
 })->with([
     'deactivated',
     'soft-deleted',
+    'two-factor secret cleared',
 ]);
 
 /** Khách viết thêm vào luồng `$thread` trên trang "Yêu cầu" của cổng (Livewire). */

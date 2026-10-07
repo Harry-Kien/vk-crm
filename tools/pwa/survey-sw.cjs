@@ -31,14 +31,18 @@
  *   có một cái là HỎNG — lượt này chạy với `CSP_MODE=enforce`.
  *
  * Chạy (Playwright KHÔNG nằm trong repo — cùng khuôn `tools/csp/survey.cjs`):
- *   /d/vkwt/m12-dev seed
- *   /d/vkwt/m12-dev serve -e CSP_MODE=enforce -e PHP_INI_SCAN_DIR=:/var/www/html/tools/csp/php
- *   docker exec vkcrm-lane-m12-app php artisan cache:clear   # bộ đếm đăng nhập giữa các lượt
- *   NODE_PATH=/d/vkwt/m8-tools/node_modules node tools/pwa/survey-sw.cjs
+ *   bin/dev up -d                                  # máy dev chính (compose.yaml)
+ *   bin/dev artisan migrate:fresh --seed           # XOÁ CSDL dev, nạp dữ liệu mẫu
+ *   # .env: CSP_MODE=enforce — rồi:
+ *   bin/dev artisan config:clear
+ *   bin/dev artisan cache:clear   # bộ đếm đăng nhập giữa các lượt
+ *   NODE_PATH=<thư mục ngoài repo>/node_modules node tools/pwa/survey-sw.cjs
+ * `<thư mục ngoài repo>`: một thư mục đã `npm install playwright` (không thêm vào `package.json`).
  *
- * Biến môi trường: BASE (mặc định http://localhost:8097), LOG (laravel.log của bản chạy),
- * CONTAINER (container của bản chạy, cho bước vô hiệu tài khoản; mặc định vkcrm-lane-m12-app),
- * SHOTS (thư mục ghi ảnh chụp; trống = không chụp), OUT (ghi kết quả JSON).
+ * Biến môi trường: BASE (mặc định http://localhost — cổng APP_PORT của compose.yaml, mặc định 80),
+ * LOG (laravel.log của bản chạy), CONTAINER (container của bản chạy, cho bước vô hiệu tài khoản;
+ * trống = service `app` của bin/dev, qua `docker compose exec -T app`), SHOTS (thư mục ghi ảnh chụp;
+ * trống = không chụp), OUT (ghi kết quả JSON).
  */
 'use strict';
 
@@ -48,9 +52,17 @@ const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const playwright = require('playwright');
 
-const BASE = (process.env.BASE || 'http://localhost:8097').replace(/\/$/, '');
+const BASE = (process.env.BASE || 'http://localhost').replace(/\/$/, '');
 const LOG = process.env.LOG || path.resolve(__dirname, '../../storage/logs/laravel.log');
-const CONTAINER = process.env.CONTAINER || 'vkcrm-lane-m12-app';
+const CONTAINER = process.env.CONTAINER || '';
+const ROOT = path.resolve(__dirname, '../..');
+
+/** `php artisan …` trong bản chạy: container CONTAINER nếu có, không thì service `app` của bin/dev (compose.yaml). */
+function dockerArtisan(...args) {
+  return CONTAINER
+    ? ['exec', CONTAINER, 'php', 'artisan', ...args]
+    : ['compose', 'exec', '-T', 'app', 'php', 'artisan', ...args];
+}
 const SHOTS = process.env.SHOTS || '';
 const OUT = process.env.OUT || '';
 
@@ -312,13 +324,13 @@ async function firstHrefAcross(page, urls, pattern) {
 }
 
 function setClientActive(active) {
-  execFileSync('docker', ['exec', CONTAINER, 'php', 'artisan', 'tinker', '--execute',
-    `App\\Models\\ClientUser::where('email', '${CLIENT.email}')->update(['is_active' => ${active ? 'true' : 'false'}]);`], { stdio: 'pipe' });
+  execFileSync('docker', dockerArtisan('tinker', '--execute',
+    `App\\Models\\ClientUser::where('email', '${CLIENT.email}')->update(['is_active' => ${active ? 'true' : 'false'}]);`), { stdio: 'pipe', cwd: ROOT });
 }
 
 /** Bộ đếm đăng nhập của cổng khách (5 lần / 15 phút theo IP) — xoá trước mỗi lần đăng nhập lại. */
 function clearLoginThrottle() {
-  execFileSync('docker', ['exec', CONTAINER, 'php', 'artisan', 'cache:clear'], { stdio: 'pipe' });
+  execFileSync('docker', dockerArtisan('cache:clear'), { stdio: 'pipe', cwd: ROOT });
 }
 
 /**

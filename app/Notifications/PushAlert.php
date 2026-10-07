@@ -47,7 +47,11 @@ use NotificationChannels\WebPush\WebPushChannel;
  *  - tài khoản cổng: đúng luật R12 chung, {@see ResolveClientRecipients::eligibleQuery()} (`is_active`,
  *    `activated_at`, khách hàng chưa xoá mềm; tài khoản chưa xoá mềm nhờ `SoftDeletingScope` của chính
  *    truy vấn) — không chép điều kiện;
- *  - nhân sự: `is_active` và chưa xoá mềm.
+ *  - nhân sự: `is_active`, chưa xoá mềm, VÀ đã có 2FA ({@see User::hasAppAuthenticationSecret()} — cùng
+ *    định nghĩa mà route tải tệp dùng; việc sau gộp M12, làn fu4, mục 2b). SPEC §10.7: nhân sự chưa có
+ *    2FA (vừa bị "Đặt lại 2FA", hay chưa cài lần đầu) không nhận gì ngoài trang panel — kể cả khi một
+ *    dòng đăng ký còn sót. Đây là luật của KÊNH push, không của thư: thư nhắc hạn vẫn tới hộp thư công
+ *    việc của họ.
  * Không hỏi lại luật thứ hai nào của THƯ (vụ còn trên cổng, quyền xem vụ): đó là câu hỏi về bản ghi, đã
  * trả lời lúc thư đi, và nội dung push không mang gì của hồ sơ (R11).
  *
@@ -96,7 +100,8 @@ class PushAlert extends Notification implements ShouldQueue
             $notifiable instanceof User => User::query()
                 ->whereKey($notifiable->getKey())
                 ->where('is_active', true)
-                ->exists(),
+                ->first()
+                ?->hasAppAuthenticationSecret() === true,
             default => false,
         };
     }

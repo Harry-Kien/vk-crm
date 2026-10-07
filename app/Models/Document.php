@@ -90,8 +90,9 @@ class Document extends Model implements HasMedia
      * `ClientUser` → `/portal/documents/{id}/download`, `User` → `/admin/documents/{id}/download`.
      * Chọn theo KIỂU người nhận — mỗi guard chỉ đăng nhập được đúng một panel — chứ không theo
      * panel hiện hành, vì URL có thể được dựng ngoài một request của panel. Cùng controller, cùng
-     * middleware với `documents.download`; chữ ký phủ cả path, nên đổi tiền tố của một URL đã ký là
-     * 403.
+     * middleware với `documents.download` — bí danh `/admin/…` thêm giới hạn IP của admin (việc sau
+     * gộp M12, làn fu4; mọi nơi hôm nay ký cho nhân sự là trang của panel admin, vốn đã sau giới hạn
+     * đó); chữ ký phủ cả path, nên đổi tiền tố của một URL đã ký là 403.
      */
     public function downloadUrlFor(User|ClientUser $recipient): string
     {

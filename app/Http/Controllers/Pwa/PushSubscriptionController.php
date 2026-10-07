@@ -91,8 +91,12 @@ final class PushSubscriptionController
         $session = $request->session();
 
         if ($request->boolean('sync')) {
-            $endpoint = $register->check($owner, $request->all());
+            // Việc sau gộp M12 (làn fu4, mục 9): đánh dấu "đã kiểm" TRƯỚC `check()`. Một lượt kiểm bị
+            // 422 (máy chủ push chưa có trong `push_hosts`) mà không đánh dấu thì mỗi lần tải trang
+            // `register.js` gửi lại nó, đốt hết 10 request/phút, rồi nút Bật nhận 429. Kiểm lại ở
+            // phiên sau là đủ; tên máy bị từ chối đã vào nhật ký (`RegisterPushDevice::endpointRule()`).
             $session->put(PushSession::checkedKey($guard), true);
+            $endpoint = $register->check($owner, $request->all());
 
             if ($endpoint !== null) {
                 $session->put(PushSession::endpointKey($guard), $endpoint);

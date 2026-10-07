@@ -439,7 +439,8 @@ rồi bật từ trong ứng dụng. iPhone chỉ cho nhận thông báo trong �
   giữ an toàn cho hồ sơ. Chạm một thông báo lúc đó thì đăng nhập xong sẽ về đúng trang của thông
   báo.
 - Đổi điện thoại hay mất điện thoại: đăng nhập trên máy khác → **Thông báo trên điện thoại** →
-  chạm **Gỡ** ở máy cũ (hoặc **Gỡ mọi thiết bị**), hoặc gọi văn phòng.
+  chạm **Gỡ** ở máy cũ (hoặc **Gỡ mọi thiết bị**), hoặc gọi văn phòng — văn phòng gỡ giúp mọi máy
+  đang nhận thông báo của tài khoản anh/chị.
 - Mất mạng thì ứng dụng hiện trang "Chưa có kết nối mạng" có số điện thoại của văn phòng (chạm để
   gọi) và nút **Thử lại**.
 
@@ -453,3 +454,11 @@ xác thực. Ứng dụng nội bộ báo khi có mốc thời hạn cần chú 
 khi có khoản thu quá hạn (người theo dõi công nợ). Nếu văn phòng bật giới hạn địa chỉ cho trang nội
 bộ (`ADMIN_IP_ALLOWLIST`), ứng dụng nội bộ chỉ mở được trong mạng văn phòng — câu hỏi 2 cho chủ văn
 phòng trong `docs/PROGRESS.md`, "Ghi chú M12".
+
+Khách gọi báo mất hay đổi điện thoại: mở **Tài khoản portal → tài khoản của khách → "Gỡ mọi máy nhận
+thông báo"** — mọi máy đang nhận thông báo của đúng tài khoản đó thôi nhận, mỗi máy một dòng trong Nhật
+ký hệ thống mang tên người bấm. Việc này không đăng xuất ai: nếu máy bị mất còn đang đăng nhập cổng,
+bấm thêm **"Cấp lại mật khẩu"**. Đổi email của một tài khoản portal cũng tự gỡ mọi máy của tài khoản
+đó (địa chỉ mới là một người giữ mới; người đó bật lại trên máy của mình sau khi kích hoạt). Nhân sự
+mất điện thoại: quản trị viên bấm **"Đặt lại 2FA"** như cũ — việc đó nay gỡ luôn mọi máy nhận thông
+báo của người đó.

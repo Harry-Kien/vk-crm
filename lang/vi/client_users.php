@@ -43,6 +43,14 @@ return [
         // Hiện dưới dạng tooltip khi nút bị `disabled()` — cùng lý do với toast ở trên, nói trước
         // khi bấm thay vì để nhân sự bấm rồi mới biết.
         'reissue_access_disabled_hint' => 'Tài khoản đang tắt hoạt động, hoặc khách hàng sở hữu đã bị xoá mềm — bật lại tài khoản (hoặc khôi phục khách hàng) trước khi cấp lại mật khẩu.',
+        // Việc sau gộp M12 (làn fu4, mục 5): khách gọi báo mất điện thoại — gỡ mọi máy nhận thông
+        // báo đẩy của tài khoản này (EditClientUser::forgetPushDevicesAction()). Không đụng đăng
+        // nhập, nên câu mô tả nói rõ khi nào cần thêm "Cấp lại mật khẩu".
+        'forget_push_devices' => 'Gỡ mọi máy nhận thông báo',
+        'forget_push_devices_heading' => 'Gỡ mọi điện thoại và máy tính đang nhận thông báo của tài khoản này',
+        'forget_push_devices_description' => 'Dùng khi khách báo mất máy hoặc đổi máy. Các máy đó thôi hiện thông báo về hồ sơ; khách muốn nhận lại thì vào cổng trên máy mới và bật lại. Email vẫn đi như cũ. Việc này không đăng xuất ai: nếu máy bị mất còn đang đăng nhập cổng, bấm thêm "Cấp lại mật khẩu".',
+        'forget_push_devices_success' => 'Đã gỡ :count máy khỏi danh sách nhận thông báo của tài khoản này.',
+        'forget_push_devices_none' => 'Tài khoản này không có máy nào đang nhận thông báo — không có gì để gỡ.',
         // Fix round 1: hai sửa so với vòng đầu.
         // (1) M1 — "địa chỉ mạng khách vừa dùng" giả định người gõ sai là chính khách; sau khi
         //     UnlockPortalLogin xét NAT-an toàn (I2), địa chỉ vẫn còn khoá đúng là địa chỉ CÓ

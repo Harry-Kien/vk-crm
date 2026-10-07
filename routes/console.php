@@ -272,11 +272,18 @@ Schedule::call('App\Actions\Schedule\PrunePushSubscriptions@handle')
  * hai tiến trình chỉ gửi trùng một job khi job đó chạy quá `retry_after` (90 giây) và lượt kia lấy lại nó;
  * khoá có hạn năm phút (không phải mặc định 1440) để một tiến trình bị giết không tắt push cả ngày.
  * CHỈ `->name()`, không `->description()` (bí danh của nhau trong Laravel 13, xem `backup.nightly`).
+ *
+ * `runInBackground()` (việc sau gộp M12, làn fu4): `schedule:run` chạy các mục của một phút LẦN LƯỢT
+ * trong cùng tiến trình, và mục này đứng trước `queue.handover` cùng các tác vụ hằng ngày của
+ * M7/M9/M10 — chạy tiền cảnh thì một phút bận (máy chủ push chậm, tới 50 giây) bắt mọi mục sau nó chờ,
+ * đúng điều docblock `queue.handover` cảnh báo. Chạy nền thì khoá `withoutOverlapping` vẫn giữ tới khi
+ * lệnh nền kết thúc (Laravel gỡ khoá ở `schedule:finish`).
  */
 Schedule::command('queue:work --queue=push --stop-when-empty --max-time=50')
     ->everyMinute()
     ->name('queue.push')
-    ->withoutOverlapping(5);
+    ->withoutOverlapping(5)
+    ->runInBackground();
 
 /**
  * M7 Task 4 (R9): rút hàng đợi RIÊNG của gói bàn giao. Job `GenerateHandoverPackage` nén tệp hồ sơ
