@@ -18,6 +18,13 @@ use App\Actions\Performance\BuildPerformanceReport;
  * không phải một người, nên không có "Không áp dụng" nào ngoài cột doanh thu.
  *
  * `$responseMedianHours`/`$responseMeanHours` rỗng nghĩa là chưa luồng nào được trả lời tới hết kỳ.
+ *
+ * P8 (Task 7, `$staleStart` … `$overdueEnd`) đọc từ ảnh chụp hằng ngày (`BuildPerformanceTrend::endpoints()`):
+ * `null` nghĩa là ngày đó KHÔNG có ảnh chụp (tác vụ lỡ, ngày trước khi triển khai, hay kỳ chưa có ngày nào
+ * đã qua) — không bao giờ "Không áp dụng". Ảnh chụp ghi 0 cho N4 của người không đứng tên phụ trách vụ; trang
+ * in "Không áp dụng" cho phần N4 theo `$leadsMatters`, như mọi cột (L). Dòng "Chung" luôn `null`: ảnh chụp
+ * là số của từng người, còn dòng "Chung" là mọi việc trong các vụ người xem thấy — cộng ảnh chụp của những
+ * người trên trang không ra số đó (R8).
  */
 final readonly class PerformanceRow
 {
@@ -43,7 +50,7 @@ final readonly class PerformanceRow
         public int $requestsAnswered,
         /** P10 — yêu cầu khách gửi trong kỳ mà văn phòng đóng không trả lời; không vào tỉ lệ. */
         public int $requestsClosedUnanswered,
-        /** P3 — trung vị giờ lịch từ lúc khách gửi tới lần trả lời đầu, trên luồng đã trả lời tới mốc cắt. */
+        /** P3 — trung vị giờ LÀM VIỆC (R17, `BusinessHours`) từ lúc khách gửi tới lần trả lời đầu, trên luồng đã trả lời tới mốc cắt. */
         public ?float $responseMedianHours,
         /** P3 — trung bình của cùng tập. */
         public ?float $responseMeanHours,
@@ -61,5 +68,13 @@ final readonly class PerformanceRow
         public Ratio $completionRatio,
         /** @var list<array{name: string, matters: int}> hai lĩnh vực có nhiều vụ nhất trong số vụ có việc của kỳ */
         public array $mainPracticeAreas,
+        /** P8 (Task 7) — N4 trong ảnh chụp ngày đầu kỳ; `null` = ngày đó không có ảnh chụp. Xem docblock lớp. */
+        public ?int $staleStart,
+        /** P8 — N4 trong ảnh chụp ngày cuối kỳ, không muộn hơn hôm qua. */
+        public ?int $staleEnd,
+        /** P8 — N5 trong ảnh chụp ngày đầu kỳ. */
+        public ?int $overdueStart,
+        /** P8 — N5 trong ảnh chụp ngày cuối kỳ, không muộn hơn hôm qua. */
+        public ?int $overdueEnd,
     ) {}
 }

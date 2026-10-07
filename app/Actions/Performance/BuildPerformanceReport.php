@@ -12,6 +12,7 @@ use App\Models\StageLog;
 use App\Models\User;
 use App\Support\ActivityOwningMatter;
 use App\Support\Billing\CollectedRevenue;
+use App\Support\BusinessHours;
 use App\Support\Performance\DeadlineHolderAtDue;
 use App\Support\Performance\LeadAt;
 use App\Support\Performance\PerformancePeriod;
@@ -32,7 +33,9 @@ use Spatie\Activitylog\Models\Activity;
 /**
  * Số TRONG MỘT KỲ của trang "Hiệu suất theo kỳ" (M13, R1, cột P1–P7, P9, P10, "Lĩnh vực chính", dòng
  * "Chung"): mỗi người được theo dõi đã làm đúng hạn tới đâu — như `$viewer` đọc được. Trang `Performance`
- * gọi đây; không màn hình nào tự đếm.
+ * gọi đây; không màn hình nào tự đếm. Cột P8 (xu hướng đầu kỳ → cuối kỳ, Task 7) không tính ở đây mà đọc
+ * từ ảnh chụp qua {@see BuildPerformanceTrend::endpoints()} — luật xem của ảnh chụp là
+ * `PerformanceSnapshot::visibleLevels()`, không phải `listableBy()`.
  *
  * # Gốc là `listableBy($viewer)`: phần giao, không phép trừ (R4)
  *
@@ -95,7 +98,7 @@ final class BuildPerformanceReport
     /** @var array<int|string, array<string, int>> người (hoặc `ALL`) => chỉ số => số đếm */
     private array $counts = [];
 
-    /** @var array<int|string, list<float>> người (hoặc `ALL`) => giờ phản hồi của từng luồng đã trả lời */
+    /** @var array<int|string, list<float>> người (hoặc `ALL`) => giờ LÀM VIỆC phản hồi của từng luồng đã trả lời (R17) */
     private array $hours = [];
 
     /** @var array<int|string, array<int, true>> người (hoặc `ALL`) => vụ có việc trong kỳ ("Lĩnh vực chính") */
@@ -146,15 +149,18 @@ final class BuildPerformanceReport
 
         $areas = $this->mainPracticeAreas();
 
+        // P8 (Task 7) — đầu kỳ → cuối kỳ từ ảnh chụp, MỘT truy vấn cho cả trang; dòng "Chung" không có (PerformanceRow).
+        $trend = app(BuildPerformanceTrend::class)->endpoints($viewer, $subjects, $period);
+
         $rows = [];
 
         foreach ($subjects as $subject) {
             $id = (int) $subject->getKey();
-            $rows[$id] = $this->row($id, (string) $subject->name, (bool) $subject->is_active, TeamRoster::leadsMatters($subject), $areas[$id] ?? [], $revenueVisible);
+            $rows[$id] = $this->row($id, (string) $subject->name, (bool) $subject->is_active, TeamRoster::leadsMatters($subject), $areas[$id] ?? [], $revenueVisible, $trend[$id]);
         }
 
         $reference = $withReference
-            ? $this->row(null, __('performance.period_page.reference_name'), true, true, $areas[self::ALL] ?? [], $revenueVisible)
+            ? $this->row(null, __('performance.period_page.reference_name'), true, true, $areas[self::ALL] ?? [], $revenueVisible, null)
             : null;
 
         return new PerformanceReport($reference, $rows, $revenueVisible);
@@ -204,7 +210,7 @@ final class BuildPerformanceReport
     }
 
     /**
-     * P3 (trả lời, thời gian phản hồi) và P10 (đóng không trả lời) — người giữ luồng lúc trả lời lần đầu,
+     * P3 (trả lời, thời gian phản hồi theo GIỜ LÀM VIỆC — R17) và P10 (đóng không trả lời) — người giữ luồng lúc trả lời lần đầu,
      * hoặc lúc mốc cắt với luồng chưa trả lời và luồng đóng không trả lời (R18).
      *
      * @param  Closure(Builder): Builder  $visible
@@ -212,6 +218,7 @@ final class BuildPerformanceReport
     private function countRequests(Closure $visible, PerformancePeriod $period): void
     {
         $cutoff = $period->cutoff();
+        $businessHours = BusinessHours::fromConfig();
 
         $requests = ClientRequest::query()
             ->createdBetween($period->bounds())
@@ -239,13 +246,9 @@ final class BuildPerformanceReport
             if ($request->answeredBy($cutoff)) {
                 $this->add($holder, 'answered', 1);
 
-                // R17 — GIỜ LỊCH: M10 (`App\Support\BusinessHours`) chưa có trên nhánh này.
-                // TODO(M10-BusinessHours): sau khi gộp main, đo bằng đúng lớp của M10:
-                //   BusinessHours::fromConfig()->minutesBetween($request->created_at, $request->answered_at) / 60
-                // và đổi "giờ lịch" thành "giờ làm việc" ở `performance.explain.p3`,
-                // `performance.period_page.p3_response` (PROGRESS, Ghi chú M13, Task 6). Không viết định
-                // nghĩa "giờ làm việc" thứ hai ở đây.
-                $hours = (float) ($request->answered_at->getTimestamp() - $request->created_at->getTimestamp()) / 3600;
+                // R17 — GIỜ LÀM VIỆC, qua ĐÚNG định nghĩa của M10 (`App\Support\BusinessHours`, cấu hình
+                // `vkcrm.business_hours`); không viết định nghĩa thứ hai ở đây. Phút trọn vẹn, ra giờ.
+                $hours = $businessHours->minutesBetween($request->created_at, $request->answered_at) / 60;
 
                 foreach (array_unique([self::ALL, $holder ?? self::ALL]) as $bucket) {
                     $this->hours[$bucket][] = $hours;
@@ -385,8 +388,9 @@ final class BuildPerformanceReport
 
     /**
      * @param  list<array{name: string, matters: int}>  $areas
+     * @param  array{staleStart: ?int, staleEnd: ?int, overdueStart: ?int, overdueEnd: ?int}|null  $trend  P8; `null` ở dòng "Chung"
      */
-    private function row(?int $userId, string $name, bool $isActive, bool $leadsMatters, array $areas, bool $revenueVisible): PerformanceRow
+    private function row(?int $userId, string $name, bool $isActive, bool $leadsMatters, array $areas, bool $revenueVisible, ?array $trend): PerformanceRow
     {
         $bucket = $userId ?? self::ALL;
         $count = fn (string $metric): int => $this->counts[$bucket][$metric] ?? 0;
@@ -416,6 +420,10 @@ final class BuildPerformanceReport
             revenueCollected: $revenueVisible ? $leadOnly($count('revenue')) : null,
             completionRatio: new Ratio($count('onTime') + $count('late') + $count('answered'), $deadlines + $count('received')),
             mainPracticeAreas: $areas,
+            staleStart: $trend['staleStart'] ?? null,
+            staleEnd: $trend['staleEnd'] ?? null,
+            overdueStart: $trend['overdueStart'] ?? null,
+            overdueEnd: $trend['overdueEnd'] ?? null,
         );
     }
 

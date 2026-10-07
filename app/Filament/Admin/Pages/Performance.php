@@ -63,7 +63,10 @@ use Livewire\Attributes\Locked;
  * Dòng là mảng thuộc tính của {@see PerformanceRow}; dòng "Chung" (khoá {@see self::REFERENCE_KEY}) luôn
  * đứng đầu. KHÔNG cột nào sắp xếp được ngoài tên: một lời gọi `sortTable` lên cột số (Livewire nhận tên cột
  * bất kỳ) giữ nguyên thứ tự theo tên. Tỉ lệ không bao giờ tô màu. Phân rã R7 in ngay dưới tỉ lệ
- * ("12/15 mốc · 8/9 yêu cầu"). Cột doanh thu chỉ có khi `PerformanceReport::$revenueVisible`.
+ * ("12/15 mốc · 8/9 yêu cầu"). Cột doanh thu chỉ có khi `PerformanceReport::$revenueVisible`. Cột P8 (Task 7)
+ * in mốc quá hạn và vụ quá hạn cập nhật của ngày đầu kỳ → ngày cuối kỳ (không muộn hơn hôm qua) từ ảnh chụp
+ * hằng ngày; ngày không có ảnh chụp là "—", không phải 0; phần N4 là "Không áp dụng" với người không đứng tên
+ * phụ trách vụ (R6); dòng "Chung" không có cột này.
  *
  * # Nhật ký (R14)
  *
@@ -84,7 +87,7 @@ class Performance extends Page implements HasTable
      *
      * @var list<string>
      */
-    public const EXPLAINED_CODES = ['main_areas', 'p1', 'p2', 'p3', 'p10', 'p4', 'p5', 'p6', 'p7', 'p9', 'reference', 'closed_period', 'not_applicable'];
+    public const EXPLAINED_CODES = ['main_areas', 'p1', 'p2', 'p3', 'p10', 'p4', 'p5', 'p6', 'p7', 'p9', 'p8', 'reference', 'closed_period', 'not_applicable'];
 
     /** @var array<string, mixed>|null trạng thái form kỳ đang soạn — chưa phải kỳ đang hiện */
     public ?array $data = [];
@@ -260,6 +263,15 @@ class Performance extends Page implements HasTable
                     ->label(__('performance.columns.p9'))
                     ->state(fn (array $record): string => $record['completionRatio']->label())
                     ->description(fn (array $record): string => self::completionBreakdown($record)),
+                // P8 (Task 7): đầu kỳ → cuối kỳ từ ảnh chụp; dòng "Chung" không có (docblock PerformanceRow).
+                TextColumn::make('trend')
+                    ->label(__('performance.columns.p8'))
+                    ->state(fn (array $record): ?string => $record['userId'] === null ? null : __('performance.period_page.p8_overdue', [
+                        'start' => self::snapshotValue($record['overdueStart']),
+                        'end' => self::snapshotValue($record['overdueEnd']),
+                    ]))
+                    ->description(fn (array $record): ?string => self::staleTrendLabel($record))
+                    ->placeholder('—'),
             ])
             ->filters([
                 Filter::make('include_inactive')
@@ -373,7 +385,7 @@ class Performance extends Page implements HasTable
         return implode(' · ', array_map(fn (array $area): string => "{$area['name']} ({$area['matters']})", $areas));
     }
 
-    /** P3: "Trung vị 3,5 giờ · trung bình 5 giờ (giờ lịch)"; không gì khi chưa luồng nào được trả lời. @param  array<string, mixed>  $record */
+    /** P3: "Trung vị 3,5 giờ · trung bình 5 giờ (giờ làm việc, R17)"; không gì khi chưa luồng nào được trả lời. @param  array<string, mixed>  $record */
     private static function responseLabel(array $record): ?string
     {
         if ($record['responseMedianHours'] === null) {
@@ -394,6 +406,31 @@ class Performance extends Page implements HasTable
         }
 
         return __('performance.period_page.p4_state', ['entries' => $record['stageEntries'], 'matters' => $record['mattersMoved']]);
+    }
+
+    /** Một số của ảnh chụp (P8): "—" khi ngày đó không có ảnh chụp, không bao giờ 0. */
+    private static function snapshotValue(?int $value): string
+    {
+        return $value === null ? '—' : (string) $value;
+    }
+
+    /**
+     * Phần N4 của P8: "Quá hạn cập nhật: 3 → 1"; "Không áp dụng" với người không đứng tên phụ trách vụ
+     * (R6 — ảnh chụp ghi 0 cho họ). Dòng "Chung" không cần nhánh riêng: ô của nó rỗng (placeholder "—"), và
+     * Filament không in mô tả dưới một ô rỗng.
+     *
+     * @param  array<string, mixed>  $record
+     */
+    private static function staleTrendLabel(array $record): string
+    {
+        if (! $record['leadsMatters']) {
+            return __('performance.period_page.p8_stale_not_applicable');
+        }
+
+        return __('performance.period_page.p8_stale', [
+            'start' => self::snapshotValue($record['staleStart']),
+            'end' => self::snapshotValue($record['staleEnd']),
+        ]);
     }
 
     /** Phân rã R7 in cạnh tỉ lệ P9: "12/15 mốc · 8/9 yêu cầu". @param  array<string, mixed>  $record */

@@ -375,7 +375,7 @@ it('P1 — gives a deadline handed over before its due day to the person who rec
 // P3 — trả lời yêu cầu của khách
 // =================================================================================================
 
-it('P3 — gives the median and the mean response time in calendar hours, for an odd and an even count', function () {
+it('P3 — gives the median and the mean response time in business hours, for an odd and an even count', function () {
     $matterA = m13bPfMatter($this->lawyerA);
     foreach (['2026-09-02 10:00:00', '2026-09-02 11:00:00', '2026-09-02 15:00:00'] as $answeredAt) {
         m13bPfReply(m13bPfThread($matterA, '2026-09-02 09:00:00'), $this->lawyerA, $answeredAt);
@@ -389,11 +389,12 @@ it('P3 — gives the median and the mean response time in calendar hours, for an
     m13bPfView();
     $rows = m13bPfRows($this->manager);
 
-    // A: 1, 2, 6 giờ. B: 1, 2, 4, 9 giờ.
+    // Thứ Tư và Thứ Năm, giờ làm việc 08:00–17:30 (R17 — giờ làm việc của M10, Task 7 làn A). A: 1, 2, 6
+    // giờ. B: 1, 2, 4, và 8,5 giờ — lần trả lời 18:00 đến sau giờ đóng cửa, nửa giờ sau 17:30 không tính.
     expect($rows[$this->lawyerA->id]['responseMedianHours'])->toBe(2.0)
         ->and($rows[$this->lawyerA->id]['responseMeanHours'])->toBe(3.0)
         ->and($rows[$this->lawyerB->id]['responseMedianHours'])->toBe(3.0)
-        ->and($rows[$this->lawyerB->id]['responseMeanHours'])->toBe(4.0)
+        ->and($rows[$this->lawyerB->id]['responseMeanHours'])->toBe(3.875)
         ->and($rows[$this->lawyerA->id]['requestsAnswered'])->toBe(3)
         ->and($rows[$this->lawyerB->id]['requestsReceived'])->toBe(4);
 });
@@ -423,8 +424,40 @@ it('P3 — counts a request marked answered by phone through TriageClientRequest
     m13bPfView();
     $row = m13bPfRow($this->manager, $this->lawyerA);
 
+    // Thứ Tư 09:00 → Thứ Năm 10:00: 8,5 giờ làm việc (09:00–17:30) + 2 giờ (08:00–10:00); 25 giờ lịch.
     expect($row['requestsAnswered'])->toBe(1)
-        ->and($row['responseMedianHours'])->toBe(25.0);
+        ->and($row['responseMedianHours'])->toBe(10.5);
+});
+
+/**
+ * R17 — đo bằng ĐÚNG `App\Support\BusinessHours` (M10), không định nghĩa "giờ làm việc" thứ hai: đêm và
+ * cuối tuần không tính; đổi lịch làm việc trong cấu hình (`vkcrm.business_hours`) thì con số đổi theo.
+ */
+it('P3 — measures a request sent on a Friday afternoon and answered on Monday morning in business hours, through the configured schedule', function () {
+    $matter = m13bPfMatter($this->lawyerA);
+    // Thứ Sáu 04/09 16:30 → Thứ Hai 07/09 09:30: 1 giờ thứ Sáu + 1,5 giờ thứ Hai (65 giờ lịch).
+    m13bPfReply(m13bPfThread($matter, '2026-09-04 16:30:00'), $this->lawyerA, '2026-09-07 09:30:00');
+
+    m13bPfView();
+
+    expect(m13bPfRow($this->manager, $this->lawyerA)['responseMedianHours'])->toBe(2.5);
+
+    // Văn phòng làm thêm Thứ Bảy (cùng khung 08:00–17:30 — một khung cho mọi ngày): Thứ Bảy 05/09 cộng 9,5 giờ.
+    config(['vkcrm.business_hours.days' => [1, 2, 3, 4, 5, 6]]);
+
+    expect(m13bPfRow($this->manager, $this->lawyerA)['responseMedianHours'])->toBe(12.0);
+});
+
+it('P3 — gives a request sent and answered outside business hours a response time of zero', function () {
+    $matter = m13bPfMatter($this->lawyerA);
+    // Thứ Bảy 05/09 10:00 → Thứ Bảy 15:00.
+    m13bPfReply(m13bPfThread($matter, '2026-09-05 10:00:00'), $this->lawyerA, '2026-09-05 15:00:00');
+
+    m13bPfView();
+    $row = m13bPfRow($this->manager, $this->lawyerA);
+
+    expect($row['requestsAnswered'])->toBe(1)
+        ->and($row['responseMedianHours'])->toBe(0.0);
 });
 
 it('P3 — treats a request of a closed period answered after its cutoff as unanswered in that period', function () {
@@ -552,13 +585,19 @@ it('P3 — keeps a request answered before a handover inside the period with the
         ->and($rows[$this->lawyerB->id]['requestsReceived'])->toBe(1);
 });
 
-it('P3 — prints a response time in hours with a decimal comma under a day, and in days and hours from a day on', function () {
+/**
+ * Giờ LÀM VIỆC (R17) thì không gộp thành "ngày": một ngày làm việc không phải 24 giờ, và "2 ngày 4 giờ" theo
+ * 24 giờ sẽ đọc thành hai ngày làm việc trong khi chỉ là chừng năm ngày rưỡi làm việc. In giờ, dấu phẩy thập
+ * phân, một chữ số sau dấu phẩy.
+ */
+it('P3 — prints a response time in business hours with a decimal comma, never folded into 24-hour days', function () {
     expect(ResponseTime::label(3.5))->toBe('3,5 giờ')
         ->and(ResponseTime::label(3.0))->toBe('3 giờ')
         ->and(ResponseTime::label(0.25))->toBe('0,3 giờ')
-        ->and(ResponseTime::label(23.96))->toBe('1 ngày')
-        ->and(ResponseTime::label(52.0))->toBe('2 ngày 4 giờ')
-        ->and(ResponseTime::label(48.2))->toBe('2 ngày')
+        ->and(ResponseTime::label(23.96))->toBe('24 giờ')
+        ->and(ResponseTime::label(52.0))->toBe('52 giờ')
+        ->and(ResponseTime::label(48.2))->toBe('48,2 giờ')
+        ->and(ResponseTime::label(1234.5))->toBe('1.234,5 giờ')
         ->and(ResponseTime::median([]))->toBeNull()
         ->and(ResponseTime::mean([]))->toBeNull()
         ->and(ResponseTime::median([6.0, 1.0, 2.0]))->toBe(2.0)

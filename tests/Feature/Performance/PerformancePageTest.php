@@ -188,7 +188,9 @@ it('lists every explanation, the closed period sentence, why there is no ranking
     expect($html)->toContain(e(__('performance.how_computed')))
         ->and($html)->toContain(e(__('performance.period_page.no_ranking.heading')))
         ->and($html)->toContain(e(__('performance.scope_note')))
-        ->and(__('performance.explain.p3'))->toContain('giờ lịch');
+        ->and(__('performance.explain.p3'))->toContain('giờ làm việc')
+        ->and(__('performance.explain.p3'))->not->toContain('giờ lịch')
+        ->and(__('performance.period_page.p3_response'))->toContain('giờ làm việc');
 
     foreach (__('performance.period_page.no_ranking.reasons') as $reason) {
         expect($html)->toContain(e($reason));

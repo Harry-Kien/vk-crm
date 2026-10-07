@@ -1,12 +1,18 @@
 <?php
 
+use App\Actions\Performance\BuildPerformanceTrend;
 use App\Actions\Performance\BuildTeamWorkload;
+use App\Actions\Schedule\CapturePerformanceSnapshots;
 use App\Enums\Role;
 use App\Filament\Admin\Pages\TeamMember;
 use App\Filament\Admin\Pages\TeamOverview;
+use App\Filament\Admin\Widgets\Performance\OverdueTrendWidget;
+use App\Filament\Admin\Widgets\Performance\StaleTrendWidget;
 use App\Models\Matter;
 use App\Models\MatterType;
+use App\Models\PerformanceSnapshot;
 use App\Models\User;
+use App\Support\Performance\PerformancePeriod;
 use App\Support\Performance\TeamRoster;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
@@ -35,8 +41,10 @@ uses(TestCase::class, RefreshDatabase::class);
  * quyết ghi PROGRESS). Lần đo đầu (2026-10-04) cho N11 gộp 297,6 ms, nên phán quyết N11 áp dụng: trang
  * tổng quan không hỏi N11, trang của một người hỏi N11 cho một người — tệp này đo cả ba hình dạng.
  * Task 5 đo trang một người qua Livewire (≤ 200 ms; luật sư xem chính mình, trưởng phòng xem một luật
- * sư và một trợ lý — kèm số truy vấn và các truy vấn chậm nhất), Task 6/7 (sau khi gộp làn m13b) thêm
- * "Hiệu suất theo kỳ", một quý (≤ 500 ms), Task 7 thêm ảnh chụp hai năm và tác vụ chụp (≤ 10 giây).
+ * sư và một trợ lý — kèm số truy vấn và các truy vấn chậm nhất). Task 7 thêm ảnh chụp hai năm (30 người,
+ * cả hai loại dòng), tác vụ chụp (≤ 10 giây), trang một người CÓ biểu đồ (trang + hai widget xu hướng,
+ * ≤ 200 ms) và cột P8 của trang hiệu suất, kèm `EXPLAIN` của hai truy vấn ảnh chụp. Phép đo "Hiệu suất
+ * theo kỳ", một quý (≤ 500 ms), là của Task 8 (phán quyết controller cho Task 7–8).
  *
  * Kết quả và `EXPLAIN` của MỌI truy vấn mà `BuildTeamWorkload` chạy (bắt qua query log) in ra STDERR;
  * số đo ghi vào "Ghi chú M13" của PROGRESS. Khẳng định duy nhất là một trần rộng để lần chạy báo lỗi
@@ -228,9 +236,32 @@ it('đo trang "Theo dõi đội ngũ" trên 3.000 vụ', function () {
     }
     $insert('activity_log', $activity, 2000);
 
+    // Task 7 — ảnh chụp hai năm (730 ngày tới hôm qua) cho 30 người: dòng `normal` cho mọi người mỗi ngày,
+    // dòng `restricted` cho 20 luật sư (5% vụ là restricted, nên luật sư nào cũng có) — 36.500 dòng.
+    $snapshots = [];
+    $lawyerIds = $lawyers->pluck('id')->flip();
+    foreach (range(1, 730) as $back) {
+        $capturedOn = PerformanceSnapshot::storedDay(today()->subDays($back));
+        foreach ($staff as $s => $person) {
+            $levels = $lawyerIds->has($person->id) ? ['normal', 'restricted'] : ['normal'];
+            foreach ($levels as $level) {
+                $snapshots[] = [
+                    'captured_on' => $capturedOn, 'user_id' => $person->id, 'confidentiality' => $level,
+                    'open_lead_matters' => ($s + $back) % 40, 'stale_matters' => ($s * 3 + $back) % 9, 'overdue_deadlines' => ($s + $back * 7) % 12,
+                    'checklist_settled' => ($s + $back) % 50, 'checklist_total' => 50 + $s, 'created_at' => $stamp, 'updated_at' => $stamp,
+                ];
+            }
+        }
+        if (count($snapshots) >= 2000) {
+            $insert('performance_snapshots', $snapshots, 2000);
+            $snapshots = [];
+        }
+    }
+    $insert('performance_snapshots', $snapshots, 2000);
+
     $mariadb = in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true);
     DB::statement($mariadb
-        ? 'ANALYZE TABLE matters, matter_user, deadlines, stage_logs, client_requests, client_request_replies, matter_checklist_items, documents, contracts, instalments, payments, activity_log'
+        ? 'ANALYZE TABLE matters, matter_user, deadlines, stage_logs, client_requests, client_request_replies, matter_checklist_items, documents, contracts, instalments, payments, activity_log, performance_snapshots'
         : 'ANALYZE');
 
     $build = app(BuildTeamWorkload::class);
@@ -347,6 +378,53 @@ it('đo trang "Theo dõi đội ngũ" trên 3.000 vụ', function () {
         }
     }
 
+    // Task 7 — trang một người CÓ biểu đồ: hai widget xu hướng là component Livewire riêng (tải lười, mỗi
+    // widget một request), nên đo trang, từng widget, và tổng "trang + hai widget". Ngân sách 200 ms (R11).
+    $trendWidgets = [StaleTrendWidget::class, OverdueTrendWidget::class];
+    $trendQueries = [];
+    foreach (['trưởng phòng xem một luật sư' => [$manager, $lawyers[3]], 'luật sư xem chính mình' => [$lawyers[3], $lawyers[3]]] as $label => [$viewer, $subject]) {
+        $this->actingAs($viewer->fresh(), 'web');
+        foreach ($trendWidgets as $widget) {
+            Livewire::test($widget, ['subjectId' => $subject->getKey()]); // làm nóng
+        }
+
+        $widgetMs = array_map(fn (string $widget): float => $median(fn () => Livewire::test($widget, ['subjectId' => $subject->getKey()])), $trendWidgets);
+        $whole = $median(function () use ($subject, $trendWidgets): void {
+            Livewire::test(TeamMember::class, ['user' => $subject->getKey()]);
+            foreach ($trendWidgets as $widget) {
+                Livewire::test($widget, ['subjectId' => $subject->getKey()]);
+            }
+        });
+        $report .= sprintf("  Trang của một người CÓ biểu đồ (%s): trang + hai widget %.1f ms — ngân sách 200 ms; StaleTrendWidget %.1f ms, OverdueTrendWidget %.1f ms\n", $label, $whole, $widgetMs[0], $widgetMs[1]);
+        expect($whole)->toBeLessThan(3000.0);
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        app(BuildPerformanceTrend::class)->handle($viewer->fresh(), $subject->fresh(), PerformancePeriod::trailingDays(BuildPerformanceTrend::MEMBER_PAGE_DAYS));
+        $trendQueries["xu hướng 90 ngày ({$label})"] = collect(DB::getQueryLog())->last(fn (array $query): bool => str_contains($query['query'], 'performance_snapshots'));
+        DB::disableQueryLog();
+    }
+
+    // Task 7 — cột P8 của "Hiệu suất theo kỳ": đầu kỳ → cuối kỳ, MỘT truy vấn cho cả trang (quý trước).
+    $quarter = PerformancePeriod::fromFilters(['period' => 'last_quarter']);
+    $viewer = $manager->fresh();
+    $quarterSubjects = TeamRoster::subjectsForPeriod($viewer, $quarter);
+    app(BuildPerformanceTrend::class)->endpoints($viewer, $quarterSubjects, $quarter); // làm nóng
+    $endpointsMs = $median(fn () => app(BuildPerformanceTrend::class)->endpoints($viewer, $quarterSubjects, $quarter));
+    $report .= sprintf("  Cột P8 (BuildPerformanceTrend::endpoints, quý trước, trưởng phòng, %d người): %.1f ms\n", $quarterSubjects->count(), $endpointsMs);
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+    app(BuildPerformanceTrend::class)->endpoints($viewer, $quarterSubjects, $quarter);
+    $trendQueries['P8 cả trang'] = collect(DB::getQueryLog())->last(fn (array $query): bool => str_contains($query['query'], 'performance_snapshots'));
+    DB::disableQueryLog();
+
+    // Task 7 — tác vụ chụp trên 3.000 vụ (ngân sách 10 giây, R11): chạy lại trong ngày là upsert.
+    $capture = app(CapturePerformanceSnapshots::class);
+    $written = $capture->handle(); // làm nóng
+    $captureMs = $median(fn () => $capture->handle());
+    $report .= sprintf("  Tác vụ chụp (CapturePerformanceSnapshots, %d dòng, %d dòng ảnh chụp trong bảng): %.1f ms — ngân sách 10 giây\n", $written, DB::table('performance_snapshots')->count(), $captureMs);
+    expect($captureMs)->toBeLessThan(30000.0);
+
     if ($mariadb) {
         $explain = fn (string $sql, array $bindings): string => collect(DB::select('EXPLAIN '.$sql, $bindings))
             ->map(fn ($row) => sprintf('      %s: type=%s key=%s rows=%s%s', $row->table, $row->type, $row->key ?? '-', $row->rows, isset($row->Extra) && $row->Extra !== '' ? " ({$row->Extra})" : ''))
@@ -360,6 +438,11 @@ it('đo trang "Theo dõi đội ngũ" trên 3.000 vụ', function () {
         }
 
         $report .= sprintf("\n    EXPLAIN N11 cho một người:\n%s", $explain($single['sql'], $single['bindings']));
+
+        foreach ($trendQueries as $label => $query) {
+            $report .= sprintf("\n    EXPLAIN %s:\n%s", $label, $explain($query['query'], $query['bindings']));
+        }
+
         $report .= "\n";
     }
 

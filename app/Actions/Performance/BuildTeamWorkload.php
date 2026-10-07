@@ -179,12 +179,14 @@ final class BuildTeamWorkload
     /**
      * Đếm dòng của `$query` theo biểu thức quy người `$person` (R5) — một truy vấn `GROUP BY`. Thay
      * phần chọn của truy vấn (scope như `withHolder()`, `withSupportingMember()` tự chọn thêm cột) bằng
-     * đúng người và số đếm; không thêm điều kiện nào.
+     * đúng người và số đếm; không thêm điều kiện nào. Công khai cho tác vụ chụp hằng ngày (Task 7,
+     * `CapturePerformanceSnapshots`): ảnh chụp đếm N1, N4, N5 bằng CÙNG phép đếm này trên cùng scope,
+     * chỉ khác gốc (`Matter::ofConfidentiality()` thay `listableBy()`).
      *
      * @param  Builder<covariant \Illuminate\Database\Eloquent\Model>  $query
      * @return array<int, int> khoá là id người
      */
-    private static function countPer(Builder $query, string $person): array
+    public static function countPer(Builder $query, string $person): array
     {
         return $query
             ->select(DB::raw("{$person} as person_id"))

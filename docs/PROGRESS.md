@@ -4699,3 +4699,59 @@ gộp vào `m13-team-performance` @ `31e8ca2` (Task 1, 2, 4, 5). Làn m13b (Task
   cho N1–N11. Gộp thành MỘT mảng `columns` và MỘT mảng `explain`. `not_applicable`, `how_computed`,
   `columns.name` giữ một bản. `explain.not_applicable` lấy câu của m13b: "…trong các vụ việc anh/chị được xem",
   đúng R4, minor m3 rà soát Task 4. `TeamOverviewPageTest` của làn A canh mỗi khoá cấp một chỉ khai báo một lần.
+
+### Task 7 — ảnh chụp hằng ngày và xu hướng (R10, P8), cùng ba phán quyết controller (2026-10-07)
+
+- **Đã làm.** Bảng `performance_snapshots` (migration `2026_10_04_130000`, unique `(captured_on, user_id,
+  confidentiality)`, index `(user_id, captured_on)`); model `PerformanceSnapshot` (`RestrictedToClientPortal` là
+  `1 = 0`, `KEEP_MONTHS = 25`, alias morph `performance_snapshot`) và `PerformanceSnapshotPolicy` (khách và mọi
+  thao tác ghi bị từ chối; đọc một dòng = `visibleLevels()`). `PortalCoverageTest` xanh không thêm miễn trừ.
+- **Tác vụ chụp** `App\Actions\Schedule\CapturePerformanceSnapshots`, lịch `performance.snapshot` 23:50,
+  `withoutOverlapping(30)`. Gọi đúng `open()`, `MatterStaleness::scopeStale()`, `Deadline::scopeOverdue()` trên vụ
+  `open()`, `ChecklistProgress::totalsByLead()` trên `Matter::query()->ofConfidentiality()`, bằng CÙNG phép đếm
+  của trang "Theo dõi đội ngũ" (`BuildTeamWorkload::countPer()`, nay công khai). Người của `TeamRoster::members()`.
+  Dòng `normal` luôn ghi, dòng `restricted` chỉ khi có số > 0; chạy lại trong ngày là `upsert`, và dòng
+  `restricted` của hôm nay của người nay về 0 bị xoá. Dòng quá 25 tháng xoá trong cùng lượt (`delete()`).
+  `captured_on` theo `APP_TIMEZONE` (test: 23:50 ngày D và 06:00 ngày D đều là D). Một dòng `use` mới ở đầu
+  `routes/console.php` (Pint đòi) — người gộp giữ cả hai bên.
+- **Ai đọc dòng nào (R4).** `PerformanceSnapshot::visibleLevels()` là hàm quyết định duy nhất; `scopeVisibleTo()`
+  và `scopeVisibleToMany()` (một truy vấn cho cả trang) chỉ dịch nó. `normal` khi người xem có `matter.viewAny`
+  hoặc là chính người đó với `matter.view`; `restricted` khi một vụ `restricted` giả của người đó qua
+  `Matter::isListableBy()`. Ma trận 10 ô so với `listableBy()` trên một vụ restricted THẬT. Kế toán nhận `normal`
+  theo đúng chữ R4 (có `matter.viewAny`) nhưng không bao giờ tới được ảnh chụp (`viewPerformance` chặn).
+- **Xu hướng.** `BuildPerformanceTrend::handle()` (90 ngày kết thúc hôm qua cho trang một người; hôm nay không
+  bao giờ là một điểm; ngày không có dòng `normal` là `null`, bảng số in "—") và `endpoints()` (cột P8 của trang
+  "Hiệu suất theo kỳ": ảnh chụp ngày đầu kỳ → ngày cuối kỳ, không muộn hơn hôm qua; một truy vấn; dòng "Chung"
+  không có cột này). `PerformanceRow` thêm bốn trường `?int`. Hai widget `StaleTrendWidget` (N4; bảng số kèm X/Y
+  danh mục, không vẽ chung; "Không áp dụng" với người không đứng tên phụ trách vụ) và `OverdueTrendWidget` (N5),
+  một chuỗi `#4a73bd`, không chú giải, một trục y, view `chart-with-table` dùng chung, `$pollingInterval = null`,
+  `$isDiscovered = false`, phần chung ở lớp trừu tượng `PerformanceTrendWidget` (tệp ngoài danh sách của kế
+  hoạch, để hai widget không chép nhau). Kiểm quyền ở trait `AuthorizesPerformanceSubject`: `#[Locked] subjectId`,
+  hook `boot` và `mount()` cùng hỏi `UserPolicy::viewPerformance`, 404. Đo được: Livewire gán tham số
+  `subjectId` vào thuộc tính cùng tên TRƯỚC hook `boot` ở lần mount, nên hook là cổng đầu tiên cả ở lần mount;
+  `mount()` là lớp thứ hai (mutation probe bỏ nó sống sót vì vậy — ghi trong báo cáo Task 7).
+- **Phán quyết controller cho Task 7–8, đã làm ở Task 7:**
+  - **R17 — giờ làm việc.** P3 đo bằng `App\Support\BusinessHours::fromConfig()->minutesBetween() / 60` (M10),
+    không còn giờ lịch; `ResponseTime::label()` in giờ (không gộp thành "ngày" 24 giờ); câu `explain.p3` và
+    `period_page.p3_response` nói "giờ làm việc"; test hai CSDL (Thứ Sáu chiều → Thứ Hai sáng 2,5 giờ; đổi
+    `vkcrm.business_hours` thì số đổi theo). **Đính chính SPEC R17: việc của Task 8.**
+  - **Quét lịch sử người giữ việc** (`HolderHistoryCompletenessTest`, minor m2 + m3 của rà soát Task 3): mẫu mảng
+    quét token theo độ sâu ngoặc (`$data['x']`, mảng con, lời gọi trước khoá không còn làm lọt; thêm
+    `new Model([...])` và `Model::create([...])`); luật có tên `M13B_HH_COLUMN_TABLES`: luật `assigned_to` chỉ áp
+    cho tệp có nhắc `ClientRequest` (token) hoặc chuỗi `client_requests`, nên `RecordIntake`/`UpdateIntakeIdentity`
+    (bản ghi tiếp nhận M10) được THẤY là ghi nhưng ngoài cuộc.
+  - **Câu "Kỳ đã đóng"** (minor m1 của rà soát Task 6): nói đúng điều còn giữ — bàn giao sau kỳ không chuyển việc
+    sang người nhận; huỷ một vụ việc là thao tác thứ bảy làm đổi kỳ đã đóng; mọi số chỉ tính trên vụ người xem
+    ĐANG được xem (người phụ trách cũ tự xem sau khi vụ hạn chế đã bàn giao thì không còn thấy việc của vụ đó).
+    `ClosedPeriodStabilityTest` ghim cả hành vi lẫn câu chữ.
+- **Để lại cho Task 8:** phép đo "Hiệu suất theo kỳ", một quý (≤ 500 ms); quyết định thời gian trang một người
+  (Task 5 đã vượt; xem số đo dưới); đính chính SPEC R17; rà soát cuối kiểm cổng tiếp nhận của
+  `ActivityOwningMatter` (gộp `main`).
+- **Số đo (MariaDB, `tests/Benchmark/TeamPerformanceBenchmarkTest.php`, trung vị 5 lần, 36.530 dòng ảnh chụp
+  hai năm):** tác vụ chụp 51,5 ms (ngân sách 10 giây); cột P8 cả trang (quý trước, 30 người) 16,9 ms; mỗi widget
+  xu hướng 41–47 ms (EXPLAIN: range trên `performance_snapshots_user_id_captured_on_index`, 180 dòng); trang một
+  người KHÔNG biểu đồ 246–267 ms và "trang + hai widget" 356–373 ms — vượt 200 ms (R11); widget tải lười, mỗi
+  widget một request riêng. Không thêm index, không cache.
+- **Số đo test:** bộ đầy đủ SQLite song song **5689 passed / 33 skipped / 1 risky, 0 failed** (27.164 khẳng
+  định, 4218 s, 352 tệp test); MariaDB tuần tự 13 tệp chạm tới **234 passed**; vòng `migrate:fresh --seed` →
+  `migrate:reset` → `migrate` trên MariaDB thật sạch; `pint --test` sạch (1094 tệp).

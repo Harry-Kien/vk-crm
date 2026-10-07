@@ -1115,7 +1115,7 @@ final class BuildPerformanceReport {
 
 **Commit:** `feat: M13 Task 6 — trang "Hiệu suất theo kỳ": mốc đúng hạn/trễ/lỡ theo người giữ vào ngày đến hạn và cắt ở cuối kỳ, phản hồi yêu cầu khách theo người giữ lúc trả lời (trung vị, trung bình), yêu cầu đóng không trả lời tách riêng, chuyển giai đoạn qua StageLog::entries, duyệt giấy tờ theo nhật ký, doanh thu qua CollectedRevenue, tỉ lệ hoàn thành việc đến hạn có ngưỡng mẫu, không xếp hạng`
 
-### - [ ] Task 7 — Ảnh chụp hằng ngày và xu hướng (R10, P8)
+### - [x] Task 7 — Ảnh chụp hằng ngày và xu hướng (R10, P8)
 
 **Tệp:**
 - mới: migration `create_performance_snapshots_table`; `app/Models/PerformanceSnapshot.php`; `app/Policies/PerformanceSnapshotPolicy.php`; alias morph trong `AppServiceProvider`;
@@ -1158,55 +1158,55 @@ protected ?string $pollingInterval = null;    // không kế thừa '5s' của C
 ```
 
 **Bước:**
-- [ ] Migration theo "Mô hình dữ liệu"; chạy vòng MariaDB thật.
-- [ ] Tác vụ chụp:
+- [x] Migration theo "Mô hình dữ liệu"; chạy vòng MariaDB thật.
+- [x] Tác vụ chụp:
   - gọi **đúng** các scope của Task 2 trên `Matter::query()`, **không** qua `listableBy`. Tác vụ chạy không người đăng nhập và chụp toàn bộ; tách theo `confidentiality` **qua `Matter::scopeOfConfidentiality()`**, không tự viết điều kiện (`NoSecondDefinitionTest` quét tệp này);
   - chỉ chụp người của `TeamRoster::members()` (trackable, đang hoạt động); tác vụ không tự viết điều kiện trên `is_active`;
   - `upsert` theo khoá unique;
   - lịch: `->dailyAt('23:50')->name('performance.snapshot')->withoutOverlapping(30)`, kèm docblock nói lý do 23:50 và lý do khoá 30 phút, theo khuôn các mục khác của `routes/console.php`.
-- [ ] `PerformanceSnapshot::visibleLevels()` theo R4: `normal` chỉ khi người xem có `matter.viewAny` hoặc là chính người đó (có `matter.view`); `restricted` khi `(new Matter)->forceFill(['confidentiality' => Restricted, 'lead_lawyer_id' => $subject->id])->isListableBy($viewer)`. `scopeVisibleTo()` và `scopeVisibleToMany()` chỉ dịch kết quả đó sang SQL; không vế nào: `1 = 0`.
-- [ ] Cột P8 của trang hiệu suất: `BuildPerformanceTrend::endpoints()` đọc `scopeVisibleToMany()` một lần cho cả trang; `PerformanceRow` nhận bốn trường `?int` (null = không có ảnh chụp ngày đó).
-- [ ] `BuildPerformanceTrend`:
+- [x] `PerformanceSnapshot::visibleLevels()` theo R4: `normal` chỉ khi người xem có `matter.viewAny` hoặc là chính người đó (có `matter.view`); `restricted` khi `(new Matter)->forceFill(['confidentiality' => Restricted, 'lead_lawyer_id' => $subject->id])->isListableBy($viewer)`. `scopeVisibleTo()` và `scopeVisibleToMany()` chỉ dịch kết quả đó sang SQL; không vế nào: `1 = 0`.
+- [x] Cột P8 của trang hiệu suất: `BuildPerformanceTrend::endpoints()` đọc `scopeVisibleToMany()` một lần cho cả trang; `PerformanceRow` nhận bốn trường `?int` (null = không có ảnh chụp ngày đó).
+- [x] `BuildPerformanceTrend`:
   - đọc `PerformanceSnapshot::visibleTo($viewer, $subject)` (R4);
   - cộng dòng `normal` với dòng `restricted` khi người xem được thấy dòng `restricted`;
   - ngày thiếu dòng `normal` trả `null`;
   - trang một người gọi với `PerformancePeriod::trailingDays(self::MEMBER_PAGE_DAYS)`; trang hiệu suất gọi với kỳ đang chọn, cắt ở hôm qua.
-- [ ] **Hai widget tự kiểm quyền** (Ràng buộc toàn cục; Review Focus 4). Một widget là một component Livewire riêng: request của nó (đổi trang của bảng số, `$refresh`, hay một lần gọi tay) **không** đi qua `boot()` của trang `TeamMember`. Vì vậy:
+- [x] **Hai widget tự kiểm quyền** (Ràng buộc toàn cục; Review Focus 4). Một widget là một component Livewire riêng: request của nó (đổi trang của bảng số, `$refresh`, hay một lần gọi tay) **không** đi qua `boot()` của trang `TeamMember`. Vì vậy:
   - `#[Locked] public int $subjectId`, trang truyền qua `getWidgetData()`;
   - `mount()` **và** `boot()` nạp người dùng chưa xoá mềm theo `subjectId` và hỏi `Gate::forUser($viewer)->allows('viewPerformance', $subject)`; không có hoặc từ chối: `abort(404)`, cùng response với trang;
   - `canView()` tĩnh = người xem có `matter.view` hoặc `performance.viewAny` (lớp ngoài), không thay cho kiểm tra theo người;
   - `$pollingInterval = null`: không thăm dò; mỗi lần thăm dò là một lần chạy lại `BuildPerformanceTrend`;
   - logic kiểm quyền ở trait `AuthorizesPerformanceSubject`, gọi lại đúng `UserPolicy::viewPerformance` của Task 1; không viết luật xem thứ hai.
-- [ ] Hai widget, mỗi widget một chuỗi, một màu `#4a73bd`, không chú giải. Không bao giờ hai trục y.
+- [x] Hai widget, mỗi widget một chuỗi, một màu `#4a73bd`, không chú giải. Không bao giờ hai trục y.
   - Mức hoàn thiện danh mục khác đơn vị, nên chỉ nằm trong bảng số, không vẽ chung.
   - `$isDiscovered = false`.
   - View dùng lại `filament.admin.widgets.revenue.chart-with-table` và `HasMoneyNumberTable`, đúng khuôn M9 Task 9 và phán quyết CSP M8 R4. Không JS mới. `DashboardWidgetOrderTest` không đổi.
-- [ ] **Benchmark:** thêm hai năm ảnh chụp cho 30 người (cả hai loại dòng) và phép đo tác vụ chụp trên 3.000 vụ (ngân sách ≤ 10 giây, R11), cùng phép đo trang một người có biểu đồ (≤ 200 ms). In số đo ra STDERR.
+- [x] **Benchmark:** thêm hai năm ảnh chụp cho 30 người (cả hai loại dòng) và phép đo tác vụ chụp trên 3.000 vụ (ngân sách ≤ 10 giây, R11), cùng phép đo trang một người có biểu đồ (≤ 200 ms). In số đo ra STDERR.
 
 **Test bắt buộc:**
-- [ ] **Đồng nhất:** đóng băng thời gian, chạy tác vụ. Dòng `normal` của X bằng N1, N4, N5, N10 trực tiếp mà trưởng phòng đọc về X. `normal` cộng `restricted` bằng số mà X và admin đọc. Chạy với X có cả hai loại vụ.
-- [ ] Trưởng phòng: dữ liệu xu hướng của X không có vết nào của dòng `restricted`.
+- [x] **Đồng nhất:** đóng băng thời gian, chạy tác vụ. Dòng `normal` của X bằng N1, N4, N5, N10 trực tiếp mà trưởng phòng đọc về X. `normal` cộng `restricted` bằng số mà X và admin đọc. Chạy với X có cả hai loại vụ.
+- [x] Trưởng phòng: dữ liệu xu hướng của X không có vết nào của dòng `restricted`.
   - Dòng đó không được truy vấn: kiểm query log không có `confidentiality = 'restricted'`.
   - Số bằng số khi dòng đó không tồn tại.
-- [ ] **`scopeVisibleTo()` đóng khi không chắc** (`PerformanceSnapshotVisibilityTest`), ma trận người xem × loại dòng:
+- [x] **`scopeVisibleTo()` đóng khi không chắc** (`PerformanceSnapshotVisibilityTest`), ma trận người xem × loại dòng:
   - admin: cả hai; trưởng phòng: `normal`; chính X có `matter.view`: cả hai; X đã mất `matter.view`: không gì; luật sư khác, trợ lý: không gì; người có `performance.viewAny` cấp trực tiếp mà **không** có `matter.viewAny`: không dòng `normal` nào;
   - dòng `restricted` đồng ý với `isListableBy()` của vụ giả trên **mọi** ô của ma trận. Mutation probe: thay bằng `hasRole(Admin) || is($subject)` thì ô "X đã mất `matter.view`" đỏ; bỏ vế `matter.viewAny` của dòng `normal` thì ô "luật sư khác" đỏ;
   - `scopeVisibleToMany()` cho cùng tập dòng với hợp các `scopeVisibleTo()` từng người; số truy vấn của cột P8 bằng nhau với 3 và 12 người.
-- [ ] **Widget bị can thiệp** (`PerformanceTrendWidgetAccessTest`, Review Focus 4):
+- [x] **Widget bị can thiệp** (`PerformanceTrendWidgetAccessTest`, Review Focus 4):
   - luật sư L gọi `Livewire::test(StaleTrendWidget::class, ['subjectId' => <đồng nghiệp>])` → 404, response không chứa chuỗi số nào; tương tự `OverdueTrendWidget`;
   - L mở widget của chính mình, rồi `->set('subjectId', <đồng nghiệp>)` → bị `#[Locked]` chặn;
   - trưởng phòng mở widget của X, rồi mất `performance.viewAny`; lần gọi kế tiếp của **widget** (không qua trang) → 404 nhờ `boot()`. Mutation probe: xoá dòng hỏi trong `boot()` của trait thì test đỏ;
   - kế toán → 404;
   - widget không thăm dò: `$pollingInterval` là `null`, HTML không có `wire:poll`.
-- [ ] Khoảng của trang một người: vào ngày 2026-10-04, `dates` là 2026-07-06 … 2026-10-03 (90 phần tử); không có điểm của hôm nay.
-- [ ] Chạy hai lần cùng ngày: số dòng không đổi, số mới thắng.
-- [ ] Lúc 23:50 ngày D theo `APP_TIMEZONE`, `captured_on = D`. Kiểm bằng `travelTo()`, `APP_TIMEZONE = Asia/Ho_Chi_Minh`.
-- [ ] Ngày thiếu là `null`, không phải 0. Bảng số in "—".
-- [ ] Prune: dòng 25 tháng 1 ngày bị xoá, dòng 25 tháng còn.
-- [ ] Người đã nghỉ việc không có dòng mới, dòng cũ còn.
-- [ ] Lịch: tác vụ có tên `performance.snapshot`, chạy 23:50, khoá 30 phút (khuôn `tests/Feature/Schedule/*`).
-- [ ] `PortalCoverageTest` xanh không miễn trừ. `Audit::record(…, $snapshot)` không ném lỗi.
-- [ ] Widget không có trên trang chủ.
+- [x] Khoảng của trang một người: vào ngày 2026-10-04, `dates` là 2026-07-06 … 2026-10-03 (90 phần tử); không có điểm của hôm nay.
+- [x] Chạy hai lần cùng ngày: số dòng không đổi, số mới thắng.
+- [x] Lúc 23:50 ngày D theo `APP_TIMEZONE`, `captured_on = D`. Kiểm bằng `travelTo()`, `APP_TIMEZONE = Asia/Ho_Chi_Minh`.
+- [x] Ngày thiếu là `null`, không phải 0. Bảng số in "—".
+- [x] Prune: dòng 25 tháng 1 ngày bị xoá, dòng 25 tháng còn.
+- [x] Người đã nghỉ việc không có dòng mới, dòng cũ còn.
+- [x] Lịch: tác vụ có tên `performance.snapshot`, chạy 23:50, khoá 30 phút (khuôn `tests/Feature/Schedule/*`).
+- [x] `PortalCoverageTest` xanh không miễn trừ. `Audit::record(…, $snapshot)` không ném lỗi.
+- [x] Widget không có trên trang chủ.
 
 **Commit:** `feat: M13 Task 7 — ảnh chụp hằng ngày performance_snapshots (23:50, tách normal/restricted, upsert, giữ 25 tháng, xem được đóng khi không chắc và suy từ isListableBy), xu hướng 90 ngày trên trang một người và đầu kỳ → cuối kỳ trên trang hiệu suất, hai widget tự kiểm quyền ở mount và boot, không thăm dò, ngày thiếu để trống`
 

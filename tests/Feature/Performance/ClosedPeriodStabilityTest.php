@@ -2,6 +2,7 @@
 
 use App\Actions\Deadline\SetDeadlineCompletion;
 use App\Actions\Document\ReviewChecklistItem;
+use App\Actions\Matter\CancelMatter;
 use App\Actions\Matter\ReassignMatter;
 use App\Actions\Matter\ReassignMatters;
 use App\Actions\Portal\ReplyToClientRequest;
@@ -206,4 +207,50 @@ it('keeps every field of every row of a closed period after late completions, la
             }
         }
     }
+});
+
+/**
+ * Câu `performance.explain.closed_period` nói ĐÚNG điều còn giữ, không hứa hơn (phán quyết controller cho
+ * Task 7–8, minor m1 của rà soát Task 6; sửa 2026-10-07, Task 7 làn A). Bàn giao sau kỳ không chuyển việc
+ * của kỳ sang người nhận — nhưng mọi con số chỉ tính trên các vụ người xem ĐANG được xem (R4: phần giao với
+ * `listableBy`): người phụ trách cũ tự xem dòng của mình sau khi một vụ `restricted` đã được bàn giao (vụ
+ * hạn chế không giữ được người cũ làm cộng sự — `ReassignMatter` từ chối) thì không còn thấy việc của vụ đó; admin vẫn thấy nó tính cho người cũ.
+ * Huỷ một vụ (`CancelMatter`, xoá mềm) đưa việc của vụ đó ra khỏi kỳ của MỌI người xem. Ghim cả hai, để
+ * không ai "sửa" lặng lẽ, và để câu giải thích không quay lại hứa "bàn giao không đổi số".
+ */
+it('drops a handed-over restricted matter from the old lead\'s own closed period but not from the admin\'s, drops a cancelled matter for everyone, and says so', function () {
+    $secret = m13bCsMatter($this->lawyerA, ['confidentiality' => 'restricted']);
+    $normal = m13bCsMatter($this->lawyerA);
+    m13bCsDeadline($secret, $this->lawyerA, '2026-09-10');
+    m13bCsDeadline($normal, $this->lawyerA, '2026-09-11');
+
+    m13bCsAt('2026-10-15 10:00:00');
+    $own = m13bCsRows($this->lawyerA)[$this->lawyerA->id]['deadlinesMissed'];
+    $admin = m13bCsRows($this->admin)[$this->lawyerA->id]['deadlinesMissed'];
+    $manager = m13bCsRows($this->manager)[$this->lawyerA->id]['deadlinesMissed'];
+
+    m13bCsAt('2026-10-16 14:00:00');
+    app(ReassignMatter::class)->handle(
+        matter: $secret->fresh(),
+        actor: $this->admin,
+        newLead: $this->lawyerB,
+        reason: 'Bàn giao vụ hạn chế.',
+        keepOldLeadAsAssociate: false,
+    );
+
+    m13bCsAt('2026-10-16 16:00:00');
+
+    expect([$own, $admin, $manager])->toBe([2, 2, 1])
+        ->and(m13bCsRows($this->lawyerA)[$this->lawyerA->id]['deadlinesMissed'])->toBe(1)
+        ->and(m13bCsRows($this->admin)[$this->lawyerA->id]['deadlinesMissed'])->toBe(2)
+        ->and(m13bCsRows($this->manager)[$this->lawyerA->id]['deadlinesMissed'])->toBe(1)
+        ->and(m13bCsRows($this->lawyerB)[$this->lawyerB->id]['deadlinesMissed'])->toBe(0);
+
+    app(CancelMatter::class)->handle($normal->fresh(), $this->admin, 'Mở nhầm khách hàng.');
+
+    expect(m13bCsRows($this->manager)[$this->lawyerA->id]['deadlinesMissed'])->toBe(0)
+        ->and(m13bCsRows($this->admin)[$this->lawyerA->id]['deadlinesMissed'])->toBe(1)
+        ->and(__('performance.explain.closed_period'))->toContain('huỷ một vụ việc')
+        ->and(__('performance.explain.closed_period'))->toContain('không còn được xem')
+        ->and(__('performance.explain.closed_period'))->not->toContain('bàn giao vụ sau khi hết kỳ không làm đổi số');
 });

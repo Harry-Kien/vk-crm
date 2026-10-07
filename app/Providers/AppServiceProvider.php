@@ -25,6 +25,7 @@ use App\Models\Matter;
 use App\Models\MatterChecklistItem;
 use App\Models\MatterParty;
 use App\Models\Payment;
+use App\Models\PerformanceSnapshot;
 use App\Models\StageLog;
 use App\Models\TimeEntry;
 use App\Models\User;
@@ -208,6 +209,9 @@ class AppServiceProvider extends ServiceProvider
             // có tên trong `ActivityOwningMatter::MATTER_OWNED`, để dòng nhật ký của một vụ
             // `restricted` không lọt ra trang Nhật ký hệ thống.
             'communication_log' => CommunicationLog::class,
+            // M13 Task 7: ảnh chụp số liệu hằng ngày (R10). Map NGHIÊM NGẶT — thiếu tên ở đây thì
+            // `Audit::record(..., $snapshot)` là một lỗi 500 (`ClassMorphViolationException`).
+            'performance_snapshot' => PerformanceSnapshot::class,
         ]);
 
         // Giới hạn lượt tải tệp (route `documents.download`). Con số và toàn bộ lý lẽ — kể cả vì

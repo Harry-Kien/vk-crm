@@ -3,11 +3,15 @@
 namespace App\Filament\Admin\Pages;
 
 use App\Actions\Performance\BuildMatterTypeMix;
+use App\Actions\Performance\BuildPerformanceTrend;
 use App\Actions\Performance\BuildTeamWorkload;
 use App\Enums\Permission;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Filament\Admin\Resources\Matters\RelationManagers\DeadlinesRelationManager;
 use App\Filament\Admin\Widgets\PendingChecklistReviewsWidget;
+use App\Filament\Admin\Widgets\Performance\OverdueTrendWidget;
+use App\Filament\Admin\Widgets\Performance\PerformanceTrendWidget;
+use App\Filament\Admin\Widgets\Performance\StaleTrendWidget;
 use App\Filament\Admin\Widgets\UpcomingDeadlinesWidget;
 use App\Models\ClientRequest;
 use App\Models\Deadline;
@@ -115,9 +119,11 @@ use Livewire\Attributes\Locked;
  *
  * # Xu hướng (Task 7)
  *
- * Hai widget xu hướng sẽ vào {@see self::getFooterWidgets()}; trang truyền `subjectId` qua
+ * Hai widget xu hướng ({@see StaleTrendWidget}, {@see OverdueTrendWidget}: 90 ngày kết thúc hôm qua,
+ * từ ảnh chụp hằng ngày) nằm ở {@see self::getFooterWidgets()}; trang truyền `subjectId` qua
  * {@see self::getWidgetData()}. Widget là một component Livewire riêng: nó không tin giá trị đó, tự
- * khoá `#[Locked]` và tự hỏi `viewPerformance` ở `mount()` và `boot()`.
+ * khoá `#[Locked]` và tự hỏi `viewPerformance` ở `mount()` và `boot()` (trait
+ * `AuthorizesPerformanceSubject`). Khối "Cách tính các con số" có câu giải thích của hai biểu đồ.
  */
 class TeamMember extends Page implements HasTable
 {
@@ -256,6 +262,17 @@ class TeamMember extends Page implements HasTable
         return ['subjectId' => $this->subjectId];
     }
 
+    /**
+     * Hai biểu đồ xu hướng (Task 7, P8) dưới cùng trang. Mỗi widget tự kiểm quyền — xem docblock lớp,
+     * mục "Xu hướng".
+     *
+     * @return list<class-string<PerformanceTrendWidget>>
+     */
+    protected function getFooterWidgets(): array
+    {
+        return [StaleTrendWidget::class, OverdueTrendWidget::class];
+    }
+
     public function table(Table $table): Table
     {
         return $table
@@ -365,6 +382,7 @@ class TeamMember extends Page implements HasTable
             ], self::EXPLAINED_CODES),
             ['label' => __('performance.team_member.mix.label'), 'sentence' => __('performance.team_member.mix.explain')],
             ['label' => __('performance.team_member.lists.label'), 'sentence' => __('performance.team_member.lists.explain', ['limit' => self::LIST_LIMIT])],
+            ['label' => __('performance.trend.label'), 'sentence' => __('performance.trend.explain', ['days' => BuildPerformanceTrend::MEMBER_PAGE_DAYS])],
         ];
     }
 
