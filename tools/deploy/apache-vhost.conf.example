@@ -55,7 +55,11 @@
     # `<FilesMatch "^\.">` trước M8 Task 4 chỉ so TÊN TỆP cuối, nên khi `DocumentRoot` đặt nhầm vào
     # gốc dự án nó vẫn phát `/.github/workflows/<tệp>` — đo được, xem
     # `tools/deploy/verify-storage-blocked.sh`. 404, cùng mã với bản nginx.
-    RedirectMatch 404 "/\."
+    #
+    # Trừ ĐÚNG đoạn `/.well-known/` (M11 Task 16): bốn route metadata OAuth của máy chủ MCP nằm ở đó
+    # (`routes/ai.php`) — đọc lý do ở khối cùng tên của bản nginx. Một đoạn dấu chấm khác trong cùng
+    # đường dẫn (`/.well-known/.env`) vẫn bị chặn. Phần còn lại tới `index.php` qua `public/.htaccess`.
+    RedirectMatch 404 "/\.(?!well-known/)"
 
     # SPEC §10.4 — `/storage/` KHÔNG BAO GIỜ do máy chủ web phục vụ, và trả 404 như bản nginx (đọc
     # docblock khối `location ^~ /storage/` ở đó: hai cấu hình sai mà khối này chặn). Dự án KHÔNG

@@ -68,6 +68,14 @@ khách của văn phòng, số thô còn trong `clients.id_number` nên tính l�
 theo đúng logic của migration `2026_10_01_000001_rehash_matter_party_id_number_hashes`; với bên đối
 lập thì không. Chỉ xoay `APP_KEY` khi nghi khoá đã lộ, và biết trước cái giá này.
 
+**M11 (kết nối AI cho nhân sự): `APP_KEY` còn mã hoá refresh token và mã uỷ quyền OAuth.** Passport
+dùng khoá mã hoá của ứng dụng (tức `APP_KEY`) cho hai thứ đó; hai tệp khoá RSA
+(`storage/oauth-*.key`) chỉ ký và kiểm access token. Sinh hay xoay `APP_KEY` vì vậy làm MỌI kết nối
+AI của MỌI nhân sự không làm mới được nữa: mỗi người phải vào Claude/ChatGPT kết nối lại từ đầu
+(`docs/KET-NOI-AI.md`). Mất hay đổi riêng hai tệp khoá RSA thì nhẹ hơn: access token đang dùng (sống
+tối đa 1 giờ) hết hiệu lực ngay, và client tự làm mới bằng refresh token. Hai tệp khoá vẫn cất cùng
+chỗ, cùng quy trình với `APP_KEY` (mục "Máy chủ MCP" bên dưới).
+
 **Sinh khoá mới trên một cơ sở dữ liệu đã có dữ liệu thật nghĩa là mọi số định danh đã lưu
 trở thành không đọc được, vĩnh viễn.** Không có cách khôi phục.
 
@@ -177,20 +185,24 @@ Mọi lệnh `php artisan …` chạy trong thư mục `/var/www/vk-crm`, bằng
 | Họ tên và email của quản trị viên đầu tiên | Bước 6 |
 | Một tài khoản Google RIÊNG cho sao lưu | `docs/SAO-LUU-KHOI-PHUC.md`, Bước 2 |
 | Hai chỗ cất khoá NGOÀI máy chủ (trình quản lý mật khẩu + bản giấy/USB trong két) | Bước 3 và `docs/SAO-LUU-KHOI-PHUC.md`, Bước 6 |
+| Vụ việc mới có được lên AI ngay không (mặc định: KHÔNG, bật từng vụ khi khách đã đồng ý bằng văn bản), và tên các bên không phải khách có giả danh không (mặc định: CÓ) | `MCP_MATTER_DEFAULT`, `MCP_PARTY_NAMES` — mục "Máy chủ MCP" bên dưới. Máy chủ MCP luôn TẮT khi cài; chủ văn phòng chỉ bật sau danh sách việc ở `docs/CHINH-SACH-AI.md` |
 
 ### Bước 1 — Máy chủ cần có
 
 - **PHP 8.3** chạy qua **PHP-FPM**, với ĐỦ các extension sau — thiếu một cái là `vkcrm:preflight`
   báo ĐỎ:
 
-  `ctype` `dom` `exif` `fileinfo` `filter` `hash` `iconv` `intl` `json` `libxml` `mbstring`
-  `openssl` `pcre` `session` `tokenizer` `xmlreader` `zip` `zlib` `pdo_mysql`
+  `ctype` `curl` `dom` `exif` `fileinfo` `filter` `hash` `iconv` `intl` `json` `libxml`
+  `mbstring` `openssl` `pcre` `session` `sodium` `tokenizer` `xmlreader` `zip` `zlib` `pdo_mysql`
 
-  Đây là kết quả `composer check-platform-reqs --no-dev` cộng `pdo_mysql`, và chính là danh sách
-  `vkcrm:preflight` kiểm (`config/vkcrm.php`, khoá `deployment.required_extensions`). Hai cái hay
-  thiếu nhất trên shared hosting: `intl` (Filament bắt buộc) và `dom` (gói làm sạch HTML, gói ghép
-  CSS vào thư, gói đọc/ghi tệp xlsx đều cần). Nên có thêm, chưa bắt buộc: `gd` (preflight báo VÀNG
-  nếu thiếu) và `curl`. Kiểm nhanh: `php -m`.
+  Đây là kết quả `composer check-platform-reqs --no-dev` cộng `pdo_mysql` và `curl`, và chính là
+  danh sách `vkcrm:preflight` kiểm (`config/vkcrm.php`, khoá `deployment.required_extensions`). Hai
+  cái hay thiếu nhất trên shared hosting: `intl` (Filament bắt buộc) và `dom` (gói làm sạch HTML, gói
+  ghép CSS vào thư, gói đọc/ghi tệp xlsx đều cần). Hai cái của máy chủ MCP (M11, kết nối AI cho nhân
+  sự): `sodium` — gói ký token mà Passport kéo vào đòi nó, thiếu thì `/oauth/token` hỏng, và chỉ hỏng
+  trên máy chủ thật; `curl` — không gói nào khai, nhưng phần tải tài liệu CIMD của app dùng hằng số
+  của curl (SPEC §2, đính chính 2026-10-07). Nên có thêm, chưa bắt buộc: `gd` (preflight báo VÀNG
+  nếu thiếu). Kiểm nhanh: `php -m`.
 - **Cấu hình PHP-FPM** (php.ini của FPM, KHÁC tệp php.ini của dòng lệnh — `php -i` chỉ in tệp của
   dòng lệnh; trên Ubuntu xem bản của FPM bằng `php-fpm8.3 -i`):
   - `upload_max_filesize` ≥ `UPLOAD_MAX_MB` (mặc định 20 → `20M`) và `post_max_size` lớn hơn nó
@@ -283,6 +295,22 @@ khoá mới — đọc lại mục "CẢNH BÁO về `APP_KEY`" ở trên. Ngay 
 `APP_KEY` (cùng `BACKUP_ARCHIVE_PASSWORD` ở Bước 10) ở hai nơi ngoài máy chủ
 (`docs/SAO-LUU-KHOI-PHUC.md`, Bước 6).
 
+Ngay sau đó, sinh **khoá Passport** — cặp khoá RSA ký access token cho kết nối AI của nhân sự (máy
+chủ MCP, M11; đọc mục "Máy chủ MCP (kết nối AI cho nhân sự)" ở cuối phần này):
+
+```bash
+php artisan passport:keys
+```
+
+Lệnh tạo `storage/oauth-private.key` (quyền 600) và `storage/oauth-public.key`, mang chủ là người
+chạy lệnh — vì vậy chạy bằng người dùng của PHP-FPM, như mọi lệnh `php artisan` ở đây. **Cùng luật với
+`APP_KEY`**: chỉ sinh ở lần cài đầu; dựng lại máy cho dữ liệu đã có thì chép hai tệp CŨ về
+`storage/`; cất chúng cùng chỗ và cùng quy trình với `APP_KEY` (hai nơi ngoài máy chủ, không cùng chỗ
+bản sao lưu — bản sao lưu hằng đêm không chứa `storage/oauth-*.key`). Đừng nới quyền tệp khoá riêng:
+ai đọc được nó là tự ký được access token mang tên bất kỳ nhân sự nào, và `vkcrm:preflight` báo ĐỎ.
+Máy chủ không giữ được tệp (một số shared hosting) thì dán NỘI DUNG hai khoá vào
+`PASSPORT_PRIVATE_KEY`/`PASSPORT_PUBLIC_KEY` của `.env`, xuống dòng viết là `\n`.
+
 Rồi mở `.env` và điền. Mọi biến đều có sẵn một dòng trong `.env.example`, kèm một câu nói giá trị
 thật lấy ở đâu (`tests/Feature/Deployment/EnvExampleTest.php` giữ cho điều đó luôn đúng: một biến
 mới mà quên dòng mẫu là test đỏ). Những dòng PHẢI sửa so với bản mẫu — bản mẫu là cho máy dev:
@@ -302,6 +330,7 @@ mới mà quên dòng mẫu là test đỏ). Những dòng PHẢI sửa so với
 | `BRAND_REPLY_TO_ADDRESS` | hộp thư có người đọc | chủ văn phòng — đọc mục 3 ngay dưới bảng |
 | `BACKUP_*` | | `docs/SAO-LUU-KHOI-PHUC.md`, Bước 4 |
 | `ADMIN_IP_ALLOWLIST` | để trống, hoặc danh sách IP/CIDR | chủ văn phòng (Bước 0) |
+| `MCP_MATTER_DEFAULT`, `MCP_PARTY_NAMES` | giữ `denied`, `pseudonym` của bản mẫu, trừ khi chủ văn phòng quyết khác | chủ văn phòng (Bước 0) — mục "Máy chủ MCP" bên dưới |
 
 Để TRỐNG (đúng giá trị của bản mẫu) là chặt nhất, không cần điền gì: `SESSION_SECURE_COOKIE`,
 `FORCE_HTTPS`, `HSTS_MAX_AGE` (ba biến tự bật ở mọi môi trường trừ `local`/`testing`), `CSP_MODE`
@@ -357,7 +386,7 @@ Dùng mẫu ĐÃ CHẠY THỬ, sửa tên miền, đường dẫn chứng chỉ 
   không tự nối PHP: dùng mod_php, hoặc PHP-FPM qua `proxy_fcgi` — trên Ubuntu
   `a2enmod proxy_fcgi setenvif` rồi `a2enconf php8.3-fpm`.
 
-Hai mẫu cùng làm năm việc — đừng bỏ việc nào khi chép sang cấu hình khác:
+Hai mẫu cùng làm sáu việc — đừng bỏ việc nào khi chép sang cấu hình khác:
 
 1. **Document root là `public/`**, không phải gốc dự án.
 2. **Chuyển http → https** trước khi PHP chạy, và gửi **HSTS** (`Strict-Transport-Security`) trên
@@ -376,10 +405,25 @@ Hai mẫu cùng làm năm việc — đừng bỏ việc nào khi chép sang c�
 5. **Giới hạn thân request ≥ `UPLOAD_MAX_MB` cộng phần dư** (`client_max_body_size 25m;` /
    `LimitRequestBody 26214400` cho 20 MB mặc định) — thấp hơn thì máy chủ web tự trả `413` trước
    khi PHP kịp thấy tệp.
+6. **`/.well-known/` đi vào Laravel** (M11): luật chặn dotfile của mục 4 chừa ĐÚNG đoạn đầu
+   `/.well-known/` (`location ~ /\.(?!well-known/)` / `RedirectMatch 404 "/\.(?!well-known/)"`), vì
+   bốn route metadata OAuth của máy chủ MCP nằm ở đó, và Claude hay ChatGPT đọc chúng trước khi cho
+   nhân sự đăng nhập. Luật cũ `location ~ /\.` / `RedirectMatch 404 "/\."` chặn luôn chúng: `/mcp`
+   vẫn trả 401 đúng, nhưng không ai kết nối được. Kiểm trên máy chủ thật:
+   `curl -s https://<tên miền>/.well-known/oauth-protected-resource/mcp` phải in JSON có `"resource"`,
+   còn `curl -I https://<tên miền>/.well-known/.env` vẫn phải là `404`.
 
 Shared hosting không cho sửa cấu hình máy chủ web: trỏ document root (tên miền/tên miền con) vào
-`public/` trong bảng điều khiển, bật "Force HTTPS" nếu có, và kiểm mục 4 bằng `curl` như trên —
-`EnforceHttps` lo phần HTTPS/HSTS dự phòng.
+`public/` trong bảng điều khiển, bật "Force HTTPS" nếu có, và kiểm mục 4 và mục 6 bằng `curl` như
+trên — `EnforceHttps` lo phần HTTPS/HSTS dự phòng. Một số bảng điều khiển (cPanel với AutoSSL…) tự
+giữ `/.well-known/` cho việc xin chứng chỉ: nếu lệnh `curl` của mục 6 trả `404` hay một trang của
+hosting thay vì JSON, nhờ nhà cung cấp chuyển `/.well-known/oauth-*` vào `public/index.php`; không
+làm được thì không bật kết nối AI trên gói hosting đó.
+
+**Không đệm `/mcp`.** Máy chủ MCP trả JSON thường, không luồng, nên hai mẫu không cần khối riêng cho
+`/mcp`. Nếu sau này một tool trả luồng (SSE), laravel/mcp tự gửi `X-Accel-Buffering: no` cho phản hồi
+đó và nginx tôn trọng nó theo mặc định — đừng thêm `fastcgi_ignore_headers X-Accel-Buffering`, và
+đừng bật đệm phản hồi cho `/mcp` ở một proxy/CDN đứng trước.
 
 ### Bước 5 — Cơ sở dữ liệu: migrate và seed dữ liệu tham chiếu
 
@@ -558,6 +602,19 @@ khi máy chủ web và HTTPS ở Bước 4 đã lên), và ba điều kiện má
 - cộng tệp chạy `rclone` cho đích Google Drive (Bước 1 của `docs/SAO-LUU-KHOI-PHUC.md` —
   `vkcrm:preflight` không kiểm riêng `rclone`, dùng `vkcrm:backup-check` cho việc đó).
 
+Và ba điều kiện của máy chủ MCP (kết nối AI cho nhân sự, M11), kiểm cả khi máy chủ MCP đang tắt:
+
+- `mcp.redirect_domains` (`config/mcp.php` của gói laravel/mcp) không có `*` — ĐỎ nếu có. App dùng
+  danh sách redirect so khớp chính xác của riêng nó; `*` ở khoá này chỉ chờ ai đó bật lại route
+  đăng ký client của gói là mở cho mọi tên miền;
+- access token của Passport sống không quá 1 giờ — ĐỎ nếu dài hơn (mặc định của Passport là một năm;
+  `AppServiceProvider` đặt 1 giờ);
+- hai khoá Passport (Bước 3) có mặt và đọc được thành khoá RSA, và tệp khoá riêng không mở quyền gì
+  cho người dùng khác (`chmod 600`; 640 hay 660 được) — ĐỎ nếu không, nêu đúng tệp hoặc biến thiếu.
+
+Chưa có: dòng VÀNG "đã bật kết nối AI mà chưa ghi ngày nộp hồ sơ chuyển dữ liệu xuyên biên giới"
+(`docs/CHINH-SACH-AI.md`, việc 1) — đến cùng công tắc bật/tắt của trang "Kết nối AI".
+
 Dòng ĐỎ chặn mở cổng — trừ dòng "bất biến tiền" (một hợp đồng đang hiệu lực mà tổng các đợt lệch
 giá trị hợp đồng; máy chưa có hợp đồng nào luôn XANH ở dòng này): nó vẫn ĐỎ và mã thoát vẫn 1, nhưng
 là dữ liệu, chỉ sửa được trong app bằng một phụ lục, nên không chặn `php artisan up` (mục "Nâng cấp
@@ -620,6 +677,74 @@ lần khôi phục thử thật** (mục "Khôi phục thử" của tài liệu 
 biến mất), quản trị viên đã cài 2FA, một lần khôi phục thử đã chạy. Giờ mới gửi đường dẫn
 `/portal` cho khách.
 
+### Máy chủ MCP (kết nối AI cho nhân sự)
+
+Từ M11, nhân sự nối tài khoản AI của chính mình (Claude, ChatGPT, Claude Code, VS Code…) vào hệ
+thống qua một cổng MCP duy nhất, để hỏi hồ sơ và soạn nháp. Phần này là việc của người cài máy
+chủ. Việc của chủ văn phòng (pháp lý, ai được dùng, bật lúc nào) ở `docs/CHINH-SACH-AI.md`; việc
+của từng nhân sự (kết nối từng ứng dụng) ở `docs/KET-NOI-AI.md`.
+
+**Cài xong, máy chủ MCP vẫn TẮT.** Hai công tắc toàn hệ thống (bật máy chủ MCP; cho phép ghi) mặc
+định tắt và nằm trong trang "Kết nối AI" của quản trị viên, cùng công tắc theo từng nhân sự (mặc
+định tắt). Không có biến `.env` nào bật được chúng. Người cài máy chủ chỉ cần làm đúng năm việc dưới
+đây để khi chủ văn phòng bật thì nó chạy.
+
+1. **Khoá Passport** — Bước 3 (`php artisan passport:keys`, quyền 600, cất cùng `APP_KEY`).
+   `vkcrm:preflight` (Bước 7) báo ĐỎ khi thiếu khoá hay khoá riêng mở cho người dùng khác.
+2. **`/.well-known/` tới được Laravel** — Bước 4, mục 6. Đây là chỗ hỏng hay gặp nhất, vì nó chỉ
+   hỏng trên máy chủ thật: `/mcp` vẫn trả 401 đúng, nhưng Claude và ChatGPT không tìm được trang đăng
+   nhập.
+3. **Tường lửa, WAF, Cloudflare, chặn địa lý không được chặn hai nền tảng AI.** Claude và ChatGPT
+   gọi máy chủ từ hạ tầng của họ ở nước ngoài, kể cả bước đọc `/.well-known/*` và `/oauth/token`.
+   Phải cho qua:
+   - dải IP đi ra của Anthropic (Claude): `160.79.104.0/21`;
+   - danh sách IP của OpenAI (ChatGPT), công bố dạng JSON ở `https://openai.com/chatgpt-connectors.json`
+     và **thay đổi thường xuyên** — quy tắc tường lửa phải cập nhật theo nó, không chép một lần rồi
+     để đó. Danh sách IP không thay được xác thực: mọi request vẫn phải mang token.
+
+   Claude Code, Cursor và VS Code thì gọi từ chính máy của nhân sự. `ADMIN_IP_ALLOWLIST` (nếu có
+   đặt) chặn màn hình đồng ý `/oauth/authorize`, vì màn hình đó mở trong trình duyệt của nhân sự
+   như `/admin`: nhân sự ở ngoài các IP đó không kết nối mới được, nhưng kết nối đã có vẫn chạy
+   (`/mcp`, `/oauth/token` không nằm sau allowlist).
+4. **Không đệm `/mcp`** — Bước 4, đoạn "Không đệm `/mcp`".
+5. **URL của máy chủ MCP là URL trên tên miền QUẢN TRỊ**: `https://<ADMIN_DOMAIN>/mcp` khi `.env` đặt
+   `ADMIN_DOMAIN`, còn không thì `https://<tên miền của APP_URL>/mcp` (ví dụ
+   `https://khachhang.luatvukhang.com/mcp`). Khi tách hai tên miền, nhân sự PHẢI dán URL trên tên
+   miền quản trị: dán URL trên tên miền cổng khách thì máy chủ trả siêu dữ liệu mang URL khác URL
+   client đã gọi, và theo chuẩn (RFC 9728) client phải từ chối — kết nối không bao giờ thành. Báo URL
+   đúng cho chủ văn phòng để ghi vào `docs/KET-NOI-AI.md` của văn phòng.
+
+**Biến `.env` của máy chủ MCP** (mỗi biến có một dòng giải thích trong `.env.example`):
+
+| Biến | Mặc định | Khi nào đổi |
+|---|---|---|
+| `MCP_MATTER_DEFAULT` | `denied` | Vụ việc MỚI có lên AI ngay không. Để `denied`: luật sư bật từng vụ ở tab Tổng quan, kèm ô tích "Khách đã đồng ý bằng văn bản" và một dòng nhật ký. Đặt `allowed` thì mọi vụ mới lên AI mà KHÔNG có ô tích đồng ý nào, KHÔNG có dòng nhật ký nào cho riêng việc đó — hệ thống không còn giữ bằng chứng khách đã đồng ý. Chỉ chủ văn phòng quyết |
+| `MCP_PARTY_NAMES` | `pseudonym` | `full` trả tên thật của các bên không phải khách (bị đơn, người liên quan) cho AI. Chỉ chủ văn phòng quyết. Giả danh không phải khử nhận dạng: tiêu đề vụ việc thường chứa tên đương sự |
+| `MCP_EXTRA_REDIRECT_URIS` | trống | Một ứng dụng AI khác ngoài danh sách có sẵn (`docs/KET-NOI-AI.md`) cần redirect URI riêng: thêm ĐÚNG URI đầy đủ, phân tách dấu phẩy, không ký tự đại diện |
+| `MCP_EXTRA_ALLOWED_ORIGINS` | trống | Một ứng dụng chạy trong trình duyệt (gửi header `Origin`) ngoài `https://claude.ai`, `https://chatgpt.com` bị trả 403 |
+| `MCP_CLIENT_ID_METADATA_DOCUMENTS` | `false` | Giữ `false`. Chỉ bật sau khi đã thử thật với Claude và ChatGPT trên máy chạy thử; tắt lại sau khi đã bật thì nhân sự kết nối theo cách đó phải kết nối lại |
+| `PASSPORT_PRIVATE_KEY`, `PASSPORT_PUBLIC_KEY` | trống (đọc tệp `storage/oauth-*.key`) | Chỉ khi máy chủ không giữ được tệp khoá — Bước 3 |
+
+**Giới hạn đã biết, nói trước để không ai chẩn đoán nhầm:**
+
+- **Đăng ký client động bị giới hạn 10 lần một giờ cho mỗi IP**, đếm cả lần hỏng. Claude và ChatGPT
+  đăng ký từ IP của nền tảng, và mỗi lần một nhân sự kết nối (hay kết nối lại) là một lần đăng ký —
+  nên MỌI nhân sự dùng cùng một nền tảng chung một bộ đếm. Một buổi hướng dẫn cả văn phòng kết nối
+  Claude trong cùng một giờ sẽ gặp lỗi từ người thứ mười một (HTTP 429); người đó chờ sang giờ sau.
+  Ai biết URL máy chủ cũng tiêu được bộ đếm đó bằng tài khoản Claude của chính họ. Rải việc kết nối
+  ra nhiều giờ; nếu thành vấn đề thật thì báo lại để nới giới hạn.
+- **Loopback IPv6 (`http://[::1]:…`) không dùng được.** Chính sách bảo mật nội dung (CSP) của màn
+  hình đồng ý không mở được cho địa chỉ IPv6, nên trình duyệt chặn bước quay về ứng dụng sau khi bấm
+  "Đồng ý": hệ thống đã ghi một lần đồng ý mà ứng dụng không nhận được mã. Dùng `http://localhost`
+  hay `http://127.0.0.1` cho ứng dụng dòng lệnh.
+- **IP trong nhật ký là IP của nền tảng AI, không phải của nhân sự.** Claude và ChatGPT gọi từ máy
+  chủ của họ (thường ở Mỹ); chỉ Claude Code, Cursor, VS Code gọi từ máy của nhân sự. Một dòng nhật ký
+  mang IP nước ngoài không có nghĩa nhân sự đang ở nước ngoài.
+- **Hai việc dọn dẹp hằng đêm chạy dưới dòng cron sẵn có** (không thêm dòng cron): `mcp.tokens.purge`
+  03:00 (xoá token OAuth đã thu hồi, và token đã hết hạn quá 37 ngày) và `mcp.clients.prune` 03:15
+  (xoá client đăng ký động đã quá 30 ngày tuổi mà không còn token nào sống — mỗi lần kết nối tạo một
+  client mới).
+
 ## Vận hành hằng ngày
 
 - **Nhân sự bị khoá đăng nhập** (năm lần sai trong 15 phút, theo email và theo IP — SPEC §10.3):
@@ -665,6 +790,13 @@ php artisan up
 - Preflight ĐỎ thì sửa trước khi `php artisan up` — chạy `up` rồi mới phát hiện là mở cổng trên
   một cấu hình hỏng. Ngoại lệ duy nhất là dòng "bất biến tiền" ở gạch đầu dòng trên: khi nó là dòng
   ĐỎ duy nhất, câu tổng kết của lệnh nói vẫn `up` (mã thoát vẫn 1), và đúng là vẫn `up`.
+- **Bản cập nhật M11 (kết nối AI cho nhân sự)** trên một máy chủ đã có dữ liệu: chạy MỘT lần
+  `php artisan passport:keys` (bằng người dùng của PHP-FPM, trước `vkcrm:preflight` — thiếu khoá thì
+  dòng khoá Passport ĐỎ) rồi cất hai tệp khoá cùng `APP_KEY` (Bước 3); cài thêm extension `sodium`
+  và `curl` nếu máy chưa có (Bước 1); kiểm `/.well-known/` (Bước 4, mục 6) và tường lửa (mục "Máy
+  chủ MCP"). `migrate --force` chỉ thêm bảng và cột; mọi vụ việc đã có nhận cờ AI "không cho phép",
+  và mọi công tắc AI mặc định tắt, nên sau bản cập nhật chưa ai kết nối được AI, chưa vụ nào lên AI,
+  cho tới khi chủ văn phòng bật.
 - Đọc phần ghi chú nâng cấp của bản mới trong `docs/PROGRESS.md` TRƯỚC khi chạy: một bản có thể
   kèm việc phải làm tay (ví dụ một biến `.env` mới — so `.env.example` mới với `.env` đang chạy).
 - **Đêm đầu sau nâng cấp, theo dõi hộp thư báo lỗi**: lượt sao lưu 02:00 và lượt giám sát 08:00 là

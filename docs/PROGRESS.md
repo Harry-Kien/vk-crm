@@ -5422,3 +5422,64 @@ EXIT 0 — 234 passed. `pint --test`: PASS 1220 tệp. Không có migration.
   Cả bộ (`--parallel --processes=2`): EXIT 0 — 5984 passed (5981 + 3), 1 risky, 1 todo, 33 skipped. MariaDB (tuần tự:
   `StageLogDraftsTest`, `ReplyDraftsTest`, `TransitionStageActionTest`, `StageLogsTabTest` — hai tệp sau phủ phần lần ghi
   chung đã đổi): EXIT 0 — 72 passed. `pint --test`: PASS. Không có migration.
+
+### Task 16 — tài liệu: chính sách AI, hướng dẫn kết nối, triển khai; bốn điều kiện preflight (làn m11b, 2026-10-07)
+
+- **Tài liệu mới.** `docs/CHINH-SACH-AI.md` (bản nháp chờ chủ văn phòng duyệt câu chữ, ghi phiên bản `2026-10-04`
+  = `vkcrm.mcp.policy_version` của làn m11): ai được dùng, AI thấy gì (R3, vụ hạn chế, cờ R9, giả danh R10 nói thẳng
+  không phải khử nhận dạng), bảng R4, AI làm được gì (nói thẳng "Always allow" thì AI tự gọi cả hai bước; lớp an toàn
+  thật là ghi nội bộ, nhãn "Tạo qua AI", người sửa được), bắt buộc tắt huấn luyện (ChatGPT "Improve the model for
+  everyone" [PL:175]; tên mục của Claude **chưa kiểm được**, Task 17 ghi kèm ảnh), "Needs approval" trên Claude, không
+  nhớ lựa chọn duyệt trên ChatGPT, quy tắc dùng, năm việc của chủ văn phòng trước khi bật `mcp.enabled` (chỉ liệt kê,
+  không quyết), kiểm tra định kỳ, báo sự cố 72 giờ. `docs/KET-NOI-AI.md`: Claude, Claude Code, ChatGPT, client khác,
+  mỗi mục ghi giới hạn của gói đúng như tra cứu (kể cả "Plus: các nguồn nói khác nhau" và "ChatGPT cá nhân coi như chỉ
+  đọc"), bảng redirect URI (test đối chiếu với `vkcrm.mcp.redirect_uris`), bảng 15 tool, "Không kết nối được?".
+- **`docs/CAI-DAT.md` / `README.md` mở rộng, không viết lại.** Bước 1: thêm `sodium`, `curl` vào danh sách bắt buộc (bỏ
+  câu "nên có `curl`"); Bước 0: dòng hỏi chủ văn phòng về `MCP_MATTER_DEFAULT`/`MCP_PARTY_NAMES`; Bước 3:
+  `php artisan passport:keys` ngay sau `key:generate`, cùng luật và cùng chỗ cất với `APP_KEY` (bản sao lưu đêm chỉ chứa
+  `storage/app/private`, không chứa khoá); Bước 4: mục 6 `/.well-known/` và đoạn "Không đệm `/mcp`"; Bước 7: ba dòng
+  preflight mới; mục mới "Máy chủ MCP (kết nối AI cho nhân sự)" (tắt khi cài, năm việc của người cài, URL trên tên miền
+  quản trị khi tách tên miền — hand-off m8 của rà soát Task 2, WAF/Cloudflare cho `160.79.104.0/21` và
+  `chatgpt-connectors.json`, bảng biến `.env`, giới hạn đã biết: DCR 10 lần/giờ/IP chung cho cả văn phòng trên một nền
+  tảng — hand-off m1 của rà soát Task 3, loopback `[::1]` hỏng vì CSP — hand-off m6 của rà soát Task 4, IP nhật ký là IP
+  nền tảng, hai lượt dọn 03:00/03:15); "Nâng cấp lên bản mới": gạch đầu dòng "Bản cập nhật M11"; "CẢNH BÁO về `APP_KEY`":
+  `APP_KEY` mã hoá refresh token và mã uỷ quyền, đổi nó là mọi nhân sự kết nối lại, còn mất khoá RSA chỉ làm access token
+  (≤ 1 giờ) chết rồi client tự làm mới (hand-off m3 của rà soát Task 1; dòng chú thích `PASSPORT_*` của `.env.example`
+  sửa theo). `.env.example` `MCP_MATTER_DEFAULT`: `allowed` nghĩa là không ô tích, không dòng nhật ký đồng ý (hand-off m9
+  của rà soát Task 7). SPEC §2: "Đính chính 2026-10-07 (M11 Task 16)" thêm `sodium`, `curl`.
+- **Phát hiện: hai mẫu máy chủ web chặn `/.well-known/`.** Luật dotfile `location ~ /\.` (nginx) và
+  `RedirectMatch 404 "/\."` (Apache) trả 404 cho cả bốn route metadata OAuth (`routes/ai.php`): trên máy chủ dựng theo
+  mẫu, `/mcp` trả 401 đúng nhưng Claude/ChatGPT không bao giờ tìm được máy uỷ quyền. Sửa thành `/\.(?!well-known/)` ở cả
+  hai mẫu (đoạn đầu `/.well-known/` qua, mọi đoạn dấu chấm khác — kể cả `/.well-known/.env` — vẫn chặn). Đo THẬT bằng
+  `tools/deploy/verify-storage-blocked.sh` (mở rộng: lính canh tạm trong `.well-known/` ở gốc dự án; N1/A1 tới được tệp
+  200 + lính canh, đoạn dấu chấm thứ hai 404; đối chứng NW/AW với luật cũ 404): mọi dòng PASS.
+- **`vkcrm:preflight` thêm ba dòng, chỉ ở `APP_ENV=production`** (`RunPreflight::mcpRedirectDomainsRow()`,
+  `passportTokenTtlRow()`, `passportKeysRow()`): ĐỎ khi `mcp.redirect_domains` có phần tử `*` (so như chính gói,
+  `in_array('*', …, true)`; app không đăng ký route DCR của gói nên hôm nay đây là chốt cho ngày ai đó bật lại nó); ĐỎ khi
+  `Passport::tokensExpireIn()` dài hơn 3600 giây; ĐỎ khi một khoá Passport vắng/không đọc được thành khoá RSA (đọc đúng
+  như `PassportServiceProvider::makeCryptKey()`: nội dung `PASSPORT_*_KEY` với `\n` viết tay, rồi tệp `Passport::keyPath()`)
+  hay khi tệp khoá riêng có bit quyền nào của "người khác" (640/660 được, như league). Mỗi điều kiện có cả chiều ĐỎ lẫn
+  XANH. **Dòng VÀNG thứ tư ("`mcp.enabled` bật mà chưa ghi ngày nộp hồ sơ") CHƯA làm:** công tắc (`McpSwitches`) là Task 6
+  của làn m11, ngày nộp hồ sơ là Task 15. `TODO(m11-task6-preflight-filing-date)` ở docblock
+  `RunPreflight::launchConditionRows()` và một test `->todo()` cùng tên trong `PreflightCommandTest` nói đúng việc còn lại.
+- **Câu "required_extensions = check-platform-reqs + pdo_mysql"** (hand-off "MAIN MERGE" của làn m11) sửa ở
+  `RunPreflight` (docblock dòng pcntl), `config/vkcrm.php` (hai docblock) và `PreflightCommandTest` (khối chú thích + tên
+  test): danh sách là `check-platform-reqs` + `pdo_mysql` + `curl`, tức chỉ extension mà thiếu thì một tính năng hỏng.
+- **Test.** `PreflightCommandTest`: 20 ca mới (mỗi dòng dataset một ca) + 1 todo; `preflightGreenProductionConfig()` mang
+  thêm cặp khoá RSA thật dạng nội dung, để các test production cũ vẫn mã thoát 0 mà không đụng `storage/oauth-*.key`;
+  khoá dạng tệp dựng trong thư mục tạm của container (`Passport::loadKeysFrom()`, `afterEach` trả `$keyPath` và TTL về
+  như cũ). `InstallGuideM11Test` (mới, 7 test) đọc chính tài liệu: danh sách extension của CAI-DAT Bước 1 và README bằng
+  `required_extensions`, đính chính SPEC §2, mọi redirect URI trong `KET-NOI-AI.md`, mọi biến `MCP_*`/`PASSPORT_*` của
+  `.env.example` có tên trong CAI-DAT, Bước 7 nêu ba dòng mới, hai tài liệu có mặt và được trỏ tới.
+  ĐỎ trước khi cài: `PreflightCommandTest` 19 failed / 1 todo / 32 passed (ca mới duy nhất xanh là ca "chỉ kiểm ở production", một rào chưa có gì để chặn); `InstallGuideM11Test` 7 failed.
+  Mutation: 14/14 đỏ trên `RunPreflight` (bỏ từng điều kiện, `>` thành `>=`, mặt nạ quyền `0o007` thành `0o004`, kiểm quyền
+  cả khoá công khai, bỏ đổi `\n`, luôn đọc tệp, bỏ kiểm từng loại khoá, dời ba dòng ra ngoài nhánh production, bỏ đọc
+  tệp); 7/7 đỏ trên tài liệu (bỏ `sodium` ở CAI-DAT, `curl` ở README, tiêu đề đính chính SPEC, một redirect URI, một
+  biến, `mcp.redirect_domains` ở Bước 7, đường dẫn `KET-NOI-AI.md` ở README).
+- **Chưa kiểm được / để lại.** Tên mục tắt huấn luyện của Claude và ảnh chụp từng bước (Task 17). Hai tài liệu nhắc
+  trang "Kết nối AI"/"Kết nối AI của tôi" (Task 15, chưa dựng; brief Task 15 nên hiện `McpEndpoint::resource()` vì
+  `KET-NOI-AI.md` hứa "Trang 'Kết nối AI của tôi' hiện đúng URL cần dán") và bốn tool ghi (Task 13). Khi gộp với làn m11:
+  thêm dòng VÀNG `mcp_filing_date`, và kiểm `vkcrm.mcp.policy_version` vẫn bằng phiên bản ghi đầu `CHINH-SACH-AI.md`.
+  Cả bộ (`--parallel --processes=2`): EXIT 0 — 6011 passed (5984 + 27), 1 risky, 2 todo, 33 skipped. MariaDB (tuần tự:
+  `PreflightCommandTest`, `InstallGuideM11Test`): EXIT 0 — 58 passed, 1 todo. `pint --test`: PASS 1221 tệp. Không có
+  migration.

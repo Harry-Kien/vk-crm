@@ -172,9 +172,11 @@ return [
     'deployment' => [
         /*
          * PHP extension bắt buộc ở production, HẰNG SỐ chứ không đoán theo máy đang chạy lệnh:
-         * `composer check-platform-reqs --no-dev` ngày 2026-09-28 cộng `pdo_mysql` (MariaDB, SPEC
-         * §2). KHÔNG có `gd` — xem {@see \App\Actions\Deployment\RunPreflight} vì sao đó là một
-         * dòng VÀNG riêng, không phải một extension bắt buộc.
+         * `composer check-platform-reqs --no-dev` (ngày 2026-09-28; từ M11 Task 1 thêm `sodium`) cộng
+         * `pdo_mysql` (MariaDB, SPEC §2) và `curl` (M11 Task 5, không gói nào khai nó — hai đoạn dưới).
+         * Nói gọn: chỉ những extension mà thiếu thì một tính năng hỏng. KHÔNG có `gd` — xem
+         * {@see \App\Actions\Deployment\RunPreflight} vì sao đó là một dòng VÀNG riêng, không phải một
+         * extension bắt buộc.
          *
          * Cấu hình được (không phải một `const` cứng trong Action) để test gài một tên giả vào
          * đây mà không cần gỡ thật một extension của container —
@@ -200,8 +202,9 @@ return [
          * Việc sau gộp M7 (làn fu2): extension mà giờ chết của worker cần — `GenerateHandoverPackage::
          * $timeout`/`$failOnTimeout` và `--timeout=600` của mục lịch `queue.handover` chỉ có tác dụng
          * khi PHP DÒNG LỆNH có ext-pcntl (thiếu nó, `Worker::registerTimeoutHandler()` bỏ qua lặng
-         * lẽ). KHÔNG nằm trong `required_extensions` ở trên: danh sách đó đúng bằng
-         * `composer check-platform-reqs` + `pdo_mysql` (`docs/CAI-DAT.md`, Bước 1), và thiếu pcntl
+         * lẽ). KHÔNG nằm trong `required_extensions` ở trên: danh sách đó là
+         * `composer check-platform-reqs` + `pdo_mysql` + `curl` (`docs/CAI-DAT.md`, Bước 1), tức chỉ
+         * những extension mà thiếu thì một tính năng hỏng, và thiếu pcntl
          * không làm vỡ màn hình nào — `vkcrm:preflight` báo VÀNG ({@see
          * \App\Actions\Deployment\RunPreflight}). Cấu hình được chỉ vì cùng lý do với
          * `required_extensions`: test gài một tên giả để dựng chiều VÀNG.

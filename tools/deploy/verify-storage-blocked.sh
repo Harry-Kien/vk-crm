@@ -22,6 +22,16 @@
 #          A0  như A2 nhưng AllowOverride None                     -> 200 + lính canh (đối chứng)
 #          AD  mẫu với luật dotfile CŨ `<FilesMatch "^\.">`        -> 200 cho /.github/… (vì sao đổi luật)
 #
+# `/.well-known/` (M11 Task 16) — bốn route metadata OAuth của máy chủ MCP nằm dưới đó, nên luật
+# dotfile phải để đoạn ĐẦU `/.well-known/` đi qua mà vẫn chặn mọi đoạn dấu chấm khác. Đo bằng hai
+# tệp lính canh tạm trong `.well-known/` ở gốc dự án (= document root của phép đo):
+#   nginx  N1/A1  mẫu nguyên vẹn: `/.well-known/<lính canh>`       -> 200 + lính canh (tới được)
+#                 `/.well-known/.<lính canh>` (đoạn dấu chấm thứ hai) -> 404
+#          NW     mẫu với luật dotfile CŨ `location ~ /\.`         -> 404 cho `/.well-known/…` (vì sao đổi)
+#   apache AW     mẫu với luật dotfile CŨ `RedirectMatch 404 "/\."` -> 404 cho `/.well-known/…` (vì sao đổi)
+# Tới được TỆP trong `.well-known/` nghĩa là luật dotfile không chặn; ở máy chủ thật, đường không có
+# tệp đi tiếp vào `index.php` như mọi URL khác (`location /` của nginx, `public/.htaccess` của Apache).
+#
 # Nội dung của `.env` không bao giờ được in ra: chỉ in mã trạng thái, và một phản hồi chỉ bị dò
 # xem có chứa chuỗi lính canh hay không.
 #
@@ -44,16 +54,26 @@ marker_body="dau-vet-muc-10-4-$RANDOM$RANDOM$RANDOM$RANDOM"
 private_file="$project/storage/app/private/$private_name"
 log_file="$project/storage/logs/$log_name"
 workflow="$(ls "$project/.github/workflows" 2>/dev/null | head -n 1 || true)"
+well_known_dir="$project/.well-known"
+well_known_created=no
+[ -d "$well_known_dir" ] || well_known_created=yes
+well_known_name="verify-$$-$RANDOM$RANDOM.txt"
+well_known_file="$well_known_dir/$well_known_name"
+well_known_hidden="$well_known_dir/.$well_known_name"
 
 cleanup() {
   docker rm -f "$tag-nginx" "$tag-httpd" >/dev/null 2>&1 || true
   docker network rm "$net" >/dev/null 2>&1 || true
-  rm -f "$private_file" "$log_file"
+  rm -f "$private_file" "$log_file" "$well_known_file" "$well_known_hidden"
+  if [ "$well_known_created" = yes ]; then rmdir "$well_known_dir" 2>/dev/null || true; fi
 }
 trap cleanup EXIT
 
 printf '%s\n' "$marker_body" > "$private_file"
 printf '%s\n' "$marker_body" > "$log_file"
+mkdir -p "$well_known_dir"
+printf '%s\n' "$marker_body" > "$well_known_file"
+printf '%s\n' "$marker_body" > "$well_known_hidden"
 docker network create "$net" >/dev/null
 
 failures=0
@@ -105,7 +125,11 @@ nginx_conf() {
           -e '/http2 on;/d' \
           -e '/^ *ssl_/d' \
           -e 's#root /var/www/vk-crm/public;#root /srv/app;#' \
-    | if [ "${1:-}" = drop-storage ]; then sed '/location \^~ \/storage\/ {/,/}/d'; else cat; fi
+    | case "${1:-}" in
+        drop-storage) sed '/location \^~ \/storage\/ {/,/}/d' ;;
+        old-dotfile) sed 's#location ~ /\\\.(?!well-known/) {#location ~ /\\. {#' ;;
+        *) cat ;;
+      esac
 }
 
 start_nginx() {
@@ -120,7 +144,7 @@ start_nginx() {
 
 # Một httpd.conf tối thiểu + khối `<VirtualHost *:443>` của mẫu, bỏ TLS, `DocumentRoot` và
 # `<Directory>` CỐ Ý đặt vào gốc dự án.
-#   $1 = All|None (AllowOverride), $2 = keep|drop-storage|old-dotfile
+#   $1 = All|None (AllowOverride), $2 = keep|drop-storage|old-dotfile|old-dotfile-redirect
 httpd_conf() {
   cat <<'EOF'
 ServerRoot "/usr/local/apache2"
@@ -148,7 +172,8 @@ EOF
           -e "s#AllowOverride All#AllowOverride $1#" \
     | case "$2" in
         drop-storage) sed '/^ *RedirectMatch 404 "\^\/storage\/"/d' ;;
-        old-dotfile) sed 's#^ *RedirectMatch 404 "/\\\."#    <FilesMatch "^\\.">\n        Require all denied\n    </FilesMatch>#' ;;
+        old-dotfile) sed 's#^ *RedirectMatch 404 "/\\\.(?!well-known/)"#    <FilesMatch "^\\.">\n        Require all denied\n    </FilesMatch>#' ;;
+        old-dotfile-redirect) sed 's#RedirectMatch 404 "/\\\.(?!well-known/)"#RedirectMatch 404 "/\\."#' ;;
         *) cat ;;
       esac
 }
@@ -176,14 +201,24 @@ other_paths=("/storage/app/private/.htaccess" "/storage/logs/$log_name" "/.env")
 echo "== nginx:stable-alpine — tools/deploy/nginx.conf.example, root = gốc dự án =="
 start_nginx "$(nginx_conf)"
 for path in "${private_paths[@]}" "${other_paths[@]}"; do probe N1 "$tag-nginx" "$path" 404; done
+probe N1 "$tag-nginx" "/.well-known/$well_known_name" 200 leak
+probe N1 "$tag-nginx" "/.well-known/.$well_known_name" 404
 
 start_nginx "$(nginx_conf drop-storage)"
 probe N0 "$tag-nginx" "/storage/app/private/$private_name" 200 leak
 probe N0 "$tag-nginx" "/storage/logs/$log_name" 200 leak
 
+start_nginx "$(nginx_conf old-dotfile)"
+probe NW "$tag-nginx" "/.well-known/$well_known_name" 404
+
 echo "== httpd:2.4-alpine — tools/deploy/apache-vhost.conf.example, DocumentRoot = gốc dự án =="
 start_httpd "$(httpd_conf All keep)"
 for path in "${private_paths[@]}" "${other_paths[@]}"; do probe A1 "$tag-httpd" "$path" 404; done
+probe A1 "$tag-httpd" "/.well-known/$well_known_name" 200 leak
+probe A1 "$tag-httpd" "/.well-known/.$well_known_name" 404
+
+start_httpd "$(httpd_conf All old-dotfile-redirect)"
+probe AW "$tag-httpd" "/.well-known/$well_known_name" 404
 
 start_httpd "$(httpd_conf All drop-storage)"
 probe A2 "$tag-httpd" "/storage/app/private/$private_name" 403

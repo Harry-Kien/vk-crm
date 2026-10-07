@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
+use Laravel\Passport\Passport;
 
 /*
 |--------------------------------------------------------------------------
@@ -40,7 +41,30 @@ function preflightGreenProductionConfig(): array
         'vkcrm.brand.bar_association' => 'Đoàn Luật sư TP.HCM',
         'vkcrm.brand.licence_number' => '1234/TP/ĐKHĐ',
         'vkcrm.brand.office_address' => '123 Đường ABC, Quận 1, TP.HCM',
+        // M11 Task 16: dòng khoá Passport — khoá dạng NỘI DUNG (như `PASSPORT_PRIVATE_KEY`), nên
+        // `storage/oauth-*.key` của máy đang chạy test không bị đọc hay đụng tới.
+        'passport.private_key' => preflightPassportKeyPair()['private'],
+        'passport.public_key' => preflightPassportKeyPair()['public'],
     ];
+}
+
+/**
+ * Cặp khoá RSA thật cho các dòng Passport của preflight, sinh một lần cho cả tiến trình (sinh khoá
+ * 2048 bit tốn vài trăm mili giây).
+ *
+ * @return array{private: string, public: string}
+ */
+function preflightPassportKeyPair(): array
+{
+    static $keys = null;
+
+    if ($keys === null) {
+        $resource = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+        openssl_pkey_export($resource, $private);
+        $keys = ['private' => $private, 'public' => openssl_pkey_get_details($resource)['key']];
+    }
+
+    return $keys;
 }
 
 /** Máy chủ web KHÔNG lộ storage/app/private (hành vi đúng) — 404 cho mọi đường dò. */
@@ -440,8 +464,8 @@ it('§preflight bốn thông tin pháp lý nhập ở trang Thông tin văn phò
 |
 | `GenerateHandoverPackage::$timeout`/`$failOnTimeout` và `--timeout=600` của mục lịch
 | `queue.handover` chỉ có tác dụng khi PHP DÒNG LỆNH có ext-pcntl. pcntl KHÔNG nằm trong
-| `required_extensions` (danh sách đó đúng bằng `composer check-platform-reqs` + `pdo_mysql`), nên nó
-| là một dòng riêng, ba chiều:
+| `required_extensions` (danh sách đó là `composer check-platform-reqs` + `pdo_mysql` + `curl`: chỉ
+| những extension mà thiếu thì một tính năng hỏng), nên nó là một dòng riêng, ba chiều:
 |
 | - extension chưa nạp → VÀNG (worker vẫn chạy, chỉ mất giờ chết);
 | - extension đã nạp nhưng một hàm mà `Illuminate\Queue\Worker` gọi bị chặn (`disable_functions`,
@@ -545,7 +569,7 @@ it('§preflight cấu hình đã cache từ bản cũ (chưa có khoá danh sác
         ]));
 });
 
-it('§preflight pcntl không nằm trong danh sách extension bắt buộc (danh sách đó là check-platform-reqs + pdo_mysql)', function () {
+it('§preflight pcntl không nằm trong danh sách extension bắt buộc (danh sách đó là check-platform-reqs + pdo_mysql + curl)', function () {
     expect(config('vkcrm.deployment.required_extensions'))->not->toContain('pcntl')
         ->and(config('vkcrm.deployment.worker_timeout_extension'))->toBe('pcntl');
 });
@@ -612,3 +636,249 @@ it('§preflight M11 production thiếu sodium là ĐỎ, nêu đích danh tên',
     expect($exitCode)->not->toBe(0)
         ->and(Artisan::output())->toContain('sodium-vang-mat');
 });
+
+/*
+|--------------------------------------------------------------------------
+| M11 Task 16 — điều kiện của máy chủ MCP (kế hoạch M11, Task 16, mục `vkcrm:preflight`)
+|--------------------------------------------------------------------------
+|
+| - ĐỎ khi `mcp.redirect_domains` (cấu hình của laravel/mcp) còn `*`;
+| - ĐỎ khi access token của Passport sống lâu hơn 1 giờ (R7);
+| - ĐỎ khi thiếu khoá Passport, hoặc khoá riêng (dạng tệp) đọc được bởi người dùng khác;
+| - VÀNG khi `mcp.enabled` bật mà chưa ghi ngày nộp hồ sơ (R12 mục 3) — CHƯA làm được trên làn
+|   này: công tắc `mcp.enabled` (`App\Support\Mcp\McpSwitches`) do Task 6 của làn m11 dựng, và ngày
+|   nộp hồ sơ do Task 15. Test `->todo()` cuối khối nêu đúng tên việc còn lại.
+|
+| Mỗi điều kiện có cả chiều ĐỎ lẫn chiều XANH. Chỉ kiểm khi `APP_ENV=production`, như mọi điều kiện
+| ra mắt khác. Khoá dạng TỆP dựng trong một thư mục tạm của container (`Passport::loadKeysFrom()`),
+| không bao giờ ở `storage/` của worktree.
+*/
+
+/**
+ * Thư mục tạm chứa `oauth-private.key`/`oauth-public.key` với quyền tệp cho trước, rồi trỏ Passport
+ * vào đó và xoá khoá dạng nội dung khỏi cấu hình (để Passport đọc tệp). `null` = không tạo tệp đó.
+ */
+function preflightPassportKeyFiles(?string $private, int $privateMode, ?string $public, int $publicMode = 0o644): string
+{
+    $directory = sys_get_temp_dir().'/vkcrm-preflight-keys-'.bin2hex(random_bytes(6));
+    mkdir($directory, 0o700);
+
+    foreach ([['oauth-private.key', $private, $privateMode], ['oauth-public.key', $public, $publicMode]] as [$name, $content, $mode]) {
+        if ($content !== null) {
+            file_put_contents($directory.'/'.$name, $content);
+            chmod($directory.'/'.$name, $mode);
+            clearstatcache(true, $directory.'/'.$name);
+        }
+    }
+
+    config(['passport.private_key' => null, 'passport.public_key' => null]);
+    Passport::loadKeysFrom($directory);
+
+    return $directory;
+}
+
+afterEach(function () {
+    Passport::$keyPath = null;
+    Passport::tokensExpireIn(new DateInterval('PT1H'));
+});
+
+it('§preflight M11 production redirect_domains của laravel/mcp không có * là XANH', function () {
+    config(preflightGreenProductionConfig());
+    config(['mcp.redirect_domains' => []]);
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($exitCode)->toBe(0)
+        ->and($output)->toContain('['.__('preflight.levels.green').'] '.__('preflight.mcp_redirect_domains_ok'))
+        ->and($output)->not->toContain(__('preflight.mcp_redirect_domains_wildcard'));
+});
+
+it('§preflight M11 production redirect_domains của laravel/mcp còn * là ĐỎ, mã thoát khác 0', function (array $domains) {
+    config(preflightGreenProductionConfig());
+    config(['mcp.redirect_domains' => $domains]);
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($exitCode)->not->toBe(0)
+        ->and($output)->toContain('['.__('preflight.levels.red').'] '.__('preflight.mcp_redirect_domains_wildcard'))
+        ->and(__('preflight.mcp_redirect_domains_wildcard'))->toContain('config/mcp.php')
+        ->and($output)->not->toContain(__('preflight.mcp_redirect_domains_ok'))
+        ->and($output)->toContain(__('preflight.summary_red'));
+})->with([
+    'chỉ *' => [['*']],
+    '* lẫn với một tên miền thật' => [['https://claude.ai', '*']],
+]);
+
+it('§preflight M11 production access token Passport sống đúng 1 giờ (giá trị AppServiceProvider đặt) là XANH', function () {
+    config(preflightGreenProductionConfig());
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($exitCode)->toBe(0)
+        ->and($output)->toContain('['.__('preflight.levels.green').'] '.__('preflight.passport_token_ttl_ok', ['minutes' => 60]))
+        ->and($output)->not->toContain(__('preflight.passport_token_ttl_too_long', ['minutes' => 60]));
+});
+
+it('§preflight M11 production access token Passport sống lâu hơn 1 giờ là ĐỎ, nêu số phút', function (string $interval, int $minutes) {
+    config(preflightGreenProductionConfig());
+    Passport::tokensExpireIn(new DateInterval($interval));
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($exitCode)->not->toBe(0)
+        ->and($output)->toContain('['.__('preflight.levels.red').'] '.__('preflight.passport_token_ttl_too_long', ['minutes' => $minutes]))
+        ->and($output)->not->toContain(__('preflight.passport_token_ttl_ok', ['minutes' => $minutes]));
+})->with([
+    '1 giờ 1 phút (ngay trên mép)' => ['PT61M', 61],
+    'một năm (mặc định của Passport)' => ['P1Y', 525600],
+]);
+
+it('§preflight M11 production khoá Passport dạng nội dung (PASSPORT_PRIVATE_KEY/PUBLIC_KEY) hợp lệ là XANH', function () {
+    config(preflightGreenProductionConfig());
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($exitCode)->toBe(0)
+        ->and($output)->toContain('['.__('preflight.levels.green').'] '.__('preflight.passport_keys_ok'));
+});
+
+it('§preflight M11 production khoá Passport dạng tệp, khoá riêng quyền 600 hoặc 640 là XANH', function (int $mode) {
+    config(preflightGreenProductionConfig());
+    preflightPassportKeyFiles(preflightPassportKeyPair()['private'], $mode, preflightPassportKeyPair()['public']);
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($exitCode)->toBe(0)
+        ->and($output)->toContain('['.__('preflight.levels.green').'] '.__('preflight.passport_keys_ok'))
+        ->and($output)->not->toContain('oauth-private.key');
+})->with([
+    '600' => [0o600],
+    '640' => [0o640],
+]);
+
+it('§preflight M11 production khoá riêng Passport dạng tệp mà người dùng khác có quyền là ĐỎ, nêu đường dẫn và quyền', function (int $mode, string $shown) {
+    config(preflightGreenProductionConfig());
+    $directory = preflightPassportKeyFiles(preflightPassportKeyPair()['private'], $mode, preflightPassportKeyPair()['public']);
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($exitCode)->not->toBe(0)
+        ->and($output)->toContain('['.__('preflight.levels.red').'] '.__('preflight.passport_private_key_exposed', [
+            'path' => $directory.'/oauth-private.key',
+            'mode' => $shown,
+        ]))
+        ->and($output)->not->toContain(__('preflight.passport_keys_ok'));
+})->with([
+    '644 (mọi người đọc được)' => [0o644, '644'],
+    '604' => [0o604, '604'],
+    '601 (chỉ bit thực thi của người khác)' => [0o601, '601'],
+]);
+
+it('§preflight M11 production thiếu tệp khoá Passport là ĐỎ, nêu đúng tệp thiếu và lệnh passport:keys', function (bool $privatePresent, bool $publicPresent, array $missing) {
+    config(preflightGreenProductionConfig());
+    $directory = preflightPassportKeyFiles(
+        $privatePresent ? preflightPassportKeyPair()['private'] : null,
+        0o600,
+        $publicPresent ? preflightPassportKeyPair()['public'] : null,
+    );
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($exitCode)->not->toBe(0)
+        ->and($output)->toContain('['.__('preflight.levels.red').'] '.__('preflight.passport_keys_missing', [
+            'keys' => implode(', ', array_map(fn (string $name): string => $directory.'/'.$name, $missing)),
+        ]))
+        ->and(__('preflight.passport_keys_missing'))->toContain('passport:keys')
+        ->and($output)->not->toContain(__('preflight.passport_keys_ok'));
+})->with([
+    'thiếu cả hai' => [false, false, ['oauth-private.key', 'oauth-public.key']],
+    'thiếu khoá riêng' => [false, true, ['oauth-private.key']],
+    'thiếu khoá công khai' => [true, false, ['oauth-public.key']],
+]);
+
+it('§preflight M11 production tệp khoá Passport không đọc được thành khoá RSA là ĐỎ như thiếu khoá', function () {
+    config(preflightGreenProductionConfig());
+    $directory = preflightPassportKeyFiles('khong phai khoa', 0o600, preflightPassportKeyPair()['public']);
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+
+    expect($exitCode)->not->toBe(0)
+        ->and(Artisan::output())->toContain('['.__('preflight.levels.red').'] '.__('preflight.passport_keys_missing', [
+            'keys' => $directory.'/oauth-private.key',
+        ]));
+});
+
+it('§preflight M11 production khoá Passport dạng nội dung không đọc được thành khoá RSA là ĐỎ, nêu tên biến', function (string $which) {
+    config(preflightGreenProductionConfig());
+    config(["passport.{$which}_key" => "-----BEGIN KHONG PHAI KHOA-----\nabc\n-----END KHONG PHAI KHOA-----"]);
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($exitCode)->not->toBe(0)
+        ->and($output)->toContain('['.__('preflight.levels.red').'] '.__('preflight.passport_keys_missing', [
+            'keys' => strtoupper("PASSPORT_{$which}_KEY"),
+        ]))
+        ->and($output)->not->toContain(__('preflight.passport_keys_ok'));
+})->with(['private', 'public']);
+
+it('§preflight M11 khoá dạng nội dung viết xuống dòng là \n (cách .env.example hướng dẫn) vẫn là XANH', function () {
+    config(preflightGreenProductionConfig());
+    config([
+        'passport.private_key' => str_replace("\n", '\n', preflightPassportKeyPair()['private']),
+        'passport.public_key' => str_replace("\n", '\n', preflightPassportKeyPair()['public']),
+    ]);
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+
+    expect($exitCode)->toBe(0)
+        ->and(Artisan::output())->toContain('['.__('preflight.levels.green').'] '.__('preflight.passport_keys_ok'));
+});
+
+it('§preflight M11 các điều kiện MCP chỉ kiểm ở production, không kiểm ở staging', function () {
+    config(preflightGreenProductionConfig());
+    config(['app.env' => 'staging', 'mcp.redirect_domains' => ['*'], 'passport.private_key' => null, 'passport.public_key' => null]);
+    Passport::loadKeysFrom(sys_get_temp_dir().'/vkcrm-preflight-khong-co-khoa');
+    Passport::tokensExpireIn(new DateInterval('P1Y'));
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($exitCode)->toBe(0)
+        ->and($output)->not->toContain(__('preflight.mcp_redirect_domains_wildcard'))
+        ->and($output)->not->toContain(__('preflight.passport_token_ttl_too_long', ['minutes' => 525600]))
+        ->and($output)->not->toContain('vkcrm-preflight-khong-co-khoa');
+});
+
+it('§preflight M11 VÀNG khi mcp.enabled bật mà chưa ghi ngày nộp hồ sơ chuyển dữ liệu xuyên biên giới (R12 mục 3)')
+    ->todo('TODO(m11-task6-preflight-filing-date): công tắc mcp.enabled (App\Support\Mcp\McpSwitches) do Task 6 của làn m11 dựng, ngày nộp hồ sơ do Task 15; khi gộp, thêm dòng VÀNG mcp_filing_date vào RunPreflight::launchConditionRows() cùng test hai chiều (bật mà chưa ghi ngày = VÀNG; tắt, hoặc đã ghi ngày = không VÀNG).');

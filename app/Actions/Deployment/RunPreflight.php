@@ -10,12 +10,14 @@ use App\Support\Billing\ScheduleTotal;
 use App\Support\OfficeProfile;
 use Database\Seeders\DemoAccountsSeeder;
 use Database\Seeders\DemoDataSeeder;
+use DateTimeImmutable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Laravel\Passport\Passport;
 
 /**
  * `vkcrm:preflight` (R1, kế hoạch M8 Task 1) — kiểm các điều kiện phải đúng TRƯỚC khi mở cổng
@@ -132,7 +134,16 @@ class RunPreflight
         ]));
     }
 
-    /** @return list<array{key: string, level: PreflightLevel, message: string}> */
+    /**
+     * Ba dòng cuối là của máy chủ MCP (kế hoạch M11, Task 16). Dòng thứ tư của Task 16 — VÀNG khi
+     * công tắc `mcp.enabled` bật mà chưa ghi ngày nộp hồ sơ chuyển dữ liệu xuyên biên giới (R12 mục
+     * 3) — CHƯA có ở đây: TODO(m11-task6-preflight-filing-date). Công tắc (`App\Support\Mcp\
+     * McpSwitches`) do Task 6 của làn m11 dựng, ngày nộp hồ sơ do Task 15; khi gộp hai làn, thêm
+     * dòng `mcp_filing_date` vào danh sách này (test `->todo()` cùng tên trong
+     * `PreflightCommandTest`).
+     *
+     * @return list<array{key: string, level: PreflightLevel, message: string}>
+     */
     private function launchConditionRows(): array
     {
         return [
@@ -149,7 +160,108 @@ class RunPreflight
             $this->zipAes256Row(),
             $this->procOpenRow(),
             $this->mariadbDumpRow(),
+            $this->mcpRedirectDomainsRow(),
+            $this->passportTokenTtlRow(),
+            $this->passportKeysRow(),
         ];
+    }
+
+    /**
+     * M11 Task 16 — `mcp.redirect_domains` là allowlist TIỀN TỐ của controller đăng ký client của
+     * laravel/mcp (`OAuthRegisterController`), và `*` trong đó nhận MỌI redirect URI. App không đăng
+     * ký route của gói (`Mcp::oauthRoutes()` không được gọi; `App\Http\Controllers\Mcp\
+     * RegisterClientController` thay nó, so khớp CHÍNH XÁC qua `App\Support\Mcp\RedirectUriAllowlist`),
+     * nên hôm nay khoá này không quyết gì. Dòng ĐỎ giữ cho nó đúng như `config/mcp.php` đặt (`[]`):
+     * một ngày ai đó bật lại route của gói, `*` mở cửa cho mọi tên miền nhận mã uỷ quyền.
+     * So ĐÚNG phần tử `*`, như chính gói so (`in_array('*', …, true)`).
+     */
+    private function mcpRedirectDomainsRow(): array
+    {
+        return in_array('*', (array) config('mcp.redirect_domains', []), true)
+            ? $this->row('mcp_redirect_domains', PreflightLevel::Red, __('preflight.mcp_redirect_domains_wildcard'))
+            : $this->row('mcp_redirect_domains', PreflightLevel::Green, __('preflight.mcp_redirect_domains_ok'));
+    }
+
+    /** Giới hạn trên của tuổi access token (R7, kế hoạch M11): 1 giờ, như Asana [DC:137]. */
+    private const MAX_ACCESS_TOKEN_SECONDS = 3600;
+
+    /**
+     * M11 Task 16 — tuổi access token của Passport, đọc từ CHÍNH giá trị Passport đang dùng
+     * (`Passport::tokensExpireIn()`, `AppServiceProvider::boot()` đặt `PT1H`); mặc định của Passport là
+     * một năm [PL:64]. ĐỎ khi dài hơn {@see self::MAX_ACCESS_TOKEN_SECONDS} giây. Số phút trong câu là
+     * số phút tròn xuống. Đổi `DateInterval` ra giây bằng cách cộng nó vào mốc 0 (tháng và năm của
+     * khoảng thời gian không có số giây cố định).
+     */
+    private function passportTokenTtlRow(): array
+    {
+        $seconds = (new DateTimeImmutable('@0'))->add(Passport::tokensExpireIn())->getTimestamp();
+        $parameters = ['minutes' => intdiv($seconds, 60)];
+
+        return $seconds > self::MAX_ACCESS_TOKEN_SECONDS
+            ? $this->row('passport_token_ttl', PreflightLevel::Red, __('preflight.passport_token_ttl_too_long', $parameters))
+            : $this->row('passport_token_ttl', PreflightLevel::Green, __('preflight.passport_token_ttl_ok', $parameters));
+    }
+
+    /**
+     * M11 Task 16 — hai khoá ký token của Passport, đọc ĐÚNG như `PassportServiceProvider::
+     * makeCryptKey()` đọc: nội dung ở `passport.private_key`/`passport.public_key`
+     * (`PASSPORT_PRIVATE_KEY`/`PASSPORT_PUBLIC_KEY`, chuỗi `\n` viết tay đổi thành xuống dòng) khi có,
+     * còn không thì tệp `Passport::keyPath('oauth-private.key')`/`('oauth-public.key')` (mặc định
+     * `storage/`, sinh bằng `php artisan passport:keys`). Hai câu hỏi, theo thứ tự:
+     *
+     * 1. Mỗi khoá có mặt và đọc được thành khoá (`openssl_pkey_get_private()`/`_public()`) không.
+     *    Không → ĐỎ, nêu tên biến (khoá dạng nội dung) hoặc đường dẫn tệp. Tệp vắng, tệp tiến trình
+     *    này không đọc được, và tệp chứa thứ không phải khoá đều rơi vào đây: cả ba làm `/oauth/token`
+     *    và `/mcp` hỏng như nhau. Khoá riêng có mật khẩu cũng vậy — Passport dựng `CryptKey` không
+     *    mật khẩu.
+     * 2. Khoá riêng dạng TỆP có bit quyền nào của "người khác" (`o+rwx`) không. Có → ĐỎ, nêu đường
+     *    dẫn và quyền (bát phân): người dùng khác trên máy (hay gặp ở shared hosting) đọc được khoá
+     *    là tự ký được access token cho bất kỳ nhân sự nào. Quyền của nhóm (640, 660) không bị tính:
+     *    league/oauth2-server cũng nhận chúng, và PHP-FPM có khi đọc khoá qua nhóm. Khoá công khai
+     *    không bị kiểm quyền.
+     *
+     * Đúng thì XANH. Đọc tệp chỉ để hỏi `openssl_pkey_get_*()`; nội dung không đi đâu khác.
+     */
+    private function passportKeysRow(): array
+    {
+        $missing = [];
+        $exposed = null;
+
+        foreach (['private', 'public'] as $type) {
+            $content = str_replace('\\n', "\n", (string) config("passport.{$type}_key"));
+            $path = null;
+
+            if ($content === '') {
+                $path = Passport::keyPath("oauth-{$type}.key");
+                $content = is_file($path) && is_readable($path) ? (string) file_get_contents($path) : '';
+            }
+
+            $valid = $type === 'private'
+                ? openssl_pkey_get_private($content) !== false
+                : openssl_pkey_get_public($content) !== false;
+
+            if (! $valid) {
+                $missing[] = $path ?? strtoupper("PASSPORT_{$type}_KEY");
+
+                continue;
+            }
+
+            if ($type === 'private' && $path !== null && (fileperms($path) & 0o007) !== 0) {
+                $exposed = ['path' => $path, 'mode' => sprintf('%o', fileperms($path) & 0o777)];
+            }
+        }
+
+        if ($missing !== []) {
+            return $this->row('passport_keys', PreflightLevel::Red, __('preflight.passport_keys_missing', [
+                'keys' => implode(', ', $missing),
+            ]));
+        }
+
+        if ($exposed !== null) {
+            return $this->row('passport_keys', PreflightLevel::Red, __('preflight.passport_private_key_exposed', $exposed));
+        }
+
+        return $this->row('passport_keys', PreflightLevel::Green, __('preflight.passport_keys_ok'));
     }
 
     /**
@@ -290,9 +402,10 @@ class RunPreflight
      * dòng lệnh, cùng PHP mà cron chạy `schedule:run` (cùng giới hạn đã ghi ở {@see procOpenRow()}:
      * chạy preflight bằng đúng binary PHP của cron). Ba chiều, hỏi theo thứ tự:
      *
-     * 1. Extension CHƯA nạp → VÀNG, và KHÔNG thêm vào `required_extensions`: danh sách đó đúng bằng
-     *    `composer check-platform-reqs` + `pdo_mysql`, và thiếu pcntl không làm vỡ màn hình nào —
-     *    `Worker::supportsAsyncSignals()` trả false nên worker không gọi hàm pcntl nào, vẫn chạy,
+     * 1. Extension CHƯA nạp → VÀNG, và KHÔNG thêm vào `required_extensions`: danh sách đó là
+     *    `composer check-platform-reqs` + `pdo_mysql` + `curl` (docblock của nó ở
+     *    `config/vkcrm.php`), tức chỉ những extension mà thiếu thì một tính năng hỏng, và thiếu
+     *    pcntl không làm vỡ màn hình nào — `Worker::supportsAsyncSignals()` trả false nên worker không gọi hàm pcntl nào, vẫn chạy,
      *    chỉ mất lưới an toàn của gói lớn. Câu này hỏi TRƯỚC: thiếu extension thì các hàm của nó
      *    cũng không tồn tại, nhưng đó không phải chiều ĐỎ dưới đây.
      * 2. Extension đã nạp nhưng một hàm trong `vkcrm.deployment.worker_signal_functions` không tồn

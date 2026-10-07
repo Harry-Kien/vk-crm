@@ -100,6 +100,13 @@ VÀNG. Nếu có `pcntl` thì ba hàm `pcntl_async_signals`, `pcntl_signal`, `pc
 bị tắt (`disable_functions`): Laravel thấy `pcntl` đã nạp là gọi chúng, nên một hàm bị tắt làm mọi
 lượt `queue:work` chết ngay khi khởi động, và không thư nào được gửi. Preflight báo ĐỎ trường hợp này.
 
+**Đính chính 2026-10-07 (M11 Task 16).** Máy chủ MCP cho nhân sự (M11) thêm hai extension vào danh
+sách bắt buộc `required_extensions` mà `vkcrm:preflight` kiểm ĐỎ: `sodium` — `lcobucci/jwt` (gói ký
+token mà Passport kéo vào qua `league/oauth2-server`) khai `ext-sodium`, thiếu nó thì `/oauth/token`
+hỏng; và `curl` — không gói nào khai, nhưng việc tải tài liệu CIMD của app ghim địa chỉ IP bằng một
+hằng số của curl. Danh sách đầy đủ vì vậy là `composer check-platform-reqs --no-dev` cộng `pdo_mysql`
+và `curl`. Hướng dẫn cài: `docs/CAI-DAT.md`, Bước 1.
+
 ### Giám sát cron
 
 Trên shared hosting cron rất hay lặng lẽ ngừng chạy sau khi gia hạn gói hoặc đổi
