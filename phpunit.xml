@@ -38,5 +38,11 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <!-- M12 Task 4 (R7): thông báo đẩy TẮT trong test trừ khi test tự đặt khoá
+             (Tests\Support\WebPushTestKeys) — `artisan webpush:vapid` ghi khoá thật vào `.env`
+             cục bộ (gitignored), và bộ test không được xanh/đỏ theo máy. -->
+        <env name="VAPID_SUBJECT" value=""/>
+        <env name="VAPID_PUBLIC_KEY" value=""/>
+        <env name="VAPID_PRIVATE_KEY" value=""/>
     </php>
 </phpunit>

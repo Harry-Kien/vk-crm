@@ -2,6 +2,7 @@
 
 namespace App\Actions\Notification;
 
+use App\Enums\OutboundChannel;
 use App\Enums\OutboundStatus;
 use App\Exceptions\OutboundMessageNotResendable;
 use App\Jobs\ResendOutboundMessageJob;
@@ -66,6 +67,15 @@ use Spatie\Activitylog\Models\Activity;
  * `ClientRequestNotOpen` mô tả — nên các câu từ chối trạng thái không tiết lộ gì cho người không xem
  * được dòng. Audit chỉ ghi ai bấm, dòng nào, mẫu nào, bao nhiêu người nhận — không ghi địa chỉ,
  * không ghi nội dung thư.
+ *
+ * # Chỉ dòng EMAIL (M12 R13)
+ *
+ * Từ M12 nhật ký có cả dòng thông báo đẩy (`channel = push`, `RecordOutboundPush`), và giá trị chủ đề
+ * đẩy TRÙNG tên mẫu thư (`client.stage_update`…). Mọi cổng dưới đây hỏi theo `template` và
+ * `related_type`, nên thiếu cổng kênh thì một dòng push hỏng (máy đã gỡ app trả 410) có nút "Gửi lại" —
+ * và bấm là xếp một THƯ. Push không gửi lại: nó là tiện ích, thư mới là chứng cứ, và thư của cùng sự
+ * việc đã có dòng riêng. Cổng kênh đứng ở {@see self::canResend()}, ở {@see self::handle()} (sau cổng
+ * quyền, trước mọi cổng khác) và ở job (`ResendOutboundMessageJob::handle()`).
  */
 class ResendOutboundMessage
 {
@@ -73,13 +83,13 @@ class ResendOutboundMessage
     public const AUDIT_EVENT = 'outbound_message_resent';
 
     /**
-     * Dòng này CÓ THỂ được gửi lại không (mẫu gửi lại được, đang `failed`, `related_type` khớp mẫu) —
-     * để màn hình quyết định hiện nút mà không truy vấn. Không thay {@see self::handle()}: các cổng
-     * cần đọc CSDL (người nhận, đã gửi lại chưa) chỉ chạy ở đó.
+     * Dòng này CÓ THỂ được gửi lại không (dòng email, mẫu gửi lại được, đang `failed`, `related_type`
+     * khớp mẫu) — để màn hình quyết định hiện nút mà không truy vấn. Không thay {@see self::handle()}:
+     * các cổng cần đọc CSDL (người nhận, đã gửi lại chưa) chỉ chạy ở đó.
      */
     public static function canResend(OutboundMessage $message): bool
     {
-        if ($message->status !== OutboundStatus::Failed) {
+        if ($message->channel !== OutboundChannel::Email || $message->status !== OutboundStatus::Failed) {
             return false;
         }
 
@@ -97,6 +107,10 @@ class ResendOutboundMessage
     public function handle(User $actor, OutboundMessage $message): int
     {
         Gate::forUser($actor)->authorize('resend', $message);
+
+        if ($message->channel !== OutboundChannel::Email) {
+            throw OutboundMessageNotResendable::channel();
+        }
 
         $target = ResendTargets::for($message->template);
 
@@ -182,7 +196,8 @@ class ResendOutboundMessage
      * Người nhận của dòng hỏng đã có một dòng `sent` SAU nó cho ĐÚNG thư này (cùng mẫu, cùng bản
      * ghi, cùng địa chỉ, cùng khoá `payload.tier` khi dòng hỏng mang khoá đó) — tức một lượt thử lại
      * của hàng đợi hay một lần gửi lại trước đã tới nơi. Chỉ dùng để CHỌN CÂU từ chối khi cổng
-     * lúc-gửi đã nói "không ai"; không quyết định gửi hay không.
+     * lúc-gửi đã nói "không ai"; không quyết định gửi hay không. Dòng thông báo đẩy cùng mẫu, cùng bản
+     * ghi (M12 R13) không bao giờ khớp: `recipient` của nó là `client_user:{id}`, không phải địa chỉ.
      */
     private function deliveredLater(OutboundMessage $failed): bool
     {

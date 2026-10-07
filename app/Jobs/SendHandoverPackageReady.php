@@ -4,7 +4,9 @@ namespace App\Jobs;
 
 use App\Actions\Matter\BuildHandoverPackage;
 use App\Actions\Notification\ResolveStaffRecipients;
+use App\Actions\Push\SendPushAlert;
 use App\Enums\OutboundStatus;
+use App\Enums\PushTopic;
 use App\Mail\Staff\HandoverPackageReady;
 use App\Models\Document;
 use App\Models\Matter;
@@ -65,6 +67,15 @@ use Throwable;
  * Bỏ qua (không gửi gì) nếu tài liệu gói này không còn là gói MỚI NHẤT của vụ: một lần sinh lại
  * xong trước khi thư này được gửi đã có thư riêng của nó, và báo "sẵn sàng" cho một version đã bị
  * thay là báo sai.
+ *
+ * # Thông báo đẩy `staff.handover_ready` (M12 R10, nối lúc gộp `main` vào nhánh M12 — vòng sửa cuối I5)
+ *
+ * Cùng luật với mọi nơi gửi thư khác của M12 (phán quyết (d)): {@see SendPushAlert} nhận ĐÚNG những
+ * người mà CHÍNH lượt chạy này vừa gửi thư thành công — không người đã có dòng `sent` từ lượt trước
+ * (`alreadyDelivered()` bỏ qua họ trước khi tới thư), không người vừa hỏng thư — sau vòng thư và TRƯỚC
+ * lần ném lại lỗi. Nên qua mọi lượt thử lại, tập người nhận push đúng bằng tập người nhận thư, và chống
+ * trùng là sổ thư. `SendPushAlert` không ném vì lỗi lúc chạy. Bản ghi là tài liệu gói (đúng
+ * `HandoverPackageReady::relatedRecord()`); nội dung là một câu chung, không mã hồ sơ (R11).
  */
 class SendHandoverPackageReady implements ShouldQueue
 {
@@ -107,6 +118,7 @@ class SendHandoverPackageReady implements ShouldQueue
         $document->setRelation('matter', $matter);
 
         $failure = null;
+        $mailed = collect();
 
         $actors = $recipients->handle(
             $matter,
@@ -130,10 +142,14 @@ class SendHandoverPackageReady implements ShouldQueue
 
             try {
                 Mail::to($user->email)->send(new HandoverPackageReady($user, $matter, $document));
+                $mailed->push($user);
             } catch (Throwable $exception) {
                 $failure ??= $exception;
             }
         }
+
+        // M12: push cho đúng những người lượt này vừa gửi thư được — xem docblock lớp.
+        app(SendPushAlert::class)->handle($mailed, PushTopic::StaffHandoverReady, $document);
 
         if ($failure !== null) {
             throw $failure;

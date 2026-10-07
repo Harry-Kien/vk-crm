@@ -2,7 +2,9 @@
 
 namespace App\Actions\Notification;
 
+use App\Actions\Push\SendPushAlert;
 use App\Enums\OutboundStatus;
+use App\Enums\PushTopic;
 use App\Mail\Client\RequestAnswered as RequestAnsweredMail;
 use App\Models\ClientRequest;
 use App\Models\ClientRequestReply;
@@ -37,6 +39,12 @@ use Throwable;
  * giữa lúc sự kiện bắn và lúc job chạy, và cả hai đều không làm cho việc "văn phòng đã trả lời"
  * trở thành chưa từng xảy ra.
  *
+ * **M12 — thông báo đẩy `client.request_answered`:** cùng luật với `NotifyClientOfStageUpdate`
+ * (docblock lớp đó, mục "M12 — thông báo đẩy"): {@see SendPushAlert} nhận đúng những tài khoản lượt
+ * này vừa gửi thư thành công, sau vòng thư, trước lần ném lại lỗi; chống trùng là sổ thư
+ * (`alreadyDelivered()`). Bản ghi đi kèm là câu trả lời đã đọc lại (`$freshReply`) — đúng bản ghi thư
+ * ghi vào nhật ký; push không mang nội dung câu hỏi hay câu trả lời (R11, `PushTopic`).
+ *
  * **Gộp M7 vào `main` (PROGRESS "Ghi chú M7", Task 11): vụ còn trên cổng của CHÍNH người nhận.** Cờ
  * `is_published_to_portal` một mình không còn đủ: từ M7 Task 5 (R4) một vụ đã kết thúc rời cổng khi
  * hạn tra cứu (`client_access_until`) qua, mà cờ giữ nguyên. Vì thư này cố ý đi cả cho vụ đã đóng,
@@ -62,6 +70,7 @@ class NotifyClientOfRequestAnswered
 
         $sent = 0;
         $failure = null;
+        $mailed = collect();
 
         foreach ($recipients as $recipient) {
             if ($this->alreadyDelivered($freshReply, $recipient)) {
@@ -73,10 +82,14 @@ class NotifyClientOfRequestAnswered
             try {
                 Mail::to($recipient->email)->send(new RequestAnsweredMail($freshReply, $recipient));
                 $sent++;
+                $mailed->push($recipient);
             } catch (Throwable $e) {
                 $failure ??= $e;
             }
         }
+
+        // M12: push cho đúng những người lượt này vừa gửi thư được — xem docblock lớp.
+        app(SendPushAlert::class)->handle($mailed, PushTopic::ClientRequestAnswered, $freshReply);
 
         if ($failure !== null) {
             throw $failure;

@@ -180,9 +180,13 @@ return [
          * đây mà không cần gỡ thật một extension của container —
          * `tests/Feature/Deployment/PreflightCommandTest.php` dùng đúng cách này để dựng cả hai
          * chiều đỏ/xanh của điều kiện "thiếu extension".
+         *
+         * M12 Task 4 (R6) thêm `curl`: `minishlink/web-push` (gói thông báo đẩy) đòi `ext-curl`.
+         * Từ đây danh sách được canh bằng `composer.lock`: test "mọi ext-* mà một gói production
+         * đòi" của `PreflightCommandTest` đỏ khi một gói mới đòi extension chưa có ở đây.
          */
         'required_extensions' => [
-            'ctype', 'dom', 'exif', 'fileinfo', 'filter', 'hash', 'iconv', 'intl', 'json',
+            'ctype', 'curl', 'dom', 'exif', 'fileinfo', 'filter', 'hash', 'iconv', 'intl', 'json',
             'libxml', 'mbstring', 'openssl', 'pcre', 'session', 'tokenizer', 'xmlreader', 'zip',
             'zlib', 'pdo_mysql',
         ],
@@ -308,6 +312,65 @@ return [
             800 => 'oklch(0.300 0.075 261.7)',
             900 => 'oklch(0.260 0.058 261.7)',
             950 => 'oklch(0.233 0.050 261.7)',
+        ],
+    ],
+
+    /*
+     * M12 — app trên điện thoại (PWA). Kế hoạch `docs/superpowers/plans/2026-09-24-m12-pwa.md`.
+     *
+     * `theme_color`/`background_color` của manifest KHÔNG nằm ở đây: chúng đọc thẳng
+     * `brand.colors.navy`/`brand.colors.paper` (phán quyết R2 — không viết mã màu lần thứ hai).
+     */
+    'pwa' => [
+        /*
+         * R3 — nền đặc của biểu tượng maskable và `apple-touch-icon` theo từng app, là KHOÁ trong
+         * `brand.colors` chứ không phải mã màu. Hai nền khác nhau để một nhân sự cài cả hai app
+         * phân biệt được bằng mắt: cổng khách navy, nội bộ paper. `tools/brand/make-logo.php` đọc
+         * đúng khoá này khi sinh PNG; đổi ở đây thì phải chạy lại công cụ đó (và đổi tên tệp —
+         * docblock của công cụ nói vì sao).
+         */
+        'icon_background' => [
+            'admin' => 'paper',
+            'portal' => 'navy',
+        ],
+
+        /*
+         * R4 — danh sách cho phép DUY NHẤT của bộ đệm service worker: tài nguyên tĩnh công khai
+         * dưới `public/` (CSS/JS/phông của Filament, biểu tượng, `register.js`), lưu theo
+         * stale-while-revalidate. Mọi đường dẫn khác — trang HTML, Livewire (`/livewire-…`),
+         * tệp hồ sơ (`…/documents/{id}/download`), JSON — KHÔNG BAO GIỜ vào bộ đệm trình duyệt.
+         * Render nguyên văn vào `sw.js` (`resources/views/pwa/sw-js.blade.php`) và nằm trong
+         * VERSION; `tests/Feature/Pwa/ServiceWorkerTest.php` khẳng định hai bên bằng nhau. Thêm một
+         * tiền tố ở đây là thêm một thứ vào điện thoại của khách: chỉ thêm tài nguyên công khai,
+         * có dấu `/` ở cuối (so tiền tố chuỗi — `/brand` không dấu `/` sẽ khớp cả `/brandx/…`).
+         */
+        'static_prefixes' => ['/css/filament/', '/js/filament/', '/fonts/filament/', '/brand/', '/pwa/'],
+
+        /*
+         * R8 — máy chủ push mà một endpoint đăng ký được phép trỏ tới. Máy chủ của văn phòng
+         * POST tới endpoint theo lịch (job push), nên KHÔNG có danh sách này thì một người đã đăng
+         * nhập — kể cả khách — gửi `endpoint = http://169.254.169.254/…` là biến máy chủ thành
+         * công cụ gọi vào địa chỉ nội bộ, có sẵn bộ hẹn giờ (SSRF).
+         *
+         * Tên đầy đủ khớp đúng tên; `*.` khớp MỘT hay nhiều nhãn đứng trước phần đuôi (không khớp
+         * chính phần đuôi). So không phân biệt hoa thường. Luật đầy đủ (chỉ `https`, cổng 443, chỉ
+         * ký tự URL in được, không `@`/`#`/`\`): `App\Actions\Push\RegisterPushDevice`.
+         * Chrome và Samsung Internet đi qua FCM, Safari qua Apple, Firefox qua Mozilla, Edge qua WNS.
+         *
+         * FCM có HAI tên máy: `fcm.googleapis.com` và `jmt17.google.com` — ĐO ngày 2026-10-04 (M12
+         * Task 10): bản Chromium 153 của Playwright (đăng ký THẬT, không bản giả) trả endpoint
+         * `https://jmt17.google.com/fcm/send/…`; thiếu tên này thì trình duyệt đó bấm Bật nhận 422.
+         * Google Chrome trên Android CHƯA đo (bước D1 của danh sách kiểm tra máy thật) — có thể vẫn
+         * trả `fcm.googleapis.com`, nên giữ cả hai. Ghi đúng tên, không `*.google.com`: Google đổi tên
+         * máy lần nữa thì nút Bật báo "Chưa bật được" (D1) và tên mới được thêm vào đây — rộng hơn là
+         * mở cho mọi máy của Google.
+         */
+        'push_hosts' => [
+            'fcm.googleapis.com',
+            'jmt17.google.com',
+            '*.push.apple.com',
+            'updates.push.services.mozilla.com',
+            '*.notify.windows.com',
         ],
     ],
 

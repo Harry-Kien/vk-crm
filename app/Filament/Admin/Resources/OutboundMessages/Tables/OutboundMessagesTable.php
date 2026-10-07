@@ -2,11 +2,15 @@
 
 namespace App\Filament\Admin\Resources\OutboundMessages\Tables;
 
+use App\Actions\Notification\RecordOutboundPush;
+use App\Enums\OutboundChannel;
 use App\Enums\OutboundStatus;
 use App\Filament\Admin\Resources\Matters\MatterResource;
 use App\Filament\Admin\Resources\OutboundMessages\Actions\ResendOutboundMessageAction;
+use App\Models\ClientUser;
 use App\Models\Matter;
 use App\Models\OutboundMessage;
+use App\Models\User;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Tables\Columns\TextColumn;
@@ -14,6 +18,7 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Auth;
 
 /**
@@ -24,7 +29,11 @@ use Illuminate\Support\Facades\Auth;
  *
  * Không có cột/nội dung nào hiện thân thư hay số CCCD (Review Focus 1, ràng buộc riêng của Task
  * 13): `payload` chỉ từng được ghi với khoá `subject` ({@see \App\Actions\Notification\
- * RecordOutboundMessage::sending()}), không có khoá nào khác tồn tại để lộ.
+ * RecordOutboundMessage::sending()}), không có khoá nào khác tồn tại để lộ. Từ M12 (R13) bảng có cả
+ * dòng thông báo đẩy, mỗi máy một dòng — `payload` của chúng chỉ có `title`/`body` là hai câu chung
+ * của R11 ({@see RecordOutboundPush}), `recipient` là `client_user:{id}` / `user:{id}` (không
+ * endpoint); cột và bộ lọc "Kênh" tách hai loại. Luật ai xem dòng nào không đổi: dòng push mang đúng
+ * `related` của dòng thư cùng sự việc.
  */
 class OutboundMessagesTable
 {
@@ -36,6 +45,9 @@ class OutboundMessagesTable
                     ->label(__('outbound.fields.created_at'))
                     ->dateTime('d/m/Y H:i')
                     ->sortable(),
+                TextColumn::make('channel')
+                    ->label(__('outbound.fields.channel'))
+                    ->formatStateUsing(fn (OutboundChannel $state): string => $state->label()),
                 TextColumn::make('recipient')
                     ->label(__('outbound.fields.recipient'))
                     ->searchable()
@@ -74,6 +86,13 @@ class OutboundMessagesTable
                     ->label(__('outbound.filters.status'))
                     ->options(fn (): array => collect(OutboundStatus::cases())
                         ->mapWithKeys(fn (OutboundStatus $status): array => [$status->value => $status->label()])
+                        ->all()),
+                // M12 R13: "lọc được theo kênh" — thư và thông báo đẩy của cùng một sự việc mang cùng
+                // mẫu và cùng bản ghi liên quan, chỉ cột này tách chúng.
+                SelectFilter::make('channel')
+                    ->label(__('outbound.filters.channel'))
+                    ->options(fn (): array => collect(OutboundChannel::cases())
+                        ->mapWithKeys(fn (OutboundChannel $channel): array => [$channel->value => $channel->label()])
                         ->all()),
                 // Fix round 1, minor: bỏ ->searchable() — nó tìm trên KHOÁ thô
                 // (`client.stage_update`) chứ không phải nhãn tiếng Việt hiện trên màn hình, nên
@@ -133,6 +152,29 @@ class OutboundMessagesTable
         $labels = (array) __('outbound.templates');
 
         return $labels[$template] ?? $template;
+    }
+
+    /**
+     * Chủ máy của một dòng thông báo đẩy (M12 R13): cột `recipient` là `{bí danh}:{id}` — không bao giờ
+     * endpoint — nên trang xem tra lại tài khoản để người đọc nhật ký ("khách nói không nhận được
+     * thông báo") thấy tên và email. Tài khoản đã xoá mềm vẫn hiện; bí danh lạ hay tài khoản đã xoá
+     * cứng thì `null`. Chỉ trang xem một dòng gọi hàm này (một truy vấn), không phải cột của bảng.
+     */
+    public static function pushOwnerLabel(OutboundMessage $record): ?string
+    {
+        if ($record->channel !== OutboundChannel::Push || ! preg_match('/^(user|client_user):(\d+)$/', $record->recipient, $match)) {
+            return null;
+        }
+
+        $class = Relation::getMorphedModel($match[1]);
+
+        if (! in_array($class, [User::class, ClientUser::class], true)) {
+            return null;
+        }
+
+        $owner = $class::query()->withoutGlobalScopes()->find((int) $match[2]);
+
+        return $owner === null ? null : $owner->name.' — '.$owner->email;
     }
 
     public static function statusColor(OutboundStatus $status): string

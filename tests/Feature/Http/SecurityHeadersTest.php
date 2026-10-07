@@ -16,6 +16,7 @@ use Filament\Facades\Filament;
 use Illuminate\Contracts\Foundation\MaintenanceMode as MaintenanceModeContract;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 
@@ -121,7 +122,7 @@ it('§10.2 các chỉ thị còn lại đúng chính sách đã duyệt (R4, SPE
     $policy = cspDirectives($this->get('/admin/login')->headers->get('Content-Security-Policy'));
 
     expect(array_keys($policy))->toBe([
-        'default-src', 'script-src', 'worker-src', 'style-src', 'font-src', 'img-src',
+        'default-src', 'script-src', 'worker-src', 'manifest-src', 'style-src', 'font-src', 'img-src',
         'connect-src', 'frame-ancestors', 'base-uri', 'form-action', 'object-src',
     ])
         ->and($policy['default-src'])->toBe(["'self'"])
@@ -150,6 +151,45 @@ it('§10.2 worker-src cho Worker blob: của FilePond, script-src không có blo
         ->and($policy['script-src'])->not->toContain('blob:')
         ->and($policy['default-src'])->not->toContain('blob:');
 });
+
+/**
+ * M12 R5 (Task 2): app trên điện thoại cần `manifest-src 'self'`. Hôm nay nó rơi về
+ * `default-src 'self'` nên không vỡ (đo ở `docs/research/2026-10-01-pwa-khao-sat.md` mục 2.4: 0 vi
+ * phạm khi tải manifest ở chế độ enforce), nhưng ghi tường minh để một lần siết `default-src` về
+ * sau không lặng lẽ chặn manifest của cả hai app. Máy chủ push của Apple/Google/Mozilla do TRÌNH
+ * DUYỆT gọi, không phải script của trang — nên KHÔNG thêm vào `connect-src` (R5).
+ */
+it('M12 R5 manifest-src chỉ self, connect-src không mở cho máy chủ push', function () {
+    config(['vkcrm.security.csp_mode' => 'enforce']);
+
+    foreach (['/admin/login', '/portal/login'] as $url) {
+        $policy = cspDirectives($this->get($url)->headers->get('Content-Security-Policy'));
+
+        expect($policy['manifest-src'])->toBe(["'self'"])
+            ->and($policy['connect-src'])->toBe(["'self'"]);
+    }
+});
+
+/**
+ * M12 R4 (Task 3): `sw.js` mang CSP riêng của worker (`ContentSecurityPolicy::WORKER_POLICY`) và
+ * middleware để nguyên nó (test ở `tests/Feature/Pwa/ServiceWorkerTest.php`). Lối thoát đó HẸP: chỉ
+ * đúng chính sách worker — chặt hơn chính sách trang. Một response tự mang một CSP KHÁC (rộng hơn,
+ * hay chỉ là khác) vẫn bị thay bằng chính sách trang, ở cả chế độ report lẫn enforce.
+ */
+it('M12 R4 một response tự mang CSP khác chính sách worker vẫn nhận chính sách trang', function (string $mode, string $header) {
+    config(['vkcrm.security.csp_mode' => $mode]);
+
+    Route::get('vk-crm-test-own-csp', fn () => response('x')->header('Content-Security-Policy', 'default-src *'));
+    Route::getRoutes()->refreshNameLookups();
+
+    $response = $this->get('/vk-crm-test-own-csp');
+
+    expect($response->headers->get($header))->toContain("script-src 'self' 'nonce-")
+        ->and($response->headers->get('Content-Security-Policy'))->not->toBe('default-src *');
+})->with([
+    'enforce' => ['enforce', 'Content-Security-Policy'],
+    'report' => ['report', 'Content-Security-Policy-Report-Only'],
+]);
 
 it('§10.2 nonce khác nhau giữa hai request', function () {
     config(['vkcrm.security.csp_mode' => 'enforce']);

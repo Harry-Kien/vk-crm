@@ -408,3 +408,35 @@ it('lets a killed missing documents reminder hold its overlap lock for an hour a
     expect($event->withoutOverlapping)->toBeTrue()
         ->and($event->expiresAt)->toBe(60);
 });
+
+// ---------------------------------------------------------------------------------------------
+// M12 R12 — hàng đợi `push` rút riêng
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * `PushAlert` nằm trên hàng đợi `push`; `queue.drain` (không `--queue`) chỉ rút hàng `default`, nên
+ * không mục lịch này thì không thông báo đẩy nào rời máy chủ. Mỗi phút, `--stop-when-empty`,
+ * `--max-time=50` như `queue.drain`: máy chủ push chậm (hạn 10 giây mỗi máy) giữ lượt rút của CHÍNH
+ * nó, không giữ thư nhắc hạn.
+ *
+ * Mutation probe: xoá mục lịch `queue.push` ở `routes/console.php` → ĐỎ.
+ */
+it('drains the push queue every minute with its own worker, stopping when empty within 50 seconds', function () {
+    $push = collect(Schedule::events())->first(fn ($event) => $event->description === 'queue.push');
+
+    expect($push)->not->toBeNull()
+        ->and($push->command)->toEndWith("'artisan' queue:work --queue=push --stop-when-empty --max-time=50")
+        ->and($push->expression)->toBe('* * * * *');
+});
+
+/**
+ * `withoutOverlapping()` có hạn: hai tiến trình rút cùng hàng `push` là hai lần gửi cùng một job khi
+ * một lượt chạy quá `retry_after`; khoá mặc định 1440 phút thì một tiến trình bị giết tắt push cả ngày.
+ * Năm phút — mỗi lượt tự dừng sau 50 giây.
+ */
+it('never lets the push queue drain overlap itself, and frees a killed drain lock within five minutes', function () {
+    $push = collect(Schedule::events())->first(fn ($event) => $event->description === 'queue.push');
+
+    expect($push->withoutOverlapping)->toBeTrue()
+        ->and($push->expiresAt)->toBe(5);
+});

@@ -2,8 +2,10 @@
 
 namespace App\Actions\Notification;
 
+use App\Actions\Push\SendPushAlert;
 use App\Actions\Schedule\CheckDeadlines;
 use App\Enums\OutboundStatus;
+use App\Enums\PushTopic;
 use App\Enums\Role;
 use App\Mail\Staff\NewClientRequest as NewClientRequestMail;
 use App\Models\ClientRequest;
@@ -42,6 +44,18 @@ use Throwable;
  * thể đã bị huỷ. Khách vẫn gửi được trên vụ ĐÃ ĐÓNG còn công bố trên cổng (`ClientRequestPolicy::create`), nên vụ đóng vẫn được báo. Không hỏi `is_published_to_portal`: đó là ranh giới PORTAL của khách
  * hàng (R12), không áp cho thư nội bộ của nhân sự — nhân sự vẫn cần biết có yêu cầu mới dù cổng
  * đang tắt.
+ *
+ * **M12 — thông báo đẩy `staff.new_client_request`** (kế hoạch M12 R10, R12; phán quyết (d) của
+ * controller): cùng luật với thư khách của Task 8 (docblock `NotifyClientOfStageUpdate`, mục "M12 —
+ * thông báo đẩy"). Sau vòng thư và TRƯỚC lần ném lại lỗi, {@see SendPushAlert} nhận đúng những
+ * người mà lượt này vừa gửi thư được (`$mailed`) — không người đã có dòng `sent`
+ * ({@see self::alreadyDelivered()}), không người vừa hỏng thư; bản ghi đi kèm là yêu cầu đã đọc lại
+ * (`$fresh`), đúng bản ghi thư ghi vào nhật ký. Không luật người nhận thứ hai, không trí nhớ mới;
+ * nút "Gửi lại" của nhật ký thư gọi lại `handle()` nên người vừa nhận thư nhờ nó cũng nhận push. Push
+ * của một lượt được xếp SAU CẢ vòng thư: worker chết giữa vòng thì người đã nhận thư ở lượt đó
+ * không có push bù (push là tiện ích, thư là chứng cứ). Câu hỏi tiếp của khách (`REQ-2`) không đi
+ * qua lớp này: `App\Actions\Portal\ReplyToClientRequest` đẩy cùng chủ đề cho người nhận thông báo
+ * trong hệ thống của nó.
  */
 class NotifyStaffOfNewClientRequest
 {
@@ -65,6 +79,7 @@ class NotifyStaffOfNewClientRequest
 
         $sent = 0;
         $failure = null;
+        $mailed = collect();
 
         foreach ($recipients as $recipient) {
             if ($this->alreadyDelivered($fresh, $recipient)) {
@@ -76,10 +91,14 @@ class NotifyStaffOfNewClientRequest
             try {
                 Mail::to($recipient->email)->send(new NewClientRequestMail($fresh, $recipient));
                 $sent++;
+                $mailed->push($recipient);
             } catch (Throwable $e) {
                 $failure ??= $e;
             }
         }
+
+        // M12: push cho đúng những người lượt này vừa gửi thư được — xem docblock lớp.
+        app(SendPushAlert::class)->handle($mailed, PushTopic::StaffNewClientRequest, $fresh);
 
         if ($failure !== null) {
             throw $failure;
