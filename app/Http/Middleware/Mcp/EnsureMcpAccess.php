@@ -21,8 +21,10 @@ use Symfony\Component\HttpFoundation\Response;
  * Kiểm ở MỖI request, không lúc cấp token [DC:149]: quản trị tắt một người, hạ công tắc, hay đổi phiên
  * bản chính sách thì request kế tiếp của MỌI token đang sống bị chặn, không phải chờ token hết hạn.
  *
- * Hai điều kiện còn lại của R2 đứng ngay trước lớp này: client mang cờ `is_mcp`
- * ({@see EnsureMcpClient}) và scope `mcp:use` (`CheckToken`). **Phải đứng SAU `auth:mcp`**
+ * Hai điều kiện còn lại của R2 đứng trước lớp này: client mang cờ `is_mcp`
+ * ({@see EnsureMcpClient}) và scope `mcp:use` (`CheckToken`). Giữa `CheckToken` và lớp này chỉ có
+ * `AuditToolCall` và `ThrottleMcp`, để một `tools/call` bị lớp này từ chối vẫn có dòng nhật ký
+ * `mcp_tool_called` với outcome `denied` (rà soát Task 8, I3). **Phải đứng SAU `auth:mcp`**
  * (`routes/ai.php`): người dùng đọc từ guard `mcp`, tường minh — không từ `auth('web')` hay
  * `auth('client')`, cả hai đều rỗng trong một request MCP.
  */

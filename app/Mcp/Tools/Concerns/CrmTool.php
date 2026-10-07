@@ -79,10 +79,12 @@ abstract class CrmTool extends Tool
 
     /**
      * Allowlist tham số của tool cho nhật ký `mcp_tool_called` (R8, Task 8), suy từ CHÍNH
-     * `inputSchema` của tool ({@see ToolAuditFields::arguments()}): chỉ tham số có khai; id có tiền tố,
-     * giá trị `enum` tool tự khai, ngày, số, cờ giữ nguyên; mọi văn bản tự do chỉ còn độ dài. Bước gọi
-     * tool (`App\Mcp\Methods\CallCrmTool`) gọi hàm này cho MỌI tool, nên tool mới có allowlist ngay khi
-     * khai `schema()`.
+     * `inputSchema` của tool ({@see ToolAuditFields::arguments()}): chỉ tham số có khai, và quyết theo
+     * KIỂU tham số khai — id có tiền tố và giá trị `enum` tool tự khai ở tham số `string`, ngày ISO ở
+     * tham số `string` khai `format('date')`/`format('date-time')`, số ở tham số `integer`/`number`,
+     * cờ ở tham số `boolean` giữ nguyên; mọi giá trị khác (văn bản tự do, một số gửi vào tham số chuỗi)
+     * chỉ còn độ dài. Bước gọi tool (`App\Mcp\Methods\CallCrmTool`) gọi hàm này cho MỌI tool, nên tool
+     * mới có allowlist ngay khi khai `schema()`.
      *
      * Tool con có thể ghi đè để THU HẸP thêm (ví dụ thay một tham số enum bằng độ dài), không bao giờ để
      * nới: giá trị trả về đi thẳng vào `activity_log`, giữ ≥ 12 tháng.

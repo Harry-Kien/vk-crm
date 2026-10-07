@@ -8,8 +8,8 @@ return [
     // Thân phản hồi JSON-RPC lỗi khi một lần gọi tool bị chặn (HTTP 429), client AI đọc.
     'rate_limited' => 'Quá nhiều lần gọi trong thời gian ngắn. Đợi theo thời gian ở header Retry-After rồi gọi lại.',
 
-    // HTTP 429 trước bước xác thực: một IP gửi quá nhiều token không dùng được.
-    'too_many_failures' => 'Quá nhiều yêu cầu không xác thực được từ địa chỉ này. Thử lại sau ít phút.',
+    // HTTP 429 trước bước xác thực: cùng một token không dùng được bị gửi lại quá nhiều lần từ một địa chỉ.
+    'too_many_failures' => 'Token này đã bị từ chối quá nhiều lần trong thời gian ngắn. Kết nối lại trợ lý AI hoặc thử lại sau ít phút.',
 
     // `App\Enums\McpToolOutcome::label()` — `properties.outcome` của dòng `mcp_tool_called`.
     'outcomes' => [

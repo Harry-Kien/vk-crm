@@ -12,7 +12,9 @@ use App\Enums\Role;
 use App\Enums\UserPosition;
 use App\Filament\Admin\Pages\Auth\EditProfile;
 use App\Filament\Admin\Resources\Users\Pages\EditUser;
+use App\Http\Middleware\Mcp\AuditToolCall;
 use App\Http\Middleware\Mcp\EnsureMcpAccess;
+use App\Http\Middleware\Mcp\ThrottleMcp;
 use App\Mcp\Methods\CrmToolInvoker;
 use App\Mcp\Servers\CrmServer;
 use App\Mcp\Tools\Concerns\CrmTool;
@@ -423,14 +425,21 @@ it('R2 người dùng đã xoá mềm: 401', function () {
     aclExpectRefused(aclInitialize($token));
 });
 
-it('R2 EnsureMcpAccess đứng ngay sau CheckToken mcp:use, cuối danh sách middleware của app', function () {
+/*
+ * Rà soát Task 8, I3: giữa CheckToken và EnsureMcpAccess chỉ có hai middleware của audit/rate limit
+ * (AuditToolCall, ThrottleMcp) — để một tools/call bị EnsureMcpAccess từ chối vẫn có dòng nhật ký.
+ * Không bước kiểm quyền nào khác đứng giữa, và EnsureMcpAccess vẫn là middleware cuối của app.
+ */
+it('R2 EnsureMcpAccess đứng sau CheckToken mcp:use, chỉ cách bởi AuditToolCall và ThrottleMcp, cuối danh sách middleware của app', function () {
     $middleware = Route::getRoutes()->match(request()->create('/mcp', 'POST'))->gatherMiddleware();
 
     $scopeAt = array_search(CheckToken::using('mcp:use'), $middleware, true);
     $accessAt = array_search(EnsureMcpAccess::class, $middleware, true);
 
     expect($scopeAt)->not->toBeFalse()
-        ->and($accessAt)->toBe($scopeAt + 1);
+        ->and(array_slice($middleware, $scopeAt + 1, 2))->toBe([AuditToolCall::class, ThrottleMcp::class])
+        ->and($accessAt)->toBe($scopeAt + 3)
+        ->and($accessAt)->toBe(count($middleware) - 1);
 });
 
 it('R2 McpAccess::refusal() trả lý do ĐẦU TIÊN theo thứ tự của R2', function () {

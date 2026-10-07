@@ -3,9 +3,11 @@
 use App\Enums\AiAccessMode;
 use App\Enums\Role;
 use App\Enums\UserPosition;
+use App\Http\Middleware\Mcp\ThrottleMcpAuthenticationFailures;
 use App\Mcp\Tools\Concerns\CrmTool;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Testing\TestResponse;
 use Laravel\Mcp\Request;
@@ -27,8 +29,10 @@ use Tests\Support\McpToolCalls;
 | Vượt thì HTTP 429 kèm `Retry-After` và `X-RateLimit-*` [DC:187], và lần gọi đó vẫn có một dòng
 | `mcp_tool_called` với `outcome = rate_limited` (AuditTest đo các outcome khác).
 |
-| Trước khi xác thực: một IP gửi quá nhiều request bị từ chối 401 thì bị chặn 429 một phút, và lỗi
-| token sai không còn ghi một dòng log lỗi kèm stack trace mỗi lần (rà soát Task 2, m2).
+| Trước khi xác thực: một bearer bị từ chối 401 quá 30 lần một phút từ cùng một IP thì chính bearer
+| đó bị chặn 429 một phút — không chặn bearer khác, không chặn request không mang bearer (rà soát
+| Task 8, I2) — và lỗi token sai không còn ghi một dòng log lỗi kèm stack trace mỗi lần (rà soát
+| Task 2, m2).
 */
 
 beforeEach(function () {
@@ -264,46 +268,170 @@ it('R8 hai token của cùng một người dùng chung khoá theo người; ng�
 
 /*
 |--------------------------------------------------------------------------
-| Trước khi xác thực: request bị từ chối 401
+| Trước khi xác thực: bearer bị từ chối 401 (rà soát Task 8, I2)
 |--------------------------------------------------------------------------
+| Bộ đếm theo IP VÀ theo chính bearer đó: claude.ai và ChatGPT gọi thay mọi người dùng của họ từ
+| chung một dải IP [PL:177], [PL:181], nên một người lạ bơm 401 từ IP của nền tảng không được làm
+| token hợp lệ của nhân sự nhận 429. Request không mang bearer (bước `initialize` đầu tiên của mọi
+| connector) không bao giờ bị đếm hay bị chặn.
 */
 
-it('R8 một IP bị từ chối 401 quá 30 lần một phút thì nhận 429 trước bước xác thực', function () {
+function rateLimitFromIp(string $ip): void
+{
     McpToolCalls::fresh();
-    $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.50']);
+    test()->withServerVariables(['REMOTE_ADDR' => $ip]);
+}
+
+/** `initialize` KHÔNG có header `Authorization` — bước đầu của mọi connector trước khi có token. */
+function rateLimitInitializeWithoutBearer(): TestResponse
+{
+    McpToolCalls::fresh();
+
+    return test()->postJson('/mcp', [
+        'jsonrpc' => '2.0',
+        'id' => 1,
+        'method' => 'initialize',
+        'params' => [
+            'protocolVersion' => '2025-11-25',
+            'capabilities' => (object) [],
+            'clientInfo' => ['name' => 'thu', 'version' => '1'],
+        ],
+    ]);
+}
+
+it('R8 cùng một bearer hỏng bị từ chối 401 quá 30 lần một phút thì chính bearer đó nhận 429; IP khác không; hết một phút thì mở lại', function () {
+    rateLimitFromIp('203.0.113.50');
 
     for ($i = 1; $i <= 30; $i++) {
-        McpToolCalls::call($this, 'token-sai-'.$i, 'rl_doc', fresh: false)->assertUnauthorized();
+        McpToolCalls::call($this, 'token-sai', 'rl_doc', fresh: false)->assertUnauthorized();
         McpToolCalls::fresh();
     }
 
-    $blocked = McpToolCalls::call($this, 'token-sai-31', 'rl_doc', fresh: false);
+    $blocked = McpToolCalls::call($this, 'token-sai', 'rl_doc', fresh: false);
 
-    $blocked->assertStatus(429);
+    $blocked->assertStatus(429)->assertJsonPath('message', __('mcp_audit.too_many_failures'));
     expect((int) $blocked->headers->get('Retry-After'))->toBeGreaterThan(0)->toBeLessThanOrEqual(60);
 
-    // IP khác không bị ảnh hưởng.
-    McpToolCalls::fresh();
-    $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.51']);
+    // Cùng bearer từ IP khác: chưa hỏng lần nào ở đó.
+    rateLimitFromIp('203.0.113.51');
     McpToolCalls::call($this, 'token-sai', 'rl_doc', fresh: false)->assertUnauthorized();
 
-    // Hết một phút thì IP đầu lại nhận 401 như thường.
     $this->travel(61)->seconds();
-    McpToolCalls::fresh();
-    $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.50']);
+    rateLimitFromIp('203.0.113.50');
     McpToolCalls::call($this, 'token-sai', 'rl_doc', fresh: false)->assertUnauthorized();
 });
 
-it('R8 request xác thực được không tính vào bộ đếm 401 theo IP', function () {
+it('R8 IP đã có hơn 30 lần 401: token hợp lệ từ cùng IP vẫn 200, bearer hỏng khác vẫn 401, chỉ chính bearer hỏng đó nhận 429', function () {
     $token = McpOAuth::accessToken($this, rateLimitStaff());
 
+    rateLimitFromIp('203.0.113.70');
+
+    for ($i = 1; $i <= 30; $i++) {
+        McpToolCalls::call($this, 'token-sai', 'rl_doc', fresh: false)->assertUnauthorized();
+        McpToolCalls::fresh();
+    }
+
+    McpToolCalls::call($this, 'token-sai-khac', 'rl_doc', fresh: false)->assertUnauthorized(); // lần 401 thứ 31 của IP
+
     McpToolCalls::fresh();
-    $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.60']);
+    McpToolCalls::call($this, $token, 'rl_doc', fresh: false)->assertOk();
+
+    McpToolCalls::fresh();
+    McpToolCalls::call($this, 'token-sai', 'rl_doc', fresh: false)->assertStatus(429);
+
+    expect(rateLimitHandled())->toBe(['rl_doc']);
+});
+
+it('R8 request không mang bearer không bị đếm và không bị chặn: lần thứ 32 từ cùng IP vẫn 401 kèm WWW-Authenticate', function () {
+    rateLimitFromIp('203.0.113.80');
+
+    for ($i = 1; $i <= 32; $i++) {
+        $response = rateLimitInitializeWithoutBearer();
+
+        expect($response->status())->toBe(401, "initialize không bearer lần thứ {$i} phải là 401");
+    }
+
+    expect((string) $response->headers->get('WWW-Authenticate'))->toContain('resource_metadata=');
+});
+
+it('R8 nhiều bearer rác khác nhau từ cùng IP không đẩy được một bearer đang bị chặn ra khỏi bộ đếm, và bộ đếm của IP có giới hạn', function () {
+    rateLimitFromIp('203.0.113.90');
+
+    for ($i = 1; $i <= 30; $i++) {
+        McpToolCalls::call($this, 'token-ket', 'rl_doc', fresh: false)->assertUnauthorized();
+        McpToolCalls::fresh();
+    }
+
+    for ($i = 1; $i <= ThrottleMcpAuthenticationFailures::MAX_TRACKED_BEARERS + 5; $i++) {
+        McpToolCalls::call($this, 'token-rac-'.$i, 'rl_doc', fresh: false)->assertUnauthorized();
+        McpToolCalls::fresh();
+    }
+
+    McpToolCalls::call($this, 'token-ket', 'rl_doc', fresh: false)->assertStatus(429);
+
+    expect(Cache::get(ThrottleMcpAuthenticationFailures::cacheKey('203.0.113.90')))
+        ->toBeArray()
+        ->toHaveCount(ThrottleMcpAuthenticationFailures::MAX_TRACKED_BEARERS);
+});
+
+it('R8 bộ đếm của IP đã đầy bearer rác (mỗi cái một lần): một bearer mới bắt đầu lặp vẫn được đếm và bị chặn ở lần thứ 31', function () {
+    rateLimitFromIp('203.0.113.92');
+
+    for ($i = 1; $i <= ThrottleMcpAuthenticationFailures::MAX_TRACKED_BEARERS; $i++) {
+        McpToolCalls::call($this, 'token-rac-'.$i, 'rl_doc', fresh: false)->assertUnauthorized();
+        McpToolCalls::fresh();
+    }
+
+    for ($i = 1; $i <= 30; $i++) {
+        McpToolCalls::call($this, 'token-moi', 'rl_doc', fresh: false)->assertUnauthorized();
+        McpToolCalls::fresh();
+    }
+
+    McpToolCalls::call($this, 'token-moi', 'rl_doc', fresh: false)->assertStatus(429);
+});
+
+it('R8 mỗi bearer một cửa sổ một phút riêng: bearer bị chặn mở lại đúng hạn của nó dù IP còn bearer khác mới hỏng', function () {
+    $this->freezeTime();
+    rateLimitFromIp('203.0.113.93');
+
+    for ($i = 1; $i <= 30; $i++) {
+        McpToolCalls::call($this, 'token-a', 'rl_doc', fresh: false)->assertUnauthorized();
+        McpToolCalls::fresh();
+    }
+
+    $this->travel(40)->seconds();
+    McpToolCalls::call($this, 'token-b', 'rl_doc', fresh: false)->assertUnauthorized();
+    McpToolCalls::fresh();
+    McpToolCalls::call($this, 'token-a', 'rl_doc', fresh: false)->assertStatus(429);
+
+    // Cửa sổ của token-a (bắt đầu ở lần 401 đầu) đã hết; mục của IP còn sống vì token-b.
+    $this->travel(21)->seconds();
+    McpToolCalls::fresh();
+    McpToolCalls::call($this, 'token-a', 'rl_doc', fresh: false)->assertUnauthorized();
+});
+
+it('R8 bộ đếm 401 không giữ bearer thô: khoá của bearer là dấu băm sha256', function () {
+    rateLimitFromIp('203.0.113.91');
+
+    McpToolCalls::call($this, 'token-sai-bi-mat', 'rl_doc', fresh: false)->assertUnauthorized();
+
+    $tracked = Cache::get(ThrottleMcpAuthenticationFailures::cacheKey('203.0.113.91'));
+
+    expect(array_keys($tracked))->toBe([hash('sha256', 'token-sai-bi-mat')])
+        ->and((string) json_encode($tracked))->not->toContain('token-sai-bi-mat');
+});
+
+it('R8 request xác thực được không tính vào bộ đếm 401', function () {
+    $token = McpOAuth::accessToken($this, rateLimitStaff());
+
+    rateLimitFromIp('203.0.113.60');
 
     for ($i = 0; $i < 31; $i++) {
         McpToolCalls::call($this, $token, 'rl_doc', fresh: false)->assertOk();
         McpToolCalls::fresh();
     }
+
+    expect(Cache::get(ThrottleMcpAuthenticationFailures::cacheKey('203.0.113.60')))->toBeNull();
 });
 
 it('R8 bearer sai không còn được report (không ghi log lỗi kèm stack trace mỗi lần)', function () {

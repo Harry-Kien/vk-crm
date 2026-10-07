@@ -5195,7 +5195,8 @@ trong `beforeEach` và dùng nhân sự đủ điều kiện, để mọi 401 c�
   thiếu `matter.view` → công tắc `mcp.enabled` → cam kết đúng phiên bản), `canWrite()` (dùng được + `read_write` +
   cả hai công tắc), `canHold()` (`matter.view`). Enum `App\Enums\McpAccessRefusal` có nhãn tiếng Việt cho màn
   hình đồng ý của Task 4.
-- **`EnsureMcpAccess`** — middleware thứ bảy của `POST /mcp`, ngay sau `CheckToken mcp:use` (điền
+- **`EnsureMcpAccess`** — middleware thứ bảy của `POST /mcp`, ngay sau `CheckToken mcp:use` (từ Task 8 vòng sửa 1:
+  sau `CheckToken`, `AuditToolCall`, `ThrottleMcp`, và là middleware cuối của app) (điền
   `TODO(m11-task6-mcp-enabled-switch)` của `routes/ai.php`). Kiểm ở MỖI request: tắt một người, hạ công tắc, đổi
   phiên bản chính sách thì request kế tiếp của mọi token cũ nhận 401 kèm `WWW-Authenticate … error="invalid_token"`.
   Điều kiện "client mang cờ mcp" của R2 vẫn là `EnsureMcpClient` (Task 3), scope là `CheckToken`.
@@ -5271,7 +5272,8 @@ trong `beforeEach` và dùng nhân sự đủ điều kiện, để mọi 401 c�
   `ClientUser` là của Task 4.
 - **Task 8 (và làn m11b):** audit `mcp_tool_called` và rate limit gắn ở `CallCrmTool` / `CrmToolInvoker` — chỗ duy
   nhất mọi `tools/call` đi qua; tool không viết mã audit hay rate limit riêng. Lần từ chối của `EnsureMcpAccess` xảy
-  ra trước khi có thông điệp JSON-RPC nào; Task 8 quyết có ghi nó không.
+  ra trước khi có thông điệp JSON-RPC nào; Task 8 quyết có ghi nó không (Task 8 vòng sửa 1: có — một dòng
+  `mcp_tool_called` outcome `denied`, causer là người sở hữu token).
 - **Task 13:** tool ghi chỉ khai `writes(): true`; không tự kiểm chế độ hay công tắc, không khai `shouldRegister()`.
 - **Task 15:** Action ghi hai công tắc trên `WriteSettings` (kèm quyền và audit); trang "Kết nối AI" gọi
   `SetUserAiAccess`; "Kết nối AI của tôi" gọi `AcknowledgeAiPolicy` (truyền `request()->ip()`, `userAgent()`; ô
@@ -5394,25 +5396,32 @@ passed. `pint --test`: PASS 1163 tệp. Task không có migration.
 
 **Đã có, kèm test** (`tests/Feature/Mcp/AuditTest.php`, `tests/Feature/Mcp/RateLimitTest.php`, mọi test qua HTTP thật
 `POST /mcp` với token Passport thật và tool thử kế thừa `CrmTool`; trang Nhật ký hệ thống qua Livewire):
-- **Một lần gọi, một dòng.** Middleware `App\Http\Middleware\Mcp\AuditToolCall` (sau `EnsureMcpAccess`) dựng
-  `App\Support\Mcp\ToolCallContext` (một đối tượng mỗi request, gắn vào container trong lúc request chạy, không
-  static) cho mỗi thân request là `tools/call`, rồi ghi ĐÚNG một dòng `mcp_tool_called` qua
-  `App\Actions\Mcp\RecordMcpToolCall` — kể cả lần bị từ chối, bị chặn vì rate limit, tên tool lạ, thiếu `name`,
+- **Một lần gọi, một dòng.** Middleware `App\Http\Middleware\Mcp\AuditToolCall` (ngay sau `CheckToken mcp:use`,
+  TRƯỚC `EnsureMcpAccess`) dựng `App\Support\Mcp\ToolCallContext` (một đối tượng mỗi request, gắn vào container
+  trong lúc request chạy, không static) cho mỗi thân request là `tools/call`, rồi ghi ĐÚNG một dòng
+  `mcp_tool_called` qua `App\Actions\Mcp\RecordMcpToolCall` — kể cả lần bị từ chối (cả lần `EnsureMcpAccess` từ
+  chối người sở hữu một token hợp lệ: công tắc `mcp.enabled` tắt, phiên bản chính sách đổi chưa cam kết lại, mất
+  `matter.view`, `ai_access` về off → 401 và outcome `denied`), bị chặn vì rate limit, tên tool lạ, thiếu `name`,
   tool ném lỗi. Causer là người sở hữu token, truyền tường minh (test: guard `web` trong cùng tiến trình mang một
-  người khác, dòng vẫn ghi đúng người). `tools/list`, `ping`, request 401 không có dòng. Đây là bằng chứng cho câu
-  "mọi lần gọi đều được ghi nhật ký" của màn hình đồng ý (rà soát Task 4, m1).
+  người khác, dòng vẫn ghi đúng người). `tools/list`, `ping`, và request chưa có token hợp lệ (bearer sai, hết hạn,
+  thu hồi, sai `aud`, client không mang cờ mcp, thiếu scope) không có dòng. Đây là bằng chứng cho câu "mọi lần gọi
+  đều được ghi nhật ký" của màn hình đồng ý (rà soát Task 4, m1).
 - **Trường ghi:** `channel = mcp`, `tool` (chỉ khi máy chủ có khai tool đó; tên lạ chỉ còn `tool_name_length`),
   `outcome` (`App\Enums\McpToolOutcome`: ok / not_found / denied / invalid / rate_limited / error),
   `oauth_client_id`, `platform` (`McpPlatform::fromRedirectUri()`, cùng định nghĩa với nhật ký đồng ý), `arguments`,
   `returned_ids`, `returned_count`, `returned_fields`, `duration_ms`, `correlation_id`, `ip` (`$request->ip()` sau
   `TRUSTED_PROXIES`). Không chủ thể.
 - **Tham số theo allowlist** (`App\Support\Mcp\ToolAuditFields`, gọi qua `CrmTool::auditArguments()`, suy từ
-  `schema()` của chính tool — tool của Task 10/11/13 không thêm mã): chỉ tham số có khai; id có tiền tố
-  (`McpIds::isAny()`), giá trị trong `enum` của tham số, ngày ISO, số, cờ giữ nguyên; mọi chuỗi khác (kể cả một
-  "id" lẫn chữ) thành `{length}`; danh sách > 25 phần tử và object thành `{count}`; tham số ngoài schema chỉ còn
-  `unknown_argument_count`. Kết quả: id (khoá `id` có hình dạng id), số id khác nhau, TÊN các trường lá (khoá không
-  phải tên trường thành `*`), không giá trị nào. Test chuỗi đánh dấu trong `query`, `summary`, tên tham số lạ, tên
-  tool lạ, kết quả của tool: không có trong dòng nhật ký.
+  `schema()` của chính tool — tool của Task 10/11/13 không thêm mã): chỉ tham số có khai, và quyết theo KIỂU tham
+  số khai, không theo hình dạng giá trị (rà soát Task 8, I1): id có tiền tố (`McpIds::isAny()`) và giá trị trong
+  `enum` của tham số ở tham số `string`; ngày ISO chỉ ở tham số `string` khai `format('date')`/`format('date-time')`;
+  số nguyên ở tham số `integer`/`number`, số lẻ ở `number`; cờ ở `boolean`. Mọi giá trị khác (văn bản tự do, một
+  "id" lẫn chữ, số điện thoại hay CCCD gửi dạng số JSON vào `query`, ngày sinh gõ vào `query`) thành `{length}`;
+  danh sách > 25 phần tử và object thành `{count}`; tham số ngoài schema chỉ còn `unknown_argument_count`. Tool của
+  Task 10/11/13 muốn ghi giá trị ngày thì khai `->format('date')`. Kết quả: id (khoá `id` có hình dạng id), số id
+  khác nhau, TÊN các trường lá (khoá không phải tên trường thành `*`), không giá trị nào. Test chuỗi đánh dấu trong
+  `query`, `summary`, số `912345678` và ngày `1990-05-12` trong `query`, tên tham số lạ, tên tool lạ, kết quả của
+  tool: không có trong dòng nhật ký.
 - **Kết cục**: `not_found` khi tool trả đúng thông điệp `mcp.tool_errors.not_found` (khoá của Task 10;
   `CrmToolInvoker::NOT_FOUND_MESSAGE`); `ValidationException` và lỗi khác của tool → `invalid`; lỗi xác thực/phân
   quyền và hai lần từ chối của `CrmToolInvoker` → `denied`; tool ghi có khai nhưng không đăng ký cho người `read`
@@ -5424,10 +5433,14 @@ passed. `pint --test`: PASS 1163 tệp. Task không có migration.
   `X-RateLimit-Reset`; tool không chạy; lần bị chặn không tính vào lượt. Mọi lần gọi qua được mang
   `X-RateLimit-*` của giới hạn chặt nhất. Bộ đếm là `RateLimiter` trên cache mặc định (`database` ở máy thật).
   `RateLimitSpec103Test` (§10.3 "API 60 request/phút") chỉ thẳng vào route `/mcp`.
-- **Trước xác thực** (rà soát Task 2, m2): `ThrottleMcpAuthenticationFailures` (sau `CheckOrigin`) đếm theo IP
-  đúng những request bị 401; quá 30 lần một phút thì mọi request `/mcp` từ IP đó nhận 429 một phút. Request xác
-  thực được không bao giờ được đếm. `bootstrap/app.php` thôi `report()` `League\OAuth2\Server\Exception\
-  OAuthServerException` mà `TokenGuard` ném cho mỗi bearer sai (hết một dòng log lỗi kèm stack trace mỗi lần).
+- **Trước xác thực** (rà soát Task 2, m2; rà soát Task 8, I2): `ThrottleMcpAuthenticationFailures` (sau
+  `CheckOrigin`) đếm những request MANG BEARER bị 401, theo IP và dấu băm sha256 của chính bearer đó; một bearer
+  quá 30 lần một phút từ một IP thì chính bearer đó từ IP đó nhận 429 tới hết cửa sổ một phút của nó. Bearer khác
+  từ cùng IP (nhân sự khác gọi qua chung IP của claude.ai/ChatGPT) và request không mang bearer (`initialize` đầu
+  tiên của mọi connector) không bao giờ bị chặn; request xác thực được không bao giờ được đếm. Bộ đếm của một IP là
+  một mục cache giữ tối đa 20 dấu băm (đầy thì bỏ bearer ít lần hỏng nhất), nên bearer rác không đẻ thêm dòng cache.
+  `bootstrap/app.php` thôi `report()` `League\OAuth2\Server\Exception\OAuthServerException` mà `TokenGuard` ném cho
+  mỗi bearer sai (hết một dòng log lỗi kèm stack trace mỗi lần).
 - **Cảnh báo admin** (`App\Actions\Mcp\AlertOnMcpReadVolume`): lần gọi tool ĐỌC thành công cộng số bản ghi trả về
   vào bộ đếm một giờ của người đó; bộ đếm > 200 thì người có `settings.manage` đang hoạt động
   (`ResolveStaffRecipients::forAiOversight()`) nhận thông báo trong hệ thống `McpReadVolumeAlert` (chỉ tên nhân sự
@@ -5443,9 +5456,12 @@ passed. `pint --test`: PASS 1163 tệp. Task không có migration.
   hợp đồng cho làn m11b ghi trong ledger của làn.
 - **Giới hạn chỉ đếm `tools/call`** — `initialize`, `tools/list`, `ping` không bị đếm (kế hoạch nói "mọi tool").
 - **Khoá theo token** cùng con số với khoá theo người nên không bao giờ chặt hơn; giữ vì R8 đòi hai loại khoá.
-- **Request 401 không có dòng `mcp_tool_called`** (chưa có người); được đếm theo IP thay vào đó.
-- **Đếm theo IP trước xác thực có thể chặn cả request hợp lệ** từ cùng IP trong một phút, nếu chính IP đó gửi quá
-  30 token hỏng — đổi lại không còn vòng lặp vô danh miễn phí.
+- **Request chưa có token hợp lệ không có dòng `mcp_tool_called`** (bearer sai, hết hạn, thu hồi, sai `aud`,
+  client không mang cờ mcp, thiếu scope: chưa có người đã xác thực để làm causer); bearer sai được đếm ở
+  `ThrottleMcpAuthenticationFailures` thay vào đó. Lần gọi bị `EnsureMcpAccess` từ chối THÌ có dòng (`denied`).
+- **Bộ đếm 401 trước xác thực không bao giờ chặn một bearer chưa tự hỏng** (rà soát Task 8, I2): đổi lại, người gửi
+  mỗi lần một bearer rác khác nhau không bị chặn — lần đó chỉ tốn một lần kiểm chữ ký JWT và không còn ghi log; request
+  không mang bearer dừng ở `RequireBearerToken` mà không kiểm gì.
 
 **Lệch và khoảng hở:**
 - Dòng `mcp_tool_called` không có chủ thể và không có `properties.matter_id`, nên trưởng phòng có `auditLog.view`
@@ -5455,3 +5471,9 @@ passed. `pint --test`: PASS 1163 tệp. Task không có migration.
   ghi `invalid`.
 
 **Kiểm chứng (2026-10-07):** xem báo cáo làn `task-8-report.md` (RED, mutation probe, cả bộ, MariaDB, pint).
+
+**Vòng sửa 1 (rà soát Task 8: I1, I2, I3)** — allowlist tham số theo kiểu khai báo; bộ đếm 401 theo IP và bearer;
+`AuditToolCall` trước `EnsureMcpAccess`, 401/403 thành `denied` (chi tiết ở các mục trên). RED 13 failed; 16 mutation
+probe đều đỏ (hai probe sống ở lần đầu được đóng bằng hai test mới: cửa sổ riêng của từng bearer, bearer mới vào được
+bộ đếm đã đầy). Cả bộ song song: 5999 passed, 33 skipped, 1 risky (có từ trước), EXIT 0. MariaDB tuần tự (năm tệp đã
+chạm): 195 passed. `pint --test`: PASS 1178 tệp.

@@ -4,19 +4,25 @@ use App\Enums\AiAccessMode;
 use App\Enums\Role;
 use App\Enums\UserPosition;
 use App\Filament\Admin\Pages\ActivityLogPage;
+use App\Http\Middleware\Mcp\AuditToolCall;
+use App\Http\Middleware\Mcp\EnsureMcpAccess;
+use App\Http\Middleware\Mcp\ThrottleMcp;
 use App\Mcp\Tools\Concerns\CrmTool;
 use App\Models\User;
 use App\Notifications\Staff\McpReadVolumeAlert;
 use App\Support\Audit;
+use App\Support\Mcp\ToolCallContext;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Validation\ValidationException;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\ResponseFactory;
 use Laravel\Passport\Client;
+use Laravel\Passport\Http\Middleware\CheckToken;
 use Livewire\Livewire;
 use Spatie\Activitylog\Models\Activity;
 use Tests\Support\McpOAuth;
@@ -26,9 +32,10 @@ use Tests\Support\McpToolCalls;
 |--------------------------------------------------------------------------
 | M11 Task 8 — audit mọi lần gọi tool (R8)
 |--------------------------------------------------------------------------
-| Mỗi `tools/call` tới được máy chủ (đã qua xác thực của `routes/ai.php`) sinh ĐÚNG MỘT dòng
-| `mcp_tool_called`, kể cả lần bị từ chối: causer là người sở hữu token, truyền TƯỜNG MINH; tham số
-| theo allowlist (id, enum, ngày, số; văn bản tự do chỉ còn độ dài); id và TÊN các trường đã trả,
+| Mỗi `tools/call` mang token hợp lệ (đã qua bước 4–7 của `routes/ai.php`) sinh ĐÚNG MỘT dòng
+| `mcp_tool_called`, kể cả lần bị từ chối — cả ở `EnsureMcpAccess`: causer là người sở hữu token,
+| truyền TƯỜNG MINH; tham số theo allowlist quyết theo KIỂU tham số khai (id, enum, ngày ở tham số
+| khai `format`, số, cờ; văn bản tự do và giá trị sai kiểu chỉ còn độ dài); id và TÊN các trường đã trả,
 | không giá trị; outcome, thời gian, correlation id, IP.
 |
 | Đây cũng là bằng chứng cho câu của màn hình đồng ý OAuth (Task 4, `lang/vi/mcp_consent.php`,
@@ -94,7 +101,7 @@ function auditOnlyRow(): Activity
     return $rows[0];
 }
 
-/** Đọc: tham số đủ năm loại của allowlist (id, văn bản, enum, ngày, số, cờ). */
+/** Đọc: tham số đủ các loại của allowlist (id, văn bản, enum, ngày, ngày giờ, số nguyên, số, cờ). */
 function auditReadTool(): CrmTool
 {
     return new class extends CrmTool
@@ -140,8 +147,11 @@ function auditReadTool(): CrmTool
                 'matter_id' => $schema->string()->max(30),
                 'query' => $schema->string()->max(100),
                 'severity' => $schema->string()->enum(['normal', 'critical']),
-                'from' => $schema->string()->max(10),
+                // Tham số ngày khai `format` (rà soát Task 8, I1): chỉ ở đây chuỗi dạng ngày mới được giữ.
+                'from' => $schema->string()->format('date')->max(10),
+                'at' => $schema->string()->format('date-time')->max(25),
                 'limit' => $schema->integer(),
+                'ratio' => $schema->number(),
                 'mine' => $schema->boolean(),
                 'stages' => $schema->array()->items($schema->string()->enum(['intake', 'filed'])),
             ];
@@ -339,6 +349,86 @@ it('R8 người read gọi thẳng tên tool ghi (R13): một dòng outcome = de
         ->and(app('audit.tool-calls')->getArrayCopy())->toBe([]);
 });
 
+/*
+ * Rà soát Task 8, I3: token hợp lệ, người sở hữu đã biết, nhưng `EnsureMcpAccess` từ chối (công tắc
+ * `mcp.enabled` tắt, phiên bản chính sách đổi mà chưa cam kết lại, `ai_access` về off…). R8: "mỗi
+ * tools/call, kể cả lần bị từ chối, sinh đúng một dòng" — lần gọi này có người, nên có dòng.
+ */
+it('R8 tools/call bị EnsureMcpAccess từ chối (công tắc mcp.enabled tắt): 401 và đúng một dòng outcome = denied, causer là người sở hữu token', function () {
+    $staff = auditStaff();
+    $client = McpOAuth::client();
+    $token = McpOAuth::accessToken($this, $staff, $client);
+
+    McpOAuth::openServer(enabled: false);
+
+    McpToolCalls::call($this, $token, 'aud_doc', ['matter_id' => 'matter_5'])->assertUnauthorized();
+
+    $row = auditOnlyRow();
+
+    expect($row->properties['outcome'])->toBe('denied')
+        ->and($row->causer_type)->toBe($staff->getMorphClass())
+        ->and((int) $row->causer_id)->toBe($staff->getKey())
+        ->and($row->properties['oauth_client_id'])->toBe((string) $client->getKey())
+        ->and($row->properties['channel'])->toBe('mcp')
+        ->and(app('audit.tool-calls')->getArrayCopy())->toBe([]);
+});
+
+it('R8 tools/call bị từ chối vì đổi phiên bản chính sách (chưa cam kết lại): một dòng denied mỗi lần gọi', function () {
+    $staff = auditStaff();
+    $token = McpOAuth::accessToken($this, $staff);
+
+    config(['vkcrm.mcp.policy_version' => 'thu-nghiem-2']);
+
+    McpToolCalls::call($this, $token, 'aud_doc')->assertUnauthorized();
+    McpToolCalls::call($this, $token, 'aud_doc')->assertUnauthorized();
+
+    $rows = auditRows();
+
+    expect($rows)->toHaveCount(2)
+        ->and(array_map(fn (Activity $row): string => $row->properties['outcome'], $rows))->toBe(['denied', 'denied'])
+        ->and(array_map(fn (Activity $row): int => (int) $row->causer_id, $rows))->toBe([$staff->getKey(), $staff->getKey()]);
+});
+
+it('R8 cặp dương và âm của lần từ chối ở EnsureMcpAccess: bật lại công tắc thì outcome = ok; initialize bị từ chối không sinh dòng', function () {
+    $staff = auditStaff();
+    $token = McpOAuth::accessToken($this, $staff);
+
+    McpOAuth::openServer(enabled: false);
+    McpToolCalls::send($this, $token, 'tools/list')->assertUnauthorized();
+
+    expect(auditRows())->toBe([]);
+
+    McpOAuth::openServer();
+    McpToolCalls::call($this, $token, 'aud_doc')->assertOk();
+
+    expect(auditOnlyRow()->properties['outcome'])->toBe('ok');
+});
+
+it('R8 AuditToolCall đứng ngay sau CheckToken mcp:use và TRƯỚC EnsureMcpAccess, ThrottleMcp ngay sau nó', function () {
+    $middleware = Route::getRoutes()->match(request()->create('/mcp', 'POST'))->gatherMiddleware();
+
+    $scopeAt = array_search(CheckToken::using('mcp:use'), $middleware, true);
+
+    expect($scopeAt)->not->toBeFalse()
+        ->and(array_search(AuditToolCall::class, $middleware, true))->toBe($scopeAt + 1)
+        ->and(array_search(ThrottleMcp::class, $middleware, true))->toBe($scopeAt + 2)
+        ->and(array_search(EnsureMcpAccess::class, $middleware, true))->toBe($scopeAt + 3);
+});
+
+it('R8 kết cục suy từ mã HTTP khi bước gọi tool chưa đặt: 401 và 403 là denied, 5xx là error, còn lại invalid', function (int $status, string $outcome) {
+    $call = new ToolCallContext;
+    $call->settleStatus($status);
+
+    expect($call->currentOutcome()?->value)->toBe($outcome);
+})->with([
+    [401, 'denied'],
+    [403, 'denied'],
+    [500, 'error'],
+    [503, 'error'],
+    [400, 'invalid'],
+    [200, 'invalid'],
+]);
+
 it('R8 tên tool không có trên máy chủ: một dòng outcome = invalid, tên lạ không vào nhật ký (chỉ độ dài)', function () {
     $token = McpOAuth::accessToken($this, auditStaff());
     $name = 'khong_co_'.strtolower(str_replace('-', '_', AUDIT_MARKER));
@@ -441,6 +531,77 @@ it('R8 chuỗi không đúng hình dạng id/enum/ngày thì chỉ còn độ d�
         ->and($arguments['from'])->toBe(['length' => mb_strlen('2026-10-01'.AUDIT_MARKER)])
         ->and($arguments['stages'])->toBe(['intake', ['length' => mb_strlen(AUDIT_MARKER)]])
         ->and(json_encode($arguments, JSON_UNESCAPED_UNICODE))->not->toContain(AUDIT_MARKER);
+});
+
+/*
+ * Rà soát Task 8, I1: allowlist quyết theo KIỂU mà tool khai, không theo hình dạng giá trị. Model hay
+ * gửi một dãy chữ số dưới dạng số JSON (`{"query": 912345678}`), và một ngày sinh gõ vào `query` có
+ * đúng hình dạng ngày ISO. Cả hai phải chỉ còn độ dài — R8 "không ghi CCCD, số điện thoại".
+ */
+it('R8 số, cờ hay ngày gửi vào tham số văn bản tự do (query) chỉ còn độ dài: số điện thoại, CCCD, ngày sinh không vào nhật ký', function () {
+    $token = McpOAuth::accessToken($this, auditStaff());
+
+    McpToolCalls::call($this, $token, 'aud_doc', ['query' => 912345678]);
+    McpToolCalls::call($this, $token, 'aud_doc', ['query' => 1234567890.5]);
+    McpToolCalls::call($this, $token, 'aud_doc', ['query' => true]);
+    McpToolCalls::call($this, $token, 'aud_doc', ['query' => '1990-05-12']);
+
+    $rows = auditRows();
+
+    expect($rows)->toHaveCount(4)
+        ->and($rows[0]->properties['arguments'])->toBe(['query' => ['length' => 9]])
+        ->and($rows[1]->properties['arguments'])->toBe(['query' => ['length' => mb_strlen((string) 1234567890.5)]])
+        ->and($rows[2]->properties['arguments'])->toBe(['query' => ['length' => 4]])
+        ->and($rows[3]->properties['arguments'])->toBe(['query' => ['length' => 10]]);
+
+    $logged = (string) json_encode(array_map(fn (Activity $row): array => $row->toArray(), $rows), JSON_UNESCAPED_UNICODE);
+
+    expect($logged)->not->toContain('912345678')
+        ->and($logged)->not->toContain('1234567890')
+        ->and($logged)->not->toContain('1990-05-12');
+});
+
+it('R8 giá trị sai kiểu khai báo chỉ còn độ dài: số ở tham số chuỗi hay enum, số ở tham số cờ, cờ hay số lẻ ở tham số số nguyên', function () {
+    $token = McpOAuth::accessToken($this, auditStaff());
+
+    McpToolCalls::call($this, $token, 'aud_doc', [
+        'matter_id' => 912345678,
+        'severity' => 1,
+        'mine' => 1,
+        'limit' => true,
+        'from' => 20261001,
+        'stages' => [912345678],
+    ]);
+    McpToolCalls::call($this, $token, 'aud_doc', ['limit' => 2.5]);
+    // Chuỗi có hình dạng id hay ngày cũng chỉ được giữ ở tham số khai kiểu `string`.
+    McpToolCalls::call($this, $token, 'aud_doc', ['limit' => 'matter_5', 'mine' => '2026-10-01']);
+
+    $rows = auditRows();
+
+    expect($rows[0]->properties['arguments'])->toBe([
+        'matter_id' => ['length' => 9],
+        'severity' => ['length' => 1],
+        'mine' => ['length' => 1],
+        'limit' => ['length' => 4],
+        'from' => ['length' => 8],
+        'stages' => [['length' => 9]],
+    ])->and($rows[1]->properties['arguments'])->toBe(['limit' => ['length' => 3]])
+        ->and($rows[2]->properties['arguments'])->toBe(['limit' => ['length' => 8], 'mine' => ['length' => 10]]);
+});
+
+it('R8 cặp dương của kiểu khai báo: số nguyên và số lẻ ở tham số number, ngày giờ ở tham số date-time được giữ nguyên', function () {
+    $token = McpOAuth::accessToken($this, auditStaff());
+
+    McpToolCalls::call($this, $token, 'aud_doc', [
+        'ratio' => 2.5,
+        'at' => '2026-10-01T09:30:00+07:00',
+    ]);
+    McpToolCalls::call($this, $token, 'aud_doc', ['ratio' => 3]);
+
+    $rows = auditRows();
+
+    expect($rows[0]->properties['arguments'])->toBe(['ratio' => 2.5, 'at' => '2026-10-01T09:30:00+07:00'])
+        ->and($rows[1]->properties['arguments'])->toBe(['ratio' => 3]);
 });
 
 it('R8 danh sách dài hơn 25 phần tử và object chỉ còn số phần tử', function () {

@@ -12,14 +12,18 @@ use Laravel\Passport\Client;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * M11 R8 (Task 8): mỗi `tools/call` tới được máy chủ MCP sinh ĐÚNG MỘT dòng `mcp_tool_called`, kể cả
+ * M11 R8 (Task 8): mỗi `tools/call` mang token hợp lệ sinh ĐÚNG MỘT dòng `mcp_tool_called`, kể cả
  * lần bị từ chối hay bị chặn vì rate limit.
  *
- * Đứng sau `EnsureMcpAccess` (`routes/ai.php`): chỉ request đã xác thực, của một người được dùng máy
- * chủ, mới tới đây — request 401 không có người để ghi (và đã có bộ đếm theo IP,
- * {@see ThrottleMcpAuthenticationFailures}). Thân request không phải `tools/call`
- * ({@see ToolCallContext::isToolCall()}: `initialize`, `tools/list`, `ping`, notification) thì đi
- * thẳng, không ghi gì.
+ * Đứng ngay sau `CheckToken mcp:use` và TRƯỚC `EnsureMcpAccess` (`routes/ai.php`; rà soát Task 8,
+ * I3): mọi request tới đây đã có token hợp lệ của một người đã biết (guard `mcp`), nên lần gọi bị
+ * `EnsureMcpAccess` từ chối — công tắc `mcp.enabled` tắt, chưa cam kết lại chính sách, mất
+ * `matter.view`, `ai_access` về off — cũng có dòng, outcome `denied` (401 →
+ * {@see ToolCallContext::settleStatus()}), causer là người sở hữu token. Request bị dừng trước đó
+ * (bearer sai, token hết hạn hay bị thu hồi, sai `aud`, client không mang cờ mcp, thiếu scope) chưa có
+ * người đã xác thực để ghi; bearer sai được đếm ở {@see ThrottleMcpAuthenticationFailures}. Thân
+ * request không phải `tools/call` ({@see ToolCallContext::isToolCall()}: `initialize`, `tools/list`,
+ * `ping`, notification) thì đi thẳng, không ghi gì.
  *
  * Với một `tools/call`: dựng một {@see ToolCallContext} mới, gắn vào container cho bước gọi tool
  * (`App\Mcp\Methods\CallCrmTool`) điền, chạy request, gỡ khỏi container dù request ra sao, rồi ghi

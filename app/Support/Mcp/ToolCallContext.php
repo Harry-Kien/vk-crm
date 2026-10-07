@@ -126,12 +126,20 @@ final class ToolCallContext
     }
 
     /**
-     * Kết cục cho lần gọi mà bước gọi tool không đặt được (request bị máy chủ từ chối trước khi tới
-     * `tools/call`, ví dụ `_meta` sai): 5xx là `error`, còn lại là `invalid`.
+     * Kết cục cho lần gọi mà bước gọi tool không đặt được (request bị dừng trước khi tới `tools/call`):
+     *  - 401, 403: `denied` — `EnsureMcpAccess` từ chối người sở hữu token (công tắc `mcp.enabled` tắt,
+     *    chưa cam kết đúng phiên bản chính sách, mất `matter.view`, `ai_access` về off…; rà soát Task 8,
+     *    I3);
+     *  - 5xx: `error`;
+     *  - còn lại (máy chủ MCP từ chối thân request, ví dụ `_meta` sai): `invalid`.
      */
     public function settleStatus(int $status): void
     {
-        $this->outcome ??= $status >= 500 ? McpToolOutcome::Error : McpToolOutcome::Invalid;
+        $this->outcome ??= match (true) {
+            $status === 401, $status === 403 => McpToolOutcome::Denied,
+            $status >= 500 => McpToolOutcome::Error,
+            default => McpToolOutcome::Invalid,
+        };
     }
 
     /** Gộp câu trả lời của một nhóm giới hạn vào câu trả lời đã có ({@see McpRateLimitVerdict::tighter()}). */
