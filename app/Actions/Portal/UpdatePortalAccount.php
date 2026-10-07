@@ -7,6 +7,7 @@ use App\Models\ClientUser;
 use App\Models\User;
 use App\Support\Audit;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
  * Cập nhật một tài khoản cổng khách hàng từ trang sửa của nhân sự, và ghi
@@ -39,6 +40,23 @@ use Illuminate\Support\Facades\DB;
  * đã có, nên mọi đường đổi email đều đi qua nó. So email cũ trên dòng đã KHOÁ. Gỡ chạy SAU commit
  * (`DB::afterCommit` — sau transaction NGOÀI CÙNG, kể cả khi người gọi bọc thêm một transaction):
  * lần lưu rollback thì máy còn nguyên; đổi email không chờ được việc dọn máy.
+ *
+ * ## Phiên của người giữ cũ chết NGAY trong cùng transaction (fu4, fix round 1)
+ *
+ * Gỡ máy thôi chưa đủ. Mật khẩu tạm của người giữ mới chỉ được ghi khi `SendPortalActivationMail`
+ * chạy (lượt `queue.drain` kế tiếp, khoảng một phút, lâu hơn nếu cron trễ), và tới lúc đó phiên cổng
+ * đang mở của người giữ CŨ vẫn hợp lệ: `AuthenticateSession` chỉ so băm mật khẩu. Phiên đó bị
+ * `RequirePortalPasswordChange` đưa tới `ChangePassword` — trang không hỏi mật khẩu hiện tại và ghi
+ * `activated_at` — nên người giữ cũ "kích hoạt" được địa chỉ mới chưa ai xác minh (R12), bật lại máy
+ * của mình, và máy đó nhận push mãi (R10).
+ *
+ * Nên cùng lần lưu đổi email, trong CÙNG transaction, mật khẩu thành một chuỗi ngẫu nhiên không ai
+ * biết: request đầy đủ kế tiếp của phiên cũ lệch băm và bị `AuthenticateSession` đăng xuất (sự kiện
+ * `CurrentDeviceLogout` — `ForgetPushDeviceOnLogout` gỡ máy của phiên đó nếu có); form đổi mật khẩu
+ * đã mở sẵn thì `ChangePassword::changePassword()` tự so băm trong phiên và từ chối (request cập nhật
+ * Livewire không chạy `AuthenticateSession`). Người giữ mới không mất gì: mật khẩu của họ là mật khẩu
+ * tạm mà job ghi đè lên chuỗi này. Tài khoản không đủ điều kiện nhận thư kích hoạt (đã tắt, khách đã
+ * xoá mềm) thì đứng với chuỗi ngẫu nhiên cho tới lần cấp lại — đúng ý: chưa ai được dùng nó.
  */
 final class UpdatePortalAccount
 {
@@ -54,6 +72,11 @@ final class UpdatePortalAccount
             $wasActive = (bool) $locked->is_active;
             $emailChanged = array_key_exists('email', $attributes)
                 && self::changesEmail((string) $locked->email, $attributes['email']);
+
+            if ($emailChanged) {
+                // Cùng một câu UPDATE với email mới; `password` cast `hashed` băm chuỗi này.
+                $account->forceFill(['password' => Str::random(64)]);
+            }
 
             $account->update($attributes);
 

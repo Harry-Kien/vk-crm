@@ -8,6 +8,7 @@ use App\Filament\Admin\Resources\Matters\Pages\ViewMatter;
 use App\Filament\Admin\Resources\Matters\RelationManagers\StageLogsRelationManager;
 use App\Filament\Admin\Resources\Users\Pages\EditUser;
 use App\Filament\Portal\Pages\Auth\ChangePassword;
+use App\Jobs\SendPortalActivationMail;
 use App\Mail\Client\StageUpdate;
 use App\Models\Client;
 use App\Models\ClientUser;
@@ -15,6 +16,7 @@ use App\Models\Matter;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Mail;
@@ -213,6 +215,131 @@ it('forgets the devices only after the email change has committed', function () 
 
     expect($account->fresh()->email)->toBe('nguoi-giu-moi@vidu.test')
         ->and($levelAtForget)->toBe($baseLevel);
+});
+
+/**
+ * Fix round 1 — phiên cổng của người giữ CŨ đang mở lúc văn phòng đổi email. Dựng đúng khoảng hở
+ * thật: thư kích hoạt (`SendPortalActivationMail`, nơi mật khẩu tạm mới được ghi) còn nằm trong hàng
+ * đợi (`Bus::fake`), và phiên cũ mang băm mật khẩu mà lần tải trang đầy đủ trước đó đã cất
+ * (`AuthenticateSession`; client test không giữ cookie nên phải đặt tay — xem `LoginTest`).
+ *
+ * @return array{0: User, 1: ClientUser} luật sư, tài khoản (đã đổi email; mọi máy cũ đã gỡ)
+ */
+function revocationEmailChangedUnderAnOpenSession(): array
+{
+    Mail::fake();
+    Bus::fake([SendPortalActivationMail::class]);
+    [, $lawyer, $account] = revocationScenario();
+    FakePushServer::device($account, 'may-nguoi-giu-cu');
+
+    session()->put('password_hash_client', $account->getAuthPassword());
+
+    Filament::setCurrentPanel('admin');
+    test()->actingAs($lawyer, 'web');
+    test()->livewire(EditClientUser::class, ['record' => $account->getKey()])
+        ->fillForm(['name' => $account->name, 'email' => 'nguoi-giu-moi@vidu.test'])
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    Bus::assertDispatched(SendPortalActivationMail::class);
+
+    // Mỗi request thật nạp lại người dùng từ CSDL — `fresh()` là đúng điều đó.
+    test()->actingAs($account->fresh(), 'client');
+
+    return [$lawyer, $account];
+}
+
+/**
+ * Người giữ cũ đang mở cổng: request đầy đủ kế tiếp của phiên đó — mở trang đổi mật khẩu (nơi
+ * `RequirePortalPasswordChange` đẩy mọi trang khác tới) hay bấm "Bật trên máy này" — bị đăng xuất
+ * ngay, không chờ hàng đợi xoay mật khẩu tạm. Không máy nào còn lại của tài khoản.
+ *
+ * Mutation probe: bỏ dòng đặt mật khẩu ngẫu nhiên ở `UpdatePortalAccount` → phiên cũ đi qua
+ * `AuthenticateSession` (băm vẫn khớp): trang đổi mật khẩu mở ra 200, máy mới đăng ký 201, ĐỎ.
+ */
+it('signs the previous holder\'s open portal session out on its next request once the email changes', function (string $next) {
+    [, $account] = revocationEmailChangedUnderAnOpenSession();
+
+    $response = match ($next) {
+        'open-change-password' => test()->get(ChangePassword::getUrl(panel: 'portal')),
+        'enable-this-device' => test()->postJson('/portal/push/subscriptions', [
+            'endpoint' => FakePushServer::endpoint('may-moi-cua-nguoi-giu-cu'),
+            'keys' => WebPushTestKeys::subscription(),
+            'contentEncoding' => 'aes128gcm',
+        ]),
+    };
+
+    if ($next === 'enable-this-device') {
+        $response->assertUnauthorized();
+    } else {
+        $response->assertRedirect(Filament::getPanel('portal')->getLoginUrl());
+    }
+
+    expect(auth('client')->check())->toBeFalse()
+        ->and($account->pushSubscriptions()->count())->toBe(0)
+        ->and($account->fresh()->activated_at)->toBeNull();
+})->with([
+    'mở trang đổi mật khẩu' => 'open-change-password',
+    'bật thông báo trên máy này' => 'enable-this-device',
+]);
+
+/**
+ * Người giữ cũ đã mở SẴN form đổi mật khẩu (request cập nhật Livewire không chạy `AuthenticateSession`
+ * — middleware đó không bền): bấm lưu sau khi email đổi không "kích hoạt" được địa chỉ mới chưa ai
+ * xác minh — mật khẩu không đổi thành của người đó, `activated_at` vẫn trống, phiên bị đăng xuất về
+ * màn hình đăng nhập.
+ *
+ * Mutation probe: bỏ lần kiểm phiên ở `ChangePassword::changePassword()` → lưu thành công,
+ * `activated_at` có giá trị, ĐỎ. Bỏ dòng mật khẩu ngẫu nhiên ở `UpdatePortalAccount` → băm trong
+ * phiên vẫn khớp, lưu thành công, ĐỎ.
+ */
+it('refuses the first-password form to the previous holder once the email has changed under it', function () {
+    [, $account] = revocationEmailChangedUnderAnOpenSession();
+    $passwordAfterChange = $account->fresh()->getAuthPassword();
+
+    Filament::setCurrentPanel('portal');
+    test()->livewire(ChangePassword::class)
+        ->set('data.password', 'mat-khau-cua-nguoi-giu-cu-2026')
+        ->set('data.passwordConfirmation', 'mat-khau-cua-nguoi-giu-cu-2026')
+        ->call('changePassword')
+        ->assertRedirect(Filament::getPanel('portal')->getLoginUrl());
+
+    $fresh = $account->fresh();
+    expect($fresh->activated_at)->toBeNull()
+        ->and($fresh->must_change_password)->toBeTrue()
+        ->and($fresh->getAuthPassword())->toBe($passwordAfterChange)
+        ->and(auth('client')->check())->toBeFalse()
+        ->and($account->pushSubscriptions()->count())->toBe(0);
+});
+
+/**
+ * Vế dương của lần kiểm phiên trên: khách mở trang đổi mật khẩu bằng một request đầy đủ THẬT
+ * (`AuthenticateSession` cất băm dạng HMAC vào phiên), rồi bấm lưu — mật khẩu không đổi ở nơi khác
+ * giữa hai lần, nên lưu thành công và đây là lần kích hoạt. Dạng băm THÔ (cái `changePassword()` tự
+ * cất) đã có `LoginTest` "keeps the client signed in after they set their very first password".
+ *
+ * Mutation probe: bỏ nhánh so dạng HMAC ở `ChangePassword::sessionOutlivedItsPassword()` → phiên
+ * hợp lệ bị đăng xuất, ĐỎ.
+ */
+it('lets a session whose page load stored the current password hash set its first password', function () {
+    $account = ClientUser::factory()->create(['is_active' => true, 'must_change_password' => true]);
+
+    test()->actingAs($account, 'client');
+    test()->get(ChangePassword::getUrl(panel: 'portal'))->assertOk();
+
+    $stored = session('password_hash_client');
+    expect($stored)->toBeString()->not->toBe($account->getAuthPassword());
+
+    Filament::setCurrentPanel('portal');
+    test()->livewire(ChangePassword::class)
+        ->set('data.password', 'mat-khau-dau-tien-2026')
+        ->set('data.passwordConfirmation', 'mat-khau-dau-tien-2026')
+        ->call('changePassword')
+        ->assertHasNoErrors()
+        ->assertRedirect(Filament::getPanel('portal')->getUrl());
+
+    expect($account->fresh()->activated_at)->not->toBeNull()
+        ->and(auth('client')->check())->toBeTrue();
 });
 
 // ---------------------------------------------------------------------------------------------

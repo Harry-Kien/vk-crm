@@ -5374,3 +5374,26 @@ cả bộ SQLite (`test --parallel --processes=2`) **5807 passed**, 33 skipped, 
 `StaffEventPushTest`, `DocumentDownloadAliasTest`, `SystemHealthTest`, `PushInstallGuideTest`) **160 passed**, và trên
 năm tệp liên quan (`ClientUserResourceTest`, `ResetStaffTwoFactorTest`, `DocumentDownloadTest`, `AdminIpAllowlistTest`,
 `ClientEventPushTest`) **205 passed**; `pint --test` PASS. Nhật ký: `.superpowers/sdd/fu4/probe/` (ngoài repo).
+
+**Vòng sửa 1 (rà soát Task 1: mục 1 chưa kín).** Đổi email gỡ máy sau commit, nhưng phiên cổng đang mở của người
+giữ CŨ vẫn hợp lệ tới khi `SendPortalActivationMail` ghi mật khẩu tạm (lượt `queue.drain` kế tiếp): phiên đó bị
+`RequirePortalPasswordChange` đưa tới `ChangePassword` (không hỏi mật khẩu hiện tại, ghi `activated_at`), nên người
+giữ cũ "kích hoạt" được địa chỉ mới chưa ai xác minh (R12) rồi bật lại máy nhận push (R10). Sửa:
+- `UpdatePortalAccount`: khi email đổi thật, CÙNG câu UPDATE đặt mật khẩu thành chuỗi ngẫu nhiên không ai biết — request
+  đầy đủ kế tiếp của phiên cũ lệch băm và bị `AuthenticateSession` đăng xuất (mở trang đổi mật khẩu → về đăng nhập;
+  bấm "Bật trên máy này" → 401, không dòng đăng ký nào). Người giữ mới dùng mật khẩu tạm mà job ghi đè lên chuỗi này.
+- `ChangePassword::changePassword()`: form đã mở sẵn gửi lên bằng request cập nhật Livewire, nơi `AuthenticateSession`
+  không chạy (không bền; request giả của đường ống bền không mang phiên) — nên trang tự so băm trong phiên như
+  middleware (HMAC hoặc thô; vắng khoá thì tin, như middleware) và khi lệch thì đăng xuất phiên đó, xoá phiên, về màn
+  hình đăng nhập, không ghi gì.
+- Không gỡ máy thêm trong `SendPortalActivationMail` (gợi ý tuỳ chọn): job đó chạy cả ở mỗi lần "Cấp lại mật khẩu"
+  bình thường, gỡ ở đó sẽ xoá máy của chủ thật; sau bản sửa, phiên cũ không còn request nào qua được để đăng ký máy
+  sau commit. Còn lại một khe mili giây: request đăng ký đã qua `AuthenticateSession` đúng lúc lần lưu commit.
+- Test (`PushDeviceRevocationTest`): phiên cũ mở trang đổi mật khẩu / bật máy sau khi email đổi (thư kích hoạt còn
+  trong hàng đợi) bị đăng xuất, không máy nào còn; form đã mở sẵn bị từ chối (`activated_at` trống, mật khẩu không
+  đổi); vế dương — băm HMAC do một lần tải trang thật cất vẫn lưu được. Đột biến: bỏ mật khẩu ngẫu nhiên (3 ca đỏ), bỏ
+  lần kiểm phiên (1), bỏ nhánh HMAC (1), bỏ nhánh thô (`LoginTest` "keeps the client signed in…" đỏ), vắng khoá thành
+  "lệch" (ca đường thật của mục 1 đỏ).
+- Số đo vòng sửa 1: RED trước khi sửa 3 ca (`fr1-red-kept.log`); 5/5 đột biến đỏ đúng ca; cả bộ SQLite **5811 passed**,
+  33 skipped, 1 risky, **0 failed** (166591 khẳng định, 3201 s); MariaDB tuần tự (`PushDeviceRevocationTest`,
+  `LoginTest`, `ClientUserResourceTest`) **156 passed**; `pint --test` PASS.
