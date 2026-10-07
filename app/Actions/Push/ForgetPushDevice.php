@@ -27,16 +27,31 @@ use Throwable;
  *    Hôm nay `register.js` không gọi route này (nhánh khoá lệch R7 chỉ `unsubscribe()` tại chỗ);
  *    route giữ cho người gọi về sau và cho việc gỡ một endpoint của chính mình bằng tay.
  *  - {@see self::byId()} — nút "Gỡ" của từng máy trên trang "Thông báo trên điện thoại".
- *  - {@see self::all()} — nút "Gỡ mọi thiết bị" (R14: nút tắt hết; email không tắt được).
+ *  - {@see self::all()} — nút "Gỡ mọi thiết bị" của chính người đó (R14: nút tắt hết; email không
+ *    tắt được), và ba lối VĂN PHÒNG gỡ thay (việc sau gộp M12, làn fu4) — mỗi lối mang một lý do:
+ *    {@see self::REASON_EMAIL_CHANGED} (`UpdatePortalAccount`, đổi email cổng),
+ *    {@see self::REASON_TWO_FACTOR_RESET} (`ResetStaffTwoFactor`, "Đặt lại 2FA"),
+ *    {@see self::REASON_OFFICE} (nút "Gỡ mọi máy nhận thông báo" trên trang tài khoản cổng).
  *
  * Mỗi dòng gỡ ghi một audit `push_device_removed` mang ĐÚNG `device_label` — không bao giờ endpoint
- * (R8). Người gỡ luôn là chủ dòng (`$owner` là cả chủ thể lẫn người gây ra).
+ * (R8). Người tự gỡ máy của mình: chủ dòng là cả chủ thể lẫn người gây ra, `properties` chỉ có
+ * `device_label`. Văn phòng gỡ thay: chủ thể vẫn là chủ dòng, người gây ra là nhân sự đã bấm (lệnh
+ * console: không ai), và `properties` thêm `reason`.
  *
  * Không chạm thẳng bảng đăng ký (mọi truy vấn qua quan hệ của `$owner`); vẫn nằm trong danh sách
  * cho phép của `PushSubscriptionAccessTest` vì lối đăng xuất gỡ theo endpoint trong phiên ở đây.
  */
 class ForgetPushDevice
 {
+    /** Văn phòng đổi email cổng: địa chỉ mới là một người giữ mới, chưa xác minh (R10, R12). */
+    public const REASON_EMAIL_CHANGED = 'email_changed';
+
+    /** "Đặt lại 2FA": nhân sự mất điện thoại — máy đó thôi đổ chuông (SPEC §10.7). */
+    public const REASON_TWO_FACTOR_RESET = 'two_factor_reset';
+
+    /** Khách gọi văn phòng báo mất máy; nhân sự bấm nút trên trang tài khoản cổng. */
+    public const REASON_OFFICE = 'office';
+
     /**
      * R9 — `$owner` vừa đăng xuất khỏi `$guard` trên trình duyệt mang phiên `$session`: gỡ máy của
      * trình duyệt này, nếu phiên còn nhớ endpoint của nó VÀ dòng đó thuộc đúng `$owner`.
@@ -111,24 +126,43 @@ class ForgetPushDevice
         return $this->forget($owner, $owner->pushSubscriptions()->whereKey($id)) > 0;
     }
 
-    /** @return int số máy đã gỡ */
-    public function all(User|ClientUser $owner): int
+    /**
+     * Gỡ mọi máy của `$owner`. Không `$reason`: chính chủ bấm "Gỡ mọi thiết bị". Có `$reason` (một
+     * hằng `REASON_*`): văn phòng gỡ thay — `$by` là nhân sự đã bấm, `null` khi lệnh console gây ra
+     * (dòng nhật ký không người gây ra, kể cả khi có ai đang đăng nhập).
+     *
+     * Người gọi chạy nó SAU commit của việc đã quyết định gỡ (đổi email, đặt lại 2FA): việc đó
+     * rollback thì máy còn nguyên.
+     *
+     * @return int số máy đã gỡ
+     */
+    public function all(User|ClientUser $owner, ?User $by = null, ?string $reason = null): int
     {
-        return $this->forget($owner, $owner->pushSubscriptions());
+        return $this->forget($owner, $owner->pushSubscriptions(), $by, $reason);
     }
 
     /**
      * @param  MorphMany|Builder  $devices  dòng của `$owner`, đã lọc
      */
-    private function forget(User|ClientUser $owner, MorphMany|Builder $devices): int
+    private function forget(User|ClientUser $owner, MorphMany|Builder $devices, ?User $by = null, ?string $reason = null): int
     {
-        return DB::transaction(function () use ($owner, $devices): int {
+        return DB::transaction(function () use ($owner, $devices, $by, $reason): int {
             $rows = $devices->lockForUpdate()->get(['id', 'device_label']);
 
             foreach ($rows as $row) {
                 $row->delete();
 
-                Audit::record('push_device_removed', $owner, ['device_label' => $row->device_label], $owner);
+                if ($reason === null) {
+                    Audit::record('push_device_removed', $owner, ['device_label' => $row->device_label], $owner);
+                } else {
+                    Audit::record(
+                        'push_device_removed',
+                        $owner,
+                        ['device_label' => $row->device_label, 'reason' => $reason],
+                        $by,
+                        bySystem: $by === null,
+                    );
+                }
             }
 
             return $rows->count();

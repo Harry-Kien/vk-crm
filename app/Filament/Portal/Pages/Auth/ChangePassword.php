@@ -158,6 +158,20 @@ class ChangePassword extends Page
             return;
         }
 
+        if ($this->sessionOutlivedItsPassword($user)) {
+            /*
+             * Đúng việc `AuthenticateSession::logout()` làm ở một request đầy đủ: đăng xuất phiên
+             * NÀY (sự kiện `CurrentDeviceLogout`, nên `ForgetPushDeviceOnLogout` gỡ máy của nó),
+             * xoá sạch phiên, về màn hình đăng nhập. Không ghi gì, không kiểm form.
+             */
+            Filament::auth()->logoutCurrentDevice();
+            session()->flush();
+
+            $this->redirect(Filament::getLoginUrl(), navigate: false);
+
+            return;
+        }
+
         /** @var array{password: string} $data */
         $data = $this->form->getState();
 
@@ -227,6 +241,42 @@ class ChangePassword extends Page
             (string) session()->pull(RequirePortalPasswordChange::INTENDED_URL_KEY, Filament::getUrl()),
             navigate: false,
         );
+    }
+
+    /**
+     * Phiên này có còn là phiên của mật khẩu ĐANG DÙNG không — câu `AuthenticateSession` hỏi ở mỗi
+     * request đầy đủ, hỏi lại ở đây vì lần bấm lưu là một request cập nhật Livewire, nơi middleware
+     * ấy không chạy (nó không bền; và request giả của đường ống bền không mang phiên — xem chú thích
+     * cuối `changePassword()`).
+     *
+     * Vì sao cần (fu4, fix round 1): văn phòng đổi email cổng thì `UpdatePortalAccount` đặt mật khẩu
+     * thành chuỗi ngẫu nhiên ngay trong lần lưu đó. Người giữ CŨ đang mở sẵn form này mà vẫn bấm lưu
+     * được thì chính họ ghi `activated_at` cho địa chỉ MỚI chưa ai xác minh (R12) và giữ phiên để bật
+     * lại máy nhận push (R10). Lệch băm nghĩa là mật khẩu đã đổi ở nơi khác sau lần tải trang cuối của
+     * phiên này: phiên đó hết quyền, đúng như `AuthenticateSession` sẽ phán ở request đầy đủ kế tiếp.
+     *
+     * So như `AuthenticateSession::validatePasswordHash()`: dạng HMAC (`hashPasswordForCookie()`) hoặc
+     * dạng thô (`changePassword()` cất dạng thô). Phiên CHƯA có khoá thì trả `false`, cũng như
+     * middleware cất băm hiện hành khi vắng — trên đường thật khoá luôn có, vì form này chỉ tới tay
+     * khách qua một lần tải trang đầy đủ đã chạy `AuthenticateSession`.
+     */
+    private function sessionOutlivedItsPassword(ClientUser $user): bool
+    {
+        $stored = session()->get('password_hash_'.Filament::getAuthGuard());
+
+        if (! is_string($stored)) {
+            return false;
+        }
+
+        $current = (string) $user->getAuthPassword();
+        $guard = Filament::auth();
+
+        if (hash_equals($current, $stored)) {
+            return false;
+        }
+
+        return ! (method_exists($guard, 'hashPasswordForCookie')
+            && hash_equals($guard->hashPasswordForCookie($current), $stored));
     }
 
     /**

@@ -13,6 +13,7 @@ use App\Models\DocumentDownload;
 use App\Models\Matter;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use Filament\Facades\Filament;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\URL;
@@ -72,20 +73,64 @@ it('signs a client link on the portal alias and a staff link on the internal ali
         ->and(parse_url($document->downloadUrlFor($this->lawyer), PHP_URL_PATH))->toBe("/admin/documents/{$document->id}/download");
 });
 
+/**
+ * Việc sau gộp M12 (làn fu4, mục 4): bí danh mang giới hạn IP của admin (M8 R7) khi và chỉ khi panel
+ * của nó mang — cùng luật `$ipGate` của `routes/pwa.php` — và ĐỨNG TRƯỚC `signed`, để một IP ngoài
+ * danh sách nhận 404 như mọi path khác dưới `/admin`, không phải trang 403 "đường dẫn hết hạn". Ngoài
+ * giới hạn đó, middleware của bí danh đúng bằng của route gốc.
+ */
 it('registers the two aliases with the same controller and the same middleware as the original route, outside the panels', function (string $panel) {
     $original = Route::getRoutes()->getByName('documents.download');
     $alias = Route::getRoutes()->getByName("documents.download.{$panel}");
+    $ipGate = in_array(RestrictAdminIpAllowlist::class, Filament::getPanel($panel)->getMiddleware(), true);
 
     expect($alias)->not->toBeNull()
+        ->and($ipGate)->toBe($panel === 'admin')
         ->and($alias->uri())->toBe("{$panel}/documents/{document}/download")
         ->and($alias->methods())->toBe(['GET', 'HEAD'])
         ->and($alias->getActionName())->toBe(DocumentDownloadController::class)
         ->and($alias->getActionName())->toBe($original->getActionName())
-        ->and($alias->gatherMiddleware())->toBe($original->gatherMiddleware())
-        ->and($alias->gatherMiddleware())->toContain('web', 'signed', 'throttle:document-download')
-        // M8 R7: allowlist không phủ route tải tệp — giữ nguyên cho bí danh.
-        ->and($alias->gatherMiddleware())->not->toContain(RestrictAdminIpAllowlist::class);
+        ->and($alias->gatherMiddleware())->toBe($ipGate
+            ? ['web', RestrictAdminIpAllowlist::class, 'signed', 'throttle:document-download']
+            : $original->gatherMiddleware())
+        ->and($original->gatherMiddleware())->toBe(['web', 'signed', 'throttle:document-download']);
 })->with(['admin', 'portal']);
+
+/**
+ * Việc sau gộp M12 (làn fu4, mục 4) — "máy lạ không biết `/admin` tồn tại" (M8 R7). Từ một IP ngoài
+ * `ADMIN_IP_ALLOWLIST`, bí danh nội bộ trả 404 — có chữ ký hay không — đúng như trang đăng nhập
+ * `/admin/login`; trước đó nó trả trang 403 riêng của `signed`. Từ IP trong danh sách, đường dẫn ký
+ * cho luật sư vẫn tải được. Bí danh của cổng (không có allowlist) và route gốc `/documents/…` (đường
+ * dẫn đã phát trước khi triển khai) không đổi.
+ *
+ * Mutation probe (báo cáo fu4): bỏ `->middleware($ipGate)` ở nhóm bí danh → hai vế 404 ĐỎ (403 và 200).
+ */
+it('answers 404 on the internal alias outside the admin allowlist and still serves it inside', function () {
+    config(['vkcrm.security.admin_ip_allowlist' => '10.0.0.1']);
+    $document = pwaAliasDocument($this->matter);
+    $staffUrl = $document->downloadUrlFor($this->lawyer);
+    $unsigned = "/admin/documents/{$document->id}/download";
+
+    $outside = fn () => $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.50']);
+    $inside = fn () => $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.1']);
+
+    // Cổng khách không có allowlist: bí danh của cổng tới mọi IP.
+    $clientUrl = $document->downloadUrlFor($this->clientUser);
+    $outside()->actingAs($this->clientUser, 'client')->get($clientUrl)->assertOk();
+    auth('client')->logout();
+
+    $outside()->get('/admin/login')->assertNotFound();
+    // Từng byte như trang 404 của một path lạ (cùng luật `ErrorPageHomeLinkTest`): không nút nào trỏ `/admin`.
+    expect($outside()->get($unsigned)->assertNotFound()->getContent())
+        ->toBe($outside()->get('/khong-co')->assertNotFound()->getContent());
+    $outside()->actingAs($this->lawyer, 'web')->get($staffUrl)->assertNotFound();
+
+    $inside()->get($unsigned)->assertForbidden();
+    $response = $inside()->actingAs($this->lawyer, 'web')->get($staffUrl);
+    $response->assertOk();
+    expect($response->streamedContent())->toBe('%PDF-1.4 noi dung that')
+        ->and(DocumentDownload::withoutGlobalScopes()->where('document_id', $document->id)->where('downloader_type', 'user')->count())->toBe(1);
+});
 
 it('serves the file to the client through the portal alias and records exactly one download', function () {
     $document = pwaAliasDocument($this->matter);
@@ -161,23 +206,24 @@ it('refuses a client deactivated after the alias link was signed', function () {
 });
 
 /**
- * M8 R7: `documents.download` không nằm sau allowlist IP (URL ký 5 phút chỉ SINH được bên trong
- * panel) — bí danh nội bộ giữ đúng quyết định đó dù path bắt đầu bằng `/admin`.
+ * M8 R7 cho route GỐC đứng nguyên: `documents.download` (`/documents/…`, không dưới `/admin`) không
+ * nằm sau allowlist IP — một đường dẫn đã phát cho nhân sự trước lúc triển khai vẫn tải được từ ngoài
+ * dải. Việc sau gộp M12 (làn fu4, mục 4) chỉ đổi bí danh `/admin/…` (test "answers 404 on the internal
+ * alias…" ở trên); ca này giữ ranh giới đó.
  */
-it('lets a staff alias link through from outside the admin allowlist, like the original route', function () {
+it('keeps the original route open to a staff link from outside the admin allowlist', function () {
     config(['vkcrm.security.admin_ip_allowlist' => '10.0.0.1']);
     $document = pwaAliasDocument($this->matter);
+    $rootUrl = URL::temporarySignedRoute('documents.download', now()->addMinutes(Document::DOWNLOAD_LINK_MINUTES), [
+        'document' => $document->id,
+        Document::DOWNLOAD_RECIPIENT_PARAMETER => Document::recipientToken($this->lawyer),
+    ]);
 
     $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.50'])
         ->actingAs($this->lawyer, 'web')
-        ->get($document->downloadUrlFor($this->lawyer))
+        ->get($rootUrl)
         ->assertOk();
 
-    // Cái giá đã ghi ở docblock `RestrictAdminIpAllowlist`: không chữ ký hợp lệ thì 403 của
-    // `signed` (như route gốc), không phải 404 của allowlist — và không lấy được gì.
-    $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.50'])
-        ->get("/admin/documents/{$document->id}/download")
-        ->assertForbidden();
     expect(DocumentDownload::withoutGlobalScopes()->count())->toBe(1);
 });
 

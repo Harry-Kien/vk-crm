@@ -39,12 +39,15 @@
  * thì hiện được (đo 2026-10-04: lượt mặc định 11/27, lượt `CHANNEL=chromium` đủ).
  *
  * Chạy (Playwright KHÔNG nằm trong repo — khuôn `tools/pwa/survey-sw.cjs`):
- *   /d/vkwt/m12-dev seed
- *   /d/vkwt/m12-dev serve -e CSP_MODE=enforce -e PHP_INI_SCAN_DIR=:/var/www/html/tools/csp/php
- *   CHANNEL=chromium NODE_PATH=/d/vkwt/m8-tools/node_modules node tools/pwa/survey-sw-push.cjs
+ *   bin/dev up -d                                  # máy dev chính (compose.yaml)
+ *   bin/dev artisan migrate:fresh --seed           # XOÁ CSDL dev, nạp dữ liệu mẫu
+ *   # .env: CSP_MODE=enforce — rồi:
+ *   bin/dev artisan config:clear
+ *   CHANNEL=chromium NODE_PATH=<thư mục ngoài repo>/node_modules node tools/pwa/survey-sw-push.cjs
+ * `<thư mục ngoài repo>`: một thư mục đã `npm install playwright` (không thêm vào `package.json`).
  *
- * Biến môi trường: BASE (mặc định http://localhost:8097), FIRM (tên văn phòng mong đợi, mặc định
- * "Luật Vũ Khang"), FALLBACK (câu dự phòng mong đợi), CHANNEL (kênh Chromium của Playwright, ví dụ
+ * Biến môi trường: BASE (mặc định http://localhost — cổng APP_PORT của compose.yaml, mặc định 80),
+ * FIRM (tên văn phòng mong đợi, mặc định "Luật Vũ Khang"), FALLBACK (câu dự phòng mong đợi), CHANNEL (kênh Chromium của Playwright, ví dụ
  * `chromium` cho headless mới), OUT (JSON kết quả).
  */
 'use strict';
@@ -52,7 +55,7 @@
 const fs = require('fs');
 const playwright = require('playwright');
 
-const BASE = (process.env.BASE || 'http://localhost:8097').replace(/\/$/, '');
+const BASE = (process.env.BASE || 'http://localhost').replace(/\/$/, '');
 const FIRM = process.env.FIRM || 'Luật Vũ Khang';
 const FALLBACK = process.env.FALLBACK || 'Có thông báo mới. Chạm để xem.';
 const OUT = process.env.OUT || '';

@@ -555,6 +555,30 @@ biết trước ô chọn loại vụ việc sẽ hiện gì:
   - `INTAKE_RESPONSE_HOURS` — ngưỡng phản hồi lần đầu, tính bằng giờ làm việc, mặc định 4
     (`.env.example` để trống; trống, 0, số âm hay chữ cũng về 4).
 
+**Bản cập nhật M12 (app trên điện thoại và thông báo đẩy) làm gì trên máy chủ đã có dữ liệu** — các
+bước tay theo thứ tự nằm ở mục "Bản cập nhật M12" của "Nâng cấp lên bản mới"; đoạn này nói mỗi bước
+làm gì với máy chủ:
+
+- `migrate --force` chỉ THÊM một bảng, `push_subscriptions` (mỗi điện thoại hay máy tính đã bật
+  thông báo là một dòng), không sửa bảng nào đã có — hai migration:
+  `2026_10_03_000001_create_push_subscriptions_table` và
+  `2026_10_03_000002_add_device_label_and_last_seen_at_to_push_subscriptions_table`. Bảng rỗng sau
+  nâng cấp: chưa ai bật thông báo.
+- `db:seed --force` không có gì mới: M12 không thêm quyền nào.
+- **Khoá thông báo đẩy (VAPID)** sinh MỘT lần cho máy chủ này theo mục "Khoá thông báo đẩy (VAPID)"
+  ở Bước 3 (`config:clear`, `webpush:vapid`, điền `VAPID_SUBJECT`, rồi cất `VAPID_PRIVATE_KEY` cùng
+  chỗ với `APP_KEY`). Chưa sinh thì app vẫn cài và chạy, email vẫn đi, chỉ thông báo đẩy tắt.
+- **Dòng cron giữ nguyên** (Bước 8). Hai mục lịch mới chạy dưới chính dòng `schedule:run` đó:
+  `queue.push` mỗi phút, chạy nền (rút hàng đợi thông báo đẩy, tách khỏi hàng thư) và
+  `push-subscriptions.prune` lúc 03:30 (dọn đăng ký của tài khoản đã vô hiệu hay đã xoá và của máy
+  không mở ứng dụng quá 180 ngày).
+- **nginx:** hai khối `location = /admin/sw.js` và `location = /portal/sw.js` của
+  `tools/deploy/nginx.conf.example` mới phải có trong cấu hình đang chạy — thiếu thì mẫu cũ trả 404
+  cho hai tệp đó và app không cài được (Bước 4, việc 6). Apache không phải sửa gì.
+- **`vkcrm:preflight` có hai dòng của M12** (Bước 7): thiếu extension `curl` là ĐỎ (dòng extension
+  bắt buộc — kiểm TRƯỚC `git pull`, vì `composer install` của bản mới từ chối cài khi thiếu nó); thiếu
+  hay sai khoá thông báo đẩy là VÀNG, không chặn `php artisan up`.
+
 **Muốn dữ liệu mẫu để demo cho khách trước khi dùng thật** (không phải dữ liệu thật) — đọc hết
 đoạn này TRƯỚC khi chạy lệnh. Dữ liệu mẫu có tám tài khoản nhân sự, cùng mật khẩu `password`,
 và CHƯA tài khoản nào có 2FA: `admin@luatvukhang.com` (Quản trị viên), `quanly@luatvukhang.com`,
@@ -706,7 +730,8 @@ Thông báo đẩy trên điện thoại (M12) có hàng đợi RIÊNG, `push`, 
 không thêm dòng cron nào: mục lịch `queue.push` chạy
 `queue:work --queue=push --stop-when-empty --max-time=50` mỗi phút (mỗi máy nhận là một request ra
 máy chủ push, hạn 10 giây, nên tách khỏi hàng thư để máy chủ push chậm không giữ chân thư nhắc hạn),
-và `push-subscriptions.prune` dọn đăng ký cũ lúc 03:30.
+chạy NỀN để một phút bận không bắt các mục lịch sau nó chờ, và `push-subscriptions.prune` dọn đăng
+ký cũ lúc 03:30.
 
 **Giám sát cron** — cron trên shared hosting hay lặng lẽ ngừng chạy sau khi gia hạn gói hay đổi
 cấu hình PHP:
@@ -752,10 +777,16 @@ biến mất), quản trị viên đã cài 2FA, một lần khôi phục thử 
   chung mạng với các lần gõ sai, chiều IP có thể còn khoá tới hết 15 phút. Khách hàng bị khoá ở
   cổng `/portal`: màn hình **Tài khoản portal → tài khoản của khách → "Mở khoá đăng nhập"**.
 - **Nhân sự mất điện thoại và mã khôi phục**: một quản trị viên KHÁC mở **Nhân sự → người đó →
-  "Đặt lại 2FA"**. Việc này xoá xác thực cũ, đăng xuất mọi phiên đang mở của người đó, và buộc họ
-  cài lại 2FA ở lần đăng nhập kế tiếp; không ai tự đặt lại 2FA cho chính mình. Quản trị viên DUY
-  NHẤT mất cả điện thoại lẫn mã khôi phục: người có quyền vào máy chủ chạy
-  `php artisan vkcrm:reset-2fa <email>`.
+  "Đặt lại 2FA"**. Việc này xoá xác thực cũ, đăng xuất mọi phiên đang mở của người đó (ở request kế
+  tiếp của từng phiên), gỡ mọi điện thoại và máy tính đang nhận thông báo đẩy của người đó (mỗi máy
+  một dòng trong Nhật ký hệ thống), và buộc họ cài lại 2FA ở lần đăng nhập kế tiếp; không ai tự đặt
+  lại 2FA cho chính mình. Cho tới khi cài lại 2FA, người đó không nhận thông báo đẩy nào (email vẫn
+  đi). Quản trị viên DUY NHẤT mất cả điện thoại lẫn mã khôi phục: người có quyền vào máy chủ
+  chạy `php artisan vkcrm:reset-2fa <email>` (cũng gỡ máy như nút).
+- **Khách báo mất hay đổi điện thoại**: **Tài khoản portal → tài khoản của khách → "Gỡ mọi máy
+  nhận thông báo"** — các máy đó thôi nhận thông báo đẩy về hồ sơ (email vẫn đi); khách bật lại trên
+  máy mới. Máy mất còn đang đăng nhập cổng thì bấm thêm "Cấp lại mật khẩu". Đổi email của một tài
+  khoản portal tự gỡ mọi máy của tài khoản đó.
 - **Email báo lỗi sao lưu** không phải chuyện để "xem sau" — `docs/SAO-LUU-KHOI-PHUC.md`.
 - **Nhật ký hệ thống** (`/admin`, mục Nhật ký hệ thống): đăng nhập, tải tài liệu, công bố, đổi phân
   quyền, tạo/khoá tài khoản portal, đặt lại 2FA, mở khoá đăng nhập, tạo quản trị viên từ dòng lệnh.
@@ -784,8 +815,10 @@ php artisan up
   việc. Bản M9 thêm bốn quyền tiền (`billing.view`, `contract.manage`, `payment.record`,
   `revenue.viewAny`) — không chạy thì không ai mở được màn hình tiền; bản M10 thêm ba quyền tiếp nhận
   (`intake.create`, `intake.viewAny`, `intake.convert`) — không chạy thì menu Tiếp nhận không hiện
-  với ai, kể cả quản trị viên. Từng bản làm gì trên máy chủ đã có dữ liệu: Bước 5, các đoạn "Bản cập
-  nhật …".
+  với ai, kể cả quản trị viên; bản M12 không thêm quyền nào. Từng bản làm gì trên máy chủ đã có dữ
+  liệu: Bước 5, các đoạn "Bản cập nhật … làm gì trên máy chủ đã có dữ liệu" (M9, M10, M12). Bản nào
+  phải làm thêm việc tay TRƯỚC hay SAU chuỗi lệnh này có một mục riêng ngay dưới phần này — hôm nay
+  chỉ M12 ("Bản cập nhật M12", có một bước TRƯỚC `git pull`); làm theo đúng thứ tự của mục đó.
 - `billing:check-invariants` in bảng những hợp đồng đang hiệu lực mà tổng các đợt lệch giá trị hợp
   đồng (mã thoát 1). `vkcrm:preflight` ngay sau cũng ĐỎ vì cùng lý do. Dòng ĐỎ này là DỮ LIỆU,
   không phải cấu hình máy, và chỉ sửa được trong app: vẫn `up`, rồi luật sư phụ trách ký ngay một
