@@ -608,3 +608,106 @@ it('cursor không đúng khuôn tên biên nhận (sửa tay nhầm) → đặt 
         ->and(Setting::query()->where('key', ImportOfficeReceipts::CURSOR_KEY)->value('value'))->toBe(Receipts::fileName('20261008T010000Z'))
         ->and(SystemHealth::current()->last_office_receipt_error)->toContain('zzz');
 });
+
+// ---------------------------------------------------------------------------------------------
+// M14 Task 6 — rà soát Task 7: tên trùng trong một biên nhận (m1), biên nhận đến muộn dưới cursor (r3)
+// ---------------------------------------------------------------------------------------------
+
+it('một tên xuất hiện hai lần trong biên nhận với md5/cỡ khác nhau → không đánh dấu dòng nào của tên đó, có câu lỗi', function () {
+    $twin = Receipts::key(1834);
+    $other = Receipts::key(1835);
+    $row = DocumentStoreFixtures::driveObject(['object_key' => $twin, 'md5' => md5('that'), 'size' => 10]);
+    $otherRow = DocumentStoreFixtures::driveObject(['object_key' => $other, 'md5' => md5('khac'), 'size' => 10]);
+
+    Receipts::fakeRclone([Receipts::fileName() => Receipts::receipt([
+        Receipts::line($twin, md5('that'), 10),
+        Receipts::line($twin, md5('gia mao'), 10),
+        Receipts::line($other, md5('khac'), 10),
+    ])]);
+
+    $result = app(ImportOfficeReceipts::class)->handle();
+
+    expect(t7Copied($row))->toBeNull()
+        ->and(t7Copied($otherRow))->not->toBeNull()
+        ->and($result->marked)->toBe(1)
+        ->and($result->mismatched)->toBe(2)
+        ->and(implode(' ', $result->errors))->toContain(__('office_copy.import.duplicate_names', ['file' => Receipts::fileName(), 'count' => 1]))
+        ->and(SystemHealth::current()->last_office_receipt_error)->toContain('trùng');
+});
+
+it('một tên xuất hiện hai lần giống hệt (cùng md5, cùng cỡ) → đánh dấu một lần, không lỗi', function () {
+    $key = Receipts::key(1834);
+    $row = DocumentStoreFixtures::driveObject(['object_key' => $key, 'md5' => md5('x'), 'size' => 10]);
+
+    Receipts::fakeRclone([Receipts::fileName() => Receipts::receipt([
+        Receipts::line($key, md5('x'), 10),
+        Receipts::line($key, md5('x'), 10),
+    ])]);
+
+    $result = app(ImportOfficeReceipts::class)->handle();
+
+    expect(t7Copied($row))->not->toBeNull()
+        ->and($result->marked)->toBe(1)
+        ->and($result->mismatched)->toBe(0)
+        ->and($result->errors)->toBe([]);
+});
+
+it('biên nhận đến muộn, tên nhỏ hơn cursor, chưa từng nhập → được nhập (không bỏ im), cursor không lùi', function () {
+    $late = Receipts::key(1900);
+    $row = DocumentStoreFixtures::driveObject(['object_key' => $late, 'md5' => md5('muon'), 'size' => 10]);
+
+    Receipts::fakeRclone([
+        Receipts::fileName('20261007T010000Z') => Receipts::receipt([]),
+        Receipts::fileName('20261008T010000Z') => Receipts::receipt([]),
+    ]);
+    app(ImportOfficeReceipts::class)->handle();
+
+    // Lượt đêm 07/10 chạy dài, gửi biên nhận SAU lượt 08/10 (hai lượt chồng nhau ở máy văn phòng).
+    $files = [
+        Receipts::fileName('20261007T010000Z') => Receipts::receipt([]),
+        Receipts::fileName('20261007T013000Z') => Receipts::receipt([Receipts::line($late, md5('muon'), 10)]),
+        Receipts::fileName('20261008T010000Z') => Receipts::receipt([]),
+    ];
+    Receipts::fakeRclone($files);
+    $result = app(ImportOfficeReceipts::class)->handle();
+
+    expect(Receipts::catted())->toBe([Receipts::fileName('20261007T013000Z')])
+        ->and($result->late)->toBe(1)
+        ->and($result->imported)->toBe(1)
+        ->and(t7Copied($row))->not->toBeNull()
+        ->and(Setting::query()->where('key', ImportOfficeReceipts::CURSOR_KEY)->value('value'))->toBe(Receipts::fileName('20261008T010000Z'));
+
+    // Lượt sau: biên nhận đến muộn đã nhập thì không đọc lại.
+    Receipts::fakeRclone($files);
+    $again = app(ImportOfficeReceipts::class)->handle();
+
+    expect(Receipts::catted())->toBe([])->and($again->late)->toBe(0);
+});
+
+it('biên nhận đến muộn bị từ chối vẫn được ghi là đã xử lý: không đọc lại mỗi lượt; tên trước MỌI biên nhận đã ghi nhận thì không coi là đến muộn', function () {
+    $base = [
+        Receipts::fileName('20261008T010000Z') => Receipts::receipt([]),
+        Receipts::fileName('20261008T020000Z') => Receipts::receipt([]),
+    ];
+    Receipts::fakeRclone($base);
+    app(ImportOfficeReceipts::class)->handle();
+
+    $files = [
+        ...$base,
+        Receipts::fileName('20261008T013000Z') => Receipts::receipt([], ['kho' => ['team_drive' => 'khac', 'root_folder_id' => 'khac']]),
+        // Trước lúc bắt đầu ghi nhận (dữ liệu cũ hơn biên nhận đầu tiên từng nhập): không đọc.
+        Receipts::fileName('20261007T230000Z') => Receipts::receipt([]),
+    ];
+    Receipts::fakeRclone($files);
+    $result = app(ImportOfficeReceipts::class)->handle();
+
+    expect(Receipts::catted())->toBe([Receipts::fileName('20261008T013000Z')])
+        ->and($result->rejected)->toBe(1)
+        ->and($result->late)->toBe(1)
+        ->and(Setting::query()->where('key', ImportOfficeReceipts::CURSOR_KEY)->value('value'))->toBe(Receipts::fileName('20261008T020000Z'));
+
+    Receipts::fakeRclone($files);
+    $again = app(ImportOfficeReceipts::class)->handle();
+
+    expect(Receipts::catted())->toBe([])->and($again->rejected)->toBe(0)->and($again->late)->toBe(0);
+});

@@ -44,6 +44,7 @@ class StorageOfficeReceiptsCommand extends Command
         foreach ([
             'imported' => $result->imported,
             'rejected' => $result->rejected,
+            'late' => $result->late,
             'deferred' => $result->deferred,
             'marked' => $result->marked,
             'already' => $result->alreadyMarked,

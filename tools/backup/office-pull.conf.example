@@ -28,3 +28,7 @@ STATE_DIR="/d/VKCRM-saoluu/office-pull-state"
 # Lệnh in mật khẩu của tệp cấu hình rclone từ kho mật khẩu của hệ điều hành (ví dụ Windows Credential
 # Manager qua PowerShell, hoặc `secret-tool lookup` trên Linux). Xem Phụ lục D, bước 6.
 export RCLONE_PASSWORD_COMMAND="powershell -NoProfile -Command \"(Get-StoredCredential -Target vkcrm-rclone).GetNetworkCredential().Password\""
+
+# Trần số tệp kiểm và ghi biên nhận mỗi đêm (mặc định 100000 ≈ 11 MB biên nhận; CRM từ chối biên nhận
+# lớn hơn 32 MiB). Phần còn lại vào đêm sau. Chỉ giảm, không tăng quá 300000.
+# MAX_RECEIPT_FILES=100000

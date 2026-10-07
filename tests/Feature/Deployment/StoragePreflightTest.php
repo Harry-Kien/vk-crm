@@ -1,8 +1,11 @@
 <?php
 
+use App\Actions\Deployment\RunPreflight;
+use App\Enums\PreflightLevel;
 use App\Support\Files\FreeSpace;
 use App\Support\Storage\CredentialFileInspector;
 use App\Support\Storage\GoogleDrive\DriveTokenProvider;
+use App\Support\Storage\TransferDossier;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Process;
@@ -113,4 +116,63 @@ it('ngoài production preflight không nối dòng kho nào (dùng vkcrm:storage
     Artisan::call('vkcrm:preflight');
 
     expect(t5PreflightStorageKeys(Artisan::output()))->toBe([]);
+});
+
+// ---------------------------------------------------------------------------------------------
+// M14 Task 6 — phán quyết controller (2): máy chủ không dùng Drive không bao giờ bị dòng kho chặn
+// mở cổng; và rà soát Task 5, m3: quay lui hết về `local` không tắt đồng hồ 60 ngày.
+// ---------------------------------------------------------------------------------------------
+
+/** @return list<array{key: string, level: PreflightLevel, message: string}> các dòng kho của preflight production */
+function t6PreflightStorageRows(): array
+{
+    return array_values(array_filter(
+        app(RunPreflight::class)->handle(),
+        fn (array $row): bool => in_array($row['key'], [...T5_STORAGE_READINESS_KEYS, ...T5_STORAGE_STATE_KEYS], true),
+    ));
+}
+
+it('DOCUMENT_STORAGE=local mặc định, chưa cấu hình Drive, chưa từng chuyển: không dòng kho nào ĐỎ, không dòng nào chặn mở cổng', function (bool $freeSpaceMeasurable) {
+    config([
+        'vkcrm.storage.driver' => 'local',
+        'vkcrm.storage.google_drive.credentials_path' => '',
+        'vkcrm.storage.google_drive.shared_drive_id' => '',
+        'vkcrm.storage.google_drive.root_folder_id' => '',
+    ]);
+    app()->instance(FreeSpace::class, new FreeSpace(fn (string $path) => $freeSpaceMeasurable ? 40 * 1024 ** 3 : false));
+
+    $rows = t6PreflightStorageRows();
+
+    expect(array_column($rows, 'key'))->toBe(['document_storage_driver', 'disk_free_space_available'])
+        ->and(array_filter($rows, fn (array $row): bool => RunPreflight::blocksOpening($row)))->toBe([])
+        ->and(array_filter($rows, fn (array $row): bool => $row['level'] === PreflightLevel::Red))->toBe([]);
+})->with(['đo được chỗ trống' => true, 'không đo được chỗ trống' => false]);
+
+it('quay lui hết về local (không media trên kho) mà đồng hồ 60 ngày đã quá hạn: data_transfer_dossier ĐỎ trên preflight', function () {
+    config(['vkcrm.storage.driver' => 'local']);
+    Store::setting(TransferDossier::FIRST_TRANSFER_AT_KEY, now()->subDays(61)->toIso8601String());
+
+    $exit = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($exit)->not->toBe(0)
+        ->and($output)->toContain('[ĐỎ] data_transfer_dossier:')
+        ->and(t5PreflightStorageKeys($output))->toBe(['document_storage_driver', 'data_transfer_dossier', 'disk_free_space_available']);
+
+    expect(Http::recorded(fn ($request) => str_contains($request->url(), 'googleapis.com')))->toBeEmpty();
+});
+
+it('quay lui hết về local: đồng hồ còn trong hạn → dòng hồ sơ VÀNG từ ngày 45; có ngày hồ sơ → không còn dòng hồ sơ', function () {
+    config(['vkcrm.storage.driver' => 'local']);
+    Store::setting(TransferDossier::FIRST_TRANSFER_AT_KEY, now()->subDays(50)->toIso8601String());
+
+    Artisan::call('vkcrm:preflight');
+    expect(Artisan::output())->toContain('[VÀNG] data_transfer_dossier:');
+
+    Store::setting(TransferDossier::KEYS['transfer_dossier_on'], now()->subDay()->toDateString());
+    // Lượt preflight thứ hai thăm dò lại hai URL `storage/app/private` của máy chủ web.
+    $this->drive->respondNext('GET', 'preflight.example.test', Http::response('not found', 404), times: 2);
+
+    Artisan::call('vkcrm:preflight');
+    expect(t5PreflightStorageKeys(Artisan::output()))->toBe(['document_storage_driver', 'disk_free_space_available']);
 });

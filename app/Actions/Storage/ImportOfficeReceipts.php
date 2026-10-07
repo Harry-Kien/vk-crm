@@ -3,6 +3,7 @@
 namespace App\Actions\Storage;
 
 use App\Actions\Settings\WriteSettings;
+use App\Enums\OfficeReceiptOutcome;
 use App\Exceptions\OfficeReceiptRejected;
 use App\Exceptions\RcloneCommandFailed;
 use App\Models\Setting;
@@ -87,6 +88,9 @@ final class ImportOfficeReceipts
 
     public const FILE_PATTERN = '/^receipt-\d{8}T\d{6}Z\.json$/D';
 
+    /** Sổ tên biên nhận đã xử lý (nhận hay từ chối), M14 Task 6 — để biết một biên nhận đến muộn. */
+    public const LEDGER_TABLE = 'office_receipt_imports';
+
     /** Trần độ dài của cột lỗi sức khoẻ mà lớp này ghi (cột `text`; thư cảnh báo chép nguyên văn). */
     private const ERROR_MAX_LENGTH = 4000;
 
@@ -132,14 +136,18 @@ final class ImportOfficeReceipts
             $cursor = '';
         }
 
-        $pending = array_filter(
-            $entries,
-            fn (array $entry) => preg_match(self::FILE_PATTERN, $entry['name']) === 1 && strcmp($entry['name'], $cursor) > 0,
-        );
+        $wellFormed = array_values(array_filter($entries, fn (array $entry) => preg_match(self::FILE_PATTERN, $entry['name']) === 1));
+        $pending = array_filter($wellFormed, fn (array $entry) => strcmp($entry['name'], $cursor) > 0);
         $deferred = array_values(array_filter($pending, fn (array $entry) => ! self::nameIsDue($entry['name'], $horizon)));
-        $pending = array_values(array_filter($pending, fn (array $entry) => self::nameIsDue($entry['name'], $horizon)));
+        $late = $this->lateReceipts($wellFormed, $cursor, $horizon);
+        $lateNames = array_flip(array_column($late, 'name'));
+        $pending = [...array_values(array_filter($pending, fn (array $entry) => self::nameIsDue($entry['name'], $horizon))), ...$late];
         usort($pending, fn (array $a, array $b) => strcmp($a['name'], $b['name']));
         usort($deferred, fn (array $a, array $b) => strcmp($a['name'], $b['name']));
+
+        if ($late !== []) {
+            Log::info(__('office_copy.import.log.late'), ['files' => array_keys($lateNames), 'cursor' => $cursor]);
+        }
 
         if ($deferred !== []) {
             $errors[] = __('office_copy.import.deferred', [
@@ -150,11 +158,18 @@ final class ImportOfficeReceipts
             Log::warning(__('office_copy.import.log.deferred'), ['files' => array_column($deferred, 'name')]);
         }
 
-        $counts = ['imported' => 0, 'rejected' => 0, 'marked' => 0, 'already' => 0, 'unmatched' => 0, 'mismatched' => 0, 'unknown' => 0];
+        $counts = ['imported' => 0, 'rejected' => 0, 'late' => 0, 'marked' => 0, 'already' => 0, 'unmatched' => 0, 'mismatched' => 0, 'unknown' => 0];
         $rcloneFailed = false;
 
         foreach ($pending as $entry) {
             $name = $entry['name'];
+            // Cursor chỉ tiến: một biên nhận đến muộn (tên nhỏ hơn cursor) không kéo nó lùi.
+            $cursorWrite = strcmp($name, $cursor) > 0 ? [self::CURSOR_KEY => $name] : [];
+            $cursor = max($cursor, $name);
+
+            if (isset($lateNames[$name])) {
+                $counts['late']++;
+            }
 
             try {
                 if ($entry['size'] > $maxBytes) {
@@ -179,22 +194,42 @@ final class ImportOfficeReceipts
                 $counts['rejected']++;
                 $errors[] = __('office_copy.import.rejected', ['file' => $name, 'reason' => $exception->getMessage()]);
                 Log::warning(__('office_copy.import.log.rejected'), ['file' => $name, 'reason' => $exception->getMessage()]);
-                $this->settings->handle([self::CURSOR_KEY => $name], null);
+                DB::transaction(function () use ($cursorWrite, $name): void {
+                    $this->settings->handle($cursorWrite, null);
+                    $this->recordProcessed($name, OfficeReceiptOutcome::Rejected);
+                });
 
                 continue;
             }
 
-            $tally = DB::transaction(function () use ($receipt, $driveId, $name): array {
+            [$tally, $duplicated] = DB::transaction(function () use ($receipt, $driveId, $name, $cursorWrite): array {
                 $tally = ['marked' => 0, 'already' => 0, 'unmatched' => 0, 'mismatched' => 0, 'unknown' => 0];
+                $duplicated = 0;
                 $now = now();
 
-                foreach ($receipt->files as $line) {
-                    $tally[$this->mark($line, $driveId, $now)]++;
+                foreach (self::linesByName($receipt->files) as $lines) {
+                    if ($lines[0]['key'] === null) {
+                        $tally['unknown'] += count($lines);
+
+                        continue;
+                    }
+
+                    // Một tên, nhiều md5/cỡ (rà soát Task 7, m1): Drive cho trùng tên, nên bản ở văn
+                    // phòng có thể là bản kia. Không đánh dấu dòng nào của tên đó.
+                    if (count(array_unique(array_map(fn (array $line): string => $line['md5'].'|'.$line['size'], $lines))) > 1) {
+                        $tally['mismatched'] += count($lines);
+                        $duplicated++;
+
+                        continue;
+                    }
+
+                    $tally[$this->mark($lines[0], $driveId, $now)]++;
                 }
 
-                $this->settings->handle([self::CURSOR_KEY => $name], null);
+                $this->settings->handle($cursorWrite, null);
+                $this->recordProcessed($name, OfficeReceiptOutcome::Imported);
 
-                return $tally;
+                return [$tally, $duplicated];
             });
 
             $counts['imported']++;
@@ -205,6 +240,10 @@ final class ImportOfficeReceipts
 
             if ($receipt->errors > 0) {
                 $errors[] = __('office_copy.import.office_errors', ['file' => $name, 'count' => $receipt->errors]);
+            }
+
+            if ($duplicated > 0) {
+                $errors[] = __('office_copy.import.duplicate_names', ['file' => $name, 'count' => $duplicated]);
             }
 
             if ($tally['mismatched'] > 0) {
@@ -227,7 +266,74 @@ final class ImportOfficeReceipts
             unknownNames: $counts['unknown'],
             deferred: count($deferred),
             errors: $errors,
+            late: $counts['late'],
         );
+    }
+
+    /**
+     * Biên nhận ĐẾN MUỘN (M14 Task 6, rà soát Task 7, r3): tên đúng khuôn, đã đến hạn, KHÔNG lớn hơn
+     * cursor, chưa có trong sổ {@see self::LEDGER_TABLE}, và lớn hơn tên NHỎ NHẤT của sổ.
+     *
+     * Hai lượt kéo chồng nhau ở máy văn phòng (khoá PID không thấy được giữa hai phiên Windows), hay một
+     * lượt đầu chạy nhiều đêm, gửi biên nhận SAU một biên nhận tên lớn hơn; máy văn phòng đã ghi các tệp
+     * của nó vào `receipted.txt`, nên bỏ nó là các tệp ấy không bao giờ có biên nhận lại. Đọc nó như mọi
+     * biên nhận khác là an toàn: lần đánh dấu chỉ ghi dòng `office_copied_at IS NULL`.
+     *
+     * Tên nhỏ hơn mọi tên trong sổ là dữ liệu của trước lúc sổ bắt đầu ghi (sổ có từ Task 6; trên
+     * production sổ và cursor cùng bắt đầu từ biên nhận đầu tiên), nên không coi là đến muộn. Sổ rỗng →
+     * không gì đến muộn.
+     *
+     * @param  list<array{name: string, size: int}>  $wellFormed
+     * @return list<array{name: string, size: int}>
+     */
+    private function lateReceipts(array $wellFormed, string $cursor, CarbonInterface $horizon): array
+    {
+        if ($cursor === '') {
+            return [];
+        }
+
+        $seen = DB::table(self::LEDGER_TABLE)->pluck('name')->flip();
+
+        if ($seen->isEmpty()) {
+            return [];
+        }
+
+        $since = (string) $seen->keys()->min();
+
+        return array_values(array_filter($wellFormed, fn (array $entry): bool => strcmp($entry['name'], $cursor) <= 0
+            && strcmp($entry['name'], $since) > 0
+            && ! $seen->has($entry['name'])
+            && self::nameIsDue($entry['name'], $horizon)));
+    }
+
+    /** Ghi tên biên nhận vào sổ đã xử lý (nhận hay từ chối); một lần, không ghi đè. */
+    private function recordProcessed(string $name, OfficeReceiptOutcome $outcome): void
+    {
+        $now = now();
+
+        DB::table(self::LEDGER_TABLE)->insertOrIgnore([
+            'name' => $name,
+            'outcome' => $outcome->value,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+    }
+
+    /**
+     * Các dòng của biên nhận gom theo tên, giữ thứ tự gặp đầu tiên.
+     *
+     * @param  list<array{name: string, key: ?string, generation: ?int, md5: string, size: int}>  $files
+     * @return list<non-empty-list<array{name: string, key: ?string, generation: ?int, md5: string, size: int}>>
+     */
+    private static function linesByName(array $files): array
+    {
+        $groups = [];
+
+        foreach ($files as $line) {
+            $groups[$line['name']][] = $line;
+        }
+
+        return array_values($groups);
     }
 
     /**

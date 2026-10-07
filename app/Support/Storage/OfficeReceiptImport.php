@@ -16,10 +16,13 @@ use App\Actions\Storage\ImportOfficeReceipts;
  * - `marked`: dòng chỉ mục vừa được đặt `office_copied_at`; `alreadyMarked`: dòng khớp nhưng đã có
  *   biên nhận từ trước; `unmatched`: tên đọc ngược được mà không có dòng SỐNG nào cùng khoá + thế hệ
  *   trên Shared Drive đang cấu hình; `mismatched`: có dòng sống cùng khoá + thế hệ nhưng md5 hoặc
- *   cỡ khác (tín hiệu tệp bị đổi trên kho); `unknownNames`: tên không đọc ngược được.
+ *   cỡ khác (tín hiệu tệp bị đổi trên kho), hoặc (M14 Task 6) một tên xuất hiện nhiều lần trong biên
+ *   nhận với md5/cỡ khác nhau — mọi dòng của tên đó; `unknownNames`: tên không đọc ngược được.
  * - `deferred`: biên nhận có tên mang giờ quá giờ máy chủ + {@see OfficeReceipt::FUTURE_TOLERANCE_MINUTES}
  *   phút, hoặc ngày giờ không có thật: chưa đọc, cursor không đi qua (vòng sửa 1 của Task 7).
  * - `errors`: các câu đã ghi vào `system_health.last_office_receipt_error`.
+ * - `late` (M14 Task 6): số biên nhận ĐẾN MUỘN (tên không lớn hơn cursor, chưa có trong sổ đã xử lý)
+ *   đã được đọc ở lượt này — nằm trong `imported`/`rejected`, không đếm thêm.
  */
 final class OfficeReceiptImport
 {
@@ -37,6 +40,7 @@ final class OfficeReceiptImport
         public readonly int $unknownNames = 0,
         public readonly int $deferred = 0,
         public readonly array $errors = [],
+        public readonly int $late = 0,
     ) {}
 
     public static function notConfigured(): self

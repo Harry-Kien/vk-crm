@@ -27,6 +27,16 @@ final class DriveObjectName
 
     private const PATTERN = '/^(\d+)~([0-9a-z]{26})(?:~g([2-9]|[1-9]\d{1,2}))?(\.[0-9a-z]{1,8})?$/D';
 
+    /**
+     * Khoá chỉ mục của tệp THĂM DÒ (M14 Task 5 `drive_roundtrip`: `preflight/<26 ký tự>.txt`), và tên
+     * Drive tương ứng (`/` thành `~`; lượt đo tốc độ của `vkcrm:storage:migrate --dry-run` dùng thẳng
+     * tên này). {@see self::parse()} không nhận chúng; `vkcrm:storage:orphans`/`reindex` đếm chúng thành
+     * một nhóm riêng thay vì "tên lạ" (rà soát Task 5, m7).
+     */
+    public const PROBE_KEY_PREFIX = 'preflight/';
+
+    public const PROBE_NAME_PREFIX = 'preflight~';
+
     public static function fromKey(string $key, int $generation = 1): string
     {
         if (str_contains($key, '~')) {

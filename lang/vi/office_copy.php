@@ -35,11 +35,15 @@ return [
         'cursor_reset' => 'Mốc biên nhận đã nhập (:file) ở tương lai quá :minutes phút so với máy chủ (đồng hồ máy chủ web từng chạy nhanh?): đã đặt lại và đọc lại mọi biên nhận trong thư mục; tệp đã có biên nhận không bị ghi lại. Kiểm đồng hồ (NTP) của máy chủ web.',
         'office_errors' => 'Biên nhận :file: máy văn phòng báo :count lỗi; có thể có tệp bị đổi trên kho. Xem nhật ký office-pull.log trên máy văn phòng.',
         'mismatched' => 'Biên nhận :file: :count tệp khớp tên và thế hệ của chỉ mục nhưng khác md5 hoặc cỡ; có thể có tệp bị đổi trên kho. Chạy vkcrm:storage:verify.',
+        // M14 Task 6 (rà soát Task 7, m1): một tên, nhiều md5/cỡ trong cùng biên nhận — Drive cho trùng tên.
+        'duplicate_names' => 'Biên nhận :file: :count tên tệp xuất hiện nhiều lần với md5 hoặc cỡ khác nhau (tên trùng trên kho); không tệp nào của các tên đó được ghi nhận. Chạy vkcrm:storage:orphans để tìm tệp trùng tên.',
         'log' => [
             'rejected' => 'Bản thứ hai: biên nhận văn phòng bị từ chối.',
             'imported' => 'Bản thứ hai: đã nhập biên nhận văn phòng.',
             'deferred' => 'Bản thứ hai: biên nhận văn phòng mang tên giờ ở tương lai, chưa đọc.',
             'cursor_reset' => 'Bản thứ hai: mốc biên nhận đã nhập ở tương lai, đã đặt lại.',
+            // M14 Task 6 (rà soát Task 7, r3): biên nhận đến muộn, tên nhỏ hơn cursor, chưa có trong sổ.
+            'late' => 'Bản thứ hai: có biên nhận văn phòng đến muộn (tên nhỏ hơn mốc đã nhập); đọc như mọi biên nhận.',
         ],
     ],
 
@@ -56,5 +60,7 @@ return [
         'mismatched' => 'Tệp khớp tên và thế hệ nhưng khác md5 hoặc cỡ: :count',
         'unknown' => 'Tên tệp lạ: :count (không phải khoá của thư viện tài liệu)',
         'rclone_failed' => 'Lệnh rclone thất bại; đã gửi thư báo lỗi sao lưu (rclone:office-receipts). Lượt sau đọc lại từ tệp chưa nhập.',
+        // M14 Task 6 (rà soát Task 7, r3).
+        'late' => 'Trong đó, biên nhận đến muộn (tên nhỏ hơn mốc đã nhập, chưa từng đọc): :count',
     ],
 ];

@@ -5,6 +5,7 @@ namespace App\Support\Storage\GoogleDrive;
 use App\Enums\DriveObjectRetirement;
 use App\Exceptions\DocumentStorageUnavailable;
 use App\Exceptions\StoredFileMissing;
+use App\Exceptions\StoredFileTrashed;
 use App\Models\DriveFolder;
 use App\Models\DriveObject;
 use App\Support\Scopes\ClientPortalScope;
@@ -362,8 +363,9 @@ final class DriveAdapter implements ChecksumProvider, FilesystemAdapter
             throw new UnableToProvideChecksum($e->getMessage(), $path, $e->isNotFound() ? StoredFileMissing::forKey($path) : $e);
         }
 
+        // Gốc là {@see StoredFileTrashed}: `vkcrm:storage:verify` xếp nhóm theo lớp, không theo câu chữ.
         if (($metadata['trashed'] ?? false) === true) {
-            throw new UnableToProvideChecksum(__('storage.drive.trashed'), $path);
+            throw new UnableToProvideChecksum(__('storage.drive.trashed'), $path, StoredFileTrashed::forKey($path));
         }
 
         $md5 = $metadata['md5Checksum'] ?? null;

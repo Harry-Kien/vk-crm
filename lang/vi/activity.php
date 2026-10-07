@@ -182,6 +182,21 @@ return [
         // M14 Task 5: app/Actions/Storage/InitialiseDocumentStore.php (`vkcrm:storage:init`) —
         // `folder_name` là tên thư mục gốc; mã thư mục Drive không vào nhật ký.
         'document_store_initialised' => 'Tạo thư mục gốc của kho tài liệu trên Google Drive',
+        // M14 Task 6: app/Actions/Storage/EnableRemoteDocumentStore.php (`vkcrm:storage:enable`) —
+        // `remote_enabled_at` là mốc bật kho vừa ghi.
+        'document_store_enabled' => 'Bật kho tài liệu Google Drive',
+        // M14 Task 6: app/Actions/Storage/MigrateDocumentsToRemote.php (`vkcrm:storage:migrate`) — một
+        // dòng mỗi lượt: số tệp, byte, bỏ qua, bị khoá, số lỗi, số giây, lý do dừng. Không danh sách tệp.
+        'document_store_migration_run' => 'Chuyển tệp cũ lên kho tài liệu',
+        // M14 Task 6: app/Actions/Storage/PullDocumentsToLocal.php (`vkcrm:storage:rollback`) — một dòng
+        // mỗi lượt: số tệp đổi bằng bản cục bộ, số tải về, byte, số chưa tới được, bị khoá, lỗi, số giây.
+        'document_store_rollback_run' => 'Quay lui kho tài liệu: kéo tệp về máy chủ',
+        // M14 Task 6: app/Actions/Storage/RebuildDriveIndex.php (`vkcrm:storage:reindex`) — chỉ số đếm.
+        'drive_index_rebuilt' => 'Dựng lại chỉ mục kho tài liệu từ Google Drive',
+        // M14 Task 6: app/Actions/Storage/ListMatterFilesForDestruction.php
+        // (`vkcrm:storage:destruction-list`) — chủ thể là vụ, người thực hiện là quản trị viên `--by`;
+        // chỉ số tên Drive, số tệp vùng đệm, số đường ở văn phòng.
+        'matter_storage_destruction_listed' => 'Liệt kê tệp cần huỷ của hồ sơ đã quá hạn lưu',
     ],
 
     /** Trang xem SPEC §7.4, chỉ đọc, gated bằng auditLog.view. */

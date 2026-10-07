@@ -60,6 +60,10 @@ BACKUPS_FOLDER="VK-CRM-backups"
 ENV_FOLDER=""
 ARCHIVE_DIR=""
 STATE_DIR="${SCRIPT_DIR}/office-pull-state"
+# M14 Task 6 (rà soát Task 7, m2): mỗi lượt đêm chỉ kiểm và ghi biên nhận cho tối đa chừng này tệp
+# chưa có biên nhận; phần còn lại vào lượt sau. CRM từ chối CẢ tệp biên nhận lớn hơn 32 MiB (khoảng
+# 105 byte mỗi dòng); 100.000 dòng ≈ 11 MB. Lượt đầu trên một kho lớn vì thế cần nhiều đêm.
+MAX_RECEIPT_FILES=100000
 
 if [ -f "${CONF_FILE}" ]; then
   # shellcheck source=/dev/null
@@ -235,7 +239,28 @@ nightly() {
   fi
   tr -d '\r' < "${run_dir}/all.unsorted" | sort -u > "${run_dir}/all.txt"
   tr -d '\r' < "${RECEIPTED}" | sort -u > "${run_dir}/receipted.sorted"
-  comm -23 "${run_dir}/all.txt" "${run_dir}/receipted.sorted" > "${run_dir}/todo.txt"
+  comm -23 "${run_dir}/all.txt" "${run_dir}/receipted.sorted" > "${run_dir}/todo.all"
+
+  # Tên trùng (M14 Task 6, rà soát Task 7, m1): Drive cho hai tệp cùng tên (hai thư mục tháng, hay một
+  # job của CRM bị giết sau khi tải lên). Biên nhận chỉ mang TÊN, nên không chứng minh được bản ở văn
+  # phòng là bản nào: tên đó không vào biên nhận, không vào receipted.txt, và mỗi đêm là một lỗi cho
+  # tới khi người vận hành xử lý (vkcrm:storage:orphans báo nó trên CRM).
+  awk -F/ '{ print $NF }' "${run_dir}/all.txt" | sort | uniq -d > "${run_dir}/duplicates.txt"
+  if [ -s "${run_dir}/duplicates.txt" ]; then
+    while IFS= read -r name; do
+      log "LỖI: tên ${name} có nhiều tệp trên kho; không ghi biên nhận cho tên này."
+    done < "${run_dir}/duplicates.txt"
+    ERRORS=$(( ERRORS + $(count_lines "${run_dir}/duplicates.txt") ))
+    awk -F/ 'NR == FNR { dup[$0] = 1; next } !($NF in dup)' "${run_dir}/duplicates.txt" "${run_dir}/todo.all" > "${run_dir}/todo.unique"
+  else
+    cp "${run_dir}/todo.all" "${run_dir}/todo.unique"
+  fi
+
+  # Trần mỗi lượt (MAX_RECEIPT_FILES): phần còn lại được kiểm ở lượt sau.
+  head -n "${MAX_RECEIPT_FILES}" "${run_dir}/todo.unique" > "${run_dir}/todo.txt"
+  if [ "$(count_lines "${run_dir}/todo.unique")" -gt "${MAX_RECEIPT_FILES}" ]; then
+    log "$(( $(count_lines "${run_dir}/todo.unique") - MAX_RECEIPT_FILES )) tệp chưa có biên nhận để lượt sau (trần ${MAX_RECEIPT_FILES} tệp mỗi biên nhận)."
+  fi
 
   # 4. Kiểm nội dung từng tệp chưa có biên nhận.
   : > "${run_dir}/match.txt"

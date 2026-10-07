@@ -86,7 +86,12 @@ Ghi chú cho từng dòng kiểm khi nó không XANH:
 4. Trên trang **"Kho tài liệu"**: ghi ngày DPA, và ngày hồ sơ **hoặc** ý kiến luật sư cho chuyển trước. Thiếu thì
    bước 6 bị từ chối (`data_transfer_dossier` ĐỎ).
 5. `php artisan vkcrm:storage:migrate --dry-run`: ghi số tệp, dung lượng, thời gian ước tính, chỗ trống máy chủ.
+   Không cần bật kho. Lệnh đo tốc độ bằng một tệp thăm dò 1 MiB (`preflight~…`) tải lên thư mục gốc rồi cho vào
+   thùng rác; không media nào đổi, không dòng chỉ mục nào. Kho chưa cấu hình thì in "không đo được tốc độ".
 6. Đặt `DOCUMENT_STORAGE=google_drive`, `php artisan optimize`, rồi `php artisan vkcrm:storage:enable`.
+   - Mã thoát 2 khi công tắc chưa là `google_drive`, khi `vkcrm:storage:check` còn dòng ĐỎ (lệnh in các dòng
+     đó), hay khi production thiếu ngày hồ sơ lẫn ý kiến cho chuyển trước (bước 4). Chạy lại khi đã bật thì in
+     mốc cũ, mã 0, **không** dời mốc.
    - Từ lúc `enable` xong, **tệp mới** tự lên kho; tệp cũ đứng yên.
    - Lượt đẩy thật đầu tiên tự ghi **ngày chuyển dữ liệu đầu tiên** (đồng hồ 60 ngày nộp hồ sơ); xem trên trang
      "Kho tài liệu". Từ ngày 45 chưa có ngày hồ sơ thì có thư nhắc mỗi ngày; quá ngày 60 thì `data_transfer_dossier`
@@ -94,7 +99,15 @@ Ghi chú cho từng dòng kiểm khi nó không XANH:
    - Quên `enable` thì `document_storage_enabled` ĐỎ và có thư cảnh báo `not_enabled`: tệp mới vẫn nằm trên máy chủ.
 7. Ngoài giờ làm việc (từ 19:00): `php artisan vkcrm:storage:migrate --max-minutes=240`, lặp các đêm sau cho tới
    khi hết. Tải xuống vẫn chạy suốt.
-8. `php artisan vkcrm:storage:verify --all`. Phải sạch.
+   - Tuỳ chọn: `--limit=N` (dừng sau N media), `--max-minutes=M` (không bắt đầu media mới sau M phút),
+     `--keep-local-days=30` (bản trên máy chủ giữ ít nhất chừng đó ngày, để quay lui không phải tải về).
+   - Chuyển từ media cũ nhất (id nhỏ) tới mới nhất; chạy lại chỉ làm phần còn lại. Tệp đã lên kho từ lượt trước
+     mà chưa đổi đĩa không bị tải lần hai.
+   - Mã thoát 1: có tệp không chuyển được (lệnh in `#<mã media>` và lý do; tệp vẫn ở máy chủ), hoặc kho không
+     tới được nên lượt dừng sớm. Mã 2: kho chưa bật hay `vkcrm:storage:check` có dòng ĐỎ.
+8. `php artisan vkcrm:storage:verify --all` (hoặc `--sample=N`; không tuỳ chọn = 100 tệp ngẫu nhiên). Phải sạch:
+   lệnh in nhóm "bị đổi", "đã vào thùng rác", "thiếu", "không kiểm được" theo `#<mã media>`, mã thoát 1 khi có.
+   Tệp của vụ đã ghi quyết định huỷ là nhóm riêng, không tính là lỗi.
 9. Khi có máy văn phòng:
    - lượt kéo đầu tiên có thể mất nhiều đêm; khoá của script ngăn hai lượt chồng nhau;
    - CRM nhập biên nhận lúc 07:00 hằng ngày;
@@ -105,15 +118,34 @@ Ghi chú cho từng dòng kiểm khi nó không XANH:
 11. **Quay lui**, bất cứ lúc nào, **đúng thứ tự này**:
     1. đặt `DOCUMENT_STORAGE=local`, `php artisan optimize`. **Trước tiên**: `rollback` từ chối khi công tắc còn
        `google_drive`, vì nếu không, tác vụ quét đẩy lại mọi tệp vừa quay lui trong vòng 15 phút;
-    2. `php artisan vkcrm:storage:rollback`. Tệp còn bản cục bộ được đổi về ngay, không cần Drive; tệp đã dọn được
-       tải về và kiểm md5 (cần khoá và Drive tới được, nhưng **không** cần chia sẻ đúng). Mã thoát 1 thì chạy lại
-       khi Drive tới được;
+    2. `php artisan vkcrm:storage:rollback`. Lệnh xoá mốc bật kho trước tiên. Tệp còn bản cục bộ (md5 khớp) được
+       đổi về ngay, không cần Drive; tệp đã dọn được tải về một tệp tạm, kiểm md5, rồi mới đặt vào chỗ (cần khoá
+       và Drive tới được — `drive_credentials`, `drive_reachable` — nhưng **không** cần chia sẻ đúng). Mã thoát 1
+       (Drive không tới được, tải về lệch md5, media đang bị job giữ khoá) thì chạy lại khi Drive tới được; mã 2
+       nghĩa là công tắc chưa là `local` và không gì bị đổi;
     3. `php artisan vkcrm:storage:check`: không còn `media_on_remote_while_local`.
 
-    Bản trên kho và bản ở văn phòng còn nguyên. Bật lại sau này là bước 6 rồi bước 7: không tệp nào tải lên lần hai
-    (md5 khớp).
+    Bản trên kho, chỉ mục và bản ở văn phòng còn nguyên. Bật lại sau này là bước 6 rồi bước 7 (tệp đã quay lui là
+    tệp cũ: tác vụ quét không đẩy chúng, chỉ `migrate`): không tệp nào tải lên lần hai (md5 khớp).
 
-Các lệnh `enable`, `migrate`, `verify`, `rollback`, `reindex`, `orphans`, `destruction-list` thuộc M14 Task 6.
+    Quay lui hết rồi mà đã có ngày chuyển dữ liệu đầu tiên và chưa có ngày hồ sơ: đồng hồ 60 ngày vẫn chạy, và
+    `vkcrm:preflight` production vẫn in `data_transfer_dossier` (VÀNG từ ngày 45, ĐỎ quá ngày 60). Một máy chủ chưa
+    từng chuyển gì với `DOCUMENT_STORAGE=local` không bao giờ có dòng kho nào ĐỎ trên preflight.
+
+### Lệnh kiểm và sửa chỉ mục
+
+- `php artisan vkcrm:storage:orphans` — **chỉ báo cáo**, không xoá gì: dòng chỉ mục sống không còn media; media
+  trên kho mà chỉ mục không có tệp; tệp trên Drive không có trong chỉ mục; tệp trùng tên trên Drive; thư mục vùng
+  đệm `storage/app/private/<số>/` không còn media; tệp thăm dò `preflight~…` còn sống (chỉ thông tin); media của
+  vụ đã ghi huỷ thiếu bản trên kho (không tính là lỗi). Tên do người đặt tay trên Drive chỉ được đếm, không in.
+  Mã thoát 1 khi có nhóm lỗi hay không liệt kê được Drive. Xử lý: người cài đặt xem từng mục; Manager dự phòng
+  cho tệp thừa vào thùng rác trên Drive; thư mục vùng đệm mồ côi thì người vận hành xoá tay.
+- `php artisan vkcrm:storage:reindex --drive=<mã Shared Drive> --root=<mã thư mục gốc> [--dry-run]` — dựng lại
+  chỉ mục từ danh sách tệp trên Drive (khôi phục CSDL cũ, hay chuyển sang Shared Drive mới). Hai mã phải bằng
+  `GOOGLE_DRIVE_SHARED_DRIVE_ID`/`GOOGLE_DRIVE_ROOT_FOLDER_ID` đang cấu hình (đổi `.env` và `optimize` trước),
+  nếu không mã thoát 2. Chạy `--dry-run` trước và đọc số đếm. Lệnh chỉ ghi tệp có md5 bằng md5 đã ghi của media
+  (thế hệ cao nhất khớp); tệp trùng tên, thế hệ khác, tệp không còn media được báo, không ghi, không xoá. Dòng của
+  Shared Drive cũ thành `superseded`, không bị xoá. Thư mục tháng có sẵn vào `drive_folders`.
 
 ## Huỷ tệp của hồ sơ đã quá hạn lưu
 
@@ -123,12 +155,17 @@ không bao giờ bị xoá tự động. Khi một hồ sơ hết hạn lưu (đ
 chủ thể dữ liệu yêu cầu xoá theo Luật 91/2025, việc huỷ tệp là thao tác **có biên bản**, làm ở **bốn nơi**:
 
 1. **Liệt kê** (người vận hành, quản trị viên):
-   `php artisan vkcrm:storage:destruction-list <mã vụ việc> --by=<email quản trị viên>`. Lệnh từ chối khi vụ chưa
-   có quyết định tiêu huỷ, hoặc người `--by` không phải quản trị viên. Nó in ba danh sách — chỉ mã và tên mờ, không
-   tiêu đề, không mã hồ sơ:
+   `php artisan vkcrm:storage:destruction-list <mã hồ sơ> --by=<email quản trị viên>`. Lệnh từ chối (mã thoát 2)
+   khi không có vụ mang mã đó, khi vụ chưa có quyết định tiêu huỷ, hoặc khi người `--by` không phải quản trị viên
+   đang hoạt động. Nó in ba danh sách — chỉ mã và tên mờ, không tiêu đề, không mã hồ sơ — và ghi một dòng nhật ký
+   "Liệt kê tệp cần huỷ của hồ sơ đã quá hạn lưu":
    - tên tệp trên Drive (mọi thế hệ, cả bản đã vào thùng rác hay bị thay);
-   - đường vùng đệm còn trên máy chủ;
+   - đường vùng đệm còn trên máy chủ (đường tuyệt đối);
    - đường tương ứng trong kho mã hoá của máy văn phòng (`vkoffice:kho/<YYYY-MM>/<tên>`).
+
+   Danh sách gồm tệp của mọi tài liệu của vụ (cả tài liệu đã xoá và gói bàn giao hiện có). Gói bàn giao CŨ đã
+   được thay bằng gói mới thì không còn dòng nào nối về vụ: bản trên Drive của nó đã vào thùng rác (tự hết sau 30
+   ngày), còn bản ở máy văn phòng phải tìm theo nhật ký sinh lại gói.
 2. **Trên Shared Drive** (tài khoản quản trị dự phòng, vai Người quản lý): tìm từng tên trong danh sách, xoá vĩnh
    viễn, kể cả bản trong thùng rác.
 3. **Trên máy văn phòng** (người giữ máy văn phòng): `rclone deletefile` cho từng tệp trong remote `crypt`.

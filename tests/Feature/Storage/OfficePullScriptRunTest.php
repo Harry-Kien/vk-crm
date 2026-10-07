@@ -171,3 +171,52 @@ it('remote kho không phải drive.readonly → thoát 2, không chép gì', fun
     expect($result->exitCode())->toBe(2)
         ->and(File::isDirectory($this->dir.'/root/office'))->toBeFalse();
 });
+
+// ---------------------------------------------------------------------------------------------
+// M14 Task 6 — rà soát Task 7: tên trùng trên kho (m1), trần số tệp mỗi biên nhận (m2)
+// ---------------------------------------------------------------------------------------------
+
+it('một tên có hai tệp trên kho (hai thư mục tháng): không vào biên nhận, không vào receipted.txt, có dòng log', function () {
+    $twin = '1834~'.strtolower((string) Str::ulid()).'.pdf';
+    $single = '1835~'.strtolower((string) Str::ulid()).'.pdf';
+    File::ensureDirectoryExists($this->dir.'/root/kho/2026-11');
+    File::put($this->dir.'/root/kho/2026-10/'.$twin, 'ban that');
+    File::put($this->dir.'/root/kho/2026-11/'.$twin, 'ban gia mao');
+    File::put($this->dir.'/root/kho/2026-10/'.$single, 'mot ban');
+
+    expect(t7RunOfficePull($this->dir))->toBe(1);
+
+    $receipt = json_decode((string) collect(t7SentReceipts($this->dir))->first(), true);
+
+    expect(array_column($receipt['files'], 'name'))->toBe([$single])
+        ->and($receipt['errors'])->toBeGreaterThan(0)
+        ->and((string) file_get_contents($this->dir.'/state/receipted.txt'))->not->toContain($twin)
+        ->and((string) file_get_contents($this->dir.'/office-pull.log'))->toContain($twin);
+});
+
+it('trần MAX_RECEIPT_FILES: mỗi lượt chỉ kiểm và ghi biên nhận cho tối đa chừng đó tệp; phần còn lại vào lượt sau', function () {
+    File::append($this->dir.'/office-pull.conf', "MAX_RECEIPT_FILES=2\n");
+
+    foreach (range(1, 3) as $i) {
+        File::put($this->dir.'/root/kho/2026-10/18'.$i.'0~'.strtolower((string) Str::ulid()).'.pdf', 'tep '.$i);
+    }
+
+    expect(t7RunOfficePull($this->dir))->toBe(0);
+    sleep(1);
+    expect(t7RunOfficePull($this->dir))->toBe(0);
+
+    $files = array_map(fn (string $json) => array_column(json_decode($json, true)['files'], 'name'), array_values(t7SentReceipts($this->dir)));
+
+    expect($files)->toHaveCount(2)
+        ->and($files[0])->toHaveCount(2)
+        ->and($files[1])->toHaveCount(1)
+        ->and(array_intersect($files[0], $files[1]))->toBe([])
+        ->and((string) file_get_contents($this->dir.'/office-pull.log'))->toContain('lượt sau');
+});
+
+it('mặc định MAX_RECEIPT_FILES đủ nhỏ để biên nhận lọt trần 32 MiB của CRM (≈ 105 byte mỗi dòng)', function () {
+    preg_match('/^MAX_RECEIPT_FILES="?(\d+)"?$/m', (string) file_get_contents(base_path('tools/backup/office-pull.sh')), $match);
+
+    expect($match)->toHaveKey(1)
+        ->and((int) $match[1] * 200)->toBeLessThan((int) config('vkcrm.storage.office.receipt_max_bytes'));
+});

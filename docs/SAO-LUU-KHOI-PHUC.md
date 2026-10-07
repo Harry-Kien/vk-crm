@@ -656,7 +656,12 @@ Mỗi đêm script:
 
 1. chép Kho về `vkoffice:kho` với `--immutable`: tệp đã có ở văn phòng mà bị đổi trên Kho thì báo
    lỗi, **không ghi đè** — đó là tín hiệu giả mạo, và nó đi tới CRM qua số lỗi của biên nhận;
-2. lấy danh sách tệp trên Kho **chưa có biên nhận** (trừ đi `receipted.txt` trong `STATE_DIR`);
+2. lấy danh sách tệp trên Kho **chưa có biên nhận** (trừ đi `receipted.txt` trong `STATE_DIR`), bỏ
+   các **tên trùng** (một tên có từ hai tệp trên Kho: biên nhận chỉ mang tên, nên không chứng minh được
+   bản ở văn phòng là bản nào — mỗi đêm là một lỗi trong nhật ký và trong số lỗi của biên nhận, cho tới
+   khi người cài đặt xử lý theo `php artisan vkcrm:storage:orphans`), và chỉ giữ tối đa
+   `MAX_RECEIPT_FILES` tệp (mặc định 100 000, để biên nhận nằm dưới trần 32 MiB của CRM; phần còn lại vào
+   lượt sau, nên lượt đầu trên một Kho lớn mất nhiều đêm);
 3. `rclone cryptcheck --one-way` đúng các tệp đó: so nội dung đã mã hoá ở văn phòng với tệp trên Kho,
    từng tệp;
 4. dựng biên nhận `receipt-<giờ UTC>.json` cho đúng các tệp khớp (tên mờ, md5 của Drive, cỡ; mã
@@ -705,8 +710,11 @@ không nhập là các tệp của nó **không bao giờ** có biên nhận: v�
 - câu "… biên nhận mang tên giờ ở tương lai …": đồng hồ máy văn phòng chạy nhanh (pin CMOS hết, mất
   đồng bộ giờ). CRM chưa đọc biên nhận đó và không đi qua nó; biên nhận đúng giờ đến sau vẫn được nhập;
 - không câu lỗi nào, nhưng số "media trên kho chưa có biên nhận" ở trang "Kho tài liệu" không giảm qua
-  nhiều đêm: một biên nhận đến muộn mang tên nhỏ hơn biên nhận đã nhập (ví dụ hai lượt kéo chạy chồng)
-  và CRM đã bỏ qua nó.
+  nhiều đêm. Từ M14 Task 6, CRM giữ sổ các biên nhận đã đọc (bảng `office_receipt_imports`) và đọc cả
+  biên nhận ĐẾN MUỘN mang tên nhỏ hơn biên nhận đã nhập (ví dụ hai lượt kéo chạy chồng): lệnh
+  `vkcrm:storage:office-receipts` in số "biên nhận đến muộn". Dấu hiệu này vì thế chỉ còn ở biên nhận có
+  tên cũ hơn biên nhận ĐẦU TIÊN CRM từng đọc, hay khi máy văn phòng không gửi được biên nhận (xem
+  `office-pull.log`).
 
 Cách gỡ, theo thứ tự:
 
@@ -720,8 +728,8 @@ Cách gỡ, theo thứ tự:
    `office-pull.lock` trong `STATE_DIR`): đổi tên `receipted.txt` thành `receipted-<ngày>.txt`. Không
    xoá tệp cũ. Lượt đêm sau kiểm lại mọi tệp (tải lại toàn bộ Kho một lần) và gửi một biên nhận cho tất
    cả; CRM đánh dấu những tệp chưa có biên nhận, và đếm những tệp đã có là "đã có biên nhận từ trước".
-   Kho rất lớn (khoảng 300 000 tệp trở lên) thì biên nhận gộp đó có thể vượt trần 32 MiB và bị từ chối:
-   hỏi người cài đặt trước khi đổi tên.
+   Kho lớn hơn `MAX_RECEIPT_FILES` tệp (mặc định 100 000) thì việc này trải ra nhiều đêm, mỗi đêm một
+   biên nhận dưới trần 32 MiB của CRM.
 4. **Sáng hôm sau**, sau 07:00, xem dòng `document_office_copy`, hoặc người cài đặt chạy
    `php artisan vkcrm:storage:office-receipts` và đọc số đếm. Mã thoát 1 nghĩa là còn biên nhận bị từ
    chối hay đang chờ, lệnh `rclone` hỏng, hoặc một lượt nhập khác đang chạy: lệnh in lý do.
@@ -752,8 +760,9 @@ thấy câu đó, kiểm đồng hồ của máy chủ web.
   huỷ tệp của hồ sơ hết hạn lưu (`docs/KHO-TAI-LIEU-GOOGLE-DRIVE.md`, "Huỷ tệp của hồ sơ đã quá hạn
   lưu"), archive cũ ở văn phòng cũng là một nơi còn tệp.
 - **Biên nhận tích luỹ** trên "VK-CRM Backups" (một tệp nhỏ mỗi đêm, khoảng 365 tệp mỗi năm). CRM chỉ
-  đọc biên nhận mới hơn biên nhận đã nhập gần nhất. Người quản lý "VK-CRM Backups" có thể xoá bằng
-  tay các biên nhận cũ hơn một năm.
+  đọc biên nhận mới hơn biên nhận đã nhập gần nhất, cộng biên nhận đến muộn chưa từng đọc (sổ
+  `office_receipt_imports`). Người quản lý "VK-CRM Backups" có thể xoá bằng tay các biên nhận cũ hơn
+  một năm.
 - **Đừng xoá `receipted.txt`** trừ khi được dặn (diễn tập "mất kho", bước 6; gỡ biên nhận, mục D.9 —
   ở cả hai chỗ là đổi tên, không xoá). Mất nó thì mọi tệp được
   kiểm và ghi biên nhận lại: an toàn, nhưng tốn một lượt tải lại toàn bộ.

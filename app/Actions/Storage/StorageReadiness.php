@@ -15,6 +15,7 @@ use App\Support\Storage\GoogleDrive\DriveApiError;
 use App\Support\Storage\GoogleDrive\DriveClient;
 use App\Support\Storage\GoogleDrive\DriveDiagnosticClient;
 use App\Support\Storage\GoogleDrive\DriveObjectIndex;
+use App\Support\Storage\GoogleDrive\DriveObjectName;
 use App\Support\Storage\HttpTransportAvailability;
 use App\Support\Storage\TransferDossier;
 use Carbon\CarbonImmutable;
@@ -74,7 +75,8 @@ use Throwable;
  *
  * Giao diện công khai {@see self::rows()}, {@see self::stateRows()}, {@see self::isReady()} giữ đúng mục
  * "Interfaces" của kế hoạch (làn m14, Task 6 dựa vào nó). {@see self::preflightRows()} là phần thêm
- * cho `RunPreflight`.
+ * cho `RunPreflight`; {@see self::downloadRows()} (Task 6) là ba dòng mà lệnh quay lui cần trước khi
+ * tải một tệp về.
  */
 final class StorageReadiness
 {
@@ -143,7 +145,7 @@ final class StorageReadiness
      * mắt). Khi công tắc là `google_drive` HOẶC đã có media trên kho: mọi dòng sẵn sàng và trạng thái.
      * Nếu không (chế độ `local` của mọi máy chủ trước M14): chỉ `document_storage_driver` (một lỗi gõ ở
      * công tắc vẫn phải ĐỎ) và `disk_free_space_available` (gói bàn giao kiểm chỗ trống ở mọi chế độ),
-     * không lệnh gọi Drive nào.
+     * không lệnh gọi Drive nào — cộng `data_transfer_dossier` khi đồng hồ 60 ngày đang chạy (dưới đây).
      *
      * @return list<array{key: string, level: PreflightLevel, message: string}>
      */
@@ -153,7 +155,37 @@ final class StorageReadiness
             return [...$this->rows(), ...$this->stateRows()];
         }
 
+        // M14 Task 6 (rà soát Task 5, m3): quay lui hết về `local` không tắt đồng hồ 60 ngày của R13 —
+        // dữ liệu đã ra nước ngoài từ lần chuyển đầu tiên, và hạn nộp hồ sơ vẫn chạy. Dòng hồ sơ chỉ
+        // vào đây khi đồng hồ đang chạy, nên một máy chủ chưa từng chuyển gì (mọi máy trước M14) vẫn
+        // chỉ có hai dòng không bao giờ ĐỎ vì Drive (phán quyết (2) của controller cho Task 6:
+        // `php artisan up` không bị chặn trên máy không dùng Drive). Đồng hồ quá hạn thì ĐỎ: đó là một
+        // nghĩa vụ pháp lý đã trễ, không phải cấu hình Drive.
+        if (TransferDossier::appliesHere() && TransferDossier::current()->clockRunning()) {
+            return [$this->driverRow(), $this->dossierRow(), $this->diskFreeSpaceRow()];
+        }
+
         return [$this->driverRow(), $this->diskFreeSpaceRow()];
+    }
+
+    /**
+     * Ba dòng mà lệnh quay lui (`vkcrm:storage:rollback`, M14 Task 6) cần trước khi TẢI VỀ một tệp đã
+     * dọn khỏi vùng đệm: `drive_credentials`, `drive_http_client`, `drive_reachable` (một `drives.get`).
+     * Không `drive_sharing`, không thư mục gốc, không tệp thăm dò: chia sẻ lệch không được chặn quay lui
+     * — đó đúng là lúc cần kéo tệp về (R11). Không HTTP client thì `drive_reachable` ĐỎ "chưa kiểm
+     * được" mà không gửi gì.
+     *
+     * @return list<array{key: string, level: PreflightLevel, message: string}>
+     */
+    public function downloadRows(): array
+    {
+        $rows = [$this->credentialsRow(), $httpRow = $this->httpClientRow()];
+
+        $rows[] = $httpRow['level'] === PreflightLevel::Red
+            ? $this->row('drive_reachable', PreflightLevel::Red, __('document_store.readiness.skipped_no_http'))
+            : $this->reachable()[0];
+
+        return $rows;
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -318,32 +350,16 @@ final class StorageReadiness
             return $this->skipped(['drive_reachable', 'drive_sharing', 'drive_root_folder', 'drive_roundtrip'], __('document_store.readiness.skipped_no_http'));
         }
 
-        $missing = array_keys(array_filter([
-            'GOOGLE_DRIVE_CREDENTIALS_PATH' => blank(config('vkcrm.storage.google_drive.credentials_path')),
-            'GOOGLE_DRIVE_SHARED_DRIVE_ID' => blank(config('vkcrm.storage.google_drive.shared_drive_id')),
-        ]));
+        [$reachableRow, $client] = $this->reachable();
 
-        if ($missing !== []) {
+        if ($client === null) {
             return [
-                $this->row('drive_reachable', PreflightLevel::Red, __('document_store.readiness.reachable_not_configured', ['missing' => implode(', ', $missing)])),
+                $reachableRow,
                 ...$this->skipped(['drive_sharing', 'drive_root_folder', 'drive_roundtrip'], __('document_store.readiness.skipped_unreachable')),
             ];
         }
 
-        $client = DriveDiagnosticClient::make();
-
-        try {
-            $drive = $client->drive((string) config('vkcrm.storage.google_drive.shared_drive_id'));
-        } catch (Throwable $e) {
-            return [
-                $this->row('drive_reachable', PreflightLevel::Red, __('document_store.readiness.reachable_failed', ['error' => $this->describe($e)])),
-                ...$this->skipped(['drive_sharing', 'drive_root_folder', 'drive_roundtrip'], __('document_store.readiness.skipped_unreachable')),
-            ];
-        }
-
-        $rows = [$this->row('drive_reachable', PreflightLevel::Green, __('document_store.readiness.reachable_ok', [
-            'name' => (string) ($drive['name'] ?? ''),
-        ]))];
+        $rows = [$reachableRow];
 
         $rows[] = $this->sharingRow($client);
         $rows[] = $rootRow = $this->rootFolderRow($client);
@@ -353,6 +369,37 @@ final class StorageReadiness
             : $this->roundtripRow($client);
 
         return $rows;
+    }
+
+    /**
+     * Dòng `drive_reachable` (một `drives.get` qua client chẩn đoán) và client đó; client `null` khi
+     * dòng ĐỎ (thiếu cấu hình thì không request nào). Dùng chung cho {@see self::rows()} và
+     * {@see self::downloadRows()}.
+     *
+     * @return array{0: array{key: string, level: PreflightLevel, message: string}, 1: ?DriveClient}
+     */
+    private function reachable(): array
+    {
+        $missing = array_keys(array_filter([
+            'GOOGLE_DRIVE_CREDENTIALS_PATH' => blank(config('vkcrm.storage.google_drive.credentials_path')),
+            'GOOGLE_DRIVE_SHARED_DRIVE_ID' => blank(config('vkcrm.storage.google_drive.shared_drive_id')),
+        ]));
+
+        if ($missing !== []) {
+            return [$this->row('drive_reachable', PreflightLevel::Red, __('document_store.readiness.reachable_not_configured', ['missing' => implode(', ', $missing)])), null];
+        }
+
+        $client = DriveDiagnosticClient::make();
+
+        try {
+            $drive = $client->drive((string) config('vkcrm.storage.google_drive.shared_drive_id'));
+        } catch (Throwable $e) {
+            return [$this->row('drive_reachable', PreflightLevel::Red, __('document_store.readiness.reachable_failed', ['error' => $this->describe($e)])), null];
+        }
+
+        return [$this->row('drive_reachable', PreflightLevel::Green, __('document_store.readiness.reachable_ok', [
+            'name' => (string) ($drive['name'] ?? ''),
+        ])), $client];
     }
 
     private function sharingRow(DriveClient $client): array
@@ -399,7 +446,7 @@ final class StorageReadiness
             (string) config('vkcrm.storage.lock_store'),
         );
 
-        $key = 'preflight/'.Str::lower(Str::random(26)).'.txt';
+        $key = DriveObjectName::PROBE_KEY_PREFIX.Str::lower(Str::random(26)).'.txt';
         $content = Str::random(self::PROBE_BYTES);
 
         try {

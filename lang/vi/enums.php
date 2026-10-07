@@ -159,7 +159,7 @@ return [
     // M14 Task 1: App\Enums\DriveObjectRetirement (cột drive_objects.retired_reason).
     'drive_object_retirement' => [
         'trashed' => 'Đã cho vào thùng rác',
-        'superseded' => 'Đã được thay bằng bản trên Shared Drive khác',
+        'superseded' => 'Đã được thay khi dựng lại chỉ mục',
     ],
     // M14 Task 1: App\Enums\PushOutcome (kết quả một lượt đẩy tệp lên kho, không lưu CSDL).
     'push_outcome' => [
@@ -170,5 +170,10 @@ return [
         'locked' => 'Đang có lượt đẩy khác',
         // M14 Task 3: khoá tệp lệch khuôn của kho, hay media trên một đĩa lạ — không đẩy.
         'rejected' => 'Không đẩy: tệp không đúng khuôn của kho',
+    ],
+    // M14 Task 6: App\Enums\OfficeReceiptOutcome (cột office_receipt_imports.outcome).
+    'office_receipt_outcome' => [
+        'imported' => 'Đã nhập',
+        'rejected' => 'Bị từ chối',
     ],
 ];
