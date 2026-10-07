@@ -2,16 +2,22 @@
 
 namespace App\Mcp\Methods;
 
+use App\Enums\McpToolOutcome;
 use App\Mcp\Tools\Concerns\CrmTool;
 use App\Models\User;
 use App\Support\Mcp\McpAccess;
+use App\Support\Mcp\ToolCallContext;
 use Generator;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\ValidationException;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Tool;
 use Laravel\Mcp\Server\ToolInvoker;
 use Laravel\Mcp\Transport\JsonRpcRequest;
 use Laravel\Mcp\Transport\JsonRpcResponse;
+use Throwable;
 
 /**
  * Chạy MỘT tool đã tìm thấy cho {@see CallCrmTool} (M11 Task 6), với hai lần kiểm trước khi gọi
@@ -26,10 +32,28 @@ use Laravel\Mcp\Transport\JsonRpcResponse;
  *    dừng ở "not found" trước khi tới đây; lần kiểm này là lớp thứ hai, cho một tool lỡ tự nới
  *    `shouldRegister()`.
  *
+ * Task 8 (R8): điền kết cục của lần gọi vào {@see ToolCallContext} của request —
+ *  - hai lần từ chối ở trên: `denied`;
+ *  - tool ném lỗi: kiểm tra tham số `invalid`, xác thực/phân quyền `denied`, còn lại `error` (thông
+ *    điệp của lỗi không vào nhật ký);
+ *  - tool trả kết quả: `ok` (kèm id, số bản ghi, tên trường), `not_found` khi kết quả là lỗi mang
+ *    đúng thông điệp "Không tìm thấy" duy nhất của R3 ({@see self::NOT_FOUND_MESSAGE}), `invalid` với
+ *    mọi lỗi khác ({@see ToolCallContext::settleResult()}).
+ *
  * Người dùng đọc từ guard `mcp`, tường minh.
  */
 class CrmToolInvoker extends ToolInvoker
 {
+    /**
+     * Khoá dịch của thông điệp "Không tìm thấy" mà MỌI tool trả khi id không tồn tại, vụ ngoài tập MCP
+     * thấy được, hay không có quyền (R3, SPEC §10.10). Khoá do Task 10 (`lang/vi/mcp.php`,
+     * `tool_errors.not_found`) khai; bước gọi tool so thông điệp của kết quả với bản dịch của khoá này
+     * để ghi `outcome = not_found` mà tool không phải tự khai gì.
+     */
+    public const NOT_FOUND_MESSAGE = 'mcp.tool_errors.not_found';
+
+    public function __construct(private readonly ToolCallContext $call = new ToolCallContext) {}
+
     public function invoke(Tool $tool, JsonRpcRequest $request): Generator|JsonRpcResponse
     {
         if (! $tool instanceof CrmTool) {
@@ -44,11 +68,44 @@ class CrmToolInvoker extends ToolInvoker
             }
         }
 
-        return parent::invoke($tool, $request);
+        $response = parent::invoke($tool, $request);
+
+        if ($response instanceof JsonRpcResponse) {
+            $result = $response->content['result'] ?? [];
+
+            $this->call->settleResult(is_array($result) ? $result : [], __(self::NOT_FOUND_MESSAGE));
+        } else {
+            // Tool trả Generator (không tool nào được làm vậy: SSE qua PHP-FPM bị đệm [PL:108]).
+            $this->call->outcome(McpToolOutcome::Ok);
+        }
+
+        return $response;
+    }
+
+    /**
+     * Như `InteractsWithResponses::callHandler()` của gói (lỗi của tool thành kết quả `isError`), cộng
+     * kết cục của lỗi cho nhật ký.
+     */
+    protected function callHandler(callable $handler, JsonRpcRequest $request): mixed
+    {
+        try {
+            return $handler();
+        } catch (Throwable $throwable) {
+            $this->call->outcome(match (true) {
+                $throwable instanceof ValidationException => McpToolOutcome::Invalid,
+                $throwable instanceof AuthenticationException,
+                $throwable instanceof AuthorizationException => McpToolOutcome::Denied,
+                default => McpToolOutcome::Error,
+            });
+
+            return $this->toErrorResponse($throwable);
+        }
     }
 
     private function refuse(Tool $tool, JsonRpcRequest $request, string $message): JsonRpcResponse
     {
+        $this->call->outcome(McpToolOutcome::Denied);
+
         return $this->toJsonRpcResponse($request, Response::error($message), $this->serializable($tool));
     }
 }

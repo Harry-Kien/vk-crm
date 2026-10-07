@@ -4,6 +4,7 @@ namespace App\Mcp\Tools\Concerns;
 
 use App\Models\User;
 use App\Support\Mcp\McpAccess;
+use App\Support\Mcp\ToolAuditFields;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Lang;
 use Laravel\Mcp\Server\Contracts\Annotation;
@@ -38,8 +39,9 @@ use ReflectionClass;
  * Tool con khai `protected string $name` (snake_case `[a-z0-9_]`, ≤ 64 ký tự [DC:30]), `writes()`
  * và `handle()`. Không khai `shouldRegister()`: lớp này quyết định tool ghi đăng ký cho ai (R13,
  * Task 6). Mọi lần gọi tool đi qua `App\Mcp\Methods\CallCrmTool` của `CrmServer` — chỗ duy nhất
- * kiểm lại quyền ghi (và, từ Task 8, ghi audit, áp rate limit) cho mọi tool mà không cần mã riêng
- * trong tool nào.
+ * kiểm lại quyền ghi, áp rate limit và chuẩn bị dòng audit (Task 8) cho mọi tool mà không cần mã
+ * riêng trong tool nào; allowlist tham số của nhật ký suy từ `schema()` của tool
+ * ({@see self::auditArguments()}).
  */
 abstract class CrmTool extends Tool
 {
@@ -73,6 +75,26 @@ abstract class CrmTool extends Tool
         $user = Auth::guard('mcp')->user();
 
         return $user instanceof User && McpAccess::canWrite($user);
+    }
+
+    /**
+     * Allowlist tham số của tool cho nhật ký `mcp_tool_called` (R8, Task 8), suy từ CHÍNH
+     * `inputSchema` của tool ({@see ToolAuditFields::arguments()}): chỉ tham số có khai; id có tiền tố,
+     * giá trị `enum` tool tự khai, ngày, số, cờ giữ nguyên; mọi văn bản tự do chỉ còn độ dài. Bước gọi
+     * tool (`App\Mcp\Methods\CallCrmTool`) gọi hàm này cho MỌI tool, nên tool mới có allowlist ngay khi
+     * khai `schema()`.
+     *
+     * Tool con có thể ghi đè để THU HẸP thêm (ví dụ thay một tham số enum bằng độ dài), không bao giờ để
+     * nới: giá trị trả về đi thẳng vào `activity_log`, giữ ≥ 12 tháng.
+     *
+     * @param  array<array-key, mixed>  $arguments
+     * @return array{arguments: array<string, mixed>, unknown: int}
+     */
+    public function auditArguments(array $arguments): array
+    {
+        $properties = $this->toArray()['inputSchema']['properties'] ?? [];
+
+        return ToolAuditFields::arguments($arguments, is_array($properties) ? $properties : []);
     }
 
     public function title(): string

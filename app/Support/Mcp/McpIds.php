@@ -82,6 +82,16 @@ final class McpIds
         return ['type' => $match[1], 'id' => (int) $match[2]];
     }
 
+    /**
+     * `$value` là đúng một id của MỘT loại bất kỳ ở trên — câu hỏi của nhật ký (M11 Task 8,
+     * {@see ToolAuditFields}): chuỗi có hình dạng id thì ghi nguyên giá trị, mọi chuỗi khác chỉ còn
+     * độ dài. Cùng cách đọc ngược chặt của {@see self::parse()}.
+     */
+    public static function isAny(?string $value): bool
+    {
+        return self::parse($value, ...self::TYPES) !== null;
+    }
+
     private static function assertKnown(string $type): void
     {
         if (! in_array($type, self::TYPES, true)) {

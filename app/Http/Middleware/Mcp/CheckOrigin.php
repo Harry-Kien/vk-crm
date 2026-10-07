@@ -21,7 +21,7 @@ use Symfony\Component\HttpFoundation\Response;
  *   `https://claude.ai.evil.example` và `http://claude.ai` đều bị chặn. Chuỗi rỗng và `null` (giá
  *   trị trình duyệt gửi từ một ngữ cảnh mờ) là "có `Origin`" và cũng bị chặn.
  *
- * Đứng đầu bốn middleware mà `routes/ai.php` thêm cho `/mcp`, tức TRƯỚC bước xác thực (ba middleware
+ * Đứng đầu các middleware mà `routes/ai.php` thêm cho `/mcp`, tức TRƯỚC bước xác thực (ba middleware
  * của gói đứng trước nó chỉ sắp lại `Accept` và so header MCP với thân request): một trang lạ nhận
  * 403 dù có token hay không, và không bao giờ đi tới chỗ token được đọc.
  */

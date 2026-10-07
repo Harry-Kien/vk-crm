@@ -14,6 +14,7 @@ use App\Models\Matter;
 use App\Models\MatterType;
 use App\Models\User;
 use App\Support\ActivityOwningMatter;
+use App\Support\Mcp\ToolCallContext;
 use App\Support\SensitivePropertyFilter;
 use BackedEnum;
 use Filament\Actions\Action;
@@ -78,6 +79,15 @@ class ActivityLogPage extends Page implements HasTable
         return __('activity.page.title');
     }
 
+    /**
+     * M11 R8 (Task 8, mục "sẽ cắn"): IP của dòng kênh AI là IP của NỀN TẢNG gọi thay nhân sự (Claude,
+     * ChatGPT gọi từ hạ tầng của họ [PL:177], [PL:181]), để không ai đọc nhầm thành nơi nhân sự đang ở.
+     */
+    public function getSubheading(): string
+    {
+        return __('mcp_audit.page.ip_note');
+    }
+
     public static function canAccess(): bool
     {
         return (bool) Auth::user()?->can(Permission::AuditLogView->value);
@@ -131,6 +141,14 @@ class ActivityLogPage extends Page implements HasTable
                 SelectFilter::make('log_name')
                     ->label(__('activity.page.columns.log_name'))
                     ->options(fn (): array => Activity::query()->distinct()->pluck('log_name', 'log_name')->all()),
+                // M11 R8 (Task 8): dòng của máy chủ MCP mang `properties.channel = mcp`
+                // (`App\Actions\Mcp\RecordMcpToolCall`) — lọc riêng mọi lần trợ lý AI gọi tool.
+                SelectFilter::make('channel')
+                    ->label(__('mcp_audit.page.channel_filter'))
+                    ->options([ToolCallContext::CHANNEL => __('mcp_audit.page.channels.mcp')])
+                    ->query(fn (Builder $query, array $data): Builder => filled($data['value'] ?? null)
+                        ? $query->where('properties->channel', $data['value'])
+                        : $query),
             ])
             ->recordActions([
                 Action::make('viewProperties')

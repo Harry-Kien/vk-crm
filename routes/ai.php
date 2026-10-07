@@ -3,11 +3,14 @@
 use App\Http\Controllers\Mcp\AuthorizationServerMetadataController;
 use App\Http\Controllers\Mcp\ProtectedResourceMetadataController;
 use App\Http\Controllers\Mcp\RegisterClientController;
+use App\Http\Middleware\Mcp\AuditToolCall;
 use App\Http\Middleware\Mcp\CheckOrigin;
 use App\Http\Middleware\Mcp\EnsureMcpAccess;
 use App\Http\Middleware\Mcp\EnsureMcpClient;
 use App\Http\Middleware\Mcp\EnsureTokenAudience;
 use App\Http\Middleware\Mcp\RequireBearerToken;
+use App\Http\Middleware\Mcp\ThrottleMcp;
+use App\Http\Middleware\Mcp\ThrottleMcpAuthenticationFailures;
 use App\Mcp\Servers\CrmServer;
 use App\Support\Mcp\McpEndpoint;
 use Illuminate\Support\Facades\Route;
@@ -22,35 +25,45 @@ use Laravel\Passport\Http\Middleware\CheckToken;
 | laravel/mcp tự nạp tệp này (`McpServiceProvider::registerRoutes()`) bằng `Route::group([], …)`,
 | tức KHÔNG qua nhóm `web` hay `api`: không phiên, không cookie, không CSRF [PL:52]. Đừng thêm nhóm
 | `web`. Cũng đừng chuyển route xuống dưới `api/`: `RateLimitSpec103Test` canh `api/*` theo một luật
-| khác (giới hạn 60/phút của `/mcp` là việc của Task 8).
+| khác; giới hạn "API 60 request/phút" của SPEC §10.3 gắn ở `/mcp`, bước 9–10 dưới đây (Task 8).
 |
 | `Mcp::web()` đăng ký `POST /mcp` (kèm ReorderJsonAccept, ValidateMcpHeaders,
 | AddWwwAuthenticateHeader của gói) và hai route `GET`/`DELETE /mcp` trả 405 `Allow: POST` [PL:51].
-| Bảy middleware thêm ở đây chỉ đứng trước `POST`, theo thứ tự:
+| Mười middleware thêm ở đây chỉ đứng trước `POST`, theo thứ tự:
 |
 |   1. CheckOrigin          — Origin ngoài allowlist: 403, TRƯỚC mọi bước xác thực (R7);
-|   2. RequireBearerToken   — chỉ header `Authorization: Bearer`: xoá cookie `laravel_token` khỏi
+|   2. ThrottleMcpAuthenticationFailures — một IP đã bị từ chối 401 quá 30 lần trong một phút nhận
+|                             429 ngay, trước bước kiểm token; chỉ request 401 được đếm (R8, Task 8);
+|   3. RequireBearerToken   — chỉ header `Authorization: Bearer`: xoá cookie `laravel_token` khỏi
 |                             request để `TokenGuard` không đi được đường cookie, và chặn bearer
 |                             trống (R1);
-|   3. auth:mcp             — token Passport hợp lệ của một `users.id` (guard `mcp`, R1);
-|   4. EnsureTokenAudience  — `aud` của token phải chứa đúng URL MCP chuẩn (R7, Task 2). Đứng SAU
-|                             bước 3 vì nó đọc claim của token mà bước 3 vừa kiểm chữ ký;
-|   5. EnsureMcpClient      — client của token phải mang cờ `oauth_clients.is_mcp`, tức do đăng ký
-|                             động bên dưới tạo (R2/R7, Task 3). Đứng SAU bước 3 vì nó đọc client
+|   4. auth:mcp             — token Passport hợp lệ của một `users.id` (guard `mcp`, R1);
+|   5. EnsureTokenAudience  — `aud` của token phải chứa đúng URL MCP chuẩn (R7, Task 2). Đứng SAU
+|                             bước 4 vì nó đọc claim của token mà bước 4 vừa kiểm chữ ký;
+|   6. EnsureMcpClient      — client của token phải mang cờ `oauth_clients.is_mcp`, tức do đăng ký
+|                             động bên dưới tạo (R2/R7, Task 3). Đứng SAU bước 4 vì nó đọc client
 |                             mà guard vừa gắn cho token;
-|   6. CheckToken mcp:use   — token phải mang scope `mcp:use` (R7);
-|   7. EnsureMcpAccess      — NGƯỜI sở hữu token được dùng máy chủ ở chính request này (R2, R12,
+|   7. CheckToken mcp:use   — token phải mang scope `mcp:use` (R7);
+|   8. EnsureMcpAccess      — NGƯỜI sở hữu token được dùng máy chủ ở chính request này (R2, R12,
 |                             Task 6): tài khoản đang hoạt động, `users.ai_access` khác `off` (và
 |                             người đó còn có `matter.view`), công tắc `mcp.enabled` trong bảng
 |                             `settings`, cam kết chính sách dùng AI đúng phiên bản hiện hành
-|                             (`App\Support\Mcp\McpAccess::refusal()`). Đứng cuối: nó đọc người mà
-|                             bước 3 vừa xác thực, và hai điều kiện còn lại của R2 (client mang cờ
-|                             mcp, scope) là bước 5 và 6.
+|                             (`App\Support\Mcp\McpAccess::refusal()`). Đứng sau mọi bước xác thực:
+|                             nó đọc người mà bước 4 vừa xác thực, và hai điều kiện còn lại của R2
+|                             (client mang cờ mcp, scope) là bước 6 và 7;
+|   9. AuditToolCall        — mỗi `tools/call` đã qua bước 8 sinh đúng một dòng `mcp_tool_called`,
+|                             kể cả lần bị từ chối hay bị chặn (R8, Task 8). Đứng sau bước 8: chỉ
+|                             người được dùng máy chủ mới có dòng, với causer là chính người đó;
+|  10. ThrottleMcp          — dịch câu trả lời rate limit của bước gọi tool (`CallCrmTool`,
+|                             `App\Support\Mcp\McpRateLimits`: 60 lần một phút, `search`/`fetch` 30,
+|                             tool ghi 10 một phút và 100 một ngày; theo người và theo token) ra
+|                             HTTP 429, `Retry-After`, `X-RateLimit-*` (R8, Task 8). Đứng NGAY SAU
+|                             bước 9, trong lúc trạng thái của lần gọi còn gắn với request.
 |
-| Không qua bước 2, 3, 4, 5 hoặc 7 thì request nhận 401 JSON kèm `WWW-Authenticate` trỏ tới PRM
+| Không qua bước 3, 4, 5, 6 hoặc 8 thì request nhận 401 JSON kèm `WWW-Authenticate` trỏ tới PRM
 | (`App\Http\Middleware\Mcp\AddWwwAuthenticateHeader`, render JSON ở `bootstrap/app.php`); có gửi
 | bearer mà bearer không dùng được thì header mang thêm `error="invalid_token"`. Token hợp lệ nhưng
-| thiếu `mcp:use` dừng ở bước 6 với 403 kèm `error="insufficient_scope"` (TransportTest,
+| thiếu `mcp:use` dừng ở bước 7 với 403 kèm `error="insufficient_scope"` (TransportTest,
 | OAuthMetadataTest, ClientRegistrationTest, AccessControlTest).
 |
 | Quyền GHI (bốn tool ghi, R13) không kiểm ở đây mà ở từng lần liệt kê và gọi tool:
@@ -59,12 +72,15 @@ use Laravel\Passport\Http\Middleware\CheckToken;
 
 Mcp::web('/'.CrmServer::PATH, CrmServer::class)->middleware([
     CheckOrigin::class,
+    ThrottleMcpAuthenticationFailures::class,
     RequireBearerToken::class,
     'auth:mcp',
     EnsureTokenAudience::class,
     EnsureMcpClient::class,
     CheckToken::using('mcp:use'),
     EnsureMcpAccess::class,
+    AuditToolCall::class,
+    ThrottleMcp::class,
 ]);
 
 /*

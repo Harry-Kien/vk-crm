@@ -5389,3 +5389,69 @@ passed. 36 mutation probe (M01–M35 cộng M27b), 35 đỏ; M27 (host trang đ�
 test được siết lại và M27b đỏ. Cả bộ (`--parallel --processes=2`): EXIT 0 — 5937 passed (5869 + 68), 1 risky, 33
 skipped như baseline. Chạy lại 16 tệp liên quan sau khi tiếp tục làn: 554 passed. MariaDB (tám tệp đã chạm, tuần tự): 389
 passed. `pint --test`: PASS 1163 tệp. Task không có migration.
+
+### Task 8 — audit mọi lần gọi tool và rate limit (R8) (2026-10-07)
+
+**Đã có, kèm test** (`tests/Feature/Mcp/AuditTest.php`, `tests/Feature/Mcp/RateLimitTest.php`, mọi test qua HTTP thật
+`POST /mcp` với token Passport thật và tool thử kế thừa `CrmTool`; trang Nhật ký hệ thống qua Livewire):
+- **Một lần gọi, một dòng.** Middleware `App\Http\Middleware\Mcp\AuditToolCall` (sau `EnsureMcpAccess`) dựng
+  `App\Support\Mcp\ToolCallContext` (một đối tượng mỗi request, gắn vào container trong lúc request chạy, không
+  static) cho mỗi thân request là `tools/call`, rồi ghi ĐÚNG một dòng `mcp_tool_called` qua
+  `App\Actions\Mcp\RecordMcpToolCall` — kể cả lần bị từ chối, bị chặn vì rate limit, tên tool lạ, thiếu `name`,
+  tool ném lỗi. Causer là người sở hữu token, truyền tường minh (test: guard `web` trong cùng tiến trình mang một
+  người khác, dòng vẫn ghi đúng người). `tools/list`, `ping`, request 401 không có dòng. Đây là bằng chứng cho câu
+  "mọi lần gọi đều được ghi nhật ký" của màn hình đồng ý (rà soát Task 4, m1).
+- **Trường ghi:** `channel = mcp`, `tool` (chỉ khi máy chủ có khai tool đó; tên lạ chỉ còn `tool_name_length`),
+  `outcome` (`App\Enums\McpToolOutcome`: ok / not_found / denied / invalid / rate_limited / error),
+  `oauth_client_id`, `platform` (`McpPlatform::fromRedirectUri()`, cùng định nghĩa với nhật ký đồng ý), `arguments`,
+  `returned_ids`, `returned_count`, `returned_fields`, `duration_ms`, `correlation_id`, `ip` (`$request->ip()` sau
+  `TRUSTED_PROXIES`). Không chủ thể.
+- **Tham số theo allowlist** (`App\Support\Mcp\ToolAuditFields`, gọi qua `CrmTool::auditArguments()`, suy từ
+  `schema()` của chính tool — tool của Task 10/11/13 không thêm mã): chỉ tham số có khai; id có tiền tố
+  (`McpIds::isAny()`), giá trị trong `enum` của tham số, ngày ISO, số, cờ giữ nguyên; mọi chuỗi khác (kể cả một
+  "id" lẫn chữ) thành `{length}`; danh sách > 25 phần tử và object thành `{count}`; tham số ngoài schema chỉ còn
+  `unknown_argument_count`. Kết quả: id (khoá `id` có hình dạng id), số id khác nhau, TÊN các trường lá (khoá không
+  phải tên trường thành `*`), không giá trị nào. Test chuỗi đánh dấu trong `query`, `summary`, tên tham số lạ, tên
+  tool lạ, kết quả của tool: không có trong dòng nhật ký.
+- **Kết cục**: `not_found` khi tool trả đúng thông điệp `mcp.tool_errors.not_found` (khoá của Task 10;
+  `CrmToolInvoker::NOT_FOUND_MESSAGE`); `ValidationException` và lỗi khác của tool → `invalid`; lỗi xác thực/phân
+  quyền và hai lần từ chối của `CrmToolInvoker` → `denied`; tool ghi có khai nhưng không đăng ký cho người `read`
+  → `denied`; tên không có → `invalid`; exception khác → `error`.
+- **Rate limit** (`App\Support\Mcp\McpRateLimits`, áp ở `App\Mcp\Methods\CallCrmTool`; `ThrottleMcp` dịch ra HTTP):
+  mọi `tools/call` 60 lần một phút (kể cả tên tool không tồn tại); `search` và `fetch` 30 lần một phút mỗi tool;
+  tool ghi 10 lần một phút và 100 lần một ngày; mỗi giới hạn một khoá theo người và một khoá theo access token.
+  Vượt: HTTP 429, thân là lỗi JSON-RPC tiếng Việt, `Retry-After`, `X-RateLimit-Limit`, `X-RateLimit-Remaining`,
+  `X-RateLimit-Reset`; tool không chạy; lần bị chặn không tính vào lượt. Mọi lần gọi qua được mang
+  `X-RateLimit-*` của giới hạn chặt nhất. Bộ đếm là `RateLimiter` trên cache mặc định (`database` ở máy thật).
+  `RateLimitSpec103Test` (§10.3 "API 60 request/phút") chỉ thẳng vào route `/mcp`.
+- **Trước xác thực** (rà soát Task 2, m2): `ThrottleMcpAuthenticationFailures` (sau `CheckOrigin`) đếm theo IP
+  đúng những request bị 401; quá 30 lần một phút thì mọi request `/mcp` từ IP đó nhận 429 một phút. Request xác
+  thực được không bao giờ được đếm. `bootstrap/app.php` thôi `report()` `League\OAuth2\Server\Exception\
+  OAuthServerException` mà `TokenGuard` ném cho mỗi bearer sai (hết một dòng log lỗi kèm stack trace mỗi lần).
+- **Cảnh báo admin** (`App\Actions\Mcp\AlertOnMcpReadVolume`): lần gọi tool ĐỌC thành công cộng số bản ghi trả về
+  vào bộ đếm một giờ của người đó; bộ đếm > 200 thì người có `settings.manage` đang hoạt động
+  (`ResolveStaffRecipients::forAiOversight()`) nhận thông báo trong hệ thống `McpReadVolumeAlert` (chỉ tên nhân sự
+  và ngưỡng), tối đa một lần mỗi giờ cho mỗi người kể cả khi cửa sổ đếm đã sang lượt mới.
+- **Trang Nhật ký hệ thống**: bộ lọc "Kênh" → "Trợ lý AI (MCP)" (`properties.channel = mcp`), nhãn sự kiện tiếng
+  Việt, dòng phụ đề nói IP của kênh AI là IP của nền tảng gọi thay nhân sự.
+- **Giữ ≥ 400 ngày**: luật chung của M8 (không lên lịch `activitylog:clean`, con số ≥ `retention_years × 365`)
+  đã thoả; `AuditTest` ghim riêng: dòng `mcp_tool_called` 400 ngày tuổi còn sau `activitylog:clean`.
+- Chuỗi mới ở tệp riêng `lang/vi/mcp_audit.php`; nhãn sự kiện `mcp_tool_called` ở `lang/vi/activity.php`.
+
+**Phán quyết trong task:**
+- **Audit và rate limit ở bước gọi tool chung**, không ở từng tool (phán quyết controller cho hai làn song song):
+  hợp đồng cho làn m11b ghi trong ledger của làn.
+- **Giới hạn chỉ đếm `tools/call`** — `initialize`, `tools/list`, `ping` không bị đếm (kế hoạch nói "mọi tool").
+- **Khoá theo token** cùng con số với khoá theo người nên không bao giờ chặt hơn; giữ vì R8 đòi hai loại khoá.
+- **Request 401 không có dòng `mcp_tool_called`** (chưa có người); được đếm theo IP thay vào đó.
+- **Đếm theo IP trước xác thực có thể chặn cả request hợp lệ** từ cùng IP trong một phút, nếu chính IP đó gửi quá
+  30 token hỏng — đổi lại không còn vòng lặp vô danh miễn phí.
+
+**Lệch và khoảng hở:**
+- Dòng `mcp_tool_called` không có chủ thể và không có `properties.matter_id`, nên trưởng phòng có `auditLog.view`
+  thấy mọi dòng kênh AI, gồm id có tiền tố trong tham số (ví dụ `matter_57` của một lần gọi `not_found`) — chỉ là số,
+  không mã, tiêu đề hay tên khách.
+- Kết cục `not_found` dựa trên việc mọi tool trả đúng một thông điệp; tool trả "Không tìm thấy" bằng chuỗi khác sẽ bị
+  ghi `invalid`.
+
+**Kiểm chứng (2026-10-07):** xem báo cáo làn `task-8-report.md` (RED, mutation probe, cả bộ, MariaDB, pint).

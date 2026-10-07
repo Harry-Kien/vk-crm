@@ -66,6 +66,9 @@ return [
         // `reason` (không đồng ý) — không tên client tự khai.
         'mcp_connection_authorized' => 'Đồng ý kết nối trợ lý AI',
         'mcp_connection_denied' => 'Không đồng ý kết nối trợ lý AI',
+        // M11 Task 8 (R8): App\Actions\Mcp\RecordMcpToolCall — mỗi lần gọi tool qua MCP, kể cả bị từ
+        // chối; `properties.channel = mcp`, tham số theo allowlist, id và tên trường đã trả, `outcome`.
+        'mcp_tool_called' => 'Trợ lý AI gọi công cụ',
         // App\Actions\Matter\{AddTeamMember,RemoveTeamMember} (M6.5 Task 3, fix round 1, "also
         // fix": thiếu hai khoá này khiến ActivityLogPage hiện nguyên văn khoá sự kiện tiếng Anh).
         'team_member_added' => 'Thêm thành viên đội ngũ',

@@ -9,6 +9,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use League\OAuth2\Server\Exception\OAuthServerException as LeagueOAuthServerException;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -77,4 +78,13 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->is(CrmServer::PATH) || $request->expectsJson(),
         );
+
+        // M11 R8 (Task 8; rà soát Task 2, m2): `TokenGuard` của Passport gọi `report()` cho MỌI bearer
+        // không dùng được (`getPsrRequestViaBearerToken()`), nên mỗi request `/mcp` mang token sai từng
+        // ghi một dòng log lỗi kèm stack trace — một vòng lặp vô danh lấp đầy `storage/logs`. Token sai
+        // là chuyện thường của một API công khai (client nhận 401 rồi làm mới), không phải lỗi của app.
+        // Lỗi OAuth của luồng `/oauth/*` không bị ảnh hưởng: Passport đổi chúng sang
+        // `Laravel\Passport\Exceptions\OAuthServerException` (một `HttpResponseException`, vốn không
+        // được report). Request 401 lặp lại từ một IP bị chặn ở `ThrottleMcpAuthenticationFailures`.
+        $exceptions->dontReport(LeagueOAuthServerException::class);
     })->create();
