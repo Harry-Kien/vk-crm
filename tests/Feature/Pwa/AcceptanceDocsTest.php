@@ -261,6 +261,44 @@ it('QUY-TRINH có hướng dẫn cài app cho khách, dùng đúng câu chữ tr
     expect($flat)->toContain('ảnh do chủ văn phòng chụp khi chạy danh sách kiểm tra');
 });
 
+/*
+ * Lời hứa về điện thoại dùng chung (vòng sửa 1 của Task 10, I1). Route tải trả tệp với
+ * `Content-Disposition: attachment` (ghim ở `DocumentDownloadAliasTest`), nên một tài liệu khách
+ * CHỦ ĐỘNG tải trong app nằm lại trong thư mục tải xuống của máy và đăng xuất không xoá nó. Hướng
+ * dẫn cho khách không được hứa "hồ sơ không lưu trên điện thoại" hay "đăng xuất sau khi xem" là đủ:
+ * người nhà mở thư mục Tải xuống vẫn đọc được bản án, hợp đồng.
+ */
+it('hướng dẫn cài app nói thật về tài liệu đã tải: nằm lại trong thư mục tải xuống, đăng xuất không xoá, máy dùng chung thì xoá tay; danh sách kiểm tra F đo đúng điều đó', function (): void {
+    $process = pwaDocsFile('docs/QUY-TRINH.md');
+    $guide = pwaDocsSection($process, '## Hướng dẫn cài ứng dụng Luật Vũ Khang trên điện thoại', '## ');
+    $intro = pwaDocsFlat(pwaDocsSection($guide, 'Ứng dụng **Luật Vũ Khang** chính là', '### Trước khi bắt đầu'));
+    $notes = pwaDocsFlat(pwaDocsSection($guide, '### Điều nên biết', '### '));
+    $update = pwaDocsFlat(pwaDocsSection($process, '**Cập nhật 2026-10-04 (M12).**', 'Ứng dụng tải từ chợ ứng dụng'));
+
+    // Hai lời hứa sai cũ không còn ở đâu trong tài liệu.
+    expect(pwaDocsFlat($process))
+        ->not->toContain('không được lưu trên điện thoại')
+        ->not->toContain('không có bản sao hồ sơ nào nằm trên điện thoại')
+        ->not->toContain('nên đăng xuất sau khi xem');
+
+    expect($intro)->toContain('Riêng tài liệu anh/chị chủ động tải về thì nằm lại trong thư mục tải xuống của máy');
+
+    expect($notes)
+        ->toContain(__('push.devices.logout_note').' Tài liệu anh/chị chủ động tải về được điện thoại lưu vào thư mục tải xuống của máy')
+        ->toContain('**đăng xuất không xoá chúng**')
+        ->toContain('Điện thoại dùng chung với người nhà thì sau khi xem, xoá tay các tài liệu đã tải rồi mới đăng xuất.');
+
+    expect($update)->toContain('chỉ tài liệu người dùng chủ động tải về nằm lại trong thư mục tải xuống của máy, đăng xuất không xoá');
+
+    $sectionF = pwaDocsSection(pwaDocsChecklist(), '## F.', '## G.');
+
+    expect(pwaDocsRow($sectionF, 'F1'))->toContain('Ghi lại tệp vừa tải nằm ở đâu');
+    expect(pwaDocsRow($sectionF, 'F2'))
+        ->toContain('tệp tải ở F1 (nếu máy đã lưu) **vẫn còn**')
+        ->toContain('đăng xuất không xoá chúng')
+        ->toContain('**KHÔNG ĐẠT** nếu tệp còn mà hướng dẫn cài cho khách lại hứa khác');
+});
+
 it('"Ghi chú M12" có phần nghiệm thu Task 10: R1–R14, câu hỏi chờ trả lời, đánh giá máy chủ push nước ngoài, việc mang sang', function (): void {
     $notes = pwaDocsSection(pwaDocsFile('docs/PROGRESS.md'), '## Ghi chú M12', '## ');
     $task10 = pwaDocsFlat(pwaDocsSection($notes, '### Task 10', '### '));

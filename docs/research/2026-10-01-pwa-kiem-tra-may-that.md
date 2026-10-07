@@ -142,12 +142,12 @@ chính** (iOS 16.4+); mở bằng Safari thường thì không có nút bật.
 
 ---
 
-## F. Không để lại dữ liệu hồ sơ sau khi đăng xuất (nghiệm thu Task 10)
+## F. Không để lại dữ liệu hồ sơ trong app sau khi đăng xuất; tài liệu đã tải nằm ở đâu (nghiệm thu Task 10)
 
 | # | Làm | ĐẠT khi | Chụp |
 |---|---|---|---|
-| F1 | Trong app khách đã đăng nhập: mở một hồ sơ, tải một tài liệu, nộp thử một giấy tờ (chụp ảnh bằng điện thoại). | Cả ba việc chạy bình thường, nút bấm phản hồi. | — |
-| F2 | Đăng xuất. Đóng hẳn app (vuốt bỏ khỏi màn hình đa nhiệm, như E1). Bật chế độ máy bay. Mở lại app. | Chỉ thấy trang "Chưa có kết nối mạng" (như E1), không thấy hồ sơ vừa xem. | Màn hình. |
+| F1 | Trong app khách đã đăng nhập: mở một hồ sơ, tải một tài liệu, nộp thử một giấy tờ (chụp ảnh bằng điện thoại). | Cả ba việc chạy bình thường, nút bấm phản hồi. Ghi lại tệp vừa tải nằm ở đâu trên máy (Android: ứng dụng **Tệp** / **Tải xuống**; iPhone: ứng dụng **Tệp**, hoặc chỉ xem trước mà không lưu). | — |
+| F2 | Đăng xuất. Đóng hẳn app (vuốt bỏ khỏi màn hình đa nhiệm, như E1). Bật chế độ máy bay. Mở lại app. Rồi mở thư mục đã ghi ở F1. | Trong app chỉ thấy trang "Chưa có kết nối mạng" (như E1), không thấy hồ sơ vừa xem. Trong thư mục tải xuống, tệp tải ở F1 (nếu máy đã lưu) **vẫn còn** — đúng như mục "Điều nên biết" của hướng dẫn cài cho khách (`docs/QUY-TRINH.md`): tài liệu khách chủ động tải về nằm lại trong máy, đăng xuất không xoá chúng, máy dùng chung thì xoá tay. Xoá tay tệp đó và kiểm nó không còn. **KHÔNG ĐẠT** nếu tệp còn mà hướng dẫn cài cho khách lại hứa khác (ví dụ "hồ sơ không lưu trên điện thoại"). | Màn hình app; thư mục tải xuống trước và sau khi xoá tay. |
 
 ---
 

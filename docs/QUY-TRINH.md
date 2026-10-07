@@ -233,9 +233,10 @@ thoại là dùng được ngay, không cần chờ gì.
 **Cập nhật 2026-10-04 (M12).** Từ M12, cổng khách hàng và trang nội bộ cài được thành
 ứng dụng trên điện thoại ngay từ trình duyệt, không qua chợ ứng dụng: biểu tượng trên
 màn hình chính, cửa sổ riêng, và **thông báo đẩy** khi hồ sơ có việc mới (Android và
-iPhone iOS 16.4 trở lên). Ứng dụng chính là website, nên không có bản sao hồ sơ nào nằm
-trên điện thoại và không có gì để "đồng bộ"; mất mạng thì hiện một trang tiếng Việt kèm
-số hotline. Thông báo chỉ là một câu chung, không tên, không mã hồ sơ — màn hình khoá
+iPhone iOS 16.4 trở lên). Ứng dụng chính là website, nên ứng dụng không lưu sẵn hồ sơ
+trên điện thoại và không có gì để "đồng bộ" (chỉ tài liệu người dùng chủ động tải về nằm
+lại trong thư mục tải xuống của máy, đăng xuất không xoá — hướng dẫn cho khách nói rõ điều
+này); mất mạng thì hiện một trang tiếng Việt kèm số hotline. Thông báo chỉ là một câu chung, không tên, không mã hồ sơ — màn hình khoá
 không phải màn hình của văn phòng — và thư điện tử vẫn gửi như trước. Hướng dẫn cài cho
 khách: mục "Hướng dẫn cài ứng dụng Luật Vũ Khang trên điện thoại" ở cuối tài liệu này.
 M12 đã có mã (nhánh `m12-pwa-push`), đang chờ gộp và chờ chủ văn phòng thử trên iPhone,
@@ -261,9 +262,10 @@ từ iPhone và Android (mục A, C, D của `docs/research/2026-10-01-pwa-kiem-
 có ảnh thật thì gửi bản không ảnh.*
 
 Ứng dụng **Luật Vũ Khang** chính là trang theo dõi hồ sơ của văn phòng, đặt thành một biểu
-tượng trên màn hình chính điện thoại. Không phải tải từ App Store hay Google Play. Hồ sơ của
-anh/chị không được lưu trên điện thoại: mỗi lần mở, ứng dụng lấy thông tin mới nhất từ văn
-phòng; mất mạng thì hiện trang "Chưa có kết nối mạng" kèm số điện thoại của văn phòng.
+tượng trên màn hình chính điện thoại. Không phải tải từ App Store hay Google Play. Ứng dụng
+không lưu sẵn hồ sơ trên điện thoại: mỗi lần mở, ứng dụng lấy thông tin mới nhất từ văn phòng;
+mất mạng thì hiện trang "Chưa có kết nối mạng" kèm số điện thoại của văn phòng. Riêng tài liệu
+anh/chị chủ động tải về thì nằm lại trong thư mục tải xuống của máy (xem "Điều nên biết").
 
 ### Trước khi bắt đầu
 
@@ -320,8 +322,10 @@ rồi bật từ trong ứng dụng. iPhone chỉ cho nhận thông báo trong �
   vào để xem trong ứng dụng.
 - Thư điện tử vẫn gửi như trước và không tắt được: thông báo trên điện thoại chỉ là thêm một cách
   báo nhanh.
-- Đăng xuất trên máy này sẽ tắt thông báo trên máy này. Điện thoại dùng chung với người nhà thì
-  nên đăng xuất sau khi xem.
+- Đăng xuất trên máy này sẽ tắt thông báo trên máy này. Tài liệu anh/chị chủ động tải về được
+  điện thoại lưu vào thư mục tải xuống của máy (Android: ứng dụng **Tệp** hoặc **Tải xuống**;
+  iPhone: ứng dụng **Tệp**) và **đăng xuất không xoá chúng**. Điện thoại dùng chung với người nhà
+  thì sau khi xem, xoá tay các tài liệu đã tải rồi mới đăng xuất.
 - Không dùng ứng dụng khoảng hai tiếng thì lần sau phải đăng nhập lại (mật khẩu và mã 6 số) — để
   giữ an toàn cho hồ sơ. Chạm một thông báo lúc đó thì đăng nhập xong sẽ về đúng trang của thông
   báo.
