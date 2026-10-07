@@ -10,6 +10,7 @@ use App\Mail\Client\MissingDocuments;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\MatterChecklistItem;
 use App\Models\OutboundMessage;
 use App\Models\User;
@@ -136,6 +137,36 @@ it('skips silently when the matter has been unpublished from the portal since it
 
     Mail::assertNothingSent();
 });
+
+/**
+ * Việc sau gộp M7 (làn fu2): thư cho khách về một vụ hỏi "vụ còn trên cổng của CHÍNH người nhận"
+ * bằng `ResolveClientRecipients::onPortal()` — như bốn thư khách còn lại — không chỉ cờ
+ * `is_published_to_portal` của `mattersAwaitingClient()`. Trạng thái dựng thẳng: một vụ ĐANG MỞ mà
+ * dòng lưu trữ còn `client_access_until` đã qua (dòng mà một lần mở lại không dọn — cùng trạng thái
+ * `DocumentPublishedNotificationTest` dùng), khách còn một vụ khác trên cổng. Cổng không cho khách
+ * mở vụ, nên thư (kèm liên kết tới một trang 404) không đi, và nút "Gửi lại" hỏi cùng câu. Vế dương:
+ * hôm nay là ngày tra cứu cuối thì thư vẫn đi.
+ *
+ * Mutation probe: bỏ `onPortal()` khỏi `SendMissingDocumentsMail::context()` — hàng "đã hết hạn" ĐỎ.
+ */
+it('mails nobody once the portal no longer shows the matter to the client, but still mails on its last day', function (string $accessUntil, int $expected) {
+    $this->travelTo(Carbon::parse('2026-10-21 09:00:00'));
+    Mail::fake();
+    [$matter, $account] = jobMatter();
+    MatterArchive::factory()->create(['matter_id' => $matter->id, 'client_access_until' => $accessUntil]);
+    Matter::factory()->create(['client_id' => $account->client_id, 'is_published_to_portal' => true]);
+
+    $job = new SendMissingDocumentsMail($matter->id);
+
+    expect($job->eligibleRecipients())->toHaveCount($expected);
+
+    $job->handle();
+
+    Mail::assertSent(MissingDocuments::class, $expected);
+})->with([
+    'hạn tra cứu đã qua từ hôm qua' => ['2026-10-20', 0],
+    'hôm nay là ngày tra cứu cuối' => ['2026-10-21', 1],
+]);
 
 /** R12 lúc gửi: tài khoản bị khoá giữa lúc xếp hàng và lúc chạy thì không nhận. */
 it('re-derives the recipients at send time (R12)', function () {

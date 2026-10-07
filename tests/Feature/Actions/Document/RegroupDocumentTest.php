@@ -277,17 +277,19 @@ it('một tài liệu nhóm B đã published vẫn rời nhóm được', functi
 // ---------------------------------------------------------------------------------------------
 // R9 mở rộng (vòng sửa 1): (a) rời khỏi B VÀO nhóm D luôn được phép với `document.update` — nó
 // KHÔNG đi qua cổng B-rời-sang-A/C ở trên, vì đó là đường DUY NHẤT rút một tài liệu B lỡ công bố
-// khỏi tầm mắt khách trước khi `RetractDocument` (M7) tồn tại. (b) rời B sang A/C mà CHƯA
+// khỏi tầm mắt khách trước khi `RetractDocument` (M7) tồn tại — M7 Task 7 thu hẹp (a): tài liệu
+// ĐANG ra tới khách không vào D nữa, phải đi qua "Rút lại". (b) rời B sang A/C mà CHƯA
 // signed_filed/published thì có một đường THỨ HAI: một lý do sửa nhầm nhóm ≥ 10 ký tự, ghi vào
 // audit `misfiling_reason`.
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Chính test finding `I1` đòi: một trợ lý (không có `document.publish`) vẫn rút được một tài
- * liệu B ĐÃ CÔNG BỐ vào nhóm D — và nó biến mất khỏi cổng khách ngay lập tức (hook `saving` của
- * `Document` hạ `client_can_view`/`client_can_download`, xem `RegroupDocumentTest` cũ hơn).
+ * Finding `I1` (M6.5) từng đòi: một trợ lý rút được một tài liệu B ĐÃ CÔNG BỐ vào nhóm D. **M7 Task
+ * 7 lật phán quyết đó cho đúng tài liệu ĐANG ra tới khách** — một đường rút duy nhất là
+ * `RetractDocument`, nên lần chuyển vào D bị từ chối bằng câu chỉ tới nút "Rút lại", và tài liệu
+ * vẫn ở nguyên trong tầm mắt khách. Tài liệu chưa ra tới khách vẫn vào D tự do (test kế tiếp).
  */
-it('trợ lý rút được một tài liệu nhóm B ĐÃ CÔNG BỐ vào nhóm D, không cần document.publish, và nó biến mất khỏi cổng khách', function () {
+it('trợ lý KHÔNG còn đưa được một tài liệu nhóm B ĐANG ra tới khách vào nhóm D — câu từ chối chỉ tới nút Rút lại (M7 Task 7)', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $assistant = User::factory()->withRole(Role::Assistant)->create();
     $matter = regroupMatter($lawyer);
@@ -296,10 +298,11 @@ it('trợ lý rút được một tài liệu nhóm B ĐÃ CÔNG BỐ vào nhóm
 
     expect($document->isReleasedToPortal())->toBeTrue();
 
-    $moved = regroupAs($document, $assistant, DocumentGroup::Internal);
+    expect(fn () => regroupAs($document, $assistant, DocumentGroup::Internal))
+        ->toThrow(DocumentGroupNotChangeable::class, __('retraction.blocked.regroup_to_internal'));
 
-    expect($moved->group)->toBe(DocumentGroup::Internal)
-        ->and($moved->isReleasedToPortal())->toBeFalse();
+    expect($document->fresh()->group)->toBe(DocumentGroup::Issued)
+        ->and($document->fresh()->isReleasedToPortal())->toBeTrue();
 });
 
 /**
@@ -508,6 +511,11 @@ it('tạo mới một dòng nhóm D với hai cờ khách bật cũng bị hạ 
         ->and((bool) $row->client_can_view)->toBeFalse();
 });
 
+/**
+ * M7 Task 7: `RegroupDocument` không còn đưa một tài liệu ĐANG ra tới khách vào D, nên chuyến đi
+ * vào D ở đây là một lần ghi thẳng model — đường mà hook `saving` tồn tại để canh (và là hình dạng
+ * của dữ liệu có từ trước M7). Hook phải hạ cả hai cờ bất kể ai ghi.
+ */
 it('chuyển một tài liệu vào nhóm D hạ luôn quyền xem và quyền tải của khách', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
     $matter = regroupMatter($lawyer);
@@ -519,7 +527,7 @@ it('chuyển một tài liệu vào nhóm D hạ luôn quyền xem và quyền t
         'client_can_download' => true,
     ]);
 
-    regroupAs($document, $lawyer, DocumentGroup::Internal);
+    $document->update(['group' => DocumentGroup::Internal]);
 
     expect($document->fresh()->client_can_download)->toBeFalse()
         ->and($document->fresh()->client_can_view)->toBeFalse();
@@ -537,6 +545,9 @@ it('chuyển một tài liệu vào nhóm D hạ luôn quyền xem và quyền t
  *
  * Khẳng định cả hai nửa: tài liệu KHÔNG còn ra tới khách sau chuyến đi, và nhật ký không có thêm
  * một dòng `document_published` nào.
+ *
+ * M7 Task 7: chiều VÀO D của một tài liệu đang ra tới khách nay chỉ còn là một lần ghi thẳng model
+ * (hoặc dữ liệu có từ trước M7) — `RegroupDocument` từ chối nó. Chiều RA vẫn qua Action.
  */
 it('một vòng A → D → A không trả tài liệu về cho khách, và không tự sinh một lần công bố', function () {
     $lawyer = User::factory()->withRole(Role::Lawyer)->create();
@@ -553,7 +564,7 @@ it('một vòng A → D → A không trả tài liệu về cho khách, và khô
 
     $publishedBefore = Activity::query()->where('event', 'document_published')->count();
 
-    regroupAs($document, $lawyer, DocumentGroup::Internal);
+    $document->update(['group' => DocumentGroup::Internal]);
     regroupAs($document->fresh(), $lawyer, DocumentGroup::ClientProvided);
 
     $after = $document->fresh();
@@ -564,7 +575,7 @@ it('một vòng A → D → A không trả tài liệu về cho khách, và khô
         ->and($after->client_can_download)->toBeFalse()
         ->and($after->isReleasedToPortal())->toBeFalse()
         ->and(Activity::query()->where('event', 'document_published')->count())->toBe($publishedBefore)
-        ->and(Activity::query()->where('event', 'document_regrouped')->count())->toBe(2);
+        ->and(Activity::query()->where('event', 'document_regrouped')->count())->toBe(1);
 });
 
 /**
@@ -577,7 +588,8 @@ it('sau vòng khứ hồi, đường duy nhất về tay khách là PublishDocum
     $matter = regroupMatter($lawyer);
     $document = documentWithFileForRegroup($matter, DocumentGroup::Authority);
 
-    regroupAs($document, $lawyer, DocumentGroup::Internal);
+    // Vào D bằng một lần ghi thẳng model — xem ghi chú M7 Task 7 ở test trên.
+    $document->update(['group' => DocumentGroup::Internal]);
     $back = regroupAs($document->fresh(), $lawyer, DocumentGroup::Authority);
 
     expect($back->isReleasedToPortal())->toBeFalse();
@@ -676,7 +688,10 @@ it('lets a group B document that went B → D → B be published again', functio
     // Đã thật sự ra tới khách một lần — như mọi lần đi qua `PublishDocument`.
     $document->update(['published_at' => now()->subDay(), 'published_by' => $lawyer->id]);
 
-    regroupAs($document, $lawyer, DocumentGroup::Internal);
+    // M7 Task 7: `RegroupDocument` không còn đưa tài liệu đang ra tới khách vào D; một văn bản B ở
+    // trạng thái này là dữ liệu có từ trước M7 (hoặc một lần ghi thẳng model), và vẫn phải công bố
+    // lại được.
+    $document->update(['group' => DocumentGroup::Internal]);
     $back = regroupAs($document->fresh(), $lawyer, DocumentGroup::Issued);
 
     expect($back->status)->toBe(DocumentStatus::Published)

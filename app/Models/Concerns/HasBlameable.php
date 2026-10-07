@@ -44,6 +44,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * biểu là "bản ghi đang nằm trong tay tôi đây được ghi nhân danh người này", đúng cho cả một Action
  * lưu hai lần (dựng rồi `save()`, sau đó `update()` thêm một cột). Một cờ tự xoá sẽ biến thứ tự các
  * lệnh lưu thành một chi tiết phải nhớ — đúng loại luật ngầm mà I-1 sinh ra từ đó.
+ *
+ * **`blameOnSystem()` — lần lưu của HỆ THỐNG, không của ai** (M9 Task 6, phán quyết controller 1).
+ * Một đợt thanh toán đến hạn vì vụ việc chạm giai đoạn là hệ quả của một sự kiện, không phải quyết
+ * định của người đang đăng nhập — nhưng listener của sự kiện đó chạy NGAY TRONG request của luật sư
+ * vừa bấm "Chuyển giai đoạn", nên không tuyên bố gì thì hook `updating` rơi về phiên `web` và ghi
+ * tên luật sư vào `updated_by`, còn cùng lần ghi đó từ cron (đối chiếu hằng ngày) để nguyên cột: hai
+ * đường, hai nghĩa. `blameOnSystem()` tuyên bố "không ai": cả hai hook bỏ qua hoàn toàn — `updated_by`
+ * giữ giá trị đang có, `created_by`/`updated_by` của một dòng MỚI để trống — bất kể phiên nào đang
+ * mở. Cùng tính DÍNH với instance như `blameOn()`; một `blameOn()` sau đó lấy lại instance cho người.
  */
 trait HasBlameable
 {
@@ -54,9 +63,16 @@ trait HasBlameable
      */
     protected ?int $blameableActorId = null;
 
+    /** `true` sau {@see self::blameOnSystem()}: không actor nào, và không rơi về phiên ambient. */
+    protected bool $blameableBySystem = false;
+
     public static function bootHasBlameable(): void
     {
         static::creating(function (Model $model): void {
+            if ($model->blameableBySystem) {
+                return;
+            }
+
             $id = $model->blameableActorId ?? auth('web')->id();
 
             if ($id === null) {
@@ -68,6 +84,10 @@ trait HasBlameable
         });
 
         static::updating(function (Model $model): void {
+            if ($model->blameableBySystem) {
+                return;
+            }
+
             // Ý định tường minh thắng phiên ambient, không điều kiện — kể cả khi cột đã mang sẵn
             // đúng giá trị đó. Xem docblock trait.
             $id = $model->blameableActorId ?? auth('web')->id();
@@ -85,6 +105,19 @@ trait HasBlameable
     public function blameOn(User|int $actor): static
     {
         $this->blameableActorId = $actor instanceof User ? $actor->id : $actor;
+        $this->blameableBySystem = false;
+
+        return $this;
+    }
+
+    /**
+     * Tuyên bố mọi lần lưu bản ghi này là của HỆ THỐNG — không ai: hai cột blame không bị đụng tới
+     * và không rơi về phiên ambient. Xem docblock trait.
+     */
+    public function blameOnSystem(): static
+    {
+        $this->blameableActorId = null;
+        $this->blameableBySystem = true;
 
         return $this;
     }

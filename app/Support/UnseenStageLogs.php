@@ -7,6 +7,7 @@ use App\Actions\Schedule\RemindUnseenUpdates;
 use App\Filament\Admin\Widgets\UnseenUpdatesWidget;
 use App\Models\Matter;
 use App\Models\StageLog;
+use App\Support\Scopes\ClientPortalScope;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -25,9 +26,13 @@ use Illuminate\Database\Eloquent\Builder;
  *  3. `whereDoesntHave('views')` — không một tài khoản portal nào của khách hàng đó đã mở trang
  *     chi tiết hồ sơ (chỉ cần MỘT người mở là đủ, "theo khách hàng" — xem docblock widget về ý
  *     nghĩa chính xác của "chưa xem");
- *  4. hồ sơ đang công bố lên cổng (`is_published_to_portal = true`) — khách không có đường nào mở
- *     một hồ sơ đã gỡ khỏi cổng, nên nó không phải một việc phải gọi điện; hồ sơ xoá mềm tự rơi
- *     qua `SoftDeletingScope` của `whereHas('matter')`.
+ *  4. hồ sơ đang công bố lên cổng (`is_published_to_portal = true`) VÀ chưa hết hạn tra cứu —
+ *     khách không có đường nào mở một hồ sơ đã rời cổng, nên nó không phải một việc phải gọi điện;
+ *     hồ sơ xoá mềm tự rơi qua `SoftDeletingScope` của `whereHas('matter')`. "Chưa hết hạn tra cứu"
+ *     (việc sau gộp M7, làn fu2): từ M7 Task 5 (R4) một hồ sơ đã kết thúc rời cổng khi quá
+ *     `client_access_until` mà cờ giữ nguyên — cùng điều kiện thứ năm của
+ *     `Matter::applyClientPortalConstraints()`, viết bằng đúng scope
+ *     `MatterArchive::scopeClientAccessExpired()`, không định nghĩa thứ ba.
  *
  * **Cố ý KHÔNG lọc `closed_at`** (docblock widget, mục 3): một cập nhật cuối trên hồ sơ vừa đóng
  * mà khách chưa từng thấy là cuộc gọi đáng gọi nhất. Ai thêm {@see Matter::scopeOpen()} vào đây
@@ -61,6 +66,12 @@ final class UnseenStageLogs
             ->where('published_at', '<', now()->subDays(self::AFTER_DAYS))
             ->whereDoesntHave('views')
             ->whereHas('matter', fn (Builder $matter): Builder => $matter
-                ->where('is_published_to_portal', true));
+                ->where('is_published_to_portal', true)
+                // Điều kiện 4, vế "chưa hết hạn tra cứu". Gỡ `ClientPortalScope` cùng lý do ở
+                // `Matter::applyClientPortalConstraints()`: `MatterArchive` mang scope chặn sạch đó,
+                // và một tiến trình còn treo ngữ cảnh cổng không được làm vế này luôn đúng.
+                ->whereDoesntHave('archive', fn (Builder $archive): Builder => $archive
+                    ->withoutGlobalScope(ClientPortalScope::class)
+                    ->clientAccessExpired()));
     }
 }

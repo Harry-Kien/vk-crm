@@ -5,6 +5,7 @@ use App\Enums\ChecklistItemStatus;
 use App\Enums\MatterRole;
 use App\Enums\Permission;
 use App\Enums\Role;
+use App\Exceptions\MatterChecklistReadOnly;
 use App\Models\Client;
 use App\Models\Matter;
 use App\Models\MatterChecklistItem;
@@ -129,4 +130,29 @@ it('trims the item name before checking for duplicates and saving', function () 
 it('refuses a name made only of whitespace', function () {
     expect(fn () => addChecklistItem($this->matter, $this->lawyer, "   \u{00A0} "))
         ->toThrow(ValidationException::class);
+});
+
+// --- M7 Task 3: danh mục hồ sơ của vụ đã đóng là chỉ đọc -------------------------------------
+
+/**
+ * Cổng THẬT, độc lập với màn hình (đã ẩn nút — xem `ChecklistRelationManager::addItemAction()`).
+ * Kiểm SAU Gate (từ chối vì thiếu quyền phải ra TRƯỚC câu này — xem docblock `AddChecklistItem`,
+ * mục "M7 Task 3"), nên actor ở đây có đủ quyền `matter.update` để chạm tới đúng cổng đang đo.
+ */
+it('từ chối thêm đầu mục trên một vụ đã đóng', function () {
+    $this->matter->update(['closed_at' => now()->subDay()]);
+
+    expect(fn () => addChecklistItem($this->matter, $this->lawyer, 'Giấy tờ ép buộc trên vụ đã đóng'))
+        ->toThrow(MatterChecklistReadOnly::class);
+
+    expect(MatterChecklistItem::query()->where('matter_id', $this->matter->id)->count())->toBe(0);
+});
+
+/** Cặp dương ngay cạnh — mutation probe cho điều kiện `closed_at !== null` ở trên. */
+it('vẫn thêm được đầu mục trên một vụ chưa đóng (closed_at null)', function () {
+    expect($this->matter->closed_at)->toBeNull();
+
+    $item = addChecklistItem($this->matter, $this->lawyer, 'Giấy tờ hợp lệ trên vụ còn mở');
+
+    expect($item->exists)->toBeTrue();
 });

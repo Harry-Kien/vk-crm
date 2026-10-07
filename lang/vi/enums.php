@@ -40,6 +40,8 @@ return [
         'pending_approval' => 'Chờ duyệt',
         'signed_filed' => 'Đã ký, đã nộp',
         'published' => 'Đã công bố',
+        // M7 Task 7: RetractDocument — trạng thái thứ năm, tài liệu đã rút khỏi cổng khách.
+        'retracted' => 'Đã rút lại',
     ],
     'deadline_severity' => [
         'normal' => 'Thông thường',
@@ -134,5 +136,38 @@ return [
         'push' => [
             'test' => 'Thông báo thử',
         ],
+    ],
+    // M10: tiếp nhận khách tiềm năng.
+    'intake_status' => [
+        'new' => 'Mới, chưa ai gọi lại',
+        'contacted' => 'Đã liên hệ lại',
+        'consulting' => 'Đang tư vấn',
+        'quoted' => 'Đã báo phí',
+        'won' => 'Đã nhận việc',
+        'declined' => 'Văn phòng từ chối',
+        'lost' => 'Khách không theo tiếp',
+        'merged' => 'Đã gộp vào bản ghi khác',
+    ],
+    'intake_source' => [
+        'phone' => 'Điện thoại',
+        'zalo' => 'Zalo',
+        'walk_in' => 'Đến văn phòng',
+        'referral' => 'Người quen giới thiệu',
+        'website_form' => 'Form website',
+        'other' => 'Khác',
+    ],
+    // M10 Task 2: điều đang khoá ô câu chuyện của một lần tiếp nhận (App\Actions\Intake\IntakeSummaryGate).
+    'intake_summary_blocker' => [
+        'privacy_notice' => 'chưa ghi nhận người liên hệ đã nghe thông báo và đồng ý',
+        'conflict_unchecked' => 'chưa kiểm tra xung đột lợi ích cho danh tính hiện tại',
+        'conflict_acknowledgement' => 'cần xác nhận đã xem các khớp xung đột đang hiện',
+        'conflict_red' => 'xung đột mức đỏ, cần trưởng phòng hoặc quản trị xử lý',
+        'declined' => 'văn phòng đã từ chối bản ghi này',
+    ],
+    // M7 Task 4: App\Enums\HandoverPackageStatus.
+    'handover_package_status' => [
+        'generating' => 'Đang sinh',
+        'ready' => 'Sẵn sàng',
+        'failed' => 'Lỗi',
     ],
 ];

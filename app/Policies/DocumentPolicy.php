@@ -2,14 +2,19 @@
 
 namespace App\Policies;
 
+use App\Enums\ContractStatus;
+use App\Enums\DocumentStatus;
 use App\Enums\Permission;
 use App\Models\ClientUser;
+use App\Models\Contract;
 use App\Models\Document;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\MatterChecklistItem;
 use App\Models\User;
 use App\Policies\Concerns\ChecksMatterAccess;
 use App\Policies\Concerns\ChecksPortalVisibility;
+use App\Support\Scopes\ClientPortalScope;
 use Illuminate\Auth\Access\Response;
 
 /**
@@ -58,14 +63,78 @@ class DocumentPolicy
         return $this->canSeeMatter($user, $document->matter);
     }
 
-    /** Tải tệp: khách phải được bật thêm client_can_download (SPEC §5). */
+    /**
+     * Tải tệp: khách phải được bật thêm client_can_download (SPEC §5).
+     *
+     * **Nhân sự: tải gói bàn giao của vụ có hợp đồng là đọc tiền** (M9 Task 10, rà soát vòng 1,
+     * C1). `MUC-LUC.pdf` trong zip của gói in "Bảng kê thanh toán"
+     * (`RenderHandoverIndex::billingStatement()`), nên tải gói đó phải qua đúng định nghĩa P3 của
+     * "ai thấy tiền của vụ nào" — `ContractPolicy::view` (`billing.view` + `Matter::listableBy()`)
+     * — chứ không chỉ `matter.view`. Thiếu điều này, trợ lý trong đội (không `billing.view`, SPEC
+     * §5) đọc được toàn bộ tiền của vụ qua nút "Tải" của tab Tài liệu. Xem
+     * {@see self::withholdsPaymentStatement()}.
+     *
+     * Chỉ siết `download`, không siết `view`: dòng tài liệu (tên gói, version) không mang con số
+     * nào, và người không tải được gói vẫn cần biết gói đã có. Khách không đi qua điều kiện này:
+     * bảng kê là đúng thứ P1 cho khách xem về vụ của chính họ, và khách chỉ tải được gói sau khi
+     * văn phòng công bố nó.
+     */
     public function download(User|ClientUser $user, Document $document): bool
     {
         if (! $this->view($user, $document)) {
             return false;
         }
 
-        return $user instanceof ClientUser ? $document->client_can_download : true;
+        if ($user instanceof ClientUser) {
+            return $document->client_can_download;
+        }
+
+        return ! $this->withholdsPaymentStatement($user, $document);
+    }
+
+    /**
+     * `true` khi `$document` là một version của gói bàn giao mà `$user` không được tải vì gói có
+     * thể mang tiền của vụ mà họ không được thấy. Ba vế, đều phải đúng:
+     *
+     * - **Vụ có hợp đồng đã từng ký** — trạng thái khác `draft`. Không dùng
+     *   `Contract::shownToClient()` (`active`/`completed`): `cancelled` chỉ đến từ `active`
+     *   (`CancelContract`), nên một gói dựng TRƯỚC lần huỷ vẫn in bảng kê, và mọi version cũ của
+     *   gói vẫn tải được. Hợp đồng `draft` chưa bao giờ vào bảng kê. Mỗi vụ một hợp đồng
+     *   (`contracts.matter_id` unique, không xoá mềm), nên `first()` là hợp đồng của vụ. Cái giá
+     *   phía đóng: gói dựng khi hợp đồng còn là bản nháp rồi hợp đồng được ký sau đó cũng bị giữ
+     *   lại với người không thấy tiền, dù tệp đó không có bảng kê.
+     * - **`$user` không được xem hợp đồng đó** (`ContractPolicy::view`, nhánh nhân sự = P3). Hỏi
+     *   trước phép thử gói, để người thấy tiền không phải trả thêm lượt dò chuỗi version.
+     * - **Tài liệu là một version của gói** ({@see MatterArchive::isHandoverDocument()}). Mọi tài
+     *   liệu khác của vụ — kể cả nhóm B — không đổi luật.
+     *
+     * Câu trả lời về nhân sự không được đổi theo một phiên cổng khách đang mở song song (một job,
+     * một Action gọi `Gate::forUser($staff)` khi guard `client` đã xác thực còn `web` thì chưa —
+     * cùng lý do với `ChecksBillingAccess::matterForBillingGate()`). Hai chỗ giữ điều đó, mỗi chỗ
+     * có test ("…while an unrelated client portal session is open", đỏ khi gỡ từng chỗ):
+     *
+     * - hợp đồng nạp KHÔNG qua `ClientPortalScope` — qua scope, phiên của khách khác không thấy
+     *   hợp đồng nào và trợ lý được tải gói;
+     * - vụ của hợp đồng gắn sẵn bằng `setRelation()` từ chính vụ của tài liệu, thứ `view()` vừa
+     *   nạp và vừa cho qua — để `$contract->matter` tự nạp thì nó đi qua scope, ra `null`, và
+     *   luật sư phụ trách bị từ chối gói của chính vụ mình.
+     */
+    private function withholdsPaymentStatement(User $user, Document $document): bool
+    {
+        $contract = Contract::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->where('matter_id', $document->matter_id)
+            ->where('status', '!=', ContractStatus::Draft->value)
+            ->first();
+
+        if ($contract === null) {
+            return false;
+        }
+
+        $contract->setRelation('matter', $document->matter);
+
+        return ! $user->can('view', $contract)
+            && MatterArchive::isHandoverDocument($document);
     }
 
     /**
@@ -151,14 +220,27 @@ class DocumentPolicy
      * Đi qua `update()` nên cũng thừa hưởng điều kiện đọc được: không ai xoá được một tài liệu
      * nhóm D mà chính họ không có quyền nhìn.
      *
+     * **M7 Task 7 — một đường rút duy nhất.** Xoá (mềm) từng là một trong hai "đường rút tạm" của
+     * M4 cho tài liệu công bố nhầm. Nay tài liệu ĐANG ra tới khách (`isReleasedToPortal()`, cùng
+     * vị từ `RetractDocument` dùng) chỉ rời tầm mắt khách bằng `RetractDocument`, và tài liệu ĐÃ
+     * RÚT không bị xoá: dòng "Văn phòng đã rút lại tài liệu này" trên cổng khách đọc từ chính bản
+     * ghi đó, xoá nó là xoá lời giải thích khỏi tay khách.
+     *
      * **Gộp M6.5 + M9 (xung đột 5):** tệp đang được một bản ghi tiền trỏ tới (bản scan phụ lục,
      * biên lai) thì không ai xoá được, kể cả người đủ quyền — trả `Response::deny()` kèm lý do để
      * nút xoá nói ra vì sao. Hỏi SAU cổng quyền: người không được xoá tài liệu này nói chung không
      * cần biết nó có đang làm bằng chứng cho một khoản tiền hay không. Hook `Document::deleting`
      * chặn cùng điều kiện trên mọi đường không hỏi policy.
+     *
+     * Gộp M7 vào `main`: hai điều kiện độc lập, cả hai được giữ — chặn của M7 (đang ra tới khách /
+     * đã rút) đứng TRƯỚC cổng quyền như bản M7, chặn tiền của M9 đứng SAU cổng quyền như bản M9.
      */
     public function delete(User|ClientUser $user, Document $document): bool|Response
     {
+        if ($document->isReleasedToPortal() || $document->status === DocumentStatus::Retracted) {
+            return false;
+        }
+
         if (! ($this->update($user, $document) && $user->can(Permission::DocumentPublish->value))) {
             return false;
         }
@@ -166,5 +248,25 @@ class DocumentPolicy
         return $document->isReferencedByBillingRecord()
             ? Response::deny(__('documents.delete_blocked_billing_reference'))
             : true;
+    }
+
+    /**
+     * M7 Task 7 — tầng QUYỀN của dòng "Văn phòng đã rút lại tài liệu này" trên cổng khách (tầng
+     * truy vấn: `Document::retractionNoticesFor()`; tầng serialize: hình chiếu hẹp của
+     * `MatterProgress`). Chỉ khách: nhân sự đọc tài liệu đã rút qua `view()` như mọi tài liệu khác.
+     *
+     * Phát biểu bằng THUỘC TÍNH, không chung câu lệnh nào với tầng truy vấn: đã rút, không nhóm D,
+     * chưa xoá mềm, và vụ việc qua `MatterPolicy::view` của chính khách đó (cùng khách, đã lên
+     * portal, chưa hết hạn tra cứu — `canSeeMatter()`). Ability này KHÔNG cho xem hay tải tài liệu:
+     * `view()`/`download()` của khách vẫn đòi `published` + cờ xem, nên một tài liệu đã rút không
+     * bao giờ tải được từ cổng.
+     */
+    public function viewRetractionNotice(User|ClientUser $user, Document $document): bool
+    {
+        return $user instanceof ClientUser
+            && $document->status === DocumentStatus::Retracted
+            && ! $document->group->isInternal()
+            && ! $document->trashed()
+            && $this->canSeeMatter($user, $document->matter);
     }
 }

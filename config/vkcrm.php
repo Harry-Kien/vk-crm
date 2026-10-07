@@ -16,6 +16,10 @@ return [
     // Chính sách lưu trữ
     'retention_years' => (int) env('RETENTION_YEARS', 10),
     'client_access_days' => (int) env('CLIENT_ACCESS_DAYS', 90),
+    // M10 R7b: số tháng giữ dữ liệu người liên hệ KHÔNG thành khách (từ lúc bị từ chối, không theo
+    // tiếp hoặc bị gộp) rồi tự ẩn danh. Riêng với `retention_years` (hồ sơ vụ việc, M7). Đọc qua
+    // `IntakeRequest::retentionMonths()`, nơi một giá trị vô nghĩa về 24 — không ép kiểu ở đây.
+    'prospect_retention_months' => env('PROSPECT_RETENTION_MONTHS', 24),
 
     // Giám sát cron
     'heartbeat_url' => $domain(env('HEARTBEAT_URL')),
@@ -186,6 +190,30 @@ return [
             'libxml', 'mbstring', 'openssl', 'pcre', 'session', 'tokenizer', 'xmlreader', 'zip',
             'zlib', 'pdo_mysql',
         ],
+
+        /*
+         * Việc sau gộp M7 (làn fu2): extension mà giờ chết của worker cần — `GenerateHandoverPackage::
+         * $timeout`/`$failOnTimeout` và `--timeout=600` của mục lịch `queue.handover` chỉ có tác dụng
+         * khi PHP DÒNG LỆNH có ext-pcntl (thiếu nó, `Worker::registerTimeoutHandler()` bỏ qua lặng
+         * lẽ). KHÔNG nằm trong `required_extensions` ở trên: danh sách đó đúng bằng
+         * `composer check-platform-reqs` + `pdo_mysql` (`docs/CAI-DAT.md`, Bước 1), và thiếu pcntl
+         * không làm vỡ màn hình nào — `vkcrm:preflight` báo VÀNG ({@see
+         * \App\Actions\Deployment\RunPreflight}). Cấu hình được chỉ vì cùng lý do với
+         * `required_extensions`: test gài một tên giả để dựng chiều VÀNG.
+         */
+        'worker_timeout_extension' => 'pcntl',
+
+        /*
+         * Rà soát cuối làn fu2 (I1): các hàm pcntl mà `Illuminate\Queue\Worker::daemon()` GỌI khi
+         * extension ở trên đã nạp — `pcntl_async_signals()`/`pcntl_signal()` ở `listenForSignals()`,
+         * `pcntl_signal()`/`pcntl_alarm()` ở `registerTimeoutHandler()`. `Worker::
+         * supportsAsyncSignals()` chỉ hỏi `extension_loaded('pcntl')`, nên khi một hàm ở đây nằm
+         * trong `disable_functions` (PHP 8: hàm bị chặn là hàm không tồn tại) mọi lượt `queue:work`
+         * chết ở vòng đầu — `vkcrm:preflight` báo ĐỎ. Danh sách phải đúng bằng các hàm `pcntl_*` mà
+         * Worker gọi: `PreflightCommandTest` đọc mã nguồn Worker để chặn trôi khi nâng Laravel.
+         * Cấu hình được chỉ để test gài một tên hàm giả mà dựng chiều ĐỎ.
+         */
+        'worker_signal_functions' => ['pcntl_async_signals', 'pcntl_signal', 'pcntl_alarm'],
     ],
 
     /*
@@ -196,6 +224,12 @@ return [
      * Bảng màu và bộ chữ lấy đúng biến CSS của website (--navy, --red, --paper, --muted; Be
      * Vietnam Pro cho chữ thường, Noto Serif cho tiêu đề trang trọng). Đổi ở đây là đổi cả hai
      * panel, trang đăng nhập, email và tệp PDF xuất ra về sau.
+     *
+     * M7 Task 10: chín trường `legal_name`, `website`, `hotline`, `zalo`, `reply_to` và bốn thông
+     * tin pháp lý bên dưới sửa được TRONG APP (trang "Thông tin văn phòng", chỉ admin). Giá trị ở
+     * đây chỉ còn là MẶC ĐỊNH: mã đọc chúng qua `App\Support\OfficeProfile` (bảng `settings` trước,
+     * rồi tới đây), không bao giờ `config('vkcrm.brand.<trường>')` trực tiếp — có test cấu trúc.
+     * Màu, logo, font, lockup không sửa được trong app.
      */
     'brand' => [
         'legal_name' => env('BRAND_LEGAL_NAME', 'Công ty Luật TNHH Vũ Khang Solutions & Partners'),
@@ -233,12 +267,18 @@ return [
          * Đã tra luatvukhang.com (trang chủ, /vi/about, /vi/contact) ngày 19/09/2026: website
          * KHÔNG đăng bốn thông tin này, nên không có cách nào lấy tự động cho chính xác. Để trống
          * có chủ đích thay vì điền phỏng đoán — một mã số thuế sai trên văn bản gửi khách còn tệ
-         * hơn một chỗ trống. Chủ văn phòng điền vào .env là xong, không phải sửa mã.
+         * hơn một chỗ trống. Chủ văn phòng điền vào .env là xong, không phải sửa mã — hoặc, từ M7
+         * Task 10 (quyết định của chủ văn phòng ngày 2026-09-24), tự nhập ở trang "Thông tin văn
+         * phòng"; giá trị nhập trong app thắng giá trị ở đây.
+         *
+         * Địa chỉ trụ sở do chính chủ văn phòng cung cấp ngày 2026-10-02 nên là giá trị mặc định;
+         * ba thông tin còn lại vẫn để trống tới khi chủ văn phòng đưa. `BRAND_OFFICE_ADDRESS`
+         * trong .env (hoặc trang "Thông tin văn phòng" của M7) vẫn ghi đè được.
          */
         'tax_code' => env('BRAND_TAX_CODE'),
         'bar_association' => env('BRAND_BAR_ASSOCIATION'),
         'licence_number' => env('BRAND_LICENCE_NUMBER'),
-        'office_address' => env('BRAND_OFFICE_ADDRESS'),
+        'office_address' => env('BRAND_OFFICE_ADDRESS', '1808 đường Nguyễn Ái Quốc, phường Trấn Biên, thành phố Đồng Nai'),
 
         'colors' => [
             'navy' => '#101d35',
@@ -332,5 +372,46 @@ return [
             'updates.push.services.mozilla.com',
             '*.notify.windows.com',
         ],
+    ],
+
+    /*
+     * M10 Task 5 (R5) — ngưỡng phản hồi lần đầu của một lần có người liên hệ: quá chừng ấy GIỜ LÀM
+     * VIỆC (`business_hours` dưới đây) mà bản ghi còn ở `new` thì `RemindUnansweredIntakes` nhắc và
+     * widget "Liên hệ chưa ai gọi lại" hiện nó. Số nguyên giờ, `INTAKE_RESPONSE_HOURS`; trống, `0`,
+     * số âm hay chữ đều rơi về 4 (mặc định của kế hoạch M10) — không bao giờ thành "nhắc ngay khi vừa
+     * nhận" hay "không bao giờ nhắc".
+     */
+    'intake_response_hours' => (static fn (int $hours): int => $hours >= 1 ? $hours : 4)((int) env('INTAKE_RESPONSE_HOURS')),
+
+    /*
+     * Giờ làm việc của văn phòng (M10 R5) — MỘT định nghĩa, đọc qua `App\Support\BusinessHours::
+     * fromConfig()`, theo `APP_TIMEZONE`. Ngày theo ISO-8601: 1 = Thứ Hai … 7 = Chủ nhật. Khung giờ
+     * tính cả hai đầu (08:00 và 17:30 đều là trong giờ).
+     *
+     * Viết thẳng ở đây, không đọc `.env`: đổi lịch làm việc là một quyết định của văn phòng, nên đi
+     * qua mã và bộ test (`VkcrmConfigTest` ghim mặc định), không qua một biến môi trường gõ nhầm được.
+     * Văn phòng làm thêm Thứ Bảy thì thêm `6` vào `days` — tác vụ nhắc chạy mỗi 15 phút và tự hỏi
+     * lịch này, nên không cron nào phải sửa theo.
+     *
+     * **Ngày lễ không mô hình hoá ở M10** (kế hoạch M10, mục 5 "Còn cần xác nhận"): một ngày lễ rơi
+     * vào Thứ Hai–Thứ Sáu vẫn được tính là ngày làm việc — lời nhắc có thể tới giữa kỳ nghỉ.
+     */
+    'business_hours' => [
+        'days' => [1, 2, 3, 4, 5],
+        'opens_at' => '08:00',
+        'closes_at' => '17:30',
+    ],
+
+    /*
+     * M7 Task 4 — thư mục TẠM để dựng gói bàn giao (zip + MUC-LUC.pdf) trước khi gắn vào kho hồ sơ.
+     * Mỗi lần yêu cầu có một thư mục con riêng (`<id vụ>-<dấu yêu cầu>`, xem
+     * `BuildHandoverPackage::workDirectory()`), xoá khi xong, khi lỗi, và — với một tiến trình bị
+     * giết giữa chừng — ở lần chạy lại hoặc khi job thất bại hẳn. Đặt riêng ở đây
+     * vì gói có thể vài trăm MB: trên shared hosting nơi `storage/` nằm trên phần đĩa nhỏ, chỉ tới
+     * một ổ rộng hơn bằng `HANDOVER_WORK_DIR`. Không bao giờ đặt nó bên trong đĩa `private` (thư
+     * mục tạm ở đó sẽ bị lẫn với tệp hồ sơ thật).
+     */
+    'handover' => [
+        'work_dir' => env('HANDOVER_WORK_DIR', storage_path('app/handover-tmp')),
     ],
 ];

@@ -620,6 +620,118 @@ it('filters recent payments by client and by matter code', function () {
         ->assertCanNotSeeTableRecords([$mine]);
 });
 
+/**
+ * M9 Task 13, vòng sửa 1 (I1): khoản thu ghi lùi ngày lúc nhập hợp đồng go-live (`paid_on` cũ hơn
+ * 90 ngày) trên một đợt đã thu đủ thì vừa rời bảng công nợ vừa nằm ngoài cửa sổ 90 ngày của mục
+ * này — trước bản sửa, kế toán không còn đường nào huỷ nó. Gõ mã hồ sơ thì bỏ cửa sổ: thấy mọi
+ * khoản thu chưa huỷ của hồ sơ đó, và huỷ được.
+ */
+it('lets the accountant find and void a back-dated payment older than 90 days by typing its matter code', function () {
+    [$instalment, $old] = paidInstalmentOn($this->matter, 10_000_000, ['paid_on' => today()->subDays(200)->toDateString()]);
+    [, $otherOld] = paidInstalmentOn(Matter::factory()->create(), 10_000_000, ['paid_on' => today()->subDays(200)->toDateString()]);
+
+    $this->actingAs($this->accountant, 'web');
+
+    // Mặc định vẫn là cửa sổ 90 ngày, và mục nói rõ cách bỏ nó.
+    $this->livewire(RecentPaymentsWidget::class)
+        ->assertCanNotSeeTableRecords([$old, $otherOld])
+        ->assertSee('Khoản cũ hơn 90 ngày (như khoản ghi lùi ngày lúc nhập hợp đồng cũ): gõ mã hồ sơ vào ô "Mã hồ sơ" của bộ lọc rồi bấm "Áp dụng bộ lọc" — mục hiện mọi khoản thu chưa huỷ của hồ sơ đó.');
+
+    $this->livewire(RecentPaymentsWidget::class)
+        ->filterTable('matter_code', ['code' => $this->matter->code])
+        ->assertCanSeeTableRecords([$old])
+        ->assertCanNotSeeTableRecords([$otherOld])
+        ->assertActionVisible(TestAction::make('voidPayment')->table($old))
+        ->callAction(TestAction::make('voidPayment')->table($old), data: [
+            'reason' => 'Ghi lùi nhầm đợt lúc nhập hợp đồng go-live.',
+        ])
+        ->assertHasNoActionErrors();
+
+    expect($old->fresh()->voided_at)->not->toBeNull()
+        ->and($old->fresh()->voided_by)->toBe($this->accountant->id)
+        ->and($instalment->fresh()->status)->toBe(InstalmentStatus::Pending);
+});
+
+/**
+ * Việc sau gộp M9 + M10 (làn fu3, Task 2 mục C; N6 của rà soát cuối làn m9f): bộ lọc bảng của Filament
+ * mặc định HOÃN (`Table::$hasDeferredFilters = true`, widget không gọi `deferFilters(false)`), nên gõ
+ * mã hồ sơ chưa đổi gì — khoản cũ chỉ hiện sau khi bấm nút "Áp dụng bộ lọc". Câu mô tả của mục và
+ * `docs/QUY-TRINH.md` (Kế toán ghi tiền bước 4, nhập hợp đồng đang chạy bước 4) nói đúng điều đó.
+ *
+ * Test gõ vào ĐÚNG ô mà màn hình vẽ: đường trạng thái của form bộ lọc (`tableDeferredFilters` khi hoãn,
+ * `tableFilters` khi không) — nên một bản bỏ hoãn làm vế "gõ mà chưa bấm" đỏ, và câu chữ phải đổi theo.
+ * Tên nút đọc từ bản dịch của Filament (`lang/vendor/filament-tables/vi`), không chép tay.
+ */
+it('shows an old payment only after the accountant presses the apply button, exactly as the section says', function () {
+    [, $old] = paidInstalmentOn($this->matter, 10_000_000, ['paid_on' => today()->subDays(200)->toDateString()]);
+    [, $recent] = paidInstalmentOn(Matter::factory()->create());
+
+    $apply = __('filament-tables::table.filters.actions.apply.label');
+    $box = __('billing.receivables.recent_payments.filters.matter_code');
+
+    expect($apply)->toBe('Áp dụng bộ lọc')
+        ->and($box)->toBe('Mã hồ sơ');
+
+    $this->actingAs($this->accountant, 'web');
+
+    $widget = $this->livewire(RecentPaymentsWidget::class)
+        ->assertSee("gõ mã hồ sơ vào ô \"{$box}\" của bộ lọc rồi bấm \"{$apply}\"")
+        ->assertSee("Chưa bấm \"{$apply}\" thì danh sách chưa đổi.");
+
+    $statePath = $widget->instance()->getTableFiltersForm()->getStatePath();
+
+    // Gõ mã — chưa bấm: danh sách y như trước.
+    $widget->set("{$statePath}.matter_code.code", $this->matter->code)
+        ->assertCanSeeTableRecords([$recent])
+        ->assertCanNotSeeTableRecords([$old]);
+
+    // Bấm "Áp dụng bộ lọc".
+    $widget->call('applyTableFilters')
+        ->assertCanSeeTableRecords([$old])
+        ->assertCanNotSeeTableRecords([$recent]);
+});
+
+/** Một ô mã hồ sơ chỉ có khoảng trắng là ô trống: cửa sổ 90 ngày vẫn còn, không thành "mọi khoản thu". */
+it('keeps the 90-day window when the matter code filter holds only spaces', function () {
+    [, $recent] = paidInstalmentOn($this->matter);
+    [, $old] = paidInstalmentOn(Matter::factory()->create(), 10_000_000, ['paid_on' => today()->subDays(200)->toDateString()]);
+
+    $this->actingAs($this->accountant, 'web');
+
+    $this->livewire(RecentPaymentsWidget::class)
+        ->filterTable('matter_code', ['code' => '   '])
+        ->assertCanSeeTableRecords([$recent])
+        ->assertCanNotSeeTableRecords([$old]);
+});
+
+/**
+ * Bỏ cửa sổ 90 ngày theo mã hồ sơ KHÔNG bỏ hai ranh giới còn lại của mục: khoản đã huỷ vẫn không
+ * hiện, và vụ `restricted` vẫn chỉ admin thấy — kế toán gõ đúng mã của vụ đó cũng không ra gì.
+ */
+it('keeps voided payments out and a restricted matters old payment admin-only when the matter code lifts the 90-day window', function () {
+    [, $voidedOld] = paidInstalmentOn($this->matter, 10_000_000, [
+        'paid_on' => today()->subDays(200)->toDateString(),
+        'voided_at' => now(), 'voided_by' => $this->admin->id, 'void_reason' => str_repeat('v', 20),
+    ]);
+    [, $restrictedOld] = paidInstalmentOn($this->restricted, 10_000_000, ['paid_on' => today()->subDays(200)->toDateString()]);
+
+    $this->actingAs($this->accountant, 'web');
+
+    $this->livewire(RecentPaymentsWidget::class)
+        ->filterTable('matter_code', ['code' => $this->matter->code])
+        ->assertCanNotSeeTableRecords([$voidedOld]);
+
+    $this->livewire(RecentPaymentsWidget::class)
+        ->filterTable('matter_code', ['code' => $this->restricted->code])
+        ->assertCanNotSeeTableRecords([$restrictedOld]);
+
+    $this->actingAs($this->admin, 'web');
+
+    $this->livewire(RecentPaymentsWidget::class)
+        ->filterTable('matter_code', ['code' => $this->restricted->code])
+        ->assertCanSeeTableRecords([$restrictedOld]);
+});
+
 it('excludes a client whose only payment is on a restricted matter from the accountants client filter', function () {
     $client = Client::factory()->create();
     paidInstalmentOn(Matter::factory()->restricted()->for($client)->create(['lead_lawyer_id' => $this->lawyer->id]));
@@ -724,3 +836,22 @@ it('voids nothing when the hidden void action of a completed contract is mounted
 // Định nghĩa đầy đủ "ai ghi được payment.record trên vụ restricted" (chỉ lead lawyer/admin) đã có
 // bộ test riêng ở tests/Feature/Authorization/BillingAccessTest.php — không lặp lại ở đây; hai
 // test trên chỉ ghim rằng TRANG NÀY tôn trọng đúng cổng đó, kể cả khi bị gọi thẳng qua Livewire.
+
+/**
+ * M9 Task 13 — cùng lỗi ngày cuối kỳ của trang doanh thu (`RevenueFilters::bounds()`): trên SQLite,
+ * cast `date` ghi `due_date` thành `Y-m-d 00:00:00`, lớn hơn cận trên `Y-m-d` của
+ * `whereBetween`, nên đợt đến hạn ĐÚNG ngày thứ bảy (và hôm nay ở cận dưới thì vẫn đúng nhờ so lớn
+ * hơn) rơi khỏi bộ lọc "đến hạn trong 7 ngày". MariaDB (cột DATE) không sai; sửa ở mã cho đúng cả hai.
+ */
+it('keeps an instalment due exactly seven days from today, and one due today, in the due-within-7-days filter, but not one due on the eighth day', function () {
+    $dueToday = receivableOn($this->matter, 10_000_000, ['due_date' => today()->toDateString()]);
+    $dueOnDaySeven = receivableOn(Matter::factory()->create(), 10_000_000, ['due_date' => today()->addDays(7)->toDateString()]);
+    $dueOnDayEight = receivableOn(Matter::factory()->create(), 10_000_000, ['due_date' => today()->addDays(8)->toDateString()]);
+
+    $this->actingAs($this->accountant, 'web');
+
+    $this->livewire(Receivables::class)
+        ->filterTable('due_within_7_days')
+        ->assertCanSeeTableRecords([$dueToday, $dueOnDaySeven])
+        ->assertCanNotSeeTableRecords([$dueOnDayEight]);
+});

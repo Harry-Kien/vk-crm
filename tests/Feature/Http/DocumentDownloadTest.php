@@ -1,6 +1,6 @@
 <?php
 
-use App\Actions\Document\RegroupDocument;
+use App\Actions\Document\RetractDocument;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Enums\MatterRole;
@@ -491,20 +491,39 @@ it('khách không tải được tài liệu nhóm D dù cờ trong CSDL bị b�
         ->assertNotFound();
 });
 
+/**
+ * M7 Task 7: `RegroupDocument` không còn đưa một tài liệu ĐANG ra tới khách vào nhóm D (đường rút
+ * duy nhất là `RetractDocument`, test kế tiếp), nên chuyến đi vào D ở đây là một lần ghi thẳng model
+ * — hình dạng của dữ liệu có từ trước M7. Cổng tải vẫn phải đóng.
+ */
 it('khách không tải được bằng đường dẫn ký lúc tài liệu còn nhóm C rồi bị chuyển sang nhóm D', function () {
+    $document = downloadableDocument($this->matter, DocumentGroup::Authority);
+
+    $url = $document->downloadUrlFor($this->clientUser);
+
+    $document->update(['group' => DocumentGroup::Internal]);
+
+    $this->actingAs($this->clientUser, 'client')->get($url)->assertNotFound();
+});
+
+it('khách không tải được bằng đường dẫn ký lúc tài liệu còn công bố rồi bị RÚT LẠI (M7 Task 7)', function () {
     $publisher = User::factory()->withRole(Role::Manager)->create();
     $this->matter->team()->attach($publisher, ['role_in_matter' => MatterRole::Associate->value]);
     $document = downloadableDocument($this->matter, DocumentGroup::Authority);
 
     $url = $document->downloadUrlFor($this->clientUser);
 
-    app(RegroupDocument::class)->handle(
+    app(RetractDocument::class)->handle(
         document: $document,
         actor: $publisher,
-        group: DocumentGroup::Internal,
+        reason: 'Công bố nhầm tài liệu của vụ khác',
     );
 
     $this->actingAs($this->clientUser, 'client')->get($url)->assertNotFound();
+
+    // Nhân sự vẫn tải được: tệp là bằng chứng, và lượt tải này cũng được ghi.
+    auth('client')->logout();
+    $this->actingAs($publisher, 'web')->get($document->fresh()->downloadUrlFor($publisher))->assertOk();
 });
 
 it('cặp sinh đôi — chính đường dẫn đó tải được khi tài liệu vẫn còn ở nhóm C', function () {

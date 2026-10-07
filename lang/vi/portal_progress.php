@@ -79,6 +79,15 @@ return [
             'empty' => 'Hiện chưa có mốc thời hạn nào anh/chị cần nhớ.',
         ],
 
+        /*
+         * M9 Task 10 (P1) — khối "Hợp đồng và thanh toán", đứng sau "Mốc thời hạn sắp tới" và
+         * trước "Gửi yêu cầu" (đính chính SPEC §8.3). Không có câu "trống": khối chỉ hiện khi vụ có
+         * hợp đồng đã ký (`active` hoặc `completed`), và biến mất hẳn khi không có.
+         */
+        'billing' => [
+            'heading' => 'Hợp đồng và thanh toán',
+        ],
+
         'requests' => [
             'heading' => 'Gửi yêu cầu',
             'lead' => 'Anh/chị có điều gì chưa rõ về hồ sơ này?',
@@ -154,6 +163,72 @@ return [
         'overdue' => 'Đã quá hạn',
         'today' => 'Hạn hôm nay',
         'in_days' => 'Còn :count ngày',
+    ],
+
+    /*
+     * M9 Task 10 (P1) — chữ của khối "Hợp đồng và thanh toán" VÀ của mục "Bảng kê thanh toán" trong
+     * `MUC-LUC.pdf`: cả hai nhận cùng một hình chiếu (`App\Support\Billing\ClientBillingStatement`),
+     * nên khách đọc ĐÚNG MỘT câu cho cùng một đợt ở cả hai nơi.
+     *
+     * **Không dùng lại nhãn nội bộ** ở `lang/vi/enums.php` (`instalment_state`, `payment_method`) —
+     * cùng lý do với trạng thái giấy tờ ở đầu tệp: "Đã thu đủ", "Chưa lên lịch", "Cấn trừ" là chữ
+     * của sổ sách văn phòng. Ở đây khách là người TRẢ tiền, nên câu nói "đã thanh toán", và đợt đã
+     * miễn chỉ nói "Văn phòng đã miễn" — không lý do (lý do là nội bộ, P1).
+     */
+    'billing' => [
+        'contract_code' => 'Số hợp đồng: :code',
+        'signed_on' => 'Ngày ký: :date',
+        'total' => 'Tổng giá trị hợp đồng: :amount',
+        // `vat_rate_percent` khác null — kể cả 0 (hoá đơn thuế suất 0%). `null` thì không có dòng
+        // này. Tổng giá trị LUÔN là số khách trả, đã gồm thuế (kế hoạch M9, "Kết luận về VAT").
+        'vat' => 'Thuế suất thuế giá trị gia tăng: :rate% (đã gồm trong tổng giá trị)',
+        'completed' => 'Hợp đồng đã hoàn tất ngày :date.',
+        'instalments_heading' => 'Các đợt thanh toán',
+        'amount' => 'Số tiền: :amount',
+        'collected' => 'Đã thanh toán: :amount',
+        'outstanding' => 'Còn lại: :amount',
+
+        /*
+         * "Đến hạn khi nào" của một đợt. Đợt theo tiến độ CHƯA tới bước của nó nói tên bước bằng
+         * `client_label` (nhãn cho khách của giai đoạn), không bao giờ nhãn nội bộ hay khoá thô.
+         */
+        'due' => [
+            'on' => 'Đến hạn ngày :date',
+            'stage' => 'Đến hạn khi vụ việc tới bước: :stage',
+            'stage_after' => 'Đến hạn :days ngày sau khi vụ việc tới bước: :stage',
+            // Bước đó không còn tra được nhãn cho khách (loại vụ việc đổi cấu hình): nói chung
+            // chung thay vì in khoá nội bộ.
+            'stage_unnamed' => 'Đến hạn theo tiến độ vụ việc',
+            'on_signing' => 'Đến hạn khi ký hợp đồng',
+            // M9 Task 13 (minor m5 rà soát Task 10): không hứa "văn phòng sẽ báo" — M9 không gửi
+            // thư tiền nào cho khách (P1).
+            'unscheduled' => 'Chưa có ngày đến hạn',
+        ],
+
+        /*
+         * Trạng thái của một đợt, suy ra ở `Instalment::state()` (một định nghĩa). `cancelled`
+         * không có ở đây: đợt đã huỷ không bao giờ tới khách.
+         */
+        'state' => [
+            'scheduled' => 'Chưa đến đợt thanh toán',
+            'due' => 'Đến hạn thanh toán',
+            'partially_paid' => 'Đã thanh toán một phần',
+            'overdue' => 'Quá hạn thanh toán',
+            'paid' => 'Đã thanh toán đủ',
+            'waived' => 'Văn phòng đã miễn',
+        ],
+
+        'payments_heading' => 'Các khoản văn phòng đã nhận',
+        'payments_empty' => 'Văn phòng chưa ghi nhận khoản thanh toán nào.',
+        'paid_on' => 'Ngày :date',
+
+        'method' => [
+            'bank_transfer' => 'Chuyển khoản',
+            'cash' => 'Tiền mặt',
+            'card' => 'Thẻ ngân hàng',
+            'offset' => 'Bù trừ với khoản khác giữa hai bên',
+            'other' => 'Hình thức khác',
+        ],
     ],
 
     /**

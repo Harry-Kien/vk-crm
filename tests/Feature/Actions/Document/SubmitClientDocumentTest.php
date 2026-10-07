@@ -9,6 +9,7 @@ use App\Enums\DocumentStatus;
 use App\Enums\Role;
 use App\Events\ClientDocumentSubmitted;
 use App\Exceptions\FileRejected;
+use App\Exceptions\MatterClosedForSubmission;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Document;
@@ -473,6 +474,78 @@ it('không nộp được vào một hồ sơ đã xoá mềm', function () {
     expectSubmitRefusal(fn () => submitClientDocument($this->item->fresh(), $this->clientUser));
 
     expect(Document::query()->count())->toBe(0);
+});
+
+// --- M7 Task 3: vụ việc đã đóng không nhận tệp mới qua cổng khách ----------------------------
+
+/**
+ * Câu chữ RIÊNG với ba tình huống của `expectSubmitRefusal()` (SPEC §10.10 không áp ở đây: "vụ đã
+ * đóng" là một câu về TRẠNG THÁI, không phải một máy dò sự tồn tại — khách đã có quyền hợp lệ
+ * trên đúng đầu mục này). `MatterClosedForSubmission`, KHÔNG `AuthorizationException` — trang
+ * portal đổi MỌI `AuthorizationException` thành `abort(404)` trống trơn (xem docblock lớp Action
+ * và docblock lớp exception), nên câu mời gọi hotline phải đi bằng một họ exception khác. Đo
+ * bằng lần kiểm RẺ (trước `guardFile()`): bộ quét virus giả đếm số lần bị gọi, và một vụ đã đóng
+ * từ đầu phải dừng TRƯỚC khi tốn một lượt quét — không có phép đếm này, lần kiểm dưới khoá (test
+ * kế tiếp) cũng ném đúng câu đó và điều kiện rẻ sẽ không có test nào đứng sau.
+ */
+it('không nộp được vào một vụ đã đóng, và dừng trước khi tốn một lượt quét virus', function () {
+    $this->matter->update(['closed_at' => now()->subDay()]);
+
+    $scanner = new class implements VirusScanner
+    {
+        public int $scans = 0;
+
+        public function scan(string $path): void
+        {
+            $this->scans++;
+        }
+
+        public function isActive(): bool
+        {
+            return true;
+        }
+    };
+    app()->instance(VirusScanner::class, $scanner);
+
+    expect(fn () => submitClientDocument($this->item, $this->clientUser))
+        ->toThrow(fn (MatterClosedForSubmission $exception) => expect($exception->getMessage())
+            ->toBe(__('checklist.submit.matter_closed', ['hotline' => config('vkcrm.brand.hotline')])));
+
+    expect($scanner->scans)->toBe(0)
+        ->and(Document::query()->count())->toBe(0)
+        ->and($this->item->fresh()->status)->toBe(ChecklistItemStatus::Missing);
+});
+
+/**
+ * Cùng thành ngữ với "hồ sơ bị gỡ khỏi portal trong lúc quét virus" ngay trên: chứng minh lần
+ * kiểm DƯỚI KHOÁ trong transaction có hiệu lực thật, không chỉ lần kiểm rẻ trước quét — một luật
+ * sư hoàn toàn có thể đóng vụ việc trong 30 giây `config('vkcrm.clamav.timeout')` cho phép.
+ */
+it('vụ việc bị đóng trong lúc quét virus thì lần nộp đó dừng lại', function () {
+    $matter = $this->matter;
+
+    app()->instance(VirusScanner::class, new class($matter) implements VirusScanner
+    {
+        public function __construct(private Matter $matter) {}
+
+        public function scan(string $path): void
+        {
+            $this->matter->update(['closed_at' => now()]);
+        }
+
+        public function isActive(): bool
+        {
+            return true;
+        }
+    });
+
+    expect(fn () => submitClientDocument($this->item, $this->clientUser))
+        ->toThrow(fn (MatterClosedForSubmission $exception) => expect($exception->getMessage())
+            ->toBe(__('checklist.submit.matter_closed', ['hotline' => config('vkcrm.brand.hotline')])));
+
+    expect(Document::query()->withoutGlobalScopes()->count())->toBe(0)
+        ->and(Media::query()->count())->toBe(0)
+        ->and($this->item->refresh()->status)->toBe(ChecklistItemStatus::Missing);
 });
 
 it('không nộp được vào một đầu mục đã bị xoá khỏi danh mục', function () {

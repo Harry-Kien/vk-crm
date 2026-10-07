@@ -176,8 +176,7 @@ class ReceivablesDonutWidget extends ChartWidget
         }
 
         $filters = RevenueFilters::fromPageFilters($this->pageFilters);
-        $from = $filters->from->toDateString();
-        $to = $filters->to->toDateString();
+        [$from, $to] = $filters->bounds();
         $reconciledStatuses = [ContractStatus::Active->value, ContractStatus::Completed->value];
 
         // An ninh (listableBy) + lĩnh vực: ÁP DỤNG ĐỀU cho cả ba lát. KHÔNG gồm bộ lọc luật sư —

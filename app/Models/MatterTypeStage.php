@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
+use App\Enums\ContractStatus;
 use App\Exceptions\DuplicateStageKey;
 use App\Exceptions\StageKeyInUse;
 use App\Exceptions\StageTerminalFlagInUse;
 use App\Policies\MatterTypeStagePolicy;
+use App\Support\Scopes\ClientPortalScope;
 use Database\Factories\MatterTypeStageFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -76,7 +78,13 @@ class MatterTypeStage extends Model
                 if (static::keyInUse((int) $stage->matter_type_id, $oldKey, $stage->getKey())) {
                     $type = $stage->matterType ?? MatterType::query()->findOrFail($stage->matter_type_id);
 
-                    throw StageKeyInUse::make($type, $oldKey);
+                    // M9 Task 6: khi lý do là đợt thanh toán đang chờ, câu nêu SỐ ĐỢT — người đọc
+                    // cần biết phải sửa lịch thu nào, không chỉ "đang có thứ gì đó dùng".
+                    $awaiting = static::instalmentsAwaitingStage((int) $stage->matter_type_id, $oldKey);
+
+                    throw $awaiting > 0
+                        ? StageKeyInUse::awaitedByInstalments($type, $oldKey, $awaiting)
+                        : StageKeyInUse::make($type, $oldKey);
                 }
             }
 
@@ -112,6 +120,40 @@ class MatterTypeStage extends Model
     }
 
     /**
+     * M9 Task 6 — guard của M6.5 Task 19 mở rộng tới TIỀN: số đợt thanh toán đang chờ hồ sơ chạm
+     * `key` này (`Instalment::awaitingStage()` — `stage`, `pending`, chưa kích hoạt) của hợp đồng
+     * `draft` HOẶC `active`, trên hồ sơ CÙNG loại vụ việc (kể cả hồ sơ đã xoá mềm — khôi phục được,
+     * cùng lý do {@see self::mattersStandingIn()}). Đổi hay xoá `key` đó thì không lần chuyển giai đoạn
+     * nào còn mang nó: đợt không bao giờ đến hạn, một khoản nợ biến mất âm thầm khỏi "Công nợ".
+     *
+     * Không tính: đợt đã kích hoạt (đã có ngày đến hạn, không còn chờ giai đoạn nào), đợt đã
+     * miễn/thu/huỷ, đợt của hợp đồng đã hoàn tất/đã huỷ (không còn gì để đòi), đợt không phải loại
+     * `stage`. MỘT hàm đếm cho cả ba nơi hỏi — chốt đổi `key` ở {@see self::keyInUse()} (đường Eloquent),
+     * rule của ô `key` ở `StagesRelationManager` (đường form) và {@see MatterTypeStagePolicy::delete()}
+     * (đường xoá) — để ba câu từ chối nêu cùng một con số.
+     */
+    public static function instalmentsAwaitingStage(int $matterTypeId, string $key): int
+    {
+        return Instalment::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->awaitingStage($key)
+            ->whereHas('contract', fn (Builder $contract) => $contract
+                ->withoutGlobalScope(ClientPortalScope::class)
+                ->whereIn('status', [ContractStatus::Draft->value, ContractStatus::Active->value])
+                ->whereHas('matter', fn (Builder $matter) => $matter
+                    ->withoutGlobalScope(ClientPortalScope::class)
+                    ->withTrashed()
+                    ->where('matter_type_id', $matterTypeId)))
+            ->count();
+    }
+
+    /** Bản đọc công khai của {@see self::instalmentsAwaitingStage()} cho `key` HIỆN TẠI của dòng này — dùng ở form. */
+    public function instalmentsAwaitingHereCount(): int
+    {
+        return static::instalmentsAwaitingStage((int) $this->matter_type_id, $this->key);
+    }
+
+    /**
      * Task 19, vòng sửa 1 (Critical): đổi `key` của một giai đoạn còn nằm trong `allowed_next`
      * của một giai đoạn KHÁC bỏ lại một tham chiếu TREO — trước bản vá này, `keyInUse()` chỉ kiểm
      * `matters.stage`/`stage_logs`, nên đổi `on_hold` (bị `intake` VÀ `collecting_documents` cùng
@@ -137,10 +179,12 @@ class MatterTypeStage extends Model
     /**
      * True nếu còn HỒ SƠ đang đứng ở `key` này (kể cả đã xoá mềm — vẫn khôi phục được, cùng lý do
      * `MatterTypePolicy::delete()` dùng `withTrashed()`), một DÒNG TIẾN ĐỘ
-     * (`stage_logs.from_stage`/`to_stage`) của cùng loại vụ việc đã dùng `key` này, HOẶC `key` này
-     * còn nằm trong `allowed_next` của một giai đoạn KHÁC (xem docblock {@see self::stagesReferencing()}).
-     * Dùng để chặn ĐỔI `key` (xem `booted()`); KHÔNG dùng cho luật xoá — luật xoá hẹp hơn (không
-     * tính `stage_logs` lịch sử) và sống ở {@see MatterTypeStagePolicy::delete()}.
+     * (`stage_logs.from_stage`/`to_stage`) của cùng loại vụ việc đã dùng `key` này, `key` này còn
+     * nằm trong `allowed_next` của một giai đoạn KHÁC (xem docblock {@see self::stagesReferencing()}),
+     * HOẶC (M9 Task 6) một đợt thanh toán còn chờ hồ sơ chạm `key` này (xem
+     * {@see self::instalmentsAwaitingStage()}). Dùng để chặn ĐỔI `key` (xem `booted()`); KHÔNG dùng
+     * cho luật xoá — luật xoá hẹp hơn (không tính `stage_logs` lịch sử) và sống ở
+     * {@see MatterTypeStagePolicy::delete()}.
      */
     private static function keyInUse(int $matterTypeId, string $key, ?int $excludeStageId = null): bool
     {
@@ -152,7 +196,8 @@ class MatterTypeStage extends Model
                 ->where(fn (Builder $query) => $query->where('from_stage', $key)->orWhere('to_stage', $key))
                 ->whereHas('matter', fn (Builder $query) => $query->withTrashed()->where('matter_type_id', $matterTypeId))
                 ->exists()
-            || static::stagesReferencing($matterTypeId, $key, $excludeStageId)->isNotEmpty();
+            || static::stagesReferencing($matterTypeId, $key, $excludeStageId)->isNotEmpty()
+            || static::instalmentsAwaitingStage($matterTypeId, $key) > 0;
     }
 
     /** Bản đọc công khai của {@see self::keyInUse()} cho `key` HIỆN TẠI — dùng ở form (xem StagesRelationManager). */

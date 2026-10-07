@@ -1256,24 +1256,30 @@ it('raises the new-reply badge alongside the settled progress tone, not instead 
  *     kèm bộ đếm tài liệu. Gộp nó vào truy vấn danh sách nghĩa là viết lại luật đếm lần thứ hai
  *     bên màn hình, đúng thứ M4 vừa dọn đi.
  *
- * Phần cố định là **sáu**: danh sách hồ sơ, loại vụ việc, các giai đoạn của loại đó, các dòng
- * danh mục của cả trang, quan hệ `client` của cả trang (Task 2, vòng sửa 1, Important #2), và —
- * từ M6 Task 4 (`requests/REQ-4`) — quan hệ `clientRequests` của cả trang (huy hiệu "có trả lời
- * mới", xem docblock `App\Support\ClientRequestActivity`). Truy vấn thứ tư (danh mục) là cái giá
- * của vòng sửa I3 — huy hiệu và thanh tiến độ nay đọc CÙNG một tập dòng, nên các dòng ấy về một
- * lần cho cả trang thay vì được đếm lại bằng hai `withCount` riêng. Truy vấn thứ năm (`client`)
- * là cái giá của Task 2: `MatterPolicy::view` giờ hỏi thêm "khách hàng chưa xoá mềm"
- * (`releasedToPortal()`), và `MyMatters::buildCards()` nạp sẵn `client` cho CẢ TRANG một lần để
- * hàm đó đọc qua `relationLoaded()` — miễn phí cho từng thẻ — thay vì một `EXISTS` mới trên MỖI
- * thẻ (xem docblock của `releasedToPortal()`). Truy vấn thứ sáu (`clientRequests`) là cái giá của
- * Task 4: không hồ sơ nào trong fixture của test này có một `ClientRequest`, nên nhánh nạp lồng
- * `.replies` không hề chạy — Eloquent bỏ qua eager-load lồng khi tập model cha rỗng
- * (`Builder::get()`: `if (count($models) > 0) { … eagerLoadRelations … }`) — chỉ MỘT truy vấn
- * thêm, không hai. Tất cả là truy vấn CỐ ĐỊNH, không một truy vấn nào cho mỗi thẻ, và khẳng định
- * độ dốc ở dưới là thứ chứng minh điều đó. Vậy `2N + 6`, tức 46 cho 20 thẻ.
+ * Phần cố định là **bảy**: danh sách hồ sơ, loại vụ việc, các giai đoạn của loại đó, các dòng
+ * danh mục của cả trang, quan hệ `client` của cả trang (Task 2, vòng sửa 1, Important #2), quan
+ * hệ `clientRequests` của cả trang (từ M6 Task 4, `requests/REQ-4` — huy hiệu "có trả lời mới",
+ * xem docblock `App\Support\ClientRequestActivity`), và dòng lưu trữ `clientAccessArchive` của cả
+ * trang (từ M7 Task 5). Truy vấn thứ tư (danh mục) là cái giá của vòng sửa I3 — huy hiệu và thanh
+ * tiến độ nay đọc CÙNG một tập dòng, nên các dòng ấy về một lần cho cả trang thay vì được đếm lại
+ * bằng hai `withCount` riêng. Truy vấn thứ năm (`client`) là cái giá của Task 2:
+ * `MatterPolicy::view` giờ hỏi thêm "khách hàng chưa xoá mềm" (`releasedToPortal()`), và
+ * `MyMatters::buildCards()` nạp sẵn `client` cho CẢ TRANG một lần để hàm đó đọc qua
+ * `relationLoaded()` — miễn phí cho từng thẻ — thay vì một `EXISTS` mới trên MỖI thẻ (xem docblock
+ * của `releasedToPortal()`). Truy vấn thứ sáu (`clientRequests`) là cái giá của M6 Task 4: không
+ * hồ sơ nào trong fixture của test này có một `ClientRequest`, nên nhánh nạp lồng `.replies` không
+ * hề chạy — Eloquent bỏ qua eager-load lồng khi tập model cha rỗng (`Builder::get()`:
+ * `if (count($models) > 0) { … eagerLoadRelations … }`) — chỉ MỘT truy vấn thêm, không hai. Truy
+ * vấn thứ bảy (`clientAccessArchive`) là cái giá của M7 Task 5, cùng hình dạng với `client`: điều
+ * kiện thứ năm của `releasedToPortal()` ("khách chưa hết hạn tra cứu") đọc dòng lưu trữ đã nạp sẵn
+ * cho cả trang, không một truy vấn nào cho mỗi thẻ (xem docblock
+ * `MatterPolicy::clientAccessExpired()`). Tất cả là truy vấn CỐ ĐỊNH, không một truy vấn nào cho
+ * mỗi thẻ, và khẳng định độ dốc ở dưới là thứ chứng minh điều đó. Vậy `2N + 7`, tức 47 cho 20 thẻ
+ * (gộp M7 vào `main`: hai nhánh mỗi bên thêm đúng một truy vấn cố định thứ sáu, nên sau khi gộp là
+ * bảy).
  *
- * Ba khẳng định, vì mỗi cái bắt một hỏng khác nhau: **phần cố định đúng bằng 6** bắt việc có
- * người thêm một truy vấn cố định thứ bảy, và giữ cho con số trong docblock này là một con số
+ * Ba khẳng định, vì mỗi cái bắt một hỏng khác nhau: **phần cố định đúng bằng 7** bắt việc có
+ * người thêm một truy vấn cố định thứ tám, và giữ cho con số trong docblock này là một con số
  * đo được chứ không một con số kể lại; **trần 50** để lại chỗ thở; **độ dốc đúng bằng 2** bắt thứ
  * đáng sợ hơn — một truy vấn mới mọc lên TRÊN TỪNG THẺ (một quan hệ chưa nạp sẵn, một `count()`
  * trong view). Chỉ có trần thì một hồi quy như vậy vẫn lọt ở 20 thẻ và nổ ở 200.
@@ -1311,5 +1317,5 @@ it('does not turn twenty cards into hundreds of queries', function () {
 
     expect($twenty)->toBeLessThanOrEqual(50)
         ->and($twenty - $five)->toBe(2 * 15)
-        ->and($five - (2 * 5))->toBe(6);
+        ->and($five - (2 * 5))->toBe(7);
 });

@@ -624,8 +624,11 @@ class CreateMatter extends CreateRecord
      * Ba mức hiển thị, không hai: ĐỎ ĐÃ GHI ĐÈ (`danger`), CẦN XEM XÉT (`warning`, gồm cả mức xanh
      * có bên thiếu định danh — cùng luật `requiresAcknowledgement()` mà `PartiesRelationManager`
      * dùng), và XANH SẠCH (`success`).
+     *
+     * `public static` (M10 Task 4): trang "Chuyển thành vụ việc" của tiếp nhận mở vụ qua CÙNG
+     * `OpenMatter` và phải nói CÙNG câu về lần kiểm tra đó — một bản sao là hai câu sẽ lệch nhau.
      */
-    private function notifySaved(OpenMatterResult $opening): void
+    public static function notifySaved(OpenMatterResult $opening): void
     {
         $result = $opening->result;
         $needsAttention = $result->requiresAcknowledgement();

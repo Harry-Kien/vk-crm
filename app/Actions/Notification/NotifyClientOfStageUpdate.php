@@ -86,6 +86,25 @@ use Throwable;
  * TRƯỚC lần ném lại lỗi của người khác; `SendPushAlert` không bao giờ ném vì lỗi lúc chạy, nên push
  * hỏng không chặn `notified_at` hay lần ném lại của thư. Đổi lại, người đã nhận thư mà push của họ
  * hỏng thì không có push bù — push là tiện ích, thư mới là chứng cứ.
+ *
+ * # Cảnh báo trên form và việc gửi thư hỏi CÙNG một câu (rà soát cuối M7, I3)
+ *
+ * `handle()` gửi cho {@see self::eligibleRecipients()}: tài khoản đủ điều kiện (R12, qua
+ * {@see ResolveClientRecipients}) LỌC QUA {@see ResolveClientRecipients::onPortal()} (vụ còn trên
+ * cổng của người đó). {@see self::hasEligibleRecipient()} hỏi đúng hai bước đó, qua cùng
+ * {@see self::recipientsOnPortal()}: form cảnh báo ⇔ sẽ không ai nhận thư (khi hai cờ công bố đang
+ * bật — form tự hỏi cờ vụ, cờ dòng là công tắc trên chính form). Trước bản sửa, form chỉ hỏi bước
+ * đầu: vụ đã kết thúc và quá hạn tra cứu, tài khoản khách còn hoạt động nhờ một vụ khác → form im
+ * lặng, luật sư bấm công bố, không thư nào đi. {@see self::hasEligibleAccount()} (chỉ bước đầu) chỉ
+ * còn để form chọn ĐÚNG câu cảnh báo: "chưa có tài khoản" hay "vụ không còn trên cổng của khách".
+ * Nút "Gửi lại" ({@see ResendOutboundMessage}) đi qua cùng `eligibleRecipients()`, nên cũng không
+ * gửi lại cho vụ đã rời cổng (gộp M7 vào `main`).
+ *
+ * Form hỏi vụ NHƯ LÚC MỞ FORM. Trên form "Chuyển giai đoạn", một giai đoạn đích không kết thúc mở lại
+ * vụ (`SyncMatterArchive` xoá `client_access_until`) và đưa vụ về cổng, nên câu "vụ không còn trên
+ * cổng" ở form đó còn hỏi giai đoạn đích (`TransitionStageAction::targetKeepsMatterClosed()`). Để
+ * `handle()` thấy đúng trạng thái sau lần mở lại đó, `TransitionMatterStage` phát `MatterStageChanged`
+ * (đồng bộ dòng lưu trữ) TRƯỚC `StageLogPublished` (thư).
  */
 class NotifyClientOfStageUpdate
 {
@@ -140,7 +159,9 @@ class NotifyClientOfStageUpdate
      * (final review B-M2: hỏi lại NGAY LÚC GỬI, đọc TƯƠI từ CSDL vì trong cửa sổ hàng đợi dòng
      * tiến độ có thể đã bị rút khỏi cổng hay vụ việc đã tắt công bố) dòng còn `is_published` +
      * vụ việc còn `is_published_to_portal`, rồi mới tới người nhận R12
-     * ({@see self::recipientsFor()}). Rỗng là "không gửi cho ai, không đánh dấu `notified_at`".
+     * ({@see self::recipientsFor()}), LỌC QUA vụ còn trên cổng của chính người đó
+     * ({@see self::recipientsOnPortal()}, M7 Task 11 — CÙNG hai bước với `hasEligibleRecipient()`,
+     * xem docblock lớp). Rỗng là "không gửi cho ai, không đánh dấu `notified_at`".
      *
      * Public vì nút "Gửi lại" của nhật ký thư ({@see ResendOutboundMessage}) phải hỏi ĐÚNG câu
      * này trước khi xếp hàng, không viết lại luật thứ hai: hai nơi cùng gọi một hàm thì không thể
@@ -158,7 +179,8 @@ class NotifyClientOfStageUpdate
             return collect();
         }
 
-        return $this->recipientsFor($stageLog);
+        // CÙNG hai bước với `hasEligibleRecipient()` (cảnh báo trên form) — xem docblock lớp.
+        return $this->recipientsOnPortal((int) $stageLog->matter_id, $this->recipientsFor($stageLog));
     }
 
     /**
@@ -218,6 +240,42 @@ class NotifyClientOfStageUpdate
     }
 
     /**
+     * Bước hai của "ai nhận thư", dùng chung cho `handle()` và `hasEligibleRecipient()`: giữ lại
+     * những tài khoản (đã qua {@see ResolveClientRecipients}, R12) mà vụ việc còn nằm trên cổng của
+     * CHÍNH họ.
+     *
+     * Đọc vụ TƯƠI theo id (không tin `$stageLog->matter` đã nạp từ lúc xếp hàng, không tin đối tượng
+     * form đang cầm), gỡ `ClientPortalScope` vì chính `Gate` mới là câu hỏi cổng. Vụ đã xoá mềm không
+     * tìm thấy thì không ai nhận. (Vế `null` là một mutant tương đương — `Gate::allows('view', null)`
+     * cũng sai — giữ lại cho rõ.)
+     *
+     * M7 Task 11 (rà soát M7 Task 5, m2): "còn trên cổng" hỏi bằng định nghĩa cổng —
+     * {@see ResolveClientRecipients::onPortal()}, tức `Gate::forUser($account)->allows('view',
+     * $matter)` — chứ không thêm một định nghĩa thứ ba. {@see self::stillReleasedToPortal()} chỉ hỏi
+     * cờ `is_published_to_portal`, nên một vụ đã kết thúc và đã quá `client_access_until` (M7 Task 5,
+     * R4: vụ rời cổng, cờ giữ nguyên) vẫn lọt: luật sư thêm một dòng cùng giai đoạn có công bố trên vụ
+     * đã đóng, tài khoản khách còn hoạt động nhờ một vụ khác, và thư đi kèm liên kết tới một trang trả
+     * 404. Gộp M7 vào `main`: bước lọc chuyển sang `ResolveClientRecipients` để ba thư khách của M6
+     * (`client.document_published`, `client.document_rejected`, `client.request_answered`) dùng
+     * đúng nó.
+     *
+     * @param  Collection<int, ClientUser>  $accounts
+     * @return Collection<int, ClientUser>
+     */
+    private function recipientsOnPortal(int $matterId, Collection $accounts): Collection
+    {
+        $matter = Matter::query()
+            ->withoutGlobalScope(ClientPortalScope::class)
+            ->find($matterId);
+
+        if ($matter === null) {
+            return collect();
+        }
+
+        return app(ResolveClientRecipients::class)->onPortal($matter, $accounts);
+    }
+
+    /**
      * Final review B-M3: thư báo tiến độ đã hỏng HẲN (listener hết `$tries`). Báo trong hệ thống
      * cho luật sư phụ trách — qua {@see ResolveStaffRecipients::handle()} (R3: còn đi làm, xem được
      * vụ; lead không nhận được thì rơi xuống chuỗi dự phòng của chính resolver đó), để văn phòng
@@ -249,15 +307,30 @@ class NotifyClientOfStageUpdate
     }
 
     /**
-     * Task 7 (R12, phát hiện `stage/stage-06` nửa "luật sư không biết khách không được báo"):
-     * form "Chuyển giai đoạn"/"Thêm cập nhật" gọi hàm này TRƯỚC khi gửi, để cảnh báo luật sư ngay
-     * trên form khi sẽ không ai nhận được thư — xem
-     * `App\Filament\Admin\Resources\Matters\Actions\Concerns\BuildsStageUpdateSchema::noActivatedAccountWarning()`.
-     * Đi qua {@see ResolveClientRecipients} (`hasEligibleRecipient()` trên `eligibleQuery()`) —
-     * CÙNG một điều kiện với `recipientsFor()` — để cảnh báo này không bao giờ lệch với chính Action
-     * gửi thư thật.
+     * Task 7 (R12, phát hiện `stage/stage-06` nửa "luật sư không biết khách không được báo"), sửa ở
+     * rà soát cuối M7 (I3): form "Chuyển giai đoạn"/"Thêm cập nhật" hỏi hàm này TRƯỚC khi gửi, để
+     * cảnh báo luật sư ngay trên form khi sẽ không ai nhận được thư — xem
+     * `App\Filament\Admin\Resources\Matters\Actions\Concerns\BuildsStageUpdateSchema`. Hai bước, ĐÚNG
+     * hai bước của `handle()`: tài khoản đủ điều kiện ({@see ResolveClientRecipients}, CÙNG điều kiện
+     * với `recipientsFor()`), rồi vụ còn trên cổng của tài khoản đó ({@see self::recipientsOnPortal()}).
+     * Sai ⇔ `handle()` không gửi cho ai (khi hai cờ công bố đang bật).
      */
     public function hasEligibleRecipient(Matter $matter): bool
+    {
+        return $this->recipientsOnPortal(
+            (int) $matter->getKey(),
+            app(ResolveClientRecipients::class)->recipientsFor($matter->client_id),
+        )->isNotEmpty();
+    }
+
+    /**
+     * CHỈ bước đầu của {@see self::hasEligibleRecipient()}: khách có tài khoản cổng đủ điều kiện nhận
+     * thư không (R12, {@see ResolveClientRecipients::hasEligibleRecipient()}), bất kể vụ này còn trên
+     * cổng của họ hay không. Form dùng nó để chọn câu cảnh báo ("chưa có tài khoản" hay "vụ không còn
+     * trên cổng của khách"), KHÔNG để quyết định có cảnh báo hay không — câu đó là của
+     * `hasEligibleRecipient()`.
+     */
+    public function hasEligibleAccount(Matter $matter): bool
     {
         return app(ResolveClientRecipients::class)->hasEligibleRecipient($matter->client_id);
     }

@@ -5,6 +5,7 @@ namespace App\Mail\Staff;
 use App\Mail\BrandedMailable;
 use App\Models\Document;
 use App\Models\User;
+use App\Support\OfficeProfile;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
@@ -26,6 +27,12 @@ use Illuminate\Mail\Mailables\Envelope;
  */
 class NewClientDocument extends BrandedMailable
 {
+    /**
+     * Tên mẫu SPEC §9. Hằng công khai vì `App\Actions\Notification\NotifyStaffOfNewClientDocument::
+     * alreadyDelivered()` lọc nhật ký thư theo đúng chuỗi này (làn fu3, Task 1 mục B).
+     */
+    public const TEMPLATE = 'staff.new_client_document';
+
     public function __construct(
         public Document $firstDocument,
         public int $count,
@@ -34,7 +41,7 @@ class NewClientDocument extends BrandedMailable
 
     protected function template(): string
     {
-        return 'staff.new_client_document';
+        return self::TEMPLATE;
     }
 
     protected function relatedRecord(): ?Model
@@ -51,8 +58,11 @@ class NewClientDocument extends BrandedMailable
         );
     }
 
+    /** Đọc thông tin văn phòng LÚC RENDER, không lúc xếp hàng — xem docblock `OfficeProfile`. */
     public function content(): Content
     {
+        $office = OfficeProfile::current();
+
         return new Content(
             view: 'emails.staff.new-client-document',
             text: 'emails.staff.new-client-document-text',
@@ -62,7 +72,7 @@ class NewClientDocument extends BrandedMailable
                 'matterTitle' => $this->firstDocument->matter?->title,
                 'itemName' => $this->firstDocument->checklistItem?->name,
                 'count' => $this->count,
-                'office' => config('vkcrm.brand.legal_name'),
+                'office' => $office->legalName(),
             ],
         );
     }

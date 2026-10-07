@@ -298,12 +298,22 @@ it('gates answering a client request by writing to the matter, not just seeing i
  * trợ lý vẫn xoá được. Cái phân biệt được vòng đời tài liệu với công việc hồ sơ thường ngày là
  * `document.publish`: đúng nhóm vai trò mà SPEC §5 giao quyền quyết định tài liệu ra tới khách.
  */
+/**
+ * M7 Task 7: xoá không còn là một đường rút — tài liệu ĐANG ra tới khách (`publishedDoc`) không ai
+ * xoá được, kể cả lead và admin; họ dùng "Rút lại". Luật "chỉ vai trò công bố mới xoá" đo trên một
+ * bản nháp cùng nhóm, khách chưa từng thấy.
+ */
 it('lets the team edit a document but limits deleting it to the roles that publish', function () {
+    $draft = Document::factory()->for($this->matter)->group(DocumentGroup::Issued)->create();
+
     expect($this->assistant->can('update', $this->publishedDoc))->toBeTrue()
         ->and($this->assistant->can('delete', $this->publishedDoc))->toBeFalse()
         ->and($this->lead->can('update', $this->publishedDoc))->toBeTrue()
-        ->and($this->lead->can('delete', $this->publishedDoc))->toBeTrue()
-        ->and($this->admin->can('delete', $this->publishedDoc))->toBeTrue()
+        ->and($this->lead->can('delete', $this->publishedDoc))->toBeFalse()
+        ->and($this->admin->can('delete', $this->publishedDoc))->toBeFalse()
+        ->and($this->assistant->can('delete', $draft))->toBeFalse()
+        ->and($this->lead->can('delete', $draft))->toBeTrue()
+        ->and($this->admin->can('delete', $draft))->toBeTrue()
         ->and($this->outsider->can('update', $this->publishedDoc))->toBeFalse()
         ->and($this->outsider->can('delete', $this->publishedDoc))->toBeFalse()
         ->and($this->accountant->can('update', $this->publishedDoc))->toBeFalse()
@@ -337,6 +347,30 @@ it('gates publishing exactly like deleting, and stops once the matter is soft de
 
     expect($this->lead->can('publish', $doc))->toBeFalse()
         ->and($this->admin->can('publish', $doc))->toBeFalse();
+});
+
+/**
+ * M9 Task 13 — việc mang sang từ ledger M4 ("`DocumentPolicy::publish`/`::delete` cần probe lại").
+ * Probe gỡ `$this->update(...)` khỏi `delete()` SỐNG SÓT trên cả bộ test tài liệu: mọi test xoá cũ
+ * đo trên `publishedDoc`, mà tài liệu đang ra tới khách thì chặn M7 Task 7 trả `false` TRƯỚC cổng
+ * quyền — điều kiện "ghi được vào vụ việc" của xoá không có test nào đứng riêng. Đo trên một bản
+ * nháp (chặn M7 không áp): luật sư có `document.publish` nhưng ngoài vụ không xoá được, và không ai
+ * xoá được khi vụ đã xoá mềm. Cặp dương: lead và admin xoá được trước đó.
+ */
+it('refuses deleting a draft to a publishing role outside the matter, and to everyone once the matter is soft deleted', function () {
+    $draft = Document::factory()->for($this->matter)->group(DocumentGroup::Issued)->create();
+
+    expect($this->lead->can('delete', $draft))->toBeTrue()
+        ->and($this->admin->can('delete', $draft))->toBeTrue()
+        ->and($this->outsider->can('delete', $draft))->toBeFalse();
+
+    $this->matter->delete();
+
+    $draft = $draft->fresh();
+    $draft->setRelation('matter', $this->matter->fresh());
+
+    expect($this->lead->can('delete', $draft))->toBeFalse()
+        ->and($this->admin->can('delete', $draft))->toBeFalse();
 });
 
 /** Không ai được xoá một bản ghi mình không có quyền đọc: trợ lý không thấy nhóm D. */

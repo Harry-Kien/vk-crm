@@ -249,9 +249,12 @@ return [
         ],
         // Lượt rà soát cuối M9, I2: mục thứ hai của trang — khoản thu gần đây, kể cả của đợt đã
         // thu đủ hay đã miễn (những đợt không còn trong bảng công nợ ở trên).
+        // Làn fu3 (N6 của rà soát cuối làn m9f): bộ lọc bảng của Filament HOÃN tới lúc bấm nút áp dụng,
+        // nên câu mô tả nói phải bấm. `:apply` là nhãn nút của chính Filament
+        // (`filament-tables::table.filters.actions.apply.label`), widget truyền vào — không chép tay.
         'recent_payments' => [
             'heading' => 'Khoản thu gần đây',
-            'description' => 'Các khoản thu chưa huỷ trong :days ngày gần nhất (theo ngày thu), kể cả của đợt đã thu đủ — huỷ một khoản ghi nhầm ở đây.',
+            'description' => 'Các khoản thu chưa huỷ trong :days ngày gần nhất (theo ngày thu), kể cả của đợt đã thu đủ — huỷ một khoản ghi nhầm ở đây. Khoản cũ hơn :days ngày (như khoản ghi lùi ngày lúc nhập hợp đồng cũ): gõ mã hồ sơ vào ô "Mã hồ sơ" của bộ lọc rồi bấm ":apply" — mục hiện mọi khoản thu chưa huỷ của hồ sơ đó. Chưa bấm ":apply" thì danh sách chưa đổi.',
             'empty_heading' => 'Không có khoản thu nào trong khoảng thời gian này.',
             'columns' => [
                 'paid_on' => 'Ngày thu',

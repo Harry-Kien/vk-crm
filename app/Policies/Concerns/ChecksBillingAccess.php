@@ -21,6 +21,12 @@ use App\Support\Scopes\ClientPortalScope;
  * Hệ quả, không cần viết thêm dòng nào: vụ `restricted` chỉ luật sư phụ trách (còn `matter.view`)
  * và admin thấy tiền, vì đó chính là nhánh `restricted` của `isListableBy()`. Kế toán và quản lý
  * rớt ở đúng nhánh đó.
+ *
+ * **Đây là định nghĩa của NHÂN SỰ.** Khách hàng đọc tiền của chính mình trên cổng (M9 Task 10, P1)
+ * qua một nhánh RIÊNG trong `view()` của từng policy tiền — điều kiện trên chính dòng (hợp đồng đã
+ * ký, đợt và khoản thu chưa huỷ; phụ lục không có điều kiện riêng) cộng `Gate` của bản ghi cha, rồi
+ * `MatterPolicy::view`. Trait này giữ khách ở ngoài mọi câu
+ * hỏi khác: liệt kê (`viewAny`), soạn, sửa, xoá, miễn, ghi và huỷ khoản thu.
  */
 trait ChecksBillingAccess
 {
@@ -34,8 +40,9 @@ trait ChecksBillingAccess
     /**
      * Năm điều kiện, theo thứ tự:
      *
-     * - **Nhân sự**, không phải khách. Nhánh khách trả `false` tường minh: cổng khách mở tiền có
-     *   chủ đích ở M9 Task 10 (P1), không phải ở đây.
+     * - **Nhân sự**, không phải khách. Nhánh khách trả `false` tường minh: cổng khách đọc tiền qua
+     *   nhánh riêng trong `view()` của từng policy (M9 Task 10, P1), không bao giờ qua đây — nên
+     *   mọi câu hỏi quản lý/ghi dựng trên hàm này đóng với khách.
      * - **Vụ đủ cột** — {@see self::matterForBillingGate()} (fix round 1, I1). Thiếu cột thì nạp lại.
      * - **Vụ còn đó.** `$contract->matter` trả `null` khi vụ đã xoá mềm (`SoftDeletingScope`), và
      *   `isListableBy()` không hỏi `deleted_at` — nên điều kiện `trashed()` là thứ giữ câu trả lời

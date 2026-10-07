@@ -1,5 +1,7 @@
 <?php
 
+use App\Jobs\SendReassignmentDigest;
+
 /**
  * Bàn giao vụ việc (`App\Actions\Matter\ReassignMatter`, SPEC §6.11; M6.5 Task 4, R7) — header
  * action "Bàn giao" trên `ViewMatter`.
@@ -37,5 +39,94 @@ return [
         // Minor (fix round 1): lead_lawyer_id trỏ vào một hàng không còn tồn tại — một lý do KHÁC
         // hẳn "trùng lead", không được gộp chung một câu.
         'no_current_lead' => 'Không thể bàn giao: vụ việc này hiện không có luật sư phụ trách hợp lệ. Liên hệ quản trị viên để kiểm tra lại hồ sơ.',
+        // Fix round 1, finding 1 (M7 Task 2): $expectedLeadId khác lead hiện tại dưới khoá, hoặc
+        // vụ việc đã đóng, giữa lúc màn hình bàn giao hàng loạt đang mở.
+        'stale_or_closed' => 'Vụ việc đã được bàn giao cho người khác hoặc đã đóng.',
+    ],
+
+    /*
+     * M7 Task 1 — mẫu thư `staff.matter_reassigned` (SPEC §6.11 bước 3, R10): thư tổng hợp mốc
+     * hạn cho lead mới, dựng để dùng lại được cho cả lô (App\Jobs\SendReassignmentDigest,
+     * App\Mail\Staff\MatterReassigned). Tiêu đề KHÔNG nêu mã hay tiêu đề vụ nào (phán quyết
+     * controller Task 1) — chỉ số lượng vụ việc.
+     */
+    'email' => [
+        'subject' => 'Anh/chị vừa được bàn giao :count vụ việc',
+        'greeting' => 'Kính gửi :name,',
+        'intro' => 'Anh/chị vừa được bàn giao :count vụ việc. Dưới đây là những gì đã chuyển sang cho anh/chị ở từng vụ.',
+        'matter' => 'Hồ sơ: :code — :title',
+        'client' => 'Khách hàng: :name',
+        'reason' => 'Lý do bàn giao: :reason',
+        'deadlines_heading' => 'Mốc thời hạn đã chuyển:',
+        'deadline_line' => ':name — hạn :date (:severity)',
+        'no_deadlines' => 'Không có mốc hạn nào được chuyển.',
+        'client_requests_moved' => 'Đã chuyển :count yêu cầu khách hàng chưa đóng.',
+        'action' => 'Anh/chị mở từng vụ việc trên hệ thống để xem đầy đủ chi tiết.',
+        'salutation' => ':office',
+    ],
+
+    /**
+     * Thông báo trong ứng dụng khi {@see SendReassignmentDigest} hỏng HẲN (hết mọi
+     * lượt thử) — cùng hình dạng `lang/vi/deadlines.php:reminder_failed_notification`.
+     */
+    'digest_failed_notification' => [
+        'title' => 'Không gửi được thư tổng hợp bàn giao vụ việc',
+        'body' => 'Đã thử lại nhiều lần nhưng không gửi được thư tổng hợp mốc hạn bàn giao cho anh/chị. Cần kiểm tra thủ công.',
+    ],
+
+    /*
+     * M7 Task 2 — trang `App\Filament\Admin\Pages\BulkReassign` (admin/manager) và Action
+     * `App\Actions\Matter\ReassignMatters`.
+     */
+    'bulk' => [
+        'page_title' => 'Bàn giao hàng loạt',
+        'navigation_label' => 'Bàn giao hàng loạt',
+        'action_label' => 'Mở màn hình Bàn giao hàng loạt',
+        'fields' => [
+            'lead_lawyer_id' => 'Luật sư đang phụ trách',
+            'matter_ids' => 'Chọn vụ việc cần bàn giao',
+            'new_lead_id' => 'Luật sư phụ trách mới',
+            'reason' => 'Lý do bàn giao',
+            'keep_old_lead_as_associate' => 'Giữ luật sư cũ trong đội ngũ với vai luật sư cộng sự',
+            'keep_old_lead_as_associate_hint' => 'Áp dụng cho vụ việc thường. Vụ việc hạn chế luôn gỡ luật sư cũ khỏi đội ngũ, bất kể công tắc này.',
+        ],
+        'submit' => 'Bàn giao các vụ đã chọn',
+        'validation' => [
+            'no_matters_selected' => 'Phải chọn ít nhất một vụ việc để bàn giao.',
+        ],
+        // Fix round 1, finding 4: tiêu đề/màu thông báo tổng kết PHẢI khớp kết quả thật —
+        // reassignSelected() chọn đúng một trong ba khoá này theo $successCount/$failureCount,
+        // không bao giờ dùng cứng 'reassign.action.success' (câu đó đúng cho nút MỘT vụ, luôn
+        // thành công khi chạy tới đó — sai khi dùng cho cả lô có thể thất bại một phần hoặc toàn
+        // bộ, vì nó luôn hứa "Đã bàn giao vụ việc." dù không vụ nào thật sự chuyển).
+        'notification_titles' => [
+            'success' => 'Đã bàn giao thành công cả lô.',
+            'partial' => 'Bàn giao một phần: có vụ thất bại.',
+            'failure' => 'Bàn giao thất bại: không vụ nào được chuyển.',
+        ],
+        // Thông báo tổng kết SAU vòng lặp (khác lời văn từng dòng ở 'results' bên dưới) —
+        // ':failure' có thể bằng 0, câu vẫn đọc được bình thường ("0 vụ thất bại").
+        'notification_body' => 'Thành công :success vụ, thất bại :failure vụ. Xem chi tiết từng vụ bên dưới.',
+        'results_heading' => 'Kết quả bàn giao',
+        // Kết quả từng vụ (App\Actions\Matter\BulkReassignMatterResult) — báo riêng từng vụ, kể
+        // cả vụ thất bại (phán quyết controller Task 2), không một thông điệp chung cho cả lô.
+        'results' => [
+            // Fix round 2 (I2 — review needs_fixes 2026-09-28): trước bản sửa này 'not_found' ("Vụ
+            // việc không còn tồn tại.") và 'unauthorized' ("Bạn không có quyền bàn giao vụ việc
+            // này.") là hai câu KHÁC NHAU — cùng với luật in: cũ (xem docblock
+            // BulkReassign::form()), câu nào khác câu kia LỘ RA một vụ restricted CÓ THẬT, đếm
+            // được đúng bao nhiêu vụ đang tồn tại. Gộp CHUNG một câu trung lập cho cả "id chưa
+            // từng thuộc vụ nào/đã xoá mềm" (App\Actions\Matter\ReassignMatters, nhánh
+            // Matter::query()->find() trả null) LẪN "vụ có thật nhưng actor không manageTeam được"
+            // (nhánh AuthorizationException) — không nói vụ này CÓ hay KHÔNG tồn tại.
+            'unavailable' => 'Vụ việc này hiện không có sẵn để bàn giao.',
+            'success' => 'Đã bàn giao thành công.',
+            // Fix round 1, finding 3 — mọi lỗi không thuộc bốn họ đã liệt kê ở trên (ví dụ CSDL
+            // bận đúng lúc, kết nối rớt giữa lô).
+            'unexpected_error' => 'Có lỗi không xác định khi bàn giao vụ việc này. Vui lòng thử lại; nếu còn lỗi, báo quản trị viên.',
+        ],
+        // SPEC §6.11 bước 4 — chỉ GỢI Ý, không tự soạn/gửi (cùng lời văn với
+        // `reassign.action.suggest_introduction_body`, nói riêng cho MỘT dòng kết quả của lô).
+        'suggest_introduction' => 'Vụ việc này đã công bố trên cổng khách hàng — nên giới thiệu luật sư mới cho khách ở tab Tiến độ.',
     ],
 ];

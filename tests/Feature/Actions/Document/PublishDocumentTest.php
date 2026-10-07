@@ -694,8 +694,10 @@ it('công bố lại bị từ chối sau một vòng thu hồi rồi trả lạ
     $snapshotView = true;
     $snapshotDownload = true;
 
-    // Thu hồi: chuyển vào nhóm D — hạ cờ khách ngay lập tức.
-    app(RegroupDocument::class)->handle(document: $document->fresh(), actor: $lawyer, group: DocumentGroup::Internal);
+    // Thu hồi: chuyển vào nhóm D — hạ cờ khách ngay lập tức. M7 Task 7: `RegroupDocument` không
+    // còn đưa tài liệu đang ra tới khách vào D (một đường rút duy nhất là `RetractDocument`), nên
+    // chiều vào là một lần ghi thẳng model — hình dạng của dữ liệu có từ trước M7.
+    $document->fresh()->update(['group' => DocumentGroup::Internal]);
     // Trả lại: chuyển ra khỏi D về đúng nhóm cũ — cờ khách KHÔNG tự phục hồi.
     app(RegroupDocument::class)->handle(document: $document->fresh(), actor: $lawyer, group: DocumentGroup::Authority);
 

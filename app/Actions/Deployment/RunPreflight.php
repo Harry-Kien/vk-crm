@@ -6,6 +6,8 @@ use App\Enums\PreflightLevel;
 use App\Http\Middleware\RestrictAdminIpAllowlist;
 use App\Models\User;
 use App\Support\Backup\RcloneProcess;
+use App\Support\Billing\ScheduleTotal;
+use App\Support\OfficeProfile;
 use App\Support\Push\VapidKeys;
 use Database\Seeders\DemoAccountsSeeder;
 use Database\Seeders\DemoDataSeeder;
@@ -69,7 +71,66 @@ class RunPreflight
 
         array_push($rows, ...$this->backupNumericEnvRows());
 
+        $rows[] = $this->billingInvariantsRow();
+
         return $rows;
+    }
+
+    /** Số mã hợp đồng lệch tối đa in trên dòng ĐỎ — danh sách đủ là việc của `billing:check-invariants`. */
+    private const BILLING_CODES_SHOWN = 5;
+
+    /** Khoá của dòng "bất biến tiền" ({@see self::billingInvariantsRow()}). */
+    private const BILLING_INVARIANTS_KEY = 'billing_invariants';
+
+    /**
+     * Một dòng có chặn mở cổng (`php artisan up`) không: mọi dòng ĐỎ đều chặn, TRỪ dòng "bất biến
+     * tiền" ({@see self::billingInvariantsRow()}). Dòng đó vẫn ĐỎ và mã thoát của lệnh vẫn khác 0 (kế
+     * hoạch M9 Task 13 bước 3: "đỏ khi có hợp đồng lệch"), nhưng nó là DỮ LIỆU, không phải cấu hình
+     * máy, và chỉ sửa được trong app — phụ lục do luật sư phụ trách ký, không sửa thẳng CSDL — nên
+     * giữ trang bảo trì cho tới khi nó sạch là giữ mãi (rà soát cuối làn m9f, I2). Lệnh
+     * `vkcrm:preflight` hỏi hàm này để chọn câu tổng kết; `docs/CAI-DAT.md` và `README.md` nói cùng
+     * một ngoại lệ.
+     *
+     * @param  array{key: string, level: PreflightLevel, message: string}  $row
+     */
+    public static function blocksOpening(array $row): bool
+    {
+        return $row['level'] === PreflightLevel::Red && $row['key'] !== self::BILLING_INVARIANTS_KEY;
+    }
+
+    /**
+     * M9 Task 13 — tầng 4 của bất biến tổng tiền (`billing:check-invariants`) thành một dòng ở đây:
+     * ĐỎ khi có hợp đồng `active` mà tổng các đợt chưa huỷ khác `total_amount`, nêu tối đa
+     * {@see self::BILLING_CODES_SHOWN} mã hợp đồng; XANH khi sạch, nêu số hợp đồng đã quét. Đọc
+     * ĐÚNG định nghĩa của lệnh đó, {@see ScheduleTotal::mismatchedActiveContracts()} — không gọi lệnh
+     * artisan từ trong Action, không viết câu truy vấn thứ hai.
+     *
+     * Chạy ở MỌI `APP_ENV`, như {@see self::backupNumericEnvRows()}: đây là dữ liệu của CSDL đang
+     * kiểm, không phải cấu hình máy chủ thật, và một hợp đồng lệch trên máy staging cũng là một sổ
+     * tiền sai. Chỉ đọc — sửa một hợp đồng lệch là quyết định của người, qua phụ lục.
+     *
+     * @return array{key: string, level: PreflightLevel, message: string}
+     */
+    private function billingInvariantsRow(): array
+    {
+        $mismatched = ScheduleTotal::mismatchedActiveContracts();
+
+        if ($mismatched->isEmpty()) {
+            return $this->row(self::BILLING_INVARIANTS_KEY, PreflightLevel::Green, __('preflight.billing_invariants_ok', [
+                'count' => ScheduleTotal::activeContractCount(),
+            ]));
+        }
+
+        $codes = $mismatched->take(self::BILLING_CODES_SHOWN)->pluck('code')->all();
+
+        if ($mismatched->count() > self::BILLING_CODES_SHOWN) {
+            $codes[] = '…';
+        }
+
+        return $this->row(self::BILLING_INVARIANTS_KEY, PreflightLevel::Red, __('preflight.billing_invariants_mismatch', [
+            'count' => $mismatched->count(),
+            'codes' => implode(', ', $codes),
+        ]));
     }
 
     /** @return list<array{key: string, level: PreflightLevel, message: string}> */
@@ -83,6 +144,7 @@ class RunPreflight
             $this->demoAccountsRow(),
             $this->extensionsRow(),
             $this->gdRow(),
+            $this->pcntlRow(),
             $this->brandFieldsRow(),
             $this->vapidKeysRow(),
             $this->storagePrivateExposureRow(),
@@ -218,19 +280,87 @@ class RunPreflight
             : $this->row('gd', PreflightLevel::Yellow, __('preflight.gd_missing'));
     }
 
+    /**
+     * Việc sau gộp M7 (làn fu2, phát hiện "wiring" của rà soát gộp): giờ chết của job gói bàn giao
+     * (`GenerateHandoverPackage::$timeout` = 600, `$failOnTimeout`, `--timeout=600` của mục lịch
+     * `queue.handover`) chỉ có tác dụng khi PHP DÒNG LỆNH có ext-pcntl. Thiếu nó, worker không bao
+     * giờ giết job quá giờ: `failed()` không chạy (luật sư không được báo), và khi một lần dựng gói
+     * vượt 900 giây (`retry_after` và khoá `withoutOverlapping` 15 phút cùng hết) lượt kế tiếp nhận
+     * lại cùng job, dựng vào cùng thư mục làm việc — đúng cuộc đua R9 dựng kết nối `handover` để tránh.
+     *
+     * Đọc `extension_loaded()`/`function_exists()` của CHÍNH tiến trình đang chạy lệnh này — tức PHP
+     * dòng lệnh, cùng PHP mà cron chạy `schedule:run` (cùng giới hạn đã ghi ở {@see procOpenRow()}:
+     * chạy preflight bằng đúng binary PHP của cron). Ba chiều, hỏi theo thứ tự:
+     *
+     * 1. Extension CHƯA nạp → VÀNG, và KHÔNG thêm vào `required_extensions`: danh sách đó đúng bằng
+     *    `composer check-platform-reqs` + `pdo_mysql`, và thiếu pcntl không làm vỡ màn hình nào —
+     *    `Worker::supportsAsyncSignals()` trả false nên worker không gọi hàm pcntl nào, vẫn chạy,
+     *    chỉ mất lưới an toàn của gói lớn. Câu này hỏi TRƯỚC: thiếu extension thì các hàm của nó
+     *    cũng không tồn tại, nhưng đó không phải chiều ĐỎ dưới đây.
+     * 2. Extension đã nạp nhưng một hàm trong `vkcrm.deployment.worker_signal_functions` không tồn
+     *    tại → ĐỎ (rà soát cuối làn fu2, I1). `Worker::supportsAsyncSignals()` chỉ hỏi
+     *    `extension_loaded('pcntl')`, nên `daemon()` vẫn gọi `pcntl_async_signals()`/`pcntl_signal()`
+     *    (`listenForSignals()`) và `pcntl_signal()`/`pcntl_alarm()` (`registerTimeoutHandler()`, mỗi
+     *    vòng, kể cả vòng không có job). Trên PHP 8 một hàm nằm trong `disable_functions` là hàm
+     *    không tồn tại — hay gặp ở PHP dòng lệnh của cPanel/CloudLinux — nên MỌI lượt `queue:work`
+     *    (`queue.drain` lẫn `queue.handover`) chết ở vòng đầu với "Call to undefined function",
+     *    trước khi chạy job nào: không thư nào đi, kể cả thư nhắc mốc thời hạn. Câu ĐỎ nêu đúng các
+     *    hàm bị chặn. Cùng lý do {@see procOpenRow()} hỏi `function_exists()`.
+     * 3. Đủ cả hai → XANH, câu XANH nêu các hàm đã kiểm.
+     *
+     * Tên extension và danh sách hàm đọc từ cấu hình chỉ để test gài tên giả mà dựng chiều VÀNG và
+     * ĐỎ (`extension_loaded()`/`function_exists()` không giả được). Giá trị dự phòng của hai lời gọi
+     * `config()` bằng đúng giá trị trong `config/vkcrm.php`, để một tệp cấu hình đã cache từ bản cũ
+     * (chưa có khoá danh sách hàm) không làm dòng này lặng lẽ XANH.
+     */
+    private function pcntlRow(): array
+    {
+        $extension = (string) config('vkcrm.deployment.worker_timeout_extension', 'pcntl');
+        $functions = (array) config('vkcrm.deployment.worker_signal_functions', [
+            'pcntl_async_signals', 'pcntl_signal', 'pcntl_alarm',
+        ]);
+
+        if (! extension_loaded($extension)) {
+            return $this->row('pcntl', PreflightLevel::Yellow, __('preflight.pcntl_missing'));
+        }
+
+        $disabled = array_values(array_filter(
+            $functions,
+            fn (string $function): bool => ! function_exists($function),
+        ));
+
+        if ($disabled !== []) {
+            return $this->row('pcntl', PreflightLevel::Red, __('preflight.pcntl_functions_disabled', [
+                'functions' => implode(', ', $disabled),
+            ]));
+        }
+
+        return $this->row('pcntl', PreflightLevel::Green, __('preflight.pcntl_ok', [
+            'functions' => implode(', ', $functions),
+        ]));
+    }
+
+    /**
+     * Bốn thông tin pháp lý của chân thư. Gộp M7 vào `main`: đọc qua {@see OfficeProfile} (bảng
+     * `settings` mà chủ văn phòng nhập ở trang "Thông tin văn phòng", M7 Task 10 → cấu hình) — CÙNG
+     * nguồn mà chân mọi thư (`BrandFooter`) và `MUC-LUC.pdf` in ra, nên dòng này không báo "còn
+     * thiếu" một giá trị đang in đúng. Tên biến `.env` vẫn được nêu: đó là nơi thứ hai điền được.
+     */
     private function brandFieldsRow(): array
     {
+        $office = OfficeProfile::current();
+
         $fields = [
-            'tax_code' => 'BRAND_TAX_CODE',
-            'bar_association' => 'BRAND_BAR_ASSOCIATION',
-            'licence_number' => 'BRAND_LICENCE_NUMBER',
-            'office_address' => 'BRAND_OFFICE_ADDRESS',
+            'BRAND_TAX_CODE' => $office->taxCode(),
+            'BRAND_BAR_ASSOCIATION' => $office->barAssociation(),
+            'BRAND_LICENCE_NUMBER' => $office->licenceNumber(),
+            'BRAND_OFFICE_ADDRESS' => $office->officeAddress(),
         ];
 
         $missing = [];
 
-        foreach ($fields as $configKey => $envName) {
-            if (blank(config('vkcrm.brand.'.$configKey))) {
+        foreach ($fields as $envName => $value) {
+            if (blank($value)) {
                 $missing[] = $envName;
             }
         }

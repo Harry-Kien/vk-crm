@@ -3,10 +3,11 @@
 namespace App\Enums;
 
 /**
- * Đúng 17 quyền ở SPEC §5: 13 quyền của bảng gốc, cộng 4 quyền tiền của M9 (`billing.view`,
+ * Đúng 20 quyền ở SPEC §5: 13 quyền của bảng gốc, cộng 4 quyền tiền của M9 (`billing.view`,
  * `contract.manage`, `payment.record`, `revenue.viewAny`) thêm bằng đính chính có ngày ngay dưới
- * bảng đó ("Bổ sung 2026-09-19, sửa 2026-09-24"), không thêm lặng lẽ. Tên quyền là nguồn sự thật,
- * không sinh tự động từ resource.
+ * bảng đó ("Bổ sung 2026-09-19, sửa 2026-09-24"), cộng 3 quyền tiếp nhận của M10 (`intake.create`,
+ * `intake.viewAny`, `intake.convert`) thêm bằng đính chính "Bổ sung 2026-09-24 (M10)" — không thêm
+ * lặng lẽ. Tên quyền là nguồn sự thật, không sinh tự động từ resource.
  */
 enum Permission: string
 {
@@ -39,6 +40,22 @@ enum Permission: string
 
     /** Số liệu doanh thu toàn văn phòng và trang "Công nợ". Cặp với `billing.view` như `matter.viewAny` với `matter.view`. */
     case RevenueViewAny = 'revenue.viewAny';
+
+    /**
+     * Ghi một lần có người liên hệ văn phòng và đổi trạng thái bản ghi MÌNH ghi hoặc được giao (M10,
+     * SPEC §5 đính chính 2026-09-24). Người chỉ có quyền này thấy đúng những bản ghi đó — xem
+     * `IntakeRequest::scopeVisibleTo()`. Kế toán không có.
+     */
+    case IntakeCreate = 'intake.create';
+
+    /**
+     * Mọi bản ghi tiếp nhận, kể cả câu chuyện và lý do từ chối vì xung đột; báo cáo đầu vào. Cặp với
+     * `intake.create` như `matter.viewAny` với `matter.view`. Chỉ admin và quản lý.
+     */
+    case IntakeViewAny = 'intake.viewAny';
+
+    /** Chuyển một bản ghi tiếp nhận thành vụ việc — luôn đi cùng `matter.create` (trợ lý không có cả hai). */
+    case IntakeConvert = 'intake.convert';
 
     public function label(): string
     {

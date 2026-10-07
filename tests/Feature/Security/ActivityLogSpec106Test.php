@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\DocumentGroup;
+use App\Enums\DocumentStatus;
 use App\Enums\Role;
 use App\Enums\UserPosition;
 use App\Filament\Admin\Pages\Auth\Login as StaffLogin;
@@ -11,10 +12,12 @@ use App\Filament\Admin\Resources\Matters\RelationManagers\DocumentsRelationManag
 use App\Filament\Admin\Resources\Matters\RelationManagers\StageLogsRelationManager;
 use App\Filament\Admin\Resources\Users\Pages\EditUser;
 use App\Filament\Portal\Pages\Auth\Login as PortalLogin;
+use App\Jobs\GenerateHandoverPackage;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Document;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\StageLog;
 use App\Models\User;
 use App\Notifications\Client\SendLoginCode;
@@ -23,7 +26,9 @@ use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -423,17 +428,20 @@ it('§10.6 records the deactivation of a portal account, once, and only when is_
 
 /*
 |--------------------------------------------------------------------------
-| 7. Xuất dữ liệu — tập MỌI đường xuất = {documents.download} (+ hai bí danh M12 của chính nó)
+| 7. Xuất dữ liệu — tập MỌI đường xuất = {documents.download: tài liệu thường + gói bàn giao} (+ hai bí danh M12)
 |--------------------------------------------------------------------------
 |
 | "Xuất dữ liệu" của SPEC §10.6 là mọi đường để một byte dữ liệu rời hệ thống theo yêu cầu của người
-| dùng. Hôm nay chỉ có MỘT: tải một tài liệu (`documents.download`, đã ghi `document_downloaded`).
+| dùng. Vẫn chỉ MỘT route: `documents.download`. Qua nó có hai thứ rời hệ thống: một tài liệu thường
+| (ghi `document_downloaded`) và — từ M7 Task 4 — gói bàn giao hồ sơ, một tệp zip gom các tài liệu
+| nhóm A/B/C của cả vụ (ghi THÊM `data_exported`: một lần khi gói sinh xong, một lần mỗi lượt tải).
 | Không có Export action của Filament, không có route xuất báo cáo, và bản sao lưu không tải được
-| từ app. Test này đóng băng tập đó ở HAI phía độc lập — router và mã nguồn — để một đường xuất
+| từ app. Hai test đầu đóng băng tập đó ở HAI phía độc lập — router và mã nguồn — để một đường xuất
 | MỚI buộc người thêm nó phải tới đây, ghi `data_exported`, và nới test có chủ đích.
 |
-| **Mang sang M7 Task 4** (gói bàn giao hồ sơ): sinh/tải gói bàn giao phải ghi `data_exported` và
-| mở rộng đúng test này.
+| Việc sau gộp M7 (làn fu2): ca chỉ kiểm nhãn "sẵn sàng cho đường xuất đầu tiên" được thay bằng ca đi
+| hết đường thật — nút "Sinh gói bàn giao" trên trang vụ việc, job của hàng `handover`, rồi route
+| tải ký — đúng như ghi chú M8b đã hẹn cho lần gộp M7.
 */
 
 it('§10.6 the only way to take data out of the app is the document download route', function () {
@@ -486,6 +494,61 @@ it('§10.6 no source file streams a file or data body out except the document do
         ->toBe(['app/Http/Controllers/DocumentDownloadController.php']);
 });
 
-it('§10.6 the data_exported event is labelled, ready for the first real export to record', function () {
-    expect(__('activity.events.data_exported'))->toBe('Xuất dữ liệu');
+/**
+ * Đường thật, ba chặng: luật sư bấm "Sinh gói bàn giao" trên trang vụ đã kết thúc (Livewire), job
+ * `GenerateHandoverPackage` mà nút xếp lên hàng `handover` chạy như worker chạy nó, rồi luật sư tải gói
+ * qua route ký `documents.download`. Mỗi chặng xuất dữ liệu đúng MỘT dòng `data_exported`, có chủ thể
+ * (tài liệu gói), người thực hiện, và `action` nói chặng nào. Vế âm cùng test: tải một tài liệu
+ * THƯỜNG của cùng vụ không ghi `data_exported`.
+ */
+it('§10.6 records data_exported when a handover package is generated and when it is downloaded', function () {
+    Queue::fake();
+    $workRoot = storage_path('framework/testing/handover-'.Str::random(16));
+    config(['vkcrm.handover.work_dir' => $workRoot]);
+
+    $lawyer = User::factory()->withRole(Role::Lawyer)->create();
+    $matter = Matter::factory()->create(['lead_lawyer_id' => $lawyer->id, 'closed_at' => now()->subDay()->toDateString()]);
+    MatterArchive::factory()->create(['matter_id' => $matter->id, 'archived_by' => $lawyer->id]);
+
+    $ordinary = Document::factory()->for($matter)->group(DocumentGroup::Issued)->create(['status' => DocumentStatus::SignedFiled]);
+    $ordinary->addMedia(UploadedFile::fake()->createWithContent('ban-an.pdf', '%PDF-1.4 noi dung'))->toMediaCollection('file');
+
+    try {
+        $this->actingAs($lawyer, 'web');
+
+        $this->livewire(ViewMatter::class, ['record' => $matter->getKey()])
+            ->callAction('generateHandoverPackage')
+            ->assertHasNoActionErrors();
+
+        expect(activitiesOf('data_exported'))->toHaveCount(0);
+
+        // Worker chạy job mà nút vừa xếp.
+        $job = Queue::pushed(GenerateHandoverPackage::class)->sole();
+        app()->call([$job, 'handle']);
+
+        $package = Document::query()->findOrFail(MatterArchive::query()->where('matter_id', $matter->id)->value('handover_document_id'));
+        $generated = activitiesOf('data_exported')->sole();
+
+        expect($generated->subject?->is($package))->toBeTrue()
+            ->and($generated->causer?->is($lawyer))->toBeTrue()
+            ->and($generated->properties->get('action'))->toBe('generated')
+            ->and($generated->properties->get('kind'))->toBe('handover_package')
+            ->and($generated->properties->get('matter_id'))->toBe($matter->id);
+
+        $this->get($ordinary->fresh()->downloadUrlFor($lawyer))->assertOk();
+
+        expect(activitiesOf('data_exported'))->toHaveCount(1);
+
+        $this->get($package->downloadUrlFor($lawyer))->assertOk();
+
+        $downloaded = activitiesOf('data_exported')->last();
+
+        expect(activitiesOf('data_exported'))->toHaveCount(2)
+            ->and($downloaded->subject?->is($package))->toBeTrue()
+            ->and($downloaded->causer?->is($lawyer))->toBeTrue()
+            ->and($downloaded->properties->get('action'))->toBe('downloaded')
+            ->and(__('activity.events.data_exported'))->toBe('Xuất dữ liệu');
+    } finally {
+        File::deleteDirectory($workRoot);
+    }
 });

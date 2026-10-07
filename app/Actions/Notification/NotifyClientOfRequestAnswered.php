@@ -44,6 +44,13 @@ use Throwable;
  * này vừa gửi thư thành công, sau vòng thư, trước lần ném lại lỗi; chống trùng là sổ thư
  * (`alreadyDelivered()`). Bản ghi đi kèm là câu trả lời đã đọc lại (`$freshReply`) — đúng bản ghi thư
  * ghi vào nhật ký; push không mang nội dung câu hỏi hay câu trả lời (R11, `PushTopic`).
+ *
+ * **Gộp M7 vào `main` (PROGRESS "Ghi chú M7", Task 11): vụ còn trên cổng của CHÍNH người nhận.** Cờ
+ * `is_published_to_portal` một mình không còn đủ: từ M7 Task 5 (R4) một vụ đã kết thúc rời cổng khi
+ * hạn tra cứu (`client_access_until`) qua, mà cờ giữ nguyên. Vì thư này cố ý đi cả cho vụ đã đóng,
+ * mỗi người nhận R12 còn phải qua {@see ResolveClientRecipients::onPortal()} (`MatterPolicy::view`
+ * nhánh khách) — nếu không, một khách còn tài khoản nhờ vụ khác nhận thư kèm liên kết tới một trang
+ * trả 404. Nút "Gửi lại" đi qua cùng `eligibleRecipients()`.
  */
 class NotifyClientOfRequestAnswered
 {
@@ -106,13 +113,17 @@ class NotifyClientOfRequestAnswered
             ->find($reply->request_id);
     }
 
+    /**
+     * Bản ghi ĐẦY ĐỦ (không chọn vài cột): {@see ResolveClientRecipients::onPortal()} hỏi
+     * `MatterPolicy::view` trên chính bản ghi này.
+     */
     private function publishedMatterFor(ClientRequest $thread): ?Matter
     {
         return Matter::query()
             ->withoutGlobalScope(ClientPortalScope::class)
             ->whereKey($thread->matter_id)
             ->where('is_published_to_portal', true)
-            ->first(['id', 'client_id']);
+            ->first();
     }
 
     /**
@@ -132,7 +143,7 @@ class NotifyClientOfRequestAnswered
 
     /**
      * Phần sau cổng "câu trả lời còn tồn tại": cuộc trao đổi còn, vụ việc còn công bố portal, rồi
-     * tài khoản R12.
+     * tài khoản R12 mà vụ còn trên cổng của chính họ (gộp M7 — xem docblock lớp).
      *
      * @return Collection<int, ClientUser>
      */
@@ -150,7 +161,9 @@ class NotifyClientOfRequestAnswered
             return collect();
         }
 
-        return app(ResolveClientRecipients::class)->recipientsFor($matter->client_id);
+        $recipients = app(ResolveClientRecipients::class);
+
+        return $recipients->onPortal($matter, $recipients->recipientsFor($matter->client_id));
     }
 
     public function alreadyDelivered(ClientRequestReply $reply, ClientUser $recipient): bool

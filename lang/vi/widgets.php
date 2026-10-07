@@ -48,6 +48,22 @@ return [
         'never_submitted' => 'Chưa có tệp nào',
         'open' => 'Mở danh mục hồ sơ',
     ],
+    // M10 Task 5 (R5), SPEC §7.1 đính chính M10 — đặt ngay dưới "Tài liệu chờ duyệt". Không cột tên hay
+    // số điện thoại của người liên hệ, có chủ đích (xem docblock `UnansweredIntakesWidget`).
+    'unanswered_intakes' => [
+        'heading' => 'Liên hệ chưa ai gọi lại',
+        'description' => 'Chưa ai gọi lại sau :hours giờ làm việc kể từ lúc nhận. Đổi trạng thái bản ghi khi đã gọi lại.',
+        'columns' => [
+            'code' => 'Mã bản ghi',
+            'source' => 'Nguồn',
+            'received_at' => 'Nhận lúc',
+            'waited' => 'Đã chờ (giờ làm việc)',
+            'assignee' => 'Người được giao',
+        ],
+        'unassigned' => 'Chưa giao',
+        'empty_state' => 'Không có lần liên hệ nào chờ quá hạn.',
+        'open' => 'Mở bản ghi',
+    ],
     'matters_missing_documents' => [
         'heading' => 'Hồ sơ thiếu giấy tờ quá 14 ngày',
         'description' => 'Hồ sơ đang tắc vì khách chưa nộp.',
@@ -108,7 +124,7 @@ return [
         ],
         'donut' => [
             'heading' => 'Đã thu / còn phải thu / quá hạn',
-            'description' => 'Việc đã ký trong kỳ (:range), hợp đồng đang hiệu lực hoặc đã hoàn tất — theo contracts.signed_at. Ba lát tính TẠI HÔM NAY. Bộ lọc luật sư mang hai nghĩa: "Đã thu" theo payments.attributed_lawyer_id (luật sư lúc thu); "còn phải thu"/"quá hạn" theo matters.lead_lawyer_id (luật sư phụ trách hiện tại).',
+            'description' => 'Việc đã ký trong kỳ (:range) — tính theo ngày ký hợp đồng, chỉ hợp đồng đang hiệu lực hoặc đã hoàn tất. Ba lát tính TẠI HÔM NAY. Bộ lọc luật sư mang hai nghĩa: "Đã thu" theo luật sư phụ trách lúc tiền về; "còn phải thu"/"quá hạn" theo luật sư phụ trách hiện tại của vụ. Tiền đã thu của hợp đồng sau đó bị huỷ không tính ở đây (hai biểu đồ doanh thu vẫn tính, vì tiền đó đã về).',
             'description_lawyer_filtered' => 'Đang lọc theo một luật sư cụ thể: hai tập vụ việc trên có thể khác nhau sau một lần bàn giao — xem lại nghĩa của từng lát ở trên trước khi so sánh với tổng đã ký.',
             'slices' => [
                 'collected' => 'Đã thu: :amount',
@@ -128,7 +144,7 @@ return [
         ],
         'over_time' => [
             'heading' => 'Doanh thu theo thời gian',
-            'description' => 'Tiền về trong kỳ (:range) — theo payments.paid_on. Bộ lọc luật sư: luật sư phụ trách LÚC THU (payments.attributed_lawyer_id).',
+            'description' => 'Tiền về trong kỳ (:range) — tính theo ngày tiền về, kể cả tiền đã thu của hợp đồng sau đó bị huỷ. Bộ lọc luật sư: luật sư phụ trách lúc tiền về.',
             'filter_month' => 'Theo tháng',
             'filter_quarter' => 'Theo quý',
             'filter_year' => 'Theo năm',
@@ -138,7 +154,7 @@ return [
         ],
         'by_stage' => [
             'heading' => 'Doanh thu đã thu theo đợt/giai đoạn',
-            'description' => 'Tiền về trong kỳ (:range) — theo payments.paid_on, gộp theo giai đoạn kích hoạt đợt. Bộ lọc luật sư: luật sư phụ trách LÚC THU (payments.attributed_lawyer_id).',
+            'description' => 'Tiền về trong kỳ (:range) — tính theo ngày tiền về, gộp theo giai đoạn kích hoạt đợt, kể cả tiền đã thu của hợp đồng sau đó bị huỷ. Bộ lọc luật sư: luật sư phụ trách lúc tiền về.',
             'bucket_label' => ':type — :stage',
             'on_signing_bucket' => 'Tạm ứng khi ký hợp đồng (mọi loại vụ việc)',
             'due_date_bucket' => 'Đến hạn theo ngày cụ thể, không theo giai đoạn (mọi loại vụ việc)',
@@ -147,18 +163,18 @@ return [
         ],
         'mix_by_practice_area' => [
             'heading' => 'Cơ cấu vụ việc theo lĩnh vực',
-            'description' => 'Việc đã ký trong kỳ (:range), hợp đồng đang hiệu lực hoặc đã hoàn tất (không tính hợp đồng đã huỷ) — theo contracts.signed_at. Bộ lọc luật sư: luật sư phụ trách HIỆN TẠI (matters.lead_lawyer_id). Công tắc "đếm theo số vụ" đổi số vụ/số tiền được đo, xếp giảm dần theo giá trị đó.',
+            'description' => 'Việc đã ký trong kỳ (:range) — tính theo ngày ký hợp đồng, chỉ hợp đồng đang hiệu lực hoặc đã hoàn tất (không tính hợp đồng đã huỷ). Bộ lọc luật sư: luật sư phụ trách hiện tại của vụ. Công tắc "đếm theo số vụ" đổi số vụ/số tiền được đo, xếp giảm dần theo giá trị đó.',
             'series_amount' => 'Giá trị đã ký',
             'series_count' => 'Số vụ',
         ],
         'load_per_lawyer' => [
             'heading' => 'Tải theo luật sư',
-            'description' => 'Ảnh chụp HIỆN TẠI: số vụ đang mở của mỗi luật sư phụ trách hiện tại (matters.lead_lawyer_id). KHÔNG phụ thuộc bộ lọc thời gian của trang. Bộ lọc luật sư (matters.lead_lawyer_id) thu hẹp còn đúng một cột.',
+            'description' => 'Ảnh chụp HIỆN TẠI: số vụ đang mở của mỗi luật sư phụ trách hiện tại. KHÔNG phụ thuộc bộ lọc thời gian của trang. Bộ lọc luật sư (luật sư phụ trách hiện tại của vụ) thu hẹp còn đúng một cột.',
             'series' => 'Số vụ đang mở',
         ],
         'closed_with_balance' => [
             'heading' => 'Hồ sơ đã kết thúc còn công nợ',
-            'description' => 'KHÔNG phụ thuộc bộ lọc thời gian hay công tắc đếm — luôn liệt kê mọi vụ việc anh/chị được xem đã kết thúc mà còn dư nợ. Bộ lọc luật sư (matters.lead_lawyer_id) và lĩnh vực vẫn thu hẹp phạm vi vụ việc.',
+            'description' => 'KHÔNG phụ thuộc bộ lọc thời gian hay công tắc đếm — luôn liệt kê mọi vụ việc anh/chị được xem đã kết thúc mà còn dư nợ. Bộ lọc luật sư (luật sư phụ trách hiện tại của vụ) và lĩnh vực vẫn thu hẹp phạm vi vụ việc.',
             'columns' => [
                 'matter_code' => 'Mã hồ sơ',
                 'client' => 'Khách hàng',

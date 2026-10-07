@@ -39,7 +39,7 @@
 --}}
 
 @php
-    $hotline = config('vkcrm.brand.hotline');
+    $hotline = App\Support\OfficeProfile::current()->hotline();
     $home = \App\Support\Pwa\PwaPanels::startUrlFor(request());
     $tap = 'min-height:44px;display:inline-flex;align-items:center;justify-content:center;padding:0.625rem 1rem;border-radius:0.5rem;text-decoration:none;font-weight:600;';
 @endphp

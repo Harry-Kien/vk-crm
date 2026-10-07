@@ -36,6 +36,15 @@ và trang doanh thu — nên chúng không còn ngoài phạm vi. Quyền mới:
 ở bảng dưới vẫn đúng về **nội dung hồ sơ**; từ M9 kế toán còn xem và ghi **tiền**
 của các vụ thường, trong ranh giới viết ở §5.
 
+**Đính chính 2026-09-24 (M10 — tiếp nhận và thẩm định đầu vào).** Cụm "dashboard phân
+tích nguồn khách" **không còn ngoài phạm vi**: M10 dựng nó (trang báo cáo đầu vào —
+nguồn khách, tỷ lệ chuyển đổi, thời gian phản hồi lần đầu; kế hoạch M10 Task 6).
+"Tích hợp form website" **vẫn ngoài phạm vi**: M10 chỉ làm màn hình nhập tay trong
+`/admin`, không có đường công khai nào (kế hoạch M10, R6); cột `source` có giá trị
+`website_form` để nhân sự nhập tay một lead gửi từ website. Form trên luatvukhang.com
+gửi thẳng vào hệ thống là một milestone riêng sau M10, chưa đánh số. Quyền mới: §5,
+"Bổ sung 2026-09-24 (M10)".
+
 ### Người dùng
 
 | Vai trò | Guard | Mô tả |
@@ -90,6 +99,12 @@ tắt, lệnh `mariadb-dump` (gói `mariadb-client`) và `rclone` cho sao lưu (
 `vkcrm:preflight` báo ĐỎ khi thiếu. Từ đây danh sách được canh bằng `composer.lock`: một gói
 production mới đòi extension chưa có trong `deployment.required_extensions` làm đỏ test
 `tests/Feature/Deployment/PreflightCommandTest.php` ("mọi ext-* mà một gói production … đòi").
+
+**Đính chính 2026-10-03 (việc sau gộp M7, làn fu2).** PHP dòng lệnh (PHP chạy cron và worker hàng
+đợi) nên có `pcntl`: thiếu nó, giờ chết của job dựng gói bàn giao không có tác dụng, và preflight báo
+VÀNG. Nếu có `pcntl` thì ba hàm `pcntl_async_signals`, `pcntl_signal`, `pcntl_alarm` BẮT BUỘC không
+bị tắt (`disable_functions`): Laravel thấy `pcntl` đã nạp là gọi chúng, nên một hàm bị tắt làm mọi
+lượt `queue:work` chết ngay khi khởi động, và không thư nào được gửi. Preflight báo ĐỎ trường hợp này.
 
 ### Giám sát cron
 
@@ -493,12 +508,47 @@ việc ai được đi từng bước, và trước M6.5 giao diện không có 
 Audit mới cho ba bước đầu: `document_submitted_for_approval`, `document_signed_filed`,
 `document_returned_to_draft` (xem §10.6).
 
+**Đính chính 2026-09-28 (M7 Task 7 — `RetractDocument`).** `status` có trạng thái thứ năm,
+`retracted` ("Đã rút lại"), cùng ba cột `retracted_at` (timestamp nullable), `retracted_by` (FK users
+nullable, `nullOnDelete`) và `retraction_reason` (text nullable).
+
+- **Rút lại là gì.** Văn phòng đưa một tài liệu ĐANG ra tới khách (`published`, `client_can_view`,
+  không nhóm D, chưa xoá mềm) ra khỏi tầm mắt khách: `status = retracted`, hai cờ khách tắt, ghi
+  người rút, lúc rút và lý do. Tệp và mọi dòng `document_downloads` giữ nguyên; `published_at`/
+  `published_by` giữ nguyên. Audit `document_retracted` mang số lượt tải của khách trước lúc rút.
+- **Ai rút.** Người có `document.publish` trên tài liệu (cùng cổng với công bố): luật sư trong đội
+  ngũ của vụ việc (không riêng luật sư phụ trách), trưởng phòng, quản trị — tức người sửa được vụ
+  việc VÀ có quyền công bố (sửa câu ngày 2026-10-03, M7 Task 11, theo rà soát Task 7). Trợ lý không
+  rút được; họ nhờ người có quyền bấm "Rút lại".
+- **Lý do** bắt buộc, tối thiểu 20 ký tự (`mb_strlen`, sau khi bỏ khoảng trắng hai đầu), tối đa 5000.
+  Lý do **khách đọc được**, và là chữ duy nhất về tài liệu mà khách còn đọc được (dòng dưới).
+- **Khách thấy gì.** Ở khối Tài liệu của trang hồ sơ, chỗ tài liệu từng hiện: nhãn trung tính "Tài
+  liệu đã được văn phòng rút lại", câu "Văn phòng đã rút lại tài liệu này. Lý do: …" và ngày rút.
+  **Không có tiêu đề tài liệu** (sửa ngày 2026-10-03, rà soát cuối M7, C1): ca rút điển hình là tài
+  liệu của khách khác công bố nhầm, và dòng rút không bao giờ gỡ được (tài liệu đã rút không xoá,
+  không vào nhóm D, không công bố lại được), nên một dòng mang tiêu đề sẽ để tên của khách kia trên
+  cổng của khách này chừng nào vụ còn trên cổng. Ô lý do nói rõ cho người rút: tiêu đề không hiện,
+  muốn khách biết là tài liệu nào thì nêu trong lý do. Không có đường tải; một đường dẫn tải ký
+  trước lúc rút trả 404. Dòng này chỉ hiện trên vụ khách đang xem được (cùng khách, đã lên portal,
+  chưa hết hạn tra cứu), không bao giờ cho tài liệu nhóm D.
+- **Trạng thái cuối.** Tài liệu đã rút không công bố lại được; muốn đưa lại cho khách thì tải lên
+  một bản mới. Tài liệu đã rút không vào gói bàn giao (§6.12).
+- **Một đường rút duy nhất.** Với tài liệu đang ra tới khách, chuyển vào nhóm D bị từ chối (câu chỉ
+  tới nút "Rút lại") và xoá không được phép; tài liệu đã rút cũng không xoá được và không vào nhóm D
+  (dòng giải thích của khách đọc từ chính bản ghi đó). Thay cho gạch đầu dòng "chuyển vào nhóm D
+  luôn được" của đính chính M6.5 ở trên: câu đó nay chỉ đúng cho tài liệu KHÔNG đang ra tới khách
+  và chưa bị rút.
+
 ### 4.12 `document_downloads` — nhật ký tải về
 
 `document_id`, `downloader_type`, `downloader_id`, `ip` string(45),
 `user_agent` string(500), `downloaded_at`.
 
 Ghi log **mọi** lượt tải, cả nội bộ lẫn khách hàng.
+
+**Đính chính 2026-09-28 (M7 Task 7).** Khoá ngoại `document_id` là `restrictOnDelete` (trước đó
+`cascadeOnDelete`): xoá cứng một tài liệu đã có lượt tải bị CSDL từ chối, để bằng chứng khách đã
+nhận tài liệu không bao giờ biến mất cùng tài liệu.
 
 ### 4.13 `deadlines` — mốc thời hạn
 
@@ -586,6 +636,14 @@ báo cho tôi không", sẽ trả lời được bằng bằng chứng.
 | is_visible_to_client | boolean default false | Mặc định nội bộ |
 | created_by | FK users | |
 
+**Đính chính 2026-09-28 (M7 Task 8).** Cột `is_visible_to_client` giữ nguyên, mặc định `false`,
+nhưng **không có công tắc nào trên form** ghi nhật ký liên lạc và Action ghi
+(`App\Actions\Communication\LogCommunication`) luôn ép `false`: không màn hình portal nào đọc bảng
+này (§8.3, phán quyết 3 của M5), nên một công tắc chỉ khiến luật sư tin rằng khách đã thấy. Nhật ký
+liên lạc là bằng chứng: không sửa được trên màn hình; xoá là xoá mềm kèm lý do bắt buộc và một dòng
+audit (`communication_log_deleted`), không bao giờ xoá cứng. Ghi vào một vụ việc đòi đúng
+`MatterPolicy::update` trên vụ đó (`CommunicationLogPolicy::create($user, $matter)`).
+
 ### 4.18 `stage_log_views` — xác nhận khách đã đọc
 
 | Cột | Kiểu |
@@ -609,11 +667,53 @@ chưa xem quá 5 ngày thì nhắc luật sư gọi điện.
 | matter_id | FK unique | |
 | archived_at | timestamp | |
 | archived_by | FK users | |
-| handover_package_path | string nullable | Đường dẫn tệp zip bàn giao đã sinh |
-| handover_generated_at | timestamp nullable | |
+| handover_package_path | string nullable | **Ngừng dùng** — xem đính chính M7 Task 3 dưới đây |
+| handover_document_id | FK documents nullable | Gói bàn giao — xem đính chính M7 Task 3 |
+| handover_generated_at | timestamp nullable | Thời điểm sinh gói XONG |
+| handover_status | string(20) nullable | `generating` / `ready` / `failed`; NULL = chưa ai yêu cầu — xem đính chính M7 Task 4 |
+| handover_requested_at | timestamp nullable | Lúc bấm (hoặc lúc vụ đóng, với lần tự sinh); cũng là dấu của lần yêu cầu |
+| handover_requested_by | FK users nullable | Người bấm; NULL với lần tự sinh khi vụ đóng |
+| handover_error | string(500) nullable | Câu tiếng Việt cho người vận hành khi `failed` |
 | client_access_until | date nullable | Ngày vô hiệu quyền tra cứu của khách |
 | retention_until | date | Ngày được phép tiêu huỷ dữ liệu theo chính sách lưu trữ |
 | destroyed_at | timestamp nullable | |
+| destruction_reason | text nullable | Lý do tiêu huỷ — xem đính chính M7 Task 3 |
+| destruction_record_no | string(50) nullable | Số biên bản tiêu huỷ — xem đính chính M7 Task 3 |
+| destroyed_by | FK users nullable | Người quyết định tiêu huỷ — xem đính chính M7 Task 3 |
+
+**Đính chính 2026-09-28 (M7 Task 3, R1 — phán quyết của chủ nhiệm kế hoạch M7).** Gói bàn giao là
+một bản ghi `Document` (nhóm B, đĩa `private`, qua đúng `PublishDocument`), không phải một chuỗi
+đường dẫn: đường tải duy nhất của hệ thống (`documents.download`) nhận id của một `Document`, và
+`document_downloads.document_id` là khoá ngoại tới `documents` — một đường dẫn trần sẽ cần dựng
+thêm một cửa tải và một bảng nhật ký tải thứ hai, điều SPEC §4.12 ("ghi log **mọi** lượt tải") và
+kiến trúc M4 không cho phép. `handover_document_id` (FK `documents`, nullable, `nullOnDelete`) thay
+thế `handover_package_path`; cột cũ được GIỮ LẠI trên bảng (không `dropColumn`, tránh một thao tác
+phá huỷ không cần thiết trên dữ liệu đã seed) nhưng không còn nằm trong `MatterArchive::$fillable`
+— không còn đường ghi nào chạm tới nó. Sinh lại gói là một version mới của CÙNG tài liệu
+(`parent_document_id`), không phải một tài liệu thứ hai. Ba cột `destruction_reason`/
+`destruction_record_no`/`destroyed_by` chuẩn bị cho Task 6 (ghi quyết định tiêu huỷ — R5: không
+bao giờ `forceDelete()` dữ liệu hồ sơ).
+
+**Đính chính 2026-09-28 (M7 Task 4, R9).** Bốn cột `handover_status`, `handover_requested_at`,
+`handover_requested_by`, `handover_error` ghi trạng thái của MỘT lần yêu cầu sinh gói, để màn hình
+hiện "đang sinh / sẵn sàng / lỗi" kèm thời điểm bấm và thời điểm xong (`handover_generated_at`) và
+khoá nút khi gói đang được dựng. `handover_requested_at` còn là dấu của lần yêu cầu: job mang theo
+giá trị đó và chỉ được ghi kết quả khi nó còn khớp, nên một job cũ không ghi đè lần yêu cầu mới hơn.
+Một lần `generating` cũ hơn 60 phút được coi là kẹt và cho yêu cầu lại.
+
+**Đính chính 2026-10-03 (M7 Task 3, 5, 6 — ghi ở Task 11).** Vòng đời của dòng lưu trữ:
+- *Ai ghi.* Dòng được tạo khi vụ việc vào giai đoạn kết thúc (`closed_at` có giá trị), bởi
+  `SyncMatterArchive` qua sự kiện `MatterStageChanged` — không có form nào sửa các cột ngày của
+  nó. Mỗi lần đóng (lại), `archived_at`, `client_access_until` và `retention_until` được tính lại
+  từ `closed_at`. Vụ được mở lại thì chỉ `client_access_until` về NULL; phần còn lại của dòng giữ
+  nguyên. Dòng không bao giờ bị xoá. Vụ bị huỷ vì mở nhầm (`CancelMatter`) không bao giờ có dòng
+  này.
+- *`client_access_until`* là ngày CUỐI khách còn tra cứu được (hết ngày đó, theo giờ ứng dụng);
+  xem đính chính M7 Task 5 ở §6.12.
+- *Bốn cột tiêu huỷ* (`destroyed_at`, `destroyed_by`, `destruction_reason`,
+  `destruction_record_no`) chỉ do `RecordMatterDestruction` ghi, MỘT lần, không sửa được;
+  `SyncMatterArchive` không bao giờ đụng tới chúng. Ghi quyết định không xoá gì — xem đính chính M7
+  Task 6 ở §6.12.
 
 ---
 
@@ -661,18 +761,53 @@ Dùng `spatie/laravel-permission`. Quyền đặt tên dạng `<resource>.<actio
 > **Ranh giới của kế toán, viết ra vì đây là một sự nới rộng.** `billing.view` **không** làm câu "kế toán chỉ xem danh sách vụ việc, không thấy nội dung hồ sơ" sai đi: màn hình tiền của kế toán mang mã hồ sơ, loại vụ việc, tên khách hàng, tên đợt, các con số và các ngày — **không** mang tiêu đề vụ việc, tóm tắt, mô tả nội bộ, tài liệu, tiến độ hay các bên. Ranh giới này cài bằng một DTO readonly như `ConflictMatch` ở §6.10, có test. Điểm **mới thật sự** là **tên khách hàng**: không có tên thì không lập được phiếu thu — một sự nới rộng có chủ đích, cũng là một mục đích xử lý dữ liệu mới cần ghi vào PROGRESS.
 >
 > **`contract.manage` cũng là quyền đổi số tiền của từng đợt** qua phụ lục, kèm lý do, có dấu vết.
+>
+> **Đính chính 2026-10-03 (M9 Task 13, phán quyết rà soát Task 3) — miễn một đợt cũng thuộc `contract.manage`.** Miễn một đợt thanh toán (`WaiveInstalment`, lý do ≥ 20 ký tự) là xoá một khoản nợ, tức một quyết định thương mại về hợp đồng, không phải việc ghi tiền: `InstalmentPolicy::waive` đòi `contract.manage` cộng "thấy tiền của vụ" (định nghĩa trên) — tức mọi luật sư trong đội của vụ (kể cả luật sư phối hợp, không riêng luật sư phụ trách), quản lý và admin, đúng dấu "✓ (vụ của mình)" của bảng trên; trên vụ `restricted` chỉ luật sư phụ trách và admin (hai người duy nhất thấy tiền của vụ đó); **kế toán không miễn được** (họ có `payment.record`, không có `contract.manage`). *(Sửa 2026-10-04, rà soát cuối làn m9f: bản 2026-10-03 ghi "luật sư phụ trách, quản lý, admin" — hẹp hơn quyền mã thật cấp; mã đúng theo bảng, câu này sửa theo mã.)* Huỷ một đợt của hợp đồng đang hiệu lực thì không có quyền riêng: nó chỉ đi qua phụ lục (`AmendContract`), cũng dưới `contract.manage`.
+>
+> **Đính chính 2026-10-03 (M9 Task 10, rà soát vòng 1) — tải gói bàn giao là đọc tiền.** Từ M9, `MUC-LUC.pdf` trong gói bàn giao in "Bảng kê thanh toán" (§6.12). Gói là một tài liệu nhóm B của vụ, nên trước bản sửa mọi nhân sự có `matter.view` trên vụ — kể cả **trợ lý** trong đội, vai trò không có `billing.view` — tải được gói và đọc được toàn bộ tiền của vụ. Nay `DocumentPolicy::download` của nhân sự đòi thêm, **chỉ cho các version của gói bàn giao** và **chỉ khi vụ có hợp đồng đã từng ký** (khác `draft` — kể cả `cancelled`, vì gói dựng trước lần huỷ vẫn in bảng kê): người tải phải thấy được tiền của vụ theo đúng định nghĩa trên (`ContractPolicy::view`). Không có định nghĩa thứ hai. Người không tải được gói vẫn thấy dòng gói (tên, version) trên tab Tài liệu, chỉ mất nút "Tải"; mọi tài liệu khác của vụ, và gói của vụ chưa từng có hợp đồng đã ký, không đổi luật. Khách không chịu điều kiện này (bảng kê là thứ §5 phần Portal cho khách xem về vụ của chính họ).
 
-**Mang sang M11, ghi 2026-09-24 (M9 Task 3).** Dữ liệu tiền là dữ liệu nhạy cảm
-("tài chính", Nghị định 356/2025). Bảng R4 của kế hoạch M11
-(`docs/superpowers/plans/2026-09-24-m11-mcp.md`, "Các loại dữ liệu không bao giờ
-rời hệ thống qua MCP") thêm một dòng: **tiền của vụ việc — không bao giờ**
-(`contracts`, `instalments`, `payments`, `contract_amendments`), kể cả với người
-được xem tiền đó trên web. Presenter theo danh sách cho phép của M11 đã loại bốn
-model này theo mặc định; M11 thêm một test cấu trúc khẳng định không tool hay
-presenter nào dưới `app/Mcp` / `app/Support/Mcp` tham chiếu `Contract`,
-`Instalment`, `Payment`, `ContractAmendment`. M9 Task 3 không viết được test đó vì
-lúc ấy thư mục MCP chưa tồn tại; việc chép dòng này vào bảng R4 ghi ở PROGRESS
-(M9 Task 13).
+**Mang sang M11, ghi 2026-09-24 (M9 Task 3), viết lại 2026-10-03 (M9 Task 13).** Dữ liệu
+tiền là dữ liệu nhạy cảm ("tài chính", Nghị định 356/2025): **tiền của vụ việc không bao giờ
+rời hệ thống qua MCP** (`contracts`, `instalments`, `payments`, `contract_amendments`, và
+khung `time_entries`), kể cả với người được xem tiền đó trên web. Đây là một YÊU CẦU cho M11,
+chưa phải một sự thật của mã: M9 gộp vào `main` TRƯỚC M11 (thứ tự thực tế khác thứ tự đã chốt),
+và ngày 2026-10-03 nhánh `m11-mcp-server` chưa có dòng này. M11 phải (1) thêm dòng "tiền của vụ
+việc — không bao giờ" vào bảng R4 của kế hoạch M11 (`docs/superpowers/plans/2026-09-24-m11-mcp.md`,
+"Các loại dữ liệu không bao giờ rời hệ thống qua MCP"); (2) không liệt kê năm model đó trong
+presenter theo danh sách cho phép (R4 cài bằng danh sách cho phép, nên "không liệt kê" là đủ để
+chúng không ra); (3) thêm một test cấu trúc khẳng định không tool hay presenter nào dưới
+`app/Mcp` / `app/Support/Mcp` tham chiếu `Contract`, `Instalment`, `Payment`,
+`ContractAmendment`, `TimeEntry`. M9 không viết được test đó vì thư mục MCP chưa có trên `main`;
+việc mang sang ghi ở PROGRESS ("Ghi chú M9", làn m9f, Task 13).
+
+> **Bổ sung 2026-09-24 (M10 — tiếp nhận và thẩm định đầu vào).** Bảng 13 quyền gốc và bốn quyền tiền của M9 không có dòng nào cho một người **chưa phải khách hàng**: một lần có người gọi điện, nhắn Zalo hay bước vào văn phòng. M10 thêm bản ghi tiếp nhận (`intake_requests`) và ba quyền, nâng bảng từ 17 lên **20**:
+>
+> | Quyền | admin | manager | lawyer | assistant | accountant |
+> |---|---|---|---|---|---|
+> | `intake.create` (ghi một lần liên hệ; đổi trạng thái bản ghi mình ghi hoặc được giao) | ✓ | ✓ | ✓ | ✓ | — |
+> | `intake.viewAny` (mọi bản ghi, kể cả câu chuyện và lý do từ chối vì xung đột; xử lý Đỏ; báo cáo đầu vào) | ✓ | ✓ | — | — | — |
+> | `intake.convert` (chuyển thành vụ việc; **cần thêm** `matter.create`) | ✓ | ✓ | ✓ | — | — |
+>
+> **Ai thấy bản ghi nào: một định nghĩa** (`IntakeRequest::scopeVisibleTo`). Có `intake.viewAny` thì thấy mọi bản ghi; chỉ có `intake.create` thì thấy bản ghi **mình ghi hoặc được giao**, kể cả câu chuyện của chúng — trợ lý A không thấy bản ghi của trợ lý B. Cặp `intake.create` / `intake.viewAny` lặp lại đúng cặp `matter.view` / `matter.viewAny`. Luật sư chỉ chuyển đổi được bản ghi mình thấy; trợ lý không có `matter.create` nên không chuyển đổi.
+>
+> **Bản ghi đã chuyển thành vụ `restricted` (bổ sung 2026-09-30, vòng sửa 1 của Task 1)** chỉ thấy được với người xem được vụ đó (admin, luật sư phụ trách còn `matter.view`): bản ghi mang tên khách, câu chuyện và liên kết `client_id`/`matter_id`, nên `intake.viewAny` — hay việc đã ghi/được giao bản ghi — không được là cửa vào vụ hạn chế. Cùng định nghĩa `scopeVisibleTo`/`isVisibleTo`; vụ thường không đòi thêm gì. Mọi màn hình đọc bản ghi (danh sách, widget, báo cáo) phải đi qua định nghĩa này, không tự lọc lại.
+>
+> **Đính chính 2026-10-04 (rà soát cuối M10, vòng sửa 1).** Ba chỗ định nghĩa trên chưa phủ: (1) **chuỗi gộp** — gộp để tên, SĐT và câu chuyện ở lại bản nguồn, nên khi bản cuối của chuỗi thành vụ `restricted`, mọi bản đã gộp vào nó cũng chỉ thấy được với người xem được vụ đó (cột `intake_requests.merge_chain_matter_id`, `ConvertIntakeToMatter` đóng dấu lúc chuyển đổi; migration điền ngược cho chuỗi đã chuyển đổi trước đó); (2) **trang Nhật ký hệ thống** — dòng có chủ thể là một bản ghi tiếp nhận (dòng kiểm tra xung đột mang tên người liên hệ và tên các bên) chỉ hiện cho người xem được chính bản ghi đó (`ActivityOwningMatter`); (3) **lý do từ chối** — lý do của MỌI lần từ chối, không chỉ lần vì xung đột, chỉ người có `intake.viewAny` (và chính người đã từ chối) đọc; nếu lý do thường hiện cho mọi người thì "không có dòng lý do" tự nói "vì xung đột". Thêm (R1 của kế hoạch M10, nguyên văn): với một khớp **Đỏ**, người không xử lý được Đỏ chỉ thấy mã hồ sơ và vai của bên trùng trên trang tiếp nhận — không tên, không loại vụ việc, không tiêu chí khớp; khớp Vàng giữ đủ ranh giới §6.10 vì người nhập phải tự xem trước khi xác nhận.
+>
+> **Kế toán không thấy gì của tiếp nhận**, vì SPEC §1 tách kế toán khỏi nội dung hồ sơ và người liên hệ không có khoản tiền nào để thu.
+>
+> **Xử lý xung đột Đỏ lúc tiếp nhận** (mở ô câu chuyện, từ chối vì xung đột) là **một** định nghĩa cho cả hệ thống: `ConflictOverride::allowedFor()` — vai `manager` hoặc `admin`, cùng cổng ghi đè Đỏ của `OpenMatter` (§6.10) — cộng với việc xem được bản ghi. Hôm nay nó trùng người với `intake.viewAny`, nhưng đọc theo **vai**, không theo quyền, để hai nơi không thể lệch nhau. **Lý do từ chối vì xung đột** chỉ người có `intake.viewAny` thấy; người khác thấy "Đã từ chối". **Xoá dữ liệu theo yêu cầu** của chủ thể chỉ admin.
+>
+> **Không ai xoá một bản ghi tiếp nhận.** Xoá là **ẩn danh** (các trường cá nhân về null, dòng ở lại để thống kê). Cổng khách đóng kín: người liên hệ chưa có tài khoản.
+
+**Mang sang M11, ghi 2026-09-24 (M10 Task 1).** Câu chuyện và danh tính của người
+**chưa thành khách** là dữ liệu nhạy cảm và bên thứ ba không thể đồng ý; Luật Luật
+sư giữ bí mật cả với người chưa thành khách. Bảng R4 của kế hoạch M11 thêm một
+dòng: **tiếp nhận, kể cả câu chuyện — không bao giờ** (`intake_requests`,
+`intake_parties`). Test cấu trúc `tests/Feature/Intake/IntakeMcpBoundaryTest.php`
+(M10 Task 1) quét `app/Mcp`, `app/Support/Mcp`, `app/Actions/Mcp` và đỏ nếu một
+tệp nào tham chiếu `IntakeRequest` hay `IntakeParty`; nó xanh từ hôm nay dù các thư
+mục chưa tồn tại, và canh từ lúc M11 thêm tệp đầu tiên.
 
 Cài bằng Policy cho từng model. `MatterPolicy::view()` kiểm tra: người dùng có
 `matter.viewAny`, **hoặc** có bản ghi trong `matter_user`. Vụ việc
@@ -706,6 +841,26 @@ viết được vào cùng một luồng yêu cầu. Mã làm đúng như vậy 
 lọc theo `client_user_id`. Trước bản đính chính này, cách đọc đó chỉ nằm trong docblock. M6.5 Task
 18 thêm trên trang "Yêu cầu của tôi" một dòng nói rõ điều này, và chỉ gắn nhãn "Anh/chị viết"
 cho câu của chính tài khoản đang xem; câu của tài khoản khác cùng khách hàng mang tên người viết.
+
+**Đính chính 2026-10-03 (M9 Task 10, phán quyết P1 của chủ văn phòng).** Danh sách trên có thêm
+**loại dữ liệu thứ tám**: hợp đồng và lịch thu của chính khách, CHỈ ĐỌC.
+- Thấy `Contract` khi thuộc matter hợp lệ **và** `status` là `active` hoặc `completed` (không bao
+  giờ bản nháp hay bản đã huỷ).
+- Thấy `Instalment` khi thuộc hợp đồng thấy được **và** `status != cancelled` (đợt đã miễn vẫn hiện,
+  chỉ một câu "Văn phòng đã miễn", không lý do).
+- Thấy `Payment` khi thuộc đợt thấy được **và** `voided_at` rỗng.
+- Thấy `ContractAmendment` khi thuộc hợp đồng thấy được (mở theo chữ kế hoạch M9; trang cổng không
+  vẽ phụ lục, lý do và bản scan không bao giờ ra cổng).
+
+"Matter hợp lệ" ở đây là ĐÚNG ranh giới cổng của vụ việc — năm điều kiện của
+`Matter::applyClientPortalConstraints()`: đúng khách, `is_published_to_portal`, vụ chưa xoá mềm,
+khách hàng chưa xoá mềm, chưa quá `client_access_until` (§6.12). Tiền không có ranh giới thứ hai.
+Khách không liệt kê, soạn, sửa, xoá, miễn, ghi hay huỷ gì. Cột nội bộ không bao giờ ra cổng: ghi
+chú, lý do huỷ hợp đồng/miễn đợt/huỷ khoản thu/phụ lục, người kích hoạt/miễn/huỷ/ghi/sửa, luật sư
+được tính doanh thu, biên lai và bản scan phụ lục (nhóm D), phần trăm người soạn đã gõ. `TimeEntry`
+vẫn đóng kín. Vụ `restricted` không đổi điều gì ở đây: "chỉ luật sư phụ trách và admin thấy tiền"
+(P3) là luật của NHÂN SỰ; khách là bên đã ký hợp đồng đó. Ba tầng (scope, policy, serialize) đo
+độc lập ở `tests/Feature/Portal/BillingOnPortalTest.php`.
 
 ---
 
@@ -878,6 +1033,18 @@ chạy 08:00 hằng ngày (một lần mỗi ngày, không lặp trong ngày nh�
   gây lỗi 500; không có thông báo trong ứng dụng khi hỏng hẳn (khác nhắc hạn) vì tác vụ chạy
   lại mỗi ngày.
 
+**Đính chính 2026-10-03 (M9 Task 6, ghi ở Task 13) — tác vụ hằng ngày thứ hai của tiền.**
+`ReconcileStageTriggeredInstalments` chạy 07:00 hằng ngày (`instalments.reconcile-stage`,
+`withoutOverlapping(60)`), TRƯỚC lượt nhắc quá hạn 08:00: một đợt vừa được đối chiếu kích hoạt
+với hạn ghi lùi được nhắc ngay sáng đó. Nó là lưới an toàn cho đợt thanh toán theo giai đoạn —
+bình thường đợt đến hạn ngay khi luật sư chuyển giai đoạn (sự kiện `MatterStageChanged` của M7 →
+listener → `TriggerInstalmentsForStage`), lúc kích hoạt hợp đồng, hoặc lúc ký phụ lục thêm đợt
+cho giai đoạn vụ đã qua; tác vụ này bắt những lần lỡ (một lần kích hoạt hỏng, dòng `stage_logs`
+ghi thẳng không qua `TransitionMatterStage`). Nó chỉ đọc dòng `stage_logs` có thật: một giai
+đoạn vụ chưa từng có dòng nào VÀO (vụ nhập thẳng vào giữa chừng lúc bắt đầu dùng hệ thống) không
+bao giờ kích hoạt đợt của nó — `docs/QUY-TRINH.md`, "Nhập hợp đồng đang chạy". Không gửi thư,
+không xếp hàng đợi; lỗi của một cặp (vụ, giai đoạn) được báo và không chặn các cặp khác.
+
 ### 6.9 Nhắc khách bổ sung giấy tờ — `RemindMissingDocuments`
 
 Chạy 08:00 các ngày thứ Hai, Tư, Sáu. Với mỗi matter đang mở, đã công bố
@@ -947,6 +1114,57 @@ Vẫn tuyệt đối không hiện: tiêu đề vụ việc, tóm tắt, nội d
 hồ sơ. Ranh giới này được cài bằng DTO `ConflictMatch` (readonly, đúng sáu trường)
 chứ không bằng quy ước, và có test khẳng định tiêu đề không lọt ra.
 
+**Đính chính 2026-09-24 (M10 — tiếp nhận và thẩm định đầu vào).** Câu "chạy bắt buộc ở
+hai thời điểm" ở đầu mục này đổi thành **ba**, và thuật toán bước 2 có **hai nguồn** thay vì một:
+
+- **Thời điểm thứ ba: lúc tiếp nhận.** Kiểm tra chạy ngay khi nhập xong phần **danh
+  tính** của một lần có người liên hệ (người gọi, SĐT, CCCD nếu có, vai dự kiến, các
+  bên đối lập nếu biết) — **trước** lúc nghe câu chuyện, vì thông tin đã nghe rồi thì
+  không rút lại được. Ô câu chuyện (`summary`) mở theo kết quả: Xanh đủ định danh thì
+  mở; Vàng, hoặc Xanh nhưng thiếu định danh, thì đòi đúng cổng xác nhận của `OpenMatter`;
+  Đỏ thì khoá, chỉ `manager` hoặc `admin` mở được (từ chối, hoặc ghi đè kèm lý do). Mỗi
+  lần chạy vẫn ghi `conflict_check_run`, chủ thể là bản ghi tiếp nhận.
+- **Nguồn dò thứ hai: bản ghi tiếp nhận.** Ngoài `matter_parties`, thuật toán dò cả
+  người liên hệ và bên đối lập của các bản ghi tiếp nhận **chưa chuyển đổi, chưa gộp,
+  chưa ẩn danh** (trừ chính bản ghi đang kiểm tra) — vì một người văn phòng đã nghe
+  chuyện nhưng không nhận việc không được vô hình với lần kiểm tra sau. Khớp từ nguồn
+  này **tối đa là Vàng**: người đó chưa là khách hàng, nên không đạt định nghĩa Đỏ ở
+  bảng trên. Nhãn ghi "đã liên hệ văn phòng ngày …" kèm mã bản ghi, **không kèm câu
+  chuyện**. Nguồn này áp cho cả `OpenMatter` lẫn `AddMatterParty`; hệ quả: một vụ
+  mới có thể ra Vàng vì một cuộc gọi cũ.
+
+Cài đặt: kế hoạch M10, Task 2. Task 1 chỉ dựng bảng, model, quyền và policy.
+
+**Ghi chú cài đặt 2026-09-30 (M10 Task 2).** Những điều mà đính chính trên để ngỏ, nay đã chọn:
+- **Người gọi lại.** Khi kiểm tra một lần tiếp nhận, người liên hệ khớp **SĐT hoặc CCCD**
+  (không phải chỉ tên) với người liên hệ của một lần tiếp nhận khác còn mở, mà lần đó đã khai
+  **đúng vai** lần kiểm tra này dùng cho người liên hệ (vai đã khai, hoặc vai suy ra ở mục dưới),
+  là cùng một người gọi lại về cùng một việc. Hai vai khác nhau, hoặc lần gọi trước chưa khai
+  vai, thì không — vợ và chồng chung một số máy bàn không phải cùng một người; khớp chỉ theo tên
+  không bao giờ. Với người gọi lại (đính chính 2026-10-01, fix vòng 1 của Task 2):
+  - các bên đối lập khai ở lần gọi trước được **mang vào** lần kiểm tra của lần gọi lại, nên
+    khớp với khách hàng hiện hữu bật lại (Đỏ đến từ khách hàng, không từ nguồn thứ hai — nguồn
+    đó vẫn tối đa Vàng);
+  - khớp với lần gọi trước không hiện, **trừ khi** lần đó còn Đỏ chưa xử lý hoặc đã bị từ chối
+    vì xung đột: khi đó mã của nó hiện ra **và** lần gọi lại bị khoá như Đỏ (chỉ `manager`/`admin`
+    mở, bằng ghi đè kèm lý do) — nếu không, một người nhận khác sẽ nghe hết câu chuyện mà không
+    quản lý nào biết;
+  - bên đối lập được gõ lại ở lần gọi lại không thành khớp với chính nó ở lần gọi trước.
+  Quy tắc này chỉ áp cho kiểm tra của chính một lần tiếp nhận; khi mở vụ hay thêm bên, một cuộc
+  gọi cũ chưa chuyển đổi luôn hiện.
+- **Đỏ dính** (đính chính 2026-10-01). Một lần tiếp nhận từng ra Đỏ thì ô câu chuyện khoá cho tới
+  khi `manager`/`admin` xử lý — **không** theo mức của lần chạy gần nhất: sửa hay gỡ bên đối lập
+  rồi chạy lại ra Xanh, kể cả quản lý tự chạy lại, không mở ô. Lý do ghi đè được ghi vào activity
+  log ở mỗi lần ghi đè (như `OpenMatter`), nên một ghi đè đã hết hiệu lực vì có khớp mới vẫn còn
+  lý do của nó.
+- **Vai người liên hệ chưa khai.** Để Đỏ không tắt lặng lẽ, vai dùng cho lần kiểm tra được suy
+  ra từ bên đối lập (đối của nguyên đơn là bị đơn và ngược lại), còn không thì `related`. Vai
+  suy ra chỉ dùng cho lần kiểm tra, không ghi vào bản ghi.
+- **Kết quả kiểm tra gắn với danh tính đã chạy.** Bản ghi lưu dấu vân tay danh tính cùng kết
+  quả; ai sửa danh tính mà chưa chạy lại kiểm tra thì ô câu chuyện đóng lại (kết quả cũ, kể cả
+  Xanh, không còn là bằng chứng), và xác nhận/ghi đè cũ bị xoá khi có khớp mới hoặc danh tính
+  đã đổi.
+
 ### 6.11 Bàn giao vụ việc — `ReassignMatter`
 
 Khi luật sư nghỉ việc, nghỉ dài ngày, hoặc vụ việc đổi người phụ trách:
@@ -960,6 +1178,16 @@ Khi luật sư nghỉ việc, nghỉ dài ngày, hoặc vụ việc đổi ngư�
    thiệu luật sư mới — gợi ý, không tự động gửi, vì đây là việc tế nhị cần người
    quyết định.
 5. Ghi activity log.
+
+**Đính chính 2026-09-28 (M7 Task 1, R10).** Bước 3 ở trên chỉ chuyển những
+`deadlines` **CHƯA HOÀN THÀNH** của người cũ, không phải "toàn bộ" như câu trên
+viết — một mốc đã xong là lịch sử của người đã hoàn thành nó, chuyển nó đi chỉ
+viết lại ai đã thật sự làm việc gì. Thư tổng hợp cũng chỉ liệt kê đúng những mốc
+CHƯA hoàn thành vừa chuyển (không phải mọi mốc lead mới đang giữ), cộng số yêu
+cầu khách hàng chưa đóng đã chuyển; một vụ không có mốc nào vẫn có mặt trong thư
+để lead mới biết mình vừa nhận vụ. Thư đi qua hàng đợi, sau khi commit
+(`App\Jobs\SendReassignmentDigest`), dựng để dùng lại được cho một lô nhiều vụ
+việc (màn hình hàng loạt bên dưới).
 
 Màn hình hàng loạt: chọn nhiều vụ việc của một luật sư và bàn giao cùng lúc.
 Khi vô hiệu hoá một tài khoản `users` mà người đó còn là lead lawyer của vụ việc
@@ -981,13 +1209,120 @@ Khi vụ việc chuyển sang giai đoạn kết thúc, hệ thống sinh một 
    kết thúc, và `retention_until` theo chính sách lưu trữ cấu hình trong `.env`
    (mặc định 10 năm).
 
+**Đính chính 2026-09-28 (M7 Task 4, R1, R3, R8, R9).** Bước 1–4 đọc theo các phán quyết sau:
+
+- *Nội dung gói (R8).* "Toàn bộ tài liệu nhóm A, B, C" là quá rộng so với §4.11 (khách không bao
+  giờ thấy "một bản đơn mà toà chưa hề nhận được"). Gói chứa: **nhóm A** — mọi tệp của version mới
+  nhất đã được chấp nhận của mỗi đầu mục danh mục (một lần nộp có thể nhiều tệp), bỏ version bị từ
+  chối và version đã bị thay; tài liệu nhóm A nhân sự nộp thay không gắn đầu mục nào cũng vào gói;
+  **nhóm B và C** — chỉ tài liệu ở `signed_filed` hoặc `published`. Luật trạng thái đó áp cho cả
+  nhóm A (một tài liệu đổi nhóm sang A giữ nguyên trạng thái cũ, và một bản còn `internal_draft`
+  thì khách chưa từng được thấy). **Không bao giờ**: nhóm D, tài
+  liệu đã xoá mềm, tài liệu đã rút, và chính tài liệu gói của lần trước (mọi version).
+- *Tên entry.* `<nhóm>/<NN>-<tên an toàn của tiêu đề>.<đuôi>`, `NN` là số thứ tự trong mục lục.
+  Tiêu đề không duy nhất và có thể chứa `/` hay `..`; số thứ tự loại cả hai rủi ro, và cho mục lục
+  với zip cùng một cách đánh số. Tên entry được đánh dấu UTF-8 (bit 11) để dấu tiếng Việt không hỏng.
+- *Gói là một `Document` (R1).* Nhóm B, `signed_filed`, tệp trên đĩa `private`; sinh lại là version
+  mới của cùng tài liệu. Bước 4 đi qua đúng `PublishDocument`.
+- *Sinh lại và rút lại (sửa ngày 2026-10-03, rà soát cuối M7, I2).* Hai luật từng cãi nhau: "chỉ giữ
+  version mới nhất của gói" (hạn mức đĩa) và "một đường rút duy nhất" cùng "bằng chứng khách đã nhận
+  không biến mất" (§4.11, đính chính M7 Task 7). Đọc như sau:
+  - Gói hiện tại đang ra tới khách thì **không sinh lại được**: nút báo câu chỉ tới "Rút lại", và job
+    hỏi lại dưới khoá (gói có thể được công bố trong lúc job chờ hàng) rồi hỏng với lỗi có tên, không
+    tạo version mới. Sinh lại không bao giờ tự gỡ gói khỏi cổng khách. Muốn thay gói đã giao: rút nó
+    (lý do khách đọc được) rồi sinh lại.
+  - Tệp của version cũ chỉ bị xoá khi version đó chưa từng tới tay khách: không ở trạng thái
+    `retracted` và không có lượt tải nào của khách. Version đã rút hay khách đã tải giữ tệp. Dòng
+    `documents` và `document_downloads` của mọi version luôn giữ nguyên.
+- *Chạy nền (R9).* Job chạy trên kết nối/hàng `handover` riêng với mục lịch `queue.handover` riêng
+  (không dùng chung lượt của `queue.drain`, để một gói lớn không giữ thư nhắc mốc thời hạn), có
+  `$timeout` và `$tries` tường minh; thất bại hẳn thì báo luật sư phụ trách và màn hình hiện trạng
+  thái lỗi. Tự sinh MỘT lần khi vụ vào giai đoạn kết thúc; sinh lại là nút bấm.
+- *Xuất dữ liệu (SPEC §10.6).* Ghi `data_exported` khi gói sinh xong và mỗi lần gói được tải.
+- *Nhãn giai đoạn trong `MUC-LUC.pdf` (sửa ở M7 Task 11).* Mục lục giao cho khách, nên nhãn giai
+  đoạn (cả "giai đoạn cuối" lẫn từng dòng tiến độ) là `client_label` (§4.5), cùng nhãn cổng khách
+  hàng hiện. Dòng tiến độ đã công bố mà không ghi giai đoạn đích (`to_stage` NULL, §4.8) vẫn vào
+  mục lục, chỉ in ngày và nội dung. Trước bản sửa, một dòng như vậy làm hỏng cả mục lục, và gói của
+  vụ mẫu đã kết thúc không sinh được.
+
+**Đính chính 2026-10-03 (M9 Task 10, P1).** `MUC-LUC.pdf` có thêm mục **"Bảng kê thanh toán"**, sau
+khối tiến độ: ĐÚNG những trường khối "Hợp đồng và thanh toán" của cổng khách hiện (§8.3, đính chính
+cùng ngày) — cùng một hình chiếu (`App\Support\Billing\ClientBillingStatement`), nên cùng dữ liệu thì
+cổng và mục lục cho đúng cùng các dòng và cùng câu chữ. Bản ghi được lọc bằng cùng điều kiện mà tầng
+truy vấn của cổng dùng (hợp đồng `active`/`completed`, đợt khác `cancelled`, khoản thu chưa huỷ —
+các scope `shownToClient()`), vì gói dựng trong job, không có phiên cổng. Ranh giới vụ việc của cổng
+(đã công bố, chưa hết hạn tra cứu) KHÔNG áp ở đây, như mọi khối khác của mục lục. Vụ không có hợp
+đồng như vậy thì không có mục này. Cột nội bộ của bốn bảng tiền không được nạp (chọn cột tường
+minh). Biên lai (`payments.receipt_document_id`) và bản scan phụ lục (`contract_amendments.document_id`)
+là nhóm D, nên không vào zip.
+
+**Đính chính 2026-10-03 (M9 Task 10, rà soát vòng 1) — ai trong văn phòng tải được gói mang bảng
+kê.** Vì mục lục mang tiền, tải một version của gói bàn giao của vụ có hợp đồng đã từng ký (khác
+`draft`) là đọc tiền: nhân sự phải thấy được tiền của vụ theo định nghĩa duy nhất của §5 (`billing.view`
+cộng `Matter::listableBy()`, hỏi qua `ContractPolicy::view`), không chỉ `matter.view`. Trợ lý trong đội
+(không `billing.view`), và một luật sư phụ trách vụ `restricted` đã bị đổi sang vai trò trợ lý, thấy
+dòng gói nhưng route tải trả 404 và tab Tài liệu không có nút "Tải" ở dòng đó. Hợp đồng `cancelled`
+vẫn tính, vì gói dựng trước lần huỷ vẫn in bảng kê; cái giá phía đóng: gói dựng khi hợp đồng còn là
+bản nháp rồi hợp đồng được ký sau đó cũng bị giữ lại với người không thấy tiền. Gói của vụ chưa từng
+có hợp đồng đã ký, và mọi tài liệu khác của vụ, không đổi luật. Khách tải gói đã công bố như trước.
+Xem §5, đính chính cùng ngày.
+
+**Bổ sung 2026-10-04 (việc sau gộp M9 + M10, làn fu3) — bảng kê là ảnh chụp lúc lập gói.** "Bảng kê
+thanh toán" trong `MUC-LUC.pdf` được dựng một lần, lúc gói được lập, và không đổi sau đó: khoản thu ghi
+sau ngày đó, một đợt miễn hay huỷ sau, một phụ lục ký sau không vào gói đã lập — chỉ vào gói sinh lại.
+Từ khi thư công bố gói mời khách tải gói về và cất giữ, khách giữ đúng ảnh chụp đó, nên ngay dưới tiêu
+đề mục là một dòng "Tính đến ngày lập gói (dd/mm/yyyy)" — cùng ngày với dòng "Lập ngày" đầu mục lục,
+cùng một biến lúc dựng — kèm câu chỉ khách sang cổng cho tình hình mới nhất. Khối "Hợp đồng và thanh
+toán" của cổng khách đọc dữ liệu lúc mở trang, nên luôn là tình hình hiện tại — trong thời gian khách
+còn xem được vụ trên cổng (vụ đang công bố, chưa quá `client_access_until`); sau đó khách chỉ còn gói đã
+tải về. Thư công bố gói không thêm câu nào về tiền: thư đi cho mọi gói, kể cả gói của vụ không có hợp
+đồng nào.
+
 Job `ExpireClientAccess` chạy hằng ngày: khi quá `client_access_until`, vụ việc
 biến mất khỏi portal của khách. Tài khoản `client_users` không còn vụ việc nào
 thì tự đặt `is_active = false`. Dữ liệu vẫn nguyên trong hệ thống nội bộ.
 
+**Đính chính 2026-09-28 (M7 Task 5, R4).** Đoạn trên đọc như sau:
+- *Hết hạn là gì.* Vụ việc hết hạn tra cứu khi có dòng `matter_archives` (chưa xoá mềm) với
+  `client_access_until` khác null và `client_access_until` < hôm nay theo giờ ứng dụng. Khách còn
+  xem được HẾT ngày `client_access_until`, và mất quyền từ 00:00 ngày hôm sau. Vụ chưa đóng hoặc đã
+  mở lại (`client_access_until` null) không bao giờ hết hạn.
+- *Ai làm vụ việc biến mất.* Không phải job: hai tầng ranh giới của cổng
+  (`Matter::applyClientPortalConstraints()` và `MatterPolicy::releasedToPortal()`, điều kiện thứ
+  năm) tự loại vụ đã hết hạn, đúng từ 00:00, dù job đã chạy hay chưa. Không cột nào của vụ việc
+  bị sửa (`is_published_to_portal` giữ nguyên). Mở lại vụ việc đưa vụ về lại cổng.
+- *Ai bị vô hiệu hoá.* "Không còn vụ việc nào" đọc là: khách có ÍT NHẤT MỘT vụ đã hết hạn tra cứu
+  VÀ không còn vụ nào hiển thị trên cổng. Một khách mới có vụ đầu tiên chưa công bố không bao giờ bị
+  vô hiệu hoá. Mỗi tài khoản được lưu riêng để nhật ký ghi lại, kèm một dòng nhật ký
+  `portal_account_deactivated`. Tài khoản bị vô hiệu không tự bật lại khi vụ được mở lại; nhân sự
+  bật tay.
+- *Giờ chạy.* 00:30 hằng ngày (mục lịch `client-access.expire`).
+
 Job `FlagRetentionExpiry` cảnh báo quản trị khi có hồ sơ quá `retention_until`,
 nhưng **không bao giờ tự xoá**. Việc tiêu huỷ hồ sơ pháp lý phải do người quyết
 định và ghi biên bản.
+
+**Đính chính 2026-09-28 (M7 Task 6, R5).** Đoạn trên đọc như sau:
+- *Hồ sơ nào bị cảnh báo.* Có dòng `matter_archives` chưa xoá mềm, `retention_until` < hôm nay theo
+  giờ ứng dụng (hồ sơ còn trong hạn HẾT ngày `retention_until`), `destroyed_at` rỗng, và vụ việc
+  chưa xoá mềm, đang đóng (`closed_at` có giá trị). Vụ đã được mở lại không bị cảnh báo, dù bản ghi
+  lưu trữ còn giữ `retention_until` của lần đóng trước.
+- *Cảnh báo là gì, tới ai.* Một thông báo trong hệ thống (chuông của panel admin), không thư, tới
+  mọi admin đang hoạt động — chọn qua `ResolveStaffRecipients::activeAdminsFor()`. Mỗi người nhận
+  nhận MỘT lần cho mỗi hạn lưu trữ của một hồ sơ, không lặp mỗi ngày. Admin được thêm sau vẫn nhận
+  một lần. Hồ sơ được đóng lại với hạn mới rồi quá hạn lần nữa thì được cảnh báo lần nữa.
+- *Giờ chạy.* 01:00 hằng ngày (mục lịch `retention.flag`).
+- *Ghi quyết định tiêu huỷ.* Action `RecordMatterDestruction`, nút "Ghi quyết định tiêu huỷ" trên
+  trang vụ việc. Chỉ admin. Chỉ khi vụ đang đóng, đã quá `retention_until` và chưa có quyết định.
+  Bắt buộc số biên bản (tối đa 50 ký tự, bằng độ dài cột) và lý do (20–5000 ký tự). Action ghi
+  `destroyed_at`, `destroyed_by`, `destruction_reason`, `destruction_record_no` cộng một dòng nhật
+  ký `matter_destruction_recorded`. Một quyết định chỉ ghi một lần và không sửa được.
+- *Ghi quyết định không xoá gì.* Vụ việc, tài liệu, tệp trên đĩa và bản ghi lưu trữ còn nguyên.
+  Việc huỷ hồ sơ giấy và tệp là thao tác có biên bản, làm ngoài hệ thống. Sau khi ghi, job không
+  cảnh báo hồ sơ đó nữa. Một test cấu trúc cấm mọi lời gọi `forceDelete()` (cùng `forceDeleteQuietly()`,
+  `forceDestroy()`) trong `app/`, `routes/` và `database/seeders/`.
+- *`destroyed_by` (§4.19)* là admin đã GHI quyết định vào hệ thống, tức người chịu trách nhiệm về
+  bản ghi đó. Người phê duyệt có tên trên biên bản được nêu trong lý do.
 
 ### 6.13 Tìm kiếm
 
@@ -1001,6 +1336,26 @@ quả từ kiểm tra xung đột lợi ích ở mục 6.10 vốn có quy tắc 
 Dùng `LIKE` với index phù hợp là đủ ở quy mô vài nghìn hồ sơ. **Không cài
 Elasticsearch hay Meilisearch** — vi phạm ràng buộc chạy được trên shared
 hosting.
+
+**Đính chính 2026-09-28 (M7 Task 9, R7).** "Luôn đi qua policy" đọc theo từng nguồn, cài ở
+`App\Actions\Search\SearchMatters` (trang `App\Filament\Admin\Pages\Search` chỉ gọi nó; M11
+`search_matters` dùng lại `matching()` với bốn nguồn của vụ):
+- Tập vụ là `Matter::scopeListableBy()` của người tìm, áp **trong cùng câu SQL, trước giới hạn số
+  dòng**. Không tổng số, không "có kết quả bị ẩn"; "không có gì khớp" và "có khớp nhưng không được
+  xem" là cùng một câu. Vụ `restricted` chỉ ra cho luật sư phụ trách và admin.
+- Mã hồ sơ và tên khách hàng: mọi người liệt kê được vụ. Tiêu đề vụ việc, số thụ lý, tên các bên,
+  tiêu đề tài liệu: chỉ người có `matter.view`. **Kế toán vì vậy chỉ tìm theo mã và tên khách** —
+  đúng hai cột họ thấy trên danh sách vụ việc và đúng "Ranh giới của kế toán" ở §5 (không tiêu đề,
+  không tài liệu, không các bên); dòng kết quả của kế toán không có tiêu đề và không liên kết vào
+  trang vụ việc. Tài liệu nhóm D chỉ với `document.viewInternal`; tài liệu, các bên và vụ đã xoá
+  mềm không bao giờ ra.
+- Số thụ lý tìm theo tiền tố (`LIKE 'x%'`, vì độ chính xác); mã, tiêu đề, tên khách, tên các bên,
+  tiêu đề tài liệu theo kiểu chứa (`LIKE '%x%'`). Sáu nguồn nằm trong một `OR`, nên câu tìm duyệt
+  bảng, không dùng index nào — đo trên 6.000 hồ sơ: 3,5–23,5 ms (PROGRESS, "Ghi chú M7"). Index của bốn
+  cột (`matters.case_number`, `matters.title`, `clients.name`, `documents.title`) vẫn được thêm,
+  cho câu tiền tố đứng riêng và cho lúc quy mô vượt "vài nghìn hồ sơ". Tên các bên so trên
+  `name_normalized` (không dấu, `đ` → `d`); các cột còn lại theo collation (MariaDB
+  `utf8mb4_unicode_ci` bỏ qua dấu và hoa/thường, nhưng `đ` khác `d`).
 
 ---
 
@@ -1026,6 +1381,15 @@ không phá luật "widget quan trọng nhất đặt trên cùng": luật đó 
 đầu, vì danh sách là thứ người ta phải hành động theo. Một hàng cao một dòng là phần tóm tắt,
 không đẩy danh sách quá hạn xuống khỏi màn hình đầu. Nếu hàng này dài thành nhiều dòng thì
 đính chính này hết đúng.
+
+**Đính chính 2026-09-24 (M10 — tiếp nhận).** Thêm một widget **"Liên hệ chưa ai gọi lại"**:
+danh sách các bản ghi tiếp nhận còn ở trạng thái `new` quá ngưỡng phản hồi (mặc định 4 giờ
+làm việc, `INTAKE_RESPONSE_HOURS`), mỗi dòng hiện mã bản ghi, nguồn và thời gian đã chờ —
+**không** tên hay số điện thoại của người liên hệ. Mỗi người chỉ thấy các bản ghi trong phạm
+vi `IntakeRequest::scopeVisibleTo` của mình (§5, bổ sung M10); người không có quyền `intake.*`
+nào không thấy widget. Widget này là một danh sách phải hành động theo như mục 1 và 3, đặt
+ngay dưới mục 3 ("Tài liệu chờ duyệt"), không đẩy "Hồ sơ quá hạn cập nhật" xuống. Cài đặt: kế
+hoạch M10, Task 5.
 
 ### 7.2 Resource `Matter`
 
@@ -1086,6 +1450,22 @@ công bố.
 checklist template), `User`, `Role`, và trang xem `ActivityLog`,
 `OutboundMessage`.
 
+**Đính chính 2026-09-28 (M7 Task 10).** Thêm trang **"Thông tin văn phòng"**, chỉ người có
+`settings.manage` (admin) mở được; người khác nhận 404, kể cả ở request cập nhật Livewire. Chủ văn
+phòng quyết ngày 2026-09-24 sẽ tự nhập bốn thông tin pháp lý trong app thay vì sửa `.env` trên máy
+chủ. Trang sửa chín trường: mã số thuế (10 chữ số, hoặc 13 chữ số dạng `0123456789-001`), Đoàn Luật
+sư, số Giấy đăng ký hoạt động, địa chỉ trụ sở, tên pháp lý, hotline (chuẩn hoá qua
+`Normalizer::phone()`, lưu theo cách viết trong nước), Zalo và website (URL `http`/`https`), email
+liên hệ (Reply-To của mọi thư). Màu, logo, font **không** sửa được trong app.
+- Lưu trong bảng mới `settings` (`key` `string(100)` unique, `value` `text` NULL, `updated_by` FK
+  `users` NULL, timestamps), một bảng khoá–giá trị **chung**: khoá văn phòng có tiền tố `office.`;
+  M11 lưu công tắc MCP vào cùng bảng. Mọi lần ghi qua `App\Actions\Settings\WriteSettings`; lần lưu
+  của trang qua `UpdateOfficeProfile`, ghi audit `office_profile_updated` nêu tên các trường đã đổi.
+- Đọc qua MỘT nơi, `App\Support\OfficeProfile`: bảng `settings` (giá trị không rỗng) →
+  `config('vkcrm.brand.*')`. Ô để trống nghĩa là dùng giá trị `.env`/mặc định. Chân thư (§9), chân
+  `MUC-LUC.pdf` (§6.12) và cổng khách hàng đọc qua service này, **lúc render**: thư đang nằm trong
+  hàng đợi mang giá trị mới. Thông tin còn trống thì dòng của nó biến mất, không để lại nhãn treo.
+
 ---
 
 ## 8. Giao diện panel `portal`
@@ -1124,6 +1504,18 @@ Bố cục dọc, theo thứ tự:
 6. **Mốc thời hạn sắp tới** — chỉ những mốc `is_published`.
 7. **Gửi yêu cầu** — form đơn giản, xem lại lịch sử trao đổi.
 
+**Đính chính 2026-10-03 (M9 Task 10, P1).** Thêm khối **Hợp đồng và thanh toán**, đứng SAU khối 6
+"Mốc thời hạn sắp tới" và TRƯỚC khối 7 "Gửi yêu cầu", và — như khối 2 — **chỉ hiện khi có**: vụ có
+hợp đồng `active` hoặc `completed` (§5 Portal, đính chính cùng ngày). Khối gồm: số hợp đồng, ngày
+ký, tổng giá trị, thuế suất khi hợp đồng có thuế suất (kể cả 0%), "Hợp đồng đã hoàn tất ngày …" khi
+đã hoàn tất; mỗi đợt (trừ đợt đã huỷ) — tên, số tiền, "Đến hạn ngày …" hoặc "Đến hạn khi vụ việc
+tới bước: <nhãn cho khách của giai đoạn>", đã thanh toán, còn lại, tình trạng ("Quá hạn thanh
+toán" luôn bằng chữ kèm màu; đợt miễn chỉ "Văn phòng đã miễn"; hợp đồng đã hoàn tất thì tình trạng
+của hợp đồng thay cho tình trạng từng đợt); các khoản văn phòng đã nhận (trừ khoản đã huỷ) — ngày,
+số tiền, cách trả. Không ghi chú, lý do, người ghi, mã giao dịch, biên lai, phụ lục. Tiền định dạng
+một chỗ (`Money::format()`), trạng thái đợt suy ra một chỗ (`Instalment::state()`). Một cột, không
+bảng, như phần còn lại của trang.
+
 ### 8.4 Nộp tài liệu
 
 Chọn đầu mục → tải tệp lên (hỗ trợ chụp ảnh trực tiếp trên điện thoại) → xem
@@ -1154,6 +1546,7 @@ logo và chân trang công ty. Gửi qua SMTP tên miền riêng, cấu hình tr
 | `staff.new_client_request` | Khách gửi yêu cầu |
 | `client.request_answered` | Văn phòng trả lời một yêu cầu của khách |
 | `staff.instalment_overdue` | Job nhắc đợt thanh toán quá hạn — thêm 2026-09-24 (M9), người nhận theo §6.8 đính chính M9 |
+| `staff.intake_unanswered` | Job nhắc một lần liên hệ chưa ai gọi lại quá ngưỡng phản hồi — thêm 2026-09-24 (M10), người nhận và nội dung theo đính chính M10 dưới đây |
 
 **Đính chính 2026-09-24 (M9).** Mẫu `staff.instalment_overdue` là thư **nội bộ**;
 nội dung đi qua cùng ranh giới với màn hình tiền của kế toán (§5 bổ sung M9): mã
@@ -1178,6 +1571,43 @@ của chính SPEC. Chủ văn phòng giao "làm cho tốt nhất". Mẫu gửi k
 mọi thư cho khách: `is_active` **và** `activated_at` không null (M6.5 R12). Cài đặt thuộc M6 Task 4
 (`docs/superpowers/plans/2026-09-21-m6-notifications.md`), cùng với huy hiệu "có trả lời mới" trên
 thẻ hồ sơ ở cổng; M6.5 không viết mẫu thư này (R1).
+
+**Đính chính 2026-09-24 (M10 — tiếp nhận).** Thêm mẫu `staff.intake_unanswered` vào bảng
+trên: thư **nội bộ** nhắc rằng một lần có người liên hệ văn phòng quá ngưỡng phản hồi (mặc
+định 4 giờ làm việc) mà chưa ai gọi lại. Người nhận: người được giao nếu còn hoạt động và còn
+xem được bản ghi; nếu không thì những người có `intake.viewAny` đang hoạt động; cuối cùng là
+admin — không bao giờ im lặng, và qua đúng một chỗ chọn người nhận nhân sự
+(`ResolveStaffRecipients`). Thư chỉ mang mã bản ghi, nguồn, thời gian đã chờ và liên kết;
+**không** tên, số điện thoại hay câu chuyện của người liên hệ, vì hộp thư là nơi dữ liệu nằm
+lâu nhất và ít ai kiểm soát nhất. Cài đặt: kế hoạch M10, Task 5.
+
+**Đính chính 2026-10-03 (M7, gộp vào `main`; việc sau gộp, làn fu2).** M7 thêm hai mẫu thư NỘI BỘ
+vào bảng trên, và đổi một hành vi của `client.document_published`:
+
+| Mẫu | Kích hoạt khi |
+|---|---|
+| `staff.matter_reassigned` | Bàn giao một hay nhiều vụ việc sang luật sư phụ trách mới (§6.11 bước 3, R10) |
+| `staff.handover_ready` | Gói bàn giao hồ sơ sinh xong (§6.12 bước 3) |
+
+- `staff.matter_reassigned`: một thư tổng hợp cho cả lô, chỉ tới luật sư phụ trách MỚI, liệt kê các
+  mốc thời hạn chưa xong vừa chuyển sang họ. Tiêu đề chỉ nêu số vụ, không nêu mã. Dòng
+  `outbound_messages` gắn vào chính người nhận (`related` = người dùng), nên ở màn hình nhật ký thư
+  chỉ admin thấy dòng đó.
+- `staff.handover_ready`: tới luật sư phụ trách và người bấm "Sinh gói bàn giao", qua
+  `ResolveStaffRecipients` (R3), kèm một chuông trong hệ thống. Thư nội bộ nên tiêu đề mang mã hồ sơ.
+  Dòng nhật ký thư gắn vào tài liệu gói (`related` = tài liệu). Job gửi thẳng thư từ trong nó, không
+  xếp thêm một job thư mang model người nhận (làn fu2).
+- Cả hai mẫu **không gửi lại được** từ nhật ký thư (`ResendTargets::NOT_RESENDABLE`, mỗi mẫu một câu
+  từ chối): thư tổng hợp liệt kê các mốc ở đúng lúc bàn giao, gửi lại là gửi một danh sách cũ, và các
+  mốc vẫn hiện ở trang chủ, ở tab "Mốc thời hạn" và trong thư nhắc mốc; thư gói chỉ báo một sự kiện
+  đã qua, trạng thái gói luôn hiện trên trang vụ việc và chuông đã báo cùng lúc.
+- `client.document_published` khi tài liệu là **gói bàn giao hiện tại** của vụ
+  (`matter_archives.handover_document_id`): thư đi cả khi vụ đã kết thúc (ngoại lệ duy nhất của điều
+  kiện "vụ còn mở" mà M6 đặt cho mẫu này), tới các tài khoản R12 mà vụ còn trên cổng của chính họ
+  (chưa quá `client_access_until`). Tiêu đề và thân thư là của gói: nói đây là gói hồ sơ bàn giao
+  (các tài liệu của hồ sơ cùng `MUC-LUC.pdf`) và hạn tải theo `client_access_until`, không nêu tên
+  tài liệu nào; gói công bố "chỉ xem" thì thư không hứa tải được. Tài liệu thường trên vụ đã kết thúc
+  vẫn không gửi thư này.
 
 **Đính chính 2026-10-04 (M12 Task 10, phán quyết R10–R11 của kế hoạch
 `docs/superpowers/plans/2026-09-24-m12-pwa.md`).** Thông báo đẩy trên điện thoại (kênh `push`, §4.15
@@ -1276,6 +1706,34 @@ Chủ đề (`App\Enums\PushTopic`) mang đúng tên mẫu thư nó đi cùng:
    test `ActivityLogSpec106Test` đóng băng tập đường xuất đó, và gói bàn giao hồ sơ (M7 Task 4)
    phải ghi `data_exported` khi ra đời. Nhật ký không bị xoá theo lịch (không có tác vụ
    `activitylog:clean`; con số của gói ≥ `RETENTION_YEARS`).
+
+   **Đính chính 2026-10-03 (§10.6, M7 Task 11).** M7 thêm 10 sự kiện `Audit::record()`, đếm bằng
+   cách so mọi `Audit::record('…'` trong `app/` (kể cả lời gọi xuống dòng) giữa gốc làn `d2de674`
+   và nhánh `m7-handover` sau khi gộp làn m7b; cả 10 đều có nhãn trong `lang/vi/activity.php`:
+   - bàn giao: `matter_reassignment_digest_failed` (Task 1, thư tổng hợp hỏng hẳn);
+   - gói bàn giao và **xuất dữ liệu**: `handover_package_requested`, `handover_package_failed`,
+     `data_exported` (Task 4 — ghi khi gói sinh xong VÀ mỗi lần gói được tải; đây là mục "xuất dữ
+     liệu" của danh sách gốc ở trên);
+   - **vô hiệu hoá tài khoản portal**: `portal_account_deactivated` (Task 5, `ExpireClientAccess`;
+     mỗi tài khoản cũng được lưu từng model nên `LogsActivity` ghi thêm dòng "cập nhật");
+   - lưu trữ: `matter_destruction_recorded` (Task 6);
+   - tài liệu: `document_retracted` (Task 7);
+   - nhật ký liên lạc: `communication_logged`, `communication_log_deleted` (Task 8);
+   - thông tin văn phòng: `office_profile_updated` (Task 10).
+   Lúc gộp M7 vào `main` (sau M8): `portal_account_deactivated` đã có trên `main` từ M8 Task 3
+   (`UpdatePortalAccount`), nên với `main` M7 chỉ thêm một ĐƯỜNG ghi thứ hai cho nó
+   (`ExpireClientAccess`), không thêm khoá mới — chín sự kiện mới so với `main`. Gói bàn giao
+   (Task 4) là đường "xuất dữ liệu" thứ hai mà đính chính M8 Task 3 ở trên báo trước.
+
+   **Đính chính 2026-10-03 (§10.6, M9 — ghi ở Task 13).** M9 thêm 11 sự kiện `Audit::record()`
+   cho tiền, đếm bằng mọi literal `Audit::record('…'` trong `app/Actions/Billing/`; cả 11 có nhãn
+   trong `lang/vi/activity.php`: `contract_drafted`, `contract_draft_updated`,
+   `contract_draft_deleted`, `contract_activated`, `contract_amended`, `contract_completed`,
+   `contract_cancelled`, `payment_recorded`, `payment_voided`, `instalment_waived` — người làm là
+   causer — và `instalment_triggered` (Task 6): đợt theo giai đoạn đến hạn là hệ quả của một lần
+   chuyển giai đoạn, không phải quyết định của ai, nên dòng này **không causer** (trang nhật ký
+   hiện "Hệ thống"); nguồn gốc ở `properties.stage_log_id` → `stage_logs.created_by`. Dòng tiền
+   trên trang nhật ký chỉ hiện cho người có `billing.view` (`ActivityOwningMatter`, P3).
 7. 2FA bắt buộc cho toàn bộ tài khoản nội bộ. Không có tuỳ chọn tắt.
 8. `spatie/laravel-backup` cấu hình sao lưu hằng ngày cả CSDL lẫn thư mục tệp,
    đẩy ra một disk ngoài máy chủ (S3 hoặc tương đương), giữ 30 bản.
@@ -1334,12 +1792,24 @@ Dùng Pest. Các test sau là điều kiện nghiệm thu, không phải tuỳ c
 ### Bàn giao và lưu trữ
 - Vô hiệu hoá tài khoản luật sư còn là lead lawyer của vụ việc đang mở → bị
   chặn, thông điệp nêu rõ số vụ cần bàn giao.
-- Bàn giao vụ việc tự sinh dòng `stage_logs` nội bộ và chuyển toàn bộ deadline
-  sang người mới.
+- Bàn giao vụ việc tự sinh dòng `stage_logs` nội bộ và chuyển deadline **CHƯA
+  HOÀN THÀNH** sang người mới (Đính chính 2026-09-28, M7 Task 1, R10: không phải
+  "toàn bộ" — mốc đã xong ở lại với người đã hoàn thành nó), kèm một thư tổng
+  hợp qua hàng đợi liệt kê đúng những mốc đã chuyển.
 - Gói bàn giao không bao giờ chứa tài liệu nhóm D — test bằng cách giải nén và
   khẳng định.
 - Quá `client_access_until` thì vụ việc biến mất khỏi portal của khách nhưng vẫn
   còn nguyên trong admin panel.
+
+**Đính chính 2026-10-03 (M7 Task 11).** Bốn test trên đọc như sau; tên test cụ thể ở PROGRESS,
+"Ghi chú M7", mục Task 11:
+- *Test 1* đi qua đúng form sửa nhân sự (tắt `is_active`), và thông điệp đếm vụ ĐANG MỞ — vụ đã
+  kết thúc không cần bàn giao nên không tính.
+- *Test 3* giải nén tệp zip thật và khẳng định trên danh sách entry đọc lại, không trên mảng dựng
+  trước khi nén. Ngoài nhóm D, gói cũng không bao giờ chứa tài liệu đã xoá mềm, bản nháp hay bản
+  chờ duyệt của nhóm B/C, tài liệu đã rút, và gói của lần trước (đính chính M7 Task 4 ở §6.12).
+- *Test 4*: "quá" nghĩa là từ 00:00 ngày SAU `client_access_until` theo giờ ứng dụng — khách còn
+  xem được hết ngày đó (đính chính M7 Task 5 ở §6.12).
 
 ### Tải tệp
 - Tải tệp `.svg` bị từ chối.
@@ -1390,6 +1860,36 @@ mẫu nào (kể cả đã xoá), nên máy chủ mà văn phòng đã tự so�
 nguyên danh mục đó. Máy chủ đã có dữ liệu đổi tên bốn loại cũ bằng một migration dữ liệu
 chỉ đổi khi tên hiện tại đúng bằng tên seed cũ.
 
+**Bổ sung 2026-10-03 (M9 Task 13) — tiền mẫu.** `BillingSeeder`, gọi sau `MatterSeeder` trong
+`DemoDataSeeder` (chỉ dữ liệu mẫu, không bao giờ `ReferenceDataSeeder`), dựng hợp đồng, lịch thu và
+khoản thu qua đúng các Action tiền, đủ để mọi màn hình tiền có dữ liệu thật: mọi vụ đã rời giai đoạn
+đầu có hợp đồng đang hiệu lực, một vụ ở "Tiếp nhận" có bản nháp, một vụ của danh sách cố ý không có
+hợp đồng (vụ mở từ tiếp nhận của M10 cũng chưa có — xem đính chính M10 dưới); giá trị 15–450
+triệu đồng, thuế 8%, 10% hoặc không có; lịch 30% khi ký / 40% khi nộp đơn / 30% khi xét xử sơ
+thẩm trên ít nhất bốn hợp đồng; đợt quá hạn theo ngày và theo giai đoạn; thu một phần; một lần
+miễn có lý do; một khoản thu đã huỷ kèm lý do; một phụ lục; vụ đã kết thúc còn nợ; vụ `restricted`
+có hợp đồng; một vụ bàn giao có khoản thu trước và sau; khoản thu rải trên ít nhất tám tháng; tổng
+các đợt khớp giá trị hợp đồng tới từng đồng (`billing:check-invariants` sạch). Để có tám tháng,
+vụ mẫu thứ i mở `30 + 12·i` ngày trước (vụ cũ nhất khoảng chín tháng). *(Sửa 2026-10-04, việc sau
+gộp M9 + M10: bản đầu ghi `BillingSeeder` "gọi cuối `DemoDataSeeder`" và "một vụ cố ý không có hợp
+đồng" — từ khi gộp M10, `IntakeSeeder` chạy sau nó và thêm vụ thứ 23 chưa có hợp đồng.)*
+
+**Đính chính 2026-10-03 (M10 Task 8 — tiếp nhận).** Thêm dữ liệu mẫu tiếp nhận (`IntakeSeeder`, gọi
+cuối `DemoDataSeeder`, nên không bao giờ chạy production qua `DatabaseSeeder`): 12 lần có người liên
+hệ, mỗi lần đi qua đúng các Action của mã sản phẩm, ở thời điểm "thật" của từng bước — bản ghi ở
+**mọi** trạng thái của `IntakeStatus`, **một cặp tiếp nhận đối nhau** (lần gọi sau ra Vàng vì lần gọi
+trước, nguồn dò thứ hai của §6.10), **một bản Đỏ** chờ trưởng phòng (bên đối lập là khách hiện hữu)
+và một bản đã bị từ chối vì xung đột, **một bản quá hạn phản hồi** lần đầu, **một bản đã ẩn danh** vì
+quá hạn lưu, và một bản đã chuyển thành vụ việc. Bản chuyển đổi gắn người liên hệ (một khách hiện hữu
+gọi về việc mới) vào hồ sơ khách ĐÃ CÓ, nên không thêm khách hàng nào, nhưng thêm **một vụ việc thứ
+23** (sau 20 vụ của danh sách trên, vụ `restricted` của M2 và vụ đã kết thúc của M7 Task 3; con số
+cập nhật khi gộp `main` vào làn M10): một vụ vừa mở qua `OpenMatter`, có lead
+trong đội ngũ và 2 bên, **chưa có dòng `stage_logs` nào** — luật "3–8 dòng" ở trên là của các vụ
+`MatterSeeder` dựng, không phải của vụ này. *(Gộp M10 vào `main`, 2026-10-04: `IntakeSeeder` chạy SAU
+`BillingSeeder` của M9 Task 13 ở trên, nên vụ thứ 23 còn ở giai đoạn đầu và chưa có hợp đồng — ngoài
+vụ "cố ý không có hợp đồng" của danh sách tiền — để form "Soạn hợp đồng" của nó hiện phí đã báo lúc
+tiếp nhận làm gợi ý.)*
+
 ---
 
 ## 13. Milestone
@@ -1414,6 +1914,14 @@ Làm đúng thứ tự. Kết thúc mỗi milestone: test xanh, chạy Pint, c�
 **Đính chính 2026-09-24 (M9).** Thêm dòng **M9** ở bảng trên. Thứ tự dựng hiện hành
 không phải thứ tự dòng trong bảng: xem `docs/PROGRESS.md` (M9 chạy sau M11, trên
 cơ sở dữ liệu production đã có dữ liệu thật).
+
+**Đính chính 2026-09-24 (M10).** Thêm dòng **M10** cho bảng trên (viết ở đây, không sửa
+dòng cũ của bảng). Thứ tự dựng hiện hành: M6.5 → phần còn lại của M6 → M7 → M8 → M11 → M9 →
+**M10** → M12 (xem `docs/PROGRESS.md`).
+
+| | Nội dung | Xong khi |
+|---|---|---|
+| **M10** | Tiếp nhận và thẩm định đầu vào: bản ghi tiếp nhận `intake_requests` và bên đối lập `intake_parties`; ba quyền `intake.*` (§5 bổ sung M10); kiểm tra xung đột lợi ích ở lần chạm đầu tiên, trước khi nghe câu chuyện (§6.10 đính chính M10); dò trùng lúc nhập; đo thời gian phản hồi lần đầu và nhắc quá ngưỡng (§7.1, §9 đính chính M10); chuyển thành vụ việc không gõ lại; từ chối kèm lý do; hạn lưu, ẩn danh và xoá theo yêu cầu cho người chưa thành khách; báo cáo đầu vào | Mọi lần liên hệ để lại một bản ghi; Đỏ khoá ô câu chuyện; chuyển đổi đi qua `FindClientByIdentifier`/`CreateClient`/`OpenMatter`, không tạo `Client` trùng; câu chuyện của người chưa thành khách không bao giờ qua MCP; test phân quyền và cách ly cổng khách xanh |
 
 **Đính chính 2026-10-04 (M12 Task 10).** Thêm dòng **M12** ở bảng trên. Kế hoạch:
 `docs/superpowers/plans/2026-09-24-m12-pwa.md`; phán quyết R1–R14 và kết quả nghiệm thu ở
@@ -1463,6 +1971,17 @@ M9: bảng `contracts` và `instalments` gắn vào `matters` như trên, cùng 
 **dạng khung** — bảng, model, quan hệ với `matters` và `users`, policy đóng kín —
 không Action, không màn hình, không con số nào đọc bảng này; tính phí theo giờ
 vẫn là việc của giai đoạn sau.
+
+**Đính chính 2026-09-24 (M10).** Dòng "nhận lead từ form website qua API (bảng
+`leads`)" ở trên: bảng dành cho lời hứa đó đã được dựng ở M10 với tên
+**`intake_requests`** (kèm bảng con `intake_parties`), không phải `leads` — vì một lần có
+người liên hệ qua điện thoại, Zalo hay gặp trực tiếp cũng cần một bản ghi, không riêng
+lead từ website (cột `source`, giá trị `website_form`). **API nhận lead vẫn để sau**: M10
+chỉ có màn hình nhập tay trong `/admin`, không có đường công khai nào. Form trên
+luatvukhang.com gửi thẳng vào hệ thống là một milestone riêng sau M10, chưa đánh số, và
+khi làm phải có route `POST` công khai riêng ngoài cả hai panel, honeypot, rate limit
+60 request/phút (§10.3), ô đồng ý xử lý dữ liệu **không đánh dấu sẵn**, và nội dung người
+gửi tự gõ được lưu vào vùng khoá, chỉ mở theo đúng §6.10 đính chính M10.
 
 **Đính chính 2026-10-04 (M12 Task 10).** "Ứng dụng di động" ở đoạn đầu mục này: bản 1.0 đã có app
 trên điện thoại dạng PWA (M12) — cài từ trình duyệt vào màn hình chính, mở trong cửa sổ riêng, nhận

@@ -7,16 +7,19 @@ use App\Enums\ChecklistItemStatus;
 use App\Enums\OutboundStatus;
 use App\Enums\Role;
 use App\Events\ChecklistItemRejected;
+use App\Exceptions\MatterChecklistReadOnly;
 use App\Listeners\SendChecklistItemRejectedNotification;
 use App\Mail\Client\DocumentRejected;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\MatterChecklistItem;
 use App\Models\OutboundMessage;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
 
@@ -237,31 +240,33 @@ it('sends nothing when the matter was cancelled before the job ran', function ()
 });
 
 /**
- * Rà soát cuối làn (I1): vụ ĐÃ ĐÓNG (`closed_at` khác null, KHÔNG xoá mềm) mà văn phòng còn để
- * trên cổng. Khách vẫn thấy vụ, vẫn nộp được (`DocumentPolicy::create` không hỏi `closed_at`), và
- * trang nộp đã hứa với họ một email nếu có gì chưa ổn (`portal_submit.done.body`) — nên thư từ chối
- * phải đi, cùng quyết định với `client.request_answered` và hai thư nội bộ của b0f98aa. Đường đi
- * qua màn hình được đo ở `SubmitDocumentTest` và `ChecklistRelationManagerTest`; ở đây đo đúng
- * câu hỏi của listener.
- *
- * Mutation probe: thêm lại `->open()` vào `NotifyClientOfChecklistItemRejected::notifiableMatter()`
- * — test này và test kế tiếp ĐỎ.
+ * Rà soát cuối làn M6 (I1) — VIẾT LẠI khi gộp M7 vào `main`. Bản M6 đo: vụ ĐÃ ĐÓNG mà văn phòng còn
+ * để trên cổng vẫn duyệt được, và lần từ chối gửi thư. M7 Task 3 (kế hoạch M7, "Sửa 2026-09-27 …
+ * Danh mục hồ sơ của vụ đã đóng" — việc M6.5 hoãn sang M7) quyết danh mục của vụ đã đóng là CHỈ ĐỌC:
+ * `ReviewChecklistItem` từ chối bằng `MatterChecklistReadOnly`, và cổng khách không nhận tệp mới cho
+ * vụ đã đóng (`MatterClosedForSubmission`). Trên vụ đã đóng không còn lần từ chối nào để báo: đầu mục
+ * giữ nguyên, không thư nào đi. Quyết định "listener KHÔNG đòi vụ còn mở" của M6 vẫn đúng và vẫn được
+ * đo ở test kế tiếp (vụ đóng giữa lúc sự kiện bắn và lúc job chạy).
  */
-it('emails the client when rejecting on a CLOSED matter the office left on the portal', function () {
+it('refuses to reject on a CLOSED matter the office left on the portal, so nothing is mailed', function () {
     Mail::fake();
     [$matter, $lawyer, $account, $item] = rejectableItemWithClientAccount();
     $matter->update(['closed_at' => now()->subDay(), 'is_published_to_portal' => true]);
 
     expect($account->can('view', $matter->fresh()))->toBeTrue();
 
-    rejectAsLawyer($item, $lawyer, rejectionReasonText());
+    expect(fn () => rejectAsLawyer($item, $lawyer, rejectionReasonText()))
+        ->toThrow(MatterChecklistReadOnly::class);
 
-    Mail::assertSent(DocumentRejected::class, 1);
-    Mail::assertSent(DocumentRejected::class, fn ($mail) => $mail->hasTo($account->email));
+    expect($item->fresh()->status)->toBe(ChecklistItemStatus::PendingReview);
+    Mail::assertNothingSent();
 });
 
 /**
- * Cùng quyết định, ở cửa sổ hàng đợi: vụ bị ĐÓNG giữa lúc sự kiện bắn và lúc job chạy. Sự kiện bị
+ * Quyết định "listener KHÔNG đòi vụ còn mở" (rà soát cuối làn M6, I1), ở cửa sổ hàng đợi: vụ bị ĐÓNG
+ * giữa lúc sự kiện bắn và lúc job chạy — lần từ chối đã xảy ra khi vụ còn mở, và khách vẫn thấy vụ
+ * trên cổng. Mutation probe: thêm lại `->open()` vào
+ * `NotifyClientOfChecklistItemRejected::notifiableMatter()` — test này ĐỎ. Sự kiện bị
  * `Event::fake()` chặn để listener không chạy lúc từ chối (nếu không, lần gọi tay dưới đây bị
  * `alreadyDelivered()` đếm là "đã gửi" vì một lý do KHÁC) — cùng khuôn
  * `NewClientDocumentNotificationTest`.
@@ -346,3 +351,39 @@ it('tells the lead lawyer in-app when the rejection mail fails for good', functi
     expect($notice)->not->toBeNull()
         ->and($notice->data['title'] ?? null)->toBe(__('matters.document_rejected_failed_notification.title'));
 });
+
+/**
+ * Gộp M7 vào `main` (PROGRESS "Ghi chú M7", Task 11, "Lúc gộp `main`"): "vụ còn trên cổng" lúc gửi
+ * được hỏi bằng ĐỊNH NGHĨA cổng của chính người nhận — `Gate::forUser($account)->allows('view',
+ * $matter)`, gồm điều kiện "chưa hết hạn tra cứu" của M7 Task 5 (R4) — không chỉ bằng cờ
+ * `is_published_to_portal`. Thư này cố ý không đòi vụ còn mở (`notifiableMatter()`), nên trước bản
+ * gộp nó vẫn đi khi lần từ chối được gửi MUỘN (hàng đợi, hoặc nút "Gửi lại" của nhật ký thư — cùng
+ * `eligibleRecipients()`) sau khi vụ đã đóng và hạn tra cứu đã qua: tài khoản khách còn hoạt động nhờ
+ * một vụ khác, và thư mang liên kết tới một trang trả 404. Câu trên màn hình
+ * (`hasEligibleRecipient()`) hỏi cùng câu. Vế dương: hôm nay là ngày tra cứu cuối thì thư vẫn đi.
+ */
+it('mails nothing about a closed matter whose client access has expired, but still mails on its last day', function (string $accessUntil, int $expected) {
+    $this->travelTo(Carbon::parse('2026-10-21 09:00:00'));
+    Event::fake([ChecklistItemRejected::class]);
+    [$matter, $lawyer, $account, $item] = rejectableItemWithClientAccount();
+    $matter->update(['is_published_to_portal' => true]);
+    $rejected = rejectAsLawyer($item, $lawyer, rejectionReasonText());
+
+    $matter->update(['closed_at' => '2026-07-22 10:00:00']);
+    MatterArchive::factory()->create(['matter_id' => $matter->id, 'client_access_until' => $accessUntil]);
+    // Vụ thứ hai của cùng khách, còn trên cổng: lý do tài khoản vẫn hoạt động.
+    Matter::factory()->create(['client_id' => $account->client_id, 'is_published_to_portal' => true]);
+
+    $notifier = app(NotifyClientOfChecklistItemRejected::class);
+
+    expect($notifier->eligibleRecipients($rejected->fresh()))->toHaveCount($expected)
+        ->and($notifier->hasEligibleRecipient($rejected->fresh()))->toBe($expected > 0);
+
+    Mail::fake();
+
+    expect($notifier->handle($rejected->fresh()))->toBe($expected);
+    Mail::assertSent(DocumentRejected::class, $expected);
+})->with([
+    'đã hết hạn tra cứu từ hôm nay' => ['2026-10-20', 0],
+    'hôm nay là ngày tra cứu cuối' => ['2026-10-21', 1],
+]);

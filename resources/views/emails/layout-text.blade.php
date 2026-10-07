@@ -13,16 +13,24 @@
     `->view([html, text])` thì không có bước đó. Nhân chứng: test "không để lẫn thực thể HTML
     nào vào bản văn bản thuần" ở `tests/Feature/Mail/EmailLayoutTest.php`.
 
-    Dòng trắng ở đây là chữ, không phải khoảng cách: chân thư dựng từ
-    `App\Support\BrandFooter::legalLines()` nên bốn thông tin pháp lý còn trống biến mất hẳn,
-    không để lại dòng rỗng nào.
+    Dòng trắng ở đây là chữ, không phải khoảng cách: mỗi dòng của chân thư chỉ in khi có giá trị
+    (tên pháp lý, hotline, website qua `App\Support\OfficeProfile`; bốn thông tin pháp lý qua
+    `App\Support\BrandFooter::legalLines()`), nên một thông tin còn trống biến mất hẳn, không để
+    lại dòng rỗng nào. Giá trị đọc LÚC RENDER (M7 Task 10) — xem `emails/layout.blade.php`.
 --}}
+@php($office = App\Support\OfficeProfile::current())
 @yield('content')
 --
-{!! config('vkcrm.brand.legal_name') !!}
-@foreach (App\Support\BrandFooter::legalLines() as $line)
+@if (filled($office->legalName()))
+{!! $office->legalName() !!}
+@endif
+@foreach (App\Support\BrandFooter::legalLines($office) as $line)
 {!! $line !!}
 @endforeach
-{!! __('emails.footer.hotline', ['value' => config('vkcrm.brand.hotline')]) !!}
-{!! __('emails.footer.website', ['value' => config('vkcrm.brand.website')]) !!}
+@if (filled($office->hotline()))
+{!! __('emails.footer.hotline', ['value' => $office->hotline()]) !!}
+@endif
+@if (filled($office->website()))
+{!! __('emails.footer.website', ['value' => $office->website()]) !!}
+@endif
 {!! __('emails.footer.automated') !!}

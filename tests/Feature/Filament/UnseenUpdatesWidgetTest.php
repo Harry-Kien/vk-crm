@@ -11,6 +11,7 @@ use App\Filament\Admin\Widgets\UnseenUpdatesWidget;
 use App\Models\Client;
 use App\Models\ClientUser;
 use App\Models\Matter;
+use App\Models\MatterArchive;
 use App\Models\StageLog;
 use App\Models\StageLogView;
 use App\Models\User;
@@ -150,6 +151,39 @@ it('still lists an entry on a closed matter, because SPEC does not exclude one',
     agedLog($this->matter, 9, 'Hồ sơ đã đóng');
 
     expect(unseenRows($this->lawyer))->toBe(['Hồ sơ đã đóng']);
+});
+
+/**
+ * Việc sau gộp M7 (làn fu2): điều kiện thứ năm của cổng — quá `client_access_until` thì vụ đã kết
+ * thúc rời cổng của khách (M7 Task 5, R4) mà cờ `is_published_to_portal` giữ nguyên. Khách không
+ * còn đường nào mở dòng đó, nên nó không phải một cuộc gọi. Cặp dương trên cùng dữ liệu: vụ đã kết
+ * thúc mà hôm nay còn là ngày tra cứu cuối vẫn hiện. Đi qua bảng Livewire thật.
+ *
+ * Mutation probe: bỏ `whereDoesntHave('archive', … clientAccessExpired())` khỏi
+ * `UnseenStageLogs::query()` — test này ĐỎ.
+ */
+it('never lists an entry on a closed matter whose client access window has passed, and still lists one on its last day', function () {
+    $this->travelTo(now()->startOfDay()->addHours(9));
+
+    $this->matter->update(['closed_at' => now()->subDays(30)]);
+    MatterArchive::factory()->create(['matter_id' => $this->matter->id, 'client_access_until' => today()->toDateString()]);
+    agedLog($this->matter, 9, 'Còn hạn tra cứu tới hết hôm nay');
+
+    $expired = Matter::factory()->for($this->client)->create([
+        'is_published_to_portal' => true,
+        'lead_lawyer_id' => $this->lawyer->id,
+        'closed_at' => now()->subDays(120),
+    ]);
+    MatterArchive::factory()->create(['matter_id' => $expired->id, 'client_access_until' => today()->subDay()->toDateString()]);
+    agedLog($expired, 9, 'Đã hết hạn tra cứu từ hôm qua');
+
+    expect(unseenRows($this->lawyer))->toBe(['Còn hạn tra cứu tới hết hôm nay']);
+
+    $this->actingAs($this->lawyer, 'web');
+
+    $this->livewire(UnseenUpdatesWidget::class)
+        ->assertSee('Còn hạn tra cứu tới hết hôm nay')
+        ->assertDontSee('Đã hết hạn tra cứu từ hôm qua');
 });
 
 // =========================================================================================

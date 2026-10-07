@@ -3,6 +3,7 @@
 namespace App\Mail\Staff;
 
 use App\Mail\BrandedMailable;
+use App\Support\OfficeProfile;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 
@@ -51,8 +52,11 @@ class BackupAlert extends BrandedMailable
         );
     }
 
+    /** Đọc thông tin văn phòng LÚC RENDER, không lúc xếp hàng — xem docblock `OfficeProfile`. */
     public function content(): Content
     {
+        $office = OfficeProfile::current();
+
         return new Content(
             view: 'emails.staff.backup-alert',
             text: 'emails.staff.backup-alert-text',
@@ -60,7 +64,7 @@ class BackupAlert extends BrandedMailable
                 'kind' => $this->kind,
                 'diskName' => $this->diskName,
                 'detail' => $this->detail,
-                'office' => config('vkcrm.brand.legal_name'),
+                'office' => $office->legalName(),
             ],
         );
     }

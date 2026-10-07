@@ -124,6 +124,27 @@ return [
         ],
 
         /*
+         * Cùng mẫu `client.document_published`, biến thể GÓI BÀN GIAO HỒ SƠ (việc sau gộp M7, làn
+         * fu2; SPEC §6.12 bước 4). Không câu nào nêu tên tài liệu — kể cả tiêu đề của gói. Bốn câu
+         * hạn tải (`download_until`, `download`, `view_only_until`, `view_only`) do
+         * `App\Mail\Client\DocumentPublished::handoverAccessLine()` chọn: có cho tải không, có hạn
+         * tra cứu (`client_access_until`) không. Hạn là NGÀY CUỐI khách còn xem được (M7 Task 5:
+         * vụ rời cổng từ 00:00 ngày hôm sau).
+         */
+        'handover_published' => [
+            'subject' => 'Hồ sơ :code: gói hồ sơ bàn giao đã sẵn sàng',
+            'greeting' => 'Kính gửi anh/chị :name,',
+            'line' => 'Văn phòng đã chuẩn bị gói hồ sơ bàn giao cho hồ sơ :code của anh/chị: các tài liệu của hồ sơ cùng tệp mục lục MUC-LUC.pdf, nén trong một tệp zip.',
+            'download_until' => 'Anh/chị đăng nhập cổng khách hàng để tải gói về và cất giữ. Hạn tải: hết ngày :date. Sau ngày này hồ sơ không còn trên cổng khách hàng.',
+            'download' => 'Anh/chị đăng nhập cổng khách hàng để tải gói về và cất giữ.',
+            'view_only_until' => 'Gói đã hiện trên cổng khách hàng tới hết ngày :date, nhưng văn phòng chưa mở quyền tải về. Anh/chị cần nhận tệp, xin liên hệ văn phòng.',
+            'view_only' => 'Gói đã hiện trên cổng khách hàng, nhưng văn phòng chưa mở quyền tải về. Anh/chị cần nhận tệp, xin liên hệ văn phòng.',
+            'open' => 'Mở cổng khách hàng',
+            'help' => 'Có điều gì chưa rõ, anh/chị gọi giúp văn phòng theo số :phone.',
+            'salutation' => 'Trân trọng, :office',
+        ],
+
+        /*
          * Mẫu `client.document_rejected` (SPEC §9, M6 Task 3). Cùng lý do tiêu đề không mang tên
          * đầu mục hay lý do — chỉ mã hồ sơ.
          */
