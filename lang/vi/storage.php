@@ -77,6 +77,7 @@ return [
         'log' => [
             'missing' => 'Đọc tệp hồ sơ: dòng media ghi tệp có mà nơi chứa không còn (kho trả 404, chỉ mục không có khoá, hay đĩa không mở được). Trả 404 cho người tải.',
             'checksum_mismatch' => 'Tải tệp từ kho về máy chủ: lệch md5 hoặc kích thước; không dùng bản tải về.',
+            'read_failed' => 'Tải tệp từ kho về máy chủ: kết nối tới kho hỏng giữa lúc đọc tệp; đã xoá bản tải dở.',
             'free_space_unknown' => 'Gói bàn giao: không đo được chỗ trống của ổ đĩa (hàm disk_free_space bị tắt hoặc không trả lời); bỏ qua bước kiểm chỗ trống.',
         ],
     ],

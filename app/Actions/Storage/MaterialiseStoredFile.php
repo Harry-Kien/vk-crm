@@ -7,6 +7,7 @@ use App\Exceptions\DocumentStorageMisconfigured;
 use App\Exceptions\DocumentStorageUnavailable;
 use App\Exceptions\StoredFileMissing;
 use App\Support\Storage\DocumentStore;
+use Exception;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -29,10 +30,21 @@ use Spatie\MediaLibrary\MediaCollections\Models\Media;
  *    {@see DocumentStorageUnavailable}: một lượt tải đứt giữa chừng là lỗi tạm, lần sinh lại sau đọc
  *    lại; một bản trên kho bị đổi thật sẽ lệch mãi, và `vkcrm:storage:verify` là nơi báo nó.
  *
+ * Kho hỏng GIỮA lúc đọc thân tệp (vòng sửa 1 của Task 4): mọi ngoại lệ của `feof`/`fread` trên luồng
+ * nguồn — cảnh báo của socket (TLS đứt) mà Laravel đổi thành `ErrorException`, hay ngoại lệ của một
+ * luồng khác — xoá bản tải dở, log `error` (mã media, khoá mờ, số byte đã đọc, LỚP của lỗi), rồi thành
+ * {@see DocumentStorageUnavailable}. (`RuntimeException` của `GuzzleHttp\Psr7\Stream::read()` không tới
+ * đây: `StreamWrapper` của Guzzle đổi nó thành `fread` trả `false`.) Một lần đọc trả `false` hay `''`
+ * — lỗi đã bị nuốt, hay luồng đứng vì hết `read_timeout` (R9) mà `feof` vẫn false — dừng vòng chép;
+ * bản tải về thiếu byte thì kiểm cỡ ở trên bắt. Không dựa vào `stream_get_meta_data()['timed_out']`:
+ * luồng của Drive là luồng userspace của Guzzle (`guzzle://stream`), cờ đó không phản ánh socket bên
+ * dưới.
+ *
  * Lỗi khác đi qua nguyên vẹn cho nơi gọi phân loại: {@see DocumentStorageUnavailable} và
- * {@see DocumentStorageMisconfigured} (kho sập, cấu hình hỏng); {@see StoredFileMissing} (kho trả 404
- * hay chỉ mục không có khoá — adapter ném `UnableToReadFile`). Lỗi GHI ở `$targetPath` (đĩa đầy) là
- * cảnh báo PHP, Laravel đổi thành `ErrorException`, cũng đi qua nguyên vẹn.
+ * {@see DocumentStorageMisconfigured} (kho sập, cấu hình hỏng lúc MỞ tệp); {@see StoredFileMissing} (kho
+ * trả 404 hay chỉ mục không có khoá — adapter ném `UnableToReadFile`). Lỗi GHI ở `$targetPath` (đĩa
+ * đầy) là cảnh báo PHP, Laravel đổi thành `ErrorException`, cũng đi qua nguyên vẹn: `fwrite` nằm ngoài
+ * khối bắt lỗi đọc.
  *
  * Không kiểm quyền: chỉ chạy trong job đã qua mọi cổng của gói bàn giao. Không chạy trong transaction:
  * đây là I/O mạng tới kho (R2).
@@ -69,12 +81,26 @@ final class MaterialiseStoredFile
         $target = fopen($targetPath, 'wb');
         $hash = hash_init('md5');
         $bytes = 0;
+        $readFailure = null;
 
         try {
-            while (! feof($source)) {
-                $chunk = fread($source, self::CHUNK_BYTES);
+            while (true) {
+                try {
+                    if (feof($source)) {
+                        break;
+                    }
 
-                if ($chunk === false) {
+                    $chunk = fread($source, self::CHUNK_BYTES);
+                } catch (Exception $exception) {
+                    $readFailure = $exception;
+
+                    break;
+                }
+
+                // Lỗi đọc mà luồng nuốt (`false`), hay luồng ĐỨNG: hết `read_timeout` trả '' mà `feof`
+                // vẫn false — quay tiếp chỉ chờ thêm 60 giây mỗi vòng tới hết giờ của job. Thoát cả
+                // hai; kiểm cỡ và md5 dưới đây quyết định bản tải về dùng được hay không.
+                if ($chunk === false || $chunk === '') {
                     break;
                 }
 
@@ -85,6 +111,19 @@ final class MaterialiseStoredFile
         } finally {
             fclose($source);
             fclose($target);
+        }
+
+        if ($readFailure !== null) {
+            File::delete($targetPath);
+
+            Log::error(__('storage.read.log.read_failed'), [
+                'media_id' => $media->getKey(),
+                'key' => $key,
+                'size' => $bytes,
+                'exception' => $readFailure::class,
+            ]);
+
+            throw DocumentStorageUnavailable::temporarily($readFailure);
         }
 
         $md5 = hash_final($hash);

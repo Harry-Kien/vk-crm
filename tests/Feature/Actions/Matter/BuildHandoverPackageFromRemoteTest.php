@@ -3,6 +3,7 @@
 use App\Actions\Matter\BuildHandoverPackage;
 use App\Actions\Matter\RecordHandoverPackageFailure;
 use App\Actions\Matter\RequestHandoverPackage;
+use App\Actions\Storage\MaterialiseStoredFile;
 use App\Enums\DocumentGroup;
 use App\Enums\DocumentStatus;
 use App\Enums\DriveObjectRetirement;
@@ -27,7 +28,11 @@ use App\Models\User;
 use App\Support\Files\FreeSpace;
 use App\Support\Storage\DocumentStore;
 use Database\Seeders\RolesAndPermissionsSeeder;
+use GuzzleHttp\Promise\PromiseInterface;
+use GuzzleHttp\Psr7\FnStream;
+use GuzzleHttp\Psr7\Utils;
 use Illuminate\Contracts\Filesystem\Factory as FilesystemFactory;
+use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
@@ -360,6 +365,104 @@ it('kho sập thật (Google trả 503 hết lượt thử) lúc tải về: sto
     expect(fn () => hrBuild($this))->toThrow(HandoverPackageFailed::class, __('handover.storage_failures.unavailable'));
 
     expect(hrPackages())->toBe(0)->and(hrWorkRootIsEmpty())->toBeTrue();
+});
+
+/**
+ * Thân `GET …alt=media` của adapter Drive thật: trả `$first` byte đầu ở lần đọc thứ nhất, rồi ở mọi lần
+ * đọc sau gọi `$then` — đúng chỗ một luồng Guzzle thật hỏng khi kết nối đứt hay `read_timeout` (R9)
+ * chạm giữa lúc tải một tệp lớn. Lần đọc đầu đi qua để lỗi rơi vào GIỮA vòng chép, không ở lúc mở.
+ */
+function hrBrokenBody(string $content, int $first, Closure $then): PromiseInterface
+{
+    $inner = Utils::streamFor($content);
+    $reads = 0;
+
+    return HttpFactory::response(FnStream::decorate($inner, [
+        'read' => function (int $length) use ($inner, $first, $then, &$reads): string {
+            return ++$reads === 1 ? $inner->read(min($length, $first)) : $then($inner, $length);
+        },
+    ]), 200, ['Content-Type' => 'application/pdf']);
+}
+
+it('kho đứt GIỮA lúc đọc thân tệp (luồng Guzzle ném khi đang tải): storageUnavailable, bản tải dở và thư mục làm việc bị xoá', function (Closure $failure) {
+    $first = hrDocument($this->matter, DocumentGroup::Authority, DocumentStatus::SignedFiled, 'Bản án sơ thẩm', 'BAN-AN-SO-THAM');
+    $second = hrDocument($this->matter, DocumentGroup::Issued, DocumentStatus::SignedFiled, 'Đơn khởi kiện', 'DON-KHOI-KIEN');
+    $drive = RemoteDocuments::bindRealDriveAdapter([$first->getFirstMedia('file'), $second->getFirstMedia('file')]);
+
+    // Tệp đầu tải trọn; thân của tệp thứ hai đọc được 4 byte rồi hỏng.
+    $drive->respondNext('GET', 'alt=media', fn () => hrBrokenBody('DON-KHOI-KIEN', 4, $failure), after: 1);
+
+    (new GenerateHandoverPackage($this->matter->id, $this->token))
+        ->handle(app(BuildHandoverPackage::class), app(RecordHandoverPackageFailure::class));
+
+    $archive = $this->archive->fresh();
+
+    expect($archive->handover_status)->toBe(HandoverPackageStatus::Failed)
+        ->and($archive->handover_error)->toBe(__('handover.storage_failures.unavailable'))
+        ->and(hrPackages())->toBe(0)
+        ->and(hrWorkRootIsEmpty())->toBeTrue();
+})->with([
+    // `GuzzleHttp\Psr7\Stream::read()` khi `fread` trả false.
+    'Guzzle: Unable to read from stream' => fn () => throw new RuntimeException('Unable to read from stream'),
+    // Cảnh báo PHP của socket (TLS đứt), Laravel đổi thành ErrorException — không phải lỗi GHI ở thư mục làm việc.
+    'cảnh báo socket thành ErrorException' => fn () => throw new ErrorException('fread(): SSL: Connection reset by peer'),
+]);
+
+it('MaterialiseStoredFile: lỗi đọc giữa thân tệp xoá bản tải dở, log lớp lỗi (không thông điệp), ném DocumentStorageUnavailable giữ lỗi gốc', function () {
+    $document = hrDocument($this->matter, DocumentGroup::Authority, DocumentStatus::SignedFiled, 'Bản án', 'BAN-AN-SO-THAM');
+    $drive = RemoteDocuments::bindRealDriveAdapter([$document->getFirstMedia('file')]);
+    $media = $document->getFirstMedia('file')->refresh();
+    $target = $this->workRoot.'/src/01';
+
+    $drive->respondNext('GET', 'alt=media', fn () => hrBrokenBody('BAN-AN-SO-THAM', 4, fn () => throw new ErrorException('fread(): SSL: Connection reset by peer')));
+
+    Log::spy();
+
+    try {
+        app(MaterialiseStoredFile::class)->handle($media, $target);
+        $thrown = null;
+    } catch (Throwable $exception) {
+        $thrown = $exception;
+    }
+
+    expect($thrown)->toBeInstanceOf(DocumentStorageUnavailable::class)
+        ->and($thrown->getPrevious())->toBeInstanceOf(ErrorException::class)
+        ->and(file_exists($target))->toBeFalse();
+
+    Log::shouldHaveReceived('error')->withArgs(fn (string $message, array $context = []): bool => $message === __('storage.read.log.read_failed')
+        && $context === ['media_id' => $media->id, 'key' => $media->getPathRelativeToRoot(), 'size' => 4, 'exception' => ErrorException::class])->once();
+});
+
+it('luồng tải về đứng (read_timeout: đọc ra rỗng mà chưa hết tệp): thoát vòng chép, kiểm cỡ bắt, storageUnavailable', function () {
+    $document = hrDocument($this->matter, DocumentGroup::Authority, DocumentStatus::SignedFiled, 'Bản án', 'BAN-AN-SO-THAM');
+    $drive = RemoteDocuments::bindRealDriveAdapter([$document->getFirstMedia('file')]);
+
+    // Hết `read_timeout` trên socket: `fread` trả '' và `feof` vẫn false — mãi mãi. Chốt chặn 50 lần đọc
+    // rỗng để test đỏ thay vì treo tới hết `$timeout` của job nếu vòng chép không thoát.
+    $empty = 0;
+    $stalled = function () use (&$empty): string {
+        if (++$empty > 50) {
+            throw new LogicException('vòng chép quay mãi trên luồng đứng');
+        }
+
+        return '';
+    };
+    $drive->respondNext('GET', 'alt=media', fn () => hrBrokenBody('BAN-AN-SO-THAM', 3, $stalled));
+
+    Log::spy();
+
+    (new GenerateHandoverPackage($this->matter->id, $this->token))
+        ->handle(app(BuildHandoverPackage::class), app(RecordHandoverPackageFailure::class));
+
+    $archive = $this->archive->fresh();
+
+    expect($archive->handover_status)->toBe(HandoverPackageStatus::Failed)
+        ->and($archive->handover_error)->toBe(__('handover.storage_failures.unavailable'))
+        ->and($empty)->toBe(1)
+        ->and(hrPackages())->toBe(0)
+        ->and(hrWorkRootIsEmpty())->toBeTrue();
+
+    Log::shouldHaveReceived('error')->withArgs(fn (string $message, array $context = []): bool => $message === __('storage.read.log.checksum_mismatch') && ($context['size'] ?? null) === 3)->once();
 });
 
 it('kho nói không có tệp lúc tải về (chỉ mục còn ghi): missingFile nêu đúng tiêu đề, không tài liệu', function () {
