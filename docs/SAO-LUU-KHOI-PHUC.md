@@ -641,12 +641,12 @@ Kiểm ba remote: `rclone lsd vkkho:` (thấy các thư mục tháng `YYYY-MM`),
 3. Lịch:
    - **Windows** (Task Scheduler), hai tác vụ, "Run whether user is logged on or not", dưới
      `vkcrm-saoluu`. Chương trình `C:\Program Files\Git\bin\bash.exe`; đối số
-     `-lc "/d/VKCRM-saoluu/office-pull.sh"` mỗi ngày lúc 01:00, và
-     `-lc "/d/VKCRM-saoluu/office-pull.sh --check-monthly"` ngày 1 hằng tháng lúc 04:00.
+     `-lc "bash /d/VKCRM-saoluu/office-pull.sh"` mỗi ngày lúc 01:00, và
+     `-lc "bash /d/VKCRM-saoluu/office-pull.sh --check-monthly"` ngày 1 hằng tháng lúc 04:00.
    - **Linux** (crontab của `vkcrm-saoluu`):
      ```
-     0 1 * * * /srv/vkcrm-saoluu/office-pull.sh
-     0 4 1 * * /srv/vkcrm-saoluu/office-pull.sh --check-monthly
+     0 1 * * * /bin/bash /srv/vkcrm-saoluu/office-pull.sh
+     0 4 1 * * /bin/bash /srv/vkcrm-saoluu/office-pull.sh --check-monthly
      ```
 
 Mỗi đêm script:
