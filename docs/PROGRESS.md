@@ -4891,6 +4891,13 @@ gian xử lý theo loại vụ". Danh sách đó nằm ở ghi chú của M6.5 n
   của người phụ trách là "Không áp dụng"; (6) A hoàn thành hôm nay một mốc lỡ của tháng trước qua
   `SetDeadlineCompletion`: mọi dòng của "Hiệu suất" tháng trước không đổi. Đi bằng test thay cho trình duyệt: test
   chạy lại được trên mọi bản sau.
+- **Vòng sửa 1 (I1, lỗi lịch):** mốc "quá hạn mấy ngày nay" của vụ `restricted` từng đến hạn `today() - 3` — ngày
+  1–3 mỗi tháng nó rơi vào "tháng trước", thành mốc lỡ thứ hai của vụ đó, và A tự xem thấy 4 mốc lỡ (bước 3 đỏ ba
+  ngày mỗi tháng, cùng loại với 21 test đỏ ngày cuối tháng của M9). Nay mốc đó đến hạn `max(today() - 3, ngày 1 tháng
+  này)`: luôn trong tháng này, quá hạn từ ngày 2 (ngày 1 thì đến hạn hôm nay); vụ vẫn có mốc quá hạn là mốc lỡ tháng
+  trước. "A tự xem thấy 3 mốc lỡ" đúng vào mọi ngày. Test `tests/Feature/Performance/DemoCalendarBoundaryTest.php`
+  dựng lại dữ liệu mẫu đúng ngày 1 (Chủ nhật), 2, 3, ngày cuối tháng và ngày 1/3 sau tháng Hai, đọc số qua trang
+  "Hiệu suất"; `DemoWalkthroughTest` và `TeamPerformanceSeederTest` cũng chạy xanh khi dời đồng hồ sang năm ngày đó.
 - **Tài liệu:** `docs/CAI-DAT.md` (Bước 5 "Bản cập nhật M13", ghi chú tài khoản nghỉ việc của dữ liệu mẫu, quyền M13
   ở "Nâng cấp lên bản mới"; `InstallGuideM13UpgradeTest` đọc chính đoạn đó so với mã — tên migration, quyền, lịch
   23:50, 25 tháng — và đo "chưa `db:seed --force` thì không ai thấy Theo dõi đội ngũ"), `docs/QUY-TRINH.md` (mục

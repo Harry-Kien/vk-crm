@@ -48,8 +48,10 @@ use RuntimeException;
  *  - **Luật sư A** (`luatsu1`, {@see self::LAWYER_A_EMAIL}) — "người có mốc lỡ": vụ thường quá hạn cập nhật
  *    cho khách (cùng vụ 1 của `MatterSeeder` là HAI vụ thường quá hạn), tháng trước 2 mốc đúng hạn, 1 trễ,
  *    2 lỡ (còn quá hạn tới nay), một yêu cầu trả lời chậm (hơn một ngày), một yêu cầu đóng không trả lời (P10);
- *    và một vụ `restricted` đã bật cổng, quá hạn cập nhật, có một mốc lỡ tháng trước và một mốc quá hạn
- *    mấy ngày nay — trưởng phòng không thấy vụ này, A và quản trị viên thấy (R4).
+ *    và một vụ `restricted` đã bật cổng, quá hạn cập nhật, có một mốc lỡ tháng trước (còn quá hạn tới nay)
+ *    và một mốc đến hạn trong THÁNG NÀY, ba ngày trước nhưng không trước ngày 1 (ngày 2–3 của tháng: quá hạn
+ *    từ ngày 1; ngày 1: đến hạn hôm nay) — nên A tự xem thấy đúng 3 mốc lỡ của tháng trước vào MỌI ngày trong
+ *    tháng; trưởng phòng không thấy vụ này, A và quản trị viên thấy (R4).
  *  - **Luật sư Hà** (`luatsu2`) — "đúng hạn đều": 5 mốc tháng trước đều xong trong ngày; trả lời khách nhanh;
  *    trợ lý Lan giữ 2 mốc đúng hạn của vụ đó, trợ lý Tùng được giao một yêu cầu và trả lời nó.
  *  - **Luật sư nghỉ việc** ({@see self::DEPARTED_EMAIL}) — tháng trước có 1 mốc đúng hạn, 1 mốc LỠ, trả lời 2
@@ -185,7 +187,10 @@ class TeamPerformanceSeeder extends Seeder
         $restricted = $this->matter($lawyer, $restrictedClient, 'Tư vấn tái cấu trúc nợ — hồ sơ hạn chế truy cập', 2, stale: true, confidentiality: Confidentiality::Restricted);
 
         $this->deadline($restricted, $lawyer, 'Gửi phương án cơ cấu nợ cho chủ nợ', 12);
-        $this->deadline($restricted, $lawyer, 'Phản hồi đề nghị của ngân hàng', today()->subDays(3)->toImmutable());
+        // Mốc "quá hạn mấy ngày nay" luôn đến hạn trong THÁNG NÀY: ba ngày trước, nhưng không trước ngày 1. Ngày
+        // 1–3 của tháng, `today() - 3` rơi vào tháng trước và thành mốc lỡ thứ hai của vụ này (A tự xem thấy 4).
+        // Ngày 1 thì mốc đến hạn đúng hôm nay — chưa quá hạn; vụ vẫn có mốc quá hạn là mốc lỡ tháng trước.
+        $this->deadline($restricted, $lawyer, 'Phản hồi đề nghị của ngân hàng', today()->subDays(3)->max(today()->startOfMonth())->toImmutable());
     }
 
     /** Luật sư Hà: mọi mốc xong trong ngày, trả lời nhanh; hai trợ lý giữ việc trên cùng vụ. */
