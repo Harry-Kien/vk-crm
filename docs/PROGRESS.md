@@ -5298,3 +5298,94 @@ sót, tương đương: bỏ `$user instanceof User` ở `AiAcknowledgementPolic
 spatie nào nên `can('settings.manage')` vốn sai. Cả bộ (`--parallel --processes=2`): EXIT 0 — 5869 passed (5783 +
 86), 1 risky, 33 skipped như baseline sau gộp main. MariaDB (bảy tệp MCP và sáu tệp người dùng/nhật ký/cổng khách,
 tuần tự): 453 passed. Vòng migration thật (`seed`, `migrate:reset`, `migrate`): EXIT 0. `pint --test`: PASS 1153 tệp.
+
+### Task 4 — đăng nhập và màn hình đồng ý OAuth (2026-10-04)
+
+**Đã có, kèm test** (`tests/Feature/Mcp/AuthorizeScreenTest.php`, mọi test qua HTTP thật, màn hình THẬT — không
+có màn hình thay tạm nào trong tệp này; chuỗi đăng nhập qua trang đăng nhập Livewire thật của `/admin` kèm mã 2FA):
+- **Màn hình** `resources/views/mcp/authorize.blade.php` (viết mới, không publish view của Passport), dựng bởi
+  `App\Http\Responses\Mcp\ConsentScreenResponse` — app bind lớp này cho `AuthorizationViewResponse` của Passport.
+  Hiện nền tảng suy từ HOST của redirect URI của chính yêu cầu (`App\Enums\McpPlatform`: Claude, ChatGPT, VS Code,
+  Cursor, Antigravity, "Ứng dụng trên máy tính này" cho loopback, "Ứng dụng khác" cho URI thêm qua
+  `MCP_EXTRA_REDIRECT_URIS`; so host CHÍNH XÁC qua `https`, loopback qua `http`) cùng chính host đó (kèm cổng),
+  cảnh báo riêng khi redirect là loopback (và khi là "Ứng dụng khác"), câu "AI sẽ hành động với danh nghĩa và quyền
+  của anh/chị", tài khoản, chế độ (`ai_access`; "Đọc và ghi" kèm lời nhắc khi `mcp.write_enabled` tắt), đường dẫn
+  tới chính sách (trang "Kết nối AI của tôi" của Task 15, slug `McpEndpoint::MY_AI_CONNECTIONS_SLUG`). Không bao giờ
+  in `client_name` (view không nhận đối tượng client). Không script nào; kiểu dáng nội tuyến trên biến CSS của
+  Filament có giá trị dự phòng (như trang 404).
+- **Từ chối** (403, câu lý do, KHÔNG có nút "Đồng ý"; nút "Từ chối" còn để client AI nhận `access_denied` ngay) theo
+  `McpAccess::consentRefusal()`: không phải nhân sự (`ClientUser` lọt vào guard `web`) → tài khoản vô hiệu hoá hay
+  xoá mềm → chưa có secret 2FA (cổng 2FA của Filament không đứng trước `/oauth/authorize`; cùng luật với
+  `DocumentDownloadController::actor()`) → năm lý do của `McpAccess::refusal()` (R2: `ai_access = off`, vai không có
+  `matter.view`, công tắc `mcp.enabled` tắt, chưa cam kết R12 đúng phiên bản). Phiên cổng khách (guard `client`) là
+  khách vãng lai với guard `web` của Passport: về trang đăng nhập `/admin`.
+- **Không bao giờ tự duyệt** (rà soát Task 2 m7, Task 5 I1 và m2): `App\Http\Controllers\Mcp\ConsentAuthorizationController`
+  (app bind thay `AuthorizationController` của Passport) trả `false` ở `hasGrantedScopes()`, nên với MỌI client
+  (DCR, CIMD, `passport:client`) người đã có token còn hạn vẫn thấy màn hình, và `prompt=none` nhận
+  `consent_required` (kèm `iss`). Hai test cũ ghim nhánh tự duyệt được viết lại: `OAuthMetadataTest` (iss) hỏi
+  `prompt=none`, vế đối chứng DCR của `ClientIdMetadataDocumentTest` giờ đòi màn hình.
+- **"Đồng ý"** (`ApproveConsentController`): `auth_token` dùng một lần của Passport; yêu cầu trong phiên phải thuộc
+  ĐÚNG người đang bấm (bước của gói không so lại — `ConsentRequest::belongsTo()`); kiểm lại mọi điều kiện từ chối ở
+  lúc bấm (403, không form, không mã); cấp mã và ghi `mcp_connection_authorized` trong MỘT transaction (nhật ký hỏng
+  thì mã vừa lưu cũng không còn — có test). **"Từ chối"** (`DenyConsentController`): cùng phép so người, ghi
+  `mcp_connection_denied` lý do `user` rồi để league chuyển hướng `access_denied`.
+- **Nhật ký** `App\Actions\Mcp\RecordMcpConnectionDecision`: chủ thể và causer là chính tài khoản, tường minh;
+  `oauth_client_id`, `platform`, `redirect_host`, cộng `mode` (đồng ý) hay `reason` (`user` hoặc giá trị
+  `McpAccessRefusal`). Màn hình từ chối ở GET cũng ghi một dòng `mcp_connection_denied`. Không `client_name`,
+  `state`, `code_challenge`, URL đầy đủ. Nhãn ở `lang/vi/activity.php`.
+- **Đăng nhập**: `bootstrap/app.php` đưa khách vãng lai ở mọi route `passport.*` về `McpEndpoint::staffLoginUrl()`
+  (trước đây `route('login')` không tồn tại → lỗi 500); `redirect()->guest()` cất URL `/oauth/authorize` đầy đủ, và
+  chuỗi mật khẩu → mã 2FA → quay lại giữ nguyên `code_challenge` và `state`, đồng ý xong đổi được token (test).
+- **CSP**: `ContentSecurityPolicy::allowFormActionTo()` mở `form-action` tới ĐÚNG origin của redirect URI của yêu
+  cầu, chỉ cho phản hồi của request đó (thuộc tính của request, `SendSecurityHeaders` đọc lúc dựng header), chỉ
+  khi trang có form; origin phải khớp `http(s)://host[:cổng]` chữ thường (ký tự đại diện, đường dẫn, chỉ thị chèn
+  thêm, host IPv6 đều bị bỏ, lọc lại cả lúc dựng header). Chống nhúng (`X-Frame-Options: DENY`,
+  `frame-ancestors 'none'`) là header toàn cục sẵn có, test ghim trên màn hình. **Đo bằng Chromium** (bản chạy của
+  làn, `CSP_MODE=enforce`, 2026-10-05): khách vãng lai → `/admin/login` → mật khẩu → mã 2FA → quay lại đúng
+  `/oauth/authorize` đủ tham số; khi tạm bỏ lời gọi mở `form-action`, bấm "Đồng ý" bị chặn ("violates … form-action
+  'self'"), máy chủ vẫn đã cấp mã và ghi nhật ký nhưng mã không tới được client; với mã thật, trình duyệt sang
+  `http://127.0.0.1:53682/callback?code=…&state=…&iss=…`, không vi phạm CSP nào. Firefox/Safari và callback `https`
+  của Claude/ChatGPT chưa đo — nghiệm thu thật ở Task 17.
+- **`ADMIN_IP_ALLOWLIST`** phủ ba route `/oauth/authorize` (`RestrictConsentScreenToAdminIps`, đầu
+  `passport.middleware`, gọi lại nguyên `RestrictAdminIpAllowlist`: 404), KHÔNG phủ `/oauth/token`.
+- **Phiên có trước lần đổi mật khẩu** (rà soát Task 6, m1): `AuthenticateSession` của Laravel ở cuối
+  `passport.middleware`; nó nằm trong danh sách ưu tiên nên được xếp sau `StartSession` (test ghim thứ tự thật của
+  route). Phiên mang dấu của mật khẩu cũ bị đăng xuất ở GET và ở POST "Đồng ý", không mã.
+- **Rà soát Task 6, m6**: `McpAccessRefusal::NoMatterView` tách khỏi `AiAccessOff` (nhãn riêng; `/mcp` vẫn 401 như
+  cũ). Thêm `NotStaff`, `TwoFactorNotSetUp` cho màn hình. Nhãn lý do đổi xưng hô sang "anh/chị" cho khớp màn hình.
+- Chuỗi giao diện ở tệp mới `lang/vi/mcp_consent.php`; nhãn enum ở khối riêng của `enums.php` (giảm đụng độ với làn
+  m11b).
+
+**Phán quyết trong task:**
+- **Không tự duyệt cho mọi client**, không chỉ CIMD — theo cấu trúc (`hasGrantedScopes()`), không theo chuỗi
+  `prompt`. Hệ quả: mỗi lần client chạy lại luồng uỷ quyền (khi refresh token hết hay bị thu hồi), nhân sự bấm
+  "Đồng ý" một lần nữa, và lần đó có nhật ký. `RequireConsentForMetadataDocumentClients` (Task 5) giữ làm lớp thứ hai.
+- **Màn hình từ chối vẫn có nút "Từ chối"** (yêu cầu còn trong phiên), để client AI không treo; bước "Đồng ý" kiểm
+  lại nên giữ yêu cầu trong phiên không mở thêm gì (test POST ép tay cho từng lý do).
+- **Phán quyết controller áp nguyên văn**: `form-action` chỉ mở tới đúng origin redirect của yêu cầu đó;
+  `ADMIN_IP_ALLOWLIST` áp cho `/oauth/authorize`; màn hình từ chối khi công tắc toàn hệ thống tắt.
+- **`AuthenticateSession` trên route Passport**, không bật `authenticateSessions()` cho cả nhóm `web` (nhóm đó còn
+  phủ request Livewire của cổng khách).
+
+**Lệch và khoảng hở:**
+- **IPv6 loopback `[::1]`**: cú pháp nguồn của CSP không có host IPv6, nên `form-action` giữ `'self'` và trình duyệt
+  có thể chặn chuyển hướng sau khi bấm. Claude Code dùng `localhost` / `127.0.0.1`.
+- **Tách tên miền**: khách vãng lai về trang đăng nhập trên tên miền quản trị, cùng host với `authorization_endpoint`
+  của metadata (test). Client gọi `/oauth/authorize` trên một host khác metadata thì URL "intended" nằm ở phiên của
+  host đó và mất sau đăng nhập — mọi client dùng endpoint của metadata.
+- Câu "mọi lần gọi đều được ghi nhật ký" trên màn hình thành sự thật ở Task 8 (audit `mcp_tool_called`), task kế
+  tiếp của làn này. Đường dẫn chính sách trỏ tới trang của Task 15 (chưa có trang nào ở slug đó cho tới Task 15).
+- Màn hình GET hiện cho người đã đăng nhập nào cũng ghi một dòng nhật ký khi từ chối; tải lại trang là một dòng nữa.
+
+**Bàn giao:**
+- **Task 8:** nền tảng của nhật ký `mcp_tool_called` lấy từ `McpPlatform::fromRedirectUri()` (redirect URI đầu của
+  dòng `oauth_clients` của token) — một định nghĩa cho cả hai nhật ký.
+- **Task 15:** trang "Kết nối AI của tôi" khai slug `McpEndpoint::MY_AI_CONNECTIONS_SLUG`; danh sách kết nối hiện
+  nền tảng bằng `McpPlatform` + host, không bao giờ `client_name` một mình.
+- **Task 16:** tài liệu nói rằng mỗi lần kết nối lại đều có màn hình đồng ý; trang đăng nhập; giới hạn `[::1]`.
+
+**Kiểm chứng (2026-10-04 → 2026-10-07).** ĐỎ trước khi cài (mã của task cất đi, test giữ nguyên): 59 failed, 255
+passed. 36 mutation probe (M01–M35 cộng M27b), 35 đỏ; M27 (host trang đăng nhập khi tách tên miền) sống ở lần đầu nên
+test được siết lại và M27b đỏ. Cả bộ (`--parallel --processes=2`): EXIT 0 — 5937 passed (5869 + 68), 1 risky, 33
+skipped như baseline. Chạy lại 16 tệp liên quan sau khi tiếp tục làn: 554 passed. MariaDB (tám tệp đã chạm, tuần tự): 389
+passed. `pint --test`: PASS 1163 tệp. Task không có migration.

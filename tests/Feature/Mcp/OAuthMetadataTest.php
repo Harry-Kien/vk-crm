@@ -321,16 +321,23 @@ it('R7 iss: từ chối trên màn hình đồng ý (DELETE) chuyển hướng v
         ->and($redirect)->not->toHaveKey('code');
 });
 
-it('R7 iss: nhánh Passport tự duyệt ngay ở GET (người dùng đã có token còn hạn cho client đó) cũng mang iss', function () {
+/*
+ * Nhánh Passport tự duyệt ngay ở GET không còn từ Task 4
+ * (`App\Http\Controllers\Mcp\ConsentAuthorizationController`, AuthorizeScreenTest): người đã có token
+ * còn hạn cho client đó vẫn thấy màn hình đồng ý. Chuyển hướng duy nhất ở GET cho người đó mà không
+ * qua màn hình là lỗi `consent_required` của `prompt=none` — và nó cũng mang `iss`.
+ */
+it('R7 iss: prompt=none với người đã có token còn hạn cho client đó nhận consent_required (không còn tự duyệt, Task 4), mang iss', function () {
     $user = oauthMetaLawyer();
     $client = McpOAuth::client();
     McpOAuth::issueTokens($this, $user, $client);
     McpOAuth::useConsentStandIn();
 
-    ['response' => $response] = oauthMetaAuthorize($user, $client);
+    ['response' => $response] = oauthMetaAuthorize($user, $client, ['prompt' => 'none']);
     $redirect = oauthMetaRedirectQuery($response);
 
-    expect($redirect)->toHaveKey('code')
+    expect($redirect['error'])->toBe('consent_required')
+        ->and($redirect)->not->toHaveKey('code')
         ->and($redirect['iss'])->toBe(OAUTH_META_ORIGIN);
 });
 

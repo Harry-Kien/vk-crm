@@ -10,12 +10,13 @@ use App\Http\Middleware\Mcp\EnsureMcpAccess;
 use App\Mcp\Tools\Concerns\CrmTool;
 use App\Models\AiAcknowledgement;
 use App\Models\User;
+use Illuminate\Contracts\Auth\Authenticatable;
 
 /**
  * MỘT định nghĩa của "người này dùng được máy chủ MCP lúc này không, và ghi được không" (M11 R2, R12,
  * R13). Mọi nơi hỏi câu đó hỏi ở đây: {@see EnsureMcpAccess} (mỗi request `/mcp`), lớp tool cơ sở
  * {@see CrmTool} và bước gọi tool (`App\Mcp\Methods\CrmToolInvoker`) cho quyền ghi, màn hình đồng ý
- * OAuth (Task 4) và màn hình "Kết nối AI" (Task 15).
+ * OAuth (Task 4, {@see self::consentRefusal()}) và màn hình "Kết nối AI" (Task 15).
  *
  * Kiểm ở mỗi lần hỏi, không lúc cấp token [DC:149]: công tắc và lời cam kết đọc lại CSDL mỗi lần;
  * trạng thái của người (`is_active`, xoá mềm, `ai_access`, vai) đọc trên đối tượng `User` truyền vào —
@@ -32,11 +33,14 @@ final class McpAccess
      * khi được dùng:
      *
      *  1. {@see McpAccessRefusal::Inactive} — tài khoản bị vô hiệu hoá hoặc đã xoá mềm;
-     *  2. {@see McpAccessRefusal::AiAccessOff} — `users.ai_access` là `off`, HOẶC người đó không còn
-     *     giữ được quyền AI ({@see self::canHold()}: thiếu `matter.view`, ví dụ một nhân sự thành kế
-     *     toán qua một đường nào đó không đi qua trang sửa nhân sự);
-     *  3. {@see McpAccessRefusal::ServerDisabled} — công tắc `mcp.enabled` tắt ({@see McpSwitches});
-     *  4. {@see McpAccessRefusal::PolicyNotAcknowledged} — chưa cam kết chính sách dùng AI đúng
+     *  2. {@see McpAccessRefusal::AiAccessOff} — `users.ai_access` là `off`;
+     *  3. {@see McpAccessRefusal::NoMatterView} — `ai_access` còn bật nhưng người đó không còn giữ được
+     *     quyền AI ({@see self::canHold()}: thiếu `matter.view`, ví dụ một nhân sự thành kế toán qua một
+     *     đường nào đó không đi qua trang sửa nhân sự). Tách khỏi lý do 2 ở Task 4 (rà soát Task 6, m6)
+     *     vì màn hình đồng ý hiện nhãn của lý do cho chính người đó, và "quản trị chưa bật" là câu sai
+     *     khi quản trị đã bật;
+     *  4. {@see McpAccessRefusal::ServerDisabled} — công tắc `mcp.enabled` tắt ({@see McpSwitches});
+     *  5. {@see McpAccessRefusal::PolicyNotAcknowledged} — chưa cam kết chính sách dùng AI đúng
      *     phiên bản hiện hành ({@see self::hasAcknowledgedCurrentPolicy()}).
      *
      * Hai điều kiện còn lại của R2 không ở đây vì chúng thuộc về TOKEN, không thuộc về người: client
@@ -48,8 +52,12 @@ final class McpAccess
             return McpAccessRefusal::Inactive;
         }
 
-        if ($user->ai_access === AiAccessMode::Off || ! self::canHold($user)) {
+        if ($user->ai_access === AiAccessMode::Off) {
             return McpAccessRefusal::AiAccessOff;
+        }
+
+        if (! self::canHold($user)) {
+            return McpAccessRefusal::NoMatterView;
         }
 
         if (! McpSwitches::enabled()) {
@@ -61,6 +69,38 @@ final class McpAccess
         }
 
         return null;
+    }
+
+    /**
+     * Lý do ĐẦU TIÊN khiến tài khoản của phiên `web` này không được đồng ý một kết nối AI MỚI ở màn
+     * hình `/oauth/authorize` (Task 4), hoặc `null` khi được:
+     *
+     *  1. {@see McpAccessRefusal::NotStaff} — không phải nhân sự (`User`). Guard `web` mà Passport hỏi
+     *     (`config/passport.php`) chỉ nạp được `users`, nên một phiên cổng khách là khách vãng lai ở đây
+     *     và bị đưa về trang đăng nhập `/admin`; dòng này đóng mọi đường còn lại (một `ClientUser` lọt
+     *     vào guard `web` bằng bất kỳ cách nào), vì Passport gắn mã uỷ quyền theo SỐ id của người đó;
+     *  2. {@see McpAccessRefusal::Inactive} — như {@see self::refusal()}, nhưng hỏi trước 2FA;
+     *  3. {@see McpAccessRefusal::TwoFactorNotSetUp} — nhân sự CHƯA có secret 2FA (vừa bị "Đặt lại 2FA",
+     *     hay chưa cài lần đầu). Cổng `EnsureMultiFactorAuthenticationIsEnabled` của Filament chỉ đứng
+     *     trước route của panel; `/oauth/authorize` nằm ngoài panel, nên một phiên chỉ có mật khẩu sẽ
+     *     đồng ý được nếu thiếu dòng này. Cùng luật với `DocumentDownloadController::actor()` (M8 R2);
+     *  4. còn lại: {@see self::refusal()}, đúng thứ tự R2.
+     */
+    public static function consentRefusal(?Authenticatable $account): ?McpAccessRefusal
+    {
+        if (! $account instanceof User) {
+            return McpAccessRefusal::NotStaff;
+        }
+
+        if (! $account->is_active || $account->trashed()) {
+            return McpAccessRefusal::Inactive;
+        }
+
+        if (blank($account->getAppAuthenticationSecret())) {
+            return McpAccessRefusal::TwoFactorNotSetUp;
+        }
+
+        return self::refusal($account);
     }
 
     /**

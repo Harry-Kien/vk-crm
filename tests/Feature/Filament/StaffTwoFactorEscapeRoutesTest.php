@@ -236,9 +236,11 @@ function outsidePanelRouteReasons(): array
         // M11 Task 1 — route của Passport. Device code và route JSON quản lý client/token TẮT
         // (OAuthServerHardeningTest), nên không có ở đây.
         'POST oauth/token' => 'không đọc phiên: chỉ đổi mã uỷ quyền/refresh token (`RestrictOAuthGrantTypes`), cả hai không sinh được từ một phiên chưa cài 2FA (OAuthRoutesStaffSessionTest, OAuthServerHardeningTest)',
-        'GET oauth/authorize' => 'Task 1: chưa có màn hình đồng ý nên không cấp được mã nào, kể cả khi đã có token còn hạn (OAuthRoutesStaffSessionTest). Task 4 thay lý lẽ này bằng cổng 2FA của màn hình đồng ý',
-        'POST oauth/authorize' => 'Task 1: chỉ duyệt yêu cầu mà GET oauth/authorize đã lưu vào phiên, thứ chưa lưu được gì (OAuthRoutesStaffSessionTest). Task 4 thay lý lẽ này',
-        'DELETE oauth/authorize' => 'từ chối một yêu cầu uỷ quyền: không bao giờ cấp mã (OAuthRoutesStaffSessionTest)',
+        // M11 Task 4 — màn hình đồng ý: cổng 2FA riêng (`McpAccess::consentRefusal()`, cùng luật với
+        // `DocumentDownloadController::actor()`), vì cổng 2FA của Filament không đứng trước route này.
+        'GET oauth/authorize' => 'màn hình đồng ý từ chối (403, không có nút Đồng ý) một nhân sự chưa có secret 2FA; không bao giờ tự duyệt, kể cả khi đã có token còn hạn cho client đó (`ConsentAuthorizationController`) (AuthorizeScreenTest, OAuthRoutesStaffSessionTest)',
+        'POST oauth/authorize' => '"Đồng ý" kiểm lại mọi điều kiện ở lúc bấm, trong đó có secret 2FA (`ApproveConsentController`): phiên chưa cài 2FA nhận 403, không mã (AuthorizeScreenTest, OAuthRoutesStaffSessionTest)',
+        'DELETE oauth/authorize' => 'từ chối một yêu cầu uỷ quyền: không bao giờ cấp mã (AuthorizeScreenTest, OAuthRoutesStaffSessionTest)',
         'POST oauth/token/refresh' => 'phát cookie laravel_token, và không route nào nhận cookie đó: guard passport duy nhất là `mcp`, chỉ đứng sau /mcp, nơi `RequireBearerToken` xoá cookie trước `auth:mcp`; cookie này kèm CSRF của chính phiên, có hay không kèm `Bearer 0` / `Bearer ,` / bearer chỉ khoảng trắng, vẫn 401 (OAuthRoutesStaffSessionTest)',
         // M11 Task 2 — metadata OAuth công khai (RFC 9728, RFC 8414), `routes/ai.php`, ngoài nhóm `web`.
         'GET .well-known/oauth-protected-resource' => 'metadata công khai cố định dựng từ cấu hình (URL MCP, issuer, scope), không đọc phiên, không dữ liệu người dùng (OAuthMetadataTest)',

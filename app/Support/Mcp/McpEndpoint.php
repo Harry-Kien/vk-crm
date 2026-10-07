@@ -3,6 +3,7 @@
 namespace App\Support\Mcp;
 
 use App\Mcp\Servers\CrmServer;
+use Filament\Facades\Filament;
 
 /**
  * M11 R7 — MỘT URL chuẩn cho máy chủ MCP và máy chủ uỷ quyền OAuth, dựng từ CẤU HÌNH, không từ
@@ -32,6 +33,13 @@ final class McpEndpoint
 {
     /** Đường dẫn DCR (RFC 7591). Task 3 đăng ký route ở đúng đường dẫn này. */
     public const REGISTRATION_PATH = 'oauth/register';
+
+    /**
+     * Slug của trang "Kết nối AI của tôi" trong panel `/admin` (Task 15): trang hiện chính sách dùng
+     * AI và ô cam kết (R12). Màn hình đồng ý (Task 4) trỏ tới đây từ trước khi trang tồn tại; trang của
+     * Task 15 khai ĐÚNG slug này.
+     */
+    public const MY_AI_CONNECTIONS_SLUG = 'ket-noi-ai-cua-toi';
 
     /** Scheme + host [+ cổng], chữ thường, không `/` cuối. Ví dụ `https://khachhang.luatvukhang.com`. */
     public static function origin(): string
@@ -78,6 +86,34 @@ final class McpEndpoint
     public static function registrationEndpoint(): string
     {
         return self::origin().'/'.self::REGISTRATION_PATH;
+    }
+
+    /**
+     * Trang đăng nhập nhân sự mà một khách vãng lai ở `/oauth/authorize` được đưa tới (Task 4,
+     * `bootstrap/app.php`). Filament không có route `login` [PL:79].
+     *
+     * Có `ADMIN_DOMAIN`: trên tên miền quản trị — cùng host với {@see self::authorizationEndpoint()}
+     * mà AS metadata quảng bá, nên cookie phiên (chỉ theo host, `SESSION_DOMAIN` trống) đặt lúc đăng
+     * nhập tới được màn hình đồng ý, và URL "intended" cất trong phiên đó còn nguyên sau bước 2FA.
+     * Không có: trên CHÍNH host của request, cùng lý do.
+     */
+    public static function staffLoginUrl(): string
+    {
+        return self::adminUrl(route('filament.admin.auth.login', absolute: false));
+    }
+
+    /** Trang "Kết nối AI của tôi" (chính sách dùng AI, cam kết R12); host như {@see self::staffLoginUrl()}. */
+    public static function myAiConnectionsUrl(): string
+    {
+        return self::adminUrl('/'.Filament::getPanel('admin')->getPath().'/'.self::MY_AI_CONNECTIONS_SLUG);
+    }
+
+    /** Một đường dẫn của panel `/admin`: trên gốc chuẩn khi tách tên miền, trên host của request khi không. */
+    private static function adminUrl(string $path): string
+    {
+        $adminDomain = config('vkcrm.admin_domain');
+
+        return is_string($adminDomain) && $adminDomain !== '' ? self::origin().$path : url($path);
     }
 
     /**

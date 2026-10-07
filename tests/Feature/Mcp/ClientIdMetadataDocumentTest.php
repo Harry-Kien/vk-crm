@@ -905,17 +905,25 @@ it('CIMD client_id dạng mảng (client_id[]=URL) không làm lớp ép đồng
     Http::assertNothingSent();
 });
 
-it('CIMD lớp ép đồng ý chỉ nhắm client CIMD: client DCR (dòng riêng của một lần kết nối) có token còn hạn vẫn được Passport xử lý như trước, kể cả khi đã có dòng CIMD', function () {
+/*
+ * Đến Task 4, test này là vế đối chứng "client DCR có token còn hạn vẫn được Passport tự duyệt".
+ * Task 4 đóng nhánh tự duyệt cho MỌI client (`App\Http\Controllers\Mcp\ConsentAuthorizationController`,
+ * AuthorizeScreenTest): DCR cũng tới màn hình đồng ý, kể cả khi đã có dòng CIMD.
+ */
+it('CIMD và Task 4: client DCR (dòng riêng của một lần kết nối) có token còn hạn cũng tới màn hình đồng ý, không mã — không client nào còn được tự duyệt', function () {
     cimdServe(CIMD_CLAUDE, cimdDocument(CIMD_CLAUDE));
     $user = cimdLawyer();
     cimdConnect($user, CIMD_CLAUDE);
     $dcr = McpOAuth::client();
     McpOAuth::issueTokens($this, $user, $dcr);
+    $codes = Passport::authCode()->newQuery()->count();
 
     $response = cimdAuthorize($user, $dcr->getKey());
 
-    $response->assertRedirect();
-    expect((string) $response->headers->get('Location'))->toStartWith(McpOAuth::REDIRECT_URI.'?code=');
+    $response->assertOk();
+    expect($response->json('auth_token'))->toBeString()
+        ->and($response->json('client_id'))->toBe($dcr->getKey())
+        ->and(Passport::authCode()->newQuery()->count())->toBe($codes);
 });
 
 it('CIMD lớp ép đồng ý chỉ hành động ở GET /oauth/authorize: tham số uỷ quyền (client_id CIMD, prompt=none) lạc vào query của /oauth/token không chặn việc đổi mã', function () {

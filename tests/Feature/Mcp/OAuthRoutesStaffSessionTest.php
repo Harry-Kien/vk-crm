@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\McpAccessRefusal;
 use App\Enums\Role;
 use App\Models\User;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -17,8 +18,10 @@ use Tests\Support\McpOAuth;
 | của `outsidePanelRouteReasons()` (`tests/Feature/Filament/StaffTwoFactorEscapeRoutesTest.php`): một
 | phiên nhân sự CHƯA cài 2FA không lấy được mã uỷ quyền, token, hay quyền vào `/mcp` qua chúng.
 |
-| Màn hình đồng ý và cổng 2FA của chính `/oauth/authorize` là Task 4. Lý lẽ của hai dòng
-| `oauth/authorize` ở Task 1 là "chưa có màn hình nào để duyệt", và Task 4 phải viết lại hai dòng đó.
+| Từ Task 4, `/oauth/authorize` có màn hình đồng ý thật, và màn hình đó có cổng 2FA của riêng nó
+| (`McpAccess::consentRefusal()`: phiên của nhân sự chưa có secret 2FA nhận màn hình từ chối, không nút
+| "Đồng ý"; bước "Đồng ý" kiểm lại). Ba dòng `oauth/authorize` của `outsidePanelRouteReasons()` đã viết
+| lại theo đó; toàn bộ hành vi của màn hình ở `AuthorizeScreenTest`.
 */
 
 beforeEach(function () {
@@ -50,26 +53,31 @@ function expectNoAuthorizationCodeIssued(TestResponse $response): void
         ->and(Passport::authCode()->newQuery()->count())->toBe(0);
 }
 
-it('§10.7 GET oauth/authorize: phiên chưa cài 2FA không nhận được mã uỷ quyền (Task 1 chưa có màn hình đồng ý)', function () {
+it('§10.7 GET oauth/authorize: phiên chưa cài 2FA nhận màn hình từ chối (Task 4), không nút "Đồng ý", không mã uỷ quyền', function () {
     $client = McpOAuth::client();
 
-    expectNoAuthorizationCodeIssued(
-        $this->actingAs($this->staff, 'web')->get('/oauth/authorize?'.http_build_query(authorizeQuery($client->getKey()))),
-    );
+    $response = $this->actingAs($this->staff, 'web')->get('/oauth/authorize?'.http_build_query(authorizeQuery($client->getKey())));
+
+    $response->assertForbidden()
+        ->assertSeeText(McpAccessRefusal::TwoFactorNotSetUp->label())
+        ->assertDontSee('data-consent="approve"', false);
+    expectNoAuthorizationCodeIssued($response);
 });
 
 /**
  * Đường nguy hiểm nhất của `AuthorizationController`: khi người dùng ĐÃ có token còn hạn cho client
- * đó với cùng scope (`hasGrantedScopes()`), Passport duyệt luôn mà không hiện màn hình nào. Ở Task 1
- * đường đó cũng không cấp được mã. Task 4 phải giữ test này xanh bằng cổng 2FA của nó.
+ * đó với cùng scope (`hasGrantedScopes()`), Passport 13.8.0 duyệt luôn mà không hiện màn hình nào. Từ
+ * Task 4 nhánh đó không còn cho client nào (`ConsentAuthorizationController`), nên phiên chưa cài 2FA
+ * vẫn tới màn hình từ chối.
  */
-it('§10.7 GET oauth/authorize: kể cả khi đã có token còn hạn cho client đó, phiên chưa cài 2FA không nhận được mã', function () {
+it('§10.7 GET oauth/authorize: kể cả khi đã có token còn hạn cho client đó, phiên chưa cài 2FA nhận màn hình từ chối, không mã', function () {
     $client = McpOAuth::client();
     McpOAuth::issueTokens($this, $this->staff, $client);
     $codesBefore = Passport::authCode()->newQuery()->count();
 
     $response = $this->actingAs($this->staff, 'web')->get('/oauth/authorize?'.http_build_query(authorizeQuery($client->getKey())));
 
+    $response->assertForbidden()->assertSeeText(McpAccessRefusal::TwoFactorNotSetUp->label());
     expect((string) $response->headers->get('Location'))->not->toContain('code=')
         ->and(Passport::authCode()->newQuery()->count())->toBe($codesBefore);
 });
@@ -78,6 +86,17 @@ it('§10.7 POST oauth/authorize (duyệt): không có yêu cầu uỷ quyền n�
     expectNoAuthorizationCodeIssued(
         $this->actingAs($this->staff, 'web')->post('/oauth/authorize', ['auth_token' => 'doan-bua']),
     );
+});
+
+it('§10.7 POST oauth/authorize (duyệt) với đúng auth_token mà màn hình từ chối còn giữ: phiên chưa cài 2FA vẫn không nhận mã (Task 4)', function () {
+    $client = McpOAuth::client();
+
+    $this->actingAs($this->staff, 'web')->get('/oauth/authorize?'.http_build_query(authorizeQuery($client->getKey())))->assertForbidden();
+
+    $approve = $this->actingAs($this->staff, 'web')->post('/oauth/authorize', ['auth_token' => session('authToken')]);
+
+    $approve->assertForbidden();
+    expectNoAuthorizationCodeIssued($approve);
 });
 
 it('§10.7 DELETE oauth/authorize (từ chối): không cấp mã nào', function () {

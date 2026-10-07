@@ -61,6 +61,11 @@ return [
         'ai_access_changed' => 'Đổi quyền truy cập qua AI của nhân sự',
         'ai_connections_revoked' => 'Thu hồi kết nối AI của nhân sự',
         'ai_policy_acknowledged' => 'Cam kết chính sách dùng AI',
+        // M11 Task 4: App\Actions\Mcp\RecordMcpConnectionDecision (màn hình đồng ý OAuth). Chủ thể và
+        // causer là chính nhân sự; mang client OAuth, nền tảng, host redirect, và `mode` (đồng ý) hay
+        // `reason` (không đồng ý) — không tên client tự khai.
+        'mcp_connection_authorized' => 'Đồng ý kết nối trợ lý AI',
+        'mcp_connection_denied' => 'Không đồng ý kết nối trợ lý AI',
         // App\Actions\Matter\{AddTeamMember,RemoveTeamMember} (M6.5 Task 3, fix round 1, "also
         // fix": thiếu hai khoá này khiến ActivityLogPage hiện nguyên văn khoá sự kiện tiếng Anh).
         'team_member_added' => 'Thêm thành viên đội ngũ',

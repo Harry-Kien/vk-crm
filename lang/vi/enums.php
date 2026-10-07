@@ -40,13 +40,28 @@ return [
         'read' => 'Chỉ đọc',
         'read_write' => 'Đọc và ghi',
     ],
-    // M11 R2/R12 (Task 6): App\Enums\McpAccessRefusal — vì sao một nhân sự chưa dùng được máy chủ AI.
-    // Màn hình đồng ý OAuth (Task 4) hiện nguyên câu cho chính người đó.
+    // M11 R2/R12 (Task 6, Task 4): App\Enums\McpAccessRefusal — vì sao một tài khoản chưa dùng được máy
+    // chủ AI, hay chưa đồng ý được một kết nối. Màn hình đồng ý OAuth (Task 4) hiện nguyên câu cho chính
+    // người đó, nên mỗi câu nói điều người đó làm được tiếp theo.
     'mcp_access_refusal' => [
-        'inactive' => 'Tài khoản của bạn đang bị vô hiệu hoá.',
-        'ai_access_off' => 'Quản trị chưa bật truy cập qua AI cho tài khoản của bạn.',
+        'not_staff' => 'Chỉ tài khoản nhân sự của văn phòng mới kết nối được trợ lý AI.',
+        'inactive' => 'Tài khoản của anh/chị đang bị vô hiệu hoá.',
+        'two_factor_not_set_up' => 'Anh/chị cần cài xác thực hai bước (2FA) trên trang quản trị trước khi kết nối trợ lý AI.',
+        'ai_access_off' => 'Quản trị chưa bật truy cập qua AI cho tài khoản của anh/chị.',
+        'no_matter_view' => 'Vai trò hiện tại của anh/chị không xem được nội dung vụ việc, nên không dùng được trợ lý AI. Hỏi quản trị nếu vai trò này chưa đúng.',
         'server_disabled' => 'Máy chủ AI của văn phòng đang tắt.',
-        'policy_not_acknowledged' => 'Bạn chưa cam kết chính sách dùng AI phiên bản hiện hành (trang "Kết nối AI của tôi").',
+        'policy_not_acknowledged' => 'Anh/chị chưa cam kết chính sách dùng AI phiên bản hiện hành (trang "Kết nối AI của tôi").',
+    ],
+    // M11 Task 4: App\Enums\McpPlatform — nền tảng AI suy từ host redirect của một kết nối (màn hình
+    // đồng ý, nhật ký). Loopback không đoán tên ứng dụng: cổng không nói gì về ứng dụng.
+    'mcp_platform' => [
+        'claude' => 'Claude',
+        'chatgpt' => 'ChatGPT',
+        'local_app' => 'Ứng dụng trên máy tính này',
+        'vscode' => 'VS Code',
+        'cursor' => 'Cursor',
+        'antigravity' => 'Antigravity',
+        'other' => 'Ứng dụng khác',
     ],
     // M11 R8 (Task 6): App\Enums\AiRevocationReason — vì sao mọi kết nối AI của một nhân sự bị thu hồi.
     'ai_revocation_reason' => [

@@ -31,7 +31,7 @@ use RuntimeException;
  * {@see self::issueTokens()} đi đúng đường của `ApproveAuthorizationController` của Passport (dựng
  * `AuthorizationRequest` từ một request `/oauth/authorize` có PKCE S256, gắn người dùng, duyệt, lấy
  * mã), rồi đổi mã lấy token qua HTTP `POST /oauth/token` như một client thật. Chỉ bỏ qua MÀN HÌNH
- * đồng ý, thứ Task 4 dựng và test riêng.
+ * đồng ý (và các điều kiện từ chối của nó), thứ Task 4 dựng và test riêng (`AuthorizeScreenTest`).
  */
 final class McpOAuth
 {
@@ -170,12 +170,14 @@ final class McpOAuth
     }
 
     /**
-     * Màn hình đồng ý THAY TẠM cho test, tới khi Task 4 dựng màn hình thật: bind
-     * `AuthorizationViewResponse` của Passport thành một JSON mang `auth_token` mà
-     * `GET /oauth/authorize` vừa lưu vào phiên. Test đọc mã đó rồi tự gửi `POST /oauth/authorize`
-     * (duyệt) hay `DELETE /oauth/authorize` (từ chối), như hai nút của màn hình thật sẽ gửi. Mọi thứ
-     * khác của luồng là mã thật: controller của Passport, phiên, middleware của nhóm route,
-     * `/oauth/token`.
+     * Màn hình đồng ý THAY TẠM cho test luồng OAuth: bind `AuthorizationViewResponse` của Passport
+     * thành một JSON mang `auth_token` mà `GET /oauth/authorize` vừa lưu vào phiên, đè màn hình thật
+     * của Task 4 (`App\Http\Responses\Mcp\ConsentScreenResponse`). Test đọc mã đó rồi tự gửi
+     * `POST /oauth/authorize` (duyệt) hay `DELETE /oauth/authorize` (từ chối), như hai nút của màn
+     * hình thật gửi. Mọi thứ khác của luồng là mã thật: controller (của app, Task 4), phiên,
+     * middleware của nhóm route, `/oauth/token` — và bước "Đồng ý" vẫn kiểm lại mọi điều kiện từ
+     * chối, nên người gọi phải đủ điều kiện. Màn hình thật (nội dung, từ chối, nhật ký):
+     * `AuthorizeScreenTest`, không dùng hàm này.
      */
     public static function useConsentStandIn(): void
     {

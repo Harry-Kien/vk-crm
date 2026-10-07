@@ -3,6 +3,8 @@
 namespace App\Support\Security;
 
 use App\Filament\AvatarProviders\InitialsAvatarProvider;
+use App\Http\Middleware\SendSecurityHeaders;
+use Illuminate\Http\Request;
 
 /**
  * Chính sách Content-Security-Policy của cả hai panel và route web (SPEC §10 mục 2, phán quyết
@@ -37,6 +39,55 @@ final class ContentSecurityPolicy
 
     /** Hai môi trường duy nhất mà `CSP_MODE` để trống được hạ xuống `report`. */
     public const REPORT_BY_DEFAULT_IN = ['local', 'testing'];
+
+    /** Thuộc tính của request mang các origin mà {@see self::allowFormActionTo()} đã mở. */
+    public const FORM_ACTION_ATTRIBUTE = 'vkcrm.csp.form_action';
+
+    /** Một origin `http(s)://host[:cổng]`, host chỉ gồm chữ thường, số, `.` và `-` (nguồn CSP hợp lệ). */
+    private const ORIGIN = '~^https?://[a-z0-9.-]+(?::[1-9][0-9]{0,4})?$~D';
+
+    /**
+     * Mở `form-action` tới thêm MỘT origin, cho riêng phản hồi của request này (M11 Task 4).
+     *
+     * Màn hình đồng ý OAuth gửi form về chính nó (`'self'`), rồi Passport chuyển hướng 302 sang
+     * redirect URI của client (`https://claude.ai/...`, `http://127.0.0.1:53682/...`). Trình duyệt áp
+     * `form-action` cho cả chuyển hướng theo sau một lần gửi form (đo bằng Chromium ở Task 4, PROGRESS
+     * "Ghi chú M11"), nên với `'self'` trần, nút "Đồng ý" bị chặn ngay trước khi mã tới được client.
+     * Phạm vi nới:
+     *  - chỉ request này: giá trị nằm trong thuộc tính của request, và
+     *    {@see SendSecurityHeaders} đọc nó lúc dựng header; request kế tiếp không
+     *    mang theo gì;
+     *  - chỉ đúng một origin, không ký tự đại diện, không đường dẫn: chuỗi phải khớp {@see self::ORIGIN},
+     *    không thì bị bỏ qua (trả `false`) và `form-action` giữ `'self'`.
+     */
+    public static function allowFormActionTo(Request $request, string $origin): bool
+    {
+        if (preg_match(self::ORIGIN, $origin) !== 1) {
+            return false;
+        }
+
+        $origins = self::formActionOrigins($request);
+
+        if (! in_array($origin, $origins, true)) {
+            $request->attributes->set(self::FORM_ACTION_ATTRIBUTE, [...$origins, $origin]);
+        }
+
+        return true;
+    }
+
+    /**
+     * Các origin đã mở cho request này (rỗng với mọi trang khác).
+     *
+     * @return list<string>
+     */
+    public static function formActionOrigins(Request $request): array
+    {
+        $origins = $request->attributes->get(self::FORM_ACTION_ATTRIBUTE, []);
+
+        return is_array($origins)
+            ? array_values(array_filter($origins, fn (mixed $origin): bool => is_string($origin) && preg_match(self::ORIGIN, $origin) === 1))
+            : [];
+    }
 
     public static function mode(): string
     {
@@ -90,8 +141,13 @@ final class ContentSecurityPolicy
      *
      * `img-src` KHÔNG có `ui-avatars.com`: ảnh đại diện dựng tại chỗ thành ảnh `data:`
      * ({@see InitialsAvatarProvider}).
+     *
+     * `form-action` là `'self'`, cộng `$formActionOrigins` khi một màn hình của CHÍNH request này đã
+     * xin qua {@see self::allowFormActionTo()} (M11 Task 4: màn hình đồng ý OAuth).
+     *
+     * @param  list<string>  $formActionOrigins
      */
-    public static function policy(string $nonce): string
+    public static function policy(string $nonce, array $formActionOrigins = []): string
     {
         $directives = [
             'default-src' => ["'self'"],
@@ -103,7 +159,7 @@ final class ContentSecurityPolicy
             'connect-src' => ["'self'"],
             'frame-ancestors' => ["'none'"],
             'base-uri' => ["'self'"],
-            'form-action' => ["'self'"],
+            'form-action' => ["'self'", ...$formActionOrigins],
             'object-src' => ["'none'"],
         ];
 

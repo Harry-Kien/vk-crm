@@ -8,8 +8,12 @@ use App\Actions\Backup\GuardRcloneDestinationReachable;
 use App\Actions\Backup\PushBackupArchiveToRclone;
 use App\Enums\Role;
 use App\Http\Controllers\DocumentDownloadController;
+use App\Http\Controllers\Mcp\ApproveConsentController;
+use App\Http\Controllers\Mcp\ConsentAuthorizationController;
+use App\Http\Controllers\Mcp\DenyConsentController;
 use App\Http\Controllers\Mcp\RegisterClientController;
 use App\Http\Middleware\Mcp\AddWwwAuthenticateHeader;
+use App\Http\Responses\Mcp\ConsentScreenResponse;
 use App\Listeners\RecordOutboundMail;
 use App\Models\Client;
 use App\Models\ClientRequest;
@@ -39,9 +43,11 @@ use App\Support\Mcp\McpClientRepository;
 use App\Support\Security\HttpsDefaults;
 use DateInterval;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Contracts\Auth\StatefulGuard;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Foundation\Console\AboutCommand;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
@@ -49,6 +55,10 @@ use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Mcp\Server\Middleware\AddWwwAuthenticateHeader as PackageAddWwwAuthenticateHeader;
 use Laravel\Passport\Bridge\ClientRepository as PassportBridgeClientRepository;
+use Laravel\Passport\Contracts\AuthorizationViewResponse;
+use Laravel\Passport\Http\Controllers\ApproveAuthorizationController as PassportApproveAuthorizationController;
+use Laravel\Passport\Http\Controllers\AuthorizationController as PassportAuthorizationController;
+use Laravel\Passport\Http\Controllers\DenyAuthorizationController as PassportDenyAuthorizationController;
 use Laravel\Passport\Passport;
 use Laravel\Passport\PersonalAccessTokenFactory;
 use LogicException;
@@ -114,6 +124,29 @@ class AppServiceProvider extends ServiceProvider
         // `AuthorizationServer` bằng `make(Bridge\ClientRepository::class)`, nên bind lớp con ở đây
         // thay repository mà không sửa lớp nào của gói. Cờ tắt thì lớp con chạy y như lớp gốc.
         $this->app->bind(PassportBridgeClientRepository::class, McpClientRepository::class);
+
+        /*
+         * M11 Task 4 — màn hình đồng ý OAuth. Route của Passport (`/oauth/authorize` GET, POST,
+         * DELETE) phân giải controller qua container, nên bind lớp con ở đây thay ba controller của
+         * gói mà không khai lại route nào; lý do của từng lớp ở docblock của nó:
+         *  - không bao giờ tự duyệt ({@see ConsentAuthorizationController});
+         *  - "Đồng ý" kiểm lại điều kiện, đúng người, ghi nhật ký ({@see ApproveConsentController});
+         *  - "Từ chối" đúng người, ghi nhật ký ({@see DenyConsentController}).
+         * `StatefulGuard` của controller GET là binding theo NGỮ CẢNH của gói, khoá theo tên lớp gói
+         * (`PassportServiceProvider::register()`), nên lớp con cần dòng `when()` của chính nó — cùng
+         * guard `passport.guard` (`web`).
+         *
+         * View của màn hình: Passport hỏi `AuthorizationViewResponse` qua container; lớp của app vẽ
+         * `resources/views/mcp/authorize.blade.php` ({@see ConsentScreenResponse}). Test nào gọi
+         * `McpOAuth::useConsentStandIn()` thì đè binding này bằng màn hình thay tạm của nó.
+         */
+        $this->app->bind(PassportAuthorizationController::class, ConsentAuthorizationController::class);
+        $this->app->when(ConsentAuthorizationController::class)
+            ->needs(StatefulGuard::class)
+            ->give(fn () => Auth::guard(config('passport.guard')));
+        $this->app->bind(PassportApproveAuthorizationController::class, ApproveConsentController::class);
+        $this->app->bind(PassportDenyAuthorizationController::class, DenyConsentController::class);
+        $this->app->bind(AuthorizationViewResponse::class, ConsentScreenResponse::class);
     }
 
     /**

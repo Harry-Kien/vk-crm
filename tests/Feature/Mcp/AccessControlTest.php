@@ -397,7 +397,10 @@ it('R2 kế toán bị ép ai_access read thẳng trong CSDL (đi vòng Action):
     $accountant = aclStaff(AiAccessMode::Read, UserPosition::Accountant);
 
     expect($accountant->ai_access)->toBe(AiAccessMode::Read)
-        ->and($accountant->can('matter.view'))->toBeFalse();
+        ->and($accountant->can('matter.view'))->toBeFalse()
+        // Task 4 (rà soát Task 6, m6): lý do riêng, không phải "quản trị chưa bật" — màn hình đồng ý
+        // hiện nhãn của lý do cho chính người đó.
+        ->and(McpAccess::refusal($accountant))->toBe(McpAccessRefusal::NoMatterView);
 
     aclExpectRefused(aclInitialize(McpOAuth::accessToken($this, $accountant)));
 });
@@ -521,7 +524,11 @@ it('R13 bước gọi tool không có người của guard mcp: tool ghi bị t�
         ->and(aclToolCalls())->toBe([]);
 });
 
-it('R2 mỗi lý do từ chối có nhãn tiếng Việt cho màn hình đồng ý (Task 4)', function () {
+it('R2 mỗi lý do từ chối có nhãn tiếng Việt cho màn hình đồng ý (Task 4), và không hai lý do nào chung một câu', function () {
+    $labels = array_map(fn (McpAccessRefusal $refusal) => $refusal->label(), McpAccessRefusal::cases());
+
+    expect(array_unique($labels))->toHaveCount(count(McpAccessRefusal::cases()));
+
     foreach (McpAccessRefusal::cases() as $refusal) {
         expect($refusal->label())->not->toBe('enums.mcp_access_refusal.'.$refusal->value)
             ->and($refusal->label())->not->toBeEmpty();

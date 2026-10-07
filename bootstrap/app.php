@@ -4,6 +4,7 @@ use App\Http\Middleware\EnforceHttps;
 use App\Http\Middleware\RejectStaffSessionsFromBeforeReset;
 use App\Http\Middleware\SendSecurityHeaders;
 use App\Mcp\Servers\CrmServer;
+use App\Support\Mcp\McpEndpoint;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -54,10 +55,19 @@ return Application::configure(basePath: dirname(__DIR__))
         // (`ApplicationBuilder::withMiddleware()`) là `route('login')`, và `Authenticate` gọi nó
         // NGAY lúc ném lỗi với mọi request không `expectsJson()`, TRƯỚC khi exception handler kịp
         // chọn JSON. App không có route `login`, nên một client MCP gửi token sai mà không kèm
-        // `Accept: application/json` nhận lỗi 500 thay cho 401. Các đường khác giữ nguyên mặc định.
-        $middleware->redirectGuestsTo(
-            fn (Request $request) => $request->is(CrmServer::PATH) ? null : route('login'),
-        );
+        // `Accept: application/json` nhận lỗi 500 thay cho 401.
+        //
+        // M11 Task 4 — route của Passport (màn hình đồng ý `/oauth/authorize`, "Đồng ý", "Từ chối")
+        // đưa khách vãng lai về trang đăng nhập nhân sự của panel `/admin` (Filament không có route
+        // `login` [PL:79]); `redirect()->guest()` cất URL `/oauth/authorize` đầy đủ tham số làm URL
+        // "intended", và trang đăng nhập quay lại đó sau bước mã 2FA (AuthorizeScreenTest). Host của
+        // trang đăng nhập: `McpEndpoint::staffLoginUrl()`. Cùng lời gọi này đặt chỗ chuyển hướng cho cả
+        // `AuthenticateSession` (`config/passport.php`). Các đường khác giữ nguyên mặc định.
+        $middleware->redirectGuestsTo(fn (Request $request) => match (true) {
+            $request->is(CrmServer::PATH) => null,
+            $request->routeIs('passport.*') => McpEndpoint::staffLoginUrl(),
+            default => route('login'),
+        });
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // `/mcp` (M11 R7): luôn JSON, kể cả request không có `Accept: application/json`. Không có

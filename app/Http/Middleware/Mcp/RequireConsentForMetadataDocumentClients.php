@@ -44,10 +44,13 @@ use Symfony\Component\HttpFoundation\Response;
  * là `consent` với Passport. Ngoài `none`, không giá trị `prompt` chuẩn nào (`login`, `consent`, `select_account`
  * của OpenID Connect Core, `create`) chứa chữ `none`.
  *
- * Client DCR và `passport:client` giữ nguyên hành vi của Passport (nhánh tự duyệt ở GET có test ghim trong
- * `OAuthMetadataTest`, và test đối chứng DCR trong `ClientIdMetadataDocumentTest`). Đăng ký cuối
- * `passport.middleware` (`config/passport.php`), bên trong {@see AddIssuerToAuthorizationResponse}, nên lỗi
- * `consent_required` cũng mang `iss`. Chỉ hành động ở `passport.authorizations.authorize`.
+ * **Từ Task 4 đây là lớp thứ hai.** `App\Http\Controllers\Mcp\ConsentAuthorizationController` đóng nhánh tự
+ * duyệt cho MỌI client (DCR, CIMD, `passport:client`) theo cấu trúc, không theo chuỗi `prompt`. Lớp này vẫn giữ
+ * hai việc riêng cho client CIMD: trả `consent_required` cho `prompt=none` TRƯỚC khi có phiên (kể cả với khách
+ * vãng lai, rà soát Task 5 m3), và ghi ` consent` vào `prompt`. Client khác không đi qua lớp này: `prompt=none`
+ * của chúng nhận `consent_required` từ chính Passport. Đăng ký trong `passport.middleware` (`config/passport.php`),
+ * bên trong {@see AddIssuerToAuthorizationResponse}, nên lỗi `consent_required` cũng mang `iss`. Chỉ hành động ở
+ * `passport.authorizations.authorize`.
  */
 class RequireConsentForMetadataDocumentClients
 {
