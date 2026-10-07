@@ -6,6 +6,7 @@ use App\Actions\Client\IssuePortalAccess;
 use App\Actions\Portal\UnlockPortalLogin;
 use App\Actions\Portal\UnlockPortalLoginResult;
 use App\Actions\Portal\UpdatePortalAccount;
+use App\Actions\Push\ForgetPushDevice;
 use App\Filament\Admin\Resources\ClientUsers\ClientUserResource;
 use App\Filament\Admin\Resources\ClientUsers\Pages\Concerns\ConfirmsPortalAccessIssue;
 use App\Models\ClientUser;
@@ -114,8 +115,52 @@ class EditClientUser extends EditRecord
                         ->send();
                 }),
             $this->reissueAccessAction(),
+            $this->forgetPushDevicesAction(),
             DeleteAction::make(),
         ];
+    }
+
+    /**
+     * `forgetPushDevices` (việc sau gộp M12, làn fu4, mục 5): khách gọi văn phòng báo mất điện thoại
+     * (`docs/QUY-TRINH.md`, "Điều nên biết") — nhân sự gỡ MỌI máy nhận thông báo đẩy của đúng tài
+     * khoản này, để máy mất thôi hiện thông báo về hồ sơ. Không đụng đăng nhập: đổi mật khẩu hay khoá
+     * tài khoản là việc của các nút khác.
+     *
+     * Cùng khuôn `unlockLogin`: ability RIÊNG `forgetPushDevices` trên `ClientUserPolicy` (cùng biên
+     * giới `update`, và `HeaderActionsAreReachableTest` đòi tên nút trùng tên phương thức policy),
+     * hỏi trong `visible()` VÀ lặp lại bằng `Gate::authorize()` trong `action()`. Gỡ qua
+     * {@see ForgetPushDevice::all()} với lý do `office`: mỗi máy một dòng `push_device_removed` mang
+     * nhãn máy và người bấm, không bao giờ endpoint (R8). Nút không mở transaction nào quanh lời gọi
+     * (panel không bật `databaseTransactions()`): transaction duy nhất là của chính `ForgetPushDevice`.
+     */
+    private function forgetPushDevicesAction(): Action
+    {
+        return Action::make('forgetPushDevices')
+            ->label(__('client_users.actions.forget_push_devices'))
+            ->icon(Heroicon::OutlinedDevicePhoneMobile)
+            ->color('gray')
+            ->requiresConfirmation()
+            ->modalHeading(__('client_users.actions.forget_push_devices_heading'))
+            ->modalDescription(__('client_users.actions.forget_push_devices_description'))
+            ->visible(fn (): bool => Gate::allows('forgetPushDevices', $this->record))
+            ->action(function (): void {
+                /** @var ClientUser $account */
+                $account = $this->record;
+
+                Gate::authorize('forgetPushDevices', $account);
+
+                $actor = Auth::user();
+                abort_unless($actor instanceof User, 403);
+
+                $count = app(ForgetPushDevice::class)->all($account, $actor, ForgetPushDevice::REASON_OFFICE);
+
+                Notification::make()
+                    ->title($count > 0
+                        ? __('client_users.actions.forget_push_devices_success', ['count' => $count])
+                        : __('client_users.actions.forget_push_devices_none'))
+                    ->success()
+                    ->send();
+            });
     }
 
     /**
@@ -281,14 +326,15 @@ class EditClientUser extends EditRecord
 
     /**
      * Email đổi THẬT (gấp hoa/thường, không tách dấu — xem docblock `mutateFormDataBeforeSave()`)
-     * so với bản ghi đang lưu.
+     * so với bản ghi đang lưu. Luật so sánh là {@see UpdatePortalAccount::changesEmail()} — cùng một
+     * định nghĩa với lần gỡ máy nhận thông báo đẩy của Action đó (việc sau gộp M12, làn fu4).
      *
      * @param  array<string, mixed>  $data
      */
     private function emailChangesIn(array $data): bool
     {
         return array_key_exists('email', $data)
-            && mb_strtolower((string) $data['email']) !== mb_strtolower($this->record->email);
+            && UpdatePortalAccount::changesEmail($this->record->email, $data['email']);
     }
 
     /**

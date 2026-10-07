@@ -50,6 +50,16 @@ class OutboundMessageNotResendable extends DomainException
         ]));
     }
 
+    /**
+     * Dòng không phải email (M12 R13: dòng thông báo đẩy, mỗi máy một dòng). Push không gửi lại — nó
+     * là tiện ích, thư của cùng sự việc là chứng cứ và có dòng riêng; chủ đề đẩy trùng tên mẫu thư nên
+     * "gửi lại" một dòng push sẽ là gửi một THƯ.
+     */
+    public static function channel(): self
+    {
+        return new self(__('outbound.resend.refused.channel'));
+    }
+
     /** Chỉ dòng `failed` mới gửi lại được: `queued`/`sent` không phải một lần gửi hỏng. */
     public static function notFailed(): self
     {

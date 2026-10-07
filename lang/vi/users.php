@@ -43,7 +43,7 @@ return [
         'reset_two_factor' => [
             'label' => 'Đặt lại 2FA',
             'modal_heading' => 'Đặt lại 2FA của :name?',
-            'modal_description' => 'Xoá xác thực ứng dụng hiện tại của :name và đăng xuất mọi phiên đang mở của họ. Lần đăng nhập kế tiếp, họ sẽ phải cài lại 2FA từ đầu. Dùng khi họ mất điện thoại và không còn mã khôi phục.',
+            'modal_description' => 'Xoá xác thực ứng dụng hiện tại của :name, đăng xuất mọi phiên đang mở của họ và gỡ mọi máy đang nhận thông báo đẩy của họ. Lần đăng nhập kế tiếp, họ sẽ phải cài lại 2FA từ đầu. Dùng khi họ mất điện thoại và không còn mã khôi phục.',
             'success' => 'Đã đặt lại 2FA của :name — họ sẽ phải cài lại ở lần đăng nhập kế tiếp.',
             'console_not_found' => 'Không tìm thấy nhân sự với email :email.',
             'console_done' => 'Đã đặt lại 2FA của :email — họ sẽ phải cài lại ở lần đăng nhập kế tiếp.',

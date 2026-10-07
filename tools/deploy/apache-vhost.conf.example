@@ -65,6 +65,12 @@
     RedirectMatch 404 "^/storage/"
 
     # Ba header SPEC §10 mục 2 cho tệp tĩnh — PHP không chạm tới các request này.
+    # `<FilesMatch>` chỉ khớp tệp CÓ THẬT trên đĩa: route PHP mang đuôi `.js` — service worker của
+    # app trên điện thoại (`/admin/sw.js`, `/portal/sw.js`, M12 R4) — đi qua `.htaccess` sang
+    # `index.php` và giữ `Cache-Control: no-cache` của PHP, KHÔNG nhận `immutable` ở đây (khác nginx,
+    # mẫu Apache không cần khối riêng). Đã ĐO bằng request thật qua `httpd:2.4-alpine` + php-fpm:
+    # `tools/deploy/verify-pwa-routes.sh`. `public/pwa/register.js` là tệp thật nên nhận `immutable`
+    # — thẻ `<script>` mang `?v=<băm nội dung>` vì lẽ đó.
     <FilesMatch "\.(?:css|js|mjs|map|png|jpg|jpeg|gif|svg|webp|ico|woff2?|ttf|eot)$">
         Header always set X-Frame-Options "DENY"
         Header always set X-Content-Type-Options "nosniff"

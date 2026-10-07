@@ -366,7 +366,11 @@ final class SensitiveDataFlows
         $this->twoFactorSecret = $issued['secret'];
         $this->recoveryCodes = array_values($issued['recoveryCodes']);
 
-        $setUp->fillForm(['code' => app(Google2FA::class)->getCurrentOtp($this->twoFactorSecret)])
+        // Filament ≥ 5.8.2 (CVE-2026-104181) hỏi lại mật khẩu hiện tại khi bật xác thực ứng dụng.
+        $setUp->fillForm([
+            'code' => app(Google2FA::class)->getCurrentOtp($this->twoFactorSecret),
+            'password' => self::STAFF_PASSWORD,
+        ])
             ->callMountedAction()
             ->assertHasNoFormErrors();
 

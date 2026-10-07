@@ -2,7 +2,9 @@
 
 namespace App\Actions\Notification;
 
+use App\Actions\Push\SendPushAlert;
 use App\Enums\OutboundStatus;
+use App\Enums\PushTopic;
 use App\Mail\Client\DocumentPublished as DocumentPublishedMail;
 use App\Models\ClientUser;
 use App\Models\Document;
@@ -51,6 +53,12 @@ use Throwable;
  * Sửa: nạp `Matter` với `->where('is_published_to_portal', true)` ngay cạnh `->open()`, cùng cách
  * `NotifyClientOfStageUpdate::stillReleasedToPortal()` đã làm cho `client.stage_update`.
  *
+ * **M12 — thông báo đẩy `client.document_published`:** cùng luật với lớp anh em (docblock
+ * `NotifyClientOfStageUpdate`, mục "M12 — thông báo đẩy"): {@see SendPushAlert} nhận đúng những tài
+ * khoản lượt này vừa gửi thư thành công, sau vòng thư, trước lần ném lại lỗi; chống trùng là sổ thư
+ * (`alreadyDelivered()`). Bản ghi đi kèm là tài liệu ĐÃ đọc lại (`$fresh`) — đúng bản ghi thư ghi vào
+ * nhật ký.
+ *
  * **Gộp M7 vào `main` (PROGRESS "Ghi chú M7", Task 11): vụ còn trên cổng của CHÍNH người nhận.**
  * Ngoài hai cổng trên (vụ còn mở, cờ `is_published_to_portal`), mỗi người nhận R12 còn phải qua
  * {@see ResolveClientRecipients::onPortal()} (`MatterPolicy::view` nhánh khách — gồm "chưa hết hạn
@@ -83,6 +91,7 @@ class NotifyClientOfDocumentPublished
 
         $sent = 0;
         $failure = null;
+        $mailed = collect();
 
         foreach ($recipients as $recipient) {
             if ($this->alreadyDelivered($fresh, $recipient)) {
@@ -94,10 +103,14 @@ class NotifyClientOfDocumentPublished
             try {
                 Mail::to($recipient->email)->send(new DocumentPublishedMail($fresh, $recipient));
                 $sent++;
+                $mailed->push($recipient);
             } catch (Throwable $e) {
                 $failure ??= $e;
             }
         }
+
+        // M12: push cho đúng những người lượt này vừa gửi thư được — xem docblock lớp.
+        app(SendPushAlert::class)->handle($mailed, PushTopic::ClientDocumentPublished, $fresh);
 
         if ($failure !== null) {
             throw $failure;

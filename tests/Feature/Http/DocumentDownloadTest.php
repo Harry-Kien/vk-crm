@@ -208,7 +208,9 @@ it('trang 403 của đường dẫn hết hạn nói tiếng Việt, bảo bấm
 
     expect($expired)->toContain(__('portal_progress.link_expired.heading'))
         ->toContain(__('portal_progress.link_expired.body'))
-        ->toContain(__('portal_progress.link_expired.retry'))
+        // Câu bảo bấm lại chỉ vào nút trên trang (M12 Task 3 vòng sửa 1 — cửa sổ app đã cài không
+        // có nút quay lại hay tải lại); nhãn nút nằm trong câu, đã thoát HTML như Blade in ra.
+        ->toContain(e(__('portal_progress.link_expired.retry', ['home' => __('portal_progress.link_expired.home')])))
         // Đường đi tiếp KHÔNG qua một trang, cùng luật với trang 404.
         ->toContain(config('vkcrm.brand.hotline'))
         ->toContain('tel:')
@@ -222,10 +224,16 @@ it('trang 403 của đường dẫn hết hạn nói tiếng Việt, bảo bấm
         ->not->toContain((string) $this->matter->code);
 });
 
+/**
+ * Id bịa được ký trên CÙNG route với đường dẫn thật (bí danh nội bộ, nơi `downloadUrlFor()` ký cho
+ * nhân sự từ M12 Task 3): từ vòng sửa 1 của task đó, nút về của trang lỗi đi theo app của path
+ * (`/admin…` → `/admin`, còn lại → `/portal`), nên so một bí danh với route gốc là so hai path do
+ * chính người gọi chọn, không phải so "có" với "không có" tài liệu.
+ */
 it('trang 403 giống hệt nhau cho một tài liệu có thật và cho một id không tồn tại', function () {
     $document = downloadableDocument($this->matter);
     $real = $document->downloadUrlFor($this->lawyer);
-    $fake = URL::temporarySignedRoute('documents.download', now()->addMinutes(5), [
+    $fake = URL::temporarySignedRoute('documents.download.admin', now()->addMinutes(5), [
         'document' => 999999,
         'recipient' => Document::recipientToken($this->lawyer),
     ]);

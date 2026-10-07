@@ -27,10 +27,20 @@
        này được trả về NGOÀI Filament, nên `theme.css` có thể chưa hề được nạp và `var(--gray-500)`
        khi ấy không phân giải ra gì — vì vậy mỗi `var()` ở đây mang một giá trị dự phòng thật.
        Trong panel thì biến của Filament thắng, ngoài panel thì giá trị dự phòng đỡ.
+
+    # Nút "Về trang chính" trỏ `start_url` của CHÍNH app (M12 Task 3 vòng sửa 1)
+
+    Không `url('/')`: `/` chuyển hướng tới đăng nhập của KHÁCH, ngoài scope của app nội bộ đã cài
+    (và `/` ngoài scope `/portal` của app khách) — trên iPhone, chạm nút đó trong cửa sổ app mở một
+    tấm Safari ngoài app mà không có đường về. Từ Task 3, liên kết tải mở trong CÙNG cửa sổ nên một
+    liên kết bị từ chối mở trang này ngay trong app. `App\Support\Pwa\PwaPanels::startUrlFor()` chỉ
+    đọc path, panel hiện hành và IP (giới hạn IP của admin thắng), không đọc bản ghi — luật 1 ở trên
+    đứng nguyên: hai lời từ chối trong cùng một app vẫn ra đúng từng byte cùng một trang.
 --}}
 
 @php
     $hotline = App\Support\OfficeProfile::current()->hotline();
+    $home = \App\Support\Pwa\PwaPanels::startUrlFor(request());
     $tap = 'min-height:44px;display:inline-flex;align-items:center;justify-content:center;padding:0.625rem 1rem;border-radius:0.5rem;text-decoration:none;font-weight:600;';
 @endphp
 <!DOCTYPE html>
@@ -56,7 +66,7 @@
         </a>
 
         <p style="margin-top:1rem;">
-            <a href="{{ url('/') }}" style="{{ $tap }}border:1px solid color-mix(in srgb, var(--gray-500, #6b7280) 40%, transparent);color:var(--primary-600, #2563eb);">
+            <a href="{{ $home }}" style="{{ $tap }}border:1px solid color-mix(in srgb, var(--gray-500, #6b7280) 40%, transparent);color:var(--primary-600, #2563eb);">
                 {{ __('portal_progress.not_found.home') }}
             </a>
         </p>

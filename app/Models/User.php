@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use NotificationChannels\WebPush\HasPushSubscriptions;
 use SensitiveParameter;
 use Spatie\Activitylog\LogOptions;
 use Spatie\Activitylog\Traits\LogsActivity;
@@ -40,6 +41,9 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
     /** @use HasFactory<UserFactory> */
     use HasFactory;
 
+    // M12 R8 — thiết bị nhận thông báo đẩy của CHÍNH người này (`pushSubscriptions()`); màn hình chỉ
+    // chạm bảng đăng ký qua quan hệ này (tests/Feature/Push/PushSubscriptionAccessTest.php).
+    use HasPushSubscriptions;
     use HasRoles;
     use LogsActivity;
     use Notifiable;
@@ -150,6 +154,17 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
     public function getAppAuthenticationSecret(): ?string
     {
         return $this->two_factor_secret;
+    }
+
+    /**
+     * SPEC §10.7: người này ĐÃ có 2FA (secret không trống) — vừa bị "Đặt lại 2FA" hay chưa cài lần
+     * đầu thì không. MỘT định nghĩa cho mọi nơi ngoài trang panel phải từ chối nhân sự chưa có 2FA:
+     * route tải tệp (`DocumentDownloadController::actor()`) và thông báo đẩy lúc gửi
+     * (`PushAlert::shouldSend()`, việc sau gộp M12, làn fu4).
+     */
+    public function hasAppAuthenticationSecret(): bool
+    {
+        return filled($this->getAppAuthenticationSecret());
     }
 
     public function saveAppAuthenticationSecret(#[SensitiveParameter] ?string $secret): void

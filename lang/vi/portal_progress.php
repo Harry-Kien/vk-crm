@@ -271,12 +271,18 @@ return [
      * đúng từng byte — nên nó không rò rỉ gì dưới SPEC §10.10. Mọi lời từ chối CÓ đọc bản ghi
      * đều là 404 và dùng nhóm khoá `not_found` bên trên.
      *
+     * **`retry` chỉ vào nút TRÊN TRANG (`:home` = nhãn `home`), không vào nút quay lại hay tải lại
+     * của trình duyệt** (M12 Task 3 vòng sửa 1): trang này hiện ngay trong cửa sổ app đã cài, và
+     * cửa sổ standalone của iPhone không có hai nút đó. Nút `home` về đầu của chính app đang dùng
+     * (`App\Support\Pwa\PwaPanels::startUrlFor()`), nên "mở lại hồ sơ" đúng cho cả khách lẫn nhân
+     * sự.
+     *
      * Cùng hoàn cảnh với `not_found`: chúng sẽ chuyển sang `lang/vi/errors.php` khi có tệp đó.
      */
     'link_expired' => [
         'heading' => 'Liên kết tải tệp đã hết hạn',
         'body' => 'Đường dẫn tải tệp chỉ dùng được trong ít phút sau khi trang được mở, để tệp của anh/chị không bị người khác lấy mất nếu đường dẫn lọt ra ngoài.',
-        'retry' => 'Anh/chị quay lại trang hồ sơ, tải lại trang rồi bấm vào tệp một lần nữa là tải được.',
+        'retry' => 'Anh/chị bấm nút ":home" bên dưới, mở lại hồ sơ rồi bấm vào tệp một lần nữa là tải được.',
         'home' => 'Về trang chính',
         'call_lead' => 'Nếu vẫn không tải được, gọi cho văn phòng — số này dùng được cả trên Zalo:',
         'call' => 'Gọi :hotline',

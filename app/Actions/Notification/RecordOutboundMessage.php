@@ -39,9 +39,10 @@ use Throwable;
  * dòng `failed` là biến một lần gửi hỏng thành một lần im lặng không gửi lại.
  *
  * **Phạm vi:** `channel` luôn là `email`, và đó là sự thật chứ không phải một giá trị tạm —
- * cánh cửa này canh sự kiện thư của Laravel, nên nó chỉ thấy email. `OutboundChannel` còn hai
- * case `zns` và `sms` (SPEC §4.15) cho ngày văn phòng gửi Zalo; khi ấy phải có một cánh cửa
- * riêng cho kênh ấy, chứ không phải sửa chỗ này.
+ * cánh cửa này canh sự kiện thư của Laravel, nên nó chỉ thấy email. Kênh khác có cánh cửa riêng,
+ * không sửa chỗ này: từ M12 (R13) dòng `push` do {@see RecordOutboundPush} ghi (mỗi máy một dòng,
+ * nghe sự kiện của gói thông báo đẩy); `zns` và `sms` (SPEC §4.15), ngày văn phòng gửi Zalo, cũng
+ * sẽ như vậy.
  */
 class RecordOutboundMessage
 {

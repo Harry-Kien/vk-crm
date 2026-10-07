@@ -142,8 +142,8 @@
             @endforelse
         </section>
 
-        {{-- 4. HỒ SƠ GIẤY TỜ -------------------------------------------------------------- --}}
-        <section data-portal-block="4" style="{{ $card }}">
+        {{-- 4. HỒ SƠ GIẤY TỜ — `id` là đích của thông báo đẩy "giấy tờ cần nộp lại" (M12 R10, `PushTopic`). --}}
+        <section id="ho-so-giay-to" data-portal-block="4" style="{{ $card }}">
             <h2 style="{{ $blockHeading }}">{{ __('portal_progress.blocks.checklist.heading') }}</h2>
 
             @forelse ($this->checklistItems() as $item)
@@ -198,8 +198,8 @@
             @endforelse
         </section>
 
-        {{-- 5. TÀI LIỆU — hai cờ độc lập (SPEC §6.5 bước 3) ------------------------------- --}}
-        <section data-portal-block="5" style="{{ $card }}">
+        {{-- 5. TÀI LIỆU — hai cờ độc lập (SPEC §6.5 bước 3); `id` là đích của thông báo đẩy "tài liệu mới" (M12). --}}
+        <section id="tai-lieu" data-portal-block="5" style="{{ $card }}">
             <h2 style="{{ $blockHeading }}">{{ __('portal_progress.blocks.documents.heading') }}</h2>
 
             {{-- M7 Task 7: dòng "đã rút lại" đứng cùng khối, sau các tài liệu còn hiệu lực. Chỉ dùng
