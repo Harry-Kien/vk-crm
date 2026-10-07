@@ -23,13 +23,20 @@ use Illuminate\Support\Facades\Gate;
  * dùng trong cùng transaction.
  *
  * Nháp đến từ ĐỐI SỐ `draft` (id) của lần mount, không từ một component gắn sẵn: nút được vẽ bằng
- * `($livewire->useStageLogDraftAction)(['draft' => id])` trong khối nháp, và action vẫn giải được khi
+ * `$livewire->getAction('useStageLogDraft', isMounting: false)(['draft' => id])` trong khối nháp
+ * (`ai-drafts.blade.php`), và action vẫn giải được khi
  * nháp vừa bị người khác dùng — để lần bấm đó nhận câu "đã dùng hoặc đã bỏ" thay vì im lặng không
  * làm gì. Ba cổng, không cổng nào tin đối số:
  *  - `visible()`: nháp có id đó thuộc ĐÚNG vụ của trang và người xem có `transitionStage` (một id
  *    của vụ khác ẩn nút, nên Filament không chạy action);
  *  - `beforeFormFilled()`: nháp đã dùng hay đã bỏ thì báo và không mở form;
  *  - `UseStageLogDraft`: hỏi lại tất cả dưới khoá.
+ *
+ * Mọi closure đọc nháp từ `Action $action` Filament TIÊM vào, không từ `$this` (vòng sửa 1, C1 của
+ * rà soát Task 12): `$cached([...])` trả một BẢN SAO mang đối số, còn `$this` trong closure vẫn là
+ * bản action dùng chung lúc `setUp()` chạy — không có đối số, nên `visible()` đọc qua `$this` luôn
+ * thấy "không có nháp" và nút "Mở nháp" không bao giờ được vẽ. Lúc mount, Filament gộp đối số vào
+ * chính bản dùng chung và tiêm nó, nên cùng một cách đọc đúng cho cả lúc vẽ lẫn lúc chạy.
  */
 class UseStageLogDraftAction extends AddUpdateAction
 {
@@ -47,19 +54,28 @@ class UseStageLogDraftAction extends AddUpdateAction
             ->size(Size::Small)
             ->modalHeading(__('ai_drafts.stage_log.open_heading'))
             ->successNotificationTitle(__('ai_drafts.stage_log.open_success'))
-            ->visible(fn (RelationManager $livewire): bool => $this->draft($livewire->getOwnerRecord()) !== null
+            ->visible(fn (Action $action, RelationManager $livewire): bool => static::draftOf($action, $livewire->getOwnerRecord()) !== null
                 && Gate::allows('transitionStage', $livewire->getOwnerRecord()))
             ->beforeFormFilled(function (Action $action, RelationManager $livewire): void {
-                if (! $this->draft($livewire->getOwnerRecord())?->isPending()) {
+                if (! static::draftOf($action, $livewire->getOwnerRecord())?->isPending()) {
                     Notification::make()->title(__('ai_drafts.not_pending'))->warning()->send();
 
                     $action->cancel();
                 }
             })
-            ->fillForm(fn (RelationManager $livewire): array => $this->draftFormData($livewire->getOwnerRecord()));
+            ->fillForm(fn (Action $action, RelationManager $livewire): array => $this->draftFormData(
+                static::draftOf($action, $livewire->getOwnerRecord()),
+                $livewire->getOwnerRecord(),
+            ));
     }
 
-    /** Nháp mang id của đối số `draft`, CHỈ khi nó thuộc vụ `$matter` (đang chờ hay không). */
+    /** {@see self::draft()} của chính bản action Filament tiêm vào closure — xem docblock lớp. */
+    protected static function draftOf(Action $action, Matter $matter): ?StageLogDraft
+    {
+        return $action instanceof self ? $action->draft($matter) : null;
+    }
+
+    /** Nháp mang id của đối số `draft` của BẢN action này, CHỈ khi nó thuộc vụ `$matter` (đang chờ hay không). */
     public function draft(Matter $matter): ?StageLogDraft
     {
         $id = $this->getArguments()['draft'] ?? null;
@@ -77,10 +93,8 @@ class UseStageLogDraftAction extends AddUpdateAction
      * kiến) nhận đúng mặc định của "Thêm cập nhật": hôm nay, `is_published_to_portal` của vụ, mẫu của
      * giai đoạn, và `default_next_update_days` của giai đoạn.
      */
-    protected function draftFormData(Matter $matter): array
+    protected function draftFormData(?StageLogDraft $draft, Matter $matter): array
     {
-        $draft = $this->draft($matter);
-
         return [
             'occurred_at' => today(),
             'internal_note' => $draft?->internal_note,
@@ -96,7 +110,8 @@ class UseStageLogDraftAction extends AddUpdateAction
     /**
      * Lần ghi đi qua {@see UseStageLogDraft}. `DomainException` (nháp vừa bị dùng hay bỏ, giai đoạn đã
      * trôi, vụ chưa bật portal) đi về `setUpStageUpdateAction()` như mọi lần "Thêm cập nhật"; lời từ
-     * chối vì quyền thành cùng loại thông báo, giữ modal mở.
+     * chối vì quyền thành cùng loại thông báo, giữ modal mở. `setUpStageUpdateAction()` gọi hàm này
+     * trên bản action Filament tiêm vào, nên `$this->draft()` ở đây đọc đúng đối số của lần mount.
      */
     protected function submitStageUpdate(Matter $matter, array $data): void
     {

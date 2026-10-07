@@ -17,6 +17,7 @@ use App\Support\Scopes\ClientPortalScope;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Actions\Testing\TestAction;
 use Filament\Facades\Filament;
+use Illuminate\Support\Js;
 use Livewire\Features\SupportTesting\Testable;
 use Spatie\Activitylog\Models\Activity;
 
@@ -191,6 +192,30 @@ it('hides open and discard from a person who cannot reply to the request, and sh
     rdInbox($this->matter)
         ->assertActionVisible(rdAction('useDraft', $draft))
         ->assertActionVisible(rdAction('discardDraft', $draft));
+});
+
+it('renders the open and discard buttons, with the draft id, in the HTML for the lead lawyer but not for a viewer', function () {
+    $draft = rdDraft($this->request, $this->author);
+    $viewerOnly = User::factory()->create();
+    $viewerOnly->givePermissionTo(Permission::MatterView->value);
+    $this->matter->addTeamMember($viewerOnly, MatterRole::Observer);
+
+    // Đúng `wire:click` Filament vẽ cho bản sao `$action(['draft' => id])` trong khối nháp —
+    // `assertActionVisible()` hỏi bản dùng chung, nên không thay được câu hỏi này (vòng sửa 1 Task 12).
+    $renders = fn (string $name): bool => str_contains(
+        html_entity_decode(rdInbox($this->matter)->html(), ENT_QUOTES | ENT_HTML5),
+        "mountAction('{$name}', ".Js::from(['draft' => $draft->id]),
+    );
+
+    $this->actingAs($this->lawyer, 'web');
+
+    expect($renders('useReplyDraft'))->toBeTrue()
+        ->and($renders('discardReplyDraft'))->toBeTrue();
+
+    $this->actingAs($viewerOnly, 'web');
+
+    expect($renders('useReplyDraft'))->toBeFalse()
+        ->and($renders('discardReplyDraft'))->toBeFalse();
 });
 
 it('hides open on a closed request, where no reply can be written, but still allows discarding the draft', function () {

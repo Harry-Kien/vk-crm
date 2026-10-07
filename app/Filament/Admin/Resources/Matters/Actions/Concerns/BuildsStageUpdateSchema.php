@@ -8,6 +8,7 @@ use App\Models\Matter;
 use Carbon\Exceptions\InvalidFormatException;
 use Closure;
 use DomainException;
+use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
@@ -41,12 +42,17 @@ trait BuildsStageUpdateSchema
             ->visible(fn (RelationManager $livewire): bool => Gate::allows('transitionStage', $livewire->getOwnerRecord()))
             ->schema(fn (RelationManager $livewire): array => $this->buildSchema($livewire->getOwnerRecord()))
             ->successNotificationTitle(__($successMessageKey))
-            ->action(function (array $data, RelationManager $livewire): void {
+            ->action(function (Action $action, array $data, RelationManager $livewire): void {
                 /** @var Matter $matter */
                 $matter = $livewire->getOwnerRecord();
 
+                // Lần ghi chạy trên bản action Filament TIÊM vào (bản mang đối số của lần mount), không
+                // trên `$this` của lúc `setUp()`: "Mở nháp" đọc id nháp từ đối số (M11 Task 12, vòng
+                // sửa 1 — xem docblock `UseStageLogDraftAction`). Hai nút không đối số không đổi gì.
+                $submitter = $action instanceof static ? $action : $this;
+
                 try {
-                    $this->submitStageUpdate($matter, $data);
+                    $submitter->submitStageUpdate($matter, $data);
                 } catch (DomainException $exception) {
                     // M6.5 Task 10, fix round 1 (C1, Critical): bắt CHUNG mọi `DomainException` mà
                     // `TransitionMatterStage::handle()` có thể ném, không chỉ

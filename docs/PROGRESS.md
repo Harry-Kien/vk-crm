@@ -5395,3 +5395,30 @@ create` từ chối yêu cầu đã xoá). Các test đụng tới cộng mườ
 (mười tệp: bốn tệp mới, `McpDraftTest`, `TransitionStageActionTest`, `ClientRequestsRelationManagerTest`,
 `DeadlinesRelationManagerTest`, `CommunicationLogsRelationManagerTest`, `ActivityLogEventTranslationsTest`; tuần tự):
 EXIT 0 — 234 passed. `pint --test`: PASS 1220 tệp. Không có migration.
+
+### Task 12 — vòng sửa 1 (rà soát: 1 Critical; làn m11b, 2026-10-07)
+
+- **C1 — nút "Mở nháp" của khối "Nháp từ AI (n)" trên tab Tiến độ không bao giờ được vẽ.** Khối nháp vẽ nút bằng bản
+  SAO `$action(['draft' => id])` (Filament `HasMountableArguments::__invoke` clone rồi gắn đối số), còn các closure của
+  `UseStageLogDraftAction` đọc nháp qua `$this` — bản action dùng chung lúc `setUp()` chạy, không có đối số. `visible()`
+  vì thế luôn thấy "không có nháp": luật sư thấy "Nháp từ AI (1)" với mỗi nút "Bỏ nháp". Test cũ không thấy vì
+  `TestAction::arguments()` đặt đối số lên chính bản dùng chung. **Sửa:** `visible()`, `beforeFormFilled()`,
+  `fillForm()` đọc nháp từ `Action $action` Filament tiêm vào (`draftOf()`), như `ClientRequestsRelationManager` đã làm;
+  lần ghi trong `BuildsStageUpdateSchema::setUpStageUpdateAction()` chạy `submitStageUpdate()` trên bản được tiêm (hai
+  nút cũ không đối số, không đổi gì). Lúc mount Filament gộp đối số vào chính bản dùng chung và tiêm nó, nên ba chỗ sau
+  `visible()` vốn đã đọc đúng — đổi để một cách đọc đúng cho cả lúc vẽ lẫn lúc chạy (mutation của ba chỗ đó là tương đương,
+  ghi dưới).
+- **Test mới hỏi HTML thật** (dò đúng `wire:click` `mountAction('…', {draft: id}` mà Filament vẽ): `StageLogDraftsTest`
+  — hai nháp, luật sư phụ trách thấy cả bốn nút mang đúng id, trợ lý thấy nội dung nháp mà không nút nào; đi đúng hai lời
+  gọi Livewire của nút và nút lưu (`mountAction` với đối số, `callMountedAction`) với nháp THỨ HAI, dòng tiến độ ra dưới tên
+  người bấm, nháp kia vẫn chờ; "nháp đã dùng không mở lại" có thêm cặp dương (nút có trong HTML khi nháp còn chờ, không
+  còn sau khi dùng) thay cho `assertDontSee` rỗng. `ReplyDraftsTest` — cùng câu hỏi HTML cho nháp trả lời (đã đúng, nay có
+  rào).
+- **Kiểm chứng.** ĐỎ trước khi sửa: `StageLogDraftsTest` 2 failed / 13 passed (nút "Mở nháp" không có trong HTML).
+  XANH: 16 passed; `ReplyDraftsTest` 12 passed. Mutation: đưa `visible()` về `$this->draft()` → 3 đỏ; `draftOf()` trả
+  `null` → 10 đỏ; `visible()` của nháp trả lời đọc bản dùng chung → test HTML mới đỏ (test cũ của tệp vẫn xanh). Tương
+  đương có lý do: `beforeFormFilled()`/`fillForm()` qua `$this`, và `$submitter = $this` trong lần ghi — lúc chạy, bản được
+  tiêm CHÍNH LÀ bản dùng chung đã mang đối số.
+  Cả bộ (`--parallel --processes=2`): EXIT 0 — 5984 passed (5981 + 3), 1 risky, 1 todo, 33 skipped. MariaDB (tuần tự:
+  `StageLogDraftsTest`, `ReplyDraftsTest`, `TransitionStageActionTest`, `StageLogsTabTest` — hai tệp sau phủ phần lần ghi
+  chung đã đổi): EXIT 0 — 72 passed. `pint --test`: PASS. Không có migration.

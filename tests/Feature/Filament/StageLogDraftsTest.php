@@ -15,6 +15,7 @@ use Filament\Facades\Filament;
 use Filament\Schemas\Components\View;
 use Filament\Schemas\Schema;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Js;
 use Livewire\Features\SupportTesting\Testable;
 use Spatie\Activitylog\Models\Activity;
 
@@ -72,6 +73,21 @@ function sldAction(string $name, StageLogDraft $draft): TestAction
     $name = ['useDraft' => 'useStageLogDraft', 'discardDraft' => 'discardStageLogDraft'][$name];
 
     return TestAction::make($name)->arguments(['draft' => $draft->id]);
+}
+
+/**
+ * Filament có vẽ ra cho trình duyệt nút `$name` mang đối số `draft` của `$draft` không — dò đúng
+ * `wire:click` "mountAction('…', {draft: id}" trong HTML (vòng sửa 1, C1 của rà soát Task 12).
+ * `TestAction::arguments()` đặt đối số lên CHÍNH action dùng chung của component, nên
+ * `assertActionVisible()` không thấy lỗi nút bản sao `$action(['draft' => id])` trong khối nháp
+ * không bao giờ được vẽ.
+ */
+function sldRendersButton(Testable $component, string $name, StageLogDraft $draft): bool
+{
+    $name = ['useDraft' => 'useStageLogDraft', 'discardDraft' => 'discardStageLogDraft'][$name];
+    $handler = "mountAction('{$name}', ".Js::from(['draft' => $draft->id]);
+
+    return str_contains(html_entity_decode($component->html(), ENT_QUOTES | ENT_HTML5), $handler);
 }
 
 function sldPreviewHtml(Testable $component): string
@@ -232,6 +248,56 @@ it('hides open and discard from a person without transitionStage, and shows them
         ->assertActionVisible(sldAction('discardDraft', $draft));
 });
 
+it('renders the open and discard buttons of each pending draft, with its id, for the lead lawyer but not for an assistant', function () {
+    [$lawyer, $matter, $author] = sldMatter();
+    $first = sldDraft($matter, $author);
+    $second = sldDraft($matter, $author, ['public_content' => 'Nháp thứ hai về buổi hoà giải.']);
+    $assistant = User::factory()->withRole(Role::Assistant)->create();
+    $matter->addTeamMember($assistant, MatterRole::Assistant);
+
+    $this->actingAs($lawyer, 'web');
+    $page = sldPage($matter);
+
+    expect(sldRendersButton($page, 'useDraft', $first))->toBeTrue()
+        ->and(sldRendersButton($page, 'useDraft', $second))->toBeTrue()
+        ->and(sldRendersButton($page, 'discardDraft', $first))->toBeTrue()
+        ->and(sldRendersButton($page, 'discardDraft', $second))->toBeTrue();
+
+    $this->actingAs($assistant, 'web');
+    $page = sldPage($matter)->assertSee('Nháp thứ hai về buổi hoà giải.');
+
+    expect(sldRendersButton($page, 'useDraft', $first))->toBeFalse()
+        ->and(sldRendersButton($page, 'useDraft', $second))->toBeFalse()
+        ->and(sldRendersButton($page, 'discardDraft', $first))->toBeFalse()
+        ->and(sldRendersButton($page, 'discardDraft', $second))->toBeFalse();
+});
+
+it('opens and sends the second draft through the same Livewire calls the rendered button makes', function () {
+    Event::fake([StageLogPublished::class]);
+    [$lawyer, $matter, $author] = sldMatter();
+    $first = sldDraft($matter, $author);
+    $second = sldDraft($matter, $author, ['public_content' => 'Nháp thứ hai: toà đã hẹn buổi hoà giải vào tuần sau.']);
+
+    $this->actingAs($lawyer, 'web');
+
+    $page = sldPage($matter);
+
+    expect(sldRendersButton($page, 'useDraft', $second))->toBeTrue();
+
+    // Đúng hai lời gọi mà `wire:click` của nút và nút lưu của modal gửi lên, không qua TestAction.
+    $page->call('mountAction', 'useStageLogDraft', ['draft' => $second->id])
+        ->assertSet('mountedActions.0.data.public_content', 'Nháp thứ hai: toà đã hẹn buổi hoà giải vào tuần sau.')
+        ->call('callMountedAction')
+        ->assertHasNoErrors();
+
+    $log = StageLog::query()->where('matter_id', $matter->id)->sole();
+
+    expect($log->public_content)->toBe('Nháp thứ hai: toà đã hẹn buổi hoà giải vào tuần sau.')
+        ->and($log->created_by)->toBe($lawyer->id)
+        ->and($second->refresh()->used_stage_log_id)->toBe($log->id)
+        ->and($first->refresh()->isPending())->toBeTrue();
+});
+
 it('does not let a used draft be opened again', function () {
     Event::fake([StageLogPublished::class]);
     [$lawyer, $matter, $author] = sldMatter();
@@ -239,9 +305,16 @@ it('does not let a used draft be opened again', function () {
 
     $this->actingAs($lawyer, 'web');
 
+    // Cặp dương cho `assertDontSee` bên dưới: lúc nháp còn chờ, nút "Mở nháp" CÓ trong HTML.
+    expect(sldRendersButton(sldPage($matter), 'useDraft', $draft))->toBeTrue();
+
     sldPage($matter)->callAction(sldAction('useDraft', $draft))->assertHasNoFormErrors();
 
-    sldPage($matter)
+    $page = sldPage($matter);
+
+    expect(sldRendersButton($page, 'useDraft', $draft))->toBeFalse();
+
+    $page
         ->assertDontSee(__('ai_drafts.actions.open'))
         ->mountAction(sldAction('useDraft', $draft))
         ->assertNotified(__('ai_drafts.not_pending'))
