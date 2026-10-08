@@ -37,6 +37,8 @@ beforeEach(function () {
     $this->travelTo(CarbonImmutable::parse('2026-10-04 10:00:00', config('app.timezone')));
 });
 
+const PJB_WORKER_MEMORY_MB = 1048576;
+
 /** Media trong vùng đệm tạo 11 phút trước (đủ tuổi cho push-pending), tạo TRƯỚC khi bật kho. */
 function pjbMedia(): Media
 {
@@ -46,7 +48,12 @@ function pjbMedia(): Media
     return $media;
 }
 
-/** Worker thật của hàng `storage`, chạy tới khi hàng trống (job thả lại có hạn chưa tới thì ở lại). */
+/**
+ * Worker thật của hàng `storage`, chạy tới khi hàng trống (job thả lại có hạn chưa tới thì ở lại).
+ * `--memory` rất lớn: worker dừng sau MỘT job khi bộ nhớ tiến trình vượt trần (mặc định 128 MB), và
+ * tiến trình của cả bộ test song song đã vượt trần đó từ lâu — lượt chạy cả bộ đầu tiên của vòng sửa
+ * đỏ đúng vì vậy (worker để lại các job sau job đầu).
+ */
 function pjbWork(): void
 {
     Artisan::call('queue:work', [
@@ -54,6 +61,7 @@ function pjbWork(): void
         '--queue' => 'storage',
         '--stop-when-empty' => true,
         '--sleep' => 0,
+        '--memory' => PJB_WORKER_MEMORY_MB,
     ]);
 }
 
