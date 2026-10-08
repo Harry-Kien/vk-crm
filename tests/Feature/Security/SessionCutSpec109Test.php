@@ -201,9 +201,19 @@ dataset('spec109 staff next requests', [
         test()->get('/admin/team')->assertRedirect('/admin/login');
     }],
     'request cập nhật Livewire của trang "Hiệu suất theo kỳ" đang mở (M13)' => [function (array $before): void {
-        // Request JSON không đăng nhập: `Authenticate` trả 401 thay cho chuyển hướng; Livewire tải lại
-        // trang, và trang đó chuyển về đăng nhập.
+        // `postJson()` gửi `Accept: application/json`, nên `Authenticate` trả 401 cho người chưa đăng
+        // nhập thay cho chuyển hướng. Trình duyệt thật không gửi header đó: ca kế tiếp.
         spec109LivewireUpdate($before['snapshot'])->assertUnauthorized();
+    }],
+    'request cập nhật Livewire đúng header của livewire.js, như trình duyệt thật gửi (M13)' => [function (array $before): void {
+        // `Content-type: application/json` và `X-Livewire: 1`, KHÔNG `Accept: application/json` (khuôn
+        // `ErrorPageHomeLinkTest`): người chưa đăng nhập được chuyển về trang đăng nhập của panel admin.
+        test()->call('POST', Livewire::getUpdateUri(), server: [
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_X_LIVEWIRE' => '1',
+        ], content: json_encode([
+            'components' => [['snapshot' => $before['snapshot'], 'updates' => [], 'calls' => []]],
+        ]))->assertRedirect('/admin/login');
     }],
     'bật thông báo trên máy này (M12)' => [function (array $before): void {
         $response = test()->postJson('/admin/push/subscriptions', spec109PushBody('nhan-su'));

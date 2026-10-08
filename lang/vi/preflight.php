@@ -145,6 +145,12 @@ return [
         .'chỉ đổi hành vi (ví dụ ":value" có thể bị cắt còn một số nhỏ hơn nhiều so với ý định). '
         .'Sửa lại thành một số nguyên, hoặc để trống để dùng mặc định.',
 
+    // Lượt quét trước bản 1.0 (rà soát Task 1, m4) — RunPreflight::prospectRetentionRows().
+    'prospect_retention_ignored' => 'PROSPECT_RETENTION_MONTHS có giá trị ":value" — không phải một số '
+        .'nguyên từ 1 đến :max, nên bị bỏ qua: hạn lưu dữ liệu của người không thành khách đang là '
+        .':months tháng (mặc định). Hết hạn đó dữ liệu bị ẩn danh và không lấy lại được. Sửa thành số '
+        .'tháng chủ văn phòng đã chọn, hoặc để trống để dùng mặc định.',
+
     // M9 Task 13 — tầng 4 của bất biến tổng tiền, xem RunPreflight::billingInvariantsRow().
     'billing_invariants_mismatch' => 'Có :count hợp đồng đang có hiệu lực mà tổng các đợt thanh '
         .'toán khác giá trị hợp đồng: :codes. Màn hình tiền, công nợ và doanh thu đang tính sai cho '

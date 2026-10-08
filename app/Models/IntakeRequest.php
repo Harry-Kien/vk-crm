@@ -160,13 +160,24 @@ class IntakeRequest extends Model
      *
      * Trần {@see self::MAX_RETENTION_MONTHS} (lượt quét trước bản 1.0): quá trần cũng về mặc định — một
      * chữ số gõ thừa không được làm vỡ phiên bản câu thông báo (`PrivacyNotice::version()` mang số tháng,
-     * cột `privacy_notice_version` 20 ký tự) hay ngày hạn lưu.
+     * cột `privacy_notice_version` 20 ký tự) hay ngày hạn lưu. Một giá trị CÓ MẶT mà bị bỏ qua thì
+     * `vkcrm:preflight` in một dòng VÀNG (`RunPreflight`, rà soát lượt quét m4): ẩn danh không lùi lại được.
      */
     public static function retentionMonths(): int
     {
-        $months = filter_var(config('vkcrm.prospect_retention_months'), FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => self::MAX_RETENTION_MONTHS]]);
+        return self::parseRetentionMonths(config('vkcrm.prospect_retention_months')) ?? self::DEFAULT_RETENTION_MONTHS;
+    }
 
-        return $months === false ? self::DEFAULT_RETENTION_MONTHS : $months;
+    /**
+     * Luật nhận một giá trị `PROSPECT_RETENTION_MONTHS`: số nguyên 1…{@see self::MAX_RETENTION_MONTHS}
+     * (số hoặc chuỗi chữ số), ngoài ra null. Một chỗ cho cả {@see self::retentionMonths()} và dòng
+     * preflight, để hai nơi không bao giờ hiểu cùng một giá trị theo hai cách.
+     */
+    public static function parseRetentionMonths(mixed $value): ?int
+    {
+        $months = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => self::MAX_RETENTION_MONTHS]]);
+
+        return $months === false ? null : $months;
     }
 
     /**

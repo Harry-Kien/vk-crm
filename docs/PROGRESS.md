@@ -2944,12 +2944,17 @@ và mọi route có tham số phải ở nhóm 1 hoặc là ngoại lệ có lý
 2. **Trang đóng với một vai (19 route):** người bị từ chối nhận đúng trang 404 của một đường dẫn không tồn tại dưới
    `/admin`; admin mở được cả 19. Trong đó hai trang M13 (vòng sửa 1): "Hiệu suất theo kỳ" (`matter.view` hoặc
    `performance.viewAny` — kế toán bị từ chối) và "Theo dõi đội ngũ" (chỉ `performance.viewAny`, tức admin và quản lý
-   — luật sư bị từ chối); cả hai `abort_unless(canAccess(), 404)` trong `boot()`.
-3. **Mở cho mọi vai nhân sự của panel (20 route)** (bảng tin, hồ sơ cá nhân, tìm kiếm, danh sách vụ việc, danh mục
-   loại vụ việc, trang thiết bị, đổi mật khẩu, đăng nhập/đăng xuất, ba route thiết bị M12 mỗi panel — gỡ thiết bị của
-   người khác và thiết bị không có trả cùng 404, có test). Lời "mở" được kiểm chứ không chỉ ghi: mọi route GET của
-   panel admin trong nhóm này trả 200 cho từng vai trong năm vai (trừ trang đăng nhập và trang buộc cài 2FA, vốn
-   chuyển hướng người đã đăng nhập) — một trang có cổng xếp nhầm vào đây làm test đỏ.
+   — luật sư bị từ chối); cả hai `abort_unless(canAccess(), 404)` trong `boot()`. Phía cổng khách (Task 2,
+   rà soát lại r2): "Đổi mật khẩu" của cổng (`ChangePassword::canAccess()`, chỉ tài khoản còn nợ lần đổi mật khẩu đầu,
+   SPEC §8.1) — tài khoản đã kích hoạt nhận đúng trang 404 của một đường dẫn không tồn tại dưới `/portal`; tài khoản
+   còn phải đổi mở được. Tổng 20 route đóng.
+3. **Mở cho mọi vai nhân sự / mọi tài khoản khách đã kích hoạt (19 route)** (bảng tin, hồ sơ cá nhân, tìm kiếm, danh
+   sách vụ việc, danh mục loại vụ việc, trang thiết bị, đăng nhập/đăng xuất, ba route thiết bị M12 mỗi panel — gỡ thiết
+   bị của người khác và thiết bị không có trả cùng 404, có test). Lời "mở" được kiểm chứ không chỉ ghi: mọi route GET
+   của panel admin trong nhóm này trả 200 cho từng vai trong năm vai (trừ trang đăng nhập và trang buộc cài 2FA, vốn
+   chuyển hướng người đã đăng nhập), và mọi route GET của cổng trong nhóm (trừ trang đăng nhập) trả 200 cho một khách
+   một vụ và một khách hai vụ — một trang có cổng xếp nhầm vào đây làm test đỏ. Test phía cổng (Task 2) đỏ đúng một
+   lần như thế: "Đổi mật khẩu" của cổng từng nằm ở nhóm này, nay ở nhóm 2.
 4. **Ngoại lệ có chủ đích, liệt kê trong test (`spec1010Exceptions()`):** chữ ký URL sai trả **403** trên
    `documents.download` và hai bí danh M12 (`routes/web.php` — nói về đường dẫn, không về bản ghi; test khẳng định 403
    giống nhau cho id có thật và id bịa, và chữ ký đúng mà không được tải thì 404 như id không có); request cập nhật
@@ -3042,6 +3047,23 @@ mặc định đã ghi.
 - `test:mariadb` 23 tệp test đụng tới: 524 passed, 1 skipped (ca §10.5 sao lưu thật, cần công cụ ngoài; đã bỏ
   qua từ trước), 685 giây.
 - `pint --test`: sạch, 1178 tệp.
+
+#### Sau rà soát lại Task 1 (làn v1, Task 2, 2026-10-08)
+
+- **Cả bộ trên `563996b`** (đỉnh Task 1 sau vòng sửa 1, mục r1 của rà soát lại): `test --parallel --processes=2`,
+  **6389 passed, 33 skipped, 0 failed** (169753 khẳng định, 3341 giây).
+- **m4 — `PROSPECT_RETENTION_MONTHS` bị bỏ qua lặng lẽ.** `vkcrm:preflight` in một dòng VÀNG ở mọi `APP_ENV` khi biến
+  có giá trị mà hạn lưu không nhận (`2400`, `24 tháng`, `0`, `-6`, `18.5`): nêu giá trị, số tháng đang dùng thật và
+  câu "ẩn danh không lấy lại được". Luật chọn số tháng không đổi (quá trần vẫn về 24 — hạn lưu là việc của chủ văn
+  phòng, mục 1 ở trên); `IntakeRequest::parseRetentionMonths()` là luật chung của model và dòng preflight.
+  `PreflightCommandTest` (5 ca đỏ trước, 5 ca âm); `.env.example` và README nói dòng VÀNG.
+- **r2 — "Đổi mật khẩu" của cổng xếp nhầm vào nhóm mở của §10.10.** Xem mục A2 (đã sửa số route).
+- **m2, m3 — request Livewire của nhân sự bị vô hiệu từ trình duyệt thật.** `SessionCutSpec109Test` có thêm ca gửi
+  đúng header của `livewire.js` (không `Accept: application/json`): chuyển về `/admin/login`, guard trống; câu chú
+  thích của ca JSON không còn tả hành vi không test nào đo.
+- **Gộp làn `v1-acceptance-b` (mục "Nghiệm thu bản 1.0") vào làn này chưa làm được**: môi trường từ chối lệnh
+  `git merge` của phiên làm Task 2. `git merge-tree` cho thấy gộp sạch (không xung đột). Người điều phối gộp, rồi chạy
+  lại cả bộ trên cây đã gộp.
 
 ## Ghi chú M7
 

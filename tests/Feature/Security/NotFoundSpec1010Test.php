@@ -31,11 +31,12 @@ use Tests\Support\WebPushTestKeys;
 |  1. RECORD — route mang id của một bản ghi. Một người KHÔNG được xem bản ghi đó mở nó với id có
 |     thật và với id không có: hai câu trả lời phải giống nhau từng byte (sau khi bỏ token phiên),
 |     và đều là 404.
-|  2. GATED — trang không mang id, đóng với một vai: người không có quyền nhận đúng trang 404 của một
-|     đường dẫn không tồn tại trong cùng panel.
-|  3. OPEN — trang mọi vai nhân sự (cổng khách: mọi tài khoản khách) của panel đó đều mở (bảng tin,
-|     hồ sơ cá nhân, tìm kiếm, trang thiết bị nhận thông báo, đổi mật khẩu…): không nói gì về sự tồn
-|     tại của bản ghi. Phía admin có test kiểm 200 cho từng vai.
+|  2. GATED — trang không mang id, đóng với một vai (cổng khách: với một loại tài khoản, ví dụ "Đổi
+|     mật khẩu" chỉ mở cho tài khoản còn nợ lần đổi đầu): người không được vào nhận đúng trang 404 của
+|     một đường dẫn không tồn tại trong cùng panel.
+|  3. OPEN — trang mọi vai nhân sự (cổng khách: mọi tài khoản khách đã kích hoạt) của panel đó đều mở
+|     (bảng tin, hồ sơ cá nhân, tìm kiếm, trang thiết bị nhận thông báo…): không nói gì về sự tồn tại
+|     của bản ghi. Cả hai panel có test kiểm 200 (admin: từng vai; cổng: khách một vụ và hai vụ).
 |  4. EXCEPTION — ngoại lệ có chủ đích, mỗi cái một lý do (xem `spec1010Exceptions()`): chữ ký URL
 |     sai trả 403 (`routes/web.php`, nói về ĐƯỜNG DẪN chứ không về bản ghi — test riêng dưới đây
 |     khẳng định 403 đó giống nhau cho id có thật và id bịa), tài nguyên tĩnh và công khai của PWA,
@@ -101,9 +102,24 @@ function spec1010GatedPages(): array
 }
 
 /**
- * Nhóm 3 — mở cho mọi vai nhân sự (cổng khách: mọi tài khoản khách) của panel, cùng trang đăng
- * nhập/đăng xuất và cài 2FA. Không trang nào ở đây đọc một bản ghi theo id trên URL. Phía admin được
- * kiểm cho từng vai ở test "mở được mọi trang GET của panel admin trong nhóm OPEN".
+ * Nhóm 2, phía cổng khách — trang không mang id, đóng với một loại tài khoản khách. Giá trị: tài
+ * khoản bị từ chối. Cổng chỉ có một vai, nên cổng của trang nằm ở trạng thái tài khoản, không ở vai.
+ * "Đổi mật khẩu" (`ChangePassword::canAccess()`) chỉ mở cho tài khoản còn nợ lần đổi mật khẩu đầu
+ * (SPEC §8.1); trước rà soát lại Task 1 (r2) nó bị xếp nhầm vào OPEN.
+ *
+ * @return array<string, string>
+ */
+function spec1010PortalGatedPages(): array
+{
+    return [
+        'filament.portal.pages.change-password' => 'tài khoản đã kích hoạt, không còn phải đổi mật khẩu',
+    ];
+}
+
+/**
+ * Nhóm 3 — mở cho mọi vai nhân sự (cổng khách: mọi tài khoản khách đã kích hoạt) của panel, cùng
+ * trang đăng nhập/đăng xuất và cài 2FA. Không trang nào ở đây đọc một bản ghi theo id trên URL. Được
+ * kiểm ở hai test "mở được mọi trang GET của panel admin…" (từng vai) và "…của cổng khách…".
  *
  * @return list<string>
  */
@@ -126,7 +142,6 @@ function spec1010OpenPages(): array
         'filament.admin.push.subscriptions.destroy',
         'filament.admin.push.test',
         'filament.portal.pages.my-matters',
-        'filament.portal.pages.change-password',
         'filament.portal.pages.thong-bao-dien-thoai',
         'filament.portal.auth.login',
         'filament.portal.auth.logout',
@@ -247,7 +262,7 @@ function spec1010Case(string $name): array
 it('xếp MỌI route của router vào đúng một nhóm của §10.10 (danh sách dựng từ router, không từ trí nhớ)', function () {
     $groups = [
         'record' => array_keys(spec1010RecordRoutes()),
-        'gated' => array_keys(spec1010GatedPages()),
+        'gated' => [...array_keys(spec1010GatedPages()), ...array_keys(spec1010PortalGatedPages())],
         'open' => spec1010OpenPages(),
         'exception' => array_keys(spec1010Exceptions()),
     ];
@@ -327,6 +342,29 @@ it('mở được mọi trang của nhóm GATED cho quản trị viên', functio
     $this->actingAs($this->admin, 'web')->get(route($name))->assertOk();
 })->with(array_keys(spec1010GatedPages()));
 
+it('trả cho tài khoản khách không được vào đúng trang 404 của một đường dẫn không tồn tại trong cổng', function (string $name) {
+    // `spec1010PortalGatedPages()`: tài khoản bị từ chối là tài khoản đã kích hoạt, không còn nợ lần
+    // đổi mật khẩu đầu — đúng `$this->clientUser`.
+    expect($this->clientUser->must_change_password)->toBeFalse();
+
+    $this->actingAs($this->clientUser, 'client');
+    $denied = $this->get(route($name));
+
+    $this->actingAs($this->clientUser, 'client');
+    $unknown = $this->get('/portal/khong-co-trang-nay');
+
+    expect($denied->getStatusCode())->toBe(404)
+        ->and($unknown->getStatusCode())->toBe(404)
+        ->and(spec1010Normalise($denied))->toBe(spec1010Normalise($unknown));
+})->with(array_keys(spec1010PortalGatedPages()));
+
+/** Cặp dương: tài khoản còn phải đổi mật khẩu lần đầu mở được chính trang đó. */
+it('mở được trang của nhóm GATED phía cổng cho tài khoản còn phải đổi mật khẩu lần đầu', function (string $name) {
+    $firstLogin = ClientUser::factory()->create(['client_id' => $this->client->id, 'must_change_password' => true]);
+
+    $this->actingAs($firstLogin, 'client')->get(route($name))->assertOk();
+})->with(array_keys(spec1010PortalGatedPages()));
+
 /*
  * Lời khẳng định của nhóm OPEN được kiểm, không chỉ được ghi: mọi route GET của panel admin trong
  * nhóm đó mở được (200) cho TỪNG vai nhân sự. Bỏ qua hai route GET chuyển hướng người ĐÃ đăng nhập
@@ -353,6 +391,35 @@ it('mở được mọi trang GET của panel admin trong nhóm OPEN cho từng 
 
     expect($refused)->toBe([], 'trang của nhóm OPEN đóng với vai '.$role->value);
 })->with(Role::cases());
+
+/*
+ * Cùng lời khẳng định cho cổng khách ("mọi tài khoản khách"; rà soát lại Task 1, r2): mọi route GET
+ * của cổng trong nhóm OPEN, trừ trang đăng nhập (chuyển người đã đăng nhập đi), mở được cho một khách
+ * MỘT vụ và một khách HAI vụ. Khách một vụ được "Hồ sơ của tôi" chuyển thẳng sang hồ sơ của chính
+ * mình, nên đi theo chuyển hướng và đòi trang cuối cùng là 200.
+ */
+it('mở được mọi trang GET của cổng khách trong nhóm OPEN cho tài khoản khách một vụ và hai vụ', function (string $account) {
+    $actor = $account === 'một vụ' ? $this->clientUser : $this->otherClientUser;
+
+    if ($account === 'hai vụ') {
+        Matter::factory()->for($this->otherClient)->create(['lead_lawyer_id' => $this->lead->id]);
+    }
+
+    $pages = collect(spec1010OpenPages())
+        ->filter(fn (string $name): bool => str_starts_with($name, 'filament.portal.')
+            && $name !== 'filament.portal.auth.login'
+            && in_array('GET', Route::getRoutes()->getByName($name)->methods(), true))
+        ->values();
+
+    expect($pages->all())->toContain('filament.portal.pages.my-matters', 'filament.portal.pages.thong-bao-dien-thoai');
+
+    $refused = $pages
+        ->filter(fn (string $name): bool => $this->actingAs($actor, 'client')->followingRedirects()->get(route($name))->getStatusCode() !== 200)
+        ->values()
+        ->all();
+
+    expect($refused)->toBe([], 'trang của nhóm OPEN đóng với khách '.$account);
+})->with(['một vụ', 'hai vụ']);
 
 /*
  * Ngoại lệ có chủ đích: chữ ký URL sai trả 403. Nó nói về ĐƯỜNG DẪN, không về bản ghi — nên phải

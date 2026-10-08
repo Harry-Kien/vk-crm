@@ -669,3 +669,45 @@ it('§preflight danh sách hàm pcntl của preflight đúng bằng các hàm pc
     expect($called)->toBe(['pcntl_alarm', 'pcntl_async_signals', 'pcntl_signal'])
         ->and($configured)->toBe($called);
 });
+
+/**
+ * Lượt quét trước bản 1.0, rà soát Task 1 (m4): `IntakeRequest::retentionMonths()` lặng lẽ dùng mặc định
+ * 24 tháng cho mọi giá trị `PROSPECT_RETENTION_MONTHS` nó không nhận — kể cả `2400`, lỗi gõ của người
+ * muốn giữ LÂU hơn. Ẩn danh (`prospects.anonymise`) không lùi lại được, nên preflight nói ra: một dòng
+ * VÀNG nêu giá trị bị bỏ qua và số tháng đang dùng thật, ở MỌI `APP_ENV` như ba biến số sao lưu. Không
+ * đổi luật chọn số tháng — hạn lưu là việc của chủ văn phòng và luật sư.
+ */
+it('§preflight PROSPECT_RETENTION_MONTHS có giá trị mà hạn lưu không nhận là VÀNG, nêu giá trị và số tháng đang dùng, bất kể APP_ENV', function (string $value) {
+    config(['app.env' => 'testing', 'vkcrm.prospect_retention_months' => $value]);
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($exitCode)->toBe(0)
+        ->and($output)->toContain(__('preflight.prospect_retention_ignored', [
+            'value' => $value,
+            'months' => 24,
+            'max' => 1200,
+        ]))
+        ->and($output)->toContain(__('preflight.levels.yellow'));
+})->with([
+    'quá trần (gõ thừa một số 0)' => ['2400'],
+    'có chữ' => ['24 tháng'],
+    'số không' => ['0'],
+    'số âm' => ['-6'],
+    'số lẻ' => ['18.5'],
+]);
+
+it('§preflight PROSPECT_RETENTION_MONTHS hợp lệ, để trống hoặc vắng mặt không sinh dòng nào', function (mixed $value) {
+    config(['app.env' => 'testing', 'vkcrm.prospect_retention_months' => $value]);
+
+    Artisan::call('vkcrm:preflight');
+
+    expect(Artisan::output())->not->toContain('PROSPECT_RETENTION_MONTHS');
+})->with([
+    'số tháng hợp lệ dạng chuỗi' => ['36'],
+    'đúng trần' => ['1200'],
+    'mặc định của tệp cấu hình' => [24],
+    'để trống' => [''],
+    'vắng mặt' => [null],
+]);
