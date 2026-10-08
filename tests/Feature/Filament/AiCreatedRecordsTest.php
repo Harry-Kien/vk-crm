@@ -125,14 +125,22 @@ it('hides the confirm button from a person who cannot edit the deadline', functi
 it('reminds an AI-created deadline exactly like one entered on the web, confirmed or not', function () {
     Mail::fake();
     $ai = aiDeadline($this->matter, ['due_date' => today()->addDays(7)]);
+    // Rà soát Task 12 m4: mốc AI ĐÃ được người xác nhận cũng nằm trong cùng lượt — lời hứa của
+    // ai_drafts.deadline.confirm_description ("chưa xác nhận hay đã xác nhận đều được nhắc hạn").
+    $confirmed = aiDeadline($this->matter, [
+        'due_date' => today()->addDays(7),
+        'confirmed_at' => now()->subHour(),
+        'confirmed_by' => $this->lawyer->id,
+    ]);
     $web = aiDeadline($this->matter, ['due_date' => today()->addDays(7), 'created_via' => CreatedVia::Web]);
 
     $result = (new CheckDeadlines)->handle();
 
-    expect($result['reminded'])->toBe(2)
+    expect($result['reminded'])->toBe(3)
         ->and($ai->refresh()->reminders_sent)->toContain('d7')
+        ->and($confirmed->refresh()->reminders_sent)->toContain('d7')
         ->and($web->refresh()->reminders_sent)->toContain('d7');
-    Mail::assertSent(DeadlineReminder::class, 2);
+    Mail::assertSent(DeadlineReminder::class, 3);
 });
 
 it('labels an AI-created communication log on the communications tab, and not one logged on the web', function () {

@@ -166,16 +166,20 @@ return [
         .'quá 60 phút (kế hoạch M11, R7). Token bị lộ dùng được lâu hơn. Đặt lại '
         .'Passport::tokensExpireIn(PT1H) ở AppServiceProvider.',
     'passport_token_ttl_ok' => 'Access token của kết nối AI (Passport) sống :minutes phút.',
-    'passport_keys_missing' => 'Thiếu hoặc không đọc được khoá ký token của Passport: :keys. Không '
-        .'có khoá thì không nhân sự nào kết nối được AI (/oauth/token và /mcp hỏng). Chạy php artisan '
+    'passport_keys_missing' => 'Khoá ký token của Passport thiếu, không đọc được, hoặc không phải khoá '
+        .'RSA: :keys. Không có khoá thì không nhân sự nào kết nối được AI (/oauth/token và /mcp hỏng). Chạy php artisan '
         .'passport:keys bằng người dùng chạy PHP-FPM, hoặc dán đúng nội dung khoá vào '
         .'PASSPORT_PRIVATE_KEY/PASSPORT_PUBLIC_KEY; rồi cất khoá cùng chỗ với APP_KEY '
         .'(docs/CAI-DAT.md, Bước 3).',
     'passport_private_key_exposed' => 'Khoá riêng của Passport (:path) có quyền :mode — người dùng '
         .'khác trên máy chủ đọc được nó và tự ký access token cho bất kỳ nhân sự nào. Chạy chmod 600 '
         .'(hoặc 640/660 nếu nhóm của PHP-FPM cần đọc) cho tệp này.',
-    'passport_keys_ok' => 'Khoá ký token của Passport có đủ, đọc được, và khoá riêng không mở cho người '
-        .'dùng khác.',
+    'passport_keys_mismatch' => 'Khoá công khai của Passport không cùng cặp với khoá riêng: mọi kết '
+        .'nối AI sẽ hỏng chữ ký (401). Dán lại PASSPORT_PUBLIC_KEY (hoặc tệp oauth-public.key) từ ĐÚNG '
+        .'cặp của khoá riêng đang dùng, hoặc chạy lại php artisan passport:keys --force rồi cất cả hai '
+        .'khoá cùng chỗ với APP_KEY (docs/CAI-DAT.md, Bước 3).',
+    'passport_keys_ok' => 'Khoá ký token của Passport có đủ, là một cặp RSA, đọc được, và khoá riêng không '
+        .'mở cho người dùng khác.',
     // M11 Task 16 (R12 mục 3), RunPreflight::mcpFilingDateRow().
     'mcp_filing_date_missing' => 'Máy chủ MCP đang bật (Kết nối AI) nhưng chưa ghi ngày đã nộp hồ sơ '
         .'đánh giá tác động chuyển dữ liệu cá nhân ra nước ngoài (hạn 60 ngày kể từ lần chuyển đầu '

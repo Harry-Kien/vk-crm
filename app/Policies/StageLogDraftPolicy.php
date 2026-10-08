@@ -14,7 +14,9 @@ use App\Policies\Concerns\ReadsPortalParents;
  * `1 = 0` ({@see StageLogDraft::applyClientPortalConstraints()}) và mọi ability dưới đây trả `false`
  * cho `ClientUser`. Nhân sự đọc nháp của một vụ khi thấy được vụ đó (`MatterPolicy::view`, qua
  * {@see ChecksMatterAccess}) — cùng phạm vi với dòng tiến độ thật, vì người mở nháp trên tab Tiến độ
- * (Task 12) là người của đội ngũ. Mở nháp để GỬI và bỏ nháp là ability riêng của Task 12.
+ * (Task 12) là người của đội ngũ. Mở nháp để GỬI và bỏ nháp KHÔNG có ability ở đây: cả hai hỏi
+ * `MatterPolicy::transitionStage` — cùng cổng với nút "Thêm cập nhật" (`UseStageLogDraft`, `DiscardDraft`;
+ * rà soát Task 12 m3).
  *
  * Không ai xoá được nháp ({@see self::delete()}): chỉ bỏ, kèm lý do.
  */

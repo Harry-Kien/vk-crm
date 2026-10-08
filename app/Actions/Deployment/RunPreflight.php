@@ -232,16 +232,23 @@ class RunPreflight
      * còn không thì tệp `Passport::keyPath('oauth-private.key')`/`('oauth-public.key')` (mặc định
      * `storage/`, sinh bằng `php artisan passport:keys`). Hai câu hỏi, theo thứ tự:
      *
-     * 1. Mỗi khoá có mặt và đọc được thành khoá (`openssl_pkey_get_private()`/`_public()`) không.
-     *    Không → ĐỎ, nêu tên biến (khoá dạng nội dung) hoặc đường dẫn tệp. Tệp vắng, tệp tiến trình
-     *    này không đọc được, và tệp chứa thứ không phải khoá đều rơi vào đây: cả ba làm `/oauth/token`
-     *    và `/mcp` hỏng như nhau. Khoá riêng có mật khẩu cũng vậy — Passport dựng `CryptKey` không
-     *    mật khẩu.
-     * 2. Khoá riêng dạng TỆP có bit quyền nào của "người khác" (`o+rwx`) không. Có → ĐỎ, nêu đường
+     * 1. Mỗi khoá có mặt và đọc được thành một khoá **RSA** (`openssl_pkey_get_private()`/`_public()`,
+     *    rồi `openssl_pkey_get_details()['type']`) không. Không → ĐỎ, nêu tên biến (khoá dạng nội dung)
+     *    hoặc đường dẫn tệp. Tệp vắng, tệp tiến trình này không đọc được, tệp chứa thứ không phải khoá,
+     *    và khoá EC/DSA (token ký RS256 — rà soát Task 16 m6) đều rơi vào đây: cả bốn làm
+     *    `/oauth/token` và `/mcp` hỏng như nhau. Khoá riêng có mật khẩu cũng vậy — Passport dựng
+     *    `CryptKey` không mật khẩu.
+     * 2. Hai khoá có cùng một cặp không: khoá công khai suy từ khoá riêng phải trùng khoá công khai đã
+     *    cấu hình (rà soát Task 16 m6). Không → ĐỎ: một `PASSPORT_PUBLIC_KEY` dán từ cặp khác làm mọi
+     *    lần gọi `/mcp` hỏng chữ ký (401) trong khi từng khoá riêng lẻ vẫn "đọc được".
+     * 3. Khoá riêng dạng TỆP có bit quyền nào của "người khác" (`o+rwx`) không. Có → ĐỎ, nêu đường
      *    dẫn và quyền (bát phân): người dùng khác trên máy (hay gặp ở shared hosting) đọc được khoá
      *    là tự ký được access token cho bất kỳ nhân sự nào. Quyền của nhóm (640, 660) không bị tính:
      *    league/oauth2-server cũng nhận chúng, và PHP-FPM có khi đọc khoá qua nhóm. Khoá công khai
      *    không bị kiểm quyền.
+     *
+     * "Đọc được" là đọc được bằng tiến trình ĐANG CHẠY lệnh này (thường là người dùng của cron/SSH),
+     * không nhất thiết là người dùng của PHP-FPM — `docs/CAI-DAT.md` Bước 7 nói điều này.
      *
      * Đúng thì XANH. Đọc tệp chỉ để hỏi `openssl_pkey_get_*()`; nội dung không đi đâu khác.
      */
@@ -249,6 +256,7 @@ class RunPreflight
     {
         $missing = [];
         $exposed = null;
+        $publicKeys = [];
 
         foreach (['private', 'public'] as $type) {
             $content = str_replace('\\n', "\n", (string) config("passport.{$type}_key"));
@@ -259,15 +267,17 @@ class RunPreflight
                 $content = is_file($path) && is_readable($path) ? (string) file_get_contents($path) : '';
             }
 
-            $valid = $type === 'private'
-                ? openssl_pkey_get_private($content) !== false
-                : openssl_pkey_get_public($content) !== false;
+            $key = $type === 'private' ? openssl_pkey_get_private($content) : openssl_pkey_get_public($content);
+            $details = $key === false ? false : openssl_pkey_get_details($key);
 
-            if (! $valid) {
+            if ($details === false || ($details['type'] ?? null) !== OPENSSL_KEYTYPE_RSA) {
                 $missing[] = $path ?? strtoupper("PASSPORT_{$type}_KEY");
 
                 continue;
             }
+
+            // Khoá công khai dạng PEM chuẩn hoá: của khoá riêng thì suy ra, của khoá công khai thì đọc lại.
+            $publicKeys[$type] = (string) ($details['key'] ?? '');
 
             if ($type === 'private' && $path !== null && (fileperms($path) & 0o007) !== 0) {
                 $exposed = ['path' => $path, 'mode' => sprintf('%o', fileperms($path) & 0o777)];
@@ -278,6 +288,10 @@ class RunPreflight
             return $this->row('passport_keys', PreflightLevel::Red, __('preflight.passport_keys_missing', [
                 'keys' => implode(', ', $missing),
             ]));
+        }
+
+        if ($publicKeys['private'] !== $publicKeys['public']) {
+            return $this->row('passport_keys', PreflightLevel::Red, __('preflight.passport_keys_mismatch'));
         }
 
         if ($exposed !== null) {

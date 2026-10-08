@@ -24,7 +24,7 @@ final class WhoAmITool extends CrmReadTool
     {
         $this->validated($request, []);
 
-        return $this->result(WhoAmIPresenter::present($read->handle($this->actor())));
+        return $this->result(WhoAmIPresenter::present($read->handle($this->actor($request))));
     }
 
     /** @return array<string, mixed> */

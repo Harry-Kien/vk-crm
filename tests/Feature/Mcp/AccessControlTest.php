@@ -512,14 +512,16 @@ it('R2 EnsureMcpAccess đứng một mình (lỡ bị đặt trước auth:mcp):
 it('R13 CrmTool::shouldRegister(): tool ghi chỉ đăng ký cho người của guard mcp ghi được; không có người thì không; tool đọc luôn đăng ký', function () {
     McpOAuth::openServer(write: true);
 
-    expect(aclWriteTool()->shouldRegister())->toBeFalse()
-        ->and(aclReadTool()->shouldRegister())->toBeTrue();
+    // Hỏi qua đúng đường của laravel/mcp (`eligibleForRegistration()` → `Container::call()`), vì từ M11
+    // Task 14 `shouldRegister()` nhận request MCP qua container.
+    expect(aclWriteTool()->eligibleForRegistration())->toBeFalse()
+        ->and(aclReadTool()->eligibleForRegistration())->toBeTrue();
 
     Auth::guard('mcp')->setUser(aclStaff(AiAccessMode::ReadWrite));
-    expect(aclWriteTool()->shouldRegister())->toBeTrue();
+    expect(aclWriteTool()->eligibleForRegistration())->toBeTrue();
 
     Auth::guard('mcp')->setUser(aclStaff(AiAccessMode::Read));
-    expect(aclWriteTool()->shouldRegister())->toBeFalse();
+    expect(aclWriteTool()->eligibleForRegistration())->toBeFalse();
 });
 
 it('R13 bước gọi tool không có người của guard mcp: tool ghi bị từ chối (isError), handler không chạy', function () {
@@ -787,7 +789,7 @@ it('R13 handler vẫn kiểm lại: tool ghi lỡ tự cho mình đăng ký vớ
             return true;
         }
 
-        public function shouldRegister(): bool
+        public function shouldRegister(Request $request): bool
         {
             return true;
         }

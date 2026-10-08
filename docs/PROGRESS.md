@@ -5602,8 +5602,8 @@ stateless 2026-07-28 kèm `MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name` — `
 - **Action đọc**: `ReadWhoAmI` (số vụ = `McpMatterScope::query()->count()`), `SearchRecords` (vụ: CHÍNH
   `SearchMatters::matching()` của M7 Task 9 trên bốn nguồn R10 cho phép — mã, tiêu đề, tên khách, số thụ lý —
   làm điều kiện `id IN (…)` trên `McpMatterScope::query()`; yêu cầu: tiêu đề chứa chuỗi, `McpMatterScope::constrain()`,
-  rồi Gate `view` từng dòng như `fetch`; mỗi loại tối đa 10, mới nhất trước), `ListMatters` (bộ lọc chữ/loại vụ theo mã hoặc tên/giai đoạn/"vụ tôi phụ
-  trách" = luật sư phụ trách/đang mở qua `scopeOpen()`/`scopeClosed()`; `limit` mặc định 10, kẹp về [1, 25];
+  rồi Gate `view` từng dòng như `fetch`; mỗi loại tối đa 10, mới nhất trước), `ListMatters` (bộ lọc chữ/loại
+  vụ theo mã hoặc tên/giai đoạn/"vụ tôi phụ trách" = luật sư phụ trách/đang mở qua `scopeOpen()`/`scopeClosed()`; `limit` mặc định 10, kẹp về [1, 25];
   phân trang theo khoá `id` giảm dần), `ReadMatter` (`McpMatterScope` RỒI Gate `view`; năm mốc; "Đã nộp X/Y" của
   chính `ChecklistProgress`; số yêu cầu chưa `closed`, chưa rút), `ReadClientRequest` (nhánh yêu cầu của `fetch`,
   dùng lại cho `get_client_request` ở Task 11: `constrain()` + Gate `view` trên yêu cầu + Gate `view` từng trả
@@ -5628,8 +5628,8 @@ stateless 2026-07-28 kèm `MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name` — `
   đọc nhiều hơn.
 - **Cursor là lỗi riêng, không phải "Không tìm thấy"**: nó nói về cursor, không về bản ghi nào; trang kế vẫn đi
   qua `McpMatterScope` của người gọi, nên kể cả cursor giải mã được cũng không mở thêm dòng nào.
-- **`ReadMatter`/`ReadClientRequest` và nửa yêu cầu của `SearchRecords` hỏi lại Gate sau `McpMatterScope`**: tập R3 đã là con của Gate `view`; lần
-  hỏi thứ hai giữ "MCP kế thừa policy web" đúng cả khi policy được thêm điều kiện mà bản SQL chưa có (test dùng
+- **`ReadMatter`/`ReadClientRequest` và nửa yêu cầu của `SearchRecords` hỏi lại Gate sau `McpMatterScope`**:
+  tập R3 đã là con của Gate `view`; lần hỏi thứ hai giữ "MCP kế thừa policy web" đúng cả khi policy được thêm điều kiện mà bản SQL chưa có (test dùng
   `Gate::before` để ép đúng tình huống đó).
 - **Tham số rỗng là "không lọc"**: chuỗi chỉ có khoảng trắng ở `query`/`matter_type`/`stage` của `search_matters`
   bị bỏ qua; `query` của `search` ngắn hơn hai ký tự sau chuẩn hoá cho kết quả rỗng (như ô tìm của web); dài hơn
@@ -6056,6 +6056,80 @@ unique `jti` — test vẫn xanh vì lớp kia trả đúng bản ghi cũ; bỏ 
 nháp — unique `(created_by, idempotency_key)` vỡ và nhánh bắt lỗi trả cùng nháp, nên tương đương. Bỏ `Gate view` trên
 yêu cầu của `draft_request_reply` — với nhân sự `ClientRequestPolicy::view` hôm nay đúng bằng "thấy vụ", đã nằm trong
 `McpMatterScope`, nên tương đương; giữ lại để một lần siết policy sau này tự áp vào tool.
+
+### Task 14 — các lượt quét xuyên suốt và luật cấu trúc (làn m11, 2026-10-08)
+
+**Đã dựng (chỉ test, cộng một lần sửa cấu trúc và các rà soát dời lại).**
+- `tests/Feature/Mcp/SensitiveDataSweepTest.php` + `tests/Support/McpSweep.php`. Bộ dữ liệu đặt một kim ASCII ở mọi
+  chỗ kế hoạch liệt kê (ghi chú nội bộ của dòng tiến độ đã/chưa công bố, `description_internal`, `summary_for_client`,
+  CCCD/số điện thoại đủ số/email/địa chỉ/ghi chú của khách, ghi chú/địa chỉ/số chuẩn hoá/băm CCCD/tên của bên thứ ba,
+  tiêu đề tài liệu nhóm D, tên tệp gốc của tài liệu nhóm A và D, `properties` của dòng `conflict_check_run`, người
+  nhận thư, email người gửi yêu cầu, ghi chú nội bộ của nháp AI) và tiêu đề/mã/khách/ghi chú/con của vụ hạn chế, vụ
+  `denied`, vụ đã xoá — admin `read_write` là luật sư phụ trách của cả bốn vụ. Kế hoạch gọi sinh từ `inputSchema` của
+  MỌI tool trên `CrmServer` (382 lời gọi hôm nay, cộng lần hai của tool hai bước và trang kế của cursor): mỗi tham số
+  id trỏ lần lượt vào từng vụ/yêu cầu, mỗi giá trị khác của từng tham số, một lần "mọi bộ lọc rộng nhất"; `query` của
+  tool đọc gồm cả chính các kim. Tìm kim trong thân HTTP thô VÀ bản giải mã lại không thoát `\u`/`\/`. Tiền đề: mọi
+  tool có ít nhất một lần thành công, tiêu đề vụ mở và `***888` có mặt, bốn loại bản ghi ghi qua AI có thật. Tham số
+  `…_id` tên lạ làm kế hoạch ném lỗi (người thêm tool phải khai loại id).
+- Cùng tệp: **mọi tool có tham số id** dưới một luật sư `read_write` không thấy vụ → "Không tìm thấy" và đúng một dòng
+  `mcp_tool_called` outcome `not_found`, causer là người đó; cặp dương trên vụ/yêu cầu của chính người đó (12 tool).
+  Và **ngữ cảnh ambient**: cùng kế hoạch chạy hai lượt (savepoint, rollback giữa hai lượt), lượt hai với phiên cổng
+  của chính khách của vụ mở (`ClientPortalScope::isActive()` được khẳng định bật); phản hồi giống hệt (che mã xác nhận,
+  cursor; với tool ghi che thêm `id`/`url`/`created_at` của bản ghi vừa tạo vì MariaDB không trả lại số tự tăng sau
+  rollback); mọi dòng nhật ký của lượt hai có causer là admin, mọi bản ghi tạo ra có `created_by` là admin.
+- `tests/Feature/Mcp/ToolContractTest.php`: `tools/list` qua HTTP dưới `read_write` — đúng tập và thứ tự của
+  `CrmServer`, bốn hint tường minh, `title` hai chỗ, tên `^[a-z0-9_]{1,64}$`, `inputSchema`/`outputSchema` đóng, mô
+  tả (cả mô tả tham số) không URL, tool ghi `readOnlyHint: false`, không `openWorldHint: true`; trần id 32 = id dài
+  nhất `McpIds` dựng (`communication_` + 18 chữ số) ở mọi tham số id; `severity` hai tool = cột 20.
+- `tests/Feature/ArchitectureTest.php`, năm luật mới: `App\Mcp` không dùng facade `Auth`, hàm `auth()`, facade `DB`;
+  `App\Actions\Mcp` không phụ thuộc `Laravel\Mcp`; `App\Mcp` không ghi Eloquent trực tiếp (quét văn bản đã bỏ chú
+  thích: `save/create/update/delete` và họ hàng); `App\Mcp` + `App\Support\Mcp` không khai thuộc tính `static`
+  (reflection) hay biến `static $x` (token); mọi tool của `CrmServer` đi qua `McpMatterScope` hoặc `Gate::forUser` —
+  tự nó hoặc MỌI Action `handle()` nhận — và test liệt kê lớp không làm vậy.
+- **Sửa cấu trúc theo luật mới:** bốn chỗ trong `App\Mcp` đọc `Auth::guard('mcp')`. Nay tool đọc
+  `$request->user('mcp')` (`InteractsWithCrmRequests::actor(Request)`; `CrmTool::shouldRegister(Request)` — gói gọi
+  qua `Container::call()`), `CallCrmTool`/`CrmToolInvoker` đọc `request()->user('mcp')` (không qua
+  `JsonRpcRequest::toRequest()`: hàm đó ném -32602 với `arguments` không phải object, lần gọi đó vẫn phải bị đếm).
+- **C3 (tiếp nhận):** `tests/Feature/Intake/IntakeMcpBoundaryTest.php` của M10 nay quét MỌI chỗ làn đặt mã MCP: bảy thư
+  mục (`app/Mcp`, `app/Support/Mcp`, `app/Actions/Mcp`, `app/Http/Middleware/Mcp`, `app/Http/Controllers/Mcp`,
+  `app/Http/Responses/Mcp`, `resources/views/mcp`), `routes/ai.php`, `config/mcp.php`, hai trang "Kết nối AI" cùng
+  view, view khối nháp AI, và mọi tệp PHP trong `app/` có `Mcp` trong tên. View Blade quét cả phần HTML. Tiền đề: mỗi
+  thư mục/tệp có thật, > 100 tệp. Việc dặn người gộp M10 "thêm thư mục vào `intakeMcpRoots()`" vì vậy đã xong.
+
+**Rà soát dời lại (m11b), đã xử lý:**
+- Task 10 m1: docblock `FetchTool::ID_MAX_LENGTH` nói đúng lý do 32 (có test). m2: `title` của yêu cầu mang thời điểm
+  khách gửi ("Yêu cầu từ khách gửi dd/mm/YYYY HH:ii — mã (trạng thái)"; vẫn không chữ nào của khách). m4/r4: màn
+  hình duyệt nháp có thật từ Task 12 (khối "Nháp từ AI" trên tab Tiến độ và tab Yêu cầu từ khách) — câu "đang chờ
+  người duyệt trên web" nay đúng. m5: đã đúng sau Task 13 (trait liệt kê đúng bốn việc). n1: hai dòng quá dài của
+  ghi chú Task 10 đã ngắt lại.
+- Task 11 r1: `list_deadlines` trả thêm `responsible` (bộ lọc đã áp: `me`/`any`/`user_…`); mô tả tham số `matter_id`
+  nói hai mặc định còn áp. r2: docblock `ListDeadlines` sửa. r3: `severity` maxLength 10 → 20 (= cột).
+- Task 12 m3: docblock hai policy nháp nêu đúng cổng (`transitionStage`; `ClientRequestReplyPolicy::create`). m4: test
+  nhắc hạn có thêm một mốc AI ĐÃ xác nhận. m5: "Mở nháp" không tìm thấy nháp nói `ai_drafts.unavailable` (nhánh không
+  tới được qua màn hình — `visible()` được hỏi lại trước khi chạy — nên không có test).
+- Task 16 m1 (`KET-NOI-AI.md`: giới hạn IP của bước đăng nhập áp cho mọi ứng dụng, thêm dòng gỡ lỗi 404), m2
+  (`CHINH-SACH-AI.md`: liệt kê đúng các trường tài liệu AI thấy), m3 (`SAO-LUU-KHOI-PHUC.md`: cặp khoá Passport ở
+  Bước 6 và bước 7 của khôi phục thật; `APP_KEY` giải mã refresh token), m4 (`CAI-DAT.md`: `sodium` trước `composer
+  install`, `passport:keys` trước `chown`), m5 (preflight đọc khoá bằng người dùng đang chạy lệnh — nói ở Bước 7), m6
+  (preflight: khoá phải là RSA và hai khoá cùng một cặp, câu mới `passport_keys_mismatch`; có test), m7 (test preflight
+  xoá thư mục khoá tạm), m8 (điều kiện 72 giờ chép đúng [PL:338]), m9 (ChatGPT Business: app đã publish phải tạo lại).
+  Hai sửa câu chữ ở `CHINH-SACH-AI.md` là đính chính TRƯỚC khi chủ văn phòng duyệt bản nháp, không đổi phiên bản.
+- `TransportTest` "access token sống đúng 1 giờ": `expires_in` nhận 3599–3600 (league tính `exp - time()` lúc dựng phản
+  hồi; qua ranh giới một giây là 3599 — lần MariaDB của lượt gộp `main` thứ hai gặp đúng chuyện này).
+
+**Lệch và khoảng hở (để Task 17 gom):**
+- Task 10 m3: `ListMatters` nạp mọi mốc chưa xong của tối đa 25 vụ để lấy mốc đầu mỗi vụ — không chặn trên mỗi trang;
+  ổn ở quy mô văn phòng. Task 10 m6: "năm mốc sắp tới" đặt mốc quá hạn chưa xong lên đầu (ghi ở Task 10). Task 10 n2:
+  `search` lọc Gate sau khi cắt 10 dòng yêu cầu (đã ghi trong docblock; đừng dựng cờ "còn nữa" trên con số đó).
+- Task 11 r4: `get_checklist` không phân trang (ghi ở Task 11).
+- Task 12 m1: `ConfirmAiDeadline` khoá dòng mốc rồi đọc vụ không khoá (qua `OpensDeadline`, như mọi nút của mốc trên
+  web) — không theo "dòng `matters` trước"; không tạo cặp khoá ngược nào hôm nay. Task 12 m6: ba test Action của
+  `ConfirmAiDeadline` viết sau Action (bằng chứng là mutation). Task 12 m7: khối nháp hỏi tên người tạo từng thẻ (N+1);
+  ổn ở quy mô văn phòng.
+- Rà soát Task 8 m5: lần LÀM MỚI token (`/oauth/token`, grant `refresh_token`) không ghi nhật ký; kết nối, thu hồi,
+  bật/tắt có ghi. Chưa task nào nhận việc này — Task 17 quyết.
+- Mutation còn sống, tương đương: bỏ `whereNull(deleted_at)` của `McpMatterScope::query()` — `SoftDeletes` của
+  `Matter` đã loại vụ đã xoá, và chưa nơi gọi nào thêm `withTrashed()`.
 
 ## Ghi chú M12
 

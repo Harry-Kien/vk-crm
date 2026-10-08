@@ -64,7 +64,7 @@ final class LogCommunicationTool extends CrmWriteTool
         }
 
         $outcome = $log->handle(
-            actor: $this->actor(),
+            actor: $this->actor($request),
             matterId: $matterId,
             type: CommunicationType::from($input['type']),
             summary: $input['summary'],

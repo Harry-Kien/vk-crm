@@ -95,7 +95,7 @@ it('tìm yêu cầu từ khách theo tiêu đề: title do văn phòng dựng, t
     expect($results)->toHaveCount(1)
         ->and($results[0])->toBe([
             'id' => McpIds::encode(McpIds::REQUEST, $request->id),
-            'title' => __('mcp.search.request_title', ['code' => $matter->code, 'status' => ClientRequestStatus::InProgress->label()]),
+            'title' => __('mcp.search.request_title', ['date' => $request->created_at->format('d/m/Y H:i'), 'code' => $matter->code, 'status' => ClientRequestStatus::InProgress->label()]),
             'url' => AdminUrls::clientRequest($request),
             'untrusted_client_content' => ['subject' => ['text' => 'Hỏi gấp về Lemurbay '.__('mcp.untrusted.image_removed'), 'truncated' => false]],
         ])
@@ -158,12 +158,42 @@ it('kế thừa policy web cho yêu cầu (bảng tool dòng 2: ClientRequestPol
 });
 
 it('một phiên cổng khách đang mở trong cùng tiến trình không cắt vụ cha của yêu cầu: title vẫn mang mã vụ', function () {
-    ClientRequest::factory()->create(['matter_id' => $this->world->matter->id, 'subject' => 'Hỏi Bettongia', 'status' => ClientRequestStatus::New]);
+    $request = ClientRequest::factory()->create(['matter_id' => $this->world->matter->id, 'subject' => 'Hỏi Bettongia', 'status' => ClientRequestStatus::New]);
 
     $this->actingAs(ClientUser::factory()->activated()->create(), 'client');
 
     expect(searchResults($this->token, 'Bettongia')[0]['title'])
-        ->toBe(__('mcp.search.request_title', ['code' => $this->world->matter->code, 'status' => ClientRequestStatus::New->label()]));
+        ->toBe(__('mcp.search.request_title', [
+            'date' => $request->created_at->format('d/m/Y H:i'),
+            'code' => $this->world->matter->code,
+            'status' => ClientRequestStatus::New->label(),
+        ]));
+});
+
+/**
+ * Rà soát Task 10 m2: ChatGPT chỉ hiện `title` trong danh sách kết quả `search`. Hai yêu cầu của cùng
+ * một vụ, cùng trạng thái thì tiêu đề "Yêu cầu từ khách — mã (trạng thái)" trùng nhau, và nhân sự không
+ * phân biệt được. Tiêu đề mang thêm thời điểm khách gửi — vẫn do văn phòng dựng, không một chữ nào của
+ * khách (R11).
+ */
+it('hai yêu cầu cùng vụ, cùng trạng thái có tiêu đề khác nhau nhờ thời điểm gửi; tiêu đề vẫn không mang chữ của khách', function () {
+    $matter = $this->world->matter;
+    $earlier = ClientRequest::factory()->create([
+        'matter_id' => $matter->id, 'subject' => 'Hỏi Quollinae lần một', 'status' => ClientRequestStatus::New,
+        'created_at' => now()->subDays(2)->setTime(9, 15),
+    ]);
+    $later = ClientRequest::factory()->create([
+        'matter_id' => $matter->id, 'subject' => 'Hỏi Quollinae lần hai', 'status' => ClientRequestStatus::New,
+        'created_at' => now()->subDay()->setTime(16, 40),
+    ]);
+
+    $titles = collect(searchResults($this->token, 'Quollinae'))->pluck('title', 'id');
+
+    expect($titles)->toHaveCount(2)
+        ->and($titles[McpIds::encode(McpIds::REQUEST, $earlier->id)])->toContain($earlier->created_at->format('d/m/Y H:i'))
+        ->and($titles[McpIds::encode(McpIds::REQUEST, $later->id)])->toContain($later->created_at->format('d/m/Y H:i'))
+        ->and($titles->unique())->toHaveCount(2)
+        ->and($titles->implode(' '))->not->toContain('Quollinae');
 });
 
 it('yêu cầu đã rút (xoá mềm) không ra; cặp dương: khôi phục thì ra', function () {

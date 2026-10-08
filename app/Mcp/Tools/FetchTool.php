@@ -25,7 +25,11 @@ final class FetchTool extends CrmReadTool
 {
     protected string $name = 'fetch';
 
-    /** `request_` + 18 chữ số là id dài nhất `McpIds` đọc được. */
+    /**
+     * Trần độ dài của MỌI tham số id có tiền tố (`id`, `matter_id`, `request_id`, `responsible_id`…; các
+     * tool khác dùng lại hằng này). `McpIds` đọc tối đa 18 chữ số, và tiền tố dài nhất nó dựng là
+     * `communication_` (14 ký tự): 14 + 18 = 32. Rà soát Task 10 m1: docblock cũ nói `request_`.
+     */
     public const ID_MAX_LENGTH = 32;
 
     public function handle(Request $request, ReadMatter $matters, ReadClientRequest $requests): Response|ResponseFactory
@@ -41,12 +45,12 @@ final class FetchTool extends CrmReadTool
         }
 
         if ($id['type'] === McpIds::MATTER) {
-            $overview = $matters->handle($this->actor(), $id['id']);
+            $overview = $matters->handle($this->actor($request), $id['id']);
 
             return $overview === null ? $this->notFound() : $this->result(FetchPresenter::matter($overview));
         }
 
-        $thread = $requests->handle($this->actor(), $id['id']);
+        $thread = $requests->handle($this->actor($request), $id['id']);
 
         return $thread === null ? $this->notFound() : $this->result(FetchPresenter::clientRequest($thread));
     }

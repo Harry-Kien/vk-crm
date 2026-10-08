@@ -29,7 +29,7 @@ final class GetMatterTool extends CrmReadTool
         ]);
 
         $matterId = McpIds::decode($input['id'], McpIds::MATTER);
-        $overview = $matterId === null ? null : $read->handle($this->actor(), $matterId);
+        $overview = $matterId === null ? null : $read->handle($this->actor($request), $matterId);
 
         return $overview === null ? $this->notFound() : $this->result(MatterOverviewPresenter::present($overview));
     }

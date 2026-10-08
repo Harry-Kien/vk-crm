@@ -65,7 +65,7 @@ final class CreateDeadlineTool extends CrmWriteTool
             : null;
 
         $outcome = $create->handle(
-            actor: $this->actor(),
+            actor: $this->actor($request),
             matterId: $matterId,
             name: $input['name'],
             dueDate: $input['due_date'],

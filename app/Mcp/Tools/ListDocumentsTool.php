@@ -36,7 +36,7 @@ final class ListDocumentsTool extends CrmReadTool
             ...$this->paginationRules(),
         ]);
 
-        $actor = $this->actor();
+        $actor = $this->actor($request);
         $matterId = McpIds::decode($input['matter_id'], McpIds::MATTER);
 
         if ($matterId === null) {

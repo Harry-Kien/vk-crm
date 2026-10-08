@@ -122,7 +122,7 @@ it('yêu cầu từ khách: nội dung khách viết đã sạch, nằm trong un
 
     expect(array_keys($out))->toBe(['id', 'title', 'text', 'url', 'metadata', 'untrusted_client_content'])
         ->and($out['id'])->toBe($id)
-        ->and($out['title'])->toBe(__('mcp.search.request_title', ['code' => $matter->code, 'status' => ClientRequestStatus::InProgress->label()]))
+        ->and($out['title'])->toBe(__('mcp.search.request_title', ['date' => $request->created_at->format('d/m/Y H:i'), 'code' => $matter->code, 'status' => ClientRequestStatus::InProgress->label()]))
         ->and($out['url'])->toBe(AdminUrls::clientRequest($request))
         ->and($out['metadata'])->toBe([
             'type' => 'client_request',

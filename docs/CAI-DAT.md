@@ -722,8 +722,12 @@ MCP đang tắt:
   đăng ký client của gói là mở cho mọi tên miền;
 - access token của Passport sống không quá 1 giờ — ĐỎ nếu dài hơn (mặc định của Passport là một năm;
   `AppServiceProvider` đặt 1 giờ);
-- hai khoá Passport (Bước 3) có mặt và đọc được thành khoá RSA, và tệp khoá riêng không mở quyền gì
-  cho người dùng khác (`chmod 600`; 640 hay 660 được) — ĐỎ nếu không, nêu đúng tệp hoặc biến thiếu;
+- hai khoá Passport (Bước 3) có mặt, đọc được thành khoá RSA, là CÙNG MỘT CẶP (khoá công khai dán
+  từ cặp khác làm mọi kết nối AI hỏng chữ ký), và tệp khoá riêng không mở quyền gì cho người dùng
+  khác (`chmod 600`; 640 hay 660 được) — ĐỎ nếu không, nêu đúng tệp hoặc biến thiếu. "Đọc được" là
+  đọc được bằng người dùng ĐANG CHẠY lệnh preflight (thường là `root` hay tài khoản SSH), không nhất
+  thiết là người dùng của PHP-FPM: chạy `ls -l storage/oauth-*.key` và xác nhận chủ tệp là người dùng
+  của PHP-FPM (`www-data`);
 - máy chủ MCP đang bật (công tắc trên trang "Kết nối AI") mà chưa ghi ngày đã nộp hồ sơ đánh giá tác
   động chuyển dữ liệu cá nhân ra nước ngoài (`docs/CHINH-SACH-AI.md`, việc 1) — VÀNG, chỉ nhắc; ghi
   ngày nộp trên chính trang đó thì dòng này XANH.
@@ -920,11 +924,15 @@ php artisan up
 - Preflight ĐỎ thì sửa trước khi `php artisan up` — chạy `up` rồi mới phát hiện là mở cổng trên
   một cấu hình hỏng. Ngoại lệ duy nhất là dòng "bất biến tiền" ở gạch đầu dòng trên: khi nó là dòng
   ĐỎ duy nhất, câu tổng kết của lệnh nói vẫn `up` (mã thoát vẫn 1), và đúng là vẫn `up`.
-- **Bản cập nhật M11 (kết nối AI cho nhân sự)** trên một máy chủ đã có dữ liệu: chạy MỘT lần
-  `php artisan passport:keys` (bằng người dùng của PHP-FPM, trước `vkcrm:preflight` — thiếu khoá thì
-  dòng khoá Passport ĐỎ) rồi cất hai tệp khoá cùng `APP_KEY` (Bước 3); cài thêm extension `sodium`
-  và `curl` nếu máy chưa có (Bước 1); kiểm `/.well-known/` (Bước 4, mục 6) và tường lửa (mục "Máy
-  chủ MCP"). `migrate --force` chỉ thêm bảng và cột; mọi vụ việc đã có nhận cờ AI "không cho phép",
+- **Bản cập nhật M11 (kết nối AI cho nhân sự)** trên một máy chủ đã có dữ liệu, theo ĐÚNG thứ tự:
+  (1) **trước** chuỗi lệnh ở trên, cài extension `sodium` và `curl` nếu máy chưa có (Bước 1) —
+  `composer install --no-dev` từ chối chạy khi thiếu `sodium` (gói ký token mà Passport kéo vào khai
+  nó là bắt buộc); (2) chạy MỘT lần `php artisan passport:keys` **trước** dòng `chown -R www-data
+  storage …` của chuỗi lệnh (hoặc chạy nó bằng chính người dùng của PHP-FPM, hoặc `chown` lại
+  `storage/oauth-*.key` ngay sau): chạy bằng `root` SAU dòng `chown` để lại một khoá riêng của
+  `root` quyền 600 mà PHP-FPM không đọc được, trong khi `vkcrm:preflight` chạy bằng `root` vẫn XANH;
+  (3) cất hai tệp khoá cùng `APP_KEY` (Bước 3); (4) kiểm `/.well-known/` (Bước 4, mục 6) và tường
+  lửa (mục "Máy chủ MCP"). `migrate --force` chỉ thêm bảng và cột; mọi vụ việc đã có nhận cờ AI "không cho phép",
   và mọi công tắc AI mặc định tắt, nên sau bản cập nhật chưa ai kết nối được AI, chưa vụ nào lên AI,
   cho tới khi chủ văn phòng bật.
 - Đọc phần ghi chú nâng cấp của bản mới trong `docs/PROGRESS.md` TRƯỚC khi chạy: một bản có thể

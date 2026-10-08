@@ -776,6 +776,19 @@ function preflightPassportKeyFiles(?string $private, int $privateMode, ?string $
 }
 
 afterEach(function () {
+    // Rà soát Task 16 m7: xoá thư mục khoá tạm của preflightPassportKeyFiles() (có cả một khoá riêng
+    // thật) thay vì để nó lại trong /tmp của container sau mỗi test.
+    $directory = Passport::$keyPath;
+
+    if (is_string($directory) && str_starts_with(basename($directory), 'vkcrm-preflight-keys-') && is_dir($directory)) {
+        foreach (glob($directory.'/*') ?: [] as $file) {
+            @chmod($file, 0o600);
+            @unlink($file);
+        }
+
+        @rmdir($directory);
+    }
+
     Passport::$keyPath = null;
     Passport::tokensExpireIn(new DateInterval('PT1H'));
 });
@@ -917,6 +930,52 @@ it('§preflight M11 production thiếu tệp khoá Passport là ĐỎ, nêu đú
     'thiếu khoá riêng' => [false, true, ['oauth-private.key']],
     'thiếu khoá công khai' => [true, false, ['oauth-public.key']],
 ]);
+
+/**
+ * Rà soát Task 16 m6: token ký RS256, nên một khoá EC (hay DSA) đọc được vẫn làm `/oauth/token` hỏng;
+ * và một PASSPORT_PUBLIC_KEY dán từ CẶP KHÁC làm mọi lần gọi `/mcp` hỏng chữ ký (401) trong khi từng
+ * khoá riêng lẻ đều "đọc được".
+ */
+it('§preflight M11 production khoá riêng Passport không phải RSA là ĐỎ như không đọc được', function () {
+    config(preflightGreenProductionConfig());
+    $ec = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
+    openssl_pkey_export($ec, $ecPrivate);
+    $directory = preflightPassportKeyFiles($ecPrivate, 0o600, openssl_pkey_get_details($ec)['key']);
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+
+    expect($exitCode)->not->toBe(0)
+        ->and(Artisan::output())->toContain('['.__('preflight.levels.red').'] '.__('preflight.passport_keys_missing', [
+            'keys' => $directory.'/oauth-private.key, '.$directory.'/oauth-public.key',
+        ]));
+});
+
+it('§preflight M11 production khoá công khai Passport không cùng cặp với khoá riêng là ĐỎ; cùng cặp là XANH', function () {
+    config(preflightGreenProductionConfig());
+    $other = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+    preflightPassportKeyFiles(preflightPassportKeyPair()['private'], 0o600, openssl_pkey_get_details($other)['key']);
+    fakeStoragePrivateNotExposed();
+    fakeMariadbDumpFound();
+
+    $exitCode = Artisan::call('vkcrm:preflight');
+    $output = Artisan::output();
+
+    expect($exitCode)->not->toBe(0)
+        ->and($output)->toContain('['.__('preflight.levels.red').'] '.__('preflight.passport_keys_mismatch'))
+        ->and($output)->not->toContain(__('preflight.passport_keys_ok'));
+
+    // Cặp dương: cùng hai biến dạng nội dung, đúng một cặp.
+    config([
+        'passport.private_key' => preflightPassportKeyPair()['private'],
+        'passport.public_key' => preflightPassportKeyPair()['public'],
+    ]);
+
+    expect(Artisan::call('vkcrm:preflight'))->toBe(0)
+        ->and(Artisan::output())->toContain('['.__('preflight.levels.green').'] '.__('preflight.passport_keys_ok'))
+        ->not->toContain(__('preflight.passport_keys_mismatch'));
+});
 
 it('§preflight M11 production tệp khoá Passport không đọc được thành khoá RSA là ĐỎ như thiếu khoá', function () {
     config(preflightGreenProductionConfig());

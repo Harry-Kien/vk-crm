@@ -22,8 +22,9 @@ use Illuminate\Support\Facades\Gate;
  *   nên không nhận mốc nào.
  * - **Vụ**: không lọc theo vụ thì chỉ vụ ĐANG MỞ (`Matter::scopeOpen()`), cùng luật với widget "Mốc
  *   thời hạn 7 ngày tới" và với `CheckDeadlines` (mốc của vụ đã kết thúc không còn là việc phải làm,
- *   và đã thôi được nhắc). Lọc theo một vụ ({@see FindsVisibleMatter}; không thấy thì `null`) thì mọi
- *   mốc của vụ đó, vụ đã kết thúc cũng vậy.
+ *   và đã thôi được nhắc). Lọc theo một vụ ({@see FindsVisibleMatter}; không thấy thì `null`) thì
+ *   mốc của vụ đó được tính kể cả khi vụ đã kết thúc — các bộ lọc khác (cửa sổ ngày, người phụ trách,
+ *   mức độ, đã xong) VẪN áp (rà soát Task 11 r2).
  * - **Khoảng ngày**: `from`/`to` đều rỗng là cửa sổ mặc định — hạn ≤ hôm nay + 7, không cận dưới (cùng
  *   cửa sổ với `Deadline::scopeUpcoming(7)` của widget). Có một trong hai thì đúng các cận đã cho, cận
  *   kia bỏ ngỏ. So bằng `whereDate()` ở cả hai cận: gồm trọn ngày cận, trên SQLite lẫn MariaDB.

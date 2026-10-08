@@ -34,7 +34,7 @@ final class GetClientRequestTool extends CrmReadTool
         ]);
 
         $requestId = McpIds::decode($input['id'], McpIds::REQUEST);
-        $thread = $requestId === null ? null : $read->handle($this->actor(), $requestId);
+        $thread = $requestId === null ? null : $read->handle($this->actor($request), $requestId);
 
         return $thread === null ? $this->notFound() : $this->result(ClientRequestThreadPresenter::present($thread));
     }

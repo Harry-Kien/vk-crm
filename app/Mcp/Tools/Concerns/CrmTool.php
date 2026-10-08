@@ -5,8 +5,8 @@ namespace App\Mcp\Tools\Concerns;
 use App\Models\User;
 use App\Support\Mcp\McpAccess;
 use App\Support\Mcp\ToolAuditFields;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Lang;
+use Laravel\Mcp\Request;
 use Laravel\Mcp\Server\Contracts\Annotation;
 use Laravel\Mcp\Server\Tool;
 use LogicException;
@@ -64,16 +64,17 @@ abstract class CrmTool extends Tool
      *
      * laravel/mcp hỏi hàm này ở mỗi request (`Primitive::eligibleForRegistration()`), nên hạ một
      * người về `read` có hiệu lực ngay request kế tiếp dù client còn giữ danh sách tool cũ [DC:87].
-     * Người dùng đọc từ guard `mcp`, tường minh. Bước gọi tool vẫn kiểm lại quyền ghi
+     * Gói gọi hàm qua `Container::call()`, nên `$request` là request MCP đang chạy; người dùng đọc từ
+     * nó với guard `mcp` gọi tên, tường minh. Bước gọi tool vẫn kiểm lại quyền ghi
      * (`App\Mcp\Methods\CrmToolInvoker`): hàm này chỉ quyết định danh sách.
      */
-    public function shouldRegister(): bool
+    public function shouldRegister(Request $request): bool
     {
         if (! $this->writes()) {
             return true;
         }
 
-        $user = Auth::guard('mcp')->user();
+        $user = $request->user('mcp');
 
         return $user instanceof User && McpAccess::canWriteInRequest($user);
     }

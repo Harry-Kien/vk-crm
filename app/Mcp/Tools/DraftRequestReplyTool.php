@@ -44,7 +44,7 @@ final class DraftRequestReplyTool extends CrmWriteTool
             return $this->notFound();
         }
 
-        $outcome = $draft->handle($this->actor(), $requestId, $input['content'], $input['idempotency_key']);
+        $outcome = $draft->handle($this->actor($request), $requestId, $input['content'], $input['idempotency_key']);
 
         return $outcome === null ? $this->notFound() : $this->result(self::present($outcome));
     }

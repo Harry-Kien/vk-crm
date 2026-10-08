@@ -30,7 +30,7 @@ final class SearchTool extends CrmReadTool
             'query' => ['required', 'string', 'max:'.SearchMatters::MAX_TERM_LENGTH],
         ]);
 
-        return $this->result(SearchResultPresenter::present($search->handle($this->actor(), $input['query'])));
+        return $this->result(SearchResultPresenter::present($search->handle($this->actor($request), $input['query'])));
     }
 
     /** @return array<string, mixed> */

@@ -20,6 +20,11 @@ ChatGPT. Đọc `docs/CHINH-SACH-AI.md` trước: bạn phải cam kết với c
    phòng tách tên miền quản trị riêng, URL nằm trên **tên miền quản trị** (cùng tên miền với
    `/admin`): dán URL trên tên miền cổng khách thì kết nối không bao giờ thành. Trang "Kết nối AI của
    tôi" hiện đúng URL cần dán.
+5. **Bạn đang ở trong mạng mà văn phòng cho vào `/admin`**, nếu văn phòng giới hạn IP vào trang quản
+   trị. Với MỌI ứng dụng (Claude web, ChatGPT, Claude Code…), bước đăng nhập `/admin` và màn hình
+   đồng ý mở trong trình duyệt của CHÍNH bạn, nên chịu cùng giới hạn đó: ở nhà hay ngoài văn phòng,
+   trang đăng nhập báo "Không tìm thấy" (404) và kết nối không thành. Kết nối xong rồi thì dùng được
+   ở bất cứ đâu.
 
 **Màn hình đồng ý.** Ở mọi ứng dụng, bước cuối là đăng nhập `/admin` của văn phòng (kèm mã xác thực
 hai lớp) rồi một trang hỏi bạn có đồng ý cho ứng dụng AI hành động với danh nghĩa và quyền của bạn
@@ -57,8 +62,8 @@ Giới hạn theo gói, theo tra cứu:
    `http://127.0.0.1:…/callback` trên chính máy bạn — đó là đúng [DC:739].
 
 Giới hạn theo tra cứu: Claude Code cảnh báo khi kết quả một lần gọi vượt 10.000 token và cắt ở
-25.000 token [DC:642]. Kết nối đi từ máy bạn, nên nếu văn phòng giới hạn IP vào `/admin`, bạn chỉ
-đăng nhập được khi đang ở trong mạng văn phòng.
+25.000 token [DC:642]. Claude Code gọi máy chủ từ chính máy bạn (Claude web và ChatGPT gọi từ máy
+chủ của họ); giới hạn IP của bước đăng nhập áp cho mọi ứng dụng như nhau ("Trước khi bắt đầu", mục 5).
 
 ## ChatGPT (developer mode)
 
@@ -82,6 +87,10 @@ Giới hạn theo gói, theo tra cứu:
   ghi" cho bạn. Chưa có lượt thử thật nào trả lời chắc cho gói của văn phòng.
 - ChatGPT giữ danh sách chức năng đã tải. Sau khi quản trị viên đổi quyền AI của bạn, vào trang chi
   tiết của app và bấm **Refresh** để tải lại [DC:87], [DC:692].
+- App ChatGPT **đã publish** trong một tổ chức dùng một bản chụp cố định của danh sách chức năng. Ở
+  **Business**, app đã publish không sửa được: muốn có chức năng mới hay mô tả mới thì admin/owner của
+  tổ chức ChatGPT phải **tạo lại app**; nút Refresh sau khi publish chỉ có ở Enterprise/Edu [PL:166],
+  [PL:247].
 
 ## Ứng dụng MCP khác (VS Code / GitHub Copilot, Cursor, Antigravity)
 
@@ -143,6 +152,9 @@ ghi nhật ký cần hai lần gọi (xem trước, rồi xác nhận). Chi ti�
 - **Lỗi 429** (quá nhiều yêu cầu): chờ đúng số giây ứng dụng báo (`Retry-After`) rồi thử lại. Mỗi
   người có giới hạn số lần gọi mỗi phút, chức năng ghi có thêm giới hạn mỗi ngày. Khi cả văn phòng
   kết nối trong cùng một giờ, bước đăng ký có thể báo 429 cho người tới sau: thử lại sang giờ sau.
+- **Trang đăng nhập `/admin` báo "Không tìm thấy" (404) ngay khi ứng dụng mở nó**: văn phòng giới hạn
+  IP vào trang quản trị và bạn đang ở ngoài mạng đó ("Trước khi bắt đầu", mục 5). Kết nối lại khi ở
+  văn phòng, hay hỏi quản trị viên.
 - **"Không tìm thấy" cho một vụ bạn thấy trên web**: vụ đó là vụ hạn chế, hay chưa được bật "cho phép
   AI" (khách chưa đồng ý bằng văn bản). Đó là cố ý (`docs/CHINH-SACH-AI.md`, mục 3, 4).
 - **Không thấy chức năng ghi**: bạn đang ở "Chỉ đọc", văn phòng chưa bật cho phép ghi, hay ứng dụng

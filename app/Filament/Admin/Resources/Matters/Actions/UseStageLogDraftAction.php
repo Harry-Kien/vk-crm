@@ -3,7 +3,6 @@
 namespace App\Filament\Admin\Resources\Matters\Actions;
 
 use App\Actions\Mcp\UseStageLogDraft;
-use App\Exceptions\McpDraftNotPending;
 use App\Models\Matter;
 use App\Models\StageLogDraft;
 use Filament\Actions\Action;
@@ -112,16 +111,17 @@ class UseStageLogDraftAction extends AddUpdateAction
      * trôi, vụ chưa bật portal) đi về `setUpStageUpdateAction()` như mọi lần "Thêm cập nhật"; lời từ
      * chối vì quyền thành cùng loại thông báo, giữ modal mở. `setUpStageUpdateAction()` gọi hàm này
      * trên bản action Filament tiêm vào, nên `$this->draft()` ở đây đọc đúng đối số của lần mount.
+     *
+     * Nháp không tìm thấy (id lạ, nháp của vụ khác) cho cùng câu `ai_drafts.unavailable` với đường trả
+     * lời (`ClientRequestsRelationManager`), không câu "đã dùng hoặc đã bỏ" — rà soát Task 12 m5. Hôm
+     * nay nhánh này không tới được: `visible()` ẩn nút khi không có nháp, và Filament hỏi lại
+     * `visible()` trước khi chạy action; nó ở đây để câu trả lời vẫn đúng nếu một ngày cổng đó đổi.
      */
     protected function submitStageUpdate(Matter $matter, array $data): void
     {
-        $draft = $this->draft($matter);
-
-        if ($draft === null) {
-            throw McpDraftNotPending::make();
-        }
-
         try {
+            $draft = $this->draft($matter) ?? throw new AuthorizationException(__('ai_drafts.unavailable'));
+
             app(UseStageLogDraft::class)->handle(
                 draft: $draft,
                 matter: $matter,

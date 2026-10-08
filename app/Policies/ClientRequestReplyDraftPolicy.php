@@ -16,7 +16,8 @@ use App\Policies\Concerns\ReadsPortalParents;
  *
  * Nhân sự đọc nháp khi đọc được yêu cầu cha (`ClientRequestPolicy::view`, tức thấy được vụ việc của
  * nó) — không chép lại điều kiện nào. Yêu cầu cha đã xoá mềm → không ai đọc nháp của nó qua đây.
- * Mở nháp để GỬI và bỏ nháp là ability riêng của Task 12.
+ * Mở nháp để GỬI và bỏ nháp KHÔNG có ability ở đây: cả hai hỏi `ClientRequestReplyPolicy::create` với
+ * luồng đó — cùng cổng với nút "Trả lời" (`UseReplyDraft`, `DiscardDraft`; rà soát Task 12 m3).
  */
 class ClientRequestReplyDraftPolicy
 {

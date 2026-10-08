@@ -31,7 +31,7 @@ final class GetChecklistTool extends CrmReadTool
         ]);
 
         $matterId = McpIds::decode($input['matter_id'], McpIds::MATTER);
-        $checklist = $matterId === null ? null : $read->handle($this->actor(), $matterId);
+        $checklist = $matterId === null ? null : $read->handle($this->actor($request), $matterId);
 
         return $checklist === null ? $this->notFound() : $this->result(MatterChecklistPresenter::present($checklist));
     }

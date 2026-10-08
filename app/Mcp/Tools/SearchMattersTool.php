@@ -49,7 +49,7 @@ final class SearchMattersTool extends CrmReadTool
             'cursor' => ['sometimes', 'nullable', 'string', 'max:'.self::CURSOR_MAX_LENGTH],
         ]);
 
-        $actor = $this->actor();
+        $actor = $this->actor($request);
 
         $filters = new MatterListFilters(
             query: self::filled($input['query'] ?? null),

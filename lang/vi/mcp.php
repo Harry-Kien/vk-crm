@@ -88,7 +88,7 @@ return [
             'title' => 'Mốc thời hạn',
             'description' => 'Dùng khi cần danh sách mốc thời hạn: gọi không tham số là mốc chưa xong của tôi, hạn tới hết 7 ngày tới, quá hạn lên đầu; lọc được theo vụ, khoảng ngày, mức độ, người phụ trách, kèm mốc đã xong; có phân trang. Không dùng để tạo, sửa hay đánh dấu hoàn thành mốc.',
             'params' => [
-                'matter_id' => 'Chỉ mốc của vụ này, id có tiền tố, ví dụ matter_12. Bỏ trống: mọi vụ đang mở.',
+                'matter_id' => 'Chỉ mốc của vụ này, id có tiền tố, ví dụ matter_12. Bỏ trống: mọi vụ đang mở. Lọc theo vụ không bỏ hai mặc định còn lại: người phụ trách vẫn là me và cửa sổ vẫn là 7 ngày tới, trừ khi đưa responsible any và from/to.',
                 'from' => 'Hạn từ ngày (YYYY-MM-DD, gồm ngày đó). Bỏ trống cả from và to: hạn tới hết 7 ngày tới, kể cả quá hạn.',
                 'to' => 'Hạn tới ngày (YYYY-MM-DD, gồm ngày đó), không trước from.',
                 'severity' => 'Mức độ: normal (thường) hoặc critical (nghiêm trọng).',
@@ -249,7 +249,7 @@ return [
 
     // Task 10 — `title` do văn phòng dựng cho một yêu cầu từ khách trong `search`/`fetch` (R11).
     'search' => [
-        'request_title' => 'Yêu cầu từ khách — :code (:status)',
+        'request_title' => 'Yêu cầu từ khách gửi :date — :code (:status)',
     ],
 
     // Task 10 — "Đã nộp X/Y" của `get_matter` (`ChecklistProgress`, SPEC §4.10).

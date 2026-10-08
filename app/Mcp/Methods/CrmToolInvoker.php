@@ -10,7 +10,6 @@ use App\Support\Mcp\ToolCallContext;
 use Generator;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 use Laravel\Mcp\Response;
 use Laravel\Mcp\Server\Tool;
@@ -41,7 +40,8 @@ use Throwable;
  *    đúng thông điệp "Không tìm thấy" duy nhất của R3 ({@see self::NOT_FOUND_MESSAGE}), `invalid` với
  *    mọi lỗi khác ({@see ToolCallContext::settleResult()}).
  *
- * Người dùng đọc từ guard `mcp`, tường minh.
+ * Người dùng đọc từ request HTTP `/mcp` đang chạy với guard `mcp` gọi tên (`request()->user('mcp')`),
+ * tường minh, như {@see CallCrmTool}.
  */
 class CrmToolInvoker extends ToolInvoker
 {
@@ -62,7 +62,7 @@ class CrmToolInvoker extends ToolInvoker
         }
 
         if ($tool->isWriteTool()) {
-            $user = Auth::guard('mcp')->user();
+            $user = request()->user('mcp');
 
             if (! $user instanceof User || ! McpAccess::canWriteInRequest($user)) {
                 return $this->refuse($tool, $request, __('ai_access.tools.write_refused'));

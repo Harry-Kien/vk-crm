@@ -54,7 +54,7 @@ final class DraftProgressUpdateTool extends CrmWriteTool
             return $this->notFound();
         }
 
-        $outcome = $draft->handle($this->actor(), $matterId, [
+        $outcome = $draft->handle($this->actor($request), $matterId, [
             'public_content' => $input['public_content'],
             'next_step' => $input['next_step'] ?? null,
             'client_action' => $input['client_action'] ?? null,

@@ -1,5 +1,9 @@
 <?php
 
+use App\Mcp\Servers\CrmServer;
+use App\Mcp\Tools\GetMatterTool;
+use App\Support\Mcp\PhoneMask;
+
 /**
  * Các luật kiến trúc của dự án, viết thành test để chúng không còn là lời khuyên.
  *
@@ -423,4 +427,274 @@ it('view của cổng khách không dùng class Tailwind viết tay', function (
     }
 
     expect($offenders)->toBe([]);
+});
+
+// ---------------------------------------------------------------------------------------------
+// M11 Task 14 — máy chủ MCP: luật cấu trúc
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Review Focus 4 của kế hoạch M11 ("ngữ cảnh ambient sai guard"): trong một request `/mcp`,
+ * `auth('web')` và `auth('client')` đều rỗng (hoặc mang một người KHÁC, khi cùng tiến trình còn một
+ * phiên cổng khách), còn `auth()` mặc định là guard nào thì tuỳ middleware nào chạy trước. Một chỗ
+ * đọc chúng cho ra kết quả SAI mà không ném lỗi (causer `null`, scope cổng khách bật nhầm). Luật: tầng
+ * giao thức `App\Mcp` không đọc phiên đăng nhập bằng facade hay hàm trợ giúp — người dùng đọc từ
+ * `$request->user('mcp')` của request MCP đang chạy, tường minh — và không viết truy vấn thô (`DB`):
+ * mọi truy vấn nằm ở Action (`App\Actions\Mcp`).
+ */
+arch('tầng giao thức MCP không đọc phiên đăng nhập ambient, không truy vấn thô')
+    ->expect('App\Mcp')
+    ->not->toUse(['Illuminate\Support\Facades\Auth', 'auth', 'Illuminate\Support\Facades\DB']);
+
+/**
+ * Action không biết giao thức (kế hoạch M11, "Ba tầng mới, mỏng"): `App\Actions\Mcp` trả DTO, chỉ tool
+ * ở `App\Mcp\Tools` biết `Request`/`Response` của laravel/mcp. Một Action phụ thuộc gói giao thức thì
+ * màn hình web (nút "Dùng nháp", trang "Kết nối AI") không gọi lại được nó mà không kéo theo gói đó.
+ */
+arch('Action của MCP không phụ thuộc gói giao thức laravel/mcp')
+    ->expect('App\Actions\Mcp')
+    ->not->toUse('Laravel\Mcp');
+
+/**
+ * Tệp PHP dưới một thư mục (đệ quy), theo thứ tự tên.
+ *
+ * @return list<string>
+ */
+function architecturePhpFiles(string $root): array
+{
+    $files = [];
+
+    foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, RecursiveDirectoryIterator::SKIP_DOTS)) as $file) {
+        if ($file->isFile() && $file->getExtension() === 'php') {
+            $files[] = $file->getPathname();
+        }
+    }
+
+    sort($files);
+
+    return $files;
+}
+
+/** Mã PHP đã bỏ chú thích và docblock (cùng lý do với luật "không còn hàm gỡ lỗi" ở trên). */
+function architectureCodeOnly(string $source): string
+{
+    $kept = '';
+
+    foreach (token_get_all($source) as $token) {
+        if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+            continue;
+        }
+
+        $kept .= is_array($token) ? $token[1] : $token;
+    }
+
+    return $kept;
+}
+
+/** `app/Mcp/Tools/Foo.php` → `App\Mcp\Tools\Foo` (PSR-4 của `composer.json`). */
+function architectureClassOf(string $path): string
+{
+    $relative = substr($path, strlen(app_path()) + 1, -strlen('.php'));
+
+    return 'App\\'.str_replace('/', '\\', str_replace('\\', '/', $relative));
+}
+
+/**
+ * Lời GHI Eloquent viết thẳng trong một đoạn mã: `->save(`, `::create(`, `->update(`, `->delete(` (kế
+ * hoạch M11 Task 14), cộng những anh em cùng họ (`saveQuietly`, `forceDelete`, `insert`, `upsert`,
+ * `increment`, `firstOrCreate`, `updateOrCreate`…).
+ *
+ * @return list<string>
+ */
+function architectureWriteCalls(string $code): array
+{
+    preg_match_all(
+        '/->\s*(?:save|saveQuietly|update|updateQuietly|delete|deleteQuietly|forceDelete|insert|insertOrIgnore|upsert|increment|decrement|restore)\s*\(|::\s*(?:create|forceCreate|createQuietly|insert|upsert|updateOrCreate|firstOrCreate|updateOrInsert|destroy)\s*\(/',
+        $code,
+        $matches,
+    );
+
+    return array_values(array_unique(array_map(fn (string $match): string => (string) preg_replace('/\s+/', '', $match), $matches[0])));
+}
+
+/**
+ * Kế hoạch M11 ("Ràng buộc toàn cục"): "Tool MCP gọi Action, không bao giờ ghi Eloquent trực tiếp."
+ * `toUse()` không thấy một lời gọi phương thức trên model, nên quét văn bản (đã bỏ chú thích), như luật
+ * gỡ lỗi. Quét cả `App\Mcp` (bước gọi tool, server), không chỉ `App\Mcp\Tools`: cả tầng giao thức không
+ * có lý do nào để ghi.
+ */
+it('tầng giao thức MCP không ghi Eloquent trực tiếp (save/create/update/delete)', function () {
+    $files = architecturePhpFiles(app_path('Mcp'));
+
+    // Tiền đề: có tệp để quét, gồm đủ các tool của CrmServer.
+    expect(count(glob(app_path('Mcp/Tools/*Tool.php'))))->toBeGreaterThanOrEqual(15)
+        ->and(count($files))->toBeGreaterThan(15);
+
+    $offenders = [];
+
+    foreach ($files as $file) {
+        foreach (architectureWriteCalls(architectureCodeOnly((string) file_get_contents($file))) as $call) {
+            $offenders[] = str_replace(base_path().DIRECTORY_SEPARATOR, '', $file).' — '.$call;
+        }
+    }
+
+    expect($offenders)->toBe([], 'App\Mcp ghi Eloquent trực tiếp ở: '.implode(', ', $offenders));
+});
+
+it('máy dò lời ghi bắt đúng các dạng gọi, và bỏ qua chú thích (cặp dương/âm)', function () {
+    $code = architectureCodeOnly(implode("\n", [
+        '<?php',
+        '// $matter->save(); trong chú thích không tính',
+        '/** Deadline::create([...]) trong docblock cũng không */',
+        '$a->save();',
+        'Deadline::create([]);',
+        '$b -> update ([1]);',
+        '$c->delete();',
+        '$d->saveQuietly();',
+        '$schema->string()->required();',
+        '$e->updated_at;',
+    ]));
+
+    expect(architectureWriteCalls($code))->toBe(['->save(', '::create(', '->update(', '->delete(', '->saveQuietly(']);
+});
+
+/**
+ * DC:120, DC:226 (singleton giữ trạng thái qua request — CVE-2026-48529 của GitHub): trên PHP-FPM mỗi
+ * request là một tiến trình mới, nhưng trong một tiến trình sống lâu (worker hàng đợi, bộ test, Octane
+ * nếu ai đó bật sau này) một thuộc tính `static` mang dữ liệu của người A sang request của người B.
+ * Luật: không lớp nào trong `App\Mcp` và `App\Support\Mcp` KHAI thuộc tính `static` (đọc bằng
+ * reflection), và không hàm nào khai biến `static $x` (quét token). Hằng (`const`) và phương thức
+ * `static` không giữ trạng thái nên được phép. Trạng thái của một request nằm trong đối tượng gắn
+ * container của request đó (`ToolCallContext`) hoặc thuộc tính của request.
+ */
+it('App\Mcp và App\Support\Mcp không khai thuộc tính static hay biến static giữ trạng thái', function () {
+    $files = [...architecturePhpFiles(app_path('Mcp')), ...architecturePhpFiles(app_path('Support/Mcp'))];
+
+    // Tiền đề: hai thư mục có tệp, và mọi tệp đọc ra được một lớp/trait (reflection không bị bỏ qua).
+    expect(count($files))->toBeGreaterThan(30);
+
+    $offenders = [];
+    $unreadable = [];
+
+    foreach ($files as $file) {
+        $class = architectureClassOf($file);
+
+        if (class_exists($class) || trait_exists($class) || interface_exists($class) || enum_exists($class)) {
+            foreach ((new ReflectionClass($class))->getProperties(ReflectionProperty::IS_STATIC) as $property) {
+                if ($property->getDeclaringClass()->getName() === $class) {
+                    $offenders[] = $class.'::$'.$property->getName();
+                }
+            }
+        } else {
+            $unreadable[] = $class;
+        }
+
+        $tokens = array_values(array_filter(
+            token_get_all((string) file_get_contents($file)),
+            fn ($token): bool => ! (is_array($token) && in_array($token[0], [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)),
+        ));
+
+        foreach ($tokens as $i => $token) {
+            if (is_array($token) && $token[0] === T_STATIC && is_array($tokens[$i + 1] ?? null) && $tokens[$i + 1][0] === T_VARIABLE) {
+                $offenders[] = $class.' — static '.$tokens[$i + 1][1];
+            }
+        }
+    }
+
+    expect($unreadable)->toBe([])
+        ->and(array_values(array_unique($offenders)))->toBe([], 'trạng thái static trong mã MCP: '.implode(', ', $offenders));
+});
+
+/**
+ * Action mà `handle()` của một tool nhận qua container (`App\Actions\…`).
+ *
+ * @param  class-string  $tool
+ * @return list<class-string>
+ */
+function architectureToolActions(string $tool): array
+{
+    if (! method_exists($tool, 'handle')) {
+        return [];
+    }
+
+    $actions = [];
+
+    foreach ((new ReflectionMethod($tool, 'handle'))->getParameters() as $parameter) {
+        $type = $parameter->getType();
+
+        if ($type instanceof ReflectionNamedType && str_starts_with($type->getName(), 'App\\Actions\\')) {
+            $actions[] = $type->getName();
+        }
+    }
+
+    return $actions;
+}
+
+/**
+ * Mã (bỏ chú thích) của một lớp có đi qua tập R3 (`McpMatterScope`) hoặc hỏi quyền đích danh
+ * (`Gate::forUser(`) không.
+ *
+ * @param  class-string  $class
+ */
+function architectureAsksPolicy(string $class): bool
+{
+    $code = architectureCodeOnly((string) file_get_contents((string) (new ReflectionClass($class))->getFileName()));
+
+    return str_contains($code, 'McpMatterScope') || preg_match('/Gate\s*::\s*forUser\s*\(/', $code) === 1;
+}
+
+/**
+ * Lớp tool KHÔNG đi qua `McpMatterScope` hay `Gate::forUser`. Một tool đạt khi tự nó đi qua, hoặc khi
+ * nó nhận ít nhất một Action ở `handle()` và MỌI Action đó đều đi qua. Tool không nhận Action nào và tự
+ * nó cũng không hỏi thì bị liệt kê; tool có một Action im lặng thì bị liệt kê kèm tên Action đó.
+ *
+ * @param  list<class-string>  $tools
+ * @return list<string>
+ */
+function architectureToolsWithoutPolicy(array $tools): array
+{
+    $missing = [];
+
+    foreach ($tools as $tool) {
+        if (architectureAsksPolicy($tool)) {
+            continue;
+        }
+
+        $actions = architectureToolActions($tool);
+        $silent = array_values(array_filter($actions, fn (string $action): bool => ! architectureAsksPolicy($action)));
+
+        if ($actions === []) {
+            $missing[] = class_basename($tool).' (không nhận Action nào)';
+        } elseif ($silent !== []) {
+            $missing[] = class_basename($tool).' → '.implode(', ', array_map(class_basename(...), $silent));
+        }
+    }
+
+    return $missing;
+}
+
+/**
+ * Kế hoạch M11 Task 14 ("Mọi tool đều kiểm policy", luật văn bản): R3 — mọi tool kế thừa policy của web
+ * qua `McpMatterScope` (định nghĩa duy nhất của tập vụ MCP thấy được) hoặc hỏi `Gate::forUser($actor)`
+ * đúng ability của màn hình tương ứng. Tool chỉ đọc tham số và gọi Action, nên luật đọc Action mà
+ * `handle()` nhận. Test LIỆT KÊ lớp không làm vậy trong thông điệp lỗi, thay vì chỉ nói "có lớp sai".
+ * Đây là lưới văn bản; bằng chứng hành vi là lượt "người không thấy vụ → not_found" của
+ * `tests/Feature/Mcp/SensitiveDataSweepTest.php`.
+ */
+it('mọi tool của CrmServer đi qua McpMatterScope hoặc Gate::forUser (liệt kê lớp không làm vậy)', function () {
+    $tools = (new ReflectionClass(CrmServer::class))->getProperty('tools')->getDefaultValue();
+
+    // Tiền đề: luật chạy trên đúng mọi tool có trong thư mục, không một danh sách chép tay.
+    expect($tools)->toHaveCount(count(glob(app_path('Mcp/Tools/*Tool.php'))));
+
+    expect(architectureToolsWithoutPolicy($tools))->toBe([]);
+});
+
+it('luật policy của tool liệt kê đúng lớp không hỏi gì, và để yên lớp có hỏi (cặp dương/âm)', function () {
+    // Âm: một lớp không hỏi policy, không nhận Action nào — bị liệt kê.
+    expect(architectureToolsWithoutPolicy([PhoneMask::class]))
+        ->toBe(['PhoneMask (không nhận Action nào)']);
+
+    // Dương: tool nhận một Action có đi qua McpMatterScope — không bị liệt kê.
+    expect(architectureToolsWithoutPolicy([GetMatterTool::class]))->toBe([]);
 });

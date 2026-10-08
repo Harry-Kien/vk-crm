@@ -38,7 +38,7 @@ final class ListClientRequestsTool extends CrmReadTool
             ...$this->paginationRules(),
         ]);
 
-        $actor = $this->actor();
+        $actor = $this->actor($request);
         $matterId = null;
 
         if (($input['matter_id'] ?? null) !== null) {

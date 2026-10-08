@@ -9,7 +9,6 @@ use App\Models\User;
 use App\Support\Mcp\McpRateLimits;
 use App\Support\Mcp\ToolCallContext;
 use Generator;
-use Illuminate\Support\Facades\Auth;
 use Laravel\Mcp\Exceptions\JsonRpcException;
 use Laravel\Mcp\Server\Methods\CallTool;
 use Laravel\Mcp\Server\ServerContext;
@@ -45,7 +44,11 @@ use ReflectionProperty;
  * Dòng `mcp_tool_called` do middleware `App\Http\Middleware\Mcp\AuditToolCall` ghi sau khi có phản
  * hồi, nên MỌI nhánh ở trên — kể cả hai nhánh ném -32602 — có đúng một dòng.
  *
- * Người dùng đọc từ guard `mcp`, tường minh. Không có người (chỉ xảy ra ngoài route `/mcp`, ví dụ
+ * Người dùng đọc từ request HTTP `/mcp` đang chạy với guard `mcp` gọi tên (`request()->user('mcp')`),
+ * tường minh; không facade `Auth`, không `auth()` (luật của `tests/Feature/ArchitectureTest.php`). Đọc
+ * từ request HTTP chứ không từ `JsonRpcRequest::toRequest()`: hàm đó ném -32602 khi `arguments` không
+ * phải object, và lần gọi đó vẫn phải bị đếm vào giới hạn chung. Không có người (chỉ xảy ra ngoài route
+ * `/mcp`, ví dụ
  * helper `Server::tool()` của laravel/mcp) thì không có khoá để đếm, và rate limit không áp.
  */
 final class CallCrmTool extends CallTool
@@ -62,7 +65,7 @@ final class CallCrmTool extends CallTool
     {
         $call = app()->bound(ToolCallContext::class) ? app(ToolCallContext::class) : new ToolCallContext;
         $limits = app(McpRateLimits::class);
-        $user = Auth::guard('mcp')->user();
+        $user = request()->user('mcp');
         $name = $request->get('name');
         $declaredTools = $this->declaredTools($context);
         $declared = array_keys($declaredTools);

@@ -82,7 +82,7 @@ lý dữ liệu tối thiểu cần thiết [DC:108].
 | Số điện thoại, địa chỉ, ghi chú của các bên | Không bao giờ |
 | Ghi chú nội bộ (của dòng tiến độ, của vụ việc, của khách, của các bên) | Không đọc được. AI chỉ biết "có ghi chú nội bộ". AI vẫn **ghi** được ghi chú nội bộ vào một bản nháp |
 | Tài liệu nhóm D (nội bộ) | Không liệt kê, không đếm, không mở |
-| Nội dung tệp, đường tải tệp | Không. AI chỉ thấy tên, nhóm, trạng thái, ngày của tài liệu nhóm A, B, C |
+| Nội dung tệp, đường tải tệp, tên tệp gốc | Không. Với tài liệu nhóm A, B, C, AI chỉ thấy: tiêu đề (không phải tên tệp; tiêu đề tài liệu khách nộp đi trong trường dành cho nội dung do khách viết), nhóm, trạng thái, phiên bản, ngày ban hành, ngày công bố, ngày tạo, khách xem được và tải được không, và đường dẫn tới trang tài liệu trong `/admin` (trang đó tự kiểm quyền) |
 | Kết quả kiểm tra xung đột lợi ích | Không có cách nào để AI hỏi |
 | Nhật ký thư đã gửi, nhật ký hệ thống | Không có cách nào để AI hỏi |
 | Mọi thứ của màn hình Tiếp nhận (khách tiềm năng, câu chuyện của họ) | Không bao giờ |
@@ -187,5 +187,6 @@ Báo **ngay**, không chờ chắc chắn, khi:
 
 Quản trị viên thu hồi ngay kết nối của người đó (từng kết nối, hay tất cả) trên trang "Kết nối AI",
 hoặc tắt công tắc chung. Luật 91 buộc văn phòng thông báo vi phạm cho Bộ Công an trong **72 giờ** kể
-từ khi phát hiện, nếu vi phạm có thể gây hại cho chủ thể dữ liệu [PL:338] — giờ tính từ lúc phát
-hiện, nên báo chậm là mất thời gian của cả văn phòng.
+từ khi phát hiện, nếu vi phạm có thể gây hại đến an ninh, trật tự, hoặc tính mạng, sức khỏe, danh
+dự, tài sản của chủ thể dữ liệu [PL:338] — giờ tính từ lúc phát hiện, nên báo chậm là mất thời
+gian của cả văn phòng.

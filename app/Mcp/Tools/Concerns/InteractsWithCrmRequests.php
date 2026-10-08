@@ -4,7 +4,6 @@ namespace App\Mcp\Tools\Concerns;
 
 use App\Models\User;
 use Illuminate\Auth\AuthenticationException;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 use Laravel\Mcp\Request;
 use Laravel\Mcp\Response;
@@ -13,9 +12,11 @@ use Laravel\Mcp\ResponseFactory;
 /**
  * Bốn việc dùng chung của mọi tool VK-CRM, đọc ({@see CrmReadTool}) lẫn ghi ({@see CrmWriteTool}):
  *
- * - **Người gọi tường minh** ({@see self::actor()}): người sở hữu token, đọc từ guard `mcp` — không
- *   bao giờ `auth()` mặc định, `auth('web')` hay `auth('client')`, cả hai rỗng (hoặc là một người
- *   KHÁC) trong request `/mcp` (Review Focus 4). Action nhận người này làm `$actor`.
+ * - **Người gọi tường minh** ({@see self::actor()}): người sở hữu token, đọc từ CHÍNH request MCP
+ *   đang chạy với guard `mcp` gọi tên (`$request->user('mcp')`) — không bao giờ `auth()` mặc định,
+ *   `auth('web')` hay `auth('client')`, cả hai rỗng (hoặc là một người KHÁC) trong request `/mcp`
+ *   (Review Focus 4; `tests/Feature/ArchitectureTest.php` cấm facade `Auth` và hàm `auth()` trong
+ *   `App\Mcp`). Action nhận người này làm `$actor`.
  * - **Một thông điệp "Không tìm thấy" duy nhất** ({@see self::notFound()}): id không tồn tại, vụ đội
  *   khác, vụ hạn chế, vụ `denied`, id sai định dạng — cùng một chuỗi, cùng một hình dạng (R3, SPEC
  *   §10.10). Tool không có nhánh nào nói "có nhưng bị ẩn".
@@ -31,14 +32,15 @@ use Laravel\Mcp\ResponseFactory;
 trait InteractsWithCrmRequests
 {
     /**
-     * Người sở hữu token của request `/mcp` đang chạy. `auth:mcp` đứng trước server (`routes/ai.php`),
-     * nên không có người là lỗi cấu hình route: từ chối, không bao giờ chạy với người rỗng.
+     * Người sở hữu token của request `/mcp` đang chạy, đọc từ `$request` mà `handle()` nhận, guard `mcp`
+     * gọi tên. `auth:mcp` đứng trước server (`routes/ai.php`), nên không có người là lỗi cấu hình route:
+     * từ chối, không bao giờ chạy với người rỗng.
      *
      * @throws AuthenticationException
      */
-    protected function actor(): User
+    protected function actor(Request $request): User
     {
-        $user = Auth::guard('mcp')->user();
+        $user = $request->user('mcp');
 
         if (! $user instanceof User) {
             throw new AuthenticationException(__('mcp.tool_errors.unauthenticated'));

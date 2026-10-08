@@ -493,7 +493,12 @@ it('R7 access token do /oauth/token cấp sống đúng 1 giờ, refresh token �
 
     // `iat` do lcobucci/jwt ghi kèm phần lẻ micro giây, `exp` là số nguyên: hiệu của hai số lệch
     // dưới một giây.
-    expect($tokens['expires_in'])->toBe(3600)
+    //
+    // `expires_in` do league/oauth2-server tính lúc DỰNG phản hồi (`exp - time()`), không lúc cấp:
+    // nếu đồng hồ hệ thống qua ranh giới một giây giữa hai lúc đó thì nó là 3599 (lần chạy MariaDB của
+    // MAIN MERGE 2 gặp đúng chuyện này). Mọi giá trị ngoài [3599, 3600] vẫn đỏ, kể cả mặc định một năm
+    // của Passport.
+    expect($tokens['expires_in'])->toBeGreaterThanOrEqual(3599)->toBeLessThanOrEqual(3600)
         ->and($claims['exp'] - $claims['iat'])->toEqualWithDelta(3600, 1);
 
     $refresh = Passport::refreshToken()->newQuery()->where('access_token_id', $claims['jti'])->sole();

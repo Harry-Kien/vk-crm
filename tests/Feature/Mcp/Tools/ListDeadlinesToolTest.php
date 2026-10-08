@@ -36,7 +36,7 @@ beforeEach(function () {
     $this->token = McpOAuth::accessToken($this, $this->world->lead);
 });
 
-/** @return array{deadlines: list<array<string, mixed>>, due_from: ?string, due_to: ?string, next_cursor: ?string} */
+/** @return array{deadlines: list<array<string, mixed>>, due_from: ?string, due_to: ?string, responsible: string, next_cursor: ?string} */
 function listDeadlines(string $token, array $arguments = []): array
 {
     return McpToolCall::structured(test(), $token, 'list_deadlines', $arguments);
@@ -77,7 +77,7 @@ it('mặc định: mốc CỦA TÔI, chưa xong, hạn tới hết 7 ngày tới
 
     $out = listDeadlines($this->token);
 
-    expect(array_keys($out))->toBe(['deadlines', 'due_from', 'due_to', 'next_cursor'])
+    expect(array_keys($out))->toBe(['deadlines', 'due_from', 'due_to', 'responsible', 'next_cursor'])
         ->and(deadlineIds($out))->toBe([dlId($overdue), dlId($today), dlId($edge)])
         ->and($out['due_from'])->toBeNull()
         ->and($out['due_to'])->toBe(today()->addDays(7)->toDateString())
@@ -131,6 +131,29 @@ it('lọc theo người phụ trách: any là mọi người, user_… là đún
         ->and(deadlineIds(listDeadlines($this->token, ['responsible' => 'any'])))->toBe([dlId($mine), dlId($assistants)])
         ->and(deadlineIds(listDeadlines($this->token, ['responsible' => McpIds::encode(McpIds::USER, $this->world->assistant->id)])))->toBe([dlId($assistants)])
         ->and(deadlineIds(listDeadlines($this->token, ['responsible' => McpIds::encode(McpIds::USER, 999999)])))->toBe([]);
+});
+
+/**
+ * Rà soát Task 11 r1: hỏi "mốc của matter_12?" mà chỉ đưa `matter_id` thì mặc định "của tôi" và cửa sổ
+ * 7 ngày VẪN áp. Đầu ra nói rõ bộ lọc người phụ trách đã áp (như `due_from`/`due_to` nói khoảng hạn), để
+ * AI không báo "vụ không có mốc nào" khi trợ lý đang giữ năm mốc.
+ */
+it('đầu ra nói rõ bộ lọc người phụ trách đã áp: me khi bỏ trống (kể cả khi chỉ lọc theo vụ), any, hay đúng user_… đã hỏi', function () {
+    $matter = $this->world->matter;
+    dlDue($matter, $this->world->assistant, 2);
+    $assistant = McpIds::encode(McpIds::USER, $this->world->assistant->id);
+    $matterId = McpIds::encode(McpIds::MATTER, $matter->id);
+
+    $onlyMatter = listDeadlines($this->token, ['matter_id' => $matterId]);
+
+    expect($onlyMatter['responsible'])->toBe('me')
+        ->and($onlyMatter['deadlines'])->toBe([])
+        ->and($onlyMatter['due_to'])->toBe(today()->addDays(7)->toDateString())
+        ->and(listDeadlines($this->token)['responsible'])->toBe('me')
+        ->and(listDeadlines($this->token, ['responsible' => 'me'])['responsible'])->toBe('me')
+        ->and(listDeadlines($this->token, ['matter_id' => $matterId, 'responsible' => 'any'])['responsible'])->toBe('any')
+        ->and(listDeadlines($this->token, ['matter_id' => $matterId, 'responsible' => 'any'])['deadlines'])->toHaveCount(1)
+        ->and(listDeadlines($this->token, ['responsible' => $assistant])['responsible'])->toBe($assistant);
 });
 
 it('lọc theo khoảng ngày: chỉ from thì không có cận trên, chỉ to thì gồm cả quá hạn, có cả hai thì đúng khoảng (gồm hai đầu)', function () {

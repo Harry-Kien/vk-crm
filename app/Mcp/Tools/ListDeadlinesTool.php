@@ -30,8 +30,11 @@ use Laravel\Mcp\ResponseFactory;
  *  - `responsible`: `me` (mặc định), `any` (mọi người), hoặc `user_…` (id có tiền tố trong kết quả);
  *  - `include_completed`: kèm mốc đã xong.
  *
- * `maxLength`: id 32 ({@see FetchTool::ID_MAX_LENGTH}), ngày 10, mức độ 10. Phân trang
- * {@see PaginatesByCursor}; cursor gắn với bộ lọc đã giải (người phụ trách là id thật).
+ * Đầu ra nói lại bộ lọc người phụ trách đã áp (`responsible`, rà soát Task 11 r1): chỉ đưa `matter_id`
+ * thì "của tôi" và cửa sổ 7 ngày VẪN áp, và AI phải thấy điều đó.
+ *
+ * `maxLength`: id 32 ({@see FetchTool::ID_MAX_LENGTH}), ngày 10, mức độ 20 (cột `deadlines.severity`).
+ * Phân trang {@see PaginatesByCursor}; cursor gắn với bộ lọc đã giải (người phụ trách là id thật).
  */
 final class ListDeadlinesTool extends CrmReadTool
 {
@@ -41,7 +44,8 @@ final class ListDeadlinesTool extends CrmReadTool
 
     public const DATE_MAX_LENGTH = 10;
 
-    public const SEVERITY_MAX_LENGTH = 10;
+    /** Bằng cột `deadlines.severity` (`string(20)`), như `create_deadline` (rà soát Task 11 r3). */
+    public const SEVERITY_MAX_LENGTH = 20;
 
     /** `me`, `any` hoặc đúng một id `user_…` (McpIds: số dương, không số 0 đứng đầu, ≤ 18 chữ số). */
     private const RESPONSIBLE_PATTERN = '/\A(me|any|user_[1-9][0-9]{0,17})\z/';
@@ -58,7 +62,7 @@ final class ListDeadlinesTool extends CrmReadTool
             ...$this->paginationRules(),
         ]);
 
-        $actor = $this->actor();
+        $actor = $this->actor($request);
         $matterId = null;
 
         if (($input['matter_id'] ?? null) !== null) {
@@ -88,7 +92,7 @@ final class ListDeadlinesTool extends CrmReadTool
 
         return $result === null
             ? $this->notFound()
-            : $this->result(DeadlineListPresenter::present($result, $this->nextCursor($actor, $filters->toArray(), $result->page->next)));
+            : $this->result(DeadlineListPresenter::present($result, $input['responsible'] ?? 'me', $this->nextCursor($actor, $filters->toArray(), $result->page->next)));
     }
 
     /** @return array<string, mixed> */
@@ -115,6 +119,7 @@ final class ListDeadlinesTool extends CrmReadTool
             'deadlines' => OutputSchemas::listOf($schema, OutputSchemas::deadline($schema)),
             'due_from' => $schema->string()->nullable(),
             'due_to' => $schema->string()->nullable(),
+            'responsible' => $schema->string(),
             'next_cursor' => $schema->string()->nullable(),
         ]);
     }
