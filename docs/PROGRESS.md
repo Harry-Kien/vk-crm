@@ -6140,13 +6140,17 @@ nhập tài khoản AI của ai). Các bước và bộ prompt vàng: `docs/audi
 
 **Đã làm trong task.**
 - **Tiền của vụ không bao giờ qua MCP** (việc mang sang từ M9, SPEC §5): dòng mới trong bảng R4 của kế hoạch;
-  `tests/Feature/Mcp/MoneyMcpBoundaryTest.php` quét bằng token mọi tệp MCP tìm tên lớp (`Contract`,
-  `ContractAmendment`, `Instalment`, `Payment`, `TimeEntry` và mọi tên bắt đầu bằng chúng rồi tới chữ hoa),
-  quan hệ, bảng, bí danh morph, biến và quyền tiền (`payment.record`…) — `Illuminate\Contracts\…` không tính;
+  `tests/Feature/Mcp/MoneyMcpBoundaryTest.php` quét bằng token mọi tệp MCP tìm mọi đoạn tên (lớp tách theo `\`,
+  hàm, quan hệ, biến; từ `[A-Za-z0-9_]+` trong chuỗi và Blade) CHỨA ở bất kỳ vị trí nào, không phân biệt hoa
+  thường, một từ tiền: `contract`, `instalment`/`installment`, `payment`, `amendment`, `time_entr`/`timeentr`,
+  `billing`, `revenue`, `receivable` (vòng sửa 1 — trước đó chỉ khớp tên lớp ở ĐẦU đoạn và một danh sách tên
+  chính xác, nên lọt `App\Support\Billing\BillingSummary`, `triggeredInstalments`, `paymentReceipts`…); miễn
+  trừ duy nhất là đoạn `Contracts` (`Illuminate\Contracts\…`);
   danh sách tệp dùng chung với phép quét tiếp nhận qua `Tests\Support\McpSourceScan` (IntakeMcpBoundaryTest chỉ
   còn uỷ quyền cho nó, danh sách không đổi). Lượt quét hành vi: bộ dữ liệu `McpSweep` mang hợp đồng đang hiệu
-  lực, đợt, khoản thu, phụ lục, giờ làm có kim (mã, ghi chú, số tham chiếu, số tiền ở ba dạng viết) trên vụ mở
-  của admin — không kim nào ra khỏi bất kỳ tool nào.
+  lực, đợt (đến hạn vì dòng tiến độ đã công bố của vụ), khoản thu, phụ lục, giờ làm có kim (mã, ghi chú, số
+  tham chiếu, số tiền ở ba dạng viết, kể cả dư nợ tính ra 665.334.000) trên vụ mở của admin — không kim nào
+  ra khỏi bất kỳ tool nào.
 - **Nhật ký lần làm mới kết nối** (rà soát Task 8 m5; R8 "ghi cả … làm mới token"): `App\Actions\Mcp\RecordMcpTokenRefresh`
   nghe `Laravel\Passport\Events\AccessTokenCreated` (đăng ký ở `AppServiceProvider::boot()`, request truyền
   tường minh). Mỗi lần `/oauth/token` cấp token bằng `refresh_token` cho client `is_mcp`: một dòng
@@ -6238,6 +6242,22 @@ có từ trước), 1 failed (`TimeEntryTest`, đã sửa như trên; chạy l�
 4627 s. Tệp chạm tới (16 tệp test, gồm các test đọc tài liệu): 264 passed. MariaDB tuần tự, 10 tệp chạm tới: 133
 passed. Vòng migration thật (`seed`, `migrate:reset`, `migrate`) trên `vk_crm_lane_m11`: EXIT 0. `pint --test`:
 PASS 1379 tệp.
+
+**Vòng sửa 1 (2026-10-08, rà soát Task 17 I1).** Phép canh tiền trước đó chỉ khớp tên lớp ở ĐẦU đoạn và một danh
+sách tên chính xác, nên `use App\Support\Billing\BillingSummary` + `BillingSummary::outstandingForMatter()`,
+`ClientBillingStatement`, `Receivables`, `App\Actions\Billing\RecordPayment`, `triggeredInstalments`,
+`paymentReceipts`, `contractAmendments`, `attributedPayments` đều lọt (không mã MCP nào dùng chúng hôm nay — lỗ của
+phép canh, không phải rò rỉ). Nay một đoạn tên bị cấm khi CHỨA một từ tiền ở bất kỳ vị trí nào (mô tả ở mục "Đã làm"
+trên); `$contractor` cũng bị bắt, chấp nhận. `McpSweep`: đợt đến hạn vì dòng tiến độ đã công bố của vụ mở
+(`triggered_by_stage_log_id`), kim dư nợ 665334000 / 665.334.000 / 665,334,000 và dạng thứ ba 111,789,000 của khoản
+thu; test tiền đề mới trong `SensitiveDataSweepTest` (dư nợ đúng 665.334.000, dòng tiến độ kích hoạt đúng đợt kim).
+RED: 2 đỏ / 7 xanh. Mutation: bỏ từng từ trong mười từ tiền (mỗi lần đỏ), bỏ miễn trừ `Contracts` (đỏ), so đầu đoạn
+thay vì chuỗi con (đỏ), phân biệt hoa thường (đỏ), không tách chuỗi theo dấu chấm (đỏ); presenter vụ trả
+`BillingSummary::outstandingForMatter()` — lượt quét đỏ ở `search_matters` với kim 665334000, phép canh mới đỏ, phép
+canh cũ (ef58d2e) XANH, bỏ kim dư nợ thì lượt quét xanh; presenter dòng tiến độ trả `triggeredInstalments` — lượt
+quét đỏ ở `list_matter_updates`, bỏ `triggered_by_stage_log_id` thì xanh. Cả bộ `--parallel --processes=2`: 7027
+passed, 33 skipped, 1 risky (`EnvExampleTest`, có từ trước), 0 failed, 3946 s. MariaDB tuần tự, hai tệp chạm tới: 9
+passed. `pint --test`: PASS.
 
 ## Ghi chú M12
 

@@ -115,7 +115,7 @@ final class McpSweep
 
         // Ghi chú nội bộ của dòng tiến độ — một dòng đã công bố, một dòng chưa (để một scope cổng khách
         // bật nhầm làm hai lượt khác nhau ở test ngữ cảnh ambient).
-        StageLog::factory()->for($open)->published()->create(['public_content' => 'Da cong bo', 'internal_note' => 'SWEEPX-STAGELOG-INTERNAL-NOTE-PUBLISHED', 'occurred_at' => now()->subDays(2)]);
+        $publishedLog = StageLog::factory()->for($open)->published()->create(['public_content' => 'Da cong bo', 'internal_note' => 'SWEEPX-STAGELOG-INTERNAL-NOTE-PUBLISHED', 'occurred_at' => now()->subDays(2)]);
         StageLog::factory()->for($open)->internalOnly()->create(['public_content' => 'Chua cong bo', 'internal_note' => 'SWEEPX-STAGELOG-INTERNAL-NOTE-DRAFT', 'occurred_at' => now()->subDay()]);
         $secrets['stage_logs.internal_note'] = ['SWEEPX-STAGELOG-INTERNAL-NOTE-PUBLISHED', 'SWEEPX-STAGELOG-INTERNAL-NOTE-DRAFT'];
 
@@ -160,12 +160,16 @@ final class McpSweep
         // Tiền của vụ (SPEC §5, "Mang sang M11" của M9): hợp đồng đang hiệu lực, một đợt, một khoản
         // thu, một phụ lục, một dòng giờ làm — admin thấy tiền của vụ mình trên web, MCP thì không bao
         // giờ (cùng ranh giới với phép quét cấu trúc `MoneyMcpBoundaryTest`). Số tiền là kim ở ba dạng
-        // viết.
+        // viết, kể cả con số TÍNH RA: dư nợ của vụ 777.123.000 − 111.789.000 = 665.334.000 (thứ một
+        // "tóm tắt vụ" đọc `BillingSummary::outstandingForMatter()` sẽ trả). Đợt đến hạn vì dòng tiến
+        // độ đã công bố ở trên (`triggered_by_stage_log_id`), để một presenter dòng tiến độ lỡ nạp
+        // `triggeredInstalments` cũng làm kim đợt lộ ra. Tiền đề của cả hai ở `SensitiveDataSweepTest`.
         $contract = Contract::factory()->active()->create([
             'matter_id' => $open->id, 'code' => 'SWEEPX-HD-CODE', 'total_amount' => 777_123_000, 'note' => 'SWEEPX-CONTRACT-NOTE',
         ]);
         $instalment = Instalment::factory()->for($contract)->create([
             'name' => 'SWEEPX-INSTALMENT-NAME', 'amount' => 777_123_000, 'note' => 'SWEEPX-INSTALMENT-NOTE',
+            'triggered_at' => $publishedLog->occurred_at, 'triggered_by_stage_log_id' => $publishedLog->id,
         ]);
         Payment::factory()->create([
             'instalment_id' => $instalment->id, 'amount' => 111_789_000, 'reference' => 'SWEEPX-PAYMENT-REF',
@@ -176,7 +180,8 @@ final class McpSweep
         $secrets['tiền của vụ: contracts, instalments, payments, contract_amendments, time_entries'] = [
             'SWEEPX-HD-CODE', 'SWEEPX-CONTRACT-NOTE', 'SWEEPX-INSTALMENT-NAME', 'SWEEPX-INSTALMENT-NOTE',
             'SWEEPX-PAYMENT-REF', 'SWEEPX-PAYMENT-NOTE', 'SWEEPX-AMENDMENT-REASON', 'SWEEPX-TIME-ENTRY',
-            '777123000', '777.123.000', '777,123,000', '111789000', '111.789.000',
+            '777123000', '777.123.000', '777,123,000', '111789000', '111.789.000', '111,789,000',
+            '665334000', '665.334.000', '665,334,000',
         ];
 
         $portalUser = ClientUser::factory()->activated()->create(['client_id' => $openClient->id, 'email' => 'sweepx-portal-sender@example.test']);

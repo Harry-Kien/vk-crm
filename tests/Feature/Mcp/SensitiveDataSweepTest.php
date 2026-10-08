@@ -6,7 +6,9 @@ use App\Models\ClientRequestReplyDraft;
 use App\Models\CommunicationLog;
 use App\Models\Deadline;
 use App\Models\Matter;
+use App\Models\StageLog;
 use App\Models\StageLogDraft;
+use App\Support\Billing\BillingSummary;
 use App\Support\Mcp\McpIds;
 use App\Support\Scopes\ClientPortalScope;
 use Database\Seeders\RolesAndPermissionsSeeder;
@@ -98,6 +100,17 @@ it('lượt quét dữ liệu nhạy cảm: không kim nào trong thân HTTP th�
         ->and(Deadline::query()->where('created_via', 'mcp')->exists())->toBeTrue()
         ->and(CommunicationLog::query()->where('created_via', 'mcp')->exists())->toBeTrue()
         ->and(ClientRequestReplyDraft::query()->exists())->toBeTrue();
+});
+
+it('bộ dữ liệu tiền của vụ mở có dư nợ thật và một dòng tiến độ đã kích hoạt đợt — kim dư nợ ở ba dạng viết (tiền đề của kim tiền)', function () {
+    $money = $this->sweep->secrets['tiền của vụ: contracts, instalments, payments, contract_amendments, time_entries'];
+    $published = StageLog::query()->where('matter_id', $this->sweep->open->id)->where('is_published', true)->sole();
+
+    // 777.123.000 (đợt) − 111.789.000 (khoản thu chưa huỷ) — đúng con số một "tóm tắt vụ" lỡ đọc
+    // BillingSummary sẽ trả ra; và đợt mang bằng chứng "dòng tiến độ nào làm nó đến hạn".
+    expect(BillingSummary::outstandingForMatter($this->sweep->open->id)['amount'])->toBe(665_334_000)
+        ->and($published->triggeredInstalments()->pluck('name')->all())->toBe(['SWEEPX-INSTALMENT-NAME'])
+        ->and($money)->toContain('665334000', '665.334.000', '665,334,000', '111789000', '111.789.000', '111,789,000');
 });
 
 it('máy dò rò rỉ thấy một kim ở dạng thô, dạng thoát \\u và dạng thoát \\/, không phân biệt hoa thường (cặp dương/âm)', function () {

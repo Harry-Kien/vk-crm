@@ -829,9 +829,14 @@ việc mang sang ghi ở PROGRESS ("Ghi chú M9", làn m9f, Task 13).
 **Đã làm 2026-10-08 (M11 Task 17):** (1) dòng "Tiền của vụ việc" trong bảng R4 của kế hoạch M11 và
 ở §16.4; (2) không presenter MCP nào liệt kê năm model đó; (3)
 `tests/Feature/Mcp/MoneyMcpBoundaryTest.php` quét MỌI tệp MCP (cùng danh sách với phép quét tiếp nhận,
-`Tests\Support\McpSourceScan`) tìm tên lớp, quan hệ, bảng, bí danh morph và quyền tiền; cộng lượt
-quét hành vi: bộ dữ liệu của `SensitiveDataSweepTest` mang hợp đồng, đợt, khoản thu, phụ lục và giờ
-làm có kim trên vụ mở của admin, và không kim nào ra khỏi bất kỳ tool nào.
+`Tests\Support\McpSourceScan`) tìm mọi tên — lớp, không gian tên, quan hệ, hàm, cột, bảng, bí danh
+morph, quyền, biến, từ trong chuỗi và Blade — CHỨA ở bất kỳ vị trí nào một từ tiền (`contract`,
+`instalment`/`installment`, `payment`, `amendment`, `time_entr`, `billing`, `revenue`,
+`receivable`; nên bắt cả `App\Support\Billing\BillingSummary`, `triggeredInstalments`,
+`paymentReceipts`), chỉ miễn đoạn không gian tên `Contracts` (`Illuminate\Contracts\…`); cộng lượt
+quét hành vi: bộ dữ liệu của `SensitiveDataSweepTest` mang hợp đồng, đợt (đến hạn vì một dòng tiến
+độ đã công bố), khoản thu, phụ lục và giờ làm có kim trên vụ mở của admin — kể cả dư nợ tính ra
+665.334.000 — và không kim nào ra khỏi bất kỳ tool nào.
 
 > **Bổ sung 2026-09-24 (M10 — tiếp nhận và thẩm định đầu vào).** Bảng 13 quyền gốc và bốn quyền tiền của M9 không có dòng nào cho một người **chưa phải khách hàng**: một lần có người gọi điện, nhắn Zalo hay bước vào văn phòng. M10 thêm bản ghi tiếp nhận (`intake_requests`) và ba quyền, nâng bảng từ 17 lên **20**:
 >
@@ -2179,7 +2184,8 @@ ngữ cảnh MCP).
 Ba phép quét canh bảng này: `tests/Feature/Mcp/SensitiveDataSweepTest.php` (gọi mọi tool với mọi
 tham số trên bộ dữ liệu có kim ở mọi ô trên, tìm trong thân HTTP thô),
 `tests/Feature/Mcp/MoneyMcpBoundaryTest.php` và `tests/Feature/Intake/IntakeMcpBoundaryTest.php`
-(không tệp MCP nào tham chiếu model tiền hay tiếp nhận).
+(không tệp MCP nào tham chiếu model tiền hay tiếp nhận; phép quét tiền bắt mọi tên chứa một từ tiền ở
+bất kỳ vị trí nào — lớp, không gian tên `Billing`, quan hệ như `triggeredInstalments` — xem §5).
 
 ### 16.5 Bộ tool (R13, R14)
 

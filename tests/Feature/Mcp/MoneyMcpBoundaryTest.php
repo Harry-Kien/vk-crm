@@ -15,29 +15,47 @@ use Tests\Support\McpSourceScan;
  * Phạm vi rộng hơn hai thư mục SPEC nêu tên: MỌI chỗ làn M11 đặt mã MCP, cùng danh sách với phép quét
  * tiếp nhận ({@see McpSourceScan::roots()}, {@see McpSourceScan::files()}).
  *
- * Quét bằng token, không bằng grep: chú thích không phải tham chiếu. Thứ bị cấm, khớp CHÍNH XÁC từng
- * đoạn tên (không phải chuỗi con, vì `Illuminate\Contracts\…` có mặt khắp nơi và không dính gì tới tiền):
- *  - tên lớp: một đoạn của tên (tách theo `\`) là `Contract`, `ContractAmendment`, `Instalment`,
- *    `Payment`, `TimeEntry`, hay bắt đầu bằng một trong chúng rồi tới một chữ HOA (`ContractPolicy`,
- *    `InstalmentStatus`, `PaymentMethod`, `TimeEntryResource`) — `Contracts` thì không;
- *  - tên quan hệ, cột, bảng, bí danh morph, biến: {@see MONEY_MCP_FORBIDDEN_NAMES}, so phân biệt hoa thường;
- *  - trong chuỗi ký tự và văn bản Blade: hai dạng trên đứng như một từ riêng (`'payment.record'`,
- *    `'App\Models\Contract'`, `{{ $matter->contract }}`).
+ * Quét bằng token, không bằng grep: chú thích không phải tham chiếu. Đơn vị so là từng ĐOẠN tên — tên
+ * lớp tách theo `\` (`App\Support\Billing\BillingSummary` → `App`, `Support`, `Billing`,
+ * `BillingSummary`), tên hàm, quan hệ, hằng, biến nguyên khối; chuỗi ký tự và văn bản Blade tách thành
+ * các từ `[A-Za-z0-9_]+` (`'stageLogs.triggeredInstalments'` → `stageLogs`, `triggeredInstalments`).
+ * Một đoạn bị cấm khi nó CHỨA, ở bất kỳ vị trí nào và không phân biệt hoa thường, một từ của
+ * {@see MONEY_MCP_WORDS}. Nên bị bắt cùng một luật:
+ *  - tên lớp tiền: `Contract`, `PaymentMethod`, `TimeEntryResource`, `ClientBillingStatement`,
+ *    `Receivables`, `RevenueFilters`;
+ *  - không gian tên tiền: `App\Actions\Billing`, `App\Support\Billing` — mọi `use` một lớp ở đó, kể cả
+ *    lớp tên trung tính như `Money`, `Vat`;
+ *  - quan hệ và hàm mang từ tiền ở giữa: `triggeredInstalments`, `paymentReceipts`,
+ *    `contractAmendments`, `attributedPayments`, `isReferencedByBillingRecord`;
+ *  - cột, bảng, bí danh morph, quyền, biến: `instalments`, `contract_amendment`, `'payment.record'`,
+ *    `$payments`, `{{ $matter->contract }}`.
+ *
+ * Miễn trừ DUY NHẤT ({@see MONEY_MCP_EXEMPT_SEGMENT}): đoạn đúng bằng `Contracts`, so phân biệt hoa
+ * thường — không gian tên giao diện của Laravel và laravel/mcp (`Illuminate\Contracts\…`,
+ * `Laravel\Mcp\Server\Contracts\…`) có mặt khắp nơi và không dính gì tới tiền. Cái giá của phép so
+ * chuỗi con là một tên vô hại đôi khi cũng bị bắt (`$contractor`); mã MCP chỉ cần đặt tên khác — một
+ * lần bỏ sót tiền đắt hơn nhiều.
  */
-const MONEY_MCP_FORBIDDEN_NAMES = [
-    'contract', 'contracts', 'contract_amendment', 'contract_amendments', 'amendments',
-    'instalment', 'instalments', 'payment', 'payments',
-    'time_entry', 'time_entries', 'timeEntry', 'timeEntries', 'billing',
-];
+const MONEY_MCP_WORDS = ['contract', 'instalment', 'installment', 'payment', 'amendment', 'time_entr', 'timeentr', 'billing', 'revenue', 'receivable'];
 
-const MONEY_MCP_CLASS_PATTERN = '/^(Contract|ContractAmendment|Instalment|Payment|TimeEntry)([A-Z][A-Za-z0-9_]*)?$/';
+const MONEY_MCP_EXEMPT_SEGMENT = 'Contracts';
 
-/** Một từ tiền trong văn bản tự do (chuỗi ký tự, Blade). */
-function moneyMcpWordPattern(): string
+/** Đoạn tên (hay từ trong chuỗi/Blade) có chứa một từ tiền hay không. */
+function isMoneyMcpSegment(string $segment): bool
 {
-    $names = implode('|', array_map(fn (string $name): string => preg_quote($name, '/'), MONEY_MCP_FORBIDDEN_NAMES));
+    if ($segment === MONEY_MCP_EXEMPT_SEGMENT) {
+        return false;
+    }
 
-    return '/(?<![A-Za-z0-9_])((?:Contract|ContractAmendment|Instalment|Payment|TimeEntry)(?:[A-Z][A-Za-z0-9_]*)?|'.$names.')(?![A-Za-z0-9_])/';
+    $lower = strtolower($segment);
+
+    foreach (MONEY_MCP_WORDS as $word) {
+        if (str_contains($lower, $word)) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 /**
@@ -54,7 +72,7 @@ function moneyMcpReferences(array $roots, array $files = []): array
         foreach (McpSourceScan::texts($path) as [$type, $text]) {
             if (in_array($type, $identifiers, true)) {
                 foreach (explode('\\', ltrim($text, '$\\')) as $segment) {
-                    if (preg_match(MONEY_MCP_CLASS_PATTERN, $segment) === 1 || in_array($segment, MONEY_MCP_FORBIDDEN_NAMES, true)) {
+                    if (isMoneyMcpSegment($segment)) {
                         $found[] = McpSourceScan::shown($path).': '.$segment;
                     }
                 }
@@ -63,9 +81,11 @@ function moneyMcpReferences(array $roots, array $files = []): array
             }
 
             if (in_array($type, [T_CONSTANT_ENCAPSED_STRING, T_ENCAPSED_AND_WHITESPACE, T_INLINE_HTML, McpSourceScan::BLADE], true)
-                && preg_match_all(moneyMcpWordPattern(), $text, $matches) > 0) {
-                foreach ($matches[1] as $word) {
-                    $found[] = McpSourceScan::shown($path).': '.$word;
+                && preg_match_all('/[A-Za-z0-9_]+/', $text, $matches) > 0) {
+                foreach ($matches[0] as $word) {
+                    if (isMoneyMcpSegment($word)) {
+                        $found[] = McpSourceScan::shown($path).': '.$word;
+                    }
                 }
             }
         }
@@ -102,7 +122,7 @@ it('detects a money class, relation, column, morph alias or permission in code, 
         'Morph.php' => "<?php\nclass H { public function f() { return Relation::getMorphedModel('contract_amendment'); } }\n",
         'Permission.php' => "<?php\nclass I { public function f(\$u) { return \$u->can('payment.record'); } }\n",
         'Table.php' => "<?php\nclass J { const T = \"select * from instalments\"; }\n",
-        'Clean.php' => "<?php\nuse App\\Models\\Matter;\nclass K { public string \$contractor = 'payable'; }\n",
+        'Clean.php' => "<?php\nuse App\\Models\\Matter;\nclass K { public string \$contact = 'payable'; }\n",
         'view.blade.php' => "<div>{{ \$matter->contract->total_amount }}</div>\n",
         'quiet.blade.php' => "{{-- Payment chỉ là chú thích --}}<div>{{ \$matter->code }}</div>\n",
     ];
@@ -135,4 +155,62 @@ it('detects a money class, relation, column, morph alias or permission in code, 
         ->and($all)->not->toContain('Contracts.php')
         ->and($all)->not->toContain('Clean.php')
         ->and($all)->not->toContain('quiet.blade.php');
+});
+
+it('detects a money word anywhere inside a name — Billing/Revenue/Receivable classes and namespaces, relations like triggeredInstalments — and still ignores the Contracts namespace', function () {
+    $dir = sys_get_temp_dir().'/vkcrm-mcp-money-'.bin2hex(random_bytes(4));
+    mkdir($dir, 0777, true);
+
+    $fixtures = [
+        'Outstanding.php' => "<?php\nuse App\Support\Billing\BillingSummary;\nclass M { public function f(\$m) { return ['outstanding' => BillingSummary::outstandingForMatter(\$m->id)['amount']]; } }\n",
+        'Statement.php' => "<?php\nclass N { public function f() { return ClientBillingStatement::class; } }\n",
+        'Receivables.php' => "<?php\nclass O { public function f() { return new Receivables; } }\n",
+        'MoneyUse.php' => "<?php\nuse App\Support\Billing\Money;\nclass P {}\n",
+        'Revenue.php' => "<?php\nclass Q { public function f() { return RevenueFilters::make(); } }\n",
+        'Record.php' => "<?php\nclass R { public function f() { return \App\Actions\Billing\RecordPayment::class; } }\n",
+        'Triggered.php' => "<?php\nclass S { public function f(\$stageLog) { return \$stageLog->triggeredInstalments; } }\n",
+        'Receipts.php' => "<?php\nclass T { public function f(\$document) { return \$document->paymentReceipts()->count(); } }\n",
+        'Amendments.php' => "<?php\nclass U { public function f(\$document) { return \$document->contractAmendments; } }\n",
+        'Attributed.php' => "<?php\nclass V { public function f(\$user) { return \$user->attributedPayments; } }\n",
+        'Referenced.php' => "<?php\nclass W { public function f(\$document) { return \$document->isReferencedByBillingRecord(); } }\n",
+        'Eager.php' => "<?php\nclass X { public function f(\$q) { return \$q->with('stageLogs.triggeredInstalments'); } }\n",
+        'triggered.blade.php' => "<div>{{ \$log->triggeredInstalments->count() }}</div>\n",
+        'AmendmentVar.php' => "<?php\nclass AA { public function f(\$amendments) { return 1; } }\n",
+        'Installment.php' => "<?php\nclass AB { public function f() { return InstallmentPlan::class; } }\n",
+        'TimeTable.php' => "<?php\nclass AC { public function f() { return DB::table('time_entries')->count(); } }\n",
+        'Contractor.php' => "<?php\nclass Z { public function f(\$contractor) { return 1; } }\n",
+        'Namespaces.php' => "<?php\nuse Illuminate\Contracts\Auth\Authenticatable;\nuse Illuminate\Contracts\{Foundation\Application};\nclass Y { const T = 'Illuminate\Contracts\Auth'; }\n",
+    ];
+
+    foreach ($fixtures as $name => $source) {
+        file_put_contents($dir.'/'.$name, $source);
+    }
+
+    try {
+        $found = moneyMcpReferences([], array_map(fn (string $name): string => $dir.'/'.$name, array_keys($fixtures)));
+    } finally {
+        (new Filesystem)->deleteDirectory($dir);
+    }
+
+    $all = implode(' ', $found);
+
+    expect($all)->toContain('Outstanding.php: Billing')
+        ->and($all)->toContain('Outstanding.php: BillingSummary')
+        ->and($all)->toContain('Statement.php: ClientBillingStatement')
+        ->and($all)->toContain('Receivables.php: Receivables')
+        ->and($all)->toContain('MoneyUse.php: Billing')
+        ->and($all)->toContain('Revenue.php: RevenueFilters')
+        ->and($all)->toContain('Record.php: RecordPayment')
+        ->and($all)->toContain('Triggered.php: triggeredInstalments')
+        ->and($all)->toContain('Receipts.php: paymentReceipts')
+        ->and($all)->toContain('Amendments.php: contractAmendments')
+        ->and($all)->toContain('Attributed.php: attributedPayments')
+        ->and($all)->toContain('Referenced.php: isReferencedByBillingRecord')
+        ->and($all)->toContain('Eager.php: triggeredInstalments')
+        ->and($all)->toContain('triggered.blade.php: triggeredInstalments')
+        ->and($all)->toContain('AmendmentVar.php: amendments')
+        ->and($all)->toContain('Installment.php: InstallmentPlan')
+        ->and($all)->toContain('TimeTable.php: time_entries')
+        ->and($all)->toContain('Contractor.php: contractor')
+        ->and($all)->not->toContain('Namespaces.php');
 });
