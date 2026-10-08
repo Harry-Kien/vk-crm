@@ -30,6 +30,16 @@ beforeEach(function () {
     $this->folder = $this->drive->putFile('2026-10', '', [FakeGoogleDrive::ROOT_FOLDER_ID], 'application/vnd.google-apps.folder');
 });
 
+/**
+ * PHPUnit giữ mọi đối tượng test tới hết lượt chạy, kể cả thuộc tính gán trên `$this`. Drive giả giữ
+ * nội dung mọi tệp đã tải lên, và các ca khối 8 MiB tải hơn 8 MiB mỗi ca: không gỡ thì một tiến trình
+ * của `--parallel` mang thêm khoảng 50 MB tới cuối lượt, cộng phần các tệp test trước để lại là chạm
+ * trần 512 MB (Task 8, cả bộ sau khi gộp `main` 7632242: WorkerCrashedException ở đúng tệp này).
+ */
+afterEach(function () {
+    unset($this->drive);
+});
+
 /** @return resource */
 function uploadStream(string $content)
 {

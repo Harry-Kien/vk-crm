@@ -18,6 +18,12 @@
         </include>
     </source>
     <php>
+        <!-- M14 Task 8: image Docker của máy dev mặc định memory_limit 512M. Bộ test (khoảng 6.900 test
+             sau khi gộp M12 và M14) để lại bộ nhớ dần trong mỗi tiến trình của lượt chạy song song, và
+             các ca khối 8 MiB của tests/Unit/Support/Storage/GoogleDrive/DriveUploadTest.php (gần cuối
+             thứ tự tệp) chạm trần: WorkerCrashedException. CI (setup-php) chạy với memory_limit -1,
+             nên dòng này chỉ đưa máy dev lại gần CI. -->
+        <ini name="memory_limit" value="1024M"/>
         <env name="APP_ENV" value="testing"/>
         <env name="APP_LOCALE" value="vi"/>
         <env name="ADMIN_DOMAIN" value=""/>
