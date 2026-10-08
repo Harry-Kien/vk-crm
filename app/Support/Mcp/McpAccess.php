@@ -90,7 +90,9 @@ final class McpAccess
      *  3. {@see McpAccessRefusal::TwoFactorNotSetUp} — nhân sự CHƯA có secret 2FA (vừa bị "Đặt lại 2FA",
      *     hay chưa cài lần đầu). Cổng `EnsureMultiFactorAuthenticationIsEnabled` của Filament chỉ đứng
      *     trước route của panel; `/oauth/authorize` nằm ngoài panel, nên một phiên chỉ có mật khẩu sẽ
-     *     đồng ý được nếu thiếu dòng này. Cùng luật với `DocumentDownloadController::actor()` (M8 R2);
+     *     đồng ý được nếu thiếu dòng này. Cùng luật, và cùng MỘT định nghĩa "đã có 2FA"
+     *     ({@see User::hasAppAuthenticationSecret()}, SPEC §10.7), với `DocumentDownloadController::actor()`
+     *     (M8 R2) và thông báo đẩy (`PushAlert::shouldSend()`);
      *  4. còn lại: {@see self::refusal()}, đúng thứ tự R2.
      */
     public static function consentRefusal(?Authenticatable $account): ?McpAccessRefusal
@@ -103,7 +105,7 @@ final class McpAccess
             return McpAccessRefusal::Inactive;
         }
 
-        if (blank($account->getAppAuthenticationSecret())) {
+        if (! $account->hasAppAuthenticationSecret()) {
             return McpAccessRefusal::TwoFactorNotSetUp;
         }
 

@@ -23,6 +23,7 @@ use App\Models\StageLogView;
 use App\Models\User;
 use Database\Seeders\DatabaseSeeder;
 use Database\Seeders\Support\DemoPdf;
+use Database\Seeders\TeamPerformanceSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\Storage;
 use Spatie\Activitylog\Models\Activity;
@@ -37,11 +38,13 @@ beforeEach(function () {
     $this->seed(DatabaseSeeder::class);
 });
 
+// M13 Task 8: người thứ chín là luật sư ĐÃ NGHỈ VIỆC của `TeamPerformanceSeeder` (vô hiệu hoá, mật khẩu ngẫu nhiên).
 it('seeds the staff roster', function () {
-    expect(User::count())->toBe(8)
+    expect(User::count())->toBe(9)
         ->and(User::where('position', UserPosition::Admin)->count())->toBe(1)
         ->and(User::where('position', UserPosition::Manager)->count())->toBe(1)
-        ->and(User::where('position', UserPosition::Lawyer)->count())->toBe(3)
+        ->and(User::where('position', UserPosition::Lawyer)->count())->toBe(4)
+        ->and(User::where('position', UserPosition::Lawyer)->where('is_active', false)->pluck('email')->all())->toBe([TeamPerformanceSeeder::DEPARTED_EMAIL])
         ->and(User::where('position', UserPosition::Assistant)->count())->toBe(2)
         ->and(User::where('position', UserPosition::Accountant)->count())->toBe(1)
         ->and(User::where('email', 'admin@luatvukhang.com')->exists())->toBeTrue();
@@ -138,10 +141,11 @@ it('lets the documented first demo client walk the whole paperwork journey', fun
  * `Matter::scopeListableBy()` có dữ liệu thật thay vì chỉ có trong test; `MatterSeeder::
  * closedMatter()` thêm đúng một vụ đã đóng, để Task 4/11 sinh và giải nén được một gói bàn giao
  * thật từ dữ liệu mẫu; `IntakeSeeder` (`ConvertIntakeToMatter` gắn một khách đã có vào vụ mới,
- * đính chính SPEC §12 ngày 2026-10-03) thêm vụ thứ 23.
+ * đính chính SPEC §12 ngày 2026-10-03) thêm vụ thứ 23. M13 Task 8 (`TeamPerformanceSeeder`) thêm bốn vụ cho
+ * trang theo dõi đội ngũ — 27 vụ.
  */
 it('seeds twenty matters with the deliberate situations from the spec, plus one restricted, one closed and one opened from an intake', function () {
-    expect(Matter::count())->toBe(23)
+    expect(Matter::count())->toBe(27)
         ->and(IntakeRequest::query()->whereNotNull('matter_id')->count())->toBe(1)
         ->and(Matter::where('last_client_update_at', '<', now()->subDays(14))->count())->toBeGreaterThanOrEqual(3)
         ->and(Deadline::query()->upcoming(3)->distinct('matter_id')->count('matter_id'))->toBeGreaterThanOrEqual(2)

@@ -538,4 +538,16 @@ return [
     'handover' => [
         'work_dir' => env('HANDOVER_WORK_DIR', storage_path('app/handover-tmp')),
     ],
+
+    /*
+     * M13 R11, lối thoát cuối — số của "Hiệu suất theo kỳ" và đầu trang của một người giữ tạm theo người
+     * xem bao nhiêu giây (`App\Support\Performance\PerformanceCache`). Ngân sách thời gian của hai trang
+     * vẫn vỡ sau khi thêm index (số đo ở "Ghi chú M13"), nên kế hoạch cho dùng bộ nhớ tạm, TTL ≤ 5 phút:
+     * `PerformanceCache::seconds()` cắt mọi giá trị lớn hơn về 300. `0` tắt hẳn — cả bộ test đặt 0
+     * (`tests/Pest.php`) để test "đọc, đổi, đọc lại" đo phép tính chứ không đo bộ nhớ tạm. Viết thẳng ở
+     * đây, không đọc `.env`: M13 không có biến `.env` mới (CAI-DAT, "Bản cập nhật M13").
+     */
+    'performance' => [
+        'cache_seconds' => 300,
+    ],
 ];

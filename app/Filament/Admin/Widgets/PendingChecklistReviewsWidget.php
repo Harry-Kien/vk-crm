@@ -2,7 +2,6 @@
 
 namespace App\Filament\Admin\Widgets;
 
-use App\Enums\ChecklistItemStatus;
 use App\Enums\DocumentGroup;
 use App\Enums\Permission;
 use App\Filament\Admin\Resources\Matters\MatterResource;
@@ -42,8 +41,12 @@ class PendingChecklistReviewsWidget extends TableWidget
     // Thứ tự SPEC §7.1: sau "Hồ sơ quá hạn cập nhật" (-4) và AccountWidget (-3, của Filament).
     protected static ?int $sort = -2;
 
-    /** Bí danh của mốc "khách nộp lúc" — xem {@see self::rowsFor()}. */
-    private const SUBMITTED_AT_ALIAS = 'submitted_at';
+    /**
+     * Bí danh của mốc "khách nộp lúc" — xem {@see self::rowsFor()}. Công khai từ M13 Task 5: danh
+     * sách "Giấy tờ chờ duyệt" trên trang của một người dựng trên `rowsFor()` và xếp, in theo đúng
+     * mốc này, không đặt lại tên.
+     */
+    public const SUBMITTED_AT_ALIAS = 'submitted_at';
 
     /**
      * Gác bằng `checklist.review`, không phải `matter.view`: đây là hàng chờ việc của người đi
@@ -56,6 +59,9 @@ class PendingChecklistReviewsWidget extends TableWidget
 
     /**
      * Truy vấn của widget, tách static để test được mà không dựng cả bảng Livewire.
+     *
+     * "Chờ duyệt" là {@see MatterChecklistItem::scopeAwaitingReview()} (chuyển xuống model ở M13
+     * Task 2, để cột N8 của "Theo dõi đội ngũ" đếm ĐÚNG tập này mà không chép điều kiện trạng thái).
      *
      * Mốc "khách nộp lúc" là `MAX(created_at)` của các tài liệu **nhóm A** gắn vào đầu mục. Nhóm
      * A là "khách cung cấp" (SPEC §4.11) bất kể ai bấm nút nộp, nên nó là lần nộp. Các nhóm khác
@@ -71,7 +77,7 @@ class PendingChecklistReviewsWidget extends TableWidget
     public static function rowsFor(User $user): Builder
     {
         return MatterChecklistItem::query()
-            ->where('status', ChecklistItemStatus::PendingReview->value)
+            ->awaitingReview()
             ->whereHas('matter', fn (Builder $matter): Builder => $matter->listableBy($user))
             ->withMax(
                 ['documents as '.self::SUBMITTED_AT_ALIAS => fn (Builder $documents): Builder => $documents

@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Mcp\PruneStaleMcpClients;
+use App\Actions\Schedule\CapturePerformanceSnapshots;
 use App\Actions\Schedule\CheckDeadlines;
 use App\Actions\Schedule\CheckStaleMatters;
 use App\Actions\Schedule\ExpireClientAccess;
@@ -273,11 +274,18 @@ Schedule::call('App\Actions\Schedule\PrunePushSubscriptions@handle')
  * hai tiến trình chỉ gửi trùng một job khi job đó chạy quá `retry_after` (90 giây) và lượt kia lấy lại nó;
  * khoá có hạn năm phút (không phải mặc định 1440) để một tiến trình bị giết không tắt push cả ngày.
  * CHỈ `->name()`, không `->description()` (bí danh của nhau trong Laravel 13, xem `backup.nightly`).
+ *
+ * `runInBackground()` (việc sau gộp M12, làn fu4): `schedule:run` chạy các mục của một phút LẦN LƯỢT
+ * trong cùng tiến trình, và mục này đứng trước `queue.handover` cùng các tác vụ hằng ngày của
+ * M7/M9/M10 — chạy tiền cảnh thì một phút bận (máy chủ push chậm, tới 50 giây) bắt mọi mục sau nó chờ,
+ * đúng điều docblock `queue.handover` cảnh báo. Chạy nền thì khoá `withoutOverlapping` vẫn giữ tới khi
+ * lệnh nền kết thúc (Laravel gỡ khoá ở `schedule:finish`).
  */
 Schedule::command('queue:work --queue=push --stop-when-empty --max-time=50')
     ->everyMinute()
     ->name('queue.push')
-    ->withoutOverlapping(5);
+    ->withoutOverlapping(5)
+    ->runInBackground();
 
 /**
  * M7 Task 4 (R9): rút hàng đợi RIÊNG của gói bàn giao. Job `GenerateHandoverPackage` nén tệp hồ sơ
@@ -439,3 +447,20 @@ Schedule::command('passport:purge', ['--hours' => PruneStaleMcpClients::tokenPur
 Schedule::command('vkcrm:mcp-prune-clients')
     ->dailyAt('03:15')
     ->name('mcp.clients.prune');
+
+/**
+ * Ảnh chụp cuối ngày số liệu theo người (M13 R10, Task 7): số vụ đang phụ trách, quá hạn cập nhật cho
+ * khách, mốc quá hạn và mức hoàn thiện danh mục của mọi người đang được theo dõi, để vẽ xu hướng trên
+ * trang của một người và trên trang "Hiệu suất theo kỳ". Không thư, không thông báo (R12).
+ *
+ * 23:50: số của ngày gần hết nhất mà vẫn còn trong ngày theo `APP_TIMEZONE` — `captured_on` là ngày đó,
+ * không phải ngày hôm sau, và các luật "quá hạn" (tính theo hôm nay) trả đúng câu trả lời của ngày đó.
+ * Sau mọi tác vụ nhắc của ban ngày, trước lượt sao lưu đêm. `withoutOverlapping(30)`: một lượt bị giết
+ * giữa chừng chỉ giữ khoá tới 00:20, không chặn lượt đêm sau (không để khoá 1440 phút mặc định —
+ * `BackupScheduleTest` ghim luật đó cho mọi tác vụ). Chạy lại trong ngày là vô hại: tác vụ `upsert` theo
+ * (ngày, người, loại). Dòng `use` của lớp nằm trong khối import đầu tệp (Pint đòi; người gộp giữ cả hai bên).
+ */
+Schedule::call(new CapturePerformanceSnapshots)
+    ->dailyAt('23:50')
+    ->name('performance.snapshot')
+    ->withoutOverlapping(30);

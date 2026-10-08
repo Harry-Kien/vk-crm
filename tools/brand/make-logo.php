@@ -4,7 +4,11 @@
  * Sinh mọi biểu tượng PNG của văn phòng từ ảnh nguồn `tools/brand/vk-logo-source.jpg`, rồi commit
  * PNG dưới `public/brand/`. Không ảnh nào sinh lúc chạy ứng dụng. Chạy từ gốc dự án:
  *
- *     /d/vkwt/m12-dev php tools/brand/make-logo.php     (máy dev chính: bin/dev php tools/brand/make-logo.php)
+ *     bin/dev php tools/brand/make-logo.php
+ *
+ * (`bin/dev up -d` trước: lệnh chạy trong container `app` của `compose.yaml`, có GD.) Sau đó
+ * `bin/dev test tests/Feature/Pwa/IconsTest.php`: kích thước, màu nền, độ đục và vùng an toàn của
+ * từng PNG.
  *
  * Hai họ ảnh:
  *  - `brand/vk-mark-{512,256,192,96,64,32}.png`: con dấu, nền TRONG SUỐT (logo, favicon, biểu tượng

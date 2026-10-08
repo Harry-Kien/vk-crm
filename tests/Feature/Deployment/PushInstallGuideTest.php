@@ -230,3 +230,111 @@ it('SAO-LUU Bước 6 cất cặp khoá VAPID cùng APP_KEY, và quy trình khô
 
     expect(pushGuideFile('README.md'))->toContain('vkcrm:push-reset');
 });
+
+/*
+|--------------------------------------------------------------------------
+| Việc sau gộp M12 (làn fu4) — mục 2d, 5, 6, 7
+|--------------------------------------------------------------------------
+*/
+
+/**
+ * Mục 6: bản diễn tập khôi phục không mang khoá VAPID thật và không cài cron — nếu không, bản sao (đủ
+ * đăng ký điện thoại và hàng đợi của máy thật) đẩy thông báo thật tới điện thoại của mọi người, và
+ * khoá ký của máy thật nằm trên một máy khác. Khôi phục thật giữ nguyên hướng dẫn cũ.
+ */
+it('SAO-LUU bước 7 tách khôi phục thật (chép khoá VAPID) khỏi diễn tập (để trống VAPID, không cron)', function (): void {
+    $restore = pushGuideFlat(pushGuideSection(pushGuideFile('docs/SAO-LUU-KHOI-PHUC.md'), '### Quy trình cho máy chủ thật', '### '));
+
+    expect($restore)
+        ->toContain('**Khôi phục thật** (máy này thay máy chủ hỏng, cùng tên miền): đặt ba dòng bằng cặp khoá cất ở Bước 6')
+        ->toContain('**Khôi phục thử / diễn tập định kỳ** (máy chủ tạm, máy thật vẫn chạy): để TRỐNG cả ba dòng `VAPID_*`')
+        ->toContain('KHÔNG cài dòng cron `schedule:run`');
+});
+
+/**
+ * Mục 7: đoạn "Bản cập nhật M12 … làm gì trên máy chủ đã có dữ liệu" ở Bước 5, cùng kiểu M9/M10, đọc
+ * từng con số từ mã (migration, mục lịch, khối nginx, hai dòng preflight); gạch đầu dòng chung của
+ * "Nâng cấp lên bản mới" chỉ tới cả bốn đoạn (M9, M10, M12, M13; đoạn M13 nằm giữa M10 và M12) và tới mục M12 có bước TRƯỚC `git pull`.
+ */
+it('CAI-DAT Bước 5 có đoạn M12 "làm gì trên máy chủ đã có dữ liệu", khớp mã, và mục Nâng cấp không còn tự mâu thuẫn', function (): void {
+    $guide = pushGuideFile('docs/CAI-DAT.md');
+    $stepFive = pushGuideSection($guide, '### Bước 5', '### Bước 6');
+    $m12 = pushGuideFlat(pushGuideSection($stepFive, '**Bản cập nhật M12 (app trên điện thoại và thông báo đẩy) làm gì trên máy chủ đã có dữ liệu**', '**Muốn dữ liệu mẫu'));
+
+    $migrations = collect(glob(base_path('database/migrations/*.php')))
+        ->map(fn (string $file): string => basename($file, '.php'))
+        ->filter(fn (string $name): bool => str_contains($name, 'push_subscriptions'))
+        ->values();
+
+    expect($migrations)->toHaveCount(2);
+    foreach ($migrations as $migration) {
+        expect($m12)->toContain($migration);
+    }
+
+    $events = collect(Schedule::events())->pluck('description');
+    expect($events)->toContain('queue.push', 'push-subscriptions.prune');
+
+    expect($m12)
+        ->toContain('`'.config('webpush.table_name').'`')
+        ->toContain('M12 không thêm quyền nào')
+        ->toContain('`queue.push` mỗi phút, chạy nền')
+        ->toContain('`push-subscriptions.prune` lúc 03:30')
+        ->toContain('`location = /admin/sw.js`')
+        ->toContain('`location = /portal/sw.js`')
+        ->toContain('thiếu extension `curl` là ĐỎ')
+        ->toContain('khoá thông báo đẩy là VÀNG');
+
+    expect(file_get_contents(base_path('tools/deploy/nginx.conf.example')))
+        ->toContain('location = /admin/sw.js')
+        ->toContain('location = /portal/sw.js');
+    expect(config('vkcrm.deployment.required_extensions'))->toContain('curl');
+
+    $upgrade = pushGuideFlat(pushGuideSection($guide, '## Nâng cấp lên bản mới', '### Bản cập nhật M12'));
+    expect($upgrade)
+        ->toContain('"Bản cập nhật … làm gì trên máy chủ đã có dữ liệu" (M9, M10, M12, M13)')
+        ->toContain('chỉ M12 ("Bản cập nhật M12", có một bước TRƯỚC `git pull`)')
+        ->not->toContain('các đoạn "Bản cập nhật …".');
+});
+
+/**
+ * Mục 2d và 5: hướng dẫn vận hành và hướng dẫn cho nhân sự gọi đúng tên hai nút mà màn hình hiện, và
+ * nói thật việc chúng làm với máy nhận thông báo.
+ */
+it('CAI-DAT và QUY-TRINH gọi đúng tên nút gỡ máy và nói "Đặt lại 2FA" gỡ máy', function (): void {
+    $operations = pushGuideFlat(pushGuideSection(pushGuideFile('docs/CAI-DAT.md'), '## Vận hành hằng ngày', '## '));
+    $staff = pushGuideFlat(pushGuideSection(pushGuideFile('docs/QUY-TRINH.md'), '### Nhân sự của văn phòng', null));
+    $forget = __('client_users.actions.forget_push_devices');
+    $reset = __('users.actions.reset_two_factor.label');
+
+    expect($operations)
+        ->toContain('"'.$forget.'"')
+        ->toContain('"'.$reset.'"**. Việc này xoá xác thực cũ')
+        ->toContain('gỡ mọi điện thoại và máy tính đang nhận thông báo đẩy của người đó')
+        ->not->toContain('xoá phiên bằng CSDL');
+
+    expect($staff)
+        ->toContain('"'.$forget.'"')
+        ->toContain('**"'.$reset.'"** như cũ — việc đó nay gỡ luôn mọi máy nhận thông báo');
+
+    expect(__('users.actions.reset_two_factor.modal_description', ['name' => 'A']))
+        ->toContain('gỡ mọi máy đang nhận thông báo đẩy');
+});
+
+/**
+ * Mục 10: công cụ của M12 (`tools/brand`, `tools/pwa`) chạy được với môi trường dev chính (`bin/dev`,
+ * `compose.yaml`) — không trỏ tới công cụ, cổng hay container của làn M12, những thứ không còn sau khi
+ * gộp.
+ */
+it('các công cụ M12 không còn trỏ tới đường dẫn, cổng hay container của làn', function (): void {
+    $files = [base_path('tools/brand/make-logo.php'), ...glob(base_path('tools/pwa/*.cjs'))];
+
+    expect($files)->toHaveCount(5);
+
+    foreach ($files as $file) {
+        expect((string) file_get_contents($file))
+            ->not->toContain('/d/vkwt/')
+            ->not->toContain('8097')
+            ->not->toContain('vkcrm-lane-')
+            ->toContain('bin/dev');
+    }
+});

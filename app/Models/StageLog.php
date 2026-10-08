@@ -105,6 +105,20 @@ class StageLog extends Model
             ->orWhereColumn($this->qualifyColumn('from_stage'), '!=', $this->qualifyColumn('to_stage')));
     }
 
+    /**
+     * Dòng tiến độ ghi cho một ngày trong kỳ (M13, cột P4 "Chuyển giai đoạn", ghép với
+     * {@see self::scopeEntries()}): `occurred_at` trong `$bounds` — hai cận đủ giờ của
+     * `PerformancePeriod::bounds()`. `occurred_at` là ngày NGƯỜI DÙNG chọn (ô chọn ngày, nửa đêm), ghi
+     * lùi được, nên một dòng ghi hôm nay cho ngày tháng trước làm đổi số của tháng trước — câu giải
+     * thích của P4 nói điều đó; không "khoá kỳ".
+     *
+     * @param  array{0: string, 1: string}  $bounds
+     */
+    public function scopeOccurredBetween(Builder $query, array $bounds): Builder
+    {
+        return $query->whereBetween($this->qualifyColumn('occurred_at'), $bounds);
+    }
+
     /** SPEC §4.8: internal_note chỉ dành cho nội bộ. */
     protected function internalAttributes(): array
     {

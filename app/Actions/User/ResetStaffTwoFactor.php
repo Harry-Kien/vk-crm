@@ -3,6 +3,7 @@
 namespace App\Actions\User;
 
 use App\Actions\Mcp\RevokeAiConnections;
+use App\Actions\Push\ForgetPushDevice;
 use App\Enums\AiRevocationReason;
 use App\Models\User;
 use App\Support\Audit;
@@ -47,6 +48,16 @@ use LogicException;
  * `lockForUpdate()` trên dòng `users` của TARGET (không phải actor): hai lượt đặt lại gần như
  * đồng thời cho cùng một người (một admin bấm nút, một admin khác gõ lệnh console cùng lúc) xếp
  * hàng, không phải một cuộc đua hai UPDATE rời rạc.
+ *
+ * # Sau commit: gỡ mọi máy nhận thông báo đẩy (việc sau gộp M12, làn fu4, mục 2a)
+ *
+ * Điện thoại mất vẫn đổ chuông với mốc hạn, vụ `restricted`, khoản thu quá hạn nếu đăng ký push của
+ * nó còn: bước 2 chỉ đăng xuất phiên ở request KẾ TIẾP của máy đó, mà một máy nằm im không gửi request
+ * nào. Nên sau khi transaction trên commit (`DB::afterCommit`, sau transaction ngoài cùng), mọi máy
+ * của người bị đặt lại bị gỡ qua {@see ForgetPushDevice::all()} với lý do `two_factor_reset` — mỗi
+ * máy một dòng `push_device_removed`, người gây ra là admin đã bấm (lệnh console: không ai). Rollback
+ * thì không gỡ gì. Lưới thứ hai, cho mọi lối khác làm trống secret: `PushAlert::shouldSend()` không
+ * đẩy cho nhân sự chưa có 2FA (SPEC §10.7).
  */
 final class ResetStaffTwoFactor
 {
@@ -78,6 +89,9 @@ final class ResetStaffTwoFactor
 
             // M11 R8 (Task 6): bước 4 — mọi kết nối AI của người này, cùng transaction.
             app(RevokeAiConnections::class)->handle($locked, AiRevocationReason::TwoFactorReset, $actor);
+
+            DB::afterCommit(fn () => app(ForgetPushDevice::class)
+                ->all($locked, $actor, ForgetPushDevice::REASON_TWO_FACTOR_RESET));
         });
     }
 }

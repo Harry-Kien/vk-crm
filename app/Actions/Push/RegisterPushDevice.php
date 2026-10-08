@@ -12,6 +12,7 @@ use Closure;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use NotificationChannels\WebPush\PushSubscription;
 
@@ -129,6 +130,14 @@ class RegisterPushDevice
                 }
 
                 if ($knownHost && ! self::isKnownPushHost($match[1])) {
+                    // Việc sau gộp M12 (làn fu4, mục 9): một trình duyệt mới hay một máy chủ push đổi
+                    // tên rơi vào đây cho MỌI người dùng nó — văn phòng cần biết tên máy để thêm vào
+                    // `push_hosts`. Chỉ TÊN MÁY (chữ, số, `.`, `-` theo mẫu ở trên), không bao giờ
+                    // endpoint (R8: một URL mang quyền gửi).
+                    Log::warning('Từ chối đăng ký thông báo đẩy: máy chủ push không có trong vkcrm.pwa.push_hosts.', [
+                        'host' => strtolower($match[1]),
+                    ]);
+
                     $fail(__('push.validation.endpoint'));
                 }
             },

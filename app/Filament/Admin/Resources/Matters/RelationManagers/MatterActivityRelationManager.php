@@ -5,6 +5,7 @@ namespace App\Filament\Admin\Resources\Matters\RelationManagers;
 use App\Filament\Admin\Pages\ActivityLogPage;
 use App\Models\Matter;
 use App\Support\ActivityOwningMatter;
+use App\Support\ActivityReasonLabel;
 use App\Support\SensitivePropertyFilter;
 use Filament\Actions\Action;
 use Filament\Resources\RelationManagers\RelationManager;
@@ -126,8 +127,12 @@ class MatterActivityRelationManager extends RelationManager
                     ->modalContent(function (Activity $record) {
                         abort_unless(static::canViewForRecord($this->getOwnerRecord(), $this->getPageClass()), 404);
 
+                        // M13 Task 3: cùng nhãn lý do với trang Nhật ký hệ thống (`ActivityReasonLabel`).
                         return view('filament.admin.pages.activity-log-properties', [
-                            'properties' => SensitivePropertyFilter::filter($record->properties?->toArray() ?? []),
+                            'properties' => ActivityReasonLabel::apply(
+                                $record->event,
+                                SensitivePropertyFilter::filter($record->properties?->toArray() ?? []),
+                            ),
                         ]);
                     })
                     ->modalSubmitAction(false),

@@ -46,6 +46,9 @@ enum Role: string
                 Permission::IntakeCreate,
                 Permission::IntakeViewAny,
                 Permission::IntakeConvert,
+                // M13: số liệu theo dõi và hiệu suất của mọi nhân sự được theo dõi (SPEC §5, bổ
+                // sung 2026-10-04). Luật sư, trợ lý chỉ xem số của chính mình, không cần quyền này.
+                Permission::PerformanceViewAny,
             ],
             self::Lawyer => [
                 Permission::MatterView,

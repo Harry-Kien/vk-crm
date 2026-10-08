@@ -52,6 +52,20 @@ class MatterChecklistItem extends Model
         $query->whereNull($this->qualifyColumn('deleted_at'))->whereHas('matter');
     }
 
+    /**
+     * Đầu mục khách đã nộp mà văn phòng chưa duyệt (SPEC §7.1 mục 3, "khách đã nộp, chưa ai xem"):
+     * `status = pending_review` — trạng thái `SubmitClientDocument` đặt và `ReviewChecklistItem` gỡ.
+     *
+     * Định nghĩa DUY NHẤT của tập này (M13 Task 2, chuyển xuống từ
+     * `PendingChecklistReviewsWidget::rowsFor()`, vì cột N8 của "Theo dõi đội ngũ" là một Action và
+     * không được dùng lớp của Filament). Widget và N8 cùng gọi ở đây; không lọc `open()` — xem
+     * docblock của widget cho lý do (một tệp khách nộp lên vụ đã đóng vẫn là việc phải duyệt).
+     */
+    public function scopeAwaitingReview(Builder $query): Builder
+    {
+        return $query->where($this->qualifyColumn('status'), ChecklistItemStatus::PendingReview->value);
+    }
+
     public function matter(): BelongsTo
     {
         return $this->belongsTo(Matter::class);

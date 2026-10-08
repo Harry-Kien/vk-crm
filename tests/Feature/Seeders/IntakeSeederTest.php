@@ -226,7 +226,8 @@ it('does not seed the intake records a second time', function () {
     $this->seed(IntakeSeeder::class);
 
     expect(IntakeRequest::withTrashed()->count())->toBe($before)
-        ->and(Matter::query()->count())->toBe(23);
+        // 23 vụ trước M13 + bốn vụ của TeamPerformanceSeeder (M13 Task 8).
+        ->and(Matter::query()->count())->toBe(27);
 });
 
 /**

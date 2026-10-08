@@ -24,9 +24,24 @@ use Illuminate\Validation\ValidationException;
  *     với vai `associate` hoặc bị gỡ hẳn, theo lựa chọn trên form).
  *  2. Tạo MỘT dòng `stage_logs` NỘI BỘ (`from_stage === to_stage === $matter->stage` — không đổi
  *     giai đoạn — `is_published = false`) ghi ai bàn giao cho ai và lý do.
- *  3. Chuyển mọi `deadlines` CHƯA HOÀN THÀNH của lead cũ trên CHÍNH vụ việc này sang lead mới.
- *  4. Chuyển mọi `client_requests` CHƯA ĐÓNG mà lead cũ đang được giao, trên CHÍNH vụ việc này.
+ *  3. Chuyển mọi `deadlines` CHƯA HOÀN THÀNH của lead cũ trên CHÍNH vụ việc này sang lead mới, và
+ *     ghi một dòng `deadline_responsible_changed` cho MỖI mốc đã chuyển (M13).
+ *  4. Chuyển mọi `client_requests` CHƯA ĐÓNG mà lead cũ đang được giao, trên CHÍNH vụ việc này, và
+ *     ghi một dòng `client_request_assigned` cho MỖI luồng đã chuyển (M13).
  *  5. Ghi audit `matter_reassigned`.
+ *
+ * # Lịch sử người giữ việc: một dòng cho mỗi mốc, mỗi luồng (M13 Task 3, R9 và R18)
+ *
+ * Trước M13, bước 3 và bước 4 là hai câu `update()` hàng loạt, và dòng `matter_reassigned` chỉ mang
+ * SỐ LƯỢNG đã chuyển. Lịch sử "ai từng giữ mốc/luồng này" — đọc ở MỘT khoá sự kiện cho mỗi loại
+ * (`deadline_responsible_changed`, `client_request_assigned`, cùng khoá mà `ChangeDeadlineResponsible`
+ * và `TriageClientRequest::assign()` ghi) — vì vậy thủng đúng ở lần bàn giao: một luật sư nghỉ việc
+ * với ba mốc đã lỡ, bước 3 chuyển cả ba sang người nhận, và người nhận gánh ba lần lỡ của người trước
+ * trên "Hiệu suất theo kỳ". Nay mỗi mốc, mỗi luồng vừa chuyển có một dòng (`from` = lead cũ, `to` =
+ * lead mới, `reason` = {@see self::DEADLINE_HANDOVER_REASON} / {@see self::REQUEST_HANDOVER_REASON}),
+ * trong CÙNG transaction, ngay sau câu `update()`; nạp các mốc/luồng bằng một truy vấn mỗi bước.
+ * `DeadlineHolderAtDue` và `RequestHolderAt` (`App\Support\Performance`) đọc các dòng đó. Dòng
+ * `matter_reassigned` giữ nguyên (`LeadAt` đọc `from_user_id` của nó).
  *
  * **Bước 3 cố ý lệch với câu "toàn bộ deadlines" của SPEC §6.11.** Chỉ mốc hạn CHƯA HOÀN THÀNH
  * mới chuyển — một mốc đã xong không còn "việc" nào để bàn giao, và chuyển nó đi chỉ làm sai lệch
@@ -160,6 +175,18 @@ use Illuminate\Validation\ValidationException;
  */
 class ReassignMatter
 {
+    /**
+     * Giá trị `reason` của dòng `deadline_responsible_changed` mà bước 3 ghi cho mỗi mốc được chuyển
+     * (M13 R9). Nhãn: `activity.reasons.deadline_responsible_changed.matter_reassigned`.
+     */
+    public const DEADLINE_HANDOVER_REASON = 'matter_reassigned';
+
+    /**
+     * Giá trị `reason` của dòng `client_request_assigned` mà bước 4 ghi cho mỗi luồng được chuyển
+     * (M13 R18). Nhãn: `activity.reasons.client_request_assigned.matter_reassigned`.
+     */
+    public const REQUEST_HANDOVER_REASON = 'matter_reassigned';
+
     /**
      * @param  bool  $sendDigest  Mặc định `true`: bàn giao MỘT vụ tự xếp thư tổng hợp cho lead
      *                            mới (SPEC §6.11 bước 3). `false` dành cho M7 Task 2 (bàn giao
@@ -343,6 +370,17 @@ class ReassignMatter
 
             if ($movedDeadlineIds->isNotEmpty()) {
                 Deadline::query()->whereKey($movedDeadlineIds)->update(['responsible_user_id' => $lockedNewLead->id]);
+
+                // M13 R9: một dòng lịch sử người giữ cho MỖI mốc vừa chuyển — xem docblock lớp, mục
+                // "Lịch sử người giữ việc". Nạp các mốc bằng MỘT truy vấn.
+                Deadline::query()->whereKey($movedDeadlineIds)->orderBy('id')->get()
+                    ->each(fn (Deadline $deadline) => Audit::record('deadline_responsible_changed', $deadline, [
+                        'matter_id' => $locked->id,
+                        'client_id' => $locked->client_id,
+                        'from' => $oldLead->id,
+                        'to' => $lockedNewLead->id,
+                        'reason' => self::DEADLINE_HANDOVER_REASON,
+                    ], causer: $actor));
             }
 
             // Bước 4: chỉ client_requests CHƯA ĐÓNG.
@@ -354,6 +392,17 @@ class ReassignMatter
 
             if ($movedRequestIds->isNotEmpty()) {
                 ClientRequest::query()->whereKey($movedRequestIds)->update(['assigned_to' => $lockedNewLead->id]);
+
+                // M13 R18: một dòng `client_request_assigned` cho MỖI luồng vừa chuyển — cùng khoá sự
+                // kiện với `TriageClientRequest::assign()`. Nạp các luồng bằng MỘT truy vấn.
+                ClientRequest::query()->whereKey($movedRequestIds)->orderBy('id')->get()
+                    ->each(fn (ClientRequest $thread) => Audit::record('client_request_assigned', $thread, [
+                        'matter_id' => $locked->id,
+                        'client_id' => $locked->client_id,
+                        'from' => $oldLead->id,
+                        'to' => $lockedNewLead->id,
+                        'reason' => self::REQUEST_HANDOVER_REASON,
+                    ], causer: $actor));
             }
 
             // Bước 5.

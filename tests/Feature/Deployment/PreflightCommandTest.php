@@ -416,7 +416,9 @@ function preflightSeedDemoAsProduction(): array
     test()->artisan('db:seed', ['--class' => ReferenceDataSeeder::class, '--force' => true])->assertSuccessful()->run();
     test()->artisan('db:seed', ['--class' => DemoDataSeeder::class, '--force' => true])->assertSuccessful()->run();
 
-    return User::query()->orderBy('id')->pluck('email')->all();
+    // M13 Task 8: dữ liệu mẫu có thêm một luật sư ĐÃ NGHỈ VIỆC (`TeamPerformanceSeeder`) — vô hiệu hoá, mật khẩu
+    // ngẫu nhiên, không phải tài khoản demo đăng nhập được, nên không thuộc danh sách preflight nêu tên.
+    return User::query()->where('is_active', true)->orderBy('id')->pluck('email')->all();
 }
 
 it('§preflight I4 production còn tài khoản nhân sự demo mật khẩu mẫu mà ADMIN_IP_ALLOWLIST trống là ĐỎ, nêu đích danh từng email', function () {

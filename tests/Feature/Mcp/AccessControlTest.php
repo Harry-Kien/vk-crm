@@ -4,6 +4,7 @@ use App\Actions\Mcp\AcknowledgeAiPolicy;
 use App\Actions\Mcp\ResolveClientIdMetadataDocument;
 use App\Actions\Mcp\RevokeAiConnections;
 use App\Actions\Mcp\SetUserAiAccess;
+use App\Actions\Push\ForgetPushDevice;
 use App\Actions\User\ResetStaffTwoFactor;
 use App\Enums\AiAccessMode;
 use App\Enums\AiRevocationReason;
@@ -27,6 +28,7 @@ use App\Support\Mcp\McpSwitches;
 use Database\Seeders\RolesAndPermissionsSeeder;
 use Filament\Facades\Filament;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -43,7 +45,9 @@ use Laravel\Passport\ClientRepository;
 use Laravel\Passport\Http\Middleware\CheckToken;
 use Laravel\Passport\Passport;
 use Spatie\Activitylog\Models\Activity;
+use Tests\Support\FakePushServer;
 use Tests\Support\McpOAuth;
+use Tests\Support\WebPushTestKeys;
 
 /*
 |--------------------------------------------------------------------------
@@ -1189,6 +1193,61 @@ it('R8 lệnh vkcrm:reset-2fa (console): thu hồi mọi token, dòng audit khô
     $revoked = Activity::query()->where('event', 'ai_connections_revoked')->sole();
     expect($revoked->causer_id)->toBeNull()
         ->and($revoked->properties['reason'])->toBe('two_factor_reset');
+});
+
+/**
+ * Gộp `main` (e1fe88e, việc sau gộp M12 làn fu4, mục 2a) vào làn M11: `ResetStaffTwoFactor` có HAI
+ * việc mới từ hai phía — bước 4 của làn (thu hồi mọi kết nối AI, trong transaction) và lượt gỡ mọi máy
+ * nhận thông báo đẩy của fu4 (`DB::afterCommit`). Xung đột văn bản ở đúng chỗ đó; một lần gộp giữ một
+ * bên là mất lặng lẽ bên kia. Test đòi cả hai trong cùng một lần bấm "Đặt lại 2FA".
+ *
+ * Mutation probe (vòng sửa 1 của rà soát cuối): bỏ lời gọi `RevokeAiConnections` → ĐỎ; bỏ
+ * `DB::afterCommit(... ForgetPushDevice ...)` → ĐỎ.
+ */
+it('R8 + fu4 "Đặt lại 2FA": thu hồi mọi kết nối AI VÀ gỡ mọi máy nhận thông báo đẩy của người đó', function () {
+    config(WebPushTestKeys::config());
+    $admin = aclAdmin();
+    $staff = aclStaff();
+    $tokens = McpOAuth::issueTokens($this, $staff);
+    FakePushServer::device($staff, 'dien-thoai-mat');
+
+    $this->actingAs($admin, 'web');
+    Filament::setCurrentPanel('admin');
+
+    $this->livewire(EditUser::class, ['record' => $staff->getRouteKey()])
+        ->callAction('resetTwoFactor')
+        ->assertHasNoActionErrors();
+
+    expect(aclLiveCredentials($staff))->toBe(['access' => 0, 'refresh' => 0, 'codes' => 0])
+        ->and($staff->pushSubscriptions()->count())->toBe(0)
+        ->and(Activity::query()->where('event', 'ai_connections_revoked')->sole()->properties['reason'])->toBe('two_factor_reset')
+        ->and(Activity::query()->where('event', 'push_device_removed')->sole()->properties['reason'])->toBe(ForgetPushDevice::REASON_TWO_FACTOR_RESET);
+
+    aclExpectRefused(aclInitialize($tokens['access_token']));
+});
+
+/**
+ * SPEC §10.7 (việc sau gộp M12, làn fu4): "đã có 2FA" có MỘT định nghĩa, `User::hasAppAuthenticationSecret()`,
+ * dùng ở mọi nơi ngoài trang panel phải từ chối nhân sự chưa có 2FA — route tải tệp, thông báo đẩy, và màn
+ * hình đồng ý OAuth của M11 (`McpAccess::consentRefusal()`). Quét bằng token: ngoài chính `User`, không tệp
+ * nào trong `app/` tự đọc `getAppAuthenticationSecret()` để dựng định nghĩa thứ hai (chú thích không tính).
+ */
+it('R2 màn hình đồng ý dùng đúng một định nghĩa "đã có 2FA" (User::hasAppAuthenticationSecret)', function () {
+    $readers = [];
+
+    foreach ((new Filesystem)->allFiles(app_path()) as $file) {
+        if ($file->getExtension() !== 'php' || $file->getRealPath() === realpath(app_path('Models/User.php'))) {
+            continue;
+        }
+
+        foreach (token_get_all((string) file_get_contents($file->getPathname())) as $token) {
+            if (is_array($token) && $token[0] === T_STRING && $token[1] === 'getAppAuthenticationSecret') {
+                $readers[] = str_replace('\\', '/', $file->getRelativePathname());
+            }
+        }
+    }
+
+    expect($readers)->toBe([]);
 });
 
 it('R8 xoá nhân sự trên màn hình sửa: thu hồi mọi token, ai_access về off', function () {

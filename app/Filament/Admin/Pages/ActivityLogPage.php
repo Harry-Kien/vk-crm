@@ -14,6 +14,7 @@ use App\Models\Matter;
 use App\Models\MatterType;
 use App\Models\User;
 use App\Support\ActivityOwningMatter;
+use App\Support\ActivityReasonLabel;
 use App\Support\Mcp\ToolCallContext;
 use App\Support\SensitivePropertyFilter;
 use BackedEnum;
@@ -46,7 +47,8 @@ use Spatie\Activitylog\Models\Activity;
  *    cho phép `view` — một manager không thấy được một vụ `restricted` thì không được một liên
  *    kết rò rỉ sự tồn tại của nó qua trang này;
  *  - action `viewProperties` mở modal hiện `properties` đã lọc qua
- *    {@see SensitivePropertyFilter} — không bao giờ `id_number` thô, không bao giờ một `*_hash`.
+ *    {@see SensitivePropertyFilter} — không bao giờ `id_number` thô, không bao giờ một `*_hash`; khoá
+ *    `reason` in nhãn tiếng Việt thay mã khi có nhãn ({@see ActivityReasonLabel}, M13 Task 3).
  *
  * Final review X1 (A-C1): với người xem không phải admin, bảng KHÔNG liệt kê dòng thuộc một vụ
  * việc họ không `view` được (vụ `restricted` của người khác, hoặc dòng con không còn quy được về
@@ -163,8 +165,13 @@ class ActivityLogPage extends Page implements HasTable
                         // vào việc dòng này đã lọt qua truy vấn bảng (final review X1).
                         abort_unless(ActivityOwningMatter::canView(Auth::user(), $record), 404);
 
+                        // M13 Task 3: `reason` in nhãn tiếng Việt thay mã khi có nhãn, theo cặp sự
+                        // kiện + lý do — xem `ActivityReasonLabel`.
                         return view('filament.admin.pages.activity-log-properties', [
-                            'properties' => SensitivePropertyFilter::filter($record->properties?->toArray() ?? []),
+                            'properties' => ActivityReasonLabel::apply(
+                                $record->event,
+                                SensitivePropertyFilter::filter($record->properties?->toArray() ?? []),
+                            ),
                         ]);
                     })
                     ->modalSubmitAction(false),

@@ -38,11 +38,15 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  * phủ luôn route đó nghĩa là một link vừa mở trong văn phòng không mở được ở nơi khác trong 5
  * phút còn lại của nó, một hành vi khó hiểu hơn cái giá phải trả: một nhân sự tải link đó ở ngoài
  * dải IP vẫn tải xong trong 5 phút. Chấp nhận cái giá đó có chủ đích (ghi trong brief Task 1).
- * Quyết định đó giữ nguyên cho bí danh trong scope của app nội bộ, `/admin/documents/{id}/download`
- * (M12 Task 3, `routes/web.php`): cùng controller, cùng middleware với `documents.download`, không
- * thêm middleware này. Cái giá đi kèm: một IP ngoài danh sách gọi đường dẫn đó mà không có chữ ký
- * hợp lệ nhận 403 của `signed` chứ không phải 404 — biết được có một route dưới `/admin`, dù không
- * thấy gì của panel và không lấy được gì.
+ *
+ * **Nhưng PHỦ bí danh trong scope của app nội bộ**, `/admin/documents/{id}/download` (M12 Task 3,
+ * `routes/web.php`) — việc sau gộp M12 (làn fu4, mục 4). Bản M12 giữ quyết định trên cho bí danh, và
+ * nó thành path duy nhất dưới `/admin` trả lời một IP ngoài danh sách: 403 của `signed` thay vì 404,
+ * tức biết được có một app nội bộ ở đây. Nay nhóm bí danh gắn middleware này (cùng luật `$ipGate` của
+ * `routes/pwa.php`), đứng trước `signed`. URL ký cho nhân sự chỉ được dựng trên trang của panel, vốn
+ * đã sau giới hạn này, nên không đường tải nào của nhân sự bị mất; cái giá là đường dẫn mở trong văn
+ * phòng, bấm lại từ ngoài dải trong 5 phút còn lại, nhận 404. Route gốc `documents.download` giữ
+ * nguyên quyết định cũ.
  *
  * IP đọc qua `$request->ip()`, tức PHỤ THUỘC `TRUSTED_PROXIES`
  * (`config/trustedproxy.php`) giống mọi chỗ khác hỏi "IP thật của ai đang gọi" — không tin proxy

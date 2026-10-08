@@ -35,9 +35,14 @@ use Illuminate\Session\Middleware\AuthenticateSession;
  * của request thật, cùng kho). Ngoài một request (dòng lệnh, job) kho chưa mở và rỗng: không có khoá
  * nào, không máy nào là "máy này", nên không gỡ gì.
  *
- * Hết phiên mà KHÔNG đăng xuất (hết 120 phút, phiên bị xoá bằng CSDL khi "Đặt lại 2FA") thì đăng
- * ký còn, có chủ đích (R9): đó là lúc push có ích nhất, và nơi quyết định thật là luật người nhận
- * lúc gửi (Task 7–9), không phải lúc dọn.
+ * Hết phiên mà KHÔNG đăng xuất (hết 120 phút) thì đăng ký còn, có chủ đích (R9): đó là lúc push có
+ * ích nhất, và nơi quyết định thật là luật người nhận lúc gửi (Task 7–9), không phải lúc dọn.
+ *
+ * "Đặt lại 2FA" KHÔNG xoá dòng phiên nào (bản đầu của M8 có; cơ chế epoch của M8a thay nó): nó tăng
+ * `users.session_epoch`, và phiên cũ bị đăng xuất ở request KẾ TIẾP của nó — lúc đó listener này gỡ
+ * máy của trình duyệt ấy như mọi lần `Logout`. Một máy mất nằm im không gửi request nào, nên chính
+ * `ResetStaffTwoFactor` gỡ MỌI máy của người bị đặt lại sau commit (việc sau gộp M12, làn fu4), và
+ * `PushAlert::shouldSend()` không đẩy cho nhân sự chưa có 2FA.
  */
 class ForgetPushDeviceOnLogout
 {

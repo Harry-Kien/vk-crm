@@ -7,11 +7,16 @@ use App\Enums\Permission;
 use App\Filament\Admin\Resources\Users\Pages\EditUser;
 use App\Models\ClientUser;
 use App\Models\User;
+use App\Support\Performance\TeamRoster;
 use Illuminate\Auth\Access\Response;
 
 /**
  * Quản trị nhân sự nội bộ (SPEC §7.4, §4.1) — không có quyền riêng ở bảng SPEC §5, dùng
  * settings.manage (chỉ admin) vì đây cùng nhóm với quản trị Role/cấu hình hệ thống.
+ *
+ * Ngoại lệ duy nhất: hai câu hỏi của M13 về SỐ LIỆU của một nhân sự ({@see self::viewPerformance()},
+ * {@see self::viewPerformanceRevenue()}) đi theo quyền riêng `performance.viewAny` (SPEC §5, bổ sung
+ * 2026-10-04), không theo `settings.manage`.
  */
 class UserPolicy
 {
@@ -165,6 +170,49 @@ class UserPolicy
     public function restoreAny(User|ClientUser $user): bool
     {
         return $this->viewAny($user);
+    }
+
+    /**
+     * M13 (R2, SPEC §5 bổ sung 2026-10-04): `$viewer` được xem số liệu theo dõi và hiệu suất của
+     * `$subject` — trang `TeamMember` (`/team/{user}`), dòng của người đó trên "Hiệu suất theo kỳ",
+     * và danh sách {@see TeamRoster::subjectsFor()}.
+     *
+     * (có `performance.viewAny` — admin, quản lý — HOẶC `$viewer` chính là `$subject` và có
+     * `matter.view` — số của chính mình không cần quyền mới) VÀ `$subject` trackable
+     * ({@see TeamRoster::isTrackable()}: vai trò luật sư/trợ lý/quản lý, chưa xoá mềm; người nghỉ
+     * việc VẪN trackable). Kế toán không có cả hai vế nên "không gì cả", kể cả số của chính mình.
+     * Admin không trackable, nên `/team/{admin}` là cùng một 404 với id không tồn tại.
+     *
+     * Không đọc vụ việc nào: quyền xem MỘT NGƯỜI không phụ thuộc người đó phụ trách vụ gì (R3, R4).
+     */
+    public function viewPerformance(User|ClientUser $viewer, User $subject): bool
+    {
+        if (! $viewer instanceof User) {
+            return false;
+        }
+
+        $mayView = $viewer->can(Permission::PerformanceViewAny->value)
+            || ($viewer->is($subject) && $viewer->can(Permission::MatterView->value));
+
+        return $mayView && TeamRoster::isTrackable($subject);
+    }
+
+    /**
+     * Cột doanh thu (P7) của `$subject` hiện cho `$viewer` (R2): `$viewer` có `billing.view` VÀ (có
+     * `revenue.viewAny` HOẶC là chính `$subject`) — luật sư thấy doanh thu của chính mình như trang
+     * Doanh thu cho họ thấy tiền của vụ mình; trợ lý không có `billing.view` nên không thấy cột này.
+     *
+     * Cộng thêm điều kiện {@see self::viewPerformance()}: cột nằm TRÊN dòng của một người, nên không
+     * ai thấy tiền của một người mà mình không được xem số liệu. Vế này là thứ giữ kế toán ở "không gì
+     * cả" (R2, câu hỏi mở 8): kế toán có `billing.view` và `revenue.viewAny`, câu hỏi "doanh thu theo
+     * luật sư" của họ đã có ở trang Doanh thu.
+     */
+    public function viewPerformanceRevenue(User|ClientUser $viewer, User $subject): bool
+    {
+        return $viewer instanceof User
+            && $this->viewPerformance($viewer, $subject)
+            && $viewer->can(Permission::BillingView->value)
+            && ($viewer->can(Permission::RevenueViewAny->value) || $viewer->is($subject));
     }
 
     /** Không ai xoá vĩnh viễn một tài khoản nhân sự được — cùng luật `ClientPolicy::forceDelete()`. */

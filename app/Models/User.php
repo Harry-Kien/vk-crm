@@ -201,6 +201,19 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
         return $this->two_factor_secret;
     }
 
+    /**
+     * SPEC §10.7: người này ĐÃ có 2FA (secret không trống) — vừa bị "Đặt lại 2FA" hay chưa cài lần
+     * đầu thì không. MỘT định nghĩa cho mọi nơi ngoài trang panel phải từ chối nhân sự chưa có 2FA:
+     * route tải tệp (`DocumentDownloadController::actor()`), thông báo đẩy lúc gửi
+     * (`PushAlert::shouldSend()`, việc sau gộp M12, làn fu4) và màn hình đồng ý kết nối AI
+     * (`McpAccess::consentRefusal()`, M11). Không tệp nào khác trong `app/` đọc
+     * `getAppAuthenticationSecret()` (`tests/Feature/Mcp/AccessControlTest.php`, "một định nghĩa").
+     */
+    public function hasAppAuthenticationSecret(): bool
+    {
+        return filled($this->getAppAuthenticationSecret());
+    }
+
     public function saveAppAuthenticationSecret(#[SensitiveParameter] ?string $secret): void
     {
         $this->two_factor_secret = $secret;

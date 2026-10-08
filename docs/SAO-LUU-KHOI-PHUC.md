@@ -404,14 +404,27 @@ quý một lần, ghi kết quả vào `docs/PROGRESS.md`):
    `config/backup.php`) chép về ĐÚNG thư mục `storage/app/private/` của máy chủ mới, giữ nguyên
    cấu trúc thư mục con.
 7. **Đặt `APP_KEY`** trong `.env` của máy chủ mới bằng ĐÚNG giá trị lấy ở bước 1 — làm TRƯỚC khi
-   cho ứng dụng chạy thật (trước khi ai đăng nhập hay đọc một hồ sơ nào). Cùng lúc đặt ba dòng
-   `VAPID_SUBJECT`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` bằng cặp khoá cất ở Bước 6: còn khoá cũ
-   (và cùng tên miền) thì điện thoại đã bật thông báo tiếp tục nhận. Không còn khoá cũ: KHÔNG chép
-   khoá của máy khác, sinh cặp mới theo `docs/CAI-DAT.md`, Bước 3, rồi chạy
-   `php artisan vkcrm:push-reset` và báo mọi người bật lại thông báo. Cũng lúc đó chép lại cặp khoá
-   Passport cất ở Bước 6 vào `storage/oauth-private.key` / `storage/oauth-public.key` (chủ là người
-   dùng của PHP-FPM, khoá riêng quyền 600); không còn thì chạy `php artisan passport:keys` bằng người
-   dùng đó. Thiếu khoá thì `vkcrm:preflight` báo dòng khoá Passport ĐỎ và mọi kết nối AI hỏng.
+   cho ứng dụng chạy thật (trước khi ai đăng nhập hay đọc một hồ sơ nào). Ba dòng khoá thông báo
+   đẩy (`VAPID_SUBJECT`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`) thì tuỳ đây là khôi phục THẬT hay
+   khôi phục THỬ:
+   - **Khôi phục thật** (máy này thay máy chủ hỏng, cùng tên miền): đặt ba dòng bằng cặp khoá cất ở
+     Bước 6 — còn khoá cũ thì điện thoại đã bật thông báo tiếp tục nhận. Không còn khoá cũ: KHÔNG
+     chép khoá của máy khác, sinh cặp mới theo `docs/CAI-DAT.md`, Bước 3, rồi chạy
+     `php artisan vkcrm:push-reset` và báo mọi người bật lại thông báo.
+   - **Khôi phục thử / diễn tập định kỳ** (máy chủ tạm, máy thật vẫn chạy): để TRỐNG cả ba dòng
+     `VAPID_*` — thông báo đẩy tắt, `vkcrm:preflight` báo VÀNG ở dòng khoá thông báo đẩy, đúng như
+     mong đợi — và KHÔNG cài dòng cron `schedule:run` (`docs/CAI-DAT.md`, Bước 8). Bản sao mang đủ
+     đăng ký điện thoại và hàng đợi của máy thật: chép khoá thật sang thì bản diễn tập đẩy thông báo
+     thật tới điện thoại của nhân sự và khách (mốc thời hạn, tài liệu, khoản thu), và khoá ký của máy
+     thật nằm trên một máy không phải máy thật. Không cron thì bản diễn tập cũng không gửi thư nhắc
+     hay chạy sao lưu chồng lên máy thật.
+
+   Cặp khoá Passport (M11, kết nối AI) cũng theo hai trường hợp đó. **Khôi phục thật:** chép lại cặp
+   khoá cất ở Bước 6 vào `storage/oauth-private.key` / `storage/oauth-public.key` (chủ là người dùng
+   của PHP-FPM, khoá riêng quyền 600); không còn thì chạy `php artisan passport:keys` bằng người dùng
+   đó (mọi người kết nối AI lại). **Khôi phục thử:** KHÔNG chép khoá thật, chạy
+   `php artisan passport:keys` sinh cặp riêng cho máy tạm — token cũ trong bản sao không còn hợp lệ,
+   đúng như mong đợi. Thiếu khoá thì `vkcrm:preflight` báo dòng khoá Passport ĐỎ và mọi kết nối AI hỏng.
 8. **`php artisan migrate:status`** — xác nhận không có migration nào "đang chờ" (mọi dòng đều có
    `Ran`). Nếu có dòng chưa chạy, đó là dấu hiệu bản dump cũ hơn mã nguồn đang triển khai — dừng
    lại, đối chiếu lại phiên bản mã nguồn với thời điểm bản sao lưu trước khi đi tiếp.
