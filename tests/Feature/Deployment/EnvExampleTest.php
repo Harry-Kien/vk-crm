@@ -53,8 +53,9 @@ function envExampleFrameworkOnly(): array
 }
 
 /**
- * Biến có trong `.env.example` mà không mã PHP nào của dự án đọc — được đọc ở NƠI KHÁC, hoặc là
- * dòng cũ chưa được dọn.
+ * Biến có trong `.env.example` mà không mã PHP nào của dự án đọc — được đọc ở NƠI KHÁC. Ba dòng
+ * của bộ cài Sail cũ (`VITE_APP_NAME`, `WWWGROUP`, `WWWUSER`), không nơi nào đọc, đã được dọn khỏi
+ * bản mẫu ở lượt nghiệm thu bản 1.0 (M8 Task 8), nên không còn mục "chưa dọn".
  *
  * @return array<string, list<string>>
  */
@@ -66,9 +67,6 @@ function envExampleReadElsewhere(): array
         // Tệp cấu hình mặc định nằm trong `vendor/laravel/framework/config/` (dự án không phát hành
         // `hashing.php`, `broadcasting.php`) — vẫn được Laravel nạp và đọc.
         'vendor/laravel/framework/config' => ['BCRYPT_ROUNDS', 'BROADCAST_CONNECTION'],
-        // Ba dòng của bộ cài Sail cũ, không nơi nào đọc. Luật làn song song chỉ cho sửa dòng có sẵn
-        // khi task nêu đích danh (Task 7 chỉ nêu `BACKUP_DISK` và khối AWS) — dọn ở M8 Task 8.
-        'chưa dọn' => ['VITE_APP_NAME', 'WWWGROUP', 'WWWUSER'],
     ];
 }
 

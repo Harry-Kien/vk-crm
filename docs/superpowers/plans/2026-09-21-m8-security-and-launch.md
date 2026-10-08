@@ -165,7 +165,17 @@ Mỗi gói kiểm `composer require --dry-run` trên sàn PHP 8.3 trước, như
   - đĩa `private` và `.htaccess`, cùng đoạn cấu hình nginx tương ứng (hôm nay chỉ là chú thích, cần đưa vào `README.md`);
   - chữ ký URL 5 phút vẫn kèm kiểm tra policy trong controller.
 
-### - [ ] Task 5 — Sao lưu và khôi phục (§10 mục 8, R3)
+### - [x] Task 5 — Sao lưu và khôi phục (§10 mục 8, R3)
+
+> **Xong ở M8a** (kế hoạch `2026-09-26-m8a-backup-csp.md`, gộp a879d33), đối chiếu từng gạch ngày 2026-10-08
+> (nghiệm thu bản 1.0): đích rclone/Google Drive + `vkcrm:backup-check` (`BackupCheckCommandTest`); hai disk, một
+> disk hỏng thì disk kia vẫn nhận và thư nêu đúng disk (`BackupRunIntegrationTest`); `proc_open` và
+> `mariadb-dump`/`mysqldump` trong `vkcrm:preflight` (`RunPreflight`); archive mã hoá AES-256, giữ 30 bản
+> (`GuardBackupEncryptionTest`, `BackupCleanupTest`); lịch 02:00/08:00 ghim giờ (`Schedule/BackupScheduleTest`);
+> thư lỗi tiếng Việt qua sổ thư và hàng đợi (`BackupNotificationsTest`); phán quyết gói bàn giao: giữ trong bản
+> sao lưu cho tới khi chủ văn phòng chọn (`docs/SAO-LUU-KHOI-PHUC.md`, PROGRESS "Ghi chú M7"); khôi phục thật có
+> số đo và bước giải mã `id_number` (`tools/backup/restore-drill.sh`, bảng số đo trong `docs/SAO-LUU-KHOI-PHUC.md`).
+> Khôi phục thử trên máy chủ THẬT là việc của chủ văn phòng sau khi có máy chủ.
 
 - Đích theo R3: Google Drive ngay; máy chủ văn phòng thêm sau bằng cấu hình. Cài adapter Google Drive (hoặc phương án `rclone`) sau khi `--dry-run` đạt. Adapter SFTP chỉ cài khi văn phòng có máy chủ.
 - Test: một lượt sao lưu ra hai disk giả lập đều có bản; một disk hỏng thì disk kia vẫn nhận bản, và thư báo lỗi nêu đúng disk hỏng.
@@ -200,6 +210,13 @@ Mở rộng `README.md` và `docs/CAI-DAT.md`. Nội dung:
 Nghiệm thu bằng một agent chưa đọc repo.
 
 ### - [ ] Task 8 — Nghiệm thu toàn hệ thống (SPEC §14)
+
+> **Làm ở làn `v1-acceptance-b` (2026-10-08), còn tiêu chí 8**, bản 1.0 = M0–M10 + M12 + M13 (M11, M14 gắn sau).
+> Bằng chứng ở PROGRESS, mục "Nghiệm thu bản 1.0". Tiêu chí 1–7 có bằng chứng. Tiêu chí 8 mới có một lượt đi theo
+> kịch bản do chính người làm viết (đã đọc kho); theo R6 chỉ tick khi một agent chưa từng đọc kho đã làm theo
+> `README.md` + `docs/CAI-DAT.md` — việc của người điều phối. `pcov` KHÔNG vào CI (bộ test đã ~50 phút; đo phủ chừng gấp đôi): đo bằng
+> `bin/coverage` — một container `docker run --rm` bỏ đi, cài `pcov` bên trong, không đổi image, không đổi máy;
+> tóm tắt bằng `tools/coverage/summary.php`. CI giữ `coverage: none`.
 
 - Cài `pcov` trong container và CI. CI hôm nay đặt `coverage: none` (`spec-gap/spec-gap-10`).
 - Đo độ phủ `app/Actions/` và `app/Policies/` ≥ 80%, dán số.

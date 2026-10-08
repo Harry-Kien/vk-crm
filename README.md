@@ -199,10 +199,11 @@ Tóm tắt những điều không được bỏ qua:
   - `db:seed --force` chạy `ReferenceDataSeeder` (vai trò, quyền, loại vụ việc, danh mục mẫu; chỉ
     thêm, không ghi đè thứ quản trị viên đã sửa): đây là bước mang **bốn quyền tiền** của M9
     (`billing.view`, `contract.manage`, `payment.record`, `revenue.viewAny`) và
-    **ba quyền tiếp nhận** của M10 (`intake.create`, `intake.viewAny`, `intake.convert`) tới một máy
-    chủ đã có dữ liệu — bỏ bước này thì không ai, kể cả quản trị viên, mở được trang Công nợ, trang Doanh thu hay
-    tab "Hợp đồng và thanh toán", và menu Tiếp nhận không hiện với ai (vai trò chưa mang quyền nào
-    trong bảy quyền đó).
+    **ba quyền tiếp nhận** của M10 (`intake.create`, `intake.viewAny`, `intake.convert`) và
+    **quyền theo dõi đội ngũ** của M13 (`performance.viewAny`) tới một máy chủ đã có dữ liệu — bỏ
+    bước này thì không ai, kể cả quản trị viên, mở được trang Công nợ, trang Doanh thu hay tab "Hợp
+    đồng và thanh toán", menu Tiếp nhận không hiện với ai, và trang "Theo dõi đội ngũ" không hiện với
+    ai (vai trò chưa mang quyền nào trong tám quyền đó). Bản M12 không thêm quyền nào.
   - Bản M10 (tiếp nhận) thêm hai tác vụ lịch dưới dòng cron sẵn có — `intakes.remind-unanswered`
     mỗi 15 phút, và `prospects.anonymise` lúc 03:30, ẩn danh (không hoàn tác được) người liên hệ
     không thành khách đã quá hạn lưu — cùng hai biến `.env` tuỳ chọn, `PROSPECT_RETENTION_MONTHS`
